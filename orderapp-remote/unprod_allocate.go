@@ -53,9 +53,20 @@ func newBatchID() string {
 // It is intentionally summary-level (not per-order) per Van's instruction.
 func allocateUnproducedBySummary(ctx context.Context, pool *pgxpool.Pool, schema, from, to string, customerID int64, operator string) (batchID string, logs []AllocationLogRow, err error) {
 	batchID = newBatchID()
-	needs, err := fetchUnproducedNeeds(ctx, pool, schema, from, to, customerID)
+	needsAll, err := fetchUnproducedNeeds(ctx, pool, schema, from, to, customerID)
 	if err != nil {
 		return "", nil, err
+	}
+
+	// Only allocate items that actually have gap > 0 (production plan scope).
+	needs := make([]UnprodNeedRow, 0, len(needsAll))
+	for _, n := range needsAll {
+		if n.GapG > 0 {
+			needs = append(needs, n)
+		}
+	}
+	if len(needs) == 0 {
+		return batchID, nil, nil
 	}
 
 	tx, err := pool.BeginTx(ctx, pgx.TxOptions{})

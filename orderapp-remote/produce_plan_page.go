@@ -14,6 +14,8 @@ type ProducePlanPageData struct {
 	To         string
 	CustomerID int64
 	Rows       []UnprodNeedRow
+	Ok         bool
+	BatchID    string
 	Error      string
 }
 
@@ -23,6 +25,8 @@ func registerProducePlanPages(e *echo.Echo, pool *pgxpool.Pool, schema string) {
 			From: strings.TrimSpace(c.QueryParam("from")),
 			To:   strings.TrimSpace(c.QueryParam("to")),
 		}
+		data.Ok = strings.TrimSpace(c.QueryParam("ok")) == "1"
+		data.BatchID = strings.TrimSpace(c.QueryParam("batch"))
 		if v := strings.TrimSpace(c.QueryParam("customer_id")); v != "" {
 			if n, err := strconv.ParseInt(v, 10, 64); err == nil && n > 0 {
 				data.CustomerID = n

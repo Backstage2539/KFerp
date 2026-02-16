@@ -81,15 +81,11 @@
           </div>
         </form>
 
-        <form method="post" action="/produce/unproduced/allocate" style="margin-top:10px;">
-          <input type="hidden" name="from" value="{{.From}}" />
-          <input type="hidden" name="to" value="{{.To}}" />
-          <input type="hidden" name="customer_id" value="{{.CustomerID}}" />
-          <button class="btn" type="submit" onclick="return confirm('确认执行分配扣减？会扣减成品库存，并生成分配批次日志。');">执行分配（汇总扣减）</button>
-          <a class="btn2" style="margin-left:8px;" href="/produce/allocations">查看分配批次</a>
-          <a class="btn2" style="margin-left:8px;" href="/produce/plan?from={{.From | urlquery}}&to={{.To | urlquery}}&customer_id={{.CustomerID}}">排产清单（缺口&gt;0）</a>
-          <span class="muted" style="margin-left:8px;">按商品+规格汇总扣减（非订单级）</span>
-        </form>
+        <div style="margin-top:10px; display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
+          <a class="btn2" href="/produce/plan?from={{.From | urlquery}}&to={{.To | urlquery}}&customer_id={{.CustomerID}}">排产清单（缺口&gt;0）</a>
+          <a class="btn2" href="/produce/allocations">查看扣减记录（批次）</a>
+          <span class="muted">库存扣减操作请在“排产清单/生产计划”页面执行</span>
+        </div>
       </div>
 
       <div class="card">

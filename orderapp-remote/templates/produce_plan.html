@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>排产清单（缺口>0）</title>
+  <title>生产计划（缺口&gt;0）</title>
   <style>
     body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial; margin:0;}
     .layout{display:flex; min-height:100vh;}
@@ -26,6 +26,7 @@
       .row{grid-template-columns:1fr;}
     }
     .err{background:#ffecec; border:1px solid #ffb9b9; padding:10px; border-radius:8px;}
+    .ok{background:#e9ffe9; border:1px solid #b8f5b8; padding:10px; border-radius:8px;}
   </style>
 </head>
 <body>
@@ -33,14 +34,18 @@
     <nav class="sidebar">
       <div class="brand">ERP</div>
       <div class="section">订单</div>
+      <a class="link" href="/order">录单</a>
+      <a class="link" href="/orders">订单列表</a>
+      <div class="section">生产流程</div>
       <a class="link" href="/orders?preset=unprod">未生产订单</a>
       <a class="link" href="/produce/unproduced">未生产需求汇总</a>
-      <a class="link" href="/produce/plan">排产清单（缺口>0）</a>
-      <a class="link" href="/orders">订单列表</a>
+      <a class="link" href="/produce/plan">生产计划（缺口&gt;0）</a>
+      <a class="link" href="/produce/allocations">扣减记录（批次）</a>
       <div class="section">档案</div>
+      <a class="link" href="/customers">客户档案</a>
       <a class="link" href="/products">商品档案</a>
       <a class="link" href="/products/inventory">成品库存</a>
-      <a class="link" href="/customers">客户档案</a>
+      <a class="link" href="/products/print" target="_blank">报价导出</a>
       <div class="section">日志</div>
       <a class="link" href="/audit">操作日志</a>
       <div class="section">需求管理</div>
@@ -53,10 +58,11 @@
 
     <main class="content">
       <div style="display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap;">
-        <h2 style="margin:0">排产清单（缺口 &gt; 0）</h2>
+        <h2 style="margin:0">生产计划（缺口 &gt; 0）</h2>
         <a class="btn2" href="/produce/unproduced?from={{.From | urlquery}}&to={{.To | urlquery}}&customer_id={{.CustomerID}}">← 返回需求汇总</a>
       </div>
 
+      {{if .Ok}}<div class="ok">已扣减成品库存{{if .BatchID}}（批次：{{.BatchID}}）{{end}}</div>{{end}}
       {{if .Error}}<div class="err">{{.Error}}</div>{{end}}
 
       <div class="card">
@@ -74,10 +80,19 @@
               <div class="muted" style="margin-bottom:6px;">客户ID（可空）</div>
               <input name="customer_id" value="{{.CustomerID}}" placeholder="例如 123" />
             </div>
-            <div style="display:flex; align-items:flex-end;">
+            <div style="display:flex; align-items:flex-end; gap:8px; flex-wrap:wrap;">
               <button class="btn" type="submit">刷新</button>
             </div>
           </div>
+        </form>
+
+        <form method="post" action="/produce/plan/commit" style="margin-top:10px;">
+          <input type="hidden" name="from" value="{{.From}}" />
+          <input type="hidden" name="to" value="{{.To}}" />
+          <input type="hidden" name="customer_id" value="{{.CustomerID}}" />
+          <button class="btn" type="submit" onclick="return confirm('确认备货并扣减成品库存？只对缺口>0的项目执行扣减，并生成批次记录。');">确认备货并扣减成品库存（仅缺口）</button>
+          <a class="btn2" style="margin-left:8px;" href="/produce/allocations">查看扣减记录（批次）</a>
+          <span class="muted" style="margin-left:8px;">范围：gap_g &gt; 0（生产计划）</span>
         </form>
       </div>
 
