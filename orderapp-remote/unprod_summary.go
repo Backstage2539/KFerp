@@ -40,19 +40,19 @@ func fetchUnproducedNeeds(ctx context.Context, pool *pgxpool.Pool, schema, from,
 		argn++
 	}
 
-	// spec is stored like "454g"; extract digits.
+	// spec is stored like "454g"; extract digits safely.
 	q := fmt.Sprintf(`
 		WITH need AS (
 			SELECT
 				oi.product_id,
 				COALESCE(p.name,'') AS product,
-				COALESCE(NULLIF(regexp_replace(COALESCE(oi.spec,''), '\\D', '', 'g'), ''), '0')::bigint AS spec_g,
+				COALESCE(NULLIF(regexp_replace(COALESCE(oi.spec,''), '[^0-9]', '', 'g'), ''), '0')::bigint AS spec_g,
 				SUM(COALESCE(oi.qty,0))::bigint AS need_units
 			FROM %s.order_items oi
 			JOIN %s.orders o ON o.id = oi.order_id
 			LEFT JOIN %s.products p ON p.id = oi.product_id
 			%s
-			GROUP BY oi.product_id, p.name, COALESCE(NULLIF(regexp_replace(COALESCE(oi.spec,''), '\\D', '', 'g'), ''), '0')
+			GROUP BY oi.product_id, p.name, COALESCE(NULLIF(regexp_replace(COALESCE(oi.spec,''), '[^0-9]', '', 'g'), ''), '0')
 		)
 		SELECT
 			n.product_id,
