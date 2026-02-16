@@ -3,6 +3,7 @@ WORKDIR /src
 COPY go.mod go.sum ./
 RUN /usr/local/go/bin/go env -w GOPROXY=https://goproxy.cn,direct && /usr/local/go/bin/go mod download
 COPY . .
+RUN /usr/local/go/bin/go test ./...
 RUN CGO_ENABLED=0 /usr/local/go/bin/go build -o /out/orderapp ./
 
 FROM docker.m.daocloud.io/library/alpine:3.20
