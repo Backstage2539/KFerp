@@ -93,6 +93,17 @@
     <div style="display:flex; align-items:center; justify-content:space-between; gap:10px; flex-wrap:wrap;">
       <div><b>条目列表</b> <span class="muted">（最新在上）</span></div>
       <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+        <label class="muted" style="display:flex; gap:6px; align-items:center;">
+          每页
+          <select onchange="location.href='/req/api?page=1&limit='+this.value" style="padding:6px 8px; font-size:12px;">
+            <option value="10" {{if eqi .Limit 10}}selected{{end}}>10</option>
+            <option value="50" {{if eqi .Limit 50}}selected{{end}}>50</option>
+            <option value="100" {{if eqi .Limit 100}}selected{{end}}>100</option>
+            <option value="200" {{if eqi .Limit 200}}selected{{end}}>200</option>
+            <option value="500" {{if eqi .Limit 500}}selected{{end}}>500</option>
+          </select>
+          条
+        </label>
         {{if .HasPrev}}<a class="btn2" href="/req/api?page={{sub .Page 1}}&limit={{.Limit}}">上一页</a>{{end}}
         <span class="muted">第 {{.Page}} 页</span>
         {{if .HasNext}}<a class="btn2" href="/req/api?page={{add .Page 1}}&limit={{.Limit}}">下一页</a>{{end}}

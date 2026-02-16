@@ -27,9 +27,12 @@ func registerRequirementPages(e *echo.Echo, pool *pgxpool.Pool, schema string) {
 	reg := func(path, tpl, title, table string) {
 		e.GET(path, func(c echo.Context) error {
 			data := ReqPageData{Title: title}
-			data.Limit = intParam(c, "limit", 20)
-			if data.Limit <= 0 || data.Limit > 200 {
-				data.Limit = 20
+			data.Limit = intParam(c, "limit", 10)
+			if data.Limit <= 0 {
+				data.Limit = 10
+			}
+			if data.Limit > 500 {
+				data.Limit = 500
 			}
 			data.Page = intParam(c, "page", 1)
 			if data.Page <= 0 {
@@ -72,9 +75,12 @@ func registerRequirementPages(e *echo.Echo, pool *pgxpool.Pool, schema string) {
 	// Review: list
 	e.GET("/req/review", func(c echo.Context) error {
 		data := ReqPageData{Title: "需求审核表"}
-		data.Limit = intParam(c, "limit", 20)
-		if data.Limit <= 0 || data.Limit > 200 {
-			data.Limit = 20
+		data.Limit = intParam(c, "limit", 10)
+		if data.Limit <= 0 {
+			data.Limit = 10
+		}
+		if data.Limit > 500 {
+			data.Limit = 500
 		}
 		data.Page = intParam(c, "page", 1)
 		if data.Page <= 0 {

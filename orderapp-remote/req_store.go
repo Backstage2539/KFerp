@@ -80,8 +80,11 @@ func ensureReqTables(ctx context.Context, pool *pgxpool.Pool, schema string) err
 }
 
 func listReqRows(ctx context.Context, pool *pgxpool.Pool, schema, table string, limit, offset int) (rowsOut []ReqRow, hasNext bool, err error) {
-	if limit <= 0 || limit > 200 {
-		limit = 20
+	if limit <= 0 {
+		limit = 10
+	}
+	if limit > 500 {
+		limit = 500
 	}
 	if offset < 0 {
 		offset = 0
