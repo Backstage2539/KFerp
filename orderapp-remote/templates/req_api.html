@@ -126,7 +126,7 @@
       <div class="row">
         <div>
           <div class="muted" style="margin-bottom:6px;">编号</div>
-          <input name="code" placeholder="例如 API-006" />
+          <input id="code" name="code" placeholder="例如 API-006（可留空自动生成）" />
         </div>
         <div>
           <div class="muted" style="margin-bottom:6px;">标题</div>
@@ -157,6 +157,22 @@ function closeMenu(){ document.body.classList.remove('menuOpen'); }
 document.addEventListener('click', (e)=>{
   const a = e.target && e.target.closest ? e.target.closest('a.link') : null;
   if(a){ closeMenu(); }
+});
+
+async function fillNextCodeIfEmpty(){
+  const el = document.getElementById('code');
+  if(!el) return;
+  if((el.value||'').trim() !== '') return;
+  try{
+    const resp = await fetch('/api/req/next_code?type=api');
+    const j = await resp.json();
+    if(j && j.ok && j.code){ el.value = j.code; }
+  }catch(e){}
+}
+
+document.addEventListener('DOMContentLoaded', ()=>{
+  const el = document.getElementById('code');
+  if(el){ el.addEventListener('focus', fillNextCodeIfEmpty); }
 });
 </script>
 

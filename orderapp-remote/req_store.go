@@ -104,51 +104,60 @@ func createReqRow(ctx context.Context, pool *pgxpool.Pool, schema, table, code, 
 	title = strings.TrimSpace(title)
 	status = strings.TrimSpace(status)
 	assignee = strings.TrimSpace(assignee)
-	if code == "" || title == "" {
-		return fmt.Errorf("code/title required")
+	if title == "" {
+		return fmt.Errorf("title required")
 	}
 	if status == "" {
 		status = "todo"
 	}
+	if code == "" {
+		n, err := nextReqCodeForTable(ctx, pool, schema, table)
+		if err != nil {
+			return err
+		}
+		code = n
+	}
 	q := fmt.Sprintf(`INSERT INTO %s.%s (code, title, status, assignee)
 		VALUES ($1,$2,$3,$4)
 		ON CONFLICT (code) DO NOTHING`, schema, table)
-	_, err := pool.Exec(ctx, q, code, title, status, assignee)
-	return err
+	ct, err := pool.Exec(ctx, q, code, title, status, assignee)
+	if err != nil {
+		return err
+	}
+	// if conflict (no insert), surface as error to the UI
+	if ct.RowsAffected() == 0 {
+		return fmt.Errorf("code already exists: %s", code)
+	}
+	return nil
 }
 
 func seedReqWorkflowA(ctx context.Context, pool *pgxpool.Pool, schema string) error {
 	// One-time seed for the "A" small requirement: add top shortcuts on req pages.
 	// Safe: uses ON CONFLICT DO NOTHING.
 	if err := createReqRow(ctx, pool, schema, "req_product", "PR-001", "需求管理5页面增加统一顶部快捷入口/互相跳转", "todo", "VA"); err != nil {
-		return err
+		// ignore if already exists
+		if !strings.Contains(err.Error(), "already exists") {
+			return err
+		}
 	}
-	if err := createReqRow(ctx, pool, schema, "req_dev", "DEV-001", "req_*.html 顶部增加按钮组：产品/开发/单测/API/审核互相跳转", "todo", "JJ"); err != nil {
-		return err
-	}
-	if err := createReqRow(ctx, pool, schema, "req_dev", "DEV-002", "统一样式（复用现有 btn/pill 样式，移动端可用）", "todo", "JJ"); err != nil {
-		return err
-	}
-	if err := createReqRow(ctx, pool, schema, "req_unit", "UT-001", "打开5个页面返回200（无500），模板渲染不报错", "todo", "JJ"); err != nil {
-		return err
-	}
-	if err := createReqRow(ctx, pool, schema, "req_api", "API-001", "GET /app/req/product 返回200", "todo", "JJ"); err != nil {
-		return err
-	}
-	if err := createReqRow(ctx, pool, schema, "req_api", "API-002", "GET /app/req/dev 返回200", "todo", "JJ"); err != nil {
-		return err
-	}
-	if err := createReqRow(ctx, pool, schema, "req_api", "API-003", "GET /app/req/unit 返回200", "todo", "JJ"); err != nil {
-		return err
-	}
-	if err := createReqRow(ctx, pool, schema, "req_api", "API-004", "GET /app/req/api 返回200", "todo", "JJ"); err != nil {
-		return err
-	}
-	if err := createReqRow(ctx, pool, schema, "req_api", "API-005", "GET /app/req/review 返回200", "todo", "JJ"); err != nil {
-		return err
-	}
-	if err := createReqRow(ctx, pool, schema, "req_review", "REV-001", "需求管理页面顶部入口可点击跳转；无404/500", "todo", "VA"); err != nil {
-		return err
+	for _, it := range []struct{
+		table, code, title, status, assignee string
+	}{
+		{"req_dev", "DEV-001", "req_*.html 顶部增加按钮组：产品/开发/单测/API/审核互相跳转", "todo", "JJ"},
+		{"req_dev", "DEV-002", "统一样式（复用现有 btn/pill 样式，移动端可用）", "todo", "JJ"},
+		{"req_unit", "UT-001", "打开5个页面返回200（无500），模板渲染不报错", "todo", "JJ"},
+		{"req_api", "API-001", "GET /app/req/product 返回200", "todo", "JJ"},
+		{"req_api", "API-002", "GET /app/req/dev 返回200", "todo", "JJ"},
+		{"req_api", "API-003", "GET /app/req/unit 返回200", "todo", "JJ"},
+		{"req_api", "API-004", "GET /app/req/api 返回200", "todo", "JJ"},
+		{"req_api", "API-005", "GET /app/req/review 返回200", "todo", "JJ"},
+		{"req_review", "REV-001", "需求管理页面顶部入口可点击跳转；无404/500", "todo", "VA"},
+	} {
+		if err := createReqRow(ctx, pool, schema, it.table, it.code, it.title, it.status, it.assignee); err != nil {
+			if !strings.Contains(err.Error(), "already exists") {
+				return err
+			}
+		}
 	}
 	return nil
 }

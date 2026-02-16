@@ -324,6 +324,7 @@ func main() {
 
 	registerShipExportRoutes(e, pool, schema)
 	registerRequirementPages(e, pool, schema)
+	registerRequirementAPIs(e, pool, schema)
 
 	e.GET("/", func(c echo.Context) error {
 		return c.Redirect(http.StatusSeeOther, "/orders")

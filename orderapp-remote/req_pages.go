@@ -27,6 +27,9 @@ func registerRequirementPages(e *echo.Echo, pool *pgxpool.Pool, schema string) {
 			} else {
 				data.Rows = rows
 			}
+			if qerr := strings.TrimSpace(c.QueryParam("err")); qerr != "" {
+				data.Error = qerr
+			}
 			data.Ok = strings.TrimSpace(c.QueryParam("ok")) == "1"
 			return c.Render(http.StatusOK, tpl, data)
 		})
