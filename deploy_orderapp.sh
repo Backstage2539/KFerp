@@ -11,7 +11,7 @@ DOCS_DIR="$APP_DIR/docs"
 
 # 1) Sync docs
 ssh -i "$KEY" "$SERVER" "mkdir -p $DOCS_DIR"
-scp -i "$KEY" REQUIREMENTS.md ACCEPTANCE_TESTS.md HOW_TO_WORKFLOW.md "$SERVER:$DOCS_DIR/"
+scp -i "$KEY" REQUIREMENTS.md ACCEPTANCE_TESTS.md HOW_TO_WORKFLOW.md DEPLOYMENT.md "$SERVER:$DOCS_DIR/"
 
 # 2) Sync app source (adjust list as needed)
 # Note: we copy the whole orderapp-remote folder to keep it simple.
