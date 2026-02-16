@@ -79,11 +79,21 @@ func ensureRepoAndAppend(ctx context.Context, dir, repoURL, keyPath, entryText s
 	}
 	_ = runCmd(ctx, dir, "sh", "-lc", "ssh-keyscan -t rsa,ed25519 github.com 2>/dev/null >> .ssh/known_hosts || true")
 
-	// clone if needed
+	// init repo if needed (dir may be non-empty because we create .ssh)
 	if _, err := os.Stat(filepath.Join(dir, ".git")); err != nil {
-		if err := runGit(ctx, dir, keyPath, "clone", repoURL, "."); err != nil {
+		if err := runGit(ctx, dir, keyPath, "init"); err != nil {
 			return err
 		}
+		// reset origin
+		_ = runGit(ctx, dir, keyPath, "remote", "remove", "origin")
+		if err := runGit(ctx, dir, keyPath, "remote", "add", "origin", repoURL); err != nil {
+			return err
+		}
+		// try to fetch main if exists
+		_ = runGit(ctx, dir, keyPath, "fetch", "origin", "main")
+		// create or reset local main
+		_ = runGit(ctx, dir, keyPath, "checkout", "-B", "main")
+		_ = runGit(ctx, dir, keyPath, "reset", "--hard", "origin/main")
 	}
 
 	// pull latest
