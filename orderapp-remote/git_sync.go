@@ -68,15 +68,23 @@ func ensureRepoAndAppend(ctx context.Context, dir, repoURL, keyPath, entryText s
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err
 	}
+	// ensure known_hosts BEFORE any git ssh
+	sshDir := filepath.Join(dir, ".ssh")
+	if err := os.MkdirAll(sshDir, 0o700); err != nil {
+		return err
+	}
+	kh := filepath.Join(sshDir, "known_hosts")
+	if _, err := os.Stat(kh); err != nil {
+		_ = os.WriteFile(kh, []byte(""), 0o600)
+	}
+	_ = runCmd(ctx, dir, "sh", "-lc", "ssh-keyscan -t rsa,ed25519 github.com 2>/dev/null >> .ssh/known_hosts || true")
+
 	// clone if needed
 	if _, err := os.Stat(filepath.Join(dir, ".git")); err != nil {
 		if err := runGit(ctx, dir, keyPath, "clone", repoURL, "."); err != nil {
 			return err
 		}
 	}
-	// ensure known_hosts
-	_ = os.MkdirAll(filepath.Join(dir, ".ssh"), 0o700)
-	_ = runCmd(ctx, dir, "sh", "-lc", "ssh-keyscan -t rsa,ed25519 github.com 2>/dev/null >> .ssh/known_hosts || true")
 
 	// pull latest
 	_ = runGit(ctx, dir, keyPath, "fetch", "origin")
