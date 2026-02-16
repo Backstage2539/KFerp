@@ -96,9 +96,15 @@ func ensureRepoAndAppend(ctx context.Context, dir, repoURL, keyPath, entryText s
 		_ = runGit(ctx, dir, keyPath, "reset", "--hard", "origin/main")
 	}
 
-	// pull latest
-	_ = runGit(ctx, dir, keyPath, "fetch", "origin")
-	_ = runGit(ctx, dir, keyPath, "rebase", "origin/main")
+	// pull latest (must succeed)
+	if err := runGit(ctx, dir, keyPath, "fetch", "origin", "main"); err != nil {
+		return err
+	}
+	if err := runGit(ctx, dir, keyPath, "rebase", "origin/main"); err != nil {
+		// if rebase fails, abort to leave repo clean
+		_ = runGit(ctx, dir, keyPath, "rebase", "--abort")
+		return err
+	}
 
 	// append log file
 	logPath := filepath.Join(dir, "acceptance", "acceptance_log.md")
@@ -129,6 +135,20 @@ func ensureRepoAndAppend(ctx context.Context, dir, repoURL, keyPath, entryText s
 	// commit may fail if no changes; treat as ok
 	_ = runGit(ctx, dir, keyPath, "-c", "user.name=KFerp-bot", "-c", "user.email=kferp-bot@local", "commit", "-m", msg)
 	if err := runGit(ctx, dir, keyPath, "push", "origin", "main"); err != nil {
+		// Handle non-fast-forward due to concurrent updates: rebase and retry once.
+		es := err.Error()
+		if strings.Contains(es, "non-fast-forward") || strings.Contains(es, "fetch first") || strings.Contains(es, "rejected") {
+			if err2 := runGit(ctx, dir, keyPath, "fetch", "origin", "main"); err2 != nil {
+				return err
+			}
+			if err2 := runGit(ctx, dir, keyPath, "rebase", "origin/main"); err2 != nil {
+				_ = runGit(ctx, dir, keyPath, "rebase", "--abort")
+				return err
+			}
+			if err2 := runGit(ctx, dir, keyPath, "push", "origin", "main"); err2 == nil {
+				return nil
+			}
+		}
 		return err
 	}
 	return nil
