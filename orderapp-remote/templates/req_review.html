@@ -91,6 +91,41 @@
   {{if .Error}}<div class="err">{{.Error}}</div>{{end}}
 
   <div class="card">
+    <b>新增条目</b>
+    <form method="post" action="/req/review/new" style="margin-top:10px;">
+      <div class="row">
+        <div>
+          <div class="muted" style="margin-bottom:6px;">编号</div>
+          <input id="code" name="code" placeholder="例如 REV-002（可留空自动生成）" />
+        </div>
+        <div>
+          <div class="muted" style="margin-bottom:6px;">产品需求编号(PR)</div>
+          <input name="pr_code" placeholder="例如 PR-011" />
+        </div>
+        <div>
+          <div class="muted" style="margin-bottom:6px;">标题</div>
+          <input name="title" placeholder="一句话描述审核点（标题会自动带上PR编号）" />
+        </div>
+        <div>
+          <div class="muted" style="margin-bottom:6px;">状态</div>
+          <select name="status">
+            <option value="todo">todo</option>
+            <option value="doing">doing</option>
+            <option value="done">done</option>
+          </select>
+        </div>
+        <div>
+          <div class="muted" style="margin-bottom:6px;">验收人</div>
+          <input name="assignee" placeholder="例如 VA" />
+        </div>
+        <div style="display:flex; align-items:flex-end;">
+          <button class="btn" type="submit">保存</button>
+        </div>
+      </div>
+    </form>
+  </div>
+
+  <div class="card">
     <div style="display:flex; align-items:center; justify-content:space-between; gap:10px; flex-wrap:wrap;">
       <div><b>条目列表</b> <span class="muted">（最新在上；状态可编辑。置为 done 会自动把对应 PR 置为 done）</span></div>
       <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
@@ -154,40 +189,7 @@
     </div>
   </div>
 
-  <div class="card">
-    <b>新增条目</b>
-    <form method="post" action="/req/review/new" style="margin-top:10px;">
-      <div class="row">
-        <div>
-          <div class="muted" style="margin-bottom:6px;">编号</div>
-          <input id="code" name="code" placeholder="例如 REV-002（可留空自动生成）" />
-        </div>
-        <div>
-          <div class="muted" style="margin-bottom:6px;">产品需求编号(PR)</div>
-          <input name="pr_code" placeholder="例如 PR-005" />
-        </div>
-        <div>
-          <div class="muted" style="margin-bottom:6px;">标题</div>
-          <input name="title" placeholder="一句话描述审核点（标题会自动带上PR编号）" />
-        </div>
-        <div>
-          <div class="muted" style="margin-bottom:6px;">状态</div>
-          <select name="status">
-            <option value="todo">todo</option>
-            <option value="doing">doing</option>
-            <option value="done">done</option>
-          </select>
-        </div>
-        <div>
-          <div class="muted" style="margin-bottom:6px;">验收人</div>
-          <input name="assignee" placeholder="例如 VA" />
-        </div>
-        <div style="display:flex; align-items:flex-end;">
-          <button class="btn" type="submit">保存</button>
-        </div>
-      </div>
-    </form>
-  </div>
+<!-- 新增条目已移动到页面顶部（PR-011） -->
 
 <script>
 function toggleMenu(){ document.body.classList.toggle('menuOpen'); }
