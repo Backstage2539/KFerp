@@ -89,7 +89,9 @@ type OrdersPageData struct {
 	PayStatusFilter  int64
 	ShipStatusFilter int64
 	ProcStatusFilter int64
+	UnproducedOnly   bool
 	CompletedOnly    bool
+	Summary          OrdersSummary
 	Rows             []OrderRow
 	PayOpts          []Option
 	ShipOpts         []Option
@@ -736,6 +738,9 @@ func main() {
 			}
 		}
 		data.CompletedOnly = strings.TrimSpace(c.QueryParam("completed")) == "1"
+		if data.Preset == "unprod" {
+			data.UnproducedOnly = true
+		}
 		if data.Void == "" {
 			data.Void = "normal"
 		}
@@ -762,7 +767,7 @@ func main() {
 			data.Page = 1
 		}
 
-		rows, hasNext, errOrders := fetchOrders(c.Request().Context(), pool, schema, data.Q, data.From, data.To, data.Void, data.CustomerID, data.PayStatusFilter, data.ShipStatusFilter, data.ProcStatusFilter, data.CompletedOnly, data.Limit, data.Offset)
+		rows, hasNext, errOrders := fetchOrders(c.Request().Context(), pool, schema, data.Q, data.From, data.To, data.Void, data.CustomerID, data.PayStatusFilter, data.ShipStatusFilter, data.ProcStatusFilter, data.UnproducedOnly, data.CompletedOnly, data.Limit, data.Offset)
 		if opts, err := fetchOptions(c.Request().Context(), pool, fmt.Sprintf("SELECT id, name FROM %s.pay_statuses ORDER BY id", schema)); err == nil {
 			data.PayOpts = opts
 		} else {
@@ -778,6 +783,11 @@ func main() {
 		} else {
 			data.ProcessOpts = nil
 		}
+		// summary (best effort)
+		if s, err := fetchOrdersSummary(c.Request().Context(), pool, schema, data.Q, data.From, data.To, data.Void, data.CustomerID, data.PayStatusFilter, data.ShipStatusFilter, data.ProcStatusFilter, data.UnproducedOnly, data.CompletedOnly); err == nil {
+			data.Summary = s
+		}
+
 		if errOrders != nil {
 			data.Error = errOrders.Error()
 			return c.Render(http.StatusOK, "orders.html", data)

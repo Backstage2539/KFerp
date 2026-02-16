@@ -10,7 +10,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-func fetchOrders(ctx context.Context, pool *pgxpool.Pool, schema, q, from, to, voidFilter string, customerID int64, payStatusID, shipStatusID, procStatusID int64, completedOnly bool, limit, offset int) (rows []OrderRow, hasNext bool, err error) {
+func fetchOrders(ctx context.Context, pool *pgxpool.Pool, schema, q, from, to, voidFilter string, customerID int64, payStatusID, shipStatusID, procStatusID int64, unproducedOnly, completedOnly bool, limit, offset int) (rows []OrderRow, hasNext bool, err error) {
 	where := make([]string, 0)
 	args := make([]any, 0)
 	argn := 1
@@ -40,6 +40,10 @@ func fetchOrders(ctx context.Context, pool *pgxpool.Pool, schema, q, from, to, v
 		where = append(where, fmt.Sprintf("COALESCE(o.process_status_id,0) = $%d", argn))
 		args = append(args, procStatusID)
 		argn++
+	}
+	if unproducedOnly {
+		// 未生产：已接单(1) / 已排产(2)
+		where = append(where, "COALESCE(o.process_status_id,0) IN (1,2)")
 	}
 	if completedOnly {
 		where = append(where, "COALESCE(o.pay_status_id,0)=2 AND COALESCE(o.ship_status_id,0) IN (3,4)")
