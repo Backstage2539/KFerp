@@ -14,6 +14,12 @@ type ReqPageData struct {
 	Rows  []ReqRow
 	Error string
 	Ok    bool
+
+	Limit   int
+	Offset  int
+	Page    int
+	HasPrev bool
+	HasNext bool
 }
 
 func registerRequirementPages(e *echo.Echo, pool *pgxpool.Pool, schema string) {
@@ -21,11 +27,23 @@ func registerRequirementPages(e *echo.Echo, pool *pgxpool.Pool, schema string) {
 	reg := func(path, tpl, title, table string) {
 		e.GET(path, func(c echo.Context) error {
 			data := ReqPageData{Title: title}
-			rows, err := listReqRows(c.Request().Context(), pool, schema, table, 200)
+			data.Limit = intParam(c, "limit", 20)
+			if data.Limit <= 0 || data.Limit > 200 {
+				data.Limit = 20
+			}
+			data.Page = intParam(c, "page", 1)
+			if data.Page <= 0 {
+				data.Page = 1
+			}
+			data.Offset = (data.Page - 1) * data.Limit
+			data.HasPrev = data.Page > 1
+
+			rows, hasNext, err := listReqRows(c.Request().Context(), pool, schema, table, data.Limit, data.Offset)
 			if err != nil {
 				data.Error = err.Error()
 			} else {
 				data.Rows = rows
+				data.HasNext = hasNext
 			}
 			if qerr := strings.TrimSpace(c.QueryParam("err")); qerr != "" {
 				data.Error = qerr
@@ -54,11 +72,23 @@ func registerRequirementPages(e *echo.Echo, pool *pgxpool.Pool, schema string) {
 	// Review: list
 	e.GET("/req/review", func(c echo.Context) error {
 		data := ReqPageData{Title: "需求审核表"}
-		rows, err := listReqRows(c.Request().Context(), pool, schema, "req_review", 200)
+		data.Limit = intParam(c, "limit", 20)
+		if data.Limit <= 0 || data.Limit > 200 {
+			data.Limit = 20
+		}
+		data.Page = intParam(c, "page", 1)
+		if data.Page <= 0 {
+			data.Page = 1
+		}
+		data.Offset = (data.Page - 1) * data.Limit
+		data.HasPrev = data.Page > 1
+
+		rows, hasNext, err := listReqRows(c.Request().Context(), pool, schema, "req_review", data.Limit, data.Offset)
 		if err != nil {
 			data.Error = err.Error()
 		} else {
 			data.Rows = rows
+			data.HasNext = hasNext
 		}
 		if qerr := strings.TrimSpace(c.QueryParam("err")); qerr != "" {
 			data.Error = qerr

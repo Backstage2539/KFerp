@@ -79,38 +79,59 @@ func ensureReqTables(ctx context.Context, pool *pgxpool.Pool, schema string) err
 	return nil
 }
 
-func listReqRows(ctx context.Context, pool *pgxpool.Pool, schema, table string, limit int) ([]ReqRow, error) {
-	if limit <= 0 || limit > 500 {
-		limit = 200
+func listReqRows(ctx context.Context, pool *pgxpool.Pool, schema, table string, limit, offset int) (rowsOut []ReqRow, hasNext bool, err error) {
+	if limit <= 0 || limit > 200 {
+		limit = 20
+	}
+	if offset < 0 {
+		offset = 0
 	}
 	cols := "id, code, title, status, assignee, evidence, created_at"
 	if table == "req_review" {
 		cols = "id, code, pr_code, title, status, assignee, evidence, created_at"
 	}
+
+	orderBy := "id DESC"
+	// Archive ordering: put imported/archived items last.
+	if table == "req_product" {
+		orderBy = "(code ILIKE 'old-%') ASC, id DESC"
+	}
+	if table == "req_unit" {
+		orderBy = "(code ILIKE 'old-%' OR code ILIKE 'OLD-%') ASC, id DESC"
+	}
+
 	q := fmt.Sprintf(`SELECT %s
 		FROM %s.%s
-		ORDER BY id DESC
-		LIMIT %d`, cols, schema, table, limit)
-	rows, err := pool.Query(ctx, q)
-	if err != nil {
-		return nil, err
+		ORDER BY %s
+		LIMIT %d OFFSET %d`, cols, schema, table, orderBy, limit+1, offset)
+	r, e := pool.Query(ctx, q)
+	if e != nil {
+		return nil, false, e
 	}
-	defer rows.Close()
+	defer r.Close()
+
 	out := make([]ReqRow, 0)
-	for rows.Next() {
-		var r ReqRow
+	for r.Next() {
+		var row ReqRow
 		if table == "req_review" {
-			if err := rows.Scan(&r.ID, &r.Code, &r.PRCode, &r.Title, &r.Status, &r.Assignee, &r.Evidence, &r.CreatedAt); err != nil {
-				return nil, err
+			if e := r.Scan(&row.ID, &row.Code, &row.PRCode, &row.Title, &row.Status, &row.Assignee, &row.Evidence, &row.CreatedAt); e != nil {
+				return nil, false, e
 			}
 		} else {
-			if err := rows.Scan(&r.ID, &r.Code, &r.Title, &r.Status, &r.Assignee, &r.Evidence, &r.CreatedAt); err != nil {
-				return nil, err
+			if e := r.Scan(&row.ID, &row.Code, &row.Title, &row.Status, &row.Assignee, &row.Evidence, &row.CreatedAt); e != nil {
+				return nil, false, e
 			}
 		}
-		out = append(out, r)
+		out = append(out, row)
 	}
-	return out, rows.Err()
+	if e := r.Err(); e != nil {
+		return nil, false, e
+	}
+	if len(out) > limit {
+		hasNext = true
+		out = out[:limit]
+	}
+	return out, hasNext, nil
 }
 
 func createReqRow(ctx context.Context, pool *pgxpool.Pool, schema, table, code, title, status, assignee string) error {

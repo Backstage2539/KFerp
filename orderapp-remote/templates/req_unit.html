@@ -90,7 +90,14 @@
   {{if .Error}}<div class="err">{{.Error}}</div>{{end}}
 
   <div class="card">
-    <div><b>条目列表</b> <span class="muted">（最新在上）</span></div>
+    <div style="display:flex; align-items:center; justify-content:space-between; gap:10px; flex-wrap:wrap;">
+      <div><b>条目列表</b> <span class="muted">（非归档优先；OLD-* 在最后）</span></div>
+      <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+        {{if .HasPrev}}<a class="btn2" href="/req/unit?page={{sub .Page 1}}&limit={{.Limit}}">上一页</a>{{end}}
+        <span class="muted">第 {{.Page}} 页</span>
+        {{if .HasNext}}<a class="btn2" href="/req/unit?page={{add .Page 1}}&limit={{.Limit}}">下一页</a>{{end}}
+      </div>
+    </div>
     <div style="overflow:auto;">
       <table>
         <thead>
