@@ -7,6 +7,10 @@ RUN CGO_ENABLED=0 /usr/local/go/bin/go build -o /out/orderapp ./
 
 FROM docker.m.daocloud.io/library/alpine:3.20
 WORKDIR /app
+
+# For git sync on acceptance: git + ssh client
+RUN apk add --no-cache git openssh-client ca-certificates
+
 COPY --from=build /out/orderapp /app/orderapp
 COPY templates /app/templates
 COPY docs /app/docs

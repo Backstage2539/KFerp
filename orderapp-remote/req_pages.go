@@ -152,7 +152,7 @@ func registerRequirementPages(e *echo.Echo, pool *pgxpool.Pool, schema string) {
 	e.POST("/req/review/update", func(c echo.Context) error {
 		code := strings.TrimSpace(c.FormValue("code"))
 		status := strings.TrimSpace(c.FormValue("status"))
-		if err := updateReviewStatusAndCascade(c.Request().Context(), pool, schema, code, status); err != nil {
+		if err := updateReviewStatusAndCascade(c.Request().Context(), pool, schema, actorOf(c), code, status); err != nil {
 			return c.Redirect(http.StatusSeeOther, "/req/review?err="+url.QueryEscape(err.Error()))
 		}
 		return c.Redirect(http.StatusSeeOther, "/req/review?ok=1")
