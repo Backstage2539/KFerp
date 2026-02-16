@@ -15,11 +15,13 @@ type ReqPageData struct {
 	Error string
 	Ok    bool
 
-	Limit   int
-	Offset  int
-	Page    int
-	HasPrev bool
-	HasNext bool
+	Limit      int
+	Offset     int
+	Page       int
+	Total      int
+	TotalPages int
+	HasPrev    bool
+	HasNext    bool
 }
 
 func registerRequirementPages(e *echo.Echo, pool *pgxpool.Pool, schema string) {
@@ -40,6 +42,22 @@ func registerRequirementPages(e *echo.Echo, pool *pgxpool.Pool, schema string) {
 			}
 			data.Offset = (data.Page - 1) * data.Limit
 			data.HasPrev = data.Page > 1
+
+			total, _ := countReqRows(c.Request().Context(), pool, schema, table)
+			data.Total = total
+			if data.Total <= 0 {
+				data.TotalPages = 1
+			} else {
+				data.TotalPages = (data.Total + data.Limit - 1) / data.Limit
+				if data.TotalPages <= 0 {
+					data.TotalPages = 1
+				}
+				if data.Page > data.TotalPages {
+					data.Page = data.TotalPages
+					data.Offset = (data.Page - 1) * data.Limit
+					data.HasPrev = data.Page > 1
+				}
+			}
 
 			rows, hasNext, err := listReqRows(c.Request().Context(), pool, schema, table, data.Limit, data.Offset)
 			if err != nil {
@@ -88,6 +106,22 @@ func registerRequirementPages(e *echo.Echo, pool *pgxpool.Pool, schema string) {
 		}
 		data.Offset = (data.Page - 1) * data.Limit
 		data.HasPrev = data.Page > 1
+
+		total, _ := countReqRows(c.Request().Context(), pool, schema, "req_review")
+		data.Total = total
+		if data.Total <= 0 {
+			data.TotalPages = 1
+		} else {
+			data.TotalPages = (data.Total + data.Limit - 1) / data.Limit
+			if data.TotalPages <= 0 {
+				data.TotalPages = 1
+			}
+			if data.Page > data.TotalPages {
+				data.Page = data.TotalPages
+				data.Offset = (data.Page - 1) * data.Limit
+				data.HasPrev = data.Page > 1
+			}
+		}
 
 		rows, hasNext, err := listReqRows(c.Request().Context(), pool, schema, "req_review", data.Limit, data.Offset)
 		if err != nil {

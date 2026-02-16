@@ -105,7 +105,7 @@
           条
         </label>
         {{if .HasPrev}}<a class="btn2" href="/req/api?page={{sub .Page 1}}&limit={{.Limit}}">上一页</a>{{end}}
-        <span class="muted">第 {{.Page}} 页</span>
+        <span class="muted">第 {{.Page}} / {{.TotalPages}} 页</span>
         {{if .HasNext}}<a class="btn2" href="/req/api?page={{add .Page 1}}&limit={{.Limit}}">下一页</a>{{end}}
       </div>
     </div>
