@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>商品报价表</title>
+  <style>
+    body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial; margin:16px;}
+    h2{margin:0 0 12px 0;}
+    table{width:100%; border-collapse:collapse;}
+    th,td{border:1px solid #ddd; padding:8px; text-align:left; font-size:12px; vertical-align:top;}
+    .muted{color:#666; font-size:12px;}
+    @media print {
+      .noprint{display:none;}
+      body{margin:0;}
+    }
+  </style>
+</head>
+<body>
+  <div class="noprint" style="display:flex;justify-content:space-between;align-items:center;gap:12px;">
+    <h2>商品报价表（阶梯价）</h2>
+    <div>
+      <button onclick="window.print()">打印/导出PDF</button>
+      <a href="/products">返回</a>
+    </div>
+  </div>
+
+  <div class="muted noprint" style="margin-bottom:8px;">导出图片：手机上打印预览里可“保存为 PDF”，或截图；电脑上可打印为 PDF 后再转图片。</div>
+
+  <table>
+    <thead>
+      <tr>
+        <th style="width:26%">商品</th>
+        <th>阶梯价（元/lb）</th>
+      </tr>
+    </thead>
+    <tbody>
+      {{range .Products}}
+      <tr>
+        <td><b>{{.Name}}</b></td>
+        <td>
+          {{if .Tiers}}
+            {{range $i, $t := .Tiers}}{{if $i}}<br/>{{end}}{{printf "%.0f" $t.MinLb}}{{if $t.MaxLb}}-{{f0p $t.MaxLb}}{{else}}+{{end}} lb：{{printf "%.2f" $t.PriceLb}}{{end}}
+          {{else}}
+            -
+          {{end}}
+        </td>
+      </tr>
+      {{end}}
+    </tbody>
+  </table>
+</body>
+</html>

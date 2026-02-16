@@ -1,0 +1,335 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>客户编辑</title>
+  <style>
+    body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial; margin:0;}
+    .layout{display:flex; min-height:100vh;}
+    .sidebar{width:190px; padding:14px 12px; border-right:1px solid #eee; background:#fafafa; position:sticky; top:0; height:100vh; box-sizing:border-box; overflow:auto;}
+    .brand{font-weight:800; margin-bottom:10px;}
+    .section{margin-top:14px; margin-bottom:6px; font-size:12px; color:#666;}
+    .link{display:block; padding:8px 10px; border-radius:8px; color:#111; text-decoration:none;}
+    .link:hover{background:#f0f0f0;}
+    .content{flex:1; padding:16px; box-sizing:border-box;}
+    .menuBtn{display:none; padding:8px 10px; font-size:18px; border:1px solid #999; background:#fff; border-radius:8px;}
+    .overlay{display:none; position:fixed; inset:0; background:rgba(0,0,0,.25); z-index:40;}
+    @media (max-width: 820px){
+      .layout{display:block;}
+      .menuBtn{display:inline-block;}
+      .sidebar{width:240px; position:fixed; left:0; top:0; bottom:0; height:100vh; border-right:1px solid #eee; border-bottom:0; transform:translateX(-110%); transition:transform .18s ease; z-index:50; background:#fafafa;}
+      .content{padding:12px;}
+      body.menuOpen .sidebar{transform:translateX(0);}
+      body.menuOpen .overlay{display:block;}
+    }
+
+    label{display:block; font-size:14px; margin:10px 0 4px; color:#333;}
+    input,textarea{width:100%; padding:10px; font-size:16px; box-sizing:border-box;}
+    textarea{min-height:80px;}
+    .card{border:1px solid #eee; border-radius:10px; padding:12px; margin:12px 0;}
+    .btn{display:inline-block; padding:10px 12px; font-size:16px; border:1px solid #111; background:#111; color:#fff; border-radius:8px;}
+    .btn2{display:inline-block; padding:10px 12px; font-size:16px; border:1px solid #999; background:#fff; color:#111; border-radius:8px; text-decoration:none;}
+    .muted{color:#666; font-size:12px;}
+    .err{background:#ffecec; border:1px solid #ffb9b9; padding:10px; border-radius:8px;}
+  </style>
+</head>
+<body>
+  <div class="overlay" onclick="closeMenu()"></div>
+  <div class="layout">
+    <nav class="sidebar">
+      <div class="brand">ERP</div>
+      <div class="section">订单</div>
+      <a class="link" href="/order">录单</a>
+      <a class="link" href="/orders">订单列表</a>
+      <div class="section">档案</div>
+      <a class="link" href="/customers">客户档案</a>
+      <a class="link" href="/products">商品档案</a>
+      <a class="link" href="/products/print" target="_blank">报价导出</a>
+      <div class="section">日志</div>
+      <a class="link" href="/audit">操作日志</a>
+      <div class="section">文档</div>
+      <a class="link" href="/docs">需求/验收</a>
+      <div class="section">需求管理</div>
+      <a class="link" href="/req/product">产品需求表</a>
+      <a class="link" href="/req/dev">开发需求表</a>
+      <a class="link" href="/req/unit">单元测试表</a>
+      <a class="link" href="/req/api">API 测试表</a>
+      <a class="link" href="/req/review">需求审核表</a>
+    </nav>
+    <main class="content">
+
+  <div style="display:flex; justify-content:space-between; align-items:center; gap:12px;">
+    <div style="display:flex; align-items:center; gap:10px;">
+      <button type="button" class="menuBtn" onclick="toggleMenu()">☰</button>
+      <h2 style="margin:0">{{if .ID}}编辑客户{{else}}新建客户{{end}}</h2>
+    </div>
+    {{if eq .From "order"}}
+      <a class="btn2" href="/order" onclick="history.back(); return false;">← 返回录单</a>
+    {{else}}
+      <a class="btn2" href="/customers">← 返回</a>
+    {{end}}
+  </div>
+
+  {{if .Ok}}<div class="ok" style="display:block;">已上传</div>{{end}}
+  {{if .Error}}<div class="err">{{.Error}}</div>{{end}}
+
+  <form method="post" action="{{if .ID}}/app/customers/{{.ID}}{{else}}/app/customers/new{{end}}">
+    <div class="card">
+      <label>快速粘贴（姓名/电话/地址）→ 一键解析</label>
+      <textarea id="quickPaste" placeholder="例如：\n姓名：张三\n电话：13800138000\n地址：上海市浦东新区...\n\n也支持粘贴一整段混合文本。"></textarea>
+      <div style="margin-top:8px; display:flex; gap:10px; flex-wrap:wrap;">
+        <button type="button" class="btn2" onclick="parseQuickPaste()">一键解析到表单</button>
+        <button type="button" class="btn2" onclick="document.getElementById('quickPaste').value=''">清空</button>
+      </div>
+      <div class="muted" style="margin-top:8px;">解析规则：自动识别 11 位手机号；姓名优先取“姓名/收件人/联系人”字段；其余归入地址（可手动修正）。</div>
+
+      <hr style="border:0; border-top:1px solid #f1f1f1; margin:14px 0;" />
+
+      <label>客户名</label>
+      <input name="name" value="{{.Name}}" placeholder="客户/门店名称" required />
+
+      <label>联系人</label>
+      <input name="contact" value="{{.Contact}}" placeholder="联系人" />
+
+      <label>电话</label>
+      <input name="phone" value="{{.Phone}}" placeholder="手机号/电话" />
+
+      <label>地址</label>
+      <textarea name="address" placeholder="地址...">{{.Address}}</textarea>
+
+      {{if .ID}}
+      <div class="card" style="margin-top:12px;">
+        <b>客户看板（订单状态汇总）</b>
+        <div class="muted" style="margin-top:6px;">完成规则：付完款(已收款) + 发完货(已发货/不发货)。流程状态用于区分生产中/发货中。</div>
+        <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(140px, 1fr)); gap:10px; margin-top:10px;">
+          <div class="card" style="margin:0;"><div class="muted">总订单</div><div style="font-size:22px; font-weight:800;">{{.Dash.TotalOrders}}</div></div>
+          <div class="card" style="margin:0;"><div class="muted">未收款</div><div style="font-size:22px; font-weight:800;"><a href="/app/orders?customer_id={{.ID}}&pay_status_id=1">{{.Dash.UnpaidOrders}}</a></div></div>
+          <div class="card" style="margin:0;"><div class="muted">未发货</div><div style="font-size:22px; font-weight:800;"><a href="/app/orders?customer_id={{.ID}}&ship_status_id=1">{{.Dash.UnshippedOrders}}</a></div></div>
+          <div class="card" style="margin:0;"><div class="muted">生产中</div><div style="font-size:22px; font-weight:800;"><a href="/app/orders?customer_id={{.ID}}&process_status_id=3">{{.Dash.InProduction}}</a></div></div>
+          <div class="card" style="margin:0;"><div class="muted">发货中</div><div style="font-size:22px; font-weight:800;"><a href="/app/orders?customer_id={{.ID}}&process_status_id=4">{{.Dash.InShipping}}</a></div></div>
+          <div class="card" style="margin:0;"><div class="muted">已完成</div><div style="font-size:22px; font-weight:800;"><a href="/app/orders?customer_id={{.ID}}&completed=1">{{.Dash.Completed}}</a></div></div>
+        </div>
+      </div>
+      {{end}}
+
+      {{if .ID}}
+      <div class="card" style="margin-top:12px;">
+        <b>客户定制图片</b>
+        <div class="muted" style="margin-top:6px;">用于记录标签纸（正/反）、豆袋、挂耳盒、印刷要求等。上传/删除都会写操作日志。</div>
+
+        <div style="margin-top:10px;">
+          <label>类型</label>
+          <select id="assetKind">
+            <option value="label_front">标签-正面</option>
+            <option value="label_back">标签-反面</option>
+            <option value="bag">豆袋</option>
+            <option value="drip_box">挂耳盒</option>
+            <option value="print_requirement">印刷需求</option>
+            <option value="other">其他</option>
+          </select>
+          <label style="margin-top:10px;">选择图片</label>
+          <input id="assetFile" type="file" accept="image/*" />
+          <div style="margin-top:10px; display:flex; gap:10px; flex-wrap:wrap;">
+            <button class="btn" type="button" onclick="uploadAsset({{.ID}})">上传</button>
+          </div>
+          <div id="assetMsg" class="muted" style="margin-top:8px;"></div>
+        </div>
+
+        <div style="margin-top:12px; display:grid; grid-template-columns:repeat(auto-fit, minmax(180px, 1fr)); gap:12px;">
+          {{range .Assets}}
+          <div class="assetbox" style="border:1px solid #eee; border-radius:10px; padding:10px;">
+            <div style="font-weight:700; margin-bottom:6px;">{{assetLabel .Kind}}</div>
+            <div class="muted" style="margin-bottom:6px;">{{.CreatedAt}} · {{.ContentType}} · {{.Bytes}} bytes</div>
+            <a href="/app/assets/customer_assets/{{.ID}}?v={{.Sha256}}" target="_blank">
+              <img src="/app/assets/customer_assets/{{.ID}}?v={{.Sha256}}" data-asset-src="/app/assets/customer_assets/{{.ID}}?v={{.Sha256}}" alt="asset" onerror="this.style.display='none'; this.closest('.assetbox').querySelector('.assetfail').style.display='block'" style="width:100%; max-height:160px; object-fit:contain; border-radius:8px; background:repeating-conic-gradient(#f6f6f6 0% 25%, #fff 0% 50%) 0/20px 20px;" />
+            </a>
+            <div class="assetfail" style="display:none; margin-top:8px;" class="muted">
+              <div class="muted">图片加载失败（可点上方链接新窗口打开）</div>
+            </div>
+            <div style="margin-top:8px;">
+              <button class="btn2" type="button" onclick="deleteAsset({{.ID}}, {{.CustomerID}})">删除</button>
+            </div>
+          </div>
+          {{end}}
+          {{if not .Assets}}
+            <div class="muted">暂无图片</div>
+          {{end}}
+        </div>
+      </div>
+      {{end}}
+
+      <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-top:10px;">
+        <div>
+          <label>默认来源（录单自动带出）</label>
+          <select name="default_source_id">
+            <option value="">（空）</option>
+            {{range .Sources}}<option value="{{.ID}}" {{if eq (printf "%d" .ID) $.DefaultSourceID}}selected{{end}}>{{.Name}}</option>{{end}}
+          </select>
+        </div>
+        <div>
+          <label>默认订单类型（录单自动带出）</label>
+          <select name="default_order_type_id">
+            <option value="">（空）</option>
+            {{range .OrderTypes}}<option value="{{.ID}}" {{if eq (printf "%d" .ID) $.DefaultOrderTypeID}}selected{{end}}>{{.Name}}</option>{{end}}
+          </select>
+        </div>
+      </div>
+
+      <label style="margin-top:10px;">原始信息（保留）</label>
+      <textarea name="raw_name" placeholder="原始文本...">{{.RawName}}</textarea>
+
+      <label style="margin-bottom:8px;">启用</label>
+      <label style="display:flex; gap:10px; align-items:center; margin:0; font-size:16px;">
+        <input type="checkbox" name="active" value="1" style="width:auto;" {{if .Active}}checked{{end}} />
+        启用客户
+      </label>
+
+      <div style="margin-top:12px; display:flex; gap:10px; flex-wrap:wrap;">
+        <button class="btn" type="submit">保存</button>
+        <a class="btn2" href="/customers">取消</a>
+      </div>
+      <div class="muted" style="margin-top:8px;">所有新增/修改都会写入操作日志。</div>
+    </div>
+  </form>
+
+<script>
+function clean(s){
+  return (s||'').replace(/\u00a0/g,' ').replace(/\s+/g,' ').trim();
+}
+
+function parseQuickPaste(){
+  const txt = (document.getElementById('quickPaste').value||'').trim();
+  if(!txt) return;
+
+  let s = txt;
+  // normalize separators
+  s = s.replace(/[|｜]+/g, '\n');
+
+  // phone
+  const m = s.match(/(1\d{10})/);
+  const phone = m ? m[1] : '';
+
+  // name: explicit labels first
+  let name = '';
+  const labelName = s.match(/(?:收件人|姓名|联系人)\s*[:：]?\s*([^\n,，]+?)(?:\s|\n|,|，|电话|手机|手机号|地址|$)/);
+  if(labelName) name = clean(labelName[1]);
+
+  // fallback: take token before phone
+  if(!name && phone){
+    const idx = s.indexOf(phone);
+    const before = clean(s.slice(0, idx));
+    const parts = before.split(/[\n,，\s]+/).filter(Boolean);
+    if(parts.length) {
+      const cand = parts[parts.length-1];
+      if(cand.length <= 8 && !/\d/.test(cand) && !/(地址|电话|手机|收件|所在|详细)/.test(cand)) name = cand;
+    }
+  }
+
+  // address: remove known labels + phone + name tokens
+  let addr = s;
+  if(phone) addr = addr.replace(new RegExp(phone, 'g'), '');
+  addr = addr.replace(/收件人\s*[:：]?/g,'');
+  addr = addr.replace(/姓名\s*[:：]?/g,'');
+  addr = addr.replace(/联系人\s*[:：]?/g,'');
+  addr = addr.replace(/手机号码\s*[:：]?/g,'');
+  addr = addr.replace(/手机号\s*[:：]?/g,'');
+  addr = addr.replace(/联系电话\s*[:：]?/g,'');
+  addr = addr.replace(/电话\s*[:：]?/g,'');
+  addr = addr.replace(/收货地址\s*[:：]?/g,'');
+  addr = addr.replace(/收件地址\s*[:：]?/g,'');
+  addr = addr.replace(/地址\s*[:：]?/g,'');
+  addr = addr.replace(/所在地区\s*[:：]?/g,'');
+  addr = addr.replace(/详细地址\s*[:：]?/g,'');
+  addr = addr.replace(/[\t]+/g,' ');
+  addr = addr.replace(/\n+/g,'\n');
+  // remove name once (avoid nuking shop name embedded in address)
+  if(name) addr = addr.replace(name, '');
+  addr = addr.split(/\n/).map(clean).filter(Boolean).join('\n');
+
+  // fill
+  const contactEl = document.querySelector('input[name="contact"]');
+  const phoneEl = document.querySelector('input[name="phone"]');
+  const addrEl = document.querySelector('textarea[name="address"]');
+
+  if(contactEl) contactEl.value = name;
+  if(phoneEl) phoneEl.value = phone;
+  if(addrEl) addrEl.value = addr;
+}
+</script>
+
+<script>
+// Some browsers cache 401 responses for <img> under BasicAuth and won’t retry.
+// Force-refresh asset images after page load.
+async function uploadAsset(customerId){
+  const msg = document.getElementById('assetMsg');
+  const kind = document.getElementById('assetKind').value;
+  const file = document.getElementById('assetFile').files[0];
+  if(!file){
+    msg.textContent = '请先选择图片';
+    return;
+  }
+  msg.textContent = '上传中...';
+  const fd = new FormData();
+  fd.append('kind', kind);
+  fd.append('file', file);
+  try{
+    const resp = await fetch(`/app/customers/${customerId}/assets/upload`, {method:'POST', body: fd});
+    // If server redirects, fetch will follow and return the final HTML; reload to show new list.
+    if(!resp.ok){
+      const t = await resp.text();
+      msg.textContent = '上传失败：' + t;
+      return;
+    }
+    window.location.reload();
+  }catch(e){
+    msg.textContent = '上传失败';
+  }
+}
+
+async function deleteAsset(assetId, customerId){
+  if(!confirm('确定删除该图片？')) return;
+  const fd = new URLSearchParams();
+  fd.set('asset_id', String(assetId));
+  try{
+    const resp = await fetch(`/app/customers/${customerId}/assets/delete`, {method:'POST', headers:{'Content-Type':'application/x-www-form-urlencoded'}, body: fd});
+    if(!resp.ok){
+      alert('删除失败');
+      return;
+    }
+    window.location.reload();
+  }catch(e){
+    alert('删除失败');
+  }
+}
+
+// Some browsers cache 401 responses for <img> under BasicAuth and won’t retry.
+// Force-refresh asset images after page load.
+document.addEventListener('DOMContentLoaded', () => {
+  document.querySelectorAll('img[data-asset-src]').forEach(img => {
+    const u = img.getAttribute('data-asset-src');
+    if(!u) return;
+    const sep = u.includes('?') ? '&' : '?';
+    img.src = u + sep + 't=' + Date.now();
+  });
+});
+</script>
+
+
+<script>
+function toggleMenu(){
+  document.body.classList.toggle('menuOpen');
+}
+function closeMenu(){
+  document.body.classList.remove('menuOpen');
+}
+document.addEventListener('click', (e)=>{
+  const a = e.target && e.target.closest ? e.target.closest('a.link') : null;
+  if(a){ closeMenu(); }
+});
+</script>
+
+    </main>
+  </div>
+</body>
+</html>

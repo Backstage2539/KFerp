@@ -1,0 +1,153 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>客户档案</title>
+  <style>
+    body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial; margin:0;}
+    .layout{display:flex; min-height:100vh;}
+    .sidebar{width:190px; padding:14px 12px; border-right:1px solid #eee; background:#fafafa; position:sticky; top:0; height:100vh; box-sizing:border-box; overflow:auto;}
+    .brand{font-weight:800; margin-bottom:10px;}
+    .section{margin-top:14px; margin-bottom:6px; font-size:12px; color:#666;}
+    .link{display:block; padding:8px 10px; border-radius:8px; color:#111; text-decoration:none;}
+    .link:hover{background:#f0f0f0;}
+    .content{flex:1; padding:16px; box-sizing:border-box;}
+    .menuBtn{display:none; padding:8px 10px; font-size:18px; border:1px solid #999; background:#fff; border-radius:8px;}
+    .overlay{display:none; position:fixed; inset:0; background:rgba(0,0,0,.25); z-index:40;}
+    @media (max-width: 820px){
+      .layout{display:block;}
+      .menuBtn{display:inline-block;}
+      .sidebar{width:240px; position:fixed; left:0; top:0; bottom:0; height:100vh; border-right:1px solid #eee; border-bottom:0; transform:translateX(-110%); transition:transform .18s ease; z-index:50; background:#fafafa;}
+      .content{padding:12px;}
+      body.menuOpen .sidebar{transform:translateX(0);}
+      body.menuOpen .overlay{display:block;}
+    }
+    .topbar{display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap;}
+    .card{border:1px solid #eee; border-radius:10px; padding:12px; margin:12px 0;}
+    input,select{width:100%; padding:10px; font-size:16px; box-sizing:border-box;}
+    .btn{display:inline-block; padding:10px 12px; font-size:16px; border:1px solid #111; background:#111; color:#fff; border-radius:8px; text-decoration:none; cursor:pointer;}
+    .btn2{display:inline-block; padding:10px 12px; font-size:16px; border:1px solid #999; background:#fff; color:#111; border-radius:8px; text-decoration:none; cursor:pointer;}
+    .muted{color:#666; font-size:13px;}
+    .err{background:#ffecec; border:1px solid #ffb9b9; padding:10px; border-radius:8px;}
+    .c-card{border:1px solid #eee; border-radius:10px; padding:12px; margin:12px 0;}
+  </style>
+</head>
+<body>
+  <div class="overlay" onclick="closeMenu()"></div>
+  <div class="layout">
+    <nav class="sidebar">
+      <div class="brand">ERP</div>
+      <div class="section">订单</div>
+      <a class="link" href="/order">录单</a>
+      <a class="link" href="/orders">订单列表</a>
+      <div class="section">档案</div>
+      <a class="link" href="/customers">客户档案</a>
+      <a class="link" href="/products">商品档案</a>
+      <a class="link" href="/products/print" target="_blank">报价导出</a>
+      <div class="section">日志</div>
+      <a class="link" href="/audit">操作日志</a>
+      <div class="section">文档</div>
+      <a class="link" href="/docs">需求/验收</a>
+      <div class="section">需求管理</div>
+      <a class="link" href="/req/product">产品需求表</a>
+      <a class="link" href="/req/dev">开发需求表</a>
+      <a class="link" href="/req/unit">单元测试表</a>
+      <a class="link" href="/req/api">API 测试表</a>
+      <a class="link" href="/req/review">需求审核表</a>
+    </nav>
+    <main class="content">
+
+  <div class="topbar">
+    <div style="display:flex; align-items:center; gap:10px;">
+      <button type="button" class="menuBtn" onclick="toggleMenu()">☰</button>
+      <h2 style="margin:0">客户档案</h2>
+    </div>
+    <a class="btn" href="/customers/new">+ 新建客户</a>
+  </div>
+
+  {{if .Error}}<div class="err">{{.Error}}</div>{{end}}
+
+  <div class="card">
+    <form method="get" action="/customers">
+      <label class="muted">搜索</label>
+      <input name="q" value="{{.Q}}" placeholder="客户名/联系人/电话/地址" />
+
+      <div style="margin-top:10px; display:grid; grid-template-columns:1fr 1fr; gap:12px;">
+        <div>
+          <div class="muted" style="margin-bottom:6px;">每页条数</div>
+          <select name="limit">
+            <option value="10" {{if eqi 10 .Limit}}selected{{end}}>10</option>
+            <option value="20" {{if eqi 20 .Limit}}selected{{end}}>20</option>
+            <option value="50" {{if eqi 50 .Limit}}selected{{end}}>50</option>
+            <option value="100" {{if eqi 100 .Limit}}selected{{end}}>100</option>
+          </select>
+        </div>
+        <div>
+          <div class="muted" style="margin-bottom:6px;">跳转到页码</div>
+          <input name="page" inputmode="numeric" value="{{.Page}}" placeholder="例如 1" />
+        </div>
+      </div>
+
+      <div style="margin-top:12px; display:flex; gap:10px; flex-wrap:wrap;">
+        <button class="btn" type="submit">查询</button>
+        <a class="btn2" href="/customers">清空</a>
+      </div>
+      <div class="muted" style="margin-top:8px;">当前第 {{.Page}} 页</div>
+    </form>
+  </div>
+
+  <div class="card">
+    <div id="cards">
+      {{range .Rows}}
+      <div class="c-card" data-name="{{custShort .Name}}" style="opacity:{{if .Active}}1{{else}}0.55{{end}}">
+        <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:12px;">
+          <div>
+            <div style="font-size:16px; font-weight:800;"><a href="/customers/{{.ID}}">{{custShort .Name}}</a></div>
+            <div class="muted" style="margin-top:4px;">{{if .Contact}}{{.Contact}}{{end}} {{if .Phone}}· {{.Phone}}{{end}}</div>
+            <div class="muted" style="margin-top:4px;">{{if .Address}}{{.Address}}{{end}}</div>
+          </div>
+          <div style="display:flex; flex-direction:column; gap:8px;">
+            <a class="btn2" href="/customers/{{.ID}}">编辑</a>
+            <a class="btn2" href="/orders?q={{(custShort .Name) | urlquery}}">订单</a>
+          </div>
+        </div>
+      </div>
+      {{end}}
+      {{if not .Rows}}
+        <div class="muted">暂无数据</div>
+      {{end}}
+    </div>
+
+    <div style="margin-top:12px; display:flex; justify-content:space-between; gap:12px;">
+      <div>
+        {{if .HasPrev}}
+          <a class="btn2" href="/customers?q={{.Q | urlquery}}&limit={{.Limit}}&page={{sub .Page 1}}">上一页</a>
+        {{end}}
+      </div>
+      <div>
+        {{if .HasNext}}
+          <a class="btn2" href="/customers?q={{.Q | urlquery}}&limit={{.Limit}}&page={{add .Page 1}}">下一页</a>
+        {{end}}
+      </div>
+    </div>
+  </div>
+
+
+<script>
+function toggleMenu(){
+  document.body.classList.toggle('menuOpen');
+}
+function closeMenu(){
+  document.body.classList.remove('menuOpen');
+}
+document.addEventListener('click', (e)=>{
+  const a = e.target && e.target.closest ? e.target.closest('a.link') : null;
+  if(a){ closeMenu(); }
+});
+</script>
+
+    </main>
+  </div>
+</body>
+</html>

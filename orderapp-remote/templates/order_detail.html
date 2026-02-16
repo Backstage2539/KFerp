@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>订单详情</title>
+  <style>
+    body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial; margin:16px;}
+    .card{border:1px solid #eee; border-radius:10px; padding:12px; margin:12px 0;}
+    .btn2{display:inline-block; padding:10px 12px; font-size:16px; border:1px solid #999; background:#fff; color:#111; border-radius:8px; text-decoration:none;}
+    table{width:100%; border-collapse:collapse;}
+    th,td{border-bottom:1px solid #f1f1f1; padding:10px 8px; text-align:left; font-size:14px;}
+    .muted{color:#666; font-size:13px;}
+  </style>
+</head>
+<body>
+  <div style="display:flex; justify-content:space-between; align-items:center; gap:12px;">
+    <h2 style="margin:0">订单详情</h2>
+    <a class="btn2" href="/orders">← 返回列表</a>
+  </div>
+
+  <div class="card">
+    <div><b>订单号：</b>{{.OrderNo}} {{if .IsVoid}}<span class="muted">(作废)</span>{{end}}</div>
+    <div><b>日期：</b>{{.OrderDate}}</div>
+    <div><b>客户：</b>{{.Customer}}</div>
+    <div class="muted" style="margin-top:8px;">
+      来源：{{.Source}} | 类型：{{.OrderType}} | 收款：{{.PayStatus}} | 发货：{{.ShipStatus}}
+    </div>
+    {{if .Notes}}<div style="margin-top:8px;"><b>备注：</b>{{.Notes}}</div>{{end}}
+
+    <div style="margin-top:10px; display:flex; gap:10px; flex-wrap:wrap; align-items:center;">
+      {{if .IsVoid}}
+        <form method="post" action="/orders/{{.ID}}/unvoid" style="margin:0;">
+          <button class="btn2" type="submit">恢复订单</button>
+        </form>
+        <span class="muted">作废时间：{{.VoidedAt}} {{if .VoidReason}}| 原因：{{.VoidReason}}{{end}}</span>
+      {{else}}
+        <form method="post" action="/orders/{{.ID}}/void" style="margin:0; display:flex; gap:8px; align-items:center;">
+          <input name="reason" placeholder="作废原因（可选）" />
+          <button class="btn2" type="submit">作废订单</button>
+        </form>
+      {{end}}
+    </div>
+  </div>
+
+  <div class="card">
+    <b>金额</b>
+    <div class="muted" style="margin-top:6px;">
+      商品：{{printf "%.2f" .TotalAmount}} | 运费：{{printf "%.2f" .ShippingAmt}} | 折扣：{{printf "%.2f" .DiscountAmt}}
+      {{if .RoundToInt}} | 抹零：{{printf "%.2f" .RoundingAmt}}{{end}}
+      | 合计：<b>{{printf "%.2f" .GrandTotal}}</b>
+    </div>
+    {{if .ExpressFee}}<div class="muted" style="margin-top:6px;">快递费：{{.ExpressFee}}</div>{{end}}
+  </div>
+
+  <div class="card">
+    <b>明细</b>
+    <table style="margin-top:8px;">
+      <thead>
+        <tr>
+          <th style="width:8%">行</th>
+          <th>商品</th>
+          <th>品名补充</th>
+          <th style="width:12%">数量</th>
+          <th style="width:12%">单价</th>
+          <th style="width:12%">小计</th>
+          <th style="width:12%">单位</th>
+          <th style="width:20%">规格</th>
+        </tr>
+      </thead>
+      <tbody>
+        {{range .Items}}
+        <tr>
+          <td>{{.LineNo}}</td>
+          <td>{{.Product}}</td>
+          <td>{{.ItemName}}</td>
+          <td>{{f2p .Qty}}</td>
+          <td>{{f2p .UnitPrice}}</td>
+          <td>{{f2p .LineTotal}}</td>
+          <td>{{if .Unit}}{{.Unit}}{{end}}</td>
+          <td>{{if .Spec}}{{.Spec}}{{end}}</td>
+        </tr>
+        {{end}}
+        {{if not .Items}}
+        <tr><td colspan="8" class="muted">无明细</td></tr>
+        {{end}}
+      </tbody>
+    </table>
+  </div>
+</body>
+</html>

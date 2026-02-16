@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>编辑商品</title>
+  <style>
+    body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial; margin:16px;}
+    .card{border:1px solid #eee; border-radius:10px; padding:12px; margin:12px 0;}
+    .btn{display:inline-block; padding:10px 12px; font-size:16px; border:1px solid #111; background:#111; color:#fff; border-radius:8px; text-decoration:none;}
+    .btn2{display:inline-block; padding:10px 12px; font-size:16px; border:1px solid #999; background:#fff; color:#111; border-radius:8px; text-decoration:none;}
+    input{width:100%; padding:10px; font-size:16px; box-sizing:border-box;}
+    table{width:100%; border-collapse:collapse;}
+    th,td{border-bottom:1px solid #f1f1f1; padding:10px 8px; text-align:left; font-size:14px;}
+    .muted{color:#666; font-size:13px;}
+  </style>
+</head>
+<body>
+  <div style="display:flex; justify-content:space-between; align-items:center; gap:12px;">
+    <h2 style="margin:0">编辑：{{.Name}}</h2>
+    <a class="btn2" href="/products">← 返回</a>
+  </div>
+
+  <div class="card">
+    <div class="muted">阶梯价单位：元 / lb（磅）</div>
+  </div>
+
+  <form method="post" action="/products/{{.ID}}">
+    <div class="card">
+      <table id="tiers">
+        <thead>
+          <tr>
+            <th style="width:18%">起始(lb)</th>
+            <th style="width:18%">结束(lb)</th>
+            <th style="width:24%">单价(元/lb)</th>
+            <th style="width:18%">启用</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          {{range .Tiers}}
+          <tr>
+            <td><input name="min[]" value="{{printf "%.0f" .MinLb}}" /></td>
+            <td><input name="max[]" value="{{if .MaxLb}}{{f0p .MaxLb}}{{end}}" placeholder="空=无上限" /></td>
+            <td><input name="price[]" value="{{printf "%.2f" .PriceLb}}" /></td>
+            <td><input type="checkbox" name="active[]" value="1" checked /></td>
+            <td><button type="button" class="btn2" onclick="this.closest('tr').remove()">删</button></td>
+          </tr>
+          {{end}}
+        </tbody>
+      </table>
+
+      <div style="margin-top:12px; display:flex; gap:10px; flex-wrap:wrap;">
+        <button type="button" class="btn2" onclick="addRow()">+ 添加档位</button>
+        <button class="btn" type="submit">保存</button>
+      </div>
+      <div class="muted" style="margin-top:8px;">提示：档位按起始 lb 从小到大配置；自动匹配时会选“满足范围的最大起始档位”。</div>
+    </div>
+  </form>
+
+<script>
+function addRow(){
+  const tr = document.createElement('tr');
+  tr.innerHTML = `
+    <td><input name="min[]" placeholder="例如 2" /></td>
+    <td><input name="max[]" placeholder="例如 13（空=无上限）" /></td>
+    <td><input name="price[]" placeholder="例如 88.00" /></td>
+    <td><input type="checkbox" name="active[]" value="1" checked /></td>
+    <td><button type="button" class="btn2" onclick="this.closest('tr').remove()">删</button></td>
+  `;
+  document.querySelector('#tiers tbody').appendChild(tr);
+}
+</script>
+</body>
+</html>

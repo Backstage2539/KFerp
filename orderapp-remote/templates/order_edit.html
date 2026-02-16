@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>编辑订单</title>
+  <style>
+    body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial; margin:16px;}
+    label{display:block; font-size:14px; margin:10px 0 4px; color:#333;}
+    input,textarea{width:100%; padding:10px; font-size:16px; box-sizing:border-box;}
+    textarea{min-height:70px;}
+    .row{display:grid; grid-template-columns:1fr 1fr; gap:12px;}
+    .card{border:1px solid #eee; border-radius:10px; padding:12px; margin:12px 0;}
+    .btn{display:inline-block; padding:10px 12px; font-size:16px; border:1px solid #111; background:#111; color:#fff; border-radius:8px;}
+    .btn2{display:inline-block; padding:10px 12px; font-size:16px; border:1px solid #999; background:#fff; color:#111; border-radius:8px; text-decoration:none;}
+    .muted{color:#666; font-size:13px;}
+    .err{background:#ffecec; border:1px solid #ffb9b9; padding:10px; border-radius:8px;}
+  </style>
+</head>
+<body>
+  <div style="display:flex; justify-content:space-between; align-items:center; gap:12px;">
+    <h2 style="margin:0">编辑订单：{{.OrderNo}}</h2>
+    <a class="btn2" href="/orders/{{.ID}}">← 返回详情</a>
+  </div>
+
+  {{if .Error}}<div class="err">{{.Error}}</div>{{end}}
+
+  <div class="card">
+    <div class="muted">当前仅支持编辑“订单头信息”（客户/日期/状态/备注/运费/折扣/抹零/快递费）。明细修改下一步加。</div>
+  </div>
+
+  <form method="post" action="/orders/{{.ID}}/edit">
+    <div class="card">
+      <div class="row">
+        <div>
+          <label>下单日期</label>
+          <input type="date" name="order_date" value="{{.OrderDate}}" />
+        </div>
+        <div>
+          <label>客户（ID）</label>
+          <input name="customer_id" value="{{.CustomerID}}" placeholder="先输入客户ID（下一步做成可搜索下拉）" />
+        </div>
+      </div>
+
+      <div class="row">
+        <div>
+          <label>来源ID（可选）</label>
+          <input name="source_id" value="{{.SourceID}}" />
+        </div>
+        <div>
+          <label>订单类型ID（可选）</label>
+          <input name="order_type_id" value="{{.OrderTypeID}}" />
+        </div>
+      </div>
+
+      <div class="row">
+        <div>
+          <label>收款状态ID（可选）</label>
+          <input name="pay_status_id" value="{{.PayStatusID}}" />
+        </div>
+        <div>
+          <label>发货状态ID（可选）</label>
+          <input name="ship_status_id" value="{{.ShipStatusID}}" />
+        </div>
+      </div>
+
+      <label>备注</label>
+      <textarea name="notes">{{.Notes}}</textarea>
+
+      <div class="row">
+        <div>
+          <label>运费</label>
+          <input name="shipping_amount" inputmode="decimal" value="{{.ShippingAmount}}" />
+        </div>
+        <div>
+          <label>折扣</label>
+          <input name="discount_amount" inputmode="decimal" value="{{.DiscountAmount}}" />
+        </div>
+      </div>
+
+      <label style="margin-bottom:8px;">抹零</label>
+      <label style="display:flex; gap:10px; align-items:center; margin:0; font-size:16px;">
+        <input type="checkbox" name="round_to_int" value="1" style="width:auto;" {{if .RoundToInt}}checked{{end}} />
+        抹除小数点（向下取整）
+      </label>
+
+      <label>快递费（文字/补充）</label>
+      <input name="express_fee" value="{{.ExpressFee}}" />
+
+      <div style="margin-top:12px; display:flex; gap:10px;">
+        <button class="btn" type="submit">保存修改</button>
+        <a class="btn2" href="/orders/{{.ID}}">取消</a>
+      </div>
+    </div>
+  </form>
+</body>
+</html>
