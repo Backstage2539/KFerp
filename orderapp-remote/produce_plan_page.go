@@ -17,13 +17,43 @@ type ProducePlanPageData struct {
 	Ok         bool
 	BatchID    string
 	Error      string
+
+	// material params
+	YieldRate   string
+	DripExtraG  string
+	DripBoxSpec string
+
+	Materials []MaterialNeed
 }
 
 func registerProducePlanPages(e *echo.Echo, pool *pgxpool.Pool, schema string) {
 	e.GET("/produce/plan", func(c echo.Context) error {
+		params := defaultProducePlanParams()
 		data := ProducePlanPageData{
 			From: strings.TrimSpace(c.QueryParam("from")),
 			To:   strings.TrimSpace(c.QueryParam("to")),
+			// defaults shown in UI
+			YieldRate:   "0.8",
+			DripExtraG:  "100",
+			DripBoxSpec: "10",
+		}
+		if v := strings.TrimSpace(c.QueryParam("yield")); v != "" {
+			data.YieldRate = v
+			if f, err := strconv.ParseFloat(v, 64); err == nil {
+				params.YieldRate = f
+			}
+		}
+		if v := strings.TrimSpace(c.QueryParam("drip_extra_g")); v != "" {
+			data.DripExtraG = v
+			if n, err := strconv.ParseInt(v, 10, 64); err == nil {
+				params.DripExtraG = n
+			}
+		}
+		if v := strings.TrimSpace(c.QueryParam("drip_box")); v != "" {
+			data.DripBoxSpec = v
+			if n, err := strconv.ParseInt(v, 10, 64); err == nil {
+				params.DripBoxSpec = n
+			}
 		}
 		data.Ok = strings.TrimSpace(c.QueryParam("ok")) == "1"
 		data.BatchID = strings.TrimSpace(c.QueryParam("batch"))
@@ -45,6 +75,7 @@ func registerProducePlanPages(e *echo.Echo, pool *pgxpool.Pool, schema string) {
 			}
 		}
 		data.Rows = out
+		data.Materials = calcProducePlanMaterials(out, params)
 		return c.Render(http.StatusOK, "produce_plan.html", data)
 	})
 }

@@ -67,7 +67,7 @@
 
       <div class="card">
         <form method="get" action="/produce/plan">
-          <div class="row">
+          <div class="row" style="grid-template-columns:1fr 1fr 1fr 120px;">
             <div>
               <div class="muted" style="margin-bottom:6px;">开始日期(from)</div>
               <input name="from" value="{{.From}}" placeholder="YYYY-MM-DD" />
@@ -84,6 +84,22 @@
               <button class="btn" type="submit">刷新</button>
             </div>
           </div>
+
+          <div class="row" style="margin-top:10px; grid-template-columns:1fr 1fr 1fr 120px;">
+            <div>
+              <div class="muted" style="margin-bottom:6px;">出品率(0~1)</div>
+              <input name="yield" value="{{.YieldRate}}" placeholder="0.8" />
+            </div>
+            <div>
+              <div class="muted" style="margin-bottom:6px;">挂耳冗余烘焙(g/批次)</div>
+              <input name="drip_extra_g" value="{{.DripExtraG}}" placeholder="100" />
+            </div>
+            <div>
+              <div class="muted" style="margin-bottom:6px;">挂耳盒规(包/盒)</div>
+              <input name="drip_box" value="{{.DripBoxSpec}}" placeholder="5 或 10" />
+            </div>
+            <div></div>
+          </div>
         </form>
 
         <form method="post" action="/produce/plan/commit" style="margin-top:10px;">
@@ -94,6 +110,39 @@
           <a class="btn2" style="margin-left:8px;" href="/produce/allocations">查看扣减记录（批次）</a>
           <span class="muted" style="margin-left:8px;">范围：gap_g &gt; 0（生产计划）</span>
         </form>
+      </div>
+
+      <div class="card">
+        <div style="display:flex; align-items:center; justify-content:space-between; gap:10px; flex-wrap:wrap;">
+          <div>
+            <div style="font-weight:700;">物料需求汇总（按物料类型）</div>
+            <div class="muted" style="margin-top:4px;">口径：基于“生产计划（缺口&gt;0）”的 gap_g，按商品名称关键词粗分（咖啡豆/挂耳/速溶），并按出品率/冗余/盒规计算。</div>
+          </div>
+        </div>
+
+        <div style="overflow:auto; -webkit-overflow-scrolling:touch; margin-top:8px;">
+          <table style="min-width:520px;">
+            <thead>
+              <tr>
+                <th>物料</th>
+                <th style="width:140px;">数量</th>
+                <th style="width:90px;">单位</th>
+              </tr>
+            </thead>
+            <tbody>
+              {{range .Materials}}
+                <tr>
+                  <td>{{.Name}}</td>
+                  <td><b>{{.Qty}}</b></td>
+                  <td>{{.Unit}}</td>
+                </tr>
+              {{end}}
+              {{if not .Materials}}
+                <tr><td colspan="3" class="muted">暂无（先选定日期范围并刷新）</td></tr>
+              {{end}}
+            </tbody>
+          </table>
+        </div>
       </div>
 
       <div class="card">
