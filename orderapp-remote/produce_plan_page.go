@@ -27,7 +27,7 @@ type ProducePlanPageData struct {
 }
 
 func registerProducePlanPages(e *echo.Echo, pool *pgxpool.Pool, schema string) {
-	e.GET("/produce/plan", func(c echo.Context) error {
+	h := func(c echo.Context) error {
 		params := defaultProducePlanParams()
 		data := ProducePlanPageData{
 			From: strings.TrimSpace(c.QueryParam("from")),
@@ -77,5 +77,8 @@ func registerProducePlanPages(e *echo.Echo, pool *pgxpool.Pool, schema string) {
 		data.Rows = out
 		data.Materials = calcProducePlanMaterials(out, params)
 		return c.Render(http.StatusOK, "produce_plan.html", data)
-	})
+	}
+	e.GET("/produce/plan", h)
+	// Backward/alternate path mentioned in requirements.
+	e.GET("/app/produce/plan", h)
 }
