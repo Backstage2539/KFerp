@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"strings"
-	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -35,48 +34,37 @@ func updateReqStatus(ctx context.Context, pool *pgxpool.Pool, schema, table, cod
 }
 
 func updateReviewStatusAndCascade(ctx context.Context, pool *pgxpool.Pool, schema, actor, reviewCode, status string) error {
+	// NOTE: git auto-push on acceptance has been removed (per Van request).
+	// actor is currently unused but kept for future audit improvements.
+	_ = actor
+
 	reviewCode = strings.TrimSpace(reviewCode)
 	status = strings.TrimSpace(status)
 	if reviewCode == "" {
 		return fmt.Errorf("code required")
 	}
 
-	// For done: enforce "sync first, then mark done".
-	// If sync fails, we return error and keep DB status unchanged.
-	if status == "done" {
-		var prCode, title string
-		q := fmt.Sprintf(`SELECT pr_code, title FROM %s.req_review WHERE code=$1`, schema)
-		if err := pool.QueryRow(ctx, q, reviewCode).Scan(&prCode, &title); err != nil {
-			return err
-		}
-		prCode = strings.TrimSpace(prCode)
-		title = strings.TrimSpace(title)
-
-		if err := gitSyncAcceptance(ctx, GitAcceptanceEntry{
-			TimeUnix:   time.Now().Unix(),
-			ReviewCode: reviewCode,
-			PRCode:     prCode,
-			Title:      title,
-			Actor:      actor,
-		}); err != nil {
-			return err
-		}
-
-		// sync ok -> mark review done and cascade PR
-		if err := updateReqStatus(ctx, pool, schema, "req_review", reviewCode, status); err != nil {
-			return err
-		}
-		if prCode != "" {
-			q2 := fmt.Sprintf(`UPDATE %s.req_product SET status='done' WHERE code=$1`, schema)
-			if _, err := pool.Exec(ctx, q2, prCode); err != nil {
-				return err
-			}
-		}
+	// update review row status
+	if err := updateReqStatus(ctx, pool, schema, "req_review", reviewCode, status); err != nil {
+		return err
+	}
+	if status != "done" {
 		return nil
 	}
 
-	// non-done: just update status
-	return updateReqStatus(ctx, pool, schema, "req_review", reviewCode, status)
+	// read pr_code and cascade PR status to done
+	var prCode string
+	q := fmt.Sprintf(`SELECT pr_code FROM %s.req_review WHERE code=$1`, schema)
+	if err := pool.QueryRow(ctx, q, reviewCode).Scan(&prCode); err != nil {
+		return err
+	}
+	prCode = strings.TrimSpace(prCode)
+	if prCode == "" {
+		return nil
+	}
+	q2 := fmt.Sprintf(`UPDATE %s.req_product SET status='done' WHERE code=$1`, schema)
+	_, err := pool.Exec(ctx, q2, prCode)
+	return err
 }
 
 func createReviewRow(ctx context.Context, pool *pgxpool.Pool, schema, code, prCode, title, status, assignee string) error {
