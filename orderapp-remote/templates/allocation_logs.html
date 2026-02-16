@@ -64,27 +64,52 @@
       {{if .Error}}<div class="err">{{.Error}}</div>{{end}}
 
       <div class="card">
-        <form method="get" action="/produce/allocations">
-          <div class="row" style="grid-template-columns:1fr 140px;">
-            <div>
-              <div class="muted" style="margin-bottom:6px;">选择批次(batch)</div>
-              <select name="batch">
-                <option value="">（选择批次）</option>
-                {{range .Batches}}
-                  <option value="{{.}}" {{if eq $.BatchID .}}selected{{end}}>{{.}}</option>
-                {{end}}
-              </select>
-            </div>
-            <div style="display:flex; align-items:flex-end;">
-              <button class="btn" type="submit">查看</button>
-            </div>
-          </div>
-        </form>
-        <div class="muted" style="margin-top:8px;">说明：这里是“汇总扣减”留痕（非订单级）。</div>
+        <div class="muted">说明：这里是“汇总扣减”留痕（非订单级）。点击批次查看明细。</div>
       </div>
 
       <div class="card">
-        <div style="overflow:auto; -webkit-overflow-scrolling:touch;">
+        <b>批次列表</b>
+        <div style="overflow:auto; -webkit-overflow-scrolling:touch; margin-top:8px;">
+          <table>
+            <thead>
+              <tr>
+                <th>批次</th>
+                <th style="width:90px;">条目数</th>
+                <th style="width:120px;">操作者</th>
+                <th style="width:150px;">时间</th>
+              </tr>
+            </thead>
+            <tbody>
+              {{range .Batches}}
+                <tr>
+                  <td><a href="/produce/allocations?batch={{.BatchID | urlquery}}">{{.BatchID}}</a></td>
+                  <td>{{.Items}}</td>
+                  <td class="muted">{{.Operator}}</td>
+                  <td class="muted">{{.CreatedAt}}</td>
+                </tr>
+              {{end}}
+              {{if not .Batches}}
+                <tr><td colspan="4" class="muted">暂无批次</td></tr>
+              {{end}}
+            </tbody>
+          </table>
+        </div>
+
+        <div style="display:flex; gap:10px; margin-top:10px; align-items:center;">
+          {{if gt .PrevPage 0}}
+            <a class="btn2" href="/produce/allocations?page={{.PrevPage}}&per_page={{.PerPage}}">上一页</a>
+          {{end}}
+          <span class="muted">第 {{.Page}} 页</span>
+          {{if .HasNext}}
+            <a class="btn2" href="/produce/allocations?page={{.NextPage}}&per_page={{.PerPage}}">下一页</a>
+          {{end}}
+        </div>
+      </div>
+
+      <div class="card">
+        <b>批次明细</b>
+        <div class="muted" style="margin-top:6px;">{{if .BatchID}}当前批次：{{.BatchID}}{{else}}请选择一个批次{{end}}</div>
+        <div style="overflow:auto; -webkit-overflow-scrolling:touch; margin-top:8px;">
           <table>
             <thead>
               <tr>
@@ -112,7 +137,7 @@
                 </tr>
               {{end}}
               {{if not .Rows}}
-                <tr><td colspan="8" class="muted">请选择一个批次查看明细</td></tr>
+                <tr><td colspan="8" class="muted">暂无明细</td></tr>
               {{end}}
             </tbody>
           </table>

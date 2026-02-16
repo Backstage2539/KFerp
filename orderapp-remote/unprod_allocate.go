@@ -42,9 +42,11 @@ func ensureFinishedAllocationLogTable(ctx context.Context, pool *pgxpool.Pool, s
 }
 
 func newBatchID() string {
-	b := make([]byte, 8)
+	// Keep it human-friendly.
+	// Example: A20260216-144305-7f
+	b := make([]byte, 1)
 	_, _ = rand.Read(b)
-	return fmt.Sprintf("B%s-%s", time.Now().Format("20060102-150405"), hex.EncodeToString(b))
+	return fmt.Sprintf("A%s-%s", time.Now().Format("20060102-150405"), hex.EncodeToString(b))
 }
 
 // allocateUnproducedBySummary deducts inventory based on summary needs (product+spec) and writes a batch log.
