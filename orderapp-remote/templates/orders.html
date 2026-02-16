@@ -229,6 +229,11 @@
           <td><input class="inline" name="notes" value="{{.Notes}}" placeholder="备注..." /></td>
           <td>
             <button class="save" type="button" onclick="saveRow(this)">保存</button>
+            {{if .IsVoid}}
+              <button class="btn2" type="button" style="margin-top:6px; padding:6px 10px; font-size:13px;" onclick="unvoidOrder({{.ID}})">恢复</button>
+            {{else}}
+              <button class="btn2" type="button" style="margin-top:6px; padding:6px 10px; font-size:13px;" onclick="voidOrder({{.ID}})">作废</button>
+            {{end}}
             <div class="mini"><a href="#" onclick="openAudit(event, {{.ID}})">日志</a></div>
             <div class="mini msg"></div>
           </td>
@@ -281,6 +286,22 @@ function presetAll(){
 function presetUnprod(){
   document.getElementById('preset').value = 'unprod';
   document.getElementById('searchForm').submit();
+}
+
+function voidOrder(id){
+  if(!confirm('确认作废该订单？')) return;
+  const reason = prompt('作废原因（可留空）','');
+  const fd = new URLSearchParams();
+  fd.set('reason', reason || '');
+  fetch(`/orders/${id}/void`, {method:'POST', headers:{'Content-Type':'application/x-www-form-urlencoded'}, body: fd})
+    .then(()=>location.reload())
+    .catch((e)=>alert('作废失败：'+e));
+}
+function unvoidOrder(id){
+  if(!confirm('确认恢复该订单？')) return;
+  fetch(`/orders/${id}/unvoid`, {method:'POST'})
+    .then(()=>location.reload())
+    .catch((e)=>alert('恢复失败：'+e));
 }
 // manual change date clears preset highlight
 window.addEventListener('DOMContentLoaded', ()=>{
