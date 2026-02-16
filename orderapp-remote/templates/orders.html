@@ -114,6 +114,9 @@
         <button type="button" class="btn2 {{if eq .Preset "d90"}}active{{end}}" onclick="presetDays(90)">三个月内</button>
         <button type="button" class="btn2 {{if eq .Preset "all"}}active{{end}}" onclick="presetAll()">所有日期内</button>
         <button type="button" class="btn2 {{if eq .Preset "unprod"}}active{{end}}" onclick="presetUnprod()">未生产</button>
+        {{if eq .Preset "unprod"}}
+          <a class="btn2" href="/produce/unproduced?from={{.From | urlquery}}&to={{.To | urlquery}}&customer_id={{.CustomerID}}">需求汇总</a>
+        {{end}}
       </div>
 
       {{if gt .CustomerID 0}}<input type="hidden" name="customer_id" value="{{.CustomerID}}" />{{end}}
