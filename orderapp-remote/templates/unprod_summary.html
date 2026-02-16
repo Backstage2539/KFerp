@@ -57,6 +57,7 @@
         <a class="btn2" href="/orders?preset=unprod">← 返回未生产订单</a>
       </div>
 
+      {{if .Ok}}<div class="card" style="border-color:#b8f5b8; background:#e9ffe9;"><b>已执行分配</b>{{if .BatchID}}（批次：{{.BatchID}}）{{end}}</div>{{end}}
       {{if .Error}}<div class="err">{{.Error}}</div>{{end}}
 
       <div class="card">
@@ -74,10 +75,18 @@
               <div class="muted" style="margin-bottom:6px;">客户ID（可空）</div>
               <input name="customer_id" value="{{.CustomerID}}" placeholder="例如 123" />
             </div>
-            <div style="display:flex; align-items:flex-end;">
+            <div style="display:flex; align-items:flex-end; gap:8px;">
               <button class="btn" type="submit">刷新</button>
             </div>
           </div>
+        </form>
+
+        <form method="post" action="/produce/unproduced/allocate" style="margin-top:10px;">
+          <input type="hidden" name="from" value="{{.From}}" />
+          <input type="hidden" name="to" value="{{.To}}" />
+          <input type="hidden" name="customer_id" value="{{.CustomerID}}" />
+          <button class="btn" type="submit" onclick="return confirm('确认执行分配扣减？会扣减成品库存，并生成分配批次日志。');">执行分配（汇总扣减）</button>
+          <span class="muted" style="margin-left:8px;">按商品+规格汇总扣减（非订单级）</span>
         </form>
       </div>
 
