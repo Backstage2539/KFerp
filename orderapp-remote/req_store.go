@@ -12,6 +12,7 @@ import (
 type ReqRow struct {
 	ID        int64
 	Code      string
+	PRCode    string
 	Title     string
 	Status    string
 	Assignee  string
@@ -60,6 +61,7 @@ func ensureReqTables(ctx context.Context, pool *pgxpool.Pool, schema string) err
 		fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s.req_review (
 			id BIGSERIAL PRIMARY KEY,
 			code TEXT NOT NULL UNIQUE,
+			pr_code TEXT NOT NULL DEFAULT '',
 			title TEXT NOT NULL,
 			status TEXT NOT NULL DEFAULT 'todo',
 			assignee TEXT NOT NULL DEFAULT '',
@@ -72,6 +74,8 @@ func ensureReqTables(ctx context.Context, pool *pgxpool.Pool, schema string) err
 			return err
 		}
 	}
+	// Schema migration (safe, idempotent)
+	_, _ = pool.Exec(ctx, fmt.Sprintf(`ALTER TABLE %s.req_review ADD COLUMN IF NOT EXISTS pr_code TEXT NOT NULL DEFAULT ''`, schema))
 	return nil
 }
 
@@ -79,10 +83,14 @@ func listReqRows(ctx context.Context, pool *pgxpool.Pool, schema, table string, 
 	if limit <= 0 || limit > 500 {
 		limit = 200
 	}
-	q := fmt.Sprintf(`SELECT id, code, title, status, assignee, evidence, created_at
+	cols := "id, code, title, status, assignee, evidence, created_at"
+	if table == "req_review" {
+		cols = "id, code, pr_code, title, status, assignee, evidence, created_at"
+	}
+	q := fmt.Sprintf(`SELECT %s
 		FROM %s.%s
 		ORDER BY id DESC
-		LIMIT %d`, schema, table, limit)
+		LIMIT %d`, cols, schema, table, limit)
 	rows, err := pool.Query(ctx, q)
 	if err != nil {
 		return nil, err
@@ -91,8 +99,14 @@ func listReqRows(ctx context.Context, pool *pgxpool.Pool, schema, table string, 
 	out := make([]ReqRow, 0)
 	for rows.Next() {
 		var r ReqRow
-		if err := rows.Scan(&r.ID, &r.Code, &r.Title, &r.Status, &r.Assignee, &r.Evidence, &r.CreatedAt); err != nil {
-			return nil, err
+		if table == "req_review" {
+			if err := rows.Scan(&r.ID, &r.Code, &r.PRCode, &r.Title, &r.Status, &r.Assignee, &r.Evidence, &r.CreatedAt); err != nil {
+				return nil, err
+			}
+		} else {
+			if err := rows.Scan(&r.ID, &r.Code, &r.Title, &r.Status, &r.Assignee, &r.Evidence, &r.CreatedAt); err != nil {
+				return nil, err
+			}
 		}
 		out = append(out, r)
 	}

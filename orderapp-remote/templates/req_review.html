@@ -29,11 +29,13 @@
     .btn{display:inline-block; padding:10px 12px; font-size:16px; border:1px solid #111; background:#111; color:#fff; border-radius:8px; text-decoration:none;}
     .btn2{display:inline-block; padding:8px 10px; font-size:14px; border:1px solid #999; background:#fff; color:#111; border-radius:8px; text-decoration:none;}
     .btn2.active{border-color:#111; background:#111; color:#fff;}
-    table{width:100%; border-collapse:collapse; min-width:820px;}
+    .save{padding:8px 10px; font-size:14px; border:1px solid #111; background:#111; color:#fff; border-radius:8px;}
+    table{width:100%; border-collapse:collapse; min-width:920px;}
     th,td{border-bottom:1px solid #f1f1f1; padding:10px 8px; text-align:left; font-size:14px; vertical-align:top;}
     input,select{padding:10px; font-size:14px; box-sizing:border-box;}
     input{width:100%;}
-    .row{display:grid; grid-template-columns:160px 1fr 120px 120px 120px; gap:10px;}
+    select{width:100%;}
+    .row{display:grid; grid-template-columns:160px 140px 1fr 120px 120px 120px; gap:10px;}
     @media (max-width: 820px){
       table{min-width:0;}
       .row{grid-template-columns:1fr;}
@@ -76,7 +78,7 @@
   </div>
 
   <div class="card">
-    <div class="muted" style="margin-bottom:10px;">快捷入口（需求A：互相跳转）</div>
+    <div class="muted" style="margin-bottom:10px;">快捷入口</div>
     <div style="display:flex; gap:8px; flex-wrap:wrap;">
       <a class="btn2" href="/req/product">产品需求</a>
       <a class="btn2" href="/req/dev">开发需求</a>
@@ -90,30 +92,45 @@
   {{if .Error}}<div class="err">{{.Error}}</div>{{end}}
 
   <div class="card">
-    <div><b>条目列表</b> <span class="muted">（最新在上）</span></div>
+    <div><b>条目列表</b> <span class="muted">（最新在上；状态可编辑。置为 done 会自动把对应 PR 置为 done）</span></div>
     <div style="overflow:auto;">
       <table>
         <thead>
           <tr>
-            <th style="width:120px;">编号</th>
+            <th style="width:110px;">编号</th>
+            <th style="width:110px;">PR编号</th>
             <th>标题</th>
             <th style="width:120px;">状态</th>
             <th style="width:120px;">验收人</th>
             <th style="width:160px;">创建时间</th>
+            <th style="width:110px;">操作</th>
           </tr>
         </thead>
         <tbody>
           {{range .Rows}}
             <tr>
               <td><code>{{.Code}}</code></td>
+              <td>{{if .PRCode}}<code>{{.PRCode}}</code>{{end}}</td>
               <td>{{.Title}}</td>
-              <td>{{.Status}}</td>
+              <td>
+                <form method="post" action="/req/review/update">
+                  <input type="hidden" name="code" value="{{.Code}}" />
+                  <select name="status">
+                    <option value="todo" {{if eq .Status "todo"}}selected{{end}}>todo</option>
+                    <option value="doing" {{if eq .Status "doing"}}selected{{end}}>doing</option>
+                    <option value="done" {{if eq .Status "done"}}selected{{end}}>done</option>
+                  </select>
+              </td>
               <td>{{.Assignee}}</td>
               <td class="muted">{{.CreatedAt.Format "2006-01-02 15:04"}}</td>
+              <td>
+                  <button class="save" type="submit">保存</button>
+                </form>
+              </td>
             </tr>
           {{end}}
           {{if not .Rows}}
-            <tr><td colspan="5" class="muted">暂无数据</td></tr>
+            <tr><td colspan="7" class="muted">暂无数据</td></tr>
           {{end}}
         </tbody>
       </table>
@@ -129,12 +146,16 @@
           <input id="code" name="code" placeholder="例如 REV-002（可留空自动生成）" />
         </div>
         <div>
+          <div class="muted" style="margin-bottom:6px;">产品需求编号(PR)</div>
+          <input name="pr_code" placeholder="例如 PR-005" />
+        </div>
+        <div>
           <div class="muted" style="margin-bottom:6px;">标题</div>
-          <input name="title" placeholder="一句话描述审核点" />
+          <input name="title" placeholder="一句话描述审核点（标题会自动带上PR编号）" />
         </div>
         <div>
           <div class="muted" style="margin-bottom:6px;">状态</div>
-          <select name="status" style="width:100%;">
+          <select name="status">
             <option value="todo">todo</option>
             <option value="doing">doing</option>
             <option value="done">done</option>
