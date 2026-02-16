@@ -324,9 +324,14 @@ func main() {
 		log.Fatal(err)
 	}
 
+	if err := ensureFinishedInventoryTable(context.Background(), pool, schema); err != nil {
+		log.Fatal(err)
+	}
+
 	registerShipExportRoutes(e, pool, schema)
 	registerRequirementPages(e, pool, schema)
 	registerRequirementAPIs(e, pool, schema)
+	registerFinishedInventoryPages(e, pool, schema)
 
 	e.GET("/", func(c echo.Context) error {
 		return c.Redirect(http.StatusSeeOther, "/orders")
