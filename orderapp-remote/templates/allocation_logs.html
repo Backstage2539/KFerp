@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>未生产需求汇总</title>
+  <title>分配批次查看</title>
   <style>
     body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial; margin:0;}
     .layout{display:flex; min-height:100vh;}
@@ -17,10 +17,10 @@
     .muted{color:#666; font-size:12px;}
     .btn{display:inline-block; padding:10px 12px; font-size:16px; border:1px solid #111; background:#111; color:#fff; border-radius:8px; text-decoration:none;}
     .btn2{display:inline-block; padding:8px 10px; font-size:14px; border:1px solid #999; background:#fff; color:#111; border-radius:8px; text-decoration:none;}
-    input{padding:10px; font-size:14px; box-sizing:border-box; width:100%;}
-    table{width:100%; border-collapse:collapse; min-width:980px;}
+    input,select{padding:10px; font-size:14px; box-sizing:border-box; width:100%;}
+    table{width:100%; border-collapse:collapse; min-width:920px;}
     th,td{border-bottom:1px solid #f1f1f1; padding:10px 8px; text-align:left; font-size:14px; vertical-align:top;}
-    .row{display:grid; grid-template-columns:1fr 1fr 1fr 120px; gap:10px;}
+    .row{display:grid; grid-template-columns:1fr 120px; gap:10px;}
     @media (max-width: 820px){
       table{min-width:0;}
       .row{grid-template-columns:1fr;}
@@ -33,16 +33,20 @@
     <nav class="sidebar">
       <div class="brand">ERP</div>
       <div class="section">订单</div>
+      <a class="link" href="/order">录单</a>
+      <a class="link" href="/orders">订单列表</a>
+      <div class="section">生产流程</div>
       <a class="link" href="/orders?preset=unprod">未生产订单</a>
       <a class="link" href="/produce/unproduced">未生产需求汇总</a>
-      <a class="link" href="/orders">订单列表</a>
+      <a class="link" href="/produce/plan">排产清单（缺口>0）</a>
+      <a class="link" href="/produce/allocations">分配批次查看</a>
       <div class="section">档案</div>
+      <a class="link" href="/customers">客户档案</a>
       <a class="link" href="/products">商品档案</a>
       <a class="link" href="/products/inventory">成品库存</a>
-      <a class="link" href="/customers">客户档案</a>
+      <a class="link" href="/products/print" target="_blank">报价导出</a>
       <div class="section">日志</div>
       <a class="link" href="/audit">操作日志</a>
-      <!-- 文档栏目已隐藏（PR-010） -->
       <div class="section">需求管理</div>
       <a class="link" href="/req/product">产品需求表</a>
       <a class="link" href="/req/dev">开发需求表</a>
@@ -53,76 +57,62 @@
 
     <main class="content">
       <div style="display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap;">
-        <h2 style="margin:0">未生产需求汇总（商品+规格）</h2>
-        <a class="btn2" href="/orders?preset=unprod">← 返回未生产订单</a>
+        <h2 style="margin:0">分配批次查看</h2>
+        <a class="btn2" href="/produce/unproduced">← 返回需求汇总</a>
       </div>
 
-      {{if .Ok}}<div class="card" style="border-color:#b8f5b8; background:#e9ffe9;"><b>已执行分配</b>{{if .BatchID}}（批次：{{.BatchID}}）{{end}}</div>{{end}}
       {{if .Error}}<div class="err">{{.Error}}</div>{{end}}
 
       <div class="card">
-        <form method="get" action="/produce/unproduced">
-          <div class="row">
+        <form method="get" action="/produce/allocations">
+          <div class="row" style="grid-template-columns:1fr 140px;">
             <div>
-              <div class="muted" style="margin-bottom:6px;">开始日期(from)</div>
-              <input name="from" value="{{.From}}" placeholder="YYYY-MM-DD" />
+              <div class="muted" style="margin-bottom:6px;">选择批次(batch)</div>
+              <select name="batch">
+                <option value="">（选择批次）</option>
+                {{range .Batches}}
+                  <option value="{{.}}" {{if eq $.BatchID .}}selected{{end}}>{{.}}</option>
+                {{end}}
+              </select>
             </div>
-            <div>
-              <div class="muted" style="margin-bottom:6px;">结束日期(to)</div>
-              <input name="to" value="{{.To}}" placeholder="YYYY-MM-DD" />
-            </div>
-            <div>
-              <div class="muted" style="margin-bottom:6px;">客户ID（可空）</div>
-              <input name="customer_id" value="{{.CustomerID}}" placeholder="例如 123" />
-            </div>
-            <div style="display:flex; align-items:flex-end; gap:8px;">
-              <button class="btn" type="submit">刷新</button>
+            <div style="display:flex; align-items:flex-end;">
+              <button class="btn" type="submit">查看</button>
             </div>
           </div>
         </form>
-
-        <form method="post" action="/produce/unproduced/allocate" style="margin-top:10px;">
-          <input type="hidden" name="from" value="{{.From}}" />
-          <input type="hidden" name="to" value="{{.To}}" />
-          <input type="hidden" name="customer_id" value="{{.CustomerID}}" />
-          <button class="btn" type="submit" onclick="return confirm('确认执行分配扣减？会扣减成品库存，并生成分配批次日志。');">执行分配（汇总扣减）</button>
-          <a class="btn2" style="margin-left:8px;" href="/produce/allocations">查看分配批次</a>
-          <a class="btn2" style="margin-left:8px;" href="/produce/plan?from={{.From | urlquery}}&to={{.To | urlquery}}&customer_id={{.CustomerID}}">排产清单（缺口&gt;0）</a>
-          <span class="muted" style="margin-left:8px;">按商品+规格汇总扣减（非订单级）</span>
-        </form>
+        <div class="muted" style="margin-top:8px;">说明：这里是“汇总扣减”留痕（非订单级）。</div>
       </div>
 
       <div class="card">
-        <div class="muted" style="margin-bottom:8px;">说明：spec 从订单明细的 "454g" 提取数字为 454。</div>
         <div style="overflow:auto; -webkit-overflow-scrolling:touch;">
           <table>
             <thead>
               <tr>
+                <th>批次</th>
                 <th>商品</th>
                 <th style="width:90px;">规格(g)</th>
-                <th style="width:110px;">需求(件)</th>
-                <th style="width:130px;">需求(g)</th>
-                <th style="width:110px;">库存(件)</th>
-                <th style="width:110px;">库存散装(g)</th>
-                <th style="width:130px;">库存合计(g)</th>
-                <th style="width:130px;">缺口(g)</th>
+                <th style="width:120px;">需求(g)</th>
+                <th style="width:120px;">扣减(g)</th>
+                <th style="width:120px;">缺口(g)</th>
+                <th style="width:120px;">操作者</th>
+                <th style="width:150px;">时间</th>
               </tr>
             </thead>
             <tbody>
               {{range .Rows}}
                 <tr>
+                  <td class="muted">{{.BatchID}}</td>
                   <td>{{.Product}}</td>
                   <td>{{.SpecG}}</td>
-                  <td>{{.NeedUnits}}</td>
                   <td>{{.NeedG}}</td>
-                  <td>{{.InvUnits}}</td>
-                  <td>{{.InvLooseG}}</td>
-                  <td>{{.InvG}}</td>
+                  <td>{{.DeductedG}}</td>
                   <td><b>{{.GapG}}</b></td>
+                  <td class="muted">{{.Operator}}</td>
+                  <td class="muted">{{.CreatedAt}}</td>
                 </tr>
               {{end}}
               {{if not .Rows}}
-                <tr><td colspan="8" class="muted">暂无未生产需求（或没有订单明细）</td></tr>
+                <tr><td colspan="8" class="muted">请选择一个批次查看明细</td></tr>
               {{end}}
             </tbody>
           </table>

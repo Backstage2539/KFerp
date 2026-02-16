@@ -337,6 +337,7 @@ func main() {
 	registerFinishedInventoryPages(e, pool, schema)
 	registerUnprodSummaryPages(e, pool, schema)
 	registerProducePlanPages(e, pool, schema)
+	registerAllocationLogPages(e, pool, schema)
 
 	e.GET("/", func(c echo.Context) error {
 		return c.Redirect(http.StatusSeeOther, "/orders")
