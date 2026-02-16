@@ -315,8 +315,15 @@ func main() {
 	e.Use(basicAuth(authUser, authPass))
 	e.Renderer = &TemplateRenderer{t: t}
 
+	if err := ensureReqTables(context.Background(), pool, schema); err != nil {
+		log.Fatal(err)
+	}
+	if err := seedReqWorkflowA(context.Background(), pool, schema); err != nil {
+		log.Fatal(err)
+	}
+
 	registerShipExportRoutes(e, pool, schema)
-	registerRequirementPages(e)
+	registerRequirementPages(e, pool, schema)
 
 	e.GET("/", func(c echo.Context) error {
 		return c.Redirect(http.StatusSeeOther, "/orders")
