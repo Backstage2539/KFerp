@@ -1,0 +1,25 @@
+# secrets / keys
+openclaw_jj_ed25519
+openclaw_jj_ed25519.pub
+*.pem
+*.key
+
+# local env
+.env
+.env.*
+
+# large / local data
+*.xlsx
+*.csv
+*.png
+*.jpg
+*.jpeg
+*.gif
+*.webp
+
+# openclaw memory (kept in separate private repo)
+MEMORY.md
+memory/
+
+# misc
+.DS_Store
