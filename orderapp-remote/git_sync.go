@@ -97,12 +97,17 @@ func ensureRepoAndAppend(ctx context.Context, dir, repoURL, keyPath, entryText s
 	}
 
 	// pull latest (must succeed)
+	if err := cleanupPossibleRebase(ctx, dir, keyPath); err != nil {
+		return err
+	}
 	if err := runGit(ctx, dir, keyPath, "fetch", "origin", "main"); err != nil {
 		return err
 	}
 	if err := runGit(ctx, dir, keyPath, "rebase", "origin/main"); err != nil {
 		// if rebase fails, abort to leave repo clean
 		_ = runGit(ctx, dir, keyPath, "rebase", "--abort")
+		// Sometimes abort can't remove state; force remove.
+		_ = cleanupRebaseDirs(dir)
 		return err
 	}
 
@@ -138,11 +143,13 @@ func ensureRepoAndAppend(ctx context.Context, dir, repoURL, keyPath, entryText s
 		// Handle non-fast-forward due to concurrent updates: rebase and retry once.
 		es := err.Error()
 		if strings.Contains(es, "non-fast-forward") || strings.Contains(es, "fetch first") || strings.Contains(es, "rejected") {
+			_ = cleanupPossibleRebase(ctx, dir, keyPath)
 			if err2 := runGit(ctx, dir, keyPath, "fetch", "origin", "main"); err2 != nil {
 				return err
 			}
 			if err2 := runGit(ctx, dir, keyPath, "rebase", "origin/main"); err2 != nil {
 				_ = runGit(ctx, dir, keyPath, "rebase", "--abort")
+				_ = cleanupRebaseDirs(dir)
 				return err
 			}
 			if err2 := runGit(ctx, dir, keyPath, "push", "origin", "main"); err2 == nil {
