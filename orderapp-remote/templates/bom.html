@@ -7,6 +7,7 @@
   <style>
     body{font-family:system-ui;margin:0}.layout{display:flex;min-height:100vh}
     .sidebar{width:190px;padding:14px 12px;border-right:1px solid #eee;background:#fafafa;position:sticky;top:0;height:100vh;box-sizing:border-box;overflow:auto}
+    .brand{font-weight:800; margin-bottom:10px;}
     .section{margin-top:14px;margin-bottom:6px;font-size:12px;color:#666}.link{display:block;padding:8px 10px;border-radius:8px;color:#111;text-decoration:none}.link:hover{background:#f0f0f0}
     .content{flex:1;padding:16px}.card{border:1px solid #eee;border-radius:10px;padding:12px;margin:12px 0}
     .btn{padding:10px 12px;background:#111;color:#fff;border-radius:8px;border:1px solid #111}.btn2{padding:8px 10px;background:#fff;color:#111;border-radius:8px;border:1px solid #999}
@@ -20,11 +21,31 @@
 <body>
   <div class="layout">
     <nav class="sidebar">
+      <div class="brand">ERP</div>
+      <div class="section">订单</div>
+      <a class="link" href="/order">录单</a>
+      <a class="link" href="/orders">订单列表</a>
       <div class="section">生产流程</div>
+      <a class="link" href="/orders?preset=unprod">未生产订单</a>
+      <a class="link" href="/produce/unproduced">未生产需求汇总</a>
+      <a class="link" href="/produce/plan">生产计划（缺口&gt;0）</a>
+      <div class="section">物料管理</div>
       <a class="link" href="/materials">物料档案/库存</a>
+      <a class="link" href="/bom">BOM设置</a>
       <a class="link" href="/produce/allocations">扣减记录（批次）</a>
-      <a class="link" href="/bom">BOM配方</a>
-      <a class="link" href="/produce/plan">生产计划</a>
+      <div class="section">档案</div>
+      <a class="link" href="/customers">客户档案</a>
+      <a class="link" href="/products">商品档案</a>
+      <a class="link" href="/products/inventory">成品库存</a>
+      <a class="link" href="/products/print" target="_blank">报价导出</a>
+      <div class="section">日志</div>
+      <a class="link" href="/audit">操作日志</a>
+      <div class="section">需求管理</div>
+      <a class="link" href="/req/product">产品需求表</a>
+      <a class="link" href="/req/dev">开发需求表</a>
+      <a class="link" href="/req/unit">单元测试表</a>
+      <a class="link" href="/req/api">API 测试表</a>
+      <a class="link" href="/req/review">需求审核表</a>
     </nav>
     <main class="content">
       <h2 style="margin:0">BOM配方维护（DEV-042）</h2>
