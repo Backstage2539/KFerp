@@ -1,0 +1,116 @@
+package main
+
+import (
+	"context"
+	"fmt"
+	"strings"
+
+	"github.com/jackc/pgx/v5/pgxpool"
+)
+
+type MaterialRow struct {
+	ID            int64
+	Code          string
+	Name          string
+	Kind          string // bean|pack|other
+	Unit          string // g|unit
+	OnhandG       int64
+	OnhandUnits   int64
+	MinLevelG     int64
+	MinLevelUnits int64
+	UpdatedAt     string
+}
+
+func ensureMaterialTables(ctx context.Context, pool *pgxpool.Pool, schema string) error {
+	q := fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s.materials (
+		id BIGSERIAL PRIMARY KEY,
+		code TEXT NOT NULL UNIQUE,
+		name TEXT NOT NULL,
+		kind TEXT NOT NULL DEFAULT 'other',
+		unit TEXT NOT NULL DEFAULT 'g',
+		onhand_g BIGINT NOT NULL DEFAULT 0,
+		onhand_units BIGINT NOT NULL DEFAULT 0,
+		min_level_g BIGINT NOT NULL DEFAULT 0,
+		min_level_units BIGINT NOT NULL DEFAULT 0,
+		updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+	)`, schema)
+	if _, err := pool.Exec(ctx, q); err != nil {
+		return err
+	}
+	return nil
+}
+
+func listMaterials(ctx context.Context, pool *pgxpool.Pool, schema, q string, limit int) ([]MaterialRow, error) {
+	if limit <= 0 || limit > 500 {
+		limit = 200
+	}
+	where := ""
+	args := []any{}
+	argn := 1
+	if s := strings.TrimSpace(q); s != "" {
+		where = fmt.Sprintf("WHERE (name ILIKE $%d OR code ILIKE $%d)", argn, argn)
+		args = append(args, "%"+s+"%")
+		argn++
+	}
+	args = append(args, limit)
+	limitArg := argn
+
+	sql := fmt.Sprintf(`
+		SELECT id, code, name, kind, unit, onhand_g, onhand_units, min_level_g, min_level_units,
+		       to_char(updated_at,'YYYY-MM-DD HH24:MI')
+		FROM %s.materials
+		%s
+		ORDER BY kind, name, id DESC
+		LIMIT $%d
+	`, schema, where, limitArg)
+	rows, err := pool.Query(ctx, sql, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	out := make([]MaterialRow, 0)
+	for rows.Next() {
+		var r MaterialRow
+		if err := rows.Scan(&r.ID, &r.Code, &r.Name, &r.Kind, &r.Unit, &r.OnhandG, &r.OnhandUnits, &r.MinLevelG, &r.MinLevelUnits, &r.UpdatedAt); err != nil {
+			return nil, err
+		}
+		out = append(out, r)
+	}
+	return out, rows.Err()
+}
+
+func upsertMaterial(ctx context.Context, pool *pgxpool.Pool, schema string, code, name, kind, unit string, onhandG, onhandUnits, minG, minUnits int64) error {
+	code = strings.TrimSpace(code)
+	name = strings.TrimSpace(name)
+	kind = strings.TrimSpace(kind)
+	unit = strings.TrimSpace(unit)
+	if code == "" {
+		return fmt.Errorf("code required")
+	}
+	if name == "" {
+		return fmt.Errorf("name required")
+	}
+	if kind == "" {
+		kind = "other"
+	}
+	if unit == "" {
+		unit = "g"
+	}
+	if onhandG < 0 || onhandUnits < 0 || minG < 0 || minUnits < 0 {
+		return fmt.Errorf("negative qty")
+	}
+	q := fmt.Sprintf(`INSERT INTO %s.materials(code,name,kind,unit,onhand_g,onhand_units,min_level_g,min_level_units,updated_at)
+		VALUES($1,$2,$3,$4,$5,$6,$7,$8,now())
+		ON CONFLICT (code) DO UPDATE SET
+			name=excluded.name,
+			kind=excluded.kind,
+			unit=excluded.unit,
+			onhand_g=excluded.onhand_g,
+			onhand_units=excluded.onhand_units,
+			min_level_g=excluded.min_level_g,
+			min_level_units=excluded.min_level_units,
+			updated_at=now()`, schema)
+	_, err := pool.Exec(ctx, q, code, name, kind, unit, onhandG, onhandUnits, minG, minUnits)
+	return err
+}

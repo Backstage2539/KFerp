@@ -35,10 +35,10 @@ type Option struct {
 }
 
 type ProductTierOption struct {
-	ID       int64
-	MinLb    float64
-	MaxLb    *float64
-	PriceLb  float64
+	ID      int64
+	MinLb   float64
+	MaxLb   *float64
+	PriceLb float64
 }
 
 type ProductOption struct {
@@ -63,20 +63,20 @@ type PageData struct {
 }
 
 type OrderRow struct {
-	ID           int64
-	OrderNo      string
-	OrderDate    string
-	CustomerID   int64
-	Customer     string
-	GrandTotal   string
-	PayStatus    string
-	ShipStatus   string
+	ID              int64
+	OrderNo         string
+	OrderDate       string
+	CustomerID      int64
+	Customer        string
+	GrandTotal      string
+	PayStatus       string
+	ShipStatus      string
 	PayStatusID     int64
 	ShipStatusID    int64
 	ProcessStatusID int64
 	ProcessStatus   string
-	Notes        string
-	IsVoid       bool
+	Notes           string
+	IsVoid          bool
 }
 
 type OrdersPageData struct {
@@ -105,14 +105,14 @@ type OrdersPageData struct {
 }
 
 type OrderItemRow struct {
-	LineNo     int
-	Product    string
-	ItemName   string
-	Qty        *float64
-	Unit       *string
-	Spec       *string
-	UnitPrice  *float64
-	LineTotal  *float64
+	LineNo    int
+	Product   string
+	ItemName  string
+	Qty       *float64
+	Unit      *string
+	Spec      *string
+	UnitPrice *float64
+	LineTotal *float64
 }
 
 type OrderDetailData struct {
@@ -209,7 +209,6 @@ func applyRoundToInt(total float64, enabled bool) (grand float64, rounding float
 	return grand, rounding
 }
 
-
 func basicAuth(user, pass string) echo.MiddlewareFunc {
 	return func(next echo.HandlerFunc) echo.HandlerFunc {
 		return func(c echo.Context) error {
@@ -275,8 +274,8 @@ func main() {
 			}
 			return fmt.Sprintf("%.2f", *p)
 		},
-		"py":  func(s string) string { return pinyinFull(s) },
-		"pyi": func(s string) string { return pinyinInitials(s) },
+		"py":         func(s string) string { return pinyinFull(s) },
+		"pyi":        func(s string) string { return pinyinInitials(s) },
 		"assetLabel": func(kind string) string { return kindLabel(kind) },
 		"custShort": func(s string) string {
 			s = strings.TrimSpace(s)
@@ -330,11 +329,15 @@ func main() {
 	if err := ensureFinishedAllocationLogTable(context.Background(), pool, schema); err != nil {
 		log.Fatal(err)
 	}
+	if err := ensureMaterialTables(context.Background(), pool, schema); err != nil {
+		log.Fatal(err)
+	}
 
 	registerShipExportRoutes(e, pool, schema)
 	registerRequirementPages(e, pool, schema)
 	registerRequirementAPIs(e, pool, schema)
 	registerFinishedInventoryPages(e, pool, schema)
+	registerMaterialsPages(e, pool, schema)
 	registerUnprodSummaryPages(e, pool, schema)
 	registerProducePlanPages(e, pool, schema)
 	registerProducePlanAllocate(e, pool, schema)
@@ -624,7 +627,7 @@ func main() {
 	})
 
 	e.GET("/products", func(c echo.Context) error {
-		data := struct{
+		data := struct {
 			Products []ProductOption
 			Error    string
 		}{}
@@ -636,7 +639,7 @@ func main() {
 		return c.Render(http.StatusOK, "products.html", data)
 	})
 	e.GET("/products/print", func(c echo.Context) error {
-		data := struct{
+		data := struct {
 			Products []ProductOption
 			Error    string
 		}{}
@@ -683,7 +686,7 @@ func main() {
 		if err != nil {
 			return err
 		}
-		defer func(){ _ = tx.Rollback(ctx) }()
+		defer func() { _ = tx.Rollback(ctx) }()
 
 		// Replace tiers for simplicity
 		if _, err := tx.Exec(ctx, fmt.Sprintf("DELETE FROM %s.product_price_tiers WHERE product_id=$1", schema), id); err != nil {
@@ -692,9 +695,13 @@ func main() {
 		ins := fmt.Sprintf("INSERT INTO %s.product_price_tiers(product_id,min_qty_lb,max_qty_lb,price_per_lb,active) VALUES ($1,$2,$3,$4,true)", schema)
 		for i := 0; i < len(minArr); i++ {
 			mn := strings.TrimSpace(minArr[i])
-			if mn == "" { continue }
+			if mn == "" {
+				continue
+			}
 			minv, err := strconv.ParseFloat(mn, 64)
-			if err != nil { continue }
+			if err != nil {
+				continue
+			}
 			var maxAny any = nil
 			if i < len(maxArr) {
 				mx := strings.TrimSpace(maxArr[i])
@@ -714,7 +721,9 @@ func main() {
 				return err
 			}
 		}
-		if err := tx.Commit(ctx); err != nil { return err }
+		if err := tx.Commit(ctx); err != nil {
+			return err
+		}
 		return c.Redirect(http.StatusSeeOther, fmt.Sprintf("/products/%d", id))
 	})
 
