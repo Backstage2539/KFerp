@@ -332,12 +332,16 @@ func main() {
 	if err := ensureMaterialTables(context.Background(), pool, schema); err != nil {
 		log.Fatal(err)
 	}
+	if err := ensureBomTables(context.Background(), pool, schema); err != nil {
+		log.Fatal(err)
+	}
 
 	registerShipExportRoutes(e, pool, schema)
 	registerRequirementPages(e, pool, schema)
 	registerRequirementAPIs(e, pool, schema)
 	registerFinishedInventoryPages(e, pool, schema)
 	registerMaterialsPages(e, pool, schema)
+	registerBomPages(e, pool, schema)
 	registerUnprodSummaryPages(e, pool, schema)
 	registerProducePlanPages(e, pool, schema)
 	registerProducePlanAllocate(e, pool, schema)
