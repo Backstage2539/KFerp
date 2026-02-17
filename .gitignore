@@ -17,8 +17,7 @@ openclaw_jj_ed25519.pub
 *.gif
 *.webp
 
-# openclaw memory (kept in separate private repo)
-MEMORY.md
+# openclaw memory
 memory/
 KFerp-notes/
 
