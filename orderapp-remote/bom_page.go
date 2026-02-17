@@ -34,7 +34,8 @@ func registerBomPages(e *echo.Echo, pool *pgxpool.Pool, schema string) {
 			}
 		}
 
-		data.Products, _ = fetchOptions(c.Request().Context(), pool, "SELECT id, name FROM "+schema+".products ORDER BY name")
+		// Align with 商品档案列表口径：仅 active=true
+		data.Products, _ = fetchOptions(c.Request().Context(), pool, "SELECT id, name FROM "+schema+".products WHERE active=true ORDER BY name")
 		data.BeanMaterials, _ = fetchOptions(c.Request().Context(), pool, "SELECT id, name FROM "+schema+".materials WHERE kind='bean' ORDER BY name")
 
 		rows, err := listBom(c.Request().Context(), pool, schema)
