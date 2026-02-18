@@ -62,9 +62,23 @@ CREATE TABLE IF NOT EXISTS %s.produce_batch_order_items (
 	created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
 	UNIQUE(order_item_id)
 );
+-- DEV-044 v2: allow partial allocation across multiple batches
+CREATE TABLE IF NOT EXISTS %s.produce_batch_allocations (
+	id BIGSERIAL PRIMARY KEY,
+	batch_id TEXT NOT NULL,
+	order_id BIGINT NOT NULL,
+	order_item_id BIGINT NOT NULL,
+	product_id BIGINT NOT NULL,
+	spec_g BIGINT NOT NULL,
+	allocated_units BIGINT NOT NULL,
+	created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+	UNIQUE(batch_id, order_item_id)
+);
 CREATE INDEX IF NOT EXISTS produce_batch_items_batch_idx ON %s.produce_batch_items(batch_id);
 CREATE INDEX IF NOT EXISTS produce_batch_order_items_batch_idx ON %s.produce_batch_order_items(batch_id);
-`, schema, schema, schema, schema, schema)
+CREATE INDEX IF NOT EXISTS produce_batch_allocations_batch_idx ON %s.produce_batch_allocations(batch_id);
+CREATE INDEX IF NOT EXISTS produce_batch_allocations_order_item_idx ON %s.produce_batch_allocations(order_item_id);
+`, schema, schema, schema, schema, schema, schema, schema, schema)
 	_, err := pool.Exec(ctx, q)
 	return err
 }
@@ -73,6 +87,30 @@ func newProduceBatchID() string {
 	b := make([]byte, 1)
 	_, _ = rand.Read(b)
 	return fmt.Sprintf("P%s-%s", time.Now().Format("20060102-150405"), hex.EncodeToString(b))
+}
+
+func calcRemainingUnits(totalUnits, allocatedUnits int64) (int64, error) {
+	if totalUnits < 0 || allocatedUnits < 0 {
+		return 0, fmt.Errorf("units must be non-negative")
+	}
+	if allocatedUnits > totalUnits {
+		return 0, fmt.Errorf("allocated units exceed total units")
+	}
+	return totalUnits - allocatedUnits, nil
+}
+
+func validateAllocateUnits(totalUnits, allocatedUnits, requestUnits int64) error {
+	if requestUnits <= 0 {
+		return fmt.Errorf("request units must be > 0")
+	}
+	remain, err := calcRemainingUnits(totalUnits, allocatedUnits)
+	if err != nil {
+		return err
+	}
+	if requestUnits > remain {
+		return fmt.Errorf("request units exceed remaining units")
+	}
+	return nil
 }
 
 func aggregateBatchSummary(items []ProduceBatchOrderItem) []ProduceBatchSummaryItem {

@@ -35,6 +35,31 @@ func TestAggregateBatchSummary(t *testing.T) {
 	}
 }
 
+func TestCalcRemainingUnits(t *testing.T) {
+	remain, err := calcRemainingUnits(10, 4)
+	if err != nil {
+		t.Fatalf("unexpected err: %v", err)
+	}
+	if remain != 6 {
+		t.Fatalf("remain=%d want=6", remain)
+	}
+	if _, err := calcRemainingUnits(5, 6); err == nil {
+		t.Fatalf("want err when allocated > total")
+	}
+}
+
+func TestValidateAllocateUnits(t *testing.T) {
+	if err := validateAllocateUnits(10, 4, 3); err != nil {
+		t.Fatalf("unexpected err: %v", err)
+	}
+	if err := validateAllocateUnits(10, 4, 7); err == nil {
+		t.Fatalf("want exceed remain err")
+	}
+	if err := validateAllocateUnits(10, 4, 0); err == nil {
+		t.Fatalf("want request>0 err")
+	}
+}
+
 func TestAggregateBatchSummary_FiltersInvalidRows(t *testing.T) {
 	items := []ProduceBatchOrderItem{
 		{ProductID: 100, ProductName: "A", SpecG: 454, NeedUnits: 1},
