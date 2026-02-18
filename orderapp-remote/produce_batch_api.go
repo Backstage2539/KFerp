@@ -10,9 +10,15 @@ import (
 	"github.com/labstack/echo/v4"
 )
 
+type ProduceBatchAllocateItem struct {
+	OrderItemID   int64 `json:"order_item_id"`
+	AllocateUnits int64 `json:"allocate_units"`
+}
+
 type CreateProduceBatchRequest struct {
-	OrderIDs []int64 `json:"order_ids"`
-	Operator string  `json:"operator"`
+	OrderIDs    []int64                    `json:"order_ids"`
+	Operator    string                     `json:"operator"`
+	Allocations []ProduceBatchAllocateItem `json:"allocations"`
 }
 
 type ProduceBatchListItem struct {
@@ -41,9 +47,15 @@ func registerProduceBatchAPI(e *echo.Echo, pool *pgxpool.Pool, schema string) {
 		if len(req.OrderIDs) == 0 {
 			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: "order_ids required"})
 		}
-		res, err := createProduceBatchFromOrders(c.Request().Context(), pool, schema, req.OrderIDs, req.Operator)
+		allocMap := map[int64]int64{}
+		for _, a := range req.Allocations {
+			if a.OrderItemID > 0 && a.AllocateUnits > 0 {
+				allocMap[a.OrderItemID] = a.AllocateUnits
+			}
+		}
+		res, err := createProduceBatchFromOrders(c.Request().Context(), pool, schema, req.OrderIDs, req.Operator, allocMap)
 		if err != nil {
-			if strings.Contains(err.Error(), "already in active batch") {
+			if strings.Contains(err.Error(), "exceed") {
 				return c.JSON(http.StatusConflict, ErrorResponse{Error: err.Error()})
 			}
 			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: err.Error()})

@@ -14,12 +14,14 @@ import (
 )
 
 type ProduceBatchOrderItem struct {
-	OrderItemID int64
-	OrderID     int64
-	ProductID   int64
-	ProductName string
-	SpecG       int64
-	NeedUnits   int64
+	OrderItemID    int64
+	OrderID        int64
+	ProductID      int64
+	ProductName    string
+	SpecG          int64
+	NeedUnits      int64
+	TotalUnits     int64
+	AllocatedUnits int64
 }
 
 type ProduceBatchSummaryItem struct {
@@ -59,9 +61,10 @@ CREATE TABLE IF NOT EXISTS %s.produce_batch_order_items (
 	batch_id TEXT NOT NULL,
 	order_id BIGINT NOT NULL,
 	order_item_id BIGINT NOT NULL,
-	created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-	UNIQUE(order_item_id)
+	created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+ALTER TABLE %s.produce_batch_order_items DROP CONSTRAINT IF EXISTS produce_batch_order_items_order_item_id_key;
+CREATE UNIQUE INDEX IF NOT EXISTS produce_batch_order_items_batch_item_uq ON %s.produce_batch_order_items(batch_id, order_item_id);
 -- DEV-044 v2: allow partial allocation across multiple batches
 CREATE TABLE IF NOT EXISTS %s.produce_batch_allocations (
 	id BIGSERIAL PRIMARY KEY,
@@ -78,7 +81,7 @@ CREATE INDEX IF NOT EXISTS produce_batch_items_batch_idx ON %s.produce_batch_ite
 CREATE INDEX IF NOT EXISTS produce_batch_order_items_batch_idx ON %s.produce_batch_order_items(batch_id);
 CREATE INDEX IF NOT EXISTS produce_batch_allocations_batch_idx ON %s.produce_batch_allocations(batch_id);
 CREATE INDEX IF NOT EXISTS produce_batch_allocations_order_item_idx ON %s.produce_batch_allocations(order_item_id);
-`, schema, schema, schema, schema, schema, schema, schema, schema)
+`, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema)
 	_, err := pool.Exec(ctx, q)
 	return err
 }
@@ -114,10 +117,7 @@ func validateAllocateUnits(totalUnits, allocatedUnits, requestUnits int64) error
 }
 
 func aggregateBatchSummary(items []ProduceBatchOrderItem) []ProduceBatchSummaryItem {
-	type key struct {
-		p int64
-		s int64
-	}
+	type key struct{ p, s int64 }
 	m := map[key]ProduceBatchSummaryItem{}
 	for _, it := range items {
 		if it.ProductID <= 0 || it.SpecG <= 0 || it.NeedUnits <= 0 {
@@ -148,7 +148,7 @@ func aggregateBatchSummary(items []ProduceBatchOrderItem) []ProduceBatchSummaryI
 	return out
 }
 
-func createProduceBatchFromOrders(ctx context.Context, pool *pgxpool.Pool, schema string, orderIDs []int64, operator string) (*ProduceBatchCreateResult, error) {
+func createProduceBatchFromOrders(ctx context.Context, pool *pgxpool.Pool, schema string, orderIDs []int64, operator string, requestUnitsByOrderItem map[int64]int64) (*ProduceBatchCreateResult, error) {
 	if len(orderIDs) == 0 {
 		return nil, fmt.Errorf("order_ids required")
 	}
@@ -166,14 +166,16 @@ func createProduceBatchFromOrders(ctx context.Context, pool *pgxpool.Pool, schem
 	qItems := fmt.Sprintf(`
 SELECT oi.id, oi.order_id, oi.product_id, COALESCE(p.name,''),
        COALESCE(NULLIF(regexp_replace(COALESCE(oi.spec,''), '[^0-9]', '', 'g'), ''), '0')::bigint AS spec_g,
-       COALESCE(oi.qty,0)::bigint AS need_units
+       COALESCE(oi.qty,0)::bigint AS total_units,
+       COALESCE((SELECT SUM(a.allocated_units) FROM %s.produce_batch_allocations a WHERE a.order_item_id=oi.id),0)::bigint AS allocated_units
 FROM %s.order_items oi
 JOIN %s.orders o ON o.id=oi.order_id
 LEFT JOIN %s.products p ON p.id=oi.product_id
 WHERE oi.order_id = ANY($1)
   AND o.is_void=false
   AND COALESCE(o.process_status_id,0) IN (1,2)
-`, schema, schema, schema)
+FOR UPDATE OF oi
+`, schema, schema, schema, schema)
 	rows, err := tx.Query(ctx, qItems, orderIDs)
 	if err != nil {
 		return nil, err
@@ -184,11 +186,30 @@ WHERE oi.order_id = ANY($1)
 	seenOrders := map[int64]bool{}
 	for rows.Next() {
 		var it ProduceBatchOrderItem
-		if err := rows.Scan(&it.OrderItemID, &it.OrderID, &it.ProductID, &it.ProductName, &it.SpecG, &it.NeedUnits); err != nil {
+		if err := rows.Scan(&it.OrderItemID, &it.OrderID, &it.ProductID, &it.ProductName, &it.SpecG, &it.TotalUnits, &it.AllocatedUnits); err != nil {
 			return nil, err
 		}
 		seenOrders[it.OrderID] = true
-		if it.ProductID > 0 && it.SpecG > 0 && it.NeedUnits > 0 {
+		if it.ProductID <= 0 || it.SpecG <= 0 || it.TotalUnits <= 0 {
+			continue
+		}
+		remain, err := calcRemainingUnits(it.TotalUnits, it.AllocatedUnits)
+		if err != nil || remain <= 0 {
+			continue
+		}
+		if len(requestUnitsByOrderItem) > 0 {
+			req, ok := requestUnitsByOrderItem[it.OrderItemID]
+			if !ok {
+				continue
+			}
+			if err := validateAllocateUnits(it.TotalUnits, it.AllocatedUnits, req); err != nil {
+				return nil, fmt.Errorf("order_item %d: %v", it.OrderItemID, err)
+			}
+			it.NeedUnits = req
+		} else {
+			it.NeedUnits = remain
+		}
+		if it.NeedUnits > 0 {
 			items = append(items, it)
 		}
 	}
@@ -197,31 +218,6 @@ WHERE oi.order_id = ANY($1)
 	}
 	if len(items) == 0 {
 		return nil, fmt.Errorf("no eligible unproduced order items")
-	}
-	if len(seenOrders) == 0 {
-		return nil, fmt.Errorf("no eligible unproduced orders")
-	}
-
-	itemIDs := make([]int64, 0, len(items))
-	for _, it := range items {
-		itemIDs = append(itemIDs, it.OrderItemID)
-	}
-
-	qDup := fmt.Sprintf(`
-SELECT pboi.order_item_id
-FROM %s.produce_batch_order_items pboi
-JOIN %s.produce_batches pb ON pb.batch_id=pboi.batch_id
-WHERE pboi.order_item_id = ANY($1)
-  AND pb.status IN ('planned','processing')
-LIMIT 1
-`, schema, schema)
-	var dupID int64
-	dupErr := tx.QueryRow(ctx, qDup, itemIDs).Scan(&dupID)
-	if dupErr == nil {
-		return nil, fmt.Errorf("order_item already in active batch: %d", dupID)
-	}
-	if dupErr != pgx.ErrNoRows {
-		return nil, dupErr
 	}
 
 	batchID := newProduceBatchID()
@@ -242,15 +238,15 @@ LIMIT 1
 			batchID, it.OrderID, it.OrderItemID); err != nil {
 			return nil, err
 		}
+		if _, err := tx.Exec(ctx, fmt.Sprintf(`INSERT INTO %s.produce_batch_allocations(batch_id,order_id,order_item_id,product_id,spec_g,allocated_units) VALUES($1,$2,$3,$4,$5,$6)`, schema),
+			batchID, it.OrderID, it.OrderItemID, it.ProductID, it.SpecG, it.NeedUnits); err != nil {
+			return nil, err
+		}
 	}
 
 	if err := tx.Commit(ctx); err != nil {
 		return nil, err
 	}
 
-	return &ProduceBatchCreateResult{
-		BatchID:    batchID,
-		OrderCount: len(seenOrders),
-		Summary:    summary,
-	}, nil
+	return &ProduceBatchCreateResult{BatchID: batchID, OrderCount: len(seenOrders), Summary: summary}, nil
 }
