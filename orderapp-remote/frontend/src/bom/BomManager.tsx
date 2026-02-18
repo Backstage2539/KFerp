@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { useBomList, useBomDetail, useMaterials, useSaveBom, useSaveBomItem, useDeleteBomItem } from './hooks'
+import { useBomList, useBomDetail, useMaterials, useSaveBom, useSaveBomItem, useDeleteBomItem, useBagSpecMappings, useSaveBagSpecMapping, useDeleteBagSpecMapping } from './hooks'
 import type { BomListItem, BomItemRow } from './types'
 
 const styles = {
@@ -137,6 +137,71 @@ function InlineEditor({
   )
 }
 
+function BagSpecMappingEditor() {
+  const { data: mappings } = useBagSpecMappings()
+  const { data: materials } = useMaterials()
+  const save = useSaveBagSpecMapping()
+  const del = useDeleteBagSpecMapping()
+
+  const [specG, setSpecG] = useState('')
+  const [materialId, setMaterialId] = useState('')
+  const [err, setErr] = useState('')
+
+  const submit = async () => {
+    const spec = parseInt(specG)
+    const mid = parseInt(materialId)
+    if (!spec || spec <= 0) return setErr('spec_g 必须是正整数')
+    if (!mid || mid <= 0) return setErr('请选择袋子物料')
+    setErr('')
+    await save.mutateAsync({ spec_g: spec, material_id: mid })
+    setSpecG('')
+    setMaterialId('')
+  }
+
+  const onDelete = async (spec: number) => {
+    if (!confirm(`确定删除 ${spec}g 的映射？`)) return
+    await del.mutateAsync({ spec_g: spec })
+  }
+
+  return (
+    <div style={styles.card}>
+      <div style={styles.cardHead}>DEV-043：包材规格映射维护（spec_g → 袋子物料）</div>
+      <div style={styles.cardBody}>
+        {err && <div style={styles.alertErr}>{err}</div>}
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 10 }}>
+          <input style={{ ...styles.input, width: 160 }} type="number" min="1" placeholder="规格(g)，如 454" value={specG} onChange={(e) => setSpecG(e.target.value)} />
+          <select style={{ ...styles.input, flex: 1 }} value={materialId} onChange={(e) => setMaterialId(e.target.value)}>
+            <option value="">选择袋子物料</option>
+            {materials?.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
+          </select>
+          <button style={styles.btn} onClick={submit} disabled={!specG || !materialId || save.isPending}>保存映射</button>
+        </div>
+
+        <table style={styles.table}>
+          <thead>
+            <tr>
+              <th style={styles.th}>规格(g)</th>
+              <th style={styles.th}>袋子物料</th>
+              <th style={{ ...styles.th, textAlign: 'center' }}>操作</th>
+            </tr>
+          </thead>
+          <tbody>
+            {mappings?.length ? mappings.map((r) => (
+              <tr key={r.spec_g}>
+                <td style={styles.td}>{r.spec_g}</td>
+                <td style={styles.td}>{r.material_name}</td>
+                <td style={{ ...styles.td, textAlign: 'center' }}>
+                  <button style={styles.btnGhost} onClick={() => onDelete(r.spec_g)}>删除</button>
+                </td>
+              </tr>
+            )) : <tr><td style={styles.td} colSpan={3}>暂无映射</td></tr>}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  )
+}
+
 export default function BomManager() {
   const { data: bomList, isLoading: listLoading } = useBomList()
   const [expandedId, setExpandedId] = useState<number | null>(null)
@@ -146,6 +211,7 @@ export default function BomManager() {
       <Sidebar />
       <main style={styles.main}>
         <h2 style={{ margin: '0 0 12px 0' }}>BOM配方维护</h2>
+        <BagSpecMappingEditor />
         <div style={styles.card}>
           <div style={styles.cardHead}>列表直接维护（无需跳详情）</div>
           <div style={styles.cardBody}>

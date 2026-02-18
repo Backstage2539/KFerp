@@ -1,6 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { bomApi } from './api'
-import type { SaveBomRequest, SaveBomItemRequest, DeleteBomItemRequest } from './types'
+import type { SaveBomRequest, SaveBomItemRequest, DeleteBomItemRequest, SaveBagSpecMappingRequest, DeleteBagSpecMappingRequest } from './types'
 
 export const useBomList = () =>
   useQuery({
@@ -25,6 +25,12 @@ export const useMaterials = () =>
   useQuery({
     queryKey: ['bom', 'materials'],
     queryFn: bomApi.getMaterials,
+  })
+
+export const useBagSpecMappings = () =>
+  useQuery({
+    queryKey: ['bom', 'bag-spec-mappings'],
+    queryFn: bomApi.getBagSpecMappings,
   })
 
 export const useSaveBom = () => {
@@ -56,6 +62,26 @@ export const useDeleteBomItem = () => {
     onSuccess: (_, vars) => {
       qc.invalidateQueries({ queryKey: ['bom', 'detail', vars.product_id] })
       qc.invalidateQueries({ queryKey: ['bom', 'list'] })
+    },
+  })
+}
+
+export const useSaveBagSpecMapping = () => {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (data: SaveBagSpecMappingRequest) => bomApi.saveBagSpecMapping(data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['bom', 'bag-spec-mappings'] })
+    },
+  })
+}
+
+export const useDeleteBagSpecMapping = () => {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (data: DeleteBagSpecMappingRequest) => bomApi.deleteBagSpecMapping(data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['bom', 'bag-spec-mappings'] })
     },
   })
 }

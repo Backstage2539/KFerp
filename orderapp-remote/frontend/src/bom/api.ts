@@ -1,5 +1,5 @@
 import axios from 'axios'
-import type { BomListItem, BomDetail, Option, SaveBomRequest, SaveBomItemRequest, DeleteBomItemRequest } from './types'
+import type { BomListItem, BomDetail, Option, SaveBomRequest, SaveBomItemRequest, DeleteBomItemRequest, BagSpecMapping, SaveBagSpecMappingRequest, DeleteBagSpecMappingRequest } from './types'
 
 const api = axios.create({
   baseURL: '/api',
@@ -36,4 +36,14 @@ export const bomApi = {
   // 删除 BOM 物料项
   deleteBomItem: (data: DeleteBomItemRequest): Promise<void> =>
     api.post('/bom/item/delete', data),
+
+  // DEV-043: 规格 -> 袋子物料映射
+  getBagSpecMappings: (): Promise<BagSpecMapping[]> =>
+    api.get('/bom/bag-spec-mappings').then(res => res.data),
+
+  saveBagSpecMapping: (data: SaveBagSpecMappingRequest): Promise<void> =>
+    api.post('/bom/bag-spec-mappings/save', data),
+
+  deleteBagSpecMapping: (data: DeleteBagSpecMappingRequest): Promise<void> =>
+    api.post('/bom/bag-spec-mappings/delete', data),
 }

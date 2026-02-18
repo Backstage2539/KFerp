@@ -26,8 +26,6 @@ func TestCalcProducePlanMaterials(t *testing.T) {
 		m[v.Name] = v
 	}
 
-	// Coffee beans: finished gap 500g + 1g => 501 => raw ceil(501/0.8)=627g
-	// Drip roast beans: finished gap 1000 + 1 + 100 => 1101 => raw ceil(1101/0.8)=1377g, plus extra 100g added later -> Actually function adds raw for drip gaps plus extra 100g.
 	if got := m["豆袋"].Qty; got != 3 { // 500g=2 units + 1g=1 unit
 		t.Fatalf("豆袋 qty=%d want=3", got)
 	}
@@ -46,5 +44,26 @@ func TestCalcProducePlanMaterials(t *testing.T) {
 	// Drip roast beans: finished gap = 1000 + 1 + 100 = 1101 => raw ceil(1101/0.8)=1377, plus extra 100g => 1477
 	if got := m["咖啡豆(烘焙)"].Qty; got != 1477 {
 		t.Fatalf("咖啡豆(烘焙) qty=%d want=1477", got)
+	}
+}
+
+func TestCalcProducePlanMaterials_BagMappingBySpec(t *testing.T) {
+	rows := []UnprodNeedRow{
+		{Product: "咖啡豆A", SpecG: 454, GapG: 908}, // 2 bags
+		{Product: "咖啡豆B", SpecG: 250, GapG: 250}, // 1 bag
+	}
+	p := defaultProducePlanParams()
+	p.BagNameBySpecG = map[int64]string{454: "银袋454g"}
+
+	out := calcProducePlanMaterials(rows, p)
+	m := map[string]MaterialNeed{}
+	for _, v := range out {
+		m[v.Name] = v
+	}
+	if got := m["银袋454g"].Qty; got != 2 {
+		t.Fatalf("银袋454g qty=%d want=2", got)
+	}
+	if got := m["豆袋"].Qty; got != 1 {
+		t.Fatalf("豆袋 qty=%d want=1", got)
 	}
 }

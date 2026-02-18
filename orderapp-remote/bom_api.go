@@ -11,11 +11,11 @@ import (
 
 // JSON API response types
 type BomListItem struct {
-	ProductID  int64   `json:"product_id"`
-	Product    string  `json:"product"`
-	YieldRate  float64 `json:"yield_rate"`
-	ItemCount  int     `json:"item_count"`
-	UpdatedAt  string  `json:"updated_at"`
+	ProductID int64   `json:"product_id"`
+	Product   string  `json:"product"`
+	YieldRate float64 `json:"yield_rate"`
+	ItemCount int     `json:"item_count"`
+	UpdatedAt string  `json:"updated_at"`
 }
 
 type BomItemJSON struct {
@@ -53,6 +53,15 @@ type SaveBomItemRequest struct {
 type DeleteBomItemRequest struct {
 	ProductID int64 `json:"product_id"`
 	ID        int64 `json:"id"`
+}
+
+type SaveBagSpecMappingRequest struct {
+	SpecG      int64 `json:"spec_g"`
+	MaterialID int64 `json:"material_id"`
+}
+
+type DeleteBagSpecMappingRequest struct {
+	SpecG int64 `json:"spec_g"`
 }
 
 type ErrorResponse struct {
@@ -104,8 +113,8 @@ func registerBomAPI(e *echo.Echo, pool *pgxpool.Pool, schema string) {
 		var updatedAt string
 		err = pool.QueryRow(c.Request().Context(),
 			"SELECT COALESCE(p.name,''), COALESCE(b.yield_rate,0.8), COALESCE(to_char(b.updated_at,'YYYY-MM-DD HH24:MI'),'-') "+
-			"FROM "+schema+".products p LEFT JOIN "+schema+".product_bom b ON b.product_id=p.id "+
-			"WHERE p.id=$1", pid).Scan(&productName, &yieldRate, &updatedAt)
+				"FROM "+schema+".products p LEFT JOIN "+schema+".product_bom b ON b.product_id=p.id "+
+				"WHERE p.id=$1", pid).Scan(&productName, &yieldRate, &updatedAt)
 		if err != nil {
 			return c.JSON(http.StatusNotFound, ErrorResponse{Error: "product not found"})
 		}
@@ -160,6 +169,15 @@ func registerBomAPI(e *echo.Echo, pool *pgxpool.Pool, schema string) {
 			result[i] = OptionItem{ID: o.ID, Name: o.Name}
 		}
 		return c.JSON(http.StatusOK, result)
+	})
+
+	// GET /api/bom/bag-spec-mappings
+	e.GET("/api/bom/bag-spec-mappings", func(c echo.Context) error {
+		rows, err := listBagSpecMappings(c.Request().Context(), pool, schema)
+		if err != nil {
+			return c.JSON(http.StatusInternalServerError, ErrorResponse{Error: err.Error()})
+		}
+		return c.JSON(http.StatusOK, rows)
 	})
 
 	// POST /api/bom/save
@@ -226,6 +244,30 @@ func registerBomAPI(e *echo.Echo, pool *pgxpool.Pool, schema string) {
 		}
 		if req.ID > 0 {
 			_, _ = pool.Exec(c.Request().Context(), "DELETE FROM "+schema+".product_bom_items WHERE id=$1", req.ID)
+		}
+		return c.NoContent(http.StatusOK)
+	})
+
+	// POST /api/bom/bag-spec-mappings/save
+	e.POST("/api/bom/bag-spec-mappings/save", func(c echo.Context) error {
+		var req SaveBagSpecMappingRequest
+		if err := c.Bind(&req); err != nil {
+			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: "invalid request"})
+		}
+		if err := saveBagSpecMapping(c.Request().Context(), pool, schema, req.SpecG, req.MaterialID); err != nil {
+			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: err.Error()})
+		}
+		return c.NoContent(http.StatusOK)
+	})
+
+	// POST /api/bom/bag-spec-mappings/delete
+	e.POST("/api/bom/bag-spec-mappings/delete", func(c echo.Context) error {
+		var req DeleteBagSpecMappingRequest
+		if err := c.Bind(&req); err != nil {
+			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: "invalid request"})
+		}
+		if err := deleteBagSpecMapping(c.Request().Context(), pool, schema, req.SpecG); err != nil {
+			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: err.Error()})
 		}
 		return c.NoContent(http.StatusOK)
 	})

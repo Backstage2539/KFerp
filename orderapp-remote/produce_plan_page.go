@@ -67,6 +67,9 @@ func registerProducePlanPages(e *echo.Echo, pool *pgxpool.Pool, schema string) {
 			data.Error = err.Error()
 			return c.Render(http.StatusOK, "produce_plan.html", data)
 		}
+		if mappings, err := listBagSpecMappings(c.Request().Context(), pool, schema); err == nil {
+			params.BagNameBySpecG = mappingNameBySpec(mappings)
+		}
 		// only gap>0
 		out := make([]UnprodNeedRow, 0, len(rows))
 		for _, r := range rows {

@@ -42,3 +42,18 @@ export interface DeleteBomItemRequest {
   product_id: number
   id: number
 }
+
+export interface BagSpecMapping {
+  spec_g: number
+  material_id: number
+  material_name: string
+}
+
+export interface SaveBagSpecMappingRequest {
+  spec_g: number
+  material_id: number
+}
+
+export interface DeleteBagSpecMappingRequest {
+  spec_g: number
+}

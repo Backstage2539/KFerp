@@ -19,10 +19,11 @@ type MaterialNeed struct {
 }
 
 type ProducePlanParams struct {
-	YieldRate     float64 // e.g. 0.8
-	DripExtraG    int64   // e.g. 100 (extra roast grams per plan if any drip exists)
-	DripBoxSpec   int64   // e.g. 5 or 10
-	EnableDripBox bool
+	YieldRate      float64 // e.g. 0.8
+	DripExtraG     int64   // e.g. 100 (extra roast grams per plan if any drip exists)
+	DripBoxSpec    int64   // e.g. 5 or 10
+	EnableDripBox  bool
+	BagNameBySpecG map[int64]string // DEV-043: spec_g -> 袋子物料名
 }
 
 func defaultProducePlanParams() ProducePlanParams {
@@ -94,7 +95,13 @@ func calcProducePlanMaterials(rows []UnprodNeedRow, p ProducePlanParams) []Mater
 
 		// Default: treat as coffee beans finished product.
 		add("咖啡豆(生豆/原豆)", yieldRawG(r.GapG), "g")
-		add("豆袋", unitsMissing, "个")
+		bagName := "豆袋"
+		if p.BagNameBySpecG != nil {
+			if v := strings.TrimSpace(p.BagNameBySpecG[r.SpecG]); v != "" {
+				bagName = v
+			}
+		}
+		add(bagName, unitsMissing, "个")
 	}
 
 	if hasDrip {
