@@ -1,7 +1,8 @@
-export interface BomRow {
+export interface BomListItem {
   product_id: number
   product: string
   yield_rate: number
+  item_count: number
   updated_at: string
 }
 

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"net/http"
 	"strconv"
 
@@ -13,6 +14,7 @@ type BomListItem struct {
 	ProductID  int64   `json:"product_id"`
 	Product    string  `json:"product"`
 	YieldRate  float64 `json:"yield_rate"`
+	ItemCount  int     `json:"item_count"`
 	UpdatedAt  string  `json:"updated_at"`
 }
 
@@ -60,18 +62,31 @@ type ErrorResponse struct {
 func registerBomAPI(e *echo.Echo, pool *pgxpool.Pool, schema string) {
 	// GET /api/bom/list
 	e.GET("/api/bom/list", func(c echo.Context) error {
-		rows, err := listBom(c.Request().Context(), pool, schema)
+		q := fmt.Sprintf(`
+			SELECT 
+				p.id,
+				p.name,
+				COALESCE(b.yield_rate, 0.8),
+				COALESCE((SELECT COUNT(*) FROM %s.product_bom_items bi WHERE bi.product_id = p.id), 0),
+				COALESCE(to_char(b.updated_at,'YYYY-MM-DD HH24:MI'), '-')
+			FROM %s.products p
+			LEFT JOIN %s.product_bom b ON b.product_id = p.id
+			WHERE p.active = true
+			ORDER BY p.name
+		`, schema, schema, schema)
+		rows, err := pool.Query(c.Request().Context(), q)
 		if err != nil {
 			return c.JSON(http.StatusInternalServerError, ErrorResponse{Error: err.Error()})
 		}
-		result := make([]BomListItem, len(rows))
-		for i, r := range rows {
-			result[i] = BomListItem{
-				ProductID: r.ProductID,
-				Product:   r.Product,
-				YieldRate: r.YieldRate,
-				UpdatedAt: r.UpdatedAt,
+		defer rows.Close()
+
+		result := make([]BomListItem, 0)
+		for rows.Next() {
+			var r BomListItem
+			if err := rows.Scan(&r.ProductID, &r.Product, &r.YieldRate, &r.ItemCount, &r.UpdatedAt); err != nil {
+				return c.JSON(http.StatusInternalServerError, ErrorResponse{Error: err.Error()})
 			}
+			result = append(result, r)
 		}
 		return c.JSON(http.StatusOK, result)
 	})
@@ -134,9 +149,9 @@ func registerBomAPI(e *echo.Echo, pool *pgxpool.Pool, schema string) {
 		return c.JSON(http.StatusOK, result)
 	})
 
-	// GET /api/bom/materials
+	// GET /api/bom/materials - 返回所有物料（不区分生豆/耗材）
 	e.GET("/api/bom/materials", func(c echo.Context) error {
-		opts, err := fetchOptions(c.Request().Context(), pool, "SELECT id, name FROM "+schema+".materials WHERE kind='bean' ORDER BY name")
+		opts, err := fetchOptions(c.Request().Context(), pool, "SELECT id, name FROM "+schema+".materials ORDER BY name")
 		if err != nil {
 			return c.JSON(http.StatusInternalServerError, ErrorResponse{Error: err.Error()})
 		}

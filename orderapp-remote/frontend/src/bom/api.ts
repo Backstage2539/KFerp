@@ -1,5 +1,5 @@
 import axios from 'axios'
-import type { BomRow, BomDetail, Option, SaveBomRequest, SaveBomItemRequest, DeleteBomItemRequest } from './types'
+import type { BomListItem, BomDetail, Option, SaveBomRequest, SaveBomItemRequest, DeleteBomItemRequest } from './types'
 
 const api = axios.create({
   baseURL: '/api',
@@ -10,7 +10,7 @@ const api = axios.create({
 
 export const bomApi = {
   // 获取 BOM 列表
-  getBomList: (): Promise<BomRow[]> =>
+  getBomList: (): Promise<BomListItem[]> =>
     api.get('/bom/list').then(res => res.data),
 
   // 获取 BOM 详情
@@ -21,8 +21,8 @@ export const bomApi = {
   getProducts: (): Promise<Option[]> =>
     api.get('/bom/products').then(res => res.data),
 
-  // 获取咖啡豆物料选项
-  getBeanMaterials: (): Promise<Option[]> =>
+  // 获取所有物料选项（不区分生豆/耗材）
+  getMaterials: (): Promise<Option[]> =>
     api.get('/bom/materials').then(res => res.data),
 
   // 保存 BOM 出品率

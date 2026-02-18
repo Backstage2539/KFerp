@@ -21,10 +21,10 @@ export const useProducts = () =>
     queryFn: bomApi.getProducts,
   })
 
-export const useBeanMaterials = () =>
+export const useMaterials = () =>
   useQuery({
     queryKey: ['bom', 'materials'],
-    queryFn: bomApi.getBeanMaterials,
+    queryFn: bomApi.getMaterials,
   })
 
 export const useSaveBom = () => {
