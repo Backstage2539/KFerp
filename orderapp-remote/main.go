@@ -345,11 +345,12 @@ func main() {
 	registerBomAPI(e, pool, schema)
 
 	// Serve React frontend static files for BOM management
-	e.Static("/app/bom-react/assets", "frontend/dist/assets")
-	e.GET("/app/bom-react", func(c echo.Context) error {
+	// Note: Caddy strips /app/ prefix, so routes are /bom-react/*
+	e.Static("/bom-react/assets", "frontend/dist/assets")
+	e.GET("/bom-react", func(c echo.Context) error {
 		return c.File("frontend/dist/index.html")
 	})
-	e.GET("/app/bom-react/*", func(c echo.Context) error {
+	e.GET("/bom-react/*", func(c echo.Context) error {
 		return c.File("frontend/dist/index.html")
 	})
 
