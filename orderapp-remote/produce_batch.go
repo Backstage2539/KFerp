@@ -1,0 +1,219 @@
+package main
+
+import (
+	"context"
+	"crypto/rand"
+	"encoding/hex"
+	"fmt"
+	"sort"
+	"strings"
+	"time"
+
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
+)
+
+type ProduceBatchOrderItem struct {
+	OrderItemID int64
+	OrderID     int64
+	ProductID   int64
+	ProductName string
+	SpecG       int64
+	NeedUnits   int64
+}
+
+type ProduceBatchSummaryItem struct {
+	ProductID   int64  `json:"product_id"`
+	ProductName string `json:"product_name"`
+	SpecG       int64  `json:"spec_g"`
+	NeedUnits   int64  `json:"need_units"`
+	NeedG       int64  `json:"need_g"`
+}
+
+type ProduceBatchCreateResult struct {
+	BatchID    string                    `json:"batch_id"`
+	OrderCount int                       `json:"order_count"`
+	Summary    []ProduceBatchSummaryItem `json:"summary"`
+}
+
+func ensureProduceBatchTables(ctx context.Context, pool *pgxpool.Pool, schema string) error {
+	q := fmt.Sprintf(`
+CREATE TABLE IF NOT EXISTS %s.produce_batches (
+	batch_id TEXT PRIMARY KEY,
+	status TEXT NOT NULL DEFAULT 'planned',
+	operator TEXT NOT NULL DEFAULT '',
+	created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE TABLE IF NOT EXISTS %s.produce_batch_items (
+	id BIGSERIAL PRIMARY KEY,
+	batch_id TEXT NOT NULL,
+	product_id BIGINT NOT NULL,
+	spec_g BIGINT NOT NULL,
+	need_units BIGINT NOT NULL,
+	need_g BIGINT NOT NULL,
+	created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+	UNIQUE(batch_id, product_id, spec_g)
+);
+CREATE TABLE IF NOT EXISTS %s.produce_batch_order_items (
+	id BIGSERIAL PRIMARY KEY,
+	batch_id TEXT NOT NULL,
+	order_id BIGINT NOT NULL,
+	order_item_id BIGINT NOT NULL,
+	created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+	UNIQUE(order_item_id)
+);
+CREATE INDEX IF NOT EXISTS produce_batch_items_batch_idx ON %s.produce_batch_items(batch_id);
+CREATE INDEX IF NOT EXISTS produce_batch_order_items_batch_idx ON %s.produce_batch_order_items(batch_id);
+`, schema, schema, schema, schema, schema)
+	_, err := pool.Exec(ctx, q)
+	return err
+}
+
+func newProduceBatchID() string {
+	b := make([]byte, 1)
+	_, _ = rand.Read(b)
+	return fmt.Sprintf("P%s-%s", time.Now().Format("20060102-150405"), hex.EncodeToString(b))
+}
+
+func aggregateBatchSummary(items []ProduceBatchOrderItem) []ProduceBatchSummaryItem {
+	type key struct {
+		p int64
+		s int64
+	}
+	m := map[key]ProduceBatchSummaryItem{}
+	for _, it := range items {
+		if it.ProductID <= 0 || it.SpecG <= 0 || it.NeedUnits <= 0 {
+			continue
+		}
+		k := key{p: it.ProductID, s: it.SpecG}
+		x := m[k]
+		x.ProductID = it.ProductID
+		x.ProductName = it.ProductName
+		x.SpecG = it.SpecG
+		x.NeedUnits += it.NeedUnits
+		x.NeedG = x.NeedUnits * it.SpecG
+		m[k] = x
+	}
+	out := make([]ProduceBatchSummaryItem, 0, len(m))
+	for _, v := range m {
+		out = append(out, v)
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].ProductName != out[j].ProductName {
+			return out[i].ProductName < out[j].ProductName
+		}
+		if out[i].ProductID != out[j].ProductID {
+			return out[i].ProductID < out[j].ProductID
+		}
+		return out[i].SpecG < out[j].SpecG
+	})
+	return out
+}
+
+func createProduceBatchFromOrders(ctx context.Context, pool *pgxpool.Pool, schema string, orderIDs []int64, operator string) (*ProduceBatchCreateResult, error) {
+	if len(orderIDs) == 0 {
+		return nil, fmt.Errorf("order_ids required")
+	}
+	operator = strings.TrimSpace(operator)
+	if operator == "" {
+		operator = "order"
+	}
+
+	tx, err := pool.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	qItems := fmt.Sprintf(`
+SELECT oi.id, oi.order_id, oi.product_id, COALESCE(p.name,''),
+       COALESCE(NULLIF(regexp_replace(COALESCE(oi.spec,''), '[^0-9]', '', 'g'), ''), '0')::bigint AS spec_g,
+       COALESCE(oi.qty,0)::bigint AS need_units
+FROM %s.order_items oi
+JOIN %s.orders o ON o.id=oi.order_id
+LEFT JOIN %s.products p ON p.id=oi.product_id
+WHERE oi.order_id = ANY($1)
+  AND o.is_void=false
+  AND COALESCE(o.process_status_id,0) IN (1,2)
+FOR UPDATE
+`, schema, schema, schema)
+	rows, err := tx.Query(ctx, qItems, orderIDs)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	items := make([]ProduceBatchOrderItem, 0)
+	seenOrders := map[int64]bool{}
+	for rows.Next() {
+		var it ProduceBatchOrderItem
+		if err := rows.Scan(&it.OrderItemID, &it.OrderID, &it.ProductID, &it.ProductName, &it.SpecG, &it.NeedUnits); err != nil {
+			return nil, err
+		}
+		seenOrders[it.OrderID] = true
+		if it.ProductID > 0 && it.SpecG > 0 && it.NeedUnits > 0 {
+			items = append(items, it)
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	if len(items) == 0 {
+		return nil, fmt.Errorf("no eligible unproduced order items")
+	}
+	if len(seenOrders) == 0 {
+		return nil, fmt.Errorf("no eligible unproduced orders")
+	}
+
+	itemIDs := make([]int64, 0, len(items))
+	for _, it := range items {
+		itemIDs = append(itemIDs, it.OrderItemID)
+	}
+
+	qDup := fmt.Sprintf(`
+SELECT pboi.order_item_id
+FROM %s.produce_batch_order_items pboi
+JOIN %s.produce_batches pb ON pb.batch_id=pboi.batch_id
+WHERE pboi.order_item_id = ANY($1)
+  AND pb.status IN ('planned','processing')
+LIMIT 1
+`, schema, schema)
+	var dupID int64
+	dupErr := tx.QueryRow(ctx, qDup, itemIDs).Scan(&dupID)
+	if dupErr == nil {
+		return nil, fmt.Errorf("order_item already in active batch: %d", dupID)
+	}
+	if dupErr != pgx.ErrNoRows {
+		return nil, dupErr
+	}
+
+	batchID := newProduceBatchID()
+	if _, err := tx.Exec(ctx, fmt.Sprintf(`INSERT INTO %s.produce_batches(batch_id,status,operator) VALUES($1,'planned',$2)`, schema), batchID, operator); err != nil {
+		return nil, err
+	}
+
+	summary := aggregateBatchSummary(items)
+	for _, s := range summary {
+		if _, err := tx.Exec(ctx, fmt.Sprintf(`INSERT INTO %s.produce_batch_items(batch_id,product_id,spec_g,need_units,need_g) VALUES($1,$2,$3,$4,$5)`, schema),
+			batchID, s.ProductID, s.SpecG, s.NeedUnits, s.NeedG); err != nil {
+			return nil, err
+		}
+	}
+
+	for _, it := range items {
+		if _, err := tx.Exec(ctx, fmt.Sprintf(`INSERT INTO %s.produce_batch_order_items(batch_id,order_id,order_item_id) VALUES($1,$2,$3)`, schema),
+			batchID, it.OrderID, it.OrderItemID); err != nil {
+			return nil, err
+		}
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return nil, err
+	}
+
+	return &ProduceBatchCreateResult{
+		BatchID:    batchID,
+		OrderCount: len(seenOrders),
+		Summary:    summary,
+	}, nil
+}

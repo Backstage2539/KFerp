@@ -338,6 +338,9 @@ func main() {
 	if err := ensureBagSpecMappingTable(context.Background(), pool, schema); err != nil {
 		log.Fatal(err)
 	}
+	if err := ensureProduceBatchTables(context.Background(), pool, schema); err != nil {
+		log.Fatal(err)
+	}
 
 	registerShipExportRoutes(e, pool, schema)
 	registerRequirementPages(e, pool, schema)
@@ -360,6 +363,7 @@ func main() {
 	registerUnprodSummaryPages(e, pool, schema)
 	registerProducePlanPages(e, pool, schema)
 	registerProducePlanAllocate(e, pool, schema)
+	registerProduceBatchAPI(e, pool, schema)
 	registerAllocationLogPages(e, pool, schema)
 
 	e.GET("/", func(c echo.Context) error {
