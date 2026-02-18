@@ -12,6 +12,8 @@ WORKDIR /app
 COPY --from=build /out/orderapp /app/orderapp
 COPY templates /app/templates
 COPY docs /app/docs
+# React BOM frontend static files
+COPY frontend/dist /app/frontend/dist
 EXPOSE 8080
 ENV LISTEN=:8080
 CMD ["/app/orderapp"]
