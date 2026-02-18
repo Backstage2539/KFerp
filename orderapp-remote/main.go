@@ -344,8 +344,12 @@ func main() {
 	registerBomPages(e, pool, schema)
 	registerBomAPI(e, pool, schema)
 
-	// Serve React frontend static files
-	e.Static("/app/bom-react", "frontend/dist")
+	// Serve React frontend static files for BOM management
+	e.Static("/app/bom-react/assets", "frontend/dist/assets")
+	e.File("/app/bom-react", "frontend/dist/index.html")
+	e.GET("/app/bom-react/*", func(c echo.Context) error {
+		return c.File("frontend/dist/index.html")
+	})
 
 	registerUnprodSummaryPages(e, pool, schema)
 	registerProducePlanPages(e, pool, schema)
