@@ -346,7 +346,9 @@ func main() {
 
 	// Serve React frontend static files for BOM management
 	e.Static("/app/bom-react/assets", "frontend/dist/assets")
-	e.File("/app/bom-react", "frontend/dist/index.html")
+	e.GET("/app/bom-react", func(c echo.Context) error {
+		return c.File("frontend/dist/index.html")
+	})
 	e.GET("/app/bom-react/*", func(c echo.Context) error {
 		return c.File("frontend/dist/index.html")
 	})
