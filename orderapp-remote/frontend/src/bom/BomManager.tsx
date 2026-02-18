@@ -2,29 +2,49 @@ import { useState } from 'react'
 import { useBomList, useBomDetail, useMaterials, useSaveBom, useSaveBomItem, useDeleteBomItem } from './hooks'
 import type { BomListItem, BomItemRow } from './types'
 
+const styles = {
+  page: { display: 'flex', minHeight: '100vh', fontFamily: 'system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial' } as const,
+  sidebar: { width: 220, padding: '14px 12px', borderRight: '1px solid #eee', background: '#fafafa', boxSizing: 'border-box' } as const,
+  brand: { fontWeight: 800, marginBottom: 10 } as const,
+  section: { marginTop: 14, marginBottom: 6, fontSize: 12, color: '#666' } as const,
+  link: { display: 'block', padding: '8px 10px', borderRadius: 8, color: '#111', textDecoration: 'none', fontSize: 14 } as const,
+  linkActive: { display: 'block', padding: '8px 10px', borderRadius: 8, background: '#111', color: '#fff', textDecoration: 'none', fontSize: 14 } as const,
+  main: { flex: 1, padding: 16, boxSizing: 'border-box', background: '#f7f7f8' } as const,
+  card: { background: '#fff', border: '1px solid #eee', borderRadius: 10, marginBottom: 12, overflow: 'hidden' } as const,
+  cardHead: { padding: '10px 12px', borderBottom: '1px solid #eee', background: '#fafafa', fontSize: 13, color: '#555' } as const,
+  cardBody: { padding: 12 } as const,
+  table: { width: '100%', borderCollapse: 'collapse', fontSize: 14 } as const,
+  th: { textAlign: 'left', borderBottom: '1px solid #eee', padding: '10px 8px', background: '#fafafa' } as const,
+  td: { borderBottom: '1px solid #f1f1f1', padding: '10px 8px' } as const,
+  btn: { padding: '8px 12px', borderRadius: 8, border: '1px solid #111', background: '#111', color: '#fff', cursor: 'pointer' } as const,
+  btnGhost: { padding: '8px 12px', borderRadius: 8, border: '1px solid #999', background: '#fff', color: '#111', cursor: 'pointer' } as const,
+  input: { padding: '8px 10px', borderRadius: 8, border: '1px solid #ccc', fontSize: 14 } as const,
+  alertErr: { background: '#ffecec', border: '1px solid #ffb9b9', color: '#9a1a1a', padding: 10, borderRadius: 8, marginBottom: 10 } as const,
+  alertOk: { background: '#ecffef', border: '1px solid #b9f0c0', color: '#156b26', padding: 10, borderRadius: 8, marginBottom: 10 } as const,
+}
+
 function Sidebar() {
-  const linkClass = 'block px-3 py-2 rounded hover:bg-gray-100 text-sm text-gray-800'
   return (
-    <aside className="w-56 border-r bg-gray-50 min-h-screen p-3 sticky top-0">
-      <div className="font-bold mb-2">ERP</div>
-      <div className="text-xs text-gray-500 mt-3 mb-1">订单</div>
-      <a className={linkClass} href="/order">录单</a>
-      <a className={linkClass} href="/orders">订单列表</a>
+    <aside style={styles.sidebar}>
+      <div style={styles.brand}>ERP</div>
+      <div style={styles.section}>订单</div>
+      <a style={styles.link} href="/order">录单</a>
+      <a style={styles.link} href="/orders">订单列表</a>
 
-      <div className="text-xs text-gray-500 mt-3 mb-1">生产流程</div>
-      <a className={linkClass} href="/orders?preset=unprod">未生产订单</a>
-      <a className={linkClass} href="/produce/unproduced">未生产需求汇总</a>
-      <a className={linkClass} href="/produce/plan">生产计划（缺口&gt;0）</a>
+      <div style={styles.section}>生产流程</div>
+      <a style={styles.link} href="/orders?preset=unprod">未生产订单</a>
+      <a style={styles.link} href="/produce/unproduced">未生产需求汇总</a>
+      <a style={styles.link} href="/produce/plan">生产计划（缺口&gt;0）</a>
 
-      <div className="text-xs text-gray-500 mt-3 mb-1">物料管理</div>
-      <a className={linkClass} href="/materials">物料档案/库存</a>
-      <a className="block px-3 py-2 rounded bg-blue-600 text-white text-sm" href="/bom-react">BOM配方维护</a>
-      <a className={linkClass} href="/produce/allocations">扣减记录（批次）</a>
+      <div style={styles.section}>物料管理</div>
+      <a style={styles.link} href="/materials">物料档案/库存</a>
+      <a style={styles.linkActive} href="/bom-react">BOM配方维护</a>
+      <a style={styles.link} href="/produce/allocations">扣减记录（批次）</a>
 
-      <div className="text-xs text-gray-500 mt-3 mb-1">档案</div>
-      <a className={linkClass} href="/customers">客户档案</a>
-      <a className={linkClass} href="/products">商品档案</a>
-      <a className={linkClass} href="/products/inventory">成品库存</a>
+      <div style={styles.section}>档案</div>
+      <a style={styles.link} href="/customers">客户档案</a>
+      <a style={styles.link} href="/products">商品档案</a>
+      <a style={styles.link} href="/products/inventory">成品库存</a>
     </aside>
   )
 }
@@ -33,7 +53,6 @@ export default function BomManager() {
   const [selectedProductId, setSelectedProductId] = useState<number | null>(null)
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
-
   const [yieldRate, setYieldRate] = useState('')
   const [newMaterialId, setNewMaterialId] = useState('')
   const [newRatio, setNewRatio] = useState('')
@@ -51,22 +70,10 @@ export default function BomManager() {
     setTimeout(() => setSuccess(''), 2000)
   }
 
-  const handleSelectProduct = (id: number) => {
-    setSelectedProductId(id)
-    setError('')
-    setSuccess('')
-    setYieldRate('')
-    setNewMaterialId('')
-    setNewRatio('')
-  }
-
   const handleSaveYieldRate = async () => {
     if (!selectedProductId) return
     const rate = parseFloat(yieldRate)
-    if (isNaN(rate) || rate <= 0 || rate > 1) {
-      setError('出品率必须在 (0, 1] 之间')
-      return
-    }
+    if (isNaN(rate) || rate <= 0 || rate > 1) return setError('出品率必须在 (0, 1] 之间')
     try {
       await saveBom.mutateAsync({ product_id: selectedProductId, yield_rate: rate })
       showSuccess('出品率保存成功')
@@ -80,15 +87,9 @@ export default function BomManager() {
     if (!selectedProductId) return
     const mid = parseInt(newMaterialId)
     const ratio = parseFloat(newRatio)
-    if (!mid || isNaN(ratio) || ratio <= 0 || ratio > 100) {
-      setError('配比必须在 (0, 100] 之间')
-      return
-    }
-    const currentTotal = bomDetail?.total_ratio || 0
-    if (currentTotal + ratio > 100.0001) {
-      setError(`配比总和不能超过 100% (当前 ${currentTotal.toFixed(2)}%)`)
-      return
-    }
+    if (!mid || isNaN(ratio) || ratio <= 0 || ratio > 100) return setError('配比必须在 (0, 100] 之间')
+    const total = bomDetail?.total_ratio || 0
+    if (total + ratio > 100.0001) return setError(`配比总和不能超过 100% (当前 ${total.toFixed(2)}%)`)
     try {
       await saveBomItem.mutateAsync({ product_id: selectedProductId, material_id: mid, ratio_pct: ratio })
       showSuccess('物料添加成功')
@@ -100,8 +101,7 @@ export default function BomManager() {
   }
 
   const handleDeleteItem = async (itemId: number) => {
-    if (!selectedProductId) return
-    if (!confirm('确定删除该物料配比？')) return
+    if (!selectedProductId || !confirm('确定删除该物料配比？')) return
     try {
       await deleteBomItem.mutateAsync({ product_id: selectedProductId, id: itemId })
       showSuccess('物料删除成功')
@@ -111,100 +111,94 @@ export default function BomManager() {
   }
 
   return (
-    <div className="min-h-screen flex bg-gray-50">
+    <div style={styles.page}>
       <Sidebar />
-      <main className="flex-1 p-6">
-        <h1 className="text-2xl font-bold mb-4">BOM配方维护</h1>
-
-        {error && <div className="bg-red-100 border border-red-300 text-red-700 px-4 py-2 rounded mb-3">{error}</div>}
-        {success && <div className="bg-green-100 border border-green-300 text-green-700 px-4 py-2 rounded mb-3">{success}</div>}
+      <main style={styles.main}>
+        <h2 style={{ margin: '0 0 12px 0' }}>BOM配方维护</h2>
+        {error && <div style={styles.alertErr}>{error}</div>}
+        {success && <div style={styles.alertOk}>{success}</div>}
 
         {!selectedProductId ? (
-          <div className="bg-white rounded shadow">
-            <div className="px-4 py-3 border-b bg-gray-50 text-sm text-gray-700">列表维护 BOM（点击产品进入详情维护）</div>
-            {listLoading ? (
-              <div className="p-4 text-gray-500">加载中...</div>
-            ) : (
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b bg-gray-50">
-                    <th className="text-left py-3 px-4">产品名称</th>
-                    <th className="text-right py-3 px-4">出品率</th>
-                    <th className="text-right py-3 px-4">物料数</th>
-                    <th className="text-right py-3 px-4">更新时间</th>
-                    <th className="text-center py-3 px-4">操作</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {bomList?.map((row: BomListItem) => (
-                    <tr key={row.product_id} className="border-b hover:bg-blue-50 cursor-pointer" onClick={() => handleSelectProduct(row.product_id)}>
-                      <td className="py-3 px-4 font-medium">{row.product}</td>
-                      <td className="text-right py-3 px-4">{(row.yield_rate * 100).toFixed(2)}%</td>
-                      <td className="text-right py-3 px-4">{row.item_count || 0}</td>
-                      <td className="text-right py-3 px-4 text-gray-500">{row.updated_at}</td>
-                      <td className="text-center py-3 px-4 text-blue-600">查看详情</td>
+          <div style={styles.card}>
+            <div style={styles.cardHead}>列表维护 BOM（点击产品进入详情）</div>
+            <div style={styles.cardBody}>
+              {listLoading ? (
+                <div>加载中...</div>
+              ) : (
+                <table style={styles.table}>
+                  <thead>
+                    <tr>
+                      <th style={styles.th}>产品名称</th>
+                      <th style={{ ...styles.th, textAlign: 'right' }}>出品率</th>
+                      <th style={{ ...styles.th, textAlign: 'right' }}>物料数</th>
+                      <th style={{ ...styles.th, textAlign: 'right' }}>更新时间</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-            )}
+                  </thead>
+                  <tbody>
+                    {bomList?.map((row: BomListItem) => (
+                      <tr key={row.product_id} style={{ cursor: 'pointer' }} onClick={() => setSelectedProductId(row.product_id)}>
+                        <td style={styles.td}>{row.product}</td>
+                        <td style={{ ...styles.td, textAlign: 'right' }}>{(row.yield_rate * 100).toFixed(2)}%</td>
+                        <td style={{ ...styles.td, textAlign: 'right' }}>{row.item_count || 0}</td>
+                        <td style={{ ...styles.td, textAlign: 'right', color: '#666' }}>{row.updated_at}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
           </div>
         ) : (
-          <div className="space-y-4">
-            <button onClick={() => setSelectedProductId(null)} className="text-blue-600 text-sm">← 返回列表</button>
-
-            {detailLoading ? (
-              <div className="text-gray-500">加载中...</div>
-            ) : bomDetail ? (
+          <>
+            <button style={{ ...styles.btnGhost, marginBottom: 10 }} onClick={() => setSelectedProductId(null)}>← 返回列表</button>
+            {detailLoading ? <div>加载中...</div> : bomDetail && (
               <>
-                <div className="bg-white rounded shadow p-4">
-                  <div className="font-medium mb-2">{bomDetail.product_name}（单 batch 物料）</div>
-                  <div className="flex items-center gap-3">
-                    <div className="text-xl font-bold text-blue-600">{(bomDetail.yield_rate * 100).toFixed(2)}%</div>
-                    <input type="number" step="0.0001" min="0.0001" max="1" placeholder="新出品率(0-1)" className="border rounded px-3 py-2 w-44" value={yieldRate} onChange={(e) => setYieldRate(e.target.value)} />
-                    <button onClick={handleSaveYieldRate} disabled={saveBom.isPending || !yieldRate} className="bg-blue-600 text-white px-3 py-2 rounded disabled:opacity-50">保存出品率</button>
+                <div style={styles.card}>
+                  <div style={styles.cardHead}>{bomDetail.product_name}（单 batch 物料）</div>
+                  <div style={{ ...styles.cardBody, display: 'flex', gap: 8, alignItems: 'center' }}>
+                    <div style={{ fontWeight: 700 }}>{(bomDetail.yield_rate * 100).toFixed(2)}%</div>
+                    <input style={styles.input} type="number" step="0.0001" min="0.0001" max="1" placeholder="新出品率(0-1)" value={yieldRate} onChange={(e) => setYieldRate(e.target.value)} />
+                    <button style={styles.btn} onClick={handleSaveYieldRate} disabled={saveBom.isPending || !yieldRate}>保存出品率</button>
                   </div>
                 </div>
 
-                <div className="bg-white rounded shadow p-4">
-                  <div className="flex justify-between items-center mb-3">
-                    <div className="font-medium">物料清单（生豆/耗材统一维度）</div>
-                    <div className="text-sm">总配比: <b>{bomDetail.total_ratio.toFixed(2)}%</b></div>
-                  </div>
-
-                  <table className="w-full text-sm mb-4">
-                    <thead>
-                      <tr className="border-b bg-gray-50">
-                        <th className="text-left py-2 px-3">物料</th>
-                        <th className="text-right py-2 px-3">配比%</th>
-                        <th className="text-center py-2 px-3">操作</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {bomDetail.items.length === 0 ? (
-                        <tr><td className="py-6 text-center text-gray-500" colSpan={3}>暂无物料</td></tr>
-                      ) : bomDetail.items.map((item: BomItemRow) => (
-                        <tr key={item.id} className="border-b">
-                          <td className="py-2 px-3">{item.material_name}</td>
-                          <td className="text-right py-2 px-3">{item.ratio_pct.toFixed(2)}%</td>
-                          <td className="text-center py-2 px-3"><button className="text-red-600" onClick={() => handleDeleteItem(item.id)}>删除</button></td>
+                <div style={styles.card}>
+                  <div style={styles.cardHead}>物料清单（统一维度） | 总配比：{bomDetail.total_ratio.toFixed(2)}%</div>
+                  <div style={styles.cardBody}>
+                    <table style={styles.table}>
+                      <thead>
+                        <tr>
+                          <th style={styles.th}>物料</th>
+                          <th style={{ ...styles.th, textAlign: 'right' }}>配比%</th>
+                          <th style={{ ...styles.th, textAlign: 'center' }}>操作</th>
                         </tr>
-                      ))}
-                    </tbody>
-                  </table>
+                      </thead>
+                      <tbody>
+                        {bomDetail.items.length === 0 ? (
+                          <tr><td style={styles.td} colSpan={3}>暂无物料</td></tr>
+                        ) : bomDetail.items.map((item: BomItemRow) => (
+                          <tr key={item.id}>
+                            <td style={styles.td}>{item.material_name}</td>
+                            <td style={{ ...styles.td, textAlign: 'right' }}>{item.ratio_pct.toFixed(2)}%</td>
+                            <td style={{ ...styles.td, textAlign: 'center' }}><button style={styles.btnGhost} onClick={() => handleDeleteItem(item.id)}>删除</button></td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
 
-                  <div className="border-t pt-3 flex gap-2">
-                    <select value={newMaterialId} onChange={(e) => setNewMaterialId(e.target.value)} className="border rounded px-3 py-2 flex-1">
-                      <option value="">选择物料</option>
-                      {materials?.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
-                    </select>
-                    <input type="number" step="0.01" min="0.01" max="100" placeholder="配比%" className="border rounded px-3 py-2 w-32" value={newRatio} onChange={(e) => setNewRatio(e.target.value)} />
-                    <button onClick={handleAddItem} disabled={saveBomItem.isPending || !newMaterialId || !newRatio} className="bg-green-600 text-white px-4 py-2 rounded disabled:opacity-50">添加</button>
+                    <div style={{ marginTop: 10, display: 'flex', gap: 8 }}>
+                      <select style={{ ...styles.input, flex: 1 }} value={newMaterialId} onChange={(e) => setNewMaterialId(e.target.value)}>
+                        <option value="">选择物料</option>
+                        {materials?.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
+                      </select>
+                      <input style={{ ...styles.input, width: 120 }} type="number" step="0.01" min="0.01" max="100" placeholder="配比%" value={newRatio} onChange={(e) => setNewRatio(e.target.value)} />
+                      <button style={styles.btn} onClick={handleAddItem} disabled={saveBomItem.isPending || !newMaterialId || !newRatio}>添加</button>
+                    </div>
                   </div>
                 </div>
               </>
-            ) : null}
-          </div>
+            )}
+          </>
         )}
       </main>
     </div>
