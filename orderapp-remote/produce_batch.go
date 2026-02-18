@@ -135,7 +135,6 @@ LEFT JOIN %s.products p ON p.id=oi.product_id
 WHERE oi.order_id = ANY($1)
   AND o.is_void=false
   AND COALESCE(o.process_status_id,0) IN (1,2)
-FOR UPDATE
 `, schema, schema, schema)
 	rows, err := tx.Query(ctx, qItems, orderIDs)
 	if err != nil {
