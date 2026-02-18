@@ -42,7 +42,14 @@ fi
 ssh -i "$KEY" "$SERVER" "mkdir -p $DOCS_DIR"
 scp -i "$KEY" REQUIREMENTS.md ACCEPTANCE_TESTS.md HOW_TO_WORKFLOW.md DEPLOYMENT.md "$SERVER:$DOCS_DIR/"
 
-# 2) Sync app source (adjust list as needed)
+# 2) Build frontend (React)
+echo "Building frontend..."
+cd orderapp-remote/frontend
+npm ci 2>/dev/null || npm install
+npm run build
+cd ../..
+
+# 3) Sync app source (adjust list as needed)
 # Note: we copy the whole orderapp-remote folder to keep it simple.
 scp -i "$KEY" -r orderapp-remote/* "$SERVER:$APP_DIR/"
 

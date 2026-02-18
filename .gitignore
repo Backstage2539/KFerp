@@ -21,6 +21,10 @@ openclaw_jj_ed25519.pub
 memory/
 KFerp-notes/
 
+# frontend
+node_modules/
+dist/
+
 # misc
 .DS_Store
 .openclaw/

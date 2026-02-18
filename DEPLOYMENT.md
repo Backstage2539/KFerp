@@ -1,12 +1,28 @@
 # DEPLOYMENT - KFerp 部署流程与教程
 
-> 目标：把“从本地代码到线上可访问”这条链路写成可重复执行的步骤。
+> 目标：把"从本地代码到线上可访问"这条链路写成可重复执行的步骤。
 > 
 > 当前线上环境（截至 2026-02）：
 > - 域名：`https://erp.qacoohee.com/`
 > - 服务器：`root@1.12.242.58`
 > - 部署目录：`/opt/stacks/erp`
 > - 容器：`erp_orderapp`、`erp_caddy`、`erp_postgres`
+
+---
+
+## 新前端页面
+
+### React BOM 配方维护页面
+- 访问路径：`/app/bom-react`
+- 技术栈：React 18 + TypeScript + Vite + TanStack Query + Tailwind CSS
+- 源码：`orderapp-remote/frontend/`
+
+本地开发：
+```bash
+cd orderapp-remote/frontend
+npm install
+npm run dev  # http://localhost:3000
+```
 
 ---
 

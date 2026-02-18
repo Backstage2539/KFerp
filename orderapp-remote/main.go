@@ -342,6 +342,11 @@ func main() {
 	registerFinishedInventoryPages(e, pool, schema)
 	registerMaterialsPages(e, pool, schema)
 	registerBomPages(e, pool, schema)
+	registerBomAPI(e, pool, schema)
+
+	// Serve React frontend static files
+	e.Static("/app/bom-react", "frontend/dist")
+
 	registerUnprodSummaryPages(e, pool, schema)
 	registerProducePlanPages(e, pool, schema)
 	registerProducePlanAllocate(e, pool, schema)
