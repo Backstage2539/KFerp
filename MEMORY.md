@@ -33,3 +33,13 @@
      - 2.4 API 测试通过后，更新 API 表状态（含证据）。
   3) 完成后通知 Van 进行产品需求验收。
   4) Van 在需求审核表（REV）验收通过后，产品需求表（PR）状态自动更新为 done。
+
+## 技术栈（2026-02-18 更新）
+
+### React 前端（BOM 配方维护页面）
+- **框架**：React 18 + TypeScript + Vite
+- **状态管理**：TanStack Query (React Query)
+- **HTTP 客户端**：Axios
+- **样式**：Tailwind CSS
+- **访问路径**：`/app/bom-react`
+- **源码位置**：`orderapp-remote/frontend/`
