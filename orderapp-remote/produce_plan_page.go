@@ -26,6 +26,16 @@ type ProducePlanPageData struct {
 	Materials []MaterialNeed
 }
 
+func positiveGapRows(rows []UnprodNeedRow) []UnprodNeedRow {
+	out := make([]UnprodNeedRow, 0, len(rows))
+	for _, r := range rows {
+		if r.GapG > 0 {
+			out = append(out, r)
+		}
+	}
+	return out
+}
+
 func registerProducePlanPages(e *echo.Echo, pool *pgxpool.Pool, schema string) {
 	h := func(c echo.Context) error {
 		params := defaultProducePlanParams()
@@ -70,13 +80,7 @@ func registerProducePlanPages(e *echo.Echo, pool *pgxpool.Pool, schema string) {
 		if mappings, err := listBagSpecMappings(c.Request().Context(), pool, schema); err == nil {
 			params.BagNameBySpecG = mappingNameBySpec(mappings)
 		}
-		// only gap>0
-		out := make([]UnprodNeedRow, 0, len(rows))
-		for _, r := range rows {
-			if r.GapG > 0 {
-				out = append(out, r)
-			}
-		}
+		out := positiveGapRows(rows)
 		data.Rows = out
 		data.Materials = calcProducePlanMaterials(out, params)
 		return c.Render(http.StatusOK, "produce_plan.html", data)
