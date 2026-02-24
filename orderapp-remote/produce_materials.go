@@ -93,7 +93,9 @@ func calcProducePlanMaterials(rows []UnprodNeedRow, p ProducePlanParams) []Mater
 			continue
 		}
 
-		// Default: treat as coffee beans finished product.
+		// DEV-033: coffee bean material model
+		// - raw beans(g) = ceil(gap_g / yield_rate)
+		// - bag consumable(qty) = ceil(gap_g / spec_g)
 		add("咖啡豆(生豆/原豆)", yieldRawG(r.GapG), "g")
 		bagName := "豆袋"
 		if p.BagNameBySpecG != nil {
