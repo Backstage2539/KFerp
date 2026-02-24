@@ -11,7 +11,7 @@ func TestCalcProducePlanMaterials(t *testing.T) {
 		{Product: "咖啡豆A", SpecG: 250, GapG: 1},    // 1 unit (ceil)
 		{Product: "无缺口", SpecG: 250, GapG: 0},     // ignored
 		{Product: "坏规格", SpecG: 0, GapG: 100},     // ignored
-		{Product: "空", SpecG: 100, GapG: -100},    // ignored
+		{Product: "空", SpecG: 100, GapG: -100},      // ignored
 		{Product: "挂耳-特调", SpecG: 100, GapG: 100}, // 1 unit
 	}
 
@@ -44,6 +44,42 @@ func TestCalcProducePlanMaterials(t *testing.T) {
 	// Drip roast beans: finished gap = 1000 + 1 + 100 = 1101 => raw ceil(1101/0.8)=1377, plus extra 100g => 1477
 	if got := m["咖啡豆(烘焙)"].Qty; got != 1477 {
 		t.Fatalf("咖啡豆(烘焙) qty=%d want=1477", got)
+	}
+}
+
+func TestCalcProducePlanMaterials_InstantBoxPerUnit(t *testing.T) {
+	rows := []UnprodNeedRow{{Product: "速溶A", SpecG: 1, GapG: 5}}
+	out := calcProducePlanMaterials(rows, defaultProducePlanParams())
+	m := map[string]MaterialNeed{}
+	for _, v := range out {
+		m[v.Name] = v
+	}
+	if got := m["速溶-盒子"].Qty; got != 5 {
+		t.Fatalf("速溶-盒子 qty=%d want=5", got)
+	}
+}
+
+func TestCalcProducePlanMaterials_InstantAggregate(t *testing.T) {
+	rows := []UnprodNeedRow{{Product: "速溶A", SpecG: 1, GapG: 2}, {Product: "速溶B", SpecG: 1, GapG: 3}}
+	out := calcProducePlanMaterials(rows, defaultProducePlanParams())
+	m := map[string]MaterialNeed{}
+	for _, v := range out {
+		m[v.Name] = v
+	}
+	if got := m["速溶-盒子"].Qty; got != 5 {
+		t.Fatalf("速溶-盒子 qty=%d want=5", got)
+	}
+}
+
+func TestCalcProducePlanMaterials_InstantIgnoreNonPositiveGap(t *testing.T) {
+	rows := []UnprodNeedRow{{Product: "速溶A", SpecG: 1, GapG: 0}, {Product: "速溶B", SpecG: 1, GapG: -1}}
+	out := calcProducePlanMaterials(rows, defaultProducePlanParams())
+	m := map[string]MaterialNeed{}
+	for _, v := range out {
+		m[v.Name] = v
+	}
+	if _, ok := m["速溶-盒子"]; ok {
+		t.Fatalf("速溶-盒子 should not exist for non-positive gap")
 	}
 }
 
