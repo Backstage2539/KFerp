@@ -2,6 +2,7 @@ package main
 
 import (
 	"net/http"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -14,6 +15,7 @@ type ProducePlanPageData struct {
 	To         string
 	CustomerID int64
 	Rows       []UnprodNeedRow
+	CoffeeRows []UnprodNeedRow
 	Ok         bool
 	BatchID    string
 	Error      string
@@ -33,6 +35,22 @@ func positiveGapRows(rows []UnprodNeedRow) []UnprodNeedRow {
 			out = append(out, r)
 		}
 	}
+	return out
+}
+
+func coffeeSummaryRows(rows []UnprodNeedRow) []UnprodNeedRow {
+	out := make([]UnprodNeedRow, 0)
+	for _, r := range rows {
+		if strings.Contains(strings.TrimSpace(r.Product), "咖啡豆") {
+			out = append(out, r)
+		}
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Product != out[j].Product {
+			return out[i].Product < out[j].Product
+		}
+		return out[i].SpecG < out[j].SpecG
+	})
 	return out
 }
 
@@ -82,6 +100,7 @@ func registerProducePlanPages(e *echo.Echo, pool *pgxpool.Pool, schema string) {
 		}
 		out := positiveGapRows(rows)
 		data.Rows = out
+		data.CoffeeRows = coffeeSummaryRows(out)
 		data.Materials = calcProducePlanMaterials(out, params)
 		return c.Render(http.StatusOK, "produce_plan.html", data)
 	}

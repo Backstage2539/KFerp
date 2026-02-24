@@ -116,6 +116,40 @@
       </div>
 
       <div class="card">
+        <div style="font-weight:700;">咖啡豆物料需求汇总（按 SKU/规格）</div>
+        <div class="muted" style="margin-top:4px;">口径：仅展示商品名含“咖啡豆”的缺口项（gap_g &gt; 0），并按商品/规格排序。</div>
+        <div style="overflow:auto; -webkit-overflow-scrolling:touch; margin-top:8px;">
+          <table style="min-width:720px;">
+            <thead>
+              <tr>
+                <th>SKU（商品）</th>
+                <th style="width:90px;">规格(g)</th>
+                <th style="width:110px;">需求(件)</th>
+                <th style="width:130px;">需求(g)</th>
+                <th style="width:130px;">库存(g)</th>
+                <th style="width:130px;">缺口(g)</th>
+              </tr>
+            </thead>
+            <tbody>
+              {{range .CoffeeRows}}
+                <tr>
+                  <td>{{.Product}}</td>
+                  <td>{{.SpecG}}</td>
+                  <td>{{.NeedUnits}}</td>
+                  <td>{{.NeedG}}</td>
+                  <td>{{.InvG}}</td>
+                  <td><b>{{.GapG}}</b></td>
+                </tr>
+              {{end}}
+              {{if not .CoffeeRows}}
+                <tr><td colspan="6" class="muted">暂无咖啡豆缺口数据</td></tr>
+              {{end}}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="card">
         <div style="display:flex; align-items:center; justify-content:space-between; gap:10px; flex-wrap:wrap;">
           <div>
             <div style="font-weight:700;">物料需求汇总（按物料类型）</div>
