@@ -81,6 +81,9 @@ func calcProducePlanMaterials(rows []UnprodNeedRow, p ProducePlanParams) []Mater
 		// Later: add a product_type field and migrate.
 		if strings.Contains(name, "挂耳") {
 			hasDrip = true
+			// DEV-035: drip material model
+			// roasted_bean_g = ceil(gap_g / yield_rate) + drip_extra_g(per batch)
+			// consumables = unitsMissing for filter bag / film / seal sticker
 			add("咖啡豆(烘焙)", yieldRawG(r.GapG), "g")
 			add("挂耳-过滤袋", unitsMissing, "个")
 			add("挂耳-卷膜", unitsMissing, "个")
