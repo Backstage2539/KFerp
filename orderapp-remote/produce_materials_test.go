@@ -47,6 +47,51 @@ func TestCalcProducePlanMaterials(t *testing.T) {
 	}
 }
 
+func TestCalcProducePlanMaterials_DripModelByBoxSpecAndExtra(t *testing.T) {
+	rows := []UnprodNeedRow{{Product: "挂耳B", SpecG: 100, GapG: 1000}} // 10包
+	p := defaultProducePlanParams()
+	p.YieldRate = 0.8
+	p.DripExtraG = 100
+	p.DripBoxSpec = 5 // 10包 -> 2盒
+
+	out := calcProducePlanMaterials(rows, p)
+	m := map[string]MaterialNeed{}
+	for _, v := range out {
+		m[v.Name] = v
+	}
+
+	if got := m["挂耳-过滤袋"].Qty; got != 10 {
+		t.Fatalf("挂耳-过滤袋 qty=%d want=10", got)
+	}
+	if got := m["挂耳-卷膜"].Qty; got != 10 {
+		t.Fatalf("挂耳-卷膜 qty=%d want=10", got)
+	}
+	if got := m["挂耳-封口贴"].Qty; got != 10 {
+		t.Fatalf("挂耳-封口贴 qty=%d want=10", got)
+	}
+	if got := m["挂耳-盒彩"].Qty; got != 2 {
+		t.Fatalf("挂耳-盒彩 qty=%d want=2", got)
+	}
+	if got := m["咖啡豆(烘焙)"].Qty; got != 1350 { // ceil(1000/0.8)=1250 + 100 extra
+		t.Fatalf("咖啡豆(烘焙) qty=%d want=1350", got)
+	}
+}
+
+func TestCalcProducePlanMaterials_DripBoxDisabled(t *testing.T) {
+	rows := []UnprodNeedRow{{Product: "挂耳B", SpecG: 100, GapG: 1000}}
+	p := defaultProducePlanParams()
+	p.EnableDripBox = false
+
+	out := calcProducePlanMaterials(rows, p)
+	m := map[string]MaterialNeed{}
+	for _, v := range out {
+		m[v.Name] = v
+	}
+	if _, ok := m["挂耳-盒彩"]; ok {
+		t.Fatalf("挂耳-盒彩 should not exist when EnableDripBox=false")
+	}
+}
+
 func TestCalcProducePlanMaterials_BagMappingBySpec(t *testing.T) {
 	rows := []UnprodNeedRow{
 		{Product: "咖啡豆A", SpecG: 454, GapG: 908}, // 2 bags
