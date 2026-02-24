@@ -23,7 +23,18 @@ type ProducePlanPageData struct {
 	DripExtraG  string
 	DripBoxSpec string
 
-	Materials []MaterialNeed
+	Materials      []MaterialNeed
+	DripMaterials  []MaterialNeed
+}
+
+func dripMaterialsOnly(rows []MaterialNeed) []MaterialNeed {
+	out := make([]MaterialNeed, 0)
+	for _, r := range rows {
+		if strings.Contains(r.Name, "挂耳") || r.Name == "咖啡豆(烘焙)" {
+			out = append(out, r)
+		}
+	}
+	return out
 }
 
 func registerProducePlanPages(e *echo.Echo, pool *pgxpool.Pool, schema string) {
@@ -79,6 +90,7 @@ func registerProducePlanPages(e *echo.Echo, pool *pgxpool.Pool, schema string) {
 		}
 		data.Rows = out
 		data.Materials = calcProducePlanMaterials(out, params)
+		data.DripMaterials = dripMaterialsOnly(data.Materials)
 		return c.Render(http.StatusOK, "produce_plan.html", data)
 	}
 	e.GET("/produce/plan", h)
