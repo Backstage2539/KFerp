@@ -89,6 +89,8 @@ func calcProducePlanMaterials(rows []UnprodNeedRow, p ProducePlanParams) []Mater
 			continue
 		}
 		if strings.Contains(name, "速溶") {
+			// DEV-037: instant material model
+			// per-unit consumption: 1 instant box per finished unit
 			add("速溶-盒子", unitsMissing, "个")
 			continue
 		}
