@@ -47,6 +47,48 @@ func TestCalcProducePlanMaterials(t *testing.T) {
 	}
 }
 
+func TestCalcProducePlanMaterials_DripSummaryOnly(t *testing.T) {
+	rows := []UnprodNeedRow{
+		{Product: "挂耳A", SpecG: 10, GapG: 100},
+		{Product: "挂耳B", SpecG: 5, GapG: 50},
+	}
+	p := defaultProducePlanParams()
+	out := calcProducePlanMaterials(rows, p)
+	m := map[string]MaterialNeed{}
+	for _, v := range out {
+		m[v.Name] = v
+	}
+	if _, ok := m["挂耳-过滤袋"]; !ok { t.Fatalf("missing 挂耳-过滤袋") }
+	if _, ok := m["挂耳-卷膜"]; !ok { t.Fatalf("missing 挂耳-卷膜") }
+	if _, ok := m["挂耳-封口贴"]; !ok { t.Fatalf("missing 挂耳-封口贴") }
+	if _, ok := m["挂耳-盒彩"]; !ok { t.Fatalf("missing 挂耳-盒彩") }
+	if _, ok := m["咖啡豆(烘焙)"]; !ok { t.Fatalf("missing 咖啡豆(烘焙)") }
+}
+
+func TestCalcProducePlanMaterials_DripUnitsAggregate(t *testing.T) {
+	rows := []UnprodNeedRow{
+		{Product: "挂耳A", SpecG: 10, GapG: 101}, // 11包
+		{Product: "挂耳B", SpecG: 10, GapG: 19},  // 2包
+	}
+	p := defaultProducePlanParams()
+	p.DripBoxSpec = 10
+	out := calcProducePlanMaterials(rows, p)
+	m := map[string]MaterialNeed{}
+	for _, v := range out { m[v.Name] = v }
+	if got := m["挂耳-过滤袋"].Qty; got != 13 { t.Fatalf("袋 qty=%d want=13", got) }
+	if got := m["挂耳-盒彩"].Qty; got != 2 { t.Fatalf("盒 qty=%d want=2", got) }
+}
+
+func TestCalcProducePlanMaterials_DripNoRowsNoSummary(t *testing.T) {
+	rows := []UnprodNeedRow{{Product: "咖啡豆A", SpecG: 250, GapG: 500}}
+	p := defaultProducePlanParams()
+	out := calcProducePlanMaterials(rows, p)
+	m := map[string]MaterialNeed{}
+	for _, v := range out { m[v.Name] = v }
+	if _, ok := m["挂耳-过滤袋"]; ok { t.Fatalf("unexpected 挂耳-过滤袋") }
+	if _, ok := m["挂耳-盒彩"]; ok { t.Fatalf("unexpected 挂耳-盒彩") }
+}
+
 func TestCalcProducePlanMaterials_BagMappingBySpec(t *testing.T) {
 	rows := []UnprodNeedRow{
 		{Product: "咖啡豆A", SpecG: 454, GapG: 908}, // 2 bags
