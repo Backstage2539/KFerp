@@ -47,6 +47,21 @@ func TestCalcProducePlanMaterials(t *testing.T) {
 	}
 }
 
+func TestCalcProducePlanMaterials_YieldFallback(t *testing.T) {
+	rows := []UnprodNeedRow{{Product: "咖啡豆A", SpecG: 250, GapG: 500}}
+	p := defaultProducePlanParams()
+	p.YieldRate = -1 // invalid, should fallback to 0.8
+
+	out := calcProducePlanMaterials(rows, p)
+	m := map[string]MaterialNeed{}
+	for _, v := range out {
+		m[v.Name] = v
+	}
+	if got := m["咖啡豆(生豆/原豆)"].Qty; got != 625 { // ceil(500/0.8)
+		t.Fatalf("咖啡豆(生豆/原豆) qty=%d want=625", got)
+	}
+}
+
 func TestCalcProducePlanMaterials_BagMappingBySpec(t *testing.T) {
 	rows := []UnprodNeedRow{
 		{Product: "咖啡豆A", SpecG: 454, GapG: 908}, // 2 bags
