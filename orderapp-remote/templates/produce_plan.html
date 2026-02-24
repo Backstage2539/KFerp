@@ -121,6 +121,7 @@
             <div style="font-weight:700;">物料需求汇总（按物料类型）</div>
             <div class="muted" style="margin-top:4px;">口径：基于“生产计划（缺口&gt;0）”的 gap_g，按商品名称关键词粗分（咖啡豆/挂耳/速溶），并按出品率/冗余/盒规计算。</div>
           </div>
+          <a class="btn2" target="_blank" href="/produce/plan/print?from={{.From | urlquery}}&to={{.To | urlquery}}&customer_id={{.CustomerID}}&yield={{.YieldRate | urlquery}}&drip_extra_g={{.DripExtraG | urlquery}}&drip_box={{.DripBoxSpec | urlquery}}">打印视图</a>
         </div>
 
         <div style="overflow:auto; -webkit-overflow-scrolling:touch; margin-top:8px;">

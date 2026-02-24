@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>物料准备表（打印）</title>
+  <style>
+    body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial; margin:16px; color:#111;}
+    h2,h3{margin:0 0 10px 0;}
+    .muted{color:#666; font-size:12px;}
+    .meta{margin:8px 0 14px 0; font-size:13px;}
+    table{width:100%; border-collapse:collapse; margin-top:8px;}
+    th,td{border:1px solid #ddd; padding:8px; text-align:left; font-size:13px;}
+    @media print {
+      .no-print{display:none;}
+      body{margin:0;}
+    }
+  </style>
+</head>
+<body>
+  <div class="no-print" style="margin-bottom:10px;">
+    <button onclick="window.print()">打印</button>
+    <a href="/produce/plan?from={{.From | urlquery}}&to={{.To | urlquery}}&customer_id={{.CustomerID}}&yield={{.YieldRate | urlquery}}&drip_extra_g={{.DripExtraG | urlquery}}&drip_box={{.DripBoxSpec | urlquery}}">返回计划页</a>
+  </div>
+
+  <h2>物料准备表</h2>
+  <div class="meta">
+    <div>筛选条件：from={{if .From}}{{.From}}{{else}}(空){{end}}，to={{if .To}}{{.To}}{{else}}(空){{end}}，customer_id={{if .CustomerID}}{{.CustomerID}}{{else}}(全部){{end}}</div>
+    <div>参数：yield={{.YieldRate}}，drip_extra_g={{.DripExtraG}}，drip_box={{.DripBoxSpec}}</div>
+    <div class="muted">生成口径：仅统计缺口(g) &gt; 0 的生产计划项。</div>
+  </div>
+
+  <h3>一、物料汇总（打印主表）</h3>
+  <table>
+    <thead>
+      <tr>
+        <th>物料</th>
+        <th style="width:120px;">数量</th>
+        <th style="width:100px;">单位</th>
+      </tr>
+    </thead>
+    <tbody>
+      {{range .Materials}}
+      <tr>
+        <td>{{.Name}}</td>
+        <td>{{.Qty}}</td>
+        <td>{{.Unit}}</td>
+      </tr>
+      {{end}}
+      {{if not .Materials}}
+      <tr><td colspan="3" class="muted">暂无数据</td></tr>
+      {{end}}
+    </tbody>
+  </table>
+
+  <h3 style="margin-top:16px;">二、明细依据（用于复核）</h3>
+  <table>
+    <thead>
+      <tr>
+        <th>商品</th>
+        <th style="width:90px;">规格(g)</th>
+        <th style="width:110px;">需求(件)</th>
+        <th style="width:120px;">需求(g)</th>
+        <th style="width:120px;">库存(g)</th>
+        <th style="width:120px;">缺口(g)</th>
+      </tr>
+    </thead>
+    <tbody>
+      {{range .Rows}}
+      <tr>
+        <td>{{.Product}}</td>
+        <td>{{.SpecG}}</td>
+        <td>{{.NeedUnits}}</td>
+        <td>{{.NeedG}}</td>
+        <td>{{.InvG}}</td>
+        <td>{{.GapG}}</td>
+      </tr>
+      {{end}}
+      {{if not .Rows}}
+      <tr><td colspan="6" class="muted">暂无缺口数据</td></tr>
+      {{end}}
+    </tbody>
+  </table>
+</body>
+</html>
