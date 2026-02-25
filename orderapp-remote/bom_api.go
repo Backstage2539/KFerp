@@ -9,6 +9,18 @@ import (
 	"github.com/labstack/echo/v4"
 )
 
+func validYieldRate(v float64) bool {
+	return v > 0 && v <= 1
+}
+
+func validRatioPct(v float64) bool {
+	return v > 0 && v <= 100
+}
+
+func ratioSumExceed(total, oldRatio, newRatio float64) bool {
+	return total-oldRatio+newRatio > 100.0001
+}
+
 // JSON API response types
 type BomListItem struct {
 	ProductID int64   `json:"product_id"`
@@ -189,7 +201,7 @@ func registerBomAPI(e *echo.Echo, pool *pgxpool.Pool, schema string) {
 		if req.ProductID <= 0 {
 			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: "product required"})
 		}
-		if req.YieldRate <= 0 || req.YieldRate > 1 {
+		if !validYieldRate(req.YieldRate) {
 			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: "yield_rate must be (0,1]"})
 		}
 
@@ -209,7 +221,7 @@ func registerBomAPI(e *echo.Echo, pool *pgxpool.Pool, schema string) {
 		if req.ProductID <= 0 || req.MaterialID <= 0 {
 			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: "product/material required"})
 		}
-		if req.RatioPct <= 0 || req.RatioPct > 100 {
+		if !validRatioPct(req.RatioPct) {
 			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: "ratio must be (0,100]"})
 		}
 
@@ -225,7 +237,7 @@ func registerBomAPI(e *echo.Echo, pool *pgxpool.Pool, schema string) {
 			"SELECT COALESCE(ratio_pct,0) FROM "+schema+".product_bom_items WHERE product_id=$1 AND material_id=$2",
 			req.ProductID, req.MaterialID).Scan(&oldRatio)
 
-		if total-oldRatio+req.RatioPct > 100.0001 {
+		if ratioSumExceed(total, oldRatio, req.RatioPct) {
 			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: "ratio sum exceed 100%"})
 		}
 
