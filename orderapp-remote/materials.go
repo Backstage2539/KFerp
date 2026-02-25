@@ -80,16 +80,16 @@ func listMaterials(ctx context.Context, pool *pgxpool.Pool, schema, q string, li
 	return out, rows.Err()
 }
 
-func upsertMaterial(ctx context.Context, pool *pgxpool.Pool, schema string, code, name, kind, unit string, onhandG, onhandUnits, minG, minUnits int64) error {
+func normalizeMaterialInput(code, name, kind, unit string, onhandG, onhandUnits, minG, minUnits int64) (string, string, string, string, error) {
 	code = strings.TrimSpace(code)
 	name = strings.TrimSpace(name)
 	kind = strings.TrimSpace(kind)
 	unit = strings.TrimSpace(unit)
 	if code == "" {
-		return fmt.Errorf("code required")
+		return "", "", "", "", fmt.Errorf("code required")
 	}
 	if name == "" {
-		return fmt.Errorf("name required")
+		return "", "", "", "", fmt.Errorf("name required")
 	}
 	if kind == "" {
 		kind = "other"
@@ -98,7 +98,16 @@ func upsertMaterial(ctx context.Context, pool *pgxpool.Pool, schema string, code
 		unit = "g"
 	}
 	if onhandG < 0 || onhandUnits < 0 || minG < 0 || minUnits < 0 {
-		return fmt.Errorf("negative qty")
+		return "", "", "", "", fmt.Errorf("negative qty")
+	}
+	return code, name, kind, unit, nil
+}
+
+func upsertMaterial(ctx context.Context, pool *pgxpool.Pool, schema string, code, name, kind, unit string, onhandG, onhandUnits, minG, minUnits int64) error {
+	var err error
+	code, name, kind, unit, err = normalizeMaterialInput(code, name, kind, unit, onhandG, onhandUnits, minG, minUnits)
+	if err != nil {
+		return err
 	}
 	q := fmt.Sprintf(`INSERT INTO %s.materials(code,name,kind,unit,onhand_g,onhand_units,min_level_g,min_level_units,updated_at)
 		VALUES($1,$2,$3,$4,$5,$6,$7,$8,now())
