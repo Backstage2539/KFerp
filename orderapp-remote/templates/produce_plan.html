@@ -116,6 +116,24 @@
       </div>
 
       <div class="card">
+        <div style="font-weight:700;">速溶物料需求汇总</div>
+        <div class="muted" style="margin-top:4px;">口径：仅展示速溶相关物料。</div>
+        <div style="overflow:auto; -webkit-overflow-scrolling:touch; margin-top:8px;">
+          <table style="min-width:520px;">
+            <thead>
+              <tr><th>物料</th><th style="width:140px;">数量</th><th style="width:90px;">单位</th></tr>
+            </thead>
+            <tbody>
+              {{range .InstantMaterials}}
+              <tr><td>{{.Name}}</td><td><b>{{.Qty}}</b></td><td>{{.Unit}}</td></tr>
+              {{end}}
+              {{if not .InstantMaterials}}<tr><td colspan="3" class="muted">暂无速溶缺口数据</td></tr>{{end}}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="card">
         <div style="display:flex; align-items:center; justify-content:space-between; gap:10px; flex-wrap:wrap;">
           <div>
             <div style="font-weight:700;">物料需求汇总（按物料类型）</div>
