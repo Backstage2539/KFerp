@@ -48,12 +48,19 @@ func listBagSpecMappings(ctx context.Context, pool *pgxpool.Pool, schema string)
 	return out, rows.Err()
 }
 
-func saveBagSpecMapping(ctx context.Context, pool *pgxpool.Pool, schema string, specG, materialID int64) error {
+func validBagSpecMappingInputs(specG, materialID int64) error {
 	if specG <= 0 {
 		return fmt.Errorf("spec_g required")
 	}
 	if materialID <= 0 {
 		return fmt.Errorf("material_id required")
+	}
+	return nil
+}
+
+func saveBagSpecMapping(ctx context.Context, pool *pgxpool.Pool, schema string, specG, materialID int64) error {
+	if err := validBagSpecMappingInputs(specG, materialID); err != nil {
+		return err
 	}
 
 	q := fmt.Sprintf(`INSERT INTO %s.packaging_spec_material_map(spec_g, material_id, updated_at)
