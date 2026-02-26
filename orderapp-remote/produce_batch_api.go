@@ -16,9 +16,27 @@ type ProduceBatchAllocateItem struct {
 }
 
 type CreateProduceBatchRequest struct {
-	OrderIDs    []int64                    `json:"order_ids"`
-	Operator    string                     `json:"operator"`
-	Allocations []ProduceBatchAllocateItem `json:"allocations"`
+	OrderIDs      []int64                    `json:"order_ids"`
+	BatchID       string                     `json:"batch_id"`
+	Operator      string                     `json:"operator"`
+	IdempotencyKey string                    `json:"idempotency_key"`
+	Allocations   []ProduceBatchAllocateItem `json:"allocations"`
+}
+
+func validateCreateProduceBatchRequest(req CreateProduceBatchRequest) error {
+	if len(req.OrderIDs) == 0 {
+		return fmt.Errorf("order_ids required")
+	}
+	if strings.TrimSpace(req.BatchID) == "" {
+		return fmt.Errorf("batch_id required")
+	}
+	if strings.TrimSpace(req.Operator) == "" {
+		return fmt.Errorf("operator required")
+	}
+	if strings.TrimSpace(req.IdempotencyKey) == "" {
+		return fmt.Errorf("idempotency_key required")
+	}
+	return nil
 }
 
 type ProduceBatchListItem struct {
@@ -44,8 +62,8 @@ func registerProduceBatchAPI(e *echo.Echo, pool *pgxpool.Pool, schema string) {
 		if err := c.Bind(&req); err != nil {
 			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: "invalid request"})
 		}
-		if len(req.OrderIDs) == 0 {
-			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: "order_ids required"})
+		if err := validateCreateProduceBatchRequest(req); err != nil {
+			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: err.Error()})
 		}
 		allocMap := map[int64]int64{}
 		for _, a := range req.Allocations {
