@@ -6,6 +6,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/labstack/echo/v4"
 )
@@ -58,9 +59,23 @@ type ProduceBatchDetail struct {
 	Summary   []ProduceBatchSummaryItem `json:"summary"`
 }
 
+type ProduceBatchPreviewItem struct {
+	ProductID       int64  `json:"product_id"`
+	ProductName     string `json:"product_name"`
+	SpecG           int64  `json:"spec_g"`
+	NeedUnits       int64  `json:"need_units"`
+	NeedG           int64  `json:"need_g"`
+	InvUnits        int64  `json:"inv_units"`
+	InvLooseG       int64  `json:"inv_loose_g"`
+	InvTotalG       int64  `json:"inv_total_g"`
+	DeductedG       int64  `json:"deducted_g"`
+	GapG            int64  `json:"gap_g"`
+	WarningLowStock bool   `json:"warning_low_stock"`
+}
+
 type ProduceBatchDeductPreview struct {
-	BatchID string                    `json:"batch_id"`
-	Summary []ProduceBatchSummaryItem `json:"summary"`
+	BatchID string                   `json:"batch_id"`
+	Summary []ProduceBatchPreviewItem `json:"summary"`
 }
 
 func registerProduceBatchAPI(e *echo.Echo, pool *pgxpool.Pool, schema string) {
@@ -134,25 +149,53 @@ func registerProduceBatchAPI(e *echo.Echo, pool *pgxpool.Pool, schema string) {
 		if bid == "" {
 			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: "batch_id required"})
 		}
-		// ensure batch exists
+
+		tx, err := pool.BeginTx(c.Request().Context(), pgx.TxOptions{})
+		if err != nil {
+			return c.JSON(http.StatusInternalServerError, ErrorResponse{Error: err.Error()})
+		}
+		defer tx.Rollback(c.Request().Context())
+
+		// ensure batch exists and lock its rows in current tx
 		var exists int
-		if err := pool.QueryRow(c.Request().Context(), "SELECT 1 FROM "+schema+".produce_batches WHERE batch_id=$1", bid).Scan(&exists); err != nil {
+		if err := tx.QueryRow(c.Request().Context(), "SELECT 1 FROM "+schema+".produce_batches WHERE batch_id=$1 FOR UPDATE", bid).Scan(&exists); err != nil {
 			return c.JSON(http.StatusNotFound, ErrorResponse{Error: "batch not found"})
 		}
 
-		rows, err := pool.Query(c.Request().Context(),
-			"SELECT i.product_id,COALESCE((SELECT name FROM "+schema+".products p WHERE p.id=i.product_id),''),i.spec_g,i.need_units,i.need_g,COALESCE(l.deducted_g,0),COALESCE(l.gap_g,0) FROM "+schema+".produce_batch_items i LEFT JOIN (SELECT product_id,spec_g,SUM(deducted_g)::bigint AS deducted_g,SUM(gap_g)::bigint AS gap_g FROM "+schema+".finished_allocation_logs WHERE batch_id=$1 GROUP BY product_id,spec_g) l ON l.product_id=i.product_id AND l.spec_g=i.spec_g WHERE i.batch_id=$1 ORDER BY i.product_id,i.spec_g", bid)
+		rows, err := tx.Query(c.Request().Context(),
+			"SELECT i.product_id,COALESCE((SELECT name FROM "+schema+".products p WHERE p.id=i.product_id),''),i.spec_g,i.need_units,i.need_g,COALESCE(fi.onhand_units,0),COALESCE(fi.onhand_loose_g,0) FROM "+schema+".produce_batch_items i LEFT JOIN LATERAL (SELECT onhand_units,onhand_loose_g FROM "+schema+".finished_inventory f WHERE f.product_id=i.product_id AND f.spec_g=i.spec_g FOR UPDATE) fi ON true WHERE i.batch_id=$1 ORDER BY i.product_id,i.spec_g FOR UPDATE OF i", bid)
 		if err != nil {
 			return c.JSON(http.StatusInternalServerError, ErrorResponse{Error: err.Error()})
 		}
 		defer rows.Close()
-		out := ProduceBatchDeductPreview{BatchID: bid, Summary: make([]ProduceBatchSummaryItem, 0)}
+		out := ProduceBatchDeductPreview{BatchID: bid, Summary: make([]ProduceBatchPreviewItem, 0)}
 		for rows.Next() {
-			var s ProduceBatchSummaryItem
-			if err := rows.Scan(&s.ProductID, &s.ProductName, &s.SpecG, &s.NeedUnits, &s.NeedG, &s.DeductedG, &s.GapG); err != nil {
+			var s ProduceBatchPreviewItem
+			if err := rows.Scan(&s.ProductID, &s.ProductName, &s.SpecG, &s.NeedUnits, &s.NeedG, &s.InvUnits, &s.InvLooseG); err != nil {
 				return c.JSON(http.StatusInternalServerError, ErrorResponse{Error: err.Error()})
 			}
+			totalG, terr := invTotalG(s.SpecG, InvQty{Units: s.InvUnits, LooseG: s.InvLooseG})
+			if terr != nil {
+				return c.JSON(http.StatusInternalServerError, ErrorResponse{Error: terr.Error()})
+			}
+			s.InvTotalG = totalG
+			_, deductedG, gapG, derr := invDeduct(s.SpecG, InvQty{Units: s.InvUnits, LooseG: s.InvLooseG}, s.NeedG)
+			if derr != nil {
+				return c.JSON(http.StatusInternalServerError, ErrorResponse{Error: derr.Error()})
+			}
+			s.DeductedG = deductedG
+			s.GapG = gapG
+			// unified rule: low inventory is allowed with warning
+			if s.DeductedG > 0 && (s.InvTotalG-s.DeductedG) < s.SpecG {
+				s.WarningLowStock = true
+			}
 			out.Summary = append(out.Summary, s)
+		}
+		if err := rows.Err(); err != nil {
+			return c.JSON(http.StatusInternalServerError, ErrorResponse{Error: err.Error()})
+		}
+		if err := tx.Commit(c.Request().Context()); err != nil {
+			return c.JSON(http.StatusInternalServerError, ErrorResponse{Error: err.Error()})
 		}
 		return c.JSON(http.StatusOK, out)
 	})
