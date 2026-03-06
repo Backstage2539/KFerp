@@ -48,6 +48,9 @@ type ProduceBatchListItem struct {
 	OrderCount   int64  `json:"order_count"`
 	DeductStatus string `json:"deduct_status"`
 	DeductedAt   string `json:"deducted_at"`
+	NeedG        int64  `json:"need_g"`
+	DeductedG    int64  `json:"deducted_g"`
+	GapG         int64  `json:"gap_g"`
 
 	// DEV-045 compatibility aliases (keep old clients working)
 	StatusText  string `json:"status_text"`
@@ -130,16 +133,24 @@ func registerProduceBatchAPI(e *echo.Echo, pool *pgxpool.Pool, schema string) {
 			         WHEN l.total_gap_g = 0 THEN 'done'
 			         ELSE 'partial'
 			       END AS deduct_status,
-			       COALESCE(to_char(l.last_deducted_at,'YYYY-MM-DD HH24:MI:SS'),'') AS deducted_at
+			       COALESCE(to_char(l.last_deducted_at,'YYYY-MM-DD HH24:MI:SS'),'') AS deducted_at,
+			       COALESCE(i.total_need_g,0) AS need_g,
+			       COALESCE(l.total_deducted_g,0) AS deducted_g,
+			       GREATEST(0, COALESCE(i.total_need_g,0) - COALESCE(l.total_deducted_g,0)) AS gap_g
 			FROM %s.produce_batches b
 			LEFT JOIN (
-			  SELECT batch_id, COUNT(*) AS cnt, SUM(gap_g)::bigint AS total_gap_g, MAX(created_at) AS last_deducted_at
+			  SELECT batch_id, SUM(need_g)::bigint AS total_need_g
+			  FROM %s.produce_batch_items
+			  GROUP BY batch_id
+			) i ON i.batch_id=b.batch_id
+			LEFT JOIN (
+			  SELECT batch_id, COUNT(*) AS cnt, SUM(gap_g)::bigint AS total_gap_g, SUM(deducted_g)::bigint AS total_deducted_g, MAX(created_at) AS last_deducted_at
 			  FROM %s.finished_allocation_logs
 			  GROUP BY batch_id
 			) l ON l.batch_id=b.batch_id
 			ORDER BY b.created_at DESC
 			LIMIT $1
-		`, schema, schema, schema)
+		`, schema, schema, schema, schema)
 		rows, err := pool.Query(c.Request().Context(), q, limit)
 		if err != nil {
 			return c.JSON(http.StatusInternalServerError, ErrorResponse{Error: err.Error()})
@@ -148,7 +159,7 @@ func registerProduceBatchAPI(e *echo.Echo, pool *pgxpool.Pool, schema string) {
 		out := make([]ProduceBatchListItem, 0)
 		for rows.Next() {
 			var r ProduceBatchListItem
-			if err := rows.Scan(&r.BatchID, &r.Status, &r.Operator, &r.CreatedAt, &r.OrderCount, &r.DeductStatus, &r.DeductedAt); err != nil {
+			if err := rows.Scan(&r.BatchID, &r.Status, &r.Operator, &r.CreatedAt, &r.OrderCount, &r.DeductStatus, &r.DeductedAt, &r.NeedG, &r.DeductedG, &r.GapG); err != nil {
 				return c.JSON(http.StatusInternalServerError, ErrorResponse{Error: err.Error()})
 			}
 			// compatibility mirrors
