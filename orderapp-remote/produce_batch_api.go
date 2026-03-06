@@ -93,7 +93,7 @@ func registerProduceBatchAPI(e *echo.Echo, pool *pgxpool.Pool, schema string) {
 				allocMap[a.OrderItemID] = a.AllocateUnits
 			}
 		}
-		res, err := createProduceBatchFromOrders(c.Request().Context(), pool, schema, req.OrderIDs, req.Operator, allocMap)
+		res, err := createProduceBatchFromOrders(c.Request().Context(), pool, schema, req.OrderIDs, req.Operator, req.IdempotencyKey, allocMap)
 		if err != nil {
 			if strings.Contains(err.Error(), "exceed") {
 				return c.JSON(http.StatusConflict, ErrorResponse{Error: err.Error()})

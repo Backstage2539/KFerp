@@ -83,7 +83,13 @@ CREATE INDEX IF NOT EXISTS produce_batch_items_batch_idx ON %s.produce_batch_ite
 CREATE INDEX IF NOT EXISTS produce_batch_order_items_batch_idx ON %s.produce_batch_order_items(batch_id);
 CREATE INDEX IF NOT EXISTS produce_batch_allocations_batch_idx ON %s.produce_batch_allocations(batch_id);
 CREATE INDEX IF NOT EXISTS produce_batch_allocations_order_item_idx ON %s.produce_batch_allocations(order_item_id);
-`, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema)
+CREATE TABLE IF NOT EXISTS %s.produce_batch_idempotency (
+	idempotency_key TEXT PRIMARY KEY,
+	batch_id TEXT NOT NULL,
+	operator TEXT NOT NULL DEFAULT '',
+	created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+`, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema)
 	_, err := pool.Exec(ctx, q)
 	return err
 }
@@ -118,6 +124,30 @@ func validateAllocateUnits(totalUnits, allocatedUnits, requestUnits int64) error
 	return nil
 }
 
+func loadProduceBatchCreateResultTx(ctx context.Context, tx pgx.Tx, schema, batchID string) (*ProduceBatchCreateResult, error) {
+	rows, err := tx.Query(ctx, fmt.Sprintf(`SELECT product_id,COALESCE((SELECT name FROM %s.products p WHERE p.id=i.product_id),''),spec_g,need_units,need_g FROM %s.produce_batch_items i WHERE batch_id=$1 ORDER BY product_id,spec_g`, schema, schema), batchID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	summary := make([]ProduceBatchSummaryItem, 0)
+	for rows.Next() {
+		var s ProduceBatchSummaryItem
+		if err := rows.Scan(&s.ProductID, &s.ProductName, &s.SpecG, &s.NeedUnits, &s.NeedG); err != nil {
+			return nil, err
+		}
+		summary = append(summary, s)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	var orderCount int
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT COUNT(DISTINCT order_id)::int FROM %s.produce_batch_order_items WHERE batch_id=$1`, schema), batchID).Scan(&orderCount); err != nil {
+		return nil, err
+	}
+	return &ProduceBatchCreateResult{BatchID: batchID, OrderCount: orderCount, Summary: summary}, nil
+}
+
 func aggregateBatchSummary(items []ProduceBatchOrderItem) []ProduceBatchSummaryItem {
 	type key struct{ p, s int64 }
 	m := map[key]ProduceBatchSummaryItem{}
@@ -150,7 +180,7 @@ func aggregateBatchSummary(items []ProduceBatchOrderItem) []ProduceBatchSummaryI
 	return out
 }
 
-func createProduceBatchFromOrders(ctx context.Context, pool *pgxpool.Pool, schema string, orderIDs []int64, operator string, requestUnitsByOrderItem map[int64]int64) (*ProduceBatchCreateResult, error) {
+func createProduceBatchFromOrders(ctx context.Context, pool *pgxpool.Pool, schema string, orderIDs []int64, operator, idempotencyKey string, requestUnitsByOrderItem map[int64]int64) (*ProduceBatchCreateResult, error) {
 	if len(orderIDs) == 0 {
 		return nil, fmt.Errorf("order_ids required")
 	}
@@ -158,12 +188,31 @@ func createProduceBatchFromOrders(ctx context.Context, pool *pgxpool.Pool, schem
 	if operator == "" {
 		operator = "order"
 	}
+	idempotencyKey = strings.TrimSpace(idempotencyKey)
+	if idempotencyKey == "" {
+		return nil, fmt.Errorf("idempotency_key required")
+	}
 
 	tx, err := pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return nil, err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
+
+	// Idempotency: same key returns the already-created batch result.
+	var existedBatchID string
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT batch_id FROM %s.produce_batch_idempotency WHERE idempotency_key=$1`, schema), idempotencyKey).Scan(&existedBatchID); err == nil && strings.TrimSpace(existedBatchID) != "" {
+		res, rerr := loadProduceBatchCreateResultTx(ctx, tx, schema, existedBatchID)
+		if rerr != nil {
+			return nil, rerr
+		}
+		if err := tx.Commit(ctx); err != nil {
+			return nil, err
+		}
+		return res, nil
+	} else if err != nil && err != pgx.ErrNoRows {
+		return nil, err
+	}
 
 	qItems := fmt.Sprintf(`
 SELECT oi.id, oi.order_id, oi.product_id, COALESCE(p.name,''),
@@ -224,6 +273,9 @@ FOR UPDATE OF oi
 
 	batchID := newProduceBatchID()
 	if _, err := tx.Exec(ctx, fmt.Sprintf(`INSERT INTO %s.produce_batches(batch_id,status,operator) VALUES($1,'planned',$2)`, schema), batchID, operator); err != nil {
+		return nil, err
+	}
+	if _, err := tx.Exec(ctx, fmt.Sprintf(`INSERT INTO %s.produce_batch_idempotency(idempotency_key,batch_id,operator) VALUES($1,$2,$3)`, schema), idempotencyKey, batchID, operator); err != nil {
 		return nil, err
 	}
 
