@@ -21,10 +21,14 @@ func registerProducePlanAllocate(e *echo.Echo, pool *pgxpool.Pool, schema string
 			}
 		}
 		operator := "order"
-		batch, _, err := allocateUnproducedBySummary(c.Request().Context(), pool, schema, from, to, cid, operator)
+		batch, _, lowWarn, err := allocateUnproducedBySummary(c.Request().Context(), pool, schema, from, to, cid, operator)
 		if err != nil {
 			return c.Redirect(http.StatusSeeOther, "/produce/plan?err="+url.QueryEscape(err.Error()))
 		}
-		return c.Redirect(http.StatusSeeOther, "/produce/plan?ok=1&batch="+url.QueryEscape(batch)+"&from="+url.QueryEscape(from)+"&to="+url.QueryEscape(to)+"&customer_id="+strconv.FormatInt(cid, 10))
+		next := "/produce/plan?ok=1&batch=" + url.QueryEscape(batch) + "&from=" + url.QueryEscape(from) + "&to=" + url.QueryEscape(to) + "&customer_id=" + strconv.FormatInt(cid, 10)
+		if lowWarn {
+			next += "&warning=low_inventory"
+		}
+		return c.Redirect(http.StatusSeeOther, next)
 	})
 }
