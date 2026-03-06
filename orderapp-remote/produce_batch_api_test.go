@@ -1,6 +1,19 @@
 package main
 
-import "testing"
+import (
+	"reflect"
+	"testing"
+)
+
+func TestProduceBatchListItem_HasStatusAndCreatedAtFields(t *testing.T) {
+	typ := reflect.TypeOf(ProduceBatchListItem{})
+	if _, ok := typ.FieldByName("Status"); !ok {
+		t.Fatalf("expected field Status")
+	}
+	if _, ok := typ.FieldByName("CreatedAt"); !ok {
+		t.Fatalf("expected field CreatedAt")
+	}
+}
 
 func TestValidateCreateProduceBatchRequest(t *testing.T) {
 	ok := CreateProduceBatchRequest{OrderIDs: []int64{1}, BatchID: "B001", Operator: "jj", IdempotencyKey: "k1"}

@@ -30,6 +30,8 @@ type ProduceBatchSummaryItem struct {
 	SpecG       int64  `json:"spec_g"`
 	NeedUnits   int64  `json:"need_units"`
 	NeedG       int64  `json:"need_g"`
+	DeductedG   int64  `json:"deducted_g"`
+	GapG        int64  `json:"gap_g"`
 }
 
 type ProduceBatchCreateResult struct {

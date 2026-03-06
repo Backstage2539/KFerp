@@ -40,11 +40,13 @@ func validateCreateProduceBatchRequest(req CreateProduceBatchRequest) error {
 }
 
 type ProduceBatchListItem struct {
-	BatchID    string `json:"batch_id"`
-	Status     string `json:"status"`
-	Operator   string `json:"operator"`
-	CreatedAt  string `json:"created_at"`
-	OrderCount int64  `json:"order_count"`
+	BatchID      string `json:"batch_id"`
+	Status       string `json:"status"`
+	Operator     string `json:"operator"`
+	CreatedAt    string `json:"created_at"`
+	OrderCount   int64  `json:"order_count"`
+	DeductStatus string `json:"deduct_status"`
+	DeductedAt   string `json:"deducted_at"`
 }
 
 type ProduceBatchDetail struct {
@@ -54,6 +56,11 @@ type ProduceBatchDetail struct {
 	CreatedAt string                    `json:"created_at"`
 	Orders    []int64                   `json:"orders"`
 	Summary   []ProduceBatchSummaryItem `json:"summary"`
+}
+
+type ProduceBatchDeductPreview struct {
+	BatchID string                    `json:"batch_id"`
+	Summary []ProduceBatchSummaryItem `json:"summary"`
 }
 
 func registerProduceBatchAPI(e *echo.Echo, pool *pgxpool.Pool, schema string) {
@@ -90,11 +97,22 @@ func registerProduceBatchAPI(e *echo.Echo, pool *pgxpool.Pool, schema string) {
 		}
 		q := fmt.Sprintf(`
 			SELECT b.batch_id, b.status, b.operator, to_char(b.created_at,'YYYY-MM-DD HH24:MI:SS'),
-			       COALESCE((SELECT COUNT(DISTINCT x.order_id) FROM %s.produce_batch_order_items x WHERE x.batch_id=b.batch_id),0)
+			       COALESCE((SELECT COUNT(DISTINCT x.order_id) FROM %s.produce_batch_order_items x WHERE x.batch_id=b.batch_id),0),
+			       CASE
+			         WHEN l.cnt IS NULL THEN 'none'
+			         WHEN l.total_gap_g = 0 THEN 'done'
+			         ELSE 'partial'
+			       END AS deduct_status,
+			       COALESCE(to_char(l.last_deducted_at,'YYYY-MM-DD HH24:MI:SS'),'') AS deducted_at
 			FROM %s.produce_batches b
+			LEFT JOIN (
+			  SELECT batch_id, COUNT(*) AS cnt, SUM(gap_g)::bigint AS total_gap_g, MAX(created_at) AS last_deducted_at
+			  FROM %s.finished_allocation_logs
+			  GROUP BY batch_id
+			) l ON l.batch_id=b.batch_id
 			ORDER BY b.created_at DESC
 			LIMIT $1
-		`, schema, schema)
+		`, schema, schema, schema)
 		rows, err := pool.Query(c.Request().Context(), q, limit)
 		if err != nil {
 			return c.JSON(http.StatusInternalServerError, ErrorResponse{Error: err.Error()})
@@ -103,10 +121,38 @@ func registerProduceBatchAPI(e *echo.Echo, pool *pgxpool.Pool, schema string) {
 		out := make([]ProduceBatchListItem, 0)
 		for rows.Next() {
 			var r ProduceBatchListItem
-			if err := rows.Scan(&r.BatchID, &r.Status, &r.Operator, &r.CreatedAt, &r.OrderCount); err != nil {
+			if err := rows.Scan(&r.BatchID, &r.Status, &r.Operator, &r.CreatedAt, &r.OrderCount, &r.DeductStatus, &r.DeductedAt); err != nil {
 				return c.JSON(http.StatusInternalServerError, ErrorResponse{Error: err.Error()})
 			}
 			out = append(out, r)
+		}
+		return c.JSON(http.StatusOK, out)
+	})
+
+	e.GET("/api/produce/batch/:batch_id/deduct-preview", func(c echo.Context) error {
+		bid := strings.TrimSpace(c.Param("batch_id"))
+		if bid == "" {
+			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: "batch_id required"})
+		}
+		// ensure batch exists
+		var exists int
+		if err := pool.QueryRow(c.Request().Context(), "SELECT 1 FROM "+schema+".produce_batches WHERE batch_id=$1", bid).Scan(&exists); err != nil {
+			return c.JSON(http.StatusNotFound, ErrorResponse{Error: "batch not found"})
+		}
+
+		rows, err := pool.Query(c.Request().Context(),
+			"SELECT i.product_id,COALESCE((SELECT name FROM "+schema+".products p WHERE p.id=i.product_id),''),i.spec_g,i.need_units,i.need_g,COALESCE(l.deducted_g,0),COALESCE(l.gap_g,0) FROM "+schema+".produce_batch_items i LEFT JOIN (SELECT product_id,spec_g,SUM(deducted_g)::bigint AS deducted_g,SUM(gap_g)::bigint AS gap_g FROM "+schema+".finished_allocation_logs WHERE batch_id=$1 GROUP BY product_id,spec_g) l ON l.product_id=i.product_id AND l.spec_g=i.spec_g WHERE i.batch_id=$1 ORDER BY i.product_id,i.spec_g", bid)
+		if err != nil {
+			return c.JSON(http.StatusInternalServerError, ErrorResponse{Error: err.Error()})
+		}
+		defer rows.Close()
+		out := ProduceBatchDeductPreview{BatchID: bid, Summary: make([]ProduceBatchSummaryItem, 0)}
+		for rows.Next() {
+			var s ProduceBatchSummaryItem
+			if err := rows.Scan(&s.ProductID, &s.ProductName, &s.SpecG, &s.NeedUnits, &s.NeedG, &s.DeductedG, &s.GapG); err != nil {
+				return c.JSON(http.StatusInternalServerError, ErrorResponse{Error: err.Error()})
+			}
+			out.Summary = append(out.Summary, s)
 		}
 		return c.JSON(http.StatusOK, out)
 	})
@@ -142,7 +188,7 @@ func registerProduceBatchAPI(e *echo.Echo, pool *pgxpool.Pool, schema string) {
 		}
 
 		srows, err := pool.Query(c.Request().Context(),
-			"SELECT product_id,COALESCE((SELECT name FROM "+schema+".products p WHERE p.id=i.product_id),''),spec_g,need_units,need_g FROM "+schema+".produce_batch_items i WHERE batch_id=$1 ORDER BY product_id,spec_g", bid)
+			"SELECT i.product_id,COALESCE((SELECT name FROM "+schema+".products p WHERE p.id=i.product_id),''),i.spec_g,i.need_units,i.need_g,COALESCE(l.deducted_g,0),COALESCE(l.gap_g,0) FROM "+schema+".produce_batch_items i LEFT JOIN (SELECT product_id,spec_g,SUM(deducted_g)::bigint AS deducted_g,SUM(gap_g)::bigint AS gap_g FROM "+schema+".finished_allocation_logs WHERE batch_id=$1 GROUP BY product_id,spec_g) l ON l.product_id=i.product_id AND l.spec_g=i.spec_g WHERE i.batch_id=$1 ORDER BY i.product_id,i.spec_g", bid)
 		if err != nil {
 			return c.JSON(http.StatusInternalServerError, ErrorResponse{Error: err.Error()})
 		}
@@ -150,7 +196,7 @@ func registerProduceBatchAPI(e *echo.Echo, pool *pgxpool.Pool, schema string) {
 		d.Summary = make([]ProduceBatchSummaryItem, 0)
 		for srows.Next() {
 			var s ProduceBatchSummaryItem
-			if err := srows.Scan(&s.ProductID, &s.ProductName, &s.SpecG, &s.NeedUnits, &s.NeedG); err != nil {
+			if err := srows.Scan(&s.ProductID, &s.ProductName, &s.SpecG, &s.NeedUnits, &s.NeedG, &s.DeductedG, &s.GapG); err != nil {
 				return c.JSON(http.StatusInternalServerError, ErrorResponse{Error: err.Error()})
 			}
 			d.Summary = append(d.Summary, s)
