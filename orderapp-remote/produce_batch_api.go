@@ -135,6 +135,32 @@ func registerProduceBatchAPI(e *echo.Echo, pool *pgxpool.Pool, schema string) {
 				limit = n
 			}
 		}
+		statusQ := strings.TrimSpace(c.QueryParam("status"))
+		operatorQ := strings.TrimSpace(c.QueryParam("operator"))
+		fromQ := strings.TrimSpace(c.QueryParam("from"))
+		toQ := strings.TrimSpace(c.QueryParam("to"))
+
+		args := []any{}
+		where := " WHERE 1=1"
+		if statusQ != "" {
+			args = append(args, statusQ)
+			where += fmt.Sprintf(" AND b.status=$%d", len(args))
+		}
+		if operatorQ != "" {
+			args = append(args, operatorQ)
+			where += fmt.Sprintf(" AND b.operator=$%d", len(args))
+		}
+		if fromQ != "" {
+			args = append(args, fromQ)
+			where += fmt.Sprintf(" AND b.created_at >= $%d::date", len(args))
+		}
+		if toQ != "" {
+			args = append(args, toQ)
+			where += fmt.Sprintf(" AND b.created_at < ($%d::date + INTERVAL '1 day')", len(args))
+		}
+		args = append(args, limit)
+		limitArg := len(args)
+
 		q := fmt.Sprintf(`
 			SELECT b.batch_id, b.status, b.operator, to_char(b.created_at,'YYYY-MM-DD HH24:MI:SS'),
 			       COALESCE((SELECT COUNT(DISTINCT x.order_id) FROM %s.produce_batch_order_items x WHERE x.batch_id=b.batch_id),0),
@@ -158,10 +184,11 @@ func registerProduceBatchAPI(e *echo.Echo, pool *pgxpool.Pool, schema string) {
 			  FROM %s.finished_allocation_logs
 			  GROUP BY batch_id
 			) l ON l.batch_id=b.batch_id
+			%s
 			ORDER BY b.created_at DESC
-			LIMIT $1
-		`, schema, schema, schema, schema)
-		rows, err := pool.Query(c.Request().Context(), q, limit)
+			LIMIT $%d
+		`, schema, schema, schema, schema, where, limitArg)
+		rows, err := pool.Query(c.Request().Context(), q, args...)
 		if err != nil {
 			return c.JSON(http.StatusInternalServerError, ErrorResponse{Error: err.Error()})
 		}
