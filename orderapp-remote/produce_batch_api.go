@@ -71,6 +71,11 @@ type ProduceBatchDetail struct {
 	CreatedAt string                    `json:"created_at"`
 	Orders    []int64                   `json:"orders"`
 	Summary   []ProduceBatchSummaryItem `json:"summary"`
+
+	// DEV-041 traceability fields (additive, compatible)
+	CreatedBy    string `json:"created_by"`
+	CreatedTime  string `json:"created_time"`
+	StatusSource string `json:"status_source"`
 }
 
 type ProduceBatchPreviewItem struct {
@@ -301,6 +306,11 @@ func registerProduceBatchAPI(e *echo.Echo, pool *pgxpool.Pool, schema string) {
 			}
 			d.Summary = append(d.Summary, s)
 		}
+
+		// DEV-041 traceability mirrors
+		d.CreatedBy = d.Operator
+		d.CreatedTime = d.CreatedAt
+		d.StatusSource = "produce_batches.status"
 
 		return c.JSON(http.StatusOK, d)
 	})
