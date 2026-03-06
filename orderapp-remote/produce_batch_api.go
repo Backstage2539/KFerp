@@ -48,6 +48,12 @@ type ProduceBatchListItem struct {
 	OrderCount   int64  `json:"order_count"`
 	DeductStatus string `json:"deduct_status"`
 	DeductedAt   string `json:"deducted_at"`
+
+	// DEV-045 compatibility aliases (keep old clients working)
+	StatusText  string `json:"status_text"`
+	CreateTime  string `json:"create_time"`
+	DeductTime  string `json:"deduct_time"`
+	DeductState string `json:"deduct_state"`
 }
 
 type ProduceBatchDetail struct {
@@ -74,8 +80,14 @@ type ProduceBatchPreviewItem struct {
 }
 
 type ProduceBatchDeductPreview struct {
-	BatchID string                   `json:"batch_id"`
+	BatchID string                    `json:"batch_id"`
 	Summary []ProduceBatchPreviewItem `json:"summary"`
+}
+
+type ProduceBatchDeductConfirmResponse struct {
+	BatchID string                    `json:"batch_id"`
+	Status  string                    `json:"status"`
+	Summary []ProduceBatchSummaryItem `json:"summary"`
 }
 
 func registerProduceBatchAPI(e *echo.Echo, pool *pgxpool.Pool, schema string) {
@@ -139,6 +151,11 @@ func registerProduceBatchAPI(e *echo.Echo, pool *pgxpool.Pool, schema string) {
 			if err := rows.Scan(&r.BatchID, &r.Status, &r.Operator, &r.CreatedAt, &r.OrderCount, &r.DeductStatus, &r.DeductedAt); err != nil {
 				return c.JSON(http.StatusInternalServerError, ErrorResponse{Error: err.Error()})
 			}
+			// compatibility mirrors
+			r.StatusText = r.Status
+			r.CreateTime = r.CreatedAt
+			r.DeductTime = r.DeductedAt
+			r.DeductState = r.DeductStatus
 			out = append(out, r)
 		}
 		return c.JSON(http.StatusOK, out)
@@ -198,6 +215,22 @@ func registerProduceBatchAPI(e *echo.Echo, pool *pgxpool.Pool, schema string) {
 			return c.JSON(http.StatusInternalServerError, ErrorResponse{Error: err.Error()})
 		}
 		return c.JSON(http.StatusOK, out)
+	})
+
+	e.POST("/api/produce/batch/:batch_id/deduct-confirm", func(c echo.Context) error {
+		bid := strings.TrimSpace(c.Param("batch_id"))
+		if bid == "" {
+			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: "batch_id required"})
+		}
+		op := strings.TrimSpace(c.QueryParam("operator"))
+		summary, err := confirmProduceBatchDeduct(c.Request().Context(), pool, schema, bid, op)
+		if err != nil {
+			if strings.Contains(err.Error(), "batch not found") {
+				return c.JSON(http.StatusNotFound, ErrorResponse{Error: err.Error()})
+			}
+			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: err.Error()})
+		}
+		return c.JSON(http.StatusOK, ProduceBatchDeductConfirmResponse{BatchID: bid, Status: "deducted", Summary: summary})
 	})
 
 	e.GET("/api/produce/batch/:batch_id", func(c echo.Context) error {
