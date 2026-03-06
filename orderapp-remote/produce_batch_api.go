@@ -52,6 +52,11 @@ type ProduceBatchListItem struct {
 	DeductedG    int64  `json:"deducted_g"`
 	GapG         int64  `json:"gap_g"`
 
+	// DEV-042 traceability fields (additive, non-breaking)
+	CreatedBy       string `json:"created_by"`
+	CreatedTime     string `json:"created_time"`
+	StatusChangedAt string `json:"status_changed_at"`
+
 	// DEV-045 compatibility aliases (keep old clients working)
 	StatusText  string `json:"status_text"`
 	CreateTime  string `json:"create_time"`
@@ -161,6 +166,14 @@ func registerProduceBatchAPI(e *echo.Echo, pool *pgxpool.Pool, schema string) {
 			var r ProduceBatchListItem
 			if err := rows.Scan(&r.BatchID, &r.Status, &r.Operator, &r.CreatedAt, &r.OrderCount, &r.DeductStatus, &r.DeductedAt, &r.NeedG, &r.DeductedG, &r.GapG); err != nil {
 				return c.JSON(http.StatusInternalServerError, ErrorResponse{Error: err.Error()})
+			}
+			// DEV-042 traceability mirrors (additive)
+			r.CreatedBy = r.Operator
+			r.CreatedTime = r.CreatedAt
+			if strings.TrimSpace(r.DeductedAt) != "" {
+				r.StatusChangedAt = r.DeductedAt
+			} else {
+				r.StatusChangedAt = r.CreatedAt
 			}
 			// compatibility mirrors
 			r.StatusText = r.Status
