@@ -105,6 +105,9 @@ type ProduceBatchDeductConfirmResponse struct {
 
 func registerProduceBatchAPI(e *echo.Echo, pool *pgxpool.Pool, schema string) {
 	e.POST("/api/produce/batch/create", func(c echo.Context) error {
+		if err := requireEmployeeBound(c); err != nil {
+			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: err.Error()})
+		}
 		var req CreateProduceBatchRequest
 		if err := c.Bind(&req); err != nil {
 			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: "invalid request"})
@@ -274,6 +277,9 @@ func registerProduceBatchAPI(e *echo.Echo, pool *pgxpool.Pool, schema string) {
 	})
 
 	e.POST("/api/produce/batch/:batch_id/deduct-confirm", func(c echo.Context) error {
+		if err := requireEmployeeBound(c); err != nil {
+			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: err.Error()})
+		}
 		bid := strings.TrimSpace(c.Param("batch_id"))
 		if bid == "" {
 			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: "batch_id required"})

@@ -314,6 +314,16 @@ func main() {
 	e.Use(middleware.Recover())
 	e.Use(middleware.Secure())
 	e.Use(basicAuth(authUser, authPass))
+	e.Use(func(next echo.HandlerFunc) echo.HandlerFunc {
+		return func(c echo.Context) error {
+			if u, _, ok := c.Request().BasicAuth(); ok {
+				if eid, err := resolveEmployeeIDByLogin(c, pool, schema, u); err == nil && eid > 0 {
+					c.Set("employee_id", eid)
+				}
+			}
+			return next(c)
+		}
+	})
 	e.Renderer = &TemplateRenderer{t: t}
 
 	if err := ensureReqTables(context.Background(), pool, schema); err != nil {
@@ -980,6 +990,9 @@ func main() {
 	})
 
 	e.POST("/order", func(c echo.Context) error {
+		if err := requireEmployeeBound(c); err != nil {
+			return c.String(http.StatusBadRequest, err.Error())
+		}
 		var req CreateOrderRequest
 		if err := c.Bind(&req); err != nil {
 			return c.String(http.StatusBadRequest, "bad request")

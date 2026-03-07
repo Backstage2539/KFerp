@@ -12,6 +12,9 @@ import (
 
 func registerProducePlanAllocate(e *echo.Echo, pool *pgxpool.Pool, schema string) {
 	e.POST("/produce/plan/commit", func(c echo.Context) error {
+		if err := requireEmployeeBound(c); err != nil {
+			return c.Redirect(http.StatusSeeOther, "/produce/plan?err="+url.QueryEscape(err.Error()))
+		}
 		from := strings.TrimSpace(c.FormValue("from"))
 		to := strings.TrimSpace(c.FormValue("to"))
 		var cid int64
