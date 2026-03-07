@@ -367,6 +367,7 @@ func main() {
 	registerProducePlanPages(e, pool, schema)
 	registerProducePlanAllocate(e, pool, schema)
 	registerProduceBatchAPI(e, pool, schema)
+	registerCompanyStaffPages(e, pool, schema)
 	registerCompanyStaffAPI(e, pool, schema)
 	registerAllocationLogPages(e, pool, schema)
 

@@ -1,0 +1,34 @@
+{{define "company_departments.html"}}
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>部门维护</title>
+  <style>
+    body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,"Noto Sans SC",sans-serif;max-width:900px;margin:24px auto;padding:0 12px;}
+    table{width:100%;border-collapse:collapse;margin-top:12px}
+    th,td{border:1px solid #e5e7eb;padding:8px;text-align:left}
+    .ok{background:#e9ffe9;border:1px solid #b8f5b8;padding:8px;border-radius:8px}
+    .err{background:#fff1f0;border:1px solid #ffa39e;padding:8px;border-radius:8px}
+  </style>
+</head>
+<body>
+  <h2>部门维护</h2>
+  {{if .Ok}}<div class="ok">保存成功</div>{{end}}
+  {{if .Error}}<div class="err">{{.Error}}</div>{{end}}
+  <table>
+    <thead><tr><th>ID</th><th>名称</th><th>状态</th></tr></thead>
+    <tbody>
+      {{range .Items}}
+      <tr>
+        <td>{{.ID}}</td>
+        <td>{{.Name}}</td>
+        <td>{{if .Active}}启用{{else}}停用{{end}}</td>
+      </tr>
+      {{end}}
+    </tbody>
+  </table>
+</body>
+</html>
+{{end}}

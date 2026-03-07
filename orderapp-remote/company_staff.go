@@ -33,6 +33,17 @@ type EmployeeUpsertReq struct {
 	Active       *bool  `json:"active"`
 }
 
+type DepartmentUpsertReq struct {
+	Name   string `json:"name"`
+	Active *bool  `json:"active"`
+}
+
+type DepartmentPageData struct {
+	Items []DepartmentItem
+	Error string
+	Ok    bool
+}
+
 var phoneBasic = regexp.MustCompile(`^[0-9+\-\s]{6,32}$`)
 
 func ensureCompanyStaffTables(ctx context.Context, pool *pgxpool.Pool, schema string) error {
@@ -66,6 +77,26 @@ ON CONFLICT (name) DO NOTHING;
 	return err
 }
 
+func registerCompanyStaffPages(e *echo.Echo, pool *pgxpool.Pool, schema string) {
+	e.GET("/company/departments", func(c echo.Context) error {
+		rows, err := pool.Query(c.Request().Context(), "SELECT id,name,active FROM "+schema+".company_departments ORDER BY id")
+		if err != nil {
+			return c.String(http.StatusInternalServerError, err.Error())
+		}
+		defer rows.Close()
+		items := make([]DepartmentItem, 0)
+		for rows.Next() {
+			var d DepartmentItem
+			if err := rows.Scan(&d.ID, &d.Name, &d.Active); err != nil {
+				return c.String(http.StatusInternalServerError, err.Error())
+			}
+			items = append(items, d)
+		}
+		data := DepartmentPageData{Items: items, Ok: strings.TrimSpace(c.QueryParam("ok")) == "1", Error: strings.TrimSpace(c.QueryParam("err"))}
+		return c.Render(http.StatusOK, "company_departments.html", data)
+	})
+}
+
 func registerCompanyStaffAPI(e *echo.Echo, pool *pgxpool.Pool, schema string) {
 	e.GET("/api/company/departments", func(c echo.Context) error {
 		rows, err := pool.Query(c.Request().Context(), "SELECT id,name,active FROM "+schema+".company_departments ORDER BY id")
@@ -82,6 +113,56 @@ func registerCompanyStaffAPI(e *echo.Echo, pool *pgxpool.Pool, schema string) {
 			out = append(out, d)
 		}
 		return c.JSON(http.StatusOK, out)
+	})
+	// DEV-050: department maintenance API
+	e.POST("/api/company/departments", func(c echo.Context) error {
+		var req DepartmentUpsertReq
+		if err := c.Bind(&req); err != nil {
+			return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid request"})
+		}
+		name := strings.TrimSpace(req.Name)
+		if name == "" {
+			return c.JSON(http.StatusBadRequest, map[string]string{"error": "name required"})
+		}
+		active := true
+		if req.Active != nil {
+			active = *req.Active
+		}
+		var id int64
+		if err := pool.QueryRow(c.Request().Context(),
+			"INSERT INTO "+schema+".company_departments(name,active) VALUES($1,$2) RETURNING id", name, active,
+		).Scan(&id); err != nil {
+			return c.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
+		}
+		return c.JSON(http.StatusOK, map[string]any{"id": id})
+	})
+	e.PUT("/api/company/departments/:id", func(c echo.Context) error {
+		id := strings.TrimSpace(c.Param("id"))
+		if id == "" {
+			return c.JSON(http.StatusBadRequest, map[string]string{"error": "id required"})
+		}
+		var req DepartmentUpsertReq
+		if err := c.Bind(&req); err != nil {
+			return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid request"})
+		}
+		name := strings.TrimSpace(req.Name)
+		if name == "" {
+			return c.JSON(http.StatusBadRequest, map[string]string{"error": "name required"})
+		}
+		active := true
+		if req.Active != nil {
+			active = *req.Active
+		}
+		tag, err := pool.Exec(c.Request().Context(),
+			"UPDATE "+schema+".company_departments SET name=$1,active=$2 WHERE id=$3", name, active, id,
+		)
+		if err != nil {
+			return c.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
+		}
+		if tag.RowsAffected() == 0 {
+			return c.JSON(http.StatusNotFound, map[string]string{"error": "department not found"})
+		}
+		return c.JSON(http.StatusOK, map[string]any{"ok": true})
 	})
 
 	e.GET("/api/company/employees", func(c echo.Context) error {
