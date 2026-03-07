@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"regexp"
+	"strconv"
 	"strings"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -42,6 +43,14 @@ type DepartmentPageData struct {
 	Items []DepartmentItem
 	Error string
 	Ok    bool
+}
+
+type EmployeePageData struct {
+	Items        []EmployeeItem
+	Departments  []DepartmentItem
+	DepartmentID int64
+	Error        string
+	Ok           bool
 }
 
 var phoneBasic = regexp.MustCompile(`^[0-9+\-\s]{6,32}$`)
@@ -94,6 +103,49 @@ func registerCompanyStaffPages(e *echo.Echo, pool *pgxpool.Pool, schema string) 
 		}
 		data := DepartmentPageData{Items: items, Ok: strings.TrimSpace(c.QueryParam("ok")) == "1", Error: strings.TrimSpace(c.QueryParam("err"))}
 		return c.Render(http.StatusOK, "company_departments.html", data)
+	})
+
+	e.GET("/company/employees", func(c echo.Context) error {
+		depRows, err := pool.Query(c.Request().Context(), "SELECT id,name,active FROM "+schema+".company_departments ORDER BY id")
+		if err != nil {
+			return c.String(http.StatusInternalServerError, err.Error())
+		}
+		defer depRows.Close()
+		deps := make([]DepartmentItem, 0)
+		for depRows.Next() {
+			var d DepartmentItem
+			if err := depRows.Scan(&d.ID, &d.Name, &d.Active); err != nil {
+				return c.String(http.StatusInternalServerError, err.Error())
+			}
+			deps = append(deps, d)
+		}
+
+		depID := int64(0)
+		where := ""
+		args := []any{}
+		if v := strings.TrimSpace(c.QueryParam("department_id")); v != "" {
+			if x, err := strconv.ParseInt(v, 10, 64); err == nil && x > 0 {
+				depID = x
+				where = " WHERE e.department_id=$1"
+				args = append(args, depID)
+			}
+		}
+		q := "SELECT e.id,e.name,e.phone,e.department_id,COALESCE(d.name,''),e.active FROM " + schema + ".company_employees e JOIN " + schema + ".company_departments d ON d.id=e.department_id" + where + " ORDER BY e.id DESC"
+		rows, err := pool.Query(c.Request().Context(), q, args...)
+		if err != nil {
+			return c.String(http.StatusInternalServerError, err.Error())
+		}
+		defer rows.Close()
+		items := make([]EmployeeItem, 0)
+		for rows.Next() {
+			var x EmployeeItem
+			if err := rows.Scan(&x.ID, &x.Name, &x.Phone, &x.DepartmentID, &x.Department, &x.Active); err != nil {
+				return c.String(http.StatusInternalServerError, err.Error())
+			}
+			items = append(items, x)
+		}
+		data := EmployeePageData{Items: items, Departments: deps, DepartmentID: depID, Ok: strings.TrimSpace(c.QueryParam("ok")) == "1", Error: strings.TrimSpace(c.QueryParam("err"))}
+		return c.Render(http.StatusOK, "company_employees.html", data)
 	})
 }
 
