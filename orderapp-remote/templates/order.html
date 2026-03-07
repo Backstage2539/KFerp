@@ -815,7 +815,22 @@ function restoreDraft(){
 // autosave on page leave
 window.addEventListener('beforeunload', saveDraft);
 
+function ensureDefaultShipStatus(){
+  const hidden = document.querySelector('input[name="ship_status_id"]');
+  if(!hidden || (hidden.value||'').trim()!=='') return;
+  const arr = OPTS.shipStatuses || [];
+  const hit = arr.find(x => String(x.name||'').trim()==='未发货') || arr.find(x => String(x.name||'').includes('未发货'));
+  if(!hit) return;
+  hidden.value = String(hit.id);
+  const combo = hidden.closest('.combo');
+  if(combo){
+    const inp = combo.querySelector('input.combo-input');
+    if(inp) inp.value = cleanPicked(hit.name||'未发货');
+  }
+}
+
 restoreDraft();
+ensureDefaultShipStatus();
 if(document.querySelectorAll('#items tbody tr').length===0){
   addRow();
   addRow();

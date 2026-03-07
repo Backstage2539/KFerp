@@ -1175,6 +1175,12 @@ func main() {
 		grand0 := totalAmt + shippingAmt - discountAmt
 		grandTotal, roundingAmt := applyRoundToInt(grand0, roundToInt)
 
+		// 默认发货状态：未选择时自动写入“未发货”。
+		shipStatusID := req.ShipStatusID
+		if shipStatusID == 0 {
+			_ = tx.QueryRow(ctx, fmt.Sprintf("SELECT id FROM %s.ship_statuses WHERE name='未发货' ORDER BY id LIMIT 1", schema)).Scan(&shipStatusID)
+		}
+
 		insertOrderSQL := fmt.Sprintf(`
 			INSERT INTO %s.orders(
 				order_date, customer_id,
@@ -1201,7 +1207,7 @@ func main() {
 			nullInt(req.SourceID),
 			nullInt(req.OrderTypeID),
 			nullInt(req.PayStatusID),
-			nullInt(req.ShipStatusID),
+			nullInt(shipStatusID),
 			nullText(req.ShipMethod),
 			nullText(req.ShipTrackingNo),
 			nullText(req.Notes),
