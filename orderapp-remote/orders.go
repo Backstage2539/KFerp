@@ -42,8 +42,8 @@ func fetchOrders(ctx context.Context, pool *pgxpool.Pool, schema, q, from, to, v
 		argn++
 	}
 	if unproducedOnly {
-		// 未生产：已接单(1) / 已排产(2)
-		where = append(where, "COALESCE(o.process_status_id,0) IN (1,2)")
+		// 未生产：未设置(0) / 已接单(1) / 已排产(2)
+		where = append(where, "COALESCE(o.process_status_id,0) IN (0,1,2)")
 	}
 	if completedOnly {
 		where = append(where, "COALESCE(o.pay_status_id,0)=2 AND COALESCE(o.ship_status_id,0) IN (3,4)")

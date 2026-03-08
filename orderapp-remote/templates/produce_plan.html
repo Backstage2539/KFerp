@@ -113,7 +113,7 @@
           <input type="hidden" name="from" value="{{.From}}" />
           <input type="hidden" name="to" value="{{.To}}" />
           <input type="hidden" name="customer_id" value="{{.CustomerID}}" />
-          <button class="btn" type="submit" onclick="return confirm('确认备货并扣减成品库存？只对缺口>0的项目执行扣减，并生成批次记录。');">确认备货并扣减成品库存（仅缺口）</button>
+          <!-- DEV-074: 移除扣减成品库存按钮，改为仅展示计划与缺口 -->
           <a class="btn2" style="margin-left:8px;" href="/produce/allocations">查看扣减记录（批次）</a>
           <span class="muted" style="margin-left:8px;">范围：gap_g &gt; 0（生产计划）</span>
         </form>
