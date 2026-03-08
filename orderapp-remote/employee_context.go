@@ -26,6 +26,24 @@ func resolveEmployeeIDByLogin(ctx echo.Context, pool *pgxpool.Pool, schema, logi
 	return id, nil
 }
 
+func resolveEmployeeNameByID(ctx echo.Context, pool *pgxpool.Pool, schema string, id int64) (string, error) {
+	if id <= 0 {
+		return "", nil
+	}
+	var name string
+	err := pool.QueryRow(ctx.Request().Context(),
+		"SELECT COALESCE(name,'') FROM "+schema+".company_employees WHERE id=$1 LIMIT 1",
+		id,
+	).Scan(&name)
+	if err != nil {
+		if err == pgx.ErrNoRows {
+			return "", nil
+		}
+		return "", err
+	}
+	return name, nil
+}
+
 func currentEmployeeID(c echo.Context) int64 {
 	if v := c.Get("employee_id"); v != nil {
 		if id, ok := v.(int64); ok {

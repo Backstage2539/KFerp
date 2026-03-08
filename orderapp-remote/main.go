@@ -227,6 +227,11 @@ func basicAuth(user, pass string) echo.MiddlewareFunc {
 }
 
 func actorOf(c echo.Context) string {
+	if v := c.Get("operator_employee"); v != nil {
+		if s, ok := v.(string); ok && strings.TrimSpace(s) != "" {
+			return strings.TrimSpace(s)
+		}
+	}
 	if v := c.Get("actor"); v != nil {
 		if s, ok := v.(string); ok && strings.TrimSpace(s) != "" {
 			return s
@@ -321,6 +326,9 @@ func main() {
 			if u, _, ok := c.Request().BasicAuth(); ok {
 				if eid, err := resolveEmployeeIDByLogin(c, pool, schema, u); err == nil && eid > 0 {
 					c.Set("employee_id", eid)
+					if ename, err := resolveEmployeeNameByID(c, pool, schema, eid); err == nil && strings.TrimSpace(ename) != "" {
+						c.Set("operator_employee", strings.TrimSpace(ename))
+					}
 				}
 			}
 			return next(c)
