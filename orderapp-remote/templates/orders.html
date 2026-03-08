@@ -197,6 +197,7 @@
           <th style="width:18%">订单号</th>
           <th style="width:12%">日期</th>
           <th class="cust">客户</th>
+          <th style="width:10%">录单人</th>
           <th style="width:10%">金额</th>
           <th style="width:14%">收款</th>
           <th style="width:14%">发货</th>
@@ -215,6 +216,7 @@
           </td>
           <td>{{.OrderDate}}</td>
           <td class="cust"><a href="/customers/{{.CustomerID}}">{{.Customer}}</a></td>
+          <td>{{if .CreatedByEmployee}}{{.CreatedByEmployee}}{{else}}未知{{end}}</td>
           <td>{{.GrandTotal}}</td>
           <td>
             <select class="inline" name="pay_status_id">
@@ -254,7 +256,7 @@
         </tr>
         {{end}}
         {{if not .Rows}}
-        <tr><td colspan="8" class="muted">暂无数据</td></tr>
+        <tr><td colspan="9" class="muted">暂无数据</td></tr>
         {{end}}
       </tbody>
     </table>

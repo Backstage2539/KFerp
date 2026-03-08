@@ -91,6 +91,7 @@ func fetchOrders(ctx context.Context, pool *pgxpool.Pool, schema, q, from, to, v
 			COALESCE(ps.name, '') AS pay_status,
 			COALESCE(ss.name, '') AS ship_status,
 			COALESCE(ops.name, '') AS process_status,
+			COALESCE((SELECT al.actor FROM %s.order_audit_logs al WHERE al.order_id=o.id ORDER BY al.id ASC LIMIT 1), '未知') AS created_by_employee,
 			COALESCE(o.pay_status_id,0) AS pay_status_id,
 			COALESCE(o.ship_status_id,0) AS ship_status_id,
 			COALESCE(o.process_status_id,0) AS process_status_id,
@@ -104,7 +105,7 @@ func fetchOrders(ctx context.Context, pool *pgxpool.Pool, schema, q, from, to, v
 		%s
 		ORDER BY o.order_date DESC, o.id DESC
 		LIMIT $%d OFFSET $%d
-	`, schema, schema, schema, schema, schema, wsql, limitArg, offsetArg)
+	`, schema, schema, schema, schema, schema, schema, wsql, limitArg, offsetArg)
 
 	dbRows, err := pool.Query(ctx, sql, args...)
 	if err != nil {
@@ -115,7 +116,7 @@ func fetchOrders(ctx context.Context, pool *pgxpool.Pool, schema, q, from, to, v
 	out := make([]OrderRow, 0)
 	for dbRows.Next() {
 		var r OrderRow
-		if err := dbRows.Scan(&r.ID, &r.OrderNo, &r.OrderDate, &r.CustomerID, &r.Customer, &r.GrandTotal, &r.PayStatus, &r.ShipStatus, &r.ProcessStatus, &r.PayStatusID, &r.ShipStatusID, &r.ProcessStatusID, &r.Notes, &r.IsVoid); err != nil {
+		if err := dbRows.Scan(&r.ID, &r.OrderNo, &r.OrderDate, &r.CustomerID, &r.Customer, &r.GrandTotal, &r.PayStatus, &r.ShipStatus, &r.ProcessStatus, &r.CreatedByEmployee, &r.PayStatusID, &r.ShipStatusID, &r.ProcessStatusID, &r.Notes, &r.IsVoid); err != nil {
 			return nil, false, err
 		}
 		out = append(out, r)
@@ -143,6 +144,7 @@ func fetchOrderDetail(ctx context.Context, pool *pgxpool.Pool, schema string, id
 			COALESCE(ps.name, '') AS pay_status,
 			COALESCE(ss.name, '') AS ship_status,
 			COALESCE(ops.name, '') AS process_status,
+			COALESCE((SELECT al.actor FROM %s.order_audit_logs al WHERE al.order_id=o.id ORDER BY al.id ASC LIMIT 1), '未知') AS created_by_employee,
 			o.is_void,
 			CASE WHEN o.voided_at IS NULL THEN NULL ELSE to_char(o.voided_at, 'YYYY-MM-DD HH24:MI:SS') END AS voided_at,
 			COALESCE(o.void_reason,'') AS void_reason,
@@ -162,7 +164,7 @@ func fetchOrderDetail(ctx context.Context, pool *pgxpool.Pool, schema string, id
 		LEFT JOIN %s.ship_statuses ss ON ss.id = o.ship_status_id
 		LEFT JOIN %s.order_process_statuses ops ON ops.id = o.process_status_id
 		WHERE o.id = $1
-	`, schema, schema, schema, schema, schema, schema, schema)
+	`, schema, schema, schema, schema, schema, schema, schema, schema)
 
 	var d OrderDetailData
 	row := pool.QueryRow(ctx, q, id)
@@ -177,6 +179,7 @@ func fetchOrderDetail(ctx context.Context, pool *pgxpool.Pool, schema string, id
 		&d.PayStatus,
 		&d.ShipStatus,
 		&processStatus,
+		&d.CreatedByEmployee,
 		&d.IsVoid,
 		&d.VoidedAt,
 		&d.VoidReason,

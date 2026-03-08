@@ -75,6 +75,7 @@ type OrderRow struct {
 	ShipStatusID    int64
 	ProcessStatusID int64
 	ProcessStatus   string
+	CreatedByEmployee string
 	Notes           string
 	IsVoid          bool
 }
@@ -125,6 +126,7 @@ type OrderDetailData struct {
 	PayStatus     string
 	ShipStatus    string
 	ProcessStatus string
+	CreatedByEmployee string
 	IsVoid        bool
 	VoidedAt      *string
 	VoidReason    *string

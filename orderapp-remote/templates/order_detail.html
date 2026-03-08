@@ -23,6 +23,7 @@
     <div><b>订单号：</b>{{.OrderNo}} {{if .IsVoid}}<span class="muted">(作废)</span>{{end}}</div>
     <div><b>日期：</b>{{.OrderDate}}</div>
     <div><b>客户：</b>{{.Customer}}</div>
+    <div><b>录单人：</b>{{if .CreatedByEmployee}}{{.CreatedByEmployee}}{{else}}未知{{end}}</div>
     <div class="muted" style="margin-top:8px;">
       来源：{{.Source}} | 类型：{{.OrderType}} | 收款：{{.PayStatus}} | 发货：{{.ShipStatus}}
     </div>
