@@ -23,7 +23,7 @@ func registerProducePlanAllocate(e *echo.Echo, pool *pgxpool.Pool, schema string
 				cid = n
 			}
 		}
-		operator := "order"
+		operator := actorOf(c)
 		batch, _, lowWarn, err := allocateUnproducedBySummary(c.Request().Context(), pool, schema, from, to, cid, operator)
 		if err != nil {
 			return c.Redirect(http.StatusSeeOther, "/produce/plan?err="+url.QueryEscape(err.Error()))

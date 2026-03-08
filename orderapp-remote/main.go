@@ -211,21 +211,36 @@ func applyRoundToInt(total float64, enabled bool) (grand float64, rounding float
 	return grand, rounding
 }
 
-func basicAuth(user, pass string) echo.MiddlewareFunc {
+func basicAuth(user, pass, schema string, pool *pgxpool.Pool) echo.MiddlewareFunc {
 	return func(next echo.HandlerFunc) echo.HandlerFunc {
 		return func(c echo.Context) error {
 			path := c.Path()
 			if strings.HasPrefix(path, "/api/auth/") {
 				return next(c)
 			}
-			u, p, ok := c.Request().BasicAuth()
-			if !ok || subtle.ConstantTimeCompare([]byte(u), []byte(user)) != 1 || subtle.ConstantTimeCompare([]byte(p), []byte(pass)) != 1 {
-				c.Response().Header().Set("WWW-Authenticate", `Basic realm="orderapp"`)
-				return c.NoContent(http.StatusUnauthorized)
+
+			if u, p, ok := c.Request().BasicAuth(); ok {
+				if subtle.ConstantTimeCompare([]byte(u), []byte(user)) == 1 && subtle.ConstantTimeCompare([]byte(p), []byte(pass)) == 1 {
+					c.Set("actor", u)
+					return next(c)
+				}
 			}
-			// store actor for audit logs
-			c.Set("actor", u)
-			return next(c)
+
+			authz := strings.TrimSpace(c.Request().Header.Get("Authorization"))
+			if strings.HasPrefix(strings.ToLower(authz), "bearer ") {
+				token := strings.TrimSpace(authz[7:])
+				if eid, ename, err := resolveEmployeeBySessionToken(c, pool, schema, token); err == nil && eid > 0 {
+					c.Set("employee_id", eid)
+					if ename != "" {
+						c.Set("operator_employee", ename)
+						c.Set("actor", ename)
+					}
+					return next(c)
+				}
+			}
+
+			c.Response().Header().Set("WWW-Authenticate", `Basic realm="orderapp"`)
+			return c.NoContent(http.StatusUnauthorized)
 		}
 	}
 }
@@ -324,7 +339,7 @@ func main() {
 	e.HideBanner = true
 	e.Use(middleware.Recover())
 	e.Use(middleware.Secure())
-	e.Use(basicAuth(authUser, authPass))
+	e.Use(basicAuth(authUser, authPass, schema, pool))
 	e.Use(func(next echo.HandlerFunc) echo.HandlerFunc {
 		return func(c echo.Context) error {
 			if u, _, ok := c.Request().BasicAuth(); ok {
@@ -332,6 +347,16 @@ func main() {
 					c.Set("employee_id", eid)
 					if ename, err := resolveEmployeeNameByID(c, pool, schema, eid); err == nil && strings.TrimSpace(ename) != "" {
 						c.Set("operator_employee", strings.TrimSpace(ename))
+					}
+				}
+			}
+			authz := strings.TrimSpace(c.Request().Header.Get("Authorization"))
+			if strings.HasPrefix(strings.ToLower(authz), "bearer ") {
+				token := strings.TrimSpace(authz[7:])
+				if eid, ename, err := resolveEmployeeBySessionToken(c, pool, schema, token); err == nil && eid > 0 {
+					c.Set("employee_id", eid)
+					if ename != "" {
+						c.Set("operator_employee", ename)
 					}
 				}
 			}

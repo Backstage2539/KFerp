@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -51,6 +52,26 @@ func currentEmployeeID(c echo.Context) int64 {
 		}
 	}
 	return 0
+}
+
+func resolveEmployeeBySessionToken(ctx echo.Context, pool *pgxpool.Pool, schema, token string) (int64, string, error) {
+	token = strings.TrimSpace(token)
+	if token == "" {
+		return 0, "", nil
+	}
+	var id int64
+	var name string
+	err := pool.QueryRow(ctx.Request().Context(),
+		"SELECT e.id,COALESCE(e.name,'') FROM "+schema+".login_sessions s JOIN "+schema+".company_employees e ON e.id=s.employee_id WHERE s.token=$1 AND s.expire_at>now() AND e.active=true LIMIT 1",
+		token,
+	).Scan(&id, &name)
+	if err != nil {
+		if err == pgx.ErrNoRows {
+			return 0, "", nil
+		}
+		return 0, "", err
+	}
+	return id, strings.TrimSpace(name), nil
 }
 
 func requireEmployeeBound(c echo.Context) error {
