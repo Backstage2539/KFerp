@@ -215,7 +215,7 @@ func basicAuth(user, pass, schema string, pool *pgxpool.Pool) echo.MiddlewareFun
 	return func(next echo.HandlerFunc) echo.HandlerFunc {
 		return func(c echo.Context) error {
 			path := c.Path()
-			if strings.HasPrefix(path, "/api/auth/") {
+			if strings.HasPrefix(path, "/api/auth/") || path == "/login" {
 				return next(c)
 			}
 
@@ -426,6 +426,9 @@ func main() {
 
 	e.GET("/", func(c echo.Context) error {
 		return c.Redirect(http.StatusSeeOther, "/orders")
+	})
+	e.GET("/login", func(c echo.Context) error {
+		return c.Render(http.StatusOK, "login.html", map[string]any{})
 	})
 
 	// Products
