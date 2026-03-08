@@ -20,6 +20,7 @@ type AllocationLogViewRow struct {
 	GapG      int64
 	Operator  string
 	CreatedAt string
+	OperatorName string `json:"operator_name"`
 }
 
 type AllocationBatchRow struct {
