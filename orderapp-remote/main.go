@@ -214,6 +214,10 @@ func applyRoundToInt(total float64, enabled bool) (grand float64, rounding float
 func basicAuth(user, pass string) echo.MiddlewareFunc {
 	return func(next echo.HandlerFunc) echo.HandlerFunc {
 		return func(c echo.Context) error {
+			path := c.Path()
+			if strings.HasPrefix(path, "/api/auth/") {
+				return next(c)
+			}
 			u, p, ok := c.Request().BasicAuth()
 			if !ok || subtle.ConstantTimeCompare([]byte(u), []byte(user)) != 1 || subtle.ConstantTimeCompare([]byte(p), []byte(pass)) != 1 {
 				c.Response().Header().Set("WWW-Authenticate", `Basic realm="orderapp"`)
@@ -364,6 +368,9 @@ func main() {
 	if err := ensureCompanyStaffTables(context.Background(), pool, schema); err != nil {
 		log.Fatal(err)
 	}
+	if err := ensureMobileAuthTables(context.Background(), pool, schema); err != nil {
+		log.Fatal(err)
+	}
 
 	registerShipExportRoutes(e, pool, schema)
 	registerRequirementPages(e, pool, schema)
@@ -389,6 +396,7 @@ func main() {
 	registerProduceBatchAPI(e, pool, schema)
 	registerCompanyStaffPages(e, pool, schema)
 	registerCompanyStaffAPI(e, pool, schema)
+	registerMobileAuthAPI(e, pool, schema)
 	registerAllocationLogPages(e, pool, schema)
 
 	e.GET("/", func(c echo.Context) error {
