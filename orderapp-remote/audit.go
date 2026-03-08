@@ -11,6 +11,7 @@ import (
 )
 
 type InlineUpdateRequest struct {
+	OrderTypeID     string `form:"order_type_id"`
 	PayStatusID     string `form:"pay_status_id"`
 	ShipStatusID    string `form:"ship_status_id"`
 	ProcessStatusID string `form:"process_status_id"`
@@ -24,12 +25,13 @@ func inlineUpdateOrder(ctx context.Context, pool *pgxpool.Pool, schema string, o
 	}
 
 	// Load current values
+	var curOrderType *int64
 	var curPay *int64
 	var curShip *int64
 	var curProc *int64
 	var curNotes *string
-	q := fmt.Sprintf("SELECT pay_status_id, ship_status_id, process_status_id, notes FROM %s.orders WHERE id=$1", schema)
-	if err := pool.QueryRow(ctx, q, orderID).Scan(&curPay, &curShip, &curProc, &curNotes); err != nil {
+	q := fmt.Sprintf("SELECT order_type_id, pay_status_id, ship_status_id, process_status_id, notes FROM %s.orders WHERE id=$1", schema)
+	if err := pool.QueryRow(ctx, q, orderID).Scan(&curOrderType, &curPay, &curShip, &curProc, &curNotes); err != nil {
 		return err
 	}
 
@@ -48,6 +50,10 @@ func inlineUpdateOrder(ctx context.Context, pool *pgxpool.Pool, schema string, o
 		return &id, nil
 	}
 
+	nextOrderType, err := parseID(req.OrderTypeID)
+	if err != nil {
+		return fmt.Errorf("invalid order_type_id")
+	}
 	nextPay, err := parseID(req.PayStatusID)
 	if err != nil {
 		return fmt.Errorf("invalid pay_status_id")
@@ -82,9 +88,9 @@ func inlineUpdateOrder(ctx context.Context, pool *pgxpool.Pool, schema string, o
 	defer func() { _ = tx.Rollback(ctx) }()
 
 	// Apply updates (only if changed)
-	upd := fmt.Sprintf(`UPDATE %s.orders SET pay_status_id=$2, ship_status_id=$3, process_status_id=$4, notes=$5 WHERE id=$1`, schema)
-	if !eqIntPtr(curPay, nextPay) || !eqIntPtr(curShip, nextShip) || !eqIntPtr(curProc, nextProc) || !eqStrPtr(curNotes, nextNotesPtr) {
-		if _, err := tx.Exec(ctx, upd, orderID, nextPay, nextShip, nextProc, nextNotesPtr); err != nil {
+	upd := fmt.Sprintf(`UPDATE %s.orders SET order_type_id=$2, pay_status_id=$3, ship_status_id=$4, process_status_id=$5, notes=$6 WHERE id=$1`, schema)
+	if !eqIntPtr(curOrderType, nextOrderType) || !eqIntPtr(curPay, nextPay) || !eqIntPtr(curShip, nextShip) || !eqIntPtr(curProc, nextProc) || !eqStrPtr(curNotes, nextNotesPtr) {
+		if _, err := tx.Exec(ctx, upd, orderID, nextOrderType, nextPay, nextShip, nextProc, nextNotesPtr); err != nil {
 			return err
 		}
 		changed = true
@@ -92,6 +98,13 @@ func inlineUpdateOrder(ctx context.Context, pool *pgxpool.Pool, schema string, o
 
 	// Audit logs (legacy + unified)
 	ins := fmt.Sprintf(`INSERT INTO %s.order_audit_logs(order_id, actor, field, old_value, new_value) VALUES ($1,$2,$3,$4,$5)`, schema)
+	if !eqIntPtr(curOrderType, nextOrderType) {
+		oldS, newS := intPtrToStr(curOrderType), intPtrToStr(nextOrderType)
+		if _, err := tx.Exec(ctx, ins, orderID, actor, "order_type_id", oldS, newS); err != nil {
+			return err
+		}
+		auditInsert(ctx, pool, schema, actor, "order", &orderID, "update", strPtrStr("order_type_id"), oldS, newS, AuditMeta{"order_id": orderID})
+	}
 	if !eqIntPtr(curPay, nextPay) {
 		oldS, newS := intPtrToStr(curPay), intPtrToStr(nextPay)
 		if _, err := tx.Exec(ctx, ins, orderID, actor, "pay_status_id", oldS, newS); err != nil {

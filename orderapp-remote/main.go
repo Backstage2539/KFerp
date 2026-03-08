@@ -69,8 +69,10 @@ type OrderRow struct {
 	CustomerID      int64
 	Customer        string
 	GrandTotal      string
+	OrderType       string
 	PayStatus       string
 	ShipStatus      string
+	OrderTypeID     int64
 	PayStatusID     int64
 	ShipStatusID    int64
 	ProcessStatusID int64
@@ -94,6 +96,7 @@ type OrdersPageData struct {
 	CompletedOnly    bool
 	Summary          OrdersSummary
 	Rows             []OrderRow
+	OrderTypeOpts    []Option
 	PayOpts          []Option
 	ShipOpts         []Option
 	ProcessOpts      []Option
@@ -125,6 +128,9 @@ type OrderDetailData struct {
 	OrderType     string
 	PayStatus     string
 	ShipStatus    string
+	OrderTypeID   int64
+	PayStatusID   int64
+	ShipStatusID  int64
 	ProcessStatus string
 	CreatedByEmployee string
 	IsVoid        bool
@@ -138,6 +144,9 @@ type OrderDetailData struct {
 	RoundingAmt   float64
 	GrandTotal    float64
 	ExpressFee    *string
+	OrderTypeOpts []Option
+	PayOpts       []Option
+	ShipOpts      []Option
 	Items         []OrderItemRow
 	Error         string
 }
@@ -873,6 +882,11 @@ func main() {
 		}
 
 		rows, hasNext, errOrders := fetchOrders(c.Request().Context(), pool, schema, data.Q, data.From, data.To, data.Void, data.CustomerID, data.PayStatusFilter, data.ShipStatusFilter, data.ProcStatusFilter, data.UnproducedOnly, data.CompletedOnly, data.Limit, data.Offset)
+		if opts, err := fetchOptions(c.Request().Context(), pool, fmt.Sprintf("SELECT id, name FROM %s.order_types ORDER BY id", schema)); err == nil {
+			data.OrderTypeOpts = opts
+		} else {
+			data.OrderTypeOpts = nil
+		}
 		if opts, err := fetchOptions(c.Request().Context(), pool, fmt.Sprintf("SELECT id, name FROM %s.pay_statuses ORDER BY id", schema)); err == nil {
 			data.PayOpts = opts
 		} else {
@@ -948,6 +962,15 @@ func main() {
 		}
 		if data == nil {
 			return c.String(http.StatusNotFound, "not found")
+		}
+		if opts, err := fetchOptions(c.Request().Context(), pool, fmt.Sprintf("SELECT id, name FROM %s.order_types ORDER BY id", schema)); err == nil {
+			data.OrderTypeOpts = opts
+		}
+		if opts, err := fetchOptions(c.Request().Context(), pool, fmt.Sprintf("SELECT id, name FROM %s.pay_statuses ORDER BY id", schema)); err == nil {
+			data.PayOpts = opts
+		}
+		if opts, err := fetchOptions(c.Request().Context(), pool, fmt.Sprintf("SELECT id, name FROM %s.ship_statuses ORDER BY id", schema)); err == nil {
+			data.ShipOpts = opts
 		}
 		return c.Render(http.StatusOK, "order_detail.html", data)
 	})

@@ -201,6 +201,7 @@
           <th class="cust">客户</th>
           <th style="width:10%">录单人</th>
           <th style="width:10%">金额</th>
+          <th style="width:14%">订单类型</th>
           <th style="width:14%">收款</th>
           <th style="width:14%">发货</th>
           <th style="width:14%">流程</th>
@@ -220,6 +221,14 @@
           <td class="cust"><a href="/customers/{{.CustomerID}}">{{.Customer}}</a></td>
           <td>{{if .CreatedByEmployee}}{{.CreatedByEmployee}}{{else}}未知{{end}}</td>
           <td>{{.GrandTotal}}</td>
+          <td>
+            <select class="inline" name="order_type_id">
+              <option value="">（空）</option>
+              {{range $.OrderTypeOpts}}
+                <option value="{{.ID}}" {{if eq64 .ID $r.OrderTypeID}}selected{{end}}>{{.Name}}</option>
+              {{end}}
+            </select>
+          </td>
           <td>
             <select class="inline" name="pay_status_id">
               <option value="">（空）</option>
@@ -258,7 +267,7 @@
         </tr>
         {{end}}
         {{if not .Rows}}
-        <tr><td colspan="9" class="muted">暂无数据</td></tr>
+        <tr><td colspan="10" class="muted">暂无数据</td></tr>
         {{end}}
       </tbody>
     </table>
@@ -332,6 +341,7 @@ window.addEventListener('DOMContentLoaded', ()=>{
 async function saveRow(btn){
   const tr = btn.closest('tr');
   const id = tr.dataset.id;
+  const orderType = tr.querySelector('select[name="order_type_id"]').value;
   const pay = tr.querySelector('select[name="pay_status_id"]').value;
   const ship = tr.querySelector('select[name="ship_status_id"]').value;
   const proc = tr.querySelector('select[name="process_status_id"]').value;
@@ -339,7 +349,7 @@ async function saveRow(btn){
   const msg = tr.querySelector('.msg');
   msg.textContent = '保存中...';
   try{
-    const body = new URLSearchParams({pay_status_id: pay, ship_status_id: ship, process_status_id: proc, notes});
+    const body = new URLSearchParams({order_type_id: orderType, pay_status_id: pay, ship_status_id: ship, process_status_id: proc, notes});
     const resp = await fetch(`/orders/${id}/inline`, {method:'POST', headers:{'Content-Type':'application/x-www-form-urlencoded'}, body});
     if(!resp.ok){
       const t = await resp.text();
@@ -366,6 +376,7 @@ async function saveRow(btn){
 
 <script>
 function fieldName(f){
+  if(f==='order_type_id') return '订单类型';
   if(f==='pay_status_id') return '收款状态';
   if(f==='ship_status_id') return '发货状态';
   if(f==='notes') return '备注';
