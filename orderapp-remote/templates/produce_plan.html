@@ -68,7 +68,7 @@
         <a class="btn2" href="/produce/unproduced?from={{.From | urlquery}}&to={{.To | urlquery}}&customer_id={{.CustomerID}}">← 返回需求汇总</a>
       </div>
 
-      {{if .Ok}}<div class="ok">已扣减成品库存{{if .BatchID}}（批次：{{.BatchID}}）{{end}}</div>{{end}}
+
       {{if .Warning}}<div class="warn">{{.Warning}}</div>{{end}}
       {{if .Error}}<div class="err">{{.Error}}</div>{{end}}
 
@@ -109,14 +109,10 @@
           </div>
         </form>
 
-        <form method="post" action="/produce/plan/commit" style="margin-top:10px;">
-          <input type="hidden" name="from" value="{{.From}}" />
-          <input type="hidden" name="to" value="{{.To}}" />
-          <input type="hidden" name="customer_id" value="{{.CustomerID}}" />
-          <!-- DEV-074: 移除扣减成品库存按钮，改为仅展示计划与缺口 -->
+        <div style="margin-top:10px;">
           <a class="btn2" style="margin-left:8px;" href="/produce/allocations">查看扣减记录（批次）</a>
           <span class="muted" style="margin-left:8px;">范围：gap_g &gt; 0（生产计划）</span>
-        </form>
+        </div>
       </div>
 
       <div class="card">

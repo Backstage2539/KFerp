@@ -402,6 +402,9 @@ func main() {
 	if err := ensureCompanyStaffTables(context.Background(), pool, schema); err != nil {
 		log.Fatal(err)
 	}
+	if err := ensureMachineCapacityTable(context.Background(), pool, schema); err != nil {
+		log.Fatal(err)
+	}
 	if err := ensureMobileAuthTables(context.Background(), pool, schema); err != nil {
 		log.Fatal(err)
 	}
@@ -426,6 +429,7 @@ func main() {
 
 	registerUnprodSummaryPages(e, pool, schema)
 	registerProducePlanPages(e, pool, schema)
+	registerMachineCapacityPages(e, pool, schema)
 	registerProducePlanAllocate(e, pool, schema)
 	registerProduceBatchAPI(e, pool, schema)
 	registerCompanyStaffPages(e, pool, schema)
