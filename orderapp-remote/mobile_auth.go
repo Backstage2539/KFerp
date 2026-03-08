@@ -115,6 +115,23 @@ func registerMobileAuthAPI(e *echo.Echo, pool *pgxpool.Pool, schema string) {
 		if err != nil {
 			return c.JSON(400, map[string]string{"error": "employee not found"})
 		}
+		// 默认频控：60 秒内仅 1 次；每天最多 10 次
+		var secLeft int64
+		_ = pool.QueryRow(c.Request().Context(),
+			"SELECT CASE WHEN MAX(created_at) IS NULL THEN 0 ELSE GREATEST(0, 60-EXTRACT(EPOCH FROM (now()-MAX(created_at)))::bigint) END FROM "+schema+".login_sms_codes WHERE phone=$1",
+			phone,
+		).Scan(&secLeft)
+		if secLeft > 0 {
+			return c.JSON(429, map[string]any{"error": "sms cooldown", "retry_after_sec": secLeft})
+		}
+		var cntToday int64
+		_ = pool.QueryRow(c.Request().Context(),
+			"SELECT COUNT(*)::bigint FROM "+schema+".login_sms_codes WHERE phone=$1 AND created_at>=date_trunc('day', now())",
+			phone,
+		).Scan(&cntToday)
+		if cntToday >= 10 {
+			return c.JSON(429, map[string]any{"error": "sms daily limit"})
+		}
 		codeToken, err := randToken(3)
 		if err != nil {
 			return c.JSON(500, map[string]string{"error": "gen code failed"})
