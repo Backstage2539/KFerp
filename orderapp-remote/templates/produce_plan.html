@@ -149,6 +149,21 @@
       </div>
 
       <div class="card">
+        <div style="font-weight:700; margin-bottom:8px;">设备自动拆分建议（按设备产能/最小批量）</div>
+        <div style="overflow:auto; -webkit-overflow-scrolling:touch; margin-top:8px;">
+          <table style="min-width:620px;">
+            <thead><tr><th>物料</th><th>推荐机器</th><th>每次烘焙(kg)</th><th>批次数</th><th>总需求(kg)</th></tr></thead>
+            <tbody>
+            {{range .RoastSplits}}
+              <tr><td>{{.Material}}</td><td>{{.Machine}}</td><td>{{.BatchKg}}</td><td>{{.Batches}}</td><td>{{.TotalKg}}</td></tr>
+            {{end}}
+            {{if not .RoastSplits}}<tr><td colspan="5" class="muted">暂无拆分建议（请先配置设备产能）</td></tr>{{end}}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="card">
         <div class="muted" style="margin-bottom:8px;">仅展示缺口(g) &gt; 0 的项目，按缺口从大到小排序。</div>
         <div style="overflow:auto; -webkit-overflow-scrolling:touch;">
           <table>
