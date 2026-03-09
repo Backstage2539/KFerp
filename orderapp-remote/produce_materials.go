@@ -35,6 +35,16 @@ func defaultProducePlanParams() ProducePlanParams {
 	}
 }
 
+func instantMaterialsOnly(rows []MaterialNeed) []MaterialNeed {
+	out := make([]MaterialNeed, 0, len(rows))
+	for _, r := range rows {
+		if strings.Contains(r.Name, "速溶") {
+			out = append(out, r)
+		}
+	}
+	return out
+}
+
 func calcProducePlanMaterials(rows []UnprodNeedRow, p ProducePlanParams) []MaterialNeed {
 	if p.YieldRate <= 0 || p.YieldRate > 1.0 {
 		p.YieldRate = 0.8
