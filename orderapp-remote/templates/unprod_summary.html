@@ -91,8 +91,13 @@
 
         <div style="margin-top:10px; display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
           <a class="btn2" href="javascript:void(0)" onclick="buildPlanBySelection()">生成计划</a>
+          <form method="post" action="/produce/plan/commit" style="display:inline; margin:0;">
+            <input type="hidden" name="from" value="{{.From}}" />
+            <input type="hidden" name="to" value="{{.To}}" />
+            <input type="hidden" name="customer_id" value="{{.CustomerID}}" />
+            <button class="btn2" type="submit">扣减库存</button>
+          </form>
           <a class="btn2" href="/produce/allocations">查看扣减记录（批次）</a>
-          <a class="btn2" href="/produce/machines">设备产能配置</a>
           <span class="muted">未生产需求汇总与生产计划已合并同页</span>
         </div>
       </div>
