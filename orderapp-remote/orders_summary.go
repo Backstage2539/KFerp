@@ -44,7 +44,7 @@ func fetchOrdersSummary(ctx context.Context, pool *pgxpool.Pool, schema, q, from
 		argn++
 	}
 	if unproducedOnly {
-		where = append(where, "COALESCE(o.process_status_id,0) IN (1,2)")
+		where = append(where, "COALESCE(o.process_status_id,0) IN (0,1,2)")
 	}
 	if completedOnly {
 		where = append(where, "COALESCE(o.pay_status_id,0)=2 AND COALESCE(o.ship_status_id,0) IN (3,4)")

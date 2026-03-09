@@ -11,6 +11,7 @@ import (
 type UnprodNeedRow struct {
 	ProductID int64
 	Product   string
+	OrderNos  string
 	SpecG     int64
 	NeedUnits int64
 	NeedG     int64
@@ -21,7 +22,7 @@ type UnprodNeedRow struct {
 }
 
 func fetchUnproducedNeeds(ctx context.Context, pool *pgxpool.Pool, schema, from, to string, customerID int64) ([]UnprodNeedRow, error) {
-	where := "WHERE o.is_void=false AND COALESCE(o.process_status_id,0) IN (1,2)"
+	where := "WHERE o.is_void=false AND COALESCE(o.process_status_id,0) IN (0,1,2)"
 	args := []any{}
 	argn := 1
 	if customerID > 0 {
@@ -46,6 +47,7 @@ func fetchUnproducedNeeds(ctx context.Context, pool *pgxpool.Pool, schema, from,
 			SELECT
 				oi.product_id,
 				COALESCE(p.name,'') AS product,
+				STRING_AGG(DISTINCT COALESCE(o.order_no,''), ',' ORDER BY COALESCE(o.order_no,'')) AS order_nos,
 				COALESCE(NULLIF(regexp_replace(COALESCE(oi.spec,''), '[^0-9]', '', 'g'), ''), '0')::bigint AS spec_g,
 				SUM(COALESCE(oi.qty,0))::bigint AS need_units
 			FROM %s.order_items oi
@@ -57,6 +59,7 @@ func fetchUnproducedNeeds(ctx context.Context, pool *pgxpool.Pool, schema, from,
 		SELECT
 			n.product_id,
 			n.product,
+			COALESCE(n.order_nos,'') AS order_nos,
 			n.spec_g,
 			n.need_units,
 			(n.need_units * n.spec_g) AS need_g,
@@ -80,7 +83,7 @@ func fetchUnproducedNeeds(ctx context.Context, pool *pgxpool.Pool, schema, from,
 	out := make([]UnprodNeedRow, 0)
 	for rows.Next() {
 		var r UnprodNeedRow
-		if err := rows.Scan(&r.ProductID, &r.Product, &r.SpecG, &r.NeedUnits, &r.NeedG, &r.InvUnits, &r.InvLooseG, &r.InvG, &r.GapG); err != nil {
+		if err := rows.Scan(&r.ProductID, &r.Product, &r.OrderNos, &r.SpecG, &r.NeedUnits, &r.NeedG, &r.InvUnits, &r.InvLooseG, &r.InvG, &r.GapG); err != nil {
 			return nil, err
 		}
 		out = append(out, r)

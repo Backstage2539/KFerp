@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"log"
 	"net/http"
 	"strconv"
 	"strings"
@@ -20,13 +21,15 @@ type AllocationLogViewRow struct {
 	GapG      int64
 	Operator  string
 	CreatedAt string
+	OperatorName string `json:"operator_name"`
 }
 
 type AllocationBatchRow struct {
-	BatchID   string
-	Items     int64
-	Operator  string
-	CreatedAt string
+	BatchID      string
+	Items        int64
+	Operator     string
+	CreatedAt    string
+	OperatorName string `json:"operator_name"`
 }
 
 type AllocationLogPageData struct {
@@ -69,6 +72,10 @@ func listAllocationBatches(ctx context.Context, pool *pgxpool.Pool, schema strin
 		if err := rows.Scan(&r.BatchID, &r.Items, &r.Operator, &r.CreatedAt); err != nil {
 			return nil, false, err
 		}
+		r.OperatorName = strings.TrimSpace(r.Operator)
+		if r.OperatorName == "" {
+			r.OperatorName = "未知"
+		}
 		out = append(out, r)
 	}
 	if err := rows.Err(); err != nil {
@@ -99,6 +106,10 @@ func fetchAllocationLogsByBatch(ctx context.Context, pool *pgxpool.Pool, schema,
 		var r AllocationLogViewRow
 		if err := rows.Scan(&r.BatchID, &r.Product, &r.SpecG, &r.NeedG, &r.DeductedG, &r.GapG, &r.Operator, &r.CreatedAt); err != nil {
 			return nil, err
+		}
+		r.OperatorName = strings.TrimSpace(r.Operator)
+		if r.OperatorName == "" {
+			r.OperatorName = "未知"
 		}
 		out = append(out, r)
 	}
@@ -136,6 +147,12 @@ func registerAllocationLogPages(e *echo.Echo, pool *pgxpool.Pool, schema string)
 		} else {
 			data.Batches = batches
 			data.HasNext = hasNext
+			if data.BatchID == "" && len(data.Batches) > 0 {
+				data.BatchID = strings.TrimSpace(data.Batches[0].BatchID)
+				if data.BatchID != "" {
+					log.Printf("produce_allocations fallback batch_id=%s", data.BatchID)
+				}
+			}
 		}
 
 		if data.BatchID != "" {

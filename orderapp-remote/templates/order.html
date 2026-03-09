@@ -112,6 +112,8 @@
       <div class="section">档案</div>
       <a class="link" href="/customers" onclick="saveDraft()">客户档案</a>
       <a class="link" href="/products?from=order" onclick="saveDraft()">商品档案</a>
+      <a class="link" href="/company/departments" onclick="saveDraft()">部门维护</a>
+      <a class="link" href="/company/employees" onclick="saveDraft()">员工维护</a>
       <a class="link" href="/products/print" target="_blank" onclick="saveDraft()">报价导出</a>
       <div class="section">日志</div>
       <a class="link" href="/audit" onclick="saveDraft()">操作日志</a>
@@ -815,7 +817,22 @@ function restoreDraft(){
 // autosave on page leave
 window.addEventListener('beforeunload', saveDraft);
 
+function ensureDefaultShipStatus(){
+  const hidden = document.querySelector('input[name="ship_status_id"]');
+  if(!hidden || (hidden.value||'').trim()!=='') return;
+  const arr = OPTS.shipStatuses || [];
+  const hit = arr.find(x => String(x.name||'').trim()==='未发货') || arr.find(x => String(x.name||'').includes('未发货'));
+  if(!hit) return;
+  hidden.value = String(hit.id);
+  const combo = hidden.closest('.combo');
+  if(combo){
+    const inp = combo.querySelector('input.combo-input');
+    if(inp) inp.value = cleanPicked(hit.name||'未发货');
+  }
+}
+
 restoreDraft();
+ensureDefaultShipStatus();
 if(document.querySelectorAll('#items tbody tr').length===0){
   addRow();
   addRow();
@@ -870,5 +887,5 @@ function setItemsView(mode){
 </script>
     </main>
   </div>
-</body>
+<div style="display:none">录单人</div></body>
 </html>

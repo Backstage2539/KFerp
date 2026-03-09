@@ -2,6 +2,7 @@ package main
 
 import (
 	"net/http"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -16,6 +17,7 @@ type ProducePlanPageData struct {
 	Rows       []UnprodNeedRow
 	Ok         bool
 	BatchID    string
+	Warning    string
 	Error      string
 
 	// material params
@@ -24,6 +26,7 @@ type ProducePlanPageData struct {
 	DripBoxSpec string
 
 	Materials []MaterialNeed
+	RoastSplits []RoastSplitRow
 }
 
 func registerProducePlanPages(e *echo.Echo, pool *pgxpool.Pool, schema string) {
@@ -57,6 +60,9 @@ func registerProducePlanPages(e *echo.Echo, pool *pgxpool.Pool, schema string) {
 		}
 		data.Ok = strings.TrimSpace(c.QueryParam("ok")) == "1"
 		data.BatchID = strings.TrimSpace(c.QueryParam("batch"))
+		if strings.TrimSpace(c.QueryParam("warning")) == "low_inventory" {
+			data.Warning = "库存已低于警戒线：本次允许扣减，请尽快补货。"
+		}
 		if v := strings.TrimSpace(c.QueryParam("customer_id")); v != "" {
 			if n, err := strconv.ParseInt(v, 10, 64); err == nil && n > 0 {
 				data.CustomerID = n
@@ -77,8 +83,21 @@ func registerProducePlanPages(e *echo.Echo, pool *pgxpool.Pool, schema string) {
 				out = append(out, r)
 			}
 		}
+		// DEV-034: present summary in stable SKU/spec order.
+		sort.Slice(out, func(i, j int) bool {
+			if out[i].ProductID != out[j].ProductID {
+				return out[i].ProductID < out[j].ProductID
+			}
+			if out[i].SpecG != out[j].SpecG {
+				return out[i].SpecG < out[j].SpecG
+			}
+			return out[i].Product < out[j].Product
+		})
 		data.Rows = out
 		data.Materials = calcProducePlanMaterials(out, params)
+		if ms, err := loadActiveMachines(c.Request().Context(), pool, schema); err == nil {
+			data.RoastSplits = calcRoastSplits(out, ms)
+		}
 		return c.Render(http.StatusOK, "produce_plan.html", data)
 	}
 	e.GET("/produce/plan", h)

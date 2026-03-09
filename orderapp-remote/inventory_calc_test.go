@@ -43,11 +43,11 @@ func TestInvDeductInsufficient(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if remain.Units != 0 || remain.LooseG != 0 {
-		t.Fatalf("expected remain 0, got %d+%dg", remain.Units, remain.LooseG)
+	if remain.Units != 1 || remain.LooseG != 0 {
+		t.Fatalf("expected remain unchanged 1+0g, got %d+%dg", remain.Units, remain.LooseG)
 	}
-	if deducted != 454 {
-		t.Fatalf("expected deducted=454, got %d", deducted)
+	if deducted != 0 {
+		t.Fatalf("expected deducted=0, got %d", deducted)
 	}
 	if gap != 546 {
 		t.Fatalf("expected gap=546, got %d", gap)

@@ -23,9 +23,26 @@
     <div><b>订单号：</b>{{.OrderNo}} {{if .IsVoid}}<span class="muted">(作废)</span>{{end}}</div>
     <div><b>日期：</b>{{.OrderDate}}</div>
     <div><b>客户：</b>{{.Customer}}</div>
+    <div><b>录单人：</b>{{if .CreatedByEmployee}}{{.CreatedByEmployee}}{{else}}未知{{end}}</div>
     <div class="muted" style="margin-top:8px;">
       来源：{{.Source}} | 类型：{{.OrderType}} | 收款：{{.PayStatus}} | 发货：{{.ShipStatus}}
     </div>
+    <div style="margin-top:10px; display:grid; grid-template-columns:1fr 1fr 1fr auto; gap:8px; align-items:center;">
+      <select id="order_type_id">
+        <option value="">（订单类型）</option>
+        {{range .OrderTypeOpts}}<option value="{{.ID}}" {{if eq64 .ID $.OrderTypeID}}selected{{end}}>{{.Name}}</option>{{end}}
+      </select>
+      <select id="pay_status_id">
+        <option value="">（收款状态）</option>
+        {{range .PayOpts}}<option value="{{.ID}}" {{if eq64 .ID $.PayStatusID}}selected{{end}}>{{.Name}}</option>{{end}}
+      </select>
+      <select id="ship_status_id">
+        <option value="">（发货状态）</option>
+        {{range .ShipOpts}}<option value="{{.ID}}" {{if eq64 .ID $.ShipStatusID}}selected{{end}}>{{.Name}}</option>{{end}}
+      </select>
+      <button class="btn2" type="button" onclick="saveHeader({{.ID}})">保存状态</button>
+    </div>
+    <div id="saveMsg" class="muted" style="margin-top:6px;"></div>
     {{if .Notes}}<div style="margin-top:8px;"><b>备注：</b>{{.Notes}}</div>{{end}}
 
     <div style="margin-top:10px; display:flex; gap:10px; flex-wrap:wrap; align-items:center;">
@@ -87,5 +104,19 @@
       </tbody>
     </table>
   </div>
-</body>
+<script>
+async function saveHeader(id){
+  const order_type_id=document.getElementById('order_type_id').value;
+  const pay_status_id=document.getElementById('pay_status_id').value;
+  const ship_status_id=document.getElementById('ship_status_id').value;
+  const msg=document.getElementById('saveMsg');
+  msg.textContent='保存中...';
+  const body=new URLSearchParams({order_type_id,pay_status_id,ship_status_id});
+  const r=await fetch(`/orders/${id}/inline`,{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body});
+  if(!r.ok){ msg.textContent='保存失败'; return; }
+  msg.textContent='已保存';
+  setTimeout(()=>msg.textContent='',1500);
+}
+</script>
+<div style="display:none">录单人</div></body>
 </html>

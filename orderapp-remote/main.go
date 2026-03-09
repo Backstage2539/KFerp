@@ -69,12 +69,15 @@ type OrderRow struct {
 	CustomerID      int64
 	Customer        string
 	GrandTotal      string
+	OrderType       string
 	PayStatus       string
 	ShipStatus      string
+	OrderTypeID     int64
 	PayStatusID     int64
 	ShipStatusID    int64
 	ProcessStatusID int64
 	ProcessStatus   string
+	CreatedByEmployee string
 	Notes           string
 	IsVoid          bool
 }
@@ -93,6 +96,7 @@ type OrdersPageData struct {
 	CompletedOnly    bool
 	Summary          OrdersSummary
 	Rows             []OrderRow
+	OrderTypeOpts    []Option
 	PayOpts          []Option
 	ShipOpts         []Option
 	ProcessOpts      []Option
@@ -124,7 +128,11 @@ type OrderDetailData struct {
 	OrderType     string
 	PayStatus     string
 	ShipStatus    string
+	OrderTypeID   int64
+	PayStatusID   int64
+	ShipStatusID  int64
 	ProcessStatus string
+	CreatedByEmployee string
 	IsVoid        bool
 	VoidedAt      *string
 	VoidReason    *string
@@ -136,6 +144,9 @@ type OrderDetailData struct {
 	RoundingAmt   float64
 	GrandTotal    float64
 	ExpressFee    *string
+	OrderTypeOpts []Option
+	PayOpts       []Option
+	ShipOpts      []Option
 	Items         []OrderItemRow
 	Error         string
 }
@@ -209,22 +220,46 @@ func applyRoundToInt(total float64, enabled bool) (grand float64, rounding float
 	return grand, rounding
 }
 
-func basicAuth(user, pass string) echo.MiddlewareFunc {
+func basicAuth(user, pass, schema string, pool *pgxpool.Pool) echo.MiddlewareFunc {
 	return func(next echo.HandlerFunc) echo.HandlerFunc {
 		return func(c echo.Context) error {
-			u, p, ok := c.Request().BasicAuth()
-			if !ok || subtle.ConstantTimeCompare([]byte(u), []byte(user)) != 1 || subtle.ConstantTimeCompare([]byte(p), []byte(pass)) != 1 {
-				c.Response().Header().Set("WWW-Authenticate", `Basic realm="orderapp"`)
-				return c.NoContent(http.StatusUnauthorized)
+			path := c.Path()
+			if strings.HasPrefix(path, "/api/auth/") || path == "/login" {
+				return next(c)
 			}
-			// store actor for audit logs
-			c.Set("actor", u)
-			return next(c)
+
+			if u, p, ok := c.Request().BasicAuth(); ok {
+				if subtle.ConstantTimeCompare([]byte(u), []byte(user)) == 1 && subtle.ConstantTimeCompare([]byte(p), []byte(pass)) == 1 {
+					c.Set("actor", u)
+					return next(c)
+				}
+			}
+
+			authz := strings.TrimSpace(c.Request().Header.Get("Authorization"))
+			if strings.HasPrefix(strings.ToLower(authz), "bearer ") {
+				token := strings.TrimSpace(authz[7:])
+				if eid, ename, err := resolveEmployeeBySessionToken(c, pool, schema, token); err == nil && eid > 0 {
+					c.Set("employee_id", eid)
+					if ename != "" {
+						c.Set("operator_employee", ename)
+						c.Set("actor", ename)
+					}
+					return next(c)
+				}
+			}
+
+			c.Response().Header().Set("WWW-Authenticate", `Basic realm="orderapp"`)
+			return c.NoContent(http.StatusUnauthorized)
 		}
 	}
 }
 
 func actorOf(c echo.Context) string {
+	if v := c.Get("operator_employee"); v != nil {
+		if s, ok := v.(string); ok && strings.TrimSpace(s) != "" {
+			return strings.TrimSpace(s)
+		}
+	}
 	if v := c.Get("actor"); v != nil {
 		if s, ok := v.(string); ok && strings.TrimSpace(s) != "" {
 			return s
@@ -313,7 +348,30 @@ func main() {
 	e.HideBanner = true
 	e.Use(middleware.Recover())
 	e.Use(middleware.Secure())
-	e.Use(basicAuth(authUser, authPass))
+	e.Use(basicAuth(authUser, authPass, schema, pool))
+	e.Use(func(next echo.HandlerFunc) echo.HandlerFunc {
+		return func(c echo.Context) error {
+			if u, _, ok := c.Request().BasicAuth(); ok {
+				if eid, err := resolveEmployeeIDByLogin(c, pool, schema, u); err == nil && eid > 0 {
+					c.Set("employee_id", eid)
+					if ename, err := resolveEmployeeNameByID(c, pool, schema, eid); err == nil && strings.TrimSpace(ename) != "" {
+						c.Set("operator_employee", strings.TrimSpace(ename))
+					}
+				}
+			}
+			authz := strings.TrimSpace(c.Request().Header.Get("Authorization"))
+			if strings.HasPrefix(strings.ToLower(authz), "bearer ") {
+				token := strings.TrimSpace(authz[7:])
+				if eid, ename, err := resolveEmployeeBySessionToken(c, pool, schema, token); err == nil && eid > 0 {
+					c.Set("employee_id", eid)
+					if ename != "" {
+						c.Set("operator_employee", ename)
+					}
+				}
+			}
+			return next(c)
+		}
+	})
 	e.Renderer = &TemplateRenderer{t: t}
 
 	if err := ensureReqTables(context.Background(), pool, schema); err != nil {
@@ -341,6 +399,15 @@ func main() {
 	if err := ensureProduceBatchTables(context.Background(), pool, schema); err != nil {
 		log.Fatal(err)
 	}
+	if err := ensureCompanyStaffTables(context.Background(), pool, schema); err != nil {
+		log.Fatal(err)
+	}
+	if err := ensureMachineCapacityTable(context.Background(), pool, schema); err != nil {
+		log.Fatal(err)
+	}
+	if err := ensureMobileAuthTables(context.Background(), pool, schema); err != nil {
+		log.Fatal(err)
+	}
 
 	registerShipExportRoutes(e, pool, schema)
 	registerRequirementPages(e, pool, schema)
@@ -362,12 +429,30 @@ func main() {
 
 	registerUnprodSummaryPages(e, pool, schema)
 	registerProducePlanPages(e, pool, schema)
+	registerMachineCapacityPages(e, pool, schema)
 	registerProducePlanAllocate(e, pool, schema)
 	registerProduceBatchAPI(e, pool, schema)
+	registerCompanyStaffPages(e, pool, schema)
+	registerCompanyStaffAPI(e, pool, schema)
+	registerMobileAuthAPI(e, pool, schema)
 	registerAllocationLogPages(e, pool, schema)
 
 	e.GET("/", func(c echo.Context) error {
 		return c.Redirect(http.StatusSeeOther, "/orders")
+	})
+	// legacy aliases for old entrypoints
+	e.GET("/order-list", func(c echo.Context) error {
+		return c.Redirect(http.StatusSeeOther, "/orders")
+	})
+	e.GET("/order-detail/:id", func(c echo.Context) error {
+		id := strings.TrimSpace(c.Param("id"))
+		if id == "" {
+			return c.Redirect(http.StatusSeeOther, "/orders")
+		}
+		return c.Redirect(http.StatusSeeOther, "/orders/"+id)
+	})
+	e.GET("/login", func(c echo.Context) error {
+		return c.Render(http.StatusOK, "login.html", map[string]any{})
 	})
 
 	// Products
@@ -812,6 +897,11 @@ func main() {
 		}
 
 		rows, hasNext, errOrders := fetchOrders(c.Request().Context(), pool, schema, data.Q, data.From, data.To, data.Void, data.CustomerID, data.PayStatusFilter, data.ShipStatusFilter, data.ProcStatusFilter, data.UnproducedOnly, data.CompletedOnly, data.Limit, data.Offset)
+		if opts, err := fetchOptions(c.Request().Context(), pool, fmt.Sprintf("SELECT id, name FROM %s.order_types ORDER BY id", schema)); err == nil {
+			data.OrderTypeOpts = opts
+		} else {
+			data.OrderTypeOpts = nil
+		}
 		if opts, err := fetchOptions(c.Request().Context(), pool, fmt.Sprintf("SELECT id, name FROM %s.pay_statuses ORDER BY id", schema)); err == nil {
 			data.PayOpts = opts
 		} else {
@@ -887,6 +977,15 @@ func main() {
 		}
 		if data == nil {
 			return c.String(http.StatusNotFound, "not found")
+		}
+		if opts, err := fetchOptions(c.Request().Context(), pool, fmt.Sprintf("SELECT id, name FROM %s.order_types ORDER BY id", schema)); err == nil {
+			data.OrderTypeOpts = opts
+		}
+		if opts, err := fetchOptions(c.Request().Context(), pool, fmt.Sprintf("SELECT id, name FROM %s.pay_statuses ORDER BY id", schema)); err == nil {
+			data.PayOpts = opts
+		}
+		if opts, err := fetchOptions(c.Request().Context(), pool, fmt.Sprintf("SELECT id, name FROM %s.ship_statuses ORDER BY id", schema)); err == nil {
+			data.ShipOpts = opts
 		}
 		return c.Render(http.StatusOK, "order_detail.html", data)
 	})
@@ -975,6 +1074,9 @@ func main() {
 	})
 
 	e.POST("/order", func(c echo.Context) error {
+		if err := requireEmployeeBound(c); err != nil {
+			return c.String(http.StatusBadRequest, err.Error())
+		}
 		var req CreateOrderRequest
 		if err := c.Bind(&req); err != nil {
 			return c.String(http.StatusBadRequest, "bad request")
@@ -1175,6 +1277,12 @@ func main() {
 		grand0 := totalAmt + shippingAmt - discountAmt
 		grandTotal, roundingAmt := applyRoundToInt(grand0, roundToInt)
 
+		// 默认发货状态：未选择时自动写入“未发货”。
+		shipStatusID := req.ShipStatusID
+		if shipStatusID == 0 {
+			_ = tx.QueryRow(ctx, fmt.Sprintf("SELECT id FROM %s.ship_statuses WHERE name='未发货' ORDER BY id LIMIT 1", schema)).Scan(&shipStatusID)
+		}
+
 		insertOrderSQL := fmt.Sprintf(`
 			INSERT INTO %s.orders(
 				order_date, customer_id,
@@ -1201,7 +1309,7 @@ func main() {
 			nullInt(req.SourceID),
 			nullInt(req.OrderTypeID),
 			nullInt(req.PayStatusID),
-			nullInt(req.ShipStatusID),
+			nullInt(shipStatusID),
 			nullText(req.ShipMethod),
 			nullText(req.ShipTrackingNo),
 			nullText(req.Notes),

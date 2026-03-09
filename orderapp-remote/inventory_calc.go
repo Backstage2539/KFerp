@@ -29,7 +29,8 @@ func invNormalize(specG int64, q InvQty) (InvQty, error) {
 }
 
 // invDeduct deducts needG grams from inventory and returns (remain, deductedG, gapG).
-// - Allows using loose grams to fulfill unit-based needs.
+// DEV-046 rule: when inventory is insufficient, deduction is forbidden.
+// - Allows using loose grams to fulfill unit-based needs only when enough inventory exists.
 // - Never returns negative remain.
 func invDeduct(specG int64, q InvQty, needG int64) (remain InvQty, deductedG int64, gapG int64, err error) {
 	if needG < 0 {
@@ -39,10 +40,12 @@ func invDeduct(specG int64, q InvQty, needG int64) (remain InvQty, deductedG int
 	if err != nil {
 		return InvQty{}, 0, 0, err
 	}
-	if needG >= total {
-		deductedG = total
-		gapG = needG - total
-		return InvQty{Units: 0, LooseG: 0}, deductedG, gapG, nil
+	if needG > total {
+		// insufficient: prohibit deduction and keep inventory unchanged
+		return q, 0, needG - total, nil
+	}
+	if needG == total {
+		return InvQty{Units: 0, LooseG: 0}, needG, 0, nil
 	}
 	// have enough
 	remainTotal := total - needG

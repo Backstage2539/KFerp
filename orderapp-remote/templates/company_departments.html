@@ -1,0 +1,66 @@
+{{define "company_departments.html"}}
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>部门维护</title>
+  <style>
+    body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,"Noto Sans SC",sans-serif;max-width:900px;margin:24px auto;padding:0 12px;}
+    table{width:100%;border-collapse:collapse;margin-top:12px}
+    th,td{border:1px solid #e5e7eb;padding:8px;text-align:left}
+    .ok{background:#e9ffe9;border:1px solid #b8f5b8;padding:8px;border-radius:8px}
+    .err{background:#fff1f0;border:1px solid #ffa39e;padding:8px;border-radius:8px}
+    .bar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:10px 0}
+    input,select,button{padding:6px 8px}
+  </style>
+</head>
+<body>
+  <h2>部门维护</h2>
+  {{if .Ok}}<div class="ok">保存成功</div>{{end}}
+  {{if .Error}}<div class="err">{{.Error}}</div>{{end}}
+
+  <div class="bar">
+    <input id="name" placeholder="部门名称" />
+    <select id="active"><option value="true">启用</option><option value="false">停用</option></select>
+    <button id="createBtn" type="button">新增部门</button>
+  </div>
+
+  <table>
+    <thead><tr><th>ID</th><th>名称</th><th>状态</th><th>操作</th></tr></thead>
+    <tbody>
+      {{range .Items}}
+      <tr>
+        <td>{{.ID}}</td>
+        <td><input id="n{{.ID}}" value="{{.Name}}" /></td>
+        <td>
+          <select id="a{{.ID}}">
+            <option value="true" {{if .Active}}selected{{end}}>启用</option>
+            <option value="false" {{if not .Active}}selected{{end}}>停用</option>
+          </select>
+        </td>
+        <td><button type="button" onclick="saveDept({{.ID}})">保存</button></td>
+      </tr>
+      {{end}}
+    </tbody>
+  </table>
+
+<script>
+async function saveDept(id){
+  const name=document.getElementById('n'+id).value.trim();
+  const active=document.getElementById('a'+id).value==='true';
+  const r=await fetch('/api/company/departments/'+id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({name,active})});
+  if(r.ok){location.href='/company/departments?ok=1';return;}
+  const t=await r.text(); alert(t||'保存失败');
+}
+document.getElementById('createBtn').onclick=async()=>{
+  const name=document.getElementById('name').value.trim();
+  const active=document.getElementById('active').value==='true';
+  const r=await fetch('/api/company/departments',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name,active})});
+  if(r.ok){location.href='/company/departments?ok=1';return;}
+  const t=await r.text(); alert(t||'创建失败');
+};
+</script>
+</body>
+</html>
+{{end}}

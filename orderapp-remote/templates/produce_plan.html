@@ -27,6 +27,7 @@
     }
     .err{background:#ffecec; border:1px solid #ffb9b9; padding:10px; border-radius:8px;}
     .ok{background:#e9ffe9; border:1px solid #b8f5b8; padding:10px; border-radius:8px;}
+    .warn{background:#fff7e6; border:1px solid #ffd591; padding:10px; border-radius:8px;}
   </style>
 </head>
 <body>
@@ -47,6 +48,8 @@
       <div class="section">档案</div>
       <a class="link" href="/customers">客户档案</a>
       <a class="link" href="/products">商品档案</a>
+      <a class="link" href="/company/departments">部门维护</a>
+      <a class="link" href="/company/employees">员工维护</a>
       <a class="link" href="/products/inventory">成品库存</a>
       <a class="link" href="/products/print" target="_blank">报价导出</a>
       <div class="section">日志</div>
@@ -65,7 +68,8 @@
         <a class="btn2" href="/produce/unproduced?from={{.From | urlquery}}&to={{.To | urlquery}}&customer_id={{.CustomerID}}">← 返回需求汇总</a>
       </div>
 
-      {{if .Ok}}<div class="ok">已扣减成品库存{{if .BatchID}}（批次：{{.BatchID}}）{{end}}</div>{{end}}
+
+      {{if .Warning}}<div class="warn">{{.Warning}}</div>{{end}}
       {{if .Error}}<div class="err">{{.Error}}</div>{{end}}
 
       <div class="card">
@@ -105,14 +109,10 @@
           </div>
         </form>
 
-        <form method="post" action="/produce/plan/commit" style="margin-top:10px;">
-          <input type="hidden" name="from" value="{{.From}}" />
-          <input type="hidden" name="to" value="{{.To}}" />
-          <input type="hidden" name="customer_id" value="{{.CustomerID}}" />
-          <button class="btn" type="submit" onclick="return confirm('确认备货并扣减成品库存？只对缺口>0的项目执行扣减，并生成批次记录。');">确认备货并扣减成品库存（仅缺口）</button>
+        <div style="margin-top:10px;">
           <a class="btn2" style="margin-left:8px;" href="/produce/allocations">查看扣减记录（批次）</a>
           <span class="muted" style="margin-left:8px;">范围：gap_g &gt; 0（生产计划）</span>
-        </form>
+        </div>
       </div>
 
       <div class="card">
@@ -143,6 +143,21 @@
               {{if not .Materials}}
                 <tr><td colspan="3" class="muted">暂无（先选定日期范围并刷新）</td></tr>
               {{end}}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="card">
+        <div style="font-weight:700; margin-bottom:8px;">设备自动拆分建议（按设备产能/最小批量）</div>
+        <div style="overflow:auto; -webkit-overflow-scrolling:touch; margin-top:8px;">
+          <table style="min-width:620px;">
+            <thead><tr><th>物料</th><th>推荐机器</th><th>每次烘焙(kg)</th><th>批次数</th><th>总需求(kg)</th></tr></thead>
+            <tbody>
+            {{range .RoastSplits}}
+              <tr><td>{{.Material}}</td><td>{{.Machine}}</td><td>{{.BatchKg}}</td><td>{{.Batches}}</td><td>{{.TotalKg}}</td></tr>
+            {{end}}
+            {{if not .RoastSplits}}<tr><td colspan="5" class="muted">暂无拆分建议（请先配置设备产能）</td></tr>{{end}}
             </tbody>
           </table>
         </div>
