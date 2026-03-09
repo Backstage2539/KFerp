@@ -11,15 +11,16 @@ import (
 )
 
 type UnprodSummaryPageData struct {
-	From       string
-	To         string
-	CustomerID int64
-	Rows       []UnprodNeedRow
-	PlanRows   []UnprodNeedRow
-	Materials  []MaterialNeed
+	From        string
+	To          string
+	CustomerID  int64
+	Rows        []UnprodNeedRow
+	PlanRows    []UnprodNeedRow
+	Materials   []MaterialNeed
 	RoastSplits []RoastSplitRow
-	Selected   map[string]bool
-	Error      string
+	Selected    map[string]bool
+	PlanReady   bool
+	Error       string
 }
 
 func registerUnprodSummaryPages(e *echo.Echo, pool *pgxpool.Pool, schema string) {
@@ -47,24 +48,27 @@ func registerUnprodSummaryPages(e *echo.Echo, pool *pgxpool.Pool, schema string)
 					}
 				}
 			}
-			planRows := make([]UnprodNeedRow, 0)
-			for _, r := range rows {
-				if r.GapG <= 0 {
-					continue
+			if strings.TrimSpace(c.QueryParam("plan")) == "1" && len(data.Selected) > 0 {
+				data.PlanReady = true
+				planRows := make([]UnprodNeedRow, 0)
+				for _, r := range rows {
+					if r.GapG <= 0 {
+						continue
+					}
+					k := fmt.Sprintf("%d-%d", r.ProductID, r.SpecG)
+					if data.Selected[k] {
+						planRows = append(planRows, r)
+					}
 				}
-				k := fmt.Sprintf("%d-%d", r.ProductID, r.SpecG)
-				if len(data.Selected) == 0 || data.Selected[k] {
-					planRows = append(planRows, r)
+				data.PlanRows = planRows
+				params := defaultProducePlanParams()
+				if mappings, err := listBagSpecMappings(c.Request().Context(), pool, schema); err == nil {
+					params.BagNameBySpecG = mappingNameBySpec(mappings)
 				}
-			}
-			data.PlanRows = planRows
-			params := defaultProducePlanParams()
-			if mappings, err := listBagSpecMappings(c.Request().Context(), pool, schema); err == nil {
-				params.BagNameBySpecG = mappingNameBySpec(mappings)
-			}
-			data.Materials = calcProducePlanMaterials(planRows, params)
-			if ms, err := loadActiveMachines(c.Request().Context(), pool, schema); err == nil {
-				data.RoastSplits = calcRoastSplits(planRows, ms)
+				data.Materials = calcProducePlanMaterials(planRows, params)
+				if ms, err := loadActiveMachines(c.Request().Context(), pool, schema); err == nil {
+					data.RoastSplits = calcRoastSplits(planRows, ms)
+				}
 			}
 		}
 		return c.Render(http.StatusOK, "unprod_summary.html", data)
