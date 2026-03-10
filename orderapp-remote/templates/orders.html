@@ -183,7 +183,9 @@
       <div style="margin-top:12px; display:flex; gap:10px; flex-wrap:wrap;">
         <button class="btn" type="submit">查询</button>
         <a class="btn2" href="/orders">清空</a>
+        <a class="btn2" target="_blank" href="/ship/sf_small_one_click.xlsx?q={{.Q | urlquery}}&from={{.From | urlquery}}&to={{.To | urlquery}}&void={{.Void | urlquery}}&customer_id={{.CustomerID}}">一键发货（顺丰小件）</a>
       </div>
+      <div class="muted" style="margin-top:8px;">一键发货仅导出：生产完成 + 顺丰小件 + 总重量≤15kg 订单（按5kg自动拆分）。</div>
       <div class="muted" style="margin-top:8px;">当前第 {{.Page}} 页 · 每页 {{.Limit}} 条</div>
     </form>
   </div>

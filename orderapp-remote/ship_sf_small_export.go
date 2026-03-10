@@ -24,7 +24,7 @@ type ShipRow struct {
 	WeightKg    float64
 }
 
-func fetchShipRowsSFSmall(c echo.Context, pool *pgxpool.Pool, schema string, q, from, to, voidFilter string, customerID int64, payStatusID, shipStatusID, procStatusID int64, completedOnly bool) ([]ShipRow, error) {
+func fetchShipRowsSFSmall(c echo.Context, pool *pgxpool.Pool, schema string, q, from, to, voidFilter string, customerID int64, payStatusID, shipStatusID, procStatusID int64, completedOnly bool, oneClick bool) ([]ShipRow, error) {
 	// reuse same filters as fetchOrders but without pagination; only sf_small
 	where := make([]string, 0)
 	args := make([]any, 0)
@@ -82,10 +82,18 @@ func fetchShipRowsSFSmall(c echo.Context, pool *pgxpool.Pool, schema string, q, 
 
 	// only ship_method=sf_small
 	where = append(where, "COALESCE(o.ship_method,'') = 'sf_small'")
+	if oneClick {
+		// 一键发货：仅生产完成订单
+		where = append(where, "EXISTS (SELECT 1 FROM "+schema+".order_process_statuses ops WHERE ops.id=o.process_status_id AND ops.name IN ('生产完成','已生产完成'))")
+	}
 
 	wsql := ""
 	if len(where) > 0 {
 		wsql = "WHERE " + strings.Join(where, " AND ")
+	}
+	having := ""
+	if oneClick {
+		having = "HAVING COALESCE(SUM( (COALESCE(NULLIF(oi.qty::text,''),'0')::numeric) * (COALESCE(NULLIF(oi.spec::text,''),'0')::numeric) ),0) <= 15000"
 	}
 
 	qsql := fmt.Sprintf(`
@@ -103,8 +111,9 @@ func fetchShipRowsSFSmall(c echo.Context, pool *pgxpool.Pool, schema string, q, 
 		LEFT JOIN %s.order_items oi ON oi.order_id=o.id
 		%s
 		GROUP BY o.id, o.order_no, o.customer_id, recv_name, recv_phone, recv_addr
+		%s
 		ORDER BY o.id DESC
-	`, schema, schema, schema, wsql)
+	`, schema, schema, schema, wsql, having)
 
 	rows, err := pool.Query(c.Request().Context(), qsql, args...)
 	if err != nil {
@@ -147,11 +156,40 @@ func registerShipExportRoutes(e *echo.Echo, pool *pgxpool.Pool, schema string) {
 			strings.TrimSpace(c.QueryParam("from")),
 			strings.TrimSpace(c.QueryParam("to")),
 			strings.TrimSpace(c.QueryParam("void")),
-			func() int64 { v := strings.TrimSpace(c.QueryParam("customer_id")); if v=="" {return 0}; n,_ := strconv.ParseInt(v,10,64); return n }(),
-			func() int64 { v := strings.TrimSpace(c.QueryParam("pay_status_id")); if v=="" {return 0}; n,_ := strconv.ParseInt(v,10,64); return n }(),
-			func() int64 { v := strings.TrimSpace(c.QueryParam("ship_status_id")); if v=="" {return 0}; n,_ := strconv.ParseInt(v,10,64); return n }(),
-			func() int64 { v := strings.TrimSpace(c.QueryParam("process_status_id")); if v=="" {return 0}; n,_ := strconv.ParseInt(v,10,64); return n }(),
+			func() int64 {
+				v := strings.TrimSpace(c.QueryParam("customer_id"))
+				if v == "" {
+					return 0
+				}
+				n, _ := strconv.ParseInt(v, 10, 64)
+				return n
+			}(),
+			func() int64 {
+				v := strings.TrimSpace(c.QueryParam("pay_status_id"))
+				if v == "" {
+					return 0
+				}
+				n, _ := strconv.ParseInt(v, 10, 64)
+				return n
+			}(),
+			func() int64 {
+				v := strings.TrimSpace(c.QueryParam("ship_status_id"))
+				if v == "" {
+					return 0
+				}
+				n, _ := strconv.ParseInt(v, 10, 64)
+				return n
+			}(),
+			func() int64 {
+				v := strings.TrimSpace(c.QueryParam("process_status_id"))
+				if v == "" {
+					return 0
+				}
+				n, _ := strconv.ParseInt(v, 10, 64)
+				return n
+			}(),
 			strings.TrimSpace(c.QueryParam("completed")) == "1",
+			false,
 		)
 		if err != nil {
 			return c.String(http.StatusInternalServerError, err.Error())
@@ -202,6 +240,75 @@ func registerShipExportRoutes(e *echo.Echo, pool *pgxpool.Pool, schema string) {
 			return c.String(http.StatusInternalServerError, err.Error())
 		}
 		fn := fmt.Sprintf("sf_small_%s.xlsx", time.Now().Format("20060102_150405"))
+		c.Response().Header().Set(echo.HeaderContentType, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+		c.Response().Header().Set(echo.HeaderContentDisposition, fmt.Sprintf("attachment; filename=\"%s\"", fn))
+		return c.Blob(http.StatusOK, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", buf.Bytes())
+	})
+
+	e.GET("/ship/sf_small_one_click.xlsx", func(c echo.Context) error {
+		rows, err := fetchShipRowsSFSmall(c, pool, schema,
+			strings.TrimSpace(c.QueryParam("q")),
+			strings.TrimSpace(c.QueryParam("from")),
+			strings.TrimSpace(c.QueryParam("to")),
+			strings.TrimSpace(c.QueryParam("void")),
+			func() int64 {
+				v := strings.TrimSpace(c.QueryParam("customer_id"))
+				if v == "" {
+					return 0
+				}
+				n, _ := strconv.ParseInt(v, 10, 64)
+				return n
+			}(),
+			0, 0, 0,
+			false,
+			true,
+		)
+		if err != nil {
+			return c.String(http.StatusInternalServerError, err.Error())
+		}
+
+		tmpl := strings.TrimSpace(env("SF_SMALL_TEMPLATE", "/app/docs/ship_temp.xlsx"))
+		wb, err := excelize.OpenFile(tmpl)
+		if err != nil {
+			return c.String(http.StatusInternalServerError, fmt.Sprintf("open template %s: %v", tmpl, err))
+		}
+		sheet := wb.GetSheetName(0)
+		startRow := 2
+
+		senderName := env("SENDER_NAME", "")
+		senderPhone := env("SENDER_PHONE", "")
+		senderAddr := env("SENDER_ADDR", "")
+		senderCompany := env("SENDER_COMPANY", "")
+		goods := env("SENDER_GOODS", "咖啡")
+		bizType := env("SF_BIZ_TYPE", "")
+
+		r := startRow
+		for _, o := range rows {
+			cnt := shipSplitCountSFSmall(o.WeightKg)
+			for i := 1; i <= cnt; i++ {
+				remark := fmt.Sprintf("%s %d/%d", o.OrderNo, i, cnt)
+				wb.SetCellValue(sheet, fmt.Sprintf("A%d", r), o.RecvName)
+				wb.SetCellValue(sheet, fmt.Sprintf("B%d", r), o.RecvPhone)
+				wb.SetCellValue(sheet, fmt.Sprintf("C%d", r), o.RecvAddr)
+				wb.SetCellValue(sheet, fmt.Sprintf("D%d", r), senderName)
+				wb.SetCellValue(sheet, fmt.Sprintf("E%d", r), senderPhone)
+				wb.SetCellValue(sheet, fmt.Sprintf("F%d", r), senderAddr)
+				wb.SetCellValue(sheet, fmt.Sprintf("G%d", r), o.RecvCompany)
+				wb.SetCellValue(sheet, fmt.Sprintf("H%d", r), 1)
+				wb.SetCellValue(sheet, fmt.Sprintf("I%d", r), goods)
+				wb.SetCellValue(sheet, fmt.Sprintf("J%d", r), 1)
+				wb.SetCellValue(sheet, fmt.Sprintf("N%d", r), remark)
+				wb.SetCellValue(sheet, fmt.Sprintf("O%d", r), senderCompany)
+				wb.SetCellValue(sheet, fmt.Sprintf("P%d", r), bizType)
+				r++
+			}
+		}
+
+		buf, err := wb.WriteToBuffer()
+		if err != nil {
+			return c.String(http.StatusInternalServerError, err.Error())
+		}
+		fn := fmt.Sprintf("sf_small_one_click_%s.xlsx", time.Now().Format("20060102_150405"))
 		c.Response().Header().Set(echo.HeaderContentType, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 		c.Response().Header().Set(echo.HeaderContentDisposition, fmt.Sprintf("attachment; filename=\"%s\"", fn))
 		return c.Blob(http.StatusOK, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", buf.Bytes())
