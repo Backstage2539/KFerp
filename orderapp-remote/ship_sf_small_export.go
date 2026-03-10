@@ -24,6 +24,11 @@ type ShipRow struct {
 	WeightKg    float64
 }
 
+type trackingPair struct {
+	Phone    string
+	Tracking string
+}
+
 func fetchShipRowsSFSmall(c echo.Context, pool *pgxpool.Pool, schema string, q, from, to, voidFilter string, customerID int64, payStatusID, shipStatusID, procStatusID int64, completedOnly bool, oneClick bool) ([]ShipRow, error) {
 	// reuse same filters as fetchOrders but without pagination; only sf_small
 	where := make([]string, 0)
@@ -137,6 +142,87 @@ func fetchShipRowsSFSmall(c echo.Context, pool *pgxpool.Pool, schema string, q, 
 	return out, nil
 }
 
+func parseTrackingPairs(raw string) []trackingPair {
+	lines := strings.Split(strings.ReplaceAll(raw, "\r\n", "\n"), "\n")
+	out := make([]trackingPair, 0)
+	for _, ln := range lines {
+		ln = strings.TrimSpace(ln)
+		if ln == "" {
+			continue
+		}
+		var a, b string
+		if strings.Contains(ln, "\t") {
+			ss := strings.SplitN(ln, "\t", 2)
+			a, b = ss[0], ss[1]
+		} else if strings.Contains(ln, ",") {
+			ss := strings.SplitN(ln, ",", 2)
+			a, b = ss[0], ss[1]
+		} else if strings.Contains(ln, "，") {
+			ss := strings.SplitN(ln, "，", 2)
+			a, b = ss[0], ss[1]
+		} else {
+			ss := strings.Fields(ln)
+			if len(ss) >= 2 {
+				a, b = ss[0], ss[1]
+			}
+		}
+		a = strings.TrimSpace(a)
+		b = strings.TrimSpace(b)
+		if a == "" || b == "" {
+			continue
+		}
+		out = append(out, trackingPair{Phone: a, Tracking: b})
+	}
+	return out
+}
+
+func fillTrackingByPhone(c echo.Context, pool *pgxpool.Pool, schema, raw string) (int, int, error) {
+	pairs := parseTrackingPairs(raw)
+	if len(pairs) == 0 {
+		return 0, 0, nil
+	}
+	group := map[string][]string{}
+	for _, p := range pairs {
+		group[p.Phone] = append(group[p.Phone], p.Tracking)
+	}
+	updated := 0
+	total := len(pairs)
+	for phone, tracks := range group {
+		rows, err := pool.Query(c.Request().Context(), fmt.Sprintf(`
+			SELECT o.id
+			FROM %s.orders o
+			JOIN %s.customers c ON c.id=o.customer_id
+			WHERE o.is_void=false
+			  AND COALESCE(o.ship_method,'')='sf_small'
+			  AND COALESCE(o.ship_tracking_no,'')=''
+			  AND regexp_replace(COALESCE(c.phone,''),'\\D','','g') = regexp_replace($1,'\\D','','g')
+			ORDER BY o.order_date, o.id
+		`, schema, schema), phone)
+		if err != nil {
+			return updated, total, err
+		}
+		ids := make([]int64, 0)
+		for rows.Next() {
+			var id int64
+			if err := rows.Scan(&id); err == nil {
+				ids = append(ids, id)
+			}
+		}
+		rows.Close()
+		n := len(ids)
+		if len(tracks) < n {
+			n = len(tracks)
+		}
+		for i := 0; i < n; i++ {
+			if _, err := pool.Exec(c.Request().Context(), fmt.Sprintf(`UPDATE %s.orders SET ship_tracking_no=$2 WHERE id=$1`, schema), ids[i], tracks[i]); err != nil {
+				return updated, total, err
+			}
+			updated++
+		}
+	}
+	return updated, total, nil
+}
+
 func shipSplitCountSFSmall(weightKg float64) int {
 	if weightKg <= 0 {
 		return 1
@@ -243,6 +329,15 @@ func registerShipExportRoutes(e *echo.Echo, pool *pgxpool.Pool, schema string) {
 		c.Response().Header().Set(echo.HeaderContentType, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 		c.Response().Header().Set(echo.HeaderContentDisposition, fmt.Sprintf("attachment; filename=\"%s\"", fn))
 		return c.Blob(http.StatusOK, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", buf.Bytes())
+	})
+
+	e.POST("/ship/tracking_fill", func(c echo.Context) error {
+		raw := strings.TrimSpace(c.FormValue("entries"))
+		updated, total, err := fillTrackingByPhone(c, pool, schema, raw)
+		if err != nil {
+			return c.JSON(http.StatusBadRequest, map[string]any{"ok": false, "error": err.Error()})
+		}
+		return c.JSON(http.StatusOK, map[string]any{"ok": true, "updated": updated, "total": total})
 	})
 
 	e.GET("/ship/sf_small_one_click.xlsx", func(c echo.Context) error {
