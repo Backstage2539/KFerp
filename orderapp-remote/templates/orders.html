@@ -183,9 +183,7 @@
       <div style="margin-top:12px; display:flex; gap:10px; flex-wrap:wrap;">
         <button class="btn" type="submit">查询</button>
         <a class="btn2" href="/orders">清空</a>
-        <a class="btn2" target="_blank" href="/ship/sf_small.xlsx?q={{.Q | urlquery}}&from={{.From | urlquery}}&to={{.To | urlquery}}&preset={{.Preset | urlquery}}&void={{.Void | urlquery}}&pay_status_id={{.PayStatusFilter}}&ship_status_id={{.ShipStatusFilter}}&customer_id={{.CustomerID}}&completed={{if .CompletedOnly}}1{{end}}">下载顺丰小件模板</a>
       </div>
-      <div class="muted" style="margin-top:8px;">说明：只会导出快递方式=「顺丰小件」的订单；并按当前筛选条件过滤。</div>
       <div class="muted" style="margin-top:8px;">当前第 {{.Page}} 页 · 每页 {{.Limit}} 条</div>
     </form>
   </div>
