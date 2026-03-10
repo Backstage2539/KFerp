@@ -94,7 +94,7 @@ func registerProducePlanPages(e *echo.Echo, pool *pgxpool.Pool, schema string) {
 			return out[i].Product < out[j].Product
 		})
 		data.Rows = out
-		data.Materials = calcProducePlanMaterials(out, params)
+		data.Materials = calcProducePlanMaterialsWithBOM(c.Request().Context(), pool, schema, out, params)
 		if ms, err := loadActiveMachines(c.Request().Context(), pool, schema); err == nil {
 			data.RoastSplits = calcRoastSplits(out, ms, params.YieldRate)
 		}
