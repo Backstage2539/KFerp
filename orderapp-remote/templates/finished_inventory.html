@@ -67,7 +67,10 @@
     <main class="content">
       <div style="display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap;">
         <h2 style="margin:0">成品库存</h2>
-        <a class="btn2" href="/products">← 商品档案</a>
+        <div style="display:flex;gap:8px;">
+          <a class="btn2" href="/produce/allocations">查看扣减记录（批次）</a>
+          <a class="btn2" href="/products">← 商品档案</a>
+        </div>
       </div>
 
       {{if .Ok}}<div class="ok">已保存</div>{{end}}

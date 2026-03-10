@@ -91,14 +91,15 @@
 
         <div style="margin-top:10px; display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
           <a class="btn2" href="javascript:void(0)" onclick="buildPlanBySelection()">生成计划</a>
-          <form method="post" action="/produce/plan/commit" style="display:inline; margin:0;">
+          <form id="startForm" method="post" action="/produce/start" style="display:inline; margin:0;">
             <input type="hidden" name="from" value="{{.From}}" />
             <input type="hidden" name="to" value="{{.To}}" />
             <input type="hidden" name="customer_id" value="{{.CustomerID}}" />
-            <button class="btn2" type="submit">扣减库存</button>
+            <input type="hidden" name="selected" id="selected_keys" value="" />
+            <button class="btn2" type="button" onclick="startProduction()">开始生产</button>
           </form>
-          <a class="btn2" href="/produce/allocations">查看扣减记录（批次）</a>
-          <span class="muted">未生产需求汇总与生产计划已合并同页</span>
+          <a class="btn2" href="/produce/running">生产流程</a>
+          <span class="muted">开始生产后将自动扣减库存并把订单置为生产中</span>
         </div>
       </div>
 
@@ -185,12 +186,12 @@
         {{if .PlanReady}}
         <div style="overflow:auto; -webkit-overflow-scrolling:touch;">
           <table>
-            <thead><tr><th>物料</th><th>推荐机器</th><th>烘焙建议(kg/锅)</th><th>锅数</th><th>总需求(kg)</th></tr></thead>
+            <thead><tr><th>物料</th><th>推荐机器</th><th>烘焙建议(kg/锅)</th><th>锅数</th><th>熟豆总需求(kg)</th><th>损耗比</th></tr></thead>
             <tbody>
             {{range .RoastSplits}}
-              <tr><td>{{.Material}}</td><td>{{.Machine}}</td><td>{{.BatchKg}}</td><td>{{.Batches}}</td><td>{{.TotalKg}}</td></tr>
+              <tr><td>{{.Material}}</td><td>{{.Machine}}</td><td>{{.BatchKg}}</td><td>{{.Batches}}</td><td>{{.TotalKg}}</td><td>{{.YieldPctStr}}</td></tr>
             {{end}}
-            {{if not .RoastSplits}}<tr><td colspan="5" class="muted">暂无拆分建议</td></tr>{{end}}
+            {{if not .RoastSplits}}<tr><td colspan="6" class="muted">暂无拆分建议</td></tr>{{end}}
             </tbody>
           </table>
         </div>
@@ -203,13 +204,22 @@
 function toggleAll(checked){
   document.querySelectorAll('.pick_one').forEach(x=>x.checked=checked);
 }
+function selectedKeys(){
+  return [...document.querySelectorAll('.pick_one:checked')].map(x=>x.getAttribute('data-key')).filter(Boolean);
+}
 function buildPlanBySelection(){
-  const keys=[...document.querySelectorAll('.pick_one:checked')].map(x=>x.getAttribute('data-key')).filter(Boolean);
+  const keys=selectedKeys();
   if(keys.length===0){ alert('请先选择订单后再生成计划'); return; }
   const u=new URL(window.location.href);
   u.searchParams.set('selected', keys.join(','));
   u.searchParams.set('plan', '1');
   window.location.href=u.pathname+'?'+u.searchParams.toString();
+}
+function startProduction(){
+  const keys=selectedKeys();
+  if(keys.length===0){ alert('请先选择订单后再开始生产'); return; }
+  document.getElementById('selected_keys').value = keys.join(',');
+  document.getElementById('startForm').submit();
 }
 </script>
 </body>

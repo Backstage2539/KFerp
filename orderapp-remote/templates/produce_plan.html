@@ -154,12 +154,12 @@
         <div style="font-weight:700; margin-bottom:8px;">烘焙建议（按设备最大/最小烘焙量）</div>
         <div style="overflow:auto; -webkit-overflow-scrolling:touch; margin-top:8px;">
           <table style="min-width:620px;">
-            <thead><tr><th>物料</th><th>推荐机器</th><th>烘焙建议(kg/锅)</th><th>锅数</th><th>总需求(kg)</th></tr></thead>
+            <thead><tr><th>物料</th><th>推荐机器</th><th>烘焙建议(kg/锅)</th><th>锅数</th><th>熟豆总需求(kg)</th><th>损耗比</th></tr></thead>
             <tbody>
             {{range .RoastSplits}}
-              <tr><td>{{.Material}}</td><td>{{.Machine}}</td><td>{{.BatchKg}}</td><td>{{.Batches}}</td><td>{{.TotalKg}}</td></tr>
+              <tr><td>{{.Material}}</td><td>{{.Machine}}</td><td>{{.BatchKg}}</td><td>{{.Batches}}</td><td>{{.TotalKg}}</td><td>{{.YieldPctStr}}</td></tr>
             {{end}}
-            {{if not .RoastSplits}}<tr><td colspan="5" class="muted">暂无拆分建议（请先配置设备产能）</td></tr>{{end}}
+            {{if not .RoastSplits}}<tr><td colspan="6" class="muted">暂无拆分建议（请先配置设备产能）</td></tr>{{end}}
             </tbody>
           </table>
         </div>

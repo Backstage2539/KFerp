@@ -52,23 +52,24 @@ func newBatchID() string {
 // allocateUnproducedBySummary deducts inventory based on summary needs (product+spec) and writes a batch log.
 // It is intentionally summary-level (not per-order) per Van's instruction.
 func allocateUnproducedBySummary(ctx context.Context, pool *pgxpool.Pool, schema, from, to string, customerID int64, operator string) (batchID string, logs []AllocationLogRow, hasLowWarning bool, err error) {
-	batchID = newBatchID()
 	needsAll, err := fetchUnproducedNeeds(ctx, pool, schema, from, to, customerID)
 	if err != nil {
 		return "", nil, false, err
 	}
-
-	// Only allocate items that actually have gap > 0 (production plan scope).
 	needs := make([]UnprodNeedRow, 0, len(needsAll))
 	for _, n := range needsAll {
 		if n.GapG > 0 {
 			needs = append(needs, n)
 		}
 	}
+	return allocateUnproducedRows(ctx, pool, schema, needs, operator)
+}
+
+func allocateUnproducedRows(ctx context.Context, pool *pgxpool.Pool, schema string, needs []UnprodNeedRow, operator string) (batchID string, logs []AllocationLogRow, hasLowWarning bool, err error) {
+	batchID = newBatchID()
 	if len(needs) == 0 {
 		return batchID, nil, false, nil
 	}
-
 	tx, err := pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return "", nil, false, err

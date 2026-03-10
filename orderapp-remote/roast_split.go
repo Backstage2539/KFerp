@@ -12,11 +12,12 @@ import (
 )
 
 type RoastSplitRow struct {
-	Material string
-	Machine  string
-	BatchKg  string
-	Batches  int64
-	TotalKg  string
+	Material    string
+	Machine     string
+	BatchKg     string
+	Batches     int64
+	TotalKg     string // 熟豆总需求
+	YieldPctStr string // 损耗比展示
 }
 
 func loadActiveMachines(ctx context.Context, pool *pgxpool.Pool, schema string) ([]RoastMachine, error) {
@@ -48,16 +49,19 @@ func calcRoastSplits(rows []UnprodNeedRow, machines []RoastMachine, yieldRate fl
 		// 烘焙建议按生豆计算：raw_g = ceil(finished_g / yieldRate)。
 		rawG := int64(math.Ceil(float64(r.GapG) / yieldRate))
 		pick, batches := pickMachineAndBatches(rawG, machines)
+		finishedG := r.GapG
+		yieldPct := fmt.Sprintf("%.0f%%", yieldRate*100)
 		if pick.CapacityG <= 0 {
-			out = append(out, RoastSplitRow{Material: r.Product, Machine: "未匹配设备", BatchKg: "0", Batches: 0, TotalKg: formatKg(rawG)})
+			out = append(out, RoastSplitRow{Material: r.Product, Machine: "未匹配设备", BatchKg: "0", Batches: 0, TotalKg: formatKg(finishedG), YieldPctStr: yieldPct})
 			continue
 		}
 		out = append(out, RoastSplitRow{
-			Material: r.Product,
-			Machine:  pick.Name,
-			BatchKg:  formatBatchPlanKg(batches),
-			Batches:  int64(len(batches)),
-			TotalKg:  formatKg(rawG),
+			Material:    r.Product,
+			Machine:     pick.Name,
+			BatchKg:     formatBatchPlanKg(batches),
+			Batches:     int64(len(batches)),
+			TotalKg:     formatKg(finishedG),
+			YieldPctStr: yieldPct,
 		})
 	}
 	return out
