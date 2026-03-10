@@ -34,20 +34,6 @@ func loadActiveMachines(ctx context.Context, pool *pgxpool.Pool, schema string) 
 	return out, rows.Err()
 }
 
-func supportsSpec(allowed string, spec int64) bool {
-	allowed = strings.TrimSpace(allowed)
-	if allowed == "" {
-		return true
-	}
-	for _, p := range strings.Split(allowed, ",") {
-		v, _ := strconv.ParseInt(strings.TrimSpace(p), 10, 64)
-		if v == spec {
-			return true
-		}
-	}
-	return false
-}
-
 func calcRoastSplits(rows []UnprodNeedRow, machines []RoastMachine) []RoastSplitRow {
 	out := make([]RoastSplitRow, 0)
 	for _, r := range rows {
@@ -75,7 +61,7 @@ func pickMachineAndBatches(r UnprodNeedRow, machines []RoastMachine) (RoastMachi
 	best := RoastMachine{Name: "未匹配设备", CapacityG: 0, MinRoastG: 0}
 	bestBatches := []int64(nil)
 	for _, m := range machines {
-		if m.CapacityG <= 0 || !supportsSpec(m.AllowedSpecs, r.SpecG) {
+		if m.CapacityG <= 0 {
 			continue
 		}
 		batches, ok := splitByRange(r.GapG, m.MinRoastG, m.CapacityG, 1000)
