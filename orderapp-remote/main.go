@@ -1184,8 +1184,11 @@ func main() {
 
 		// Pricing: use tier match by qty(lb). Allow manual override.
 		totalAmt := 0.0
+		orderWeightG := int64(0)
 		for idx := range items {
-			totalG := float64(items[idx].specG * items[idx].units)
+			itemWeightG := items[idx].specG * items[idx].units
+			orderWeightG += itemWeightG
+			totalG := float64(itemWeightG)
 			qtyLb := totalG / 454.0
 
 			if items[idx].manualPrice != nil {
@@ -1275,6 +1278,15 @@ func main() {
 			_ = tx.QueryRow(ctx, fmt.Sprintf("SELECT id FROM %s.ship_statuses WHERE name='未发货' ORDER BY id LIMIT 1", schema)).Scan(&shipStatusID)
 		}
 
+		shipMethod := strings.TrimSpace(req.ShipMethod)
+		if shipMethod == "" {
+			if orderWeightG <= 15000 {
+				shipMethod = "sf_small"
+			} else {
+				shipMethod = "sf_large"
+			}
+		}
+
 		insertOrderSQL := fmt.Sprintf(`
 			INSERT INTO %s.orders(
 				order_date, customer_id,
@@ -1302,7 +1314,7 @@ func main() {
 			nullInt(req.OrderTypeID),
 			nullInt(req.PayStatusID),
 			nullInt(shipStatusID),
-			nullText(req.ShipMethod),
+			nullText(shipMethod),
 			nullText(req.ShipTrackingNo),
 			nullText(req.Notes),
 			totalAmt,
