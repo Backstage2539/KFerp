@@ -12,27 +12,44 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
+type OrderEditItem struct {
+	ItemID      int64
+	LineNo      int
+	Product     string
+	Spec        string
+	Qty         string
+	Unit        string
+	UnitPrice   string
+	LineTotal   string
+	PriceTierID int64
+}
+
 type OrderEditData struct {
 	PageData PageData
 
-	ID          int64
-	OrderNo     string
-	OrderDate   string
-	CustomerID  int64
-	SourceID    int64
-	OrderTypeID int64
-	PayStatusID int64
+	ID           int64
+	OrderNo      string
+	OrderDate    string
+	CustomerID   int64
+	SourceID     int64
+	OrderTypeID  int64
+	PayStatusID  int64
 	ShipStatusID int64
-	Notes       string
+	Notes        string
+
+	TotalAmount    string
 	ShippingAmount string
 	DiscountAmount string
-	RoundToInt bool
-	ExpressFee string
+	RoundToInt     bool
+	RoundingAmount string
+	GrandTotal     string
+	ExpressFee     string
 
 	IsVoid     bool
 	VoidedAt   *string
 	VoidReason *string
 
+	Items []OrderEditItem
 	Error string
 }
 
@@ -48,9 +65,12 @@ func fetchOrderEdit(ctx context.Context, pool *pgxpool.Pool, schema string, id i
 			COALESCE(o.pay_status_id,0) as pay_status_id,
 			COALESCE(o.ship_status_id,0) as ship_status_id,
 			COALESCE(o.notes,'') as notes,
+			COALESCE(o.total_amount,0) as total_amount,
 			COALESCE(o.shipping_amount,0) as shipping_amount,
 			COALESCE(o.discount_amount,0) as discount_amount,
 			COALESCE(o.round_to_int,false) as round_to_int,
+			COALESCE(o.rounding_amount,0) as rounding_amount,
+			COALESCE(o.grand_total,0) as grand_total,
 			COALESCE(o.express_fee,'') as express_fee,
 			o.is_void,
 			CASE WHEN o.voided_at IS NULL THEN NULL ELSE to_char(o.voided_at, 'YYYY-MM-DD HH24:MI:SS') END AS voided_at,
@@ -60,7 +80,7 @@ func fetchOrderEdit(ctx context.Context, pool *pgxpool.Pool, schema string, id i
 	`, schema)
 
 	var d OrderEditData
-	var shipAmt, discAmt float64
+	var totalAmt, shipAmt, discAmt, roundAmt, grandAmt float64
 	err := pool.QueryRow(ctx, q, id).Scan(
 		&d.ID,
 		&d.OrderNo,
@@ -71,9 +91,12 @@ func fetchOrderEdit(ctx context.Context, pool *pgxpool.Pool, schema string, id i
 		&d.PayStatusID,
 		&d.ShipStatusID,
 		&d.Notes,
+		&totalAmt,
 		&shipAmt,
 		&discAmt,
 		&d.RoundToInt,
+		&roundAmt,
+		&grandAmt,
 		&d.ExpressFee,
 		&d.IsVoid,
 		&d.VoidedAt,
@@ -85,10 +108,49 @@ func fetchOrderEdit(ctx context.Context, pool *pgxpool.Pool, schema string, id i
 		}
 		return nil, err
 	}
-	// store as string for inputs
+	d.TotalAmount = fmt.Sprintf("%.2f", totalAmt)
 	d.ShippingAmount = fmt.Sprintf("%.2f", shipAmt)
 	d.DiscountAmount = fmt.Sprintf("%.2f", discAmt)
+	d.RoundingAmount = fmt.Sprintf("%.2f", roundAmt)
+	d.GrandTotal = fmt.Sprintf("%.2f", grandAmt)
 	d.PageData.Today = d.OrderDate
+
+	itemsQ := fmt.Sprintf(`
+		SELECT oi.id, oi.line_no,
+			COALESCE(p.name,''),
+			COALESCE(oi.spec,''),
+			COALESCE(oi.qty,0),
+			COALESCE(oi.unit,''),
+			COALESCE(oi.unit_price,0),
+			COALESCE(oi.line_total,0),
+			COALESCE(oi.price_tier_id,0)
+		FROM %s.order_items oi
+		LEFT JOIN %s.products p ON p.id=oi.product_id
+		WHERE oi.order_id=$1
+		ORDER BY oi.line_no, oi.id
+	`, schema, schema)
+	rows, err := pool.Query(ctx, itemsQ, id)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	d.Items = make([]OrderEditItem, 0)
+	for rows.Next() {
+		var it OrderEditItem
+		var qty, unitPrice, lineTotal float64
+		if err := rows.Scan(&it.ItemID, &it.LineNo, &it.Product, &it.Spec, &qty, &it.Unit, &unitPrice, &lineTotal, &it.PriceTierID); err != nil {
+			return nil, err
+		}
+		it.Qty = trimFloatZero(qty)
+		it.UnitPrice = fmt.Sprintf("%.2f", unitPrice)
+		it.LineTotal = fmt.Sprintf("%.2f", lineTotal)
+		d.Items = append(d.Items, it)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
 	return &d, nil
 }
 
@@ -122,6 +184,89 @@ func updateOrderHeader(ctx context.Context, pool *pgxpool.Pool, schema string, i
 	}
 	round := strings.TrimSpace(req.RoundToInt) != ""
 
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	rows, err := tx.Query(ctx, fmt.Sprintf(`
+		SELECT id, COALESCE(spec,''), COALESCE(qty,0), COALESCE(unit_price,0)
+		FROM %s.order_items
+		WHERE order_id=$1
+		ORDER BY line_no, id
+	`, schema), id)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+
+	type rowItem struct {
+		id        int64
+		specG     int64
+		qty       float64
+		unitPrice float64
+	}
+	old := make([]rowItem, 0)
+	for rows.Next() {
+		var rid int64
+		var spec string
+		var qty, up float64
+		if err := rows.Scan(&rid, &spec, &qty, &up); err != nil {
+			return err
+		}
+		old = append(old, rowItem{id: rid, specG: parseSpecG(spec), qty: qty, unitPrice: up})
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+
+	qtyMap := map[int64]float64{}
+	upMap := map[int64]float64{}
+	for i := 0; i < len(req.ItemID); i++ {
+		rid, err := strconv.ParseInt(strings.TrimSpace(req.ItemID[i]), 10, 64)
+		if err != nil || rid <= 0 {
+			continue
+		}
+		q, _ := strconv.ParseFloat(strings.TrimSpace(getStr(req.Qty, i)), 64)
+		if q < 0 {
+			q = 0
+		}
+		u, _ := strconv.ParseFloat(strings.TrimSpace(getStr(req.UnitPrice, i)), 64)
+		if u < 0 {
+			u = 0
+		}
+		qtyMap[rid] = q
+		upMap[rid] = u
+	}
+
+	totalAmt := 0.0
+	for _, it := range old {
+		q := it.qty
+		if v, ok := qtyMap[it.id]; ok {
+			q = v
+		}
+		u := it.unitPrice
+		if v, ok := upMap[it.id]; ok {
+			u = v
+		}
+		if q <= 0 {
+			q = 0
+		}
+		if u < 0 {
+			u = 0
+		}
+		qtyLb := (float64(it.specG) * q) / 454.0
+		line := qtyLb * u
+		totalAmt += line
+		if _, err := tx.Exec(ctx, fmt.Sprintf("UPDATE %s.order_items SET qty=$2,unit_price=$3,line_total=$4,price_overridden=true WHERE id=$1", schema), it.id, q, u, line); err != nil {
+			return err
+		}
+	}
+
+	grand0 := totalAmt + ship - disc
+	grandTotal, roundingAmt := applyRoundToInt(grand0, round)
+
 	q := fmt.Sprintf(`
 		UPDATE %s.orders
 		SET order_date=$2,
@@ -131,14 +276,17 @@ func updateOrderHeader(ctx context.Context, pool *pgxpool.Pool, schema string, i
 			pay_status_id=$6,
 			ship_status_id=$7,
 			notes=$8,
-			shipping_amount=$9,
-			discount_amount=$10,
-			round_to_int=$11,
-			express_fee=$12
+			total_amount=$9,
+			shipping_amount=$10,
+			discount_amount=$11,
+			round_to_int=$12,
+			rounding_amount=$13,
+			grand_total=$14,
+			express_fee=$15
 		WHERE id=$1
 	`, schema)
 
-	_, err := pool.Exec(ctx, q,
+	if _, err := tx.Exec(ctx, q,
 		id,
 		orderDate,
 		req.CustomerID,
@@ -147,10 +295,39 @@ func updateOrderHeader(ctx context.Context, pool *pgxpool.Pool, schema string, i
 		nullInt(req.PayStatusID),
 		nullInt(req.ShipStatusID),
 		nullText(req.Notes),
+		totalAmt,
 		ship,
 		disc,
 		round,
+		roundingAmt,
+		grandTotal,
 		nullText(req.ExpressFee),
-	)
-	return err
+	); err != nil {
+		return err
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return err
+	}
+	return nil
+}
+
+func parseSpecG(spec string) int64 {
+	s := strings.TrimSpace(strings.ToLower(spec))
+	s = strings.TrimSuffix(s, "g")
+	n, _ := strconv.ParseInt(s, 10, 64)
+	if n > 0 {
+		return n
+	}
+	return 0
+}
+
+func trimFloatZero(v float64) string {
+	s := strconv.FormatFloat(v, 'f', 4, 64)
+	s = strings.TrimRight(s, "0")
+	s = strings.TrimRight(s, ".")
+	if s == "" {
+		return "0"
+	}
+	return s
 }

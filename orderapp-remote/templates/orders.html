@@ -216,8 +216,7 @@
         {{$r := .}}
         <tr data-id="{{.ID}}" {{if .IsVoid}}style="opacity:0.55"{{end}}>
           <td>
-            <a href="/orders/{{.ID}}">{{.OrderNo}}</a>{{if .IsVoid}} <span class="muted">(作废)</span>{{end}}
-            <div class="muted"><a href="/orders/{{.ID}}/edit">编辑详情</a></div>
+            <a href="/orders/{{.ID}}/edit">{{.OrderNo}}</a>{{if .IsVoid}} <span class="muted">(作废)</span>{{end}}
           </td>
           <td>{{.OrderDate}}</td>
           <td class="cust"><a href="/customers/{{.CustomerID}}">{{.Customer}}</a></td>

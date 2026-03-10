@@ -63,23 +63,23 @@ type PageData struct {
 }
 
 type OrderRow struct {
-	ID              int64
-	OrderNo         string
-	OrderDate       string
-	CustomerID      int64
-	Customer        string
-	GrandTotal      string
-	OrderType       string
-	PayStatus       string
-	ShipStatus      string
-	OrderTypeID     int64
-	PayStatusID     int64
-	ShipStatusID    int64
-	ProcessStatusID int64
-	ProcessStatus   string
+	ID                int64
+	OrderNo           string
+	OrderDate         string
+	CustomerID        int64
+	Customer          string
+	GrandTotal        string
+	OrderType         string
+	PayStatus         string
+	ShipStatus        string
+	OrderTypeID       int64
+	PayStatusID       int64
+	ShipStatusID      int64
+	ProcessStatusID   int64
+	ProcessStatus     string
 	CreatedByEmployee string
-	Notes           string
-	IsVoid          bool
+	Notes             string
+	IsVoid            bool
 }
 
 type OrdersPageData struct {
@@ -120,35 +120,35 @@ type OrderItemRow struct {
 }
 
 type OrderDetailData struct {
-	ID            int64
-	OrderNo       string
-	OrderDate     string
-	Customer      string
-	Source        string
-	OrderType     string
-	PayStatus     string
-	ShipStatus    string
-	OrderTypeID   int64
-	PayStatusID   int64
-	ShipStatusID  int64
-	ProcessStatus string
+	ID                int64
+	OrderNo           string
+	OrderDate         string
+	Customer          string
+	Source            string
+	OrderType         string
+	PayStatus         string
+	ShipStatus        string
+	OrderTypeID       int64
+	PayStatusID       int64
+	ShipStatusID      int64
+	ProcessStatus     string
 	CreatedByEmployee string
-	IsVoid        bool
-	VoidedAt      *string
-	VoidReason    *string
-	Notes         *string
-	TotalAmount   float64
-	ShippingAmt   float64
-	DiscountAmt   float64
-	RoundToInt    bool
-	RoundingAmt   float64
-	GrandTotal    float64
-	ExpressFee    *string
-	OrderTypeOpts []Option
-	PayOpts       []Option
-	ShipOpts      []Option
-	Items         []OrderItemRow
-	Error         string
+	IsVoid            bool
+	VoidedAt          *string
+	VoidReason        *string
+	Notes             *string
+	TotalAmount       float64
+	ShippingAmt       float64
+	DiscountAmt       float64
+	RoundToInt        bool
+	RoundingAmt       float64
+	GrandTotal        float64
+	ExpressFee        *string
+	OrderTypeOpts     []Option
+	PayOpts           []Option
+	ShipOpts          []Option
+	Items             []OrderItemRow
+	Error             string
 }
 
 type CreateOrderRequest struct {
@@ -189,6 +189,10 @@ type UpdateOrderRequest struct {
 	DiscountAmount string `form:"discount_amount"`
 	RoundToInt     string `form:"round_to_int"`
 	ExpressFee     string `form:"express_fee"`
+
+	ItemID    []string `form:"item_id[]"`
+	Qty       []string `form:"qty[]"`
+	UnitPrice []string `form:"unit_price[]"`
 }
 
 func env(key, def string) string {
@@ -965,29 +969,13 @@ func main() {
 		return c.JSON(http.StatusOK, rows)
 	})
 
-	// Order detail
+	// Merged detail+edit: clicking order number goes to unified edit page.
 	e.GET("/orders/:id", func(c echo.Context) error {
 		id, err := strconv.ParseInt(c.Param("id"), 10, 64)
 		if err != nil || id <= 0 {
 			return c.String(http.StatusBadRequest, "invalid id")
 		}
-		data, err := fetchOrderDetail(c.Request().Context(), pool, schema, id)
-		if err != nil {
-			return c.String(http.StatusInternalServerError, err.Error())
-		}
-		if data == nil {
-			return c.String(http.StatusNotFound, "not found")
-		}
-		if opts, err := fetchOptions(c.Request().Context(), pool, fmt.Sprintf("SELECT id, name FROM %s.order_types ORDER BY id", schema)); err == nil {
-			data.OrderTypeOpts = opts
-		}
-		if opts, err := fetchOptions(c.Request().Context(), pool, fmt.Sprintf("SELECT id, name FROM %s.pay_statuses ORDER BY id", schema)); err == nil {
-			data.PayOpts = opts
-		}
-		if opts, err := fetchOptions(c.Request().Context(), pool, fmt.Sprintf("SELECT id, name FROM %s.ship_statuses ORDER BY id", schema)); err == nil {
-			data.ShipOpts = opts
-		}
-		return c.Render(http.StatusOK, "order_detail.html", data)
+		return c.Redirect(http.StatusSeeOther, fmt.Sprintf("/orders/%d/edit", id))
 	})
 
 	// Order edit (header only for now)
