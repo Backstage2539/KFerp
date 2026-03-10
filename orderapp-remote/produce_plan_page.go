@@ -96,7 +96,7 @@ func registerProducePlanPages(e *echo.Echo, pool *pgxpool.Pool, schema string) {
 		data.Rows = out
 		data.Materials = calcProducePlanMaterials(out, params)
 		if ms, err := loadActiveMachines(c.Request().Context(), pool, schema); err == nil {
-			data.RoastSplits = calcRoastSplits(out, ms)
+			data.RoastSplits = calcRoastSplits(out, ms, params.YieldRate)
 		}
 		return c.Render(http.StatusOK, "produce_plan.html", data)
 	}

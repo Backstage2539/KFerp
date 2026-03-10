@@ -67,7 +67,7 @@ func registerUnprodSummaryPages(e *echo.Echo, pool *pgxpool.Pool, schema string)
 				}
 				data.Materials = calcProducePlanMaterials(planRows, params)
 				if ms, err := loadActiveMachines(c.Request().Context(), pool, schema); err == nil {
-					data.RoastSplits = calcRoastSplits(planRows, ms)
+					data.RoastSplits = calcRoastSplits(planRows, ms, params.YieldRate)
 				}
 			}
 		}
