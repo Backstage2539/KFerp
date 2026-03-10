@@ -62,7 +62,7 @@
 
     <main class="content">
       <div style="display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap;">
-        <h2 style="margin:0">生产计划（商品+规格）</h2>
+        <h2 style="margin:0">生产计划（商品+规格，未生产订单）</h2>
         <a class="btn2" href="/orders?preset=unprod">← 返回未生产订单</a>
       </div>
 
@@ -180,11 +180,11 @@
       </div>
 
       <div class="card">
-        <div style="font-weight:700; margin-bottom:8px;">设备自动拆分建议</div>
+        <div style="font-weight:700; margin-bottom:8px;">烘焙建议</div>
         {{if .PlanReady}}
         <div style="overflow:auto; -webkit-overflow-scrolling:touch;">
           <table>
-            <thead><tr><th>物料</th><th>推荐机器</th><th>每次烘焙(kg)</th><th>批次数</th><th>总需求(kg)</th></tr></thead>
+            <thead><tr><th>物料</th><th>推荐机器</th><th>烘焙建议(kg/锅)</th><th>锅数</th><th>总需求(kg)</th></tr></thead>
             <tbody>
             {{range .RoastSplits}}
               <tr><td>{{.Material}}</td><td>{{.Machine}}</td><td>{{.BatchKg}}</td><td>{{.Batches}}</td><td>{{.TotalKg}}</td></tr>

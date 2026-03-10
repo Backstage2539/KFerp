@@ -1,1 +1,137 @@
-<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/><title>设备产能配置</title><style>body{font-family:system-ui;margin:0}.content{padding:16px}.card{border:1px solid #eee;border-radius:8px;padding:12px;margin:12px 0}table{width:100%;border-collapse:collapse}th,td{border-bottom:1px solid #eee;padding:8px}input{width:100%;padding:6px}.btn{padding:8px 10px;border:1px solid #111;background:#111;color:#fff;border-radius:6px}</style></head><body><main class="content"><h2>设备产能配置</h2>{{if .Ok}}<div>已保存</div>{{end}}<div class="card"><table><thead><tr><th>名称</th><th>容量(g)</th><th>可加工规格(g,逗号分隔)</th><th>最小烘焙量(g)</th><th>启用</th><th></th></tr></thead><tbody>{{range .Rows}}<tr><form method="post" action="/produce/machines/save"><input type="hidden" name="id" value="{{.ID}}"/><td><input name="name" value="{{.Name}}"/></td><td><input name="capacity_g" value="{{.CapacityG}}"/></td><td><input name="allowed_specs" value="{{.AllowedSpecs}}"/></td><td><input name="min_roast_g" value="{{.MinRoastG}}"/></td><td><input name="active" value="{{if .Active}}1{{else}}0{{end}}"/></td><td><button class="btn" type="submit">保存</button></td></form></tr>{{end}}<tr><form method="post" action="/produce/machines/save"><td><input name="name"/></td><td><input name="capacity_g"/></td><td><input name="allowed_specs"/></td><td><input name="min_roast_g"/></td><td><input name="active" value="1"/></td><td><button class="btn" type="submit">新增</button></td></form></tr></tbody></table></div></main></body></html>
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>烘焙载量设置</title>
+  <style>
+    body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial;margin:0}
+    .content{padding:16px;max-width:1100px;margin:0 auto}
+    .card{border:1px solid #eee;border-radius:10px;padding:12px;margin:12px 0}
+    table{width:100%;border-collapse:collapse;min-width:920px}
+    th,td{border-bottom:1px solid #eee;padding:8px;text-align:left;font-size:14px}
+    input{width:100%;padding:6px;box-sizing:border-box}
+    .btn{padding:8px 10px;border:1px solid #111;background:#111;color:#fff;border-radius:6px;cursor:pointer}
+    .btn2{padding:7px 10px;border:1px solid #999;background:#fff;color:#111;border-radius:6px;cursor:pointer}
+    .ok{background:#e9ffe9;border:1px solid #b8f5b8;padding:8px;border-radius:8px}
+    .err{background:#ffecec;border:1px solid #ffb9b9;padding:8px;border-radius:8px}
+    .muted{color:#666;font-size:12px}
+    .row{display:grid;grid-template-columns:1fr 220px;gap:10px}
+  </style>
+</head>
+<body>
+<main class="content">
+  <h2 style="margin:0 0 8px 0;">烘焙载量设置</h2>
+  <div class="muted">设备列表包含：设备名称、最大烘焙量、最小烘焙量。载量区间按 1000g 梯度自动生成。</div>
+
+  {{if .Ok}}<div class="ok" style="margin-top:10px;">已保存</div>{{end}}
+  {{if .Error}}<div class="err" style="margin-top:10px;">{{.Error}}</div>{{end}}
+
+  <div class="card">
+    <div style="overflow:auto;">
+      <table>
+        <thead>
+          <tr>
+            <th style="width:190px;">设备名称</th>
+            <th style="width:140px;">最大烘焙量(g)</th>
+            <th style="width:140px;">最小烘焙量(g)</th>
+            <th>可加工规格(g, 逗号分隔，可空)</th>
+            <th style="width:110px;">启用</th>
+            <th style="width:90px;"></th>
+          </tr>
+        </thead>
+        <tbody>
+          {{range .Rows}}
+          <tr data-device-id="{{.ID}}" data-max="{{.CapacityG}}" data-min="{{.MinRoastG}}" data-name="{{.Name}}">
+            <form method="post" action="/produce/machines/save">
+              <input type="hidden" name="id" value="{{.ID}}"/>
+              <td><input name="name" value="{{.Name}}"/></td>
+              <td><input name="capacity_g" value="{{.CapacityG}}"/></td>
+              <td><input name="min_roast_g" value="{{.MinRoastG}}"/></td>
+              <td><input name="allowed_specs" value="{{.AllowedSpecs}}" placeholder="例如 454,227"/></td>
+              <td><input name="active" value="{{if .Active}}1{{else}}0{{end}}"/></td>
+              <td><button class="btn" type="submit">保存</button></td>
+            </form>
+          </tr>
+          {{end}}
+          <tr>
+            <form method="post" action="/produce/machines/save">
+              <td><input name="name" placeholder="新设备名称"/></td>
+              <td><input name="capacity_g" placeholder="最大烘焙量(g)"/></td>
+              <td><input name="min_roast_g" placeholder="最小烘焙量(g)"/></td>
+              <td><input name="allowed_specs" placeholder="例如 454,227（可空）"/></td>
+              <td><input name="active" value="1"/></td>
+              <td><button class="btn" type="submit">新增</button></td>
+            </form>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="card">
+    <div style="font-weight:700;margin-bottom:8px;">设备载量选项（自动编号）</div>
+    <div class="row" style="margin-bottom:10px;">
+      <div>
+        <div class="muted" style="margin-bottom:6px;">选择设备</div>
+        <select id="deviceSelect" style="width:100%;padding:8px;"></select>
+      </div>
+      <div style="display:flex;align-items:flex-end;">
+        <button class="btn2" type="button" onclick="renderLoads()">生成载量编号</button>
+      </div>
+    </div>
+    <div class="muted" style="margin-bottom:8px;">规则：按设备最小~最大烘焙量，每 1000g 生成一个载量区间编号（LOAD-001, LOAD-002...）。</div>
+    <div id="loadOutput" class="muted">请选择设备后生成。</div>
+  </div>
+</main>
+<script>
+(function init(){
+  const rows=[...document.querySelectorAll('tr[data-device-id]')];
+  const sel=document.getElementById('deviceSelect');
+  sel.innerHTML='';
+  if(rows.length===0){
+    sel.innerHTML='<option value="">暂无设备</option>';
+    return;
+  }
+  rows.forEach(r=>{
+    const id=r.dataset.deviceId;
+    const name=r.dataset.name||('设备'+id);
+    const max=r.dataset.max||'0';
+    const min=r.dataset.min||'0';
+    const o=document.createElement('option');
+    o.value=id;
+    o.textContent=`${name}（最小 ${min}g / 最大 ${max}g）`;
+    sel.appendChild(o);
+  });
+  renderLoads();
+})();
+
+function renderLoads(){
+  const sel=document.getElementById('deviceSelect');
+  const out=document.getElementById('loadOutput');
+  const id=sel.value;
+  const row=document.querySelector(`tr[data-device-id="${id}"]`);
+  if(!row){ out.textContent='未找到设备'; return; }
+  const max=parseInt(row.dataset.max||'0',10);
+  const min=parseInt(row.dataset.min||'0',10);
+  if(max<=0){ out.textContent='最大烘焙量未设置'; return; }
+  let lo=min>0?min:1000;
+  if(lo>max){ lo=max; }
+  const start=Math.ceil(lo/1000)*1000;
+  const end=Math.floor(max/1000)*1000;
+  const opts=[];
+  let idx=1;
+  for(let g=start; g<=end; g+=1000){
+    const code='LOAD-'+String(idx).padStart(3,'0');
+    opts.push(`${code}：${g}g（${(g/1000).toFixed(2)}kg）`);
+    idx++;
+  }
+  if(opts.length===0){
+    out.textContent='当前最小/最大设置无法生成 1000g 梯度区间，请调整参数。';
+    return;
+  }
+  out.innerHTML=opts.map(x=>`<div>${x}</div>`).join('');
+}
+</script>
+</body>
+</html>
