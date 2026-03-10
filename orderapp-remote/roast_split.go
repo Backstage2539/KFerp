@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"math"
 	"sort"
 	"strconv"
@@ -44,37 +45,36 @@ func calcRoastSplits(rows []UnprodNeedRow, machines []RoastMachine, yieldRate fl
 		if r.GapG <= 0 {
 			continue
 		}
-		// 烘焙建议按生豆计算：raw_g = ceil(finished_g / yieldRate)，再按 kg 向上取整。
+		// 烘焙建议按生豆计算：raw_g = ceil(finished_g / yieldRate)。
 		rawG := int64(math.Ceil(float64(r.GapG) / yieldRate))
-		rawKg := ceilDiv64(rawG, 1000)
-		pick, batches := pickMachineAndBatches(rawKg, machines)
+		pick, batches := pickMachineAndBatches(rawG, machines)
 		if pick.CapacityG <= 0 {
-			out = append(out, RoastSplitRow{Material: r.Product, Machine: "未匹配设备", BatchKg: "0", Batches: 0, TotalKg: strconv.FormatInt(rawKg, 10)})
+			out = append(out, RoastSplitRow{Material: r.Product, Machine: "未匹配设备", BatchKg: "0", Batches: 0, TotalKg: formatKg(rawG)})
 			continue
 		}
 		out = append(out, RoastSplitRow{
 			Material: r.Product,
 			Machine:  pick.Name,
-			BatchKg:  formatBatchPlanKgInt(batches),
+			BatchKg:  formatBatchPlanKg(batches),
 			Batches:  int64(len(batches)),
-			TotalKg:  strconv.FormatInt(rawKg, 10),
+			TotalKg:  formatKg(rawG),
 		})
 	}
 	return out
 }
 
-func pickMachineAndBatches(totalKg int64, machines []RoastMachine) (RoastMachine, []int64) {
+func pickMachineAndBatches(totalG int64, machines []RoastMachine) (RoastMachine, []int64) {
 	best := RoastMachine{Name: "未匹配设备", CapacityG: 0, MinRoastG: 0}
 	bestBatches := []int64(nil)
 	for _, m := range machines {
 		if m.CapacityG <= 0 {
 			continue
 		}
-		loads := machineLoadsKg(m)
+		loads := machineLoadsG(m)
 		if len(loads) == 0 {
 			continue
 		}
-		batches, ok := splitPreferEqual(totalKg, loads)
+		batches, ok := splitPreferEqual(totalG, loads)
 		if !ok || len(batches) == 0 {
 			continue
 		}
@@ -86,13 +86,13 @@ func pickMachineAndBatches(totalKg int64, machines []RoastMachine) (RoastMachine
 	return best, bestBatches
 }
 
-// machineLoadsKg returns available roast load options in kg from device config.
+// machineLoadsG returns available roast load options in grams from device config.
 // allowed_specs is used as "载量设置(g,逗号分隔)".
-// If empty, fallback to [min..max] with 1kg step.
-func machineLoadsKg(m RoastMachine) []int64 {
-	minKg := ceilDiv64(max64(m.MinRoastG, 1), 1000)
-	maxKg := m.CapacityG / 1000
-	if maxKg <= 0 || minKg > maxKg {
+// If empty, fallback to [min..max] with 1000g step.
+func machineLoadsG(m RoastMachine) []int64 {
+	minG := max64(m.MinRoastG, 1)
+	maxG := m.CapacityG
+	if maxG <= 0 || minG > maxG {
 		return nil
 	}
 
@@ -102,20 +102,17 @@ func machineLoadsKg(m RoastMachine) []int64 {
 	if raw != "" {
 		for _, p := range strings.Split(raw, ",") {
 			g, _ := strconv.ParseInt(strings.TrimSpace(p), 10, 64)
-			if g <= 0 {
+			if g < minG || g > maxG || seen[g] {
 				continue
 			}
-			kg := ceilDiv64(g, 1000)
-			if kg < minKg || kg > maxKg || seen[kg] {
-				continue
-			}
-			seen[kg] = true
-			loads = append(loads, kg)
+			seen[g] = true
+			loads = append(loads, g)
 		}
 	}
 	if len(loads) == 0 {
-		for kg := minKg; kg <= maxKg; kg++ {
-			loads = append(loads, kg)
+		start := ((minG + 999) / 1000) * 1000
+		for g := start; g <= maxG; g += 1000 {
+			loads = append(loads, g)
 		}
 	}
 	sort.Slice(loads, func(i, j int) bool { return loads[i] < loads[j] })
@@ -123,25 +120,25 @@ func machineLoadsKg(m RoastMachine) []int64 {
 }
 
 // splitPreferEqual: for multi-batch roasting, prefer same load per batch.
-func splitPreferEqual(totalKg int64, loads []int64) ([]int64, bool) {
-	if totalKg <= 0 || len(loads) == 0 {
+func splitPreferEqual(totalG int64, loads []int64) ([]int64, bool) {
+	if totalG <= 0 || len(loads) == 0 {
 		return nil, false
 	}
 	minLoad := loads[0]
 	maxLoad := loads[len(loads)-1]
-	if totalKg <= maxLoad {
+	if totalG <= maxLoad {
 		for _, l := range loads {
-			if l >= totalKg {
+			if l >= totalG {
 				return []int64{l}, true
 			}
 		}
 		return []int64{maxLoad}, true
 	}
 
-	minBatches := ceilDiv(totalKg, maxLoad)
-	maxBatches := ceilDiv(totalKg, minLoad)
+	minBatches := ceilDiv(totalG, maxLoad)
+	maxBatches := ceilDiv(totalG, minLoad)
 	for n := minBatches; n <= maxBatches; n++ {
-		target := ceilDiv64(totalKg, int64(n))
+		target := ceilDiv64(totalG, int64(n))
 		load, ok := pickSmallestAtLeast(loads, target)
 		if !ok {
 			continue
@@ -164,15 +161,20 @@ func pickSmallestAtLeast(loads []int64, target int64) (int64, bool) {
 	return 0, false
 }
 
-func formatBatchPlanKgInt(batches []int64) string {
+func formatBatchPlanKg(batches []int64) string {
 	if len(batches) == 0 {
 		return "0"
 	}
 	parts := make([]string, 0, len(batches))
 	for _, b := range batches {
-		parts = append(parts, strconv.FormatInt(b, 10))
+		parts = append(parts, formatKg(b))
 	}
 	return strings.Join(parts, " + ")
+}
+
+func formatKg(g int64) string {
+	kg := float64(g) / 1000.0
+	return strings.TrimRight(strings.TrimRight(fmt.Sprintf("%.2f", kg), "0"), ".")
 }
 
 func sum64(a []int64) int64 {
