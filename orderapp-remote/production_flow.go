@@ -128,7 +128,11 @@ func registerProductionFlowPages(e *echo.Echo, pool *pgxpool.Pool, schema string
 
 func saveRunningItems(ctx context.Context, pool *pgxpool.Pool, schema, batchID string, rows []UnprodNeedRow, operator string) error {
 	for _, r := range rows {
-		_, err := pool.Exec(ctx, fmt.Sprintf(`INSERT INTO %s.produce_running_items(batch_id,product_id,product_name,spec_g,need_g,order_nos,status,started_by,started_at) VALUES($1,$2,$3,$4,$5,$6,'running',$7,now())`, schema), batchID, r.ProductID, r.Product, r.SpecG, r.NeedG, r.OrderNos, operator)
+		needG := r.GapG
+		if needG <= 0 {
+			continue
+		}
+		_, err := pool.Exec(ctx, fmt.Sprintf(`INSERT INTO %s.produce_running_items(batch_id,product_id,product_name,spec_g,need_g,order_nos,status,started_by,started_at) VALUES($1,$2,$3,$4,$5,$6,'running',$7,now())`, schema), batchID, r.ProductID, r.Product, r.SpecG, needG, r.OrderNos, operator)
 		if err != nil {
 			return err
 		}
