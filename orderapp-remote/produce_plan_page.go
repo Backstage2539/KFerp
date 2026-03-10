@@ -25,7 +25,7 @@ type ProducePlanPageData struct {
 	DripExtraG  string
 	DripBoxSpec string
 
-	Materials []MaterialNeed
+	Materials   []MaterialNeed
 	RoastSplits []RoastSplitRow
 }
 
@@ -75,6 +75,9 @@ func registerProducePlanPages(e *echo.Echo, pool *pgxpool.Pool, schema string) {
 		}
 		if mappings, err := listBagSpecMappings(c.Request().Context(), pool, schema); err == nil {
 			params.BagNameBySpecG = mappingNameBySpec(mappings)
+		}
+		if bomMap, err := loadProducePlanBomMap(c.Request().Context(), pool, schema); err == nil {
+			params.BomByProductID = bomMap
 		}
 		// only gap>0
 		out := make([]UnprodNeedRow, 0, len(rows))

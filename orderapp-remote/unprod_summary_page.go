@@ -65,6 +65,9 @@ func registerUnprodSummaryPages(e *echo.Echo, pool *pgxpool.Pool, schema string)
 				if mappings, err := listBagSpecMappings(c.Request().Context(), pool, schema); err == nil {
 					params.BagNameBySpecG = mappingNameBySpec(mappings)
 				}
+				if bomMap, err := loadProducePlanBomMap(c.Request().Context(), pool, schema); err == nil {
+					params.BomByProductID = bomMap
+				}
 				data.Materials = calcProducePlanMaterialsWithBOM(c.Request().Context(), pool, schema, planRows, params)
 				if ms, err := loadActiveMachines(c.Request().Context(), pool, schema); err == nil {
 					data.RoastSplits = calcRoastSplits(planRows, ms, params.YieldRate)
