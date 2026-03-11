@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/subtle"
+	"encoding/json"
 	"fmt"
 	"html/template"
 	"io"
@@ -57,6 +58,9 @@ type PageData struct {
 	OrderTypes   []Option
 	Products     []ProductOption
 	ProductsJSON template.JS
+	EditMode     bool
+	EditID       int64
+	EditDataJSON template.JS
 	Ok           bool
 	OrderNo      string
 	Error        string
@@ -985,25 +989,13 @@ func main() {
 		return c.Redirect(http.StatusSeeOther, fmt.Sprintf("/orders/%d/edit", id))
 	})
 
-	// Order edit (header only for now)
+	// Unified edit: reuse /order page logic.
 	e.GET("/orders/:id/edit", func(c echo.Context) error {
 		id, err := strconv.ParseInt(c.Param("id"), 10, 64)
 		if err != nil || id <= 0 {
 			return c.String(http.StatusBadRequest, "invalid id")
 		}
-		data, err := fetchOrderEdit(c.Request().Context(), pool, schema, id)
-		if err != nil {
-			return c.String(http.StatusInternalServerError, err.Error())
-		}
-		if data == nil {
-			return c.String(http.StatusNotFound, "not found")
-		}
-		// load option lists for selects
-		if err := loadOptions(c.Request().Context(), pool, schema, &data.PageData); err != nil {
-			data.Error = err.Error()
-		}
-		data.PageData.ProductsJSON = buildProductsJSON(data.PageData.Products)
-		return c.Render(http.StatusOK, "order_edit.html", data)
+		return c.Redirect(http.StatusSeeOther, fmt.Sprintf("/order?edit_id=%d", id))
 	})
 	e.POST("/orders/:id/edit", func(c echo.Context) error {
 		id, err := strconv.ParseInt(c.Param("id"), 10, 64)
@@ -1063,6 +1055,67 @@ func main() {
 		}
 		if err := loadOptions(c.Request().Context(), pool, schema, &data); err != nil {
 			data.Error = err.Error()
+		}
+		if v := strings.TrimSpace(c.QueryParam("edit_id")); v != "" {
+			if id, err := strconv.ParseInt(v, 10, 64); err == nil && id > 0 {
+				ed, ferr := fetchOrderEdit(c.Request().Context(), pool, schema, id)
+				if ferr != nil {
+					data.Error = ferr.Error()
+				} else if ed == nil {
+					data.Error = "order not found"
+				} else {
+					data.EditMode = true
+					data.EditID = id
+					if ed.OrderDate != "" {
+						data.Today = ed.OrderDate
+					}
+					type editItem struct {
+						ProductID   int64  `json:"product_id"`
+						ProductName string `json:"product_name"`
+						TierID      string `json:"tier_id"`
+						UnitPrice   string `json:"unit_price"`
+						Qty         string `json:"qty"`
+						Unit        string `json:"unit"`
+						Spec        string `json:"spec"`
+					}
+					items := make([]editItem, 0, len(ed.Items))
+					for _, it := range ed.Items {
+						tier := "auto"
+						if it.PriceTierID > 0 {
+							tier = strconv.FormatInt(it.PriceTierID, 10)
+						}
+						spec := strings.TrimSuffix(strings.TrimSpace(strings.ToLower(it.Spec)), "g")
+						items = append(items, editItem{
+							ProductID:   it.ProductID,
+							ProductName: it.Product,
+							TierID:      tier,
+							UnitPrice:   it.UnitPrice,
+							Qty:         it.Qty,
+							Unit:        it.Unit,
+							Spec:        spec,
+						})
+					}
+					payload := map[string]any{
+						"order_date":       ed.OrderDate,
+						"customer_id":      strconv.FormatInt(ed.CustomerID, 10),
+						"source_id":        strconv.FormatInt(ed.SourceID, 10),
+						"order_type_id":    strconv.FormatInt(ed.OrderTypeID, 10),
+						"pay_status_id":    strconv.FormatInt(ed.PayStatusID, 10),
+						"ship_status_id":   strconv.FormatInt(ed.ShipStatusID, 10),
+						"ship_method":      ed.ShipMethod,
+						"ship_tracking_no": ed.ShipTrackingNo,
+						"notes":            ed.Notes,
+						"shipping_amount":  ed.ShippingAmount,
+						"discount_amount":  ed.DiscountAmount,
+						"round_to_int":     ed.RoundToInt,
+						"express_fee":      ed.ExpressFee,
+						"items":            items,
+					}
+					if b, err := json.Marshal(payload); err == nil {
+						data.EditDataJSON = template.JS(string(b))
+					}
+				}
+			}
 		}
 		data.ProductsJSON = buildProductsJSON(data.Products)
 		return c.Render(http.StatusOK, "order.html", data)
@@ -1180,10 +1233,7 @@ func main() {
 			return err
 		}
 
-		orderNo, err := nextOrderNo(ctx, tx, schema, od)
-		if err != nil {
-			return err
-		}
+		orderNo := ""
 
 		// Pricing: use tier match by qty(lb). Allow manual override.
 		totalAmt := 0.0
@@ -1290,51 +1340,111 @@ func main() {
 			}
 		}
 
-		insertOrderSQL := fmt.Sprintf(`
-			INSERT INTO %s.orders(
-				order_date, customer_id,
-				source_id, order_type_id, pay_status_id, ship_status_id,
-				ship_method, ship_tracking_no,
-				notes,
-				total_amount, shipping_amount, discount_amount,
-				round_to_int, rounding_amount, grand_total,
-				express_fee,
-				order_no
-			) VALUES (
-				$1,$2,$3,$4,$5,$6,$7,$8,$9,
-				$10,$11,$12,
-				$13,$14,$15,
-				$16,$17
-			)
-			RETURNING id
-		`, schema)
-
-		var orderID int64
-		err = tx.QueryRow(ctx, insertOrderSQL,
-			od,
-			req.CustomerID,
-			nullInt(req.SourceID),
-			nullInt(req.OrderTypeID),
-			nullInt(req.PayStatusID),
-			nullInt(shipStatusID),
-			nullText(shipMethod),
-			nullText(req.ShipTrackingNo),
-			nullText(req.Notes),
-			totalAmt,
-			shippingAmt,
-			discountAmt,
-			roundToInt,
-			roundingAmt,
-			grandTotal,
-			nullText(req.ExpressFee),
-			orderNo,
-		).Scan(&orderID)
-		if err != nil {
-			return err
+		editID := int64(0)
+		if v := strings.TrimSpace(c.FormValue("edit_id")); v != "" {
+			if n, err := strconv.ParseInt(v, 10, 64); err == nil && n > 0 {
+				editID = n
+			}
 		}
 
 		insertItemSQL := fmt.Sprintf(`INSERT INTO %s.order_items(order_id,line_no,product_id,price_tier_id,price_overridden,item_name,qty,unit,spec,unit_price,line_total)
 			VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`, schema)
+
+		var orderID int64
+		if editID > 0 {
+			if err := tx.QueryRow(ctx, fmt.Sprintf("SELECT id, order_no FROM %s.orders WHERE id=$1 FOR UPDATE", schema), editID).Scan(&orderID, &orderNo); err != nil {
+				return c.String(http.StatusBadRequest, "invalid edit_id")
+			}
+			uq := fmt.Sprintf(`
+				UPDATE %s.orders
+				SET order_date=$2,
+					customer_id=$3,
+					source_id=$4,
+					order_type_id=$5,
+					pay_status_id=$6,
+					ship_status_id=$7,
+					ship_method=$8,
+					ship_tracking_no=$9,
+					notes=$10,
+					total_amount=$11,
+					shipping_amount=$12,
+					discount_amount=$13,
+					round_to_int=$14,
+					rounding_amount=$15,
+					grand_total=$16,
+					express_fee=$17
+				WHERE id=$1
+			`, schema)
+			if _, err := tx.Exec(ctx, uq,
+				orderID,
+				od,
+				req.CustomerID,
+				nullInt(req.SourceID),
+				nullInt(req.OrderTypeID),
+				nullInt(req.PayStatusID),
+				nullInt(shipStatusID),
+				nullText(shipMethod),
+				nullText(req.ShipTrackingNo),
+				nullText(req.Notes),
+				totalAmt,
+				shippingAmt,
+				discountAmt,
+				roundToInt,
+				roundingAmt,
+				grandTotal,
+				nullText(req.ExpressFee),
+			); err != nil {
+				return err
+			}
+			if _, err := tx.Exec(ctx, fmt.Sprintf("DELETE FROM %s.order_items WHERE order_id=$1", schema), orderID); err != nil {
+				return err
+			}
+		} else {
+			orderNo, err = nextOrderNo(ctx, tx, schema, od)
+			if err != nil {
+				return err
+			}
+			insertOrderSQL := fmt.Sprintf(`
+				INSERT INTO %s.orders(
+					order_date, customer_id,
+					source_id, order_type_id, pay_status_id, ship_status_id,
+					ship_method, ship_tracking_no,
+					notes,
+					total_amount, shipping_amount, discount_amount,
+					round_to_int, rounding_amount, grand_total,
+					express_fee,
+					order_no
+				) VALUES (
+					$1,$2,$3,$4,$5,$6,$7,$8,$9,
+					$10,$11,$12,
+					$13,$14,$15,
+					$16,$17
+				)
+				RETURNING id
+			`, schema)
+			err = tx.QueryRow(ctx, insertOrderSQL,
+				od,
+				req.CustomerID,
+				nullInt(req.SourceID),
+				nullInt(req.OrderTypeID),
+				nullInt(req.PayStatusID),
+				nullInt(shipStatusID),
+				nullText(shipMethod),
+				nullText(req.ShipTrackingNo),
+				nullText(req.Notes),
+				totalAmt,
+				shippingAmt,
+				discountAmt,
+				roundToInt,
+				roundingAmt,
+				grandTotal,
+				nullText(req.ExpressFee),
+				orderNo,
+			).Scan(&orderID)
+			if err != nil {
+				return err
+			}
+		}
 
 		for idx, it := range items {
 			qtyAny := any(nil)
@@ -1350,6 +1460,9 @@ func main() {
 			return err
 		}
 
+		if editID > 0 {
+			return c.Redirect(http.StatusSeeOther, fmt.Sprintf("/orders/%d", orderID))
+		}
 		return c.Redirect(http.StatusSeeOther, "/order?ok=1&order_no="+url.QueryEscape(orderNo))
 	})
 

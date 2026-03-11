@@ -15,6 +15,7 @@ import (
 type OrderEditItem struct {
 	ItemID      int64
 	LineNo      int
+	ProductID   int64
 	Product     string
 	Spec        string
 	Qty         string
@@ -27,15 +28,17 @@ type OrderEditItem struct {
 type OrderEditData struct {
 	PageData PageData
 
-	ID           int64
-	OrderNo      string
-	OrderDate    string
-	CustomerID   int64
-	SourceID     int64
-	OrderTypeID  int64
-	PayStatusID  int64
-	ShipStatusID int64
-	Notes        string
+	ID             int64
+	OrderNo        string
+	OrderDate      string
+	CustomerID     int64
+	SourceID       int64
+	OrderTypeID    int64
+	PayStatusID    int64
+	ShipStatusID   int64
+	ShipMethod     string
+	ShipTrackingNo string
+	Notes          string
 
 	TotalAmount    string
 	ShippingAmount string
@@ -64,6 +67,8 @@ func fetchOrderEdit(ctx context.Context, pool *pgxpool.Pool, schema string, id i
 			COALESCE(o.order_type_id,0) as order_type_id,
 			COALESCE(o.pay_status_id,0) as pay_status_id,
 			COALESCE(o.ship_status_id,0) as ship_status_id,
+			COALESCE(o.ship_method,'') as ship_method,
+			COALESCE(o.ship_tracking_no,'') as ship_tracking_no,
 			COALESCE(o.notes,'') as notes,
 			COALESCE(o.total_amount,0) as total_amount,
 			COALESCE(o.shipping_amount,0) as shipping_amount,
@@ -90,6 +95,8 @@ func fetchOrderEdit(ctx context.Context, pool *pgxpool.Pool, schema string, id i
 		&d.OrderTypeID,
 		&d.PayStatusID,
 		&d.ShipStatusID,
+		&d.ShipMethod,
+		&d.ShipTrackingNo,
 		&d.Notes,
 		&totalAmt,
 		&shipAmt,
@@ -117,6 +124,7 @@ func fetchOrderEdit(ctx context.Context, pool *pgxpool.Pool, schema string, id i
 
 	itemsQ := fmt.Sprintf(`
 		SELECT oi.id, oi.line_no,
+			COALESCE(oi.product_id,0),
 			COALESCE(p.name,''),
 			COALESCE(oi.spec,''),
 			COALESCE(oi.qty,0),
@@ -139,7 +147,7 @@ func fetchOrderEdit(ctx context.Context, pool *pgxpool.Pool, schema string, id i
 	for rows.Next() {
 		var it OrderEditItem
 		var qty, unitPrice, lineTotal float64
-		if err := rows.Scan(&it.ItemID, &it.LineNo, &it.Product, &it.Spec, &qty, &it.Unit, &unitPrice, &lineTotal, &it.PriceTierID); err != nil {
+		if err := rows.Scan(&it.ItemID, &it.LineNo, &it.ProductID, &it.Product, &it.Spec, &qty, &it.Unit, &unitPrice, &lineTotal, &it.PriceTierID); err != nil {
 			return nil, err
 		}
 		it.Qty = trimFloatZero(qty)

@@ -131,7 +131,7 @@
   <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;">
     <div style="display:flex; align-items:center; gap:10px;">
       <button type="button" class="menuBtn" onclick="toggleMenu()">☰</button>
-      <h2 style="margin:0">录单</h2>
+      <h2 style="margin:0">{{if .EditMode}}编辑订单{{else}}录单{{end}}</h2>
     </div>
     <div style="display:flex; gap:10px; flex-wrap:wrap;">
       <a class="btn2" href="/products?from=order" onclick="saveDraft()">商品档案</a>
@@ -146,7 +146,7 @@
     <div class="err">{{.Error}}</div>
   {{end}}
 
-  <form method="post" action="/order">
+  <form method="post" action="/order">{{if .EditMode}}<input type="hidden" name="edit_id" value="{{.EditID}}" />{{end}}
     <div class="card">
       <div class="row">
         <div>
@@ -296,7 +296,7 @@
       </div>
     </div>
 
-    <button class="btn" type="submit">保存订单</button>
+    <button class="btn" type="submit">{{if .EditMode}}保存修改{{else}}保存订单{{end}}</button>
   </form>
 
 <script>
@@ -310,6 +310,7 @@ const OPTS = {
 };
 
 const PRODUCT_MAP = Object.fromEntries(PRODUCTS.map(p => [String(p.id), p]));
+const EDIT_DATA = {{if .EditDataJSON}}{{.EditDataJSON}}{{else}}null{{end}};
 
 function productOptionsHtml(){
   // kept for backward compatibility (not used now)
@@ -833,7 +834,48 @@ function ensureDefaultShipStatus(){
   }
 }
 
-restoreDraft();
+function applyEditData(d){
+  if(!d) return;
+  const form = document.querySelector('form');
+  if(d.order_date) form.querySelector('input[name="order_date"]').value = d.order_date;
+  function setAny(nameKey, optKey, id){
+    const hidden = form.querySelector(`input[name="${nameKey}"]`);
+    if(!hidden) return;
+    hidden.value = id || '';
+    const combo = hidden.closest('.combo');
+    if(!combo) return;
+    const inp = combo.querySelector('input.combo-input');
+    if(inp) inp.value = findNameById(optKey, id || '');
+  }
+  setAny('customer_id','customers', d.customer_id);
+  setAny('source_id','sources', d.source_id);
+  setAny('order_type_id','orderTypes', d.order_type_id);
+  setAny('pay_status_id','payStatuses', d.pay_status_id);
+  setAny('ship_status_id','shipStatuses', d.ship_status_id);
+  form.querySelector('select[name="ship_method"]').value = d.ship_method || '';
+  form.querySelector('input[name="ship_tracking_no"]').value = d.ship_tracking_no || '';
+  form.querySelector('textarea[name="notes"]').value = d.notes || '';
+  form.querySelector('input[name="shipping_amount"]').value = d.shipping_amount || '';
+  form.querySelector('input[name="discount_amount"]').value = d.discount_amount || '';
+  form.querySelector('input[name="round_to_int"]').checked = !!d.round_to_int;
+  form.querySelector('input[name="express_fee"]').value = d.express_fee || '';
+
+  const tbody = document.querySelector('#items tbody');
+  tbody.innerHTML = '';
+  const items = Array.isArray(d.items) ? d.items : [];
+  if(items.length===0){
+    addRow();
+    addRow();
+  }else{
+    for(const it of items){ addRow(it); }
+  }
+}
+
+if(EDIT_DATA){
+  applyEditData(EDIT_DATA);
+}else{
+  restoreDraft();
+}
 ensureDefaultShipStatus();
 if(document.querySelectorAll('#items tbody tr').length===0){
   addRow();
