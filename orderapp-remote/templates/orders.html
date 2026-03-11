@@ -186,7 +186,7 @@
         <a class="btn2" target="_blank" href="/ship/sf_small_one_click.xlsx?q={{.Q | urlquery}}&from={{.From | urlquery}}&to={{.To | urlquery}}&void={{.Void | urlquery}}&customer_id={{.CustomerID}}">一键发货（顺丰小件）</a>
         <button class="btn2" type="button" onclick="openTrackingFill()">快递录单</button>
       </div>
-      <div class="muted" style="margin-top:8px;">一键发货仅导出：生产完成 + 顺丰小件 + 总重量≤15kg 订单（按5kg自动拆分）。</div>
+      <div class="muted" style="margin-top:8px;">一键发货仅导出：发货状态=发货中 且总重量≤15kg 的订单（按5kg自动拆分填充模板）。</div>
       <div class="muted" style="margin-top:8px;">当前第 {{.Page}} 页 · 每页 {{.Limit}} 条</div>
     </form>
   </div>

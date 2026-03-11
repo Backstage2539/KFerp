@@ -85,11 +85,12 @@ func fetchShipRowsSFSmall(c echo.Context, pool *pgxpool.Pool, schema string, q, 
 		where = append(where, "COALESCE(o.pay_status_id,0)=2 AND COALESCE(o.ship_status_id,0) IN (3,4)")
 	}
 
-	// only ship_method=sf_small
-	where = append(where, "COALESCE(o.ship_method,'') = 'sf_small'")
 	if oneClick {
-		// 一键发货：仅生产完成订单
-		where = append(where, "EXISTS (SELECT 1 FROM "+schema+".order_process_statuses ops WHERE ops.id=o.process_status_id AND ops.name IN ('生产完成','已生产完成'))")
+		// 一键发货：过滤发货状态=发货中
+		where = append(where, "EXISTS (SELECT 1 FROM "+schema+".ship_statuses ss WHERE ss.id=o.ship_status_id AND ss.name='发货中')")
+	} else {
+		// 常规模板导出：仅 ship_method=sf_small
+		where = append(where, "COALESCE(o.ship_method,'') = 'sf_small'")
 	}
 
 	wsql := ""
