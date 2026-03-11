@@ -12,6 +12,7 @@
         <button class="menu" :class="{ active: currentKey === 'bom' }" @click="open('bom')">BOM配方维护</button>
         <button class="menu" :class="{ active: currentKey === 'customers' }" @click="open('customers')">客户档案</button>
         <button class="menu" :class="{ active: currentKey === 'products' }" @click="open('products')">商品档案</button>
+        <button class="menu" :class="{ active: currentKey === 'departments' }" @click="open('departments')">部门维护</button>
       </nav>
     </aside>
     <main class="content">
@@ -38,6 +39,7 @@ const menuMap = {
   bom: { title: 'BOM配方维护', url: '/bom-react' },
   customers: { title: '客户档案', url: '/customers' },
   products: { title: '商品档案', url: '/products' },
+  departments: { title: '部门维护', url: '/company/departments' },
 }
 
 function open(key) {
