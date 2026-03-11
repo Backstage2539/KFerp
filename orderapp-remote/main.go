@@ -444,6 +444,15 @@ func main() {
 		return c.File("frontend/dist/index.html")
 	})
 
+	// Vue3 + Vite workspace shell (DEV-046 serial menu migration)
+	e.Static("/vue-shell/assets", "frontend-vue-shell/dist/assets")
+	e.GET("/vue-shell", func(c echo.Context) error {
+		return c.File("frontend-vue-shell/dist/index.html")
+	})
+	e.GET("/vue-shell/*", func(c echo.Context) error {
+		return c.File("frontend-vue-shell/dist/index.html")
+	})
+
 	registerUnprodSummaryPages(e, pool, schema)
 	registerProducePlanPages(e, pool, schema)
 	registerMachineCapacityPages(e, pool, schema)
