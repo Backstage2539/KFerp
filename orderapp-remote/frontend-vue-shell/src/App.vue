@@ -5,6 +5,7 @@
       <button class="toggle" @click="collapsed = !collapsed">{{ collapsed ? '弹出菜单' : '收起菜单' }}</button>
       <nav>
         <button class="menu" :class="{ active: currentKey === 'order' }" @click="open('order')">录单</button>
+        <button class="menu" :class="{ active: currentKey === 'orders' }" @click="open('orders')">订单列表</button>
       </nav>
     </aside>
     <main class="content">
@@ -24,6 +25,7 @@ const collapsed = ref(false)
 const currentKey = ref('order')
 const menuMap = {
   order: { title: '录单', url: '/order' },
+  orders: { title: '订单列表', url: '/orders' },
 }
 
 function open(key) {
@@ -42,7 +44,7 @@ const currentUrl = computed(() => menuMap[currentKey.value]?.url || '/order')
 .sidebar.collapsed { width: 72px; }
 .brand { font-weight: 700; margin-bottom: 10px; white-space: nowrap; }
 .toggle { border: 1px solid #999; background: #fff; border-radius: 8px; padding: 6px 10px; cursor: pointer; margin-bottom: 12px; }
-.menu { width: 100%; text-align: left; border: 1px solid #ddd; background: #fff; border-radius: 8px; padding: 10px; cursor: pointer; }
+.menu { width: 100%; text-align: left; border: 1px solid #ddd; background: #fff; border-radius: 8px; padding: 10px; cursor: pointer; margin-bottom: 8px; }
 .menu.active { border-color: #111; background: #111; color: #fff; }
 .content { flex: 1; display: flex; flex-direction: column; min-width: 0; }
 .top { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-bottom: 1px solid #eee; }
