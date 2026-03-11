@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -9,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/labstack/echo/v4"
 )
@@ -184,10 +186,65 @@ func finishRunningItem(ctx context.Context, pool *pgxpool.Pool, schema string, i
 	if _, err := tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.produce_running_items SET status='done',finished_by=$2,finished_at=$3 WHERE id=$1`, schema), id, operator, time.Now()); err != nil {
 		return err
 	}
+	for _, no := range splitOrderNos(r.OrderNos) {
+		if err := completeOrderIfAllRunningDone(ctx, tx, schema, no); err != nil {
+			return err
+		}
+	}
 	if err := tx.Commit(ctx); err != nil {
 		return err
 	}
 	return nil
+}
+
+func splitOrderNos(v string) []string {
+	out := make([]string, 0)
+	seen := map[string]bool{}
+	for _, x := range strings.Split(strings.TrimSpace(v), ",") {
+		no := strings.TrimSpace(x)
+		if no == "" || seen[no] {
+			continue
+		}
+		seen[no] = true
+		out = append(out, no)
+	}
+	return out
+}
+
+func completeOrderIfAllRunningDone(ctx context.Context, tx pgx.Tx, schema, orderNo string) error {
+	if strings.TrimSpace(orderNo) == "" {
+		return nil
+	}
+	var hasRunning bool
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT EXISTS(SELECT 1 FROM %s.produce_running_items WHERE status='running' AND $1 = ANY(string_to_array(replace(order_nos,' ',''),',')))`, schema), orderNo).Scan(&hasRunning); err != nil {
+		return err
+	}
+	if hasRunning {
+		return nil
+	}
+	statusID, err := lookupProcessStatusIDTx(ctx, tx, schema, "生产完成", "已生产完成")
+	if err != nil {
+		return err
+	}
+	if statusID <= 0 {
+		return nil
+	}
+	_, err = tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.orders SET process_status_id=$2 WHERE order_no=$1`, schema), orderNo, statusID)
+	return err
+}
+
+func lookupProcessStatusIDTx(ctx context.Context, tx pgx.Tx, schema string, names ...string) (int64, error) {
+	for _, name := range names {
+		var id int64
+		err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT id FROM %s.order_process_statuses WHERE name=$1 ORDER BY id LIMIT 1`, schema), name).Scan(&id)
+		if err == nil && id > 0 {
+			return id, nil
+		}
+		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+			return 0, err
+		}
+	}
+	return 0, nil
 }
 
 func setOrdersProcessStatusByNeeds(ctx context.Context, pool *pgxpool.Pool, schema string, rows []UnprodNeedRow, statusName string) error {

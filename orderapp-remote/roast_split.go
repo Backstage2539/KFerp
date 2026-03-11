@@ -70,7 +70,20 @@ func calcRoastSplits(rows []UnprodNeedRow, machines []RoastMachine, yieldRate fl
 func pickMachineAndBatches(totalG int64, machines []RoastMachine) (RoastMachine, []int64) {
 	best := RoastMachine{Name: "未匹配设备", CapacityG: 0, MinRoastG: 0}
 	bestBatches := []int64(nil)
-	for _, m := range machines {
+	pickList := machines
+	// 规则：需要烘焙生豆总量 <20kg 时，不使用布勒烘焙机。
+	if totalG > 0 && totalG < 20000 {
+		filtered := make([]RoastMachine, 0, len(machines))
+		for _, m := range machines {
+			n := strings.ToLower(strings.TrimSpace(m.Name))
+			if strings.Contains(n, "布勒") || strings.Contains(n, "buhler") || strings.Contains(n, "bühler") {
+				continue
+			}
+			filtered = append(filtered, m)
+		}
+		pickList = filtered
+	}
+	for _, m := range pickList {
 		if m.CapacityG <= 0 {
 			continue
 		}

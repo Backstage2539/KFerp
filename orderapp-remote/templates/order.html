@@ -117,6 +117,7 @@
       <a class="link" href="/products/print" target="_blank" onclick="saveDraft()">报价导出</a>
       <div class="section">设置</div>
       <a class="link" href="/produce/machines" onclick="saveDraft()">设备产能配置</a>
+      <a class="link" href="/settings/sender">发货人设置</a>
       <div class="section">日志</div>
       <a class="link" href="/audit" onclick="saveDraft()">操作日志</a>
       <!-- 文档栏目已隐藏（PR-010） -->
@@ -343,7 +344,7 @@ function rowHtml(){
         <select name="tier_id[]" onchange="onTierChange(this)" style="width:118px; flex:0 0 118px;"></select>
         <div class="combo" style="position:relative; flex:1; min-width:0;">
           <input class="prod-combo" placeholder="商品" autocomplete="off"
-            onfocus="comboShow(this)" oninput="comboFilter(this)" />
+            onfocus="comboShow(this)" oninput="comboFilter(this)" onkeyup="comboFilter(this)" onclick="comboShow(this)" />
           <button type="button" class="clear" onclick="comboClear(this)" aria-label="清空"
             style="position:absolute; right:8px; top:50%; transform:translateY(-50%); border:0; background:transparent; font-size:18px; line-height:1; padding:4px; color:#666;">×</button>
           <div class="dropdown" style="display:none; position:absolute; left:0; right:0; top:100%; z-index:20; background:#fff; border:1px solid #ddd; border-radius:8px; margin-top:6px; max-height:240px; overflow:auto;"></div>
@@ -392,7 +393,7 @@ function normName(s){
     .trim()
     .toLowerCase()
     .replace(/\s+/g,'')
-    .replace(/[（）()\[\]]/g,'');
+    .replace(/[（）()\[\]【】{}“”'"`~!@#$%^&*+=|\\:;,.?\/，。！？、：；《》<>-]/g,'');
 }
 
 function rowElsFromInput(inp){
@@ -445,12 +446,16 @@ function setProductForRow(tr, pid, name){
 function comboRender(dropdown, kw){
   const k = normName(kw);
   let html = '';
-  const list = (!k) ? PRODUCTS : PRODUCTS.filter(p => {
+  let list = (!k) ? PRODUCTS : PRODUCTS.filter(p => {
     const n = normName(p.name);
     const py = normName(p.py);
     const pyi = normName(p.pyi);
     return n.includes(k) || py.includes(k) || pyi.includes(k);
   });
+  // 编辑订单时若关键字未命中，仍展示商品清单（保持与录单一致：可继续下拉选择）。
+  if(k && list.length === 0){
+    list = PRODUCTS;
+  }
   for(const p of list){
     html += `<div class="opt" data-kind="product" data-id="${p.id}" data-name="${encodeURIComponent(p.name)}" style="padding:10px 10px; border-bottom:1px solid #f2f2f2;">${p.name}</div>`;
   }

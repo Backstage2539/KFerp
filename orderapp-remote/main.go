@@ -422,6 +422,9 @@ func main() {
 	if err := ensureOrderProcessStatuses(context.Background(), pool, schema); err != nil {
 		log.Fatal(err)
 	}
+	if err := ensureSenderSettingsTable(context.Background(), pool, schema); err != nil {
+		log.Fatal(err)
+	}
 
 	registerShipExportRoutes(e, pool, schema)
 	registerRequirementPages(e, pool, schema)
@@ -444,6 +447,7 @@ func main() {
 	registerUnprodSummaryPages(e, pool, schema)
 	registerProducePlanPages(e, pool, schema)
 	registerMachineCapacityPages(e, pool, schema)
+	registerSenderSettingsPage(e, pool, schema)
 	registerProducePlanAllocate(e, pool, schema)
 	registerProductionFlowPages(e, pool, schema)
 	registerProduceBatchAPI(e, pool, schema)

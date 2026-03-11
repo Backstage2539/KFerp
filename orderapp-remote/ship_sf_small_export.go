@@ -369,12 +369,13 @@ func registerShipExportRoutes(e *echo.Echo, pool *pgxpool.Pool, schema string) {
 		sheet := wb.GetSheetName(0)
 		startRow := 2
 
-		senderName := env("SENDER_NAME", "")
-		senderPhone := env("SENDER_PHONE", "")
-		senderAddr := env("SENDER_ADDR", "")
-		senderCompany := env("SENDER_COMPANY", "")
-		goods := env("SENDER_GOODS", "咖啡")
-		bizType := env("SF_BIZ_TYPE", "")
+		sender := loadSenderProfile(c.Request().Context(), pool, schema)
+		senderName := sender.Name
+		senderPhone := sender.Phone
+		senderAddr := sender.Addr
+		senderCompany := sender.Company
+		goods := sender.Goods
+		bizType := sender.BizType
 
 		r := startRow
 		for _, o := range rows {
@@ -469,12 +470,13 @@ func registerShipExportRoutes(e *echo.Echo, pool *pgxpool.Pool, schema string) {
 		sheet := wb.GetSheetName(0)
 		startRow := 2
 
-		senderName := env("SENDER_NAME", "")
-		senderPhone := env("SENDER_PHONE", "")
-		senderAddr := env("SENDER_ADDR", "")
-		senderCompany := env("SENDER_COMPANY", "")
-		goods := env("SENDER_GOODS", "咖啡")
-		bizType := env("SF_BIZ_TYPE", "")
+		sender := loadSenderProfile(c.Request().Context(), pool, schema)
+		senderName := sender.Name
+		senderPhone := sender.Phone
+		senderAddr := sender.Addr
+		senderCompany := sender.Company
+		goods := sender.Goods
+		bizType := sender.BizType
 
 		heavyIDs := make([]int64, 0)
 		exportRows := make([]ShipRow, 0, len(rows))
