@@ -1080,15 +1080,11 @@ func main() {
 					}
 					items := make([]editItem, 0, len(ed.Items))
 					for _, it := range ed.Items {
-						tier := "auto"
-						if it.PriceTierID > 0 {
-							tier = strconv.FormatInt(it.PriceTierID, 10)
-						}
 						spec := strings.TrimSuffix(strings.TrimSpace(strings.ToLower(it.Spec)), "g")
 						items = append(items, editItem{
 							ProductID:   it.ProductID,
 							ProductName: it.Product,
-							TierID:      tier,
+							TierID:      "auto",
 							UnitPrice:   it.UnitPrice,
 							Qty:         it.Qty,
 							Unit:        it.Unit,

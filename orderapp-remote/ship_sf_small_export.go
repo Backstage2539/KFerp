@@ -476,8 +476,27 @@ func registerShipExportRoutes(e *echo.Echo, pool *pgxpool.Pool, schema string) {
 		goods := env("SENDER_GOODS", "咖啡")
 		bizType := env("SF_BIZ_TYPE", "")
 
-		r := startRow
+		heavyIDs := make([]int64, 0)
+		exportRows := make([]ShipRow, 0, len(rows))
 		for _, o := range rows {
+			if o.WeightKg > 15 {
+				heavyIDs = append(heavyIDs, o.OrderID)
+				continue
+			}
+			exportRows = append(exportRows, o)
+		}
+		if len(heavyIDs) > 0 {
+			ph := make([]string, 0, len(heavyIDs))
+			args := make([]any, 0, len(heavyIDs))
+			for i, id := range heavyIDs {
+				ph = append(ph, fmt.Sprintf("$%d", i+1))
+				args = append(args, id)
+			}
+			_, _ = pool.Exec(c.Request().Context(), fmt.Sprintf("UPDATE %s.orders SET ship_method='sf_large' WHERE id IN (%s)", schema, strings.Join(ph, ",")), args...)
+		}
+
+		r := startRow
+		for _, o := range exportRows {
 			cnt := shipSplitCountSFSmall(o.WeightKg)
 			for i := 1; i <= cnt; i++ {
 				remark := fmt.Sprintf("%s %d/%d", o.OrderNo, i, cnt)
