@@ -9,6 +9,7 @@
         <button class="menu" :class="{ active: currentKey === 'producePlan' }" @click="open('producePlan')">生产计划/开始生产</button>
         <button class="menu" :class="{ active: currentKey === 'produceRunning' }" @click="open('produceRunning')">生产中</button>
         <button class="menu" :class="{ active: currentKey === 'materials' }" @click="open('materials')">物料档案/库存</button>
+        <button class="menu" :class="{ active: currentKey === 'bom' }" @click="open('bom')">BOM配方维护</button>
       </nav>
     </aside>
     <main class="content">
@@ -32,6 +33,7 @@ const menuMap = {
   producePlan: { title: '生产计划/开始生产', url: '/produce/unproduced' },
   produceRunning: { title: '生产中', url: '/produce/running' },
   materials: { title: '物料档案/库存', url: '/materials' },
+  bom: { title: 'BOM配方维护', url: '/bom-react' },
 }
 
 function open(key) {
