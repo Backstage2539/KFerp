@@ -346,12 +346,13 @@ function closeTrackingFill(){
 }
 async function submitTrackingFill(){
   const msg = document.getElementById('trackingMsg');
-  const entries = document.getElementById('trackingEntries').value || '';
-  if(!entries.trim()){ msg.textContent='请先输入数据'; return; }
+  const file = document.getElementById('trackingFile').files?.[0];
+  if(!file){ msg.textContent='请先选择Excel文件'; return; }
   msg.textContent='提交中...';
   try{
-    const body = new URLSearchParams({entries});
-    const resp = await fetch('/ship/tracking_fill', {method:'POST', headers:{'Content-Type':'application/x-www-form-urlencoded'}, body});
+    const fd = new FormData();
+    fd.append('file', file);
+    const resp = await fetch('/ship/tracking_fill', {method:'POST', body: fd});
     const data = await resp.json();
     if(!resp.ok || !data.ok){
       msg.textContent = '失败：' + (data.error || 'unknown');
@@ -393,11 +394,11 @@ async function saveRow(btn){
 <div id="trackingModal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.35); z-index:100;">
   <div style="background:#fff; width:min(720px, calc(100% - 24px)); margin:10vh auto; border-radius:12px; padding:12px;">
     <div style="display:flex; justify-content:space-between; align-items:center; gap:12px;">
-      <b>快递录单（手机号,快递单号）</b>
+      <b>快递录单（上传Excel）</b>
       <button class="btn2" onclick="closeTrackingFill()">关闭</button>
     </div>
-    <div class="muted" style="margin:8px 0;">每行一条：手机号,快递单号（支持逗号/Tab/空格分隔）</div>
-    <textarea id="trackingEntries" style="width:100%; min-height:180px; padding:10px; box-sizing:border-box;" placeholder="13800138000,SF123456\n13800138000,SF123457"></textarea>
+    <div class="muted" style="margin:8px 0;">上传包含“手机号/电话”和“快递单号/运单号”列的Excel，系统按手机号匹配并回填单号。</div>
+    <input id="trackingFile" type="file" accept=".xlsx,.xls" style="width:100%; padding:8px; box-sizing:border-box;" />
     <div style="margin-top:10px; display:flex; gap:8px;">
       <button class="btn" onclick="submitTrackingFill()">提交回填</button>
       <span id="trackingMsg" class="muted"></span>

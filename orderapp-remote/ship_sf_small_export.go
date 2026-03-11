@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"math"
 	"net/http"
@@ -174,26 +175,99 @@ func parseTrackingPairs(raw string) []trackingPair {
 	return out
 }
 
-func fillTrackingByPhone(c echo.Context, pool *pgxpool.Pool, schema, raw string) (int, int, error) {
-	pairs := parseTrackingPairs(raw)
+func digitsOnly(s string) string {
+	b := strings.Builder{}
+	for _, r := range s {
+		if r >= '0' && r <= '9' {
+			b.WriteRune(r)
+		}
+	}
+	return b.String()
+}
+
+func parseTrackingPairsExcel(f *excelize.File) []trackingPair {
+	sheet := f.GetSheetName(0)
+	rows, err := f.GetRows(sheet)
+	if err != nil || len(rows) == 0 {
+		return nil
+	}
+	header := rows[0]
+	phoneCol, trackCol := -1, -1
+	for i, h := range header {
+		x := strings.TrimSpace(h)
+		if x == "" {
+			continue
+		}
+		if phoneCol < 0 && (strings.Contains(x, "手机") || strings.Contains(x, "电话")) {
+			phoneCol = i
+		}
+		if trackCol < 0 && (strings.Contains(x, "单号") || strings.Contains(x, "运单")) {
+			trackCol = i
+		}
+	}
+	start := 1
+	if phoneCol < 0 || trackCol < 0 {
+		start = 0
+	}
+	out := make([]trackingPair, 0)
+	for i := start; i < len(rows); i++ {
+		row := rows[i]
+		var p, t string
+		if phoneCol >= 0 && phoneCol < len(row) {
+			p = strings.TrimSpace(row[phoneCol])
+		}
+		if trackCol >= 0 && trackCol < len(row) {
+			t = strings.TrimSpace(row[trackCol])
+		}
+		if p == "" || t == "" {
+			vals := make([]string, 0)
+			for _, c := range row {
+				c = strings.TrimSpace(c)
+				if c != "" {
+					vals = append(vals, c)
+				}
+			}
+			if len(vals) >= 2 {
+				if p == "" {
+					p = vals[0]
+				}
+				if t == "" {
+					t = vals[1]
+				}
+			}
+		}
+		p = strings.TrimSpace(p)
+		t = strings.TrimSpace(t)
+		if p == "" || t == "" {
+			continue
+		}
+		out = append(out, trackingPair{Phone: p, Tracking: t})
+	}
+	return out
+}
+
+func fillTrackingPairs(ctx context.Context, pool *pgxpool.Pool, schema string, pairs []trackingPair) (int, int, error) {
 	if len(pairs) == 0 {
 		return 0, 0, nil
 	}
 	group := map[string][]string{}
 	for _, p := range pairs {
-		group[p.Phone] = append(group[p.Phone], p.Tracking)
+		ph := digitsOnly(p.Phone)
+		if ph == "" || strings.TrimSpace(p.Tracking) == "" {
+			continue
+		}
+		group[ph] = append(group[ph], strings.TrimSpace(p.Tracking))
 	}
 	updated := 0
 	total := len(pairs)
 	for phone, tracks := range group {
-		rows, err := pool.Query(c.Request().Context(), fmt.Sprintf(`
+		rows, err := pool.Query(ctx, fmt.Sprintf(`
 			SELECT o.id
 			FROM %s.orders o
 			JOIN %s.customers c ON c.id=o.customer_id
 			WHERE o.is_void=false
-			  AND COALESCE(o.ship_method,'')='sf_small'
 			  AND COALESCE(o.ship_tracking_no,'')=''
-			  AND regexp_replace(COALESCE(c.phone,''),'\\D','','g') = regexp_replace($1,'\\D','','g')
+			  AND regexp_replace(COALESCE(c.phone,''),'\\D','','g') = $1
 			ORDER BY o.order_date, o.id
 		`, schema, schema), phone)
 		if err != nil {
@@ -212,13 +286,17 @@ func fillTrackingByPhone(c echo.Context, pool *pgxpool.Pool, schema, raw string)
 			n = len(tracks)
 		}
 		for i := 0; i < n; i++ {
-			if _, err := pool.Exec(c.Request().Context(), fmt.Sprintf(`UPDATE %s.orders SET ship_tracking_no=$2 WHERE id=$1`, schema), ids[i], tracks[i]); err != nil {
+			if _, err := pool.Exec(ctx, fmt.Sprintf(`UPDATE %s.orders SET ship_tracking_no=$2 WHERE id=$1`, schema), ids[i], tracks[i]); err != nil {
 				return updated, total, err
 			}
 			updated++
 		}
 	}
 	return updated, total, nil
+}
+
+func fillTrackingByPhone(ctx context.Context, pool *pgxpool.Pool, schema, raw string) (int, int, error) {
+	return fillTrackingPairs(ctx, pool, schema, parseTrackingPairs(raw))
 }
 
 func shipSplitCountSFSmall(weightKg float64) int {
@@ -330,8 +408,27 @@ func registerShipExportRoutes(e *echo.Echo, pool *pgxpool.Pool, schema string) {
 	})
 
 	e.POST("/ship/tracking_fill", func(c echo.Context) error {
+		ctx := c.Request().Context()
+		if fh, err := c.FormFile("file"); err == nil && fh != nil {
+			f, err := fh.Open()
+			if err != nil {
+				return c.JSON(http.StatusBadRequest, map[string]any{"ok": false, "error": err.Error()})
+			}
+			defer f.Close()
+			x, err := excelize.OpenReader(f)
+			if err != nil {
+				return c.JSON(http.StatusBadRequest, map[string]any{"ok": false, "error": "excel解析失败"})
+			}
+			pairs := parseTrackingPairsExcel(x)
+			updated, total, err := fillTrackingPairs(ctx, pool, schema, pairs)
+			if err != nil {
+				return c.JSON(http.StatusBadRequest, map[string]any{"ok": false, "error": err.Error()})
+			}
+			return c.JSON(http.StatusOK, map[string]any{"ok": true, "updated": updated, "total": total})
+		}
+
 		raw := strings.TrimSpace(c.FormValue("entries"))
-		updated, total, err := fillTrackingByPhone(c, pool, schema, raw)
+		updated, total, err := fillTrackingByPhone(ctx, pool, schema, raw)
 		if err != nil {
 			return c.JSON(http.StatusBadRequest, map[string]any{"ok": false, "error": err.Error()})
 		}
