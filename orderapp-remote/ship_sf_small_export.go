@@ -109,7 +109,11 @@ func fetchShipRowsSFSmall(c echo.Context, pool *pgxpool.Pool, schema string, q, 
 			COALESCE(c.phone,'') AS recv_phone,
 			COALESCE(c.address,'') AS recv_addr,
 			'' AS recv_company,
-			COALESCE(SUM( (COALESCE(NULLIF(oi.qty::text,''),'0')::numeric) * (COALESCE(NULLIF(oi.spec::text,''),'0')::numeric) ),0) AS total_g
+			COALESCE(SUM(
+				COALESCE(NULLIF(regexp_replace(COALESCE(oi.qty::text,''), '[^0-9.\-]', '', 'g'), ''), '0')::numeric
+				*
+				COALESCE(NULLIF(regexp_replace(COALESCE(oi.spec::text,''), '[^0-9.\-]', '', 'g'), ''), '0')::numeric
+			),0) AS total_g
 		FROM %s.orders o
 		LEFT JOIN %s.customers c ON c.id=o.customer_id
 		LEFT JOIN %s.order_items oi ON oi.order_id=o.id
