@@ -86,8 +86,8 @@ func fetchShipRowsSFSmall(c echo.Context, pool *pgxpool.Pool, schema string, q, 
 	}
 
 	if oneClick {
-		// 一键发货：过滤发货状态=发货中
-		where = append(where, "EXISTS (SELECT 1 FROM "+schema+".ship_statuses ss WHERE ss.id=o.ship_status_id AND ss.name='发货中')")
+		// 一键发货：过滤流程状态=生产完成
+		where = append(where, "EXISTS (SELECT 1 FROM "+schema+".order_process_statuses ops WHERE ops.id=o.process_status_id AND ops.name IN ('生产完成','已生产完成'))")
 	} else {
 		// 常规模板导出：仅 ship_method=sf_small
 		where = append(where, "COALESCE(o.ship_method,'') = 'sf_small'")
@@ -98,9 +98,6 @@ func fetchShipRowsSFSmall(c echo.Context, pool *pgxpool.Pool, schema string, q, 
 		wsql = "WHERE " + strings.Join(where, " AND ")
 	}
 	having := ""
-	if oneClick {
-		having = "HAVING COALESCE(SUM( (COALESCE(NULLIF(oi.qty::text,''),'0')::numeric) * (COALESCE(NULLIF(oi.spec::text,''),'0')::numeric) ),0) <= 15000"
-	}
 
 	qsql := fmt.Sprintf(`
 		SELECT
