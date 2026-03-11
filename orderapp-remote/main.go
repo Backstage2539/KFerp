@@ -415,6 +415,9 @@ func main() {
 	if err := ensureProductionRunTable(context.Background(), pool, schema); err != nil {
 		log.Fatal(err)
 	}
+	if err := ensureOrderProcessStatuses(context.Background(), pool, schema); err != nil {
+		log.Fatal(err)
+	}
 
 	registerShipExportRoutes(e, pool, schema)
 	registerRequirementPages(e, pool, schema)
