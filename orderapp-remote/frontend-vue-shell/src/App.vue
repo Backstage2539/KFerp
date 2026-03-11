@@ -7,6 +7,7 @@
         <button class="menu" :class="{ active: currentKey === 'order' }" @click="open('order')">录单</button>
         <button class="menu" :class="{ active: currentKey === 'orders' }" @click="open('orders')">订单列表</button>
         <button class="menu" :class="{ active: currentKey === 'producePlan' }" @click="open('producePlan')">生产计划/开始生产</button>
+        <button class="menu" :class="{ active: currentKey === 'produceRunning' }" @click="open('produceRunning')">生产中</button>
       </nav>
     </aside>
     <main class="content">
@@ -28,6 +29,7 @@ const menuMap = {
   order: { title: '录单', url: '/order' },
   orders: { title: '订单列表', url: '/orders' },
   producePlan: { title: '生产计划/开始生产', url: '/produce/unproduced' },
+  produceRunning: { title: '生产中', url: '/produce/running' },
 }
 
 function open(key) {
