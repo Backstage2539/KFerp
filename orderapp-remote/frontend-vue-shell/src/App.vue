@@ -17,6 +17,7 @@
         <button class="menu" :class="{ active: currentKey === 'inventory' }" @click="open('inventory')">成品库存</button>
         <button class="menu" :class="{ active: currentKey === 'quotePrint' }" @click="open('quotePrint')">报价导出</button>
         <button class="menu" :class="{ active: currentKey === 'machines' }" @click="open('machines')">设备产能配置</button>
+        <button class="menu" :class="{ active: currentKey === 'senderSettings' }" @click="open('senderSettings')">发货人设置</button>
       </nav>
     </aside>
     <main class="content">
@@ -48,6 +49,7 @@ const menuMap = {
   inventory: { title: '成品库存', url: '/products/inventory' },
   quotePrint: { title: '报价导出', url: '/products/print' },
   machines: { title: '设备产能配置', url: '/produce/machines' },
+  senderSettings: { title: '发货人设置', url: '/settings/sender' },
 }
 
 function open(key) {
