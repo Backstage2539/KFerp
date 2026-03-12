@@ -4,6 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>生产计划</title>
+  <script>if(window.self!==window.top){document.documentElement.classList.add('embedded');}</script>
   <style>
     body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial; margin:0;}
     .layout{display:flex; min-height:100vh;}
@@ -25,6 +26,9 @@
       table{min-width:0;}
       .row{grid-template-columns:1fr;}
     }
+    html.embedded .sidebar{display:none !important;}
+    html.embedded .layout{display:block !important;}
+    html.embedded .content{padding:12px !important;}
     .err{background:#ffecec; border:1px solid #ffb9b9; padding:10px; border-radius:8px;}
     .ok{background:#e9ffe9; border:1px solid #b8f5b8; padding:10px; border-radius:8px;}
   </style>
