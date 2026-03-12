@@ -20,6 +20,7 @@
         <button class="menu" :class="{ active: currentKey === 'senderSettings' }" @click="open('senderSettings')">发货人设置</button>
         <button class="menu" :class="{ active: currentKey === 'audit' }" @click="open('audit')">操作日志</button>
         <button class="menu" :class="{ active: currentKey === 'reqProduct' }" @click="open('reqProduct')">产品需求表</button>
+        <button class="menu" :class="{ active: currentKey === 'reqDev' }" @click="open('reqDev')">开发需求表</button>
       </nav>
     </aside>
     <main class="content">
@@ -54,6 +55,7 @@ const menuMap = {
   senderSettings: { title: '发货人设置', url: '/settings/sender' },
   audit: { title: '操作日志', url: '/audit' },
   reqProduct: { title: '产品需求表', url: '/req/product' },
+  reqDev: { title: '开发需求表', url: '/req/dev' },
 }
 
 function open(key) {
