@@ -23,6 +23,7 @@
         <button class="menu" :class="{ active: currentKey === 'reqDev' }" @click="open('reqDev')">开发需求表</button>
         <button class="menu" :class="{ active: currentKey === 'reqUnit' }" @click="open('reqUnit')">单元测试表</button>
         <button class="menu" :class="{ active: currentKey === 'reqApi' }" @click="open('reqApi')">API 测试表</button>
+        <button class="menu" :class="{ active: currentKey === 'reqReview' }" @click="open('reqReview')">需求审核表</button>
       </nav>
     </aside>
     <main class="content">
@@ -60,6 +61,7 @@ const menuMap = {
   reqDev: { title: '开发需求表', url: '/req/dev' },
   reqUnit: { title: '单元测试表', url: '/req/unit' },
   reqApi: { title: 'API 测试表', url: '/req/api' },
+  reqReview: { title: '需求审核表', url: '/req/review' },
 }
 
 function open(key) {
