@@ -18,6 +18,7 @@ type ProducePlanPageData struct {
 	Ok         bool
 	BatchID    string
 	Warning    string
+	StockTip   string
 	Error      string
 
 	// material params
@@ -97,6 +98,9 @@ func registerProducePlanPages(e *echo.Echo, pool *pgxpool.Pool, schema string) {
 			return out[i].Product < out[j].Product
 		})
 		data.Rows = out
+		if len(rows) > 0 && len(out) == 0 {
+			data.StockTip = "库存充足：当前生成计划涉及商品库存均可满足，无需补产。"
+		}
 		data.Materials = calcProducePlanMaterialsWithBOM(c.Request().Context(), pool, schema, out, params)
 		if ms, err := loadActiveMachines(c.Request().Context(), pool, schema); err == nil {
 			data.RoastSplits = calcRoastSplits(out, ms, params.YieldRate)
