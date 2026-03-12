@@ -22,6 +22,7 @@ type ShipRow struct {
 	RecvPhone   string
 	RecvAddr    string
 	RecvCompany string
+	TrackingNo  string
 	WeightKg    float64
 }
 
@@ -109,6 +110,7 @@ func fetchShipRowsSFSmall(c echo.Context, pool *pgxpool.Pool, schema string, q, 
 			COALESCE(c.phone,'') AS recv_phone,
 			COALESCE(c.address,'') AS recv_addr,
 			'' AS recv_company,
+			COALESCE(o.ship_tracking_no,'') AS tracking_no,
 			COALESCE(SUM(
 				COALESCE(NULLIF(regexp_replace(COALESCE(oi.qty::text,''), '[^0-9.\-]', '', 'g'), ''), '0')::numeric
 				*
@@ -118,7 +120,7 @@ func fetchShipRowsSFSmall(c echo.Context, pool *pgxpool.Pool, schema string, q, 
 		LEFT JOIN %s.customers c ON c.id=o.customer_id
 		LEFT JOIN %s.order_items oi ON oi.order_id=o.id
 		%s
-		GROUP BY o.id, o.order_no, o.customer_id, recv_name, recv_phone, recv_addr
+		GROUP BY o.id, o.order_no, o.customer_id, recv_name, recv_phone, recv_addr, tracking_no
 		%s
 		ORDER BY o.id DESC
 	`, schema, schema, schema, wsql, having)
@@ -133,7 +135,7 @@ func fetchShipRowsSFSmall(c echo.Context, pool *pgxpool.Pool, schema string, q, 
 	for rows.Next() {
 		var r ShipRow
 		var totalG float64
-		if err := rows.Scan(&r.OrderID, &r.OrderNo, &r.CustomerID, &r.RecvName, &r.RecvPhone, &r.RecvAddr, &r.RecvCompany, &totalG); err != nil {
+		if err := rows.Scan(&r.OrderID, &r.OrderNo, &r.CustomerID, &r.RecvName, &r.RecvPhone, &r.RecvAddr, &r.RecvCompany, &r.TrackingNo, &totalG); err != nil {
 			return nil, err
 		}
 		r.WeightKg = totalG / 1000.0
@@ -368,6 +370,7 @@ func registerShipExportRoutes(e *echo.Echo, pool *pgxpool.Pool, schema string) {
 		}
 		sheet := wb.GetSheetName(0)
 		startRow := 2
+		wb.SetCellValue(sheet, "R1", "快递单号")
 
 		sender := loadSenderProfile(c.Request().Context(), pool, schema)
 		senderName := sender.Name
@@ -398,6 +401,7 @@ func registerShipExportRoutes(e *echo.Echo, pool *pgxpool.Pool, schema string) {
 				wb.SetCellValue(sheet, fmt.Sprintf("N%d", r), remark)
 				wb.SetCellValue(sheet, fmt.Sprintf("O%d", r), senderCompany)
 				wb.SetCellValue(sheet, fmt.Sprintf("P%d", r), bizType)
+				wb.SetCellValue(sheet, fmt.Sprintf("R%d", r), o.TrackingNo)
 				r++
 			}
 		}
@@ -469,6 +473,7 @@ func registerShipExportRoutes(e *echo.Echo, pool *pgxpool.Pool, schema string) {
 		}
 		sheet := wb.GetSheetName(0)
 		startRow := 2
+		wb.SetCellValue(sheet, "R1", "快递单号")
 
 		sender := loadSenderProfile(c.Request().Context(), pool, schema)
 		senderName := sender.Name
@@ -515,6 +520,7 @@ func registerShipExportRoutes(e *echo.Echo, pool *pgxpool.Pool, schema string) {
 				wb.SetCellValue(sheet, fmt.Sprintf("N%d", r), remark)
 				wb.SetCellValue(sheet, fmt.Sprintf("O%d", r), senderCompany)
 				wb.SetCellValue(sheet, fmt.Sprintf("P%d", r), bizType)
+				wb.SetCellValue(sheet, fmt.Sprintf("R%d", r), o.TrackingNo)
 				r++
 			}
 		}
