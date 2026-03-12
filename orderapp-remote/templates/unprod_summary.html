@@ -26,6 +26,7 @@
       .row{grid-template-columns:1fr;}
     }
     .err{background:#ffecec; border:1px solid #ffb9b9; padding:10px; border-radius:8px;}
+    .ok{background:#e9ffe9; border:1px solid #b8f5b8; padding:10px; border-radius:8px;}
   </style>
 </head>
 <body>
@@ -68,6 +69,7 @@
       </div>
 
       {{if .Error}}<div class="err">{{.Error}}</div>{{end}}
+      {{if .StockTip}}<div class="ok">{{.StockTip}}</div>{{end}}
 
       <div class="card">
         <form method="get" action="/produce/unproduced">
@@ -91,6 +93,7 @@
         </form>
 
         <div style="margin-top:10px; display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
+          <a class="btn2" href="javascript:void(0)" onclick="pickInsufficient()">勾选库存不足商品</a>
           <a class="btn2" href="javascript:void(0)" onclick="buildPlanBySelection()">生成计划</a>
           <form id="startForm" method="post" action="/produce/start" style="display:inline; margin:0;">
             <input type="hidden" name="from" value="{{.From}}" />
@@ -125,7 +128,7 @@
             <tbody>
               {{range .Rows}}
                 <tr>
-                  <td><input type="checkbox" class="pick_one" data-key="{{.ProductID}}-{{.SpecG}}" {{if index $.Selected (printf "%d-%d" .ProductID .SpecG)}}checked{{end}} /></td>
+                  <td><input type="checkbox" class="pick_one" data-key="{{.ProductID}}-{{.SpecG}}" data-gap="{{.GapG}}" {{if index $.Selected (printf "%d-%d" .ProductID .SpecG)}}checked{{end}} /></td>
                   <td>{{.Product}}</td>
                   <td class="muted">{{.OrderNos}}</td>
                   <td>{{.SpecG}}</td>
@@ -206,6 +209,21 @@ function toggleAll(checked){
 }
 function selectedKeys(){
   return [...document.querySelectorAll('.pick_one:checked')].map(x=>x.getAttribute('data-key')).filter(Boolean);
+}
+function pickInsufficient(){
+  let cnt = 0;
+  document.querySelectorAll('.pick_one').forEach(x=>{
+    const gap = Number(x.getAttribute('data-gap') || '0');
+    const pick = gap > 0;
+    x.checked = pick;
+    if(pick) cnt++;
+  });
+  const all = document.getElementById('pick_all');
+  if(all){
+    const total = document.querySelectorAll('.pick_one').length;
+    all.checked = total > 0 && cnt === total;
+  }
+  if(cnt===0){ alert('当前无库存不足商品'); }
 }
 function buildPlanBySelection(){
   const keys=selectedKeys();

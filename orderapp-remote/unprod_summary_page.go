@@ -20,6 +20,7 @@ type UnprodSummaryPageData struct {
 	RoastSplits []RoastSplitRow
 	Selected    map[string]bool
 	PlanReady   bool
+	StockTip    string
 	Error       string
 }
 
@@ -51,16 +52,22 @@ func registerUnprodSummaryPages(e *echo.Echo, pool *pgxpool.Pool, schema string)
 			if strings.TrimSpace(c.QueryParam("plan")) == "1" && len(data.Selected) > 0 {
 				data.PlanReady = true
 				planRows := make([]UnprodNeedRow, 0)
+				selectedCount := 0
 				for _, r := range rows {
+					k := fmt.Sprintf("%d-%d", r.ProductID, r.SpecG)
+					if !data.Selected[k] {
+						continue
+					}
+					selectedCount++
 					if r.GapG <= 0 {
 						continue
 					}
-					k := fmt.Sprintf("%d-%d", r.ProductID, r.SpecG)
-					if data.Selected[k] {
-						planRows = append(planRows, r)
-					}
+					planRows = append(planRows, r)
 				}
 				data.PlanRows = planRows
+				if selectedCount > 0 && len(planRows) == 0 {
+					data.StockTip = "库存充足：当前已选商品库存均可满足，无需补产。"
+				}
 				params := defaultProducePlanParams()
 				if mappings, err := listBagSpecMappings(c.Request().Context(), pool, schema); err == nil {
 					params.BagNameBySpecG = mappingNameBySpec(mappings)
