@@ -1,8 +1,9 @@
 <template>
   <div class="layout">
-    <aside class="sidebar" :class="{ collapsed }">
+    <div v-if="isMobile && mobileOpen" class="overlay" @click="mobileOpen = false"></div>
+
+    <aside class="sidebar" :class="sidebarClass">
       <div class="brand">ERP</div>
-      <button class="toggle" @click="collapsed = !collapsed">{{ collapsed ? '弹出菜单' : '收起菜单' }}</button>
       <nav>
         <template v-for="g in menuGroups" :key="g.name">
           <div class="section">{{ g.name }}</div>
@@ -17,10 +18,11 @@
         </template>
       </nav>
     </aside>
+
     <main class="content">
-      <header class="top">
-        <button class="toggle" @click="collapsed = !collapsed">{{ collapsed ? '弹出' : '收起' }}</button>
-        <div class="title">{{ title }}</div>
+      <header class="top" :class="{ compact: !showTitle }">
+        <button class="toggle" @click="toggleMenu">{{ toggleLabel }}</button>
+        <div v-if="showTitle" class="title">{{ title }}</div>
       </header>
       <iframe ref="frameRef" class="frame" :src="currentUrl" @load="onFrameLoad" />
     </main>
@@ -28,11 +30,13 @@
 </template>
 
 <script setup>
-import { computed, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 
 const collapsed = ref(false)
 const currentKey = ref('order')
 const frameRef = ref(null)
+const isMobile = ref(false)
+const mobileOpen = ref(false)
 
 const menuMap = {
   order: { title: '录单', url: '/order' },
@@ -70,6 +74,7 @@ const menuGroups = [
 function open(key) {
   if (!menuMap[key]) return
   currentKey.value = key
+  if (isMobile.value) mobileOpen.value = false
 }
 
 function onFrameLoad() {
@@ -89,27 +94,80 @@ function onFrameLoad() {
   }
 }
 
+function handleResize() {
+  isMobile.value = window.innerWidth <= 900
+  if (!isMobile.value) {
+    mobileOpen.value = false
+  }
+}
+
+function toggleMenu() {
+  if (isMobile.value) {
+    mobileOpen.value = !mobileOpen.value
+    return
+  }
+  collapsed.value = !collapsed.value
+}
+
+onMounted(() => {
+  handleResize()
+  window.addEventListener('resize', handleResize)
+})
+
+onBeforeUnmount(() => {
+  window.removeEventListener('resize', handleResize)
+})
+
+const sidebarClass = computed(() => ({
+  collapsed: !isMobile.value && collapsed.value,
+  mobile: isMobile.value,
+  open: isMobile.value && mobileOpen.value,
+}))
+
+const showTitle = computed(() => !isMobile.value && !collapsed.value)
+const toggleLabel = computed(() => {
+  if (isMobile.value) return '弹出菜单'
+  return collapsed.value ? '弹出菜单' : '收起菜单'
+})
 const title = computed(() => menuMap[currentKey.value]?.title || '')
 const currentUrl = computed(() => menuMap[currentKey.value]?.url || '/order')
 </script>
 
 <style scoped>
 * { box-sizing: border-box; }
-.layout { display: flex; min-height: 100vh; font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial; }
-.sidebar { width: 220px; border-right: 1px solid #eee; padding: 12px; background: #fafafa; transition: width .2s ease; overflow: auto; }
-.sidebar.collapsed { width: 72px; overflow: hidden; }
+.layout { display: flex; min-height: 100vh; font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial; position: relative; }
+.sidebar { width: 220px; border-right: 1px solid #eee; padding: 12px; background: #fafafa; transition: width .2s ease, transform .2s ease, padding .2s ease; overflow: auto; }
+.sidebar.collapsed { width: 0; border-right: 0; padding: 0; overflow: hidden; }
+.sidebar.collapsed .brand,
+.sidebar.collapsed nav,
+.sidebar.collapsed .section,
+.sidebar.collapsed .menu { display: none; }
 .brand { font-weight: 700; margin-bottom: 10px; white-space: nowrap; }
 .section { margin: 10px 0 6px; font-size: 12px; color: #666; font-weight: 600; }
-.toggle { border: 1px solid #999; background: #fff; border-radius: 8px; padding: 6px 10px; cursor: pointer; margin-bottom: 12px; }
+.toggle { border: 1px solid #999; background: #fff; border-radius: 8px; padding: 6px 10px; cursor: pointer; }
 .menu { width: 100%; text-align: left; border: 1px solid #ddd; background: #fff; border-radius: 8px; padding: 10px; cursor: pointer; margin-bottom: 8px; }
 .menu.active { border-color: #111; background: #111; color: #fff; }
 .content { flex: 1; display: flex; flex-direction: column; min-width: 0; }
 .top { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-bottom: 1px solid #eee; }
+.top.compact { gap: 0; }
 .title { font-weight: 600; }
 .frame { width: 100%; height: calc(100vh - 56px); border: 0; background: #fff; }
+.overlay { position: fixed; inset: 0; background: rgba(0,0,0,.25); z-index: 25; }
+
 @media (max-width: 900px) {
-  .sidebar { position: fixed; z-index: 20; height: 100vh; }
-  .content { margin-left: 220px; }
-  .sidebar.collapsed + .content { margin-left: 72px; }
+  .sidebar.mobile {
+    position: fixed;
+    left: 0;
+    top: 0;
+    bottom: 0;
+    z-index: 30;
+    width: 220px;
+    transform: translateX(-110%);
+    border-right: 1px solid #eee;
+    padding: 12px;
+  }
+  .sidebar.mobile.open { transform: translateX(0); }
+  .content { margin-left: 0 !important; }
+  .top { padding: 10px; }
 }
 </style>
