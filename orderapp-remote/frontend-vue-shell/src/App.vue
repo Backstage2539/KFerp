@@ -4,26 +4,17 @@
       <div class="brand">ERP</div>
       <button class="toggle" @click="collapsed = !collapsed">{{ collapsed ? '弹出菜单' : '收起菜单' }}</button>
       <nav>
-        <button class="menu" :class="{ active: currentKey === 'order' }" @click="open('order')">录单</button>
-        <button class="menu" :class="{ active: currentKey === 'orders' }" @click="open('orders')">订单列表</button>
-        <button class="menu" :class="{ active: currentKey === 'producePlan' }" @click="open('producePlan')">生产计划/开始生产</button>
-        <button class="menu" :class="{ active: currentKey === 'produceRunning' }" @click="open('produceRunning')">生产中</button>
-        <button class="menu" :class="{ active: currentKey === 'materials' }" @click="open('materials')">物料档案/库存</button>
-        <button class="menu" :class="{ active: currentKey === 'bom' }" @click="open('bom')">BOM配方维护</button>
-        <button class="menu" :class="{ active: currentKey === 'customers' }" @click="open('customers')">客户档案</button>
-        <button class="menu" :class="{ active: currentKey === 'products' }" @click="open('products')">商品档案</button>
-        <button class="menu" :class="{ active: currentKey === 'departments' }" @click="open('departments')">部门维护</button>
-        <button class="menu" :class="{ active: currentKey === 'employees' }" @click="open('employees')">员工维护</button>
-        <button class="menu" :class="{ active: currentKey === 'inventory' }" @click="open('inventory')">成品库存</button>
-        <button class="menu" :class="{ active: currentKey === 'quotePrint' }" @click="open('quotePrint')">报价导出</button>
-        <button class="menu" :class="{ active: currentKey === 'machines' }" @click="open('machines')">设备产能配置</button>
-        <button class="menu" :class="{ active: currentKey === 'senderSettings' }" @click="open('senderSettings')">发货人设置</button>
-        <button class="menu" :class="{ active: currentKey === 'audit' }" @click="open('audit')">操作日志</button>
-        <button class="menu" :class="{ active: currentKey === 'reqProduct' }" @click="open('reqProduct')">产品需求表</button>
-        <button class="menu" :class="{ active: currentKey === 'reqDev' }" @click="open('reqDev')">开发需求表</button>
-        <button class="menu" :class="{ active: currentKey === 'reqUnit' }" @click="open('reqUnit')">单元测试表</button>
-        <button class="menu" :class="{ active: currentKey === 'reqApi' }" @click="open('reqApi')">API 测试表</button>
-        <button class="menu" :class="{ active: currentKey === 'reqReview' }" @click="open('reqReview')">需求审核表</button>
+        <template v-for="g in menuGroups" :key="g.name">
+          <div class="section">{{ g.name }}</div>
+          <button
+            v-for="item in g.items"
+            :key="item.key"
+            class="menu"
+            :class="{ active: currentKey === item.key }"
+            @click="open(item.key)">
+            {{ item.label }}
+          </button>
+        </template>
       </nav>
     </aside>
     <main class="content">
@@ -31,7 +22,7 @@
         <button class="toggle" @click="collapsed = !collapsed">{{ collapsed ? '弹出' : '收起' }}</button>
         <div class="title">{{ title }}</div>
       </header>
-      <iframe class="frame" :src="currentUrl" />
+      <iframe ref="frameRef" class="frame" :src="currentUrl" @load="onFrameLoad" />
     </main>
   </div>
 </template>
@@ -41,6 +32,8 @@ import { computed, ref } from 'vue'
 
 const collapsed = ref(false)
 const currentKey = ref('order')
+const frameRef = ref(null)
+
 const menuMap = {
   order: { title: '录单', url: '/order' },
   orders: { title: '订单列表', url: '/orders' },
@@ -64,9 +57,36 @@ const menuMap = {
   reqReview: { title: '需求审核表', url: '/req/review' },
 }
 
+const menuGroups = [
+  { name: '订单', items: [{ key: 'order', label: '录单' }, { key: 'orders', label: '订单列表' }] },
+  { name: '生产流程', items: [{ key: 'producePlan', label: '生产计划/开始生产' }, { key: 'produceRunning', label: '生产中' }] },
+  { name: '物料管理', items: [{ key: 'materials', label: '物料档案/库存' }, { key: 'bom', label: 'BOM配方维护' }] },
+  { name: '档案', items: [{ key: 'customers', label: '客户档案' }, { key: 'products', label: '商品档案' }, { key: 'departments', label: '部门维护' }, { key: 'employees', label: '员工维护' }, { key: 'inventory', label: '成品库存' }, { key: 'quotePrint', label: '报价导出' }] },
+  { name: '设置', items: [{ key: 'machines', label: '设备产能配置' }, { key: 'senderSettings', label: '发货人设置' }] },
+  { name: '日志', items: [{ key: 'audit', label: '操作日志' }] },
+  { name: '需求管理', items: [{ key: 'reqProduct', label: '产品需求表' }, { key: 'reqDev', label: '开发需求表' }, { key: 'reqUnit', label: '单元测试表' }, { key: 'reqApi', label: 'API 测试表' }, { key: 'reqReview', label: '需求审核表' }] },
+]
+
 function open(key) {
   if (!menuMap[key]) return
   currentKey.value = key
+}
+
+function onFrameLoad() {
+  const fr = frameRef.value
+  const doc = fr?.contentDocument
+  if (!doc) return
+  let style = doc.getElementById('vue-shell-embed-style')
+  if (!style) {
+    style = doc.createElement('style')
+    style.id = 'vue-shell-embed-style'
+    style.textContent = `
+      .sidebar, .overlay, .menuBtn { display: none !important; }
+      .layout { display: block !important; }
+      .content { margin: 0 !important; width: 100% !important; padding-top: 0 !important; }
+    `
+    doc.head.appendChild(style)
+  }
 }
 
 const title = computed(() => menuMap[currentKey.value]?.title || '')
@@ -76,9 +96,10 @@ const currentUrl = computed(() => menuMap[currentKey.value]?.url || '/order')
 <style scoped>
 * { box-sizing: border-box; }
 .layout { display: flex; min-height: 100vh; font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial; }
-.sidebar { width: 220px; border-right: 1px solid #eee; padding: 12px; background: #fafafa; transition: width .2s ease; overflow: hidden; }
-.sidebar.collapsed { width: 72px; }
+.sidebar { width: 220px; border-right: 1px solid #eee; padding: 12px; background: #fafafa; transition: width .2s ease; overflow: auto; }
+.sidebar.collapsed { width: 72px; overflow: hidden; }
 .brand { font-weight: 700; margin-bottom: 10px; white-space: nowrap; }
+.section { margin: 10px 0 6px; font-size: 12px; color: #666; font-weight: 600; }
 .toggle { border: 1px solid #999; background: #fff; border-radius: 8px; padding: 6px 10px; cursor: pointer; margin-bottom: 12px; }
 .menu { width: 100%; text-align: left; border: 1px solid #ddd; background: #fff; border-radius: 8px; padding: 10px; cursor: pointer; margin-bottom: 8px; }
 .menu.active { border-color: #111; background: #111; color: #fff; }
