@@ -15,6 +15,7 @@
         <button class="menu" :class="{ active: currentKey === 'departments' }" @click="open('departments')">部门维护</button>
         <button class="menu" :class="{ active: currentKey === 'employees' }" @click="open('employees')">员工维护</button>
         <button class="menu" :class="{ active: currentKey === 'inventory' }" @click="open('inventory')">成品库存</button>
+        <button class="menu" :class="{ active: currentKey === 'quotePrint' }" @click="open('quotePrint')">报价导出</button>
       </nav>
     </aside>
     <main class="content">
@@ -44,6 +45,7 @@ const menuMap = {
   departments: { title: '部门维护', url: '/company/departments' },
   employees: { title: '员工维护', url: '/company/employees' },
   inventory: { title: '成品库存', url: '/products/inventory' },
+  quotePrint: { title: '报价导出', url: '/products/print' },
 }
 
 function open(key) {
