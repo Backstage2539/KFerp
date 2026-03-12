@@ -19,6 +19,7 @@
         <button class="menu" :class="{ active: currentKey === 'machines' }" @click="open('machines')">设备产能配置</button>
         <button class="menu" :class="{ active: currentKey === 'senderSettings' }" @click="open('senderSettings')">发货人设置</button>
         <button class="menu" :class="{ active: currentKey === 'audit' }" @click="open('audit')">操作日志</button>
+        <button class="menu" :class="{ active: currentKey === 'reqProduct' }" @click="open('reqProduct')">产品需求表</button>
       </nav>
     </aside>
     <main class="content">
@@ -52,6 +53,7 @@ const menuMap = {
   machines: { title: '设备产能配置', url: '/produce/machines' },
   senderSettings: { title: '发货人设置', url: '/settings/sender' },
   audit: { title: '操作日志', url: '/audit' },
+  reqProduct: { title: '产品需求表', url: '/req/product' },
 }
 
 function open(key) {
