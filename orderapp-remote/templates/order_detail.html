@@ -68,6 +68,11 @@
       | 合计：<b>{{printf "%.2f" .GrandTotal}}</b>
     </div>
     {{if .ExpressFee}}<div class="muted" style="margin-top:6px;">快递费：{{.ExpressFee}}</div>{{end}}
+    {{if gt .OutsourceTotalFee 0.0}}
+    <div class="muted" style="margin-top:6px;">
+      代加工费用：材料 {{printf "%.2f" .OutsourceMaterialFee}} | 烘焙 {{printf "%.2f" .OutsourceRoastFee}} | 包装 {{printf "%.2f" .OutsourcePackagingFee}} | 人工 {{printf "%.2f" .OutsourceManualFee}} | 税费 {{printf "%.2f" .OutsourceTaxFee}} | 其他 {{printf "%.2f" .OutsourceOtherFee}} | 合计 <b>{{printf "%.2f" .OutsourceTotalFee}}</b>
+    </div>
+    {{end}}
   </div>
 
   <div class="card">

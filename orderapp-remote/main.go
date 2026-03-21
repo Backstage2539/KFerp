@@ -124,51 +124,64 @@ type OrderItemRow struct {
 }
 
 type OrderDetailData struct {
-	ID                int64
-	OrderNo           string
-	OrderDate         string
-	Customer          string
-	Source            string
-	OrderType         string
-	PayStatus         string
-	ShipStatus        string
-	OrderTypeID       int64
-	PayStatusID       int64
-	ShipStatusID      int64
-	ProcessStatus     string
-	CreatedByEmployee string
-	IsVoid            bool
-	VoidedAt          *string
-	VoidReason        *string
-	Notes             *string
-	TotalAmount       float64
-	ShippingAmt       float64
-	DiscountAmt       float64
-	RoundToInt        bool
-	RoundingAmt       float64
-	GrandTotal        float64
-	ExpressFee        *string
-	OrderTypeOpts     []Option
-	PayOpts           []Option
-	ShipOpts          []Option
-	Items             []OrderItemRow
-	Error             string
+	ID                    int64
+	OrderNo               string
+	OrderDate             string
+	Customer              string
+	Source                string
+	OrderType             string
+	PayStatus             string
+	ShipStatus            string
+	OrderTypeID           int64
+	PayStatusID           int64
+	ShipStatusID          int64
+	ProcessStatus         string
+	CreatedByEmployee     string
+	IsVoid                bool
+	VoidedAt              *string
+	VoidReason            *string
+	Notes                 *string
+	TotalAmount           float64
+	ShippingAmt           float64
+	DiscountAmt           float64
+	RoundToInt            bool
+	RoundingAmt           float64
+	GrandTotal            float64
+	ExpressFee            *string
+	OutsourceMaterialFee  float64
+	OutsourceRoastFee     float64
+	OutsourcePackagingFee float64
+	OutsourceManualFee    float64
+	OutsourceTaxFee       float64
+	OutsourceOtherFee     float64
+	OutsourceTotalFee     float64
+	OrderTypeOpts         []Option
+	PayOpts               []Option
+	ShipOpts              []Option
+	Items                 []OrderItemRow
+	Error                 string
 }
 
 type CreateOrderRequest struct {
-	OrderDate      string `form:"order_date"`
-	CustomerID     int64  `form:"customer_id"`
-	SourceID       int64  `form:"source_id"`
-	OrderTypeID    int64  `form:"order_type_id"`
-	PayStatusID    int64  `form:"pay_status_id"`
-	ShipStatusID   int64  `form:"ship_status_id"`
-	ShipMethod     string `form:"ship_method"`
-	ShipTrackingNo string `form:"ship_tracking_no"`
-	Notes          string `form:"notes"`
-	ShippingAmount string `form:"shipping_amount"`
-	DiscountAmount string `form:"discount_amount"`
-	RoundToInt     string `form:"round_to_int"`
-	ExpressFee     string `form:"express_fee"`
+	OrderDate             string `form:"order_date"`
+	CustomerID            int64  `form:"customer_id"`
+	SourceID              int64  `form:"source_id"`
+	OrderTypeID           int64  `form:"order_type_id"`
+	PayStatusID           int64  `form:"pay_status_id"`
+	ShipStatusID          int64  `form:"ship_status_id"`
+	ShipMethod            string `form:"ship_method"`
+	ShipTrackingNo        string `form:"ship_tracking_no"`
+	Notes                 string `form:"notes"`
+	ShippingAmount        string `form:"shipping_amount"`
+	DiscountAmount        string `form:"discount_amount"`
+	RoundToInt            string `form:"round_to_int"`
+	ExpressFee            string `form:"express_fee"`
+	OutsourceMaterialFee  string `form:"outsource_material_fee"`
+	OutsourceRoastFee     string `form:"outsource_roast_fee"`
+	OutsourcePackagingFee string `form:"outsource_packaging_fee"`
+	OutsourceManualFee    string `form:"outsource_manual_fee"`
+	OutsourceTaxFee       string `form:"outsource_tax_fee"`
+	OutsourceOtherFee     string `form:"outsource_other_fee"`
 
 	ProductID []string `form:"product_id[]"`
 	TierID    []string `form:"tier_id[]"`
@@ -180,19 +193,25 @@ type CreateOrderRequest struct {
 }
 
 type UpdateOrderRequest struct {
-	OrderDate      string `form:"order_date"`
-	CustomerID     int64  `form:"customer_id"`
-	SourceID       int64  `form:"source_id"`
-	OrderTypeID    int64  `form:"order_type_id"`
-	PayStatusID    int64  `form:"pay_status_id"`
-	ShipStatusID   int64  `form:"ship_status_id"`
-	ShipMethod     string `form:"ship_method"`
-	ShipTrackingNo string `form:"ship_tracking_no"`
-	Notes          string `form:"notes"`
-	ShippingAmount string `form:"shipping_amount"`
-	DiscountAmount string `form:"discount_amount"`
-	RoundToInt     string `form:"round_to_int"`
-	ExpressFee     string `form:"express_fee"`
+	OrderDate             string `form:"order_date"`
+	CustomerID            int64  `form:"customer_id"`
+	SourceID              int64  `form:"source_id"`
+	OrderTypeID           int64  `form:"order_type_id"`
+	PayStatusID           int64  `form:"pay_status_id"`
+	ShipStatusID          int64  `form:"ship_status_id"`
+	ShipMethod            string `form:"ship_method"`
+	ShipTrackingNo        string `form:"ship_tracking_no"`
+	Notes                 string `form:"notes"`
+	ShippingAmount        string `form:"shipping_amount"`
+	DiscountAmount        string `form:"discount_amount"`
+	RoundToInt            string `form:"round_to_int"`
+	ExpressFee            string `form:"express_fee"`
+	OutsourceMaterialFee  string `form:"outsource_material_fee"`
+	OutsourceRoastFee     string `form:"outsource_roast_fee"`
+	OutsourcePackagingFee string `form:"outsource_packaging_fee"`
+	OutsourceManualFee    string `form:"outsource_manual_fee"`
+	OutsourceTaxFee       string `form:"outsource_tax_fee"`
+	OutsourceOtherFee     string `form:"outsource_other_fee"`
 
 	ItemID    []string `form:"item_id[]"`
 	Qty       []string `form:"qty[]"`
@@ -217,6 +236,68 @@ func parseNum(s string) (*string, error) {
 	}
 	return &s, nil
 }
+
+func parseFee(v string) (float64, error) {
+	v = strings.TrimSpace(v)
+	if v == "" {
+		return 0, nil
+	}
+	f, err := strconv.ParseFloat(v, 64)
+	if err != nil {
+		return 0, err
+	}
+	return f, nil
+}
+
+func calcOutsourceTotal(req interface {
+	GetMaterial() string
+	GetRoast() string
+	GetPackaging() string
+	GetManual() string
+	GetTax() string
+	GetOther() string
+}) (float64, [6]float64, error) {
+	material, err := parseFee(req.GetMaterial())
+	if err != nil {
+		return 0, [6]float64{}, fmt.Errorf("invalid outsource_material_fee")
+	}
+	roast, err := parseFee(req.GetRoast())
+	if err != nil {
+		return 0, [6]float64{}, fmt.Errorf("invalid outsource_roast_fee")
+	}
+	packaging, err := parseFee(req.GetPackaging())
+	if err != nil {
+		return 0, [6]float64{}, fmt.Errorf("invalid outsource_packaging_fee")
+	}
+	manual, err := parseFee(req.GetManual())
+	if err != nil {
+		return 0, [6]float64{}, fmt.Errorf("invalid outsource_manual_fee")
+	}
+	tax, err := parseFee(req.GetTax())
+	if err != nil {
+		return 0, [6]float64{}, fmt.Errorf("invalid outsource_tax_fee")
+	}
+	other, err := parseFee(req.GetOther())
+	if err != nil {
+		return 0, [6]float64{}, fmt.Errorf("invalid outsource_other_fee")
+	}
+	fees := [6]float64{material, roast, packaging, manual, tax, other}
+	return material + roast + packaging + manual + tax + other, fees, nil
+}
+
+func (r *CreateOrderRequest) GetMaterial() string  { return r.OutsourceMaterialFee }
+func (r *CreateOrderRequest) GetRoast() string     { return r.OutsourceRoastFee }
+func (r *CreateOrderRequest) GetPackaging() string { return r.OutsourcePackagingFee }
+func (r *CreateOrderRequest) GetManual() string    { return r.OutsourceManualFee }
+func (r *CreateOrderRequest) GetTax() string       { return r.OutsourceTaxFee }
+func (r *CreateOrderRequest) GetOther() string     { return r.OutsourceOtherFee }
+
+func (r *UpdateOrderRequest) GetMaterial() string  { return r.OutsourceMaterialFee }
+func (r *UpdateOrderRequest) GetRoast() string     { return r.OutsourceRoastFee }
+func (r *UpdateOrderRequest) GetPackaging() string { return r.OutsourcePackagingFee }
+func (r *UpdateOrderRequest) GetManual() string    { return r.OutsourceManualFee }
+func (r *UpdateOrderRequest) GetTax() string       { return r.OutsourceTaxFee }
+func (r *UpdateOrderRequest) GetOther() string     { return r.OutsourceOtherFee }
 
 // applyRoundToInt: "抹除小数点" => round down to integer (truncate decimal part).
 func applyRoundToInt(total float64, enabled bool) (grand float64, rounding float64) {
@@ -423,6 +504,9 @@ func main() {
 		log.Fatal(err)
 	}
 	if err := ensureSenderSettingsTable(context.Background(), pool, schema); err != nil {
+		log.Fatal(err)
+	}
+	if err := ensureOutsourceFeeColumns(context.Background(), pool, schema); err != nil {
 		log.Fatal(err)
 	}
 
@@ -1105,20 +1189,26 @@ func main() {
 						})
 					}
 					payload := map[string]any{
-						"order_date":       ed.OrderDate,
-						"customer_id":      strconv.FormatInt(ed.CustomerID, 10),
-						"source_id":        strconv.FormatInt(ed.SourceID, 10),
-						"order_type_id":    strconv.FormatInt(ed.OrderTypeID, 10),
-						"pay_status_id":    strconv.FormatInt(ed.PayStatusID, 10),
-						"ship_status_id":   strconv.FormatInt(ed.ShipStatusID, 10),
-						"ship_method":      ed.ShipMethod,
-						"ship_tracking_no": ed.ShipTrackingNo,
-						"notes":            ed.Notes,
-						"shipping_amount":  ed.ShippingAmount,
-						"discount_amount":  ed.DiscountAmount,
-						"round_to_int":     ed.RoundToInt,
-						"express_fee":      ed.ExpressFee,
-						"items":            items,
+						"order_date":              ed.OrderDate,
+						"customer_id":             strconv.FormatInt(ed.CustomerID, 10),
+						"source_id":               strconv.FormatInt(ed.SourceID, 10),
+						"order_type_id":           strconv.FormatInt(ed.OrderTypeID, 10),
+						"pay_status_id":           strconv.FormatInt(ed.PayStatusID, 10),
+						"ship_status_id":          strconv.FormatInt(ed.ShipStatusID, 10),
+						"ship_method":             ed.ShipMethod,
+						"ship_tracking_no":        ed.ShipTrackingNo,
+						"notes":                   ed.Notes,
+						"shipping_amount":         ed.ShippingAmount,
+						"discount_amount":         ed.DiscountAmount,
+						"round_to_int":            ed.RoundToInt,
+						"express_fee":             ed.ExpressFee,
+						"outsource_material_fee":  ed.OutsourceMaterialFee,
+						"outsource_roast_fee":     ed.OutsourceRoastFee,
+						"outsource_packaging_fee": ed.OutsourcePackagingFee,
+						"outsource_manual_fee":    ed.OutsourceManualFee,
+						"outsource_tax_fee":       ed.OutsourceTaxFee,
+						"outsource_other_fee":     ed.OutsourceOtherFee,
+						"items":                   items,
 					}
 					if b, err := json.Marshal(payload); err == nil {
 						data.EditDataJSON = template.JS(string(b))
@@ -1331,7 +1421,11 @@ func main() {
 			discountAmt = f
 		}
 		roundToInt := strings.TrimSpace(req.RoundToInt) != ""
-		grand0 := totalAmt + shippingAmt - discountAmt
+		outsourceTotal, outsourceFees, err := calcOutsourceTotal(&req)
+		if err != nil {
+			return c.String(http.StatusBadRequest, err.Error())
+		}
+		grand0 := totalAmt + shippingAmt - discountAmt + outsourceTotal
 		grandTotal, roundingAmt := applyRoundToInt(grand0, roundToInt)
 
 		// 默认发货状态：未选择时自动写入“未发货”。
@@ -1381,7 +1475,14 @@ func main() {
 					round_to_int=$14,
 					rounding_amount=$15,
 					grand_total=$16,
-					express_fee=$17
+					express_fee=$17,
+					outsource_material_fee=$18,
+					outsource_roast_fee=$19,
+					outsource_packaging_fee=$20,
+					outsource_manual_fee=$21,
+					outsource_tax_fee=$22,
+					outsource_other_fee=$23,
+					outsource_total_fee=$24
 				WHERE id=$1
 			`, schema)
 			if _, err := tx.Exec(ctx, uq,
@@ -1402,6 +1503,13 @@ func main() {
 				roundingAmt,
 				grandTotal,
 				nullText(req.ExpressFee),
+				outsourceFees[0],
+				outsourceFees[1],
+				outsourceFees[2],
+				outsourceFees[3],
+				outsourceFees[4],
+				outsourceFees[5],
+				outsourceTotal,
 			); err != nil {
 				return err
 			}
@@ -1422,12 +1530,15 @@ func main() {
 					total_amount, shipping_amount, discount_amount,
 					round_to_int, rounding_amount, grand_total,
 					express_fee,
+					outsource_material_fee, outsource_roast_fee, outsource_packaging_fee,
+					outsource_manual_fee, outsource_tax_fee, outsource_other_fee, outsource_total_fee,
 					order_no
 				) VALUES (
 					$1,$2,$3,$4,$5,$6,$7,$8,$9,
 					$10,$11,$12,
 					$13,$14,$15,
-					$16,$17
+					$16,$17,$18,$19,$20,$21,$22,$23,
+					$24
 				)
 				RETURNING id
 			`, schema)
@@ -1448,6 +1559,13 @@ func main() {
 				roundingAmt,
 				grandTotal,
 				nullText(req.ExpressFee),
+				outsourceFees[0],
+				outsourceFees[1],
+				outsourceFees[2],
+				outsourceFees[3],
+				outsourceFees[4],
+				outsourceFees[5],
+				outsourceTotal,
 				orderNo,
 			).Scan(&orderID)
 			if err != nil {

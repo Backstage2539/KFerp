@@ -271,6 +271,27 @@
 
       <label>快递费（文字/补充）</label>
       <input name="express_fee" placeholder="例如 到付/顺丰 18" />
+
+      <div class="card" style="margin-top:12px; background:#fafafa; border-color:#e5e7eb;">
+        <b>代加工费用（含材料费）</b>
+        <div class="muted" style="margin:6px 0 10px;">按客户代加工需求录入，系统自动汇总并计入订单合计。</div>
+        <div class="row">
+          <div><label>材料费</label><input name="outsource_material_fee" inputmode="decimal" placeholder="0.00" oninput="recalc()" /></div>
+          <div><label>烘焙加工费</label><input name="outsource_roast_fee" inputmode="decimal" placeholder="0.00" oninput="recalc()" /></div>
+        </div>
+        <div class="row">
+          <div><label>包装材料/SC费</label><input name="outsource_packaging_fee" inputmode="decimal" placeholder="0.00" oninput="recalc()" /></div>
+          <div><label>人工包装/加工费</label><input name="outsource_manual_fee" inputmode="decimal" placeholder="0.00" oninput="recalc()" /></div>
+        </div>
+        <div class="row">
+          <div><label>税费</label><input name="outsource_tax_fee" inputmode="decimal" placeholder="0.00" oninput="recalc()" /></div>
+          <div><label>其他费用</label><input name="outsource_other_fee" inputmode="decimal" placeholder="0.00" oninput="recalc()" /></div>
+        </div>
+        <div>
+          <label>代加工费用合计（自动）</label>
+          <input id="outsource_total_fee" readonly placeholder="自动" />
+        </div>
+      </div>
     </div>
 
     <div class="card items">
@@ -718,6 +739,15 @@ function recalc(){
     total += line;
   });
   document.querySelector('#total_amount').value = total.toFixed(2);
+  const outsource =
+    num(document.querySelector('input[name="outsource_material_fee"]')?.value) +
+    num(document.querySelector('input[name="outsource_roast_fee"]')?.value) +
+    num(document.querySelector('input[name="outsource_packaging_fee"]')?.value) +
+    num(document.querySelector('input[name="outsource_manual_fee"]')?.value) +
+    num(document.querySelector('input[name="outsource_tax_fee"]')?.value) +
+    num(document.querySelector('input[name="outsource_other_fee"]')?.value);
+  const out = document.querySelector('#outsource_total_fee');
+  if(out) out.value = outsource.toFixed(2);
 }
 
 function addRow(prefill){
@@ -766,6 +796,12 @@ function saveDraft(){
         discount_amount: form.querySelector('input[name="discount_amount"]').value,
         round_to_int: form.querySelector('input[name="round_to_int"]').checked ? '1' : '',
         express_fee: form.querySelector('input[name="express_fee"]').value,
+        outsource_material_fee: form.querySelector('input[name="outsource_material_fee"]').value,
+        outsource_roast_fee: form.querySelector('input[name="outsource_roast_fee"]').value,
+        outsource_packaging_fee: form.querySelector('input[name="outsource_packaging_fee"]').value,
+        outsource_manual_fee: form.querySelector('input[name="outsource_manual_fee"]').value,
+        outsource_tax_fee: form.querySelector('input[name="outsource_tax_fee"]').value,
+        outsource_other_fee: form.querySelector('input[name="outsource_other_fee"]').value,
       },
       items: Array.from(document.querySelectorAll('#items tbody tr')).map(tr => ({
         product_name: tr.querySelector('input.prod-combo').value,
@@ -810,6 +846,12 @@ function restoreDraft(){
     form.querySelector('input[name="discount_amount"]').value = d.fields.discount_amount || '';
     form.querySelector('input[name="round_to_int"]').checked = !!d.fields.round_to_int;
     form.querySelector('input[name="express_fee"]').value = d.fields.express_fee || '';
+    form.querySelector('input[name="outsource_material_fee"]').value = d.fields.outsource_material_fee || '';
+    form.querySelector('input[name="outsource_roast_fee"]').value = d.fields.outsource_roast_fee || '';
+    form.querySelector('input[name="outsource_packaging_fee"]').value = d.fields.outsource_packaging_fee || '';
+    form.querySelector('input[name="outsource_manual_fee"]').value = d.fields.outsource_manual_fee || '';
+    form.querySelector('input[name="outsource_tax_fee"]').value = d.fields.outsource_tax_fee || '';
+    form.querySelector('input[name="outsource_other_fee"]').value = d.fields.outsource_other_fee || '';
 
     // rebuild items
     const tbody = document.querySelector('#items tbody');
@@ -869,6 +911,12 @@ function applyEditData(d){
   form.querySelector('input[name="discount_amount"]').value = d.discount_amount || '';
   form.querySelector('input[name="round_to_int"]').checked = !!d.round_to_int;
   form.querySelector('input[name="express_fee"]').value = d.express_fee || '';
+  form.querySelector('input[name="outsource_material_fee"]').value = d.outsource_material_fee || '';
+  form.querySelector('input[name="outsource_roast_fee"]').value = d.outsource_roast_fee || '';
+  form.querySelector('input[name="outsource_packaging_fee"]').value = d.outsource_packaging_fee || '';
+  form.querySelector('input[name="outsource_manual_fee"]').value = d.outsource_manual_fee || '';
+  form.querySelector('input[name="outsource_tax_fee"]').value = d.outsource_tax_fee || '';
+  form.querySelector('input[name="outsource_other_fee"]').value = d.outsource_other_fee || '';
 
   const tbody = document.querySelector('#items tbody');
   tbody.innerHTML = '';

@@ -40,13 +40,20 @@ type OrderEditData struct {
 	ShipTrackingNo string
 	Notes          string
 
-	TotalAmount    string
-	ShippingAmount string
-	DiscountAmount string
-	RoundToInt     bool
-	RoundingAmount string
-	GrandTotal     string
-	ExpressFee     string
+	TotalAmount           string
+	ShippingAmount        string
+	DiscountAmount        string
+	RoundToInt            bool
+	RoundingAmount        string
+	GrandTotal            string
+	ExpressFee            string
+	OutsourceMaterialFee  string
+	OutsourceRoastFee     string
+	OutsourcePackagingFee string
+	OutsourceManualFee    string
+	OutsourceTaxFee       string
+	OutsourceOtherFee     string
+	OutsourceTotalFee     string
 
 	IsVoid     bool
 	VoidedAt   *string
@@ -77,6 +84,13 @@ func fetchOrderEdit(ctx context.Context, pool *pgxpool.Pool, schema string, id i
 			COALESCE(o.rounding_amount,0) as rounding_amount,
 			COALESCE(o.grand_total,0) as grand_total,
 			COALESCE(o.express_fee,'') as express_fee,
+			COALESCE(o.outsource_material_fee,0) as outsource_material_fee,
+			COALESCE(o.outsource_roast_fee,0) as outsource_roast_fee,
+			COALESCE(o.outsource_packaging_fee,0) as outsource_packaging_fee,
+			COALESCE(o.outsource_manual_fee,0) as outsource_manual_fee,
+			COALESCE(o.outsource_tax_fee,0) as outsource_tax_fee,
+			COALESCE(o.outsource_other_fee,0) as outsource_other_fee,
+			COALESCE(o.outsource_total_fee,0) as outsource_total_fee,
 			o.is_void,
 			CASE WHEN o.voided_at IS NULL THEN NULL ELSE to_char(o.voided_at, 'YYYY-MM-DD HH24:MI:SS') END AS voided_at,
 			o.void_reason
@@ -86,6 +100,7 @@ func fetchOrderEdit(ctx context.Context, pool *pgxpool.Pool, schema string, id i
 
 	var d OrderEditData
 	var totalAmt, shipAmt, discAmt, roundAmt, grandAmt float64
+	var outsourceMaterial, outsourceRoast, outsourcePackaging, outsourceManual, outsourceTax, outsourceOther, outsourceTotal float64
 	err := pool.QueryRow(ctx, q, id).Scan(
 		&d.ID,
 		&d.OrderNo,
@@ -105,6 +120,13 @@ func fetchOrderEdit(ctx context.Context, pool *pgxpool.Pool, schema string, id i
 		&roundAmt,
 		&grandAmt,
 		&d.ExpressFee,
+		&outsourceMaterial,
+		&outsourceRoast,
+		&outsourcePackaging,
+		&outsourceManual,
+		&outsourceTax,
+		&outsourceOther,
+		&outsourceTotal,
 		&d.IsVoid,
 		&d.VoidedAt,
 		&d.VoidReason,
@@ -120,6 +142,13 @@ func fetchOrderEdit(ctx context.Context, pool *pgxpool.Pool, schema string, id i
 	d.DiscountAmount = fmt.Sprintf("%.2f", discAmt)
 	d.RoundingAmount = fmt.Sprintf("%.2f", roundAmt)
 	d.GrandTotal = fmt.Sprintf("%.2f", grandAmt)
+	d.OutsourceMaterialFee = fmt.Sprintf("%.2f", outsourceMaterial)
+	d.OutsourceRoastFee = fmt.Sprintf("%.2f", outsourceRoast)
+	d.OutsourcePackagingFee = fmt.Sprintf("%.2f", outsourcePackaging)
+	d.OutsourceManualFee = fmt.Sprintf("%.2f", outsourceManual)
+	d.OutsourceTaxFee = fmt.Sprintf("%.2f", outsourceTax)
+	d.OutsourceOtherFee = fmt.Sprintf("%.2f", outsourceOther)
+	d.OutsourceTotalFee = fmt.Sprintf("%.2f", outsourceTotal)
 	d.PageData.Today = d.OrderDate
 
 	itemsQ := fmt.Sprintf(`
@@ -272,7 +301,11 @@ func updateOrderHeader(ctx context.Context, pool *pgxpool.Pool, schema string, i
 		}
 	}
 
-	grand0 := totalAmt + ship - disc
+	outsourceTotal, outsourceFees, err := calcOutsourceTotal(req)
+	if err != nil {
+		return err
+	}
+	grand0 := totalAmt + ship - disc + outsourceTotal
 	grandTotal, roundingAmt := applyRoundToInt(grand0, round)
 
 	q := fmt.Sprintf(`
@@ -290,7 +323,14 @@ func updateOrderHeader(ctx context.Context, pool *pgxpool.Pool, schema string, i
 			round_to_int=$12,
 			rounding_amount=$13,
 			grand_total=$14,
-			express_fee=$15
+			express_fee=$15,
+			outsource_material_fee=$16,
+			outsource_roast_fee=$17,
+			outsource_packaging_fee=$18,
+			outsource_manual_fee=$19,
+			outsource_tax_fee=$20,
+			outsource_other_fee=$21,
+			outsource_total_fee=$22
 		WHERE id=$1
 	`, schema)
 
@@ -310,6 +350,13 @@ func updateOrderHeader(ctx context.Context, pool *pgxpool.Pool, schema string, i
 		roundingAmt,
 		grandTotal,
 		nullText(req.ExpressFee),
+		outsourceFees[0],
+		outsourceFees[1],
+		outsourceFees[2],
+		outsourceFees[3],
+		outsourceFees[4],
+		outsourceFees[5],
+		outsourceTotal,
 	); err != nil {
 		return err
 	}

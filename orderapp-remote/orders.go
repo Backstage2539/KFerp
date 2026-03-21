@@ -2,8 +2,8 @@ package main
 
 import (
 	"context"
-	"fmt"
 	"errors"
+	"fmt"
 	"strings"
 
 	"github.com/jackc/pgx/v5"
@@ -161,7 +161,14 @@ func fetchOrderDetail(ctx context.Context, pool *pgxpool.Pool, schema string, id
 			COALESCE(o.round_to_int,false) AS round_to_int,
 			COALESCE(o.rounding_amount,0) AS rounding_amount,
 			COALESCE(o.grand_total,0) AS grand_total,
-			COALESCE(NULLIF(o.express_fee,''),'0')::numeric AS express_fee
+			COALESCE(NULLIF(o.express_fee,''),'0')::numeric AS express_fee,
+			COALESCE(o.outsource_material_fee,0) AS outsource_material_fee,
+			COALESCE(o.outsource_roast_fee,0) AS outsource_roast_fee,
+			COALESCE(o.outsource_packaging_fee,0) AS outsource_packaging_fee,
+			COALESCE(o.outsource_manual_fee,0) AS outsource_manual_fee,
+			COALESCE(o.outsource_tax_fee,0) AS outsource_tax_fee,
+			COALESCE(o.outsource_other_fee,0) AS outsource_other_fee,
+			COALESCE(o.outsource_total_fee,0) AS outsource_total_fee
 		FROM %s.orders o
 		LEFT JOIN %s.customers c ON c.id = o.customer_id
 		LEFT JOIN %s.sources src ON src.id = o.source_id
@@ -200,6 +207,13 @@ func fetchOrderDetail(ctx context.Context, pool *pgxpool.Pool, schema string, id
 		&d.RoundingAmt,
 		&d.GrandTotal,
 		&d.ExpressFee,
+		&d.OutsourceMaterialFee,
+		&d.OutsourceRoastFee,
+		&d.OutsourcePackagingFee,
+		&d.OutsourceManualFee,
+		&d.OutsourceTaxFee,
+		&d.OutsourceOtherFee,
+		&d.OutsourceTotalFee,
 	); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, nil
