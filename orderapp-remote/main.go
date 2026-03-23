@@ -509,6 +509,9 @@ func main() {
 	if err := ensureOutsourceFeeColumns(context.Background(), pool, schema); err != nil {
 		log.Fatal(err)
 	}
+	if err := ensureOutsourceTemplateTables(context.Background(), pool, schema); err != nil {
+		log.Fatal(err)
+	}
 
 	registerShipExportRoutes(e, pool, schema)
 	registerRequirementPages(e, pool, schema)
@@ -517,6 +520,7 @@ func main() {
 	registerMaterialsPages(e, pool, schema)
 	registerBomPages(e, pool, schema)
 	registerBomAPI(e, pool, schema)
+	registerOutsourceSettingsRoutes(e, pool, schema)
 
 	// Serve React frontend static files for BOM management
 	// Note: Caddy strips /app/ prefix, so routes are /bom-react/*
