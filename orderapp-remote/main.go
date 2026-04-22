@@ -22,6 +22,8 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/labstack/echo/v4"
 	"github.com/labstack/echo/v4/middleware"
+
+	salesdomain "orderapp/internal/domain/sales"
 )
 
 type TemplateRenderer struct{ t *template.Template }
@@ -301,12 +303,7 @@ func (r *UpdateOrderRequest) GetOther() string     { return r.OutsourceOtherFee 
 
 // applyRoundToInt: "抹除小数点" => round down to integer (truncate decimal part).
 func applyRoundToInt(total float64, enabled bool) (grand float64, rounding float64) {
-	if !enabled {
-		return total, 0
-	}
-	grand = float64(int64(total))
-	rounding = grand - total
-	return grand, rounding
+	return salesdomain.ApplyRoundToInt(total, enabled)
 }
 
 func basicAuth(user, pass, schema string, pool *pgxpool.Pool) echo.MiddlewareFunc {
