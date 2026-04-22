@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/subtle"
+	"encoding/json"
 	"fmt"
 	"html/template"
 	"io"
@@ -57,29 +58,32 @@ type PageData struct {
 	OrderTypes   []Option
 	Products     []ProductOption
 	ProductsJSON template.JS
+	EditMode     bool
+	EditID       int64
+	EditDataJSON template.JS
 	Ok           bool
 	OrderNo      string
 	Error        string
 }
 
 type OrderRow struct {
-	ID              int64
-	OrderNo         string
-	OrderDate       string
-	CustomerID      int64
-	Customer        string
-	GrandTotal      string
-	OrderType       string
-	PayStatus       string
-	ShipStatus      string
-	OrderTypeID     int64
-	PayStatusID     int64
-	ShipStatusID    int64
-	ProcessStatusID int64
-	ProcessStatus   string
+	ID                int64
+	OrderNo           string
+	OrderDate         string
+	CustomerID        int64
+	Customer          string
+	GrandTotal        string
+	OrderType         string
+	PayStatus         string
+	ShipStatus        string
+	OrderTypeID       int64
+	PayStatusID       int64
+	ShipStatusID      int64
+	ProcessStatusID   int64
+	ProcessStatus     string
 	CreatedByEmployee string
-	Notes           string
-	IsVoid          bool
+	Notes             string
+	IsVoid            bool
 }
 
 type OrdersPageData struct {
@@ -120,51 +124,64 @@ type OrderItemRow struct {
 }
 
 type OrderDetailData struct {
-	ID            int64
-	OrderNo       string
-	OrderDate     string
-	Customer      string
-	Source        string
-	OrderType     string
-	PayStatus     string
-	ShipStatus    string
-	OrderTypeID   int64
-	PayStatusID   int64
-	ShipStatusID  int64
-	ProcessStatus string
-	CreatedByEmployee string
-	IsVoid        bool
-	VoidedAt      *string
-	VoidReason    *string
-	Notes         *string
-	TotalAmount   float64
-	ShippingAmt   float64
-	DiscountAmt   float64
-	RoundToInt    bool
-	RoundingAmt   float64
-	GrandTotal    float64
-	ExpressFee    *string
-	OrderTypeOpts []Option
-	PayOpts       []Option
-	ShipOpts      []Option
-	Items         []OrderItemRow
-	Error         string
+	ID                    int64
+	OrderNo               string
+	OrderDate             string
+	Customer              string
+	Source                string
+	OrderType             string
+	PayStatus             string
+	ShipStatus            string
+	OrderTypeID           int64
+	PayStatusID           int64
+	ShipStatusID          int64
+	ProcessStatus         string
+	CreatedByEmployee     string
+	IsVoid                bool
+	VoidedAt              *string
+	VoidReason            *string
+	Notes                 *string
+	TotalAmount           float64
+	ShippingAmt           float64
+	DiscountAmt           float64
+	RoundToInt            bool
+	RoundingAmt           float64
+	GrandTotal            float64
+	ExpressFee            *string
+	OutsourceMaterialFee  float64
+	OutsourceRoastFee     float64
+	OutsourcePackagingFee float64
+	OutsourceManualFee    float64
+	OutsourceTaxFee       float64
+	OutsourceOtherFee     float64
+	OutsourceTotalFee     float64
+	OrderTypeOpts         []Option
+	PayOpts               []Option
+	ShipOpts              []Option
+	Items                 []OrderItemRow
+	Error                 string
 }
 
 type CreateOrderRequest struct {
-	OrderDate      string `form:"order_date"`
-	CustomerID     int64  `form:"customer_id"`
-	SourceID       int64  `form:"source_id"`
-	OrderTypeID    int64  `form:"order_type_id"`
-	PayStatusID    int64  `form:"pay_status_id"`
-	ShipStatusID   int64  `form:"ship_status_id"`
-	ShipMethod     string `form:"ship_method"`
-	ShipTrackingNo string `form:"ship_tracking_no"`
-	Notes          string `form:"notes"`
-	ShippingAmount string `form:"shipping_amount"`
-	DiscountAmount string `form:"discount_amount"`
-	RoundToInt     string `form:"round_to_int"`
-	ExpressFee     string `form:"express_fee"`
+	OrderDate             string `form:"order_date"`
+	CustomerID            int64  `form:"customer_id"`
+	SourceID              int64  `form:"source_id"`
+	OrderTypeID           int64  `form:"order_type_id"`
+	PayStatusID           int64  `form:"pay_status_id"`
+	ShipStatusID          int64  `form:"ship_status_id"`
+	ShipMethod            string `form:"ship_method"`
+	ShipTrackingNo        string `form:"ship_tracking_no"`
+	Notes                 string `form:"notes"`
+	ShippingAmount        string `form:"shipping_amount"`
+	DiscountAmount        string `form:"discount_amount"`
+	RoundToInt            string `form:"round_to_int"`
+	ExpressFee            string `form:"express_fee"`
+	OutsourceMaterialFee  string `form:"outsource_material_fee"`
+	OutsourceRoastFee     string `form:"outsource_roast_fee"`
+	OutsourcePackagingFee string `form:"outsource_packaging_fee"`
+	OutsourceManualFee    string `form:"outsource_manual_fee"`
+	OutsourceTaxFee       string `form:"outsource_tax_fee"`
+	OutsourceOtherFee     string `form:"outsource_other_fee"`
 
 	ProductID []string `form:"product_id[]"`
 	TierID    []string `form:"tier_id[]"`
@@ -176,19 +193,29 @@ type CreateOrderRequest struct {
 }
 
 type UpdateOrderRequest struct {
-	OrderDate      string `form:"order_date"`
-	CustomerID     int64  `form:"customer_id"`
-	SourceID       int64  `form:"source_id"`
-	OrderTypeID    int64  `form:"order_type_id"`
-	PayStatusID    int64  `form:"pay_status_id"`
-	ShipStatusID   int64  `form:"ship_status_id"`
-	ShipMethod     string `form:"ship_method"`
-	ShipTrackingNo string `form:"ship_tracking_no"`
-	Notes          string `form:"notes"`
-	ShippingAmount string `form:"shipping_amount"`
-	DiscountAmount string `form:"discount_amount"`
-	RoundToInt     string `form:"round_to_int"`
-	ExpressFee     string `form:"express_fee"`
+	OrderDate             string `form:"order_date"`
+	CustomerID            int64  `form:"customer_id"`
+	SourceID              int64  `form:"source_id"`
+	OrderTypeID           int64  `form:"order_type_id"`
+	PayStatusID           int64  `form:"pay_status_id"`
+	ShipStatusID          int64  `form:"ship_status_id"`
+	ShipMethod            string `form:"ship_method"`
+	ShipTrackingNo        string `form:"ship_tracking_no"`
+	Notes                 string `form:"notes"`
+	ShippingAmount        string `form:"shipping_amount"`
+	DiscountAmount        string `form:"discount_amount"`
+	RoundToInt            string `form:"round_to_int"`
+	ExpressFee            string `form:"express_fee"`
+	OutsourceMaterialFee  string `form:"outsource_material_fee"`
+	OutsourceRoastFee     string `form:"outsource_roast_fee"`
+	OutsourcePackagingFee string `form:"outsource_packaging_fee"`
+	OutsourceManualFee    string `form:"outsource_manual_fee"`
+	OutsourceTaxFee       string `form:"outsource_tax_fee"`
+	OutsourceOtherFee     string `form:"outsource_other_fee"`
+
+	ItemID    []string `form:"item_id[]"`
+	Qty       []string `form:"qty[]"`
+	UnitPrice []string `form:"unit_price[]"`
 }
 
 func env(key, def string) string {
@@ -209,6 +236,68 @@ func parseNum(s string) (*string, error) {
 	}
 	return &s, nil
 }
+
+func parseFee(v string) (float64, error) {
+	v = strings.TrimSpace(v)
+	if v == "" {
+		return 0, nil
+	}
+	f, err := strconv.ParseFloat(v, 64)
+	if err != nil {
+		return 0, err
+	}
+	return f, nil
+}
+
+func calcOutsourceTotal(req interface {
+	GetMaterial() string
+	GetRoast() string
+	GetPackaging() string
+	GetManual() string
+	GetTax() string
+	GetOther() string
+}) (float64, [6]float64, error) {
+	material, err := parseFee(req.GetMaterial())
+	if err != nil {
+		return 0, [6]float64{}, fmt.Errorf("invalid outsource_material_fee")
+	}
+	roast, err := parseFee(req.GetRoast())
+	if err != nil {
+		return 0, [6]float64{}, fmt.Errorf("invalid outsource_roast_fee")
+	}
+	packaging, err := parseFee(req.GetPackaging())
+	if err != nil {
+		return 0, [6]float64{}, fmt.Errorf("invalid outsource_packaging_fee")
+	}
+	manual, err := parseFee(req.GetManual())
+	if err != nil {
+		return 0, [6]float64{}, fmt.Errorf("invalid outsource_manual_fee")
+	}
+	tax, err := parseFee(req.GetTax())
+	if err != nil {
+		return 0, [6]float64{}, fmt.Errorf("invalid outsource_tax_fee")
+	}
+	other, err := parseFee(req.GetOther())
+	if err != nil {
+		return 0, [6]float64{}, fmt.Errorf("invalid outsource_other_fee")
+	}
+	fees := [6]float64{material, roast, packaging, manual, tax, other}
+	return material + roast + packaging + manual + tax + other, fees, nil
+}
+
+func (r *CreateOrderRequest) GetMaterial() string  { return r.OutsourceMaterialFee }
+func (r *CreateOrderRequest) GetRoast() string     { return r.OutsourceRoastFee }
+func (r *CreateOrderRequest) GetPackaging() string { return r.OutsourcePackagingFee }
+func (r *CreateOrderRequest) GetManual() string    { return r.OutsourceManualFee }
+func (r *CreateOrderRequest) GetTax() string       { return r.OutsourceTaxFee }
+func (r *CreateOrderRequest) GetOther() string     { return r.OutsourceOtherFee }
+
+func (r *UpdateOrderRequest) GetMaterial() string  { return r.OutsourceMaterialFee }
+func (r *UpdateOrderRequest) GetRoast() string     { return r.OutsourceRoastFee }
+func (r *UpdateOrderRequest) GetPackaging() string { return r.OutsourcePackagingFee }
+func (r *UpdateOrderRequest) GetManual() string    { return r.OutsourceManualFee }
+func (r *UpdateOrderRequest) GetTax() string       { return r.OutsourceTaxFee }
+func (r *UpdateOrderRequest) GetOther() string     { return r.OutsourceOtherFee }
 
 // applyRoundToInt: "抹除小数点" => round down to integer (truncate decimal part).
 func applyRoundToInt(total float64, enabled bool) (grand float64, rounding float64) {
@@ -408,6 +497,21 @@ func main() {
 	if err := ensureMobileAuthTables(context.Background(), pool, schema); err != nil {
 		log.Fatal(err)
 	}
+	if err := ensureProductionRunTable(context.Background(), pool, schema); err != nil {
+		log.Fatal(err)
+	}
+	if err := ensureOrderProcessStatuses(context.Background(), pool, schema); err != nil {
+		log.Fatal(err)
+	}
+	if err := ensureSenderSettingsTable(context.Background(), pool, schema); err != nil {
+		log.Fatal(err)
+	}
+	if err := ensureOutsourceFeeColumns(context.Background(), pool, schema); err != nil {
+		log.Fatal(err)
+	}
+	if err := ensureOutsourceTemplateTables(context.Background(), pool, schema); err != nil {
+		log.Fatal(err)
+	}
 
 	registerShipExportRoutes(e, pool, schema)
 	registerRequirementPages(e, pool, schema)
@@ -416,6 +520,7 @@ func main() {
 	registerMaterialsPages(e, pool, schema)
 	registerBomPages(e, pool, schema)
 	registerBomAPI(e, pool, schema)
+	registerOutsourceSettingsRoutes(e, pool, schema)
 
 	// Serve React frontend static files for BOM management
 	// Note: Caddy strips /app/ prefix, so routes are /bom-react/*
@@ -427,10 +532,21 @@ func main() {
 		return c.File("frontend/dist/index.html")
 	})
 
+	// Vue3 + Vite workspace shell (DEV-046 serial menu migration)
+	e.Static("/vue-shell/assets", "frontend-vue-shell/dist/assets")
+	e.GET("/vue-shell", func(c echo.Context) error {
+		return c.File("frontend-vue-shell/dist/index.html")
+	})
+	e.GET("/vue-shell/*", func(c echo.Context) error {
+		return c.File("frontend-vue-shell/dist/index.html")
+	})
+
 	registerUnprodSummaryPages(e, pool, schema)
 	registerProducePlanPages(e, pool, schema)
 	registerMachineCapacityPages(e, pool, schema)
+	registerSenderSettingsPage(e, pool, schema)
 	registerProducePlanAllocate(e, pool, schema)
+	registerProductionFlowPages(e, pool, schema)
 	registerProduceBatchAPI(e, pool, schema)
 	registerCompanyStaffPages(e, pool, schema)
 	registerCompanyStaffAPI(e, pool, schema)
@@ -965,50 +1081,22 @@ func main() {
 		return c.JSON(http.StatusOK, rows)
 	})
 
-	// Order detail
+	// Merged detail+edit: clicking order number goes to unified edit page.
 	e.GET("/orders/:id", func(c echo.Context) error {
 		id, err := strconv.ParseInt(c.Param("id"), 10, 64)
 		if err != nil || id <= 0 {
 			return c.String(http.StatusBadRequest, "invalid id")
 		}
-		data, err := fetchOrderDetail(c.Request().Context(), pool, schema, id)
-		if err != nil {
-			return c.String(http.StatusInternalServerError, err.Error())
-		}
-		if data == nil {
-			return c.String(http.StatusNotFound, "not found")
-		}
-		if opts, err := fetchOptions(c.Request().Context(), pool, fmt.Sprintf("SELECT id, name FROM %s.order_types ORDER BY id", schema)); err == nil {
-			data.OrderTypeOpts = opts
-		}
-		if opts, err := fetchOptions(c.Request().Context(), pool, fmt.Sprintf("SELECT id, name FROM %s.pay_statuses ORDER BY id", schema)); err == nil {
-			data.PayOpts = opts
-		}
-		if opts, err := fetchOptions(c.Request().Context(), pool, fmt.Sprintf("SELECT id, name FROM %s.ship_statuses ORDER BY id", schema)); err == nil {
-			data.ShipOpts = opts
-		}
-		return c.Render(http.StatusOK, "order_detail.html", data)
+		return c.Redirect(http.StatusSeeOther, fmt.Sprintf("/orders/%d/edit", id))
 	})
 
-	// Order edit (header only for now)
+	// Unified edit: reuse /order page logic.
 	e.GET("/orders/:id/edit", func(c echo.Context) error {
 		id, err := strconv.ParseInt(c.Param("id"), 10, 64)
 		if err != nil || id <= 0 {
 			return c.String(http.StatusBadRequest, "invalid id")
 		}
-		data, err := fetchOrderEdit(c.Request().Context(), pool, schema, id)
-		if err != nil {
-			return c.String(http.StatusInternalServerError, err.Error())
-		}
-		if data == nil {
-			return c.String(http.StatusNotFound, "not found")
-		}
-		// load option lists for selects
-		if err := loadOptions(c.Request().Context(), pool, schema, &data.PageData); err != nil {
-			data.Error = err.Error()
-		}
-		data.PageData.ProductsJSON = buildProductsJSON(data.PageData.Products)
-		return c.Render(http.StatusOK, "order_edit.html", data)
+		return c.Redirect(http.StatusSeeOther, fmt.Sprintf("/order?edit_id=%d", id))
 	})
 	e.POST("/orders/:id/edit", func(c echo.Context) error {
 		id, err := strconv.ParseInt(c.Param("id"), 10, 64)
@@ -1068,6 +1156,69 @@ func main() {
 		}
 		if err := loadOptions(c.Request().Context(), pool, schema, &data); err != nil {
 			data.Error = err.Error()
+		}
+		if v := strings.TrimSpace(c.QueryParam("edit_id")); v != "" {
+			if id, err := strconv.ParseInt(v, 10, 64); err == nil && id > 0 {
+				ed, ferr := fetchOrderEdit(c.Request().Context(), pool, schema, id)
+				if ferr != nil {
+					data.Error = ferr.Error()
+				} else if ed == nil {
+					data.Error = "order not found"
+				} else {
+					data.EditMode = true
+					data.EditID = id
+					if ed.OrderDate != "" {
+						data.Today = ed.OrderDate
+					}
+					type editItem struct {
+						ProductID   int64  `json:"product_id"`
+						ProductName string `json:"product_name"`
+						TierID      string `json:"tier_id"`
+						UnitPrice   string `json:"unit_price"`
+						Qty         string `json:"qty"`
+						Unit        string `json:"unit"`
+						Spec        string `json:"spec"`
+					}
+					items := make([]editItem, 0, len(ed.Items))
+					for _, it := range ed.Items {
+						spec := strings.TrimSuffix(strings.TrimSpace(strings.ToLower(it.Spec)), "g")
+						items = append(items, editItem{
+							ProductID:   it.ProductID,
+							ProductName: it.Product,
+							TierID:      "auto",
+							UnitPrice:   it.UnitPrice,
+							Qty:         it.Qty,
+							Unit:        it.Unit,
+							Spec:        spec,
+						})
+					}
+					payload := map[string]any{
+						"order_date":              ed.OrderDate,
+						"customer_id":             strconv.FormatInt(ed.CustomerID, 10),
+						"source_id":               strconv.FormatInt(ed.SourceID, 10),
+						"order_type_id":           strconv.FormatInt(ed.OrderTypeID, 10),
+						"pay_status_id":           strconv.FormatInt(ed.PayStatusID, 10),
+						"ship_status_id":          strconv.FormatInt(ed.ShipStatusID, 10),
+						"ship_method":             ed.ShipMethod,
+						"ship_tracking_no":        ed.ShipTrackingNo,
+						"notes":                   ed.Notes,
+						"shipping_amount":         ed.ShippingAmount,
+						"discount_amount":         ed.DiscountAmount,
+						"round_to_int":            ed.RoundToInt,
+						"express_fee":             ed.ExpressFee,
+						"outsource_material_fee":  ed.OutsourceMaterialFee,
+						"outsource_roast_fee":     ed.OutsourceRoastFee,
+						"outsource_packaging_fee": ed.OutsourcePackagingFee,
+						"outsource_manual_fee":    ed.OutsourceManualFee,
+						"outsource_tax_fee":       ed.OutsourceTaxFee,
+						"outsource_other_fee":     ed.OutsourceOtherFee,
+						"items":                   items,
+					}
+					if b, err := json.Marshal(payload); err == nil {
+						data.EditDataJSON = template.JS(string(b))
+					}
+				}
+			}
 		}
 		data.ProductsJSON = buildProductsJSON(data.Products)
 		return c.Render(http.StatusOK, "order.html", data)
@@ -1185,15 +1336,15 @@ func main() {
 			return err
 		}
 
-		orderNo, err := nextOrderNo(ctx, tx, schema, od)
-		if err != nil {
-			return err
-		}
+		orderNo := ""
 
 		// Pricing: use tier match by qty(lb). Allow manual override.
 		totalAmt := 0.0
+		orderWeightG := int64(0)
 		for idx := range items {
-			totalG := float64(items[idx].specG * items[idx].units)
+			itemWeightG := items[idx].specG * items[idx].units
+			orderWeightG += itemWeightG
+			totalG := float64(itemWeightG)
 			qtyLb := totalG / 454.0
 
 			if items[idx].manualPrice != nil {
@@ -1274,7 +1425,11 @@ func main() {
 			discountAmt = f
 		}
 		roundToInt := strings.TrimSpace(req.RoundToInt) != ""
-		grand0 := totalAmt + shippingAmt - discountAmt
+		outsourceTotal, outsourceFees, err := calcOutsourceTotal(&req)
+		if err != nil {
+			return c.String(http.StatusBadRequest, err.Error())
+		}
+		grand0 := totalAmt + shippingAmt - discountAmt + outsourceTotal
 		grandTotal, roundingAmt := applyRoundToInt(grand0, roundToInt)
 
 		// 默认发货状态：未选择时自动写入“未发货”。
@@ -1283,51 +1438,144 @@ func main() {
 			_ = tx.QueryRow(ctx, fmt.Sprintf("SELECT id FROM %s.ship_statuses WHERE name='未发货' ORDER BY id LIMIT 1", schema)).Scan(&shipStatusID)
 		}
 
-		insertOrderSQL := fmt.Sprintf(`
-			INSERT INTO %s.orders(
-				order_date, customer_id,
-				source_id, order_type_id, pay_status_id, ship_status_id,
-				ship_method, ship_tracking_no,
-				notes,
-				total_amount, shipping_amount, discount_amount,
-				round_to_int, rounding_amount, grand_total,
-				express_fee,
-				order_no
-			) VALUES (
-				$1,$2,$3,$4,$5,$6,$7,$8,$9,
-				$10,$11,$12,
-				$13,$14,$15,
-				$16,$17
-			)
-			RETURNING id
-		`, schema)
+		shipMethod := strings.TrimSpace(req.ShipMethod)
+		if shipMethod == "" {
+			if orderWeightG <= 15000 {
+				shipMethod = "sf_small"
+			} else {
+				shipMethod = "sf_large"
+			}
+		}
 
-		var orderID int64
-		err = tx.QueryRow(ctx, insertOrderSQL,
-			od,
-			req.CustomerID,
-			nullInt(req.SourceID),
-			nullInt(req.OrderTypeID),
-			nullInt(req.PayStatusID),
-			nullInt(shipStatusID),
-			nullText(req.ShipMethod),
-			nullText(req.ShipTrackingNo),
-			nullText(req.Notes),
-			totalAmt,
-			shippingAmt,
-			discountAmt,
-			roundToInt,
-			roundingAmt,
-			grandTotal,
-			nullText(req.ExpressFee),
-			orderNo,
-		).Scan(&orderID)
-		if err != nil {
-			return err
+		editID := int64(0)
+		if v := strings.TrimSpace(c.FormValue("edit_id")); v != "" {
+			if n, err := strconv.ParseInt(v, 10, 64); err == nil && n > 0 {
+				editID = n
+			}
 		}
 
 		insertItemSQL := fmt.Sprintf(`INSERT INTO %s.order_items(order_id,line_no,product_id,price_tier_id,price_overridden,item_name,qty,unit,spec,unit_price,line_total)
 			VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`, schema)
+
+		var orderID int64
+		if editID > 0 {
+			if err := tx.QueryRow(ctx, fmt.Sprintf("SELECT id, order_no FROM %s.orders WHERE id=$1 FOR UPDATE", schema), editID).Scan(&orderID, &orderNo); err != nil {
+				return c.String(http.StatusBadRequest, "invalid edit_id")
+			}
+			uq := fmt.Sprintf(`
+				UPDATE %s.orders
+				SET order_date=$2,
+					customer_id=$3,
+					source_id=$4,
+					order_type_id=$5,
+					pay_status_id=$6,
+					ship_status_id=$7,
+					ship_method=$8,
+					ship_tracking_no=$9,
+					notes=$10,
+					total_amount=$11,
+					shipping_amount=$12,
+					discount_amount=$13,
+					round_to_int=$14,
+					rounding_amount=$15,
+					grand_total=$16,
+					express_fee=$17,
+					outsource_material_fee=$18,
+					outsource_roast_fee=$19,
+					outsource_packaging_fee=$20,
+					outsource_manual_fee=$21,
+					outsource_tax_fee=$22,
+					outsource_other_fee=$23,
+					outsource_total_fee=$24
+				WHERE id=$1
+			`, schema)
+			if _, err := tx.Exec(ctx, uq,
+				orderID,
+				od,
+				req.CustomerID,
+				nullInt(req.SourceID),
+				nullInt(req.OrderTypeID),
+				nullInt(req.PayStatusID),
+				nullInt(shipStatusID),
+				nullText(shipMethod),
+				nullText(req.ShipTrackingNo),
+				nullText(req.Notes),
+				totalAmt,
+				shippingAmt,
+				discountAmt,
+				roundToInt,
+				roundingAmt,
+				grandTotal,
+				nullText(req.ExpressFee),
+				outsourceFees[0],
+				outsourceFees[1],
+				outsourceFees[2],
+				outsourceFees[3],
+				outsourceFees[4],
+				outsourceFees[5],
+				outsourceTotal,
+			); err != nil {
+				return err
+			}
+			if _, err := tx.Exec(ctx, fmt.Sprintf("DELETE FROM %s.order_items WHERE order_id=$1", schema), orderID); err != nil {
+				return err
+			}
+		} else {
+			orderNo, err = nextOrderNo(ctx, tx, schema, od)
+			if err != nil {
+				return err
+			}
+			insertOrderSQL := fmt.Sprintf(`
+				INSERT INTO %s.orders(
+					order_date, customer_id,
+					source_id, order_type_id, pay_status_id, ship_status_id,
+					ship_method, ship_tracking_no,
+					notes,
+					total_amount, shipping_amount, discount_amount,
+					round_to_int, rounding_amount, grand_total,
+					express_fee,
+					outsource_material_fee, outsource_roast_fee, outsource_packaging_fee,
+					outsource_manual_fee, outsource_tax_fee, outsource_other_fee, outsource_total_fee,
+					order_no
+				) VALUES (
+					$1,$2,$3,$4,$5,$6,$7,$8,$9,
+					$10,$11,$12,
+					$13,$14,$15,
+					$16,$17,$18,$19,$20,$21,$22,$23,
+					$24
+				)
+				RETURNING id
+			`, schema)
+			err = tx.QueryRow(ctx, insertOrderSQL,
+				od,
+				req.CustomerID,
+				nullInt(req.SourceID),
+				nullInt(req.OrderTypeID),
+				nullInt(req.PayStatusID),
+				nullInt(shipStatusID),
+				nullText(shipMethod),
+				nullText(req.ShipTrackingNo),
+				nullText(req.Notes),
+				totalAmt,
+				shippingAmt,
+				discountAmt,
+				roundToInt,
+				roundingAmt,
+				grandTotal,
+				nullText(req.ExpressFee),
+				outsourceFees[0],
+				outsourceFees[1],
+				outsourceFees[2],
+				outsourceFees[3],
+				outsourceFees[4],
+				outsourceFees[5],
+				outsourceTotal,
+				orderNo,
+			).Scan(&orderID)
+			if err != nil {
+				return err
+			}
+		}
 
 		for idx, it := range items {
 			qtyAny := any(nil)
@@ -1343,6 +1591,9 @@ func main() {
 			return err
 		}
 
+		if editID > 0 {
+			return c.Redirect(http.StatusSeeOther, fmt.Sprintf("/orders/%d", orderID))
+		}
 		return c.Redirect(http.StatusSeeOther, "/order?ok=1&order_no="+url.QueryEscape(orderNo))
 	})
 

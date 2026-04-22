@@ -34,16 +34,14 @@
     <nav class="sidebar">
       <div class="brand">ERP</div>
       <div class="section">订单</div>
-      <a class="link" href="/order">录单</a>
+      <a class="link" href="/vue-shell">录单</a>
       <a class="link" href="/orders">订单列表</a>
       <div class="section">生产流程</div>
-      <a class="link" href="/orders?preset=unprod">未生产订单</a>
-      <a class="link" href="/produce/unproduced">未生产需求汇总</a>
-      <a class="link" href="/produce/plan">生产计划（缺口&gt;0）</a>
+      <a class="link" href="/produce/unproduced">生产计划/开始生产</a>
+      <a class="link" href="/produce/running">生产中</a>
       <div class="section">物料管理</div>
       <a class="link" href="/materials">物料档案/库存</a>
       <a class="link" href="/bom-react">BOM配方维护</a>
-      <a class="link" href="/produce/allocations">扣减记录（批次）</a>
       <div class="section">档案</div>
       <a class="link" href="/customers">客户档案</a>
       <a class="link" href="/products">商品档案</a>
@@ -51,6 +49,9 @@
       <a class="link" href="/company/employees">员工维护</a>
       <a class="link" href="/products/inventory">成品库存</a>
       <a class="link" href="/products/print" target="_blank">报价导出</a>
+      <div class="section">设置</div>
+      <a class="link" href="/produce/machines">设备产能配置</a>
+      <a class="link" href="/settings/sender">发货人设置</a>
       <div class="section">日志</div>
       <a class="link" href="/audit">操作日志</a>
       <!-- 文档栏目已隐藏（PR-010） -->
@@ -65,7 +66,10 @@
     <main class="content">
       <div style="display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap;">
         <h2 style="margin:0">成品库存</h2>
-        <a class="btn2" href="/products">← 商品档案</a>
+        <div style="display:flex;gap:8px;">
+          <a class="btn2" href="/produce/allocations">查看扣减记录（批次）</a>
+          <a class="btn2" href="/products">← 商品档案</a>
+        </div>
       </div>
 
       {{if .Ok}}<div class="ok">已保存</div>{{end}}
@@ -87,7 +91,7 @@
 
       <div class="card">
         <b>新增/更新库存</b>
-        <div class="muted" style="margin-top:6px;">单位：整件数 + 散装克数（允许散装凑件）</div>
+        <div class="muted" style="margin-top:6px;">单位：整件数 + 散装克数（允许散装凑件）。商品下拉与“商品档案”保持一致（仅启用商品）。</div>
         <form method="post" action="/products/inventory/save" style="margin-top:10px;">
           <div class="row">
             <div>
@@ -125,25 +129,31 @@
               <tr>
                 <th>商品</th>
                 <th style="width:100px;">规格(g)</th>
-                <th style="width:110px;">整件</th>
-                <th style="width:110px;">散装(g)</th>
+                <th style="width:120px;">整件</th>
+                <th style="width:120px;">散装(g)</th>
                 <th style="width:120px;">合计(g)</th>
                 <th style="width:150px;">更新时间</th>
+                <th style="width:100px;">操作</th>
               </tr>
             </thead>
             <tbody>
               {{range .Rows}}
                 <tr>
-                  <td>{{.Product}}</td>
-                  <td>{{.SpecG}}</td>
-                  <td>{{.Units}}</td>
-                  <td>{{.LooseG}}</td>
-                  <td>{{.TotalG}}</td>
-                  <td class="muted">{{.UpdatedAt}}</td>
+                  <form method="post" action="/products/inventory/save">
+                    <input type="hidden" name="product_id" value="{{.ProductID}}" />
+                    <input type="hidden" name="spec_g" value="{{.SpecG}}" />
+                    <td>{{.Product}}</td>
+                    <td>{{.SpecG}}</td>
+                    <td><input name="units" value="{{.Units}}" /></td>
+                    <td><input name="loose_g" value="{{.LooseG}}" /></td>
+                    <td>{{.TotalG}}</td>
+                    <td class="muted">{{.UpdatedAt}}</td>
+                    <td><button class="btn2" type="submit">保存</button></td>
+                  </form>
                 </tr>
               {{end}}
               {{if not .Rows}}
-                <tr><td colspan="6" class="muted">暂无库存记录</td></tr>
+                <tr><td colspan="7" class="muted">暂无库存记录</td></tr>
               {{end}}
             </tbody>
           </table>

@@ -12,12 +12,12 @@ import (
 )
 
 type RoastMachine struct {
-	ID            int64
-	Name          string
-	CapacityG     int64
-	AllowedSpecs  string
-	MinRoastG     int64
-	Active        bool
+	ID           int64
+	Name         string
+	CapacityG    int64
+	AllowedSpecs string
+	MinRoastG    int64
+	Active       bool
 }
 
 type MachinePageData struct {
@@ -38,6 +38,33 @@ func ensureMachineCapacityTable(ctx context.Context, pool *pgxpool.Pool, schema 
 	);`, schema)
 	_, err := pool.Exec(ctx, q)
 	return err
+}
+
+func normalizeLoadSettings(raw string, minRoastG, maxRoastG int64) (string, bool) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return "", true
+	}
+	if minRoastG <= 0 {
+		minRoastG = 1
+	}
+	if maxRoastG < minRoastG {
+		return "", false
+	}
+	parts := strings.Split(raw, ",")
+	out := make([]string, 0, len(parts))
+	for _, p := range parts {
+		p = strings.TrimSpace(p)
+		if p == "" {
+			continue
+		}
+		v, err := strconv.ParseInt(p, 10, 64)
+		if err != nil || v < minRoastG || v > maxRoastG {
+			return "", false
+		}
+		out = append(out, strconv.FormatInt(v, 10))
+	}
+	return strings.Join(out, ","), true
 }
 
 func registerMachineCapacityPages(e *echo.Echo, pool *pgxpool.Pool, schema string) {
@@ -63,16 +90,26 @@ func registerMachineCapacityPages(e *echo.Echo, pool *pgxpool.Pool, schema strin
 		id, _ := strconv.ParseInt(strings.TrimSpace(c.FormValue("id")), 10, 64)
 		name := strings.TrimSpace(c.FormValue("name"))
 		capacity, _ := strconv.ParseInt(strings.TrimSpace(c.FormValue("capacity_g")), 10, 64)
-		specs := strings.TrimSpace(c.FormValue("allowed_specs"))
+		loadSettingsRaw := strings.TrimSpace(c.FormValue("allowed_specs"))
 		minRoast, _ := strconv.ParseInt(strings.TrimSpace(c.FormValue("min_roast_g")), 10, 64)
 		active := strings.TrimSpace(c.FormValue("active")) != "0"
 		if name == "" || capacity <= 0 {
 			return c.Redirect(http.StatusSeeOther, "/produce/machines")
 		}
+		if minRoast <= 0 {
+			minRoast = 1000
+		}
+		if minRoast > capacity {
+			return c.Redirect(http.StatusSeeOther, "/produce/machines")
+		}
+		loadSettings, ok := normalizeLoadSettings(loadSettingsRaw, minRoast, capacity)
+		if !ok {
+			return c.Redirect(http.StatusSeeOther, "/produce/machines")
+		}
 		if id > 0 {
-			_, _ = pool.Exec(c.Request().Context(), "UPDATE "+schema+".roast_machines SET name=$2,capacity_g=$3,allowed_specs=$4,min_roast_g=$5,active=$6,updated_at=now() WHERE id=$1", id, name, capacity, specs, minRoast, active)
+			_, _ = pool.Exec(c.Request().Context(), "UPDATE "+schema+".roast_machines SET name=$2,capacity_g=$3,allowed_specs=$4,min_roast_g=$5,active=$6,updated_at=now() WHERE id=$1", id, name, capacity, loadSettings, minRoast, active)
 		} else {
-			_, _ = pool.Exec(c.Request().Context(), "INSERT INTO "+schema+".roast_machines(name,capacity_g,allowed_specs,min_roast_g,active,updated_at) VALUES($1,$2,$3,$4,$5,now())", name, capacity, specs, minRoast, active)
+			_, _ = pool.Exec(c.Request().Context(), "INSERT INTO "+schema+".roast_machines(name,capacity_g,allowed_specs,min_roast_g,active,updated_at) VALUES($1,$2,$3,$4,$5,now())", name, capacity, loadSettings, minRoast, active)
 		}
 		return c.Redirect(http.StatusSeeOther, "/produce/machines?ok=1")
 	})

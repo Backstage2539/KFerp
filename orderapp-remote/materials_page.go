@@ -3,6 +3,7 @@ package main
 import (
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -14,6 +15,14 @@ type MaterialsPageData struct {
 	Rows []MaterialRow
 	Ok   bool
 	Err  string
+}
+
+func parseF64(s string) (float64, error) {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return 0, nil
+	}
+	return strconv.ParseFloat(s, 64)
 }
 
 func registerMaterialsPages(e *echo.Echo, pool *pgxpool.Pool, schema string) {
@@ -37,12 +46,14 @@ func registerMaterialsPages(e *echo.Echo, pool *pgxpool.Pool, schema string) {
 		name := strings.TrimSpace(c.FormValue("name"))
 		kind := strings.TrimSpace(c.FormValue("kind"))
 		unit := strings.TrimSpace(c.FormValue("unit"))
+		purchasePrice, _ := parseF64(c.FormValue("purchase_price"))
+		salePrice, _ := parseF64(c.FormValue("sale_price"))
 		onhandG, _ := parseI64(c.FormValue("onhand_g"))
 		onhandUnits, _ := parseI64(c.FormValue("onhand_units"))
 		minG, _ := parseI64(c.FormValue("min_g"))
 		minUnits, _ := parseI64(c.FormValue("min_units"))
 
-		if err := upsertMaterial(c.Request().Context(), pool, schema, code, name, kind, unit, onhandG, onhandUnits, minG, minUnits); err != nil {
+		if err := upsertMaterial(c.Request().Context(), pool, schema, code, name, kind, unit, purchasePrice, salePrice, onhandG, onhandUnits, minG, minUnits); err != nil {
 			return c.Redirect(http.StatusSeeOther, "/materials?err="+url.QueryEscape(err.Error()))
 		}
 		return c.Redirect(http.StatusSeeOther, "/materials?ok=1")

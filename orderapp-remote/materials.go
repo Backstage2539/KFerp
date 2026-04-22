@@ -14,6 +14,8 @@ type MaterialRow struct {
 	Name          string
 	Kind          string // bean|pack|other
 	Unit          string // g|unit
+	PurchasePrice float64
+	SalePrice     float64
 	OnhandG       int64
 	OnhandUnits   int64
 	MinLevelG     int64
@@ -28,6 +30,8 @@ func ensureMaterialTables(ctx context.Context, pool *pgxpool.Pool, schema string
 		name TEXT NOT NULL,
 		kind TEXT NOT NULL DEFAULT 'other',
 		unit TEXT NOT NULL DEFAULT 'g',
+		purchase_price NUMERIC(12,2) NOT NULL DEFAULT 0,
+		sale_price NUMERIC(12,2) NOT NULL DEFAULT 0,
 		onhand_g BIGINT NOT NULL DEFAULT 0,
 		onhand_units BIGINT NOT NULL DEFAULT 0,
 		min_level_g BIGINT NOT NULL DEFAULT 0,
@@ -37,6 +41,8 @@ func ensureMaterialTables(ctx context.Context, pool *pgxpool.Pool, schema string
 	if _, err := pool.Exec(ctx, q); err != nil {
 		return err
 	}
+	_, _ = pool.Exec(ctx, fmt.Sprintf(`ALTER TABLE %s.materials ADD COLUMN IF NOT EXISTS purchase_price NUMERIC(12,2) NOT NULL DEFAULT 0`, schema))
+	_, _ = pool.Exec(ctx, fmt.Sprintf(`ALTER TABLE %s.materials ADD COLUMN IF NOT EXISTS sale_price NUMERIC(12,2) NOT NULL DEFAULT 0`, schema))
 	return nil
 }
 
@@ -56,7 +62,9 @@ func listMaterials(ctx context.Context, pool *pgxpool.Pool, schema, q string, li
 	limitArg := argn
 
 	sql := fmt.Sprintf(`
-		SELECT id, code, name, kind, unit, onhand_g, onhand_units, min_level_g, min_level_units,
+		SELECT id, code, name, kind, unit,
+		       COALESCE(purchase_price,0), COALESCE(sale_price,0),
+		       onhand_g, onhand_units, min_level_g, min_level_units,
 		       to_char(updated_at,'YYYY-MM-DD HH24:MI')
 		FROM %s.materials
 		%s
@@ -72,7 +80,7 @@ func listMaterials(ctx context.Context, pool *pgxpool.Pool, schema, q string, li
 	out := make([]MaterialRow, 0)
 	for rows.Next() {
 		var r MaterialRow
-		if err := rows.Scan(&r.ID, &r.Code, &r.Name, &r.Kind, &r.Unit, &r.OnhandG, &r.OnhandUnits, &r.MinLevelG, &r.MinLevelUnits, &r.UpdatedAt); err != nil {
+		if err := rows.Scan(&r.ID, &r.Code, &r.Name, &r.Kind, &r.Unit, &r.PurchasePrice, &r.SalePrice, &r.OnhandG, &r.OnhandUnits, &r.MinLevelG, &r.MinLevelUnits, &r.UpdatedAt); err != nil {
 			return nil, err
 		}
 		out = append(out, r)
@@ -80,7 +88,7 @@ func listMaterials(ctx context.Context, pool *pgxpool.Pool, schema, q string, li
 	return out, rows.Err()
 }
 
-func upsertMaterial(ctx context.Context, pool *pgxpool.Pool, schema string, code, name, kind, unit string, onhandG, onhandUnits, minG, minUnits int64) error {
+func upsertMaterial(ctx context.Context, pool *pgxpool.Pool, schema string, code, name, kind, unit string, purchasePrice, salePrice float64, onhandG, onhandUnits, minG, minUnits int64) error {
 	code = strings.TrimSpace(code)
 	name = strings.TrimSpace(name)
 	kind = strings.TrimSpace(kind)
@@ -97,20 +105,25 @@ func upsertMaterial(ctx context.Context, pool *pgxpool.Pool, schema string, code
 	if unit == "" {
 		unit = "g"
 	}
+	if purchasePrice < 0 || salePrice < 0 {
+		return fmt.Errorf("negative price")
+	}
 	if onhandG < 0 || onhandUnits < 0 || minG < 0 || minUnits < 0 {
 		return fmt.Errorf("negative qty")
 	}
-	q := fmt.Sprintf(`INSERT INTO %s.materials(code,name,kind,unit,onhand_g,onhand_units,min_level_g,min_level_units,updated_at)
-		VALUES($1,$2,$3,$4,$5,$6,$7,$8,now())
+	q := fmt.Sprintf(`INSERT INTO %s.materials(code,name,kind,unit,purchase_price,sale_price,onhand_g,onhand_units,min_level_g,min_level_units,updated_at)
+		VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,now())
 		ON CONFLICT (code) DO UPDATE SET
 			name=excluded.name,
 			kind=excluded.kind,
 			unit=excluded.unit,
+			purchase_price=excluded.purchase_price,
+			sale_price=excluded.sale_price,
 			onhand_g=excluded.onhand_g,
 			onhand_units=excluded.onhand_units,
 			min_level_g=excluded.min_level_g,
 			min_level_units=excluded.min_level_units,
 			updated_at=now()`, schema)
-	_, err := pool.Exec(ctx, q, code, name, kind, unit, onhandG, onhandUnits, minG, minUnits)
+	_, err := pool.Exec(ctx, q, code, name, kind, unit, purchasePrice, salePrice, onhandG, onhandUnits, minG, minUnits)
 	return err
 }

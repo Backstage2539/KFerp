@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>代加工模板设置</title>
+  <style>
+    body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial; margin:16px;}
+    .card{border:1px solid #eee; border-radius:10px; padding:12px; margin:12px 0;}
+    .row{display:grid; grid-template-columns:1fr 1fr 1fr 1fr; gap:10px;}
+    input{padding:10px; font-size:14px; width:100%; box-sizing:border-box;}
+    .btn{display:inline-block; padding:10px 12px; font-size:14px; border:1px solid #111; background:#111; color:#fff; border-radius:8px; text-decoration:none;}
+    .ok{background:#e9ffe9; border:1px solid #b8f5b8; padding:10px; border-radius:8px;}
+    .err{background:#ffecec; border:1px solid #ffb9b9; padding:10px; border-radius:8px;}
+    table{width:100%; border-collapse:collapse;}
+    th,td{border-bottom:1px solid #f1f1f1; padding:8px; text-align:left;}
+  </style>
+</head>
+<body>
+  <h2>代加工模板设置</h2>
+  <a href="/orders">← 返回订单</a>
+  {{if .Ok}}<div class="ok">已保存</div>{{end}}
+  {{if .Err}}<div class="err">{{.Err}}</div>{{end}}
+
+  <div class="card">
+    <form method="post" action="/settings/outsource/save">
+      <div class="row">
+        <div><div>模板名称</div><input name="name" placeholder="例如：代加工默认模板" /></div>
+        <div><div>烘焙单价</div><input name="roast_unit_price" placeholder="0.00" /></div>
+        <div><div>咖啡豆包装费单价</div><input name="bean_pack_unit_price" placeholder="0.00" /></div>
+        <div><div>挂耳包装费单价</div><input name="drip_pack_unit_price" placeholder="0.00" /></div>
+      </div>
+      <div class="row" style="margin-top:10px; grid-template-columns:1fr 200px 140px;">
+        <div><div>SC挂靠费单价</div><input name="sc_unit_price" placeholder="0.00" /></div>
+        <label style="display:flex; align-items:center; gap:8px; margin-top:22px;"><input type="checkbox" name="is_default" value="1" style="width:auto;" /> 设为默认模板</label>
+        <button class="btn" type="submit">保存模板</button>
+      </div>
+    </form>
+  </div>
+
+  <div class="card">
+    <b>现有模板</b>
+    <table>
+      <thead>
+        <tr><th>模板</th><th>默认</th><th>烘焙</th><th>豆包装</th><th>挂耳包装</th><th>SC挂靠费</th></tr>
+      </thead>
+      <tbody>
+        {{range .Rows}}
+        <tr>
+          <td>{{.Name}}</td>
+          <td>{{if .IsDefault}}是{{else}}否{{end}}</td>
+          <td>{{printf "%.2f" .RoastUnitPrice}}</td>
+          <td>{{printf "%.2f" .BeanPackUnitPrice}}</td>
+          <td>{{printf "%.2f" .DripPackUnitPrice}}</td>
+          <td>{{printf "%.2f" .SCUnitPrice}}</td>
+        </tr>
+        {{end}}
+        {{if not .Rows}}<tr><td colspan="6">暂无模板</td></tr>{{end}}
+      </tbody>
+    </table>
+  </div>
+</body>
+</html>

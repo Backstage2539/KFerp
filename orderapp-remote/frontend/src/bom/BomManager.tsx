@@ -4,7 +4,7 @@ import type { BomListItem, BomItemRow } from './types'
 
 const styles = {
   page: { display: 'flex', minHeight: '100vh', fontFamily: 'system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial' } as const,
-  sidebar: { width: 220, padding: '14px 12px', borderRight: '1px solid #eee', background: '#fafafa', boxSizing: 'border-box' } as const,
+  sidebar: { width: 220, padding: '14px 12px', borderRight: '1px solid #eee', background: '#fafafa', boxSizing: 'border-box', position: 'sticky', top: 0, height: '100vh', overflow: 'auto' } as const,
   brand: { fontWeight: 800, marginBottom: 10 } as const,
   section: { marginTop: 14, marginBottom: 6, fontSize: 12, color: '#666' } as const,
   link: { display: 'block', padding: '8px 10px', borderRadius: 8, color: '#111', textDecoration: 'none', fontSize: 14 } as const,
@@ -23,21 +23,75 @@ const styles = {
   alertOk: { background: '#ecffef', border: '1px solid #b9f0c0', color: '#156b26', padding: 10, borderRadius: 8, marginBottom: 10 } as const,
 }
 
+type MenuGroup = { title: string; items: { label: string; href: string; active?: boolean }[] }
+
+const MENU_GROUPS: MenuGroup[] = [
+  {
+    title: '订单',
+    items: [
+      { label: '录单', href: '/order' },
+      { label: '订单列表', href: '/orders' },
+    ],
+  },
+  {
+    title: '生产流程',
+    items: [
+      { label: '生产计划/开始生产', href: '/produce/unproduced' },
+      { label: '生产中', href: '/produce/running' },
+    ],
+  },
+  {
+    title: '物料管理',
+    items: [
+      { label: '物料档案/库存', href: '/materials' },
+      { label: 'BOM配方维护', href: '/bom-react', active: true },
+    ],
+  },
+  {
+    title: '档案',
+    items: [
+      { label: '客户档案', href: '/customers' },
+      { label: '商品档案', href: '/products' },
+      { label: '部门维护', href: '/company/departments' },
+      { label: '员工维护', href: '/company/employees' },
+      { label: '成品库存', href: '/products/inventory' },
+      { label: '报价导出', href: '/products/print' },
+    ],
+  },
+  {
+    title: '设置',
+    items: [{ label: '设备产能配置', href: '/produce/machines' }],
+  },
+  {
+    title: '日志',
+    items: [{ label: '操作日志', href: '/audit' }],
+  },
+  {
+    title: '需求管理',
+    items: [
+      { label: '产品需求表', href: '/req/product' },
+      { label: '开发需求表', href: '/req/dev' },
+      { label: '单元测试表', href: '/req/unit' },
+      { label: 'API 测试表', href: '/req/api' },
+      { label: '需求审核表', href: '/req/review' },
+    ],
+  },
+]
+
 function Sidebar() {
   return (
     <aside style={styles.sidebar}>
       <div style={styles.brand}>ERP</div>
-      <div style={styles.section}>订单</div>
-      <a style={styles.link} href="/order">录单</a>
-      <a style={styles.link} href="/orders">订单列表</a>
-      <div style={styles.section}>生产流程</div>
-      <a style={styles.link} href="/orders?preset=unprod">未生产订单</a>
-      <a style={styles.link} href="/produce/unproduced">未生产需求汇总</a>
-      <a style={styles.link} href="/produce/plan">生产计划（缺口&gt;0）</a>
-      <div style={styles.section}>物料管理</div>
-      <a style={styles.link} href="/materials">物料档案/库存</a>
-      <a style={styles.linkActive} href="/bom-react">BOM配方维护</a>
-      <a style={styles.link} href="/produce/allocations">扣减记录（批次）</a>
+      {MENU_GROUPS.map((g) => (
+        <div key={g.title}>
+          <div style={styles.section}>{g.title}</div>
+          {g.items.map((it) => (
+            <a key={it.href} style={it.active ? styles.linkActive : styles.link} href={it.href}>
+              {it.label}
+            </a>
+          ))}
+        </div>
+      ))}
     </aside>
   )
 }

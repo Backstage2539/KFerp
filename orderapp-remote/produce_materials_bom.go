@@ -1,0 +1,140 @@
+package main
+
+import (
+	"context"
+	"fmt"
+	"math"
+	"sort"
+	"strings"
+
+	"github.com/jackc/pgx/v5/pgxpool"
+)
+
+type bomNeedItem struct {
+	ProductID     int64
+	YieldRate     float64
+	MaterialName  string
+	MaterialUnit  string
+	RatioPct      float64
+}
+
+func calcProducePlanMaterialsWithBOM(ctx context.Context, pool *pgxpool.Pool, schema string, rows []UnprodNeedRow, p ProducePlanParams) []MaterialNeed {
+	productIDs := make([]int64, 0)
+	seen := map[int64]bool{}
+	for _, r := range rows {
+		if r.ProductID > 0 && !seen[r.ProductID] {
+			seen[r.ProductID] = true
+			productIDs = append(productIDs, r.ProductID)
+		}
+	}
+	bomMap, _ := loadBomNeedItems(ctx, pool, schema, productIDs)
+
+	m := map[string]MaterialNeed{}
+	add := func(name string, qty int64, unit string) {
+		if qty <= 0 {
+			return
+		}
+		x := m[name]
+		x.Name = name
+		x.Unit = unit
+		x.Qty += qty
+		m[name] = x
+	}
+	ceilDiv := func(a, b int64) int64 {
+		if b <= 0 {
+			return 0
+		}
+		return (a + b - 1) / b
+	}
+
+	for _, r := range rows {
+		if r.GapG <= 0 || r.SpecG <= 0 {
+			continue
+		}
+		items := bomMap[r.ProductID]
+		if len(items) == 0 {
+			// fallback old logic when product has no BOM
+			for _, x := range calcProducePlanMaterials([]UnprodNeedRow{r}, p) {
+				add(x.Name, x.Qty, x.Unit)
+			}
+			continue
+		}
+
+		yield := p.YieldRate
+		if items[0].YieldRate > 0 && items[0].YieldRate <= 1 {
+			yield = items[0].YieldRate
+		}
+		if yield <= 0 || yield > 1 {
+			yield = 0.8
+		}
+		rawG := int64(math.Ceil(float64(r.GapG) / yield))
+		unitsMissing := ceilDiv(r.GapG, r.SpecG)
+
+		for _, bi := range items {
+			u := strings.TrimSpace(bi.MaterialUnit)
+			if u == "" {
+				u = "g"
+			}
+			if strings.EqualFold(u, "g") {
+				need := int64(math.Ceil(float64(rawG) * bi.RatioPct / 100.0))
+				add(bi.MaterialName, need, "g")
+				continue
+			}
+			if strings.EqualFold(u, "kg") {
+				needKg := int64(math.Ceil((float64(rawG) * bi.RatioPct / 100.0) / 1000.0))
+				add(bi.MaterialName, needKg, "kg")
+				continue
+			}
+			// 非重量单位按“缺口件数 * 比例”估算，至少按件向上取整
+			needUnits := int64(math.Ceil(float64(unitsMissing) * bi.RatioPct / 100.0))
+			add(bi.MaterialName, needUnits, u)
+		}
+	}
+
+	out := make([]MaterialNeed, 0, len(m))
+	for _, v := range m {
+		out = append(out, v)
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Unit != out[j].Unit {
+			return out[i].Unit < out[j].Unit
+		}
+		return out[i].Name < out[j].Name
+	})
+	return out
+}
+
+func loadBomNeedItems(ctx context.Context, pool *pgxpool.Pool, schema string, productIDs []int64) (map[int64][]bomNeedItem, error) {
+	out := map[int64][]bomNeedItem{}
+	if len(productIDs) == 0 {
+		return out, nil
+	}
+	q := fmt.Sprintf(`
+		SELECT bi.product_id,
+		       COALESCE(pb.yield_rate,0),
+		       COALESCE(m.name,''),
+		       COALESCE(NULLIF(m.unit,''),'g'),
+		       COALESCE(bi.ratio_pct,0)
+		FROM %s.product_bom_items bi
+		LEFT JOIN %s.product_bom pb ON pb.product_id=bi.product_id
+		LEFT JOIN %s.materials m ON m.id=bi.material_id
+		WHERE bi.product_id = ANY($1)
+		ORDER BY bi.product_id, bi.id
+	`, schema, schema, schema)
+	rows, err := pool.Query(ctx, q, productIDs)
+	if err != nil {
+		return out, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var x bomNeedItem
+		if err := rows.Scan(&x.ProductID, &x.YieldRate, &x.MaterialName, &x.MaterialUnit, &x.RatioPct); err != nil {
+			return out, err
+		}
+		if strings.TrimSpace(x.MaterialName) == "" || x.RatioPct <= 0 {
+			continue
+		}
+		out[x.ProductID] = append(out[x.ProductID], x)
+	}
+	return out, rows.Err()
+}

@@ -25,9 +25,12 @@ func registerFinishedInventoryPages(e *echo.Echo, pool *pgxpool.Pool, schema str
 		if qerr := strings.TrimSpace(c.QueryParam("err")); qerr != "" {
 			data.Error = qerr
 		}
-		// products for dropdown
-		ps, _ := fetchOptions(c.Request().Context(), pool, "SELECT id, name FROM "+schema+".products ORDER BY name")
-		data.Products = ps
+		// products source aligned with 商品档案列表（仅启用商品，按名称排序）
+		prods, _ := fetchProducts(c.Request().Context(), pool, schema)
+		data.Products = make([]Option, 0, len(prods))
+		for _, p := range prods {
+			data.Products = append(data.Products, Option{ID: p.ID, Name: p.Name})
+		}
 		rows, _, err := listFinishedInventory(c.Request().Context(), pool, schema, data.Q, 200, 0)
 		if err != nil {
 			data.Error = err.Error()

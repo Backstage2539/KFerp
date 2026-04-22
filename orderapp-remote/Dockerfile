@@ -14,6 +14,8 @@ COPY templates /app/templates
 COPY docs /app/docs
 # React BOM frontend static files
 COPY frontend/dist /app/frontend/dist
+# Vue shell static files
+COPY frontend-vue-shell/dist /app/frontend-vue-shell/dist
 EXPOSE 8080
 ENV LISTEN=:8080
 CMD ["/app/orderapp"]

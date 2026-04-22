@@ -1,9 +1,12 @@
 package main
 
 import (
+	"context"
 	"math"
 	"sort"
 	"strings"
+
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 // MaterialNeed is a simple aggregated output for the first version of /produce/plan.
@@ -18,12 +21,19 @@ type MaterialNeed struct {
 	Unit string
 }
 
+type ProducePlanBomItem struct {
+	MaterialName string
+	RatioPct     float64
+	Unit         string
+}
+
 type ProducePlanParams struct {
 	YieldRate      float64 // e.g. 0.8
 	DripExtraG     int64   // e.g. 100 (extra roast grams per plan if any drip exists)
 	DripBoxSpec    int64   // e.g. 5 or 10
 	EnableDripBox  bool
 	BagNameBySpecG map[int64]string // DEV-043: spec_g -> 袋子物料名
+	BomByProductID map[int64][]ProducePlanBomItem
 }
 
 func defaultProducePlanParams() ProducePlanParams {
@@ -33,6 +43,32 @@ func defaultProducePlanParams() ProducePlanParams {
 		DripBoxSpec:   10,
 		EnableDripBox: true,
 	}
+}
+
+func loadProducePlanBomMap(ctx context.Context, pool *pgxpool.Pool, schema string) (map[int64][]ProducePlanBomItem, error) {
+	q := "SELECT bi.product_id,COALESCE(m.name,''),COALESCE(bi.ratio_pct,0),COALESCE(m.unit,'g') FROM " + schema + ".product_bom_items bi LEFT JOIN " + schema + ".materials m ON m.id=bi.material_id ORDER BY bi.product_id,bi.id"
+	rows, err := pool.Query(ctx, q)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[int64][]ProducePlanBomItem{}
+	for rows.Next() {
+		var pid int64
+		var it ProducePlanBomItem
+		if err := rows.Scan(&pid, &it.MaterialName, &it.RatioPct, &it.Unit); err != nil {
+			return nil, err
+		}
+		if strings.TrimSpace(it.MaterialName) == "" || it.RatioPct <= 0 {
+			continue
+		}
+		it.Unit = strings.TrimSpace(it.Unit)
+		if it.Unit == "" {
+			it.Unit = "g"
+		}
+		out[pid] = append(out[pid], it)
+	}
+	return out, rows.Err()
 }
 
 func instantMaterialsOnly(rows []MaterialNeed) []MaterialNeed {
@@ -103,8 +139,25 @@ func calcProducePlanMaterials(rows []UnprodNeedRow, p ProducePlanParams) []Mater
 			continue
 		}
 
-		// Default: treat as coffee beans finished product.
-		add("咖啡豆(生豆/原豆)", yieldRawG(r.GapG), "g")
+		// Default: use BOM (if configured) to split into concrete materials.
+		rawG := yieldRawG(r.GapG)
+		usedBom := false
+		if p.BomByProductID != nil {
+			if bomItems := p.BomByProductID[r.ProductID]; len(bomItems) > 0 {
+				for _, bi := range bomItems {
+					qty := int64(math.Ceil(float64(rawG) * bi.RatioPct / 100.0))
+					unit := strings.TrimSpace(bi.Unit)
+					if unit == "" {
+						unit = "g"
+					}
+					add(strings.TrimSpace(bi.MaterialName), qty, unit)
+				}
+				usedBom = true
+			}
+		}
+		if !usedBom {
+			add("咖啡豆(生豆/原豆)", rawG, "g")
+		}
 		bagName := "豆袋"
 		if p.BagNameBySpecG != nil {
 			if v := strings.TrimSpace(p.BagNameBySpecG[r.SpecG]); v != "" {

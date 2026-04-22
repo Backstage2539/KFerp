@@ -40,7 +40,7 @@
 
       /* list view on mobile: two-line per item, 2nd line can scroll */
       body:not(.itemsCard) .items thead{display:none;}
-      body:not(.itemsCard) .items tbody tr{display:block; border:1px solid #eee; border-radius:10px; padding:8px; margin:8px 0; overflow-x:auto; -webkit-overflow-scrolling:touch;}
+      body:not(.itemsCard) .items tbody tr{display:block; border:1px solid #eee; border-radius:10px; padding:8px; margin:8px 0; overflow:visible;}
       body:not(.itemsCard) .items tbody td{border:0; padding:6px 0;}
       body:not(.itemsCard) .items td.p{padding-top:0;}
 
@@ -83,6 +83,11 @@
     .card{border:1px solid #eee; border-radius:10px; padding:12px; margin:12px 0;}
     .items table{width:100%; border-collapse:collapse;}
     .items th,.items td{border-bottom:1px solid #f1f1f1; padding:8px; text-align:left; vertical-align:top;}
+    /* suggestion dropdown must stay on top in both 自动匹配/手动单价 */
+    .items td.p{position:relative; overflow:visible; z-index:5;}
+    .items .prodLine{overflow:visible;}
+    .items .combo{position:relative; z-index:30;}
+    .items .dropdown{z-index:9999 !important;}
     .items input{padding:8px;}
     .itemsWrap table{min-width:920px;}
     body.itemsCard .itemsWrap table{min-width:0;}
@@ -102,7 +107,7 @@
     <nav class="sidebar">
       <div class="brand">ERP</div>
       <div class="section">订单</div>
-      <a class="link" href="/order" onclick="saveDraft()">录单</a>
+      <a class="link" href="/vue-shell">录单</a>
       <a class="link" href="/orders">订单列表</a>
       <div class="section">生产流程</div>
       <div class="section">物料管理</div>
@@ -115,6 +120,10 @@
       <a class="link" href="/company/departments" onclick="saveDraft()">部门维护</a>
       <a class="link" href="/company/employees" onclick="saveDraft()">员工维护</a>
       <a class="link" href="/products/print" target="_blank" onclick="saveDraft()">报价导出</a>
+      <div class="section">设置</div>
+      <a class="link" href="/produce/machines" onclick="saveDraft()">设备产能配置</a>
+      <a class="link" href="/settings/outsource">代加工模板设置</a>
+      <a class="link" href="/settings/sender">发货人设置</a>
       <div class="section">日志</div>
       <a class="link" href="/audit" onclick="saveDraft()">操作日志</a>
       <!-- 文档栏目已隐藏（PR-010） -->
@@ -129,7 +138,7 @@
   <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;">
     <div style="display:flex; align-items:center; gap:10px;">
       <button type="button" class="menuBtn" onclick="toggleMenu()">☰</button>
-      <h2 style="margin:0">录单</h2>
+      <h2 style="margin:0">{{if .EditMode}}编辑订单{{else}}录单{{end}}</h2>
     </div>
     <div style="display:flex; gap:10px; flex-wrap:wrap;">
       <a class="btn2" href="/products?from=order" onclick="saveDraft()">商品档案</a>
@@ -144,7 +153,7 @@
     <div class="err">{{.Error}}</div>
   {{end}}
 
-  <form method="post" action="/order">
+  <form method="post" action="/order">{{if .EditMode}}<input type="hidden" name="edit_id" value="{{.EditID}}" />{{end}}
     <div class="card">
       <div class="row">
         <div>
@@ -263,6 +272,36 @@
 
       <label>快递费（文字/补充）</label>
       <input name="express_fee" placeholder="例如 到付/顺丰 18" />
+
+      <div id="outsourceCard" class="card" style="margin-top:12px; background:#fafafa; border-color:#e5e7eb;">
+        <b>代加工费用（含材料费）</b>
+        <div class="muted" style="margin:6px 0 10px;">开发中：先支持模板选择，后续切换为纯模板参数自动计算。</div>
+        <div class="row" style="grid-template-columns:1fr 160px;">
+          <div>
+            <label>代加工模板</label>
+            <select id="outsource_template_id" name="outsource_template_id" onchange="onOutsourceTemplateChange()">
+              <option value="">请选择模板</option>
+            </select>
+          </div>
+          <div style="display:flex; align-items:flex-end;"><a class="btn2" href="/settings/outsource" target="_blank">模板设置</a></div>
+        </div>
+        <div class="row">
+          <div><label>材料费</label><input name="outsource_material_fee" inputmode="decimal" placeholder="0.00" oninput="recalc()" /></div>
+          <div><label>烘焙加工费</label><input name="outsource_roast_fee" inputmode="decimal" placeholder="0.00" oninput="recalc()" /></div>
+        </div>
+        <div class="row">
+          <div><label>包装材料/SC费</label><input name="outsource_packaging_fee" inputmode="decimal" placeholder="0.00" oninput="recalc()" /></div>
+          <div><label>人工包装/加工费</label><input name="outsource_manual_fee" inputmode="decimal" placeholder="0.00" oninput="recalc()" /></div>
+        </div>
+        <div class="row">
+          <div><label>税费</label><input name="outsource_tax_fee" inputmode="decimal" placeholder="0.00" oninput="recalc()" /></div>
+          <div><label>其他费用</label><input name="outsource_other_fee" inputmode="decimal" placeholder="0.00" oninput="recalc()" /></div>
+        </div>
+        <div>
+          <label>代加工费用合计（自动）</label>
+          <input id="outsource_total_fee" readonly placeholder="自动" />
+        </div>
+      </div>
     </div>
 
     <div class="card items">
@@ -276,7 +315,7 @@
         </div>
       </div>
 
-      <div class="itemsWrap" style="overflow:auto; -webkit-overflow-scrolling:touch;">
+      <div class="itemsWrap" style="overflow:visible; -webkit-overflow-scrolling:touch;">
       <table id="items">
         <thead>
           <tr>
@@ -294,7 +333,7 @@
       </div>
     </div>
 
-    <button class="btn" type="submit">保存订单</button>
+    <button class="btn" type="submit">{{if .EditMode}}保存修改{{else}}保存订单{{end}}</button>
   </form>
 
 <script>
@@ -308,6 +347,7 @@ const OPTS = {
 };
 
 const PRODUCT_MAP = Object.fromEntries(PRODUCTS.map(p => [String(p.id), p]));
+const EDIT_DATA = {{if .EditDataJSON}}{{.EditDataJSON}}{{else}}null{{end}};
 
 function productOptionsHtml(){
   // kept for backward compatibility (not used now)
@@ -340,7 +380,7 @@ function rowHtml(){
         <select name="tier_id[]" onchange="onTierChange(this)" style="width:118px; flex:0 0 118px;"></select>
         <div class="combo" style="position:relative; flex:1; min-width:0;">
           <input class="prod-combo" placeholder="商品" autocomplete="off"
-            onfocus="comboShow(this)" oninput="comboFilter(this)" />
+            onfocus="comboShow(this)" oninput="comboFilter(this)" onkeyup="comboFilter(this)" onclick="comboShow(this)" />
           <button type="button" class="clear" onclick="comboClear(this)" aria-label="清空"
             style="position:absolute; right:8px; top:50%; transform:translateY(-50%); border:0; background:transparent; font-size:18px; line-height:1; padding:4px; color:#666;">×</button>
           <div class="dropdown" style="display:none; position:absolute; left:0; right:0; top:100%; z-index:20; background:#fff; border:1px solid #ddd; border-radius:8px; margin-top:6px; max-height:240px; overflow:auto;"></div>
@@ -389,7 +429,7 @@ function normName(s){
     .trim()
     .toLowerCase()
     .replace(/\s+/g,'')
-    .replace(/[（）()\[\]]/g,'');
+    .replace(/[（）()\[\]【】{}“”'"`~!@#$%^&*+=|\\:;,.?\/，。！？、：；《》<>-]/g,'');
 }
 
 function rowElsFromInput(inp){
@@ -442,12 +482,16 @@ function setProductForRow(tr, pid, name){
 function comboRender(dropdown, kw){
   const k = normName(kw);
   let html = '';
-  const list = (!k) ? PRODUCTS : PRODUCTS.filter(p => {
+  let list = (!k) ? PRODUCTS : PRODUCTS.filter(p => {
     const n = normName(p.name);
     const py = normName(p.py);
     const pyi = normName(p.pyi);
     return n.includes(k) || py.includes(k) || pyi.includes(k);
   });
+  // 编辑订单时若关键字未命中，仍展示商品清单（保持与录单一致：可继续下拉选择）。
+  if(k && list.length === 0){
+    list = PRODUCTS;
+  }
   for(const p of list){
     html += `<div class="opt" data-kind="product" data-id="${p.id}" data-name="${encodeURIComponent(p.name)}" style="padding:10px 10px; border-bottom:1px solid #f2f2f2;">${p.name}</div>`;
   }
@@ -537,6 +581,7 @@ function comboClearAny(btn, key){
   const hidden = combo.querySelector('input[type="hidden"]');
   inp.value='';
   hidden.value='';
+  if(key === 'orderTypes') refreshOutsourcePanel();
   comboShowAny(inp, key);
   inp.focus();
 }
@@ -568,6 +613,9 @@ document.addEventListener('click', (ev) => {
     // customer selected -> auto-fill source & order type
     if(key === 'customers' && hidden.value){
       fillFromCustomer(hidden.value);
+    }
+    if(key === 'orderTypes'){
+      refreshOutsourcePanel();
     }
 
     try{ saveDraft(); }catch(e){}
@@ -618,6 +666,7 @@ async function fillFromCustomer(customerId){
     const typeCombo = document.querySelector('input[type="hidden"][name="order_type_id"]').closest('.combo');
     typeCombo.querySelector('input.combo-input').value = p.default_order_type_id ? cleanPicked((p.order_type_name || findNameById('orderTypes', p.default_order_type_id))) : '';
     typeCombo.querySelector('input[type="hidden"]').value = p.default_order_type_id ? String(p.default_order_type_id) : '';
+    refreshOutsourcePanel();
   } catch(e){}
 }
 
@@ -705,6 +754,15 @@ function recalc(){
     total += line;
   });
   document.querySelector('#total_amount').value = total.toFixed(2);
+  const outsource =
+    num(document.querySelector('input[name="outsource_material_fee"]')?.value) +
+    num(document.querySelector('input[name="outsource_roast_fee"]')?.value) +
+    num(document.querySelector('input[name="outsource_packaging_fee"]')?.value) +
+    num(document.querySelector('input[name="outsource_manual_fee"]')?.value) +
+    num(document.querySelector('input[name="outsource_tax_fee"]')?.value) +
+    num(document.querySelector('input[name="outsource_other_fee"]')?.value);
+  const out = document.querySelector('#outsource_total_fee');
+  if(out) out.value = outsource.toFixed(2);
 }
 
 function addRow(prefill){
@@ -753,6 +811,13 @@ function saveDraft(){
         discount_amount: form.querySelector('input[name="discount_amount"]').value,
         round_to_int: form.querySelector('input[name="round_to_int"]').checked ? '1' : '',
         express_fee: form.querySelector('input[name="express_fee"]').value,
+        outsource_template_id: form.querySelector('select[name="outsource_template_id"]')?.value || '',
+        outsource_material_fee: form.querySelector('input[name="outsource_material_fee"]').value,
+        outsource_roast_fee: form.querySelector('input[name="outsource_roast_fee"]').value,
+        outsource_packaging_fee: form.querySelector('input[name="outsource_packaging_fee"]').value,
+        outsource_manual_fee: form.querySelector('input[name="outsource_manual_fee"]').value,
+        outsource_tax_fee: form.querySelector('input[name="outsource_tax_fee"]').value,
+        outsource_other_fee: form.querySelector('input[name="outsource_other_fee"]').value,
       },
       items: Array.from(document.querySelectorAll('#items tbody tr')).map(tr => ({
         product_name: tr.querySelector('input.prod-combo').value,
@@ -797,6 +862,14 @@ function restoreDraft(){
     form.querySelector('input[name="discount_amount"]').value = d.fields.discount_amount || '';
     form.querySelector('input[name="round_to_int"]').checked = !!d.fields.round_to_int;
     form.querySelector('input[name="express_fee"]').value = d.fields.express_fee || '';
+    const outTpl = form.querySelector('select[name="outsource_template_id"]');
+    if(outTpl) outTpl.value = d.fields.outsource_template_id || '';
+    form.querySelector('input[name="outsource_material_fee"]').value = d.fields.outsource_material_fee || '';
+    form.querySelector('input[name="outsource_roast_fee"]').value = d.fields.outsource_roast_fee || '';
+    form.querySelector('input[name="outsource_packaging_fee"]').value = d.fields.outsource_packaging_fee || '';
+    form.querySelector('input[name="outsource_manual_fee"]').value = d.fields.outsource_manual_fee || '';
+    form.querySelector('input[name="outsource_tax_fee"]').value = d.fields.outsource_tax_fee || '';
+    form.querySelector('input[name="outsource_other_fee"]').value = d.fields.outsource_other_fee || '';
 
     // rebuild items
     const tbody = document.querySelector('#items tbody');
@@ -831,12 +904,113 @@ function ensureDefaultShipStatus(){
   }
 }
 
-restoreDraft();
+function applyEditData(d){
+  if(!d) return;
+  const form = document.querySelector('form');
+  if(d.order_date) form.querySelector('input[name="order_date"]').value = d.order_date;
+  function setAny(nameKey, optKey, id){
+    const hidden = form.querySelector(`input[name="${nameKey}"]`);
+    if(!hidden) return;
+    hidden.value = id || '';
+    const combo = hidden.closest('.combo');
+    if(!combo) return;
+    const inp = combo.querySelector('input.combo-input');
+    if(inp) inp.value = findNameById(optKey, id || '');
+  }
+  setAny('customer_id','customers', d.customer_id);
+  setAny('source_id','sources', d.source_id);
+  setAny('order_type_id','orderTypes', d.order_type_id);
+  setAny('pay_status_id','payStatuses', d.pay_status_id);
+  setAny('ship_status_id','shipStatuses', d.ship_status_id);
+  form.querySelector('select[name="ship_method"]').value = d.ship_method || '';
+  form.querySelector('input[name="ship_tracking_no"]').value = d.ship_tracking_no || '';
+  form.querySelector('textarea[name="notes"]').value = d.notes || '';
+  form.querySelector('input[name="shipping_amount"]').value = d.shipping_amount || '';
+  form.querySelector('input[name="discount_amount"]').value = d.discount_amount || '';
+  form.querySelector('input[name="round_to_int"]').checked = !!d.round_to_int;
+  form.querySelector('input[name="express_fee"]').value = d.express_fee || '';
+  const outTpl2 = form.querySelector('select[name="outsource_template_id"]');
+  if(outTpl2) outTpl2.value = d.outsource_template_id || '';
+  form.querySelector('input[name="outsource_material_fee"]').value = d.outsource_material_fee || '';
+  form.querySelector('input[name="outsource_roast_fee"]').value = d.outsource_roast_fee || '';
+  form.querySelector('input[name="outsource_packaging_fee"]').value = d.outsource_packaging_fee || '';
+  form.querySelector('input[name="outsource_manual_fee"]').value = d.outsource_manual_fee || '';
+  form.querySelector('input[name="outsource_tax_fee"]').value = d.outsource_tax_fee || '';
+  form.querySelector('input[name="outsource_other_fee"]').value = d.outsource_other_fee || '';
+
+  const tbody = document.querySelector('#items tbody');
+  tbody.innerHTML = '';
+  const items = Array.isArray(d.items) ? d.items : [];
+  if(items.length===0){
+    addRow();
+    addRow();
+  }else{
+    for(const it of items){ addRow(it); }
+  }
+}
+
+function currentOrderTypeName(){
+  const hidden = document.querySelector('input[name="order_type_id"]');
+  const id = hidden ? String(hidden.value || '') : '';
+  return findNameById('orderTypes', id || '');
+}
+
+function refreshOutsourcePanel(){
+  const card = document.getElementById('outsourceCard');
+  if(!card) return;
+  const name = String(currentOrderTypeName() || '');
+  const show = name.includes('代加工');
+  card.style.display = show ? '' : 'none';
+}
+
+const OUTSOURCE_TEMPLATES = [];
+
+async function loadOutsourceTemplates(){
+  try{
+    const r = await fetch('/api/outsource/templates');
+    if(!r.ok) return;
+    const d = await r.json();
+    const rows = Array.isArray(d.rows) ? d.rows : [];
+    OUTSOURCE_TEMPLATES.splice(0, OUTSOURCE_TEMPLATES.length, ...rows);
+    const sel = document.getElementById('outsource_template_id');
+    if(!sel) return;
+    const cur = sel.value || '';
+    sel.innerHTML = '<option value="">请选择模板</option>' + rows.map(x=>`<option value="${x.id}">${x.name}${x.is_default?'（默认）':''}</option>`).join('');
+    if(cur) sel.value = cur;
+    if(!sel.value){
+      const def = rows.find(x=>x.is_default);
+      if(def) sel.value = String(def.id);
+    }
+    onOutsourceTemplateChange();
+  }catch(e){}
+}
+
+function onOutsourceTemplateChange(){
+  const sel = document.getElementById('outsource_template_id');
+  if(!sel) return;
+  const t = OUTSOURCE_TEMPLATES.find(x=>String(x.id)===String(sel.value||''));
+  if(!t) return;
+  const r = document.querySelector('input[name="outsource_roast_fee"]');
+  const p = document.querySelector('input[name="outsource_packaging_fee"]');
+  const s = document.querySelector('input[name="outsource_other_fee"]');
+  if(r && !r.value) r.value = Number(t.roast_unit_price||0).toFixed(2);
+  if(p && !p.value) p.value = Number(t.bean_pack_unit_price||0).toFixed(2);
+  if(s && !s.value) s.value = Number(t.sc_unit_price||0).toFixed(2);
+  recalc();
+}
+
+if(EDIT_DATA){
+  applyEditData(EDIT_DATA);
+}else{
+  restoreDraft();
+}
 ensureDefaultShipStatus();
 if(document.querySelectorAll('#items tbody tr').length===0){
   addRow();
   addRow();
 }
+refreshOutsourcePanel();
+loadOutsourceTemplates();
 recalc();
 </script>
 

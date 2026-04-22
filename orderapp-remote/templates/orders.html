@@ -49,16 +49,14 @@
     <nav class="sidebar">
       <div class="brand">ERP</div>
       <div class="section">订单</div>
-      <a class="link" href="/order">录单</a>
+      <a class="link" href="/vue-shell">录单</a>
       <a class="link" href="/orders">订单列表</a>
       <div class="section">生产流程</div>
-      <a class="link" href="/orders?preset=unprod">未生产订单</a>
-      <a class="link" href="/produce/unproduced">未生产需求汇总</a>
-      <a class="link" href="/produce/plan">生产计划（缺口&gt;0）</a>
+      <a class="link" href="/produce/unproduced">生产计划/开始生产</a>
+      <a class="link" href="/produce/running">生产中</a>
       <div class="section">物料管理</div>
       <a class="link" href="/materials">物料档案/库存</a>
       <a class="link" href="/bom-react">BOM配方维护</a>
-      <a class="link" href="/produce/allocations">扣减记录（批次）</a>
       <div class="section">档案</div>
       <a class="link" href="/customers">客户档案</a>
       <a class="link" href="/products">商品档案</a>
@@ -66,6 +64,9 @@
       <a class="link" href="/company/employees">员工维护</a>
       <a class="link" href="/products/inventory">成品库存</a>
       <a class="link" href="/products/print" target="_blank">报价导出</a>
+      <div class="section">设置</div>
+      <a class="link" href="/produce/machines">设备产能配置</a>
+      <a class="link" href="/settings/sender">发货人设置</a>
       <div class="section">日志</div>
       <a class="link" href="/audit">操作日志</a>
       <!-- 文档栏目已隐藏（PR-010） -->
@@ -183,9 +184,10 @@
       <div style="margin-top:12px; display:flex; gap:10px; flex-wrap:wrap;">
         <button class="btn" type="submit">查询</button>
         <a class="btn2" href="/orders">清空</a>
-        <a class="btn2" target="_blank" href="/ship/sf_small.xlsx?q={{.Q | urlquery}}&from={{.From | urlquery}}&to={{.To | urlquery}}&preset={{.Preset | urlquery}}&void={{.Void | urlquery}}&pay_status_id={{.PayStatusFilter}}&ship_status_id={{.ShipStatusFilter}}&customer_id={{.CustomerID}}&completed={{if .CompletedOnly}}1{{end}}">下载顺丰小件模板</a>
+        <a class="btn2" target="_blank" href="/ship/sf_small_one_click.xlsx?q={{.Q | urlquery}}&from={{.From | urlquery}}&to={{.To | urlquery}}&void={{.Void | urlquery}}&customer_id={{.CustomerID}}">一键发货（顺丰小件）</a>
+        <button class="btn2" type="button" onclick="openTrackingFill()">快递录单</button>
       </div>
-      <div class="muted" style="margin-top:8px;">说明：只会导出快递方式=「顺丰小件」的订单；并按当前筛选条件过滤。</div>
+      <div class="muted" style="margin-top:8px;">一键发货仅导出：流程状态=生产完成 且总重≤15kg 的订单（按5kg自动拆分）；超过15kg会自动改为“顺丰大件”，不生成小件发货数据。</div>
       <div class="muted" style="margin-top:8px;">当前第 {{.Page}} 页 · 每页 {{.Limit}} 条</div>
     </form>
   </div>
@@ -214,8 +216,7 @@
         {{$r := .}}
         <tr data-id="{{.ID}}" {{if .IsVoid}}style="opacity:0.55"{{end}}>
           <td>
-            <a href="/orders/{{.ID}}">{{.OrderNo}}</a>{{if .IsVoid}} <span class="muted">(作废)</span>{{end}}
-            <div class="muted"><a href="/orders/{{.ID}}/edit">编辑详情</a></div>
+            <a href="/orders/{{.ID}}/edit">{{.OrderNo}}</a>{{if .IsVoid}} <span class="muted">(作废)</span>{{end}}
           </td>
           <td>{{.OrderDate}}</td>
           <td class="cust"><a href="/customers/{{.CustomerID}}">{{.Customer}}</a></td>
@@ -338,6 +339,33 @@ window.addEventListener('DOMContentLoaded', ()=>{
   if(t) t.addEventListener('change', ()=>{document.getElementById('preset').value='';});
 });
 
+function openTrackingFill(){
+  document.getElementById('trackingModal').style.display='block';
+}
+function closeTrackingFill(){
+  document.getElementById('trackingModal').style.display='none';
+}
+async function submitTrackingFill(){
+  const msg = document.getElementById('trackingMsg');
+  const file = document.getElementById('trackingFile').files?.[0];
+  if(!file){ msg.textContent='请先选择Excel文件'; return; }
+  msg.textContent='提交中...';
+  try{
+    const fd = new FormData();
+    fd.append('file', file);
+    const resp = await fetch('/ship/tracking_fill', {method:'POST', body: fd});
+    const data = await resp.json();
+    if(!resp.ok || !data.ok){
+      msg.textContent = '失败：' + (data.error || 'unknown');
+      return;
+    }
+    msg.textContent = `完成：${data.updated}/${data.total}`;
+    setTimeout(()=>location.reload(), 800);
+  }catch(e){
+    msg.textContent='提交失败';
+  }
+}
+
 async function saveRow(btn){
   const tr = btn.closest('tr');
   const id = tr.dataset.id;
@@ -363,6 +391,21 @@ async function saveRow(btn){
   }
 }
 </script>
+
+<div id="trackingModal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.35); z-index:100;">
+  <div style="background:#fff; width:min(720px, calc(100% - 24px)); margin:10vh auto; border-radius:12px; padding:12px;">
+    <div style="display:flex; justify-content:space-between; align-items:center; gap:12px;">
+      <b>快递录单（上传Excel）</b>
+      <button class="btn2" onclick="closeTrackingFill()">关闭</button>
+    </div>
+    <div class="muted" style="margin:8px 0;">上传包含“手机号/电话”和“快递单号/运单号”列的Excel，系统按手机号匹配并回填单号。</div>
+    <input id="trackingFile" type="file" accept=".xlsx,.xls" style="width:100%; padding:8px; box-sizing:border-box;" />
+    <div style="margin-top:10px; display:flex; gap:8px;">
+      <button class="btn" onclick="submitTrackingFill()">提交回填</button>
+      <span id="trackingMsg" class="muted"></span>
+    </div>
+  </div>
+</div>
 
 <div id="auditModal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.35); z-index:100;">
   <div style="background:#fff; width:min(720px, calc(100% - 24px)); max-height:80vh; overflow:auto; margin:10vh auto; border-radius:12px; padding:12px;">
