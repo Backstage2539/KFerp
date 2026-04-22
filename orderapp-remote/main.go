@@ -12,7 +12,6 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
-	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -102,61 +101,8 @@ func main() {
 	}
 	defer pool.Close()
 
-	funcs := template.FuncMap{
-		"add": func(a, b int) int { return a + b },
-		"sub": func(a, b int) int {
-			if a-b < 0 {
-				return 0
-			}
-			return a - b
-		},
-		// format helpers for *float64
-		"f0p": func(p *float64) string {
-			if p == nil {
-				return ""
-			}
-			return fmt.Sprintf("%.0f", *p)
-		},
-		"f2p": func(p *float64) string {
-			if p == nil {
-				return ""
-			}
-			return fmt.Sprintf("%.2f", *p)
-		},
-		"py":         func(s string) string { return pinyinFull(s) },
-		"pyi":        func(s string) string { return pinyinInitials(s) },
-		"assetLabel": func(kind string) string { return kindLabel(kind) },
-		"custShort": func(s string) string {
-			s = strings.TrimSpace(s)
-			if s == "" {
-				return s
-			}
-			// keep only first segment before newline/pipe
-			for _, sep := range []string{"\n", "|", "｜"} {
-				if i := strings.Index(s, sep); i >= 0 {
-					s = strings.TrimSpace(s[:i])
-				}
-			}
-			// cut before first phone number
-			re := regexp.MustCompile(`1\d{10}`)
-			if loc := re.FindStringIndex(s); loc != nil {
-				s = strings.TrimSpace(s[:loc[0]])
-			}
-			// strip some labels
-			s = strings.NewReplacer("地址：", "", "地址:", "", "收件人:", "", "收件人：", "", "姓名:", "", "姓名：", "").Replace(s)
-			s = strings.Trim(s, " ,，:：")
-			// avoid over-long names
-			runes := []rune(s)
-			if len(runes) > 30 {
-				s = string(runes[:30])
-			}
-			return s
-		},
-		"eq64": func(a, b int64) bool { return a == b },
-		"eqi":  func(a, b int) bool { return a == b },
-	}
 	// Note: templates are baked into the image at /app/templates
-	t := template.Must(template.New("").Funcs(funcs).ParseGlob("/app/templates/*.html"))
+	t := template.Must(template.New("").Funcs(templateFuncMap()).ParseGlob("/app/templates/*.html"))
 
 	e := echo.New()
 	e.HideBanner = true
@@ -246,25 +192,7 @@ func main() {
 	registerBomPages(e, pool, schema)
 	registerBomAPI(e, pool, schema)
 	registerOutsourceSettingsRoutes(e, pool, schema)
-
-	// Serve React frontend static files for BOM management
-	// Note: Caddy strips /app/ prefix, so routes are /bom-react/*
-	e.Static("/bom-react/assets", "frontend/dist/assets")
-	e.GET("/bom-react", func(c echo.Context) error {
-		return c.File("frontend/dist/index.html")
-	})
-	e.GET("/bom-react/*", func(c echo.Context) error {
-		return c.File("frontend/dist/index.html")
-	})
-
-	// Vue3 + Vite workspace shell (DEV-046 serial menu migration)
-	e.Static("/vue-shell/assets", "frontend-vue-shell/dist/assets")
-	e.GET("/vue-shell", func(c echo.Context) error {
-		return c.File("frontend-vue-shell/dist/index.html")
-	})
-	e.GET("/vue-shell/*", func(c echo.Context) error {
-		return c.File("frontend-vue-shell/dist/index.html")
-	})
+	registerStaticFrontendRoutes(e)
 
 	registerUnprodSummaryPages(e, pool, schema)
 	registerProducePlanPages(e, pool, schema)
