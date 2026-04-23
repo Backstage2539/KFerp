@@ -84,9 +84,13 @@
     .items table{width:100%; border-collapse:collapse;}
     .items th,.items td{border-bottom:1px solid #f1f1f1; padding:8px; text-align:left; vertical-align:top;}
     /* suggestion dropdown must stay on top in both 自动匹配/手动单价 */
+    .items tbody tr{position:relative;}
+    .items tbody tr:focus-within{z-index:1000;}
     .items td.p{position:relative; overflow:visible; z-index:5;}
+    .items td.p:focus-within{z-index:1001;}
     .items .prodLine{overflow:visible;}
     .items .combo{position:relative; z-index:30;}
+    .items .combo:focus-within{z-index:1002;}
     .items .dropdown{z-index:9999 !important;}
     .items input{padding:8px;}
     .itemsWrap table{min-width:920px;}
