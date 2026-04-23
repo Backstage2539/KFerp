@@ -105,18 +105,18 @@
           <table style="width:100%; border-collapse:collapse;">
             <thead>
               <tr>
-                <th style="border-bottom:1px solid #f1f1f1; padding:8px 6px; text-align:left; font-size:13px;">批发数量区间(lb)</th>
-                <th style="border-bottom:1px solid #f1f1f1; padding:8px 6px; text-align:right; font-size:13px;">批发单价(元/lb)</th>
+                <th style="border-bottom:1px solid #f1f1f1; padding:8px 6px; text-align:left; font-size:13px;">批发规格/数量区间</th>
+                <th style="border-bottom:1px solid #f1f1f1; padding:8px 6px; text-align:right; font-size:13px;">批发单价(元/件)</th>
               </tr>
             </thead>
             <tbody>
               {{range .Tiers}}
               <tr>
                 <td style="border-bottom:1px solid #f7f7f7; padding:8px 6px; font-size:14px;">
-                  {{printf "%.0f" .MinLb}}{{if .MaxLb}}-{{f0p .MaxLb}}{{else}}+{{end}}
+                  {{.SpecG}}g：{{printf "%.0f" .MinQty}}{{if .MaxQty}}-{{f0p .MaxQty}}{{else}}+{{end}} 件
                 </td>
                 <td style="border-bottom:1px solid #f7f7f7; padding:8px 6px; font-size:14px; text-align:right;">
-                  {{printf "%.2f" .PriceLb}}
+                  {{printf "%.2f" .UnitPrice}}
                 </td>
               </tr>
               {{end}}

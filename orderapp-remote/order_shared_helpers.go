@@ -120,10 +120,14 @@ func fetchProducts(ctx context.Context, pool *pgxpool.Pool, schema string) ([]Pr
 
 	// Load tiers for all products
 	tierSQL := fmt.Sprintf(`
-		SELECT id, product_id, min_qty_lb, max_qty_lb, price_per_lb
+		SELECT id, product_id,
+		       COALESCE(NULLIF(spec_g,0), 454),
+		       COALESCE(min_qty_units, min_qty_lb),
+		       COALESCE(max_qty_units, max_qty_lb),
+		       COALESCE(price_per_unit, price_per_lb)
 		FROM %s.product_price_tiers
 		WHERE active=true
-		ORDER BY product_id, min_qty_lb
+		ORDER BY product_id, COALESCE(NULLIF(spec_g,0), 454), COALESCE(min_qty_units, min_qty_lb)
 	`, schema)
 	trs, err := pool.Query(ctx, tierSQL)
 	if err != nil {
@@ -134,13 +138,14 @@ func fetchProducts(ctx context.Context, pool *pgxpool.Pool, schema string) ([]Pr
 	tierMap := map[int64][]ProductTierOption{}
 	for trs.Next() {
 		var tid, pid int64
+		var specG int64
 		var min float64
 		var max *float64
 		var price float64
-		if err := trs.Scan(&tid, &pid, &min, &max, &price); err != nil {
+		if err := trs.Scan(&tid, &pid, &specG, &min, &max, &price); err != nil {
 			return nil, err
 		}
-		tierMap[pid] = append(tierMap[pid], ProductTierOption{ID: tid, MinLb: min, MaxLb: max, PriceLb: price})
+		tierMap[pid] = append(tierMap[pid], ProductTierOption{ID: tid, SpecG: specG, MinQty: min, MaxQty: max, UnitPrice: price})
 	}
 	if err := trs.Err(); err != nil {
 		return nil, err

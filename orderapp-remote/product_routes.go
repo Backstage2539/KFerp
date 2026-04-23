@@ -69,6 +69,7 @@ func (h productHandler) update(c echo.Context) error {
 	if err != nil || id <= 0 {
 		return c.String(http.StatusBadRequest, "invalid id")
 	}
+	specArr := c.Request().PostForm["tier_spec_g[]"]
 	minArr := c.Request().PostForm["min[]"]
 	maxArr := c.Request().PostForm["max[]"]
 	priceArr := c.Request().PostForm["price[]"]
@@ -106,6 +107,12 @@ func (h productHandler) update(c echo.Context) error {
 		if mn == "" {
 			continue
 		}
+		specG := int64(454)
+		if i < len(specArr) {
+			if n, err := strconv.ParseInt(strings.TrimSpace(specArr[i]), 10, 64); err == nil && n > 0 {
+				specG = n
+			}
+		}
 		minv, err := strconv.ParseFloat(mn, 64)
 		if err != nil {
 			continue
@@ -125,7 +132,7 @@ func (h productHandler) update(c echo.Context) error {
 				pv = f
 			}
 		}
-		tiers = append(tiers, catalogapp.PriceTier{MinLb: minv, MaxLb: max, PriceLb: pv})
+		tiers = append(tiers, catalogapp.PriceTier{SpecG: specG, MinQty: minv, MaxQty: max, UnitPrice: pv})
 	}
 	if err := h.catalog.ReplacePriceTiers(c.Request().Context(), catalogapp.ReplacePriceTiersCommand{Actor: actorOf(c), ProductID: id, RetailPrice100G: retailPrice100G, RetailPrice200G: retailPrice200G, RetailPrice227G: retailPrice227G, RetailPrice250G: retailPrice250G, Tiers: tiers}); err != nil {
 		return err

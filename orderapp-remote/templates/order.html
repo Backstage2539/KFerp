@@ -363,16 +363,18 @@ function productOptionsHtml(){
   return html;
 }
 
-function tierOptionsHtml(productId){
+function tierOptionsHtml(productId, specG){
   const p = PRODUCT_MAP[String(productId)]
   let html = `<option value="auto">自动匹配</option>`;
   if(!p || !p.tiers || p.tiers.length===0){
     html += `<option value="manual">手动单价</option>`;
     return html;
   }
-  for(const t of p.tiers){
-    const range = t.max==null ? `${t.min}+lb` : `${t.min}-${t.max}lb`;
-    html += `<option value="${t.id}" data-price="${t.price}" data-min="${t.min}" data-max="${t.max}">${range}：${t.price.toFixed(2)}/lb</option>`;
+  specG = intNum(specG || 454);
+  const list = p.tiers.filter(t => intNum(t.spec_g) === specG);
+  for(const t of list){
+    const range = t.max==null ? `${t.min}+件` : `${t.min}-${t.max}件`;
+    html += `<option value="${t.id}" data-price="${t.price}" data-min="${t.min}" data-max="${t.max}" data-spec-g="${t.spec_g}">${specG}g ${range}：${t.price.toFixed(2)}/件</option>`;
   }
   html += `<option value="manual">手动单价</option>`;
   return html;
@@ -391,14 +393,14 @@ function rowHtml(){
           <div class="dropdown" style="display:none; position:absolute; left:0; right:0; top:100%; z-index:20; background:#fff; border:1px solid #ddd; border-radius:8px; margin-top:6px; max-height:240px; overflow:auto;"></div>
         </div>
         <div class="muted priceBox" style="white-space:nowrap; text-align:right;">
-          <span class="priceMode">批发</span>：<span class="price">0.00</span><span class="priceUnit">/lb</span><br/>总价：<span class="line">0.00</span>
+          <span class="priceMode">批发</span>：<span class="price">0.00</span><span class="priceUnit">/件</span><br/>总价：<span class="line">0.00</span>
         </div>
       </div>
       <input type="hidden" name="product_id[]" />
-      <input name="unit_price[]" inputmode="decimal" placeholder="手动单价（元/磅）" style="margin-top:6px; display:none;" oninput="recalc()" />
+      <input name="unit_price[]" inputmode="decimal" placeholder="手动单价（元/件）" style="margin-top:6px; display:none;" oninput="recalc()" />
     </td>
     <td class="spec" data-label="规格(g)">
-      <select name="spec[]" onchange="recalc()">
+      <select name="spec[]" onchange="onSpecChange(this)">
         <option value="50">50</option>
         <option value="100">100</option>
         <option value="200">200</option>
@@ -420,7 +422,7 @@ function rowHtml(){
       </select>
     </td>
     <td class="muted weight" data-label="总重量">
-      <span class="totalg">0</span>g / <span class="totallb">0.00</span>lb
+      <span class="totalg">0</span>g
     </td>
     <td class="muted settle" data-label="" style="white-space:nowrap;">
       <button type="button" class="btn2 delBtn" onclick="this.closest('tr').remove(); recalc();">删</button>
@@ -474,7 +476,8 @@ function setProductForRow(tr, pid, name){
   hidden.value = pid || '';
   if(name !== undefined) input.value = name || '';
 
-  tierSel.innerHTML = tierOptionsHtml(pid || '');
+  const specG = tr.querySelector('select[name="spec[]"]')?.value || '454';
+  tierSel.innerHTML = tierOptionsHtml(pid || '', specG);
   tierSel.value = 'auto';
 
   up.style.display = 'none';
@@ -711,7 +714,16 @@ function onTierChange(sel){
   recalc();
 }
 
-const LB_IN_G = 454;
+function onSpecChange(sel){
+  const tr = sel.closest('tr');
+  const pid = tr.querySelector('input[name="product_id[]"]')?.value || '';
+  const tierSel = tr.querySelector('select[name="tier_id[]"]');
+  if(tierSel){
+    tierSel.innerHTML = tierOptionsHtml(pid, sel.value);
+    tierSel.value = 'auto';
+  }
+  recalc();
+}
 
 function num(v){
   const x = parseFloat((v||'').toString().trim());
@@ -723,25 +735,27 @@ function intNum(v){
   return isFinite(n) ? n : 0;
 }
 
-function matchTierPrice(pid, qtyLb){
+function matchTierPrice(pid, specG, units){
   const p = PRODUCT_MAP[String(pid)];
   if(!p || !p.tiers || p.tiers.length===0) return {price:0, minTier:null, matched:null};
-  let minTier = p.tiers.reduce((m,t)=>Math.min(m, num(t.min)), Infinity);
+  const tiers = p.tiers.filter(t => intNum(t.spec_g) === intNum(specG));
+  if(tiers.length===0) return {price:0, minTier:null, matched:null};
+  let minTier = tiers.reduce((m,t)=>Math.min(m, num(t.min)), Infinity);
   if(!isFinite(minTier)) minTier = null;
 
-  for(const t of p.tiers){
+  for(const t of tiers){
     const min = num(t.min);
     const max = (t.max==null) ? null : num(t.max);
-    if(qtyLb >= min && (max==null || qtyLb <= max)) return {price:num(t.price), minTier, matched:t};
+    if(units >= min && (max==null || units <= max)) return {price:num(t.price), minTier, matched:t};
   }
   // fallback: highest min <= qty
   let best = null;
-  for(const t of p.tiers){
-    if(qtyLb >= num(t.min)) best = t;
+  for(const t of tiers){
+    if(units >= num(t.min)) best = t;
   }
   if(best) return {price:num(best.price), minTier, matched:best};
   // below minimum tier: use minimum tier price, but warn
-  const first = p.tiers.slice().sort((a,b)=>num(a.min)-num(b.min))[0];
+  const first = tiers.slice().sort((a,b)=>num(a.min)-num(b.min))[0];
   return {price:num(first.price), minTier, matched:null};
 }
 
@@ -769,47 +783,44 @@ function retailPackagePrice(product, specG){
 
 function recalc(){
   let total = 0;
-  const retailOrder = isRetailOrder();
-  document.querySelectorAll('#items tbody tr').forEach(tr => {
-    const pid = tr.querySelector('input[name="product_id[]"]').value;
-    const specG = intNum(tr.querySelector('select[name="spec[]"]').value);
-    const units = intNum(tr.querySelector('input[name="qty[]"]').value);
-    const totalG = specG * units;
-    const qtyLb = totalG / LB_IN_G;
-    const tierSel = tr.querySelector('select[name="tier_id[]"]');
-    const unitPriceInput = tr.querySelector('input[name="unit_price[]"]');
-    const warn = tr.querySelector('.warn');
-    const p = PRODUCT_MAP[String(pid)] || null;
-    if(warn) warn.textContent = '';
+	  const retailOrder = isRetailOrder();
+	  document.querySelectorAll('#items tbody tr').forEach(tr => {
+	    const pid = tr.querySelector('input[name="product_id[]"]').value;
+	    const specG = intNum(tr.querySelector('select[name="spec[]"]').value);
+	    const units = intNum(tr.querySelector('input[name="qty[]"]').value);
+	    const totalG = specG * units;
+	    const tierSel = tr.querySelector('select[name="tier_id[]"]');
+	    const unitPriceInput = tr.querySelector('input[name="unit_price[]"]');
+	    const warn = tr.querySelector('.warn');
+	    const p = PRODUCT_MAP[String(pid)] || null;
+	    if(warn) warn.textContent = '';
 
-    const tg = tr.querySelector('.totalg');
-    const tlb = tr.querySelector('.totallb');
-    if(tg) tg.textContent = String(totalG||0);
-    if(tlb) tlb.textContent = (qtyLb||0).toFixed(2);
+	    const tg = tr.querySelector('.totalg');
+	    if(tg) tg.textContent = String(totalG||0);
 
-    let price = 0; // wholesale: 元/磅; retail: 元/件
-    let line = 0;
-    if(retailOrder && p){
-      price = retailPackagePrice(p, specG);
-      line = price * units;
-      if(warn && price <= 0 && pid){
-        warn.textContent = '未配置零售价，请到商品档案维护对应规格零售价。';
-      }
-    } else if(tierSel && tierSel.value === 'manual'){
-      price = num(unitPriceInput.value);
-      line = price * qtyLb;
-    } else if(tierSel && tierSel.value && tierSel.value !== 'auto'){
-      const opt = tierSel.options[tierSel.selectedIndex];
-      price = num(opt?.dataset?.price);
-      line = price * qtyLb;
-    } else {
-      const m = matchTierPrice(pid, qtyLb);
-      price = m.price;
-      line = price * qtyLb;
-      if(m.minTier != null && qtyLb > 0 && qtyLb < m.minTier){
-        if(warn) warn.textContent = `低于最低档(${m.minTier}lb)：已按最低档价计算（不阻止）。如需特殊价请选“手动单价”。`;
-      }
-    }
+	    let price = 0; // 元/件
+	    let line = 0;
+	    if(retailOrder && p){
+	      price = retailPackagePrice(p, specG);
+	      line = price * units;
+	      if(warn && price <= 0 && pid){
+	        warn.textContent = '未配置零售价，请到商品档案维护对应规格零售价。';
+	      }
+	    } else if(tierSel && tierSel.value === 'manual'){
+	      price = num(unitPriceInput.value);
+	      line = price * units;
+	    } else if(tierSel && tierSel.value && tierSel.value !== 'auto'){
+	      const opt = tierSel.options[tierSel.selectedIndex];
+	      price = num(opt?.dataset?.price);
+	      line = price * units;
+	    } else {
+	      const m = matchTierPrice(pid, specG, units);
+	      price = m.price;
+	      line = price * units;
+	      if(m.minTier != null && units > 0 && units < m.minTier){
+	        if(warn) warn.textContent = `低于最低档(${m.minTier}件)：已按最低档价计算（不阻止）。如需特殊价请选“手动单价”。`;
+	      }
+	    }
 
     if(tierSel){
       tierSel.disabled = retailOrder;
@@ -820,9 +831,9 @@ function recalc(){
       unitPriceInput.value = '';
     }
     const modeEl = tr.querySelector('.priceMode');
-    const unitEl = tr.querySelector('.priceUnit');
-    if(modeEl) modeEl.textContent = retailOrder ? '零售单价' : '批发单价';
-    if(unitEl) unitEl.textContent = retailOrder ? '/件' : '/lb';
+	    const unitEl = tr.querySelector('.priceUnit');
+	    if(modeEl) modeEl.textContent = retailOrder ? '零售单价' : '批发单价';
+	    if(unitEl) unitEl.textContent = '/件';
     tr.querySelector('.price').textContent = price.toFixed(2);
     tr.querySelector('.line').textContent = line.toFixed(2);
     total += line;
@@ -844,13 +855,15 @@ function addRow(prefill){
   const tr = document.querySelector('#items tbody tr:last-child');
   // init tier select (no product selected yet)
   const tierSel = tr.querySelector('select[name="tier_id[]"]');
-  tierSel.innerHTML = tierOptionsHtml('');
+  tierSel.innerHTML = tierOptionsHtml('', '454');
   tierSel.value = 'auto';
 
   if(prefill){
     tr.querySelector('input.prod-combo').value = prefill.product_name || '';
     tr.querySelector('input[name="product_id[]"]').value = prefill.product_id || '';
-    tierSel.innerHTML = tierOptionsHtml(prefill.product_id || '');
+    const specSel = tr.querySelector('select[name="spec[]"]');
+    if(prefill.spec) specSel.value = prefill.spec;
+    tierSel.innerHTML = tierOptionsHtml(prefill.product_id || '', specSel.value || '454');
     tierSel.value = prefill.tier_id || 'auto';
     const up = tr.querySelector('input[name="unit_price[]"]');
     up.value = prefill.unit_price || '';
@@ -864,7 +877,7 @@ function addRow(prefill){
     // default unit
     const u = tr.querySelector('select[name="unit[]"]');
     if(u) u.value = '袋';
-    tr.querySelector('select[name="spec[]"]').value = prefill.spec || '';
+    if(prefill.spec) specSel.value = prefill.spec;
   }
 }
 

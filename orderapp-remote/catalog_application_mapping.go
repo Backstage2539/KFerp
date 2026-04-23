@@ -7,10 +7,11 @@ func productOptionFromCatalog(p catalogapp.Product) ProductOption {
 	out.Tiers = make([]ProductTierOption, 0, len(p.Tiers))
 	for _, t := range p.Tiers {
 		out.Tiers = append(out.Tiers, ProductTierOption{
-			ID:      t.ID,
-			MinLb:   t.MinLb,
-			MaxLb:   t.MaxLb,
-			PriceLb: t.PriceLb,
+			ID:        t.ID,
+			SpecG:     t.SpecG,
+			MinQty:    t.MinQty,
+			MaxQty:    t.MaxQty,
+			UnitPrice: t.UnitPrice,
 		})
 	}
 	return out

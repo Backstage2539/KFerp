@@ -45,13 +45,14 @@
     </div>
 
     <div class="card">
-      <div class="muted" style="margin-bottom:8px;">批发阶梯价单位：元 / lb（磅）</div>
+      <div class="muted" style="margin-bottom:8px;">批发阶梯价按规格克重 + 件数区间配置，单价单位：元 / 件。</div>
       <table id="tiers">
         <thead>
           <tr>
-            <th style="width:18%">起始(lb)</th>
-            <th style="width:18%">结束(lb)</th>
-            <th style="width:24%">单价(元/lb)</th>
+            <th style="width:16%">规格(g)</th>
+            <th style="width:18%">起始(件)</th>
+            <th style="width:18%">结束(件)</th>
+            <th style="width:22%">单价(元/件)</th>
             <th style="width:18%">启用</th>
             <th></th>
           </tr>
@@ -59,9 +60,10 @@
         <tbody>
           {{range .Tiers}}
           <tr>
-            <td><input name="min[]" value="{{printf "%.0f" .MinLb}}" /></td>
-            <td><input name="max[]" value="{{if .MaxLb}}{{f0p .MaxLb}}{{end}}" placeholder="空=无上限" /></td>
-            <td><input name="price[]" value="{{printf "%.2f" .PriceLb}}" /></td>
+            <td><input name="tier_spec_g[]" value="{{.SpecG}}" /></td>
+            <td><input name="min[]" value="{{printf "%.0f" .MinQty}}" /></td>
+            <td><input name="max[]" value="{{if .MaxQty}}{{f0p .MaxQty}}{{end}}" placeholder="空=无上限" /></td>
+            <td><input name="price[]" value="{{printf "%.2f" .UnitPrice}}" /></td>
             <td><input type="checkbox" name="active[]" value="1" checked /></td>
             <td><button type="button" class="btn2" onclick="this.closest('tr').remove()">删</button></td>
           </tr>
@@ -73,7 +75,7 @@
         <button type="button" class="btn2" onclick="addRow()">+ 添加档位</button>
         <button class="btn" type="submit">保存</button>
       </div>
-      <div class="muted" style="margin-top:8px;">提示：档位按起始 lb 从小到大配置；自动匹配时会选“满足范围的最大起始档位”。</div>
+      <div class="muted" style="margin-top:8px;">提示：同一商品可以同时配置 454g、227g、100g 等规格；录单自动按当前规格匹配。</div>
     </div>
   </form>
 
@@ -81,6 +83,7 @@
 function addRow(){
   const tr = document.createElement('tr');
   tr.innerHTML = `
+    <td><input name="tier_spec_g[]" placeholder="例如 454" /></td>
     <td><input name="min[]" placeholder="例如 2" /></td>
     <td><input name="max[]" placeholder="例如 13（空=无上限）" /></td>
     <td><input name="price[]" placeholder="例如 88.00" /></td>

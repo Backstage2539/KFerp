@@ -6,10 +6,11 @@ import (
 )
 
 type jsTier struct {
-	ID    int64    `json:"id"`
-	Min   float64  `json:"min"`
-	Max   *float64 `json:"max"`
-	Price float64  `json:"price"`
+	ID        int64    `json:"id"`
+	SpecG     int64    `json:"spec_g"`
+	Min       float64  `json:"min"`
+	Max       *float64 `json:"max"`
+	UnitPrice float64  `json:"price"`
 }
 
 type jsProduct struct {
@@ -29,7 +30,7 @@ func buildProductsJSON(ps []ProductOption) template.JS {
 	for _, p := range ps {
 		jp := jsProduct{ID: p.ID, Name: p.Name, Py: pinyinFull(p.Name), Pyi: pinyinInitials(p.Name), RetailPrice100G: p.RetailPrice100G, RetailPrice200G: p.RetailPrice200G, RetailPrice227G: p.RetailPrice227G, RetailPrice250G: p.RetailPrice250G}
 		for _, t := range p.Tiers {
-			jp.Tiers = append(jp.Tiers, jsTier{ID: t.ID, Min: t.MinLb, Max: t.MaxLb, Price: t.PriceLb})
+			jp.Tiers = append(jp.Tiers, jsTier{ID: t.ID, SpecG: t.SpecG, Min: t.MinQty, Max: t.MaxQty, UnitPrice: t.UnitPrice})
 		}
 		out = append(out, jp)
 	}

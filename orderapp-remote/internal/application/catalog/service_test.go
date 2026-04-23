@@ -34,7 +34,7 @@ func TestServiceDelegatesCatalogOperations(t *testing.T) {
 	if err != nil || p.ID != 9 {
 		t.Fatalf("GetProduct() = %+v, %v", p, err)
 	}
-	if err := svc.ReplacePriceTiers(context.Background(), ReplacePriceTiersCommand{ProductID: 9, Tiers: []PriceTier{{MinLb: 1, PriceLb: 2}}}); err != nil {
+	if err := svc.ReplacePriceTiers(context.Background(), ReplacePriceTiersCommand{ProductID: 9, Tiers: []PriceTier{{SpecG: 454, MinQty: 1, UnitPrice: 2}}}); err != nil {
 		t.Fatalf("ReplacePriceTiers() error = %v", err)
 	}
 	if repo.replace.ProductID != 9 || len(repo.replace.Tiers) != 1 {

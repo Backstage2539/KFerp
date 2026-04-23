@@ -51,9 +51,22 @@ func (r postgresCatalogRepository) ReplacePriceTiers(ctx context.Context, cmd ca
 	if _, err := tx.Exec(ctx, fmt.Sprintf("DELETE FROM %s.product_price_tiers WHERE product_id=$1", r.schema), cmd.ProductID); err != nil {
 		return err
 	}
-	ins := fmt.Sprintf("INSERT INTO %s.product_price_tiers(product_id,min_qty_lb,max_qty_lb,price_per_lb,active) VALUES ($1,$2,$3,$4,true)", r.schema)
+	ins := fmt.Sprintf(`INSERT INTO %s.product_price_tiers
+		(product_id, spec_g, min_qty_units, max_qty_units, price_per_unit, min_qty_lb, max_qty_lb, price_per_lb, active)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,true)`, r.schema)
 	for _, tier := range cmd.Tiers {
-		if _, err := tx.Exec(ctx, ins, cmd.ProductID, tier.MinLb, tier.MaxLb, tier.PriceLb); err != nil {
+		specG := tier.SpecG
+		if specG <= 0 {
+			specG = 454
+		}
+		minLb := tier.MinQty * float64(specG) / 454.0
+		var maxLb *float64
+		if tier.MaxQty != nil {
+			v := *tier.MaxQty * float64(specG) / 454.0
+			maxLb = &v
+		}
+		priceLb := tier.UnitPrice * 454.0 / float64(specG)
+		if _, err := tx.Exec(ctx, ins, cmd.ProductID, specG, tier.MinQty, tier.MaxQty, tier.UnitPrice, minLb, maxLb, priceLb); err != nil {
 			return err
 		}
 	}
@@ -68,7 +81,7 @@ func catalogProductFromOption(p ProductOption) catalogapp.Product {
 	out := catalogapp.Product{ID: p.ID, Name: p.Name, DefaultPrice: p.DefaultPrice, RetailPrice100G: p.RetailPrice100G, RetailPrice200G: p.RetailPrice200G, RetailPrice227G: p.RetailPrice227G, RetailPrice250G: p.RetailPrice250G}
 	out.Tiers = make([]catalogapp.PriceTier, 0, len(p.Tiers))
 	for _, t := range p.Tiers {
-		out.Tiers = append(out.Tiers, catalogapp.PriceTier{ID: t.ID, MinLb: t.MinLb, MaxLb: t.MaxLb, PriceLb: t.PriceLb})
+		out.Tiers = append(out.Tiers, catalogapp.PriceTier{ID: t.ID, SpecG: t.SpecG, MinQty: t.MinQty, MaxQty: t.MaxQty, UnitPrice: t.UnitPrice})
 	}
 	return out
 }

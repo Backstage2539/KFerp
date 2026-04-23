@@ -3,10 +3,11 @@ package catalog
 import "context"
 
 type PriceTier struct {
-	ID      int64
-	MinLb   float64
-	MaxLb   *float64
-	PriceLb float64
+	ID        int64
+	SpecG     int64
+	MinQty    float64
+	MaxQty    *float64
+	UnitPrice float64
 }
 
 type Product struct {
