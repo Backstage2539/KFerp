@@ -21,12 +21,15 @@
     <a class="btn2" href="/products">← 返回</a>
   </div>
 
-  <div class="card">
-    <div class="muted">阶梯价单位：元 / lb（磅）</div>
-  </div>
-
   <form method="post" action="/products/{{.ID}}">
     <div class="card">
+      <label>零售价（元 / 227g）</label>
+      <input name="retail_price_227g" value="{{printf "%.2f" .RetailPrice227G}}" inputmode="decimal" />
+      <div class="muted" style="margin-top:6px;">录单选择“零售”时使用。非 227g 规格按克重折算，金额向上取整。</div>
+    </div>
+
+    <div class="card">
+      <div class="muted" style="margin-bottom:8px;">批发阶梯价单位：元 / lb（磅）</div>
       <table id="tiers">
         <thead>
           <tr>

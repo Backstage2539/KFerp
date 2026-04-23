@@ -13,17 +13,18 @@ type jsTier struct {
 }
 
 type jsProduct struct {
-	ID    int64    `json:"id"`
-	Name  string   `json:"name"`
-	Py    string   `json:"py"`
-	Pyi   string   `json:"pyi"`
-	Tiers []jsTier `json:"tiers"`
+	ID              int64    `json:"id"`
+	Name            string   `json:"name"`
+	Py              string   `json:"py"`
+	Pyi             string   `json:"pyi"`
+	RetailPrice227G float64  `json:"retail_price_227g"`
+	Tiers           []jsTier `json:"tiers"`
 }
 
 func buildProductsJSON(ps []ProductOption) template.JS {
 	out := make([]jsProduct, 0, len(ps))
 	for _, p := range ps {
-		jp := jsProduct{ID: p.ID, Name: p.Name, Py: pinyinFull(p.Name), Pyi: pinyinInitials(p.Name)}
+		jp := jsProduct{ID: p.ID, Name: p.Name, Py: pinyinFull(p.Name), Pyi: pinyinInitials(p.Name), RetailPrice227G: p.RetailPrice227G}
 		for _, t := range p.Tiers {
 			jp.Tiers = append(jp.Tiers, jsTier{ID: t.ID, Min: t.MinLb, Max: t.MaxLb, Price: t.PriceLb})
 		}

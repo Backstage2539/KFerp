@@ -21,3 +21,24 @@ func TestApplyRoundToIntEnabled(t *testing.T) {
 		t.Fatalf("expected rounding=-0.34, got %.2f", rounding)
 	}
 }
+
+func TestRetailPackagePrice(t *testing.T) {
+	cases := []struct {
+		name   string
+		retail float64
+		specG  int64
+		want   float64
+	}{
+		{name: "base 227g", retail: 38, specG: 227, want: 38},
+		{name: "100g rounded up", retail: 38, specG: 100, want: 17},
+		{name: "454g doubled", retail: 38, specG: 454, want: 76},
+		{name: "250g rounded up", retail: 38, specG: 250, want: 42},
+		{name: "zero retail", retail: 0, specG: 227, want: 0},
+	}
+
+	for _, tc := range cases {
+		if got := RetailPackagePrice(tc.retail, tc.specG); got != tc.want {
+			t.Fatalf("%s: RetailPackagePrice() = %v, want %v", tc.name, got, tc.want)
+		}
+	}
+}

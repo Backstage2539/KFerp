@@ -43,6 +43,9 @@ func (r postgresCatalogRepository) ReplacePriceTiers(ctx context.Context, cmd ca
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
+	if _, err := tx.Exec(ctx, fmt.Sprintf("UPDATE %s.products SET retail_price_227g=$2 WHERE id=$1", r.schema), cmd.ProductID, cmd.RetailPrice227G); err != nil {
+		return err
+	}
 	if _, err := tx.Exec(ctx, fmt.Sprintf("DELETE FROM %s.product_price_tiers WHERE product_id=$1", r.schema), cmd.ProductID); err != nil {
 		return err
 	}
@@ -55,12 +58,12 @@ func (r postgresCatalogRepository) ReplacePriceTiers(ctx context.Context, cmd ca
 	if err := tx.Commit(ctx); err != nil {
 		return err
 	}
-	auditInsert(ctx, r.pool, r.schema, cmd.Actor, "product", &cmd.ProductID, "update", strPtrStr("price_tiers"), nil, strPtrStr(fmt.Sprintf("%d", len(cmd.Tiers))), AuditMeta{"product_id": cmd.ProductID, "tier_count": len(cmd.Tiers)})
+	auditInsert(ctx, r.pool, r.schema, cmd.Actor, "product", &cmd.ProductID, "update", strPtrStr("price_tiers"), nil, strPtrStr(fmt.Sprintf("%d", len(cmd.Tiers))), AuditMeta{"product_id": cmd.ProductID, "tier_count": len(cmd.Tiers), "retail_price_227g": cmd.RetailPrice227G})
 	return nil
 }
 
 func catalogProductFromOption(p ProductOption) catalogapp.Product {
-	out := catalogapp.Product{ID: p.ID, Name: p.Name, DefaultPrice: p.DefaultPrice}
+	out := catalogapp.Product{ID: p.ID, Name: p.Name, DefaultPrice: p.DefaultPrice, RetailPrice227G: p.RetailPrice227G}
 	out.Tiers = make([]catalogapp.PriceTier, 0, len(p.Tiers))
 	for _, t := range p.Tiers {
 		out.Tiers = append(out.Tiers, catalogapp.PriceTier{ID: t.ID, MinLb: t.MinLb, MaxLb: t.MaxLb, PriceLb: t.PriceLb})

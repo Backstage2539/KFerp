@@ -72,6 +72,14 @@ func (h productHandler) update(c echo.Context) error {
 	minArr := c.Request().PostForm["min[]"]
 	maxArr := c.Request().PostForm["max[]"]
 	priceArr := c.Request().PostForm["price[]"]
+	retailPrice227G := 0.0
+	if v := strings.TrimSpace(c.FormValue("retail_price_227g")); v != "" {
+		f, err := strconv.ParseFloat(v, 64)
+		if err != nil || f < 0 {
+			return c.String(http.StatusBadRequest, "invalid retail_price_227g")
+		}
+		retailPrice227G = f
+	}
 
 	tiers := make([]catalogapp.PriceTier, 0, len(minArr))
 	for i := 0; i < len(minArr); i++ {
@@ -100,7 +108,7 @@ func (h productHandler) update(c echo.Context) error {
 		}
 		tiers = append(tiers, catalogapp.PriceTier{MinLb: minv, MaxLb: max, PriceLb: pv})
 	}
-	if err := h.catalog.ReplacePriceTiers(c.Request().Context(), catalogapp.ReplacePriceTiersCommand{Actor: actorOf(c), ProductID: id, Tiers: tiers}); err != nil {
+	if err := h.catalog.ReplacePriceTiers(c.Request().Context(), catalogapp.ReplacePriceTiersCommand{Actor: actorOf(c), ProductID: id, RetailPrice227G: retailPrice227G, Tiers: tiers}); err != nil {
 		return err
 	}
 	return c.Redirect(http.StatusSeeOther, fmt.Sprintf("/products/%d", id))

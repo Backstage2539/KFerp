@@ -18,26 +18,28 @@
 </head>
 <body>
   <div class="noprint" style="display:flex;justify-content:space-between;align-items:center;gap:12px;">
-    <h2>商品报价表（阶梯价）</h2>
+    <h2>商品报价表</h2>
     <div>
       <button onclick="window.print()">打印/导出PDF</button>
       <a href="/products">返回</a>
     </div>
   </div>
 
-  <div class="muted noprint" style="margin-bottom:8px;">导出图片：手机上打印预览里可“保存为 PDF”，或截图；电脑上可打印为 PDF 后再转图片。</div>
+  <div class="muted noprint" style="margin-bottom:8px;">零售价单位为元/227g；批发价单位为元/lb。</div>
 
   <table>
     <thead>
       <tr>
         <th style="width:26%">商品</th>
-        <th>阶梯价（元/lb）</th>
+        <th style="width:18%">零售价（元/227g）</th>
+        <th>批发阶梯价（元/lb）</th>
       </tr>
     </thead>
     <tbody>
       {{range .Products}}
       <tr>
         <td><b>{{.Name}}</b></td>
+        <td>{{printf "%.2f" .RetailPrice227G}}</td>
         <td>
           {{if .Tiers}}
             {{range $i, $t := .Tiers}}{{if $i}}<br/>{{end}}{{printf "%.0f" $t.MinLb}}{{if $t.MaxLb}}-{{f0p $t.MaxLb}}{{else}}+{{end}} lb：{{printf "%.2f" $t.PriceLb}}{{end}}
