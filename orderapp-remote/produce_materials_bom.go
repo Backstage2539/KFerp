@@ -53,8 +53,7 @@ func calcProducePlanMaterialsWithBOM(ctx context.Context, pool *pgxpool.Pool, sc
 		}
 		items := bomMap[r.ProductID]
 		if len(items) == 0 {
-			// fallback old logic when product has no BOM
-			for _, x := range calcProducePlanMaterials([]UnprodNeedRow{r}, p) {
+			for _, x := range calcNoBomProducePlanMaterials(r, p) {
 				add(x.Name, x.Qty, x.Unit)
 			}
 			continue
@@ -108,6 +107,47 @@ func calcProducePlanMaterialsWithBOM(ctx context.Context, pool *pgxpool.Pool, sc
 		}
 		return out[i].Name < out[j].Name
 	})
+	return out
+}
+
+func calcNoBomProducePlanMaterials(r UnprodNeedRow, p ProducePlanParams) []MaterialNeed {
+	if r.GapG <= 0 || r.SpecG <= 0 {
+		return nil
+	}
+	if p.YieldRate <= 0 || p.YieldRate > 1 {
+		p.YieldRate = 0.8
+	}
+	if p.DripBoxSpec <= 0 {
+		p.DripBoxSpec = 10
+	}
+	ceilDiv := func(a, b int64) int64 {
+		if b <= 0 {
+			return 0
+		}
+		return (a + b - 1) / b
+	}
+	unitsMissing := ceilDiv(r.GapG, r.SpecG)
+	name := strings.TrimSpace(r.Product)
+	if strings.Contains(name, "挂耳") || strings.Contains(name, "速溶") {
+		return calcProducePlanMaterials([]UnprodNeedRow{r}, p)
+	}
+
+	rawName := name + " 生豆"
+	if strings.TrimSpace(rawName) == "生豆" {
+		rawName = "咖啡豆(生豆/原豆)"
+	}
+	out := []MaterialNeed{{
+		Name: rawName,
+		Qty:  int64(math.Ceil(float64(r.GapG) / p.YieldRate)),
+		Unit: "g",
+	}}
+	bagName := "豆袋"
+	if p.BagNameBySpecG != nil {
+		if v := strings.TrimSpace(p.BagNameBySpecG[r.SpecG]); v != "" {
+			bagName = v
+		}
+	}
+	out = append(out, MaterialNeed{Name: bagName, Qty: unitsMissing, Unit: "个"})
 	return out
 }
 
