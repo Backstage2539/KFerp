@@ -221,10 +221,13 @@ func registerMobileAuthAPI(e *echo.Echo, pool *pgxpool.Pool, schema string) {
 		if err != nil {
 			return c.JSON(500, map[string]string{"error": err.Error()})
 		}
+		c.Set("employee_id", eid)
+		c.Set("operator_employee", strings.TrimSpace(ename))
+		c.Set("actor", strings.TrimSpace(ename))
 		auditInsert(c.Request().Context(), pool, schema, strings.TrimSpace(ename), "auth", &eid, "login", nil, nil, nil, AuditMeta{"mode": mode, "phone": phone})
 		return c.JSON(200, map[string]any{
-			"ok": true,
-			"token": token,
+			"ok":       true,
+			"token":    token,
 			"employee": map[string]any{"id": eid, "name": ename, "phone": phone},
 		})
 	})

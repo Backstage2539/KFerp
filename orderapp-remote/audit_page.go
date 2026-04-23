@@ -124,6 +124,16 @@ func labelEntityType(t string) string {
 		return "订单"
 	case "product":
 		return "商品"
+	case "customer":
+		return "客户"
+	case "customer_asset":
+		return "客户附件"
+	case "auth":
+		return "登录"
+	case "produce_batch":
+		return "生产批次"
+	case "operation":
+		return "操作"
 	case "import":
 		return "导入"
 	case "system":
@@ -147,6 +157,12 @@ func labelAction(a string) string {
 		return "恢复"
 	case "import":
 		return "导入"
+	case "request":
+		return "访问/操作"
+	case "login":
+		return "登录"
+	case "upload":
+		return "上传"
 	default:
 		return a
 	}
@@ -160,6 +176,18 @@ func labelField(f string) string {
 		return "发货状态"
 	case "notes":
 		return "备注"
+	case "created":
+		return "创建"
+	case "header":
+		return "订单头"
+	case "order":
+		return "订单"
+	case "price_tiers":
+		return "价格阶梯"
+	case "batch_id":
+		return "批次号"
+	case "deduct_status":
+		return "扣减状态"
 	default:
 		return f
 	}
