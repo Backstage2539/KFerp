@@ -223,6 +223,18 @@ And maintain 5 UI tables at all times:
 
 Canonical reference doc: `HOW_TO_WORKFLOW.md`
 
+## Git / Worktree Collaboration Rule
+
+There may be multiple agents or worktrees writing code at the same time.
+
+- Do not push commits directly to `develop`.
+- Always do implementation work on your own feature branch, normally `codex/<task-name>`.
+- Before integration, run tests and push your own branch to GitHub first.
+- Then fetch the latest `origin/develop`, verify what changed, and merge your branch into `develop` only after confirming the merge is clean.
+- Deploy only after the feature branch has been pushed and the merge into `develop` is complete.
+- If `develop` moved while you were working, rebase or merge from the latest `origin/develop` in your own branch first; do not overwrite or force-push shared branches.
+- Treat other worktrees' changes as user/agent work. Never revert them unless Van explicitly asks.
+
 ## Make It Yours
 
 This is a starting point. Add your own conventions, style, and rules as you figure out what works.

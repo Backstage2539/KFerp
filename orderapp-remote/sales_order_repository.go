@@ -10,12 +10,28 @@ import (
 	salesapp "orderapp/internal/application/sales"
 	salesdomain "orderapp/internal/domain/sales"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 type postgresSalesRepository struct {
 	pool   *pgxpool.Pool
 	schema string
+}
+
+func lookupDefaultStatusID(ctx context.Context, tx pgx.Tx, schema, table string, names ...string) int64 {
+	for _, name := range names {
+		name = strings.TrimSpace(name)
+		if name == "" {
+			continue
+		}
+		var id int64
+		q := fmt.Sprintf("SELECT id FROM %s.%s WHERE name=$1 ORDER BY id LIMIT 1", schema, table)
+		if err := tx.QueryRow(ctx, q, name).Scan(&id); err == nil && id > 0 {
+			return id
+		}
+	}
+	return 0
 }
 
 func (r postgresSalesRepository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand) (salesapp.SaveOrderResult, error) {
@@ -234,10 +250,16 @@ func (r postgresSalesRepository) SaveOrder(ctx context.Context, cmd salesapp.Sav
 	grand0 := totalAmt + shippingAmt - discountAmt + outsourceTotal
 	grandTotal, roundingAmt := applyRoundToInt(grand0, roundToInt)
 
+	// 默认付款状态：未选择时自动写入“未付款”（系统状态名兼容“未收款”）。
+	payStatusID := cmd.PayStatusID
+	if payStatusID == 0 {
+		payStatusID = lookupDefaultStatusID(ctx, tx, r.schema, "pay_statuses", "未付款", "未收款")
+	}
+
 	// 默认发货状态：未选择时自动写入“未发货”。
 	shipStatusID := cmd.ShipStatusID
 	if shipStatusID == 0 {
-		_ = tx.QueryRow(ctx, fmt.Sprintf("SELECT id FROM %s.ship_statuses WHERE name='未发货' ORDER BY id LIMIT 1", r.schema)).Scan(&shipStatusID)
+		shipStatusID = lookupDefaultStatusID(ctx, tx, r.schema, "ship_statuses", "未发货")
 	}
 
 	shipMethod := strings.TrimSpace(cmd.ShipMethod)
@@ -292,7 +314,7 @@ func (r postgresSalesRepository) SaveOrder(ctx context.Context, cmd salesapp.Sav
 			cmd.CustomerID,
 			nullInt(cmd.SourceID),
 			nullInt(cmd.OrderTypeID),
-			nullInt(cmd.PayStatusID),
+			nullInt(payStatusID),
 			nullInt(shipStatusID),
 			nullText(shipMethod),
 			nullText(cmd.ShipTrackingNo),
@@ -348,7 +370,7 @@ func (r postgresSalesRepository) SaveOrder(ctx context.Context, cmd salesapp.Sav
 			cmd.CustomerID,
 			nullInt(cmd.SourceID),
 			nullInt(cmd.OrderTypeID),
-			nullInt(cmd.PayStatusID),
+			nullInt(payStatusID),
 			nullInt(shipStatusID),
 			nullText(shipMethod),
 			nullText(cmd.ShipTrackingNo),

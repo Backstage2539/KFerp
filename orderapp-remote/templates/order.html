@@ -952,6 +952,23 @@ function restoreDraft(){
 // autosave on page leave
 window.addEventListener('beforeunload', saveDraft);
 
+function ensureDefaultPayStatus(){
+  const hidden = document.querySelector('input[name="pay_status_id"]');
+  if(!hidden || (hidden.value||'').trim()!=='') return;
+  const arr = OPTS.payStatuses || [];
+  const hit = arr.find(x => String(x.name||'').trim()==='未付款') ||
+    arr.find(x => String(x.name||'').trim()==='未收款') ||
+    arr.find(x => String(x.name||'').includes('未付款')) ||
+    arr.find(x => String(x.name||'').includes('未收款'));
+  if(!hit) return;
+  hidden.value = String(hit.id);
+  const combo = hidden.closest('.combo');
+  if(combo){
+    const inp = combo.querySelector('input.combo-input');
+    if(inp) inp.value = cleanPicked(hit.name||'未收款');
+  }
+}
+
 function ensureDefaultShipStatus(){
   const hidden = document.querySelector('input[name="ship_status_id"]');
   if(!hidden || (hidden.value||'').trim()!=='') return;
@@ -1066,6 +1083,7 @@ if(EDIT_DATA){
 }else{
   restoreDraft();
 }
+ensureDefaultPayStatus();
 ensureDefaultShipStatus();
 if(document.querySelectorAll('#items tbody tr').length===0){
   addRow();
