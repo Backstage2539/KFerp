@@ -169,7 +169,7 @@
           <div style="display:flex; gap:10px; align-items:center;">
             <div class="combo" style="position:relative; flex:1;">
               <input class="combo-input" placeholder="可选" autocomplete="off"
-                onfocus="comboShowAny(this,'customers')" oninput="comboFilterAny(this,'customers')" />
+                onfocus="comboShowAny(this,'customers')" onclick="comboShowAny(this,'customers')" oninput="comboFilterAny(this,'customers')" />
               <button type="button" class="clear" onclick="comboClearAny(this,'customers')" aria-label="清空"
                 style="position:absolute; right:8px; top:50%; transform:translateY(-50%); border:0; background:transparent; font-size:18px; line-height:1; padding:4px; color:#666;">×</button>
               <div class="dropdown" style="display:none; position:absolute; left:0; right:0; top:100%; z-index:20; background:#fff; border:1px solid #ddd; border-radius:8px; margin-top:6px; max-height:240px; overflow:auto;"></div>
@@ -185,7 +185,7 @@
           <label>来源</label>
           <div class="combo" style="position:relative;">
             <input class="combo-input" placeholder="可选" autocomplete="off"
-              onfocus="comboShowAny(this,'sources')" oninput="comboFilterAny(this,'sources')" />
+              onfocus="comboShowAny(this,'sources')" onclick="comboShowAny(this,'sources')" oninput="comboFilterAny(this,'sources')" />
             <button type="button" class="clear" onclick="comboClearAny(this,'sources')" aria-label="清空"
               style="position:absolute; right:8px; top:50%; transform:translateY(-50%); border:0; background:transparent; font-size:18px; line-height:1; padding:4px; color:#666;">×</button>
             <div class="dropdown" style="display:none; position:absolute; left:0; right:0; top:100%; z-index:20; background:#fff; border:1px solid #ddd; border-radius:8px; margin-top:6px; max-height:240px; overflow:auto;"></div>
@@ -196,13 +196,13 @@
           <label>价格类型/订单类型</label>
           <div class="combo" style="position:relative;">
             <input class="combo-input" placeholder="可选" autocomplete="off"
-              onfocus="comboShowAny(this,'orderTypes')" oninput="comboFilterAny(this,'orderTypes')" />
+              onfocus="comboShowAny(this,'orderTypes')" onclick="comboShowAny(this,'orderTypes')" oninput="comboFilterAny(this,'orderTypes')" />
             <button type="button" class="clear" onclick="comboClearAny(this,'orderTypes')" aria-label="清空"
               style="position:absolute; right:8px; top:50%; transform:translateY(-50%); border:0; background:transparent; font-size:18px; line-height:1; padding:4px; color:#666;">×</button>
             <div class="dropdown" style="display:none; position:absolute; left:0; right:0; top:100%; z-index:20; background:#fff; border:1px solid #ddd; border-radius:8px; margin-top:6px; max-height:240px; overflow:auto;"></div>
             <input type="hidden" name="order_type_id" />
           </div>
-          <div class="muted" style="margin-top:6px;">选择“批发”走阶梯价；选择“零售”走商品档案 227g 零售价。</div>
+          <div class="muted" style="margin-top:6px;">选择“批发”走阶梯价；选择“零售”走商品档案对应规格零售价。</div>
         </div>
       </div>
 
@@ -227,7 +227,7 @@
           <label>收款状态</label>
           <div class="combo" style="position:relative;">
             <input class="combo-input" placeholder="可选" autocomplete="off"
-              onfocus="comboShowAny(this,'payStatuses')" oninput="comboFilterAny(this,'payStatuses')" />
+              onfocus="comboShowAny(this,'payStatuses')" onclick="comboShowAny(this,'payStatuses')" oninput="comboFilterAny(this,'payStatuses')" />
             <button type="button" class="clear" onclick="comboClearAny(this,'payStatuses')" aria-label="清空"
               style="position:absolute; right:8px; top:50%; transform:translateY(-50%); border:0; background:transparent; font-size:18px; line-height:1; padding:4px; color:#666;">×</button>
             <div class="dropdown" style="display:none; position:absolute; left:0; right:0; top:100%; z-index:20; background:#fff; border:1px solid #ddd; border-radius:8px; margin-top:6px; max-height:240px; overflow:auto;"></div>
@@ -238,7 +238,7 @@
           <label>发货状态</label>
           <div class="combo" style="position:relative;">
             <input class="combo-input" placeholder="可选" autocomplete="off"
-              onfocus="comboShowAny(this,'shipStatuses')" oninput="comboFilterAny(this,'shipStatuses')" />
+              onfocus="comboShowAny(this,'shipStatuses')" onclick="comboShowAny(this,'shipStatuses')" oninput="comboFilterAny(this,'shipStatuses')" />
             <button type="button" class="clear" onclick="comboClearAny(this,'shipStatuses')" aria-label="清空"
               style="position:absolute; right:8px; top:50%; transform:translateY(-50%); border:0; background:transparent; font-size:18px; line-height:1; padding:4px; color:#666;">×</button>
             <div class="dropdown" style="display:none; position:absolute; left:0; right:0; top:100%; z-index:20; background:#fff; border:1px solid #ddd; border-radius:8px; margin-top:6px; max-height:240px; overflow:auto;"></div>
@@ -344,11 +344,11 @@
 <script>
 const PRODUCTS = {{.ProductsJSON}};
 const OPTS = {
-  customers: [{{range .Customers}}{id:"{{.ID}}", name:{{printf "%q" (custShort .Name)}}, py:{{printf "%q" (py (custShort .Name))}}, pyi:{{printf "%q" (pyi (custShort .Name))}}},{{end}}],
-  sources: [{{range .Sources}}{id:"{{.ID}}", name:{{printf "%q" .Name}}, py:{{printf "%q" (py .Name)}}, pyi:{{printf "%q" (pyi .Name)}}},{{end}}],
-  orderTypes: [{{range .OrderTypes}}{id:"{{.ID}}", name:{{printf "%q" .Name}}, py:{{printf "%q" (py .Name)}}, pyi:{{printf "%q" (pyi .Name)}}},{{end}}],
-  payStatuses: [{{range .PayStatuses}}{id:"{{.ID}}", name:{{printf "%q" .Name}}, py:{{printf "%q" (py .Name)}}, pyi:{{printf "%q" (pyi .Name)}}},{{end}}],
-  shipStatuses: [{{range .ShipStatuses}}{id:"{{.ID}}", name:{{printf "%q" .Name}}, py:{{printf "%q" (py .Name)}}, pyi:{{printf "%q" (pyi .Name)}}},{{end}}],
+  customers: [{{range .Customers}}{id:"{{.ID}}", name:{{jsstr (custShort .Name)}}, py:{{jsstr (py (custShort .Name))}}, pyi:{{jsstr (pyi (custShort .Name))}}},{{end}}],
+  sources: [{{range .Sources}}{id:"{{.ID}}", name:{{jsstr .Name}}, py:{{jsstr (py .Name)}}, pyi:{{jsstr (pyi .Name)}}},{{end}}],
+  orderTypes: [{{range .OrderTypes}}{id:"{{.ID}}", name:{{jsstr .Name}}, py:{{jsstr (py .Name)}}, pyi:{{jsstr (pyi .Name)}}},{{end}}],
+  payStatuses: [{{range .PayStatuses}}{id:"{{.ID}}", name:{{jsstr .Name}}, py:{{jsstr (py .Name)}}, pyi:{{jsstr (pyi .Name)}}},{{end}}],
+  shipStatuses: [{{range .ShipStatuses}}{id:"{{.ID}}", name:{{jsstr .Name}}, py:{{jsstr (py .Name)}}, pyi:{{jsstr (pyi .Name)}}},{{end}}],
 };
 
 const PRODUCT_MAP = Object.fromEntries(PRODUCTS.map(p => [String(p.id), p]));
@@ -511,13 +511,14 @@ function comboRenderAny(dropdown, kw, key){
   const k = normName(kw);
   let html = '';
   const list = (!k) ? arr : arr.filter(o => {
-    const n = normName(o.name);
+    const n = normName(cleanPicked(o.name));
     const py = normName(o.py);
     const pyi = normName(o.pyi);
     return n.includes(k) || py.includes(k) || pyi.includes(k);
   });
   for(const o of list){
-    html += `<div class="opt" data-kind="any" data-key="${key}" data-id="${o.id}" data-name="${encodeURIComponent(o.name)}" style="padding:10px 10px; border-bottom:1px solid #f2f2f2;">${o.name}</div>`;
+    const name = cleanPicked(o.name);
+    html += `<div class="opt" data-kind="any" data-key="${key}" data-id="${o.id}" data-name="${encodeURIComponent(name)}" style="padding:10px 10px; border-bottom:1px solid #f2f2f2;">${escapeHtml(name)}</div>`;
   }
   if(!html){
     html = `<div class="muted" style="padding:10px;">无匹配</div>`;
@@ -566,7 +567,7 @@ function anyEls(inp){
 
 function comboShowAny(inp, key){
   const {dropdown} = anyEls(inp);
-  comboRenderAny(dropdown, inp.value, key);
+  comboRenderAny(dropdown, '', key);
   dropdown.style.display='block';
   dropdown.dataset.key = key;
 }
@@ -662,10 +663,14 @@ function cleanPicked(s){
   return s;
 }
 
+function escapeHtml(s){
+  return String(s||'').replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;', "'":'&#39;'}[ch]));
+}
+
 function findNameById(key, id){
   const arr = OPTS[key] || [];
   const it = arr.find(x => String(x.id) === String(id));
-  return it ? it.name : '';
+  return it ? cleanPicked(it.name) : '';
 }
 
 function setAnyValue(key, id){
@@ -750,6 +755,13 @@ function isRetailOrder(){
 }
 
 function retailPackagePrice(product, specG){
+  const exact = {
+    100: num(product?.retail_price_100g),
+    200: num(product?.retail_price_200g),
+    227: num(product?.retail_price_227g),
+    250: num(product?.retail_price_250g),
+  }[specG];
+  if(exact > 0) return exact;
   const retail = num(product?.retail_price_227g);
   if(retail <= 0 || specG <= 0) return 0;
   return Math.ceil(retail * specG / 227);
@@ -781,7 +793,7 @@ function recalc(){
       price = retailPackagePrice(p, specG);
       line = price * units;
       if(warn && price <= 0 && pid){
-        warn.textContent = '未配置零售价，请到商品档案维护 227g 零售价。';
+        warn.textContent = '未配置零售价，请到商品档案维护对应规格零售价。';
       }
     } else if(tierSel && tierSel.value === 'manual'){
       price = num(unitPriceInput.value);
@@ -801,7 +813,7 @@ function recalc(){
 
     if(tierSel){
       tierSel.disabled = retailOrder;
-      tierSel.title = retailOrder ? '零售订单使用商品档案里的 227g 零售价' : '';
+      tierSel.title = retailOrder ? '零售订单使用商品档案里的规格零售价' : '';
     }
     if(unitPriceInput && retailOrder && tierSel && tierSel.value !== 'manual'){
       unitPriceInput.style.display = 'none';

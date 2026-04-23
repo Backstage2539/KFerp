@@ -155,10 +155,15 @@ func (r postgresSalesRepository) SaveOrder(ctx context.Context, cmd salesapp.Sav
 		qtyLb := totalG / 454.0
 
 		if retailOrder && items[idx].productID != nil {
-			retailPrice227G := 0.0
-			q := fmt.Sprintf(`SELECT COALESCE(NULLIF(retail_price_227g,0), default_price, 0) FROM %s.products WHERE id=$1`, r.schema)
-			_ = tx.QueryRow(ctx, q, *items[idx].productID).Scan(&retailPrice227G)
-			_, lineTotal := salesdomain.RetailLinePrice(retailPrice227G, items[idx].specG, items[idx].units)
+			retailPrices := salesdomain.RetailSpecPrices{}
+			q := fmt.Sprintf(`SELECT
+				COALESCE(retail_price_100g, 0),
+				COALESCE(retail_price_200g, 0),
+				COALESCE(NULLIF(retail_price_227g,0), default_price, 0),
+				COALESCE(retail_price_250g, 0)
+				FROM %s.products WHERE id=$1`, r.schema)
+			_ = tx.QueryRow(ctx, q, *items[idx].productID).Scan(&retailPrices.Price100G, &retailPrices.Price200G, &retailPrices.Price227G, &retailPrices.Price250G)
+			_, lineTotal := salesdomain.RetailLinePriceForSpec(retailPrices, items[idx].specG, items[idx].units)
 			items[idx].lineTotal = lineTotal
 			if qtyLb > 0 {
 				items[idx].unitPrice = lineTotal / qtyLb

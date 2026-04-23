@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"html/template"
 	"regexp"
@@ -28,8 +29,12 @@ func templateFuncMap() template.FuncMap {
 			}
 			return fmt.Sprintf("%.2f", *p)
 		},
-		"py":         func(s string) string { return pinyinFull(s) },
-		"pyi":        func(s string) string { return pinyinInitials(s) },
+		"py":  func(s string) string { return pinyinFull(s) },
+		"pyi": func(s string) string { return pinyinInitials(s) },
+		"jsstr": func(s string) template.JS {
+			b, _ := json.Marshal(s)
+			return template.JS(b)
+		},
 		"assetLabel": func(kind string) string { return kindLabel(kind) },
 		"custShort":  customerShortLabel,
 		"eq64":       func(a, b int64) bool { return a == b },

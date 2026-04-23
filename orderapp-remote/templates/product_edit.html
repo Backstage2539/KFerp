@@ -23,9 +23,25 @@
 
   <form method="post" action="/products/{{.ID}}">
     <div class="card">
-      <label>零售价（元 / 227g）</label>
-      <input name="retail_price_227g" value="{{printf "%.2f" .RetailPrice227G}}" inputmode="decimal" />
-      <div class="muted" style="margin-top:6px;">录单选择“零售”时使用。非 227g 规格按克重折算，金额向上取整。</div>
+      <div class="muted" style="margin-bottom:8px;">录单选择“零售”时优先使用对应规格零售价；未配置的规格回退到 227g 折算并向上取整。</div>
+      <div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(140px,1fr)); gap:10px;">
+        <div>
+          <label>零售价（元 / 100g）</label>
+          <input name="retail_price_100g" value="{{printf "%.2f" .RetailPrice100G}}" inputmode="decimal" />
+        </div>
+        <div>
+          <label>零售价（元 / 200g）</label>
+          <input name="retail_price_200g" value="{{printf "%.2f" .RetailPrice200G}}" inputmode="decimal" />
+        </div>
+        <div>
+          <label>零售价（元 / 227g）</label>
+          <input name="retail_price_227g" value="{{printf "%.2f" .RetailPrice227G}}" inputmode="decimal" />
+        </div>
+        <div>
+          <label>零售价（元 / 250g）</label>
+          <input name="retail_price_250g" value="{{printf "%.2f" .RetailPrice250G}}" inputmode="decimal" />
+        </div>
+      </div>
     </div>
 
     <div class="card">

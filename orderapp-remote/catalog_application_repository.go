@@ -43,7 +43,9 @@ func (r postgresCatalogRepository) ReplacePriceTiers(ctx context.Context, cmd ca
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
-	if _, err := tx.Exec(ctx, fmt.Sprintf("UPDATE %s.products SET retail_price_227g=$2 WHERE id=$1", r.schema), cmd.ProductID, cmd.RetailPrice227G); err != nil {
+	if _, err := tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.products
+		SET retail_price_100g=$2, retail_price_200g=$3, retail_price_227g=$4, retail_price_250g=$5
+		WHERE id=$1`, r.schema), cmd.ProductID, cmd.RetailPrice100G, cmd.RetailPrice200G, cmd.RetailPrice227G, cmd.RetailPrice250G); err != nil {
 		return err
 	}
 	if _, err := tx.Exec(ctx, fmt.Sprintf("DELETE FROM %s.product_price_tiers WHERE product_id=$1", r.schema), cmd.ProductID); err != nil {
@@ -58,12 +60,12 @@ func (r postgresCatalogRepository) ReplacePriceTiers(ctx context.Context, cmd ca
 	if err := tx.Commit(ctx); err != nil {
 		return err
 	}
-	auditInsert(ctx, r.pool, r.schema, cmd.Actor, "product", &cmd.ProductID, "update", strPtrStr("price_tiers"), nil, strPtrStr(fmt.Sprintf("%d", len(cmd.Tiers))), AuditMeta{"product_id": cmd.ProductID, "tier_count": len(cmd.Tiers), "retail_price_227g": cmd.RetailPrice227G})
+	auditInsert(ctx, r.pool, r.schema, cmd.Actor, "product", &cmd.ProductID, "update", strPtrStr("price_tiers"), nil, strPtrStr(fmt.Sprintf("%d", len(cmd.Tiers))), AuditMeta{"product_id": cmd.ProductID, "tier_count": len(cmd.Tiers), "retail_price_100g": cmd.RetailPrice100G, "retail_price_200g": cmd.RetailPrice200G, "retail_price_227g": cmd.RetailPrice227G, "retail_price_250g": cmd.RetailPrice250G})
 	return nil
 }
 
 func catalogProductFromOption(p ProductOption) catalogapp.Product {
-	out := catalogapp.Product{ID: p.ID, Name: p.Name, DefaultPrice: p.DefaultPrice, RetailPrice227G: p.RetailPrice227G}
+	out := catalogapp.Product{ID: p.ID, Name: p.Name, DefaultPrice: p.DefaultPrice, RetailPrice100G: p.RetailPrice100G, RetailPrice200G: p.RetailPrice200G, RetailPrice227G: p.RetailPrice227G, RetailPrice250G: p.RetailPrice250G}
 	out.Tiers = make([]catalogapp.PriceTier, 0, len(p.Tiers))
 	for _, t := range p.Tiers {
 		out.Tiers = append(out.Tiers, catalogapp.PriceTier{ID: t.ID, MinLb: t.MinLb, MaxLb: t.MaxLb, PriceLb: t.PriceLb})

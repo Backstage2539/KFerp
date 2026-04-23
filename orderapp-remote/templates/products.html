@@ -93,7 +93,7 @@
         <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:12px;">
           <div>
             <div style="font-size:16px; font-weight:700;"><a href="/products/{{.ID}}">{{.Name}}</a></div>
-            <div class="muted" style="margin-top:4px;">零售：{{printf "%.2f" .RetailPrice227G}} 元/227g；{{if .Tiers}}批发已配置（{{len .Tiers}}档）{{else}}无批发阶梯价{{end}}</div>
+            <div class="muted" style="margin-top:4px;">零售：100g {{printf "%.2f" .RetailPrice100G}}；200g {{printf "%.2f" .RetailPrice200G}}；227g {{printf "%.2f" .RetailPrice227G}}；250g {{printf "%.2f" .RetailPrice250G}}；{{if .Tiers}}批发已配置（{{len .Tiers}}档）{{else}}无批发阶梯价{{end}}</div>
           </div>
           <div>
             <a class="btn2" href="/products/{{.ID}}">编辑</a>

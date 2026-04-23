@@ -25,13 +25,13 @@
     </div>
   </div>
 
-  <div class="muted noprint" style="margin-bottom:8px;">零售价单位为元/227g；批发价单位为元/lb。</div>
+  <div class="muted noprint" style="margin-bottom:8px;">零售价单位为元/对应规格；批发价单位为元/lb。</div>
 
   <table>
     <thead>
       <tr>
         <th style="width:26%">商品</th>
-        <th style="width:18%">零售价（元/227g）</th>
+        <th style="width:26%">零售价（元/规格）</th>
         <th>批发阶梯价（元/lb）</th>
       </tr>
     </thead>
@@ -39,7 +39,7 @@
       {{range .Products}}
       <tr>
         <td><b>{{.Name}}</b></td>
-        <td>{{printf "%.2f" .RetailPrice227G}}</td>
+        <td>100g {{printf "%.2f" .RetailPrice100G}}<br/>200g {{printf "%.2f" .RetailPrice200G}}<br/>227g {{printf "%.2f" .RetailPrice227G}}<br/>250g {{printf "%.2f" .RetailPrice250G}}</td>
         <td>
           {{if .Tiers}}
             {{range $i, $t := .Tiers}}{{if $i}}<br/>{{end}}{{printf "%.0f" $t.MinLb}}{{if $t.MaxLb}}-{{f0p $t.MaxLb}}{{else}}+{{end}} lb：{{printf "%.2f" $t.PriceLb}}{{end}}

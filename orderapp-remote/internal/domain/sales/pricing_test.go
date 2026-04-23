@@ -42,3 +42,22 @@ func TestRetailPackagePrice(t *testing.T) {
 		}
 	}
 }
+
+func TestRetailPackagePriceForSpecPrefersExactSpec(t *testing.T) {
+	prices := RetailSpecPrices{Price100G: 42, Price200G: 85, Price227G: 50, Price250G: 55}
+	cases := []struct {
+		spec int64
+		want float64
+	}{
+		{spec: 100, want: 42},
+		{spec: 200, want: 85},
+		{spec: 227, want: 50},
+		{spec: 250, want: 55},
+		{spec: 454, want: 100},
+	}
+	for _, tc := range cases {
+		if got := RetailPackagePriceForSpec(prices, tc.spec); got != tc.want {
+			t.Fatalf("spec %dg: got %.2f want %.2f", tc.spec, got, tc.want)
+		}
+	}
+}

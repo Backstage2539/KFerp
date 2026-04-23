@@ -18,7 +18,10 @@ type ProductOption struct {
 	ID              int64
 	Name            string
 	DefaultPrice    float64
+	RetailPrice100G float64
+	RetailPrice200G float64
 	RetailPrice227G float64
+	RetailPrice250G float64
 	Tiers           []ProductTierOption
 }
 
