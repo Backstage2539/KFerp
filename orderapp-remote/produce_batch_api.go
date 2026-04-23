@@ -6,7 +6,8 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/jackc/pgx/v5"
+	productionapp "orderapp/internal/application/production"
+
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/labstack/echo/v4"
 )
@@ -17,11 +18,11 @@ type ProduceBatchAllocateItem struct {
 }
 
 type CreateProduceBatchRequest struct {
-	OrderIDs      []int64                    `json:"order_ids"`
-	BatchID       string                     `json:"batch_id"`
-	Operator      string                     `json:"operator"`
-	IdempotencyKey string                    `json:"idempotency_key"`
-	Allocations   []ProduceBatchAllocateItem `json:"allocations"`
+	OrderIDs       []int64                    `json:"order_ids"`
+	BatchID        string                     `json:"batch_id"`
+	Operator       string                     `json:"operator"`
+	IdempotencyKey string                     `json:"idempotency_key"`
+	Allocations    []ProduceBatchAllocateItem `json:"allocations"`
 }
 
 func validateCreateProduceBatchRequest(req CreateProduceBatchRequest) error {
@@ -104,6 +105,8 @@ type ProduceBatchDeductConfirmResponse struct {
 }
 
 func registerProduceBatchAPI(e *echo.Echo, pool *pgxpool.Pool, schema string) {
+	productionSvc := productionapp.NewService(postgresProductionRepository{pool: pool, schema: schema})
+
 	e.POST("/api/produce/batch/create", func(c echo.Context) error {
 		if err := requireEmployeeBound(c); err != nil {
 			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: err.Error()})
@@ -121,14 +124,19 @@ func registerProduceBatchAPI(e *echo.Echo, pool *pgxpool.Pool, schema string) {
 				allocMap[a.OrderItemID] = a.AllocateUnits
 			}
 		}
-		res, err := createProduceBatchFromOrders(c.Request().Context(), pool, schema, req.OrderIDs, req.Operator, req.IdempotencyKey, allocMap)
+		res, err := productionSvc.CreateBatch(c.Request().Context(), productionapp.CreateBatchCommand{
+			OrderIDs:             req.OrderIDs,
+			Operator:             req.Operator,
+			IdempotencyKey:       req.IdempotencyKey,
+			RequestUnitsByItemID: allocMap,
+		})
 		if err != nil {
 			if strings.Contains(err.Error(), "exceed") {
 				return c.JSON(http.StatusConflict, ErrorResponse{Error: err.Error()})
 			}
 			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: err.Error()})
 		}
-		return c.JSON(http.StatusOK, res)
+		return c.JSON(http.StatusOK, productionCreateResultFromApp(res))
 	})
 
 	e.GET("/api/produce/batch/list", func(c echo.Context) error {
@@ -225,55 +233,14 @@ func registerProduceBatchAPI(e *echo.Echo, pool *pgxpool.Pool, schema string) {
 		if bid == "" {
 			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: "batch_id required"})
 		}
-
-		tx, err := pool.BeginTx(c.Request().Context(), pgx.TxOptions{})
+		res, err := productionSvc.PreviewDeduct(c.Request().Context(), bid)
 		if err != nil {
+			if strings.Contains(err.Error(), "batch not found") {
+				return c.JSON(http.StatusNotFound, ErrorResponse{Error: err.Error()})
+			}
 			return c.JSON(http.StatusInternalServerError, ErrorResponse{Error: err.Error()})
 		}
-		defer tx.Rollback(c.Request().Context())
-
-		// ensure batch exists and lock its rows in current tx
-		var exists int
-		if err := tx.QueryRow(c.Request().Context(), "SELECT 1 FROM "+schema+".produce_batches WHERE batch_id=$1 FOR UPDATE", bid).Scan(&exists); err != nil {
-			return c.JSON(http.StatusNotFound, ErrorResponse{Error: "batch not found"})
-		}
-
-		rows, err := tx.Query(c.Request().Context(),
-			"SELECT i.product_id,COALESCE((SELECT name FROM "+schema+".products p WHERE p.id=i.product_id),''),i.spec_g,i.need_units,i.need_g,COALESCE(fi.onhand_units,0),COALESCE(fi.onhand_loose_g,0) FROM "+schema+".produce_batch_items i LEFT JOIN LATERAL (SELECT onhand_units,onhand_loose_g FROM "+schema+".finished_inventory f WHERE f.product_id=i.product_id AND f.spec_g=i.spec_g FOR UPDATE) fi ON true WHERE i.batch_id=$1 ORDER BY i.product_id,i.spec_g FOR UPDATE OF i", bid)
-		if err != nil {
-			return c.JSON(http.StatusInternalServerError, ErrorResponse{Error: err.Error()})
-		}
-		defer rows.Close()
-		out := ProduceBatchDeductPreview{BatchID: bid, Summary: make([]ProduceBatchPreviewItem, 0)}
-		for rows.Next() {
-			var s ProduceBatchPreviewItem
-			if err := rows.Scan(&s.ProductID, &s.ProductName, &s.SpecG, &s.NeedUnits, &s.NeedG, &s.InvUnits, &s.InvLooseG); err != nil {
-				return c.JSON(http.StatusInternalServerError, ErrorResponse{Error: err.Error()})
-			}
-			totalG, terr := invTotalG(s.SpecG, InvQty{Units: s.InvUnits, LooseG: s.InvLooseG})
-			if terr != nil {
-				return c.JSON(http.StatusInternalServerError, ErrorResponse{Error: terr.Error()})
-			}
-			s.InvTotalG = totalG
-			_, deductedG, gapG, derr := invDeduct(s.SpecG, InvQty{Units: s.InvUnits, LooseG: s.InvLooseG}, s.NeedG)
-			if derr != nil {
-				return c.JSON(http.StatusInternalServerError, ErrorResponse{Error: derr.Error()})
-			}
-			s.DeductedG = deductedG
-			s.GapG = gapG
-			// unified rule: low inventory is allowed with warning
-			if s.DeductedG > 0 && (s.InvTotalG-s.DeductedG) < s.SpecG {
-				s.WarningLowStock = true
-			}
-			out.Summary = append(out.Summary, s)
-		}
-		if err := rows.Err(); err != nil {
-			return c.JSON(http.StatusInternalServerError, ErrorResponse{Error: err.Error()})
-		}
-		if err := tx.Commit(c.Request().Context()); err != nil {
-			return c.JSON(http.StatusInternalServerError, ErrorResponse{Error: err.Error()})
-		}
-		return c.JSON(http.StatusOK, out)
+		return c.JSON(http.StatusOK, productionPreviewFromApp(res))
 	})
 
 	e.POST("/api/produce/batch/:batch_id/deduct-confirm", func(c echo.Context) error {
@@ -285,14 +252,14 @@ func registerProduceBatchAPI(e *echo.Echo, pool *pgxpool.Pool, schema string) {
 			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: "batch_id required"})
 		}
 		op := strings.TrimSpace(c.QueryParam("operator"))
-		summary, err := confirmProduceBatchDeduct(c.Request().Context(), pool, schema, bid, op)
+		res, err := productionSvc.ConfirmDeduct(c.Request().Context(), bid, op)
 		if err != nil {
 			if strings.Contains(err.Error(), "batch not found") {
 				return c.JSON(http.StatusNotFound, ErrorResponse{Error: err.Error()})
 			}
 			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: err.Error()})
 		}
-		return c.JSON(http.StatusOK, ProduceBatchDeductConfirmResponse{BatchID: bid, Status: "deducted", Summary: summary})
+		return c.JSON(http.StatusOK, ProduceBatchDeductConfirmResponse{BatchID: res.BatchID, Status: res.Status, Summary: productionSummaryFromApp(res.Summary)})
 	})
 
 	e.GET("/api/produce/batch/:batch_id", func(c echo.Context) error {
