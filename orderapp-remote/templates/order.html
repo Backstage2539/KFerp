@@ -590,18 +590,15 @@ function comboClearAny(btn, key){
   inp.focus();
 }
 
-// handle option click via event delegation
-document.addEventListener('click', (ev) => {
-  const opt = ev.target.closest('.dropdown .opt');
-  if(!opt) return;
-
+function selectDropdownOption(opt){
+  if(!opt) return false;
   if(opt.dataset.kind === 'product'){
     const tr = opt.closest('tr');
     setProductForRow(tr, opt.dataset.id, decodeURIComponent(opt.dataset.name || ''));
     const inp = tr.querySelector('input.prod-combo');
     comboHide(inp);
     setTimeout(() => { try{ inp.blur(); }catch(e){} }, 0);
-    return;
+    return true;
   }
 
   if(opt.dataset.kind === 'any'){
@@ -624,8 +621,27 @@ document.addEventListener('click', (ev) => {
 
     try{ saveDraft(); }catch(e){}
     setTimeout(() => { try{ inp.blur(); }catch(e){} }, 0);
-    return;
+    return true;
   }
+
+  return false;
+}
+
+// Select on pointer down so focus/stacking changes cannot swallow the final click.
+document.addEventListener('mousedown', (ev) => {
+  const opt = ev.target.closest('.dropdown .opt');
+  if(!opt) return;
+  ev.preventDefault();
+  ev.stopPropagation();
+  selectDropdownOption(opt);
+}, true);
+
+// handle option click via event delegation
+document.addEventListener('click', (ev) => {
+  const opt = ev.target.closest('.dropdown .opt');
+  if(!opt) return;
+  ev.preventDefault();
+  selectDropdownOption(opt);
 });
 
 // close dropdown when clicking outside
