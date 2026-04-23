@@ -183,6 +183,9 @@ func finishRunningItem(ctx context.Context, pool *pgxpool.Pool, schema string, i
 	if _, err := tx.Exec(ctx, fmt.Sprintf(`INSERT INTO %s.finished_inventory(product_id,spec_g,onhand_units,onhand_loose_g,updated_at) VALUES($1,$2,$3,$4,now()) ON CONFLICT (product_id,spec_g) DO UPDATE SET onhand_units=excluded.onhand_units,onhand_loose_g=excluded.onhand_loose_g,updated_at=now()`, schema), r.ProductID, r.SpecG, norm.Units, norm.LooseG); err != nil {
 		return err
 	}
+	if err := deductMaterialsForRunningItemTx(ctx, tx, schema, r, operator); err != nil {
+		return err
+	}
 	if _, err := tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.produce_running_items SET status='done',finished_by=$2,finished_at=$3 WHERE id=$1`, schema), id, operator, time.Now()); err != nil {
 		return err
 	}
@@ -194,6 +197,7 @@ func finishRunningItem(ctx context.Context, pool *pgxpool.Pool, schema string, i
 	if err := tx.Commit(ctx); err != nil {
 		return err
 	}
+	auditInsert(ctx, pool, schema, operator, "produce_running", &id, "finish", strPtrStr("material_consumption"), nil, strPtrStr("deducted"), AuditMeta{"running_item_id": id, "product_id": r.ProductID, "spec_g": r.SpecG, "need_g": r.NeedG})
 	return nil
 }
 

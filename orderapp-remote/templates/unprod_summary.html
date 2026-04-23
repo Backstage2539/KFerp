@@ -172,11 +172,11 @@
       </div>
 
       <div class="card">
-        <div style="font-weight:700; margin-bottom:8px;">物料需求汇总</div>
+        <div style="font-weight:700; margin-bottom:8px;">物料需求汇总（预计消耗）</div>
         {{if .PlanReady}}
         <div style="overflow:auto; -webkit-overflow-scrolling:touch;">
           <table>
-            <thead><tr><th>物料</th><th>需求</th><th>单位</th></tr></thead>
+            <thead><tr><th>物料</th><th>预计消耗数量</th><th>单位</th></tr></thead>
             <tbody>
             {{range .Materials}}
               <tr><td>{{.Name}}</td><td>{{.Qty}}</td><td>{{.Unit}}</td></tr>
@@ -185,6 +185,7 @@
             </tbody>
           </table>
         </div>
+        <div class="muted" style="margin-top:8px;">完成生产时会按实际完成项逐项扣减对应物料库存。</div>
         {{else}}<div class="muted">请先选择订单并点击“生成计划”。</div>{{end}}
       </div>
 
