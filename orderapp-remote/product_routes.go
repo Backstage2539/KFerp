@@ -6,12 +6,16 @@ import (
 	"strconv"
 	"strings"
 
+	catalogapp "orderapp/internal/application/catalog"
+
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/labstack/echo/v4"
 )
 
 func registerProductRoutes(e *echo.Echo, pool *pgxpool.Pool, schema string) {
-	h := productHandler{pool: pool, schema: schema}
+	h := productHandler{
+		catalog: catalogapp.NewService(postgresCatalogRepository{pool: pool, schema: schema}),
+	}
 
 	e.GET("/products", h.index)
 	e.GET("/products/print", h.print)
@@ -20,8 +24,7 @@ func registerProductRoutes(e *echo.Echo, pool *pgxpool.Pool, schema string) {
 }
 
 type productHandler struct {
-	pool   *pgxpool.Pool
-	schema string
+	catalog *catalogapp.Service
 }
 
 func (h productHandler) index(c echo.Context) error {
@@ -37,11 +40,11 @@ func (h productHandler) renderList(c echo.Context, templateName string) error {
 		Products []ProductOption
 		Error    string
 	}{}
-	ps, err := fetchProducts(c.Request().Context(), h.pool, h.schema)
+	ps, err := h.catalog.ListProducts(c.Request().Context())
 	if err != nil {
 		data.Error = err.Error()
 	}
-	data.Products = ps
+	data.Products = productOptionsFromCatalog(ps)
 	return c.Render(http.StatusOK, templateName, data)
 }
 
@@ -50,14 +53,15 @@ func (h productHandler) edit(c echo.Context) error {
 	if err != nil || id <= 0 {
 		return c.String(http.StatusBadRequest, "invalid id")
 	}
-	p, err := fetchProductByID(c.Request().Context(), h.pool, h.schema, id)
+	p, err := h.catalog.GetProduct(c.Request().Context(), id)
 	if err != nil {
 		return err
 	}
 	if p == nil {
 		return c.String(http.StatusNotFound, "not found")
 	}
-	return c.Render(http.StatusOK, "product_edit.html", p)
+	data := productOptionFromCatalog(*p)
+	return c.Render(http.StatusOK, "product_edit.html", data)
 }
 
 func (h productHandler) update(c echo.Context) error {
@@ -65,28 +69,11 @@ func (h productHandler) update(c echo.Context) error {
 	if err != nil || id <= 0 {
 		return c.String(http.StatusBadRequest, "invalid id")
 	}
-	_ = c.Request().FormValue("min[]")
 	minArr := c.Request().PostForm["min[]"]
 	maxArr := c.Request().PostForm["max[]"]
 	priceArr := c.Request().PostForm["price[]"]
 
-	ctx := c.Request().Context()
-	conn, err := h.pool.Acquire(ctx)
-	if err != nil {
-		return err
-	}
-	defer conn.Release()
-	tx, err := conn.Begin(ctx)
-	if err != nil {
-		return err
-	}
-	defer func() { _ = tx.Rollback(ctx) }()
-
-	// Replace tiers for simplicity.
-	if _, err := tx.Exec(ctx, fmt.Sprintf("DELETE FROM %s.product_price_tiers WHERE product_id=$1", h.schema), id); err != nil {
-		return err
-	}
-	ins := fmt.Sprintf("INSERT INTO %s.product_price_tiers(product_id,min_qty_lb,max_qty_lb,price_per_lb,active) VALUES ($1,$2,$3,$4,true)", h.schema)
+	tiers := make([]catalogapp.PriceTier, 0, len(minArr))
 	for i := 0; i < len(minArr); i++ {
 		mn := strings.TrimSpace(minArr[i])
 		if mn == "" {
@@ -96,12 +83,12 @@ func (h productHandler) update(c echo.Context) error {
 		if err != nil {
 			continue
 		}
-		var maxAny any = nil
+		var max *float64
 		if i < len(maxArr) {
 			mx := strings.TrimSpace(maxArr[i])
 			if mx != "" {
 				if mxv, err := strconv.ParseFloat(mx, 64); err == nil {
-					maxAny = mxv
+					max = &mxv
 				}
 			}
 		}
@@ -111,11 +98,9 @@ func (h productHandler) update(c echo.Context) error {
 				pv = f
 			}
 		}
-		if _, err := tx.Exec(ctx, ins, id, minv, maxAny, pv); err != nil {
-			return err
-		}
+		tiers = append(tiers, catalogapp.PriceTier{MinLb: minv, MaxLb: max, PriceLb: pv})
 	}
-	if err := tx.Commit(ctx); err != nil {
+	if err := h.catalog.ReplacePriceTiers(c.Request().Context(), catalogapp.ReplacePriceTiersCommand{ProductID: id, Tiers: tiers}); err != nil {
 		return err
 	}
 	return c.Redirect(http.StatusSeeOther, fmt.Sprintf("/products/%d", id))
