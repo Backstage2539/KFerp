@@ -94,7 +94,7 @@ func loadOptions(ctx context.Context, pool *pgxpool.Pool, schema string, data *P
 }
 
 func fetchProducts(ctx context.Context, pool *pgxpool.Pool, schema string) ([]ProductOption, error) {
-	sqlstr := fmt.Sprintf("SELECT id, name, default_price FROM %s.products WHERE active=true ORDER BY name", schema)
+	sqlstr := fmt.Sprintf("SELECT id, name, default_price, COALESCE(retail_price_227g, default_price, 0) FROM %s.products WHERE active=true ORDER BY name", schema)
 	rows, err := pool.Query(ctx, sqlstr)
 	if err != nil {
 		return nil, err
@@ -104,7 +104,7 @@ func fetchProducts(ctx context.Context, pool *pgxpool.Pool, schema string) ([]Pr
 	out := make([]ProductOption, 0)
 	for rows.Next() {
 		var p ProductOption
-		if err := rows.Scan(&p.ID, &p.Name, &p.DefaultPrice); err != nil {
+		if err := rows.Scan(&p.ID, &p.Name, &p.DefaultPrice, &p.RetailPrice227G); err != nil {
 			return nil, err
 		}
 		out = append(out, p)

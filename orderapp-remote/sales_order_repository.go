@@ -8,6 +8,7 @@ import (
 	"time"
 
 	salesapp "orderapp/internal/application/sales"
+	salesdomain "orderapp/internal/domain/sales"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -121,6 +122,12 @@ func (r postgresSalesRepository) SaveOrder(ctx context.Context, cmd salesapp.Sav
 	}
 
 	orderNo := ""
+	retailOrder := false
+	if cmd.OrderTypeID > 0 {
+		var orderTypeName string
+		_ = tx.QueryRow(ctx, fmt.Sprintf("SELECT COALESCE(name,'') FROM %s.order_types WHERE id=$1", r.schema), cmd.OrderTypeID).Scan(&orderTypeName)
+		retailOrder = isRetailOrderTypeName(orderTypeName)
+	}
 
 	// Pricing: use tier match by qty(lb). Allow manual override.
 	totalAmt := 0.0
@@ -131,7 +138,18 @@ func (r postgresSalesRepository) SaveOrder(ctx context.Context, cmd salesapp.Sav
 		totalG := float64(itemWeightG)
 		qtyLb := totalG / 454.0
 
-		if items[idx].manualPrice != nil {
+		if retailOrder && items[idx].productID != nil {
+			retailPrice227G := 0.0
+			q := fmt.Sprintf(`SELECT COALESCE(NULLIF(retail_price_227g,0), default_price, 0) FROM %s.products WHERE id=$1`, r.schema)
+			_ = tx.QueryRow(ctx, q, *items[idx].productID).Scan(&retailPrice227G)
+			_, lineTotal := salesdomain.RetailLinePrice(retailPrice227G, items[idx].specG, items[idx].units)
+			items[idx].lineTotal = lineTotal
+			if qtyLb > 0 {
+				items[idx].unitPrice = lineTotal / qtyLb
+			}
+			totalAmt += items[idx].lineTotal
+			continue
+		} else if items[idx].manualPrice != nil {
 			// manual price is 元/磅
 			items[idx].unitPrice = *items[idx].manualPrice
 			items[idx].priceOverride = true

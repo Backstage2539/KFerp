@@ -193,7 +193,7 @@
           </div>
         </div>
         <div>
-          <label>订单类型</label>
+          <label>价格类型/订单类型</label>
           <div class="combo" style="position:relative;">
             <input class="combo-input" placeholder="可选" autocomplete="off"
               onfocus="comboShowAny(this,'orderTypes')" oninput="comboFilterAny(this,'orderTypes')" />
@@ -202,6 +202,7 @@
             <div class="dropdown" style="display:none; position:absolute; left:0; right:0; top:100%; z-index:20; background:#fff; border:1px solid #ddd; border-radius:8px; margin-top:6px; max-height:240px; overflow:auto;"></div>
             <input type="hidden" name="order_type_id" />
           </div>
+          <div class="muted" style="margin-top:6px;">选择“批发”走阶梯价；选择“零售”走商品档案 227g 零售价。</div>
         </div>
       </div>
 
@@ -390,7 +391,7 @@ function rowHtml(){
           <div class="dropdown" style="display:none; position:absolute; left:0; right:0; top:100%; z-index:20; background:#fff; border:1px solid #ddd; border-radius:8px; margin-top:6px; max-height:240px; overflow:auto;"></div>
         </div>
         <div class="muted priceBox" style="white-space:nowrap; text-align:right;">
-          单价：<span class="price">0.00</span>/lb<br/>总价：<span class="line">0.00</span>
+          <span class="priceMode">批发</span>：<span class="price">0.00</span><span class="priceUnit">/lb</span><br/>总价：<span class="line">0.00</span>
         </div>
       </div>
       <input type="hidden" name="product_id[]" />
@@ -586,6 +587,7 @@ function comboClearAny(btn, key){
   inp.value='';
   hidden.value='';
   if(key === 'orderTypes') refreshOutsourcePanel();
+  if(key === 'orderTypes') recalc();
   comboShowAny(inp, key);
   inp.focus();
 }
@@ -620,6 +622,7 @@ document.addEventListener('click', (ev) => {
     }
     if(key === 'orderTypes'){
       refreshOutsourcePanel();
+      recalc();
     }
 
     try{ saveDraft(); }catch(e){}
@@ -671,6 +674,7 @@ async function fillFromCustomer(customerId){
     typeCombo.querySelector('input.combo-input').value = p.default_order_type_id ? cleanPicked((p.order_type_name || findNameById('orderTypes', p.default_order_type_id))) : '';
     typeCombo.querySelector('input[type="hidden"]').value = p.default_order_type_id ? String(p.default_order_type_id) : '';
     refreshOutsourcePanel();
+    recalc();
   } catch(e){}
 }
 
@@ -720,8 +724,24 @@ function matchTierPrice(pid, qtyLb){
   return {price:num(first.price), minTier, matched:null};
 }
 
+function isRetailOrderTypeName(name){
+  name = String(name || '').trim().toLowerCase();
+  return name.includes('零售') || name.includes('retail');
+}
+
+function isRetailOrder(){
+  return isRetailOrderTypeName(currentOrderTypeName());
+}
+
+function retailPackagePrice(product, specG){
+  const retail = num(product?.retail_price_227g);
+  if(retail <= 0 || specG <= 0) return 0;
+  return Math.ceil(retail * specG / 227);
+}
+
 function recalc(){
   let total = 0;
+  const retailOrder = isRetailOrder();
   document.querySelectorAll('#items tbody tr').forEach(tr => {
     const pid = tr.querySelector('input[name="product_id[]"]').value;
     const specG = intNum(tr.querySelector('select[name="spec[]"]').value);
@@ -731,6 +751,7 @@ function recalc(){
     const tierSel = tr.querySelector('select[name="tier_id[]"]');
     const unitPriceInput = tr.querySelector('input[name="unit_price[]"]');
     const warn = tr.querySelector('.warn');
+    const p = PRODUCT_MAP[String(pid)] || null;
     if(warn) warn.textContent = '';
 
     const tg = tr.querySelector('.totalg');
@@ -738,22 +759,43 @@ function recalc(){
     if(tg) tg.textContent = String(totalG||0);
     if(tlb) tlb.textContent = (qtyLb||0).toFixed(2);
 
-    let price = 0; // 元/磅
-    if(tierSel && tierSel.value === 'manual'){
+    let price = 0; // wholesale: 元/磅; retail: 元/件
+    let line = 0;
+    if(retailOrder && p){
+      price = retailPackagePrice(p, specG);
+      line = price * units;
+      if(warn && price <= 0 && pid){
+        warn.textContent = '未配置零售价，请到商品档案维护 227g 零售价。';
+      }
+    } else if(tierSel && tierSel.value === 'manual'){
       price = num(unitPriceInput.value);
+      line = price * qtyLb;
     } else if(tierSel && tierSel.value && tierSel.value !== 'auto'){
       const opt = tierSel.options[tierSel.selectedIndex];
       price = num(opt?.dataset?.price);
+      line = price * qtyLb;
     } else {
       const m = matchTierPrice(pid, qtyLb);
       price = m.price;
+      line = price * qtyLb;
       if(m.minTier != null && qtyLb > 0 && qtyLb < m.minTier){
         if(warn) warn.textContent = `低于最低档(${m.minTier}lb)：已按最低档价计算（不阻止）。如需特殊价请选“手动单价”。`;
       }
     }
 
+    if(tierSel){
+      tierSel.disabled = retailOrder;
+      tierSel.title = retailOrder ? '零售订单使用商品档案里的 227g 零售价' : '';
+    }
+    if(unitPriceInput && retailOrder && tierSel && tierSel.value !== 'manual'){
+      unitPriceInput.style.display = 'none';
+      unitPriceInput.value = '';
+    }
+    const modeEl = tr.querySelector('.priceMode');
+    const unitEl = tr.querySelector('.priceUnit');
+    if(modeEl) modeEl.textContent = retailOrder ? '零售单价' : '批发单价';
+    if(unitEl) unitEl.textContent = retailOrder ? '/件' : '/lb';
     tr.querySelector('.price').textContent = price.toFixed(2);
-    const line = price * qtyLb;
     tr.querySelector('.line').textContent = line.toFixed(2);
     total += line;
   });

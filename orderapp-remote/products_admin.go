@@ -19,7 +19,7 @@ func fetchProductByID(ctx context.Context, pool *pgxpool.Pool, schema string, id
 	}
 	// fallback (shouldn't happen)
 	var p ProductOption
-	err = pool.QueryRow(ctx, fmt.Sprintf("SELECT id, name, default_price FROM %s.products WHERE id=$1", schema), id).Scan(&p.ID, &p.Name, &p.DefaultPrice)
+	err = pool.QueryRow(ctx, fmt.Sprintf("SELECT id, name, default_price, COALESCE(retail_price_227g, default_price, 0) FROM %s.products WHERE id=$1", schema), id).Scan(&p.ID, &p.Name, &p.DefaultPrice, &p.RetailPrice227G)
 	if err != nil {
 		return nil, nil
 	}

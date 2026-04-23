@@ -15,10 +15,11 @@ type ProductTierOption struct {
 }
 
 type ProductOption struct {
-	ID           int64
-	Name         string
-	DefaultPrice float64
-	Tiers        []ProductTierOption
+	ID              int64
+	Name            string
+	DefaultPrice    float64
+	RetailPrice227G float64
+	Tiers           []ProductTierOption
 }
 
 type PageData struct {

@@ -10,16 +10,18 @@ type PriceTier struct {
 }
 
 type Product struct {
-	ID           int64
-	Name         string
-	DefaultPrice float64
-	Tiers        []PriceTier
+	ID              int64
+	Name            string
+	DefaultPrice    float64
+	RetailPrice227G float64
+	Tiers           []PriceTier
 }
 
 type ReplacePriceTiersCommand struct {
-	Actor     string
-	ProductID int64
-	Tiers     []PriceTier
+	Actor           string
+	ProductID       int64
+	RetailPrice227G float64
+	Tiers           []PriceTier
 }
 
 type Repository interface {

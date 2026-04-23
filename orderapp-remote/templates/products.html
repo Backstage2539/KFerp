@@ -93,7 +93,7 @@
         <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:12px;">
           <div>
             <div style="font-size:16px; font-weight:700;"><a href="/products/{{.ID}}">{{.Name}}</a></div>
-            <div class="muted" style="margin-top:4px;">{{if .Tiers}}已配置（{{len .Tiers}}档）{{else}}无阶梯价{{end}}</div>
+            <div class="muted" style="margin-top:4px;">零售：{{printf "%.2f" .RetailPrice227G}} 元/227g；{{if .Tiers}}批发已配置（{{len .Tiers}}档）{{else}}无批发阶梯价{{end}}</div>
           </div>
           <div>
             <a class="btn2" href="/products/{{.ID}}">编辑</a>
@@ -105,8 +105,8 @@
           <table style="width:100%; border-collapse:collapse;">
             <thead>
               <tr>
-                <th style="border-bottom:1px solid #f1f1f1; padding:8px 6px; text-align:left; font-size:13px;">数量区间(lb)</th>
-                <th style="border-bottom:1px solid #f1f1f1; padding:8px 6px; text-align:right; font-size:13px;">单价(元/lb)</th>
+                <th style="border-bottom:1px solid #f1f1f1; padding:8px 6px; text-align:left; font-size:13px;">批发数量区间(lb)</th>
+                <th style="border-bottom:1px solid #f1f1f1; padding:8px 6px; text-align:right; font-size:13px;">批发单价(元/lb)</th>
               </tr>
             </thead>
             <tbody>
