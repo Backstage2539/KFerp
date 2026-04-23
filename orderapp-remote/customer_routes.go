@@ -12,12 +12,23 @@ import (
 	"strconv"
 	"strings"
 
+	customerapp "orderapp/internal/application/customer"
+
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/labstack/echo/v4"
 )
 
 func registerCustomerRoutes(e *echo.Echo, pool *pgxpool.Pool, schema string, assetDir string) {
-	h := customerHandler{pool: pool, schema: schema, assetDir: assetDir}
+	h := customerHandler{
+		pool:     pool,
+		schema:   schema,
+		assetDir: assetDir,
+		customer: customerapp.NewService(postgresCustomerApplicationRepository{
+			pool:     pool,
+			schema:   schema,
+			assetDir: assetDir,
+		}),
+	}
 
 	// Customers
 	e.GET("/customers", h.index)
@@ -44,6 +55,7 @@ type customerHandler struct {
 	pool     *pgxpool.Pool
 	schema   string
 	assetDir string
+	customer *customerapp.Service
 }
 
 func (h customerHandler) index(c echo.Context) error {
@@ -104,7 +116,7 @@ func (h customerHandler) create(c echo.Context) error {
 	if err := c.Bind(&req); err != nil {
 		return c.String(http.StatusBadRequest, "bad request")
 	}
-	id, err := upsertCustomer(c.Request().Context(), h.pool, h.schema, actorOf(c), nil, &req)
+	id, err := h.customer.Upsert(c.Request().Context(), actorOf(c), nil, customerUpsertCommandFromRequest(req))
 	if err != nil {
 		data := CustomerEditData{Active: true, Name: req.Name, RawName: req.RawName, Contact: req.Contact, Phone: req.Phone, Address: req.Address, Error: err.Error()}
 		if strings.TrimSpace(c.QueryParam("from")) == "order" {
@@ -155,7 +167,7 @@ func (h customerHandler) prefs(c echo.Context) error {
 	if err != nil || id <= 0 {
 		return c.String(http.StatusBadRequest, "invalid id")
 	}
-	p, err := fetchCustomerPrefs(c.Request().Context(), h.pool, h.schema, id)
+	p, err := h.customer.Prefs(c.Request().Context(), id)
 	if err != nil {
 		return c.String(http.StatusInternalServerError, err.Error())
 	}
@@ -172,7 +184,7 @@ func (h customerHandler) update(c echo.Context) error {
 	if err := c.Bind(&req); err != nil {
 		return c.String(http.StatusBadRequest, "bad request")
 	}
-	_, err = upsertCustomer(c.Request().Context(), h.pool, h.schema, actorOf(c), &id, &req)
+	_, err = h.customer.Upsert(c.Request().Context(), actorOf(c), &id, customerUpsertCommandFromRequest(req))
 	if err != nil {
 		data := CustomerEditData{ID: id, Active: strings.TrimSpace(req.Active) != "", Name: req.Name, RawName: req.RawName, Contact: req.Contact, Phone: req.Phone, Address: req.Address, Error: err.Error()}
 		return c.Render(http.StatusOK, "customer_edit.html", data)
@@ -209,16 +221,20 @@ func (h customerHandler) uploadAsset(c echo.Context) error {
 	// reset reader by chaining
 	r := io.MultiReader(bytes.NewReader(head[:n]), f)
 
-	obj, size, sha, err := saveCustomerAssetFile(h.assetDir, id, kind, r, ct, 100*1024*1024, fh.Filename)
+	res, err := h.customer.SaveAsset(c.Request().Context(), customerapp.SaveAssetCommand{
+		CustomerID:  id,
+		Kind:        kind,
+		Reader:      r,
+		ContentType: ct,
+		Filename:    fh.Filename,
+		MaxBytes:    100 * 1024 * 1024,
+		Actor:       actorOf(c),
+	})
 	if err != nil {
 		log.Printf("asset upload save error customer_id=%d kind=%s ct=%s err=%v", id, kind, ct, err)
 		return c.Redirect(http.StatusSeeOther, fmt.Sprintf("/app/customers/%d?err=%s", id, url.QueryEscape(err.Error())))
 	}
-	if _, err := insertCustomerAsset(c.Request().Context(), h.pool, h.schema, actorOf(c), id, kind, obj, ct, size, sha); err != nil {
-		log.Printf("asset upload db error customer_id=%d kind=%s err=%v", id, kind, err)
-		return c.Redirect(http.StatusSeeOther, fmt.Sprintf("/app/customers/%d?err=%s", id, url.QueryEscape("保存记录失败："+err.Error())))
-	}
-	log.Printf("asset upload ok customer_id=%d kind=%s obj=%s bytes=%d", id, kind, obj, size)
+	log.Printf("asset upload ok customer_id=%d kind=%s obj=%s bytes=%d", id, kind, res.ObjectKey, res.Bytes)
 	return c.Redirect(http.StatusSeeOther, fmt.Sprintf("/app/customers/%d?ok=1", id))
 
 }
@@ -228,14 +244,11 @@ func (h customerHandler) deleteAsset(c echo.Context) error {
 	if err != nil || assetID <= 0 {
 		return c.String(http.StatusBadRequest, "asset_id required")
 	}
-	cid, _, obj, err := deleteCustomerAssetByID(c.Request().Context(), h.pool, h.schema, actorOf(c), assetID)
+	res, err := h.customer.DeleteAsset(c.Request().Context(), actorOf(c), assetID)
 	if err != nil {
 		return c.String(http.StatusBadRequest, err.Error())
 	}
-	if obj != "" {
-		_ = os.Remove(filepath.Join(h.assetDir, obj))
-	}
-	return c.Redirect(http.StatusSeeOther, fmt.Sprintf("/app/customers/%d", cid))
+	return c.Redirect(http.StatusSeeOther, fmt.Sprintf("/app/customers/%d", res.CustomerID))
 
 }
 
@@ -248,7 +261,7 @@ func (h customerHandler) inlineUpdate(c echo.Context) error {
 	if err := c.Bind(&req); err != nil {
 		return c.String(http.StatusBadRequest, "bad request")
 	}
-	if err := inlineUpdateCustomer(c.Request().Context(), h.pool, h.schema, actorOf(c), id, &req); err != nil {
+	if err := h.customer.InlineUpdate(c.Request().Context(), actorOf(c), id, customerInlineCommandFromRequest(req)); err != nil {
 		return c.String(http.StatusBadRequest, err.Error())
 	}
 	return c.String(http.StatusOK, "ok")
@@ -260,7 +273,7 @@ func (h customerHandler) delete(c echo.Context) error {
 	if err != nil || id <= 0 {
 		return c.String(http.StatusBadRequest, "invalid id")
 	}
-	if err := deleteCustomer(c.Request().Context(), h.pool, h.schema, actorOf(c), id); err != nil {
+	if err := h.customer.Delete(c.Request().Context(), actorOf(c), id); err != nil {
 		return c.String(http.StatusBadRequest, err.Error())
 	}
 	return c.String(http.StatusOK, "ok")
