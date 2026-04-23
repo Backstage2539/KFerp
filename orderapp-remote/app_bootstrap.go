@@ -1,40 +1,20 @@
 package main
 
 import (
-	"fmt"
 	"html/template"
 	"strings"
+
+	appconfig "orderapp/internal/config"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/labstack/echo/v4"
 	"github.com/labstack/echo/v4/middleware"
 )
 
-type appConfig struct {
-	DatabaseURL string
-	Schema      string
-	AssetDir    string
-	AuthUser    string
-	AuthPass    string
-	ListenAddr  string
-}
+type appConfig = appconfig.Runtime
 
 func loadAppConfig() (appConfig, error) {
-	cfg := appConfig{
-		DatabaseURL: env("DATABASE_URL", ""),
-		Schema:      env("DB_SCHEMA", "p2rms15pepb5ciz"),
-		AssetDir:    env("ASSET_DIR", "/app/data/assets"),
-		AuthUser:    env("APP_USER", "order"),
-		AuthPass:    env("APP_PASS", ""),
-		ListenAddr:  env("LISTEN", ":8080"),
-	}
-	if cfg.DatabaseURL == "" {
-		return cfg, fmt.Errorf("DATABASE_URL is required")
-	}
-	if cfg.AuthPass == "" {
-		return cfg, fmt.Errorf("APP_PASS is required")
-	}
-	return cfg, nil
+	return appconfig.LoadRuntime(nil)
 }
 
 func newHTTPServer(cfg appConfig, pool *pgxpool.Pool) *echo.Echo {
