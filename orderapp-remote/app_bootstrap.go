@@ -25,6 +25,7 @@ func newHTTPServer(cfg appConfig, pool *pgxpool.Pool) *echo.Echo {
 	e.HideBanner = true
 	e.Use(middleware.Recover())
 	e.Use(middleware.Secure())
+	e.Use(operationLogMiddleware(pool, cfg.Schema))
 	e.Use(basicAuth(cfg.AuthUser, cfg.AuthPass, cfg.Schema, pool))
 	e.Use(employeeContextMiddleware(pool, cfg.Schema))
 	e.Renderer = &TemplateRenderer{t: t}

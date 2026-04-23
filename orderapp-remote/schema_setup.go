@@ -10,6 +10,7 @@ import (
 
 func ensureAppSchema(ctx context.Context, pool *pgxpool.Pool, schema string) error {
 	return postgresinfra.EnsureSchema(ctx, []postgresinfra.SchemaStep{
+		{Name: "audit tables", Run: func(ctx context.Context) error { return ensureAuditTables(ctx, pool, schema) }},
 		{Name: "requirements tables", Run: func(ctx context.Context) error { return ensureReqTables(ctx, pool, schema) }},
 		{Name: "requirements seed", Run: func(ctx context.Context) error { return seedReqWorkflowA(ctx, pool, schema) }},
 		{Name: "finished inventory", Run: func(ctx context.Context) error { return ensureFinishedInventoryTable(ctx, pool, schema) }},

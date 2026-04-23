@@ -214,7 +214,7 @@ func (h orderHandler) editPost(c echo.Context) error {
 		return c.String(http.StatusBadRequest, "bad request")
 	}
 	ctx := c.Request().Context()
-	if err := h.sales.UpdateHeader(ctx, id, updateHeaderCommandFromRequest(req)); err != nil {
+	if err := h.sales.UpdateHeader(ctx, id, updateHeaderCommandFromRequest(req, actorOf(c))); err != nil {
 		return c.String(http.StatusBadRequest, err.Error())
 	}
 	return c.Redirect(http.StatusSeeOther, fmt.Sprintf("/orders/%d", id))
@@ -339,7 +339,7 @@ func (h orderHandler) create(c echo.Context) error {
 		}
 	}
 
-	res, err := h.sales.SaveOrder(c.Request().Context(), saveOrderCommandFromCreateRequest(req, editID))
+	res, err := h.sales.SaveOrder(c.Request().Context(), saveOrderCommandFromCreateRequest(req, editID, actorOf(c)))
 	if err != nil {
 		return c.String(http.StatusBadRequest, err.Error())
 	}

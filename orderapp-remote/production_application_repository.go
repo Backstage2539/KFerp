@@ -21,6 +21,7 @@ func (r postgresProductionRepository) CreateBatch(ctx context.Context, cmd produ
 	if err != nil {
 		return productionapp.CreateBatchResult{}, err
 	}
+	auditInsert(ctx, r.pool, r.schema, cmd.Operator, "produce_batch", nil, "create", strPtrStr("batch_id"), nil, strPtrStr(res.BatchID), AuditMeta{"batch_id": res.BatchID, "order_count": res.OrderCount})
 	return productionapp.CreateBatchResult{
 		BatchID:    res.BatchID,
 		OrderCount: res.OrderCount,
@@ -87,6 +88,7 @@ func (r postgresProductionRepository) ConfirmDeduct(ctx context.Context, batchID
 	if err != nil {
 		return productionapp.DeductConfirmResult{}, err
 	}
+	auditInsert(ctx, r.pool, r.schema, operator, "produce_batch", nil, "update", strPtrStr("deduct_status"), nil, strPtrStr("deducted"), AuditMeta{"batch_id": strings.TrimSpace(batchID), "summary_count": len(summary)})
 	return productionapp.DeductConfirmResult{BatchID: strings.TrimSpace(batchID), Status: "deducted", Summary: productionSummaryToApp(summary)}, nil
 }
 

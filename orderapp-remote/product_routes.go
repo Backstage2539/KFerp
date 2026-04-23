@@ -100,7 +100,7 @@ func (h productHandler) update(c echo.Context) error {
 		}
 		tiers = append(tiers, catalogapp.PriceTier{MinLb: minv, MaxLb: max, PriceLb: pv})
 	}
-	if err := h.catalog.ReplacePriceTiers(c.Request().Context(), catalogapp.ReplacePriceTiersCommand{ProductID: id, Tiers: tiers}); err != nil {
+	if err := h.catalog.ReplacePriceTiers(c.Request().Context(), catalogapp.ReplacePriceTiersCommand{Actor: actorOf(c), ProductID: id, Tiers: tiers}); err != nil {
 		return err
 	}
 	return c.Redirect(http.StatusSeeOther, fmt.Sprintf("/products/%d", id))

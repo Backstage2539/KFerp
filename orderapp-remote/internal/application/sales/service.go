@@ -5,6 +5,7 @@ import (
 )
 
 type SaveOrderCommand struct {
+	Actor                 string
 	EditID                int64
 	OrderDate             string
 	CustomerID            int64
@@ -48,6 +49,7 @@ type SaveOrderResult struct {
 }
 
 type UpdateHeaderCommand struct {
+	Actor                 string
 	OrderDate             string
 	CustomerID            int64
 	SourceID              int64

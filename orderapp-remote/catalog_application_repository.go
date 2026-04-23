@@ -52,7 +52,11 @@ func (r postgresCatalogRepository) ReplacePriceTiers(ctx context.Context, cmd ca
 			return err
 		}
 	}
-	return tx.Commit(ctx)
+	if err := tx.Commit(ctx); err != nil {
+		return err
+	}
+	auditInsert(ctx, r.pool, r.schema, cmd.Actor, "product", &cmd.ProductID, "update", strPtrStr("price_tiers"), nil, strPtrStr(fmt.Sprintf("%d", len(cmd.Tiers))), AuditMeta{"product_id": cmd.ProductID, "tier_count": len(cmd.Tiers)})
+	return nil
 }
 
 func catalogProductFromOption(p ProductOption) catalogapp.Product {

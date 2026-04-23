@@ -17,6 +17,7 @@ type Product struct {
 }
 
 type ReplacePriceTiersCommand struct {
+	Actor     string
 	ProductID int64
 	Tiers     []PriceTier
 }

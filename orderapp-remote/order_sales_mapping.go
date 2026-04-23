@@ -2,8 +2,9 @@ package main
 
 import salesapp "orderapp/internal/application/sales"
 
-func saveOrderCommandFromCreateRequest(req CreateOrderRequest, editID int64) salesapp.SaveOrderCommand {
+func saveOrderCommandFromCreateRequest(req CreateOrderRequest, editID int64, actor string) salesapp.SaveOrderCommand {
 	return salesapp.SaveOrderCommand{
+		Actor:                 actor,
 		EditID:                editID,
 		OrderDate:             req.OrderDate,
 		CustomerID:            req.CustomerID,
@@ -34,8 +35,9 @@ func saveOrderCommandFromCreateRequest(req CreateOrderRequest, editID int64) sal
 	}
 }
 
-func updateHeaderCommandFromRequest(req UpdateOrderRequest) salesapp.UpdateHeaderCommand {
+func updateHeaderCommandFromRequest(req UpdateOrderRequest, actor string) salesapp.UpdateHeaderCommand {
 	return salesapp.UpdateHeaderCommand{
+		Actor:                 actor,
 		OrderDate:             req.OrderDate,
 		CustomerID:            req.CustomerID,
 		SourceID:              req.SourceID,

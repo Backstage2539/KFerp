@@ -370,6 +370,8 @@ func (r postgresSalesRepository) SaveOrder(ctx context.Context, cmd salesapp.Sav
 		return salesapp.SaveOrderResult{}, err
 	}
 
+	r.logOrderSave(ctx, cmd.Actor, orderID, orderNo, editID > 0)
+
 	return salesapp.SaveOrderResult{OrderID: orderID, OrderNo: orderNo, Edited: editID > 0}, nil
 
 }
@@ -399,7 +401,11 @@ func (r postgresSalesRepository) UpdateHeader(ctx context.Context, id int64, cmd
 		Qty:                   cmd.Qty,
 		UnitPrice:             cmd.UnitPrice,
 	}
-	return updateOrderHeader(ctx, r.pool, r.schema, id, &req)
+	if err := updateOrderHeader(ctx, r.pool, r.schema, id, &req); err != nil {
+		return err
+	}
+	r.logOrderHeaderUpdate(ctx, cmd.Actor, id)
+	return nil
 }
 
 func (r postgresSalesRepository) InlineUpdate(ctx context.Context, id int64, actor string, cmd salesapp.InlineUpdateCommand) error {
@@ -433,4 +439,37 @@ func (r postgresSalesRepository) Unvoid(ctx context.Context, id int64, actor str
 	}
 	auditInsert(ctx, r.pool, r.schema, actor, "order", &id, "unvoid", nil, nil, nil, AuditMeta{"order_id": id})
 	return nil
+}
+
+func (r postgresSalesRepository) logOrderSave(ctx context.Context, actor string, orderID int64, orderNo string, edited bool) {
+	action := "create"
+	field := "created"
+	newValue := orderNo
+	if edited {
+		action = "update"
+		field = "order"
+		newValue = "updated"
+	}
+	r.insertOrderAudit(ctx, actor, orderID, field, nil, strPtrStr(newValue))
+	auditInsert(ctx, r.pool, r.schema, actor, "order", &orderID, action, strPtrStr(field), nil, strPtrStr(newValue), AuditMeta{"order_id": orderID, "order_no": orderNo})
+}
+
+func (r postgresSalesRepository) logOrderHeaderUpdate(ctx context.Context, actor string, orderID int64) {
+	r.insertOrderAudit(ctx, actor, orderID, "header", nil, strPtrStr("updated"))
+	auditInsert(ctx, r.pool, r.schema, actor, "order", &orderID, "update", strPtrStr("header"), nil, strPtrStr("updated"), AuditMeta{"order_id": orderID})
+}
+
+func (r postgresSalesRepository) insertOrderAudit(ctx context.Context, actor string, orderID int64, field string, oldValue, newValue *string) {
+	actor = strings.TrimSpace(actor)
+	if actor == "" {
+		actor = "unknown"
+	}
+	_, _ = r.pool.Exec(ctx,
+		fmt.Sprintf(`INSERT INTO %s.order_audit_logs(order_id, actor, field, old_value, new_value) VALUES ($1,$2,$3,$4,$5)`, r.schema),
+		orderID,
+		actor,
+		field,
+		oldValue,
+		newValue,
+	)
 }
