@@ -120,8 +120,8 @@
       <div class="card">
         <div style="display:flex; align-items:center; justify-content:space-between; gap:10px; flex-wrap:wrap;">
           <div>
-            <div style="font-weight:700;">物料需求汇总（按物料类型）</div>
-            <div class="muted" style="margin-top:4px;">口径：基于“生产计划（缺口&gt;0）”的 gap_g，按商品名称关键词粗分（咖啡豆/挂耳/速溶），并按出品率/冗余/盒规计算。</div>
+            <div style="font-weight:700;">物料需求汇总（预计消耗）</div>
+            <div class="muted" style="margin-top:4px;">口径：基于“生产计划（缺口&gt;0）”的 gap_g，按 BOM、出品率和规格包装映射分别计算每种物料消耗。</div>
           </div>
         </div>
 
@@ -130,7 +130,7 @@
             <thead>
               <tr>
                 <th>物料</th>
-                <th style="width:140px;">数量</th>
+                <th style="width:140px;">预计消耗数量</th>
                 <th style="width:90px;">单位</th>
               </tr>
             </thead>
@@ -148,6 +148,7 @@
             </tbody>
           </table>
         </div>
+        <div class="muted" style="margin-top:8px;">完成生产时会按实际完成项逐项扣减对应物料库存。</div>
       </div>
 
       <div class="card">

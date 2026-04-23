@@ -11,11 +11,11 @@ import (
 )
 
 type bomNeedItem struct {
-	ProductID     int64
-	YieldRate     float64
-	MaterialName  string
-	MaterialUnit  string
-	RatioPct      float64
+	ProductID    int64
+	YieldRate    float64
+	MaterialName string
+	MaterialUnit string
+	RatioPct     float64
 }
 
 func calcProducePlanMaterialsWithBOM(ctx context.Context, pool *pgxpool.Pool, schema string, rows []UnprodNeedRow, p ProducePlanParams) []MaterialNeed {
@@ -89,6 +89,13 @@ func calcProducePlanMaterialsWithBOM(ctx context.Context, pool *pgxpool.Pool, sc
 			needUnits := int64(math.Ceil(float64(unitsMissing) * bi.RatioPct / 100.0))
 			add(bi.MaterialName, needUnits, u)
 		}
+		bagName := "豆袋"
+		if p.BagNameBySpecG != nil {
+			if v := strings.TrimSpace(p.BagNameBySpecG[r.SpecG]); v != "" {
+				bagName = v
+			}
+		}
+		add(bagName, unitsMissing, "个")
 	}
 
 	out := make([]MaterialNeed, 0, len(m))
