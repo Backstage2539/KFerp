@@ -67,3 +67,37 @@ func TestCalcProducePlanMaterials_BagMappingBySpec(t *testing.T) {
 		t.Fatalf("豆袋 qty=%d want=1", got)
 	}
 }
+
+func TestCalcNoBomProducePlanMaterialsSplitsRawBeansByProduct(t *testing.T) {
+	p := defaultProducePlanParams()
+	p.YieldRate = 0.8
+
+	rows := []UnprodNeedRow{
+		{Product: "Uraga乌拉嘎", SpecG: 227, GapG: 227},
+		{Product: "小菠萝2.0", SpecG: 227, GapG: 227},
+	}
+
+	m := map[string]MaterialNeed{}
+	for _, row := range rows {
+		for _, v := range calcNoBomProducePlanMaterials(row, p) {
+			x := m[v.Name]
+			x.Name = v.Name
+			x.Unit = v.Unit
+			x.Qty += v.Qty
+			m[v.Name] = x
+		}
+	}
+
+	if got := m["Uraga乌拉嘎 生豆"].Qty; got != 284 {
+		t.Fatalf("Uraga乌拉嘎 生豆 qty=%d want=284", got)
+	}
+	if got := m["小菠萝2.0 生豆"].Qty; got != 284 {
+		t.Fatalf("小菠萝2.0 生豆 qty=%d want=284", got)
+	}
+	if _, ok := m["咖啡豆(生豆/原豆)"]; ok {
+		t.Fatalf("普通无BOM商品不应汇总到通用生豆行")
+	}
+	if got := m["豆袋"].Qty; got != 2 {
+		t.Fatalf("豆袋 qty=%d want=2", got)
+	}
+}
