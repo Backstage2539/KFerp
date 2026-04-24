@@ -2,6 +2,8 @@ import { useMemo, useState } from 'react'
 import { useBomList, useBomDetail, useMaterials, useSaveBom, useSaveBomItem, useDeleteBomItem, useBagSpecMappings, useSaveBagSpecMapping, useDeleteBagSpecMapping } from './hooks'
 import type { BomListItem, BomItemRow } from './types'
 
+const BOM_REACT_URL = '/bom-react?rev=20260424-2'
+
 const styles = {
   page: { display: 'flex', minHeight: '100vh', fontFamily: 'system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial' } as const,
   sidebar: { width: 220, padding: '14px 12px', borderRight: '1px solid #eee', background: '#fafafa', boxSizing: 'border-box', position: 'sticky', top: 0, height: '100vh', overflow: 'auto' } as const,
@@ -169,7 +171,7 @@ const MENU_GROUPS: MenuGroup[] = [
     title: '物料管理',
     items: [
       { label: '物料档案/库存', href: '/materials' },
-      { label: 'BOM配方维护', href: '/bom-react', active: true },
+      { label: 'BOM配方维护', href: BOM_REACT_URL, active: true },
     ],
   },
   {

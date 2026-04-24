@@ -36,6 +36,7 @@ func templateFuncMap() template.FuncMap {
 			return template.JS(b)
 		},
 		"assetLabel":  func(kind string) string { return kindLabel(kind) },
+		"bomURL":      bomReactURL,
 		"custShort":   customerShortLabel,
 		"eq64":        func(a, b int64) bool { return a == b },
 		"eqi":         func(a, b int) bool { return a == b },

@@ -37,6 +37,7 @@ const currentKey = ref('order')
 const frameRef = ref(null)
 const isMobile = ref(false)
 const mobileOpen = ref(false)
+const BOM_REACT_URL = '/bom-react?rev=20260424-2'
 
 const menuMap = {
   order: { title: '录单', url: '/order' },
@@ -44,7 +45,7 @@ const menuMap = {
   producePlan: { title: '生产计划/开始生产', url: '/produce/unproduced' },
   produceRunning: { title: '生产中', url: '/produce/running' },
   materials: { title: '物料档案/库存', url: '/materials' },
-  bom: { title: 'BOM配方维护', url: '/bom-react' },
+  bom: { title: 'BOM配方维护', url: BOM_REACT_URL },
   customers: { title: '客户档案', url: '/customers' },
   products: { title: '商品档案', url: '/products' },
   departments: { title: '部门维护', url: '/company/departments' },
