@@ -61,3 +61,17 @@ func TestRetailPackagePriceForSpecPrefersExactSpec(t *testing.T) {
 		}
 	}
 }
+
+func TestRetailAvailableSpecs(t *testing.T) {
+	prices := RetailSpecPrices{Price100G: 42, Price200G: 0, Price227G: 50, Price250G: 55}
+	got := RetailAvailableSpecs(prices)
+	want := []int64{100, 227, 250}
+	if len(got) != len(want) {
+		t.Fatalf("RetailAvailableSpecs len=%d want=%d", len(got), len(want))
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("RetailAvailableSpecs[%d]=%d want=%d", i, got[i], want[i])
+		}
+	}
+}

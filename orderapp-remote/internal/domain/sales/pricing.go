@@ -20,6 +20,23 @@ type RetailSpecPrices struct {
 	Price250G float64
 }
 
+func RetailAvailableSpecs(prices RetailSpecPrices) []int64 {
+	out := make([]int64, 0, 4)
+	if prices.Price100G > 0 {
+		out = append(out, 100)
+	}
+	if prices.Price200G > 0 {
+		out = append(out, 200)
+	}
+	if prices.Price227G > 0 {
+		out = append(out, 227)
+	}
+	if prices.Price250G > 0 {
+		out = append(out, 250)
+	}
+	return out
+}
+
 // RetailPackagePrice converts a 227g retail price to the selected package spec.
 // Retail quotes are whole Yuan per package, rounded up after gram conversion.
 func RetailPackagePrice(retailPrice227G float64, specG int64) float64 {
