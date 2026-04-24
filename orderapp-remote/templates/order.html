@@ -353,6 +353,7 @@ const OPTS = {
 
 const PRODUCT_MAP = Object.fromEntries(PRODUCTS.map(p => [String(p.id), p]));
 const EDIT_DATA = {{if .EditDataJSON}}{{.EditDataJSON}}{{else}}null{{end}};
+const DEFAULT_SPECS = [50, 100, 200, 227, 250, 454, 908, 1000];
 
 function productOptionsHtml(){
   // kept for backward compatibility (not used now)
@@ -380,6 +381,48 @@ function tierOptionsHtml(productId, specG){
   return html;
 }
 
+function specOptionsHtml(productId, currentSpecG){
+  const retailOrder = isRetailOrder();
+  const p = PRODUCT_MAP[String(productId)] || null;
+  let specs = retailOrder ? ((p?.retail_specs || []).map(intNum).filter(x => x > 0)) : DEFAULT_SPECS.slice();
+  const cur = intNum(currentSpecG);
+  if(cur > 0 && !specs.includes(cur)){
+    specs.push(cur);
+  }
+  if(specs.length === 0){
+    specs = DEFAULT_SPECS.slice();
+  }
+  specs = [...new Set(specs)].sort((a, b) => a - b);
+  return specs.map(spec => `<option value="${spec}" ${spec === cur ? 'selected' : ''}>${spec}</option>`).join('');
+}
+
+function refreshSpecOptions(tr, keepSpec){
+  const specSel = tr.querySelector('select[name="spec[]"]');
+  if(!specSel) return;
+  const pid = tr.querySelector('input[name="product_id[]"]')?.value || '';
+  const current = intNum(keepSpec || specSel.value || '0');
+  specSel.innerHTML = specOptionsHtml(pid, current);
+  if(current > 0){
+    specSel.value = String(current);
+  }
+  if(!specSel.value && specSel.options.length > 0){
+    specSel.value = specSel.options[0].value;
+  }
+}
+
+function refreshRetailSpecsForAllRows(){
+  document.querySelectorAll('#items tbody tr').forEach(tr => {
+    refreshSpecOptions(tr, tr.querySelector('select[name="spec[]"]')?.value || '');
+    const tierSel = tr.querySelector('select[name="tier_id[]"]');
+    const specG = tr.querySelector('select[name="spec[]"]')?.value || '454';
+    const pid = tr.querySelector('input[name="product_id[]"]')?.value || '';
+    if(tierSel){
+      tierSel.innerHTML = tierOptionsHtml(pid, specG);
+      tierSel.value = 'auto';
+    }
+  });
+}
+
 function rowHtml(){
   return `<tr>
     <td class="p" data-label="品名">
@@ -400,16 +443,7 @@ function rowHtml(){
       <input name="unit_price[]" inputmode="decimal" placeholder="手动单价（元/件）" style="margin-top:6px; display:none;" oninput="recalc()" />
     </td>
     <td class="spec" data-label="规格(g)">
-      <select name="spec[]" onchange="onSpecChange(this)">
-        <option value="50">50</option>
-        <option value="100">100</option>
-        <option value="200">200</option>
-        <option value="227">227</option>
-        <option value="250">250</option>
-        <option value="454" selected>454</option>
-        <option value="908">908</option>
-        <option value="1000">1000</option>
-      </select>
+      <select name="spec[]" onchange="onSpecChange(this)">${specOptionsHtml('', 454)}</select>
     </td>
     <td class="qty" data-label="数量(件)">
       <input name="qty[]" inputmode="numeric" placeholder="件数" oninput="recalc()" style="width:50px; max-width:50px;" />
@@ -476,6 +510,7 @@ function setProductForRow(tr, pid, name){
   hidden.value = pid || '';
   if(name !== undefined) input.value = name || '';
 
+  refreshSpecOptions(tr, isRetailOrder() ? '' : (tr.querySelector('select[name="spec[]"]')?.value || '454'));
   const specG = tr.querySelector('select[name="spec[]"]')?.value || '454';
   tierSel.innerHTML = tierOptionsHtml(pid || '', specG);
   tierSel.value = 'auto';
@@ -590,8 +625,11 @@ function comboClearAny(btn, key){
   const hidden = combo.querySelector('input[type="hidden"]');
   inp.value='';
   hidden.value='';
-  if(key === 'orderTypes') refreshOutsourcePanel();
-  if(key === 'orderTypes') recalc();
+  if(key === 'orderTypes'){
+    refreshOutsourcePanel();
+    refreshRetailSpecsForAllRows();
+    recalc();
+  }
   comboShowAny(inp, key);
   inp.focus();
 }
@@ -623,6 +661,7 @@ function selectDropdownOption(opt){
     }
     if(key === 'orderTypes'){
       refreshOutsourcePanel();
+      refreshRetailSpecsForAllRows();
       recalc();
     }
 
@@ -698,6 +737,7 @@ async function fillFromCustomer(customerId){
     typeCombo.querySelector('input.combo-input').value = p.default_order_type_id ? cleanPicked((p.order_type_name || findNameById('orderTypes', p.default_order_type_id))) : '';
     typeCombo.querySelector('input[type="hidden"]').value = p.default_order_type_id ? String(p.default_order_type_id) : '';
     refreshOutsourcePanel();
+    refreshRetailSpecsForAllRows();
     recalc();
   } catch(e){}
 }
@@ -719,6 +759,7 @@ function onSpecChange(sel){
   const pid = tr.querySelector('input[name="product_id[]"]')?.value || '';
   const tierSel = tr.querySelector('select[name="tier_id[]"]');
   if(tierSel){
+    refreshSpecOptions(tr, sel.value);
     tierSel.innerHTML = tierOptionsHtml(pid, sel.value);
     tierSel.value = 'auto';
   }
@@ -855,6 +896,7 @@ function addRow(prefill){
   const tr = document.querySelector('#items tbody tr:last-child');
   // init tier select (no product selected yet)
   const tierSel = tr.querySelector('select[name="tier_id[]"]');
+  refreshSpecOptions(tr, '454');
   tierSel.innerHTML = tierOptionsHtml('', '454');
   tierSel.value = 'auto';
 
@@ -862,6 +904,7 @@ function addRow(prefill){
     tr.querySelector('input.prod-combo').value = prefill.product_name || '';
     tr.querySelector('input[name="product_id[]"]').value = prefill.product_id || '';
     const specSel = tr.querySelector('select[name="spec[]"]');
+    refreshSpecOptions(tr, prefill.spec || specSel.value || '454');
     if(prefill.spec) specSel.value = prefill.spec;
     tierSel.innerHTML = tierOptionsHtml(prefill.product_id || '', specSel.value || '454');
     tierSel.value = prefill.tier_id || 'auto';

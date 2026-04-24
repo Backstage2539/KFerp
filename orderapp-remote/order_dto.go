@@ -23,6 +23,7 @@ type ProductOption struct {
 	RetailPrice200G float64
 	RetailPrice227G float64
 	RetailPrice250G float64
+	RetailSpecs     []int64
 	Tiers           []ProductTierOption
 }
 

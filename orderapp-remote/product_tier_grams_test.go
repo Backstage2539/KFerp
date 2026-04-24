@@ -14,6 +14,9 @@ func TestProductTierGramsModelInTemplatesAndRepository(t *testing.T) {
 	html := string(tpl)
 	for _, want := range []string{
 		"function tierOptionsHtml(productId, specG)",
+		"function specOptionsHtml(productId, currentSpecG)",
+		"retail_specs",
+		"refreshRetailSpecsForAllRows();",
 		"data-spec-g",
 		"/件",
 		"function matchTierPrice(pid, specG, units)",

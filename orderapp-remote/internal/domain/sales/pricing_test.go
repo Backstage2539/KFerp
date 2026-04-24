@@ -68,3 +68,17 @@ func TestRetailPackagePriceForSpecFallsBackTo227GWhenSpecPriceMissing(t *testing
 		t.Fatalf("spec 250g: got %.2f want 56.00", got)
 	}
 }
+
+func TestRetailAvailableSpecs(t *testing.T) {
+	prices := RetailSpecPrices{Price100G: 42, Price200G: 0, Price227G: 50, Price250G: 55}
+	got := RetailAvailableSpecs(prices)
+	want := []int64{100, 227, 250}
+	if len(got) != len(want) {
+		t.Fatalf("RetailAvailableSpecs len=%d want=%d", len(got), len(want))
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("RetailAvailableSpecs[%d]=%d want=%d", i, got[i], want[i])
+		}
+	}
+}

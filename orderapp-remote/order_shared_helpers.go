@@ -7,6 +7,8 @@ import (
 	"strings"
 	"time"
 
+	salesdomain "orderapp/internal/domain/sales"
+
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -112,6 +114,12 @@ func fetchProducts(ctx context.Context, pool *pgxpool.Pool, schema string) ([]Pr
 		if err := rows.Scan(&p.ID, &p.Name, &p.DefaultPrice, &p.RetailPrice100G, &p.RetailPrice200G, &p.RetailPrice227G, &p.RetailPrice250G); err != nil {
 			return nil, err
 		}
+		p.RetailSpecs = salesdomain.RetailAvailableSpecs(salesdomain.RetailSpecPrices{
+			Price100G: p.RetailPrice100G,
+			Price200G: p.RetailPrice200G,
+			Price227G: p.RetailPrice227G,
+			Price250G: p.RetailPrice250G,
+		})
 		out = append(out, p)
 	}
 	if err := rows.Err(); err != nil {
