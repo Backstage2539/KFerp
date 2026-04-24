@@ -61,3 +61,10 @@ func TestRetailPackagePriceForSpecPrefersExactSpec(t *testing.T) {
 		}
 	}
 }
+
+func TestRetailPackagePriceForSpecFallsBackTo227GWhenSpecPriceMissing(t *testing.T) {
+	prices := RetailSpecPrices{Price227G: 50}
+	if got := RetailPackagePriceForSpec(prices, 250); got != 56 {
+		t.Fatalf("spec 250g: got %.2f want 56.00", got)
+	}
+}

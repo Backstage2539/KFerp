@@ -39,7 +39,7 @@
       {{range .Products}}
       <tr>
         <td><b>{{.Name}}</b></td>
-        <td>100g {{printf "%.2f" .RetailPrice100G}}<br/>200g {{printf "%.2f" .RetailPrice200G}}<br/>227g {{printf "%.2f" .RetailPrice227G}}<br/>250g {{printf "%.2f" .RetailPrice250G}}</td>
+        <td>{{$retail := retailLines .RetailPrice100G .RetailPrice200G .RetailPrice227G .RetailPrice250G}}{{if $retail}}{{range $i, $line := $retail}}{{if $i}}<br/>{{end}}{{$line}}{{end}}{{else}}-{{end}}</td>
         <td>
           {{if .Tiers}}
             {{range $i, $t := .Tiers}}{{if $i}}<br/>{{end}}{{.SpecG}}g {{printf "%.0f" $t.MinQty}}{{if $t.MaxQty}}-{{f0p $t.MaxQty}}{{else}}+{{end}} 件：{{printf "%.2f" $t.UnitPrice}}{{end}}

@@ -16,14 +16,16 @@ import (
 )
 
 type ProduceRunRow struct {
-	ID        int64
-	BatchID   string
-	Product   string
-	ProductID int64
-	SpecG     int64
-	NeedG     int64
-	OrderNos  string
-	StartedAt string
+	ID         int64
+	BatchID    string
+	Product    string
+	ProductID  int64
+	SpecG      int64
+	NeedG      int64
+	PlanUnits  int64
+	PlanLooseG int64
+	OrderNos   string
+	StartedAt  string
 }
 
 type ProduceRunPageData struct {
@@ -121,7 +123,15 @@ func registerProductionFlowPages(e *echo.Echo, pool *pgxpool.Pool, schema string
 		if id <= 0 {
 			return c.Redirect(http.StatusSeeOther, "/produce/running?err="+url.QueryEscape("invalid id"))
 		}
-		if err := finishRunningItem(c.Request().Context(), pool, schema, id, actorOf(c)); err != nil {
+		finishedUnits, hasFinishedUnits, err := parseOptionalInt64(c.FormValue("finished_units"))
+		if err != nil {
+			return c.Redirect(http.StatusSeeOther, "/produce/running?err="+url.QueryEscape("完成件数格式不正确"))
+		}
+		finishedLooseG, hasFinishedLooseG, err := parseOptionalInt64(c.FormValue("finished_loose_g"))
+		if err != nil {
+			return c.Redirect(http.StatusSeeOther, "/produce/running?err="+url.QueryEscape("散装余量格式不正确"))
+		}
+		if err := finishRunningItem(c.Request().Context(), pool, schema, id, finishedUnits, finishedLooseG, hasFinishedUnits || hasFinishedLooseG, actorOf(c)); err != nil {
 			return c.Redirect(http.StatusSeeOther, "/produce/running?err="+url.QueryEscape(err.Error()))
 		}
 		return c.Redirect(http.StatusSeeOther, "/produce/running?ok=1")
@@ -154,12 +164,15 @@ func listRunningItems(ctx context.Context, pool *pgxpool.Pool, schema string) ([
 		if err := rows.Scan(&r.ID, &r.BatchID, &r.Product, &r.ProductID, &r.SpecG, &r.NeedG, &r.OrderNos, &r.StartedAt); err != nil {
 			return nil, err
 		}
+		plan := plannedFinishedInventoryAddition(r.SpecG, r.NeedG)
+		r.PlanUnits = plan.Units
+		r.PlanLooseG = plan.LooseG
 		out = append(out, r)
 	}
 	return out, rows.Err()
 }
 
-func finishRunningItem(ctx context.Context, pool *pgxpool.Pool, schema string, id int64, operator string) error {
+func finishRunningItem(ctx context.Context, pool *pgxpool.Pool, schema string, id, finishedUnits, finishedLooseG int64, hasFinishedInput bool, operator string) error {
 	tx, err := pool.Begin(ctx)
 	if err != nil {
 		return err
@@ -174,7 +187,16 @@ func finishRunningItem(ctx context.Context, pool *pgxpool.Pool, schema string, i
 	var units, loose int64
 	_ = tx.QueryRow(ctx, fmt.Sprintf(`SELECT onhand_units,onhand_loose_g FROM %s.finished_inventory WHERE product_id=$1 AND spec_g=$2 FOR UPDATE`, schema), r.ProductID, r.SpecG).Scan(&units, &loose)
 	cur := InvQty{Units: units, LooseG: loose}
-	add := InvQty{Units: r.NeedG / r.SpecG, LooseG: r.NeedG % r.SpecG}
+	add := plannedFinishedInventoryAddition(r.SpecG, r.NeedG)
+	if hasFinishedInput {
+		add, err = normalizeFinishedInventoryAddition(r.SpecG, finishedUnits, finishedLooseG)
+		if err != nil {
+			return err
+		}
+	}
+	if add.Units <= 0 && add.LooseG <= 0 {
+		return fmt.Errorf("请填写完成件数或散装余量")
+	}
 	nowQty := InvQty{Units: cur.Units + add.Units, LooseG: cur.LooseG + add.LooseG}
 	norm, err := invNormalize(r.SpecG, nowQty)
 	if err != nil {
@@ -197,8 +219,34 @@ func finishRunningItem(ctx context.Context, pool *pgxpool.Pool, schema string, i
 	if err := tx.Commit(ctx); err != nil {
 		return err
 	}
-	auditInsert(ctx, pool, schema, operator, "produce_running", &id, "finish", strPtrStr("material_consumption"), nil, strPtrStr("deducted"), AuditMeta{"running_item_id": id, "product_id": r.ProductID, "spec_g": r.SpecG, "need_g": r.NeedG})
+	auditInsert(ctx, pool, schema, operator, "produce_running", &id, "finish", strPtrStr("material_consumption"), nil, strPtrStr("deducted"), AuditMeta{"running_item_id": id, "product_id": r.ProductID, "spec_g": r.SpecG, "need_g": r.NeedG, "finished_units": add.Units, "finished_loose_g": add.LooseG, "finished_total_g": add.Units*r.SpecG + add.LooseG})
 	return nil
+}
+
+func parseOptionalInt64(v string) (int64, bool, error) {
+	v = strings.TrimSpace(v)
+	if v == "" {
+		return 0, false, nil
+	}
+	n, err := strconv.ParseInt(v, 10, 64)
+	if err != nil {
+		return 0, false, err
+	}
+	return n, true, nil
+}
+
+func plannedFinishedInventoryAddition(specG, needG int64) InvQty {
+	if specG <= 0 || needG <= 0 {
+		return InvQty{}
+	}
+	return InvQty{Units: needG / specG, LooseG: needG % specG}
+}
+
+func normalizeFinishedInventoryAddition(specG, units, looseG int64) (InvQty, error) {
+	if units < 0 || looseG < 0 {
+		return InvQty{}, fmt.Errorf("完成件数和散装余量不能为负数")
+	}
+	return invNormalize(specG, InvQty{Units: units, LooseG: looseG})
 }
 
 func splitOrderNos(v string) []string {

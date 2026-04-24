@@ -35,11 +35,31 @@ func templateFuncMap() template.FuncMap {
 			b, _ := json.Marshal(s)
 			return template.JS(b)
 		},
-		"assetLabel": func(kind string) string { return kindLabel(kind) },
-		"custShort":  customerShortLabel,
-		"eq64":       func(a, b int64) bool { return a == b },
-		"eqi":        func(a, b int) bool { return a == b },
+		"assetLabel":  func(kind string) string { return kindLabel(kind) },
+		"custShort":   customerShortLabel,
+		"eq64":        func(a, b int64) bool { return a == b },
+		"eqi":         func(a, b int) bool { return a == b },
+		"retailLines": retailPriceLines,
 	}
+}
+
+func retailPriceLines(price100G, price200G, price227G, price250G float64) []string {
+	lines := make([]string, 0, 4)
+	for _, item := range []struct {
+		specG int64
+		price float64
+	}{
+		{specG: 100, price: price100G},
+		{specG: 200, price: price200G},
+		{specG: 227, price: price227G},
+		{specG: 250, price: price250G},
+	} {
+		if item.price <= 0 {
+			continue
+		}
+		lines = append(lines, fmt.Sprintf("%dg %.2f", item.specG, item.price))
+	}
+	return lines
 }
 
 func customerShortLabel(s string) string {
