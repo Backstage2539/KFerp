@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { useBomList, useBomDetail, useMaterials, useSaveBom, useSaveBomItem, useDeleteBomItem, useBagSpecMappings, useSaveBagSpecMapping, useDeleteBagSpecMapping } from './hooks'
 import type { BomListItem, BomItemRow } from './types'
 
@@ -21,6 +21,131 @@ const styles = {
   input: { padding: '8px 10px', borderRadius: 8, border: '1px solid #ccc', fontSize: 14 } as const,
   alertErr: { background: '#ffecec', border: '1px solid #ffb9b9', color: '#9a1a1a', padding: 10, borderRadius: 8, marginBottom: 10 } as const,
   alertOk: { background: '#ecffef', border: '1px solid #b9f0c0', color: '#156b26', padding: 10, borderRadius: 8, marginBottom: 10 } as const,
+}
+
+function normalizeKeyword(v: string) {
+  return v.trim().toLowerCase().replace(/\s+/g, '')
+}
+
+function MaterialAutocomplete({
+  materials,
+  value,
+  onChange,
+  placeholder,
+  emptyLabel,
+}: {
+  materials?: { id: number; name: string }[]
+  value: string
+  onChange: (value: string) => void
+  placeholder: string
+  emptyLabel: string
+}) {
+  const [query, setQuery] = useState('')
+  const [open, setOpen] = useState(false)
+
+  const selected = useMemo(
+    () => materials?.find((m) => String(m.id) === value) ?? null,
+    [materials, value],
+  )
+
+  const filtered = useMemo(() => {
+    const rows = materials ?? []
+    const kw = normalizeKeyword(query)
+    if (!kw) return rows.slice(0, 30)
+    return rows.filter((m) => normalizeKeyword(m.name).includes(kw)).slice(0, 30)
+  }, [materials, query])
+
+  return (
+    <div style={{ position: 'relative', flex: 1 }}>
+      <input
+        style={{ ...styles.input, width: '100%' }}
+        value={open ? query : (selected?.name ?? '')}
+        placeholder={placeholder}
+        onFocus={() => {
+          setQuery(selected?.name ?? '')
+          setOpen(true)
+        }}
+        onBlur={() => {
+          setTimeout(() => setOpen(false), 120)
+        }}
+        onChange={(e) => {
+          onChange('')
+          setQuery(e.target.value)
+          setOpen(true)
+        }}
+      />
+      {value && (
+        <button
+          type="button"
+          aria-label="清空物料"
+          onClick={() => {
+            onChange('')
+            setQuery('')
+            setOpen(false)
+          }}
+          style={{
+            position: 'absolute',
+            right: 10,
+            top: 9,
+            border: 0,
+            background: 'transparent',
+            color: '#666',
+            cursor: 'pointer',
+            fontSize: 16,
+          }}
+        >
+          ×
+        </button>
+      )}
+      {open && (
+        <div
+          style={{
+            position: 'absolute',
+            left: 0,
+            right: 0,
+            top: 'calc(100% + 6px)',
+            background: '#fff',
+            border: '1px solid #ddd',
+            borderRadius: 8,
+            boxShadow: '0 6px 18px rgba(0,0,0,.08)',
+            maxHeight: 260,
+            overflowY: 'auto',
+            zIndex: 20,
+          }}
+        >
+          {filtered.length === 0 ? (
+            <div style={{ padding: '10px 12px', color: '#666', fontSize: 13 }}>{emptyLabel}</div>
+          ) : (
+            filtered.map((m) => (
+              <button
+                key={m.id}
+                type="button"
+                onMouseDown={(e) => {
+                  e.preventDefault()
+                  onChange(String(m.id))
+                  setQuery(m.name)
+                  setOpen(false)
+                }}
+                style={{
+                  display: 'block',
+                  width: '100%',
+                  textAlign: 'left',
+                  padding: '10px 12px',
+                  border: 0,
+                  borderBottom: '1px solid #f1f1f1',
+                  background: '#fff',
+                  cursor: 'pointer',
+                  fontSize: 14,
+                }}
+              >
+                {m.name}
+              </button>
+            ))
+          )}
+        </div>
+      )}
+    </div>
+  )
 }
 
 type MenuGroup = { title: string; items: { label: string; href: string; active?: boolean }[] }
@@ -179,10 +304,13 @@ function InlineEditor({
       </table>
 
       <div style={{ marginTop: 10, display: 'flex', gap: 8, alignItems: 'center' }}>
-        <select style={{ ...styles.input, flex: 1 }} value={newMaterialId} onChange={(e) => setNewMaterialId(e.target.value)}>
-          <option value="">选择物料（生豆/耗材统一）</option>
-          {materials?.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
-        </select>
+        <MaterialAutocomplete
+          materials={materials}
+          value={newMaterialId}
+          onChange={setNewMaterialId}
+          placeholder="搜索生豆/耗材物料"
+          emptyLabel="没有匹配的物料"
+        />
         <input style={{ ...styles.input, width: 120 }} type="number" step="0.01" min="0.01" max="100" placeholder="配比%" value={newRatio} onChange={(e) => setNewRatio(e.target.value)} />
         <button style={styles.btn} onClick={addItem} disabled={!newMaterialId || !newRatio || saveBomItem.isPending}>添加</button>
       </div>
@@ -224,10 +352,13 @@ function BagSpecMappingEditor() {
         {err && <div style={styles.alertErr}>{err}</div>}
         <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 10 }}>
           <input style={{ ...styles.input, width: 160 }} type="number" min="1" placeholder="规格(g)，如 454" value={specG} onChange={(e) => setSpecG(e.target.value)} />
-          <select style={{ ...styles.input, flex: 1 }} value={materialId} onChange={(e) => setMaterialId(e.target.value)}>
-            <option value="">选择袋子物料</option>
-            {materials?.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
-          </select>
+          <MaterialAutocomplete
+            materials={materials}
+            value={materialId}
+            onChange={setMaterialId}
+            placeholder="搜索袋子物料"
+            emptyLabel="没有匹配的袋子物料"
+          />
           <button style={styles.btn} onClick={submit} disabled={!specG || !materialId || save.isPending}>保存映射</button>
         </div>
 
