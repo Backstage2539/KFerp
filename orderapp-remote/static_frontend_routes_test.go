@@ -16,6 +16,7 @@ func TestBomReactIndexDisablesCache(t *testing.T) {
 	required := []string{
 		`e.GET("/bom-react", func(c echo.Context) error {`,
 		`e.GET("/bom-react/*", func(c echo.Context) error {`,
+		`return c.Redirect(http.StatusFound, c.Request().URL.Path+"?rev="+bomReactRev)`,
 		`Header().Set("Cache-Control", "no-store, no-cache, must-revalidate")`,
 		`Header().Set("Pragma", "no-cache")`,
 		`Header().Set("Expires", "0")`,
