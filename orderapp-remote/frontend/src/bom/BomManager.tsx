@@ -165,6 +165,7 @@ const MENU_GROUPS: MenuGroup[] = [
     items: [
       { label: '生产计划/开始生产', href: '/produce/unproduced' },
       { label: '生产中', href: '/produce/running' },
+      { label: '生产日志', href: '/produce/logs' },
     ],
   },
   {

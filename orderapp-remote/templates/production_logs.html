@@ -1,0 +1,169 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>生产日志</title>
+  <style>
+    body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial; margin:0;}
+    .layout{display:flex; min-height:100vh;}
+    .sidebar{width:190px; padding:14px 12px; border-right:1px solid #eee; background:#fafafa; position:sticky; top:0; height:100vh; box-sizing:border-box; overflow:auto;}
+    .brand{font-weight:800; margin-bottom:10px;}
+    .section{margin-top:14px; margin-bottom:6px; font-size:12px; color:#666;}
+    .link{display:block; padding:8px 10px; border-radius:8px; color:#111; text-decoration:none;}
+    .link:hover{background:#f0f0f0;}
+    .content{flex:1; padding:16px; box-sizing:border-box;}
+    .card{border:1px solid #eee; border-radius:10px; padding:12px; margin:12px 0;}
+    .muted{color:#666; font-size:12px;}
+    .btn{display:inline-block; padding:10px 12px; font-size:16px; border:1px solid #111; background:#111; color:#fff; border-radius:8px; text-decoration:none;}
+    .btn2{display:inline-block; padding:8px 10px; font-size:14px; border:1px solid #999; background:#fff; color:#111; border-radius:8px; text-decoration:none;}
+    input,select{padding:10px; font-size:14px; box-sizing:border-box; width:100%;}
+    table{width:100%; border-collapse:collapse; min-width:1500px;}
+    th,td{border-bottom:1px solid #f1f1f1; padding:10px 8px; text-align:left; font-size:14px; vertical-align:top;}
+    .row{display:grid; grid-template-columns:1fr 1fr 180px 180px 180px 120px; gap:10px;}
+    .err{background:#ffecec; border:1px solid #ffb9b9; padding:10px; border-radius:8px;}
+    pre{margin:0; white-space:pre-wrap; word-break:break-word; font-size:12px;}
+    @media (max-width: 820px){
+      .row{grid-template-columns:1fr;}
+      table{min-width:0;}
+    }
+  </style>
+</head>
+<body>
+  <div class="layout">
+    <nav class="sidebar">
+      <div class="brand">ERP</div>
+      <div class="section">订单</div>
+      <a class="link" href="/vue-shell">录单</a>
+      <a class="link" href="/orders">订单列表</a>
+      <div class="section">生产流程</div>
+      <a class="link" href="/produce/unproduced">生产计划/开始生产</a>
+      <a class="link" href="/produce/running">生产中</a>
+      <a class="link" href="/produce/logs">生产日志</a>
+      <div class="section">物料管理</div>
+      <a class="link" href="/materials">物料档案/库存</a>
+      <a class="link" href="{{ bomURL }}">BOM配方维护</a>
+      <div class="section">档案</div>
+      <a class="link" href="/products">商品档案</a>
+      <a class="link" href="/company/departments">部门维护</a>
+      <a class="link" href="/company/employees">员工维护</a>
+      <a class="link" href="/products/inventory">成品库存</a>
+      <a class="link" href="/customers">客户档案</a>
+      <div class="section">设置</div>
+      <a class="link" href="/produce/machines">设备产能配置</a>
+      <a class="link" href="/settings/sender">发货人设置</a>
+      <div class="section">日志</div>
+      <a class="link" href="/audit">操作日志</a>
+      <div class="section">需求管理</div>
+      <a class="link" href="/req/product">产品需求表</a>
+      <a class="link" href="/req/dev">开发需求表</a>
+      <a class="link" href="/req/unit">单元测试表</a>
+      <a class="link" href="/req/api">API 测试表</a>
+      <a class="link" href="/req/review">需求审核表</a>
+    </nav>
+
+    <main class="content">
+      <div style="display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap;">
+        <h2 style="margin:0">生产日志</h2>
+        <div style="display:flex; gap:8px; flex-wrap:wrap;">
+          <a class="btn2" href="/produce/unproduced">生产计划</a>
+          <a class="btn2" href="/produce/running">生产中</a>
+        </div>
+      </div>
+
+      {{if .Error}}<div class="err">{{.Error}}</div>{{end}}
+
+      <div class="card">
+        <form method="get" action="/produce/logs">
+          <div class="row">
+            <div>
+              <div class="muted" style="margin-bottom:6px;">开始日期(from)</div>
+              <input name="from" value="{{.From}}" placeholder="YYYY-MM-DD" />
+            </div>
+            <div>
+              <div class="muted" style="margin-bottom:6px;">结束日期(to)</div>
+              <input name="to" value="{{.To}}" placeholder="YYYY-MM-DD" />
+            </div>
+            <div>
+              <div class="muted" style="margin-bottom:6px;">产品</div>
+              <select name="product_id">
+                <option value="">全部产品</option>
+                {{range .Products}}
+                  <option value="{{.ID}}" {{if eq64 $.ProductID .ID}}selected{{end}}>{{.Name}}</option>
+                {{end}}
+              </select>
+            </div>
+            <div>
+              <div class="muted" style="margin-bottom:6px;">批次号</div>
+              <input name="batch_id" value="{{.BatchID}}" placeholder="例如 PB-20260425-001" />
+            </div>
+            <div>
+              <div class="muted" style="margin-bottom:6px;">完成人</div>
+              <input name="operator" value="{{.Operator}}" placeholder="员工姓名" />
+            </div>
+            <div style="display:flex; align-items:flex-end;">
+              <button class="btn" type="submit">筛选</button>
+            </div>
+          </div>
+        </form>
+      </div>
+
+      <div class="card">
+        <div style="overflow:auto;">
+          <table>
+            <thead>
+              <tr>
+                <th>完成时间</th>
+                <th>批次</th>
+                <th>产品</th>
+                <th>规格(g)</th>
+                <th>订单号</th>
+                <th>计划成品(g)</th>
+                <th>投料数(g)</th>
+                <th>BOM出品率</th>
+                <th>完成件数</th>
+                <th>散装余料(g)</th>
+                <th>实际产出(g)</th>
+                <th>真实出品率</th>
+                <th>开始人</th>
+                <th>开始时间</th>
+                <th>完成人</th>
+                <th>库存前</th>
+                <th>库存后</th>
+                <th>物料摘要</th>
+              </tr>
+            </thead>
+            <tbody>
+              {{range .Rows}}
+                <tr>
+                  <td>{{.FinishedAt}}</td>
+                  <td>{{.BatchID}}</td>
+                  <td>{{.ProductName}}</td>
+                  <td>{{.SpecG}}</td>
+                  <td class="muted">{{.OrderNos}}</td>
+                  <td>{{.PlannedNeedG}}</td>
+                  <td>{{.InputG}}</td>
+                  <td>{{pct .BomYieldRate}}</td>
+                  <td>{{.FinishedUnits}}</td>
+                  <td>{{.FinishedLooseG}}</td>
+                  <td>{{.FinishedTotalG}}</td>
+                  <td>{{pct .ActualYieldRate}}</td>
+                  <td>{{.StartedBy}}</td>
+                  <td>{{.StartedAt}}</td>
+                  <td>{{.FinishedBy}}</td>
+                  <td>{{.InventoryUnitsBefore}} 件 / {{.InventoryLooseGBefore}}g</td>
+                  <td>{{.InventoryUnitsAfter}} 件 / {{.InventoryLooseGAfter}}g</td>
+                  <td><pre>{{.MaterialSummary}}</pre></td>
+                </tr>
+              {{end}}
+              {{if not .Rows}}
+                <tr><td colspan="18" class="muted">暂无生产日志</td></tr>
+              {{end}}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </main>
+  </div>
+</body>
+</html>

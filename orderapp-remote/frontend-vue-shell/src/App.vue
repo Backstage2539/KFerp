@@ -44,6 +44,7 @@ const menuMap = {
   orders: { title: '订单列表', url: '/orders' },
   producePlan: { title: '生产计划/开始生产', url: '/produce/unproduced' },
   produceRunning: { title: '生产中', url: '/produce/running' },
+  produceLogs: { title: '生产日志', url: '/produce/logs' },
   materials: { title: '物料档案/库存', url: '/materials' },
   bom: { title: 'BOM配方维护', url: BOM_REACT_URL },
   customers: { title: '客户档案', url: '/customers' },
@@ -64,7 +65,7 @@ const menuMap = {
 
 const menuGroups = [
   { name: '订单', items: [{ key: 'order', label: '录单' }, { key: 'orders', label: '订单列表' }] },
-  { name: '生产流程', items: [{ key: 'producePlan', label: '生产计划/开始生产' }, { key: 'produceRunning', label: '生产中' }] },
+  { name: '生产流程', items: [{ key: 'producePlan', label: '生产计划/开始生产' }, { key: 'produceRunning', label: '生产中' }, { key: 'produceLogs', label: '生产日志' }] },
   { name: '物料管理', items: [{ key: 'materials', label: '物料档案/库存' }, { key: 'bom', label: 'BOM配方维护' }] },
   { name: '档案', items: [{ key: 'customers', label: '客户档案' }, { key: 'products', label: '商品档案' }, { key: 'departments', label: '部门维护' }, { key: 'employees', label: '员工维护' }, { key: 'inventory', label: '成品库存' }, { key: 'quotePrint', label: '报价导出' }] },
   { name: '设置', items: [{ key: 'machines', label: '设备产能配置' }, { key: 'senderSettings', label: '发货人设置' }] },

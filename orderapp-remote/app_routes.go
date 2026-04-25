@@ -23,6 +23,7 @@ func registerAppRoutes(e *echo.Echo, pool *pgxpool.Pool, schema string, assetDir
 	registerSenderSettingsPage(e, pool, schema)
 	registerProducePlanAllocate(e, pool, schema)
 	registerProductionFlowPages(e, pool, schema)
+	registerProductionLogPages(e, pool, schema)
 	registerProduceBatchAPI(e, pool, schema)
 	registerCompanyStaffPages(e, pool, schema)
 	registerCompanyStaffAPI(e, pool, schema)
