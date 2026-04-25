@@ -19,6 +19,96 @@ type bomNeedItem struct {
 	RatioPct     float64
 }
 
+func producePlanKey(productID, specG int64) string {
+	return fmt.Sprintf("%d-%d", productID, specG)
+}
+
+func calcProducePlanMaterialsFromFinalInputs(rows []UnprodNeedRow, finalInputByKey map[string]int64, bomMap map[int64][]bomNeedItem, p ProducePlanParams) []MaterialNeed {
+	m := map[string]MaterialNeed{}
+	add := func(name string, qty int64, unit string) {
+		if qty <= 0 {
+			return
+		}
+		x := m[name]
+		x.Name = name
+		x.Unit = unit
+		x.Qty += qty
+		m[name] = x
+	}
+	ceilDiv := func(a, b int64) int64 {
+		if b <= 0 {
+			return 0
+		}
+		return (a + b - 1) / b
+	}
+	fallbackYield := p.YieldRate
+	if fallbackYield <= 0 || fallbackYield > 1 {
+		fallbackYield = 0.8
+	}
+
+	for _, r := range rows {
+		if r.GapG <= 0 || r.SpecG <= 0 {
+			continue
+		}
+		finalInputG := finalInputByKey[producePlanKey(r.ProductID, r.SpecG)]
+		items := bomMap[r.ProductID]
+		if finalInputG <= 0 {
+			yield := fallbackYield
+			if len(items) > 0 && items[0].YieldRate > 0 && items[0].YieldRate <= 1 {
+				yield = items[0].YieldRate
+			}
+			finalInputG = int64(math.Ceil(float64(r.GapG) / yield))
+		}
+		if len(items) == 0 {
+			noBom := r
+			noBom.GapG = finalInputG
+			for _, item := range calcNoBomProducePlanMaterials(noBom, p) {
+				if item.Unit == "个" && strings.Contains(item.Name, "豆袋") {
+					item.Qty = ceilDiv(r.GapG, r.SpecG)
+				}
+				add(item.Name, item.Qty, item.Unit)
+			}
+			continue
+		}
+
+		unitsMissing := ceilDiv(r.GapG, r.SpecG)
+		for _, bi := range items {
+			u := strings.TrimSpace(bi.MaterialUnit)
+			if u == "" {
+				u = "g"
+			}
+			switch {
+			case strings.EqualFold(u, "g"):
+				add(bi.MaterialName, int64(math.Ceil(float64(finalInputG)*bi.RatioPct/100.0)), "g")
+			case strings.EqualFold(u, "kg"):
+				add(bi.MaterialName, int64(math.Ceil((float64(finalInputG)*bi.RatioPct/100.0)/1000.0)), "kg")
+			default:
+				add(bi.MaterialName, int64(math.Ceil(float64(unitsMissing)*bi.RatioPct/100.0)), u)
+			}
+		}
+
+		bagName := "豆袋"
+		if p.BagNameBySpecG != nil {
+			if v := strings.TrimSpace(p.BagNameBySpecG[r.SpecG]); v != "" {
+				bagName = v
+			}
+		}
+		add(bagName, unitsMissing, "个")
+	}
+
+	out := make([]MaterialNeed, 0, len(m))
+	for _, v := range m {
+		out = append(out, v)
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Unit != out[j].Unit {
+			return out[i].Unit < out[j].Unit
+		}
+		return out[i].Name < out[j].Name
+	})
+	return out
+}
+
 func calcProducePlanMaterialsWithBOM(ctx context.Context, pool *pgxpool.Pool, schema string, rows []UnprodNeedRow, p ProducePlanParams) []MaterialNeed {
 	productIDs := make([]int64, 0)
 	seen := map[int64]bool{}

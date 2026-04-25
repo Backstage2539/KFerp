@@ -39,6 +39,19 @@ type ProduceRunPageData struct {
 	Error string
 }
 
+type ProduceStartAPIRequest struct {
+	From       string           `json:"from"`
+	To         string           `json:"to"`
+	CustomerID int64            `json:"customer_id"`
+	Selected   []string         `json:"selected"`
+	InputByKey map[string]int64 `json:"input_by_key"`
+}
+
+type ProduceStartAPIResponse struct {
+	OK      bool   `json:"ok"`
+	BatchID string `json:"batch_id"`
+}
+
 func ensureProductionRunTable(ctx context.Context, pool *pgxpool.Pool, schema string) error {
 	q := fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s.produce_running_items (
 		id BIGSERIAL PRIMARY KEY,
@@ -108,7 +121,7 @@ func registerProductionFlowPages(e *echo.Echo, pool *pgxpool.Pool, schema string
 		if err := requireEmployeeBound(c); err != nil {
 			return c.Redirect(http.StatusSeeOther, "/produce/unproduced?err="+url.QueryEscape(err.Error()))
 		}
-		sel := strings.TrimSpace(c.FormValue("selected"))
+		selected, sel := parseSelectedCSV(strings.TrimSpace(c.FormValue("selected")))
 		from := strings.TrimSpace(c.FormValue("from"))
 		to := strings.TrimSpace(c.FormValue("to"))
 		var cid int64
@@ -118,55 +131,55 @@ func registerProductionFlowPages(e *echo.Echo, pool *pgxpool.Pool, schema string
 		if sel == "" {
 			return c.Redirect(http.StatusSeeOther, "/produce/unproduced?err="+url.QueryEscape("请先生成计划并选择项目"))
 		}
-		selected := map[string]bool{}
-		for _, k := range strings.Split(sel, ",") {
-			k = strings.TrimSpace(k)
-			if k != "" {
-				selected[k] = true
-			}
-		}
+		inputByKey := map[string]int64{}
 		rows, err := fetchUnproducedNeeds(c.Request().Context(), pool, schema, from, to, cid)
 		if err != nil {
 			return c.Redirect(http.StatusSeeOther, "/produce/unproduced?err="+url.QueryEscape(err.Error()))
 		}
-		plan := make([]UnprodNeedRow, 0)
 		for _, r := range rows {
-			if r.GapG <= 0 {
+			if !selected[producePlanKey(r.ProductID, r.SpecG)] || r.GapG <= 0 {
 				continue
 			}
-			if selected[fmt.Sprintf("%d-%d", r.ProductID, r.SpecG)] {
-				plan = append(plan, r)
-			}
-		}
-		if len(plan) == 0 {
-			return c.Redirect(http.StatusSeeOther, "/produce/unproduced?err="+url.QueryEscape("没有可开始生产的数据"))
-		}
-		yieldMap, err := loadProductYieldRateMap(c.Request().Context(), pool, schema)
-		if err != nil {
-			return c.Redirect(http.StatusSeeOther, "/produce/unproduced?err="+url.QueryEscape(err.Error()))
-		}
-		inputByKey := map[string]int64{}
-		for _, r := range plan {
-			key := fmt.Sprintf("%d_%d", r.ProductID, r.SpecG)
-			inputG, _, err := parseOptionalInt64(c.FormValue("input_g_" + key))
+			formKey := fmt.Sprintf("%d_%d", r.ProductID, r.SpecG)
+			inputG, _, err := parseOptionalInt64(c.FormValue("input_g_" + formKey))
 			if err != nil {
 				return c.Redirect(http.StatusSeeOther, "/produce/unproduced?err="+url.QueryEscape("投料数格式不正确"))
 			}
 			if inputG <= 0 {
 				return c.Redirect(http.StatusSeeOther, "/produce/unproduced?err="+url.QueryEscape("投料数必须大于0"))
 			}
-			inputByKey[key] = inputG
+			inputByKey[producePlanKey(r.ProductID, r.SpecG)] = inputG
 		}
 		operator := actorOf(c)
-		batchID, _, _, err := allocateUnproducedRows(c.Request().Context(), pool, schema, plan, operator)
-		if err != nil {
+		if _, err := startProductionWithInputs(c.Request().Context(), pool, schema, from, to, cid, selected, inputByKey, operator); err != nil {
 			return c.Redirect(http.StatusSeeOther, "/produce/unproduced?err="+url.QueryEscape(err.Error()))
 		}
-		if err := saveRunningItems(c.Request().Context(), pool, schema, batchID, plan, inputByKey, yieldMap, operator); err != nil {
-			return c.Redirect(http.StatusSeeOther, "/produce/unproduced?err="+url.QueryEscape(err.Error()))
-		}
-		_ = setOrdersProcessStatusByNeeds(c.Request().Context(), pool, schema, plan, "生产中")
 		return c.Redirect(http.StatusSeeOther, "/produce/running?ok=1")
+	})
+
+	e.POST("/api/produce/start", func(c echo.Context) error {
+		if err := requireEmployeeBound(c); err != nil {
+			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: err.Error()})
+		}
+		var req ProduceStartAPIRequest
+		if err := c.Bind(&req); err != nil {
+			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: "invalid request"})
+		}
+		if len(req.Selected) == 0 {
+			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: "请先生成计划并选择项目"})
+		}
+		selected := map[string]bool{}
+		for _, key := range req.Selected {
+			key = strings.TrimSpace(key)
+			if key != "" {
+				selected[key] = true
+			}
+		}
+		batchID, err := startProductionWithInputs(c.Request().Context(), pool, schema, req.From, req.To, req.CustomerID, selected, req.InputByKey, actorOf(c))
+		if err != nil {
+			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: err.Error()})
+		}
+		return c.JSON(http.StatusOK, ProduceStartAPIResponse{OK: true, BatchID: batchID})
 	})
 
 	e.GET("/produce/running", func(c echo.Context) error {
@@ -220,13 +233,66 @@ func registerProductionFlowPages(e *echo.Echo, pool *pgxpool.Pool, schema string
 	})
 }
 
+func parseSelectedCSV(sel string) (map[string]bool, string) {
+	selected := map[string]bool{}
+	sel = strings.TrimSpace(sel)
+	if sel == "" {
+		return selected, ""
+	}
+	for _, key := range strings.Split(sel, ",") {
+		key = strings.TrimSpace(key)
+		if key != "" {
+			selected[key] = true
+		}
+	}
+	return selected, sel
+}
+
+func startProductionWithInputs(ctx context.Context, pool *pgxpool.Pool, schema, from, to string, customerID int64, selected map[string]bool, inputByKey map[string]int64, operator string) (string, error) {
+	rows, err := fetchUnproducedNeeds(ctx, pool, schema, from, to, customerID)
+	if err != nil {
+		return "", err
+	}
+	plan := make([]UnprodNeedRow, 0)
+	for _, r := range rows {
+		if r.GapG <= 0 {
+			continue
+		}
+		if selected[producePlanKey(r.ProductID, r.SpecG)] {
+			plan = append(plan, r)
+		}
+	}
+	if len(plan) == 0 {
+		return "", fmt.Errorf("没有可开始生产的数据")
+	}
+	yieldMap, err := loadProductYieldRateMap(ctx, pool, schema)
+	if err != nil {
+		return "", err
+	}
+	for _, r := range plan {
+		key := producePlanKey(r.ProductID, r.SpecG)
+		if inputByKey[key] <= 0 {
+			return "", fmt.Errorf("投料数必须大于0")
+		}
+	}
+	batchID, _, _, err := allocateUnproducedRows(ctx, pool, schema, plan, operator)
+	if err != nil {
+		return "", err
+	}
+	if err := saveRunningItems(ctx, pool, schema, batchID, plan, inputByKey, yieldMap, operator); err != nil {
+		return "", err
+	}
+	_ = setOrdersProcessStatusByNeeds(ctx, pool, schema, plan, "生产中")
+	return batchID, nil
+}
+
 func saveRunningItems(ctx context.Context, pool *pgxpool.Pool, schema, batchID string, rows []UnprodNeedRow, inputByKey map[string]int64, yieldByProductID map[int64]float64, operator string) error {
 	for _, r := range rows {
 		needG := r.GapG
 		if needG <= 0 {
 			continue
 		}
-		key := fmt.Sprintf("%d_%d", r.ProductID, r.SpecG)
+		key := producePlanKey(r.ProductID, r.SpecG)
 		inputG := inputByKey[key]
 		if inputG <= 0 {
 			inputG = defaultProductionInputG(needG, yieldByProductID[r.ProductID])

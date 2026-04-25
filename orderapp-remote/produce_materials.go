@@ -16,9 +16,9 @@ import (
 // Qty is an integer to avoid floating display; grams are also stored as integers.
 // If you later want kg, do formatting in template.
 type MaterialNeed struct {
-	Name string
-	Qty  int64
-	Unit string
+	Name string `json:"name"`
+	Qty  int64  `json:"qty"`
+	Unit string `json:"unit"`
 }
 
 type ProducePlanBomItem struct {

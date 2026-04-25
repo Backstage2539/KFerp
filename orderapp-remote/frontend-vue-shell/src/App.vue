@@ -24,13 +24,15 @@
         <button class="toggle" @click="toggleMenu">{{ toggleLabel }}</button>
         <div v-if="showTitle" class="title">{{ title }}</div>
       </header>
-      <iframe ref="frameRef" class="frame" :src="currentUrl" @load="onFrameLoad" />
+      <component :is="currentInternalView" v-if="currentInternalView" class="internal-view" />
+      <iframe v-else ref="frameRef" class="frame" :src="currentUrl" @load="onFrameLoad" />
     </main>
   </div>
 </template>
 
 <script setup>
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import ProducePlanView from './views/ProducePlanView.vue'
 
 const collapsed = ref(false)
 const currentKey = ref('order')
@@ -42,7 +44,7 @@ const BOM_REACT_URL = '/bom-react'
 const menuMap = {
   order: { title: '录单', url: '/order' },
   orders: { title: '订单列表', url: '/orders' },
-  producePlan: { title: '生产计划/开始生产', url: '/produce/unproduced' },
+  producePlan: { title: '生产计划/开始生产', url: '/vue-shell?view=producePlan', internal: true },
   produceRunning: { title: '生产中', url: '/produce/running' },
   produceLogs: { title: '生产日志', url: '/produce/logs' },
   materials: { title: '物料档案/库存', url: '/materials' },
@@ -63,6 +65,10 @@ const menuMap = {
   reqReview: { title: '需求审核表', url: '/req/review' },
 }
 
+const internalViews = {
+  producePlan: ProducePlanView,
+}
+
 const menuGroups = [
   { name: '订单', items: [{ key: 'order', label: '录单' }, { key: 'orders', label: '订单列表' }] },
   { name: '生产流程', items: [{ key: 'producePlan', label: '生产计划/开始生产' }, { key: 'produceRunning', label: '生产中' }, { key: 'produceLogs', label: '生产日志' }] },
@@ -73,9 +79,16 @@ const menuGroups = [
   { name: '需求管理', items: [{ key: 'reqProduct', label: '产品需求表' }, { key: 'reqDev', label: '开发需求表' }, { key: 'reqUnit', label: '单元测试表' }, { key: 'reqApi', label: 'API 测试表' }, { key: 'reqReview', label: '需求审核表' }] },
 ]
 
+function applyKeyToUrl(key) {
+  const url = new URL(window.location.href)
+  url.searchParams.set('view', key)
+  window.history.replaceState({}, '', url.toString())
+}
+
 function open(key) {
   if (!menuMap[key]) return
   currentKey.value = key
+  applyKeyToUrl(key)
   if (isMobile.value) mobileOpen.value = false
 }
 
@@ -113,6 +126,10 @@ function toggleMenu() {
 
 onMounted(() => {
   handleResize()
+  const view = new URL(window.location.href).searchParams.get('view')
+  if (view && menuMap[view]) {
+    currentKey.value = view
+  }
   window.addEventListener('resize', handleResize)
 })
 
@@ -133,6 +150,7 @@ const toggleLabel = computed(() => {
 })
 const title = computed(() => menuMap[currentKey.value]?.title || '')
 const currentUrl = computed(() => menuMap[currentKey.value]?.url || '/order')
+const currentInternalView = computed(() => internalViews[currentKey.value] || null)
 </script>
 
 <style scoped>
@@ -154,6 +172,7 @@ const currentUrl = computed(() => menuMap[currentKey.value]?.url || '/order')
 .top.compact { gap: 0; }
 .title { font-weight: 600; }
 .frame { width: 100%; height: calc(100vh - 56px); border: 0; background: #fff; }
+.internal-view { min-height: calc(100vh - 56px); background: #fff; }
 .overlay { position: fixed; inset: 0; background: rgba(0,0,0,.25); z-index: 25; }
 
 @media (max-width: 900px) {
