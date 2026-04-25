@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"math"
 	"strings"
@@ -16,6 +17,14 @@ type materialConsumptionNeed struct {
 	Qty          int64
 	DeductG      int64
 	DeductUnits  int64
+}
+
+type materialConsumptionSummaryItem struct {
+	MaterialID   int64  `json:"material_id"`
+	MaterialName string `json:"material_name"`
+	Unit         string `json:"unit"`
+	DeductG      int64  `json:"deduct_g"`
+	DeductUnits  int64  `json:"deduct_units"`
 }
 
 func isWeightMaterialUnit(unit string) bool {
@@ -38,7 +47,7 @@ func materialNeedToDeduct(unit string, qty int64) (deductG int64, deductUnits in
 	}
 }
 
-func calcRunningItemMaterialNeedsTx(ctx context.Context, tx pgx.Tx, schema string, r ProduceRunRow) ([]materialConsumptionNeed, error) {
+func calcRunningItemMaterialNeedsTx(ctx context.Context, tx pgx.Tx, schema string, r ProduceRunRow, finished InvQty) ([]materialConsumptionNeed, error) {
 	if r.ProductID <= 0 || r.SpecG <= 0 || r.NeedG <= 0 {
 		return nil, nil
 	}
@@ -89,8 +98,14 @@ func calcRunningItemMaterialNeedsTx(ctx context.Context, tx pgx.Tx, schema strin
 	if yield <= 0 || yield > 1 {
 		yield = 0.8
 	}
-	rawG := int64(math.Ceil(float64(r.NeedG) / yield))
-	unitsMissing := (r.NeedG + r.SpecG - 1) / r.SpecG
+	rawG := r.InputG
+	if rawG <= 0 {
+		rawG = int64(math.Ceil(float64(r.NeedG) / yield))
+	}
+	packedUnits := finished.Units
+	if packedUnits < 0 {
+		packedUnits = 0
+	}
 
 	needs := make([]materialConsumptionNeed, 0, len(bomRows)+1)
 	for _, bi := range bomRows {
@@ -106,7 +121,7 @@ func calcRunningItemMaterialNeedsTx(ctx context.Context, tx pgx.Tx, schema strin
 				qty = int64(math.Ceil(float64(rawG) * bi.ratio / 100.0))
 			}
 		} else {
-			qty = int64(math.Ceil(float64(unitsMissing) * bi.ratio / 100.0))
+			qty = int64(math.Ceil(float64(packedUnits) * bi.ratio / 100.0))
 		}
 		deductG, deductUnits := materialNeedToDeduct(unit, qty)
 		needs = append(needs, materialConsumptionNeed{
@@ -128,12 +143,12 @@ func calcRunningItemMaterialNeedsTx(ctx context.Context, tx pgx.Tx, schema strin
 		WHERE m.spec_g=$1
 	`, schema, schema), r.SpecG).Scan(&bagID, &bagName, &bagUnit)
 	if err == nil && bagID > 0 && strings.TrimSpace(bagName) != "" {
-		deductG, deductUnits := materialNeedToDeduct(bagUnit, unitsMissing)
+		deductG, deductUnits := materialNeedToDeduct(bagUnit, packedUnits)
 		needs = append(needs, materialConsumptionNeed{
 			MaterialID:   bagID,
 			MaterialName: strings.TrimSpace(bagName),
 			Unit:         strings.TrimSpace(bagUnit),
-			Qty:          unitsMissing,
+			Qty:          packedUnits,
 			DeductG:      deductG,
 			DeductUnits:  deductUnits,
 		})
@@ -144,8 +159,8 @@ func calcRunningItemMaterialNeedsTx(ctx context.Context, tx pgx.Tx, schema strin
 	return needs, nil
 }
 
-func deductMaterialsForRunningItemTx(ctx context.Context, tx pgx.Tx, schema string, r ProduceRunRow, operator string) error {
-	needs, err := calcRunningItemMaterialNeedsTx(ctx, tx, schema, r)
+func deductMaterialsForRunningItemTx(ctx context.Context, tx pgx.Tx, schema string, r ProduceRunRow, finished InvQty, operator string) error {
+	needs, err := calcRunningItemMaterialNeedsTx(ctx, tx, schema, r, finished)
 	if err != nil {
 		return err
 	}
@@ -180,4 +195,39 @@ func deductMaterialsForRunningItemTx(ctx context.Context, tx pgx.Tx, schema stri
 		}
 	}
 	return nil
+}
+
+func listMaterialConsumptionSummaryTx(ctx context.Context, tx pgx.Tx, schema string, runningItemID int64) ([]materialConsumptionSummaryItem, error) {
+	rows, err := tx.Query(ctx, fmt.Sprintf(`
+		SELECT material_id,
+		       COALESCE(material_name,''),
+		       COALESCE(unit,''),
+		       SUM(deduct_g)::bigint,
+		       SUM(deduct_units)::bigint
+		FROM %s.material_consumption_logs
+		WHERE running_item_id=$1
+		GROUP BY material_id, material_name, unit
+		ORDER BY material_name, material_id
+	`, schema), runningItemID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	out := make([]materialConsumptionSummaryItem, 0)
+	for rows.Next() {
+		var item materialConsumptionSummaryItem
+		if err := rows.Scan(&item.MaterialID, &item.MaterialName, &item.Unit, &item.DeductG, &item.DeductUnits); err != nil {
+			return nil, err
+		}
+		out = append(out, item)
+	}
+	return out, rows.Err()
+}
+
+func marshalMaterialConsumptionSummary(items []materialConsumptionSummaryItem) ([]byte, error) {
+	if len(items) == 0 {
+		return []byte("[]"), nil
+	}
+	return json.Marshal(items)
 }

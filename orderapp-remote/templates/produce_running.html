@@ -28,11 +28,11 @@
   {{if .Ok}}<div class="ok">操作成功</div>{{end}}
   {{if .Error}}<div class="err">{{.Error}}</div>{{end}}
   <div class="card">
-    <div class="muted" style="margin-bottom:8px;">完成生产时，系统会按填写的完成件数和散装余量增加成品库存；烘焙剩余请填入散装余量(g)。</div>
+    <div class="muted" style="margin-bottom:8px;">完成生产时，系统会按填写的完成件数和散装余量增加成品库存，真实出品率会基于计划投料数自动计算；烘焙剩余请填入散装余量(g)。</div>
     <div style="overflow:auto;">
       <table>
         <thead>
-          <tr><th>批次</th><th>产品</th><th>规格(g)</th><th>计划产量(g)</th><th>计划入库</th><th>完成件数</th><th>散装余量(g)</th><th>订单号</th><th>开始时间</th><th>操作</th></tr>
+          <tr><th>批次</th><th>产品</th><th>规格(g)</th><th>计划产量(g)</th><th>计划投料数(g)</th><th>BOM出品率</th><th>计划入库</th><th>完成件数</th><th>散装余量(g)</th><th>订单号</th><th>开始时间</th><th>操作</th></tr>
         </thead>
         <tbody>
           {{range .Rows}}
@@ -41,6 +41,8 @@
             <td>{{.Product}}</td>
             <td>{{.SpecG}}</td>
             <td>{{.NeedG}}</td>
+            <td>{{.InputG}}</td>
+            <td>{{pct .BomYieldRate}}</td>
             <td>{{.PlanUnits}} 件 {{if .PlanLooseG}}+ {{.PlanLooseG}}g{{end}}</td>
             <td>
               <input type="number" name="finished_units" min="0" step="1" value="{{.PlanUnits}}" style="width:90px;" form="finish-{{.ID}}" />
@@ -58,7 +60,7 @@
             </td>
           </tr>
           {{end}}
-          {{if not .Rows}}<tr><td colspan="10" class="muted">当前无生产中任务</td></tr>{{end}}
+          {{if not .Rows}}<tr><td colspan="12" class="muted">当前无生产中任务</td></tr>{{end}}
         </tbody>
       </table>
     </div>

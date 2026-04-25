@@ -85,7 +85,7 @@ func TestProduceRunningTemplateContainsFinishedInventoryFields(t *testing.T) {
 		t.Fatal(err)
 	}
 	content := string(body)
-	for _, needle := range []string{"finished_units", "finished_loose_g", "烘焙剩余请填入散装余量"} {
+	for _, needle := range []string{"finished_units", "finished_loose_g", "烘焙剩余请填入散装余量", "计划投料数", "BOM出品率"} {
 		if !strings.Contains(content, needle) {
 			t.Fatalf("produce_running.html missing %q", needle)
 		}
@@ -101,6 +101,22 @@ func TestUnproducedTemplateContainsInputGFields(t *testing.T) {
 	for _, needle := range []string{"投料数(g)", "input_g_", "startProduction()"} {
 		if !strings.Contains(content, needle) {
 			t.Fatalf("unprod_summary.html missing %q", needle)
+		}
+	}
+}
+
+func TestMarshalMaterialConsumptionSummary(t *testing.T) {
+	got, err := marshalMaterialConsumptionSummary([]materialConsumptionSummaryItem{
+		{MaterialID: 1, MaterialName: "卡蒂姆水洗", Unit: "g", DeductG: 1200},
+		{MaterialID: 9, MaterialName: "豆袋", Unit: "个", DeductUnits: 8},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(got)
+	for _, needle := range []string{`"material_id":1`, `"material_name":"卡蒂姆水洗"`, `"deduct_g":1200`, `"material_name":"豆袋"`, `"deduct_units":8`} {
+		if !strings.Contains(text, needle) {
+			t.Fatalf("material summary json missing %q in %s", needle, text)
 		}
 	}
 }
