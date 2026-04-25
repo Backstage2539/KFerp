@@ -10,7 +10,7 @@ func registerStaticFrontendRoutes(e *echo.Echo) {
 	// Caddy strips the /app/ prefix before proxying to orderapp.
 	e.Static("/bom-react/assets", "frontend/dist/assets")
 	e.GET("/bom-react", func(c echo.Context) error {
-		if c.QueryParam("rev") == "" {
+		if c.QueryParam("rev") != currentBomReactRev() {
 			return c.Redirect(http.StatusFound, bomReactURL())
 		}
 		c.Response().Header().Set("Cache-Control", "no-store, no-cache, must-revalidate")

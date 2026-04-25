@@ -37,7 +37,7 @@ const currentKey = ref('order')
 const frameRef = ref(null)
 const isMobile = ref(false)
 const mobileOpen = ref(false)
-const BOM_REACT_URL = '/bom-react?rev=20260424-2'
+const BOM_REACT_URL = '/bom-react'
 
 const menuMap = {
   order: { title: '录单', url: '/order' },
