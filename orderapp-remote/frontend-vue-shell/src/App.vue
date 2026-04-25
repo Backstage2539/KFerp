@@ -33,6 +33,7 @@
 <script setup>
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import MaterialsView from './views/MaterialsView.vue'
+import OrderEntryView from './views/OrderEntryView.vue'
 import ProducePlanView from './views/ProducePlanView.vue'
 
 const collapsed = ref(false)
@@ -44,7 +45,7 @@ const BOM_REACT_URL = '/bom-react'
 const BOM_REACT_EMBED_URL = '/bom-react?embed=1'
 
 const menuMap = {
-  order: { title: '录单', url: '/order' },
+  order: { title: '录单', url: '/vue-shell?view=order', internal: true },
   orders: { title: '订单列表', url: '/orders' },
   producePlan: { title: '生产计划/开始生产', url: '/vue-shell?view=producePlan', internal: true },
   produceRunning: { title: '生产中', url: '/produce/running' },
@@ -68,6 +69,7 @@ const menuMap = {
 }
 
 const internalViews = {
+  order: OrderEntryView,
   materials: MaterialsView,
   producePlan: ProducePlanView,
 }
