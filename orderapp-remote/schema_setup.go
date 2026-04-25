@@ -11,13 +11,14 @@ import (
 func ensureAppSchema(ctx context.Context, pool *pgxpool.Pool, schema string) error {
 	return postgresinfra.EnsureSchema(ctx, []postgresinfra.SchemaStep{
 		{Name: "audit tables", Run: func(ctx context.Context) error { return ensureAuditTables(ctx, pool, schema) }},
+		{Name: "bom", Run: func(ctx context.Context) error { return ensureBomTables(ctx, pool, schema) }},
 		{Name: "product pricing columns", Run: func(ctx context.Context) error { return ensureProductPricingColumns(ctx, pool, schema) }},
 		{Name: "requirements tables", Run: func(ctx context.Context) error { return ensureReqTables(ctx, pool, schema) }},
 		{Name: "requirements seed", Run: func(ctx context.Context) error { return seedReqWorkflowA(ctx, pool, schema) }},
 		{Name: "finished inventory", Run: func(ctx context.Context) error { return ensureFinishedInventoryTable(ctx, pool, schema) }},
 		{Name: "finished allocation log", Run: func(ctx context.Context) error { return ensureFinishedAllocationLogTable(ctx, pool, schema) }},
 		{Name: "materials", Run: func(ctx context.Context) error { return ensureMaterialTables(ctx, pool, schema) }},
-		{Name: "bom", Run: func(ctx context.Context) error { return ensureBomTables(ctx, pool, schema) }},
+		{Name: "stock ledger", Run: func(ctx context.Context) error { return ensureStockLedgerTables(ctx, pool, schema) }},
 		{Name: "bag spec mapping", Run: func(ctx context.Context) error { return ensureBagSpecMappingTable(ctx, pool, schema) }},
 		{Name: "produce batch", Run: func(ctx context.Context) error { return ensureProduceBatchTables(ctx, pool, schema) }},
 		{Name: "company staff", Run: func(ctx context.Context) error { return ensureCompanyStaffTables(ctx, pool, schema) }},

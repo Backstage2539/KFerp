@@ -3,24 +3,39 @@ package main
 import (
 	"context"
 	"fmt"
+	"math"
 	"strings"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 type MaterialRow struct {
-	ID            int64
-	Code          string
-	Name          string
-	Kind          string // bean|pack|other
-	Unit          string // g|unit
-	PurchasePrice float64
-	SalePrice     float64
-	OnhandG       int64
-	OnhandUnits   int64
-	MinLevelG     int64
-	MinLevelUnits int64
-	UpdatedAt     string
+	ID            int64   `json:"id"`
+	Code          string  `json:"code"`
+	Name          string  `json:"name"`
+	Kind          string  `json:"kind"` // bean|pack|other
+	Unit          string  `json:"unit"` // g|unit
+	PurchasePrice float64 `json:"purchase_price"`
+	SalePrice     float64 `json:"sale_price"`
+	OnhandG       int64   `json:"onhand_g"`
+	OnhandUnits   int64   `json:"onhand_units"`
+	MinLevelG     int64   `json:"min_level_g"`
+	MinLevelUnits int64   `json:"min_level_units"`
+	UpdatedAt     string  `json:"updated_at"`
+}
+
+type MaterialInput struct {
+	Code          string  `json:"code" form:"code"`
+	Name          string  `json:"name" form:"name"`
+	Kind          string  `json:"kind" form:"kind"`
+	Unit          string  `json:"unit" form:"unit"`
+	PurchasePrice float64 `json:"purchase_price" form:"purchase_price"`
+	SalePrice     float64 `json:"sale_price" form:"sale_price"`
+	OnhandG       int64   `json:"onhand_g" form:"onhand_g"`
+	OnhandUnits   int64   `json:"onhand_units" form:"onhand_units"`
+	MinLevelG     int64   `json:"min_level_g" form:"min_level_g"`
+	MinLevelUnits int64   `json:"min_level_units" form:"min_level_units"`
 }
 
 func ensureMaterialTables(ctx context.Context, pool *pgxpool.Pool, schema string) error {
@@ -143,28 +158,52 @@ func listMaterials(ctx context.Context, pool *pgxpool.Pool, schema, q string, li
 	return out, rows.Err()
 }
 
+func normalizeMaterialInput(in MaterialInput) (MaterialInput, error) {
+	in.Code = strings.TrimSpace(in.Code)
+	in.Name = strings.TrimSpace(in.Name)
+	in.Kind = strings.TrimSpace(in.Kind)
+	in.Unit = strings.TrimSpace(in.Unit)
+	if in.Code == "" {
+		return MaterialInput{}, fmt.Errorf("code required")
+	}
+	if in.Name == "" {
+		return MaterialInput{}, fmt.Errorf("name required")
+	}
+	if in.Kind == "" {
+		in.Kind = "other"
+	}
+	if in.Unit == "" {
+		in.Unit = "g"
+	}
+	switch in.Kind {
+	case "bean", "pack", "other":
+	default:
+		return MaterialInput{}, fmt.Errorf("invalid kind")
+	}
+	if in.PurchasePrice < 0 || in.SalePrice < 0 || math.IsNaN(in.PurchasePrice) || math.IsNaN(in.SalePrice) || math.IsInf(in.PurchasePrice, 0) || math.IsInf(in.SalePrice, 0) {
+		return MaterialInput{}, fmt.Errorf("negative price")
+	}
+	if in.OnhandG < 0 || in.OnhandUnits < 0 || in.MinLevelG < 0 || in.MinLevelUnits < 0 {
+		return MaterialInput{}, fmt.Errorf("negative qty")
+	}
+	return in, nil
+}
+
 func upsertMaterial(ctx context.Context, pool *pgxpool.Pool, schema string, code, name, kind, unit string, purchasePrice, salePrice float64, onhandG, onhandUnits, minG, minUnits int64) error {
-	code = strings.TrimSpace(code)
-	name = strings.TrimSpace(name)
-	kind = strings.TrimSpace(kind)
-	unit = strings.TrimSpace(unit)
-	if code == "" {
-		return fmt.Errorf("code required")
-	}
-	if name == "" {
-		return fmt.Errorf("name required")
-	}
-	if kind == "" {
-		kind = "other"
-	}
-	if unit == "" {
-		unit = "g"
-	}
-	if purchasePrice < 0 || salePrice < 0 {
-		return fmt.Errorf("negative price")
-	}
-	if onhandG < 0 || onhandUnits < 0 || minG < 0 || minUnits < 0 {
-		return fmt.Errorf("negative qty")
+	in, err := normalizeMaterialInput(MaterialInput{
+		Code:          code,
+		Name:          name,
+		Kind:          kind,
+		Unit:          unit,
+		PurchasePrice: purchasePrice,
+		SalePrice:     salePrice,
+		OnhandG:       onhandG,
+		OnhandUnits:   onhandUnits,
+		MinLevelG:     minG,
+		MinLevelUnits: minUnits,
+	})
+	if err != nil {
+		return err
 	}
 	q := fmt.Sprintf(`INSERT INTO %s.materials(code,name,kind,unit,purchase_price,sale_price,onhand_g,onhand_units,min_level_g,min_level_units,updated_at)
 		VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,now())
@@ -179,6 +218,110 @@ func upsertMaterial(ctx context.Context, pool *pgxpool.Pool, schema string, code
 			min_level_g=excluded.min_level_g,
 			min_level_units=excluded.min_level_units,
 			updated_at=now()`, schema)
-	_, err := pool.Exec(ctx, q, code, name, kind, unit, purchasePrice, salePrice, onhandG, onhandUnits, minG, minUnits)
+	_, err = pool.Exec(ctx, q, in.Code, in.Name, in.Kind, in.Unit, in.PurchasePrice, in.SalePrice, in.OnhandG, in.OnhandUnits, in.MinLevelG, in.MinLevelUnits)
 	return err
+}
+
+func updateMaterialInline(ctx context.Context, pool *pgxpool.Pool, schema, actor string, id int64, in MaterialInput) (MaterialRow, error) {
+	if id <= 0 {
+		return MaterialRow{}, fmt.Errorf("invalid id")
+	}
+	next, err := normalizeMaterialInput(in)
+	if err != nil {
+		return MaterialRow{}, err
+	}
+
+	conn, err := pool.Acquire(ctx)
+	if err != nil {
+		return MaterialRow{}, err
+	}
+	defer conn.Release()
+	tx, err := conn.Begin(ctx)
+	if err != nil {
+		return MaterialRow{}, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	var old MaterialRow
+	qOld := fmt.Sprintf(`SELECT id, code, name, kind, unit,
+		       COALESCE(purchase_price,0), COALESCE(sale_price,0),
+		       onhand_g, onhand_units, min_level_g, min_level_units,
+		       to_char(updated_at,'YYYY-MM-DD HH24:MI')
+		FROM %s.materials WHERE id=$1 FOR UPDATE`, schema)
+	if err := tx.QueryRow(ctx, qOld, id).Scan(&old.ID, &old.Code, &old.Name, &old.Kind, &old.Unit, &old.PurchasePrice, &old.SalePrice, &old.OnhandG, &old.OnhandUnits, &old.MinLevelG, &old.MinLevelUnits, &old.UpdatedAt); err != nil {
+		if err == pgx.ErrNoRows {
+			return MaterialRow{}, fmt.Errorf("not found")
+		}
+		return MaterialRow{}, err
+	}
+
+	q := fmt.Sprintf(`UPDATE %s.materials SET
+			code=$2,
+			name=$3,
+			kind=$4,
+			unit=$5,
+			purchase_price=$6,
+			sale_price=$7,
+			onhand_g=$8,
+			onhand_units=$9,
+			min_level_g=$10,
+			min_level_units=$11,
+			updated_at=now()
+		WHERE id=$1`, schema)
+	if _, err := tx.Exec(ctx, q, id, next.Code, next.Name, next.Kind, next.Unit, next.PurchasePrice, next.SalePrice, next.OnhandG, next.OnhandUnits, next.MinLevelG, next.MinLevelUnits); err != nil {
+		return MaterialRow{}, err
+	}
+	if err := logMaterialDiffsTx(ctx, tx, schema, actor, old, next); err != nil {
+		return MaterialRow{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return MaterialRow{}, err
+	}
+
+	rows, err := listMaterials(ctx, pool, schema, next.Code, 1)
+	if err != nil {
+		return MaterialRow{}, err
+	}
+	if len(rows) == 0 {
+		return MaterialRow{}, fmt.Errorf("not found")
+	}
+	return rows[0], nil
+}
+
+func logMaterialDiffsTx(ctx context.Context, tx pgx.Tx, schema, actor string, old MaterialRow, next MaterialInput) error {
+	actor = strings.TrimSpace(actor)
+	if actor == "" {
+		actor = "unknown"
+	}
+	id := old.ID
+	log := func(field, oldValue, newValue string) error {
+		if oldValue == newValue {
+			return nil
+		}
+		q := fmt.Sprintf(`INSERT INTO %s.audit_logs(actor, entity_type, entity_id, action, field, old_value, new_value, meta)
+			VALUES($1,'material',$2,'update',$3,$4,$5,jsonb_build_object('material_id',$2::bigint,'code',$6::text))`, schema)
+		_, err := tx.Exec(ctx, q, actor, id, field, oldValue, newValue, next.Code)
+		return err
+	}
+	for _, item := range []struct {
+		field string
+		old   string
+		next  string
+	}{
+		{"code", old.Code, next.Code},
+		{"name", old.Name, next.Name},
+		{"kind", old.Kind, next.Kind},
+		{"unit", old.Unit, next.Unit},
+		{"purchase_price", fmt.Sprintf("%.2f", old.PurchasePrice), fmt.Sprintf("%.2f", next.PurchasePrice)},
+		{"sale_price", fmt.Sprintf("%.2f", old.SalePrice), fmt.Sprintf("%.2f", next.SalePrice)},
+		{"onhand_g", fmt.Sprintf("%d", old.OnhandG), fmt.Sprintf("%d", next.OnhandG)},
+		{"onhand_units", fmt.Sprintf("%d", old.OnhandUnits), fmt.Sprintf("%d", next.OnhandUnits)},
+		{"min_level_g", fmt.Sprintf("%d", old.MinLevelG), fmt.Sprintf("%d", next.MinLevelG)},
+		{"min_level_units", fmt.Sprintf("%d", old.MinLevelUnits), fmt.Sprintf("%d", next.MinLevelUnits)},
+	} {
+		if err := log(item.field, item.old, item.next); err != nil {
+			return err
+		}
+	}
+	return nil
 }

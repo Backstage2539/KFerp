@@ -18,9 +18,9 @@ func TestProducePlanSummaryAPIIncludesRoastRowsAndMaterials(t *testing.T) {
 
 	mustExecProductionFlowTestSQL(t, ctx, pool, fmt.Sprintf(`
 		INSERT INTO %s.products(id,name,default_price,active) VALUES (1,'曲奇拼配',50,true);
-		INSERT INTO %s.order_process_statuses(id,name,sort,active) VALUES (1,'待处理',10,true)
+		INSERT INTO %s.order_process_statuses(name,sort,active) VALUES ('待处理',10,true)
 		ON CONFLICT (name) DO NOTHING;
-		INSERT INTO %s.orders(id,order_no,order_date,is_void,process_status_id) VALUES (1,'SO-PLAN-001','2026-04-25',false,1);
+		INSERT INTO %s.orders(id,order_no,order_date,is_void,process_status_id) VALUES (1,'SO-PLAN-001','2026-04-25',false,(SELECT id FROM %s.order_process_statuses WHERE name='待处理' LIMIT 1));
 		INSERT INTO %s.order_items(order_id,line_no,item_name,qty,unit,spec,product_id,unit_price,line_total)
 		VALUES (1,1,'曲奇拼配',1,'袋','1000g',1,50,50);
 		INSERT INTO %s.product_bom(product_id,yield_rate) VALUES (1,0.8000);
@@ -33,7 +33,7 @@ func TestProducePlanSummaryAPIIncludesRoastRowsAndMaterials(t *testing.T) {
 			(1,11,0.2500);
 		INSERT INTO %s.roast_machines(name,capacity_g,allowed_specs,min_roast_g,active)
 		VALUES ('样机',2000,'2000',1000,true);
-	`, schema, schema, schema, schema, schema, schema, schema, schema))
+	`, schema, schema, schema, schema, schema, schema, schema, schema, schema))
 
 	e := newProducePlanTestEcho(pool, schema)
 	req := httptest.NewRequest(http.MethodGet, "/api/produce/unproduced?selected=1-1000&plan=1", nil)

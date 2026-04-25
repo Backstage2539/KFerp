@@ -1,14 +1,11 @@
 package main
 
 import (
-	"encoding/json"
 	"fmt"
-	"html/template"
 	"net/http"
 	"net/url"
 	"strconv"
 	"strings"
-	"time"
 
 	salesapp "orderapp/internal/application/sales"
 
@@ -247,79 +244,11 @@ func (h orderHandler) unvoid(c echo.Context) error {
 }
 
 func (h orderHandler) entry(c echo.Context) error {
-	data := PageData{Today: time.Now().Format("2006-01-02")}
-	if c.QueryParam("ok") == "1" {
-		data.Ok = true
-		data.OrderNo = c.QueryParam("order_no")
+	target := "/vue-shell?view=order"
+	if raw := c.QueryString(); raw != "" {
+		target += "&" + raw
 	}
-	if err := loadOptions(c.Request().Context(), h.pool, h.schema, &data); err != nil {
-		data.Error = err.Error()
-	}
-	if v := strings.TrimSpace(c.QueryParam("edit_id")); v != "" {
-		if id, err := strconv.ParseInt(v, 10, 64); err == nil && id > 0 {
-			ed, ferr := fetchOrderEdit(c.Request().Context(), h.pool, h.schema, id)
-			if ferr != nil {
-				data.Error = ferr.Error()
-			} else if ed == nil {
-				data.Error = "order not found"
-			} else {
-				data.EditMode = true
-				data.EditID = id
-				if ed.OrderDate != "" {
-					data.Today = ed.OrderDate
-				}
-				type editItem struct {
-					ProductID   int64  `json:"product_id"`
-					ProductName string `json:"product_name"`
-					TierID      string `json:"tier_id"`
-					UnitPrice   string `json:"unit_price"`
-					Qty         string `json:"qty"`
-					Unit        string `json:"unit"`
-					Spec        string `json:"spec"`
-				}
-				items := make([]editItem, 0, len(ed.Items))
-				for _, it := range ed.Items {
-					spec := strings.TrimSuffix(strings.TrimSpace(strings.ToLower(it.Spec)), "g")
-					items = append(items, editItem{
-						ProductID:   it.ProductID,
-						ProductName: it.Product,
-						TierID:      "auto",
-						UnitPrice:   it.UnitPrice,
-						Qty:         it.Qty,
-						Unit:        it.Unit,
-						Spec:        spec,
-					})
-				}
-				payload := map[string]any{
-					"order_date":              ed.OrderDate,
-					"customer_id":             strconv.FormatInt(ed.CustomerID, 10),
-					"source_id":               strconv.FormatInt(ed.SourceID, 10),
-					"order_type_id":           strconv.FormatInt(ed.OrderTypeID, 10),
-					"pay_status_id":           strconv.FormatInt(ed.PayStatusID, 10),
-					"ship_status_id":          strconv.FormatInt(ed.ShipStatusID, 10),
-					"ship_method":             ed.ShipMethod,
-					"ship_tracking_no":        ed.ShipTrackingNo,
-					"notes":                   ed.Notes,
-					"shipping_amount":         ed.ShippingAmount,
-					"discount_amount":         ed.DiscountAmount,
-					"round_to_int":            ed.RoundToInt,
-					"express_fee":             ed.ExpressFee,
-					"outsource_material_fee":  ed.OutsourceMaterialFee,
-					"outsource_roast_fee":     ed.OutsourceRoastFee,
-					"outsource_packaging_fee": ed.OutsourcePackagingFee,
-					"outsource_manual_fee":    ed.OutsourceManualFee,
-					"outsource_tax_fee":       ed.OutsourceTaxFee,
-					"outsource_other_fee":     ed.OutsourceOtherFee,
-					"items":                   items,
-				}
-				if b, err := json.Marshal(payload); err == nil {
-					data.EditDataJSON = template.JS(string(b))
-				}
-			}
-		}
-	}
-	data.ProductsJSON = buildProductsJSON(data.Products)
-	return c.Render(http.StatusOK, "order.html", data)
+	return c.Redirect(http.StatusFound, target)
 
 }
 

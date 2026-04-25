@@ -32,6 +32,8 @@
 
 <script setup>
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import MaterialsView from './views/MaterialsView.vue'
+import OrderEntryView from './views/OrderEntryView.vue'
 import ProducePlanView from './views/ProducePlanView.vue'
 import ProductionLogsView from './views/ProductionLogsView.vue'
 
@@ -44,12 +46,12 @@ const BOM_REACT_URL = '/bom-react'
 const BOM_REACT_EMBED_URL = '/bom-react?embed=1'
 
 const menuMap = {
-  order: { title: '录单', url: '/order' },
+  order: { title: '录单', url: '/vue-shell?view=order', internal: true },
   orders: { title: '订单列表', url: '/orders' },
   producePlan: { title: '生产计划/开始生产', url: '/vue-shell?view=producePlan', internal: true },
   produceRunning: { title: '生产中', url: '/produce/running' },
   produceLogs: { title: '生产日志', url: '/vue-shell?view=produceLogs', internal: true },
-  materials: { title: '物料档案/库存', url: '/materials' },
+  materials: { title: '物料档案/库存', url: '/vue-shell?view=materials', internal: true },
   bom: { title: 'BOM配方维护', url: BOM_REACT_EMBED_URL },
   customers: { title: '客户档案', url: '/customers' },
   products: { title: '商品档案', url: '/products' },
@@ -68,6 +70,8 @@ const menuMap = {
 }
 
 const internalViews = {
+  order: OrderEntryView,
+  materials: MaterialsView,
   producePlan: ProducePlanView,
   produceLogs: ProductionLogsView,
 }

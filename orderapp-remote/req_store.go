@@ -169,6 +169,54 @@ func createReqRow(ctx context.Context, pool *pgxpool.Pool, schema, table, code, 
 	return nil
 }
 
+type reqSeedRow struct {
+	table    string
+	code     string
+	prCode   string
+	title    string
+	status   string
+	assignee string
+	evidence string
+}
+
+func seedReqRow(ctx context.Context, pool *pgxpool.Pool, schema string, row reqSeedRow) error {
+	row.code = strings.TrimSpace(row.code)
+	row.prCode = strings.TrimSpace(row.prCode)
+	row.title = strings.TrimSpace(row.title)
+	row.status = strings.TrimSpace(row.status)
+	row.assignee = strings.TrimSpace(row.assignee)
+	row.evidence = strings.TrimSpace(row.evidence)
+	if row.code == "" || row.title == "" {
+		return fmt.Errorf("seed req row code/title required")
+	}
+	if row.status == "" {
+		row.status = "todo"
+	}
+	if row.table == "req_review" {
+		_, err := pool.Exec(ctx, fmt.Sprintf(`
+			INSERT INTO %s.req_review(code, pr_code, title, status, assignee, evidence)
+			VALUES($1,$2,$3,$4,$5,$6)
+			ON CONFLICT (code) DO UPDATE SET
+				pr_code=excluded.pr_code,
+				title=excluded.title,
+				status=excluded.status,
+				assignee=excluded.assignee,
+				evidence=excluded.evidence
+		`, schema), row.code, row.prCode, row.title, row.status, row.assignee, row.evidence)
+		return err
+	}
+	_, err := pool.Exec(ctx, fmt.Sprintf(`
+		INSERT INTO %s.%s(code, title, status, assignee, evidence)
+		VALUES($1,$2,$3,$4,$5)
+		ON CONFLICT (code) DO UPDATE SET
+			title=excluded.title,
+			status=excluded.status,
+			assignee=excluded.assignee,
+			evidence=excluded.evidence
+	`, schema, row.table), row.code, row.title, row.status, row.assignee, row.evidence)
+	return err
+}
+
 func seedReqWorkflowA(ctx context.Context, pool *pgxpool.Pool, schema string) error {
 	// One-time seed for the "A" small requirement: add top shortcuts on req pages.
 	// Safe: uses ON CONFLICT DO NOTHING.
@@ -178,7 +226,7 @@ func seedReqWorkflowA(ctx context.Context, pool *pgxpool.Pool, schema string) er
 			return err
 		}
 	}
-	for _, it := range []struct{
+	for _, it := range []struct {
 		table, code, title, status, assignee string
 	}{
 		{"req_dev", "DEV-001", "req_*.html 顶部增加按钮组：产品/开发/单测/API/审核互相跳转", "todo", "JJ"},
@@ -190,11 +238,29 @@ func seedReqWorkflowA(ctx context.Context, pool *pgxpool.Pool, schema string) er
 		{"req_api", "API-004", "GET /app/req/api 返回200", "todo", "JJ"},
 		{"req_api", "API-005", "GET /app/req/review 返回200", "todo", "JJ"},
 		{"req_review", "REV-001", "需求管理页面顶部入口可点击跳转；无404/500", "todo", "VA"},
+		{"req_product", "PR-PRICE-003", "零售录单支持自定义克数；无对应规格时按227g零售价折算并向上取整", "done", "VA"},
+		{"req_dev", "DEV-ORDER-001", "录单页迁移到 Vue/Vite，新增订单表单 JSON API 并支持自定义克数", "done", "Codex"},
+		{"req_dev", "DEV-PRICE-005", "零售规格选择保留已有有价规格，并提供自定义克数输入", "done", "Codex"},
+		{"req_unit", "UT-PRICE-003", "覆盖零售自定义克数价格折算和订单 payload 规格保存", "done", "Codex"},
+		{"req_api", "API-ORDER-001", "覆盖 GET /api/order/form 和 POST /api/order 自定义规格保存", "done", "Codex"},
+		{"req_review", "REV-PRICE-003", "验收：零售录单可输入自定义克数，保存后规格和金额正确", "done", "VA"},
 	} {
 		if err := createReqRow(ctx, pool, schema, it.table, it.code, it.title, it.status, it.assignee); err != nil {
 			if !strings.Contains(err.Error(), "already exists") {
 				return err
 			}
+		}
+	}
+	for _, row := range []reqSeedRow{
+		{table: "req_product", code: "PR-STOCK-001", title: "生产完成时生成库存流水与成品批次，支持库存追溯", status: "review", assignee: "VA", evidence: "功能分支 codex/erpnext-stock-ledger-batches；go test ./..."},
+		{table: "req_dev", code: "DEV-STOCK-001", title: "新增 stock_ledger_entries / stock_batches schema", status: "done", assignee: "JJ", evidence: "ensureStockLedgerTables + TestProduceFinishHandlerWritesStockLedgerAndFinishedBatch"},
+		{table: "req_dev", code: "DEV-STOCK-002", title: "完成生产时写入成品入库流水、物料出库流水和成品批次", status: "done", assignee: "JJ", evidence: "finishRunningItem -> recordFinishedProductStockMovementTx / deductMaterialsForRunningItemTx"},
+		{table: "req_unit", code: "UT-STOCK-001", title: "成品库存流水数量换算与成品批次号规则", status: "done", assignee: "JJ", evidence: "TestFinishedInventoryLedgerQtyConvertsUnitsAndLooseToGrams; TestFinishedProductionBatchCodeUsesRunningItemID"},
+		{table: "req_api", code: "API-STOCK-001", title: "POST /produce/running/finish 写入库存流水和成品批次", status: "done", assignee: "JJ", evidence: "TestProduceFinishHandlerWritesStockLedgerAndFinishedBatch"},
+		{table: "req_review", code: "REV-STOCK-001", prCode: "PR-STOCK-001", title: "库存流水与成品批次可按 production_run 追溯", status: "todo", assignee: "VA", evidence: "待 Van 验收"},
+	} {
+		if err := seedReqRow(ctx, pool, schema, row); err != nil {
+			return err
 		}
 	}
 	return nil
