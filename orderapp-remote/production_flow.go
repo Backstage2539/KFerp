@@ -95,6 +95,14 @@ func actualYieldRate(specG, units, looseG, inputG int64) (float64, error) {
 	return math.Round(rate*10000) / 10000, nil
 }
 
+func plannedFinishedInventoryByInput(specG, inputG int64, yieldRate float64) InvQty {
+	if specG <= 0 || inputG <= 0 {
+		return InvQty{}
+	}
+	totalG := int64(math.Floor(float64(inputG) * normalizeYieldRate(yieldRate)))
+	return plannedFinishedInventoryAddition(specG, totalG)
+}
+
 func registerProductionFlowPages(e *echo.Echo, pool *pgxpool.Pool, schema string) {
 	e.POST("/produce/start", func(c echo.Context) error {
 		if err := requireEmployeeBound(c); err != nil {
@@ -162,7 +170,10 @@ func registerProductionFlowPages(e *echo.Echo, pool *pgxpool.Pool, schema string
 	})
 
 	e.GET("/produce/running", func(c echo.Context) error {
-		data := ProduceRunPageData{Ok: strings.TrimSpace(c.QueryParam("ok")) == "1"}
+		data := ProduceRunPageData{
+			Ok:    strings.TrimSpace(c.QueryParam("ok")) == "1",
+			Error: strings.TrimSpace(c.QueryParam("err")),
+		}
 		rows, err := listRunningItems(c.Request().Context(), pool, schema)
 		if err != nil {
 			data.Error = err.Error()
@@ -228,12 +239,18 @@ func listRunningItems(ctx context.Context, pool *pgxpool.Pool, schema string) ([
 		if err := rows.Scan(&r.ID, &r.BatchID, &r.Product, &r.ProductID, &r.SpecG, &r.NeedG, &r.InputG, &r.BomYieldRate, &r.PlanUnits, &r.PlanLooseG, &r.OrderNos, &r.StartedBy, &r.StartedAtTime, &r.StartedAt); err != nil {
 			return nil, err
 		}
+		r.BomYieldRate = normalizeYieldRate(r.BomYieldRate)
+		if r.InputG <= 0 {
+			r.InputG = defaultProductionInputG(r.NeedG, r.BomYieldRate)
+		}
 		if r.PlanUnits == 0 && r.PlanLooseG == 0 {
-			plan := plannedFinishedInventoryAddition(r.SpecG, r.NeedG)
+			plan := plannedFinishedInventoryByInput(r.SpecG, r.InputG, r.BomYieldRate)
+			if plan.Units == 0 && plan.LooseG == 0 {
+				plan = plannedFinishedInventoryAddition(r.SpecG, r.NeedG)
+			}
 			r.PlanUnits = plan.Units
 			r.PlanLooseG = plan.LooseG
 		}
-		r.BomYieldRate = normalizeYieldRate(r.BomYieldRate)
 		out = append(out, r)
 	}
 	return out, rows.Err()
@@ -251,11 +268,17 @@ func finishRunningItem(ctx context.Context, pool *pgxpool.Pool, schema string, i
 		return err
 	}
 	r.BomYieldRate = normalizeYieldRate(r.BomYieldRate)
+	if r.InputG <= 0 {
+		r.InputG = defaultProductionInputG(r.NeedG, r.BomYieldRate)
+	}
 
 	var unitsBefore, looseBefore int64
 	_ = tx.QueryRow(ctx, fmt.Sprintf(`SELECT onhand_units,onhand_loose_g FROM %s.finished_inventory WHERE product_id=$1 AND spec_g=$2 FOR UPDATE`, schema), r.ProductID, r.SpecG).Scan(&unitsBefore, &looseBefore)
 	cur := InvQty{Units: unitsBefore, LooseG: looseBefore}
-	add := plannedFinishedInventoryAddition(r.SpecG, r.NeedG)
+	add := plannedFinishedInventoryByInput(r.SpecG, r.InputG, r.BomYieldRate)
+	if add.Units == 0 && add.LooseG == 0 {
+		add = plannedFinishedInventoryAddition(r.SpecG, r.NeedG)
+	}
 	if hasFinishedInput {
 		add, err = normalizeFinishedInventoryAddition(r.SpecG, finishedUnits, finishedLooseG)
 		if err != nil {

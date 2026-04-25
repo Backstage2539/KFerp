@@ -47,6 +47,13 @@ func TestActualYieldRateFromFinishedOutput(t *testing.T) {
 	}
 }
 
+func TestPlannedFinishedInventoryByInputUsesYield(t *testing.T) {
+	got := plannedFinishedInventoryByInput(454, 600, 0.8)
+	if got.Units != 1 || got.LooseG != 26 {
+		t.Fatalf("plannedFinishedInventoryByInput() = %d units + %dg, want 1 unit + 26g", got.Units, got.LooseG)
+	}
+}
+
 func TestBuildProducePlanDisplayRowsUsesDefaultInputG(t *testing.T) {
 	rows := []UnprodNeedRow{
 		{ProductID: 11, Product: "橘皮乌龙", SpecG: 227, GapG: 2270},

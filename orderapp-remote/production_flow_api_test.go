@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"html/template"
 	"math"
 	"net/http"
 	"net/http/httptest"
@@ -223,6 +224,50 @@ func TestProduceFinishHandlerWritesProductionLog(t *testing.T) {
 	}
 }
 
+func TestListRunningItemsBackfillsMissingInputAndPlan(t *testing.T) {
+	pool, schema := newProductionFlowTestDB(t)
+	ctx := context.Background()
+
+	mustExecProductionFlowTestSQL(t, ctx, pool, fmt.Sprintf(`
+		INSERT INTO %s.produce_running_items(
+			id,batch_id,product_id,product_name,spec_g,need_g,order_nos,status,
+			started_by,started_at,input_g,bom_yield_rate,planned_units,planned_loose_g
+		) VALUES (
+			1,'BATCH-RUN-001',1,'橘皮乌龙',454,454,'SO-TEST-RUN','running',
+			'测试员',now(),0,0.8000,0,0
+		);
+	`, schema))
+
+	rows, err := listRunningItems(ctx, pool, schema)
+	if err != nil {
+		t.Fatalf("listRunningItems: %v", err)
+	}
+	if len(rows) != 1 {
+		t.Fatalf("listRunningItems rows = %d, want 1", len(rows))
+	}
+	if rows[0].InputG != 568 {
+		t.Fatalf("listRunningItems input_g = %d, want 568", rows[0].InputG)
+	}
+	if rows[0].PlanUnits != 1 || rows[0].PlanLooseG != 0 {
+		t.Fatalf("listRunningItems plan = %d units + %dg, want 1 unit + 0g", rows[0].PlanUnits, rows[0].PlanLooseG)
+	}
+}
+
+func TestProduceRunningPageShowsQueryError(t *testing.T) {
+	pool, schema := newProductionFlowTestDB(t)
+	app := newProductionFlowTestEcho(pool, schema)
+
+	rec := serveProductionFlowForm(t, app, http.MethodGet, "/produce/running?err=input_g+must+be+greater+than+0", nil)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET /produce/running status = %d, want %d", rec.Code, http.StatusOK)
+	}
+	body := rec.Body.String()
+	if !strings.Contains(body, "input_g must be greater than 0") {
+		t.Fatalf("GET /produce/running body missing query error: %s", body)
+	}
+}
+
 func newProductionFlowTestDB(t *testing.T) (*pgxpool.Pool, string) {
 	t.Helper()
 
@@ -255,6 +300,9 @@ func newProductionFlowTestDB(t *testing.T) (*pgxpool.Pool, string) {
 
 func newProductionFlowTestEcho(pool *pgxpool.Pool, schema string) *echo.Echo {
 	e := echo.New()
+	e.Renderer = &TemplateRenderer{
+		t: template.Must(template.New("").Funcs(templateFuncMap()).ParseGlob("templates/*.html")),
+	}
 	e.Use(func(next echo.HandlerFunc) echo.HandlerFunc {
 		return func(c echo.Context) error {
 			c.Set("employee_id", int64(1))
@@ -269,8 +317,14 @@ func newProductionFlowTestEcho(pool *pgxpool.Pool, schema string) *echo.Echo {
 
 func serveProductionFlowForm(t *testing.T, e *echo.Echo, method, path string, form url.Values) *httptest.ResponseRecorder {
 	t.Helper()
-	req := httptest.NewRequest(method, path, strings.NewReader(form.Encode()))
-	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationForm)
+	body := ""
+	if form != nil {
+		body = form.Encode()
+	}
+	req := httptest.NewRequest(method, path, strings.NewReader(body))
+	if form != nil {
+		req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationForm)
+	}
 	rec := httptest.NewRecorder()
 	e.ServeHTTP(rec, req)
 	return rec
