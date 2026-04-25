@@ -35,6 +35,7 @@ import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import MaterialsView from './views/MaterialsView.vue'
 import OrderEntryView from './views/OrderEntryView.vue'
 import ProducePlanView from './views/ProducePlanView.vue'
+import ProduceRunningView from './views/ProduceRunningView.vue'
 import ProductionLogsView from './views/ProductionLogsView.vue'
 
 const collapsed = ref(false)
@@ -49,7 +50,7 @@ const menuMap = {
   order: { title: '录单', url: '/vue-shell?view=order', internal: true },
   orders: { title: '订单列表', url: '/orders' },
   producePlan: { title: '生产计划/开始生产', url: '/vue-shell?view=producePlan', internal: true },
-  produceRunning: { title: '生产中', url: '/produce/running' },
+  produceRunning: { title: '生产中', url: '/vue-shell?view=produceRunning', internal: true },
   produceLogs: { title: '生产日志', url: '/vue-shell?view=produceLogs', internal: true },
   materials: { title: '物料档案/库存', url: '/vue-shell?view=materials', internal: true },
   bom: { title: 'BOM配方维护', url: BOM_REACT_EMBED_URL },
@@ -73,6 +74,7 @@ const internalViews = {
   order: OrderEntryView,
   materials: MaterialsView,
   producePlan: ProducePlanView,
+  produceRunning: ProduceRunningView,
   produceLogs: ProductionLogsView,
 }
 

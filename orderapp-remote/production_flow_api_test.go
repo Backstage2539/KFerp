@@ -375,6 +375,88 @@ func TestProduceStartAPIUsesSubmittedInputG(t *testing.T) {
 	}
 }
 
+func TestProduceRunningAPIContract(t *testing.T) {
+	pool, schema := newProductionFlowTestDB(t)
+	ctx := context.Background()
+
+	mustExecProductionFlowTestSQL(t, ctx, pool, fmt.Sprintf(`
+		INSERT INTO %s.produce_running_items(
+			id,batch_id,product_id,product_name,spec_g,need_g,order_nos,status,
+			started_by,started_at,input_g,bom_yield_rate,planned_units,planned_loose_g
+		) VALUES (
+			11,'BATCH-API-RUN',1,'橘皮乌龙',227,454,'SO-API-RUN','running',
+			'测试员',now(),600,0.8200,2,38
+		);
+	`, schema))
+
+	app := newProductionFlowTestEcho(pool, schema)
+	req := httptest.NewRequest(http.MethodGet, "/api/produce/running", nil)
+	rec := httptest.NewRecorder()
+	app.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET /api/produce/running status = %d, want 200 body=%s", rec.Code, rec.Body.String())
+	}
+	var got struct {
+		Rows []struct {
+			ID           int64   `json:"id"`
+			BatchID      string  `json:"batch_id"`
+			ProductName  string  `json:"product_name"`
+			InputG       int64   `json:"input_g"`
+			BomYieldRate float64 `json:"bom_yield_rate"`
+		} `json:"rows"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatalf("decode running API response: %v\n%s", err, rec.Body.String())
+	}
+	if len(got.Rows) != 1 {
+		t.Fatalf("GET /api/produce/running rows = %d, want 1", len(got.Rows))
+	}
+	row := got.Rows[0]
+	if row.ID != 11 || row.BatchID != "BATCH-API-RUN" || row.ProductName != "橘皮乌龙" || row.InputG != 600 || math.Abs(row.BomYieldRate-0.82) > 0.0001 {
+		t.Fatalf("running API row = %+v", row)
+	}
+}
+
+func TestProduceRunningVueRouteContract(t *testing.T) {
+	appVue, err := os.ReadFile("frontend-vue-shell/src/App.vue")
+	if err != nil {
+		t.Fatal(err)
+	}
+	appContent := string(appVue)
+	for _, want := range []string{
+		"ProduceRunningView",
+		"produceRunning: ProduceRunningView",
+		"produceRunning: { title: '生产中', url: '/vue-shell?view=produceRunning', internal: true }",
+	} {
+		if !strings.Contains(appContent, want) {
+			t.Fatalf("App.vue missing running production Vue wiring %q", want)
+		}
+	}
+
+	view, err := os.ReadFile("frontend-vue-shell/src/views/ProduceRunningView.vue")
+	if err != nil {
+		t.Fatal(err)
+	}
+	viewContent := string(view)
+	for _, want := range []string{"fetchRunningProduction", "finishRunningProduction", "cancelRunningProduction", "生产中", "完成生产", "取消生产"} {
+		if !strings.Contains(viewContent, want) {
+			t.Fatalf("ProduceRunningView.vue missing %q", want)
+		}
+	}
+
+	api, err := os.ReadFile("frontend-vue-shell/src/api/production.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	apiContent := string(api)
+	for _, want := range []string{"/api/produce/running", "/api/produce/running/finish", "/api/produce/running/cancel"} {
+		if !strings.Contains(apiContent, want) {
+			t.Fatalf("production api client missing %q", want)
+		}
+	}
+}
+
 func TestListRunningItemsBackfillsMissingInputAndPlan(t *testing.T) {
 	pool, schema := newProductionFlowTestDB(t)
 	ctx := context.Background()
@@ -430,18 +512,18 @@ func TestListRunningItemsRecomputesLegacyPlanFromInput(t *testing.T) {
 	}
 }
 
-func TestProduceRunningPageShowsQueryError(t *testing.T) {
+func TestProduceRunningPageRedirectsToVueShellWithQueryError(t *testing.T) {
 	pool, schema := newProductionFlowTestDB(t)
 	app := newProductionFlowTestEcho(pool, schema)
 
 	rec := serveProductionFlowForm(t, app, http.MethodGet, "/produce/running?err=input_g+must+be+greater+than+0", nil)
 
-	if rec.Code != http.StatusOK {
-		t.Fatalf("GET /produce/running status = %d, want %d", rec.Code, http.StatusOK)
+	if rec.Code != http.StatusSeeOther {
+		t.Fatalf("GET /produce/running status = %d, want %d", rec.Code, http.StatusSeeOther)
 	}
-	body := rec.Body.String()
-	if !strings.Contains(body, "input_g must be greater than 0") {
-		t.Fatalf("GET /produce/running body missing query error: %s", body)
+	loc := rec.Header().Get("Location")
+	if !strings.Contains(loc, "/vue-shell?view=produceRunning") || !strings.Contains(loc, "err=input_g+must+be+greater+than+0") {
+		t.Fatalf("GET /produce/running Location = %q", loc)
 	}
 }
 
