@@ -37,4 +37,5 @@ func registerAppRoutes(e *echo.Echo, pool *pgxpool.Pool, schema string, assetDir
 	registerCustomerRoutes(e, pool, schema, assetDir)
 	registerProductRoutes(e, pool, schema)
 	registerOrderRoutes(e, pool, schema)
+	registerOrderAPI(e, pool, schema)
 }
