@@ -245,6 +245,31 @@ There may be multiple agents or worktrees writing code at the same time.
 - If `develop` moved while you were working, rebase or merge from the latest `origin/develop` in your own branch first; do not overwrite or force-push shared branches.
 - Treat other worktrees' changes as user/agent work. Never revert them unless Van explicitly asks.
 
+## Develop Deployment Coordination
+
+When multiple workflows are active, treat `develop` as the shared integration and deployment branch, not as an individual development branch.
+
+- Parallel work is allowed only on separate feature branches.
+- Integration and deployment from `develop` must be serialized.
+- Before merging into `develop`, each workflow must:
+  - `git fetch origin`
+  - merge or rebase the latest `origin/develop` into its own feature branch
+  - resolve conflicts on the feature branch
+  - rerun the relevant unit/API/build checks
+  - push the feature branch
+- After merging to `develop`, the workflow that performed the merge owns the next deployment unless Van explicitly asks another workflow to deploy.
+- Before deploying, verify that `origin/develop` is exactly the commit intended for deployment:
+  - run `git fetch origin`
+  - inspect `git log --oneline -3 origin/develop`
+  - record `git rev-parse origin/develop` in the deployment notes or final response
+- If `origin/develop` changed after local testing, stop deployment, merge the latest `origin/develop` back into the feature branch, rerun checks, and only then integrate again.
+- Never deploy from a stale local `develop`. Fast-forward local `develop` from `origin/develop` first.
+- Never force-push `develop`.
+- Do not deploy another workflow's newly merged commit unless that workflow has finished its verification or Van explicitly asks.
+- If two workflows both need deployment, deploy in order:
+  - workflow A merges to `develop`, deploys, and verifies
+  - workflow B updates from the new `origin/develop`, tests, merges, deploys, and verifies
+
 ## Make It Yours
 
 This is a starting point. Add your own conventions, style, and rules as you figure out what works.
