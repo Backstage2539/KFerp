@@ -239,17 +239,13 @@ function InlineEditor({
   const saveBomItem = useSaveBomItem()
   const deleteBomItem = useDeleteBomItem()
 
-  const [yieldRate, setYieldRate] = useState('')
   const [newMaterialId, setNewMaterialId] = useState('')
   const [newRatio, setNewRatio] = useState('')
   const [err, setErr] = useState('')
 
-  const saveYield = async () => {
-    const rate = parseFloat(yieldRate)
-    if (isNaN(rate) || rate <= 0 || rate > 1) return setErr('出品率必须在 (0,1]')
+  const syncYield = async () => {
     setErr('')
-    await saveBom.mutateAsync({ product_id: productId, yield_rate: rate })
-    setYieldRate('')
+    await saveBom.mutateAsync({ product_id: productId })
   }
 
   const addItem = async () => {
@@ -280,10 +276,11 @@ function InlineEditor({
       {err && <div style={{ ...styles.alertErr, marginBottom: 8 }}>{err}</div>}
 
       <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 10 }}>
+        <span>烘焙度：<b>{bomDetail.roast_level || '-'}</b></span>
         <span>出品率：<b>{(bomDetail.yield_rate * 100).toFixed(2)}%</b></span>
-        <input style={styles.input} type="number" step="0.0001" min="0.0001" max="1" placeholder="新出品率(0-1)" value={yieldRate} onChange={(e) => setYieldRate(e.target.value)} />
-        <button style={styles.btn} onClick={saveYield} disabled={!yieldRate || saveBom.isPending}>保存</button>
+        <button style={styles.btn} onClick={syncYield} disabled={saveBom.isPending}>按烘焙度同步</button>
       </div>
+      <div style={{ marginBottom: 10, fontSize: 12, color: '#666' }}>浅烘 82%，中烘 81.5%，中深烘 81%，深烘 80%。</div>
 
       <table style={styles.table}>
         <thead>
@@ -410,6 +407,7 @@ export default function BomManager() {
                 <thead>
                   <tr>
                     <th style={styles.th}>产品名称</th>
+                    <th style={styles.th}>烘焙度</th>
                     <th style={{ ...styles.th, textAlign: 'right' }}>出品率</th>
                     <th style={{ ...styles.th, textAlign: 'right' }}>物料数</th>
                     <th style={{ ...styles.th, textAlign: 'right' }}>更新时间</th>
@@ -421,6 +419,7 @@ export default function BomManager() {
                     <>
                       <tr key={row.product_id}>
                         <td style={styles.td}>{row.product}</td>
+                        <td style={styles.td}>{row.roast_level || '-'}</td>
                         <td style={{ ...styles.td, textAlign: 'right' }}>{(row.yield_rate * 100).toFixed(2)}%</td>
                         <td style={{ ...styles.td, textAlign: 'right' }}>{row.item_count || 0}</td>
                         <td style={{ ...styles.td, textAlign: 'right', color: '#666' }}>{row.updated_at}</td>
@@ -435,7 +434,7 @@ export default function BomManager() {
                       </tr>
                       {expandedId === row.product_id && (
                         <tr>
-                          <td style={styles.td} colSpan={5}>
+                          <td style={styles.td} colSpan={6}>
                             <InlineEditor productId={row.product_id} productName={row.product} onClose={() => setExpandedId(null)} />
                           </td>
                         </tr>

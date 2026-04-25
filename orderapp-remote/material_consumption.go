@@ -56,13 +56,15 @@ func calcRunningItemMaterialNeedsTx(ctx context.Context, tx pgx.Tx, schema strin
 		       COALESCE(m.name,''),
 		       COALESCE(NULLIF(m.unit,''),'g'),
 		       COALESCE(bi.ratio_pct,0),
+		       COALESCE(p.roast_level,''),
 		       COALESCE(pb.yield_rate,0)
 		FROM %s.product_bom_items bi
+		LEFT JOIN %s.products p ON p.id=bi.product_id
 		LEFT JOIN %s.product_bom pb ON pb.product_id=bi.product_id
 		LEFT JOIN %s.materials m ON m.id=bi.material_id
 		WHERE bi.product_id=$1
 		ORDER BY bi.id
-	`, schema, schema, schema)
+	`, schema, schema, schema, schema)
 	rows, err := tx.Query(ctx, q, r.ProductID)
 	if err != nil {
 		return nil, err
@@ -74,12 +76,13 @@ func calcRunningItemMaterialNeedsTx(ctx context.Context, tx pgx.Tx, schema strin
 		name       string
 		unit       string
 		ratio      float64
+		roastLevel string
 		yieldRate  float64
 	}
 	bomRows := make([]bomRow, 0)
 	for rows.Next() {
 		var x bomRow
-		if err := rows.Scan(&x.materialID, &x.name, &x.unit, &x.ratio, &x.yieldRate); err != nil {
+		if err := rows.Scan(&x.materialID, &x.name, &x.unit, &x.ratio, &x.roastLevel, &x.yieldRate); err != nil {
 			return nil, err
 		}
 		if x.materialID <= 0 || strings.TrimSpace(x.name) == "" || x.ratio <= 0 {
@@ -94,10 +97,7 @@ func calcRunningItemMaterialNeedsTx(ctx context.Context, tx pgx.Tx, schema strin
 		return nil, fmt.Errorf("product BOM not configured: %s", r.Product)
 	}
 
-	yield := bomRows[0].yieldRate
-	if yield <= 0 || yield > 1 {
-		yield = 0.8
-	}
+	yield := resolveYieldRate(bomRows[0].roastLevel, bomRows[0].yieldRate)
 	rawG := r.InputG
 	if rawG <= 0 {
 		rawG = int64(math.Ceil(float64(r.NeedG) / yield))

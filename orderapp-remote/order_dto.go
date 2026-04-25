@@ -18,6 +18,7 @@ type ProductTierOption struct {
 type ProductOption struct {
 	ID              int64
 	Name            string
+	RoastLevel      string
 	DefaultPrice    float64
 	RetailPrice100G float64
 	RetailPrice200G float64

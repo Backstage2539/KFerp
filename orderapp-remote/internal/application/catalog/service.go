@@ -13,6 +13,7 @@ type PriceTier struct {
 type Product struct {
 	ID              int64
 	Name            string
+	RoastLevel      string
 	DefaultPrice    float64
 	RetailPrice100G float64
 	RetailPrice200G float64
@@ -24,6 +25,7 @@ type Product struct {
 type ReplacePriceTiersCommand struct {
 	Actor           string
 	ProductID       int64
+	RoastLevel      string
 	RetailPrice100G float64
 	RetailPrice200G float64
 	RetailPrice227G float64

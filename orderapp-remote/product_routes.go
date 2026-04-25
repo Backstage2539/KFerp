@@ -69,6 +69,10 @@ func (h productHandler) update(c echo.Context) error {
 	if err != nil || id <= 0 {
 		return c.String(http.StatusBadRequest, "invalid id")
 	}
+	roastLevel := normalizeRoastLevel(c.FormValue("roast_level"))
+	if roastLevel == "" {
+		return c.String(http.StatusBadRequest, "invalid roast_level")
+	}
 	specArr := c.Request().PostForm["tier_spec_g[]"]
 	minArr := c.Request().PostForm["min[]"]
 	maxArr := c.Request().PostForm["max[]"]
@@ -134,7 +138,16 @@ func (h productHandler) update(c echo.Context) error {
 		}
 		tiers = append(tiers, catalogapp.PriceTier{SpecG: specG, MinQty: minv, MaxQty: max, UnitPrice: pv})
 	}
-	if err := h.catalog.ReplacePriceTiers(c.Request().Context(), catalogapp.ReplacePriceTiersCommand{Actor: actorOf(c), ProductID: id, RetailPrice100G: retailPrice100G, RetailPrice200G: retailPrice200G, RetailPrice227G: retailPrice227G, RetailPrice250G: retailPrice250G, Tiers: tiers}); err != nil {
+	if err := h.catalog.ReplacePriceTiers(c.Request().Context(), catalogapp.ReplacePriceTiersCommand{
+		Actor:           actorOf(c),
+		ProductID:       id,
+		RoastLevel:      roastLevel,
+		RetailPrice100G: retailPrice100G,
+		RetailPrice200G: retailPrice200G,
+		RetailPrice227G: retailPrice227G,
+		RetailPrice250G: retailPrice250G,
+		Tiers:           tiers,
+	}); err != nil {
 		return err
 	}
 	return c.Redirect(http.StatusSeeOther, fmt.Sprintf("/products/%d", id))

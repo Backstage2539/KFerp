@@ -80,6 +80,58 @@ func TestBomEntrypointsUseVersionedURL(t *testing.T) {
 	}
 }
 
+func TestProductEditTemplateIncludesRoastLevelControls(t *testing.T) {
+	b, err := os.ReadFile("templates/product_edit.html")
+	if err != nil {
+		t.Fatalf("ReadFile(product_edit.html): %v", err)
+	}
+	src := string(b)
+	required := []string{
+		`name="roast_level"`,
+		`浅烘（82%）`,
+		`中烘（81.5%）`,
+		`中深烘（81%）`,
+		`深烘（80%）`,
+		`BOM 出品率按烘焙度自动同步`,
+	}
+	for _, want := range required {
+		if !strings.Contains(src, want) {
+			t.Fatalf("product_edit.html missing %q", want)
+		}
+	}
+}
+
+func TestBomTemplateShowsRoastLevelDrivenYield(t *testing.T) {
+	b, err := os.ReadFile("templates/bom.html")
+	if err != nil {
+		t.Fatalf("ReadFile(bom.html): %v", err)
+	}
+	src := string(b)
+	required := []string{
+		`按商品档案中的烘焙度自动同步`,
+		`浅烘 82%`,
+		`中烘 81.5%`,
+		`中深烘 81%`,
+		`深烘 80%`,
+		`烘焙度`,
+		`按烘焙度自动同步`,
+	}
+	for _, want := range required {
+		if !strings.Contains(src, want) {
+			t.Fatalf("bom.html missing %q", want)
+		}
+	}
+	forbidden := []string{
+		`name="yield_rate"`,
+		`出品率(0~1)`,
+	}
+	for _, bad := range forbidden {
+		if strings.Contains(src, bad) {
+			t.Fatalf("bom.html should not contain %q", bad)
+		}
+	}
+}
+
 func TestMaterialSummaryTextFormatsWeightAndCountItems(t *testing.T) {
 	raw := `[{"unit":"g","deduct_g":568,"material_id":1,"deduct_units":0,"material_name":"孟连水洗5T批次"},{"unit":"个","deduct_g":0,"material_id":2,"deduct_units":1,"material_name":"227g豆袋"}]`
 	got := materialSummaryText(raw)

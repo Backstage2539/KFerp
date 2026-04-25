@@ -8,10 +8,11 @@ import (
 )
 
 type BomRow struct {
-	ProductID int64
-	Product   string
-	YieldRate float64
-	UpdatedAt string
+	ProductID  int64
+	Product    string
+	RoastLevel string
+	YieldRate  float64
+	UpdatedAt  string
 }
 
 type BomItemRow struct {
@@ -47,10 +48,15 @@ func ensureBomTables(ctx context.Context, pool *pgxpool.Pool, schema string) err
 
 func listBom(ctx context.Context, pool *pgxpool.Pool, schema string) ([]BomRow, error) {
 	q := fmt.Sprintf(`
-		SELECT b.product_id, COALESCE(p.name,''), b.yield_rate, to_char(b.updated_at,'YYYY-MM-DD HH24:MI')
-		FROM %s.product_bom b
-		LEFT JOIN %s.products p ON p.id=b.product_id
-		ORDER BY p.name, b.product_id
+		SELECT p.id,
+		       COALESCE(p.name,''),
+		       COALESCE(p.roast_level,''),
+		       COALESCE(b.yield_rate,0.8),
+		       COALESCE(to_char(b.updated_at,'YYYY-MM-DD HH24:MI'),'-')
+		FROM %s.products p
+		LEFT JOIN %s.product_bom b ON b.product_id=p.id
+		WHERE p.active=true
+		ORDER BY p.name, p.id
 	`, schema, schema)
 	rows, err := pool.Query(ctx, q)
 	if err != nil {
@@ -60,9 +66,11 @@ func listBom(ctx context.Context, pool *pgxpool.Pool, schema string) ([]BomRow, 
 	out := make([]BomRow, 0)
 	for rows.Next() {
 		var r BomRow
-		if err := rows.Scan(&r.ProductID, &r.Product, &r.YieldRate, &r.UpdatedAt); err != nil {
+		var fallback float64
+		if err := rows.Scan(&r.ProductID, &r.Product, &r.RoastLevel, &fallback, &r.UpdatedAt); err != nil {
 			return nil, err
 		}
+		r.YieldRate = resolveYieldRate(r.RoastLevel, fallback)
 		out = append(out, r)
 	}
 	return out, rows.Err()
