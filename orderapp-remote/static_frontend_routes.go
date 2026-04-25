@@ -2,6 +2,7 @@ package main
 
 import (
 	"net/http"
+	"net/url"
 
 	"github.com/labstack/echo/v4"
 )
@@ -11,7 +12,7 @@ func registerStaticFrontendRoutes(e *echo.Echo) {
 	e.Static("/bom-react/assets", "frontend/dist/assets")
 	e.GET("/bom-react", func(c echo.Context) error {
 		if c.QueryParam("rev") != currentBomReactRev() {
-			return c.Redirect(http.StatusFound, bomReactURL())
+			return c.Redirect(http.StatusFound, bomReactRedirectURL(c.QueryParams()))
 		}
 		c.Response().Header().Set("Cache-Control", "no-store, no-cache, must-revalidate")
 		c.Response().Header().Set("Pragma", "no-cache")
@@ -39,4 +40,15 @@ func registerStaticFrontendRoutes(e *echo.Echo) {
 		}
 		return c.Redirect(http.StatusFound, target)
 	})
+}
+
+func bomReactRedirectURL(params url.Values) string {
+	values := make(url.Values, len(params)+1)
+	for key, list := range params {
+		for _, value := range list {
+			values.Add(key, value)
+		}
+	}
+	values.Set("rev", currentBomReactRev())
+	return bomReactPath + "?" + values.Encode()
 }
