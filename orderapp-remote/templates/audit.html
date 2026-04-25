@@ -35,6 +35,8 @@
     .topbar{display:flex; align-items:center; justify-content:space-between; gap:12px;}
     .err{background:#ffecec; border:1px solid #ffb9b9; padding:10px; border-radius:8px;}
     .mono{font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; font-size:12px; color:#333;}
+    .summary{font-weight:650; line-height:1.45;}
+    .pill{display:inline-block; padding:2px 7px; border:1px solid #ddd; border-radius:999px; background:#fafafa; margin:2px 4px 2px 0; color:#333;}
   </style>
 </head>
 <body>
@@ -129,13 +131,12 @@
       <thead>
         <tr>
           <th style="width:16%">时间</th>
-          <th style="width:10%">人</th>
-          <th style="width:10%">类型</th>
-          <th style="width:14%">对象</th>
-          <th style="width:10%">动作</th>
-          <th style="width:12%">字段</th>
-          <th>从</th>
-          <th>到</th>
+          <th style="width:10%">操作人</th>
+          <th style="width:16%">菜单</th>
+          <th style="width:14%">功能点</th>
+          <th>操作内容</th>
+          <th style="width:16%">对象</th>
+          <th style="width:18%">更新内容</th>
         </tr>
       </thead>
       <tbody>
@@ -143,18 +144,27 @@
         <tr>
           <td>{{.Ts}}</td>
           <td>{{.Actor}}</td>
-          <td>{{.EntityType}}</td>
+          <td>{{.Menu}}</td>
+          <td>{{.Feature}}</td>
+          <td>
+            <div class="summary">{{.Summary}}</div>
+            <div class="muted">
+              <span class="pill">{{.EntityType}}</span>
+              <span class="pill">{{.Action}}</span>
+            </div>
+          </td>
           <td>
             {{if .EntityURL}}<a href="{{.EntityURL}}">{{if .EntityLabel}}{{.EntityLabel}}{{else}}{{.EntityID}}{{end}}</a>{{else}}{{if .EntityLabel}}{{.EntityLabel}}{{else}}{{if .EntityID}}{{.EntityID}}{{end}}{{end}}{{end}}
           </td>
-          <td>{{.Action}}</td>
-          <td>{{if .Field}}{{.Field}}{{end}}</td>
-          <td>{{if .OldValue}}{{.OldValue}}{{end}}</td>
-          <td>{{if .NewValue}}{{.NewValue}}{{end}}</td>
+          <td>
+            {{if .Field}}<div>{{.Field}}</div>{{end}}
+            {{if .OldValue}}<div class="muted">从：{{.OldValue}}</div>{{end}}
+            {{if .NewValue}}<div class="muted">到：{{.NewValue}}</div>{{end}}
+          </td>
         </tr>
         {{end}}
         {{if not .Rows}}
-        <tr><td colspan="8" class="muted">暂无记录</td></tr>
+        <tr><td colspan="7" class="muted">暂无记录</td></tr>
         {{end}}
       </tbody>
     </table>

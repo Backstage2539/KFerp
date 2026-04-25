@@ -14,6 +14,9 @@ type AuditMeta map[string]any
 type AuditLogRow struct {
 	Ts          string  `json:"ts"`
 	Actor       string  `json:"actor"`
+	Menu        string  `json:"menu"`
+	Feature     string  `json:"feature"`
+	Summary     string  `json:"summary"`
 	EntityType  string  `json:"entity_type"`
 	EntityID    *int64  `json:"entity_id"`
 	EntityLabel *string `json:"entity_label"`
