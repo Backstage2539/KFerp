@@ -35,13 +35,14 @@ func templateFuncMap() template.FuncMap {
 			b, _ := json.Marshal(s)
 			return template.JS(b)
 		},
-		"assetLabel":  func(kind string) string { return kindLabel(kind) },
-		"bomURL":      bomReactURL,
-		"custShort":   customerShortLabel,
-		"eq64":        func(a, b int64) bool { return a == b },
-		"eqi":         func(a, b int) bool { return a == b },
-		"pct":         func(v float64) string { return fmt.Sprintf("%.2f%%", v*100) },
-		"retailLines": retailPriceLines,
+		"assetLabel":          func(kind string) string { return kindLabel(kind) },
+		"bomURL":              bomReactURL,
+		"custShort":           customerShortLabel,
+		"eq64":                func(a, b int64) bool { return a == b },
+		"eqi":                 func(a, b int) bool { return a == b },
+		"materialSummaryText": materialSummaryText,
+		"pct":                 func(v float64) string { return fmt.Sprintf("%.2f%%", v*100) },
+		"retailLines":         retailPriceLines,
 	}
 }
 
@@ -85,4 +86,43 @@ func customerShortLabel(s string) string {
 		s = string(runes[:30])
 	}
 	return s
+}
+
+func materialSummaryText(raw string) string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" || raw == "[]" {
+		return "-"
+	}
+
+	var items []materialConsumptionSummaryItem
+	if err := json.Unmarshal([]byte(raw), &items); err != nil {
+		return raw
+	}
+	if len(items) == 0 {
+		return "-"
+	}
+
+	lines := make([]string, 0, len(items))
+	for _, item := range items {
+		name := strings.TrimSpace(item.MaterialName)
+		if name == "" {
+			continue
+		}
+		switch {
+		case item.DeductG > 0:
+			lines = append(lines, fmt.Sprintf("%s 扣减 %dg", name, item.DeductG))
+		case item.DeductUnits > 0:
+			unit := strings.TrimSpace(item.Unit)
+			if unit == "" {
+				unit = "个"
+			}
+			lines = append(lines, fmt.Sprintf("%s 扣减 %d%s", name, item.DeductUnits, unit))
+		default:
+			lines = append(lines, name)
+		}
+	}
+	if len(lines) == 0 {
+		return "-"
+	}
+	return strings.Join(lines, "\n")
 }

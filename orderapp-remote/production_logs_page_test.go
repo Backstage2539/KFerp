@@ -12,10 +12,13 @@ func TestProductionLogsTemplateContainsKeyColumns(t *testing.T) {
 		t.Fatal(err)
 	}
 	content := string(body)
-	for _, needle := range []string{"生产日志", "真实出品率", "投料数(g)", "完成时间"} {
+	for _, needle := range []string{"生产日志", "真实出品率", "投料数(g)", "完成时间", "materialSummaryText .MaterialSummary"} {
 		if !strings.Contains(content, needle) {
 			t.Fatalf("production_logs.html missing %q", needle)
 		}
+	}
+	if strings.Contains(content, "<pre>{{.MaterialSummary}}</pre>") {
+		t.Fatal("production_logs.html still renders raw material summary json")
 	}
 }
 

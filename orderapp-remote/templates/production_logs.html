@@ -22,7 +22,7 @@
     th,td{border-bottom:1px solid #f1f1f1; padding:10px 8px; text-align:left; font-size:14px; vertical-align:top;}
     .row{display:grid; grid-template-columns:1fr 1fr 180px 180px 180px 120px; gap:10px;}
     .err{background:#ffecec; border:1px solid #ffb9b9; padding:10px; border-radius:8px;}
-    pre{margin:0; white-space:pre-wrap; word-break:break-word; font-size:12px;}
+    .summary{margin:0; white-space:pre-wrap; word-break:break-word; font-size:12px; line-height:1.5;}
     @media (max-width: 820px){
       .row{grid-template-columns:1fr;}
       table{min-width:0;}
@@ -153,7 +153,7 @@
                   <td>{{.FinishedBy}}</td>
                   <td>{{.InventoryUnitsBefore}} 件 / {{.InventoryLooseGBefore}}g</td>
                   <td>{{.InventoryUnitsAfter}} 件 / {{.InventoryLooseGAfter}}g</td>
-                  <td><pre>{{.MaterialSummary}}</pre></td>
+                  <td><div class="summary">{{materialSummaryText .MaterialSummary}}</div></td>
                 </tr>
               {{end}}
               {{if not .Rows}}

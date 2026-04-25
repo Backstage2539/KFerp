@@ -79,3 +79,19 @@ func TestBomEntrypointsUseVersionedURL(t *testing.T) {
 		}
 	}
 }
+
+func TestMaterialSummaryTextFormatsWeightAndCountItems(t *testing.T) {
+	raw := `[{"unit":"g","deduct_g":568,"material_id":1,"deduct_units":0,"material_name":"孟连水洗5T批次"},{"unit":"个","deduct_g":0,"material_id":2,"deduct_units":1,"material_name":"227g豆袋"}]`
+	got := materialSummaryText(raw)
+	want := "孟连水洗5T批次 扣减 568g\n227g豆袋 扣减 1个"
+	if got != want {
+		t.Fatalf("materialSummaryText() = %q, want %q", got, want)
+	}
+}
+
+func TestMaterialSummaryTextFallsBackForInvalidJSON(t *testing.T) {
+	got := materialSummaryText("not-json")
+	if got != "not-json" {
+		t.Fatalf("materialSummaryText() = %q, want raw string", got)
+	}
+}
