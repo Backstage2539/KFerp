@@ -47,6 +47,38 @@ func TestActualYieldRateFromFinishedOutput(t *testing.T) {
 	}
 }
 
+func TestBuildProducePlanDisplayRowsUsesDefaultInputG(t *testing.T) {
+	rows := []UnprodNeedRow{
+		{ProductID: 11, Product: "橘皮乌龙", SpecG: 227, GapG: 2270},
+	}
+	got := buildProducePlanDisplayRows(rows, map[int64]float64{11: 0.82})
+	if len(got) != 1 {
+		t.Fatalf("buildProducePlanDisplayRows() rows = %d, want 1", len(got))
+	}
+	if got[0].BomYieldRate != 0.82 {
+		t.Fatalf("buildProducePlanDisplayRows() bom_yield_rate = %.4f, want 0.82", got[0].BomYieldRate)
+	}
+	if got[0].InputG != 2769 {
+		t.Fatalf("buildProducePlanDisplayRows() input_g = %d, want 2769", got[0].InputG)
+	}
+}
+
+func TestBuildProducePlanDisplayRowsFallsBackToPointEight(t *testing.T) {
+	rows := []UnprodNeedRow{
+		{ProductID: 12, Product: "晨曦-娜伊", SpecG: 227, GapG: 2270},
+	}
+	got := buildProducePlanDisplayRows(rows, nil)
+	if len(got) != 1 {
+		t.Fatalf("buildProducePlanDisplayRows() rows = %d, want 1", len(got))
+	}
+	if got[0].BomYieldRate != 0.8 {
+		t.Fatalf("buildProducePlanDisplayRows() bom_yield_rate = %.4f, want 0.8", got[0].BomYieldRate)
+	}
+	if got[0].InputG != 2838 {
+		t.Fatalf("buildProducePlanDisplayRows() input_g = %d, want 2838", got[0].InputG)
+	}
+}
+
 func TestProduceRunningTemplateContainsFinishedInventoryFields(t *testing.T) {
 	body, err := os.ReadFile("templates/produce_running.html")
 	if err != nil {
@@ -56,6 +88,19 @@ func TestProduceRunningTemplateContainsFinishedInventoryFields(t *testing.T) {
 	for _, needle := range []string{"finished_units", "finished_loose_g", "烘焙剩余请填入散装余量"} {
 		if !strings.Contains(content, needle) {
 			t.Fatalf("produce_running.html missing %q", needle)
+		}
+	}
+}
+
+func TestUnproducedTemplateContainsInputGFields(t *testing.T) {
+	body, err := os.ReadFile("templates/unprod_summary.html")
+	if err != nil {
+		t.Fatal(err)
+	}
+	content := string(body)
+	for _, needle := range []string{"投料数(g)", "input_g_", "startProduction()"} {
+		if !strings.Contains(content, needle) {
+			t.Fatalf("unprod_summary.html missing %q", needle)
 		}
 	}
 }

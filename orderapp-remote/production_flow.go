@@ -129,12 +129,28 @@ func registerProductionFlowPages(e *echo.Echo, pool *pgxpool.Pool, schema string
 		if len(plan) == 0 {
 			return c.Redirect(http.StatusSeeOther, "/produce/unproduced?err="+url.QueryEscape("没有可开始生产的数据"))
 		}
+		yieldMap, err := loadProductYieldRateMap(c.Request().Context(), pool, schema)
+		if err != nil {
+			return c.Redirect(http.StatusSeeOther, "/produce/unproduced?err="+url.QueryEscape(err.Error()))
+		}
+		inputByKey := map[string]int64{}
+		for _, r := range plan {
+			key := fmt.Sprintf("%d_%d", r.ProductID, r.SpecG)
+			inputG, _, err := parseOptionalInt64(c.FormValue("input_g_" + key))
+			if err != nil {
+				return c.Redirect(http.StatusSeeOther, "/produce/unproduced?err="+url.QueryEscape("投料数格式不正确"))
+			}
+			if inputG <= 0 {
+				return c.Redirect(http.StatusSeeOther, "/produce/unproduced?err="+url.QueryEscape("投料数必须大于0"))
+			}
+			inputByKey[key] = inputG
+		}
 		operator := actorOf(c)
 		batchID, _, _, err := allocateUnproducedRows(c.Request().Context(), pool, schema, plan, operator)
 		if err != nil {
 			return c.Redirect(http.StatusSeeOther, "/produce/unproduced?err="+url.QueryEscape(err.Error()))
 		}
-		if err := saveRunningItems(c.Request().Context(), pool, schema, batchID, plan, operator); err != nil {
+		if err := saveRunningItems(c.Request().Context(), pool, schema, batchID, plan, inputByKey, yieldMap, operator); err != nil {
 			return c.Redirect(http.StatusSeeOther, "/produce/unproduced?err="+url.QueryEscape(err.Error()))
 		}
 		_ = setOrdersProcessStatusByNeeds(c.Request().Context(), pool, schema, plan, "生产中")
@@ -175,13 +191,20 @@ func registerProductionFlowPages(e *echo.Echo, pool *pgxpool.Pool, schema string
 	})
 }
 
-func saveRunningItems(ctx context.Context, pool *pgxpool.Pool, schema, batchID string, rows []UnprodNeedRow, operator string) error {
+func saveRunningItems(ctx context.Context, pool *pgxpool.Pool, schema, batchID string, rows []UnprodNeedRow, inputByKey map[string]int64, yieldByProductID map[int64]float64, operator string) error {
 	for _, r := range rows {
 		needG := r.GapG
 		if needG <= 0 {
 			continue
 		}
-		_, err := pool.Exec(ctx, fmt.Sprintf(`INSERT INTO %s.produce_running_items(batch_id,product_id,product_name,spec_g,need_g,order_nos,status,started_by,started_at) VALUES($1,$2,$3,$4,$5,$6,'running',$7,now())`, schema), batchID, r.ProductID, r.Product, r.SpecG, needG, r.OrderNos, operator)
+		key := fmt.Sprintf("%d_%d", r.ProductID, r.SpecG)
+		inputG := inputByKey[key]
+		if inputG <= 0 {
+			inputG = defaultProductionInputG(needG, yieldByProductID[r.ProductID])
+		}
+		plan := plannedFinishedInventoryAddition(r.SpecG, needG)
+		yieldRate := normalizeYieldRate(yieldByProductID[r.ProductID])
+		_, err := pool.Exec(ctx, fmt.Sprintf(`INSERT INTO %s.produce_running_items(batch_id,product_id,product_name,spec_g,need_g,order_nos,status,started_by,started_at,input_g,bom_yield_rate,planned_units,planned_loose_g) VALUES($1,$2,$3,$4,$5,$6,'running',$7,now(),$8,$9,$10,$11)`, schema), batchID, r.ProductID, r.Product, r.SpecG, needG, r.OrderNos, operator, inputG, yieldRate, plan.Units, plan.LooseG)
 		if err != nil {
 			return err
 		}

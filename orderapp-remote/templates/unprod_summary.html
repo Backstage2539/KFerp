@@ -158,13 +158,33 @@
         <div style="overflow:auto; -webkit-overflow-scrolling:touch;">
           <table>
             <thead>
-              <tr><th>商品</th><th>规格(g)</th><th>需求(g)</th><th>库存(g)</th><th>缺口(g)</th></tr>
+              <tr><th>商品</th><th>规格(g)</th><th>需求(g)</th><th>库存(g)</th><th>缺口(g)</th><th>BOM出品率</th><th>投料数(g)</th></tr>
             </thead>
             <tbody>
             {{range .PlanRows}}
-              <tr><td>{{.Product}}</td><td>{{.SpecG}}</td><td>{{.NeedG}}</td><td>{{.InvG}}</td><td><b>{{.GapG}}</b></td></tr>
+              <tr>
+                <td>{{.Product}}</td>
+                <td>{{.SpecG}}</td>
+                <td>{{.NeedG}}</td>
+                <td>{{.InvG}}</td>
+                <td><b>{{.GapG}}</b></td>
+                <td>{{pct .BomYieldRate}}</td>
+                <td>
+                  <input
+                    type="number"
+                    min="1"
+                    step="1"
+                    class="plan_input_g"
+                    data-key="{{.ProductID}}-{{.SpecG}}"
+                    name="input_g_{{.ProductID}}_{{.SpecG}}"
+                    value="{{.InputG}}"
+                    form="startForm"
+                    style="width:120px;"
+                  />
+                </td>
+              </tr>
             {{end}}
-            {{if not .PlanRows}}<tr><td colspan="5" class="muted">当前选择下无缺口计划</td></tr>{{end}}
+            {{if not .PlanRows}}<tr><td colspan="7" class="muted">当前选择下无缺口计划</td></tr>{{end}}
             </tbody>
           </table>
         </div>
@@ -241,6 +261,15 @@ function buildPlanBySelection(){
 function startProduction(){
   const keys=selectedKeys();
   if(keys.length===0){ alert('请先选择订单后再开始生产'); return; }
+  for(const x of document.querySelectorAll('.plan_input_g')){
+    if(!keys.includes(x.getAttribute('data-key'))){ continue; }
+    const value = Number(x.value || '0');
+    if(!Number.isFinite(value) || value <= 0){
+      alert('投料数必须大于0');
+      x.focus();
+      return;
+    }
+  }
   document.getElementById('selected_keys').value = keys.join(',');
   document.getElementById('startForm').submit();
 }

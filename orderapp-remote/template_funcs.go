@@ -40,6 +40,7 @@ func templateFuncMap() template.FuncMap {
 		"custShort":   customerShortLabel,
 		"eq64":        func(a, b int64) bool { return a == b },
 		"eqi":         func(a, b int) bool { return a == b },
+		"pct":         func(v float64) string { return fmt.Sprintf("%.2f%%", v*100) },
 		"retailLines": retailPriceLines,
 	}
 }

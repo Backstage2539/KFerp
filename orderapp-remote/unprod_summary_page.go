@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -15,13 +16,51 @@ type UnprodSummaryPageData struct {
 	To          string
 	CustomerID  int64
 	Rows        []UnprodNeedRow
-	PlanRows    []UnprodNeedRow
+	PlanRows    []ProducePlanDisplayRow
 	Materials   []MaterialNeed
 	RoastSplits []RoastSplitRow
 	Selected    map[string]bool
 	PlanReady   bool
 	StockTip    string
 	Error       string
+}
+
+type ProducePlanDisplayRow struct {
+	UnprodNeedRow
+	BomYieldRate float64
+	InputG       int64
+}
+
+func buildProducePlanDisplayRows(rows []UnprodNeedRow, yieldByProductID map[int64]float64) []ProducePlanDisplayRow {
+	out := make([]ProducePlanDisplayRow, 0, len(rows))
+	for _, r := range rows {
+		yieldRate := normalizeYieldRate(yieldByProductID[r.ProductID])
+		out = append(out, ProducePlanDisplayRow{
+			UnprodNeedRow: r,
+			BomYieldRate:  yieldRate,
+			InputG:        defaultProductionInputG(r.GapG, yieldRate),
+		})
+	}
+	return out
+}
+
+func loadProductYieldRateMap(ctx context.Context, pool *pgxpool.Pool, schema string) (map[int64]float64, error) {
+	rows, err := pool.Query(ctx, "SELECT product_id, COALESCE(yield_rate,0.8) FROM "+schema+".product_bom")
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	out := map[int64]float64{}
+	for rows.Next() {
+		var productID int64
+		var yieldRate float64
+		if err := rows.Scan(&productID, &yieldRate); err != nil {
+			return nil, err
+		}
+		out[productID] = normalizeYieldRate(yieldRate)
+	}
+	return out, rows.Err()
 }
 
 func registerUnprodSummaryPages(e *echo.Echo, pool *pgxpool.Pool, schema string) {
@@ -64,9 +103,13 @@ func registerUnprodSummaryPages(e *echo.Echo, pool *pgxpool.Pool, schema string)
 					}
 					planRows = append(planRows, r)
 				}
-				data.PlanRows = planRows
 				if selectedCount > 0 && len(planRows) == 0 {
 					data.StockTip = "库存充足：当前已选商品库存均可满足，无需补产。"
+				}
+				if yieldMap, err := loadProductYieldRateMap(c.Request().Context(), pool, schema); err == nil {
+					data.PlanRows = buildProducePlanDisplayRows(planRows, yieldMap)
+				} else {
+					data.PlanRows = buildProducePlanDisplayRows(planRows, nil)
 				}
 				params := defaultProducePlanParams()
 				if mappings, err := listBagSpecMappings(c.Request().Context(), pool, schema); err == nil {
