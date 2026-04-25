@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -224,6 +225,49 @@ func TestProduceFinishHandlerWritesProductionLog(t *testing.T) {
 	}
 }
 
+func TestProduceStartAPIUsesSubmittedInputG(t *testing.T) {
+	pool, schema := newProductionFlowTestDB(t)
+	ctx := context.Background()
+
+	mustExecProductionFlowTestSQL(t, ctx, pool, fmt.Sprintf(`
+		INSERT INTO %s.products(id,name,default_price,active) VALUES (1,'曲奇拼配',50,true);
+		INSERT INTO %s.order_process_statuses(name,sort,active) VALUES
+			('待处理',10,true),
+			('生产中',20,true)
+		ON CONFLICT (name) DO NOTHING;
+		INSERT INTO %s.orders(id,order_no,order_date,is_void,process_status_id) VALUES
+			(1,'SO-API-START','2026-04-25',false,(SELECT id FROM %s.order_process_statuses WHERE name='待处理' LIMIT 1));
+		INSERT INTO %s.order_items(order_id,line_no,item_name,qty,unit,spec,product_id,unit_price,line_total)
+		VALUES (1,1,'曲奇拼配',1,'袋','1000g',1,50,50);
+		INSERT INTO %s.product_bom(product_id,yield_rate) VALUES (1,0.8000);
+		`, schema, schema, schema, schema, schema, schema))
+
+	app := newProductionFlowTestEcho(pool, schema)
+	body := bytes.NewBufferString(`{"selected":["1-1000"],"input_by_key":{"1-1000":2000}}`)
+	req := httptest.NewRequest(http.MethodPost, "/api/produce/start", body)
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+	app.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("POST /api/produce/start status = %d, want 200 body=%s", rec.Code, rec.Body.String())
+	}
+
+	var inputG int64
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`
+		SELECT input_g
+		FROM %s.produce_running_items
+		WHERE product_id=1 AND spec_g=1000
+		ORDER BY id DESC
+		LIMIT 1
+	`, schema)).Scan(&inputG); err != nil {
+		t.Fatalf("query running item: %v", err)
+	}
+	if inputG != 2000 {
+		t.Fatalf("running item input_g = %d, want 2000", inputG)
+	}
+}
+
 func TestListRunningItemsBackfillsMissingInputAndPlan(t *testing.T) {
 	pool, schema := newProductionFlowTestDB(t)
 	ctx := context.Background()
@@ -311,6 +355,7 @@ func newProductionFlowTestEcho(pool *pgxpool.Pool, schema string) *echo.Echo {
 			return next(c)
 		}
 	})
+	registerUnprodSummaryAPI(e, pool, schema)
 	registerProductionFlowPages(e, pool, schema)
 	return e
 }

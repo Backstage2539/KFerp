@@ -68,7 +68,7 @@ func TestBuildProducePlanDisplayRowsUsesDefaultInputG(t *testing.T) {
 	rows := []UnprodNeedRow{
 		{ProductID: 11, Product: "橘皮乌龙", SpecG: 227, GapG: 2270},
 	}
-	got := buildProducePlanDisplayRows(rows, map[int64]float64{11: 0.82})
+	got := buildProducePlanDisplayRows(rows, map[int64]float64{11: 0.82}, nil)
 	if len(got) != 1 {
 		t.Fatalf("buildProducePlanDisplayRows() rows = %d, want 1", len(got))
 	}
@@ -84,7 +84,7 @@ func TestBuildProducePlanDisplayRowsFallsBackToPointEight(t *testing.T) {
 	rows := []UnprodNeedRow{
 		{ProductID: 12, Product: "晨曦-娜伊", SpecG: 227, GapG: 2270},
 	}
-	got := buildProducePlanDisplayRows(rows, nil)
+	got := buildProducePlanDisplayRows(rows, nil, nil)
 	if len(got) != 1 {
 		t.Fatalf("buildProducePlanDisplayRows() rows = %d, want 1", len(got))
 	}
@@ -109,19 +109,23 @@ func TestProduceRunningTemplateContainsFinishedInventoryFields(t *testing.T) {
 	}
 }
 
-func TestUnproducedTemplateContainsInputGFields(t *testing.T) {
-	body, err := os.ReadFile("templates/unprod_summary.html")
+func TestVueShellProducePlanIsNoLongerTemplateDriven(t *testing.T) {
+	body, err := os.ReadFile("frontend-vue-shell/src/App.vue")
 	if err != nil {
 		t.Fatal(err)
 	}
 	content := string(body)
-	for _, needle := range []string{"投料数(g)", "input_g_", "startProduction()", "待发货产品", "请先选择产品后再生成计划", "请先选择产品后再开始生产"} {
+	for _, needle := range []string{"ProducePlanView", "view=producePlan", "producePlan: { title: '生产计划/开始生产', url: '/vue-shell?view=producePlan', internal: true }"} {
 		if !strings.Contains(content, needle) {
-			t.Fatalf("unprod_summary.html missing %q", needle)
+			t.Fatalf("App.vue missing %q", needle)
 		}
 	}
-	if strings.Contains(content, "未生产订单") {
-		t.Fatal("unprod_summary.html still contains 未生产订单")
+	body, err = os.ReadFile("static_frontend_routes.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(body), `target := "/vue-shell?view=producePlan"`) {
+		t.Fatal("static_frontend_routes.go missing producePlan redirect")
 	}
 }
 

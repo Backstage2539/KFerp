@@ -18,6 +18,7 @@ func registerAppRoutes(e *echo.Echo, pool *pgxpool.Pool, schema string, assetDir
 	registerStaticFrontendRoutes(e)
 
 	registerUnprodSummaryPages(e, pool, schema)
+	registerUnprodSummaryAPI(e, pool, schema)
 	registerProducePlanPages(e, pool, schema)
 	registerMachineCapacityPages(e, pool, schema)
 	registerSenderSettingsPage(e, pool, schema)

@@ -9,16 +9,16 @@ import (
 )
 
 type UnprodNeedRow struct {
-	ProductID int64
-	Product   string
-	OrderNos  string
-	SpecG     int64
-	NeedUnits int64
-	NeedG     int64
-	InvUnits  int64
-	InvLooseG int64
-	InvG      int64
-	GapG      int64
+	ProductID int64  `json:"product_id"`
+	Product   string `json:"product"`
+	OrderNos  string `json:"order_nos"`
+	SpecG     int64  `json:"spec_g"`
+	NeedUnits int64  `json:"need_units"`
+	NeedG     int64  `json:"need_g"`
+	InvUnits  int64  `json:"inv_units"`
+	InvLooseG int64  `json:"inv_loose_g"`
+	InvG      int64  `json:"inv_g"`
+	GapG      int64  `json:"gap_g"`
 }
 
 func fetchUnproducedNeeds(ctx context.Context, pool *pgxpool.Pool, schema, from, to string, customerID int64) ([]UnprodNeedRow, error) {

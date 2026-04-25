@@ -2,6 +2,19 @@ package main
 
 import "testing"
 
+func assertMaterialQty(t *testing.T, rows []MaterialNeed, name, unit string, want int64) {
+	t.Helper()
+	for _, row := range rows {
+		if row.Name == name && row.Unit == unit {
+			if row.Qty != want {
+				t.Fatalf("%s %s qty=%d want=%d", name, unit, row.Qty, want)
+			}
+			return
+		}
+	}
+	t.Fatalf("material %s %s not found", name, unit)
+}
+
 func TestCalcProducePlanMaterials(t *testing.T) {
 	rows := []UnprodNeedRow{
 		{Product: "咖啡豆A", SpecG: 250, GapG: 500},  // 2 bags
@@ -100,4 +113,23 @@ func TestCalcNoBomProducePlanMaterialsSplitsRawBeansByProduct(t *testing.T) {
 	if got := m["豆袋"].Qty; got != 2 {
 		t.Fatalf("豆袋 qty=%d want=2", got)
 	}
+}
+
+func TestCalcProducePlanMaterialsFromFinalInputsUsesRoastInputForBomBeans(t *testing.T) {
+	rows := []UnprodNeedRow{
+		{ProductID: 1, Product: "曲奇拼配", SpecG: 1000, GapG: 1000},
+	}
+	finalInputs := map[string]int64{producePlanKey(1, 1000): 2000}
+	bomMap := map[int64][]bomNeedItem{
+		1: {
+			{ProductID: 1, MaterialName: "豆子A", MaterialUnit: "g", RatioPct: 70},
+			{ProductID: 1, MaterialName: "豆子B", MaterialUnit: "g", RatioPct: 30},
+		},
+	}
+
+	got := calcProducePlanMaterialsFromFinalInputs(rows, finalInputs, bomMap, defaultProducePlanParams())
+
+	assertMaterialQty(t, got, "豆子A", "g", 1400)
+	assertMaterialQty(t, got, "豆子B", "g", 600)
+	assertMaterialQty(t, got, "豆袋", "个", 1)
 }

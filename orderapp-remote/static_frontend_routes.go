@@ -32,4 +32,11 @@ func registerStaticFrontendRoutes(e *echo.Echo) {
 	e.GET("/vue-shell/*", func(c echo.Context) error {
 		return c.File("frontend-vue-shell/dist/index.html")
 	})
+	e.GET("/produce/unproduced", func(c echo.Context) error {
+		target := "/vue-shell?view=producePlan"
+		if raw := c.QueryString(); raw != "" {
+			target += "&" + raw
+		}
+		return c.Redirect(http.StatusFound, target)
+	})
 }
