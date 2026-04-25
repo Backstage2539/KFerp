@@ -24,6 +24,7 @@ func ensureAppSchema(ctx context.Context, pool *pgxpool.Pool, schema string) err
 		{Name: "machine capacity", Run: func(ctx context.Context) error { return ensureMachineCapacityTable(ctx, pool, schema) }},
 		{Name: "mobile auth", Run: func(ctx context.Context) error { return ensureMobileAuthTables(ctx, pool, schema) }},
 		{Name: "production run", Run: func(ctx context.Context) error { return ensureProductionRunTable(ctx, pool, schema) }},
+		{Name: "production log", Run: func(ctx context.Context) error { return ensureProductionLogTable(ctx, pool, schema) }},
 		{Name: "order process statuses", Run: func(ctx context.Context) error { return ensureOrderProcessStatuses(ctx, pool, schema) }},
 		{Name: "sender settings", Run: func(ctx context.Context) error { return ensureSenderSettingsTable(ctx, pool, schema) }},
 		{Name: "outsource fee columns", Run: func(ctx context.Context) error { return ensureOutsourceFeeColumns(ctx, pool, schema) }},

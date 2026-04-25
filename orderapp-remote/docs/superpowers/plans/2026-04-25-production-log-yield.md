@@ -78,8 +78,8 @@ func TestActualYieldRateFromFinishedOutput(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got != 0.7636 {
-		t.Fatalf("actualYieldRate() = %.4f, want 0.7636", got)
+	if got != 0.7628 {
+		t.Fatalf("actualYieldRate() = %.4f, want 0.7628", got)
 	}
 }
 ```

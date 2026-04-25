@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -50,8 +51,44 @@ func ensureProductionRunTable(ctx context.Context, pool *pgxpool.Pool, schema st
 		finished_at TIMESTAMPTZ
 	);
 	CREATE INDEX IF NOT EXISTS produce_running_items_status_idx ON %s.produce_running_items(status, started_at DESC);`, schema, schema)
-	_, err := pool.Exec(ctx, q)
-	return err
+	if _, err := pool.Exec(ctx, q); err != nil {
+		return err
+	}
+	_, _ = pool.Exec(ctx, fmt.Sprintf(`ALTER TABLE %s.produce_running_items ADD COLUMN IF NOT EXISTS input_g BIGINT NOT NULL DEFAULT 0`, schema))
+	_, _ = pool.Exec(ctx, fmt.Sprintf(`ALTER TABLE %s.produce_running_items ADD COLUMN IF NOT EXISTS bom_yield_rate NUMERIC(10,4) NOT NULL DEFAULT 0.8000`, schema))
+	_, _ = pool.Exec(ctx, fmt.Sprintf(`ALTER TABLE %s.produce_running_items ADD COLUMN IF NOT EXISTS planned_units BIGINT NOT NULL DEFAULT 0`, schema))
+	_, _ = pool.Exec(ctx, fmt.Sprintf(`ALTER TABLE %s.produce_running_items ADD COLUMN IF NOT EXISTS planned_loose_g BIGINT NOT NULL DEFAULT 0`, schema))
+	return nil
+}
+
+func normalizeYieldRate(rate float64) float64 {
+	if rate <= 0 || rate > 1 {
+		return 0.8
+	}
+	return rate
+}
+
+func defaultProductionInputG(needG int64, yieldRate float64) int64 {
+	if needG <= 0 {
+		return 0
+	}
+	return int64(math.Ceil(float64(needG) / normalizeYieldRate(yieldRate)))
+}
+
+func finishedTotalG(specG, units, looseG int64) int64 {
+	if specG <= 0 || units < 0 || looseG < 0 {
+		return 0
+	}
+	return units*specG + looseG
+}
+
+func actualYieldRate(specG, units, looseG, inputG int64) (float64, error) {
+	if inputG <= 0 {
+		return 0, fmt.Errorf("input_g must be greater than 0")
+	}
+	total := finishedTotalG(specG, units, looseG)
+	rate := float64(total) / float64(inputG)
+	return math.Round(rate*10000) / 10000, nil
 }
 
 func registerProductionFlowPages(e *echo.Echo, pool *pgxpool.Pool, schema string) {

@@ -23,6 +23,30 @@ func TestNormalizeFinishedInventoryAddition(t *testing.T) {
 	}
 }
 
+func TestDefaultProductionInputGUsesBomYield(t *testing.T) {
+	got := defaultProductionInputG(2270, 0.82)
+	if got != 2769 {
+		t.Fatalf("defaultProductionInputG() = %d, want 2769", got)
+	}
+}
+
+func TestDefaultProductionInputGFallsBackToPointEight(t *testing.T) {
+	got := defaultProductionInputG(2270, 0)
+	if got != 2838 {
+		t.Fatalf("defaultProductionInputG() = %d, want 2838", got)
+	}
+}
+
+func TestActualYieldRateFromFinishedOutput(t *testing.T) {
+	got, err := actualYieldRate(227, 8, 91, 2500)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != 0.7628 {
+		t.Fatalf("actualYieldRate() = %.4f, want 0.7628", got)
+	}
+}
+
 func TestProduceRunningTemplateContainsFinishedInventoryFields(t *testing.T) {
 	body, err := os.ReadFile("templates/produce_running.html")
 	if err != nil {
