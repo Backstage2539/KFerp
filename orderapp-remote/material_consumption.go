@@ -194,6 +194,21 @@ func deductMaterialsForRunningItemTx(ctx context.Context, tx pgx.Tx, schema stri
 		); err != nil {
 			return err
 		}
+		qty := stockLedgerQty{
+			BeforeG:     beforeG,
+			ChangeG:     -need.DeductG,
+			AfterG:      afterG,
+			BeforeUnits: beforeUnits,
+			ChangeUnits: -need.DeductUnits,
+			AfterUnits:  afterUnits,
+		}
+		if err := insertStockLedgerEntryTx(ctx, tx, schema,
+			stockItemTypeMaterial, need.MaterialID, need.MaterialName, 0, "materials",
+			stockSourceProductionRun, r.ID, "", r.BatchID,
+			qty, operator,
+		); err != nil {
+			return err
+		}
 	}
 	return nil
 }

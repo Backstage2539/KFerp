@@ -112,7 +112,7 @@ func plannedFinishedInventoryByInput(specG, inputG int64, yieldRate float64) Inv
 	if specG <= 0 || inputG <= 0 {
 		return InvQty{}
 	}
-	totalG := int64(math.Floor(float64(inputG) * normalizeYieldRate(yieldRate)))
+	totalG := int64(math.Floor(float64(inputG)*normalizeYieldRate(yieldRate) + 1e-9))
 	return plannedFinishedInventoryAddition(specG, totalG)
 }
 
@@ -379,6 +379,9 @@ func finishRunningItem(ctx context.Context, pool *pgxpool.Pool, schema string, i
 		return err
 	}
 	if _, err := tx.Exec(ctx, fmt.Sprintf(`INSERT INTO %s.finished_inventory(product_id,spec_g,onhand_units,onhand_loose_g,updated_at) VALUES($1,$2,$3,$4,now()) ON CONFLICT (product_id,spec_g) DO UPDATE SET onhand_units=excluded.onhand_units,onhand_loose_g=excluded.onhand_loose_g,updated_at=now()`, schema), r.ProductID, r.SpecG, norm.Units, norm.LooseG); err != nil {
+		return err
+	}
+	if err := recordFinishedProductStockMovementTx(ctx, tx, schema, r, cur, add, norm, finishedTotal, operator); err != nil {
 		return err
 	}
 	if err := deductMaterialsForRunningItemTx(ctx, tx, schema, r, add, operator); err != nil {

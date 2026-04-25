@@ -68,8 +68,8 @@ func TestProduceStartHandlerPersistsInputG(t *testing.T) {
 	if math.Abs(bomYieldRate-0.82) > 0.0001 {
 		t.Fatalf("running item bom_yield_rate = %.4f, want 0.8200", bomYieldRate)
 	}
-	if plannedUnits != 2 || plannedLooseG != 0 {
-		t.Fatalf("planned inventory = %d units + %dg, want 2 units + 0g", plannedUnits, plannedLooseG)
+	if plannedUnits != 2 || plannedLooseG != 38 {
+		t.Fatalf("planned inventory = %d units + %dg, want 2 units + 38g", plannedUnits, plannedLooseG)
 	}
 	if status != "running" {
 		t.Fatalf("running item status = %q, want running", status)
@@ -222,6 +222,110 @@ func TestProduceFinishHandlerWritesProductionLog(t *testing.T) {
 	}
 	if processStatusName != "生产完成" {
 		t.Fatalf("order process_status = %q, want 生产完成", processStatusName)
+	}
+}
+
+func TestProduceFinishHandlerWritesStockLedgerAndFinishedBatch(t *testing.T) {
+	pool, schema := newProductionFlowTestDB(t)
+	ctx := context.Background()
+
+	mustExecProductionFlowTestSQL(t, ctx, pool, fmt.Sprintf(`
+		INSERT INTO %s.products(id,name,default_price,active) VALUES (1,'橘皮乌龙',50,true);
+		INSERT INTO %s.product_bom(product_id,yield_rate) VALUES (1,0.8200);
+		INSERT INTO %s.materials(id,code,name,kind,unit,onhand_g,onhand_units,purchase_price,sale_price)
+			VALUES
+			(10,'RAW-001','卡蒂姆水洗','bean','g',1000,0,54,0),
+			(11,'BAG-227','227g豆袋','pack','个',0,10,1,0);
+		INSERT INTO %s.product_bom_items(product_id,material_id,ratio_pct) VALUES (1,10,100.0000);
+		INSERT INTO %s.packaging_spec_material_map(spec_g,material_id) VALUES (227,11);
+		INSERT INTO %s.finished_inventory(product_id,spec_g,onhand_units,onhand_loose_g) VALUES (1,227,1,20);
+		INSERT INTO %s.produce_running_items(
+			id,batch_id,product_id,product_name,spec_g,need_g,order_nos,status,
+			started_by,started_at,input_g,bom_yield_rate,planned_units,planned_loose_g
+		) VALUES (
+			42,'PLAN-BATCH-001',1,'橘皮乌龙',227,454,'SO-STOCK-LEDGER','running',
+			'测试员',now(),600,0.8200,2,0
+		);
+	`, schema, schema, schema, schema, schema, schema, schema))
+
+	app := newProductionFlowTestEcho(pool, schema)
+	form := url.Values{
+		"id":               {"42"},
+		"finished_units":   {"2"},
+		"finished_loose_g": {"10"},
+	}
+	rec := serveProductionFlowForm(t, app, http.MethodPost, "/produce/running/finish", form)
+
+	if rec.Code != http.StatusSeeOther {
+		t.Fatalf("POST /produce/running/finish status = %d, want %d body=%s", rec.Code, http.StatusSeeOther, rec.Body.String())
+	}
+
+	var batchCode string
+	var batchQtyG, batchQtyUnits int64
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`
+		SELECT batch_code, qty_g, qty_units
+		FROM %s.stock_batches
+		WHERE source_doc_type='production_run' AND source_doc_id=42
+	`, schema)).Scan(&batchCode, &batchQtyG, &batchQtyUnits); err != nil {
+		t.Fatalf("query stock batch: %v", err)
+	}
+	if batchCode != "FP-0000000042" {
+		t.Fatalf("batch_code = %q, want FP-0000000042", batchCode)
+	}
+	if batchQtyG != 464 || batchQtyUnits != 2 {
+		t.Fatalf("batch qty = %dg/%d units, want 464g/2 units", batchQtyG, batchQtyUnits)
+	}
+
+	rows, err := pool.Query(ctx, fmt.Sprintf(`
+		SELECT item_type, item_name, source_batch_code, qty_change_g, qty_after_g, qty_change_units, qty_after_units
+		FROM %s.stock_ledger_entries
+		WHERE source_doc_type='production_run' AND source_doc_id=42
+		ORDER BY item_type, item_name
+	`, schema))
+	if err != nil {
+		t.Fatalf("query stock ledger: %v", err)
+	}
+	defer rows.Close()
+
+	type ledgerRow struct {
+		itemType        string
+		itemName        string
+		sourceBatchCode string
+		changeG         int64
+		afterG          int64
+		changeUnits     int64
+		afterUnits      int64
+	}
+	var got []ledgerRow
+	for rows.Next() {
+		var row ledgerRow
+		if err := rows.Scan(&row.itemType, &row.itemName, &row.sourceBatchCode, &row.changeG, &row.afterG, &row.changeUnits, &row.afterUnits); err != nil {
+			t.Fatalf("scan stock ledger: %v", err)
+		}
+		got = append(got, row)
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("iterate stock ledger: %v", err)
+	}
+	if len(got) != 3 {
+		t.Fatalf("stock ledger rows = %d, want 3: %+v", len(got), got)
+	}
+
+	byName := map[string]ledgerRow{}
+	for _, row := range got {
+		byName[row.itemName] = row
+	}
+	finished := byName["橘皮乌龙"]
+	if finished.itemType != "finished_product" || finished.sourceBatchCode != "FP-0000000042" || finished.changeG != 464 || finished.afterG != 711 || finished.changeUnits != 2 || finished.afterUnits != 3 {
+		t.Fatalf("finished stock ledger row = %+v, want finished_product +464g to 711g and +2 units to 3", finished)
+	}
+	raw := byName["卡蒂姆水洗"]
+	if raw.itemType != "material" || raw.changeG != -600 || raw.afterG != 400 {
+		t.Fatalf("raw stock ledger row = %+v, want material -600g to 400g", raw)
+	}
+	bag := byName["227g豆袋"]
+	if bag.itemType != "material" || bag.changeUnits != -2 || bag.afterUnits != 8 {
+		t.Fatalf("bag stock ledger row = %+v, want material -2 units to 8", bag)
 	}
 }
 

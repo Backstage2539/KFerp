@@ -54,6 +54,13 @@ func TestPlannedFinishedInventoryByInputUsesYield(t *testing.T) {
 	}
 }
 
+func TestPlannedFinishedInventoryByInputAvoidsFloatUndercount(t *testing.T) {
+	got := plannedFinishedInventoryByInput(227, 600, 0.82)
+	if got.Units != 2 || got.LooseG != 38 {
+		t.Fatalf("plannedFinishedInventoryByInput() = %d units + %dg, want 2 units + 38g", got.Units, got.LooseG)
+	}
+}
+
 func TestRunningInventoryPlanPrefersInputAndYield(t *testing.T) {
 	got := runningInventoryPlan(1000, 1000, 2000, 0.8)
 	if got.Units != 1 || got.LooseG != 600 {
