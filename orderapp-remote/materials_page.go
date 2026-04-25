@@ -27,6 +27,13 @@ func parseF64(s string) (float64, error) {
 
 func registerMaterialsPages(e *echo.Echo, pool *pgxpool.Pool, schema string) {
 	e.GET("/materials", func(c echo.Context) error {
+		if c.QueryParam("legacy") == "" {
+			target := "/vue-shell?view=materials"
+			if q := strings.TrimSpace(c.QueryParam("q")); q != "" {
+				target += "&q=" + url.QueryEscape(q)
+			}
+			return c.Redirect(http.StatusFound, target)
+		}
 		data := MaterialsPageData{Q: strings.TrimSpace(c.QueryParam("q"))}
 		data.Ok = strings.TrimSpace(c.QueryParam("ok")) == "1"
 		if v := strings.TrimSpace(c.QueryParam("err")); v != "" {

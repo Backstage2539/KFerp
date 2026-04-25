@@ -12,6 +12,7 @@ func registerAppRoutes(e *echo.Echo, pool *pgxpool.Pool, schema string, assetDir
 	registerRequirementAPIs(e, pool, schema)
 	registerFinishedInventoryPages(e, pool, schema)
 	registerMaterialsPages(e, pool, schema)
+	registerMaterialsAPI(e, pool, schema)
 	registerBomPages(e, pool, schema)
 	registerBomAPI(e, pool, schema)
 	registerOutsourceSettingsRoutes(e, pool, schema)
