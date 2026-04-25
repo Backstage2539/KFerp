@@ -1,6 +1,7 @@
 export interface BomListItem {
   product_id: number
   product: string
+  roast_level: string
   yield_rate: number
   item_count: number
   updated_at: string
@@ -16,6 +17,7 @@ export interface BomItemRow {
 export interface BomDetail {
   product_id: number
   product_name: string
+  roast_level: string
   yield_rate: number
   items: BomItemRow[]
   total_ratio: number
@@ -29,7 +31,6 @@ export interface Option {
 
 export interface SaveBomRequest {
   product_id: number
-  yield_rate: number
 }
 
 export interface SaveBomItemRequest {

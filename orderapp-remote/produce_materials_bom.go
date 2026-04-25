@@ -12,6 +12,7 @@ import (
 
 type bomNeedItem struct {
 	ProductID    int64
+	RoastLevel   string
 	YieldRate    float64
 	MaterialName string
 	MaterialUnit string
@@ -150,12 +151,9 @@ func calcProducePlanMaterialsWithBOM(ctx context.Context, pool *pgxpool.Pool, sc
 			continue
 		}
 
-		yield := p.YieldRate
-		if items[0].YieldRate > 0 && items[0].YieldRate <= 1 {
-			yield = items[0].YieldRate
-		}
+		yield := resolveYieldRate(items[0].RoastLevel, items[0].YieldRate)
 		if yield <= 0 || yield > 1 {
-			yield = 0.8
+			yield = normalizeYieldRate(p.YieldRate)
 		}
 		rawG := int64(math.Ceil(float64(r.GapG) / yield))
 		unitsMissing := ceilDiv(r.GapG, r.SpecG)
@@ -250,16 +248,18 @@ func loadBomNeedItems(ctx context.Context, pool *pgxpool.Pool, schema string, pr
 	}
 	q := fmt.Sprintf(`
 		SELECT bi.product_id,
+		       COALESCE(p.roast_level,''),
 		       COALESCE(pb.yield_rate,0),
 		       COALESCE(m.name,''),
 		       COALESCE(NULLIF(m.unit,''),'g'),
 		       COALESCE(bi.ratio_pct,0)
 		FROM %s.product_bom_items bi
+		LEFT JOIN %s.products p ON p.id=bi.product_id
 		LEFT JOIN %s.product_bom pb ON pb.product_id=bi.product_id
 		LEFT JOIN %s.materials m ON m.id=bi.material_id
 		WHERE bi.product_id = ANY($1)
 		ORDER BY bi.product_id, bi.id
-	`, schema, schema, schema)
+	`, schema, schema, schema, schema)
 	rows, err := pool.Query(ctx, q, productIDs)
 	if err != nil {
 		return out, err
@@ -267,7 +267,7 @@ func loadBomNeedItems(ctx context.Context, pool *pgxpool.Pool, schema string, pr
 	defer rows.Close()
 	for rows.Next() {
 		var x bomNeedItem
-		if err := rows.Scan(&x.ProductID, &x.YieldRate, &x.MaterialName, &x.MaterialUnit, &x.RatioPct); err != nil {
+		if err := rows.Scan(&x.ProductID, &x.RoastLevel, &x.YieldRate, &x.MaterialName, &x.MaterialUnit, &x.RatioPct); err != nil {
 			return out, err
 		}
 		if strings.TrimSpace(x.MaterialName) == "" || x.RatioPct <= 0 {

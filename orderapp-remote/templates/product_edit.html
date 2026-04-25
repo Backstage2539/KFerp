@@ -9,7 +9,7 @@
     .card{border:1px solid #eee; border-radius:10px; padding:12px; margin:12px 0;}
     .btn{display:inline-block; padding:10px 12px; font-size:16px; border:1px solid #111; background:#111; color:#fff; border-radius:8px; text-decoration:none;}
     .btn2{display:inline-block; padding:10px 12px; font-size:16px; border:1px solid #999; background:#fff; color:#111; border-radius:8px; text-decoration:none;}
-    input{width:100%; padding:10px; font-size:16px; box-sizing:border-box;}
+    input,select{width:100%; padding:10px; font-size:16px; box-sizing:border-box;}
     table{width:100%; border-collapse:collapse;}
     th,td{border-bottom:1px solid #f1f1f1; padding:10px 8px; text-align:left; font-size:14px;}
     .muted{color:#666; font-size:13px;}
@@ -23,8 +23,17 @@
 
   <form method="post" action="/products/{{.ID}}">
     <div class="card">
-      <div class="muted" style="margin-bottom:8px;">录单选择“零售”时优先使用对应规格零售价；未配置的规格回退到 227g 折算并向上取整。</div>
+      <div class="muted" style="margin-bottom:8px;">录单选择“零售”时优先使用对应规格零售价；未配置的规格回退到 227g 折算并向上取整。BOM 出品率按烘焙度自动同步。</div>
       <div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(140px,1fr)); gap:10px;">
+        <div>
+          <label>烘焙度</label>
+          <select name="roast_level">
+            <option value="浅烘" {{if eq .RoastLevel "浅烘"}}selected{{end}}>浅烘（82%）</option>
+            <option value="中烘" {{if eq .RoastLevel "中烘"}}selected{{end}}>中烘（81.5%）</option>
+            <option value="中深烘" {{if eq .RoastLevel "中深烘"}}selected{{end}}>中深烘（81%）</option>
+            <option value="深烘" {{if eq .RoastLevel "深烘"}}selected{{end}}>深烘（80%）</option>
+          </select>
+        </div>
         <div>
           <label>零售价（元 / 100g）</label>
           <input name="retail_price_100g" value="{{printf "%.2f" .RetailPrice100G}}" inputmode="decimal" />

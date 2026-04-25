@@ -11,11 +11,12 @@ import (
 
 // JSON API response types
 type BomListItem struct {
-	ProductID int64   `json:"product_id"`
-	Product   string  `json:"product"`
-	YieldRate float64 `json:"yield_rate"`
-	ItemCount int     `json:"item_count"`
-	UpdatedAt string  `json:"updated_at"`
+	ProductID  int64   `json:"product_id"`
+	Product    string  `json:"product"`
+	RoastLevel string  `json:"roast_level"`
+	YieldRate  float64 `json:"yield_rate"`
+	ItemCount  int     `json:"item_count"`
+	UpdatedAt  string  `json:"updated_at"`
 }
 
 type BomItemJSON struct {
@@ -28,6 +29,7 @@ type BomItemJSON struct {
 type BomDetailResponse struct {
 	ProductID   int64         `json:"product_id"`
 	ProductName string        `json:"product_name"`
+	RoastLevel  string        `json:"roast_level"`
 	YieldRate   float64       `json:"yield_rate"`
 	Items       []BomItemJSON `json:"items"`
 	TotalRatio  float64       `json:"total_ratio"`
@@ -40,8 +42,7 @@ type OptionItem struct {
 }
 
 type SaveBomRequest struct {
-	ProductID int64   `json:"product_id"`
-	YieldRate float64 `json:"yield_rate"`
+	ProductID int64 `json:"product_id"`
 }
 
 type SaveBomItemRequest struct {
@@ -75,6 +76,7 @@ func registerBomAPI(e *echo.Echo, pool *pgxpool.Pool, schema string) {
 			SELECT 
 				p.id,
 				p.name,
+				COALESCE(p.roast_level, ''),
 				COALESCE(b.yield_rate, 0.8),
 				COALESCE((SELECT COUNT(*) FROM %s.product_bom_items bi WHERE bi.product_id = p.id), 0),
 				COALESCE(to_char(b.updated_at,'YYYY-MM-DD HH24:MI'), '-')
@@ -92,9 +94,11 @@ func registerBomAPI(e *echo.Echo, pool *pgxpool.Pool, schema string) {
 		result := make([]BomListItem, 0)
 		for rows.Next() {
 			var r BomListItem
-			if err := rows.Scan(&r.ProductID, &r.Product, &r.YieldRate, &r.ItemCount, &r.UpdatedAt); err != nil {
+			var fallback float64
+			if err := rows.Scan(&r.ProductID, &r.Product, &r.RoastLevel, &fallback, &r.ItemCount, &r.UpdatedAt); err != nil {
 				return c.JSON(http.StatusInternalServerError, ErrorResponse{Error: err.Error()})
 			}
+			r.YieldRate = resolveYieldRate(r.RoastLevel, fallback)
 			result = append(result, r)
 		}
 		return c.JSON(http.StatusOK, result)
@@ -109,12 +113,13 @@ func registerBomAPI(e *echo.Echo, pool *pgxpool.Pool, schema string) {
 
 		// Get product name and yield rate
 		var productName string
+		var roastLevel string
 		var yieldRate float64
 		var updatedAt string
 		err = pool.QueryRow(c.Request().Context(),
-			"SELECT COALESCE(p.name,''), COALESCE(b.yield_rate,0.8), COALESCE(to_char(b.updated_at,'YYYY-MM-DD HH24:MI'),'-') "+
+			"SELECT COALESCE(p.name,''), COALESCE(p.roast_level,''), COALESCE(b.yield_rate,0.8), COALESCE(to_char(b.updated_at,'YYYY-MM-DD HH24:MI'),'-') "+
 				"FROM "+schema+".products p LEFT JOIN "+schema+".product_bom b ON b.product_id=p.id "+
-				"WHERE p.id=$1", pid).Scan(&productName, &yieldRate, &updatedAt)
+				"WHERE p.id=$1", pid).Scan(&productName, &roastLevel, &yieldRate, &updatedAt)
 		if err != nil {
 			return c.JSON(http.StatusNotFound, ErrorResponse{Error: "product not found"})
 		}
@@ -138,7 +143,8 @@ func registerBomAPI(e *echo.Echo, pool *pgxpool.Pool, schema string) {
 		return c.JSON(http.StatusOK, BomDetailResponse{
 			ProductID:   pid,
 			ProductName: productName,
-			YieldRate:   yieldRate,
+			RoastLevel:  roastLevel,
+			YieldRate:   resolveYieldRate(roastLevel, yieldRate),
 			Items:       itemsJSON,
 			TotalRatio:  total,
 			UpdatedAt:   updatedAt,
@@ -189,12 +195,13 @@ func registerBomAPI(e *echo.Echo, pool *pgxpool.Pool, schema string) {
 		if req.ProductID <= 0 {
 			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: "product required"})
 		}
-		if req.YieldRate <= 0 || req.YieldRate > 1 {
-			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: "yield_rate must be (0,1]"})
+		var roastLevel string
+		if err := pool.QueryRow(c.Request().Context(), "SELECT COALESCE(roast_level,'') FROM "+schema+".products WHERE id=$1", req.ProductID).Scan(&roastLevel); err != nil {
+			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: "product not found"})
 		}
-
+		yieldRate := resolveYieldRate(roastLevel, 0.8)
 		q := "INSERT INTO " + schema + ".product_bom(product_id,yield_rate,updated_at) VALUES($1,$2,now()) ON CONFLICT (product_id) DO UPDATE SET yield_rate=excluded.yield_rate, updated_at=now()"
-		if _, err := pool.Exec(c.Request().Context(), q, req.ProductID, req.YieldRate); err != nil {
+		if _, err := pool.Exec(c.Request().Context(), q, req.ProductID, yieldRate); err != nil {
 			return c.JSON(http.StatusInternalServerError, ErrorResponse{Error: err.Error()})
 		}
 		return c.NoContent(http.StatusOK)

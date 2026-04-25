@@ -96,7 +96,7 @@ func loadOptions(ctx context.Context, pool *pgxpool.Pool, schema string, data *P
 }
 
 func fetchProducts(ctx context.Context, pool *pgxpool.Pool, schema string) ([]ProductOption, error) {
-	sqlstr := fmt.Sprintf(`SELECT id, name, default_price,
+	sqlstr := fmt.Sprintf(`SELECT id, name, COALESCE(roast_level,''), default_price,
 		COALESCE(retail_price_100g, 0),
 		COALESCE(retail_price_200g, 0),
 		COALESCE(retail_price_227g, default_price, 0),
@@ -111,7 +111,7 @@ func fetchProducts(ctx context.Context, pool *pgxpool.Pool, schema string) ([]Pr
 	out := make([]ProductOption, 0)
 	for rows.Next() {
 		var p ProductOption
-		if err := rows.Scan(&p.ID, &p.Name, &p.DefaultPrice, &p.RetailPrice100G, &p.RetailPrice200G, &p.RetailPrice227G, &p.RetailPrice250G); err != nil {
+		if err := rows.Scan(&p.ID, &p.Name, &p.RoastLevel, &p.DefaultPrice, &p.RetailPrice100G, &p.RetailPrice200G, &p.RetailPrice227G, &p.RetailPrice250G); err != nil {
 			return nil, err
 		}
 		p.RetailSpecs = salesdomain.RetailAvailableSpecs(salesdomain.RetailSpecPrices{

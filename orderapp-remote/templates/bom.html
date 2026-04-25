@@ -57,6 +57,7 @@
 
       <div class="card">
         <b>1) 成品出品率</b>
+        <div style="margin-top:8px;font-size:13px;color:#666">按商品档案中的烘焙度自动同步：浅烘 82%，中烘 81.5%，中深烘 81%，深烘 80%。</div>
         <form method="post" action="/bom/save" style="margin-top:10px">
           <div class="row">
             <div>
@@ -67,10 +68,10 @@
               </select>
             </div>
             <div>
-              <div style="font-size:12px;color:#666;margin-bottom:6px">出品率(0~1)</div>
-              <input name="yield_rate" value="0.8" />
+              <div style="font-size:12px;color:#666;margin-bottom:6px">出品率</div>
+              <input value="按烘焙度自动同步" readonly />
             </div>
-            <div style="display:flex;align-items:end"><button class="btn" type="submit">保存</button></div>
+            <div style="display:flex;align-items:end"><button class="btn" type="submit">同步</button></div>
           </div>
         </form>
       </div>
@@ -135,10 +136,10 @@
       <div class="card">
         <b>已配置出品率</b>
         <table style="margin-top:8px">
-          <thead><tr><th>成品</th><th style="width:120px">出品率</th><th style="width:160px">更新时间</th></tr></thead>
+          <thead><tr><th>成品</th><th style="width:120px">烘焙度</th><th style="width:120px">出品率</th><th style="width:160px">更新时间</th></tr></thead>
           <tbody>
-            {{range .Rows}}<tr><td>{{.Product}}</td><td>{{printf "%.4f" .YieldRate}}</td><td>{{.UpdatedAt}}</td></tr>{{end}}
-            {{if not .Rows}}<tr><td colspan="3">暂无记录</td></tr>{{end}}
+            {{range .Rows}}<tr><td>{{.Product}}</td><td>{{.RoastLevel}}</td><td>{{printf "%.4f" .YieldRate}}</td><td>{{.UpdatedAt}}</td></tr>{{end}}
+            {{if not .Rows}}<tr><td colspan="4">暂无记录</td></tr>{{end}}
           </tbody>
         </table>
       </div>

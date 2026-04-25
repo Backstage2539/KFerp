@@ -58,13 +58,14 @@ func registerBomPages(e *echo.Echo, pool *pgxpool.Pool, schema string) {
 
 	e.POST("/bom/save", func(c echo.Context) error {
 		pid, _ := strconv.ParseInt(strings.TrimSpace(c.FormValue("product_id")), 10, 64)
-		yieldRate, _ := strconv.ParseFloat(strings.TrimSpace(c.FormValue("yield_rate")), 64)
 		if pid <= 0 {
 			return c.Redirect(http.StatusSeeOther, "/bom?err="+url.QueryEscape("product required"))
 		}
-		if yieldRate <= 0 || yieldRate > 1 {
-			return c.Redirect(http.StatusSeeOther, "/bom?err="+url.QueryEscape("yield_rate must be (0,1]"))
+		var roastLevel string
+		if err := pool.QueryRow(c.Request().Context(), "SELECT COALESCE(roast_level,'') FROM "+schema+".products WHERE id=$1", pid).Scan(&roastLevel); err != nil {
+			return c.Redirect(http.StatusSeeOther, "/bom?err="+url.QueryEscape("product not found"))
 		}
+		yieldRate := resolveYieldRate(roastLevel, 0.8)
 		q := "INSERT INTO " + schema + ".product_bom(product_id,yield_rate,updated_at) VALUES($1,$2,now()) ON CONFLICT (product_id) DO UPDATE SET yield_rate=excluded.yield_rate, updated_at=now()"
 		if _, err := pool.Exec(c.Request().Context(), q, pid, yieldRate); err != nil {
 			return c.Redirect(http.StatusSeeOther, "/bom?err="+url.QueryEscape(err.Error()))

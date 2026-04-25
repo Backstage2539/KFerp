@@ -25,7 +25,7 @@ export const bomApi = {
   getMaterials: (): Promise<Option[]> =>
     api.get('/bom/materials').then(res => res.data),
 
-  // 保存 BOM 出品率
+  // 按烘焙度同步 BOM 出品率
   saveBom: (data: SaveBomRequest): Promise<void> =>
     api.post('/bom/save', data),
 

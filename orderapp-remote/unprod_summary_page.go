@@ -85,7 +85,11 @@ func buildProducePlanDisplayRows(rows []UnprodNeedRow, yieldByProductID map[int6
 }
 
 func loadProductYieldRateMap(ctx context.Context, pool *pgxpool.Pool, schema string) (map[int64]float64, error) {
-	rows, err := pool.Query(ctx, "SELECT product_id, COALESCE(yield_rate,0.8) FROM "+schema+".product_bom")
+	rows, err := pool.Query(ctx, `
+		SELECT p.id, COALESCE(p.roast_level,''), COALESCE(b.yield_rate,0.8)
+		FROM `+schema+`.products p
+		LEFT JOIN `+schema+`.product_bom b ON b.product_id=p.id
+		WHERE p.active=true`)
 	if err != nil {
 		return nil, err
 	}
@@ -94,11 +98,12 @@ func loadProductYieldRateMap(ctx context.Context, pool *pgxpool.Pool, schema str
 	out := map[int64]float64{}
 	for rows.Next() {
 		var productID int64
+		var roastLevel string
 		var yieldRate float64
-		if err := rows.Scan(&productID, &yieldRate); err != nil {
+		if err := rows.Scan(&productID, &roastLevel, &yieldRate); err != nil {
 			return nil, err
 		}
-		out[productID] = normalizeYieldRate(yieldRate)
+		out[productID] = resolveYieldRate(roastLevel, yieldRate)
 	}
 	return out, rows.Err()
 }
