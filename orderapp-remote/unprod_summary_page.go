@@ -265,7 +265,7 @@ func buildRoastPlanMaterialRatios(rows []UnprodNeedRow, bomMap map[int64][]bomNe
 				ProductName:  row.Product,
 				MaterialName: item.MaterialName,
 				MaterialUnit: item.MaterialUnit,
-				RatioPct:     item.RatioPct,
+				RatioPct:     normalizeBomRatioPct(item.RatioPct),
 			})
 		}
 	}

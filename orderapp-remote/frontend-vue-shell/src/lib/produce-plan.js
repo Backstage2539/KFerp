@@ -1,5 +1,11 @@
 const WEIGHT_UNITS = new Set(['g', 'kg', '克', '千克'])
 
+function normalizeRatioPct(value) {
+  const ratio = Number(value || 0)
+  if (ratio > 0 && ratio <= 1) return ratio * 100
+  return ratio
+}
+
 export function producePlanKey(productId, specG) {
   return `${productId}-${specG}`
 }
@@ -47,9 +53,9 @@ export function buildMaterialSummary(planRows, roastPlans, materialRatios, initi
 
     let qty = 0
     if (normalized === 'kg' || normalized === '千克') {
-      qty = Math.ceil((finalInputG * Number(ratio.ratio_pct || 0)) / 100 / 1000)
+      qty = Math.ceil((finalInputG * normalizeRatioPct(ratio.ratio_pct)) / 100 / 1000)
     } else {
-      qty = Math.ceil((finalInputG * Number(ratio.ratio_pct || 0)) / 100)
+      qty = Math.ceil((finalInputG * normalizeRatioPct(ratio.ratio_pct)) / 100)
     }
     if (qty <= 0) continue
 

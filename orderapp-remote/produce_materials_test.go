@@ -122,8 +122,8 @@ func TestCalcProducePlanMaterialsFromFinalInputsUsesRoastInputForBomBeans(t *tes
 	finalInputs := map[string]int64{producePlanKey(1, 1000): 2000}
 	bomMap := map[int64][]bomNeedItem{
 		1: {
-			{ProductID: 1, MaterialName: "豆子A", MaterialUnit: "g", RatioPct: 70},
-			{ProductID: 1, MaterialName: "豆子B", MaterialUnit: "g", RatioPct: 30},
+			{ProductID: 1, MaterialName: "豆子A", MaterialUnit: "g", RatioPct: 0.70},
+			{ProductID: 1, MaterialName: "豆子B", MaterialUnit: "g", RatioPct: 0.30},
 		},
 	}
 

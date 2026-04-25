@@ -62,6 +62,7 @@ func loadProducePlanBomMap(ctx context.Context, pool *pgxpool.Pool, schema strin
 		if strings.TrimSpace(it.MaterialName) == "" || it.RatioPct <= 0 {
 			continue
 		}
+		it.RatioPct = normalizeBomRatioPct(it.RatioPct)
 		it.Unit = strings.TrimSpace(it.Unit)
 		if it.Unit == "" {
 			it.Unit = "g"

@@ -29,8 +29,8 @@ func TestProducePlanSummaryAPIIncludesRoastRowsAndMaterials(t *testing.T) {
 			(10,'RAW-A','豆子A','bean','g',0,0,10,0),
 			(11,'RAW-B','豆子B','bean','g',0,0,10,0);
 		INSERT INTO %s.product_bom_items(product_id,material_id,ratio_pct) VALUES
-			(1,10,70.0000),
-			(1,11,30.0000);
+			(1,10,0.7500),
+			(1,11,0.2500);
 		INSERT INTO %s.roast_machines(name,capacity_g,allowed_specs,min_roast_g,active)
 		VALUES ('样机',2000,'2000',1000,true);
 	`, schema, schema, schema, schema, schema, schema, schema, schema))
@@ -44,7 +44,7 @@ func TestProducePlanSummaryAPIIncludesRoastRowsAndMaterials(t *testing.T) {
 		t.Fatalf("GET /api/produce/unproduced status = %d, want 200, body=%s", rec.Code, rec.Body.String())
 	}
 	body := rec.Body.String()
-	for _, needle := range []string{`"roast_plans"`, `"materials"`, `"plan_rows"`, `"final_input_g":2000`, `"qty":1400`, `"qty":600`} {
+	for _, needle := range []string{`"roast_plans"`, `"materials"`, `"plan_rows"`, `"final_input_g":2000`, `"qty":1500`, `"qty":500`} {
 		if !strings.Contains(body, needle) {
 			t.Fatalf("response missing %s: %s", needle, body)
 		}

@@ -76,13 +76,14 @@ func calcProducePlanMaterialsFromFinalInputs(rows []UnprodNeedRow, finalInputByK
 			if u == "" {
 				u = "g"
 			}
+			ratioPct := normalizeBomRatioPct(bi.RatioPct)
 			switch {
 			case strings.EqualFold(u, "g"):
-				add(bi.MaterialName, int64(math.Ceil(float64(finalInputG)*bi.RatioPct/100.0)), "g")
+				add(bi.MaterialName, int64(math.Ceil(float64(finalInputG)*ratioPct/100.0)), "g")
 			case strings.EqualFold(u, "kg"):
-				add(bi.MaterialName, int64(math.Ceil((float64(finalInputG)*bi.RatioPct/100.0)/1000.0)), "kg")
+				add(bi.MaterialName, int64(math.Ceil((float64(finalInputG)*ratioPct/100.0)/1000.0)), "kg")
 			default:
-				add(bi.MaterialName, int64(math.Ceil(float64(unitsMissing)*bi.RatioPct/100.0)), u)
+				add(bi.MaterialName, int64(math.Ceil(float64(unitsMissing)*ratioPct/100.0)), u)
 			}
 		}
 
@@ -164,18 +165,19 @@ func calcProducePlanMaterialsWithBOM(ctx context.Context, pool *pgxpool.Pool, sc
 			if u == "" {
 				u = "g"
 			}
+			ratioPct := normalizeBomRatioPct(bi.RatioPct)
 			if strings.EqualFold(u, "g") {
-				need := int64(math.Ceil(float64(rawG) * bi.RatioPct / 100.0))
+				need := int64(math.Ceil(float64(rawG) * ratioPct / 100.0))
 				add(bi.MaterialName, need, "g")
 				continue
 			}
 			if strings.EqualFold(u, "kg") {
-				needKg := int64(math.Ceil((float64(rawG) * bi.RatioPct / 100.0) / 1000.0))
+				needKg := int64(math.Ceil((float64(rawG) * ratioPct / 100.0) / 1000.0))
 				add(bi.MaterialName, needKg, "kg")
 				continue
 			}
 			// 非重量单位按“缺口件数 * 比例”估算，至少按件向上取整
-			needUnits := int64(math.Ceil(float64(unitsMissing) * bi.RatioPct / 100.0))
+			needUnits := int64(math.Ceil(float64(unitsMissing) * ratioPct / 100.0))
 			add(bi.MaterialName, needUnits, u)
 		}
 		bagName := "豆袋"
@@ -271,6 +273,7 @@ func loadBomNeedItems(ctx context.Context, pool *pgxpool.Pool, schema string, pr
 		if strings.TrimSpace(x.MaterialName) == "" || x.RatioPct <= 0 {
 			continue
 		}
+		x.RatioPct = normalizeBomRatioPct(x.RatioPct)
 		out[x.ProductID] = append(out[x.ProductID], x)
 	}
 	return out, rows.Err()

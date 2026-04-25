@@ -82,6 +82,7 @@ func calcRunningItemMaterialNeedsTx(ctx context.Context, tx pgx.Tx, schema strin
 		if err := rows.Scan(&x.materialID, &x.name, &x.unit, &x.ratio, &x.yieldRate); err != nil {
 			return nil, err
 		}
+		x.ratio = normalizeBomRatioPct(x.ratio)
 		if x.materialID <= 0 || strings.TrimSpace(x.name) == "" || x.ratio <= 0 {
 			continue
 		}
