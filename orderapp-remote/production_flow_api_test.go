@@ -253,18 +253,21 @@ func TestProduceStartAPIUsesSubmittedInputG(t *testing.T) {
 		t.Fatalf("POST /api/produce/start status = %d, want 200 body=%s", rec.Code, rec.Body.String())
 	}
 
-	var inputG int64
+	var inputG, plannedUnits, plannedLooseG int64
 	if err := pool.QueryRow(ctx, fmt.Sprintf(`
-		SELECT input_g
+		SELECT input_g, planned_units, planned_loose_g
 		FROM %s.produce_running_items
 		WHERE product_id=1 AND spec_g=1000
 		ORDER BY id DESC
 		LIMIT 1
-	`, schema)).Scan(&inputG); err != nil {
+	`, schema)).Scan(&inputG, &plannedUnits, &plannedLooseG); err != nil {
 		t.Fatalf("query running item: %v", err)
 	}
 	if inputG != 2000 {
 		t.Fatalf("running item input_g = %d, want 2000", inputG)
+	}
+	if plannedUnits != 1 || plannedLooseG != 600 {
+		t.Fatalf("running item plan = %d units + %dg, want 1 unit + 600g", plannedUnits, plannedLooseG)
 	}
 }
 
@@ -294,6 +297,32 @@ func TestListRunningItemsBackfillsMissingInputAndPlan(t *testing.T) {
 	}
 	if rows[0].PlanUnits != 1 || rows[0].PlanLooseG != 0 {
 		t.Fatalf("listRunningItems plan = %d units + %dg, want 1 unit + 0g", rows[0].PlanUnits, rows[0].PlanLooseG)
+	}
+}
+
+func TestListRunningItemsRecomputesLegacyPlanFromInput(t *testing.T) {
+	pool, schema := newProductionFlowTestDB(t)
+	ctx := context.Background()
+
+	mustExecProductionFlowTestSQL(t, ctx, pool, fmt.Sprintf(`
+		INSERT INTO %s.produce_running_items(
+			id,batch_id,product_id,product_name,spec_g,need_g,order_nos,status,
+			started_by,started_at,input_g,bom_yield_rate,planned_units,planned_loose_g
+		) VALUES (
+			1,'BATCH-RUN-LEGACY',1,'曲奇拼配',1000,1000,'SO-TEST-RUN','running',
+			'测试员',now(),2000,0.8000,1,0
+		);
+	`, schema))
+
+	rows, err := listRunningItems(ctx, pool, schema)
+	if err != nil {
+		t.Fatalf("listRunningItems: %v", err)
+	}
+	if len(rows) != 1 {
+		t.Fatalf("listRunningItems rows = %d, want 1", len(rows))
+	}
+	if rows[0].PlanUnits != 1 || rows[0].PlanLooseG != 600 {
+		t.Fatalf("legacy running plan = %d units + %dg, want 1 unit + 600g", rows[0].PlanUnits, rows[0].PlanLooseG)
 	}
 }
 
