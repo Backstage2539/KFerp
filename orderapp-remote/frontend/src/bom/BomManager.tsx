@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react'
 import { useBomList, useBomDetail, useMaterials, useSaveBom, useSaveBomItem, useDeleteBomItem, useBagSpecMappings, useSaveBagSpecMapping, useDeleteBagSpecMapping } from './hooks'
 import type { BomListItem, BomItemRow } from './types'
 
-const BOM_REACT_URL = '/bom-react?rev=20260424-2'
+const BOM_REACT_URL = '/bom-react'
 
 const styles = {
   page: { display: 'flex', minHeight: '100vh', fontFamily: 'system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial' } as const,
