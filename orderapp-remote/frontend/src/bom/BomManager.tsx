@@ -12,6 +12,7 @@ const styles = {
   link: { display: 'block', padding: '8px 10px', borderRadius: 8, color: '#111', textDecoration: 'none', fontSize: 14 } as const,
   linkActive: { display: 'block', padding: '8px 10px', borderRadius: 8, background: '#111', color: '#fff', textDecoration: 'none', fontSize: 14 } as const,
   main: { flex: 1, padding: 16, boxSizing: 'border-box', background: '#f7f7f8' } as const,
+  mainEmbedded: { flex: 1, padding: 16, boxSizing: 'border-box', background: '#fff' } as const,
   card: { background: '#fff', border: '1px solid #eee', borderRadius: 10, marginBottom: 12, overflow: 'hidden' } as const,
   cardHead: { padding: '10px 12px', borderBottom: '1px solid #eee', background: '#fafafa', fontSize: 13, color: '#555' } as const,
   cardBody: { padding: 12 } as const,
@@ -390,11 +391,12 @@ function BagSpecMappingEditor() {
 export default function BomManager() {
   const { data: bomList, isLoading: listLoading } = useBomList()
   const [expandedId, setExpandedId] = useState<number | null>(null)
+  const isEmbeddedInShell = new URLSearchParams(window.location.search).get('embed') === '1'
 
   return (
     <div style={styles.page}>
-      <Sidebar />
-      <main style={styles.main}>
+      {!isEmbeddedInShell && <Sidebar />}
+      <main style={isEmbeddedInShell ? styles.mainEmbedded : styles.main}>
         <h2 style={{ margin: '0 0 12px 0' }}>BOM配方维护</h2>
         <BagSpecMappingEditor />
         <div style={styles.card}>

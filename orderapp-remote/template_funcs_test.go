@@ -42,7 +42,7 @@ func TestBomEntrypointsUseVersionedURL(t *testing.T) {
 		},
 		{
 			path:      "frontend-vue-shell/src/App.vue",
-			required:  []string{"const BOM_REACT_URL = '/bom-react'", "bom: { title: 'BOM配方维护', url: BOM_REACT_URL }"},
+			required:  []string{"const BOM_REACT_URL = '/bom-react'", "const BOM_REACT_EMBED_URL = '/bom-react?embed=1'", "bom: { title: 'BOM配方维护', url: BOM_REACT_EMBED_URL }"},
 			forbidden: []string{"bom: { title: 'BOM配方维护', url: '/bom-react' }"},
 		},
 		{

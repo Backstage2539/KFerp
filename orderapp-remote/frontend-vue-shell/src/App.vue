@@ -41,6 +41,7 @@ const frameRef = ref(null)
 const isMobile = ref(false)
 const mobileOpen = ref(false)
 const BOM_REACT_URL = '/bom-react'
+const BOM_REACT_EMBED_URL = '/bom-react?embed=1'
 
 const menuMap = {
   order: { title: '录单', url: '/order' },
@@ -49,7 +50,7 @@ const menuMap = {
   produceRunning: { title: '生产中', url: '/produce/running' },
   produceLogs: { title: '生产日志', url: '/produce/logs' },
   materials: { title: '物料档案/库存', url: '/vue-shell?view=materials', internal: true },
-  bom: { title: 'BOM配方维护', url: BOM_REACT_URL },
+  bom: { title: 'BOM配方维护', url: BOM_REACT_EMBED_URL },
   customers: { title: '客户档案', url: '/customers' },
   products: { title: '商品档案', url: '/products' },
   departments: { title: '部门维护', url: '/company/departments' },
