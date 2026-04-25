@@ -54,6 +54,20 @@ func TestPlannedFinishedInventoryByInputUsesYield(t *testing.T) {
 	}
 }
 
+func TestRunningInventoryPlanPrefersInputAndYield(t *testing.T) {
+	got := runningInventoryPlan(1000, 1000, 2000, 0.8)
+	if got.Units != 1 || got.LooseG != 600 {
+		t.Fatalf("runningInventoryPlan() = %d units + %dg, want 1 unit + 600g", got.Units, got.LooseG)
+	}
+}
+
+func TestRunningInventoryPlanFallsBackToNeed(t *testing.T) {
+	got := runningInventoryPlan(1000, 1000, 0, 0.8)
+	if got.Units != 1 || got.LooseG != 0 {
+		t.Fatalf("runningInventoryPlan() fallback = %d units + %dg, want 1 unit + 0g", got.Units, got.LooseG)
+	}
+}
+
 func TestRestoreAllocatedInventory(t *testing.T) {
 	got, err := restoreAllocatedInventory(454, InvQty{Units: 1, LooseG: 10}, 500)
 	if err != nil {
