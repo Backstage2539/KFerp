@@ -268,7 +268,11 @@ func (h orderHandler) create(c echo.Context) error {
 		}
 	}
 
-	res, err := h.sales.SaveOrder(c.Request().Context(), saveOrderCommandFromCreateRequest(req, editID, actorOf(c)))
+	cmd, err := saveOrderCommandFromCreateRequest(req, editID, actorOf(c))
+	if err != nil {
+		return c.String(http.StatusBadRequest, err.Error())
+	}
+	res, err := h.sales.SaveOrder(c.Request().Context(), cmd)
 	if err != nil {
 		return c.String(http.StatusBadRequest, err.Error())
 	}

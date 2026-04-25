@@ -138,3 +138,61 @@ func TestProductionRoutesCallApplicationService(t *testing.T) {
 		}
 	}
 }
+
+func TestSalesSaveOrderCommandIsTyped(t *testing.T) {
+	body, err := os.ReadFile("internal/application/sales/service.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	content := string(body)
+	start := strings.Index(content, "type SaveOrderCommand struct")
+	end := strings.Index(content, "type OrderItemCommand struct")
+	if start < 0 || end < 0 || end <= start {
+		t.Fatal("sales service must define SaveOrderCommand followed by OrderItemCommand")
+	}
+	saveOrderCommand := content[start:end]
+	for _, forbidden := range []string{
+		"OrderDate             string",
+		"ShippingAmount        string",
+		"DiscountAmount        string",
+		"RoundToInt            string",
+		"ProductID             []string",
+		"TierID                []string",
+		"UnitPrice             []string",
+		"ItemName              []string",
+		"Qty                   []string",
+		"Spec                  []string",
+		"func (c SaveOrderCommand) GetMaterial()",
+	} {
+		if strings.Contains(saveOrderCommand, forbidden) {
+			t.Fatalf("SaveOrderCommand still carries HTTP/form-shaped field %q", forbidden)
+		}
+	}
+	for _, want := range []string{"OrderDate             time.Time", "Items                 []OrderItemCommand", "type OrderItemCommand struct"} {
+		if !strings.Contains(content, want) {
+			t.Fatalf("SaveOrderCommand missing typed field %q", want)
+		}
+	}
+}
+
+func TestSalesRepositoryDoesNotParseSaveOrderFormArrays(t *testing.T) {
+	body, err := os.ReadFile("sales_order_repository.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	content := string(body)
+	for _, forbidden := range []string{
+		"maxLen(cmd.ItemName",
+		"getStr(cmd.ProductID",
+		"getStr(cmd.TierID",
+		"getStr(cmd.UnitPrice",
+		"getStr(cmd.Qty",
+		"getStr(cmd.Spec",
+		"strconv.ParseFloat(v, 64)",
+		"strconv.ParseInt(pidStr",
+	} {
+		if strings.Contains(content, forbidden) {
+			t.Fatalf("sales_order_repository.go still parses HTTP/form-shaped command data: %q", forbidden)
+		}
+	}
+}

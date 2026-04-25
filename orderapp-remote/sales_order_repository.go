@@ -3,9 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
-	"strconv"
 	"strings"
-	"time"
 
 	salesapp "orderapp/internal/application/sales"
 	salesdomain "orderapp/internal/domain/sales"
@@ -35,12 +33,8 @@ func lookupDefaultStatusID(ctx context.Context, tx pgx.Tx, schema, table string,
 }
 
 func (r postgresSalesRepository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand) (salesapp.SaveOrderResult, error) {
-	orderDate := strings.TrimSpace(cmd.OrderDate)
-	if orderDate == "" {
-		orderDate = time.Now().Format("2006-01-02")
-	}
-	od, err := time.Parse("2006-01-02", orderDate)
-	if err != nil {
+	od := cmd.OrderDate
+	if od.IsZero() {
 		return salesapp.SaveOrderResult{}, fmt.Errorf("invalid order_date")
 	}
 	if cmd.CustomerID <= 0 {
@@ -60,52 +54,29 @@ func (r postgresSalesRepository) SaveOrder(ctx context.Context, cmd salesapp.Sav
 		lineTotal     float64
 		priceOverride bool
 	}
-	items := make([]item, 0)
-	for i := 0; i < maxLen(cmd.ItemName, cmd.ProductID, cmd.TierID, cmd.UnitPrice, cmd.Qty, cmd.Unit, cmd.Spec); i++ {
-		pidStr := strings.TrimSpace(getStr(cmd.ProductID, i))
-		name := strings.TrimSpace(getStr(cmd.ItemName, i))
-
-		// If no product and no name, skip row.
-		if pidStr == "" && name == "" {
+	items := make([]item, 0, len(cmd.Items))
+	for _, src := range cmd.Items {
+		name := strings.TrimSpace(src.Name)
+		if src.ProductID == nil && name == "" {
 			continue
 		}
-
-		it := item{name: name}
-		if pidStr != "" {
-			if pid, err := strconv.ParseInt(pidStr, 10, 64); err == nil && pid > 0 {
-				it.productID = &pid
-			}
+		it := item{
+			productID:   src.ProductID,
+			tierID:      src.TierID,
+			manualPrice: src.ManualPrice,
+			name:        name,
+			units:       src.Units,
+			specG:       src.SpecG,
 		}
-		if tidStr := strings.TrimSpace(getStr(cmd.TierID, i)); tidStr != "" && tidStr != "auto" {
-			if tidStr == "manual" {
-				if v := strings.TrimSpace(getStr(cmd.UnitPrice, i)); v != "" {
-					if f, err := strconv.ParseFloat(v, 64); err == nil {
-						it.manualPrice = &f
-						it.priceOverride = true
-					}
-				}
-			} else {
-				if tid, err := strconv.ParseInt(tidStr, 10, 64); err == nil && tid > 0 {
-					it.tierID = &tid
-				}
-			}
+		if it.manualPrice != nil {
+			it.priceOverride = true
 		}
-		if q := strings.TrimSpace(getStr(cmd.Qty, i)); q != "" {
-			if n, err := strconv.ParseInt(q, 10, 64); err == nil && n > 0 {
-				it.units = n
-			}
+		if src.SpecG > 0 {
+			spec := fmt.Sprintf("%dg", src.SpecG)
+			it.spec = &spec
 		}
-		if sg := strings.TrimSpace(getStr(cmd.Spec, i)); sg != "" {
-			// spec is grams (e.g. "227" or "227g")
-			sg = strings.TrimSuffix(strings.ToLower(sg), "g")
-			if n, err := strconv.ParseInt(sg, 10, 64); err == nil && n > 0 {
-				it.specG = n
-				ss := fmt.Sprintf("%dg", n)
-				it.spec = &ss
-			}
-		}
-		if u := strings.TrimSpace(getStr(cmd.Unit, i)); u != "" {
-			it.unit = &u
+		if unit := strings.TrimSpace(src.Unit); unit != "" {
+			it.unit = &unit
 		}
 		items = append(items, it)
 	}
@@ -248,27 +219,18 @@ func (r postgresSalesRepository) SaveOrder(ctx context.Context, cmd salesapp.Sav
 	}
 
 	// Amount calculation (items + shipping - discount)
-	shippingAmt := 0.0
-	if v := strings.TrimSpace(cmd.ShippingAmount); v != "" {
-		f, err := strconv.ParseFloat(v, 64)
-		if err != nil {
-			return salesapp.SaveOrderResult{}, fmt.Errorf("invalid shipping_amount")
-		}
-		shippingAmt = f
+	shippingAmt := cmd.ShippingAmount
+	discountAmt := cmd.DiscountAmount
+	roundToInt := cmd.RoundToInt
+	outsourceFees := [6]float64{
+		cmd.OutsourceMaterialFee,
+		cmd.OutsourceRoastFee,
+		cmd.OutsourcePackagingFee,
+		cmd.OutsourceManualFee,
+		cmd.OutsourceTaxFee,
+		cmd.OutsourceOtherFee,
 	}
-	discountAmt := 0.0
-	if v := strings.TrimSpace(cmd.DiscountAmount); v != "" {
-		f, err := strconv.ParseFloat(v, 64)
-		if err != nil {
-			return salesapp.SaveOrderResult{}, fmt.Errorf("invalid discount_amount")
-		}
-		discountAmt = f
-	}
-	roundToInt := strings.TrimSpace(cmd.RoundToInt) != ""
-	outsourceTotal, outsourceFees, err := calcOutsourceTotal(&cmd)
-	if err != nil {
-		return salesapp.SaveOrderResult{}, err
-	}
+	outsourceTotal := cmd.OutsourceMaterialFee + cmd.OutsourceRoastFee + cmd.OutsourcePackagingFee + cmd.OutsourceManualFee + cmd.OutsourceTaxFee + cmd.OutsourceOtherFee
 	grand0 := totalAmt + shippingAmt - discountAmt + outsourceTotal
 	grandTotal, roundingAmt := applyRoundToInt(grand0, roundToInt)
 

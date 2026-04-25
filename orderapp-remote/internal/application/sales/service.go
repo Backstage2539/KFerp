@@ -2,12 +2,13 @@ package sales
 
 import (
 	"context"
+	"time"
 )
 
 type SaveOrderCommand struct {
 	Actor                 string
 	EditID                int64
-	OrderDate             string
+	OrderDate             time.Time
 	CustomerID            int64
 	SourceID              int64
 	OrderTypeID           int64
@@ -16,31 +17,28 @@ type SaveOrderCommand struct {
 	ShipMethod            string
 	ShipTrackingNo        string
 	Notes                 string
-	ShippingAmount        string
-	DiscountAmount        string
-	RoundToInt            string
+	ShippingAmount        float64
+	DiscountAmount        float64
+	RoundToInt            bool
 	ExpressFee            string
-	OutsourceMaterialFee  string
-	OutsourceRoastFee     string
-	OutsourcePackagingFee string
-	OutsourceManualFee    string
-	OutsourceTaxFee       string
-	OutsourceOtherFee     string
-	ProductID             []string
-	TierID                []string
-	UnitPrice             []string
-	ItemName              []string
-	Qty                   []string
-	Unit                  []string
-	Spec                  []string
+	OutsourceMaterialFee  float64
+	OutsourceRoastFee     float64
+	OutsourcePackagingFee float64
+	OutsourceManualFee    float64
+	OutsourceTaxFee       float64
+	OutsourceOtherFee     float64
+	Items                 []OrderItemCommand
 }
 
-func (c SaveOrderCommand) GetMaterial() string  { return c.OutsourceMaterialFee }
-func (c SaveOrderCommand) GetRoast() string     { return c.OutsourceRoastFee }
-func (c SaveOrderCommand) GetPackaging() string { return c.OutsourcePackagingFee }
-func (c SaveOrderCommand) GetManual() string    { return c.OutsourceManualFee }
-func (c SaveOrderCommand) GetTax() string       { return c.OutsourceTaxFee }
-func (c SaveOrderCommand) GetOther() string     { return c.OutsourceOtherFee }
+type OrderItemCommand struct {
+	ProductID   *int64
+	TierID      *int64
+	ManualPrice *float64
+	Name        string
+	Units       int64
+	Unit        string
+	SpecG       int64
+}
 
 type SaveOrderResult struct {
 	OrderID int64

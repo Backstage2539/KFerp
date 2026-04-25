@@ -3,6 +3,7 @@ package sales
 import (
 	"context"
 	"testing"
+	"time"
 )
 
 type fakeRepo struct {
@@ -36,7 +37,16 @@ func TestServiceDelegatesSaveOrder(t *testing.T) {
 	repo := &fakeRepo{}
 	svc := NewService(repo)
 
-	res, err := svc.SaveOrder(context.Background(), SaveOrderCommand{EditID: 10, CustomerID: 3})
+	res, err := svc.SaveOrder(context.Background(), SaveOrderCommand{
+		EditID:    10,
+		OrderDate: time.Date(2026, 4, 26, 0, 0, 0, 0, time.UTC),
+		CustomerID: 3,
+		Items: []OrderItemCommand{{
+			Name:  "橘皮乌龙",
+			Units: 2,
+			SpecG: 227,
+		}},
+	})
 	if err != nil {
 		t.Fatalf("SaveOrder() error = %v", err)
 	}
@@ -46,18 +56,27 @@ func TestServiceDelegatesSaveOrder(t *testing.T) {
 	if repo.saveCmd.CustomerID != 3 {
 		t.Fatalf("repo command = %+v", repo.saveCmd)
 	}
+	if len(repo.saveCmd.Items) != 1 || repo.saveCmd.Items[0].SpecG != 227 {
+		t.Fatalf("repo items = %+v", repo.saveCmd.Items)
+	}
 }
 
-func TestSaveOrderCommandOutsourceGetters(t *testing.T) {
+func TestSaveOrderCommandUsesTypedFields(t *testing.T) {
 	cmd := SaveOrderCommand{
-		OutsourceMaterialFee:  "1",
-		OutsourceRoastFee:     "2",
-		OutsourcePackagingFee: "3",
-		OutsourceManualFee:    "4",
-		OutsourceTaxFee:       "5",
-		OutsourceOtherFee:     "6",
+		ShippingAmount:        9.5,
+		DiscountAmount:        1.25,
+		RoundToInt:            true,
+		OutsourceMaterialFee:  1,
+		OutsourceRoastFee:     2,
+		OutsourcePackagingFee: 3,
+		OutsourceManualFee:    4,
+		OutsourceTaxFee:       5,
+		OutsourceOtherFee:     6,
 	}
-	if cmd.GetMaterial() != "1" || cmd.GetRoast() != "2" || cmd.GetPackaging() != "3" || cmd.GetManual() != "4" || cmd.GetTax() != "5" || cmd.GetOther() != "6" {
-		t.Fatalf("unexpected outsource getters: %+v", cmd)
+	if cmd.ShippingAmount != 9.5 || cmd.DiscountAmount != 1.25 || !cmd.RoundToInt {
+		t.Fatalf("unexpected amount fields: %+v", cmd)
+	}
+	if cmd.OutsourceMaterialFee+cmd.OutsourceRoastFee+cmd.OutsourcePackagingFee+cmd.OutsourceManualFee+cmd.OutsourceTaxFee+cmd.OutsourceOtherFee != 21 {
+		t.Fatalf("unexpected outsource fields: %+v", cmd)
 	}
 }

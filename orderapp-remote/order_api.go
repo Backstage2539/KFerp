@@ -122,7 +122,11 @@ func (h orderAPIHandler) save(c echo.Context) error {
 	if err := c.Bind(&req); err != nil {
 		return c.JSON(http.StatusBadRequest, map[string]string{"error": "bad request"})
 	}
-	res, err := h.sales.SaveOrder(c.Request().Context(), saveOrderCommandFromCreateRequest(req.toCreateRequest(), req.EditID, actorOf(c)))
+	cmd, err := saveOrderCommandFromCreateRequest(req.toCreateRequest(), req.EditID, actorOf(c))
+	if err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
+	}
+	res, err := h.sales.SaveOrder(c.Request().Context(), cmd)
 	if err != nil {
 		return c.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
 	}
