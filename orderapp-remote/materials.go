@@ -299,7 +299,7 @@ func logMaterialDiffsTx(ctx context.Context, tx pgx.Tx, schema, actor string, ol
 			return nil
 		}
 		q := fmt.Sprintf(`INSERT INTO %s.audit_logs(actor, entity_type, entity_id, action, field, old_value, new_value, meta)
-			VALUES($1,'material',$2,'update',$3,$4,$5,jsonb_build_object('material_id',$2,'code',$6))`, schema)
+			VALUES($1,'material',$2,'update',$3,$4,$5,jsonb_build_object('material_id',$2::bigint,'code',$6::text))`, schema)
 		_, err := tx.Exec(ctx, q, actor, id, field, oldValue, newValue, next.Code)
 		return err
 	}
