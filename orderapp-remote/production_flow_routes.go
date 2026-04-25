@@ -7,6 +7,8 @@ import (
 	"strconv"
 	"strings"
 
+	productionapp "orderapp/internal/application/production"
+
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/labstack/echo/v4"
 )
@@ -25,6 +27,8 @@ type ProduceStartAPIResponse struct {
 }
 
 func registerProductionFlowPages(e *echo.Echo, pool *pgxpool.Pool, schema string) {
+	productionSvc := productionapp.NewService(postgresProductionRepository{pool: pool, schema: schema})
+
 	e.POST("/produce/start", func(c echo.Context) error {
 		if err := requireEmployeeBound(c); err != nil {
 			return c.Redirect(http.StatusSeeOther, "/produce/unproduced?err="+url.QueryEscape(err.Error()))
@@ -59,7 +63,14 @@ func registerProductionFlowPages(e *echo.Echo, pool *pgxpool.Pool, schema string
 			inputByKey[producePlanKey(r.ProductID, r.SpecG)] = inputG
 		}
 		operator := actorOf(c)
-		if _, err := startProductionWithInputs(c.Request().Context(), pool, schema, from, to, cid, selected, inputByKey, operator); err != nil {
+		if _, err := productionSvc.Start(c.Request().Context(), productionapp.StartCommand{
+			From:       from,
+			To:         to,
+			CustomerID: cid,
+			Selected:   selected,
+			InputByKey: inputByKey,
+			Operator:   operator,
+		}); err != nil {
 			return c.Redirect(http.StatusSeeOther, "/produce/unproduced?err="+url.QueryEscape(err.Error()))
 		}
 		return c.Redirect(http.StatusSeeOther, "/produce/running?ok=1")
@@ -83,11 +94,18 @@ func registerProductionFlowPages(e *echo.Echo, pool *pgxpool.Pool, schema string
 				selected[key] = true
 			}
 		}
-		batchID, err := startProductionWithInputs(c.Request().Context(), pool, schema, req.From, req.To, req.CustomerID, selected, req.InputByKey, actorOf(c))
+		res, err := productionSvc.Start(c.Request().Context(), productionapp.StartCommand{
+			From:       req.From,
+			To:         req.To,
+			CustomerID: req.CustomerID,
+			Selected:   selected,
+			InputByKey: req.InputByKey,
+			Operator:   actorOf(c),
+		})
 		if err != nil {
 			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: err.Error()})
 		}
-		return c.JSON(http.StatusOK, ProduceStartAPIResponse{OK: true, BatchID: batchID})
+		return c.JSON(http.StatusOK, ProduceStartAPIResponse{OK: true, BatchID: res.BatchID})
 	})
 
 	e.GET("/produce/running", func(c echo.Context) error {
@@ -95,11 +113,11 @@ func registerProductionFlowPages(e *echo.Echo, pool *pgxpool.Pool, schema string
 			Ok:    strings.TrimSpace(c.QueryParam("ok")) == "1",
 			Error: strings.TrimSpace(c.QueryParam("err")),
 		}
-		rows, err := listRunningItems(c.Request().Context(), pool, schema)
+		rows, err := productionSvc.ListRunning(c.Request().Context())
 		if err != nil {
 			data.Error = err.Error()
 		} else {
-			data.Rows = rows
+			data.Rows = productionRunningFromApp(rows)
 		}
 		return c.Render(http.StatusOK, "produce_running.html", data)
 	})
@@ -120,7 +138,13 @@ func registerProductionFlowPages(e *echo.Echo, pool *pgxpool.Pool, schema string
 		if err != nil {
 			return c.Redirect(http.StatusSeeOther, "/produce/running?err="+url.QueryEscape("散装余量格式不正确"))
 		}
-		if err := finishRunningItem(c.Request().Context(), pool, schema, id, finishedUnits, finishedLooseG, hasFinishedUnits || hasFinishedLooseG, actorOf(c)); err != nil {
+		if err := productionSvc.Finish(c.Request().Context(), productionapp.FinishCommand{
+			ID:               id,
+			FinishedUnits:    finishedUnits,
+			FinishedLooseG:   finishedLooseG,
+			HasFinishedInput: hasFinishedUnits || hasFinishedLooseG,
+			Operator:         actorOf(c),
+		}); err != nil {
 			return c.Redirect(http.StatusSeeOther, "/produce/running?err="+url.QueryEscape(err.Error()))
 		}
 		return c.Redirect(http.StatusSeeOther, "/produce/running?ok=1")
@@ -134,7 +158,7 @@ func registerProductionFlowPages(e *echo.Echo, pool *pgxpool.Pool, schema string
 		if id <= 0 {
 			return c.Redirect(http.StatusSeeOther, "/produce/running?err="+url.QueryEscape("invalid id"))
 		}
-		if err := cancelRunningItem(c.Request().Context(), pool, schema, id, actorOf(c)); err != nil {
+		if err := productionSvc.Cancel(c.Request().Context(), productionapp.CancelCommand{ID: id, Operator: actorOf(c)}); err != nil {
 			return c.Redirect(http.StatusSeeOther, "/produce/running?err="+url.QueryEscape(err.Error()))
 		}
 		return c.Redirect(http.StatusSeeOther, "/produce/running?ok=1")

@@ -22,6 +22,22 @@ func (r *fakeRepo) ConfirmDeduct(ctx context.Context, batchID, operator string) 
 	return DeductConfirmResult{BatchID: batchID, Status: "deducted"}, nil
 }
 
+func (r *fakeRepo) ListRunning(ctx context.Context) ([]RunningItem, error) {
+	return nil, nil
+}
+
+func (r *fakeRepo) Start(ctx context.Context, cmd StartCommand) (StartResult, error) {
+	return StartResult{}, nil
+}
+
+func (r *fakeRepo) Finish(ctx context.Context, cmd FinishCommand) error {
+	return nil
+}
+
+func (r *fakeRepo) Cancel(ctx context.Context, cmd CancelCommand) error {
+	return nil
+}
+
 func TestServiceDelegatesProductionUseCases(t *testing.T) {
 	repo := &fakeRepo{}
 	svc := NewService(repo)

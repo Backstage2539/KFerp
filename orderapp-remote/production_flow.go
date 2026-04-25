@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"math"
 	"strings"
 	"time"
 
@@ -33,52 +32,6 @@ type ProduceRunPageData struct {
 	Rows  []ProduceRunRow
 	Ok    bool
 	Error string
-}
-
-func normalizeYieldRate(rate float64) float64 {
-	if rate <= 0 || rate > 1 {
-		return 0.8
-	}
-	return rate
-}
-
-func defaultProductionInputG(needG int64, yieldRate float64) int64 {
-	if needG <= 0 {
-		return 0
-	}
-	return int64(math.Ceil(float64(needG) / normalizeYieldRate(yieldRate)))
-}
-
-func finishedTotalG(specG, units, looseG int64) int64 {
-	if specG <= 0 || units < 0 || looseG < 0 {
-		return 0
-	}
-	return units*specG + looseG
-}
-
-func actualYieldRate(specG, units, looseG, inputG int64) (float64, error) {
-	if inputG <= 0 {
-		return 0, fmt.Errorf("input_g must be greater than 0")
-	}
-	total := finishedTotalG(specG, units, looseG)
-	rate := float64(total) / float64(inputG)
-	return math.Round(rate*10000) / 10000, nil
-}
-
-func plannedFinishedInventoryByInput(specG, inputG int64, yieldRate float64) InvQty {
-	if specG <= 0 || inputG <= 0 {
-		return InvQty{}
-	}
-	totalG := int64(math.Floor(float64(inputG)*normalizeYieldRate(yieldRate) + 1e-9))
-	return plannedFinishedInventoryAddition(specG, totalG)
-}
-
-func runningInventoryPlan(specG, needG, inputG int64, yieldRate float64) InvQty {
-	plan := plannedFinishedInventoryByInput(specG, inputG, yieldRate)
-	if plan.Units > 0 || plan.LooseG > 0 {
-		return plan
-	}
-	return plannedFinishedInventoryAddition(specG, needG)
 }
 
 func startProductionWithInputs(ctx context.Context, pool *pgxpool.Pool, schema, from, to string, customerID int64, selected map[string]bool, inputByKey map[string]int64, operator string) (string, error) {
@@ -285,27 +238,6 @@ func cancelRunningItem(ctx context.Context, pool *pgxpool.Pool, schema string, i
 	}
 	auditInsert(ctx, pool, schema, operator, "produce_running", &id, "cancel", strPtrStr("finished_allocation"), strPtrStr(fmt.Sprintf("%d", restoredG)), strPtrStr("restored"), AuditMeta{"running_item_id": id, "batch_id": r.BatchID, "product_id": r.ProductID, "spec_g": r.SpecG, "restored_g": restoredG})
 	return nil
-}
-
-func plannedFinishedInventoryAddition(specG, needG int64) InvQty {
-	if specG <= 0 || needG <= 0 {
-		return InvQty{}
-	}
-	return InvQty{Units: needG / specG, LooseG: needG % specG}
-}
-
-func normalizeFinishedInventoryAddition(specG, units, looseG int64) (InvQty, error) {
-	if units < 0 || looseG < 0 {
-		return InvQty{}, fmt.Errorf("完成件数和散装余量不能为负数")
-	}
-	return invNormalize(specG, InvQty{Units: units, LooseG: looseG})
-}
-
-func restoreAllocatedInventory(specG int64, current InvQty, deductedG int64) (InvQty, error) {
-	if deductedG < 0 {
-		return InvQty{}, fmt.Errorf("restored grams cannot be negative")
-	}
-	return invNormalize(specG, InvQty{Units: current.Units, LooseG: current.LooseG + deductedG})
 }
 
 func restoreRunningAllocationTx(ctx context.Context, tx pgx.Tx, schema string, r ProduceRunRow) (int64, error) {

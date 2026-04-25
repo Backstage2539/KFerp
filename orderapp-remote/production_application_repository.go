@@ -92,6 +92,30 @@ func (r postgresProductionRepository) ConfirmDeduct(ctx context.Context, batchID
 	return productionapp.DeductConfirmResult{BatchID: strings.TrimSpace(batchID), Status: "deducted", Summary: productionSummaryToApp(summary)}, nil
 }
 
+func (r postgresProductionRepository) ListRunning(ctx context.Context) ([]productionapp.RunningItem, error) {
+	rows, err := listRunningItems(ctx, r.pool, r.schema)
+	if err != nil {
+		return nil, err
+	}
+	return productionRunningToApp(rows), nil
+}
+
+func (r postgresProductionRepository) Start(ctx context.Context, cmd productionapp.StartCommand) (productionapp.StartResult, error) {
+	batchID, err := startProductionWithInputs(ctx, r.pool, r.schema, cmd.From, cmd.To, cmd.CustomerID, cmd.Selected, cmd.InputByKey, cmd.Operator)
+	if err != nil {
+		return productionapp.StartResult{}, err
+	}
+	return productionapp.StartResult{BatchID: batchID}, nil
+}
+
+func (r postgresProductionRepository) Finish(ctx context.Context, cmd productionapp.FinishCommand) error {
+	return finishRunningItem(ctx, r.pool, r.schema, cmd.ID, cmd.FinishedUnits, cmd.FinishedLooseG, cmd.HasFinishedInput, cmd.Operator)
+}
+
+func (r postgresProductionRepository) Cancel(ctx context.Context, cmd productionapp.CancelCommand) error {
+	return cancelRunningItem(ctx, r.pool, r.schema, cmd.ID, cmd.Operator)
+}
+
 func productionSummaryToApp(items []ProduceBatchSummaryItem) []productionapp.SummaryItem {
 	out := make([]productionapp.SummaryItem, 0, len(items))
 	for _, it := range items {

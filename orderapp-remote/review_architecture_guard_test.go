@@ -91,3 +91,50 @@ func TestProductionFlowRoutesAndSchemaAreSplitOut(t *testing.T) {
 		}
 	}
 }
+
+func TestProductionDomainRulesAreNotImplementedInMainFlow(t *testing.T) {
+	body, err := os.ReadFile("production_flow.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	content := string(body)
+	for _, forbidden := range []string{
+		"func normalizeYieldRate(",
+		"func defaultProductionInputG(",
+		"func finishedTotalG(",
+		"func actualYieldRate(",
+		"func plannedFinishedInventoryByInput(",
+		"func runningInventoryPlan(",
+		"func plannedFinishedInventoryAddition(",
+		"func normalizeFinishedInventoryAddition(",
+		"func restoreAllocatedInventory(",
+	} {
+		if strings.Contains(content, forbidden) {
+			t.Fatalf("production_flow.go still implements domain rule %q", forbidden)
+		}
+	}
+	if _, err := os.Stat("internal/domain/production/yield.go"); err != nil {
+		t.Fatalf("missing production domain rules file: %v", err)
+	}
+}
+
+func TestProductionRoutesCallApplicationService(t *testing.T) {
+	body, err := os.ReadFile("production_flow_routes.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	content := string(body)
+	if !strings.Contains(content, "productionapp.NewService") {
+		t.Fatal("production_flow_routes.go should construct the production application service")
+	}
+	for _, forbidden := range []string{
+		"startProductionWithInputs(",
+		"listRunningItems(",
+		"finishRunningItem(",
+		"cancelRunningItem(",
+	} {
+		if strings.Contains(content, forbidden) {
+			t.Fatalf("production_flow_routes.go still calls legacy repository function %q directly", forbidden)
+		}
+	}
+}
