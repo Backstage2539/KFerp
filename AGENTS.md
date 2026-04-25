@@ -214,6 +214,16 @@ For every requirement, follow the fixed pipeline:
 - API-level tests (prefer not to rely on UI)
 - Acceptance review against REQUIREMENTS / ACCEPTANCE_TESTS with evidence
 
+## Frontend Architecture Rule
+
+- Unified frontend architecture is `Vue + Vite`.
+- Any future frontend page change must use the unified Vue/Vite frontend.
+- If a page is still implemented as `templates/*.html`, treat that as migration debt.
+- Do **not** continue adding or changing user-facing features in HTML templates.
+- When a requirement touches a template-based page, first migrate/refactor that page into the Vue/Vite frontend, then implement the feature there.
+- HTML templates may remain only as transitional legacy code until replaced, but they are not the target architecture for new page work.
+- This rule exists because mixed template/Vue development has already caused repeated rework and inconsistent behavior.
+
 And maintain 5 UI tables at all times:
 - 产品需求表 (PR)
 - 开发需求表 (DEV)
