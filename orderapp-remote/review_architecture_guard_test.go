@@ -196,3 +196,22 @@ func TestSalesRepositoryDoesNotParseSaveOrderFormArrays(t *testing.T) {
 		}
 	}
 }
+
+func TestMaterialsAPIUsesApplicationService(t *testing.T) {
+	body, err := os.ReadFile("materials_api.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	content := string(body)
+	if !strings.Contains(content, "materialsapp.NewService") {
+		t.Fatal("materials_api.go should construct the materials application service")
+	}
+	for _, forbidden := range []string{
+		"listMaterials(c.Request().Context(), pool, schema",
+		"updateMaterialInline(c.Request().Context(), pool, schema",
+	} {
+		if strings.Contains(content, forbidden) {
+			t.Fatalf("materials_api.go still calls repository helper directly: %q", forbidden)
+		}
+	}
+}

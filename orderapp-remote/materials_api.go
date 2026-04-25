@@ -5,18 +5,25 @@ import (
 	"strconv"
 	"strings"
 
+	materialsapp "orderapp/internal/application/materials"
+
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/labstack/echo/v4"
 )
 
 type MaterialListResponse struct {
-	Rows []MaterialRow `json:"rows"`
+	Rows []materialsapp.Material `json:"rows"`
 }
 
 func registerMaterialsAPI(e *echo.Echo, pool *pgxpool.Pool, schema string) {
+	materialsSvc := materialsapp.NewService(postgresMaterialsRepository{pool: pool, schema: schema})
+
 	e.GET("/api/materials", func(c echo.Context) error {
 		limit := intParam(c, "limit", 200)
-		rows, err := listMaterials(c.Request().Context(), pool, schema, strings.TrimSpace(c.QueryParam("q")), limit)
+		rows, err := materialsSvc.List(c.Request().Context(), materialsapp.ListCommand{
+			Query: strings.TrimSpace(c.QueryParam("q")),
+			Limit: limit,
+		})
 		if err != nil {
 			return c.JSON(http.StatusInternalServerError, ErrorResponse{Error: err.Error()})
 		}
@@ -28,11 +35,15 @@ func registerMaterialsAPI(e *echo.Echo, pool *pgxpool.Pool, schema string) {
 		if err != nil || id <= 0 {
 			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: "invalid id"})
 		}
-		var req MaterialInput
+		var req materialsapp.MaterialInput
 		if err := c.Bind(&req); err != nil {
 			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: "invalid request"})
 		}
-		row, err := updateMaterialInline(c.Request().Context(), pool, schema, actorOf(c), id, req)
+		row, err := materialsSvc.Update(c.Request().Context(), materialsapp.UpdateCommand{
+			Actor: actorOf(c),
+			ID:    id,
+			Input: req,
+		})
 		if err != nil {
 			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: err.Error()})
 		}
