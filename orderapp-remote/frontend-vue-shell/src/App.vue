@@ -33,6 +33,7 @@
 <script setup>
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import ProducePlanView from './views/ProducePlanView.vue'
+import ProductionLogsView from './views/ProductionLogsView.vue'
 
 const collapsed = ref(false)
 const currentKey = ref('order')
@@ -47,7 +48,7 @@ const menuMap = {
   orders: { title: '订单列表', url: '/orders' },
   producePlan: { title: '生产计划/开始生产', url: '/vue-shell?view=producePlan', internal: true },
   produceRunning: { title: '生产中', url: '/produce/running' },
-  produceLogs: { title: '生产日志', url: '/produce/logs' },
+  produceLogs: { title: '生产日志', url: '/vue-shell?view=produceLogs', internal: true },
   materials: { title: '物料档案/库存', url: '/materials' },
   bom: { title: 'BOM配方维护', url: BOM_REACT_EMBED_URL },
   customers: { title: '客户档案', url: '/customers' },
@@ -68,6 +69,7 @@ const menuMap = {
 
 const internalViews = {
   producePlan: ProducePlanView,
+  produceLogs: ProductionLogsView,
 }
 
 const menuGroups = [

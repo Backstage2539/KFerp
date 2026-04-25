@@ -6,29 +6,29 @@ import (
 	"testing"
 )
 
-func TestProductionLogsTemplateContainsKeyColumns(t *testing.T) {
-	body, err := os.ReadFile("templates/production_logs.html")
+func TestProductionLogsVueContainsKeyColumns(t *testing.T) {
+	body, err := os.ReadFile("frontend-vue-shell/src/views/ProductionLogsView.vue")
 	if err != nil {
 		t.Fatal(err)
 	}
 	content := string(body)
-	for _, needle := range []string{"生产日志", "真实出品率", "投料数(g)", "完成时间", "materialSummaryText .MaterialSummary"} {
+	for _, needle := range []string{"生产日志", "真实出品率", "投料数(g)", "完成时间", "/api/produce/logs"} {
 		if !strings.Contains(content, needle) {
-			t.Fatalf("production_logs.html missing %q", needle)
+			t.Fatalf("ProductionLogsView.vue missing %q", needle)
 		}
-	}
-	if strings.Contains(content, "<pre>{{.MaterialSummary}}</pre>") {
-		t.Fatal("production_logs.html still renders raw material summary json")
 	}
 }
 
-func TestAppRoutesRegisterProductionLogPages(t *testing.T) {
-	body, err := os.ReadFile("app_routes.go")
+func TestProductionLogPagesExposeJSONAPIAndVueRedirect(t *testing.T) {
+	body, err := os.ReadFile("production_logs_page.go")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(body), "registerProductionLogPages(e, pool, schema)") {
-		t.Fatal("app_routes.go missing registerProductionLogPages")
+	content := string(body)
+	for _, want := range []string{`e.GET("/api/produce/logs"`, `target := "/vue-shell?view=produceLogs"`} {
+		if !strings.Contains(content, want) {
+			t.Fatalf("production_logs_page.go missing %q", want)
+		}
 	}
 }
 
@@ -39,7 +39,7 @@ func TestProductionMenusContainLogsEntry(t *testing.T) {
 	}{
 		{
 			path:  "frontend-vue-shell/src/App.vue",
-			wants: []string{"produceLogs", "生产日志", "/produce/logs"},
+			wants: []string{"ProductionLogsView", "produceLogs", "生产日志", "/vue-shell?view=produceLogs"},
 		},
 		{
 			path:  "frontend/src/bom/BomManager.tsx",

@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"os"
 	"strings"
 	"testing"
 
@@ -47,5 +48,19 @@ func TestShouldSkipOperationLogOnlySkipsFrontendStaticAssets(t *testing.T) {
 		if got := shouldSkipOperationLog(c); got != tc.skip {
 			t.Fatalf("shouldSkipOperationLog(%q) = %v, want %v", tc.path, got, tc.skip)
 		}
+	}
+}
+
+func TestOperationLogDoesNotMirrorRequestsIntoAuditLogs(t *testing.T) {
+	body, err := os.ReadFile("operation_log.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	content := string(body)
+	if strings.Contains(content, "auditInsert(") {
+		t.Fatal("operation_log.go should only write operation_logs; request mirroring into audit_logs couples two log streams")
+	}
+	if strings.Contains(content, `entity_type`) {
+		t.Fatal("operation_log.go should not know audit_logs schema details")
 	}
 }

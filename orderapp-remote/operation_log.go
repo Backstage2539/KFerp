@@ -4,66 +4,13 @@ import (
 	"context"
 	"fmt"
 	"net/url"
-	"strconv"
 	"strings"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/labstack/echo/v4"
 )
-
-func ensureAuditTables(ctx context.Context, pool *pgxpool.Pool, schema string) error {
-	q := fmt.Sprintf(`
-CREATE TABLE IF NOT EXISTS %s.audit_logs (
-	id BIGSERIAL PRIMARY KEY,
-	ts TIMESTAMPTZ NOT NULL DEFAULT now(),
-	actor TEXT NOT NULL DEFAULT '',
-	entity_type TEXT NOT NULL DEFAULT '',
-	entity_id BIGINT NULL,
-	action TEXT NOT NULL DEFAULT '',
-	field TEXT NULL,
-	old_value TEXT NULL,
-	new_value TEXT NULL,
-	meta JSONB NULL
-);
-CREATE INDEX IF NOT EXISTS audit_logs_ts_idx ON %s.audit_logs(ts DESC);
-CREATE INDEX IF NOT EXISTS audit_logs_entity_idx ON %s.audit_logs(entity_type, entity_id, ts DESC);
-CREATE INDEX IF NOT EXISTS audit_logs_actor_idx ON %s.audit_logs(actor, ts DESC);
-
-CREATE TABLE IF NOT EXISTS %s.order_audit_logs (
-	id BIGSERIAL PRIMARY KEY,
-	order_id BIGINT NOT NULL,
-	actor TEXT NOT NULL DEFAULT '',
-	field TEXT NOT NULL DEFAULT '',
-	old_value TEXT NULL,
-	new_value TEXT NULL,
-	changed_at TIMESTAMPTZ NOT NULL DEFAULT now()
-);
-CREATE INDEX IF NOT EXISTS order_audit_logs_order_idx ON %s.order_audit_logs(order_id, id DESC);
-
-CREATE TABLE IF NOT EXISTS %s.operation_logs (
-	id BIGSERIAL PRIMARY KEY,
-	ts TIMESTAMPTZ NOT NULL DEFAULT now(),
-	actor TEXT NOT NULL DEFAULT '',
-	employee_id BIGINT NULL,
-	method TEXT NOT NULL DEFAULT '',
-	path TEXT NOT NULL DEFAULT '',
-	route TEXT NOT NULL DEFAULT '',
-	query TEXT NOT NULL DEFAULT '',
-	status INTEGER NOT NULL DEFAULT 0,
-	duration_ms BIGINT NOT NULL DEFAULT 0,
-	ip TEXT NOT NULL DEFAULT '',
-	user_agent TEXT NOT NULL DEFAULT '',
-	referer TEXT NOT NULL DEFAULT '',
-	error TEXT NOT NULL DEFAULT ''
-);
-CREATE INDEX IF NOT EXISTS operation_logs_ts_idx ON %s.operation_logs(ts DESC);
-CREATE INDEX IF NOT EXISTS operation_logs_actor_idx ON %s.operation_logs(actor, ts DESC);
-CREATE INDEX IF NOT EXISTS operation_logs_route_idx ON %s.operation_logs(method, route, ts DESC);
-`, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema)
-	_, err := pool.Exec(ctx, q)
-	return err
-}
 
 func operationLogMiddleware(pool *pgxpool.Pool, schema string) echo.MiddlewareFunc {
 	return func(next echo.HandlerFunc) echo.HandlerFunc {
@@ -105,6 +52,54 @@ func shouldSkipOperationLog(c echo.Context) bool {
 	return path == "/favicon.ico"
 }
 
+type operationLogExecer interface {
+	Exec(ctx context.Context, sql string, arguments ...any) (pgconn.CommandTag, error)
+}
+
+type OperationLogEntry struct {
+	Actor      string
+	EmployeeID *int64
+	Method     string
+	Path       string
+	Route      string
+	Query      string
+	Status     int
+	DurationMS int64
+	IP         string
+	UserAgent  string
+	Referer    string
+	Error      string
+}
+
+type OperationLogger struct {
+	exec   operationLogExecer
+	schema string
+}
+
+func NewOperationLogger(exec operationLogExecer, schema string) OperationLogger {
+	return OperationLogger{exec: exec, schema: schema}
+}
+
+func (l OperationLogger) Log(ctx context.Context, entry OperationLogEntry) error {
+	q := fmt.Sprintf(`INSERT INTO %s.operation_logs(actor, employee_id, method, path, route, query, status, duration_ms, ip, user_agent, referer, error)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`, l.schema)
+	_, err := l.exec.Exec(ctx, q,
+		entry.Actor,
+		entry.EmployeeID,
+		entry.Method,
+		entry.Path,
+		entry.Route,
+		entry.Query,
+		entry.Status,
+		entry.DurationMS,
+		entry.IP,
+		entry.UserAgent,
+		entry.Referer,
+		entry.Error,
+	)
+	return err
+}
+
 func writeOperationLog(c echo.Context, pool *pgxpool.Pool, schema string, status int, duration time.Duration, handlerErr error) {
 	req := c.Request()
 	actor := actorOf(c)
@@ -119,32 +114,19 @@ func writeOperationLog(c echo.Context, pool *pgxpool.Pool, schema string, status
 		errText = handlerErr.Error()
 	}
 
-	q := fmt.Sprintf(`INSERT INTO %s.operation_logs(actor, employee_id, method, path, route, query, status, duration_ms, ip, user_agent, referer, error)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`, schema)
-	_, _ = pool.Exec(req.Context(), q,
-		actor,
-		employeeID,
-		method,
-		path,
-		route,
-		query,
-		status,
-		durationMS,
-		c.RealIP(),
-		req.UserAgent(),
-		req.Referer(),
-		errText,
-	)
-
-	field := strings.TrimSpace(method + " " + path)
-	auditInsert(req.Context(), pool, schema, actor, "operation", nil, "request", strPtrStr(field), nil, strPtrStr(strconv.Itoa(status)), AuditMeta{
-		"duration_ms": durationMS,
-		"employee_id": employeeID,
-		"error":       errText,
-		"ip":          c.RealIP(),
-		"query":       query,
-		"route":       route,
-		"user_agent":  req.UserAgent(),
+	_ = NewOperationLogger(pool, schema).Log(req.Context(), OperationLogEntry{
+		Actor:      actor,
+		EmployeeID: employeeID,
+		Method:     method,
+		Path:       path,
+		Route:      route,
+		Query:      query,
+		Status:     status,
+		DurationMS: durationMS,
+		IP:         c.RealIP(),
+		UserAgent:  req.UserAgent(),
+		Referer:    req.Referer(),
+		Error:      errText,
 	})
 }
 

@@ -103,35 +103,45 @@ func inlineUpdateOrder(ctx context.Context, pool *pgxpool.Pool, schema string, o
 		if _, err := tx.Exec(ctx, ins, orderID, actor, "order_type_id", oldS, newS); err != nil {
 			return err
 		}
-		auditInsert(ctx, pool, schema, actor, "order", &orderID, "update", strPtrStr("order_type_id"), oldS, newS, AuditMeta{"order_id": orderID})
+		if err := auditInsertTx(ctx, tx, schema, actor, "order", &orderID, "update", strPtrStr("order_type_id"), oldS, newS, AuditMeta{"order_id": orderID}); err != nil {
+			return err
+		}
 	}
 	if !eqIntPtr(curPay, nextPay) {
 		oldS, newS := intPtrToStr(curPay), intPtrToStr(nextPay)
 		if _, err := tx.Exec(ctx, ins, orderID, actor, "pay_status_id", oldS, newS); err != nil {
 			return err
 		}
-		auditInsert(ctx, pool, schema, actor, "order", &orderID, "update", strPtrStr("pay_status_id"), oldS, newS, AuditMeta{"order_id": orderID})
+		if err := auditInsertTx(ctx, tx, schema, actor, "order", &orderID, "update", strPtrStr("pay_status_id"), oldS, newS, AuditMeta{"order_id": orderID}); err != nil {
+			return err
+		}
 	}
 	if !eqIntPtr(curShip, nextShip) {
 		oldS, newS := intPtrToStr(curShip), intPtrToStr(nextShip)
 		if _, err := tx.Exec(ctx, ins, orderID, actor, "ship_status_id", oldS, newS); err != nil {
 			return err
 		}
-		auditInsert(ctx, pool, schema, actor, "order", &orderID, "update", strPtrStr("ship_status_id"), oldS, newS, AuditMeta{"order_id": orderID})
+		if err := auditInsertTx(ctx, tx, schema, actor, "order", &orderID, "update", strPtrStr("ship_status_id"), oldS, newS, AuditMeta{"order_id": orderID}); err != nil {
+			return err
+		}
 	}
 	if !eqIntPtr(curProc, nextProc) {
 		oldS, newS := intPtrToStr(curProc), intPtrToStr(nextProc)
 		if _, err := tx.Exec(ctx, ins, orderID, actor, "process_status_id", oldS, newS); err != nil {
 			return err
 		}
-		auditInsert(ctx, pool, schema, actor, "order", &orderID, "update", strPtrStr("process_status_id"), oldS, newS, AuditMeta{"order_id": orderID})
+		if err := auditInsertTx(ctx, tx, schema, actor, "order", &orderID, "update", strPtrStr("process_status_id"), oldS, newS, AuditMeta{"order_id": orderID}); err != nil {
+			return err
+		}
 	}
 	if !eqStrPtr(curNotes, nextNotesPtr) {
 		oldS, newS := strPtr(curNotes), strPtr(nextNotesPtr)
 		if _, err := tx.Exec(ctx, ins, orderID, actor, "notes", oldS, newS); err != nil {
 			return err
 		}
-		auditInsert(ctx, pool, schema, actor, "order", &orderID, "update", strPtrStr("notes"), oldS, newS, AuditMeta{"order_id": orderID})
+		if err := auditInsertTx(ctx, tx, schema, actor, "order", &orderID, "update", strPtrStr("notes"), oldS, newS, AuditMeta{"order_id": orderID}); err != nil {
+			return err
+		}
 	}
 
 	if !changed {

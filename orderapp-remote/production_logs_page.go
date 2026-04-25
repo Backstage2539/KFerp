@@ -11,28 +11,28 @@ import (
 )
 
 type ProductionLogRow struct {
-	ID                    int64
-	BatchID               string
-	ProductID             int64
-	ProductName           string
-	SpecG                 int64
-	OrderNos              string
-	PlannedNeedG          int64
-	InputG                int64
-	BomYieldRate          float64
-	FinishedUnits         int64
-	FinishedLooseG        int64
-	FinishedTotalG        int64
-	ActualYieldRate       float64
-	StartedBy             string
-	StartedAt             string
-	FinishedBy            string
-	FinishedAt            string
-	InventoryUnitsBefore  int64
-	InventoryLooseGBefore int64
-	InventoryUnitsAfter   int64
-	InventoryLooseGAfter  int64
-	MaterialSummary       string
+	ID                    int64   `json:"id"`
+	BatchID               string  `json:"batch_id"`
+	ProductID             int64   `json:"product_id"`
+	ProductName           string  `json:"product_name"`
+	SpecG                 int64   `json:"spec_g"`
+	OrderNos              string  `json:"order_nos"`
+	PlannedNeedG          int64   `json:"planned_need_g"`
+	InputG                int64   `json:"input_g"`
+	BomYieldRate          float64 `json:"bom_yield_rate"`
+	FinishedUnits         int64   `json:"finished_units"`
+	FinishedLooseG        int64   `json:"finished_loose_g"`
+	FinishedTotalG        int64   `json:"finished_total_g"`
+	ActualYieldRate       float64 `json:"actual_yield_rate"`
+	StartedBy             string  `json:"started_by"`
+	StartedAt             string  `json:"started_at"`
+	FinishedBy            string  `json:"finished_by"`
+	FinishedAt            string  `json:"finished_at"`
+	InventoryUnitsBefore  int64   `json:"inventory_units_before"`
+	InventoryLooseGBefore int64   `json:"inventory_loose_g_before"`
+	InventoryUnitsAfter   int64   `json:"inventory_units_after"`
+	InventoryLooseGAfter  int64   `json:"inventory_loose_g_after"`
+	MaterialSummary       string  `json:"material_summary"`
 }
 
 type ProductionLogsPageData struct {
@@ -46,19 +46,22 @@ type ProductionLogsPageData struct {
 	Error     string
 }
 
+type ProductionLogsAPIResponse struct {
+	Products []Option           `json:"products"`
+	Rows     []ProductionLogRow `json:"rows"`
+}
+
 func registerProductionLogPages(e *echo.Echo, pool *pgxpool.Pool, schema string) {
 	e.GET("/produce/logs", func(c echo.Context) error {
-		data := ProductionLogsPageData{
-			From:     strings.TrimSpace(c.QueryParam("from")),
-			To:       strings.TrimSpace(c.QueryParam("to")),
-			BatchID:  strings.TrimSpace(c.QueryParam("batch_id")),
-			Operator: strings.TrimSpace(c.QueryParam("operator")),
+		target := "/vue-shell?view=produceLogs"
+		if raw := c.QueryString(); raw != "" {
+			target += "&" + raw
 		}
-		if v := strings.TrimSpace(c.QueryParam("product_id")); v != "" {
-			if n, err := strconv.ParseInt(v, 10, 64); err == nil && n > 0 {
-				data.ProductID = n
-			}
-		}
+		return c.Redirect(http.StatusFound, target)
+	})
+
+	e.GET("/api/produce/logs", func(c echo.Context) error {
+		data := parseProductionLogsQuery(c)
 		if products, err := fetchProducts(c.Request().Context(), pool, schema); err == nil {
 			data.Products = make([]Option, 0, len(products))
 			for _, p := range products {
@@ -67,12 +70,25 @@ func registerProductionLogPages(e *echo.Echo, pool *pgxpool.Pool, schema string)
 		}
 		rows, err := listProductionLogs(c.Request().Context(), pool, schema, data.From, data.To, data.ProductID, data.BatchID, data.Operator, 200)
 		if err != nil {
-			data.Error = err.Error()
-		} else {
-			data.Rows = rows
+			return c.JSON(http.StatusInternalServerError, ErrorResponse{Error: err.Error()})
 		}
-		return c.Render(http.StatusOK, "production_logs.html", data)
+		return c.JSON(http.StatusOK, ProductionLogsAPIResponse{Products: data.Products, Rows: rows})
 	})
+}
+
+func parseProductionLogsQuery(c echo.Context) ProductionLogsPageData {
+	data := ProductionLogsPageData{
+		From:     strings.TrimSpace(c.QueryParam("from")),
+		To:       strings.TrimSpace(c.QueryParam("to")),
+		BatchID:  strings.TrimSpace(c.QueryParam("batch_id")),
+		Operator: strings.TrimSpace(c.QueryParam("operator")),
+	}
+	if v := strings.TrimSpace(c.QueryParam("product_id")); v != "" {
+		if n, err := strconv.ParseInt(v, 10, 64); err == nil && n > 0 {
+			data.ProductID = n
+		}
+	}
+	return data
 }
 
 func listProductionLogs(ctx context.Context, pool *pgxpool.Pool, schema, from, to string, productID int64, batchID, operator string, limit int) ([]ProductionLogRow, error) {

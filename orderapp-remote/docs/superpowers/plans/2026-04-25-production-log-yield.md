@@ -4,9 +4,9 @@
 
 **Goal:** Add editable input weight on the production planning page, compute actual yield from completed output, and introduce a production log page under the production workflow menu.
 
-**Architecture:** Extend the existing server-rendered production workflow instead of replacing it. Persist planned input and BOM yield snapshot on `produce_running_items`, write one immutable `production_logs` record per completed running item, and expose that data through a new template page plus Vue shell menu entry. Testing stays focused on calculation helpers, schema/text regression checks, and end-to-end HTTP/database verification.
+**Architecture:** Keep the production workflow inside the unified Vue/Vite frontend. Persist planned input and BOM yield snapshot on `produce_running_items`, write one immutable `production_logs` record per completed running item, and expose that data through a JSON API consumed by `frontend-vue-shell`. Legacy page URLs may redirect or remain read-only compatibility surfaces, but user-facing production changes target Vue components.
 
-**Tech Stack:** Go, Echo, PostgreSQL, server-rendered HTML templates, Vue 3 + Vite shell, existing requirement tables, `go test`, curl-based API verification.
+**Tech Stack:** Go, Echo, PostgreSQL, JSON API, Vue 3 + Vite, existing requirement tables, `go test`, handler/API verification, frontend build verification.
 
 ---
 
@@ -20,14 +20,14 @@
 - `orderapp-remote/dev_070_step1_test.go`
 - `orderapp-remote/dev_071_step1_test.go`
 - `orderapp-remote/dev_072_step1_test.go`
-- `orderapp-remote/templates/production_logs.html`
+- `orderapp-remote/frontend-vue-shell/src/views/ProductionLogsView.vue`
 
 **Modify:**
 
 - `orderapp-remote/production_flow.go`
 - `orderapp-remote/unprod_summary_page.go`
-- `orderapp-remote/templates/unprod_summary.html`
-- `orderapp-remote/templates/produce_running.html`
+- `orderapp-remote/frontend-vue-shell/src/views/ProducePlanView.vue`
+- `orderapp-remote/frontend-vue-shell/src/views/ProduceRunningView.vue` if the running page is touched by this workflow
 - `orderapp-remote/materials.go`
 - `orderapp-remote/schema_setup.go`
 - `orderapp-remote/material_consumption.go`
@@ -40,7 +40,7 @@
 
 - `orderapp-remote/produce_materials.go`
 - `orderapp-remote/produce_batch_api.go`
-- `orderapp-remote/templates/*` shared sidebars if the new page needs direct template navigation
+- `orderapp-remote/frontend-vue-shell/src/App.vue` shared navigation
 
 ---
 
@@ -174,7 +174,7 @@ git commit -m "feat: add production input and yield helpers"
 **Files:**
 
 - Modify: `orderapp-remote/unprod_summary_page.go`
-- Modify: `orderapp-remote/templates/unprod_summary.html`
+- Modify: `orderapp-remote/frontend-vue-shell/src/views/ProducePlanView.vue`
 - Modify: `orderapp-remote/production_flow.go`
 - Test: `orderapp-remote/dev_071_step1_test.go`
 - Test: `orderapp-remote/production_flow_test.go`
@@ -184,21 +184,21 @@ git commit -m "feat: add production input and yield helpers"
 Add regression tests for:
 
 - production plan rows expose a default `input_g`
-- start form contains one hidden/posted input per selected row
-- template contains the `投料数(g)` column and posted field naming convention
+- Vue start payload contains one `input_by_key` value per selected row
+- Vue page contains the `投料数(g)` column and submits through the JSON API
 
-Example template check:
+Example Vue source check:
 
 ```go
-func TestUnproducedTemplateContainsInputGFields(t *testing.T) {
-	body, err := os.ReadFile("templates/unprod_summary.html")
+func TestProducePlanVueContainsInputGFields(t *testing.T) {
+	body, err := os.ReadFile("frontend-vue-shell/src/views/ProducePlanView.vue")
 	if err != nil {
 		t.Fatal(err)
 	}
 	content := string(body)
-	for _, needle := range []string{"投料数(g)", "input_g_", "startProduction()"} {
+	for _, needle := range []string{"投料数(g)", "input_by_key", "startProduction"} {
 		if !strings.Contains(content, needle) {
-			t.Fatalf("unprod_summary.html missing %q", needle)
+			t.Fatalf("ProducePlanView.vue missing %q", needle)
 		}
 	}
 }
@@ -210,7 +210,7 @@ Run:
 
 ```bash
 cd /Users/yiiiple-work/Documents/KFerp/orderapp-remote
-go test ./... -run 'TestUnproducedTemplateContainsInputGFields'
+go test ./... -run 'TestProducePlanVueContainsInputGFields'
 ```
 
 Expected:
@@ -235,11 +235,11 @@ When `plan=1`:
 - derive `InputG = defaultProductionInputG(r.GapG, bomYield)`
 - expose `BomYieldRate` and `InputG` to the template
 
-Update `templates/unprod_summary.html`:
+Update `frontend-vue-shell/src/views/ProducePlanView.vue`:
 
 - add a `投料数(g)` column to the plan table
-- render an `<input type="number" min="1" ...>` per selected row
-- make `startProduction()` gather those values into hidden fields such as `input_g_<productID>_<specG>`
+- render editable number controls for selected plan rows
+- make `startProduction()` submit `input_by_key` to `/api/produce/start`
 
 Update `/produce/start` in `production_flow.go`:
 
@@ -271,7 +271,7 @@ Expected:
 
 ```bash
 cd /Users/yiiiple-work/Documents/KFerp/orderapp-remote
-git add unprod_summary_page.go templates/unprod_summary.html production_flow.go production_flow_test.go dev_071_step1_test.go
+git add unprod_summary_page.go frontend-vue-shell/src/views/ProducePlanView.vue production_flow.go production_flow_test.go dev_071_step1_test.go
 git commit -m "feat: add production input weight planning"
 ```
 
@@ -281,7 +281,7 @@ git commit -m "feat: add production input weight planning"
 
 - Modify: `orderapp-remote/production_flow.go`
 - Modify: `orderapp-remote/material_consumption.go`
-- Modify: `orderapp-remote/templates/produce_running.html`
+- Modify: `orderapp-remote/frontend-vue-shell/src/views/ProduceRunningView.vue` if this workflow migrates the running page in the same slice
 - Modify: `orderapp-remote/production_flow_test.go`
 - Test: `orderapp-remote/dev_072_step1_test.go`
 
@@ -289,7 +289,7 @@ git commit -m "feat: add production input weight planning"
 
 Add tests that lock the new behavior:
 
-- `produce_running.html` shows `计划投料数` and `BOM 出品率`
+- the Vue running page shows `计划投料数` and `BOM 出品率`
 - a helper builds material-summary JSON from material consumption rows
 - `finishRunningItem()` rejects zero `input_g`
 - `finishRunningItem()` creates one `production_logs` row with expected totals
@@ -320,7 +320,7 @@ In `listRunningItems()` load:
 
 Add these fields to `ProduceRunRow`.
 
-Update the running template to render:
+Update the Vue running page to render:
 
 - `计划投料数(g)`
 - `BOM 出品率`
@@ -369,7 +369,7 @@ Expected:
 
 ```bash
 cd /Users/yiiiple-work/Documents/KFerp/orderapp-remote
-git add production_flow.go material_consumption.go templates/produce_running.html production_flow_test.go dev_072_step1_test.go
+git add production_flow.go material_consumption.go frontend-vue-shell/src/views/ProduceRunningView.vue production_flow_test.go dev_072_step1_test.go
 git commit -m "feat: log completed production yield"
 ```
 
@@ -378,31 +378,32 @@ git commit -m "feat: log completed production yield"
 **Files:**
 
 - Create: `orderapp-remote/production_logs_page.go`
-- Create: `orderapp-remote/templates/production_logs.html`
+- Create: `orderapp-remote/frontend-vue-shell/src/views/ProductionLogsView.vue`
 - Create: `orderapp-remote/production_logs_page_test.go`
 - Modify: `orderapp-remote/frontend-vue-shell/src/App.vue`
 - Modify: `orderapp-remote/frontend/src/bom/BomManager.tsx`
-- Modify: shared template sidebars that list production-flow links
+- Modify: shared Vue shell navigation that lists production-flow links
 
 - [ ] **Step 1: Write the failing tests for the new page and menu**
 
 Add tests for:
 
-- template contains `生产日志`
-- route registration responds with 200
-- Vue shell menu contains `produceLogs`
+- Vue page contains `生产日志`
+- JSON API registration responds with production log data
+- Vue shell menu contains `produceLogs` as an internal view
 
 Example source assertions:
 
 ```go
-func TestProductionLogsTemplateContainsKeyColumns(t *testing.T) {
-	body, err := os.ReadFile("templates/production_logs.html")
+func TestProductionLogsVueContainsKeyColumns(t *testing.T) {
+	body, err := os.ReadFile("frontend-vue-shell/src/views/ProductionLogsView.vue")
 	if err != nil {
 		t.Fatal(err)
 	}
+	content := string(body)
 	for _, needle := range []string{"生产日志", "真实出品率", "投料数(g)", "完成时间"} {
-		if !strings.Contains(string(body), needle) {
-			t.Fatalf("production_logs.html missing %q", needle)
+		if !strings.Contains(content, needle) {
+			t.Fatalf("ProductionLogsView.vue missing %q", needle)
 		}
 	}
 }
@@ -414,12 +415,12 @@ Run:
 
 ```bash
 cd /Users/yiiiple-work/Documents/KFerp/orderapp-remote
-go test ./... -run 'TestProductionLogsTemplateContainsKeyColumns'
+go test ./... -run 'TestProductionLogsVueContainsKeyColumns'
 ```
 
 Expected:
 
-- FAIL because the page does not exist yet.
+- FAIL because the Vue page/API does not exist yet.
 
 - [ ] **Step 3: Implement the page, query, and navigation**
 
@@ -427,6 +428,7 @@ Create `production_logs_page.go` with:
 
 - `registerProductionLogPages(e, pool, schema)`
 - `GET /produce/logs`
+- `GET /api/produce/logs`
 - optional filters: `from`, `to`, `product_id`, `batch_id`, `operator`
 
 Query shape:
@@ -448,11 +450,11 @@ LIMIT 200
 
 Add page registration from the same bootstrap path that registers other production pages.
 
-Update menus:
+Update Vue frontend:
 
-- `frontend-vue-shell/src/App.vue`: add `produceLogs`
+- `frontend-vue-shell/src/App.vue`: add `produceLogs` as an internal Vue view
+- `frontend-vue-shell/src/views/ProductionLogsView.vue`: fetch `/api/produce/logs`
 - `frontend/src/bom/BomManager.tsx`: add `生产日志` under the production group if this sidebar remains user-visible
-- template sidebars used by production pages: add `/produce/logs`
 
 - [ ] **Step 4: Run the page tests and frontend build verification**
 
@@ -460,7 +462,7 @@ Run:
 
 ```bash
 cd /Users/yiiiple-work/Documents/KFerp/orderapp-remote
-go test ./... -run 'TestProductionLogsTemplateContainsKeyColumns|TestProduceRunningTemplateContainsFinishedInventoryFields'
+go test ./... -run 'TestProductionLogsVueContainsKeyColumns|TestProduceRunningTemplateContainsFinishedInventoryFields'
 cd frontend-vue-shell && npm run build
 cd ../frontend && npm run build
 ```
@@ -474,7 +476,7 @@ Expected:
 
 ```bash
 cd /Users/yiiiple-work/Documents/KFerp/orderapp-remote
-git add production_logs_page.go production_logs_page_test.go templates/production_logs.html frontend-vue-shell/src/App.vue frontend/src/bom/BomManager.tsx
+git add production_logs_page.go production_logs_page_test.go frontend-vue-shell/src/views/ProductionLogsView.vue frontend-vue-shell/src/App.vue frontend/src/bom/BomManager.tsx
 git commit -m "feat: add production log page"
 ```
 
