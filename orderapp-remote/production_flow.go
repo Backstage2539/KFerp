@@ -204,6 +204,20 @@ func registerProductionFlowPages(e *echo.Echo, pool *pgxpool.Pool, schema string
 		}
 		return c.Redirect(http.StatusSeeOther, "/produce/running?ok=1")
 	})
+
+	e.POST("/produce/running/cancel", func(c echo.Context) error {
+		if err := requireEmployeeBound(c); err != nil {
+			return c.Redirect(http.StatusSeeOther, "/produce/running?err="+url.QueryEscape(err.Error()))
+		}
+		id, _ := strconv.ParseInt(strings.TrimSpace(c.FormValue("id")), 10, 64)
+		if id <= 0 {
+			return c.Redirect(http.StatusSeeOther, "/produce/running?err="+url.QueryEscape("invalid id"))
+		}
+		if err := cancelRunningItem(c.Request().Context(), pool, schema, id, actorOf(c)); err != nil {
+			return c.Redirect(http.StatusSeeOther, "/produce/running?err="+url.QueryEscape(err.Error()))
+		}
+		return c.Redirect(http.StatusSeeOther, "/produce/running?ok=1")
+	})
 }
 
 func saveRunningItems(ctx context.Context, pool *pgxpool.Pool, schema, batchID string, rows []UnprodNeedRow, inputByKey map[string]int64, yieldByProductID map[int64]float64, operator string) error {
@@ -348,6 +362,37 @@ func finishRunningItem(ctx context.Context, pool *pgxpool.Pool, schema string, i
 	return nil
 }
 
+func cancelRunningItem(ctx context.Context, pool *pgxpool.Pool, schema string, id int64, operator string) error {
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+
+	var r ProduceRunRow
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT id,batch_id,product_name,product_id,spec_g,need_g,COALESCE(input_g,0),COALESCE(bom_yield_rate,0.8),COALESCE(planned_units,0),COALESCE(planned_loose_g,0),order_nos,COALESCE(started_by,''),started_at,to_char(started_at,'YYYY-MM-DD HH24:MI') FROM %s.produce_running_items WHERE id=$1 AND status='running' FOR UPDATE`, schema), id).Scan(&r.ID, &r.BatchID, &r.Product, &r.ProductID, &r.SpecG, &r.NeedG, &r.InputG, &r.BomYieldRate, &r.PlanUnits, &r.PlanLooseG, &r.OrderNos, &r.StartedBy, &r.StartedAtTime, &r.StartedAt); err != nil {
+		return err
+	}
+	restoredG, err := restoreRunningAllocationTx(ctx, tx, schema, r)
+	if err != nil {
+		return err
+	}
+	cancelledAt := time.Now()
+	if _, err := tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.produce_running_items SET status='cancelled',finished_by=$2,finished_at=$3 WHERE id=$1`, schema), id, operator, cancelledAt); err != nil {
+		return err
+	}
+	for _, no := range splitOrderNos(r.OrderNos) {
+		if err := resetOrderIfNoRunningItemsTx(ctx, tx, schema, no); err != nil {
+			return err
+		}
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return err
+	}
+	auditInsert(ctx, pool, schema, operator, "produce_running", &id, "cancel", strPtrStr("finished_allocation"), strPtrStr(fmt.Sprintf("%d", restoredG)), strPtrStr("restored"), AuditMeta{"running_item_id": id, "batch_id": r.BatchID, "product_id": r.ProductID, "spec_g": r.SpecG, "restored_g": restoredG})
+	return nil
+}
+
 func parseOptionalInt64(v string) (int64, bool, error) {
 	v = strings.TrimSpace(v)
 	if v == "" {
@@ -372,6 +417,37 @@ func normalizeFinishedInventoryAddition(specG, units, looseG int64) (InvQty, err
 		return InvQty{}, fmt.Errorf("完成件数和散装余量不能为负数")
 	}
 	return invNormalize(specG, InvQty{Units: units, LooseG: looseG})
+}
+
+func restoreAllocatedInventory(specG int64, current InvQty, deductedG int64) (InvQty, error) {
+	if deductedG < 0 {
+		return InvQty{}, fmt.Errorf("restored grams cannot be negative")
+	}
+	return invNormalize(specG, InvQty{Units: current.Units, LooseG: current.LooseG + deductedG})
+}
+
+func restoreRunningAllocationTx(ctx context.Context, tx pgx.Tx, schema string, r ProduceRunRow) (int64, error) {
+	var deductedG int64
+	err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT deducted_g FROM %s.finished_allocation_logs WHERE batch_id=$1 AND product_id=$2 AND spec_g=$3 ORDER BY id DESC LIMIT 1`, schema), r.BatchID, r.ProductID, r.SpecG).Scan(&deductedG)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return 0, nil
+		}
+		return 0, err
+	}
+	if deductedG <= 0 {
+		return 0, nil
+	}
+	var units, loose int64
+	_ = tx.QueryRow(ctx, fmt.Sprintf(`SELECT onhand_units,onhand_loose_g FROM %s.finished_inventory WHERE product_id=$1 AND spec_g=$2 FOR UPDATE`, schema), r.ProductID, r.SpecG).Scan(&units, &loose)
+	norm, err := restoreAllocatedInventory(r.SpecG, InvQty{Units: units, LooseG: loose}, deductedG)
+	if err != nil {
+		return 0, err
+	}
+	if _, err := tx.Exec(ctx, fmt.Sprintf(`INSERT INTO %s.finished_inventory(product_id,spec_g,onhand_units,onhand_loose_g,updated_at) VALUES($1,$2,$3,$4,now()) ON CONFLICT (product_id,spec_g) DO UPDATE SET onhand_units=excluded.onhand_units,onhand_loose_g=excluded.onhand_loose_g,updated_at=now()`, schema), r.ProductID, r.SpecG, norm.Units, norm.LooseG); err != nil {
+		return 0, err
+	}
+	return deductedG, nil
 }
 
 func splitOrderNos(v string) []string {
@@ -407,6 +483,21 @@ func completeOrderIfAllRunningDone(ctx context.Context, tx pgx.Tx, schema, order
 		return nil
 	}
 	_, err = tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.orders SET process_status_id=$2 WHERE order_no=$1`, schema), orderNo, statusID)
+	return err
+}
+
+func resetOrderIfNoRunningItemsTx(ctx context.Context, tx pgx.Tx, schema, orderNo string) error {
+	if strings.TrimSpace(orderNo) == "" {
+		return nil
+	}
+	var hasRunning bool
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT EXISTS(SELECT 1 FROM %s.produce_running_items WHERE status='running' AND $1 = ANY(string_to_array(replace(order_nos,' ',''),',')))`, schema), orderNo).Scan(&hasRunning); err != nil {
+		return err
+	}
+	if hasRunning {
+		return nil
+	}
+	_, err := tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.orders SET process_status_id=NULL WHERE order_no=$1`, schema), orderNo)
 	return err
 }
 

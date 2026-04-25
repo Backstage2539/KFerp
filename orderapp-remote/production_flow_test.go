@@ -54,6 +54,16 @@ func TestPlannedFinishedInventoryByInputUsesYield(t *testing.T) {
 	}
 }
 
+func TestRestoreAllocatedInventory(t *testing.T) {
+	got, err := restoreAllocatedInventory(454, InvQty{Units: 1, LooseG: 10}, 500)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Units != 2 || got.LooseG != 56 {
+		t.Fatalf("restoreAllocatedInventory() = %d units + %dg, want 2 units + 56g", got.Units, got.LooseG)
+	}
+}
+
 func TestBuildProducePlanDisplayRowsUsesDefaultInputG(t *testing.T) {
 	rows := []UnprodNeedRow{
 		{ProductID: 11, Product: "橘皮乌龙", SpecG: 227, GapG: 2270},
@@ -92,7 +102,7 @@ func TestProduceRunningTemplateContainsFinishedInventoryFields(t *testing.T) {
 		t.Fatal(err)
 	}
 	content := string(body)
-	for _, needle := range []string{"finished_units", "finished_loose_g", "烘焙剩余请填入散装余量", "计划投料数", "BOM出品率"} {
+	for _, needle := range []string{"finished_units", "finished_loose_g", "烘焙剩余请填入散装余量", "计划投料数", "BOM出品率", "取消生产", "/produce/running/cancel"} {
 		if !strings.Contains(content, needle) {
 			t.Fatalf("produce_running.html missing %q", needle)
 		}
@@ -105,10 +115,13 @@ func TestUnproducedTemplateContainsInputGFields(t *testing.T) {
 		t.Fatal(err)
 	}
 	content := string(body)
-	for _, needle := range []string{"投料数(g)", "input_g_", "startProduction()"} {
+	for _, needle := range []string{"投料数(g)", "input_g_", "startProduction()", "待发货产品", "请先选择产品后再生成计划", "请先选择产品后再开始生产"} {
 		if !strings.Contains(content, needle) {
 			t.Fatalf("unprod_summary.html missing %q", needle)
 		}
+	}
+	if strings.Contains(content, "未生产订单") {
+		t.Fatal("unprod_summary.html still contains 未生产订单")
 	}
 }
 

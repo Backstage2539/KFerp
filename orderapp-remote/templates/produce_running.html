@@ -29,7 +29,7 @@
   {{if .Ok}}<div class="ok">操作成功</div>{{end}}
   {{if .Error}}<div class="err">{{.Error}}</div>{{end}}
   <div class="card">
-    <div class="muted" style="margin-bottom:8px;">完成生产时，系统会按填写的完成件数和散装余量增加成品库存，真实出品率会基于计划投料数自动计算；烘焙剩余请填入散装余量(g)。</div>
+    <div class="muted" style="margin-bottom:8px;">完成生产时，系统会按填写的完成件数和散装余量增加成品库存，真实出品率会基于计划投料数自动计算；烘焙剩余请填入散装余量(g)。取消生产会恢复已预扣的成品库存，并回到待发货产品。</div>
     <div style="overflow:auto;">
       <table>
         <thead>
@@ -54,10 +54,16 @@
             <td class="muted">{{.OrderNos}}</td>
             <td>{{.StartedAt}}</td>
             <td>
-              <form id="finish-{{.ID}}" method="post" action="/produce/running/finish" style="margin:0;">
-                <input type="hidden" name="id" value="{{.ID}}" />
-                <button class="btn2" type="submit">完成生产</button>
-              </form>
+              <div style="display:flex; gap:8px; flex-wrap:wrap;">
+                <form id="finish-{{.ID}}" method="post" action="/produce/running/finish" style="margin:0;">
+                  <input type="hidden" name="id" value="{{.ID}}" />
+                  <button class="btn2" type="submit">完成生产</button>
+                </form>
+                <form method="post" action="/produce/running/cancel" style="margin:0;" onsubmit="return confirm('确认取消该生产任务？');">
+                  <input type="hidden" name="id" value="{{.ID}}" />
+                  <button class="btn2" type="submit">取消生产</button>
+                </form>
+              </div>
             </td>
           </tr>
           {{end}}

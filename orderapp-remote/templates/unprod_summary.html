@@ -112,7 +112,7 @@
       </div>
 
       <div class="card">
-        <div style="font-weight:700; margin-bottom:8px;">未生产订单</div>
+        <div style="font-weight:700; margin-bottom:8px;">待发货产品</div>
         <div class="muted" style="margin-bottom:8px;">说明：spec 从订单明细的 "454g" 提取数字为 454。</div>
         <div style="overflow:auto; -webkit-overflow-scrolling:touch;">
           <table>
@@ -146,7 +146,7 @@
                 </tr>
               {{end}}
               {{if not .Rows}}
-                <tr><td colspan="10" class="muted">暂无未生产需求（或没有订单明细）</td></tr>
+                <tr><td colspan="10" class="muted">暂无待发货产品（或没有订单明细）</td></tr>
               {{end}}
             </tbody>
           </table>
@@ -189,7 +189,7 @@
             </tbody>
           </table>
         </div>
-        {{else}}<div class="muted">请先选择订单并点击“生成计划”。</div>{{end}}
+        {{else}}<div class="muted">请先选择产品并点击“生成计划”。</div>{{end}}
       </div>
 
       <div class="card">
@@ -207,7 +207,7 @@
           </table>
         </div>
         <div class="muted" style="margin-top:8px;">完成生产时会按实际完成项逐项扣减对应物料库存。</div>
-        {{else}}<div class="muted">请先选择订单并点击“生成计划”。</div>{{end}}
+        {{else}}<div class="muted">请先选择产品并点击“生成计划”。</div>{{end}}
       </div>
 
       <div class="card">
@@ -224,7 +224,7 @@
             </tbody>
           </table>
         </div>
-        {{else}}<div class="muted">请先选择订单并点击“生成计划”。</div>{{end}}
+        {{else}}<div class="muted">请先选择产品并点击“生成计划”。</div>{{end}}
       </div>
 
     </main>
@@ -253,7 +253,7 @@ function pickInsufficient(){
 }
 function buildPlanBySelection(){
   const keys=selectedKeys();
-  if(keys.length===0){ alert('请先选择订单后再生成计划'); return; }
+  if(keys.length===0){ alert('请先选择产品后再生成计划'); return; }
   const u=new URL(window.location.href);
   u.searchParams.set('selected', keys.join(','));
   u.searchParams.set('plan', '1');
@@ -261,7 +261,7 @@ function buildPlanBySelection(){
 }
 function startProduction(){
   const keys=selectedKeys();
-  if(keys.length===0){ alert('请先选择订单后再开始生产'); return; }
+  if(keys.length===0){ alert('请先选择产品后再开始生产'); return; }
   for(const x of document.querySelectorAll('.plan_input_g')){
     if(!keys.includes(x.getAttribute('data-key'))){ continue; }
     const value = Number(x.value || '0');

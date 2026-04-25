@@ -133,7 +133,7 @@ func labelEntityType(t string) string {
 	case "produce_batch":
 		return "生产批次"
 	case "produce_running":
-		return "生产完成"
+		return "生产任务"
 	case "operation":
 		return "操作"
 	case "import":
@@ -167,6 +167,8 @@ func labelAction(a string) string {
 		return "上传"
 	case "finish":
 		return "完成"
+	case "cancel":
+		return "取消"
 	default:
 		return a
 	}
@@ -194,6 +196,8 @@ func labelField(f string) string {
 		return "扣减状态"
 	case "material_consumption":
 		return "物料消耗"
+	case "finished_allocation":
+		return "成品预扣"
 	default:
 		return f
 	}
