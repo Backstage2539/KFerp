@@ -28,12 +28,6 @@ type ProduceRunRow struct {
 	StartedAtTime time.Time
 }
 
-type ProduceRunPageData struct {
-	Rows  []ProduceRunRow
-	Ok    bool
-	Error string
-}
-
 func startProductionWithInputs(ctx context.Context, pool *pgxpool.Pool, schema, from, to string, customerID int64, selected map[string]bool, inputByKey map[string]int64, operator string) (string, error) {
 	rows, err := fetchUnproducedNeeds(ctx, pool, schema, from, to, customerID)
 	if err != nil {

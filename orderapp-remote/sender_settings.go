@@ -55,22 +55,7 @@ func loadSenderProfile(ctx context.Context, pool *pgxpool.Pool, schema string) S
 
 func registerSenderSettingsPage(e *echo.Echo, pool *pgxpool.Pool, schema string) {
 	e.GET("/settings/sender", func(c echo.Context) error {
-		if strings.TrimSpace(c.QueryParam("legacy")) != "1" {
-			return vueShellRedirect(c, "senderSettings")
-		}
-		p := loadSenderProfile(c.Request().Context(), pool, schema)
-		return c.Render(http.StatusOK, "sender_settings.html", map[string]any{"P": p, "Ok": c.QueryParam("ok") == "1"})
-	})
-	e.POST("/settings/sender", func(c echo.Context) error {
-		_, _ = pool.Exec(c.Request().Context(), fmt.Sprintf(`UPDATE %s.sender_settings SET sender_name=$1,sender_phone=$2,sender_addr=$3,sender_company=$4,sender_goods=$5,sf_biz_type=$6,updated_at=now() WHERE id=1`, schema),
-			strings.TrimSpace(c.FormValue("sender_name")),
-			strings.TrimSpace(c.FormValue("sender_phone")),
-			strings.TrimSpace(c.FormValue("sender_addr")),
-			strings.TrimSpace(c.FormValue("sender_company")),
-			strings.TrimSpace(c.FormValue("sender_goods")),
-			strings.TrimSpace(c.FormValue("sf_biz_type")),
-		)
-		return c.Redirect(http.StatusSeeOther, "/settings/sender?ok=1")
+		return vueShellRedirect(c, "senderSettings")
 	})
 	e.GET("/api/settings/sender", func(c echo.Context) error {
 		return c.JSON(http.StatusOK, map[string]any{"profile": loadSenderProfile(c.Request().Context(), pool, schema)})

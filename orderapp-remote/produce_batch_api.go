@@ -146,86 +146,17 @@ func registerProduceBatchAPI(e *echo.Echo, pool *pgxpool.Pool, schema string) {
 				limit = n
 			}
 		}
-		statusQ := strings.TrimSpace(c.QueryParam("status"))
-		operatorQ := strings.TrimSpace(c.QueryParam("operator"))
-		fromQ := strings.TrimSpace(c.QueryParam("from"))
-		toQ := strings.TrimSpace(c.QueryParam("to"))
-
-		args := []any{}
-		where := " WHERE 1=1"
-		if statusQ != "" {
-			args = append(args, statusQ)
-			where += fmt.Sprintf(" AND b.status=$%d", len(args))
-		}
-		if operatorQ != "" {
-			args = append(args, operatorQ)
-			where += fmt.Sprintf(" AND b.operator=$%d", len(args))
-		}
-		if fromQ != "" {
-			args = append(args, fromQ)
-			where += fmt.Sprintf(" AND b.created_at >= $%d::date", len(args))
-		}
-		if toQ != "" {
-			args = append(args, toQ)
-			where += fmt.Sprintf(" AND b.created_at < ($%d::date + INTERVAL '1 day')", len(args))
-		}
-		args = append(args, limit)
-		limitArg := len(args)
-
-		q := fmt.Sprintf(`
-			SELECT b.batch_id, b.status, b.operator, to_char(b.created_at,'YYYY-MM-DD HH24:MI:SS'),
-			       COALESCE((SELECT COUNT(DISTINCT x.order_id) FROM %s.produce_batch_order_items x WHERE x.batch_id=b.batch_id),0),
-			       CASE
-			         WHEN l.cnt IS NULL THEN 'none'
-			         WHEN l.total_gap_g = 0 THEN 'done'
-			         ELSE 'partial'
-			       END AS deduct_status,
-			       COALESCE(to_char(l.last_deducted_at,'YYYY-MM-DD HH24:MI:SS'),'') AS deducted_at,
-			       COALESCE(i.total_need_g,0) AS need_g,
-			       COALESCE(l.total_deducted_g,0) AS deducted_g,
-			       GREATEST(0, COALESCE(i.total_need_g,0) - COALESCE(l.total_deducted_g,0)) AS gap_g
-			FROM %s.produce_batches b
-			LEFT JOIN (
-			  SELECT batch_id, SUM(need_g)::bigint AS total_need_g
-			  FROM %s.produce_batch_items
-			  GROUP BY batch_id
-			) i ON i.batch_id=b.batch_id
-			LEFT JOIN (
-			  SELECT batch_id, COUNT(*) AS cnt, SUM(gap_g)::bigint AS total_gap_g, SUM(deducted_g)::bigint AS total_deducted_g, MAX(created_at) AS last_deducted_at
-			  FROM %s.finished_allocation_logs
-			  GROUP BY batch_id
-			) l ON l.batch_id=b.batch_id
-			%s
-			ORDER BY b.created_at DESC
-			LIMIT $%d
-		`, schema, schema, schema, schema, where, limitArg)
-		rows, err := pool.Query(c.Request().Context(), q, args...)
+		rows, err := productionSvc.ListBatches(c.Request().Context(), productionapp.ListBatchesCommand{
+			Limit:    limit,
+			Status:   c.QueryParam("status"),
+			Operator: c.QueryParam("operator"),
+			From:     c.QueryParam("from"),
+			To:       c.QueryParam("to"),
+		})
 		if err != nil {
 			return c.JSON(http.StatusInternalServerError, ErrorResponse{Error: err.Error()})
 		}
-		defer rows.Close()
-		out := make([]ProduceBatchListItem, 0)
-		for rows.Next() {
-			var r ProduceBatchListItem
-			if err := rows.Scan(&r.BatchID, &r.Status, &r.Operator, &r.CreatedAt, &r.OrderCount, &r.DeductStatus, &r.DeductedAt, &r.NeedG, &r.DeductedG, &r.GapG); err != nil {
-				return c.JSON(http.StatusInternalServerError, ErrorResponse{Error: err.Error()})
-			}
-			// DEV-042 traceability mirrors (additive)
-			r.CreatedBy = r.Operator
-			r.CreatedTime = r.CreatedAt
-			if strings.TrimSpace(r.DeductedAt) != "" {
-				r.StatusChangedAt = r.DeductedAt
-			} else {
-				r.StatusChangedAt = r.CreatedAt
-			}
-			// compatibility mirrors
-			r.StatusText = r.Status
-			r.CreateTime = r.CreatedAt
-			r.DeductTime = r.DeductedAt
-			r.DeductState = r.DeductStatus
-			out = append(out, r)
-		}
-		return c.JSON(http.StatusOK, out)
+		return c.JSON(http.StatusOK, produceBatchListFromApp(rows))
 	})
 
 	e.GET("/api/produce/batch/:batch_id/deduct-preview", func(c echo.Context) error {
@@ -268,50 +199,50 @@ func registerProduceBatchAPI(e *echo.Echo, pool *pgxpool.Pool, schema string) {
 			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: "batch_id required"})
 		}
 
-		var d ProduceBatchDetail
-		err := pool.QueryRow(c.Request().Context(),
-			"SELECT batch_id,status,operator,to_char(created_at,'YYYY-MM-DD HH24:MI:SS') FROM "+schema+".produce_batches WHERE batch_id=$1",
-			bid,
-		).Scan(&d.BatchID, &d.Status, &d.Operator, &d.CreatedAt)
+		detail, err := productionSvc.Detail(c.Request().Context(), bid)
 		if err != nil {
 			return c.JSON(http.StatusNotFound, ErrorResponse{Error: "batch not found"})
 		}
-
-		orows, err := pool.Query(c.Request().Context(),
-			"SELECT DISTINCT order_id FROM "+schema+".produce_batch_order_items WHERE batch_id=$1 ORDER BY order_id", bid)
-		if err != nil {
-			return c.JSON(http.StatusInternalServerError, ErrorResponse{Error: err.Error()})
-		}
-		defer orows.Close()
-		d.Orders = make([]int64, 0)
-		for orows.Next() {
-			var oid int64
-			if err := orows.Scan(&oid); err != nil {
-				return c.JSON(http.StatusInternalServerError, ErrorResponse{Error: err.Error()})
-			}
-			d.Orders = append(d.Orders, oid)
-		}
-
-		srows, err := pool.Query(c.Request().Context(),
-			"SELECT i.product_id,COALESCE((SELECT name FROM "+schema+".products p WHERE p.id=i.product_id),''),i.spec_g,i.need_units,i.need_g,COALESCE(l.deducted_g,0),COALESCE(l.gap_g,0) FROM "+schema+".produce_batch_items i LEFT JOIN (SELECT product_id,spec_g,SUM(deducted_g)::bigint AS deducted_g,SUM(gap_g)::bigint AS gap_g FROM "+schema+".finished_allocation_logs WHERE batch_id=$1 GROUP BY product_id,spec_g) l ON l.product_id=i.product_id AND l.spec_g=i.spec_g WHERE i.batch_id=$1 ORDER BY i.product_id,i.spec_g", bid)
-		if err != nil {
-			return c.JSON(http.StatusInternalServerError, ErrorResponse{Error: err.Error()})
-		}
-		defer srows.Close()
-		d.Summary = make([]ProduceBatchSummaryItem, 0)
-		for srows.Next() {
-			var s ProduceBatchSummaryItem
-			if err := srows.Scan(&s.ProductID, &s.ProductName, &s.SpecG, &s.NeedUnits, &s.NeedG, &s.DeductedG, &s.GapG); err != nil {
-				return c.JSON(http.StatusInternalServerError, ErrorResponse{Error: err.Error()})
-			}
-			d.Summary = append(d.Summary, s)
-		}
-
-		// DEV-041 traceability mirrors
-		d.CreatedBy = d.Operator
-		d.CreatedTime = d.CreatedAt
-		d.StatusSource = "produce_batches.status"
-
-		return c.JSON(http.StatusOK, d)
+		return c.JSON(http.StatusOK, produceBatchDetailFromApp(detail))
 	})
+}
+
+func produceBatchListFromApp(rows []productionapp.BatchListItem) []ProduceBatchListItem {
+	out := make([]ProduceBatchListItem, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, ProduceBatchListItem{
+			BatchID:         row.BatchID,
+			Status:          row.Status,
+			Operator:        row.Operator,
+			CreatedAt:       row.CreatedAt,
+			OrderCount:      row.OrderCount,
+			DeductStatus:    row.DeductStatus,
+			DeductedAt:      row.DeductedAt,
+			NeedG:           row.NeedG,
+			DeductedG:       row.DeductedG,
+			GapG:            row.GapG,
+			CreatedBy:       row.CreatedBy,
+			CreatedTime:     row.CreatedTime,
+			StatusChangedAt: row.StatusChangedAt,
+			StatusText:      row.StatusText,
+			CreateTime:      row.CreateTime,
+			DeductTime:      row.DeductTime,
+			DeductState:     row.DeductState,
+		})
+	}
+	return out
+}
+
+func produceBatchDetailFromApp(row productionapp.BatchDetail) ProduceBatchDetail {
+	return ProduceBatchDetail{
+		BatchID:      row.BatchID,
+		Status:       row.Status,
+		Operator:     row.Operator,
+		CreatedAt:    row.CreatedAt,
+		Orders:       row.Orders,
+		Summary:      productionSummaryFromApp(row.Summary),
+		CreatedBy:    row.CreatedBy,
+		CreatedTime:  row.CreatedTime,
+		StatusSource: row.StatusSource,
+	}
 }

@@ -3,7 +3,6 @@ package main
 import (
 	"fmt"
 	"net/http"
-	"net/url"
 	"strconv"
 	"strings"
 
@@ -40,9 +39,6 @@ func registerOrderRoutes(e *echo.Echo, pool *pgxpool.Pool, schema string) {
 
 	// Create order
 	e.GET("/order", h.entry)
-
-	e.POST("/order", h.create)
-
 }
 
 type orderHandler struct {
@@ -52,109 +48,7 @@ type orderHandler struct {
 }
 
 func (h orderHandler) index(c echo.Context) error {
-	if strings.TrimSpace(c.QueryParam("legacy")) != "1" {
-		return vueShellRedirect(c, "orders")
-	}
-
-	data := OrdersPageData{
-		Q:      strings.TrimSpace(c.QueryParam("q")),
-		From:   strings.TrimSpace(c.QueryParam("from")),
-		To:     strings.TrimSpace(c.QueryParam("to")),
-		Preset: strings.TrimSpace(c.QueryParam("preset")),
-		Void:   strings.TrimSpace(c.QueryParam("void")),
-		Limit:  10,
-		Offset: 0,
-	}
-	if v := strings.TrimSpace(c.QueryParam("customer_id")); v != "" {
-		if n, err := strconv.ParseInt(v, 10, 64); err == nil && n > 0 {
-			data.CustomerID = n
-		}
-	}
-	if v := strings.TrimSpace(c.QueryParam("pay_status_id")); v != "" {
-		if n, err := strconv.ParseInt(v, 10, 64); err == nil {
-			data.PayStatusFilter = n
-		}
-	}
-	if v := strings.TrimSpace(c.QueryParam("ship_status_id")); v != "" {
-		if n, err := strconv.ParseInt(v, 10, 64); err == nil {
-			data.ShipStatusFilter = n
-		}
-	}
-	if v := strings.TrimSpace(c.QueryParam("process_status_id")); v != "" {
-		if n, err := strconv.ParseInt(v, 10, 64); err == nil {
-			data.ProcStatusFilter = n
-		}
-	}
-	data.CompletedOnly = strings.TrimSpace(c.QueryParam("completed")) == "1"
-	if data.Preset == "unprod" {
-		data.UnproducedOnly = true
-	}
-	if data.Void == "" {
-		data.Void = "normal"
-	}
-	if v := strings.TrimSpace(c.QueryParam("limit")); v != "" {
-		if n, err := strconv.Atoi(v); err == nil && n > 0 && n <= 200 {
-			data.Limit = n
-		}
-	}
-	if v := strings.TrimSpace(c.QueryParam("offset")); v != "" {
-		if n, err := strconv.Atoi(v); err == nil && n >= 0 {
-			data.Offset = n
-		}
-	}
-	// page is 1-indexed; overrides offset when provided
-	if v := strings.TrimSpace(c.QueryParam("page")); v != "" {
-		if n, err := strconv.Atoi(v); err == nil && n > 0 {
-			data.Offset = (n - 1) * data.Limit
-		}
-	}
-
-	if data.Limit > 0 {
-		data.Page = (data.Offset / data.Limit) + 1
-	} else {
-		data.Page = 1
-	}
-
-	rows, hasNext, errOrders := fetchOrders(c.Request().Context(), h.pool, h.schema, data.Q, data.From, data.To, data.Void, data.CustomerID, data.PayStatusFilter, data.ShipStatusFilter, data.ProcStatusFilter, data.UnproducedOnly, data.CompletedOnly, data.Limit, data.Offset)
-	if opts, err := fetchOptions(c.Request().Context(), h.pool, fmt.Sprintf("SELECT id, name FROM %s.order_types ORDER BY id", h.schema)); err == nil {
-		data.OrderTypeOpts = opts
-	} else {
-		data.OrderTypeOpts = nil
-	}
-	if opts, err := fetchOptions(c.Request().Context(), h.pool, fmt.Sprintf("SELECT id, name FROM %s.pay_statuses ORDER BY id", h.schema)); err == nil {
-		data.PayOpts = opts
-	} else {
-		data.PayOpts = nil
-	}
-	if opts, err := fetchOptions(c.Request().Context(), h.pool, fmt.Sprintf("SELECT id, name FROM %s.ship_statuses ORDER BY id", h.schema)); err == nil {
-		data.ShipOpts = opts
-	} else {
-		data.ShipOpts = nil
-	}
-	if opts, err := fetchOptions(c.Request().Context(), h.pool, fmt.Sprintf("SELECT id, name FROM %s.order_process_statuses WHERE active=true ORDER BY sort,id", h.schema)); err == nil {
-		data.ProcessOpts = opts
-	} else {
-		data.ProcessOpts = nil
-	}
-	// summary (best effort)
-	if s, err := fetchOrdersSummary(c.Request().Context(), h.pool, h.schema, data.Q, data.From, data.To, data.Void, data.CustomerID, data.PayStatusFilter, data.ShipStatusFilter, data.ProcStatusFilter, data.UnproducedOnly, data.CompletedOnly); err == nil {
-		data.Summary = s
-	}
-
-	if errOrders != nil {
-		data.Error = errOrders.Error()
-		return c.Render(http.StatusOK, "orders.html", data)
-	}
-	data.Rows = rows
-	data.HasPrev = data.Offset > 0
-	data.HasNext = hasNext
-	if data.Limit > 0 {
-		data.Page = (data.Offset / data.Limit) + 1
-	} else {
-		data.Page = 1
-	}
-	return c.Render(http.StatusOK, "orders.html", data)
-
+	return vueShellRedirect(c, "orders")
 }
 
 func (h orderHandler) inlineUpdate(c echo.Context) error {
@@ -254,34 +148,4 @@ func (h orderHandler) entry(c echo.Context) error {
 	}
 	return c.Redirect(http.StatusFound, target)
 
-}
-
-func (h orderHandler) create(c echo.Context) error {
-	if err := requireEmployeeBound(c); err != nil {
-		return c.String(http.StatusBadRequest, err.Error())
-	}
-	var req CreateOrderRequest
-	if err := c.Bind(&req); err != nil {
-		return c.String(http.StatusBadRequest, "bad request")
-	}
-
-	editID := int64(0)
-	if v := strings.TrimSpace(c.FormValue("edit_id")); v != "" {
-		if n, err := strconv.ParseInt(v, 10, 64); err == nil && n > 0 {
-			editID = n
-		}
-	}
-
-	cmd, err := saveOrderCommandFromCreateRequest(req, editID, actorOf(c))
-	if err != nil {
-		return c.String(http.StatusBadRequest, err.Error())
-	}
-	res, err := h.sales.SaveOrder(c.Request().Context(), cmd)
-	if err != nil {
-		return c.String(http.StatusBadRequest, err.Error())
-	}
-	if res.Edited {
-		return c.Redirect(http.StatusSeeOther, fmt.Sprintf("/orders/%d", res.OrderID))
-	}
-	return c.Redirect(http.StatusSeeOther, "/order?ok=1&order_no="+url.QueryEscape(res.OrderNo))
 }

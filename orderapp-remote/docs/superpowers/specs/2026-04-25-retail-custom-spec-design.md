@@ -15,7 +15,7 @@
 
 ## Frontend Architecture
 
-录单页当前由 `templates/order.html` 实现。根据工作区规则，本需求不能继续在 HTML 模板上加用户功能。
+录单页历史上由 `templates/order.html` 实现。根据工作区规则，本需求不能继续在 HTML 模板上加用户功能。
 
 本次把 `录单` 迁移为 `frontend-vue-shell` 内部 Vue 页面：
 
@@ -24,7 +24,7 @@
 - 新增 `frontend-vue-shell/src/views/OrderEntryView.vue`。
 - 新增 `frontend-vue-shell/src/lib/order-entry.js`，放置规格、价格、payload 计算等纯函数。
 
-旧 `templates/order.html` 暂时保留为过渡遗留代码，但不再作为录单功能入口。
+旧 `templates/order.html` 已在 Vue/Vite 迁移完成后删除，`/order` 仅作为跳转到 Vue 录单页的兼容入口。
 
 ## Backend API
 
@@ -60,4 +60,3 @@ Vue 提交 payload 时仍映射到现有 `CreateOrderRequest` 字段，避免重
   - `GET /api/order/form` 返回 `products` 和 `retail_specs`。
   - `POST /api/order` 提交零售 `300g` 后，数据库明细保存 `spec='300g'`，金额按 `227g` 换算。
   - `/order` GET 入口重定向到 Vue 录单页。
-

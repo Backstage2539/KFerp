@@ -24,7 +24,7 @@
         <button class="toggle" @click="toggleMenu">{{ toggleLabel }}</button>
         <div v-if="showTitle" class="title">{{ title }}</div>
       </header>
-      <component :is="currentInternalView" class="internal-view" :title="title" :legacy-url="legacyUrl" :view-key="currentKey" />
+      <component :is="currentInternalView" class="internal-view" :title="title" :view-key="currentKey" />
     </main>
   </div>
 </template>
@@ -36,7 +36,6 @@ import BomView from './views/BomView.vue'
 import CompanyStaffView from './views/CompanyStaffView.vue'
 import CustomersView from './views/CustomersView.vue'
 import InventoryView from './views/InventoryView.vue'
-import LegacyMigrationView from './views/LegacyMigrationView.vue'
 import MachinesView from './views/MachinesView.vue'
 import MaterialsView from './views/MaterialsView.vue'
 import OrderEntryView from './views/OrderEntryView.vue'
@@ -54,27 +53,27 @@ const isMobile = ref(false)
 const mobileOpen = ref(false)
 
 const menuMap = {
-  order: { title: '录单', legacyUrl: '/order' },
-  orders: { title: '订单列表', legacyUrl: '/orders' },
-  producePlan: { title: '生产计划/开始生产', legacyUrl: '/produce/unproduced' },
-  produceRunning: { title: '生产中', legacyUrl: '/produce/running?legacy=1' },
-  produceLogs: { title: '生产日志', legacyUrl: '/produce/logs?legacy=1' },
-  materials: { title: '物料档案/库存', legacyUrl: '/materials?legacy=1' },
-  bom: { title: 'BOM配方维护', legacyUrl: '/bom?legacy=1' },
-  customers: { title: '客户档案', legacyUrl: '/customers' },
-  products: { title: '商品档案', legacyUrl: '/products' },
-  departments: { title: '部门维护', legacyUrl: '/company/departments' },
-  employees: { title: '员工维护', legacyUrl: '/company/employees' },
-  inventory: { title: '成品库存', legacyUrl: '/products/inventory' },
-  quotePrint: { title: '报价导出', legacyUrl: '/products/print' },
-  machines: { title: '设备产能配置', legacyUrl: '/produce/machines' },
-  senderSettings: { title: '发货人设置', legacyUrl: '/settings/sender' },
-  audit: { title: '操作日志', legacyUrl: '/audit' },
-  reqProduct: { title: '产品需求表', legacyUrl: '/req/product' },
-  reqDev: { title: '开发需求表', legacyUrl: '/req/dev' },
-  reqUnit: { title: '单元测试表', legacyUrl: '/req/unit' },
-  reqApi: { title: 'API 测试表', legacyUrl: '/req/api' },
-  reqReview: { title: '需求审核表', legacyUrl: '/req/review' },
+  order: { title: '录单' },
+  orders: { title: '订单列表' },
+  producePlan: { title: '生产计划/开始生产' },
+  produceRunning: { title: '生产中' },
+  produceLogs: { title: '生产日志' },
+  materials: { title: '物料档案/库存' },
+  bom: { title: 'BOM配方维护' },
+  customers: { title: '客户档案' },
+  products: { title: '商品档案' },
+  departments: { title: '部门维护' },
+  employees: { title: '员工维护' },
+  inventory: { title: '成品库存' },
+  quotePrint: { title: '报价导出' },
+  machines: { title: '设备产能配置' },
+  senderSettings: { title: '发货人设置' },
+  audit: { title: '操作日志' },
+  reqProduct: { title: '产品需求表' },
+  reqDev: { title: '开发需求表' },
+  reqUnit: { title: '单元测试表' },
+  reqApi: { title: 'API 测试表' },
+  reqReview: { title: '需求审核表' },
 }
 
 const internalViews = {
@@ -173,8 +172,7 @@ const toggleLabel = computed(() => {
   return collapsed.value ? '弹出菜单' : '收起菜单'
 })
 const title = computed(() => menuMap[currentKey.value]?.title || '')
-const legacyUrl = computed(() => menuMap[currentKey.value]?.legacyUrl || '')
-const currentInternalView = computed(() => internalViews[currentKey.value] || LegacyMigrationView)
+const currentInternalView = computed(() => internalViews[currentKey.value] || OrdersView)
 </script>
 
 <style scoped>

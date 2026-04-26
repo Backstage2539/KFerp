@@ -215,7 +215,7 @@
 
 ## 前端改动点
 
-- 将 `生产计划/开始生产` 从 `templates/unprod_summary.html` 迁移到统一的 Vue/Vite 前端
+- `生产计划/开始生产` 已迁移到统一的 Vue/Vite 前端，旧 `templates/unprod_summary.html` 不再保留
 - Vue 页面补齐：
   - `烘焙建议` 可编辑 `每锅数量(g)` 输入框
   - `最终投料数(g)` 展示列

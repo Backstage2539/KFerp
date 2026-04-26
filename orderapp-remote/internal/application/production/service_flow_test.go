@@ -15,6 +15,14 @@ func (r *fakeFlowRepo) CreateBatch(ctx context.Context, cmd CreateBatchCommand) 
 	return CreateBatchResult{}, nil
 }
 
+func (r *fakeFlowRepo) ListBatches(ctx context.Context, cmd ListBatchesCommand) ([]BatchListItem, error) {
+	return nil, nil
+}
+
+func (r *fakeFlowRepo) Detail(ctx context.Context, batchID string) (BatchDetail, error) {
+	return BatchDetail{}, nil
+}
+
 func (r *fakeFlowRepo) PreviewDeduct(ctx context.Context, batchID string) (DeductPreview, error) {
 	return DeductPreview{}, nil
 }
@@ -81,4 +89,3 @@ func TestServiceOwnsRunningProductionUseCases(t *testing.T) {
 		t.Fatalf("Cancel command = %+v", repo.cancel)
 	}
 }
-

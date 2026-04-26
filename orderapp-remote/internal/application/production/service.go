@@ -2,6 +2,8 @@ package production
 
 import (
 	"context"
+	"fmt"
+	"strings"
 	"time"
 )
 
@@ -53,6 +55,47 @@ type DeductConfirmResult struct {
 	Summary []SummaryItem
 }
 
+type ListBatchesCommand struct {
+	Limit    int
+	Status   string
+	Operator string
+	From     string
+	To       string
+}
+
+type BatchListItem struct {
+	BatchID      string
+	Status       string
+	Operator     string
+	CreatedAt    string
+	OrderCount   int64
+	DeductStatus string
+	DeductedAt   string
+	NeedG        int64
+	DeductedG    int64
+	GapG         int64
+
+	CreatedBy       string
+	CreatedTime     string
+	StatusChangedAt string
+	StatusText      string
+	CreateTime      string
+	DeductTime      string
+	DeductState     string
+}
+
+type BatchDetail struct {
+	BatchID      string
+	Status       string
+	Operator     string
+	CreatedAt    string
+	Orders       []int64
+	Summary      []SummaryItem
+	CreatedBy    string
+	CreatedTime  string
+	StatusSource string
+}
+
 type RunningItem struct {
 	ID            int64
 	BatchID       string
@@ -98,6 +141,8 @@ type CancelCommand struct {
 
 type Repository interface {
 	CreateBatch(ctx context.Context, cmd CreateBatchCommand) (CreateBatchResult, error)
+	ListBatches(ctx context.Context, cmd ListBatchesCommand) ([]BatchListItem, error)
+	Detail(ctx context.Context, batchID string) (BatchDetail, error)
 	PreviewDeduct(ctx context.Context, batchID string) (DeductPreview, error)
 	ConfirmDeduct(ctx context.Context, batchID, operator string) (DeductConfirmResult, error)
 	ListRunning(ctx context.Context) ([]RunningItem, error)
@@ -116,6 +161,28 @@ func NewService(repo Repository) *Service {
 
 func (s *Service) CreateBatch(ctx context.Context, cmd CreateBatchCommand) (CreateBatchResult, error) {
 	return s.repo.CreateBatch(ctx, cmd)
+}
+
+func (s *Service) ListBatches(ctx context.Context, cmd ListBatchesCommand) ([]BatchListItem, error) {
+	if cmd.Limit <= 0 {
+		cmd.Limit = 20
+	}
+	if cmd.Limit > 200 {
+		cmd.Limit = 200
+	}
+	cmd.Status = strings.TrimSpace(cmd.Status)
+	cmd.Operator = strings.TrimSpace(cmd.Operator)
+	cmd.From = strings.TrimSpace(cmd.From)
+	cmd.To = strings.TrimSpace(cmd.To)
+	return s.repo.ListBatches(ctx, cmd)
+}
+
+func (s *Service) Detail(ctx context.Context, batchID string) (BatchDetail, error) {
+	batchID = strings.TrimSpace(batchID)
+	if batchID == "" {
+		return BatchDetail{}, fmt.Errorf("batch_id required")
+	}
+	return s.repo.Detail(ctx, batchID)
 }
 
 func (s *Service) PreviewDeduct(ctx context.Context, batchID string) (DeductPreview, error) {

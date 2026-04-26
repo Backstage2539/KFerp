@@ -1,7 +1,5 @@
 package main
 
-import "html/template"
-
 type Option struct {
 	ID   int64
 	Name string
@@ -36,13 +34,6 @@ type PageData struct {
 	PayStatuses  []Option
 	OrderTypes   []Option
 	Products     []ProductOption
-	ProductsJSON template.JS
-	EditMode     bool
-	EditID       int64
-	EditDataJSON template.JS
-	Ok           bool
-	OrderNo      string
-	Error        string
 }
 
 type OrderRow struct {
@@ -63,82 +54,6 @@ type OrderRow struct {
 	CreatedByEmployee string `json:"created_by_employee"`
 	Notes             string `json:"notes"`
 	IsVoid            bool   `json:"is_void"`
-}
-
-type OrdersPageData struct {
-	Q                string
-	From             string
-	To               string
-	Preset           string
-	Void             string // normal|void|all
-	CustomerID       int64
-	PayStatusFilter  int64
-	ShipStatusFilter int64
-	ProcStatusFilter int64
-	UnproducedOnly   bool
-	CompletedOnly    bool
-	Summary          OrdersSummary
-	Rows             []OrderRow
-	OrderTypeOpts    []Option
-	PayOpts          []Option
-	ShipOpts         []Option
-	ProcessOpts      []Option
-	Limit            int
-	Offset           int
-	Page             int
-	HasPrev          bool
-	HasNext          bool
-	Error            string
-}
-
-type OrderItemRow struct {
-	LineNo    int
-	Product   string
-	ItemName  string
-	Qty       *float64
-	Unit      *string
-	Spec      *string
-	UnitPrice *float64
-	LineTotal *float64
-}
-
-type OrderDetailData struct {
-	ID                    int64
-	OrderNo               string
-	OrderDate             string
-	Customer              string
-	Source                string
-	OrderType             string
-	PayStatus             string
-	ShipStatus            string
-	OrderTypeID           int64
-	PayStatusID           int64
-	ShipStatusID          int64
-	ProcessStatus         string
-	CreatedByEmployee     string
-	IsVoid                bool
-	VoidedAt              *string
-	VoidReason            *string
-	Notes                 *string
-	TotalAmount           float64
-	ShippingAmt           float64
-	DiscountAmt           float64
-	RoundToInt            bool
-	RoundingAmt           float64
-	GrandTotal            float64
-	ExpressFee            *string
-	OutsourceMaterialFee  float64
-	OutsourceRoastFee     float64
-	OutsourcePackagingFee float64
-	OutsourceManualFee    float64
-	OutsourceTaxFee       float64
-	OutsourceOtherFee     float64
-	OutsourceTotalFee     float64
-	OrderTypeOpts         []Option
-	PayOpts               []Option
-	ShipOpts              []Option
-	Items                 []OrderItemRow
-	Error                 string
 }
 
 type CreateOrderRequest struct {

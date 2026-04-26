@@ -37,11 +37,9 @@ func registerCustomerRoutes(e *echo.Echo, pool *pgxpool.Pool, schema string, ass
 	e.GET("/api/customers/:id", h.detailAPI)
 	e.PUT("/api/customers/:id", h.updateAPI)
 	e.GET("/customers/new", h.new)
-	e.POST("/customers/new", h.create)
 	e.GET("/customers/:id", h.edit)
 	// prefs for order auto-fill
 	e.GET("/customers/:id/prefs", h.prefs)
-	e.POST("/customers/:id", h.update)
 	// customer assets upload
 	e.POST("/customers/:id/assets/upload", h.uploadAsset)
 	e.POST("/customers/:id/assets/delete", h.deleteAsset)
@@ -115,48 +113,7 @@ type customerEditorAPIResponse struct {
 }
 
 func (h customerHandler) index(c echo.Context) error {
-	if strings.TrimSpace(c.QueryParam("legacy")) != "1" {
-		return vueShellRedirect(c, "customers")
-	}
-
-	data := CustomersPageData{Q: strings.TrimSpace(c.QueryParam("q"))}
-	data.Limit = intParam(c, "limit", 10)
-	if data.Limit <= 0 || data.Limit > 200 {
-		data.Limit = 10
-	}
-	data.Offset = intParam(c, "offset", 0)
-	if data.Offset < 0 {
-		data.Offset = 0
-	}
-	if p := intParam(c, "page", 0); p > 0 {
-		data.Offset = (p - 1) * data.Limit
-	}
-	if data.Limit > 0 {
-		data.Page = (data.Offset / data.Limit) + 1
-	} else {
-		data.Page = 1
-	}
-
-	sources, _ := fetchOptions(c.Request().Context(), h.pool, fmt.Sprintf("SELECT id, name FROM %s.sources ORDER BY id", h.schema))
-	types, _ := fetchOptions(c.Request().Context(), h.pool, fmt.Sprintf("SELECT id, name FROM %s.order_types ORDER BY id", h.schema))
-	data.Sources = sources
-	data.OrderTypes = types
-
-	rows, hasNext, err := fetchCustomers(c.Request().Context(), h.pool, h.schema, data.Q, data.Limit, data.Offset)
-	if err != nil {
-		data.Error = err.Error()
-	} else {
-		data.Rows = rows
-		data.HasPrev = data.Offset > 0
-		data.HasNext = hasNext
-		if data.Limit > 0 {
-			data.Page = (data.Offset / data.Limit) + 1
-		} else {
-			data.Page = 1
-		}
-	}
-	return c.Render(http.StatusOK, "customers.html", data)
-
+	return vueShellRedirect(c, "customers")
 }
 
 func (h customerHandler) indexAPI(c echo.Context) error {
@@ -346,39 +303,11 @@ func wantsJSON(c echo.Context) bool {
 }
 
 func (h customerHandler) new(c echo.Context) error {
-	if strings.TrimSpace(c.QueryParam("legacy")) != "1" {
-		return vueShellRedirectWith(c, "customers", map[string]string{"mode": "new"})
-	}
-	data := CustomerEditData{Active: true}
-	data.Sources, _ = fetchOptions(c.Request().Context(), h.pool, fmt.Sprintf("SELECT id, name FROM %s.sources ORDER BY id", h.schema))
-	data.OrderTypes, _ = fetchOptions(c.Request().Context(), h.pool, fmt.Sprintf("SELECT id, name FROM %s.order_types ORDER BY id", h.schema))
-	// allow returning back to order entry
+	target := map[string]string{"mode": "new"}
 	if strings.TrimSpace(c.QueryParam("from")) == "order" {
-		data.From = "order"
+		target["from"] = "order"
 	}
-	return c.Render(http.StatusOK, "customer_edit.html", data)
-
-}
-
-func (h customerHandler) create(c echo.Context) error {
-	var req CustomerUpsertRequest
-	if err := c.Bind(&req); err != nil {
-		return c.String(http.StatusBadRequest, "bad request")
-	}
-	id, err := h.customer.Upsert(c.Request().Context(), actorOf(c), nil, customerUpsertCommandFromRequest(req))
-	if err != nil {
-		data := CustomerEditData{Active: true, Name: req.Name, RawName: req.RawName, Contact: req.Contact, Phone: req.Phone, Address: req.Address, Error: err.Error()}
-		if strings.TrimSpace(c.QueryParam("from")) == "order" {
-			data.From = "order"
-		}
-		return c.Render(http.StatusOK, "customer_edit.html", data)
-	}
-	// if created from order entry, go back to order page
-	if strings.TrimSpace(c.QueryParam("from")) == "order" {
-		return c.Redirect(http.StatusSeeOther, "/app/order")
-	}
-	return c.Redirect(http.StatusSeeOther, fmt.Sprintf("/app/customers/%d", id))
-
+	return vueShellRedirectWith(c, "customers", target)
 }
 
 func (h customerHandler) edit(c echo.Context) error {
@@ -386,32 +315,7 @@ func (h customerHandler) edit(c echo.Context) error {
 	if err != nil || id <= 0 {
 		return c.String(http.StatusBadRequest, "invalid id")
 	}
-	if strings.TrimSpace(c.QueryParam("legacy")) != "1" {
-		return vueShellRedirectWith(c, "customers", map[string]string{"edit_id": strconv.FormatInt(id, 10)})
-	}
-	data, err := fetchCustomerByID(c.Request().Context(), h.pool, h.schema, id)
-	if err != nil {
-		return c.String(http.StatusInternalServerError, err.Error())
-	}
-	if data == nil {
-		return c.String(http.StatusNotFound, "not found")
-	}
-	if msg := strings.TrimSpace(c.QueryParam("err")); msg != "" {
-		data.Error = msg
-	}
-	if strings.TrimSpace(c.QueryParam("ok")) != "" {
-		data.Ok = true
-	}
-	data.Sources, _ = fetchOptions(c.Request().Context(), h.pool, fmt.Sprintf("SELECT id, name FROM %s.sources ORDER BY id", h.schema))
-	data.OrderTypes, _ = fetchOptions(c.Request().Context(), h.pool, fmt.Sprintf("SELECT id, name FROM %s.order_types ORDER BY id", h.schema))
-	if assets, err := fetchCustomerAssets(c.Request().Context(), h.pool, h.schema, id); err == nil {
-		data.Assets = assets
-	}
-	if dash, err := fetchCustomerDashboard(c.Request().Context(), h.pool, h.schema, id); err == nil {
-		data.Dash = dash
-	}
-	return c.Render(http.StatusOK, "customer_edit.html", data)
-
+	return vueShellRedirectWith(c, "customers", map[string]string{"edit_id": strconv.FormatInt(id, 10)})
 }
 
 func (h customerHandler) prefs(c echo.Context) error {
@@ -424,24 +328,6 @@ func (h customerHandler) prefs(c echo.Context) error {
 		return c.String(http.StatusInternalServerError, err.Error())
 	}
 	return c.JSON(http.StatusOK, p)
-
-}
-
-func (h customerHandler) update(c echo.Context) error {
-	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
-	if err != nil || id <= 0 {
-		return c.String(http.StatusBadRequest, "invalid id")
-	}
-	var req CustomerUpsertRequest
-	if err := c.Bind(&req); err != nil {
-		return c.String(http.StatusBadRequest, "bad request")
-	}
-	_, err = h.customer.Upsert(c.Request().Context(), actorOf(c), &id, customerUpsertCommandFromRequest(req))
-	if err != nil {
-		data := CustomerEditData{ID: id, Active: strings.TrimSpace(req.Active) != "", Name: req.Name, RawName: req.RawName, Contact: req.Contact, Phone: req.Phone, Address: req.Address, Error: err.Error()}
-		return c.Render(http.StatusOK, "customer_edit.html", data)
-	}
-	return c.Redirect(http.StatusSeeOther, fmt.Sprintf("/app/customers/%d", id))
 
 }
 

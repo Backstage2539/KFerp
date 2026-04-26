@@ -117,19 +117,6 @@ func TestBuildProducePlanDisplayRowsFallsBackToPointEight(t *testing.T) {
 	}
 }
 
-func TestProduceRunningTemplateContainsFinishedInventoryFields(t *testing.T) {
-	body, err := os.ReadFile("templates/produce_running.html")
-	if err != nil {
-		t.Fatal(err)
-	}
-	content := string(body)
-	for _, needle := range []string{"finished_units", "finished_loose_g", "烘焙剩余请填入散装余量", "计划投料数", "BOM出品率", "取消生产", "/produce/running/cancel"} {
-		if !strings.Contains(content, needle) {
-			t.Fatalf("produce_running.html missing %q", needle)
-		}
-	}
-}
-
 func TestVueShellProducePlanIsNoLongerTemplateDriven(t *testing.T) {
 	body, err := os.ReadFile("frontend-vue-shell/src/App.vue")
 	if err != nil {

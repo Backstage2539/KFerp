@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -275,11 +274,6 @@ func buildRoastPlanMaterialRatios(rows []UnprodNeedRow, bomMap map[int64][]bomNe
 		}
 	}
 	return out
-}
-
-func (d UnprodSummaryPageData) JSONBootstrap() string {
-	b, _ := json.Marshal(d)
-	return string(b)
 }
 
 func registerUnprodSummaryPages(e *echo.Echo, pool *pgxpool.Pool, schema string) {

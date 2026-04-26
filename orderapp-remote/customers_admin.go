@@ -24,19 +24,6 @@ type CustomerRow struct {
 	Updated            string  `json:"updated"`
 }
 
-type CustomersPageData struct {
-	Q          string
-	Rows       []CustomerRow
-	Sources    []Option
-	OrderTypes []Option
-	Limit      int
-	Offset     int
-	Page       int
-	HasPrev    bool
-	HasNext    bool
-	Error      string
-}
-
 type CustomerDashboard struct {
 	TotalOrders     int
 	UnpaidOrders    int
@@ -55,14 +42,7 @@ type CustomerEditData struct {
 	Address            string
 	DefaultSourceID    string
 	DefaultOrderTypeID string
-	Sources            []Option
-	OrderTypes         []Option
-	Assets             []CustomerAsset
-	Dash               CustomerDashboard
-	From               string
-	Ok                 bool
 	Active             bool
-	Error              string
 }
 
 type CustomerUpsertRequest struct {

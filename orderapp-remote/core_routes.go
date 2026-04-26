@@ -47,23 +47,7 @@ func (h coreHandler) login(c echo.Context) error {
 }
 
 func (h coreHandler) audit(c echo.Context) error {
-	if strings.TrimSpace(c.QueryParam("legacy")) != "1" {
-		return vueShellRedirect(c, "audit")
-	}
-
-	data := AuditPageData{
-		From:       strings.TrimSpace(c.QueryParam("from")),
-		To:         strings.TrimSpace(c.QueryParam("to")),
-		Q:          strings.TrimSpace(c.QueryParam("q")),
-		EntityType: strings.TrimSpace(c.QueryParam("type")),
-	}
-	rows, err := fetchAuditPage(c.Request().Context(), h.pool, h.schema, data.From, data.To, data.Q, data.EntityType, 200)
-	if err != nil {
-		data.Error = err.Error()
-	} else {
-		data.Rows = rows
-	}
-	return c.Render(http.StatusOK, "audit.html", data)
+	return vueShellRedirect(c, "audit")
 }
 
 func (h coreHandler) auditAPI(c echo.Context) error {

@@ -14,6 +14,14 @@ func (r *fakeRepo) CreateBatch(ctx context.Context, cmd CreateBatchCommand) (Cre
 	return CreateBatchResult{BatchID: "P1", OrderCount: len(cmd.OrderIDs)}, nil
 }
 
+func (r *fakeRepo) ListBatches(ctx context.Context, cmd ListBatchesCommand) ([]BatchListItem, error) {
+	return []BatchListItem{{BatchID: "P1"}}, nil
+}
+
+func (r *fakeRepo) Detail(ctx context.Context, batchID string) (BatchDetail, error) {
+	return BatchDetail{BatchID: batchID}, nil
+}
+
 func (r *fakeRepo) PreviewDeduct(ctx context.Context, batchID string) (DeductPreview, error) {
 	return DeductPreview{BatchID: batchID}, nil
 }
@@ -57,5 +65,13 @@ func TestServiceDelegatesProductionUseCases(t *testing.T) {
 	conf, err := svc.ConfirmDeduct(context.Background(), "P1", "op")
 	if err != nil || conf.Status != "deducted" {
 		t.Fatalf("ConfirmDeduct() = %+v, %v", conf, err)
+	}
+	rows, err := svc.ListBatches(context.Background(), ListBatchesCommand{})
+	if err != nil || len(rows) != 1 || rows[0].BatchID != "P1" {
+		t.Fatalf("ListBatches() = %+v, %v", rows, err)
+	}
+	detail, err := svc.Detail(context.Background(), " P1 ")
+	if err != nil || detail.BatchID != "P1" {
+		t.Fatalf("Detail() = %+v, %v", detail, err)
 	}
 }

@@ -88,8 +88,8 @@ func TestVueShellDoesNotEmbedLegacyTemplatesInIframe(t *testing.T) {
 			t.Fatalf("Vue shell still embeds legacy pages through iframe concern %q", forbidden)
 		}
 	}
-	if !strings.Contains(content, "LegacyMigrationView") {
-		t.Fatal("Vue shell should render a Vue-owned migration boundary for pages not yet implemented")
+	if strings.Contains(content, "LegacyMigrationView") || strings.Contains(content, "legacyUrl") {
+		t.Fatal("Vue shell should no longer expose legacy fallback pages after migrated pages were deleted")
 	}
 }
 

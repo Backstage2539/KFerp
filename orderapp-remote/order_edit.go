@@ -26,8 +26,6 @@ type OrderEditItem struct {
 }
 
 type OrderEditData struct {
-	PageData PageData
-
 	ID             int64
 	OrderNo        string
 	OrderDate      string
@@ -149,7 +147,6 @@ func fetchOrderEdit(ctx context.Context, pool *pgxpool.Pool, schema string, id i
 	d.OutsourceTaxFee = fmt.Sprintf("%.2f", outsourceTax)
 	d.OutsourceOtherFee = fmt.Sprintf("%.2f", outsourceOther)
 	d.OutsourceTotalFee = fmt.Sprintf("%.2f", outsourceTotal)
-	d.PageData.Today = d.OrderDate
 
 	itemsQ := fmt.Sprintf(`
 		SELECT oi.id, oi.line_no,
