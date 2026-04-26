@@ -68,7 +68,7 @@
 
 - [x] Run `go test ./... -count=1`.
 - [x] Run `npm run build` in `orderapp-remote/frontend-vue-shell`.
-- [ ] Push `codex/ddd-module-split-20260426`.
-- [ ] Fast-forward merge into `develop`.
-- [ ] Deploy from `develop`.
-- [ ] Smoke test Vue and API routes after deployment.
+- [x] Push `codex/ddd-module-split-20260426`.
+- [x] Fast-forward merge into `develop`.
+- [x] Deploy from `develop`.
+- [x] Smoke test Vue and API routes after deployment.
