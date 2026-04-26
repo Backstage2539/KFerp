@@ -82,6 +82,61 @@ type InlineUpdateCommand struct {
 	Notes           string
 }
 
+type OrderListQuery struct {
+	Q               string
+	From            string
+	To              string
+	Void            string
+	CustomerID      int64
+	PayStatusID     int64
+	ShipStatusID    int64
+	ProcessStatusID int64
+	UnproducedOnly  bool
+	CompletedOnly   bool
+	Limit           int
+	Offset          int
+}
+
+type OrderListResult struct {
+	Rows            []OrderRow
+	Summary         OrdersSummary
+	OrderTypes      []Option
+	PayStatuses     []Option
+	ShipStatuses    []Option
+	ProcessStatuses []Option
+	HasNext         bool
+}
+
+type Option struct {
+	ID   int64  `json:"id"`
+	Name string `json:"name"`
+}
+
+type OrdersSummary struct {
+	Orders    int `json:"orders"`
+	Customers int `json:"customers"`
+}
+
+type OrderRow struct {
+	ID                int64  `json:"id"`
+	OrderNo           string `json:"order_no"`
+	OrderDate         string `json:"order_date"`
+	CustomerID        int64  `json:"customer_id"`
+	Customer          string `json:"customer"`
+	GrandTotal        string `json:"grand_total"`
+	OrderType         string `json:"order_type"`
+	PayStatus         string `json:"pay_status"`
+	ShipStatus        string `json:"ship_status"`
+	OrderTypeID       int64  `json:"order_type_id"`
+	PayStatusID       int64  `json:"pay_status_id"`
+	ShipStatusID      int64  `json:"ship_status_id"`
+	ProcessStatusID   int64  `json:"process_status_id"`
+	ProcessStatus     string `json:"process_status"`
+	CreatedByEmployee string `json:"created_by_employee"`
+	Notes             string `json:"notes"`
+	IsVoid            bool   `json:"is_void"`
+}
+
 type OutsourceTemplate struct {
 	ID                int64   `json:"id"`
 	Name              string  `json:"name"`
@@ -107,6 +162,7 @@ type Repository interface {
 	InlineUpdate(ctx context.Context, id int64, actor string, cmd InlineUpdateCommand) error
 	Void(ctx context.Context, id int64, actor, reason string) error
 	Unvoid(ctx context.Context, id int64, actor string) error
+	ListOrders(ctx context.Context, query OrderListQuery) (OrderListResult, error)
 	ListOutsourceTemplates(ctx context.Context) ([]OutsourceTemplate, error)
 	SaveOutsourceTemplate(ctx context.Context, cmd SaveOutsourceTemplateCommand) error
 }
@@ -169,6 +225,22 @@ func (s *Service) Void(ctx context.Context, id int64, actor, reason string) erro
 
 func (s *Service) Unvoid(ctx context.Context, id int64, actor string) error {
 	return s.repo.Unvoid(ctx, id, actor)
+}
+
+func (s *Service) ListOrders(ctx context.Context, query OrderListQuery) (OrderListResult, error) {
+	if query.Limit <= 0 {
+		query.Limit = 10
+	}
+	if query.Limit > 200 {
+		query.Limit = 200
+	}
+	if query.Offset < 0 {
+		query.Offset = 0
+	}
+	if strings.TrimSpace(query.Void) == "" {
+		query.Void = "normal"
+	}
+	return s.repo.ListOrders(ctx, query)
 }
 
 func (s *Service) ListOutsourceTemplates(ctx context.Context) ([]OutsourceTemplate, error) {

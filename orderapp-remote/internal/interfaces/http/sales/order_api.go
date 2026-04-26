@@ -82,28 +82,36 @@ func registerOrderAPI(e *echo.Echo, pool *pgxpool.Pool, schema string) {
 
 func (h orderAPIHandler) list(c echo.Context) error {
 	query := ordersQueryFromContext(c)
-	rows, hasNext, err := fetchOrders(c.Request().Context(), h.pool, h.schema, query.Q, query.From, query.To, query.Void, query.CustomerID, query.PayStatusID, query.ShipStatusID, query.ProcessStatusID, query.UnproducedOnly, query.CompletedOnly, query.Limit, query.Offset)
+	result, err := h.sales.ListOrders(c.Request().Context(), salesapp.OrderListQuery{
+		Q:               query.Q,
+		From:            query.From,
+		To:              query.To,
+		Void:            query.Void,
+		CustomerID:      query.CustomerID,
+		PayStatusID:     query.PayStatusID,
+		ShipStatusID:    query.ShipStatusID,
+		ProcessStatusID: query.ProcessStatusID,
+		UnproducedOnly:  query.UnproducedOnly,
+		CompletedOnly:   query.CompletedOnly,
+		Limit:           query.Limit,
+		Offset:          query.Offset,
+	})
 	if err != nil {
 		return c.JSON(http.StatusInternalServerError, map[string]any{"error": err.Error()})
 	}
-	summary, _ := fetchOrdersSummary(c.Request().Context(), h.pool, h.schema, query.Q, query.From, query.To, query.Void, query.CustomerID, query.PayStatusID, query.ShipStatusID, query.ProcessStatusID, query.UnproducedOnly, query.CompletedOnly)
-	orderTypes, _ := fetchOptions(c.Request().Context(), h.pool, "SELECT id, name FROM "+h.schema+".order_types ORDER BY id")
-	payStatuses, _ := fetchOptions(c.Request().Context(), h.pool, "SELECT id, name FROM "+h.schema+".pay_statuses ORDER BY id")
-	shipStatuses, _ := fetchOptions(c.Request().Context(), h.pool, "SELECT id, name FROM "+h.schema+".ship_statuses ORDER BY id")
-	processStatuses, _ := fetchOptions(c.Request().Context(), h.pool, "SELECT id, name FROM "+h.schema+".order_process_statuses WHERE active=true ORDER BY sort,id")
 
 	return c.JSON(http.StatusOK, map[string]any{
-		"rows":             rows,
-		"summary":          summary,
-		"order_types":      apiOptions(orderTypes),
-		"pay_statuses":     apiOptions(payStatuses),
-		"ship_statuses":    apiOptions(shipStatuses),
-		"process_statuses": apiOptions(processStatuses),
+		"rows":             result.Rows,
+		"summary":          result.Summary,
+		"order_types":      result.OrderTypes,
+		"pay_statuses":     result.PayStatuses,
+		"ship_statuses":    result.ShipStatuses,
+		"process_statuses": result.ProcessStatuses,
 		"page":             query.Page,
 		"limit":            query.Limit,
 		"offset":           query.Offset,
 		"has_prev":         query.Offset > 0,
-		"has_next":         hasNext,
+		"has_next":         result.HasNext,
 	})
 }
 

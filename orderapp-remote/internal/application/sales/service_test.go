@@ -36,6 +36,10 @@ func (r *fakeRepo) Unvoid(ctx context.Context, id int64, actor string) error {
 	return nil
 }
 
+func (r *fakeRepo) ListOrders(ctx context.Context, query OrderListQuery) (OrderListResult, error) {
+	return OrderListResult{}, nil
+}
+
 func (r *fakeRepo) ListOutsourceTemplates(ctx context.Context) ([]OutsourceTemplate, error) {
 	return []OutsourceTemplate{{ID: 1, Name: "默认", IsDefault: true, RoastUnitPrice: 2.5}}, nil
 }

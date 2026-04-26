@@ -12,7 +12,6 @@ func RegisterRoutes(e *echo.Echo, pool *pgxpool.Pool, schema string) {
 	registerUnprodSummaryAPI(e, pool, schema)
 	registerProducePlanPages(e, pool, schema)
 	registerMachineCapacityPages(e, pool, schema)
-	registerProducePlanAllocate(e, pool, schema)
 	registerProductionFlowPages(e, pool, schema)
 	registerProductionLogPages(e, pool, schema)
 	registerProduceBatchAPI(e, pool, schema)

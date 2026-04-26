@@ -54,6 +54,33 @@ func TestOrderAPIFormReturnsRetailSpecs(t *testing.T) {
 	}
 }
 
+func TestOrderAPIListUsesSalesReadModel(t *testing.T) {
+	pool, schema := newOrderAPITestDB(t)
+	ctx := context.Background()
+	seedOrderAPITestData(t, ctx, pool, schema)
+	mustExecOrderAPITestSQL(t, ctx, pool, fmt.Sprintf(`
+		INSERT INTO %s.orders(id, order_no, order_date, customer_id, order_type_id, pay_status_id, ship_status_id, process_status_id, grand_total, is_void)
+		VALUES (9, 'SO-API-LIST', '2026-04-26', 3, 2, 1, 1, 1, 123.45, false);
+		INSERT INTO %s.order_audit_logs(order_id, actor, field, old_value, new_value)
+		VALUES (9, '测试员', 'create', '', 'SO-API-LIST');
+	`, schema, schema))
+
+	e := newOrderAPITestEcho(pool, schema)
+	req := httptest.NewRequest(http.MethodGet, "/api/orders?limit=1", nil)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET /api/orders status = %d, want 200, body=%s", rec.Code, rec.Body.String())
+	}
+	body := rec.Body.String()
+	for _, needle := range []string{`"rows"`, `"order_no":"SO-API-LIST"`, `"summary"`, `"order_types"`, `"process_statuses"`} {
+		if !strings.Contains(body, needle) {
+			t.Fatalf("GET /api/orders missing %s: %s", needle, body)
+		}
+	}
+}
+
 func TestOrderAPISavesRetailCustomSpecPrice(t *testing.T) {
 	pool, schema := newOrderAPITestDB(t)
 	ctx := context.Background()

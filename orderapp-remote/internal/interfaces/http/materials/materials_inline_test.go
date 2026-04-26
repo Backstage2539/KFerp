@@ -14,29 +14,6 @@ import (
 	"github.com/labstack/echo/v4"
 )
 
-func TestNormalizeMaterialInputRejectsInvalidValues(t *testing.T) {
-	_, err := normalizeMaterialInput(MaterialInput{
-		Code:          "bean-a",
-		Name:          "豆子A",
-		Kind:          "bean",
-		Unit:          "g",
-		PurchasePrice: -1,
-	})
-	if err == nil || !strings.Contains(err.Error(), "negative price") {
-		t.Fatalf("normalizeMaterialInput() error = %v, want negative price", err)
-	}
-}
-
-func TestNormalizeMaterialInputDefaultsKindAndUnit(t *testing.T) {
-	got, err := normalizeMaterialInput(MaterialInput{Code: " m-1 ", Name: " 物料1 "})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got.Code != "m-1" || got.Name != "物料1" || got.Kind != "other" || got.Unit != "g" {
-		t.Fatalf("normalizeMaterialInput() = %+v", got)
-	}
-}
-
 func TestVueShellUsesInternalMaterialsView(t *testing.T) {
 	app, err := os.ReadFile("frontend-vue-shell/src/App.vue")
 	if err != nil {
@@ -74,7 +51,8 @@ func TestVueShellUsesInternalMaterialsView(t *testing.T) {
 func TestMaterialsAPIInlineUpdateWritesAuditLog(t *testing.T) {
 	pool, schema := newProductionFlowTestDB(t)
 	ctx := context.Background()
-	if err := upsertMaterial(ctx, pool, schema, "m-api-1", "测试物料", "bean", "g", 10, 20, 1000, 0, 100, 0); err != nil {
+	if _, err := pool.Exec(ctx, fmt.Sprintf(`INSERT INTO %s.materials(code,name,kind,unit,purchase_price,sale_price,onhand_g,onhand_units,min_level_g,min_level_units,updated_at)
+		VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,now())`, schema), "m-api-1", "测试物料", "bean", "g", 10, 20, 1000, 0, 100, 0); err != nil {
 		t.Fatal(err)
 	}
 	var id int64

@@ -178,6 +178,80 @@ func TestProductionRunningUseCaseLivesInApplication(t *testing.T) {
 	}
 }
 
+func TestLegacyProductionAllocationPathIsRemoved(t *testing.T) {
+	root := moduleRoot(t)
+	if _, err := os.Stat(filepath.Join(root, "internal", "interfaces", "http", "production", "produce_plan_allocate.go")); err == nil {
+		t.Fatal("legacy /produce/plan/commit allocation route still exists in HTTP layer")
+	}
+	assertFileDoesNotContain(t, "internal/interfaces/http/production/module.go", []string{
+		"registerProducePlanAllocate",
+		"/produce/plan/commit",
+	})
+	assertPackageDoesNotContain(t, "internal/interfaces/http/production", []string{
+		"func allocateUnproducedBySummary",
+		"func allocateUnproducedRows",
+	})
+}
+
+func TestHTTPWriteHelperCopiesAreRemoved(t *testing.T) {
+	for _, check := range []struct {
+		rel       string
+		forbidden []string
+	}{
+		{
+			rel: "internal/interfaces/http/customer/customers_admin.go",
+			forbidden: []string{
+				"func upsertCustomer(",
+			},
+		},
+		{
+			rel: "internal/interfaces/http/customer/customers_inline.go",
+			forbidden: []string{
+				"func inlineUpdateCustomer(",
+			},
+		},
+		{
+			rel: "internal/interfaces/http/customer/customer_assets.go",
+			forbidden: []string{
+				"func insertCustomerAsset(",
+				"func deleteCustomerAssetByID(",
+			},
+		},
+		{
+			rel: "internal/interfaces/http/materials/materials.go",
+			forbidden: []string{
+				"func upsertMaterial(",
+				"func updateMaterialInline(",
+				"func logMaterialDiffsTx(",
+			},
+		},
+		{
+			rel: "internal/interfaces/http/sales/order_edit.go",
+			forbidden: []string{
+				"func updateOrderHeader(",
+			},
+		},
+	} {
+		assertFileDoesNotContain(t, check.rel, check.forbidden)
+	}
+}
+
+func TestSalesOrderReadModelLivesOutsideHTTPInterface(t *testing.T) {
+	assertFileDoesNotContain(t, "internal/interfaces/http/sales/order_api.go", []string{
+		"fetchOrders(",
+		"fetchOrdersSummary(",
+		"fetchOptions(c.Request().Context(), h.pool",
+	})
+	for _, rel := range []string{
+		"internal/interfaces/http/sales/orders.go",
+		"internal/interfaces/http/sales/orders_summary.go",
+	} {
+		if _, err := os.Stat(filepath.Join(moduleRoot(t), rel)); err == nil {
+			t.Fatalf("sales order read model SQL still lives in HTTP interface layer: %s", rel)
+		}
+	}
+}
+
 func TestPostgresAdaptersLiveOutsideHTTPInterface(t *testing.T) {
 	root := moduleRoot(t)
 	for _, rel := range []string{
@@ -255,6 +329,50 @@ func TestHTTPModulesDoNotImportSiblingHTTPModules(t *testing.T) {
 		}
 		return nil
 	}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func assertFileDoesNotContain(t *testing.T, rel string, forbidden []string) {
+	t.Helper()
+	body, err := os.ReadFile(filepath.Join(moduleRoot(t), rel))
+	if err != nil {
+		if os.IsNotExist(err) {
+			return
+		}
+		t.Fatal(err)
+	}
+	src := string(body)
+	for _, bad := range forbidden {
+		if strings.Contains(src, bad) {
+			t.Fatalf("%s contains forbidden DDD boundary leak %q", rel, bad)
+		}
+	}
+}
+
+func assertPackageDoesNotContain(t *testing.T, rel string, forbidden []string) {
+	t.Helper()
+	root := filepath.Join(moduleRoot(t), rel)
+	err := filepath.WalkDir(root, func(path string, entry os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if entry.IsDir() || !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
+			return nil
+		}
+		body, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		src := string(body)
+		for _, bad := range forbidden {
+			if strings.Contains(src, bad) {
+				t.Fatalf("%s contains forbidden DDD boundary leak %q", path, bad)
+			}
+		}
+		return nil
+	})
+	if err != nil {
 		t.Fatal(err)
 	}
 }

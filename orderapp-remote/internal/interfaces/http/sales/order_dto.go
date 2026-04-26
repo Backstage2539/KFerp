@@ -36,26 +36,6 @@ type PageData struct {
 	Products     []ProductOption
 }
 
-type OrderRow struct {
-	ID                int64  `json:"id"`
-	OrderNo           string `json:"order_no"`
-	OrderDate         string `json:"order_date"`
-	CustomerID        int64  `json:"customer_id"`
-	Customer          string `json:"customer"`
-	GrandTotal        string `json:"grand_total"`
-	OrderType         string `json:"order_type"`
-	PayStatus         string `json:"pay_status"`
-	ShipStatus        string `json:"ship_status"`
-	OrderTypeID       int64  `json:"order_type_id"`
-	PayStatusID       int64  `json:"pay_status_id"`
-	ShipStatusID      int64  `json:"ship_status_id"`
-	ProcessStatusID   int64  `json:"process_status_id"`
-	ProcessStatus     string `json:"process_status"`
-	CreatedByEmployee string `json:"created_by_employee"`
-	Notes             string `json:"notes"`
-	IsVoid            bool   `json:"is_void"`
-}
-
 type CreateOrderRequest struct {
 	OrderDate             string `form:"order_date"`
 	CustomerID            int64  `form:"customer_id"`

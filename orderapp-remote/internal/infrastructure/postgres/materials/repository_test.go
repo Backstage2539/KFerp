@@ -1,0 +1,29 @@
+package materials
+
+import (
+	"strings"
+	"testing"
+)
+
+func TestNormalizeMaterialInputRejectsInvalidValues(t *testing.T) {
+	_, err := normalizeMaterialInput(materialInput{
+		Code:          "bean-a",
+		Name:          "豆子A",
+		Kind:          "bean",
+		Unit:          "g",
+		PurchasePrice: -1,
+	})
+	if err == nil || !strings.Contains(err.Error(), "negative price") {
+		t.Fatalf("normalizeMaterialInput() error = %v, want negative price", err)
+	}
+}
+
+func TestNormalizeMaterialInputDefaultsKindAndUnit(t *testing.T) {
+	got, err := normalizeMaterialInput(materialInput{Code: " m-1 ", Name: " 物料1 "})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Code != "m-1" || got.Name != "物料1" || got.Kind != "other" || got.Unit != "g" {
+		t.Fatalf("normalizeMaterialInput() = %+v", got)
+	}
+}

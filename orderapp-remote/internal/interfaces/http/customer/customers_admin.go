@@ -4,10 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	support "orderapp/internal/interfaces/http/support"
-	"strconv"
 	"strings"
-	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -122,113 +119,4 @@ func fetchCustomerByID(ctx context.Context, pool *pgxpool.Pool, schema string, i
 		return nil, err
 	}
 	return &d, nil
-}
-
-func upsertCustomer(ctx context.Context, pool *pgxpool.Pool, schema string, actor string, id *int64, req *CustomerUpsertRequest) (newID int64, err error) {
-	name := strings.TrimSpace(req.Name)
-	if name == "" {
-		return 0, fmt.Errorf("name required")
-	}
-	raw := strings.TrimSpace(req.RawName)
-	contact := strings.TrimSpace(req.Contact)
-	phone := strings.TrimSpace(req.Phone)
-	address := strings.TrimSpace(req.Address)
-	active := strings.TrimSpace(req.Active) != ""
-
-	var ds *int
-	if strings.TrimSpace(req.DefaultSourceID) != "" {
-		if v, err := strconv.Atoi(strings.TrimSpace(req.DefaultSourceID)); err == nil && v > 0 {
-			ds = &v
-		}
-	}
-	var dt *int
-	if strings.TrimSpace(req.DefaultOrderTypeID) != "" {
-		if v, err := strconv.Atoi(strings.TrimSpace(req.DefaultOrderTypeID)); err == nil && v > 0 {
-			dt = &v
-		}
-	}
-
-	if raw == "" {
-		raw = name
-	}
-
-	conn, err := pool.Acquire(ctx)
-	if err != nil {
-		return 0, err
-	}
-	defer conn.Release()
-	tx, err := conn.Begin(ctx)
-	if err != nil {
-		return 0, err
-	}
-	defer func() { _ = tx.Rollback(ctx) }()
-
-	if id == nil {
-		q := fmt.Sprintf(`INSERT INTO %s.customers(name, raw_name, contact, phone, address, active, default_source_id, default_order_type_id, created_at, updated_at)
-			VALUES ($1,$2,$3,$4,$5,$6,$7,$8, now(), now()) RETURNING id`, schema)
-		if err := tx.QueryRow(ctx, q, name, raw, nullText(contact), nullText(phone), nullText(address), active, ds, dt).Scan(&newID); err != nil {
-			return 0, err
-		}
-		support.AuditInsert(ctx, pool, schema, actor, "customer", &newID, "create", nil, nil, nil, support.AuditMeta{"name": name})
-	} else {
-		newID = *id
-		// load old
-		var oName, oRaw, oContact, oPhone, oAddr string
-		var oActive bool
-		var oDS, oDT *int
-		q0 := fmt.Sprintf(`SELECT name, COALESCE(raw_name,''), COALESCE(contact,''), COALESCE(phone,''), COALESCE(address,''), active, default_source_id, default_order_type_id FROM %s.customers WHERE id=$1`, schema)
-		if err := tx.QueryRow(ctx, q0, newID).Scan(&oName, &oRaw, &oContact, &oPhone, &oAddr, &oActive, &oDS, &oDT); err != nil {
-			return 0, err
-		}
-
-		q := fmt.Sprintf(`UPDATE %s.customers SET name=$2, raw_name=$3, contact=$4, phone=$5, address=$6, active=$7,
-			default_source_id=$8, default_order_type_id=$9, updated_at=$10 WHERE id=$1`, schema)
-		if _, err := tx.Exec(ctx, q, newID, name, raw, nullText(contact), nullText(phone), nullText(address), active, ds, dt, time.Now()); err != nil {
-			return 0, err
-		}
-
-		// audit diffs
-		if oName != name {
-			support.AuditInsert(ctx, pool, schema, actor, "customer", &newID, "update", support.StrPtr("name"), support.StrPtr(oName), support.StrPtr(name), nil)
-		}
-		if oContact != contact {
-			support.AuditInsert(ctx, pool, schema, actor, "customer", &newID, "update", support.StrPtr("contact"), support.StrPtr(oContact), support.StrPtr(contact), nil)
-		}
-		if oPhone != phone {
-			support.AuditInsert(ctx, pool, schema, actor, "customer", &newID, "update", support.StrPtr("phone"), support.StrPtr(oPhone), support.StrPtr(phone), nil)
-		}
-		if oAddr != address {
-			support.AuditInsert(ctx, pool, schema, actor, "customer", &newID, "update", support.StrPtr("address"), support.StrPtr(oAddr), support.StrPtr(address), nil)
-		}
-		if oActive != active {
-			support.AuditInsert(ctx, pool, schema, actor, "customer", &newID, "update", support.StrPtr("active"), support.StrPtr(fmt.Sprintf("%v", oActive)), support.StrPtr(fmt.Sprintf("%v", active)), nil)
-		}
-		ods := ""
-		odt := ""
-		nds := ""
-		ndt := ""
-		if oDS != nil {
-			ods = fmt.Sprintf("%d", *oDS)
-		}
-		if oDT != nil {
-			odt = fmt.Sprintf("%d", *oDT)
-		}
-		if ds != nil {
-			nds = fmt.Sprintf("%d", *ds)
-		}
-		if dt != nil {
-			ndt = fmt.Sprintf("%d", *dt)
-		}
-		if ods != nds {
-			support.AuditInsert(ctx, pool, schema, actor, "customer", &newID, "update", support.StrPtr("default_source_id"), support.StrPtr(ods), support.StrPtr(nds), nil)
-		}
-		if odt != ndt {
-			support.AuditInsert(ctx, pool, schema, actor, "customer", &newID, "update", support.StrPtr("default_order_type_id"), support.StrPtr(odt), support.StrPtr(ndt), nil)
-		}
-	}
-
-	if err := tx.Commit(ctx); err != nil {
-		return 0, err
-	}
-	return newID, nil
 }
