@@ -13,8 +13,9 @@ func TestVueShellEmbedsBomWithoutNestedMenu(t *testing.T) {
 	}
 	appSrc := string(app)
 	for _, want := range []string{
-		"const BOM_REACT_EMBED_URL = '/bom-react?embed=1'",
-		"bom: { title: 'BOM配方维护', url: BOM_REACT_EMBED_URL }",
+		"const BOM_REACT_URL = '/bom-react'",
+		"bom: { title: 'BOM配方维护', legacyUrl: BOM_REACT_URL }",
+		"LegacyMigrationView",
 	} {
 		if !strings.Contains(appSrc, want) {
 			t.Fatalf("frontend-vue-shell/src/App.vue missing %q", want)

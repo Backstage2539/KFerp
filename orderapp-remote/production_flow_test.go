@@ -136,7 +136,7 @@ func TestVueShellProducePlanIsNoLongerTemplateDriven(t *testing.T) {
 		t.Fatal(err)
 	}
 	content := string(body)
-	for _, needle := range []string{"ProducePlanView", "view=producePlan", "producePlan: { title: '生产计划/开始生产', url: '/vue-shell?view=producePlan', internal: true }"} {
+	for _, needle := range []string{"ProducePlanView", "producePlan: ProducePlanView", "producePlan: { title: '生产计划/开始生产'"} {
 		if !strings.Contains(content, needle) {
 			t.Fatalf("App.vue missing %q", needle)
 		}

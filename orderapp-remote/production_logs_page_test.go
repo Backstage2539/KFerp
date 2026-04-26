@@ -39,7 +39,7 @@ func TestProductionMenusContainLogsEntry(t *testing.T) {
 	}{
 		{
 			path:  "frontend-vue-shell/src/App.vue",
-			wants: []string{"ProductionLogsView", "produceLogs", "生产日志", "/vue-shell?view=produceLogs"},
+			wants: []string{"ProductionLogsView", "produceLogs: ProductionLogsView", "produceLogs", "生产日志"},
 		},
 		{
 			path:  "frontend/src/bom/BomManager.tsx",

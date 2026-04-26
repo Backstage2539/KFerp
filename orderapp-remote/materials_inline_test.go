@@ -45,7 +45,7 @@ func TestVueShellUsesInternalMaterialsView(t *testing.T) {
 	src := string(app)
 	for _, want := range []string{
 		`import MaterialsView from './views/MaterialsView.vue'`,
-		`materials: { title: '物料档案/库存', url: '/vue-shell?view=materials', internal: true }`,
+		`materials: { title: '物料档案/库存', legacyUrl: '/materials?legacy=1' }`,
 		`materials: MaterialsView`,
 	} {
 		if !strings.Contains(src, want) {
