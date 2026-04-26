@@ -151,9 +151,85 @@ func TestProductionRunningUseCaseLivesInApplication(t *testing.T) {
 			}
 		}
 	}
+	assertHTTPPackageDoesNotImplementMethods(t, "internal/interfaces/http/production", map[string]bool{
+		"Start":  true,
+		"Finish": true,
+		"Cancel": true,
+	})
 	appPath := filepath.Join(root, "internal", "application", "production", "running_service.go")
 	if _, err := os.Stat(appPath); err != nil {
 		t.Fatalf("missing production running application service: %v", err)
+	}
+	appBody, err := os.ReadFile(appPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, forbidden := range []string{
+		"AllocateStartBatch",
+		"SaveRunningItems",
+		"SetOrdersProcessStatus",
+	} {
+		if strings.Contains(string(appBody), forbidden) {
+			t.Fatalf("production Start orchestration still calls non-atomic repository step %s", forbidden)
+		}
+	}
+	if !strings.Contains(string(appBody), "repo.Start(") {
+		t.Fatal("production Start should delegate atomic persistence to repo.Start")
+	}
+}
+
+func TestPostgresAdaptersLiveOutsideHTTPInterface(t *testing.T) {
+	root := moduleRoot(t)
+	for _, rel := range []string{
+		"internal/interfaces/http/catalog/catalog_application_repository.go",
+		"internal/interfaces/http/company/company_application_repository.go",
+		"internal/interfaces/http/customer/customer_application_repository.go",
+		"internal/interfaces/http/materials/materials_application_repository.go",
+		"internal/interfaces/http/production/production_application_repository.go",
+		"internal/interfaces/http/production/production_running_repository.go",
+		"internal/interfaces/http/sales/sales_order_repository.go",
+	} {
+		if _, err := os.Stat(filepath.Join(root, rel)); err == nil {
+			t.Fatalf("postgres adapter still lives in HTTP interface layer: %s", rel)
+		}
+	}
+	for _, rel := range []string{
+		"internal/infrastructure/postgres/catalog/repository.go",
+		"internal/infrastructure/postgres/company/repository.go",
+		"internal/infrastructure/postgres/customer/repository.go",
+		"internal/infrastructure/postgres/materials/repository.go",
+		"internal/infrastructure/postgres/production/repository.go",
+		"internal/infrastructure/postgres/sales/repository.go",
+	} {
+		if _, err := os.Stat(filepath.Join(root, rel)); err != nil {
+			t.Fatalf("missing postgres adapter under infrastructure: %s", rel)
+		}
+	}
+}
+
+func TestInfrastructureDoesNotImportHTTPInterface(t *testing.T) {
+	root := filepath.Join(moduleRoot(t), "internal", "infrastructure")
+	forbidden := "orderapp/internal/interfaces/http/"
+	if err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() || !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
+			return nil
+		}
+		file, err := parser.ParseFile(token.NewFileSet(), path, nil, parser.ImportsOnly)
+		if err != nil {
+			return err
+		}
+		for _, imp := range file.Imports {
+			importPath := strings.Trim(imp.Path.Value, `"`)
+			if strings.HasPrefix(importPath, forbidden) {
+				t.Fatalf("%s imports HTTP interface package %s; infrastructure adapters must not depend on interface layer", path, importPath)
+			}
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
 	}
 }
 
@@ -176,6 +252,34 @@ func TestHTTPModulesDoNotImportSiblingHTTPModules(t *testing.T) {
 			if strings.HasPrefix(importPath, forbidden) && importPath != forbidden+"support" {
 				t.Fatalf("%s imports sibling HTTP module %s; move shared behavior behind domain/application/infrastructure boundary", path, importPath)
 			}
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func assertHTTPPackageDoesNotImplementMethods(t *testing.T, rel string, names map[string]bool) {
+	t.Helper()
+	root := filepath.Join(moduleRoot(t), rel)
+	fset := token.NewFileSet()
+	if err := filepath.WalkDir(root, func(path string, entry os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if entry.IsDir() || !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
+			return nil
+		}
+		file, err := parser.ParseFile(fset, path, nil, 0)
+		if err != nil {
+			return err
+		}
+		for _, decl := range file.Decls {
+			fn, ok := decl.(*ast.FuncDecl)
+			if !ok || fn.Recv == nil || !names[fn.Name.Name] {
+				continue
+			}
+			t.Fatalf("%s implements use-case method %s in HTTP layer", path, fn.Name.Name)
 		}
 		return nil
 	}); err != nil {

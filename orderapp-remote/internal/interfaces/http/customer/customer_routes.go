@@ -14,6 +14,7 @@ import (
 	"strings"
 
 	customerapp "orderapp/internal/application/customer"
+	postgrescustomer "orderapp/internal/infrastructure/postgres/customer"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/labstack/echo/v4"
@@ -24,11 +25,7 @@ func registerCustomerRoutes(e *echo.Echo, pool *pgxpool.Pool, schema string, ass
 		pool:     pool,
 		schema:   schema,
 		assetDir: assetDir,
-		customer: customerapp.NewService(postgresCustomerApplicationRepository{
-			pool:     pool,
-			schema:   schema,
-			assetDir: assetDir,
-		}),
+		customer: customerapp.NewService(postgrescustomer.NewRepository(pool, schema, assetDir)),
 	}
 
 	// Customers

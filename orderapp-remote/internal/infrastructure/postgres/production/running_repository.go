@@ -5,7 +5,7 @@ import (
 	"errors"
 	"fmt"
 	productionapp "orderapp/internal/application/production"
-	support "orderapp/internal/interfaces/http/support"
+	postgresinfra "orderapp/internal/infrastructure/postgres"
 	"strings"
 	"time"
 
@@ -54,7 +54,7 @@ func listRunningItems(ctx context.Context, pool *pgxpool.Pool, schema string) ([
 	return out, rows.Err()
 }
 
-func (repo postgresProductionRepository) Finish(ctx context.Context, cmd productionapp.FinishCommand) error {
+func (repo Repository) Finish(ctx context.Context, cmd productionapp.FinishCommand) error {
 	id := cmd.ID
 	schema := repo.schema
 	operator := cmd.Operator
@@ -145,11 +145,11 @@ func (repo postgresProductionRepository) Finish(ctx context.Context, cmd product
 	if err := tx.Commit(ctx); err != nil {
 		return err
 	}
-	support.AuditInsert(ctx, repo.pool, schema, operator, "produce_running", &id, "finish", support.StrPtr("material_consumption"), nil, support.StrPtr("deducted"), support.AuditMeta{"running_item_id": id, "product_id": r.ProductID, "spec_g": r.SpecG, "need_g": r.NeedG, "input_g": r.InputG, "bom_yield_rate": r.BomYieldRate, "finished_units": add.Units, "finished_loose_g": add.LooseG, "finished_total_g": finishedTotal, "actual_yield_rate": actualYield})
+	postgresinfra.AuditInsert(ctx, repo.pool, schema, operator, "produce_running", &id, "finish", postgresinfra.StrPtr("material_consumption"), nil, postgresinfra.StrPtr("deducted"), postgresinfra.AuditMeta{"running_item_id": id, "product_id": r.ProductID, "spec_g": r.SpecG, "need_g": r.NeedG, "input_g": r.InputG, "bom_yield_rate": r.BomYieldRate, "finished_units": add.Units, "finished_loose_g": add.LooseG, "finished_total_g": finishedTotal, "actual_yield_rate": actualYield})
 	return nil
 }
 
-func (repo postgresProductionRepository) Cancel(ctx context.Context, cmd productionapp.CancelCommand) error {
+func (repo Repository) Cancel(ctx context.Context, cmd productionapp.CancelCommand) error {
 	id := cmd.ID
 	schema := repo.schema
 	operator := cmd.Operator
@@ -179,7 +179,7 @@ func (repo postgresProductionRepository) Cancel(ctx context.Context, cmd product
 	if err := tx.Commit(ctx); err != nil {
 		return err
 	}
-	support.AuditInsert(ctx, repo.pool, schema, operator, "produce_running", &id, "cancel", support.StrPtr("finished_allocation"), support.StrPtr(fmt.Sprintf("%d", restoredG)), support.StrPtr("restored"), support.AuditMeta{"running_item_id": id, "batch_id": r.BatchID, "product_id": r.ProductID, "spec_g": r.SpecG, "restored_g": restoredG})
+	postgresinfra.AuditInsert(ctx, repo.pool, schema, operator, "produce_running", &id, "cancel", postgresinfra.StrPtr("finished_allocation"), postgresinfra.StrPtr(fmt.Sprintf("%d", restoredG)), postgresinfra.StrPtr("restored"), postgresinfra.AuditMeta{"running_item_id": id, "batch_id": r.BatchID, "product_id": r.ProductID, "spec_g": r.SpecG, "restored_g": restoredG})
 	return nil
 }
 
@@ -289,6 +289,29 @@ func setOrdersProcessStatusByNeeds(ctx context.Context, pool *pgxpool.Pool, sche
 	}
 	for no := range nos {
 		_, _ = pool.Exec(ctx, fmt.Sprintf(`UPDATE %s.orders SET process_status_id=$2 WHERE order_no=$1`, schema), no, statusID)
+	}
+	return nil
+}
+
+func setOrdersProcessStatusByNeedsTx(ctx context.Context, tx pgx.Tx, schema string, rows []UnprodNeedRow, statusName string) error {
+	statusID := int64(0)
+	_ = tx.QueryRow(ctx, fmt.Sprintf(`SELECT COALESCE(id,0) FROM %s.order_process_statuses WHERE name=$1 ORDER BY id LIMIT 1`, schema), statusName).Scan(&statusID)
+	if statusID <= 0 {
+		return nil
+	}
+	nos := map[string]bool{}
+	for _, r := range rows {
+		for _, x := range strings.Split(strings.TrimSpace(r.OrderNos), ",") {
+			x = strings.TrimSpace(x)
+			if x != "" {
+				nos[x] = true
+			}
+		}
+	}
+	for no := range nos {
+		if _, err := tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.orders SET process_status_id=$2 WHERE order_no=$1`, schema), no, statusID); err != nil {
+			return err
+		}
 	}
 	return nil
 }

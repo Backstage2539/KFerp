@@ -6,20 +6,11 @@ import (
 )
 
 type fakeFlowRepo struct {
-	start            StartCommand
-	startNeeds       []StartNeed
-	yieldByProductID map[int64]float64
-	allocatedNeeds   []StartNeed
-	allocatedBy      string
-	savedBatchID     string
-	savedNeeds       []StartNeed
-	savedInputByKey  map[string]int64
-	savedYieldMap    map[int64]float64
-	savedBy          string
-	statusNeeds      []StartNeed
-	statusName       string
-	finish           FinishCommand
-	cancel           CancelCommand
+	start          StartCommand
+	startNeeds     []StartNeed
+	startExecution StartExecutionCommand
+	finish         FinishCommand
+	cancel         CancelCommand
 }
 
 func (r *fakeFlowRepo) CreateBatch(ctx context.Context, cmd CreateBatchCommand) (CreateBatchResult, error) {
@@ -51,29 +42,13 @@ func (r *fakeFlowRepo) ListStartNeeds(ctx context.Context, cmd StartCommand) ([]
 	return r.startNeeds, nil
 }
 
-func (r *fakeFlowRepo) LoadProductYieldRates(ctx context.Context) (map[int64]float64, error) {
-	return r.yieldByProductID, nil
-}
-
-func (r *fakeFlowRepo) AllocateStartBatch(ctx context.Context, needs []StartNeed, operator string) (string, error) {
-	r.allocatedNeeds = append([]StartNeed(nil), needs...)
-	r.allocatedBy = operator
-	return "PB-9", nil
-}
-
-func (r *fakeFlowRepo) SaveRunningItems(ctx context.Context, batchID string, needs []StartNeed, inputByKey map[string]int64, yieldByProductID map[int64]float64, operator string) error {
-	r.savedBatchID = batchID
-	r.savedNeeds = append([]StartNeed(nil), needs...)
-	r.savedInputByKey = inputByKey
-	r.savedYieldMap = yieldByProductID
-	r.savedBy = operator
-	return nil
-}
-
-func (r *fakeFlowRepo) SetOrdersProcessStatus(ctx context.Context, needs []StartNeed, statusName string) error {
-	r.statusNeeds = append([]StartNeed(nil), needs...)
-	r.statusName = statusName
-	return nil
+func (r *fakeFlowRepo) Start(ctx context.Context, cmd StartExecutionCommand) (StartResult, error) {
+	r.startExecution = StartExecutionCommand{
+		Needs:      append([]StartNeed(nil), cmd.Needs...),
+		InputByKey: cmd.InputByKey,
+		Operator:   cmd.Operator,
+	}
+	return StartResult{BatchID: "PB-9"}, nil
 }
 
 func (r *fakeFlowRepo) Finish(ctx context.Context, cmd FinishCommand) error {
@@ -92,7 +67,6 @@ func TestServiceOwnsRunningProductionUseCases(t *testing.T) {
 			{ProductID: 1, ProductName: "橘皮乌龙", SpecG: 227, GapG: 4540, OrderNos: "SO-1"},
 			{ProductID: 2, ProductName: "库存充足", SpecG: 227, GapG: 0, OrderNos: "SO-2"},
 		},
-		yieldByProductID: map[int64]float64{1: 0.82},
 	}
 	svc := NewService(repo)
 	ctx := context.Background()
@@ -116,14 +90,8 @@ func TestServiceOwnsRunningProductionUseCases(t *testing.T) {
 	if started.BatchID != "PB-9" {
 		t.Fatalf("Start() = %+v", started)
 	}
-	if len(repo.allocatedNeeds) != 1 || repo.allocatedNeeds[0].ProductID != 1 || repo.allocatedBy != "测试员" {
-		t.Fatalf("allocated needs = %+v by=%q", repo.allocatedNeeds, repo.allocatedBy)
-	}
-	if repo.savedBatchID != "PB-9" || len(repo.savedNeeds) != 1 || repo.savedInputByKey["1-227"] != 600 || repo.savedYieldMap[1] != 0.82 || repo.savedBy != "测试员" {
-		t.Fatalf("saved running items batch=%q needs=%+v input=%+v yield=%+v by=%q", repo.savedBatchID, repo.savedNeeds, repo.savedInputByKey, repo.savedYieldMap, repo.savedBy)
-	}
-	if repo.statusName != "生产中" || len(repo.statusNeeds) != 1 {
-		t.Fatalf("status update = %q %+v", repo.statusName, repo.statusNeeds)
+	if len(repo.startExecution.Needs) != 1 || repo.startExecution.Needs[0].ProductID != 1 || repo.startExecution.InputByKey["1-227"] != 600 || repo.startExecution.Operator != "测试员" {
+		t.Fatalf("start execution = %+v", repo.startExecution)
 	}
 
 	if err := svc.Finish(ctx, FinishCommand{ID: 7, FinishedUnits: 2, HasFinishedInput: true, Operator: "测试员"}); err != nil {

@@ -148,8 +148,8 @@ func TestProductionFlowMonolithIsRemoved(t *testing.T) {
 	} else if !os.IsNotExist(err) {
 		t.Fatal(err)
 	}
-	if _, err := os.Stat("internal/interfaces/http/production/production_running_repository.go"); err != nil {
-		t.Fatalf("missing production running repository split file: %v", err)
+	if _, err := os.Stat("internal/infrastructure/postgres/production/repository.go"); err != nil {
+		t.Fatalf("missing production postgres repository: %v", err)
 	}
 }
 
@@ -211,11 +211,17 @@ func TestSalesSaveOrderCommandIsTyped(t *testing.T) {
 }
 
 func TestSalesRepositoryDoesNotParseSaveOrderFormArrays(t *testing.T) {
-	body, err := os.ReadFile("internal/interfaces/http/sales/sales_order_repository.go")
+	body, err := os.ReadFile("internal/infrastructure/postgres/sales/repository.go")
 	if err != nil {
 		t.Fatal(err)
 	}
 	content := string(body)
+	start := strings.Index(content, "func (r Repository) SaveOrder")
+	end := strings.Index(content, "func (r Repository) UpdateHeader")
+	if start < 0 || end < start {
+		t.Fatal("sales repository SaveOrder/UpdateHeader shape changed")
+	}
+	saveOrder := content[start:end]
 	for _, forbidden := range []string{
 		"maxLen(cmd.ItemName",
 		"getStr(cmd.ProductID",
@@ -226,8 +232,8 @@ func TestSalesRepositoryDoesNotParseSaveOrderFormArrays(t *testing.T) {
 		"strconv.ParseFloat(v, 64)",
 		"strconv.ParseInt(pidStr",
 	} {
-		if strings.Contains(content, forbidden) {
-			t.Fatalf("sales_order_repository.go still parses HTTP/form-shaped command data: %q", forbidden)
+		if strings.Contains(saveOrder, forbidden) {
+			t.Fatalf("sales repository SaveOrder still parses HTTP/form-shaped command data: %q", forbidden)
 		}
 	}
 }

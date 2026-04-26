@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	companyapp "orderapp/internal/application/company"
+	postgrescompany "orderapp/internal/infrastructure/postgres/company"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/labstack/echo/v4"
@@ -83,7 +84,7 @@ func registerCompanyStaffPages(e *echo.Echo, _ *pgxpool.Pool, _ string) {
 }
 
 func registerCompanyStaffAPI(e *echo.Echo, pool *pgxpool.Pool, schema string) {
-	companySvc := companyapp.NewService(postgresCompanyRepository{pool: pool, schema: schema})
+	companySvc := companyapp.NewService(postgrescompany.NewRepository(pool, schema))
 
 	e.GET("/api/company/departments", func(c echo.Context) error {
 		rows, err := companySvc.ListDepartments(c.Request().Context())

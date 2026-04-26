@@ -8,6 +8,7 @@ import (
 	"time"
 
 	salesapp "orderapp/internal/application/sales"
+	postgressales "orderapp/internal/infrastructure/postgres/sales"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/labstack/echo/v4"
@@ -72,7 +73,7 @@ func registerOrderAPI(e *echo.Echo, pool *pgxpool.Pool, schema string) {
 	h := orderAPIHandler{
 		pool:   pool,
 		schema: schema,
-		sales:  salesapp.NewService(postgresSalesRepository{pool: pool, schema: schema}),
+		sales:  salesapp.NewService(postgressales.NewRepository(pool, schema)),
 	}
 	e.GET("/api/orders", h.list)
 	e.GET("/api/order/form", h.form)

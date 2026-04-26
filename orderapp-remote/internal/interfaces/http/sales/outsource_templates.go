@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/url"
 	salesapp "orderapp/internal/application/sales"
+	postgressales "orderapp/internal/infrastructure/postgres/sales"
 	"strconv"
 	"strings"
 
@@ -51,46 +52,8 @@ func ensureOutsourceTemplateTables(ctx context.Context, pool *pgxpool.Pool, sche
 	return nil
 }
 
-func (r postgresSalesRepository) ListOutsourceTemplates(ctx context.Context) ([]salesapp.OutsourceTemplate, error) {
-	q := fmt.Sprintf(`SELECT id,name,is_default,COALESCE(roast_unit_price,0),COALESCE(bean_pack_unit_price,0),COALESCE(drip_pack_unit_price,0),COALESCE(sc_unit_price,0)
-		FROM %s.outsource_templates WHERE active=true ORDER BY is_default DESC, id DESC`, r.schema)
-	rows, err := r.pool.Query(ctx, q)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	out := make([]salesapp.OutsourceTemplate, 0)
-	for rows.Next() {
-		var row salesapp.OutsourceTemplate
-		if err := rows.Scan(&row.ID, &row.Name, &row.IsDefault, &row.RoastUnitPrice, &row.BeanPackUnitPrice, &row.DripPackUnitPrice, &row.SCUnitPrice); err != nil {
-			return nil, err
-		}
-		out = append(out, row)
-	}
-	return out, rows.Err()
-}
-
-func (r postgresSalesRepository) SaveOutsourceTemplate(ctx context.Context, cmd salesapp.SaveOutsourceTemplateCommand) error {
-	if cmd.IsDefault {
-		if _, err := r.pool.Exec(ctx, fmt.Sprintf(`UPDATE %s.outsource_templates SET is_default=false WHERE is_default=true`, r.schema)); err != nil {
-			return err
-		}
-	}
-	_, err := r.pool.Exec(ctx, fmt.Sprintf(`INSERT INTO %s.outsource_templates(name,is_default,roast_unit_price,bean_pack_unit_price,drip_pack_unit_price,sc_unit_price,updated_at)
-		VALUES($1,$2,$3,$4,$5,$6,now())
-		ON CONFLICT (name) DO UPDATE SET
-			is_default=excluded.is_default,
-			roast_unit_price=excluded.roast_unit_price,
-			bean_pack_unit_price=excluded.bean_pack_unit_price,
-			drip_pack_unit_price=excluded.drip_pack_unit_price,
-			sc_unit_price=excluded.sc_unit_price,
-			updated_at=now()`, r.schema),
-		cmd.Name, cmd.IsDefault, cmd.RoastUnitPrice, cmd.BeanPackUnitPrice, cmd.DripPackUnitPrice, cmd.SCUnitPrice)
-	return err
-}
-
 func registerOutsourceSettingsRoutes(e *echo.Echo, pool *pgxpool.Pool, schema string) {
-	salesSvc := salesapp.NewService(postgresSalesRepository{pool: pool, schema: schema})
+	salesSvc := salesapp.NewService(postgressales.NewRepository(pool, schema))
 
 	e.GET("/api/outsource/templates", func(c echo.Context) error {
 		rows, err := salesSvc.ListOutsourceTemplates(c.Request().Context())

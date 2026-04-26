@@ -6,6 +6,7 @@ import (
 	"strconv"
 
 	catalogapp "orderapp/internal/application/catalog"
+	postgrescatalog "orderapp/internal/infrastructure/postgres/catalog"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/labstack/echo/v4"
@@ -13,7 +14,7 @@ import (
 
 func registerProductRoutes(e *echo.Echo, pool *pgxpool.Pool, schema string) {
 	h := productHandler{
-		catalog: catalogapp.NewService(postgresCatalogRepository{pool: pool, schema: schema}),
+		catalog: catalogapp.NewService(postgrescatalog.NewRepository(pool, schema)),
 	}
 
 	e.GET("/products", h.index)

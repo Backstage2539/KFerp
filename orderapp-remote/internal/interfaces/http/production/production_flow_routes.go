@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	productionapp "orderapp/internal/application/production"
+	postgresproduction "orderapp/internal/infrastructure/postgres/production"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/labstack/echo/v4"
@@ -60,7 +61,7 @@ type ProduceRunningActionAPIResponse struct {
 }
 
 func registerProductionFlowPages(e *echo.Echo, pool *pgxpool.Pool, schema string) {
-	productionSvc := productionapp.NewService(postgresProductionRepository{pool: pool, schema: schema})
+	productionSvc := productionapp.NewService(postgresproduction.NewRepository(pool, schema))
 
 	e.POST("/api/produce/start", func(c echo.Context) error {
 		if err := support.RequireEmployeeBound(c); err != nil {

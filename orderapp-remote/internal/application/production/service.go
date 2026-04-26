@@ -134,6 +134,12 @@ type StartResult struct {
 	BatchID string
 }
 
+type StartExecutionCommand struct {
+	Needs      []StartNeed
+	InputByKey map[string]int64
+	Operator   string
+}
+
 type FinishCommand struct {
 	ID               int64
 	FinishedUnits    int64
@@ -155,10 +161,7 @@ type Repository interface {
 	ConfirmDeduct(ctx context.Context, batchID, operator string) (DeductConfirmResult, error)
 	ListRunning(ctx context.Context) ([]RunningItem, error)
 	ListStartNeeds(ctx context.Context, cmd StartCommand) ([]StartNeed, error)
-	LoadProductYieldRates(ctx context.Context) (map[int64]float64, error)
-	AllocateStartBatch(ctx context.Context, needs []StartNeed, operator string) (string, error)
-	SaveRunningItems(ctx context.Context, batchID string, needs []StartNeed, inputByKey map[string]int64, yieldByProductID map[int64]float64, operator string) error
-	SetOrdersProcessStatus(ctx context.Context, needs []StartNeed, statusName string) error
+	Start(ctx context.Context, cmd StartExecutionCommand) (StartResult, error)
 	Finish(ctx context.Context, cmd FinishCommand) error
 	Cancel(ctx context.Context, cmd CancelCommand) error
 }

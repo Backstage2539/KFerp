@@ -31,17 +31,9 @@ func (s *Service) Start(ctx context.Context, cmd StartCommand) (StartResult, err
 			return StartResult{}, fmt.Errorf("投料数必须大于0")
 		}
 	}
-	yieldMap, err := s.repo.LoadProductYieldRates(ctx)
-	if err != nil {
-		return StartResult{}, err
-	}
-	batchID, err := s.repo.AllocateStartBatch(ctx, plan, cmd.Operator)
-	if err != nil {
-		return StartResult{}, err
-	}
-	if err := s.repo.SaveRunningItems(ctx, batchID, plan, cmd.InputByKey, yieldMap, cmd.Operator); err != nil {
-		return StartResult{}, err
-	}
-	_ = s.repo.SetOrdersProcessStatus(ctx, plan, "生产中")
-	return StartResult{BatchID: batchID}, nil
+	return s.repo.Start(ctx, StartExecutionCommand{
+		Needs:      plan,
+		InputByKey: cmd.InputByKey,
+		Operator:   cmd.Operator,
+	})
 }

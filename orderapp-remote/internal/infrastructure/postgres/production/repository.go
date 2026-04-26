@@ -3,26 +3,31 @@ package production
 import (
 	"context"
 	"fmt"
-	support "orderapp/internal/interfaces/http/support"
 	"strings"
 
 	productionapp "orderapp/internal/application/production"
+	catalogdomain "orderapp/internal/domain/catalog"
+	postgresinfra "orderapp/internal/infrastructure/postgres"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-type postgresProductionRepository struct {
+type Repository struct {
 	pool   *pgxpool.Pool
 	schema string
 }
 
-func (r postgresProductionRepository) CreateBatch(ctx context.Context, cmd productionapp.CreateBatchCommand) (productionapp.CreateBatchResult, error) {
+func NewRepository(pool *pgxpool.Pool, schema string) Repository {
+	return Repository{pool: pool, schema: schema}
+}
+
+func (r Repository) CreateBatch(ctx context.Context, cmd productionapp.CreateBatchCommand) (productionapp.CreateBatchResult, error) {
 	res, err := createProduceBatchFromOrders(ctx, r.pool, r.schema, cmd.OrderIDs, cmd.Operator, cmd.IdempotencyKey, cmd.RequestUnitsByItemID)
 	if err != nil {
 		return productionapp.CreateBatchResult{}, err
 	}
-	support.AuditInsert(ctx, r.pool, r.schema, cmd.Operator, "produce_batch", nil, "create", support.StrPtr("batch_id"), nil, support.StrPtr(res.BatchID), support.AuditMeta{"batch_id": res.BatchID, "order_count": res.OrderCount})
+	postgresinfra.AuditInsert(ctx, r.pool, r.schema, cmd.Operator, "produce_batch", nil, "create", postgresinfra.StrPtr("batch_id"), nil, postgresinfra.StrPtr(res.BatchID), postgresinfra.AuditMeta{"batch_id": res.BatchID, "order_count": res.OrderCount})
 	return productionapp.CreateBatchResult{
 		BatchID:    res.BatchID,
 		OrderCount: res.OrderCount,
@@ -30,7 +35,7 @@ func (r postgresProductionRepository) CreateBatch(ctx context.Context, cmd produ
 	}, nil
 }
 
-func (r postgresProductionRepository) ListBatches(ctx context.Context, cmd productionapp.ListBatchesCommand) ([]productionapp.BatchListItem, error) {
+func (r Repository) ListBatches(ctx context.Context, cmd productionapp.ListBatchesCommand) ([]productionapp.BatchListItem, error) {
 	args := []any{}
 	where := " WHERE 1=1"
 	if cmd.Status != "" {
@@ -106,7 +111,7 @@ func (r postgresProductionRepository) ListBatches(ctx context.Context, cmd produ
 	return out, rows.Err()
 }
 
-func (r postgresProductionRepository) Detail(ctx context.Context, batchID string) (productionapp.BatchDetail, error) {
+func (r Repository) Detail(ctx context.Context, batchID string) (productionapp.BatchDetail, error) {
 	var d productionapp.BatchDetail
 	err := r.pool.QueryRow(ctx,
 		"SELECT batch_id,status,operator,to_char(created_at,'YYYY-MM-DD HH24:MI:SS') FROM "+r.schema+".produce_batches WHERE batch_id=$1",
@@ -157,7 +162,7 @@ func (r postgresProductionRepository) Detail(ctx context.Context, batchID string
 	return d, nil
 }
 
-func (r postgresProductionRepository) PreviewDeduct(ctx context.Context, batchID string) (productionapp.DeductPreview, error) {
+func (r Repository) PreviewDeduct(ctx context.Context, batchID string) (productionapp.DeductPreview, error) {
 	batchID = strings.TrimSpace(batchID)
 	if batchID == "" {
 		return productionapp.DeductPreview{}, fmt.Errorf("batch_id required")
@@ -211,16 +216,16 @@ func (r postgresProductionRepository) PreviewDeduct(ctx context.Context, batchID
 	return out, nil
 }
 
-func (r postgresProductionRepository) ConfirmDeduct(ctx context.Context, batchID, operator string) (productionapp.DeductConfirmResult, error) {
+func (r Repository) ConfirmDeduct(ctx context.Context, batchID, operator string) (productionapp.DeductConfirmResult, error) {
 	summary, err := confirmProduceBatchDeduct(ctx, r.pool, r.schema, batchID, operator)
 	if err != nil {
 		return productionapp.DeductConfirmResult{}, err
 	}
-	support.AuditInsert(ctx, r.pool, r.schema, operator, "produce_batch", nil, "update", support.StrPtr("deduct_status"), nil, support.StrPtr("deducted"), support.AuditMeta{"batch_id": strings.TrimSpace(batchID), "summary_count": len(summary)})
+	postgresinfra.AuditInsert(ctx, r.pool, r.schema, operator, "produce_batch", nil, "update", postgresinfra.StrPtr("deduct_status"), nil, postgresinfra.StrPtr("deducted"), postgresinfra.AuditMeta{"batch_id": strings.TrimSpace(batchID), "summary_count": len(summary)})
 	return productionapp.DeductConfirmResult{BatchID: strings.TrimSpace(batchID), Status: "deducted", Summary: productionSummaryToApp(summary)}, nil
 }
 
-func (r postgresProductionRepository) ListRunning(ctx context.Context) ([]productionapp.RunningItem, error) {
+func (r Repository) ListRunning(ctx context.Context) ([]productionapp.RunningItem, error) {
 	rows, err := listRunningItems(ctx, r.pool, r.schema)
 	if err != nil {
 		return nil, err
@@ -228,7 +233,7 @@ func (r postgresProductionRepository) ListRunning(ctx context.Context) ([]produc
 	return productionRunningToApp(rows), nil
 }
 
-func (r postgresProductionRepository) ListStartNeeds(ctx context.Context, cmd productionapp.StartCommand) ([]productionapp.StartNeed, error) {
+func (r Repository) ListStartNeeds(ctx context.Context, cmd productionapp.StartCommand) ([]productionapp.StartNeed, error) {
 	rows, err := fetchUnproducedNeeds(ctx, r.pool, r.schema, cmd.From, cmd.To, cmd.CustomerID)
 	if err != nil {
 		return nil, err
@@ -236,38 +241,76 @@ func (r postgresProductionRepository) ListStartNeeds(ctx context.Context, cmd pr
 	return startNeedsToApp(rows), nil
 }
 
-func (r postgresProductionRepository) LoadProductYieldRates(ctx context.Context) (map[int64]float64, error) {
-	return loadProductYieldRateMap(ctx, r.pool, r.schema)
-}
+func (r Repository) Start(ctx context.Context, cmd productionapp.StartExecutionCommand) (productionapp.StartResult, error) {
+	batchID := newBatchID()
+	if len(cmd.Needs) == 0 {
+		return productionapp.StartResult{BatchID: batchID}, nil
+	}
+	tx, err := r.pool.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return productionapp.StartResult{}, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
 
-func (r postgresProductionRepository) AllocateStartBatch(ctx context.Context, needs []productionapp.StartNeed, operator string) (string, error) {
-	batchID, _, _, err := allocateUnproducedRows(ctx, r.pool, r.schema, startNeedsFromApp(needs), operator)
-	return batchID, err
-}
-
-func (r postgresProductionRepository) SaveRunningItems(ctx context.Context, batchID string, needs []productionapp.StartNeed, inputByKey map[string]int64, yieldByProductID map[int64]float64, operator string) error {
-	for _, need := range needs {
-		needG := need.GapG
-		if needG <= 0 {
+	yieldByProductID, err := loadProductYieldRateMapTx(ctx, tx, r.schema)
+	if err != nil {
+		return productionapp.StartResult{}, err
+	}
+	for _, need := range cmd.Needs {
+		if need.GapG <= 0 {
 			continue
 		}
-		key := producePlanKey(need.ProductID, need.SpecG)
-		inputG := inputByKey[key]
-		if inputG <= 0 {
-			inputG = defaultProductionInputG(needG, yieldByProductID[need.ProductID])
+		var units, loose int64
+		row := tx.QueryRow(ctx, fmt.Sprintf(`
+			SELECT onhand_units, onhand_loose_g
+			FROM %s.finished_inventory
+			WHERE product_id=$1 AND spec_g=$2
+			FOR UPDATE
+		`, r.schema), need.ProductID, need.SpecG)
+		if scanErr := row.Scan(&units, &loose); scanErr != nil {
+			if scanErr == pgx.ErrNoRows {
+				units, loose = 0, 0
+			} else {
+				return productionapp.StartResult{}, scanErr
+			}
 		}
-		yieldRate := normalizeYieldRate(yieldByProductID[need.ProductID])
-		plan := runningInventoryPlan(need.SpecG, needG, inputG, yieldRate)
-		_, err := r.pool.Exec(ctx, fmt.Sprintf(`INSERT INTO %s.produce_running_items(batch_id,product_id,product_name,spec_g,need_g,order_nos,status,started_by,started_at,input_g,bom_yield_rate,planned_units,planned_loose_g) VALUES($1,$2,$3,$4,$5,$6,'running',$7,now(),$8,$9,$10,$11)`, r.schema), batchID, need.ProductID, need.ProductName, need.SpecG, needG, need.OrderNos, operator, inputG, yieldRate, plan.Units, plan.LooseG)
+		remain, deductedG, gapG, err := invDeduct(need.SpecG, InvQty{Units: units, LooseG: loose}, need.GapG)
 		if err != nil {
-			return err
+			return productionapp.StartResult{}, err
+		}
+		if _, err := tx.Exec(ctx, fmt.Sprintf(`
+			INSERT INTO %s.finished_inventory(product_id,spec_g,onhand_units,onhand_loose_g,updated_at)
+			VALUES($1,$2,$3,$4,now())
+			ON CONFLICT (product_id,spec_g) DO UPDATE
+			SET onhand_units=excluded.onhand_units, onhand_loose_g=excluded.onhand_loose_g, updated_at=now()
+		`, r.schema), need.ProductID, need.SpecG, remain.Units, remain.LooseG); err != nil {
+			return productionapp.StartResult{}, err
+		}
+		if _, err := tx.Exec(ctx, fmt.Sprintf(`
+			INSERT INTO %s.finished_allocation_logs(batch_id,product_id,spec_g,need_g,deducted_g,gap_g,operator)
+			VALUES($1,$2,$3,$4,$5,$6,$7)
+		`, r.schema), batchID, need.ProductID, need.SpecG, need.GapG, deductedG, gapG, cmd.Operator); err != nil {
+			return productionapp.StartResult{}, err
+		}
+
+		key := fmt.Sprintf("%d-%d", need.ProductID, need.SpecG)
+		inputG := cmd.InputByKey[key]
+		yieldRate := normalizeYieldRate(yieldByProductID[need.ProductID])
+		if inputG <= 0 {
+			inputG = defaultProductionInputG(need.GapG, yieldRate)
+		}
+		plan := runningInventoryPlan(need.SpecG, need.GapG, inputG, yieldRate)
+		if _, err := tx.Exec(ctx, fmt.Sprintf(`INSERT INTO %s.produce_running_items(batch_id,product_id,product_name,spec_g,need_g,order_nos,status,started_by,started_at,input_g,bom_yield_rate,planned_units,planned_loose_g) VALUES($1,$2,$3,$4,$5,$6,'running',$7,now(),$8,$9,$10,$11)`, r.schema), batchID, need.ProductID, need.ProductName, need.SpecG, need.GapG, need.OrderNos, cmd.Operator, inputG, yieldRate, plan.Units, plan.LooseG); err != nil {
+			return productionapp.StartResult{}, err
 		}
 	}
-	return nil
-}
-
-func (r postgresProductionRepository) SetOrdersProcessStatus(ctx context.Context, needs []productionapp.StartNeed, statusName string) error {
-	return setOrdersProcessStatusByNeeds(ctx, r.pool, r.schema, startNeedsFromApp(needs), statusName)
+	if err := setOrdersProcessStatusByNeedsTx(ctx, tx, r.schema, startNeedsFromApp(cmd.Needs), "生产中"); err != nil {
+		return productionapp.StartResult{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return productionapp.StartResult{}, err
+	}
+	return productionapp.StartResult{BatchID: batchID}, nil
 }
 
 func productionSummaryToApp(items []ProduceBatchSummaryItem) []productionapp.SummaryItem {
@@ -284,4 +327,28 @@ func productionSummaryToApp(items []ProduceBatchSummaryItem) []productionapp.Sum
 		})
 	}
 	return out
+}
+
+func loadProductYieldRateMapTx(ctx context.Context, tx pgx.Tx, schema string) (map[int64]float64, error) {
+	rows, err := tx.Query(ctx, `
+		SELECT p.id, COALESCE(p.roast_level,''), COALESCE(b.yield_rate,0.8)
+		FROM `+schema+`.products p
+		LEFT JOIN `+schema+`.product_bom b ON b.product_id=p.id
+		WHERE p.active=true`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	out := map[int64]float64{}
+	for rows.Next() {
+		var productID int64
+		var roastLevel string
+		var yieldRate float64
+		if err := rows.Scan(&productID, &roastLevel, &yieldRate); err != nil {
+			return nil, err
+		}
+		out[productID] = catalogdomain.ResolveYieldRate(roastLevel, yieldRate)
+	}
+	return out, rows.Err()
 }

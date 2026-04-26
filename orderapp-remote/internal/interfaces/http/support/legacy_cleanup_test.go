@@ -134,7 +134,7 @@ func TestCompanyStaffAPIUsesApplicationService(t *testing.T) {
 		t.Fatal(err)
 	}
 	src := string(body)
-	for _, want := range []string{"companyapp.NewService", "postgresCompanyRepository"} {
+	for _, want := range []string{"companyapp.NewService", "postgrescompany.NewRepository"} {
 		if !strings.Contains(src, want) {
 			t.Fatalf("company_staff.go missing application boundary %q", want)
 		}

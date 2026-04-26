@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	materialsapp "orderapp/internal/application/materials"
+	postgresmaterials "orderapp/internal/infrastructure/postgres/materials"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/labstack/echo/v4"
@@ -17,7 +18,7 @@ type MaterialListResponse struct {
 }
 
 func registerMaterialsAPI(e *echo.Echo, pool *pgxpool.Pool, schema string) {
-	materialsSvc := materialsapp.NewService(postgresMaterialsRepository{pool: pool, schema: schema})
+	materialsSvc := materialsapp.NewService(postgresmaterials.NewRepository(pool, schema))
 
 	e.GET("/api/materials", func(c echo.Context) error {
 		limit := support.IntParam(c, "limit", 200)
