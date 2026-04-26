@@ -34,8 +34,24 @@ func (r *fakeRepo) ListRunning(ctx context.Context) ([]RunningItem, error) {
 	return nil, nil
 }
 
-func (r *fakeRepo) Start(ctx context.Context, cmd StartCommand) (StartResult, error) {
-	return StartResult{}, nil
+func (r *fakeRepo) ListStartNeeds(ctx context.Context, cmd StartCommand) ([]StartNeed, error) {
+	return nil, nil
+}
+
+func (r *fakeRepo) LoadProductYieldRates(ctx context.Context) (map[int64]float64, error) {
+	return nil, nil
+}
+
+func (r *fakeRepo) AllocateStartBatch(ctx context.Context, needs []StartNeed, operator string) (string, error) {
+	return "", nil
+}
+
+func (r *fakeRepo) SaveRunningItems(ctx context.Context, batchID string, needs []StartNeed, inputByKey map[string]int64, yieldByProductID map[int64]float64, operator string) error {
+	return nil
+}
+
+func (r *fakeRepo) SetOrdersProcessStatus(ctx context.Context, needs []StartNeed, statusName string) error {
+	return nil
 }
 
 func (r *fakeRepo) Finish(ctx context.Context, cmd FinishCommand) error {

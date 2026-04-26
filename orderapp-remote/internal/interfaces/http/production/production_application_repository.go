@@ -228,20 +228,46 @@ func (r postgresProductionRepository) ListRunning(ctx context.Context) ([]produc
 	return productionRunningToApp(rows), nil
 }
 
-func (r postgresProductionRepository) Start(ctx context.Context, cmd productionapp.StartCommand) (productionapp.StartResult, error) {
-	batchID, err := startProductionWithInputs(ctx, r.pool, r.schema, cmd.From, cmd.To, cmd.CustomerID, cmd.Selected, cmd.InputByKey, cmd.Operator)
+func (r postgresProductionRepository) ListStartNeeds(ctx context.Context, cmd productionapp.StartCommand) ([]productionapp.StartNeed, error) {
+	rows, err := fetchUnproducedNeeds(ctx, r.pool, r.schema, cmd.From, cmd.To, cmd.CustomerID)
 	if err != nil {
-		return productionapp.StartResult{}, err
+		return nil, err
 	}
-	return productionapp.StartResult{BatchID: batchID}, nil
+	return startNeedsToApp(rows), nil
 }
 
-func (r postgresProductionRepository) Finish(ctx context.Context, cmd productionapp.FinishCommand) error {
-	return finishRunningItem(ctx, r.pool, r.schema, cmd.ID, cmd.FinishedUnits, cmd.FinishedLooseG, cmd.HasFinishedInput, cmd.Operator)
+func (r postgresProductionRepository) LoadProductYieldRates(ctx context.Context) (map[int64]float64, error) {
+	return loadProductYieldRateMap(ctx, r.pool, r.schema)
 }
 
-func (r postgresProductionRepository) Cancel(ctx context.Context, cmd productionapp.CancelCommand) error {
-	return cancelRunningItem(ctx, r.pool, r.schema, cmd.ID, cmd.Operator)
+func (r postgresProductionRepository) AllocateStartBatch(ctx context.Context, needs []productionapp.StartNeed, operator string) (string, error) {
+	batchID, _, _, err := allocateUnproducedRows(ctx, r.pool, r.schema, startNeedsFromApp(needs), operator)
+	return batchID, err
+}
+
+func (r postgresProductionRepository) SaveRunningItems(ctx context.Context, batchID string, needs []productionapp.StartNeed, inputByKey map[string]int64, yieldByProductID map[int64]float64, operator string) error {
+	for _, need := range needs {
+		needG := need.GapG
+		if needG <= 0 {
+			continue
+		}
+		key := producePlanKey(need.ProductID, need.SpecG)
+		inputG := inputByKey[key]
+		if inputG <= 0 {
+			inputG = defaultProductionInputG(needG, yieldByProductID[need.ProductID])
+		}
+		yieldRate := normalizeYieldRate(yieldByProductID[need.ProductID])
+		plan := runningInventoryPlan(need.SpecG, needG, inputG, yieldRate)
+		_, err := r.pool.Exec(ctx, fmt.Sprintf(`INSERT INTO %s.produce_running_items(batch_id,product_id,product_name,spec_g,need_g,order_nos,status,started_by,started_at,input_g,bom_yield_rate,planned_units,planned_loose_g) VALUES($1,$2,$3,$4,$5,$6,'running',$7,now(),$8,$9,$10,$11)`, r.schema), batchID, need.ProductID, need.ProductName, need.SpecG, needG, need.OrderNos, operator, inputG, yieldRate, plan.Units, plan.LooseG)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (r postgresProductionRepository) SetOrdersProcessStatus(ctx context.Context, needs []productionapp.StartNeed, statusName string) error {
+	return setOrdersProcessStatusByNeeds(ctx, r.pool, r.schema, startNeedsFromApp(needs), statusName)
 }
 
 func productionSummaryToApp(items []ProduceBatchSummaryItem) []productionapp.SummaryItem {

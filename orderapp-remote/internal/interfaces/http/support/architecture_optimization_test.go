@@ -15,11 +15,14 @@ func TestBomAPIRoutesUseApplicationService(t *testing.T) {
 	content := string(body)
 	for _, want := range []string{
 		`bomapp.NewService`,
-		`postgresBomRepository`,
+		`postgresbom.NewRepository`,
 	} {
 		if !strings.Contains(content, want) {
 			t.Fatalf("bom_api.go missing application boundary %q", want)
 		}
+	}
+	if _, err := os.Stat("internal/infrastructure/postgres/bom/repository.go"); err != nil {
+		t.Fatalf("missing BOM postgres adapter under infrastructure: %v", err)
 	}
 	for _, forbidden := range []string{
 		"pool.Query(",

@@ -114,6 +114,49 @@ func TestRemainingSettingsAndAllocationPagesAreVueOnly(t *testing.T) {
 	}
 }
 
+func TestLegacyOrderTemplatesAreRemoved(t *testing.T) {
+	root := moduleRoot(t)
+	for _, tmpl := range []string{
+		"templates/order_edit.html",
+		"templates/order_detail.html",
+	} {
+		if _, err := os.Stat(filepath.Join(root, tmpl)); err == nil {
+			t.Fatalf("%s is legacy server-rendered order UI; order pages should stay Vue/Vite only", tmpl)
+		}
+	}
+}
+
+func TestBOMPostgresAdapterLivesInInfrastructure(t *testing.T) {
+	root := moduleRoot(t)
+	if _, err := os.Stat(filepath.Join(root, "internal", "interfaces", "http", "bom", "bom_application_repository.go")); err == nil {
+		t.Fatal("BOM postgres repository adapter still lives in HTTP interface package")
+	}
+	if _, err := os.Stat(filepath.Join(root, "internal", "infrastructure", "postgres", "bom", "repository.go")); err != nil {
+		t.Fatalf("missing BOM postgres adapter under infrastructure/postgres/bom: %v", err)
+	}
+}
+
+func TestProductionRunningUseCaseLivesInApplication(t *testing.T) {
+	root := moduleRoot(t)
+	httpPath := filepath.Join(root, "internal", "interfaces", "http", "production", "production_running_repository.go")
+	if body, err := os.ReadFile(httpPath); err == nil {
+		for _, forbidden := range []string{
+			"func startProductionWithInputs",
+			"func saveRunningItems",
+			"func finishRunningItem",
+			"func cancelRunningItem",
+		} {
+			if strings.Contains(string(body), forbidden) {
+				t.Fatalf("%s still owns production running use case %s", httpPath, forbidden)
+			}
+		}
+	}
+	appPath := filepath.Join(root, "internal", "application", "production", "running_service.go")
+	if _, err := os.Stat(appPath); err != nil {
+		t.Fatalf("missing production running application service: %v", err)
+	}
+}
+
 func TestHTTPModulesDoNotImportSiblingHTTPModules(t *testing.T) {
 	root := filepath.Join(moduleRoot(t), "internal", "interfaces", "http")
 	forbidden := "orderapp/internal/interfaces/http/"

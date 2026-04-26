@@ -122,6 +122,14 @@ type StartCommand struct {
 	Operator   string
 }
 
+type StartNeed struct {
+	ProductID   int64
+	ProductName string
+	SpecG       int64
+	GapG        int64
+	OrderNos    string
+}
+
 type StartResult struct {
 	BatchID string
 }
@@ -146,7 +154,11 @@ type Repository interface {
 	PreviewDeduct(ctx context.Context, batchID string) (DeductPreview, error)
 	ConfirmDeduct(ctx context.Context, batchID, operator string) (DeductConfirmResult, error)
 	ListRunning(ctx context.Context) ([]RunningItem, error)
-	Start(ctx context.Context, cmd StartCommand) (StartResult, error)
+	ListStartNeeds(ctx context.Context, cmd StartCommand) ([]StartNeed, error)
+	LoadProductYieldRates(ctx context.Context) (map[int64]float64, error)
+	AllocateStartBatch(ctx context.Context, needs []StartNeed, operator string) (string, error)
+	SaveRunningItems(ctx context.Context, batchID string, needs []StartNeed, inputByKey map[string]int64, yieldByProductID map[int64]float64, operator string) error
+	SetOrdersProcessStatus(ctx context.Context, needs []StartNeed, statusName string) error
 	Finish(ctx context.Context, cmd FinishCommand) error
 	Cancel(ctx context.Context, cmd CancelCommand) error
 }
@@ -195,10 +207,6 @@ func (s *Service) ConfirmDeduct(ctx context.Context, batchID, operator string) (
 
 func (s *Service) ListRunning(ctx context.Context) ([]RunningItem, error) {
 	return s.repo.ListRunning(ctx)
-}
-
-func (s *Service) Start(ctx context.Context, cmd StartCommand) (StartResult, error) {
-	return s.repo.Start(ctx, cmd)
 }
 
 func (s *Service) Finish(ctx context.Context, cmd FinishCommand) error {

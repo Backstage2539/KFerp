@@ -274,6 +274,13 @@ func seedReqWorkflowA(ctx context.Context, pool *pgxpool.Pool, schema string) er
 		{table: "req_unit", code: "UT-DDD-002", title: "架构守卫覆盖生产模块拆分、模板债清理和 HTTP sibling import 禁止规则", status: "done", assignee: "Codex", evidence: "go test ./internal/architecture -count=1"},
 		{table: "req_api", code: "API-DDD-002", title: "分配日志与外包模板设置通过 Vue shell 入口和 JSON API 验证", status: "done", assignee: "Codex", evidence: "TestCatalogAndSettingsRoutesRedirectToVueShell; deployment smoke"},
 		{table: "req_review", code: "REV-DDD-002", prCode: "PR-DDD-002", title: "架构验收：生产/库存/BOM/物料边界清晰且剩余模板债已删除", status: "todo", assignee: "VA", evidence: "待 Van 验收"},
+		{table: "req_product", code: "PR-DDD-003", title: "纯 DDD 收口：BOM 持久化下沉、生产运行编排进 application，并删除订单旧模板", status: "review", assignee: "VA", evidence: "codex/pure-ddd-final-20260426"},
+		{table: "req_dev", code: "DEV-DDD-009", title: "BOM Postgres adapter 从 HTTP interface 迁到 infrastructure/postgres/bom", status: "done", assignee: "Codex", evidence: "internal/infrastructure/postgres/bom/repository.go"},
+		{table: "req_dev", code: "DEV-DDD-010", title: "生产开始流程由 application service 负责筛选、校验和用例编排", status: "done", assignee: "Codex", evidence: "internal/application/production/running_service.go"},
+		{table: "req_dev", code: "DEV-DDD-011", title: "删除 order_edit/order_detail 旧模板并增加架构守卫防回流", status: "done", assignee: "Codex", evidence: "TestLegacyOrderTemplatesAreRemoved"},
+		{table: "req_unit", code: "UT-DDD-003", title: "架构守卫覆盖 BOM adapter 位置、生产运行用例边界和订单旧模板删除", status: "done", assignee: "Codex", evidence: "go test ./internal/architecture -count=1"},
+		{table: "req_api", code: "API-DDD-003", title: "BOM 与生产运行接口模块在 DDD 收口后保持兼容", status: "done", assignee: "Codex", evidence: "go test ./internal/interfaces/http/bom ./internal/interfaces/http/production ./internal/interfaces/http/support -count=1"},
+		{table: "req_review", code: "REV-DDD-003", prCode: "PR-DDD-003", title: "架构验收：剩余 P2/P3 收口后不再存在这轮发现的 DDD 违例", status: "todo", assignee: "VA", evidence: "待 Van 验收"},
 	} {
 		if err := seedReqRow(ctx, pool, schema, row); err != nil {
 			return err

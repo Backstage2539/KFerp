@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	productionapp "orderapp/internal/application/production"
 	support "orderapp/internal/interfaces/http/support"
 	"strings"
 	"time"
@@ -27,65 +28,6 @@ type ProduceRunRow struct {
 	StartedBy     string
 	StartedAt     string
 	StartedAtTime time.Time
-}
-
-func startProductionWithInputs(ctx context.Context, pool *pgxpool.Pool, schema, from, to string, customerID int64, selected map[string]bool, inputByKey map[string]int64, operator string) (string, error) {
-	rows, err := fetchUnproducedNeeds(ctx, pool, schema, from, to, customerID)
-	if err != nil {
-		return "", err
-	}
-	plan := make([]UnprodNeedRow, 0)
-	for _, r := range rows {
-		if r.GapG <= 0 {
-			continue
-		}
-		if selected[producePlanKey(r.ProductID, r.SpecG)] {
-			plan = append(plan, r)
-		}
-	}
-	if len(plan) == 0 {
-		return "", fmt.Errorf("没有可开始生产的数据")
-	}
-	yieldMap, err := loadProductYieldRateMap(ctx, pool, schema)
-	if err != nil {
-		return "", err
-	}
-	for _, r := range plan {
-		key := producePlanKey(r.ProductID, r.SpecG)
-		if inputByKey[key] <= 0 {
-			return "", fmt.Errorf("投料数必须大于0")
-		}
-	}
-	batchID, _, _, err := allocateUnproducedRows(ctx, pool, schema, plan, operator)
-	if err != nil {
-		return "", err
-	}
-	if err := saveRunningItems(ctx, pool, schema, batchID, plan, inputByKey, yieldMap, operator); err != nil {
-		return "", err
-	}
-	_ = setOrdersProcessStatusByNeeds(ctx, pool, schema, plan, "生产中")
-	return batchID, nil
-}
-
-func saveRunningItems(ctx context.Context, pool *pgxpool.Pool, schema, batchID string, rows []UnprodNeedRow, inputByKey map[string]int64, yieldByProductID map[int64]float64, operator string) error {
-	for _, r := range rows {
-		needG := r.GapG
-		if needG <= 0 {
-			continue
-		}
-		key := producePlanKey(r.ProductID, r.SpecG)
-		inputG := inputByKey[key]
-		if inputG <= 0 {
-			inputG = defaultProductionInputG(needG, yieldByProductID[r.ProductID])
-		}
-		yieldRate := normalizeYieldRate(yieldByProductID[r.ProductID])
-		plan := runningInventoryPlan(r.SpecG, needG, inputG, yieldRate)
-		_, err := pool.Exec(ctx, fmt.Sprintf(`INSERT INTO %s.produce_running_items(batch_id,product_id,product_name,spec_g,need_g,order_nos,status,started_by,started_at,input_g,bom_yield_rate,planned_units,planned_loose_g) VALUES($1,$2,$3,$4,$5,$6,'running',$7,now(),$8,$9,$10,$11)`, schema), batchID, r.ProductID, r.Product, r.SpecG, needG, r.OrderNos, operator, inputG, yieldRate, plan.Units, plan.LooseG)
-		if err != nil {
-			return err
-		}
-	}
-	return nil
 }
 
 func listRunningItems(ctx context.Context, pool *pgxpool.Pool, schema string) ([]ProduceRunRow, error) {
@@ -112,8 +54,11 @@ func listRunningItems(ctx context.Context, pool *pgxpool.Pool, schema string) ([
 	return out, rows.Err()
 }
 
-func finishRunningItem(ctx context.Context, pool *pgxpool.Pool, schema string, id, finishedUnits, finishedLooseG int64, hasFinishedInput bool, operator string) error {
-	tx, err := pool.Begin(ctx)
+func (repo postgresProductionRepository) Finish(ctx context.Context, cmd productionapp.FinishCommand) error {
+	id := cmd.ID
+	schema := repo.schema
+	operator := cmd.Operator
+	tx, err := repo.pool.Begin(ctx)
 	if err != nil {
 		return err
 	}
@@ -132,8 +77,8 @@ func finishRunningItem(ctx context.Context, pool *pgxpool.Pool, schema string, i
 	_ = tx.QueryRow(ctx, fmt.Sprintf(`SELECT onhand_units,onhand_loose_g FROM %s.finished_inventory WHERE product_id=$1 AND spec_g=$2 FOR UPDATE`, schema), r.ProductID, r.SpecG).Scan(&unitsBefore, &looseBefore)
 	cur := InvQty{Units: unitsBefore, LooseG: looseBefore}
 	add := runningInventoryPlan(r.SpecG, r.NeedG, r.InputG, r.BomYieldRate)
-	if hasFinishedInput {
-		add, err = normalizeFinishedInventoryAddition(r.SpecG, finishedUnits, finishedLooseG)
+	if cmd.HasFinishedInput {
+		add, err = normalizeFinishedInventoryAddition(r.SpecG, cmd.FinishedUnits, cmd.FinishedLooseG)
 		if err != nil {
 			return err
 		}
@@ -200,12 +145,15 @@ func finishRunningItem(ctx context.Context, pool *pgxpool.Pool, schema string, i
 	if err := tx.Commit(ctx); err != nil {
 		return err
 	}
-	support.AuditInsert(ctx, pool, schema, operator, "produce_running", &id, "finish", support.StrPtr("material_consumption"), nil, support.StrPtr("deducted"), support.AuditMeta{"running_item_id": id, "product_id": r.ProductID, "spec_g": r.SpecG, "need_g": r.NeedG, "input_g": r.InputG, "bom_yield_rate": r.BomYieldRate, "finished_units": add.Units, "finished_loose_g": add.LooseG, "finished_total_g": finishedTotal, "actual_yield_rate": actualYield})
+	support.AuditInsert(ctx, repo.pool, schema, operator, "produce_running", &id, "finish", support.StrPtr("material_consumption"), nil, support.StrPtr("deducted"), support.AuditMeta{"running_item_id": id, "product_id": r.ProductID, "spec_g": r.SpecG, "need_g": r.NeedG, "input_g": r.InputG, "bom_yield_rate": r.BomYieldRate, "finished_units": add.Units, "finished_loose_g": add.LooseG, "finished_total_g": finishedTotal, "actual_yield_rate": actualYield})
 	return nil
 }
 
-func cancelRunningItem(ctx context.Context, pool *pgxpool.Pool, schema string, id int64, operator string) error {
-	tx, err := pool.Begin(ctx)
+func (repo postgresProductionRepository) Cancel(ctx context.Context, cmd productionapp.CancelCommand) error {
+	id := cmd.ID
+	schema := repo.schema
+	operator := cmd.Operator
+	tx, err := repo.pool.Begin(ctx)
 	if err != nil {
 		return err
 	}
@@ -231,7 +179,7 @@ func cancelRunningItem(ctx context.Context, pool *pgxpool.Pool, schema string, i
 	if err := tx.Commit(ctx); err != nil {
 		return err
 	}
-	support.AuditInsert(ctx, pool, schema, operator, "produce_running", &id, "cancel", support.StrPtr("finished_allocation"), support.StrPtr(fmt.Sprintf("%d", restoredG)), support.StrPtr("restored"), support.AuditMeta{"running_item_id": id, "batch_id": r.BatchID, "product_id": r.ProductID, "spec_g": r.SpecG, "restored_g": restoredG})
+	support.AuditInsert(ctx, repo.pool, schema, operator, "produce_running", &id, "cancel", support.StrPtr("finished_allocation"), support.StrPtr(fmt.Sprintf("%d", restoredG)), support.StrPtr("restored"), support.AuditMeta{"running_item_id": id, "batch_id": r.BatchID, "product_id": r.ProductID, "spec_g": r.SpecG, "restored_g": restoredG})
 	return nil
 }
 

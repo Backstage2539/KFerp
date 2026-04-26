@@ -5,18 +5,23 @@ import (
 	"fmt"
 
 	bomapp "orderapp/internal/application/bom"
+	bomdomain "orderapp/internal/domain/bom"
 	catalogdomain "orderapp/internal/domain/catalog"
 	postgresinfra "orderapp/internal/infrastructure/postgres"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-type postgresBomRepository struct {
+type Repository struct {
 	pool   *pgxpool.Pool
 	schema string
 }
 
-func (r postgresBomRepository) List(ctx context.Context) ([]bomapp.ListItem, error) {
+func NewRepository(pool *pgxpool.Pool, schema string) Repository {
+	return Repository{pool: pool, schema: schema}
+}
+
+func (r Repository) List(ctx context.Context) ([]bomapp.ListItem, error) {
 	q := fmt.Sprintf(`
 		SELECT
 			p.id,
@@ -49,7 +54,7 @@ func (r postgresBomRepository) List(ctx context.Context) ([]bomapp.ListItem, err
 	return result, rows.Err()
 }
 
-func (r postgresBomRepository) Detail(ctx context.Context, productID int64) (bomapp.Detail, error) {
+func (r Repository) Detail(ctx context.Context, productID int64) (bomapp.Detail, error) {
 	var productName string
 	var roastLevel string
 	var yieldRate float64
@@ -77,7 +82,7 @@ func (r postgresBomRepository) Detail(ctx context.Context, productID int64) (bom
 	}, nil
 }
 
-func (r postgresBomRepository) Products(ctx context.Context) ([]bomapp.Option, error) {
+func (r Repository) Products(ctx context.Context) ([]bomapp.Option, error) {
 	opts, err := postgresinfra.FetchOptions(ctx, r.pool, "SELECT id, name FROM "+r.schema+".products WHERE active=true ORDER BY name")
 	if err != nil {
 		return nil, err
@@ -85,7 +90,7 @@ func (r postgresBomRepository) Products(ctx context.Context) ([]bomapp.Option, e
 	return bomOptionsToApp(opts), nil
 }
 
-func (r postgresBomRepository) Materials(ctx context.Context) ([]bomapp.Option, error) {
+func (r Repository) Materials(ctx context.Context) ([]bomapp.Option, error) {
 	opts, err := postgresinfra.FetchOptions(ctx, r.pool, "SELECT id, name FROM "+r.schema+".materials ORDER BY name")
 	if err != nil {
 		return nil, err
@@ -93,19 +98,15 @@ func (r postgresBomRepository) Materials(ctx context.Context) ([]bomapp.Option, 
 	return bomOptionsToApp(opts), nil
 }
 
-func (r postgresBomRepository) BagSpecMappings(ctx context.Context) ([]bomapp.BagSpecMapping, error) {
-	rows, err := listBagSpecMappings(ctx, r.pool, r.schema)
+func (r Repository) BagSpecMappings(ctx context.Context) ([]bomapp.BagSpecMapping, error) {
+	rows, err := postgresinfra.ListBagSpecMappings(ctx, r.pool, r.schema)
 	if err != nil {
 		return nil, err
 	}
-	out := make([]bomapp.BagSpecMapping, 0, len(rows))
-	for _, row := range rows {
-		out = append(out, bomapp.BagSpecMapping{SpecG: row.SpecG, MaterialID: row.MaterialID, MaterialName: row.MaterialName})
-	}
-	return out, nil
+	return bagSpecMappingsToApp(rows), nil
 }
 
-func (r postgresBomRepository) SyncProductYield(ctx context.Context, productID int64) error {
+func (r Repository) SyncProductYield(ctx context.Context, productID int64) error {
 	var roastLevel string
 	if err := r.pool.QueryRow(ctx, "SELECT COALESCE(roast_level,'') FROM "+r.schema+".products WHERE id=$1", productID).Scan(&roastLevel); err != nil {
 		return fmt.Errorf("product not found")
@@ -116,7 +117,7 @@ func (r postgresBomRepository) SyncProductYield(ctx context.Context, productID i
 	return err
 }
 
-func (r postgresBomRepository) SaveItem(ctx context.Context, cmd bomapp.SaveItemCommand) error {
+func (r Repository) SaveItem(ctx context.Context, cmd bomapp.SaveItemCommand) error {
 	_, total, err := listBomItems(ctx, r.pool, r.schema, cmd.ProductID)
 	if err != nil {
 		return err
@@ -135,20 +136,77 @@ func (r postgresBomRepository) SaveItem(ctx context.Context, cmd bomapp.SaveItem
 	return err
 }
 
-func (r postgresBomRepository) DeleteItem(ctx context.Context, cmd bomapp.DeleteItemCommand) error {
+func (r Repository) DeleteItem(ctx context.Context, cmd bomapp.DeleteItemCommand) error {
 	_, err := r.pool.Exec(ctx, "DELETE FROM "+r.schema+".product_bom_items WHERE id=$1", cmd.ID)
 	return err
 }
 
-func (r postgresBomRepository) SaveBagSpecMapping(ctx context.Context, cmd bomapp.SaveBagSpecMappingCommand) error {
+func (r Repository) SaveBagSpecMapping(ctx context.Context, cmd bomapp.SaveBagSpecMappingCommand) error {
 	return saveBagSpecMapping(ctx, r.pool, r.schema, cmd.SpecG, cmd.MaterialID)
 }
 
-func (r postgresBomRepository) DeleteBagSpecMapping(ctx context.Context, specG int64) error {
+func (r Repository) DeleteBagSpecMapping(ctx context.Context, specG int64) error {
 	return deleteBagSpecMapping(ctx, r.pool, r.schema, specG)
 }
 
-func bomItemsToApp(rows []BomItemRow) []bomapp.Item {
+type bomItemRow struct {
+	ID           int64
+	MaterialID   int64
+	MaterialName string
+	RatioPct     float64
+}
+
+func listBomItems(ctx context.Context, pool *pgxpool.Pool, schema string, productID int64) ([]bomItemRow, float64, error) {
+	q := fmt.Sprintf(`
+		SELECT bi.id, bi.material_id, COALESCE(m.name,''), bi.ratio_pct
+		FROM %s.product_bom_items bi
+		LEFT JOIN %s.materials m ON m.id=bi.material_id
+		WHERE bi.product_id=$1
+		ORDER BY m.name, bi.id
+	`, schema, schema)
+	rows, err := pool.Query(ctx, q, productID)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer rows.Close()
+
+	out := make([]bomItemRow, 0)
+	total := 0.0
+	for rows.Next() {
+		var row bomItemRow
+		if err := rows.Scan(&row.ID, &row.MaterialID, &row.MaterialName, &row.RatioPct); err != nil {
+			return nil, 0, err
+		}
+		total += row.RatioPct
+		out = append(out, row)
+	}
+	return out, total, rows.Err()
+}
+
+func saveBagSpecMapping(ctx context.Context, pool *pgxpool.Pool, schema string, specG, materialID int64) error {
+	if specG <= 0 {
+		return fmt.Errorf("spec_g required")
+	}
+	if materialID <= 0 {
+		return fmt.Errorf("material_id required")
+	}
+
+	q := fmt.Sprintf(`INSERT INTO %s.packaging_spec_material_map(spec_g, material_id, updated_at)
+		VALUES($1,$2,now())
+		ON CONFLICT (spec_g) DO UPDATE SET material_id=excluded.material_id, updated_at=now()`, schema)
+	_, err := pool.Exec(ctx, q, specG, materialID)
+	return err
+}
+
+func deleteBagSpecMapping(ctx context.Context, pool *pgxpool.Pool, schema string, specG int64) error {
+	if specG <= 0 {
+		return fmt.Errorf("spec_g required")
+	}
+	_, err := pool.Exec(ctx, "DELETE FROM "+schema+".packaging_spec_material_map WHERE spec_g=$1", specG)
+	return err
+}
+
+func bomItemsToApp(rows []bomItemRow) []bomapp.Item {
 	out := make([]bomapp.Item, 0, len(rows))
 	for _, row := range rows {
 		out = append(out, bomapp.Item{
@@ -157,6 +215,14 @@ func bomItemsToApp(rows []BomItemRow) []bomapp.Item {
 			MaterialName: row.MaterialName,
 			RatioPct:     row.RatioPct,
 		})
+	}
+	return out
+}
+
+func bagSpecMappingsToApp(rows []bomdomain.BagSpecMapping) []bomapp.BagSpecMapping {
+	out := make([]bomapp.BagSpecMapping, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, bomapp.BagSpecMapping{SpecG: row.SpecG, MaterialID: row.MaterialID, MaterialName: row.MaterialName})
 	}
 	return out
 }
