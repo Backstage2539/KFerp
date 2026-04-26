@@ -92,7 +92,7 @@ func TestVueShellDoesNotEmbedLegacyTemplatesInIframe(t *testing.T) {
 
 func TestProductionFlowRoutesAndSchemaAreSplitOut(t *testing.T) {
 	body, err := os.ReadFile("production_flow.go")
-	if err != nil {
+	if err != nil && !os.IsNotExist(err) {
 		t.Fatal(err)
 	}
 	content := string(body)
@@ -115,7 +115,7 @@ func TestProductionFlowRoutesAndSchemaAreSplitOut(t *testing.T) {
 
 func TestProductionDomainRulesAreNotImplementedInMainFlow(t *testing.T) {
 	body, err := os.ReadFile("production_flow.go")
-	if err != nil {
+	if err != nil && !os.IsNotExist(err) {
 		t.Fatal(err)
 	}
 	content := string(body)
@@ -136,6 +136,17 @@ func TestProductionDomainRulesAreNotImplementedInMainFlow(t *testing.T) {
 	}
 	if _, err := os.Stat("internal/domain/production/yield.go"); err != nil {
 		t.Fatalf("missing production domain rules file: %v", err)
+	}
+}
+
+func TestProductionFlowMonolithIsRemoved(t *testing.T) {
+	if _, err := os.Stat("production_flow.go"); err == nil {
+		t.Fatal("production_flow.go should be removed; split production concerns into routes, schema, domain, application, and repository files")
+	} else if !os.IsNotExist(err) {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat("production_running_repository.go"); err != nil {
+		t.Fatalf("missing production running repository split file: %v", err)
 	}
 }
 
