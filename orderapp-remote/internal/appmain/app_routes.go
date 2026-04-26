@@ -1,41 +1,20 @@
 package appmain
 
 import (
+	companyhttp "orderapp/internal/interfaces/http/company"
+	customerhttp "orderapp/internal/interfaces/http/customer"
+	productionhttp "orderapp/internal/interfaces/http/production"
+	saleshttp "orderapp/internal/interfaces/http/sales"
+	supporthttp "orderapp/internal/interfaces/http/support"
+
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/labstack/echo/v4"
 )
 
 func registerAppRoutes(e *echo.Echo, pool *pgxpool.Pool, schema string, assetDir string) {
-
-	registerShipExportRoutes(e, pool, schema)
-	registerRequirementPages(e, pool, schema)
-	registerRequirementAPIs(e, pool, schema)
-	registerFinishedInventoryPages(e, pool, schema)
-	registerMaterialsPages(e, pool, schema)
-	registerMaterialsAPI(e, pool, schema)
-	registerBomPages(e, pool, schema)
-	registerBomAPI(e, pool, schema)
-	registerOutsourceSettingsRoutes(e, pool, schema)
-	registerStaticFrontendRoutes(e)
-
-	registerUnprodSummaryPages(e, pool, schema)
-	registerUnprodSummaryAPI(e, pool, schema)
-	registerProducePlanPages(e, pool, schema)
-	registerMachineCapacityPages(e, pool, schema)
-	registerSenderSettingsPage(e, pool, schema)
-	registerProducePlanAllocate(e, pool, schema)
-	registerProductionFlowPages(e, pool, schema)
-	registerProductionLogPages(e, pool, schema)
-	registerProduceBatchAPI(e, pool, schema)
-	registerCompanyStaffPages(e, pool, schema)
-	registerCompanyStaffAPI(e, pool, schema)
-	registerMobileAuthAPI(e, pool, schema)
-	registerAllocationLogPages(e, pool, schema)
-
-	registerCoreRoutes(e, pool, schema)
-	registerDocsRoutes(e)
-	registerCustomerRoutes(e, pool, schema, assetDir)
-	registerProductRoutes(e, pool, schema)
-	registerOrderRoutes(e, pool, schema)
-	registerOrderAPI(e, pool, schema)
+	supporthttp.RegisterRoutes(e, pool, schema)
+	productionhttp.RegisterRoutes(e, pool, schema)
+	companyhttp.RegisterRoutes(e, pool, schema)
+	customerhttp.RegisterRoutes(e, pool, schema, assetDir)
+	saleshttp.RegisterRoutes(e, pool, schema)
 }
