@@ -8,7 +8,7 @@ import (
 )
 
 func TestBomAPIRoutesUseApplicationService(t *testing.T) {
-	body, err := os.ReadFile("internal/interfaces/http/production/bom_api.go")
+	body, err := os.ReadFile("internal/interfaces/http/bom/bom_api.go")
 	if err != nil {
 		t.Fatal(err)
 	}

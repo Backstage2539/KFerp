@@ -8,8 +8,11 @@ import (
 	"strings"
 	"testing"
 
+	bomhttp "orderapp/internal/interfaces/http/bom"
+	cataloghttp "orderapp/internal/interfaces/http/catalog"
 	companyhttp "orderapp/internal/interfaces/http/company"
 	customerhttp "orderapp/internal/interfaces/http/customer"
+	inventoryhttp "orderapp/internal/interfaces/http/inventory"
 	productionhttp "orderapp/internal/interfaces/http/production"
 	saleshttp "orderapp/internal/interfaces/http/sales"
 
@@ -73,7 +76,9 @@ func TestVueShellMigratesCatalogAndSettingsPages(t *testing.T) {
 		"import CompanyStaffView from './views/CompanyStaffView.vue'",
 		"import InventoryView from './views/InventoryView.vue'",
 		"import MachinesView from './views/MachinesView.vue'",
+		"import AllocationLogsView from './views/AllocationLogsView.vue'",
 		"import SenderSettingsView from './views/SenderSettingsView.vue'",
+		"import OutsourceSettingsView from './views/OutsourceSettingsView.vue'",
 		"customers: CustomersView",
 		"products: ProductsView",
 		"bom: BomView",
@@ -82,7 +87,9 @@ func TestVueShellMigratesCatalogAndSettingsPages(t *testing.T) {
 		"inventory: InventoryView",
 		"quotePrint: ProductsView",
 		"machines: MachinesView",
+		"allocationLogs: AllocationLogsView",
 		"senderSettings: SenderSettingsView",
+		"outsourceSettings: OutsourceSettingsView",
 	} {
 		if !strings.Contains(content, want) {
 			t.Fatalf("App.vue missing catalog/settings Vue wiring %q", want)
@@ -96,6 +103,9 @@ func TestVueShellMigratesCatalogAndSettingsPages(t *testing.T) {
 func TestCatalogAndSettingsRoutesRedirectToVueShell(t *testing.T) {
 	e := echo.New()
 	customerhttp.RegisterRoutes(e, nil, "public", "")
+	cataloghttp.RegisterRoutes(e, nil, "public")
+	bomhttp.RegisterRoutes(e, nil, "public")
+	inventoryhttp.RegisterRoutes(e, nil, "public")
 	productionhttp.RegisterRoutes(e, nil, "public")
 	companyhttp.RegisterRoutes(e, nil, "public")
 	saleshttp.RegisterRoutes(e, nil, "public")
@@ -116,7 +126,9 @@ func TestCatalogAndSettingsRoutesRedirectToVueShell(t *testing.T) {
 		{path: "/company/employees?department_id=1", want: "/vue-shell?view=employees&department_id=1"},
 		{path: "/products/inventory", want: "/vue-shell?view=inventory"},
 		{path: "/produce/machines", want: "/vue-shell?view=machines"},
+		{path: "/produce/allocations?batch=B1", want: "/vue-shell?view=allocationLogs&batch=B1"},
 		{path: "/settings/sender", want: "/vue-shell?view=senderSettings"},
+		{path: "/settings/outsource", want: "/vue-shell?view=outsourceSettings"},
 	}
 	assertRedirects(t, e, cases)
 }

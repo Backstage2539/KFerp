@@ -249,7 +249,7 @@ func TestSalesServiceOwnsSaveOrderValidation(t *testing.T) {
 }
 
 func TestMaterialsAPIUsesApplicationService(t *testing.T) {
-	body, err := os.ReadFile("internal/interfaces/http/production/materials_api.go")
+	body, err := os.ReadFile("internal/interfaces/http/materials/materials_api.go")
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -7,9 +7,10 @@ import (
 )
 
 type fakeRepo struct {
-	saveCmd   SaveOrderCommand
-	inlineCmd InlineUpdateCommand
-	saveCalls int
+	saveCmd        SaveOrderCommand
+	inlineCmd      InlineUpdateCommand
+	saveCalls      int
+	outsourceSaved SaveOutsourceTemplateCommand
 }
 
 func (r *fakeRepo) SaveOrder(ctx context.Context, cmd SaveOrderCommand) (SaveOrderResult, error) {
@@ -32,6 +33,15 @@ func (r *fakeRepo) Void(ctx context.Context, id int64, actor, reason string) err
 }
 
 func (r *fakeRepo) Unvoid(ctx context.Context, id int64, actor string) error {
+	return nil
+}
+
+func (r *fakeRepo) ListOutsourceTemplates(ctx context.Context) ([]OutsourceTemplate, error) {
+	return []OutsourceTemplate{{ID: 1, Name: "默认", IsDefault: true, RoastUnitPrice: 2.5}}, nil
+}
+
+func (r *fakeRepo) SaveOutsourceTemplate(ctx context.Context, cmd SaveOutsourceTemplateCommand) error {
+	r.outsourceSaved = cmd
 	return nil
 }
 
@@ -105,5 +115,40 @@ func TestServiceValidatesSaveOrderBeforeRepository(t *testing.T) {
 	}
 	if repo.saveCalls != 0 {
 		t.Fatalf("repository was called %d times for invalid command", repo.saveCalls)
+	}
+}
+
+func TestServiceOwnsOutsourceTemplateUseCases(t *testing.T) {
+	repo := &fakeRepo{}
+	svc := NewService(repo)
+
+	rows, err := svc.ListOutsourceTemplates(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 1 || rows[0].Name != "默认" {
+		t.Fatalf("ListOutsourceTemplates() = %+v", rows)
+	}
+
+	err = svc.SaveOutsourceTemplate(context.Background(), SaveOutsourceTemplateCommand{
+		Name:              " 默认外包 ",
+		IsDefault:         true,
+		RoastUnitPrice:    1.5,
+		BeanPackUnitPrice: 2.5,
+		DripPackUnitPrice: 3.5,
+		SCUnitPrice:       4.5,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if repo.outsourceSaved.Name != "默认外包" || !repo.outsourceSaved.IsDefault {
+		t.Fatalf("SaveOutsourceTemplate normalized command = %+v", repo.outsourceSaved)
+	}
+
+	if err := svc.SaveOutsourceTemplate(context.Background(), SaveOutsourceTemplateCommand{Name: ""}); err == nil {
+		t.Fatal("SaveOutsourceTemplate empty name error = nil")
+	}
+	if err := svc.SaveOutsourceTemplate(context.Background(), SaveOutsourceTemplateCommand{Name: "坏价格", RoastUnitPrice: -1}); err == nil {
+		t.Fatal("SaveOutsourceTemplate negative price error = nil")
 	}
 }

@@ -3,6 +3,7 @@ package production
 import (
 	"context"
 	"net/http"
+	postgresinfra "orderapp/internal/infrastructure/postgres"
 	"strconv"
 	"strings"
 
@@ -41,14 +42,19 @@ type ProductionLogsPageData struct {
 	ProductID int64
 	BatchID   string
 	Operator  string
-	Products  []Option
+	Products  []productionProductOption
 	Rows      []ProductionLogRow
 	Error     string
 }
 
 type ProductionLogsAPIResponse struct {
-	Products []Option           `json:"products"`
-	Rows     []ProductionLogRow `json:"rows"`
+	Products []productionProductOption `json:"products"`
+	Rows     []ProductionLogRow        `json:"rows"`
+}
+
+type productionProductOption struct {
+	ID   int64  `json:"id"`
+	Name string `json:"name"`
 }
 
 func registerProductionLogPages(e *echo.Echo, pool *pgxpool.Pool, schema string) {
@@ -62,10 +68,10 @@ func registerProductionLogPages(e *echo.Echo, pool *pgxpool.Pool, schema string)
 
 	e.GET("/api/produce/logs", func(c echo.Context) error {
 		data := parseProductionLogsQuery(c)
-		if products, err := fetchProducts(c.Request().Context(), pool, schema); err == nil {
-			data.Products = make([]Option, 0, len(products))
+		if products, err := postgresinfra.FetchProducts(c.Request().Context(), pool, schema); err == nil {
+			data.Products = make([]productionProductOption, 0, len(products))
 			for _, p := range products {
-				data.Products = append(data.Products, Option{ID: p.ID, Name: p.Name})
+				data.Products = append(data.Products, productionProductOption{ID: p.ID, Name: p.Name})
 			}
 		}
 		rows, err := listProductionLogs(c.Request().Context(), pool, schema, data.From, data.To, data.ProductID, data.BatchID, data.Operator, 200)

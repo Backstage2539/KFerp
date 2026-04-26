@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"math"
+	bomdomain "orderapp/internal/domain/bom"
+	catalogdomain "orderapp/internal/domain/catalog"
 	"sort"
 	"strings"
 
@@ -77,7 +79,7 @@ func calcProducePlanMaterialsFromFinalInputs(rows []UnprodNeedRow, finalInputByK
 			if u == "" {
 				u = "g"
 			}
-			ratioPct := normalizeBomRatioPct(bi.RatioPct)
+			ratioPct := bomdomain.NormalizeRatioPct(bi.RatioPct)
 			switch {
 			case strings.EqualFold(u, "g"):
 				add(bi.MaterialName, int64(math.Ceil(float64(finalInputG)*ratioPct/100.0)), "g")
@@ -151,7 +153,7 @@ func calcProducePlanMaterialsWithBOM(ctx context.Context, pool *pgxpool.Pool, sc
 			continue
 		}
 
-		yield := resolveYieldRate(items[0].RoastLevel, items[0].YieldRate)
+		yield := catalogdomain.ResolveYieldRate(items[0].RoastLevel, items[0].YieldRate)
 		if yield <= 0 || yield > 1 {
 			yield = normalizeYieldRate(p.YieldRate)
 		}
@@ -163,7 +165,7 @@ func calcProducePlanMaterialsWithBOM(ctx context.Context, pool *pgxpool.Pool, sc
 			if u == "" {
 				u = "g"
 			}
-			ratioPct := normalizeBomRatioPct(bi.RatioPct)
+			ratioPct := bomdomain.NormalizeRatioPct(bi.RatioPct)
 			if strings.EqualFold(u, "g") {
 				need := int64(math.Ceil(float64(rawG) * ratioPct / 100.0))
 				add(bi.MaterialName, need, "g")
@@ -273,7 +275,7 @@ func loadBomNeedItems(ctx context.Context, pool *pgxpool.Pool, schema string, pr
 		if strings.TrimSpace(x.MaterialName) == "" || x.RatioPct <= 0 {
 			continue
 		}
-		x.RatioPct = normalizeBomRatioPct(x.RatioPct)
+		x.RatioPct = bomdomain.NormalizeRatioPct(x.RatioPct)
 		out[x.ProductID] = append(out[x.ProductID], x)
 	}
 	return out, rows.Err()

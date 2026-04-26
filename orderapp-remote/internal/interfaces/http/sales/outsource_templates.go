@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	salesapp "orderapp/internal/application/sales"
 	"strconv"
 	"strings"
 
@@ -12,28 +13,12 @@ import (
 	"github.com/labstack/echo/v4"
 )
 
-type OutsourceTemplate struct {
-	ID                int64
-	Name              string
-	IsDefault         bool
-	RoastUnitPrice    float64
-	BeanPackUnitPrice float64
-	DripPackUnitPrice float64
-	SCUnitPrice       float64
-}
-
 type OutsourceTemplateTier struct {
 	ID         int64
 	TemplateID int64
 	MinQty     int64
 	MaxQty     *int64
 	Multiplier float64
-}
-
-type OutsourceSettingsPageData struct {
-	Rows []OutsourceTemplate
-	Ok   bool
-	Err  string
 }
 
 func ensureOutsourceTemplateTables(ctx context.Context, pool *pgxpool.Pool, schema string) error {
@@ -66,46 +51,72 @@ func ensureOutsourceTemplateTables(ctx context.Context, pool *pgxpool.Pool, sche
 	return nil
 }
 
-func listOutsourceTemplates(ctx context.Context, pool *pgxpool.Pool, schema string) ([]OutsourceTemplate, error) {
+func (r postgresSalesRepository) ListOutsourceTemplates(ctx context.Context) ([]salesapp.OutsourceTemplate, error) {
 	q := fmt.Sprintf(`SELECT id,name,is_default,COALESCE(roast_unit_price,0),COALESCE(bean_pack_unit_price,0),COALESCE(drip_pack_unit_price,0),COALESCE(sc_unit_price,0)
-		FROM %s.outsource_templates WHERE active=true ORDER BY is_default DESC, id DESC`, schema)
-	rows, err := pool.Query(ctx, q)
+		FROM %s.outsource_templates WHERE active=true ORDER BY is_default DESC, id DESC`, r.schema)
+	rows, err := r.pool.Query(ctx, q)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	out := make([]OutsourceTemplate, 0)
+	out := make([]salesapp.OutsourceTemplate, 0)
 	for rows.Next() {
-		var r OutsourceTemplate
-		if err := rows.Scan(&r.ID, &r.Name, &r.IsDefault, &r.RoastUnitPrice, &r.BeanPackUnitPrice, &r.DripPackUnitPrice, &r.SCUnitPrice); err != nil {
+		var row salesapp.OutsourceTemplate
+		if err := rows.Scan(&row.ID, &row.Name, &row.IsDefault, &row.RoastUnitPrice, &row.BeanPackUnitPrice, &row.DripPackUnitPrice, &row.SCUnitPrice); err != nil {
 			return nil, err
 		}
-		out = append(out, r)
+		out = append(out, row)
 	}
 	return out, rows.Err()
 }
 
+func (r postgresSalesRepository) SaveOutsourceTemplate(ctx context.Context, cmd salesapp.SaveOutsourceTemplateCommand) error {
+	if cmd.IsDefault {
+		if _, err := r.pool.Exec(ctx, fmt.Sprintf(`UPDATE %s.outsource_templates SET is_default=false WHERE is_default=true`, r.schema)); err != nil {
+			return err
+		}
+	}
+	_, err := r.pool.Exec(ctx, fmt.Sprintf(`INSERT INTO %s.outsource_templates(name,is_default,roast_unit_price,bean_pack_unit_price,drip_pack_unit_price,sc_unit_price,updated_at)
+		VALUES($1,$2,$3,$4,$5,$6,now())
+		ON CONFLICT (name) DO UPDATE SET
+			is_default=excluded.is_default,
+			roast_unit_price=excluded.roast_unit_price,
+			bean_pack_unit_price=excluded.bean_pack_unit_price,
+			drip_pack_unit_price=excluded.drip_pack_unit_price,
+			sc_unit_price=excluded.sc_unit_price,
+			updated_at=now()`, r.schema),
+		cmd.Name, cmd.IsDefault, cmd.RoastUnitPrice, cmd.BeanPackUnitPrice, cmd.DripPackUnitPrice, cmd.SCUnitPrice)
+	return err
+}
+
 func registerOutsourceSettingsRoutes(e *echo.Echo, pool *pgxpool.Pool, schema string) {
+	salesSvc := salesapp.NewService(postgresSalesRepository{pool: pool, schema: schema})
+
 	e.GET("/api/outsource/templates", func(c echo.Context) error {
-		rows, err := listOutsourceTemplates(c.Request().Context(), pool, schema)
+		rows, err := salesSvc.ListOutsourceTemplates(c.Request().Context())
 		if err != nil {
 			return c.JSON(http.StatusInternalServerError, map[string]any{"ok": false, "error": err.Error()})
 		}
 		return c.JSON(http.StatusOK, map[string]any{"ok": true, "rows": rows})
 	})
 
+	e.POST("/api/outsource/templates", func(c echo.Context) error {
+		var req salesapp.SaveOutsourceTemplateCommand
+		if err := c.Bind(&req); err != nil {
+			return c.JSON(http.StatusBadRequest, map[string]any{"ok": false, "error": "invalid request"})
+		}
+		if err := salesSvc.SaveOutsourceTemplate(c.Request().Context(), req); err != nil {
+			return c.JSON(http.StatusBadRequest, map[string]any{"ok": false, "error": err.Error()})
+		}
+		return c.JSON(http.StatusOK, map[string]any{"ok": true})
+	})
+
 	e.GET("/settings/outsource", func(c echo.Context) error {
-		data := OutsourceSettingsPageData{Ok: strings.TrimSpace(c.QueryParam("ok")) == "1"}
-		if v := strings.TrimSpace(c.QueryParam("err")); v != "" {
-			data.Err = v
+		target := "/vue-shell?view=outsourceSettings"
+		if raw := strings.TrimSpace(c.QueryString()); raw != "" {
+			target += "&" + raw
 		}
-		rows, err := listOutsourceTemplates(c.Request().Context(), pool, schema)
-		if err != nil {
-			data.Err = err.Error()
-		} else {
-			data.Rows = rows
-		}
-		return c.Render(http.StatusOK, "outsource_settings.html", data)
+		return c.Redirect(http.StatusFound, target)
 	})
 
 	e.POST("/settings/outsource/save", func(c echo.Context) error {
@@ -125,18 +136,14 @@ func registerOutsourceSettingsRoutes(e *echo.Echo, pool *pgxpool.Pool, schema st
 			return f
 		}
 		isDefault := strings.TrimSpace(c.FormValue("is_default")) != ""
-		if isDefault {
-			_, _ = pool.Exec(c.Request().Context(), fmt.Sprintf(`UPDATE %s.outsource_templates SET is_default=false WHERE is_default=true`, schema))
-		}
-		_, err := pool.Exec(c.Request().Context(), fmt.Sprintf(`INSERT INTO %s.outsource_templates(name,is_default,roast_unit_price,bean_pack_unit_price,drip_pack_unit_price,sc_unit_price,updated_at)
-			VALUES($1,$2,$3,$4,$5,$6,now())
-			ON CONFLICT (name) DO UPDATE SET
-				is_default=excluded.is_default,
-				roast_unit_price=excluded.roast_unit_price,
-				bean_pack_unit_price=excluded.bean_pack_unit_price,
-				drip_pack_unit_price=excluded.drip_pack_unit_price,
-				sc_unit_price=excluded.sc_unit_price,
-				updated_at=now()`, schema), name, isDefault, parse("roast_unit_price"), parse("bean_pack_unit_price"), parse("drip_pack_unit_price"), parse("sc_unit_price"))
+		err := salesSvc.SaveOutsourceTemplate(c.Request().Context(), salesapp.SaveOutsourceTemplateCommand{
+			Name:              name,
+			IsDefault:         isDefault,
+			RoastUnitPrice:    parse("roast_unit_price"),
+			BeanPackUnitPrice: parse("bean_pack_unit_price"),
+			DripPackUnitPrice: parse("drip_pack_unit_price"),
+			SCUnitPrice:       parse("sc_unit_price"),
+		})
 		if err != nil {
 			return c.Redirect(http.StatusSeeOther, "/settings/outsource?err="+url.QueryEscape(err.Error()))
 		}

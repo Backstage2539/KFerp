@@ -266,6 +266,14 @@ func seedReqWorkflowA(ctx context.Context, pool *pgxpool.Pool, schema string) er
 		{table: "req_unit", code: "UT-DDD-001", title: "架构守卫覆盖 appmain 组合根和 DDD 模块目录", status: "done", assignee: "Codex", evidence: "go test ./internal/architecture -count=1"},
 		{table: "req_api", code: "API-DDD-001", title: "拆包后核心 Vue/API 路由保持兼容", status: "done", assignee: "Codex", evidence: "部署后 smoke: Vue shell/order/production/BOM APIs"},
 		{table: "req_review", code: "REV-DDD-001", prCode: "PR-DDD-001", title: "架构验收：appmain 不再承载业务代码，业务按模块维护", status: "todo", assignee: "VA", evidence: "待 Van 验收"},
+		{table: "req_product", code: "PR-DDD-002", title: "继续收敛纯 DDD 终态：拆分生产大模块并清理剩余模板债", status: "review", assignee: "VA", evidence: "codex/pure-ddd-p2-20260426"},
+		{table: "req_dev", code: "DEV-DDD-005", title: "将 production HTTP 聚合拆成 catalog/materials/bom/inventory/production 子模块", status: "done", assignee: "Codex", evidence: "internal/interfaces/http/{catalog,materials,bom,inventory,production}"},
+		{table: "req_dev", code: "DEV-DDD-006", title: "分配日志迁移为 Vue/Vite view + JSON API，并删除 allocation_logs.html", status: "done", assignee: "Codex", evidence: "AllocationLogsView.vue; /api/produce/allocations"},
+		{table: "req_dev", code: "DEV-DDD-007", title: "外包模板设置迁移为 Vue/Vite view + sales application service，并删除 outsource_settings.html", status: "done", assignee: "Codex", evidence: "OutsourceSettingsView.vue; Service.SaveOutsourceTemplate"},
+		{table: "req_dev", code: "DEV-DDD-008", title: "禁止 HTTP 业务模块互相导入，跨模块共享逻辑下沉到 domain/infrastructure", status: "done", assignee: "Codex", evidence: "TestHTTPModulesDoNotImportSiblingHTTPModules"},
+		{table: "req_unit", code: "UT-DDD-002", title: "架构守卫覆盖生产模块拆分、模板债清理和 HTTP sibling import 禁止规则", status: "done", assignee: "Codex", evidence: "go test ./internal/architecture -count=1"},
+		{table: "req_api", code: "API-DDD-002", title: "分配日志与外包模板设置通过 Vue shell 入口和 JSON API 验证", status: "done", assignee: "Codex", evidence: "TestCatalogAndSettingsRoutesRedirectToVueShell; deployment smoke"},
+		{table: "req_review", code: "REV-DDD-002", prCode: "PR-DDD-002", title: "架构验收：生产/库存/BOM/物料边界清晰且剩余模板债已删除", status: "todo", assignee: "VA", evidence: "待 Van 验收"},
 	} {
 		if err := seedReqRow(ctx, pool, schema, row); err != nil {
 			return err

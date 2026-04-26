@@ -4,6 +4,9 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	bomdomain "orderapp/internal/domain/bom"
+	catalogdomain "orderapp/internal/domain/catalog"
+	postgresinfra "orderapp/internal/infrastructure/postgres"
 	"strconv"
 	"strings"
 
@@ -102,7 +105,7 @@ func loadProductYieldRateMap(ctx context.Context, pool *pgxpool.Pool, schema str
 		if err := rows.Scan(&productID, &roastLevel, &yieldRate); err != nil {
 			return nil, err
 		}
-		out[productID] = resolveYieldRate(roastLevel, yieldRate)
+		out[productID] = catalogdomain.ResolveYieldRate(roastLevel, yieldRate)
 	}
 	return out, rows.Err()
 }
@@ -212,8 +215,8 @@ func loadUnprodSummaryData(ctx context.Context, pool *pgxpool.Pool, schema strin
 		return data, err
 	}
 	params := defaultProducePlanParams()
-	if mappings, err := listBagSpecMappings(ctx, pool, schema); err == nil {
-		params.BagNameBySpecG = mappingNameBySpec(mappings)
+	if mappings, err := postgresinfra.ListBagSpecMappings(ctx, pool, schema); err == nil {
+		params.BagNameBySpecG = bomdomain.MappingNameBySpec(mappings)
 	}
 	bomMap, _ := loadBomNeedItemsFromRows(ctx, pool, schema, planRows)
 	machines, _ := loadActiveMachines(ctx, pool, schema)
@@ -269,7 +272,7 @@ func buildRoastPlanMaterialRatios(rows []UnprodNeedRow, bomMap map[int64][]bomNe
 				ProductName:  row.Product,
 				MaterialName: item.MaterialName,
 				MaterialUnit: item.MaterialUnit,
-				RatioPct:     normalizeBomRatioPct(item.RatioPct),
+				RatioPct:     bomdomain.NormalizeRatioPct(item.RatioPct),
 			})
 		}
 	}

@@ -82,12 +82,33 @@ type InlineUpdateCommand struct {
 	Notes           string
 }
 
+type OutsourceTemplate struct {
+	ID                int64   `json:"id"`
+	Name              string  `json:"name"`
+	IsDefault         bool    `json:"is_default"`
+	RoastUnitPrice    float64 `json:"roast_unit_price"`
+	BeanPackUnitPrice float64 `json:"bean_pack_unit_price"`
+	DripPackUnitPrice float64 `json:"drip_pack_unit_price"`
+	SCUnitPrice       float64 `json:"sc_unit_price"`
+}
+
+type SaveOutsourceTemplateCommand struct {
+	Name              string  `json:"name"`
+	IsDefault         bool    `json:"is_default"`
+	RoastUnitPrice    float64 `json:"roast_unit_price"`
+	BeanPackUnitPrice float64 `json:"bean_pack_unit_price"`
+	DripPackUnitPrice float64 `json:"drip_pack_unit_price"`
+	SCUnitPrice       float64 `json:"sc_unit_price"`
+}
+
 type Repository interface {
 	SaveOrder(ctx context.Context, cmd SaveOrderCommand) (SaveOrderResult, error)
 	UpdateHeader(ctx context.Context, id int64, cmd UpdateHeaderCommand) error
 	InlineUpdate(ctx context.Context, id int64, actor string, cmd InlineUpdateCommand) error
 	Void(ctx context.Context, id int64, actor, reason string) error
 	Unvoid(ctx context.Context, id int64, actor string) error
+	ListOutsourceTemplates(ctx context.Context) ([]OutsourceTemplate, error)
+	SaveOutsourceTemplate(ctx context.Context, cmd SaveOutsourceTemplateCommand) error
 }
 
 type Service struct {
@@ -148,4 +169,19 @@ func (s *Service) Void(ctx context.Context, id int64, actor, reason string) erro
 
 func (s *Service) Unvoid(ctx context.Context, id int64, actor string) error {
 	return s.repo.Unvoid(ctx, id, actor)
+}
+
+func (s *Service) ListOutsourceTemplates(ctx context.Context) ([]OutsourceTemplate, error) {
+	return s.repo.ListOutsourceTemplates(ctx)
+}
+
+func (s *Service) SaveOutsourceTemplate(ctx context.Context, cmd SaveOutsourceTemplateCommand) error {
+	cmd.Name = strings.TrimSpace(cmd.Name)
+	if cmd.Name == "" {
+		return fmt.Errorf("name required")
+	}
+	if cmd.RoastUnitPrice < 0 || cmd.BeanPackUnitPrice < 0 || cmd.DripPackUnitPrice < 0 || cmd.SCUnitPrice < 0 {
+		return fmt.Errorf("prices must be non-negative")
+	}
+	return s.repo.SaveOutsourceTemplate(ctx, cmd)
 }

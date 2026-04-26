@@ -4,6 +4,7 @@ import (
 	"go/ast"
 	"go/parser"
 	"go/token"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -36,8 +37,12 @@ func TestAppmainIsCompositionRootOnly(t *testing.T) {
 func TestDDDModuleDirectoriesExist(t *testing.T) {
 	root := moduleRoot(t)
 	for _, dir := range []string{
+		"internal/interfaces/http/bom",
+		"internal/interfaces/http/catalog",
 		"internal/interfaces/http/company",
 		"internal/interfaces/http/customer",
+		"internal/interfaces/http/inventory",
+		"internal/interfaces/http/materials",
 		"internal/interfaces/http/production",
 		"internal/interfaces/http/sales",
 		"internal/interfaces/http/support",
@@ -51,6 +56,87 @@ func TestDDDModuleDirectoriesExist(t *testing.T) {
 		if info, err := os.Stat(filepath.Join(root, dir)); err != nil || !info.IsDir() {
 			t.Fatalf("missing DDD module directory %s", dir)
 		}
+	}
+}
+
+func TestProductionModuleDoesNotOwnInventoryMaterialsOrBOMRoutes(t *testing.T) {
+	root := moduleRoot(t)
+	body, err := os.ReadFile(filepath.Join(root, "internal", "interfaces", "http", "production", "module.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := string(body)
+	for _, forbidden := range []string{
+		"registerFinishedInventoryPages",
+		"registerMaterialsPages",
+		"registerMaterialsAPI",
+		"registerBomPages",
+		"registerBomAPI",
+		"registerAllocationLogPages",
+		"ensureFinishedInventoryTable",
+		"ensureMaterialTables",
+		"ensureBomTables",
+		"ensureBagSpecMappingTable",
+	} {
+		if strings.Contains(src, forbidden) {
+			t.Fatalf("production module still owns split responsibility %s", forbidden)
+		}
+	}
+}
+
+func TestRemainingSettingsAndAllocationPagesAreVueOnly(t *testing.T) {
+	root := moduleRoot(t)
+	for _, file := range []string{
+		"internal/interfaces/http/production/allocation_log_page.go",
+		"internal/interfaces/http/sales/outsource_templates.go",
+	} {
+		body, err := os.ReadFile(filepath.Join(root, file))
+		if err == nil && strings.Contains(string(body), "c.Render") {
+			t.Fatalf("%s still renders a server template", file)
+		}
+	}
+	for _, tmpl := range []string{
+		"templates/allocation_logs.html",
+		"templates/outsource_settings.html",
+	} {
+		if _, err := os.Stat(filepath.Join(root, tmpl)); err == nil {
+			t.Fatalf("%s should be migrated out of server templates", tmpl)
+		}
+	}
+	app, err := os.ReadFile(filepath.Join(root, "frontend-vue-shell", "src", "App.vue"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, required := range []string{"allocationLogs", "outsourceSettings"} {
+		if !strings.Contains(string(app), required) {
+			t.Fatalf("Vue shell missing internal view %s", required)
+		}
+	}
+}
+
+func TestHTTPModulesDoNotImportSiblingHTTPModules(t *testing.T) {
+	root := filepath.Join(moduleRoot(t), "internal", "interfaces", "http")
+	forbidden := "orderapp/internal/interfaces/http/"
+	if err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() || !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
+			return nil
+		}
+		file, err := parser.ParseFile(token.NewFileSet(), path, nil, parser.ImportsOnly)
+		if err != nil {
+			return err
+		}
+		for _, imp := range file.Imports {
+			importPath := strings.Trim(imp.Path.Value, `"`)
+			if strings.HasPrefix(importPath, forbidden) && importPath != forbidden+"support" {
+				t.Fatalf("%s imports sibling HTTP module %s; move shared behavior behind domain/application/infrastructure boundary", path, importPath)
+			}
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
 	}
 }
 

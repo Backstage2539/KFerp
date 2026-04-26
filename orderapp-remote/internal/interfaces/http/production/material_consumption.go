@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"math"
+	bomdomain "orderapp/internal/domain/bom"
+	catalogdomain "orderapp/internal/domain/catalog"
 	"strings"
 
 	"github.com/jackc/pgx/v5"
@@ -85,7 +87,7 @@ func calcRunningItemMaterialNeedsTx(ctx context.Context, tx pgx.Tx, schema strin
 		if err := rows.Scan(&x.materialID, &x.name, &x.unit, &x.ratio, &x.roastLevel, &x.yieldRate); err != nil {
 			return nil, err
 		}
-		x.ratio = normalizeBomRatioPct(x.ratio)
+		x.ratio = bomdomain.NormalizeRatioPct(x.ratio)
 		if x.materialID <= 0 || strings.TrimSpace(x.name) == "" || x.ratio <= 0 {
 			continue
 		}
@@ -98,7 +100,7 @@ func calcRunningItemMaterialNeedsTx(ctx context.Context, tx pgx.Tx, schema strin
 		return nil, fmt.Errorf("product BOM not configured: %s", r.Product)
 	}
 
-	yield := resolveYieldRate(bomRows[0].roastLevel, bomRows[0].yieldRate)
+	yield := catalogdomain.ResolveYieldRate(bomRows[0].roastLevel, bomRows[0].yieldRate)
 	rawG := r.InputG
 	if rawG <= 0 {
 		rawG = int64(math.Ceil(float64(r.NeedG) / yield))
