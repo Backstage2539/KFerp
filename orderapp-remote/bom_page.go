@@ -24,6 +24,9 @@ type BomPageData struct {
 
 func registerBomPages(e *echo.Echo, pool *pgxpool.Pool, schema string) {
 	e.GET("/bom", func(c echo.Context) error {
+		if strings.TrimSpace(c.QueryParam("legacy")) != "1" {
+			return vueShellRedirect(c, "bom")
+		}
 		data := BomPageData{Ok: strings.TrimSpace(c.QueryParam("ok")) == "1"}
 		if s := strings.TrimSpace(c.QueryParam("err")); s != "" {
 			data.Err = s

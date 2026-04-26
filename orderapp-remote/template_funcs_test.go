@@ -24,12 +24,12 @@ func TestTemplateFuncMapExposesBomURL(t *testing.T) {
 	if !ok {
 		t.Fatalf("bomURL has unexpected type %T", raw)
 	}
-	if got, want := bomURL(), bomReactURL(); got != want {
+	if got, want := bomURL(), bomVueURL(); got != want {
 		t.Fatalf("bomURL() = %q, want %q", got, want)
 	}
 }
 
-func TestBomEntrypointsUseVersionedURL(t *testing.T) {
+func TestBomEntrypointsUseVueURL(t *testing.T) {
 	checks := []struct {
 		path      string
 		required  []string
@@ -42,22 +42,22 @@ func TestBomEntrypointsUseVersionedURL(t *testing.T) {
 		},
 		{
 			path:      "frontend-vue-shell/src/App.vue",
-			required:  []string{"const BOM_REACT_URL = '/bom-react'", "bom: { title: 'BOM配方维护', legacyUrl: BOM_REACT_URL }", "LegacyMigrationView"},
-			forbidden: []string{"bom: { title: 'BOM配方维护', url: '/bom-react' }"},
+			required:  []string{"import BomView from './views/BomView.vue'", "bom: BomView", "bom: { title: 'BOM配方维护'"},
+			forbidden: []string{"BOM_REACT_URL", "legacyUrl: BOM_REACT_URL"},
 		},
 		{
 			path: "templates/order.html",
 			required: []string{
 				`href="{{ bomURL }}" onclick="saveDraft()"`,
 			},
-			forbidden: []string{`href="/bom-react"`},
+			forbidden: []string{`href="/bom-react"`, `bomReactURL`},
 		},
 		{
 			path: "templates/bom.html",
 			required: []string{
 				`href="{{ bomURL }}"`,
 			},
-			forbidden: []string{`href="/bom-react"`},
+			forbidden: []string{`href="/bom-react"`, `bomReactURL`},
 		},
 	}
 

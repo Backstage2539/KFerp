@@ -13,27 +13,33 @@ func TestVueShellEmbedsBomWithoutNestedMenu(t *testing.T) {
 	}
 	appSrc := string(app)
 	for _, want := range []string{
-		"const BOM_REACT_URL = '/bom-react'",
-		"bom: { title: 'BOM配方维护', legacyUrl: BOM_REACT_URL }",
-		"LegacyMigrationView",
+		"import BomView from './views/BomView.vue'",
+		"bom: { title: 'BOM配方维护'",
+		"bom: BomView",
 	} {
 		if !strings.Contains(appSrc, want) {
 			t.Fatalf("frontend-vue-shell/src/App.vue missing %q", want)
 		}
 	}
+	for _, bad := range []string{"BOM_REACT_URL", "legacyUrl: BOM_REACT_URL"} {
+		if strings.Contains(appSrc, bad) {
+			t.Fatalf("frontend-vue-shell/src/App.vue should not contain %q", bad)
+		}
+	}
 
-	bom, err := os.ReadFile("frontend/src/bom/BomManager.tsx")
+	bom, err := os.ReadFile("frontend-vue-shell/src/views/BomView.vue")
 	if err != nil {
-		t.Fatalf("ReadFile(BomManager.tsx): %v", err)
+		t.Fatalf("ReadFile(BomView.vue): %v", err)
 	}
 	bomSrc := string(bom)
 	for _, want := range []string{
-		"const isEmbeddedInShell = new URLSearchParams(window.location.search).get('embed') === '1'",
-		"{!isEmbeddedInShell && <Sidebar />}",
-		"style={isEmbeddedInShell ? styles.mainEmbedded : styles.main}",
+		"/api/bom/list",
+		"/api/bom/detail/",
+		"/api/bom/item/save",
+		"/api/bom/bag-spec-mappings",
 	} {
 		if !strings.Contains(bomSrc, want) {
-			t.Fatalf("frontend/src/bom/BomManager.tsx missing %q", want)
+			t.Fatalf("frontend-vue-shell/src/views/BomView.vue missing %q", want)
 		}
 	}
 }

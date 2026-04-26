@@ -9,9 +9,9 @@ import (
 )
 
 type BagSpecMapping struct {
-	SpecG        int64
-	MaterialID   int64
-	MaterialName string
+	SpecG        int64  `json:"spec_g"`
+	MaterialID   int64  `json:"material_id"`
+	MaterialName string `json:"material_name"`
 }
 
 func ensureBagSpecMappingTable(ctx context.Context, pool *pgxpool.Pool, schema string) error {

@@ -187,12 +187,14 @@ func TestVueShellMigratesCatalogAndSettingsPages(t *testing.T) {
 	for _, want := range []string{
 		"import CustomersView from './views/CustomersView.vue'",
 		"import ProductsView from './views/ProductsView.vue'",
+		"import BomView from './views/BomView.vue'",
 		"import CompanyStaffView from './views/CompanyStaffView.vue'",
 		"import InventoryView from './views/InventoryView.vue'",
 		"import MachinesView from './views/MachinesView.vue'",
 		"import SenderSettingsView from './views/SenderSettingsView.vue'",
 		"customers: CustomersView",
 		"products: ProductsView",
+		"bom: BomView",
 		"departments: CompanyStaffView",
 		"employees: CompanyStaffView",
 		"inventory: InventoryView",
@@ -204,12 +206,16 @@ func TestVueShellMigratesCatalogAndSettingsPages(t *testing.T) {
 			t.Fatalf("App.vue missing catalog/settings Vue wiring %q", want)
 		}
 	}
+	if strings.Contains(content, "BOM_REACT_URL") {
+		t.Fatal("App.vue should not route BOM through the React fallback")
+	}
 }
 
 func TestCatalogAndSettingsRoutesRedirectToVueShell(t *testing.T) {
 	e := echo.New()
 	registerCustomerRoutes(e, nil, "public", "")
 	registerProductRoutes(e, nil, "public")
+	registerBomPages(e, nil, "public")
 	registerCompanyStaffPages(e, nil, "public")
 	registerFinishedInventoryPages(e, nil, "public")
 	registerMachineCapacityPages(e, nil, "public")
@@ -220,8 +226,13 @@ func TestCatalogAndSettingsRoutesRedirectToVueShell(t *testing.T) {
 		want string
 	}{
 		{path: "/customers?q=Karen", want: "/vue-shell?view=customers&q=Karen"},
+		{path: "/customers/new", want: "/vue-shell?view=customers&mode=new"},
+		{path: "/customers/new?from=order", want: "/vue-shell?view=customers&from=order&mode=new"},
+		{path: "/customers/7", want: "/vue-shell?view=customers&edit_id=7"},
 		{path: "/products", want: "/vue-shell?view=products"},
+		{path: "/products/7", want: "/vue-shell?view=products&edit_id=7"},
 		{path: "/products/print", want: "/vue-shell?view=quotePrint"},
+		{path: "/bom?product_id=7", want: "/vue-shell?view=bom&product_id=7"},
 		{path: "/company/departments", want: "/vue-shell?view=departments"},
 		{path: "/company/employees?department_id=1", want: "/vue-shell?view=employees&department_id=1"},
 		{path: "/products/inventory", want: "/vue-shell?view=inventory"},
@@ -238,5 +249,94 @@ func TestCatalogAndSettingsRoutesRedirectToVueShell(t *testing.T) {
 		if got := rec.Header().Get("Location"); got != tc.want {
 			t.Fatalf("GET %s Location = %q, want %q", tc.path, got, tc.want)
 		}
+	}
+}
+
+func TestCatalogDetailAPIsSupportVueEditors(t *testing.T) {
+	pool, schema := newOrderAPITestDB(t)
+	ctx := context.Background()
+	seedOrderAPITestData(t, ctx, pool, schema)
+	mustExecOrderAPITestSQL(t, ctx, pool, fmt.Sprintf(`
+		ALTER TABLE %s.customers ADD COLUMN IF NOT EXISTS raw_name TEXT;
+		ALTER TABLE %s.customers ADD COLUMN IF NOT EXISTS contact TEXT;
+		ALTER TABLE %s.customers ADD COLUMN IF NOT EXISTS phone TEXT;
+		ALTER TABLE %s.customers ADD COLUMN IF NOT EXISTS address TEXT;
+		ALTER TABLE %s.customers ADD COLUMN IF NOT EXISTS default_source_id INTEGER;
+		ALTER TABLE %s.customers ADD COLUMN IF NOT EXISTS default_order_type_id INTEGER;
+		ALTER TABLE %s.customers ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT now();
+		CREATE TABLE IF NOT EXISTS %s.customer_assets (
+			id BIGSERIAL PRIMARY KEY,
+			customer_id BIGINT,
+			kind TEXT,
+			object_key TEXT,
+			content_type TEXT,
+			bytes BIGINT,
+			sha256 TEXT,
+			created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+			created_by TEXT
+		);
+		CREATE TABLE IF NOT EXISTS %s.product_bom (
+			product_id BIGINT PRIMARY KEY,
+			yield_rate NUMERIC NOT NULL DEFAULT 0.8,
+			updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+		);
+		INSERT INTO %s.customers(id,name,raw_name,contact,phone,address,active,default_source_id,default_order_type_id)
+		VALUES (42,'Vue 客户','Vue 客户原名','联系人','13900000000','地址',true,1,2);
+		INSERT INTO %s.product_price_tiers(product_id,spec_g,min_qty_units,max_qty_units,price_per_unit,active)
+		VALUES (7,227,1,5,48,true);
+	`, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema))
+
+	e := echo.New()
+	e.Use(func(next echo.HandlerFunc) echo.HandlerFunc {
+		return func(c echo.Context) error {
+			c.Set("actor", "api-test")
+			return next(c)
+		}
+	})
+	registerCustomerRoutes(e, pool, schema, t.TempDir())
+	registerProductRoutes(e, pool, schema)
+
+	customerDetailReq := httptest.NewRequest(http.MethodGet, "/api/customers/42", nil)
+	customerDetailRec := httptest.NewRecorder()
+	e.ServeHTTP(customerDetailRec, customerDetailReq)
+	if customerDetailRec.Code != http.StatusOK {
+		t.Fatalf("GET /api/customers/42 status = %d body=%s", customerDetailRec.Code, customerDetailRec.Body.String())
+	}
+	if !strings.Contains(customerDetailRec.Body.String(), `"name":"Vue 客户"`) || !strings.Contains(customerDetailRec.Body.String(), `"sources"`) {
+		t.Fatalf("GET /api/customers/42 missing editor payload: %s", customerDetailRec.Body.String())
+	}
+
+	customerUpdate := strings.NewReader(`{"name":"Vue 客户更新","raw_name":"Vue 客户更新","contact":"新联系人","phone":"13911111111","address":"新地址","default_source_id":1,"default_order_type_id":2,"active":true}`)
+	customerUpdateReq := httptest.NewRequest(http.MethodPut, "/api/customers/42", customerUpdate)
+	customerUpdateReq.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	customerUpdateRec := httptest.NewRecorder()
+	e.ServeHTTP(customerUpdateRec, customerUpdateReq)
+	if customerUpdateRec.Code != http.StatusOK {
+		t.Fatalf("PUT /api/customers/42 status = %d body=%s", customerUpdateRec.Code, customerUpdateRec.Body.String())
+	}
+	if !strings.Contains(customerUpdateRec.Body.String(), `"name":"Vue 客户更新"`) {
+		t.Fatalf("PUT /api/customers/42 missing updated customer: %s", customerUpdateRec.Body.String())
+	}
+
+	productDetailReq := httptest.NewRequest(http.MethodGet, "/api/products/7", nil)
+	productDetailRec := httptest.NewRecorder()
+	e.ServeHTTP(productDetailRec, productDetailReq)
+	if productDetailRec.Code != http.StatusOK {
+		t.Fatalf("GET /api/products/7 status = %d body=%s", productDetailRec.Code, productDetailRec.Body.String())
+	}
+	if !strings.Contains(productDetailRec.Body.String(), `"name":"橘皮乌龙"`) || !strings.Contains(productDetailRec.Body.String(), `"tiers"`) {
+		t.Fatalf("GET /api/products/7 missing editor payload: %s", productDetailRec.Body.String())
+	}
+
+	productUpdate := strings.NewReader(`{"roast_level":"深烘","retail_price_100g":28,"retail_price_200g":50,"retail_price_227g":54,"retail_price_250g":58,"tiers":[{"spec_g":227,"min_qty":1,"max_qty":10,"unit_price":53}]}`)
+	productUpdateReq := httptest.NewRequest(http.MethodPut, "/api/products/7", productUpdate)
+	productUpdateReq.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	productUpdateRec := httptest.NewRecorder()
+	e.ServeHTTP(productUpdateRec, productUpdateReq)
+	if productUpdateRec.Code != http.StatusOK {
+		t.Fatalf("PUT /api/products/7 status = %d body=%s", productUpdateRec.Code, productUpdateRec.Body.String())
+	}
+	if !strings.Contains(productUpdateRec.Body.String(), `"roast_level":"深烘"`) || !strings.Contains(productUpdateRec.Body.String(), `"unit_price":53`) {
+		t.Fatalf("PUT /api/products/7 missing updated product: %s", productUpdateRec.Body.String())
 	}
 }

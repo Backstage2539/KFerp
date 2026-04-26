@@ -32,6 +32,7 @@
 <script setup>
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import AuditView from './views/AuditView.vue'
+import BomView from './views/BomView.vue'
 import CompanyStaffView from './views/CompanyStaffView.vue'
 import CustomersView from './views/CustomersView.vue'
 import InventoryView from './views/InventoryView.vue'
@@ -51,7 +52,6 @@ const collapsed = ref(false)
 const currentKey = ref('order')
 const isMobile = ref(false)
 const mobileOpen = ref(false)
-const BOM_REACT_URL = '/bom-react'
 
 const menuMap = {
   order: { title: '录单', legacyUrl: '/order' },
@@ -60,7 +60,7 @@ const menuMap = {
   produceRunning: { title: '生产中', legacyUrl: '/produce/running?legacy=1' },
   produceLogs: { title: '生产日志', legacyUrl: '/produce/logs?legacy=1' },
   materials: { title: '物料档案/库存', legacyUrl: '/materials?legacy=1' },
-  bom: { title: 'BOM配方维护', legacyUrl: BOM_REACT_URL },
+  bom: { title: 'BOM配方维护', legacyUrl: '/bom?legacy=1' },
   customers: { title: '客户档案', legacyUrl: '/customers' },
   products: { title: '商品档案', legacyUrl: '/products' },
   departments: { title: '部门维护', legacyUrl: '/company/departments' },
@@ -81,6 +81,7 @@ const internalViews = {
   order: OrderEntryView,
   orders: OrdersView,
   materials: MaterialsView,
+  bom: BomView,
   producePlan: ProducePlanView,
   produceRunning: ProduceRunningView,
   produceLogs: ProductionLogsView,

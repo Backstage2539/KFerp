@@ -33,6 +33,9 @@ func registerCustomerRoutes(e *echo.Echo, pool *pgxpool.Pool, schema string, ass
 	// Customers
 	e.GET("/customers", h.index)
 	e.GET("/api/customers", h.indexAPI)
+	e.POST("/api/customers", h.createAPI)
+	e.GET("/api/customers/:id", h.detailAPI)
+	e.PUT("/api/customers/:id", h.updateAPI)
 	e.GET("/customers/new", h.new)
 	e.POST("/customers/new", h.create)
 	e.GET("/customers/:id", h.edit)
@@ -57,6 +60,58 @@ type customerHandler struct {
 	schema   string
 	assetDir string
 	customer *customerapp.Service
+}
+
+type customerUpsertAPIRequest struct {
+	Name               string `json:"name"`
+	RawName            string `json:"raw_name"`
+	Contact            string `json:"contact"`
+	Phone              string `json:"phone"`
+	Address            string `json:"address"`
+	DefaultSourceID    *int64 `json:"default_source_id"`
+	DefaultOrderTypeID *int64 `json:"default_order_type_id"`
+	Active             *bool  `json:"active"`
+}
+
+type customerAPIModel struct {
+	ID                 int64  `json:"id"`
+	Name               string `json:"name"`
+	RawName            string `json:"raw_name"`
+	Contact            string `json:"contact"`
+	Phone              string `json:"phone"`
+	Address            string `json:"address"`
+	DefaultSourceID    *int64 `json:"default_source_id"`
+	DefaultOrderTypeID *int64 `json:"default_order_type_id"`
+	Active             bool   `json:"active"`
+}
+
+type customerDashboardAPI struct {
+	TotalOrders     int `json:"total_orders"`
+	UnpaidOrders    int `json:"unpaid_orders"`
+	UnshippedOrders int `json:"unshipped_orders"`
+	InProduction    int `json:"in_production"`
+	InShipping      int `json:"in_shipping"`
+	Completed       int `json:"completed"`
+}
+
+type customerAssetAPI struct {
+	ID          int64  `json:"id"`
+	CustomerID  int64  `json:"customer_id"`
+	Kind        string `json:"kind"`
+	ObjectKey   string `json:"object_key"`
+	ContentType string `json:"content_type"`
+	Bytes       int64  `json:"bytes"`
+	Sha256      string `json:"sha256"`
+	CreatedAt   string `json:"created_at"`
+	URL         string `json:"url"`
+}
+
+type customerEditorAPIResponse struct {
+	Customer   customerAPIModel     `json:"customer"`
+	Sources    []apiOption          `json:"sources"`
+	OrderTypes []apiOption          `json:"order_types"`
+	Assets     []customerAssetAPI   `json:"assets"`
+	Dashboard  customerDashboardAPI `json:"dashboard"`
 }
 
 func (h customerHandler) index(c echo.Context) error {
@@ -138,7 +193,162 @@ func (h customerHandler) indexAPI(c echo.Context) error {
 	})
 }
 
+func (h customerHandler) detailAPI(c echo.Context) error {
+	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil || id <= 0 {
+		return c.JSON(http.StatusBadRequest, map[string]any{"error": "invalid id"})
+	}
+	payload, err := h.editorPayload(c, id)
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]any{"error": err.Error()})
+	}
+	if payload == nil {
+		return c.JSON(http.StatusNotFound, map[string]any{"error": "not found"})
+	}
+	return c.JSON(http.StatusOK, payload)
+}
+
+func (h customerHandler) createAPI(c echo.Context) error {
+	var req customerUpsertAPIRequest
+	if err := c.Bind(&req); err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]any{"error": "bad request"})
+	}
+	id, err := h.customer.Upsert(c.Request().Context(), actorOf(c), nil, customerUpsertCommandFromRequest(req.toFormRequest()))
+	if err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]any{"error": err.Error()})
+	}
+	payload, err := h.editorPayload(c, id)
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]any{"error": err.Error()})
+	}
+	return c.JSON(http.StatusOK, payload)
+}
+
+func (h customerHandler) updateAPI(c echo.Context) error {
+	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil || id <= 0 {
+		return c.JSON(http.StatusBadRequest, map[string]any{"error": "invalid id"})
+	}
+	var req customerUpsertAPIRequest
+	if err := c.Bind(&req); err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]any{"error": "bad request"})
+	}
+	if _, err := h.customer.Upsert(c.Request().Context(), actorOf(c), &id, customerUpsertCommandFromRequest(req.toFormRequest())); err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]any{"error": err.Error()})
+	}
+	payload, err := h.editorPayload(c, id)
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]any{"error": err.Error()})
+	}
+	if payload == nil {
+		return c.JSON(http.StatusNotFound, map[string]any{"error": "not found"})
+	}
+	return c.JSON(http.StatusOK, payload)
+}
+
+func (h customerHandler) editorPayload(c echo.Context, id int64) (*customerEditorAPIResponse, error) {
+	data, err := fetchCustomerByID(c.Request().Context(), h.pool, h.schema, id)
+	if err != nil || data == nil {
+		return nil, err
+	}
+	sources, _ := fetchOptions(c.Request().Context(), h.pool, fmt.Sprintf("SELECT id, name FROM %s.sources ORDER BY id", h.schema))
+	types, _ := fetchOptions(c.Request().Context(), h.pool, fmt.Sprintf("SELECT id, name FROM %s.order_types ORDER BY id", h.schema))
+	assets, _ := fetchCustomerAssets(c.Request().Context(), h.pool, h.schema, id)
+	dash, _ := fetchCustomerDashboard(c.Request().Context(), h.pool, h.schema, id)
+	payload := customerEditorAPIResponse{
+		Customer:   customerAPIModelFromEdit(data),
+		Sources:    apiOptions(sources),
+		OrderTypes: apiOptions(types),
+		Assets:     customerAssetsAPI(assets),
+		Dashboard:  customerDashboardAPIFromData(dash),
+	}
+	return &payload, nil
+}
+
+func (req customerUpsertAPIRequest) toFormRequest() CustomerUpsertRequest {
+	active := "on"
+	if req.Active != nil && !*req.Active {
+		active = ""
+	}
+	return CustomerUpsertRequest{
+		Name:               req.Name,
+		RawName:            req.RawName,
+		Contact:            req.Contact,
+		Phone:              req.Phone,
+		Address:            req.Address,
+		DefaultSourceID:    optionalIntString(req.DefaultSourceID),
+		DefaultOrderTypeID: optionalIntString(req.DefaultOrderTypeID),
+		Active:             active,
+	}
+}
+
+func optionalIntString(v *int64) string {
+	if v == nil || *v <= 0 {
+		return ""
+	}
+	return strconv.FormatInt(*v, 10)
+}
+
+func parseOptionalCustomerInt64(v string) *int64 {
+	n, err := strconv.ParseInt(strings.TrimSpace(v), 10, 64)
+	if err != nil || n <= 0 {
+		return nil
+	}
+	return &n
+}
+
+func customerAPIModelFromEdit(data *CustomerEditData) customerAPIModel {
+	return customerAPIModel{
+		ID:                 data.ID,
+		Name:               data.Name,
+		RawName:            data.RawName,
+		Contact:            data.Contact,
+		Phone:              data.Phone,
+		Address:            data.Address,
+		DefaultSourceID:    parseOptionalCustomerInt64(data.DefaultSourceID),
+		DefaultOrderTypeID: parseOptionalCustomerInt64(data.DefaultOrderTypeID),
+		Active:             data.Active,
+	}
+}
+
+func customerDashboardAPIFromData(data CustomerDashboard) customerDashboardAPI {
+	return customerDashboardAPI{
+		TotalOrders:     data.TotalOrders,
+		UnpaidOrders:    data.UnpaidOrders,
+		UnshippedOrders: data.UnshippedOrders,
+		InProduction:    data.InProduction,
+		InShipping:      data.InShipping,
+		Completed:       data.Completed,
+	}
+}
+
+func customerAssetsAPI(assets []CustomerAsset) []customerAssetAPI {
+	out := make([]customerAssetAPI, 0, len(assets))
+	for _, asset := range assets {
+		out = append(out, customerAssetAPI{
+			ID:          asset.ID,
+			CustomerID:  asset.CustomerID,
+			Kind:        asset.Kind,
+			ObjectKey:   asset.ObjectKey,
+			ContentType: asset.ContentType,
+			Bytes:       asset.Bytes,
+			Sha256:      asset.Sha256,
+			CreatedAt:   asset.CreatedAt,
+			URL:         fmt.Sprintf("/assets/customer_assets/%d?v=%s", asset.ID, url.QueryEscape(asset.Sha256)),
+		})
+	}
+	return out
+}
+
+func wantsJSON(c echo.Context) bool {
+	return strings.Contains(c.Request().Header.Get(echo.HeaderAccept), echo.MIMEApplicationJSON) ||
+		strings.Contains(c.Request().Header.Get(echo.HeaderContentType), echo.MIMEApplicationJSON)
+}
+
 func (h customerHandler) new(c echo.Context) error {
+	if strings.TrimSpace(c.QueryParam("legacy")) != "1" {
+		return vueShellRedirectWith(c, "customers", map[string]string{"mode": "new"})
+	}
 	data := CustomerEditData{Active: true}
 	data.Sources, _ = fetchOptions(c.Request().Context(), h.pool, fmt.Sprintf("SELECT id, name FROM %s.sources ORDER BY id", h.schema))
 	data.OrderTypes, _ = fetchOptions(c.Request().Context(), h.pool, fmt.Sprintf("SELECT id, name FROM %s.order_types ORDER BY id", h.schema))
@@ -175,6 +385,9 @@ func (h customerHandler) edit(c echo.Context) error {
 	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	if err != nil || id <= 0 {
 		return c.String(http.StatusBadRequest, "invalid id")
+	}
+	if strings.TrimSpace(c.QueryParam("legacy")) != "1" {
+		return vueShellRedirectWith(c, "customers", map[string]string{"edit_id": strconv.FormatInt(id, 10)})
 	}
 	data, err := fetchCustomerByID(c.Request().Context(), h.pool, h.schema, id)
 	if err != nil {
@@ -244,11 +457,17 @@ func (h customerHandler) uploadAsset(c echo.Context) error {
 	fh, err := c.FormFile("file")
 	if err != nil {
 		log.Printf("asset upload formfile error customer_id=%d kind=%s err=%v", id, kind, err)
+		if wantsJSON(c) {
+			return c.JSON(http.StatusBadRequest, map[string]any{"error": "读取文件失败：" + err.Error()})
+		}
 		return c.Redirect(http.StatusSeeOther, fmt.Sprintf("/app/customers/%d?err=%s", id, url.QueryEscape("读取文件失败："+err.Error())))
 	}
 	log.Printf("asset upload start customer_id=%d kind=%s filename=%s size=%d", id, kind, fh.Filename, fh.Size)
 	f, err := fh.Open()
 	if err != nil {
+		if wantsJSON(c) {
+			return c.JSON(http.StatusBadRequest, map[string]any{"error": "bad file"})
+		}
 		return c.String(http.StatusBadRequest, "bad file")
 	}
 	defer func() { _ = f.Close() }()
@@ -271,9 +490,15 @@ func (h customerHandler) uploadAsset(c echo.Context) error {
 	})
 	if err != nil {
 		log.Printf("asset upload save error customer_id=%d kind=%s ct=%s err=%v", id, kind, ct, err)
+		if wantsJSON(c) {
+			return c.JSON(http.StatusBadRequest, map[string]any{"error": err.Error()})
+		}
 		return c.Redirect(http.StatusSeeOther, fmt.Sprintf("/app/customers/%d?err=%s", id, url.QueryEscape(err.Error())))
 	}
 	log.Printf("asset upload ok customer_id=%d kind=%s obj=%s bytes=%d", id, kind, res.ObjectKey, res.Bytes)
+	if wantsJSON(c) {
+		return c.JSON(http.StatusOK, map[string]any{"customer_id": res.CustomerID, "object_key": res.ObjectKey, "bytes": res.Bytes, "sha256": res.SHA256})
+	}
 	return c.Redirect(http.StatusSeeOther, fmt.Sprintf("/app/customers/%d?ok=1", id))
 
 }
@@ -285,7 +510,13 @@ func (h customerHandler) deleteAsset(c echo.Context) error {
 	}
 	res, err := h.customer.DeleteAsset(c.Request().Context(), actorOf(c), assetID)
 	if err != nil {
+		if wantsJSON(c) {
+			return c.JSON(http.StatusBadRequest, map[string]any{"error": err.Error()})
+		}
 		return c.String(http.StatusBadRequest, err.Error())
+	}
+	if wantsJSON(c) {
+		return c.JSON(http.StatusOK, map[string]any{"customer_id": res.CustomerID, "object_key": res.ObjectKey})
 	}
 	return c.Redirect(http.StatusSeeOther, fmt.Sprintf("/app/customers/%d", res.CustomerID))
 
