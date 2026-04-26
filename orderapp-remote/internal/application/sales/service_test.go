@@ -9,10 +9,12 @@ import (
 type fakeRepo struct {
 	saveCmd   SaveOrderCommand
 	inlineCmd InlineUpdateCommand
+	saveCalls int
 }
 
 func (r *fakeRepo) SaveOrder(ctx context.Context, cmd SaveOrderCommand) (SaveOrderResult, error) {
 	r.saveCmd = cmd
+	r.saveCalls++
 	return SaveOrderResult{OrderID: 7, OrderNo: "SO-TEST", Edited: cmd.EditID > 0}, nil
 }
 
@@ -38,13 +40,14 @@ func TestServiceDelegatesSaveOrder(t *testing.T) {
 	svc := NewService(repo)
 
 	res, err := svc.SaveOrder(context.Background(), SaveOrderCommand{
-		EditID:    10,
-		OrderDate: time.Date(2026, 4, 26, 0, 0, 0, 0, time.UTC),
+		EditID:     10,
+		OrderDate:  time.Date(2026, 4, 26, 0, 0, 0, 0, time.UTC),
 		CustomerID: 3,
 		Items: []OrderItemCommand{{
-			Name:  "橘皮乌龙",
-			Units: 2,
-			SpecG: 227,
+			ProductID: int64Ptr(11),
+			Name:      "橘皮乌龙",
+			Units:     2,
+			SpecG:     227,
 		}},
 	})
 	if err != nil {
@@ -59,6 +62,10 @@ func TestServiceDelegatesSaveOrder(t *testing.T) {
 	if len(repo.saveCmd.Items) != 1 || repo.saveCmd.Items[0].SpecG != 227 {
 		t.Fatalf("repo items = %+v", repo.saveCmd.Items)
 	}
+}
+
+func int64Ptr(v int64) *int64 {
+	return &v
 }
 
 func TestSaveOrderCommandUsesTypedFields(t *testing.T) {
@@ -78,5 +85,25 @@ func TestSaveOrderCommandUsesTypedFields(t *testing.T) {
 	}
 	if cmd.OutsourceMaterialFee+cmd.OutsourceRoastFee+cmd.OutsourcePackagingFee+cmd.OutsourceManualFee+cmd.OutsourceTaxFee+cmd.OutsourceOtherFee != 21 {
 		t.Fatalf("unexpected outsource fields: %+v", cmd)
+	}
+}
+
+func TestServiceValidatesSaveOrderBeforeRepository(t *testing.T) {
+	repo := &fakeRepo{}
+	svc := NewService(repo)
+
+	_, err := svc.SaveOrder(context.Background(), SaveOrderCommand{
+		OrderDate:  time.Date(2026, 4, 26, 0, 0, 0, 0, time.UTC),
+		CustomerID: 3,
+		Items: []OrderItemCommand{{
+			Name:  "missing spec",
+			Units: 2,
+		}},
+	})
+	if err == nil {
+		t.Fatal("SaveOrder() error = nil, want validation error")
+	}
+	if repo.saveCalls != 0 {
+		t.Fatalf("repository was called %d times for invalid command", repo.saveCalls)
 	}
 }

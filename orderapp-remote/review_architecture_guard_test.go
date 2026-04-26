@@ -229,6 +229,22 @@ func TestSalesRepositoryDoesNotParseSaveOrderFormArrays(t *testing.T) {
 	}
 }
 
+func TestSalesServiceOwnsSaveOrderValidation(t *testing.T) {
+	body, err := os.ReadFile("internal/application/sales/service.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	content := string(body)
+	if strings.Contains(content, "func (s *Service) SaveOrder(ctx context.Context, cmd SaveOrderCommand) (SaveOrderResult, error) {\n\treturn s.repo.SaveOrder(ctx, cmd)\n}") {
+		t.Fatal("sales Service.SaveOrder still directly passes through to repository")
+	}
+	for _, want := range []string{"func validateSaveOrderCommand", "at least one item required", "customer required"} {
+		if !strings.Contains(content, want) {
+			t.Fatalf("sales service missing application validation %q", want)
+		}
+	}
+}
+
 func TestMaterialsAPIUsesApplicationService(t *testing.T) {
 	body, err := os.ReadFile("materials_api.go")
 	if err != nil {

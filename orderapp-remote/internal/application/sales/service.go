@@ -2,6 +2,8 @@ package sales
 
 import (
 	"context"
+	"fmt"
+	"strings"
 	"time"
 )
 
@@ -97,7 +99,39 @@ func NewService(repo Repository) *Service {
 }
 
 func (s *Service) SaveOrder(ctx context.Context, cmd SaveOrderCommand) (SaveOrderResult, error) {
+	if err := validateSaveOrderCommand(cmd); err != nil {
+		return SaveOrderResult{}, err
+	}
 	return s.repo.SaveOrder(ctx, cmd)
+}
+
+func validateSaveOrderCommand(cmd SaveOrderCommand) error {
+	if cmd.OrderDate.IsZero() {
+		return fmt.Errorf("invalid order_date")
+	}
+	if cmd.CustomerID <= 0 {
+		return fmt.Errorf("customer required")
+	}
+	valid := false
+	for _, item := range cmd.Items {
+		if item.ProductID == nil && strings.TrimSpace(item.Name) == "" {
+			continue
+		}
+		if item.ProductID == nil {
+			return fmt.Errorf("product required")
+		}
+		if item.SpecG <= 0 {
+			return fmt.Errorf("spec required")
+		}
+		if item.Units <= 0 {
+			return fmt.Errorf("qty required")
+		}
+		valid = true
+	}
+	if !valid {
+		return fmt.Errorf("at least one item required")
+	}
+	return nil
 }
 
 func (s *Service) UpdateHeader(ctx context.Context, id int64, cmd UpdateHeaderCommand) error {
