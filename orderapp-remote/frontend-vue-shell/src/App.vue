@@ -24,14 +24,14 @@
         <button class="toggle" @click="toggleMenu">{{ toggleLabel }}</button>
         <div v-if="showTitle" class="title">{{ title }}</div>
       </header>
-      <component :is="currentInternalView" v-if="currentInternalView" class="internal-view" />
-      <iframe v-else ref="frameRef" class="frame" :src="currentUrl" @load="onFrameLoad" />
+      <component :is="currentInternalView" class="internal-view" :title="title" :legacy-url="legacyUrl" />
     </main>
   </div>
 </template>
 
 <script setup>
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import LegacyMigrationView from './views/LegacyMigrationView.vue'
 import MaterialsView from './views/MaterialsView.vue'
 import OrderEntryView from './views/OrderEntryView.vue'
 import ProducePlanView from './views/ProducePlanView.vue'
@@ -40,34 +40,32 @@ import ProductionLogsView from './views/ProductionLogsView.vue'
 
 const collapsed = ref(false)
 const currentKey = ref('order')
-const frameRef = ref(null)
 const isMobile = ref(false)
 const mobileOpen = ref(false)
 const BOM_REACT_URL = '/bom-react'
-const BOM_REACT_EMBED_URL = '/bom-react?embed=1'
 
 const menuMap = {
-  order: { title: '录单', url: '/vue-shell?view=order', internal: true },
-  orders: { title: '订单列表', url: '/orders' },
-  producePlan: { title: '生产计划/开始生产', url: '/vue-shell?view=producePlan', internal: true },
-  produceRunning: { title: '生产中', url: '/vue-shell?view=produceRunning', internal: true },
-  produceLogs: { title: '生产日志', url: '/vue-shell?view=produceLogs', internal: true },
-  materials: { title: '物料档案/库存', url: '/vue-shell?view=materials', internal: true },
-  bom: { title: 'BOM配方维护', url: BOM_REACT_EMBED_URL },
-  customers: { title: '客户档案', url: '/customers' },
-  products: { title: '商品档案', url: '/products' },
-  departments: { title: '部门维护', url: '/company/departments' },
-  employees: { title: '员工维护', url: '/company/employees' },
-  inventory: { title: '成品库存', url: '/products/inventory' },
-  quotePrint: { title: '报价导出', url: '/products/print' },
-  machines: { title: '设备产能配置', url: '/produce/machines' },
-  senderSettings: { title: '发货人设置', url: '/settings/sender' },
-  audit: { title: '操作日志', url: '/audit' },
-  reqProduct: { title: '产品需求表', url: '/req/product' },
-  reqDev: { title: '开发需求表', url: '/req/dev' },
-  reqUnit: { title: '单元测试表', url: '/req/unit' },
-  reqApi: { title: 'API 测试表', url: '/req/api' },
-  reqReview: { title: '需求审核表', url: '/req/review' },
+  order: { title: '录单', legacyUrl: '/order' },
+  orders: { title: '订单列表', legacyUrl: '/orders' },
+  producePlan: { title: '生产计划/开始生产', legacyUrl: '/produce/unproduced' },
+  produceRunning: { title: '生产中', legacyUrl: '/produce/running?legacy=1' },
+  produceLogs: { title: '生产日志', legacyUrl: '/produce/logs?legacy=1' },
+  materials: { title: '物料档案/库存', legacyUrl: '/materials?legacy=1' },
+  bom: { title: 'BOM配方维护', legacyUrl: BOM_REACT_URL },
+  customers: { title: '客户档案', legacyUrl: '/customers' },
+  products: { title: '商品档案', legacyUrl: '/products' },
+  departments: { title: '部门维护', legacyUrl: '/company/departments' },
+  employees: { title: '员工维护', legacyUrl: '/company/employees' },
+  inventory: { title: '成品库存', legacyUrl: '/products/inventory' },
+  quotePrint: { title: '报价导出', legacyUrl: '/products/print' },
+  machines: { title: '设备产能配置', legacyUrl: '/produce/machines' },
+  senderSettings: { title: '发货人设置', legacyUrl: '/settings/sender' },
+  audit: { title: '操作日志', legacyUrl: '/audit' },
+  reqProduct: { title: '产品需求表', legacyUrl: '/req/product' },
+  reqDev: { title: '开发需求表', legacyUrl: '/req/dev' },
+  reqUnit: { title: '单元测试表', legacyUrl: '/req/unit' },
+  reqApi: { title: 'API 测试表', legacyUrl: '/req/api' },
+  reqReview: { title: '需求审核表', legacyUrl: '/req/review' },
 }
 
 const internalViews = {
@@ -99,23 +97,6 @@ function open(key) {
   currentKey.value = key
   applyKeyToUrl(key)
   if (isMobile.value) mobileOpen.value = false
-}
-
-function onFrameLoad() {
-  const fr = frameRef.value
-  const doc = fr?.contentDocument
-  if (!doc) return
-  let style = doc.getElementById('vue-shell-embed-style')
-  if (!style) {
-    style = doc.createElement('style')
-    style.id = 'vue-shell-embed-style'
-    style.textContent = `
-      .sidebar, .overlay, .menuBtn { display: none !important; }
-      .layout { display: block !important; }
-      .content { margin: 0 !important; width: 100% !important; padding-top: 0 !important; }
-    `
-    doc.head.appendChild(style)
-  }
 }
 
 function handleResize() {
@@ -158,8 +139,8 @@ const toggleLabel = computed(() => {
   return collapsed.value ? '弹出菜单' : '收起菜单'
 })
 const title = computed(() => menuMap[currentKey.value]?.title || '')
-const currentUrl = computed(() => menuMap[currentKey.value]?.url || '/order')
-const currentInternalView = computed(() => internalViews[currentKey.value] || null)
+const legacyUrl = computed(() => menuMap[currentKey.value]?.legacyUrl || '')
+const currentInternalView = computed(() => internalViews[currentKey.value] || LegacyMigrationView)
 </script>
 
 <style scoped>
@@ -180,7 +161,6 @@ const currentInternalView = computed(() => internalViews[currentKey.value] || nu
 .top { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-bottom: 1px solid #eee; }
 .top.compact { gap: 0; }
 .title { font-weight: 600; }
-.frame { width: 100%; height: calc(100vh - 56px); border: 0; background: #fff; }
 .internal-view { min-height: calc(100vh - 56px); background: #fff; }
 .overlay { position: fixed; inset: 0; background: rgba(0,0,0,.25); z-index: 25; }
 

@@ -427,7 +427,7 @@ func TestProduceRunningVueRouteContract(t *testing.T) {
 	for _, want := range []string{
 		"ProduceRunningView",
 		"produceRunning: ProduceRunningView",
-		"produceRunning: { title: '生产中', url: '/vue-shell?view=produceRunning', internal: true }",
+		"produceRunning: { title: '生产中'",
 	} {
 		if !strings.Contains(appContent, want) {
 			t.Fatalf("App.vue missing running production Vue wiring %q", want)

@@ -61,11 +61,32 @@ func TestProductionLogsAreVueInternalView(t *testing.T) {
 	for _, want := range []string{
 		"ProductionLogsView",
 		"produceLogs: ProductionLogsView",
-		"produceLogs: { title: '生产日志', url: '/vue-shell?view=produceLogs', internal: true }",
+		"produceLogs: { title: '生产日志'",
 	} {
 		if !strings.Contains(content, want) {
 			t.Fatalf("App.vue missing Vue internal production logs wiring %q", want)
 		}
+	}
+}
+
+func TestVueShellDoesNotEmbedLegacyTemplatesInIframe(t *testing.T) {
+	body, err := os.ReadFile("frontend-vue-shell/src/App.vue")
+	if err != nil {
+		t.Fatal(err)
+	}
+	content := string(body)
+	for _, forbidden := range []string{
+		"<iframe",
+		"frameRef",
+		"onFrameLoad",
+		"vue-shell-embed-style",
+	} {
+		if strings.Contains(content, forbidden) {
+			t.Fatalf("Vue shell still embeds legacy pages through iframe concern %q", forbidden)
+		}
+	}
+	if !strings.Contains(content, "LegacyMigrationView") {
+		t.Fatal("Vue shell should render a Vue-owned migration boundary for pages not yet implemented")
 	}
 }
 
