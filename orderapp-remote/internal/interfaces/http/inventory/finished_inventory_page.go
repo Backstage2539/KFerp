@@ -3,7 +3,8 @@ package inventory
 import (
 	"net/http"
 	"net/url"
-	postgresinfra "orderapp/internal/infrastructure/postgres"
+	inventoryapp "orderapp/internal/application/inventory"
+	postgresinventory "orderapp/internal/infrastructure/postgres/inventory"
 	support "orderapp/internal/interfaces/http/support"
 	"strings"
 
@@ -17,6 +18,7 @@ type productAPIOption struct {
 }
 
 func registerFinishedInventoryPages(e *echo.Echo, pool *pgxpool.Pool, schema string) {
+	inventorySvc := inventoryapp.NewService(postgresinventory.NewRepository(pool, schema))
 	e.GET("/products/inventory", func(c echo.Context) error {
 		target := "/vue-shell?view=inventory"
 		if q := strings.TrimSpace(c.QueryParam("q")); q != "" {
@@ -34,22 +36,21 @@ func registerFinishedInventoryPages(e *echo.Echo, pool *pgxpool.Pool, schema str
 		if page := support.IntParam(c, "page", 0); page > 0 {
 			offset = (page - 1) * limit
 		}
-		rows, hasNext, err := listFinishedInventory(c.Request().Context(), pool, schema, q, limit, offset)
+		result, err := inventorySvc.ListFinished(c.Request().Context(), inventoryapp.FinishedInventoryQuery{Q: q, Limit: limit, Offset: offset})
 		if err != nil {
 			return c.JSON(http.StatusInternalServerError, map[string]any{"error": err.Error()})
 		}
-		prods, _ := postgresinfra.FetchProducts(c.Request().Context(), pool, schema)
-		options := make([]productAPIOption, 0, len(prods))
-		for _, p := range prods {
+		options := make([]productAPIOption, 0, len(result.Products))
+		for _, p := range result.Products {
 			options = append(options, productAPIOption{ID: p.ID, Name: p.Name})
 		}
 		return c.JSON(http.StatusOK, map[string]any{
-			"rows":     rows,
+			"rows":     result.Rows,
 			"products": options,
 			"page":     (offset / limit) + 1,
 			"limit":    limit,
 			"has_prev": offset > 0,
-			"has_next": hasNext,
+			"has_next": result.HasNext,
 		})
 	})
 	e.POST("/api/products/inventory", func(c echo.Context) error {
@@ -62,7 +63,13 @@ func registerFinishedInventoryPages(e *echo.Echo, pool *pgxpool.Pool, schema str
 		if err := c.Bind(&req); err != nil {
 			return c.JSON(http.StatusBadRequest, map[string]any{"error": "bad request"})
 		}
-		if err := upsertFinishedInventory(c.Request().Context(), pool, schema, req.ProductID, req.SpecG, req.Units, req.LooseG); err != nil {
+		if err := inventorySvc.AdjustFinished(c.Request().Context(), inventoryapp.AdjustFinishedInventoryCommand{
+			ProductID: req.ProductID,
+			SpecG:     req.SpecG,
+			Units:     req.Units,
+			LooseG:    req.LooseG,
+			Operator:  support.ActorOf(c),
+		}); err != nil {
 			return c.JSON(http.StatusBadRequest, map[string]any{"error": err.Error()})
 		}
 		return c.JSON(http.StatusOK, map[string]any{"ok": true})

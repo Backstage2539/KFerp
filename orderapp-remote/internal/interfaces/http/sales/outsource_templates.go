@@ -4,10 +4,8 @@ import (
 	"context"
 	"fmt"
 	"net/http"
-	"net/url"
 	salesapp "orderapp/internal/application/sales"
 	postgressales "orderapp/internal/infrastructure/postgres/sales"
-	"strconv"
 	"strings"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -82,34 +80,4 @@ func registerOutsourceSettingsRoutes(e *echo.Echo, pool *pgxpool.Pool, schema st
 		return c.Redirect(http.StatusFound, target)
 	})
 
-	e.POST("/settings/outsource/save", func(c echo.Context) error {
-		name := strings.TrimSpace(c.FormValue("name"))
-		if name == "" {
-			return c.Redirect(http.StatusSeeOther, "/settings/outsource?err="+url.QueryEscape("name required"))
-		}
-		parse := func(k string) float64 {
-			v := strings.TrimSpace(c.FormValue(k))
-			if v == "" {
-				return 0
-			}
-			f, _ := strconv.ParseFloat(v, 64)
-			if f < 0 {
-				return 0
-			}
-			return f
-		}
-		isDefault := strings.TrimSpace(c.FormValue("is_default")) != ""
-		err := salesSvc.SaveOutsourceTemplate(c.Request().Context(), salesapp.SaveOutsourceTemplateCommand{
-			Name:              name,
-			IsDefault:         isDefault,
-			RoastUnitPrice:    parse("roast_unit_price"),
-			BeanPackUnitPrice: parse("bean_pack_unit_price"),
-			DripPackUnitPrice: parse("drip_pack_unit_price"),
-			SCUnitPrice:       parse("sc_unit_price"),
-		})
-		if err != nil {
-			return c.Redirect(http.StatusSeeOther, "/settings/outsource?err="+url.QueryEscape(err.Error()))
-		}
-		return c.Redirect(http.StatusSeeOther, "/settings/outsource?ok=1")
-	})
 }

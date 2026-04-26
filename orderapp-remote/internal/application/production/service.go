@@ -153,6 +153,24 @@ type CancelCommand struct {
 	Operator string
 }
 
+type RoastMachine struct {
+	ID           int64  `json:"id"`
+	Name         string `json:"name"`
+	CapacityG    int64  `json:"capacity_g"`
+	AllowedSpecs string `json:"allowed_specs"`
+	MinRoastG    int64  `json:"min_roast_g"`
+	Active       bool   `json:"active"`
+}
+
+type RoastMachineCommand struct {
+	ID           int64  `json:"id"`
+	Name         string `json:"name"`
+	CapacityG    int64  `json:"capacity_g"`
+	AllowedSpecs string `json:"allowed_specs"`
+	MinRoastG    int64  `json:"min_roast_g"`
+	Active       bool   `json:"active"`
+}
+
 type Repository interface {
 	CreateBatch(ctx context.Context, cmd CreateBatchCommand) (CreateBatchResult, error)
 	ListBatches(ctx context.Context, cmd ListBatchesCommand) ([]BatchListItem, error)
@@ -164,6 +182,8 @@ type Repository interface {
 	Start(ctx context.Context, cmd StartExecutionCommand) (StartResult, error)
 	Finish(ctx context.Context, cmd FinishCommand) error
 	Cancel(ctx context.Context, cmd CancelCommand) error
+	ListMachines(ctx context.Context, activeOnly bool) ([]RoastMachine, error)
+	SaveMachine(ctx context.Context, cmd RoastMachineCommand) error
 }
 
 type Service struct {
@@ -218,4 +238,27 @@ func (s *Service) Finish(ctx context.Context, cmd FinishCommand) error {
 
 func (s *Service) Cancel(ctx context.Context, cmd CancelCommand) error {
 	return s.repo.Cancel(ctx, cmd)
+}
+
+func (s *Service) ListMachines(ctx context.Context, activeOnly bool) ([]RoastMachine, error) {
+	return s.repo.ListMachines(ctx, activeOnly)
+}
+
+func (s *Service) SaveMachine(ctx context.Context, cmd RoastMachineCommand) error {
+	cmd.Name = strings.TrimSpace(cmd.Name)
+	if cmd.Name == "" || cmd.CapacityG <= 0 {
+		return fmt.Errorf("name and capacity_g required")
+	}
+	if cmd.MinRoastG <= 0 {
+		cmd.MinRoastG = 1000
+	}
+	if cmd.MinRoastG > cmd.CapacityG {
+		return fmt.Errorf("min_roast_g must be <= capacity_g")
+	}
+	loadSettings, ok := normalizeMachineLoadSettings(cmd.AllowedSpecs, cmd.MinRoastG, cmd.CapacityG)
+	if !ok {
+		return fmt.Errorf("invalid allowed_specs")
+	}
+	cmd.AllowedSpecs = loadSettings
+	return s.repo.SaveMachine(ctx, cmd)
 }

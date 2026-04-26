@@ -11,6 +11,8 @@ type fakeRepo struct {
 	inlineCmd      InlineUpdateCommand
 	saveCalls      int
 	outsourceSaved SaveOutsourceTemplateCommand
+	trackingCmd    FillTrackingPairsCommand
+	shipMethodCmd  SetShipMethodCommand
 }
 
 func (r *fakeRepo) SaveOrder(ctx context.Context, cmd SaveOrderCommand) (SaveOrderResult, error) {
@@ -46,6 +48,16 @@ func (r *fakeRepo) ListOutsourceTemplates(ctx context.Context) ([]OutsourceTempl
 
 func (r *fakeRepo) SaveOutsourceTemplate(ctx context.Context, cmd SaveOutsourceTemplateCommand) error {
 	r.outsourceSaved = cmd
+	return nil
+}
+
+func (r *fakeRepo) FillTrackingPairs(ctx context.Context, cmd FillTrackingPairsCommand) (FillTrackingResult, error) {
+	r.trackingCmd = cmd
+	return FillTrackingResult{Updated: len(cmd.Pairs), Total: len(cmd.Pairs)}, nil
+}
+
+func (r *fakeRepo) SetShipMethod(ctx context.Context, cmd SetShipMethodCommand) error {
+	r.shipMethodCmd = cmd
 	return nil
 }
 
@@ -154,5 +166,35 @@ func TestServiceOwnsOutsourceTemplateUseCases(t *testing.T) {
 	}
 	if err := svc.SaveOutsourceTemplate(context.Background(), SaveOutsourceTemplateCommand{Name: "坏价格", RoastUnitPrice: -1}); err == nil {
 		t.Fatal("SaveOutsourceTemplate negative price error = nil")
+	}
+}
+
+func TestServiceOwnsShippingWriteUseCases(t *testing.T) {
+	repo := &fakeRepo{}
+	svc := NewService(repo)
+
+	res, err := svc.FillTrackingPairs(context.Background(), FillTrackingPairsCommand{
+		Actor: " tester ",
+		Pairs: []TrackingPair{
+			{Phone: " 138 0000 0000 ", Tracking: " SF123 "},
+			{Phone: "", Tracking: "ignored"},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Total != 1 || repo.trackingCmd.Actor != "tester" || repo.trackingCmd.Pairs[0].Phone != "13800000000" || repo.trackingCmd.Pairs[0].Tracking != "SF123" {
+		t.Fatalf("tracking result=%+v command=%+v", res, repo.trackingCmd)
+	}
+
+	if err := svc.SetShipMethod(context.Background(), SetShipMethodCommand{
+		Actor:    "tester",
+		OrderIDs: []int64{7, 7, 8, 0},
+		Method:   " sf_large ",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if len(repo.shipMethodCmd.OrderIDs) != 2 || repo.shipMethodCmd.OrderIDs[0] != 7 || repo.shipMethodCmd.OrderIDs[1] != 8 || repo.shipMethodCmd.Method != "sf_large" {
+		t.Fatalf("ship method command = %+v", repo.shipMethodCmd)
 	}
 }

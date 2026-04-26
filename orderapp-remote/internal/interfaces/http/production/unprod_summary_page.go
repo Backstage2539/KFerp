@@ -4,9 +4,11 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	productionapp "orderapp/internal/application/production"
 	bomdomain "orderapp/internal/domain/bom"
 	catalogdomain "orderapp/internal/domain/catalog"
 	postgresinfra "orderapp/internal/infrastructure/postgres"
+	postgresproduction "orderapp/internal/infrastructure/postgres/production"
 	"strconv"
 	"strings"
 
@@ -219,7 +221,8 @@ func loadUnprodSummaryData(ctx context.Context, pool *pgxpool.Pool, schema strin
 		params.BagNameBySpecG = bomdomain.MappingNameBySpec(mappings)
 	}
 	bomMap, _ := loadBomNeedItemsFromRows(ctx, pool, schema, planRows)
-	machines, _ := loadActiveMachines(ctx, pool, schema)
+	productionSvc := productionapp.NewService(postgresproduction.NewRepository(pool, schema))
+	machines, _ := productionSvc.ListMachines(ctx, true)
 	data.RoastPlans = buildRoastPlanRows(planRows, machines, yieldMap)
 	data.MaterialRatios = buildRoastPlanMaterialRatios(planRows, bomMap)
 	finalInputByKey := map[string]int64{}

@@ -60,7 +60,7 @@ func TestValidateAllocateUnits(t *testing.T) {
 	}
 }
 
-func TestAggregateBatchSummary_FiltersInvalidRows(t *testing.T) {
+func TestAggregateBatchSummaryFiltersInvalidRows(t *testing.T) {
 	items := []ProduceBatchOrderItem{
 		{ProductID: 100, ProductName: "A", SpecG: 454, NeedUnits: 1},
 		{ProductID: 0, ProductName: "X", SpecG: 454, NeedUnits: 1},

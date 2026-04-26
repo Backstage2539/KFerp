@@ -333,6 +333,33 @@ func TestHTTPModulesDoNotImportSiblingHTTPModules(t *testing.T) {
 	}
 }
 
+func TestRemainingDDDWritePathsDoNotLiveInHTTP(t *testing.T) {
+	assertFileDoesNotContain(t, "internal/interfaces/http/inventory/finished_inventory_page.go", []string{
+		"upsertFinishedInventory(",
+	})
+	assertPackageDoesNotContain(t, "internal/interfaces/http/inventory", []string{
+		"func upsertFinishedInventory(",
+	})
+	assertPackageDoesNotContain(t, "internal/interfaces/http/production", []string{
+		"func createProduceBatchFromOrders(",
+		"func confirmProduceBatchDeduct(",
+	})
+	assertFileDoesNotContain(t, "internal/interfaces/http/production/machine_capacity.go", []string{
+		"func listRoastMachines(",
+		"func saveRoastMachine(",
+	})
+	assertFileDoesNotContain(t, "internal/interfaces/http/sales/ship_sf_small_export.go", []string{
+		"func fillTrackingPairs(",
+		"func fillTrackingByPhone(",
+		"UPDATE %s.orders SET ship_tracking_no",
+		"UPDATE %s.orders SET ship_method='sf_large'",
+	})
+	assertFileDoesNotContain(t, "internal/interfaces/http/sales/outsource_templates.go", []string{
+		"/settings/outsource/save",
+		"FormValue(\"roast_unit_price\")",
+	})
+}
+
 func assertFileDoesNotContain(t *testing.T, rel string, forbidden []string) {
 	t.Helper()
 	body, err := os.ReadFile(filepath.Join(moduleRoot(t), rel))

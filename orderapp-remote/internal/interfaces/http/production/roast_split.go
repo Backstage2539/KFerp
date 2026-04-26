@@ -1,14 +1,11 @@
 package production
 
 import (
-	"context"
 	"fmt"
 	"math"
 	"sort"
 	"strconv"
 	"strings"
-
-	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 type RoastSplitRow struct {
@@ -18,23 +15,6 @@ type RoastSplitRow struct {
 	Batches     int64
 	TotalKg     string // 熟豆总需求
 	YieldPctStr string // 损耗比展示
-}
-
-func loadActiveMachines(ctx context.Context, pool *pgxpool.Pool, schema string) ([]RoastMachine, error) {
-	q := "SELECT id,COALESCE(name,''),COALESCE(capacity_g,0),COALESCE(allowed_specs,''),COALESCE(min_roast_g,0),COALESCE(active,true) FROM " + schema + ".roast_machines WHERE active=true ORDER BY capacity_g DESC,id ASC"
-	rows, err := pool.Query(ctx, q)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	out := make([]RoastMachine, 0)
-	for rows.Next() {
-		var m RoastMachine
-		if err := rows.Scan(&m.ID, &m.Name, &m.CapacityG, &m.AllowedSpecs, &m.MinRoastG, &m.Active); err == nil {
-			out = append(out, m)
-		}
-	}
-	return out, rows.Err()
 }
 
 func calcRoastSplits(rows []UnprodNeedRow, machines []RoastMachine, yieldRate float64) []RoastSplitRow {

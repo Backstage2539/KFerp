@@ -1,10 +1,12 @@
 package sales
 
 import (
-	"context"
 	"fmt"
 	"math"
 	"net/http"
+	salesapp "orderapp/internal/application/sales"
+	postgressales "orderapp/internal/infrastructure/postgres/sales"
+	support "orderapp/internal/interfaces/http/support"
 	"strconv"
 	"strings"
 	"time"
@@ -26,10 +28,7 @@ type ShipRow struct {
 	WeightKg    float64
 }
 
-type trackingPair struct {
-	Phone    string
-	Tracking string
-}
+type trackingPair = salesapp.TrackingPair
 
 func fetchShipRowsSFSmall(c echo.Context, pool *pgxpool.Pool, schema string, q, from, to, voidFilter string, customerID int64, payStatusID, shipStatusID, procStatusID int64, completedOnly bool, oneClick bool) ([]ShipRow, error) {
 	// reuse same filters as fetchOrders but without pagination; only sf_small
@@ -181,16 +180,6 @@ func parseTrackingPairs(raw string) []trackingPair {
 	return out
 }
 
-func digitsOnly(s string) string {
-	b := strings.Builder{}
-	for _, r := range s {
-		if r >= '0' && r <= '9' {
-			b.WriteRune(r)
-		}
-	}
-	return b.String()
-}
-
 func parseTrackingPairsExcel(f *excelize.File) []trackingPair {
 	sheet := f.GetSheetName(0)
 	rows, err := f.GetRows(sheet)
@@ -252,59 +241,6 @@ func parseTrackingPairsExcel(f *excelize.File) []trackingPair {
 	return out
 }
 
-func fillTrackingPairs(ctx context.Context, pool *pgxpool.Pool, schema string, pairs []trackingPair) (int, int, error) {
-	if len(pairs) == 0 {
-		return 0, 0, nil
-	}
-	group := map[string][]string{}
-	for _, p := range pairs {
-		ph := digitsOnly(p.Phone)
-		if ph == "" || strings.TrimSpace(p.Tracking) == "" {
-			continue
-		}
-		group[ph] = append(group[ph], strings.TrimSpace(p.Tracking))
-	}
-	updated := 0
-	total := len(pairs)
-	for phone, tracks := range group {
-		rows, err := pool.Query(ctx, fmt.Sprintf(`
-			SELECT o.id
-			FROM %s.orders o
-			JOIN %s.customers c ON c.id=o.customer_id
-			WHERE o.is_void=false
-			  AND COALESCE(o.ship_tracking_no,'')=''
-			  AND regexp_replace(COALESCE(c.phone,''),'\\D','','g') = $1
-			ORDER BY o.order_date, o.id
-		`, schema, schema), phone)
-		if err != nil {
-			return updated, total, err
-		}
-		ids := make([]int64, 0)
-		for rows.Next() {
-			var id int64
-			if err := rows.Scan(&id); err == nil {
-				ids = append(ids, id)
-			}
-		}
-		rows.Close()
-		n := len(ids)
-		if len(tracks) < n {
-			n = len(tracks)
-		}
-		for i := 0; i < n; i++ {
-			if _, err := pool.Exec(ctx, fmt.Sprintf(`UPDATE %s.orders SET ship_tracking_no=$2 WHERE id=$1`, schema), ids[i], tracks[i]); err != nil {
-				return updated, total, err
-			}
-			updated++
-		}
-	}
-	return updated, total, nil
-}
-
-func fillTrackingByPhone(ctx context.Context, pool *pgxpool.Pool, schema, raw string) (int, int, error) {
-	return fillTrackingPairs(ctx, pool, schema, parseTrackingPairs(raw))
-}
-
 func shipSplitCountSFSmall(weightKg float64) int {
 	if weightKg <= 0 {
 		return 1
@@ -318,6 +254,7 @@ func shipSplitCountSFSmall(weightKg float64) int {
 }
 
 func registerShipExportRoutes(e *echo.Echo, pool *pgxpool.Pool, schema string) {
+	salesSvc := salesapp.NewService(postgressales.NewRepository(pool, schema))
 	e.GET("/ship/sf_small.xlsx", func(c echo.Context) error {
 		rows, err := fetchShipRowsSFSmall(c, pool, schema,
 			strings.TrimSpace(c.QueryParam("q")),
@@ -429,19 +366,25 @@ func registerShipExportRoutes(e *echo.Echo, pool *pgxpool.Pool, schema string) {
 				return c.JSON(http.StatusBadRequest, map[string]any{"ok": false, "error": "excel解析失败"})
 			}
 			pairs := parseTrackingPairsExcel(x)
-			updated, total, err := fillTrackingPairs(ctx, pool, schema, pairs)
+			res, err := salesSvc.FillTrackingPairs(ctx, salesapp.FillTrackingPairsCommand{
+				Actor: support.ActorOf(c),
+				Pairs: pairs,
+			})
 			if err != nil {
 				return c.JSON(http.StatusBadRequest, map[string]any{"ok": false, "error": err.Error()})
 			}
-			return c.JSON(http.StatusOK, map[string]any{"ok": true, "updated": updated, "total": total})
+			return c.JSON(http.StatusOK, map[string]any{"ok": true, "updated": res.Updated, "total": res.Total})
 		}
 
 		raw := strings.TrimSpace(c.FormValue("entries"))
-		updated, total, err := fillTrackingByPhone(ctx, pool, schema, raw)
+		res, err := salesSvc.FillTrackingPairs(ctx, salesapp.FillTrackingPairsCommand{
+			Actor: support.ActorOf(c),
+			Pairs: parseTrackingPairs(raw),
+		})
 		if err != nil {
 			return c.JSON(http.StatusBadRequest, map[string]any{"ok": false, "error": err.Error()})
 		}
-		return c.JSON(http.StatusOK, map[string]any{"ok": true, "updated": updated, "total": total})
+		return c.JSON(http.StatusOK, map[string]any{"ok": true, "updated": res.Updated, "total": res.Total})
 	})
 
 	e.GET("/ship/sf_small_one_click.xlsx", func(c echo.Context) error {
@@ -493,13 +436,9 @@ func registerShipExportRoutes(e *echo.Echo, pool *pgxpool.Pool, schema string) {
 			exportRows = append(exportRows, o)
 		}
 		if len(heavyIDs) > 0 {
-			ph := make([]string, 0, len(heavyIDs))
-			args := make([]any, 0, len(heavyIDs))
-			for i, id := range heavyIDs {
-				ph = append(ph, fmt.Sprintf("$%d", i+1))
-				args = append(args, id)
+			if err := salesSvc.SetShipMethod(c.Request().Context(), salesapp.SetShipMethodCommand{Actor: support.ActorOf(c), OrderIDs: heavyIDs, Method: "sf_large"}); err != nil {
+				return c.String(http.StatusInternalServerError, err.Error())
 			}
-			_, _ = pool.Exec(c.Request().Context(), fmt.Sprintf("UPDATE %s.orders SET ship_method='sf_large' WHERE id IN (%s)", schema, strings.Join(ph, ",")), args...)
 		}
 
 		r := startRow

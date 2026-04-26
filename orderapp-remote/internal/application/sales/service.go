@@ -156,6 +156,27 @@ type SaveOutsourceTemplateCommand struct {
 	SCUnitPrice       float64 `json:"sc_unit_price"`
 }
 
+type TrackingPair struct {
+	Phone    string
+	Tracking string
+}
+
+type FillTrackingPairsCommand struct {
+	Actor string
+	Pairs []TrackingPair
+}
+
+type FillTrackingResult struct {
+	Updated int `json:"updated"`
+	Total   int `json:"total"`
+}
+
+type SetShipMethodCommand struct {
+	Actor    string
+	OrderIDs []int64
+	Method   string
+}
+
 type Repository interface {
 	SaveOrder(ctx context.Context, cmd SaveOrderCommand) (SaveOrderResult, error)
 	UpdateHeader(ctx context.Context, id int64, cmd UpdateHeaderCommand) error
@@ -165,6 +186,8 @@ type Repository interface {
 	ListOrders(ctx context.Context, query OrderListQuery) (OrderListResult, error)
 	ListOutsourceTemplates(ctx context.Context) ([]OutsourceTemplate, error)
 	SaveOutsourceTemplate(ctx context.Context, cmd SaveOutsourceTemplateCommand) error
+	FillTrackingPairs(ctx context.Context, cmd FillTrackingPairsCommand) (FillTrackingResult, error)
+	SetShipMethod(ctx context.Context, cmd SetShipMethodCommand) error
 }
 
 type Service struct {
@@ -256,4 +279,60 @@ func (s *Service) SaveOutsourceTemplate(ctx context.Context, cmd SaveOutsourceTe
 		return fmt.Errorf("prices must be non-negative")
 	}
 	return s.repo.SaveOutsourceTemplate(ctx, cmd)
+}
+
+func (s *Service) FillTrackingPairs(ctx context.Context, cmd FillTrackingPairsCommand) (FillTrackingResult, error) {
+	cmd.Actor = strings.TrimSpace(cmd.Actor)
+	if cmd.Actor == "" {
+		cmd.Actor = "shipping"
+	}
+	pairs := make([]TrackingPair, 0, len(cmd.Pairs))
+	for _, pair := range cmd.Pairs {
+		phone := digitsOnly(pair.Phone)
+		tracking := strings.TrimSpace(pair.Tracking)
+		if phone == "" || tracking == "" {
+			continue
+		}
+		pairs = append(pairs, TrackingPair{Phone: phone, Tracking: tracking})
+	}
+	if len(pairs) == 0 {
+		return FillTrackingResult{}, nil
+	}
+	cmd.Pairs = pairs
+	return s.repo.FillTrackingPairs(ctx, cmd)
+}
+
+func (s *Service) SetShipMethod(ctx context.Context, cmd SetShipMethodCommand) error {
+	cmd.Actor = strings.TrimSpace(cmd.Actor)
+	if cmd.Actor == "" {
+		cmd.Actor = "shipping"
+	}
+	cmd.Method = strings.TrimSpace(cmd.Method)
+	if cmd.Method == "" {
+		return fmt.Errorf("ship method required")
+	}
+	seen := map[int64]bool{}
+	ids := make([]int64, 0, len(cmd.OrderIDs))
+	for _, id := range cmd.OrderIDs {
+		if id <= 0 || seen[id] {
+			continue
+		}
+		seen[id] = true
+		ids = append(ids, id)
+	}
+	if len(ids) == 0 {
+		return nil
+	}
+	cmd.OrderIDs = ids
+	return s.repo.SetShipMethod(ctx, cmd)
+}
+
+func digitsOnly(s string) string {
+	var b strings.Builder
+	for _, r := range s {
+		if r >= '0' && r <= '9' {
+			b.WriteRune(r)
+		}
+	}
+	return b.String()
 }

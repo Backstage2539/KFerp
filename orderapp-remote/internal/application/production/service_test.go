@@ -50,6 +50,14 @@ func (r *fakeRepo) Cancel(ctx context.Context, cmd CancelCommand) error {
 	return nil
 }
 
+func (r *fakeRepo) ListMachines(ctx context.Context, activeOnly bool) ([]RoastMachine, error) {
+	return []RoastMachine{{ID: 1, Name: "小烘焙机", CapacityG: 3000, AllowedSpecs: "1000,2000", MinRoastG: 1000, Active: true}}, nil
+}
+
+func (r *fakeRepo) SaveMachine(ctx context.Context, cmd RoastMachineCommand) error {
+	return nil
+}
+
 func TestServiceDelegatesProductionUseCases(t *testing.T) {
 	repo := &fakeRepo{}
 	svc := NewService(repo)
@@ -78,4 +86,35 @@ func TestServiceDelegatesProductionUseCases(t *testing.T) {
 	if err != nil || detail.BatchID != "P1" {
 		t.Fatalf("Detail() = %+v, %v", detail, err)
 	}
+	machines, err := svc.ListMachines(context.Background(), false)
+	if err != nil || len(machines) != 1 || machines[0].Name != "小烘焙机" {
+		t.Fatalf("ListMachines() = %+v, %v", machines, err)
+	}
+}
+
+func TestServiceNormalizesMachineCommand(t *testing.T) {
+	repo := &machineFakeRepo{}
+	svc := NewService(repo)
+	if err := svc.SaveMachine(context.Background(), RoastMachineCommand{
+		Name:         "  新设备 ",
+		CapacityG:    5000,
+		MinRoastG:    1000,
+		AllowedSpecs: "3000,1000,3000",
+		Active:       true,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if repo.machine.Name != "新设备" || repo.machine.AllowedSpecs != "1000,3000" {
+		t.Fatalf("machine command = %+v", repo.machine)
+	}
+}
+
+type machineFakeRepo struct {
+	fakeRepo
+	machine RoastMachineCommand
+}
+
+func (r *machineFakeRepo) SaveMachine(ctx context.Context, cmd RoastMachineCommand) error {
+	r.machine = cmd
+	return nil
 }

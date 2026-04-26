@@ -61,6 +61,14 @@ func (r *fakeFlowRepo) Cancel(ctx context.Context, cmd CancelCommand) error {
 	return nil
 }
 
+func (r *fakeFlowRepo) ListMachines(ctx context.Context, activeOnly bool) ([]RoastMachine, error) {
+	return nil, nil
+}
+
+func (r *fakeFlowRepo) SaveMachine(ctx context.Context, cmd RoastMachineCommand) error {
+	return nil
+}
+
 func TestServiceOwnsRunningProductionUseCases(t *testing.T) {
 	repo := &fakeFlowRepo{
 		startNeeds: []StartNeed{
