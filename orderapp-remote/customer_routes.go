@@ -32,6 +32,7 @@ func registerCustomerRoutes(e *echo.Echo, pool *pgxpool.Pool, schema string, ass
 
 	// Customers
 	e.GET("/customers", h.index)
+	e.GET("/api/customers", h.indexAPI)
 	e.GET("/customers/new", h.new)
 	e.POST("/customers/new", h.create)
 	e.GET("/customers/:id", h.edit)
@@ -59,6 +60,10 @@ type customerHandler struct {
 }
 
 func (h customerHandler) index(c echo.Context) error {
+	if strings.TrimSpace(c.QueryParam("legacy")) != "1" {
+		return vueShellRedirect(c, "customers")
+	}
+
 	data := CustomersPageData{Q: strings.TrimSpace(c.QueryParam("q"))}
 	data.Limit = intParam(c, "limit", 10)
 	if data.Limit <= 0 || data.Limit > 200 {
@@ -97,6 +102,40 @@ func (h customerHandler) index(c echo.Context) error {
 	}
 	return c.Render(http.StatusOK, "customers.html", data)
 
+}
+
+func (h customerHandler) indexAPI(c echo.Context) error {
+	q := strings.TrimSpace(c.QueryParam("q"))
+	limit := intParam(c, "limit", 10)
+	if limit <= 0 {
+		limit = 10
+	}
+	if limit > 200 {
+		limit = 200
+	}
+	offset := intParam(c, "offset", 0)
+	if offset < 0 {
+		offset = 0
+	}
+	if page := intParam(c, "page", 0); page > 0 {
+		offset = (page - 1) * limit
+	}
+	rows, hasNext, err := fetchCustomers(c.Request().Context(), h.pool, h.schema, q, limit, offset)
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]any{"error": err.Error()})
+	}
+	sources, _ := fetchOptions(c.Request().Context(), h.pool, fmt.Sprintf("SELECT id, name FROM %s.sources ORDER BY id", h.schema))
+	types, _ := fetchOptions(c.Request().Context(), h.pool, fmt.Sprintf("SELECT id, name FROM %s.order_types ORDER BY id", h.schema))
+	return c.JSON(http.StatusOK, map[string]any{
+		"rows":        rows,
+		"sources":     apiOptions(sources),
+		"order_types": apiOptions(types),
+		"page":        (offset / limit) + 1,
+		"limit":       limit,
+		"offset":      offset,
+		"has_prev":    offset > 0,
+		"has_next":    hasNext,
+	})
 }
 
 func (h customerHandler) new(c echo.Context) error {

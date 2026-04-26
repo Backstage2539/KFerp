@@ -13,15 +13,15 @@ import (
 )
 
 type CustomerRow struct {
-	ID                 int64
-	Name               string
-	Contact            *string
-	Phone              *string
-	Address            *string
-	Active             bool
-	DefaultSourceID    *int
-	DefaultOrderTypeID *int
-	Updated            string
+	ID                 int64   `json:"id"`
+	Name               string  `json:"name"`
+	Contact            *string `json:"contact"`
+	Phone              *string `json:"phone"`
+	Address            *string `json:"address"`
+	Active             bool    `json:"active"`
+	DefaultSourceID    *int    `json:"default_source_id"`
+	DefaultOrderTypeID *int    `json:"default_order_type_id"`
+	Updated            string  `json:"updated"`
 }
 
 type CustomersPageData struct {
@@ -38,12 +38,12 @@ type CustomersPageData struct {
 }
 
 type CustomerDashboard struct {
-	TotalOrders    int
-	UnpaidOrders   int
+	TotalOrders     int
+	UnpaidOrders    int
 	UnshippedOrders int
-	InProduction   int
-	InShipping     int
-	Completed      int
+	InProduction    int
+	InShipping      int
+	Completed       int
 }
 
 type CustomerEditData struct {

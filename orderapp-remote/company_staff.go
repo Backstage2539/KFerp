@@ -88,6 +88,9 @@ ON CONFLICT (name) DO NOTHING;
 
 func registerCompanyStaffPages(e *echo.Echo, pool *pgxpool.Pool, schema string) {
 	e.GET("/company/departments", func(c echo.Context) error {
+		if strings.TrimSpace(c.QueryParam("legacy")) != "1" {
+			return vueShellRedirect(c, "departments")
+		}
 		rows, err := pool.Query(c.Request().Context(), "SELECT id,name,active FROM "+schema+".company_departments ORDER BY id")
 		if err != nil {
 			return c.String(http.StatusInternalServerError, err.Error())
@@ -106,6 +109,9 @@ func registerCompanyStaffPages(e *echo.Echo, pool *pgxpool.Pool, schema string) 
 	})
 
 	e.GET("/company/employees", func(c echo.Context) error {
+		if strings.TrimSpace(c.QueryParam("legacy")) != "1" {
+			return vueShellRedirect(c, "employees")
+		}
 		depRows, err := pool.Query(c.Request().Context(), "SELECT id,name,active FROM "+schema+".company_departments ORDER BY id")
 		if err != nil {
 			return c.String(http.StatusInternalServerError, err.Error())

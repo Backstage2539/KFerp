@@ -73,8 +73,36 @@ func registerOrderAPI(e *echo.Echo, pool *pgxpool.Pool, schema string) {
 		schema: schema,
 		sales:  salesapp.NewService(postgresSalesRepository{pool: pool, schema: schema}),
 	}
+	e.GET("/api/orders", h.list)
 	e.GET("/api/order/form", h.form)
 	e.POST("/api/order", h.save)
+}
+
+func (h orderAPIHandler) list(c echo.Context) error {
+	query := ordersQueryFromContext(c)
+	rows, hasNext, err := fetchOrders(c.Request().Context(), h.pool, h.schema, query.Q, query.From, query.To, query.Void, query.CustomerID, query.PayStatusID, query.ShipStatusID, query.ProcessStatusID, query.UnproducedOnly, query.CompletedOnly, query.Limit, query.Offset)
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]any{"error": err.Error()})
+	}
+	summary, _ := fetchOrdersSummary(c.Request().Context(), h.pool, h.schema, query.Q, query.From, query.To, query.Void, query.CustomerID, query.PayStatusID, query.ShipStatusID, query.ProcessStatusID, query.UnproducedOnly, query.CompletedOnly)
+	orderTypes, _ := fetchOptions(c.Request().Context(), h.pool, "SELECT id, name FROM "+h.schema+".order_types ORDER BY id")
+	payStatuses, _ := fetchOptions(c.Request().Context(), h.pool, "SELECT id, name FROM "+h.schema+".pay_statuses ORDER BY id")
+	shipStatuses, _ := fetchOptions(c.Request().Context(), h.pool, "SELECT id, name FROM "+h.schema+".ship_statuses ORDER BY id")
+	processStatuses, _ := fetchOptions(c.Request().Context(), h.pool, "SELECT id, name FROM "+h.schema+".order_process_statuses WHERE active=true ORDER BY sort,id")
+
+	return c.JSON(http.StatusOK, map[string]any{
+		"rows":             rows,
+		"summary":          summary,
+		"order_types":      apiOptions(orderTypes),
+		"pay_statuses":     apiOptions(payStatuses),
+		"ship_statuses":    apiOptions(shipStatuses),
+		"process_statuses": apiOptions(processStatuses),
+		"page":             query.Page,
+		"limit":            query.Limit,
+		"offset":           query.Offset,
+		"has_prev":         query.Offset > 0,
+		"has_next":         hasNext,
+	})
 }
 
 func (h orderAPIHandler) form(c echo.Context) error {
@@ -112,6 +140,60 @@ func (h orderAPIHandler) form(c echo.Context) error {
 	}
 
 	return c.JSON(http.StatusOK, resp)
+}
+
+type ordersAPIQuery struct {
+	Q               string
+	From            string
+	To              string
+	Void            string
+	CustomerID      int64
+	PayStatusID     int64
+	ShipStatusID    int64
+	ProcessStatusID int64
+	UnproducedOnly  bool
+	CompletedOnly   bool
+	Limit           int
+	Offset          int
+	Page            int
+}
+
+func ordersQueryFromContext(c echo.Context) ordersAPIQuery {
+	q := ordersAPIQuery{
+		Q:     strings.TrimSpace(c.QueryParam("q")),
+		From:  strings.TrimSpace(c.QueryParam("from")),
+		To:    strings.TrimSpace(c.QueryParam("to")),
+		Void:  strings.TrimSpace(c.QueryParam("void")),
+		Limit: intParam(c, "limit", 10),
+	}
+	if q.Limit <= 0 {
+		q.Limit = 10
+	}
+	if q.Limit > 200 {
+		q.Limit = 200
+	}
+	q.Offset = intParam(c, "offset", 0)
+	if q.Offset < 0 {
+		q.Offset = 0
+	}
+	if page := intParam(c, "page", 0); page > 0 {
+		q.Offset = (page - 1) * q.Limit
+	}
+	if q.Limit > 0 {
+		q.Page = (q.Offset / q.Limit) + 1
+	} else {
+		q.Page = 1
+	}
+	q.CustomerID = int64(intParam(c, "customer_id", 0))
+	q.PayStatusID = int64(intParam(c, "pay_status_id", 0))
+	q.ShipStatusID = int64(intParam(c, "ship_status_id", 0))
+	q.ProcessStatusID = int64(intParam(c, "process_status_id", 0))
+	q.UnproducedOnly = strings.TrimSpace(c.QueryParam("preset")) == "unprod"
+	q.CompletedOnly = strings.TrimSpace(c.QueryParam("completed")) == "1"
+	if q.Void == "" {
+		q.Void = "normal"
+	}
+	return q
 }
 
 func (h orderAPIHandler) save(c echo.Context) error {

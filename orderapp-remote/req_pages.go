@@ -26,8 +26,11 @@ type ReqPageData struct {
 
 func registerRequirementPages(e *echo.Echo, pool *pgxpool.Pool, schema string) {
 	// 需求管理（5张表/页面）——先跑通体系：列表 + 新增（最小可用）。
-	reg := func(path, tpl, title, table string) {
+	reg := func(path, tpl, title, table, view string) {
 		e.GET(path, func(c echo.Context) error {
+			if strings.TrimSpace(c.QueryParam("legacy")) != "1" {
+				return vueShellRedirect(c, view)
+			}
 			data := ReqPageData{Title: title}
 			data.Limit = intParam(c, "limit", 10)
 			if data.Limit <= 0 {
@@ -84,14 +87,17 @@ func registerRequirementPages(e *echo.Echo, pool *pgxpool.Pool, schema string) {
 		})
 	}
 
-	reg("/req/product", "req_product.html", "产品需求表", "req_product")
-	reg("/req/dev", "req_dev.html", "开发需求表", "req_dev")
-	reg("/req/unit", "req_unit.html", "单元测试表", "req_unit")
-	reg("/req/api", "req_api.html", "API 测试表", "req_api")
+	reg("/req/product", "req_product.html", "产品需求表", "req_product", "reqProduct")
+	reg("/req/dev", "req_dev.html", "开发需求表", "req_dev", "reqDev")
+	reg("/req/unit", "req_unit.html", "单元测试表", "req_unit", "reqUnit")
+	reg("/req/api", "req_api.html", "API 测试表", "req_api", "reqApi")
 	// Review page needs special create/update behavior.
 
 	// Review: list
 	e.GET("/req/review", func(c echo.Context) error {
+		if strings.TrimSpace(c.QueryParam("legacy")) != "1" {
+			return vueShellRedirect(c, "reqReview")
+		}
 		data := ReqPageData{Title: "需求审核表"}
 		data.Limit = intParam(c, "limit", 10)
 		if data.Limit <= 0 {
@@ -158,4 +164,3 @@ func registerRequirementPages(e *echo.Echo, pool *pgxpool.Pool, schema string) {
 		return c.Redirect(http.StatusSeeOther, "/req/review?ok=1")
 	})
 }
-

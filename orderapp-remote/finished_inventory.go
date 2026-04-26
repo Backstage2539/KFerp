@@ -11,13 +11,13 @@ import (
 )
 
 type FinishedInvRow struct {
-	ProductID int64
-	Product   string
-	SpecG     int64
-	Units     int64
-	LooseG    int64
-	UpdatedAt string
-	TotalG    int64
+	ProductID int64  `json:"product_id"`
+	Product   string `json:"product"`
+	SpecG     int64  `json:"spec_g"`
+	Units     int64  `json:"units"`
+	LooseG    int64  `json:"loose_g"`
+	UpdatedAt string `json:"updated_at"`
+	TotalG    int64  `json:"total_g"`
 }
 
 func ensureFinishedInventoryTable(ctx context.Context, pool *pgxpool.Pool, schema string) error {

@@ -19,6 +19,7 @@ func registerProductRoutes(e *echo.Echo, pool *pgxpool.Pool, schema string) {
 
 	e.GET("/products", h.index)
 	e.GET("/products/print", h.print)
+	e.GET("/api/products", h.listAPI)
 	e.GET("/products/:id", h.edit)
 	e.POST("/products/:id", h.update)
 }
@@ -28,11 +29,25 @@ type productHandler struct {
 }
 
 func (h productHandler) index(c echo.Context) error {
+	if strings.TrimSpace(c.QueryParam("legacy")) != "1" {
+		return vueShellRedirect(c, "products")
+	}
 	return h.renderList(c, "products.html")
 }
 
 func (h productHandler) print(c echo.Context) error {
+	if strings.TrimSpace(c.QueryParam("legacy")) != "1" {
+		return vueShellRedirect(c, "quotePrint")
+	}
 	return h.renderList(c, "products_print.html")
+}
+
+func (h productHandler) listAPI(c echo.Context) error {
+	ps, err := h.catalog.ListProducts(c.Request().Context())
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]any{"error": err.Error()})
+	}
+	return c.JSON(http.StatusOK, map[string]any{"rows": productOptionsFromCatalog(ps)})
 }
 
 func (h productHandler) renderList(c echo.Context, templateName string) error {

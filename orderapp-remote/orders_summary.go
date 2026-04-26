@@ -9,8 +9,8 @@ import (
 )
 
 type OrdersSummary struct {
-	Orders    int
-	Customers int
+	Orders    int `json:"orders"`
+	Customers int `json:"customers"`
 }
 
 func fetchOrdersSummary(ctx context.Context, pool *pgxpool.Pool, schema, q, from, to, voidFilter string, customerID int64, payStatusID, shipStatusID, procStatusID int64, unproducedOnly, completedOnly bool) (OrdersSummary, error) {

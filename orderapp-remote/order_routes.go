@@ -52,6 +52,10 @@ type orderHandler struct {
 }
 
 func (h orderHandler) index(c echo.Context) error {
+	if strings.TrimSpace(c.QueryParam("legacy")) != "1" {
+		return vueShellRedirect(c, "orders")
+	}
+
 	data := OrdersPageData{
 		Q:      strings.TrimSpace(c.QueryParam("q")),
 		From:   strings.TrimSpace(c.QueryParam("from")),

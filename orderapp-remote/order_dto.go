@@ -8,24 +8,24 @@ type Option struct {
 }
 
 type ProductTierOption struct {
-	ID        int64
-	SpecG     int64
-	MinQty    float64
-	MaxQty    *float64
-	UnitPrice float64
+	ID        int64    `json:"id"`
+	SpecG     int64    `json:"spec_g"`
+	MinQty    float64  `json:"min_qty"`
+	MaxQty    *float64 `json:"max_qty"`
+	UnitPrice float64  `json:"unit_price"`
 }
 
 type ProductOption struct {
-	ID              int64
-	Name            string
-	RoastLevel      string
-	DefaultPrice    float64
-	RetailPrice100G float64
-	RetailPrice200G float64
-	RetailPrice227G float64
-	RetailPrice250G float64
-	RetailSpecs     []int64
-	Tiers           []ProductTierOption
+	ID              int64               `json:"id"`
+	Name            string              `json:"name"`
+	RoastLevel      string              `json:"roast_level"`
+	DefaultPrice    float64             `json:"default_price"`
+	RetailPrice100G float64             `json:"retail_price_100g"`
+	RetailPrice200G float64             `json:"retail_price_200g"`
+	RetailPrice227G float64             `json:"retail_price_227g"`
+	RetailPrice250G float64             `json:"retail_price_250g"`
+	RetailSpecs     []int64             `json:"retail_specs"`
+	Tiers           []ProductTierOption `json:"tiers"`
 }
 
 type PageData struct {
@@ -46,23 +46,23 @@ type PageData struct {
 }
 
 type OrderRow struct {
-	ID                int64
-	OrderNo           string
-	OrderDate         string
-	CustomerID        int64
-	Customer          string
-	GrandTotal        string
-	OrderType         string
-	PayStatus         string
-	ShipStatus        string
-	OrderTypeID       int64
-	PayStatusID       int64
-	ShipStatusID      int64
-	ProcessStatusID   int64
-	ProcessStatus     string
-	CreatedByEmployee string
-	Notes             string
-	IsVoid            bool
+	ID                int64  `json:"id"`
+	OrderNo           string `json:"order_no"`
+	OrderDate         string `json:"order_date"`
+	CustomerID        int64  `json:"customer_id"`
+	Customer          string `json:"customer"`
+	GrandTotal        string `json:"grand_total"`
+	OrderType         string `json:"order_type"`
+	PayStatus         string `json:"pay_status"`
+	ShipStatus        string `json:"ship_status"`
+	OrderTypeID       int64  `json:"order_type_id"`
+	PayStatusID       int64  `json:"pay_status_id"`
+	ShipStatusID      int64  `json:"ship_status_id"`
+	ProcessStatusID   int64  `json:"process_status_id"`
+	ProcessStatus     string `json:"process_status"`
+	CreatedByEmployee string `json:"created_by_employee"`
+	Notes             string `json:"notes"`
+	IsVoid            bool   `json:"is_void"`
 }
 
 type OrdersPageData struct {

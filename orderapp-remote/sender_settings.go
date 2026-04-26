@@ -11,12 +11,12 @@ import (
 )
 
 type SenderProfile struct {
-	Name    string
-	Phone   string
-	Addr    string
-	Company string
-	Goods   string
-	BizType string
+	Name    string `json:"sender_name"`
+	Phone   string `json:"sender_phone"`
+	Addr    string `json:"sender_addr"`
+	Company string `json:"sender_company"`
+	Goods   string `json:"sender_goods"`
+	BizType string `json:"sf_biz_type"`
 }
 
 func ensureSenderSettingsTable(ctx context.Context, pool *pgxpool.Pool, schema string) error {
@@ -55,6 +55,9 @@ func loadSenderProfile(ctx context.Context, pool *pgxpool.Pool, schema string) S
 
 func registerSenderSettingsPage(e *echo.Echo, pool *pgxpool.Pool, schema string) {
 	e.GET("/settings/sender", func(c echo.Context) error {
+		if strings.TrimSpace(c.QueryParam("legacy")) != "1" {
+			return vueShellRedirect(c, "senderSettings")
+		}
 		p := loadSenderProfile(c.Request().Context(), pool, schema)
 		return c.Render(http.StatusOK, "sender_settings.html", map[string]any{"P": p, "Ok": c.QueryParam("ok") == "1"})
 	})
@@ -69,4 +72,29 @@ func registerSenderSettingsPage(e *echo.Echo, pool *pgxpool.Pool, schema string)
 		)
 		return c.Redirect(http.StatusSeeOther, "/settings/sender?ok=1")
 	})
+	e.GET("/api/settings/sender", func(c echo.Context) error {
+		return c.JSON(http.StatusOK, map[string]any{"profile": loadSenderProfile(c.Request().Context(), pool, schema)})
+	})
+	e.POST("/api/settings/sender", func(c echo.Context) error {
+		var p SenderProfile
+		if err := c.Bind(&p); err != nil {
+			return c.JSON(http.StatusBadRequest, map[string]any{"error": "bad request"})
+		}
+		if err := saveSenderProfile(c.Request().Context(), pool, schema, p); err != nil {
+			return c.JSON(http.StatusBadRequest, map[string]any{"error": err.Error()})
+		}
+		return c.JSON(http.StatusOK, map[string]any{"ok": true})
+	})
+}
+
+func saveSenderProfile(ctx context.Context, pool *pgxpool.Pool, schema string, p SenderProfile) error {
+	_, err := pool.Exec(ctx, fmt.Sprintf(`UPDATE %s.sender_settings SET sender_name=$1,sender_phone=$2,sender_addr=$3,sender_company=$4,sender_goods=$5,sf_biz_type=$6,updated_at=now() WHERE id=1`, schema),
+		strings.TrimSpace(p.Name),
+		strings.TrimSpace(p.Phone),
+		strings.TrimSpace(p.Addr),
+		strings.TrimSpace(p.Company),
+		strings.TrimSpace(p.Goods),
+		strings.TrimSpace(p.BizType),
+	)
+	return err
 }

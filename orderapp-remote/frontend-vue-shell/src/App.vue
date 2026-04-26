@@ -24,19 +24,28 @@
         <button class="toggle" @click="toggleMenu">{{ toggleLabel }}</button>
         <div v-if="showTitle" class="title">{{ title }}</div>
       </header>
-      <component :is="currentInternalView" class="internal-view" :title="title" :legacy-url="legacyUrl" />
+      <component :is="currentInternalView" class="internal-view" :title="title" :legacy-url="legacyUrl" :view-key="currentKey" />
     </main>
   </div>
 </template>
 
 <script setup>
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import AuditView from './views/AuditView.vue'
+import CompanyStaffView from './views/CompanyStaffView.vue'
+import CustomersView from './views/CustomersView.vue'
+import InventoryView from './views/InventoryView.vue'
 import LegacyMigrationView from './views/LegacyMigrationView.vue'
+import MachinesView from './views/MachinesView.vue'
 import MaterialsView from './views/MaterialsView.vue'
 import OrderEntryView from './views/OrderEntryView.vue'
+import OrdersView from './views/OrdersView.vue'
 import ProducePlanView from './views/ProducePlanView.vue'
 import ProduceRunningView from './views/ProduceRunningView.vue'
 import ProductionLogsView from './views/ProductionLogsView.vue'
+import ProductsView from './views/ProductsView.vue'
+import RequirementsView from './views/RequirementsView.vue'
+import SenderSettingsView from './views/SenderSettingsView.vue'
 
 const collapsed = ref(false)
 const currentKey = ref('order')
@@ -70,10 +79,25 @@ const menuMap = {
 
 const internalViews = {
   order: OrderEntryView,
+  orders: OrdersView,
   materials: MaterialsView,
   producePlan: ProducePlanView,
   produceRunning: ProduceRunningView,
   produceLogs: ProductionLogsView,
+  customers: CustomersView,
+  products: ProductsView,
+  departments: CompanyStaffView,
+  employees: CompanyStaffView,
+  inventory: InventoryView,
+  quotePrint: ProductsView,
+  machines: MachinesView,
+  senderSettings: SenderSettingsView,
+  audit: AuditView,
+  reqProduct: RequirementsView,
+  reqDev: RequirementsView,
+  reqUnit: RequirementsView,
+  reqApi: RequirementsView,
+  reqReview: RequirementsView,
 }
 
 const menuGroups = [
@@ -114,6 +138,13 @@ function toggleMenu() {
   collapsed.value = !collapsed.value
 }
 
+function handleNavigateView(event) {
+  const key = event?.detail?.key
+  if (key && menuMap[key]) {
+    open(key)
+  }
+}
+
 onMounted(() => {
   handleResize()
   const view = new URL(window.location.href).searchParams.get('view')
@@ -121,10 +152,12 @@ onMounted(() => {
     currentKey.value = view
   }
   window.addEventListener('resize', handleResize)
+  window.addEventListener('kferp:navigate-view', handleNavigateView)
 })
 
 onBeforeUnmount(() => {
   window.removeEventListener('resize', handleResize)
+  window.removeEventListener('kferp:navigate-view', handleNavigateView)
 })
 
 const sidebarClass = computed(() => ({

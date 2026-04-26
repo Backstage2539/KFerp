@@ -18,6 +18,7 @@ func registerCoreRoutes(e *echo.Echo, pool *pgxpool.Pool, schema string) {
 	e.GET("/login", h.login)
 
 	e.GET("/audit", h.audit)
+	e.GET("/api/audit", h.auditAPI)
 }
 
 type coreHandler struct {
@@ -46,6 +47,10 @@ func (h coreHandler) login(c echo.Context) error {
 }
 
 func (h coreHandler) audit(c echo.Context) error {
+	if strings.TrimSpace(c.QueryParam("legacy")) != "1" {
+		return vueShellRedirect(c, "audit")
+	}
+
 	data := AuditPageData{
 		From:       strings.TrimSpace(c.QueryParam("from")),
 		To:         strings.TrimSpace(c.QueryParam("to")),
@@ -59,4 +64,33 @@ func (h coreHandler) audit(c echo.Context) error {
 		data.Rows = rows
 	}
 	return c.Render(http.StatusOK, "audit.html", data)
+}
+
+func (h coreHandler) auditAPI(c echo.Context) error {
+	limit := intParam(c, "limit", 200)
+	if limit <= 0 {
+		limit = 200
+	}
+	if limit > 500 {
+		limit = 500
+	}
+	data := AuditPageData{
+		From:       strings.TrimSpace(c.QueryParam("from")),
+		To:         strings.TrimSpace(c.QueryParam("to")),
+		Q:          strings.TrimSpace(c.QueryParam("q")),
+		EntityType: strings.TrimSpace(c.QueryParam("type")),
+	}
+	rows, err := fetchAuditPage(c.Request().Context(), h.pool, h.schema, data.From, data.To, data.Q, data.EntityType, limit)
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]any{"error": err.Error()})
+	}
+	return c.JSON(http.StatusOK, map[string]any{
+		"rows": rows,
+		"filters": map[string]any{
+			"from": data.From,
+			"to":   data.To,
+			"q":    data.Q,
+			"type": data.EntityType,
+		},
+	})
 }

@@ -10,14 +10,14 @@ import (
 )
 
 type ReqRow struct {
-	ID        int64
-	Code      string
-	PRCode    string
-	Title     string
-	Status    string
-	Assignee  string
-	Evidence  string
-	CreatedAt time.Time
+	ID        int64     `json:"id"`
+	Code      string    `json:"code"`
+	PRCode    string    `json:"pr_code"`
+	Title     string    `json:"title"`
+	Status    string    `json:"status"`
+	Assignee  string    `json:"assignee"`
+	Evidence  string    `json:"evidence"`
+	CreatedAt time.Time `json:"created_at"`
 }
 
 func ensureReqTables(ctx context.Context, pool *pgxpool.Pool, schema string) error {
