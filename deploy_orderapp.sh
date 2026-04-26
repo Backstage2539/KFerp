@@ -48,7 +48,7 @@ cd ../..
 # 2) Replace app source so deleted files do not linger on the server.
 BACKUP="$APP_DIR.backup.deploy-$(date +%Y%m%d%H%M%S)"
 ssh -i "$KEY" "$SERVER" "set -e; cd /opt/stacks/erp; if [ -d orderapp ]; then mv orderapp $BACKUP; fi; mkdir -p orderapp"
-COPYFILE_DISABLE=1 tar --exclude='._*' --exclude='*/._*' --exclude='./frontend-vue-shell/node_modules' --exclude='./frontend-vue-shell/.vite' -C orderapp-remote -cf - . | ssh -i "$KEY" "$SERVER" "tar -C $APP_DIR -xf -"
+COPYFILE_DISABLE=1 tar --no-xattrs --no-mac-metadata --exclude='._*' --exclude='*/._*' --exclude='./frontend-vue-shell/node_modules' --exclude='./frontend-vue-shell/.vite' -C orderapp-remote -cf - . | ssh -i "$KEY" "$SERVER" "tar -C $APP_DIR -xf -"
 
 # 3) Sync docs
 ssh -i "$KEY" "$SERVER" "mkdir -p $DOCS_DIR"
