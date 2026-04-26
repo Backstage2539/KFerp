@@ -69,6 +69,7 @@
 
 <script setup>
 import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { apiGet, apiSend } from '../api/client'
 
 const props = defineProps({
   viewKey: { type: String, default: 'departments' },
@@ -84,20 +85,14 @@ const ok = ref(false)
 const departmentForm = reactive({ name: '', active: true })
 const employeeForm = reactive({ name: '', phone: '', department_id: 0, active: true })
 
-async function readJson(res) {
-  const data = await res.json().catch(() => ({}))
-  if (!res.ok) throw new Error(data.error || '请求失败')
-  return data
-}
-
 async function load() {
   loading.value = true
   error.value = ''
   try {
-    const deps = await readJson(await fetch('/api/company/departments'))
+    const deps = await apiGet('/api/company/departments')
     departments.value = deps
     if (!departmentMode.value) {
-      employees.value = await readJson(await fetch('/api/company/employees'))
+      employees.value = await apiGet('/api/company/employees')
     }
   } catch (err) {
     error.value = err.message || '加载失败'
@@ -130,11 +125,7 @@ async function save(url, method, body) {
   error.value = ''
   ok.value = false
   try {
-    await readJson(await fetch(url, {
-      method,
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-    }))
+    await apiSend(url, { method, body })
     ok.value = true
     await load()
   } catch (err) {

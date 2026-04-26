@@ -122,6 +122,7 @@
 
 <script setup>
 import { computed, onMounted, reactive, ref } from 'vue'
+import { apiGet, apiSend } from '../api/client'
 
 const props = defineProps({
   viewKey: { type: String, default: 'products' },
@@ -165,25 +166,11 @@ function updateUrl() {
   window.history.replaceState({}, '', url.toString())
 }
 
-async function fetchJSON(url, options = {}) {
-  const res = await fetch(url, {
-    ...options,
-    headers: {
-      Accept: 'application/json',
-      'Content-Type': 'application/json',
-      ...(options.headers || {}),
-    },
-  })
-  const data = await res.json()
-  if (!res.ok) throw new Error(data.error || '请求失败')
-  return data
-}
-
 async function load() {
   loading.value = true
   error.value = ''
   try {
-    const data = await fetchJSON('/api/products')
+    const data = await apiGet('/api/products')
     rows.value = data.rows || []
   } catch (err) {
     error.value = err.message || '加载失败'
@@ -197,7 +184,7 @@ async function editProduct(id) {
   error.value = ''
   ok.value = ''
   try {
-    const data = await fetchJSON(`/api/products/${id}`)
+    const data = await apiGet(`/api/products/${id}`)
     const product = data.product
     editorVisible.value = true
     editingId.value = Number(product.id)
@@ -249,7 +236,7 @@ async function saveProduct() {
   error.value = ''
   ok.value = ''
   try {
-    const body = JSON.stringify({
+    const body = {
       roast_level: form.roast_level,
       retail_price_100g: Number(form.retail_price_100g || 0),
       retail_price_200g: Number(form.retail_price_200g || 0),
@@ -263,8 +250,8 @@ async function saveProduct() {
           max_qty: tier.max_qty === '' || tier.max_qty == null ? null : Number(tier.max_qty),
           unit_price: Number(tier.unit_price || 0),
         })),
-    })
-    await fetchJSON(`/api/products/${editingId.value}`, { method: 'PUT', body })
+    }
+    await apiSend(`/api/products/${editingId.value}`, { method: 'PUT', body })
     ok.value = '已保存'
     await load()
     await editProduct(editingId.value)

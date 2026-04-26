@@ -145,6 +145,7 @@
 
 <script setup>
 import { computed, onMounted, reactive, ref } from 'vue'
+import { apiGet, apiSend } from '../api/client'
 
 const rows = ref([])
 const products = ref([])
@@ -178,30 +179,16 @@ function updateUrl() {
   window.history.replaceState({}, '', url.toString())
 }
 
-async function fetchJSON(url, options = {}) {
-  const res = await fetch(url, {
-    ...options,
-    headers: {
-      'Content-Type': 'application/json',
-      ...(options.headers || {}),
-    },
-  })
-  if (res.status === 204) return null
-  const data = await res.json()
-  if (!res.ok) throw new Error(data.error || '请求失败')
-  return data
-}
-
 async function loadAll() {
   loading.value = true
   error.value = ''
   ok.value = ''
   try {
     const [listData, productData, materialData, mappingData] = await Promise.all([
-      fetchJSON('/api/bom/list'),
-      fetchJSON('/api/bom/products'),
-      fetchJSON('/api/bom/materials'),
-      fetchJSON('/api/bom/bag-spec-mappings'),
+      apiGet('/api/bom/list'),
+      apiGet('/api/bom/products'),
+      apiGet('/api/bom/materials'),
+      apiGet('/api/bom/bag-spec-mappings'),
     ])
     rows.value = listData || []
     products.value = productData || []
@@ -221,7 +208,7 @@ async function loadDetail(productId) {
     updateUrl()
     return
   }
-  detail.value = await fetchJSON(`/api/bom/detail/${productId}`)
+  detail.value = await apiGet(`/api/bom/detail/${productId}`)
   updateUrl()
 }
 
@@ -239,10 +226,7 @@ async function selectProduct(productId) {
 async function saveBom() {
   if (!selectedProductId.value) return
   await mutate(async () => {
-    await fetchJSON('/api/bom/save', {
-      method: 'POST',
-      body: JSON.stringify({ product_id: selectedProductId.value }),
-    })
+    await apiSend('/api/bom/save', { body: { product_id: selectedProductId.value } })
     ok.value = '已同步'
     await loadAll()
   })
@@ -250,13 +234,12 @@ async function saveBom() {
 
 async function saveItem() {
   await mutate(async () => {
-    await fetchJSON('/api/bom/item/save', {
-      method: 'POST',
-      body: JSON.stringify({
+    await apiSend('/api/bom/item/save', {
+      body: {
         product_id: selectedProductId.value,
         material_id: Number(itemForm.material_id || 0),
         ratio_pct: Number(itemForm.ratio_pct || 0),
-      }),
+      },
     })
     itemForm.material_id = 0
     itemForm.ratio_pct = ''
@@ -267,10 +250,7 @@ async function saveItem() {
 
 async function deleteItem(id) {
   await mutate(async () => {
-    await fetchJSON('/api/bom/item/delete', {
-      method: 'POST',
-      body: JSON.stringify({ product_id: selectedProductId.value, id }),
-    })
+    await apiSend('/api/bom/item/delete', { body: { product_id: selectedProductId.value, id } })
     ok.value = '已删除'
     await loadAll()
   })
@@ -278,12 +258,11 @@ async function deleteItem(id) {
 
 async function saveMapping() {
   await mutate(async () => {
-    await fetchJSON('/api/bom/bag-spec-mappings/save', {
-      method: 'POST',
-      body: JSON.stringify({
+    await apiSend('/api/bom/bag-spec-mappings/save', {
+      body: {
         spec_g: Number(mappingForm.spec_g || 0),
         material_id: Number(mappingForm.material_id || 0),
-      }),
+      },
     })
     mappingForm.material_id = 0
     ok.value = '已保存映射'
@@ -293,10 +272,7 @@ async function saveMapping() {
 
 async function deleteMapping(specG) {
   await mutate(async () => {
-    await fetchJSON('/api/bom/bag-spec-mappings/delete', {
-      method: 'POST',
-      body: JSON.stringify({ spec_g: specG }),
-    })
+    await apiSend('/api/bom/bag-spec-mappings/delete', { body: { spec_g: specG } })
     ok.value = '已删除映射'
     await loadAll()
   })

@@ -1,29 +1,13 @@
-async function readJson(res) {
-  const data = await res.json().catch(() => ({}))
-  if (!res.ok) throw new Error(data.error || '请求失败')
-  return data
-}
+import { apiGet, apiSend } from './client'
 
 export async function fetchRunningProduction() {
-  const res = await fetch('/api/produce/running')
-  return readJson(res)
+  return apiGet('/api/produce/running')
 }
 
 export async function finishRunningProduction(payload) {
-  const res = await fetch('/api/produce/running/finish', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload),
-  })
-  return readJson(res)
+  return apiSend('/api/produce/running/finish', { body: payload })
 }
 
 export async function cancelRunningProduction(id) {
-  const res = await fetch('/api/produce/running/cancel', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ id }),
-  })
-  return readJson(res)
+  return apiSend('/api/produce/running/cancel', { body: { id } })
 }
-

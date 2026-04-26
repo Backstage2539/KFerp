@@ -153,6 +153,7 @@
 
 <script setup>
 import { onMounted, reactive, ref } from 'vue'
+import { apiGet, apiSend } from '../api/client'
 
 const rows = ref([])
 const sources = ref([])
@@ -251,20 +252,6 @@ function updateUrl(extra = {}) {
   window.history.replaceState({}, '', url.toString())
 }
 
-async function fetchJSON(url, options = {}) {
-  const res = await fetch(url, {
-    ...options,
-    headers: {
-      Accept: 'application/json',
-      'Content-Type': 'application/json',
-      ...(options.headers || {}),
-    },
-  })
-  const data = await res.json()
-  if (!res.ok) throw new Error(data.error || '请求失败')
-  return data
-}
-
 async function loadPage(nextPage) {
   page.value = Math.max(1, nextPage)
   await load()
@@ -277,7 +264,7 @@ async function load() {
     const url = new URL('/api/customers', window.location.origin)
     if (q.value) url.searchParams.set('q', q.value)
     url.searchParams.set('page', String(page.value))
-    const data = await fetchJSON(url)
+    const data = await apiGet(url)
     rows.value = data.rows || []
     sources.value = data.sources || []
     orderTypes.value = data.order_types || []
@@ -315,7 +302,7 @@ async function editCustomer(id) {
   error.value = ''
   ok.value = ''
   try {
-    const data = await fetchJSON(`/api/customers/${id}`)
+    const data = await apiGet(`/api/customers/${id}`)
     formVisible.value = true
     editingId.value = Number(data.customer.id)
     assignForm(data.customer)
@@ -336,7 +323,7 @@ async function saveCustomer() {
   error.value = ''
   ok.value = ''
   try {
-    const body = JSON.stringify({
+    const body = {
       name: form.name,
       raw_name: form.raw_name,
       contact: form.contact,
@@ -345,8 +332,8 @@ async function saveCustomer() {
       default_source_id: form.default_source_id || null,
       default_order_type_id: form.default_order_type_id || null,
       active: !!form.active,
-    })
-    const data = await fetchJSON(editingId.value ? `/api/customers/${editingId.value}` : '/api/customers', {
+    }
+    const data = await apiSend(editingId.value ? `/api/customers/${editingId.value}` : '/api/customers', {
       method: editingId.value ? 'PUT' : 'POST',
       body,
     })
@@ -379,13 +366,7 @@ async function uploadAsset() {
     const fd = new FormData()
     fd.append('kind', assetKind.value)
     fd.append('file', file)
-    const res = await fetch(`/customers/${editingId.value}/assets/upload`, {
-      method: 'POST',
-      headers: { Accept: 'application/json' },
-      body: fd,
-    })
-    const data = await res.json()
-    if (!res.ok) throw new Error(data.error || '上传失败')
+    await apiSend(`/customers/${editingId.value}/assets/upload`, { body: fd })
     assetInput.value.value = ''
     ok.value = '已上传'
     await editCustomer(editingId.value)
@@ -403,13 +384,7 @@ async function deleteAsset(id) {
   ok.value = ''
   try {
     const body = new URLSearchParams({ asset_id: String(id) })
-    const res = await fetch(`/customers/${editingId.value}/assets/delete`, {
-      method: 'POST',
-      headers: { Accept: 'application/json', 'Content-Type': 'application/x-www-form-urlencoded' },
-      body,
-    })
-    const data = await res.json()
-    if (!res.ok) throw new Error(data.error || '删除失败')
+    await apiSend(`/customers/${editingId.value}/assets/delete`, { body })
     ok.value = '已删除附件'
     await editCustomer(editingId.value)
   } catch (err) {

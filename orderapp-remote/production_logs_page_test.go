@@ -41,10 +41,6 @@ func TestProductionMenusContainLogsEntry(t *testing.T) {
 			path:  "frontend-vue-shell/src/App.vue",
 			wants: []string{"ProductionLogsView", "produceLogs: ProductionLogsView", "produceLogs", "生产日志"},
 		},
-		{
-			path:  "frontend/src/bom/BomManager.tsx",
-			wants: []string{"生产日志", "/produce/logs"},
-		},
 	}
 	for _, tc := range checks {
 		body, err := os.ReadFile(tc.path)

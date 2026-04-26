@@ -814,14 +814,13 @@ Run:
 cd /Users/yiiiple-work/Documents/KFerp/orderapp-remote
 go test ./...
 cd frontend-vue-shell && npm run build
-cd ../frontend && npm run build
 ```
 
 Expected:
 
 - all Go tests PASS
 - Vue shell build PASS
-- React BOM build PASS
+- no legacy BOM frontend build remains
 
 - [ ] **Step 3: Update requirement tables**
 

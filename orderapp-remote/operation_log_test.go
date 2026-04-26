@@ -34,7 +34,6 @@ func TestShouldSkipOperationLogOnlySkipsFrontendStaticAssets(t *testing.T) {
 		path string
 		skip bool
 	}{
-		{path: "/bom-react/assets/index.js", skip: true},
 		{path: "/vue-shell/assets/index.css", skip: true},
 		{path: "/favicon.ico", skip: true},
 		{path: "/assets/customer_assets/1", skip: false},

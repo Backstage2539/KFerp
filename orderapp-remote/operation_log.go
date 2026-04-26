@@ -44,7 +44,7 @@ func shouldSkipOperationLog(c echo.Context) bool {
 	if path == "" {
 		return false
 	}
-	for _, prefix := range []string{"/bom-react/assets/", "/vue-shell/assets/"} {
+	for _, prefix := range []string{"/vue-shell/assets/"} {
 		if strings.HasPrefix(path, prefix) {
 			return true
 		}

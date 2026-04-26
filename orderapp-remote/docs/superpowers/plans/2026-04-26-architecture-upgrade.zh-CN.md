@@ -860,14 +860,13 @@ func TestVueShellOwnsMigratedProductionViews(t *testing.T) {
 cd /Users/yiiiple-work/Documents/KFerp/orderapp-remote
 go test ./...
 cd frontend-vue-shell && npm run build
-cd ../frontend && npm run build
 ```
 
 期望：
 
 - Go 全量测试通过
 - Vue shell build 通过
-- React BOM build 通过
+- 不再保留旧 BOM 前端 build
 
 - [ ] **步骤 3：更新 5 张需求表**
 

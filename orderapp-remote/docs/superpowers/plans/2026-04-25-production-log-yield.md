@@ -33,7 +33,6 @@
 - `orderapp-remote/material_consumption.go`
 - `orderapp-remote/production_flow_test.go`
 - `orderapp-remote/frontend-vue-shell/src/App.vue`
-- `orderapp-remote/frontend/src/bom/BomManager.tsx` (if production menu parity is still maintained there)
 - `orderapp-remote/req_store.go` or the current request-table helper used for new rows
 
 **Verify / Possibly Touch:**
@@ -381,7 +380,6 @@ git commit -m "feat: log completed production yield"
 - Create: `orderapp-remote/frontend-vue-shell/src/views/ProductionLogsView.vue`
 - Create: `orderapp-remote/production_logs_page_test.go`
 - Modify: `orderapp-remote/frontend-vue-shell/src/App.vue`
-- Modify: `orderapp-remote/frontend/src/bom/BomManager.tsx`
 - Modify: shared Vue shell navigation that lists production-flow links
 
 - [ ] **Step 1: Write the failing tests for the new page and menu**
@@ -454,7 +452,6 @@ Update Vue frontend:
 
 - `frontend-vue-shell/src/App.vue`: add `produceLogs` as an internal Vue view
 - `frontend-vue-shell/src/views/ProductionLogsView.vue`: fetch `/api/produce/logs`
-- `frontend/src/bom/BomManager.tsx`: add `生产日志` under the production group if this sidebar remains user-visible
 
 - [ ] **Step 4: Run the page tests and frontend build verification**
 
@@ -464,19 +461,18 @@ Run:
 cd /Users/yiiiple-work/Documents/KFerp/orderapp-remote
 go test ./... -run 'TestProductionLogsVueContainsKeyColumns|TestProduceRunningTemplateContainsFinishedInventoryFields'
 cd frontend-vue-shell && npm run build
-cd ../frontend && npm run build
 ```
 
 Expected:
 
 - tests PASS
-- both frontend builds PASS
+- Vue frontend build PASS
 
 - [ ] **Step 5: Commit the page/menu slice**
 
 ```bash
 cd /Users/yiiiple-work/Documents/KFerp/orderapp-remote
-git add production_logs_page.go production_logs_page_test.go frontend-vue-shell/src/views/ProductionLogsView.vue frontend-vue-shell/src/App.vue frontend/src/bom/BomManager.tsx
+git add production_logs_page.go production_logs_page_test.go frontend-vue-shell/src/views/ProductionLogsView.vue frontend-vue-shell/src/App.vue
 git commit -m "feat: add production log page"
 ```
 

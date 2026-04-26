@@ -45,6 +45,7 @@
 
 <script setup>
 import { onMounted, reactive, ref } from 'vue'
+import { apiGet, apiSend } from '../api/client'
 
 const rows = ref([])
 const loading = ref(false)
@@ -53,17 +54,11 @@ const error = ref('')
 const ok = ref(false)
 const form = reactive({ name: '', capacity_g: 0, min_roast_g: 1000, allowed_specs: '', active: true })
 
-async function readJson(res) {
-  const data = await res.json().catch(() => ({}))
-  if (!res.ok) throw new Error(data.error || '请求失败')
-  return data
-}
-
 async function load() {
   loading.value = true
   error.value = ''
   try {
-    const data = await readJson(await fetch('/api/produce/machines'))
+    const data = await apiGet('/api/produce/machines')
     rows.value = data.rows || []
   } catch (err) {
     error.value = err.message || '加载失败'
@@ -85,11 +80,7 @@ async function save(row) {
   error.value = ''
   ok.value = false
   try {
-    await readJson(await fetch('/api/produce/machines', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(row),
-    }))
+    await apiSend('/api/produce/machines', { body: row })
     ok.value = true
     await load()
   } catch (err) {

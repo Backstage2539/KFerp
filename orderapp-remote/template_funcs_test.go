@@ -36,11 +36,6 @@ func TestBomEntrypointsUseVueURL(t *testing.T) {
 		forbidden []string
 	}{
 		{
-			path:      "frontend/src/bom/BomManager.tsx",
-			required:  []string{"const BOM_REACT_URL = '/bom-react'", "href: BOM_REACT_URL"},
-			forbidden: []string{"href: '/bom-react'"},
-		},
-		{
 			path:      "frontend-vue-shell/src/App.vue",
 			required:  []string{"import BomView from './views/BomView.vue'", "bom: BomView", "bom: { title: 'BOM配方维护'"},
 			forbidden: []string{"BOM_REACT_URL", "legacyUrl: BOM_REACT_URL"},

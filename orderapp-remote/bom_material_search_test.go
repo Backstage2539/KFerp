@@ -6,24 +6,23 @@ import (
 	"testing"
 )
 
-func TestBomManagerSupportsMaterialAutocomplete(t *testing.T) {
-	b, err := os.ReadFile("frontend/src/bom/BomManager.tsx")
+func TestBomViewUsesVueMaterialOptions(t *testing.T) {
+	b, err := os.ReadFile("frontend-vue-shell/src/views/BomView.vue")
 	if err != nil {
 		t.Fatal(err)
 	}
 	src := string(b)
 
 	required := []string{
-		"function normalizeKeyword(v: string)",
-		"function MaterialAutocomplete(",
-		"placeholder=\"搜索生豆/耗材物料\"",
-		"placeholder=\"搜索袋子物料\"",
-		"没有匹配的物料",
-		"onMouseDown={(e) => {",
+		"apiGet('/api/bom/materials')",
+		`v-for="material in materials"`,
+		"@submit.prevent=\"saveItem\"",
+		"@submit.prevent=\"saveMapping\"",
+		"选择物料",
 	}
 	for _, want := range required {
 		if !strings.Contains(src, want) {
-			t.Fatalf("BOM material search source missing %q", want)
+			t.Fatalf("BomView.vue missing %q", want)
 		}
 	}
 }
