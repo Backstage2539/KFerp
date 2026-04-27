@@ -2,6 +2,7 @@ package costing
 
 import (
 	"fmt"
+	"math"
 	"strings"
 )
 
@@ -66,6 +67,12 @@ type CommercialWholesaleTier struct {
 	PricePerLb   float64  `json:"price_per_lb"`
 }
 
+type RetailBeanTier struct {
+	Label        string  `json:"label"`
+	SpecG        int64   `json:"spec_g"`
+	PricePerUnit float64 `json:"price_per_unit"`
+}
+
 type ProductResult struct {
 	ProductID                      int64                     `json:"product_id"`
 	Name                           string                    `json:"name"`
@@ -94,6 +101,7 @@ type ProductResult struct {
 	Retail250gPrice                float64                   `json:"retail_250g_price"`
 	Retail200gPrice                float64                   `json:"retail_200g_price"`
 	Retail100gPrice                float64                   `json:"retail_100g_price"`
+	RetailBeanTiers                []RetailBeanTier          `json:"retail_bean_tiers"`
 	RetailDrip10BagPrice           float64                   `json:"retail_drip_10_bag_price"`
 }
 
@@ -153,6 +161,10 @@ func ApplyExcelCommercialPricingProfile(params Parameters, in ProductInput) Prod
 		switch {
 		case isCookieBlend(in.Name):
 			in.WholesaleKgMarginRates = cookieWholesaleMarginRates(params)
+		case isWineSunBean(in.Name):
+			in.WholesaleKgMarginRates = wineSunWholesaleMarginRates(params)
+		case isYirgacheffeG2(in.Name):
+			in.WholesaleKgMarginRates = premiumFirstThreeWholesaleMarginRates(params)
 		case isPremiumCommercialBean(in.Name):
 			in.WholesaleKgMarginRates = premiumWholesaleMarginRates(params)
 		default:
@@ -169,6 +181,11 @@ func CalculateProduct(params Parameters, in ProductInput) ProductResult {
 	large := roasted + params.LargeBatchProductionCostPerKg
 	dripBase := small*params.DripGreenRatioKgPerBag + params.DripProcessCostPerBag + params.DripExtraCostPerBag
 	retailTax := small * params.RetailBeanMarginRate * params.RetailTaxRate
+	retailSmall := small
+	if retailGreenCost, ok := excelRetailGreenCostOverride(in.Name); ok {
+		retailSmall = retailGreenCost/in.YieldRate + params.SmallBatchProductionCostPerKg
+		retailTax = retailSmall * params.RetailBeanMarginRate * params.RetailTaxRate
+	}
 
 	out := ProductResult{
 		ProductID:            in.ProductID,
@@ -213,13 +230,15 @@ func CalculateProduct(params Parameters, in ProductInput) ProductResult {
 		out.WholesaleDripBagWithPackPrices = append(out.WholesaleDripBagWithPackPrices, price+params.DripPackingMaterialPerBag)
 	}
 
-	out.RetailKgPrice = small*(1+params.RetailBeanMarginRate) + params.WholesalePackageCostPerKg + params.ProductLossPerKg + retailTax + params.RetailLogisticsPerKg
+	out.RetailKgPrice = retailSmall*(1+params.RetailBeanMarginRate) + params.WholesalePackageCostPerKg + params.ProductLossPerKg + retailTax + params.RetailLogisticsPerKg
 	out.Retail454gPrice = out.RetailKgPrice * params.KgToLbFactor
 	out.Retail227gPrice = out.Retail454gPrice / 2
 	out.Retail250gPrice = out.RetailKgPrice * 0.25
 	out.Retail200gPrice = out.RetailKgPrice * 0.2
 	out.Retail100gPrice = out.RetailKgPrice * 0.1
 	out.RetailDrip10BagPrice = dripBase*10*params.RetailDripMultiplier + in.DripTaxAddPerBagRetail*10 + params.DripPackingMaterialPerBag + params.RetailDripLogisticsPer10Bags
+	out.RetailBeanTiers = buildRetailBeanTiers(in.Name, out)
+	roundProductPrices(&out)
 	return out
 }
 
@@ -251,6 +270,9 @@ func buildCommercialWholesaleTiers(in ProductInput, kgPrices, lbPrices []float64
 			{"2包-7包", 227, 2, ptrFloat64(7), 0, "half_lb"},
 			{"8包+", 227, 8, nil, 1, "half_lb"},
 		}
+		if isMorningNayi(in.Name) {
+			defs[1].priceIndex = 2
+		}
 	}
 	out := make([]CommercialWholesaleTier, 0, len(defs))
 	for _, def := range defs {
@@ -278,7 +300,54 @@ func buildCommercialWholesaleTiers(in ProductInput, kgPrices, lbPrices []float64
 			PricePerLb:   pricePerLb,
 		})
 	}
-	return out
+	return applyCommercialTierOverrides(in.Name, out)
+}
+
+func buildRetailBeanTiers(name string, out ProductResult) []RetailBeanTier {
+	if isRetailSmallPackBean(name) {
+		return []RetailBeanTier{
+			{Label: "100g", SpecG: 100, PricePerUnit: out.Retail100gPrice},
+			{Label: "200g", SpecG: 200, PricePerUnit: out.Retail200gPrice},
+		}
+	}
+	return []RetailBeanTier{
+		{Label: "227g", SpecG: 227, PricePerUnit: out.Retail227gPrice},
+		{Label: "250g", SpecG: 250, PricePerUnit: out.Retail250gPrice},
+	}
+}
+
+func roundProductPrices(out *ProductResult) {
+	for i := range out.WholesaleKgPrices {
+		out.WholesaleKgPrices[i] = roundPrice(out.WholesaleKgPrices[i])
+	}
+	for i := range out.WholesaleLbPrices {
+		out.WholesaleLbPrices[i] = roundPrice(out.WholesaleLbPrices[i])
+	}
+	for i := range out.CommercialWholesaleTiers {
+		out.CommercialWholesaleTiers[i].PricePerKg = roundPrice(out.CommercialWholesaleTiers[i].PricePerKg)
+		out.CommercialWholesaleTiers[i].PricePerLb = roundPrice(out.CommercialWholesaleTiers[i].PricePerLb)
+		out.CommercialWholesaleTiers[i].PricePerUnit = roundPrice(out.CommercialWholesaleTiers[i].PricePerUnit)
+	}
+	for i := range out.WholesaleDripBagPrices {
+		out.WholesaleDripBagPrices[i] = roundPrice(out.WholesaleDripBagPrices[i])
+	}
+	for i := range out.WholesaleDripBagWithPackPrices {
+		out.WholesaleDripBagWithPackPrices[i] = roundPrice(out.WholesaleDripBagWithPackPrices[i])
+	}
+	out.RetailKgPrice = roundPrice(out.RetailKgPrice)
+	out.Retail454gPrice = roundPrice(out.Retail454gPrice)
+	out.Retail227gPrice = roundPrice(out.Retail227gPrice)
+	out.Retail250gPrice = roundPrice(out.Retail250gPrice)
+	out.Retail200gPrice = roundPrice(out.Retail200gPrice)
+	out.Retail100gPrice = roundPrice(out.Retail100gPrice)
+	out.RetailDrip10BagPrice = roundPrice(out.RetailDrip10BagPrice)
+	for i := range out.RetailBeanTiers {
+		out.RetailBeanTiers[i].PricePerUnit = roundPrice(out.RetailBeanTiers[i].PricePerUnit)
+	}
+}
+
+func roundPrice(v float64) float64 {
+	return math.Round(v)
 }
 
 func ptrFloat64(v float64) *float64 {
@@ -334,6 +403,23 @@ func premiumWholesaleMarginRates(params Parameters) []float64 {
 	return out
 }
 
+func premiumFirstThreeWholesaleMarginRates(params Parameters) []float64 {
+	base := normalizeWholesaleMarginRates(params, nil)
+	out := append([]float64(nil), base...)
+	for i := 0; i < 3 && i < len(out); i++ {
+		out[i] = out[i] * 1.5
+	}
+	return out
+}
+
+func wineSunWholesaleMarginRates(params Parameters) []float64 {
+	out := normalizeWholesaleMarginRates(params, nil)
+	if len(out) > 3 {
+		out[3] = 0.17
+	}
+	return out
+}
+
 func cookieWholesaleMarginRates(params Parameters) []float64 {
 	out := normalizeWholesaleMarginRates(params, nil)
 	out[3] = 0.175
@@ -369,6 +455,14 @@ func isCookieBlend(name string) bool {
 	return containsAnyNormalized(name, []string{"曲奇"})
 }
 
+func isWineSunBean(name string) bool {
+	return containsAnyNormalized(name, []string{"酒心巧克力"})
+}
+
+func isYirgacheffeG2(name string) bool {
+	return containsAnyNormalized(name, []string{"耶加雪菲G2", "耶加雪菲g2"})
+}
+
 func isPremiumCommercialBean(name string) bool {
 	return containsAnyNormalized(name, []string{
 		"Nenka", "嫩咖",
@@ -376,8 +470,52 @@ func isPremiumCommercialBean(name string) bool {
 		"浣纱", "果园",
 		"Uraga", "乌拉嘎",
 		"曼特宁", "森林瑰夏", "白月光", "芸上莓梦", "晨曦", "晚香玉",
-		"萨奇姆", "芒霜", "小菠萝", "菠萝", "花魁", "黄波旁日晒", "耶加雪菲",
+		"萨奇姆", "芒霜", "小菠萝", "菠萝意式",
 	})
+}
+
+func isMorningNayi(name string) bool {
+	return containsAnyNormalized(name, []string{"晨曦", "娜伊", "娜依"})
+}
+
+func isRetailSmallPackBean(name string) bool {
+	return containsAnyNormalized(name, []string{"白月光", "芸上莓梦", "晨曦", "晚香玉"})
+}
+
+func excelRetailGreenCostOverride(name string) (float64, bool) {
+	if containsAnyNormalized(name, []string{"红岩"}) {
+		return 57.9, true
+	}
+	return 0, false
+}
+
+func applyCommercialTierOverrides(name string, tiers []CommercialWholesaleTier) []CommercialWholesaleTier {
+	keep := map[string]bool{}
+	switch {
+	case containsAnyNormalized(name, []string{"浣纱", "肯尼亚", "萨奇姆"}):
+		keep["2包-13包"] = true
+		keep["14包-23包"] = true
+		keep["48包+"] = true
+	}
+	if len(keep) > 0 {
+		filtered := make([]CommercialWholesaleTier, 0, len(keep))
+		for _, tier := range tiers {
+			if keep[tier.Label] {
+				filtered = append(filtered, tier)
+			}
+		}
+		tiers = filtered
+	}
+	if containsAnyNormalized(name, []string{"浣纱"}) {
+		for i := range tiers {
+			if tiers[i].Label == "48包+" {
+				tiers[i].PricePerUnit = 100
+				tiers[i].PricePerLb = 100
+				tiers[i].PricePerKg = (100 - 1) / 0.454
+			}
+		}
+	}
+	return tiers
 }
 
 func containsAnyNormalized(s string, needles []string) bool {

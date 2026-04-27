@@ -161,7 +161,7 @@ func (r Repository) ListWorkOrders(ctx context.Context, query productionapp.Work
 		WHERE %s
 		ORDER BY wo.created_at DESC, wo.id DESC
 		LIMIT $%d
-	`, r.schema, r.schema, r.schema, r.schema, r.schema, r.schema, r.schema, where, limitArg), args...)
+	`, r.schema, r.schema, r.schema, r.schema, r.schema, r.schema, where, limitArg), args...)
 	if err != nil {
 		return nil, err
 	}

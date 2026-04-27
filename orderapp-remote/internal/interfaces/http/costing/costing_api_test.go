@@ -138,6 +138,41 @@ func TestCostingCalculateAPIReturnsExcelTierSchemeMetadata(t *testing.T) {
 	}
 }
 
+func TestCostingCalculateAPIRoundsExcelBeanListPrices(t *testing.T) {
+	e := echo.New()
+	RegisterRoutes(e, Dependencies{Costing: fakeService{}})
+
+	body, err := json.Marshal(appcosting.CalculateRequest{Products: []domain.ProductInput{{
+		ProductID:          1,
+		Name:               "白月光-瑰夏",
+		GreenBeanCostPerKg: 360,
+		YieldRate:          0.8,
+	}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := httptest.NewRequest(http.MethodPost, "/api/costing/calculate", bytes.NewReader(body))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+
+	e.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	var got appcosting.CalculateResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatalf("invalid json: %v", err)
+	}
+	item := got.Items[0]
+	if item.CommercialWholesaleTiers[0].PricePerUnit != 190 || item.CommercialWholesaleTiers[1].PricePerUnit != 165 {
+		t.Fatalf("commercial tiers = %+v", item.CommercialWholesaleTiers)
+	}
+	if len(item.RetailBeanTiers) != 2 || item.RetailBeanTiers[0].Label != "100g" || item.RetailBeanTiers[0].PricePerUnit != 115 {
+		t.Fatalf("retail tiers = %+v", item.RetailBeanTiers)
+	}
+}
+
 func TestRoutesAreRegistered(t *testing.T) {
 	e := echo.New()
 	RegisterRoutes(e, Dependencies{Costing: fakeService{}})

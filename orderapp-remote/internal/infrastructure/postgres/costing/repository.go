@@ -50,7 +50,7 @@ func (r Repository) LoadProductInputs(ctx context.Context, params domain.Paramet
 		       p.name,
 		       COALESCE(p.roast_level, ''),
 		       COALESCE(NULLIF(b.yield_rate,0), $1),
-		       COALESCE(NULLIF(SUM(COALESCE(m.purchase_price,0) * COALESCE(bi.ratio_pct,0) / 100.0),0), NULLIF(p.default_price,0), 0),
+		       COALESCE(SUM(COALESCE(m.purchase_price,0) * COALESCE(bi.ratio_pct,0) / 100.0),0),
 		       COALESCE(string_agg(DISTINCT NULLIF(bp.flavor, ''), ' / ') FILTER (WHERE NULLIF(bp.flavor, '') IS NOT NULL), ''),
 		       COALESCE(string_agg(DISTINCT NULLIF(bp.origin, ''), ' / ') FILTER (WHERE NULLIF(bp.origin, '') IS NOT NULL), ''),
 		       COALESCE(string_agg(DISTINCT NULLIF(bp.processing_station, ''), ' / ') FILTER (WHERE NULLIF(bp.processing_station, '') IS NOT NULL), ''),
@@ -65,7 +65,7 @@ func (r Repository) LoadProductInputs(ctx context.Context, params domain.Paramet
 		LEFT JOIN %s.materials m ON m.id = bi.material_id
 		LEFT JOIN %s.material_bean_profiles bp ON bp.material_id = m.id
 		WHERE p.active = true
-		GROUP BY p.id, p.name, p.roast_level, p.default_price, b.yield_rate
+		GROUP BY p.id, p.name, p.roast_level, b.yield_rate
 		ORDER BY p.name
 	`, r.schema, r.schema, r.schema, r.schema, r.schema)
 	rows, err := r.pool.Query(ctx, q, params.RoastYieldRate)
