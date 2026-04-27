@@ -156,6 +156,7 @@
 
 <script setup>
 import { computed, onMounted, reactive, ref } from 'vue'
+import { replaceHistoryURL } from '../lib/url-state'
 
 const loading = ref(false)
 const error = ref('')
@@ -229,7 +230,7 @@ function updateBrowserUrl(nextPage) {
     else url.searchParams.delete(key)
   }
   url.searchParams.set('page', String(nextPage))
-  window.history.replaceState({}, '', url.toString())
+  replaceHistoryURL(url)
 }
 
 async function loadPage(nextPage) {

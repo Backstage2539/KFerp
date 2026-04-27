@@ -154,6 +154,7 @@
 <script setup>
 import { onMounted, reactive, ref } from 'vue'
 import { apiGet, apiSend } from '../api/client'
+import { replaceHistoryURL } from '../lib/url-state'
 
 const rows = ref([])
 const sources = ref([])
@@ -249,7 +250,7 @@ function updateUrl(extra = {}) {
   url.searchParams.delete('edit_id')
   if (extra.mode) url.searchParams.set('mode', extra.mode)
   if (extra.edit_id) url.searchParams.set('edit_id', String(extra.edit_id))
-  window.history.replaceState({}, '', url.toString())
+  replaceHistoryURL(url)
 }
 
 async function loadPage(nextPage) {

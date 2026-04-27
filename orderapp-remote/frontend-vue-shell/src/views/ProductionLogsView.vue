@@ -93,6 +93,7 @@
 
 <script setup>
 import { onMounted, reactive, ref } from 'vue'
+import { replaceHistoryURL } from '../lib/url-state'
 
 const loading = ref(false)
 const error = ref('')
@@ -120,7 +121,7 @@ function updateUrl() {
   }
   if (filters.product_id) url.searchParams.set('product_id', String(filters.product_id))
   else url.searchParams.delete('product_id')
-  window.history.replaceState({}, '', url.toString())
+  replaceHistoryURL(url)
 }
 
 function applyUrlFilters() {

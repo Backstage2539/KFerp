@@ -6,7 +6,11 @@ async function readJson(res) {
 }
 
 export function apiURL(url) {
-  if (typeof window === 'undefined' || !url.startsWith('/')) return url
+  if (url instanceof URL) {
+    if (typeof window === 'undefined' || url.origin !== window.location.origin) return url.toString()
+    return new URL(`${url.pathname}${url.search}${url.hash}`, window.location.origin).toString()
+  }
+  if (typeof window === 'undefined' || typeof url !== 'string' || !url.startsWith('/')) return url
   return new URL(url, window.location.origin).toString()
 }
 

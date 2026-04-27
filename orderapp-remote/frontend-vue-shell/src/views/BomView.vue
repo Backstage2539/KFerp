@@ -186,6 +186,7 @@
 <script setup>
 import { computed, onMounted, reactive, ref } from 'vue'
 import { apiGet, apiSend } from '../api/client'
+import { replaceHistoryURL } from '../lib/url-state'
 
 const rows = ref([])
 const products = ref([])
@@ -218,7 +219,7 @@ function updateUrl() {
   url.searchParams.set('view', 'bom')
   if (selectedProductId.value) url.searchParams.set('product_id', String(selectedProductId.value))
   else url.searchParams.delete('product_id')
-  window.history.replaceState({}, '', url.toString())
+  replaceHistoryURL(url)
 }
 
 async function loadAll() {

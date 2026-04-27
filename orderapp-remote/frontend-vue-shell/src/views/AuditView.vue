@@ -80,6 +80,7 @@
 
 <script setup>
 import { onMounted, reactive, ref } from 'vue'
+import { replaceHistoryURL } from '../lib/url-state'
 
 const loading = ref(false)
 const error = ref('')
@@ -106,7 +107,7 @@ function updateUrl() {
     if (filters[key]) url.searchParams.set(key, filters[key])
     else url.searchParams.delete(key)
   }
-  window.history.replaceState({}, '', url.toString())
+  replaceHistoryURL(url)
 }
 
 async function load() {

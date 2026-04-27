@@ -89,6 +89,7 @@
 <script setup>
 import { onMounted, ref } from 'vue'
 import { apiGet } from '../api/client'
+import { replaceHistoryURL } from '../lib/url-state'
 
 const loading = ref(false)
 const error = ref('')
@@ -118,7 +119,7 @@ function updateUrl() {
   else url.searchParams.delete('batch')
   url.searchParams.set('page', String(page.value))
   url.searchParams.set('per_page', String(perPage.value))
-  window.history.replaceState({}, '', url.toString())
+  replaceHistoryURL(url)
 }
 
 async function load() {
