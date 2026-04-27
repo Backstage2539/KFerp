@@ -19,6 +19,7 @@ export const menuGroups = [
       { key: 'jobCards', label: '工序卡', title: '工序卡' },
       { key: 'produceLogs', label: '生产日志', title: '生产日志' },
       { key: 'productionCosts', label: '生产成本', title: '生产成本' },
+      { key: 'productionManual', label: '生产手册', title: '生产流程手册' },
     ],
   },
   {

@@ -59,6 +59,7 @@ import ProducePlanView from './views/ProducePlanView.vue'
 import ProduceRunningView from './views/ProduceRunningView.vue'
 import ProductionCostsView from './views/ProductionCostsView.vue'
 import ProductionLogsView from './views/ProductionLogsView.vue'
+import ProductionManualView from './views/ProductionManualView.vue'
 import ProductSettingsView from './views/ProductSettingsView.vue'
 import ProductsView from './views/ProductsView.vue'
 import RequirementsView from './views/RequirementsView.vue'
@@ -108,6 +109,7 @@ const internalViews = {
   workOrders: WorkOrdersView,
   jobCards: JobCardsView,
   productionCosts: ProductionCostsView,
+  productionManual: ProductionManualView,
   allocationLogs: AllocationLogsView,
   customers: CustomersView,
   products: ProductSettingsView,

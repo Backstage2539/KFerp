@@ -403,6 +403,11 @@ func seedReqWorkflowA(ctx context.Context, pool *pgxpool.Pool, schema string) er
 		{table: "req_unit", code: "UT-089-01", title: "源码守卫覆盖产品设置入口、拖拽分类、旧商品档案阶梯价编辑删除和需求种子", status: "done", assignee: "Codex", evidence: "TestProductSettingsRequirementSeeds; TestProductSettingsVueWiringAndLegacyTierEditorRemoval; menu-ia.test.js"},
 		{table: "req_api", code: "API-089-01", title: "覆盖 /api/product-settings 分类树、创建分类、移动二级分类、商品归类和旧页面重定向", status: "done", assignee: "Codex", evidence: "TestProductSettingsAPISupportsCategoryTreeAndDragAssignments; TestLegacyProductAndCostingRoutesRedirectToProductSettings"},
 		{table: "req_review", code: "REV-089-01", prCode: "PR-089", title: "验收：产品设置替代成本核算/商品档案主入口，分类与商品拖拽编号可保存，旧商品档案不再编辑阶梯价", status: "todo", assignee: "VA", evidence: "待 Van 服务器验收"},
+		{table: "req_product", code: "PR-090", title: "生产流程用户手册展示在前端页面，操作人员可在系统内查看图表化流程", status: "review", assignee: "VA", evidence: "codex/production-manual-page-20260427"},
+		{table: "req_dev", code: "DEV-090-01", title: "新增 Vue 生产流程手册页面并挂入生产管理菜单，覆盖原料入库、WIP、工单、完工入库和追溯", status: "done", assignee: "Codex", evidence: "ProductionManualView.vue; menu-ia.js"},
+		{table: "req_unit", code: "UT-090-01", title: "覆盖生产手册菜单入口和 Vue 页面源码守卫", status: "done", assignee: "Codex", evidence: "menu-ia.test.js; TestProductionManualVueWiring"},
+		{table: "req_api", code: "API-090-01", title: "接口级源码守卫覆盖生产手册 Vue 注册、菜单入口和需求种子", status: "done", assignee: "Codex", evidence: "go test ./internal/interfaces/http/support -run TestProductionManual"},
+		{table: "req_review", code: "REV-090-01", prCode: "PR-090", title: "验收：生产管理菜单中可打开生产手册，并能查看流程图、仓库说明、操作步骤、常见问题和检查清单", status: "todo", assignee: "VA", evidence: "待 Van 功能分支验收"},
 	} {
 		if err := seedReqRow(ctx, pool, schema, row); err != nil {
 			return err
