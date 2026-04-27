@@ -35,6 +35,7 @@ import AllocationLogsView from './views/AllocationLogsView.vue'
 import AuditView from './views/AuditView.vue'
 import BomView from './views/BomView.vue'
 import CompanyStaffView from './views/CompanyStaffView.vue'
+import CostingView from './views/CostingView.vue'
 import CustomersView from './views/CustomersView.vue'
 import InventoryView from './views/InventoryView.vue'
 import MachinesView from './views/MachinesView.vue'
@@ -63,6 +64,7 @@ const menuMap = {
   allocationLogs: { title: '分配批次查看' },
   materials: { title: '物料档案/库存' },
   bom: { title: 'BOM配方维护' },
+  costing: { title: '成本核算' },
   customers: { title: '客户档案' },
   products: { title: '商品档案' },
   departments: { title: '部门维护' },
@@ -85,6 +87,7 @@ const internalViews = {
   orders: OrdersView,
   materials: MaterialsView,
   bom: BomView,
+  costing: CostingView,
   producePlan: ProducePlanView,
   produceRunning: ProduceRunningView,
   produceLogs: ProductionLogsView,
@@ -109,7 +112,7 @@ const internalViews = {
 const menuGroups = [
   { name: '订单', items: [{ key: 'order', label: '录单' }, { key: 'orders', label: '订单列表' }] },
   { name: '生产流程', items: [{ key: 'producePlan', label: '生产计划/开始生产' }, { key: 'produceRunning', label: '生产中' }, { key: 'produceLogs', label: '生产日志' }, { key: 'allocationLogs', label: '分配批次查看' }] },
-  { name: '物料管理', items: [{ key: 'materials', label: '物料档案/库存' }, { key: 'bom', label: 'BOM配方维护' }] },
+  { name: '物料管理', items: [{ key: 'materials', label: '物料档案/库存' }, { key: 'bom', label: 'BOM配方维护' }, { key: 'costing', label: '成本核算' }] },
   { name: '档案', items: [{ key: 'customers', label: '客户档案' }, { key: 'products', label: '商品档案' }, { key: 'departments', label: '部门维护' }, { key: 'employees', label: '员工维护' }, { key: 'inventory', label: '成品库存' }, { key: 'quotePrint', label: '报价导出' }] },
   { name: '设置', items: [{ key: 'machines', label: '设备产能配置' }, { key: 'senderSettings', label: '发货人设置' }, { key: 'outsourceSettings', label: '代加工模板设置' }] },
   { name: '日志', items: [{ key: 'audit', label: '操作日志' }] },

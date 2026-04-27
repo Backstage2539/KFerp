@@ -1,0 +1,260 @@
+package costing
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"strings"
+
+	appcosting "orderapp/internal/application/costing"
+	catalogdomain "orderapp/internal/domain/catalog"
+	domain "orderapp/internal/domain/costing"
+	postgresinfra "orderapp/internal/infrastructure/postgres"
+
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
+)
+
+type Repository struct {
+	pool   *pgxpool.Pool
+	schema string
+}
+
+func NewRepository(pool *pgxpool.Pool, schema string) Repository {
+	return Repository{pool: pool, schema: schema}
+}
+
+func (r Repository) LoadParameters(ctx context.Context) (domain.Parameters, error) {
+	params := domain.DefaultParameters()
+	if r.pool == nil {
+		return params, nil
+	}
+	rows, err := r.pool.Query(ctx, fmt.Sprintf(`SELECT key, value::float8 FROM %s.cost_parameters`, r.schema))
+	if err != nil {
+		return params, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var key string
+		var value float64
+		if err := rows.Scan(&key, &value); err != nil {
+			return params, err
+		}
+		applyParameter(&params, key, value)
+	}
+	return params, rows.Err()
+}
+
+func (r Repository) LoadProductInputs(ctx context.Context, params domain.Parameters) ([]domain.ProductInput, error) {
+	q := fmt.Sprintf(`
+		SELECT p.id,
+		       p.name,
+		       COALESCE(p.roast_level, ''),
+		       COALESCE(NULLIF(b.yield_rate,0), $1),
+		       COALESCE(NULLIF(SUM(COALESCE(m.purchase_price,0) * COALESCE(bi.ratio_pct,0) / 100.0),0), NULLIF(p.default_price,0), 0)
+		FROM %s.products p
+		LEFT JOIN %s.product_bom b ON b.product_id = p.id
+		LEFT JOIN %s.product_bom_items bi ON bi.product_id = p.id
+		LEFT JOIN %s.materials m ON m.id = bi.material_id
+		WHERE p.active = true
+		GROUP BY p.id, p.name, p.roast_level, p.default_price, b.yield_rate
+		ORDER BY p.name
+	`, r.schema, r.schema, r.schema, r.schema)
+	rows, err := r.pool.Query(ctx, q, params.RoastYieldRate)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	out := make([]domain.ProductInput, 0)
+	for rows.Next() {
+		var input domain.ProductInput
+		var roastLevel string
+		var fallbackYield float64
+		if err := rows.Scan(&input.ProductID, &input.Name, &roastLevel, &fallbackYield, &input.GreenBeanCostPerKg); err != nil {
+			return nil, err
+		}
+		input.YieldRate = catalogdomain.ResolveYieldRate(roastLevel, fallbackYield)
+		out = append(out, input)
+	}
+	return out, rows.Err()
+}
+
+func (r Repository) CreateRun(ctx context.Context, actor string, items []domain.ProductResult) (*appcosting.Run, error) {
+	conn, err := r.pool.Acquire(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer conn.Release()
+	tx, err := conn.Begin(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	var id int64
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`INSERT INTO %s.cost_calculation_runs(status, actor, product_count)
+		VALUES('draft',$1,$2) RETURNING id`, r.schema), actor, len(items)).Scan(&id); err != nil {
+		return nil, err
+	}
+	ins := fmt.Sprintf(`INSERT INTO %s.cost_calculation_items(run_id, product_id, product_name, result_json)
+		VALUES($1,$2,$3,$4)`, r.schema)
+	for _, item := range items {
+		b, err := json.Marshal(item)
+		if err != nil {
+			return nil, err
+		}
+		if _, err := tx.Exec(ctx, ins, id, item.ProductID, item.Name, b); err != nil {
+			return nil, err
+		}
+	}
+	if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, actor, "costing_run", &id, "create", postgresinfra.StrPtr("product_count"), nil, postgresinfra.StrPtr(fmt.Sprintf("%d", len(items))), postgresinfra.AuditMeta{
+		"run_id":        id,
+		"product_count": len(items),
+	}); err != nil {
+		return nil, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return nil, err
+	}
+	return &appcosting.Run{ID: id, Status: "draft", ProductCount: len(items), Items: items}, nil
+}
+
+func (r Repository) PublishRun(ctx context.Context, actor string, runID int64) error {
+	conn, err := r.pool.Acquire(ctx)
+	if err != nil {
+		return err
+	}
+	defer conn.Release()
+	tx, err := conn.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	items, err := loadRunItems(ctx, tx, r.schema, runID)
+	if err != nil {
+		return err
+	}
+	if len(items) == 0 {
+		return fmt.Errorf("costing run has no items")
+	}
+
+	updateProduct := fmt.Sprintf(`UPDATE %s.products
+		SET default_price=$2,
+		    retail_price_100g=$3,
+		    retail_price_200g=$4,
+		    retail_price_227g=$5,
+		    retail_price_250g=$6
+		WHERE id=$1`, r.schema)
+	deleteTiers := fmt.Sprintf(`DELETE FROM %s.product_price_tiers WHERE product_id=$1`, r.schema)
+	insertTier := fmt.Sprintf(`INSERT INTO %s.product_price_tiers
+		(product_id, spec_g, min_qty_units, max_qty_units, price_per_unit, min_qty_lb, max_qty_lb, price_per_lb, active)
+		VALUES($1,1000,$2,$3,$4,$2*1000/454.0,CASE WHEN $3::numeric IS NULL THEN NULL ELSE $3*1000/454.0 END,$4*454.0/1000,true)`, r.schema)
+	ranges := []struct {
+		min float64
+		max *float64
+	}{
+		{1, floatPtr(6)},
+		{7, floatPtr(11)},
+		{12, floatPtr(23)},
+		{24, floatPtr(49)},
+		{50, floatPtr(99)},
+		{100, nil},
+	}
+	publishedProducts := 0
+	for _, item := range items {
+		if item.ProductID <= 0 {
+			continue
+		}
+		defaultPrice := 0.0
+		if len(item.WholesaleKgPrices) > 0 {
+			defaultPrice = item.WholesaleKgPrices[0]
+		}
+		if _, err := tx.Exec(ctx, updateProduct, item.ProductID, defaultPrice, item.Retail100gPrice, item.Retail200gPrice, item.Retail227gPrice, item.Retail250gPrice); err != nil {
+			return err
+		}
+		if _, err := tx.Exec(ctx, deleteTiers, item.ProductID); err != nil {
+			return err
+		}
+		for i, price := range item.WholesaleKgPrices {
+			if i >= len(ranges) {
+				break
+			}
+			if _, err := tx.Exec(ctx, insertTier, item.ProductID, ranges[i].min, ranges[i].max, price); err != nil {
+				return err
+			}
+		}
+		publishedProducts++
+	}
+	if _, err := tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.cost_calculation_runs SET status='published', published_at=now() WHERE id=$1`, r.schema), runID); err != nil {
+		return err
+	}
+	if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, actor, "costing_run", &runID, "publish", postgresinfra.StrPtr("status"), postgresinfra.StrPtr("draft"), postgresinfra.StrPtr("published"), postgresinfra.AuditMeta{
+		"run_id":             runID,
+		"published_products": publishedProducts,
+	}); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
+}
+
+func loadRunItems(ctx context.Context, tx pgx.Tx, schema string, runID int64) ([]domain.ProductResult, error) {
+	rows, err := tx.Query(ctx, fmt.Sprintf(`SELECT result_json FROM %s.cost_calculation_items WHERE run_id=$1 ORDER BY id`, schema), runID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := make([]domain.ProductResult, 0)
+	for rows.Next() {
+		var b []byte
+		if err := rows.Scan(&b); err != nil {
+			return nil, err
+		}
+		var item domain.ProductResult
+		if err := json.Unmarshal(b, &item); err != nil {
+			return nil, err
+		}
+		items = append(items, item)
+	}
+	return items, rows.Err()
+}
+
+func applyParameter(params *domain.Parameters, key string, value float64) {
+	switch strings.TrimSpace(key) {
+	case "roast_yield_rate":
+		params.RoastYieldRate = value
+	case "kg_to_lb_factor":
+		params.KgToLbFactor = value
+	case "small_batch_production_cost_per_kg":
+		params.SmallBatchProductionCostPerKg = value
+	case "large_batch_production_cost_per_kg":
+		params.LargeBatchProductionCostPerKg = value
+	case "wholesale_package_cost_per_kg":
+		params.WholesalePackageCostPerKg = value
+	case "product_loss_per_kg":
+		params.ProductLossPerKg = value
+	case "retail_bean_margin_rate":
+		params.RetailBeanMarginRate = value
+	case "retail_tax_rate":
+		params.RetailTaxRate = value
+	case "retail_logistics_per_kg":
+		params.RetailLogisticsPerKg = value
+	case "retail_drip_logistics_per_10_bags":
+		params.RetailDripLogisticsPer10Bags = value
+	case "drip_green_ratio_kg_per_bag":
+		params.DripGreenRatioKgPerBag = value
+	case "drip_process_cost_per_bag":
+		params.DripProcessCostPerBag = value
+	case "drip_extra_cost_per_bag":
+		params.DripExtraCostPerBag = value
+	case "drip_packing_material_per_bag":
+		params.DripPackingMaterialPerBag = value
+	case "retail_drip_multiplier":
+		params.RetailDripMultiplier = value
+	}
+}
+
+func floatPtr(v float64) *float64 {
+	return &v
+}
