@@ -280,12 +280,12 @@ func TestBeanListPublicCustomerLinkRequirementSeeds(t *testing.T) {
 	}
 	src := string(b)
 	for _, want := range []string{
-		"PR-101",
-		"DEV-101-01",
-		"DEV-101-02",
-		"UT-101-01",
-		"API-101-01",
-		"REV-101-01",
+		"PR-102",
+		"DEV-102-01",
+		"DEV-102-02",
+		"UT-102-01",
+		"API-102-01",
+		"REV-102-01",
 		"客户可以通过网址直接访问已发布豆单",
 		"/public/bean-list/commercial",
 		"/public/bean-list/retail",
