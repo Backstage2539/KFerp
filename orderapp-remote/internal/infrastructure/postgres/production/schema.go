@@ -39,7 +39,6 @@ func ensureMachineCapacityTable(ctx context.Context, pool *pgxpool.Pool, schema 
 	if _, err := pool.Exec(ctx, q); err != nil {
 		return err
 	}
-	_, _ = pool.Exec(ctx, fmt.Sprintf(`ALTER TABLE %s.work_orders ADD COLUMN IF NOT EXISTS material_snapshot JSONB NOT NULL DEFAULT '[]'::jsonb`, schema))
 	return nil
 }
 
@@ -57,7 +56,8 @@ CREATE TABLE IF NOT EXISTS %s.work_orders (
 	status TEXT NOT NULL DEFAULT 'running',
 	actual_cost NUMERIC(12,4) NOT NULL DEFAULT 0,
 	created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-	completed_at TIMESTAMPTZ
+	completed_at TIMESTAMPTZ,
+	material_snapshot JSONB NOT NULL DEFAULT '[]'::jsonb
 );
 CREATE INDEX IF NOT EXISTS work_orders_status_idx ON %s.work_orders(status, created_at DESC);
 
@@ -88,7 +88,10 @@ CREATE TABLE IF NOT EXISTS %s.production_batch_costs (
 );
 CREATE INDEX IF NOT EXISTS production_batch_costs_created_idx ON %s.production_batch_costs(created_at DESC);
 `, schema, schema, schema, schema, schema, schema, schema)
-	_, err := pool.Exec(ctx, q)
+	if _, err := pool.Exec(ctx, q); err != nil {
+		return err
+	}
+	_, err := pool.Exec(ctx, fmt.Sprintf(`ALTER TABLE %s.work_orders ADD COLUMN IF NOT EXISTS material_snapshot JSONB NOT NULL DEFAULT '[]'::jsonb`, schema))
 	return err
 }
 
