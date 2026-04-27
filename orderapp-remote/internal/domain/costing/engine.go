@@ -1,6 +1,15 @@
 package costing
 
-import "fmt"
+import (
+	"fmt"
+	"strings"
+)
+
+const (
+	WholesaleTierScheme454GFour = "bag_454_four"
+	WholesaleTierSchemeKgThree  = "kg_three"
+	WholesaleTierScheme227GTwo  = "bag_227_two"
+)
 
 type Parameters struct {
 	RoastYieldRate                float64   `json:"roast_yield_rate"`
@@ -41,14 +50,20 @@ type ProductInput struct {
 	DripTaxAddPerBagRetail    float64   `json:"drip_tax_add_per_bag_retail"`
 	WholesaleKgMarginRates    []float64 `json:"wholesale_kg_margin_rates"`
 	WholesaleDripMultipliers  []float64 `json:"wholesale_drip_multipliers"`
+	WholesaleTierScheme       string    `json:"wholesale_tier_scheme,omitempty"`
 }
 
 type CommercialWholesaleTier struct {
-	Label      string   `json:"label"`
-	MinLb      float64  `json:"min_lb"`
-	MaxLb      *float64 `json:"max_lb,omitempty"`
-	PricePerKg float64  `json:"price_per_kg"`
-	PricePerLb float64  `json:"price_per_lb"`
+	Label        string   `json:"label"`
+	Scheme       string   `json:"scheme,omitempty"`
+	SpecG        int64    `json:"spec_g,omitempty"`
+	MinQty       float64  `json:"min_qty,omitempty"`
+	MaxQty       *float64 `json:"max_qty,omitempty"`
+	PricePerUnit float64  `json:"price_per_unit"`
+	MinLb        float64  `json:"min_lb"`
+	MaxLb        *float64 `json:"max_lb,omitempty"`
+	PricePerKg   float64  `json:"price_per_kg"`
+	PricePerLb   float64  `json:"price_per_lb"`
 }
 
 type ProductResult struct {
@@ -99,7 +114,7 @@ func DefaultParameters() Parameters {
 		DripExtraCostPerBag:           0.1,
 		DripPackingMaterialPerBag:     0.2,
 		RetailDripMultiplier:          2.5,
-		WholesaleKgMarginRates:        []float64{0.5421052631578949, 0.3842105263157895, 0.27894736842105267, 0.2},
+		WholesaleKgMarginRates:        []float64{0.5421052631578949, 0.3842105263157895, 0.27894736842105267, 0.2, 0.12, 0.045},
 		WholesaleDripMultipliers:      []float64{2.2, 1.8, 1.6, 1.5},
 	}
 }
@@ -114,13 +129,37 @@ func ValidateProductInput(params Parameters, in ProductInput) (ProductInput, err
 	if in.YieldRate <= 0 || in.YieldRate > 1 {
 		return in, fmt.Errorf("yield_rate must be (0,1]")
 	}
+	in = ApplyExcelCommercialPricingProfile(params, in)
 	if len(in.WholesaleKgMarginRates) == 0 {
 		in.WholesaleKgMarginRates = params.WholesaleKgMarginRates
+	}
+	in.WholesaleKgMarginRates = normalizeWholesaleMarginRates(params, in.WholesaleKgMarginRates)
+	if len(in.WholesaleTaxAddPerKgTiers) == 0 {
+		in.WholesaleTaxAddPerKgTiers = defaultWholesaleTaxAddPerKgTiers(params, in)
 	}
 	if len(in.WholesaleDripMultipliers) == 0 {
 		in.WholesaleDripMultipliers = params.WholesaleDripMultipliers
 	}
 	return in, nil
+}
+
+func ApplyExcelCommercialPricingProfile(params Parameters, in ProductInput) ProductInput {
+	if strings.TrimSpace(in.WholesaleTierScheme) == "" {
+		in.WholesaleTierScheme = inferWholesaleTierScheme(in.Name)
+	} else {
+		in.WholesaleTierScheme = normalizeWholesaleTierScheme(in.WholesaleTierScheme)
+	}
+	if len(in.WholesaleKgMarginRates) == 0 {
+		switch {
+		case isCookieBlend(in.Name):
+			in.WholesaleKgMarginRates = cookieWholesaleMarginRates(params)
+		case isPremiumCommercialBean(in.Name):
+			in.WholesaleKgMarginRates = premiumWholesaleMarginRates(params)
+		default:
+			in.WholesaleKgMarginRates = normalizeWholesaleMarginRates(params, nil)
+		}
+	}
+	return in
 }
 
 func CalculateProduct(params Parameters, in ProductInput) ProductResult {
@@ -166,7 +205,7 @@ func CalculateProduct(params Parameters, in ProductInput) ProductResult {
 		out.WholesaleKgPrices = append(out.WholesaleKgPrices, kg)
 		out.WholesaleLbPrices = append(out.WholesaleLbPrices, kg*params.KgToLbFactor+1)
 	}
-	out.CommercialWholesaleTiers = buildCommercialWholesaleTiers(out.WholesaleKgPrices, out.WholesaleLbPrices)
+	out.CommercialWholesaleTiers = buildCommercialWholesaleTiers(in, out.WholesaleKgPrices, out.WholesaleLbPrices)
 
 	for _, multiplier := range in.WholesaleDripMultipliers {
 		price := dripBase*multiplier + in.DripTaxAddPerBag100
@@ -184,28 +223,59 @@ func CalculateProduct(params Parameters, in ProductInput) ProductResult {
 	return out
 }
 
-func buildCommercialWholesaleTiers(kgPrices, lbPrices []float64) []CommercialWholesaleTier {
-	defs := []struct {
-		label string
-		min   float64
-		max   *float64
-	}{
-		{"2-13磅", 2, ptrFloat64(13)},
-		{"14-23磅", 14, ptrFloat64(23)},
-		{"24-47磅", 24, ptrFloat64(47)},
-		{"大于47磅", 48, nil},
+func buildCommercialWholesaleTiers(in ProductInput, kgPrices, lbPrices []float64) []CommercialWholesaleTier {
+	type tierDef struct {
+		label      string
+		specG      int64
+		minQty     float64
+		maxQty     *float64
+		priceIndex int
+		priceMode  string
+	}
+	scheme := normalizeWholesaleTierScheme(in.WholesaleTierScheme)
+	defs := []tierDef{
+		{"2包-13包", 454, 2, ptrFloat64(13), 0, "lb"},
+		{"14包-23包", 454, 14, ptrFloat64(23), 1, "lb"},
+		{"24包-47包", 454, 24, ptrFloat64(47), 2, "lb"},
+		{"48包+", 454, 48, nil, 3, "lb"},
+	}
+	switch scheme {
+	case WholesaleTierSchemeKgThree:
+		defs = []tierDef{
+			{"24-49kg", 1000, 24, ptrFloat64(49), 3, "kg"},
+			{"50-99kg", 1000, 50, ptrFloat64(99), 4, "kg"},
+			{"100-199kg", 1000, 100, ptrFloat64(199), 5, "kg"},
+		}
+	case WholesaleTierScheme227GTwo:
+		defs = []tierDef{
+			{"2包-7包", 227, 2, ptrFloat64(7), 0, "half_lb"},
+			{"8包+", 227, 8, nil, 1, "half_lb"},
+		}
 	}
 	out := make([]CommercialWholesaleTier, 0, len(defs))
-	for i, def := range defs {
-		if i >= len(kgPrices) || i >= len(lbPrices) {
+	for _, def := range defs {
+		if def.priceIndex >= len(kgPrices) || def.priceIndex >= len(lbPrices) {
 			break
 		}
+		pricePerKg := kgPrices[def.priceIndex]
+		pricePerLb := lbPrices[def.priceIndex]
+		pricePerUnit := pricePerLb
+		if def.priceMode == "kg" {
+			pricePerUnit = pricePerKg
+		} else if def.priceMode == "half_lb" {
+			pricePerUnit = pricePerLb / 2
+		}
 		out = append(out, CommercialWholesaleTier{
-			Label:      def.label,
-			MinLb:      def.min,
-			MaxLb:      def.max,
-			PricePerKg: kgPrices[i],
-			PricePerLb: lbPrices[i],
+			Label:        def.label,
+			Scheme:       scheme,
+			SpecG:        def.specG,
+			MinQty:       def.minQty,
+			MaxQty:       def.maxQty,
+			PricePerUnit: pricePerUnit,
+			MinLb:        def.minQty,
+			MaxLb:        def.maxQty,
+			PricePerKg:   pricePerKg,
+			PricePerLb:   pricePerLb,
 		})
 	}
 	return out
@@ -213,4 +283,109 @@ func buildCommercialWholesaleTiers(kgPrices, lbPrices []float64) []CommercialWho
 
 func ptrFloat64(v float64) *float64 {
 	return &v
+}
+
+func normalizeWholesaleTierScheme(s string) string {
+	switch strings.TrimSpace(s) {
+	case WholesaleTierSchemeKgThree:
+		return WholesaleTierSchemeKgThree
+	case WholesaleTierScheme227GTwo:
+		return WholesaleTierScheme227GTwo
+	default:
+		return WholesaleTierScheme454GFour
+	}
+}
+
+func inferWholesaleTierScheme(name string) string {
+	switch {
+	case isCookieBlend(name):
+		return WholesaleTierSchemeKgThree
+	case containsAnyNormalized(name, []string{"白月光", "芸上莓梦", "晨曦", "晚香玉"}):
+		return WholesaleTierScheme227GTwo
+	default:
+		return WholesaleTierScheme454GFour
+	}
+}
+
+func normalizeWholesaleMarginRates(params Parameters, rates []float64) []float64 {
+	fallback := []float64{0.5421052631578949, 0.3842105263157895, 0.27894736842105267, 0.2, 0.12, 0.045}
+	for i := range fallback {
+		if i < len(params.WholesaleKgMarginRates) && params.WholesaleKgMarginRates[i] > 0 {
+			fallback[i] = params.WholesaleKgMarginRates[i]
+		}
+	}
+	out := append([]float64(nil), fallback...)
+	for i := range rates {
+		if i < len(out) {
+			out[i] = rates[i]
+		} else {
+			out = append(out, rates[i])
+		}
+	}
+	return out
+}
+
+func premiumWholesaleMarginRates(params Parameters) []float64 {
+	base := normalizeWholesaleMarginRates(params, nil)
+	out := append([]float64(nil), base...)
+	for i := 0; i < 4 && i < len(out); i++ {
+		out[i] = out[i] * 1.5
+	}
+	return out
+}
+
+func cookieWholesaleMarginRates(params Parameters) []float64 {
+	out := normalizeWholesaleMarginRates(params, nil)
+	out[3] = 0.175
+	out[4] = 0.12
+	out[5] = 0.045
+	return out
+}
+
+func defaultWholesaleTaxAddPerKgTiers(params Parameters, in ProductInput) []float64 {
+	rates := defaultWholesaleTaxMarginRates(params)
+	roasted := in.GreenBeanCostPerKg / in.YieldRate
+	small := roasted + params.SmallBatchProductionCostPerKg
+	out := make([]float64, len(in.WholesaleKgMarginRates))
+	for i := range out {
+		rate := rates[0]
+		if i < len(rates) {
+			rate = rates[i]
+		}
+		out[i] = small * rate * params.RetailTaxRate
+	}
+	return out
+}
+
+func defaultWholesaleTaxMarginRates(params Parameters) []float64 {
+	rates := normalizeWholesaleMarginRates(params, nil)
+	if len(rates) > 3 {
+		rates[3] = 0.15
+	}
+	return rates
+}
+
+func isCookieBlend(name string) bool {
+	return containsAnyNormalized(name, []string{"曲奇"})
+}
+
+func isPremiumCommercialBean(name string) bool {
+	return containsAnyNormalized(name, []string{
+		"Nenka", "嫩咖",
+		"TOPAA", "肯尼亚",
+		"浣纱", "果园",
+		"Uraga", "乌拉嘎",
+		"曼特宁", "森林瑰夏", "白月光", "芸上莓梦", "晨曦", "晚香玉",
+		"萨奇姆", "芒霜", "小菠萝", "菠萝", "花魁", "黄波旁日晒", "耶加雪菲",
+	})
+}
+
+func containsAnyNormalized(s string, needles []string) bool {
+	n := strings.ToLower(strings.ReplaceAll(strings.TrimSpace(s), " ", ""))
+	for _, needle := range needles {
+		if strings.Contains(n, strings.ToLower(strings.ReplaceAll(needle, " ", ""))) {
+			return true
+		}
+	}
+	return false
 }

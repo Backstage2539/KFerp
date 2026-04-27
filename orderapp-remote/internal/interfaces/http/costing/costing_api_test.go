@@ -102,6 +102,42 @@ func TestCostingCalculateAPI(t *testing.T) {
 	}
 }
 
+func TestCostingCalculateAPIReturnsExcelTierSchemeMetadata(t *testing.T) {
+	e := echo.New()
+	RegisterRoutes(e, Dependencies{Costing: fakeService{}})
+
+	body, err := json.Marshal(appcosting.CalculateRequest{Products: []domain.ProductInput{{
+		ProductID:           1,
+		Name:                "白月光-瑰夏",
+		GreenBeanCostPerKg:  362.5,
+		YieldRate:           0.8,
+		WholesaleTierScheme: domain.WholesaleTierScheme227GTwo,
+	}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := httptest.NewRequest(http.MethodPost, "/api/costing/calculate", bytes.NewReader(body))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+
+	e.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	var got appcosting.CalculateResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatalf("invalid json: %v", err)
+	}
+	if len(got.Items) != 1 || len(got.Items[0].CommercialWholesaleTiers) != 2 {
+		t.Fatalf("items = %+v", got.Items)
+	}
+	tier := got.Items[0].CommercialWholesaleTiers[0]
+	if tier.SpecG != 227 || tier.Label != "2包-7包" || tier.PricePerUnit <= 0 {
+		t.Fatalf("tier = %+v", tier)
+	}
+}
+
 func TestRoutesAreRegistered(t *testing.T) {
 	e := echo.New()
 	RegisterRoutes(e, Dependencies{Costing: fakeService{}})

@@ -41,10 +41,7 @@
               <th>商品</th>
               <th>生豆/kg</th>
               <th>熟豆成本/kg</th>
-              <th>2-13磅/lb</th>
-              <th>14-23磅/lb</th>
-              <th>24-47磅/lb</th>
-              <th>大于47磅/lb</th>
+              <th>商用批发梯度</th>
               <th>零售227g</th>
               <th>零售250g</th>
               <th>挂耳/袋</th>
@@ -55,16 +52,19 @@
               <td class="name">{{ item.name }}</td>
               <td>{{ money(item.green_bean_cost_per_kg) }}</td>
               <td>{{ money(item.small_batch_cost_per_kg) }}</td>
-              <td>{{ money(tierPrice(item, 0)) }}</td>
-              <td>{{ money(tierPrice(item, 1)) }}</td>
-              <td>{{ money(tierPrice(item, 2)) }}</td>
-              <td>{{ money(tierPrice(item, 3)) }}</td>
+              <td class="tiers-cell">
+                <div class="tier-list">
+                  <span v-for="tier in item.commercial_wholesale_tiers || []" :key="tier.label" class="tier-chip">
+                    <b>{{ tier.label }}</b>{{ money(tierPriceValue(tier)) }}/{{ tierUnit(tier) }}
+                  </span>
+                </div>
+              </td>
               <td>{{ money(item.retail_227g_price) }}</td>
               <td>{{ money(item.retail_250g_price) }}</td>
               <td>{{ money(first(item.wholesale_drip_bag_prices)) }}</td>
             </tr>
             <tr v-if="!loading && !items.length">
-              <td colspan="10" class="muted empty">暂无可试算商品</td>
+              <td colspan="7" class="muted empty">暂无可试算商品</td>
             </tr>
           </tbody>
         </table>
@@ -78,7 +78,7 @@
           <div class="bean-title">{{ item.name }}</div>
           <div v-if="item.flavor" class="bean-note">{{ item.flavor }}</div>
           <div class="bean-row" v-for="tier in item.commercial_wholesale_tiers || []" :key="tier.label">
-            <span>{{ tier.label }}</span><strong>{{ money(tier.price_per_lb) }}/lb</strong>
+            <span>{{ tier.label }}</span><strong>{{ money(tierPriceValue(tier)) }}/{{ tierUnit(tier) }}</strong>
           </div>
         </article>
         <div v-if="!beanPreview.length" class="muted empty-card">暂无豆单数据</div>
@@ -136,10 +136,15 @@ function first(values) {
   return Array.isArray(values) && values.length ? Number(values[0] || 0) : 0
 }
 
-function tierPrice(item, index) {
-  const tier = item?.commercial_wholesale_tiers?.[index]
-  if (tier) return Number(tier.price_per_lb || 0)
-  return Array.isArray(item?.wholesale_lb_prices) ? Number(item.wholesale_lb_prices[index] || 0) : 0
+function tierPriceValue(tier) {
+  return Number(tier?.price_per_unit || tier?.price_per_lb || 0)
+}
+
+function tierUnit(tier) {
+  const specG = Number(tier?.spec_g || 454)
+  if (specG === 1000) return 'kg'
+  if (specG === 227) return '227g'
+  return '包'
 }
 
 function compact(values) {
@@ -229,6 +234,10 @@ th, td { border-bottom: 1px solid #f1f1f1; padding: 9px 10px; text-align: right;
 th:first-child, td:first-child { text-align: left; }
 th { color: #555; background: #fafafa; font-weight: 700; }
 .name { font-weight: 650; }
+.tiers-cell { min-width: 360px; text-align: left; white-space: normal; }
+.tier-list { display: flex; flex-wrap: wrap; gap: 6px; justify-content: flex-start; }
+.tier-chip { border: 1px solid #ddd; border-radius: 8px; background: #fff; padding: 5px 7px; color: #222; font-size: 12px; line-height: 1.2; }
+.tier-chip b { margin-right: 5px; font-weight: 700; color: #111; }
 .empty { text-align: center !important; padding: 18px; }
 button { border-radius: 8px; padding: 9px 12px; cursor: pointer; white-space: nowrap; font: inherit; }
 button:disabled { opacity: .45; cursor: not-allowed; }

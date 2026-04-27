@@ -341,6 +341,12 @@ func seedReqWorkflowA(ctx context.Context, pool *pgxpool.Pool, schema string) er
 		{table: "req_unit", code: "UT-080-01", title: "覆盖物料页只读库存源码守卫、库存字段不可变校验和需求种子", status: "done", assignee: "Codex", evidence: "TestMaterialsViewDisallowsInlineStockAndUsesBackfill; TestAssertImmutableMaterialFieldsRejectsInlineStockChange; TestMaterialStockBackfillRequirementSeeds"},
 		{table: "req_api", code: "API-080-01", title: "覆盖 POST /api/materials/:id 拒绝库存直接变更，库存补录走 POST /api/stock/adjustments 并保留 reason", status: "done", assignee: "Codex", evidence: "TestMaterialsAPIUpdateRejectsInlineStockChange + stock adjustment smoke"},
 		{table: "req_review", code: "REV-080-01", prCode: "PR-080", title: "验收：物料库存不可直接改，点击库存补录填写说明后生成库存调整流水", status: "todo", assignee: "VA", evidence: "待 Van 功能分支服务器验收"},
+		{table: "req_product", code: "PR-081", title: "修正 Excel 商用熟豆三套梯度：曲奇 kg 三档、454g 四档、227g 两档，并对齐 Nenka 2包-13包价格", status: "review", assignee: "VA", evidence: "codex/costing-tier-schemes"},
+		{table: "req_dev", code: "DEV-081-01", title: "成本引擎支持 kg 三档、454g 四档、227g 两档，并返回 spec_g、min_qty、price_per_unit 元数据", status: "done", assignee: "Codex", evidence: "CommercialWholesaleTier scheme/spec/price_per_unit"},
+		{table: "req_dev", code: "DEV-081-02", title: "按 Excel 产品名应用 Nenka 高利润、曲奇 kg 档和 227g 两档 profile，发布价格写入对应规格档", status: "done", assignee: "Codex", evidence: "ApplyExcelCommercialPricingProfile + PublishRun product_price_tiers"},
+		{table: "req_unit", code: "UT-081-01", title: "覆盖 Nenka 127.431 金标准、24-49kg/50-99kg/100-199kg、2包-7包/8包+ 三套梯度", status: "done", assignee: "Codex", evidence: "go test ./internal/domain/costing -run TestNenkaExcelCommercialProfileMatchesWorkbook|TestCommercialWholesaleTiersSupportExcelSchemes"},
+		{table: "req_api", code: "API-081-01", title: "POST /api/costing/calculate 返回梯度规格和单位价格，成本页动态展示不同梯度", status: "done", assignee: "Codex", evidence: "TestCostingCalculateAPIReturnsExcelTierSchemeMetadata"},
+		{table: "req_review", code: "REV-081-01", prCode: "PR-081", title: "验收：Nenka 2包-13包为 127 左右，曲奇显示 kg 三档，227g 产品显示两档", status: "todo", assignee: "VA", evidence: "待 Van 服务器验收"},
 	} {
 		if err := seedReqRow(ctx, pool, schema, row); err != nil {
 			return err

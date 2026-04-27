@@ -7,7 +7,6 @@ import (
 	"strings"
 
 	appcosting "orderapp/internal/application/costing"
-	catalogdomain "orderapp/internal/domain/catalog"
 	domain "orderapp/internal/domain/costing"
 	postgresinfra "orderapp/internal/infrastructure/postgres"
 
@@ -83,7 +82,10 @@ func (r Repository) LoadProductInputs(ctx context.Context, params domain.Paramet
 		if err := rows.Scan(&input.ProductID, &input.Name, &roastLevel, &fallbackYield, &input.GreenBeanCostPerKg, &input.Flavor, &input.Origin, &input.ProcessingStation, &input.Variety, &input.ProcessMethod, &input.Grade, &input.Altitude, &input.BeanListNote); err != nil {
 			return nil, err
 		}
-		input.YieldRate = catalogdomain.ResolveYieldRate(roastLevel, fallbackYield)
+		_ = roastLevel
+		_ = fallbackYield
+		input.YieldRate = params.RoastYieldRate
+		input = domain.ApplyExcelCommercialPricingProfile(params, input)
 		out = append(out, input)
 	}
 	return out, rows.Err()
@@ -227,14 +229,16 @@ func (r Repository) PublishRun(ctx context.Context, actor string, runID int64) e
 	deleteTiers := fmt.Sprintf(`DELETE FROM %s.product_price_tiers WHERE product_id=$1`, r.schema)
 	insertTier := fmt.Sprintf(`INSERT INTO %s.product_price_tiers
 		(product_id, spec_g, min_qty_units, max_qty_units, price_per_unit, min_qty_lb, max_qty_lb, price_per_lb, active)
-		VALUES($1,454,$2,$3,$4,$2,$3,$4,true)`, r.schema)
+		VALUES($1,$2,$3,$4,$5,$3,$4,$6,true)`, r.schema)
 	publishedProducts := 0
 	for _, item := range items {
 		if item.ProductID <= 0 {
 			continue
 		}
 		defaultPrice := 0.0
-		if len(item.WholesaleKgPrices) > 0 {
+		if len(item.CommercialWholesaleTiers) > 0 {
+			defaultPrice = item.CommercialWholesaleTiers[0].PricePerUnit
+		} else if len(item.WholesaleKgPrices) > 0 {
 			defaultPrice = item.WholesaleKgPrices[0]
 		}
 		if _, err := tx.Exec(ctx, updateProduct, item.ProductID, defaultPrice, item.Retail100gPrice, item.Retail200gPrice, item.Retail227gPrice, item.Retail250gPrice); err != nil {
@@ -244,7 +248,24 @@ func (r Repository) PublishRun(ctx context.Context, actor string, runID int64) e
 			return err
 		}
 		for _, tier := range commercialTiersForPublish(item) {
-			if _, err := tx.Exec(ctx, insertTier, item.ProductID, tier.MinLb, tier.MaxLb, tier.PricePerLb); err != nil {
+			specG := tier.SpecG
+			if specG <= 0 {
+				specG = 454
+			}
+			minQty := tier.MinQty
+			if minQty <= 0 {
+				minQty = tier.MinLb
+			}
+			maxQty := tier.MaxQty
+			if maxQty == nil {
+				maxQty = tier.MaxLb
+			}
+			pricePerUnit := tier.PricePerUnit
+			if pricePerUnit == 0 {
+				pricePerUnit = tier.PricePerLb
+			}
+			pricePerLb := pricePerUnit * 454.0 / float64(specG)
+			if _, err := tx.Exec(ctx, insertTier, item.ProductID, specG, minQty, maxQty, pricePerUnit, pricePerLb); err != nil {
 				return err
 			}
 		}
@@ -323,6 +344,10 @@ func applyParameter(params *domain.Parameters, key string, value float64) {
 		params.WholesaleKgMarginRates[2] = value
 	case "wholesale_kg_margin_rate_4":
 		params.WholesaleKgMarginRates[3] = value
+	case "wholesale_kg_margin_rate_5":
+		params.WholesaleKgMarginRates[4] = value
+	case "wholesale_kg_margin_rate_6":
+		params.WholesaleKgMarginRates[5] = value
 	case "wholesale_drip_multiplier_1":
 		params.WholesaleDripMultipliers[0] = value
 	case "wholesale_drip_multiplier_2":
@@ -347,10 +372,10 @@ func commercialTiersForPublish(item domain.ProductResult) []domain.CommercialWho
 		min   float64
 		max   *float64
 	}{
-		{"2-13磅", 2, floatPtr(13)},
-		{"14-23磅", 14, floatPtr(23)},
-		{"24-47磅", 24, floatPtr(47)},
-		{"大于47磅", 48, nil},
+		{"2包-13包", 2, floatPtr(13)},
+		{"14包-23包", 14, floatPtr(23)},
+		{"24包-47包", 24, floatPtr(47)},
+		{"48包+", 48, nil},
 	}
 	out := make([]domain.CommercialWholesaleTier, 0, len(ranges))
 	for i, r := range ranges {
@@ -358,11 +383,16 @@ func commercialTiersForPublish(item domain.ProductResult) []domain.CommercialWho
 			break
 		}
 		out = append(out, domain.CommercialWholesaleTier{
-			Label:      r.label,
-			MinLb:      r.min,
-			MaxLb:      r.max,
-			PricePerKg: item.WholesaleKgPrices[i],
-			PricePerLb: item.WholesaleLbPrices[i],
+			Label:        r.label,
+			Scheme:       domain.WholesaleTierScheme454GFour,
+			SpecG:        454,
+			MinQty:       r.min,
+			MaxQty:       r.max,
+			PricePerUnit: item.WholesaleLbPrices[i],
+			MinLb:        r.min,
+			MaxLb:        r.max,
+			PricePerKg:   item.WholesaleKgPrices[i],
+			PricePerLb:   item.WholesaleLbPrices[i],
 		})
 	}
 	return out
