@@ -55,6 +55,29 @@ func TestProductSettingsRefinementRequirementSeeds(t *testing.T) {
 	}
 }
 
+func TestProductSettingsDragAndBomYieldFollowupRequirementSeeds(t *testing.T) {
+	b, err := os.ReadFile(filepath.Join("internal", "interfaces", "http", "support", "req_store.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := string(b)
+	for _, want := range []string{
+		"PR-091",
+		"DEV-091-01",
+		"DEV-091-02",
+		"UT-091-01",
+		"API-091-01",
+		"REV-091-01",
+		"修正二级分类拖拽插入线可落位保存",
+		"BOM出品率",
+		"product_bom.yield_rate",
+	} {
+		if !strings.Contains(src, want) {
+			t.Fatalf("product settings drag/yield follow-up requirement seed missing %q", want)
+		}
+	}
+}
+
 func TestProductSettingsVueWiringAndLegacyTierEditorRemoval(t *testing.T) {
 	app, err := os.ReadFile(filepath.Join("frontend-vue-shell", "src", "App.vue"))
 	if err != nil {
@@ -117,7 +140,6 @@ func TestProductSettingsCategoryDragYieldAndCollapseRefinements(t *testing.T) {
 		"category-drop-line",
 		"categoryDropTarget",
 		"dropCategoryAtPosition",
-		"产品出品率",
 		"yield_percent",
 		"saveProductBasics(row)",
 		"categoryCollapsed",
@@ -140,5 +162,46 @@ func TestProductSettingsCategoryDragYieldAndCollapseRefinements(t *testing.T) {
 		if strings.Contains(src, forbidden) {
 			t.Fatalf("product basics list should remove price/action editor fragment %q", forbidden)
 		}
+	}
+}
+
+func TestProductSettingsDragEndAndBomYieldAreWiredToSingleSource(t *testing.T) {
+	settings, err := os.ReadFile(filepath.Join("frontend-vue-shell", "src", "views", "ProductSettingsView.vue"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	repo, err := os.ReadFile(filepath.Join("internal", "infrastructure", "postgres", "catalog", "repository.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	queries, err := os.ReadFile(filepath.Join("internal", "infrastructure", "postgres", "catalog_queries.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := string(settings)
+	for _, want := range []string{
+		"scheduleClearDrag",
+		"@dragend=\"scheduleClearDrag\"",
+		"dropCategoryOrProductOnSecondary",
+		"BOM出品率",
+		"yield_rate: Number((yieldPercent / 100).toFixed(4))",
+	} {
+		if !strings.Contains(src, want) {
+			t.Fatalf("product settings drag/yield wiring missing %q", want)
+		}
+	}
+	if strings.Contains(src, "@dragend=\"clearDrag\"") {
+		t.Fatalf("dragend must not synchronously clear drag state before drop handlers run")
+	}
+	for _, want := range []string{
+		"INSERT INTO %s.product_bom(product_id,yield_rate,updated_at)",
+		"ON CONFLICT (product_id) DO UPDATE SET yield_rate=excluded.yield_rate",
+	} {
+		if !strings.Contains(string(repo), want) {
+			t.Fatalf("catalog repository must persist product settings yield to product_bom: missing %q", want)
+		}
+	}
+	if !strings.Contains(string(queries), "LEFT JOIN %[1]s.product_bom b ON b.product_id=p.id") {
+		t.Fatalf("product settings list must read yield_rate from product_bom")
 	}
 }

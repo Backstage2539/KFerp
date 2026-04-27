@@ -63,9 +63,9 @@
                   :class="{ dragging: isDraggingCategory(secondary) }"
                   draggable="true"
                   @dragstart="startCategoryDrag(secondary)"
-                  @dragend="clearDrag"
-                  @dragover.prevent
-                  @drop.stop="dropProductOnSecondary(secondary)">
+                  @dragend="scheduleClearDrag"
+                  @dragover.prevent.stop
+                  @drop.prevent.stop="dropCategoryOrProductOnSecondary(primary, index + 1, secondary)">
                   <form v-if="editingCategoryId === secondary.id" class="inline-form sub-form" @submit.prevent="saveCategoryName(secondary)">
                     <input v-model.trim="editingCategoryName" placeholder="二级分类名称" />
                     <button class="secondary" type="submit">保存</button>
@@ -83,7 +83,7 @@
                       class="product-chip"
                       draggable="true"
                       @dragstart.stop="startProductDrag(product)"
-                      @dragend="clearDrag">
+                      @dragend="scheduleClearDrag">
                       {{ product.number }}. {{ product.name }}
                     </span>
                   </div>
@@ -106,7 +106,7 @@
               class="product-chip"
               draggable="true"
               @dragstart="startProductDrag(product)"
-              @dragend="clearDrag">
+              @dragend="scheduleClearDrag">
               {{ product.name }}
             </span>
             <p v-if="!uncategorizedProducts.length" class="muted">暂无未分类商品</p>
@@ -130,7 +130,7 @@
                 <th>商品编号</th>
                 <th>商品</th>
                 <th>烘焙度</th>
-                <th>产品出品率</th>
+                <th>BOM出品率</th>
               </tr>
             </thead>
             <tbody>
@@ -344,6 +344,10 @@ function clearDrag() {
   categoryDropTarget.value = null
 }
 
+function scheduleClearDrag() {
+  window.setTimeout(clearDrag, 0)
+}
+
 function isDraggingCategory(category) {
   return dragging.value?.type === 'category' && dragging.value.id === Number(category.id)
 }
@@ -360,15 +364,16 @@ function isCategoryDropTarget(primary, position) {
 }
 
 async function dropCategoryAtPosition(primary, visualPosition) {
-  if (dragging.value?.type !== 'category') return
+  const drag = dragging.value
+  if (drag?.type !== 'category') return
   const parentID = Number(primary.id)
   let position = Number(visualPosition)
-  if (dragging.value.parentID === parentID && dragging.value.position > 0 && dragging.value.position < visualPosition) {
+  if (drag.parentID === parentID && drag.position > 0 && drag.position < visualPosition) {
     position -= 1
   }
   if (position <= 0) position = 1
   try {
-    await apiSend(`/api/product-settings/categories/${dragging.value.id}/move`, {
+    await apiSend(`/api/product-settings/categories/${drag.id}/move`, {
       body: { parent_id: parentID, position },
     })
     ok.value = '分类顺序已保存'
@@ -385,10 +390,24 @@ async function dropCategoryOnPrimary(primary) {
   await dropCategoryAtPosition(primary, Number(primary.children?.length || 0) + 1)
 }
 
+async function dropCategoryOrProductOnSecondary(primary, visualPosition, secondary) {
+  const drag = dragging.value
+  if (drag?.type === 'category') {
+    const parentID = Number(primary.id)
+    const position = categoryDropTarget.value?.parentID === parentID
+      ? categoryDropTarget.value.position
+      : visualPosition
+    await dropCategoryAtPosition(primary, position)
+    return
+  }
+  await dropProductOnSecondary(secondary)
+}
+
 async function dropProductOnSecondary(secondary) {
-  if (dragging.value?.type !== 'product') return
+  const drag = dragging.value
+  if (drag?.type !== 'product') return
   try {
-    await apiSend(`/api/product-settings/products/${dragging.value.id}/category`, {
+    await apiSend(`/api/product-settings/products/${drag.id}/category`, {
       body: { category_id: Number(secondary.id || 0), position: Number(secondary.products?.length || 0) + 1 },
     })
     ok.value = '商品分类已保存'
@@ -403,7 +422,7 @@ async function dropProductOnSecondary(secondary) {
 async function saveProductBasics(row) {
   const yieldPercent = Number(row.yield_percent || 0)
   if (yieldPercent <= 0 || yieldPercent > 100) {
-    error.value = '产品出品率必须在 1% 到 100% 之间'
+    error.value = 'BOM出品率必须在 1% 到 100% 之间'
     return
   }
   loading.value = true
@@ -460,7 +479,7 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .secondary-category.dragging { opacity: .45; }
 .secondary-head span { display: inline-flex; width: 24px; height: 24px; align-items: center; justify-content: center; border: 1px solid #ddd; border-radius: 6px; }
 .secondary-head small { color: #666; }
-.category-drop-line { height: 12px; border-top: 2px solid transparent; margin: 2px 0; transition: border-color .12s ease, background .12s ease; }
+.category-drop-line { height: 16px; border-top: 2px solid transparent; margin: 2px 0; transition: border-color .12s ease, background .12s ease; }
 .category-drop-line.active { border-top-color: #1f4f82; background: #edf5ff; }
 .product-chip-list, .uncategorized { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
 .product-chip { border: 1px solid #ddd; border-radius: 8px; padding: 5px 8px; background: #fff; font-size: 12px; cursor: grab; }
