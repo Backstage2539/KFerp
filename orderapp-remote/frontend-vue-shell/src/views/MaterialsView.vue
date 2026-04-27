@@ -29,14 +29,7 @@
               <th>批次号</th>
               <th>进货价</th>
               <th>销售价</th>
-              <th>产地</th>
-              <th>处理站</th>
-              <th>品种</th>
-              <th>处理法</th>
-              <th>等级</th>
-              <th>海拔</th>
-              <th>风味</th>
-              <th>豆单备注</th>
+              <th>咖啡豆信息</th>
               <th>库存(g)</th>
               <th>库存(个)</th>
               <th>警戒线(g)</th>
@@ -67,14 +60,19 @@
               <td><input v-model.trim="row.batch_no" /></td>
               <td><input type="number" min="0" step="0.01" v-model.number="row.purchase_price" /></td>
               <td><input type="number" min="0" step="0.01" v-model.number="row.sale_price" /></td>
-              <td><input v-model.trim="row.origin" /></td>
-              <td><input v-model.trim="row.processing_station" /></td>
-              <td><input v-model.trim="row.variety" /></td>
-              <td><input v-model.trim="row.process_method" /></td>
-              <td><input v-model.trim="row.grade" /></td>
-              <td><input v-model.trim="row.altitude" /></td>
-              <td><input v-model.trim="row.flavor" /></td>
-              <td><input v-model.trim="row.bean_list_note" /></td>
+              <td class="profile-cell">
+                <div v-if="row.kind === 'bean'" class="bean-profile-grid">
+                  <label><span>产地</span><input v-model.trim="row.bean_profile.origin" /></label>
+                  <label><span>处理站</span><input v-model.trim="row.bean_profile.processing_station" /></label>
+                  <label><span>品种</span><input v-model.trim="row.bean_profile.variety" /></label>
+                  <label><span>处理法</span><input v-model.trim="row.bean_profile.process_method" /></label>
+                  <label><span>等级</span><input v-model.trim="row.bean_profile.grade" /></label>
+                  <label><span>海拔</span><input v-model.trim="row.bean_profile.altitude" /></label>
+                  <label class="wide"><span>风味</span><input v-model.trim="row.bean_profile.flavor" /></label>
+                  <label class="wide"><span>豆单备注</span><input v-model.trim="row.bean_profile.bean_list_note" /></label>
+                </div>
+                <span v-else class="muted">非咖啡豆物料</span>
+              </td>
               <td><input type="number" min="0" step="1" v-model.number="row.onhand_g" /></td>
               <td><input type="number" min="0" step="1" v-model.number="row.onhand_units" /></td>
               <td><input type="number" min="0" step="1" v-model.number="row.min_level_g" /></td>
@@ -85,7 +83,7 @@
               </td>
             </tr>
             <tr v-if="!rows.length">
-              <td colspan="21" class="muted">暂无物料</td>
+              <td colspan="14" class="muted">暂无物料</td>
             </tr>
           </tbody>
         </table>
@@ -106,6 +104,7 @@ const error = ref('')
 const ok = ref(false)
 
 function normalizeRow(row) {
+  const profile = row.BeanProfile ?? row.bean_profile ?? {}
   return {
     id: Number(row.ID ?? row.id ?? 0),
     code: row.Code ?? row.code ?? '',
@@ -115,14 +114,16 @@ function normalizeRow(row) {
     batch_no: row.BatchNo ?? row.batch_no ?? '',
     purchase_price: Number(row.PurchasePrice ?? row.purchase_price ?? 0),
     sale_price: Number(row.SalePrice ?? row.sale_price ?? 0),
-    origin: row.Origin ?? row.origin ?? '',
-    processing_station: row.ProcessingStation ?? row.processing_station ?? '',
-    variety: row.Variety ?? row.variety ?? '',
-    process_method: row.ProcessMethod ?? row.process_method ?? '',
-    grade: row.Grade ?? row.grade ?? '',
-    altitude: row.Altitude ?? row.altitude ?? '',
-    flavor: row.Flavor ?? row.flavor ?? '',
-    bean_list_note: row.BeanListNote ?? row.bean_list_note ?? '',
+    bean_profile: {
+      origin: profile.Origin ?? profile.origin ?? row.Origin ?? row.origin ?? '',
+      processing_station: profile.ProcessingStation ?? profile.processing_station ?? row.ProcessingStation ?? row.processing_station ?? '',
+      variety: profile.Variety ?? profile.variety ?? row.Variety ?? row.variety ?? '',
+      process_method: profile.ProcessMethod ?? profile.process_method ?? row.ProcessMethod ?? row.process_method ?? '',
+      grade: profile.Grade ?? profile.grade ?? row.Grade ?? row.grade ?? '',
+      altitude: profile.Altitude ?? profile.altitude ?? row.Altitude ?? row.altitude ?? '',
+      flavor: profile.Flavor ?? profile.flavor ?? row.Flavor ?? row.flavor ?? '',
+      bean_list_note: profile.BeanListNote ?? profile.bean_list_note ?? row.BeanListNote ?? row.bean_list_note ?? '',
+    },
     onhand_g: Number(row.OnhandG ?? row.onhand_g ?? 0),
     onhand_units: Number(row.OnhandUnits ?? row.onhand_units ?? 0),
     min_level_g: Number(row.MinLevelG ?? row.min_level_g ?? 0),
@@ -164,14 +165,7 @@ async function saveMaterial(row) {
         batch_no: row.batch_no,
         purchase_price: Number(row.purchase_price || 0),
         sale_price: Number(row.sale_price || 0),
-        origin: row.origin,
-        processing_station: row.processing_station,
-        variety: row.variety,
-        process_method: row.process_method,
-        grade: row.grade,
-        altitude: row.altitude,
-        flavor: row.flavor,
-        bean_list_note: row.bean_list_note,
+        bean_profile: row.kind === 'bean' ? row.bean_profile : null,
         onhand_g: Number(row.onhand_g || 0),
         onhand_units: Number(row.onhand_units || 0),
         min_level_g: Number(row.min_level_g || 0),
@@ -206,10 +200,15 @@ onMounted(() => {
 .filters label { display: flex; flex-direction: column; gap: 6px; }
 .filters span, .muted { color: #666; font-size: 12px; }
 .table-wrap { overflow: auto; margin-top: 10px; }
-table { width: 100%; border-collapse: collapse; min-width: 2200px; }
+table { width: 100%; border-collapse: collapse; min-width: 1500px; }
 th, td { border-bottom: 1px solid #f1f1f1; padding: 8px; text-align: left; vertical-align: middle; }
 input, select, button { font: inherit; }
 input, select { width: 100%; border: 1px solid #ddd; border-radius: 6px; padding: 8px; min-height: 36px; }
+.profile-cell { min-width: 480px; }
+.bean-profile-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
+.bean-profile-grid label { display: flex; flex-direction: column; gap: 4px; }
+.bean-profile-grid span { color: #666; font-size: 12px; }
+.bean-profile-grid .wide { grid-column: span 2; }
 button { border-radius: 8px; padding: 9px 12px; cursor: pointer; white-space: nowrap; }
 .primary { border: 1px solid #111; background: #111; color: #fff; }
 .secondary { border: 1px solid #999; background: #fff; color: #111; }

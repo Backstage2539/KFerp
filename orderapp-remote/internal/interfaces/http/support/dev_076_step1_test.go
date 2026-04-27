@@ -7,23 +7,22 @@ import (
 	"testing"
 )
 
-func TestCostingSettingsDrawerRequirementSeeds(t *testing.T) {
+func TestBeanProfileChildTableRequirementSeeds(t *testing.T) {
 	b, err := os.ReadFile(filepath.Join("internal", "interfaces", "http", "support", "req_store.go"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	text := string(b)
+	src := string(b)
 	for _, want := range []string{
 		"PR-076",
 		"DEV-076-01",
-		"DEV-076-02",
 		"UT-076-01",
 		"API-076-01",
 		"REV-076-01",
-		"成本参数按分类展示并带小字说明",
-		"成本核算页提供右侧快速参数抽屉",
+		"material_bean_profiles",
+		"咖啡豆物料子表",
 	} {
-		if !strings.Contains(text, want) {
+		if !strings.Contains(src, want) {
 			t.Fatalf("requirements seed missing %q", want)
 		}
 	}

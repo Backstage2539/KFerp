@@ -19,41 +19,38 @@ type Repository struct {
 }
 
 type materialRow struct {
-	ID                int64
-	Code              string
-	Name              string
-	Kind              string
-	Unit              string
-	BatchNo           string
-	PurchasePrice     float64
-	SalePrice         float64
-	OnhandG           int64
-	OnhandUnits       int64
-	MinLevelG         int64
-	MinLevelUnits     int64
-	Origin            string
-	ProcessingStation string
-	Variety           string
-	ProcessMethod     string
-	Grade             string
-	Altitude          string
-	Flavor            string
-	BeanListNote      string
-	UpdatedAt         string
+	ID            int64
+	Code          string
+	Name          string
+	Kind          string
+	Unit          string
+	BatchNo       string
+	PurchasePrice float64
+	SalePrice     float64
+	OnhandG       int64
+	OnhandUnits   int64
+	MinLevelG     int64
+	MinLevelUnits int64
+	Profile       *beanProfileInput
+	UpdatedAt     string
 }
 
 type materialInput struct {
-	Code              string
-	Name              string
-	Kind              string
-	Unit              string
-	BatchNo           string
-	PurchasePrice     float64
-	SalePrice         float64
-	OnhandG           int64
-	OnhandUnits       int64
-	MinLevelG         int64
-	MinLevelUnits     int64
+	Code          string
+	Name          string
+	Kind          string
+	Unit          string
+	BatchNo       string
+	PurchasePrice float64
+	SalePrice     float64
+	OnhandG       int64
+	OnhandUnits   int64
+	MinLevelG     int64
+	MinLevelUnits int64
+	Profile       *beanProfileInput
+}
+
+type beanProfileInput struct {
 	Origin            string
 	ProcessingStation string
 	Variety           string
@@ -92,7 +89,7 @@ func listMaterials(ctx context.Context, pool *pgxpool.Pool, schema, q string, li
 	args := []any{}
 	argn := 1
 	if s := strings.TrimSpace(q); s != "" {
-		where = fmt.Sprintf("WHERE (name ILIKE $%d OR code ILIKE $%d)", argn, argn)
+		where = fmt.Sprintf("WHERE (m.name ILIKE $%d OR m.code ILIKE $%d)", argn, argn)
 		args = append(args, "%"+s+"%")
 		argn++
 	}
@@ -100,19 +97,20 @@ func listMaterials(ctx context.Context, pool *pgxpool.Pool, schema, q string, li
 	limitArg := argn
 
 	sql := fmt.Sprintf(`
-		SELECT id, code, name, kind, unit,
-		       COALESCE(batch_no, ''),
-		       COALESCE(purchase_price,0), COALESCE(sale_price,0),
-		       onhand_g, onhand_units, min_level_g, min_level_units,
-		       COALESCE(origin, ''), COALESCE(processing_station, ''), COALESCE(variety, ''),
-		       COALESCE(process_method, ''), COALESCE(grade, ''), COALESCE(altitude, ''),
-		       COALESCE(flavor, ''), COALESCE(bean_list_note, ''),
-		       to_char(updated_at,'YYYY-MM-DD HH24:MI')
-		FROM %s.materials
+		SELECT m.id, m.code, m.name, m.kind, m.unit,
+		       COALESCE(m.batch_no, ''),
+		       COALESCE(m.purchase_price,0), COALESCE(m.sale_price,0),
+		       m.onhand_g, m.onhand_units, m.min_level_g, m.min_level_units,
+		       COALESCE(bp.origin, ''), COALESCE(bp.processing_station, ''), COALESCE(bp.variety, ''),
+		       COALESCE(bp.process_method, ''), COALESCE(bp.grade, ''), COALESCE(bp.altitude, ''),
+		       COALESCE(bp.flavor, ''), COALESCE(bp.bean_list_note, ''),
+		       to_char(m.updated_at,'YYYY-MM-DD HH24:MI')
+		FROM %s.materials m
+		LEFT JOIN %s.material_bean_profiles bp ON bp.material_id = m.id
 		%s
-		ORDER BY kind, name, id DESC
+		ORDER BY m.kind, m.name, m.id DESC
 		LIMIT $%d
-	`, schema, where, limitArg)
+	`, schema, schema, where, limitArg)
 	rows, err := pool.Query(ctx, sql, args...)
 	if err != nil {
 		return nil, err
@@ -122,8 +120,12 @@ func listMaterials(ctx context.Context, pool *pgxpool.Pool, schema, q string, li
 	out := make([]materialRow, 0)
 	for rows.Next() {
 		var r materialRow
-		if err := rows.Scan(&r.ID, &r.Code, &r.Name, &r.Kind, &r.Unit, &r.BatchNo, &r.PurchasePrice, &r.SalePrice, &r.OnhandG, &r.OnhandUnits, &r.MinLevelG, &r.MinLevelUnits, &r.Origin, &r.ProcessingStation, &r.Variety, &r.ProcessMethod, &r.Grade, &r.Altitude, &r.Flavor, &r.BeanListNote, &r.UpdatedAt); err != nil {
+		var profile beanProfileInput
+		if err := rows.Scan(&r.ID, &r.Code, &r.Name, &r.Kind, &r.Unit, &r.BatchNo, &r.PurchasePrice, &r.SalePrice, &r.OnhandG, &r.OnhandUnits, &r.MinLevelG, &r.MinLevelUnits, &profile.Origin, &profile.ProcessingStation, &profile.Variety, &profile.ProcessMethod, &profile.Grade, &profile.Altitude, &profile.Flavor, &profile.BeanListNote, &r.UpdatedAt); err != nil {
 			return nil, err
+		}
+		if r.Kind == "bean" || !profile.empty() {
+			r.Profile = &profile
 		}
 		out = append(out, r)
 	}
@@ -151,20 +153,27 @@ func updateMaterialInline(ctx context.Context, pool *pgxpool.Pool, schema, actor
 	defer func() { _ = tx.Rollback(ctx) }()
 
 	var old materialRow
-	qOld := fmt.Sprintf(`SELECT id, code, name, kind, unit,
-		       COALESCE(batch_no, ''),
-		       COALESCE(purchase_price,0), COALESCE(sale_price,0),
-		       onhand_g, onhand_units, min_level_g, min_level_units,
-		       COALESCE(origin, ''), COALESCE(processing_station, ''), COALESCE(variety, ''),
-		       COALESCE(process_method, ''), COALESCE(grade, ''), COALESCE(altitude, ''),
-		       COALESCE(flavor, ''), COALESCE(bean_list_note, ''),
-		       to_char(updated_at,'YYYY-MM-DD HH24:MI')
-		FROM %s.materials WHERE id=$1 FOR UPDATE`, schema)
-	if err := tx.QueryRow(ctx, qOld, id).Scan(&old.ID, &old.Code, &old.Name, &old.Kind, &old.Unit, &old.BatchNo, &old.PurchasePrice, &old.SalePrice, &old.OnhandG, &old.OnhandUnits, &old.MinLevelG, &old.MinLevelUnits, &old.Origin, &old.ProcessingStation, &old.Variety, &old.ProcessMethod, &old.Grade, &old.Altitude, &old.Flavor, &old.BeanListNote, &old.UpdatedAt); err != nil {
+	qOld := fmt.Sprintf(`SELECT m.id, m.code, m.name, m.kind, m.unit,
+		       COALESCE(m.batch_no, ''),
+		       COALESCE(m.purchase_price,0), COALESCE(m.sale_price,0),
+		       m.onhand_g, m.onhand_units, m.min_level_g, m.min_level_units,
+		       COALESCE(bp.origin, ''), COALESCE(bp.processing_station, ''), COALESCE(bp.variety, ''),
+		       COALESCE(bp.process_method, ''), COALESCE(bp.grade, ''), COALESCE(bp.altitude, ''),
+		       COALESCE(bp.flavor, ''), COALESCE(bp.bean_list_note, ''),
+		       to_char(m.updated_at,'YYYY-MM-DD HH24:MI')
+		FROM %s.materials m
+		LEFT JOIN %s.material_bean_profiles bp ON bp.material_id = m.id
+		WHERE m.id=$1
+		FOR UPDATE OF m`, schema, schema)
+	var oldProfile beanProfileInput
+	if err := tx.QueryRow(ctx, qOld, id).Scan(&old.ID, &old.Code, &old.Name, &old.Kind, &old.Unit, &old.BatchNo, &old.PurchasePrice, &old.SalePrice, &old.OnhandG, &old.OnhandUnits, &old.MinLevelG, &old.MinLevelUnits, &oldProfile.Origin, &oldProfile.ProcessingStation, &oldProfile.Variety, &oldProfile.ProcessMethod, &oldProfile.Grade, &oldProfile.Altitude, &oldProfile.Flavor, &oldProfile.BeanListNote, &old.UpdatedAt); err != nil {
 		if err == pgx.ErrNoRows {
 			return materialRow{}, fmt.Errorf("not found")
 		}
 		return materialRow{}, err
+	}
+	if old.Kind == "bean" || !oldProfile.empty() {
+		old.Profile = &oldProfile
 	}
 
 	q := fmt.Sprintf(`UPDATE %s.materials SET
@@ -179,17 +188,12 @@ func updateMaterialInline(ctx context.Context, pool *pgxpool.Pool, schema, actor
 			onhand_units=$10,
 			min_level_g=$11,
 			min_level_units=$12,
-			origin=$13,
-			processing_station=$14,
-			variety=$15,
-			process_method=$16,
-			grade=$17,
-			altitude=$18,
-			flavor=$19,
-			bean_list_note=$20,
 			updated_at=now()
 		WHERE id=$1`, schema)
-	if _, err := tx.Exec(ctx, q, id, next.Code, next.Name, next.Kind, next.Unit, next.BatchNo, next.PurchasePrice, next.SalePrice, next.OnhandG, next.OnhandUnits, next.MinLevelG, next.MinLevelUnits, next.Origin, next.ProcessingStation, next.Variety, next.ProcessMethod, next.Grade, next.Altitude, next.Flavor, next.BeanListNote); err != nil {
+	if _, err := tx.Exec(ctx, q, id, next.Code, next.Name, next.Kind, next.Unit, next.BatchNo, next.PurchasePrice, next.SalePrice, next.OnhandG, next.OnhandUnits, next.MinLevelG, next.MinLevelUnits); err != nil {
+		return materialRow{}, err
+	}
+	if err := writeBeanProfileTx(ctx, tx, schema, id, next); err != nil {
 		return materialRow{}, err
 	}
 	if err := logMaterialDiffsTx(ctx, tx, schema, actor, old, next); err != nil {
@@ -215,14 +219,9 @@ func normalizeMaterialInput(in materialInput) (materialInput, error) {
 	in.Kind = strings.TrimSpace(in.Kind)
 	in.Unit = strings.TrimSpace(in.Unit)
 	in.BatchNo = strings.TrimSpace(in.BatchNo)
-	in.Origin = strings.TrimSpace(in.Origin)
-	in.ProcessingStation = strings.TrimSpace(in.ProcessingStation)
-	in.Variety = strings.TrimSpace(in.Variety)
-	in.ProcessMethod = strings.TrimSpace(in.ProcessMethod)
-	in.Grade = strings.TrimSpace(in.Grade)
-	in.Altitude = strings.TrimSpace(in.Altitude)
-	in.Flavor = strings.TrimSpace(in.Flavor)
-	in.BeanListNote = strings.TrimSpace(in.BeanListNote)
+	if in.Profile != nil {
+		in.Profile.normalize()
+	}
 	if in.Code == "" {
 		return materialInput{}, fmt.Errorf("code required")
 	}
@@ -242,6 +241,13 @@ func normalizeMaterialInput(in materialInput) (materialInput, error) {
 	case "bean", "pack", "other":
 	default:
 		return materialInput{}, fmt.Errorf("invalid kind")
+	}
+	if in.Kind == "bean" {
+		if in.Profile == nil {
+			in.Profile = &beanProfileInput{}
+		}
+	} else {
+		in.Profile = nil
 	}
 	if in.PurchasePrice < 0 || in.SalePrice < 0 || math.IsNaN(in.PurchasePrice) || math.IsNaN(in.SalePrice) || math.IsInf(in.PurchasePrice, 0) || math.IsInf(in.SalePrice, 0) {
 		return materialInput{}, fmt.Errorf("negative price")
@@ -283,20 +289,110 @@ func logMaterialDiffsTx(ctx context.Context, tx pgx.Tx, schema, actor string, ol
 		{"onhand_units", fmt.Sprintf("%d", old.OnhandUnits), fmt.Sprintf("%d", next.OnhandUnits)},
 		{"min_level_g", fmt.Sprintf("%d", old.MinLevelG), fmt.Sprintf("%d", next.MinLevelG)},
 		{"min_level_units", fmt.Sprintf("%d", old.MinLevelUnits), fmt.Sprintf("%d", next.MinLevelUnits)},
-		{"origin", old.Origin, next.Origin},
-		{"processing_station", old.ProcessingStation, next.ProcessingStation},
-		{"variety", old.Variety, next.Variety},
-		{"process_method", old.ProcessMethod, next.ProcessMethod},
-		{"grade", old.Grade, next.Grade},
-		{"altitude", old.Altitude, next.Altitude},
-		{"flavor", old.Flavor, next.Flavor},
-		{"bean_list_note", old.BeanListNote, next.BeanListNote},
+		{"bean_profile.origin", profileValue(old.Profile, func(p *beanProfileInput) string { return p.Origin }), profileValue(next.Profile, func(p *beanProfileInput) string { return p.Origin })},
+		{"bean_profile.processing_station", profileValue(old.Profile, func(p *beanProfileInput) string { return p.ProcessingStation }), profileValue(next.Profile, func(p *beanProfileInput) string { return p.ProcessingStation })},
+		{"bean_profile.variety", profileValue(old.Profile, func(p *beanProfileInput) string { return p.Variety }), profileValue(next.Profile, func(p *beanProfileInput) string { return p.Variety })},
+		{"bean_profile.process_method", profileValue(old.Profile, func(p *beanProfileInput) string { return p.ProcessMethod }), profileValue(next.Profile, func(p *beanProfileInput) string { return p.ProcessMethod })},
+		{"bean_profile.grade", profileValue(old.Profile, func(p *beanProfileInput) string { return p.Grade }), profileValue(next.Profile, func(p *beanProfileInput) string { return p.Grade })},
+		{"bean_profile.altitude", profileValue(old.Profile, func(p *beanProfileInput) string { return p.Altitude }), profileValue(next.Profile, func(p *beanProfileInput) string { return p.Altitude })},
+		{"bean_profile.flavor", profileValue(old.Profile, func(p *beanProfileInput) string { return p.Flavor }), profileValue(next.Profile, func(p *beanProfileInput) string { return p.Flavor })},
+		{"bean_profile.bean_list_note", profileValue(old.Profile, func(p *beanProfileInput) string { return p.BeanListNote }), profileValue(next.Profile, func(p *beanProfileInput) string { return p.BeanListNote })},
 	} {
 		if err := log(item.field, item.old, item.next); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+func writeBeanProfileTx(ctx context.Context, tx pgx.Tx, schema string, materialID int64, in materialInput) error {
+	if in.Kind != "bean" {
+		_, err := tx.Exec(ctx, fmt.Sprintf(`DELETE FROM %s.material_bean_profiles WHERE material_id=$1`, schema), materialID)
+		return err
+	}
+	profile := in.Profile
+	if profile == nil {
+		profile = &beanProfileInput{}
+	}
+	q := fmt.Sprintf(`INSERT INTO %s.material_bean_profiles(
+			material_id, origin, processing_station, variety, process_method,
+			grade, altitude, flavor, bean_list_note, updated_at
+		)
+		VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,now())
+		ON CONFLICT(material_id) DO UPDATE SET
+			origin=excluded.origin,
+			processing_station=excluded.processing_station,
+			variety=excluded.variety,
+			process_method=excluded.process_method,
+			grade=excluded.grade,
+			altitude=excluded.altitude,
+			flavor=excluded.flavor,
+			bean_list_note=excluded.bean_list_note,
+			updated_at=now()`, schema)
+	_, err := tx.Exec(ctx, q, materialID, profile.Origin, profile.ProcessingStation, profile.Variety, profile.ProcessMethod, profile.Grade, profile.Altitude, profile.Flavor, profile.BeanListNote)
+	return err
+}
+
+func (p *beanProfileInput) normalize() {
+	p.Origin = strings.TrimSpace(p.Origin)
+	p.ProcessingStation = strings.TrimSpace(p.ProcessingStation)
+	p.Variety = strings.TrimSpace(p.Variety)
+	p.ProcessMethod = strings.TrimSpace(p.ProcessMethod)
+	p.Grade = strings.TrimSpace(p.Grade)
+	p.Altitude = strings.TrimSpace(p.Altitude)
+	p.Flavor = strings.TrimSpace(p.Flavor)
+	p.BeanListNote = strings.TrimSpace(p.BeanListNote)
+}
+
+func (p *beanProfileInput) empty() bool {
+	return p == nil ||
+		(p.Origin == "" &&
+			p.ProcessingStation == "" &&
+			p.Variety == "" &&
+			p.ProcessMethod == "" &&
+			p.Grade == "" &&
+			p.Altitude == "" &&
+			p.Flavor == "" &&
+			p.BeanListNote == "")
+}
+
+func profileValue(p *beanProfileInput, get func(*beanProfileInput) string) string {
+	if p == nil {
+		return ""
+	}
+	return get(p)
+}
+
+func beanProfileToApp(profile *beanProfileInput) *materialsapp.BeanProfile {
+	if profile == nil {
+		return nil
+	}
+	return &materialsapp.BeanProfile{
+		Origin:            profile.Origin,
+		ProcessingStation: profile.ProcessingStation,
+		Variety:           profile.Variety,
+		ProcessMethod:     profile.ProcessMethod,
+		Grade:             profile.Grade,
+		Altitude:          profile.Altitude,
+		Flavor:            profile.Flavor,
+		BeanListNote:      profile.BeanListNote,
+	}
+}
+
+func beanProfileFromApp(profile *materialsapp.BeanProfile) *beanProfileInput {
+	if profile == nil {
+		return nil
+	}
+	return &beanProfileInput{
+		Origin:            profile.Origin,
+		ProcessingStation: profile.ProcessingStation,
+		Variety:           profile.Variety,
+		ProcessMethod:     profile.ProcessMethod,
+		Grade:             profile.Grade,
+		Altitude:          profile.Altitude,
+		Flavor:            profile.Flavor,
+		BeanListNote:      profile.BeanListNote,
+	}
 }
 
 func materialsToApp(rows []materialRow) []materialsapp.Material {
@@ -309,50 +405,36 @@ func materialsToApp(rows []materialRow) []materialsapp.Material {
 
 func materialToApp(row materialRow) materialsapp.Material {
 	return materialsapp.Material{
-		ID:                row.ID,
-		Code:              row.Code,
-		Name:              row.Name,
-		Kind:              row.Kind,
-		Unit:              row.Unit,
-		BatchNo:           row.BatchNo,
-		PurchasePrice:     row.PurchasePrice,
-		SalePrice:         row.SalePrice,
-		OnhandG:           row.OnhandG,
-		OnhandUnits:       row.OnhandUnits,
-		MinLevelG:         row.MinLevelG,
-		MinLevelUnits:     row.MinLevelUnits,
-		Origin:            row.Origin,
-		ProcessingStation: row.ProcessingStation,
-		Variety:           row.Variety,
-		ProcessMethod:     row.ProcessMethod,
-		Grade:             row.Grade,
-		Altitude:          row.Altitude,
-		Flavor:            row.Flavor,
-		BeanListNote:      row.BeanListNote,
-		UpdatedAt:         row.UpdatedAt,
+		ID:            row.ID,
+		Code:          row.Code,
+		Name:          row.Name,
+		Kind:          row.Kind,
+		Unit:          row.Unit,
+		BatchNo:       row.BatchNo,
+		PurchasePrice: row.PurchasePrice,
+		SalePrice:     row.SalePrice,
+		OnhandG:       row.OnhandG,
+		OnhandUnits:   row.OnhandUnits,
+		MinLevelG:     row.MinLevelG,
+		MinLevelUnits: row.MinLevelUnits,
+		BeanProfile:   beanProfileToApp(row.Profile),
+		UpdatedAt:     row.UpdatedAt,
 	}
 }
 
 func materialInputFromApp(in materialsapp.MaterialInput) materialInput {
 	return materialInput{
-		Code:              in.Code,
-		Name:              in.Name,
-		Kind:              in.Kind,
-		Unit:              in.Unit,
-		BatchNo:           in.BatchNo,
-		PurchasePrice:     in.PurchasePrice,
-		SalePrice:         in.SalePrice,
-		OnhandG:           in.OnhandG,
-		OnhandUnits:       in.OnhandUnits,
-		MinLevelG:         in.MinLevelG,
-		MinLevelUnits:     in.MinLevelUnits,
-		Origin:            in.Origin,
-		ProcessingStation: in.ProcessingStation,
-		Variety:           in.Variety,
-		ProcessMethod:     in.ProcessMethod,
-		Grade:             in.Grade,
-		Altitude:          in.Altitude,
-		Flavor:            in.Flavor,
-		BeanListNote:      in.BeanListNote,
+		Code:          in.Code,
+		Name:          in.Name,
+		Kind:          in.Kind,
+		Unit:          in.Unit,
+		BatchNo:       in.BatchNo,
+		PurchasePrice: in.PurchasePrice,
+		SalePrice:     in.SalePrice,
+		OnhandG:       in.OnhandG,
+		OnhandUnits:   in.OnhandUnits,
+		MinLevelG:     in.MinLevelG,
+		MinLevelUnits: in.MinLevelUnits,
+		Profile:       beanProfileFromApp(in.BeanProfile),
 	}
 }

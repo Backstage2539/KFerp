@@ -38,3 +38,33 @@ func TestNormalizeMaterialInputDefaultsBatchNoToToday(t *testing.T) {
 		t.Fatalf("batch no = %q, want today", got.BatchNo)
 	}
 }
+
+func TestNormalizeMaterialInputKeepsBeanProfileOnlyForBeans(t *testing.T) {
+	got, err := normalizeMaterialInput(materialInput{
+		Code:    "bean-a",
+		Name:    "豆子A",
+		Kind:    "bean",
+		Unit:    "kg",
+		Profile: &beanProfileInput{Origin: " 云南 ", Flavor: " 柑橘 "},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Profile == nil || got.Profile.Origin != "云南" || got.Profile.Flavor != "柑橘" {
+		t.Fatalf("bean profile = %+v", got.Profile)
+	}
+
+	pack, err := normalizeMaterialInput(materialInput{
+		Code:    "pack-a",
+		Name:    "袋子A",
+		Kind:    "pack",
+		Unit:    "个",
+		Profile: &beanProfileInput{Flavor: "不应保留"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if pack.Profile != nil {
+		t.Fatalf("pack profile = %+v, want nil", pack.Profile)
+	}
+}
