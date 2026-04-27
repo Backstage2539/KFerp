@@ -16,4 +16,5 @@ func RegisterRoutes(e *echo.Echo, deps Dependencies) {
 	registerSenderSettingsPage(e, deps.Sales)
 	registerOrderRoutes(e, deps.Sales)
 	registerOrderAPI(e, deps.Sales)
+	registerOrderShippingExcelRoutes(e, deps.Sales)
 }

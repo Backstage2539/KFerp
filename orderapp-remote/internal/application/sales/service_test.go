@@ -81,6 +81,10 @@ func (r *fakeRepo) ListSFSmallShippingRows(ctx context.Context, query ShippingEx
 	return nil, nil
 }
 
+func (r *fakeRepo) LoadOrderShippingExportData(ctx context.Context, orderID int64) (OrderShippingExportData, error) {
+	return OrderShippingExportData{OrderID: orderID}, nil
+}
+
 func TestServiceDelegatesSaveOrder(t *testing.T) {
 	repo := &fakeRepo{}
 	svc := NewService(repo)

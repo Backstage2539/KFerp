@@ -48,6 +48,28 @@ type SaveOrderResult struct {
 	Edited  bool
 }
 
+type OrderShippingExportData struct {
+	OrderID      int64
+	OrderNo      string
+	OrderDate    string
+	CustomerName string
+	RecvName     string
+	RecvPhone    string
+	RecvAddr     string
+	RecvCompany  string
+	Items        []OrderShippingExportItem
+}
+
+type OrderShippingExportItem struct {
+	LineNo    int
+	Name      string
+	Spec      string
+	Qty       string
+	Unit      string
+	UnitPrice string
+	LineTotal string
+}
+
 type UpdateHeaderCommand struct {
 	Actor                 string
 	OrderDate             string
@@ -323,6 +345,7 @@ type Repository interface {
 	LoadSenderProfile(ctx context.Context) (SenderProfile, error)
 	SaveSenderProfile(ctx context.Context, profile SenderProfile) error
 	ListSFSmallShippingRows(ctx context.Context, query ShippingExportQuery) ([]ShippingExportRow, error)
+	LoadOrderShippingExportData(ctx context.Context, orderID int64) (OrderShippingExportData, error)
 }
 
 type Service struct {
@@ -495,7 +518,7 @@ func (s *Service) LoadSenderProfile(ctx context.Context) (SenderProfile, error) 
 		return SenderProfile{}, err
 	}
 	if strings.TrimSpace(profile.Goods) == "" {
-		profile.Goods = "咖啡"
+		profile.Goods = "茶叶"
 	}
 	return profile, nil
 }
@@ -507,7 +530,7 @@ func (s *Service) SaveSenderProfile(ctx context.Context, profile SenderProfile) 
 	profile.Company = strings.TrimSpace(profile.Company)
 	profile.Goods = strings.TrimSpace(profile.Goods)
 	if profile.Goods == "" {
-		profile.Goods = "咖啡"
+		profile.Goods = "茶叶"
 	}
 	profile.BizType = strings.TrimSpace(profile.BizType)
 	return s.repo.SaveSenderProfile(ctx, profile)
@@ -522,6 +545,13 @@ func (s *Service) ListSFSmallShippingRows(ctx context.Context, query ShippingExp
 		query.Void = "normal"
 	}
 	return s.repo.ListSFSmallShippingRows(ctx, query)
+}
+
+func (s *Service) LoadOrderShippingExportData(ctx context.Context, orderID int64) (OrderShippingExportData, error) {
+	if orderID <= 0 {
+		return OrderShippingExportData{}, fmt.Errorf("invalid order id")
+	}
+	return s.repo.LoadOrderShippingExportData(ctx, orderID)
 }
 
 func digitsOnly(s string) string {

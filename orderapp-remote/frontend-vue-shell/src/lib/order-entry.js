@@ -58,6 +58,33 @@ export function wholesaleSpecOptions(product) {
   return [...specs].sort((a, b) => a - b).map((spec) => ({ label: formatSpecLabel(spec), value: String(spec) }))
 }
 
+export function defaultWholesaleSpec(product) {
+  const tier = (product?.tiers || []).find((item) => toInt(item.spec_g) > 0)
+  if (tier) return String(toInt(tier.spec_g))
+  return wholesaleSpecOptions(product)[0]?.value || ''
+}
+
+export function formatTierRange(tier) {
+  const min = toNumber(tier?.min)
+  const max = tier?.max == null ? 0 : toNumber(tier.max)
+  if (min > 0 && max > 0) return `${trimNumber(min)}-${trimNumber(max)}件`
+  if (min > 0) return `${trimNumber(min)}件+`
+  if (max > 0) return `≤${trimNumber(max)}件`
+  return '全部数量'
+}
+
+export function wholesaleTierPriceRows(product) {
+  return (product?.tiers || [])
+    .filter((tier) => toInt(tier.spec_g) > 0)
+    .map((tier) => ({
+      id: String(tier.id || ''),
+      specG: toInt(tier.spec_g),
+      specLabel: formatSpecLabel(tier.spec_g),
+      rangeLabel: formatTierRange(tier),
+      unitPrice: toNumber(tier.unit_price || tier.price),
+    }))
+}
+
 export function findWholesaleTier(product, row) {
   const specG = normalizeSpecG(row)
   const qty = Math.max(1, toInt(row?.qty))
@@ -100,6 +127,10 @@ export function normalizeSpecG(row) {
     return Math.max(0, toInt(row.custom_spec_g))
   }
   return Math.max(0, toInt(row?.spec_g || row?.spec_mode))
+}
+
+function trimNumber(value) {
+  return String(Number(value || 0)).replace(/\.0+$/, '')
 }
 
 export function lineTotal(product, row, retailOrder) {

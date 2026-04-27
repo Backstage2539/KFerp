@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 
 import {
   buildOrderPayload,
+  defaultWholesaleSpec,
   defaultStatusID,
   filterOptions,
   formatSpecLabel,
@@ -11,6 +12,7 @@ import {
   normalizeSpecG,
   retailPackagePrice,
   retailSpecOptions,
+  wholesaleTierPriceRows,
   wholesaleSpecOptions,
 } from './order-entry.js'
 
@@ -97,6 +99,33 @@ test('wholesaleSpecOptions includes standard order-entry specs and product tiers
 
   assert.deepEqual(got.map((option) => option.value), ['36', '80', '100', '227', '454', '500', '1000', '2500'])
   assert.equal(formatSpecLabel(2500), '2.5kg')
+})
+
+test('defaultWholesaleSpec uses the product first configured tier spec', () => {
+  const got = defaultWholesaleSpec({
+    tiers: [
+      { id: 9, spec_g: 227, min: 1, unit_price: 49 },
+      { id: 10, spec_g: 454, min: 1, unit_price: 88 },
+    ],
+  })
+
+  assert.equal(got, '227')
+})
+
+test('wholesaleTierPriceRows exposes every configured gradient price', () => {
+  const got = wholesaleTierPriceRows({
+    tiers: [
+      { id: 1, spec_g: 227, min: 1, max: 7, unit_price: 49 },
+      { id: 2, spec_g: 227, min: 8, max: null, unit_price: 42 },
+      { id: 3, spec_g: 2500, min: 1, max: null, unit_price: 388 },
+    ],
+  })
+
+  assert.deepEqual(got, [
+    { id: '1', specG: 227, specLabel: '227g', rangeLabel: '1-7件', unitPrice: 49 },
+    { id: '2', specG: 227, specLabel: '227g', rangeLabel: '8件+', unitPrice: 42 },
+    { id: '3', specG: 2500, specLabel: '2.5kg', rangeLabel: '1件+', unitPrice: 388 },
+  ])
 })
 
 test('syncWholesaleTierPrice matches tier by selected spec and package quantity', () => {
