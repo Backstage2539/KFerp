@@ -251,22 +251,22 @@ const currentInternalView = computed(() => internalViews[currentKey.value] || Or
   align-items: center;
   justify-content: space-between;
   gap: 10px;
-  border: 1px solid transparent;
-  background: transparent;
+  border: 1px solid #d8d8d8;
+  background: #fff;
   border-radius: 8px;
   padding: 12px 10px;
   color: #666;
   cursor: pointer;
   margin-bottom: 10px;
 }
-.section-toggle:hover { background: #fff; border-color: #e5e5e5; }
-.section-toggle.active { background: #fff; border-color: #0b6bff; color: #111; box-shadow: 0 0 0 1px #0b6bff inset; }
+.section-toggle:hover { border-color: #bdbdbd; }
+.section-toggle.active { border-color: #111; box-shadow: 0 0 0 1px #111 inset; background: #fff; color: #111; }
 .section-name { font-size: 16px; line-height: 1.25; font-weight: 800; }
 .section-caret { width: 20px; text-align: center; font-size: 18px; line-height: 1; color: #666; }
 .section-items { margin: -4px 0 8px; padding-left: 10px; }
 .toggle { border: 1px solid #999; background: #fff; border-radius: 8px; padding: 6px 10px; cursor: pointer; }
 .menu { width: 100%; min-height: 44px; text-align: left; border: 1px solid #ddd; background: #fff; border-radius: 8px; padding: 11px 12px; cursor: pointer; margin-bottom: 8px; font-size: 15px; line-height: 1.25; }
-.menu.active { border-color: #111; background: #111; color: #fff; }
+.menu.active { border-color: #111; background: #f5f5f5; color: #111; box-shadow: 0 0 0 1px #111 inset; }
 .content { flex: 1; display: flex; flex-direction: column; min-width: 0; }
 .top { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-bottom: 1px solid #eee; }
 .top.compact { gap: 0; }

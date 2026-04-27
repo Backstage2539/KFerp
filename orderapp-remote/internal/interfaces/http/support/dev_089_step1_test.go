@@ -232,9 +232,13 @@ func TestVueShellSidebarMenuHasLargeClickTargets(t *testing.T) {
 		".brand { font-size: 28px;",
 		".section-toggle {",
 		"min-height: 48px;",
+		"border: 1px solid #d8d8d8;",
+		"background: #fff;",
+		".section-toggle.active { border-color: #111; box-shadow: 0 0 0 1px #111 inset; background: #fff; color: #111; }",
 		".section-name { font-size: 16px;",
 		".menu {",
 		"min-height: 44px;",
+		".menu.active { border-color: #111; background: #f5f5f5; color: #111; box-shadow: 0 0 0 1px #111 inset; }",
 		".sidebar.mobile",
 		"width: 280px;",
 	} {
