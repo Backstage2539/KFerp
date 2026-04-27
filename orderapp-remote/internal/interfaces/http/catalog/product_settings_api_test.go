@@ -3,6 +3,7 @@ package catalog
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	catalogapp "orderapp/internal/application/catalog"
@@ -121,6 +122,52 @@ func TestProductSettingsAPISupportsCategoryTreeAndDragAssignments(t *testing.T) 
 	}
 	if !repo.productAssigned || repo.assigned.ProductID != 7 || repo.assigned.CategoryID != 2 || repo.assigned.Position != 3 {
 		t.Fatalf("assign product command = %+v assigned=%v", repo.assigned, repo.productAssigned)
+	}
+}
+
+func TestProductSettingsAPIReturnsEmptyArraysForEmptyCategories(t *testing.T) {
+	repo := &productSettingsRepo{
+		categories: []catalogapp.ProductCategory{
+			{ID: 1, Name: "咖啡豆", Level: 1, Position: 1},
+			{ID: 2, ParentID: 1, Name: "意式拼配", Level: 2, Position: 1},
+			{ID: 3, Name: "挂耳", Level: 1, Position: 2},
+		},
+	}
+	e := echo.New()
+	registerProductRoutes(e, catalogapp.NewService(repo))
+
+	req := httptest.NewRequest(http.MethodGet, "/api/product-settings", nil)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET /api/product-settings status=%d body=%s", rec.Code, rec.Body.String())
+	}
+
+	var payload struct {
+		Categories []struct {
+			Name     string `json:"name"`
+			Children []struct {
+				Name     string `json:"name"`
+				Products []any  `json:"products"`
+			} `json:"children"`
+			Products []any `json:"products"`
+		} `json:"categories"`
+		Products []any `json:"products"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("decode product settings: %v body=%s", err, rec.Body.String())
+	}
+	if payload.Categories == nil || payload.Products == nil {
+		t.Fatalf("top-level arrays must not be nil: %+v", payload)
+	}
+	if len(payload.Categories) != 2 {
+		t.Fatalf("categories = %+v", payload.Categories)
+	}
+	if payload.Categories[0].Children == nil || payload.Categories[0].Children[0].Products == nil {
+		t.Fatalf("empty category children/products must encode as [] not null: %s", rec.Body.String())
+	}
+	if payload.Categories[1].Children == nil || payload.Categories[1].Products == nil {
+		t.Fatalf("empty root category arrays must encode as [] not null: %s", rec.Body.String())
 	}
 }
 
