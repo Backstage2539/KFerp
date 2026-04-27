@@ -16,11 +16,17 @@ func TestVueShellIncludesWIPMaterialsView(t *testing.T) {
 	for _, want := range []string{
 		"WipMaterialsView",
 		"wipMaterials",
-		"WIP在制仓",
 	} {
 		if !strings.Contains(src, want) {
 			t.Fatalf("App.vue missing %q", want)
 		}
+	}
+	menuIA, err := readStockWorkspaceFile(filepath.Join("frontend-vue-shell", "src", "lib", "menu-ia.js"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(menuIA), "WIP在制仓") {
+		t.Fatal("menu-ia.js missing WIP legacy view title")
 	}
 	view, err := readStockWorkspaceFile(filepath.Join("frontend-vue-shell", "src", "views", "WipMaterialsView.vue"))
 	if err != nil {

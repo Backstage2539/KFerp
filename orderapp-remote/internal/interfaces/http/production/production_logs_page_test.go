@@ -39,7 +39,11 @@ func TestProductionMenusContainLogsEntry(t *testing.T) {
 	}{
 		{
 			path:  "frontend-vue-shell/src/App.vue",
-			wants: []string{"ProductionLogsView", "produceLogs: ProductionLogsView", "produceLogs", "生产日志"},
+			wants: []string{"ProductionLogsView", "produceLogs: ProductionLogsView", "produceLogs"},
+		},
+		{
+			path:  "frontend-vue-shell/src/lib/menu-ia.js",
+			wants: []string{"produceLogs", "生产日志"},
 		},
 	}
 	for _, tc := range checks {

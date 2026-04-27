@@ -141,6 +141,35 @@ type MaterialBatchLocationResult struct {
 	HasNext bool                       `json:"has_next"`
 }
 
+type WarehouseInventoryQuery struct {
+	Q         string
+	Warehouse string
+	ItemType  string
+	Limit     int
+	Offset    int
+}
+
+type WarehouseInventoryRow struct {
+	Warehouse     string  `json:"warehouse"`
+	WarehouseName string  `json:"warehouse_name"`
+	WarehouseKind string  `json:"warehouse_kind"`
+	ItemType      string  `json:"item_type"`
+	ItemID        int64   `json:"item_id"`
+	ItemName      string  `json:"item_name"`
+	SpecG         int64   `json:"spec_g"`
+	BatchID       int64   `json:"batch_id"`
+	BatchCode     string  `json:"batch_code"`
+	QtyG          int64   `json:"qty_g"`
+	QtyUnits      int64   `json:"qty_units"`
+	UnitCost      float64 `json:"unit_cost"`
+	UpdatedAt     string  `json:"updated_at"`
+}
+
+type WarehouseInventoryResult struct {
+	Rows    []WarehouseInventoryRow `json:"rows"`
+	HasNext bool                    `json:"has_next"`
+}
+
 type MaterialTransferCommand struct {
 	MaterialID     int64
 	FromWarehouse  string
@@ -199,6 +228,7 @@ type Repository interface {
 	ListMaterialBatches(ctx context.Context, query MaterialBatchQuery) (MaterialBatchResult, error)
 	ListWarehouses(ctx context.Context) ([]WarehouseRow, error)
 	ListMaterialBatchLocations(ctx context.Context, query MaterialBatchLocationQuery) (MaterialBatchLocationResult, error)
+	ListWarehouseInventory(ctx context.Context, query WarehouseInventoryQuery) (WarehouseInventoryResult, error)
 	ReceiveMaterial(ctx context.Context, cmd MaterialReceiptCommand) (MaterialReceiptResult, error)
 	CreateAdjustment(ctx context.Context, cmd StockAdjustmentCommand) (StockAdjustmentResult, error)
 	TransferMaterial(ctx context.Context, cmd MaterialTransferCommand) (MaterialTransferResult, error)
@@ -246,6 +276,14 @@ func (s *Service) ListMaterialBatchLocations(ctx context.Context, query Material
 	query.Warehouse = normalizeWarehouse(query.Warehouse)
 	query.Limit, query.Offset = normalizePage(query.Limit, query.Offset, 100, 500)
 	return s.repo.ListMaterialBatchLocations(ctx, query)
+}
+
+func (s *Service) ListWarehouseInventory(ctx context.Context, query WarehouseInventoryQuery) (WarehouseInventoryResult, error) {
+	query.Q = strings.TrimSpace(query.Q)
+	query.Warehouse = normalizeWarehouse(query.Warehouse)
+	query.ItemType = strings.TrimSpace(query.ItemType)
+	query.Limit, query.Offset = normalizePage(query.Limit, query.Offset, 100, 500)
+	return s.repo.ListWarehouseInventory(ctx, query)
 }
 
 func (s *Service) ReceiveMaterial(ctx context.Context, cmd MaterialReceiptCommand) (MaterialReceiptResult, error) {

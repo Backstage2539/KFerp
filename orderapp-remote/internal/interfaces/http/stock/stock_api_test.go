@@ -33,6 +33,12 @@ func (f *fakeStockRepo) ListWarehouses(ctx context.Context) ([]stockapp.Warehous
 func (f *fakeStockRepo) ListMaterialBatchLocations(ctx context.Context, query stockapp.MaterialBatchLocationQuery) (stockapp.MaterialBatchLocationResult, error) {
 	return stockapp.MaterialBatchLocationResult{Rows: []stockapp.MaterialBatchLocationRow{{BatchCode: "MB-0000000002", Warehouse: "wip", QtyG: 60000}}}, nil
 }
+func (f *fakeStockRepo) ListWarehouseInventory(ctx context.Context, query stockapp.WarehouseInventoryQuery) (stockapp.WarehouseInventoryResult, error) {
+	return stockapp.WarehouseInventoryResult{Rows: []stockapp.WarehouseInventoryRow{
+		{Warehouse: "raw_materials", WarehouseName: "原料仓", ItemType: "material", ItemID: 1, ItemName: "水洗豆", BatchCode: "MB-0000000002", QtyG: 1200},
+		{Warehouse: "finished_goods", WarehouseName: "成品仓", ItemType: "finished_product", ItemID: 9, ItemName: "橘皮乌龙", SpecG: 454, QtyG: 908, QtyUnits: 2},
+	}}, nil
+}
 func (f *fakeStockRepo) ReceiveMaterial(ctx context.Context, cmd stockapp.MaterialReceiptCommand) (stockapp.MaterialReceiptResult, error) {
 	f.received = cmd
 	return stockapp.MaterialReceiptResult{ReceiptID: 3, BatchID: 4, BatchCode: "MB-0000000003"}, nil
@@ -84,6 +90,16 @@ func TestStockAPIRoutes(t *testing.T) {
 	e.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK || !bytes.Contains(rec.Body.Bytes(), []byte(`"warehouse":"wip"`)) {
 		t.Fatalf("GET material batch locations status=%d body=%s", rec.Code, rec.Body.String())
+	}
+
+	req = httptest.NewRequest(http.MethodGet, "/api/stock/warehouse-inventory?warehouse=finished_goods", nil)
+	rec = httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET warehouse inventory status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if !bytes.Contains(rec.Body.Bytes(), []byte(`"warehouse":"finished_goods"`)) || !bytes.Contains(rec.Body.Bytes(), []byte(`"item_type":"finished_product"`)) {
+		t.Fatalf("GET warehouse inventory missing finished stock: %s", rec.Body.String())
 	}
 
 	req = httptest.NewRequest(http.MethodPost, "/api/stock/material-transfers", bytes.NewBufferString(`{"material_id":1,"from_warehouse":"raw_materials","to_warehouse":"wip","qty_g":60000,"note":"三天生产领料"}`))

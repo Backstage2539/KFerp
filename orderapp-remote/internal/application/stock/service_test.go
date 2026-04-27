@@ -27,6 +27,9 @@ func (f *fakeRepo) ListWarehouses(ctx context.Context) ([]WarehouseRow, error) {
 func (f *fakeRepo) ListMaterialBatchLocations(ctx context.Context, query MaterialBatchLocationQuery) (MaterialBatchLocationResult, error) {
 	return MaterialBatchLocationResult{}, nil
 }
+func (f *fakeRepo) ListWarehouseInventory(ctx context.Context, query WarehouseInventoryQuery) (WarehouseInventoryResult, error) {
+	return WarehouseInventoryResult{}, nil
+}
 func (f *fakeRepo) ReceiveMaterial(ctx context.Context, cmd MaterialReceiptCommand) (MaterialReceiptResult, error) {
 	f.receipt = cmd
 	return MaterialReceiptResult{ReceiptID: 7, BatchCode: "MB-0000000007"}, nil

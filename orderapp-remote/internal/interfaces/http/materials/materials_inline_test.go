@@ -25,12 +25,18 @@ func TestVueShellUsesInternalMaterialsView(t *testing.T) {
 	src := string(app)
 	for _, want := range []string{
 		`import MaterialsView from './views/MaterialsView.vue'`,
-		`materials: { title: '物料档案/库存' }`,
 		`materials: MaterialsView`,
 	} {
 		if !strings.Contains(src, want) {
 			t.Fatalf("App.vue missing %q", want)
 		}
+	}
+	menuIA, err := os.ReadFile("frontend-vue-shell/src/lib/menu-ia.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(menuIA), `key: 'materials'`) || !strings.Contains(string(menuIA), `物料档案`) {
+		t.Fatal("menu-ia.js missing materials primary menu entry")
 	}
 
 	view, err := os.ReadFile("frontend-vue-shell/src/views/MaterialsView.vue")
