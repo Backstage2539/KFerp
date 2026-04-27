@@ -111,7 +111,7 @@ func recordBatchCostForRunningItemTx(ctx context.Context, tx pgx.Tx, schema stri
 	if finishedTotalG > 0 {
 		unitCost = totalCost / (float64(finishedTotalG) / 1000.0)
 	}
-	_, err := tx.Exec(ctx, fmt.Sprintf(`
+	_, err = tx.Exec(ctx, fmt.Sprintf(`
 		INSERT INTO %s.production_batch_costs(running_item_id,batch_id,product_name,material_cost,operation_cost,total_cost,finished_g,unit_cost_per_kg,created_at)
 		VALUES($1,$2,$3,$4,$5,$6,$7,$8,now())
 		ON CONFLICT (running_item_id) DO UPDATE SET
