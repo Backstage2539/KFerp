@@ -432,6 +432,13 @@ func seedReqWorkflowA(ctx context.Context, pool *pgxpool.Pool, schema string) er
 		{table: "req_unit", code: "UT-094-01", title: "源码守卫覆盖分类删除按钮、确认提示、软删除和商品回未分类逻辑", status: "done", assignee: "Codex", evidence: "TestProductSettingsVueSupportsCategoryDelete; TestProductSettingsRepositorySoftDeletesCategoriesAndUnassignsProducts"},
 		{table: "req_api", code: "API-094-01", title: "API 测试覆盖 DELETE 分类接口传递分类 ID 并返回成功", status: "done", assignee: "Codex", evidence: "TestProductSettingsAPISupportsCategoryTreeAndDragAssignments"},
 		{table: "req_review", code: "REV-094-01", prCode: "PR-094", title: "验收：一级/二级分类可删除，删除后分类不再显示，商品进入未分类且未丢失", status: "todo", assignee: "VA", evidence: "待 Van 服务器验收"},
+		{table: "req_product", code: "PR-095", title: "高级豆单生成：价格试算支持折叠，豆单生成支持选择产品、分级显示、重排编号、样式配置、标签标红、发布撤回、logo 和品牌介绍", status: "review", assignee: "VA", evidence: "codex/product-settings-categories"},
+		{table: "req_dev", code: "DEV-095-01", title: "价格试算支持折叠，生成豆单按钮移动到商业豆单上方并形成价格试算/商用豆单/零售豆单三段页面", status: "done", assignee: "Codex", evidence: "CostingView pricingCollapsed; bean-list-generate-bar"},
+		{table: "req_dev", code: "DEV-095-02", title: "豆单生成支持选择产品、分级显示、选择展示分级、按展示内容重排编号、豆卡样式、表格样式和一行豆卡数量", status: "done", assignee: "Codex", evidence: "buildBeanListPdfGroups selectedProductIDs/showCategoryNumbers/visibleCategoryCodes/layoutStyle/cardsPerRow"},
+		{table: "req_dev", code: "DEV-095-03", title: "每个产品支持 NEW/推荐标签、字段关键词标红和价格标红，豆单支持发布和撤回发布、版本号、历史更新日志、上传logo和品牌介绍", status: "done", assignee: "Codex", evidence: "bean-list publications API; CostingView badge/highlightTerms/redPriceLabels/logoImage/brandIntro"},
+		{table: "req_unit", code: "UT-095-01", title: "单测覆盖豆单产品筛选、分级过滤、编号重排、样式配置、标签和标红拆分", status: "done", assignee: "Codex", evidence: "node --test src/lib/bean-list-pdf.test.js"},
+		{table: "req_api", code: "API-095-01", title: "API 测试覆盖 GET/POST /api/costing/bean-list/publications 和 POST /withdraw 发布撤回流程", status: "done", assignee: "Codex", evidence: "TestBeanListPublicationAPI"},
+		{table: "req_review", code: "REV-095-01", prCode: "PR-095", title: "验收：可按选择生成商用/零售豆单，编号随筛选重排，PDF 预览含样式、标签、标红、版本日志、logo/品牌介绍，并可发布/撤回", status: "todo", assignee: "VA", evidence: "待 Van 服务器验收"},
 	} {
 		if err := seedReqRow(ctx, pool, schema, row); err != nil {
 			return err

@@ -64,6 +64,41 @@ func registerCostingAPI(e *echo.Echo, svc Service) {
 		return c.JSON(http.StatusOK, resp)
 	})
 
+	e.GET("/api/costing/bean-list/publications", func(c echo.Context) error {
+		rows, err := svc.ListBeanListPublications(c.Request().Context(), c.QueryParam("list_type"))
+		if err != nil {
+			return c.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
+		}
+		return c.JSON(http.StatusOK, map[string]any{"rows": rows})
+	})
+
+	e.POST("/api/costing/bean-list/publications", func(c echo.Context) error {
+		var req appcosting.PublishBeanListCommand
+		if err := c.Bind(&req); err != nil {
+			return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid request"})
+		}
+		req.Actor = support.ActorOf(c)
+		row, err := svc.PublishBeanList(c.Request().Context(), req)
+		if err != nil {
+			return c.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
+		}
+		return c.JSON(http.StatusOK, row)
+	})
+
+	e.POST("/api/costing/bean-list/publications/:id/withdraw", func(c echo.Context) error {
+		id, err := strconv.ParseInt(c.Param("id"), 10, 64)
+		if err != nil || id <= 0 {
+			return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid id"})
+		}
+		if err := svc.WithdrawBeanList(c.Request().Context(), appcosting.WithdrawBeanListCommand{
+			ID:    id,
+			Actor: support.ActorOf(c),
+		}); err != nil {
+			return c.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
+		}
+		return c.JSON(http.StatusOK, map[string]any{"ok": true, "id": id})
+	})
+
 	e.POST("/api/costing/runs", func(c echo.Context) error {
 		run, err := svc.CreateRun(c.Request().Context(), support.ActorOf(c))
 		if err != nil {

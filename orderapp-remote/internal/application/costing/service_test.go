@@ -43,6 +43,18 @@ func (r *fakeRepo) UpdateParameterSetting(context.Context, UpdateParameterComman
 	return ParameterSetting{}, nil
 }
 
+func (r *fakeRepo) ListBeanListPublications(context.Context, string) ([]BeanListPublication, error) {
+	return nil, nil
+}
+
+func (r *fakeRepo) PublishBeanList(context.Context, PublishBeanListCommand) (*BeanListPublication, error) {
+	return &BeanListPublication{ID: 1, ListType: "commercial", Version: "V3.0.5", Status: "published"}, nil
+}
+
+func (r *fakeRepo) WithdrawBeanList(context.Context, WithdrawBeanListCommand) error {
+	return nil
+}
+
 func TestCalculateRejectsEmptyProducts(t *testing.T) {
 	svc := NewService(&fakeRepo{})
 	if _, err := svc.Calculate(context.Background(), CalculateRequest{}); err == nil {
@@ -117,5 +129,25 @@ func TestPublishRunRequiresPositiveID(t *testing.T) {
 	svc := NewService(&fakeRepo{})
 	if err := svc.PublishRun(context.Background(), "JJ", 0); err == nil {
 		t.Fatalf("expected invalid id error")
+	}
+}
+
+func TestPublishBeanListValidatesVersionAndListType(t *testing.T) {
+	svc := NewService(&fakeRepo{})
+	if _, err := svc.PublishBeanList(context.Background(), PublishBeanListCommand{ListType: "commercial"}); err == nil {
+		t.Fatalf("expected version required")
+	}
+	row, err := svc.PublishBeanList(context.Background(), PublishBeanListCommand{ListType: "commercial", Version: "V3.0.5"})
+	if err != nil {
+		t.Fatalf("PublishBeanList() error = %v", err)
+	}
+	if row.Status != "published" {
+		t.Fatalf("row = %+v", row)
+	}
+	if _, err := svc.ListBeanListPublications(context.Background(), "bad"); err == nil {
+		t.Fatalf("expected invalid list type")
+	}
+	if err := svc.WithdrawBeanList(context.Background(), WithdrawBeanListCommand{}); err == nil {
+		t.Fatalf("expected invalid id")
 	}
 }

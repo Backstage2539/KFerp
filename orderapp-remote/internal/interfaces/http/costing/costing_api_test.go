@@ -45,6 +45,25 @@ func (fakeService) UpdateSetting(context.Context, appcosting.UpdateParameterComm
 	return appcosting.ParameterSetting{Key: "roast_yield_rate", Label: "生豆到熟豆转化率", Value: 0.81, Unit: "ratio"}, nil
 }
 
+func (fakeService) ListBeanListPublications(context.Context, string) ([]appcosting.BeanListPublication, error) {
+	return []appcosting.BeanListPublication{{
+		ID:       7,
+		ListType: "commercial",
+		Version:  "V3.0.5",
+		Status:   "published",
+		Config:   map[string]any{"layoutStyle": "card", "cardsPerRow": float64(2)},
+		Content:  map[string]any{"totalItems": float64(25)},
+	}}, nil
+}
+
+func (fakeService) PublishBeanList(context.Context, appcosting.PublishBeanListCommand) (*appcosting.BeanListPublication, error) {
+	return &appcosting.BeanListPublication{ID: 8, ListType: "commercial", Version: "V3.0.6", Status: "published"}, nil
+}
+
+func (fakeService) WithdrawBeanList(context.Context, appcosting.WithdrawBeanListCommand) error {
+	return nil
+}
+
 type fakeRepo struct{}
 
 func (fakeRepo) LoadParameters(context.Context) (domain.Parameters, error) {
@@ -69,6 +88,18 @@ func (fakeRepo) ListParameterSettings(context.Context) ([]appcosting.ParameterSe
 
 func (fakeRepo) UpdateParameterSetting(context.Context, appcosting.UpdateParameterCommand) (appcosting.ParameterSetting, error) {
 	return appcosting.ParameterSetting{}, nil
+}
+
+func (fakeRepo) ListBeanListPublications(context.Context, string) ([]appcosting.BeanListPublication, error) {
+	return nil, nil
+}
+
+func (fakeRepo) PublishBeanList(context.Context, appcosting.PublishBeanListCommand) (*appcosting.BeanListPublication, error) {
+	return nil, nil
+}
+
+func (fakeRepo) WithdrawBeanList(context.Context, appcosting.WithdrawBeanListCommand) error {
+	return nil
 }
 
 func TestCostingCalculateAPI(t *testing.T) {
@@ -241,6 +272,9 @@ func TestRoutesAreRegistered(t *testing.T) {
 		"POST /api/costing/settings/:key",
 		"POST /api/costing/calculate",
 		"GET /api/costing/bean-list",
+		"GET /api/costing/bean-list/publications",
+		"POST /api/costing/bean-list/publications",
+		"POST /api/costing/bean-list/publications/:id/withdraw",
 		"POST /api/costing/runs",
 		"POST /api/costing/runs/:id/publish",
 	} {
@@ -275,5 +309,49 @@ func TestCostingSettingsAPI(t *testing.T) {
 	}
 	if got.Key != "roast_yield_rate" || got.Value != 0.81 {
 		t.Fatalf("setting = %+v", got)
+	}
+}
+
+func TestBeanListPublicationAPI(t *testing.T) {
+	e := echo.New()
+	RegisterRoutes(e, Dependencies{Costing: fakeService{}})
+
+	req := httptest.NewRequest(http.MethodGet, "/api/costing/bean-list/publications?list_type=commercial", nil)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("list status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	var listed struct {
+		Rows []appcosting.BeanListPublication `json:"rows"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &listed); err != nil {
+		t.Fatal(err)
+	}
+	if len(listed.Rows) != 1 || listed.Rows[0].Version != "V3.0.5" || listed.Rows[0].Config["layoutStyle"] != "card" {
+		t.Fatalf("publications = %+v", listed.Rows)
+	}
+
+	body := bytes.NewBufferString(`{"list_type":"commercial","version":"V3.0.6","config":{"layoutStyle":"table"},"content":{"totalItems":25},"changelog":"补充标签和筛选"}`)
+	req = httptest.NewRequest(http.MethodPost, "/api/costing/bean-list/publications", body)
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec = httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("publish status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	var published appcosting.BeanListPublication
+	if err := json.Unmarshal(rec.Body.Bytes(), &published); err != nil {
+		t.Fatal(err)
+	}
+	if published.ID != 8 || published.Version != "V3.0.6" || published.Status != "published" {
+		t.Fatalf("published = %+v", published)
+	}
+
+	req = httptest.NewRequest(http.MethodPost, "/api/costing/bean-list/publications/8/withdraw", nil)
+	rec = httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("withdraw status = %d, body = %s", rec.Code, rec.Body.String())
 	}
 }

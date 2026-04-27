@@ -83,3 +83,39 @@ func TestCostingViewPDFPrintDoesNotKeepWholeGroupsOnOnePage(t *testing.T) {
 		}
 	}
 }
+
+func TestCostingViewSupportsConfigurableBeanListPublishingWorkflow(t *testing.T) {
+	view, err := os.ReadFile(filepath.Join("..", "..", "..", "..", "frontend-vue-shell", "src", "views", "CostingView.vue"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	helper, err := os.ReadFile(filepath.Join("..", "..", "..", "..", "frontend-vue-shell", "src", "lib", "bean-list-pdf.js"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := string(view) + "\n" + string(helper)
+	for _, want := range []string{
+		"pricingCollapsed",
+		"bean-list-generate-bar",
+		"selectedProductIDs",
+		"showCategoryNumbers",
+		"visibleCategoryCodes",
+		"layoutStyle",
+		"cardsPerRow",
+		"table",
+		"badge",
+		"highlightTerms",
+		"redPriceLabels",
+		"publishBeanList",
+		"withdrawBeanList",
+		"showVersion",
+		"showChangelog",
+		"logoImage",
+		"brandIntro",
+		"/api/costing/bean-list/publications",
+	} {
+		if !strings.Contains(src, want) {
+			t.Fatalf("configurable bean-list workflow missing %q", want)
+		}
+	}
+}

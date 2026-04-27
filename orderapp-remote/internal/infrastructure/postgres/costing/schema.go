@@ -37,6 +37,24 @@ CREATE TABLE IF NOT EXISTS %[1]s.cost_calculation_items (
 	created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS cost_calculation_items_run_idx ON %[1]s.cost_calculation_items(run_id, id);
+CREATE TABLE IF NOT EXISTS %[1]s.bean_list_publications (
+	id BIGSERIAL PRIMARY KEY,
+	list_type TEXT NOT NULL,
+	version_no TEXT NOT NULL DEFAULT '',
+	status TEXT NOT NULL DEFAULT 'published',
+	config_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+	content_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+	changelog TEXT NOT NULL DEFAULT '',
+	actor TEXT NOT NULL DEFAULT '',
+	published_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+	withdrawn_at TIMESTAMPTZ NULL,
+	created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+	updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS bean_list_publications_type_created_idx ON %[1]s.bean_list_publications(list_type, created_at DESC);
+CREATE UNIQUE INDEX IF NOT EXISTS bean_list_publications_one_published_idx
+	ON %[1]s.bean_list_publications(list_type)
+	WHERE status = 'published';
 `, schema)
 	if _, err := pool.Exec(ctx, q); err != nil {
 		return err

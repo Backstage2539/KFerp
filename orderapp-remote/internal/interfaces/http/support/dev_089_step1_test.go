@@ -121,6 +121,34 @@ func TestProductSettingsDeleteCategoryRequirementSeeds(t *testing.T) {
 	}
 }
 
+func TestBeanListAdvancedGenerationRequirementSeeds(t *testing.T) {
+	b, err := os.ReadFile(filepath.Join("internal", "interfaces", "http", "support", "req_store.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := string(b)
+	for _, want := range []string{
+		"PR-095",
+		"DEV-095-01",
+		"DEV-095-02",
+		"DEV-095-03",
+		"UT-095-01",
+		"API-095-01",
+		"REV-095-01",
+		"价格试算支持折叠",
+		"豆单生成支持选择产品、分级显示、重排编号",
+		"豆卡样式",
+		"表格样式",
+		"发布和撤回发布",
+		"上传logo",
+		"品牌介绍",
+	} {
+		if !strings.Contains(src, want) {
+			t.Fatalf("advanced bean-list generation requirement seed missing %q", want)
+		}
+	}
+}
+
 func TestProductSettingsVueWiringAndLegacyTierEditorRemoval(t *testing.T) {
 	app, err := os.ReadFile(filepath.Join("frontend-vue-shell", "src", "App.vue"))
 	if err != nil {

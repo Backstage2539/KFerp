@@ -159,6 +159,135 @@ func (r Repository) UpdateParameterSetting(ctx context.Context, cmd appcosting.U
 	return next, nil
 }
 
+func (r Repository) ListBeanListPublications(ctx context.Context, listType string) ([]appcosting.BeanListPublication, error) {
+	rows, err := r.pool.Query(ctx, fmt.Sprintf(`
+		SELECT id,
+		       list_type,
+		       version_no,
+		       status,
+		       config_json,
+		       content_json,
+		       changelog,
+		       to_char(published_at,'YYYY-MM-DD HH24:MI'),
+		       COALESCE(to_char(withdrawn_at,'YYYY-MM-DD HH24:MI'),''),
+		       to_char(created_at,'YYYY-MM-DD HH24:MI')
+		FROM %s.bean_list_publications
+		WHERE list_type=$1
+		ORDER BY CASE WHEN status='published' THEN 0 ELSE 1 END, created_at DESC, id DESC
+	`, r.schema), strings.TrimSpace(listType))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := make([]appcosting.BeanListPublication, 0)
+	for rows.Next() {
+		row, err := scanBeanListPublication(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, row)
+	}
+	return out, rows.Err()
+}
+
+func (r Repository) PublishBeanList(ctx context.Context, cmd appcosting.PublishBeanListCommand) (*appcosting.BeanListPublication, error) {
+	conn, err := r.pool.Acquire(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer conn.Release()
+	tx, err := conn.Begin(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	if _, err := tx.Exec(ctx, fmt.Sprintf(`
+		UPDATE %s.bean_list_publications
+		SET status='withdrawn', withdrawn_at=now(), updated_at=now()
+		WHERE list_type=$1 AND status='published'
+	`, r.schema), cmd.ListType); err != nil {
+		return nil, err
+	}
+
+	config, err := json.Marshal(cmd.Config)
+	if err != nil {
+		return nil, err
+	}
+	content, err := json.Marshal(cmd.Content)
+	if err != nil {
+		return nil, err
+	}
+	row, err := tx.Query(ctx, fmt.Sprintf(`
+		INSERT INTO %s.bean_list_publications(list_type, version_no, status, config_json, content_json, changelog, actor)
+		VALUES($1,$2,'published',$3::jsonb,$4::jsonb,$5,$6)
+		RETURNING id, list_type, version_no, status, config_json, content_json, changelog,
+		          to_char(published_at,'YYYY-MM-DD HH24:MI'),
+		          COALESCE(to_char(withdrawn_at,'YYYY-MM-DD HH24:MI'),''),
+		          to_char(created_at,'YYYY-MM-DD HH24:MI')
+	`, r.schema), cmd.ListType, cmd.Version, config, content, cmd.Changelog, cmd.Actor)
+	if err != nil {
+		return nil, err
+	}
+	defer row.Close()
+	if !row.Next() {
+		if err := row.Err(); err != nil {
+			return nil, err
+		}
+		return nil, fmt.Errorf("publish failed")
+	}
+	published, err := scanBeanListPublication(row)
+	if err != nil {
+		return nil, err
+	}
+	if err := row.Err(); err != nil {
+		return nil, err
+	}
+	if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, cmd.Actor, "bean_list_publication", &published.ID, "publish", postgresinfra.StrPtr("status"), nil, postgresinfra.StrPtr("published"), postgresinfra.AuditMeta{
+		"list_type": cmd.ListType,
+		"version":   cmd.Version,
+	}); err != nil {
+		return nil, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return nil, err
+	}
+	return &published, nil
+}
+
+func (r Repository) WithdrawBeanList(ctx context.Context, cmd appcosting.WithdrawBeanListCommand) error {
+	conn, err := r.pool.Acquire(ctx)
+	if err != nil {
+		return err
+	}
+	defer conn.Release()
+	tx, err := conn.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	var listType, version string
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`
+		UPDATE %s.bean_list_publications
+		SET status='withdrawn', withdrawn_at=now(), updated_at=now()
+		WHERE id=$1 AND status='published'
+		RETURNING list_type, version_no
+	`, r.schema), cmd.ID).Scan(&listType, &version); err != nil {
+		if err == pgx.ErrNoRows {
+			return fmt.Errorf("published bean list not found")
+		}
+		return err
+	}
+	if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, cmd.Actor, "bean_list_publication", &cmd.ID, "withdraw", postgresinfra.StrPtr("status"), postgresinfra.StrPtr("published"), postgresinfra.StrPtr("withdrawn"), postgresinfra.AuditMeta{
+		"list_type": listType,
+		"version":   version,
+	}); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
+}
+
 func (r Repository) CreateRun(ctx context.Context, actor string, items []domain.ProductResult) (*appcosting.Run, error) {
 	conn, err := r.pool.Acquire(ctx)
 	if err != nil {
@@ -302,6 +431,31 @@ func loadRunItems(ctx context.Context, tx pgx.Tx, schema string, runID int64) ([
 		items = append(items, item)
 	}
 	return items, rows.Err()
+}
+
+type beanListPublicationScanner interface {
+	Scan(dest ...any) error
+}
+
+func scanBeanListPublication(row beanListPublicationScanner) (appcosting.BeanListPublication, error) {
+	var out appcosting.BeanListPublication
+	var configJSON, contentJSON []byte
+	if err := row.Scan(&out.ID, &out.ListType, &out.Version, &out.Status, &configJSON, &contentJSON, &out.Changelog, &out.PublishedAt, &out.WithdrawnAt, &out.CreatedAt); err != nil {
+		return out, err
+	}
+	out.Config = map[string]any{}
+	out.Content = map[string]any{}
+	if len(configJSON) > 0 {
+		if err := json.Unmarshal(configJSON, &out.Config); err != nil {
+			return out, err
+		}
+	}
+	if len(contentJSON) > 0 {
+		if err := json.Unmarshal(contentJSON, &out.Content); err != nil {
+			return out, err
+		}
+	}
+	return out, nil
 }
 
 func applyParameter(params *domain.Parameters, key string, value float64) {

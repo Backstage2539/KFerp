@@ -41,6 +41,33 @@ type UpdateParameterCommand struct {
 	Actor string  `json:"actor,omitempty"`
 }
 
+type BeanListPublication struct {
+	ID          int64          `json:"id"`
+	ListType    string         `json:"list_type"`
+	Version     string         `json:"version"`
+	Status      string         `json:"status"`
+	Config      map[string]any `json:"config"`
+	Content     map[string]any `json:"content"`
+	Changelog   string         `json:"changelog"`
+	PublishedAt string         `json:"published_at,omitempty"`
+	WithdrawnAt string         `json:"withdrawn_at,omitempty"`
+	CreatedAt   string         `json:"created_at,omitempty"`
+}
+
+type PublishBeanListCommand struct {
+	ListType  string         `json:"list_type"`
+	Version   string         `json:"version"`
+	Config    map[string]any `json:"config"`
+	Content   map[string]any `json:"content"`
+	Changelog string         `json:"changelog"`
+	Actor     string         `json:"actor,omitempty"`
+}
+
+type WithdrawBeanListCommand struct {
+	ID    int64  `json:"id"`
+	Actor string `json:"actor,omitempty"`
+}
+
 type Repository interface {
 	LoadParameters(ctx context.Context) (domain.Parameters, error)
 	LoadProductInputs(ctx context.Context, params domain.Parameters) ([]domain.ProductInput, error)
@@ -48,6 +75,9 @@ type Repository interface {
 	PublishRun(ctx context.Context, actor string, runID int64) error
 	ListParameterSettings(ctx context.Context) ([]ParameterSetting, error)
 	UpdateParameterSetting(ctx context.Context, cmd UpdateParameterCommand) (ParameterSetting, error)
+	ListBeanListPublications(ctx context.Context, listType string) ([]BeanListPublication, error)
+	PublishBeanList(ctx context.Context, cmd PublishBeanListCommand) (*BeanListPublication, error)
+	WithdrawBeanList(ctx context.Context, cmd WithdrawBeanListCommand) error
 }
 
 type Service struct {
@@ -139,6 +169,50 @@ func (s *Service) PublishRun(ctx context.Context, actor string, runID int64) err
 	return s.repo.PublishRun(ctx, actor, runID)
 }
 
+func (s *Service) ListBeanListPublications(ctx context.Context, listType string) ([]BeanListPublication, error) {
+	normalized, err := normalizeBeanListType(listType)
+	if err != nil {
+		return nil, err
+	}
+	if s.repo == nil {
+		return []BeanListPublication{}, nil
+	}
+	return s.repo.ListBeanListPublications(ctx, normalized)
+}
+
+func (s *Service) PublishBeanList(ctx context.Context, cmd PublishBeanListCommand) (*BeanListPublication, error) {
+	listType, err := normalizeBeanListType(cmd.ListType)
+	if err != nil {
+		return nil, err
+	}
+	cmd.ListType = listType
+	cmd.Version = strings.TrimSpace(cmd.Version)
+	cmd.Changelog = strings.TrimSpace(cmd.Changelog)
+	if cmd.Version == "" {
+		return nil, fmt.Errorf("version required")
+	}
+	if cmd.Config == nil {
+		cmd.Config = map[string]any{}
+	}
+	if cmd.Content == nil {
+		cmd.Content = map[string]any{}
+	}
+	if s.repo == nil {
+		return nil, fmt.Errorf("repository required")
+	}
+	return s.repo.PublishBeanList(ctx, cmd)
+}
+
+func (s *Service) WithdrawBeanList(ctx context.Context, cmd WithdrawBeanListCommand) error {
+	if cmd.ID <= 0 {
+		return fmt.Errorf("invalid id")
+	}
+	if s.repo == nil {
+		return fmt.Errorf("repository required")
+	}
+	return s.repo.WithdrawBeanList(ctx, cmd)
+}
+
 func calculate(req CalculateRequest, params domain.Parameters) ([]domain.ProductResult, error) {
 	if len(req.Products) == 0 {
 		return nil, fmt.Errorf("products required")
@@ -152,6 +226,17 @@ func calculate(req CalculateRequest, params domain.Parameters) ([]domain.Product
 		out = append(out, domain.CalculateProduct(params, in))
 	}
 	return out, nil
+}
+
+func normalizeBeanListType(listType string) (string, error) {
+	switch strings.TrimSpace(listType) {
+	case "", "commercial":
+		return "commercial", nil
+	case "retail":
+		return "retail", nil
+	default:
+		return "", fmt.Errorf("invalid list_type")
+	}
 }
 
 func sortBeanListResults(items []domain.ProductResult) {
