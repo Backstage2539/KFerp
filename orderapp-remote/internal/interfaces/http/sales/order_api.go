@@ -20,17 +20,26 @@ type apiOption struct {
 	Name string `json:"name"`
 }
 
+type customerAPIOption struct {
+	ID                 int64  `json:"id"`
+	Name               string `json:"name"`
+	Py                 string `json:"py"`
+	Pyi                string `json:"pyi"`
+	DefaultSourceID    int64  `json:"default_source_id,omitempty"`
+	DefaultOrderTypeID int64  `json:"default_order_type_id,omitempty"`
+}
+
 type orderFormAPIResponse struct {
-	Today        string      `json:"today"`
-	Customers    []apiOption `json:"customers"`
-	Sources      []apiOption `json:"sources"`
-	ShipStatuses []apiOption `json:"ship_statuses"`
-	PayStatuses  []apiOption `json:"pay_statuses"`
-	OrderTypes   []apiOption `json:"order_types"`
-	Products     []jsProduct `json:"products"`
-	EditMode     bool        `json:"edit_mode"`
-	EditID       int64       `json:"edit_id"`
-	EditData     any         `json:"edit_data,omitempty"`
+	Today        string              `json:"today"`
+	Customers    []customerAPIOption `json:"customers"`
+	Sources      []apiOption         `json:"sources"`
+	ShipStatuses []apiOption         `json:"ship_statuses"`
+	PayStatuses  []apiOption         `json:"pay_statuses"`
+	OrderTypes   []apiOption         `json:"order_types"`
+	Products     []jsProduct         `json:"products"`
+	EditMode     bool                `json:"edit_mode"`
+	EditID       int64               `json:"edit_id"`
+	EditData     any                 `json:"edit_data,omitempty"`
 }
 
 type orderSaveAPIRequest struct {
@@ -125,7 +134,7 @@ func (h orderAPIHandler) form(c echo.Context) error {
 
 	resp := orderFormAPIResponse{
 		Today:        data.Today,
-		Customers:    apiOptions(data.Customers),
+		Customers:    apiCustomerOptions(data.Customers),
 		Sources:      apiOptions(data.Sources),
 		ShipStatuses: apiOptions(data.ShipStatuses),
 		PayStatuses:  apiOptions(data.PayStatuses),
@@ -263,6 +272,21 @@ func apiOptions(in []Option) []apiOption {
 	out := make([]apiOption, 0, len(in))
 	for _, item := range in {
 		out = append(out, apiOption{ID: item.ID, Name: item.Name})
+	}
+	return out
+}
+
+func apiCustomerOptions(in []CustomerOption) []customerAPIOption {
+	out := make([]customerAPIOption, 0, len(in))
+	for _, item := range in {
+		out = append(out, customerAPIOption{
+			ID:                 item.ID,
+			Name:               item.Name,
+			Py:                 support.PinyinFull(item.Name),
+			Pyi:                support.PinyinInitials(item.Name),
+			DefaultSourceID:    item.DefaultSourceID,
+			DefaultOrderTypeID: item.DefaultOrderTypeID,
+		})
 	}
 	return out
 }

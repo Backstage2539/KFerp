@@ -132,7 +132,16 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 		totalG := float64(itemWeightG)
 		qtyLb := totalG / 454.0
 
-		if retailOrder && items[idx].productID != nil {
+		if items[idx].manualPrice != nil {
+			lineTotal := *items[idx].manualPrice * float64(items[idx].units)
+			items[idx].lineTotal = lineTotal
+			if qtyLb > 0 {
+				items[idx].unitPrice = lineTotal / qtyLb
+			}
+			items[idx].priceOverride = true
+			totalAmt += items[idx].lineTotal
+			continue
+		} else if retailOrder && items[idx].productID != nil {
 			retailPrices := salesdomain.RetailSpecPrices{}
 			q := fmt.Sprintf(`SELECT
 				COALESCE(retail_price_100g, 0),
@@ -146,15 +155,6 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 			if qtyLb > 0 {
 				items[idx].unitPrice = lineTotal / qtyLb
 			}
-			totalAmt += items[idx].lineTotal
-			continue
-		} else if items[idx].manualPrice != nil {
-			lineTotal := *items[idx].manualPrice * float64(items[idx].units)
-			items[idx].lineTotal = lineTotal
-			if qtyLb > 0 {
-				items[idx].unitPrice = lineTotal / qtyLb
-			}
-			items[idx].priceOverride = true
 			totalAmt += items[idx].lineTotal
 			continue
 		} else if items[idx].productID != nil {
@@ -241,10 +241,10 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 	grand0 := totalAmt + shippingAmt - discountAmt + outsourceTotal
 	grandTotal, roundingAmt := applyRoundToInt(grand0, roundToInt)
 
-	// 默认付款状态：未选择时自动写入“未付款”（系统状态名兼容“未收款”）。
+	// 默认付款状态：未选择时自动写入“已付款”（兼容“已收款”命名）。
 	payStatusID := cmd.PayStatusID
 	if payStatusID == 0 {
-		payStatusID = lookupDefaultStatusID(ctx, tx, r.schema, "pay_statuses", "未付款", "未收款")
+		payStatusID = lookupDefaultStatusID(ctx, tx, r.schema, "pay_statuses", "已付款", "已收款")
 	}
 
 	// 默认发货状态：未选择时自动写入“未发货”。

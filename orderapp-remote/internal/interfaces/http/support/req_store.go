@@ -464,6 +464,13 @@ func seedReqWorkflowA(ctx context.Context, pool *pgxpool.Pool, schema string) er
 		{table: "req_unit", code: "UT-099-01", title: "源码守卫覆盖行分组豆卡、移除 redPriceLabels/标红价格档/可填55文案、打印只显示豆单节点", status: "done", assignee: "Codex", evidence: "TestCostingViewSupportsConfigurableBeanListPublishingWorkflow; bean-list-pdf.test"},
 		{table: "req_api", code: "API-099-01", title: "接口级源码守卫和 Vue 构建覆盖豆单预览/打印布局调整不破坏现有生成数据", status: "done", assignee: "Codex", evidence: "go test ./internal/interfaces/http/costing; npm run build"},
 		{table: "req_review", code: "REV-099-01", prCode: "PR-099", title: "验收：豆卡风味/特点/报价同排对齐；末行单卡/双卡占满整行；无标红价格档输入；打印预览只包含豆单", status: "todo", assignee: "VA", evidence: "待 Van 服务器验收"},
+		{table: "req_product", code: "PR-100", title: "录单页改为高级紧凑视图，客户模糊搜索，商品下拉直接搜索，默认已付款未发货，并支持规格梯度价和手动单价", status: "review", assignee: "VA", evidence: "codex/order-entry-polish-20260427"},
+		{table: "req_dev", code: "DEV-100-01", title: "录单 API 返回客户默认来源/订单类型和拼音索引，保存新单未传状态时付款状态默认已付款、发货状态默认未发货", status: "done", assignee: "Codex", evidence: "OrderForm customer defaults; SaveOrder default paid/unshipped"},
+		{table: "req_dev", code: "DEV-100-02", title: "录单页客户模糊搜索并联动默认来源/订单类型，商品明细改为商品下拉直接搜索，不再保留单独搜索框", status: "done", assignee: "Codex", evidence: "OrderEntryView customer-combobox/product-combobox"},
+		{table: "req_dev", code: "DEV-100-03", title: "商品明细支持 36g、80g、100g、227g、454g、500g、1000g、2.5kg，按规格和数量实时匹配梯度价并允许手动单价", status: "done", assignee: "Codex", evidence: "order-entry.js common specs + manual tier payload"},
+		{table: "req_unit", code: "UT-100-01", title: "覆盖录单规格列表、商品/客户搜索、默认状态、梯度价和手动单价 payload", status: "done", assignee: "Codex", evidence: "node --test src/lib/order-entry.test.js; TestOrderEntryPolish"},
+		{table: "req_api", code: "API-100-01", title: "覆盖 /api/order/form 客户默认字段和 POST /api/order 默认已付款未发货", status: "done", assignee: "Codex", evidence: "go test ./internal/interfaces/http/sales -run TestOrderAPI"},
+		{table: "req_review", code: "REV-100-01", prCode: "PR-100", title: "验收：录单视图更紧凑，客户和商品可模糊搜索，默认已付款/未发货，选商品后实时价格可改", status: "todo", assignee: "VA", evidence: "待 Van 服务器验收"},
 	} {
 		if err := seedReqRow(ctx, pool, schema, row); err != nil {
 			return err

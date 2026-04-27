@@ -112,6 +112,13 @@ type Option struct {
 	Name string `json:"name"`
 }
 
+type CustomerOption struct {
+	ID                 int64  `json:"id"`
+	Name               string `json:"name"`
+	DefaultSourceID    int64  `json:"default_source_id"`
+	DefaultOrderTypeID int64  `json:"default_order_type_id"`
+}
+
 type ProductTierOption struct {
 	ID        int64    `json:"id"`
 	SpecG     int64    `json:"spec_g"`
@@ -135,7 +142,7 @@ type ProductOption struct {
 
 type OrderFormData struct {
 	Today        string
-	Customers    []Option
+	Customers    []CustomerOption
 	Sources      []Option
 	ShipStatuses []Option
 	PayStatuses  []Option
