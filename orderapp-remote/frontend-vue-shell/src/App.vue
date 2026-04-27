@@ -5,7 +5,7 @@
     <aside class="sidebar" :class="sidebarClass">
       <div class="brand">ERP</div>
       <nav>
-        <template v-for="g in menuGroups" :key="g.id">
+        <template v-for="g in availableMenuGroups" :key="g.id">
           <button
             class="section-toggle"
             :class="{ active: currentGroupId === g.id }"
@@ -33,8 +33,12 @@
       <header class="top" :class="{ compact: !showTitle }">
         <button class="toggle" @click="toggleMenu">{{ toggleLabel }}</button>
         <div v-if="showTitle" class="title">{{ title }}</div>
+        <div v-if="actorName" class="actor">{{ actorName }}</div>
       </header>
-      <component :is="currentInternalView" class="internal-view" :title="title" :view-key="currentKey" />
+      <div v-if="authLoading" class="status">加载中</div>
+      <div v-else-if="authError" class="status">{{ authError }}</div>
+      <div v-else-if="!isCurrentAllowed" class="status">无权访问</div>
+      <component v-else :is="currentInternalView" class="internal-view" :title="title" :view-key="currentKey" />
     </main>
   </div>
 </template>
@@ -69,9 +73,11 @@ import StockAdjustmentsView from './views/StockAdjustmentsView.vue'
 import StockBatchesView from './views/StockBatchesView.vue'
 import StockLedgerView from './views/StockLedgerView.vue'
 import StockOperationsView from './views/StockOperationsView.vue'
+import UserPermissionsView from './views/UserPermissionsView.vue'
 import WipMaterialsView from './views/WipMaterialsView.vue'
 import WarehouseInventoryView from './views/WarehouseInventoryView.vue'
 import WorkOrdersView from './views/WorkOrdersView.vue'
+import { fetchCurrentActor } from './api/auth.js'
 import {
   defaultExpandedGroups,
   groupForView,
@@ -80,13 +86,19 @@ import {
   restoreExpandedGroups,
   toggleExpandedGroup,
 } from './lib/menu-ia.js'
+import { filterMenuGroups, isViewAllowed } from './lib/menu-permissions.js'
 
 const collapsed = ref(false)
-const currentKey = ref('order')
+const requestedView = new URL(window.location.href).searchParams.get('view')
+const requestedViewFromUrl = !!requestedView
+const currentKey = ref(requestedView && menuMap[requestedView] ? requestedView : 'order')
 const isMobile = ref(false)
 const mobileOpen = ref(false)
 const expandedGroups = ref(defaultExpandedGroups(menuGroups, currentKey.value))
 const menuStorageKey = 'kferp.menu.expandedGroups'
+const authLoading = ref(true)
+const authError = ref('')
+const currentActor = ref(null)
 
 const internalViews = {
   order: OrderEntryView,
@@ -122,6 +134,7 @@ const internalViews = {
   senderSettings: SenderSettingsView,
   outsourceSettings: OutsourceSettingsView,
   audit: AuditView,
+  userPermissions: UserPermissionsView,
   reqProduct: RequirementsView,
   reqDev: RequirementsView,
   reqUnit: RequirementsView,
@@ -137,6 +150,7 @@ function applyKeyToUrl(key) {
 
 function open(key) {
   if (!menuMap[key]) return
+  if (!isViewAllowed(key, allowedViewKeys.value)) return
   currentKey.value = key
   ensureCurrentGroupOpen(key)
   applyKeyToUrl(key)
@@ -160,7 +174,7 @@ function readStoredExpandedGroups() {
 }
 
 function ensureCurrentGroupOpen(key) {
-  const group = groupForView(menuGroups, key)
+  const group = groupForView(availableMenuGroups.value, key)
   if (!group || expandedGroups.value.includes(group.id)) return
   expandedGroups.value = [...expandedGroups.value, group.id]
   persistExpandedGroups()
@@ -192,22 +206,44 @@ function toggleMenu() {
 
 function handleNavigateView(event) {
   const key = event?.detail?.key
-  if (key && menuMap[key]) {
+  if (key && menuMap[key] && isViewAllowed(key, allowedViewKeys.value)) {
     open(key)
   }
 }
 
-onMounted(() => {
-  handleResize()
-  const view = new URL(window.location.href).searchParams.get('view')
-  if (view && menuMap[view]) {
-    currentKey.value = view
+function firstAllowedMenuKey() {
+  return availableMenuGroups.value[0]?.items?.[0]?.key || ''
+}
+
+async function loadActor() {
+  authLoading.value = true
+  authError.value = ''
+  try {
+    currentActor.value = await fetchCurrentActor()
+    expandedGroups.value = restoreExpandedGroups(
+      availableMenuGroups.value,
+      readStoredExpandedGroups(),
+      currentKey.value,
+    )
+    if (!requestedViewFromUrl && !isViewAllowed(currentKey.value, allowedViewKeys.value)) {
+      const first = firstAllowedMenuKey()
+      if (first) open(first)
+    }
+  } catch (err) {
+    authError.value = err.message || '权限加载失败'
+  } finally {
+    authLoading.value = false
   }
+}
+
+onMounted(async () => {
+  handleResize()
   expandedGroups.value = restoreExpandedGroups(
-    menuGroups,
+    availableMenuGroups.value,
     readStoredExpandedGroups(),
     currentKey.value,
   )
+  await loadActor()
   window.addEventListener('resize', handleResize)
   window.addEventListener('kferp:navigate-view', handleNavigateView)
 })
@@ -224,12 +260,20 @@ const sidebarClass = computed(() => ({
 }))
 
 const showTitle = computed(() => !isMobile.value && !collapsed.value)
-const currentGroupId = computed(() => groupForView(menuGroups, currentKey.value)?.id || '')
+const allowedViewKeys = computed(() => {
+  if (!currentActor.value) return []
+  if (currentActor.value.basic_auth_admin) return null
+  return Array.isArray(currentActor.value.allowed_views) ? currentActor.value.allowed_views : []
+})
+const availableMenuGroups = computed(() => filterMenuGroups(menuGroups, allowedViewKeys.value))
+const currentGroupId = computed(() => groupForView(availableMenuGroups.value, currentKey.value)?.id || '')
 const toggleLabel = computed(() => {
   if (isMobile.value) return '弹出菜单'
   return collapsed.value ? '弹出菜单' : '收起菜单'
 })
 const title = computed(() => menuMap[currentKey.value]?.title || '')
+const actorName = computed(() => currentActor.value?.name || '')
+const isCurrentAllowed = computed(() => menuMap[currentKey.value] && isViewAllowed(currentKey.value, allowedViewKeys.value))
 const currentInternalView = computed(() => internalViews[currentKey.value] || OrdersView)
 </script>
 
@@ -271,6 +315,8 @@ const currentInternalView = computed(() => internalViews[currentKey.value] || Or
 .top { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-bottom: 1px solid #eee; }
 .top.compact { gap: 0; }
 .title { font-weight: 600; }
+.actor { margin-left: auto; color: #666; font-size: 13px; }
+.status { padding: 28px; color: #666; }
 .internal-view { min-height: calc(100vh - 56px); background: #fff; }
 .overlay { position: fixed; inset: 0; background: rgba(0,0,0,.25); z-index: 25; }
 

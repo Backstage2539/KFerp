@@ -14,13 +14,14 @@ func BasicAuth(user, pass, schema string, pool *pgxpool.Pool) echo.MiddlewareFun
 		return func(c echo.Context) error {
 			path := c.Path()
 			requestPath := c.Request().URL.Path
-			if strings.HasPrefix(path, "/api/auth/") || path == "/login" || isPublicUnauthenticatedPath(path) || isPublicUnauthenticatedPath(requestPath) {
+			if isAuthPublicPath(path) || isAuthPublicPath(requestPath) || path == "/login" || isPublicUnauthenticatedPath(path) || isPublicUnauthenticatedPath(requestPath) {
 				return next(c)
 			}
 
 			if u, p, ok := c.Request().BasicAuth(); ok {
 				if subtle.ConstantTimeCompare([]byte(u), []byte(user)) == 1 && subtle.ConstantTimeCompare([]byte(p), []byte(pass)) == 1 {
 					c.Set("actor", u)
+					c.Set("basic_auth_admin", true)
 					return next(c)
 				}
 			}
@@ -46,6 +47,15 @@ func BasicAuth(user, pass, schema string, pool *pgxpool.Pool) echo.MiddlewareFun
 
 func isPublicUnauthenticatedPath(path string) bool {
 	return strings.HasPrefix(path, "/public/bean-list/")
+}
+
+func isAuthPublicPath(path string) bool {
+	switch path {
+	case "/api/auth/login", "/api/auth/sms/send", "/api/auth/password/set":
+		return true
+	default:
+		return false
+	}
 }
 
 func ActorOf(c echo.Context) string {

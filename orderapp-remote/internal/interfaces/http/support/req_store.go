@@ -252,6 +252,20 @@ func seedReqWorkflowA(ctx context.Context, pool *pgxpool.Pool, schema string) er
 		}
 	}
 	for _, row := range []reqSeedRow{
+		{table: "req_product", code: "PR-AUTH-001", title: "建立用户角色和页面/API 权限 P0：管理员分配员工角色，菜单和接口按权限拦截", status: "review", assignee: "VA", evidence: "codex/user-permissions-p0-20260427"},
+		{table: "req_dev", code: "DEV-AUTH-001", title: "新增 authz application service，统一角色、权限、页面可见性和员工角色分配规则", status: "done", assignee: "Codex", evidence: "internal/application/authz"},
+		{table: "req_dev", code: "DEV-AUTH-002", title: "新增 authz Postgres schema/repository，种子管理员、销售、生产、仓库、财务、商品、系统角色", status: "done", assignee: "Codex", evidence: "internal/infrastructure/postgres/authz"},
+		{table: "req_dev", code: "DEV-AUTH-003", title: "新增 /api/auth/me、角色列表、员工角色读取和保存 API，并保留 BasicAuth 管理员兜底", status: "done", assignee: "Codex", evidence: "internal/interfaces/http/support/authz_api.go"},
+		{table: "req_dev", code: "DEV-AUTH-004", title: "API 权限中间件覆盖订单、客户、生产、库存、物料、BOM、产品、成本、设置、员工、审计和需求模块", status: "done", assignee: "Codex", evidence: "AuthorizationMiddleware"},
+		{table: "req_dev", code: "DEV-AUTH-005", title: "Vue/Vite 左侧菜单按 allowed_views 过滤，新增用户权限页面给管理员分配角色", status: "done", assignee: "Codex", evidence: "App.vue; UserPermissionsView.vue"},
+		{table: "req_unit", code: "UT-AUTH-001", title: "单测覆盖管理员全权限、角色权限合并去重、员工角色分配规范化和菜单过滤", status: "done", assignee: "Codex", evidence: "authz service tests; menu-permissions.test.js"},
+		{table: "req_unit", code: "UT-AUTH-002", title: "单测覆盖默认角色和所有 Vue shell view key 权限种子", status: "done", assignee: "Codex", evidence: "postgres/authz schema tests"},
+		{table: "req_unit", code: "UT-AUTH-003", title: "单测覆盖 schema 初始化顺序，company 先于 support/authz 执行", status: "done", assignee: "Codex", evidence: "TestSchemaSetupInitializesCompanyBeforeEmployeeDependentModules"},
+		{table: "req_api", code: "API-AUTH-001", title: "API 测试覆盖 GET /api/auth/me 返回当前员工权限和可访问页面", status: "done", assignee: "Codex", evidence: "TestAuthMeReturnsCurrentActorPermissionsAndViews"},
+		{table: "req_api", code: "API-AUTH-002", title: "API 测试覆盖 BasicAuth 管理员可作为全权限兜底访问 /api/auth/me", status: "done", assignee: "Codex", evidence: "TestAuthMeTreatsBasicAuthAsAdminFallback"},
+		{table: "req_api", code: "API-AUTH-003", title: "API 测试覆盖权限中间件缺权限拒绝、有权限放行", status: "done", assignee: "Codex", evidence: "TestAuthorizationMiddlewareDeniesMissingPermission; TestAuthorizationMiddlewareAllowsMatchingPermission"},
+		{table: "req_api", code: "API-AUTH-004", title: "API 测试覆盖员工角色读取和保存必须具备 auth.manage 权限", status: "done", assignee: "Codex", evidence: "TestAssignEmployeeRolesAPIRequiresAuthManage; TestListEmployeeRolesAPIRequiresAuthManage"},
+		{table: "req_review", code: "REV-AUTH-001", prCode: "PR-AUTH-001", title: "验收：管理员能打开用户权限页分配角色；普通员工只看到授权菜单，未授权 API 返回 403", status: "todo", assignee: "VA", evidence: "待 Van 服务器验收"},
 		{table: "req_product", code: "PR-STOCK-001", title: "生产完成时生成库存流水与成品批次，支持库存追溯", status: "review", assignee: "VA", evidence: "功能分支 codex/erpnext-stock-ledger-batches；go test ./..."},
 		{table: "req_dev", code: "DEV-STOCK-001", title: "新增 stock_ledger_entries / stock_batches schema", status: "done", assignee: "JJ", evidence: "ensureStockLedgerTables + TestProduceFinishHandlerWritesStockLedgerAndFinishedBatch"},
 		{table: "req_dev", code: "DEV-STOCK-002", title: "完成生产时写入成品入库流水、物料出库流水和成品批次", status: "done", assignee: "JJ", evidence: "finishRunningItem -> recordFinishedProductStockMovementTx / deductMaterialsForRunningItemTx"},
