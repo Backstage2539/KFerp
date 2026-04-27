@@ -106,6 +106,20 @@ func registerStockAPI(e *echo.Echo, stockSvc *stockapp.Service) {
 		return c.JSON(http.StatusOK, result)
 	})
 
+	e.GET("/api/stock/warehouse-inventory", func(c echo.Context) error {
+		result, err := stockSvc.ListWarehouseInventory(c.Request().Context(), stockapp.WarehouseInventoryQuery{
+			Q:         strings.TrimSpace(c.QueryParam("q")),
+			Warehouse: strings.TrimSpace(c.QueryParam("warehouse")),
+			ItemType:  strings.TrimSpace(c.QueryParam("item_type")),
+			Limit:     support.IntParam(c, "limit", 100),
+			Offset:    stockOffset(c),
+		})
+		if err != nil {
+			return c.JSON(http.StatusInternalServerError, errorResponse{Error: err.Error()})
+		}
+		return c.JSON(http.StatusOK, result)
+	})
+
 	e.POST("/api/stock/material-receipts", func(c echo.Context) error {
 		var req struct {
 			MaterialID int64   `json:"material_id"`

@@ -271,6 +271,83 @@ func (r Repository) ListMaterialBatchLocations(ctx context.Context, query stocka
 	return stockapp.MaterialBatchLocationResult{Rows: out, HasNext: hasNext}, nil
 }
 
+func (r Repository) ListWarehouseInventory(ctx context.Context, query stockapp.WarehouseInventoryQuery) (stockapp.WarehouseInventoryResult, error) {
+	q := strings.TrimSpace(query.Q)
+	qLike := "%" + q + "%"
+	rows, err := r.pool.Query(ctx, fmt.Sprintf(`
+		WITH warehouse_inventory AS (
+			SELECT l.warehouse,
+			       COALESCE(w.name,l.warehouse) AS warehouse_name,
+			       COALESCE(w.kind,'') AS warehouse_kind,
+			       'material' AS item_type,
+			       l.material_id AS item_id,
+			       COALESCE(m.name,'') AS item_name,
+			       0::bigint AS spec_g,
+			       l.material_batch_id AS batch_id,
+			       l.batch_code AS batch_code,
+			       l.qty_g AS qty_g,
+			       0::bigint AS qty_units,
+			       COALESCE(b.unit_cost,0) AS unit_cost,
+			       l.updated_at AS updated_at
+			FROM %s.material_batch_locations l
+			LEFT JOIN %s.material_batches b ON b.id=l.material_batch_id
+			LEFT JOIN %s.materials m ON m.id=l.material_id
+			LEFT JOIN %s.warehouses w ON w.code=l.warehouse
+			WHERE l.qty_g <> 0
+			  AND ($1 = '' OR l.batch_code ILIKE $2 OR m.name ILIKE $2)
+			  AND ($3 = '' OR l.warehouse = $3)
+			  AND ($4 = '' OR $4 = 'material')
+			UNION ALL
+			SELECT 'finished_goods' AS warehouse,
+			       COALESCE(w.name,'成品仓') AS warehouse_name,
+			       COALESCE(w.kind,'finished') AS warehouse_kind,
+			       'finished_product' AS item_type,
+			       fi.product_id AS item_id,
+			       COALESCE(p.name,'') AS item_name,
+			       fi.spec_g,
+			       0::bigint AS batch_id,
+			       '' AS batch_code,
+			       (fi.onhand_units * fi.spec_g + fi.onhand_loose_g) AS qty_g,
+			       fi.onhand_units AS qty_units,
+			       0::numeric AS unit_cost,
+			       fi.updated_at AS updated_at
+			FROM %s.finished_inventory fi
+			LEFT JOIN %s.products p ON p.id=fi.product_id
+			LEFT JOIN %s.warehouses w ON w.code='finished_goods'
+			WHERE (fi.onhand_units <> 0 OR fi.onhand_loose_g <> 0)
+			  AND ($1 = '' OR p.name ILIKE $2)
+			  AND ($3 = '' OR $3 = 'finished_goods')
+			  AND ($4 = '' OR $4 = 'finished_product')
+		)
+		SELECT warehouse,warehouse_name,warehouse_kind,item_type,item_id,item_name,spec_g,batch_id,batch_code,
+		       qty_g,qty_units,COALESCE(unit_cost,0),to_char(updated_at,'YYYY-MM-DD HH24:MI')
+		FROM warehouse_inventory
+		ORDER BY warehouse_name,item_type,item_name,spec_g,batch_code
+		LIMIT $5 OFFSET $6
+	`, r.schema, r.schema, r.schema, r.schema, r.schema, r.schema, r.schema), q, qLike, query.Warehouse, query.ItemType, query.Limit+1, query.Offset)
+	if err != nil {
+		return stockapp.WarehouseInventoryResult{}, err
+	}
+	defer rows.Close()
+	out := make([]stockapp.WarehouseInventoryRow, 0)
+	for rows.Next() {
+		var row stockapp.WarehouseInventoryRow
+		if err := rows.Scan(&row.Warehouse, &row.WarehouseName, &row.WarehouseKind, &row.ItemType, &row.ItemID, &row.ItemName, &row.SpecG, &row.BatchID, &row.BatchCode, &row.QtyG, &row.QtyUnits, &row.UnitCost, &row.UpdatedAt); err != nil {
+			return stockapp.WarehouseInventoryResult{}, err
+		}
+		out = append(out, row)
+	}
+	if err := rows.Err(); err != nil {
+		return stockapp.WarehouseInventoryResult{}, err
+	}
+	hasNext := false
+	if len(out) > query.Limit {
+		out = out[:query.Limit]
+		hasNext = true
+	}
+	return stockapp.WarehouseInventoryResult{Rows: out, HasNext: hasNext}, nil
+}
+
 func (r Repository) ReceiveMaterial(ctx context.Context, cmd stockapp.MaterialReceiptCommand) (stockapp.MaterialReceiptResult, error) {
 	tx, err := r.pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {

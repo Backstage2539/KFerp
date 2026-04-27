@@ -1,0 +1,37 @@
+import assert from 'node:assert/strict'
+import { test } from 'node:test'
+import {
+  defaultExpandedGroups,
+  groupForView,
+  menuGroups,
+  primaryMenuKeys,
+  restoreExpandedGroups,
+  toggleExpandedGroup,
+} from './menu-ia.js'
+
+test('primary menu replaces overlapping inventory pages with warehouse inventory workspaces', () => {
+  const keys = primaryMenuKeys(menuGroups)
+  assert.ok(keys.includes('warehouseInventory'))
+  assert.ok(keys.includes('stockOperations'))
+  assert.ok(keys.includes('materials'))
+  assert.equal(keys.includes('materialBatches'), false)
+  assert.equal(keys.includes('stockBatches'), false)
+  assert.equal(keys.includes('stockLedger'), false)
+  assert.equal(keys.includes('inventory'), false)
+})
+
+test('warehouse inventory and legacy stock views resolve to the inventory group', () => {
+  assert.equal(groupForView(menuGroups, 'warehouseInventory')?.id, 'inventory')
+  assert.equal(groupForView(menuGroups, 'stockOperations')?.id, 'inventory')
+})
+
+test('expanded menu groups persist and keep current group open', () => {
+  const initial = defaultExpandedGroups(menuGroups, 'warehouseInventory')
+  assert.ok(initial.includes('inventory'))
+
+  const closed = toggleExpandedGroup(initial, 'inventory')
+  assert.equal(closed.includes('inventory'), false)
+
+  const restored = restoreExpandedGroups(menuGroups, JSON.stringify(['sales']), 'warehouseInventory')
+  assert.deepEqual(restored, ['sales', 'inventory'])
+})

@@ -123,10 +123,17 @@ func TestVueShellProducePlanIsNoLongerTemplateDriven(t *testing.T) {
 		t.Fatal(err)
 	}
 	content := string(body)
-	for _, needle := range []string{"ProducePlanView", "producePlan: ProducePlanView", "producePlan: { title: '生产计划/开始生产'"} {
+	for _, needle := range []string{"ProducePlanView", "producePlan: ProducePlanView"} {
 		if !strings.Contains(content, needle) {
 			t.Fatalf("App.vue missing %q", needle)
 		}
+	}
+	body, err = os.ReadFile("frontend-vue-shell/src/lib/menu-ia.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(body), "producePlan") || !strings.Contains(string(body), "生产计划/开始生产") {
+		t.Fatal("menu-ia.js missing producePlan title")
 	}
 	body, err = os.ReadFile("internal/interfaces/http/support/static_frontend_routes.go")
 	if err != nil {

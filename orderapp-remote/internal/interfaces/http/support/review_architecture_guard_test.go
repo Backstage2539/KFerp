@@ -64,11 +64,17 @@ func TestProductionLogsAreVueInternalView(t *testing.T) {
 	for _, want := range []string{
 		"ProductionLogsView",
 		"produceLogs: ProductionLogsView",
-		"produceLogs: { title: '生产日志'",
 	} {
 		if !strings.Contains(content, want) {
 			t.Fatalf("App.vue missing Vue internal production logs wiring %q", want)
 		}
+	}
+	body, err = os.ReadFile("frontend-vue-shell/src/lib/menu-ia.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(body), "produceLogs") || !strings.Contains(string(body), "生产日志") {
+		t.Fatal("menu-ia.js missing production logs title")
 	}
 }
 

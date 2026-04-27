@@ -5,16 +5,25 @@
     <aside class="sidebar" :class="sidebarClass">
       <div class="brand">ERP</div>
       <nav>
-        <template v-for="g in menuGroups" :key="g.name">
-          <div class="section">{{ g.name }}</div>
+        <template v-for="g in menuGroups" :key="g.id">
           <button
-            v-for="item in g.items"
-            :key="item.key"
-            class="menu"
-            :class="{ active: currentKey === item.key }"
-            @click="open(item.key)">
-            {{ item.label }}
+            class="section-toggle"
+            type="button"
+            :aria-expanded="isGroupOpen(g.id)"
+            @click="toggleGroup(g.id)">
+            <span class="section-name">{{ g.name }}</span>
+            <span class="section-caret">{{ isGroupOpen(g.id) ? 'v' : '>' }}</span>
           </button>
+          <div v-show="isGroupOpen(g.id)" class="section-items">
+            <button
+              v-for="item in g.items"
+              :key="item.key"
+              class="menu"
+              :class="{ active: currentKey === item.key }"
+              @click="open(item.key)">
+              {{ item.label }}
+            </button>
+          </div>
         </template>
       </nav>
     </aside>
@@ -57,54 +66,31 @@ import SenderSettingsView from './views/SenderSettingsView.vue'
 import StockAdjustmentsView from './views/StockAdjustmentsView.vue'
 import StockBatchesView from './views/StockBatchesView.vue'
 import StockLedgerView from './views/StockLedgerView.vue'
+import StockOperationsView from './views/StockOperationsView.vue'
 import WipMaterialsView from './views/WipMaterialsView.vue'
+import WarehouseInventoryView from './views/WarehouseInventoryView.vue'
 import WorkOrdersView from './views/WorkOrdersView.vue'
+import {
+  defaultExpandedGroups,
+  groupForView,
+  menuGroups,
+  menuMap,
+  restoreExpandedGroups,
+  toggleExpandedGroup,
+} from './lib/menu-ia.js'
 
 const collapsed = ref(false)
 const currentKey = ref('order')
 const isMobile = ref(false)
 const mobileOpen = ref(false)
-
-const menuMap = {
-  order: { title: '录单' },
-  orders: { title: '订单列表' },
-  producePlan: { title: '生产计划/开始生产' },
-  produceRunning: { title: '生产中' },
-  produceLogs: { title: '生产日志' },
-  workOrders: { title: '生产工单' },
-  jobCards: { title: '工序卡' },
-  productionCosts: { title: '生产成本' },
-  allocationLogs: { title: '分配批次查看' },
-  materials: { title: '物料档案/库存' },
-  materialReceipts: { title: '原料入库' },
-  materialBatches: { title: '原料批次' },
-  wipMaterials: { title: 'WIP在制仓' },
-  stockLedger: { title: '库存流水' },
-  stockBatches: { title: '库存批次' },
-  stockAdjustments: { title: '库存调整单' },
-  bom: { title: 'BOM配方维护' },
-  costing: { title: '成本核算' },
-  costingSettings: { title: '成本参数设置' },
-  customers: { title: '客户档案' },
-  products: { title: '商品档案' },
-  departments: { title: '部门维护' },
-  employees: { title: '员工维护' },
-  inventory: { title: '成品库存' },
-  quotePrint: { title: '报价导出' },
-  machines: { title: '设备产能配置' },
-  senderSettings: { title: '发货人设置' },
-  outsourceSettings: { title: '代加工模板设置' },
-  audit: { title: '操作日志' },
-  reqProduct: { title: '产品需求表' },
-  reqDev: { title: '开发需求表' },
-  reqUnit: { title: '单元测试表' },
-  reqApi: { title: 'API 测试表' },
-  reqReview: { title: '需求审核表' },
-}
+const expandedGroups = ref(defaultExpandedGroups(menuGroups, currentKey.value))
+const menuStorageKey = 'kferp.menu.expandedGroups'
 
 const internalViews = {
   order: OrderEntryView,
   orders: OrdersView,
+  warehouseInventory: WarehouseInventoryView,
+  stockOperations: StockOperationsView,
   materials: MaterialsView,
   materialReceipts: MaterialReceiptsView,
   materialBatches: MaterialBatchesView,
@@ -139,16 +125,6 @@ const internalViews = {
   reqReview: RequirementsView,
 }
 
-const menuGroups = [
-  { name: '订单', items: [{ key: 'order', label: '录单' }, { key: 'orders', label: '订单列表' }] },
-  { name: '生产流程', items: [{ key: 'producePlan', label: '生产计划/开始生产' }, { key: 'produceRunning', label: '生产中' }, { key: 'workOrders', label: '生产工单' }, { key: 'jobCards', label: '工序卡' }, { key: 'productionCosts', label: '生产成本' }, { key: 'produceLogs', label: '生产日志' }, { key: 'allocationLogs', label: '分配批次查看' }] },
-  { name: '物料管理', items: [{ key: 'materials', label: '物料档案/库存' }, { key: 'materialReceipts', label: '原料入库' }, { key: 'materialBatches', label: '原料批次' }, { key: 'wipMaterials', label: 'WIP在制仓' }, { key: 'stockLedger', label: '库存流水' }, { key: 'stockBatches', label: '库存批次' }, { key: 'stockAdjustments', label: '库存调整单' }, { key: 'bom', label: 'BOM配方维护' }, { key: 'costing', label: '成本核算' }] },
-  { name: '档案', items: [{ key: 'customers', label: '客户档案' }, { key: 'products', label: '商品档案' }, { key: 'departments', label: '部门维护' }, { key: 'employees', label: '员工维护' }, { key: 'inventory', label: '成品库存' }, { key: 'quotePrint', label: '报价导出' }] },
-  { name: '设置', items: [{ key: 'costingSettings', label: '成本参数设置' }, { key: 'machines', label: '设备产能配置' }, { key: 'senderSettings', label: '发货人设置' }, { key: 'outsourceSettings', label: '代加工模板设置' }] },
-  { name: '日志', items: [{ key: 'audit', label: '操作日志' }] },
-  { name: '需求管理', items: [{ key: 'reqProduct', label: '产品需求表' }, { key: 'reqDev', label: '开发需求表' }, { key: 'reqUnit', label: '单元测试表' }, { key: 'reqApi', label: 'API 测试表' }, { key: 'reqReview', label: '需求审核表' }] },
-]
-
 function applyKeyToUrl(key) {
   const url = new URL(window.location.href)
   url.searchParams.set('view', key)
@@ -158,8 +134,41 @@ function applyKeyToUrl(key) {
 function open(key) {
   if (!menuMap[key]) return
   currentKey.value = key
+  ensureCurrentGroupOpen(key)
   applyKeyToUrl(key)
   if (isMobile.value) mobileOpen.value = false
+}
+
+function persistExpandedGroups() {
+  try {
+    window.localStorage.setItem(menuStorageKey, JSON.stringify(expandedGroups.value))
+  } catch {
+    // localStorage may be unavailable in private or embedded contexts.
+  }
+}
+
+function readStoredExpandedGroups() {
+  try {
+    return window.localStorage.getItem(menuStorageKey)
+  } catch {
+    return null
+  }
+}
+
+function ensureCurrentGroupOpen(key) {
+  const group = groupForView(menuGroups, key)
+  if (!group || expandedGroups.value.includes(group.id)) return
+  expandedGroups.value = [...expandedGroups.value, group.id]
+  persistExpandedGroups()
+}
+
+function isGroupOpen(id) {
+  return expandedGroups.value.includes(id)
+}
+
+function toggleGroup(id) {
+  expandedGroups.value = toggleExpandedGroup(expandedGroups.value, id)
+  persistExpandedGroups()
 }
 
 function handleResize() {
@@ -190,6 +199,11 @@ onMounted(() => {
   if (view && menuMap[view]) {
     currentKey.value = view
   }
+  expandedGroups.value = restoreExpandedGroups(
+    menuGroups,
+    readStoredExpandedGroups(),
+    currentKey.value,
+  )
   window.addEventListener('resize', handleResize)
   window.addEventListener('kferp:navigate-view', handleNavigateView)
 })
@@ -221,10 +235,14 @@ const currentInternalView = computed(() => internalViews[currentKey.value] || Or
 .sidebar.collapsed { width: 0; border-right: 0; padding: 0; overflow: hidden; }
 .sidebar.collapsed .brand,
 .sidebar.collapsed nav,
-.sidebar.collapsed .section,
+.sidebar.collapsed .section-toggle,
+.sidebar.collapsed .section-items,
 .sidebar.collapsed .menu { display: none; }
 .brand { font-weight: 700; margin-bottom: 10px; white-space: nowrap; }
-.section { margin: 10px 0 6px; font-size: 12px; color: #666; font-weight: 600; }
+.section-toggle { width: 100%; display: flex; align-items: center; justify-content: space-between; gap: 8px; border: 0; background: transparent; padding: 10px 4px 6px; color: #666; cursor: pointer; }
+.section-name { font-size: 12px; font-weight: 700; }
+.section-caret { width: 16px; text-align: center; font-size: 12px; color: #777; }
+.section-items { margin-bottom: 2px; }
 .toggle { border: 1px solid #999; background: #fff; border-radius: 8px; padding: 6px 10px; cursor: pointer; }
 .menu { width: 100%; text-align: left; border: 1px solid #ddd; background: #fff; border-radius: 8px; padding: 10px; cursor: pointer; margin-bottom: 8px; }
 .menu.active { border-color: #111; background: #111; color: #fff; }

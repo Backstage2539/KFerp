@@ -439,10 +439,19 @@ func TestProduceRunningVueRouteContract(t *testing.T) {
 	for _, want := range []string{
 		"ProduceRunningView",
 		"produceRunning: ProduceRunningView",
-		"produceRunning: { title: '生产中'",
 	} {
 		if !strings.Contains(appContent, want) {
 			t.Fatalf("App.vue missing running production Vue wiring %q", want)
+		}
+	}
+	menuIA, err := os.ReadFile("frontend-vue-shell/src/lib/menu-ia.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	menuContent := string(menuIA)
+	for _, want := range []string{"produceRunning", "生产中"} {
+		if !strings.Contains(menuContent, want) {
+			t.Fatalf("menu-ia.js missing running production menu wiring %q", want)
 		}
 	}
 
