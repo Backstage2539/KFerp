@@ -105,6 +105,8 @@ func TestCostingViewSupportsConfigurableBeanListPublishingWorkflow(t *testing.T)
 		"cardRows(group)",
 		"cardRowStyle(row)",
 		"pdf-card-row",
+		".pdf-card-grid { display: grid; gap: 18px; }",
+		"padding: 10px 10px 18px;",
 		"priceDisplay(priceRow)",
 		"priceValueParts(priceRow, item)",
 		"pdf-price-label",
