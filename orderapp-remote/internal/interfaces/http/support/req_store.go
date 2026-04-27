@@ -518,6 +518,11 @@ func seedReqWorkflowA(ctx context.Context, pool *pgxpool.Pool, schema string) er
 		{table: "req_unit", code: "UT-105-01", title: "单测覆盖复制发布记录配置时过滤不存在的产品/分类，保留样式、标签、标红词和版本日志", status: "done", assignee: "Codex", evidence: "bean-list-pdf.test copyBeanListPublicationConfig; TestBeanListCopyPublishedConfigRequirementSeeds"},
 		{table: "req_api", code: "API-105-01", title: "接口级源码守卫覆盖生成豆单复制配置入口和现有发布记录 API 复用，不新增后端接口", status: "done", assignee: "Codex", evidence: "go test ./internal/interfaces/http/costing ./internal/interfaces/http/support"},
 		{table: "req_review", code: "REV-105-01", prCode: "PR-105", title: "验收：生成豆单时可选一个历史豆单复制配置，修改后预览按最新产品和价格生成并可继续发布", status: "todo", assignee: "VA", evidence: "待 Van 服务器验收"},
+		{table: "req_product", code: "PR-106", title: "订单列表快递处理工具栏中默认寄件人下拉框和操作按钮控件底边对齐", status: "review", assignee: "VA", evidence: "codex/order-shipping-toolbar-align-20260428"},
+		{table: "req_dev", code: "DEV-106-01", title: "调整订单列表快递处理工具栏布局，使默认寄件人控件与只看生产完成、勾选本页生产完成、生成 Excel 按底边对齐", status: "done", assignee: "Codex", evidence: "OrdersView shipping-bar/shipping-actions CSS"},
+		{table: "req_unit", code: "UT-106-01", title: "源码守卫覆盖快递处理工具栏底部对齐样式，防止回退为居中错位", status: "done", assignee: "Codex", evidence: "TestOrdersVueGeneratesShippingExcelForProductionCompletedSelection; TestOrderShippingToolbarAlignmentRequirementSeeds"},
+		{table: "req_api", code: "API-106-01", title: "接口级验证订单列表页面和需求表仍可访问，本次为前端布局调整不新增业务接口", status: "done", assignee: "Codex", evidence: "go test ./internal/interfaces/http/support; postdeploy smoke /vue-shell?view=orders /api/req/product"},
+		{table: "req_review", code: "REV-106-01", prCode: "PR-106", title: "验收：订单列表快递处理区的寄件人下拉框和三个操作按钮视觉上同一底边对齐", status: "todo", assignee: "VA", evidence: "待 Van 服务器验收"},
 	} {
 		if err := seedReqRow(ctx, pool, schema, row); err != nil {
 			return err

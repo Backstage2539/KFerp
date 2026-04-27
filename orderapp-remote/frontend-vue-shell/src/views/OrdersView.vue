@@ -356,10 +356,10 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .primary { background: #1f1f1f; color: #fff; }
 .secondary { background: #fff; color: #1f1f1f; }
 .summary { display: flex; gap: 14px; margin-top: 10px; color: #555; }
-.shipping-bar { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
+.shipping-bar { display: flex; align-items: flex-end; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
 .shipping-bar h3 { margin: 0 0 4px; font-size: 17px; }
 .shipping-bar p { margin: 0; color: #666; font-size: 13px; }
-.shipping-actions { display: flex; flex-wrap: wrap; gap: 8px; justify-content: flex-end; }
+.shipping-actions { align-self: end; display: flex; flex-wrap: wrap; align-items: flex-end; gap: 8px; justify-content: flex-end; }
 .sender-picker { min-width: 180px; }
 .sender-picker select { height: 38px; }
 .notice { display: flex; align-items: center; justify-content: space-between; gap: 10px; border-radius: 6px; padding: 9px; margin-bottom: 12px; }
@@ -382,7 +382,7 @@ a, .text-link { color: #1f4f82; text-decoration: none; }
   .page { padding: 12px; }
   .filters { grid-template-columns: 1fr; }
   .shipping-bar { align-items: stretch; flex-direction: column; }
-  .shipping-actions { justify-content: flex-start; }
+  .shipping-actions { align-self: stretch; justify-content: flex-start; }
   table { min-width: 980px; }
 }
 </style>
