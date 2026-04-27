@@ -173,6 +173,61 @@ func TestCostingCalculateAPIRoundsExcelBeanListPrices(t *testing.T) {
 	}
 }
 
+func TestCostingCalculateAPIReturnsExcelBeanListDisplayMetadata(t *testing.T) {
+	e := echo.New()
+	RegisterRoutes(e, Dependencies{Costing: fakeService{}})
+
+	body, err := json.Marshal(appcosting.CalculateRequest{Products: []domain.ProductInput{{
+		ProductID:          1,
+		Name:               "Uraga乌拉嘎",
+		GreenBeanCostPerKg: 108,
+		YieldRate:          0.8,
+	}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := httptest.NewRequest(http.MethodPost, "/api/costing/calculate", bytes.NewReader(body))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+
+	e.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	var got struct {
+		Items []struct {
+			CommercialBeanList struct {
+				Code           string `json:"code"`
+				Category       string `json:"category"`
+				RecommendedUse string `json:"recommended_use"`
+				Flavor         string `json:"flavor"`
+				Description    string `json:"description"`
+			} `json:"commercial_bean_list"`
+			RetailBeanList struct {
+				Code     string `json:"code"`
+				Category string `json:"category"`
+			} `json:"retail_bean_list"`
+		} `json:"items"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatalf("invalid json: %v", err)
+	}
+	item := got.Items[0]
+	if item.CommercialBeanList.Code != "5.2" || item.CommercialBeanList.Category != "5、原产地精选豆：" {
+		t.Fatalf("commercial bean list = %+v", item.CommercialBeanList)
+	}
+	if item.CommercialBeanList.RecommendedUse != "手冲/SOE/冷萃" {
+		t.Fatalf("commercial recommended use = %q", item.CommercialBeanList.RecommendedUse)
+	}
+	if item.CommercialBeanList.Flavor == "" || item.CommercialBeanList.Description == "" {
+		t.Fatalf("commercial bean list missing flavor/description: %+v", item.CommercialBeanList)
+	}
+	if item.RetailBeanList.Code != "3.2" || item.RetailBeanList.Category != "3、原产地精选豆：" {
+		t.Fatalf("retail bean list = %+v", item.RetailBeanList)
+	}
+}
+
 func TestRoutesAreRegistered(t *testing.T) {
 	e := echo.New()
 	RegisterRoutes(e, Dependencies{Costing: fakeService{}})

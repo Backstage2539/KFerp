@@ -73,9 +73,20 @@ type RetailBeanTier struct {
 	PricePerUnit float64 `json:"price_per_unit"`
 }
 
+type BeanListDisplay struct {
+	Code           string `json:"code,omitempty"`
+	Category       string `json:"category,omitempty"`
+	DisplayName    string `json:"display_name,omitempty"`
+	RecommendedUse string `json:"recommended_use,omitempty"`
+	Flavor         string `json:"flavor,omitempty"`
+	Description    string `json:"description,omitempty"`
+}
+
 type ProductResult struct {
 	ProductID                      int64                     `json:"product_id"`
 	Name                           string                    `json:"name"`
+	CommercialBeanList             BeanListDisplay           `json:"commercial_bean_list"`
+	RetailBeanList                 BeanListDisplay           `json:"retail_bean_list"`
 	Flavor                         string                    `json:"flavor,omitempty"`
 	Origin                         string                    `json:"origin,omitempty"`
 	ProcessingStation              string                    `json:"processing_station,omitempty"`
@@ -190,6 +201,8 @@ func CalculateProduct(params Parameters, in ProductInput) ProductResult {
 	out := ProductResult{
 		ProductID:            in.ProductID,
 		Name:                 in.Name,
+		CommercialBeanList:   commercialBeanListDisplay(in.Name),
+		RetailBeanList:       retailBeanListDisplay(in.Name),
 		Flavor:               in.Flavor,
 		Origin:               in.Origin,
 		ProcessingStation:    in.ProcessingStation,

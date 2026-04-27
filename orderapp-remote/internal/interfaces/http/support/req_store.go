@@ -367,6 +367,12 @@ func seedReqWorkflowA(ctx context.Context, pool *pgxpool.Pool, schema string) er
 		{table: "req_unit", code: "UT-084-01", title: "覆盖旧物料库存补建批次后可领用到 WIP", status: "done", assignee: "Codex", evidence: "TestEnsureSchemaBackfillsLegacyMaterialOnhandIntoRawBatchLocation"},
 		{table: "req_api", code: "API-084-01", title: "覆盖 GET /api/produce/work-orders 返回烘焙建议字段", status: "done", assignee: "Codex", evidence: "TestWorkOrderAPIIncludesRoastAdvice"},
 		{table: "req_review", code: "REV-084-01", prCode: "PR-084", title: "验收：WO-0000000020 可领用孟连水洗5T批次到 WIP，工单可查看烘焙建议并打印", status: "todo", assignee: "VA", evidence: "待 Van 服务器验收"},
+		{table: "req_product", code: "PR-085", title: "商用批发豆单和零售豆单按 Excel 分类并编号，补充建议出品类型、风味和说明", status: "review", assignee: "VA", evidence: "codex/bean-list-excel-metadata"},
+		{table: "req_dev", code: "DEV-085-01", title: "成本豆单 API 返回 commercial_bean_list / retail_bean_list 元数据：分类、编号、展示名、建议出品类型、风味和说明", status: "done", assignee: "Codex", evidence: "BeanListDisplay + Excel metadata mapping"},
+		{table: "req_dev", code: "DEV-085-02", title: "成本核算页商用批发豆单和零售豆单按 Excel 分类分组、编号排序，并展示建议出品类型和说明", status: "done", assignee: "Codex", evidence: "CostingView commercialGroups/retailGroups"},
+		{table: "req_unit", code: "UT-085-01", title: "覆盖熟豆豆单-3.0 和零售豆单-3.0 的分类编号、建议出品类型、风味和说明金标准", status: "done", assignee: "Codex", evidence: "TestExcelBeanListDisplayMetadataMatchesWorkbook"},
+		{table: "req_api", code: "API-085-01", title: "POST /api/costing/calculate 返回 Excel 豆单展示元数据，Vue 源码守卫覆盖分类分组展示", status: "done", assignee: "Codex", evidence: "TestCostingCalculateAPIReturnsExcelBeanListDisplayMetadata; TestCostingViewGroupsBeanListsByExcelCategoryAndShowsMetadata"},
+		{table: "req_review", code: "REV-085-01", prCode: "PR-085", title: "验收：商用批发豆单和零售豆单分类、编号、建议出品类型、风味与 Excel 一致", status: "todo", assignee: "VA", evidence: "待 Van 服务器验收"},
 	} {
 		if err := seedReqRow(ctx, pool, schema, row); err != nil {
 			return err

@@ -228,6 +228,43 @@ func TestExcelRetailBeanListPricesMatchRoundedWorkbook(t *testing.T) {
 	}
 }
 
+func TestExcelBeanListDisplayMetadataMatchesWorkbook(t *testing.T) {
+	params := DefaultParameters()
+
+	uraga := CalculateProduct(params, ProductInput{Name: "Uraga乌拉嘎", GreenBeanCostPerKg: 108, YieldRate: 0.8})
+	if uraga.CommercialBeanList.Code != "5.2" || uraga.CommercialBeanList.Category != "5、原产地精选豆：" {
+		t.Fatalf("commercial list metadata = %+v", uraga.CommercialBeanList)
+	}
+	if uraga.CommercialBeanList.RecommendedUse != "手冲/SOE/冷萃" {
+		t.Fatalf("commercial recommended use = %q", uraga.CommercialBeanList.RecommendedUse)
+	}
+	if uraga.CommercialBeanList.Flavor != "明显的花香、柑橘、荔枝，红糖甜，绿茶" {
+		t.Fatalf("commercial flavor = %q", uraga.CommercialBeanList.Flavor)
+	}
+	if uraga.CommercialBeanList.Description != "埃塞·古吉·Uraga、74112水洗处理、浅度烘焙（新产季埃塞水洗）" {
+		t.Fatalf("commercial description = %q", uraga.CommercialBeanList.Description)
+	}
+	if uraga.RetailBeanList.Code != "3.2" || uraga.RetailBeanList.Category != "3、原产地精选豆：" {
+		t.Fatalf("retail list metadata = %+v", uraga.RetailBeanList)
+	}
+	if uraga.RetailBeanList.RecommendedUse != "手冲/SOE/冷萃" {
+		t.Fatalf("retail recommended use = %q", uraga.RetailBeanList.RecommendedUse)
+	}
+
+	cookie := CalculateProduct(params, ProductInput{Name: "曲奇拼配", GreenBeanCostPerKg: 51.75, YieldRate: 0.8})
+	if cookie.CommercialBeanList.Code != "1.1" || cookie.CommercialBeanList.Category != "1、工厂量单" {
+		t.Fatalf("cookie commercial metadata = %+v", cookie.CommercialBeanList)
+	}
+	if cookie.RetailBeanList.Code != "" {
+		t.Fatalf("cookie should not be shown in retail bean list, got %+v", cookie.RetailBeanList)
+	}
+
+	blend := CalculateProduct(params, ProductInput{Name: "红岩2.0", GreenBeanCostPerKg: 63.9, YieldRate: 0.8})
+	if blend.CommercialBeanList.Code != "4.2" || blend.RetailBeanList.Code != "2.2" {
+		t.Fatalf("blend commercial/retail numbering = %+v / %+v", blend.CommercialBeanList, blend.RetailBeanList)
+	}
+}
+
 func TestValidateProductInputRejectsInvalidInputs(t *testing.T) {
 	params := DefaultParameters()
 	if _, err := ValidateProductInput(params, ProductInput{Name: "bad", GreenBeanCostPerKg: 10, YieldRate: -0.1}); err == nil {

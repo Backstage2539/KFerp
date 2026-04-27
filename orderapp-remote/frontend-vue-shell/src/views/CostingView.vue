@@ -77,31 +77,58 @@
 
     <section class="panel">
       <div class="section-title">商用批发豆单</div>
-      <div class="bean-grid">
-        <article v-for="item in beanPreview" :key="item.product_id || item.name">
-          <div class="bean-title">{{ item.name }}</div>
-          <div v-if="item.flavor" class="bean-note">{{ item.flavor }}</div>
-          <div class="bean-row" v-for="tier in item.commercial_wholesale_tiers || []" :key="tier.label">
-            <span>{{ tier.label }}</span><strong>{{ price(tierPriceValue(tier)) }}/{{ tierUnit(tier) }}</strong>
+      <div class="bean-groups">
+        <section v-for="group in commercialGroups" :key="group.category" class="bean-group">
+          <h3>{{ group.category }}</h3>
+          <div class="bean-grid">
+            <article v-for="item in group.items" :key="item.product_id || item.name">
+              <div class="bean-heading">
+                <span class="bean-code">{{ beanMeta(item, 'commercial_bean_list').code }}</span>
+                <div>
+                  <div class="bean-title">{{ beanName(item, 'commercial_bean_list') }}</div>
+                  <div v-if="beanMeta(item, 'commercial_bean_list').recommended_use" class="bean-use">
+                    {{ beanMeta(item, 'commercial_bean_list').recommended_use }}
+                  </div>
+                </div>
+              </div>
+              <div v-if="beanFlavor(item, 'commercial_bean_list')" class="bean-note">{{ beanFlavor(item, 'commercial_bean_list') }}</div>
+              <div v-if="beanDescription(item, 'commercial_bean_list')" class="bean-desc">{{ beanDescription(item, 'commercial_bean_list') }}</div>
+              <div class="bean-row" v-for="tier in item.commercial_wholesale_tiers || []" :key="tier.label">
+                <span>{{ tier.label }}</span><strong>{{ price(tierPriceValue(tier)) }}/{{ tierUnit(tier) }}</strong>
+              </div>
+            </article>
           </div>
-        </article>
-        <div v-if="!beanPreview.length" class="muted empty-card">暂无豆单数据</div>
+        </section>
+        <div v-if="!commercialGroups.length" class="muted empty-card">暂无豆单数据</div>
       </div>
     </section>
 
     <section class="panel">
       <div class="section-title">零售豆单</div>
-      <div class="bean-grid">
-        <article v-for="item in beanPreview" :key="`retail-${item.product_id || item.name}`">
-          <div class="bean-title">{{ item.name }}</div>
-          <div v-if="item.origin || item.process_method" class="bean-note">{{ compact([item.origin, item.process_method]) }}</div>
-          <div v-if="item.flavor" class="bean-note">{{ item.flavor }}</div>
-          <div class="bean-row" v-for="tier in item.retail_bean_tiers || []" :key="`retail-tier-${tier.label}`">
-            <span>{{ tier.label }}</span><strong>{{ price(tier.price_per_unit) }}</strong>
+      <div class="bean-groups">
+        <section v-for="group in retailGroups" :key="group.category" class="bean-group">
+          <h3>{{ group.category }}</h3>
+          <div class="bean-grid">
+            <article v-for="item in group.items" :key="`retail-${item.product_id || item.name}`">
+              <div class="bean-heading">
+                <span class="bean-code">{{ beanMeta(item, 'retail_bean_list').code }}</span>
+                <div>
+                  <div class="bean-title">{{ beanName(item, 'retail_bean_list') }}</div>
+                  <div v-if="beanMeta(item, 'retail_bean_list').recommended_use" class="bean-use">
+                    {{ beanMeta(item, 'retail_bean_list').recommended_use }}
+                  </div>
+                </div>
+              </div>
+              <div v-if="beanFlavor(item, 'retail_bean_list')" class="bean-note">{{ beanFlavor(item, 'retail_bean_list') }}</div>
+              <div v-if="beanDescription(item, 'retail_bean_list')" class="bean-desc">{{ beanDescription(item, 'retail_bean_list') }}</div>
+              <div class="bean-row" v-for="tier in item.retail_bean_tiers || []" :key="`retail-tier-${tier.label}`">
+                <span>{{ tier.label }}</span><strong>{{ price(tier.price_per_unit) }}</strong>
+              </div>
+              <div class="bean-row"><span>挂耳10袋</span><strong>{{ price(item.retail_drip_10_bag_price) }}</strong></div>
+            </article>
           </div>
-          <div class="bean-row"><span>挂耳10袋</span><strong>{{ price(item.retail_drip_10_bag_price) }}</strong></div>
-        </article>
-        <div v-if="!beanPreview.length" class="muted empty-card">暂无豆单数据</div>
+        </section>
+        <div v-if="!retailGroups.length" class="muted empty-card">暂无豆单数据</div>
       </div>
     </section>
 
@@ -135,7 +162,8 @@ const parameters = ref(null)
 const items = ref([])
 const runId = ref(null)
 
-const beanPreview = computed(() => items.value.slice(0, 24))
+const commercialGroups = computed(() => groupBeanItems('commercial_bean_list'))
+const retailGroups = computed(() => groupBeanItems('retail_bean_list'))
 
 function first(values) {
   return Array.isArray(values) && values.length ? Number(values[0] || 0) : 0
@@ -152,8 +180,47 @@ function tierUnit(tier) {
   return '包'
 }
 
-function compact(values) {
-  return values.filter(Boolean).join(' / ')
+function beanMeta(item, key) {
+  return item?.[key] || {}
+}
+
+function beanName(item, key) {
+  return beanMeta(item, key).display_name || item?.name || ''
+}
+
+function beanFlavor(item, key) {
+  return beanMeta(item, key).flavor || item?.flavor || ''
+}
+
+function beanDescription(item, key) {
+  return beanMeta(item, key).description || item?.bean_list_note || ''
+}
+
+function groupBeanItems(key) {
+  const groups = new Map()
+  items.value
+    .filter((item) => beanMeta(item, key).code)
+    .slice()
+    .sort((a, b) => compareBeanCodes(beanMeta(a, key).code, beanMeta(b, key).code))
+    .forEach((item) => {
+      const meta = beanMeta(item, key)
+      const category = meta.category || '未分类'
+      if (!groups.has(category)) {
+        groups.set(category, { category, items: [] })
+      }
+      groups.get(category).items.push(item)
+    })
+  return Array.from(groups.values())
+}
+
+function compareBeanCodes(a, b) {
+  const aa = String(a || '').split('.').map((v) => Number(v) || 0)
+  const bb = String(b || '').split('.').map((v) => Number(v) || 0)
+  const len = Math.max(aa.length, bb.length)
+  for (let i = 0; i < len; i += 1) {
+    if ((aa[i] || 0) !== (bb[i] || 0)) return (aa[i] || 0) - (bb[i] || 0)
+  }
+  return String(a || '').localeCompare(String(b || ''))
 }
 
 function fixed(value, digits = 2) {
@@ -265,10 +332,17 @@ button:disabled { opacity: .45; cursor: not-allowed; }
 .drawer-head { position: sticky; top: 0; z-index: 2; background: #f7f7f7; display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; padding-bottom: 12px; margin-bottom: 4px; }
 .drawer-head h3 { margin: 0; font-size: 18px; }
 .drawer-head p { margin: 4px 0 0; color: #666; font-size: 12px; line-height: 1.45; }
-.bean-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; margin-top: 10px; }
+.bean-groups { display: grid; gap: 14px; margin-top: 10px; }
+.bean-group { display: grid; gap: 8px; }
+.bean-group h3 { margin: 0; padding: 8px 10px; border-left: 4px solid #111; background: #f5f5f5; font-size: 15px; }
+.bean-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
 article, .empty-card { border: 1px solid #eee; border-radius: 8px; padding: 12px; background: #fafafa; }
-.bean-title { font-weight: 700; min-height: 38px; margin-bottom: 8px; }
+.bean-heading { display: grid; grid-template-columns: auto 1fr; gap: 8px; align-items: start; min-height: 52px; margin-bottom: 8px; }
+.bean-code { display: inline-flex; align-items: center; justify-content: center; min-width: 34px; height: 28px; border: 1px solid #ddd; border-radius: 8px; background: #fff; font-size: 12px; font-weight: 700; color: #333; }
+.bean-title { font-weight: 700; line-height: 1.25; }
+.bean-use { color: #111; font-size: 12px; line-height: 1.35; margin-top: 3px; white-space: pre-line; }
 .bean-note { color: #555; font-size: 12px; min-height: 18px; margin: 0 0 8px; line-height: 1.45; }
+.bean-desc { color: #777; font-size: 12px; line-height: 1.45; margin: 0 0 8px; }
 .bean-row { display: flex; justify-content: space-between; align-items: center; gap: 8px; border-top: 1px solid #eee; padding: 7px 0; }
 .bean-row span { color: #666; font-size: 12px; }
 .bean-row strong { font-size: 13px; }
