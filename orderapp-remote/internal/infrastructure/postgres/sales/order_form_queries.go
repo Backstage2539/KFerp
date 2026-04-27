@@ -19,7 +19,7 @@ import (
 func (r Repository) OrderForm(ctx context.Context, editID int64) (salesapp.OrderFormData, error) {
 	data := salesapp.OrderFormData{Today: time.Now().Format("2006-01-02")}
 	var err error
-	if data.Customers, err = fetchOrderOptions(ctx, r.pool, fmt.Sprintf("SELECT id, name FROM %s.customers WHERE active=true ORDER BY name", r.schema)); err != nil {
+	if data.Customers, err = r.fetchOrderCustomers(ctx); err != nil {
 		return salesapp.OrderFormData{}, err
 	}
 	if data.Sources, err = fetchOrderOptions(ctx, r.pool, fmt.Sprintf("SELECT id, name FROM %s.sources ORDER BY id", r.schema)); err != nil {
@@ -45,6 +45,29 @@ func (r Repository) OrderForm(ctx context.Context, editID int64) (salesapp.Order
 		data.EditData = editData
 	}
 	return data, nil
+}
+
+func (r Repository) fetchOrderCustomers(ctx context.Context) ([]salesapp.CustomerOption, error) {
+	q := fmt.Sprintf(`
+		SELECT id, name, COALESCE(default_source_id,0), COALESCE(default_order_type_id,0)
+		FROM %s.customers
+		WHERE active=true
+		ORDER BY name
+	`, r.schema)
+	rows, err := r.pool.Query(ctx, q)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := make([]salesapp.CustomerOption, 0)
+	for rows.Next() {
+		var row salesapp.CustomerOption
+		if err := rows.Scan(&row.ID, &row.Name, &row.DefaultSourceID, &row.DefaultOrderTypeID); err != nil {
+			return nil, err
+		}
+		out = append(out, row)
+	}
+	return out, rows.Err()
 }
 
 func (r Repository) fetchOrderProducts(ctx context.Context) ([]salesapp.ProductOption, error) {

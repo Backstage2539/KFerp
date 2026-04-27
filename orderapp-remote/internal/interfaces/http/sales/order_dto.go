@@ -3,6 +3,7 @@ package sales
 import salesapp "orderapp/internal/application/sales"
 
 type Option = salesapp.Option
+type CustomerOption = salesapp.CustomerOption
 type ProductTierOption = salesapp.ProductTierOption
 type ProductOption = salesapp.ProductOption
 type PageData = salesapp.OrderFormData

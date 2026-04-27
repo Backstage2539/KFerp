@@ -57,6 +57,27 @@ func TestOrderAPIFormReturnsRetailSpecs(t *testing.T) {
 	}
 }
 
+func TestOrderAPIFormReturnsCustomerDefaultsForOrderEntry(t *testing.T) {
+	pool, schema := newOrderAPITestDB(t)
+	ctx := context.Background()
+	seedOrderAPITestData(t, ctx, pool, schema)
+
+	e := newOrderAPITestEcho(pool, schema)
+	req := httptest.NewRequest(http.MethodGet, "/api/order/form", nil)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET /api/order/form status = %d, want 200, body=%s", rec.Code, rec.Body.String())
+	}
+	body := rec.Body.String()
+	for _, needle := range []string{`"default_source_id":1`, `"default_order_type_id":2`, `"py"`, `"pyi"`} {
+		if !strings.Contains(body, needle) {
+			t.Fatalf("GET /api/order/form missing %s: %s", needle, body)
+		}
+	}
+}
+
 func TestOrderAPIListUsesSalesReadModel(t *testing.T) {
 	pool, schema := newOrderAPITestDB(t)
 	ctx := context.Background()
@@ -134,6 +155,51 @@ func TestOrderAPISavesRetailCustomSpecPrice(t *testing.T) {
 	}
 }
 
+func TestOrderAPIDefaultsNewOrderToPaidAndUnshipped(t *testing.T) {
+	pool, schema := newOrderAPITestDB(t)
+	ctx := context.Background()
+	seedOrderAPITestData(t, ctx, pool, schema)
+
+	e := newOrderAPITestEcho(pool, schema)
+	payload := map[string]any{
+		"order_date":     "2026-04-27",
+		"customer_id":    3,
+		"source_id":      1,
+		"order_type_id":  1,
+		"pay_status_id":  0,
+		"ship_status_id": 0,
+		"product_id":     []string{"7"},
+		"tier_id":        []string{"manual"},
+		"unit_price":     []string{"88"},
+		"item_name":      []string{"橘皮乌龙"},
+		"qty":            []string{"1"},
+		"unit":           []string{"件"},
+		"spec":           []string{"454"},
+	}
+	body, _ := json.Marshal(payload)
+	req := httptest.NewRequest(http.MethodPost, "/api/order", bytes.NewReader(body))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("POST /api/order status = %d, want 200, body=%s", rec.Code, rec.Body.String())
+	}
+
+	var payStatusID, shipStatusID int64
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`
+		SELECT COALESCE(pay_status_id,0), COALESCE(ship_status_id,0)
+		FROM %s.orders
+		ORDER BY id DESC
+		LIMIT 1
+	`, schema)).Scan(&payStatusID, &shipStatusID); err != nil {
+		t.Fatalf("query order statuses: %v", err)
+	}
+	if payStatusID != 2 || shipStatusID != 1 {
+		t.Fatalf("saved statuses pay=%d ship=%d, want pay=2 ship=1", payStatusID, shipStatusID)
+	}
+}
+
 func newOrderAPITestDB(t *testing.T) (*pgxpool.Pool, string) {
 	t.Helper()
 	dsn := strings.TrimSpace(os.Getenv("ORDERAPP_TEST_DATABASE_URL"))
@@ -179,10 +245,10 @@ func newOrderAPITestEcho(pool *pgxpool.Pool, schema string) *echo.Echo {
 func seedOrderAPITestData(t *testing.T, ctx context.Context, pool *pgxpool.Pool, schema string) {
 	t.Helper()
 	mustExecOrderAPITestSQL(t, ctx, pool, fmt.Sprintf(`
-		INSERT INTO %s.customers(id,name,active) VALUES (3,'测试客户',true);
+		INSERT INTO %s.customers(id,name,active,default_source_id,default_order_type_id) VALUES (3,'测试客户',true,1,2);
 		INSERT INTO %s.sources(id,name) VALUES (1,'小程序');
 		INSERT INTO %s.order_types(id,name) VALUES (1,'批发订单'),(2,'零售订单');
-		INSERT INTO %s.pay_statuses(id,name) VALUES (1,'未付款');
+		INSERT INTO %s.pay_statuses(id,name) VALUES (1,'未付款'),(2,'已付款');
 		INSERT INTO %s.ship_statuses(id,name) VALUES (1,'未发货');
 		INSERT INTO %s.order_process_statuses(id,name,sort,active) VALUES (1,'待处理',10,true);
 		INSERT INTO %s.products(id,name,default_price,active,retail_price_227g,retail_price_250g)
@@ -202,7 +268,9 @@ func orderAPITestDDL(schema string) string {
 CREATE TABLE %s.customers (
 	id BIGSERIAL PRIMARY KEY,
 	name TEXT NOT NULL,
-	active BOOLEAN NOT NULL DEFAULT true
+	active BOOLEAN NOT NULL DEFAULT true,
+	default_source_id BIGINT,
+	default_order_type_id BIGINT
 );
 CREATE TABLE %s.sources (
 	id BIGSERIAL PRIMARY KEY,

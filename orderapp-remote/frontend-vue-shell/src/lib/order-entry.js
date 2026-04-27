@@ -1,4 +1,5 @@
 export const CUSTOM_SPEC_VALUE = 'custom'
+export const COMMON_SPEC_GRAMS = [36, 80, 100, 227, 454, 500, 1000, 2500]
 
 export function toNumber(value) {
   const n = Number.parseFloat(String(value ?? '').trim())
@@ -31,12 +32,67 @@ export function retailPackagePrice(product, specG) {
 
 export function retailSpecOptions(product, retailOrder) {
   if (!retailOrder) return []
-  const specs = [...new Set((product?.retail_specs || []).map(toInt).filter((spec) => spec > 0))]
+  const specs = [...new Set([
+    ...COMMON_SPEC_GRAMS,
+    ...(product?.retail_specs || []).map(toInt).filter((spec) => spec > 0),
+  ])]
     .sort((a, b) => a - b)
   return [
-    ...specs.map((spec) => ({ label: `${spec}g`, value: String(spec) })),
+    ...specs.map((spec) => ({ label: formatSpecLabel(spec), value: String(spec) })),
     { label: '自定义克数', value: CUSTOM_SPEC_VALUE },
   ]
+}
+
+export function formatSpecLabel(specG) {
+  const spec = toInt(specG)
+  if (spec === 2500) return '2.5kg'
+  return `${spec}g`
+}
+
+export function wholesaleSpecOptions(product) {
+  const specs = new Set(COMMON_SPEC_GRAMS)
+  for (const tier of product?.tiers || []) {
+    const spec = toInt(tier.spec_g)
+    if (spec > 0) specs.add(spec)
+  }
+  return [...specs].sort((a, b) => a - b).map((spec) => ({ label: formatSpecLabel(spec), value: String(spec) }))
+}
+
+export function findWholesaleTier(product, row) {
+  const specG = normalizeSpecG(row)
+  const qty = Math.max(1, toInt(row?.qty))
+  const tiers = (product?.tiers || [])
+    .filter((item) => toInt(item.spec_g) === specG)
+    .sort((a, b) => toNumber(b.min) - toNumber(a.min))
+  const exact = tiers.find((item) => toNumber(item.min) <= qty && (!item.max || toNumber(item.max) >= qty))
+  if (exact) return exact
+  return tiers
+    .filter((item) => toNumber(item.min) <= qty)
+    .sort((a, b) => toNumber(b.min) - toNumber(a.min))[0] || tiers.sort((a, b) => toNumber(a.min) - toNumber(b.min))[0] || null
+}
+
+export function syncWholesaleTierPrice(product, row) {
+  const tier = findWholesaleTier(product, row)
+  if (!tier) return { tierID: 'auto', unitPrice: '' }
+  return { tierID: String(tier.id), unitPrice: String(tier.unit_price || tier.price || 0) }
+}
+
+export function filterOptions(options, query) {
+  const q = String(query || '').trim().toLowerCase()
+  if (!q) return options || []
+  return (options || []).filter((item) => {
+    const haystack = `${item.name || ''} ${item.py || ''} ${item.pyi || ''} ${item.code || ''}`.toLowerCase()
+    return haystack.includes(q)
+  })
+}
+
+export function defaultStatusID(options, names) {
+  const wanted = (names || []).map((name) => String(name).trim()).filter(Boolean)
+  for (const name of wanted) {
+    const found = (options || []).find((item) => String(item.name || '').trim() === name)
+    if (found) return toInt(found.id)
+  }
+  return 0
 }
 
 export function normalizeSpecG(row) {
@@ -50,6 +106,7 @@ export function lineTotal(product, row, retailOrder) {
   const units = Math.max(0, toInt(row?.qty))
   const specG = normalizeSpecG(row)
   if (units <= 0 || specG <= 0) return 0
+  if (row?.tier_id === 'manual') return toNumber(row?.unit_price) * units
   if (retailOrder) return retailPackagePrice(product, specG) * units
   const price = toNumber(row?.unit_price)
   return price * units
