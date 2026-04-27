@@ -71,6 +71,9 @@ func TestBuildOrderShippingWorkbookFillsTemplateDefaultsAndRemark(t *testing.T) 
 	if !strings.Contains(got("N2"), "SO20260427001") || !strings.Contains(got("N2"), "橘皮乌龙 227g x2件") {
 		t.Fatalf("remark N2 = %q", got("N2"))
 	}
+	if strings.Contains(got("N2"), "单价") || strings.Contains(got("N2"), "小计") || strings.Contains(got("N2"), "49.00") || strings.Contains(got("N2"), "98.00") {
+		t.Fatalf("remark N2 should not include price or subtotal: %q", got("N2"))
+	}
 }
 
 func TestBuildOrdersShippingWorkbookFillsSelectedOrdersOnSeparateRows(t *testing.T) {
