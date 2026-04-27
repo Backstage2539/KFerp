@@ -196,10 +196,25 @@ func BuildProductSettings(categories []ProductCategory, products []Product) Prod
 	out := ProductSettingsData{Products: allProducts, Categories: make([]ProductCategoryNode, 0, len(roots))}
 	for i, root := range roots {
 		root.Number = i + 1
-		node := ProductCategoryNode{ProductCategory: root}
+		node := ProductCategoryNode{
+			ProductCategory: root,
+			Children:        make([]ProductCategoryNode, 0),
+			Products:        productsByCategory[root.ID],
+		}
+		if node.Products == nil {
+			node.Products = make([]ProductSettingsProduct, 0)
+		}
 		for j, child := range children[root.ID] {
 			child.Number = j + 1
-			childNode := ProductCategoryNode{ProductCategory: child, Products: productsByCategory[child.ID]}
+			childProducts := productsByCategory[child.ID]
+			if childProducts == nil {
+				childProducts = make([]ProductSettingsProduct, 0)
+			}
+			childNode := ProductCategoryNode{
+				ProductCategory: child,
+				Children:        make([]ProductCategoryNode, 0),
+				Products:        childProducts,
+			}
 			node.Children = append(node.Children, childNode)
 		}
 		out.Categories = append(out.Categories, node)
