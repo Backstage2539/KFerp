@@ -22,6 +22,7 @@ type Product struct {
 	RetailPrice200G         float64
 	RetailPrice227G         float64
 	RetailPrice250G         float64
+	YieldRate               float64
 	ProductCategoryID       int64
 	ProductCategoryPosition int
 	Tiers                   []PriceTier
@@ -45,6 +46,7 @@ type ProductSettingsProduct struct {
 	RetailPrice200G         float64 `json:"retail_price_200g"`
 	RetailPrice227G         float64 `json:"retail_price_227g"`
 	RetailPrice250G         float64 `json:"retail_price_250g"`
+	YieldRate               float64 `json:"yield_rate"`
 	ProductCategoryID       int64   `json:"product_category_id"`
 	ProductCategoryPosition int     `json:"product_category_position"`
 	Number                  int     `json:"number"`
@@ -80,6 +82,7 @@ type UpdateProductBasicsCommand struct {
 	RetailPrice200G float64
 	RetailPrice227G float64
 	RetailPrice250G float64
+	YieldRate       float64
 }
 
 type SaveProductCategoryCommand struct {
@@ -232,6 +235,7 @@ func productSettingsProduct(p Product) ProductSettingsProduct {
 		RetailPrice200G:         p.RetailPrice200G,
 		RetailPrice227G:         p.RetailPrice227G,
 		RetailPrice250G:         p.RetailPrice250G,
+		YieldRate:               p.YieldRate,
 		ProductCategoryID:       p.ProductCategoryID,
 		ProductCategoryPosition: p.ProductCategoryPosition,
 	}

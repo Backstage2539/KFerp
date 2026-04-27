@@ -32,6 +32,29 @@ func TestProductSettingsRequirementSeeds(t *testing.T) {
 	}
 }
 
+func TestProductSettingsRefinementRequirementSeeds(t *testing.T) {
+	b, err := os.ReadFile(filepath.Join("internal", "interfaces", "http", "support", "req_store.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := string(b)
+	for _, want := range []string{
+		"PR-090",
+		"DEV-090-01",
+		"DEV-090-02",
+		"UT-090-01",
+		"API-090-01",
+		"REV-090-01",
+		"二级分类拖动时显示插入横线",
+		"产品出品率",
+		"商品分类和商品基础信息支持收起",
+	} {
+		if !strings.Contains(src, want) {
+			t.Fatalf("product settings refinement requirement seed missing %q", want)
+		}
+	}
+}
+
 func TestProductSettingsVueWiringAndLegacyTierEditorRemoval(t *testing.T) {
 	app, err := os.ReadFile(filepath.Join("frontend-vue-shell", "src", "App.vue"))
 	if err != nil {
@@ -81,5 +104,41 @@ func TestProductSettingsVueWiringAndLegacyTierEditorRemoval(t *testing.T) {
 	}
 	if strings.Contains(string(menu), "label: '商品档案'") || strings.Contains(string(menu), "label: '成本核算'") {
 		t.Fatalf("primary product menu should expose 产品设置 instead of 商品档案/成本核算")
+	}
+}
+
+func TestProductSettingsCategoryDragYieldAndCollapseRefinements(t *testing.T) {
+	settings, err := os.ReadFile(filepath.Join("frontend-vue-shell", "src", "views", "ProductSettingsView.vue"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := string(settings)
+	for _, want := range []string{
+		"category-drop-line",
+		"categoryDropTarget",
+		"dropCategoryAtPosition",
+		"产品出品率",
+		"yield_percent",
+		"saveProductBasics(row)",
+		"categoryCollapsed",
+		"productsCollapsed",
+		"toggle-section",
+	} {
+		if !strings.Contains(src, want) {
+			t.Fatalf("product settings refinement missing %q", want)
+		}
+	}
+	for _, forbidden := range []string{
+		"<th>默认价</th>",
+		"<th>100g</th>",
+		"<th>200g</th>",
+		"<th>227g</th>",
+		"<th>250g</th>",
+		"<th>操作</th>",
+		"编辑基础信息",
+	} {
+		if strings.Contains(src, forbidden) {
+			t.Fatalf("product basics list should remove price/action editor fragment %q", forbidden)
+		}
 	}
 }

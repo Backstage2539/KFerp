@@ -14,85 +14,114 @@
 
     <section class="settings-grid">
       <div class="panel category-panel">
-        <div class="panel-title">商品分类</div>
-        <form class="inline-form" @submit.prevent="savePrimaryCategory">
-          <input v-model.trim="newPrimaryName" placeholder="新增一级分类，如 咖啡豆" />
-          <button class="secondary" type="submit">新增一级分类</button>
-        </form>
+        <div class="panel-title">
+          <span>商品分类</span>
+          <button class="toggle-section" type="button" @click="categoryCollapsed = !categoryCollapsed">
+            {{ categoryCollapsed ? '展开' : '收起' }}
+          </button>
+        </div>
+        <div v-show="!categoryCollapsed">
+          <form class="inline-form" @submit.prevent="savePrimaryCategory">
+            <input v-model.trim="newPrimaryName" placeholder="新增一级分类，如 咖啡豆" />
+            <button class="secondary" type="submit">新增一级分类</button>
+          </form>
 
-        <div class="category-tree">
-          <div
-            v-for="primary in categories"
-            :key="primary.id"
-            class="primary-category"
-            @dragover.prevent
-            @drop="dropCategoryOnPrimary(primary)">
-            <form v-if="editingCategoryId === primary.id" class="inline-form sub-form" @submit.prevent="saveCategoryName(primary)">
-              <input v-model.trim="editingCategoryName" placeholder="一级分类名称" />
-              <button class="secondary" type="submit">保存</button>
-            </form>
-            <div v-else class="category-head">
-              <strong>{{ primary.number }}. {{ primary.name }}</strong>
-              <div class="category-actions">
-                <button class="text-button" type="button" @click="startCategoryEdit(primary)">改名</button>
-                <button class="text-button" type="button" @click="startAddingSecondary(primary)">新增二级</button>
-              </div>
-            </div>
-
-            <form v-if="addingSecondaryFor === primary.id" class="inline-form sub-form" @submit.prevent="saveSecondaryCategory(primary)">
-              <input v-model.trim="newSecondaryName" placeholder="新增二级分类，如 意式拼配" />
-              <button class="secondary" type="submit">保存</button>
-            </form>
-
+          <div class="category-tree">
             <div
-              v-for="secondary in primary.children"
-              :key="secondary.id"
-              class="secondary-category"
-              draggable="true"
-              @dragstart="startCategoryDrag(secondary)"
+              v-for="primary in categories"
+              :key="primary.id"
+              class="primary-category"
               @dragover.prevent
-              @drop="dropProductOnSecondary(secondary)">
-              <form v-if="editingCategoryId === secondary.id" class="inline-form sub-form" @submit.prevent="saveCategoryName(secondary)">
-                <input v-model.trim="editingCategoryName" placeholder="二级分类名称" />
+              @drop="dropCategoryOnPrimary(primary)">
+              <form v-if="editingCategoryId === primary.id" class="inline-form sub-form" @submit.prevent="saveCategoryName(primary)">
+                <input v-model.trim="editingCategoryName" placeholder="一级分类名称" />
                 <button class="secondary" type="submit">保存</button>
               </form>
-              <div v-else class="secondary-head">
-                <span>{{ secondary.number }}</span>
-                <b>{{ secondary.name }}</b>
-                <small>{{ secondary.products.length }} 款</small>
-                <button class="text-button" type="button" @click="startCategoryEdit(secondary)">改名</button>
+              <div v-else class="category-head">
+                <strong>{{ primary.number }}. {{ primary.name }}</strong>
+                <div class="category-actions">
+                  <button class="text-button" type="button" @click="startCategoryEdit(primary)">改名</button>
+                  <button class="text-button" type="button" @click="startAddingSecondary(primary)">新增二级</button>
+                </div>
               </div>
-              <div class="product-chip-list">
-                <span
-                  v-for="product in secondary.products"
-                  :key="product.id"
-                  class="product-chip"
+
+              <form v-if="addingSecondaryFor === primary.id" class="inline-form sub-form" @submit.prevent="saveSecondaryCategory(primary)">
+                <input v-model.trim="newSecondaryName" placeholder="新增二级分类，如 意式拼配" />
+                <button class="secondary" type="submit">保存</button>
+              </form>
+
+              <div
+                class="category-drop-line"
+                :class="{ active: isCategoryDropTarget(primary, 1) }"
+                @dragover.prevent.stop="setCategoryDropTarget(primary, 1)"
+                @drop.prevent.stop="dropCategoryAtPosition(primary, 1)">
+              </div>
+
+              <template v-for="(secondary, index) in primary.children" :key="secondary.id">
+                <div
+                  class="secondary-category"
+                  :class="{ dragging: isDraggingCategory(secondary) }"
                   draggable="true"
-                  @dragstart.stop="startProductDrag(product)">
-                  {{ product.number }}. {{ product.name }}
-                </span>
-              </div>
+                  @dragstart="startCategoryDrag(secondary)"
+                  @dragend="clearDrag"
+                  @dragover.prevent
+                  @drop.stop="dropProductOnSecondary(secondary)">
+                  <form v-if="editingCategoryId === secondary.id" class="inline-form sub-form" @submit.prevent="saveCategoryName(secondary)">
+                    <input v-model.trim="editingCategoryName" placeholder="二级分类名称" />
+                    <button class="secondary" type="submit">保存</button>
+                  </form>
+                  <div v-else class="secondary-head">
+                    <span>{{ secondary.number }}</span>
+                    <b>{{ secondary.name }}</b>
+                    <small>{{ secondary.products.length }} 款</small>
+                    <button class="text-button" type="button" @click="startCategoryEdit(secondary)">改名</button>
+                  </div>
+                  <div class="product-chip-list">
+                    <span
+                      v-for="product in secondary.products"
+                      :key="product.id"
+                      class="product-chip"
+                      draggable="true"
+                      @dragstart.stop="startProductDrag(product)"
+                      @dragend="clearDrag">
+                      {{ product.number }}. {{ product.name }}
+                    </span>
+                  </div>
+                </div>
+                <div
+                  class="category-drop-line"
+                  :class="{ active: isCategoryDropTarget(primary, index + 2) }"
+                  @dragover.prevent.stop="setCategoryDropTarget(primary, index + 2)"
+                  @drop.prevent.stop="dropCategoryAtPosition(primary, index + 2)">
+                </div>
+              </template>
             </div>
           </div>
-        </div>
 
-        <div class="uncategorized" @dragover.prevent @drop="dropProductOnSecondary({ id: 0 })">
-          <div class="panel-title">未分类商品</div>
-          <span
-            v-for="product in uncategorizedProducts"
-            :key="product.id"
-            class="product-chip"
-            draggable="true"
-            @dragstart="startProductDrag(product)">
-            {{ product.name }}
-          </span>
-          <p v-if="!uncategorizedProducts.length" class="muted">暂无未分类商品</p>
+          <div class="uncategorized" @dragover.prevent @drop="dropProductOnSecondary({ id: 0 })">
+            <div class="sub-title">未分类商品</div>
+            <span
+              v-for="product in uncategorizedProducts"
+              :key="product.id"
+              class="product-chip"
+              draggable="true"
+              @dragstart="startProductDrag(product)"
+              @dragend="clearDrag">
+              {{ product.name }}
+            </span>
+            <p v-if="!uncategorizedProducts.length" class="muted">暂无未分类商品</p>
+          </div>
         </div>
       </div>
 
       <div class="panel product-panel">
-        <div class="panel-title">商品基础信息</div>
-        <div class="table-wrap">
+        <div class="panel-title">
+          <span>商品基础信息</span>
+          <button class="toggle-section" type="button" @click="productsCollapsed = !productsCollapsed">
+            {{ productsCollapsed ? '展开' : '收起' }}
+          </button>
+        </div>
+        <div v-show="!productsCollapsed" class="table-wrap">
           <table>
             <thead>
               <tr>
@@ -101,48 +130,40 @@
                 <th>商品编号</th>
                 <th>商品</th>
                 <th>烘焙度</th>
-                <th>默认价</th>
-                <th>100g</th>
-                <th>200g</th>
-                <th>227g</th>
-                <th>250g</th>
-                <th>操作</th>
+                <th>产品出品率</th>
               </tr>
             </thead>
             <tbody>
-              <tr v-for="row in productRows" :key="row.id" :class="{ active: editingId === row.id }">
+              <tr v-for="row in productRows" :key="row.id">
                 <td>{{ categoryLabel(row, 1) }}</td>
                 <td>{{ categoryLabel(row, 2) }}</td>
                 <td>{{ row.number || '' }}</td>
                 <td>{{ row.name }}</td>
-                <td>{{ row.roast_level }}</td>
-                <td>{{ money(row.default_price) }}</td>
-                <td>{{ money(row.retail_price_100g) }}</td>
-                <td>{{ money(row.retail_price_200g) }}</td>
-                <td>{{ money(row.retail_price_227g) }}</td>
-                <td>{{ money(row.retail_price_250g) }}</td>
-                <td><button class="text-button" type="button" @click="editProduct(row)">编辑</button></td>
+                <td>
+                  <select class="roast-select" v-model="row.roast_level" @change="saveProductBasics(row)">
+                    <option v-for="level in roastLevels" :key="level" :value="level">{{ level }}</option>
+                  </select>
+                </td>
+                <td>
+                  <div class="yield-editor">
+                    <input
+                      class="yield-input"
+                      v-model.number="row.yield_percent"
+                      type="number"
+                      min="1"
+                      max="100"
+                      step="0.01"
+                      @change="saveProductBasics(row)" />
+                    <span>%</span>
+                  </div>
+                </td>
               </tr>
               <tr v-if="!productRows.length">
-                <td colspan="11" class="muted">暂无商品</td>
+                <td colspan="6" class="muted">暂无商品</td>
               </tr>
             </tbody>
           </table>
         </div>
-
-        <form v-if="editingId" class="edit-form" @submit.prevent="saveProductBasics">
-          <div class="panel-title">编辑基础信息</div>
-          <label><span>商品</span><input v-model="form.name" disabled /></label>
-          <label><span>烘焙度</span><select v-model="form.roast_level"><option v-for="level in roastLevels" :key="level" :value="level">{{ level }}</option></select></label>
-          <label><span>100g 零售价</span><input v-model.number="form.retail_price_100g" type="number" min="0" step="0.01" /></label>
-          <label><span>200g 零售价</span><input v-model.number="form.retail_price_200g" type="number" min="0" step="0.01" /></label>
-          <label><span>227g 零售价</span><input v-model.number="form.retail_price_227g" type="number" min="0" step="0.01" /></label>
-          <label><span>250g 零售价</span><input v-model.number="form.retail_price_250g" type="number" min="0" step="0.01" /></label>
-          <div class="form-actions">
-            <button class="secondary" type="button" @click="clearEditor">取消</button>
-            <button class="primary" type="submit" :disabled="loading">保存</button>
-          </div>
-        </form>
       </div>
     </section>
 
@@ -153,7 +174,7 @@
 </template>
 
 <script setup>
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { apiGet, apiSend } from '../api/client'
 import CostingView from './CostingView.vue'
 
@@ -166,18 +187,12 @@ const newPrimaryName = ref('')
 const newSecondaryName = ref('')
 const addingSecondaryFor = ref(0)
 const dragging = ref(null)
-const editingId = ref(0)
+const categoryDropTarget = ref(null)
 const editingCategoryId = ref(0)
 const editingCategoryName = ref('')
+const categoryCollapsed = ref(false)
+const productsCollapsed = ref(false)
 const roastLevels = ['浅烘', '中烘', '中深烘', '深烘']
-const form = reactive({
-  name: '',
-  roast_level: '中烘',
-  retail_price_100g: 0,
-  retail_price_200g: 0,
-  retail_price_227g: 0,
-  retail_price_250g: 0,
-})
 
 const productRows = computed(() => {
   const rows = []
@@ -206,13 +221,26 @@ const categorizedProductIDs = computed(() => {
 
 const uncategorizedProducts = computed(() => products.value.filter((product) => !categorizedProductIDs.value.has(Number(product.id))))
 
-function money(value) {
-  const n = Number(value || 0)
-  return n > 0 ? n.toFixed(2) : ''
-}
-
 function categoryLabel(row, level) {
   return level === 1 ? row.primary_name || '' : row.secondary_name || ''
+}
+
+function decorateProduct(product) {
+  const yieldRate = Number(product.yield_rate || 0.8)
+  return {
+    ...product,
+    roast_level: roastLevels.includes(product.roast_level) ? product.roast_level : '中烘',
+    yield_rate: yieldRate,
+    yield_percent: Number((yieldRate * 100).toFixed(2)),
+  }
+}
+
+function decorateCategory(category) {
+  return {
+    ...category,
+    children: (category.children || []).map(decorateCategory),
+    products: (category.products || []).map(decorateProduct),
+  }
 }
 
 async function loadAll() {
@@ -220,8 +248,8 @@ async function loadAll() {
   error.value = ''
   try {
     const data = await apiGet('/api/product-settings')
-    categories.value = data.categories || []
-    products.value = data.products || []
+    categories.value = (data.categories || []).map(decorateCategory)
+    products.value = (data.products || []).map(decorateProduct)
   } catch (err) {
     error.value = err.message || '加载失败'
   } finally {
@@ -297,59 +325,100 @@ async function saveCategoryName(category) {
 }
 
 function startCategoryDrag(category) {
-  dragging.value = { type: 'category', id: Number(category.id) }
+  dragging.value = {
+    type: 'category',
+    id: Number(category.id),
+    parentID: Number(category.parent_id || 0),
+    position: Number(category.number || category.position || 0),
+  }
+  categoryDropTarget.value = null
 }
 
 function startProductDrag(product) {
   dragging.value = { type: 'product', id: Number(product.id) }
+  categoryDropTarget.value = null
+}
+
+function clearDrag() {
+  dragging.value = null
+  categoryDropTarget.value = null
+}
+
+function isDraggingCategory(category) {
+  return dragging.value?.type === 'category' && dragging.value.id === Number(category.id)
+}
+
+function setCategoryDropTarget(primary, position) {
+  if (dragging.value?.type !== 'category') return
+  categoryDropTarget.value = { parentID: Number(primary.id), position: Number(position) }
+}
+
+function isCategoryDropTarget(primary, position) {
+  return dragging.value?.type === 'category'
+    && categoryDropTarget.value?.parentID === Number(primary.id)
+    && categoryDropTarget.value?.position === Number(position)
+}
+
+async function dropCategoryAtPosition(primary, visualPosition) {
+  if (dragging.value?.type !== 'category') return
+  const parentID = Number(primary.id)
+  let position = Number(visualPosition)
+  if (dragging.value.parentID === parentID && dragging.value.position > 0 && dragging.value.position < visualPosition) {
+    position -= 1
+  }
+  if (position <= 0) position = 1
+  try {
+    await apiSend(`/api/product-settings/categories/${dragging.value.id}/move`, {
+      body: { parent_id: parentID, position },
+    })
+    ok.value = '分类顺序已保存'
+    await loadAll()
+  } catch (err) {
+    error.value = err.message || '移动分类失败'
+  } finally {
+    clearDrag()
+  }
 }
 
 async function dropCategoryOnPrimary(primary) {
   if (dragging.value?.type !== 'category') return
-  await apiSend(`/api/product-settings/categories/${dragging.value.id}/move`, {
-    body: { parent_id: Number(primary.id), position: Number(primary.children?.length || 0) + 1 },
-  })
-  dragging.value = null
-  await loadAll()
+  await dropCategoryAtPosition(primary, Number(primary.children?.length || 0) + 1)
 }
 
 async function dropProductOnSecondary(secondary) {
   if (dragging.value?.type !== 'product') return
-  await apiSend(`/api/product-settings/products/${dragging.value.id}/category`, {
-    body: { category_id: Number(secondary.id || 0), position: Number(secondary.products?.length || 0) + 1 },
-  })
-  dragging.value = null
-  await loadAll()
+  try {
+    await apiSend(`/api/product-settings/products/${dragging.value.id}/category`, {
+      body: { category_id: Number(secondary.id || 0), position: Number(secondary.products?.length || 0) + 1 },
+    })
+    ok.value = '商品分类已保存'
+    await loadAll()
+  } catch (err) {
+    error.value = err.message || '移动商品失败'
+  } finally {
+    clearDrag()
+  }
 }
 
-function editProduct(row) {
-  editingId.value = Number(row.id)
-  form.name = row.name || ''
-  form.roast_level = roastLevels.includes(row.roast_level) ? row.roast_level : '中烘'
-  form.retail_price_100g = Number(row.retail_price_100g || 0)
-  form.retail_price_200g = Number(row.retail_price_200g || 0)
-  form.retail_price_227g = Number(row.retail_price_227g || 0)
-  form.retail_price_250g = Number(row.retail_price_250g || 0)
-}
-
-function clearEditor() {
-  editingId.value = 0
-}
-
-async function saveProductBasics() {
-  if (!editingId.value) return
+async function saveProductBasics(row) {
+  const yieldPercent = Number(row.yield_percent || 0)
+  if (yieldPercent <= 0 || yieldPercent > 100) {
+    error.value = '产品出品率必须在 1% 到 100% 之间'
+    return
+  }
   loading.value = true
   error.value = ''
   ok.value = ''
   try {
-    await apiSend(`/api/products/${editingId.value}`, {
+    await apiSend(`/api/products/${row.id}`, {
       method: 'PUT',
       body: {
-        roast_level: form.roast_level,
-        retail_price_100g: Number(form.retail_price_100g || 0),
-        retail_price_200g: Number(form.retail_price_200g || 0),
-        retail_price_227g: Number(form.retail_price_227g || 0),
-        retail_price_250g: Number(form.retail_price_250g || 0),
+        roast_level: row.roast_level,
+        yield_rate: Number((yieldPercent / 100).toFixed(4)),
+        retail_price_100g: Number(row.retail_price_100g || 0),
+        retail_price_200g: Number(row.retail_price_200g || 0),
+        retail_price_227g: Number(row.retail_price_227g || 0),
+        retail_price_250g: Number(row.retail_price_250g || 0),
       },
     })
     ok.value = '商品基础信息已保存'
@@ -371,34 +440,37 @@ onMounted(loadAll)
 .panel-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
 .panel-head h2 { margin: 0 0 4px; font-size: 20px; }
 .panel-head p { margin: 0; color: #666; font-size: 13px; }
-.panel-title { font-weight: 700; margin-bottom: 10px; }
+.panel-title { display: flex; align-items: center; justify-content: space-between; gap: 10px; font-weight: 700; margin-bottom: 10px; }
+.sub-title { width: 100%; font-weight: 700; font-size: 13px; }
 button, input, select { font: inherit; min-height: 36px; border-radius: 6px; }
 input, select { border: 1px solid #cfc8bf; padding: 7px 9px; background: #fff; width: 100%; }
 button { border: 1px solid #1f1f1f; background: #fff; padding: 0 12px; cursor: pointer; }
 button:disabled { cursor: not-allowed; opacity: .55; }
 .primary { background: #111; color: #fff; }
-.secondary { background: #fff; color: #111; }
+.secondary, .toggle-section { background: #fff; color: #111; }
+.toggle-section { min-height: 30px; padding: 0 10px; }
 .text-button { border: 0; background: transparent; color: #1f4f82; padding: 0; min-height: 28px; }
-.settings-grid { display: grid; grid-template-columns: minmax(280px, 360px) minmax(0, 1fr); gap: 14px; align-items: start; }
+.settings-grid { display: grid; grid-template-columns: minmax(280px, 380px) minmax(0, 1fr); gap: 14px; align-items: start; }
 .inline-form { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; margin-bottom: 10px; }
 .sub-form { margin: 8px 0; }
 .category-tree { display: grid; gap: 10px; }
 .primary-category { border: 1px solid #eee8df; border-radius: 8px; padding: 10px; background: #fbfaf8; }
 .category-head, .secondary-head, .category-actions { display: flex; align-items: center; gap: 8px; justify-content: space-between; }
-.secondary-category { border: 1px solid #ddd; border-radius: 8px; padding: 9px; margin-top: 8px; background: #fff; }
+.secondary-category { border: 1px solid #ddd; border-radius: 8px; padding: 9px; background: #fff; }
+.secondary-category.dragging { opacity: .45; }
 .secondary-head span { display: inline-flex; width: 24px; height: 24px; align-items: center; justify-content: center; border: 1px solid #ddd; border-radius: 6px; }
 .secondary-head small { color: #666; }
+.category-drop-line { height: 12px; border-top: 2px solid transparent; margin: 2px 0; transition: border-color .12s ease, background .12s ease; }
+.category-drop-line.active { border-top-color: #1f4f82; background: #edf5ff; }
 .product-chip-list, .uncategorized { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
 .product-chip { border: 1px solid #ddd; border-radius: 8px; padding: 5px 8px; background: #fff; font-size: 12px; cursor: grab; }
 .table-wrap { overflow: auto; }
-table { width: 100%; min-width: 1120px; border-collapse: collapse; }
-th, td { border-bottom: 1px solid #eee8df; padding: 8px; text-align: left; font-size: 13px; vertical-align: top; }
+table { width: 100%; min-width: 760px; border-collapse: collapse; }
+th, td { border-bottom: 1px solid #eee8df; padding: 8px; text-align: left; font-size: 13px; vertical-align: middle; }
 th { background: #fbfaf8; position: sticky; top: 0; }
-tr.active { background: #f3f7fb; }
-.edit-form { display: grid; grid-template-columns: repeat(3, minmax(160px, 1fr)); gap: 10px; border-top: 1px solid #eee8df; margin-top: 12px; padding-top: 12px; }
-.edit-form .panel-title, .form-actions { grid-column: 1 / -1; }
-label span { display: block; color: #666; font-size: 12px; margin-bottom: 5px; }
-.form-actions { display: flex; justify-content: flex-end; gap: 8px; }
+.roast-select { min-width: 92px; }
+.yield-editor { display: flex; align-items: center; gap: 6px; max-width: 130px; }
+.yield-input { width: 90px; }
 .costing-panel { padding: 0; overflow: hidden; }
 .error, .ok { border-radius: 6px; padding: 9px; margin-top: 12px; }
 .error { background: #fff0f0; border: 1px solid #e6b7b7; color: #8a1f1f; }
@@ -406,7 +478,7 @@ label span { display: block; color: #666; font-size: 12px; margin-bottom: 5px; }
 .muted { color: #666; font-size: 12px; }
 @media (max-width: 900px) {
   .page { padding: 12px; }
-  .settings-grid, .edit-form, .inline-form { grid-template-columns: 1fr; }
-  table { min-width: 980px; }
+  .settings-grid, .inline-form { grid-template-columns: 1fr; }
+  table { min-width: 720px; }
 }
 </style>

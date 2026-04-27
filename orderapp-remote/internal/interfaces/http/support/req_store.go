@@ -400,6 +400,13 @@ func seedReqWorkflowA(ctx context.Context, pool *pgxpool.Pool, schema string) er
 		{table: "req_unit", code: "UT-089-01", title: "源码守卫覆盖产品设置入口、拖拽分类、旧商品档案阶梯价编辑删除和需求种子", status: "done", assignee: "Codex", evidence: "TestProductSettingsRequirementSeeds; TestProductSettingsVueWiringAndLegacyTierEditorRemoval; menu-ia.test.js"},
 		{table: "req_api", code: "API-089-01", title: "覆盖 /api/product-settings 分类树、创建分类、移动二级分类、商品归类和旧页面重定向", status: "done", assignee: "Codex", evidence: "TestProductSettingsAPISupportsCategoryTreeAndDragAssignments; TestLegacyProductAndCostingRoutesRedirectToProductSettings"},
 		{table: "req_review", code: "REV-089-01", prCode: "PR-089", title: "验收：产品设置替代成本核算/商品档案主入口，分类与商品拖拽编号可保存，旧商品档案不再编辑阶梯价", status: "todo", assignee: "VA", evidence: "待 Van 服务器验收"},
+		{table: "req_product", code: "PR-090", title: "优化产品设置：二级分类拖动时显示插入横线，商品基础信息直接设置产品出品率并支持面板收起", status: "review", assignee: "VA", evidence: "codex/product-settings-categories"},
+		{table: "req_dev", code: "DEV-090-01", title: "修正二级分类同级排序保存逻辑，并在拖动时用横线显示插入位置", status: "done", assignee: "Codex", evidence: "placeCategoryPosition; ProductSettingsView category-drop-line"},
+		{table: "req_dev", code: "DEV-090-02", title: "商品基础信息删除默认价、零售价和操作列，列表内直接编辑烘焙度与产品出品率", status: "done", assignee: "Codex", evidence: "ProductSettingsView yield editor; PUT /api/products yield_rate"},
+		{table: "req_dev", code: "DEV-090-03", title: "商品分类和商品基础信息支持收起/展开", status: "done", assignee: "Codex", evidence: "ProductSettingsView categoryCollapsed/productsCollapsed"},
+		{table: "req_unit", code: "UT-090-01", title: "覆盖产品设置拖拽横线、出品率列表编辑、移除价格列和面板收起源码守卫", status: "done", assignee: "Codex", evidence: "TestProductSettingsCategoryDragYieldAndCollapseRefinements"},
+		{table: "req_api", code: "API-090-01", title: "覆盖产品设置 API 返回 yield_rate，PUT /api/products 可保存 yield_rate", status: "done", assignee: "Codex", evidence: "TestProductSettingsAPIUpdatesProductYieldRate"},
+		{table: "req_review", code: "REV-090-01", prCode: "PR-090", title: "验收：二级分类拖拽排序可保存且有横线位置提示，商品基础列表可直接设置产品出品率并可收起", status: "todo", assignee: "VA", evidence: "待 Van 服务器验收"},
 	} {
 		if err := seedReqRow(ctx, pool, schema, row); err != nil {
 			return err
