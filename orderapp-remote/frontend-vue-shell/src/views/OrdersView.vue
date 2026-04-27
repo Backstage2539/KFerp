@@ -83,6 +83,26 @@
         <span>{{ shippingMessage }}</span>
         <a v-if="shippingExcelUrl" :href="shippingExcelUrl" target="_blank" rel="noopener">下载 Excel</a>
       </div>
+      <div v-if="currentShipment.shipment_id" class="tracking-box">
+        <div class="tracking-head">
+          <div>
+            <strong>{{ currentShipment.shipment_no }}</strong>
+            <span>回填快递单号后，订单会自动标记为已发货。</span>
+          </div>
+          <button class="secondary" type="button" @click="load" :disabled="loading">刷新列表</button>
+        </div>
+        <div class="tracking-grid">
+          <label v-for="row in selectedRows" :key="row.id">
+            <span>{{ row.order_no }} · {{ row.customer }}</span>
+            <input v-model.trim="trackingInputs[Number(row.id)]" placeholder="快递单号" />
+          </label>
+        </div>
+        <div class="tracking-actions">
+          <button class="primary" type="button" @click="fillShipmentTracking" :disabled="trackingLoading || !trackingReady">
+            {{ trackingLoading ? '回填中' : '回填单号并标记已发货' }}
+          </button>
+        </div>
+      </div>
       <div v-if="shippingError" class="notice error">{{ shippingError }}</div>
       <div class="table-wrap">
         <table>
@@ -97,6 +117,7 @@
               <th>类型</th>
               <th>收款</th>
               <th>发货</th>
+              <th>单号</th>
               <th>生产</th>
               <th>录入</th>
               <th>备注</th>
@@ -134,13 +155,14 @@
               <td>{{ row.order_type }}</td>
               <td>{{ row.pay_status }}</td>
               <td>{{ row.ship_status }}</td>
+              <td>{{ row.ship_tracking_no || '-' }}</td>
               <td>{{ row.process_status }}</td>
               <td>{{ row.created_by_employee }}</td>
               <td class="notes">{{ row.notes }}</td>
               <td><a class="text-link" :href="`/orders/${row.id}/audit`">审计</a></td>
             </tr>
             <tr v-if="!rows.length">
-              <td colspan="13" class="muted">暂无订单</td>
+              <td colspan="14" class="muted">暂无订单</td>
             </tr>
           </tbody>
         </table>
@@ -175,6 +197,9 @@ const shippingError = ref('')
 const senderProfiles = ref([])
 const selectedSenderID = ref(0)
 const orderSenderIDs = reactive({})
+const currentShipment = reactive({ shipment_id: 0, shipment_no: '' })
+const trackingInputs = reactive({})
+const trackingLoading = ref(false)
 
 const filters = reactive({
   q: '',
@@ -190,6 +215,15 @@ const filters = reactive({
 const completedStatusID = computed(() => {
   const hit = processStatuses.value.find((item) => String(item.name || '').includes('生产完成'))
   return Number(hit?.id || 0)
+})
+
+const selectedRows = computed(() => {
+  const selected = new Set(selectedOrderIDs.value.map((id) => Number(id)))
+  return rows.value.filter((row) => selected.has(Number(row.id)))
+})
+
+const trackingReady = computed(() => {
+  return selectedRows.value.some((row) => String(trackingInputs[Number(row.id)] || '').trim() !== '')
 })
 
 function applyUrlFilters() {
@@ -286,11 +320,48 @@ async function generateShippingExcel() {
     const data = await res.json()
     if (!res.ok) throw new Error(data.error || '生成失败')
     shippingExcelUrl.value = data.shipping_excel_url || ''
-    shippingMessage.value = `已生成 ${Number(data.count || selectedOrderIDs.value.length)} 个订单的快递录单`
+    currentShipment.shipment_id = Number(data.shipment_id || 0)
+    currentShipment.shipment_no = data.shipment_no || ''
+    for (const id of selectedOrderIDs.value) {
+      if (trackingInputs[id] === undefined) trackingInputs[id] = ''
+    }
+    shippingMessage.value = `已生成 ${Number(data.count || selectedOrderIDs.value.length)} 个订单的快递录单：${currentShipment.shipment_no || '待回填'}`
   } catch (err) {
     shippingError.value = err.message || '生成失败'
   } finally {
     shippingLoading.value = false
+  }
+}
+
+async function fillShipmentTracking() {
+  trackingLoading.value = true
+  shippingError.value = ''
+  shippingMessage.value = ''
+  try {
+    const items = selectedRows.value
+      .map((row) => ({
+        order_id: Number(row.id),
+        tracking_no: String(trackingInputs[Number(row.id)] || '').trim(),
+      }))
+      .filter((item) => item.tracking_no)
+    const res = await fetch('/api/orders/shipping-tracking', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ shipment_id: currentShipment.shipment_id, items }),
+    })
+    const data = await res.json()
+    if (!res.ok) throw new Error(data.error || '回填失败')
+    shippingMessage.value = `已回填 ${Number(data.updated || 0)} 个订单并标记已发货`
+    selectedOrderIDs.value = []
+    for (const key of Object.keys(orderSenderIDs)) delete orderSenderIDs[key]
+    for (const key of Object.keys(trackingInputs)) delete trackingInputs[key]
+    currentShipment.shipment_id = 0
+    currentShipment.shipment_no = ''
+    await load()
+  } catch (err) {
+    shippingError.value = err.message || '回填失败'
+  } finally {
+    trackingLoading.value = false
   }
 }
 
@@ -364,6 +435,12 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .sender-picker select { height: 38px; }
 .notice { display: flex; align-items: center; justify-content: space-between; gap: 10px; border-radius: 6px; padding: 9px; margin-bottom: 12px; }
 .ok { background: #eef8f1; border: 1px solid #b9dfc4; color: #1f6b38; }
+.tracking-box { border: 1px solid #d9e3ef; border-radius: 8px; padding: 10px; margin-bottom: 12px; background: #f8fbff; }
+.tracking-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 10px; }
+.tracking-head strong { display: block; margin-bottom: 3px; }
+.tracking-head span { color: #576575; font-size: 13px; }
+.tracking-grid { display: grid; grid-template-columns: repeat(3, minmax(180px, 1fr)); gap: 10px; }
+.tracking-actions { display: flex; justify-content: flex-end; margin-top: 10px; }
 .table-wrap { overflow: auto; }
 table { width: 100%; min-width: 1180px; border-collapse: collapse; }
 th, td { border-bottom: 1px solid #eee8df; padding: 9px 8px; text-align: left; font-size: 14px; vertical-align: top; }
@@ -383,6 +460,8 @@ a, .text-link { color: #1f4f82; text-decoration: none; }
   .filters { grid-template-columns: 1fr; }
   .shipping-bar { align-items: stretch; flex-direction: column; }
   .shipping-actions { justify-content: flex-start; }
+  .tracking-head { align-items: stretch; flex-direction: column; }
+  .tracking-grid { grid-template-columns: 1fr; }
   table { min-width: 980px; }
 }
 </style>

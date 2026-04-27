@@ -238,6 +238,7 @@ type OrderRow struct {
 	OrderType         string `json:"order_type"`
 	PayStatus         string `json:"pay_status"`
 	ShipStatus        string `json:"ship_status"`
+	ShipTrackingNo    string `json:"ship_tracking_no"`
 	OrderTypeID       int64  `json:"order_type_id"`
 	PayStatusID       int64  `json:"pay_status_id"`
 	ShipStatusID      int64  `json:"ship_status_id"`
@@ -294,6 +295,38 @@ type SetShipMethodCommand struct {
 	Actor    string
 	OrderIDs []int64
 	Method   string
+}
+
+type OrderShipmentOrderCommand struct {
+	OrderID  int64
+	SenderID int64
+}
+
+type CreateOrderShipmentCommand struct {
+	Actor    string
+	SenderID int64
+	FileURL  string
+	Orders   []OrderShipmentOrderCommand
+}
+
+type OrderShipmentResult struct {
+	ShipmentID int64  `json:"shipment_id"`
+	ShipmentNo string `json:"shipment_no"`
+}
+
+type ShipmentTrackingItemCommand struct {
+	OrderID    int64  `json:"order_id"`
+	TrackingNo string `json:"tracking_no"`
+}
+
+type FillShipmentTrackingCommand struct {
+	Actor      string
+	ShipmentID int64
+	Items      []ShipmentTrackingItemCommand
+}
+
+type FillShipmentTrackingResult struct {
+	Updated int `json:"updated"`
 }
 
 type SenderProfile struct {
@@ -353,6 +386,8 @@ type Repository interface {
 	SaveSenderProfile(ctx context.Context, profile SenderProfile) error
 	ListSFSmallShippingRows(ctx context.Context, query ShippingExportQuery) ([]ShippingExportRow, error)
 	LoadOrderShippingExportData(ctx context.Context, orderID int64) (OrderShippingExportData, error)
+	CreateOrderShipment(ctx context.Context, cmd CreateOrderShipmentCommand) (OrderShipmentResult, error)
+	FillShipmentTracking(ctx context.Context, cmd FillShipmentTrackingCommand) (FillShipmentTrackingResult, error)
 }
 
 type Service struct {
@@ -517,6 +552,59 @@ func (s *Service) SetShipMethod(ctx context.Context, cmd SetShipMethodCommand) e
 	}
 	cmd.OrderIDs = ids
 	return s.repo.SetShipMethod(ctx, cmd)
+}
+
+func (s *Service) CreateOrderShipment(ctx context.Context, cmd CreateOrderShipmentCommand) (OrderShipmentResult, error) {
+	cmd.Actor = strings.TrimSpace(cmd.Actor)
+	if cmd.Actor == "" {
+		cmd.Actor = "shipping"
+	}
+	cmd.FileURL = strings.TrimSpace(cmd.FileURL)
+	if cmd.FileURL == "" {
+		return OrderShipmentResult{}, fmt.Errorf("file_url required")
+	}
+	seen := map[int64]bool{}
+	orders := make([]OrderShipmentOrderCommand, 0, len(cmd.Orders))
+	for _, order := range cmd.Orders {
+		if order.OrderID <= 0 || seen[order.OrderID] {
+			continue
+		}
+		seen[order.OrderID] = true
+		if order.SenderID <= 0 {
+			order.SenderID = cmd.SenderID
+		}
+		orders = append(orders, order)
+	}
+	if len(orders) == 0 {
+		return OrderShipmentResult{}, fmt.Errorf("order required")
+	}
+	cmd.Orders = orders
+	return s.repo.CreateOrderShipment(ctx, cmd)
+}
+
+func (s *Service) FillShipmentTracking(ctx context.Context, cmd FillShipmentTrackingCommand) (FillShipmentTrackingResult, error) {
+	cmd.Actor = strings.TrimSpace(cmd.Actor)
+	if cmd.Actor == "" {
+		cmd.Actor = "shipping"
+	}
+	if cmd.ShipmentID <= 0 {
+		return FillShipmentTrackingResult{}, fmt.Errorf("shipment required")
+	}
+	seen := map[int64]bool{}
+	items := make([]ShipmentTrackingItemCommand, 0, len(cmd.Items))
+	for _, item := range cmd.Items {
+		item.TrackingNo = strings.TrimSpace(item.TrackingNo)
+		if item.OrderID <= 0 || item.TrackingNo == "" || seen[item.OrderID] {
+			continue
+		}
+		seen[item.OrderID] = true
+		items = append(items, item)
+	}
+	if len(items) == 0 {
+		return FillShipmentTrackingResult{}, nil
+	}
+	cmd.Items = items
+	return s.repo.FillShipmentTracking(ctx, cmd)
 }
 
 func (s *Service) LoadSenderProfile(ctx context.Context) (SenderProfile, error) {

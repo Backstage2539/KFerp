@@ -67,6 +67,7 @@ import ProductionLogsView from './views/ProductionLogsView.vue'
 import ProductionManualView from './views/ProductionManualView.vue'
 import ProductSettingsView from './views/ProductSettingsView.vue'
 import ProductsView from './views/ProductsView.vue'
+import PurchaseView from './views/PurchaseView.vue'
 import RequirementsView from './views/RequirementsView.vue'
 import SenderSettingsView from './views/SenderSettingsView.vue'
 import StockAdjustmentsView from './views/StockAdjustmentsView.vue'
@@ -106,6 +107,7 @@ const internalViews = {
   orders: OrdersView,
   warehouseInventory: WarehouseInventoryView,
   stockOperations: StockOperationsView,
+  purchase: PurchaseView,
   materials: MaterialsView,
   materialReceipts: MaterialReceiptsView,
   materialBatches: MaterialBatchesView,

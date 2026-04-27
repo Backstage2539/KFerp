@@ -28,6 +28,7 @@ export const menuGroups = [
     items: [
       { key: 'warehouseInventory', label: '仓库库存', title: '仓库库存' },
       { key: 'stockOperations', label: '库存作业', title: '库存作业' },
+      { key: 'purchase', label: '采购入库', title: '采购入库' },
       { key: 'materials', label: '物料档案', title: '物料档案' },
     ],
   },

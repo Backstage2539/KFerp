@@ -20,7 +20,7 @@ func RegisterRoutes(e *echo.Echo, pool *pgxpool.Pool, schema string, deps ...Dep
 	registerAuthzAPI(e, d.Authz)
 	registerRequirementPages(e, pool, schema)
 	registerRequirementAPIs(e, pool, schema)
-	registerMobileAuthAPI(e, pool, schema)
+	registerMobileAuthAPI(e, pool, schema, d.Authz)
 	registerCoreRoutes(e, pool, schema)
 	registerDocsRoutes(e)
 }

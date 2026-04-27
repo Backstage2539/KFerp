@@ -112,6 +112,7 @@ func fetchOrders(ctx context.Context, pool *pgxpool.Pool, schema string, query s
 			COALESCE(ot.name, '') AS order_type,
 			COALESCE(ps.name, '') AS pay_status,
 			COALESCE(ss.name, '') AS ship_status,
+			COALESCE(o.ship_tracking_no, '') AS ship_tracking_no,
 			COALESCE(ops.name, '') AS process_status,
 			COALESCE((SELECT al.actor FROM %s.order_audit_logs al WHERE al.order_id=o.id ORDER BY al.id ASC LIMIT 1), '未知') AS created_by_employee,
 			COALESCE(o.order_type_id,0) AS order_type_id,
@@ -140,7 +141,7 @@ func fetchOrders(ctx context.Context, pool *pgxpool.Pool, schema string, query s
 	out := make([]salesapp.OrderRow, 0)
 	for dbRows.Next() {
 		var r salesapp.OrderRow
-		if err := dbRows.Scan(&r.ID, &r.OrderNo, &r.OrderDate, &r.CustomerID, &r.Customer, &r.GrandTotal, &r.OrderType, &r.PayStatus, &r.ShipStatus, &r.ProcessStatus, &r.CreatedByEmployee, &r.OrderTypeID, &r.PayStatusID, &r.ShipStatusID, &r.ProcessStatusID, &r.Notes, &r.IsVoid); err != nil {
+		if err := dbRows.Scan(&r.ID, &r.OrderNo, &r.OrderDate, &r.CustomerID, &r.Customer, &r.GrandTotal, &r.OrderType, &r.PayStatus, &r.ShipStatus, &r.ShipTrackingNo, &r.ProcessStatus, &r.CreatedByEmployee, &r.OrderTypeID, &r.PayStatusID, &r.ShipStatusID, &r.ProcessStatusID, &r.Notes, &r.IsVoid); err != nil {
 			return nil, false, err
 		}
 		out = append(out, r)

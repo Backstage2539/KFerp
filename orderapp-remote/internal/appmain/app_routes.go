@@ -10,6 +10,7 @@ import (
 	inventoryapp "orderapp/internal/application/inventory"
 	materialsapp "orderapp/internal/application/materials"
 	productionapp "orderapp/internal/application/production"
+	purchaseapp "orderapp/internal/application/purchase"
 	salesapp "orderapp/internal/application/sales"
 	stockapp "orderapp/internal/application/stock"
 	postgresauthz "orderapp/internal/infrastructure/postgres/authz"
@@ -21,6 +22,7 @@ import (
 	postgresinventory "orderapp/internal/infrastructure/postgres/inventory"
 	postgresmaterials "orderapp/internal/infrastructure/postgres/materials"
 	postgresproduction "orderapp/internal/infrastructure/postgres/production"
+	postgrespurchase "orderapp/internal/infrastructure/postgres/purchase"
 	postgressales "orderapp/internal/infrastructure/postgres/sales"
 	postgresstock "orderapp/internal/infrastructure/postgres/stock"
 	bomhttp "orderapp/internal/interfaces/http/bom"
@@ -31,6 +33,7 @@ import (
 	inventoryhttp "orderapp/internal/interfaces/http/inventory"
 	materialshttp "orderapp/internal/interfaces/http/materials"
 	productionhttp "orderapp/internal/interfaces/http/production"
+	purchasehttp "orderapp/internal/interfaces/http/purchase"
 	saleshttp "orderapp/internal/interfaces/http/sales"
 	stockhttp "orderapp/internal/interfaces/http/stock"
 	supporthttp "orderapp/internal/interfaces/http/support"
@@ -49,8 +52,9 @@ func registerAppRoutes(e *echo.Echo, pool *pgxpool.Pool, schema string, assetDir
 	inventorySvc := inventoryapp.NewService(postgresinventory.NewRepository(pool, schema))
 	materialsSvc := materialsapp.NewService(postgresmaterials.NewRepository(pool, schema))
 	productionSvc := productionapp.NewService(postgresproduction.NewRepository(pool, schema))
-	salesSvc := salesapp.NewService(postgressales.NewRepository(pool, schema))
 	stockSvc := stockapp.NewService(postgresstock.NewRepository(pool, schema))
+	purchaseSvc := purchaseapp.NewService(postgrespurchase.NewRepository(pool, schema), stockSvc)
+	salesSvc := salesapp.NewService(postgressales.NewRepository(pool, schema))
 
 	e.Use(supporthttp.AuthorizationMiddleware(authzSvc))
 
@@ -61,6 +65,7 @@ func registerAppRoutes(e *echo.Echo, pool *pgxpool.Pool, schema string, assetDir
 	costinghttp.RegisterRoutes(e, costinghttp.Dependencies{Costing: costingSvc})
 	inventoryhttp.RegisterRoutes(e, inventoryhttp.Dependencies{Inventory: inventorySvc})
 	stockhttp.RegisterRoutes(e, stockhttp.Dependencies{Stock: stockSvc})
+	purchasehttp.RegisterRoutes(e, purchasehttp.Dependencies{Purchase: purchaseSvc})
 	productionhttp.RegisterRoutes(e, productionhttp.Dependencies{Production: productionSvc})
 	companyhttp.RegisterRoutes(e, companyhttp.Dependencies{Company: companySvc})
 	customerhttp.RegisterRoutes(e, customerhttp.Dependencies{Customer: customerSvc, AssetDir: assetDir})

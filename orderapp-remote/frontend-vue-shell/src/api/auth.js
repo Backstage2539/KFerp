@@ -18,3 +18,21 @@ export function saveEmployeeRoles(employeeId, roleCodes) {
     body: { employee_id: employeeId, role_codes: roleCodes },
   })
 }
+
+export function fetchAuthAccounts() {
+  return apiGet('/api/auth/accounts')
+}
+
+export function setAccountState(employeeId, loginEnabled) {
+  return apiSend('/api/auth/account-state', {
+    method: 'POST',
+    body: { employee_id: employeeId, login_enabled: loginEnabled },
+  })
+}
+
+export function resetEmployeePassword(employeeId, password) {
+  return apiSend('/api/auth/password/reset', {
+    method: 'POST',
+    body: { employee_id: employeeId, password },
+  })
+}

@@ -18,9 +18,11 @@ import (
 )
 
 type orderShippingExcelFile struct {
-	Filename string
-	Path     string
-	URL      string
+	Filename   string
+	Path       string
+	URL        string
+	ShipmentID int64
+	ShipmentNo string
 }
 
 type orderShippingExcelRequest struct {
@@ -32,6 +34,16 @@ type orderShippingExcelRequest struct {
 type orderShippingSenderOverride struct {
 	OrderID  int64 `json:"order_id"`
 	SenderID int64 `json:"sender_id"`
+}
+
+type orderShippingTrackingRequest struct {
+	ShipmentID int64                          `json:"shipment_id"`
+	Items      []orderShippingTrackingItemAPI `json:"items"`
+}
+
+type orderShippingTrackingItemAPI struct {
+	OrderID    int64  `json:"order_id"`
+	TrackingNo string `json:"tracking_no"`
 }
 
 type orderShippingExcelRow struct {
@@ -77,8 +89,35 @@ func registerOrderShippingExcelRoutes(e *echo.Echo, salesSvc *salesapp.Service) 
 		}
 		return c.JSON(http.StatusOK, map[string]any{
 			"shipping_excel_url": file.URL,
+			"shipment_id":        file.ShipmentID,
+			"shipment_no":        file.ShipmentNo,
 			"count":              len(orderIDs),
 		})
+	})
+	e.POST("/api/orders/shipping-tracking", func(c echo.Context) error {
+		if err := support.RequireEmployeeBound(c); err != nil {
+			return c.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
+		}
+		var req orderShippingTrackingRequest
+		if err := c.Bind(&req); err != nil {
+			return c.JSON(http.StatusBadRequest, map[string]string{"error": "bad request"})
+		}
+		items := make([]salesapp.ShipmentTrackingItemCommand, 0, len(req.Items))
+		for _, item := range req.Items {
+			items = append(items, salesapp.ShipmentTrackingItemCommand{
+				OrderID:    item.OrderID,
+				TrackingNo: item.TrackingNo,
+			})
+		}
+		res, err := salesSvc.FillShipmentTracking(c.Request().Context(), salesapp.FillShipmentTrackingCommand{
+			Actor:      support.ActorOf(c),
+			ShipmentID: req.ShipmentID,
+			Items:      items,
+		})
+		if err != nil {
+			return c.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
+		}
+		return c.JSON(http.StatusOK, res)
 	})
 }
 
@@ -142,10 +181,28 @@ func generateOrdersShippingExcel(salesSvc *salesapp.Service, c echo.Context, ord
 	if err := wb.SaveAs(path); err != nil {
 		return orderShippingExcelFile{}, err
 	}
+	shipmentOrders := make([]salesapp.OrderShipmentOrderCommand, 0, len(excelRows))
+	for _, row := range excelRows {
+		shipmentOrders = append(shipmentOrders, salesapp.OrderShipmentOrderCommand{
+			OrderID:  row.Data.OrderID,
+			SenderID: row.Sender.ID,
+		})
+	}
+	shipment, err := salesSvc.CreateOrderShipment(c.Request().Context(), salesapp.CreateOrderShipmentCommand{
+		Actor:    support.ActorOf(c),
+		SenderID: defaultSender.ID,
+		FileURL:  "/ship/order_exports/" + url.PathEscape(filename),
+		Orders:   shipmentOrders,
+	})
+	if err != nil {
+		return orderShippingExcelFile{}, err
+	}
 	return orderShippingExcelFile{
-		Filename: filename,
-		Path:     path,
-		URL:      "/ship/order_exports/" + url.PathEscape(filename),
+		Filename:   filename,
+		Path:       path,
+		URL:        "/ship/order_exports/" + url.PathEscape(filename),
+		ShipmentID: shipment.ShipmentID,
+		ShipmentNo: shipment.ShipmentNo,
 	}, nil
 }
 

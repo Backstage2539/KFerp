@@ -11,6 +11,9 @@ func EnsureSchema(ctx context.Context, pool *pgxpool.Pool, schema string) error 
 	if err := ensureOrderProcessStatuses(ctx, pool, schema); err != nil {
 		return err
 	}
+	if err := ensureShippingClosureSchema(ctx, pool, schema); err != nil {
+		return err
+	}
 	if err := EnsureSenderSettingsTable(ctx, pool, schema); err != nil {
 		return err
 	}
@@ -30,6 +33,48 @@ func ensureOrderProcessStatuses(ctx context.Context, pool *pgxpool.Pool, schema 
 	`, schema, schema)
 	_, err := pool.Exec(ctx, q, "生产完成", 35)
 	return err
+}
+
+func ensureShippingClosureSchema(ctx context.Context, pool *pgxpool.Pool, schema string) error {
+	statusQ := fmt.Sprintf(`
+		INSERT INTO %s.ship_statuses(name)
+		SELECT $1
+		WHERE NOT EXISTS (
+			SELECT 1 FROM %s.ship_statuses WHERE name=$1
+		)
+	`, schema, schema)
+	for _, name := range []string{"待发货", "已发货"} {
+		if _, err := pool.Exec(ctx, statusQ, name); err != nil {
+			return err
+		}
+	}
+	stmts := []string{
+		fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s.order_shipments (
+			id BIGSERIAL PRIMARY KEY,
+			shipment_no TEXT NOT NULL UNIQUE,
+			created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+			created_by TEXT NOT NULL DEFAULT '',
+			sender_id BIGINT,
+			file_url TEXT NOT NULL DEFAULT '',
+			status TEXT NOT NULL DEFAULT 'excel_generated'
+		)`, schema),
+		fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s.order_shipment_orders (
+			id BIGSERIAL PRIMARY KEY,
+			shipment_id BIGINT NOT NULL REFERENCES %s.order_shipments(id) ON DELETE CASCADE,
+			order_id BIGINT NOT NULL REFERENCES %s.orders(id) ON DELETE CASCADE,
+			sender_id BIGINT,
+			tracking_no TEXT NOT NULL DEFAULT '',
+			shipped_at TIMESTAMPTZ,
+			UNIQUE(shipment_id, order_id)
+		)`, schema, schema, schema),
+		fmt.Sprintf(`CREATE INDEX IF NOT EXISTS idx_%s_order_shipment_orders_order_id ON %s.order_shipment_orders(order_id)`, schema, schema),
+	}
+	for _, stmt := range stmts {
+		if _, err := pool.Exec(ctx, stmt); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func ensureOutsourceFeeColumns(ctx context.Context, pool *pgxpool.Pool, schema string) error {

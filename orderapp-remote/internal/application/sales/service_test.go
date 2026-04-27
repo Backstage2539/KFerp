@@ -13,6 +13,8 @@ type fakeRepo struct {
 	outsourceSaved SaveOutsourceTemplateCommand
 	trackingCmd    FillTrackingPairsCommand
 	shipMethodCmd  SetShipMethodCommand
+	shipmentCmd    CreateOrderShipmentCommand
+	trackingItems  FillShipmentTrackingCommand
 }
 
 func (r *fakeRepo) SaveOrder(ctx context.Context, cmd SaveOrderCommand) (SaveOrderResult, error) {
@@ -91,6 +93,16 @@ func (r *fakeRepo) ListSFSmallShippingRows(ctx context.Context, query ShippingEx
 
 func (r *fakeRepo) LoadOrderShippingExportData(ctx context.Context, orderID int64) (OrderShippingExportData, error) {
 	return OrderShippingExportData{OrderID: orderID}, nil
+}
+
+func (r *fakeRepo) CreateOrderShipment(ctx context.Context, cmd CreateOrderShipmentCommand) (OrderShipmentResult, error) {
+	r.shipmentCmd = cmd
+	return OrderShipmentResult{ShipmentID: 12, ShipmentNo: "SHIP-20260428-0001"}, nil
+}
+
+func (r *fakeRepo) FillShipmentTracking(ctx context.Context, cmd FillShipmentTrackingCommand) (FillShipmentTrackingResult, error) {
+	r.trackingItems = cmd
+	return FillShipmentTrackingResult{Updated: len(cmd.Items)}, nil
 }
 
 func TestServiceDelegatesSaveOrder(t *testing.T) {
@@ -228,5 +240,53 @@ func TestServiceOwnsShippingWriteUseCases(t *testing.T) {
 	}
 	if len(repo.shipMethodCmd.OrderIDs) != 2 || repo.shipMethodCmd.OrderIDs[0] != 7 || repo.shipMethodCmd.OrderIDs[1] != 8 || repo.shipMethodCmd.Method != "sf_large" {
 		t.Fatalf("ship method command = %+v", repo.shipMethodCmd)
+	}
+}
+
+func TestServiceOwnsShipmentClosureUseCases(t *testing.T) {
+	repo := &fakeRepo{}
+	svc := NewService(repo)
+
+	shipment, err := svc.CreateOrderShipment(context.Background(), CreateOrderShipmentCommand{
+		Actor:    " tester ",
+		SenderID: 3,
+		FileURL:  " /ship/order_exports/a.xlsx ",
+		Orders: []OrderShipmentOrderCommand{
+			{OrderID: 20, SenderID: 3},
+			{OrderID: 20, SenderID: 3},
+			{OrderID: 21, SenderID: 4},
+			{OrderID: 0, SenderID: 4},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if shipment.ShipmentID != 12 || shipment.ShipmentNo == "" {
+		t.Fatalf("shipment result = %+v", shipment)
+	}
+	if repo.shipmentCmd.Actor != "tester" || repo.shipmentCmd.FileURL != "/ship/order_exports/a.xlsx" {
+		t.Fatalf("shipment command = %+v", repo.shipmentCmd)
+	}
+	if len(repo.shipmentCmd.Orders) != 2 || repo.shipmentCmd.Orders[0].OrderID != 20 || repo.shipmentCmd.Orders[1].SenderID != 4 {
+		t.Fatalf("shipment orders = %+v", repo.shipmentCmd.Orders)
+	}
+
+	updated, err := svc.FillShipmentTracking(context.Background(), FillShipmentTrackingCommand{
+		Actor:      "",
+		ShipmentID: 12,
+		Items: []ShipmentTrackingItemCommand{
+			{OrderID: 20, TrackingNo: " SF123 "},
+			{OrderID: 20, TrackingNo: "SF123"},
+			{OrderID: 21, TrackingNo: ""},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updated.Updated != 1 {
+		t.Fatalf("tracking result = %+v", updated)
+	}
+	if repo.trackingItems.Actor != "shipping" || repo.trackingItems.ShipmentID != 12 || len(repo.trackingItems.Items) != 1 || repo.trackingItems.Items[0].TrackingNo != "SF123" {
+		t.Fatalf("tracking command = %+v", repo.trackingItems)
 	}
 }

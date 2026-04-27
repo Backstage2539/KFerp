@@ -460,6 +460,138 @@ func TestOrdersShippingExcelAPIUsesPerOrderSenderOverrides(t *testing.T) {
 	}
 }
 
+func TestOrdersShippingExcelAPICreatesShipmentRecord(t *testing.T) {
+	pool, schema := newOrderAPITestDB(t)
+	ctx := context.Background()
+	seedOrderAPITestData(t, ctx, pool, schema)
+	if err := postgressales.EnsureSchema(ctx, pool, schema); err != nil {
+		t.Fatalf("EnsureSchema: %v", err)
+	}
+
+	dir := t.TempDir()
+	templatePath := filepath.Join(dir, "ship_temp.xlsx")
+	exportDir := filepath.Join(dir, "exports")
+	writeOrderShippingTemplateForTest(t, templatePath)
+	t.Setenv("ORDER_SHIP_TEMPLATE", templatePath)
+	t.Setenv("ORDER_SHIP_EXPORT_DIR", exportDir)
+	mustExecOrderAPITestSQL(t, ctx, pool, fmt.Sprintf(`
+		INSERT INTO %s.sender_settings(id, sender_label, sender_name, sender_phone, sender_addr, sender_company, sender_goods, sf_biz_type, is_default, active)
+		VALUES (4, '仓库', '仓库寄件人', '13900000004', '仓库地址', '仓库公司', '茶叶', '标快', true, true);
+		INSERT INTO %s.orders(id, order_no, order_date, customer_id, order_type_id, pay_status_id, ship_status_id, process_status_id, grand_total, is_void)
+		VALUES (25, 'SO-SHIPMENT-CREATE', '2026-04-28', 3, 1, 2, 1, (SELECT id FROM %s.order_process_statuses WHERE name='生产完成' LIMIT 1), 88, false);
+		INSERT INTO %s.order_items(order_id,line_no,product_id,item_name,qty,unit,spec,unit_price,line_total)
+		VALUES (25, 1, 7, '橘皮乌龙', 1, '件', '454g', 88, 88);
+	`, schema, schema, schema, schema))
+
+	e := newOrderAPITestEcho(pool, schema)
+	body, _ := json.Marshal(map[string]any{"order_ids": []int64{25}, "sender_id": int64(4)})
+	req := httptest.NewRequest(http.MethodPost, "/api/orders/shipping-excel", bytes.NewReader(body))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("POST /api/orders/shipping-excel status = %d, want 200, body=%s", rec.Code, rec.Body.String())
+	}
+	var resp struct {
+		ShippingExcelURL string `json:"shipping_excel_url"`
+		ShipmentID       int64  `json:"shipment_id"`
+		ShipmentNo       string `json:"shipment_no"`
+		Error            string `json:"error"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatal(err)
+	}
+	if resp.Error != "" || resp.ShippingExcelURL == "" || resp.ShipmentID <= 0 || resp.ShipmentNo == "" {
+		t.Fatalf("shipment response = %+v body=%s", resp, rec.Body.String())
+	}
+
+	var shipmentNo, fileURL, status string
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`
+		SELECT shipment_no, file_url, status
+		FROM %s.order_shipments
+		WHERE id=$1
+	`, schema), resp.ShipmentID).Scan(&shipmentNo, &fileURL, &status); err != nil {
+		t.Fatalf("query shipment: %v", err)
+	}
+	if shipmentNo != resp.ShipmentNo || fileURL != resp.ShippingExcelURL || status != "excel_generated" {
+		t.Fatalf("shipment row no=%q file=%q status=%q resp=%+v", shipmentNo, fileURL, status, resp)
+	}
+	var linkedSender int64
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`
+		SELECT sender_id
+		FROM %s.order_shipment_orders
+		WHERE shipment_id=$1 AND order_id=25
+	`, schema), resp.ShipmentID).Scan(&linkedSender); err != nil {
+		t.Fatalf("query shipment order: %v", err)
+	}
+	if linkedSender != 4 {
+		t.Fatalf("shipment order sender_id=%d, want 4", linkedSender)
+	}
+}
+
+func TestOrdersShippingTrackingAPIMarksOrdersShipped(t *testing.T) {
+	pool, schema := newOrderAPITestDB(t)
+	ctx := context.Background()
+	seedOrderAPITestData(t, ctx, pool, schema)
+	if err := postgressales.EnsureSchema(ctx, pool, schema); err != nil {
+		t.Fatalf("EnsureSchema: %v", err)
+	}
+	mustExecOrderAPITestSQL(t, ctx, pool, fmt.Sprintf(`
+		INSERT INTO %s.orders(id, order_no, order_date, customer_id, order_type_id, pay_status_id, ship_status_id, process_status_id, grand_total, is_void)
+		VALUES (26, 'SO-SHIPMENT-TRACK', '2026-04-28', 3, 1, 2, 1, (SELECT id FROM %s.order_process_statuses WHERE name='生产完成' LIMIT 1), 88, false);
+		INSERT INTO %s.order_shipments(id, shipment_no, created_by, sender_id, file_url, status)
+		VALUES (11, 'SHIP-20260428-0001', '测试员', 1, '/ship/order_exports/test.xlsx', 'excel_generated');
+		INSERT INTO %s.order_shipment_orders(shipment_id, order_id, sender_id)
+		VALUES (11, 26, 1);
+	`, schema, schema, schema, schema))
+
+	e := newOrderAPITestEcho(pool, schema)
+	body, _ := json.Marshal(map[string]any{
+		"shipment_id": int64(11),
+		"items": []map[string]any{
+			{"order_id": int64(26), "tracking_no": "SF123456789CN"},
+		},
+	})
+	req := httptest.NewRequest(http.MethodPost, "/api/orders/shipping-tracking", bytes.NewReader(body))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("POST /api/orders/shipping-tracking status = %d, want 200, body=%s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), `"updated":1`) {
+		t.Fatalf("tracking response should include updated=1: %s", rec.Body.String())
+	}
+
+	var trackingNo, shipStatus string
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`
+		SELECT COALESCE(o.ship_tracking_no,''), COALESCE(ss.name,'')
+		FROM %s.orders o
+		LEFT JOIN %s.ship_statuses ss ON ss.id=o.ship_status_id
+		WHERE o.id=26
+	`, schema, schema)).Scan(&trackingNo, &shipStatus); err != nil {
+		t.Fatalf("query order tracking: %v", err)
+	}
+	if trackingNo != "SF123456789CN" || shipStatus != "已发货" {
+		t.Fatalf("order tracking=%q ship_status=%q, want shipped", trackingNo, shipStatus)
+	}
+
+	var rowTracking, shipmentStatus string
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`
+		SELECT COALESCE(so.tracking_no,''), s.status
+		FROM %s.order_shipment_orders so
+		JOIN %s.order_shipments s ON s.id=so.shipment_id
+		WHERE so.shipment_id=11 AND so.order_id=26
+	`, schema, schema)).Scan(&rowTracking, &shipmentStatus); err != nil {
+		t.Fatalf("query shipment tracking: %v", err)
+	}
+	if rowTracking != "SF123456789CN" || shipmentStatus != "shipped" {
+		t.Fatalf("shipment tracking=%q status=%q, want shipped", rowTracking, shipmentStatus)
+	}
+}
+
 func TestOrdersShippingExcelAPIRejectsUnfinishedOrders(t *testing.T) {
 	pool, schema := newOrderAPITestDB(t)
 	ctx := context.Background()
