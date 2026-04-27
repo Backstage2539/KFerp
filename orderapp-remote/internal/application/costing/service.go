@@ -3,6 +3,8 @@ package costing
 import (
 	"context"
 	"fmt"
+	"math"
+	"strings"
 
 	domain "orderapp/internal/domain/costing"
 )
@@ -23,11 +25,27 @@ type Run struct {
 	Items        []domain.ProductResult `json:"items,omitempty"`
 }
 
+type ParameterSetting struct {
+	Key       string  `json:"key"`
+	Label     string  `json:"label"`
+	Value     float64 `json:"value"`
+	Unit      string  `json:"unit"`
+	UpdatedAt string  `json:"updated_at,omitempty"`
+}
+
+type UpdateParameterCommand struct {
+	Key   string  `json:"key"`
+	Value float64 `json:"value"`
+	Actor string  `json:"actor,omitempty"`
+}
+
 type Repository interface {
 	LoadParameters(ctx context.Context) (domain.Parameters, error)
 	LoadProductInputs(ctx context.Context, params domain.Parameters) ([]domain.ProductInput, error)
 	CreateRun(ctx context.Context, actor string, items []domain.ProductResult) (*Run, error)
 	PublishRun(ctx context.Context, actor string, runID int64) error
+	ListParameterSettings(ctx context.Context) ([]ParameterSetting, error)
+	UpdateParameterSetting(ctx context.Context, cmd UpdateParameterCommand) (ParameterSetting, error)
 }
 
 type Service struct {
@@ -43,6 +61,27 @@ func (s *Service) Parameters(ctx context.Context) (domain.Parameters, error) {
 		return domain.DefaultParameters(), nil
 	}
 	return s.repo.LoadParameters(ctx)
+}
+
+func (s *Service) Settings(ctx context.Context) ([]ParameterSetting, error) {
+	if s.repo == nil {
+		return defaultParameterSettings(), nil
+	}
+	return s.repo.ListParameterSettings(ctx)
+}
+
+func (s *Service) UpdateSetting(ctx context.Context, cmd UpdateParameterCommand) (ParameterSetting, error) {
+	cmd.Key = strings.TrimSpace(cmd.Key)
+	if cmd.Key == "" {
+		return ParameterSetting{}, fmt.Errorf("key required")
+	}
+	if math.IsNaN(cmd.Value) || math.IsInf(cmd.Value, 0) || cmd.Value < 0 {
+		return ParameterSetting{}, fmt.Errorf("value must be >= 0")
+	}
+	if s.repo == nil {
+		return ParameterSetting{}, fmt.Errorf("repository required")
+	}
+	return s.repo.UpdateParameterSetting(ctx, cmd)
 }
 
 func (s *Service) Calculate(ctx context.Context, req CalculateRequest) (*CalculateResponse, error) {
@@ -110,4 +149,33 @@ func calculate(req CalculateRequest, params domain.Parameters) ([]domain.Product
 		out = append(out, domain.CalculateProduct(params, in))
 	}
 	return out, nil
+}
+
+func defaultParameterSettings() []ParameterSetting {
+	params := domain.DefaultParameters()
+	return []ParameterSetting{
+		{Key: "roast_yield_rate", Label: "生豆到熟豆转化率", Value: params.RoastYieldRate, Unit: "ratio"},
+		{Key: "kg_to_lb_factor", Label: "kg 到 lb 换算", Value: params.KgToLbFactor, Unit: "lb/kg"},
+		{Key: "small_batch_production_cost_per_kg", Label: "小批量生产成本", Value: params.SmallBatchProductionCostPerKg, Unit: "元/kg"},
+		{Key: "large_batch_production_cost_per_kg", Label: "大批量生产成本", Value: params.LargeBatchProductionCostPerKg, Unit: "元/kg"},
+		{Key: "wholesale_package_cost_per_kg", Label: "批发包装成本", Value: params.WholesalePackageCostPerKg, Unit: "元/kg"},
+		{Key: "product_loss_per_kg", Label: "产品损耗", Value: params.ProductLossPerKg, Unit: "元/kg"},
+		{Key: "retail_bean_margin_rate", Label: "零售熟豆利润系数", Value: params.RetailBeanMarginRate, Unit: "ratio"},
+		{Key: "retail_tax_rate", Label: "零售税率", Value: params.RetailTaxRate, Unit: "ratio"},
+		{Key: "retail_logistics_per_kg", Label: "零售熟豆物流", Value: params.RetailLogisticsPerKg, Unit: "元/kg"},
+		{Key: "retail_drip_logistics_per_10_bags", Label: "零售挂耳物流", Value: params.RetailDripLogisticsPer10Bags, Unit: "元/10袋"},
+		{Key: "drip_green_ratio_kg_per_bag", Label: "挂耳单袋咖啡消耗", Value: params.DripGreenRatioKgPerBag, Unit: "kg/袋"},
+		{Key: "drip_process_cost_per_bag", Label: "挂耳加工成本", Value: params.DripProcessCostPerBag, Unit: "元/袋"},
+		{Key: "drip_extra_cost_per_bag", Label: "挂耳额外成本", Value: params.DripExtraCostPerBag, Unit: "元/袋"},
+		{Key: "drip_packing_material_per_bag", Label: "挂耳外包装材料", Value: params.DripPackingMaterialPerBag, Unit: "元/袋"},
+		{Key: "retail_drip_multiplier", Label: "零售挂耳利润系数", Value: params.RetailDripMultiplier, Unit: "ratio"},
+		{Key: "wholesale_kg_margin_rate_1", Label: "商用熟豆 2-13磅 利润系数", Value: params.WholesaleKgMarginRates[0], Unit: "ratio"},
+		{Key: "wholesale_kg_margin_rate_2", Label: "商用熟豆 14-23磅 利润系数", Value: params.WholesaleKgMarginRates[1], Unit: "ratio"},
+		{Key: "wholesale_kg_margin_rate_3", Label: "商用熟豆 24-47磅 利润系数", Value: params.WholesaleKgMarginRates[2], Unit: "ratio"},
+		{Key: "wholesale_kg_margin_rate_4", Label: "商用熟豆 大于47磅 利润系数", Value: params.WholesaleKgMarginRates[3], Unit: "ratio"},
+		{Key: "wholesale_drip_multiplier_1", Label: "商用挂耳 100包 利润系数", Value: params.WholesaleDripMultipliers[0], Unit: "ratio"},
+		{Key: "wholesale_drip_multiplier_2", Label: "商用挂耳 200包 利润系数", Value: params.WholesaleDripMultipliers[1], Unit: "ratio"},
+		{Key: "wholesale_drip_multiplier_3", Label: "商用挂耳 300包 利润系数", Value: params.WholesaleDripMultipliers[2], Unit: "ratio"},
+		{Key: "wholesale_drip_multiplier_4", Label: "商用挂耳 500包 利润系数", Value: params.WholesaleDripMultipliers[3], Unit: "ratio"},
+	}
 }

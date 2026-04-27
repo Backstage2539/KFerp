@@ -302,6 +302,13 @@ func seedReqWorkflowA(ctx context.Context, pool *pgxpool.Pool, schema string) er
 		{table: "req_api", code: "API-074-03", title: "GET /api/costing/bean-list 返回豆单预览数据", status: "done", assignee: "Codex", evidence: "internal/interfaces/http/costing route test"},
 		{table: "req_api", code: "API-074-04", title: "POST /api/costing/runs/:id/publish 发布价格并写审计日志", status: "done", assignee: "Codex", evidence: "Postgres adapter PublishRun + audit"},
 		{table: "req_review", code: "REV-074-01", prCode: "PR-074", title: "ERP 成本核算结果可对齐 Excel 样本，豆单预览可打开，发布后录单使用新价格", status: "todo", assignee: "VA", evidence: "待 Van 服务器验收"},
+		{table: "req_product", code: "PR-075", title: "成本参数设置、物料批次号/生豆信息卡、商用批发四档梯度和零售豆单", status: "review", assignee: "VA", evidence: "codex/costing-settings-material-meta"},
+		{table: "req_dev", code: "DEV-075-01", title: "成本参数设置 API/UI 可维护 Excel 迁移参数", status: "done", assignee: "Codex", evidence: "GET/POST /api/costing/settings"},
+		{table: "req_dev", code: "DEV-075-02", title: "物料档案增加批次号、风味、产地、处理站、品种、处理法、等级、海拔和豆单信息", status: "done", assignee: "Codex", evidence: "materials schema + repository"},
+		{table: "req_dev", code: "DEV-075-03", title: "成本试算和豆单预览展示商用 2-13磅、14-23磅、24-47磅、大于47磅四档与零售价", status: "done", assignee: "Codex", evidence: "domain costing + CostingView"},
+		{table: "req_unit", code: "UT-075-01", title: "商用批发梯度、批次号默认今天、需求种子覆盖", status: "done", assignee: "Codex", evidence: "go test costing/materials/support focused tests"},
+		{table: "req_api", code: "API-075-01", title: "成本设置接口支持读取和更新参数，价格试算返回四档梯度", status: "done", assignee: "Codex", evidence: "TestCostingSettingsAPI + route test"},
+		{table: "req_review", code: "REV-075-01", prCode: "PR-075", title: "验收：商用四档批发价格、零售豆单、物料批次和风味/产地信息在 ERP 可见可用", status: "todo", assignee: "VA", evidence: "待 Van 服务器验收"},
 	} {
 		if err := seedReqRow(ctx, pool, schema, row); err != nil {
 			return err

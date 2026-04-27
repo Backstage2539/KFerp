@@ -3,6 +3,7 @@ package materials
 import (
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestNormalizeMaterialInputRejectsInvalidValues(t *testing.T) {
@@ -25,5 +26,15 @@ func TestNormalizeMaterialInputDefaultsKindAndUnit(t *testing.T) {
 	}
 	if got.Code != "m-1" || got.Name != "物料1" || got.Kind != "other" || got.Unit != "g" {
 		t.Fatalf("normalizeMaterialInput() = %+v", got)
+	}
+}
+
+func TestNormalizeMaterialInputDefaultsBatchNoToToday(t *testing.T) {
+	got, err := normalizeMaterialInput(materialInput{Code: "bean-a", Name: "豆子A", Kind: "bean", Unit: "kg"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.BatchNo != time.Now().Format("20060102") {
+		t.Fatalf("batch no = %q, want today", got.BatchNo)
 	}
 }

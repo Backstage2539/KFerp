@@ -51,7 +51,15 @@ func (r Repository) LoadProductInputs(ctx context.Context, params domain.Paramet
 		       p.name,
 		       COALESCE(p.roast_level, ''),
 		       COALESCE(NULLIF(b.yield_rate,0), $1),
-		       COALESCE(NULLIF(SUM(COALESCE(m.purchase_price,0) * COALESCE(bi.ratio_pct,0) / 100.0),0), NULLIF(p.default_price,0), 0)
+		       COALESCE(NULLIF(SUM(COALESCE(m.purchase_price,0) * COALESCE(bi.ratio_pct,0) / 100.0),0), NULLIF(p.default_price,0), 0),
+		       COALESCE(string_agg(DISTINCT NULLIF(m.flavor, ''), ' / ') FILTER (WHERE NULLIF(m.flavor, '') IS NOT NULL), ''),
+		       COALESCE(string_agg(DISTINCT NULLIF(m.origin, ''), ' / ') FILTER (WHERE NULLIF(m.origin, '') IS NOT NULL), ''),
+		       COALESCE(string_agg(DISTINCT NULLIF(m.processing_station, ''), ' / ') FILTER (WHERE NULLIF(m.processing_station, '') IS NOT NULL), ''),
+		       COALESCE(string_agg(DISTINCT NULLIF(m.variety, ''), ' / ') FILTER (WHERE NULLIF(m.variety, '') IS NOT NULL), ''),
+		       COALESCE(string_agg(DISTINCT NULLIF(m.process_method, ''), ' / ') FILTER (WHERE NULLIF(m.process_method, '') IS NOT NULL), ''),
+		       COALESCE(string_agg(DISTINCT NULLIF(m.grade, ''), ' / ') FILTER (WHERE NULLIF(m.grade, '') IS NOT NULL), ''),
+		       COALESCE(string_agg(DISTINCT NULLIF(m.altitude, ''), ' / ') FILTER (WHERE NULLIF(m.altitude, '') IS NOT NULL), ''),
+		       COALESCE(string_agg(DISTINCT NULLIF(m.bean_list_note, ''), ' / ') FILTER (WHERE NULLIF(m.bean_list_note, '') IS NOT NULL), '')
 		FROM %s.products p
 		LEFT JOIN %s.product_bom b ON b.product_id = p.id
 		LEFT JOIN %s.product_bom_items bi ON bi.product_id = p.id
@@ -71,13 +79,81 @@ func (r Repository) LoadProductInputs(ctx context.Context, params domain.Paramet
 		var input domain.ProductInput
 		var roastLevel string
 		var fallbackYield float64
-		if err := rows.Scan(&input.ProductID, &input.Name, &roastLevel, &fallbackYield, &input.GreenBeanCostPerKg); err != nil {
+		if err := rows.Scan(&input.ProductID, &input.Name, &roastLevel, &fallbackYield, &input.GreenBeanCostPerKg, &input.Flavor, &input.Origin, &input.ProcessingStation, &input.Variety, &input.ProcessMethod, &input.Grade, &input.Altitude, &input.BeanListNote); err != nil {
 			return nil, err
 		}
 		input.YieldRate = catalogdomain.ResolveYieldRate(roastLevel, fallbackYield)
 		out = append(out, input)
 	}
 	return out, rows.Err()
+}
+
+func (r Repository) ListParameterSettings(ctx context.Context) ([]appcosting.ParameterSetting, error) {
+	rows, err := r.pool.Query(ctx, fmt.Sprintf(`
+		SELECT key, label, value::float8, unit, to_char(updated_at,'YYYY-MM-DD HH24:MI')
+		FROM %s.cost_parameters
+		ORDER BY key
+	`, r.schema))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := make([]appcosting.ParameterSetting, 0)
+	for rows.Next() {
+		var row appcosting.ParameterSetting
+		if err := rows.Scan(&row.Key, &row.Label, &row.Value, &row.Unit, &row.UpdatedAt); err != nil {
+			return nil, err
+		}
+		out = append(out, row)
+	}
+	return out, rows.Err()
+}
+
+func (r Repository) UpdateParameterSetting(ctx context.Context, cmd appcosting.UpdateParameterCommand) (appcosting.ParameterSetting, error) {
+	conn, err := r.pool.Acquire(ctx)
+	if err != nil {
+		return appcosting.ParameterSetting{}, err
+	}
+	defer conn.Release()
+	tx, err := conn.Begin(ctx)
+	if err != nil {
+		return appcosting.ParameterSetting{}, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	var old appcosting.ParameterSetting
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`
+		SELECT key, label, value::float8, unit, to_char(updated_at,'YYYY-MM-DD HH24:MI')
+		FROM %s.cost_parameters
+		WHERE key=$1
+		FOR UPDATE
+	`, r.schema), strings.TrimSpace(cmd.Key)).Scan(&old.Key, &old.Label, &old.Value, &old.Unit, &old.UpdatedAt); err != nil {
+		if err == pgx.ErrNoRows {
+			return appcosting.ParameterSetting{}, fmt.Errorf("setting not found")
+		}
+		return appcosting.ParameterSetting{}, err
+	}
+
+	var next appcosting.ParameterSetting
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`
+		UPDATE %s.cost_parameters
+		SET value=$2, updated_at=now()
+		WHERE key=$1
+		RETURNING key, label, value::float8, unit, to_char(updated_at,'YYYY-MM-DD HH24:MI')
+	`, r.schema), strings.TrimSpace(cmd.Key), cmd.Value).Scan(&next.Key, &next.Label, &next.Value, &next.Unit, &next.UpdatedAt); err != nil {
+		return appcosting.ParameterSetting{}, err
+	}
+	if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, cmd.Actor, "cost_parameter", nil, "update", postgresinfra.StrPtr(next.Key), postgresinfra.StrPtr(fmt.Sprintf("%.6f", old.Value)), postgresinfra.StrPtr(fmt.Sprintf("%.6f", next.Value)), postgresinfra.AuditMeta{
+		"key":   next.Key,
+		"label": next.Label,
+		"unit":  next.Unit,
+	}); err != nil {
+		return appcosting.ParameterSetting{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return appcosting.ParameterSetting{}, err
+	}
+	return next, nil
 }
 
 func (r Repository) CreateRun(ctx context.Context, actor string, items []domain.ProductResult) (*appcosting.Run, error) {
@@ -150,18 +226,7 @@ func (r Repository) PublishRun(ctx context.Context, actor string, runID int64) e
 	deleteTiers := fmt.Sprintf(`DELETE FROM %s.product_price_tiers WHERE product_id=$1`, r.schema)
 	insertTier := fmt.Sprintf(`INSERT INTO %s.product_price_tiers
 		(product_id, spec_g, min_qty_units, max_qty_units, price_per_unit, min_qty_lb, max_qty_lb, price_per_lb, active)
-		VALUES($1,1000,$2,$3,$4,$2*1000/454.0,CASE WHEN $3::numeric IS NULL THEN NULL ELSE $3*1000/454.0 END,$4*454.0/1000,true)`, r.schema)
-	ranges := []struct {
-		min float64
-		max *float64
-	}{
-		{1, floatPtr(6)},
-		{7, floatPtr(11)},
-		{12, floatPtr(23)},
-		{24, floatPtr(49)},
-		{50, floatPtr(99)},
-		{100, nil},
-	}
+		VALUES($1,454,$2,$3,$4,$2,$3,$4,true)`, r.schema)
 	publishedProducts := 0
 	for _, item := range items {
 		if item.ProductID <= 0 {
@@ -177,11 +242,8 @@ func (r Repository) PublishRun(ctx context.Context, actor string, runID int64) e
 		if _, err := tx.Exec(ctx, deleteTiers, item.ProductID); err != nil {
 			return err
 		}
-		for i, price := range item.WholesaleKgPrices {
-			if i >= len(ranges) {
-				break
-			}
-			if _, err := tx.Exec(ctx, insertTier, item.ProductID, ranges[i].min, ranges[i].max, price); err != nil {
+		for _, tier := range commercialTiersForPublish(item) {
+			if _, err := tx.Exec(ctx, insertTier, item.ProductID, tier.MinLb, tier.MaxLb, tier.PricePerLb); err != nil {
 				return err
 			}
 		}
@@ -252,9 +314,55 @@ func applyParameter(params *domain.Parameters, key string, value float64) {
 		params.DripPackingMaterialPerBag = value
 	case "retail_drip_multiplier":
 		params.RetailDripMultiplier = value
+	case "wholesale_kg_margin_rate_1":
+		params.WholesaleKgMarginRates[0] = value
+	case "wholesale_kg_margin_rate_2":
+		params.WholesaleKgMarginRates[1] = value
+	case "wholesale_kg_margin_rate_3":
+		params.WholesaleKgMarginRates[2] = value
+	case "wholesale_kg_margin_rate_4":
+		params.WholesaleKgMarginRates[3] = value
+	case "wholesale_drip_multiplier_1":
+		params.WholesaleDripMultipliers[0] = value
+	case "wholesale_drip_multiplier_2":
+		params.WholesaleDripMultipliers[1] = value
+	case "wholesale_drip_multiplier_3":
+		params.WholesaleDripMultipliers[2] = value
+	case "wholesale_drip_multiplier_4":
+		params.WholesaleDripMultipliers[3] = value
 	}
 }
 
 func floatPtr(v float64) *float64 {
 	return &v
+}
+
+func commercialTiersForPublish(item domain.ProductResult) []domain.CommercialWholesaleTier {
+	if len(item.CommercialWholesaleTiers) > 0 {
+		return item.CommercialWholesaleTiers
+	}
+	ranges := []struct {
+		label string
+		min   float64
+		max   *float64
+	}{
+		{"2-13磅", 2, floatPtr(13)},
+		{"14-23磅", 14, floatPtr(23)},
+		{"24-47磅", 24, floatPtr(47)},
+		{"大于47磅", 48, nil},
+	}
+	out := make([]domain.CommercialWholesaleTier, 0, len(ranges))
+	for i, r := range ranges {
+		if i >= len(item.WholesaleKgPrices) || i >= len(item.WholesaleLbPrices) {
+			break
+		}
+		out = append(out, domain.CommercialWholesaleTier{
+			Label:      r.label,
+			MinLb:      r.min,
+			MaxLb:      r.max,
+			PricePerKg: item.WholesaleKgPrices[i],
+			PricePerLb: item.WholesaleLbPrices[i],
+		})
+	}
+	return out
 }

@@ -41,6 +41,42 @@ func TestEngineMatchesExcelCachedGoldens(t *testing.T) {
 	assertClose(t, "retail drip 10 bags", got.RetailDrip10BagPrice, 43.26055625000001)
 }
 
+func TestCommercialWholesaleTiersUsePoundRanges(t *testing.T) {
+	params := DefaultParameters()
+	got := CalculateProduct(params, ProductInput{
+		ProductID:          1,
+		Name:               "单品：孟连水洗（SOE)",
+		GreenBeanCostPerKg: 62,
+		YieldRate:          params.RoastYieldRate,
+		WholesaleTaxAddPerKgTiers: []float64{
+			1.3622427631578853,
+			0,
+			0,
+			0.37693125000000355,
+		},
+	})
+	if len(got.CommercialWholesaleTiers) != 4 {
+		t.Fatalf("commercial tiers = %+v, want 4 tiers", got.CommercialWholesaleTiers)
+	}
+	wantLabels := []string{"2-13磅", "14-23磅", "24-47磅", "大于47磅"}
+	wantMins := []float64{2, 14, 24, 48}
+	wantMaxs := []*float64{f64(13), f64(23), f64(47), nil}
+	for i := range wantLabels {
+		tier := got.CommercialWholesaleTiers[i]
+		if tier.Label != wantLabels[i] || tier.MinLb != wantMins[i] {
+			t.Fatalf("tier %d = %+v", i, tier)
+		}
+		if (tier.MaxLb == nil) != (wantMaxs[i] == nil) {
+			t.Fatalf("tier %d max = %+v, want %+v", i, tier.MaxLb, wantMaxs[i])
+		}
+		if tier.MaxLb != nil && *tier.MaxLb != *wantMaxs[i] {
+			t.Fatalf("tier %d max = %+v, want %+v", i, *tier.MaxLb, *wantMaxs[i])
+		}
+	}
+	assertClose(t, "2-13 lb price", got.CommercialWholesaleTiers[0].PricePerLb, 61.060947030263165)
+	assertClose(t, "greater than 47 lb price", got.CommercialWholesaleTiers[3].PricePerLb, 45.9150967875)
+}
+
 func TestValidateProductInputRejectsInvalidInputs(t *testing.T) {
 	params := DefaultParameters()
 	if _, err := ValidateProductInput(params, ProductInput{Name: "bad", GreenBeanCostPerKg: 10, YieldRate: -0.1}); err == nil {
@@ -49,4 +85,8 @@ func TestValidateProductInputRejectsInvalidInputs(t *testing.T) {
 	if _, err := ValidateProductInput(params, ProductInput{Name: "bad", GreenBeanCostPerKg: -1, YieldRate: 0.8}); err == nil {
 		t.Fatalf("expected invalid green bean cost error")
 	}
+}
+
+func f64(v float64) *float64 {
+	return &v
 }

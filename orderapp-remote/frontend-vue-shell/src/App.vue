@@ -35,6 +35,7 @@ import AllocationLogsView from './views/AllocationLogsView.vue'
 import AuditView from './views/AuditView.vue'
 import BomView from './views/BomView.vue'
 import CompanyStaffView from './views/CompanyStaffView.vue'
+import CostingSettingsView from './views/CostingSettingsView.vue'
 import CostingView from './views/CostingView.vue'
 import CustomersView from './views/CustomersView.vue'
 import InventoryView from './views/InventoryView.vue'
@@ -81,6 +82,7 @@ const menuMap = {
   stockAdjustments: { title: '库存调整单' },
   bom: { title: 'BOM配方维护' },
   costing: { title: '成本核算' },
+  costingSettings: { title: '成本参数设置' },
   customers: { title: '客户档案' },
   products: { title: '商品档案' },
   departments: { title: '部门维护' },
@@ -109,6 +111,7 @@ const internalViews = {
   stockAdjustments: StockAdjustmentsView,
   bom: BomView,
   costing: CostingView,
+  costingSettings: CostingSettingsView,
   producePlan: ProducePlanView,
   produceRunning: ProduceRunningView,
   produceLogs: ProductionLogsView,
@@ -138,7 +141,7 @@ const menuGroups = [
   { name: '生产流程', items: [{ key: 'producePlan', label: '生产计划/开始生产' }, { key: 'produceRunning', label: '生产中' }, { key: 'workOrders', label: '生产工单' }, { key: 'jobCards', label: '工序卡' }, { key: 'productionCosts', label: '生产成本' }, { key: 'produceLogs', label: '生产日志' }, { key: 'allocationLogs', label: '分配批次查看' }] },
   { name: '物料管理', items: [{ key: 'materials', label: '物料档案/库存' }, { key: 'materialReceipts', label: '原料入库' }, { key: 'materialBatches', label: '原料批次' }, { key: 'stockLedger', label: '库存流水' }, { key: 'stockBatches', label: '库存批次' }, { key: 'stockAdjustments', label: '库存调整单' }, { key: 'bom', label: 'BOM配方维护' }, { key: 'costing', label: '成本核算' }] },
   { name: '档案', items: [{ key: 'customers', label: '客户档案' }, { key: 'products', label: '商品档案' }, { key: 'departments', label: '部门维护' }, { key: 'employees', label: '员工维护' }, { key: 'inventory', label: '成品库存' }, { key: 'quotePrint', label: '报价导出' }] },
-  { name: '设置', items: [{ key: 'machines', label: '设备产能配置' }, { key: 'senderSettings', label: '发货人设置' }, { key: 'outsourceSettings', label: '代加工模板设置' }] },
+  { name: '设置', items: [{ key: 'costingSettings', label: '成本参数设置' }, { key: 'machines', label: '设备产能配置' }, { key: 'senderSettings', label: '发货人设置' }, { key: 'outsourceSettings', label: '代加工模板设置' }] },
   { name: '日志', items: [{ key: 'audit', label: '操作日志' }] },
   { name: '需求管理', items: [{ key: 'reqProduct', label: '产品需求表' }, { key: 'reqDev', label: '开发需求表' }, { key: 'reqUnit', label: '单元测试表' }, { key: 'reqApi', label: 'API 测试表' }, { key: 'reqReview', label: '需求审核表' }] },
 ]

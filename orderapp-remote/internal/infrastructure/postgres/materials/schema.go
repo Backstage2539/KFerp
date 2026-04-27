@@ -14,19 +14,44 @@ func EnsureSchema(ctx context.Context, pool *pgxpool.Pool, schema string) error 
 		name TEXT NOT NULL,
 		kind TEXT NOT NULL DEFAULT 'other',
 		unit TEXT NOT NULL DEFAULT 'g',
+		batch_no TEXT NOT NULL DEFAULT '',
 		purchase_price NUMERIC(12,2) NOT NULL DEFAULT 0,
 		sale_price NUMERIC(12,2) NOT NULL DEFAULT 0,
 		onhand_g BIGINT NOT NULL DEFAULT 0,
 		onhand_units BIGINT NOT NULL DEFAULT 0,
 		min_level_g BIGINT NOT NULL DEFAULT 0,
 		min_level_units BIGINT NOT NULL DEFAULT 0,
+		origin TEXT NOT NULL DEFAULT '',
+		processing_station TEXT NOT NULL DEFAULT '',
+		variety TEXT NOT NULL DEFAULT '',
+		process_method TEXT NOT NULL DEFAULT '',
+		grade TEXT NOT NULL DEFAULT '',
+		altitude TEXT NOT NULL DEFAULT '',
+		flavor TEXT NOT NULL DEFAULT '',
+		bean_list_note TEXT NOT NULL DEFAULT '',
 		updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 	)`, schema)
 	if _, err := pool.Exec(ctx, q); err != nil {
 		return err
 	}
-	_, _ = pool.Exec(ctx, fmt.Sprintf(`ALTER TABLE %s.materials ADD COLUMN IF NOT EXISTS purchase_price NUMERIC(12,2) NOT NULL DEFAULT 0`, schema))
-	_, _ = pool.Exec(ctx, fmt.Sprintf(`ALTER TABLE %s.materials ADD COLUMN IF NOT EXISTS sale_price NUMERIC(12,2) NOT NULL DEFAULT 0`, schema))
+	for _, stmt := range []string{
+		`ALTER TABLE %[1]s.materials ADD COLUMN IF NOT EXISTS purchase_price NUMERIC(12,2) NOT NULL DEFAULT 0`,
+		`ALTER TABLE %[1]s.materials ADD COLUMN IF NOT EXISTS sale_price NUMERIC(12,2) NOT NULL DEFAULT 0`,
+		`ALTER TABLE %[1]s.materials ADD COLUMN IF NOT EXISTS batch_no TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE %[1]s.materials ADD COLUMN IF NOT EXISTS origin TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE %[1]s.materials ADD COLUMN IF NOT EXISTS processing_station TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE %[1]s.materials ADD COLUMN IF NOT EXISTS variety TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE %[1]s.materials ADD COLUMN IF NOT EXISTS process_method TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE %[1]s.materials ADD COLUMN IF NOT EXISTS grade TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE %[1]s.materials ADD COLUMN IF NOT EXISTS altitude TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE %[1]s.materials ADD COLUMN IF NOT EXISTS flavor TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE %[1]s.materials ADD COLUMN IF NOT EXISTS bean_list_note TEXT NOT NULL DEFAULT ''`,
+		`UPDATE %[1]s.materials SET batch_no=to_char(now(),'YYYYMMDD') WHERE batch_no=''`,
+	} {
+		if _, err := pool.Exec(ctx, fmt.Sprintf(stmt, schema)); err != nil {
+			return err
+		}
+	}
 	logQ := fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s.material_consumption_logs (
 		id BIGSERIAL PRIMARY KEY,
 		running_item_id BIGINT NOT NULL,
