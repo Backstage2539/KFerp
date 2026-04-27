@@ -2,134 +2,164 @@
   <div class="page">
     <section class="panel">
       <div class="panel-head">
-        <h2>物料档案/库存</h2>
+        <div>
+          <h2>物料档案/库存</h2>
+          <p>基础档案字段锁定，变更编码、名称、价格等信息时复制为新物料。</p>
+        </div>
         <button class="secondary" type="button" @click="load" :disabled="loading">刷新</button>
       </div>
       <div v-if="error" class="error">{{ error }}</div>
-      <div v-if="ok" class="ok">已保存，操作日志已记录</div>
+      <div v-if="ok" class="ok">{{ ok }}</div>
       <div class="filters">
         <label>
           <span>搜索</span>
-          <input v-model.trim="q" placeholder="名称/编码" @keyup.enter="load" />
+          <input v-model.trim="q" placeholder="名称/编码/批次号" @keyup.enter="load" />
         </label>
         <button class="primary" type="button" @click="load" :disabled="loading">查询</button>
       </div>
     </section>
 
-    <section class="panel">
-      <div class="section-title">物料列表</div>
-      <div class="table-wrap">
-        <table>
-          <thead>
-            <tr>
-              <th>编码</th>
-              <th>名称</th>
-              <th>类型</th>
-              <th>单位</th>
-              <th>批次号</th>
-              <th>进货价</th>
-              <th>销售价</th>
-              <th>咖啡豆信息</th>
-              <th>库存(g)</th>
-              <th>库存(个)</th>
-              <th>警戒线(g)</th>
-              <th>警戒线(个)</th>
-              <th>更新时间</th>
-              <th>操作</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-for="row in rows" :key="row.id">
-              <td><input v-model.trim="row.code" /></td>
-              <td><input v-model.trim="row.name" /></td>
-              <td>
-                <select v-model="row.kind">
+    <div class="materials-layout">
+      <section class="panel material-list-panel">
+        <div class="panel-title">物料列表</div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>物料类别</th>
+                <th>物料名称</th>
+                <th>批次号</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr
+                v-for="row in rows"
+                :key="row.id"
+                :class="{ active: selected?.id === row.id }"
+                @click="selectMaterial(row)">
+                <td><span class="pill">{{ kindLabel(row.kind) }}</span></td>
+                <td>
+                  <strong>{{ row.name }}</strong>
+                  <small>{{ profileSummary(row) }}</small>
+                </td>
+                <td>{{ row.batch_no || '-' }}</td>
+              </tr>
+              <tr v-if="!rows.length">
+                <td colspan="3" class="muted">暂无物料</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="panel material-detail-panel">
+        <div class="detail-head">
+          <div>
+            <div class="panel-title">物料详情</div>
+            <p v-if="selected">{{ draftMode ? '复制新物料' : '查看与维护库存/属性' }}</p>
+            <p v-if="selected">保存、复制和废弃会记录到操作日志。</p>
+          </div>
+          <div class="actions" v-if="selected">
+            <button class="secondary" type="button" @click="copySelectedMaterial">复制新物料</button>
+            <button v-if="!draftMode" class="danger" type="button" @click="deprecateSelectedMaterial" :disabled="loading">废弃物料</button>
+          </div>
+        </div>
+
+        <div v-if="!selected" class="empty muted">请选择左侧物料</div>
+
+        <form v-else class="detail-form" @submit.prevent="saveMaterial">
+          <section class="form-section">
+            <div class="section-title">基础信息</div>
+            <div class="form-grid">
+              <label><span>编码</span><input v-model.trim="draft.code" :disabled="!draftMode" /></label>
+              <label><span>名称</span><input v-model.trim="draft.name" :disabled="!draftMode" /></label>
+              <label>
+                <span>类型</span>
+                <select v-model="draft.kind" :disabled="!draftMode">
                   <option value="bean">生豆</option>
                   <option value="pack">包材</option>
                   <option value="other">其他</option>
                 </select>
-              </td>
-              <td>
-                <select v-model="row.unit">
+              </label>
+              <label>
+                <span>单位</span>
+                <select v-model="draft.unit" :disabled="!draftMode">
                   <option value="g">g</option>
                   <option value="kg">kg</option>
                   <option value="unit">个/张</option>
                   <option value="个">个</option>
                 </select>
-              </td>
-              <td><input v-model.trim="row.batch_no" /></td>
-              <td><input type="number" min="0" step="0.01" v-model.number="row.purchase_price" /></td>
-              <td><input type="number" min="0" step="0.01" v-model.number="row.sale_price" /></td>
-              <td class="profile-cell">
-                <div v-if="row.kind === 'bean'" class="profile-summary">
-                  <div>
-                    <strong>{{ profileTitle(row) }}</strong>
-                    <span>{{ profileSubtitle(row) }}</span>
-                  </div>
-                  <button class="secondary compact" type="button" @click="openBeanProfileDialog(row)">设置</button>
-                </div>
-                <span v-else class="muted">非咖啡豆物料</span>
-              </td>
-              <td><input type="number" min="0" step="1" v-model.number="row.onhand_g" /></td>
-              <td><input type="number" min="0" step="1" v-model.number="row.onhand_units" /></td>
-              <td><input type="number" min="0" step="1" v-model.number="row.min_level_g" /></td>
-              <td><input type="number" min="0" step="1" v-model.number="row.min_level_units" /></td>
-              <td class="muted">{{ row.updated_at }}</td>
-              <td>
-                <button class="secondary" type="button" @click="saveMaterial(row)" :disabled="savingId === row.id">保存</button>
-              </td>
-            </tr>
-            <tr v-if="!rows.length">
-              <td colspan="14" class="muted">暂无物料</td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
-      <div class="muted footer">保存单行会记录到操作日志，可在“操作日志”中按物料查看变更字段。</div>
-    </section>
+              </label>
+              <label><span>批次号</span><input v-model.trim="draft.batch_no" :disabled="!draftMode" /></label>
+              <label><span>进货价</span><input type="number" min="0" step="0.01" v-model.number="draft.purchase_price" :disabled="!draftMode" /></label>
+              <label><span>销售价</span><input type="number" min="0" step="0.01" v-model.number="draft.sale_price" :disabled="!draftMode" /></label>
+              <label><span>更新时间</span><input :value="draft.updated_at || '-'" disabled /></label>
+            </div>
+          </section>
 
-    <div v-if="profileModal.open" class="profile-modal" @click.self="closeBeanProfileDialog">
-      <section class="modal-panel">
-        <div class="modal-head">
-          <div>
-            <h3>咖啡豆信息</h3>
-            <p>{{ profileModal.row?.name || '' }}</p>
+          <section class="form-section">
+            <div class="section-title">库存</div>
+            <div class="form-grid">
+              <label><span>库存(g)</span><input type="number" min="0" step="1" v-model.number="draft.onhand_g" /></label>
+              <label><span>库存(个)</span><input type="number" min="0" step="1" v-model.number="draft.onhand_units" /></label>
+              <label><span>警戒线(g)</span><input type="number" min="0" step="1" v-model.number="draft.min_level_g" /></label>
+              <label><span>警戒线(个)</span><input type="number" min="0" step="1" v-model.number="draft.min_level_units" /></label>
+            </div>
+          </section>
+
+          <section v-if="draft.kind === 'bean'" class="form-section">
+            <div class="section-title">咖啡生豆属性</div>
+            <div class="form-grid">
+              <label><span>产地</span><input v-model.trim="draft.bean_profile.origin" /></label>
+              <label><span>处理站</span><input v-model.trim="draft.bean_profile.processing_station" /></label>
+              <label><span>品种</span><input v-model.trim="draft.bean_profile.variety" /></label>
+              <label><span>处理法</span><input v-model.trim="draft.bean_profile.process_method" /></label>
+              <label><span>等级</span><input v-model.trim="draft.bean_profile.grade" /></label>
+              <label><span>海拔</span><input v-model.trim="draft.bean_profile.altitude" /></label>
+              <label class="wide"><span>风味</span><textarea v-model.trim="draft.bean_profile.flavor" rows="3"></textarea></label>
+              <label class="wide"><span>豆单备注</span><input v-model.trim="draft.bean_profile.bean_list_note" /></label>
+            </div>
+          </section>
+
+          <section v-else-if="draft.kind === 'pack'" class="form-section">
+            <div class="section-title">包材属性</div>
+            <div class="form-grid">
+              <label><span>大小规格</span><input v-model.trim="draft.pack_profile.size_spec" placeholder="例如 227g袋" /></label>
+              <label><span>尺寸</span><input v-model.trim="draft.pack_profile.dimensions" placeholder="例如 12x20cm" /></label>
+              <label><span>材质</span><input v-model.trim="draft.pack_profile.material" /></label>
+              <label><span>容量</span><input v-model.trim="draft.pack_profile.capacity" /></label>
+              <label><span>颜色</span><input v-model.trim="draft.pack_profile.color" /></label>
+              <label class="wide"><span>备注</span><input v-model.trim="draft.pack_profile.note" /></label>
+            </div>
+          </section>
+
+          <section v-else class="form-section">
+            <div class="section-title">物料属性</div>
+            <div class="empty muted">当前类型暂无专属属性。</div>
+          </section>
+
+          <div class="form-actions">
+            <button class="primary" type="submit" :disabled="loading">{{ draftMode ? '保存新物料' : '保存库存/属性' }}</button>
           </div>
-          <button class="icon-button" type="button" @click="closeBeanProfileDialog" aria-label="关闭">×</button>
-        </div>
-        <div class="modal-grid">
-          <label><span>产地</span><input v-model.trim="profileModal.draft.origin" /></label>
-          <label><span>处理站</span><input v-model.trim="profileModal.draft.processing_station" /></label>
-          <label><span>品种</span><input v-model.trim="profileModal.draft.variety" /></label>
-          <label><span>处理法</span><input v-model.trim="profileModal.draft.process_method" /></label>
-          <label><span>等级</span><input v-model.trim="profileModal.draft.grade" /></label>
-          <label><span>海拔</span><input v-model.trim="profileModal.draft.altitude" /></label>
-          <label class="wide"><span>风味</span><textarea v-model.trim="profileModal.draft.flavor" rows="3"></textarea></label>
-          <label class="wide"><span>豆单备注</span><input v-model.trim="profileModal.draft.bean_list_note" /></label>
-        </div>
-        <div class="modal-actions">
-          <button class="secondary" type="button" @click="closeBeanProfileDialog">取消</button>
-          <button class="primary" type="button" :disabled="savingId === profileModal.row?.id" @click="saveBeanProfileDialog">保存咖啡豆信息</button>
-        </div>
+        </form>
       </section>
     </div>
   </div>
 </template>
 
 <script setup>
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 
 const rows = ref([])
 const q = ref('')
 const loading = ref(false)
-const savingId = ref(null)
 const error = ref('')
-const ok = ref(false)
-const profileModal = ref({
-  open: false,
-  row: null,
-  draft: emptyBeanProfile(),
-})
+const ok = ref('')
+const selected = ref(null)
+const draft = ref(null)
+const draftMode = ref(false)
+
+const selectedID = computed(() => selected.value?.id || 0)
 
 function emptyBeanProfile() {
   return {
@@ -144,22 +174,28 @@ function emptyBeanProfile() {
   }
 }
 
-function cloneBeanProfile(profile = {}) {
+function emptyPackProfile() {
   return {
-    ...emptyBeanProfile(),
-    origin: profile.origin || '',
-    processing_station: profile.processing_station || '',
-    variety: profile.variety || '',
-    process_method: profile.process_method || '',
-    grade: profile.grade || '',
-    altitude: profile.altitude || '',
-    flavor: profile.flavor || '',
-    bean_list_note: profile.bean_list_note || '',
+    size_spec: '',
+    dimensions: '',
+    material: '',
+    capacity: '',
+    color: '',
+    note: '',
   }
 }
 
+function cloneBeanProfile(profile = {}) {
+  return { ...emptyBeanProfile(), ...profile }
+}
+
+function clonePackProfile(profile = {}) {
+  return { ...emptyPackProfile(), ...profile }
+}
+
 function normalizeRow(row) {
-  const profile = row.BeanProfile ?? row.bean_profile ?? {}
+  const beanProfile = row.BeanProfile ?? row.bean_profile ?? {}
+  const packProfile = row.PackProfile ?? row.pack_profile ?? {}
   return {
     id: Number(row.ID ?? row.id ?? 0),
     code: row.Code ?? row.code ?? '',
@@ -169,68 +205,70 @@ function normalizeRow(row) {
     batch_no: row.BatchNo ?? row.batch_no ?? '',
     purchase_price: Number(row.PurchasePrice ?? row.purchase_price ?? 0),
     sale_price: Number(row.SalePrice ?? row.sale_price ?? 0),
-    bean_profile: cloneBeanProfile({
-      origin: profile.Origin ?? profile.origin ?? row.Origin ?? row.origin ?? '',
-      processing_station: profile.ProcessingStation ?? profile.processing_station ?? row.ProcessingStation ?? row.processing_station ?? '',
-      variety: profile.Variety ?? profile.variety ?? row.Variety ?? row.variety ?? '',
-      process_method: profile.ProcessMethod ?? profile.process_method ?? row.ProcessMethod ?? row.process_method ?? '',
-      grade: profile.Grade ?? profile.grade ?? row.Grade ?? row.grade ?? '',
-      altitude: profile.Altitude ?? profile.altitude ?? row.Altitude ?? row.altitude ?? '',
-      flavor: profile.Flavor ?? profile.flavor ?? row.Flavor ?? row.flavor ?? '',
-      bean_list_note: profile.BeanListNote ?? profile.bean_list_note ?? row.BeanListNote ?? row.bean_list_note ?? '',
-    }),
     onhand_g: Number(row.OnhandG ?? row.onhand_g ?? 0),
     onhand_units: Number(row.OnhandUnits ?? row.onhand_units ?? 0),
     min_level_g: Number(row.MinLevelG ?? row.min_level_g ?? 0),
     min_level_units: Number(row.MinLevelUnits ?? row.min_level_units ?? 0),
+    bean_profile: cloneBeanProfile({
+      origin: beanProfile.Origin ?? beanProfile.origin ?? '',
+      processing_station: beanProfile.ProcessingStation ?? beanProfile.processing_station ?? '',
+      variety: beanProfile.Variety ?? beanProfile.variety ?? '',
+      process_method: beanProfile.ProcessMethod ?? beanProfile.process_method ?? '',
+      grade: beanProfile.Grade ?? beanProfile.grade ?? '',
+      altitude: beanProfile.Altitude ?? beanProfile.altitude ?? '',
+      flavor: beanProfile.Flavor ?? beanProfile.flavor ?? '',
+      bean_list_note: beanProfile.BeanListNote ?? beanProfile.bean_list_note ?? '',
+    }),
+    pack_profile: clonePackProfile({
+      size_spec: packProfile.SizeSpec ?? packProfile.size_spec ?? '',
+      dimensions: packProfile.Dimensions ?? packProfile.dimensions ?? '',
+      material: packProfile.Material ?? packProfile.material ?? '',
+      capacity: packProfile.Capacity ?? packProfile.capacity ?? '',
+      color: packProfile.Color ?? packProfile.color ?? '',
+      note: packProfile.Note ?? packProfile.note ?? '',
+    }),
     updated_at: row.UpdatedAt ?? row.updated_at ?? '',
+    deprecated_at: row.DeprecatedAt ?? row.deprecated_at ?? '',
   }
 }
 
-function profileTitle(row) {
-  const p = row.bean_profile || {}
-  return [p.origin, p.processing_station].filter(Boolean).join(' / ') || '未设置'
+function cloneMaterial(row) {
+  return normalizeRow(JSON.parse(JSON.stringify(row)))
 }
 
-function profileSubtitle(row) {
-  const p = row.bean_profile || {}
-  return [p.process_method, p.variety, p.flavor].filter(Boolean).join(' · ') || '点击设置产地、处理法、风味'
+function kindLabel(kind) {
+  return ({ bean: '生豆', pack: '包材', other: '其他' })[kind] || kind || '其他'
 }
 
-function openBeanProfileDialog(row) {
-  profileModal.value = {
-    open: true,
-    row,
-    draft: cloneBeanProfile(row.bean_profile),
+function profileSummary(row) {
+  if (row.kind === 'bean') {
+    const p = row.bean_profile || {}
+    return [p.origin, p.process_method, p.flavor].filter(Boolean).join(' · ') || '未设置咖啡生豆属性'
   }
-}
-
-function closeBeanProfileDialog() {
-  profileModal.value = {
-    open: false,
-    row: null,
-    draft: emptyBeanProfile(),
+  if (row.kind === 'pack') {
+    const p = row.pack_profile || {}
+    return [p.size_spec, p.dimensions, p.material].filter(Boolean).join(' · ') || '未设置包材属性'
   }
-}
-
-async function saveBeanProfileDialog() {
-  const row = profileModal.value.row
-  if (!row) return
-  row.bean_profile = cloneBeanProfile(profileModal.value.draft)
-  await saveMaterial(row)
-  if (!error.value) closeBeanProfileDialog()
+  return '无专属属性'
 }
 
 async function load() {
   loading.value = true
   error.value = ''
+  ok.value = ''
   try {
     const url = new URL('/api/materials', window.location.origin)
+    url.searchParams.set('limit', '500')
     if (q.value) url.searchParams.set('q', q.value)
     const res = await fetch(url)
     const data = await res.json()
     if (!res.ok) throw new Error(data.error || '加载失败')
     rows.value = (data.rows || []).map(normalizeRow)
+    if (selectedID.value) {
+      const next = rows.value.find((item) => item.id === selectedID.value)
+      if (next) selectMaterial(next, { quiet: true })
+      else clearSelection()
+    }
   } catch (err) {
     error.value = err.message || '加载失败'
   } finally {
@@ -238,39 +276,102 @@ async function load() {
   }
 }
 
-async function saveMaterial(row) {
-  savingId.value = row.id
+function selectMaterial(row, options = {}) {
+  selected.value = row
+  draft.value = cloneMaterial(row)
+  draftMode.value = false
+  if (!options.quiet) {
+    error.value = ''
+    ok.value = ''
+  }
+}
+
+function clearSelection() {
+  selected.value = null
+  draft.value = null
+  draftMode.value = false
+}
+
+function copySelectedMaterial() {
+  if (!selected.value) return
+  const next = cloneMaterial(selected.value)
+  next.id = 0
+  next.code = `${next.code}-copy`
+  next.name = `${next.name} 副本`
+  next.updated_at = ''
+  next.deprecated_at = ''
+  selected.value = next
+  draft.value = next
+  draftMode.value = true
+  ok.value = ''
   error.value = ''
-  ok.value = false
-  try {
-    const res = await fetch(`/api/materials/${row.id}`, {
+}
+
+function payloadFromDraft() {
+  return {
+    code: draft.value.code,
+    name: draft.value.name,
+    kind: draft.value.kind,
+    unit: draft.value.unit,
+    batch_no: draft.value.batch_no,
+    purchase_price: Number(draft.value.purchase_price || 0),
+    sale_price: Number(draft.value.sale_price || 0),
+    onhand_g: Number(draft.value.onhand_g || 0),
+    onhand_units: Number(draft.value.onhand_units || 0),
+    min_level_g: Number(draft.value.min_level_g || 0),
+    min_level_units: Number(draft.value.min_level_units || 0),
+    bean_profile: draft.value.kind === 'bean' ? draft.value.bean_profile : null,
+    pack_profile: draft.value.kind === 'pack' ? draft.value.pack_profile : null,
+  }
+}
+
+async function saveMaterial() {
+  if (!draft.value) return
+  await mutate(async () => {
+    const url = draftMode.value ? '/api/materials' : `/api/materials/${draft.value.id}`
+    const res = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        code: row.code,
-        name: row.name,
-        kind: row.kind,
-        unit: row.unit,
-        batch_no: row.batch_no,
-        purchase_price: Number(row.purchase_price || 0),
-        sale_price: Number(row.sale_price || 0),
-        bean_profile: row.kind === 'bean' ? row.bean_profile : null,
-        onhand_g: Number(row.onhand_g || 0),
-        onhand_units: Number(row.onhand_units || 0),
-        min_level_g: Number(row.min_level_g || 0),
-        min_level_units: Number(row.min_level_units || 0),
-      }),
+      body: JSON.stringify(payloadFromDraft()),
     })
     const data = await res.json()
     if (!res.ok) throw new Error(data.error || '保存失败')
-    const next = normalizeRow(data)
-    const idx = rows.value.findIndex((item) => item.id === row.id)
-    if (idx >= 0) rows.value[idx] = next
-    ok.value = true
+    const row = normalizeRow(data)
+    ok.value = draftMode.value ? '已保存新物料' : '已保存库存/属性'
+    draftMode.value = false
+    await load()
+    const next = rows.value.find((item) => item.id === row.id) || row
+    selectMaterial(next, { quiet: true })
+  })
+}
+
+async function deprecateSelectedMaterial() {
+  if (!selected.value || draftMode.value) return
+  if (!window.confirm(`废弃物料：${selected.value.name}？`)) return
+  await mutate(async () => {
+    const res = await fetch(`/api/materials/${selected.value.id}/deprecate`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({}),
+    })
+    const data = await res.json()
+    if (!res.ok) throw new Error(data.error || '废弃失败')
+    ok.value = `已废弃：${data.name || selected.value.name}`
+    clearSelection()
+    await load()
+  })
+}
+
+async function mutate(action) {
+  loading.value = true
+  error.value = ''
+  ok.value = ''
+  try {
+    await action()
   } catch (err) {
     error.value = err.message || '保存失败'
   } finally {
-    savingId.value = null
+    loading.value = false
   }
 }
 
@@ -281,49 +382,45 @@ onMounted(() => {
 </script>
 
 <style scoped>
-.page { padding: 16px; display: grid; gap: 16px; }
-.panel { border: 1px solid #eee; border-radius: 8px; padding: 12px; background: #fff; }
-.panel-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
-.panel-head h2, .section-title { margin: 0; font-size: 18px; font-weight: 700; }
-.filters { display: grid; grid-template-columns: minmax(220px, 1fr) 100px; gap: 12px; align-items: end; max-width: 560px; }
-.filters label { display: flex; flex-direction: column; gap: 6px; }
-.filters span, .muted { color: #666; font-size: 12px; }
-.table-wrap { overflow: auto; margin-top: 10px; }
-table { width: 100%; border-collapse: collapse; min-width: 1500px; }
-th, td { border-bottom: 1px solid #f1f1f1; padding: 8px; text-align: left; vertical-align: middle; }
-input, select, textarea, button { font: inherit; }
-input, select, textarea { width: 100%; border: 1px solid #ddd; border-radius: 6px; padding: 8px; min-height: 36px; }
+* { box-sizing: border-box; }
+.page { padding: 18px; color: #171717; }
+.panel { border: 1px solid #e6e0d8; border-radius: 8px; background: #fff; padding: 14px; margin-bottom: 14px; }
+.panel-head, .filters, .detail-head, .actions, .form-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.panel-head { justify-content: space-between; margin-bottom: 12px; }
+.panel-head h2 { margin: 0; font-size: 20px; }
+.panel-head p, .detail-head p { margin: 4px 0 0; color: #666; font-size: 12px; }
+.panel-title { font-size: 16px; font-weight: 700; }
+.materials-layout { display: grid; grid-template-columns: minmax(360px, .85fr) minmax(520px, 1.15fr); gap: 14px; align-items: start; }
+.table-wrap { overflow: auto; }
+table { width: 100%; border-collapse: collapse; min-width: 520px; }
+th, td { border-bottom: 1px solid #eee8df; padding: 10px 8px; text-align: left; font-size: 14px; vertical-align: top; }
+th { background: #fbfaf8; position: sticky; top: 0; }
+.material-list-panel tbody tr { cursor: pointer; }
+tbody tr.active { background: #f3f7fb; }
+td strong, td small { display: block; }
+td small { color: #666; margin-top: 4px; max-width: 320px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pill { display: inline-flex; height: 24px; align-items: center; border: 1px solid #d8d0c7; border-radius: 999px; padding: 0 8px; background: #fbfaf8; font-size: 12px; }
+.detail-head { justify-content: space-between; align-items: flex-start; margin-bottom: 12px; }
+.detail-form { display: grid; gap: 12px; }
+.form-section { border: 1px solid #eee8df; border-radius: 8px; padding: 12px; }
+.section-title { font-size: 14px; font-weight: 700; margin-bottom: 10px; }
+.form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+label span { display: block; color: #666; font-size: 12px; margin-bottom: 5px; }
+input, select, textarea { width: 100%; min-height: 38px; border: 1px solid #cfc8bf; border-radius: 6px; padding: 7px 9px; font: inherit; background: #fff; }
+input:disabled, select:disabled { background: #f6f4f1; color: #555; }
 textarea { resize: vertical; line-height: 1.45; }
-.profile-cell { min-width: 320px; }
-.profile-summary { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
-.profile-summary div { display: grid; gap: 3px; min-width: 0; }
-.profile-summary strong, .profile-summary span { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.profile-summary strong { font-size: 13px; }
-.profile-summary span { color: #666; font-size: 12px; max-width: 220px; }
-button { border-radius: 8px; padding: 9px 12px; cursor: pointer; white-space: nowrap; }
-.compact { padding: 7px 10px; }
-.primary { border: 1px solid #111; background: #111; color: #fff; }
-.secondary { border: 1px solid #999; background: #fff; color: #111; }
-.icon-button { border: 1px solid #ddd; background: #fff; color: #111; width: 36px; height: 36px; padding: 0; font-size: 22px; line-height: 1; }
-.error, .ok { border-radius: 8px; padding: 10px; margin-bottom: 12px; }
-.error { background: #ffecec; border: 1px solid #ffb9b9; }
-.ok { background: #e9ffe9; border: 1px solid #b8f5b8; }
-.footer { margin-top: 10px; }
-.profile-modal { position: fixed; inset: 0; z-index: 60; background: rgba(0,0,0,.28); display: flex; align-items: center; justify-content: center; padding: 18px; }
-.modal-panel { width: min(760px, 100%); max-height: calc(100vh - 36px); overflow: auto; background: #fff; border: 1px solid #e5e5e5; border-radius: 8px; box-shadow: 0 18px 50px rgba(0,0,0,.18); padding: 16px; }
-.modal-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; margin-bottom: 14px; }
-.modal-head h3 { margin: 0; font-size: 18px; }
-.modal-head p { margin: 4px 0 0; color: #666; font-size: 13px; }
-.modal-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
-.modal-grid label { display: flex; flex-direction: column; gap: 6px; }
-.modal-grid span { color: #555; font-size: 12px; font-weight: 600; }
-.modal-grid .wide { grid-column: span 2; }
-.modal-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 16px; }
-
-@media (max-width: 900px) {
-  .page { padding: 12px; }
-  .filters { grid-template-columns: 1fr; }
-  .modal-grid { grid-template-columns: 1fr; }
-  .modal-grid .wide { grid-column: span 1; }
-}
+.wide { grid-column: span 2; }
+button { height: 38px; border-radius: 6px; border: 1px solid #1f1f1f; padding: 0 12px; font: inherit; cursor: pointer; }
+button:disabled { cursor: not-allowed; opacity: .55; }
+.primary { background: #1f1f1f; color: #fff; }
+.secondary { background: #fff; color: #1f1f1f; }
+.danger { border-color: #b23b3b; background: #fff; color: #9b2020; }
+.form-actions { justify-content: flex-end; }
+.muted { color: #666; text-align: center; }
+.empty { padding: 22px; border: 1px dashed #d8d0c7; border-radius: 8px; }
+.error, .ok { border-radius: 6px; padding: 9px; margin-bottom: 12px; }
+.error { background: #fff0f0; border: 1px solid #e6b7b7; color: #8a1f1f; }
+.ok { background: #f0fff6; border: 1px solid #a9d8ba; color: #1f6a3f; }
+@media (max-width: 1100px) { .materials-layout { grid-template-columns: 1fr; } }
+@media (max-width: 760px) { .page { padding: 12px; } .form-grid { grid-template-columns: 1fr; } .wide { grid-column: span 1; } }
 </style>

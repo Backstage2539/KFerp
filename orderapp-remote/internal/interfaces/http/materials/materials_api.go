@@ -19,13 +19,29 @@ func registerMaterialsAPI(e *echo.Echo, materialsSvc *materialsapp.Service) {
 	e.GET("/api/materials", func(c echo.Context) error {
 		limit := support.IntParam(c, "limit", 200)
 		rows, err := materialsSvc.List(c.Request().Context(), materialsapp.ListCommand{
-			Query: strings.TrimSpace(c.QueryParam("q")),
-			Limit: limit,
+			Query:             strings.TrimSpace(c.QueryParam("q")),
+			Limit:             limit,
+			IncludeDeprecated: strings.TrimSpace(c.QueryParam("include_deprecated")) == "1",
 		})
 		if err != nil {
 			return c.JSON(http.StatusInternalServerError, ErrorResponse{Error: err.Error()})
 		}
 		return c.JSON(http.StatusOK, MaterialListResponse{Rows: rows})
+	})
+
+	e.POST("/api/materials", func(c echo.Context) error {
+		var req materialsapp.MaterialInput
+		if err := c.Bind(&req); err != nil {
+			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: "invalid request"})
+		}
+		row, err := materialsSvc.Create(c.Request().Context(), materialsapp.CreateCommand{
+			Actor: support.ActorOf(c),
+			Input: req,
+		})
+		if err != nil {
+			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: err.Error()})
+		}
+		return c.JSON(http.StatusOK, row)
 	})
 
 	e.POST("/api/materials/:id", func(c echo.Context) error {
@@ -41,6 +57,21 @@ func registerMaterialsAPI(e *echo.Echo, materialsSvc *materialsapp.Service) {
 			Actor: support.ActorOf(c),
 			ID:    id,
 			Input: req,
+		})
+		if err != nil {
+			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: err.Error()})
+		}
+		return c.JSON(http.StatusOK, row)
+	})
+
+	e.POST("/api/materials/:id/deprecate", func(c echo.Context) error {
+		id, err := strconv.ParseInt(strings.TrimSpace(c.Param("id")), 10, 64)
+		if err != nil || id <= 0 {
+			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: "invalid id"})
+		}
+		row, err := materialsSvc.Deprecate(c.Request().Context(), materialsapp.DeprecateCommand{
+			Actor: support.ActorOf(c),
+			ID:    id,
 		})
 		if err != nil {
 			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: err.Error()})

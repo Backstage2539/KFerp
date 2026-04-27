@@ -15,6 +15,12 @@ func TestMaterialsSchemaSeparatesBeanProfileTable(t *testing.T) {
 	if !strings.Contains(src, "material_bean_profiles") {
 		t.Fatalf("schema must create material_bean_profiles child table")
 	}
+	if !strings.Contains(src, "material_pack_profiles") {
+		t.Fatalf("schema must create material_pack_profiles child table")
+	}
+	if !strings.Contains(src, "deprecated_at TIMESTAMPTZ") {
+		t.Fatalf("materials schema must support deprecating old materials")
+	}
 	materialsDDL := between(t, src, "CREATE TABLE IF NOT EXISTS %s.materials", ")`, schema)")
 	for _, forbidden := range []string{
 		"origin TEXT",
@@ -25,9 +31,14 @@ func TestMaterialsSchemaSeparatesBeanProfileTable(t *testing.T) {
 		"altitude TEXT",
 		"flavor TEXT",
 		"bean_list_note TEXT",
+		"size_spec TEXT",
+		"dimensions TEXT",
+		"material_texture TEXT",
+		"capacity TEXT",
+		"color TEXT",
 	} {
 		if strings.Contains(materialsDDL, forbidden) {
-			t.Fatalf("materials DDL contains bean profile column %q", forbidden)
+			t.Fatalf("materials DDL contains type-specific profile column %q", forbidden)
 		}
 	}
 }

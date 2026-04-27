@@ -41,11 +41,12 @@ func TestNormalizeMaterialInputDefaultsBatchNoToToday(t *testing.T) {
 
 func TestNormalizeMaterialInputKeepsBeanProfileOnlyForBeans(t *testing.T) {
 	got, err := normalizeMaterialInput(materialInput{
-		Code:    "bean-a",
-		Name:    "豆子A",
-		Kind:    "bean",
-		Unit:    "kg",
-		Profile: &beanProfileInput{Origin: " 云南 ", Flavor: " 柑橘 "},
+		Code:        "bean-a",
+		Name:        "豆子A",
+		Kind:        "bean",
+		Unit:        "kg",
+		Profile:     &beanProfileInput{Origin: " 云南 ", Flavor: " 柑橘 "},
+		PackProfile: &packProfileInput{SizeSpec: "不应保留"},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -53,18 +54,50 @@ func TestNormalizeMaterialInputKeepsBeanProfileOnlyForBeans(t *testing.T) {
 	if got.Profile == nil || got.Profile.Origin != "云南" || got.Profile.Flavor != "柑橘" {
 		t.Fatalf("bean profile = %+v", got.Profile)
 	}
+	if got.PackProfile != nil {
+		t.Fatalf("bean pack profile = %+v, want nil", got.PackProfile)
+	}
 
 	pack, err := normalizeMaterialInput(materialInput{
-		Code:    "pack-a",
-		Name:    "袋子A",
-		Kind:    "pack",
-		Unit:    "个",
-		Profile: &beanProfileInput{Flavor: "不应保留"},
+		Code:        "pack-a",
+		Name:        "袋子A",
+		Kind:        "pack",
+		Unit:        "个",
+		Profile:     &beanProfileInput{Flavor: "不应保留"},
+		PackProfile: &packProfileInput{SizeSpec: " 227g ", Dimensions: " 12x20cm "},
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if pack.Profile != nil {
 		t.Fatalf("pack profile = %+v, want nil", pack.Profile)
+	}
+	if pack.PackProfile == nil || pack.PackProfile.SizeSpec != "227g" || pack.PackProfile.Dimensions != "12x20cm" {
+		t.Fatalf("pack profile = %+v", pack.PackProfile)
+	}
+}
+
+func TestAssertImmutableMaterialFieldsRejectsChangedBaseFields(t *testing.T) {
+	old := materialRow{
+		Code:          "bean-a",
+		Name:          "豆子A",
+		Kind:          "bean",
+		Unit:          "g",
+		BatchNo:       "20260427",
+		PurchasePrice: 88,
+		SalePrice:     99,
+	}
+	next := materialInput{
+		Code:          "bean-a",
+		Name:          "豆子A新",
+		Kind:          "bean",
+		Unit:          "g",
+		BatchNo:       "20260427",
+		PurchasePrice: 88,
+		SalePrice:     99,
+	}
+	err := assertImmutableMaterialFields(old, next)
+	if err == nil || !strings.Contains(err.Error(), "copy material") {
+		t.Fatalf("assertImmutableMaterialFields() error = %v, want copy material", err)
 	}
 }

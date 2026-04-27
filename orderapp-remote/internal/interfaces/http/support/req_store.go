@@ -328,6 +328,13 @@ func seedReqWorkflowA(ctx context.Context, pool *pgxpool.Pool, schema string) er
 		{table: "req_unit", code: "UT-078-01", title: "成本参数分类、说明、排序和未知参数兜底覆盖", status: "done", assignee: "Codex", evidence: "node --test src/lib/costing-settings.test.js"},
 		{table: "req_api", code: "API-078-01", title: "成本设置仍复用 GET /api/costing/settings 与 POST /api/costing/settings/:key", status: "done", assignee: "Codex", evidence: "go test ./internal/interfaces/http/costing -run TestCostingSettingsAPI -count=1"},
 		{table: "req_review", code: "REV-078-01", prCode: "PR-078", title: "验收：成本参数有分类和说明，成本核算页可不跳转快速修改参数", status: "todo", assignee: "VA", evidence: "待 Van 服务器验收"},
+		{table: "req_product", code: "PR-079", title: "物料档案/库存改成物料主从详情页，旧物料只能废弃并复制新物料维护基础字段", status: "review", assignee: "VA", evidence: "codex/material-master-detail-profiles"},
+		{table: "req_dev", code: "DEV-079-01", title: "左侧主列表只显示物料类别、物料名称、批次号，右侧详情显示完整信息", status: "done", assignee: "Codex", evidence: "MaterialsView.vue materials-layout"},
+		{table: "req_dev", code: "DEV-079-02", title: "基础字段不可修改，支持废弃物料和复制保存为新物料", status: "done", assignee: "Codex", evidence: "materials Create/Update/Deprecate API"},
+		{table: "req_dev", code: "DEV-079-03", title: "物料属性按类型区分：生豆使用咖啡豆属性，包材使用包材属性", status: "done", assignee: "Codex", evidence: "material_bean_profiles + material_pack_profiles"},
+		{table: "req_unit", code: "UT-079-01", title: "覆盖物料主从详情页源码守卫、不可变字段校验和包材属性归属", status: "done", assignee: "Codex", evidence: "materials source/schema/repository tests"},
+		{table: "req_api", code: "API-079-01", title: "覆盖复制新物料、废弃旧物料、包材属性返回和废弃物料默认隐藏", status: "done", assignee: "Codex", evidence: "TestMaterialsAPICreateCopyDeprecateAndPackProfile"},
+		{table: "req_review", code: "REV-079-01", prCode: "PR-079", title: "验收：物料列表清爽，详情页可查看/复制/废弃，包材属性与生豆属性分开", status: "todo", assignee: "VA", evidence: "待 Van 功能分支服务器验收"},
 	} {
 		if err := seedReqRow(ctx, pool, schema, row); err != nil {
 			return err
