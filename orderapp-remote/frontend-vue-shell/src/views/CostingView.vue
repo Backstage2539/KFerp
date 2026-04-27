@@ -5,6 +5,7 @@
         <h2>成本核算</h2>
         <div class="actions">
           <button class="secondary" type="button" :disabled="loading" @click="loadBeanList">刷新</button>
+          <button class="secondary" type="button" @click="settingsOpen = true">参数设置</button>
           <button class="primary" type="button" :disabled="saving || loading || !items.length" @click="createRun">保存试算</button>
           <button class="danger" type="button" :disabled="publishing || !runId" @click="publishRun">发布价格</button>
         </div>
@@ -98,16 +99,31 @@
         <div v-if="!beanPreview.length" class="muted empty-card">暂无豆单数据</div>
       </div>
     </section>
+
+    <div v-if="settingsOpen" class="drawer-backdrop" @click.self="settingsOpen = false">
+      <aside class="settings-drawer" aria-label="快速成本参数设置">
+        <div class="drawer-head">
+          <div>
+            <h3>快速成本参数设置</h3>
+            <p>保存单个参数后，当前成本试算会自动刷新。</p>
+          </div>
+          <button class="secondary" type="button" @click="settingsOpen = false">关闭</button>
+        </div>
+        <CostingSettingsPanel compact :show-header="false" @saved="handleSettingSaved" />
+      </aside>
+    </div>
   </div>
 </template>
 
 <script setup>
 import { computed, onMounted, ref } from 'vue'
 import { apiGet, apiSend } from '../api/client'
+import CostingSettingsPanel from '../components/CostingSettingsPanel.vue'
 
 const loading = ref(false)
 const saving = ref(false)
 const publishing = ref(false)
+const settingsOpen = ref(false)
 const error = ref('')
 const message = ref('')
 const parameters = ref(null)
@@ -188,6 +204,11 @@ async function publishRun() {
   }
 }
 
+async function handleSettingSaved() {
+  await loadBeanList()
+  message.value = '成本参数已保存，当前试算已刷新'
+}
+
 onMounted(loadBeanList)
 </script>
 
@@ -217,6 +238,11 @@ button:disabled { opacity: .45; cursor: not-allowed; }
 .error, .ok { border-radius: 8px; padding: 10px; margin-bottom: 12px; }
 .error { background: #ffecec; border: 1px solid #ffb9b9; }
 .ok { background: #e9ffe9; border: 1px solid #b8f5b8; }
+.drawer-backdrop { position: fixed; inset: 0; z-index: 80; background: rgba(0,0,0,.25); display: flex; justify-content: flex-end; }
+.settings-drawer { width: min(620px, 100vw); height: 100vh; overflow: auto; background: #f7f7f7; border-left: 1px solid #d9d9d9; padding: 14px; box-shadow: -18px 0 36px rgba(0,0,0,.18); }
+.drawer-head { position: sticky; top: 0; z-index: 2; background: #f7f7f7; display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; padding-bottom: 12px; margin-bottom: 4px; }
+.drawer-head h3 { margin: 0; font-size: 18px; }
+.drawer-head p { margin: 4px 0 0; color: #666; font-size: 12px; line-height: 1.45; }
 .bean-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; margin-top: 10px; }
 article, .empty-card { border: 1px solid #eee; border-radius: 8px; padding: 12px; background: #fafafa; }
 .bean-title { font-weight: 700; min-height: 38px; margin-bottom: 8px; }
@@ -231,5 +257,6 @@ article, .empty-card { border: 1px solid #eee; border-radius: 8px; padding: 12px
   .actions { justify-content: flex-start; }
   .metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .bean-grid { grid-template-columns: 1fr; }
+  .settings-drawer { width: 100vw; }
 }
 </style>

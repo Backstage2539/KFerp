@@ -309,6 +309,12 @@ func seedReqWorkflowA(ctx context.Context, pool *pgxpool.Pool, schema string) er
 		{table: "req_unit", code: "UT-075-01", title: "商用批发梯度、批次号默认今天、需求种子覆盖", status: "done", assignee: "Codex", evidence: "go test costing/materials/support focused tests"},
 		{table: "req_api", code: "API-075-01", title: "成本设置接口支持读取和更新参数，价格试算返回四档梯度", status: "done", assignee: "Codex", evidence: "TestCostingSettingsAPI + route test"},
 		{table: "req_review", code: "REV-075-01", prCode: "PR-075", title: "验收：商用四档批发价格、零售豆单、物料批次和风味/产地信息在 ERP 可见可用", status: "todo", assignee: "VA", evidence: "待 Van 服务器验收"},
+		{table: "req_product", code: "PR-076", title: "成本参数按分类展示并带小字说明，成本核算页可右侧快速设置", status: "review", assignee: "VA", evidence: "codex/erpnext-p0-p3-20260427"},
+		{table: "req_dev", code: "DEV-076-01", title: "成本参数设置页按基础换算、生产包装、商用熟豆、零售熟豆、挂耳分类展示并显示说明", status: "done", assignee: "Codex", evidence: "CostingSettingsPanel.vue + costing-settings.js"},
+		{table: "req_dev", code: "DEV-076-02", title: "成本核算页提供右侧快速参数抽屉，保存参数后刷新当前试算", status: "done", assignee: "Codex", evidence: "CostingView.vue drawer + CostingSettingsPanel"},
+		{table: "req_unit", code: "UT-076-01", title: "成本参数分类、说明、排序和未知参数兜底覆盖", status: "done", assignee: "Codex", evidence: "node --test src/lib/costing-settings.test.js"},
+		{table: "req_api", code: "API-076-01", title: "成本设置仍复用 GET /api/costing/settings 与 POST /api/costing/settings/:key", status: "done", assignee: "Codex", evidence: "go test ./internal/interfaces/http/costing -run TestCostingSettingsAPI -count=1"},
+		{table: "req_review", code: "REV-076-01", prCode: "PR-076", title: "验收：成本参数有分类和说明，成本核算页可不跳转快速修改参数", status: "todo", assignee: "VA", evidence: "待 Van 服务器验收"},
 	} {
 		if err := seedReqRow(ctx, pool, schema, row); err != nil {
 			return err
