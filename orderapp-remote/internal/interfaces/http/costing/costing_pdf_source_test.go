@@ -102,7 +102,9 @@ func TestCostingViewSupportsConfigurableBeanListPublishingWorkflow(t *testing.T)
 		"showCategoryNumbers",
 		"visibleCategoryCodes",
 		"togglePdfCategoryProducts",
-		"cardGridStyle(group)",
+		"cardRows(group)",
+		"cardRowStyle(row)",
+		"pdf-card-row",
 		"priceDisplay(priceRow)",
 		"priceValueParts(priceRow, item)",
 		"pdf-price-label",
@@ -112,7 +114,6 @@ func TestCostingViewSupportsConfigurableBeanListPublishingWorkflow(t *testing.T)
 		"table",
 		"badge",
 		"highlightTerms",
-		"redPriceLabels",
 		"publishBeanList",
 		"withdrawBeanList",
 		"showVersion",
@@ -121,10 +122,22 @@ func TestCostingViewSupportsConfigurableBeanListPublishingWorkflow(t *testing.T)
 		"logoImage",
 		"brandIntro",
 		"pdf-bottom-changelog",
+		"<Teleport to=\"body\">",
+		"body.bean-list-pdf-printing #app",
+		"body.bean-list-pdf-printing .bean-list-pdf-page",
 		"/api/costing/bean-list/publications",
 	} {
 		if !strings.Contains(src, want) {
 			t.Fatalf("configurable bean-list workflow missing %q", want)
+		}
+	}
+	for _, forbidden := range []string{
+		"redPriceLabels",
+		"标红价格档",
+		"可填 55/包",
+	} {
+		if strings.Contains(src, forbidden) {
+			t.Fatalf("configurable bean-list workflow should not expose old price-red option %q", forbidden)
 		}
 	}
 	if strings.Contains(src, `<div v-if="pdfTheme.showChangelog && pdfTheme.changelog" class="pdf-changelog">

@@ -8,6 +8,7 @@
         <template v-for="g in menuGroups" :key="g.id">
           <button
             class="section-toggle"
+            :class="{ active: currentGroupId === g.id }"
             type="button"
             :aria-expanded="isGroupOpen(g.id)"
             @click="toggleGroup(g.id)">
@@ -223,6 +224,7 @@ const sidebarClass = computed(() => ({
 }))
 
 const showTitle = computed(() => !isMobile.value && !collapsed.value)
+const currentGroupId = computed(() => groupForView(menuGroups, currentKey.value)?.id || '')
 const toggleLabel = computed(() => {
   if (isMobile.value) return '弹出菜单'
   return collapsed.value ? '弹出菜单' : '收起菜单'
@@ -234,20 +236,36 @@ const currentInternalView = computed(() => internalViews[currentKey.value] || Or
 <style scoped>
 * { box-sizing: border-box; }
 .layout { display: flex; min-height: 100vh; font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial; position: relative; }
-.sidebar { width: 220px; border-right: 1px solid #eee; padding: 12px; background: #fafafa; transition: width .2s ease, transform .2s ease, padding .2s ease; overflow: auto; }
+.sidebar { width: 260px; border-right: 1px solid #eee; padding: 18px 14px; background: #fafafa; transition: width .2s ease, transform .2s ease, padding .2s ease; overflow: auto; }
 .sidebar.collapsed { width: 0; border-right: 0; padding: 0; overflow: hidden; }
 .sidebar.collapsed .brand,
 .sidebar.collapsed nav,
 .sidebar.collapsed .section-toggle,
 .sidebar.collapsed .section-items,
 .sidebar.collapsed .menu { display: none; }
-.brand { font-weight: 700; margin-bottom: 10px; white-space: nowrap; }
-.section-toggle { width: 100%; display: flex; align-items: center; justify-content: space-between; gap: 8px; border: 0; background: transparent; padding: 10px 4px 6px; color: #666; cursor: pointer; }
-.section-name { font-size: 12px; font-weight: 700; }
-.section-caret { width: 16px; text-align: center; font-size: 12px; color: #777; }
-.section-items { margin-bottom: 2px; }
+.brand { font-size: 28px; line-height: 1.15; font-weight: 800; margin: 4px 0 22px; white-space: nowrap; letter-spacing: 0; }
+.section-toggle {
+  width: 100%;
+  min-height: 48px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  border: 1px solid transparent;
+  background: transparent;
+  border-radius: 8px;
+  padding: 12px 10px;
+  color: #666;
+  cursor: pointer;
+  margin-bottom: 10px;
+}
+.section-toggle:hover { background: #fff; border-color: #e5e5e5; }
+.section-toggle.active { background: #fff; border-color: #0b6bff; color: #111; box-shadow: 0 0 0 1px #0b6bff inset; }
+.section-name { font-size: 16px; line-height: 1.25; font-weight: 800; }
+.section-caret { width: 20px; text-align: center; font-size: 18px; line-height: 1; color: #666; }
+.section-items { margin: -4px 0 8px; padding-left: 10px; }
 .toggle { border: 1px solid #999; background: #fff; border-radius: 8px; padding: 6px 10px; cursor: pointer; }
-.menu { width: 100%; text-align: left; border: 1px solid #ddd; background: #fff; border-radius: 8px; padding: 10px; cursor: pointer; margin-bottom: 8px; }
+.menu { width: 100%; min-height: 44px; text-align: left; border: 1px solid #ddd; background: #fff; border-radius: 8px; padding: 11px 12px; cursor: pointer; margin-bottom: 8px; font-size: 15px; line-height: 1.25; }
 .menu.active { border-color: #111; background: #111; color: #fff; }
 .content { flex: 1; display: flex; flex-direction: column; min-width: 0; }
 .top { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-bottom: 1px solid #eee; }
@@ -263,10 +281,10 @@ const currentInternalView = computed(() => internalViews[currentKey.value] || Or
     top: 0;
     bottom: 0;
     z-index: 30;
-    width: 220px;
+    width: 280px;
     transform: translateX(-110%);
     border-right: 1px solid #eee;
-    padding: 12px;
+    padding: 18px 14px;
   }
   .sidebar.mobile.open { transform: translateX(0); }
   .content { margin-left: 0 !important; }

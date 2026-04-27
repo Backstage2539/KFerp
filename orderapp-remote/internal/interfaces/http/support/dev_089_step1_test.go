@@ -197,6 +197,78 @@ func TestBeanListCardSelectionLayoutFollowupRequirementSeeds(t *testing.T) {
 	}
 }
 
+func TestSidebarMenuDensityRequirementSeeds(t *testing.T) {
+	b, err := os.ReadFile(filepath.Join("internal", "interfaces", "http", "support", "req_store.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := string(b)
+	for _, want := range []string{
+		"PR-098",
+		"DEV-098-01",
+		"UT-098-01",
+		"API-098-01",
+		"REV-098-01",
+		"左树菜单",
+		"更饱满",
+		"方便点击",
+	} {
+		if !strings.Contains(src, want) {
+			t.Fatalf("sidebar menu density requirement seed missing %q", want)
+		}
+	}
+}
+
+func TestVueShellSidebarMenuHasLargeClickTargets(t *testing.T) {
+	app, err := os.ReadFile(filepath.Join("frontend-vue-shell", "src", "App.vue"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := string(app)
+	for _, want := range []string{
+		`:class="{ active: currentGroupId === g.id }"`,
+		".sidebar { width: 260px;",
+		"padding: 18px 14px",
+		".brand { font-size: 28px;",
+		".section-toggle {",
+		"min-height: 48px;",
+		".section-name { font-size: 16px;",
+		".menu {",
+		"min-height: 44px;",
+		".sidebar.mobile",
+		"width: 280px;",
+	} {
+		if !strings.Contains(src, want) {
+			t.Fatalf("Vue shell sidebar menu density missing %q", want)
+		}
+	}
+}
+
+func TestBeanListPreviewPrintLayoutFollowupRequirementSeeds(t *testing.T) {
+	b, err := os.ReadFile(filepath.Join("internal", "interfaces", "http", "support", "req_store.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := string(b)
+	for _, want := range []string{
+		"PR-099",
+		"DEV-099-01",
+		"DEV-099-02",
+		"DEV-099-03",
+		"UT-099-01",
+		"API-099-01",
+		"REV-099-01",
+		"豆卡同排字段与报价对齐",
+		"末行单卡/双卡占满整排",
+		"删除标红价格档选项",
+		"打印只输出豆单预览内容",
+	} {
+		if !strings.Contains(src, want) {
+			t.Fatalf("bean-list preview/print layout follow-up requirement seed missing %q", want)
+		}
+	}
+}
+
 func TestProductSettingsVueWiringAndLegacyTierEditorRemoval(t *testing.T) {
 	app, err := os.ReadFile(filepath.Join("frontend-vue-shell", "src", "App.vue"))
 	if err != nil {

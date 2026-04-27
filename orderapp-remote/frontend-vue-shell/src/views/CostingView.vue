@@ -267,8 +267,7 @@
                     <option value="thumb">👍 推荐</option>
                     <option value="medal">🏅 推荐</option>
                   </select>
-                  <input :value="customizerField(itemProductID(row), 'highlightTerms')" placeholder="标红词，用逗号分隔，可填 55/包" @input="setCustomizerField(itemProductID(row), 'highlightTerms', $event.target.value)" />
-                  <input :value="customizerField(itemProductID(row), 'redPriceLabels')" placeholder="标红价格档，如 2包-13包" @input="setCustomizerField(itemProductID(row), 'redPriceLabels', $event.target.value)" />
+                  <input :value="customizerField(itemProductID(row), 'highlightTerms')" placeholder="标红词，用逗号分隔" @input="setCustomizerField(itemProductID(row), 'highlightTerms', $event.target.value)" />
                 </div>
               </article>
             </section>
@@ -333,47 +332,49 @@
               </tbody>
             </table>
 
-            <div v-else :class="['pdf-card-grid', `cards-${cardGridColumnCount(group)}`]" :style="cardGridStyle(group)">
-              <article v-for="item in group.items" :key="`preview-${group.category}-${item.code}`" class="pdf-item">
-                <div class="pdf-item-head">
-                  <span>{{ item.code }}</span>
-                  <div>
-                    <h3>
-                      <span v-for="(part, idx) in highlightedParts(item.name, item)" :key="`cn-${item.code}-${idx}`" :class="{ 'pdf-red': part.red }">{{ part.text }}</span>
-                      <span v-if="item.badgeLabel" :class="badgeClass(item.badge)">{{ item.badgeLabel }}</span>
-                    </h3>
-                    <p v-if="item.recommendedUse" class="pdf-meta-line">
-                      <b>出品建议</b>
-                      <span v-for="(part, idx) in highlightedParts(item.recommendedUse, item)" :key="`cu-${item.code}-${idx}`" :class="{ 'pdf-red': part.red }">{{ part.text }}</span>
-                    </p>
-                  </div>
-                </div>
-                <p v-if="item.flavor" class="pdf-flavor">
-                  <b>风味</b>
-                  <span>
-                    <span v-for="(part, idx) in highlightedParts(item.flavor, item)" :key="`cf-${item.code}-${idx}`" :class="{ 'pdf-red': part.red }">{{ part.text }}</span>
-                  </span>
-                </p>
-                <p v-if="item.description" class="pdf-desc">
-                  <b>特点</b>
-                  <span>
-                    <span v-for="(part, idx) in highlightedParts(item.description, item)" :key="`cd-${item.code}-${idx}`" :class="{ 'pdf-red': part.red }">{{ part.text }}</span>
-                  </span>
-                </p>
-                <div class="pdf-price-block">
-                  <div class="pdf-section-label">报价</div>
-                  <div class="pdf-price-list">
-                    <div v-for="priceRow in item.prices" :key="`preview-${item.code}-${priceRow.label}`" class="pdf-price">
-                      <span class="pdf-price-label" :class="{ 'pdf-red': priceRow.red }">
-                        <span v-for="(part, idx) in priceLabelParts(priceRow, item)" :key="`cpl-${item.code}-${priceRow.label}-${idx}`" :class="{ 'pdf-red': part.red }">{{ part.text }}</span>
-                      </span>
-                      <strong class="pdf-price-value" :class="priceValueClass(priceRow, item)">
-                        <span v-for="(part, idx) in priceValueParts(priceRow, item)" :key="`cpv-${item.code}-${priceRow.label}-${idx}`" :class="{ 'pdf-red': part.red }">{{ part.text }}</span>
-                      </strong>
+            <div v-else class="pdf-card-grid">
+              <div v-for="(row, rowIndex) in cardRows(group)" :key="`preview-row-${group.category}-${rowIndex}`" :class="['pdf-card-row', `cards-${row.columns}`]" :style="cardRowStyle(row)">
+                <article v-for="item in row.items" :key="`preview-${group.category}-${item.code}`" class="pdf-item">
+                  <div class="pdf-item-head">
+                    <span>{{ item.code }}</span>
+                    <div>
+                      <h3>
+                        <span v-for="(part, idx) in highlightedParts(item.name, item)" :key="`cn-${item.code}-${idx}`" :class="{ 'pdf-red': part.red }">{{ part.text }}</span>
+                        <span v-if="item.badgeLabel" :class="badgeClass(item.badge)">{{ item.badgeLabel }}</span>
+                      </h3>
+                      <p v-if="item.recommendedUse" class="pdf-meta-line">
+                        <b>出品建议</b>
+                        <span v-for="(part, idx) in highlightedParts(item.recommendedUse, item)" :key="`cu-${item.code}-${idx}`" :class="{ 'pdf-red': part.red }">{{ part.text }}</span>
+                      </p>
                     </div>
                   </div>
-                </div>
-              </article>
+                  <p v-if="item.flavor" class="pdf-flavor">
+                    <b>风味</b>
+                    <span>
+                      <span v-for="(part, idx) in highlightedParts(item.flavor, item)" :key="`cf-${item.code}-${idx}`" :class="{ 'pdf-red': part.red }">{{ part.text }}</span>
+                    </span>
+                  </p>
+                  <p v-if="item.description" class="pdf-desc">
+                    <b>特点</b>
+                    <span>
+                      <span v-for="(part, idx) in highlightedParts(item.description, item)" :key="`cd-${item.code}-${idx}`" :class="{ 'pdf-red': part.red }">{{ part.text }}</span>
+                    </span>
+                  </p>
+                  <div class="pdf-price-block">
+                    <div class="pdf-section-label">报价</div>
+                    <div class="pdf-price-list">
+                      <div v-for="priceRow in item.prices" :key="`preview-${item.code}-${priceRow.label}`" class="pdf-price">
+                        <span class="pdf-price-label" :class="{ 'pdf-red': priceRow.red }">
+                          <span v-for="(part, idx) in priceLabelParts(priceRow, item)" :key="`cpl-${item.code}-${priceRow.label}-${idx}`" :class="{ 'pdf-red': part.red }">{{ part.text }}</span>
+                        </span>
+                        <strong class="pdf-price-value" :class="priceValueClass(priceRow, item)">
+                          <span v-for="(part, idx) in priceValueParts(priceRow, item)" :key="`cpv-${item.code}-${priceRow.label}-${idx}`" :class="{ 'pdf-red': part.red }">{{ part.text }}</span>
+                        </strong>
+                      </div>
+                    </div>
+                  </div>
+                </article>
+              </div>
             </div>
           </section>
 
@@ -390,109 +391,113 @@
       </aside>
     </div>
 
-    <section v-if="pdfPrinting" class="bean-list-pdf-page bean-list-pdf-surface" :style="pdfPageStyle">
-      <header class="pdf-cover">
-        <div>
-          <img v-if="pdfTheme.logoImage" class="pdf-logo" :src="pdfTheme.logoImage" alt="logo" />
-          <p v-if="pdfTheme.showVersion" class="pdf-version">{{ pdfTheme.version }}</p>
-          <h1>{{ pdfTitle }}</h1>
-          <p>{{ pdfSubtitle }}</p>
-          <p v-if="pdfTheme.brandIntro" class="pdf-brand-intro">{{ pdfTheme.brandIntro }}</p>
-        </div>
-        <div class="pdf-badge">{{ pdfTheme.listType === 'retail' ? '零售' : '商用' }}</div>
-      </header>
+    <Teleport to="body">
+      <section v-if="pdfPrinting" class="bean-list-pdf-page bean-list-pdf-surface" :style="pdfPageStyle">
+        <header class="pdf-cover">
+          <div>
+            <img v-if="pdfTheme.logoImage" class="pdf-logo" :src="pdfTheme.logoImage" alt="logo" />
+            <p v-if="pdfTheme.showVersion" class="pdf-version">{{ pdfTheme.version }}</p>
+            <h1>{{ pdfTitle }}</h1>
+            <p>{{ pdfSubtitle }}</p>
+            <p v-if="pdfTheme.brandIntro" class="pdf-brand-intro">{{ pdfTheme.brandIntro }}</p>
+          </div>
+          <div class="pdf-badge">{{ pdfTheme.listType === 'retail' ? '零售' : '商用' }}</div>
+        </header>
 
-      <section v-for="group in pdfGroups" :key="`pdf-${group.category}`" class="pdf-group">
-        <h2 v-if="group.showCategory && pdfOptions.showCategoryNumbers">{{ group.category }}</h2>
+        <section v-for="group in pdfGroups" :key="`pdf-${group.category}`" class="pdf-group">
+          <h2 v-if="group.showCategory && pdfOptions.showCategoryNumbers">{{ group.category }}</h2>
 
-        <table v-if="pdfTheme.layoutStyle === 'table'" class="pdf-compact-table">
-          <tbody>
-            <tr v-for="item in group.items" :key="`pdf-table-${group.category}-${item.code}`">
-              <td class="pdf-code-cell">{{ item.code }}</td>
-              <td>
-                <div class="pdf-table-name">
-                  <span v-for="(part, idx) in highlightedParts(item.name, item)" :key="`pn-print-${item.code}-${idx}`" :class="{ 'pdf-red': part.red }">{{ part.text }}</span>
-                  <span v-if="item.badgeLabel" :class="badgeClass(item.badge)">{{ item.badgeLabel }}</span>
+          <table v-if="pdfTheme.layoutStyle === 'table'" class="pdf-compact-table">
+            <tbody>
+              <tr v-for="item in group.items" :key="`pdf-table-${group.category}-${item.code}`">
+                <td class="pdf-code-cell">{{ item.code }}</td>
+                <td>
+                  <div class="pdf-table-name">
+                    <span v-for="(part, idx) in highlightedParts(item.name, item)" :key="`pn-print-${item.code}-${idx}`" :class="{ 'pdf-red': part.red }">{{ part.text }}</span>
+                    <span v-if="item.badgeLabel" :class="badgeClass(item.badge)">{{ item.badgeLabel }}</span>
+                  </div>
+                  <div v-if="item.flavor" class="pdf-table-line">
+                    <span v-for="(part, idx) in highlightedParts(item.flavor, item)" :key="`pf-print-${item.code}-${idx}`" :class="{ 'pdf-red': part.red }">{{ part.text }}</span>
+                  </div>
+                  <div v-if="item.description" class="pdf-table-line">
+                    <span v-for="(part, idx) in highlightedParts(item.description, item)" :key="`pd-print-${item.code}-${idx}`" :class="{ 'pdf-red': part.red }">{{ part.text }}</span>
+                  </div>
+                  <div v-if="item.recommendedUse" class="pdf-table-line">
+                    <b>出品</b>
+                    <span v-for="(part, idx) in highlightedParts(item.recommendedUse, item)" :key="`pu-print-${item.code}-${idx}`" :class="{ 'pdf-red': part.red }">{{ part.text }}</span>
+                  </div>
+                </td>
+                <td class="pdf-table-prices">
+                  <div v-for="priceRow in item.prices" :key="`pdf-table-price-${item.code}-${priceRow.label}`">
+                    <span :class="{ 'pdf-red': priceRow.red }">
+                      <span v-for="(part, idx) in priceLabelParts(priceRow, item)" :key="`ftl-${item.code}-${priceRow.label}-${idx}`" :class="{ 'pdf-red': part.red }">{{ part.text }}</span>
+                    </span>
+                    <strong :class="priceValueClass(priceRow, item)">
+                      <span v-for="(part, idx) in priceValueParts(priceRow, item)" :key="`ftv-${item.code}-${priceRow.label}-${idx}`" :class="{ 'pdf-red': part.red }">{{ part.text }}</span>
+                    </strong>
+                  </div>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+
+          <div v-else class="pdf-card-grid">
+            <div v-for="(row, rowIndex) in cardRows(group)" :key="`pdf-row-${group.category}-${rowIndex}`" :class="['pdf-card-row', `cards-${row.columns}`]" :style="cardRowStyle(row)">
+              <article v-for="item in row.items" :key="`pdf-${group.category}-${item.code}`" class="pdf-item">
+                <div class="pdf-item-head">
+                  <span>{{ item.code }}</span>
+                  <div>
+                    <h3>
+                      <span v-for="(part, idx) in highlightedParts(item.name, item)" :key="`cn-print-${item.code}-${idx}`" :class="{ 'pdf-red': part.red }">{{ part.text }}</span>
+                      <span v-if="item.badgeLabel" :class="badgeClass(item.badge)">{{ item.badgeLabel }}</span>
+                    </h3>
+                    <p v-if="item.recommendedUse" class="pdf-meta-line">
+                      <b>出品建议</b>
+                      <span v-for="(part, idx) in highlightedParts(item.recommendedUse, item)" :key="`cu-print-${item.code}-${idx}`" :class="{ 'pdf-red': part.red }">{{ part.text }}</span>
+                    </p>
+                  </div>
                 </div>
-                <div v-if="item.flavor" class="pdf-table-line">
-                  <span v-for="(part, idx) in highlightedParts(item.flavor, item)" :key="`pf-print-${item.code}-${idx}`" :class="{ 'pdf-red': part.red }">{{ part.text }}</span>
-                </div>
-                <div v-if="item.description" class="pdf-table-line">
-                  <span v-for="(part, idx) in highlightedParts(item.description, item)" :key="`pd-print-${item.code}-${idx}`" :class="{ 'pdf-red': part.red }">{{ part.text }}</span>
-                </div>
-                <div v-if="item.recommendedUse" class="pdf-table-line">
-                  <b>出品</b>
-                  <span v-for="(part, idx) in highlightedParts(item.recommendedUse, item)" :key="`pu-print-${item.code}-${idx}`" :class="{ 'pdf-red': part.red }">{{ part.text }}</span>
-                </div>
-              </td>
-              <td class="pdf-table-prices">
-                <div v-for="priceRow in item.prices" :key="`pdf-table-price-${item.code}-${priceRow.label}`">
-                  <span :class="{ 'pdf-red': priceRow.red }">
-                    <span v-for="(part, idx) in priceLabelParts(priceRow, item)" :key="`ftl-${item.code}-${priceRow.label}-${idx}`" :class="{ 'pdf-red': part.red }">{{ part.text }}</span>
+                <p v-if="item.flavor" class="pdf-flavor">
+                  <b>风味</b>
+                  <span>
+                    <span v-for="(part, idx) in highlightedParts(item.flavor, item)" :key="`cf-print-${item.code}-${idx}`" :class="{ 'pdf-red': part.red }">{{ part.text }}</span>
                   </span>
-                  <strong :class="priceValueClass(priceRow, item)">
-                    <span v-for="(part, idx) in priceValueParts(priceRow, item)" :key="`ftv-${item.code}-${priceRow.label}-${idx}`" :class="{ 'pdf-red': part.red }">{{ part.text }}</span>
-                  </strong>
-                </div>
-              </td>
-            </tr>
-          </tbody>
-        </table>
-
-        <div v-else :class="['pdf-card-grid', `cards-${cardGridColumnCount(group)}`]" :style="cardGridStyle(group)">
-          <article v-for="item in group.items" :key="`pdf-${group.category}-${item.code}`" class="pdf-item">
-            <div class="pdf-item-head">
-              <span>{{ item.code }}</span>
-              <div>
-                <h3>
-                  <span v-for="(part, idx) in highlightedParts(item.name, item)" :key="`cn-print-${item.code}-${idx}`" :class="{ 'pdf-red': part.red }">{{ part.text }}</span>
-                  <span v-if="item.badgeLabel" :class="badgeClass(item.badge)">{{ item.badgeLabel }}</span>
-                </h3>
-                <p v-if="item.recommendedUse" class="pdf-meta-line">
-                  <b>出品建议</b>
-                  <span v-for="(part, idx) in highlightedParts(item.recommendedUse, item)" :key="`cu-print-${item.code}-${idx}`" :class="{ 'pdf-red': part.red }">{{ part.text }}</span>
                 </p>
-              </div>
-            </div>
-            <p v-if="item.flavor" class="pdf-flavor">
-              <b>风味</b>
-              <span>
-                <span v-for="(part, idx) in highlightedParts(item.flavor, item)" :key="`cf-print-${item.code}-${idx}`" :class="{ 'pdf-red': part.red }">{{ part.text }}</span>
-              </span>
-            </p>
-            <p v-if="item.description" class="pdf-desc">
-              <b>特点</b>
-              <span>
-                <span v-for="(part, idx) in highlightedParts(item.description, item)" :key="`cd-print-${item.code}-${idx}`" :class="{ 'pdf-red': part.red }">{{ part.text }}</span>
-              </span>
-            </p>
-            <div class="pdf-price-block">
-              <div class="pdf-section-label">报价</div>
-              <div class="pdf-price-list">
-                <div v-for="priceRow in item.prices" :key="`${item.code}-${priceRow.label}`" class="pdf-price">
-                  <span class="pdf-price-label" :class="{ 'pdf-red': priceRow.red }">
-                    <span v-for="(part, idx) in priceLabelParts(priceRow, item)" :key="`fpl-${item.code}-${priceRow.label}-${idx}`" :class="{ 'pdf-red': part.red }">{{ part.text }}</span>
+                <p v-if="item.description" class="pdf-desc">
+                  <b>特点</b>
+                  <span>
+                    <span v-for="(part, idx) in highlightedParts(item.description, item)" :key="`cd-print-${item.code}-${idx}`" :class="{ 'pdf-red': part.red }">{{ part.text }}</span>
                   </span>
-                  <strong class="pdf-price-value" :class="priceValueClass(priceRow, item)">
-                    <span v-for="(part, idx) in priceValueParts(priceRow, item)" :key="`fpv-${item.code}-${priceRow.label}-${idx}`" :class="{ 'pdf-red': part.red }">{{ part.text }}</span>
-                  </strong>
+                </p>
+                <div class="pdf-price-block">
+                  <div class="pdf-section-label">报价</div>
+                  <div class="pdf-price-list">
+                    <div v-for="priceRow in item.prices" :key="`${item.code}-${priceRow.label}`" class="pdf-price">
+                      <span class="pdf-price-label" :class="{ 'pdf-red': priceRow.red }">
+                        <span v-for="(part, idx) in priceLabelParts(priceRow, item)" :key="`fpl-${item.code}-${priceRow.label}-${idx}`" :class="{ 'pdf-red': part.red }">{{ part.text }}</span>
+                      </span>
+                      <strong class="pdf-price-value" :class="priceValueClass(priceRow, item)">
+                        <span v-for="(part, idx) in priceValueParts(priceRow, item)" :key="`fpv-${item.code}-${priceRow.label}-${idx}`" :class="{ 'pdf-red': part.red }">{{ part.text }}</span>
+                      </strong>
+                    </div>
+                  </div>
                 </div>
-              </div>
+              </article>
             </div>
-          </article>
+          </div>
+        </section>
+
+        <div v-if="pdfTheme.showChangelog && pdfTheme.changelog" class="pdf-changelog pdf-bottom-changelog">
+          <b>更新</b>
+          <span>{{ pdfTheme.changelog }}</span>
         </div>
+
+        <footer class="pdf-footer">
+          <span>{{ pdfTheme.brandName }}</span>
+          <span>联系电话：15302787466</span>
+        </footer>
       </section>
-
-      <div v-if="pdfTheme.showChangelog && pdfTheme.changelog" class="pdf-changelog pdf-bottom-changelog">
-        <b>更新</b>
-        <span>{{ pdfTheme.changelog }}</span>
-      </div>
-
-      <footer class="pdf-footer">
-        <span>{{ pdfTheme.brandName }}</span>
-        <span>联系电话：15302787466</span>
-      </footer>
-    </section>
+    </Teleport>
   </div>
 </template>
 
@@ -783,13 +788,20 @@ function priceValueClass(priceRow, item) {
   return { 'pdf-red': Boolean(priceRow?.red) || priceValueParts(priceRow, item).some((part) => part.red) }
 }
 
-function cardGridColumnCount(group) {
-  const itemCount = Math.max(1, Array.isArray(group?.items) ? group.items.length : 1)
-  return Math.max(1, Math.min(Number(pdfTheme.value.cardsPerRow || 1), itemCount))
+function cardRows(group) {
+  const source = Array.isArray(group?.items) ? group.items : []
+  const maxColumns = Math.max(1, Math.min(Number(pdfTheme.value.cardsPerRow || 1), 4))
+  const rows = []
+  for (let i = 0; i < source.length; i += maxColumns) {
+    const rowItems = source.slice(i, i + maxColumns)
+    rows.push({ items: rowItems, columns: Math.max(1, Math.min(maxColumns, rowItems.length)) })
+  }
+  return rows
 }
 
-function cardGridStyle(group) {
-  return { gridTemplateColumns: `repeat(${cardGridColumnCount(group)}, minmax(0, 1fr))` }
+function cardRowStyle(row) {
+  const columns = Math.max(1, Math.min(Number(row?.columns || 1), 4))
+  return { gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))` }
 }
 
 function badgeClass(badge) {
@@ -1067,7 +1079,7 @@ button:disabled { opacity: .45; cursor: not-allowed; }
 .product-picker-category { display: grid; gap: 8px; border: 1px solid #ddd; border-radius: 8px; padding: 10px; background: #fff; }
 .product-picker-category-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding-bottom: 6px; border-bottom: 1px solid #eee; }
 .product-picker-row { display: grid; gap: 7px; border: 1px solid #eee; border-radius: 8px; padding: 9px; background: #fafafa; }
-.customizer-row { display: grid; grid-template-columns: 110px 1fr 1fr; gap: 7px; }
+.customizer-row { display: grid; grid-template-columns: 120px minmax(0, 1fr); gap: 7px; }
 .pdf-preview-title { max-width: 760px; margin: 16px auto 8px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px; color: #555; font-size: 12px; }
 .pdf-preview-title strong { color: #111; font-size: 14px; }
 .pdf-preview-phone { max-width: 430px; min-height: 360px; max-height: 72vh; overflow: auto; margin: 0 auto; border: 1px solid #ded6c9; border-radius: 8px; box-shadow: 0 10px 28px rgba(0,0,0,.12); }
@@ -1084,20 +1096,25 @@ button:disabled { opacity: .45; cursor: not-allowed; }
 .pdf-group { margin: 14px 0; }
 .pdf-group h2 { margin: 0 0 8px; padding: 7px 9px; background: rgba(255,255,255,.62); border-left: 4px solid currentColor; font-size: 15px; line-height: 1.25; }
 .pdf-card-grid { display: grid; gap: 9px; }
-.pdf-item { break-inside: avoid; page-break-inside: avoid; border: 1px solid rgba(0,0,0,.16); border-radius: 8px; padding: 10px; margin-bottom: 9px; background: rgba(255,255,255,.76); }
+.pdf-card-row { display: grid; gap: 9px; align-items: stretch; }
+.pdf-card-row > .pdf-item { min-width: 0; height: 100%; }
+.pdf-item { display: flex; flex-direction: column; break-inside: avoid; page-break-inside: avoid; border: 1px solid rgba(0,0,0,.16); border-radius: 8px; padding: 10px; margin-bottom: 0; background: rgba(255,255,255,.76); }
 .pdf-item-head { display: grid; grid-template-columns: auto 1fr; gap: 8px; align-items: start; }
 .pdf-item-head > span { min-width: 32px; height: 26px; display: inline-flex; align-items: center; justify-content: center; border: 1px solid currentColor; border-radius: 6px; font-size: 12px; font-weight: 700; }
 .pdf-item h3 { margin: 0; font-size: 20px; line-height: 1.18; letter-spacing: 0; }
 .pdf-meta-line { margin: 4px 0 0; font-size: 12px; line-height: 1.45; white-space: pre-line; }
 .pdf-flavor, .pdf-desc { display: grid; grid-template-columns: 44px 1fr; gap: 6px; margin: 7px 0 0; font-size: 12px; line-height: 1.45; }
+.pdf-card-row.cards-2 .pdf-item-head, .pdf-card-row.cards-3 .pdf-item-head { min-height: 58px; }
+.pdf-card-row.cards-2 .pdf-flavor, .pdf-card-row.cards-3 .pdf-flavor { min-height: 44px; }
+.pdf-card-row.cards-2 .pdf-desc, .pdf-card-row.cards-3 .pdf-desc { min-height: 62px; }
 .pdf-flavor { font-weight: 650; }
 .pdf-desc { opacity: .82; }
 .pdf-meta-line b, .pdf-flavor b, .pdf-desc b, .pdf-section-label { color: inherit; opacity: .62; font-weight: 650; }
 .pdf-meta-line b { margin-right: 6px; }
-.pdf-price-block { margin-top: 9px; }
+.pdf-price-block { margin-top: auto; padding-top: 9px; }
 .pdf-section-label { margin-bottom: 5px; font-size: 12px; }
 .pdf-price-list { display: grid; grid-template-columns: 1fr; gap: 6px; }
-.pdf-card-grid.cards-1 .pdf-price-list { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.pdf-card-row.cards-1 .pdf-price-list { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .pdf-price { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 8px; min-height: 42px; border: 1px solid rgba(0,0,0,.12); border-radius: 6px; padding: 6px 7px; background: #dff5d9; font-size: 12px; }
 .pdf-price:nth-child(even) { background: #dbeaf7; }
 .pdf-price-label { min-width: 0; line-height: 1.25; overflow-wrap: anywhere; }
@@ -1147,11 +1164,9 @@ article, .empty-card { border: 1px solid #eee; border-radius: 8px; padding: 12px
 
 @media print {
   @page { size: 108mm 192mm; margin: 0; }
-  :global(body.bean-list-pdf-printing .sidebar), :global(body.bean-list-pdf-printing .top) { display: none !important; }
-  :global(body.bean-list-pdf-printing .content) { width: 100% !important; margin: 0 !important; padding: 0 !important; }
+  :global(body.bean-list-pdf-printing #app) { display: none !important; }
   :global(body.bean-list-pdf-printing) { background: #fff !important; }
-  .page { display: block; padding: 0; }
-  .panel, .drawer-backdrop { display: none !important; }
+  :global(body.bean-list-pdf-printing .bean-list-pdf-page) { display: block !important; }
   .bean-list-pdf-page {
     display: block;
     width: 100%;

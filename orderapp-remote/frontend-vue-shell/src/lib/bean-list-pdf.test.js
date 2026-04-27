@@ -156,20 +156,20 @@ test('PDF bean-list helper preserves layout, brand, changelog, badge, and red-hi
     customizers: {
       30: {
         badge: 'new',
-        highlightTerms: ['庄园差异性产品'],
-        redPriceLabels: ['2包-13包'],
+        highlightTerms: ['庄园差异性产品', '127/包'],
       },
     },
   })
   const item = groups[0].items[0]
   assert.equal(item.badge, 'new')
-  assert.deepEqual(item.highlightTerms, ['庄园差异性产品'])
-  assert.equal(item.prices[0].red, true)
+  assert.deepEqual(item.highlightTerms, ['庄园差异性产品', '127/包'])
+  assert.equal(item.prices[0].red, false)
 
   assert.deepEqual(splitHighlightedText(item.description, item.highlightTerms), [
     { text: '卡蒂姆日晒、中度烘焙（', red: false },
     { text: '庄园差异性产品', red: true },
     { text: '）', red: false },
   ])
+  assert.deepEqual(splitHighlightedText('127/包', item.highlightTerms), [{ text: '127/包', red: true }])
   assert.deepEqual(splitHighlightedText('55/包', ['55/包']), [{ text: '55/包', red: true }])
 })

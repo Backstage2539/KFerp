@@ -79,7 +79,6 @@ function buildPdfItem(item, metaKey, tierKey, listType, code, customizers) {
   const meta = item[metaKey] || {}
   const customizer = customizerFor(item, customizers)
   const highlightTerms = normalizeStringList(customizer.highlightTerms)
-  const redPriceLabels = normalizeStringSet(customizer.redPriceLabels)
   const badge = normalizeBadge(customizer.badge)
   return {
     productId: item.product_id || item.productID || item.id || null,
@@ -98,7 +97,7 @@ function buildPdfItem(item, metaKey, tierKey, listType, code, customizers) {
         label,
         price: Number(tier.price_per_unit || tier.price_per_lb || 0),
         unit: listType === 'retail' ? '' : priceUnit(tier),
-        red: redPriceLabels.has(label),
+        red: false,
       }
     })
   }
