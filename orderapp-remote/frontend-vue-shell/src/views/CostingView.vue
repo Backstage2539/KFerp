@@ -6,6 +6,7 @@
         <div class="actions">
           <button class="secondary" type="button" :disabled="loading" @click="loadBeanList">刷新</button>
           <button class="secondary" type="button" @click="settingsOpen = true">参数设置</button>
+          <button class="secondary" type="button" :disabled="loading || !items.length" @click="pdfDrawerOpen = true">生成豆单 PDF</button>
           <button class="primary" type="button" :disabled="saving || loading || !items.length" @click="createRun">保存试算</button>
           <button class="danger" type="button" :disabled="publishing || !runId" @click="publishRun">发布价格</button>
         </div>
@@ -144,26 +145,145 @@
         <CostingSettingsPanel compact :show-header="false" @saved="handleSettingSaved" />
       </aside>
     </div>
+
+    <div v-if="pdfDrawerOpen" class="drawer-backdrop" @click.self="pdfDrawerOpen = false">
+      <aside class="settings-drawer pdf-drawer" aria-label="生成豆单 PDF">
+        <div class="drawer-head">
+          <div>
+            <h3>生成豆单 PDF</h3>
+            <p>按手机查看宽度生成打印版豆单，可在浏览器打印窗口保存为 PDF。</p>
+          </div>
+          <button class="secondary" type="button" @click="pdfDrawerOpen = false">关闭</button>
+        </div>
+
+        <div class="pdf-form">
+          <label>
+            <span>豆单类型</span>
+            <select v-model="pdfOptions.listType">
+              <option value="commercial">商用批发豆单</option>
+              <option value="retail">零售豆单</option>
+            </select>
+          </label>
+          <label>
+            <span>版本号</span>
+            <input v-model.trim="pdfOptions.version" placeholder="V3.0.5" />
+          </label>
+          <label>
+            <span>背景颜色</span>
+            <input v-model="pdfOptions.backgroundColor" type="color" />
+          </label>
+          <label>
+            <span>字体颜色</span>
+            <input v-model="pdfOptions.fontColor" type="color" />
+          </label>
+          <label class="wide">
+            <span>背景上传</span>
+            <input type="file" accept="image/*" @change="handlePdfBackgroundUpload" />
+          </label>
+          <div class="wide pdf-actions">
+            <button class="secondary" type="button" @click="clearPdfBackground" :disabled="!pdfOptions.backgroundImage">清除背景图</button>
+            <button class="primary" type="button" :disabled="!pdfGroups.length" @click="generateBeanListPdf">生成 PDF</button>
+          </div>
+        </div>
+
+        <div class="pdf-preview-phone" :style="pdfPageStyle">
+          <div class="pdf-preview-head">
+            <strong>{{ pdfTitle }}</strong>
+            <span>{{ pdfTheme.version }}</span>
+          </div>
+          <p>{{ pdfSubtitle }}</p>
+          <div v-for="group in pdfGroups" :key="`preview-${group.category}`" class="pdf-preview-group">
+            <b>{{ group.category }}</b>
+            <span>{{ group.items.length }} 款</span>
+          </div>
+        </div>
+      </aside>
+    </div>
+
+    <section v-if="pdfPrinting" class="bean-list-pdf-page" :style="pdfPageStyle">
+      <header class="pdf-cover">
+        <div>
+          <p class="pdf-version">{{ pdfTheme.version }}</p>
+          <h1>{{ pdfTitle }}</h1>
+          <p>{{ pdfSubtitle }}</p>
+        </div>
+        <div class="pdf-badge">{{ pdfTheme.listType === 'retail' ? '零售' : '商用' }}</div>
+      </header>
+
+      <section v-for="group in pdfGroups" :key="`pdf-${group.category}`" class="pdf-group">
+        <h2>{{ group.category }}</h2>
+        <article v-for="item in group.items" :key="`pdf-${group.category}-${item.code}`" class="pdf-item">
+          <div class="pdf-item-head">
+            <span>{{ item.code }}</span>
+            <div>
+              <h3>{{ item.name }}</h3>
+              <p v-if="item.recommendedUse">{{ item.recommendedUse }}</p>
+            </div>
+          </div>
+          <p v-if="item.flavor" class="pdf-flavor">{{ item.flavor }}</p>
+          <p v-if="item.description" class="pdf-desc">{{ item.description }}</p>
+          <div class="pdf-price-list">
+            <div v-for="priceRow in item.prices" :key="`${item.code}-${priceRow.label}`" class="pdf-price">
+              <span>{{ priceRow.label }}</span>
+              <strong>{{ price(priceRow.price) }}{{ priceRow.unit ? `/${priceRow.unit}` : '' }}</strong>
+            </div>
+          </div>
+        </article>
+      </section>
+
+      <footer class="pdf-footer">
+        <span>棵凡咖啡</span>
+        <span>联系电话：15302787466</span>
+      </footer>
+    </section>
   </div>
 </template>
 
 <script setup>
-import { computed, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { apiGet, apiSend } from '../api/client'
 import CostingSettingsPanel from '../components/CostingSettingsPanel.vue'
+import {
+  DEFAULT_BEAN_LIST_PDF_VERSION,
+  buildBeanListPdfGroups,
+  buildBeanListPdfSubtitle,
+  buildBeanListPdfTitle,
+  sanitizeBeanListPdfTheme,
+} from '../lib/bean-list-pdf'
 
 const loading = ref(false)
 const saving = ref(false)
 const publishing = ref(false)
 const settingsOpen = ref(false)
+const pdfDrawerOpen = ref(false)
+const pdfPrinting = ref(false)
 const error = ref('')
 const message = ref('')
 const parameters = ref(null)
 const items = ref([])
 const runId = ref(null)
+const pdfOptions = ref({
+  listType: 'commercial',
+  version: DEFAULT_BEAN_LIST_PDF_VERSION,
+  backgroundColor: '#f8f1e5',
+  fontColor: '#171717',
+  backgroundImage: '',
+})
 
 const commercialGroups = computed(() => groupBeanItems('commercial_bean_list'))
 const retailGroups = computed(() => groupBeanItems('retail_bean_list'))
+const pdfTheme = computed(() => sanitizeBeanListPdfTheme(pdfOptions.value))
+const pdfGroups = computed(() => buildBeanListPdfGroups(items.value, pdfTheme.value.listType))
+const pdfTitle = computed(() => buildBeanListPdfTitle(pdfTheme.value.listType))
+const pdfSubtitle = computed(() => buildBeanListPdfSubtitle(pdfTheme.value.listType))
+const pdfPageStyle = computed(() => {
+  const bg = pdfTheme.value.backgroundImage
+  return {
+    color: pdfTheme.value.fontColor,
+    backgroundColor: pdfTheme.value.backgroundColor,
+    backgroundImage: bg ? `linear-gradient(rgba(255,255,255,.74), rgba(255,255,255,.74)), url(${bg})` : 'none',
+  }
+})
 
 function first(values) {
   return Array.isArray(values) && values.length ? Number(values[0] || 0) : 0
@@ -294,7 +414,41 @@ async function handleSettingSaved() {
   message.value = '成本参数已保存，当前试算已刷新'
 }
 
-onMounted(loadBeanList)
+function handlePdfBackgroundUpload(event) {
+  const file = event.target.files?.[0]
+  if (!file) return
+  const reader = new FileReader()
+  reader.onload = () => {
+    pdfOptions.value = { ...pdfOptions.value, backgroundImage: String(reader.result || '') }
+  }
+  reader.readAsDataURL(file)
+}
+
+function clearPdfBackground() {
+  pdfOptions.value = { ...pdfOptions.value, backgroundImage: '' }
+}
+
+function clearPdfPrintMode() {
+  pdfPrinting.value = false
+  document.body.classList.remove('bean-list-pdf-printing')
+}
+
+function generateBeanListPdf() {
+  if (!pdfGroups.value.length) return
+  pdfPrinting.value = true
+  document.body.classList.add('bean-list-pdf-printing')
+  window.setTimeout(() => window.print(), 80)
+}
+
+onMounted(() => {
+  loadBeanList()
+  window.addEventListener('afterprint', clearPdfPrintMode)
+})
+
+onBeforeUnmount(() => {
+  window.removeEventListener('afterprint', clearPdfPrintMode)
+  clearPdfPrintMode()
+})
 </script>
 
 <style scoped>
@@ -332,6 +486,19 @@ button:disabled { opacity: .45; cursor: not-allowed; }
 .drawer-head { position: sticky; top: 0; z-index: 2; background: #f7f7f7; display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; padding-bottom: 12px; margin-bottom: 4px; }
 .drawer-head h3 { margin: 0; font-size: 18px; }
 .drawer-head p { margin: 4px 0 0; color: #666; font-size: 12px; line-height: 1.45; }
+.pdf-drawer { width: min(760px, 100vw); }
+.pdf-form { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.pdf-form label span { display: block; color: #666; font-size: 12px; margin-bottom: 5px; }
+.pdf-form input, .pdf-form select { width: 100%; min-height: 38px; border: 1px solid #ddd; border-radius: 8px; padding: 7px 9px; background: #fff; font: inherit; box-sizing: border-box; }
+.pdf-form input[type="color"] { padding: 4px; }
+.pdf-form .wide, .pdf-actions { grid-column: 1 / -1; }
+.pdf-actions { display: flex; justify-content: flex-end; gap: 8px; }
+.pdf-preview-phone { max-width: 430px; min-height: 360px; margin: 16px auto 0; border: 1px solid #ded6c9; border-radius: 8px; padding: 16px; background-size: cover; background-position: center; box-shadow: 0 10px 28px rgba(0,0,0,.12); }
+.pdf-preview-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; border-bottom: 2px solid currentColor; padding-bottom: 10px; }
+.pdf-preview-head strong { font-size: 22px; line-height: 1.15; }
+.pdf-preview-head span { font-size: 12px; border: 1px solid currentColor; border-radius: 999px; padding: 3px 8px; }
+.pdf-preview-phone p { margin: 8px 0 12px; font-size: 12px; }
+.pdf-preview-group { display: flex; justify-content: space-between; gap: 12px; border-top: 1px solid rgba(0,0,0,.16); padding: 9px 0; font-size: 13px; }
 .bean-groups { display: grid; gap: 14px; margin-top: 10px; }
 .bean-group { display: grid; gap: 8px; }
 .bean-group h3 { margin: 0; padding: 8px 10px; border-left: 4px solid #111; background: #f5f5f5; font-size: 15px; }
@@ -346,6 +513,7 @@ article, .empty-card { border: 1px solid #eee; border-radius: 8px; padding: 12px
 .bean-row { display: flex; justify-content: space-between; align-items: center; gap: 8px; border-top: 1px solid #eee; padding: 7px 0; }
 .bean-row span { color: #666; font-size: 12px; }
 .bean-row strong { font-size: 13px; }
+.bean-list-pdf-page { display: none; }
 
 @media (max-width: 900px) {
   .page { padding: 12px; }
@@ -354,5 +522,47 @@ article, .empty-card { border: 1px solid #eee; border-radius: 8px; padding: 12px
   .metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .bean-grid { grid-template-columns: 1fr; }
   .settings-drawer { width: 100vw; }
+  .pdf-form { grid-template-columns: 1fr; }
+}
+
+@media print {
+  @page { size: 108mm auto; margin: 0; }
+  :global(body.bean-list-pdf-printing .sidebar), :global(body.bean-list-pdf-printing .top) { display: none !important; }
+  :global(body.bean-list-pdf-printing .content) { width: 100% !important; margin: 0 !important; padding: 0 !important; }
+  :global(body.bean-list-pdf-printing) { background: #fff !important; }
+  .page { display: block; padding: 0; }
+  .panel, .drawer-backdrop { display: none !important; }
+  .bean-list-pdf-page {
+    display: block;
+    box-sizing: border-box;
+    width: 100%;
+    max-width: 430px;
+    min-height: 100vh;
+    margin: 0 auto;
+    padding: 16px;
+    background-size: cover;
+    background-position: center;
+    font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  }
+  .pdf-cover { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; border-bottom: 2px solid currentColor; padding-bottom: 12px; margin-bottom: 14px; }
+  .pdf-cover h1 { margin: 2px 0 6px; font-size: 26px; line-height: 1.12; letter-spacing: 0; }
+  .pdf-cover p { margin: 0; font-size: 12px; line-height: 1.45; }
+  .pdf-version { color: inherit; opacity: .72; }
+  .pdf-badge { border: 1px solid currentColor; border-radius: 999px; padding: 4px 9px; font-size: 12px; white-space: nowrap; }
+  .pdf-group { break-inside: avoid; margin: 14px 0; }
+  .pdf-group h2 { margin: 0 0 8px; padding: 7px 9px; background: rgba(255,255,255,.62); border-left: 4px solid currentColor; font-size: 15px; line-height: 1.25; }
+  .pdf-item { break-inside: avoid; border: 1px solid rgba(0,0,0,.16); border-radius: 8px; padding: 10px; margin-bottom: 9px; background: rgba(255,255,255,.76); }
+  .pdf-item-head { display: grid; grid-template-columns: auto 1fr; gap: 8px; align-items: start; }
+  .pdf-item-head > span { min-width: 32px; height: 26px; display: inline-flex; align-items: center; justify-content: center; border: 1px solid currentColor; border-radius: 6px; font-size: 12px; font-weight: 700; }
+  .pdf-item h3 { margin: 0; font-size: 20px; line-height: 1.18; letter-spacing: 0; }
+  .pdf-item-head p { margin: 3px 0 0; font-size: 12px; white-space: pre-line; }
+  .pdf-flavor, .pdf-desc { margin: 7px 0 0; font-size: 12px; line-height: 1.45; }
+  .pdf-flavor { font-weight: 650; }
+  .pdf-desc { opacity: .78; }
+  .pdf-price-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; margin-top: 9px; }
+  .pdf-price { display: flex; justify-content: space-between; align-items: center; gap: 6px; border: 1px solid rgba(0,0,0,.12); border-radius: 6px; padding: 6px 7px; background: #dff5d9; font-size: 12px; }
+  .pdf-price:nth-child(even) { background: #dbeaf7; }
+  .pdf-price strong { font-size: 15px; }
+  .pdf-footer { display: flex; justify-content: space-between; gap: 12px; border-top: 1px solid currentColor; padding-top: 10px; margin-top: 16px; font-size: 11px; }
 }
 </style>

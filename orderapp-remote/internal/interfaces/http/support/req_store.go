@@ -373,6 +373,12 @@ func seedReqWorkflowA(ctx context.Context, pool *pgxpool.Pool, schema string) er
 		{table: "req_unit", code: "UT-085-01", title: "覆盖熟豆豆单-3.0 和零售豆单-3.0 的分类编号、建议出品类型、风味和说明金标准", status: "done", assignee: "Codex", evidence: "TestExcelBeanListDisplayMetadataMatchesWorkbook"},
 		{table: "req_api", code: "API-085-01", title: "POST /api/costing/calculate 返回 Excel 豆单展示元数据，Vue 源码守卫覆盖分类分组展示", status: "done", assignee: "Codex", evidence: "TestCostingCalculateAPIReturnsExcelBeanListDisplayMetadata; TestCostingViewGroupsBeanListsByExcelCategoryAndShowsMetadata"},
 		{table: "req_review", code: "REV-085-01", prCode: "PR-085", title: "验收：商用批发豆单和零售豆单分类、编号、建议出品类型、风味与 Excel 一致", status: "todo", assignee: "VA", evidence: "待 Van 服务器验收"},
+		{table: "req_product", code: "PR-086", title: "成本核算页支持划出弹窗生成PDF格式豆单，商用单和零售单从 V3.0.5 开始并适配手机查看", status: "review", assignee: "VA", evidence: "codex/bean-list-pdf-export"},
+		{table: "req_dev", code: "DEV-086-01", title: "生成豆单 PDF 抽屉支持商用/零售切换、版本号、背景颜色、字体颜色和背景上传设置", status: "done", assignee: "Codex", evidence: "CostingView PDF drawer + bean-list-pdf helper"},
+		{table: "req_dev", code: "DEV-086-02", title: "PDF 打印版按 Excel 风格显示分类、编号、建议出品类型、风味、说明和价格，并使用手机宽度版式", status: "done", assignee: "Codex", evidence: "bean-list-pdf-page @media print max-width 430px"},
+		{table: "req_unit", code: "UT-086-01", title: "覆盖默认版本 V3.0.5、商用/零售分组和 PDF 主题参数清洗", status: "done", assignee: "Codex", evidence: "node --test src/lib/bean-list-pdf.test.js"},
+		{table: "req_api", code: "API-086-01", title: "覆盖成本页 PDF 生成入口、背景上传、打印样式和移动端 PDF 源码守卫", status: "done", assignee: "Codex", evidence: "TestCostingViewHasBeanListPDFDrawerAndMobilePrintStyles"},
+		{table: "req_review", code: "REV-086-01", prCode: "PR-086", title: "验收：商用豆单和零售豆单可分别设置样式并保存为手机友好的 PDF", status: "todo", assignee: "VA", evidence: "待 Van 服务器验收"},
 	} {
 		if err := seedReqRow(ctx, pool, schema, row); err != nil {
 			return err
