@@ -471,6 +471,13 @@ func seedReqWorkflowA(ctx context.Context, pool *pgxpool.Pool, schema string) er
 		{table: "req_unit", code: "UT-100-01", title: "覆盖录单规格列表、商品/客户搜索、默认状态、梯度价和手动单价 payload", status: "done", assignee: "Codex", evidence: "node --test src/lib/order-entry.test.js; TestOrderEntryPolish"},
 		{table: "req_api", code: "API-100-01", title: "覆盖 /api/order/form 客户默认字段和 POST /api/order 默认已付款未发货", status: "done", assignee: "Codex", evidence: "go test ./internal/interfaces/http/sales -run TestOrderAPI"},
 		{table: "req_review", code: "REV-100-01", prCode: "PR-100", title: "验收：录单视图更紧凑，客户和商品可模糊搜索，默认已付款/未发货，选商品后实时价格可改", status: "todo", assignee: "VA", evidence: "待 Van 服务器验收"},
+		{table: "req_product", code: "PR-101", title: "录单选中产品后展示所有价格梯度，默认首个梯度规格，并在保存订单后生成快递录单 Excel", status: "review", assignee: "VA", evidence: "codex/order-shipping-excel-20260427"},
+		{table: "req_dev", code: "DEV-101-01", title: "录单商品明细展示所有规格/数量梯度价，选择商品后默认使用第一个价格梯度规格并实时计算小计", status: "done", assignee: "Codex", evidence: "OrderEntryView tier-prices; order-entry.js defaultWholesaleSpec"},
+		{table: "req_dev", code: "DEV-101-02", title: "保存订单后按服务器快递模板生成订单专属 Excel，文件名包含日期、客户和订单号，并返回下载入口", status: "done", assignee: "Codex", evidence: "order_shipping_excel.go; POST /api/order shipping_excel_url"},
+		{table: "req_dev", code: "DEV-101-03", title: "快递 Excel 收件人来自客户，寄件人来自发货人设置，包裹件数 1、托寄物默认茶叶、重量 0.1、备注写订单明细", status: "done", assignee: "Codex", evidence: "buildOrderShippingWorkbook; LoadOrderShippingExportData"},
+		{table: "req_unit", code: "UT-101-01", title: "单测覆盖首个梯度默认规格、全梯度展示数据和快递 Excel 模板填充", status: "done", assignee: "Codex", evidence: "node --test src/lib/order-entry.test.js; TestBuildOrderShippingWorkbookFillsTemplateDefaultsAndRemark"},
+		{table: "req_api", code: "API-101-01", title: "接口级测试覆盖 POST /api/order 生成 shipping_excel_url，并验证导出 Excel 的收寄件、茶叶、重量和订单明细备注", status: "done", assignee: "Codex", evidence: "TestOrderAPISavesShippingExcelFromTemplate"},
+		{table: "req_review", code: "REV-101-01", prCode: "PR-101", title: "验收：录单选商品后所有梯度价清晰可见，默认首档规格，保存订单后可下载快递录单 Excel", status: "todo", assignee: "VA", evidence: "待 Van 服务器验收"},
 	} {
 		if err := seedReqRow(ctx, pool, schema, row); err != nil {
 			return err

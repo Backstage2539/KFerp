@@ -32,7 +32,7 @@ const form = reactive({
   sender_phone: '',
   sender_addr: '',
   sender_company: '',
-  sender_goods: '咖啡',
+  sender_goods: '茶叶',
   sf_biz_type: '',
 })
 
@@ -40,7 +40,7 @@ function assignProfile(profile) {
   for (const key of Object.keys(form)) {
     form[key] = profile?.[key] || ''
   }
-  if (!form.sender_goods) form.sender_goods = '咖啡'
+  if (!form.sender_goods) form.sender_goods = '茶叶'
 }
 
 async function load() {

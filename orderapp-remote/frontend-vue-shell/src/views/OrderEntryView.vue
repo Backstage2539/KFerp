@@ -15,7 +15,11 @@
     </section>
 
     <div v-if="error" class="notice error">{{ error }}</div>
-    <div v-if="ok" class="notice ok">订单已保存：{{ ok }}</div>
+    <div v-if="ok" class="notice ok">
+      <span>订单已保存：{{ ok }}</span>
+      <a v-if="shippingExcelUrl" :href="shippingExcelUrl" target="_blank" rel="noopener">下载快递录单 Excel</a>
+    </div>
+    <div v-if="shippingExcelError" class="notice warn">{{ shippingExcelError }}</div>
 
     <section class="panel order-fields">
       <div class="section-title">订单信息</div>
@@ -171,6 +175,20 @@
           </div>
 
           <button class="secondary danger" type="button" @click="removeRow(idx)" :disabled="rows.length === 1">删除</button>
+
+          <div v-if="tierRows(row).length" class="tier-prices">
+            <button
+              v-for="tier in tierRows(row)"
+              :key="tier.id || `${tier.specG}-${tier.rangeLabel}`"
+              type="button"
+              class="tier-price-chip"
+              :class="{ active: String(row.spec_mode) === String(tier.specG) && String(row.tier_id) === tier.id }"
+              @click="selectTier(row, tier)"
+            >
+              <span>{{ tier.specLabel }} {{ tier.rangeLabel }}</span>
+              <strong>{{ money(tier.unitPrice) }}/件</strong>
+            </button>
+          </div>
         </article>
       </div>
     </section>
@@ -221,6 +239,7 @@ import { computed, onMounted, reactive, ref } from 'vue'
 import {
   CUSTOM_SPEC_VALUE,
   buildOrderPayload,
+  defaultWholesaleSpec,
   defaultStatusID,
   filterOptions,
   lineTotal,
@@ -230,6 +249,7 @@ import {
   syncWholesaleTierPrice,
   toInt,
   toNumber,
+  wholesaleTierPriceRows,
   wholesaleSpecOptions,
 } from '../lib/order-entry'
 
@@ -246,6 +266,8 @@ const products = ref([])
 const rows = ref([newRow()])
 const customerQuery = ref('')
 const customerOpen = ref(false)
+const shippingExcelUrl = ref('')
+const shippingExcelError = ref('')
 
 const form = reactive({
   edit_id: 0,
@@ -341,8 +363,7 @@ function chooseProduct(row, product) {
     const options = retailSpecOptions(product, true)
     row.spec_mode = options[0]?.value || CUSTOM_SPEC_VALUE
   } else {
-    const options = specOptions(row)
-    row.spec_mode = options.find((option) => option.value === '454')?.value || options[0]?.value || '454'
+    row.spec_mode = defaultWholesaleSpec(product)
   }
   syncPrice(row, { force: true })
 }
@@ -359,7 +380,7 @@ function syncRowsForType() {
     row.manual_price = false
     const options = specOptions(row)
     if (!options.some((option) => option.value === row.spec_mode)) {
-      row.spec_mode = options.find((option) => option.value === '454')?.value || options[0]?.value || ''
+      row.spec_mode = retailOrder.value ? (options[0]?.value || '') : defaultWholesaleSpec(productByID(row.product_id))
       row.custom_spec_g = ''
     }
     syncPrice(row, { force: true })
@@ -391,6 +412,18 @@ function markManualPrice(row) {
 }
 
 function resetAutoPrice(row) {
+  row.manual_price = false
+  syncPrice(row, { force: true })
+}
+
+function tierRows(row) {
+  if (retailOrder.value) return []
+  return wholesaleTierPriceRows(productByID(row.product_id))
+}
+
+function selectTier(row, tier) {
+  row.spec_mode = String(tier.specG || '')
+  row.custom_spec_g = ''
   row.manual_price = false
   syncPrice(row, { force: true })
 }
@@ -481,6 +514,8 @@ async function load() {
   loading.value = true
   error.value = ''
   ok.value = ''
+  shippingExcelUrl.value = ''
+  shippingExcelError.value = ''
   try {
     const url = new URL('/api/order/form', window.location.origin)
     const editID = new URL(window.location.href).searchParams.get('edit_id')
@@ -510,6 +545,8 @@ async function save() {
   saving.value = true
   error.value = ''
   ok.value = ''
+  shippingExcelUrl.value = ''
+  shippingExcelError.value = ''
   try {
     const payload = buildOrderPayload({ form, rows: rows.value })
     if (!payload.customer_id) throw new Error('请选择客户')
@@ -522,7 +559,9 @@ async function save() {
     const data = await res.json()
     if (!res.ok) throw new Error(data.error || '保存失败')
     ok.value = data.order_no || '成功'
-    if (data.redirect_url) window.location.href = data.redirect_url
+    shippingExcelUrl.value = data.shipping_excel_url || ''
+    shippingExcelError.value = data.shipping_excel_error || ''
+    if (!shippingExcelUrl.value && !shippingExcelError.value && data.redirect_url) window.location.href = data.redirect_url
   } catch (err) {
     error.value = err.message || '保存失败'
   } finally {
@@ -559,8 +598,11 @@ button:disabled { cursor: not-allowed; opacity: 0.5; }
 .danger { color: #9f1239; }
 .notes { margin-top: 14px; }
 .notice { border-radius: 8px; padding: 10px 12px; }
+.notice.ok { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.notice.ok a { color: #0f3d99; font-weight: 700; text-decoration: none; }
 .error { background: #fff1f2; border: 1px solid #fecdd3; color: #9f1239; }
 .ok { background: #ecfdf3; border: 1px solid #bbf7d0; color: #166534; }
+.warn { background: #fffbeb; border: 1px solid #fde68a; color: #92400e; }
 .combobox { z-index: 2; }
 .combo-menu { position: absolute; top: calc(100% + 4px); left: 0; right: 0; z-index: 20; max-height: 280px; overflow: auto; border: 1px solid #d7dbe3; border-radius: 8px; background: #fff; box-shadow: 0 14px 30px rgba(15, 23, 42, 0.16); padding: 6px; }
 .combo-option { width: 100%; display: grid; gap: 2px; text-align: left; border: 0; background: transparent; padding: 8px; border-radius: 6px; }
@@ -575,6 +617,10 @@ button:disabled { cursor: not-allowed; opacity: 0.5; }
 .line-total { display: grid; gap: 3px; padding-bottom: 2px; }
 .line-total strong { font-size: 18px; }
 .line-total small { color: #667085; font-size: 12px; }
+.tier-prices { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 8px; padding-top: 2px; }
+.tier-price-chip { display: grid; grid-template-columns: auto auto; align-items: center; gap: 8px; min-height: 32px; border: 1px solid #d7dbe3; background: #fff; color: #344054; border-radius: 7px; padding: 6px 8px; font-size: 12px; }
+.tier-price-chip strong { color: #111827; }
+.tier-price-chip.active { border-color: #4f8df7; background: #eef5ff; color: #174ea6; }
 .checkline { flex-direction: row; align-items: center; gap: 8px; padding-top: 25px; }
 .checkline input { width: auto; min-height: auto; }
 .footer-panel { display: grid; gap: 12px; }

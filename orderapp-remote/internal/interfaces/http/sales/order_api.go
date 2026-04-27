@@ -225,16 +225,23 @@ func (h orderAPIHandler) save(c echo.Context) error {
 	if err != nil {
 		return c.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
 	}
+	shippingFile, shippingErr := generateOrderShippingExcel(h.sales, c, res.OrderID)
 	redirectURL := "/order?ok=1&order_no=" + res.OrderNo
 	if res.Edited {
 		redirectURL = "/orders/" + strconv.FormatInt(res.OrderID, 10)
 	}
-	return c.JSON(http.StatusOK, map[string]any{
+	resp := map[string]any{
 		"order_id":     res.OrderID,
 		"order_no":     res.OrderNo,
 		"edited":       res.Edited,
 		"redirect_url": redirectURL,
-	})
+	}
+	if shippingErr != nil {
+		resp["shipping_excel_error"] = "快递录单 Excel 生成失败：" + shippingErr.Error()
+	} else {
+		resp["shipping_excel_url"] = shippingFile.URL
+	}
+	return c.JSON(http.StatusOK, resp)
 }
 
 func (r orderSaveAPIRequest) toCreateRequest() CreateOrderRequest {

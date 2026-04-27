@@ -7,17 +7,19 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
-	support "orderapp/internal/interfaces/http/support"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
 	salesapp "orderapp/internal/application/sales"
 	postgressales "orderapp/internal/infrastructure/postgres/sales"
+	support "orderapp/internal/interfaces/http/support"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/labstack/echo/v4"
+	"github.com/xuri/excelize/v2"
 )
 
 func TestOrderEntryRedirectsToVueShell(t *testing.T) {
@@ -200,6 +202,87 @@ func TestOrderAPIDefaultsNewOrderToPaidAndUnshipped(t *testing.T) {
 	}
 }
 
+func TestOrderAPISavesShippingExcelFromTemplate(t *testing.T) {
+	pool, schema := newOrderAPITestDB(t)
+	ctx := context.Background()
+	seedOrderAPITestData(t, ctx, pool, schema)
+
+	dir := t.TempDir()
+	templatePath := filepath.Join(dir, "ship_temp.xlsx")
+	exportDir := filepath.Join(dir, "exports")
+	writeOrderShippingTemplateForTest(t, templatePath)
+	t.Setenv("ORDER_SHIP_TEMPLATE", templatePath)
+	t.Setenv("ORDER_SHIP_EXPORT_DIR", exportDir)
+	mustExecOrderAPITestSQL(t, ctx, pool, fmt.Sprintf(`
+		UPDATE %s.sender_settings
+		SET sender_name='寄件人', sender_phone='13900000000', sender_addr='上海市测试路', sender_company='寄件公司', sender_goods='', sf_biz_type='标快'
+		WHERE id=1;
+	`, schema))
+
+	e := newOrderAPITestEcho(pool, schema)
+	payload := map[string]any{
+		"order_date":     "2026-04-27",
+		"customer_id":    3,
+		"source_id":      1,
+		"order_type_id":  1,
+		"pay_status_id":  2,
+		"ship_status_id": 1,
+		"product_id":     []string{"7"},
+		"tier_id":        []string{"manual"},
+		"unit_price":     []string{"88"},
+		"item_name":      []string{"橘皮乌龙"},
+		"qty":            []string{"2"},
+		"unit":           []string{"件"},
+		"spec":           []string{"454"},
+	}
+	body, _ := json.Marshal(payload)
+	req := httptest.NewRequest(http.MethodPost, "/api/order", bytes.NewReader(body))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("POST /api/order status = %d, want 200, body=%s", rec.Code, rec.Body.String())
+	}
+	var resp struct {
+		OrderNo          string `json:"order_no"`
+		ShippingExcelURL string `json:"shipping_excel_url"`
+		Error            string `json:"shipping_excel_error"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatal(err)
+	}
+	if resp.Error != "" || resp.ShippingExcelURL == "" {
+		t.Fatalf("shipping excel response = %+v body=%s", resp, rec.Body.String())
+	}
+	files, err := os.ReadDir(exportDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(files) != 1 {
+		t.Fatalf("export files = %d, want 1", len(files))
+	}
+	wb, err := excelize.OpenFile(filepath.Join(exportDir, files[0].Name()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer wb.Close()
+	sheet := wb.GetSheetName(0)
+	cell := func(name string) string {
+		v, err := wb.GetCellValue(sheet, name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return v
+	}
+	if cell("A2") != "测试收件人" || cell("B2") != "13800000000" || cell("D2") != "寄件人" || cell("H2") != "1" || cell("I2") != "茶叶" || cell("J2") != "0.1" {
+		t.Fatalf("shipping excel cells A2=%q B2=%q D2=%q H2=%q I2=%q J2=%q", cell("A2"), cell("B2"), cell("D2"), cell("H2"), cell("I2"), cell("J2"))
+	}
+	if !strings.Contains(cell("N2"), "橘皮乌龙 454g x2件") || !strings.Contains(cell("N2"), "小计176.00") {
+		t.Fatalf("shipping excel remark N2=%q", cell("N2"))
+	}
+}
+
 func newOrderAPITestDB(t *testing.T) (*pgxpool.Pool, string) {
 	t.Helper()
 	dsn := strings.TrimSpace(os.Getenv("ORDERAPP_TEST_DATABASE_URL"))
@@ -245,7 +328,7 @@ func newOrderAPITestEcho(pool *pgxpool.Pool, schema string) *echo.Echo {
 func seedOrderAPITestData(t *testing.T, ctx context.Context, pool *pgxpool.Pool, schema string) {
 	t.Helper()
 	mustExecOrderAPITestSQL(t, ctx, pool, fmt.Sprintf(`
-		INSERT INTO %s.customers(id,name,active,default_source_id,default_order_type_id) VALUES (3,'测试客户',true,1,2);
+		INSERT INTO %s.customers(id,name,contact,phone,address,active,default_source_id,default_order_type_id) VALUES (3,'测试客户','测试收件人','13800000000','杭州市测试路',true,1,2);
 		INSERT INTO %s.sources(id,name) VALUES (1,'小程序');
 		INSERT INTO %s.order_types(id,name) VALUES (1,'批发订单'),(2,'零售订单');
 		INSERT INTO %s.pay_statuses(id,name) VALUES (1,'未付款'),(2,'已付款');
@@ -268,6 +351,9 @@ func orderAPITestDDL(schema string) string {
 CREATE TABLE %s.customers (
 	id BIGSERIAL PRIMARY KEY,
 	name TEXT NOT NULL,
+	contact TEXT NOT NULL DEFAULT '',
+	phone TEXT NOT NULL DEFAULT '',
+	address TEXT NOT NULL DEFAULT '',
 	active BOOLEAN NOT NULL DEFAULT true,
 	default_source_id BIGINT,
 	default_order_type_id BIGINT
@@ -365,4 +451,23 @@ CREATE TABLE %s.order_items (
 	line_total NUMERIC NOT NULL DEFAULT 0
 );
 `, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema)
+}
+
+func writeOrderShippingTemplateForTest(t *testing.T, path string) {
+	t.Helper()
+	wb := excelize.NewFile()
+	sheet := wb.GetSheetName(0)
+	headers := []string{"收件人", "收件人手机/电话", "收件地址", "寄件人", "寄件人手机/电话", "寄件地址", "收件公司", "包裹件数", "托寄物", "重量", "长", "宽", "高", "备注(选填)", "寄件公司", "业务类型", "包装服务费"}
+	for i, header := range headers {
+		cell, _ := excelize.CoordinatesToCellName(i+1, 1)
+		if err := wb.SetCellValue(sheet, cell, header); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := wb.SaveAs(path); err != nil {
+		t.Fatal(err)
+	}
+	if err := wb.Close(); err != nil {
+		t.Fatal(err)
+	}
 }

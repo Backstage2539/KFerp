@@ -272,7 +272,7 @@ func (r Repository) LoadSenderProfile(ctx context.Context) (salesapp.SenderProfi
 		Phone:   env("SENDER_PHONE", ""),
 		Addr:    env("SENDER_ADDR", ""),
 		Company: env("SENDER_COMPANY", ""),
-		Goods:   env("SENDER_GOODS", "咖啡"),
+		Goods:   env("SENDER_GOODS", "茶叶"),
 		BizType: env("SF_BIZ_TYPE", ""),
 	}
 	err := r.pool.QueryRow(ctx, fmt.Sprintf(`SELECT COALESCE(sender_name,''),COALESCE(sender_phone,''),COALESCE(sender_addr,''),COALESCE(sender_company,''),COALESCE(sender_goods,''),COALESCE(sf_biz_type,'') FROM %s.sender_settings WHERE id=1`, r.schema)).Scan(
@@ -303,7 +303,7 @@ func EnsureSenderSettingsTable(ctx context.Context, pool *pgxpool.Pool, schema s
 		sender_phone TEXT NOT NULL DEFAULT '',
 		sender_addr TEXT NOT NULL DEFAULT '',
 		sender_company TEXT NOT NULL DEFAULT '',
-		sender_goods TEXT NOT NULL DEFAULT '咖啡',
+		sender_goods TEXT NOT NULL DEFAULT '茶叶',
 		sf_biz_type TEXT NOT NULL DEFAULT '',
 		updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 	);
