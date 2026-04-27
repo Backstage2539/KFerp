@@ -32,7 +32,7 @@ func TestAllocateFIFOFailsWhenStockIsInsufficient(t *testing.T) {
 }
 
 func TestMovementKindValidatesStockDocumentSources(t *testing.T) {
-	for _, kind := range []MovementKind{MovementMaterialReceipt, MovementMaterialIssue, MovementFinishedReceipt, MovementAdjustment} {
+	for _, kind := range []MovementKind{MovementMaterialReceipt, MovementMaterialIssue, MovementFinishedReceipt, MovementMaterialTransfer, MovementAdjustment} {
 		if !kind.Valid() {
 			t.Fatalf("expected %q to be valid", kind)
 		}

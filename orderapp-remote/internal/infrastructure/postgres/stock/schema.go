@@ -14,6 +14,12 @@ func EnsureSchema(ctx context.Context, pool *pgxpool.Pool, schema string) error 
 	if err := ensureMaterialBatchTables(ctx, pool, schema); err != nil {
 		return err
 	}
+	if err := ensureWarehouseTables(ctx, pool, schema); err != nil {
+		return err
+	}
+	if err := ensureMaterialTransferTables(ctx, pool, schema); err != nil {
+		return err
+	}
 	return ensureStockAdjustmentTables(ctx, pool, schema)
 }
 
@@ -107,6 +113,101 @@ CREATE TABLE IF NOT EXISTS %s.material_batches (
 CREATE INDEX IF NOT EXISTS material_batches_material_fifo_idx
 	ON %s.material_batches(material_id, status, received_at, id);
 `, schema, schema, schema, schema)
+	if _, err := pool.Exec(ctx, q); err != nil {
+		return err
+	}
+	if _, err := pool.Exec(ctx, fmt.Sprintf(`
+CREATE TABLE IF NOT EXISTS %s.material_batch_locations (
+	material_batch_id BIGINT NOT NULL,
+	batch_code TEXT NOT NULL DEFAULT '',
+	material_id BIGINT NOT NULL DEFAULT 0,
+	warehouse TEXT NOT NULL DEFAULT '',
+	qty_g BIGINT NOT NULL DEFAULT 0,
+	updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+	PRIMARY KEY(material_batch_id, warehouse)
+);
+CREATE INDEX IF NOT EXISTS material_batch_locations_lookup_idx
+	ON %s.material_batch_locations(material_id, warehouse, qty_g);
+INSERT INTO %s.material_batch_locations(material_batch_id,batch_code,material_id,warehouse,qty_g,updated_at)
+SELECT id,batch_code,material_id,'raw_materials',remaining_g,now()
+FROM %s.material_batches
+WHERE remaining_g > 0
+ON CONFLICT (material_batch_id, warehouse) DO NOTHING
+`, schema, schema, schema, schema)); err != nil {
+		return err
+	}
+	return nil
+}
+
+func ensureWarehouseTables(ctx context.Context, pool *pgxpool.Pool, schema string) error {
+	q := fmt.Sprintf(`
+CREATE TABLE IF NOT EXISTS %s.warehouses (
+	code TEXT PRIMARY KEY,
+	name TEXT NOT NULL DEFAULT '',
+	kind TEXT NOT NULL DEFAULT '',
+	parent_code TEXT NOT NULL DEFAULT '',
+	sort_order INTEGER NOT NULL DEFAULT 0,
+	is_default BOOLEAN NOT NULL DEFAULT false,
+	active BOOLEAN NOT NULL DEFAULT true,
+	description TEXT NOT NULL DEFAULT '',
+	created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+`, schema)
+	if _, err := pool.Exec(ctx, q); err != nil {
+		return err
+	}
+	_, err := pool.Exec(ctx, fmt.Sprintf(`
+INSERT INTO %s.warehouses(code,name,kind,parent_code,sort_order,is_default,active,description)
+VALUES
+	('raw_materials','原料仓','raw','',10,true,true,'未领用的生豆、辅料，生产领料前保存在这里'),
+	('packaging','包材仓','packaging','',20,true,true,'袋子、盒子、标签等包材库存'),
+	('wip','WIP在制仓','wip','',30,true,true,'已领到生产现场但尚未消耗的共享在制库存'),
+	('finished_goods','成品仓','finished','',40,true,true,'生产完成并可销售/发货的成品库存'),
+	('loss','损耗/报废仓','loss','',50,false,true,'盘点损耗、报废或异常消耗的记录位置')
+ON CONFLICT (code) DO UPDATE SET
+	name=excluded.name,
+	kind=excluded.kind,
+	parent_code=excluded.parent_code,
+	sort_order=excluded.sort_order,
+	is_default=excluded.is_default,
+	active=excluded.active,
+	description=excluded.description
+`, schema))
+	return err
+}
+
+func ensureMaterialTransferTables(ctx context.Context, pool *pgxpool.Pool, schema string) error {
+	q := fmt.Sprintf(`
+CREATE TABLE IF NOT EXISTS %s.material_transfers (
+	id BIGSERIAL PRIMARY KEY,
+	transfer_no TEXT NOT NULL UNIQUE,
+	material_id BIGINT NOT NULL DEFAULT 0,
+	material_name TEXT NOT NULL DEFAULT '',
+	from_warehouse TEXT NOT NULL DEFAULT '',
+	to_warehouse TEXT NOT NULL DEFAULT '',
+	qty_g BIGINT NOT NULL DEFAULT 0,
+	note TEXT NOT NULL DEFAULT '',
+	status TEXT NOT NULL DEFAULT 'submitted',
+	operator TEXT NOT NULL DEFAULT '',
+	idempotency_key TEXT NOT NULL DEFAULT '',
+	created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE UNIQUE INDEX IF NOT EXISTS material_transfers_idempotency_uq
+	ON %s.material_transfers(idempotency_key)
+	WHERE idempotency_key <> '';
+CREATE INDEX IF NOT EXISTS material_transfers_material_idx
+	ON %s.material_transfers(material_id, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS %s.material_transfer_items (
+	id BIGSERIAL PRIMARY KEY,
+	transfer_id BIGINT NOT NULL,
+	material_batch_id BIGINT NOT NULL DEFAULT 0,
+	material_batch_code TEXT NOT NULL DEFAULT '',
+	qty_g BIGINT NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS material_transfer_items_transfer_idx
+	ON %s.material_transfer_items(transfer_id, id);
+`, schema, schema, schema, schema, schema)
 	_, err := pool.Exec(ctx, q)
 	return err
 }

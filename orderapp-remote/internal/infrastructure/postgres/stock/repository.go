@@ -4,8 +4,10 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	stockapp "orderapp/internal/application/stock"
+	stockdomain "orderapp/internal/domain/stock"
 	postgresinfra "orderapp/internal/infrastructure/postgres"
 
 	"github.com/jackc/pgx/v5"
@@ -17,6 +19,7 @@ const (
 	itemTypeFinishedProduct = "finished_product"
 	sourceMaterialReceipt   = "material_receipt"
 	sourceStockAdjustment   = "stock_adjustment"
+	sourceMaterialTransfer  = "material_transfer"
 )
 
 type Repository struct {
@@ -191,6 +194,83 @@ func (r Repository) ListMaterialBatches(ctx context.Context, query stockapp.Mate
 	return stockapp.MaterialBatchResult{Rows: out, HasNext: hasNext}, nil
 }
 
+func (r Repository) ListWarehouses(ctx context.Context) ([]stockapp.WarehouseRow, error) {
+	rows, err := r.pool.Query(ctx, fmt.Sprintf(`
+		SELECT code,name,kind,parent_code,sort_order,is_default,active,description
+		FROM %s.warehouses
+		WHERE active=true
+		ORDER BY sort_order, code
+	`, r.schema))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := make([]stockapp.WarehouseRow, 0)
+	for rows.Next() {
+		var row stockapp.WarehouseRow
+		if err := rows.Scan(&row.Code, &row.Name, &row.Kind, &row.ParentCode, &row.SortOrder, &row.IsDefault, &row.Active, &row.Description); err != nil {
+			return nil, err
+		}
+		out = append(out, row)
+	}
+	return out, rows.Err()
+}
+
+func (r Repository) ListMaterialBatchLocations(ctx context.Context, query stockapp.MaterialBatchLocationQuery) (stockapp.MaterialBatchLocationResult, error) {
+	where, args := []string{"1=1"}, []any{}
+	if query.Q != "" {
+		args = append(args, "%"+query.Q+"%")
+		where = append(where, fmt.Sprintf("(l.batch_code ILIKE $%d OR m.name ILIKE $%d)", len(args), len(args)))
+	}
+	if query.MaterialID > 0 {
+		args = append(args, query.MaterialID)
+		where = append(where, fmt.Sprintf("l.material_id=$%d", len(args)))
+	}
+	if query.Warehouse != "" {
+		args = append(args, query.Warehouse)
+		where = append(where, fmt.Sprintf("l.warehouse=$%d", len(args)))
+	}
+	if query.ActiveOnly {
+		where = append(where, "l.qty_g > 0")
+	}
+	args = append(args, query.Limit+1, query.Offset)
+	limitArg, offsetArg := len(args)-1, len(args)
+	rows, err := r.pool.Query(ctx, fmt.Sprintf(`
+		SELECT l.material_batch_id,l.batch_code,l.material_id,COALESCE(m.name,''),l.warehouse,
+		       COALESCE(w.name,l.warehouse),l.qty_g,
+		       COALESCE(to_char(b.received_at,'YYYY-MM-DD HH24:MI'),''),
+		       to_char(l.updated_at,'YYYY-MM-DD HH24:MI')
+		FROM %s.material_batch_locations l
+		LEFT JOIN %s.material_batches b ON b.id=l.material_batch_id
+		LEFT JOIN %s.materials m ON m.id=l.material_id
+		LEFT JOIN %s.warehouses w ON w.code=l.warehouse
+		WHERE %s
+		ORDER BY l.warehouse, b.received_at, l.material_batch_id
+		LIMIT $%d OFFSET $%d
+	`, r.schema, r.schema, r.schema, r.schema, strings.Join(where, " AND "), limitArg, offsetArg), args...)
+	if err != nil {
+		return stockapp.MaterialBatchLocationResult{}, err
+	}
+	defer rows.Close()
+	out := make([]stockapp.MaterialBatchLocationRow, 0)
+	for rows.Next() {
+		var row stockapp.MaterialBatchLocationRow
+		if err := rows.Scan(&row.MaterialBatchID, &row.BatchCode, &row.MaterialID, &row.MaterialName, &row.Warehouse, &row.WarehouseName, &row.QtyG, &row.ReceivedAt, &row.UpdatedAt); err != nil {
+			return stockapp.MaterialBatchLocationResult{}, err
+		}
+		out = append(out, row)
+	}
+	if err := rows.Err(); err != nil {
+		return stockapp.MaterialBatchLocationResult{}, err
+	}
+	hasNext := false
+	if len(out) > query.Limit {
+		out = out[:query.Limit]
+		hasNext = true
+	}
+	return stockapp.MaterialBatchLocationResult{Rows: out, HasNext: hasNext}, nil
+}
+
 func (r Repository) ReceiveMaterial(ctx context.Context, cmd stockapp.MaterialReceiptCommand) (stockapp.MaterialReceiptResult, error) {
 	tx, err := r.pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
@@ -236,8 +316,19 @@ func (r Repository) ReceiveMaterial(ctx context.Context, cmd stockapp.MaterialRe
 	`, r.schema), batchCode, itemTypeMaterial, cmd.MaterialID, materialName, sourceMaterialReceipt, receiptID, cmd.QtyG, cmd.UnitCost, cmd.Operator); err != nil {
 		return stockapp.MaterialReceiptResult{}, err
 	}
+	if _, err := tx.Exec(ctx, fmt.Sprintf(`
+		INSERT INTO %s.material_batch_locations(material_batch_id,batch_code,material_id,warehouse,qty_g,updated_at)
+		VALUES($1,$2,$3,$4,$5,now())
+		ON CONFLICT (material_batch_id, warehouse) DO UPDATE SET
+			batch_code=excluded.batch_code,
+			material_id=excluded.material_id,
+			qty_g=material_batch_locations.qty_g+excluded.qty_g,
+			updated_at=now()
+	`, r.schema), batchID, batchCode, cmd.MaterialID, stockdomain.WarehouseRawMaterials, cmd.QtyG); err != nil {
+		return stockapp.MaterialReceiptResult{}, err
+	}
 	if err := insertLedgerTx(ctx, tx, r.schema, ledgerEntry{
-		ItemType: itemTypeMaterial, ItemID: cmd.MaterialID, ItemName: materialName, Warehouse: "materials",
+		ItemType: itemTypeMaterial, ItemID: cmd.MaterialID, ItemName: materialName, Warehouse: stockdomain.WarehouseRawMaterials,
 		SourceDocType: sourceMaterialReceipt, SourceDocID: receiptID, SourceBatchCode: batchCode, SourceBatchID: batchCode,
 		BeforeG: beforeG, ChangeG: cmd.QtyG, AfterG: afterG, BeforeUnits: beforeUnits, ChangeUnits: 0, AfterUnits: beforeUnits,
 		Operator: cmd.Operator,
@@ -251,6 +342,174 @@ func (r Repository) ReceiveMaterial(ctx context.Context, cmd stockapp.MaterialRe
 		return stockapp.MaterialReceiptResult{}, err
 	}
 	return stockapp.MaterialReceiptResult{ReceiptID: receiptID, BatchID: batchID, BatchCode: batchCode}, nil
+}
+
+func (r Repository) TransferMaterial(ctx context.Context, cmd stockapp.MaterialTransferCommand) (stockapp.MaterialTransferResult, error) {
+	tx, err := r.pool.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return stockapp.MaterialTransferResult{}, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	if cmd.IdempotencyKey != "" {
+		result, found, err := r.loadTransferByIdempotencyTx(ctx, tx, cmd.IdempotencyKey)
+		if err != nil {
+			return stockapp.MaterialTransferResult{}, err
+		}
+		if found {
+			if err := tx.Commit(ctx); err != nil {
+				return stockapp.MaterialTransferResult{}, err
+			}
+			return result, nil
+		}
+	}
+
+	var materialName string
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT COALESCE(name,'') FROM %s.materials WHERE id=$1 FOR UPDATE`, r.schema), cmd.MaterialID).Scan(&materialName); err != nil {
+		if err == pgx.ErrNoRows {
+			return stockapp.MaterialTransferResult{}, fmt.Errorf("material not found")
+		}
+		return stockapp.MaterialTransferResult{}, err
+	}
+	if err := r.ensureWarehouseExistsTx(ctx, tx, cmd.FromWarehouse); err != nil {
+		return stockapp.MaterialTransferResult{}, err
+	}
+	if err := r.ensureWarehouseExistsTx(ctx, tx, cmd.ToWarehouse); err != nil {
+		return stockapp.MaterialTransferResult{}, err
+	}
+
+	rows, err := tx.Query(ctx, fmt.Sprintf(`
+		SELECT b.id,b.batch_code,l.qty_g
+		FROM %s.material_batch_locations l
+		JOIN %s.material_batches b ON b.id=l.material_batch_id
+		WHERE l.material_id=$1
+		  AND l.warehouse=$2
+		  AND l.qty_g > 0
+		  AND b.status='active'
+		  AND b.remaining_g > 0
+		ORDER BY b.received_at, b.id
+		FOR UPDATE OF l,b
+	`, r.schema, r.schema), cmd.MaterialID, cmd.FromWarehouse)
+	if err != nil {
+		return stockapp.MaterialTransferResult{}, err
+	}
+	defer rows.Close()
+	available := make([]stockdomain.BatchAvailability, 0)
+	beforeFromByBatch := map[int64]int64{}
+	for rows.Next() {
+		var batch stockdomain.BatchAvailability
+		if err := rows.Scan(&batch.BatchID, &batch.BatchCode, &batch.AvailableG); err != nil {
+			return stockapp.MaterialTransferResult{}, err
+		}
+		available = append(available, batch)
+		beforeFromByBatch[batch.BatchID] = batch.AvailableG
+	}
+	if err := rows.Err(); err != nil {
+		return stockapp.MaterialTransferResult{}, err
+	}
+	allocations, err := stockdomain.AllocateFIFO(available, cmd.QtyG)
+	if err != nil {
+		return stockapp.MaterialTransferResult{}, err
+	}
+	if len(allocations) == 0 {
+		return stockapp.MaterialTransferResult{}, fmt.Errorf("material stock insufficient in %s", cmd.FromWarehouse)
+	}
+
+	var transferID int64
+	transferNo := ""
+	tempTransferNo := fmt.Sprintf("MT-TMP-%d", time.Now().UnixNano())
+	if cmd.IdempotencyKey != "" {
+		err = tx.QueryRow(ctx, fmt.Sprintf(`
+			INSERT INTO %s.material_transfers(transfer_no,material_id,material_name,from_warehouse,to_warehouse,qty_g,note,operator,idempotency_key,created_at)
+			VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,now())
+			RETURNING id, transfer_no
+		`, r.schema), tempTransferNo, cmd.MaterialID, materialName, cmd.FromWarehouse, cmd.ToWarehouse, cmd.QtyG, cmd.Note, cmd.Operator, cmd.IdempotencyKey).Scan(&transferID, &transferNo)
+	} else {
+		err = tx.QueryRow(ctx, fmt.Sprintf(`
+			INSERT INTO %s.material_transfers(transfer_no,material_id,material_name,from_warehouse,to_warehouse,qty_g,note,operator,created_at)
+			VALUES($1,$2,$3,$4,$5,$6,$7,$8,now())
+			RETURNING id, transfer_no
+		`, r.schema), tempTransferNo, cmd.MaterialID, materialName, cmd.FromWarehouse, cmd.ToWarehouse, cmd.QtyG, cmd.Note, cmd.Operator).Scan(&transferID, &transferNo)
+	}
+	if err != nil {
+		return stockapp.MaterialTransferResult{}, err
+	}
+	if strings.HasPrefix(transferNo, "MT-TMP-") {
+		transferNo = fmt.Sprintf("MT-%010d", transferID)
+		if _, err := tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.material_transfers SET transfer_no=$2 WHERE id=$1`, r.schema), transferID, transferNo); err != nil {
+			return stockapp.MaterialTransferResult{}, err
+		}
+	}
+
+	outAllocations := make([]stockapp.MaterialTransferAllocation, 0, len(allocations))
+	for _, alloc := range allocations {
+		beforeFrom := beforeFromByBatch[alloc.BatchID]
+		afterFrom := beforeFrom - alloc.QtyG
+		if afterFrom < 0 {
+			return stockapp.MaterialTransferResult{}, fmt.Errorf("material stock insufficient in %s", cmd.FromWarehouse)
+		}
+		if _, err := tx.Exec(ctx, fmt.Sprintf(`
+			UPDATE %s.material_batch_locations
+			SET qty_g=$3, updated_at=now()
+			WHERE material_batch_id=$1 AND warehouse=$2
+		`, r.schema), alloc.BatchID, cmd.FromWarehouse, afterFrom); err != nil {
+			return stockapp.MaterialTransferResult{}, err
+		}
+
+		beforeTo, err := materialBatchLocationQtyTx(ctx, tx, r.schema, alloc.BatchID, cmd.ToWarehouse)
+		if err != nil {
+			return stockapp.MaterialTransferResult{}, err
+		}
+		afterTo := beforeTo + alloc.QtyG
+		if beforeTo == 0 {
+			_, err = tx.Exec(ctx, fmt.Sprintf(`
+				INSERT INTO %s.material_batch_locations(material_batch_id,batch_code,material_id,warehouse,qty_g,updated_at)
+				VALUES($1,$2,$3,$4,$5,now())
+				ON CONFLICT (material_batch_id, warehouse) DO UPDATE SET
+					batch_code=excluded.batch_code,
+					material_id=excluded.material_id,
+					qty_g=material_batch_locations.qty_g+excluded.qty_g,
+					updated_at=now()
+			`, r.schema), alloc.BatchID, alloc.BatchCode, cmd.MaterialID, cmd.ToWarehouse, alloc.QtyG)
+		} else {
+			_, err = tx.Exec(ctx, fmt.Sprintf(`
+				UPDATE %s.material_batch_locations
+				SET qty_g=$3, updated_at=now()
+				WHERE material_batch_id=$1 AND warehouse=$2
+			`, r.schema), alloc.BatchID, cmd.ToWarehouse, afterTo)
+		}
+		if err != nil {
+			return stockapp.MaterialTransferResult{}, err
+		}
+		if _, err := tx.Exec(ctx, fmt.Sprintf(`
+			INSERT INTO %s.material_transfer_items(transfer_id,material_batch_id,material_batch_code,qty_g)
+			VALUES($1,$2,$3,$4)
+		`, r.schema), transferID, alloc.BatchID, alloc.BatchCode, alloc.QtyG); err != nil {
+			return stockapp.MaterialTransferResult{}, err
+		}
+		if err := insertLedgerTx(ctx, tx, r.schema, ledgerEntry{
+			ItemType: itemTypeMaterial, ItemID: cmd.MaterialID, ItemName: materialName, Warehouse: cmd.FromWarehouse,
+			SourceDocType: sourceMaterialTransfer, SourceDocID: transferID, SourceBatchCode: alloc.BatchCode, SourceBatchID: transferNo,
+			BeforeG: beforeFrom, ChangeG: -alloc.QtyG, AfterG: afterFrom, Operator: cmd.Operator,
+		}); err != nil {
+			return stockapp.MaterialTransferResult{}, err
+		}
+		if err := insertLedgerTx(ctx, tx, r.schema, ledgerEntry{
+			ItemType: itemTypeMaterial, ItemID: cmd.MaterialID, ItemName: materialName, Warehouse: cmd.ToWarehouse,
+			SourceDocType: sourceMaterialTransfer, SourceDocID: transferID, SourceBatchCode: alloc.BatchCode, SourceBatchID: transferNo,
+			BeforeG: beforeTo, ChangeG: alloc.QtyG, AfterG: afterTo, Operator: cmd.Operator,
+		}); err != nil {
+			return stockapp.MaterialTransferResult{}, err
+		}
+		outAllocations = append(outAllocations, stockapp.MaterialTransferAllocation{MaterialBatchID: alloc.BatchID, BatchCode: alloc.BatchCode, QtyG: alloc.QtyG})
+	}
+	if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, cmd.Operator, "material_transfer", &transferID, "submit", postgresinfra.StrPtr("qty_g"), nil, postgresinfra.StrPtr(fmt.Sprintf("%d", cmd.QtyG)), postgresinfra.AuditMeta{"material_id": cmd.MaterialID, "transfer_no": transferNo, "from": cmd.FromWarehouse, "to": cmd.ToWarehouse}); err != nil {
+		return stockapp.MaterialTransferResult{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return stockapp.MaterialTransferResult{}, err
+	}
+	return stockapp.MaterialTransferResult{TransferID: transferID, TransferNo: transferNo, Allocations: outAllocations}, nil
 }
 
 func (r Repository) CreateAdjustment(ctx context.Context, cmd stockapp.StockAdjustmentCommand) (stockapp.StockAdjustmentResult, error) {
@@ -281,11 +540,40 @@ func (r Repository) CreateAdjustment(ctx context.Context, cmd stockapp.StockAdju
 		return stockapp.StockAdjustmentResult{}, err
 	}
 	batchCode := fmt.Sprintf("ADJ-%010d", adjustmentID)
+	stockRemainingG := int64(0)
+	if cmd.ItemType == itemTypeMaterial && changeG > 0 {
+		stockRemainingG = changeG
+	}
 	if _, err := tx.Exec(ctx, fmt.Sprintf(`
 		INSERT INTO %s.stock_batches(batch_code,item_type,item_id,item_name,spec_g,source_doc_type,source_doc_id,source_batch_id,qty_g,qty_units,remaining_g,remaining_units,operator,created_at)
-		VALUES($1,$2,$3,$4,$5,$6,$7,'',$8,$9,0,0,$10,now())
-	`, r.schema), batchCode, cmd.ItemType, cmd.ItemID, itemName, cmd.SpecG, sourceStockAdjustment, adjustmentID, changeG, changeUnits, cmd.Operator); err != nil {
+		VALUES($1,$2,$3,$4,$5,$6,$7,$1,$8,$9,$10,0,$11,now())
+	`, r.schema), batchCode, cmd.ItemType, cmd.ItemID, itemName, cmd.SpecG, sourceStockAdjustment, adjustmentID, changeG, changeUnits, stockRemainingG, cmd.Operator); err != nil {
 		return stockapp.StockAdjustmentResult{}, err
+	}
+	if cmd.ItemType == itemTypeMaterial && changeG > 0 {
+		var materialBatchID int64
+		if err := tx.QueryRow(ctx, fmt.Sprintf(`
+			INSERT INTO %s.material_batches(batch_code,material_id,supplier,receipt_id,qty_g,remaining_g,unit_cost,note,received_at,created_at)
+			VALUES($1,$2,'stock_adjustment',$3,$4,$4,0,$5,now(),now())
+			ON CONFLICT (batch_code) DO UPDATE SET
+				remaining_g=excluded.remaining_g,
+				status='active',
+				note=excluded.note
+			RETURNING id
+		`, r.schema), batchCode, cmd.ItemID, adjustmentID, changeG, cmd.Reason).Scan(&materialBatchID); err != nil {
+			return stockapp.StockAdjustmentResult{}, err
+		}
+		if _, err := tx.Exec(ctx, fmt.Sprintf(`
+			INSERT INTO %s.material_batch_locations(material_batch_id,batch_code,material_id,warehouse,qty_g,updated_at)
+			VALUES($1,$2,$3,$4,$5,now())
+			ON CONFLICT (material_batch_id, warehouse) DO UPDATE SET
+				batch_code=excluded.batch_code,
+				material_id=excluded.material_id,
+				qty_g=excluded.qty_g,
+				updated_at=now()
+		`, r.schema), materialBatchID, batchCode, cmd.ItemID, cmd.Warehouse, changeG); err != nil {
+			return stockapp.StockAdjustmentResult{}, err
+		}
 	}
 	if err := insertLedgerTx(ctx, tx, r.schema, ledgerEntry{
 		ItemType: cmd.ItemType, ItemID: cmd.ItemID, ItemName: itemName, SpecG: cmd.SpecG, Warehouse: cmd.Warehouse,
@@ -334,6 +622,72 @@ func (r Repository) applyAdjustmentTx(ctx context.Context, tx pgx.Tx, cmd stocka
 		return "", 0, 0, 0, 0, err
 	}
 	return name, beforeG, beforeUnits, afterG, cmd.TargetUnits, nil
+}
+
+func (r Repository) ensureWarehouseExistsTx(ctx context.Context, tx pgx.Tx, warehouse string) error {
+	var exists bool
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT EXISTS(SELECT 1 FROM %s.warehouses WHERE code=$1 AND active=true)`, r.schema), warehouse).Scan(&exists); err != nil {
+		return err
+	}
+	if !exists {
+		return fmt.Errorf("warehouse not found: %s", warehouse)
+	}
+	return nil
+}
+
+func (r Repository) loadTransferByIdempotencyTx(ctx context.Context, tx pgx.Tx, key string) (stockapp.MaterialTransferResult, bool, error) {
+	var result stockapp.MaterialTransferResult
+	err := tx.QueryRow(ctx, fmt.Sprintf(`
+		SELECT id, transfer_no
+		FROM %s.material_transfers
+		WHERE idempotency_key=$1
+		FOR UPDATE
+	`, r.schema), key).Scan(&result.TransferID, &result.TransferNo)
+	if err != nil {
+		if err == pgx.ErrNoRows {
+			return stockapp.MaterialTransferResult{}, false, nil
+		}
+		return stockapp.MaterialTransferResult{}, false, err
+	}
+	rows, err := tx.Query(ctx, fmt.Sprintf(`
+		SELECT material_batch_id, material_batch_code, qty_g
+		FROM %s.material_transfer_items
+		WHERE transfer_id=$1
+		ORDER BY id
+	`, r.schema), result.TransferID)
+	if err != nil {
+		return stockapp.MaterialTransferResult{}, false, err
+	}
+	defer rows.Close()
+	result.Allocations = make([]stockapp.MaterialTransferAllocation, 0)
+	for rows.Next() {
+		var alloc stockapp.MaterialTransferAllocation
+		if err := rows.Scan(&alloc.MaterialBatchID, &alloc.BatchCode, &alloc.QtyG); err != nil {
+			return stockapp.MaterialTransferResult{}, false, err
+		}
+		result.Allocations = append(result.Allocations, alloc)
+	}
+	if err := rows.Err(); err != nil {
+		return stockapp.MaterialTransferResult{}, false, err
+	}
+	return result, true, nil
+}
+
+func materialBatchLocationQtyTx(ctx context.Context, tx pgx.Tx, schema string, batchID int64, warehouse string) (int64, error) {
+	var qty int64
+	err := tx.QueryRow(ctx, fmt.Sprintf(`
+		SELECT qty_g
+		FROM %s.material_batch_locations
+		WHERE material_batch_id=$1 AND warehouse=$2
+		FOR UPDATE
+	`, schema), batchID, warehouse).Scan(&qty)
+	if err != nil {
+		if err == pgx.ErrNoRows {
+			return 0, nil
+		}
+		return 0, err
+	}
+	return qty, nil
 }
 
 type ledgerEntry struct {
