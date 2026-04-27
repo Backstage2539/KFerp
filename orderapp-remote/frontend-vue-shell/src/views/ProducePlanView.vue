@@ -160,6 +160,7 @@
 <script setup>
 import { computed, onMounted, reactive, ref } from 'vue'
 import { buildMaterialSummary, buildStartPayload, rebuildPlanRows, producePlanKey } from '../lib/produce-plan'
+import { replaceHistoryURL } from '../lib/url-state'
 
 const loading = ref(false)
 const saving = ref(false)
@@ -213,7 +214,7 @@ function updateUrl(plan) {
     url.searchParams.delete('plan')
     url.searchParams.delete('selected')
   }
-  window.history.replaceState({}, '', url.toString())
+  replaceHistoryURL(url)
 }
 
 async function load(plan) {

@@ -21,3 +21,14 @@ test('apiURL builds relative API requests from clean origin even when page URL h
 test('apiURL leaves absolute URLs unchanged', () => {
   assert.equal(apiURL('https://example.com/api'), 'https://example.com/api')
 })
+
+test('apiURL accepts same-origin URL objects from view query builders', () => {
+  const previousWindow = globalThis.window
+  globalThis.window = { location: { origin: 'https://erp.qacoohee.com' } }
+  try {
+    const url = new URL('/api/customers?page=1', 'https://erp.qacoohee.com')
+    assert.equal(apiURL(url), 'https://erp.qacoohee.com/api/customers?page=1')
+  } finally {
+    globalThis.window = previousWindow
+  }
+})

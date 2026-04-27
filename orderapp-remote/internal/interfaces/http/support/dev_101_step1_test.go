@@ -36,6 +36,15 @@ func TestShippingSenderSelectionRequirementSeeds(t *testing.T) {
 	}
 }
 
+func TestOrderShippingToolbarAlignmentRequirementSeeds(t *testing.T) {
+	src := string(readOrderAppFileForTest(t, filepath.Join("internal", "interfaces", "http", "support", "req_store.go")))
+	for _, needle := range []string{"PR-106", "DEV-106-01", "UT-106-01", "API-106-01", "REV-106-01", "快递处理工具栏", "控件底边对齐"} {
+		if !strings.Contains(src, needle) {
+			t.Fatalf("req_store.go missing %q", needle)
+		}
+	}
+}
+
 func TestOrderEntryVueShowsTierPricesWithoutShippingExcelLink(t *testing.T) {
 	b := readOrderAppFileForTest(t, filepath.Join("frontend-vue-shell", "src", "views", "OrderEntryView.vue"))
 	src := string(b)
@@ -69,6 +78,8 @@ func TestOrdersVueGeneratesShippingExcelForProductionCompletedSelection(t *testi
 		"selectedSenderID",
 		"orderSenderIDs",
 		"order_senders",
+		"align-items: flex-end",
+		"align-self: end",
 	} {
 		if !strings.Contains(src, needle) {
 			t.Fatalf("OrdersView.vue missing %q", needle)
