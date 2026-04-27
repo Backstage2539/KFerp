@@ -52,22 +52,23 @@ func (r Repository) LoadProductInputs(ctx context.Context, params domain.Paramet
 		       COALESCE(p.roast_level, ''),
 		       COALESCE(NULLIF(b.yield_rate,0), $1),
 		       COALESCE(NULLIF(SUM(COALESCE(m.purchase_price,0) * COALESCE(bi.ratio_pct,0) / 100.0),0), NULLIF(p.default_price,0), 0),
-		       COALESCE(string_agg(DISTINCT NULLIF(m.flavor, ''), ' / ') FILTER (WHERE NULLIF(m.flavor, '') IS NOT NULL), ''),
-		       COALESCE(string_agg(DISTINCT NULLIF(m.origin, ''), ' / ') FILTER (WHERE NULLIF(m.origin, '') IS NOT NULL), ''),
-		       COALESCE(string_agg(DISTINCT NULLIF(m.processing_station, ''), ' / ') FILTER (WHERE NULLIF(m.processing_station, '') IS NOT NULL), ''),
-		       COALESCE(string_agg(DISTINCT NULLIF(m.variety, ''), ' / ') FILTER (WHERE NULLIF(m.variety, '') IS NOT NULL), ''),
-		       COALESCE(string_agg(DISTINCT NULLIF(m.process_method, ''), ' / ') FILTER (WHERE NULLIF(m.process_method, '') IS NOT NULL), ''),
-		       COALESCE(string_agg(DISTINCT NULLIF(m.grade, ''), ' / ') FILTER (WHERE NULLIF(m.grade, '') IS NOT NULL), ''),
-		       COALESCE(string_agg(DISTINCT NULLIF(m.altitude, ''), ' / ') FILTER (WHERE NULLIF(m.altitude, '') IS NOT NULL), ''),
-		       COALESCE(string_agg(DISTINCT NULLIF(m.bean_list_note, ''), ' / ') FILTER (WHERE NULLIF(m.bean_list_note, '') IS NOT NULL), '')
+		       COALESCE(string_agg(DISTINCT NULLIF(bp.flavor, ''), ' / ') FILTER (WHERE NULLIF(bp.flavor, '') IS NOT NULL), ''),
+		       COALESCE(string_agg(DISTINCT NULLIF(bp.origin, ''), ' / ') FILTER (WHERE NULLIF(bp.origin, '') IS NOT NULL), ''),
+		       COALESCE(string_agg(DISTINCT NULLIF(bp.processing_station, ''), ' / ') FILTER (WHERE NULLIF(bp.processing_station, '') IS NOT NULL), ''),
+		       COALESCE(string_agg(DISTINCT NULLIF(bp.variety, ''), ' / ') FILTER (WHERE NULLIF(bp.variety, '') IS NOT NULL), ''),
+		       COALESCE(string_agg(DISTINCT NULLIF(bp.process_method, ''), ' / ') FILTER (WHERE NULLIF(bp.process_method, '') IS NOT NULL), ''),
+		       COALESCE(string_agg(DISTINCT NULLIF(bp.grade, ''), ' / ') FILTER (WHERE NULLIF(bp.grade, '') IS NOT NULL), ''),
+		       COALESCE(string_agg(DISTINCT NULLIF(bp.altitude, ''), ' / ') FILTER (WHERE NULLIF(bp.altitude, '') IS NOT NULL), ''),
+		       COALESCE(string_agg(DISTINCT NULLIF(bp.bean_list_note, ''), ' / ') FILTER (WHERE NULLIF(bp.bean_list_note, '') IS NOT NULL), '')
 		FROM %s.products p
 		LEFT JOIN %s.product_bom b ON b.product_id = p.id
 		LEFT JOIN %s.product_bom_items bi ON bi.product_id = p.id
 		LEFT JOIN %s.materials m ON m.id = bi.material_id
+		LEFT JOIN %s.material_bean_profiles bp ON bp.material_id = m.id
 		WHERE p.active = true
 		GROUP BY p.id, p.name, p.roast_level, p.default_price, b.yield_rate
 		ORDER BY p.name
-	`, r.schema, r.schema, r.schema, r.schema)
+	`, r.schema, r.schema, r.schema, r.schema, r.schema)
 	rows, err := r.pool.Query(ctx, q, params.RoastYieldRate)
 	if err != nil {
 		return nil, err

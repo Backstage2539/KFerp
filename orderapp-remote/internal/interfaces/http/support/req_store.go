@@ -299,6 +299,13 @@ func seedReqWorkflowA(ctx context.Context, pool *pgxpool.Pool, schema string) er
 		{table: "req_unit", code: "UT-075-01", title: "商用批发梯度、批次号默认今天、需求种子覆盖", status: "done", assignee: "Codex", evidence: "go test costing/materials/support focused tests"},
 		{table: "req_api", code: "API-075-01", title: "成本设置接口支持读取和更新参数，价格试算返回四档梯度", status: "done", assignee: "Codex", evidence: "TestCostingSettingsAPI + route test"},
 		{table: "req_review", code: "REV-075-01", prCode: "PR-075", title: "验收：商用四档批发价格、零售豆单、物料批次和风味/产地信息在 ERP 可见可用", status: "todo", assignee: "VA", evidence: "待 Van 服务器验收"},
+		{table: "req_product", code: "PR-076", title: "物料档案通用字段保持精简，咖啡豆物料特征迁移到 material_bean_profiles 子表", status: "review", assignee: "VA", evidence: "codex/material-bean-profile-table"},
+		{table: "req_dev", code: "DEV-076-01", title: "新增咖啡豆物料子表 material_bean_profiles，迁移并停止使用材料主表中的生豆特征列", status: "done", assignee: "Codex", evidence: "materials schema + repository"},
+		{table: "req_dev", code: "DEV-076-02", title: "物料 API 使用 bean_profile 子对象，只在 kind=bean 时读写生豆特征", status: "done", assignee: "Codex", evidence: "materials application DTO + Vue material view"},
+		{table: "req_dev", code: "DEV-076-03", title: "成本核算豆单字段改为从 material_bean_profiles 读取，进货价仍来自 materials.purchase_price", status: "done", assignee: "Codex", evidence: "costing postgres repository"},
+		{table: "req_unit", code: "UT-076-01", title: "材料主表 DDL 不含生豆特征列，子表存在，bean_profile 仅对生豆保留", status: "done", assignee: "Codex", evidence: "schema/material repository focused tests"},
+		{table: "req_api", code: "API-076-01", title: "物料接口返回 bean_profile 子对象，成本豆单接口继续返回风味/产地信息", status: "done", assignee: "Codex", evidence: "postdeploy smoke"},
+		{table: "req_review", code: "REV-076-01", prCode: "PR-076", title: "验收：包材物料不显示生豆字段，生豆物料可维护咖啡豆信息并进入豆单", status: "todo", assignee: "VA", evidence: "待 Van 服务器验收"},
 	} {
 		if err := seedReqRow(ctx, pool, schema, row); err != nil {
 			return err
