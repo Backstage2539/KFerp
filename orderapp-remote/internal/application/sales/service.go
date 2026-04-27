@@ -49,15 +49,16 @@ type SaveOrderResult struct {
 }
 
 type OrderShippingExportData struct {
-	OrderID      int64
-	OrderNo      string
-	OrderDate    string
-	CustomerName string
-	RecvName     string
-	RecvPhone    string
-	RecvAddr     string
-	RecvCompany  string
-	Items        []OrderShippingExportItem
+	OrderID       int64
+	OrderNo       string
+	OrderDate     string
+	CustomerName  string
+	RecvName      string
+	RecvPhone     string
+	RecvAddr      string
+	RecvCompany   string
+	ProcessStatus string
+	Items         []OrderShippingExportItem
 }
 
 type OrderShippingExportItem struct {

@@ -57,10 +57,29 @@
     </section>
 
     <section class="panel">
+      <div class="shipping-bar">
+        <div>
+          <h3>快递处理</h3>
+          <p>订单生产完成后，在这里勾选并生成快递录单 Excel。</p>
+        </div>
+        <div class="shipping-actions">
+          <button class="secondary" type="button" @click="applyShipReadyPreset" :disabled="loading">只看生产完成</button>
+          <button class="secondary" type="button" @click="selectVisibleCompleted" :disabled="!rows.length">勾选本页生产完成</button>
+          <button class="primary" type="button" @click="generateShippingExcel" :disabled="shippingLoading || !selectedOrderIDs.length">
+            {{ shippingLoading ? '生成中' : `生成快递录单 Excel(${selectedOrderIDs.length})` }}
+          </button>
+        </div>
+      </div>
+      <div v-if="shippingMessage" class="notice ok">
+        <span>{{ shippingMessage }}</span>
+        <a v-if="shippingExcelUrl" :href="shippingExcelUrl" target="_blank" rel="noopener">下载 Excel</a>
+      </div>
+      <div v-if="shippingError" class="notice error">{{ shippingError }}</div>
       <div class="table-wrap">
         <table>
           <thead>
             <tr>
+              <th class="select-col">发货</th>
               <th>订单号</th>
               <th>日期</th>
               <th>客户</th>
@@ -76,6 +95,15 @@
           </thead>
           <tbody>
             <tr v-for="row in rows" :key="row.id" :class="{ voided: row.is_void }">
+              <td class="select-col">
+                <input
+                  type="checkbox"
+                  :checked="selectedOrderIDs.includes(Number(row.id))"
+                  :disabled="!isProductionComplete(row)"
+                  :title="isProductionComplete(row) ? '选择发货' : '生产完成后可发货'"
+                  @change="toggleOrder(row, $event.target.checked)"
+                />
+              </td>
               <td><a :href="`/order?edit_id=${row.id}`">{{ row.order_no }}</a></td>
               <td>{{ row.order_date }}</td>
               <td>{{ row.customer }}</td>
@@ -89,7 +117,7 @@
               <td><a class="text-link" :href="`/orders/${row.id}/audit`">审计</a></td>
             </tr>
             <tr v-if="!rows.length">
-              <td colspan="11" class="muted">暂无订单</td>
+              <td colspan="12" class="muted">暂无订单</td>
             </tr>
           </tbody>
         </table>
@@ -104,7 +132,7 @@
 </template>
 
 <script setup>
-import { onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
 
 const loading = ref(false)
 const error = ref('')
@@ -116,6 +144,11 @@ const summary = ref({})
 const page = ref(1)
 const hasPrev = ref(false)
 const hasNext = ref(false)
+const selectedOrderIDs = ref([])
+const shippingLoading = ref(false)
+const shippingExcelUrl = ref('')
+const shippingMessage = ref('')
+const shippingError = ref('')
 
 const filters = reactive({
   q: '',
@@ -126,6 +159,11 @@ const filters = reactive({
   process_status_id: 0,
   void: 'normal',
   limit: 10,
+})
+
+const completedStatusID = computed(() => {
+  const hit = processStatuses.value.find((item) => String(item.name || '').includes('生产完成'))
+  return Number(hit?.id || 0)
 })
 
 function applyUrlFilters() {
@@ -173,6 +211,55 @@ async function loadPage(nextPage) {
   await load()
 }
 
+function isProductionComplete(row) {
+  return String(row?.process_status || '').includes('生产完成')
+}
+
+function toggleOrder(row, checked) {
+  const id = Number(row?.id || 0)
+  if (!id || !isProductionComplete(row)) return
+  if (checked) {
+    if (!selectedOrderIDs.value.includes(id)) selectedOrderIDs.value = [...selectedOrderIDs.value, id]
+  } else {
+    selectedOrderIDs.value = selectedOrderIDs.value.filter((item) => item !== id)
+  }
+  shippingError.value = ''
+}
+
+function selectVisibleCompleted() {
+  const ids = rows.value.filter(isProductionComplete).map((row) => Number(row.id)).filter(Boolean)
+  selectedOrderIDs.value = Array.from(new Set([...selectedOrderIDs.value, ...ids]))
+  shippingError.value = ids.length ? '' : '本页没有生产完成的订单'
+}
+
+async function applyShipReadyPreset() {
+  if (completedStatusID.value) filters.process_status_id = completedStatusID.value
+  filters.void = 'normal'
+  await loadPage(1)
+}
+
+async function generateShippingExcel() {
+  shippingLoading.value = true
+  shippingError.value = ''
+  shippingMessage.value = ''
+  shippingExcelUrl.value = ''
+  try {
+    const res = await fetch('/api/orders/shipping-excel', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ order_ids: selectedOrderIDs.value }),
+    })
+    const data = await res.json()
+    if (!res.ok) throw new Error(data.error || '生成失败')
+    shippingExcelUrl.value = data.shipping_excel_url || ''
+    shippingMessage.value = `已生成 ${Number(data.count || selectedOrderIDs.value.length)} 个订单的快递录单`
+  } catch (err) {
+    shippingError.value = err.message || '生成失败'
+  } finally {
+    shippingLoading.value = false
+  }
+}
+
 async function load() {
   loading.value = true
   error.value = ''
@@ -181,6 +268,7 @@ async function load() {
     const data = await res.json()
     if (!res.ok) throw new Error(data.error || '加载失败')
     rows.value = data.rows || []
+    selectedOrderIDs.value = selectedOrderIDs.value.filter((id) => rows.value.some((row) => Number(row.id) === id && isProductionComplete(row)))
     payStatuses.value = data.pay_statuses || []
     shipStatuses.value = data.ship_statuses || []
     processStatuses.value = data.process_statuses || []
@@ -216,10 +304,18 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .primary { background: #1f1f1f; color: #fff; }
 .secondary { background: #fff; color: #1f1f1f; }
 .summary { display: flex; gap: 14px; margin-top: 10px; color: #555; }
+.shipping-bar { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
+.shipping-bar h3 { margin: 0 0 4px; font-size: 17px; }
+.shipping-bar p { margin: 0; color: #666; font-size: 13px; }
+.shipping-actions { display: flex; flex-wrap: wrap; gap: 8px; justify-content: flex-end; }
+.notice { display: flex; align-items: center; justify-content: space-between; gap: 10px; border-radius: 6px; padding: 9px; margin-bottom: 12px; }
+.ok { background: #eef8f1; border: 1px solid #b9dfc4; color: #1f6b38; }
 .table-wrap { overflow: auto; }
 table { width: 100%; min-width: 1180px; border-collapse: collapse; }
 th, td { border-bottom: 1px solid #eee8df; padding: 9px 8px; text-align: left; font-size: 14px; vertical-align: top; }
 th { background: #fbfaf8; position: sticky; top: 0; }
+.select-col { width: 54px; text-align: center; }
+.select-col input { width: 18px; height: 18px; padding: 0; }
 a, .text-link { color: #1f4f82; text-decoration: none; }
 .notes { max-width: 220px; white-space: pre-wrap; }
 .muted { color: #666; text-align: center; }
@@ -229,6 +325,8 @@ a, .text-link { color: #1f4f82; text-decoration: none; }
 @media (max-width: 900px) {
   .page { padding: 12px; }
   .filters { grid-template-columns: 1fr; }
+  .shipping-bar { align-items: stretch; flex-direction: column; }
+  .shipping-actions { justify-content: flex-start; }
   table { min-width: 980px; }
 }
 </style>
