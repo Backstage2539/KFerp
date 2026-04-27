@@ -306,6 +306,12 @@ func seedReqWorkflowA(ctx context.Context, pool *pgxpool.Pool, schema string) er
 		{table: "req_unit", code: "UT-076-01", title: "材料主表 DDL 不含生豆特征列，子表存在，bean_profile 仅对生豆保留", status: "done", assignee: "Codex", evidence: "schema/material repository focused tests"},
 		{table: "req_api", code: "API-076-01", title: "物料接口返回 bean_profile 子对象，成本豆单接口继续返回风味/产地信息", status: "done", assignee: "Codex", evidence: "postdeploy smoke"},
 		{table: "req_review", code: "REV-076-01", prCode: "PR-076", title: "验收：包材物料不显示生豆字段，生豆物料可维护咖啡豆信息并进入豆单", status: "todo", assignee: "VA", evidence: "待 Van 服务器验收"},
+		{table: "req_product", code: "PR-077", title: "物料列表咖啡豆信息改为弹框设置，并从 Excel 生豆信息卡导入现有资料", status: "review", assignee: "VA", evidence: "codex/material-bean-profile-modal-import"},
+		{table: "req_dev", code: "DEV-077-01", title: "物料列表只显示咖啡豆信息摘要和设置按钮，详细字段在咖啡豆信息弹框维护", status: "done", assignee: "Codex", evidence: "MaterialsView.vue profile-modal"},
+		{table: "req_dev", code: "DEV-077-02", title: "从 Excel 生豆信息卡抽取资料并通过物料 API 写入 bean_profile", status: "done", assignee: "Codex", evidence: "Excel 生豆信息导入脚本与 postdeploy smoke"},
+		{table: "req_unit", code: "UT-077-01", title: "MaterialsView 源码守卫覆盖咖啡豆信息弹框，不允许回到表格内联编辑", status: "done", assignee: "Codex", evidence: "TestMaterialsViewUsesModalForBeanProfile"},
+		{table: "req_api", code: "API-077-01", title: "导入后物料 API 返回 bean_profile，成本豆单继续读取风味/产地", status: "done", assignee: "Codex", evidence: "postdeploy materials + costing smoke"},
+		{table: "req_review", code: "REV-077-01", prCode: "PR-077", title: "验收：物料列表清爽，点击设置可维护生豆信息，Excel 生豆信息已导入", status: "todo", assignee: "VA", evidence: "待 Van 服务器验收"},
 	} {
 		if err := seedReqRow(ctx, pool, schema, row); err != nil {
 			return err

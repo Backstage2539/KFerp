@@ -61,15 +61,12 @@
               <td><input type="number" min="0" step="0.01" v-model.number="row.purchase_price" /></td>
               <td><input type="number" min="0" step="0.01" v-model.number="row.sale_price" /></td>
               <td class="profile-cell">
-                <div v-if="row.kind === 'bean'" class="bean-profile-grid">
-                  <label><span>产地</span><input v-model.trim="row.bean_profile.origin" /></label>
-                  <label><span>处理站</span><input v-model.trim="row.bean_profile.processing_station" /></label>
-                  <label><span>品种</span><input v-model.trim="row.bean_profile.variety" /></label>
-                  <label><span>处理法</span><input v-model.trim="row.bean_profile.process_method" /></label>
-                  <label><span>等级</span><input v-model.trim="row.bean_profile.grade" /></label>
-                  <label><span>海拔</span><input v-model.trim="row.bean_profile.altitude" /></label>
-                  <label class="wide"><span>风味</span><input v-model.trim="row.bean_profile.flavor" /></label>
-                  <label class="wide"><span>豆单备注</span><input v-model.trim="row.bean_profile.bean_list_note" /></label>
+                <div v-if="row.kind === 'bean'" class="profile-summary">
+                  <div>
+                    <strong>{{ profileTitle(row) }}</strong>
+                    <span>{{ profileSubtitle(row) }}</span>
+                  </div>
+                  <button class="secondary compact" type="button" @click="openBeanProfileDialog(row)">设置</button>
                 </div>
                 <span v-else class="muted">非咖啡豆物料</span>
               </td>
@@ -90,6 +87,32 @@
       </div>
       <div class="muted footer">保存单行会记录到操作日志，可在“操作日志”中按物料查看变更字段。</div>
     </section>
+
+    <div v-if="profileModal.open" class="profile-modal" @click.self="closeBeanProfileDialog">
+      <section class="modal-panel">
+        <div class="modal-head">
+          <div>
+            <h3>咖啡豆信息</h3>
+            <p>{{ profileModal.row?.name || '' }}</p>
+          </div>
+          <button class="icon-button" type="button" @click="closeBeanProfileDialog" aria-label="关闭">×</button>
+        </div>
+        <div class="modal-grid">
+          <label><span>产地</span><input v-model.trim="profileModal.draft.origin" /></label>
+          <label><span>处理站</span><input v-model.trim="profileModal.draft.processing_station" /></label>
+          <label><span>品种</span><input v-model.trim="profileModal.draft.variety" /></label>
+          <label><span>处理法</span><input v-model.trim="profileModal.draft.process_method" /></label>
+          <label><span>等级</span><input v-model.trim="profileModal.draft.grade" /></label>
+          <label><span>海拔</span><input v-model.trim="profileModal.draft.altitude" /></label>
+          <label class="wide"><span>风味</span><textarea v-model.trim="profileModal.draft.flavor" rows="3"></textarea></label>
+          <label class="wide"><span>豆单备注</span><input v-model.trim="profileModal.draft.bean_list_note" /></label>
+        </div>
+        <div class="modal-actions">
+          <button class="secondary" type="button" @click="closeBeanProfileDialog">取消</button>
+          <button class="primary" type="button" :disabled="savingId === profileModal.row?.id" @click="saveBeanProfileDialog">保存咖啡豆信息</button>
+        </div>
+      </section>
+    </div>
   </div>
 </template>
 
@@ -102,6 +125,38 @@ const loading = ref(false)
 const savingId = ref(null)
 const error = ref('')
 const ok = ref(false)
+const profileModal = ref({
+  open: false,
+  row: null,
+  draft: emptyBeanProfile(),
+})
+
+function emptyBeanProfile() {
+  return {
+    origin: '',
+    processing_station: '',
+    variety: '',
+    process_method: '',
+    grade: '',
+    altitude: '',
+    flavor: '',
+    bean_list_note: '',
+  }
+}
+
+function cloneBeanProfile(profile = {}) {
+  return {
+    ...emptyBeanProfile(),
+    origin: profile.origin || '',
+    processing_station: profile.processing_station || '',
+    variety: profile.variety || '',
+    process_method: profile.process_method || '',
+    grade: profile.grade || '',
+    altitude: profile.altitude || '',
+    flavor: profile.flavor || '',
+    bean_list_note: profile.bean_list_note || '',
+  }
+}
 
 function normalizeRow(row) {
   const profile = row.BeanProfile ?? row.bean_profile ?? {}
@@ -114,7 +169,7 @@ function normalizeRow(row) {
     batch_no: row.BatchNo ?? row.batch_no ?? '',
     purchase_price: Number(row.PurchasePrice ?? row.purchase_price ?? 0),
     sale_price: Number(row.SalePrice ?? row.sale_price ?? 0),
-    bean_profile: {
+    bean_profile: cloneBeanProfile({
       origin: profile.Origin ?? profile.origin ?? row.Origin ?? row.origin ?? '',
       processing_station: profile.ProcessingStation ?? profile.processing_station ?? row.ProcessingStation ?? row.processing_station ?? '',
       variety: profile.Variety ?? profile.variety ?? row.Variety ?? row.variety ?? '',
@@ -123,13 +178,47 @@ function normalizeRow(row) {
       altitude: profile.Altitude ?? profile.altitude ?? row.Altitude ?? row.altitude ?? '',
       flavor: profile.Flavor ?? profile.flavor ?? row.Flavor ?? row.flavor ?? '',
       bean_list_note: profile.BeanListNote ?? profile.bean_list_note ?? row.BeanListNote ?? row.bean_list_note ?? '',
-    },
+    }),
     onhand_g: Number(row.OnhandG ?? row.onhand_g ?? 0),
     onhand_units: Number(row.OnhandUnits ?? row.onhand_units ?? 0),
     min_level_g: Number(row.MinLevelG ?? row.min_level_g ?? 0),
     min_level_units: Number(row.MinLevelUnits ?? row.min_level_units ?? 0),
     updated_at: row.UpdatedAt ?? row.updated_at ?? '',
   }
+}
+
+function profileTitle(row) {
+  const p = row.bean_profile || {}
+  return [p.origin, p.processing_station].filter(Boolean).join(' / ') || '未设置'
+}
+
+function profileSubtitle(row) {
+  const p = row.bean_profile || {}
+  return [p.process_method, p.variety, p.flavor].filter(Boolean).join(' · ') || '点击设置产地、处理法、风味'
+}
+
+function openBeanProfileDialog(row) {
+  profileModal.value = {
+    open: true,
+    row,
+    draft: cloneBeanProfile(row.bean_profile),
+  }
+}
+
+function closeBeanProfileDialog() {
+  profileModal.value = {
+    open: false,
+    row: null,
+    draft: emptyBeanProfile(),
+  }
+}
+
+async function saveBeanProfileDialog() {
+  const row = profileModal.value.row
+  if (!row) return
+  row.bean_profile = cloneBeanProfile(profileModal.value.draft)
+  await saveMaterial(row)
+  if (!error.value) closeBeanProfileDialog()
 }
 
 async function load() {
@@ -202,23 +291,39 @@ onMounted(() => {
 .table-wrap { overflow: auto; margin-top: 10px; }
 table { width: 100%; border-collapse: collapse; min-width: 1500px; }
 th, td { border-bottom: 1px solid #f1f1f1; padding: 8px; text-align: left; vertical-align: middle; }
-input, select, button { font: inherit; }
-input, select { width: 100%; border: 1px solid #ddd; border-radius: 6px; padding: 8px; min-height: 36px; }
-.profile-cell { min-width: 480px; }
-.bean-profile-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
-.bean-profile-grid label { display: flex; flex-direction: column; gap: 4px; }
-.bean-profile-grid span { color: #666; font-size: 12px; }
-.bean-profile-grid .wide { grid-column: span 2; }
+input, select, textarea, button { font: inherit; }
+input, select, textarea { width: 100%; border: 1px solid #ddd; border-radius: 6px; padding: 8px; min-height: 36px; }
+textarea { resize: vertical; line-height: 1.45; }
+.profile-cell { min-width: 320px; }
+.profile-summary { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.profile-summary div { display: grid; gap: 3px; min-width: 0; }
+.profile-summary strong, .profile-summary span { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.profile-summary strong { font-size: 13px; }
+.profile-summary span { color: #666; font-size: 12px; max-width: 220px; }
 button { border-radius: 8px; padding: 9px 12px; cursor: pointer; white-space: nowrap; }
+.compact { padding: 7px 10px; }
 .primary { border: 1px solid #111; background: #111; color: #fff; }
 .secondary { border: 1px solid #999; background: #fff; color: #111; }
+.icon-button { border: 1px solid #ddd; background: #fff; color: #111; width: 36px; height: 36px; padding: 0; font-size: 22px; line-height: 1; }
 .error, .ok { border-radius: 8px; padding: 10px; margin-bottom: 12px; }
 .error { background: #ffecec; border: 1px solid #ffb9b9; }
 .ok { background: #e9ffe9; border: 1px solid #b8f5b8; }
 .footer { margin-top: 10px; }
+.profile-modal { position: fixed; inset: 0; z-index: 60; background: rgba(0,0,0,.28); display: flex; align-items: center; justify-content: center; padding: 18px; }
+.modal-panel { width: min(760px, 100%); max-height: calc(100vh - 36px); overflow: auto; background: #fff; border: 1px solid #e5e5e5; border-radius: 8px; box-shadow: 0 18px 50px rgba(0,0,0,.18); padding: 16px; }
+.modal-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; margin-bottom: 14px; }
+.modal-head h3 { margin: 0; font-size: 18px; }
+.modal-head p { margin: 4px 0 0; color: #666; font-size: 13px; }
+.modal-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.modal-grid label { display: flex; flex-direction: column; gap: 6px; }
+.modal-grid span { color: #555; font-size: 12px; font-weight: 600; }
+.modal-grid .wide { grid-column: span 2; }
+.modal-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 16px; }
 
 @media (max-width: 900px) {
   .page { padding: 12px; }
   .filters { grid-template-columns: 1fr; }
+  .modal-grid { grid-template-columns: 1fr; }
+  .modal-grid .wide { grid-column: span 1; }
 }
 </style>
