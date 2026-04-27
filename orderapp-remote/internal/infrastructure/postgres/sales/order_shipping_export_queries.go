@@ -20,11 +20,13 @@ func (r Repository) LoadOrderShippingExportData(ctx context.Context, orderID int
 			COALESCE(NULLIF(c.contact,''), c.name, ''),
 			COALESCE(c.phone,''),
 			COALESCE(c.address,''),
-			''
+			'',
+			COALESCE(ops.name,'')
 		FROM %s.orders o
 		LEFT JOIN %s.customers c ON c.id=o.customer_id
+		LEFT JOIN %s.order_process_statuses ops ON ops.id=o.process_status_id
 		WHERE o.id=$1
-	`, r.schema, r.schema)
+	`, r.schema, r.schema, r.schema)
 	if err := r.pool.QueryRow(ctx, q, orderID).Scan(
 		&out.OrderID,
 		&out.OrderNo,
@@ -34,6 +36,7 @@ func (r Repository) LoadOrderShippingExportData(ctx context.Context, orderID int
 		&out.RecvPhone,
 		&out.RecvAddr,
 		&out.RecvCompany,
+		&out.ProcessStatus,
 	); err != nil {
 		return salesapp.OrderShippingExportData{}, err
 	}

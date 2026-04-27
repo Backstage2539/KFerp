@@ -73,6 +73,43 @@ func TestBuildOrderShippingWorkbookFillsTemplateDefaultsAndRemark(t *testing.T) 
 	}
 }
 
+func TestBuildOrdersShippingWorkbookFillsSelectedOrdersOnSeparateRows(t *testing.T) {
+	dir := t.TempDir()
+	templatePath := filepath.Join(dir, "ship_temp.xlsx")
+	tmpl := excelize.NewFile()
+	if err := tmpl.SaveAs(templatePath); err != nil {
+		t.Fatal(err)
+	}
+	if err := tmpl.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	wb, err := buildOrdersShippingWorkbook(templatePath, salesapp.SenderProfile{
+		Name:  "寄件人",
+		Phone: "13900000000",
+		Addr:  "上海市测试路",
+		Goods: "茶叶",
+	}, []salesapp.OrderShippingExportData{
+		{OrderNo: "SO-1", RecvName: "客户一", RecvPhone: "13800000001", RecvAddr: "地址一"},
+		{OrderNo: "SO-2", RecvName: "客户二", RecvPhone: "13800000002", RecvAddr: "地址二"},
+	})
+	if err != nil {
+		t.Fatalf("buildOrdersShippingWorkbook() error = %v", err)
+	}
+	defer wb.Close()
+	sheet := wb.GetSheetName(0)
+	got := func(cell string) string {
+		v, err := wb.GetCellValue(sheet, cell)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return v
+	}
+	if got("A2") != "客户一" || got("A3") != "客户二" || got("N3") != "SO-2" {
+		t.Fatalf("batch rows A2=%q A3=%q N3=%q", got("A2"), got("A3"), got("N3"))
+	}
+}
+
 func TestOrderShippingFilenameIncludesDateCustomerAndOrderNo(t *testing.T) {
 	got := orderShippingFilename(salesapp.OrderShippingExportData{
 		OrderID:      7,

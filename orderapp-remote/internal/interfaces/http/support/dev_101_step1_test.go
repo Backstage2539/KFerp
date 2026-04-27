@@ -18,7 +18,7 @@ func TestOrderShippingExcelRequirementSeeds(t *testing.T) {
 		"UT-101-01",
 		"API-101-01",
 		"REV-101-01",
-		"保存订单后按服务器快递模板生成订单专属 Excel",
+		"订单列表选择生产完成订单后按服务器快递模板生成快递录单 Excel",
 		"包裹件数 1、托寄物默认茶叶、重量 0.1",
 	} {
 		if !strings.Contains(src, needle) {
@@ -27,7 +27,7 @@ func TestOrderShippingExcelRequirementSeeds(t *testing.T) {
 	}
 }
 
-func TestOrderEntryVueShowsTierPricesAndShippingExcelLink(t *testing.T) {
+func TestOrderEntryVueShowsTierPricesWithoutShippingExcelLink(t *testing.T) {
 	b := readOrderAppFileForTest(t, filepath.Join("frontend-vue-shell", "src", "views", "OrderEntryView.vue"))
 	src := string(b)
 	for _, needle := range []string{
@@ -35,11 +35,30 @@ func TestOrderEntryVueShowsTierPricesAndShippingExcelLink(t *testing.T) {
 		"tier-price-chip",
 		"defaultWholesaleSpec",
 		"wholesaleTierPriceRows",
-		"shippingExcelUrl",
-		"下载快递录单 Excel",
 	} {
 		if !strings.Contains(src, needle) {
 			t.Fatalf("OrderEntryView.vue missing %q", needle)
+		}
+	}
+	for _, needle := range []string{"shippingExcelUrl", "下载快递录单 Excel"} {
+		if strings.Contains(src, needle) {
+			t.Fatalf("OrderEntryView.vue should not contain %q", needle)
+		}
+	}
+}
+
+func TestOrdersVueGeneratesShippingExcelForProductionCompletedSelection(t *testing.T) {
+	b := readOrderAppFileForTest(t, filepath.Join("frontend-vue-shell", "src", "views", "OrdersView.vue"))
+	src := string(b)
+	for _, needle := range []string{
+		"selectedOrderIDs",
+		"/api/orders/shipping-excel",
+		"生产完成",
+		"生成快递录单 Excel",
+		"shippingExcelUrl",
+	} {
+		if !strings.Contains(src, needle) {
+			t.Fatalf("OrdersView.vue missing %q", needle)
 		}
 	}
 }
