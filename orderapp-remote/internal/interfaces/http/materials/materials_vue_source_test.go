@@ -61,6 +61,7 @@ func TestMaterialsViewDisallowsInlineStockAndUsesBackfill(t *testing.T) {
 	for _, forbidden := range []string{
 		`v-model.number="draft.onhand_g"`,
 		`v-model.number="draft.onhand_units"`,
+		"保存库存/属性",
 	} {
 		if strings.Contains(src, forbidden) {
 			t.Fatalf("MaterialsView.vue still allows inline stock editing through %q", forbidden)

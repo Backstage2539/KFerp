@@ -56,7 +56,7 @@
         <div class="detail-head">
           <div>
             <div class="panel-title">物料详情</div>
-            <p v-if="selected">{{ draftMode ? '复制新物料' : '查看与维护库存/属性' }}</p>
+            <p v-if="selected">{{ draftMode ? '复制新物料' : '查看库存，维护警戒线/属性' }}</p>
             <p v-if="selected">保存、复制和废弃会记录到操作日志。</p>
           </div>
           <div class="actions" v-if="selected">
@@ -374,7 +374,7 @@ async function saveMaterial() {
     const data = await res.json()
     if (!res.ok) throw new Error(data.error || '保存失败')
     const row = normalizeRow(data)
-    ok.value = draftMode.value ? '已保存新物料' : '已保存库存/属性'
+    ok.value = draftMode.value ? '已保存新物料' : '已保存警戒线/属性'
     draftMode.value = false
     await load()
     const next = rows.value.find((item) => item.id === row.id) || row
