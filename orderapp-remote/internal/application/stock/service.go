@@ -3,6 +3,7 @@ package stock
 import (
 	"context"
 	"fmt"
+	stockdomain "orderapp/internal/domain/stock"
 	"strings"
 )
 
@@ -103,6 +104,65 @@ type MaterialBatchResult struct {
 	HasNext bool               `json:"has_next"`
 }
 
+type WarehouseRow struct {
+	Code        string `json:"code"`
+	Name        string `json:"name"`
+	Kind        string `json:"kind"`
+	ParentCode  string `json:"parent_code"`
+	SortOrder   int    `json:"sort_order"`
+	IsDefault   bool   `json:"is_default"`
+	Active      bool   `json:"active"`
+	Description string `json:"description"`
+}
+
+type MaterialBatchLocationQuery struct {
+	Q          string
+	MaterialID int64
+	Warehouse  string
+	ActiveOnly bool
+	Limit      int
+	Offset     int
+}
+
+type MaterialBatchLocationRow struct {
+	MaterialBatchID int64  `json:"material_batch_id"`
+	BatchCode       string `json:"batch_code"`
+	MaterialID      int64  `json:"material_id"`
+	MaterialName    string `json:"material_name"`
+	Warehouse       string `json:"warehouse"`
+	WarehouseName   string `json:"warehouse_name"`
+	QtyG            int64  `json:"qty_g"`
+	ReceivedAt      string `json:"received_at"`
+	UpdatedAt       string `json:"updated_at"`
+}
+
+type MaterialBatchLocationResult struct {
+	Rows    []MaterialBatchLocationRow `json:"rows"`
+	HasNext bool                       `json:"has_next"`
+}
+
+type MaterialTransferCommand struct {
+	MaterialID     int64
+	FromWarehouse  string
+	ToWarehouse    string
+	QtyG           int64
+	Note           string
+	Operator       string
+	IdempotencyKey string
+}
+
+type MaterialTransferAllocation struct {
+	MaterialBatchID int64  `json:"material_batch_id"`
+	BatchCode       string `json:"batch_code"`
+	QtyG            int64  `json:"qty_g"`
+}
+
+type MaterialTransferResult struct {
+	TransferID  int64                        `json:"transfer_id"`
+	TransferNo  string                       `json:"transfer_no"`
+	Allocations []MaterialTransferAllocation `json:"allocations"`
+}
+
 type MaterialReceiptCommand struct {
 	MaterialID int64
 	Supplier   string
@@ -137,8 +197,11 @@ type Repository interface {
 	ListLedger(ctx context.Context, query LedgerQuery) (LedgerResult, error)
 	ListBatches(ctx context.Context, query BatchQuery) (BatchResult, error)
 	ListMaterialBatches(ctx context.Context, query MaterialBatchQuery) (MaterialBatchResult, error)
+	ListWarehouses(ctx context.Context) ([]WarehouseRow, error)
+	ListMaterialBatchLocations(ctx context.Context, query MaterialBatchLocationQuery) (MaterialBatchLocationResult, error)
 	ReceiveMaterial(ctx context.Context, cmd MaterialReceiptCommand) (MaterialReceiptResult, error)
 	CreateAdjustment(ctx context.Context, cmd StockAdjustmentCommand) (StockAdjustmentResult, error)
+	TransferMaterial(ctx context.Context, cmd MaterialTransferCommand) (MaterialTransferResult, error)
 }
 
 type Service struct {
@@ -174,6 +237,17 @@ func (s *Service) ListMaterialBatches(ctx context.Context, query MaterialBatchQu
 	return s.repo.ListMaterialBatches(ctx, query)
 }
 
+func (s *Service) ListWarehouses(ctx context.Context) ([]WarehouseRow, error) {
+	return s.repo.ListWarehouses(ctx)
+}
+
+func (s *Service) ListMaterialBatchLocations(ctx context.Context, query MaterialBatchLocationQuery) (MaterialBatchLocationResult, error) {
+	query.Q = strings.TrimSpace(query.Q)
+	query.Warehouse = normalizeWarehouse(query.Warehouse)
+	query.Limit, query.Offset = normalizePage(query.Limit, query.Offset, 100, 500)
+	return s.repo.ListMaterialBatchLocations(ctx, query)
+}
+
 func (s *Service) ReceiveMaterial(ctx context.Context, cmd MaterialReceiptCommand) (MaterialReceiptResult, error) {
 	if cmd.MaterialID <= 0 {
 		return MaterialReceiptResult{}, fmt.Errorf("material required")
@@ -193,9 +267,36 @@ func (s *Service) ReceiveMaterial(ctx context.Context, cmd MaterialReceiptComman
 	return s.repo.ReceiveMaterial(ctx, cmd)
 }
 
+func (s *Service) TransferMaterial(ctx context.Context, cmd MaterialTransferCommand) (MaterialTransferResult, error) {
+	if cmd.MaterialID <= 0 {
+		return MaterialTransferResult{}, fmt.Errorf("material required")
+	}
+	if cmd.QtyG <= 0 {
+		return MaterialTransferResult{}, fmt.Errorf("qty_g required")
+	}
+	cmd.FromWarehouse = normalizeWarehouse(cmd.FromWarehouse)
+	cmd.ToWarehouse = normalizeWarehouse(cmd.ToWarehouse)
+	if cmd.FromWarehouse == "" {
+		cmd.FromWarehouse = stockdomain.WarehouseRawMaterials
+	}
+	if cmd.ToWarehouse == "" {
+		cmd.ToWarehouse = stockdomain.WarehouseWIP
+	}
+	if cmd.FromWarehouse == cmd.ToWarehouse {
+		return MaterialTransferResult{}, fmt.Errorf("from/to warehouse must differ")
+	}
+	cmd.Note = strings.TrimSpace(cmd.Note)
+	cmd.Operator = strings.TrimSpace(cmd.Operator)
+	cmd.IdempotencyKey = strings.TrimSpace(cmd.IdempotencyKey)
+	if cmd.Operator == "" {
+		cmd.Operator = "stock"
+	}
+	return s.repo.TransferMaterial(ctx, cmd)
+}
+
 func (s *Service) CreateAdjustment(ctx context.Context, cmd StockAdjustmentCommand) (StockAdjustmentResult, error) {
 	cmd.ItemType = strings.TrimSpace(cmd.ItemType)
-	cmd.Warehouse = strings.TrimSpace(cmd.Warehouse)
+	cmd.Warehouse = normalizeWarehouse(cmd.Warehouse)
 	cmd.Reason = strings.TrimSpace(cmd.Reason)
 	cmd.Operator = strings.TrimSpace(cmd.Operator)
 	if cmd.Operator == "" {
@@ -207,6 +308,9 @@ func (s *Service) CreateAdjustment(ctx context.Context, cmd StockAdjustmentComma
 	if cmd.ItemID <= 0 {
 		return StockAdjustmentResult{}, fmt.Errorf("item required")
 	}
+	if cmd.ItemType == "material" && cmd.Warehouse == "" {
+		cmd.Warehouse = stockdomain.WarehouseRawMaterials
+	}
 	if cmd.ItemType == "finished_product" && cmd.SpecG <= 0 {
 		return StockAdjustmentResult{}, fmt.Errorf("spec_g required")
 	}
@@ -217,6 +321,18 @@ func (s *Service) CreateAdjustment(ctx context.Context, cmd StockAdjustmentComma
 		return StockAdjustmentResult{}, fmt.Errorf("reason required")
 	}
 	return s.repo.CreateAdjustment(ctx, cmd)
+}
+
+func normalizeWarehouse(v string) string {
+	v = strings.TrimSpace(v)
+	switch v {
+	case "materials", "raw", "material":
+		return stockdomain.WarehouseRawMaterials
+	case "wip_materials", "production_wip":
+		return stockdomain.WarehouseWIP
+	default:
+		return v
+	}
 }
 
 func normalizePage(limit, offset, def, max int) (int, int) {

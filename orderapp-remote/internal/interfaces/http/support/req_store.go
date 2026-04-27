@@ -341,6 +341,13 @@ func seedReqWorkflowA(ctx context.Context, pool *pgxpool.Pool, schema string) er
 		{table: "req_unit", code: "UT-080-01", title: "覆盖物料页只读库存源码守卫、库存字段不可变校验和需求种子", status: "done", assignee: "Codex", evidence: "TestMaterialsViewDisallowsInlineStockAndUsesBackfill; TestAssertImmutableMaterialFieldsRejectsInlineStockChange; TestMaterialStockBackfillRequirementSeeds"},
 		{table: "req_api", code: "API-080-01", title: "覆盖 POST /api/materials/:id 拒绝库存直接变更，库存补录走 POST /api/stock/adjustments 并保留 reason", status: "done", assignee: "Codex", evidence: "TestMaterialsAPIUpdateRejectsInlineStockChange + stock adjustment smoke"},
 		{table: "req_review", code: "REV-080-01", prCode: "PR-080", title: "验收：物料库存不可直接改，点击库存补录填写说明后生成库存调整流水", status: "todo", assignee: "VA", evidence: "待 Van 功能分支服务器验收"},
+		{table: "req_product", code: "PR-081", title: "WIP共享池支持多天多商品共用领料，领料不消耗，生产完工从 WIP 扣料", status: "review", assignee: "VA", evidence: "codex/wip-shared-pool-20260427"},
+		{table: "req_dev", code: "DEV-081-01", title: "新增仓库预设、material_batch_locations、material_transfers 和转仓流水", status: "done", assignee: "Codex", evidence: "stock schema + TransferMaterial"},
+		{table: "req_dev", code: "DEV-081-02", title: "原料入库初始化原料仓批次位置，领料/退料只移动批次位置不减少物料总库存", status: "done", assignee: "Codex", evidence: "ReceiveMaterial + material_batch_locations"},
+		{table: "req_dev", code: "DEV-081-03", title: "生产完工按 WIP 批次 FIFO 扣料，原料仓未领用库存不能直接被生产消耗", status: "done", assignee: "Codex", evidence: "materialBatchAllocationsTx warehouse=wip"},
+		{table: "req_unit", code: "UT-081-01", title: "覆盖 WIP 转仓校验、批次位置移动、生产只能扣 WIP 和 Vue 入口源码守卫", status: "done", assignee: "Codex", evidence: "stock/production focused tests"},
+		{table: "req_api", code: "API-081-01", title: "覆盖 GET /api/stock/warehouses、GET /api/stock/material-batch-locations、POST /api/stock/material-transfers", status: "done", assignee: "Codex", evidence: "TestStockAPIRoutes"},
+		{table: "req_review", code: "REV-081-01", prCode: "PR-081", title: "验收：60kg 生豆可先领到 WIP，3天内被多个商品分批消耗，剩余料可留存或退回", status: "todo", assignee: "VA", evidence: "待 Van 验收"},
 	} {
 		if err := seedReqRow(ctx, pool, schema, row); err != nil {
 			return err

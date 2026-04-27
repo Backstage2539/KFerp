@@ -5,20 +5,29 @@ import "fmt"
 type MovementKind string
 
 const (
-	MovementMaterialReceipt MovementKind = "material_receipt"
-	MovementMaterialIssue   MovementKind = "material_issue"
-	MovementFinishedReceipt MovementKind = "finished_receipt"
-	MovementAdjustment      MovementKind = "stock_adjustment"
+	MovementMaterialReceipt  MovementKind = "material_receipt"
+	MovementMaterialIssue    MovementKind = "material_issue"
+	MovementFinishedReceipt  MovementKind = "finished_receipt"
+	MovementMaterialTransfer MovementKind = "material_transfer"
+	MovementAdjustment       MovementKind = "stock_adjustment"
 )
 
 func (k MovementKind) Valid() bool {
 	switch k {
-	case MovementMaterialReceipt, MovementMaterialIssue, MovementFinishedReceipt, MovementAdjustment:
+	case MovementMaterialReceipt, MovementMaterialIssue, MovementFinishedReceipt, MovementMaterialTransfer, MovementAdjustment:
 		return true
 	default:
 		return false
 	}
 }
+
+const (
+	WarehouseRawMaterials  = "raw_materials"
+	WarehousePackaging     = "packaging"
+	WarehouseWIP           = "wip"
+	WarehouseFinishedGoods = "finished_goods"
+	WarehouseLoss          = "loss"
+)
 
 type BatchAvailability struct {
 	BatchID    int64

@@ -222,7 +222,7 @@ func deductMaterialsForRunningItemTx(ctx context.Context, tx pgx.Tx, schema stri
 				AfterUnits:  afterUnits,
 			}
 			if err := insertStockLedgerEntryTx(ctx, tx, schema,
-				stockItemTypeMaterial, need.MaterialID, need.MaterialName, 0, "materials",
+				stockItemTypeMaterial, need.MaterialID, need.MaterialName, 0, stockdomain.WarehouseWIP,
 				stockSourceProductionRun, r.ID, alloc.BatchCode, r.BatchID,
 				qty, operator,
 			); err != nil {
@@ -238,14 +238,19 @@ func materialBatchAllocationsTx(ctx context.Context, tx pgx.Tx, schema string, m
 		return nil, nil
 	}
 	rows, err := tx.Query(ctx, fmt.Sprintf(`
-		SELECT id,batch_code,remaining_g
-		FROM %s.material_batches
-		WHERE material_id=$1 AND status='active' AND remaining_g > 0
-		ORDER BY received_at, id
-		FOR UPDATE
-	`, schema), materialID)
+		SELECT b.id,b.batch_code,l.qty_g
+		FROM %s.material_batch_locations l
+		JOIN %s.material_batches b ON b.id=l.material_batch_id
+		WHERE l.material_id=$1
+		  AND l.warehouse=$2
+		  AND l.qty_g > 0
+		  AND b.status='active'
+		  AND b.remaining_g > 0
+		ORDER BY b.received_at, b.id
+		FOR UPDATE OF l,b
+	`, schema, schema), materialID, stockdomain.WarehouseWIP)
 	if err != nil {
-		if strings.Contains(err.Error(), "material_batches") {
+		if strings.Contains(err.Error(), "material_batches") || strings.Contains(err.Error(), "material_batch_locations") {
 			return nil, nil
 		}
 		return nil, err
@@ -263,13 +268,21 @@ func materialBatchAllocationsTx(ctx context.Context, tx pgx.Tx, schema string, m
 		return nil, err
 	}
 	if len(available) == 0 {
-		return nil, nil
+		return nil, fmt.Errorf("WIP stock insufficient for material %d", materialID)
 	}
 	allocations, err := stockdomain.AllocateFIFO(available, deductG)
 	if err != nil {
 		return nil, err
 	}
 	for _, alloc := range allocations {
+		if _, err := tx.Exec(ctx, fmt.Sprintf(`
+			UPDATE %s.material_batch_locations
+			SET qty_g=qty_g-$2,
+			    updated_at=now()
+			WHERE material_batch_id=$1 AND warehouse=$3
+		`, schema), alloc.BatchID, alloc.QtyG, stockdomain.WarehouseWIP); err != nil {
+			return nil, err
+		}
 		if _, err := tx.Exec(ctx, fmt.Sprintf(`
 			UPDATE %s.material_batches
 			SET remaining_g=remaining_g-$2,

@@ -15,6 +15,7 @@ import (
 type fakeStockRepo struct {
 	received   stockapp.MaterialReceiptCommand
 	adjustment stockapp.StockAdjustmentCommand
+	transfer   stockapp.MaterialTransferCommand
 }
 
 func (f *fakeStockRepo) ListLedger(ctx context.Context, query stockapp.LedgerQuery) (stockapp.LedgerResult, error) {
@@ -26,6 +27,12 @@ func (f *fakeStockRepo) ListBatches(ctx context.Context, query stockapp.BatchQue
 func (f *fakeStockRepo) ListMaterialBatches(ctx context.Context, query stockapp.MaterialBatchQuery) (stockapp.MaterialBatchResult, error) {
 	return stockapp.MaterialBatchResult{Rows: []stockapp.MaterialBatchRow{{ID: 2, BatchCode: "MB-0000000002", RemainingG: 1200}}}, nil
 }
+func (f *fakeStockRepo) ListWarehouses(ctx context.Context) ([]stockapp.WarehouseRow, error) {
+	return []stockapp.WarehouseRow{{Code: "raw_materials", Name: "原料仓"}, {Code: "wip", Name: "WIP在制仓"}}, nil
+}
+func (f *fakeStockRepo) ListMaterialBatchLocations(ctx context.Context, query stockapp.MaterialBatchLocationQuery) (stockapp.MaterialBatchLocationResult, error) {
+	return stockapp.MaterialBatchLocationResult{Rows: []stockapp.MaterialBatchLocationRow{{BatchCode: "MB-0000000002", Warehouse: "wip", QtyG: 60000}}}, nil
+}
 func (f *fakeStockRepo) ReceiveMaterial(ctx context.Context, cmd stockapp.MaterialReceiptCommand) (stockapp.MaterialReceiptResult, error) {
 	f.received = cmd
 	return stockapp.MaterialReceiptResult{ReceiptID: 3, BatchID: 4, BatchCode: "MB-0000000003"}, nil
@@ -33,6 +40,10 @@ func (f *fakeStockRepo) ReceiveMaterial(ctx context.Context, cmd stockapp.Materi
 func (f *fakeStockRepo) CreateAdjustment(ctx context.Context, cmd stockapp.StockAdjustmentCommand) (stockapp.StockAdjustmentResult, error) {
 	f.adjustment = cmd
 	return stockapp.StockAdjustmentResult{AdjustmentID: 5}, nil
+}
+func (f *fakeStockRepo) TransferMaterial(ctx context.Context, cmd stockapp.MaterialTransferCommand) (stockapp.MaterialTransferResult, error) {
+	f.transfer = cmd
+	return stockapp.MaterialTransferResult{TransferID: 6, TransferNo: "MT-0000000006"}, nil
 }
 
 func TestStockAPIRoutes(t *testing.T) {
@@ -59,6 +70,31 @@ func TestStockAPIRoutes(t *testing.T) {
 	}
 	if repo.received.MaterialID != 1 || repo.received.QtyG != 1200 {
 		t.Fatalf("received command = %+v", repo.received)
+	}
+
+	req = httptest.NewRequest(http.MethodGet, "/api/stock/warehouses", nil)
+	rec = httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK || !bytes.Contains(rec.Body.Bytes(), []byte(`"code":"wip"`)) {
+		t.Fatalf("GET warehouses status=%d body=%s", rec.Code, rec.Body.String())
+	}
+
+	req = httptest.NewRequest(http.MethodGet, "/api/stock/material-batch-locations?warehouse=wip", nil)
+	rec = httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK || !bytes.Contains(rec.Body.Bytes(), []byte(`"warehouse":"wip"`)) {
+		t.Fatalf("GET material batch locations status=%d body=%s", rec.Code, rec.Body.String())
+	}
+
+	req = httptest.NewRequest(http.MethodPost, "/api/stock/material-transfers", bytes.NewBufferString(`{"material_id":1,"from_warehouse":"raw_materials","to_warehouse":"wip","qty_g":60000,"note":"三天生产领料"}`))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec = httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("POST material transfer status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if repo.transfer.MaterialID != 1 || repo.transfer.FromWarehouse != "raw_materials" || repo.transfer.ToWarehouse != "wip" || repo.transfer.QtyG != 60000 {
+		t.Fatalf("transfer command = %+v", repo.transfer)
 	}
 }
 
