@@ -498,6 +498,13 @@ func seedReqWorkflowA(ctx context.Context, pool *pgxpool.Pool, schema string) er
 		{table: "req_unit", code: "UT-102-01", title: "单测覆盖公开页渲染发布快照、鉴权放行公开路径、后台客户链接入口和需求种子", status: "done", assignee: "Codex", evidence: "TestPublicBeanListPageRendersPublishedSnapshot; TestBasicAuthAllowsPublicBeanListWithoutCredentials; TestBeanListPublicCustomerLinkRequirementSeeds"},
 		{table: "req_api", code: "API-102-01", title: "接口级验证 GET /public/bean-list/:list_type 返回已发布豆单 HTML，未登录可访问且不泄露发布/撤回操作", status: "done", assignee: "Codex", evidence: "go test ./internal/interfaces/http/costing ./internal/interfaces/http/support"},
 		{table: "req_review", code: "REV-102-01", prCode: "PR-102", title: "验收：发布商用或零售豆单后，可把客户链接发给客户直接打开；撤回后客户链接不再展示该版本", status: "todo", assignee: "VA", evidence: "待 Van 服务器验收"},
+		{table: "req_product", code: "PR-103", title: "快递录单备注不写单价小计，发货人设置支持寄件人列表和默认寄件人，生成 Excel 可指定寄件人", status: "review", assignee: "VA", evidence: "codex/sender-list-shipping-20260427"},
+		{table: "req_dev", code: "DEV-103-01", title: "快递 Excel 备注只写订单号、商品、规格和数量，不写入单价和小计", status: "done", assignee: "Codex", evidence: "orderShippingRemark"},
+		{table: "req_dev", code: "DEV-103-02", title: "发货人设置改为寄件人列表，支持新增/编辑/启用和设置默认寄件人，旧单条设置兼容为默认寄件人", status: "done", assignee: "Codex", evidence: "SenderSettingsView; sender_settings schema"},
+		{table: "req_dev", code: "DEV-103-03", title: "订单列表生成快递录单时默认使用默认寄件人，并可为本次勾选订单选择指定寄件人", status: "done", assignee: "Codex", evidence: "OrdersView selectedSenderID; POST /api/orders/shipping-excel sender_id"},
+		{table: "req_unit", code: "UT-103-01", title: "单测/源码守卫覆盖备注去除单价小计、订单列表寄件人选择和发货人设置列表 UI", status: "done", assignee: "Codex", evidence: "TestBuildOrderShippingWorkbookFillsTemplateDefaultsAndRemark; TestSenderSettingsVueSupportsSenderListAndDefaultProfile"},
+		{table: "req_api", code: "API-103-01", title: "接口级测试覆盖快递 Excel 使用指定 sender_id 和发货人设置 API 返回 profiles/default profile", status: "done", assignee: "Codex", evidence: "TestOrdersShippingExcelAPIUsesSelectedSenderProfile; TestSenderSettingsAPIListsProfilesWithDefault"},
+		{table: "req_review", code: "REV-103-01", prCode: "PR-103", title: "验收：快递备注无价格；发货人设置有默认寄件人列表；订单列表可选择寄件人生成 Excel", status: "todo", assignee: "VA", evidence: "待 Van 服务器验收"},
 	} {
 		if err := seedReqRow(ctx, pool, schema, row); err != nil {
 			return err

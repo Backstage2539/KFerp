@@ -27,6 +27,15 @@ func TestOrderShippingExcelRequirementSeeds(t *testing.T) {
 	}
 }
 
+func TestShippingSenderSelectionRequirementSeeds(t *testing.T) {
+	src := string(readOrderAppFileForTest(t, filepath.Join("internal", "interfaces", "http", "support", "req_store.go")))
+	for _, needle := range []string{"PR-103", "DEV-103-01", "DEV-103-02", "DEV-103-03", "UT-103-01", "API-103-01", "REV-103-01", "备注不写单价小计", "默认寄件人"} {
+		if !strings.Contains(src, needle) {
+			t.Fatalf("req_store.go missing %q", needle)
+		}
+	}
+}
+
 func TestOrderEntryVueShowsTierPricesWithoutShippingExcelLink(t *testing.T) {
 	b := readOrderAppFileForTest(t, filepath.Join("frontend-vue-shell", "src", "views", "OrderEntryView.vue"))
 	src := string(b)
@@ -56,6 +65,8 @@ func TestOrdersVueGeneratesShippingExcelForProductionCompletedSelection(t *testi
 		"生产完成",
 		"生成快递录单 Excel",
 		"shippingExcelUrl",
+		"senderProfiles",
+		"selectedSenderID",
 	} {
 		if !strings.Contains(src, needle) {
 			t.Fatalf("OrdersView.vue missing %q", needle)
@@ -65,9 +76,18 @@ func TestOrdersVueGeneratesShippingExcelForProductionCompletedSelection(t *testi
 
 func TestOrderShippingExcelServerUsesTemplateAndPersistentExportDir(t *testing.T) {
 	server := string(readOrderAppFileForTest(t, filepath.Join("internal", "interfaces", "http", "sales", "order_shipping_excel.go")))
-	for _, needle := range []string{"/app/data/ship_temp.xlsx", "/app/data/shipping_exports"} {
+	for _, needle := range []string{"/app/data/ship_temp.xlsx", "/app/data/shipping_exports", "sender_id"} {
 		if !strings.Contains(server, needle) {
 			t.Fatalf("order_shipping_excel.go missing %q", needle)
+		}
+	}
+}
+
+func TestSenderSettingsVueSupportsSenderListAndDefaultProfile(t *testing.T) {
+	src := string(readOrderAppFileForTest(t, filepath.Join("frontend-vue-shell", "src", "views", "SenderSettingsView.vue")))
+	for _, needle := range []string{"profiles", "默认寄件人", "新增寄件人", "设为默认", "sender_label"} {
+		if !strings.Contains(src, needle) {
+			t.Fatalf("SenderSettingsView.vue missing %q", needle)
 		}
 	}
 }

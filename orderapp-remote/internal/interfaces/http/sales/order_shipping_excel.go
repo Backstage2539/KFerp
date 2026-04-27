@@ -25,6 +25,7 @@ type orderShippingExcelFile struct {
 
 type orderShippingExcelRequest struct {
 	OrderIDs []int64 `json:"order_ids"`
+	SenderID int64   `json:"sender_id"`
 }
 
 func registerOrderShippingExcelRoutes(e *echo.Echo, salesSvc *salesapp.Service) {
@@ -56,7 +57,7 @@ func registerOrderShippingExcelRoutes(e *echo.Echo, salesSvc *salesapp.Service) 
 		if len(orderIDs) == 0 {
 			return c.JSON(http.StatusBadRequest, map[string]string{"error": "请选择生产完成的订单"})
 		}
-		file, err := generateOrdersShippingExcel(salesSvc, c, orderIDs)
+		file, err := generateOrdersShippingExcel(salesSvc, c, orderIDs, req.SenderID)
 		if err != nil {
 			if strings.Contains(err.Error(), "尚未生产完成") {
 				return c.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
@@ -71,10 +72,10 @@ func registerOrderShippingExcelRoutes(e *echo.Echo, salesSvc *salesapp.Service) 
 }
 
 func generateOrderShippingExcel(salesSvc *salesapp.Service, c echo.Context, orderID int64) (orderShippingExcelFile, error) {
-	return generateOrdersShippingExcel(salesSvc, c, []int64{orderID})
+	return generateOrdersShippingExcel(salesSvc, c, []int64{orderID}, 0)
 }
 
-func generateOrdersShippingExcel(salesSvc *salesapp.Service, c echo.Context, orderIDs []int64) (orderShippingExcelFile, error) {
+func generateOrdersShippingExcel(salesSvc *salesapp.Service, c echo.Context, orderIDs []int64, senderID int64) (orderShippingExcelFile, error) {
 	orderIDs = normalizeOrderShippingIDs(orderIDs)
 	if len(orderIDs) == 0 {
 		return orderShippingExcelFile{}, fmt.Errorf("order required")
@@ -90,7 +91,7 @@ func generateOrdersShippingExcel(salesSvc *salesapp.Service, c echo.Context, ord
 		}
 		rows = append(rows, data)
 	}
-	sender, err := salesSvc.LoadSenderProfile(c.Request().Context())
+	sender, err := salesSvc.LoadSenderProfileByID(c.Request().Context(), senderID)
 	if err != nil {
 		return orderShippingExcelFile{}, err
 	}
@@ -236,15 +237,7 @@ func orderShippingRemark(data salesapp.OrderShippingExportData) string {
 		if unit == "" {
 			unit = "件"
 		}
-		price := strings.TrimSpace(item.UnitPrice)
-		total := strings.TrimSpace(item.LineTotal)
 		line := fmt.Sprintf("%s %s x%s%s", name, spec, qty, unit)
-		if price != "" {
-			line += " 单价" + price
-		}
-		if total != "" {
-			line += " 小计" + total
-		}
 		parts = append(parts, strings.TrimSpace(line))
 	}
 	return strings.Join(parts, "；")
