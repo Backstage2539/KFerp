@@ -40,6 +40,10 @@ func (r *fakeRepo) MoveProductCategory(ctx context.Context, cmd MoveProductCateg
 	return nil
 }
 
+func (r *fakeRepo) DeleteProductCategory(ctx context.Context, cmd DeleteProductCategoryCommand) error {
+	return nil
+}
+
 func (r *fakeRepo) AssignProductCategory(ctx context.Context, cmd AssignProductCategoryCommand) error {
 	return nil
 }

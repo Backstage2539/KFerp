@@ -43,6 +43,7 @@
                 <div class="category-actions">
                   <button class="text-button" type="button" @click="startCategoryEdit(primary)">改名</button>
                   <button class="text-button" type="button" @click="startAddingSecondary(primary)">新增二级</button>
+                  <button class="text-button danger-text" type="button" @click="deleteCategory(primary)">删除</button>
                 </div>
               </div>
 
@@ -77,6 +78,7 @@
                     <b>{{ secondary.name }}</b>
                     <small>{{ secondary.products.length }} 款</small>
                     <button class="text-button" type="button" @click="startCategoryEdit(secondary)">改名</button>
+                    <button class="text-button danger-text" type="button" @click="deleteCategory(secondary)">删除</button>
                   </div>
                   <div class="product-chip-list">
                     <span
@@ -322,6 +324,24 @@ async function saveCategoryName(category) {
     await loadAll()
   } catch (err) {
     error.value = err.message || '保存分类失败'
+  } finally {
+    loading.value = false
+  }
+}
+
+async function deleteCategory(category) {
+  const name = category.name || '该分类'
+  const okToDelete = window.confirm(`确认删除「${name}」？删除分类后，分类内商品会回到未分类。`)
+  if (!okToDelete) return
+  loading.value = true
+  error.value = ''
+  ok.value = ''
+  try {
+    await apiSend(`/api/product-settings/categories/${category.id}`, { method: 'DELETE' })
+    ok.value = '分类已删除，相关商品已回到未分类'
+    await loadAll()
+  } catch (err) {
+    error.value = err.message || '删除分类失败'
   } finally {
     loading.value = false
   }
@@ -590,6 +610,7 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .secondary, .toggle-section { background: #fff; color: #111; }
 .toggle-section { min-height: 30px; padding: 0 10px; }
 .text-button { border: 0; background: transparent; color: #1f4f82; padding: 0; min-height: 28px; }
+.danger-text { color: #a33; }
 .settings-grid { display: grid; grid-template-columns: minmax(280px, 380px) minmax(0, 1fr); gap: 14px; align-items: start; }
 .inline-form { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; margin-bottom: 10px; }
 .sub-form { margin: 8px 0; }

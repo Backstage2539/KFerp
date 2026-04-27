@@ -24,6 +24,7 @@ func registerProductRoutes(e *echo.Echo, catalogSvc *catalogapp.Service) {
 	e.GET("/api/product-settings/categories", h.productCategoriesAPI)
 	e.POST("/api/product-settings/categories", h.saveProductCategoryAPI)
 	e.PUT("/api/product-settings/categories/:id", h.saveProductCategoryAPI)
+	e.DELETE("/api/product-settings/categories/:id", h.deleteProductCategoryAPI)
 	e.POST("/api/product-settings/categories/:id/move", h.moveProductCategoryAPI)
 	e.POST("/api/product-settings/products/:id/category", h.assignProductCategoryAPI)
 	e.GET("/products/:id", h.edit)
@@ -208,6 +209,20 @@ func (h productHandler) moveProductCategoryAPI(c echo.Context) error {
 		ID:       id,
 		ParentID: req.ParentID,
 		Position: req.Position,
+	}); err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]any{"error": err.Error()})
+	}
+	return c.JSON(http.StatusOK, map[string]any{"ok": true})
+}
+
+func (h productHandler) deleteProductCategoryAPI(c echo.Context) error {
+	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil || id <= 0 {
+		return c.JSON(http.StatusBadRequest, map[string]any{"error": "invalid id"})
+	}
+	if err := h.catalog.DeleteProductCategory(c.Request().Context(), catalogapp.DeleteProductCategoryCommand{
+		Actor: support.ActorOf(c),
+		ID:    id,
 	}); err != nil {
 		return c.JSON(http.StatusInternalServerError, map[string]any{"error": err.Error()})
 	}

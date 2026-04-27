@@ -426,6 +426,12 @@ func seedReqWorkflowA(ctx context.Context, pool *pgxpool.Pool, schema string) er
 		{table: "req_unit", code: "UT-093-01", title: "源码守卫覆盖二级分类排序不再依赖原生 dragstart/drop，必须使用 pointerdown/move/up 和坐标计算", status: "done", assignee: "Codex", evidence: "TestProductSettingsSecondaryCategoryDragUsesPointerPositionInsteadOfNativeDrop"},
 		{table: "req_api", code: "API-093-01", title: "沿用 /api/product-settings/categories/:id/move 保存拖拽后的 parent_id 和 position", status: "done", assignee: "Codex", evidence: "TestProductSettingsAPISupportsCategoryTreeAndDragAssignments"},
 		{table: "req_review", code: "REV-093-01", prCode: "PR-093", title: "验收：二级分类拖到目标位置附近松开鼠标，会按横线位置保存，不再大多数时候回到原位置", status: "todo", assignee: "VA", evidence: "待 Van 服务器验收"},
+		{table: "req_product", code: "PR-094", title: "支持产品设置分类删除，删除分类后商品回到未分类", status: "review", assignee: "VA", evidence: "codex/product-settings-categories"},
+		{table: "req_dev", code: "DEV-094-01", title: "新增 DELETE /api/product-settings/categories/:id，软删除一级/二级分类并清空相关商品分类", status: "done", assignee: "Codex", evidence: "DeleteProductCategory"},
+		{table: "req_dev", code: "DEV-094-02", title: "产品设置分类树增加删除按钮和确认提示，删除成功后刷新分类树和未分类商品", status: "done", assignee: "Codex", evidence: "ProductSettingsView deleteCategory"},
+		{table: "req_unit", code: "UT-094-01", title: "源码守卫覆盖分类删除按钮、确认提示、软删除和商品回未分类逻辑", status: "done", assignee: "Codex", evidence: "TestProductSettingsVueSupportsCategoryDelete; TestProductSettingsRepositorySoftDeletesCategoriesAndUnassignsProducts"},
+		{table: "req_api", code: "API-094-01", title: "API 测试覆盖 DELETE 分类接口传递分类 ID 并返回成功", status: "done", assignee: "Codex", evidence: "TestProductSettingsAPISupportsCategoryTreeAndDragAssignments"},
+		{table: "req_review", code: "REV-094-01", prCode: "PR-094", title: "验收：一级/二级分类可删除，删除后分类不再显示，商品进入未分类且未丢失", status: "todo", assignee: "VA", evidence: "待 Van 服务器验收"},
 	} {
 		if err := seedReqRow(ctx, pool, schema, row); err != nil {
 			return err

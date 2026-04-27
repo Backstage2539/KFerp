@@ -17,10 +17,12 @@ type productSettingsRepo struct {
 	categories      []catalogapp.ProductCategory
 	savedCategory   catalogapp.SaveProductCategoryCommand
 	movedCategory   catalogapp.MoveProductCategoryCommand
+	deletedCategory catalogapp.DeleteProductCategoryCommand
 	assigned        catalogapp.AssignProductCategoryCommand
 	updated         catalogapp.UpdateProductBasicsCommand
 	categoryCreated bool
 	categoryMoved   bool
+	categoryDeleted bool
 	productAssigned bool
 	productUpdated  bool
 }
@@ -61,6 +63,12 @@ func (r *productSettingsRepo) SaveProductCategory(ctx context.Context, cmd catal
 func (r *productSettingsRepo) MoveProductCategory(ctx context.Context, cmd catalogapp.MoveProductCategoryCommand) error {
 	r.movedCategory = cmd
 	r.categoryMoved = true
+	return nil
+}
+
+func (r *productSettingsRepo) DeleteProductCategory(ctx context.Context, cmd catalogapp.DeleteProductCategoryCommand) error {
+	r.deletedCategory = cmd
+	r.categoryDeleted = true
 	return nil
 }
 
@@ -115,6 +123,16 @@ func TestProductSettingsAPISupportsCategoryTreeAndDragAssignments(t *testing.T) 
 	}
 	if !repo.categoryMoved || repo.movedCategory.ID != 2 || repo.movedCategory.ParentID != 1 || repo.movedCategory.Position != 1 {
 		t.Fatalf("move category command = %+v moved=%v", repo.movedCategory, repo.categoryMoved)
+	}
+
+	req = httptest.NewRequest(http.MethodDelete, "/api/product-settings/categories/2", nil)
+	rec = httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("DELETE category status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if !repo.categoryDeleted || repo.deletedCategory.ID != 2 {
+		t.Fatalf("delete category command = %+v deleted=%v", repo.deletedCategory, repo.categoryDeleted)
 	}
 
 	req = httptest.NewRequest(http.MethodPost, "/api/product-settings/products/7/category", bytes.NewBufferString(`{"category_id":2,"position":3}`))

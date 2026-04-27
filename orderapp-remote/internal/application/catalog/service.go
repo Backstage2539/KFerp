@@ -100,6 +100,11 @@ type MoveProductCategoryCommand struct {
 	Position int
 }
 
+type DeleteProductCategoryCommand struct {
+	Actor string
+	ID    int64
+}
+
 type AssignProductCategoryCommand struct {
 	Actor      string
 	ProductID  int64
@@ -115,6 +120,7 @@ type Repository interface {
 	ListProductCategories(ctx context.Context) ([]ProductCategory, error)
 	SaveProductCategory(ctx context.Context, cmd SaveProductCategoryCommand) (ProductCategory, error)
 	MoveProductCategory(ctx context.Context, cmd MoveProductCategoryCommand) error
+	DeleteProductCategory(ctx context.Context, cmd DeleteProductCategoryCommand) error
 	AssignProductCategory(ctx context.Context, cmd AssignProductCategoryCommand) error
 }
 
@@ -160,6 +166,10 @@ func (s *Service) SaveProductCategory(ctx context.Context, cmd SaveProductCatego
 
 func (s *Service) MoveProductCategory(ctx context.Context, cmd MoveProductCategoryCommand) error {
 	return s.repo.MoveProductCategory(ctx, cmd)
+}
+
+func (s *Service) DeleteProductCategory(ctx context.Context, cmd DeleteProductCategoryCommand) error {
+	return s.repo.DeleteProductCategory(ctx, cmd)
 }
 
 func (s *Service) AssignProductCategory(ctx context.Context, cmd AssignProductCategoryCommand) error {

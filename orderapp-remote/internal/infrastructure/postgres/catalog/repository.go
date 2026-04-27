@@ -253,6 +253,77 @@ func (r Repository) MoveProductCategory(ctx context.Context, cmd catalogapp.Move
 	return nil
 }
 
+func (r Repository) DeleteProductCategory(ctx context.Context, cmd catalogapp.DeleteProductCategoryCommand) error {
+	conn, err := r.pool.Acquire(ctx)
+	if err != nil {
+		return err
+	}
+	defer conn.Release()
+	tx, err := conn.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	var parentID int64
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT COALESCE(parent_id,0)
+		FROM %s.product_categories
+		WHERE id=$1 AND active=true`, r.schema), cmd.ID).Scan(&parentID); err != nil {
+		return err
+	}
+
+	rows, err := tx.Query(ctx, fmt.Sprintf(`SELECT id
+		FROM %s.product_categories
+		WHERE active=true AND (id=$1 OR COALESCE(parent_id,0)=$1)
+		ORDER BY id`, r.schema), cmd.ID)
+	if err != nil {
+		return err
+	}
+	ids := make([]int64, 0)
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			rows.Close()
+			return err
+		}
+		ids = append(ids, id)
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return err
+	}
+	rows.Close()
+	if len(ids) == 0 {
+		return pgx.ErrNoRows
+	}
+
+	if _, err := tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.products
+		SET product_category_id=NULL, product_category_position=0
+		WHERE product_category_id = ANY($1)`, r.schema), ids); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.product_categories
+		SET active=false, updated_at=now()
+		WHERE id = ANY($1)`, r.schema), ids); err != nil {
+		return err
+	}
+	if parentID == 0 {
+		if err := normalizeCategoryPositions(ctx, tx, r.schema, 0); err != nil {
+			return err
+		}
+	} else if err := normalizeCategoryPositions(ctx, tx, r.schema, parentID); err != nil {
+		return err
+	}
+	if err := normalizeProductPositions(ctx, tx, r.schema, 0); err != nil {
+		return err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return err
+	}
+	postgresinfra.AuditInsert(ctx, r.pool, r.schema, cmd.Actor, "product_category", &cmd.ID, "delete", postgresinfra.StrPtr("category"), postgresinfra.StrPtr(fmt.Sprintf("%d", parentID)), nil, postgresinfra.AuditMeta{"deleted_category_ids": ids})
+	return nil
+}
+
 func (r Repository) AssignProductCategory(ctx context.Context, cmd catalogapp.AssignProductCategoryCommand) error {
 	conn, err := r.pool.Acquire(ctx)
 	if err != nil {

@@ -99,6 +99,28 @@ func TestProductSettingsRobustPointerDragRequirementSeeds(t *testing.T) {
 	}
 }
 
+func TestProductSettingsDeleteCategoryRequirementSeeds(t *testing.T) {
+	b, err := os.ReadFile(filepath.Join("internal", "interfaces", "http", "support", "req_store.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := string(b)
+	for _, want := range []string{
+		"PR-094",
+		"DEV-094-01",
+		"DEV-094-02",
+		"UT-094-01",
+		"API-094-01",
+		"REV-094-01",
+		"支持产品设置分类删除",
+		"删除分类后商品回到未分类",
+	} {
+		if !strings.Contains(src, want) {
+			t.Fatalf("product settings category delete requirement seed missing %q", want)
+		}
+	}
+}
+
 func TestProductSettingsVueWiringAndLegacyTierEditorRemoval(t *testing.T) {
 	app, err := os.ReadFile(filepath.Join("frontend-vue-shell", "src", "App.vue"))
 	if err != nil {
@@ -251,5 +273,46 @@ func TestProductSettingsSecondaryCategoryDragUsesPointerPositionInsteadOfNativeD
 	}
 	if strings.Contains(src, "@dragstart=\"startCategoryDrag(secondary)\"") {
 		t.Fatalf("secondary category sorting must not depend on native HTML5 dragstart/drop")
+	}
+}
+
+func TestProductSettingsVueSupportsCategoryDelete(t *testing.T) {
+	settings, err := os.ReadFile(filepath.Join("frontend-vue-shell", "src", "views", "ProductSettingsView.vue"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := string(settings)
+	for _, want := range []string{
+		"deleteCategory(primary)",
+		"deleteCategory(secondary)",
+		"async function deleteCategory(category)",
+		"method: 'DELETE'",
+		"`/api/product-settings/categories/${category.id}`",
+		"删除分类后，分类内商品会回到未分类",
+		"danger-text",
+	} {
+		if !strings.Contains(src, want) {
+			t.Fatalf("product settings category delete UI missing %q", want)
+		}
+	}
+}
+
+func TestProductSettingsRepositorySoftDeletesCategoriesAndUnassignsProducts(t *testing.T) {
+	repo, err := os.ReadFile(filepath.Join("internal", "infrastructure", "postgres", "catalog", "repository.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := string(repo)
+	for _, want := range []string{
+		"func (r Repository) DeleteProductCategory",
+		"SET active=false, updated_at=now()",
+		"SET product_category_id=NULL, product_category_position=0",
+		"COALESCE(parent_id,0)=$1",
+		"normalizeCategoryPositions",
+		"normalizeProductPositions(ctx, tx, r.schema, 0)",
+	} {
+		if !strings.Contains(src, want) {
+			t.Fatalf("product settings repository delete behavior missing %q", want)
+		}
 	}
 }
