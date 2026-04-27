@@ -24,8 +24,19 @@ type orderShippingExcelFile struct {
 }
 
 type orderShippingExcelRequest struct {
-	OrderIDs []int64 `json:"order_ids"`
-	SenderID int64   `json:"sender_id"`
+	OrderIDs     []int64                       `json:"order_ids"`
+	SenderID     int64                         `json:"sender_id"`
+	OrderSenders []orderShippingSenderOverride `json:"order_senders"`
+}
+
+type orderShippingSenderOverride struct {
+	OrderID  int64 `json:"order_id"`
+	SenderID int64 `json:"sender_id"`
+}
+
+type orderShippingExcelRow struct {
+	Data   salesapp.OrderShippingExportData
+	Sender salesapp.SenderProfile
 }
 
 func registerOrderShippingExcelRoutes(e *echo.Echo, salesSvc *salesapp.Service) {
@@ -57,7 +68,7 @@ func registerOrderShippingExcelRoutes(e *echo.Echo, salesSvc *salesapp.Service) 
 		if len(orderIDs) == 0 {
 			return c.JSON(http.StatusBadRequest, map[string]string{"error": "请选择生产完成的订单"})
 		}
-		file, err := generateOrdersShippingExcel(salesSvc, c, orderIDs, req.SenderID)
+		file, err := generateOrdersShippingExcel(salesSvc, c, orderIDs, req.SenderID, req.OrderSenders)
 		if err != nil {
 			if strings.Contains(err.Error(), "尚未生产完成") {
 				return c.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
@@ -72,15 +83,22 @@ func registerOrderShippingExcelRoutes(e *echo.Echo, salesSvc *salesapp.Service) 
 }
 
 func generateOrderShippingExcel(salesSvc *salesapp.Service, c echo.Context, orderID int64) (orderShippingExcelFile, error) {
-	return generateOrdersShippingExcel(salesSvc, c, []int64{orderID}, 0)
+	return generateOrdersShippingExcel(salesSvc, c, []int64{orderID}, 0, nil)
 }
 
-func generateOrdersShippingExcel(salesSvc *salesapp.Service, c echo.Context, orderIDs []int64, senderID int64) (orderShippingExcelFile, error) {
+func generateOrdersShippingExcel(salesSvc *salesapp.Service, c echo.Context, orderIDs []int64, senderID int64, overrides []orderShippingSenderOverride) (orderShippingExcelFile, error) {
 	orderIDs = normalizeOrderShippingIDs(orderIDs)
 	if len(orderIDs) == 0 {
 		return orderShippingExcelFile{}, fmt.Errorf("order required")
 	}
+	senderOverrides := normalizeOrderSenderOverrides(overrides)
+	senderCache := make(map[int64]salesapp.SenderProfile)
+	defaultSender, err := salesSvc.LoadSenderProfileByID(c.Request().Context(), senderID)
+	if err != nil {
+		return orderShippingExcelFile{}, err
+	}
 	rows := make([]salesapp.OrderShippingExportData, 0, len(orderIDs))
+	excelRows := make([]orderShippingExcelRow, 0, len(orderIDs))
 	for _, orderID := range orderIDs {
 		data, err := salesSvc.LoadOrderShippingExportData(c.Request().Context(), orderID)
 		if err != nil {
@@ -89,11 +107,20 @@ func generateOrdersShippingExcel(salesSvc *salesapp.Service, c echo.Context, ord
 		if !orderShippingReady(data) {
 			return orderShippingExcelFile{}, fmt.Errorf("订单 %s 尚未生产完成", firstNonEmpty(data.OrderNo, fmt.Sprintf("%d", data.OrderID)))
 		}
+		sender := defaultSender
+		if overrideSenderID := senderOverrides[orderID]; overrideSenderID > 0 {
+			cached, ok := senderCache[overrideSenderID]
+			if !ok {
+				cached, err = salesSvc.LoadSenderProfileByID(c.Request().Context(), overrideSenderID)
+				if err != nil {
+					return orderShippingExcelFile{}, err
+				}
+				senderCache[overrideSenderID] = cached
+			}
+			sender = cached
+		}
 		rows = append(rows, data)
-	}
-	sender, err := salesSvc.LoadSenderProfileByID(c.Request().Context(), senderID)
-	if err != nil {
-		return orderShippingExcelFile{}, err
+		excelRows = append(excelRows, orderShippingExcelRow{Data: data, Sender: sender})
 	}
 	tmpl, err := orderShippingTemplatePath()
 	if err != nil {
@@ -104,7 +131,7 @@ func generateOrdersShippingExcel(salesSvc *salesapp.Service, c echo.Context, ord
 		return orderShippingExcelFile{}, err
 	}
 
-	wb, err := buildOrdersShippingWorkbook(tmpl, sender, rows)
+	wb, err := buildOrdersShippingWorkbookRows(tmpl, excelRows)
 	if err != nil {
 		return orderShippingExcelFile{}, err
 	}
@@ -127,6 +154,14 @@ func buildOrderShippingWorkbook(templatePath string, sender salesapp.SenderProfi
 }
 
 func buildOrdersShippingWorkbook(templatePath string, sender salesapp.SenderProfile, rows []salesapp.OrderShippingExportData) (*excelize.File, error) {
+	excelRows := make([]orderShippingExcelRow, 0, len(rows))
+	for _, data := range rows {
+		excelRows = append(excelRows, orderShippingExcelRow{Data: data, Sender: sender})
+	}
+	return buildOrdersShippingWorkbookRows(templatePath, excelRows)
+}
+
+func buildOrdersShippingWorkbookRows(templatePath string, rows []orderShippingExcelRow) (*excelize.File, error) {
 	if len(rows) == 0 {
 		return nil, fmt.Errorf("order required")
 	}
@@ -140,12 +175,14 @@ func buildOrdersShippingWorkbook(templatePath string, sender salesapp.SenderProf
 		return nil, fmt.Errorf("template has no sheet")
 	}
 
-	goods := strings.TrimSpace(sender.Goods)
-	if goods == "" || goods == "咖啡" {
-		goods = "茶叶"
-	}
-	for i, data := range rows {
+	for i, rowData := range rows {
 		row := i + 2
+		data := rowData.Data
+		sender := rowData.Sender
+		goods := strings.TrimSpace(sender.Goods)
+		if goods == "" || goods == "咖啡" {
+			goods = "茶叶"
+		}
 		values := map[string]any{
 			"A": strings.TrimSpace(data.RecvName),
 			"B": strings.TrimSpace(data.RecvPhone),
@@ -256,6 +293,17 @@ func normalizeOrderShippingIDs(ids []int64) []int64 {
 		}
 		seen[id] = true
 		out = append(out, id)
+	}
+	return out
+}
+
+func normalizeOrderSenderOverrides(overrides []orderShippingSenderOverride) map[int64]int64 {
+	out := make(map[int64]int64, len(overrides))
+	for _, override := range overrides {
+		if override.OrderID <= 0 || override.SenderID <= 0 {
+			continue
+		}
+		out[override.OrderID] = override.SenderID
 	}
 	return out
 }

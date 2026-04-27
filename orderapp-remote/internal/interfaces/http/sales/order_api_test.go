@@ -392,6 +392,74 @@ func TestOrdersShippingExcelAPIUsesSelectedSenderProfile(t *testing.T) {
 	}
 }
 
+func TestOrdersShippingExcelAPIUsesPerOrderSenderOverrides(t *testing.T) {
+	pool, schema := newOrderAPITestDB(t)
+	ctx := context.Background()
+	seedOrderAPITestData(t, ctx, pool, schema)
+
+	dir := t.TempDir()
+	templatePath := filepath.Join(dir, "ship_temp.xlsx")
+	exportDir := filepath.Join(dir, "exports")
+	writeOrderShippingTemplateForTest(t, templatePath)
+	t.Setenv("ORDER_SHIP_TEMPLATE", templatePath)
+	t.Setenv("ORDER_SHIP_EXPORT_DIR", exportDir)
+	mustExecOrderAPITestSQL(t, ctx, pool, fmt.Sprintf(`
+		INSERT INTO %s.sender_settings(id, sender_label, sender_name, sender_phone, sender_addr, sender_company, sender_goods, sf_biz_type, is_default, active)
+		VALUES
+			(2, '默认仓库', '默认寄件人', '13900000000', '默认地址', '默认公司', '茶叶', '标快', true, true),
+			(3, '门店', '门店寄件人', '13900000003', '门店地址', '门店公司', '茶叶', '特快', false, true);
+		INSERT INTO %s.order_process_statuses(id,name,sort,active) VALUES (2,'生产完成',20,true);
+		INSERT INTO %s.orders(id, order_no, order_date, customer_id, order_type_id, pay_status_id, ship_status_id, process_status_id, grand_total, is_void)
+		VALUES
+			(23, 'SO-SENDER-DEFAULT', '2026-04-27', 3, 1, 2, 1, 2, 88, false),
+			(24, 'SO-SENDER-OVERRIDE', '2026-04-27', 3, 1, 2, 1, 2, 88, false);
+		INSERT INTO %s.order_items(order_id,line_no,product_id,item_name,qty,unit,spec,unit_price,line_total)
+		VALUES
+			(23, 1, 7, '橘皮乌龙', 1, '件', '454g', 88, 88),
+			(24, 1, 7, '橘皮乌龙', 1, '件', '454g', 88, 88);
+	`, schema, schema, schema, schema))
+
+	e := newOrderAPITestEcho(pool, schema)
+	body, _ := json.Marshal(map[string]any{
+		"order_ids": []int64{23, 24},
+		"sender_id": int64(2),
+		"order_senders": []map[string]any{
+			{"order_id": int64(24), "sender_id": int64(3)},
+		},
+	})
+	req := httptest.NewRequest(http.MethodPost, "/api/orders/shipping-excel", bytes.NewReader(body))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("POST /api/orders/shipping-excel status = %d, want 200, body=%s", rec.Code, rec.Body.String())
+	}
+	files, err := os.ReadDir(exportDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(files) != 1 {
+		t.Fatalf("export files = %d, want 1", len(files))
+	}
+	wb, err := excelize.OpenFile(filepath.Join(exportDir, files[0].Name()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer wb.Close()
+	sheet := wb.GetSheetName(0)
+	cell := func(name string) string {
+		v, err := wb.GetCellValue(sheet, name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return v
+	}
+	if cell("D2") != "默认寄件人" || cell("D3") != "门店寄件人" || cell("P2") != "标快" || cell("P3") != "特快" {
+		t.Fatalf("sender rows D2=%q D3=%q P2=%q P3=%q", cell("D2"), cell("D3"), cell("P2"), cell("P3"))
+	}
+}
+
 func TestOrdersShippingExcelAPIRejectsUnfinishedOrders(t *testing.T) {
 	pool, schema := newOrderAPITestDB(t)
 	ctx := context.Background()

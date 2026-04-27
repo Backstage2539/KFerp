@@ -29,7 +29,7 @@ func TestOrderShippingExcelRequirementSeeds(t *testing.T) {
 
 func TestShippingSenderSelectionRequirementSeeds(t *testing.T) {
 	src := string(readOrderAppFileForTest(t, filepath.Join("internal", "interfaces", "http", "support", "req_store.go")))
-	for _, needle := range []string{"PR-103", "DEV-103-01", "DEV-103-02", "DEV-103-03", "UT-103-01", "API-103-01", "REV-103-01", "备注不写单价小计", "默认寄件人"} {
+	for _, needle := range []string{"PR-103", "DEV-103-01", "DEV-103-02", "DEV-103-03", "UT-103-01", "API-103-01", "REV-103-01", "备注不写单价小计", "默认寄件人", "单独指定寄件人"} {
 		if !strings.Contains(src, needle) {
 			t.Fatalf("req_store.go missing %q", needle)
 		}
@@ -67,6 +67,8 @@ func TestOrdersVueGeneratesShippingExcelForProductionCompletedSelection(t *testi
 		"shippingExcelUrl",
 		"senderProfiles",
 		"selectedSenderID",
+		"orderSenderIDs",
+		"order_senders",
 	} {
 		if !strings.Contains(src, needle) {
 			t.Fatalf("OrdersView.vue missing %q", needle)

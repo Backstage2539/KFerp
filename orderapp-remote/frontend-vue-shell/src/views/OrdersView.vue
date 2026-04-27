@@ -89,6 +89,7 @@
           <thead>
             <tr>
               <th class="select-col">发货</th>
+              <th class="row-sender">寄件人</th>
               <th>订单号</th>
               <th>日期</th>
               <th>客户</th>
@@ -113,6 +114,19 @@
                   @change="toggleOrder(row, $event.target.checked)"
                 />
               </td>
+              <td class="row-sender">
+                <select
+                  v-if="selectedOrderIDs.includes(Number(row.id)) && isProductionComplete(row)"
+                  v-model.number="orderSenderIDs[Number(row.id)]"
+                  aria-label="单独选择寄件人"
+                >
+                  <option :value="0">跟随默认</option>
+                  <option v-for="profile in senderProfiles" :key="profile.sender_id" :value="profile.sender_id">
+                    {{ profile.sender_label || profile.sender_name || `寄件人${profile.sender_id}` }}{{ profile.is_default ? '（默认）' : '' }}
+                  </option>
+                </select>
+                <span v-else class="muted">-</span>
+              </td>
               <td><a :href="`/order?edit_id=${row.id}`">{{ row.order_no }}</a></td>
               <td>{{ row.order_date }}</td>
               <td>{{ row.customer }}</td>
@@ -126,7 +140,7 @@
               <td><a class="text-link" :href="`/orders/${row.id}/audit`">审计</a></td>
             </tr>
             <tr v-if="!rows.length">
-              <td colspan="12" class="muted">暂无订单</td>
+              <td colspan="13" class="muted">暂无订单</td>
             </tr>
           </tbody>
         </table>
@@ -160,6 +174,7 @@ const shippingMessage = ref('')
 const shippingError = ref('')
 const senderProfiles = ref([])
 const selectedSenderID = ref(0)
+const orderSenderIDs = reactive({})
 
 const filters = reactive({
   q: '',
@@ -231,8 +246,10 @@ function toggleOrder(row, checked) {
   if (!id || !isProductionComplete(row)) return
   if (checked) {
     if (!selectedOrderIDs.value.includes(id)) selectedOrderIDs.value = [...selectedOrderIDs.value, id]
+    if (orderSenderIDs[id] === undefined) orderSenderIDs[id] = 0
   } else {
     selectedOrderIDs.value = selectedOrderIDs.value.filter((item) => item !== id)
+    delete orderSenderIDs[id]
   }
   shippingError.value = ''
 }
@@ -240,6 +257,9 @@ function toggleOrder(row, checked) {
 function selectVisibleCompleted() {
   const ids = rows.value.filter(isProductionComplete).map((row) => Number(row.id)).filter(Boolean)
   selectedOrderIDs.value = Array.from(new Set([...selectedOrderIDs.value, ...ids]))
+  for (const id of ids) {
+    if (orderSenderIDs[id] === undefined) orderSenderIDs[id] = 0
+  }
   shippingError.value = ids.length ? '' : '本页没有生产完成的订单'
 }
 
@@ -255,10 +275,13 @@ async function generateShippingExcel() {
   shippingMessage.value = ''
   shippingExcelUrl.value = ''
   try {
+    const orderSenders = selectedOrderIDs.value
+      .map((id) => ({ order_id: id, sender_id: Number(orderSenderIDs[id] || 0) }))
+      .filter((item) => item.sender_id > 0)
     const res = await fetch('/api/orders/shipping-excel', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ order_ids: selectedOrderIDs.value, sender_id: selectedSenderID.value }),
+      body: JSON.stringify({ order_ids: selectedOrderIDs.value, sender_id: selectedSenderID.value, order_senders: orderSenders }),
     })
     const data = await res.json()
     if (!res.ok) throw new Error(data.error || '生成失败')
@@ -293,6 +316,10 @@ async function load() {
     if (!res.ok) throw new Error(data.error || '加载失败')
     rows.value = data.rows || []
     selectedOrderIDs.value = selectedOrderIDs.value.filter((id) => rows.value.some((row) => Number(row.id) === id && isProductionComplete(row)))
+    for (const key of Object.keys(orderSenderIDs)) {
+      const id = Number(key)
+      if (!selectedOrderIDs.value.includes(id)) delete orderSenderIDs[key]
+    }
     payStatuses.value = data.pay_statuses || []
     shipStatuses.value = data.ship_statuses || []
     processStatuses.value = data.process_statuses || []
@@ -343,6 +370,8 @@ th, td { border-bottom: 1px solid #eee8df; padding: 9px 8px; text-align: left; f
 th { background: #fbfaf8; position: sticky; top: 0; }
 .select-col { width: 54px; text-align: center; }
 .select-col input { width: 18px; height: 18px; padding: 0; }
+.row-sender { width: 170px; }
+.row-sender select { width: 154px; height: 34px; padding: 5px 7px; }
 a, .text-link { color: #1f4f82; text-decoration: none; }
 .notes { max-width: 220px; white-space: pre-wrap; }
 .muted { color: #666; text-align: center; }
