@@ -14,16 +14,18 @@ type ProductTierOption struct {
 }
 
 type ProductOption struct {
-	ID              int64               `json:"id"`
-	Name            string              `json:"name"`
-	RoastLevel      string              `json:"roast_level"`
-	DefaultPrice    float64             `json:"default_price"`
-	RetailPrice100G float64             `json:"retail_price_100g"`
-	RetailPrice200G float64             `json:"retail_price_200g"`
-	RetailPrice227G float64             `json:"retail_price_227g"`
-	RetailPrice250G float64             `json:"retail_price_250g"`
-	RetailSpecs     []int64             `json:"retail_specs"`
-	Tiers           []ProductTierOption `json:"tiers"`
+	ID                      int64               `json:"id"`
+	Name                    string              `json:"name"`
+	RoastLevel              string              `json:"roast_level"`
+	DefaultPrice            float64             `json:"default_price"`
+	RetailPrice100G         float64             `json:"retail_price_100g"`
+	RetailPrice200G         float64             `json:"retail_price_200g"`
+	RetailPrice227G         float64             `json:"retail_price_227g"`
+	RetailPrice250G         float64             `json:"retail_price_250g"`
+	ProductCategoryID       int64               `json:"product_category_id"`
+	ProductCategoryPosition int                 `json:"product_category_position"`
+	RetailSpecs             []int64             `json:"retail_specs"`
+	Tiers                   []ProductTierOption `json:"tiers"`
 }
 
 type APIOption struct {

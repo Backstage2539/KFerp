@@ -34,9 +34,8 @@ export const menuGroups = [
     id: 'product',
     name: '商品与配方',
     items: [
-      { key: 'products', label: '商品档案', title: '商品档案' },
+      { key: 'productSettings', label: '产品设置', title: '产品设置' },
       { key: 'bom', label: 'BOM配方维护', title: 'BOM配方维护' },
-      { key: 'costing', label: '成本核算', title: '成本核算' },
     ],
   },
   {
@@ -80,6 +79,8 @@ export const hiddenViewTitles = {
   stockAdjustments: '库存调整单',
   inventory: '成品库存',
   allocationLogs: '分配批次查看',
+  products: '产品设置',
+  costing: '产品设置',
 }
 
 export const menuMap = Object.fromEntries([

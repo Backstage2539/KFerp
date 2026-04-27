@@ -23,16 +23,18 @@ type ProductTierOption struct {
 }
 
 type ProductOption struct {
-	ID              int64
-	Name            string
-	RoastLevel      string
-	DefaultPrice    float64
-	RetailPrice100G float64
-	RetailPrice200G float64
-	RetailPrice227G float64
-	RetailPrice250G float64
-	RetailSpecs     []int64
-	Tiers           []ProductTierOption
+	ID                      int64
+	Name                    string
+	RoastLevel              string
+	DefaultPrice            float64
+	RetailPrice100G         float64
+	RetailPrice200G         float64
+	RetailPrice227G         float64
+	RetailPrice250G         float64
+	ProductCategoryID       int64
+	ProductCategoryPosition int
+	RetailSpecs             []int64
+	Tiers                   []ProductTierOption
 }
 
 func FetchOptions(ctx context.Context, pool *pgxpool.Pool, sqlstr string) ([]Option, error) {
@@ -58,7 +60,9 @@ func FetchProducts(ctx context.Context, pool *pgxpool.Pool, schema string) ([]Pr
 		COALESCE(retail_price_100g, 0),
 		COALESCE(retail_price_200g, 0),
 		COALESCE(retail_price_227g, default_price, 0),
-		COALESCE(retail_price_250g, 0)
+		COALESCE(retail_price_250g, 0),
+		COALESCE(product_category_id, 0),
+		COALESCE(product_category_position, 0)
 		FROM %s.products WHERE active=true ORDER BY name`, schema)
 	rows, err := pool.Query(ctx, sqlstr)
 	if err != nil {
@@ -69,7 +73,7 @@ func FetchProducts(ctx context.Context, pool *pgxpool.Pool, schema string) ([]Pr
 	out := make([]ProductOption, 0)
 	for rows.Next() {
 		var p ProductOption
-		if err := rows.Scan(&p.ID, &p.Name, &p.RoastLevel, &p.DefaultPrice, &p.RetailPrice100G, &p.RetailPrice200G, &p.RetailPrice227G, &p.RetailPrice250G); err != nil {
+		if err := rows.Scan(&p.ID, &p.Name, &p.RoastLevel, &p.DefaultPrice, &p.RetailPrice100G, &p.RetailPrice200G, &p.RetailPrice227G, &p.RetailPrice250G, &p.ProductCategoryID, &p.ProductCategoryPosition); err != nil {
 			return nil, err
 		}
 		p.RetailSpecs = salesdomain.RetailAvailableSpecs(salesdomain.RetailSpecPrices{

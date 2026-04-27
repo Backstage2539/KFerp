@@ -2,7 +2,7 @@
   <div class="page">
     <section class="panel">
       <div class="panel-head">
-        <h2>成本核算</h2>
+        <h2>价格与豆单</h2>
         <div class="actions">
           <button class="secondary" type="button" :disabled="loading" @click="loadBeanList">刷新</button>
           <button class="secondary" type="button" @click="settingsOpen = true">参数设置</button>

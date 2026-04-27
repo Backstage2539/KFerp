@@ -8,6 +8,7 @@ import (
 	catalogdomain "orderapp/internal/domain/catalog"
 	postgresinfra "orderapp/internal/infrastructure/postgres"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -99,6 +100,192 @@ func (r Repository) ReplacePriceTiers(ctx context.Context, cmd catalogapp.Replac
 	return nil
 }
 
+func (r Repository) UpdateProductBasics(ctx context.Context, cmd catalogapp.UpdateProductBasicsCommand) error {
+	roastLevel := catalogdomain.NormalizeRoastLevel(cmd.RoastLevel)
+	yieldRate := catalogdomain.ResolveYieldRate(roastLevel, 0.8)
+	conn, err := r.pool.Acquire(ctx)
+	if err != nil {
+		return err
+	}
+	defer conn.Release()
+	tx, err := conn.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	if _, err := tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.products
+		SET roast_level=$2, retail_price_100g=$3, retail_price_200g=$4, retail_price_227g=$5, retail_price_250g=$6
+		WHERE id=$1`, r.schema), cmd.ProductID, roastLevel, cmd.RetailPrice100G, cmd.RetailPrice200G, cmd.RetailPrice227G, cmd.RetailPrice250G); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, fmt.Sprintf(`INSERT INTO %s.product_bom(product_id,yield_rate,updated_at)
+		VALUES($1,$2,now())
+		ON CONFLICT (product_id) DO UPDATE SET yield_rate=excluded.yield_rate, updated_at=now()`, r.schema), cmd.ProductID, yieldRate); err != nil {
+		return err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return err
+	}
+	postgresinfra.AuditInsert(ctx, r.pool, r.schema, cmd.Actor, "product", &cmd.ProductID, "update", postgresinfra.StrPtr("product_basics"), nil, postgresinfra.StrPtr(roastLevel), postgresinfra.AuditMeta{
+		"product_id":        cmd.ProductID,
+		"roast_level":       roastLevel,
+		"yield_rate":        yieldRate,
+		"retail_price_100g": cmd.RetailPrice100G,
+		"retail_price_200g": cmd.RetailPrice200G,
+		"retail_price_227g": cmd.RetailPrice227G,
+		"retail_price_250g": cmd.RetailPrice250G,
+	})
+	return nil
+}
+
+func (r Repository) ListProductCategories(ctx context.Context) ([]catalogapp.ProductCategory, error) {
+	rows, err := r.pool.Query(ctx, fmt.Sprintf(`SELECT id, COALESCE(parent_id,0), name, level, position
+		FROM %s.product_categories
+		WHERE active=true
+		ORDER BY COALESCE(parent_id,0), position, id`, r.schema))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := make([]catalogapp.ProductCategory, 0)
+	for rows.Next() {
+		var row catalogapp.ProductCategory
+		if err := rows.Scan(&row.ID, &row.ParentID, &row.Name, &row.Level, &row.Position); err != nil {
+			return nil, err
+		}
+		out = append(out, row)
+	}
+	return out, rows.Err()
+}
+
+func (r Repository) SaveProductCategory(ctx context.Context, cmd catalogapp.SaveProductCategoryCommand) (catalogapp.ProductCategory, error) {
+	conn, err := r.pool.Acquire(ctx)
+	if err != nil {
+		return catalogapp.ProductCategory{}, err
+	}
+	defer conn.Release()
+	tx, err := conn.Begin(ctx)
+	if err != nil {
+		return catalogapp.ProductCategory{}, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	level := 1
+	parentID := cmd.ParentID
+	if parentID > 0 {
+		level = 2
+	}
+	position := cmd.Position
+	if position <= 0 {
+		position = 9999
+	}
+	var row catalogapp.ProductCategory
+	if cmd.ID > 0 {
+		if err := tx.QueryRow(ctx, fmt.Sprintf(`UPDATE %s.product_categories
+			SET parent_id=NULLIF($2,0), name=$3, level=$4, position=$5, updated_at=now()
+			WHERE id=$1 AND active=true
+			RETURNING id, COALESCE(parent_id,0), name, level, position`, r.schema), cmd.ID, parentID, cmd.Name, level, position).Scan(&row.ID, &row.ParentID, &row.Name, &row.Level, &row.Position); err != nil {
+			return catalogapp.ProductCategory{}, err
+		}
+	} else {
+		if err := tx.QueryRow(ctx, fmt.Sprintf(`INSERT INTO %s.product_categories(parent_id,name,level,position)
+			VALUES(NULLIF($1,0),$2,$3,$4)
+			RETURNING id, COALESCE(parent_id,0), name, level, position`, r.schema), parentID, cmd.Name, level, position).Scan(&row.ID, &row.ParentID, &row.Name, &row.Level, &row.Position); err != nil {
+			return catalogapp.ProductCategory{}, err
+		}
+	}
+	if err := normalizeCategoryPositions(ctx, tx, r.schema, parentID); err != nil {
+		return catalogapp.ProductCategory{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return catalogapp.ProductCategory{}, err
+	}
+	postgresinfra.AuditInsert(ctx, r.pool, r.schema, cmd.Actor, "product_category", &row.ID, "update", postgresinfra.StrPtr("category"), nil, postgresinfra.StrPtr(row.Name), postgresinfra.AuditMeta{"parent_id": parentID, "position": position})
+	return row, nil
+}
+
+func (r Repository) MoveProductCategory(ctx context.Context, cmd catalogapp.MoveProductCategoryCommand) error {
+	conn, err := r.pool.Acquire(ctx)
+	if err != nil {
+		return err
+	}
+	defer conn.Release()
+	tx, err := conn.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	var oldParent int64
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT COALESCE(parent_id,0) FROM %s.product_categories WHERE id=$1`, r.schema), cmd.ID).Scan(&oldParent); err != nil {
+		return err
+	}
+	level := 1
+	if cmd.ParentID > 0 {
+		level = 2
+	}
+	position := cmd.Position
+	if position <= 0 {
+		position = 9999
+	}
+	if _, err := tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.product_categories
+		SET parent_id=NULLIF($2,0), level=$3, position=$4, updated_at=now()
+		WHERE id=$1 AND active=true`, r.schema), cmd.ID, cmd.ParentID, level, position); err != nil {
+		return err
+	}
+	if err := normalizeCategoryPositions(ctx, tx, r.schema, oldParent); err != nil {
+		return err
+	}
+	if oldParent != cmd.ParentID {
+		if err := normalizeCategoryPositions(ctx, tx, r.schema, cmd.ParentID); err != nil {
+			return err
+		}
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return err
+	}
+	postgresinfra.AuditInsert(ctx, r.pool, r.schema, cmd.Actor, "product_category", &cmd.ID, "move", postgresinfra.StrPtr("parent_position"), postgresinfra.StrPtr(fmt.Sprintf("%d", oldParent)), postgresinfra.StrPtr(fmt.Sprintf("%d:%d", cmd.ParentID, position)), nil)
+	return nil
+}
+
+func (r Repository) AssignProductCategory(ctx context.Context, cmd catalogapp.AssignProductCategoryCommand) error {
+	conn, err := r.pool.Acquire(ctx)
+	if err != nil {
+		return err
+	}
+	defer conn.Release()
+	tx, err := conn.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	var oldCategory int64
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT COALESCE(product_category_id,0) FROM %s.products WHERE id=$1`, r.schema), cmd.ProductID).Scan(&oldCategory); err != nil {
+		return err
+	}
+	position := cmd.Position
+	if position <= 0 {
+		position = 9999
+	}
+	if _, err := tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.products
+		SET product_category_id=NULLIF($2,0), product_category_position=$3
+		WHERE id=$1`, r.schema), cmd.ProductID, cmd.CategoryID, position); err != nil {
+		return err
+	}
+	if err := normalizeProductPositions(ctx, tx, r.schema, oldCategory); err != nil {
+		return err
+	}
+	if oldCategory != cmd.CategoryID {
+		if err := normalizeProductPositions(ctx, tx, r.schema, cmd.CategoryID); err != nil {
+			return err
+		}
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return err
+	}
+	postgresinfra.AuditInsert(ctx, r.pool, r.schema, cmd.Actor, "product", &cmd.ProductID, "move", postgresinfra.StrPtr("product_category"), postgresinfra.StrPtr(fmt.Sprintf("%d", oldCategory)), postgresinfra.StrPtr(fmt.Sprintf("%d:%d", cmd.CategoryID, position)), nil)
+	return nil
+}
+
 func fetchProductByID(ctx context.Context, pool *pgxpool.Pool, schema string, id int64) (*postgresinfra.ProductOption, error) {
 	ps, err := postgresinfra.FetchProducts(ctx, pool, schema)
 	if err != nil {
@@ -112,8 +299,9 @@ func fetchProductByID(ctx context.Context, pool *pgxpool.Pool, schema string, id
 	var p postgresinfra.ProductOption
 	err = pool.QueryRow(ctx, fmt.Sprintf(`SELECT id, name, COALESCE(roast_level,''), default_price,
 		COALESCE(retail_price_100g, 0), COALESCE(retail_price_200g, 0),
-		COALESCE(retail_price_227g, default_price, 0), COALESCE(retail_price_250g, 0)
-		FROM %s.products WHERE id=$1`, schema), id).Scan(&p.ID, &p.Name, &p.RoastLevel, &p.DefaultPrice, &p.RetailPrice100G, &p.RetailPrice200G, &p.RetailPrice227G, &p.RetailPrice250G)
+		COALESCE(retail_price_227g, default_price, 0), COALESCE(retail_price_250g, 0),
+		COALESCE(product_category_id,0), COALESCE(product_category_position,0)
+		FROM %s.products WHERE id=$1`, schema), id).Scan(&p.ID, &p.Name, &p.RoastLevel, &p.DefaultPrice, &p.RetailPrice100G, &p.RetailPrice200G, &p.RetailPrice227G, &p.RetailPrice250G, &p.ProductCategoryID, &p.ProductCategoryPosition)
 	if err != nil {
 		return nil, nil
 	}
@@ -121,7 +309,7 @@ func fetchProductByID(ctx context.Context, pool *pgxpool.Pool, schema string, id
 }
 
 func catalogProductFromOption(p postgresinfra.ProductOption) catalogapp.Product {
-	out := catalogapp.Product{ID: p.ID, Name: p.Name, RoastLevel: p.RoastLevel, DefaultPrice: p.DefaultPrice, RetailPrice100G: p.RetailPrice100G, RetailPrice200G: p.RetailPrice200G, RetailPrice227G: p.RetailPrice227G, RetailPrice250G: p.RetailPrice250G}
+	out := catalogapp.Product{ID: p.ID, Name: p.Name, RoastLevel: p.RoastLevel, DefaultPrice: p.DefaultPrice, RetailPrice100G: p.RetailPrice100G, RetailPrice200G: p.RetailPrice200G, RetailPrice227G: p.RetailPrice227G, RetailPrice250G: p.RetailPrice250G, ProductCategoryID: p.ProductCategoryID, ProductCategoryPosition: p.ProductCategoryPosition}
 	out.Tiers = make([]catalogapp.PriceTier, 0, len(p.Tiers))
 	for _, t := range p.Tiers {
 		out.Tiers = append(out.Tiers, catalogapp.PriceTier{ID: t.ID, SpecG: t.SpecG, MinQty: t.MinQty, MaxQty: t.MaxQty, UnitPrice: t.UnitPrice})
@@ -135,4 +323,58 @@ func catalogProductsFromOptions(products []postgresinfra.ProductOption) []catalo
 		out = append(out, catalogProductFromOption(p))
 	}
 	return out
+}
+
+func normalizeCategoryPositions(ctx context.Context, tx pgx.Tx, schema string, parentID int64) error {
+	rows, err := tx.Query(ctx, fmt.Sprintf(`SELECT id FROM %s.product_categories
+		WHERE active=true AND COALESCE(parent_id,0)=$1
+		ORDER BY position, id`, schema), parentID)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	ids := make([]int64, 0)
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			return err
+		}
+		ids = append(ids, id)
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	for i, id := range ids {
+		if _, err := tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.product_categories SET position=$2, updated_at=now() WHERE id=$1`, schema), id, i+1); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func normalizeProductPositions(ctx context.Context, tx pgx.Tx, schema string, categoryID int64) error {
+	rows, err := tx.Query(ctx, fmt.Sprintf(`SELECT id FROM %s.products
+		WHERE active=true AND COALESCE(product_category_id,0)=$1
+		ORDER BY product_category_position, name, id`, schema), categoryID)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	ids := make([]int64, 0)
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			return err
+		}
+		ids = append(ids, id)
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	for i, id := range ids {
+		if _, err := tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.products SET product_category_position=$2 WHERE id=$1`, schema), id, i+1); err != nil {
+			return err
+		}
+	}
+	return nil
 }

@@ -393,6 +393,13 @@ func seedReqWorkflowA(ctx context.Context, pool *pgxpool.Pool, schema string) er
 		{table: "req_unit", code: "UT-088-01", title: "源码守卫覆盖 PDF 预览必须包含报价、风味、特点、出品建议和产品价格卡片", status: "done", assignee: "Codex", evidence: "TestCostingViewPDFPreviewShowsFullBeanCardsBeforePrinting"},
 		{table: "req_api", code: "API-088-01", title: "接口级源码守卫覆盖 PDF 分组分页不能整组禁止换页", status: "done", assignee: "Codex", evidence: "TestCostingViewPDFPrintDoesNotKeepWholeGroupsOnOnePage"},
 		{table: "req_review", code: "REV-088-01", prCode: "PR-088", title: "验收：PDF 生成前能预览完整商用/零售豆单，生成 PDF 不再只包含曲奇", status: "todo", assignee: "VA", evidence: "待 Van 服务器验收"},
+		{table: "req_product", code: "PR-089", title: "成本核算改名为产品设置，合并旧商品档案并支持商品一、二级分类拖拽编号", status: "review", assignee: "VA", evidence: "codex/product-settings-categories"},
+		{table: "req_dev", code: "DEV-089-01", title: "新增产品设置 API：返回分类树和商品列表，并支持创建分类、拖动二级分类、拖入某个分类", status: "done", assignee: "Codex", evidence: "GET /api/product-settings; category/product assignment APIs"},
+		{table: "req_dev", code: "DEV-089-02", title: "产品设置页面合并旧商品档案和旧成本核算，支持一级分类、二级分类和商品编号从 1 开始排序", status: "done", assignee: "Codex", evidence: "ProductSettingsView.vue"},
+		{table: "req_dev", code: "DEV-089-03", title: "旧商品档案删除阶梯价编辑，基础商品信息与成本核算发布价格继续联动", status: "done", assignee: "Codex", evidence: "ProductsView.vue; UpdateProductBasics"},
+		{table: "req_unit", code: "UT-089-01", title: "源码守卫覆盖产品设置入口、拖拽分类、旧商品档案阶梯价编辑删除和需求种子", status: "done", assignee: "Codex", evidence: "TestProductSettingsRequirementSeeds; TestProductSettingsVueWiringAndLegacyTierEditorRemoval; menu-ia.test.js"},
+		{table: "req_api", code: "API-089-01", title: "覆盖 /api/product-settings 分类树、创建分类、移动二级分类、商品归类和旧页面重定向", status: "done", assignee: "Codex", evidence: "TestProductSettingsAPISupportsCategoryTreeAndDragAssignments; TestLegacyProductAndCostingRoutesRedirectToProductSettings"},
+		{table: "req_review", code: "REV-089-01", prCode: "PR-089", title: "验收：产品设置替代成本核算/商品档案主入口，分类与商品拖拽编号可保存，旧商品档案不再编辑阶梯价", status: "todo", assignee: "VA", evidence: "待 Van 服务器验收"},
 	} {
 		if err := seedReqRow(ctx, pool, schema, row); err != nil {
 			return err

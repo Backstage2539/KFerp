@@ -35,3 +35,11 @@ test('expanded menu groups persist and keep current group open', () => {
   const restored = restoreExpandedGroups(menuGroups, JSON.stringify(['sales']), 'warehouseInventory')
   assert.deepEqual(restored, ['sales', 'inventory'])
 })
+
+test('product menu exposes unified product settings and keeps legacy views hidden', () => {
+  const keys = primaryMenuKeys(menuGroups)
+  assert.ok(keys.includes('productSettings'))
+  assert.equal(keys.includes('products'), false)
+  assert.equal(keys.includes('costing'), false)
+  assert.equal(groupForView(menuGroups, 'productSettings')?.id, 'product')
+})

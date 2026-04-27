@@ -1,0 +1,146 @@
+package catalog
+
+import (
+	"bytes"
+	"context"
+	"net/http"
+	"net/http/httptest"
+	catalogapp "orderapp/internal/application/catalog"
+	"testing"
+
+	"github.com/labstack/echo/v4"
+)
+
+type productSettingsRepo struct {
+	products        []catalogapp.Product
+	categories      []catalogapp.ProductCategory
+	savedCategory   catalogapp.SaveProductCategoryCommand
+	movedCategory   catalogapp.MoveProductCategoryCommand
+	assigned        catalogapp.AssignProductCategoryCommand
+	categoryCreated bool
+	categoryMoved   bool
+	productAssigned bool
+}
+
+func (r *productSettingsRepo) ListProducts(ctx context.Context) ([]catalogapp.Product, error) {
+	return r.products, nil
+}
+
+func (r *productSettingsRepo) GetProduct(ctx context.Context, id int64) (*catalogapp.Product, error) {
+	for i := range r.products {
+		if r.products[i].ID == id {
+			return &r.products[i], nil
+		}
+	}
+	return nil, nil
+}
+
+func (r *productSettingsRepo) ReplacePriceTiers(ctx context.Context, cmd catalogapp.ReplacePriceTiersCommand) error {
+	return nil
+}
+
+func (r *productSettingsRepo) UpdateProductBasics(ctx context.Context, cmd catalogapp.UpdateProductBasicsCommand) error {
+	return nil
+}
+
+func (r *productSettingsRepo) ListProductCategories(ctx context.Context) ([]catalogapp.ProductCategory, error) {
+	return r.categories, nil
+}
+
+func (r *productSettingsRepo) SaveProductCategory(ctx context.Context, cmd catalogapp.SaveProductCategoryCommand) (catalogapp.ProductCategory, error) {
+	r.savedCategory = cmd
+	r.categoryCreated = true
+	return catalogapp.ProductCategory{ID: 99, ParentID: cmd.ParentID, Name: cmd.Name, Position: cmd.Position}, nil
+}
+
+func (r *productSettingsRepo) MoveProductCategory(ctx context.Context, cmd catalogapp.MoveProductCategoryCommand) error {
+	r.movedCategory = cmd
+	r.categoryMoved = true
+	return nil
+}
+
+func (r *productSettingsRepo) AssignProductCategory(ctx context.Context, cmd catalogapp.AssignProductCategoryCommand) error {
+	r.assigned = cmd
+	r.productAssigned = true
+	return nil
+}
+
+func TestProductSettingsAPISupportsCategoryTreeAndDragAssignments(t *testing.T) {
+	repo := &productSettingsRepo{
+		products: []catalogapp.Product{{
+			ID: 7, Name: "曲奇拼配", ProductCategoryID: 2, ProductCategoryPosition: 1,
+		}},
+		categories: []catalogapp.ProductCategory{
+			{ID: 1, Name: "咖啡豆", Level: 1, Position: 1},
+			{ID: 2, ParentID: 1, Name: "意式拼配", Level: 2, Position: 1},
+		},
+	}
+	e := echo.New()
+	registerProductRoutes(e, catalogapp.NewService(repo))
+
+	req := httptest.NewRequest(http.MethodGet, "/api/product-settings", nil)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET /api/product-settings status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	for _, want := range []string{`"categories"`, `"children"`, `"products"`, `"number":1`, `"name":"咖啡豆"`, `"name":"意式拼配"`, `"name":"曲奇拼配"`} {
+		if !bytes.Contains(rec.Body.Bytes(), []byte(want)) {
+			t.Fatalf("product settings response missing %s: %s", want, rec.Body.String())
+		}
+	}
+
+	req = httptest.NewRequest(http.MethodPost, "/api/product-settings/categories", bytes.NewBufferString(`{"name":"单品豆","parent_id":1,"position":2}`))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec = httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("POST category status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if !repo.categoryCreated || repo.savedCategory.Name != "单品豆" || repo.savedCategory.ParentID != 1 || repo.savedCategory.Position != 2 {
+		t.Fatalf("category command = %+v created=%v", repo.savedCategory, repo.categoryCreated)
+	}
+
+	req = httptest.NewRequest(http.MethodPost, "/api/product-settings/categories/2/move", bytes.NewBufferString(`{"parent_id":1,"position":1}`))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec = httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("POST move category status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if !repo.categoryMoved || repo.movedCategory.ID != 2 || repo.movedCategory.ParentID != 1 || repo.movedCategory.Position != 1 {
+		t.Fatalf("move category command = %+v moved=%v", repo.movedCategory, repo.categoryMoved)
+	}
+
+	req = httptest.NewRequest(http.MethodPost, "/api/product-settings/products/7/category", bytes.NewBufferString(`{"category_id":2,"position":3}`))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec = httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("POST assign product status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if !repo.productAssigned || repo.assigned.ProductID != 7 || repo.assigned.CategoryID != 2 || repo.assigned.Position != 3 {
+		t.Fatalf("assign product command = %+v assigned=%v", repo.assigned, repo.productAssigned)
+	}
+}
+
+func TestLegacyProductAndCostingRoutesRedirectToProductSettings(t *testing.T) {
+	e := echo.New()
+	registerProductRoutes(e, catalogapp.NewService(&productSettingsRepo{}))
+
+	cases := []struct {
+		path string
+		want string
+	}{
+		{path: "/products", want: "/vue-shell?view=productSettings"},
+		{path: "/products/7", want: "/vue-shell?view=productSettings&edit_id=7"},
+	}
+	for _, tc := range cases {
+		req := httptest.NewRequest(http.MethodGet, tc.path, nil)
+		rec := httptest.NewRecorder()
+		e.ServeHTTP(rec, req)
+		if rec.Code != http.StatusFound || rec.Header().Get("Location") != tc.want {
+			t.Fatalf("GET %s status=%d location=%q want %s", tc.path, rec.Code, rec.Header().Get("Location"), tc.want)
+		}
+	}
+}
