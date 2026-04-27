@@ -281,6 +281,17 @@ func seedReqWorkflowA(ctx context.Context, pool *pgxpool.Pool, schema string) er
 		{table: "req_unit", code: "UT-DDD-003", title: "架构守卫覆盖 BOM adapter 位置、生产运行用例边界和订单旧模板删除", status: "done", assignee: "Codex", evidence: "go test ./internal/architecture -count=1"},
 		{table: "req_api", code: "API-DDD-003", title: "BOM 与生产运行接口模块在 DDD 收口后保持兼容", status: "done", assignee: "Codex", evidence: "go test ./internal/interfaces/http/bom ./internal/interfaces/http/production ./internal/interfaces/http/support -count=1"},
 		{table: "req_review", code: "REV-DDD-003", prCode: "PR-DDD-003", title: "架构验收：剩余 P2/P3 收口后不再存在这轮发现的 DDD 违例", status: "todo", assignee: "VA", evidence: "待 Van 验收"},
+		{table: "req_product", code: "PR-074", title: "将 Excel 成本核算与豆单生成逻辑迁移到 ERP：成本试算、价格发布、豆单预览", status: "review", assignee: "VA", evidence: "codex/excel-costing-erp-ddd"},
+		{table: "req_dev", code: "DEV-074-01", title: "实现 DDD 成本核算公式引擎：物料/BOM/生产参数 -> 成本/供应价/零售价/挂耳价", status: "done", assignee: "Codex", evidence: "internal/domain/costing; TestEngineMatchesExcelCachedGoldens"},
+		{table: "req_dev", code: "DEV-074-02", title: "实现成本核算 application、Postgres adapter、API、试算批次保存和发布价格", status: "done", assignee: "Codex", evidence: "internal/application/costing; internal/infrastructure/postgres/costing; internal/interfaces/http/costing"},
+		{table: "req_dev", code: "DEV-074-03", title: "实现 Vue 成本核算入口和豆单预览页面", status: "done", assignee: "Codex", evidence: "frontend-vue-shell/src/views/CostingView.vue"},
+		{table: "req_unit", code: "UT-074-01", title: "成本核算公式与 Excel 缓存金标准对齐，误差 <= 0.0001", status: "done", assignee: "Codex", evidence: "go test ./internal/domain/costing -count=1"},
+		{table: "req_unit", code: "UT-074-02", title: "成本 application 校验、试算保存编排和发布 ID 校验通过", status: "done", assignee: "Codex", evidence: "go test ./internal/application/costing -count=1"},
+		{table: "req_api", code: "API-074-01", title: "GET /api/costing/parameters 返回生产参数", status: "done", assignee: "Codex", evidence: "internal/interfaces/http/costing route test"},
+		{table: "req_api", code: "API-074-02", title: "POST /api/costing/calculate 返回成本/供应价/零售价/挂耳价", status: "done", assignee: "Codex", evidence: "TestCostingCalculateAPI"},
+		{table: "req_api", code: "API-074-03", title: "GET /api/costing/bean-list 返回豆单预览数据", status: "done", assignee: "Codex", evidence: "internal/interfaces/http/costing route test"},
+		{table: "req_api", code: "API-074-04", title: "POST /api/costing/runs/:id/publish 发布价格并写审计日志", status: "done", assignee: "Codex", evidence: "Postgres adapter PublishRun + audit"},
+		{table: "req_review", code: "REV-074-01", prCode: "PR-074", title: "ERP 成本核算结果可对齐 Excel 样本，豆单预览可打开，发布后录单使用新价格", status: "todo", assignee: "VA", evidence: "待 Van 服务器验收"},
 	} {
 		if err := seedReqRow(ctx, pool, schema, row); err != nil {
 			return err
