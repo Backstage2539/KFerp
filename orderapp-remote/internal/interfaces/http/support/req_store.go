@@ -421,6 +421,11 @@ func seedReqWorkflowA(ctx context.Context, pool *pgxpool.Pool, schema string) er
 		{table: "req_unit", code: "UT-092-01", title: "源码守卫覆盖拖拽状态延后清理、BOM出品率文案和 product_bom.yield_rate 单一来源", status: "done", assignee: "Codex", evidence: "TestProductSettingsDragEndAndBomYieldAreWiredToSingleSource"},
 		{table: "req_api", code: "API-092-01", title: "接口级验证产品设置 API 的 yield_rate 读写同一个 product_bom.yield_rate 字段", status: "done", assignee: "Codex", evidence: "TestProductSettingsAPIUpdatesProductYieldRate; catalog repository source guard"},
 		{table: "req_review", code: "REV-092-01", prCode: "PR-092", title: "验收：二级分类拖拽插入横线可保存位置，产品设置 BOM出品率 与 BOM 配方维护出品率一致", status: "todo", assignee: "VA", evidence: "待 Van 服务器验收"},
+		{table: "req_product", code: "PR-093", title: "二级分类拖拽改为指针定位，避免鼠标松开时未命中原生 drop target 导致回到原位置", status: "review", assignee: "VA", evidence: "codex/product-settings-categories"},
+		{table: "req_dev", code: "DEV-093-01", title: "二级分类拖拽改为 pointer 事件按鼠标 Y 坐标持续计算插入线，鼠标松开后按当前插入线保存", status: "done", assignee: "Codex", evidence: "ProductSettingsView pointer category sorting"},
+		{table: "req_unit", code: "UT-093-01", title: "源码守卫覆盖二级分类排序不再依赖原生 dragstart/drop，必须使用 pointerdown/move/up 和坐标计算", status: "done", assignee: "Codex", evidence: "TestProductSettingsSecondaryCategoryDragUsesPointerPositionInsteadOfNativeDrop"},
+		{table: "req_api", code: "API-093-01", title: "沿用 /api/product-settings/categories/:id/move 保存拖拽后的 parent_id 和 position", status: "done", assignee: "Codex", evidence: "TestProductSettingsAPISupportsCategoryTreeAndDragAssignments"},
+		{table: "req_review", code: "REV-093-01", prCode: "PR-093", title: "验收：二级分类拖到目标位置附近松开鼠标，会按横线位置保存，不再大多数时候回到原位置", status: "todo", assignee: "VA", evidence: "待 Van 服务器验收"},
 	} {
 		if err := seedReqRow(ctx, pool, schema, row); err != nil {
 			return err

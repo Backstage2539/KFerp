@@ -31,8 +31,9 @@
               v-for="primary in categories"
               :key="primary.id"
               class="primary-category"
-              @dragover.prevent
-              @drop="dropCategoryOnPrimary(primary)">
+              :data-primary-id="primary.id"
+              @dragover.prevent="handlePrimaryCategoryDragOver($event, primary)"
+              @drop.prevent="dropCategoryOnCurrentTarget(primary)">
               <form v-if="editingCategoryId === primary.id" class="inline-form sub-form" @submit.prevent="saveCategoryName(primary)">
                 <input v-model.trim="editingCategoryName" placeholder="一级分类名称" />
                 <button class="secondary" type="submit">保存</button>
@@ -60,11 +61,12 @@
               <template v-for="(secondary, index) in primary.children" :key="secondary.id">
                 <div
                   class="secondary-category"
-                  :class="{ dragging: isDraggingCategory(secondary) }"
-                  draggable="true"
-                  @dragstart="startCategoryDrag(secondary)"
-                  @dragend="scheduleClearDrag"
-                  @dragover.prevent.stop
+                  :class="{ dragging: isDraggingCategory(secondary), 'pointer-dragging': isPointerDraggingCategory(secondary) }"
+                  :data-secondary-id="secondary.id"
+                  :data-secondary-position="index + 1"
+                  @pointerdown="startCategoryPointerDrag($event, primary, index + 1, secondary)"
+                  @dragenter.prevent.stop="handleSecondaryCategoryDragOver($event, primary, index + 1)"
+                  @dragover.prevent.stop="handleSecondaryCategoryDragOver($event, primary, index + 1)"
                   @drop.prevent.stop="dropCategoryOrProductOnSecondary(primary, index + 1, secondary)">
                   <form v-if="editingCategoryId === secondary.id" class="inline-form sub-form" @submit.prevent="saveCategoryName(secondary)">
                     <input v-model.trim="editingCategoryName" placeholder="二级分类名称" />
@@ -187,6 +189,7 @@ const newPrimaryName = ref('')
 const newSecondaryName = ref('')
 const addingSecondaryFor = ref(0)
 const dragging = ref(null)
+const pointerDrag = ref(null)
 const categoryDropTarget = ref(null)
 const editingCategoryId = ref(0)
 const editingCategoryName = ref('')
@@ -334,6 +337,96 @@ function startCategoryDrag(category) {
   categoryDropTarget.value = null
 }
 
+function startCategoryPointerDrag(event, primary, visualPosition, category) {
+  if (event.button !== 0 || isInteractiveDragSource(event.target)) return
+  pointerDrag.value = {
+    pointerID: event.pointerId,
+    startX: event.clientX,
+    startY: event.clientY,
+    primaryID: Number(primary.id),
+    visualPosition: Number(visualPosition),
+    category,
+    active: false,
+    element: event.currentTarget,
+  }
+  event.currentTarget.setPointerCapture?.(event.pointerId)
+  event.currentTarget.addEventListener('pointermove', handleCategoryPointerMove)
+  event.currentTarget.addEventListener('pointerup', handleCategoryPointerUp)
+  event.currentTarget.addEventListener('pointercancel', cancelCategoryPointerDrag)
+}
+
+function isInteractiveDragSource(target) {
+  return Boolean(target?.closest?.('button,input,select,textarea,a,.product-chip'))
+}
+
+function handleCategoryPointerMove(event) {
+  const state = pointerDrag.value
+  if (!state || state.pointerID !== event.pointerId) return
+  const moved = Math.abs(event.clientX - state.startX) + Math.abs(event.clientY - state.startY)
+  if (!state.active) {
+    if (moved < 5) return
+    state.active = true
+    startCategoryDrag(state.category)
+  }
+  event.preventDefault()
+  const target = resolveCategoryPointerTarget(event.clientX, event.clientY, state.primaryID)
+  if (!target) return
+  categoryDropTarget.value = { parentID: Number(target.primary.id), position: Number(target.position) }
+}
+
+async function handleCategoryPointerUp(event) {
+  const state = pointerDrag.value
+  if (!state || state.pointerID !== event.pointerId) return
+  const target = categoryDropTarget.value
+  const active = state.active
+  cleanupCategoryPointerDrag()
+  if (!active) {
+    clearDrag()
+    return
+  }
+  event.preventDefault()
+  const primary = categories.value.find((item) => Number(item.id) === Number(target?.parentID))
+  if (!primary || !target) {
+    clearDrag()
+    return
+  }
+  await dropCategoryAtPosition(primary, target.position)
+}
+
+function cancelCategoryPointerDrag() {
+  cleanupCategoryPointerDrag()
+  clearDrag()
+}
+
+function cleanupCategoryPointerDrag() {
+  const state = pointerDrag.value
+  if (state?.element) {
+    state.element.removeEventListener('pointermove', handleCategoryPointerMove)
+    state.element.removeEventListener('pointerup', handleCategoryPointerUp)
+    state.element.removeEventListener('pointercancel', cancelCategoryPointerDrag)
+  }
+  pointerDrag.value = null
+}
+
+function resolveCategoryPointerTarget(clientX, clientY, fallbackPrimaryID) {
+  const elements = document.elementsFromPoint(clientX, clientY)
+  const primaryElement = elements.find((item) => item.classList?.contains('primary-category'))
+    || document.querySelector(`[data-primary-id="${fallbackPrimaryID}"]`)
+  if (!primaryElement) return null
+  const primaryID = Number(primaryElement.dataset.primaryId || fallbackPrimaryID)
+  const primary = categories.value.find((item) => Number(item.id) === primaryID)
+  if (!primary) return null
+  const secondaryElements = Array.from(primaryElement.querySelectorAll('.secondary-category'))
+  if (!secondaryElements.length) return { primary, position: 1 }
+  for (let index = 0; index < secondaryElements.length; index += 1) {
+    const rect = secondaryElements[index].getBoundingClientRect()
+    if (clientY < rect.top + rect.height / 2) {
+      return { primary, position: index + 1 }
+    }
+  }
+  return { primary, position: secondaryElements.length + 1 }
+}
+
 function startProductDrag(product) {
   dragging.value = { type: 'product', id: Number(product.id) }
   categoryDropTarget.value = null
@@ -352,9 +445,28 @@ function isDraggingCategory(category) {
   return dragging.value?.type === 'category' && dragging.value.id === Number(category.id)
 }
 
+function isPointerDraggingCategory(category) {
+  return pointerDrag.value?.active && Number(pointerDrag.value.category?.id) === Number(category.id)
+}
+
 function setCategoryDropTarget(primary, position) {
   if (dragging.value?.type !== 'category') return
   categoryDropTarget.value = { parentID: Number(primary.id), position: Number(position) }
+}
+
+function handlePrimaryCategoryDragOver(event, primary) {
+  if (dragging.value?.type !== 'category') return
+  const target = resolveCategoryPointerTarget(event.clientX, event.clientY, Number(primary.id))
+  if (target) {
+    categoryDropTarget.value = { parentID: Number(target.primary.id), position: Number(target.position) }
+  }
+}
+
+function handleSecondaryCategoryDragOver(event, primary, visualPosition) {
+  if (dragging.value?.type !== 'category') return
+  const rect = event.currentTarget.getBoundingClientRect()
+  const position = event.clientY > rect.top + rect.height / 2 ? Number(visualPosition) + 1 : Number(visualPosition)
+  categoryDropTarget.value = { parentID: Number(primary.id), position }
 }
 
 function isCategoryDropTarget(primary, position) {
@@ -388,6 +500,15 @@ async function dropCategoryAtPosition(primary, visualPosition) {
 async function dropCategoryOnPrimary(primary) {
   if (dragging.value?.type !== 'category') return
   await dropCategoryAtPosition(primary, Number(primary.children?.length || 0) + 1)
+}
+
+async function dropCategoryOnCurrentTarget(primary) {
+  if (dragging.value?.type !== 'category') return
+  const parentID = Number(primary.id)
+  const position = categoryDropTarget.value?.parentID === parentID
+    ? categoryDropTarget.value.position
+    : Number(primary.children?.length || 0) + 1
+  await dropCategoryAtPosition(primary, position)
 }
 
 async function dropCategoryOrProductOnSecondary(primary, visualPosition, secondary) {
@@ -475,8 +596,9 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .category-tree { display: grid; gap: 10px; }
 .primary-category { border: 1px solid #eee8df; border-radius: 8px; padding: 10px; background: #fbfaf8; }
 .category-head, .secondary-head, .category-actions { display: flex; align-items: center; gap: 8px; justify-content: space-between; }
-.secondary-category { border: 1px solid #ddd; border-radius: 8px; padding: 9px; background: #fff; }
+.secondary-category { border: 1px solid #ddd; border-radius: 8px; padding: 9px; background: #fff; cursor: grab; user-select: none; touch-action: none; }
 .secondary-category.dragging { opacity: .45; }
+.secondary-category.pointer-dragging { cursor: grabbing; }
 .secondary-head span { display: inline-flex; width: 24px; height: 24px; align-items: center; justify-content: center; border: 1px solid #ddd; border-radius: 6px; }
 .secondary-head small { color: #666; }
 .category-drop-line { height: 16px; border-top: 2px solid transparent; margin: 2px 0; transition: border-color .12s ease, background .12s ease; }

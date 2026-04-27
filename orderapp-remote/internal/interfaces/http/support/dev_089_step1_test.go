@@ -78,6 +78,27 @@ func TestProductSettingsDragAndBomYieldFollowupRequirementSeeds(t *testing.T) {
 	}
 }
 
+func TestProductSettingsRobustPointerDragRequirementSeeds(t *testing.T) {
+	b, err := os.ReadFile(filepath.Join("internal", "interfaces", "http", "support", "req_store.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := string(b)
+	for _, want := range []string{
+		"PR-093",
+		"DEV-093-01",
+		"UT-093-01",
+		"API-093-01",
+		"REV-093-01",
+		"二级分类拖拽改为指针定位",
+		"鼠标松开后按当前插入线保存",
+	} {
+		if !strings.Contains(src, want) {
+			t.Fatalf("product settings robust pointer drag requirement seed missing %q", want)
+		}
+	}
+}
+
 func TestProductSettingsVueWiringAndLegacyTierEditorRemoval(t *testing.T) {
 	app, err := os.ReadFile(filepath.Join("frontend-vue-shell", "src", "App.vue"))
 	if err != nil {
@@ -203,5 +224,32 @@ func TestProductSettingsDragEndAndBomYieldAreWiredToSingleSource(t *testing.T) {
 	}
 	if !strings.Contains(string(queries), "LEFT JOIN %[1]s.product_bom b ON b.product_id=p.id") {
 		t.Fatalf("product settings list must read yield_rate from product_bom")
+	}
+}
+
+func TestProductSettingsSecondaryCategoryDragUsesPointerPositionInsteadOfNativeDrop(t *testing.T) {
+	settings, err := os.ReadFile(filepath.Join("frontend-vue-shell", "src", "views", "ProductSettingsView.vue"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := string(settings)
+	for _, want := range []string{
+		"@pointerdown=\"startCategoryPointerDrag($event, primary, index + 1, secondary)\"",
+		"handleCategoryPointerMove",
+		"handleCategoryPointerUp",
+		"resolveCategoryPointerTarget",
+		"document.elementsFromPoint",
+		"getBoundingClientRect",
+		"setPointerCapture",
+		"dropCategoryAtPosition(primary, target.position)",
+		"data-primary-id",
+		"data-secondary-position",
+	} {
+		if !strings.Contains(src, want) {
+			t.Fatalf("product settings robust pointer drag missing %q", want)
+		}
+	}
+	if strings.Contains(src, "@dragstart=\"startCategoryDrag(secondary)\"") {
+		t.Fatalf("secondary category sorting must not depend on native HTML5 dragstart/drop")
 	}
 }
