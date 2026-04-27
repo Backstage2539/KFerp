@@ -134,6 +134,13 @@ func (repo Repository) Finish(ctx context.Context, cmd productionapp.FinishComma
 	); err != nil {
 		return err
 	}
+	actualCost, err := recordBatchCostForRunningItemTx(ctx, tx, schema, r, finishedTotal)
+	if err != nil {
+		return err
+	}
+	if err := completeWorkOrderForRunningItemTx(ctx, tx, schema, r.ID, actualCost, operator); err != nil {
+		return err
+	}
 	if _, err := tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.produce_running_items SET status='done',finished_by=$2,finished_at=$3 WHERE id=$1`, schema), id, operator, finishedAt); err != nil {
 		return err
 	}
@@ -169,6 +176,9 @@ func (repo Repository) Cancel(ctx context.Context, cmd productionapp.CancelComma
 	}
 	cancelledAt := time.Now()
 	if _, err := tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.produce_running_items SET status='cancelled',finished_by=$2,finished_at=$3 WHERE id=$1`, schema), id, operator, cancelledAt); err != nil {
+		return err
+	}
+	if err := cancelWorkOrderForRunningItemTx(ctx, tx, schema, r.ID, operator); err != nil {
 		return err
 	}
 	for _, no := range splitOrderNos(r.OrderNos) {

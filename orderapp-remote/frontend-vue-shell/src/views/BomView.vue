@@ -103,6 +103,46 @@
     </div>
 
     <section class="panel">
+      <div class="panel-title">BOM版本</div>
+      <div class="inline-form">
+        <label>
+          <span>版本备注</span>
+          <input v-model.trim="versionNote" placeholder="例如 2026 春季豆单" :disabled="!selectedProductId" />
+        </label>
+        <button class="primary" type="button" @click="createVersion" :disabled="!selectedProductId || loading">保存当前为版本</button>
+      </div>
+      <div class="table-wrap compact">
+        <table>
+          <thead>
+            <tr>
+              <th>版本</th>
+              <th>状态</th>
+              <th>出品率</th>
+              <th>物料数</th>
+              <th>备注</th>
+              <th>创建时间</th>
+              <th>操作</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="version in versions" :key="version.id">
+              <td>{{ version.version_no }}</td>
+              <td>{{ version.status }}</td>
+              <td>{{ pct(version.yield_rate) }}</td>
+              <td>{{ version.item_count }}</td>
+              <td>{{ version.note }}</td>
+              <td>{{ version.created_at }}</td>
+              <td><button class="text-button" type="button" @click="activateVersion(version.id)" :disabled="version.status === 'active'">启用</button></td>
+            </tr>
+            <tr v-if="!versions.length">
+              <td colspan="7" class="muted">暂无版本</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="panel">
       <div class="panel-title">规格袋材映射</div>
       <form class="inline-form" @submit.prevent="saveMapping">
         <label>
@@ -151,6 +191,7 @@ const rows = ref([])
 const products = ref([])
 const materials = ref([])
 const mappings = ref([])
+const versions = ref([])
 const detail = ref(null)
 const selectedProductId = ref(0)
 const loading = ref(false)
@@ -158,6 +199,7 @@ const error = ref('')
 const ok = ref('')
 const itemForm = reactive({ material_id: 0, ratio_pct: '' })
 const mappingForm = reactive({ spec_g: 227, material_id: 0 })
+const versionNote = ref('')
 
 const detailItems = computed(() => detail.value?.items || [])
 
@@ -209,7 +251,17 @@ async function loadDetail(productId) {
     return
   }
   detail.value = await apiGet(`/api/bom/detail/${productId}`)
+  await loadVersions(productId)
   updateUrl()
+}
+
+async function loadVersions(productId) {
+  if (!productId) {
+    versions.value = []
+    return
+  }
+  const data = await apiGet(`/api/bom/versions?product_id=${productId}`)
+  versions.value = data.rows || []
 }
 
 async function selectProduct(productId) {
@@ -274,6 +326,23 @@ async function deleteMapping(specG) {
   await mutate(async () => {
     await apiSend('/api/bom/bag-spec-mappings/delete', { body: { spec_g: specG } })
     ok.value = '已删除映射'
+    await loadAll()
+  })
+}
+
+async function createVersion() {
+  await mutate(async () => {
+    await apiSend('/api/bom/versions', { body: { product_id: selectedProductId.value, note: versionNote.value } })
+    versionNote.value = ''
+    ok.value = '已保存版本'
+    await loadVersions(selectedProductId.value)
+  })
+}
+
+async function activateVersion(id) {
+  await mutate(async () => {
+    await apiSend(`/api/bom/versions/${id}/activate`, { body: {} })
+    ok.value = '已启用版本'
     await loadAll()
   })
 }

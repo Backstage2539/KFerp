@@ -298,6 +298,59 @@ type ProductionLogsResult struct {
 	Rows     []ProductionLogRow
 }
 
+type WorkOrderQuery struct {
+	Status string
+	Limit  int
+}
+
+type WorkOrderRow struct {
+	ID            int64   `json:"id"`
+	WorkOrderNo   string  `json:"work_order_no"`
+	RunningItemID int64   `json:"running_item_id"`
+	BatchID       string  `json:"batch_id"`
+	ProductID     int64   `json:"product_id"`
+	ProductName   string  `json:"product_name"`
+	SpecG         int64   `json:"spec_g"`
+	PlannedG      int64   `json:"planned_g"`
+	Status        string  `json:"status"`
+	ActualCost    float64 `json:"actual_cost"`
+	CreatedAt     string  `json:"created_at"`
+	CompletedAt   string  `json:"completed_at"`
+}
+
+type JobCardQuery struct {
+	Status string
+	Limit  int
+}
+
+type JobCardRow struct {
+	ID          int64  `json:"id"`
+	WorkOrderID int64  `json:"work_order_id"`
+	Operation   string `json:"operation"`
+	Workstation string `json:"workstation"`
+	Status      string `json:"status"`
+	StartedAt   string `json:"started_at"`
+	CompletedAt string `json:"completed_at"`
+	Operator    string `json:"operator"`
+}
+
+type BatchCostQuery struct {
+	Limit int
+}
+
+type BatchCostRow struct {
+	ID            int64   `json:"id"`
+	RunningItemID int64   `json:"running_item_id"`
+	BatchID       string  `json:"batch_id"`
+	ProductName   string  `json:"product_name"`
+	MaterialCost  float64 `json:"material_cost"`
+	OperationCost float64 `json:"operation_cost"`
+	TotalCost     float64 `json:"total_cost"`
+	FinishedG     int64   `json:"finished_g"`
+	UnitCostPerKG float64 `json:"unit_cost_per_kg"`
+	CreatedAt     string  `json:"created_at"`
+}
+
 type Repository interface {
 	CreateBatch(ctx context.Context, cmd CreateBatchCommand) (CreateBatchResult, error)
 	ListBatches(ctx context.Context, cmd ListBatchesCommand) ([]BatchListItem, error)
@@ -313,6 +366,9 @@ type Repository interface {
 	SaveMachine(ctx context.Context, cmd RoastMachineCommand) error
 	PlanSummary(ctx context.Context, query PlanSummaryQuery) (PlanSummaryData, error)
 	ListProductionLogs(ctx context.Context, query ProductionLogsQuery) (ProductionLogsResult, error)
+	ListWorkOrders(ctx context.Context, query WorkOrderQuery) ([]WorkOrderRow, error)
+	ListJobCards(ctx context.Context, query JobCardQuery) ([]JobCardRow, error)
+	ListBatchCosts(ctx context.Context, query BatchCostQuery) ([]BatchCostRow, error)
 }
 
 type Service struct {
@@ -410,4 +466,27 @@ func (s *Service) ListProductionLogs(ctx context.Context, query ProductionLogsQu
 		query.Limit = 200
 	}
 	return s.repo.ListProductionLogs(ctx, query)
+}
+
+func (s *Service) ListWorkOrders(ctx context.Context, query WorkOrderQuery) ([]WorkOrderRow, error) {
+	query.Status = strings.TrimSpace(query.Status)
+	if query.Limit <= 0 || query.Limit > 500 {
+		query.Limit = 200
+	}
+	return s.repo.ListWorkOrders(ctx, query)
+}
+
+func (s *Service) ListJobCards(ctx context.Context, query JobCardQuery) ([]JobCardRow, error) {
+	query.Status = strings.TrimSpace(query.Status)
+	if query.Limit <= 0 || query.Limit > 500 {
+		query.Limit = 200
+	}
+	return s.repo.ListJobCards(ctx, query)
+}
+
+func (s *Service) ListBatchCosts(ctx context.Context, query BatchCostQuery) ([]BatchCostRow, error) {
+	if query.Limit <= 0 || query.Limit > 500 {
+		query.Limit = 200
+	}
+	return s.repo.ListBatchCosts(ctx, query)
 }

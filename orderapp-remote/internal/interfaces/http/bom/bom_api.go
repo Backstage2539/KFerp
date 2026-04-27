@@ -35,6 +35,11 @@ type DeleteBagSpecMappingRequest struct {
 	SpecG int64 `json:"spec_g"`
 }
 
+type CreateBomVersionRequest struct {
+	ProductID int64  `json:"product_id"`
+	Note      string `json:"note"`
+}
+
 type ErrorResponse struct {
 	Error string `json:"error"`
 }
@@ -85,6 +90,41 @@ func registerBomAPI(e *echo.Echo, bomSvc *bomapp.Service) {
 			return c.JSON(http.StatusInternalServerError, ErrorResponse{Error: err.Error()})
 		}
 		return c.JSON(http.StatusOK, rows)
+	})
+
+	e.GET("/api/bom/versions", func(c echo.Context) error {
+		productID, err := strconv.ParseInt(c.QueryParam("product_id"), 10, 64)
+		if err != nil {
+			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: "invalid product_id"})
+		}
+		rows, err := bomSvc.ListVersions(c.Request().Context(), productID)
+		if err != nil {
+			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: err.Error()})
+		}
+		return c.JSON(http.StatusOK, map[string]any{"rows": rows})
+	})
+
+	e.POST("/api/bom/versions", func(c echo.Context) error {
+		var req CreateBomVersionRequest
+		if err := c.Bind(&req); err != nil {
+			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: "invalid request"})
+		}
+		version, err := bomSvc.CreateVersion(c.Request().Context(), bomapp.CreateVersionCommand{ProductID: req.ProductID, Note: req.Note})
+		if err != nil {
+			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: err.Error()})
+		}
+		return c.JSON(http.StatusOK, version)
+	})
+
+	e.POST("/api/bom/versions/:id/activate", func(c echo.Context) error {
+		versionID, err := strconv.ParseInt(c.Param("id"), 10, 64)
+		if err != nil || versionID <= 0 {
+			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: "invalid version_id"})
+		}
+		if err := bomSvc.ActivateVersion(c.Request().Context(), versionID); err != nil {
+			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: err.Error()})
+		}
+		return c.JSON(http.StatusOK, map[string]any{"ok": true})
 	})
 
 	e.POST("/api/bom/save", func(c echo.Context) error {

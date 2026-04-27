@@ -20,7 +20,10 @@ func EnsureSchema(ctx context.Context, pool *pgxpool.Pool, schema string) error 
 	if err := ensureProductionRunTable(ctx, pool, schema); err != nil {
 		return err
 	}
-	return ensureProductionLogTable(ctx, pool, schema)
+	if err := ensureProductionLogTable(ctx, pool, schema); err != nil {
+		return err
+	}
+	return ensureWorkOrderTables(ctx, pool, schema)
 }
 
 func ensureMachineCapacityTable(ctx context.Context, pool *pgxpool.Pool, schema string) error {
@@ -33,6 +36,55 @@ func ensureMachineCapacityTable(ctx context.Context, pool *pgxpool.Pool, schema 
 		active BOOLEAN NOT NULL DEFAULT true,
 		updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 	);`, schema)
+	_, err := pool.Exec(ctx, q)
+	return err
+}
+
+func ensureWorkOrderTables(ctx context.Context, pool *pgxpool.Pool, schema string) error {
+	q := fmt.Sprintf(`
+CREATE TABLE IF NOT EXISTS %s.work_orders (
+	id BIGSERIAL PRIMARY KEY,
+	work_order_no TEXT NOT NULL UNIQUE,
+	running_item_id BIGINT NOT NULL UNIQUE,
+	batch_id TEXT NOT NULL DEFAULT '',
+	product_id BIGINT NOT NULL DEFAULT 0,
+	product_name TEXT NOT NULL DEFAULT '',
+	spec_g BIGINT NOT NULL DEFAULT 0,
+	planned_g BIGINT NOT NULL DEFAULT 0,
+	status TEXT NOT NULL DEFAULT 'running',
+	actual_cost NUMERIC(12,4) NOT NULL DEFAULT 0,
+	created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+	completed_at TIMESTAMPTZ
+);
+CREATE INDEX IF NOT EXISTS work_orders_status_idx ON %s.work_orders(status, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS %s.job_cards (
+	id BIGSERIAL PRIMARY KEY,
+	work_order_id BIGINT NOT NULL,
+	operation TEXT NOT NULL DEFAULT '',
+	workstation TEXT NOT NULL DEFAULT '',
+	status TEXT NOT NULL DEFAULT 'running',
+	started_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+	completed_at TIMESTAMPTZ,
+	operator TEXT NOT NULL DEFAULT ''
+);
+CREATE INDEX IF NOT EXISTS job_cards_work_order_idx ON %s.job_cards(work_order_id, id);
+CREATE INDEX IF NOT EXISTS job_cards_status_idx ON %s.job_cards(status, started_at DESC);
+
+CREATE TABLE IF NOT EXISTS %s.production_batch_costs (
+	id BIGSERIAL PRIMARY KEY,
+	running_item_id BIGINT NOT NULL UNIQUE,
+	batch_id TEXT NOT NULL DEFAULT '',
+	product_name TEXT NOT NULL DEFAULT '',
+	material_cost NUMERIC(12,4) NOT NULL DEFAULT 0,
+	operation_cost NUMERIC(12,4) NOT NULL DEFAULT 0,
+	total_cost NUMERIC(12,4) NOT NULL DEFAULT 0,
+	finished_g BIGINT NOT NULL DEFAULT 0,
+	unit_cost_per_kg NUMERIC(12,4) NOT NULL DEFAULT 0,
+	created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS production_batch_costs_created_idx ON %s.production_batch_costs(created_at DESC);
+`, schema, schema, schema, schema, schema, schema, schema)
 	_, err := pool.Exec(ctx, q)
 	return err
 }

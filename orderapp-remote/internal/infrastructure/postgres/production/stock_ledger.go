@@ -71,8 +71,13 @@ CREATE INDEX IF NOT EXISTS stock_ledger_source_idx
 CREATE INDEX IF NOT EXISTS stock_ledger_item_idx
 	ON %s.stock_ledger_entries(item_type, item_id, spec_g, created_at DESC);
 `, schema, schema, schema, schema, schema, schema)
-	_, err := pool.Exec(ctx, q)
-	return err
+	if _, err := pool.Exec(ctx, q); err != nil {
+		return err
+	}
+	_, _ = pool.Exec(ctx, fmt.Sprintf(`ALTER TABLE %s.stock_batches ADD COLUMN IF NOT EXISTS remaining_g BIGINT NOT NULL DEFAULT 0`, schema))
+	_, _ = pool.Exec(ctx, fmt.Sprintf(`ALTER TABLE %s.stock_batches ADD COLUMN IF NOT EXISTS remaining_units BIGINT NOT NULL DEFAULT 0`, schema))
+	_, _ = pool.Exec(ctx, fmt.Sprintf(`ALTER TABLE %s.stock_batches ADD COLUMN IF NOT EXISTS unit_cost NUMERIC(12,4) NOT NULL DEFAULT 0`, schema))
+	return nil
 }
 
 func EnsureStockLedgerTables(ctx context.Context, pool *pgxpool.Pool, schema string) error {
@@ -112,8 +117,8 @@ func createFinishedStockBatchTx(ctx context.Context, tx pgx.Tx, schema string, r
 		INSERT INTO %s.stock_batches(
 			batch_code,item_type,item_id,item_name,spec_g,
 			source_doc_type,source_doc_id,source_batch_id,
-			qty_g,qty_units,operator,created_at
-		) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,now())
+			qty_g,qty_units,remaining_g,remaining_units,operator,created_at
+		) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$9,$10,$11,now())
 		ON CONFLICT (batch_code) DO UPDATE SET
 			item_type=excluded.item_type,
 			item_id=excluded.item_id,
@@ -124,6 +129,8 @@ func createFinishedStockBatchTx(ctx context.Context, tx pgx.Tx, schema string, r
 			source_batch_id=excluded.source_batch_id,
 			qty_g=excluded.qty_g,
 			qty_units=excluded.qty_units,
+			remaining_g=excluded.remaining_g,
+			remaining_units=excluded.remaining_units,
 			operator=excluded.operator
 	`, schema),
 		batchCode, stockItemTypeFinishedProduct, r.ProductID, r.Product, r.SpecG,

@@ -9,6 +9,7 @@ import (
 	materialsapp "orderapp/internal/application/materials"
 	productionapp "orderapp/internal/application/production"
 	salesapp "orderapp/internal/application/sales"
+	stockapp "orderapp/internal/application/stock"
 	postgresbom "orderapp/internal/infrastructure/postgres/bom"
 	postgrescatalog "orderapp/internal/infrastructure/postgres/catalog"
 	postgrescompany "orderapp/internal/infrastructure/postgres/company"
@@ -17,6 +18,7 @@ import (
 	postgresmaterials "orderapp/internal/infrastructure/postgres/materials"
 	postgresproduction "orderapp/internal/infrastructure/postgres/production"
 	postgressales "orderapp/internal/infrastructure/postgres/sales"
+	postgresstock "orderapp/internal/infrastructure/postgres/stock"
 	bomhttp "orderapp/internal/interfaces/http/bom"
 	cataloghttp "orderapp/internal/interfaces/http/catalog"
 	companyhttp "orderapp/internal/interfaces/http/company"
@@ -25,6 +27,7 @@ import (
 	materialshttp "orderapp/internal/interfaces/http/materials"
 	productionhttp "orderapp/internal/interfaces/http/production"
 	saleshttp "orderapp/internal/interfaces/http/sales"
+	stockhttp "orderapp/internal/interfaces/http/stock"
 	supporthttp "orderapp/internal/interfaces/http/support"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -40,12 +43,14 @@ func registerAppRoutes(e *echo.Echo, pool *pgxpool.Pool, schema string, assetDir
 	materialsSvc := materialsapp.NewService(postgresmaterials.NewRepository(pool, schema))
 	productionSvc := productionapp.NewService(postgresproduction.NewRepository(pool, schema))
 	salesSvc := salesapp.NewService(postgressales.NewRepository(pool, schema))
+	stockSvc := stockapp.NewService(postgresstock.NewRepository(pool, schema))
 
 	supporthttp.RegisterRoutes(e, pool, schema)
 	cataloghttp.RegisterRoutes(e, cataloghttp.Dependencies{Catalog: catalogSvc})
 	materialshttp.RegisterRoutes(e, materialshttp.Dependencies{Materials: materialsSvc})
 	bomhttp.RegisterRoutes(e, bomhttp.Dependencies{Bom: bomSvc})
 	inventoryhttp.RegisterRoutes(e, inventoryhttp.Dependencies{Inventory: inventorySvc})
+	stockhttp.RegisterRoutes(e, stockhttp.Dependencies{Stock: stockSvc})
 	productionhttp.RegisterRoutes(e, productionhttp.Dependencies{Production: productionSvc})
 	companyhttp.RegisterRoutes(e, companyhttp.Dependencies{Company: companySvc})
 	customerhttp.RegisterRoutes(e, customerhttp.Dependencies{Customer: customerSvc, AssetDir: assetDir})

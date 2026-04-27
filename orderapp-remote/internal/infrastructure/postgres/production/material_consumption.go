@@ -7,6 +7,7 @@ import (
 	"math"
 	bomdomain "orderapp/internal/domain/bom"
 	catalogdomain "orderapp/internal/domain/catalog"
+	stockdomain "orderapp/internal/domain/stock"
 	"strings"
 
 	"github.com/jackc/pgx/v5"
@@ -27,6 +28,7 @@ type materialConsumptionSummaryItem struct {
 	Unit         string `json:"unit"`
 	DeductG      int64  `json:"deduct_g"`
 	DeductUnits  int64  `json:"deduct_units"`
+	BatchCode    string `json:"batch_code,omitempty"`
 }
 
 func isWeightMaterialUnit(unit string) bool {
@@ -183,36 +185,108 @@ func deductMaterialsForRunningItemTx(ctx context.Context, tx pgx.Tx, schema stri
 		if _, err := tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.materials SET onhand_g=$2,onhand_units=$3,updated_at=now() WHERE id=$1`, schema), need.MaterialID, afterG, afterUnits); err != nil {
 			return err
 		}
-		if _, err := tx.Exec(ctx, fmt.Sprintf(`
-			INSERT INTO %s.material_consumption_logs(
-				running_item_id,batch_id,product_id,product_name,spec_g,
-				material_id,material_name,unit,deduct_g,deduct_units,
-				before_g,after_g,before_units,after_units,operator
-			) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
-		`, schema),
-			r.ID, r.BatchID, r.ProductID, r.Product, r.SpecG,
-			need.MaterialID, need.MaterialName, need.Unit, need.DeductG, need.DeductUnits,
-			beforeG, afterG, beforeUnits, afterUnits, operator,
-		); err != nil {
+		allocations, err := materialBatchAllocationsTx(ctx, tx, schema, need.MaterialID, need.DeductG)
+		if err != nil {
 			return err
 		}
-		qty := stockLedgerQty{
-			BeforeG:     beforeG,
-			ChangeG:     -need.DeductG,
-			AfterG:      afterG,
-			BeforeUnits: beforeUnits,
-			ChangeUnits: -need.DeductUnits,
-			AfterUnits:  afterUnits,
+		if len(allocations) == 0 {
+			allocations = []stockdomain.BatchAllocation{{QtyG: need.DeductG}}
 		}
-		if err := insertStockLedgerEntryTx(ctx, tx, schema,
-			stockItemTypeMaterial, need.MaterialID, need.MaterialName, 0, "materials",
-			stockSourceProductionRun, r.ID, "", r.BatchID,
-			qty, operator,
-		); err != nil {
-			return err
+		for _, alloc := range allocations {
+			logDeductG := alloc.QtyG
+			logDeductUnits := int64(0)
+			if need.DeductG == 0 {
+				logDeductUnits = need.DeductUnits
+			}
+			if _, err := tx.Exec(ctx, fmt.Sprintf(`
+				INSERT INTO %s.material_consumption_logs(
+					running_item_id,batch_id,product_id,product_name,spec_g,
+					material_id,material_name,unit,deduct_g,deduct_units,
+					before_g,after_g,before_units,after_units,operator,
+					material_batch_id,material_batch_code
+				) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)
+			`, schema),
+				r.ID, r.BatchID, r.ProductID, r.Product, r.SpecG,
+				need.MaterialID, need.MaterialName, need.Unit, logDeductG, logDeductUnits,
+				beforeG, afterG, beforeUnits, afterUnits, operator,
+				alloc.BatchID, alloc.BatchCode,
+			); err != nil {
+				return err
+			}
+			qty := stockLedgerQty{
+				BeforeG:     beforeG,
+				ChangeG:     -logDeductG,
+				AfterG:      afterG,
+				BeforeUnits: beforeUnits,
+				ChangeUnits: -logDeductUnits,
+				AfterUnits:  afterUnits,
+			}
+			if err := insertStockLedgerEntryTx(ctx, tx, schema,
+				stockItemTypeMaterial, need.MaterialID, need.MaterialName, 0, "materials",
+				stockSourceProductionRun, r.ID, alloc.BatchCode, r.BatchID,
+				qty, operator,
+			); err != nil {
+				return err
+			}
 		}
 	}
 	return nil
+}
+
+func materialBatchAllocationsTx(ctx context.Context, tx pgx.Tx, schema string, materialID int64, deductG int64) ([]stockdomain.BatchAllocation, error) {
+	if deductG <= 0 {
+		return nil, nil
+	}
+	rows, err := tx.Query(ctx, fmt.Sprintf(`
+		SELECT id,batch_code,remaining_g
+		FROM %s.material_batches
+		WHERE material_id=$1 AND status='active' AND remaining_g > 0
+		ORDER BY received_at, id
+		FOR UPDATE
+	`, schema), materialID)
+	if err != nil {
+		if strings.Contains(err.Error(), "material_batches") {
+			return nil, nil
+		}
+		return nil, err
+	}
+	defer rows.Close()
+	available := make([]stockdomain.BatchAvailability, 0)
+	for rows.Next() {
+		var batch stockdomain.BatchAvailability
+		if err := rows.Scan(&batch.BatchID, &batch.BatchCode, &batch.AvailableG); err != nil {
+			return nil, err
+		}
+		available = append(available, batch)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	if len(available) == 0 {
+		return nil, nil
+	}
+	allocations, err := stockdomain.AllocateFIFO(available, deductG)
+	if err != nil {
+		return nil, err
+	}
+	for _, alloc := range allocations {
+		if _, err := tx.Exec(ctx, fmt.Sprintf(`
+			UPDATE %s.material_batches
+			SET remaining_g=remaining_g-$2,
+			    status=CASE WHEN remaining_g-$2 <= 0 THEN 'consumed' ELSE status END
+			WHERE id=$1
+		`, schema), alloc.BatchID, alloc.QtyG); err != nil {
+			return nil, err
+		}
+		if _, err := tx.Exec(ctx, fmt.Sprintf(`
+			UPDATE %s.stock_batches
+			SET remaining_g=GREATEST(0, remaining_g-$2)
+			WHERE batch_code=$1
+		`, schema), alloc.BatchCode, alloc.QtyG); err != nil {
+			return nil, err
+		}
+	}
+	return allocations, nil
 }
 
 func listMaterialConsumptionSummaryTx(ctx context.Context, tx pgx.Tx, schema string, runningItemID int64) ([]materialConsumptionSummaryItem, error) {
@@ -221,11 +295,12 @@ func listMaterialConsumptionSummaryTx(ctx context.Context, tx pgx.Tx, schema str
 		       COALESCE(material_name,''),
 		       COALESCE(unit,''),
 		       SUM(deduct_g)::bigint,
-		       SUM(deduct_units)::bigint
+		       SUM(deduct_units)::bigint,
+		       COALESCE(NULLIF(material_batch_code,''),'')
 		FROM %s.material_consumption_logs
 		WHERE running_item_id=$1
-		GROUP BY material_id, material_name, unit
-		ORDER BY material_name, material_id
+		GROUP BY material_id, material_name, unit, COALESCE(NULLIF(material_batch_code,''),'')
+		ORDER BY material_name, material_id, COALESCE(NULLIF(material_batch_code,''),'')
 	`, schema), runningItemID)
 	if err != nil {
 		return nil, err
@@ -235,7 +310,7 @@ func listMaterialConsumptionSummaryTx(ctx context.Context, tx pgx.Tx, schema str
 	out := make([]materialConsumptionSummaryItem, 0)
 	for rows.Next() {
 		var item materialConsumptionSummaryItem
-		if err := rows.Scan(&item.MaterialID, &item.MaterialName, &item.Unit, &item.DeductG, &item.DeductUnits); err != nil {
+		if err := rows.Scan(&item.MaterialID, &item.MaterialName, &item.Unit, &item.DeductG, &item.DeductUnits, &item.BatchCode); err != nil {
 			return nil, err
 		}
 		out = append(out, item)

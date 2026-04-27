@@ -40,14 +40,14 @@ func TestIsWeightMaterialUnit(t *testing.T) {
 
 func TestMarshalMaterialConsumptionSummary(t *testing.T) {
 	got, err := marshalMaterialConsumptionSummary([]materialConsumptionSummaryItem{
-		{MaterialID: 1, MaterialName: "卡蒂姆水洗", Unit: "g", DeductG: 1200},
+		{MaterialID: 1, MaterialName: "卡蒂姆水洗", Unit: "g", DeductG: 1200, BatchCode: "MB-0000000001"},
 		{MaterialID: 9, MaterialName: "豆袋", Unit: "个", DeductUnits: 8},
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	text := string(got)
-	for _, needle := range []string{`"material_id":1`, `"material_name":"卡蒂姆水洗"`, `"deduct_g":1200`, `"material_name":"豆袋"`, `"deduct_units":8`} {
+	for _, needle := range []string{`"material_id":1`, `"material_name":"卡蒂姆水洗"`, `"deduct_g":1200`, `"batch_code":"MB-0000000001"`, `"material_name":"豆袋"`, `"deduct_units":8`} {
 		if !strings.Contains(text, needle) {
 			t.Fatalf("material summary json missing %q in %s", needle, text)
 		}

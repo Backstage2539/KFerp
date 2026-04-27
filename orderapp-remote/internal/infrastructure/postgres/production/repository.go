@@ -300,7 +300,11 @@ func (r Repository) Start(ctx context.Context, cmd productionapp.StartExecutionC
 			inputG = defaultProductionInputG(need.GapG, yieldRate)
 		}
 		plan := runningInventoryPlan(need.SpecG, need.GapG, inputG, yieldRate)
-		if _, err := tx.Exec(ctx, fmt.Sprintf(`INSERT INTO %s.produce_running_items(batch_id,product_id,product_name,spec_g,need_g,order_nos,status,started_by,started_at,input_g,bom_yield_rate,planned_units,planned_loose_g) VALUES($1,$2,$3,$4,$5,$6,'running',$7,now(),$8,$9,$10,$11)`, r.schema), batchID, need.ProductID, need.ProductName, need.SpecG, need.GapG, need.OrderNos, cmd.Operator, inputG, yieldRate, plan.Units, plan.LooseG); err != nil {
+		var runningItemID int64
+		if err := tx.QueryRow(ctx, fmt.Sprintf(`INSERT INTO %s.produce_running_items(batch_id,product_id,product_name,spec_g,need_g,order_nos,status,started_by,started_at,input_g,bom_yield_rate,planned_units,planned_loose_g) VALUES($1,$2,$3,$4,$5,$6,'running',$7,now(),$8,$9,$10,$11) RETURNING id`, r.schema), batchID, need.ProductID, need.ProductName, need.SpecG, need.GapG, need.OrderNos, cmd.Operator, inputG, yieldRate, plan.Units, plan.LooseG).Scan(&runningItemID); err != nil {
+			return productionapp.StartResult{}, err
+		}
+		if err := createWorkOrderForRunningItemTx(ctx, tx, r.schema, runningItemID, batchID, need.ProductID, need.ProductName, need.SpecG, inputG, cmd.Operator); err != nil {
 			return productionapp.StartResult{}, err
 		}
 	}

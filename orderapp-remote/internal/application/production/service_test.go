@@ -65,6 +65,15 @@ func (r *fakeRepo) PlanSummary(ctx context.Context, query PlanSummaryQuery) (Pla
 func (r *fakeRepo) ListProductionLogs(ctx context.Context, query ProductionLogsQuery) (ProductionLogsResult, error) {
 	return ProductionLogsResult{}, nil
 }
+func (r *fakeRepo) ListWorkOrders(ctx context.Context, query WorkOrderQuery) ([]WorkOrderRow, error) {
+	return nil, nil
+}
+func (r *fakeRepo) ListJobCards(ctx context.Context, query JobCardQuery) ([]JobCardRow, error) {
+	return nil, nil
+}
+func (r *fakeRepo) ListBatchCosts(ctx context.Context, query BatchCostQuery) ([]BatchCostRow, error) {
+	return nil, nil
+}
 
 func TestServiceDelegatesProductionUseCases(t *testing.T) {
 	repo := &fakeRepo{}

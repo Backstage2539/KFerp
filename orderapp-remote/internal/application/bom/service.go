@@ -42,6 +42,22 @@ type BagSpecMapping struct {
 	MaterialName string `json:"material_name"`
 }
 
+type Version struct {
+	ID        int64   `json:"id"`
+	ProductID int64   `json:"product_id"`
+	VersionNo string  `json:"version_no"`
+	Status    string  `json:"status"`
+	YieldRate float64 `json:"yield_rate"`
+	ItemCount int     `json:"item_count"`
+	Note      string  `json:"note"`
+	CreatedAt string  `json:"created_at"`
+}
+
+type CreateVersionCommand struct {
+	ProductID int64
+	Note      string
+}
+
 type SaveItemCommand struct {
 	ProductID  int64
 	MaterialID int64
@@ -69,6 +85,9 @@ type Repository interface {
 	DeleteItem(ctx context.Context, cmd DeleteItemCommand) error
 	SaveBagSpecMapping(ctx context.Context, cmd SaveBagSpecMappingCommand) error
 	DeleteBagSpecMapping(ctx context.Context, specG int64) error
+	ListVersions(ctx context.Context, productID int64) ([]Version, error)
+	CreateVersion(ctx context.Context, cmd CreateVersionCommand) (Version, error)
+	ActivateVersion(ctx context.Context, versionID int64) error
 }
 
 type Service struct {
@@ -141,4 +160,25 @@ func (s *Service) DeleteBagSpecMapping(ctx context.Context, specG int64) error {
 		return fmt.Errorf("spec_g required")
 	}
 	return s.repo.DeleteBagSpecMapping(ctx, specG)
+}
+
+func (s *Service) ListVersions(ctx context.Context, productID int64) ([]Version, error) {
+	if productID <= 0 {
+		return nil, fmt.Errorf("product_id required")
+	}
+	return s.repo.ListVersions(ctx, productID)
+}
+
+func (s *Service) CreateVersion(ctx context.Context, cmd CreateVersionCommand) (Version, error) {
+	if cmd.ProductID <= 0 {
+		return Version{}, fmt.Errorf("product_id required")
+	}
+	return s.repo.CreateVersion(ctx, cmd)
+}
+
+func (s *Service) ActivateVersion(ctx context.Context, versionID int64) error {
+	if versionID <= 0 {
+		return fmt.Errorf("version_id required")
+	}
+	return s.repo.ActivateVersion(ctx, versionID)
 }

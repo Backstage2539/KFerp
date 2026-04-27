@@ -32,4 +32,3 @@ func TestRunningInventoryPlanPrefersInputAndYield(t *testing.T) {
 		t.Fatalf("RunningInventoryPlan() = %d units + %dg, want 1 unit + 600g", got.Units, got.LooseG)
 	}
 }
-

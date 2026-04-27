@@ -7,8 +7,10 @@ import (
 )
 
 type fakeRepo struct {
-	savedItem SaveItemCommand
-	deletedID int64
+	savedItem  SaveItemCommand
+	deletedID  int64
+	activated  int64
+	versionFor int64
 }
 
 func (r *fakeRepo) List(ctx context.Context) ([]ListItem, error) { return nil, nil }
@@ -33,6 +35,17 @@ func (r *fakeRepo) SaveBagSpecMapping(ctx context.Context, cmd SaveBagSpecMappin
 	return nil
 }
 func (r *fakeRepo) DeleteBagSpecMapping(ctx context.Context, specG int64) error { return nil }
+func (r *fakeRepo) ListVersions(ctx context.Context, productID int64) ([]Version, error) {
+	r.versionFor = productID
+	return nil, nil
+}
+func (r *fakeRepo) CreateVersion(ctx context.Context, cmd CreateVersionCommand) (Version, error) {
+	return Version{ID: 9, ProductID: cmd.ProductID, VersionNo: "V001"}, nil
+}
+func (r *fakeRepo) ActivateVersion(ctx context.Context, versionID int64) error {
+	r.activated = versionID
+	return nil
+}
 
 func TestServiceValidatesSaveItem(t *testing.T) {
 	repo := &fakeRepo{}
@@ -67,6 +80,28 @@ func TestServicePropagatesRepositoryErrors(t *testing.T) {
 	}
 }
 
+func TestServiceValidatesBOMVersions(t *testing.T) {
+	repo := &fakeRepo{}
+	svc := NewService(repo)
+	ctx := context.Background()
+
+	if _, err := svc.ListVersions(ctx, 0); err == nil {
+		t.Fatal("ListVersions should require product id")
+	}
+	if _, err := svc.CreateVersion(ctx, CreateVersionCommand{}); err == nil {
+		t.Fatal("CreateVersion should require product id")
+	}
+	if err := svc.ActivateVersion(ctx, 0); err == nil {
+		t.Fatal("ActivateVersion should require version id")
+	}
+	if err := svc.ActivateVersion(ctx, 7); err != nil {
+		t.Fatalf("ActivateVersion valid command: %v", err)
+	}
+	if repo.activated != 7 {
+		t.Fatalf("activated = %d, want 7", repo.activated)
+	}
+}
+
 type errorRepo struct {
 	err error
 }
@@ -93,5 +128,14 @@ func (r errorRepo) SaveBagSpecMapping(ctx context.Context, cmd SaveBagSpecMappin
 	return r.err
 }
 func (r errorRepo) DeleteBagSpecMapping(ctx context.Context, specG int64) error {
+	return r.err
+}
+func (r errorRepo) ListVersions(ctx context.Context, productID int64) ([]Version, error) {
+	return nil, r.err
+}
+func (r errorRepo) CreateVersion(ctx context.Context, cmd CreateVersionCommand) (Version, error) {
+	return Version{}, r.err
+}
+func (r errorRepo) ActivateVersion(ctx context.Context, versionID int64) error {
 	return r.err
 }

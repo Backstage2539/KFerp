@@ -75,4 +75,3 @@ func RestoreAllocatedInventory(specG int64, current Quantity, deductedG int64) (
 	}
 	return inventorydomain.Normalize(specG, Quantity{Units: current.Units, LooseG: current.LooseG + deductedG})
 }
-

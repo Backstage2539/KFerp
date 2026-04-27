@@ -18,4 +18,5 @@ func RegisterRoutes(e *echo.Echo, deps Dependencies) {
 	registerProductionFlowPages(e, deps.Production)
 	registerProductionLogPages(e, deps.Production)
 	registerProduceBatchAPI(e, deps.Production)
+	registerWorkOrderAPI(e, deps.Production)
 }

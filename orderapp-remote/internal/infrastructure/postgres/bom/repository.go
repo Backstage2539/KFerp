@@ -3,6 +3,7 @@ package bom
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	bomapp "orderapp/internal/application/bom"
 	bomdomain "orderapp/internal/domain/bom"
@@ -147,6 +148,118 @@ func (r Repository) SaveBagSpecMapping(ctx context.Context, cmd bomapp.SaveBagSp
 
 func (r Repository) DeleteBagSpecMapping(ctx context.Context, specG int64) error {
 	return deleteBagSpecMapping(ctx, r.pool, r.schema, specG)
+}
+
+func (r Repository) ListVersions(ctx context.Context, productID int64) ([]bomapp.Version, error) {
+	rows, err := r.pool.Query(ctx, fmt.Sprintf(`
+		SELECT v.id,v.product_id,v.version_no,v.status,COALESCE(v.yield_rate,0.8),
+		       COALESCE((SELECT COUNT(*) FROM %s.bom_version_items i WHERE i.version_id=v.id),0),
+		       COALESCE(v.note,''),to_char(v.created_at,'YYYY-MM-DD HH24:MI')
+		FROM %s.bom_versions v
+		WHERE v.product_id=$1
+		ORDER BY v.created_at DESC, v.id DESC
+	`, r.schema, r.schema), productID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := make([]bomapp.Version, 0)
+	for rows.Next() {
+		var v bomapp.Version
+		if err := rows.Scan(&v.ID, &v.ProductID, &v.VersionNo, &v.Status, &v.YieldRate, &v.ItemCount, &v.Note, &v.CreatedAt); err != nil {
+			return nil, err
+		}
+		out = append(out, v)
+	}
+	return out, rows.Err()
+}
+
+func (r Repository) CreateVersion(ctx context.Context, cmd bomapp.CreateVersionCommand) (bomapp.Version, error) {
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return bomapp.Version{}, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	var yieldRate float64
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT COALESCE(yield_rate,0.8) FROM %s.product_bom WHERE product_id=$1`, r.schema), cmd.ProductID).Scan(&yieldRate); err != nil {
+		yieldRate = 0.8
+	}
+	var next int64
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT COALESCE(COUNT(*),0)+1 FROM %s.bom_versions WHERE product_id=$1`, r.schema), cmd.ProductID).Scan(&next); err != nil {
+		return bomapp.Version{}, err
+	}
+	versionNo := fmt.Sprintf("V%03d", next)
+	var versionID int64
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`
+		INSERT INTO %s.bom_versions(product_id,version_no,status,yield_rate,note,created_at)
+		VALUES($1,$2,'draft',$3,$4,now())
+		RETURNING id
+	`, r.schema), cmd.ProductID, versionNo, yieldRate, strings.TrimSpace(cmd.Note)).Scan(&versionID); err != nil {
+		return bomapp.Version{}, err
+	}
+	if _, err := tx.Exec(ctx, fmt.Sprintf(`
+		INSERT INTO %s.bom_version_items(version_id,material_id,ratio_pct)
+		SELECT $1,material_id,ratio_pct
+		FROM %s.product_bom_items
+		WHERE product_id=$2
+		ORDER BY id
+	`, r.schema, r.schema), versionID, cmd.ProductID); err != nil {
+		return bomapp.Version{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return bomapp.Version{}, err
+	}
+	versions, err := r.ListVersions(ctx, cmd.ProductID)
+	if err != nil {
+		return bomapp.Version{}, err
+	}
+	for _, v := range versions {
+		if v.ID == versionID {
+			return v, nil
+		}
+	}
+	return bomapp.Version{ID: versionID, ProductID: cmd.ProductID, VersionNo: versionNo, Status: "draft", YieldRate: yieldRate}, nil
+}
+
+func (r Repository) ActivateVersion(ctx context.Context, versionID int64) error {
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	var productID int64
+	var yieldRate float64
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT product_id,COALESCE(yield_rate,0.8) FROM %s.bom_versions WHERE id=$1 FOR UPDATE`, r.schema), versionID).Scan(&productID, &yieldRate); err != nil {
+		return fmt.Errorf("bom version not found")
+	}
+	if _, err := tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.bom_versions SET status='disabled' WHERE product_id=$1 AND id<>$2`, r.schema), productID, versionID); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.bom_versions SET status='active',activated_at=now() WHERE id=$1`, r.schema), versionID); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, fmt.Sprintf(`
+		INSERT INTO %s.product_bom(product_id,yield_rate,updated_at)
+		VALUES($1,$2,now())
+		ON CONFLICT (product_id) DO UPDATE SET yield_rate=excluded.yield_rate, updated_at=now()
+	`, r.schema), productID, yieldRate); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, fmt.Sprintf(`DELETE FROM %s.product_bom_items WHERE product_id=$1`, r.schema), productID); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, fmt.Sprintf(`
+		INSERT INTO %s.product_bom_items(product_id,material_id,ratio_pct,updated_at)
+		SELECT $1,material_id,ratio_pct,now()
+		FROM %s.bom_version_items
+		WHERE version_id=$2
+		ORDER BY id
+	`, r.schema, r.schema), productID, versionID); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
 }
 
 type bomItemRow struct {

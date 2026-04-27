@@ -48,6 +48,10 @@ func EnsureSchema(ctx context.Context, pool *pgxpool.Pool, schema string) error 
 	);
 	CREATE INDEX IF NOT EXISTS material_consumption_logs_running_idx ON %s.material_consumption_logs(running_item_id, id);
 	CREATE INDEX IF NOT EXISTS material_consumption_logs_material_idx ON %s.material_consumption_logs(material_id, created_at DESC);`, schema, schema, schema)
-	_, err := pool.Exec(ctx, logQ)
-	return err
+	if _, err := pool.Exec(ctx, logQ); err != nil {
+		return err
+	}
+	_, _ = pool.Exec(ctx, fmt.Sprintf(`ALTER TABLE %s.material_consumption_logs ADD COLUMN IF NOT EXISTS material_batch_id BIGINT NOT NULL DEFAULT 0`, schema))
+	_, _ = pool.Exec(ctx, fmt.Sprintf(`ALTER TABLE %s.material_consumption_logs ADD COLUMN IF NOT EXISTS material_batch_code TEXT NOT NULL DEFAULT ''`, schema))
+	return nil
 }

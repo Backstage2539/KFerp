@@ -281,6 +281,16 @@ func seedReqWorkflowA(ctx context.Context, pool *pgxpool.Pool, schema string) er
 		{table: "req_unit", code: "UT-DDD-003", title: "架构守卫覆盖 BOM adapter 位置、生产运行用例边界和订单旧模板删除", status: "done", assignee: "Codex", evidence: "go test ./internal/architecture -count=1"},
 		{table: "req_api", code: "API-DDD-003", title: "BOM 与生产运行接口模块在 DDD 收口后保持兼容", status: "done", assignee: "Codex", evidence: "go test ./internal/interfaces/http/bom ./internal/interfaces/http/production ./internal/interfaces/http/support -count=1"},
 		{table: "req_review", code: "REV-DDD-003", prCode: "PR-DDD-003", title: "架构验收：剩余 P2/P3 收口后不再存在这轮发现的 DDD 违例", status: "todo", assignee: "VA", evidence: "待 Van 验收"},
+		{table: "req_product", code: "PR-ERP-001", title: "参考 ERPNext 建立库存批次、原料入库、BOM版本、工单工序和成本闭环", status: "review", assignee: "VA", evidence: "docs/superpowers/plans/2026-04-27-erpnext-p0-p3.md"},
+		{table: "req_dev", code: "DEV-ERP-001", title: "新增 stock DDD 模块，提供库存流水、库存批次、原料批次查询 API 和 Vue 页面", status: "done", assignee: "Codex", evidence: "internal/application/stock; internal/interfaces/http/stock; StockLedgerView/StockBatchesView/MaterialBatchesView"},
+		{table: "req_dev", code: "DEV-ERP-002", title: "新增原料入库单，提交后创建 material_batches、stock_batches 和 stock_ledger_entries", status: "done", assignee: "Codex", evidence: "postgres/stock.ReceiveMaterial; MaterialReceiptsView.vue"},
+		{table: "req_dev", code: "DEV-ERP-003", title: "生产完工按 material_batches FIFO 扣料，并在消耗日志和库存流水记录原料批次号", status: "done", assignee: "Codex", evidence: "materialBatchAllocationsTx; material_consumption_logs.material_batch_code"},
+		{table: "req_dev", code: "DEV-ERP-004", title: "新增库存调整单，提交后更新库存并写 stock_adjustments、stock_batches 和 ledger", status: "done", assignee: "Codex", evidence: "stock.CreateAdjustment; StockAdjustmentsView.vue"},
+		{table: "req_dev", code: "DEV-ERP-005", title: "BOM 支持版本保存和启用，启用版本会覆盖当前商品 BOM", status: "done", assignee: "Codex", evidence: "bom_versions/bom_version_items; /api/bom/versions"},
+		{table: "req_dev", code: "DEV-ERP-006", title: "生产开始生成 Work Order 和 Job Card，生产完成关闭工单并记录批次成本", status: "done", assignee: "Codex", evidence: "work_orders/job_cards/production_batch_costs; WorkOrdersView/JobCardsView/ProductionCostsView"},
+		{table: "req_unit", code: "UT-ERP-001", title: "库存 FIFO 领域规则、stock application 校验、生产工单状态和成本规则单测", status: "done", assignee: "Codex", evidence: "go test ./internal/domain/stock ./internal/application/stock ./internal/domain/production"},
+		{table: "req_api", code: "API-ERP-001", title: "库存 API、BOM版本 API、生产工单/工序/成本 API handler 级验证", status: "done", assignee: "Codex", evidence: "go test ./internal/interfaces/http/stock ./internal/interfaces/http/bom ./internal/interfaces/http/production"},
+		{table: "req_review", code: "REV-ERP-001", prCode: "PR-ERP-001", title: "验收：P0-P3 ERPNext 主干页面和 API 可用，生产链路生成工单、批次、流水和成本", status: "todo", assignee: "VA", evidence: "待 Van 验收"},
 	} {
 		if err := seedReqRow(ctx, pool, schema, row); err != nil {
 			return err

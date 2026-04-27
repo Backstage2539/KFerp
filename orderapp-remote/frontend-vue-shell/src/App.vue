@@ -37,17 +37,25 @@ import BomView from './views/BomView.vue'
 import CompanyStaffView from './views/CompanyStaffView.vue'
 import CustomersView from './views/CustomersView.vue'
 import InventoryView from './views/InventoryView.vue'
+import JobCardsView from './views/JobCardsView.vue'
 import MachinesView from './views/MachinesView.vue'
+import MaterialBatchesView from './views/MaterialBatchesView.vue'
+import MaterialReceiptsView from './views/MaterialReceiptsView.vue'
 import MaterialsView from './views/MaterialsView.vue'
 import OrderEntryView from './views/OrderEntryView.vue'
 import OrdersView from './views/OrdersView.vue'
 import OutsourceSettingsView from './views/OutsourceSettingsView.vue'
 import ProducePlanView from './views/ProducePlanView.vue'
 import ProduceRunningView from './views/ProduceRunningView.vue'
+import ProductionCostsView from './views/ProductionCostsView.vue'
 import ProductionLogsView from './views/ProductionLogsView.vue'
 import ProductsView from './views/ProductsView.vue'
 import RequirementsView from './views/RequirementsView.vue'
 import SenderSettingsView from './views/SenderSettingsView.vue'
+import StockAdjustmentsView from './views/StockAdjustmentsView.vue'
+import StockBatchesView from './views/StockBatchesView.vue'
+import StockLedgerView from './views/StockLedgerView.vue'
+import WorkOrdersView from './views/WorkOrdersView.vue'
 
 const collapsed = ref(false)
 const currentKey = ref('order')
@@ -60,8 +68,16 @@ const menuMap = {
   producePlan: { title: '生产计划/开始生产' },
   produceRunning: { title: '生产中' },
   produceLogs: { title: '生产日志' },
+  workOrders: { title: '生产工单' },
+  jobCards: { title: '工序卡' },
+  productionCosts: { title: '生产成本' },
   allocationLogs: { title: '分配批次查看' },
   materials: { title: '物料档案/库存' },
+  materialReceipts: { title: '原料入库' },
+  materialBatches: { title: '原料批次' },
+  stockLedger: { title: '库存流水' },
+  stockBatches: { title: '库存批次' },
+  stockAdjustments: { title: '库存调整单' },
   bom: { title: 'BOM配方维护' },
   customers: { title: '客户档案' },
   products: { title: '商品档案' },
@@ -84,10 +100,18 @@ const internalViews = {
   order: OrderEntryView,
   orders: OrdersView,
   materials: MaterialsView,
+  materialReceipts: MaterialReceiptsView,
+  materialBatches: MaterialBatchesView,
+  stockLedger: StockLedgerView,
+  stockBatches: StockBatchesView,
+  stockAdjustments: StockAdjustmentsView,
   bom: BomView,
   producePlan: ProducePlanView,
   produceRunning: ProduceRunningView,
   produceLogs: ProductionLogsView,
+  workOrders: WorkOrdersView,
+  jobCards: JobCardsView,
+  productionCosts: ProductionCostsView,
   allocationLogs: AllocationLogsView,
   customers: CustomersView,
   products: ProductsView,
@@ -108,8 +132,8 @@ const internalViews = {
 
 const menuGroups = [
   { name: '订单', items: [{ key: 'order', label: '录单' }, { key: 'orders', label: '订单列表' }] },
-  { name: '生产流程', items: [{ key: 'producePlan', label: '生产计划/开始生产' }, { key: 'produceRunning', label: '生产中' }, { key: 'produceLogs', label: '生产日志' }, { key: 'allocationLogs', label: '分配批次查看' }] },
-  { name: '物料管理', items: [{ key: 'materials', label: '物料档案/库存' }, { key: 'bom', label: 'BOM配方维护' }] },
+  { name: '生产流程', items: [{ key: 'producePlan', label: '生产计划/开始生产' }, { key: 'produceRunning', label: '生产中' }, { key: 'workOrders', label: '生产工单' }, { key: 'jobCards', label: '工序卡' }, { key: 'productionCosts', label: '生产成本' }, { key: 'produceLogs', label: '生产日志' }, { key: 'allocationLogs', label: '分配批次查看' }] },
+  { name: '物料管理', items: [{ key: 'materials', label: '物料档案/库存' }, { key: 'materialReceipts', label: '原料入库' }, { key: 'materialBatches', label: '原料批次' }, { key: 'stockLedger', label: '库存流水' }, { key: 'stockBatches', label: '库存批次' }, { key: 'stockAdjustments', label: '库存调整单' }, { key: 'bom', label: 'BOM配方维护' }] },
   { name: '档案', items: [{ key: 'customers', label: '客户档案' }, { key: 'products', label: '商品档案' }, { key: 'departments', label: '部门维护' }, { key: 'employees', label: '员工维护' }, { key: 'inventory', label: '成品库存' }, { key: 'quotePrint', label: '报价导出' }] },
   { name: '设置', items: [{ key: 'machines', label: '设备产能配置' }, { key: 'senderSettings', label: '发货人设置' }, { key: 'outsourceSettings', label: '代加工模板设置' }] },
   { name: '日志', items: [{ key: 'audit', label: '操作日志' }] },
