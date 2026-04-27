@@ -45,7 +45,6 @@ import AuditView from './views/AuditView.vue'
 import BomView from './views/BomView.vue'
 import CompanyStaffView from './views/CompanyStaffView.vue'
 import CostingSettingsView from './views/CostingSettingsView.vue'
-import CostingView from './views/CostingView.vue'
 import CustomersView from './views/CustomersView.vue'
 import InventoryView from './views/InventoryView.vue'
 import JobCardsView from './views/JobCardsView.vue'
@@ -60,6 +59,7 @@ import ProducePlanView from './views/ProducePlanView.vue'
 import ProduceRunningView from './views/ProduceRunningView.vue'
 import ProductionCostsView from './views/ProductionCostsView.vue'
 import ProductionLogsView from './views/ProductionLogsView.vue'
+import ProductSettingsView from './views/ProductSettingsView.vue'
 import ProductsView from './views/ProductsView.vue'
 import RequirementsView from './views/RequirementsView.vue'
 import SenderSettingsView from './views/SenderSettingsView.vue'
@@ -99,7 +99,8 @@ const internalViews = {
   stockBatches: StockBatchesView,
   stockAdjustments: StockAdjustmentsView,
   bom: BomView,
-  costing: CostingView,
+  productSettings: ProductSettingsView,
+  costing: ProductSettingsView,
   costingSettings: CostingSettingsView,
   producePlan: ProducePlanView,
   produceRunning: ProduceRunningView,
@@ -109,7 +110,7 @@ const internalViews = {
   productionCosts: ProductionCostsView,
   allocationLogs: AllocationLogsView,
   customers: CustomersView,
-  products: ProductsView,
+  products: ProductSettingsView,
   departments: CompanyStaffView,
   employees: CompanyStaffView,
   inventory: InventoryView,
