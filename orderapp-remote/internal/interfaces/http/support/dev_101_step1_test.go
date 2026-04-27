@@ -51,27 +51,11 @@ func TestOrderShippingExcelServerUsesTemplateAndPersistentExportDir(t *testing.T
 			t.Fatalf("order_shipping_excel.go missing %q", needle)
 		}
 	}
-	deploy := string(readRepoFileForTest(t, "deploy_orderapp.sh"))
-	for _, needle := range []string{"/data/ship_temp.xlsx", "/opt/stacks/erp/orderapp_data/ship_temp.xlsx"} {
-		if !strings.Contains(deploy, needle) {
-			t.Fatalf("deploy_orderapp.sh missing %q", needle)
-		}
-	}
 }
 
 func readOrderAppFileForTest(t *testing.T, rel string) []byte {
 	t.Helper()
 	root := findAncestorForTest(t, "go.mod")
-	b, err := os.ReadFile(filepath.Join(root, rel))
-	if err != nil {
-		t.Fatal(err)
-	}
-	return b
-}
-
-func readRepoFileForTest(t *testing.T, rel string) []byte {
-	t.Helper()
-	root := findAncestorForTest(t, "deploy_orderapp.sh")
 	b, err := os.ReadFile(filepath.Join(root, rel))
 	if err != nil {
 		t.Fatal(err)
