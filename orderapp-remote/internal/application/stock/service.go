@@ -443,7 +443,7 @@ func (s *Service) TransferFinishedProduct(ctx context.Context, cmd FinishedProdu
 }
 
 func (s *Service) CreateAdjustment(ctx context.Context, cmd StockAdjustmentCommand) (StockAdjustmentResult, error) {
-	cmd.ItemType = strings.TrimSpace(cmd.ItemType)
+	cmd.ItemType = normalizeStockItemType(cmd.ItemType)
 	cmd.Warehouse = normalizeWarehouse(cmd.Warehouse)
 	cmd.Reason = strings.TrimSpace(cmd.Reason)
 	cmd.Operator = strings.TrimSpace(cmd.Operator)
@@ -472,6 +472,16 @@ func (s *Service) CreateAdjustment(ctx context.Context, cmd StockAdjustmentComma
 		return StockAdjustmentResult{}, fmt.Errorf("reason required")
 	}
 	return s.repo.CreateAdjustment(ctx, cmd)
+}
+
+func normalizeStockItemType(v string) string {
+	v = strings.TrimSpace(v)
+	switch v {
+	case "product", "finished", "finishedProduct":
+		return "finished_product"
+	default:
+		return v
+	}
 }
 
 func normalizeWarehouse(v string) string {

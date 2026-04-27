@@ -93,6 +93,7 @@
 <script setup>
 import { computed, onMounted, reactive, ref } from 'vue'
 import { apiGet, apiSend } from '../api/client'
+import { replaceHistoryURL } from '../lib/url-state'
 
 const props = defineProps({
   viewKey: { type: String, default: 'products' },
@@ -125,7 +126,7 @@ function updateUrl() {
   url.searchParams.set('view', props.viewKey)
   if (editingId.value) url.searchParams.set('edit_id', String(editingId.value))
   else url.searchParams.delete('edit_id')
-  window.history.replaceState({}, '', url.toString())
+  replaceHistoryURL(url)
 }
 
 async function load() {

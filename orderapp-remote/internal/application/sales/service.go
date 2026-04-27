@@ -49,15 +49,16 @@ type SaveOrderResult struct {
 }
 
 type OrderShippingExportData struct {
-	OrderID      int64
-	OrderNo      string
-	OrderDate    string
-	CustomerName string
-	RecvName     string
-	RecvPhone    string
-	RecvAddr     string
-	RecvCompany  string
-	Items        []OrderShippingExportItem
+	OrderID       int64
+	OrderNo       string
+	OrderDate     string
+	CustomerName  string
+	RecvName      string
+	RecvPhone     string
+	RecvAddr      string
+	RecvCompany   string
+	ProcessStatus string
+	Items         []OrderShippingExportItem
 }
 
 type OrderShippingExportItem struct {
@@ -296,12 +297,16 @@ type SetShipMethodCommand struct {
 }
 
 type SenderProfile struct {
-	Name    string `json:"sender_name"`
-	Phone   string `json:"sender_phone"`
-	Addr    string `json:"sender_addr"`
-	Company string `json:"sender_company"`
-	Goods   string `json:"sender_goods"`
-	BizType string `json:"sf_biz_type"`
+	ID        int64  `json:"sender_id"`
+	Label     string `json:"sender_label"`
+	Name      string `json:"sender_name"`
+	Phone     string `json:"sender_phone"`
+	Addr      string `json:"sender_addr"`
+	Company   string `json:"sender_company"`
+	Goods     string `json:"sender_goods"`
+	BizType   string `json:"sf_biz_type"`
+	IsDefault bool   `json:"is_default"`
+	Active    bool   `json:"active"`
 }
 
 type ShippingExportQuery struct {
@@ -343,6 +348,8 @@ type Repository interface {
 	FillTrackingPairs(ctx context.Context, cmd FillTrackingPairsCommand) (FillTrackingResult, error)
 	SetShipMethod(ctx context.Context, cmd SetShipMethodCommand) error
 	LoadSenderProfile(ctx context.Context) (SenderProfile, error)
+	LoadSenderProfileByID(ctx context.Context, id int64) (SenderProfile, error)
+	ListSenderProfiles(ctx context.Context) ([]SenderProfile, error)
 	SaveSenderProfile(ctx context.Context, profile SenderProfile) error
 	ListSFSmallShippingRows(ctx context.Context, query ShippingExportQuery) ([]ShippingExportRow, error)
 	LoadOrderShippingExportData(ctx context.Context, orderID int64) (OrderShippingExportData, error)
@@ -523,7 +530,40 @@ func (s *Service) LoadSenderProfile(ctx context.Context) (SenderProfile, error) 
 	return profile, nil
 }
 
+func (s *Service) LoadSenderProfileByID(ctx context.Context, id int64) (SenderProfile, error) {
+	var (
+		profile SenderProfile
+		err     error
+	)
+	if id > 0 {
+		profile, err = s.repo.LoadSenderProfileByID(ctx, id)
+	} else {
+		profile, err = s.repo.LoadSenderProfile(ctx)
+	}
+	if err != nil {
+		return SenderProfile{}, err
+	}
+	if strings.TrimSpace(profile.Goods) == "" {
+		profile.Goods = "茶叶"
+	}
+	return profile, nil
+}
+
+func (s *Service) ListSenderProfiles(ctx context.Context) ([]SenderProfile, error) {
+	profiles, err := s.repo.ListSenderProfiles(ctx)
+	if err != nil {
+		return nil, err
+	}
+	for i := range profiles {
+		if strings.TrimSpace(profiles[i].Goods) == "" {
+			profiles[i].Goods = "茶叶"
+		}
+	}
+	return profiles, nil
+}
+
 func (s *Service) SaveSenderProfile(ctx context.Context, profile SenderProfile) error {
+	profile.Label = strings.TrimSpace(profile.Label)
 	profile.Name = strings.TrimSpace(profile.Name)
 	profile.Phone = strings.TrimSpace(profile.Phone)
 	profile.Addr = strings.TrimSpace(profile.Addr)
@@ -533,7 +573,22 @@ func (s *Service) SaveSenderProfile(ctx context.Context, profile SenderProfile) 
 		profile.Goods = "茶叶"
 	}
 	profile.BizType = strings.TrimSpace(profile.BizType)
+	if profile.Label == "" {
+		profile.Label = firstNonEmptyText(profile.Name, profile.Company, "寄件人")
+	}
+	if !profile.Active && profile.ID == 0 {
+		profile.Active = true
+	}
 	return s.repo.SaveSenderProfile(ctx, profile)
+}
+
+func firstNonEmptyText(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return strings.TrimSpace(value)
+		}
+	}
+	return ""
 }
 
 func (s *Service) ListSFSmallShippingRows(ctx context.Context, query ShippingExportQuery) ([]ShippingExportRow, error) {

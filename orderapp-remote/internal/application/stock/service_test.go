@@ -8,6 +8,7 @@ import (
 type fakeRepo struct {
 	ledgerQuery      LedgerQuery
 	receipt          MaterialReceiptCommand
+	adjustment       StockAdjustmentCommand
 	transfer         MaterialTransferCommand
 	finishedTransfer FinishedProductTransferCommand
 	traceQuery       StockTraceQuery
@@ -41,6 +42,7 @@ func (f *fakeRepo) ReceiveMaterial(ctx context.Context, cmd MaterialReceiptComma
 	return MaterialReceiptResult{ReceiptID: 7, BatchCode: "MB-0000000007"}, nil
 }
 func (f *fakeRepo) CreateAdjustment(ctx context.Context, cmd StockAdjustmentCommand) (StockAdjustmentResult, error) {
+	f.adjustment = cmd
 	return StockAdjustmentResult{AdjustmentID: 8}, nil
 }
 func (f *fakeRepo) TransferMaterial(ctx context.Context, cmd MaterialTransferCommand) (MaterialTransferResult, error) {
@@ -202,5 +204,28 @@ func TestGetStockTraceRequiresBatchAndTrimsInput(t *testing.T) {
 
 	if _, err := svc.GetStockTrace(context.Background(), StockTraceQuery{}); err == nil {
 		t.Fatal("expected batch validation error")
+	}
+}
+
+func TestCreateAdjustmentAcceptsProductAliasForFinishedProduct(t *testing.T) {
+	repo := &fakeRepo{}
+	svc := NewService(repo)
+
+	_, err := svc.CreateAdjustment(context.Background(), StockAdjustmentCommand{
+		ItemType:    " product ",
+		ItemID:      9,
+		SpecG:       454,
+		TargetUnits: 3,
+		Reason:      "门店盘点",
+	})
+	if err != nil {
+		t.Fatalf("CreateAdjustment product alias: %v", err)
+	}
+
+	if repo.adjustment.ItemType != "finished_product" {
+		t.Fatalf("item_type = %q, want finished_product", repo.adjustment.ItemType)
+	}
+	if repo.adjustment.Warehouse != "finished_goods" {
+		t.Fatalf("warehouse = %q, want finished_goods", repo.adjustment.Warehouse)
 	}
 }

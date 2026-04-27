@@ -22,6 +22,9 @@ func TestLoadRuntimeDefaults(t *testing.T) {
 	if cfg.AssetDir != "/app/data/assets" {
 		t.Fatalf("AssetDir = %q", cfg.AssetDir)
 	}
+	if cfg.TemplateDir != "templates" {
+		t.Fatalf("TemplateDir = %q", cfg.TemplateDir)
+	}
 	if cfg.AuthUser != "order" {
 		t.Fatalf("AuthUser = %q", cfg.AuthUser)
 	}
@@ -54,6 +57,8 @@ func TestLoadRuntimeTrimsValues(t *testing.T) {
 			return " secret "
 		case "DB_SCHEMA":
 			return " tenant_schema "
+		case "TEMPLATE_DIR":
+			return " templates "
 		case "LISTEN":
 			return " :9090 "
 		default:
@@ -71,6 +76,9 @@ func TestLoadRuntimeTrimsValues(t *testing.T) {
 	}
 	if cfg.Schema != "tenant_schema" {
 		t.Fatalf("Schema = %q", cfg.Schema)
+	}
+	if cfg.TemplateDir != "templates" {
+		t.Fatalf("TemplateDir = %q", cfg.TemplateDir)
 	}
 	if cfg.ListenAddr != ":9090" {
 		t.Fatalf("ListenAddr = %q", cfg.ListenAddr)

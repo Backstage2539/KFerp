@@ -2,6 +2,7 @@ package appmain
 
 import (
 	"html/template"
+	"path/filepath"
 
 	appconfig "orderapp/internal/config"
 	supporthttp "orderapp/internal/interfaces/http/support"
@@ -18,8 +19,7 @@ func loadAppConfig() (appConfig, error) {
 }
 
 func newHTTPServer(cfg appConfig, pool *pgxpool.Pool) *echo.Echo {
-	// Note: templates are baked into the image at /app/templates.
-	t := template.Must(template.New("").Funcs(supporthttp.TemplateFuncMap()).ParseGlob("/app/templates/*.html"))
+	t := template.Must(template.New("").Funcs(supporthttp.TemplateFuncMap()).ParseGlob(filepath.Join(cfg.TemplateDir, "*.html")))
 
 	e := echo.New()
 	e.HideBanner = true

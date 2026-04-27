@@ -18,7 +18,7 @@ func TestOrderShippingExcelRequirementSeeds(t *testing.T) {
 		"UT-101-01",
 		"API-101-01",
 		"REV-101-01",
-		"保存订单后按服务器快递模板生成订单专属 Excel",
+		"订单列表选择生产完成订单后按服务器快递模板生成快递录单 Excel",
 		"包裹件数 1、托寄物默认茶叶、重量 0.1",
 	} {
 		if !strings.Contains(src, needle) {
@@ -27,7 +27,16 @@ func TestOrderShippingExcelRequirementSeeds(t *testing.T) {
 	}
 }
 
-func TestOrderEntryVueShowsTierPricesAndShippingExcelLink(t *testing.T) {
+func TestShippingSenderSelectionRequirementSeeds(t *testing.T) {
+	src := string(readOrderAppFileForTest(t, filepath.Join("internal", "interfaces", "http", "support", "req_store.go")))
+	for _, needle := range []string{"PR-103", "DEV-103-01", "DEV-103-02", "DEV-103-03", "UT-103-01", "API-103-01", "REV-103-01", "备注不写单价小计", "默认寄件人", "单独指定寄件人"} {
+		if !strings.Contains(src, needle) {
+			t.Fatalf("req_store.go missing %q", needle)
+		}
+	}
+}
+
+func TestOrderEntryVueShowsTierPricesWithoutShippingExcelLink(t *testing.T) {
 	b := readOrderAppFileForTest(t, filepath.Join("frontend-vue-shell", "src", "views", "OrderEntryView.vue"))
 	src := string(b)
 	for _, needle := range []string{
@@ -35,20 +44,52 @@ func TestOrderEntryVueShowsTierPricesAndShippingExcelLink(t *testing.T) {
 		"tier-price-chip",
 		"defaultWholesaleSpec",
 		"wholesaleTierPriceRows",
-		"shippingExcelUrl",
-		"下载快递录单 Excel",
 	} {
 		if !strings.Contains(src, needle) {
 			t.Fatalf("OrderEntryView.vue missing %q", needle)
+		}
+	}
+	for _, needle := range []string{"shippingExcelUrl", "下载快递录单 Excel"} {
+		if strings.Contains(src, needle) {
+			t.Fatalf("OrderEntryView.vue should not contain %q", needle)
+		}
+	}
+}
+
+func TestOrdersVueGeneratesShippingExcelForProductionCompletedSelection(t *testing.T) {
+	b := readOrderAppFileForTest(t, filepath.Join("frontend-vue-shell", "src", "views", "OrdersView.vue"))
+	src := string(b)
+	for _, needle := range []string{
+		"selectedOrderIDs",
+		"/api/orders/shipping-excel",
+		"生产完成",
+		"生成快递录单 Excel",
+		"shippingExcelUrl",
+		"senderProfiles",
+		"selectedSenderID",
+		"orderSenderIDs",
+		"order_senders",
+	} {
+		if !strings.Contains(src, needle) {
+			t.Fatalf("OrdersView.vue missing %q", needle)
 		}
 	}
 }
 
 func TestOrderShippingExcelServerUsesTemplateAndPersistentExportDir(t *testing.T) {
 	server := string(readOrderAppFileForTest(t, filepath.Join("internal", "interfaces", "http", "sales", "order_shipping_excel.go")))
-	for _, needle := range []string{"/app/data/ship_temp.xlsx", "/app/data/shipping_exports"} {
+	for _, needle := range []string{"/app/data/ship_temp.xlsx", "/app/data/shipping_exports", "sender_id"} {
 		if !strings.Contains(server, needle) {
 			t.Fatalf("order_shipping_excel.go missing %q", needle)
+		}
+	}
+}
+
+func TestSenderSettingsVueSupportsSenderListAndDefaultProfile(t *testing.T) {
+	src := string(readOrderAppFileForTest(t, filepath.Join("frontend-vue-shell", "src", "views", "SenderSettingsView.vue")))
+	for _, needle := range []string{"profiles", "默认寄件人", "新增寄件人", "设为默认", "sender_label"} {
+		if !strings.Contains(src, needle) {
+			t.Fatalf("SenderSettingsView.vue missing %q", needle)
 		}
 	}
 }

@@ -73,6 +73,14 @@ func (r *fakeRepo) LoadSenderProfile(ctx context.Context) (SenderProfile, error)
 	return SenderProfile{Goods: "咖啡"}, nil
 }
 
+func (r *fakeRepo) LoadSenderProfileByID(ctx context.Context, id int64) (SenderProfile, error) {
+	return SenderProfile{ID: id, Goods: "茶叶"}, nil
+}
+
+func (r *fakeRepo) ListSenderProfiles(ctx context.Context) ([]SenderProfile, error) {
+	return []SenderProfile{{ID: 1, Label: "默认寄件人", Goods: "茶叶", IsDefault: true, Active: true}}, nil
+}
+
 func (r *fakeRepo) SaveSenderProfile(ctx context.Context, profile SenderProfile) error {
 	return nil
 }

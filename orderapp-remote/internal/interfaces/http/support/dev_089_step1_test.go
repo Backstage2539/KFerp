@@ -304,12 +304,12 @@ func TestBeanListCopyPublishedConfigRequirementSeeds(t *testing.T) {
 	}
 	src := string(b)
 	for _, want := range []string{
-		"PR-103",
-		"DEV-103-01",
-		"DEV-103-02",
-		"UT-103-01",
-		"API-103-01",
-		"REV-103-01",
+		"PR-105",
+		"DEV-105-01",
+		"DEV-105-02",
+		"UT-105-01",
+		"API-105-01",
+		"REV-105-01",
 		"生成豆单支持复制已有豆单配置",
 		"复制已有豆单配置",
 		"当前最新产品和价格重新生成预览",

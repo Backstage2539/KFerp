@@ -29,6 +29,24 @@ func TestNormalizeMaterialInputDefaultsKindAndUnit(t *testing.T) {
 	}
 }
 
+func TestNormalizeMaterialInputAcceptsLegacyKindAliases(t *testing.T) {
+	bean, err := normalizeMaterialInput(materialInput{Code: "raw-a", Name: "旧生豆", Kind: " raw_bean ", Unit: "kg"})
+	if err != nil {
+		t.Fatalf("normalize raw_bean alias: %v", err)
+	}
+	if bean.Kind != "bean" {
+		t.Fatalf("raw_bean kind = %q, want bean", bean.Kind)
+	}
+
+	pack, err := normalizeMaterialInput(materialInput{Code: "bag-a", Name: "旧包材", Kind: "packaging", Unit: "个"})
+	if err != nil {
+		t.Fatalf("normalize packaging alias: %v", err)
+	}
+	if pack.Kind != "pack" {
+		t.Fatalf("packaging kind = %q, want pack", pack.Kind)
+	}
+}
+
 func TestNormalizeMaterialInputDefaultsBatchNoToToday(t *testing.T) {
 	got, err := normalizeMaterialInput(materialInput{Code: "bean-a", Name: "豆子A", Kind: "bean", Unit: "kg"})
 	if err != nil {

@@ -1,6 +1,7 @@
 package appmain
 
 import (
+	authzapp "orderapp/internal/application/authz"
 	bomapp "orderapp/internal/application/bom"
 	catalogapp "orderapp/internal/application/catalog"
 	companyapp "orderapp/internal/application/company"
@@ -11,6 +12,7 @@ import (
 	productionapp "orderapp/internal/application/production"
 	salesapp "orderapp/internal/application/sales"
 	stockapp "orderapp/internal/application/stock"
+	postgresauthz "orderapp/internal/infrastructure/postgres/authz"
 	postgresbom "orderapp/internal/infrastructure/postgres/bom"
 	postgrescatalog "orderapp/internal/infrastructure/postgres/catalog"
 	postgrescompany "orderapp/internal/infrastructure/postgres/company"
@@ -38,6 +40,7 @@ import (
 )
 
 func registerAppRoutes(e *echo.Echo, pool *pgxpool.Pool, schema string, assetDir string) {
+	authzSvc := authzapp.NewService(postgresauthz.NewRepository(pool, schema))
 	bomSvc := bomapp.NewService(postgresbom.NewRepository(pool, schema))
 	catalogSvc := catalogapp.NewService(postgrescatalog.NewRepository(pool, schema))
 	companySvc := companyapp.NewService(postgrescompany.NewRepository(pool, schema))
@@ -49,7 +52,9 @@ func registerAppRoutes(e *echo.Echo, pool *pgxpool.Pool, schema string, assetDir
 	salesSvc := salesapp.NewService(postgressales.NewRepository(pool, schema))
 	stockSvc := stockapp.NewService(postgresstock.NewRepository(pool, schema))
 
-	supporthttp.RegisterRoutes(e, pool, schema)
+	e.Use(supporthttp.AuthorizationMiddleware(authzSvc))
+
+	supporthttp.RegisterRoutes(e, pool, schema, supporthttp.Dependencies{Authz: authzSvc})
 	cataloghttp.RegisterRoutes(e, cataloghttp.Dependencies{Catalog: catalogSvc})
 	materialshttp.RegisterRoutes(e, materialshttp.Dependencies{Materials: materialsSvc})
 	bomhttp.RegisterRoutes(e, bomhttp.Dependencies{Bom: bomSvc})

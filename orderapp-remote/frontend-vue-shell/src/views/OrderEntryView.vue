@@ -15,11 +15,7 @@
     </section>
 
     <div v-if="error" class="notice error">{{ error }}</div>
-    <div v-if="ok" class="notice ok">
-      <span>订单已保存：{{ ok }}</span>
-      <a v-if="shippingExcelUrl" :href="shippingExcelUrl" target="_blank" rel="noopener">下载快递录单 Excel</a>
-    </div>
-    <div v-if="shippingExcelError" class="notice warn">{{ shippingExcelError }}</div>
+    <div v-if="ok" class="notice ok">订单已保存：{{ ok }}</div>
 
     <section class="panel order-fields">
       <div class="section-title">订单信息</div>
@@ -266,8 +262,6 @@ const products = ref([])
 const rows = ref([newRow()])
 const customerQuery = ref('')
 const customerOpen = ref(false)
-const shippingExcelUrl = ref('')
-const shippingExcelError = ref('')
 
 const form = reactive({
   edit_id: 0,
@@ -514,8 +508,6 @@ async function load() {
   loading.value = true
   error.value = ''
   ok.value = ''
-  shippingExcelUrl.value = ''
-  shippingExcelError.value = ''
   try {
     const url = new URL('/api/order/form', window.location.origin)
     const editID = new URL(window.location.href).searchParams.get('edit_id')
@@ -545,8 +537,6 @@ async function save() {
   saving.value = true
   error.value = ''
   ok.value = ''
-  shippingExcelUrl.value = ''
-  shippingExcelError.value = ''
   try {
     const payload = buildOrderPayload({ form, rows: rows.value })
     if (!payload.customer_id) throw new Error('请选择客户')
@@ -559,9 +549,7 @@ async function save() {
     const data = await res.json()
     if (!res.ok) throw new Error(data.error || '保存失败')
     ok.value = data.order_no || '成功'
-    shippingExcelUrl.value = data.shipping_excel_url || ''
-    shippingExcelError.value = data.shipping_excel_error || ''
-    if (!shippingExcelUrl.value && !shippingExcelError.value && data.redirect_url) window.location.href = data.redirect_url
+    if (data.redirect_url) window.location.href = data.redirect_url
   } catch (err) {
     error.value = err.message || '保存失败'
   } finally {

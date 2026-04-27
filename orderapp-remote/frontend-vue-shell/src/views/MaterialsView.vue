@@ -175,6 +175,7 @@
 
 <script setup>
 import { computed, onMounted, ref } from 'vue'
+import { apiGet, apiSend } from '../api/client'
 
 const rows = ref([])
 const q = ref('')
@@ -292,9 +293,7 @@ async function load() {
     const url = new URL('/api/materials', window.location.origin)
     url.searchParams.set('limit', '500')
     if (q.value) url.searchParams.set('q', q.value)
-    const res = await fetch(url)
-    const data = await res.json()
-    if (!res.ok) throw new Error(data.error || '加载失败')
+    const data = await apiGet(`${url.pathname}${url.search}`)
     rows.value = (data.rows || []).map(normalizeRow)
     if (selectedID.value) {
       const next = rows.value.find((item) => item.id === selectedID.value)
@@ -366,13 +365,7 @@ async function saveMaterial() {
   if (!draft.value) return
   await mutate(async () => {
     const url = draftMode.value ? '/api/materials' : `/api/materials/${draft.value.id}`
-    const res = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payloadFromDraft()),
-    })
-    const data = await res.json()
-    if (!res.ok) throw new Error(data.error || '保存失败')
+    const data = await apiSend(url, { body: payloadFromDraft() })
     const row = normalizeRow(data)
     ok.value = draftMode.value ? '已保存新物料' : '已保存警戒线/属性'
     draftMode.value = false
@@ -406,10 +399,8 @@ async function submitStockBackfill() {
     return
   }
   await mutate(async () => {
-    const res = await fetch('/api/stock/adjustments', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
+    const data = await apiSend('/api/stock/adjustments', {
+      body: {
         item_type: 'material',
         item_id: selected.value.id,
         spec_g: 0,
@@ -417,10 +408,8 @@ async function submitStockBackfill() {
         target_g: Number(stockBackfill.value.target_g || 0),
         target_units: Number(stockBackfill.value.target_units || 0),
         reason: stockBackfill.value.reason,
-      }),
+      },
     })
-    const data = await res.json()
-    if (!res.ok) throw new Error(data.error || '库存补录失败')
     stockBackfill.value.open = false
     await load()
     const next = rows.value.find((item) => item.id === selectedID.value)
@@ -433,13 +422,7 @@ async function deprecateSelectedMaterial() {
   if (!selected.value || draftMode.value) return
   if (!window.confirm(`废弃物料：${selected.value.name}？`)) return
   await mutate(async () => {
-    const res = await fetch(`/api/materials/${selected.value.id}/deprecate`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({}),
-    })
-    const data = await res.json()
-    if (!res.ok) throw new Error(data.error || '废弃失败')
+    const data = await apiSend(`/api/materials/${selected.value.id}/deprecate`)
     ok.value = `已废弃：${data.name || selected.value.name}`
     clearSelection()
     await load()

@@ -19,7 +19,11 @@ func registerSenderSettingsPage(e *echo.Echo, salesSvc *salesapp.Service) {
 		if err != nil {
 			return c.JSON(http.StatusInternalServerError, map[string]any{"error": err.Error()})
 		}
-		return c.JSON(http.StatusOK, map[string]any{"profile": profile})
+		profiles, err := salesSvc.ListSenderProfiles(c.Request().Context())
+		if err != nil {
+			return c.JSON(http.StatusInternalServerError, map[string]any{"error": err.Error()})
+		}
+		return c.JSON(http.StatusOK, map[string]any{"profile": profile, "profiles": profiles})
 	})
 	e.POST("/api/settings/sender", func(c echo.Context) error {
 		var p SenderProfile
