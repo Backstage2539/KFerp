@@ -10,7 +10,7 @@ import {
 const rows = [
   { key: 'retail_tax_rate', label: '零售税率', value: 0.03, unit: 'ratio' },
   { key: 'kg_to_lb_factor', label: 'kg 到 lb 换算', value: 0.454, unit: 'lb/kg' },
-  { key: 'wholesale_kg_margin_rate_2', label: '商用熟豆 14-23磅 利润系数', value: 0.38, unit: 'ratio' },
+  { key: 'wholesale_kg_margin_rate_2', label: '商用熟豆 14包-23包 利润系数', value: 0.38, unit: 'ratio' },
   { key: 'drip_process_cost_per_bag', label: '挂耳加工成本', value: 0.44, unit: '元/袋' },
   { key: 'unknown_adjustment', label: '临时调整', value: 1, unit: '元' },
 ]
