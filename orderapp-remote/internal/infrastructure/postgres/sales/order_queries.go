@@ -3,6 +3,7 @@ package sales
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"strings"
 
 	salesapp "orderapp/internal/application/sales"
@@ -44,6 +45,48 @@ func (r Repository) ListOrders(ctx context.Context, query salesapp.OrderListQuer
 		ProcessStatuses: processStatuses,
 		HasNext:         hasNext,
 	}, nil
+}
+
+func (r Repository) ListOrderAuditLogs(ctx context.Context, orderID int64, limit int) ([]salesapp.AuditRow, error) {
+	if limit <= 0 {
+		limit = 50
+	}
+
+	payMap, _ := fetchOrderIDNameMap(ctx, r.pool, fmt.Sprintf("SELECT id, name FROM %s.pay_statuses", r.schema))
+	shipMap, _ := fetchOrderIDNameMap(ctx, r.pool, fmt.Sprintf("SELECT id, name FROM %s.ship_statuses", r.schema))
+
+	sql := fmt.Sprintf(`
+		SELECT
+			to_char(changed_at,'YYYY-MM-DD HH24:MI:SS') AS changed_at,
+			actor, field, old_value, new_value
+		FROM %s.order_audit_logs
+		WHERE order_id=$1
+		ORDER BY id DESC
+		LIMIT $2
+	`, r.schema)
+	rows, err := r.pool.Query(ctx, sql, orderID, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	out := make([]salesapp.AuditRow, 0)
+	for rows.Next() {
+		var row salesapp.AuditRow
+		if err := rows.Scan(&row.ChangedAt, &row.Actor, &row.Field, &row.OldValue, &row.NewValue); err != nil {
+			return nil, err
+		}
+		switch row.Field {
+		case "pay_status_id":
+			row.OldValue = auditIDTextToLabel(row.OldValue, payMap)
+			row.NewValue = auditIDTextToLabel(row.NewValue, payMap)
+		case "ship_status_id":
+			row.OldValue = auditIDTextToLabel(row.OldValue, shipMap)
+			row.NewValue = auditIDTextToLabel(row.NewValue, shipMap)
+		}
+		out = append(out, row)
+	}
+	return out, rows.Err()
 }
 
 func fetchOrders(ctx context.Context, pool *pgxpool.Pool, schema string, query salesapp.OrderListQuery) ([]salesapp.OrderRow, bool, error) {
@@ -112,6 +155,39 @@ func fetchOrders(ctx context.Context, pool *pgxpool.Pool, schema string, query s
 		out = out[:query.Limit]
 	}
 	return out, hasNext, nil
+}
+
+func fetchOrderIDNameMap(ctx context.Context, pool *pgxpool.Pool, sqlstr string) (map[int64]string, error) {
+	rows, err := pool.Query(ctx, sqlstr)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	m := map[int64]string{}
+	for rows.Next() {
+		var id int64
+		var name string
+		if err := rows.Scan(&id, &name); err != nil {
+			return nil, err
+		}
+		m[id] = name
+	}
+	return m, rows.Err()
+}
+
+func auditIDTextToLabel(v *string, labels map[int64]string) *string {
+	if v == nil {
+		return nil
+	}
+	id, err := strconv.ParseInt(strings.TrimSpace(*v), 10, 64)
+	if err != nil || id <= 0 {
+		return v
+	}
+	label, ok := labels[id]
+	if !ok {
+		return v
+	}
+	return &label
 }
 
 func fetchOrdersSummary(ctx context.Context, pool *pgxpool.Pool, schema string, query salesapp.OrderListQuery) (salesapp.OrdersSummary, error) {

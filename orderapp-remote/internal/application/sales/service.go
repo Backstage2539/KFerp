@@ -112,6 +112,87 @@ type Option struct {
 	Name string `json:"name"`
 }
 
+type ProductTierOption struct {
+	ID        int64    `json:"id"`
+	SpecG     int64    `json:"spec_g"`
+	MinQty    float64  `json:"min_qty"`
+	MaxQty    *float64 `json:"max_qty"`
+	UnitPrice float64  `json:"unit_price"`
+}
+
+type ProductOption struct {
+	ID              int64               `json:"id"`
+	Name            string              `json:"name"`
+	RoastLevel      string              `json:"roast_level"`
+	DefaultPrice    float64             `json:"default_price"`
+	RetailPrice100G float64             `json:"retail_price_100g"`
+	RetailPrice200G float64             `json:"retail_price_200g"`
+	RetailPrice227G float64             `json:"retail_price_227g"`
+	RetailPrice250G float64             `json:"retail_price_250g"`
+	RetailSpecs     []int64             `json:"retail_specs"`
+	Tiers           []ProductTierOption `json:"tiers"`
+}
+
+type OrderFormData struct {
+	Today        string
+	Customers    []Option
+	Sources      []Option
+	ShipStatuses []Option
+	PayStatuses  []Option
+	OrderTypes   []Option
+	Products     []ProductOption
+	EditData     *OrderEditData
+}
+
+type OrderEditItem struct {
+	ItemID      int64
+	LineNo      int
+	ProductID   int64
+	Product     string
+	Spec        string
+	Qty         string
+	Unit        string
+	UnitPrice   string
+	LineTotal   string
+	PriceTierID int64
+}
+
+type OrderEditData struct {
+	ID             int64
+	OrderNo        string
+	OrderDate      string
+	CustomerID     int64
+	SourceID       int64
+	OrderTypeID    int64
+	PayStatusID    int64
+	ShipStatusID   int64
+	ShipMethod     string
+	ShipTrackingNo string
+	Notes          string
+
+	TotalAmount           string
+	ShippingAmount        string
+	DiscountAmount        string
+	RoundToInt            bool
+	RoundingAmount        string
+	GrandTotal            string
+	ExpressFee            string
+	OutsourceMaterialFee  string
+	OutsourceRoastFee     string
+	OutsourcePackagingFee string
+	OutsourceManualFee    string
+	OutsourceTaxFee       string
+	OutsourceOtherFee     string
+	OutsourceTotalFee     string
+
+	IsVoid     bool
+	VoidedAt   *string
+	VoidReason *string
+
+	Items []OrderEditItem
+	Error string
+}
+
 type OrdersSummary struct {
 	Orders    int `json:"orders"`
 	Customers int `json:"customers"`
@@ -135,6 +216,14 @@ type OrderRow struct {
 	CreatedByEmployee string `json:"created_by_employee"`
 	Notes             string `json:"notes"`
 	IsVoid            bool   `json:"is_void"`
+}
+
+type AuditRow struct {
+	ChangedAt string  `json:"changed_at"`
+	Actor     string  `json:"actor"`
+	Field     string  `json:"field"`
+	OldValue  *string `json:"old_value"`
+	NewValue  *string `json:"new_value"`
 }
 
 type OutsourceTemplate struct {
@@ -177,6 +266,40 @@ type SetShipMethodCommand struct {
 	Method   string
 }
 
+type SenderProfile struct {
+	Name    string `json:"sender_name"`
+	Phone   string `json:"sender_phone"`
+	Addr    string `json:"sender_addr"`
+	Company string `json:"sender_company"`
+	Goods   string `json:"sender_goods"`
+	BizType string `json:"sf_biz_type"`
+}
+
+type ShippingExportQuery struct {
+	Q               string
+	From            string
+	To              string
+	Void            string
+	CustomerID      int64
+	PayStatusID     int64
+	ShipStatusID    int64
+	ProcessStatusID int64
+	CompletedOnly   bool
+	OneClick        bool
+}
+
+type ShippingExportRow struct {
+	OrderID     int64
+	OrderNo     string
+	CustomerID  int64
+	RecvName    string
+	RecvPhone   string
+	RecvAddr    string
+	RecvCompany string
+	TrackingNo  string
+	WeightKg    float64
+}
+
 type Repository interface {
 	SaveOrder(ctx context.Context, cmd SaveOrderCommand) (SaveOrderResult, error)
 	UpdateHeader(ctx context.Context, id int64, cmd UpdateHeaderCommand) error
@@ -184,10 +307,15 @@ type Repository interface {
 	Void(ctx context.Context, id int64, actor, reason string) error
 	Unvoid(ctx context.Context, id int64, actor string) error
 	ListOrders(ctx context.Context, query OrderListQuery) (OrderListResult, error)
+	ListOrderAuditLogs(ctx context.Context, orderID int64, limit int) ([]AuditRow, error)
+	OrderForm(ctx context.Context, editID int64) (OrderFormData, error)
 	ListOutsourceTemplates(ctx context.Context) ([]OutsourceTemplate, error)
 	SaveOutsourceTemplate(ctx context.Context, cmd SaveOutsourceTemplateCommand) error
 	FillTrackingPairs(ctx context.Context, cmd FillTrackingPairsCommand) (FillTrackingResult, error)
 	SetShipMethod(ctx context.Context, cmd SetShipMethodCommand) error
+	LoadSenderProfile(ctx context.Context) (SenderProfile, error)
+	SaveSenderProfile(ctx context.Context, profile SenderProfile) error
+	ListSFSmallShippingRows(ctx context.Context, query ShippingExportQuery) ([]ShippingExportRow, error)
 }
 
 type Service struct {
@@ -266,6 +394,33 @@ func (s *Service) ListOrders(ctx context.Context, query OrderListQuery) (OrderLi
 	return s.repo.ListOrders(ctx, query)
 }
 
+func (s *Service) ListOrderAuditLogs(ctx context.Context, orderID int64, limit int) ([]AuditRow, error) {
+	if orderID <= 0 {
+		return nil, fmt.Errorf("invalid order id")
+	}
+	if limit <= 0 {
+		limit = 50
+	}
+	if limit > 200 {
+		limit = 200
+	}
+	return s.repo.ListOrderAuditLogs(ctx, orderID, limit)
+}
+
+func (s *Service) OrderForm(ctx context.Context, editID int64) (OrderFormData, error) {
+	if editID < 0 {
+		return OrderFormData{}, fmt.Errorf("invalid edit_id")
+	}
+	data, err := s.repo.OrderForm(ctx, editID)
+	if err != nil {
+		return OrderFormData{}, err
+	}
+	if strings.TrimSpace(data.Today) == "" {
+		data.Today = time.Now().Format("2006-01-02")
+	}
+	return data, nil
+}
+
 func (s *Service) ListOutsourceTemplates(ctx context.Context) ([]OutsourceTemplate, error) {
 	return s.repo.ListOutsourceTemplates(ctx)
 }
@@ -325,6 +480,41 @@ func (s *Service) SetShipMethod(ctx context.Context, cmd SetShipMethodCommand) e
 	}
 	cmd.OrderIDs = ids
 	return s.repo.SetShipMethod(ctx, cmd)
+}
+
+func (s *Service) LoadSenderProfile(ctx context.Context) (SenderProfile, error) {
+	profile, err := s.repo.LoadSenderProfile(ctx)
+	if err != nil {
+		return SenderProfile{}, err
+	}
+	if strings.TrimSpace(profile.Goods) == "" {
+		profile.Goods = "咖啡"
+	}
+	return profile, nil
+}
+
+func (s *Service) SaveSenderProfile(ctx context.Context, profile SenderProfile) error {
+	profile.Name = strings.TrimSpace(profile.Name)
+	profile.Phone = strings.TrimSpace(profile.Phone)
+	profile.Addr = strings.TrimSpace(profile.Addr)
+	profile.Company = strings.TrimSpace(profile.Company)
+	profile.Goods = strings.TrimSpace(profile.Goods)
+	if profile.Goods == "" {
+		profile.Goods = "咖啡"
+	}
+	profile.BizType = strings.TrimSpace(profile.BizType)
+	return s.repo.SaveSenderProfile(ctx, profile)
+}
+
+func (s *Service) ListSFSmallShippingRows(ctx context.Context, query ShippingExportQuery) ([]ShippingExportRow, error) {
+	query.Q = strings.TrimSpace(query.Q)
+	query.From = strings.TrimSpace(query.From)
+	query.To = strings.TrimSpace(query.To)
+	query.Void = strings.TrimSpace(query.Void)
+	if query.Void == "" {
+		query.Void = "normal"
+	}
+	return s.repo.ListSFSmallShippingRows(ctx, query)
 }
 
 func digitsOnly(s string) string {

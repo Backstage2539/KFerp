@@ -8,17 +8,13 @@ import (
 	"strings"
 
 	salesapp "orderapp/internal/application/sales"
-	postgressales "orderapp/internal/infrastructure/postgres/sales"
 
-	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/labstack/echo/v4"
 )
 
-func registerOrderRoutes(e *echo.Echo, pool *pgxpool.Pool, schema string) {
+func registerOrderRoutes(e *echo.Echo, salesSvc *salesapp.Service) {
 	h := orderHandler{
-		pool:   pool,
-		schema: schema,
-		sales:  salesapp.NewService(postgressales.NewRepository(pool, schema)),
+		sales: salesSvc,
 	}
 
 	// Orders list
@@ -44,9 +40,7 @@ func registerOrderRoutes(e *echo.Echo, pool *pgxpool.Pool, schema string) {
 }
 
 type orderHandler struct {
-	pool   *pgxpool.Pool
-	schema string
-	sales  *salesapp.Service
+	sales *salesapp.Service
 }
 
 func (h orderHandler) index(c echo.Context) error {
@@ -75,7 +69,7 @@ func (h orderHandler) audit(c echo.Context) error {
 	if err != nil || id <= 0 {
 		return c.String(http.StatusBadRequest, "invalid id")
 	}
-	rows, err := support.FetchAuditLogs(c.Request().Context(), h.pool, h.schema, id, 50)
+	rows, err := h.sales.ListOrderAuditLogs(c.Request().Context(), id, 50)
 	if err != nil {
 		return c.String(http.StatusInternalServerError, err.Error())
 	}

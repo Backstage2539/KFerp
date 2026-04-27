@@ -1,75 +1,21 @@
 package production
 
 import (
-	"context"
 	"fmt"
 	"net/http"
 	productionapp "orderapp/internal/application/production"
 	bomdomain "orderapp/internal/domain/bom"
-	catalogdomain "orderapp/internal/domain/catalog"
-	postgresinfra "orderapp/internal/infrastructure/postgres"
-	postgresproduction "orderapp/internal/infrastructure/postgres/production"
 	"strconv"
 	"strings"
 
-	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/labstack/echo/v4"
 )
 
-type UnprodSummaryPageData struct {
-	From           string                   `json:"from"`
-	To             string                   `json:"to"`
-	CustomerID     int64                    `json:"customer_id"`
-	Rows           []UnprodNeedRow          `json:"rows"`
-	PlanRows       []ProducePlanDisplayRow  `json:"plan_rows"`
-	Materials      []MaterialNeed           `json:"materials"`
-	RoastSplits    []RoastSplitRow          `json:"roast_splits"`
-	RoastPlans     []RoastPlanRow           `json:"roast_plans"`
-	MaterialRatios []RoastPlanMaterialRatio `json:"material_ratios"`
-	Selected       map[string]bool          `json:"selected"`
-	PlanReady      bool                     `json:"plan_ready"`
-	StockTip       string                   `json:"stock_tip"`
-	Error          string                   `json:"error"`
-}
-
-type ProducePlanDisplayRow struct {
-	UnprodNeedRow
-	BomYieldRate float64 `json:"bom_yield_rate"`
-	InputG       int64   `json:"input_g"`
-}
-
-type UnprodSummaryQuery struct {
-	From       string
-	To         string
-	CustomerID int64
-	Selected   map[string]bool
-	Plan       bool
-}
-
-type RoastPlanRow struct {
-	Key           string  `json:"key"`
-	ProductID     int64   `json:"product_id"`
-	ProductName   string  `json:"product_name"`
-	SpecG         int64   `json:"spec_g"`
-	Machine       string  `json:"machine"`
-	BatchCount    int64   `json:"batch_count"`
-	BatchG        int64   `json:"batch_g"`
-	FinalInputG   int64   `json:"final_input_g"`
-	NeedG         int64   `json:"need_g"`
-	YieldRate     float64 `json:"yield_rate"`
-	YieldPctStr   string  `json:"yield_pct_str"`
-	FinishedKgStr string  `json:"finished_kg_str"`
-}
-
-type RoastPlanMaterialRatio struct {
-	Key          string  `json:"key"`
-	ProductID    int64   `json:"product_id"`
-	SpecG        int64   `json:"spec_g"`
-	ProductName  string  `json:"product_name"`
-	MaterialName string  `json:"material_name"`
-	MaterialUnit string  `json:"material_unit"`
-	RatioPct     float64 `json:"ratio_pct"`
-}
+type UnprodSummaryPageData = productionapp.PlanSummaryData
+type ProducePlanDisplayRow = productionapp.ProducePlanDisplayRow
+type UnprodSummaryQuery = productionapp.PlanSummaryQuery
+type RoastPlanRow = productionapp.RoastPlanRow
+type RoastPlanMaterialRatio = productionapp.RoastPlanMaterialRatio
 
 func buildProducePlanDisplayRows(rows []UnprodNeedRow, yieldByProductID map[int64]float64, inputByKey map[string]int64) []ProducePlanDisplayRow {
 	out := make([]ProducePlanDisplayRow, 0, len(rows))
@@ -86,30 +32,6 @@ func buildProducePlanDisplayRows(rows []UnprodNeedRow, yieldByProductID map[int6
 		})
 	}
 	return out
-}
-
-func loadProductYieldRateMap(ctx context.Context, pool *pgxpool.Pool, schema string) (map[int64]float64, error) {
-	rows, err := pool.Query(ctx, `
-		SELECT p.id, COALESCE(p.roast_level,''), COALESCE(b.yield_rate,0.8)
-		FROM `+schema+`.products p
-		LEFT JOIN `+schema+`.product_bom b ON b.product_id=p.id
-		WHERE p.active=true`)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	out := map[int64]float64{}
-	for rows.Next() {
-		var productID int64
-		var roastLevel string
-		var yieldRate float64
-		if err := rows.Scan(&productID, &roastLevel, &yieldRate); err != nil {
-			return nil, err
-		}
-		out[productID] = catalogdomain.ResolveYieldRate(roastLevel, yieldRate)
-	}
-	return out, rows.Err()
 }
 
 func buildRoastPlanRows(rows []UnprodNeedRow, machines []RoastMachine, yieldByProductID map[int64]float64) []RoastPlanRow {
@@ -177,76 +99,6 @@ func parseUnprodSummaryQuery(c echo.Context) UnprodSummaryQuery {
 	return q
 }
 
-func loadUnprodSummaryData(ctx context.Context, pool *pgxpool.Pool, schema string, q UnprodSummaryQuery) (UnprodSummaryPageData, error) {
-	data := UnprodSummaryPageData{
-		From:       q.From,
-		To:         q.To,
-		CustomerID: q.CustomerID,
-		Selected:   q.Selected,
-		PlanReady:  q.Plan && len(q.Selected) > 0,
-	}
-	rows, err := fetchUnproducedNeeds(ctx, pool, schema, q.From, q.To, q.CustomerID)
-	if err != nil {
-		return data, err
-	}
-	data.Rows = rows
-	if !data.PlanReady {
-		return data, nil
-	}
-
-	planRows := make([]UnprodNeedRow, 0)
-	selectedCount := 0
-	for _, r := range rows {
-		key := producePlanKey(r.ProductID, r.SpecG)
-		if !q.Selected[key] {
-			continue
-		}
-		selectedCount++
-		if r.GapG <= 0 {
-			continue
-		}
-		planRows = append(planRows, r)
-	}
-	if selectedCount > 0 && len(planRows) == 0 {
-		data.StockTip = "库存充足：当前已选商品库存均可满足，无需补产。"
-		return data, nil
-	}
-
-	yieldMap, err := loadProductYieldRateMap(ctx, pool, schema)
-	if err != nil {
-		return data, err
-	}
-	params := defaultProducePlanParams()
-	if mappings, err := postgresinfra.ListBagSpecMappings(ctx, pool, schema); err == nil {
-		params.BagNameBySpecG = bomdomain.MappingNameBySpec(mappings)
-	}
-	bomMap, _ := loadBomNeedItemsFromRows(ctx, pool, schema, planRows)
-	productionSvc := productionapp.NewService(postgresproduction.NewRepository(pool, schema))
-	machines, _ := productionSvc.ListMachines(ctx, true)
-	data.RoastPlans = buildRoastPlanRows(planRows, machines, yieldMap)
-	data.MaterialRatios = buildRoastPlanMaterialRatios(planRows, bomMap)
-	finalInputByKey := map[string]int64{}
-	for _, row := range data.RoastPlans {
-		finalInputByKey[row.Key] = row.FinalInputG
-	}
-	data.PlanRows = buildProducePlanDisplayRows(planRows, yieldMap, finalInputByKey)
-	data.Materials = calcProducePlanMaterialsFromFinalInputs(planRows, finalInputByKey, bomMap, params)
-	data.RoastSplits = calcRoastSplits(planRows, machines, params.YieldRate)
-	return data, nil
-}
-
-func loadBomNeedItemsFromRows(ctx context.Context, pool *pgxpool.Pool, schema string, rows []UnprodNeedRow) (map[int64][]bomNeedItem, error) {
-	productIDs := make([]int64, 0, len(rows))
-	seen := map[int64]bool{}
-	for _, row := range rows {
-		if row.ProductID > 0 && !seen[row.ProductID] {
-			seen[row.ProductID] = true
-			productIDs = append(productIDs, row.ProductID)
-		}
-	}
-	return loadBomNeedItems(ctx, pool, schema, productIDs)
-}
-
 func buildRoastPlanMaterialRatios(rows []UnprodNeedRow, bomMap map[int64][]bomNeedItem) []RoastPlanMaterialRatio {
 	out := make([]RoastPlanMaterialRatio, 0)
 	for _, row := range rows {
@@ -282,7 +134,7 @@ func buildRoastPlanMaterialRatios(rows []UnprodNeedRow, bomMap map[int64][]bomNe
 	return out
 }
 
-func registerUnprodSummaryPages(e *echo.Echo, pool *pgxpool.Pool, schema string) {
+func registerUnprodSummaryPages(e *echo.Echo) {
 	e.GET("/produce/unproduced", func(c echo.Context) error {
 		target := "/vue-shell?view=producePlan"
 		if raw := c.QueryString(); raw != "" {

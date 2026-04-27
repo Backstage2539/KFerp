@@ -13,13 +13,16 @@ import (
 	"testing"
 	"time"
 
+	salesapp "orderapp/internal/application/sales"
+	postgressales "orderapp/internal/infrastructure/postgres/sales"
+
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/labstack/echo/v4"
 )
 
 func TestOrderEntryRedirectsToVueShell(t *testing.T) {
 	e := echo.New()
-	registerOrderRoutes(e, nil, "public")
+	registerOrderRoutes(e, nil)
 
 	req := httptest.NewRequest(http.MethodGet, "/order?edit_id=9", nil)
 	rec := httptest.NewRecorder()
@@ -169,7 +172,7 @@ func newOrderAPITestEcho(pool *pgxpool.Pool, schema string) *echo.Echo {
 			return next(c)
 		}
 	})
-	registerOrderAPI(e, pool, schema)
+	registerOrderAPI(e, salesapp.NewService(postgressales.NewRepository(pool, schema)))
 	return e
 }
 

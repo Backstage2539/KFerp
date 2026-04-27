@@ -1,0 +1,307 @@
+package sales
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"os"
+	"strconv"
+	"strings"
+	"time"
+
+	salesapp "orderapp/internal/application/sales"
+	salesdomain "orderapp/internal/domain/sales"
+
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
+)
+
+func (r Repository) OrderForm(ctx context.Context, editID int64) (salesapp.OrderFormData, error) {
+	data := salesapp.OrderFormData{Today: time.Now().Format("2006-01-02")}
+	var err error
+	if data.Customers, err = fetchOrderOptions(ctx, r.pool, fmt.Sprintf("SELECT id, name FROM %s.customers WHERE active=true ORDER BY name", r.schema)); err != nil {
+		return salesapp.OrderFormData{}, err
+	}
+	if data.Sources, err = fetchOrderOptions(ctx, r.pool, fmt.Sprintf("SELECT id, name FROM %s.sources ORDER BY id", r.schema)); err != nil {
+		return salesapp.OrderFormData{}, err
+	}
+	if data.ShipStatuses, err = fetchOrderOptions(ctx, r.pool, fmt.Sprintf("SELECT id, name FROM %s.ship_statuses ORDER BY id", r.schema)); err != nil {
+		return salesapp.OrderFormData{}, err
+	}
+	if data.PayStatuses, err = fetchOrderOptions(ctx, r.pool, fmt.Sprintf("SELECT id, name FROM %s.pay_statuses ORDER BY id", r.schema)); err != nil {
+		return salesapp.OrderFormData{}, err
+	}
+	if data.OrderTypes, err = fetchOrderOptions(ctx, r.pool, fmt.Sprintf("SELECT id, name FROM %s.order_types ORDER BY id", r.schema)); err != nil {
+		return salesapp.OrderFormData{}, err
+	}
+	if data.Products, err = r.fetchOrderProducts(ctx); err != nil {
+		return salesapp.OrderFormData{}, err
+	}
+	if editID > 0 {
+		editData, err := r.fetchOrderEdit(ctx, editID)
+		if err != nil {
+			return salesapp.OrderFormData{}, err
+		}
+		data.EditData = editData
+	}
+	return data, nil
+}
+
+func (r Repository) fetchOrderProducts(ctx context.Context) ([]salesapp.ProductOption, error) {
+	sqlstr := fmt.Sprintf(`SELECT id, name, COALESCE(roast_level,''), default_price,
+		COALESCE(retail_price_100g, 0),
+		COALESCE(retail_price_200g, 0),
+		COALESCE(retail_price_227g, default_price, 0),
+		COALESCE(retail_price_250g, 0)
+		FROM %s.products WHERE active=true ORDER BY name`, r.schema)
+	rows, err := r.pool.Query(ctx, sqlstr)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	out := make([]salesapp.ProductOption, 0)
+	for rows.Next() {
+		var p salesapp.ProductOption
+		if err := rows.Scan(&p.ID, &p.Name, &p.RoastLevel, &p.DefaultPrice, &p.RetailPrice100G, &p.RetailPrice200G, &p.RetailPrice227G, &p.RetailPrice250G); err != nil {
+			return nil, err
+		}
+		p.RetailSpecs = salesdomain.RetailAvailableSpecs(salesdomain.RetailSpecPrices{
+			Price100G: p.RetailPrice100G,
+			Price200G: p.RetailPrice200G,
+			Price227G: p.RetailPrice227G,
+			Price250G: p.RetailPrice250G,
+		})
+		out = append(out, p)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	tierSQL := fmt.Sprintf(`
+		SELECT id, product_id,
+		       COALESCE(NULLIF(spec_g,0), 454),
+		       COALESCE(min_qty_units, min_qty_lb),
+		       COALESCE(max_qty_units, max_qty_lb),
+		       COALESCE(price_per_unit, price_per_lb)
+		FROM %s.product_price_tiers
+		WHERE active=true
+		ORDER BY product_id, COALESCE(NULLIF(spec_g,0), 454), COALESCE(min_qty_units, min_qty_lb)
+	`, r.schema)
+	trs, err := r.pool.Query(ctx, tierSQL)
+	if err != nil {
+		return out, nil
+	}
+	defer trs.Close()
+
+	tierMap := map[int64][]salesapp.ProductTierOption{}
+	for trs.Next() {
+		var tid, pid int64
+		var specG int64
+		var min float64
+		var max *float64
+		var price float64
+		if err := trs.Scan(&tid, &pid, &specG, &min, &max, &price); err != nil {
+			return nil, err
+		}
+		tierMap[pid] = append(tierMap[pid], salesapp.ProductTierOption{ID: tid, SpecG: specG, MinQty: min, MaxQty: max, UnitPrice: price})
+	}
+	if err := trs.Err(); err != nil {
+		return nil, err
+	}
+
+	for i := range out {
+		out[i].Tiers = tierMap[out[i].ID]
+	}
+	return out, nil
+}
+
+func (r Repository) fetchOrderEdit(ctx context.Context, id int64) (*salesapp.OrderEditData, error) {
+	q := fmt.Sprintf(`
+		SELECT
+			o.id,
+			o.order_no,
+			to_char(o.order_date,'YYYY-MM-DD') as order_date,
+			COALESCE(o.customer_id,0) as customer_id,
+			COALESCE(o.source_id,0) as source_id,
+			COALESCE(o.order_type_id,0) as order_type_id,
+			COALESCE(o.pay_status_id,0) as pay_status_id,
+			COALESCE(o.ship_status_id,0) as ship_status_id,
+			COALESCE(o.ship_method,'') as ship_method,
+			COALESCE(o.ship_tracking_no,'') as ship_tracking_no,
+			COALESCE(o.notes,'') as notes,
+			COALESCE(o.total_amount,0) as total_amount,
+			COALESCE(o.shipping_amount,0) as shipping_amount,
+			COALESCE(o.discount_amount,0) as discount_amount,
+			COALESCE(o.round_to_int,false) as round_to_int,
+			COALESCE(o.rounding_amount,0) as rounding_amount,
+			COALESCE(o.grand_total,0) as grand_total,
+			COALESCE(o.express_fee,'') as express_fee,
+			COALESCE(o.outsource_material_fee,0) as outsource_material_fee,
+			COALESCE(o.outsource_roast_fee,0) as outsource_roast_fee,
+			COALESCE(o.outsource_packaging_fee,0) as outsource_packaging_fee,
+			COALESCE(o.outsource_manual_fee,0) as outsource_manual_fee,
+			COALESCE(o.outsource_tax_fee,0) as outsource_tax_fee,
+			COALESCE(o.outsource_other_fee,0) as outsource_other_fee,
+			COALESCE(o.outsource_total_fee,0) as outsource_total_fee,
+			o.is_void,
+			CASE WHEN o.voided_at IS NULL THEN NULL ELSE to_char(o.voided_at, 'YYYY-MM-DD HH24:MI:SS') END AS voided_at,
+			o.void_reason
+		FROM %s.orders o
+		WHERE o.id=$1
+	`, r.schema)
+
+	var d salesapp.OrderEditData
+	var totalAmt, shipAmt, discAmt, roundAmt, grandAmt float64
+	var outsourceMaterial, outsourceRoast, outsourcePackaging, outsourceManual, outsourceTax, outsourceOther, outsourceTotal float64
+	err := r.pool.QueryRow(ctx, q, id).Scan(
+		&d.ID,
+		&d.OrderNo,
+		&d.OrderDate,
+		&d.CustomerID,
+		&d.SourceID,
+		&d.OrderTypeID,
+		&d.PayStatusID,
+		&d.ShipStatusID,
+		&d.ShipMethod,
+		&d.ShipTrackingNo,
+		&d.Notes,
+		&totalAmt,
+		&shipAmt,
+		&discAmt,
+		&d.RoundToInt,
+		&roundAmt,
+		&grandAmt,
+		&d.ExpressFee,
+		&outsourceMaterial,
+		&outsourceRoast,
+		&outsourcePackaging,
+		&outsourceManual,
+		&outsourceTax,
+		&outsourceOther,
+		&outsourceTotal,
+		&d.IsVoid,
+		&d.VoidedAt,
+		&d.VoidReason,
+	)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	d.TotalAmount = fmt.Sprintf("%.2f", totalAmt)
+	d.ShippingAmount = fmt.Sprintf("%.2f", shipAmt)
+	d.DiscountAmount = fmt.Sprintf("%.2f", discAmt)
+	d.RoundingAmount = fmt.Sprintf("%.2f", roundAmt)
+	d.GrandTotal = fmt.Sprintf("%.2f", grandAmt)
+	d.OutsourceMaterialFee = fmt.Sprintf("%.2f", outsourceMaterial)
+	d.OutsourceRoastFee = fmt.Sprintf("%.2f", outsourceRoast)
+	d.OutsourcePackagingFee = fmt.Sprintf("%.2f", outsourcePackaging)
+	d.OutsourceManualFee = fmt.Sprintf("%.2f", outsourceManual)
+	d.OutsourceTaxFee = fmt.Sprintf("%.2f", outsourceTax)
+	d.OutsourceOtherFee = fmt.Sprintf("%.2f", outsourceOther)
+	d.OutsourceTotalFee = fmt.Sprintf("%.2f", outsourceTotal)
+
+	itemsQ := fmt.Sprintf(`
+		SELECT oi.id, oi.line_no,
+			COALESCE(oi.product_id,0),
+			COALESCE(p.name,''),
+			COALESCE(oi.spec,''),
+			COALESCE(oi.qty,0),
+			COALESCE(oi.unit,''),
+			COALESCE(oi.unit_price,0),
+			COALESCE(oi.line_total,0),
+			COALESCE(oi.price_tier_id,0)
+		FROM %s.order_items oi
+		LEFT JOIN %s.products p ON p.id=oi.product_id
+		WHERE oi.order_id=$1
+		ORDER BY oi.line_no, oi.id
+	`, r.schema, r.schema)
+	rows, err := r.pool.Query(ctx, itemsQ, id)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	d.Items = make([]salesapp.OrderEditItem, 0)
+	for rows.Next() {
+		var it salesapp.OrderEditItem
+		var qty, unitPrice, lineTotal float64
+		if err := rows.Scan(&it.ItemID, &it.LineNo, &it.ProductID, &it.Product, &it.Spec, &qty, &it.Unit, &unitPrice, &lineTotal, &it.PriceTierID); err != nil {
+			return nil, err
+		}
+		it.Qty = trimFloatZero(qty)
+		it.UnitPrice = fmt.Sprintf("%.2f", unitPrice)
+		it.LineTotal = fmt.Sprintf("%.2f", lineTotal)
+		d.Items = append(d.Items, it)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	return &d, nil
+}
+
+func (r Repository) LoadSenderProfile(ctx context.Context) (salesapp.SenderProfile, error) {
+	profile := salesapp.SenderProfile{
+		Name:    env("SENDER_NAME", ""),
+		Phone:   env("SENDER_PHONE", ""),
+		Addr:    env("SENDER_ADDR", ""),
+		Company: env("SENDER_COMPANY", ""),
+		Goods:   env("SENDER_GOODS", "咖啡"),
+		BizType: env("SF_BIZ_TYPE", ""),
+	}
+	err := r.pool.QueryRow(ctx, fmt.Sprintf(`SELECT COALESCE(sender_name,''),COALESCE(sender_phone,''),COALESCE(sender_addr,''),COALESCE(sender_company,''),COALESCE(sender_goods,''),COALESCE(sf_biz_type,'') FROM %s.sender_settings WHERE id=1`, r.schema)).Scan(
+		&profile.Name, &profile.Phone, &profile.Addr, &profile.Company, &profile.Goods, &profile.BizType,
+	)
+	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		return salesapp.SenderProfile{}, err
+	}
+	return profile, nil
+}
+
+func (r Repository) SaveSenderProfile(ctx context.Context, profile salesapp.SenderProfile) error {
+	_, err := r.pool.Exec(ctx, fmt.Sprintf(`UPDATE %s.sender_settings SET sender_name=$1,sender_phone=$2,sender_addr=$3,sender_company=$4,sender_goods=$5,sf_biz_type=$6,updated_at=now() WHERE id=1`, r.schema),
+		profile.Name,
+		profile.Phone,
+		profile.Addr,
+		profile.Company,
+		profile.Goods,
+		profile.BizType,
+	)
+	return err
+}
+
+func EnsureSenderSettingsTable(ctx context.Context, pool *pgxpool.Pool, schema string) error {
+	q := fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s.sender_settings (
+		id SMALLINT PRIMARY KEY DEFAULT 1,
+		sender_name TEXT NOT NULL DEFAULT '',
+		sender_phone TEXT NOT NULL DEFAULT '',
+		sender_addr TEXT NOT NULL DEFAULT '',
+		sender_company TEXT NOT NULL DEFAULT '',
+		sender_goods TEXT NOT NULL DEFAULT '咖啡',
+		sf_biz_type TEXT NOT NULL DEFAULT '',
+		updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+	);
+	INSERT INTO %s.sender_settings(id) VALUES(1) ON CONFLICT (id) DO NOTHING;`, schema, schema)
+	_, err := pool.Exec(ctx, q)
+	return err
+}
+
+func trimFloatZero(v float64) string {
+	s := strconv.FormatFloat(v, 'f', 4, 64)
+	s = strings.TrimRight(s, "0")
+	s = strings.TrimRight(s, ".")
+	if s == "" {
+		return "0"
+	}
+	return s
+}
+
+func env(key, def string) string {
+	if v := strings.TrimSpace(os.Getenv(key)); v != "" {
+		return v
+	}
+	return def
+}

@@ -1,17 +1,16 @@
 package company
 
 import (
-	"context"
+	companyapp "orderapp/internal/application/company"
 
-	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/labstack/echo/v4"
 )
 
-func RegisterRoutes(e *echo.Echo, pool *pgxpool.Pool, schema string) {
-	registerCompanyStaffPages(e, pool, schema)
-	registerCompanyStaffAPI(e, pool, schema)
+type Dependencies struct {
+	Company *companyapp.Service
 }
 
-func EnsureSchema(ctx context.Context, pool *pgxpool.Pool, schema string) error {
-	return ensureCompanyStaffTables(ctx, pool, schema)
+func RegisterRoutes(e *echo.Echo, deps Dependencies) {
+	registerCompanyStaffPages(e)
+	registerCompanyStaffAPI(e, deps.Company)
 }

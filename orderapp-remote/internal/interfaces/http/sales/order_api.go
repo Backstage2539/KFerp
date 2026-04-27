@@ -5,19 +5,14 @@ import (
 	support "orderapp/internal/interfaces/http/support"
 	"strconv"
 	"strings"
-	"time"
 
 	salesapp "orderapp/internal/application/sales"
-	postgressales "orderapp/internal/infrastructure/postgres/sales"
 
-	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/labstack/echo/v4"
 )
 
 type orderAPIHandler struct {
-	pool   *pgxpool.Pool
-	schema string
-	sales  *salesapp.Service
+	sales *salesapp.Service
 }
 
 type apiOption struct {
@@ -69,11 +64,9 @@ type orderSaveAPIRequest struct {
 	Spec      []string `json:"spec"`
 }
 
-func registerOrderAPI(e *echo.Echo, pool *pgxpool.Pool, schema string) {
+func registerOrderAPI(e *echo.Echo, salesSvc *salesapp.Service) {
 	h := orderAPIHandler{
-		pool:   pool,
-		schema: schema,
-		sales:  salesapp.NewService(postgressales.NewRepository(pool, schema)),
+		sales: salesSvc,
 	}
 	e.GET("/api/orders", h.list)
 	e.GET("/api/order/form", h.form)
@@ -116,8 +109,17 @@ func (h orderAPIHandler) list(c echo.Context) error {
 }
 
 func (h orderAPIHandler) form(c echo.Context) error {
-	data := PageData{Today: time.Now().Format("2006-01-02")}
-	if err := loadOptions(c.Request().Context(), h.pool, h.schema, &data); err != nil {
+	editID := int64(0)
+	if v := strings.TrimSpace(c.QueryParam("edit_id")); v != "" {
+		id, err := strconv.ParseInt(v, 10, 64)
+		if err != nil || id <= 0 {
+			return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid edit_id"})
+		}
+		editID = id
+	}
+
+	data, err := h.sales.OrderForm(c.Request().Context(), editID)
+	if err != nil {
 		return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
 	}
 
@@ -131,22 +133,14 @@ func (h orderAPIHandler) form(c echo.Context) error {
 		Products:     apiProducts(data.Products),
 	}
 
-	if v := strings.TrimSpace(c.QueryParam("edit_id")); v != "" {
-		id, err := strconv.ParseInt(v, 10, 64)
-		if err != nil || id <= 0 {
-			return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid edit_id"})
-		}
-		ed, err := fetchOrderEdit(c.Request().Context(), h.pool, h.schema, id)
-		if err != nil {
-			return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
-		}
-		if ed == nil {
+	if editID > 0 {
+		if data.EditData == nil {
 			return c.JSON(http.StatusNotFound, map[string]string{"error": "order not found"})
 		}
 		resp.EditMode = true
-		resp.EditID = id
-		resp.Today = ed.OrderDate
-		resp.EditData = editDataForAPI(ed)
+		resp.EditID = editID
+		resp.Today = data.EditData.OrderDate
+		resp.EditData = editDataForAPI(data.EditData)
 	}
 
 	return c.JSON(http.StatusOK, resp)

@@ -8,9 +8,7 @@ import (
 	"strings"
 
 	productionapp "orderapp/internal/application/production"
-	postgresproduction "orderapp/internal/infrastructure/postgres/production"
 
-	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/labstack/echo/v4"
 )
 
@@ -106,9 +104,7 @@ type ProduceBatchDeductConfirmResponse struct {
 	Summary []ProduceBatchSummaryItem `json:"summary"`
 }
 
-func registerProduceBatchAPI(e *echo.Echo, pool *pgxpool.Pool, schema string) {
-	productionSvc := productionapp.NewService(postgresproduction.NewRepository(pool, schema))
-
+func registerProduceBatchAPI(e *echo.Echo, productionSvc *productionapp.Service) {
 	e.POST("/api/produce/batch/create", func(c echo.Context) error {
 		if err := support.RequireEmployeeBound(c); err != nil {
 			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: err.Error()})

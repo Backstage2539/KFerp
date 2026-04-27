@@ -1,16 +1,15 @@
 package catalog
 
 import (
-	"context"
+	catalogapp "orderapp/internal/application/catalog"
 
-	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/labstack/echo/v4"
 )
 
-func RegisterRoutes(e *echo.Echo, pool *pgxpool.Pool, schema string) {
-	registerProductRoutes(e, pool, schema)
+type Dependencies struct {
+	Catalog *catalogapp.Service
 }
 
-func EnsureSchema(ctx context.Context, pool *pgxpool.Pool, schema string) error {
-	return ensureProductPricingColumns(ctx, pool, schema)
+func RegisterRoutes(e *echo.Echo, deps Dependencies) {
+	registerProductRoutes(e, deps.Catalog)
 }

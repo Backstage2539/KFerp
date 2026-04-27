@@ -57,9 +57,87 @@ type DeleteAssetResult struct {
 	ObjectKey  string
 }
 
+type ListQuery struct {
+	Query  string
+	Limit  int
+	Offset int
+}
+
+type ListResult struct {
+	Rows       []CustomerRow
+	Sources    []Option
+	OrderTypes []Option
+	HasNext    bool
+}
+
+type CustomerRow struct {
+	ID                 int64   `json:"id"`
+	Name               string  `json:"name"`
+	Contact            *string `json:"contact"`
+	Phone              *string `json:"phone"`
+	Address            *string `json:"address"`
+	Active             bool    `json:"active"`
+	DefaultSourceID    *int    `json:"default_source_id"`
+	DefaultOrderTypeID *int    `json:"default_order_type_id"`
+	Updated            string  `json:"updated"`
+}
+
+type CustomerEditData struct {
+	ID                 int64
+	Name               string
+	RawName            string
+	Contact            string
+	Phone              string
+	Address            string
+	DefaultSourceID    string
+	DefaultOrderTypeID string
+	Active             bool
+}
+
+type CustomerAsset struct {
+	ID          int64
+	CustomerID  int64
+	Kind        string
+	ObjectKey   string
+	ContentType string
+	Bytes       int64
+	Sha256      string
+	CreatedAt   string
+}
+
+type CustomerDashboard struct {
+	TotalOrders     int
+	UnpaidOrders    int
+	UnshippedOrders int
+	InProduction    int
+	InShipping      int
+	Completed       int
+}
+
+type Option struct {
+	ID   int64
+	Name string
+}
+
+type EditorData struct {
+	Customer   CustomerEditData
+	Sources    []Option
+	OrderTypes []Option
+	Assets     []CustomerAsset
+	Dashboard  CustomerDashboard
+}
+
+type AssetObject struct {
+	ObjectKey   string
+	ContentType string
+}
+
 type Repository interface {
 	Upsert(ctx context.Context, actor string, id *int64, cmd UpsertCommand) (int64, error)
+	List(ctx context.Context, query ListQuery) (ListResult, error)
+	Editor(ctx context.Context, id int64) (*EditorData, error)
 	Prefs(ctx context.Context, id int64) (*Prefs, error)
+	AssetObject(ctx context.Context, assetID int64) (AssetObject, error)
 	SaveAsset(ctx context.Context, cmd SaveAssetCommand) (SaveAssetResult, error)
 	DeleteAsset(ctx context.Context, actor string, assetID int64) (DeleteAssetResult, error)
 	InlineUpdate(ctx context.Context, actor string, id int64, cmd InlineUpdateCommand) error
@@ -78,8 +156,29 @@ func (s *Service) Upsert(ctx context.Context, actor string, id *int64, cmd Upser
 	return s.repo.Upsert(ctx, actor, id, cmd)
 }
 
+func (s *Service) List(ctx context.Context, query ListQuery) (ListResult, error) {
+	if query.Limit <= 0 {
+		query.Limit = 10
+	}
+	if query.Limit > 200 {
+		query.Limit = 200
+	}
+	if query.Offset < 0 {
+		query.Offset = 0
+	}
+	return s.repo.List(ctx, query)
+}
+
+func (s *Service) Editor(ctx context.Context, id int64) (*EditorData, error) {
+	return s.repo.Editor(ctx, id)
+}
+
 func (s *Service) Prefs(ctx context.Context, id int64) (*Prefs, error) {
 	return s.repo.Prefs(ctx, id)
+}
+
+func (s *Service) AssetObject(ctx context.Context, assetID int64) (AssetObject, error) {
+	return s.repo.AssetObject(ctx, assetID)
 }
 
 func (s *Service) SaveAsset(ctx context.Context, cmd SaveAssetCommand) (SaveAssetResult, error) {

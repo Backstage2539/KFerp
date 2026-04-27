@@ -37,6 +37,18 @@ func (r *fakeRepo) Delete(ctx context.Context, actor string, id int64) error {
 	return nil
 }
 
+func (r *fakeRepo) List(ctx context.Context, query ListQuery) (ListResult, error) {
+	return ListResult{}, nil
+}
+
+func (r *fakeRepo) Editor(ctx context.Context, id int64) (*EditorData, error) {
+	return &EditorData{}, nil
+}
+
+func (r *fakeRepo) AssetObject(ctx context.Context, assetID int64) (AssetObject, error) {
+	return AssetObject{}, nil
+}
+
 func TestServiceDelegatesCustomerUpsert(t *testing.T) {
 	repo := &fakeRepo{}
 	svc := NewService(repo)

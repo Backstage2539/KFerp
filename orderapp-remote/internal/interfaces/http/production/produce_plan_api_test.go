@@ -8,6 +8,9 @@ import (
 	"strings"
 	"testing"
 
+	productionapp "orderapp/internal/application/production"
+	postgresproduction "orderapp/internal/infrastructure/postgres/production"
+
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/labstack/echo/v4"
 )
@@ -61,8 +64,9 @@ func newProducePlanTestEcho(pool *pgxpool.Pool, schema string) *echo.Echo {
 			return next(c)
 		}
 	})
-	registerUnprodSummaryPages(e, pool, schema)
-	registerUnprodSummaryAPI(e, pool, schema)
-	registerProductionFlowPages(e, pool, schema)
+	productionSvc := productionapp.NewService(postgresproduction.NewRepository(pool, schema))
+	registerUnprodSummaryPages(e)
+	registerUnprodSummaryAPI(e, productionSvc)
+	registerProductionFlowPages(e, productionSvc)
 	return e
 }

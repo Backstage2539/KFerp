@@ -6,15 +6,13 @@ import (
 	"strconv"
 
 	catalogapp "orderapp/internal/application/catalog"
-	postgrescatalog "orderapp/internal/infrastructure/postgres/catalog"
 
-	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/labstack/echo/v4"
 )
 
-func registerProductRoutes(e *echo.Echo, pool *pgxpool.Pool, schema string) {
+func registerProductRoutes(e *echo.Echo, catalogSvc *catalogapp.Service) {
 	h := productHandler{
-		catalog: catalogapp.NewService(postgrescatalog.NewRepository(pool, schema)),
+		catalog: catalogSvc,
 	}
 
 	e.GET("/products", h.index)

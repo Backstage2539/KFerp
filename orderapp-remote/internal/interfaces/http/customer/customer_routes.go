@@ -14,18 +14,14 @@ import (
 	"strings"
 
 	customerapp "orderapp/internal/application/customer"
-	postgrescustomer "orderapp/internal/infrastructure/postgres/customer"
 
-	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/labstack/echo/v4"
 )
 
-func registerCustomerRoutes(e *echo.Echo, pool *pgxpool.Pool, schema string, assetDir string) {
+func registerCustomerRoutes(e *echo.Echo, deps Dependencies) {
 	h := customerHandler{
-		pool:     pool,
-		schema:   schema,
-		assetDir: assetDir,
-		customer: customerapp.NewService(postgrescustomer.NewRepository(pool, schema, assetDir)),
+		assetDir: deps.AssetDir,
+		customer: deps.Customer,
 	}
 
 	// Customers
@@ -52,8 +48,6 @@ func registerCustomerRoutes(e *echo.Echo, pool *pgxpool.Pool, schema string, ass
 }
 
 type customerHandler struct {
-	pool     *pgxpool.Pool
-	schema   string
 	assetDir string
 	customer *customerapp.Service
 }
@@ -130,21 +124,19 @@ func (h customerHandler) indexAPI(c echo.Context) error {
 	if page := support.IntParam(c, "page", 0); page > 0 {
 		offset = (page - 1) * limit
 	}
-	rows, hasNext, err := fetchCustomers(c.Request().Context(), h.pool, h.schema, q, limit, offset)
+	result, err := h.customer.List(c.Request().Context(), customerapp.ListQuery{Query: q, Limit: limit, Offset: offset})
 	if err != nil {
 		return c.JSON(http.StatusInternalServerError, map[string]any{"error": err.Error()})
 	}
-	sources, _ := fetchOptions(c.Request().Context(), h.pool, fmt.Sprintf("SELECT id, name FROM %s.sources ORDER BY id", h.schema))
-	types, _ := fetchOptions(c.Request().Context(), h.pool, fmt.Sprintf("SELECT id, name FROM %s.order_types ORDER BY id", h.schema))
 	return c.JSON(http.StatusOK, map[string]any{
-		"rows":        rows,
-		"sources":     apiOptions(sources),
-		"order_types": apiOptions(types),
+		"rows":        result.Rows,
+		"sources":     apiOptions(result.Sources),
+		"order_types": apiOptions(result.OrderTypes),
 		"page":        (offset / limit) + 1,
 		"limit":       limit,
 		"offset":      offset,
 		"has_prev":    offset > 0,
-		"has_next":    hasNext,
+		"has_next":    result.HasNext,
 	})
 }
 
@@ -202,20 +194,16 @@ func (h customerHandler) updateAPI(c echo.Context) error {
 }
 
 func (h customerHandler) editorPayload(c echo.Context, id int64) (*customerEditorAPIResponse, error) {
-	data, err := fetchCustomerByID(c.Request().Context(), h.pool, h.schema, id)
+	data, err := h.customer.Editor(c.Request().Context(), id)
 	if err != nil || data == nil {
 		return nil, err
 	}
-	sources, _ := fetchOptions(c.Request().Context(), h.pool, fmt.Sprintf("SELECT id, name FROM %s.sources ORDER BY id", h.schema))
-	types, _ := fetchOptions(c.Request().Context(), h.pool, fmt.Sprintf("SELECT id, name FROM %s.order_types ORDER BY id", h.schema))
-	assets, _ := fetchCustomerAssets(c.Request().Context(), h.pool, h.schema, id)
-	dash, _ := fetchCustomerDashboard(c.Request().Context(), h.pool, h.schema, id)
 	payload := customerEditorAPIResponse{
-		Customer:   customerAPIModelFromEdit(data),
-		Sources:    apiOptions(sources),
-		OrderTypes: apiOptions(types),
-		Assets:     customerAssetsAPI(assets),
-		Dashboard:  customerDashboardAPIFromData(dash),
+		Customer:   customerAPIModelFromEdit(&data.Customer),
+		Sources:    apiOptions(data.Sources),
+		OrderTypes: apiOptions(data.OrderTypes),
+		Assets:     customerAssetsAPI(data.Assets),
+		Dashboard:  customerDashboardAPIFromData(data.Dashboard),
 	}
 	return &payload, nil
 }
@@ -441,10 +429,12 @@ func (h customerHandler) asset(c echo.Context, headOnly bool) error {
 	}
 	var obj string
 	var ct string
-	q := fmt.Sprintf(`SELECT object_key, content_type FROM %s.customer_assets WHERE id=$1`, h.schema)
-	if err := h.pool.QueryRow(c.Request().Context(), q, assetID).Scan(&obj, &ct); err != nil {
+	asset, err := h.customer.AssetObject(c.Request().Context(), assetID)
+	if err != nil {
 		return c.String(http.StatusNotFound, "not found")
 	}
+	obj = asset.ObjectKey
+	ct = asset.ContentType
 	obj = strings.TrimPrefix(obj, "/")
 	path := filepath.Join(h.assetDir, obj)
 	st, err := os.Stat(path)

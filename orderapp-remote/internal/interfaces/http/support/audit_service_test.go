@@ -19,8 +19,8 @@ func TestAuditUnifiedOwnsAuditServiceAndTxHelper(t *testing.T) {
 	}
 }
 
-func TestInlineOrderAuditUsesTransactionHelper(t *testing.T) {
-	body, err := os.ReadFile("internal/interfaces/http/support/audit.go")
+func TestInlineOrderAuditUsesApplicationRepositoryTransactionHelper(t *testing.T) {
+	body, err := os.ReadFile("internal/infrastructure/postgres/sales/repository.go")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -29,6 +29,6 @@ func TestInlineOrderAuditUsesTransactionHelper(t *testing.T) {
 		t.Fatal("inline order updates should write audit rows through the same transaction")
 	}
 	if !strings.Contains(content, "AuditInsertTx(ctx, tx") {
-		t.Fatal("inline order updates should use auditInsertTx")
+		t.Fatal("inline order updates should use AuditInsertTx")
 	}
 }

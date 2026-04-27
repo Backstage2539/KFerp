@@ -136,19 +136,3 @@ func TestVueShellProducePlanIsNoLongerTemplateDriven(t *testing.T) {
 		t.Fatal("static_frontend_routes.go missing producePlan redirect")
 	}
 }
-
-func TestMarshalMaterialConsumptionSummary(t *testing.T) {
-	got, err := marshalMaterialConsumptionSummary([]materialConsumptionSummaryItem{
-		{MaterialID: 1, MaterialName: "卡蒂姆水洗", Unit: "g", DeductG: 1200},
-		{MaterialID: 9, MaterialName: "豆袋", Unit: "个", DeductUnits: 8},
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	text := string(got)
-	for _, needle := range []string{`"material_id":1`, `"material_name":"卡蒂姆水洗"`, `"deduct_g":1200`, `"material_name":"豆袋"`, `"deduct_units":8`} {
-		if !strings.Contains(text, needle) {
-			t.Fatalf("material summary json missing %q in %s", needle, text)
-		}
-	}
-}

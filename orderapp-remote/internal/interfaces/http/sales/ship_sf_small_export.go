@@ -5,146 +5,18 @@ import (
 	"math"
 	"net/http"
 	salesapp "orderapp/internal/application/sales"
-	postgressales "orderapp/internal/infrastructure/postgres/sales"
 	support "orderapp/internal/interfaces/http/support"
 	"strconv"
 	"strings"
 	"time"
 
-	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/labstack/echo/v4"
 	"github.com/xuri/excelize/v2"
 )
 
-type ShipRow struct {
-	OrderID     int64
-	OrderNo     string
-	CustomerID  int64
-	RecvName    string
-	RecvPhone   string
-	RecvAddr    string
-	RecvCompany string
-	TrackingNo  string
-	WeightKg    float64
-}
-
+type ShipRow = salesapp.ShippingExportRow
+type shippingExportRow = salesapp.ShippingExportRow
 type trackingPair = salesapp.TrackingPair
-
-func fetchShipRowsSFSmall(c echo.Context, pool *pgxpool.Pool, schema string, q, from, to, voidFilter string, customerID int64, payStatusID, shipStatusID, procStatusID int64, completedOnly bool, oneClick bool) ([]ShipRow, error) {
-	// reuse same filters as fetchOrders but without pagination; only sf_small
-	where := make([]string, 0)
-	args := make([]any, 0)
-	argn := 1
-
-	if q = strings.TrimSpace(q); q != "" {
-		where = append(where, fmt.Sprintf("(o.order_no ILIKE $%d OR c.name ILIKE $%d)", argn, argn))
-		args = append(args, "%"+q+"%")
-		argn++
-	}
-	if customerID > 0 {
-		where = append(where, fmt.Sprintf("o.customer_id = $%d", argn))
-		args = append(args, customerID)
-		argn++
-	}
-	if strings.TrimSpace(from) != "" {
-		where = append(where, fmt.Sprintf("o.order_date >= $%d", argn))
-		args = append(args, from)
-		argn++
-	}
-	if strings.TrimSpace(to) != "" {
-		where = append(where, fmt.Sprintf("o.order_date <= $%d", argn))
-		args = append(args, to)
-		argn++
-	}
-
-	voidFilter = strings.TrimSpace(voidFilter)
-	switch voidFilter {
-	case "void":
-		where = append(where, "o.is_void = true")
-	case "all":
-		// no filter
-	default:
-		where = append(where, "o.is_void = false")
-	}
-
-	if payStatusID > 0 {
-		where = append(where, fmt.Sprintf("COALESCE(o.pay_status_id,0) = $%d", argn))
-		args = append(args, payStatusID)
-		argn++
-	}
-	if shipStatusID > 0 {
-		where = append(where, fmt.Sprintf("COALESCE(o.ship_status_id,0) = $%d", argn))
-		args = append(args, shipStatusID)
-		argn++
-	}
-	if procStatusID > 0 {
-		where = append(where, fmt.Sprintf("COALESCE(o.process_status_id,0) = $%d", argn))
-		args = append(args, procStatusID)
-		argn++
-	}
-	if completedOnly {
-		where = append(where, "COALESCE(o.pay_status_id,0)=2 AND COALESCE(o.ship_status_id,0) IN (3,4)")
-	}
-
-	if oneClick {
-		// 一键发货：过滤流程状态=生产完成
-		where = append(where, "EXISTS (SELECT 1 FROM "+schema+".order_process_statuses ops WHERE ops.id=o.process_status_id AND ops.name IN ('生产完成','已生产完成'))")
-	} else {
-		// 常规模板导出：仅 ship_method=sf_small
-		where = append(where, "COALESCE(o.ship_method,'') = 'sf_small'")
-	}
-
-	wsql := ""
-	if len(where) > 0 {
-		wsql = "WHERE " + strings.Join(where, " AND ")
-	}
-	having := ""
-
-	qsql := fmt.Sprintf(`
-		SELECT
-			o.id,
-			COALESCE(o.order_no,'') AS order_no,
-			COALESCE(o.customer_id,0) AS customer_id,
-			COALESCE(NULLIF(c.contact,''), c.name, '') AS recv_name,
-			COALESCE(c.phone,'') AS recv_phone,
-			COALESCE(c.address,'') AS recv_addr,
-			'' AS recv_company,
-			COALESCE(o.ship_tracking_no,'') AS tracking_no,
-			COALESCE(SUM(
-				COALESCE(NULLIF(regexp_replace(COALESCE(oi.qty::text,''), '[^0-9.\-]', '', 'g'), ''), '0')::numeric
-				*
-				COALESCE(NULLIF(regexp_replace(COALESCE(oi.spec::text,''), '[^0-9.\-]', '', 'g'), ''), '0')::numeric
-			),0) AS total_g
-		FROM %s.orders o
-		LEFT JOIN %s.customers c ON c.id=o.customer_id
-		LEFT JOIN %s.order_items oi ON oi.order_id=o.id
-		%s
-		GROUP BY o.id, o.order_no, o.customer_id, recv_name, recv_phone, recv_addr, tracking_no
-		%s
-		ORDER BY o.id DESC
-	`, schema, schema, schema, wsql, having)
-
-	rows, err := pool.Query(c.Request().Context(), qsql, args...)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	out := make([]ShipRow, 0)
-	for rows.Next() {
-		var r ShipRow
-		var totalG float64
-		if err := rows.Scan(&r.OrderID, &r.OrderNo, &r.CustomerID, &r.RecvName, &r.RecvPhone, &r.RecvAddr, &r.RecvCompany, &r.TrackingNo, &totalG); err != nil {
-			return nil, err
-		}
-		r.WeightKg = totalG / 1000.0
-		out = append(out, r)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return out, nil
-}
 
 func parseTrackingPairs(raw string) []trackingPair {
 	lines := strings.Split(strings.ReplaceAll(raw, "\r\n", "\n"), "\n")
@@ -253,49 +125,35 @@ func shipSplitCountSFSmall(weightKg float64) int {
 	return n
 }
 
-func registerShipExportRoutes(e *echo.Echo, pool *pgxpool.Pool, schema string) {
-	salesSvc := salesapp.NewService(postgressales.NewRepository(pool, schema))
+func shippingExportQueryFromContext(c echo.Context, oneClick bool) salesapp.ShippingExportQuery {
+	parseIntParam := func(name string) int64 {
+		v := strings.TrimSpace(c.QueryParam(name))
+		if v == "" {
+			return 0
+		}
+		n, _ := strconv.ParseInt(v, 10, 64)
+		return n
+	}
+	query := salesapp.ShippingExportQuery{
+		Q:             strings.TrimSpace(c.QueryParam("q")),
+		From:          strings.TrimSpace(c.QueryParam("from")),
+		To:            strings.TrimSpace(c.QueryParam("to")),
+		Void:          strings.TrimSpace(c.QueryParam("void")),
+		CustomerID:    parseIntParam("customer_id"),
+		CompletedOnly: strings.TrimSpace(c.QueryParam("completed")) == "1",
+		OneClick:      oneClick,
+	}
+	if !oneClick {
+		query.PayStatusID = parseIntParam("pay_status_id")
+		query.ShipStatusID = parseIntParam("ship_status_id")
+		query.ProcessStatusID = parseIntParam("process_status_id")
+	}
+	return query
+}
+
+func registerShipExportRoutes(e *echo.Echo, salesSvc *salesapp.Service) {
 	e.GET("/ship/sf_small.xlsx", func(c echo.Context) error {
-		rows, err := fetchShipRowsSFSmall(c, pool, schema,
-			strings.TrimSpace(c.QueryParam("q")),
-			strings.TrimSpace(c.QueryParam("from")),
-			strings.TrimSpace(c.QueryParam("to")),
-			strings.TrimSpace(c.QueryParam("void")),
-			func() int64 {
-				v := strings.TrimSpace(c.QueryParam("customer_id"))
-				if v == "" {
-					return 0
-				}
-				n, _ := strconv.ParseInt(v, 10, 64)
-				return n
-			}(),
-			func() int64 {
-				v := strings.TrimSpace(c.QueryParam("pay_status_id"))
-				if v == "" {
-					return 0
-				}
-				n, _ := strconv.ParseInt(v, 10, 64)
-				return n
-			}(),
-			func() int64 {
-				v := strings.TrimSpace(c.QueryParam("ship_status_id"))
-				if v == "" {
-					return 0
-				}
-				n, _ := strconv.ParseInt(v, 10, 64)
-				return n
-			}(),
-			func() int64 {
-				v := strings.TrimSpace(c.QueryParam("process_status_id"))
-				if v == "" {
-					return 0
-				}
-				n, _ := strconv.ParseInt(v, 10, 64)
-				return n
-			}(),
-			strings.TrimSpace(c.QueryParam("completed")) == "1",
-			false,
-		)
+		rows, err := salesSvc.ListSFSmallShippingRows(c.Request().Context(), shippingExportQueryFromContext(c, false))
 		if err != nil {
 			return c.String(http.StatusInternalServerError, err.Error())
 		}
@@ -309,7 +167,10 @@ func registerShipExportRoutes(e *echo.Echo, pool *pgxpool.Pool, schema string) {
 		startRow := 2
 		wb.SetCellValue(sheet, "R1", "快递单号")
 
-		sender := loadSenderProfile(c.Request().Context(), pool, schema)
+		sender, err := salesSvc.LoadSenderProfile(c.Request().Context())
+		if err != nil {
+			return c.String(http.StatusInternalServerError, err.Error())
+		}
 		senderName := sender.Name
 		senderPhone := sender.Phone
 		senderAddr := sender.Addr
@@ -388,23 +249,7 @@ func registerShipExportRoutes(e *echo.Echo, pool *pgxpool.Pool, schema string) {
 	})
 
 	e.GET("/ship/sf_small_one_click.xlsx", func(c echo.Context) error {
-		rows, err := fetchShipRowsSFSmall(c, pool, schema,
-			strings.TrimSpace(c.QueryParam("q")),
-			strings.TrimSpace(c.QueryParam("from")),
-			strings.TrimSpace(c.QueryParam("to")),
-			strings.TrimSpace(c.QueryParam("void")),
-			func() int64 {
-				v := strings.TrimSpace(c.QueryParam("customer_id"))
-				if v == "" {
-					return 0
-				}
-				n, _ := strconv.ParseInt(v, 10, 64)
-				return n
-			}(),
-			0, 0, 0,
-			false,
-			true,
-		)
+		rows, err := salesSvc.ListSFSmallShippingRows(c.Request().Context(), shippingExportQueryFromContext(c, true))
 		if err != nil {
 			return c.String(http.StatusInternalServerError, err.Error())
 		}
@@ -418,7 +263,10 @@ func registerShipExportRoutes(e *echo.Echo, pool *pgxpool.Pool, schema string) {
 		startRow := 2
 		wb.SetCellValue(sheet, "R1", "快递单号")
 
-		sender := loadSenderProfile(c.Request().Context(), pool, schema)
+		sender, err := salesSvc.LoadSenderProfile(c.Request().Context())
+		if err != nil {
+			return c.String(http.StatusInternalServerError, err.Error())
+		}
 		senderName := sender.Name
 		senderPhone := sender.Phone
 		senderAddr := sender.Addr
@@ -427,7 +275,7 @@ func registerShipExportRoutes(e *echo.Echo, pool *pgxpool.Pool, schema string) {
 		bizType := sender.BizType
 
 		heavyIDs := make([]int64, 0)
-		exportRows := make([]ShipRow, 0, len(rows))
+		exportRows := make([]shippingExportRow, 0, len(rows))
 		for _, o := range rows {
 			if o.WeightKg > 15 {
 				heavyIDs = append(heavyIDs, o.OrderID)

@@ -1,20 +1,16 @@
 package inventory
 
 import (
-	"context"
+	inventoryapp "orderapp/internal/application/inventory"
 
-	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/labstack/echo/v4"
 )
 
-func RegisterRoutes(e *echo.Echo, pool *pgxpool.Pool, schema string) {
-	registerFinishedInventoryPages(e, pool, schema)
-	registerAllocationLogPages(e, pool, schema)
+type Dependencies struct {
+	Inventory *inventoryapp.Service
 }
 
-func EnsureSchema(ctx context.Context, pool *pgxpool.Pool, schema string) error {
-	if err := ensureFinishedInventoryTable(ctx, pool, schema); err != nil {
-		return err
-	}
-	return ensureFinishedAllocationLogTable(ctx, pool, schema)
+func RegisterRoutes(e *echo.Echo, deps Dependencies) {
+	registerFinishedInventoryPages(e, deps.Inventory)
+	registerAllocationLogPages(e, deps.Inventory)
 }

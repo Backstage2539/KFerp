@@ -360,6 +360,243 @@ func TestRemainingDDDWritePathsDoNotLiveInHTTP(t *testing.T) {
 	})
 }
 
+func TestBusinessHTTPHandlersDoNotOwnDatabaseReadModelsOrQueries(t *testing.T) {
+	for _, check := range []struct {
+		rel       string
+		forbidden []string
+	}{
+		{
+			rel: "internal/interfaces/http/customer/customer_routes.go",
+			forbidden: []string{
+				"fetchCustomers(",
+				"fetchCustomerByID(",
+				"fetchCustomerAssets(",
+				"fetchCustomerDashboard(",
+				"fetchOptions(",
+				"h.pool.Query",
+			},
+		},
+		{
+			rel: "internal/interfaces/http/customer/customers_admin.go",
+			forbidden: []string{
+				"func fetchCustomers(",
+				"func fetchCustomerByID(",
+				"pool.Query",
+				"pool.QueryRow",
+			},
+		},
+		{
+			rel: "internal/interfaces/http/customer/customer_assets.go",
+			forbidden: []string{
+				"func fetchCustomerAssets(",
+				"pool.Query",
+			},
+		},
+		{
+			rel: "internal/interfaces/http/customer/customer_dashboard.go",
+			forbidden: []string{
+				"func fetchCustomerDashboard(",
+				"pool.QueryRow",
+			},
+		},
+		{
+			rel: "internal/interfaces/http/customer/customer_prefs.go",
+			forbidden: []string{
+				"func fetchCustomerPrefs(",
+				"pool.QueryRow",
+			},
+		},
+		{
+			rel: "internal/interfaces/http/customer/options.go",
+			forbidden: []string{
+				"func fetchOptions(",
+				"pool.Query",
+			},
+		},
+		{
+			rel: "internal/interfaces/http/inventory/allocation_log_api.go",
+			forbidden: []string{
+				"func listAllocationBatches(",
+				"func fetchAllocationLogsByBatch(",
+				"pool.Query",
+			},
+		},
+		{
+			rel: "internal/interfaces/http/materials/materials.go",
+			forbidden: []string{
+				"func listMaterials(",
+				"pool.Query",
+			},
+		},
+		{
+			rel: "internal/interfaces/http/production/production_logs_page.go",
+			forbidden: []string{
+				"func listProductionLogs(",
+				"pool.Query",
+			},
+		},
+		{
+			rel: "internal/interfaces/http/production/running_query.go",
+			forbidden: []string{
+				"func listRunningItems(",
+				"pool.Query",
+			},
+		},
+		{
+			rel: "internal/interfaces/http/production/unprod_summary_page.go",
+			forbidden: []string{
+				"func loadUnprodSummaryData(",
+				"func loadProductYieldRateMap(",
+				"loadBomNeedItemsFromRows(",
+				"postgresinfra.ListBagSpecMappings",
+				"pool.Query",
+			},
+		},
+		{
+			rel: "internal/interfaces/http/production/unprod_summary.go",
+			forbidden: []string{
+				"func fetchUnproducedNeeds(",
+				"pool.Query",
+			},
+		},
+		{
+			rel: "internal/interfaces/http/production/produce_materials.go",
+			forbidden: []string{
+				"func loadProducePlanBomMap(",
+				"pool.Query",
+			},
+		},
+		{
+			rel: "internal/interfaces/http/production/produce_materials_bom.go",
+			forbidden: []string{
+				"func loadBomNeedItems(",
+				"pool.Query",
+			},
+		},
+		{
+			rel: "internal/interfaces/http/sales/order_api.go",
+			forbidden: []string{
+				"loadOptions(c.Request().Context(), h.pool",
+				"fetchOrderEdit(",
+			},
+		},
+		{
+			rel: "internal/interfaces/http/sales/order_edit.go",
+			forbidden: []string{
+				"func fetchOrderEdit(",
+				"pool.Query",
+				"pool.QueryRow",
+			},
+		},
+		{
+			rel: "internal/interfaces/http/sales/order_shared_helpers.go",
+			forbidden: []string{
+				"func loadOptions(",
+				"func fetchProducts(",
+				"func fetchOptions(",
+				"pool.Query",
+			},
+		},
+		{
+			rel: "internal/interfaces/http/sales/sender_settings.go",
+			forbidden: []string{
+				"func loadSenderProfile(",
+				"func saveSenderProfile(",
+				"pool.QueryRow",
+				"pool.Exec",
+			},
+		},
+		{
+			rel: "internal/interfaces/http/sales/ship_sf_small_export.go",
+			forbidden: []string{
+				"func fetchShipRowsSFSmall(",
+				"pool.Query",
+			},
+		},
+		{
+			rel: "internal/interfaces/http/catalog/options.go",
+			forbidden: []string{
+				"func FetchOptions(",
+				"func FetchProducts(",
+			},
+		},
+		{
+			rel: "internal/interfaces/http/catalog/products_admin.go",
+			forbidden: []string{
+				"func fetchProductByID(",
+				"pool.QueryRow",
+			},
+		},
+		{
+			rel: "internal/interfaces/http/support/audit.go",
+			forbidden: []string{
+				"func InlineUpdateOrder(",
+				"pool.QueryRow",
+				"conn.Begin",
+			},
+		},
+	} {
+		assertFileDoesNotContain(t, check.rel, check.forbidden)
+	}
+}
+
+func TestBusinessHTTPPackagesDoNotUsePostgresDirectly(t *testing.T) {
+	root := moduleRoot(t)
+	for _, pkg := range []string{"bom", "catalog", "company", "customer", "inventory", "materials", "production", "sales"} {
+		dir := filepath.Join(root, "internal/interfaces/http", pkg)
+		err := filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
+			if err != nil {
+				return err
+			}
+			if d.IsDir() || !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
+				return nil
+			}
+			body, err := os.ReadFile(path)
+			if err != nil {
+				return err
+			}
+			src := string(body)
+			for _, forbidden := range []string{"pool.Query(", "pool.QueryRow(", "pool.Exec(", ".Begin(", "pgx.Tx"} {
+				if strings.Contains(src, forbidden) {
+					rel, _ := filepath.Rel(root, path)
+					t.Fatalf("%s contains direct Postgres usage %q; business HTTP packages must bind/call/respond only", rel, forbidden)
+				}
+			}
+			return nil
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+func TestBusinessHTTPPackagesDoNotImportPostgresInfrastructure(t *testing.T) {
+	root := moduleRoot(t)
+	for _, pkg := range []string{"bom", "catalog", "company", "customer", "inventory", "materials", "production", "sales"} {
+		dir := filepath.Join(root, "internal/interfaces/http", pkg)
+		err := filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
+			if err != nil {
+				return err
+			}
+			if d.IsDir() || !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
+				return nil
+			}
+			body, err := os.ReadFile(path)
+			if err != nil {
+				return err
+			}
+			if strings.Contains(string(body), "orderapp/internal/infrastructure/postgres") {
+				rel, _ := filepath.Rel(root, path)
+				t.Fatalf("%s imports Postgres infrastructure; compose concrete repositories in appmain instead", rel)
+			}
+			return nil
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
 func assertFileDoesNotContain(t *testing.T, rel string, forbidden []string) {
 	t.Helper()
 	body, err := os.ReadFile(filepath.Join(moduleRoot(t), rel))

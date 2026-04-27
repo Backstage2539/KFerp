@@ -1,7 +1,6 @@
 package company
 
 import (
-	"context"
 	"fmt"
 	"net/http"
 	support "orderapp/internal/interfaces/http/support"
@@ -9,9 +8,7 @@ import (
 	"strings"
 
 	companyapp "orderapp/internal/application/company"
-	postgrescompany "orderapp/internal/infrastructure/postgres/company"
 
-	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/labstack/echo/v4"
 )
 
@@ -42,38 +39,7 @@ type DepartmentUpsertReq struct {
 	Active *bool  `json:"active"`
 }
 
-func ensureCompanyStaffTables(ctx context.Context, pool *pgxpool.Pool, schema string) error {
-	q := fmt.Sprintf(`
-CREATE TABLE IF NOT EXISTS %s.company_departments (
-	id BIGSERIAL PRIMARY KEY,
-	name TEXT NOT NULL UNIQUE,
-	active BOOLEAN NOT NULL DEFAULT true,
-	created_at TIMESTAMPTZ NOT NULL DEFAULT now()
-);
-CREATE TABLE IF NOT EXISTS %s.company_employees (
-	id BIGSERIAL PRIMARY KEY,
-	name TEXT NOT NULL,
-	phone TEXT NOT NULL,
-	department_id BIGINT NOT NULL REFERENCES %s.company_departments(id),
-	active BOOLEAN NOT NULL DEFAULT true,
-	created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-	updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
-);
-CREATE UNIQUE INDEX IF NOT EXISTS company_employees_phone_uq ON %s.company_employees(phone);
-`, schema, schema, schema, schema)
-	if _, err := pool.Exec(ctx, q); err != nil {
-		return err
-	}
-	seed := fmt.Sprintf(`
-INSERT INTO %s.company_departments(name,active) VALUES
-('销售', true),('生产', true),('财务', true)
-ON CONFLICT (name) DO NOTHING;
-`, schema)
-	_, err := pool.Exec(ctx, seed)
-	return err
-}
-
-func registerCompanyStaffPages(e *echo.Echo, _ *pgxpool.Pool, _ string) {
+func registerCompanyStaffPages(e *echo.Echo) {
 	e.GET("/company/departments", func(c echo.Context) error {
 		return support.VueShellRedirect(c, "departments")
 	})
@@ -83,9 +49,7 @@ func registerCompanyStaffPages(e *echo.Echo, _ *pgxpool.Pool, _ string) {
 	})
 }
 
-func registerCompanyStaffAPI(e *echo.Echo, pool *pgxpool.Pool, schema string) {
-	companySvc := companyapp.NewService(postgrescompany.NewRepository(pool, schema))
-
+func registerCompanyStaffAPI(e *echo.Echo, companySvc *companyapp.Service) {
 	e.GET("/api/company/departments", func(c echo.Context) error {
 		rows, err := companySvc.ListDepartments(c.Request().Context())
 		if err != nil {

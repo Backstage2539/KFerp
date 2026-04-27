@@ -4,11 +4,9 @@ import (
 	"net/http"
 	"net/url"
 	inventoryapp "orderapp/internal/application/inventory"
-	postgresinventory "orderapp/internal/infrastructure/postgres/inventory"
 	support "orderapp/internal/interfaces/http/support"
 	"strings"
 
-	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/labstack/echo/v4"
 )
 
@@ -17,8 +15,7 @@ type productAPIOption struct {
 	Name string `json:"name"`
 }
 
-func registerFinishedInventoryPages(e *echo.Echo, pool *pgxpool.Pool, schema string) {
-	inventorySvc := inventoryapp.NewService(postgresinventory.NewRepository(pool, schema))
+func registerFinishedInventoryPages(e *echo.Echo, inventorySvc *inventoryapp.Service) {
 	e.GET("/products/inventory", func(c echo.Context) error {
 		target := "/vue-shell?view=inventory"
 		if q := strings.TrimSpace(c.QueryParam("q")); q != "" {

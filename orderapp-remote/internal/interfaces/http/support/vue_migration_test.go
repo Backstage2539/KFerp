@@ -45,7 +45,7 @@ func TestVueShellMigratesOrdersAuditAndRequirementTables(t *testing.T) {
 
 func TestLegacyListRoutesRedirectToVueShell(t *testing.T) {
 	e := echo.New()
-	saleshttp.RegisterRoutes(e, nil, "public")
+	saleshttp.RegisterRoutes(e, saleshttp.Dependencies{})
 	supporthttp.RegisterRoutes(e, nil, "public")
 
 	cases := []struct {
@@ -102,13 +102,13 @@ func TestVueShellMigratesCatalogAndSettingsPages(t *testing.T) {
 
 func TestCatalogAndSettingsRoutesRedirectToVueShell(t *testing.T) {
 	e := echo.New()
-	customerhttp.RegisterRoutes(e, nil, "public", "")
-	cataloghttp.RegisterRoutes(e, nil, "public")
-	bomhttp.RegisterRoutes(e, nil, "public")
-	inventoryhttp.RegisterRoutes(e, nil, "public")
-	productionhttp.RegisterRoutes(e, nil, "public")
-	companyhttp.RegisterRoutes(e, nil, "public")
-	saleshttp.RegisterRoutes(e, nil, "public")
+	customerhttp.RegisterRoutes(e, customerhttp.Dependencies{})
+	cataloghttp.RegisterRoutes(e, cataloghttp.Dependencies{})
+	bomhttp.RegisterRoutes(e, bomhttp.Dependencies{})
+	inventoryhttp.RegisterRoutes(e, inventoryhttp.Dependencies{})
+	productionhttp.RegisterRoutes(e, productionhttp.Dependencies{})
+	companyhttp.RegisterRoutes(e, companyhttp.Dependencies{})
+	saleshttp.RegisterRoutes(e, saleshttp.Dependencies{})
 
 	cases := []struct {
 		path string

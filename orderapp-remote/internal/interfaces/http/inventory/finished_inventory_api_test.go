@@ -11,6 +11,9 @@ import (
 	"testing"
 	"time"
 
+	inventoryapp "orderapp/internal/application/inventory"
+	postgresinventory "orderapp/internal/infrastructure/postgres/inventory"
+
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/labstack/echo/v4"
 )
@@ -87,7 +90,7 @@ INSERT INTO %s.products(id,name,active) VALUES (1,'橘皮乌龙',true);
 `, schema, schema, schema, schema, schema, schema))
 
 	e := echo.New()
-	registerFinishedInventoryPages(e, pool, schema)
+	registerFinishedInventoryPages(e, inventoryapp.NewService(postgresinventory.NewRepository(pool, schema)))
 	req := httptest.NewRequest(http.MethodPost, "/api/products/inventory", bytes.NewBufferString(`{"product_id":1,"spec_g":454,"units":1,"loose_g":500}`))
 	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
 	rec := httptest.NewRecorder()

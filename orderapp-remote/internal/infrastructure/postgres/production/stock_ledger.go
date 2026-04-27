@@ -75,6 +75,10 @@ CREATE INDEX IF NOT EXISTS stock_ledger_item_idx
 	return err
 }
 
+func EnsureStockLedgerTables(ctx context.Context, pool *pgxpool.Pool, schema string) error {
+	return ensureStockLedgerTables(ctx, pool, schema)
+}
+
 func finishedProductionBatchCode(runningItemID int64) string {
 	return fmt.Sprintf("FP-%010d", runningItemID)
 }

@@ -7,6 +7,13 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
+func EnsureSchema(ctx context.Context, pool *pgxpool.Pool, schema string) error {
+	if err := ensureBomTables(ctx, pool, schema); err != nil {
+		return err
+	}
+	return ensureBagSpecMappingTable(ctx, pool, schema)
+}
+
 func ensureBomTables(ctx context.Context, pool *pgxpool.Pool, schema string) error {
 	ddls := []string{
 		fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s.product_bom (
@@ -29,4 +36,14 @@ func ensureBomTables(ctx context.Context, pool *pgxpool.Pool, schema string) err
 		}
 	}
 	return nil
+}
+
+func ensureBagSpecMappingTable(ctx context.Context, pool *pgxpool.Pool, schema string) error {
+	q := fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s.packaging_spec_material_map (
+		spec_g BIGINT PRIMARY KEY,
+		material_id BIGINT NOT NULL,
+		updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+	)`, schema)
+	_, err := pool.Exec(ctx, q)
+	return err
 }

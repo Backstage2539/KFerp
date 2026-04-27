@@ -125,6 +125,203 @@ func (r Repository) Delete(ctx context.Context, actor string, id int64) error {
 	return nil
 }
 
+func (r Repository) List(ctx context.Context, query customerapp.ListQuery) (customerapp.ListResult, error) {
+	rows, hasNext, err := fetchCustomers(ctx, r.pool, r.schema, query.Query, query.Limit, query.Offset)
+	if err != nil {
+		return customerapp.ListResult{}, err
+	}
+	sources, err := fetchOptions(ctx, r.pool, fmt.Sprintf("SELECT id, name FROM %s.sources ORDER BY id", r.schema))
+	if err != nil {
+		return customerapp.ListResult{}, err
+	}
+	orderTypes, err := fetchOptions(ctx, r.pool, fmt.Sprintf("SELECT id, name FROM %s.order_types ORDER BY id", r.schema))
+	if err != nil {
+		return customerapp.ListResult{}, err
+	}
+	return customerapp.ListResult{Rows: rows, Sources: sources, OrderTypes: orderTypes, HasNext: hasNext}, nil
+}
+
+func (r Repository) Editor(ctx context.Context, id int64) (*customerapp.EditorData, error) {
+	customer, err := fetchCustomerByID(ctx, r.pool, r.schema, id)
+	if err != nil || customer == nil {
+		return nil, err
+	}
+	sources, err := fetchOptions(ctx, r.pool, fmt.Sprintf("SELECT id, name FROM %s.sources ORDER BY id", r.schema))
+	if err != nil {
+		return nil, err
+	}
+	orderTypes, err := fetchOptions(ctx, r.pool, fmt.Sprintf("SELECT id, name FROM %s.order_types ORDER BY id", r.schema))
+	if err != nil {
+		return nil, err
+	}
+	assets, err := fetchCustomerAssets(ctx, r.pool, r.schema, id)
+	if err != nil {
+		return nil, err
+	}
+	dashboard, err := fetchCustomerDashboard(ctx, r.pool, r.schema, id)
+	if err != nil {
+		return nil, err
+	}
+	return &customerapp.EditorData{
+		Customer:   *customer,
+		Sources:    sources,
+		OrderTypes: orderTypes,
+		Assets:     assets,
+		Dashboard:  dashboard,
+	}, nil
+}
+
+func (r Repository) AssetObject(ctx context.Context, assetID int64) (customerapp.AssetObject, error) {
+	var obj string
+	var contentType string
+	q := fmt.Sprintf(`SELECT object_key, content_type FROM %s.customer_assets WHERE id=$1`, r.schema)
+	if err := r.pool.QueryRow(ctx, q, assetID).Scan(&obj, &contentType); err != nil {
+		return customerapp.AssetObject{}, err
+	}
+	return customerapp.AssetObject{ObjectKey: obj, ContentType: contentType}, nil
+}
+
+func fetchCustomers(ctx context.Context, pool *pgxpool.Pool, schema, q string, limit, offset int) (rows []customerapp.CustomerRow, hasNext bool, err error) {
+	if limit <= 0 {
+		limit = 100
+	}
+	if offset < 0 {
+		offset = 0
+	}
+	args := make([]any, 0)
+	where := ""
+	if strings.TrimSpace(q) != "" {
+		where = "WHERE name ILIKE $1 OR COALESCE(contact,'') ILIKE $1 OR COALESCE(phone,'') ILIKE $1 OR COALESCE(address,'') ILIKE $1"
+		args = append(args, "%"+strings.TrimSpace(q)+"%")
+	}
+	args = append(args, limit+1, offset)
+	limitArg := len(args) - 1
+	offsetArg := len(args)
+
+	sql := fmt.Sprintf(`
+		SELECT id, name, contact, phone, address, active, default_source_id, default_order_type_id,
+			to_char(updated_at,'YYYY-MM-DD HH24:MI') AS updated
+		FROM %s.customers
+		%s
+		ORDER BY active DESC, name ASC
+		LIMIT $%d OFFSET $%d
+	`, schema, where, limitArg, offsetArg)
+
+	dbRows, err := pool.Query(ctx, sql, args...)
+	if err != nil {
+		return nil, false, err
+	}
+	defer dbRows.Close()
+
+	out := make([]customerapp.CustomerRow, 0)
+	for dbRows.Next() {
+		var r customerapp.CustomerRow
+		if err := dbRows.Scan(&r.ID, &r.Name, &r.Contact, &r.Phone, &r.Address, &r.Active, &r.DefaultSourceID, &r.DefaultOrderTypeID, &r.Updated); err != nil {
+			return nil, false, err
+		}
+		out = append(out, r)
+	}
+	if err := dbRows.Err(); err != nil {
+		return nil, false, err
+	}
+
+	if len(out) > limit {
+		hasNext = true
+		out = out[:limit]
+	}
+	return out, hasNext, nil
+}
+
+func fetchCustomerByID(ctx context.Context, pool *pgxpool.Pool, schema string, id int64) (*customerapp.CustomerEditData, error) {
+	q := fmt.Sprintf(`SELECT id, name, COALESCE(raw_name,''), COALESCE(contact,''), COALESCE(phone,''), COALESCE(address,''),
+		COALESCE(default_source_id::text,''), COALESCE(default_order_type_id::text,''), active
+		FROM %s.customers WHERE id=$1`, schema)
+	var d customerapp.CustomerEditData
+	err := pool.QueryRow(ctx, q, id).Scan(&d.ID, &d.Name, &d.RawName, &d.Contact, &d.Phone, &d.Address, &d.DefaultSourceID, &d.DefaultOrderTypeID, &d.Active)
+	if err != nil {
+		if err == pgx.ErrNoRows {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return &d, nil
+}
+
+func fetchOptions(ctx context.Context, pool *pgxpool.Pool, sqlstr string) ([]customerapp.Option, error) {
+	rows, err := pool.Query(ctx, sqlstr)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	out := make([]customerapp.Option, 0)
+	for rows.Next() {
+		var o customerapp.Option
+		if err := rows.Scan(&o.ID, &o.Name); err != nil {
+			return nil, err
+		}
+		out = append(out, o)
+	}
+	return out, rows.Err()
+}
+
+func fetchCustomerAssets(ctx context.Context, pool *pgxpool.Pool, schema string, customerID int64) ([]customerapp.CustomerAsset, error) {
+	q := fmt.Sprintf(`
+		SELECT id, customer_id, kind, object_key, content_type, bytes, sha256,
+			to_char(created_at,'YYYY-MM-DD HH24:MI')
+		FROM %s.customer_assets
+		WHERE customer_id=$1
+		ORDER BY created_at DESC, id DESC
+	`, schema)
+	rows, err := pool.Query(ctx, q, customerID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	out := make([]customerapp.CustomerAsset, 0)
+	for rows.Next() {
+		var a customerapp.CustomerAsset
+		if err := rows.Scan(&a.ID, &a.CustomerID, &a.Kind, &a.ObjectKey, &a.ContentType, &a.Bytes, &a.Sha256, &a.CreatedAt); err != nil {
+			return nil, err
+		}
+		out = append(out, a)
+	}
+	return out, rows.Err()
+}
+
+func fetchCustomerDashboard(ctx context.Context, pool *pgxpool.Pool, schema string, customerID int64) (customerapp.CustomerDashboard, error) {
+	var dashboard customerapp.CustomerDashboard
+	var productionStatusID int64
+	var shippingStatusID int64
+	_ = pool.QueryRow(ctx, fmt.Sprintf(`SELECT COALESCE((SELECT id FROM %s.order_process_statuses WHERE name='生产中' LIMIT 1),0)`, schema)).Scan(&productionStatusID)
+	_ = pool.QueryRow(ctx, fmt.Sprintf(`SELECT COALESCE((SELECT id FROM %s.order_process_statuses WHERE name='发货中' LIMIT 1),0)`, schema)).Scan(&shippingStatusID)
+
+	q := fmt.Sprintf(`
+		SELECT
+			COUNT(*) AS total,
+			SUM(CASE WHEN COALESCE(o.pay_status_id,0) <> 2 THEN 1 ELSE 0 END) AS unpaid,
+			SUM(CASE WHEN COALESCE(o.ship_status_id,0) IN (0,1,2) THEN 1 ELSE 0 END) AS unshipped,
+			SUM(CASE WHEN $2>0 AND COALESCE(o.process_status_id,0) = $2 THEN 1 ELSE 0 END) AS in_prod,
+			SUM(CASE WHEN $3>0 AND COALESCE(o.process_status_id,0) = $3 THEN 1 ELSE 0 END) AS in_ship,
+			SUM(CASE WHEN COALESCE(o.pay_status_id,0)=2 AND COALESCE(o.ship_status_id,0) IN (3,4) THEN 1 ELSE 0 END) AS completed
+		FROM %s.orders o
+		WHERE o.customer_id=$1 AND COALESCE(o.is_void,false)=false
+	`, schema)
+
+	if err := pool.QueryRow(ctx, q, customerID, productionStatusID, shippingStatusID).Scan(
+		&dashboard.TotalOrders,
+		&dashboard.UnpaidOrders,
+		&dashboard.UnshippedOrders,
+		&dashboard.InProduction,
+		&dashboard.InShipping,
+		&dashboard.Completed,
+	); err != nil {
+		return customerapp.CustomerDashboard{}, err
+	}
+	return dashboard, nil
+}
+
 func upsertCustomer(ctx context.Context, pool *pgxpool.Pool, schema string, actor string, id *int64, req upsertRequest) (int64, error) {
 	name := strings.TrimSpace(req.Name)
 	if name == "" {

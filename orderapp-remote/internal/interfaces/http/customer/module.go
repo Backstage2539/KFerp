@@ -1,10 +1,16 @@
 package customer
 
 import (
-	"github.com/jackc/pgx/v5/pgxpool"
+	customerapp "orderapp/internal/application/customer"
+
 	"github.com/labstack/echo/v4"
 )
 
-func RegisterRoutes(e *echo.Echo, pool *pgxpool.Pool, schema string, assetDir string) {
-	registerCustomerRoutes(e, pool, schema, assetDir)
+type Dependencies struct {
+	Customer *customerapp.Service
+	AssetDir string
+}
+
+func RegisterRoutes(e *echo.Echo, deps Dependencies) {
+	registerCustomerRoutes(e, deps)
 }

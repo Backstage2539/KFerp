@@ -6,10 +6,8 @@ import (
 	"strconv"
 
 	bomapp "orderapp/internal/application/bom"
-	postgresbom "orderapp/internal/infrastructure/postgres/bom"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/labstack/echo/v4"
 )
 
@@ -41,9 +39,7 @@ type ErrorResponse struct {
 	Error string `json:"error"`
 }
 
-func registerBomAPI(e *echo.Echo, pool *pgxpool.Pool, schema string) {
-	bomSvc := bomapp.NewService(postgresbom.NewRepository(pool, schema))
-
+func registerBomAPI(e *echo.Echo, bomSvc *bomapp.Service) {
 	e.GET("/api/bom/list", func(c echo.Context) error {
 		rows, err := bomSvc.List(c.Request().Context())
 		if err != nil {

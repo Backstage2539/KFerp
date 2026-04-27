@@ -69,6 +69,14 @@ func (r *fakeFlowRepo) SaveMachine(ctx context.Context, cmd RoastMachineCommand)
 	return nil
 }
 
+func (r *fakeFlowRepo) PlanSummary(ctx context.Context, query PlanSummaryQuery) (PlanSummaryData, error) {
+	return PlanSummaryData{}, nil
+}
+
+func (r *fakeFlowRepo) ListProductionLogs(ctx context.Context, query ProductionLogsQuery) (ProductionLogsResult, error) {
+	return ProductionLogsResult{}, nil
+}
+
 func TestServiceOwnsRunningProductionUseCases(t *testing.T) {
 	repo := &fakeFlowRepo{
 		startNeeds: []StartNeed{

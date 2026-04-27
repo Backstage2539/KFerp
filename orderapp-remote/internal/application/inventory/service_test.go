@@ -18,6 +18,10 @@ func (r *fakeRepo) AdjustFinished(ctx context.Context, cmd AdjustFinishedInvento
 	return nil
 }
 
+func (r *fakeRepo) ListAllocations(ctx context.Context, query AllocationLogQuery) (AllocationLogResult, error) {
+	return AllocationLogResult{}, nil
+}
+
 func TestServiceNormalizesFinishedInventoryAdjustment(t *testing.T) {
 	repo := &fakeRepo{}
 	svc := NewService(repo)

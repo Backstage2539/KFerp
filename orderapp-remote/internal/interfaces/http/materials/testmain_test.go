@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	postgresmaterials "orderapp/internal/infrastructure/postgres/materials"
 	supporthttp "orderapp/internal/interfaces/http/support"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -61,7 +62,7 @@ func newProductionFlowTestDB(t *testing.T) (*pgxpool.Pool, string) {
 	if err := supporthttp.EnsureSchema(ctx, pool, schema); err != nil {
 		t.Fatalf("support EnsureSchema: %v", err)
 	}
-	if err := EnsureSchema(ctx, pool, schema); err != nil {
+	if err := postgresmaterials.EnsureSchema(ctx, pool, schema); err != nil {
 		t.Fatalf("materials EnsureSchema: %v", err)
 	}
 

@@ -173,6 +173,96 @@ func (r Repository) AdjustFinished(ctx context.Context, cmd inventoryapp.AdjustF
 	return tx.Commit(ctx)
 }
 
+func (r Repository) ListAllocations(ctx context.Context, query inventoryapp.AllocationLogQuery) (inventoryapp.AllocationLogResult, error) {
+	batches, hasNext, err := r.listAllocationBatches(ctx, query.Limit, query.Offset)
+	if err != nil {
+		return inventoryapp.AllocationLogResult{}, err
+	}
+	batchID := strings.TrimSpace(query.BatchID)
+	if batchID == "" && len(batches) > 0 {
+		batchID = strings.TrimSpace(batches[0].BatchID)
+	}
+	rows := []inventoryapp.AllocationLogRow{}
+	if batchID != "" {
+		rows, err = r.fetchAllocationLogsByBatch(ctx, batchID)
+		if err != nil {
+			return inventoryapp.AllocationLogResult{}, err
+		}
+	}
+	return inventoryapp.AllocationLogResult{
+		BatchID: batchID,
+		Batches: batches,
+		Rows:    rows,
+		HasNext: hasNext,
+	}, nil
+}
+
+func (r Repository) listAllocationBatches(ctx context.Context, limit, offset int) ([]inventoryapp.AllocationBatchRow, bool, error) {
+	q := fmt.Sprintf(`
+		SELECT batch_id,
+		       count(*)::bigint as items,
+		       COALESCE(max(operator), '') as operator,
+		       to_char(max(created_at),'YYYY-MM-DD HH24:MI') as created_at
+		FROM %s.finished_allocation_logs
+		GROUP BY batch_id
+		ORDER BY max(created_at) DESC
+		LIMIT $1 OFFSET $2
+	`, r.schema)
+	rows, err := r.pool.Query(ctx, q, limit+1, offset)
+	if err != nil {
+		return nil, false, err
+	}
+	defer rows.Close()
+	out := make([]inventoryapp.AllocationBatchRow, 0)
+	for rows.Next() {
+		var row inventoryapp.AllocationBatchRow
+		if err := rows.Scan(&row.BatchID, &row.Items, &row.Operator, &row.CreatedAt); err != nil {
+			return nil, false, err
+		}
+		row.OperatorName = strings.TrimSpace(row.Operator)
+		if row.OperatorName == "" {
+			row.OperatorName = "未知"
+		}
+		out = append(out, row)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, false, err
+	}
+	if len(out) > limit {
+		return out[:limit], true, nil
+	}
+	return out, false, nil
+}
+
+func (r Repository) fetchAllocationLogsByBatch(ctx context.Context, batchID string) ([]inventoryapp.AllocationLogRow, error) {
+	q := fmt.Sprintf(`
+		SELECT l.batch_id, COALESCE(p.name,''), l.spec_g, l.need_g, l.deducted_g, l.gap_g,
+		       COALESCE(l.operator,''), to_char(l.created_at,'YYYY-MM-DD HH24:MI')
+		FROM %s.finished_allocation_logs l
+		LEFT JOIN %s.products p ON p.id = l.product_id
+		WHERE l.batch_id = $1
+		ORDER BY l.gap_g DESC, COALESCE(p.name,''), l.spec_g
+	`, r.schema, r.schema)
+	rows, err := r.pool.Query(ctx, q, batchID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := make([]inventoryapp.AllocationLogRow, 0)
+	for rows.Next() {
+		var row inventoryapp.AllocationLogRow
+		if err := rows.Scan(&row.BatchID, &row.Product, &row.SpecG, &row.NeedG, &row.DeductedG, &row.GapG, &row.Operator, &row.CreatedAt); err != nil {
+			return nil, err
+		}
+		row.OperatorName = strings.TrimSpace(row.Operator)
+		if row.OperatorName == "" {
+			row.OperatorName = "未知"
+		}
+		out = append(out, row)
+	}
+	return out, rows.Err()
+}
+
 func (r Repository) listProducts(ctx context.Context) ([]inventoryapp.ProductOption, error) {
 	rows, err := r.pool.Query(ctx, fmt.Sprintf(`SELECT id, name FROM %s.products WHERE active=true ORDER BY name`, r.schema))
 	if err != nil {

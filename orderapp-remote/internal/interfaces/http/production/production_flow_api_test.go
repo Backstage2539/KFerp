@@ -15,13 +15,21 @@ import (
 	"testing"
 	"time"
 
-	companyhttp "orderapp/internal/interfaces/http/company"
-	saleshttp "orderapp/internal/interfaces/http/sales"
+	productionapp "orderapp/internal/application/production"
+	postgrescompany "orderapp/internal/infrastructure/postgres/company"
+	postgresproduction "orderapp/internal/infrastructure/postgres/production"
+	postgressales "orderapp/internal/infrastructure/postgres/sales"
 	supporthttp "orderapp/internal/interfaces/http/support"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/labstack/echo/v4"
 )
+
+type materialSummaryItemForTest struct {
+	MaterialName string `json:"material_name"`
+	DeductG      int64  `json:"deduct_g"`
+	DeductUnits  int64  `json:"deduct_units"`
+}
 
 func TestProduceStartHandlerPersistsInputG(t *testing.T) {
 	pool, schema := newProductionFlowTestDB(t)
@@ -165,14 +173,14 @@ func TestProduceFinishHandlerWritesProductionLog(t *testing.T) {
 	if finishedBy != "测试员" {
 		t.Fatalf("production log finished_by = %q, want 测试员", finishedBy)
 	}
-	var items []materialConsumptionSummaryItem
+	var items []materialSummaryItemForTest
 	if err := json.Unmarshal([]byte(materialSummary), &items); err != nil {
 		t.Fatalf("unmarshal material_summary: %v", err)
 	}
 	if len(items) != 2 {
 		t.Fatalf("material summary items = %d, want 2", len(items))
 	}
-	byName := map[string]materialConsumptionSummaryItem{}
+	byName := map[string]materialSummaryItemForTest{}
 	for _, item := range items {
 		byName[item.MaterialName] = item
 	}
@@ -475,7 +483,7 @@ func TestListRunningItemsBackfillsMissingInputAndPlan(t *testing.T) {
 		);
 	`, schema))
 
-	rows, err := listRunningItems(ctx, pool, schema)
+	rows, err := postgresproduction.NewRepository(pool, schema).ListRunning(ctx)
 	if err != nil {
 		t.Fatalf("listRunningItems: %v", err)
 	}
@@ -504,7 +512,7 @@ func TestListRunningItemsRecomputesLegacyPlanFromInput(t *testing.T) {
 		);
 	`, schema))
 
-	rows, err := listRunningItems(ctx, pool, schema)
+	rows, err := postgresproduction.NewRepository(pool, schema).ListRunning(ctx)
 	if err != nil {
 		t.Fatalf("listRunningItems: %v", err)
 	}
@@ -550,16 +558,16 @@ func newProductionFlowTestDB(t *testing.T) (*pgxpool.Pool, string) {
 	schema := fmt.Sprintf("test_prod_flow_%d", time.Now().UnixNano())
 	mustExecProductionFlowTestSQL(t, ctx, pool, "CREATE SCHEMA "+schema)
 	mustExecProductionFlowTestSQL(t, ctx, pool, productionFlowTestBaseDDL(schema))
-	if err := companyhttp.EnsureSchema(ctx, pool, schema); err != nil {
+	if err := postgrescompany.EnsureSchema(ctx, pool, schema); err != nil {
 		t.Fatalf("company EnsureSchema: %v", err)
 	}
 	if err := supporthttp.EnsureSchema(ctx, pool, schema); err != nil {
 		t.Fatalf("support EnsureSchema: %v", err)
 	}
-	if err := EnsureSchema(ctx, pool, schema); err != nil {
+	if err := postgresproduction.EnsureSchema(ctx, pool, schema); err != nil {
 		t.Fatalf("production EnsureSchema: %v", err)
 	}
-	if err := saleshttp.EnsureSchema(ctx, pool, schema); err != nil {
+	if err := postgressales.EnsureSchema(ctx, pool, schema); err != nil {
 		t.Fatalf("sales EnsureSchema: %v", err)
 	}
 
@@ -581,8 +589,9 @@ func newProductionFlowTestEcho(pool *pgxpool.Pool, schema string) *echo.Echo {
 			return next(c)
 		}
 	})
-	registerUnprodSummaryAPI(e, pool, schema)
-	registerProductionFlowPages(e, pool, schema)
+	productionSvc := productionapp.NewService(postgresproduction.NewRepository(pool, schema))
+	registerUnprodSummaryAPI(e, productionSvc)
+	registerProductionFlowPages(e, productionSvc)
 	return e
 }
 

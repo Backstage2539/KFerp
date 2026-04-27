@@ -1,13 +1,9 @@
 package production
 
 import (
-	"context"
 	"math"
-	bomdomain "orderapp/internal/domain/bom"
 	"sort"
 	"strings"
-
-	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 // MaterialNeed is a simple aggregated output for the first version of /produce/plan.
@@ -44,33 +40,6 @@ func defaultProducePlanParams() ProducePlanParams {
 		DripBoxSpec:   10,
 		EnableDripBox: true,
 	}
-}
-
-func loadProducePlanBomMap(ctx context.Context, pool *pgxpool.Pool, schema string) (map[int64][]ProducePlanBomItem, error) {
-	q := "SELECT bi.product_id,COALESCE(m.name,''),COALESCE(bi.ratio_pct,0),COALESCE(m.unit,'g') FROM " + schema + ".product_bom_items bi LEFT JOIN " + schema + ".materials m ON m.id=bi.material_id ORDER BY bi.product_id,bi.id"
-	rows, err := pool.Query(ctx, q)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	out := map[int64][]ProducePlanBomItem{}
-	for rows.Next() {
-		var pid int64
-		var it ProducePlanBomItem
-		if err := rows.Scan(&pid, &it.MaterialName, &it.RatioPct, &it.Unit); err != nil {
-			return nil, err
-		}
-		if strings.TrimSpace(it.MaterialName) == "" || it.RatioPct <= 0 {
-			continue
-		}
-		it.RatioPct = bomdomain.NormalizeRatioPct(it.RatioPct)
-		it.Unit = strings.TrimSpace(it.Unit)
-		if it.Unit == "" {
-			it.Unit = "g"
-		}
-		out[pid] = append(out[pid], it)
-	}
-	return out, rows.Err()
 }
 
 func instantMaterialsOnly(rows []MaterialNeed) []MaterialNeed {

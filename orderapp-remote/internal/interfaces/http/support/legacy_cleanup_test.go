@@ -134,7 +134,7 @@ func TestCompanyStaffAPIUsesApplicationService(t *testing.T) {
 		t.Fatal(err)
 	}
 	src := string(body)
-	for _, want := range []string{"companyapp.NewService", "postgrescompany.NewRepository"} {
+	for _, want := range []string{"func registerCompanyStaffAPI(e *echo.Echo, companySvc *companyapp.Service)", "companySvc.ListDepartments", "companySvc.CreateEmployee"} {
 		if !strings.Contains(src, want) {
 			t.Fatalf("company_staff.go missing application boundary %q", want)
 		}
@@ -144,7 +144,7 @@ func TestCompanyStaffAPIUsesApplicationService(t *testing.T) {
 		t.Fatal("registerCompanyStaffAPI missing")
 	}
 	handlerSrc := src[start:]
-	for _, bad := range []string{"pool.Query(", "pool.QueryRow(", "pool.Exec("} {
+	for _, bad := range []string{"pool.Query(", "pool.QueryRow(", "pool.Exec(", "internal/infrastructure/postgres", "NewRepository(", "NewService("} {
 		if strings.Contains(handlerSrc, bad) {
 			t.Fatalf("registerCompanyStaffAPI still owns persistence concern %q", bad)
 		}

@@ -42,6 +42,10 @@ func (r *fakeRepo) ListOrders(ctx context.Context, query OrderListQuery) (OrderL
 	return OrderListResult{}, nil
 }
 
+func (r *fakeRepo) ListOrderAuditLogs(ctx context.Context, orderID int64, limit int) ([]AuditRow, error) {
+	return nil, nil
+}
+
 func (r *fakeRepo) ListOutsourceTemplates(ctx context.Context) ([]OutsourceTemplate, error) {
 	return []OutsourceTemplate{{ID: 1, Name: "默认", IsDefault: true, RoastUnitPrice: 2.5}}, nil
 }
@@ -59,6 +63,22 @@ func (r *fakeRepo) FillTrackingPairs(ctx context.Context, cmd FillTrackingPairsC
 func (r *fakeRepo) SetShipMethod(ctx context.Context, cmd SetShipMethodCommand) error {
 	r.shipMethodCmd = cmd
 	return nil
+}
+
+func (r *fakeRepo) OrderForm(ctx context.Context, editID int64) (OrderFormData, error) {
+	return OrderFormData{}, nil
+}
+
+func (r *fakeRepo) LoadSenderProfile(ctx context.Context) (SenderProfile, error) {
+	return SenderProfile{Goods: "咖啡"}, nil
+}
+
+func (r *fakeRepo) SaveSenderProfile(ctx context.Context, profile SenderProfile) error {
+	return nil
+}
+
+func (r *fakeRepo) ListSFSmallShippingRows(ctx context.Context, query ShippingExportQuery) ([]ShippingExportRow, error) {
+	return nil, nil
 }
 
 func TestServiceDelegatesSaveOrder(t *testing.T) {

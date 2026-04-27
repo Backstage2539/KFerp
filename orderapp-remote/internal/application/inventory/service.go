@@ -35,6 +35,39 @@ type FinishedInventoryResult struct {
 	HasNext  bool
 }
 
+type AllocationLogRow struct {
+	BatchID      string `json:"batch_id"`
+	Product      string `json:"product"`
+	SpecG        int64  `json:"spec_g"`
+	NeedG        int64  `json:"need_g"`
+	DeductedG    int64  `json:"deducted_g"`
+	GapG         int64  `json:"gap_g"`
+	Operator     string `json:"operator"`
+	CreatedAt    string `json:"created_at"`
+	OperatorName string `json:"operator_name"`
+}
+
+type AllocationBatchRow struct {
+	BatchID      string `json:"batch_id"`
+	Items        int64  `json:"items"`
+	Operator     string `json:"operator"`
+	CreatedAt    string `json:"created_at"`
+	OperatorName string `json:"operator_name"`
+}
+
+type AllocationLogQuery struct {
+	BatchID string
+	Limit   int
+	Offset  int
+}
+
+type AllocationLogResult struct {
+	BatchID string
+	Batches []AllocationBatchRow
+	Rows    []AllocationLogRow
+	HasNext bool
+}
+
 type AdjustFinishedInventoryCommand struct {
 	ProductID int64
 	SpecG     int64
@@ -46,6 +79,7 @@ type AdjustFinishedInventoryCommand struct {
 type Repository interface {
 	ListFinished(ctx context.Context, query FinishedInventoryQuery) (FinishedInventoryResult, error)
 	AdjustFinished(ctx context.Context, cmd AdjustFinishedInventoryCommand) error
+	ListAllocations(ctx context.Context, query AllocationLogQuery) (AllocationLogResult, error)
 }
 
 type Service struct {
@@ -65,6 +99,17 @@ func (s *Service) ListFinished(ctx context.Context, query FinishedInventoryQuery
 		query.Offset = 0
 	}
 	return s.repo.ListFinished(ctx, query)
+}
+
+func (s *Service) ListAllocations(ctx context.Context, query AllocationLogQuery) (AllocationLogResult, error) {
+	query.BatchID = strings.TrimSpace(query.BatchID)
+	if query.Limit <= 0 || query.Limit > 200 {
+		query.Limit = 20
+	}
+	if query.Offset < 0 {
+		query.Offset = 0
+	}
+	return s.repo.ListAllocations(ctx, query)
 }
 
 func (s *Service) AdjustFinished(ctx context.Context, cmd AdjustFinishedInventoryCommand) error {

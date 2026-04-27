@@ -109,7 +109,7 @@ func TestProductionFlowRoutesAndSchemaAreSplitOut(t *testing.T) {
 		}
 	}
 
-	for _, path := range []string{"internal/interfaces/http/production/production_flow_routes.go", "internal/interfaces/http/production/production_flow_schema.go"} {
+	for _, path := range []string{"internal/interfaces/http/production/production_flow_routes.go", "internal/infrastructure/postgres/production/schema.go"} {
 		if _, err := os.Stat(path); err != nil {
 			t.Fatalf("missing split-out production flow file %s: %v", path, err)
 		}
@@ -159,10 +159,13 @@ func TestProductionRoutesCallApplicationService(t *testing.T) {
 		t.Fatal(err)
 	}
 	content := string(body)
-	if !strings.Contains(content, "productionapp.NewService") {
-		t.Fatal("production_flow_routes.go should construct the production application service")
+	if !strings.Contains(content, "func registerProductionFlowPages(e *echo.Echo, productionSvc *productionapp.Service)") {
+		t.Fatal("production_flow_routes.go should receive the production application service from the composition root")
 	}
 	for _, forbidden := range []string{
+		"internal/infrastructure/postgres",
+		"NewRepository(",
+		"NewService(",
 		"startProductionWithInputs(",
 		"listRunningItems(",
 		"finishRunningItem(",
@@ -260,10 +263,13 @@ func TestMaterialsAPIUsesApplicationService(t *testing.T) {
 		t.Fatal(err)
 	}
 	content := string(body)
-	if !strings.Contains(content, "materialsapp.NewService") {
-		t.Fatal("materials_api.go should construct the materials application service")
+	if !strings.Contains(content, "func registerMaterialsAPI(e *echo.Echo, materialsSvc *materialsapp.Service)") {
+		t.Fatal("materials_api.go should receive the materials application service from the composition root")
 	}
 	for _, forbidden := range []string{
+		"internal/infrastructure/postgres",
+		"NewRepository(",
+		"NewService(",
 		"listMaterials(c.Request().Context(), pool, schema",
 		"updateMaterialInline(c.Request().Context(), pool, schema",
 	} {

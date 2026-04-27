@@ -58,6 +58,14 @@ func (r *fakeRepo) SaveMachine(ctx context.Context, cmd RoastMachineCommand) err
 	return nil
 }
 
+func (r *fakeRepo) PlanSummary(ctx context.Context, query PlanSummaryQuery) (PlanSummaryData, error) {
+	return PlanSummaryData{}, nil
+}
+
+func (r *fakeRepo) ListProductionLogs(ctx context.Context, query ProductionLogsQuery) (ProductionLogsResult, error) {
+	return ProductionLogsResult{}, nil
+}
+
 func TestServiceDelegatesProductionUseCases(t *testing.T) {
 	repo := &fakeRepo{}
 	svc := NewService(repo)

@@ -11,6 +11,9 @@ import (
 	"strings"
 	"testing"
 
+	materialsapp "orderapp/internal/application/materials"
+	postgresmaterials "orderapp/internal/infrastructure/postgres/materials"
+
 	"github.com/labstack/echo/v4"
 )
 
@@ -67,7 +70,7 @@ func TestMaterialsAPIInlineUpdateWritesAuditLog(t *testing.T) {
 			return next(c)
 		}
 	})
-	registerMaterialsAPI(e, pool, schema)
+	registerMaterialsAPI(e, materialsapp.NewService(postgresmaterials.NewRepository(pool, schema)))
 
 	body, err := json.Marshal(MaterialInput{
 		Code:          "m-api-1",

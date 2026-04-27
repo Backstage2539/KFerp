@@ -14,8 +14,9 @@ func TestBomAPIRoutesUseApplicationService(t *testing.T) {
 	}
 	content := string(body)
 	for _, want := range []string{
-		`bomapp.NewService`,
-		`postgresbom.NewRepository`,
+		`func registerBomAPI(e *echo.Echo, bomSvc *bomapp.Service)`,
+		`bomSvc.List`,
+		`bomSvc.SaveItem`,
 	} {
 		if !strings.Contains(content, want) {
 			t.Fatalf("bom_api.go missing application boundary %q", want)
@@ -28,6 +29,9 @@ func TestBomAPIRoutesUseApplicationService(t *testing.T) {
 		"pool.Query(",
 		"pool.QueryRow(",
 		"pool.Exec(",
+		"internal/infrastructure/postgres",
+		"NewRepository(",
+		"NewService(",
 		"listBomItems(",
 		"fetchOptions(",
 		"saveBagSpecMapping(",

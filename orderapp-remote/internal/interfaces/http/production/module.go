@@ -1,34 +1,21 @@
 package production
 
 import (
-	"context"
+	productionapp "orderapp/internal/application/production"
 
-	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/labstack/echo/v4"
 )
 
-func RegisterRoutes(e *echo.Echo, pool *pgxpool.Pool, schema string) {
-	registerUnprodSummaryPages(e, pool, schema)
-	registerUnprodSummaryAPI(e, pool, schema)
-	registerProducePlanPages(e, pool, schema)
-	registerMachineCapacityPages(e, pool, schema)
-	registerProductionFlowPages(e, pool, schema)
-	registerProductionLogPages(e, pool, schema)
-	registerProduceBatchAPI(e, pool, schema)
+type Dependencies struct {
+	Production *productionapp.Service
 }
 
-func EnsureSchema(ctx context.Context, pool *pgxpool.Pool, schema string) error {
-	if err := ensureStockLedgerTables(ctx, pool, schema); err != nil {
-		return err
-	}
-	if err := ensureProduceBatchTables(ctx, pool, schema); err != nil {
-		return err
-	}
-	if err := ensureMachineCapacityTable(ctx, pool, schema); err != nil {
-		return err
-	}
-	if err := ensureProductionRunTable(ctx, pool, schema); err != nil {
-		return err
-	}
-	return ensureProductionLogTable(ctx, pool, schema)
+func RegisterRoutes(e *echo.Echo, deps Dependencies) {
+	registerUnprodSummaryPages(e)
+	registerUnprodSummaryAPI(e, deps.Production)
+	registerProducePlanPages(e)
+	registerMachineCapacityPages(e, deps.Production)
+	registerProductionFlowPages(e, deps.Production)
+	registerProductionLogPages(e, deps.Production)
+	registerProduceBatchAPI(e, deps.Production)
 }

@@ -171,6 +171,133 @@ type RoastMachineCommand struct {
 	Active       bool   `json:"active"`
 }
 
+type UnprodNeedRow struct {
+	ProductID int64  `json:"product_id"`
+	Product   string `json:"product"`
+	OrderNos  string `json:"order_nos"`
+	SpecG     int64  `json:"spec_g"`
+	NeedUnits int64  `json:"need_units"`
+	NeedG     int64  `json:"need_g"`
+	InvUnits  int64  `json:"inv_units"`
+	InvLooseG int64  `json:"inv_loose_g"`
+	InvG      int64  `json:"inv_g"`
+	GapG      int64  `json:"gap_g"`
+}
+
+type MaterialNeed struct {
+	Name string `json:"name"`
+	Qty  int64  `json:"qty"`
+	Unit string `json:"unit"`
+}
+
+type ProducePlanDisplayRow struct {
+	UnprodNeedRow
+	BomYieldRate float64 `json:"bom_yield_rate"`
+	InputG       int64   `json:"input_g"`
+}
+
+type PlanSummaryQuery struct {
+	From       string
+	To         string
+	CustomerID int64
+	Selected   map[string]bool
+	Plan       bool
+}
+
+type RoastPlanRow struct {
+	Key           string  `json:"key"`
+	ProductID     int64   `json:"product_id"`
+	ProductName   string  `json:"product_name"`
+	SpecG         int64   `json:"spec_g"`
+	Machine       string  `json:"machine"`
+	BatchCount    int64   `json:"batch_count"`
+	BatchG        int64   `json:"batch_g"`
+	FinalInputG   int64   `json:"final_input_g"`
+	NeedG         int64   `json:"need_g"`
+	YieldRate     float64 `json:"yield_rate"`
+	YieldPctStr   string  `json:"yield_pct_str"`
+	FinishedKgStr string  `json:"finished_kg_str"`
+}
+
+type RoastPlanMaterialRatio struct {
+	Key          string  `json:"key"`
+	ProductID    int64   `json:"product_id"`
+	SpecG        int64   `json:"spec_g"`
+	ProductName  string  `json:"product_name"`
+	MaterialName string  `json:"material_name"`
+	MaterialUnit string  `json:"material_unit"`
+	RatioPct     float64 `json:"ratio_pct"`
+}
+
+type RoastSplitRow struct {
+	Material    string `json:"material"`
+	Machine     string `json:"machine"`
+	BatchKg     string `json:"batch_kg"`
+	Batches     int64  `json:"batches"`
+	TotalKg     string `json:"total_kg"`
+	YieldPctStr string `json:"yield_pct_str"`
+}
+
+type PlanSummaryData struct {
+	From           string                   `json:"from"`
+	To             string                   `json:"to"`
+	CustomerID     int64                    `json:"customer_id"`
+	Rows           []UnprodNeedRow          `json:"rows"`
+	PlanRows       []ProducePlanDisplayRow  `json:"plan_rows"`
+	Materials      []MaterialNeed           `json:"materials"`
+	RoastSplits    []RoastSplitRow          `json:"roast_splits"`
+	RoastPlans     []RoastPlanRow           `json:"roast_plans"`
+	MaterialRatios []RoastPlanMaterialRatio `json:"material_ratios"`
+	Selected       map[string]bool          `json:"selected"`
+	PlanReady      bool                     `json:"plan_ready"`
+	StockTip       string                   `json:"stock_tip"`
+	Error          string                   `json:"error"`
+}
+
+type ProductionLogsQuery struct {
+	From      string
+	To        string
+	ProductID int64
+	BatchID   string
+	Operator  string
+	Limit     int
+}
+
+type ProductionLogProductOption struct {
+	ID   int64  `json:"id"`
+	Name string `json:"name"`
+}
+
+type ProductionLogRow struct {
+	ID                    int64   `json:"id"`
+	BatchID               string  `json:"batch_id"`
+	ProductID             int64   `json:"product_id"`
+	ProductName           string  `json:"product_name"`
+	SpecG                 int64   `json:"spec_g"`
+	OrderNos              string  `json:"order_nos"`
+	PlannedNeedG          int64   `json:"planned_need_g"`
+	InputG                int64   `json:"input_g"`
+	BomYieldRate          float64 `json:"bom_yield_rate"`
+	FinishedUnits         int64   `json:"finished_units"`
+	FinishedLooseG        int64   `json:"finished_loose_g"`
+	FinishedTotalG        int64   `json:"finished_total_g"`
+	ActualYieldRate       float64 `json:"actual_yield_rate"`
+	StartedBy             string  `json:"started_by"`
+	StartedAt             string  `json:"started_at"`
+	FinishedBy            string  `json:"finished_by"`
+	FinishedAt            string  `json:"finished_at"`
+	InventoryUnitsBefore  int64   `json:"inventory_units_before"`
+	InventoryLooseGBefore int64   `json:"inventory_loose_g_before"`
+	InventoryUnitsAfter   int64   `json:"inventory_units_after"`
+	InventoryLooseGAfter  int64   `json:"inventory_loose_g_after"`
+	MaterialSummary       string  `json:"material_summary"`
+}
+
+type ProductionLogsResult struct {
+	Products []ProductionLogProductOption
+	Rows     []ProductionLogRow
+}
+
 type Repository interface {
 	CreateBatch(ctx context.Context, cmd CreateBatchCommand) (CreateBatchResult, error)
 	ListBatches(ctx context.Context, cmd ListBatchesCommand) ([]BatchListItem, error)
@@ -184,6 +311,8 @@ type Repository interface {
 	Cancel(ctx context.Context, cmd CancelCommand) error
 	ListMachines(ctx context.Context, activeOnly bool) ([]RoastMachine, error)
 	SaveMachine(ctx context.Context, cmd RoastMachineCommand) error
+	PlanSummary(ctx context.Context, query PlanSummaryQuery) (PlanSummaryData, error)
+	ListProductionLogs(ctx context.Context, query ProductionLogsQuery) (ProductionLogsResult, error)
 }
 
 type Service struct {
@@ -261,4 +390,24 @@ func (s *Service) SaveMachine(ctx context.Context, cmd RoastMachineCommand) erro
 	}
 	cmd.AllowedSpecs = loadSettings
 	return s.repo.SaveMachine(ctx, cmd)
+}
+
+func (s *Service) PlanSummary(ctx context.Context, query PlanSummaryQuery) (PlanSummaryData, error) {
+	query.From = strings.TrimSpace(query.From)
+	query.To = strings.TrimSpace(query.To)
+	if query.Selected == nil {
+		query.Selected = map[string]bool{}
+	}
+	return s.repo.PlanSummary(ctx, query)
+}
+
+func (s *Service) ListProductionLogs(ctx context.Context, query ProductionLogsQuery) (ProductionLogsResult, error) {
+	query.From = strings.TrimSpace(query.From)
+	query.To = strings.TrimSpace(query.To)
+	query.BatchID = strings.TrimSpace(query.BatchID)
+	query.Operator = strings.TrimSpace(query.Operator)
+	if query.Limit <= 0 || query.Limit > 500 {
+		query.Limit = 200
+	}
+	return s.repo.ListProductionLogs(ctx, query)
 }
