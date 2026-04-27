@@ -43,3 +43,9 @@ test('product menu exposes unified product settings and keeps legacy views hidde
   assert.equal(keys.includes('costing'), false)
   assert.equal(groupForView(menuGroups, 'productSettings')?.id, 'product')
 })
+
+test('production menu exposes the production flow manual as a primary page', () => {
+  const keys = primaryMenuKeys(menuGroups)
+  assert.ok(keys.includes('productionManual'))
+  assert.equal(groupForView(menuGroups, 'productionManual')?.id, 'production')
+})

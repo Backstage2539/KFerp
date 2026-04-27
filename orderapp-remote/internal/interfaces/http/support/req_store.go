@@ -410,12 +410,17 @@ func seedReqWorkflowA(ctx context.Context, pool *pgxpool.Pool, schema string) er
 		{table: "req_unit", code: "UT-090-01", title: "覆盖产品设置拖拽横线、出品率列表编辑、移除价格列和面板收起源码守卫", status: "done", assignee: "Codex", evidence: "TestProductSettingsCategoryDragYieldAndCollapseRefinements"},
 		{table: "req_api", code: "API-090-01", title: "覆盖产品设置 API 返回 yield_rate，PUT /api/products 可保存 yield_rate", status: "done", assignee: "Codex", evidence: "TestProductSettingsAPIUpdatesProductYieldRate"},
 		{table: "req_review", code: "REV-090-01", prCode: "PR-090", title: "验收：二级分类拖拽排序可保存且有横线位置提示，商品基础列表可直接设置产品出品率并可收起", status: "todo", assignee: "VA", evidence: "待 Van 服务器验收"},
-		{table: "req_product", code: "PR-091", title: "修正二级分类拖拽插入线可落位保存，并明确产品设置的 BOM出品率 与 BOM 配方维护共用 product_bom.yield_rate", status: "review", assignee: "VA", evidence: "codex/product-settings-categories"},
-		{table: "req_dev", code: "DEV-091-01", title: "二级分类 dragend 延后清理拖拽状态，避免插入横线 drop 前状态被清空导致拖不上去", status: "done", assignee: "Codex", evidence: "ProductSettingsView scheduleClearDrag"},
-		{table: "req_dev", code: "DEV-091-02", title: "产品设置列表将出品率标注为 BOM出品率，并继续通过 PUT /api/products 写入 product_bom.yield_rate", status: "done", assignee: "Codex", evidence: "ProductSettingsView; UpdateProductBasics; FetchProducts"},
-		{table: "req_unit", code: "UT-091-01", title: "源码守卫覆盖拖拽状态延后清理、BOM出品率文案和 product_bom.yield_rate 单一来源", status: "done", assignee: "Codex", evidence: "TestProductSettingsDragEndAndBomYieldAreWiredToSingleSource"},
-		{table: "req_api", code: "API-091-01", title: "接口级验证产品设置 API 的 yield_rate 读写同一个 product_bom.yield_rate 字段", status: "done", assignee: "Codex", evidence: "TestProductSettingsAPIUpdatesProductYieldRate; catalog repository source guard"},
-		{table: "req_review", code: "REV-091-01", prCode: "PR-091", title: "验收：二级分类拖拽插入横线可保存位置，产品设置 BOM出品率 与 BOM 配方维护出品率一致", status: "todo", assignee: "VA", evidence: "待 Van 服务器验收"},
+		{table: "req_product", code: "PR-091", title: "生产流程用户手册展示在前端页面，操作人员可在系统内查看图表化流程", status: "review", assignee: "VA", evidence: "codex/production-manual-page-20260427"},
+		{table: "req_dev", code: "DEV-091-01", title: "新增 Vue 生产流程手册页面并挂入生产管理菜单，覆盖原料入库、WIP、工单、完工入库和追溯", status: "done", assignee: "Codex", evidence: "ProductionManualView.vue; menu-ia.js"},
+		{table: "req_unit", code: "UT-091-01", title: "覆盖生产手册菜单入口和 Vue 页面源码守卫", status: "done", assignee: "Codex", evidence: "menu-ia.test.js; TestProductionManualVueWiring"},
+		{table: "req_api", code: "API-091-01", title: "接口级源码守卫覆盖生产手册 Vue 注册、菜单入口和需求种子", status: "done", assignee: "Codex", evidence: "go test ./internal/interfaces/http/support -run TestProductionManual"},
+		{table: "req_review", code: "REV-091-01", prCode: "PR-091", title: "验收：生产管理菜单中可打开生产手册，并能查看流程图、仓库说明、操作步骤、常见问题和检查清单", status: "todo", assignee: "VA", evidence: "待 Van 功能分支验收"},
+		{table: "req_product", code: "PR-092", title: "修正二级分类拖拽插入线可落位保存，并明确产品设置的 BOM出品率 与 BOM 配方维护共用 product_bom.yield_rate", status: "review", assignee: "VA", evidence: "codex/product-settings-categories"},
+		{table: "req_dev", code: "DEV-092-01", title: "二级分类 dragend 延后清理拖拽状态，避免插入横线 drop 前状态被清空导致拖不上去", status: "done", assignee: "Codex", evidence: "ProductSettingsView scheduleClearDrag"},
+		{table: "req_dev", code: "DEV-092-02", title: "产品设置列表将出品率标注为 BOM出品率，并继续通过 PUT /api/products 写入 product_bom.yield_rate", status: "done", assignee: "Codex", evidence: "ProductSettingsView; UpdateProductBasics; FetchProducts"},
+		{table: "req_unit", code: "UT-092-01", title: "源码守卫覆盖拖拽状态延后清理、BOM出品率文案和 product_bom.yield_rate 单一来源", status: "done", assignee: "Codex", evidence: "TestProductSettingsDragEndAndBomYieldAreWiredToSingleSource"},
+		{table: "req_api", code: "API-092-01", title: "接口级验证产品设置 API 的 yield_rate 读写同一个 product_bom.yield_rate 字段", status: "done", assignee: "Codex", evidence: "TestProductSettingsAPIUpdatesProductYieldRate; catalog repository source guard"},
+		{table: "req_review", code: "REV-092-01", prCode: "PR-092", title: "验收：二级分类拖拽插入横线可保存位置，产品设置 BOM出品率 与 BOM 配方维护出品率一致", status: "todo", assignee: "VA", evidence: "待 Van 服务器验收"},
 	} {
 		if err := seedReqRow(ctx, pool, schema, row); err != nil {
 			return err

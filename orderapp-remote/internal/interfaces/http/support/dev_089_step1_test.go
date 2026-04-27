@@ -62,12 +62,12 @@ func TestProductSettingsDragAndBomYieldFollowupRequirementSeeds(t *testing.T) {
 	}
 	src := string(b)
 	for _, want := range []string{
-		"PR-091",
-		"DEV-091-01",
-		"DEV-091-02",
-		"UT-091-01",
-		"API-091-01",
-		"REV-091-01",
+		"PR-092",
+		"DEV-092-01",
+		"DEV-092-02",
+		"UT-092-01",
+		"API-092-01",
+		"REV-092-01",
 		"修正二级分类拖拽插入线可落位保存",
 		"BOM出品率",
 		"product_bom.yield_rate",
