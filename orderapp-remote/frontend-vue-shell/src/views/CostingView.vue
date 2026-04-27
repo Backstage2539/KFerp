@@ -164,6 +164,11 @@
             <p>按手机查看宽度预览，发布后保留版本记录，也可在浏览器打印窗口保存为 PDF。</p>
             <p v-if="currentBeanListPublication" class="publish-state">当前已发布：{{ currentBeanListPublication.version }} · {{ currentBeanListPublication.published_at }}</p>
             <p v-else class="publish-state">当前暂无已发布版本</p>
+            <div v-if="publicBeanListURL" class="public-link-box">
+              <span>客户访问链接</span>
+              <a :href="publicBeanListURL" target="_blank" rel="noopener">{{ publicBeanListURL }}</a>
+              <button class="secondary compact" type="button" @click="copyPublicBeanListURL">复制链接</button>
+            </div>
           </div>
           <button class="secondary" type="button" @click="pdfDrawerOpen = false">关闭</button>
         </div>
@@ -570,6 +575,10 @@ const pdfTotalItems = computed(() => pdfGroups.value.reduce((sum, group) => sum 
 const pdfTitle = computed(() => buildBeanListPdfTitle(pdfTheme.value.listType, pdfTheme.value.brandName))
 const pdfSubtitle = computed(() => buildBeanListPdfSubtitle(pdfTheme.value.listType))
 const currentBeanListPublication = computed(() => (beanListPublications.value[pdfTheme.value.listType] || []).find((row) => row.status === 'published') || null)
+const publicBeanListURL = computed(() => {
+  if (!currentBeanListPublication.value) return ''
+  return `${window.location.origin}/public/bean-list/${pdfTheme.value.listType}`
+})
 const pdfPageStyle = computed(() => {
   const bg = pdfTheme.value.backgroundImage
   return {
@@ -983,12 +992,22 @@ async function publishBeanList() {
         changelog: pdfOptions.value.changelog,
       },
     })
-    message.value = `已发布${listType === 'retail' ? '零售' : '商用'}豆单 ${row.version}`
+    message.value = `已发布${listType === 'retail' ? '零售' : '商用'}豆单 ${row.version}，客户访问链接已生成`
     await loadBeanListPublications(listType)
   } catch (err) {
     error.value = err.message || '发布豆单失败'
   } finally {
     beanListPublishing.value = false
+  }
+}
+
+async function copyPublicBeanListURL() {
+  if (!publicBeanListURL.value) return
+  try {
+    await navigator.clipboard.writeText(publicBeanListURL.value)
+    message.value = '客户访问链接已复制'
+  } catch (err) {
+    error.value = '复制失败，请手动复制客户访问链接'
   }
 }
 
@@ -1061,6 +1080,9 @@ button:disabled { opacity: .45; cursor: not-allowed; }
 .drawer-head h3 { margin: 0; font-size: 18px; }
 .drawer-head p { margin: 4px 0 0; color: #666; font-size: 12px; line-height: 1.45; }
 .publish-state { color: #333 !important; }
+.public-link-box { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 8px; margin-top: 8px; border: 1px solid #ddd; border-radius: 8px; background: #fff; padding: 8px; font-size: 12px; }
+.public-link-box span { color: #666; font-weight: 700; }
+.public-link-box a { min-width: 0; color: #111; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pdf-drawer { width: min(760px, 100vw); }
 .pdf-form { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
 .pdf-form label span { display: block; color: #666; font-size: 12px; margin-bottom: 5px; }

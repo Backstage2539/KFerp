@@ -52,3 +52,27 @@ func TestPublishBeanListUsesQueryRowBeforeAuditToAvoidBusyConnection(t *testing.
 		t.Fatalf("PublishBeanList must not leave pgx Rows open before AuditInsertTx; it causes conn busy")
 	}
 }
+
+func TestPublishedBeanListReadsOnlyCurrentPublishedSnapshot(t *testing.T) {
+	b, err := os.ReadFile("repository.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := string(b)
+	start := strings.Index(src, "func (r Repository) PublishedBeanList")
+	end := strings.Index(src, "func (r Repository) PublishBeanList")
+	if start < 0 || end < 0 || end <= start {
+		t.Fatalf("PublishedBeanList function not found")
+	}
+	body := src[start:end]
+	for _, want := range []string{
+		"WHERE list_type=$1 AND status='published'",
+		"ORDER BY published_at DESC, id DESC",
+		"LIMIT 1",
+		"pgx.ErrNoRows",
+	} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("PublishedBeanList must read current published snapshot; missing %q", want)
+		}
+	}
+}

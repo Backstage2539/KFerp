@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	appcosting "orderapp/internal/application/costing"
@@ -46,14 +47,54 @@ func (fakeService) UpdateSetting(context.Context, appcosting.UpdateParameterComm
 }
 
 func (fakeService) ListBeanListPublications(context.Context, string) ([]appcosting.BeanListPublication, error) {
-	return []appcosting.BeanListPublication{{
+	row := fakePublishedBeanListPublication()
+	return []appcosting.BeanListPublication{row}, nil
+}
+
+func (fakeService) PublishedBeanList(context.Context, string) (*appcosting.BeanListPublication, error) {
+	row := fakePublishedBeanListPublication()
+	return &row, nil
+}
+
+func fakePublishedBeanListPublication() appcosting.BeanListPublication {
+	return appcosting.BeanListPublication{
 		ID:       7,
 		ListType: "commercial",
 		Version:  "V3.0.5",
 		Status:   "published",
-		Config:   map[string]any{"layoutStyle": "card", "cardsPerRow": float64(2)},
-		Content:  map[string]any{"totalItems": float64(25)},
-	}}, nil
+		Config: map[string]any{
+			"layoutStyle":     "card",
+			"cardsPerRow":     float64(2),
+			"brandName":       "棵凡咖啡",
+			"showVersion":     true,
+			"showChangelog":   true,
+			"backgroundColor": "#f8f1e5",
+			"fontColor":       "#171717",
+		},
+		Content: map[string]any{
+			"title":      "棵凡咖啡批发豆单",
+			"subtitle":   "报价不含税、不含运",
+			"totalItems": float64(1),
+			"groups": []any{map[string]any{
+				"category":     "1、工厂量单",
+				"showCategory": true,
+				"items": []any{map[string]any{
+					"code":           "1.1",
+					"name":           "曲奇拼配",
+					"recommendedUse": "意式",
+					"flavor":         "坚果、焦糖、巧克力曲奇",
+					"description":    "V1～最新",
+					"prices": []any{map[string]any{
+						"label": "24-49kg",
+						"price": float64(82),
+						"unit":  "kg",
+					}},
+				}},
+			}},
+		},
+		Changelog:   "V3.0.5 初始发布",
+		PublishedAt: "2026-04-27 22:08",
+	}
 }
 
 func (fakeService) PublishBeanList(context.Context, appcosting.PublishBeanListCommand) (*appcosting.BeanListPublication, error) {
@@ -91,6 +132,10 @@ func (fakeRepo) UpdateParameterSetting(context.Context, appcosting.UpdateParamet
 }
 
 func (fakeRepo) ListBeanListPublications(context.Context, string) ([]appcosting.BeanListPublication, error) {
+	return nil, nil
+}
+
+func (fakeRepo) PublishedBeanList(context.Context, string) (*appcosting.BeanListPublication, error) {
 	return nil, nil
 }
 
@@ -275,11 +320,48 @@ func TestRoutesAreRegistered(t *testing.T) {
 		"GET /api/costing/bean-list/publications",
 		"POST /api/costing/bean-list/publications",
 		"POST /api/costing/bean-list/publications/:id/withdraw",
+		"GET /public/bean-list/:list_type",
 		"POST /api/costing/runs",
 		"POST /api/costing/runs/:id/publish",
 	} {
 		if !seen[want] {
 			t.Fatalf("missing route %s; got %+v", want, seen)
+		}
+	}
+}
+
+func TestPublicBeanListPageRendersPublishedSnapshot(t *testing.T) {
+	e := echo.New()
+	RegisterRoutes(e, Dependencies{Costing: fakeService{}})
+
+	req := httptest.NewRequest(http.MethodGet, "/public/bean-list/commercial", nil)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	body := rec.Body.String()
+	for _, want := range []string{
+		"<title>棵凡咖啡批发豆单 V3.0.5</title>",
+		"棵凡咖啡批发豆单",
+		"报价不含税、不含运",
+		"V3.0.5",
+		"1、工厂量单",
+		"1.1",
+		"曲奇拼配",
+		"出品建议",
+		"坚果、焦糖、巧克力曲奇",
+		"24-49kg",
+		"82/kg",
+		"V3.0.5 初始发布",
+	} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("public bean list page missing %q in body: %s", want, body)
+		}
+	}
+	for _, forbidden := range []string{"发布豆单", "撤回发布", "/api/costing/bean-list/publications"} {
+		if strings.Contains(body, forbidden) {
+			t.Fatalf("public bean list page leaked admin content %q in body: %s", forbidden, body)
 		}
 	}
 }

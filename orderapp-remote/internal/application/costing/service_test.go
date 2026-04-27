@@ -47,6 +47,10 @@ func (r *fakeRepo) ListBeanListPublications(context.Context, string) ([]BeanList
 	return nil, nil
 }
 
+func (r *fakeRepo) PublishedBeanList(context.Context, string) (*BeanListPublication, error) {
+	return nil, nil
+}
+
 func (r *fakeRepo) PublishBeanList(context.Context, PublishBeanListCommand) (*BeanListPublication, error) {
 	return &BeanListPublication{ID: 1, ListType: "commercial", Version: "V3.0.5", Status: "published"}, nil
 }

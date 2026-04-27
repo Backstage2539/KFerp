@@ -76,6 +76,7 @@ type Repository interface {
 	ListParameterSettings(ctx context.Context) ([]ParameterSetting, error)
 	UpdateParameterSetting(ctx context.Context, cmd UpdateParameterCommand) (ParameterSetting, error)
 	ListBeanListPublications(ctx context.Context, listType string) ([]BeanListPublication, error)
+	PublishedBeanList(ctx context.Context, listType string) (*BeanListPublication, error)
 	PublishBeanList(ctx context.Context, cmd PublishBeanListCommand) (*BeanListPublication, error)
 	WithdrawBeanList(ctx context.Context, cmd WithdrawBeanListCommand) error
 }
@@ -178,6 +179,17 @@ func (s *Service) ListBeanListPublications(ctx context.Context, listType string)
 		return []BeanListPublication{}, nil
 	}
 	return s.repo.ListBeanListPublications(ctx, normalized)
+}
+
+func (s *Service) PublishedBeanList(ctx context.Context, listType string) (*BeanListPublication, error) {
+	normalized, err := normalizeBeanListType(listType)
+	if err != nil {
+		return nil, err
+	}
+	if s.repo == nil {
+		return nil, nil
+	}
+	return s.repo.PublishedBeanList(ctx, normalized)
 }
 
 func (s *Service) PublishBeanList(ctx context.Context, cmd PublishBeanListCommand) (*BeanListPublication, error) {

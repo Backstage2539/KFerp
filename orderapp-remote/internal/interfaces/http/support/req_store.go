@@ -471,6 +471,12 @@ func seedReqWorkflowA(ctx context.Context, pool *pgxpool.Pool, schema string) er
 		{table: "req_unit", code: "UT-100-01", title: "覆盖录单规格列表、商品/客户搜索、默认状态、梯度价和手动单价 payload", status: "done", assignee: "Codex", evidence: "node --test src/lib/order-entry.test.js; TestOrderEntryPolish"},
 		{table: "req_api", code: "API-100-01", title: "覆盖 /api/order/form 客户默认字段和 POST /api/order 默认已付款未发货", status: "done", assignee: "Codex", evidence: "go test ./internal/interfaces/http/sales -run TestOrderAPI"},
 		{table: "req_review", code: "REV-100-01", prCode: "PR-100", title: "验收：录单视图更紧凑，客户和商品可模糊搜索，默认已付款/未发货，选商品后实时价格可改", status: "todo", assignee: "VA", evidence: "待 Van 服务器验收"},
+		{table: "req_product", code: "PR-101", title: "客户可以通过网址直接访问已发布豆单，支持商用和零售两个公开链接", status: "review", assignee: "VA", evidence: "codex/product-settings-categories"},
+		{table: "req_dev", code: "DEV-101-01", title: "新增免登录只读公开页 /public/bean-list/commercial 和 /public/bean-list/retail，只读取已发布豆单快照，不暴露编辑接口", status: "done", assignee: "Codex", evidence: "renderPublicBeanListPage; BasicAuth public skip"},
+		{table: "req_dev", code: "DEV-101-02", title: "生成豆单抽屉在有已发布版本时展示客户访问链接并支持复制", status: "done", assignee: "Codex", evidence: "CostingView publicBeanListURL/copyPublicBeanListURL"},
+		{table: "req_unit", code: "UT-101-01", title: "单测覆盖公开页渲染发布快照、鉴权放行公开路径、后台客户链接入口和需求种子", status: "done", assignee: "Codex", evidence: "TestPublicBeanListPageRendersPublishedSnapshot; TestBasicAuthAllowsPublicBeanListWithoutCredentials; TestBeanListPublicCustomerLinkRequirementSeeds"},
+		{table: "req_api", code: "API-101-01", title: "接口级验证 GET /public/bean-list/:list_type 返回已发布豆单 HTML，未登录可访问且不泄露发布/撤回操作", status: "done", assignee: "Codex", evidence: "go test ./internal/interfaces/http/costing ./internal/interfaces/http/support"},
+		{table: "req_review", code: "REV-101-01", prCode: "PR-101", title: "验收：发布商用或零售豆单后，可把客户链接发给客户直接打开；撤回后客户链接不再展示该版本", status: "todo", assignee: "VA", evidence: "待 Van 服务器验收"},
 	} {
 		if err := seedReqRow(ctx, pool, schema, row); err != nil {
 			return err

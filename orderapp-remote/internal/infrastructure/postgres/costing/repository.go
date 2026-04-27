@@ -190,6 +190,32 @@ func (r Repository) ListBeanListPublications(ctx context.Context, listType strin
 	return out, rows.Err()
 }
 
+func (r Repository) PublishedBeanList(ctx context.Context, listType string) (*appcosting.BeanListPublication, error) {
+	row, err := scanBeanListPublication(r.pool.QueryRow(ctx, fmt.Sprintf(`
+		SELECT id,
+		       list_type,
+		       version_no,
+		       status,
+		       config_json,
+		       content_json,
+		       changelog,
+		       to_char(published_at,'YYYY-MM-DD HH24:MI'),
+		       COALESCE(to_char(withdrawn_at,'YYYY-MM-DD HH24:MI'),''),
+		       to_char(created_at,'YYYY-MM-DD HH24:MI')
+		FROM %s.bean_list_publications
+		WHERE list_type=$1 AND status='published'
+		ORDER BY published_at DESC, id DESC
+		LIMIT 1
+	`, r.schema), strings.TrimSpace(listType)))
+	if err != nil {
+		if err == pgx.ErrNoRows {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return &row, nil
+}
+
 func (r Repository) PublishBeanList(ctx context.Context, cmd appcosting.PublishBeanListCommand) (*appcosting.BeanListPublication, error) {
 	conn, err := r.pool.Acquire(ctx)
 	if err != nil {

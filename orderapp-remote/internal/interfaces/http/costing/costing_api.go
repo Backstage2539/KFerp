@@ -10,6 +10,22 @@ import (
 )
 
 func registerCostingAPI(e *echo.Echo, svc Service) {
+	e.GET("/public/bean-list/:list_type", func(c echo.Context) error {
+		listType := c.Param("list_type")
+		row, err := svc.PublishedBeanList(c.Request().Context(), listType)
+		if err != nil {
+			return c.HTML(http.StatusBadRequest, renderNoPublishedBeanListPage(listType))
+		}
+		if row == nil {
+			return c.HTML(http.StatusNotFound, renderNoPublishedBeanListPage(listType))
+		}
+		page, err := renderPublicBeanListPage(*row)
+		if err != nil {
+			return c.HTML(http.StatusInternalServerError, renderNoPublishedBeanListPage(listType))
+		}
+		return c.HTML(http.StatusOK, page)
+	})
+
 	e.GET("/api/costing/parameters", func(c echo.Context) error {
 		params, err := svc.Parameters(c.Request().Context())
 		if err != nil {

@@ -16,6 +16,7 @@ type Service interface {
 	Calculate(context.Context, appcosting.CalculateRequest) (*appcosting.CalculateResponse, error)
 	BeanList(context.Context) (*appcosting.CalculateResponse, error)
 	ListBeanListPublications(context.Context, string) ([]appcosting.BeanListPublication, error)
+	PublishedBeanList(context.Context, string) (*appcosting.BeanListPublication, error)
 	PublishBeanList(context.Context, appcosting.PublishBeanListCommand) (*appcosting.BeanListPublication, error)
 	WithdrawBeanList(context.Context, appcosting.WithdrawBeanListCommand) error
 	CreateRun(context.Context, string) (*appcosting.Run, error)

@@ -13,7 +13,8 @@ func BasicAuth(user, pass, schema string, pool *pgxpool.Pool) echo.MiddlewareFun
 	return func(next echo.HandlerFunc) echo.HandlerFunc {
 		return func(c echo.Context) error {
 			path := c.Path()
-			if strings.HasPrefix(path, "/api/auth/") || path == "/login" {
+			requestPath := c.Request().URL.Path
+			if strings.HasPrefix(path, "/api/auth/") || path == "/login" || isPublicUnauthenticatedPath(path) || isPublicUnauthenticatedPath(requestPath) {
 				return next(c)
 			}
 
@@ -41,6 +42,10 @@ func BasicAuth(user, pass, schema string, pool *pgxpool.Pool) echo.MiddlewareFun
 			return c.NoContent(http.StatusUnauthorized)
 		}
 	}
+}
+
+func isPublicUnauthenticatedPath(path string) bool {
+	return strings.HasPrefix(path, "/public/bean-list/")
 }
 
 func ActorOf(c echo.Context) string {

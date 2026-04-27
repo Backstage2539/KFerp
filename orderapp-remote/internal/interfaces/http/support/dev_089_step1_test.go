@@ -273,6 +273,30 @@ func TestBeanListPreviewPrintLayoutFollowupRequirementSeeds(t *testing.T) {
 	}
 }
 
+func TestBeanListPublicCustomerLinkRequirementSeeds(t *testing.T) {
+	b, err := os.ReadFile(filepath.Join("internal", "interfaces", "http", "support", "req_store.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := string(b)
+	for _, want := range []string{
+		"PR-101",
+		"DEV-101-01",
+		"DEV-101-02",
+		"UT-101-01",
+		"API-101-01",
+		"REV-101-01",
+		"客户可以通过网址直接访问已发布豆单",
+		"/public/bean-list/commercial",
+		"/public/bean-list/retail",
+		"免登录只读",
+	} {
+		if !strings.Contains(src, want) {
+			t.Fatalf("bean-list public customer link requirement seed missing %q", want)
+		}
+	}
+}
+
 func TestProductSettingsVueWiringAndLegacyTierEditorRemoval(t *testing.T) {
 	app, err := os.ReadFile(filepath.Join("frontend-vue-shell", "src", "App.vue"))
 	if err != nil {
