@@ -17,6 +17,7 @@ type FinishedInventoryRow struct {
 	ProductID int64  `json:"product_id"`
 	Product   string `json:"product"`
 	SpecG     int64  `json:"spec_g"`
+	Warehouse string `json:"warehouse"`
 	Units     int64  `json:"units"`
 	LooseG    int64  `json:"loose_g"`
 	UpdatedAt string `json:"updated_at"`
@@ -71,6 +72,7 @@ type AllocationLogResult struct {
 type AdjustFinishedInventoryCommand struct {
 	ProductID int64
 	SpecG     int64
+	Warehouse string
 	Units     int64
 	LooseG    int64
 	Operator  string
@@ -131,6 +133,10 @@ func (s *Service) AdjustFinished(ctx context.Context, cmd AdjustFinishedInventor
 	cmd.Operator = strings.TrimSpace(cmd.Operator)
 	if cmd.Operator == "" {
 		cmd.Operator = "inventory"
+	}
+	cmd.Warehouse = strings.TrimSpace(cmd.Warehouse)
+	if cmd.Warehouse == "" {
+		cmd.Warehouse = "finished_goods"
 	}
 	return s.repo.AdjustFinished(ctx, cmd)
 }

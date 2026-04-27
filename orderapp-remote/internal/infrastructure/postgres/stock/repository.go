@@ -20,6 +20,7 @@ const (
 	sourceMaterialReceipt   = "material_receipt"
 	sourceStockAdjustment   = "stock_adjustment"
 	sourceMaterialTransfer  = "material_transfer"
+	sourceFinishedTransfer  = "finished_product_transfer"
 )
 
 type Repository struct {
@@ -298,8 +299,8 @@ func (r Repository) ListWarehouseInventory(ctx context.Context, query stockapp.W
 			  AND ($3 = '' OR l.warehouse = $3)
 			  AND ($4 = '' OR $4 = 'material')
 			UNION ALL
-			SELECT 'finished_goods' AS warehouse,
-			       COALESCE(w.name,'成品仓') AS warehouse_name,
+			SELECT fi.warehouse,
+			       COALESCE(w.name,fi.warehouse) AS warehouse_name,
 			       COALESCE(w.kind,'finished') AS warehouse_kind,
 			       'finished_product' AS item_type,
 			       fi.product_id AS item_id,
@@ -313,10 +314,10 @@ func (r Repository) ListWarehouseInventory(ctx context.Context, query stockapp.W
 			       fi.updated_at AS updated_at
 			FROM %s.finished_inventory fi
 			LEFT JOIN %s.products p ON p.id=fi.product_id
-			LEFT JOIN %s.warehouses w ON w.code='finished_goods'
+			LEFT JOIN %s.warehouses w ON w.code=fi.warehouse
 			WHERE (fi.onhand_units <> 0 OR fi.onhand_loose_g <> 0)
 			  AND ($1 = '' OR p.name ILIKE $2)
-			  AND ($3 = '' OR $3 = 'finished_goods')
+			  AND ($3 = '' OR fi.warehouse = $3)
 			  AND ($4 = '' OR $4 = 'finished_product')
 		)
 		SELECT warehouse,warehouse_name,warehouse_kind,item_type,item_id,item_name,spec_g,batch_id,batch_code,
@@ -346,6 +347,104 @@ func (r Repository) ListWarehouseInventory(ctx context.Context, query stockapp.W
 		hasNext = true
 	}
 	return stockapp.WarehouseInventoryResult{Rows: out, HasNext: hasNext}, nil
+}
+
+func (r Repository) GetStockTrace(ctx context.Context, query stockapp.StockTraceQuery) (stockapp.StockTraceResult, error) {
+	var result stockapp.StockTraceResult
+	err := r.pool.QueryRow(ctx, fmt.Sprintf(`
+		SELECT b.batch_code,b.item_id,b.item_name,b.spec_g,COALESCE(l.warehouse,'finished_goods'),
+		       b.qty_g,b.qty_units,b.remaining_g,b.remaining_units,to_char(b.created_at,'YYYY-MM-DD HH24:MI')
+		FROM %s.stock_batches b
+		LEFT JOIN %s.stock_ledger_entries l
+		  ON l.source_doc_type=b.source_doc_type
+		 AND l.source_doc_id=b.source_doc_id
+		 AND l.item_type=b.item_type
+		 AND l.item_id=b.item_id
+		 AND l.spec_g=b.spec_g
+		 AND l.source_batch_code=b.batch_code
+		WHERE b.batch_code=$1
+		  AND b.item_type=$2
+		ORDER BY l.id NULLS LAST
+		LIMIT 1
+	`, r.schema, r.schema), query.BatchCode, itemTypeFinishedProduct).Scan(
+		&result.FinishedBatch.BatchCode,
+		&result.FinishedBatch.ProductID,
+		&result.FinishedBatch.ProductName,
+		&result.FinishedBatch.SpecG,
+		&result.FinishedBatch.Warehouse,
+		&result.FinishedBatch.QtyG,
+		&result.FinishedBatch.QtyUnits,
+		&result.FinishedBatch.RemainingG,
+		&result.FinishedBatch.RemainingUnits,
+		&result.FinishedBatch.CreatedAt,
+	)
+	if err != nil {
+		if err == pgx.ErrNoRows {
+			return stockapp.StockTraceResult{}, fmt.Errorf("batch not found")
+		}
+		return stockapp.StockTraceResult{}, err
+	}
+
+	var runningItemID int64
+	err = r.pool.QueryRow(ctx, fmt.Sprintf(`
+		SELECT COALESCE(p.running_item_id,0),
+		       COALESCE(wo.work_order_no,''),
+		       COALESCE(p.batch_id,''),
+		       COALESCE(p.order_nos,''),
+		       COALESCE(p.input_g,0),
+		       COALESCE(p.finished_total_g,0),
+		       COALESCE(p.actual_yield_rate,0),
+		       COALESCE(p.started_by,''),
+		       COALESCE(p.finished_by,''),
+		       COALESCE(to_char(p.finished_at,'YYYY-MM-DD HH24:MI'),'')
+		FROM %s.stock_batches b
+		LEFT JOIN %s.production_logs p ON p.running_item_id=b.source_doc_id
+		LEFT JOIN %s.work_orders wo ON wo.running_item_id=p.running_item_id
+		WHERE b.batch_code=$1
+		  AND b.source_doc_type=$2
+		LIMIT 1
+	`, r.schema, r.schema, r.schema), query.BatchCode, "production_run").Scan(
+		&result.Production.RunningItemID,
+		&result.Production.WorkOrderNo,
+		&result.Production.BatchID,
+		&result.Production.OrderNos,
+		&result.Production.InputG,
+		&result.Production.FinishedTotalG,
+		&result.Production.ActualYieldRate,
+		&result.Production.StartedBy,
+		&result.Production.FinishedBy,
+		&result.Production.FinishedAt,
+	)
+	if err != nil && err != pgx.ErrNoRows {
+		return stockapp.StockTraceResult{}, err
+	}
+	runningItemID = result.Production.RunningItemID
+	if runningItemID <= 0 {
+		return result, nil
+	}
+	rows, err := r.pool.Query(ctx, fmt.Sprintf(`
+		SELECT material_id,COALESCE(material_name,''),COALESCE(unit,''),deduct_g,deduct_units,
+		       COALESCE(material_batch_id,0),COALESCE(material_batch_code,'')
+		FROM %s.material_consumption_logs
+		WHERE running_item_id=$1
+		ORDER BY id
+	`, r.schema), runningItemID)
+	if err != nil {
+		return stockapp.StockTraceResult{}, err
+	}
+	defer rows.Close()
+	result.Materials = make([]stockapp.TraceMaterial, 0)
+	for rows.Next() {
+		var row stockapp.TraceMaterial
+		if err := rows.Scan(&row.MaterialID, &row.MaterialName, &row.Unit, &row.DeductG, &row.DeductUnits, &row.MaterialBatchID, &row.MaterialBatchCode); err != nil {
+			return stockapp.StockTraceResult{}, err
+		}
+		result.Materials = append(result.Materials, row)
+	}
+	if err := rows.Err(); err != nil {
+		return stockapp.StockTraceResult{}, err
+	}
+	return result, nil
 }
 
 func (r Repository) ReceiveMaterial(ctx context.Context, cmd stockapp.MaterialReceiptCommand) (stockapp.MaterialReceiptResult, error) {
@@ -589,6 +688,127 @@ func (r Repository) TransferMaterial(ctx context.Context, cmd stockapp.MaterialT
 	return stockapp.MaterialTransferResult{TransferID: transferID, TransferNo: transferNo, Allocations: outAllocations}, nil
 }
 
+func (r Repository) TransferFinishedProduct(ctx context.Context, cmd stockapp.FinishedProductTransferCommand) (stockapp.FinishedProductTransferResult, error) {
+	tx, err := r.pool.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return stockapp.FinishedProductTransferResult{}, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	if cmd.IdempotencyKey != "" {
+		result, found, err := r.loadFinishedTransferByIdempotencyTx(ctx, tx, cmd.IdempotencyKey)
+		if err != nil {
+			return stockapp.FinishedProductTransferResult{}, err
+		}
+		if found {
+			if err := tx.Commit(ctx); err != nil {
+				return stockapp.FinishedProductTransferResult{}, err
+			}
+			return result, nil
+		}
+	}
+
+	var productName string
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT COALESCE(name,'') FROM %s.products WHERE id=$1`, r.schema), cmd.ProductID).Scan(&productName); err != nil {
+		if err == pgx.ErrNoRows {
+			return stockapp.FinishedProductTransferResult{}, fmt.Errorf("product not found")
+		}
+		return stockapp.FinishedProductTransferResult{}, err
+	}
+	if err := r.ensureWarehouseExistsTx(ctx, tx, cmd.FromWarehouse); err != nil {
+		return stockapp.FinishedProductTransferResult{}, err
+	}
+	if err := r.ensureWarehouseExistsTx(ctx, tx, cmd.ToWarehouse); err != nil {
+		return stockapp.FinishedProductTransferResult{}, err
+	}
+
+	transferUnits, transferLoose, transferG, err := normalizeFinishedQty(cmd.SpecG, cmd.QtyUnits, cmd.QtyLooseG)
+	if err != nil {
+		return stockapp.FinishedProductTransferResult{}, err
+	}
+	beforeFromUnits, beforeFromLoose, err := finishedInventoryQtyTx(ctx, tx, r.schema, cmd.ProductID, cmd.SpecG, cmd.FromWarehouse)
+	if err != nil {
+		return stockapp.FinishedProductTransferResult{}, err
+	}
+	beforeFromG := beforeFromUnits*cmd.SpecG + beforeFromLoose
+	if beforeFromG < transferG {
+		return stockapp.FinishedProductTransferResult{}, fmt.Errorf("finished stock insufficient in %s", cmd.FromWarehouse)
+	}
+	afterFromUnits, afterFromLoose, _, err := normalizeFinishedQty(cmd.SpecG, 0, beforeFromG-transferG)
+	if err != nil {
+		return stockapp.FinishedProductTransferResult{}, err
+	}
+	beforeToUnits, beforeToLoose, err := finishedInventoryQtyTx(ctx, tx, r.schema, cmd.ProductID, cmd.SpecG, cmd.ToWarehouse)
+	if err != nil {
+		return stockapp.FinishedProductTransferResult{}, err
+	}
+	beforeToG := beforeToUnits*cmd.SpecG + beforeToLoose
+	afterToUnits, afterToLoose, _, err := normalizeFinishedQty(cmd.SpecG, 0, beforeToG+transferG)
+	if err != nil {
+		return stockapp.FinishedProductTransferResult{}, err
+	}
+
+	var transferID int64
+	transferNo := ""
+	tempTransferNo := fmt.Sprintf("FT-TMP-%d", time.Now().UnixNano())
+	if cmd.IdempotencyKey != "" {
+		err = tx.QueryRow(ctx, fmt.Sprintf(`
+			INSERT INTO %s.finished_product_transfers(
+				transfer_no,product_id,product_name,spec_g,from_warehouse,to_warehouse,
+				qty_g,qty_units,qty_loose_g,note,operator,idempotency_key,created_at
+			) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,now())
+			RETURNING id, transfer_no
+		`, r.schema), tempTransferNo, cmd.ProductID, productName, cmd.SpecG, cmd.FromWarehouse, cmd.ToWarehouse, transferG, transferUnits, transferLoose, cmd.Note, cmd.Operator, cmd.IdempotencyKey).Scan(&transferID, &transferNo)
+	} else {
+		err = tx.QueryRow(ctx, fmt.Sprintf(`
+			INSERT INTO %s.finished_product_transfers(
+				transfer_no,product_id,product_name,spec_g,from_warehouse,to_warehouse,
+				qty_g,qty_units,qty_loose_g,note,operator,created_at
+			) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,now())
+			RETURNING id, transfer_no
+		`, r.schema), tempTransferNo, cmd.ProductID, productName, cmd.SpecG, cmd.FromWarehouse, cmd.ToWarehouse, transferG, transferUnits, transferLoose, cmd.Note, cmd.Operator).Scan(&transferID, &transferNo)
+	}
+	if err != nil {
+		return stockapp.FinishedProductTransferResult{}, err
+	}
+	if strings.HasPrefix(transferNo, "FT-TMP-") {
+		transferNo = fmt.Sprintf("FT-%010d", transferID)
+		if _, err := tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.finished_product_transfers SET transfer_no=$2 WHERE id=$1`, r.schema), transferID, transferNo); err != nil {
+			return stockapp.FinishedProductTransferResult{}, err
+		}
+	}
+
+	if err := upsertFinishedInventoryTx(ctx, tx, r.schema, cmd.ProductID, cmd.SpecG, cmd.FromWarehouse, afterFromUnits, afterFromLoose); err != nil {
+		return stockapp.FinishedProductTransferResult{}, err
+	}
+	if err := upsertFinishedInventoryTx(ctx, tx, r.schema, cmd.ProductID, cmd.SpecG, cmd.ToWarehouse, afterToUnits, afterToLoose); err != nil {
+		return stockapp.FinishedProductTransferResult{}, err
+	}
+	if err := insertLedgerTx(ctx, tx, r.schema, ledgerEntry{
+		ItemType: itemTypeFinishedProduct, ItemID: cmd.ProductID, ItemName: productName, SpecG: cmd.SpecG, Warehouse: cmd.FromWarehouse,
+		SourceDocType: sourceFinishedTransfer, SourceDocID: transferID, SourceBatchCode: transferNo, SourceBatchID: transferNo,
+		BeforeG: beforeFromG, ChangeG: -transferG, AfterG: beforeFromG - transferG, BeforeUnits: beforeFromUnits, ChangeUnits: afterFromUnits - beforeFromUnits, AfterUnits: afterFromUnits,
+		Operator: cmd.Operator,
+	}); err != nil {
+		return stockapp.FinishedProductTransferResult{}, err
+	}
+	if err := insertLedgerTx(ctx, tx, r.schema, ledgerEntry{
+		ItemType: itemTypeFinishedProduct, ItemID: cmd.ProductID, ItemName: productName, SpecG: cmd.SpecG, Warehouse: cmd.ToWarehouse,
+		SourceDocType: sourceFinishedTransfer, SourceDocID: transferID, SourceBatchCode: transferNo, SourceBatchID: transferNo,
+		BeforeG: beforeToG, ChangeG: transferG, AfterG: beforeToG + transferG, BeforeUnits: beforeToUnits, ChangeUnits: afterToUnits - beforeToUnits, AfterUnits: afterToUnits,
+		Operator: cmd.Operator,
+	}); err != nil {
+		return stockapp.FinishedProductTransferResult{}, err
+	}
+	if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, cmd.Operator, "finished_product_transfer", &transferID, "submit", postgresinfra.StrPtr("qty_g"), nil, postgresinfra.StrPtr(fmt.Sprintf("%d", transferG)), postgresinfra.AuditMeta{"product_id": cmd.ProductID, "spec_g": cmd.SpecG, "transfer_no": transferNo, "from": cmd.FromWarehouse, "to": cmd.ToWarehouse}); err != nil {
+		return stockapp.FinishedProductTransferResult{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return stockapp.FinishedProductTransferResult{}, err
+	}
+	return stockapp.FinishedProductTransferResult{TransferID: transferID, TransferNo: transferNo}, nil
+}
+
 func (r Repository) CreateAdjustment(ctx context.Context, cmd stockapp.StockAdjustmentCommand) (stockapp.StockAdjustmentResult, error) {
 	tx, err := r.pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
@@ -618,13 +838,21 @@ func (r Repository) CreateAdjustment(ctx context.Context, cmd stockapp.StockAdju
 	}
 	batchCode := fmt.Sprintf("ADJ-%010d", adjustmentID)
 	stockRemainingG := int64(0)
+	stockRemainingUnits := int64(0)
 	if cmd.ItemType == itemTypeMaterial && changeG > 0 {
 		stockRemainingG = changeG
 	}
+	if cmd.ItemType == itemTypeFinishedProduct && changeG > 0 {
+		stockRemainingG = changeG
+		stockRemainingUnits = changeUnits
+		if stockRemainingUnits < 0 {
+			stockRemainingUnits = 0
+		}
+	}
 	if _, err := tx.Exec(ctx, fmt.Sprintf(`
 		INSERT INTO %s.stock_batches(batch_code,item_type,item_id,item_name,spec_g,source_doc_type,source_doc_id,source_batch_id,qty_g,qty_units,remaining_g,remaining_units,operator,created_at)
-		VALUES($1,$2,$3,$4,$5,$6,$7,$1,$8,$9,$10,0,$11,now())
-	`, r.schema), batchCode, cmd.ItemType, cmd.ItemID, itemName, cmd.SpecG, sourceStockAdjustment, adjustmentID, changeG, changeUnits, stockRemainingG, cmd.Operator); err != nil {
+		VALUES($1,$2,$3,$4,$5,$6,$7,$1,$8,$9,$10,$11,$12,now())
+	`, r.schema), batchCode, cmd.ItemType, cmd.ItemID, itemName, cmd.SpecG, sourceStockAdjustment, adjustmentID, changeG, changeUnits, stockRemainingG, stockRemainingUnits, cmd.Operator); err != nil {
 		return stockapp.StockAdjustmentResult{}, err
 	}
 	if cmd.ItemType == itemTypeMaterial && changeG > 0 {
@@ -684,18 +912,16 @@ func (r Repository) applyAdjustmentTx(ctx context.Context, tx pgx.Tx, cmd stocka
 	if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT COALESCE(name,'') FROM %s.products WHERE id=$1`, r.schema), cmd.ItemID).Scan(&name); err != nil {
 		return "", 0, 0, 0, 0, err
 	}
-	err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT onhand_units,onhand_loose_g FROM %s.finished_inventory WHERE product_id=$1 AND spec_g=$2 FOR UPDATE`, r.schema), cmd.ItemID, cmd.SpecG).Scan(&beforeUnits, &beforeLoose)
+	if err := r.ensureWarehouseExistsTx(ctx, tx, cmd.Warehouse); err != nil {
+		return "", 0, 0, 0, 0, err
+	}
+	err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT onhand_units,onhand_loose_g FROM %s.finished_inventory WHERE product_id=$1 AND spec_g=$2 AND warehouse=$3 FOR UPDATE`, r.schema), cmd.ItemID, cmd.SpecG, cmd.Warehouse).Scan(&beforeUnits, &beforeLoose)
 	if err != nil && err != pgx.ErrNoRows {
 		return "", 0, 0, 0, 0, err
 	}
 	beforeG := beforeUnits*cmd.SpecG + beforeLoose
 	afterG := cmd.TargetUnits*cmd.SpecG + cmd.TargetG
-	if _, err := tx.Exec(ctx, fmt.Sprintf(`
-		INSERT INTO %s.finished_inventory(product_id,spec_g,onhand_units,onhand_loose_g,updated_at)
-		VALUES($1,$2,$3,$4,now())
-		ON CONFLICT (product_id,spec_g) DO UPDATE
-		SET onhand_units=excluded.onhand_units,onhand_loose_g=excluded.onhand_loose_g,updated_at=now()
-	`, r.schema), cmd.ItemID, cmd.SpecG, cmd.TargetUnits, cmd.TargetG); err != nil {
+	if err := upsertFinishedInventoryTx(ctx, tx, r.schema, cmd.ItemID, cmd.SpecG, cmd.Warehouse, cmd.TargetUnits, cmd.TargetG); err != nil {
 		return "", 0, 0, 0, 0, err
 	}
 	return name, beforeG, beforeUnits, afterG, cmd.TargetUnits, nil
@@ -750,6 +976,23 @@ func (r Repository) loadTransferByIdempotencyTx(ctx context.Context, tx pgx.Tx, 
 	return result, true, nil
 }
 
+func (r Repository) loadFinishedTransferByIdempotencyTx(ctx context.Context, tx pgx.Tx, key string) (stockapp.FinishedProductTransferResult, bool, error) {
+	var result stockapp.FinishedProductTransferResult
+	err := tx.QueryRow(ctx, fmt.Sprintf(`
+		SELECT id, transfer_no
+		FROM %s.finished_product_transfers
+		WHERE idempotency_key=$1
+		FOR UPDATE
+	`, r.schema), key).Scan(&result.TransferID, &result.TransferNo)
+	if err != nil {
+		if err == pgx.ErrNoRows {
+			return stockapp.FinishedProductTransferResult{}, false, nil
+		}
+		return stockapp.FinishedProductTransferResult{}, false, err
+	}
+	return result, true, nil
+}
+
 func materialBatchLocationQtyTx(ctx context.Context, tx pgx.Tx, schema string, batchID int64, warehouse string) (int64, error) {
 	var qty int64
 	err := tx.QueryRow(ctx, fmt.Sprintf(`
@@ -765,6 +1008,44 @@ func materialBatchLocationQtyTx(ctx context.Context, tx pgx.Tx, schema string, b
 		return 0, err
 	}
 	return qty, nil
+}
+
+func normalizeFinishedQty(specG, units, looseG int64) (int64, int64, int64, error) {
+	if specG <= 0 {
+		return 0, 0, 0, fmt.Errorf("spec_g required")
+	}
+	if units < 0 || looseG < 0 {
+		return 0, 0, 0, fmt.Errorf("negative qty")
+	}
+	totalG := units*specG + looseG
+	return totalG / specG, totalG % specG, totalG, nil
+}
+
+func finishedInventoryQtyTx(ctx context.Context, tx pgx.Tx, schema string, productID, specG int64, warehouse string) (int64, int64, error) {
+	var units, looseG int64
+	err := tx.QueryRow(ctx, fmt.Sprintf(`
+		SELECT onhand_units,onhand_loose_g
+		FROM %s.finished_inventory
+		WHERE product_id=$1 AND spec_g=$2 AND warehouse=$3
+		FOR UPDATE
+	`, schema), productID, specG, warehouse).Scan(&units, &looseG)
+	if err != nil {
+		if err == pgx.ErrNoRows {
+			return 0, 0, nil
+		}
+		return 0, 0, err
+	}
+	return units, looseG, nil
+}
+
+func upsertFinishedInventoryTx(ctx context.Context, tx pgx.Tx, schema string, productID, specG int64, warehouse string, units, looseG int64) error {
+	_, err := tx.Exec(ctx, fmt.Sprintf(`
+		INSERT INTO %s.finished_inventory(product_id,spec_g,warehouse,onhand_units,onhand_loose_g,updated_at)
+		VALUES($1,$2,$3,$4,$5,now())
+		ON CONFLICT (product_id,spec_g,warehouse) DO UPDATE
+		SET onhand_units=excluded.onhand_units,onhand_loose_g=excluded.onhand_loose_g,updated_at=now()
+	`, schema), productID, specG, warehouse, units, looseG)
+	return err
 }
 
 type ledgerEntry struct {

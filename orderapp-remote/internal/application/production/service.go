@@ -3,6 +3,7 @@ package production
 import (
 	"context"
 	"fmt"
+	stockdomain "orderapp/internal/domain/stock"
 	"strings"
 	"time"
 )
@@ -145,6 +146,7 @@ type FinishCommand struct {
 	FinishedUnits    int64
 	FinishedLooseG   int64
 	HasFinishedInput bool
+	Warehouse        string
 	Operator         string
 }
 
@@ -429,6 +431,10 @@ func (s *Service) ListRunning(ctx context.Context) ([]RunningItem, error) {
 }
 
 func (s *Service) Finish(ctx context.Context, cmd FinishCommand) error {
+	cmd.Warehouse = strings.TrimSpace(cmd.Warehouse)
+	if cmd.Warehouse == "" {
+		cmd.Warehouse = stockdomain.WarehouseFinishedGoods
+	}
 	return s.repo.Finish(ctx, cmd)
 }
 

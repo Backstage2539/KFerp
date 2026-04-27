@@ -16,9 +16,12 @@ import (
 	"time"
 
 	productionapp "orderapp/internal/application/production"
+	postgresbom "orderapp/internal/infrastructure/postgres/bom"
 	postgrescompany "orderapp/internal/infrastructure/postgres/company"
+	postgresmaterials "orderapp/internal/infrastructure/postgres/materials"
 	postgresproduction "orderapp/internal/infrastructure/postgres/production"
 	postgressales "orderapp/internal/infrastructure/postgres/sales"
+	postgresstock "orderapp/internal/infrastructure/postgres/stock"
 	supporthttp "orderapp/internal/interfaces/http/support"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -341,6 +344,116 @@ func TestProduceFinishHandlerWritesStockLedgerAndFinishedBatch(t *testing.T) {
 	}
 }
 
+func TestProduceStartFreezesMaterialSnapshotForFinishAndWorkOrder(t *testing.T) {
+	pool, schema := newProductionFlowTestDB(t)
+	ctx := context.Background()
+
+	mustExecProductionFlowTestSQL(t, ctx, pool, fmt.Sprintf(`
+		INSERT INTO %s.products(id,name,default_price,active) VALUES (1,'橘皮乌龙',50,true);
+		INSERT INTO %s.order_process_statuses(name,sort,active) VALUES
+			('待处理',10,true),
+			('生产中',20,true)
+		ON CONFLICT (name) DO NOTHING;
+		INSERT INTO %s.orders(id,order_no,order_date,is_void,process_status_id) VALUES
+			(1,'SO-SNAPSHOT','2026-04-25',false,(SELECT id FROM %s.order_process_statuses WHERE name='待处理' LIMIT 1));
+		INSERT INTO %s.order_items(order_id,line_no,item_name,qty,unit,spec,product_id,unit_price,line_total)
+		VALUES (1,1,'橘皮乌龙',2,'袋','227g',1,50,100);
+		INSERT INTO %s.product_bom(product_id,yield_rate) VALUES (1,0.8200);
+		INSERT INTO %s.materials(id,code,name,kind,unit,onhand_g,onhand_units,purchase_price,sale_price)
+			VALUES
+			(10,'RAW-A','孟连水洗5T批次','bean','g',1000,0,54,0),
+			(12,'RAW-B','后改B批次','bean','g',1000,0,60,0);
+		INSERT INTO %s.product_bom_items(product_id,material_id,ratio_pct) VALUES (1,10,100.0000);
+	`, schema, schema, schema, schema, schema, schema, schema, schema))
+
+	app := newProductionFlowTestEcho(pool, schema)
+	startBody := bytes.NewBufferString(`{"selected":["1-227"],"input_by_key":{"1-227":600}}`)
+	startReq := httptest.NewRequest(http.MethodPost, "/api/produce/start", startBody)
+	startReq.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	startRec := httptest.NewRecorder()
+	app.ServeHTTP(startRec, startReq)
+	if startRec.Code != http.StatusOK {
+		t.Fatalf("POST /api/produce/start status=%d body=%s", startRec.Code, startRec.Body.String())
+	}
+
+	mustExecProductionFlowTestSQL(t, ctx, pool, fmt.Sprintf(`
+		DELETE FROM %s.product_bom_items WHERE product_id=1;
+		INSERT INTO %s.product_bom_items(product_id,material_id,ratio_pct) VALUES (1,12,100.0000);
+	`, schema, schema))
+
+	var runningItemID int64
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT id FROM %s.produce_running_items WHERE product_id=1 AND spec_g=227 ORDER BY id DESC LIMIT 1`, schema)).Scan(&runningItemID); err != nil {
+		t.Fatalf("query running item id: %v", err)
+	}
+	finishBody := bytes.NewBufferString(fmt.Sprintf(`{"id":%d,"finished_units":2,"finished_loose_g":10}`, runningItemID))
+	finishReq := httptest.NewRequest(http.MethodPost, "/api/produce/running/finish", finishBody)
+	finishReq.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	finishRec := httptest.NewRecorder()
+	app.ServeHTTP(finishRec, finishReq)
+	if finishRec.Code != http.StatusOK {
+		t.Fatalf("POST /api/produce/running/finish status=%d body=%s", finishRec.Code, finishRec.Body.String())
+	}
+
+	var consumedMaterial string
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`
+		SELECT COALESCE(material_name,'')
+		FROM %s.material_consumption_logs
+		WHERE running_item_id=$1
+		ORDER BY id
+		LIMIT 1
+	`, schema), runningItemID).Scan(&consumedMaterial); err != nil {
+		t.Fatalf("query material consumption: %v", err)
+	}
+	if consumedMaterial != "孟连水洗5T批次" {
+		t.Fatalf("consumed material = %q, want frozen 孟连水洗5T批次", consumedMaterial)
+	}
+
+	workOrders, err := postgresproduction.NewRepository(pool, schema).ListWorkOrders(ctx, productionapp.WorkOrderQuery{Limit: 10})
+	if err != nil {
+		t.Fatalf("ListWorkOrders: %v", err)
+	}
+	if len(workOrders) == 0 {
+		t.Fatal("expected a work order")
+	}
+	if !strings.Contains(workOrders[0].MaterialSummary, "孟连水洗5T批次") || strings.Contains(workOrders[0].MaterialSummary, "后改B批次") {
+		t.Fatalf("work order material summary = %q, want frozen material A only", workOrders[0].MaterialSummary)
+	}
+}
+
+func TestProductionSourceStoresAndUsesMaterialSnapshot(t *testing.T) {
+	schemaSrc, err := os.ReadFile("internal/infrastructure/postgres/production/schema.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	repoSrc, err := os.ReadFile("internal/infrastructure/postgres/production/repository.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	workOrderSrc, err := os.ReadFile("internal/infrastructure/postgres/production/work_order.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	consumptionSrc, err := os.ReadFile("internal/infrastructure/postgres/production/material_consumption.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, check := range []struct {
+		name string
+		src  string
+		want string
+	}{
+		{"schema running snapshot", string(schemaSrc), "produce_running_items ADD COLUMN IF NOT EXISTS material_snapshot JSONB NOT NULL DEFAULT '[]'::jsonb"},
+		{"schema work order snapshot", string(schemaSrc), "work_orders ADD COLUMN IF NOT EXISTS material_snapshot JSONB NOT NULL DEFAULT '[]'::jsonb"},
+		{"start builds snapshot", string(repoSrc), "buildMaterialSnapshotForRunningItemTx"},
+		{"work order persists snapshot", string(workOrderSrc), "material_snapshot"},
+		{"finish consumes snapshot", string(consumptionSrc), "materialSnapshotNeedsTx"},
+	} {
+		if !strings.Contains(check.src, check.want) {
+			t.Fatalf("%s missing %q", check.name, check.want)
+		}
+	}
+}
+
 func TestProduceStartAPIUsesSubmittedInputG(t *testing.T) {
 	pool, schema := newProductionFlowTestDB(t)
 	ctx := context.Background()
@@ -572,6 +685,15 @@ func newProductionFlowTestDB(t *testing.T) (*pgxpool.Pool, string) {
 	}
 	if err := supporthttp.EnsureSchema(ctx, pool, schema); err != nil {
 		t.Fatalf("support EnsureSchema: %v", err)
+	}
+	if err := postgresmaterials.EnsureSchema(ctx, pool, schema); err != nil {
+		t.Fatalf("materials EnsureSchema: %v", err)
+	}
+	if err := postgresbom.EnsureSchema(ctx, pool, schema); err != nil {
+		t.Fatalf("bom EnsureSchema: %v", err)
+	}
+	if err := postgresstock.EnsureSchema(ctx, pool, schema); err != nil {
+		t.Fatalf("stock EnsureSchema: %v", err)
 	}
 	if err := postgresproduction.EnsureSchema(ctx, pool, schema); err != nil {
 		t.Fatalf("production EnsureSchema: %v", err)

@@ -2,6 +2,7 @@ package production
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	catalogdomain "orderapp/internal/domain/catalog"
 	"strings"
@@ -15,14 +16,14 @@ func workOrderNo(runningItemID int64) string {
 	return fmt.Sprintf("WO-%010d", runningItemID)
 }
 
-func createWorkOrderForRunningItemTx(ctx context.Context, tx pgx.Tx, schema string, runningItemID int64, batchID string, productID int64, productName string, specG int64, plannedG int64, operator string) error {
+func createWorkOrderForRunningItemTx(ctx context.Context, tx pgx.Tx, schema string, runningItemID int64, batchID string, productID int64, productName string, specG int64, plannedG int64, materialSnapshot []byte, operator string) error {
 	var workOrderID int64
 	if err := tx.QueryRow(ctx, fmt.Sprintf(`
-		INSERT INTO %s.work_orders(work_order_no,running_item_id,batch_id,product_id,product_name,spec_g,planned_g,status,created_at)
-		VALUES($1,$2,$3,$4,$5,$6,$7,'running',now())
-		ON CONFLICT (running_item_id) DO UPDATE SET status='running'
+		INSERT INTO %s.work_orders(work_order_no,running_item_id,batch_id,product_id,product_name,spec_g,planned_g,status,material_snapshot,created_at)
+		VALUES($1,$2,$3,$4,$5,$6,$7,'running',$8,now())
+		ON CONFLICT (running_item_id) DO UPDATE SET status='running', material_snapshot=excluded.material_snapshot
 		RETURNING id
-	`, schema), workOrderNo(runningItemID), runningItemID, batchID, productID, productName, specG, plannedG).Scan(&workOrderID); err != nil {
+	`, schema), workOrderNo(runningItemID), runningItemID, batchID, productID, productName, specG, plannedG, materialSnapshot).Scan(&workOrderID); err != nil {
 		return err
 	}
 	_, err := tx.Exec(ctx, fmt.Sprintf(`
@@ -148,6 +149,7 @@ func (r Repository) ListWorkOrders(ctx context.Context, query productionapp.Work
 		       COALESCE(ri.planned_units,0),
 		       COALESCE(ri.planned_loose_g,0),
 		       COALESCE(ri.order_nos,''),
+		       COALESCE(wo.material_snapshot,'[]'::jsonb)::text,
 		       COALESCE((
 		           SELECT string_agg(COALESCE(m.name,'') || ' ' || COALESCE(NULLIF(trim(trailing '.' from trim(trailing '0' from COALESCE(bi.ratio_pct,0)::text)), ''), '0') || '%%', '、' ORDER BY bi.id)
 		           FROM %s.product_bom_items bi
@@ -169,11 +171,16 @@ func (r Repository) ListWorkOrders(ctx context.Context, query productionapp.Work
 	out := make([]productionapp.WorkOrderRow, 0)
 	for rows.Next() {
 		var row productionapp.WorkOrderRow
+		var snapshotText, fallbackMaterialSummary string
 		if err := rows.Scan(
 			&row.ID, &row.WorkOrderNo, &row.RunningItemID, &row.BatchID, &row.ProductID, &row.ProductName, &row.SpecG, &row.PlannedG, &row.Status, &row.ActualCost, &row.CreatedAt, &row.CompletedAt,
-			&row.RoastLevel, &row.YieldRate, &row.SuggestedInputG, &row.PlannedUnits, &row.PlannedLooseG, &row.OrderNos, &row.MaterialSummary,
+			&row.RoastLevel, &row.YieldRate, &row.SuggestedInputG, &row.PlannedUnits, &row.PlannedLooseG, &row.OrderNos, &snapshotText, &fallbackMaterialSummary,
 		); err != nil {
 			return nil, err
+		}
+		row.MaterialSummary = formatMaterialSnapshotSummary(snapshotText)
+		if row.MaterialSummary == "" {
+			row.MaterialSummary = fallbackMaterialSummary
 		}
 		row.YieldRate = catalogdomain.ResolveYieldRate(row.RoastLevel, row.YieldRate)
 		if row.SuggestedInputG <= 0 {
@@ -194,6 +201,35 @@ func (r Repository) ListWorkOrders(ctx context.Context, query productionapp.Work
 		out = append(out, row)
 	}
 	return out, rows.Err()
+}
+
+func formatMaterialSnapshotSummary(raw string) string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" || raw == "[]" || raw == "null" {
+		return ""
+	}
+	var rows []materialSnapshotRow
+	if err := json.Unmarshal([]byte(raw), &rows); err != nil {
+		return ""
+	}
+	parts := make([]string, 0, len(rows))
+	for _, row := range rows {
+		name := strings.TrimSpace(row.MaterialName)
+		if name == "" {
+			continue
+		}
+		if row.Source == "packaging" {
+			parts = append(parts, name+" 包材")
+			continue
+		}
+		ratio := strings.TrimRight(strings.TrimRight(fmt.Sprintf("%.4f", row.RatioPct), "0"), ".")
+		if ratio == "" || ratio == "0" {
+			parts = append(parts, name)
+		} else {
+			parts = append(parts, name+" "+ratio+"%")
+		}
+	}
+	return strings.Join(parts, "、")
 }
 
 func formatWorkOrderBatchPlan(batches []int64, fallbackG int64) string {

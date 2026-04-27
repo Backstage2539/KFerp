@@ -36,8 +36,11 @@ func ensureMachineCapacityTable(ctx context.Context, pool *pgxpool.Pool, schema 
 		active BOOLEAN NOT NULL DEFAULT true,
 		updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 	);`, schema)
-	_, err := pool.Exec(ctx, q)
-	return err
+	if _, err := pool.Exec(ctx, q); err != nil {
+		return err
+	}
+	_, _ = pool.Exec(ctx, fmt.Sprintf(`ALTER TABLE %s.work_orders ADD COLUMN IF NOT EXISTS material_snapshot JSONB NOT NULL DEFAULT '[]'::jsonb`, schema))
+	return nil
 }
 
 func ensureWorkOrderTables(ctx context.Context, pool *pgxpool.Pool, schema string) error {
@@ -112,6 +115,7 @@ func ensureProductionRunTable(ctx context.Context, pool *pgxpool.Pool, schema st
 	_, _ = pool.Exec(ctx, fmt.Sprintf(`ALTER TABLE %s.produce_running_items ADD COLUMN IF NOT EXISTS bom_yield_rate NUMERIC(10,4) NOT NULL DEFAULT 0.8000`, schema))
 	_, _ = pool.Exec(ctx, fmt.Sprintf(`ALTER TABLE %s.produce_running_items ADD COLUMN IF NOT EXISTS planned_units BIGINT NOT NULL DEFAULT 0`, schema))
 	_, _ = pool.Exec(ctx, fmt.Sprintf(`ALTER TABLE %s.produce_running_items ADD COLUMN IF NOT EXISTS planned_loose_g BIGINT NOT NULL DEFAULT 0`, schema))
+	_, _ = pool.Exec(ctx, fmt.Sprintf(`ALTER TABLE %s.produce_running_items ADD COLUMN IF NOT EXISTS material_snapshot JSONB NOT NULL DEFAULT '[]'::jsonb`, schema))
 	return nil
 }
 
