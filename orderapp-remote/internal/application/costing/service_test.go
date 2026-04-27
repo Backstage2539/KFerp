@@ -35,6 +35,14 @@ func (r *fakeRepo) PublishRun(_ context.Context, actor string, runID int64) erro
 	return nil
 }
 
+func (r *fakeRepo) ListParameterSettings(context.Context) ([]ParameterSetting, error) {
+	return nil, nil
+}
+
+func (r *fakeRepo) UpdateParameterSetting(context.Context, UpdateParameterCommand) (ParameterSetting, error) {
+	return ParameterSetting{}, nil
+}
+
 func TestCalculateRejectsEmptyProducts(t *testing.T) {
 	svc := NewService(&fakeRepo{})
 	if _, err := svc.Calculate(context.Background(), CalculateRequest{}); err == nil {

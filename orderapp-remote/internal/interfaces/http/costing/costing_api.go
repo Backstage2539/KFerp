@@ -18,6 +18,32 @@ func registerCostingAPI(e *echo.Echo, svc Service) {
 		return c.JSON(http.StatusOK, params)
 	})
 
+	e.GET("/api/costing/settings", func(c echo.Context) error {
+		rows, err := svc.Settings(c.Request().Context())
+		if err != nil {
+			return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		}
+		return c.JSON(http.StatusOK, map[string]any{"rows": rows})
+	})
+
+	e.POST("/api/costing/settings/:key", func(c echo.Context) error {
+		var req struct {
+			Value float64 `json:"value"`
+		}
+		if err := c.Bind(&req); err != nil {
+			return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid request"})
+		}
+		row, err := svc.UpdateSetting(c.Request().Context(), appcosting.UpdateParameterCommand{
+			Key:   c.Param("key"),
+			Value: req.Value,
+			Actor: support.ActorOf(c),
+		})
+		if err != nil {
+			return c.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
+		}
+		return c.JSON(http.StatusOK, row)
+	})
+
 	e.POST("/api/costing/calculate", func(c echo.Context) error {
 		var req appcosting.CalculateRequest
 		if err := c.Bind(&req); err != nil {

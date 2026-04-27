@@ -11,6 +11,8 @@ import (
 
 type Service interface {
 	Parameters(context.Context) (domain.Parameters, error)
+	Settings(context.Context) ([]appcosting.ParameterSetting, error)
+	UpdateSetting(context.Context, appcosting.UpdateParameterCommand) (appcosting.ParameterSetting, error)
 	Calculate(context.Context, appcosting.CalculateRequest) (*appcosting.CalculateResponse, error)
 	BeanList(context.Context) (*appcosting.CalculateResponse, error)
 	CreateRun(context.Context, string) (*appcosting.Run, error)

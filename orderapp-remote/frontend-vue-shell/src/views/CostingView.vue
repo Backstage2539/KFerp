@@ -40,12 +40,13 @@
               <th>商品</th>
               <th>生豆/kg</th>
               <th>熟豆成本/kg</th>
-              <th>供应价/kg</th>
-              <th>供应价/lb</th>
+              <th>2-13磅/lb</th>
+              <th>14-23磅/lb</th>
+              <th>24-47磅/lb</th>
+              <th>大于47磅/lb</th>
               <th>零售227g</th>
               <th>零售250g</th>
               <th>挂耳/袋</th>
-              <th>挂耳10袋</th>
             </tr>
           </thead>
           <tbody>
@@ -53,15 +54,16 @@
               <td class="name">{{ item.name }}</td>
               <td>{{ money(item.green_bean_cost_per_kg) }}</td>
               <td>{{ money(item.small_batch_cost_per_kg) }}</td>
-              <td>{{ money(first(item.wholesale_kg_prices)) }}</td>
-              <td>{{ money(first(item.wholesale_lb_prices)) }}</td>
+              <td>{{ money(tierPrice(item, 0)) }}</td>
+              <td>{{ money(tierPrice(item, 1)) }}</td>
+              <td>{{ money(tierPrice(item, 2)) }}</td>
+              <td>{{ money(tierPrice(item, 3)) }}</td>
               <td>{{ money(item.retail_227g_price) }}</td>
               <td>{{ money(item.retail_250g_price) }}</td>
               <td>{{ money(first(item.wholesale_drip_bag_prices)) }}</td>
-              <td>{{ money(item.retail_drip_10_bag_price) }}</td>
             </tr>
             <tr v-if="!loading && !items.length">
-              <td colspan="9" class="muted empty">暂无可试算商品</td>
+              <td colspan="10" class="muted empty">暂无可试算商品</td>
             </tr>
           </tbody>
         </table>
@@ -69,13 +71,29 @@
     </section>
 
     <section class="panel">
-      <div class="section-title">豆单预览</div>
+      <div class="section-title">商用批发豆单</div>
       <div class="bean-grid">
         <article v-for="item in beanPreview" :key="item.product_id || item.name">
           <div class="bean-title">{{ item.name }}</div>
-          <div class="bean-row"><span>供应</span><strong>{{ money(first(item.wholesale_lb_prices)) }}/lb</strong></div>
+          <div v-if="item.flavor" class="bean-note">{{ item.flavor }}</div>
+          <div class="bean-row" v-for="tier in item.commercial_wholesale_tiers || []" :key="tier.label">
+            <span>{{ tier.label }}</span><strong>{{ money(tier.price_per_lb) }}/lb</strong>
+          </div>
+        </article>
+        <div v-if="!beanPreview.length" class="muted empty-card">暂无豆单数据</div>
+      </div>
+    </section>
+
+    <section class="panel">
+      <div class="section-title">零售豆单</div>
+      <div class="bean-grid">
+        <article v-for="item in beanPreview" :key="`retail-${item.product_id || item.name}`">
+          <div class="bean-title">{{ item.name }}</div>
+          <div v-if="item.origin || item.process_method" class="bean-note">{{ compact([item.origin, item.process_method]) }}</div>
+          <div v-if="item.flavor" class="bean-note">{{ item.flavor }}</div>
           <div class="bean-row"><span>零售</span><strong>{{ money(item.retail_227g_price) }}/227g</strong></div>
-          <div class="bean-row"><span>挂耳</span><strong>{{ money(first(item.wholesale_drip_bag_prices)) }}/袋</strong></div>
+          <div class="bean-row"><span>250g</span><strong>{{ money(item.retail_250g_price) }}</strong></div>
+          <div class="bean-row"><span>挂耳10袋</span><strong>{{ money(item.retail_drip_10_bag_price) }}</strong></div>
         </article>
         <div v-if="!beanPreview.length" class="muted empty-card">暂无豆单数据</div>
       </div>
@@ -100,6 +118,16 @@ const beanPreview = computed(() => items.value.slice(0, 24))
 
 function first(values) {
   return Array.isArray(values) && values.length ? Number(values[0] || 0) : 0
+}
+
+function tierPrice(item, index) {
+  const tier = item?.commercial_wholesale_tiers?.[index]
+  if (tier) return Number(tier.price_per_lb || 0)
+  return Array.isArray(item?.wholesale_lb_prices) ? Number(item.wholesale_lb_prices[index] || 0) : 0
+}
+
+function compact(values) {
+  return values.filter(Boolean).join(' / ')
 }
 
 function fixed(value, digits = 2) {
@@ -175,7 +203,7 @@ onMounted(loadBeanList)
 .metrics span { display: block; margin-bottom: 6px; }
 .metrics strong { font-size: 18px; }
 .table-wrap { overflow: auto; margin-top: 10px; }
-table { width: 100%; border-collapse: collapse; min-width: 980px; }
+table { width: 100%; border-collapse: collapse; min-width: 1100px; }
 th, td { border-bottom: 1px solid #f1f1f1; padding: 9px 10px; text-align: right; white-space: nowrap; }
 th:first-child, td:first-child { text-align: left; }
 th { color: #555; background: #fafafa; font-weight: 700; }
@@ -192,6 +220,7 @@ button:disabled { opacity: .45; cursor: not-allowed; }
 .bean-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; margin-top: 10px; }
 article, .empty-card { border: 1px solid #eee; border-radius: 8px; padding: 12px; background: #fafafa; }
 .bean-title { font-weight: 700; min-height: 38px; margin-bottom: 8px; }
+.bean-note { color: #555; font-size: 12px; min-height: 18px; margin: 0 0 8px; line-height: 1.45; }
 .bean-row { display: flex; justify-content: space-between; align-items: center; gap: 8px; border-top: 1px solid #eee; padding: 7px 0; }
 .bean-row span { color: #666; font-size: 12px; }
 .bean-row strong { font-size: 13px; }
@@ -204,4 +233,3 @@ article, .empty-card { border: 1px solid #eee; border-radius: 8px; padding: 12px
   .bean-grid { grid-template-columns: 1fr; }
 }
 </style>
-

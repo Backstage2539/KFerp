@@ -65,6 +65,14 @@ func seedParameters(ctx context.Context, pool *pgxpool.Pool, schema string) erro
 		{"drip_extra_cost_per_bag", "挂耳额外成本", "元/袋", params.DripExtraCostPerBag},
 		{"drip_packing_material_per_bag", "挂耳外包装材料", "元/袋", params.DripPackingMaterialPerBag},
 		{"retail_drip_multiplier", "零售挂耳利润系数", "ratio", params.RetailDripMultiplier},
+		{"wholesale_kg_margin_rate_1", "商用熟豆 2-13磅 利润系数", "ratio", params.WholesaleKgMarginRates[0]},
+		{"wholesale_kg_margin_rate_2", "商用熟豆 14-23磅 利润系数", "ratio", params.WholesaleKgMarginRates[1]},
+		{"wholesale_kg_margin_rate_3", "商用熟豆 24-47磅 利润系数", "ratio", params.WholesaleKgMarginRates[2]},
+		{"wholesale_kg_margin_rate_4", "商用熟豆 大于47磅 利润系数", "ratio", params.WholesaleKgMarginRates[3]},
+		{"wholesale_drip_multiplier_1", "商用挂耳 100包 利润系数", "ratio", params.WholesaleDripMultipliers[0]},
+		{"wholesale_drip_multiplier_2", "商用挂耳 200包 利润系数", "ratio", params.WholesaleDripMultipliers[1]},
+		{"wholesale_drip_multiplier_3", "商用挂耳 300包 利润系数", "ratio", params.WholesaleDripMultipliers[2]},
+		{"wholesale_drip_multiplier_4", "商用挂耳 500包 利润系数", "ratio", params.WholesaleDripMultipliers[3]},
 	}
 	q := fmt.Sprintf(`INSERT INTO %s.cost_parameters(key,label,value,unit)
 		VALUES($1,$2,$3,$4)

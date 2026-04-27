@@ -37,6 +37,14 @@ func (fakeService) PublishRun(context.Context, string, int64) error {
 	return nil
 }
 
+func (fakeService) Settings(context.Context) ([]appcosting.ParameterSetting, error) {
+	return []appcosting.ParameterSetting{{Key: "roast_yield_rate", Label: "生豆到熟豆转化率", Value: 0.8, Unit: "ratio"}}, nil
+}
+
+func (fakeService) UpdateSetting(context.Context, appcosting.UpdateParameterCommand) (appcosting.ParameterSetting, error) {
+	return appcosting.ParameterSetting{Key: "roast_yield_rate", Label: "生豆到熟豆转化率", Value: 0.81, Unit: "ratio"}, nil
+}
+
 type fakeRepo struct{}
 
 func (fakeRepo) LoadParameters(context.Context) (domain.Parameters, error) {
@@ -53,6 +61,14 @@ func (fakeRepo) CreateRun(context.Context, string, []domain.ProductResult) (*app
 
 func (fakeRepo) PublishRun(context.Context, string, int64) error {
 	return nil
+}
+
+func (fakeRepo) ListParameterSettings(context.Context) ([]appcosting.ParameterSetting, error) {
+	return nil, nil
+}
+
+func (fakeRepo) UpdateParameterSetting(context.Context, appcosting.UpdateParameterCommand) (appcosting.ParameterSetting, error) {
+	return appcosting.ParameterSetting{}, nil
 }
 
 func TestCostingCalculateAPI(t *testing.T) {
@@ -95,6 +111,8 @@ func TestRoutesAreRegistered(t *testing.T) {
 	}
 	for _, want := range []string{
 		"GET /api/costing/parameters",
+		"GET /api/costing/settings",
+		"POST /api/costing/settings/:key",
 		"POST /api/costing/calculate",
 		"GET /api/costing/bean-list",
 		"POST /api/costing/runs",
@@ -103,5 +121,33 @@ func TestRoutesAreRegistered(t *testing.T) {
 		if !seen[want] {
 			t.Fatalf("missing route %s; got %+v", want, seen)
 		}
+	}
+}
+
+func TestCostingSettingsAPI(t *testing.T) {
+	e := echo.New()
+	RegisterRoutes(e, Dependencies{Costing: fakeService{}})
+
+	req := httptest.NewRequest(http.MethodGet, "/api/costing/settings", nil)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+
+	body := bytes.NewBufferString(`{"value":0.81}`)
+	req = httptest.NewRequest(http.MethodPost, "/api/costing/settings/roast_yield_rate", body)
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec = httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	var got appcosting.ParameterSetting
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatal(err)
+	}
+	if got.Key != "roast_yield_rate" || got.Value != 0.81 {
+		t.Fatalf("setting = %+v", got)
 	}
 }
