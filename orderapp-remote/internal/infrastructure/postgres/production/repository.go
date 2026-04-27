@@ -179,7 +179,7 @@ func (r Repository) PreviewDeduct(ctx context.Context, batchID string) (producti
 	}
 
 	rows, err := tx.Query(ctx,
-		"SELECT i.product_id,COALESCE((SELECT name FROM "+r.schema+".products p WHERE p.id=i.product_id),''),i.spec_g,i.need_units,i.need_g,COALESCE(fi.onhand_units,0),COALESCE(fi.onhand_loose_g,0) FROM "+r.schema+".produce_batch_items i LEFT JOIN LATERAL (SELECT onhand_units,onhand_loose_g FROM "+r.schema+".finished_inventory f WHERE f.product_id=i.product_id AND f.spec_g=i.spec_g FOR UPDATE) fi ON true WHERE i.batch_id=$1 ORDER BY i.product_id,i.spec_g FOR UPDATE OF i", batchID)
+		"SELECT i.product_id,COALESCE((SELECT name FROM "+r.schema+".products p WHERE p.id=i.product_id),''),i.spec_g,i.need_units,i.need_g,COALESCE(fi.onhand_units,0),COALESCE(fi.onhand_loose_g,0) FROM "+r.schema+".produce_batch_items i LEFT JOIN LATERAL (SELECT onhand_units,onhand_loose_g FROM "+r.schema+".finished_inventory f WHERE f.product_id=i.product_id AND f.spec_g=i.spec_g AND f.warehouse='finished_goods' FOR UPDATE) fi ON true WHERE i.batch_id=$1 ORDER BY i.product_id,i.spec_g FOR UPDATE OF i", batchID)
 	if err != nil {
 		return productionapp.DeductPreview{}, err
 	}
@@ -264,7 +264,7 @@ func (r Repository) Start(ctx context.Context, cmd productionapp.StartExecutionC
 		row := tx.QueryRow(ctx, fmt.Sprintf(`
 			SELECT onhand_units, onhand_loose_g
 			FROM %s.finished_inventory
-			WHERE product_id=$1 AND spec_g=$2
+			WHERE product_id=$1 AND spec_g=$2 AND warehouse='finished_goods'
 			FOR UPDATE
 		`, r.schema), need.ProductID, need.SpecG)
 		if scanErr := row.Scan(&units, &loose); scanErr != nil {
@@ -279,9 +279,9 @@ func (r Repository) Start(ctx context.Context, cmd productionapp.StartExecutionC
 			return productionapp.StartResult{}, err
 		}
 		if _, err := tx.Exec(ctx, fmt.Sprintf(`
-			INSERT INTO %s.finished_inventory(product_id,spec_g,onhand_units,onhand_loose_g,updated_at)
-			VALUES($1,$2,$3,$4,now())
-			ON CONFLICT (product_id,spec_g) DO UPDATE
+			INSERT INTO %s.finished_inventory(product_id,spec_g,warehouse,onhand_units,onhand_loose_g,updated_at)
+			VALUES($1,$2,'finished_goods',$3,$4,now())
+			ON CONFLICT (product_id,spec_g,warehouse) DO UPDATE
 			SET onhand_units=excluded.onhand_units, onhand_loose_g=excluded.onhand_loose_g, updated_at=now()
 		`, r.schema), need.ProductID, need.SpecG, remain.Units, remain.LooseG); err != nil {
 			return productionapp.StartResult{}, err
@@ -300,11 +300,25 @@ func (r Repository) Start(ctx context.Context, cmd productionapp.StartExecutionC
 			inputG = defaultProductionInputG(need.GapG, yieldRate)
 		}
 		plan := runningInventoryPlan(need.SpecG, need.GapG, inputG, yieldRate)
-		var runningItemID int64
-		if err := tx.QueryRow(ctx, fmt.Sprintf(`INSERT INTO %s.produce_running_items(batch_id,product_id,product_name,spec_g,need_g,order_nos,status,started_by,started_at,input_g,bom_yield_rate,planned_units,planned_loose_g) VALUES($1,$2,$3,$4,$5,$6,'running',$7,now(),$8,$9,$10,$11) RETURNING id`, r.schema), batchID, need.ProductID, need.ProductName, need.SpecG, need.GapG, need.OrderNos, cmd.Operator, inputG, yieldRate, plan.Units, plan.LooseG).Scan(&runningItemID); err != nil {
+		snapshotRun := ProduceRunRow{
+			Product:      need.ProductName,
+			ProductID:    need.ProductID,
+			SpecG:        need.SpecG,
+			NeedG:        need.GapG,
+			InputG:       inputG,
+			BomYieldRate: yieldRate,
+			PlanUnits:    plan.Units,
+			PlanLooseG:   plan.LooseG,
+		}
+		materialSnapshot, err := buildMaterialSnapshotForRunningItemTx(ctx, tx, r.schema, snapshotRun)
+		if err != nil {
 			return productionapp.StartResult{}, err
 		}
-		if err := createWorkOrderForRunningItemTx(ctx, tx, r.schema, runningItemID, batchID, need.ProductID, need.ProductName, need.SpecG, inputG, cmd.Operator); err != nil {
+		var runningItemID int64
+		if err := tx.QueryRow(ctx, fmt.Sprintf(`INSERT INTO %s.produce_running_items(batch_id,product_id,product_name,spec_g,need_g,order_nos,status,started_by,started_at,input_g,bom_yield_rate,planned_units,planned_loose_g,material_snapshot) VALUES($1,$2,$3,$4,$5,$6,'running',$7,now(),$8,$9,$10,$11,$12) RETURNING id`, r.schema), batchID, need.ProductID, need.ProductName, need.SpecG, need.GapG, need.OrderNos, cmd.Operator, inputG, yieldRate, plan.Units, plan.LooseG, materialSnapshot).Scan(&runningItemID); err != nil {
+			return productionapp.StartResult{}, err
+		}
+		if err := createWorkOrderForRunningItemTx(ctx, tx, r.schema, runningItemID, batchID, need.ProductID, need.ProductName, need.SpecG, inputG, materialSnapshot, cmd.Operator); err != nil {
 			return productionapp.StartResult{}, err
 		}
 	}

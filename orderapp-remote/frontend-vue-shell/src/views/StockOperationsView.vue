@@ -27,6 +27,7 @@
 
 <script setup>
 import { computed, ref } from 'vue'
+import FinishedTransfersView from './FinishedTransfersView.vue'
 import MaterialReceiptsView from './MaterialReceiptsView.vue'
 import StockAdjustmentsView from './StockAdjustmentsView.vue'
 import WipMaterialsView from './WipMaterialsView.vue'
@@ -34,6 +35,7 @@ import WipMaterialsView from './WipMaterialsView.vue'
 const tabs = [
   { key: 'receipts', label: '原料入库', component: MaterialReceiptsView },
   { key: 'wip', label: 'WIP领退/转仓', component: WipMaterialsView },
+  { key: 'finishedTransfers', label: '成品转仓', component: FinishedTransfersView },
   { key: 'adjustments', label: '库存调整', component: StockAdjustmentsView },
 ]
 const activeTab = ref('receipts')

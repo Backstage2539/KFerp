@@ -20,6 +20,8 @@ type materialConsumptionNeed struct {
 	Qty          int64
 	DeductG      int64
 	DeductUnits  int64
+	RatioPct     float64
+	Source       string
 }
 
 type materialConsumptionSummaryItem struct {
@@ -29,6 +31,14 @@ type materialConsumptionSummaryItem struct {
 	DeductG      int64  `json:"deduct_g"`
 	DeductUnits  int64  `json:"deduct_units"`
 	BatchCode    string `json:"batch_code,omitempty"`
+}
+
+type materialSnapshotRow struct {
+	MaterialID   int64   `json:"material_id"`
+	MaterialName string  `json:"material_name"`
+	Unit         string  `json:"unit"`
+	RatioPct     float64 `json:"ratio_pct,omitempty"`
+	Source       string  `json:"source"`
 }
 
 func isWeightMaterialUnit(unit string) bool {
@@ -52,6 +62,13 @@ func materialNeedToDeduct(unit string, qty int64) (deductG int64, deductUnits in
 }
 
 func calcRunningItemMaterialNeedsTx(ctx context.Context, tx pgx.Tx, schema string, r ProduceRunRow, finished InvQty) ([]materialConsumptionNeed, error) {
+	if needs, ok, err := materialSnapshotNeedsTx(r, finished); ok || err != nil {
+		return needs, err
+	}
+	return currentMaterialNeedsTx(ctx, tx, schema, r, finished)
+}
+
+func currentMaterialNeedsTx(ctx context.Context, tx pgx.Tx, schema string, r ProduceRunRow, finished InvQty) ([]materialConsumptionNeed, error) {
 	if r.ProductID <= 0 || r.SpecG <= 0 || r.NeedG <= 0 {
 		return nil, nil
 	}
@@ -136,6 +153,8 @@ func calcRunningItemMaterialNeedsTx(ctx context.Context, tx pgx.Tx, schema strin
 			Qty:          qty,
 			DeductG:      deductG,
 			DeductUnits:  deductUnits,
+			RatioPct:     bi.ratio,
+			Source:       "bom",
 		})
 	}
 
@@ -156,12 +175,106 @@ func calcRunningItemMaterialNeedsTx(ctx context.Context, tx pgx.Tx, schema strin
 			Qty:          packedUnits,
 			DeductG:      deductG,
 			DeductUnits:  deductUnits,
+			Source:       "packaging",
 		})
 	} else if err != nil && err != pgx.ErrNoRows {
 		return nil, err
 	}
 
 	return needs, nil
+}
+
+func buildMaterialSnapshotForRunningItemTx(ctx context.Context, tx pgx.Tx, schema string, r ProduceRunRow) ([]byte, error) {
+	needs, err := currentMaterialNeedsTx(ctx, tx, schema, r, InvQty{Units: r.PlanUnits, LooseG: r.PlanLooseG})
+	if err != nil {
+		return nil, err
+	}
+	rows := make([]materialSnapshotRow, 0, len(needs))
+	for _, need := range needs {
+		source := strings.TrimSpace(need.Source)
+		if source == "" {
+			source = "bom"
+		}
+		rows = append(rows, materialSnapshotRow{
+			MaterialID:   need.MaterialID,
+			MaterialName: need.MaterialName,
+			Unit:         need.Unit,
+			RatioPct:     need.RatioPct,
+			Source:       source,
+		})
+	}
+	if len(rows) == 0 {
+		return []byte("[]"), nil
+	}
+	return json.Marshal(rows)
+}
+
+func materialSnapshotNeedsTx(r ProduceRunRow, finished InvQty) ([]materialConsumptionNeed, bool, error) {
+	raw := strings.TrimSpace(r.MaterialSnapshot)
+	if raw == "" || raw == "[]" || raw == "null" {
+		return nil, false, nil
+	}
+	var rows []materialSnapshotRow
+	if err := json.Unmarshal([]byte(raw), &rows); err != nil {
+		return nil, true, err
+	}
+	if len(rows) == 0 {
+		return nil, false, nil
+	}
+	rawG := r.InputG
+	if rawG <= 0 {
+		rawG = r.NeedG
+	}
+	packedUnits := finished.Units
+	if packedUnits < 0 {
+		packedUnits = 0
+	}
+	needs := make([]materialConsumptionNeed, 0, len(rows))
+	for _, row := range rows {
+		if row.MaterialID <= 0 || strings.TrimSpace(row.MaterialName) == "" {
+			continue
+		}
+		unit := strings.TrimSpace(row.Unit)
+		if unit == "" {
+			unit = "g"
+		}
+		source := strings.TrimSpace(row.Source)
+		if source == "" {
+			source = "bom"
+		}
+		qty := int64(0)
+		if source == "packaging" {
+			qty = packedUnits
+		} else if isWeightMaterialUnit(unit) {
+			ratio := bomdomain.NormalizeRatioPct(row.RatioPct)
+			if ratio <= 0 {
+				continue
+			}
+			if strings.EqualFold(unit, "kg") || unit == "千克" {
+				qty = int64(math.Ceil((float64(rawG) * ratio / 100.0) / 1000.0))
+			} else {
+				qty = int64(math.Ceil(float64(rawG) * ratio / 100.0))
+			}
+		} else {
+			ratio := bomdomain.NormalizeRatioPct(row.RatioPct)
+			if ratio <= 0 {
+				ratio = 100
+			}
+			qty = int64(math.Ceil(float64(packedUnits) * ratio / 100.0))
+		}
+		deductG, deductUnits := materialNeedToDeduct(unit, qty)
+		needs = append(needs, materialConsumptionNeed{
+			MaterialID:   row.MaterialID,
+			MaterialName: strings.TrimSpace(row.MaterialName),
+			Unit:         unit,
+			Qty:          qty,
+			DeductG:      deductG,
+			DeductUnits:  deductUnits,
+			RatioPct:     row.RatioPct,
+			Source:       source,
+		})
+	}
+	return needs, true, nil
 }
 
 func deductMaterialsForRunningItemTx(ctx context.Context, tx pgx.Tx, schema string, r ProduceRunRow, finished InvQty, operator string) error {

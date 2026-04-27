@@ -69,7 +69,7 @@ func fetchUnproducedNeeds(ctx context.Context, pool *pgxpool.Pool, schema, from,
 			GREATEST(0, (n.need_units * n.spec_g) - (COALESCE(fi.onhand_units,0) * n.spec_g + COALESCE(fi.onhand_loose_g,0))) AS gap_g
 		FROM need n
 		LEFT JOIN %s.finished_inventory fi
-			ON fi.product_id = n.product_id AND fi.spec_g = n.spec_g
+			ON fi.product_id = n.product_id AND fi.spec_g = n.spec_g AND fi.warehouse = 'finished_goods'
 		WHERE n.spec_g > 0
 		ORDER BY gap_g DESC, n.product, n.spec_g
 	`, schema, schema, schema, where, schema)

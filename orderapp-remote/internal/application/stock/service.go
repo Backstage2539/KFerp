@@ -170,6 +170,52 @@ type WarehouseInventoryResult struct {
 	HasNext bool                    `json:"has_next"`
 }
 
+type StockTraceQuery struct {
+	BatchCode string
+}
+
+type TraceFinishedBatch struct {
+	BatchCode      string `json:"batch_code"`
+	ProductID      int64  `json:"product_id"`
+	ProductName    string `json:"product_name"`
+	SpecG          int64  `json:"spec_g"`
+	Warehouse      string `json:"warehouse"`
+	QtyG           int64  `json:"qty_g"`
+	QtyUnits       int64  `json:"qty_units"`
+	RemainingG     int64  `json:"remaining_g"`
+	RemainingUnits int64  `json:"remaining_units"`
+	CreatedAt      string `json:"created_at"`
+}
+
+type TraceProduction struct {
+	RunningItemID   int64   `json:"running_item_id"`
+	WorkOrderNo     string  `json:"work_order_no"`
+	BatchID         string  `json:"batch_id"`
+	OrderNos        string  `json:"order_nos"`
+	InputG          int64   `json:"input_g"`
+	FinishedTotalG  int64   `json:"finished_total_g"`
+	ActualYieldRate float64 `json:"actual_yield_rate"`
+	StartedBy       string  `json:"started_by"`
+	FinishedBy      string  `json:"finished_by"`
+	FinishedAt      string  `json:"finished_at"`
+}
+
+type TraceMaterial struct {
+	MaterialID        int64  `json:"material_id"`
+	MaterialName      string `json:"material_name"`
+	Unit              string `json:"unit"`
+	DeductG           int64  `json:"deduct_g"`
+	DeductUnits       int64  `json:"deduct_units"`
+	MaterialBatchID   int64  `json:"material_batch_id"`
+	MaterialBatchCode string `json:"material_batch_code"`
+}
+
+type StockTraceResult struct {
+	FinishedBatch TraceFinishedBatch `json:"finished_batch"`
+	Production    TraceProduction    `json:"production"`
+	Materials     []TraceMaterial    `json:"materials"`
+}
+
 type MaterialTransferCommand struct {
 	MaterialID     int64
 	FromWarehouse  string
@@ -190,6 +236,23 @@ type MaterialTransferResult struct {
 	TransferID  int64                        `json:"transfer_id"`
 	TransferNo  string                       `json:"transfer_no"`
 	Allocations []MaterialTransferAllocation `json:"allocations"`
+}
+
+type FinishedProductTransferCommand struct {
+	ProductID      int64
+	SpecG          int64
+	FromWarehouse  string
+	ToWarehouse    string
+	QtyUnits       int64
+	QtyLooseG      int64
+	Note           string
+	Operator       string
+	IdempotencyKey string
+}
+
+type FinishedProductTransferResult struct {
+	TransferID int64  `json:"transfer_id"`
+	TransferNo string `json:"transfer_no"`
 }
 
 type MaterialReceiptCommand struct {
@@ -229,9 +292,11 @@ type Repository interface {
 	ListWarehouses(ctx context.Context) ([]WarehouseRow, error)
 	ListMaterialBatchLocations(ctx context.Context, query MaterialBatchLocationQuery) (MaterialBatchLocationResult, error)
 	ListWarehouseInventory(ctx context.Context, query WarehouseInventoryQuery) (WarehouseInventoryResult, error)
+	GetStockTrace(ctx context.Context, query StockTraceQuery) (StockTraceResult, error)
 	ReceiveMaterial(ctx context.Context, cmd MaterialReceiptCommand) (MaterialReceiptResult, error)
 	CreateAdjustment(ctx context.Context, cmd StockAdjustmentCommand) (StockAdjustmentResult, error)
 	TransferMaterial(ctx context.Context, cmd MaterialTransferCommand) (MaterialTransferResult, error)
+	TransferFinishedProduct(ctx context.Context, cmd FinishedProductTransferCommand) (FinishedProductTransferResult, error)
 }
 
 type Service struct {
@@ -286,6 +351,14 @@ func (s *Service) ListWarehouseInventory(ctx context.Context, query WarehouseInv
 	return s.repo.ListWarehouseInventory(ctx, query)
 }
 
+func (s *Service) GetStockTrace(ctx context.Context, query StockTraceQuery) (StockTraceResult, error) {
+	query.BatchCode = strings.TrimSpace(query.BatchCode)
+	if query.BatchCode == "" {
+		return StockTraceResult{}, fmt.Errorf("batch required")
+	}
+	return s.repo.GetStockTrace(ctx, query)
+}
+
 func (s *Service) ReceiveMaterial(ctx context.Context, cmd MaterialReceiptCommand) (MaterialReceiptResult, error) {
 	if cmd.MaterialID <= 0 {
 		return MaterialReceiptResult{}, fmt.Errorf("material required")
@@ -332,6 +405,43 @@ func (s *Service) TransferMaterial(ctx context.Context, cmd MaterialTransferComm
 	return s.repo.TransferMaterial(ctx, cmd)
 }
 
+func (s *Service) TransferFinishedProduct(ctx context.Context, cmd FinishedProductTransferCommand) (FinishedProductTransferResult, error) {
+	if cmd.ProductID <= 0 {
+		return FinishedProductTransferResult{}, fmt.Errorf("product required")
+	}
+	if cmd.SpecG <= 0 {
+		return FinishedProductTransferResult{}, fmt.Errorf("spec_g required")
+	}
+	if cmd.QtyUnits < 0 || cmd.QtyLooseG < 0 {
+		return FinishedProductTransferResult{}, fmt.Errorf("negative qty")
+	}
+	if cmd.QtyLooseG >= cmd.SpecG {
+		cmd.QtyUnits += cmd.QtyLooseG / cmd.SpecG
+		cmd.QtyLooseG = cmd.QtyLooseG % cmd.SpecG
+	}
+	if cmd.QtyUnits <= 0 && cmd.QtyLooseG <= 0 {
+		return FinishedProductTransferResult{}, fmt.Errorf("qty required")
+	}
+	cmd.FromWarehouse = normalizeWarehouse(cmd.FromWarehouse)
+	cmd.ToWarehouse = normalizeWarehouse(cmd.ToWarehouse)
+	if cmd.FromWarehouse == "" {
+		cmd.FromWarehouse = stockdomain.WarehouseFinishedGoods
+	}
+	if cmd.ToWarehouse == "" {
+		return FinishedProductTransferResult{}, fmt.Errorf("to warehouse required")
+	}
+	if cmd.FromWarehouse == cmd.ToWarehouse {
+		return FinishedProductTransferResult{}, fmt.Errorf("from/to warehouse must differ")
+	}
+	cmd.Note = strings.TrimSpace(cmd.Note)
+	cmd.Operator = strings.TrimSpace(cmd.Operator)
+	cmd.IdempotencyKey = strings.TrimSpace(cmd.IdempotencyKey)
+	if cmd.Operator == "" {
+		cmd.Operator = "stock"
+	}
+	return s.repo.TransferFinishedProduct(ctx, cmd)
+}
+
 func (s *Service) CreateAdjustment(ctx context.Context, cmd StockAdjustmentCommand) (StockAdjustmentResult, error) {
 	cmd.ItemType = strings.TrimSpace(cmd.ItemType)
 	cmd.Warehouse = normalizeWarehouse(cmd.Warehouse)
@@ -348,6 +458,9 @@ func (s *Service) CreateAdjustment(ctx context.Context, cmd StockAdjustmentComma
 	}
 	if cmd.ItemType == "material" && cmd.Warehouse == "" {
 		cmd.Warehouse = stockdomain.WarehouseRawMaterials
+	}
+	if cmd.ItemType == "finished_product" && cmd.Warehouse == "" {
+		cmd.Warehouse = stockdomain.WarehouseFinishedGoods
 	}
 	if cmd.ItemType == "finished_product" && cmd.SpecG <= 0 {
 		return StockAdjustmentResult{}, fmt.Errorf("spec_g required")

@@ -120,6 +120,16 @@ func registerStockAPI(e *echo.Echo, stockSvc *stockapp.Service) {
 		return c.JSON(http.StatusOK, result)
 	})
 
+	e.GET("/api/stock/trace", func(c echo.Context) error {
+		result, err := stockSvc.GetStockTrace(c.Request().Context(), stockapp.StockTraceQuery{
+			BatchCode: strings.TrimSpace(c.QueryParam("batch")),
+		})
+		if err != nil {
+			return c.JSON(http.StatusBadRequest, errorResponse{Error: err.Error()})
+		}
+		return c.JSON(http.StatusOK, result)
+	})
+
 	e.POST("/api/stock/material-receipts", func(c echo.Context) error {
 		var req struct {
 			MaterialID int64   `json:"material_id"`
@@ -167,6 +177,37 @@ func registerStockAPI(e *echo.Echo, stockSvc *stockapp.Service) {
 			TargetUnits: req.TargetUnits,
 			Reason:      req.Reason,
 			Operator:    support.ActorOf(c),
+		})
+		if err != nil {
+			return c.JSON(http.StatusBadRequest, errorResponse{Error: err.Error()})
+		}
+		return c.JSON(http.StatusOK, result)
+	})
+
+	e.POST("/api/stock/finished-transfers", func(c echo.Context) error {
+		var req struct {
+			ProductID      int64  `json:"product_id"`
+			SpecG          int64  `json:"spec_g"`
+			FromWarehouse  string `json:"from_warehouse"`
+			ToWarehouse    string `json:"to_warehouse"`
+			QtyUnits       int64  `json:"qty_units"`
+			QtyLooseG      int64  `json:"qty_loose_g"`
+			Note           string `json:"note"`
+			IdempotencyKey string `json:"idempotency_key"`
+		}
+		if err := c.Bind(&req); err != nil {
+			return c.JSON(http.StatusBadRequest, errorResponse{Error: "invalid request"})
+		}
+		result, err := stockSvc.TransferFinishedProduct(c.Request().Context(), stockapp.FinishedProductTransferCommand{
+			ProductID:      req.ProductID,
+			SpecG:          req.SpecG,
+			FromWarehouse:  req.FromWarehouse,
+			ToWarehouse:    req.ToWarehouse,
+			QtyUnits:       req.QtyUnits,
+			QtyLooseG:      req.QtyLooseG,
+			Note:           req.Note,
+			Operator:       support.ActorOf(c),
+			IdempotencyKey: req.IdempotencyKey,
 		})
 		if err != nil {
 			return c.JSON(http.StatusBadRequest, errorResponse{Error: err.Error()})

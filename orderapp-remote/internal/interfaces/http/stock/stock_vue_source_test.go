@@ -45,6 +45,53 @@ func TestVueShellIncludesWIPMaterialsView(t *testing.T) {
 	}
 }
 
+func TestVueStockWorkspaceIncludesFinishedTransferAndTraceLookup(t *testing.T) {
+	operations, err := readStockWorkspaceFile(filepath.Join("frontend-vue-shell", "src", "views", "StockOperationsView.vue"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	operationsSrc := string(operations)
+	for _, want := range []string{
+		"成品转仓",
+		"FinishedTransfersView",
+	} {
+		if !strings.Contains(operationsSrc, want) {
+			t.Fatalf("StockOperationsView.vue missing %q", want)
+		}
+	}
+
+	transferView, err := readStockWorkspaceFile(filepath.Join("frontend-vue-shell", "src", "views", "FinishedTransfersView.vue"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	transferSrc := string(transferView)
+	for _, want := range []string{
+		"/api/stock/finished-transfers",
+		"from_warehouse",
+		"to_warehouse",
+		"qty_units",
+	} {
+		if !strings.Contains(transferSrc, want) {
+			t.Fatalf("FinishedTransfersView.vue missing %q", want)
+		}
+	}
+
+	warehouse, err := readStockWorkspaceFile(filepath.Join("frontend-vue-shell", "src", "views", "WarehouseInventoryView.vue"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	warehouseSrc := string(warehouse)
+	for _, want := range []string{
+		"/api/stock/trace",
+		"traceDrawerOpen",
+		"追溯",
+	} {
+		if !strings.Contains(warehouseSrc, want) {
+			t.Fatalf("WarehouseInventoryView.vue missing trace lookup %q", want)
+		}
+	}
+}
+
 func readStockWorkspaceFile(path string) ([]byte, error) {
 	if b, err := os.ReadFile(path); err == nil {
 		return b, nil

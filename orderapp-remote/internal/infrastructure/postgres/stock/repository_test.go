@@ -203,6 +203,128 @@ INSERT INTO %s.materials(id,code,name,onhand_g) VALUES (1,'BEAN-1','水洗豆',0
 	}
 }
 
+func TestFinishedInventorySupportsWarehousesAndFinishedTransfers(t *testing.T) {
+	pool, schema := newStockTestDB(t)
+	ctx := context.Background()
+	defer func() {
+		_, _ = pool.Exec(ctx, "DROP SCHEMA IF EXISTS "+schema+" CASCADE")
+		pool.Close()
+	}()
+	mustExecStockSQL(t, ctx, pool, fmt.Sprintf(`
+CREATE TABLE %s.materials (
+	id BIGINT PRIMARY KEY,
+	code TEXT NOT NULL,
+	name TEXT NOT NULL,
+	kind TEXT NOT NULL DEFAULT 'bean',
+	unit TEXT NOT NULL DEFAULT 'g',
+	purchase_price NUMERIC(12,2) NOT NULL DEFAULT 0,
+	sale_price NUMERIC(12,2) NOT NULL DEFAULT 0,
+	onhand_g BIGINT NOT NULL DEFAULT 0,
+	onhand_units BIGINT NOT NULL DEFAULT 0,
+	min_level_g BIGINT NOT NULL DEFAULT 0,
+	min_level_units BIGINT NOT NULL DEFAULT 0,
+	updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE TABLE %s.products (
+	id BIGINT PRIMARY KEY,
+	name TEXT NOT NULL
+);
+CREATE TABLE %s.finished_inventory (
+	product_id BIGINT NOT NULL,
+	spec_g BIGINT NOT NULL,
+	onhand_units BIGINT NOT NULL DEFAULT 0,
+	onhand_loose_g BIGINT NOT NULL DEFAULT 0,
+	updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+	PRIMARY KEY(product_id, spec_g)
+);
+CREATE TABLE %s.audit_logs (
+	id BIGSERIAL PRIMARY KEY,
+	actor TEXT NOT NULL DEFAULT '',
+	entity_type TEXT NOT NULL DEFAULT '',
+	entity_id BIGINT,
+	action TEXT NOT NULL DEFAULT '',
+	field TEXT,
+	old_value TEXT,
+	new_value TEXT,
+	meta JSONB,
+	created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+INSERT INTO %s.products(id,name) VALUES (9,'橘皮乌龙');
+INSERT INTO %s.finished_inventory(product_id,spec_g,onhand_units,onhand_loose_g) VALUES (9,454,1,20);
+`, schema, schema, schema, schema, schema, schema))
+	if err := EnsureSchema(ctx, pool, schema); err != nil {
+		t.Fatalf("EnsureSchema: %v", err)
+	}
+	mustExecStockSQL(t, ctx, pool, fmt.Sprintf(`
+		INSERT INTO %s.warehouses(code,name,kind,sort_order,is_default,active,description)
+		VALUES('finished_shop','门店成品仓','finished',45,false,true,'门店/临时销售成品仓')
+		ON CONFLICT (code) DO UPDATE SET active=true;
+	`, schema))
+
+	mustExecStockSQL(t, ctx, pool, fmt.Sprintf(`
+		INSERT INTO %s.finished_inventory(product_id,spec_g,warehouse,onhand_units,onhand_loose_g)
+		VALUES (9,454,'finished_shop',0,0)
+		ON CONFLICT (product_id,spec_g,warehouse) DO NOTHING;
+	`, schema))
+
+	repo := NewRepository(pool, schema)
+	adjustment, err := repo.CreateAdjustment(ctx, stockapp.StockAdjustmentCommand{
+		ItemType:    "finished_product",
+		ItemID:      9,
+		SpecG:       454,
+		Warehouse:   "finished_goods",
+		TargetUnits: 3,
+		TargetG:     20,
+		Reason:      "期初成品盘点",
+		Operator:    "jj",
+	})
+	if err != nil {
+		t.Fatalf("CreateAdjustment: %v", err)
+	}
+	if adjustment.AdjustmentID <= 0 {
+		t.Fatalf("adjustment = %+v", adjustment)
+	}
+	transfer, err := repo.TransferFinishedProduct(ctx, stockapp.FinishedProductTransferCommand{
+		ProductID:      9,
+		SpecG:          454,
+		FromWarehouse:  "finished_goods",
+		ToWarehouse:    "finished_shop",
+		QtyUnits:       1,
+		QtyLooseG:      20,
+		Note:           "门店备货",
+		Operator:       "jj",
+		IdempotencyKey: "finished-transfer-1",
+	})
+	if err != nil {
+		t.Fatalf("TransferFinishedProduct: %v", err)
+	}
+	if transfer.TransferNo == "" {
+		t.Fatalf("transfer no is empty")
+	}
+
+	var finishedGoodsUnits, finishedGoodsLoose, shopUnits, shopLoose int64
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT onhand_units,onhand_loose_g FROM %s.finished_inventory WHERE product_id=9 AND spec_g=454 AND warehouse='finished_goods'`, schema)).Scan(&finishedGoodsUnits, &finishedGoodsLoose); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT onhand_units,onhand_loose_g FROM %s.finished_inventory WHERE product_id=9 AND spec_g=454 AND warehouse='finished_shop'`, schema)).Scan(&shopUnits, &shopLoose); err != nil {
+		t.Fatal(err)
+	}
+	if finishedGoodsUnits != 2 || finishedGoodsLoose != 0 || shopUnits != 1 || shopLoose != 20 {
+		t.Fatalf("finished warehouses = finished_goods %d/%d, shop %d/%d; want 2/0 and 1/20", finishedGoodsUnits, finishedGoodsLoose, shopUnits, shopLoose)
+	}
+
+	var outCount, inCount int
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT COUNT(*) FROM %s.stock_ledger_entries WHERE source_doc_type='finished_product_transfer' AND source_doc_id=$1 AND warehouse='finished_goods' AND qty_change_g=-474`, schema), transfer.TransferID).Scan(&outCount); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT COUNT(*) FROM %s.stock_ledger_entries WHERE source_doc_type='finished_product_transfer' AND source_doc_id=$1 AND warehouse='finished_shop' AND qty_change_g=474`, schema), transfer.TransferID).Scan(&inCount); err != nil {
+		t.Fatal(err)
+	}
+	if outCount != 1 || inCount != 1 {
+		t.Fatalf("finished transfer ledger = out %d / in %d, want 1/1", outCount, inCount)
+	}
+}
+
 func TestMaterialAdjustmentBackfillCreatesTransferableRawBatch(t *testing.T) {
 	pool, schema := newStockTestDB(t)
 	ctx := context.Background()

@@ -44,7 +44,7 @@ func (r Repository) ListFinished(ctx context.Context, query inventoryapp.Finishe
 	offsetArg := argn + 1
 
 	sql := fmt.Sprintf(`
-		SELECT fi.product_id, COALESCE(p.name,''), fi.spec_g, fi.onhand_units, fi.onhand_loose_g,
+		SELECT fi.product_id, COALESCE(p.name,''), fi.spec_g, fi.warehouse, fi.onhand_units, fi.onhand_loose_g,
 		       to_char(fi.updated_at,'YYYY-MM-DD HH24:MI')
 		FROM %s.finished_inventory fi
 		LEFT JOIN %s.products p ON p.id = fi.product_id
@@ -61,7 +61,7 @@ func (r Repository) ListFinished(ctx context.Context, query inventoryapp.Finishe
 	out := make([]inventoryapp.FinishedInventoryRow, 0)
 	for rows.Next() {
 		var row inventoryapp.FinishedInventoryRow
-		if err := rows.Scan(&row.ProductID, &row.Product, &row.SpecG, &row.Units, &row.LooseG, &row.UpdatedAt); err != nil {
+		if err := rows.Scan(&row.ProductID, &row.Product, &row.SpecG, &row.Warehouse, &row.Units, &row.LooseG, &row.UpdatedAt); err != nil {
 			return inventoryapp.FinishedInventoryResult{}, err
 		}
 		if total, err := inventorydomain.TotalGrams(row.SpecG, inventorydomain.Quantity{Units: row.Units, LooseG: row.LooseG}); err == nil {
@@ -104,9 +104,9 @@ func (r Repository) AdjustFinished(ctx context.Context, cmd inventoryapp.AdjustF
 	err = tx.QueryRow(ctx, fmt.Sprintf(`
 		SELECT onhand_units,onhand_loose_g
 		FROM %s.finished_inventory
-		WHERE product_id=$1 AND spec_g=$2
+		WHERE product_id=$1 AND spec_g=$2 AND warehouse=$3
 		FOR UPDATE
-	`, r.schema), cmd.ProductID, cmd.SpecG).Scan(&before.Units, &before.LooseG)
+	`, r.schema), cmd.ProductID, cmd.SpecG, cmd.Warehouse).Scan(&before.Units, &before.LooseG)
 	if err != nil && err != pgx.ErrNoRows {
 		return err
 	}
@@ -123,11 +123,11 @@ func (r Repository) AdjustFinished(ctx context.Context, cmd inventoryapp.AdjustF
 	changeG := afterG - beforeG
 
 	if _, err := tx.Exec(ctx, fmt.Sprintf(`
-		INSERT INTO %s.finished_inventory(product_id,spec_g,onhand_units,onhand_loose_g,updated_at)
-		VALUES($1,$2,$3,$4,now())
-		ON CONFLICT (product_id,spec_g) DO UPDATE
+		INSERT INTO %s.finished_inventory(product_id,spec_g,warehouse,onhand_units,onhand_loose_g,updated_at)
+		VALUES($1,$2,$3,$4,$5,now())
+		ON CONFLICT (product_id,spec_g,warehouse) DO UPDATE
 		SET onhand_units=excluded.onhand_units, onhand_loose_g=excluded.onhand_loose_g, updated_at=now()
-	`, r.schema), cmd.ProductID, cmd.SpecG, after.Units, after.LooseG); err != nil {
+	`, r.schema), cmd.ProductID, cmd.SpecG, cmd.Warehouse, after.Units, after.LooseG); err != nil {
 		return err
 	}
 
@@ -149,9 +149,9 @@ func (r Repository) AdjustFinished(ctx context.Context, cmd inventoryapp.AdjustF
 			qty_before_g,qty_change_g,qty_after_g,
 			qty_before_units,qty_change_units,qty_after_units,
 			operator,created_at
-		) VALUES($1,$2,$3,$4,'finished_goods',$5,0,$6,'',$7,$8,$9,$10,$11,$12,$13,now())
+		) VALUES($1,$2,$3,$4,$5,$6,0,$7,'',$8,$9,$10,$11,$12,$13,$14,now())
 	`, r.schema),
-		stockItemTypeFinishedProduct, cmd.ProductID, productName, cmd.SpecG,
+		stockItemTypeFinishedProduct, cmd.ProductID, productName, cmd.SpecG, cmd.Warehouse,
 		stockSourceManualAdjustment, batchCode,
 		beforeG, changeG, afterG,
 		before.Units, after.Units-before.Units, after.Units,
@@ -165,6 +165,7 @@ func (r Repository) AdjustFinished(ctx context.Context, cmd inventoryapp.AdjustF
 	if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, cmd.Operator, "finished_inventory", nil, "adjust", postgresinfra.StrPtr("quantity"), postgresinfra.StrPtr(oldValue), postgresinfra.StrPtr(newValue), postgresinfra.AuditMeta{
 		"product_id": cmd.ProductID,
 		"spec_g":     cmd.SpecG,
+		"warehouse":  cmd.Warehouse,
 		"change_g":   changeG,
 	}); err != nil {
 		return err

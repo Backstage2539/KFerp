@@ -55,6 +55,9 @@
                   type="number"
                   aria-label="散装余量"
                 />
+                <select v-model="finishInputs[row.id].warehouse" aria-label="成品入库仓">
+                  <option v-for="wh in finishedWarehouses" :key="wh.code" :value="wh.code">{{ wh.name }}</option>
+                </select>
                 <button class="primary" type="button" @click="finish(row)" :disabled="busyId === row.id">
                   完成
                 </button>
@@ -77,6 +80,7 @@
 
 <script setup>
 import { onMounted, reactive, ref } from 'vue'
+import { apiGet } from '../api/client'
 import { cancelRunningProduction, fetchRunningProduction, finishRunningProduction } from '../api/production.js'
 
 const loading = ref(false)
@@ -84,6 +88,7 @@ const busyId = ref(0)
 const error = ref('')
 const message = ref('')
 const rows = ref([])
+const finishedWarehouses = ref([{ code: 'finished_goods', name: '成品仓' }])
 const finishInputs = reactive({})
 
 function percent(v) {
@@ -96,8 +101,19 @@ function ensureInputs() {
       finishInputs[row.id] = {
         finished_units: Number(row.plan_units || 0),
         finished_loose_g: Number(row.plan_loose_g || 0),
+        warehouse: 'finished_goods',
       }
     }
+  }
+}
+
+async function loadWarehouses() {
+  try {
+    const data = await apiGet('/api/stock/warehouses')
+    const rows = (data.rows || []).filter((row) => row.kind === 'finished')
+    if (rows.length) finishedWarehouses.value = rows
+  } catch {
+    finishedWarehouses.value = [{ code: 'finished_goods', name: '成品仓' }]
   }
 }
 
@@ -131,6 +147,7 @@ async function finish(row) {
       id: row.id,
       finished_units: Number(input.finished_units || 0),
       finished_loose_g: Number(input.finished_loose_g || 0),
+      warehouse: input.warehouse || 'finished_goods',
     })
     message.value = '生产已完成'
     await load()
@@ -158,6 +175,7 @@ async function cancel(row) {
 
 onMounted(() => {
   applyUrlState()
+  loadWarehouses()
   load()
 })
 </script>
@@ -208,7 +226,7 @@ input {
 }
 .finish-grid {
   display: grid;
-  grid-template-columns: 72px 72px 58px;
+  grid-template-columns: 72px 72px 120px 58px;
   gap: 6px;
   align-items: center;
 }

@@ -52,10 +52,11 @@ func registerFinishedInventoryPages(e *echo.Echo, inventorySvc *inventoryapp.Ser
 	})
 	e.POST("/api/products/inventory", func(c echo.Context) error {
 		var req struct {
-			ProductID int64 `json:"product_id"`
-			SpecG     int64 `json:"spec_g"`
-			Units     int64 `json:"units"`
-			LooseG    int64 `json:"loose_g"`
+			ProductID int64  `json:"product_id"`
+			SpecG     int64  `json:"spec_g"`
+			Warehouse string `json:"warehouse"`
+			Units     int64  `json:"units"`
+			LooseG    int64  `json:"loose_g"`
 		}
 		if err := c.Bind(&req); err != nil {
 			return c.JSON(http.StatusBadRequest, map[string]any{"error": "bad request"})
@@ -63,6 +64,7 @@ func registerFinishedInventoryPages(e *echo.Echo, inventorySvc *inventoryapp.Ser
 		if err := inventorySvc.AdjustFinished(c.Request().Context(), inventoryapp.AdjustFinishedInventoryCommand{
 			ProductID: req.ProductID,
 			SpecG:     req.SpecG,
+			Warehouse: req.Warehouse,
 			Units:     req.Units,
 			LooseG:    req.LooseG,
 			Operator:  support.ActorOf(c),

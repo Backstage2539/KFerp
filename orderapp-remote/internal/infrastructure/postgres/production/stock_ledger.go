@@ -162,7 +162,7 @@ func insertStockLedgerEntryTx(ctx context.Context, tx pgx.Tx, schema string, ite
 	return err
 }
 
-func recordFinishedProductStockMovementTx(ctx context.Context, tx pgx.Tx, schema string, r ProduceRunRow, before, add, after InvQty, finishedTotalG int64, operator string) error {
+func recordFinishedProductStockMovementTx(ctx context.Context, tx pgx.Tx, schema string, r ProduceRunRow, before, add, after InvQty, finishedTotalG int64, warehouse string, operator string) error {
 	batchCode, err := createFinishedStockBatchTx(ctx, tx, schema, r, add, finishedTotalG, operator)
 	if err != nil {
 		return err
@@ -172,7 +172,7 @@ func recordFinishedProductStockMovementTx(ctx context.Context, tx pgx.Tx, schema
 		return err
 	}
 	return insertStockLedgerEntryTx(ctx, tx, schema,
-		stockItemTypeFinishedProduct, r.ProductID, r.Product, r.SpecG, "finished_goods",
+		stockItemTypeFinishedProduct, r.ProductID, r.Product, r.SpecG, warehouse,
 		stockSourceProductionRun, r.ID, batchCode, r.BatchID,
 		qty, operator,
 	)
