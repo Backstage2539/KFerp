@@ -42,29 +42,33 @@
               <th>生豆/kg</th>
               <th>熟豆成本/kg</th>
               <th>商用批发梯度</th>
-              <th>零售227g</th>
-              <th>零售250g</th>
+              <th>零售豆单价</th>
               <th>挂耳/袋</th>
             </tr>
           </thead>
           <tbody>
             <tr v-for="item in items" :key="item.product_id || item.name">
               <td class="name">{{ item.name }}</td>
-              <td>{{ money(item.green_bean_cost_per_kg) }}</td>
-              <td>{{ money(item.small_batch_cost_per_kg) }}</td>
+              <td>{{ costMoney(item.green_bean_cost_per_kg) }}</td>
+              <td>{{ costMoney(item.small_batch_cost_per_kg) }}</td>
               <td class="tiers-cell">
                 <div class="tier-list">
                   <span v-for="tier in item.commercial_wholesale_tiers || []" :key="tier.label" class="tier-chip">
-                    <b>{{ tier.label }}</b>{{ money(tierPriceValue(tier)) }}/{{ tierUnit(tier) }}
+                    <b>{{ tier.label }}</b>{{ price(tierPriceValue(tier)) }}/{{ tierUnit(tier) }}
                   </span>
                 </div>
               </td>
-              <td>{{ money(item.retail_227g_price) }}</td>
-              <td>{{ money(item.retail_250g_price) }}</td>
-              <td>{{ money(first(item.wholesale_drip_bag_prices)) }}</td>
+              <td class="tiers-cell">
+                <div class="tier-list">
+                  <span v-for="tier in item.retail_bean_tiers || []" :key="tier.label" class="tier-chip">
+                    <b>{{ tier.label }}</b>{{ price(tier.price_per_unit) }}
+                  </span>
+                </div>
+              </td>
+              <td>{{ price(first(item.wholesale_drip_bag_prices)) }}</td>
             </tr>
             <tr v-if="!loading && !items.length">
-              <td colspan="7" class="muted empty">暂无可试算商品</td>
+              <td colspan="6" class="muted empty">暂无可试算商品</td>
             </tr>
           </tbody>
         </table>
@@ -78,7 +82,7 @@
           <div class="bean-title">{{ item.name }}</div>
           <div v-if="item.flavor" class="bean-note">{{ item.flavor }}</div>
           <div class="bean-row" v-for="tier in item.commercial_wholesale_tiers || []" :key="tier.label">
-            <span>{{ tier.label }}</span><strong>{{ money(tierPriceValue(tier)) }}/{{ tierUnit(tier) }}</strong>
+            <span>{{ tier.label }}</span><strong>{{ price(tierPriceValue(tier)) }}/{{ tierUnit(tier) }}</strong>
           </div>
         </article>
         <div v-if="!beanPreview.length" class="muted empty-card">暂无豆单数据</div>
@@ -92,9 +96,10 @@
           <div class="bean-title">{{ item.name }}</div>
           <div v-if="item.origin || item.process_method" class="bean-note">{{ compact([item.origin, item.process_method]) }}</div>
           <div v-if="item.flavor" class="bean-note">{{ item.flavor }}</div>
-          <div class="bean-row"><span>零售</span><strong>{{ money(item.retail_227g_price) }}/227g</strong></div>
-          <div class="bean-row"><span>250g</span><strong>{{ money(item.retail_250g_price) }}</strong></div>
-          <div class="bean-row"><span>挂耳10袋</span><strong>{{ money(item.retail_drip_10_bag_price) }}</strong></div>
+          <div class="bean-row" v-for="tier in item.retail_bean_tiers || []" :key="`retail-tier-${tier.label}`">
+            <span>{{ tier.label }}</span><strong>{{ price(tier.price_per_unit) }}</strong>
+          </div>
+          <div class="bean-row"><span>挂耳10袋</span><strong>{{ price(item.retail_drip_10_bag_price) }}</strong></div>
         </article>
         <div v-if="!beanPreview.length" class="muted empty-card">暂无豆单数据</div>
       </div>
@@ -156,6 +161,14 @@ function fixed(value, digits = 2) {
 }
 
 function money(value) {
+  return fixed(value, 2)
+}
+
+function price(value) {
+  return fixed(value, 0)
+}
+
+function costMoney(value) {
   return fixed(value, 2)
 }
 

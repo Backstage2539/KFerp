@@ -21,3 +21,14 @@ func TestLoadProductInputsReadsBeanMetadataFromProfileTable(t *testing.T) {
 		}
 	}
 }
+
+func TestLoadProductInputsDoesNotUsePublishedDefaultPriceAsBeanCost(t *testing.T) {
+	b, err := os.ReadFile("repository.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := string(b)
+	if strings.Contains(src, "NULLIF(p.default_price") {
+		t.Fatalf("costing repository must not reuse published product default_price as green bean cost")
+	}
+}

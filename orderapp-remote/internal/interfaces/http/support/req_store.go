@@ -347,6 +347,12 @@ func seedReqWorkflowA(ctx context.Context, pool *pgxpool.Pool, schema string) er
 		{table: "req_unit", code: "UT-081-01", title: "覆盖 Nenka 127.431 金标准、24-49kg/50-99kg/100-199kg、2包-7包/8包+ 三套梯度", status: "done", assignee: "Codex", evidence: "go test ./internal/domain/costing -run TestNenkaExcelCommercialProfileMatchesWorkbook|TestCommercialWholesaleTiersSupportExcelSchemes"},
 		{table: "req_api", code: "API-081-01", title: "POST /api/costing/calculate 返回梯度规格和单位价格，成本页动态展示不同梯度", status: "done", assignee: "Codex", evidence: "TestCostingCalculateAPIReturnsExcelTierSchemeMetadata"},
 		{table: "req_review", code: "REV-081-01", prCode: "PR-081", title: "验收：Nenka 2包-13包为 127 左右，曲奇显示 kg 三档，227g 产品显示两档", status: "todo", assignee: "VA", evidence: "待 Van 服务器验收"},
+		{table: "req_product", code: "PR-082", title: "对齐 Excel 熟豆豆单-3.0 和 零售豆单-3.0 的每个产品价格，豆单价格四舍五入且不显示小数", status: "review", assignee: "VA", evidence: "codex/costing-excel-price-audit"},
+		{table: "req_dev", code: "DEV-082-01", title: "成本核算不再把已发布 default_price 当生豆成本，产品成本必须来自 BOM/物料进货价", status: "done", assignee: "Codex", evidence: "LoadProductInputs no default_price fallback"},
+		{table: "req_dev", code: "DEV-082-02", title: "成本引擎按 Excel 豆单行返回整数商用价、零售价和动态零售规格 227g/250g 或 100g/200g", status: "done", assignee: "Codex", evidence: "RetailBeanTiers + rounded price outputs"},
+		{table: "req_unit", code: "UT-082-01", title: "覆盖熟豆豆单-3.0 商用价格和零售豆单-3.0 零售价格的逐产品四舍五入金标准", status: "done", assignee: "Codex", evidence: "TestExcelBeanListCommercialPricesMatchRoundedWorkbook; TestExcelRetailBeanListPricesMatchRoundedWorkbook"},
+		{table: "req_api", code: "API-082-01", title: "POST /api/costing/calculate 返回四舍五入后的商用/零售豆单价格和 retail_bean_tiers", status: "done", assignee: "Codex", evidence: "TestCostingCalculateAPIRoundsExcelBeanListPrices"},
+		{table: "req_review", code: "REV-082-01", prCode: "PR-082", title: "验收：线上熟豆商用豆单和零售豆单逐产品价格与 Excel 整数价格一致", status: "todo", assignee: "VA", evidence: "待 Van 服务器验收"},
 	} {
 		if err := seedReqRow(ctx, pool, schema, row); err != nil {
 			return err
