@@ -172,6 +172,31 @@ func TestBeanListPublicationFollowupRequirementSeeds(t *testing.T) {
 	}
 }
 
+func TestBeanListCardSelectionLayoutFollowupRequirementSeeds(t *testing.T) {
+	b, err := os.ReadFile(filepath.Join("internal", "interfaces", "http", "support", "req_store.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := string(b)
+	for _, want := range []string{
+		"PR-097",
+		"DEV-097-01",
+		"DEV-097-02",
+		"DEV-097-03",
+		"UT-097-01",
+		"API-097-01",
+		"REV-097-01",
+		"价格文本可通过标红词标红",
+		"豆卡报价对齐",
+		"按分类剩余产品数量动态列数",
+		"分类和产品选择联动",
+	} {
+		if !strings.Contains(src, want) {
+			t.Fatalf("bean-list card/selection follow-up requirement seed missing %q", want)
+		}
+	}
+}
+
 func TestProductSettingsVueWiringAndLegacyTierEditorRemoval(t *testing.T) {
 	app, err := os.ReadFile(filepath.Join("frontend-vue-shell", "src", "App.vue"))
 	if err != nil {

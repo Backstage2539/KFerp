@@ -32,13 +32,14 @@ export function buildBeanListPdfGroups(items = [], listType = 'commercial', opti
   const metaKey = listType === 'retail' ? 'retail_bean_list' : 'commercial_bean_list'
   const tierKey = listType === 'retail' ? 'retail_bean_tiers' : 'commercial_wholesale_tiers'
   const selectedIDs = normalizeStringSet(options.selectedProductIDs)
+  const hasProductFilter = Object.prototype.hasOwnProperty.call(options, 'selectedProductIDs')
   const visibleCategoryCodes = normalizeStringSet(options.visibleCategoryCodes)
-  const hasCategoryFilter = visibleCategoryCodes.size > 0
+  const hasCategoryFilter = Object.prototype.hasOwnProperty.call(options, 'visibleCategoryCodes')
   const showCategoryNumbers = options.showCategoryNumbers !== false
   const customizers = options.customizers && typeof options.customizers === 'object' ? options.customizers : {}
   const sourceRows = items
     .filter((item) => item?.[metaKey]?.code)
-    .filter((item) => !selectedIDs.size || selectedIDs.has(productIDOf(item)))
+    .filter((item) => !hasProductFilter || selectedIDs.has(productIDOf(item)))
     .filter((item) => !hasCategoryFilter || visibleCategoryCodes.has(firstCodePart(item[metaKey].code)))
     .slice()
     .sort((a, b) => compareBeanCodes(a[metaKey].code, b[metaKey].code))

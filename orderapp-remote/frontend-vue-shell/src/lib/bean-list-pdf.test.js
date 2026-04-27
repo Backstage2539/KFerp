@@ -119,6 +119,12 @@ test('PDF bean-list helper supports product selection, category filtering, and E
   })
   assert.equal(flat.length, 1)
   assert.deepEqual(flat[0].items.map((item) => item.code), ['1', '2'])
+
+  const none = buildBeanListPdfGroups(rows, 'commercial', {
+    selectedProductIDs: [],
+    visibleCategoryCodes: [],
+  })
+  assert.deepEqual(none, [])
 })
 
 test('PDF bean-list helper preserves layout, brand, changelog, badge, and red-highlight settings', () => {
@@ -165,4 +171,5 @@ test('PDF bean-list helper preserves layout, brand, changelog, badge, and red-hi
     { text: '庄园差异性产品', red: true },
     { text: '）', red: false },
   ])
+  assert.deepEqual(splitHighlightedText('55/包', ['55/包']), [{ text: '55/包', red: true }])
 })

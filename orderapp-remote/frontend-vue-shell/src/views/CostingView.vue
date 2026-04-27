@@ -237,49 +237,41 @@
           </div>
         </div>
 
-        <div class="pdf-picker">
-          <div class="picker-head">
-            <strong>选择展示分级</strong>
-            <span class="muted">{{ pdfCategoryOptions.length }} 类</span>
-            <div class="picker-actions">
-              <button class="secondary compact" type="button" @click="setAllPdfCategories(true)">全选</button>
-              <button class="secondary compact" type="button" @click="setAllPdfCategories(false)">清空</button>
-            </div>
-          </div>
-          <div class="checkbox-grid">
-            <label v-for="category in pdfCategoryOptions" :key="`cat-${category.code}`" class="check-line">
-              <input type="checkbox" :checked="isPdfCategoryVisible(category.code)" :disabled="!pdfOptions.showCategoryNumbers" @change="togglePdfCategory(category.code, $event.target.checked)" />
-              <span>{{ category.label }}</span>
-            </label>
-          </div>
-        </div>
-
         <div class="pdf-picker productSelection">
           <div class="picker-head">
-            <strong>选择产品</strong>
+            <strong>选择分类和产品</strong>
             <span class="muted">{{ pdfSelectedProductIDs.length }}/{{ pdfAvailableItems.length }} 款</span>
             <div class="picker-actions">
               <button class="secondary compact" type="button" @click="setAllPdfProducts(true)">全选</button>
               <button class="secondary compact" type="button" @click="setAllPdfProducts(false)">清空</button>
             </div>
           </div>
-          <div class="product-picker-list">
-            <article v-for="row in pdfAvailableItems" :key="`pick-${itemProductID(row)}`" class="product-picker-row">
-              <label class="check-line">
-                <input type="checkbox" :checked="isPdfProductSelected(itemProductID(row))" @change="togglePdfProduct(itemProductID(row), $event.target.checked)" />
-                <span>{{ beanMeta(row, metaKeyForListType(pdfTheme.listType)).code }} {{ beanName(row, metaKeyForListType(pdfTheme.listType)) }}</span>
-              </label>
-              <div class="customizer-row">
-                <select :value="customizerField(itemProductID(row), 'badge')" @change="setCustomizerField(itemProductID(row), 'badge', $event.target.value)">
-                  <option value="">无标签</option>
-                  <option value="new">NEW 上新</option>
-                  <option value="thumb">👍 推荐</option>
-                  <option value="medal">🏅 推荐</option>
-                </select>
-                <input :value="customizerField(itemProductID(row), 'highlightTerms')" placeholder="标红词，用逗号分隔" @input="setCustomizerField(itemProductID(row), 'highlightTerms', $event.target.value)" />
-                <input :value="customizerField(itemProductID(row), 'redPriceLabels')" placeholder="标红价格档，如 2包-13包" @input="setCustomizerField(itemProductID(row), 'redPriceLabels', $event.target.value)" />
+          <div class="product-picker-list categoryProductGroups">
+            <section v-for="category in categoryProductGroups" :key="`pick-cat-${category.code}`" class="product-picker-category">
+              <div class="product-picker-category-head">
+                <label class="check-line">
+                  <input type="checkbox" :checked="isPdfCategorySelected(category.code)" @change="togglePdfCategoryProducts(category.code, $event.target.checked)" />
+                  <span>{{ category.label }}</span>
+                </label>
+                <span class="muted">{{ selectedCountForCategory(category.code) }}/{{ category.items.length }} 款</span>
               </div>
-            </article>
+              <article v-for="row in category.items" :key="`pick-${itemProductID(row)}`" class="product-picker-row">
+                <label class="check-line">
+                  <input type="checkbox" :checked="isPdfProductSelected(itemProductID(row))" @change="togglePdfProduct(itemProductID(row), $event.target.checked)" />
+                  <span>{{ beanMeta(row, metaKeyForListType(pdfTheme.listType)).code }} {{ beanName(row, metaKeyForListType(pdfTheme.listType)) }}</span>
+                </label>
+                <div class="customizer-row">
+                  <select :value="customizerField(itemProductID(row), 'badge')" @change="setCustomizerField(itemProductID(row), 'badge', $event.target.value)">
+                    <option value="">无标签</option>
+                    <option value="new">NEW 上新</option>
+                    <option value="thumb">👍 推荐</option>
+                    <option value="medal">🏅 推荐</option>
+                  </select>
+                  <input :value="customizerField(itemProductID(row), 'highlightTerms')" placeholder="标红词，用逗号分隔，可填 55/包" @input="setCustomizerField(itemProductID(row), 'highlightTerms', $event.target.value)" />
+                  <input :value="customizerField(itemProductID(row), 'redPriceLabels')" placeholder="标红价格档，如 2包-13包" @input="setCustomizerField(itemProductID(row), 'redPriceLabels', $event.target.value)" />
+                </div>
+              </article>
+            </section>
           </div>
         </div>
 
@@ -328,15 +320,20 @@
                     </div>
                   </td>
                   <td class="pdf-table-prices">
-                    <div v-for="priceRow in item.prices" :key="`preview-table-price-${item.code}-${priceRow.label}`" :class="{ 'pdf-red': priceRow.red }">
-                      <span>{{ priceRow.label }}</span><strong>{{ price(priceRow.price) }}{{ priceRow.unit ? `/${priceRow.unit}` : '' }}</strong>
+                    <div v-for="priceRow in item.prices" :key="`preview-table-price-${item.code}-${priceRow.label}`">
+                      <span :class="{ 'pdf-red': priceRow.red }">
+                        <span v-for="(part, idx) in priceLabelParts(priceRow, item)" :key="`ptl-${item.code}-${priceRow.label}-${idx}`" :class="{ 'pdf-red': part.red }">{{ part.text }}</span>
+                      </span>
+                      <strong :class="priceValueClass(priceRow, item)">
+                        <span v-for="(part, idx) in priceValueParts(priceRow, item)" :key="`ptv-${item.code}-${priceRow.label}-${idx}`" :class="{ 'pdf-red': part.red }">{{ part.text }}</span>
+                      </strong>
                     </div>
                   </td>
                 </tr>
               </tbody>
             </table>
 
-            <div v-else class="pdf-card-grid" :style="pdfGridStyle">
+            <div v-else :class="['pdf-card-grid', `cards-${cardGridColumnCount(group)}`]" :style="cardGridStyle(group)">
               <article v-for="item in group.items" :key="`preview-${group.category}-${item.code}`" class="pdf-item">
                 <div class="pdf-item-head">
                   <span>{{ item.code }}</span>
@@ -367,8 +364,12 @@
                   <div class="pdf-section-label">报价</div>
                   <div class="pdf-price-list">
                     <div v-for="priceRow in item.prices" :key="`preview-${item.code}-${priceRow.label}`" class="pdf-price">
-                      <span>{{ priceRow.label }}</span>
-                      <strong :class="{ 'pdf-red': priceRow.red }">{{ price(priceRow.price) }}{{ priceRow.unit ? `/${priceRow.unit}` : '' }}</strong>
+                      <span class="pdf-price-label" :class="{ 'pdf-red': priceRow.red }">
+                        <span v-for="(part, idx) in priceLabelParts(priceRow, item)" :key="`cpl-${item.code}-${priceRow.label}-${idx}`" :class="{ 'pdf-red': part.red }">{{ part.text }}</span>
+                      </span>
+                      <strong class="pdf-price-value" :class="priceValueClass(priceRow, item)">
+                        <span v-for="(part, idx) in priceValueParts(priceRow, item)" :key="`cpv-${item.code}-${priceRow.label}-${idx}`" :class="{ 'pdf-red': part.red }">{{ part.text }}</span>
+                      </strong>
                     </div>
                   </div>
                 </div>
@@ -425,15 +426,20 @@
                 </div>
               </td>
               <td class="pdf-table-prices">
-                <div v-for="priceRow in item.prices" :key="`pdf-table-price-${item.code}-${priceRow.label}`" :class="{ 'pdf-red': priceRow.red }">
-                  <span>{{ priceRow.label }}</span><strong>{{ price(priceRow.price) }}{{ priceRow.unit ? `/${priceRow.unit}` : '' }}</strong>
+                <div v-for="priceRow in item.prices" :key="`pdf-table-price-${item.code}-${priceRow.label}`">
+                  <span :class="{ 'pdf-red': priceRow.red }">
+                    <span v-for="(part, idx) in priceLabelParts(priceRow, item)" :key="`ftl-${item.code}-${priceRow.label}-${idx}`" :class="{ 'pdf-red': part.red }">{{ part.text }}</span>
+                  </span>
+                  <strong :class="priceValueClass(priceRow, item)">
+                    <span v-for="(part, idx) in priceValueParts(priceRow, item)" :key="`ftv-${item.code}-${priceRow.label}-${idx}`" :class="{ 'pdf-red': part.red }">{{ part.text }}</span>
+                  </strong>
                 </div>
               </td>
             </tr>
           </tbody>
         </table>
 
-        <div v-else class="pdf-card-grid" :style="pdfGridStyle">
+        <div v-else :class="['pdf-card-grid', `cards-${cardGridColumnCount(group)}`]" :style="cardGridStyle(group)">
           <article v-for="item in group.items" :key="`pdf-${group.category}-${item.code}`" class="pdf-item">
             <div class="pdf-item-head">
               <span>{{ item.code }}</span>
@@ -464,8 +470,12 @@
               <div class="pdf-section-label">报价</div>
               <div class="pdf-price-list">
                 <div v-for="priceRow in item.prices" :key="`${item.code}-${priceRow.label}`" class="pdf-price">
-                  <span>{{ priceRow.label }}</span>
-                  <strong :class="{ 'pdf-red': priceRow.red }">{{ price(priceRow.price) }}{{ priceRow.unit ? `/${priceRow.unit}` : '' }}</strong>
+                  <span class="pdf-price-label" :class="{ 'pdf-red': priceRow.red }">
+                    <span v-for="(part, idx) in priceLabelParts(priceRow, item)" :key="`fpl-${item.code}-${priceRow.label}-${idx}`" :class="{ 'pdf-red': part.red }">{{ part.text }}</span>
+                  </span>
+                  <strong class="pdf-price-value" :class="priceValueClass(priceRow, item)">
+                    <span v-for="(part, idx) in priceValueParts(priceRow, item)" :key="`fpv-${item.code}-${priceRow.label}-${idx}`" :class="{ 'pdf-red': part.red }">{{ part.text }}</span>
+                  </strong>
                 </div>
               </div>
             </div>
@@ -543,6 +553,7 @@ const pdfAvailableItems = computed(() => beanListItemsForType(pdfTheme.value.lis
 const pdfCategoryOptions = computed(() => beanListCategoryOptions(pdfTheme.value.listType))
 const pdfSelectedProductIDs = computed(() => selectedProductIDsByType.value[pdfTheme.value.listType] || [])
 const pdfVisibleCategoryCodes = computed(() => visibleCategoryCodesByType.value[pdfTheme.value.listType] || [])
+const categoryProductGroups = computed(() => productGroupsForType(pdfTheme.value.listType))
 const pdfGenerationOptions = computed(() => ({
   selectedProductIDs: pdfSelectedProductIDs.value,
   showCategoryNumbers: pdfOptions.value.showCategoryNumbers,
@@ -553,7 +564,6 @@ const pdfGroups = computed(() => buildBeanListPdfGroups(items.value, pdfTheme.va
 const pdfTotalItems = computed(() => pdfGroups.value.reduce((sum, group) => sum + group.items.length, 0))
 const pdfTitle = computed(() => buildBeanListPdfTitle(pdfTheme.value.listType, pdfTheme.value.brandName))
 const pdfSubtitle = computed(() => buildBeanListPdfSubtitle(pdfTheme.value.listType))
-const pdfGridStyle = computed(() => ({ gridTemplateColumns: `repeat(${pdfTheme.value.cardsPerRow}, minmax(0, 1fr))` }))
 const currentBeanListPublication = computed(() => (beanListPublications.value[pdfTheme.value.listType] || []).find((row) => row.status === 'published') || null)
 const pdfPageStyle = computed(() => {
   const bg = pdfTheme.value.backgroundImage
@@ -633,6 +643,17 @@ function beanListCategoryOptions(listType) {
   return Array.from(seen.values())
 }
 
+function productGroupsForType(listType) {
+  return beanListCategoryOptions(listType).map((category) => ({
+    ...category,
+    items: beanListItemsForType(listType).filter((item) => categoryCodeOfItem(item, listType) === category.code),
+  }))
+}
+
+function categoryCodeOfItem(item, listType = pdfTheme.value.listType) {
+  return String(beanMeta(item, metaKeyForListType(listType)).code || '').split('.')[0]
+}
+
 function initializePdfDefaults() {
   initializePdfDefaultsForType('commercial')
   initializePdfDefaultsForType('retail')
@@ -674,28 +695,57 @@ function togglePdfProduct(id, checked) {
   const current = selectedProductIDsByType.value[key] || []
   const next = checked ? Array.from(new Set([...current, value])) : current.filter((item) => item !== value)
   selectedProductIDsByType.value = { ...selectedProductIDsByType.value, [key]: next }
+  syncCategoryVisibilityFromSelectedProducts(key, next)
 }
 
 function setAllPdfProducts(selected) {
   const key = pdfTheme.value.listType
-  selectedProductIDsByType.value = { ...selectedProductIDsByType.value, [key]: selected ? pdfAvailableItems.value.map((item) => itemProductID(item)) : [] }
+  const next = selected ? pdfAvailableItems.value.map((item) => itemProductID(item)) : []
+  selectedProductIDsByType.value = { ...selectedProductIDsByType.value, [key]: next }
+  syncCategoryVisibilityFromSelectedProducts(key, next)
 }
 
 function isPdfCategoryVisible(code) {
   return pdfVisibleCategoryCodes.value.includes(String(code))
 }
 
-function togglePdfCategory(code, checked) {
+function isPdfCategorySelected(code) {
+  const ids = productIDsForCategory(code)
+  return ids.length > 0 && ids.every((id) => pdfSelectedProductIDs.value.includes(id))
+}
+
+function selectedCountForCategory(code) {
+  const ids = productIDsForCategory(code)
+  return ids.filter((id) => pdfSelectedProductIDs.value.includes(id)).length
+}
+
+function productIDsForCategory(code, listType = pdfTheme.value.listType) {
+  return beanListItemsForType(listType)
+    .filter((item) => categoryCodeOfItem(item, listType) === String(code))
+    .map((item) => itemProductID(item))
+}
+
+function togglePdfCategoryProducts(code, checked) {
   const key = pdfTheme.value.listType
-  const value = String(code)
-  const current = visibleCategoryCodesByType.value[key] || []
-  const next = checked ? Array.from(new Set([...current, value])) : current.filter((item) => item !== value)
-  visibleCategoryCodesByType.value = { ...visibleCategoryCodesByType.value, [key]: next }
+  const categoryIDs = productIDsForCategory(code, key)
+  const current = selectedProductIDsByType.value[key] || []
+  const next = checked
+    ? Array.from(new Set([...current, ...categoryIDs]))
+    : current.filter((id) => !categoryIDs.includes(id))
+  selectedProductIDsByType.value = { ...selectedProductIDsByType.value, [key]: next }
+  syncCategoryVisibilityFromSelectedProducts(key, next)
 }
 
 function setAllPdfCategories(selected) {
-  const key = pdfTheme.value.listType
-  visibleCategoryCodesByType.value = { ...visibleCategoryCodesByType.value, [key]: selected ? pdfCategoryOptions.value.map((item) => item.code) : [] }
+  setAllPdfProducts(selected)
+}
+
+function syncCategoryVisibilityFromSelectedProducts(listType, selectedIDs) {
+  const selectedSet = new Set(selectedIDs.map((id) => String(id)))
+  const next = beanListCategoryOptions(listType)
+    .filter((category) => productIDsForCategory(category.code, listType).some((id) => selectedSet.has(id)))
+    .map((category) => category.code)
+  visibleCategoryCodesByType.value = { ...visibleCategoryCodesByType.value, [listType]: next }
 }
 
 function customizerField(id, field) {
@@ -715,6 +765,31 @@ function setCustomizerField(id, field, value) {
 
 function highlightedParts(text, item) {
   return splitHighlightedText(text, item?.highlightTerms || [])
+}
+
+function priceDisplay(priceRow) {
+  return `${price(priceRow?.price)}${priceRow?.unit ? `/${priceRow.unit}` : ''}`
+}
+
+function priceLabelParts(priceRow, item) {
+  return splitHighlightedText(priceRow?.label || '', item?.highlightTerms || [])
+}
+
+function priceValueParts(priceRow, item) {
+  return splitHighlightedText(priceDisplay(priceRow), item?.highlightTerms || [])
+}
+
+function priceValueClass(priceRow, item) {
+  return { 'pdf-red': Boolean(priceRow?.red) || priceValueParts(priceRow, item).some((part) => part.red) }
+}
+
+function cardGridColumnCount(group) {
+  const itemCount = Math.max(1, Array.isArray(group?.items) ? group.items.length : 1)
+  return Math.max(1, Math.min(Number(pdfTheme.value.cardsPerRow || 1), itemCount))
+}
+
+function cardGridStyle(group) {
+  return { gridTemplateColumns: `repeat(${cardGridColumnCount(group)}, minmax(0, 1fr))` }
 }
 
 function badgeClass(badge) {
@@ -988,7 +1063,9 @@ button:disabled { opacity: .45; cursor: not-allowed; }
 .picker-head { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
 .picker-actions { margin-left: auto; display: flex; gap: 6px; }
 .checkbox-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px 10px; }
-.product-picker-list { display: grid; gap: 8px; max-height: 360px; overflow: auto; }
+.product-picker-list { display: grid; gap: 10px; max-height: 420px; overflow: auto; }
+.product-picker-category { display: grid; gap: 8px; border: 1px solid #ddd; border-radius: 8px; padding: 10px; background: #fff; }
+.product-picker-category-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding-bottom: 6px; border-bottom: 1px solid #eee; }
 .product-picker-row { display: grid; gap: 7px; border: 1px solid #eee; border-radius: 8px; padding: 9px; background: #fafafa; }
 .customizer-row { display: grid; grid-template-columns: 110px 1fr 1fr; gap: 7px; }
 .pdf-preview-title { max-width: 760px; margin: 16px auto 8px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px; color: #555; font-size: 12px; }
@@ -1019,10 +1096,12 @@ button:disabled { opacity: .45; cursor: not-allowed; }
 .pdf-meta-line b { margin-right: 6px; }
 .pdf-price-block { margin-top: 9px; }
 .pdf-section-label { margin-bottom: 5px; font-size: 12px; }
-.pdf-price-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
-.pdf-price { display: flex; justify-content: space-between; align-items: center; gap: 6px; border: 1px solid rgba(0,0,0,.12); border-radius: 6px; padding: 6px 7px; background: #dff5d9; font-size: 12px; }
+.pdf-price-list { display: grid; grid-template-columns: 1fr; gap: 6px; }
+.pdf-card-grid.cards-1 .pdf-price-list { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.pdf-price { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 8px; min-height: 42px; border: 1px solid rgba(0,0,0,.12); border-radius: 6px; padding: 6px 7px; background: #dff5d9; font-size: 12px; }
 .pdf-price:nth-child(even) { background: #dbeaf7; }
-.pdf-price strong { font-size: 15px; }
+.pdf-price-label { min-width: 0; line-height: 1.25; overflow-wrap: anywhere; }
+.pdf-price-value { justify-self: end; white-space: nowrap; font-size: 15px; line-height: 1.15; text-align: right; }
 .pdf-red { color: #c51616 !important; font-weight: 750; }
 .pdf-product-badge { display: inline-flex; align-items: center; justify-content: center; margin-left: 6px; border-radius: 999px; border: 1px solid currentColor; padding: 1px 5px; font-size: 11px; line-height: 1.2; vertical-align: middle; }
 .badge-new { color: #c51616; }
@@ -1035,8 +1114,8 @@ button:disabled { opacity: .45; cursor: not-allowed; }
 .pdf-table-line { margin-top: 3px; color: #444; line-height: 1.35; }
 .pdf-table-line b { margin-right: 4px; color: #777; }
 .pdf-table-prices { width: 108px; }
-.pdf-table-prices div { display: flex; justify-content: space-between; gap: 4px; line-height: 1.35; }
-.pdf-table-prices strong { font-size: 11px; }
+.pdf-table-prices div { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 5px; line-height: 1.35; }
+.pdf-table-prices strong { font-size: 11px; white-space: nowrap; }
 .pdf-footer { display: flex; justify-content: space-between; gap: 12px; border-top: 1px solid currentColor; padding-top: 10px; margin-top: 16px; font-size: 11px; }
 .bean-groups { display: grid; gap: 14px; margin-top: 10px; }
 .bean-group { display: grid; gap: 8px; }

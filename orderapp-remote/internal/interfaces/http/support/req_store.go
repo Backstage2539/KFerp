@@ -445,6 +445,13 @@ func seedReqWorkflowA(ctx context.Context, pool *pgxpool.Pool, schema string) er
 		{table: "req_unit", code: "UT-096-01", title: "单测/源码守卫覆盖品牌名标题、底部更新日志和 QueryRow 避免 conn busy", status: "done", assignee: "Codex", evidence: "bean-list-pdf.test; TestPublishBeanListUsesQueryRowBeforeAuditToAvoidBusyConnection; TestCostingViewSupportsConfigurableBeanListPublishingWorkflow"},
 		{table: "req_api", code: "API-096-01", title: "发布豆单接口线上 smoke 覆盖 POST /api/costing/bean-list/publications 不再返回 conn busy", status: "done", assignee: "Codex", evidence: "postdeploy curl publish + withdraw smoke"},
 		{table: "req_review", code: "REV-096-01", prCode: "PR-096", title: "验收：可设置品牌名字；更新日志显示在底部；点击发布豆单成功且不再提示 conn busy", status: "todo", assignee: "VA", evidence: "待 Van 服务器验收"},
+		{table: "req_product", code: "PR-097", title: "修正豆单卡片生成：价格文本可通过标红词标红，报价对齐，分类剩余产品动态列数，分类和产品选择联动", status: "review", assignee: "VA", evidence: "codex/product-settings-categories"},
+		{table: "req_dev", code: "DEV-097-01", title: "标红词作用到价格展示文本，支持如 55/包 这样的价格内容标红", status: "done", assignee: "Codex", evidence: "priceDisplay + priceValueParts"},
+		{table: "req_dev", code: "DEV-097-02", title: "豆卡报价改为固定 label/value 网格，价格右对齐且不换行；按分类剩余产品数量动态列数，避免一张/两张卡留下空列", status: "done", assignee: "Codex", evidence: "pdf-price-label/pdf-price-value; cardGridStyle(group)"},
+		{table: "req_dev", code: "DEV-097-03", title: "分类和产品选择融合在一个列表中，分类勾选/取消会批量选择或取消该分类产品，产品清空后分类不再生成", status: "done", assignee: "Codex", evidence: "categoryProductGroups; togglePdfCategoryProducts"},
+		{table: "req_unit", code: "UT-097-01", title: "单测覆盖空产品/空分类不会生成豆单、价格文本标红；源码守卫覆盖豆卡报价对齐和分类产品联动", status: "done", assignee: "Codex", evidence: "bean-list-pdf.test; TestCostingViewSupportsConfigurableBeanListPublishingWorkflow"},
+		{table: "req_api", code: "API-097-01", title: "接口级源码守卫覆盖生成豆单参数不再把空选择解释成全选", status: "done", assignee: "Codex", evidence: "go test ./internal/interfaces/http/costing"},
+		{table: "req_review", code: "REV-097-01", prCode: "PR-097", title: "验收：价格标红生效；一行 2/3 豆卡报价整齐；单卡/双卡不留空白；取消分类会取消对应产品且豆单不再出现该分类", status: "todo", assignee: "VA", evidence: "待 Van 服务器验收"},
 	} {
 		if err := seedReqRow(ctx, pool, schema, row); err != nil {
 			return err
