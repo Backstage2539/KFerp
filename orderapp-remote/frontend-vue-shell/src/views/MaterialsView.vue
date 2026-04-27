@@ -60,6 +60,7 @@
             <p v-if="selected">保存、复制和废弃会记录到操作日志。</p>
           </div>
           <div class="actions" v-if="selected">
+            <button v-if="!draftMode" class="secondary" type="button" @click="openStockBackfill" :disabled="loading">库存补录</button>
             <button class="secondary" type="button" @click="copySelectedMaterial">复制新物料</button>
             <button v-if="!draftMode" class="danger" type="button" @click="deprecateSelectedMaterial" :disabled="loading">废弃物料</button>
           </div>
@@ -100,8 +101,8 @@
           <section class="form-section">
             <div class="section-title">库存</div>
             <div class="form-grid">
-              <label><span>库存(g)</span><input type="number" min="0" step="1" v-model.number="draft.onhand_g" /></label>
-              <label><span>库存(个)</span><input type="number" min="0" step="1" v-model.number="draft.onhand_units" /></label>
+              <label><span>库存(g)</span><input type="number" :value="draft.onhand_g" disabled /></label>
+              <label><span>库存(个)</span><input type="number" :value="draft.onhand_units" disabled /></label>
               <label><span>警戒线(g)</span><input type="number" min="0" step="1" v-model.number="draft.min_level_g" /></label>
               <label><span>警戒线(个)</span><input type="number" min="0" step="1" v-model.number="draft.min_level_units" /></label>
             </div>
@@ -139,7 +140,32 @@
           </section>
 
           <div class="form-actions">
-            <button class="primary" type="submit" :disabled="loading">{{ draftMode ? '保存新物料' : '保存库存/属性' }}</button>
+            <button class="primary" type="submit" :disabled="loading">{{ draftMode ? '保存新物料' : '保存警戒线/属性' }}</button>
+          </div>
+        </form>
+      </section>
+    </div>
+
+    <div v-if="stockBackfill.open" class="modal-mask" @click.self="closeStockBackfill">
+      <section class="modal-panel">
+        <div class="modal-head">
+          <div>
+            <h3>库存补录</h3>
+            <p>{{ selected?.name || '-' }} · {{ selected?.batch_no || '-' }}</p>
+          </div>
+          <button class="secondary" type="button" @click="closeStockBackfill">关闭</button>
+        </div>
+        <form class="detail-form" @submit.prevent="submitStockBackfill">
+          <div class="form-grid">
+            <label><span>当前库存(g)</span><input type="number" :value="selected?.onhand_g || 0" disabled /></label>
+            <label><span>当前库存(个)</span><input type="number" :value="selected?.onhand_units || 0" disabled /></label>
+            <label><span>目标库存(g)</span><input type="number" min="0" step="1" v-model.number="stockBackfill.target_g" /></label>
+            <label><span>目标库存(个)</span><input type="number" min="0" step="1" v-model.number="stockBackfill.target_units" /></label>
+            <label class="wide"><span>补录说明</span><textarea v-model.trim="stockBackfill.reason" rows="3" required></textarea></label>
+          </div>
+          <div class="form-actions">
+            <button class="secondary" type="button" @click="closeStockBackfill">取消</button>
+            <button class="primary" type="submit" :disabled="loading">提交补录</button>
           </div>
         </form>
       </section>
@@ -158,6 +184,12 @@ const ok = ref('')
 const selected = ref(null)
 const draft = ref(null)
 const draftMode = ref(false)
+const stockBackfill = ref({
+  open: false,
+  target_g: 0,
+  target_units: 0,
+  reason: '',
+})
 
 const selectedID = computed(() => selected.value?.id || 0)
 
@@ -280,6 +312,7 @@ function selectMaterial(row, options = {}) {
   selected.value = row
   draft.value = cloneMaterial(row)
   draftMode.value = false
+  closeStockBackfill()
   if (!options.quiet) {
     error.value = ''
     ok.value = ''
@@ -290,6 +323,7 @@ function clearSelection() {
   selected.value = null
   draft.value = null
   draftMode.value = false
+  closeStockBackfill()
 }
 
 function copySelectedMaterial() {
@@ -298,6 +332,8 @@ function copySelectedMaterial() {
   next.id = 0
   next.code = `${next.code}-copy`
   next.name = `${next.name} 副本`
+  next.onhand_g = 0
+  next.onhand_units = 0
   next.updated_at = ''
   next.deprecated_at = ''
   selected.value = next
@@ -308,6 +344,7 @@ function copySelectedMaterial() {
 }
 
 function payloadFromDraft() {
+  const sourceStock = draftMode.value ? { onhand_g: 0, onhand_units: 0 } : (selected.value || draft.value)
   return {
     code: draft.value.code,
     name: draft.value.name,
@@ -316,8 +353,8 @@ function payloadFromDraft() {
     batch_no: draft.value.batch_no,
     purchase_price: Number(draft.value.purchase_price || 0),
     sale_price: Number(draft.value.sale_price || 0),
-    onhand_g: Number(draft.value.onhand_g || 0),
-    onhand_units: Number(draft.value.onhand_units || 0),
+    onhand_g: Number(sourceStock.onhand_g || 0),
+    onhand_units: Number(sourceStock.onhand_units || 0),
     min_level_g: Number(draft.value.min_level_g || 0),
     min_level_units: Number(draft.value.min_level_units || 0),
     bean_profile: draft.value.kind === 'bean' ? draft.value.bean_profile : null,
@@ -342,6 +379,53 @@ async function saveMaterial() {
     await load()
     const next = rows.value.find((item) => item.id === row.id) || row
     selectMaterial(next, { quiet: true })
+  })
+}
+
+function openStockBackfill() {
+  if (!selected.value || draftMode.value) return
+  stockBackfill.value = {
+    open: true,
+    target_g: Number(selected.value.onhand_g || 0),
+    target_units: Number(selected.value.onhand_units || 0),
+    reason: '',
+  }
+  error.value = ''
+  ok.value = ''
+}
+
+function closeStockBackfill() {
+  if (!stockBackfill.value.open) return
+  stockBackfill.value.open = false
+}
+
+async function submitStockBackfill() {
+  if (!selected.value || draftMode.value) return
+  if (!stockBackfill.value.reason) {
+    error.value = '补录说明必填'
+    return
+  }
+  await mutate(async () => {
+    const res = await fetch('/api/stock/adjustments', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        item_type: 'material',
+        item_id: selected.value.id,
+        spec_g: 0,
+        warehouse: '',
+        target_g: Number(stockBackfill.value.target_g || 0),
+        target_units: Number(stockBackfill.value.target_units || 0),
+        reason: stockBackfill.value.reason,
+      }),
+    })
+    const data = await res.json()
+    if (!res.ok) throw new Error(data.error || '库存补录失败')
+    stockBackfill.value.open = false
+    await load()
+    const next = rows.value.find((item) => item.id === selectedID.value)
+    if (next) selectMaterial(next, { quiet: true })
+    ok.value = `库存补录已提交：#${data.adjustment_id || '-'}`
   })
 }
 
@@ -421,6 +505,11 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .error, .ok { border-radius: 6px; padding: 9px; margin-bottom: 12px; }
 .error { background: #fff0f0; border: 1px solid #e6b7b7; color: #8a1f1f; }
 .ok { background: #f0fff6; border: 1px solid #a9d8ba; color: #1f6a3f; }
+.modal-mask { position: fixed; inset: 0; z-index: 50; display: grid; place-items: center; padding: 18px; background: rgba(0,0,0,.28); }
+.modal-panel { width: min(640px, 100%); max-height: calc(100vh - 36px); overflow: auto; border-radius: 8px; background: #fff; border: 1px solid #d8d0c7; padding: 16px; box-shadow: 0 18px 50px rgba(0,0,0,.18); }
+.modal-head { display: flex; justify-content: space-between; gap: 12px; align-items: flex-start; margin-bottom: 14px; }
+.modal-head h3 { margin: 0; font-size: 18px; }
+.modal-head p { margin: 4px 0 0; color: #666; font-size: 12px; }
 @media (max-width: 1100px) { .materials-layout { grid-template-columns: 1fr; } }
 @media (max-width: 760px) { .page { padding: 12px; } .form-grid { grid-template-columns: 1fr; } .wide { grid-column: span 1; } }
 </style>

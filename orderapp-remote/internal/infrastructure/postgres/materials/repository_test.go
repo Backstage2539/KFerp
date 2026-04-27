@@ -101,3 +101,32 @@ func TestAssertImmutableMaterialFieldsRejectsChangedBaseFields(t *testing.T) {
 		t.Fatalf("assertImmutableMaterialFields() error = %v, want copy material", err)
 	}
 }
+
+func TestAssertImmutableMaterialFieldsRejectsInlineStockChange(t *testing.T) {
+	old := materialRow{
+		Code:          "bean-a",
+		Name:          "豆子A",
+		Kind:          "bean",
+		Unit:          "g",
+		BatchNo:       "20260427",
+		PurchasePrice: 88,
+		SalePrice:     99,
+		OnhandG:       1000,
+		OnhandUnits:   2,
+	}
+	next := materialInput{
+		Code:          "bean-a",
+		Name:          "豆子A",
+		Kind:          "bean",
+		Unit:          "g",
+		BatchNo:       "20260427",
+		PurchasePrice: 88,
+		SalePrice:     99,
+		OnhandG:       1200,
+		OnhandUnits:   2,
+	}
+	err := assertImmutableMaterialFields(old, next)
+	if err == nil || !strings.Contains(err.Error(), "stock adjustment") {
+		t.Fatalf("assertImmutableMaterialFields() error = %v, want stock adjustment", err)
+	}
+}

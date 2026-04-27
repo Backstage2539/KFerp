@@ -433,6 +433,9 @@ func assertImmutableMaterialFields(old materialRow, next materialInput) error {
 		fmt.Sprintf("%.2f", old.SalePrice) != fmt.Sprintf("%.2f", next.SalePrice) {
 		return fmt.Errorf("base fields are immutable; copy material to create a new version")
 	}
+	if old.OnhandG != next.OnhandG || old.OnhandUnits != next.OnhandUnits {
+		return fmt.Errorf("stock fields are read-only; use stock adjustment")
+	}
 	return nil
 }
 

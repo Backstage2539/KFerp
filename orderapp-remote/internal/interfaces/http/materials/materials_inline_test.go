@@ -97,6 +97,52 @@ func TestMaterialsAPIUpdateKeepsBaseFieldsImmutable(t *testing.T) {
 	}
 }
 
+func TestMaterialsAPIUpdateRejectsInlineStockChange(t *testing.T) {
+	pool, schema := newProductionFlowTestDB(t)
+	ctx := context.Background()
+	if _, err := pool.Exec(ctx, fmt.Sprintf(`INSERT INTO %s.materials(code,name,kind,unit,batch_no,purchase_price,sale_price,onhand_g,onhand_units,min_level_g,min_level_units,updated_at)
+		VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,now())`, schema), "m-api-stock-1", "库存物料", "bean", "g", "20260427", 10, 20, 1000, 3, 100, 1); err != nil {
+		t.Fatal(err)
+	}
+	var id int64
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT id FROM %s.materials WHERE code=$1`, schema), "m-api-stock-1").Scan(&id); err != nil {
+		t.Fatal(err)
+	}
+
+	e := echo.New()
+	e.Use(func(next echo.HandlerFunc) echo.HandlerFunc {
+		return func(c echo.Context) error {
+			c.Set("actor", "api-test")
+			return next(c)
+		}
+	})
+	registerMaterialsAPI(e, materialsapp.NewService(postgresmaterials.NewRepository(pool, schema)))
+
+	body, err := json.Marshal(materialsapp.MaterialInput{
+		Code:          "m-api-stock-1",
+		Name:          "库存物料",
+		Kind:          "bean",
+		Unit:          "g",
+		BatchNo:       "20260427",
+		PurchasePrice: 10,
+		SalePrice:     20,
+		OnhandG:       1200,
+		OnhandUnits:   3,
+		MinLevelG:     100,
+		MinLevelUnits: 1,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := httptest.NewRequest(http.MethodPost, fmt.Sprintf("/api/materials/%d", id), bytes.NewReader(body))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "stock adjustment") {
+		t.Fatalf("POST /api/materials/:id status = %d body=%s, want stock adjustment rejection", rec.Code, rec.Body.String())
+	}
+}
+
 func TestMaterialsAPICreateCopyDeprecateAndPackProfile(t *testing.T) {
 	pool, schema := newProductionFlowTestDB(t)
 	ctx := context.Background()

@@ -13,7 +13,8 @@ import (
 )
 
 type fakeStockRepo struct {
-	received stockapp.MaterialReceiptCommand
+	received   stockapp.MaterialReceiptCommand
+	adjustment stockapp.StockAdjustmentCommand
 }
 
 func (f *fakeStockRepo) ListLedger(ctx context.Context, query stockapp.LedgerQuery) (stockapp.LedgerResult, error) {
@@ -30,6 +31,7 @@ func (f *fakeStockRepo) ReceiveMaterial(ctx context.Context, cmd stockapp.Materi
 	return stockapp.MaterialReceiptResult{ReceiptID: 3, BatchID: 4, BatchCode: "MB-0000000003"}, nil
 }
 func (f *fakeStockRepo) CreateAdjustment(ctx context.Context, cmd stockapp.StockAdjustmentCommand) (stockapp.StockAdjustmentResult, error) {
+	f.adjustment = cmd
 	return stockapp.StockAdjustmentResult{AdjustmentID: 5}, nil
 }
 
@@ -57,5 +59,30 @@ func TestStockAPIRoutes(t *testing.T) {
 	}
 	if repo.received.MaterialID != 1 || repo.received.QtyG != 1200 {
 		t.Fatalf("received command = %+v", repo.received)
+	}
+}
+
+func TestStockAdjustmentsAPIRequiresReasonAndRecordsMaterialTarget(t *testing.T) {
+	repo := &fakeStockRepo{}
+	e := echo.New()
+	RegisterRoutes(e, Dependencies{Stock: stockapp.NewService(repo)})
+
+	req := httptest.NewRequest(http.MethodPost, "/api/stock/adjustments", bytes.NewBufferString(`{"item_type":"material","item_id":1,"target_g":1200}`))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadRequest || !bytes.Contains(rec.Body.Bytes(), []byte("reason required")) {
+		t.Fatalf("POST adjustment without reason status=%d body=%s", rec.Code, rec.Body.String())
+	}
+
+	req = httptest.NewRequest(http.MethodPost, "/api/stock/adjustments", bytes.NewBufferString(`{"item_type":"material","item_id":1,"target_g":1200,"target_units":3,"reason":"库存补录说明"}`))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec = httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("POST adjustment status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if repo.adjustment.ItemType != "material" || repo.adjustment.ItemID != 1 || repo.adjustment.TargetG != 1200 || repo.adjustment.TargetUnits != 3 || repo.adjustment.Reason != "库存补录说明" {
+		t.Fatalf("adjustment command = %+v", repo.adjustment)
 	}
 }

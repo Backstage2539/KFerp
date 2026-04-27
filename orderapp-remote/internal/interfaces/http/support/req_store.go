@@ -335,6 +335,12 @@ func seedReqWorkflowA(ctx context.Context, pool *pgxpool.Pool, schema string) er
 		{table: "req_unit", code: "UT-079-01", title: "覆盖物料主从详情页源码守卫、不可变字段校验和包材属性归属", status: "done", assignee: "Codex", evidence: "materials source/schema/repository tests"},
 		{table: "req_api", code: "API-079-01", title: "覆盖复制新物料、废弃旧物料、包材属性返回和废弃物料默认隐藏", status: "done", assignee: "Codex", evidence: "TestMaterialsAPICreateCopyDeprecateAndPackProfile"},
 		{table: "req_review", code: "REV-079-01", prCode: "PR-079", title: "验收：物料列表清爽，详情页可查看/复制/废弃，包材属性与生豆属性分开", status: "todo", assignee: "VA", evidence: "待 Van 功能分支服务器验收"},
+		{table: "req_product", code: "PR-080", title: "物料详情库存不支持直接修改，只能通过入库、出库或库存补录调整且补录必须说明情况", status: "review", assignee: "VA", evidence: "codex/material-master-detail-profiles"},
+		{table: "req_dev", code: "DEV-080-01", title: "物料详情库存字段改为只读，新增库存补录弹框并要求填写补录说明", status: "done", assignee: "Codex", evidence: "MaterialsView.vue 库存补录"},
+		{table: "req_dev", code: "DEV-080-02", title: "普通物料更新拒绝修改 onhand 库存，库存补录复用 stock adjustment 流水", status: "done", assignee: "Codex", evidence: "assertImmutableMaterialFields stock adjustment"},
+		{table: "req_unit", code: "UT-080-01", title: "覆盖物料页只读库存源码守卫、库存字段不可变校验和需求种子", status: "done", assignee: "Codex", evidence: "TestMaterialsViewDisallowsInlineStockAndUsesBackfill; TestAssertImmutableMaterialFieldsRejectsInlineStockChange; TestMaterialStockBackfillRequirementSeeds"},
+		{table: "req_api", code: "API-080-01", title: "覆盖 POST /api/materials/:id 拒绝库存直接变更，库存补录走 POST /api/stock/adjustments 并保留 reason", status: "done", assignee: "Codex", evidence: "TestMaterialsAPIUpdateRejectsInlineStockChange + stock adjustment smoke"},
+		{table: "req_review", code: "REV-080-01", prCode: "PR-080", title: "验收：物料库存不可直接改，点击库存补录填写说明后生成库存调整流水", status: "todo", assignee: "VA", evidence: "待 Van 功能分支服务器验收"},
 	} {
 		if err := seedReqRow(ctx, pool, schema, row); err != nil {
 			return err
