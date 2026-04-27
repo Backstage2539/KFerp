@@ -12,6 +12,7 @@ func productOptionFromCatalog(p catalogapp.Product) ProductOption {
 		RetailPrice200G:         p.RetailPrice200G,
 		RetailPrice227G:         p.RetailPrice227G,
 		RetailPrice250G:         p.RetailPrice250G,
+		YieldRate:               p.YieldRate,
 		ProductCategoryID:       p.ProductCategoryID,
 		ProductCategoryPosition: p.ProductCategoryPosition,
 	}

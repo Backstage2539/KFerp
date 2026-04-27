@@ -18,9 +18,11 @@ type productSettingsRepo struct {
 	savedCategory   catalogapp.SaveProductCategoryCommand
 	movedCategory   catalogapp.MoveProductCategoryCommand
 	assigned        catalogapp.AssignProductCategoryCommand
+	updated         catalogapp.UpdateProductBasicsCommand
 	categoryCreated bool
 	categoryMoved   bool
 	productAssigned bool
+	productUpdated  bool
 }
 
 func (r *productSettingsRepo) ListProducts(ctx context.Context) ([]catalogapp.Product, error) {
@@ -41,6 +43,8 @@ func (r *productSettingsRepo) ReplacePriceTiers(ctx context.Context, cmd catalog
 }
 
 func (r *productSettingsRepo) UpdateProductBasics(ctx context.Context, cmd catalogapp.UpdateProductBasicsCommand) error {
+	r.updated = cmd
+	r.productUpdated = true
 	return nil
 }
 
@@ -69,7 +73,7 @@ func (r *productSettingsRepo) AssignProductCategory(ctx context.Context, cmd cat
 func TestProductSettingsAPISupportsCategoryTreeAndDragAssignments(t *testing.T) {
 	repo := &productSettingsRepo{
 		products: []catalogapp.Product{{
-			ID: 7, Name: "曲奇拼配", ProductCategoryID: 2, ProductCategoryPosition: 1,
+			ID: 7, Name: "曲奇拼配", ProductCategoryID: 2, ProductCategoryPosition: 1, YieldRate: 0.82,
 		}},
 		categories: []catalogapp.ProductCategory{
 			{ID: 1, Name: "咖啡豆", Level: 1, Position: 1},
@@ -85,7 +89,7 @@ func TestProductSettingsAPISupportsCategoryTreeAndDragAssignments(t *testing.T) 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("GET /api/product-settings status=%d body=%s", rec.Code, rec.Body.String())
 	}
-	for _, want := range []string{`"categories"`, `"children"`, `"products"`, `"number":1`, `"name":"咖啡豆"`, `"name":"意式拼配"`, `"name":"曲奇拼配"`} {
+	for _, want := range []string{`"categories"`, `"children"`, `"products"`, `"number":1`, `"name":"咖啡豆"`, `"name":"意式拼配"`, `"name":"曲奇拼配"`, `"yield_rate":0.82`} {
 		if !bytes.Contains(rec.Body.Bytes(), []byte(want)) {
 			t.Fatalf("product settings response missing %s: %s", want, rec.Body.String())
 		}
@@ -122,6 +126,25 @@ func TestProductSettingsAPISupportsCategoryTreeAndDragAssignments(t *testing.T) 
 	}
 	if !repo.productAssigned || repo.assigned.ProductID != 7 || repo.assigned.CategoryID != 2 || repo.assigned.Position != 3 {
 		t.Fatalf("assign product command = %+v assigned=%v", repo.assigned, repo.productAssigned)
+	}
+}
+
+func TestProductSettingsAPIUpdatesProductYieldRate(t *testing.T) {
+	repo := &productSettingsRepo{
+		products: []catalogapp.Product{{ID: 7, Name: "曲奇拼配", RoastLevel: "中烘", YieldRate: 0.82}},
+	}
+	e := echo.New()
+	registerProductRoutes(e, catalogapp.NewService(repo))
+
+	req := httptest.NewRequest(http.MethodPut, "/api/products/7", bytes.NewBufferString(`{"roast_level":"中烘","yield_rate":0.835}`))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("PUT product status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if !repo.productUpdated || repo.updated.ProductID != 7 || repo.updated.YieldRate != 0.835 {
+		t.Fatalf("update command = %+v updated=%v", repo.updated, repo.productUpdated)
 	}
 }
 

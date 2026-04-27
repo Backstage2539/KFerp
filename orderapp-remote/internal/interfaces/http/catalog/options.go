@@ -22,6 +22,7 @@ type ProductOption struct {
 	RetailPrice200G         float64             `json:"retail_price_200g"`
 	RetailPrice227G         float64             `json:"retail_price_227g"`
 	RetailPrice250G         float64             `json:"retail_price_250g"`
+	YieldRate               float64             `json:"yield_rate"`
 	ProductCategoryID       int64               `json:"product_category_id"`
 	ProductCategoryPosition int                 `json:"product_category_position"`
 	RetailSpecs             []int64             `json:"retail_specs"`

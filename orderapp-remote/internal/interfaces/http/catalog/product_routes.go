@@ -39,6 +39,7 @@ type productUpdateAPIRequest struct {
 	RetailPrice200G float64                   `json:"retail_price_200g"`
 	RetailPrice227G float64                   `json:"retail_price_227g"`
 	RetailPrice250G float64                   `json:"retail_price_250g"`
+	YieldRate       float64                   `json:"yield_rate"`
 	Tiers           []productTierAPIUpsertRow `json:"tiers"`
 }
 
@@ -110,6 +111,10 @@ func (h productHandler) updateAPI(c echo.Context) error {
 	if roastLevel == "" {
 		return c.JSON(http.StatusBadRequest, map[string]any{"error": "invalid roast_level"})
 	}
+	yieldRate := normalizeProductYieldRate(req.YieldRate)
+	if req.YieldRate > 0 && yieldRate <= 0 {
+		return c.JSON(http.StatusBadRequest, map[string]any{"error": "invalid yield_rate"})
+	}
 	if err := h.catalog.UpdateProductBasics(c.Request().Context(), catalogapp.UpdateProductBasicsCommand{
 		Actor:           support.ActorOf(c),
 		ProductID:       id,
@@ -118,6 +123,7 @@ func (h productHandler) updateAPI(c echo.Context) error {
 		RetailPrice200G: req.RetailPrice200G,
 		RetailPrice227G: req.RetailPrice227G,
 		RetailPrice250G: req.RetailPrice250G,
+		YieldRate:       yieldRate,
 	}); err != nil {
 		return c.JSON(http.StatusInternalServerError, map[string]any{"error": err.Error()})
 	}
@@ -129,6 +135,19 @@ func (h productHandler) updateAPI(c echo.Context) error {
 		return c.JSON(http.StatusNotFound, map[string]any{"error": "not found"})
 	}
 	return c.JSON(http.StatusOK, map[string]any{"product": productOptionFromCatalog(*p)})
+}
+
+func normalizeProductYieldRate(value float64) float64 {
+	if value <= 0 {
+		return 0
+	}
+	if value > 1 && value <= 100 {
+		value = value / 100
+	}
+	if value <= 0 || value > 1 {
+		return 0
+	}
+	return value
 }
 
 func (h productHandler) productSettingsAPI(c echo.Context) error {

@@ -14,11 +14,11 @@ func TestProductionManualRequirementSeeds(t *testing.T) {
 	}
 	src := string(b)
 	for _, want := range []string{
-		"PR-090",
-		"DEV-090-01",
-		"UT-090-01",
-		"API-090-01",
-		"REV-090-01",
+		"PR-091",
+		"DEV-091-01",
+		"UT-091-01",
+		"API-091-01",
+		"REV-091-01",
 		"生产流程用户手册展示在前端页面",
 	} {
 		if !strings.Contains(src, want) {
