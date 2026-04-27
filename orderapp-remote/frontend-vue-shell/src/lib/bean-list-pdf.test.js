@@ -5,6 +5,7 @@ import {
   DEFAULT_BEAN_LIST_PDF_VERSION,
   buildBeanListPdfGroups,
   buildBeanListPdfTitle,
+  copyBeanListPublicationConfig,
   sanitizeBeanListPdfTheme,
   splitHighlightedText,
 } from './bean-list-pdf.js'
@@ -172,4 +173,55 @@ test('PDF bean-list helper preserves layout, brand, changelog, badge, and red-hi
   ])
   assert.deepEqual(splitHighlightedText('127/包', item.highlightTerms), [{ text: '127/包', red: true }])
   assert.deepEqual(splitHighlightedText('55/包', ['55/包']), [{ text: '55/包', red: true }])
+})
+
+test('PDF bean-list helper copies a published configuration for editing against current items', () => {
+  const copied = copyBeanListPublicationConfig({
+    id: 9,
+    list_type: 'commercial',
+    version: 'V3.0.6',
+    changelog: '旧版本说明',
+    config: {
+      listType: 'commercial',
+      version: 'V3.0.6',
+      brandName: '测试品牌',
+      layoutStyle: 'table',
+      cardsPerRow: 3,
+      backgroundColor: '#112233',
+      fontColor: '#445566',
+      showVersion: false,
+      showChangelog: true,
+      showCategoryNumbers: false,
+      selectedProductIDs: [10, 999],
+      visibleCategoryCodes: ['1', '9'],
+      customizers: {
+        10: { badge: 'new', highlightTerms: '55/包,庄园差异性产品' },
+        999: { badge: 'medal' },
+      },
+    },
+  }, {
+    listType: 'retail',
+    brandName: '当前品牌',
+    version: DEFAULT_BEAN_LIST_PDF_VERSION,
+  }, {
+    productIDs: ['10', '20'],
+    categoryCodes: ['1', '2'],
+  })
+
+  assert.equal(copied.options.listType, 'commercial')
+  assert.equal(copied.options.version, 'V3.0.6')
+  assert.equal(copied.options.brandName, '测试品牌')
+  assert.equal(copied.options.layoutStyle, 'table')
+  assert.equal(copied.options.cardsPerRow, 3)
+  assert.equal(copied.options.backgroundColor, '#112233')
+  assert.equal(copied.options.fontColor, '#445566')
+  assert.equal(copied.options.showVersion, false)
+  assert.equal(copied.options.showChangelog, true)
+  assert.equal(copied.options.showCategoryNumbers, false)
+  assert.equal(copied.options.changelog, '旧版本说明')
+  assert.deepEqual(copied.selectedProductIDs, ['10'])
+  assert.deepEqual(copied.visibleCategoryCodes, ['1'])
+  assert.deepEqual(copied.customizers, {
+    10: { badge: 'new', highlightTerms: '55/包,庄园差异性产品' },
+  })
 })

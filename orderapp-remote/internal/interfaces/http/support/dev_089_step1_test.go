@@ -297,6 +297,29 @@ func TestBeanListPublicCustomerLinkRequirementSeeds(t *testing.T) {
 	}
 }
 
+func TestBeanListCopyPublishedConfigRequirementSeeds(t *testing.T) {
+	b, err := os.ReadFile(filepath.Join("internal", "interfaces", "http", "support", "req_store.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := string(b)
+	for _, want := range []string{
+		"PR-103",
+		"DEV-103-01",
+		"DEV-103-02",
+		"UT-103-01",
+		"API-103-01",
+		"REV-103-01",
+		"生成豆单支持复制已有豆单配置",
+		"复制已有豆单配置",
+		"当前最新产品和价格重新生成预览",
+	} {
+		if !strings.Contains(src, want) {
+			t.Fatalf("bean-list copy config requirement seed missing %q", want)
+		}
+	}
+}
+
 func TestProductSettingsVueWiringAndLegacyTierEditorRemoval(t *testing.T) {
 	app, err := os.ReadFile(filepath.Join("frontend-vue-shell", "src", "App.vue"))
 	if err != nil {

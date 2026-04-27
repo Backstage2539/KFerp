@@ -173,6 +173,22 @@
           <button class="secondary" type="button" @click="pdfDrawerOpen = false">关闭</button>
         </div>
 
+        <div class="copy-config-box" v-if="copyableBeanListPublications.length">
+          <div>
+            <strong>复制已有豆单配置</strong>
+            <p>选择历史发布记录，只复制样式、选择、标签和标红词，预览会按当前最新产品和价格重新生成。</p>
+          </div>
+          <div class="copy-config-actions">
+            <select v-model="selectedCopyPublicationID">
+              <option value="">选择历史豆单</option>
+              <option v-for="row in copyableBeanListPublications" :key="`copy-pub-${row.id}`" :value="String(row.id)">
+                {{ beanListPublicationLabel(row) }}
+              </option>
+            </select>
+            <button class="secondary" type="button" :disabled="!selectedCopyPublication" @click="applyCopiedBeanListPublicationConfig()">复制配置</button>
+          </div>
+        </div>
+
         <div class="pdf-form">
           <label>
             <span>豆单类型</span>
@@ -515,6 +531,7 @@ import {
   buildBeanListPdfGroups,
   buildBeanListPdfSubtitle,
   buildBeanListPdfTitle,
+  copyBeanListPublicationConfig,
   sanitizeBeanListPdfTheme,
   splitHighlightedText,
 } from '../lib/bean-list-pdf'
@@ -528,6 +545,7 @@ const settingsOpen = ref(false)
 const pdfDrawerOpen = ref(false)
 const pdfPrinting = ref(false)
 const pricingCollapsed = ref(true)
+const selectedCopyPublicationID = ref('')
 const error = ref('')
 const message = ref('')
 const parameters = ref(null)
@@ -575,6 +593,8 @@ const pdfTotalItems = computed(() => pdfGroups.value.reduce((sum, group) => sum 
 const pdfTitle = computed(() => buildBeanListPdfTitle(pdfTheme.value.listType, pdfTheme.value.brandName))
 const pdfSubtitle = computed(() => buildBeanListPdfSubtitle(pdfTheme.value.listType))
 const currentBeanListPublication = computed(() => (beanListPublications.value[pdfTheme.value.listType] || []).find((row) => row.status === 'published') || null)
+const copyableBeanListPublications = computed(() => beanListPublications.value[pdfTheme.value.listType] || [])
+const selectedCopyPublication = computed(() => copyableBeanListPublications.value.find((row) => String(row.id) === String(selectedCopyPublicationID.value)) || null)
 const publicBeanListURL = computed(() => {
   if (!currentBeanListPublication.value) return ''
   return `${window.location.origin}/public/bean-list/${pdfTheme.value.listType}`
@@ -589,6 +609,7 @@ const pdfPageStyle = computed(() => {
 })
 
 watch(() => pdfOptions.value.listType, (listType) => {
+  selectedCopyPublicationID.value = ''
   initializePdfDefaultsForType(listType)
   loadBeanListPublications(listType)
 })
@@ -697,6 +718,28 @@ function openBeanListDrawer(listType = 'commercial') {
   initializePdfDefaultsForType(listType)
   loadBeanListPublications(listType)
   pdfDrawerOpen.value = true
+}
+
+function beanListPublicationLabel(row) {
+  const status = row?.status === 'published' ? '已发布' : '已撤回'
+  const time = row?.published_at || row?.created_at || ''
+  return [row?.version || '未命名版本', status, time].filter(Boolean).join(' · ')
+}
+
+function applyCopiedBeanListPublicationConfig(row = selectedCopyPublication.value) {
+  if (!row) return
+  const listType = row.list_type === 'retail' ? 'retail' : 'commercial'
+  const copied = copyBeanListPublicationConfig(row, pdfOptions.value, {
+    productIDs: beanListItemsForType(listType).map((item) => itemProductID(item)),
+    categoryCodes: beanListCategoryOptions(listType).map((item) => item.code),
+  })
+  pdfOptions.value = { ...pdfOptions.value, ...copied.options, listType }
+  selectedProductIDsByType.value = { ...selectedProductIDsByType.value, [listType]: copied.selectedProductIDs }
+  visibleCategoryCodesByType.value = { ...visibleCategoryCodesByType.value, [listType]: copied.visibleCategoryCodes }
+  productSelectionInitialized.value = { ...productSelectionInitialized.value, [listType]: true }
+  categorySelectionInitialized.value = { ...categorySelectionInitialized.value, [listType]: true }
+  pdfCustomizers.value = copied.customizers
+  message.value = `已复制${beanListPublicationLabel(row)}配置，可继续修改后生成`
 }
 
 function isPdfProductSelected(id) {
@@ -1083,6 +1126,11 @@ button:disabled { opacity: .45; cursor: not-allowed; }
 .public-link-box { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 8px; margin-top: 8px; border: 1px solid #ddd; border-radius: 8px; background: #fff; padding: 8px; font-size: 12px; }
 .public-link-box span { color: #666; font-weight: 700; }
 .public-link-box a { min-width: 0; color: #111; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.copy-config-box { display: grid; grid-template-columns: minmax(0, 1fr) minmax(280px, .8fr); align-items: end; gap: 12px; border: 1px solid #ddd; border-radius: 10px; background: #fafafa; padding: 12px; margin-bottom: 12px; }
+.copy-config-box strong { display: block; margin-bottom: 4px; }
+.copy-config-box p { margin: 0; color: #666; font-size: 12px; line-height: 1.45; }
+.copy-config-actions { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; }
+.copy-config-actions select { min-width: 0; min-height: 38px; border: 1px solid #ddd; border-radius: 8px; padding: 7px 9px; background: #fff; font: inherit; }
 .pdf-drawer { width: min(760px, 100vw); }
 .pdf-form { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
 .pdf-form label span { display: block; color: #666; font-size: 12px; margin-bottom: 5px; }
@@ -1179,6 +1227,7 @@ article, .empty-card { border: 1px solid #eee; border-radius: 8px; padding: 12px
   .metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .bean-grid { grid-template-columns: 1fr; }
   .settings-drawer { width: 100vw; }
+  .copy-config-box, .copy-config-actions { grid-template-columns: 1fr; }
   .pdf-form { grid-template-columns: 1fr; }
   .checkbox-grid, .customizer-row { grid-template-columns: 1fr; }
   .bean-list-generate-bar { align-items: flex-start; flex-direction: column; }

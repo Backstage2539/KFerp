@@ -484,6 +484,12 @@ func seedReqWorkflowA(ctx context.Context, pool *pgxpool.Pool, schema string) er
 		{table: "req_unit", code: "UT-102-01", title: "单测覆盖公开页渲染发布快照、鉴权放行公开路径、后台客户链接入口和需求种子", status: "done", assignee: "Codex", evidence: "TestPublicBeanListPageRendersPublishedSnapshot; TestBasicAuthAllowsPublicBeanListWithoutCredentials; TestBeanListPublicCustomerLinkRequirementSeeds"},
 		{table: "req_api", code: "API-102-01", title: "接口级验证 GET /public/bean-list/:list_type 返回已发布豆单 HTML，未登录可访问且不泄露发布/撤回操作", status: "done", assignee: "Codex", evidence: "go test ./internal/interfaces/http/costing ./internal/interfaces/http/support"},
 		{table: "req_review", code: "REV-102-01", prCode: "PR-102", title: "验收：发布商用或零售豆单后，可把客户链接发给客户直接打开；撤回后客户链接不再展示该版本", status: "todo", assignee: "VA", evidence: "待 Van 服务器验收"},
+		{table: "req_product", code: "PR-103", title: "生成豆单支持复制已有豆单配置，快速基于历史版本调整后再生成", status: "review", assignee: "VA", evidence: "codex/product-settings-categories"},
+		{table: "req_dev", code: "DEV-103-01", title: "生成豆单抽屉增加复制已有豆单配置入口，可选择历史发布记录并复制版本、样式、品牌、分级展示、产品选择、标签和标红词", status: "done", assignee: "Codex", evidence: "CostingView copy-config-box/applyCopiedBeanListPublicationConfig"},
+		{table: "req_dev", code: "DEV-103-02", title: "复制配置只带入配置，不复制旧 content 快照；当前最新产品和价格重新生成预览，避免沿用旧价格", status: "done", assignee: "Codex", evidence: "copyBeanListPublicationConfig + buildBeanListPdfGroups current items"},
+		{table: "req_unit", code: "UT-103-01", title: "单测覆盖复制发布记录配置时过滤不存在的产品/分类，保留样式、标签、标红词和版本日志", status: "done", assignee: "Codex", evidence: "bean-list-pdf.test copyBeanListPublicationConfig; TestBeanListCopyPublishedConfigRequirementSeeds"},
+		{table: "req_api", code: "API-103-01", title: "接口级源码守卫覆盖生成豆单复制配置入口和现有发布记录 API 复用，不新增后端接口", status: "done", assignee: "Codex", evidence: "go test ./internal/interfaces/http/costing ./internal/interfaces/http/support"},
+		{table: "req_review", code: "REV-103-01", prCode: "PR-103", title: "验收：生成豆单时可选一个历史豆单复制配置，修改后预览按最新产品和价格生成并可继续发布", status: "todo", assignee: "VA", evidence: "待 Van 服务器验收"},
 	} {
 		if err := seedReqRow(ctx, pool, schema, row); err != nil {
 			return err

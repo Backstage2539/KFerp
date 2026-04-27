@@ -149,6 +149,28 @@ export function splitHighlightedText(text, terms = []) {
   return parts.filter((part) => part.text)
 }
 
+export function copyBeanListPublicationConfig(publication = {}, currentOptions = {}, available = {}) {
+  const config = publication.config && typeof publication.config === 'object' ? publication.config : {}
+  const listType = config.listType === 'retail' || publication.list_type === 'retail' ? 'retail' : 'commercial'
+  const options = {
+    ...sanitizeBeanListPdfTheme({
+      ...currentOptions,
+      ...config,
+      listType,
+      changelog: config.changelog || publication.changelog || currentOptions.changelog || '',
+    }),
+    showCategoryNumbers: config.showCategoryNumbers !== false,
+  }
+  const productIDs = copySelectedValues(config, 'selectedProductIDs', available.productIDs)
+  const categoryCodes = copySelectedValues(config, 'visibleCategoryCodes', available.categoryCodes)
+  return {
+    options,
+    selectedProductIDs: productIDs,
+    visibleCategoryCodes: categoryCodes,
+    customizers: copyCustomizers(config.customizers, new Set(productIDs)),
+  }
+}
+
 function normalizeColor(value, fallback) {
   const v = String(value || '').trim()
   return /^#[0-9a-fA-F]{6}$/.test(v) ? v : fallback
@@ -167,6 +189,31 @@ function normalizeStringSet(values) {
 function normalizeStringList(values) {
   const raw = Array.isArray(values) ? values : String(values || '').split(/[\n,，]/)
   return raw.map((value) => String(value ?? '').trim()).filter(Boolean)
+}
+
+function copySelectedValues(config, key, validValues = []) {
+  const valid = normalizeStringList(validValues)
+  const validSet = new Set(valid)
+  if (!Object.prototype.hasOwnProperty.call(config, key)) return valid
+  return normalizeStringList(config[key]).filter((value) => validSet.has(value))
+}
+
+function copyCustomizers(value, validProductIDs) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return {}
+  const out = {}
+  Object.entries(value).forEach(([key, customizer]) => {
+    const id = String(key)
+    if (!validProductIDs.has(id) || !customizer || typeof customizer !== 'object' || Array.isArray(customizer)) return
+    const badge = normalizeBadge(customizer.badge)
+    const highlightTerms = Array.isArray(customizer.highlightTerms)
+      ? normalizeStringList(customizer.highlightTerms)
+      : String(customizer.highlightTerms || '').trim()
+    out[id] = {
+      ...(badge ? { badge } : {}),
+      ...(Array.isArray(highlightTerms) ? { highlightTerms } : highlightTerms ? { highlightTerms } : {}),
+    }
+  })
+  return out
 }
 
 function productIDOf(item) {
