@@ -181,6 +181,10 @@
             <input v-model.trim="pdfOptions.version" placeholder="V3.0.5" />
           </label>
           <label>
+            <span>品牌名字</span>
+            <input v-model.trim="pdfOptions.brandName" placeholder="棵凡咖啡" />
+          </label>
+          <label>
             <span>豆单样式</span>
             <select v-model="pdfOptions.layoutStyle">
               <option value="card">豆卡样式</option>
@@ -299,10 +303,6 @@
             </div>
             <div class="pdf-badge">{{ pdfTheme.listType === 'retail' ? '零售' : '商用' }}</div>
           </header>
-          <div v-if="pdfTheme.showChangelog && pdfTheme.changelog" class="pdf-changelog">
-            <b>更新</b>
-            <span>{{ pdfTheme.changelog }}</span>
-          </div>
 
           <section v-for="group in pdfGroups" :key="`preview-${group.category}`" class="pdf-group">
             <h2 v-if="group.showCategory && pdfOptions.showCategoryNumbers">{{ group.category }}</h2>
@@ -376,8 +376,13 @@
             </div>
           </section>
 
+          <div v-if="pdfTheme.showChangelog && pdfTheme.changelog" class="pdf-changelog pdf-bottom-changelog">
+            <b>更新</b>
+            <span>{{ pdfTheme.changelog }}</span>
+          </div>
+
           <footer class="pdf-footer">
-            <span>棵凡咖啡</span>
+            <span>{{ pdfTheme.brandName }}</span>
             <span>联系电话：15302787466</span>
           </footer>
         </div>
@@ -395,10 +400,6 @@
         </div>
         <div class="pdf-badge">{{ pdfTheme.listType === 'retail' ? '零售' : '商用' }}</div>
       </header>
-      <div v-if="pdfTheme.showChangelog && pdfTheme.changelog" class="pdf-changelog">
-        <b>更新</b>
-        <span>{{ pdfTheme.changelog }}</span>
-      </div>
 
       <section v-for="group in pdfGroups" :key="`pdf-${group.category}`" class="pdf-group">
         <h2 v-if="group.showCategory && pdfOptions.showCategoryNumbers">{{ group.category }}</h2>
@@ -472,8 +473,13 @@
         </div>
       </section>
 
+      <div v-if="pdfTheme.showChangelog && pdfTheme.changelog" class="pdf-changelog pdf-bottom-changelog">
+        <b>更新</b>
+        <span>{{ pdfTheme.changelog }}</span>
+      </div>
+
       <footer class="pdf-footer">
-        <span>棵凡咖啡</span>
+        <span>{{ pdfTheme.brandName }}</span>
         <span>联系电话：15302787466</span>
       </footer>
     </section>
@@ -516,6 +522,7 @@ const pdfCustomizers = ref({})
 const pdfOptions = ref({
   listType: 'commercial',
   version: DEFAULT_BEAN_LIST_PDF_VERSION,
+  brandName: '棵凡咖啡',
   backgroundColor: '#f8f1e5',
   fontColor: '#171717',
   backgroundImage: '',
@@ -544,7 +551,7 @@ const pdfGenerationOptions = computed(() => ({
 }))
 const pdfGroups = computed(() => buildBeanListPdfGroups(items.value, pdfTheme.value.listType, pdfGenerationOptions.value))
 const pdfTotalItems = computed(() => pdfGroups.value.reduce((sum, group) => sum + group.items.length, 0))
-const pdfTitle = computed(() => buildBeanListPdfTitle(pdfTheme.value.listType))
+const pdfTitle = computed(() => buildBeanListPdfTitle(pdfTheme.value.listType, pdfTheme.value.brandName))
 const pdfSubtitle = computed(() => buildBeanListPdfSubtitle(pdfTheme.value.listType))
 const pdfGridStyle = computed(() => ({ gridTemplateColumns: `repeat(${pdfTheme.value.cardsPerRow}, minmax(0, 1fr))` }))
 const currentBeanListPublication = computed(() => (beanListPublications.value[pdfTheme.value.listType] || []).find((row) => row.status === 'published') || null)
@@ -995,6 +1002,7 @@ button:disabled { opacity: .45; cursor: not-allowed; }
 .pdf-logo { max-width: 96px; max-height: 44px; object-fit: contain; display: block; margin-bottom: 5px; }
 .pdf-brand-intro { max-width: 330px; margin-top: 6px !important; white-space: pre-line; }
 .pdf-changelog { display: grid; grid-template-columns: 38px 1fr; gap: 7px; border: 1px solid rgba(0,0,0,.12); border-radius: 8px; padding: 8px; margin-bottom: 12px; background: rgba(255,255,255,.62); font-size: 12px; line-height: 1.45; white-space: pre-line; }
+.pdf-bottom-changelog { margin-top: 14px; margin-bottom: 8px; }
 .pdf-badge { border: 1px solid currentColor; border-radius: 999px; padding: 4px 9px; font-size: 12px; white-space: nowrap; }
 .pdf-group { margin: 14px 0; }
 .pdf-group h2 { margin: 0 0 8px; padding: 7px 9px; background: rgba(255,255,255,.62); border-left: 4px solid currentColor; font-size: 15px; line-height: 1.25; }

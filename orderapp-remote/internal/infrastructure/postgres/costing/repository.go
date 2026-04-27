@@ -218,30 +218,43 @@ func (r Repository) PublishBeanList(ctx context.Context, cmd appcosting.PublishB
 	if err != nil {
 		return nil, err
 	}
-	row, err := tx.Query(ctx, fmt.Sprintf(`
+	var published appcosting.BeanListPublication
+	var configJSON, contentJSON []byte
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`
 		INSERT INTO %s.bean_list_publications(list_type, version_no, status, config_json, content_json, changelog, actor)
 		VALUES($1,$2,'published',$3::jsonb,$4::jsonb,$5,$6)
 		RETURNING id, list_type, version_no, status, config_json, content_json, changelog,
 		          to_char(published_at,'YYYY-MM-DD HH24:MI'),
 		          COALESCE(to_char(withdrawn_at,'YYYY-MM-DD HH24:MI'),''),
 		          to_char(created_at,'YYYY-MM-DD HH24:MI')
-	`, r.schema), cmd.ListType, cmd.Version, config, content, cmd.Changelog, cmd.Actor)
-	if err != nil {
+	`, r.schema), cmd.ListType, cmd.Version, config, content, cmd.Changelog, cmd.Actor).Scan(
+		&published.ID,
+		&published.ListType,
+		&published.Version,
+		&published.Status,
+		&configJSON,
+		&contentJSON,
+		&published.Changelog,
+		&published.PublishedAt,
+		&published.WithdrawnAt,
+		&published.CreatedAt,
+	); err != nil {
 		return nil, err
 	}
-	defer row.Close()
-	if !row.Next() {
-		if err := row.Err(); err != nil {
+	published.Config = map[string]any{}
+	published.Content = map[string]any{}
+	if len(configJSON) > 0 {
+		if err := json.Unmarshal(configJSON, &published.Config); err != nil {
 			return nil, err
 		}
+	}
+	if len(contentJSON) > 0 {
+		if err := json.Unmarshal(contentJSON, &published.Content); err != nil {
+			return nil, err
+		}
+	}
+	if published.ID <= 0 {
 		return nil, fmt.Errorf("publish failed")
-	}
-	published, err := scanBeanListPublication(row)
-	if err != nil {
-		return nil, err
-	}
-	if err := row.Err(); err != nil {
-		return nil, err
 	}
 	if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, cmd.Actor, "bean_list_publication", &published.ID, "publish", postgresinfra.StrPtr("status"), nil, postgresinfra.StrPtr("published"), postgresinfra.AuditMeta{
 		"list_type": cmd.ListType,

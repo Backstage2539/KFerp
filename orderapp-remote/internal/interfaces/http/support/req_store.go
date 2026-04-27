@@ -439,6 +439,12 @@ func seedReqWorkflowA(ctx context.Context, pool *pgxpool.Pool, schema string) er
 		{table: "req_unit", code: "UT-095-01", title: "单测覆盖豆单产品筛选、分级过滤、编号重排、样式配置、标签和标红拆分", status: "done", assignee: "Codex", evidence: "node --test src/lib/bean-list-pdf.test.js"},
 		{table: "req_api", code: "API-095-01", title: "API 测试覆盖 GET/POST /api/costing/bean-list/publications 和 POST /withdraw 发布撤回流程", status: "done", assignee: "Codex", evidence: "TestBeanListPublicationAPI"},
 		{table: "req_review", code: "REV-095-01", prCode: "PR-095", title: "验收：可按选择生成商用/零售豆单，编号随筛选重排，PDF 预览含样式、标签、标红、版本日志、logo/品牌介绍，并可发布/撤回", status: "todo", assignee: "VA", evidence: "待 Van 服务器验收"},
+		{table: "req_product", code: "PR-096", title: "豆单生成支持设置品牌名字，更新日志放在底部，并修复发布豆单 conn busy", status: "review", assignee: "VA", evidence: "codex/product-settings-categories"},
+		{table: "req_dev", code: "DEV-096-01", title: "豆单样式设置增加品牌名字，标题和底部品牌使用该名称；更新日志移动到豆单底部", status: "done", assignee: "Codex", evidence: "CostingView brandName; pdf-bottom-changelog"},
+		{table: "req_dev", code: "DEV-096-02", title: "修复发布豆单 conn busy：PublishBeanList 的 INSERT RETURNING 改为 QueryRow，避免未关闭 Rows 时继续写审计", status: "done", assignee: "Codex", evidence: "postgres costing repository PublishBeanList QueryRow"},
+		{table: "req_unit", code: "UT-096-01", title: "单测/源码守卫覆盖品牌名标题、底部更新日志和 QueryRow 避免 conn busy", status: "done", assignee: "Codex", evidence: "bean-list-pdf.test; TestPublishBeanListUsesQueryRowBeforeAuditToAvoidBusyConnection; TestCostingViewSupportsConfigurableBeanListPublishingWorkflow"},
+		{table: "req_api", code: "API-096-01", title: "发布豆单接口线上 smoke 覆盖 POST /api/costing/bean-list/publications 不再返回 conn busy", status: "done", assignee: "Codex", evidence: "postdeploy curl publish + withdraw smoke"},
+		{table: "req_review", code: "REV-096-01", prCode: "PR-096", title: "验收：可设置品牌名字；更新日志显示在底部；点击发布豆单成功且不再提示 conn busy", status: "todo", assignee: "VA", evidence: "待 Van 服务器验收"},
 	} {
 		if err := seedReqRow(ctx, pool, schema, row); err != nil {
 			return err

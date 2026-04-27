@@ -5,6 +5,7 @@ export function sanitizeBeanListPdfTheme(input = {}) {
   return {
     listType,
     version: String(input.version || DEFAULT_BEAN_LIST_PDF_VERSION).trim() || DEFAULT_BEAN_LIST_PDF_VERSION,
+    brandName: String(input.brandName || '棵凡咖啡').trim() || '棵凡咖啡',
     backgroundColor: normalizeColor(input.backgroundColor, '#f8f1e5'),
     fontColor: normalizeColor(input.fontColor, '#171717'),
     backgroundImage: String(input.backgroundImage || '').trim(),
@@ -18,8 +19,9 @@ export function sanitizeBeanListPdfTheme(input = {}) {
   }
 }
 
-export function buildBeanListPdfTitle(listType) {
-  return listType === 'retail' ? '棵凡咖啡零售豆单' : '棵凡咖啡批发豆单'
+export function buildBeanListPdfTitle(listType, brandName = '棵凡咖啡') {
+  const brand = String(brandName || '棵凡咖啡').trim() || '棵凡咖啡'
+  return listType === 'retail' ? `${brand}零售豆单` : `${brand}批发豆单`
 }
 
 export function buildBeanListPdfSubtitle(listType) {

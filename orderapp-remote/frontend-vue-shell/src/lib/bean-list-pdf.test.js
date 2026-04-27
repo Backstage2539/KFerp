@@ -124,6 +124,7 @@ test('PDF bean-list helper supports product selection, category filtering, and E
 test('PDF bean-list helper preserves layout, brand, changelog, badge, and red-highlight settings', () => {
   const theme = sanitizeBeanListPdfTheme({
     listType: 'commercial',
+    brandName: '烘豆实验室',
     layoutStyle: 'table',
     cardsPerRow: '3',
     logoImage: 'data:image/png;base64,logo',
@@ -134,12 +135,15 @@ test('PDF bean-list helper preserves layout, brand, changelog, badge, and red-hi
   })
 
   assert.equal(theme.layoutStyle, 'table')
+  assert.equal(theme.brandName, '烘豆实验室')
   assert.equal(theme.cardsPerRow, 3)
   assert.equal(theme.logoImage, 'data:image/png;base64,logo')
   assert.equal(theme.brandIntro, '专注精品咖啡烘焙')
   assert.equal(theme.showVersion, false)
   assert.equal(theme.showChangelog, true)
   assert.equal(theme.changelog, 'V3.0.6 调整庄园精品豆')
+  assert.equal(buildBeanListPdfTitle('commercial', theme.brandName), '烘豆实验室批发豆单')
+  assert.equal(buildBeanListPdfTitle('retail', theme.brandName), '烘豆实验室零售豆单')
 
   const groups = buildBeanListPdfGroups(rows, 'commercial', {
     selectedProductIDs: [30],

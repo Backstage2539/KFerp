@@ -149,6 +149,29 @@ func TestBeanListAdvancedGenerationRequirementSeeds(t *testing.T) {
 	}
 }
 
+func TestBeanListPublicationFollowupRequirementSeeds(t *testing.T) {
+	b, err := os.ReadFile(filepath.Join("internal", "interfaces", "http", "support", "req_store.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := string(b)
+	for _, want := range []string{
+		"PR-096",
+		"DEV-096-01",
+		"DEV-096-02",
+		"UT-096-01",
+		"API-096-01",
+		"REV-096-01",
+		"支持设置品牌名字",
+		"更新日志放在底部",
+		"修复发布豆单 conn busy",
+	} {
+		if !strings.Contains(src, want) {
+			t.Fatalf("bean-list publication follow-up requirement seed missing %q", want)
+		}
+	}
+}
+
 func TestProductSettingsVueWiringAndLegacyTierEditorRemoval(t *testing.T) {
 	app, err := os.ReadFile(filepath.Join("frontend-vue-shell", "src", "App.vue"))
 	if err != nil {

@@ -110,12 +110,18 @@ func TestCostingViewSupportsConfigurableBeanListPublishingWorkflow(t *testing.T)
 		"withdrawBeanList",
 		"showVersion",
 		"showChangelog",
+		"brandName",
 		"logoImage",
 		"brandIntro",
+		"pdf-bottom-changelog",
 		"/api/costing/bean-list/publications",
 	} {
 		if !strings.Contains(src, want) {
 			t.Fatalf("configurable bean-list workflow missing %q", want)
 		}
+	}
+	if strings.Contains(src, `<div v-if="pdfTheme.showChangelog && pdfTheme.changelog" class="pdf-changelog">
+            <b>更新</b>`) {
+		t.Fatalf("PDF changelog should render at the bottom, not directly under the cover")
 	}
 }
