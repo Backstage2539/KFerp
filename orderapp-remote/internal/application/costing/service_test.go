@@ -87,6 +87,32 @@ func TestCreateRunCalculatesAndPersistsDatabaseInputs(t *testing.T) {
 	}
 }
 
+func TestBeanListOrdersItemsByExcelCommercialCode(t *testing.T) {
+	repo := &fakeRepo{inputs: []domain.ProductInput{
+		{Name: "Uraga乌拉嘎", GreenBeanCostPerKg: 108, YieldRate: 0.8},
+		{Name: "曲奇拼配", GreenBeanCostPerKg: 51.75, YieldRate: 0.8},
+		{Name: "金色山脉", GreenBeanCostPerKg: 62, YieldRate: 0.8},
+	}}
+	svc := NewService(repo)
+
+	resp, err := svc.BeanList(context.Background())
+	if err != nil {
+		t.Fatalf("BeanList() error = %v", err)
+	}
+
+	got := []string{
+		resp.Items[0].CommercialBeanList.Code,
+		resp.Items[1].CommercialBeanList.Code,
+		resp.Items[2].CommercialBeanList.Code,
+	}
+	want := []string{"1.1", "3.1", "5.2"}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("codes = %+v, want %+v", got, want)
+		}
+	}
+}
+
 func TestPublishRunRequiresPositiveID(t *testing.T) {
 	svc := NewService(&fakeRepo{})
 	if err := svc.PublishRun(context.Background(), "JJ", 0); err == nil {

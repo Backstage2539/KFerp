@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"math"
+	"sort"
+	"strconv"
 	"strings"
 
 	domain "orderapp/internal/domain/costing"
@@ -112,6 +114,7 @@ func (s *Service) BeanList(ctx context.Context) (*CalculateResponse, error) {
 	if err != nil {
 		return nil, err
 	}
+	sortBeanListResults(items)
 	return &CalculateResponse{Parameters: params, Items: items}, nil
 }
 
@@ -149,6 +152,60 @@ func calculate(req CalculateRequest, params domain.Parameters) ([]domain.Product
 		out = append(out, domain.CalculateProduct(params, in))
 	}
 	return out, nil
+}
+
+func sortBeanListResults(items []domain.ProductResult) {
+	sort.SliceStable(items, func(i, j int) bool {
+		return compareBeanListCodes(beanListSortCode(items[i]), beanListSortCode(items[j])) < 0
+	})
+}
+
+func beanListSortCode(item domain.ProductResult) string {
+	if item.CommercialBeanList.Code != "" {
+		return item.CommercialBeanList.Code
+	}
+	if item.RetailBeanList.Code != "" {
+		return item.RetailBeanList.Code
+	}
+	return "9999"
+}
+
+func compareBeanListCodes(a, b string) int {
+	aa := parseBeanListCode(a)
+	bb := parseBeanListCode(b)
+	max := len(aa)
+	if len(bb) > max {
+		max = len(bb)
+	}
+	for i := 0; i < max; i++ {
+		var av, bv int
+		if i < len(aa) {
+			av = aa[i]
+		}
+		if i < len(bb) {
+			bv = bb[i]
+		}
+		if av < bv {
+			return -1
+		}
+		if av > bv {
+			return 1
+		}
+	}
+	return strings.Compare(a, b)
+}
+
+func parseBeanListCode(code string) []int {
+	parts := strings.Split(code, ".")
+	out := make([]int, 0, len(parts))
+	for _, part := range parts {
+		n, err := strconv.Atoi(strings.TrimSpace(part))
+		if err != nil {
+			n = 0
+		}
+		out = append(out, n)
+	}
+	return out
 }
 
 func defaultParameterSettings() []ParameterSetting {
