@@ -379,6 +379,12 @@ func seedReqWorkflowA(ctx context.Context, pool *pgxpool.Pool, schema string) er
 		{table: "req_unit", code: "UT-086-01", title: "覆盖默认版本 V3.0.5、商用/零售分组和 PDF 主题参数清洗", status: "done", assignee: "Codex", evidence: "node --test src/lib/bean-list-pdf.test.js"},
 		{table: "req_api", code: "API-086-01", title: "覆盖成本页 PDF 生成入口、背景上传、打印样式和移动端 PDF 源码守卫", status: "done", assignee: "Codex", evidence: "TestCostingViewHasBeanListPDFDrawerAndMobilePrintStyles"},
 		{table: "req_review", code: "REV-086-01", prCode: "PR-086", title: "验收：商用豆单和零售豆单可分别设置样式并保存为手机友好的 PDF", status: "todo", assignee: "VA", evidence: "待 Van 服务器验收"},
+		{table: "req_product", code: "PR-088", title: "修正 PDF 豆单避免只生成曲奇，并在生成前预览完整报价、风味、特点、出品建议", status: "review", assignee: "VA", evidence: "codex/bean-list-pdf-preview-fix"},
+		{table: "req_dev", code: "DEV-088-01", title: "生成豆单 PDF 抽屉的预览区域渲染完整产品卡片，而不是只显示分类数量", status: "done", assignee: "Codex", evidence: "CostingView PDF preview product cards"},
+		{table: "req_dev", code: "DEV-088-02", title: "PDF 打印样式允许分类跨页流动，单个产品卡尽量不跨页，避免只生成曲奇", status: "done", assignee: "Codex", evidence: "CostingView PDF print CSS"},
+		{table: "req_unit", code: "UT-088-01", title: "源码守卫覆盖 PDF 预览必须包含报价、风味、特点、出品建议和产品价格卡片", status: "done", assignee: "Codex", evidence: "TestCostingViewPDFPreviewShowsFullBeanCardsBeforePrinting"},
+		{table: "req_api", code: "API-088-01", title: "接口级源码守卫覆盖 PDF 分组分页不能整组禁止换页", status: "done", assignee: "Codex", evidence: "TestCostingViewPDFPrintDoesNotKeepWholeGroupsOnOnePage"},
+		{table: "req_review", code: "REV-088-01", prCode: "PR-088", title: "验收：PDF 生成前能预览完整商用/零售豆单，生成 PDF 不再只包含曲奇", status: "todo", assignee: "VA", evidence: "待 Van 服务器验收"},
 	} {
 		if err := seedReqRow(ctx, pool, schema, row); err != nil {
 			return err

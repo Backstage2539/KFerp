@@ -35,3 +35,51 @@ func TestCostingViewHasBeanListPDFDrawerAndMobilePrintStyles(t *testing.T) {
 		}
 	}
 }
+
+func TestCostingViewPDFPreviewShowsFullBeanCardsBeforePrinting(t *testing.T) {
+	view, err := os.ReadFile(filepath.Join("..", "..", "..", "..", "frontend-vue-shell", "src", "views", "CostingView.vue"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := string(view)
+	for _, want := range []string{
+		"pdf-preview-title",
+		"预览",
+		"v-for=\"item in group.items\"",
+		"item.recommendedUse",
+		"item.flavor",
+		"item.description",
+		"item.prices",
+		"报价",
+		"风味",
+		"特点",
+		"出品建议",
+	} {
+		if !strings.Contains(src, want) {
+			t.Fatalf("PDF preview source missing %q", want)
+		}
+	}
+	if strings.Contains(src, "group.items.length }} 款") {
+		t.Fatalf("PDF preview must render product cards, not only category item counts")
+	}
+}
+
+func TestCostingViewPDFPrintDoesNotKeepWholeGroupsOnOnePage(t *testing.T) {
+	view, err := os.ReadFile(filepath.Join("..", "..", "..", "..", "frontend-vue-shell", "src", "views", "CostingView.vue"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := string(view)
+	if strings.Contains(src, ".pdf-group { break-inside: avoid;") {
+		t.Fatalf("PDF groups must be allowed to flow across pages so only the first category is not printed")
+	}
+	for _, want := range []string{
+		"page-break-inside: avoid",
+		"break-inside: avoid",
+		".pdf-item",
+	} {
+		if !strings.Contains(src, want) {
+			t.Fatalf("PDF item print guard missing %q", want)
+		}
+	}
+}
