@@ -63,6 +63,15 @@
           <p>订单生产完成后，在这里勾选并生成快递录单 Excel。</p>
         </div>
         <div class="shipping-actions">
+          <label class="sender-picker">
+            <span>本次寄件人</span>
+            <select v-model.number="selectedSenderID">
+              <option :value="0">默认寄件人</option>
+              <option v-for="profile in senderProfiles" :key="profile.sender_id" :value="profile.sender_id">
+                {{ profile.sender_label || profile.sender_name || `寄件人${profile.sender_id}` }}{{ profile.is_default ? '（默认）' : '' }}
+              </option>
+            </select>
+          </label>
           <button class="secondary" type="button" @click="applyShipReadyPreset" :disabled="loading">只看生产完成</button>
           <button class="secondary" type="button" @click="selectVisibleCompleted" :disabled="!rows.length">勾选本页生产完成</button>
           <button class="primary" type="button" @click="generateShippingExcel" :disabled="shippingLoading || !selectedOrderIDs.length">
@@ -149,6 +158,8 @@ const shippingLoading = ref(false)
 const shippingExcelUrl = ref('')
 const shippingMessage = ref('')
 const shippingError = ref('')
+const senderProfiles = ref([])
+const selectedSenderID = ref(0)
 
 const filters = reactive({
   q: '',
@@ -247,7 +258,7 @@ async function generateShippingExcel() {
     const res = await fetch('/api/orders/shipping-excel', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ order_ids: selectedOrderIDs.value }),
+      body: JSON.stringify({ order_ids: selectedOrderIDs.value, sender_id: selectedSenderID.value }),
     })
     const data = await res.json()
     if (!res.ok) throw new Error(data.error || '生成失败')
@@ -257,6 +268,19 @@ async function generateShippingExcel() {
     shippingError.value = err.message || '生成失败'
   } finally {
     shippingLoading.value = false
+  }
+}
+
+async function loadSenderProfiles() {
+  try {
+    const res = await fetch('/api/settings/sender')
+    const data = await res.json()
+    if (!res.ok) throw new Error(data.error || '加载寄件人失败')
+    senderProfiles.value = data.profiles || []
+    const def = senderProfiles.value.find((profile) => profile.is_default)
+    selectedSenderID.value = Number(def?.sender_id || 0)
+  } catch (err) {
+    shippingError.value = err.message || '加载寄件人失败'
   }
 }
 
@@ -286,6 +310,7 @@ async function load() {
 
 onMounted(() => {
   applyUrlFilters()
+  loadSenderProfiles()
   load()
 })
 </script>
@@ -308,6 +333,8 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .shipping-bar h3 { margin: 0 0 4px; font-size: 17px; }
 .shipping-bar p { margin: 0; color: #666; font-size: 13px; }
 .shipping-actions { display: flex; flex-wrap: wrap; gap: 8px; justify-content: flex-end; }
+.sender-picker { min-width: 180px; }
+.sender-picker select { height: 38px; }
 .notice { display: flex; align-items: center; justify-content: space-between; gap: 10px; border-radius: 6px; padding: 9px; margin-bottom: 12px; }
 .ok { background: #eef8f1; border: 1px solid #b9dfc4; color: #1f6b38; }
 .table-wrap { overflow: auto; }
