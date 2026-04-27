@@ -3,6 +3,7 @@ package production
 import (
 	"context"
 	"fmt"
+	catalogdomain "orderapp/internal/domain/catalog"
 	"strings"
 
 	productionapp "orderapp/internal/application/production"
@@ -130,18 +131,37 @@ func (r Repository) ListWorkOrders(ctx context.Context, query productionapp.Work
 	where := "1=1"
 	if query.Status != "" {
 		args = append(args, query.Status)
-		where += fmt.Sprintf(" AND status=$%d", len(args))
+		where += fmt.Sprintf(" AND wo.status=$%d", len(args))
 	}
 	args = append(args, query.Limit)
 	limitArg := len(args)
+	machines, err := r.ListMachines(ctx, true)
+	if err != nil {
+		return nil, err
+	}
 	rows, err := r.pool.Query(ctx, fmt.Sprintf(`
-		SELECT id,work_order_no,running_item_id,batch_id,product_id,product_name,spec_g,planned_g,status,
-		       COALESCE(actual_cost,0),to_char(created_at,'YYYY-MM-DD HH24:MI'),COALESCE(to_char(completed_at,'YYYY-MM-DD HH24:MI'),'')
-		FROM %s.work_orders
+		SELECT wo.id,wo.work_order_no,wo.running_item_id,wo.batch_id,wo.product_id,wo.product_name,wo.spec_g,wo.planned_g,wo.status,
+		       COALESCE(wo.actual_cost,0),to_char(wo.created_at,'YYYY-MM-DD HH24:MI'),COALESCE(to_char(wo.completed_at,'YYYY-MM-DD HH24:MI'),''),
+		       COALESCE(p.roast_level,''),
+		       COALESCE(NULLIF(ri.bom_yield_rate,0), pb.yield_rate, 0),
+		       COALESCE(NULLIF(ri.input_g,0), wo.planned_g, 0),
+		       COALESCE(ri.planned_units,0),
+		       COALESCE(ri.planned_loose_g,0),
+		       COALESCE(ri.order_nos,''),
+		       COALESCE((
+		           SELECT string_agg(COALESCE(m.name,'') || ' ' || COALESCE(NULLIF(trim(trailing '.' from trim(trailing '0' from COALESCE(bi.ratio_pct,0)::text)), ''), '0') || '%%', '、' ORDER BY bi.id)
+		           FROM %s.product_bom_items bi
+		           LEFT JOIN %s.materials m ON m.id=bi.material_id
+		           WHERE bi.product_id=wo.product_id
+		       ), '')
+		FROM %s.work_orders wo
+		LEFT JOIN %s.produce_running_items ri ON ri.id=wo.running_item_id
+		LEFT JOIN %s.products p ON p.id=wo.product_id
+		LEFT JOIN %s.product_bom pb ON pb.product_id=wo.product_id
 		WHERE %s
-		ORDER BY created_at DESC, id DESC
+		ORDER BY wo.created_at DESC, wo.id DESC
 		LIMIT $%d
-	`, r.schema, where, limitArg), args...)
+	`, r.schema, r.schema, r.schema, r.schema, r.schema, r.schema, r.schema, where, limitArg), args...)
 	if err != nil {
 		return nil, err
 	}
@@ -149,12 +169,60 @@ func (r Repository) ListWorkOrders(ctx context.Context, query productionapp.Work
 	out := make([]productionapp.WorkOrderRow, 0)
 	for rows.Next() {
 		var row productionapp.WorkOrderRow
-		if err := rows.Scan(&row.ID, &row.WorkOrderNo, &row.RunningItemID, &row.BatchID, &row.ProductID, &row.ProductName, &row.SpecG, &row.PlannedG, &row.Status, &row.ActualCost, &row.CreatedAt, &row.CompletedAt); err != nil {
+		if err := rows.Scan(
+			&row.ID, &row.WorkOrderNo, &row.RunningItemID, &row.BatchID, &row.ProductID, &row.ProductName, &row.SpecG, &row.PlannedG, &row.Status, &row.ActualCost, &row.CreatedAt, &row.CompletedAt,
+			&row.RoastLevel, &row.YieldRate, &row.SuggestedInputG, &row.PlannedUnits, &row.PlannedLooseG, &row.OrderNos, &row.MaterialSummary,
+		); err != nil {
 			return nil, err
 		}
+		row.YieldRate = catalogdomain.ResolveYieldRate(row.RoastLevel, row.YieldRate)
+		if row.SuggestedInputG <= 0 {
+			row.SuggestedInputG = row.PlannedG
+		}
+		machine, batches := pickMachineAndBatches(row.SuggestedInputG, machines)
+		row.SuggestedMachine = machine.Name
+		row.SuggestedBatchCount = int64(len(batches))
+		if row.SuggestedBatchCount == 0 && row.SuggestedInputG > 0 {
+			row.SuggestedBatchCount = 1
+		}
+		if len(batches) > 0 {
+			row.SuggestedBatchG = batches[0]
+		} else {
+			row.SuggestedBatchG = row.SuggestedInputG
+		}
+		row.SuggestedBatchPlan = formatWorkOrderBatchPlan(batches, row.SuggestedInputG)
 		out = append(out, row)
 	}
 	return out, rows.Err()
+}
+
+func formatWorkOrderBatchPlan(batches []int64, fallbackG int64) string {
+	if len(batches) == 0 {
+		if fallbackG <= 0 {
+			return "0"
+		}
+		return formatKg(fallbackG) + "kg"
+	}
+	parts := make([]string, 0, len(batches))
+	used := make([]bool, len(batches))
+	for i, batch := range batches {
+		if used[i] {
+			continue
+		}
+		count := 1
+		for j := i + 1; j < len(batches); j++ {
+			if batches[j] == batch {
+				used[j] = true
+				count++
+			}
+		}
+		part := formatKg(batch) + "kg"
+		if count > 1 {
+			part += fmt.Sprintf(" x %d", count)
+		}
+		parts = append(parts, part)
+	}
+	return strings.Join(parts, " + ")
 }
 
 func (r Repository) ListJobCards(ctx context.Context, query productionapp.JobCardQuery) ([]productionapp.JobCardRow, error) {

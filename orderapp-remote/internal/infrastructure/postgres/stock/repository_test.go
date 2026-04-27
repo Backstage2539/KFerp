@@ -268,6 +268,93 @@ INSERT INTO %s.materials(id,code,name,onhand_g) VALUES (1,'BEAN-1','水洗豆',0
 	}
 }
 
+func TestEnsureSchemaBackfillsLegacyMaterialOnhandIntoRawBatchLocation(t *testing.T) {
+	pool, schema := newStockTestDB(t)
+	ctx := context.Background()
+	defer func() {
+		_, _ = pool.Exec(ctx, "DROP SCHEMA IF EXISTS "+schema+" CASCADE")
+		pool.Close()
+	}()
+	mustExecStockSQL(t, ctx, pool, fmt.Sprintf(`
+CREATE TABLE %s.materials (
+	id BIGINT PRIMARY KEY,
+	code TEXT NOT NULL,
+	name TEXT NOT NULL,
+	kind TEXT NOT NULL DEFAULT 'bean',
+	unit TEXT NOT NULL DEFAULT 'g',
+	purchase_price NUMERIC(12,2) NOT NULL DEFAULT 0,
+	sale_price NUMERIC(12,2) NOT NULL DEFAULT 0,
+	onhand_g BIGINT NOT NULL DEFAULT 0,
+	onhand_units BIGINT NOT NULL DEFAULT 0,
+	min_level_g BIGINT NOT NULL DEFAULT 0,
+	min_level_units BIGINT NOT NULL DEFAULT 0,
+	updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE TABLE %s.products (
+	id BIGINT PRIMARY KEY,
+	name TEXT NOT NULL
+);
+CREATE TABLE %s.finished_inventory (
+	product_id BIGINT NOT NULL,
+	spec_g BIGINT NOT NULL,
+	onhand_units BIGINT NOT NULL DEFAULT 0,
+	onhand_loose_g BIGINT NOT NULL DEFAULT 0,
+	updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+	PRIMARY KEY(product_id, spec_g)
+);
+CREATE TABLE %s.audit_logs (
+	id BIGSERIAL PRIMARY KEY,
+	actor TEXT NOT NULL DEFAULT '',
+	entity_type TEXT NOT NULL DEFAULT '',
+	entity_id BIGINT,
+	action TEXT NOT NULL DEFAULT '',
+	field TEXT,
+	old_value TEXT,
+	new_value TEXT,
+	meta JSONB,
+	created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+INSERT INTO %s.materials(id,code,name,onhand_g,purchase_price) VALUES (1,'Menglian-W-5T','孟连水洗5T批次',60000,45.50);
+`, schema, schema, schema, schema, schema))
+	if err := EnsureSchema(ctx, pool, schema); err != nil {
+		t.Fatalf("EnsureSchema: %v", err)
+	}
+
+	repo := NewRepository(pool, schema)
+	transfer, err := repo.TransferMaterial(ctx, stockapp.MaterialTransferCommand{
+		MaterialID:     1,
+		FromWarehouse:  "raw_materials",
+		ToWarehouse:    "wip",
+		QtyG:           60000,
+		Note:           "WO-0000000020 领料",
+		Operator:       "jj",
+		IdempotencyKey: "wo-20-wip-transfer",
+	})
+	if err != nil {
+		t.Fatalf("TransferMaterial with legacy onhand: %v", err)
+	}
+	if transfer.TransferNo == "" || len(transfer.Allocations) != 1 {
+		t.Fatalf("transfer = %+v, want one legacy allocation", transfer)
+	}
+
+	var onhandG, rawG, wipG, batchRemainingG int64
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT onhand_g FROM %s.materials WHERE id=1`, schema)).Scan(&onhandG); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT COALESCE(SUM(qty_g),0) FROM %s.material_batch_locations WHERE material_id=1 AND warehouse='raw_materials'`, schema)).Scan(&rawG); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT COALESCE(SUM(qty_g),0) FROM %s.material_batch_locations WHERE material_id=1 AND warehouse='wip'`, schema)).Scan(&wipG); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT remaining_g FROM %s.material_batches WHERE batch_code='LEGACY-MAT-0000000001'`, schema)).Scan(&batchRemainingG); err != nil {
+		t.Fatal(err)
+	}
+	if onhandG != 60000 || rawG != 0 || wipG != 60000 || batchRemainingG != 60000 {
+		t.Fatalf("onhand/raw/wip/batch remaining = %d/%d/%d/%d, want 60000/0/60000/60000", onhandG, rawG, wipG, batchRemainingG)
+	}
+}
+
 func newStockTestDB(t *testing.T) (*pgxpool.Pool, string) {
 	t.Helper()
 	dsn := strings.TrimSpace(os.Getenv("ORDERAPP_TEST_DATABASE_URL"))

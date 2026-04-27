@@ -354,6 +354,13 @@ func seedReqWorkflowA(ctx context.Context, pool *pgxpool.Pool, schema string) er
 		{table: "req_unit", code: "UT-082-01", title: "覆盖 WIP 转仓校验、批次位置移动、生产只能扣 WIP 和 Vue 入口源码守卫", status: "done", assignee: "Codex", evidence: "stock/production focused tests"},
 		{table: "req_api", code: "API-082-01", title: "覆盖 GET /api/stock/warehouses、GET /api/stock/material-batch-locations、POST /api/stock/material-transfers", status: "done", assignee: "Codex", evidence: "TestStockAPIRoutes"},
 		{table: "req_review", code: "REV-082-01", prCode: "PR-082", title: "验收：60kg 生豆可先领到 WIP，3天内被多个商品分批消耗，剩余料可留存或退回", status: "todo", assignee: "VA", evidence: "待 Van 验收"},
+		{table: "req_product", code: "PR-083", title: "生产工单带出烘焙建议并支持打印，旧物料总库存可生成期初批次用于 WIP 领料", status: "review", assignee: "VA", evidence: "codex/work-order-print-wip-fix-20260427"},
+		{table: "req_dev", code: "DEV-083-01", title: "工单 API 返回烘焙度、建议投料、设备锅次、预计产出、订单和 BOM 原料摘要", status: "done", assignee: "Codex", evidence: "ListWorkOrders roast advice fields"},
+		{table: "req_dev", code: "DEV-083-02", title: "生产工单 Vue 页面展示烘焙建议并提供单张工单打印版式", status: "done", assignee: "Codex", evidence: "WorkOrdersView.vue print sheet"},
+		{table: "req_dev", code: "DEV-083-03", title: "stock schema 对有 onhand_g 但没有 material_batches 的旧物料补建 LEGACY-MAT 期初批次和原料仓库位", status: "done", assignee: "Codex", evidence: "ensureMaterialBatchTables legacy backfill"},
+		{table: "req_unit", code: "UT-083-01", title: "覆盖旧物料库存补建批次后可领用到 WIP", status: "done", assignee: "Codex", evidence: "TestEnsureSchemaBackfillsLegacyMaterialOnhandIntoRawBatchLocation"},
+		{table: "req_api", code: "API-083-01", title: "覆盖 GET /api/produce/work-orders 返回烘焙建议字段", status: "done", assignee: "Codex", evidence: "TestWorkOrderAPIIncludesRoastAdvice"},
+		{table: "req_review", code: "REV-083-01", prCode: "PR-083", title: "验收：WO-0000000020 可领用孟连水洗5T批次到 WIP，工单可查看烘焙建议并打印", status: "todo", assignee: "VA", evidence: "待 Van 服务器验收"},
 	} {
 		if err := seedReqRow(ctx, pool, schema, row); err != nil {
 			return err

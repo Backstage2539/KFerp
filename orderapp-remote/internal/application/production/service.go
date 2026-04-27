@@ -304,18 +304,29 @@ type WorkOrderQuery struct {
 }
 
 type WorkOrderRow struct {
-	ID            int64   `json:"id"`
-	WorkOrderNo   string  `json:"work_order_no"`
-	RunningItemID int64   `json:"running_item_id"`
-	BatchID       string  `json:"batch_id"`
-	ProductID     int64   `json:"product_id"`
-	ProductName   string  `json:"product_name"`
-	SpecG         int64   `json:"spec_g"`
-	PlannedG      int64   `json:"planned_g"`
-	Status        string  `json:"status"`
-	ActualCost    float64 `json:"actual_cost"`
-	CreatedAt     string  `json:"created_at"`
-	CompletedAt   string  `json:"completed_at"`
+	ID                  int64   `json:"id"`
+	WorkOrderNo         string  `json:"work_order_no"`
+	RunningItemID       int64   `json:"running_item_id"`
+	BatchID             string  `json:"batch_id"`
+	ProductID           int64   `json:"product_id"`
+	ProductName         string  `json:"product_name"`
+	SpecG               int64   `json:"spec_g"`
+	PlannedG            int64   `json:"planned_g"`
+	Status              string  `json:"status"`
+	ActualCost          float64 `json:"actual_cost"`
+	CreatedAt           string  `json:"created_at"`
+	CompletedAt         string  `json:"completed_at"`
+	RoastLevel          string  `json:"roast_level"`
+	YieldRate           float64 `json:"yield_rate"`
+	SuggestedInputG     int64   `json:"suggested_input_g"`
+	SuggestedMachine    string  `json:"suggested_machine"`
+	SuggestedBatchCount int64   `json:"suggested_batch_count"`
+	SuggestedBatchG     int64   `json:"suggested_batch_g"`
+	SuggestedBatchPlan  string  `json:"suggested_batch_plan"`
+	PlannedUnits        int64   `json:"planned_units"`
+	PlannedLooseG       int64   `json:"planned_loose_g"`
+	MaterialSummary     string  `json:"material_summary"`
+	OrderNos            string  `json:"order_nos"`
 }
 
 type JobCardQuery struct {

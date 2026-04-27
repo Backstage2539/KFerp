@@ -117,6 +117,29 @@ CREATE INDEX IF NOT EXISTS material_batches_material_fifo_idx
 		return err
 	}
 	if _, err := pool.Exec(ctx, fmt.Sprintf(`
+INSERT INTO %s.material_batches(batch_code,material_id,supplier,receipt_id,qty_g,remaining_g,unit_cost,note,received_at,created_at)
+SELECT 'LEGACY-MAT-' || lpad(m.id::text, 10, '0'),
+       m.id,
+       'legacy_onhand',
+       0,
+       m.onhand_g,
+       m.onhand_g,
+       COALESCE(m.purchase_price, 0),
+       '系统升级按物料现有库存生成的期初批次',
+       now(),
+       now()
+FROM %s.materials m
+WHERE COALESCE(m.onhand_g, 0) > 0
+  AND NOT EXISTS (
+      SELECT 1
+      FROM %s.material_batches b
+      WHERE b.material_id = m.id
+  )
+ON CONFLICT (batch_code) DO NOTHING
+`, schema, schema, schema)); err != nil {
+		return err
+	}
+	if _, err := pool.Exec(ctx, fmt.Sprintf(`
 CREATE TABLE IF NOT EXISTS %s.material_batch_locations (
 	material_batch_id BIGINT NOT NULL,
 	batch_code TEXT NOT NULL DEFAULT '',
