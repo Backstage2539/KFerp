@@ -164,6 +164,7 @@ func listMaterials(ctx context.Context, pool *pgxpool.Pool, schema, q string, li
 		if err := rows.Scan(&r.ID, &r.Code, &r.Name, &r.Kind, &r.Unit, &r.BatchNo, &r.PurchasePrice, &r.SalePrice, &r.OnhandG, &r.OnhandUnits, &r.MinLevelG, &r.MinLevelUnits, &profile.Origin, &profile.ProcessingStation, &profile.Variety, &profile.ProcessMethod, &profile.Grade, &profile.Altitude, &profile.Flavor, &profile.BeanListNote, &packProfile.SizeSpec, &packProfile.Dimensions, &packProfile.Material, &packProfile.Capacity, &packProfile.Color, &packProfile.Note, &r.UpdatedAt, &r.DeprecatedAt); err != nil {
 			return nil, err
 		}
+		r.Kind = normalizeMaterialKind(r.Kind)
 		if r.Kind == "bean" || !profile.empty() {
 			r.Profile = &profile
 		}
@@ -220,6 +221,7 @@ func updateMaterialInline(ctx context.Context, pool *pgxpool.Pool, schema, actor
 		}
 		return materialRow{}, err
 	}
+	old.Kind = normalizeMaterialKind(old.Kind)
 	if old.Kind == "bean" || !oldProfile.empty() {
 		old.Profile = &oldProfile
 	}
@@ -389,6 +391,7 @@ func normalizeMaterialInput(in materialInput) (materialInput, error) {
 	if in.Kind == "" {
 		in.Kind = "other"
 	}
+	in.Kind = normalizeMaterialKind(in.Kind)
 	if in.Unit == "" {
 		in.Unit = "g"
 	}
@@ -421,6 +424,17 @@ func normalizeMaterialInput(in materialInput) (materialInput, error) {
 		return materialInput{}, fmt.Errorf("negative qty")
 	}
 	return in, nil
+}
+
+func normalizeMaterialKind(kind string) string {
+	switch strings.TrimSpace(kind) {
+	case "raw_bean", "raw-bean", "green_bean", "green-bean":
+		return "bean"
+	case "packaging", "package", "packing":
+		return "pack"
+	default:
+		return strings.TrimSpace(kind)
+	}
 }
 
 func assertImmutableMaterialFields(old materialRow, next materialInput) error {

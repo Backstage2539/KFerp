@@ -277,6 +277,67 @@ func materialSnapshotNeedsTx(r ProduceRunRow, finished InvQty) ([]materialConsum
 	return needs, true, nil
 }
 
+func ensureWIPStockForRunningItemTx(ctx context.Context, tx pgx.Tx, schema string, r ProduceRunRow, materialSnapshot []byte) error {
+	r.MaterialSnapshot = strings.TrimSpace(string(materialSnapshot))
+	needs, ok, err := materialSnapshotNeedsTx(r, InvQty{Units: r.PlanUnits, LooseG: r.PlanLooseG})
+	if err != nil {
+		return err
+	}
+	if !ok {
+		needs, err = currentMaterialNeedsTx(ctx, tx, schema, r, InvQty{Units: r.PlanUnits, LooseG: r.PlanLooseG})
+		if err != nil {
+			return err
+		}
+	}
+	return ensureWIPStockForNeedsTx(ctx, tx, schema, needs)
+}
+
+func ensureWIPStockForNeedsTx(ctx context.Context, tx pgx.Tx, schema string, needs []materialConsumptionNeed) error {
+	type demand struct {
+		name    string
+		deductG int64
+	}
+	byMaterial := map[int64]demand{}
+	for _, need := range needs {
+		if need.MaterialID <= 0 || need.DeductG <= 0 {
+			continue
+		}
+		row := byMaterial[need.MaterialID]
+		if row.name == "" {
+			row.name = need.MaterialName
+		}
+		row.deductG += need.DeductG
+		byMaterial[need.MaterialID] = row
+	}
+	for materialID, row := range byMaterial {
+		var availableG int64
+		err := tx.QueryRow(ctx, fmt.Sprintf(`
+			SELECT COALESCE(SUM(l.qty_g),0)::bigint
+			FROM %s.material_batch_locations l
+			JOIN %s.material_batches b ON b.id=l.material_batch_id
+			WHERE l.material_id=$1
+			  AND l.warehouse=$2
+			  AND l.qty_g > 0
+			  AND b.status='active'
+			  AND b.remaining_g > 0
+		`, schema, schema), materialID, stockdomain.WarehouseWIP).Scan(&availableG)
+		if err != nil {
+			if strings.Contains(err.Error(), "material_batches") || strings.Contains(err.Error(), "material_batch_locations") {
+				return nil
+			}
+			return err
+		}
+		if availableG < row.deductG {
+			name := strings.TrimSpace(row.name)
+			if name == "" {
+				name = fmt.Sprintf("material %d", materialID)
+			}
+			return fmt.Errorf("WIP stock insufficient for %s: need %dg, available %dg; transfer raw material to WIP before starting production", name, row.deductG, availableG)
+		}
+	}
+	return nil
+}
+
 func deductMaterialsForRunningItemTx(ctx context.Context, tx pgx.Tx, schema string, r ProduceRunRow, finished InvQty, operator string) error {
 	needs, err := calcRunningItemMaterialNeedsTx(ctx, tx, schema, r, finished)
 	if err != nil {

@@ -11,6 +11,7 @@ type Runtime struct {
 	DatabaseURL string
 	Schema      string
 	AssetDir    string
+	TemplateDir string
 	AuthUser    string
 	AuthPass    string
 	ListenAddr  string
@@ -27,6 +28,7 @@ func LoadRuntime(lookup func(string) string) (Runtime, error) {
 		DatabaseURL: env(lookup, "DATABASE_URL", ""),
 		Schema:      env(lookup, "DB_SCHEMA", "p2rms15pepb5ciz"),
 		AssetDir:    env(lookup, "ASSET_DIR", "/app/data/assets"),
+		TemplateDir: env(lookup, "TEMPLATE_DIR", "templates"),
 		AuthUser:    env(lookup, "APP_USER", "order"),
 		AuthPass:    env(lookup, "APP_PASS", ""),
 		ListenAddr:  env(lookup, "LISTEN", ":8080"),

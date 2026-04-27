@@ -78,6 +78,7 @@ import WipMaterialsView from './views/WipMaterialsView.vue'
 import WarehouseInventoryView from './views/WarehouseInventoryView.vue'
 import WorkOrdersView from './views/WorkOrdersView.vue'
 import { fetchCurrentActor } from './api/auth.js'
+import { replaceHistoryURL } from './lib/url-state.js'
 import {
   defaultExpandedGroups,
   groupForView,
@@ -145,7 +146,7 @@ const internalViews = {
 function applyKeyToUrl(key) {
   const url = new URL(window.location.href)
   url.searchParams.set('view', key)
-  window.history.replaceState({}, '', url.toString())
+  replaceHistoryURL(url)
 }
 
 function open(key) {

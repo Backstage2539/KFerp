@@ -498,6 +498,13 @@ func seedReqWorkflowA(ctx context.Context, pool *pgxpool.Pool, schema string) er
 		{table: "req_unit", code: "UT-102-01", title: "单测覆盖公开页渲染发布快照、鉴权放行公开路径、后台客户链接入口和需求种子", status: "done", assignee: "Codex", evidence: "TestPublicBeanListPageRendersPublishedSnapshot; TestBasicAuthAllowsPublicBeanListWithoutCredentials; TestBeanListPublicCustomerLinkRequirementSeeds"},
 		{table: "req_api", code: "API-102-01", title: "接口级验证 GET /public/bean-list/:list_type 返回已发布豆单 HTML，未登录可访问且不泄露发布/撤回操作", status: "done", assignee: "Codex", evidence: "go test ./internal/interfaces/http/costing ./internal/interfaces/http/support"},
 		{table: "req_review", code: "REV-102-01", prCode: "PR-102", title: "验收：发布商用或零售豆单后，可把客户链接发给客户直接打开；撤回后客户链接不再展示该版本", status: "todo", assignee: "VA", evidence: "待 Van 服务器验收"},
+		{table: "req_product", code: "PR-103", title: "修复系统全功能 smoke 发现的 P1/P2/P3 问题，并重新合入 develop 部署验收", status: "review", assignee: "VA", evidence: "codex/fix-smoke-p1-p3-20260427"},
+		{table: "req_dev", code: "DEV-103-01", title: "客户空订单聚合、生产开始 WIP 前置校验、物料/库存别名和机台投料量校验提示修复", status: "done", assignee: "Codex", evidence: "customer dashboard COALESCE; ensureWIPStockForRunningItemTx; normalize aliases"},
+		{table: "req_dev", code: "DEV-103-02", title: "Vue/Vite 前端统一 API 请求和 history 状态更新，避免 BasicAuth URL 与页面状态不同源异常", status: "done", assignee: "Codex", evidence: "api client usage; url-state.js"},
+		{table: "req_dev", code: "DEV-103-03", title: "运行时模板目录可配置，默认使用相对 templates，支持本地 go run 和 Docker 部署", status: "done", assignee: "Codex", evidence: "Runtime.TemplateDir"},
+		{table: "req_unit", code: "UT-103-01", title: "单测覆盖客户聚合空值守卫、物料旧枚举兼容、库存 product 别名、机台错误文案、URL 状态和模板目录", status: "done", assignee: "Codex", evidence: "focused Go tests + node --test src/lib/*.test.js"},
+		{table: "req_api", code: "API-103-01", title: "API 测试覆盖库存调整 product 别名和部署后 auth/me、需求表、商品、生产/WIP 主流程 smoke", status: "done", assignee: "Codex", evidence: "TestStockAdjustmentsAPIAcceptsProductAlias; postdeploy smoke"},
+		{table: "req_review", code: "REV-103-01", prCode: "PR-103", title: "验收：P1/P2/P3 修复后现网页面/API 重新走通，需求表展示本次修复记录", status: "todo", assignee: "VA", evidence: "待部署后验收"},
 	} {
 		if err := seedReqRow(ctx, pool, schema, row); err != nil {
 			return err

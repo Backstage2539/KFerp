@@ -126,6 +126,24 @@ func TestServiceNormalizesMachineCommand(t *testing.T) {
 	}
 }
 
+func TestServiceMachineAllowedSpecsErrorExplainsRoastLoads(t *testing.T) {
+	svc := NewService(&machineFakeRepo{})
+	err := svc.SaveMachine(context.Background(), RoastMachineCommand{
+		Name:         "样机",
+		CapacityG:    3000,
+		MinRoastG:    1000,
+		AllowedSpecs: "227,454",
+		Active:       true,
+	})
+	if err == nil {
+		t.Fatal("SaveMachine error = nil, want allowed_specs validation")
+	}
+	want := "allowed_specs must list roast load grams between min_roast_g and capacity_g"
+	if err.Error() != want {
+		t.Fatalf("SaveMachine error = %q, want %q", err.Error(), want)
+	}
+}
+
 type machineFakeRepo struct {
 	fakeRepo
 	machine RoastMachineCommand

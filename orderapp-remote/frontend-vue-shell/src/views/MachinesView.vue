@@ -15,7 +15,7 @@
         <label><span>名称</span><input v-model.trim="form.name" /></label>
         <label><span>容量(g)</span><input v-model.number="form.capacity_g" type="number" min="1" /></label>
         <label><span>最小烘焙(g)</span><input v-model.number="form.min_roast_g" type="number" min="1" /></label>
-        <label><span>允许载量</span><input v-model.trim="form.allowed_specs" placeholder="1000,1500,2000" /></label>
+        <label><span>允许投料量(g)</span><input v-model.trim="form.allowed_specs" placeholder="1000,1500,2000" /></label>
         <label class="checkline"><input v-model="form.active" type="checkbox" />启用</label>
         <button class="primary" type="button" @click="saveNew" :disabled="saving">新增</button>
       </div>
@@ -24,7 +24,7 @@
     <section class="panel">
       <div class="table-wrap">
         <table>
-          <thead><tr><th>ID</th><th>名称</th><th>容量(g)</th><th>最小烘焙(g)</th><th>允许载量</th><th>状态</th><th>操作</th></tr></thead>
+          <thead><tr><th>ID</th><th>名称</th><th>容量(g)</th><th>最小烘焙(g)</th><th>允许投料量(g)</th><th>状态</th><th>操作</th></tr></thead>
           <tbody>
             <tr v-for="row in rows" :key="row.id">
               <td>{{ row.id }}</td>

@@ -195,3 +195,20 @@ func TestStockAdjustmentsAPIRecordsFinishedWarehouse(t *testing.T) {
 		t.Fatalf("finished adjustment command = %+v", repo.adjustment)
 	}
 }
+
+func TestStockAdjustmentsAPIAcceptsProductAlias(t *testing.T) {
+	repo := &fakeStockRepo{}
+	e := echo.New()
+	RegisterRoutes(e, Dependencies{Stock: stockapp.NewService(repo)})
+
+	req := httptest.NewRequest(http.MethodPost, "/api/stock/adjustments", bytes.NewBufferString(`{"item_type":"product","item_id":9,"spec_g":454,"target_units":3,"reason":"门店盘点"}`))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("POST product alias adjustment status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if repo.adjustment.ItemType != "finished_product" || repo.adjustment.Warehouse != "finished_goods" {
+		t.Fatalf("adjustment command = %+v, want finished_product in finished_goods", repo.adjustment)
+	}
+}

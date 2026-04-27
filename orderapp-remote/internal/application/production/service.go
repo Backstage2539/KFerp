@@ -459,7 +459,7 @@ func (s *Service) SaveMachine(ctx context.Context, cmd RoastMachineCommand) erro
 	}
 	loadSettings, ok := normalizeMachineLoadSettings(cmd.AllowedSpecs, cmd.MinRoastG, cmd.CapacityG)
 	if !ok {
-		return fmt.Errorf("invalid allowed_specs")
+		return fmt.Errorf("allowed_specs must list roast load grams between min_roast_g and capacity_g")
 	}
 	cmd.AllowedSpecs = loadSettings
 	return s.repo.SaveMachine(ctx, cmd)
