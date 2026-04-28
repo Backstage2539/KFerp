@@ -543,6 +543,14 @@ func seedReqWorkflowA(ctx context.Context, pool *pgxpool.Pool, schema string) er
 		{table: "req_unit", code: "UT-109-01", title: "单测覆盖 support 鉴权接口和登录账号治理编译路径", status: "done", assignee: "Codex", evidence: "go test ./internal/interfaces/http/support"},
 		{table: "req_api", code: "API-109-01", title: "API 级验证账号治理接口受 auth.manage 保护，停用账号不能继续登录或解析会话", status: "done", assignee: "Codex", evidence: "go test ./internal/interfaces/http/support; deployment smoke"},
 		{table: "req_review", code: "REV-109-01", prCode: "PR-109", title: "验收：管理员可停用/启用员工登录并重置密码；停用员工无法登录和继续访问", status: "todo", assignee: "VA", evidence: "待 Van 服务器验收"},
+		{table: "req_product", code: "PR-110", title: "ERPNext制造补齐：物料需求计划、工单WIP软占用/部分完工与生产质检闭环", status: "review", assignee: "VA", evidence: "codex/manufacturing-planning-quality-20260428"},
+		{table: "req_dev", code: "DEV-110-01", title: "生产计划新增物料需求计划，按 BOM 汇总需求并对比 WIP、原料仓和已占用库存，输出缺料和采购建议", status: "done", assignee: "Codex", evidence: "GET /api/produce/material-plan; ProducePlanView 物料需求计划"},
+		{table: "req_dev", code: "DEV-110-02", title: "生产工单开始时创建 WIP软占用，开始生产校验扣除其他工单占用量，取消生产释放占用", status: "done", assignee: "Codex", evidence: "work_order_material_reservations; ensureWIPStockForNeedsTx"},
+		{table: "req_dev", code: "DEV-110-03", title: "生产中支持部分完工，按本次消耗投料扣 WIP、入库成品，保留剩余工单继续生产", status: "done", assignee: "Codex", evidence: "FinishCommand Partial/ConsumedInputG; production_logs completion_no"},
+		{table: "req_dev", code: "DEV-110-04", title: "新增生产质检闭环，覆盖原料、生产工单和成品批次，支持通过、待处理、不合格记录", status: "done", assignee: "Codex", evidence: "quality_inspections; /api/produce/quality-inspections; QualityInspectionsView"},
+		{table: "req_unit", code: "UT-110-01", title: "单元测试覆盖应用服务归一化、WIP占用源码守卫、Vue 入口和需求种子", status: "done", assignee: "Codex", evidence: "TestServiceOwnsManufacturingGapUseCases; TestManufacturingGapSchemaAndReservationGuards; TestManufacturingPlanningQualityVueWiring"},
+		{table: "req_api", code: "API-110-01", title: "API 测试覆盖物料需求计划、部分完工字段和生产质检新增/查询接口", status: "done", assignee: "Codex", evidence: "TestManufacturingGapAPIs"},
+		{table: "req_review", code: "REV-110-01", prCode: "PR-110", title: "验收：生产计划能预先看缺料/采购建议，工单能分次完工，WIP占用不互相抢料，生产质检可记录追溯", status: "todo", assignee: "VA", evidence: "待 Van 功能分支验收"},
 	} {
 		if err := seedReqRow(ctx, pool, schema, row); err != nil {
 			return err

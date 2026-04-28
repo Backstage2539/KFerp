@@ -147,6 +147,8 @@ type FinishCommand struct {
 	FinishedLooseG   int64
 	HasFinishedInput bool
 	Warehouse        string
+	Partial          bool
+	ConsumedInputG   int64
 	Operator         string
 }
 
@@ -364,6 +366,61 @@ type BatchCostRow struct {
 	CreatedAt     string  `json:"created_at"`
 }
 
+type MaterialPlanQuery struct {
+	From       string
+	To         string
+	CustomerID int64
+	Selected   map[string]bool
+	InputByKey map[string]int64
+}
+
+type MaterialPlanRow struct {
+	MaterialID          int64  `json:"material_id"`
+	MaterialName        string `json:"material_name"`
+	Unit                string `json:"unit"`
+	RequiredG           int64  `json:"required_g"`
+	RequiredUnits       int64  `json:"required_units"`
+	WIPG                int64  `json:"wip_g"`
+	RawG                int64  `json:"raw_g"`
+	ReservedG           int64  `json:"reserved_g"`
+	ShortageG           int64  `json:"shortage_g"`
+	PurchaseSuggestionG int64  `json:"purchase_suggestion_g"`
+}
+
+type MaterialPlanResult struct {
+	Rows []MaterialPlanRow `json:"rows"`
+}
+
+type QualityInspectionCommand struct {
+	Scope         string
+	ReferenceType string
+	ReferenceNo   string
+	ItemName      string
+	Result        string
+	MetricsJSON   string
+	Note          string
+	Operator      string
+}
+
+type QualityInspectionQuery struct {
+	Scope  string
+	Result string
+	Limit  int
+}
+
+type QualityInspectionRow struct {
+	ID            int64  `json:"id"`
+	Scope         string `json:"scope"`
+	ReferenceType string `json:"reference_type"`
+	ReferenceNo   string `json:"reference_no"`
+	ItemName      string `json:"item_name"`
+	Result        string `json:"result"`
+	MetricsJSON   string `json:"metrics_json"`
+	Note          string `json:"note"`
+	Operator      string `json:"operator"`
+	CreatedAt     string `json:"created_at"`
+}
+
 type Repository interface {
 	CreateBatch(ctx context.Context, cmd CreateBatchCommand) (CreateBatchResult, error)
 	ListBatches(ctx context.Context, cmd ListBatchesCommand) ([]BatchListItem, error)
@@ -382,6 +439,9 @@ type Repository interface {
 	ListWorkOrders(ctx context.Context, query WorkOrderQuery) ([]WorkOrderRow, error)
 	ListJobCards(ctx context.Context, query JobCardQuery) ([]JobCardRow, error)
 	ListBatchCosts(ctx context.Context, query BatchCostQuery) ([]BatchCostRow, error)
+	MaterialPlan(ctx context.Context, query MaterialPlanQuery) (MaterialPlanResult, error)
+	CreateQualityInspection(ctx context.Context, cmd QualityInspectionCommand) (QualityInspectionRow, error)
+	ListQualityInspections(ctx context.Context, query QualityInspectionQuery) ([]QualityInspectionRow, error)
 }
 
 type Service struct {
@@ -434,6 +494,9 @@ func (s *Service) Finish(ctx context.Context, cmd FinishCommand) error {
 	cmd.Warehouse = strings.TrimSpace(cmd.Warehouse)
 	if cmd.Warehouse == "" {
 		cmd.Warehouse = stockdomain.WarehouseFinishedGoods
+	}
+	if cmd.ConsumedInputG < 0 {
+		return fmt.Errorf("consumed_input_g must be >= 0")
 	}
 	return s.repo.Finish(ctx, cmd)
 }
@@ -506,4 +569,55 @@ func (s *Service) ListBatchCosts(ctx context.Context, query BatchCostQuery) ([]B
 		query.Limit = 200
 	}
 	return s.repo.ListBatchCosts(ctx, query)
+}
+
+func (s *Service) MaterialPlan(ctx context.Context, query MaterialPlanQuery) (MaterialPlanResult, error) {
+	query.From = strings.TrimSpace(query.From)
+	query.To = strings.TrimSpace(query.To)
+	if query.Selected == nil {
+		query.Selected = map[string]bool{}
+	}
+	if query.InputByKey == nil {
+		query.InputByKey = map[string]int64{}
+	}
+	return s.repo.MaterialPlan(ctx, query)
+}
+
+func (s *Service) CreateQualityInspection(ctx context.Context, cmd QualityInspectionCommand) (QualityInspectionRow, error) {
+	cmd.Scope = strings.ToLower(strings.TrimSpace(cmd.Scope))
+	cmd.ReferenceType = strings.ToLower(strings.TrimSpace(cmd.ReferenceType))
+	cmd.ReferenceNo = strings.TrimSpace(cmd.ReferenceNo)
+	cmd.ItemName = strings.TrimSpace(cmd.ItemName)
+	cmd.Result = strings.ToLower(strings.TrimSpace(cmd.Result))
+	cmd.MetricsJSON = strings.TrimSpace(cmd.MetricsJSON)
+	cmd.Note = strings.TrimSpace(cmd.Note)
+	cmd.Operator = strings.TrimSpace(cmd.Operator)
+	if cmd.Scope == "" || cmd.ReferenceNo == "" || cmd.Result == "" {
+		return QualityInspectionRow{}, fmt.Errorf("scope, reference_no and result required")
+	}
+	if cmd.ReferenceType == "" {
+		cmd.ReferenceType = cmd.Scope
+	}
+	if !validQualityInspectionResult(cmd.Result) {
+		return QualityInspectionRow{}, fmt.Errorf("invalid quality inspection result")
+	}
+	return s.repo.CreateQualityInspection(ctx, cmd)
+}
+
+func (s *Service) ListQualityInspections(ctx context.Context, query QualityInspectionQuery) ([]QualityInspectionRow, error) {
+	query.Scope = strings.ToLower(strings.TrimSpace(query.Scope))
+	query.Result = strings.ToLower(strings.TrimSpace(query.Result))
+	if query.Limit <= 0 || query.Limit > 200 {
+		query.Limit = 200
+	}
+	return s.repo.ListQualityInspections(ctx, query)
+}
+
+func validQualityInspectionResult(result string) bool {
+	switch result {
+	case "pass", "hold", "reject":
+		return true
+	default:
+		return false
+	}
 }

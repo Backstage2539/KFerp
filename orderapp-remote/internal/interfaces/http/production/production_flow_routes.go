@@ -45,10 +45,12 @@ type ProduceRunningAPIRow struct {
 }
 
 type ProduceRunningFinishAPIRequest struct {
-	ID             int64  `json:"id"`
-	FinishedUnits  int64  `json:"finished_units"`
-	FinishedLooseG int64  `json:"finished_loose_g"`
-	Warehouse      string `json:"warehouse"`
+	ID             int64  `json:"id" form:"id"`
+	FinishedUnits  int64  `json:"finished_units" form:"finished_units"`
+	FinishedLooseG int64  `json:"finished_loose_g" form:"finished_loose_g"`
+	Warehouse      string `json:"warehouse" form:"warehouse"`
+	Partial        bool   `json:"partial" form:"partial"`
+	ConsumedInputG int64  `json:"consumed_input_g" form:"consumed_input_g"`
 }
 
 type ProduceRunningCancelAPIRequest struct {
@@ -128,6 +130,8 @@ func registerProductionFlowPages(e *echo.Echo, productionSvc *productionapp.Serv
 			FinishedLooseG:   req.FinishedLooseG,
 			HasFinishedInput: true,
 			Warehouse:        req.Warehouse,
+			Partial:          req.Partial,
+			ConsumedInputG:   req.ConsumedInputG,
 			Operator:         support.ActorOf(c),
 		}); err != nil {
 			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: err.Error()})

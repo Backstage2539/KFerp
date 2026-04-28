@@ -23,7 +23,10 @@ func EnsureSchema(ctx context.Context, pool *pgxpool.Pool, schema string) error 
 	if err := ensureProductionLogTable(ctx, pool, schema); err != nil {
 		return err
 	}
-	return ensureWorkOrderTables(ctx, pool, schema)
+	if err := ensureWorkOrderTables(ctx, pool, schema); err != nil {
+		return err
+	}
+	return ensureQualityInspectionTables(ctx, pool, schema)
 }
 
 func ensureMachineCapacityTable(ctx context.Context, pool *pgxpool.Pool, schema string) error {
@@ -87,7 +90,29 @@ CREATE TABLE IF NOT EXISTS %s.production_batch_costs (
 	created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS production_batch_costs_created_idx ON %s.production_batch_costs(created_at DESC);
-`, schema, schema, schema, schema, schema, schema, schema)
+
+CREATE TABLE IF NOT EXISTS %s.work_order_material_reservations (
+	id BIGSERIAL PRIMARY KEY,
+	work_order_id BIGINT NOT NULL DEFAULT 0,
+	running_item_id BIGINT NOT NULL DEFAULT 0,
+	material_id BIGINT NOT NULL DEFAULT 0,
+	material_name TEXT NOT NULL DEFAULT '',
+	unit TEXT NOT NULL DEFAULT '',
+	required_g BIGINT NOT NULL DEFAULT 0,
+	required_units BIGINT NOT NULL DEFAULT 0,
+	reserved_g BIGINT NOT NULL DEFAULT 0,
+	reserved_units BIGINT NOT NULL DEFAULT 0,
+	consumed_g BIGINT NOT NULL DEFAULT 0,
+	consumed_units BIGINT NOT NULL DEFAULT 0,
+	returned_g BIGINT NOT NULL DEFAULT 0,
+	returned_units BIGINT NOT NULL DEFAULT 0,
+	status TEXT NOT NULL DEFAULT 'reserved',
+	created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+	updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS work_order_material_reservations_running_idx ON %s.work_order_material_reservations(running_item_id, status);
+CREATE INDEX IF NOT EXISTS work_order_material_reservations_material_idx ON %s.work_order_material_reservations(material_id, status);
+`, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema)
 	if _, err := pool.Exec(ctx, q); err != nil {
 		return err
 	}
@@ -125,7 +150,8 @@ func ensureProductionRunTable(ctx context.Context, pool *pgxpool.Pool, schema st
 func ensureProductionLogTable(ctx context.Context, pool *pgxpool.Pool, schema string) error {
 	q := fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s.production_logs (
 		id BIGSERIAL PRIMARY KEY,
-		running_item_id BIGINT NOT NULL UNIQUE,
+		running_item_id BIGINT NOT NULL,
+		completion_no BIGINT NOT NULL DEFAULT 1,
 		batch_id TEXT NOT NULL DEFAULT '',
 		product_id BIGINT NOT NULL DEFAULT 0,
 		product_name TEXT NOT NULL DEFAULT '',
@@ -150,7 +176,33 @@ func ensureProductionLogTable(ctx context.Context, pool *pgxpool.Pool, schema st
 		created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 	);
 	CREATE INDEX IF NOT EXISTS production_logs_finished_idx ON %s.production_logs(finished_at DESC, id DESC);
-	CREATE INDEX IF NOT EXISTS production_logs_product_idx ON %s.production_logs(product_id, finished_at DESC);`, schema, schema, schema)
+	CREATE INDEX IF NOT EXISTS production_logs_product_idx ON %s.production_logs(product_id, finished_at DESC);
+	CREATE INDEX IF NOT EXISTS production_logs_running_completion_idx ON %s.production_logs(running_item_id, completion_no);`, schema, schema, schema, schema)
+	if _, err := pool.Exec(ctx, q); err != nil {
+		return err
+	}
+	_, _ = pool.Exec(ctx, fmt.Sprintf(`ALTER TABLE %s.production_logs DROP CONSTRAINT IF EXISTS production_logs_running_item_id_key`, schema))
+	_, err := pool.Exec(ctx, fmt.Sprintf(`ALTER TABLE %s.production_logs ADD COLUMN IF NOT EXISTS completion_no BIGINT NOT NULL DEFAULT 1`, schema))
+	return err
+}
+
+func ensureQualityInspectionTables(ctx context.Context, pool *pgxpool.Pool, schema string) error {
+	q := fmt.Sprintf(`
+CREATE TABLE IF NOT EXISTS %s.quality_inspections (
+	id BIGSERIAL PRIMARY KEY,
+	scope TEXT NOT NULL DEFAULT '',
+	reference_type TEXT NOT NULL DEFAULT '',
+	reference_no TEXT NOT NULL DEFAULT '',
+	item_name TEXT NOT NULL DEFAULT '',
+	result TEXT NOT NULL DEFAULT 'hold',
+	metrics_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+	note TEXT NOT NULL DEFAULT '',
+	operator TEXT NOT NULL DEFAULT '',
+	created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS quality_inspections_ref_idx ON %s.quality_inspections(reference_type, reference_no, created_at DESC);
+CREATE INDEX IF NOT EXISTS quality_inspections_scope_idx ON %s.quality_inspections(scope, result, created_at DESC);
+`, schema, schema, schema)
 	_, err := pool.Exec(ctx, q)
 	return err
 }

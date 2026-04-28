@@ -66,6 +66,15 @@ func (r *workOrderAPIRepo) ListJobCards(ctx context.Context, query productionapp
 func (r *workOrderAPIRepo) ListBatchCosts(ctx context.Context, query productionapp.BatchCostQuery) ([]productionapp.BatchCostRow, error) {
 	return nil, nil
 }
+func (r *workOrderAPIRepo) MaterialPlan(ctx context.Context, query productionapp.MaterialPlanQuery) (productionapp.MaterialPlanResult, error) {
+	return productionapp.MaterialPlanResult{}, nil
+}
+func (r *workOrderAPIRepo) CreateQualityInspection(ctx context.Context, cmd productionapp.QualityInspectionCommand) (productionapp.QualityInspectionRow, error) {
+	return productionapp.QualityInspectionRow{}, nil
+}
+func (r *workOrderAPIRepo) ListQualityInspections(ctx context.Context, query productionapp.QualityInspectionQuery) ([]productionapp.QualityInspectionRow, error) {
+	return nil, nil
+}
 
 func TestWorkOrderAPIIncludesRoastAdvice(t *testing.T) {
 	e := echo.New()
