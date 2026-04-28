@@ -84,4 +84,4 @@
 - [x] Run `node --test src/lib/*.test.js`.
 - [x] Run `npm run build`.
 - [x] Run `git diff --check`.
-- [ ] Push `codex/manufacturing-planning-quality-20260428`.
+- [x] Push `codex/manufacturing-planning-quality-20260428`.
