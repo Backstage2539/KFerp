@@ -110,7 +110,79 @@ func (r Repository) FillShipmentTracking(ctx context.Context, cmd salesapp.FillS
 	if err := tx.Commit(ctx); err != nil {
 		return salesapp.FillShipmentTrackingResult{}, err
 	}
-	return salesapp.FillShipmentTrackingResult{Updated: updated}, nil
+	return salesapp.FillShipmentTrackingResult{Updated: updated, Total: len(cmd.Items)}, nil
+}
+
+func (r Repository) FillShipmentTrackingByOrderNo(ctx context.Context, cmd salesapp.FillShipmentTrackingByOrderNoCommand) (salesapp.FillShipmentTrackingResult, error) {
+	tx, err := r.pool.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return salesapp.FillShipmentTrackingResult{}, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	shippedStatusID := lookupDefaultStatusID(ctx, tx, r.schema, "ship_statuses", "已发货")
+	if shippedStatusID <= 0 {
+		return salesapp.FillShipmentTrackingResult{}, fmt.Errorf("ship status 已发货 not found")
+	}
+
+	updated := 0
+	for _, item := range cmd.Items {
+		var orderID int64
+		err := tx.QueryRow(ctx, fmt.Sprintf(`
+			SELECT id
+			FROM %s.orders
+			WHERE order_no=$1 AND COALESCE(is_void,false)=false
+			FOR UPDATE
+		`, r.schema), item.OrderNo).Scan(&orderID)
+		if err == pgx.ErrNoRows {
+			continue
+		}
+		if err != nil {
+			return salesapp.FillShipmentTrackingResult{}, err
+		}
+		if _, err := tx.Exec(ctx, fmt.Sprintf(`
+			UPDATE %s.orders
+			SET ship_tracking_no=$2, ship_status_id=$3
+			WHERE id=$1
+		`, r.schema), orderID, item.TrackingNo, shippedStatusID); err != nil {
+			return salesapp.FillShipmentTrackingResult{}, err
+		}
+
+		var shipmentID int64
+		err = tx.QueryRow(ctx, fmt.Sprintf(`
+			WITH target AS (
+				SELECT id
+				FROM %s.order_shipment_orders
+				WHERE order_id=$1
+				ORDER BY id DESC
+				LIMIT 1
+			)
+			UPDATE %s.order_shipment_orders oso
+			SET tracking_no=$2, shipped_at=now()
+			FROM target
+			WHERE oso.id=target.id
+			RETURNING oso.shipment_id
+		`, r.schema, r.schema), orderID, item.TrackingNo).Scan(&shipmentID)
+		if err != nil && err != pgx.ErrNoRows {
+			return salesapp.FillShipmentTrackingResult{}, err
+		}
+		if shipmentID > 0 {
+			if _, err := tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.order_shipments SET status='shipped' WHERE id=$1`, r.schema), shipmentID); err != nil {
+				return salesapp.FillShipmentTrackingResult{}, err
+			}
+		}
+		if err := r.insertShippingAuditTx(ctx, tx, cmd.Actor, orderID, "ship_tracking_no", item.TrackingNo); err != nil {
+			return salesapp.FillShipmentTrackingResult{}, err
+		}
+		if err := r.insertShippingAuditTx(ctx, tx, cmd.Actor, orderID, "ship_status_id", fmt.Sprintf("%d", shippedStatusID)); err != nil {
+			return salesapp.FillShipmentTrackingResult{}, err
+		}
+		updated++
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return salesapp.FillShipmentTrackingResult{}, err
+	}
+	return salesapp.FillShipmentTrackingResult{Updated: updated, Total: len(cmd.Items)}, nil
 }
 
 func nextShipmentNo(ctx context.Context, tx pgx.Tx, schema string) (string, error) {

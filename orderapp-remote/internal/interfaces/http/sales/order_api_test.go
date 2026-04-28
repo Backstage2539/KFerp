@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -589,6 +590,84 @@ func TestOrdersShippingTrackingAPIMarksOrdersShipped(t *testing.T) {
 	}
 	if rowTracking != "SF123456789CN" || shipmentStatus != "shipped" {
 		t.Fatalf("shipment tracking=%q status=%q, want shipped", rowTracking, shipmentStatus)
+	}
+}
+
+func TestOrdersShippingTrackingExcelAPIMarksOrdersByRemarkOrderNo(t *testing.T) {
+	pool, schema := newOrderAPITestDB(t)
+	ctx := context.Background()
+	seedOrderAPITestData(t, ctx, pool, schema)
+	if err := postgressales.EnsureSchema(ctx, pool, schema); err != nil {
+		t.Fatalf("EnsureSchema: %v", err)
+	}
+	mustExecOrderAPITestSQL(t, ctx, pool, fmt.Sprintf(`
+		INSERT INTO %s.orders(id, order_no, order_date, customer_id, order_type_id, pay_status_id, ship_status_id, process_status_id, grand_total, is_void)
+		VALUES (27, 'SO-20260428-0001', '2026-04-28', 3, 1, 2, 1, (SELECT id FROM %s.order_process_statuses WHERE name='生产完成' LIMIT 1), 88, false);
+		INSERT INTO %s.order_shipments(id, shipment_no, created_by, sender_id, file_url, status)
+		VALUES (12, 'SHIP-20260428-0002', '测试员', 1, '/ship/order_exports/test.xlsx', 'excel_generated');
+		INSERT INTO %s.order_shipment_orders(shipment_id, order_id, sender_id)
+		VALUES (12, 27, 1);
+	`, schema, schema, schema, schema))
+
+	wb := excelize.NewFile()
+	sheet := wb.GetSheetName(0)
+	for i, header := range []string{"运单号", "备注"} {
+		cell, _ := excelize.CoordinatesToCellName(i+1, 1)
+		if err := wb.SetCellValue(sheet, cell, header); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := wb.SetCellValue(sheet, "A2", "SF5199040648127"); err != nil {
+		t.Fatal(err)
+	}
+	if err := wb.SetCellValue(sheet, "B2", "SO-20260428-0001；橘皮乌龙 227g x1件"); err != nil {
+		t.Fatal(err)
+	}
+	var fileBytes bytes.Buffer
+	if err := wb.Write(&fileBytes); err != nil {
+		t.Fatal(err)
+	}
+	if err := wb.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
+	part, err := writer.CreateFormFile("file", "tracking.xlsx")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := part.Write(fileBytes.Bytes()); err != nil {
+		t.Fatal(err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	e := newOrderAPITestEcho(pool, schema)
+	req := httptest.NewRequest(http.MethodPost, "/api/orders/shipping-tracking-excel", &body)
+	req.Header.Set(echo.HeaderContentType, writer.FormDataContentType())
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("POST /api/orders/shipping-tracking-excel status = %d, want 200, body=%s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), `"updated":1`) || !strings.Contains(rec.Body.String(), `"total":1`) {
+		t.Fatalf("tracking excel response should include updated=1 total=1: %s", rec.Body.String())
+	}
+
+	var trackingNo, shipStatus string
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`
+		SELECT COALESCE(o.ship_tracking_no,''), COALESCE(ss.name,'')
+		FROM %s.orders o
+		LEFT JOIN %s.ship_statuses ss ON ss.id=o.ship_status_id
+		WHERE o.id=27
+	`, schema, schema)).Scan(&trackingNo, &shipStatus); err != nil {
+		t.Fatalf("query order tracking: %v", err)
+	}
+	if trackingNo != "SF5199040648127" || shipStatus != "已发货" {
+		t.Fatalf("order tracking=%q ship_status=%q, want shipped", trackingNo, shipStatus)
 	}
 }
 

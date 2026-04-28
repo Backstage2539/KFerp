@@ -77,6 +77,13 @@
           <button class="primary" type="button" @click="generateShippingExcel" :disabled="shippingLoading || !selectedOrderIDs.length">
             {{ shippingLoading ? '生成中' : `生成快递录单 Excel(${selectedOrderIDs.length})` }}
           </button>
+          <label class="tracking-upload">
+            <span>回传 Excel</span>
+            <input type="file" accept=".xlsx,.xls" @change="handleTrackingExcelFile" />
+          </label>
+          <button class="secondary" type="button" @click="uploadTrackingExcel" :disabled="trackingExcelLoading || !trackingExcelFile">
+            {{ trackingExcelLoading ? '上传中' : '上传回填' }}
+          </button>
         </div>
       </div>
       <div v-if="shippingMessage" class="notice ok">
@@ -201,6 +208,8 @@ const orderSenderIDs = reactive({})
 const currentShipment = reactive({ shipment_id: 0, shipment_no: '' })
 const trackingInputs = reactive({})
 const trackingLoading = ref(false)
+const trackingExcelFile = ref(null)
+const trackingExcelLoading = ref(false)
 
 const filters = reactive({
   q: '',
@@ -366,6 +375,38 @@ async function fillShipmentTracking() {
   }
 }
 
+function handleTrackingExcelFile(event) {
+  trackingExcelFile.value = event.target.files?.[0] || null
+  shippingError.value = ''
+}
+
+async function uploadTrackingExcel() {
+  if (!trackingExcelFile.value) {
+    shippingError.value = '请选择回传 Excel'
+    return
+  }
+  trackingExcelLoading.value = true
+  shippingError.value = ''
+  shippingMessage.value = ''
+  try {
+    const body = new FormData()
+    body.append('file', trackingExcelFile.value)
+    const res = await fetch('/api/orders/shipping-tracking-excel', {
+      method: 'POST',
+      body,
+    })
+    const data = await res.json()
+    if (!res.ok) throw new Error(data.error || 'Excel 回填失败')
+    shippingMessage.value = `已从 Excel 回填 ${Number(data.updated || 0)}/${Number(data.total || 0)} 个快递单号`
+    trackingExcelFile.value = null
+    await load()
+  } catch (err) {
+    shippingError.value = err.message || 'Excel 回填失败'
+  } finally {
+    trackingExcelLoading.value = false
+  }
+}
+
 async function loadSenderProfiles() {
   try {
     const res = await fetch('/api/settings/sender')
@@ -434,6 +475,8 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .shipping-actions { align-self: end; display: flex; flex-wrap: wrap; align-items: flex-end; gap: 8px; justify-content: flex-end; }
 .sender-picker { min-width: 180px; }
 .sender-picker select { height: 38px; }
+.tracking-upload { min-width: 180px; }
+.tracking-upload input { padding: 6px; }
 .notice { display: flex; align-items: center; justify-content: space-between; gap: 10px; border-radius: 6px; padding: 9px; margin-bottom: 12px; }
 .ok { background: #eef8f1; border: 1px solid #b9dfc4; color: #1f6b38; }
 .tracking-box { border: 1px solid #d9e3ef; border-radius: 8px; padding: 10px; margin-bottom: 12px; background: #f8fbff; }

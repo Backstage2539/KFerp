@@ -1,6 +1,7 @@
 package sales
 
 import (
+	"bytes"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -9,6 +10,54 @@ import (
 
 	"github.com/xuri/excelize/v2"
 )
+
+func TestParseShipmentTrackingExcelUsesWaybillAndRemarkOrderNo(t *testing.T) {
+	wb := excelize.NewFile()
+	sheet := wb.GetSheetName(0)
+	headers := []string{
+		"用户平台订单号", "货单号", "运单号", "子单号", "快递公司", "寄付人", "寄件人手机", "寄件人地址",
+		"寄付公司", "收件人", "收件人手机", "收件人地址", "收件人公司", "托寄物", "下单重量", "结算重量",
+		"付款金额", "补价金额", "应收金额", "主运费", "保价费用", "保鲜费用", "包装费用", "特安服务费",
+		"下单类型", "结算类型", "订单状态", "签收时间", "支付状态", "支付时间", "支付方式", "下单时间",
+		"揽件时间", "揽收工号", "备注", "下单人", "一级代理名称", "二级代理名称", "转寄退回-新单", "创建时间",
+	}
+	for i, header := range headers {
+		cell, _ := excelize.CoordinatesToCellName(i+1, 1)
+		if err := wb.SetCellValue(sheet, cell, header); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := wb.SetCellValue(sheet, "C2", " SF5199040648127 "); err != nil {
+		t.Fatal(err)
+	}
+	if err := wb.SetCellValue(sheet, "AI2", "SO-20260428-0001；橘皮乌龙 227g x1件"); err != nil {
+		t.Fatal(err)
+	}
+	if err := wb.SetCellValue(sheet, "C3", "SF0222363353152"); err != nil {
+		t.Fatal(err)
+	}
+	if err := wb.SetCellValue(sheet, "AI3", "备注没有订单号"); err != nil {
+		t.Fatal(err)
+	}
+	var buf bytes.Buffer
+	if err := wb.Write(&buf); err != nil {
+		t.Fatal(err)
+	}
+	if err := wb.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	items, err := parseShipmentTrackingExcel(bytes.NewReader(buf.Bytes()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(items) != 1 {
+		t.Fatalf("items len = %d, want 1: %+v", len(items), items)
+	}
+	if items[0].OrderNo != "SO-20260428-0001" || items[0].TrackingNo != "SF5199040648127" {
+		t.Fatalf("parsed item = %+v", items[0])
+	}
+}
 
 func TestBuildOrderShippingWorkbookFillsTemplateDefaultsAndRemark(t *testing.T) {
 	dir := t.TempDir()

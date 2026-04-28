@@ -543,6 +543,13 @@ func seedReqWorkflowA(ctx context.Context, pool *pgxpool.Pool, schema string) er
 		{table: "req_unit", code: "UT-109-01", title: "单测覆盖 support 鉴权接口和登录账号治理编译路径", status: "done", assignee: "Codex", evidence: "go test ./internal/interfaces/http/support"},
 		{table: "req_api", code: "API-109-01", title: "API 级验证账号治理接口受 auth.manage 保护，停用账号不能继续登录或解析会话", status: "done", assignee: "Codex", evidence: "go test ./internal/interfaces/http/support; deployment smoke"},
 		{table: "req_review", code: "REV-109-01", prCode: "PR-109", title: "验收：管理员可停用/启用员工登录并重置密码；停用员工无法登录和继续访问", status: "todo", assignee: "VA", evidence: "待 Van 服务器验收"},
+		{table: "req_product", code: "PR-111", title: "P1-A 回填支持上传顺丰寄件列表 Excel，按备注中的订单号回填快递单号", status: "review", assignee: "VA", evidence: "codex/shipping-tracking-excel-20260428"},
+		{table: "req_dev", code: "DEV-111-01", title: "新增回传 Excel 解析器，识别寄件列表中的运单号和备注/订单号列，并从备注提取 SO 订单号", status: "done", assignee: "Codex", evidence: "parseShipmentTrackingExcel"},
+		{table: "req_dev", code: "DEV-111-02", title: "新增 Excel 上传回填 API，按订单号更新订单快递单号和已发货状态，并同步最近发货批次订单", status: "done", assignee: "Codex", evidence: "POST /api/orders/shipping-tracking-excel"},
+		{table: "req_dev", code: "DEV-111-03", title: "订单列表 Vue 快递处理区新增回传 Excel 上传入口，上传后刷新订单列表", status: "done", assignee: "Codex", evidence: "frontend-vue-shell/src/views/OrdersView.vue"},
+		{table: "req_unit", code: "UT-111-01", title: "单测覆盖按订单号回填命令规范化、Excel 表头识别和备注订单号提取", status: "done", assignee: "Codex", evidence: "TestServiceNormalizesShipmentTrackingByOrderNo; TestParseShipmentTrackingExcelUsesWaybillAndRemarkOrderNo"},
+		{table: "req_api", code: "API-111-01", title: "API 测试覆盖上传寄件列表 Excel 后订单按备注订单号标记已发货并写入快递单号", status: "done", assignee: "Codex", evidence: "TestOrdersShippingTrackingExcelAPIMarksOrdersByRemarkOrderNo"},
+		{table: "req_review", code: "REV-111-01", prCode: "PR-111", title: "验收：上传顺丰寄件列表回传 Excel 后，备注订单号匹配的订单显示快递单号且发货状态为已发货", status: "todo", assignee: "VA", evidence: "待 Van 服务器验收"},
 	} {
 		if err := seedReqRow(ctx, pool, schema, row); err != nil {
 			return err

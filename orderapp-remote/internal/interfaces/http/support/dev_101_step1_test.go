@@ -45,6 +45,15 @@ func TestOrderShippingToolbarAlignmentRequirementSeeds(t *testing.T) {
 	}
 }
 
+func TestShipmentTrackingExcelRequirementSeeds(t *testing.T) {
+	src := string(readOrderAppFileForTest(t, filepath.Join("internal", "interfaces", "http", "support", "req_store.go")))
+	for _, needle := range []string{"PR-111", "DEV-111-01", "DEV-111-02", "DEV-111-03", "UT-111-01", "API-111-01", "REV-111-01", "寄件列表 Excel", "备注中的订单号"} {
+		if !strings.Contains(src, needle) {
+			t.Fatalf("req_store.go missing %q", needle)
+		}
+	}
+}
+
 func TestOrderEntryVueShowsTierPricesWithoutShippingExcelLink(t *testing.T) {
 	b := readOrderAppFileForTest(t, filepath.Join("frontend-vue-shell", "src", "views", "OrderEntryView.vue"))
 	src := string(b)
@@ -78,6 +87,8 @@ func TestOrdersVueGeneratesShippingExcelForProductionCompletedSelection(t *testi
 		"selectedSenderID",
 		"orderSenderIDs",
 		"order_senders",
+		"/api/orders/shipping-tracking-excel",
+		"上传回填",
 		"align-items: flex-end",
 		"align-self: end",
 	} {

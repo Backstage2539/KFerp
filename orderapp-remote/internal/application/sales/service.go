@@ -319,14 +319,25 @@ type ShipmentTrackingItemCommand struct {
 	TrackingNo string `json:"tracking_no"`
 }
 
+type ShipmentTrackingByOrderNoItemCommand struct {
+	OrderNo    string `json:"order_no"`
+	TrackingNo string `json:"tracking_no"`
+}
+
 type FillShipmentTrackingCommand struct {
 	Actor      string
 	ShipmentID int64
 	Items      []ShipmentTrackingItemCommand
 }
 
+type FillShipmentTrackingByOrderNoCommand struct {
+	Actor string
+	Items []ShipmentTrackingByOrderNoItemCommand
+}
+
 type FillShipmentTrackingResult struct {
 	Updated int `json:"updated"`
+	Total   int `json:"total"`
 }
 
 type SenderProfile struct {
@@ -388,6 +399,7 @@ type Repository interface {
 	LoadOrderShippingExportData(ctx context.Context, orderID int64) (OrderShippingExportData, error)
 	CreateOrderShipment(ctx context.Context, cmd CreateOrderShipmentCommand) (OrderShipmentResult, error)
 	FillShipmentTracking(ctx context.Context, cmd FillShipmentTrackingCommand) (FillShipmentTrackingResult, error)
+	FillShipmentTrackingByOrderNo(ctx context.Context, cmd FillShipmentTrackingByOrderNoCommand) (FillShipmentTrackingResult, error)
 }
 
 type Service struct {
@@ -605,6 +617,29 @@ func (s *Service) FillShipmentTracking(ctx context.Context, cmd FillShipmentTrac
 	}
 	cmd.Items = items
 	return s.repo.FillShipmentTracking(ctx, cmd)
+}
+
+func (s *Service) FillShipmentTrackingByOrderNo(ctx context.Context, cmd FillShipmentTrackingByOrderNoCommand) (FillShipmentTrackingResult, error) {
+	cmd.Actor = strings.TrimSpace(cmd.Actor)
+	if cmd.Actor == "" {
+		cmd.Actor = "shipping"
+	}
+	seen := map[string]bool{}
+	items := make([]ShipmentTrackingByOrderNoItemCommand, 0, len(cmd.Items))
+	for _, item := range cmd.Items {
+		item.OrderNo = strings.TrimSpace(item.OrderNo)
+		item.TrackingNo = strings.TrimSpace(item.TrackingNo)
+		if item.OrderNo == "" || item.TrackingNo == "" || seen[item.OrderNo] {
+			continue
+		}
+		seen[item.OrderNo] = true
+		items = append(items, item)
+	}
+	if len(items) == 0 {
+		return FillShipmentTrackingResult{}, nil
+	}
+	cmd.Items = items
+	return s.repo.FillShipmentTrackingByOrderNo(ctx, cmd)
 }
 
 func (s *Service) LoadSenderProfile(ctx context.Context) (SenderProfile, error) {

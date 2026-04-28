@@ -7,14 +7,15 @@ import (
 )
 
 type fakeRepo struct {
-	saveCmd        SaveOrderCommand
-	inlineCmd      InlineUpdateCommand
-	saveCalls      int
-	outsourceSaved SaveOutsourceTemplateCommand
-	trackingCmd    FillTrackingPairsCommand
-	shipMethodCmd  SetShipMethodCommand
-	shipmentCmd    CreateOrderShipmentCommand
-	trackingItems  FillShipmentTrackingCommand
+	saveCmd         SaveOrderCommand
+	inlineCmd       InlineUpdateCommand
+	saveCalls       int
+	outsourceSaved  SaveOutsourceTemplateCommand
+	trackingCmd     FillTrackingPairsCommand
+	shipMethodCmd   SetShipMethodCommand
+	shipmentCmd     CreateOrderShipmentCommand
+	trackingItems   FillShipmentTrackingCommand
+	orderNoTracking FillShipmentTrackingByOrderNoCommand
 }
 
 func (r *fakeRepo) SaveOrder(ctx context.Context, cmd SaveOrderCommand) (SaveOrderResult, error) {
@@ -103,6 +104,11 @@ func (r *fakeRepo) CreateOrderShipment(ctx context.Context, cmd CreateOrderShipm
 func (r *fakeRepo) FillShipmentTracking(ctx context.Context, cmd FillShipmentTrackingCommand) (FillShipmentTrackingResult, error) {
 	r.trackingItems = cmd
 	return FillShipmentTrackingResult{Updated: len(cmd.Items)}, nil
+}
+
+func (r *fakeRepo) FillShipmentTrackingByOrderNo(ctx context.Context, cmd FillShipmentTrackingByOrderNoCommand) (FillShipmentTrackingResult, error) {
+	r.orderNoTracking = cmd
+	return FillShipmentTrackingResult{Updated: len(cmd.Items), Total: len(cmd.Items)}, nil
 }
 
 func TestServiceDelegatesSaveOrder(t *testing.T) {
@@ -288,5 +294,33 @@ func TestServiceOwnsShipmentClosureUseCases(t *testing.T) {
 	}
 	if repo.trackingItems.Actor != "shipping" || repo.trackingItems.ShipmentID != 12 || len(repo.trackingItems.Items) != 1 || repo.trackingItems.Items[0].TrackingNo != "SF123" {
 		t.Fatalf("tracking command = %+v", repo.trackingItems)
+	}
+}
+
+func TestServiceNormalizesShipmentTrackingByOrderNo(t *testing.T) {
+	repo := &fakeRepo{}
+	svc := NewService(repo)
+
+	updated, err := svc.FillShipmentTrackingByOrderNo(context.Background(), FillShipmentTrackingByOrderNoCommand{
+		Items: []ShipmentTrackingByOrderNoItemCommand{
+			{OrderNo: " SO-20260428-0001 ", TrackingNo: " SF5199040648127 "},
+			{OrderNo: "SO-20260428-0001", TrackingNo: "SF-DUP"},
+			{OrderNo: "SO-20260428-0002", TrackingNo: ""},
+			{OrderNo: "", TrackingNo: "SF-MISSING"},
+			{OrderNo: " SO-20260428-0003 ", TrackingNo: " SF0222363353152 "},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updated.Updated != 2 || updated.Total != 2 {
+		t.Fatalf("tracking result = %+v", updated)
+	}
+	if repo.orderNoTracking.Actor != "shipping" || len(repo.orderNoTracking.Items) != 2 {
+		t.Fatalf("order-no tracking command = %+v", repo.orderNoTracking)
+	}
+	first := repo.orderNoTracking.Items[0]
+	if first.OrderNo != "SO-20260428-0001" || first.TrackingNo != "SF5199040648127" {
+		t.Fatalf("first normalized item = %+v", first)
 	}
 }
