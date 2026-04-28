@@ -74,6 +74,15 @@ func (r *fakeRepo) ListJobCards(ctx context.Context, query JobCardQuery) ([]JobC
 func (r *fakeRepo) ListBatchCosts(ctx context.Context, query BatchCostQuery) ([]BatchCostRow, error) {
 	return nil, nil
 }
+func (r *fakeRepo) MaterialPlan(ctx context.Context, query MaterialPlanQuery) (MaterialPlanResult, error) {
+	return MaterialPlanResult{}, nil
+}
+func (r *fakeRepo) CreateQualityInspection(ctx context.Context, cmd QualityInspectionCommand) (QualityInspectionRow, error) {
+	return QualityInspectionRow{}, nil
+}
+func (r *fakeRepo) ListQualityInspections(ctx context.Context, query QualityInspectionQuery) ([]QualityInspectionRow, error) {
+	return nil, nil
+}
 
 func TestServiceDelegatesProductionUseCases(t *testing.T) {
 	repo := &fakeRepo{}

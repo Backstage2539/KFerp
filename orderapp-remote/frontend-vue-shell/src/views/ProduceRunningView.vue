@@ -58,6 +58,17 @@
                 <select v-model="finishInputs[row.id].warehouse" aria-label="成品入库仓">
                   <option v-for="wh in finishedWarehouses" :key="wh.code" :value="wh.code">{{ wh.name }}</option>
                 </select>
+                <label class="partial-check">
+                  <input v-model="finishInputs[row.id].partial" type="checkbox" />
+                  部分完工
+                </label>
+                <input
+                  v-model.number="finishInputs[row.id].consumed_input_g"
+                  min="0"
+                  type="number"
+                  aria-label="本次消耗投料(g)"
+                  placeholder="本次消耗投料(g)"
+                />
                 <button class="primary" type="button" @click="finish(row)" :disabled="busyId === row.id">
                   完成
                 </button>
@@ -101,6 +112,8 @@ function ensureInputs() {
       finishInputs[row.id] = {
         finished_units: Number(row.plan_units || 0),
         finished_loose_g: Number(row.plan_loose_g || 0),
+        consumed_input_g: Number(row.input_g || 0),
+        partial: false,
         warehouse: 'finished_goods',
       }
     }
@@ -148,8 +161,10 @@ async function finish(row) {
       finished_units: Number(input.finished_units || 0),
       finished_loose_g: Number(input.finished_loose_g || 0),
       warehouse: input.warehouse || 'finished_goods',
+      partial: !!input.partial,
+      consumed_input_g: Number(input.consumed_input_g || 0),
     })
-    message.value = '生产已完成'
+    message.value = input.partial ? '已记录部分完工' : '生产已完成'
     await load()
   } catch (err) {
     error.value = err.message || '完成失败'
@@ -226,9 +241,23 @@ input {
 }
 .finish-grid {
   display: grid;
-  grid-template-columns: 72px 72px 120px 58px;
+  grid-template-columns: 72px 72px 120px 96px 132px 58px;
   gap: 6px;
   align-items: center;
+}
+.partial-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  white-space: nowrap;
+  color: #333;
+}
+.partial-check input {
+  width: 16px;
+  height: 16px;
+}
+.finish-grid input[aria-label="本次消耗投料(g)"] {
+  width: 132px;
 }
 .muted { color: #666; }
 .empty { color: #666; text-align: center; }

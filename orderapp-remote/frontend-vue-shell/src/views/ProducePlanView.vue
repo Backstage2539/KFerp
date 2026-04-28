@@ -24,6 +24,7 @@
       <div class="actions">
         <button class="secondary" type="button" @click="pickInsufficient">勾选库存不足商品</button>
         <button class="primary" type="button" @click="buildPlan" :disabled="loading">生成计划</button>
+        <button class="secondary" type="button" @click="loadMaterialPlan" :disabled="materialPlanLoading || !planReady">物料需求计划</button>
         <button class="primary" type="button" @click="startProduction" :disabled="saving || !planReady">开始生产</button>
       </div>
     </section>
@@ -125,6 +126,47 @@
     </section>
 
     <section class="panel">
+      <div class="panel-head">
+        <div class="section-title">物料需求计划</div>
+        <button class="secondary" type="button" @click="loadMaterialPlan" :disabled="materialPlanLoading || !planReady">刷新物料计划</button>
+      </div>
+      <div v-if="!planReady" class="muted">请先选择产品并点击“生成计划”。</div>
+      <div v-else class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>物料</th>
+              <th>单位</th>
+              <th>需求(g)</th>
+              <th>需求(个)</th>
+              <th>WIP(g)</th>
+              <th>已占用(g)</th>
+              <th>原料仓(g)</th>
+              <th>缺料(g)</th>
+              <th>采购建议(g)</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="item in materialPlanRows" :key="item.material_id || item.material_name">
+              <td>{{ item.material_name }}</td>
+              <td>{{ item.unit }}</td>
+              <td>{{ item.required_g }}</td>
+              <td>{{ item.required_units }}</td>
+              <td>{{ item.wip_g }}</td>
+              <td>{{ item.reserved_g }}</td>
+              <td>{{ item.raw_g }}</td>
+              <td><strong>{{ item.shortage_g }}</strong></td>
+              <td>{{ item.purchase_suggestion_g }}</td>
+            </tr>
+            <tr v-if="!materialPlanRows.length">
+              <td colspan="9" class="muted">暂无物料需求计划</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="panel">
       <div class="section-title">烘焙建议</div>
       <div v-if="!planReady" class="muted">请先选择产品并点击“生成计划”。</div>
       <div v-else class="table-wrap">
@@ -171,6 +213,8 @@ const planRows = ref([])
 const roastPlans = ref([])
 const materialRatios = ref([])
 const initialMaterials = ref([])
+const materialPlanRows = ref([])
+const materialPlanLoading = ref(false)
 const selected = reactive({})
 
 const filters = reactive({
@@ -274,11 +318,41 @@ async function buildPlan() {
     return
   }
   await load(true)
+  await loadMaterialPlan()
 }
 
 function syncRoastPlan(row) {
   row.batch_g = Math.max(1, Number(row.batch_g || 0))
   row.final_input_g = row.batch_g * Number(row.batch_count || 0)
+}
+
+async function loadMaterialPlan() {
+  if (!planReady.value) return
+  materialPlanLoading.value = true
+  error.value = ''
+  try {
+    const url = new URL('/api/produce/material-plan', window.location.origin)
+    if (filters.from) url.searchParams.set('from', filters.from)
+    if (filters.to) url.searchParams.set('to', filters.to)
+    if (filters.customer_id) url.searchParams.set('customer_id', filters.customer_id)
+    const keys = selectedKeys()
+    if (keys.length) url.searchParams.set('selected', keys.join(','))
+    for (const row of computedPlanRows.value) {
+      const key = rowKey(row)
+      const inputG = Number(row.input_g || 0)
+      if (key && inputG > 0) {
+        url.searchParams.set(`input_${key.replaceAll('-', '_')}`, String(inputG))
+      }
+    }
+    const res = await fetch(url)
+    const data = await res.json()
+    if (!res.ok) throw new Error(data.error || '物料需求计划加载失败')
+    materialPlanRows.value = data.rows || []
+  } catch (err) {
+    error.value = err.message || '物料需求计划加载失败'
+  } finally {
+    materialPlanLoading.value = false
+  }
 }
 
 async function startProduction() {
@@ -322,6 +396,9 @@ onMounted(async () => {
     }
   }
   await load(url.searchParams.get('plan') === '1')
+  if (url.searchParams.get('plan') === '1') {
+    await loadMaterialPlan()
+  }
 })
 </script>
 

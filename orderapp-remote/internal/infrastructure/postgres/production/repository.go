@@ -317,11 +317,20 @@ func (r Repository) Start(ctx context.Context, cmd productionapp.StartExecutionC
 		if err := ensureWIPStockForRunningItemTx(ctx, tx, r.schema, snapshotRun, materialSnapshot); err != nil {
 			return productionapp.StartResult{}, err
 		}
+		snapshotRun.MaterialSnapshot = strings.TrimSpace(string(materialSnapshot))
+		reservationNeeds, _, err := materialSnapshotNeedsTx(snapshotRun, InvQty{Units: plan.Units, LooseG: plan.LooseG})
+		if err != nil {
+			return productionapp.StartResult{}, err
+		}
 		var runningItemID int64
 		if err := tx.QueryRow(ctx, fmt.Sprintf(`INSERT INTO %s.produce_running_items(batch_id,product_id,product_name,spec_g,need_g,order_nos,status,started_by,started_at,input_g,bom_yield_rate,planned_units,planned_loose_g,material_snapshot) VALUES($1,$2,$3,$4,$5,$6,'running',$7,now(),$8,$9,$10,$11,$12) RETURNING id`, r.schema), batchID, need.ProductID, need.ProductName, need.SpecG, need.GapG, need.OrderNos, cmd.Operator, inputG, yieldRate, plan.Units, plan.LooseG, materialSnapshot).Scan(&runningItemID); err != nil {
 			return productionapp.StartResult{}, err
 		}
-		if err := createWorkOrderForRunningItemTx(ctx, tx, r.schema, runningItemID, batchID, need.ProductID, need.ProductName, need.SpecG, inputG, materialSnapshot, cmd.Operator); err != nil {
+		workOrderID, err := createWorkOrderForRunningItemTx(ctx, tx, r.schema, runningItemID, batchID, need.ProductID, need.ProductName, need.SpecG, inputG, materialSnapshot, cmd.Operator)
+		if err != nil {
+			return productionapp.StartResult{}, err
+		}
+		if err := createMaterialReservationsForRunningItemTx(ctx, tx, r.schema, workOrderID, runningItemID, reservationNeeds); err != nil {
 			return productionapp.StartResult{}, err
 		}
 	}

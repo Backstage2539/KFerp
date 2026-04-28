@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
 	productionapp "orderapp/internal/application/production"
 	postgresinfra "orderapp/internal/infrastructure/postgres"
 	"strings"
@@ -91,11 +92,29 @@ func (repo Repository) Finish(ctx context.Context, cmd productionapp.FinishComma
 	if add.Units <= 0 && add.LooseG <= 0 {
 		return fmt.Errorf("请填写完成件数或散装余量")
 	}
-	actualYield, err := actualYieldRate(r.SpecG, add.Units, add.LooseG, r.InputG)
+	finishedTotal := finishedTotalG(r.SpecG, add.Units, add.LooseG)
+	completionNo, err := nextCompletionNoForRunningItemTx(ctx, tx, schema, r.ID)
 	if err != nil {
 		return err
 	}
-	finishedTotal := finishedTotalG(r.SpecG, add.Units, add.LooseG)
+	partial := cmd.Partial && finishedTotal < r.NeedG
+	consumedInputG := r.InputG
+	if partial {
+		consumedInputG = cmd.ConsumedInputG
+		if consumedInputG <= 0 {
+			consumedInputG = int64(math.Ceil(float64(finishedTotal) / r.BomYieldRate))
+		}
+		if consumedInputG <= 0 {
+			return fmt.Errorf("本次消耗投料必须大于0")
+		}
+		if consumedInputG > r.InputG {
+			return fmt.Errorf("本次消耗投料不能大于工单剩余投料")
+		}
+	}
+	actualYield, err := actualYieldRate(r.SpecG, add.Units, add.LooseG, consumedInputG)
+	if err != nil {
+		return err
+	}
 	nowQty := InvQty{Units: cur.Units + add.Units, LooseG: cur.LooseG + add.LooseG}
 	norm, err := invNormalize(r.SpecG, nowQty)
 	if err != nil {
@@ -107,7 +126,14 @@ func (repo Repository) Finish(ctx context.Context, cmd productionapp.FinishComma
 	if err := recordFinishedProductStockMovementTx(ctx, tx, schema, r, cur, add, norm, finishedTotal, warehouse, operator); err != nil {
 		return err
 	}
-	if err := deductMaterialsForRunningItemTx(ctx, tx, schema, r, add, operator); err != nil {
+	consumeRun := r
+	if partial {
+		consumeRun.NeedG = finishedTotal
+		consumeRun.InputG = consumedInputG
+		consumeRun.PlanUnits = add.Units
+		consumeRun.PlanLooseG = add.LooseG
+	}
+	if err := deductMaterialsForRunningItemTx(ctx, tx, schema, consumeRun, add, operator); err != nil {
 		return err
 	}
 	materialSummary, err := listMaterialConsumptionSummaryTx(ctx, tx, schema, r.ID)
@@ -121,17 +147,17 @@ func (repo Repository) Finish(ctx context.Context, cmd productionapp.FinishComma
 	finishedAt := time.Now()
 	if _, err := tx.Exec(ctx, fmt.Sprintf(`
 		INSERT INTO %s.production_logs(
-			running_item_id,batch_id,product_id,product_name,spec_g,order_nos,
+			running_item_id,completion_no,batch_id,product_id,product_name,spec_g,order_nos,
 			planned_need_g,input_g,bom_yield_rate,
 			finished_units,finished_loose_g,finished_total_g,actual_yield_rate,
 			started_by,started_at,finished_by,finished_at,
 			inventory_units_before,inventory_loose_g_before,
 			inventory_units_after,inventory_loose_g_after,
 			material_summary,created_at
-		) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,now())
+		) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,now())
 	`, schema),
-		r.ID, r.BatchID, r.ProductID, r.Product, r.SpecG, r.OrderNos,
-		r.NeedG, r.InputG, r.BomYieldRate,
+		r.ID, completionNo, r.BatchID, r.ProductID, r.Product, r.SpecG, r.OrderNos,
+		r.NeedG, consumedInputG, r.BomYieldRate,
 		add.Units, add.LooseG, finishedTotal, actualYield,
 		r.StartedBy, r.StartedAtTime, operator, finishedAt,
 		unitsBefore, looseBefore, norm.Units, norm.LooseG,
@@ -139,8 +165,39 @@ func (repo Repository) Finish(ctx context.Context, cmd productionapp.FinishComma
 	); err != nil {
 		return err
 	}
-	actualCost, err := recordBatchCostForRunningItemTx(ctx, tx, schema, r, finishedTotal)
+	if partial {
+		remainingNeedG := r.NeedG - finishedTotal
+		remainingInputG := r.InputG - consumedInputG
+		if remainingNeedG <= 0 || remainingInputG <= 0 {
+			partial = false
+		} else {
+			remainingPlan := runningInventoryPlan(r.SpecG, remainingNeedG, remainingInputG, r.BomYieldRate)
+			if _, err := tx.Exec(ctx, fmt.Sprintf(`
+				UPDATE %s.produce_running_items
+				SET need_g=$2,input_g=$3,planned_units=$4,planned_loose_g=$5
+				WHERE id=$1
+			`, schema), id, remainingNeedG, remainingInputG, remainingPlan.Units, remainingPlan.LooseG); err != nil {
+				return err
+			}
+			if _, err := tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.work_orders SET planned_g=$2 WHERE running_item_id=$1`, schema), id, remainingInputG); err != nil {
+				return err
+			}
+			if err := tx.Commit(ctx); err != nil {
+				return err
+			}
+			postgresinfra.AuditInsert(ctx, repo.pool, schema, operator, "produce_running", &id, "partial_finish", postgresinfra.StrPtr("material_consumption"), nil, postgresinfra.StrPtr("deducted"), postgresinfra.AuditMeta{"running_item_id": id, "product_id": r.ProductID, "spec_g": r.SpecG, "need_g": r.NeedG, "input_g": consumedInputG, "remaining_need_g": remainingNeedG, "remaining_input_g": remainingInputG, "bom_yield_rate": r.BomYieldRate, "finished_units": add.Units, "finished_loose_g": add.LooseG, "finished_total_g": finishedTotal, "actual_yield_rate": actualYield})
+			return nil
+		}
+	}
+	totalFinishedG, err := cumulativeFinishedTotalGForRunningItemTx(ctx, tx, schema, r.ID)
 	if err != nil {
+		return err
+	}
+	actualCost, err := recordBatchCostForRunningItemTx(ctx, tx, schema, r, totalFinishedG)
+	if err != nil {
+		return err
+	}
+	if err := completeMaterialReservationsForRunningItemTx(ctx, tx, schema, r.ID); err != nil {
 		return err
 	}
 	if err := completeWorkOrderForRunningItemTx(ctx, tx, schema, r.ID, actualCost, operator); err != nil {
@@ -159,6 +216,27 @@ func (repo Repository) Finish(ctx context.Context, cmd productionapp.FinishComma
 	}
 	postgresinfra.AuditInsert(ctx, repo.pool, schema, operator, "produce_running", &id, "finish", postgresinfra.StrPtr("material_consumption"), nil, postgresinfra.StrPtr("deducted"), postgresinfra.AuditMeta{"running_item_id": id, "product_id": r.ProductID, "spec_g": r.SpecG, "need_g": r.NeedG, "input_g": r.InputG, "bom_yield_rate": r.BomYieldRate, "finished_units": add.Units, "finished_loose_g": add.LooseG, "finished_total_g": finishedTotal, "actual_yield_rate": actualYield})
 	return nil
+}
+
+func nextCompletionNoForRunningItemTx(ctx context.Context, tx pgx.Tx, schema string, runningItemID int64) (int64, error) {
+	var completionNo int64
+	err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT COALESCE(MAX(completion_no),0)+1 FROM %s.production_logs WHERE running_item_id=$1`, schema), runningItemID).Scan(&completionNo)
+	if err != nil {
+		return 0, err
+	}
+	if completionNo <= 0 {
+		completionNo = 1
+	}
+	return completionNo, nil
+}
+
+func cumulativeFinishedTotalGForRunningItemTx(ctx context.Context, tx pgx.Tx, schema string, runningItemID int64) (int64, error) {
+	var totalG int64
+	err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT COALESCE(SUM(finished_total_g),0)::bigint FROM %s.production_logs WHERE running_item_id=$1`, schema), runningItemID).Scan(&totalG)
+	if err != nil {
+		return 0, err
+	}
+	return totalG, nil
 }
 
 func (repo Repository) Cancel(ctx context.Context, cmd productionapp.CancelCommand) error {
