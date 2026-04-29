@@ -313,6 +313,85 @@ func (r Repository) PublishBeanList(ctx context.Context, cmd appcosting.PublishB
 	return &published, nil
 }
 
+func (r Repository) SaveBeanListDraft(ctx context.Context, cmd appcosting.PublishBeanListCommand) (*appcosting.BeanListPublication, error) {
+	conn, err := r.pool.Acquire(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer conn.Release()
+	tx, err := conn.Begin(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	config, err := json.Marshal(cmd.Config)
+	if err != nil {
+		return nil, err
+	}
+	content, err := json.Marshal(cmd.Content)
+	if err != nil {
+		return nil, err
+	}
+	var draft appcosting.BeanListPublication
+	var configJSON, contentJSON []byte
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`
+		INSERT INTO %s.bean_list_publications(list_type, version_no, status, owner_type, owner_key, price_source_publication_id, style_source_publication_id, source_version_no, config_json, content_json, changelog, actor)
+		VALUES($1,$2,'draft',$3,$4,NULLIF($5,0),NULLIF($6,0),$7,$8::jsonb,$9::jsonb,$10,$11)
+		RETURNING id, list_type, version_no, status, owner_type, owner_key, COALESCE(price_source_publication_id,0), COALESCE(style_source_publication_id,0), source_version_no, config_json, content_json, changelog,
+		          to_char(published_at,'YYYY-MM-DD HH24:MI'),
+		          COALESCE(to_char(withdrawn_at,'YYYY-MM-DD HH24:MI'),''),
+		          to_char(created_at,'YYYY-MM-DD HH24:MI')
+	`, r.schema), cmd.ListType, cmd.Version, cmd.OwnerType, cmd.OwnerKey, cmd.PriceSourcePublicationID, cmd.StyleSourcePublicationID, cmd.SourceVersion, config, content, cmd.Changelog, cmd.Actor).Scan(
+		&draft.ID,
+		&draft.ListType,
+		&draft.Version,
+		&draft.Status,
+		&draft.OwnerType,
+		&draft.OwnerKey,
+		&draft.PriceSourcePublicationID,
+		&draft.StyleSourcePublicationID,
+		&draft.SourceVersion,
+		&configJSON,
+		&contentJSON,
+		&draft.Changelog,
+		&draft.PublishedAt,
+		&draft.WithdrawnAt,
+		&draft.CreatedAt,
+	); err != nil {
+		return nil, err
+	}
+	draft.Config = map[string]any{}
+	draft.Content = map[string]any{}
+	if len(configJSON) > 0 {
+		if err := json.Unmarshal(configJSON, &draft.Config); err != nil {
+			return nil, err
+		}
+	}
+	if len(contentJSON) > 0 {
+		if err := json.Unmarshal(contentJSON, &draft.Content); err != nil {
+			return nil, err
+		}
+	}
+	if draft.ID <= 0 {
+		return nil, fmt.Errorf("save draft failed")
+	}
+	if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, cmd.Actor, "bean_list_publication", &draft.ID, "save_draft", postgresinfra.StrPtr("status"), nil, postgresinfra.StrPtr("draft"), postgresinfra.AuditMeta{
+		"list_type":                cmd.ListType,
+		"version":                  cmd.Version,
+		"owner_type":               cmd.OwnerType,
+		"owner_key":                cmd.OwnerKey,
+		"price_source_publication": cmd.PriceSourcePublicationID,
+		"style_source_publication": cmd.StyleSourcePublicationID,
+	}); err != nil {
+		return nil, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return nil, err
+	}
+	return &draft, nil
+}
+
 func (r Repository) WithdrawBeanList(ctx context.Context, cmd appcosting.WithdrawBeanListCommand) error {
 	conn, err := r.pool.Acquire(ctx)
 	if err != nil {

@@ -99,6 +99,7 @@ type Repository interface {
 	ListBeanListPublications(ctx context.Context, query BeanListPublicationQuery) ([]BeanListPublication, error)
 	PublishedBeanList(ctx context.Context, query BeanListPublicationQuery) (*BeanListPublication, error)
 	PublishBeanList(ctx context.Context, cmd PublishBeanListCommand) (*BeanListPublication, error)
+	SaveBeanListDraft(ctx context.Context, cmd PublishBeanListCommand) (*BeanListPublication, error)
 	WithdrawBeanList(ctx context.Context, cmd WithdrawBeanListCommand) error
 }
 
@@ -214,25 +215,47 @@ func (s *Service) PublishedBeanList(ctx context.Context, query BeanListPublicati
 }
 
 func (s *Service) PublishBeanList(ctx context.Context, cmd PublishBeanListCommand) (*BeanListPublication, error) {
-	listType, err := normalizeBeanListType(cmd.ListType)
+	normalized, err := normalizeBeanListCommand(cmd)
 	if err != nil {
 		return nil, err
+	}
+	if s.repo == nil {
+		return nil, fmt.Errorf("repository required")
+	}
+	return s.repo.PublishBeanList(ctx, normalized)
+}
+
+func (s *Service) SaveBeanListDraft(ctx context.Context, cmd PublishBeanListCommand) (*BeanListPublication, error) {
+	normalized, err := normalizeBeanListCommand(cmd)
+	if err != nil {
+		return nil, err
+	}
+	if s.repo == nil {
+		return nil, fmt.Errorf("repository required")
+	}
+	return s.repo.SaveBeanListDraft(ctx, normalized)
+}
+
+func normalizeBeanListCommand(cmd PublishBeanListCommand) (PublishBeanListCommand, error) {
+	listType, err := normalizeBeanListType(cmd.ListType)
+	if err != nil {
+		return PublishBeanListCommand{}, err
 	}
 	cmd.ListType = listType
 	cmd.Version = strings.TrimSpace(cmd.Version)
 	cmd.Changelog = strings.TrimSpace(cmd.Changelog)
 	cmd.SourceVersion = strings.TrimSpace(cmd.SourceVersion)
 	if cmd.Version == "" {
-		return nil, fmt.Errorf("version required")
+		return PublishBeanListCommand{}, fmt.Errorf("version required")
 	}
 	ownerType, ownerKey, err := normalizeBeanListOwner(cmd.OwnerType, cmd.OwnerKey)
 	if err != nil {
-		return nil, err
+		return PublishBeanListCommand{}, err
 	}
 	cmd.OwnerType = ownerType
 	cmd.OwnerKey = ownerKey
 	if cmd.PriceSourcePublicationID < 0 || cmd.StyleSourcePublicationID < 0 {
-		return nil, fmt.Errorf("source publication id must be >= 0")
+		return PublishBeanListCommand{}, fmt.Errorf("source publication id must be >= 0")
 	}
 	if cmd.Config == nil {
 		cmd.Config = map[string]any{}
@@ -240,10 +263,7 @@ func (s *Service) PublishBeanList(ctx context.Context, cmd PublishBeanListComman
 	if cmd.Content == nil {
 		cmd.Content = map[string]any{}
 	}
-	if s.repo == nil {
-		return nil, fmt.Errorf("repository required")
-	}
-	return s.repo.PublishBeanList(ctx, cmd)
+	return cmd, nil
 }
 
 func (s *Service) WithdrawBeanList(ctx context.Context, cmd WithdrawBeanListCommand) error {

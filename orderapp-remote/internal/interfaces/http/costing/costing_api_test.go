@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	authzapp "orderapp/internal/application/authz"
 	appcosting "orderapp/internal/application/costing"
 	domain "orderapp/internal/domain/costing"
 
@@ -111,7 +112,65 @@ func (fakeService) PublishBeanList(context.Context, appcosting.PublishBeanListCo
 	}, nil
 }
 
+func (fakeService) SaveBeanListDraft(context.Context, appcosting.PublishBeanListCommand) (*appcosting.BeanListPublication, error) {
+	return &appcosting.BeanListPublication{
+		ID:        9,
+		ListType:  "commercial",
+		Version:   "V3.0.6",
+		Status:    "draft",
+		OwnerType: "actor",
+		OwnerKey:  "employee:7",
+	}, nil
+}
+
 func (fakeService) WithdrawBeanList(context.Context, appcosting.WithdrawBeanListCommand) error {
+	return nil
+}
+
+type recordingBeanListService struct {
+	fakeService
+	published int
+	drafted   int
+	lastDraft appcosting.PublishBeanListCommand
+}
+
+func (s *recordingBeanListService) PublishBeanList(ctx context.Context, cmd appcosting.PublishBeanListCommand) (*appcosting.BeanListPublication, error) {
+	s.published++
+	return s.fakeService.PublishBeanList(ctx, cmd)
+}
+
+func (s *recordingBeanListService) SaveBeanListDraft(ctx context.Context, cmd appcosting.PublishBeanListCommand) (*appcosting.BeanListPublication, error) {
+	s.drafted++
+	s.lastDraft = cmd
+	return &appcosting.BeanListPublication{
+		ID:        9,
+		ListType:  cmd.ListType,
+		Version:   cmd.Version,
+		Status:    "draft",
+		OwnerType: cmd.OwnerType,
+		OwnerKey:  cmd.OwnerKey,
+	}, nil
+}
+
+type fakeCostingAuthz struct {
+	actor authzapp.Actor
+}
+
+func (f *fakeCostingAuthz) ActorByEmployeeID(ctx context.Context, employeeID int64) (authzapp.Actor, error) {
+	actor := f.actor
+	actor.EmployeeID = employeeID
+	return actor, nil
+}
+
+func (f *fakeCostingAuthz) ListRoles(context.Context) ([]authzapp.Role, error) {
+	return nil, nil
+}
+
+func (f *fakeCostingAuthz) ListEmployeeRoles(context.Context) (map[int64][]string, error) {
+	return nil, nil
+}
+
+func (f *fakeCostingAuthz) AssignEmployeeRoles(context.Context, authzapp.AssignmentCommand) error {
 	return nil
 }
 
@@ -150,6 +209,10 @@ func (fakeRepo) PublishedBeanList(context.Context, appcosting.BeanListPublicatio
 }
 
 func (fakeRepo) PublishBeanList(context.Context, appcosting.PublishBeanListCommand) (*appcosting.BeanListPublication, error) {
+	return nil, nil
+}
+
+func (fakeRepo) SaveBeanListDraft(context.Context, appcosting.PublishBeanListCommand) (*appcosting.BeanListPublication, error) {
 	return nil, nil
 }
 
@@ -330,6 +393,7 @@ func TestRoutesAreRegistered(t *testing.T) {
 		"GET /api/costing/bean-list/publications",
 		"POST /api/costing/bean-list/publications",
 		"POST /api/costing/bean-list/publications/:id/withdraw",
+		"POST /api/costing/bean-list/drafts",
 		"GET /public/bean-list/:list_type",
 		"POST /api/costing/runs",
 		"POST /api/costing/runs/:id/publish",
@@ -406,6 +470,13 @@ func TestCostingSettingsAPI(t *testing.T) {
 
 func TestBeanListPublicationAPI(t *testing.T) {
 	e := echo.New()
+	e.Use(func(next echo.HandlerFunc) echo.HandlerFunc {
+		return func(c echo.Context) error {
+			c.Set("basic_auth_admin", true)
+			c.Set("employee_id", int64(7))
+			return next(c)
+		}
+	})
 	RegisterRoutes(e, Dependencies{Costing: fakeService{}})
 
 	req := httptest.NewRequest(http.MethodGet, "/api/costing/bean-list/publications?list_type=commercial", nil)
@@ -448,5 +519,79 @@ func TestBeanListPublicationAPI(t *testing.T) {
 	e.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("withdraw status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestBeanListPublicationPublishRequiresAdmin(t *testing.T) {
+	svc := &recordingBeanListService{}
+	e := echo.New()
+	e.Use(func(next echo.HandlerFunc) echo.HandlerFunc {
+		return func(c echo.Context) error {
+			c.Set("employee_id", int64(7))
+			return next(c)
+		}
+	})
+	RegisterRoutes(e, Dependencies{
+		Costing: svc,
+		Authz: &fakeCostingAuthz{actor: authzapp.Actor{
+			Name:        "客户",
+			Permissions: []string{"costing.read", "costing.write"},
+		}},
+	})
+
+	body := bytes.NewBufferString(`{"list_type":"commercial","version":"V3.0.7","scope":"mine","config":{},"content":{"totalItems":1},"changelog":"客户修改"}`)
+	req := httptest.NewRequest(http.MethodPost, "/api/costing/bean-list/publications", body)
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+
+	e.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	if svc.published != 0 {
+		t.Fatalf("non-admin publish should not call service, calls=%d", svc.published)
+	}
+}
+
+func TestBeanListDraftAPISavesCustomerOwnedDraft(t *testing.T) {
+	svc := &recordingBeanListService{}
+	e := echo.New()
+	e.Use(func(next echo.HandlerFunc) echo.HandlerFunc {
+		return func(c echo.Context) error {
+			c.Set("employee_id", int64(7))
+			return next(c)
+		}
+	})
+	RegisterRoutes(e, Dependencies{
+		Costing: svc,
+		Authz: &fakeCostingAuthz{actor: authzapp.Actor{
+			Name:        "客户",
+			Permissions: []string{"costing.read"},
+		}},
+	})
+
+	body := bytes.NewBufferString(`{"list_type":"commercial","version":"V3.0.7","scope":"official","config":{"layoutStyle":"card"},"content":{"totalItems":1},"changelog":"客户修改"}`)
+	req := httptest.NewRequest(http.MethodPost, "/api/costing/bean-list/drafts", body)
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+
+	e.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	if svc.drafted != 1 {
+		t.Fatalf("draft calls = %d", svc.drafted)
+	}
+	if svc.lastDraft.OwnerType != "actor" || svc.lastDraft.OwnerKey != "employee:7" {
+		t.Fatalf("customer draft owner = %+v", svc.lastDraft)
+	}
+	var row appcosting.BeanListPublication
+	if err := json.Unmarshal(rec.Body.Bytes(), &row); err != nil {
+		t.Fatal(err)
+	}
+	if row.Status != "draft" || row.OwnerType != "actor" || row.OwnerKey != "employee:7" {
+		t.Fatalf("draft row = %+v", row)
 	}
 }

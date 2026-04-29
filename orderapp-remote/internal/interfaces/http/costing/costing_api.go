@@ -11,7 +11,7 @@ import (
 	"github.com/labstack/echo/v4"
 )
 
-func registerCostingAPI(e *echo.Echo, svc Service) {
+func registerCostingAPI(e *echo.Echo, svc Service, authz support.AuthzService) {
 	e.GET("/public/bean-list/:list_type", func(c echo.Context) error {
 		listType := c.Param("list_type")
 		row, err := svc.PublishedBeanList(c.Request().Context(), appcosting.BeanListPublicationQuery{
@@ -95,6 +95,9 @@ func registerCostingAPI(e *echo.Echo, svc Service) {
 	})
 
 	e.POST("/api/costing/bean-list/publications", func(c echo.Context) error {
+		if err := requireBeanListPublisher(c, authz); err != nil {
+			return err
+		}
 		var req appcosting.PublishBeanListCommand
 		if err := c.Bind(&req); err != nil {
 			return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid request"})
@@ -110,7 +113,35 @@ func registerCostingAPI(e *echo.Echo, svc Service) {
 		return c.JSON(http.StatusOK, row)
 	})
 
+	e.POST("/api/costing/bean-list/drafts", func(c echo.Context) error {
+		canPublish, err := currentActorCanPublishBeanList(c, authz)
+		if err != nil {
+			return err
+		}
+		var req appcosting.PublishBeanListCommand
+		if err := c.Bind(&req); err != nil {
+			return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid request"})
+		}
+		req.Actor = support.ActorOf(c)
+		scope := req.Scope
+		if !canPublish {
+			scope = "mine"
+			req.Scope = scope
+		}
+		ownerType, ownerKey := beanListOwnerFromScope(c, scope)
+		req.OwnerType = ownerType
+		req.OwnerKey = ownerKey
+		row, err := svc.SaveBeanListDraft(c.Request().Context(), req)
+		if err != nil {
+			return c.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
+		}
+		return c.JSON(http.StatusOK, row)
+	})
+
 	e.POST("/api/costing/bean-list/publications/:id/withdraw", func(c echo.Context) error {
+		if err := requireBeanListPublisher(c, authz); err != nil {
+			return err
+		}
 		id, err := strconv.ParseInt(c.Param("id"), 10, 64)
 		if err != nil || id <= 0 {
 			return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid id"})
@@ -145,6 +176,28 @@ func registerCostingAPI(e *echo.Echo, svc Service) {
 		}
 		return c.JSON(http.StatusOK, map[string]any{"ok": true, "id": id})
 	})
+}
+
+func requireBeanListPublisher(c echo.Context, authz support.AuthzService) error {
+	canPublish, err := currentActorCanPublishBeanList(c, authz)
+	if err != nil {
+		return err
+	}
+	if !canPublish {
+		return echo.NewHTTPError(http.StatusForbidden, map[string]string{"error": "only admins can publish bean lists"})
+	}
+	return nil
+}
+
+func currentActorCanPublishBeanList(c echo.Context, authz support.AuthzService) (bool, error) {
+	actor, ok, err := support.CurrentActor(c, authz)
+	if err != nil {
+		return false, echo.NewHTTPError(http.StatusForbidden, map[string]string{"error": err.Error()})
+	}
+	if !ok {
+		return false, echo.NewHTTPError(http.StatusUnauthorized, map[string]string{"error": "auth required"})
+	}
+	return actor.IsAdmin() || actor.Can("auth.manage"), nil
 }
 
 func beanListPublicationQueryFromRequest(c echo.Context) appcosting.BeanListPublicationQuery {
