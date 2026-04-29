@@ -565,6 +565,11 @@ func seedReqWorkflowA(ctx context.Context, pool *pgxpool.Pool, schema string) er
 		{table: "req_unit", code: "UT-112-01", title: "单测覆盖发布记录归属/来源字段、数据库 owner 唯一发布约束和复制已发布内容快照", status: "done", assignee: "Codex", evidence: "TestPublishBeanListKeepsCustomerSnapshotOwnerAndSources; TestBeanListPublicationSchemaSupportsOwnedLockedSnapshots; bean-list-pdf.test"},
 		{table: "req_api", code: "API-112-01", title: "API 测试覆盖 scope=mine 发布客户豆单时返回 owner 和官方价格/样式来源 ID，公开页仍只读取官方发布", status: "done", assignee: "Codex", evidence: "TestBeanListPublicationAPI; TestPublicBeanListPageRendersPublishedSnapshot"},
 		{table: "req_review", code: "REV-112-01", prCode: "PR-112", title: "验收：客户豆单复制官方价格和自己的样式后发布为独立快照，后续官方豆单更新不会自动改写客户已发布豆单", status: "todo", assignee: "VA", evidence: "待 Van 服务器验收"},
+		{table: "req_product", code: "PR-SALES-ORDER-001", title: "订单支持生成正式销售单 PDF，销售单设置可维护公司名称、说明、收款方式、多个收款码和公章", status: "todo", assignee: "VA", evidence: "docs/superpowers/specs/2026-04-30-sales-order-pdf-design.md"},
+		{table: "req_dev", code: "DEV-SALES-ORDER-001", title: "新增销售单设置、版本化 PDF 生成、下载 API 和 Vue/Vite 页面入口", status: "todo", assignee: "Codex", evidence: "docs/superpowers/plans/2026-04-30-sales-order-pdf.md"},
+		{table: "req_unit", code: "UT-SALES-ORDER-001", title: "覆盖销售单版本号、快照校验、金额格式化、PDF 渲染和前端链接辅助函数", status: "todo", assignee: "Codex", evidence: "待自动化测试"},
+		{table: "req_api", code: "API-SALES-ORDER-001", title: "覆盖销售单设置保存、付款码/公章上传、生成 V1/V2 和 PDF 下载接口", status: "todo", assignee: "Codex", evidence: "待 API 测试"},
+		{table: "req_review", code: "REV-SALES-ORDER-001", prCode: "PR-SALES-ORDER-001", title: "验收：订单可生成并下载销售单 PDF；重新生成保留历史版本；设置快照不被后续修改覆盖", status: "todo", assignee: "VA", evidence: "待 Van 服务器验收"},
 	} {
 		if err := seedReqRow(ctx, pool, schema, row); err != nil {
 			return err
