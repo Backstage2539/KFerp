@@ -20,7 +20,10 @@ func EnsureSchema(ctx context.Context, pool *pgxpool.Pool, schema string) error 
 	if err := ensureOutsourceFeeColumns(ctx, pool, schema); err != nil {
 		return err
 	}
-	return ensureOutsourceTemplateTables(ctx, pool, schema)
+	if err := ensureOutsourceTemplateTables(ctx, pool, schema); err != nil {
+		return err
+	}
+	return ensureSalesOrderTables(ctx, pool, schema)
 }
 
 func ensureOrderProcessStatuses(ctx context.Context, pool *pgxpool.Pool, schema string) error {
@@ -122,5 +125,60 @@ func ensureOutsourceTemplateTables(ctx context.Context, pool *pgxpool.Pool, sche
 		return err
 	}
 	_, _ = pool.Exec(ctx, fmt.Sprintf(`CREATE UNIQUE INDEX IF NOT EXISTS idx_%s_outsource_templates_default_true ON %s.outsource_templates ((is_default)) WHERE is_default=true`, schema, schema))
+	return nil
+}
+
+func ensureSalesOrderTables(ctx context.Context, pool *pgxpool.Pool, schema string) error {
+	stmts := []string{
+		fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s.sales_order_assets (
+			id BIGSERIAL PRIMARY KEY,
+			kind TEXT NOT NULL,
+			filename TEXT NOT NULL DEFAULT '',
+			content_type TEXT NOT NULL DEFAULT '',
+			bytes BIGINT NOT NULL DEFAULT 0,
+			sha256 TEXT NOT NULL DEFAULT '',
+			object_key TEXT NOT NULL DEFAULT '',
+			created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+			created_by TEXT NOT NULL DEFAULT ''
+		)`, schema),
+		fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s.sales_order_settings (
+			id INTEGER PRIMARY KEY DEFAULT 1,
+			company_name TEXT NOT NULL DEFAULT '',
+			note TEXT NOT NULL DEFAULT '',
+			payment_text TEXT NOT NULL DEFAULT '',
+			seal_asset_id BIGINT REFERENCES %s.sales_order_assets(id),
+			updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+			updated_by TEXT NOT NULL DEFAULT '',
+			CONSTRAINT sales_order_settings_singleton CHECK (id = 1)
+		)`, schema, schema),
+		fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s.sales_order_payment_codes (
+			id BIGSERIAL PRIMARY KEY,
+			label TEXT NOT NULL DEFAULT '',
+			description TEXT NOT NULL DEFAULT '',
+			asset_id BIGINT NOT NULL REFERENCES %s.sales_order_assets(id),
+			sort INTEGER NOT NULL DEFAULT 0,
+			active BOOLEAN NOT NULL DEFAULT true,
+			created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+			updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+		)`, schema, schema),
+		fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s.sales_order_documents (
+			id BIGSERIAL PRIMARY KEY,
+			order_id BIGINT NOT NULL REFERENCES %s.orders(id),
+			order_no TEXT NOT NULL DEFAULT '',
+			version_no INTEGER NOT NULL,
+			snapshot_json JSONB NOT NULL,
+			pdf_asset_id BIGINT REFERENCES %s.sales_order_assets(id),
+			is_latest BOOLEAN NOT NULL DEFAULT true,
+			created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+			created_by TEXT NOT NULL DEFAULT '',
+			UNIQUE(order_id, version_no)
+		)`, schema, schema, schema),
+		fmt.Sprintf(`CREATE UNIQUE INDEX IF NOT EXISTS idx_%s_sales_order_latest ON %s.sales_order_documents(order_id) WHERE is_latest`, schema, schema),
+	}
+	for _, stmt := range stmts {
+		if _, err := pool.Exec(ctx, stmt); err != nil {
+			return err
+		}
+	}
 	return nil
 }
