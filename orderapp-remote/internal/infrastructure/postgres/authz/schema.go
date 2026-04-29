@@ -140,6 +140,7 @@ func defaultViewPermissions() map[string]string {
 	return map[string]string{
 		"order":              "orders.write",
 		"orders":             "orders.read",
+		"salesOrder":         "orders.read",
 		"customers":          "customers.read",
 		"quotePrint":         "products.read",
 		"producePlan":        "production.run",
@@ -168,6 +169,7 @@ func defaultViewPermissions() map[string]string {
 		"costing":            "costing.read",
 		"costingSettings":    "costing.write",
 		"machines":           "settings.write",
+		"salesOrderSettings": "settings.write",
 		"senderSettings":     "settings.write",
 		"outsourceSettings":  "settings.write",
 		"departments":        "company.manage",

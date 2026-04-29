@@ -166,7 +166,10 @@
               <td>{{ row.process_status }}</td>
               <td>{{ row.created_by_employee }}</td>
               <td class="notes">{{ row.notes }}</td>
-              <td><a class="text-link" :href="`/orders/${row.id}/audit`">审计</a></td>
+              <td class="actions-cell">
+                <a class="text-link" :href="salesOrderPageUrl(row.id)">销售单</a>
+                <a class="text-link" :href="`/orders/${row.id}/audit`">审计</a>
+              </td>
             </tr>
             <tr v-if="!rows.length">
               <td colspan="14" class="muted">暂无订单</td>
@@ -185,6 +188,7 @@
 
 <script setup>
 import { computed, onMounted, reactive, ref } from 'vue'
+import { salesOrderPageUrl } from '../lib/sales-order'
 import { replaceHistoryURL } from '../lib/url-state'
 
 const loading = ref(false)
@@ -495,6 +499,8 @@ th { background: #fbfaf8; position: sticky; top: 0; }
 .row-sender select { width: 154px; height: 34px; padding: 5px 7px; }
 a, .text-link { color: #1f4f82; text-decoration: none; }
 .notes { max-width: 220px; white-space: pre-wrap; }
+.actions-cell { min-width: 110px; }
+.actions-cell a { display: inline-block; margin-right: 8px; }
 .muted { color: #666; text-align: center; }
 .voided { color: #8a1f1f; background: #fff7f7; }
 .pager { display: flex; gap: 10px; align-items: center; justify-content: flex-end; margin-top: 12px; }

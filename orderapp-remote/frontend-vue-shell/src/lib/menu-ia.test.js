@@ -49,3 +49,10 @@ test('production menu exposes the production flow manual as a primary page', () 
   assert.ok(keys.includes('productionManual'))
   assert.equal(groupForView(menuGroups, 'productionManual')?.id, 'production')
 })
+
+test('settings menu exposes sales order settings and keeps sales order detail hidden', () => {
+  const keys = primaryMenuKeys(menuGroups)
+  assert.ok(keys.includes('salesOrderSettings'))
+  assert.equal(keys.includes('salesOrder'), false)
+  assert.equal(groupForView(menuGroups, 'salesOrderSettings')?.id, 'settings')
+})
