@@ -3,6 +3,7 @@ package sales
 import (
 	"context"
 	"fmt"
+	pdfinfra "orderapp/internal/infrastructure/pdf"
 	"strconv"
 	"strings"
 	"time"
@@ -16,12 +17,36 @@ import (
 )
 
 type Repository struct {
-	pool   *pgxpool.Pool
-	schema string
+	pool     *pgxpool.Pool
+	schema   string
+	assetDir string
+	renderer SalesOrderPDFRenderer
 }
 
-func NewRepository(pool *pgxpool.Pool, schema string) Repository {
-	return Repository{pool: pool, schema: schema}
+type SalesOrderPDFRenderer interface {
+	Render(snapshot salesdomain.SalesOrderSnapshot) ([]byte, error)
+}
+
+type RepositoryOption func(*Repository)
+
+func WithSalesOrderAssetDir(assetDir string) RepositoryOption {
+	return func(r *Repository) {
+		r.assetDir = assetDir
+	}
+}
+
+func WithSalesOrderRenderer(renderer SalesOrderPDFRenderer) RepositoryOption {
+	return func(r *Repository) {
+		r.renderer = renderer
+	}
+}
+
+func NewRepository(pool *pgxpool.Pool, schema string, opts ...RepositoryOption) Repository {
+	repo := Repository{pool: pool, schema: schema, assetDir: "/app/data/assets", renderer: pdfinfra.SalesOrderRenderer{}}
+	for _, opt := range opts {
+		opt(&repo)
+	}
+	return repo
 }
 
 func lookupDefaultStatusID(ctx context.Context, tx pgx.Tx, schema, table string, names ...string) int64 {

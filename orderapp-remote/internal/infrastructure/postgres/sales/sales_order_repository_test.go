@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	salesapp "orderapp/internal/application/sales"
+	salesdomain "orderapp/internal/domain/sales"
 	"os"
 	"strings"
 	"testing"
@@ -72,6 +73,63 @@ func TestSalesOrderPaymentCodeRoundTrip(t *testing.T) {
 	}
 }
 
+func TestGenerateSalesOrderDocumentCreatesVersions(t *testing.T) {
+	pool, schema := newSalesPostgresTestDB(t)
+	ctx := context.Background()
+	defer func() {
+		_, _ = pool.Exec(ctx, "DROP SCHEMA IF EXISTS "+schema+" CASCADE")
+		pool.Close()
+	}()
+	prepareSalesSchemaPrerequisites(t, ctx, pool, schema)
+	repo := NewRepository(pool, schema, WithSalesOrderAssetDir(t.TempDir()), WithSalesOrderRenderer(fakeSalesOrderRenderer{}))
+	if err := EnsureSchema(ctx, pool, schema); err != nil {
+		t.Fatalf("EnsureSchema: %v", err)
+	}
+	seedSalesOrderDocumentOrder(t, ctx, pool, schema)
+	if err := repo.SaveSalesOrderSettings(ctx, salesapp.SaveSalesOrderSettingsCommand{Actor: "测试员", CompanyName: "浅焙作坊咖啡", Note: "请密封保存"}); err != nil {
+		t.Fatalf("SaveSalesOrderSettings: %v", err)
+	}
+
+	first, err := repo.GenerateSalesOrderDocument(ctx, salesapp.GenerateSalesOrderDocumentCommand{Actor: "测试员", OrderID: 1})
+	if err != nil {
+		t.Fatalf("Generate first: %v", err)
+	}
+	second, err := repo.GenerateSalesOrderDocument(ctx, salesapp.GenerateSalesOrderDocumentCommand{Actor: "测试员", OrderID: 1})
+	if err != nil {
+		t.Fatalf("Generate second: %v", err)
+	}
+	if first.Document.VersionNo != 1 || second.Document.VersionNo != 2 || !second.Document.IsLatest {
+		t.Fatalf("versions first=%+v second=%+v", first.Document, second.Document)
+	}
+	docs, err := repo.ListSalesOrderDocuments(ctx, 1)
+	if err != nil {
+		t.Fatalf("ListSalesOrderDocuments: %v", err)
+	}
+	if len(docs) != 2 || docs[0].VersionNo != 2 || !docs[0].IsLatest || docs[1].VersionNo != 1 || docs[1].IsLatest {
+		t.Fatalf("docs = %+v", docs)
+	}
+	file, err := repo.LoadSalesOrderDocumentFile(ctx, 1, 0, true)
+	if err != nil {
+		t.Fatalf("LoadSalesOrderDocumentFile latest: %v", err)
+	}
+	b, err := os.ReadFile(file.Path)
+	if err != nil {
+		t.Fatalf("read pdf: %v", err)
+	}
+	if string(b) != "%PDF-test" || file.Filename != "SO-20260430-0008-V2.pdf" {
+		t.Fatalf("file=%+v bytes=%q", file, b)
+	}
+}
+
+type fakeSalesOrderRenderer struct{}
+
+func (fakeSalesOrderRenderer) Render(snapshot salesdomain.SalesOrderSnapshot) ([]byte, error) {
+	if err := snapshot.Validate(); err != nil {
+		return nil, err
+	}
+	return []byte("%PDF-test"), nil
+}
+
 func newSalesPostgresTestDB(t *testing.T) (*pgxpool.Pool, string) {
 	t.Helper()
 	dsn := strings.TrimSpace(os.Getenv("ORDERAPP_TEST_DATABASE_URL"))
@@ -99,11 +157,63 @@ func prepareSalesSchemaPrerequisites(t *testing.T, ctx context.Context, pool *pg
 	stmts := []string{
 		fmt.Sprintf(`CREATE TABLE %s.order_process_statuses (id BIGSERIAL PRIMARY KEY, name TEXT NOT NULL, sort INTEGER NOT NULL DEFAULT 0, active BOOLEAN NOT NULL DEFAULT true)`, schema),
 		fmt.Sprintf(`CREATE TABLE %s.ship_statuses (id BIGSERIAL PRIMARY KEY, name TEXT NOT NULL)`, schema),
-		fmt.Sprintf(`CREATE TABLE %s.orders (id BIGSERIAL PRIMARY KEY, order_no TEXT NOT NULL DEFAULT '')`, schema),
+		fmt.Sprintf(`CREATE TABLE %s.customers (id BIGSERIAL PRIMARY KEY, name TEXT NOT NULL DEFAULT '')`, schema),
+		fmt.Sprintf(`CREATE TABLE %s.products (id BIGSERIAL PRIMARY KEY, name TEXT NOT NULL DEFAULT '')`, schema),
+		fmt.Sprintf(`CREATE TABLE %s.orders (
+			id BIGSERIAL PRIMARY KEY,
+			order_no TEXT NOT NULL DEFAULT '',
+			order_date DATE,
+			customer_id BIGINT,
+			total_amount NUMERIC(12,2) NOT NULL DEFAULT 0,
+			shipping_amount NUMERIC(12,2) NOT NULL DEFAULT 0,
+			discount_amount NUMERIC(12,2) NOT NULL DEFAULT 0,
+			grand_total NUMERIC(12,2) NOT NULL DEFAULT 0
+		)`, schema),
+		fmt.Sprintf(`CREATE TABLE %s.order_items (
+			id BIGSERIAL PRIMARY KEY,
+			order_id BIGINT NOT NULL,
+			line_no INTEGER NOT NULL DEFAULT 0,
+			product_id BIGINT,
+			item_name TEXT NOT NULL DEFAULT '',
+			spec TEXT NOT NULL DEFAULT '',
+			qty NUMERIC(12,2) NOT NULL DEFAULT 0,
+			unit TEXT NOT NULL DEFAULT '',
+			unit_price NUMERIC(12,2) NOT NULL DEFAULT 0,
+			line_total NUMERIC(12,2) NOT NULL DEFAULT 0
+		)`, schema),
+		fmt.Sprintf(`CREATE TABLE %s.audit_logs (
+			id BIGSERIAL PRIMARY KEY,
+			ts TIMESTAMPTZ NOT NULL DEFAULT now(),
+			actor TEXT NOT NULL DEFAULT '',
+			entity_type TEXT NOT NULL DEFAULT '',
+			entity_id BIGINT,
+			action TEXT NOT NULL DEFAULT '',
+			field TEXT,
+			old_value TEXT,
+			new_value TEXT,
+			meta JSONB
+		)`, schema),
 	}
 	for _, stmt := range stmts {
 		if _, err := pool.Exec(ctx, stmt); err != nil {
 			t.Fatalf("prepare schema: %v", err)
+		}
+	}
+}
+
+func seedSalesOrderDocumentOrder(t *testing.T, ctx context.Context, pool *pgxpool.Pool, schema string) {
+	t.Helper()
+	stmts := []string{
+		fmt.Sprintf(`INSERT INTO %s.customers(id, name) VALUES(1, '某某咖啡馆')`, schema),
+		fmt.Sprintf(`INSERT INTO %s.products(id, name) VALUES(1, '橘皮乌龙')`, schema),
+		fmt.Sprintf(`INSERT INTO %s.orders(id, order_no, order_date, customer_id, total_amount, shipping_amount, discount_amount, grand_total)
+			VALUES(1, 'SO-20260430-0008', '2026-04-30', 1, 134, 0, 0, 134)`, schema),
+		fmt.Sprintf(`INSERT INTO %s.order_items(order_id, line_no, product_id, item_name, spec, qty, unit, unit_price, line_total)
+			VALUES(1, 1, 1, '橘皮乌龙', '300g', 2, '件', 67, 134)`, schema),
+	}
+	for _, stmt := range stmts {
+		if _, err := pool.Exec(ctx, stmt); err != nil {
+			t.Fatalf("seed order: %v", err)
 		}
 	}
 }

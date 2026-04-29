@@ -2,10 +2,17 @@ package sales
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	salesapp "orderapp/internal/application/sales"
+	salesdomain "orderapp/internal/domain/sales"
 	postgresinfra "orderapp/internal/infrastructure/postgres"
+	"os"
+	"path/filepath"
+	"strings"
 
 	"github.com/jackc/pgx/v5"
 )
@@ -137,4 +144,206 @@ func salesOrderAssetURL(objectKey string) string {
 		return ""
 	}
 	return "/assets/" + objectKey
+}
+
+func (r Repository) GenerateSalesOrderDocument(ctx context.Context, cmd salesapp.GenerateSalesOrderDocumentCommand) (salesapp.GenerateSalesOrderDocumentResult, error) {
+	settings, err := r.LoadSalesOrderSettings(ctx)
+	if err != nil {
+		return salesapp.GenerateSalesOrderDocumentResult{}, err
+	}
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return salesapp.GenerateSalesOrderDocumentResult{}, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	versionRows, err := tx.Query(ctx, fmt.Sprintf(`SELECT version_no FROM %s.sales_order_documents WHERE order_id=$1 FOR UPDATE`, r.schema), cmd.OrderID)
+	if err != nil {
+		return salesapp.GenerateSalesOrderDocumentResult{}, err
+	}
+	existing := make([]int, 0)
+	for versionRows.Next() {
+		var version int
+		if err := versionRows.Scan(&version); err != nil {
+			versionRows.Close()
+			return salesapp.GenerateSalesOrderDocumentResult{}, err
+		}
+		existing = append(existing, version)
+	}
+	if err := versionRows.Err(); err != nil {
+		versionRows.Close()
+		return salesapp.GenerateSalesOrderDocumentResult{}, err
+	}
+	versionRows.Close()
+	versionNo := salesdomain.NextSalesOrderVersion(existing)
+
+	snapshot, err := r.buildSalesOrderSnapshotTx(ctx, tx, cmd.OrderID, settings)
+	if err != nil {
+		return salesapp.GenerateSalesOrderDocumentResult{}, err
+	}
+	pdfBytes, err := r.renderer.Render(snapshot)
+	if err != nil {
+		return salesapp.GenerateSalesOrderDocumentResult{}, err
+	}
+	objectKey := filepath.ToSlash(filepath.Join("sales_order_documents", safeSalesOrderPathPart(snapshot.OrderNo), fmt.Sprintf("V%d.pdf", versionNo)))
+	if err := os.MkdirAll(filepath.Dir(filepath.Join(r.assetDir, objectKey)), 0755); err != nil {
+		return salesapp.GenerateSalesOrderDocumentResult{}, err
+	}
+	if err := os.WriteFile(filepath.Join(r.assetDir, objectKey), pdfBytes, 0644); err != nil {
+		return salesapp.GenerateSalesOrderDocumentResult{}, err
+	}
+	sum := sha256.Sum256(pdfBytes)
+	var assetID int64
+	assetQ := fmt.Sprintf(`INSERT INTO %s.sales_order_assets(kind, filename, content_type, bytes, sha256, object_key, created_by)
+		VALUES('sales_order_pdf',$1,'application/pdf',$2,$3,$4,$5)
+		RETURNING id`, r.schema)
+	filename := fmt.Sprintf("%s-V%d.pdf", snapshot.OrderNo, versionNo)
+	if err := tx.QueryRow(ctx, assetQ, filename, int64(len(pdfBytes)), hex.EncodeToString(sum[:]), objectKey, cmd.Actor).Scan(&assetID); err != nil {
+		return salesapp.GenerateSalesOrderDocumentResult{}, err
+	}
+	snapshotJSON, err := json.Marshal(snapshot)
+	if err != nil {
+		return salesapp.GenerateSalesOrderDocumentResult{}, err
+	}
+	if _, err := tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.sales_order_documents SET is_latest=false WHERE order_id=$1`, r.schema), cmd.OrderID); err != nil {
+		return salesapp.GenerateSalesOrderDocumentResult{}, err
+	}
+	var doc salesapp.SalesOrderDocument
+	insertQ := fmt.Sprintf(`INSERT INTO %s.sales_order_documents(order_id, order_no, version_no, snapshot_json, pdf_asset_id, is_latest, created_by)
+		VALUES($1,$2,$3,$4,$5,true,$6)
+		RETURNING id, order_id, order_no, version_no, pdf_asset_id, is_latest, to_char(created_at,'YYYY-MM-DD HH24:MI:SS'), created_by`, r.schema)
+	if err := tx.QueryRow(ctx, insertQ, cmd.OrderID, snapshot.OrderNo, versionNo, snapshotJSON, assetID, cmd.Actor).Scan(&doc.ID, &doc.OrderID, &doc.OrderNo, &doc.VersionNo, &doc.PDFAssetID, &doc.IsLatest, &doc.CreatedAt, &doc.CreatedBy); err != nil {
+		return salesapp.GenerateSalesOrderDocumentResult{}, err
+	}
+	doc.Snapshot = snapshot
+	doc.DownloadURL = salesOrderDocumentDownloadURL(doc.OrderID, doc.ID)
+	if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, cmd.Actor, "sales_order_document", &doc.ID, "create", postgresinfra.StrPtr("version_no"), nil, postgresinfra.StrPtr(fmt.Sprintf("%d", versionNo)), postgresinfra.AuditMeta{"order_id": cmd.OrderID, "order_no": snapshot.OrderNo}); err != nil {
+		return salesapp.GenerateSalesOrderDocumentResult{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return salesapp.GenerateSalesOrderDocumentResult{}, err
+	}
+	return salesapp.GenerateSalesOrderDocumentResult{Document: doc, Snapshot: snapshot}, nil
+}
+
+func (r Repository) buildSalesOrderSnapshotTx(ctx context.Context, tx pgx.Tx, orderID int64, settings salesapp.SalesOrderSettings) (salesdomain.SalesOrderSnapshot, error) {
+	var snapshot salesdomain.SalesOrderSnapshot
+	var total, shipping, discount, grand float64
+	q := fmt.Sprintf(`SELECT o.id, o.order_no, COALESCE(to_char(o.order_date,'YYYY-MM-DD'),''), COALESCE(c.name,''),
+			COALESCE(o.total_amount,0)::float8, COALESCE(o.shipping_amount,0)::float8,
+			COALESCE(o.discount_amount,0)::float8, COALESCE(o.grand_total,0)::float8
+		FROM %s.orders o
+		LEFT JOIN %s.customers c ON c.id=o.customer_id
+		WHERE o.id=$1`, r.schema, r.schema)
+	if err := tx.QueryRow(ctx, q, orderID).Scan(&snapshot.OrderID, &snapshot.OrderNo, &snapshot.OrderDate, &snapshot.CustomerName, &total, &shipping, &discount, &grand); err != nil {
+		return salesdomain.SalesOrderSnapshot{}, err
+	}
+	snapshot.CompanyName = settings.CompanyName
+	snapshot.Note = settings.Note
+	snapshot.PaymentText = settings.PaymentText
+	snapshot.TotalAmount = salesdomain.FormatSalesOrderMoney(total)
+	snapshot.Shipping = salesdomain.FormatSalesOrderMoney(shipping)
+	snapshot.Discount = salesdomain.FormatSalesOrderMoney(discount)
+	snapshot.GrandTotal = salesdomain.FormatSalesOrderMoney(grand)
+	for _, code := range settings.PaymentCodes {
+		snapshot.PaymentCodes = append(snapshot.PaymentCodes, salesdomain.SalesOrderAssetRef{
+			ID: code.Asset.ID, Label: code.Label, Description: code.Description, ObjectKey: code.Asset.ObjectKey, ContentType: code.Asset.ContentType,
+		})
+	}
+	if settings.Seal != nil {
+		snapshot.Seal = &salesdomain.SalesOrderAssetRef{ID: settings.Seal.ID, Label: settings.Seal.Filename, ObjectKey: settings.Seal.ObjectKey, ContentType: settings.Seal.ContentType}
+	}
+
+	rows, err := tx.Query(ctx, fmt.Sprintf(`SELECT COALESCE(NULLIF(oi.item_name,''), p.name, ''), COALESCE(oi.spec,''), COALESCE(oi.qty,0)::float8,
+			COALESCE(oi.unit,''), COALESCE(oi.unit_price,0)::float8, COALESCE(oi.line_total,0)::float8
+		FROM %s.order_items oi
+		LEFT JOIN %s.products p ON p.id=oi.product_id
+		WHERE oi.order_id=$1
+		ORDER BY oi.line_no, oi.id`, r.schema, r.schema), orderID)
+	if err != nil {
+		return salesdomain.SalesOrderSnapshot{}, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var item salesdomain.SalesOrderSnapshotItem
+		var qty, unitPrice, lineTotal float64
+		if err := rows.Scan(&item.Name, &item.Spec, &qty, &item.Unit, &unitPrice, &lineTotal); err != nil {
+			return salesdomain.SalesOrderSnapshot{}, err
+		}
+		item.Qty = trimFloatZero(qty)
+		item.UnitPrice = salesdomain.FormatSalesOrderMoney(unitPrice)
+		item.LineTotal = salesdomain.FormatSalesOrderMoney(lineTotal)
+		snapshot.Items = append(snapshot.Items, item)
+	}
+	if err := rows.Err(); err != nil {
+		return salesdomain.SalesOrderSnapshot{}, err
+	}
+	if err := snapshot.Validate(); err != nil {
+		return salesdomain.SalesOrderSnapshot{}, err
+	}
+	return snapshot, nil
+}
+
+func (r Repository) ListSalesOrderDocuments(ctx context.Context, orderID int64) ([]salesapp.SalesOrderDocument, error) {
+	q := fmt.Sprintf(`SELECT id, order_id, order_no, version_no, snapshot_json, COALESCE(pdf_asset_id,0), is_latest, to_char(created_at,'YYYY-MM-DD HH24:MI:SS'), created_by
+		FROM %s.sales_order_documents
+		WHERE order_id=$1
+		ORDER BY version_no DESC`, r.schema)
+	rows, err := r.pool.Query(ctx, q, orderID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := make([]salesapp.SalesOrderDocument, 0)
+	for rows.Next() {
+		var doc salesapp.SalesOrderDocument
+		var raw []byte
+		if err := rows.Scan(&doc.ID, &doc.OrderID, &doc.OrderNo, &doc.VersionNo, &raw, &doc.PDFAssetID, &doc.IsLatest, &doc.CreatedAt, &doc.CreatedBy); err != nil {
+			return nil, err
+		}
+		_ = json.Unmarshal(raw, &doc.Snapshot)
+		doc.DownloadURL = salesOrderDocumentDownloadURL(doc.OrderID, doc.ID)
+		out = append(out, doc)
+	}
+	return out, rows.Err()
+}
+
+func (r Repository) LoadSalesOrderDocumentFile(ctx context.Context, orderID, documentID int64, latest bool) (salesapp.SalesOrderDocumentFile, error) {
+	where := "d.order_id=$1 AND d.id=$2"
+	args := []any{orderID, documentID}
+	if latest {
+		where = "d.order_id=$1 AND d.is_latest=true"
+		args = []any{orderID}
+	}
+	q := fmt.Sprintf(`SELECT d.id, d.order_id, d.order_no, d.version_no, COALESCE(d.pdf_asset_id,0), d.is_latest, to_char(d.created_at,'YYYY-MM-DD HH24:MI:SS'), d.created_by,
+			a.object_key
+		FROM %s.sales_order_documents d
+		JOIN %s.sales_order_assets a ON a.id=d.pdf_asset_id
+		WHERE %s
+		ORDER BY d.version_no DESC
+		LIMIT 1`, r.schema, r.schema, where)
+	var doc salesapp.SalesOrderDocument
+	var objectKey string
+	if err := r.pool.QueryRow(ctx, q, args...).Scan(&doc.ID, &doc.OrderID, &doc.OrderNo, &doc.VersionNo, &doc.PDFAssetID, &doc.IsLatest, &doc.CreatedAt, &doc.CreatedBy, &objectKey); err != nil {
+		return salesapp.SalesOrderDocumentFile{}, err
+	}
+	doc.DownloadURL = salesOrderDocumentDownloadURL(doc.OrderID, doc.ID)
+	return salesapp.SalesOrderDocumentFile{
+		Document: doc,
+		Path:     filepath.Join(r.assetDir, objectKey),
+		Filename: fmt.Sprintf("%s-V%d.pdf", doc.OrderNo, doc.VersionNo),
+	}, nil
+}
+
+func salesOrderDocumentDownloadURL(orderID, documentID int64) string {
+	return fmt.Sprintf("/orders/%d/sales-orders/%d.pdf", orderID, documentID)
+}
+
+func safeSalesOrderPathPart(s string) string {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return "unknown"
+	}
+	replacer := strings.NewReplacer("/", "-", "\\", "-", ":", "-", "..", ".")
+	return replacer.Replace(s)
 }
