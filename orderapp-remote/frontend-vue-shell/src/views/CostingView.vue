@@ -179,11 +179,12 @@
             <p>官方豆单用于棵凡公开链接；我的客户豆单发布后锁定快照，不会跟随官方自动变价。</p>
           </div>
           <div class="copy-config-actions">
-            <select v-model="publicationScope">
+            <select v-model="publicationScope" :disabled="!isBeanListAdmin">
               <option value="official">棵凡官方豆单</option>
               <option value="mine">我的客户豆单</option>
             </select>
           </div>
+          <p v-if="actorLoaded && !isBeanListAdmin" class="muted">客户账号只能保存修改和下载豆单，发布由管理员执行。</p>
         </div>
 
         <div class="copy-config-box" v-if="publicationScope === 'mine' && officialPriceSourcePublications.length">
@@ -328,8 +329,9 @@
           <strong>预览</strong>
           <span>{{ pdfTotalItems }} 款</span>
           <div class="pdf-actions">
-            <button class="secondary" type="button" :disabled="beanListWithdrawing || !currentBeanListPublication" @click="withdrawBeanList">撤回发布</button>
-            <button class="primary" type="button" :disabled="beanListPublishing || !pdfGroups.length || !pdfTheme.version" @click="publishBeanList">发布豆单</button>
+            <button v-if="isBeanListAdmin" class="secondary" type="button" :disabled="beanListWithdrawing || !currentBeanListPublication" @click="withdrawBeanList">撤回发布</button>
+            <button v-if="isBeanListAdmin" class="primary" type="button" :disabled="beanListPublishing || !pdfGroups.length || !pdfTheme.version" @click="publishBeanList">发布豆单</button>
+            <button v-else class="primary" type="button" :disabled="beanListPublishing || !pdfGroups.length || !pdfTheme.version" @click="saveBeanListDraft">保存修改</button>
             <button class="secondary" type="button" :disabled="!pdfGroups.length" @click="generateBeanListPdf">生成 PDF</button>
           </div>
         </div>
@@ -553,6 +555,7 @@
 
 <script setup>
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { fetchCurrentActor } from '../api/auth'
 import { apiGet, apiSend } from '../api/client'
 import CostingSettingsPanel from '../components/CostingSettingsPanel.vue'
 import {
@@ -576,6 +579,8 @@ const pdfDrawerOpen = ref(false)
 const pdfPrinting = ref(false)
 const pricingCollapsed = ref(true)
 const publicationScope = ref('official')
+const actorLoaded = ref(false)
+const currentActor = ref(null)
 const selectedCopyPublicationID = ref('')
 const selectedPriceSourcePublicationID = ref('')
 const error = ref('')
@@ -635,6 +640,16 @@ const pdfGroups = computed(() => {
 const pdfTotalItems = computed(() => pdfGroups.value.reduce((sum, group) => sum + group.items.length, 0))
 const pdfTitle = computed(() => buildBeanListPdfTitle(pdfTheme.value.listType, pdfTheme.value.brandName))
 const pdfSubtitle = computed(() => buildBeanListPdfSubtitle(pdfTheme.value.listType))
+const isBeanListAdmin = computed(() => {
+  const actor = currentActor.value || {}
+  const roles = Array.isArray(actor.roles) ? actor.roles : []
+  const permissions = Array.isArray(actor.permissions) ? actor.permissions : []
+  return Boolean(
+    actor.basic_auth_admin ||
+    roles.some((role) => String(role?.code || '').trim().toLowerCase() === 'admin') ||
+    permissions.includes('auth.manage'),
+  )
+})
 const currentScopePublicationRows = computed(() => publicationRows(publicationScope.value, pdfTheme.value.listType))
 const currentBeanListPublication = computed(() => currentScopePublicationRows.value.find((row) => row.status === 'published') || null)
 const copyableBeanListPublications = computed(() => currentScopePublicationRows.value)
@@ -663,8 +678,18 @@ watch(() => pdfOptions.value.listType, (listType) => {
 })
 
 watch(publicationScope, (scope) => {
+  if (actorLoaded.value && !isBeanListAdmin.value && scope !== 'mine') {
+    publicationScope.value = 'mine'
+    return
+  }
   selectedCopyPublicationID.value = ''
   loadBeanListPublications(pdfTheme.value.listType, scope)
+})
+
+watch(isBeanListAdmin, (canPublish) => {
+  if (actorLoaded.value && !canPublish && publicationScope.value !== 'mine') {
+    publicationScope.value = 'mine'
+  }
 })
 
 function first(values) {
@@ -990,6 +1015,19 @@ async function loadBeanList() {
   }
 }
 
+async function loadCurrentActor() {
+  try {
+    currentActor.value = await fetchCurrentActor()
+  } catch (err) {
+    currentActor.value = null
+  } finally {
+    actorLoaded.value = true
+    if (!isBeanListAdmin.value) {
+      publicationScope.value = 'mine'
+    }
+  }
+}
+
 async function loadBeanListPublications(listType = pdfTheme.value.listType, scope = publicationScope.value) {
   try {
     const data = await apiGet(`/api/costing/bean-list/publications?list_type=${encodeURIComponent(listType)}&scope=${encodeURIComponent(scope)}`)
@@ -1089,30 +1127,7 @@ async function publishBeanList() {
   message.value = ''
   const listType = pdfTheme.value.listType
   try {
-    const row = await apiSend('/api/costing/bean-list/publications', {
-      body: {
-        list_type: listType,
-        version: pdfTheme.value.version,
-        scope: publicationScope.value,
-        price_source_publication_id: Number(currentPriceSourcePublication.value?.id || 0),
-        style_source_publication_id: Number(styleSourcePublicationIDByType.value[listType] || 0),
-        source_version: currentPriceSourcePublication.value?.version || '',
-        config: {
-          ...pdfTheme.value,
-          selectedProductIDs: pdfSelectedProductIDs.value,
-          showCategoryNumbers: pdfOptions.value.showCategoryNumbers,
-          visibleCategoryCodes: pdfVisibleCategoryCodes.value,
-          customizers: pdfCustomizers.value,
-        },
-        content: {
-          title: pdfTitle.value,
-          subtitle: pdfSubtitle.value,
-          totalItems: pdfTotalItems.value,
-          groups: pdfGroups.value,
-        },
-        changelog: pdfOptions.value.changelog,
-      },
-    })
+    const row = await apiSend('/api/costing/bean-list/publications', { body: beanListPublicationPayload() })
     message.value = publicationScope.value === 'official'
       ? `已发布${listType === 'retail' ? '零售' : '商用'}豆单 ${row.version}，客户访问链接已生成`
       : `已发布${listType === 'retail' ? '零售' : '商用'}客户豆单 ${row.version}，内容和价格已锁定为快照`
@@ -1121,6 +1136,49 @@ async function publishBeanList() {
     error.value = err.message || '发布豆单失败'
   } finally {
     beanListPublishing.value = false
+  }
+}
+
+async function saveBeanListDraft() {
+  if (!pdfGroups.value.length) return
+  beanListPublishing.value = true
+  error.value = ''
+  message.value = ''
+  const listType = pdfTheme.value.listType
+  try {
+    const row = await apiSend('/api/costing/bean-list/drafts', { body: beanListPublicationPayload() })
+    message.value = `已保存${listType === 'retail' ? '零售' : '商用'}豆单修改 ${row.version}，可继续生成 PDF 下载`
+    await loadBeanListPublications(listType, 'mine')
+  } catch (err) {
+    error.value = err.message || '保存豆单修改失败'
+  } finally {
+    beanListPublishing.value = false
+  }
+}
+
+function beanListPublicationPayload() {
+  const listType = pdfTheme.value.listType
+  return {
+    list_type: listType,
+    version: pdfTheme.value.version,
+    scope: publicationScope.value,
+    price_source_publication_id: Number(currentPriceSourcePublication.value?.id || 0),
+    style_source_publication_id: Number(styleSourcePublicationIDByType.value[listType] || 0),
+    source_version: currentPriceSourcePublication.value?.version || '',
+    config: {
+      ...pdfTheme.value,
+      selectedProductIDs: pdfSelectedProductIDs.value,
+      showCategoryNumbers: pdfOptions.value.showCategoryNumbers,
+      visibleCategoryCodes: pdfVisibleCategoryCodes.value,
+      customizers: pdfCustomizers.value,
+    },
+    content: {
+      title: pdfTitle.value,
+      subtitle: pdfSubtitle.value,
+      totalItems: pdfTotalItems.value,
+      groups: pdfGroups.value,
+    },
+    changelog: pdfOptions.value.changelog,
   }
 }
 
@@ -1153,6 +1211,7 @@ async function withdrawBeanList() {
 }
 
 onMounted(() => {
+  loadCurrentActor()
   loadBeanList()
   loadBeanListPublications('commercial', 'official')
   loadBeanListPublications('commercial', 'mine')
