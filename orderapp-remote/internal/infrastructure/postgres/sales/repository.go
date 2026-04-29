@@ -42,9 +42,12 @@ func WithSalesOrderRenderer(renderer SalesOrderPDFRenderer) RepositoryOption {
 }
 
 func NewRepository(pool *pgxpool.Pool, schema string, opts ...RepositoryOption) Repository {
-	repo := Repository{pool: pool, schema: schema, assetDir: "/app/data/assets", renderer: pdfinfra.SalesOrderRenderer{}}
+	repo := Repository{pool: pool, schema: schema, assetDir: "/app/data/assets"}
 	for _, opt := range opts {
 		opt(&repo)
+	}
+	if repo.renderer == nil {
+		repo.renderer = pdfinfra.SalesOrderRenderer{AssetBaseDir: repo.assetDir}
 	}
 	return repo
 }

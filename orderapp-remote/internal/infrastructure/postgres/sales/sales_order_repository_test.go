@@ -5,6 +5,7 @@ import (
 	"fmt"
 	salesapp "orderapp/internal/application/sales"
 	salesdomain "orderapp/internal/domain/sales"
+	pdfinfra "orderapp/internal/infrastructure/pdf"
 	"os"
 	"strings"
 	"testing"
@@ -118,6 +119,18 @@ func TestGenerateSalesOrderDocumentCreatesVersions(t *testing.T) {
 	}
 	if string(b) != "%PDF-test" || file.Filename != "SO-20260430-0008-V2.pdf" {
 		t.Fatalf("file=%+v bytes=%q", file, b)
+	}
+}
+
+func TestNewRepositoryPassesAssetDirToDefaultSalesOrderRenderer(t *testing.T) {
+	dir := t.TempDir()
+	repo := NewRepository(nil, "public", WithSalesOrderAssetDir(dir))
+	renderer, ok := repo.renderer.(pdfinfra.SalesOrderRenderer)
+	if !ok {
+		t.Fatalf("renderer type = %T, want pdf.SalesOrderRenderer", repo.renderer)
+	}
+	if renderer.AssetBaseDir != dir {
+		t.Fatalf("renderer AssetBaseDir = %q, want %q", renderer.AssetBaseDir, dir)
 	}
 }
 

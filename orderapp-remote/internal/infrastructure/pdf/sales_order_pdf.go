@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	salesdomain "orderapp/internal/domain/sales"
 
@@ -12,7 +13,8 @@ import (
 )
 
 type SalesOrderRenderer struct {
-	FontPath string
+	FontPath     string
+	AssetBaseDir string
 }
 
 func (r SalesOrderRenderer) Render(snapshot salesdomain.SalesOrderSnapshot) ([]byte, error) {
@@ -72,17 +74,13 @@ func (r SalesOrderRenderer) Render(snapshot salesdomain.SalesOrderSnapshot) ([]b
 		pdf.MultiCell(0, 6, "收款方式："+snapshot.PaymentText, "", "L", false)
 	}
 	for _, code := range snapshot.PaymentCodes {
-		text := "收款码：" + code.Label
-		if code.Description != "" {
-			text += " - " + code.Description
-		}
-		pdf.MultiCell(0, 6, text, "", "L", false)
+		r.renderAssetRef(pdf, code, "收款码", 36, 36)
 	}
 	if snapshot.Note != "" {
 		pdf.MultiCell(0, 6, "说明："+snapshot.Note, "", "L", false)
 	}
-	if snapshot.Seal != nil && snapshot.Seal.Label != "" {
-		pdf.CellFormat(0, 7, "公章："+snapshot.Seal.Label, "", 1, "L", false, 0, "")
+	if snapshot.Seal != nil {
+		r.renderAssetRef(pdf, *snapshot.Seal, "公章", 42, 26)
 	}
 
 	if pdf.Error() != nil {
@@ -93,6 +91,89 @@ func (r SalesOrderRenderer) Render(snapshot salesdomain.SalesOrderSnapshot) ([]b
 		return nil, err
 	}
 	return buf.Bytes(), nil
+}
+
+func (r SalesOrderRenderer) renderAssetRef(pdf *gofpdf.Fpdf, ref salesdomain.SalesOrderAssetRef, labelPrefix string, maxW, maxH float64) {
+	label := strings.TrimSpace(labelPrefix)
+	if ref.Label != "" {
+		label += "：" + ref.Label
+	}
+	if ref.Description != "" {
+		label += " - " + ref.Description
+	}
+	if label != "" {
+		pdf.MultiCell(0, 6, label, "", "L", false)
+	}
+	path, ok := r.resolveAssetPath(ref.ObjectKey)
+	if !ok {
+		return
+	}
+	imageType := salesOrderImageType(ref.ContentType, path)
+	if imageType == "" {
+		return
+	}
+	opts := gofpdf.ImageOptions{ImageType: imageType, ReadDpi: true}
+	info := pdf.RegisterImageOptions(path, opts)
+	if info == nil || pdf.Error() != nil {
+		return
+	}
+	w, h := fitSalesOrderImage(info, maxW, maxH)
+	x, y := pdf.GetXY()
+	pdf.ImageOptions(path, x, y, w, h, false, opts, 0, "")
+	pdf.Ln(h + 3)
+}
+
+func (r SalesOrderRenderer) resolveAssetPath(objectKey string) (string, bool) {
+	base := strings.TrimSpace(r.AssetBaseDir)
+	key := strings.TrimSpace(objectKey)
+	if base == "" || key == "" {
+		return "", false
+	}
+	cleanKey := filepath.Clean(filepath.FromSlash(key))
+	if filepath.IsAbs(cleanKey) || cleanKey == ".." || strings.HasPrefix(cleanKey, ".."+string(os.PathSeparator)) {
+		return "", false
+	}
+	path := filepath.Join(base, cleanKey)
+	if _, err := os.Stat(path); err != nil {
+		return "", false
+	}
+	return path, true
+}
+
+func salesOrderImageType(contentType, path string) string {
+	switch strings.ToLower(strings.TrimSpace(contentType)) {
+	case "image/png":
+		return "PNG"
+	case "image/jpeg", "image/jpg":
+		return "JPG"
+	case "image/gif":
+		return "GIF"
+	}
+	switch strings.ToLower(filepath.Ext(path)) {
+	case ".png":
+		return "PNG"
+	case ".jpg", ".jpeg":
+		return "JPG"
+	case ".gif":
+		return "GIF"
+	default:
+		return ""
+	}
+}
+
+func fitSalesOrderImage(info *gofpdf.ImageInfoType, maxW, maxH float64) (float64, float64) {
+	w, h := info.Extent()
+	if w <= 0 || h <= 0 {
+		return maxW, maxH
+	}
+	scale := maxW / w
+	if maxH/h < scale {
+		scale = maxH / h
+	}
+	if scale <= 0 {
+		return maxW, maxH
+	}
+	return w * scale, h * scale
 }
 
 func (r SalesOrderRenderer) resolveFontPath() (string, error) {
