@@ -79,6 +79,14 @@ func randToken(n int) (string, error) {
 	return hex.EncodeToString(b), nil
 }
 
+func bearerTokenFromHeader(authz string) string {
+	authz = strings.TrimSpace(authz)
+	if !strings.HasPrefix(strings.ToLower(authz), "bearer ") {
+		return ""
+	}
+	return strings.TrimSpace(authz[7:])
+}
+
 func ensureMobileAuthTables(ctx context.Context, pool *pgxpool.Pool, schema string) error {
 	q := fmt.Sprintf(`
 CREATE TABLE IF NOT EXISTS %s.employee_login_passwords (
@@ -259,6 +267,16 @@ func registerMobileAuthAPI(e *echo.Echo, pool *pgxpool.Pool, schema string, auth
 			"token":    token,
 			"employee": map[string]any{"id": eid, "name": ename, "phone": phone},
 		})
+	})
+
+	e.POST("/api/auth/logout", func(c echo.Context) error {
+		token := bearerTokenFromHeader(c.Request().Header.Get("Authorization"))
+		if token != "" {
+			if _, err := pool.Exec(c.Request().Context(), "DELETE FROM "+schema+".login_sessions WHERE token=$1", token); err != nil {
+				return c.JSON(500, map[string]string{"error": err.Error()})
+			}
+		}
+		return c.JSON(200, map[string]any{"ok": true})
 	})
 
 	e.GET("/api/auth/accounts", func(c echo.Context) error {

@@ -36,3 +36,7 @@ export function resetEmployeePassword(employeeId, password) {
     body: { employee_id: employeeId, password },
   })
 }
+
+export function logoutCurrentSession() {
+  return apiSend('/api/auth/logout', { method: 'POST' })
+}

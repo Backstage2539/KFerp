@@ -81,6 +81,7 @@ async function login(){
     if(d.token) localStorage.setItem('auth_token', d.token);
   }catch(e){}
   setMsg('登录成功', 'ok');
+  window.location.href='/vue-shell';
 }
 </script>
 </body>

@@ -565,6 +565,12 @@ func seedReqWorkflowA(ctx context.Context, pool *pgxpool.Pool, schema string) er
 		{table: "req_unit", code: "UT-112-01", title: "单测覆盖发布记录归属/来源字段、数据库 owner 唯一发布约束和复制已发布内容快照", status: "done", assignee: "Codex", evidence: "TestPublishBeanListKeepsCustomerSnapshotOwnerAndSources; TestBeanListPublicationSchemaSupportsOwnedLockedSnapshots; bean-list-pdf.test"},
 		{table: "req_api", code: "API-112-01", title: "API 测试覆盖 scope=mine 发布客户豆单时返回 owner 和官方价格/样式来源 ID，公开页仍只读取官方发布", status: "done", assignee: "Codex", evidence: "TestBeanListPublicationAPI; TestPublicBeanListPageRendersPublishedSnapshot"},
 		{table: "req_review", code: "REV-112-01", prCode: "PR-112", title: "验收：客户豆单复制官方价格和自己的样式后发布为独立快照，后续官方豆单更新不会自动改写客户已发布豆单", status: "todo", assignee: "VA", evidence: "待 Van 服务器验收"},
+		{table: "req_product", code: "PR-113", title: "修复手机号密码登录后 Vue 系统仍未认证，并增加退出登录功能", status: "review", assignee: "VA", evidence: "codex/auth-login-logout-20260430"},
+		{table: "req_dev", code: "DEV-113-01", title: "统一 Vue/Vite API 客户端从 localStorage.auth_token 自动发送 Bearer token，登录成功后可加载 Vue shell 并进入系统", status: "done", assignee: "Codex", evidence: "frontend-vue-shell/src/api/client.js; auth_middleware.go; templates/login.html"},
+		{table: "req_dev", code: "DEV-113-02", title: "新增退出登录入口，前端清除本地 token 并调用后端注销当前 login_session", status: "done", assignee: "Codex", evidence: "App.vue; POST /api/auth/logout"},
+		{table: "req_unit", code: "UT-113-01", title: "单测覆盖 API 客户端自动携带 Bearer token 和 logout header 行为", status: "done", assignee: "Codex", evidence: "frontend-vue-shell/src/api/client.test.js"},
+		{table: "req_api", code: "API-113-01", title: "API 级验证退出登录端点保持鉴权保护，Bearer token 解析符合预期", status: "done", assignee: "Codex", evidence: "TestLogoutEndpointRequiresAuthentication; TestBearerTokenFromHeader"},
+		{table: "req_review", code: "REV-113-01", prCode: "PR-113", title: "验收：13800138075 使用密码登录后可进入系统，点击退出后回到登录页且当前 token 不再继续使用", status: "todo", assignee: "VA", evidence: "待 Van 服务器验收"},
 	} {
 		if err := seedReqRow(ctx, pool, schema, row); err != nil {
 			return err

@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 
-import { apiURL } from './client.js'
+import { apiGet, apiSend, apiURL } from './client.js'
 
 test('apiURL builds relative API requests from clean origin even when page URL has basic-auth credentials', () => {
   const previousWindow = globalThis.window
@@ -30,5 +30,48 @@ test('apiURL accepts same-origin URL objects from view query builders', () => {
     assert.equal(apiURL(url), 'https://erp.qacoohee.com/api/customers?page=1')
   } finally {
     globalThis.window = previousWindow
+  }
+})
+
+test('apiGet sends Bearer token from localStorage', async () => {
+  const previousWindow = globalThis.window
+  const previousFetch = globalThis.fetch
+  let requestHeaders
+  globalThis.window = {
+    location: { origin: 'https://erp.qacoohee.com' },
+    localStorage: { getItem: (key) => (key === 'auth_token' ? 'token-13800138075' : null) },
+  }
+  globalThis.fetch = async (_url, init = {}) => {
+    requestHeaders = init.headers
+    return new Response(JSON.stringify({ ok: true }), { status: 200, headers: { 'Content-Type': 'application/json' } })
+  }
+  try {
+    await apiGet('/api/auth/me')
+    assert.equal(requestHeaders.Authorization, 'Bearer token-13800138075')
+  } finally {
+    globalThis.window = previousWindow
+    globalThis.fetch = previousFetch
+  }
+})
+
+test('apiSend preserves custom headers while sending Bearer token', async () => {
+  const previousWindow = globalThis.window
+  const previousFetch = globalThis.fetch
+  let requestHeaders
+  globalThis.window = {
+    location: { origin: 'https://erp.qacoohee.com' },
+    localStorage: { getItem: (key) => (key === 'auth_token' ? 'token-logout' : null) },
+  }
+  globalThis.fetch = async (_url, init = {}) => {
+    requestHeaders = init.headers
+    return new Response(JSON.stringify({ ok: true }), { status: 200, headers: { 'Content-Type': 'application/json' } })
+  }
+  try {
+    await apiSend('/api/auth/logout', { headers: { 'X-Test': '1' } })
+    assert.equal(requestHeaders.Authorization, 'Bearer token-logout')
+    assert.equal(requestHeaders['X-Test'], '1')
+  } finally {
+    globalThis.window = previousWindow
+    globalThis.fetch = previousFetch
   }
 })
