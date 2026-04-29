@@ -12,6 +12,8 @@ func TestManufacturingGapSchemaAndReservationGuards(t *testing.T) {
 		"material_consumption.go",
 		"work_order.go",
 		"material_plan.go",
+		"wip_reservation.go",
+		"acceptance_smoke.go",
 		"quality.go",
 	}
 	var combined strings.Builder
@@ -35,6 +37,11 @@ func TestManufacturingGapSchemaAndReservationGuards(t *testing.T) {
 		"quality_inspections",
 		"MaterialPlan(ctx context.Context",
 		"purchaseSuggestionG",
+		"ListWIPReservations(ctx context.Context",
+		"AdjustWIPReservation(ctx context.Context",
+		"ReleaseWIPReservations(ctx context.Context",
+		"AcceptanceSmoke(ctx context.Context",
+		"WIPTransferSuggestionG",
 	} {
 		if !strings.Contains(src, want) {
 			t.Fatalf("manufacturing gap source missing %q", want)

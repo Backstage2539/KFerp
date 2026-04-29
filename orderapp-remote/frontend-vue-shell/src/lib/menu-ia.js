@@ -14,6 +14,7 @@ export const menuGroups = [
     name: '生产管理',
     items: [
       { key: 'producePlan', label: '生产计划/开始生产', title: '生产计划/开始生产' },
+      { key: 'productionAcceptance', label: '生产验收', title: '生产验收' },
       { key: 'produceRunning', label: '生产中', title: '生产中' },
       { key: 'workOrders', label: '生产工单', title: '生产工单' },
       { key: 'jobCards', label: '工序卡', title: '工序卡' },

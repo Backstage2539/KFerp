@@ -83,6 +83,18 @@ func (r *fakeRepo) CreateQualityInspection(ctx context.Context, cmd QualityInspe
 func (r *fakeRepo) ListQualityInspections(ctx context.Context, query QualityInspectionQuery) ([]QualityInspectionRow, error) {
 	return nil, nil
 }
+func (r *fakeRepo) ListWIPReservations(ctx context.Context, query WIPReservationQuery) (WIPReservationResult, error) {
+	return WIPReservationResult{}, nil
+}
+func (r *fakeRepo) AdjustWIPReservation(ctx context.Context, cmd WIPReservationAdjustCommand) (WIPReservationRow, error) {
+	return WIPReservationRow{}, nil
+}
+func (r *fakeRepo) ReleaseWIPReservations(ctx context.Context, cmd WIPReservationReleaseCommand) (WIPReservationReleaseResult, error) {
+	return WIPReservationReleaseResult{}, nil
+}
+func (r *fakeRepo) AcceptanceSmoke(ctx context.Context) (AcceptanceSmokeResult, error) {
+	return AcceptanceSmokeResult{}, nil
+}
 
 func TestServiceDelegatesProductionUseCases(t *testing.T) {
 	repo := &fakeRepo{}

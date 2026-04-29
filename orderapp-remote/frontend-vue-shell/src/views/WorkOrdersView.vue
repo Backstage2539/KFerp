@@ -31,6 +31,7 @@
             <th>建议投料</th>
             <th>烘焙建议</th>
             <th>原料参考</th>
+            <th>WIP占用</th>
             <th>状态</th>
             <th>成本</th>
             <th>时间</th>
@@ -50,12 +51,17 @@
               <small>预计 {{ row.planned_units || 0 }} 袋 + {{ row.planned_loose_g || 0 }}g</small>
             </td>
             <td class="summary">{{ row.material_summary || '-' }}</td>
+            <td>
+              <strong>{{ formatG(row.remaining_reserved_g) }}</strong>
+              <small>已占 {{ formatG(row.wip_reserved_g) }}</small>
+              <small>已耗 {{ formatG(row.wip_consumed_g) }}</small>
+            </td>
             <td><span class="status">{{ row.status }}</span></td>
             <td>{{ money(row.actual_cost) }}</td>
             <td><small>建 {{ row.created_at }}</small><small>完 {{ row.completed_at || '-' }}</small></td>
             <td><button class="secondary compact" @click="printWorkOrder(row)">打印</button></td>
           </tr>
-          <tr v-if="!rows.length"><td colspan="11" class="muted">暂无工单</td></tr>
+          <tr v-if="!rows.length"><td colspan="12" class="muted">暂无工单</td></tr>
         </tbody>
       </table>
     </section>
@@ -75,6 +81,7 @@
         <div><span>规格</span><strong>{{ printRow.spec_g }}g</strong></div>
         <div><span>订单</span><strong>{{ printRow.order_nos || '-' }}</strong></div>
         <div><span>建议投料</span><strong>{{ formatG(printRow.suggested_input_g || printRow.planned_g) }}</strong></div>
+        <div><span>WIP剩余占用</span><strong>{{ formatG(printRow.remaining_reserved_g) }}</strong></div>
         <div><span>预计产出</span><strong>{{ printRow.planned_units || 0 }} 袋 + {{ printRow.planned_loose_g || 0 }}g</strong></div>
         <div><span>创建时间</span><strong>{{ printRow.created_at }}</strong></div>
         <div><span>完成时间</span><strong>{{ printRow.completed_at || '-' }}</strong></div>

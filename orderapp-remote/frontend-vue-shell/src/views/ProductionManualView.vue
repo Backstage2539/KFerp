@@ -140,22 +140,25 @@
 
 <script setup>
 const mainFlow = [
+  { title: '生产验收', note: '开工前检查闭环' },
   { title: '基础资料', note: '商品 / BOM / 设备 / 物料' },
   { title: '原料入库', note: '库存作业' },
   { title: '领料到 WIP', note: '库存作业' },
-  { title: '物料计划', note: '看缺料和采购建议' },
+  { title: '物料计划', note: '看 WIP 可用和建议领料' },
   { title: '开始生产', note: '冻结快照并占用 WIP' },
   { title: '生产工单', note: '查看烘焙建议并打印' },
-  { title: '质检/完工', note: '可部分完工并记录质检' },
-  { title: '追溯复盘', note: '仓库库存 / 生产日志 / 生产成本' },
+  { title: '质检完工', note: '可部分完工并记录质检' },
+  { title: '追溯复盘', note: '仓库库存 / 生产日志' },
 ]
 
 const dailyRows = [
+  { when: '开工检查', where: '生产管理 -> 生产验收', action: '看生产闭环检查项是否都具备', result: '知道今天是否缺基础数据或流程记录' },
   { when: '生产前', where: '商品与配方 / 设置', action: '确认商品、BOM 配方、设备产能', result: '生产计划能算出建议投料' },
   { when: '原料到货', where: '库存管理 -> 库存作业 -> 原料入库', action: '录入原料、数量、成本', result: '生成原料批次和原料仓库存' },
   { when: '准备生产', where: '库存管理 -> 库存作业 -> WIP领退/转仓', action: '把原料从原料仓领到 WIP', result: '生产现场有可消耗库存' },
-  { when: '排产', where: '生产管理 -> 生产计划/开始生产', action: '选择要生产的商品，先看物料需求计划，再确认投料', result: '知道缺料、采购建议和本次 WIP 占用' },
+  { when: '排产', where: '生产管理 -> 生产计划/开始生产', action: '选择要生产的商品，先看物料需求计划，再确认投料', result: '知道 WIP 可用、建议领到 WIP、缺料和本次占用' },
   { when: '生产中', where: '生产管理 -> 生产工单', action: '看烘焙建议、原料需求，打印工单', result: '现场按工单执行' },
+  { when: '占用处理', where: '库存管理 -> 仓库库存 -> WIP占用', action: '按工单查看、调整或释放 WIP 占用', result: '异常工单不再锁住可用原料' },
   { when: '质检', where: '生产管理 -> 生产质检', action: '记录原料、工单或成品批次的通过/待处理/不合格', result: '质量记录可随单据追溯' },
   { when: '生产后', where: '生产管理 -> 生产中', action: '填实际产出和本次消耗投料，可选择部分完工', result: '扣 WIP 原料，生成成品库存，未完工部分继续保留' },
   { when: '复盘', where: '库存管理 -> 仓库库存', action: '查库存、查 FP 成品批次追溯', result: '看到成品用了哪些原料批次' },
@@ -164,48 +167,60 @@ const dailyRows = [
 const operationSteps = [
   {
     label: '第 0 步',
+    title: '生产验收',
+    route: '生产管理 -> 生产验收',
+    items: ['查看仓库、原料、WIP、工单、日志、质检和追溯检查项', '缺数据时按页面入口补齐', '部署后先用一条小工单跑完整流程'],
+  },
+  {
+    label: '第 1 步',
     title: '准备基础资料',
     route: '商品档案 / BOM配方维护 / 物料档案 / 设备产能配置',
     items: ['建好商品和规格', '启用 BOM 配方', '维护原料和包材', '维护设备产能'],
   },
   {
-    label: '第 1 步',
+    label: '第 2 步',
     title: '原料入库',
     route: '库存管理 -> 库存作业 -> 原料入库',
     items: ['选择物料', '填写入库数量和成本', '提交后生成原料批次'],
   },
   {
-    label: '第 2 步',
+    label: '第 3 步',
     title: '领料到 WIP',
     route: '库存管理 -> 库存作业 -> WIP领退/转仓',
     items: ['选择“领料到 WIP”', '选择原料批次', '填写领用数量', '未用完可退回原料仓'],
   },
   {
-    label: '第 3 步',
+    label: '第 4 步',
     title: '开始生产',
     route: '生产管理 -> 生产计划/开始生产',
-    items: ['选择要生产的行', '点击物料需求计划检查缺料和采购建议', '检查建议投料和原料需求', '点击开始生产', '系统冻结 BOM 和原料快照并建立 WIP 占用'],
+    items: ['选择要生产的行', '点击物料需求计划检查 WIP 可用和建议领到 WIP', '建议领到 WIP 大于 0 时先去库存作业领料', '检查建议投料和原料需求', '点击开始生产', '系统冻结 BOM 和原料快照并建立 WIP 占用'],
   },
   {
-    label: '第 4 步',
+    label: '第 5 步',
+    title: '处理 WIP 占用',
+    route: '仓库库存 -> WIP占用 / 生产工单',
+    items: ['按工单查看已占、已耗和剩余占用', '工单废弃或取消时释放剩余占用', '占用录错时调整为正确克重', '调整和释放都会写操作日志'],
+  },
+  {
+    label: '第 6 步',
     title: '查看和打印生产工单',
     route: '生产管理 -> 生产工单',
     items: ['查看商品规格和订单信息', '查看烘焙建议', '确认原料摘要', '需要纸质单时直接打印'],
   },
   {
-    label: '第 5 步',
+    label: '第 7 步',
     title: '质检和完成生产',
     route: '生产管理 -> 生产中',
     items: ['需要时先到生产质检记录工单检查结果', '填写实际产出件数', '如有散重，填写散重克数', '本次只完成一部分时勾选部分完工并填写本次消耗投料', '选择成品入库仓', '点击完成'],
   },
   {
-    label: '第 6 步',
+    label: '第 8 步',
     title: '成品转仓',
     route: '库存管理 -> 库存作业 -> 成品转仓',
     items: ['选择商品和规格', '选择来源仓和目标仓', '填写转仓数量', '提交后只改变仓库位置'],
   },
   {
-    label: '第 7 步',
+    label: '第 9 步',
     title: '查询和追溯',
     route: '库存管理 -> 仓库库存',
     items: ['按仓库查看库存', '展开批次余额', '输入 FP 成品批次', '追到工单、日志和原料批次'],
@@ -224,8 +239,10 @@ const autoActions = [
 
 const faqs = [
   { q: 'WIP库存不足', a: '原料只在原料仓，没有领到 WIP。先去库存作业里做 WIP 领料。' },
-  { q: 'WIP看起来有库存，但开始生产仍提示不足', a: '可能已被其他工单占用。先在生产计划的物料需求计划里看已占用和缺料。' },
+  { q: 'WIP看起来有库存，但开始生产仍提示不足', a: '可能已被其他工单占用。先在物料需求计划里看 WIP 可用和建议领到 WIP，再到仓库库存的 WIP占用处理异常占用。' },
   { q: '物料档案显示有库存，但生产仍提示不足', a: '总库存充足不等于 WIP 充足。确认该物料在 WIP 有余额。' },
+  { q: '工单废弃后仍占用 WIP', a: '到仓库库存的 WIP占用抽屉，按工单释放剩余占用。' },
+  { q: '工单占用量录错', a: '到 WIP占用抽屉调整占用克重，不能低于已消耗数量，也不能超过 WIP 可用量。' },
   { q: '一张工单不能一次做完', a: '在生产中勾选部分完工，填写本次实际产出和本次消耗投料，剩余部分会留在生产中继续做。' },
   { q: '工单原料和最新 BOM 不一样', a: '工单开始时已经冻结快照，这是正常规则，新 BOM 只影响后续工单。' },
   { q: '找不到追溯', a: '请使用 FP-... 成品批次查询，不要用原料批次查询。' },
@@ -237,7 +254,8 @@ const beforeChecklist = [
   'BOM 配方已启用',
   '原料已经入库',
   '生产要用的原料已经领到 WIP',
-  '生产计划里的物料需求计划没有无法处理的缺料',
+  '生产验收页没有关键异常',
+  '物料需求计划没有无法处理的缺料，建议领到 WIP 已处理',
   '生产计划里已经开始生产',
   '生产工单已打印或现场可查看',
 ]
@@ -250,6 +268,7 @@ const afterChecklist = [
   '需要质检的原料、工单或成品批次已录入质检结果',
   '生产成本能看到本次成本',
   '仓库库存里用 FP 批次能追溯到原料批次',
+  '不再继续生产的工单已释放 WIP 占用',
 ]
 
 const rules = [
@@ -272,7 +291,7 @@ h3 { font-size: 17px; }
 .lead { max-width: 780px; margin: 8px 0 0; color: #4b5563; line-height: 1.6; }
 .panel { padding: 14px; }
 .section-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 12px; }
-.flow-row { display: grid; grid-template-columns: repeat(7, minmax(120px, 1fr)); gap: 8px; overflow-x: auto; padding-bottom: 2px; }
+.flow-row { display: grid; grid-template-columns: repeat(9, minmax(120px, 1fr)); gap: 8px; overflow-x: auto; padding-bottom: 2px; }
 .flow-step { min-width: 120px; border: 1px solid #d8ded6; border-radius: 8px; padding: 10px; background: #fbfcfa; position: relative; }
 .flow-step:not(:last-child)::after { content: '>'; position: absolute; right: -8px; top: 50%; transform: translateY(-50%); color: #63715f; font-weight: 700; }
 .step-no { width: 24px; height: 24px; display: grid; place-items: center; border-radius: 50%; background: #193b2a; color: #fff; font-size: 12px; margin-bottom: 8px; }

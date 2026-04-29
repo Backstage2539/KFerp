@@ -18,10 +18,10 @@
 - Modify: `orderapp-remote/internal/application/production/service.go`
 - Modify: `orderapp-remote/internal/application/production/service_flow_test.go`
 
-- [ ] Add failing domain tests for remaining reservation and adjustment validation.
-- [ ] Add domain implementation.
-- [ ] Add application DTOs and repository interface methods.
-- [ ] Add service tests proving query/command normalization.
+- [x] Add failing domain tests for remaining reservation and adjustment validation.
+- [x] Add domain implementation.
+- [x] Add application DTOs and repository interface methods.
+- [x] Add service tests proving query/command normalization.
 
 ### Task 2: Postgres WIP Reservation And Acceptance Read Models
 
@@ -32,10 +32,10 @@
 - Modify: `orderapp-remote/internal/infrastructure/postgres/production/work_order.go`
 - Modify: `orderapp-remote/internal/infrastructure/postgres/production/manufacturing_gap_source_test.go`
 
-- [ ] Extend material plan rows with WIP available and transfer suggestion grams.
-- [ ] Add WIP reservation list, adjust, and release SQL.
-- [ ] Add acceptance checklist SQL.
-- [ ] Include work-order reservation summary fields.
+- [x] Extend material plan rows with WIP available and transfer suggestion grams.
+- [x] Add WIP reservation list, adjust, and release SQL.
+- [x] Add acceptance checklist SQL.
+- [x] Include work-order reservation summary fields.
 
 ### Task 3: HTTP API
 
@@ -43,10 +43,10 @@
 - Modify: `orderapp-remote/internal/interfaces/http/production/manufacturing_gap_api.go`
 - Modify: `orderapp-remote/internal/interfaces/http/production/manufacturing_gap_api_test.go`
 
-- [ ] Add `GET /api/produce/acceptance-smoke`.
-- [ ] Add `GET /api/produce/wip-reservations`.
-- [ ] Add `POST /api/produce/wip-reservations/adjust`.
-- [ ] Add `POST /api/produce/wip-reservations/release`.
+- [x] Add `GET /api/produce/acceptance-smoke`.
+- [x] Add `GET /api/produce/wip-reservations`.
+- [x] Add `POST /api/produce/wip-reservations/adjust`.
+- [x] Add `POST /api/produce/wip-reservations/release`.
 
 ### Task 4: Vue/Vite UI And Manuals
 
@@ -60,23 +60,23 @@
 - Modify: `orderapp-remote/frontend-vue-shell/src/views/ProductionManualView.vue`
 - Modify: `orderapp-remote/docs/production-flow-user-manual.md`
 
-- [ ] Add production acceptance page.
-- [ ] Surface WIP transfer suggestions in material plan.
-- [ ] Surface reservation summary in work orders.
-- [ ] Add WIP reservation drawer in warehouse inventory.
-- [ ] Update production manual.
+- [x] Add production acceptance page.
+- [x] Surface WIP transfer suggestions in material plan.
+- [x] Surface reservation summary in work orders.
+- [x] Add WIP reservation drawer in warehouse inventory.
+- [x] Update production manual.
 
 ### Task 5: Workflow Tables And Verification
 
 **Files:**
 - Modify: `orderapp-remote/internal/interfaces/http/support/req_store.go`
-- Create: `orderapp-remote/internal/interfaces/http/support/dev_113_step1_test.go`
+- Create: `orderapp-remote/internal/interfaces/http/support/dev_115_step1_test.go`
 - Modify: `orderapp-remote/docs/REQUIREMENTS.md`
 - Modify: `orderapp-remote/docs/ACCEPTANCE_TESTS.md`
 
-- [ ] Seed PR-113/DEV/UT/API/REV rows for this slice.
-- [ ] Update source requirements and acceptance tests.
-- [ ] Run `go test ./... -count=1`.
-- [ ] Run `node --test src/lib/*.test.js`.
-- [ ] Run `npm run build`.
-- [ ] Run `git diff --check HEAD`.
+- [x] Seed PR-115/DEV/UT/API/REV rows for this slice.
+- [x] Update source requirements and acceptance tests.
+- [x] Run `go test ./... -count=1`.
+- [x] Run `node --test src/lib/*.test.js src/api/*.test.js`.
+- [x] Run `npm run build`.
+- [x] Run `git diff --check HEAD`.

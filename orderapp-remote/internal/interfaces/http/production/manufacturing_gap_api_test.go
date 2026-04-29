@@ -19,6 +19,9 @@ type fakeManufacturingGapRepo struct {
 	materialPlanQuery productionapp.MaterialPlanQuery
 	qualityCommand    productionapp.QualityInspectionCommand
 	qualityQuery      productionapp.QualityInspectionQuery
+	reservationQuery  productionapp.WIPReservationQuery
+	adjustCommand     productionapp.WIPReservationAdjustCommand
+	releaseCommand    productionapp.WIPReservationReleaseCommand
 }
 
 func (r *fakeManufacturingGapRepo) CreateBatch(ctx context.Context, cmd productionapp.CreateBatchCommand) (productionapp.CreateBatchResult, error) {
@@ -76,15 +79,17 @@ func (r *fakeManufacturingGapRepo) ListBatchCosts(ctx context.Context, query pro
 func (r *fakeManufacturingGapRepo) MaterialPlan(ctx context.Context, query productionapp.MaterialPlanQuery) (productionapp.MaterialPlanResult, error) {
 	r.materialPlanQuery = query
 	return productionapp.MaterialPlanResult{Rows: []productionapp.MaterialPlanRow{{
-		MaterialID:          10,
-		MaterialName:        "孟连水洗5T批次",
-		Unit:                "g",
-		RequiredG:           60000,
-		WIPG:                20000,
-		RawG:                30000,
-		ReservedG:           5000,
-		ShortageG:           15000,
-		PurchaseSuggestionG: 15000,
+		MaterialID:             10,
+		MaterialName:           "孟连水洗5T批次",
+		Unit:                   "g",
+		RequiredG:              60000,
+		WIPG:                   20000,
+		RawG:                   30000,
+		ReservedG:              5000,
+		AvailableG:             15000,
+		WIPTransferSuggestionG: 30000,
+		ShortageG:              15000,
+		PurchaseSuggestionG:    15000,
 	}}}, nil
 }
 func (r *fakeManufacturingGapRepo) CreateQualityInspection(ctx context.Context, cmd productionapp.QualityInspectionCommand) (productionapp.QualityInspectionRow, error) {
@@ -94,6 +99,32 @@ func (r *fakeManufacturingGapRepo) CreateQualityInspection(ctx context.Context, 
 func (r *fakeManufacturingGapRepo) ListQualityInspections(ctx context.Context, query productionapp.QualityInspectionQuery) ([]productionapp.QualityInspectionRow, error) {
 	r.qualityQuery = query
 	return []productionapp.QualityInspectionRow{{ID: 1, Scope: "work_order", ReferenceNo: "WO-0000000020", ItemName: "测试拼配", Result: "pass"}}, nil
+}
+func (r *fakeManufacturingGapRepo) ListWIPReservations(ctx context.Context, query productionapp.WIPReservationQuery) (productionapp.WIPReservationResult, error) {
+	r.reservationQuery = query
+	return productionapp.WIPReservationResult{Rows: []productionapp.WIPReservationRow{{
+		ID:                 9,
+		WorkOrderNo:        "WO-0000000020",
+		RunningItemID:      20,
+		MaterialName:       "孟连水洗5T批次",
+		ReservedG:          60000,
+		ConsumedG:          20000,
+		RemainingReservedG: 40000,
+		WIPG:               90000,
+		AvailableG:         50000,
+		Status:             "reserved",
+	}}, TotalRemainingG: 40000}, nil
+}
+func (r *fakeManufacturingGapRepo) AdjustWIPReservation(ctx context.Context, cmd productionapp.WIPReservationAdjustCommand) (productionapp.WIPReservationRow, error) {
+	r.adjustCommand = cmd
+	return productionapp.WIPReservationRow{ID: cmd.ReservationID, ReservedG: cmd.ReservedG, ConsumedG: 20000, RemainingReservedG: cmd.ReservedG - 20000}, nil
+}
+func (r *fakeManufacturingGapRepo) ReleaseWIPReservations(ctx context.Context, cmd productionapp.WIPReservationReleaseCommand) (productionapp.WIPReservationReleaseResult, error) {
+	r.releaseCommand = cmd
+	return productionapp.WIPReservationReleaseResult{ReleasedCount: 1, ReleasedG: 40000}, nil
+}
+func (r *fakeManufacturingGapRepo) AcceptanceSmoke(ctx context.Context) (productionapp.AcceptanceSmokeResult, error) {
+	return productionapp.AcceptanceSmokeResult{Rows: []productionapp.AcceptanceSmokeRow{{Code: "wip_stock", Title: "WIP库存", Status: "ok", Count: 1, Detail: "已有 WIP 批次", View: "warehouseInventory"}}}, nil
 }
 
 func TestManufacturingGapAPIs(t *testing.T) {
@@ -115,7 +146,7 @@ func TestManufacturingGapAPIs(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("GET /api/produce/material-plan status=%d body=%s", rec.Code, rec.Body.String())
 	}
-	for _, want := range []string{`"material_name":"孟连水洗5T批次"`, `"required_g":60000`, `"reserved_g":5000`, `"shortage_g":15000`, `"purchase_suggestion_g":15000`} {
+	for _, want := range []string{`"material_name":"孟连水洗5T批次"`, `"required_g":60000`, `"reserved_g":5000`, `"available_g":15000`, `"wip_transfer_suggestion_g":30000`, `"shortage_g":15000`, `"purchase_suggestion_g":15000`} {
 		if !strings.Contains(rec.Body.String(), want) {
 			t.Fatalf("material plan response missing %s: %s", want, rec.Body.String())
 		}
@@ -165,5 +196,52 @@ func TestManufacturingGapAPIs(t *testing.T) {
 	}
 	if repo.qualityQuery.Scope != "work_order" || repo.qualityQuery.Result != "pass" {
 		t.Fatalf("quality query = %+v", repo.qualityQuery)
+	}
+
+	req = httptest.NewRequest(http.MethodGet, "/api/produce/wip-reservations?status=reserved&work_order_no=WO-0000000020", nil)
+	rec = httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET /api/produce/wip-reservations status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	for _, want := range []string{`"work_order_no":"WO-0000000020"`, `"remaining_reserved_g":40000`, `"total_remaining_g":40000`} {
+		if !strings.Contains(rec.Body.String(), want) {
+			t.Fatalf("reservation list response missing %s: %s", want, rec.Body.String())
+		}
+	}
+	if repo.reservationQuery.Status != "reserved" || repo.reservationQuery.WorkOrderNo != "WO-0000000020" {
+		t.Fatalf("reservation query = %+v", repo.reservationQuery)
+	}
+
+	req = httptest.NewRequest(http.MethodPost, "/api/produce/wip-reservations/adjust", bytes.NewReader([]byte(`{"reservation_id":9,"reserved_g":50000,"note":"修正"}`)))
+	req.Header.Set("Content-Type", "application/json")
+	rec = httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("POST /api/produce/wip-reservations/adjust status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if repo.adjustCommand.ReservationID != 9 || repo.adjustCommand.ReservedG != 50000 || repo.adjustCommand.Operator != "测试员" {
+		t.Fatalf("adjust command = %+v", repo.adjustCommand)
+	}
+
+	req = httptest.NewRequest(http.MethodPost, "/api/produce/wip-reservations/release", bytes.NewReader([]byte(`{"running_item_id":20,"work_order_no":"WO-0000000020","note":"释放"}`)))
+	req.Header.Set("Content-Type", "application/json")
+	rec = httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("POST /api/produce/wip-reservations/release status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if repo.releaseCommand.RunningItemID != 20 || repo.releaseCommand.Operator != "测试员" {
+		t.Fatalf("release command = %+v", repo.releaseCommand)
+	}
+
+	req = httptest.NewRequest(http.MethodGet, "/api/produce/acceptance-smoke", nil)
+	rec = httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET /api/produce/acceptance-smoke status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), `"code":"wip_stock"`) || !strings.Contains(rec.Body.String(), `"view":"warehouseInventory"`) {
+		t.Fatalf("acceptance smoke response missing checklist row: %s", rec.Body.String())
 	}
 }

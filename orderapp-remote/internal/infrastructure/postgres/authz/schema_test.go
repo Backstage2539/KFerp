@@ -29,7 +29,7 @@ func TestDefaultViewPermissionsCoverVueShellMenuKeys(t *testing.T) {
 	views := defaultViewPermissions()
 	for _, key := range []string{
 		"order", "orders", "customers", "quotePrint",
-		"producePlan", "produceRunning", "workOrders", "jobCards", "qualityInspections", "produceLogs", "productionCosts", "productionManual",
+		"producePlan", "productionAcceptance", "produceRunning", "workOrders", "jobCards", "qualityInspections", "produceLogs", "productionCosts", "productionManual",
 		"warehouseInventory", "stockOperations", "materials", "materialReceipts", "materialBatches", "wipMaterials", "stockLedger", "stockBatches", "stockAdjustments", "inventory", "allocationLogs",
 		"productSettings", "bom", "products", "costing",
 		"costingSettings", "machines", "senderSettings", "outsourceSettings",

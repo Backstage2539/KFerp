@@ -7,6 +7,7 @@
           <p>按仓库查看原料、包材、WIP 和成品库存，批次作为明细维度展开。</p>
         </div>
         <div class="head-actions">
+          <button class="secondary" type="button" @click="openReservationDrawer">WIP占用</button>
           <button class="secondary" type="button" @click="openTraceDrawer('')">批次追溯</button>
           <button class="secondary" type="button" @click="loadAll" :disabled="loading">刷新</button>
         </div>
@@ -122,12 +123,50 @@
         </div>
       </aside>
     </div>
+
+    <div v-if="reservationDrawerOpen" class="drawer-mask" @click.self="reservationDrawerOpen = false">
+      <aside class="drawer wide">
+        <div class="drawer-head">
+          <h3>WIP占用</h3>
+          <button class="secondary" type="button" @click="reservationDrawerOpen = false">关闭</button>
+        </div>
+        <div class="trace-search">
+          <label><span>工单号</span><input v-model.trim="reservationWorkOrderNo" placeholder="WO-0000000020" @keyup.enter="loadReservations" /></label>
+          <button class="primary" type="button" @click="loadReservations" :disabled="reservationLoading">查询</button>
+        </div>
+        <div v-if="reservationError" class="error">{{ reservationError }}</div>
+        <div class="summary reservation-summary">
+          <div><span>占用行</span><strong>{{ reservations.length }}</strong></div>
+          <div><span>剩余占用(g)</span><strong>{{ Number(reservationTotals.total_remaining_g || 0).toLocaleString('zh-CN') }}</strong></div>
+          <div><span>已消耗(g)</span><strong>{{ Number(reservationTotals.total_consumed_g || 0).toLocaleString('zh-CN') }}</strong></div>
+        </div>
+        <table class="trace-table reservation-table">
+          <thead><tr><th>工单/物料</th><th>占用</th><th>调整为(g)</th><th>操作</th></tr></thead>
+          <tbody>
+            <tr v-for="row in reservations" :key="row.id">
+              <td><strong>{{ row.work_order_no }}</strong><small>{{ row.material_name }}</small></td>
+              <td>
+                <strong>{{ Number(row.remaining_reserved_g || 0).toLocaleString('zh-CN') }}g</strong>
+                <small>已占 {{ row.reserved_g || 0 }}g / 已耗 {{ row.consumed_g || 0 }}g</small>
+                <small>WIP {{ row.wip_g || 0 }}g / 可用 {{ row.available_g || 0 }}g</small>
+              </td>
+              <td><input v-model.number="row.adjust_reserved_g" type="number" min="0" step="1" /></td>
+              <td>
+                <button class="link" type="button" @click="adjustReservation(row)">调整</button>
+                <button class="link danger" type="button" @click="releaseReservation(row)">释放</button>
+              </td>
+            </tr>
+            <tr v-if="!reservations.length"><td colspan="4" class="muted">暂无WIP占用</td></tr>
+          </tbody>
+        </table>
+      </aside>
+    </div>
   </div>
 </template>
 
 <script setup>
 import { computed, onMounted, ref } from 'vue'
-import { apiGet } from '../api/client'
+import { apiGet, apiSend } from '../api/client'
 
 const warehouses = ref([])
 const rows = ref([])
@@ -141,6 +180,12 @@ const traceBatch = ref('')
 const traceResult = ref(null)
 const traceLoading = ref(false)
 const traceError = ref('')
+const reservationDrawerOpen = ref(false)
+const reservationLoading = ref(false)
+const reservationError = ref('')
+const reservationWorkOrderNo = ref('')
+const reservations = ref([])
+const reservationTotals = ref({})
 
 const currentWarehouseName = computed(() => {
   if (!selectedWarehouse.value) return '全部仓库'
@@ -226,6 +271,52 @@ async function loadTrace() {
   }
 }
 
+function openReservationDrawer() {
+  reservationDrawerOpen.value = true
+  loadReservations()
+}
+
+async function loadReservations() {
+  reservationLoading.value = true
+  reservationError.value = ''
+  try {
+    const url = new URL('/api/produce/wip-reservations', window.location.origin)
+    url.searchParams.set('status', 'reserved')
+    if (reservationWorkOrderNo.value) url.searchParams.set('work_order_no', reservationWorkOrderNo.value)
+    const data = await apiGet(url)
+    reservationTotals.value = data || {}
+    reservations.value = (data.rows || []).map((row) => ({ ...row, adjust_reserved_g: row.reserved_g }))
+  } catch (err) {
+    reservationError.value = err.message || '加载WIP占用失败'
+  } finally {
+    reservationLoading.value = false
+  }
+}
+
+async function adjustReservation(row) {
+  reservationError.value = ''
+  try {
+    await apiSend('/api/produce/wip-reservations/adjust', {
+      body: { reservation_id: row.id, reserved_g: Number(row.adjust_reserved_g || 0), note: '仓库库存页调整' },
+    })
+    await loadReservations()
+  } catch (err) {
+    reservationError.value = err.message || '调整失败'
+  }
+}
+
+async function releaseReservation(row) {
+  reservationError.value = ''
+  try {
+    await apiSend('/api/produce/wip-reservations/release', {
+      body: { running_item_id: row.running_item_id, work_order_no: row.work_order_no, note: '仓库库存页释放' },
+    })
+    await loadReservations()
+  } catch (err) {
+    reservationError.value = err.message || '释放失败'
+  }
+}
+
 async function loadAll() {
   loading.value = true
   error.value = ''
@@ -243,6 +334,6 @@ onMounted(loadAll)
 </script>
 
 <style scoped>
-.page{padding:16px;display:grid;gap:16px}.panel{border:1px solid #e5e7eb;border-radius:8px;background:#fff;padding:12px}.panel-head{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;margin-bottom:12px}.panel-head h2{margin:0 0 4px;font-size:18px}.panel-head p{margin:0;color:#6b7280;font-size:13px}.head-actions{display:flex;gap:8px;align-items:center}.filters{display:grid;grid-template-columns:minmax(220px,1fr) 150px 90px;gap:10px;align-items:end}label span{display:block;color:#666;font-size:12px;margin-bottom:5px}input,select,button{font:inherit;min-height:36px;border-radius:6px}input,select{width:100%;border:1px solid #d1d5db;padding:7px 9px}button{cursor:pointer}.primary{border:1px solid #111;background:#111;color:#fff;padding:8px 12px}.secondary{border:1px solid #9ca3af;background:#fff;color:#111;padding:8px 12px}.link{border:0;background:transparent;color:#111;text-decoration:underline;padding:0;min-height:0}.workspace{display:grid;grid-template-columns:260px minmax(0,1fr);gap:16px}.warehouse-panel{align-self:start}.panel-title{font-weight:700;margin-bottom:10px}.warehouse{width:100%;text-align:left;border:1px solid #e5e7eb;background:#fff;border-radius:8px;padding:9px;margin-bottom:8px}.warehouse strong{display:block}.warehouse small{display:block;color:#6b7280;margin-top:3px;line-height:1.35}.warehouse.active{border-color:#111;background:#111;color:#fff}.warehouse.active small{color:#e5e7eb}.summary{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin-bottom:12px}.summary div{border:1px solid #e5e7eb;border-radius:8px;padding:10px}.summary span{display:block;color:#6b7280;font-size:12px;margin-bottom:4px}.summary strong{font-size:18px}.table-wrap{overflow:auto}table{width:100%;min-width:1040px;border-collapse:collapse}th,td{border-bottom:1px solid #f0f0f0;padding:8px;text-align:left;font-size:13px}th{background:#fbfbfb}.pill{display:inline-flex;border:1px solid #d1d5db;border-radius:999px;padding:2px 8px;background:#f9fafb}.muted{color:#666;text-align:center}.error{background:#ffecec;border:1px solid #ffb9b9;border-radius:8px;padding:10px}.drawer-mask{position:fixed;inset:0;background:rgba(0,0,0,.22);display:flex;justify-content:flex-end;z-index:40}.drawer{width:min(460px,100%);height:100%;background:#fff;border-left:1px solid #d1d5db;padding:16px;overflow:auto}.drawer-head{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:12px}.drawer h3{margin:0;font-size:18px}.trace-search{display:grid;grid-template-columns:1fr 84px;gap:10px;align-items:end;margin-bottom:12px}.trace-title{font-weight:700;margin-bottom:10px}dl{display:grid;gap:8px;margin:0 0 14px}dl div{display:grid;grid-template-columns:88px 1fr;gap:8px}dt{color:#6b7280}dd{margin:0}.trace-block h4{margin:14px 0 8px;font-size:14px}.trace-table{min-width:0}
+.page{padding:16px;display:grid;gap:16px}.panel{border:1px solid #e5e7eb;border-radius:8px;background:#fff;padding:12px}.panel-head{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;margin-bottom:12px}.panel-head h2{margin:0 0 4px;font-size:18px}.panel-head p{margin:0;color:#6b7280;font-size:13px}.head-actions{display:flex;gap:8px;align-items:center}.filters{display:grid;grid-template-columns:minmax(220px,1fr) 150px 90px;gap:10px;align-items:end}label span{display:block;color:#666;font-size:12px;margin-bottom:5px}input,select,button{font:inherit;min-height:36px;border-radius:6px}input,select{width:100%;border:1px solid #d1d5db;padding:7px 9px}button{cursor:pointer}.primary{border:1px solid #111;background:#111;color:#fff;padding:8px 12px}.secondary{border:1px solid #9ca3af;background:#fff;color:#111;padding:8px 12px}.link{border:0;background:transparent;color:#111;text-decoration:underline;padding:0;min-height:0}.workspace{display:grid;grid-template-columns:260px minmax(0,1fr);gap:16px}.warehouse-panel{align-self:start}.panel-title{font-weight:700;margin-bottom:10px}.warehouse{width:100%;text-align:left;border:1px solid #e5e7eb;background:#fff;border-radius:8px;padding:9px;margin-bottom:8px}.warehouse strong{display:block}.warehouse small{display:block;color:#6b7280;margin-top:3px;line-height:1.35}.warehouse.active{border-color:#111;background:#111;color:#fff}.warehouse.active small{color:#e5e7eb}.summary{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin-bottom:12px}.summary div{border:1px solid #e5e7eb;border-radius:8px;padding:10px}.summary span{display:block;color:#6b7280;font-size:12px;margin-bottom:4px}.summary strong{font-size:18px}.table-wrap{overflow:auto}table{width:100%;min-width:1040px;border-collapse:collapse}th,td{border-bottom:1px solid #f0f0f0;padding:8px;text-align:left;font-size:13px}th{background:#fbfbfb}td small{display:block;color:#6b7280;margin-top:3px;line-height:1.35}.pill{display:inline-flex;border:1px solid #d1d5db;border-radius:999px;padding:2px 8px;background:#f9fafb}.muted{color:#666;text-align:center}.error{background:#ffecec;border:1px solid #ffb9b9;border-radius:8px;padding:10px}.drawer-mask{position:fixed;inset:0;background:rgba(0,0,0,.22);display:flex;justify-content:flex-end;z-index:40}.drawer{width:min(460px,100%);height:100%;background:#fff;border-left:1px solid #d1d5db;padding:16px;overflow:auto}.drawer.wide{width:min(760px,100%)}.drawer-head{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:12px}.drawer h3{margin:0;font-size:18px}.trace-search{display:grid;grid-template-columns:1fr 84px;gap:10px;align-items:end;margin-bottom:12px}.trace-title{font-weight:700;margin-bottom:10px}dl{display:grid;gap:8px;margin:0 0 14px}dl div{display:grid;grid-template-columns:88px 1fr;gap:8px}dt{color:#6b7280}dd{margin:0}.trace-block h4{margin:14px 0 8px;font-size:14px}.trace-table{min-width:0}.reservation-summary{margin-bottom:12px}.reservation-table input{min-width:110px}.danger{color:#b91c1c;margin-left:8px}
 @media (max-width:900px){.page{padding:12px}.filters,.workspace,.summary{grid-template-columns:1fr}}
 </style>

@@ -578,6 +578,13 @@ func seedReqWorkflowA(ctx context.Context, pool *pgxpool.Pool, schema string) er
 		{table: "req_unit", code: "UT-114-01", title: "单测覆盖 API 客户端自动携带 Bearer token 和 logout header 行为", status: "done", assignee: "Codex", evidence: "frontend-vue-shell/src/api/client.test.js"},
 		{table: "req_api", code: "API-114-01", title: "API 级验证退出登录端点保持鉴权保护，Bearer token 解析符合预期", status: "done", assignee: "Codex", evidence: "TestLogoutEndpointRequiresAuthentication; TestBearerTokenFromHeader"},
 		{table: "req_review", code: "REV-114-01", prCode: "PR-114", title: "验收：13800138075 使用密码登录后可进入系统，点击退出后回到登录页且当前 token 不再继续使用", status: "todo", assignee: "VA", evidence: "待 Van 服务器验收"},
+		{table: "req_product", code: "PR-115", title: "生产验收与WIP占用可视化：上线后能快速检查生产闭环，并能查看/调整/释放工单WIP占用", status: "review", assignee: "VA", evidence: "codex/production-acceptance-wip-20260430"},
+		{table: "req_dev", code: "DEV-115-01", title: "新增生产验收页面和接口，汇总仓库、原料、WIP、工单、日志、质检和成品追溯检查项", status: "done", assignee: "Codex", evidence: "GET /api/produce/acceptance-smoke; ProductionAcceptanceView"},
+		{table: "req_dev", code: "DEV-115-02", title: "生产计划物料需求计划新增WIP可用量和建议领到WIP数量，帮助生产前完成领料", status: "done", assignee: "Codex", evidence: "MaterialPlanRow available_g/wip_transfer_suggestion_g; ProducePlanView"},
+		{table: "req_dev", code: "DEV-115-03", title: "WIP占用可视化并支持按工单释放、按预约调整占用量，操作写入审计日志", status: "done", assignee: "Codex", evidence: "GET/POST /api/produce/wip-reservations; WorkOrdersView; WarehouseInventoryView"},
+		{table: "req_unit", code: "UT-115-01", title: "单元测试覆盖WIP占用领域规则、应用服务归一化、Vue入口和需求种子", status: "done", assignee: "Codex", evidence: "TestWIPReservationRemainingAndAdjustment; TestServiceOwnsWIPReservationAndAcceptanceUseCases; TestProductionAcceptanceWIPVueWiring"},
+		{table: "req_api", code: "API-115-01", title: "API测试覆盖生产验收、WIP占用列表、调整、释放和物料计划新增字段", status: "done", assignee: "Codex", evidence: "TestManufacturingGapAPIs"},
+		{table: "req_review", code: "REV-115-01", prCode: "PR-115", title: "验收：生产验收页可看核心检查项；生产计划显示建议领到WIP；工单/仓库库存可查看并处理WIP占用", status: "todo", assignee: "VA", evidence: "待 Van 功能分支验收"},
 	} {
 		if err := seedReqRow(ctx, pool, schema, row); err != nil {
 			return err

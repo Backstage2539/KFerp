@@ -141,6 +141,8 @@
               <th>需求(个)</th>
               <th>WIP(g)</th>
               <th>已占用(g)</th>
+              <th>WIP可用(g)</th>
+              <th>建议领到WIP(g)</th>
               <th>原料仓(g)</th>
               <th>缺料(g)</th>
               <th>采购建议(g)</th>
@@ -154,12 +156,14 @@
               <td>{{ item.required_units }}</td>
               <td>{{ item.wip_g }}</td>
               <td>{{ item.reserved_g }}</td>
+              <td>{{ item.available_g }}</td>
+              <td>{{ item.wip_transfer_suggestion_g }}</td>
               <td>{{ item.raw_g }}</td>
               <td><strong>{{ item.shortage_g }}</strong></td>
               <td>{{ item.purchase_suggestion_g }}</td>
             </tr>
             <tr v-if="!materialPlanRows.length">
-              <td colspan="9" class="muted">暂无物料需求计划</td>
+              <td colspan="11" class="muted">暂无物料需求计划</td>
             </tr>
           </tbody>
         </table>

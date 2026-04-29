@@ -15,6 +15,36 @@ type MaterialPlanAPIResponse struct {
 	Rows []productionapp.MaterialPlanRow `json:"rows"`
 }
 
+type WIPReservationListAPIResponse struct {
+	Rows            []productionapp.WIPReservationRow `json:"rows"`
+	TotalReservedG  int64                             `json:"total_reserved_g"`
+	TotalConsumedG  int64                             `json:"total_consumed_g"`
+	TotalRemainingG int64                             `json:"total_remaining_g"`
+}
+
+type WIPReservationAdjustAPIRequest struct {
+	ReservationID int64  `json:"reservation_id"`
+	ReservedG     int64  `json:"reserved_g"`
+	ReservedUnits int64  `json:"reserved_units"`
+	Note          string `json:"note"`
+}
+
+type WIPReservationAdjustAPIResponse struct {
+	OK  bool                            `json:"ok"`
+	Row productionapp.WIPReservationRow `json:"row"`
+}
+
+type WIPReservationReleaseAPIRequest struct {
+	RunningItemID int64  `json:"running_item_id"`
+	WorkOrderNo   string `json:"work_order_no"`
+	Note          string `json:"note"`
+}
+
+type WIPReservationReleaseAPIResponse struct {
+	OK     bool                                      `json:"ok"`
+	Result productionapp.WIPReservationReleaseResult `json:"result"`
+}
+
 type QualityInspectionAPIRequest struct {
 	Scope         string `json:"scope"`
 	ReferenceType string `json:"reference_type"`
@@ -48,6 +78,73 @@ func registerManufacturingGapAPI(e *echo.Echo, productionSvc *productionapp.Serv
 			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: err.Error()})
 		}
 		return c.JSON(http.StatusOK, MaterialPlanAPIResponse{Rows: res.Rows})
+	})
+
+	e.GET("/api/produce/acceptance-smoke", func(c echo.Context) error {
+		res, err := productionSvc.AcceptanceSmoke(c.Request().Context())
+		if err != nil {
+			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: err.Error()})
+		}
+		return c.JSON(http.StatusOK, res)
+	})
+
+	e.GET("/api/produce/wip-reservations", func(c echo.Context) error {
+		res, err := productionSvc.ListWIPReservations(c.Request().Context(), productionapp.WIPReservationQuery{
+			Status:      c.QueryParam("status"),
+			WorkOrderNo: c.QueryParam("work_order_no"),
+			MaterialID:  parseInt64(c.QueryParam("material_id")),
+			Limit:       parseInt(c.QueryParam("limit")),
+		})
+		if err != nil {
+			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: err.Error()})
+		}
+		return c.JSON(http.StatusOK, WIPReservationListAPIResponse{
+			Rows:            res.Rows,
+			TotalReservedG:  res.TotalReservedG,
+			TotalConsumedG:  res.TotalConsumedG,
+			TotalRemainingG: res.TotalRemainingG,
+		})
+	})
+
+	e.POST("/api/produce/wip-reservations/adjust", func(c echo.Context) error {
+		if err := support.RequireEmployeeBound(c); err != nil {
+			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: err.Error()})
+		}
+		var req WIPReservationAdjustAPIRequest
+		if err := c.Bind(&req); err != nil {
+			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: "invalid request"})
+		}
+		row, err := productionSvc.AdjustWIPReservation(c.Request().Context(), productionapp.WIPReservationAdjustCommand{
+			ReservationID: req.ReservationID,
+			ReservedG:     req.ReservedG,
+			ReservedUnits: req.ReservedUnits,
+			Operator:      support.ActorOf(c),
+			Note:          req.Note,
+		})
+		if err != nil {
+			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: err.Error()})
+		}
+		return c.JSON(http.StatusOK, WIPReservationAdjustAPIResponse{OK: true, Row: row})
+	})
+
+	e.POST("/api/produce/wip-reservations/release", func(c echo.Context) error {
+		if err := support.RequireEmployeeBound(c); err != nil {
+			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: err.Error()})
+		}
+		var req WIPReservationReleaseAPIRequest
+		if err := c.Bind(&req); err != nil {
+			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: "invalid request"})
+		}
+		result, err := productionSvc.ReleaseWIPReservations(c.Request().Context(), productionapp.WIPReservationReleaseCommand{
+			RunningItemID: req.RunningItemID,
+			WorkOrderNo:   req.WorkOrderNo,
+			Operator:      support.ActorOf(c),
+			Note:          req.Note,
+		})
+		if err != nil {
+			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: err.Error()})
+		}
+		return c.JSON(http.StatusOK, WIPReservationReleaseAPIResponse{OK: true, Result: result})
 	})
 
 	e.GET("/api/produce/quality-inspections", func(c echo.Context) error {
