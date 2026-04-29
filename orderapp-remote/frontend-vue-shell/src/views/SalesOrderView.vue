@@ -15,6 +15,14 @@
         <span>订单 ID：{{ orderID || '-' }}</span>
         <span>版本数：{{ documents.length }}</span>
       </div>
+      <details class="manual">
+        <summary>销售单手册</summary>
+        <ul>
+          <li>首次生成销售单为 V1，同一订单再次生成会创建 V2，不覆盖旧文件。</li>
+          <li>销售单内容按生成时的订单和设置保存快照，后续修改设置不会改动旧版本。</li>
+          <li>需要给客户最新文件时使用“下载最新版”，需要追溯时下载指定历史版本。</li>
+        </ul>
+      </details>
     </section>
 
     <section class="panel">
@@ -106,6 +114,9 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .primary { background: #1f1f1f; color: #fff; }
 .secondary { background: #fff; color: #1f1f1f; }
 .summary { color: #555; }
+.manual { border-top: 1px solid #edf0f5; padding-top: 10px; margin-top: 12px; color: #4b5563; font-size: 13px; }
+.manual summary { cursor: pointer; font-weight: 700; color: #111827; }
+.manual ul { margin: 8px 0 0; padding-left: 18px; }
 table { width: 100%; border-collapse: collapse; }
 th, td { border-bottom: 1px solid #eee8df; padding: 9px 8px; text-align: left; }
 th { background: #fbfaf8; }

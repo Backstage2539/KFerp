@@ -16,6 +16,14 @@
       <div class="actions">
         <button class="primary" type="button" @click="save" :disabled="saving">保存设置</button>
       </div>
+      <details class="manual">
+        <summary>销售单设置手册</summary>
+        <ul>
+          <li>公司名称、说明和收款方式会进入之后新生成的销售单快照。</li>
+          <li>收款码支持多个，名称和说明会随 PDF 一起展示。</li>
+          <li>公章重新上传后只影响新生成版本，已生成历史版本不变。</li>
+        </ul>
+      </details>
     </section>
 
     <section class="panel">
@@ -206,6 +214,9 @@ onMounted(load)
 h2, h3 { margin: 0; }
 h2 { font-size: 20px; }
 h3 { font-size: 16px; }
+.manual { border-top: 1px solid #edf0f5; padding-top: 10px; margin-top: 12px; color: #4b5563; font-size: 13px; }
+.manual summary { cursor: pointer; font-weight: 700; color: #111827; }
+.manual ul { margin: 8px 0 0; padding-left: 18px; }
 .form-grid { display: grid; grid-template-columns: repeat(2, minmax(220px, 1fr)); gap: 10px; margin-bottom: 12px; }
 .wide { grid-column: 1 / -1; }
 label span { display: block; color: #666; font-size: 12px; margin-bottom: 5px; }
