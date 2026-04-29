@@ -46,22 +46,23 @@ func (fakeService) UpdateSetting(context.Context, appcosting.UpdateParameterComm
 	return appcosting.ParameterSetting{Key: "roast_yield_rate", Label: "生豆到熟豆转化率", Value: 0.81, Unit: "ratio"}, nil
 }
 
-func (fakeService) ListBeanListPublications(context.Context, string) ([]appcosting.BeanListPublication, error) {
+func (fakeService) ListBeanListPublications(context.Context, appcosting.BeanListPublicationQuery) ([]appcosting.BeanListPublication, error) {
 	row := fakePublishedBeanListPublication()
 	return []appcosting.BeanListPublication{row}, nil
 }
 
-func (fakeService) PublishedBeanList(context.Context, string) (*appcosting.BeanListPublication, error) {
+func (fakeService) PublishedBeanList(context.Context, appcosting.BeanListPublicationQuery) (*appcosting.BeanListPublication, error) {
 	row := fakePublishedBeanListPublication()
 	return &row, nil
 }
 
 func fakePublishedBeanListPublication() appcosting.BeanListPublication {
 	return appcosting.BeanListPublication{
-		ID:       7,
-		ListType: "commercial",
-		Version:  "V3.0.5",
-		Status:   "published",
+		ID:        7,
+		ListType:  "commercial",
+		Version:   "V3.0.5",
+		Status:    "published",
+		OwnerType: "official",
 		Config: map[string]any{
 			"layoutStyle":     "card",
 			"cardsPerRow":     float64(2),
@@ -98,7 +99,16 @@ func fakePublishedBeanListPublication() appcosting.BeanListPublication {
 }
 
 func (fakeService) PublishBeanList(context.Context, appcosting.PublishBeanListCommand) (*appcosting.BeanListPublication, error) {
-	return &appcosting.BeanListPublication{ID: 8, ListType: "commercial", Version: "V3.0.6", Status: "published"}, nil
+	return &appcosting.BeanListPublication{
+		ID:                       8,
+		ListType:                 "commercial",
+		Version:                  "V3.0.6",
+		Status:                   "published",
+		OwnerType:                "actor",
+		OwnerKey:                 "employee:7",
+		PriceSourcePublicationID: 7,
+		StyleSourcePublicationID: 6,
+	}, nil
 }
 
 func (fakeService) WithdrawBeanList(context.Context, appcosting.WithdrawBeanListCommand) error {
@@ -131,11 +141,11 @@ func (fakeRepo) UpdateParameterSetting(context.Context, appcosting.UpdateParamet
 	return appcosting.ParameterSetting{}, nil
 }
 
-func (fakeRepo) ListBeanListPublications(context.Context, string) ([]appcosting.BeanListPublication, error) {
+func (fakeRepo) ListBeanListPublications(context.Context, appcosting.BeanListPublicationQuery) ([]appcosting.BeanListPublication, error) {
 	return nil, nil
 }
 
-func (fakeRepo) PublishedBeanList(context.Context, string) (*appcosting.BeanListPublication, error) {
+func (fakeRepo) PublishedBeanList(context.Context, appcosting.BeanListPublicationQuery) (*appcosting.BeanListPublication, error) {
 	return nil, nil
 }
 
@@ -414,7 +424,7 @@ func TestBeanListPublicationAPI(t *testing.T) {
 		t.Fatalf("publications = %+v", listed.Rows)
 	}
 
-	body := bytes.NewBufferString(`{"list_type":"commercial","version":"V3.0.6","config":{"layoutStyle":"table"},"content":{"totalItems":25},"changelog":"补充标签和筛选"}`)
+	body := bytes.NewBufferString(`{"list_type":"commercial","version":"V3.0.6","scope":"mine","price_source_publication_id":7,"style_source_publication_id":6,"config":{"layoutStyle":"table"},"content":{"totalItems":25},"changelog":"补充标签和筛选"}`)
 	req = httptest.NewRequest(http.MethodPost, "/api/costing/bean-list/publications", body)
 	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
 	rec = httptest.NewRecorder()
@@ -428,6 +438,9 @@ func TestBeanListPublicationAPI(t *testing.T) {
 	}
 	if published.ID != 8 || published.Version != "V3.0.6" || published.Status != "published" {
 		t.Fatalf("published = %+v", published)
+	}
+	if published.OwnerType != "actor" || published.OwnerKey == "" || published.PriceSourcePublicationID != 7 || published.StyleSourcePublicationID != 6 {
+		t.Fatalf("published owner/source = %+v", published)
 	}
 
 	req = httptest.NewRequest(http.MethodPost, "/api/costing/bean-list/publications/8/withdraw", nil)

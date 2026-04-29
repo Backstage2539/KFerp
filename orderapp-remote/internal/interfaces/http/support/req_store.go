@@ -558,6 +558,13 @@ func seedReqWorkflowA(ctx context.Context, pool *pgxpool.Pool, schema string) er
 		{table: "req_unit", code: "UT-111-01", title: "单测覆盖按订单号回填命令规范化、Excel 表头识别和备注订单号提取", status: "done", assignee: "Codex", evidence: "TestServiceNormalizesShipmentTrackingByOrderNo; TestParseShipmentTrackingExcelUsesWaybillAndRemarkOrderNo"},
 		{table: "req_api", code: "API-111-01", title: "API 测试覆盖上传寄件列表 Excel 后订单按备注订单号标记已发货并写入快递单号", status: "done", assignee: "Codex", evidence: "TestOrdersShippingTrackingExcelAPIMarksOrdersByRemarkOrderNo"},
 		{table: "req_review", code: "REV-111-01", prCode: "PR-111", title: "验收：上传顺丰寄件列表回传 Excel 后，备注订单号匹配的订单显示快递单号且发货状态为已发货", status: "todo", assignee: "VA", evidence: "待 Van 服务器验收"},
+		{table: "req_product", code: "PR-112", title: "客户豆单发布后锁定为自己的快照，可复制官方价格来源和自己的历史样式配置", status: "review", assignee: "VA", evidence: "codex/product-settings-categories"},
+		{table: "req_dev", code: "DEV-112-01", title: "豆单发布记录增加归属 owner、官方价格来源、样式来源和来源版本，发布/撤回只影响同一归属的当前豆单", status: "done", assignee: "Codex", evidence: "bean_list_publications owner/source columns; PublishBeanList owner scoped withdraw"},
+		{table: "req_dev", code: "DEV-112-02", title: "生成豆单抽屉支持官方豆单和我的客户豆单两种归属，客户豆单可复制官方价格来源作为锁定内容快照", status: "done", assignee: "Codex", evidence: "CostingView publicationScope; selectedPriceSourcePublicationID; copyBeanListPublicationContentGroups"},
+		{table: "req_dev", code: "DEV-112-03", title: "客户豆单可复制自己的历史样式配置，发布时记录 price_source_publication_id 和 style_source_publication_id", status: "done", assignee: "Codex", evidence: "CostingView copy config + publish payload source ids"},
+		{table: "req_unit", code: "UT-112-01", title: "单测覆盖发布记录归属/来源字段、数据库 owner 唯一发布约束和复制已发布内容快照", status: "done", assignee: "Codex", evidence: "TestPublishBeanListKeepsCustomerSnapshotOwnerAndSources; TestBeanListPublicationSchemaSupportsOwnedLockedSnapshots; bean-list-pdf.test"},
+		{table: "req_api", code: "API-112-01", title: "API 测试覆盖 scope=mine 发布客户豆单时返回 owner 和官方价格/样式来源 ID，公开页仍只读取官方发布", status: "done", assignee: "Codex", evidence: "TestBeanListPublicationAPI; TestPublicBeanListPageRendersPublishedSnapshot"},
+		{table: "req_review", code: "REV-112-01", prCode: "PR-112", title: "验收：客户豆单复制官方价格和自己的样式后发布为独立快照，后续官方豆单更新不会自动改写客户已发布豆单", status: "todo", assignee: "VA", evidence: "待 Van 服务器验收"},
 	} {
 		if err := seedReqRow(ctx, pool, schema, row); err != nil {
 			return err

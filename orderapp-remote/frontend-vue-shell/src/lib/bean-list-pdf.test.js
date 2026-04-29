@@ -5,6 +5,7 @@ import {
   DEFAULT_BEAN_LIST_PDF_VERSION,
   buildBeanListPdfGroups,
   buildBeanListPdfTitle,
+  copyBeanListPublicationContentGroups,
   copyBeanListPublicationConfig,
   sanitizeBeanListPdfTheme,
   splitHighlightedText,
@@ -224,4 +225,26 @@ test('PDF bean-list helper copies a published configuration for editing against 
   assert.deepEqual(copied.customizers, {
     10: { badge: 'new', highlightTerms: '55/包,庄园差异性产品' },
   })
+})
+
+test('PDF bean-list helper copies published content groups as an immutable price snapshot', () => {
+  const publication = {
+    content: {
+      groups: [{
+        category: '6、差异性爆款：',
+        items: [{
+          productId: 30,
+          code: '6.1',
+          name: 'Nenka',
+          prices: [{ label: '2包-13包', price: 127, unit: '包' }],
+        }],
+      }],
+    },
+  }
+
+  const groups = copyBeanListPublicationContentGroups(publication)
+  groups[0].items[0].prices[0].price = 1
+
+  assert.equal(publication.content.groups[0].items[0].prices[0].price, 127)
+  assert.equal(copyBeanListPublicationContentGroups({ content: {} }).length, 0)
 })

@@ -42,30 +42,51 @@ type UpdateParameterCommand struct {
 }
 
 type BeanListPublication struct {
-	ID          int64          `json:"id"`
-	ListType    string         `json:"list_type"`
-	Version     string         `json:"version"`
-	Status      string         `json:"status"`
-	Config      map[string]any `json:"config"`
-	Content     map[string]any `json:"content"`
-	Changelog   string         `json:"changelog"`
-	PublishedAt string         `json:"published_at,omitempty"`
-	WithdrawnAt string         `json:"withdrawn_at,omitempty"`
-	CreatedAt   string         `json:"created_at,omitempty"`
+	ID                       int64          `json:"id"`
+	ListType                 string         `json:"list_type"`
+	Version                  string         `json:"version"`
+	Status                   string         `json:"status"`
+	OwnerType                string         `json:"owner_type"`
+	OwnerKey                 string         `json:"owner_key,omitempty"`
+	PriceSourcePublicationID int64          `json:"price_source_publication_id,omitempty"`
+	StyleSourcePublicationID int64          `json:"style_source_publication_id,omitempty"`
+	SourceVersion            string         `json:"source_version,omitempty"`
+	Config                   map[string]any `json:"config"`
+	Content                  map[string]any `json:"content"`
+	Changelog                string         `json:"changelog"`
+	PublishedAt              string         `json:"published_at,omitempty"`
+	WithdrawnAt              string         `json:"withdrawn_at,omitempty"`
+	CreatedAt                string         `json:"created_at,omitempty"`
+}
+
+type BeanListPublicationQuery struct {
+	ListType  string `json:"list_type"`
+	Scope     string `json:"scope,omitempty"`
+	OwnerType string `json:"owner_type,omitempty"`
+	OwnerKey  string `json:"owner_key,omitempty"`
 }
 
 type PublishBeanListCommand struct {
-	ListType  string         `json:"list_type"`
-	Version   string         `json:"version"`
-	Config    map[string]any `json:"config"`
-	Content   map[string]any `json:"content"`
-	Changelog string         `json:"changelog"`
-	Actor     string         `json:"actor,omitempty"`
+	ListType                 string         `json:"list_type"`
+	Version                  string         `json:"version"`
+	Scope                    string         `json:"scope,omitempty"`
+	OwnerType                string         `json:"owner_type,omitempty"`
+	OwnerKey                 string         `json:"owner_key,omitempty"`
+	PriceSourcePublicationID int64          `json:"price_source_publication_id,omitempty"`
+	StyleSourcePublicationID int64          `json:"style_source_publication_id,omitempty"`
+	SourceVersion            string         `json:"source_version,omitempty"`
+	Config                   map[string]any `json:"config"`
+	Content                  map[string]any `json:"content"`
+	Changelog                string         `json:"changelog"`
+	Actor                    string         `json:"actor,omitempty"`
 }
 
 type WithdrawBeanListCommand struct {
-	ID    int64  `json:"id"`
-	Actor string `json:"actor,omitempty"`
+	ID        int64  `json:"id"`
+	Scope     string `json:"scope,omitempty"`
+	OwnerType string `json:"owner_type,omitempty"`
+	OwnerKey  string `json:"owner_key,omitempty"`
+	Actor     string `json:"actor,omitempty"`
 }
 
 type Repository interface {
@@ -75,8 +96,8 @@ type Repository interface {
 	PublishRun(ctx context.Context, actor string, runID int64) error
 	ListParameterSettings(ctx context.Context) ([]ParameterSetting, error)
 	UpdateParameterSetting(ctx context.Context, cmd UpdateParameterCommand) (ParameterSetting, error)
-	ListBeanListPublications(ctx context.Context, listType string) ([]BeanListPublication, error)
-	PublishedBeanList(ctx context.Context, listType string) (*BeanListPublication, error)
+	ListBeanListPublications(ctx context.Context, query BeanListPublicationQuery) ([]BeanListPublication, error)
+	PublishedBeanList(ctx context.Context, query BeanListPublicationQuery) (*BeanListPublication, error)
 	PublishBeanList(ctx context.Context, cmd PublishBeanListCommand) (*BeanListPublication, error)
 	WithdrawBeanList(ctx context.Context, cmd WithdrawBeanListCommand) error
 }
@@ -170,8 +191,8 @@ func (s *Service) PublishRun(ctx context.Context, actor string, runID int64) err
 	return s.repo.PublishRun(ctx, actor, runID)
 }
 
-func (s *Service) ListBeanListPublications(ctx context.Context, listType string) ([]BeanListPublication, error) {
-	normalized, err := normalizeBeanListType(listType)
+func (s *Service) ListBeanListPublications(ctx context.Context, query BeanListPublicationQuery) ([]BeanListPublication, error) {
+	normalized, err := normalizeBeanListPublicationQuery(query)
 	if err != nil {
 		return nil, err
 	}
@@ -181,8 +202,8 @@ func (s *Service) ListBeanListPublications(ctx context.Context, listType string)
 	return s.repo.ListBeanListPublications(ctx, normalized)
 }
 
-func (s *Service) PublishedBeanList(ctx context.Context, listType string) (*BeanListPublication, error) {
-	normalized, err := normalizeBeanListType(listType)
+func (s *Service) PublishedBeanList(ctx context.Context, query BeanListPublicationQuery) (*BeanListPublication, error) {
+	normalized, err := normalizeBeanListPublicationQuery(query)
 	if err != nil {
 		return nil, err
 	}
@@ -200,8 +221,18 @@ func (s *Service) PublishBeanList(ctx context.Context, cmd PublishBeanListComman
 	cmd.ListType = listType
 	cmd.Version = strings.TrimSpace(cmd.Version)
 	cmd.Changelog = strings.TrimSpace(cmd.Changelog)
+	cmd.SourceVersion = strings.TrimSpace(cmd.SourceVersion)
 	if cmd.Version == "" {
 		return nil, fmt.Errorf("version required")
+	}
+	ownerType, ownerKey, err := normalizeBeanListOwner(cmd.OwnerType, cmd.OwnerKey)
+	if err != nil {
+		return nil, err
+	}
+	cmd.OwnerType = ownerType
+	cmd.OwnerKey = ownerKey
+	if cmd.PriceSourcePublicationID < 0 || cmd.StyleSourcePublicationID < 0 {
+		return nil, fmt.Errorf("source publication id must be >= 0")
 	}
 	if cmd.Config == nil {
 		cmd.Config = map[string]any{}
@@ -219,6 +250,12 @@ func (s *Service) WithdrawBeanList(ctx context.Context, cmd WithdrawBeanListComm
 	if cmd.ID <= 0 {
 		return fmt.Errorf("invalid id")
 	}
+	ownerType, ownerKey, err := normalizeBeanListOwner(cmd.OwnerType, cmd.OwnerKey)
+	if err != nil {
+		return err
+	}
+	cmd.OwnerType = ownerType
+	cmd.OwnerKey = ownerKey
 	if s.repo == nil {
 		return fmt.Errorf("repository required")
 	}
@@ -248,6 +285,37 @@ func normalizeBeanListType(listType string) (string, error) {
 		return "retail", nil
 	default:
 		return "", fmt.Errorf("invalid list_type")
+	}
+}
+
+func normalizeBeanListPublicationQuery(query BeanListPublicationQuery) (BeanListPublicationQuery, error) {
+	listType, err := normalizeBeanListType(query.ListType)
+	if err != nil {
+		return BeanListPublicationQuery{}, err
+	}
+	ownerType, ownerKey, err := normalizeBeanListOwner(query.OwnerType, query.OwnerKey)
+	if err != nil {
+		return BeanListPublicationQuery{}, err
+	}
+	query.ListType = listType
+	query.OwnerType = ownerType
+	query.OwnerKey = ownerKey
+	return query, nil
+}
+
+func normalizeBeanListOwner(ownerType, ownerKey string) (string, string, error) {
+	typ := strings.TrimSpace(ownerType)
+	key := strings.TrimSpace(ownerKey)
+	switch typ {
+	case "", "official":
+		return "official", "", nil
+	case "actor", "customer":
+		if key == "" {
+			return "", "", fmt.Errorf("owner_key required")
+		}
+		return typ, key, nil
+	default:
+		return "", "", fmt.Errorf("invalid owner_type")
 	}
 }
 

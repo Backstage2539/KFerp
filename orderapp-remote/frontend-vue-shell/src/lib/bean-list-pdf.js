@@ -171,6 +171,12 @@ export function copyBeanListPublicationConfig(publication = {}, currentOptions =
   }
 }
 
+export function copyBeanListPublicationContentGroups(publication = {}) {
+  const groups = publication?.content?.groups
+  if (!Array.isArray(groups)) return []
+  return JSON.parse(JSON.stringify(groups))
+}
+
 function normalizeColor(value, fallback) {
   const v = String(value || '').trim()
   return /^#[0-9a-fA-F]{6}$/.test(v) ? v : fallback

@@ -8,10 +8,11 @@ import (
 )
 
 type fakeRepo struct {
-	params      domain.Parameters
-	inputs      []domain.ProductInput
-	savedItems  []domain.ProductResult
-	publishedID int64
+	params            domain.Parameters
+	inputs            []domain.ProductInput
+	savedItems        []domain.ProductResult
+	publishedID       int64
+	publishedBeanList PublishBeanListCommand
 }
 
 func (r *fakeRepo) LoadParameters(context.Context) (domain.Parameters, error) {
@@ -43,16 +44,17 @@ func (r *fakeRepo) UpdateParameterSetting(context.Context, UpdateParameterComman
 	return ParameterSetting{}, nil
 }
 
-func (r *fakeRepo) ListBeanListPublications(context.Context, string) ([]BeanListPublication, error) {
+func (r *fakeRepo) ListBeanListPublications(context.Context, BeanListPublicationQuery) ([]BeanListPublication, error) {
 	return nil, nil
 }
 
-func (r *fakeRepo) PublishedBeanList(context.Context, string) (*BeanListPublication, error) {
+func (r *fakeRepo) PublishedBeanList(context.Context, BeanListPublicationQuery) (*BeanListPublication, error) {
 	return nil, nil
 }
 
-func (r *fakeRepo) PublishBeanList(context.Context, PublishBeanListCommand) (*BeanListPublication, error) {
-	return &BeanListPublication{ID: 1, ListType: "commercial", Version: "V3.0.5", Status: "published"}, nil
+func (r *fakeRepo) PublishBeanList(_ context.Context, cmd PublishBeanListCommand) (*BeanListPublication, error) {
+	r.publishedBeanList = cmd
+	return &BeanListPublication{ID: 1, ListType: cmd.ListType, Version: cmd.Version, Status: "published", OwnerType: cmd.OwnerType, OwnerKey: cmd.OwnerKey, PriceSourcePublicationID: cmd.PriceSourcePublicationID, StyleSourcePublicationID: cmd.StyleSourcePublicationID}, nil
 }
 
 func (r *fakeRepo) WithdrawBeanList(context.Context, WithdrawBeanListCommand) error {
@@ -148,10 +150,39 @@ func TestPublishBeanListValidatesVersionAndListType(t *testing.T) {
 	if row.Status != "published" {
 		t.Fatalf("row = %+v", row)
 	}
-	if _, err := svc.ListBeanListPublications(context.Background(), "bad"); err == nil {
+	if _, err := svc.ListBeanListPublications(context.Background(), BeanListPublicationQuery{ListType: "bad"}); err == nil {
 		t.Fatalf("expected invalid list type")
 	}
 	if err := svc.WithdrawBeanList(context.Background(), WithdrawBeanListCommand{}); err == nil {
 		t.Fatalf("expected invalid id")
+	}
+}
+
+func TestPublishBeanListKeepsCustomerSnapshotOwnerAndSources(t *testing.T) {
+	repo := &fakeRepo{}
+	svc := NewService(repo)
+
+	row, err := svc.PublishBeanList(context.Background(), PublishBeanListCommand{
+		ListType:                 "commercial",
+		Version:                  "V3.0.7",
+		OwnerType:                "actor",
+		OwnerKey:                 "employee:7",
+		PriceSourcePublicationID: 11,
+		StyleSourcePublicationID: 5,
+		Content: map[string]any{
+			"totalItems": float64(25),
+		},
+	})
+	if err != nil {
+		t.Fatalf("PublishBeanList() error = %v", err)
+	}
+	if row.OwnerType != "actor" || row.OwnerKey != "employee:7" {
+		t.Fatalf("row owner = %s/%s", row.OwnerType, row.OwnerKey)
+	}
+	if repo.publishedBeanList.OwnerType != "actor" || repo.publishedBeanList.OwnerKey != "employee:7" {
+		t.Fatalf("cmd owner = %+v", repo.publishedBeanList)
+	}
+	if repo.publishedBeanList.PriceSourcePublicationID != 11 || repo.publishedBeanList.StyleSourcePublicationID != 5 {
+		t.Fatalf("source ids = %+v", repo.publishedBeanList)
 	}
 }

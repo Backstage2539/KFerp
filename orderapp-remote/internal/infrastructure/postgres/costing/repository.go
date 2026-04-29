@@ -159,12 +159,17 @@ func (r Repository) UpdateParameterSetting(ctx context.Context, cmd appcosting.U
 	return next, nil
 }
 
-func (r Repository) ListBeanListPublications(ctx context.Context, listType string) ([]appcosting.BeanListPublication, error) {
+func (r Repository) ListBeanListPublications(ctx context.Context, query appcosting.BeanListPublicationQuery) ([]appcosting.BeanListPublication, error) {
 	rows, err := r.pool.Query(ctx, fmt.Sprintf(`
 		SELECT id,
 		       list_type,
 		       version_no,
 		       status,
+		       owner_type,
+		       owner_key,
+		       COALESCE(price_source_publication_id,0),
+		       COALESCE(style_source_publication_id,0),
+		       source_version_no,
 		       config_json,
 		       content_json,
 		       changelog,
@@ -172,9 +177,9 @@ func (r Repository) ListBeanListPublications(ctx context.Context, listType strin
 		       COALESCE(to_char(withdrawn_at,'YYYY-MM-DD HH24:MI'),''),
 		       to_char(created_at,'YYYY-MM-DD HH24:MI')
 		FROM %s.bean_list_publications
-		WHERE list_type=$1
+		WHERE list_type=$1 AND owner_type=$2 AND owner_key=$3
 		ORDER BY CASE WHEN status='published' THEN 0 ELSE 1 END, created_at DESC, id DESC
-	`, r.schema), strings.TrimSpace(listType))
+	`, r.schema), strings.TrimSpace(query.ListType), strings.TrimSpace(query.OwnerType), strings.TrimSpace(query.OwnerKey))
 	if err != nil {
 		return nil, err
 	}
@@ -190,12 +195,17 @@ func (r Repository) ListBeanListPublications(ctx context.Context, listType strin
 	return out, rows.Err()
 }
 
-func (r Repository) PublishedBeanList(ctx context.Context, listType string) (*appcosting.BeanListPublication, error) {
+func (r Repository) PublishedBeanList(ctx context.Context, query appcosting.BeanListPublicationQuery) (*appcosting.BeanListPublication, error) {
 	row, err := scanBeanListPublication(r.pool.QueryRow(ctx, fmt.Sprintf(`
 		SELECT id,
 		       list_type,
 		       version_no,
 		       status,
+		       owner_type,
+		       owner_key,
+		       COALESCE(price_source_publication_id,0),
+		       COALESCE(style_source_publication_id,0),
+		       source_version_no,
 		       config_json,
 		       content_json,
 		       changelog,
@@ -203,10 +213,10 @@ func (r Repository) PublishedBeanList(ctx context.Context, listType string) (*ap
 		       COALESCE(to_char(withdrawn_at,'YYYY-MM-DD HH24:MI'),''),
 		       to_char(created_at,'YYYY-MM-DD HH24:MI')
 		FROM %s.bean_list_publications
-		WHERE list_type=$1 AND status='published'
+		WHERE list_type=$1 AND owner_type=$2 AND owner_key=$3 AND status='published'
 		ORDER BY published_at DESC, id DESC
 		LIMIT 1
-	`, r.schema), strings.TrimSpace(listType)))
+	`, r.schema), strings.TrimSpace(query.ListType), strings.TrimSpace(query.OwnerType), strings.TrimSpace(query.OwnerKey)))
 	if err != nil {
 		if err == pgx.ErrNoRows {
 			return nil, nil
@@ -231,8 +241,8 @@ func (r Repository) PublishBeanList(ctx context.Context, cmd appcosting.PublishB
 	if _, err := tx.Exec(ctx, fmt.Sprintf(`
 		UPDATE %s.bean_list_publications
 		SET status='withdrawn', withdrawn_at=now(), updated_at=now()
-		WHERE list_type=$1 AND status='published'
-	`, r.schema), cmd.ListType); err != nil {
+		WHERE list_type=$1 AND owner_type=$2 AND owner_key=$3 AND status='published'
+	`, r.schema), cmd.ListType, cmd.OwnerType, cmd.OwnerKey); err != nil {
 		return nil, err
 	}
 
@@ -247,17 +257,22 @@ func (r Repository) PublishBeanList(ctx context.Context, cmd appcosting.PublishB
 	var published appcosting.BeanListPublication
 	var configJSON, contentJSON []byte
 	if err := tx.QueryRow(ctx, fmt.Sprintf(`
-		INSERT INTO %s.bean_list_publications(list_type, version_no, status, config_json, content_json, changelog, actor)
-		VALUES($1,$2,'published',$3::jsonb,$4::jsonb,$5,$6)
-		RETURNING id, list_type, version_no, status, config_json, content_json, changelog,
+		INSERT INTO %s.bean_list_publications(list_type, version_no, status, owner_type, owner_key, price_source_publication_id, style_source_publication_id, source_version_no, config_json, content_json, changelog, actor)
+		VALUES($1,$2,'published',$3,$4,NULLIF($5,0),NULLIF($6,0),$7,$8::jsonb,$9::jsonb,$10,$11)
+		RETURNING id, list_type, version_no, status, owner_type, owner_key, COALESCE(price_source_publication_id,0), COALESCE(style_source_publication_id,0), source_version_no, config_json, content_json, changelog,
 		          to_char(published_at,'YYYY-MM-DD HH24:MI'),
 		          COALESCE(to_char(withdrawn_at,'YYYY-MM-DD HH24:MI'),''),
 		          to_char(created_at,'YYYY-MM-DD HH24:MI')
-	`, r.schema), cmd.ListType, cmd.Version, config, content, cmd.Changelog, cmd.Actor).Scan(
+	`, r.schema), cmd.ListType, cmd.Version, cmd.OwnerType, cmd.OwnerKey, cmd.PriceSourcePublicationID, cmd.StyleSourcePublicationID, cmd.SourceVersion, config, content, cmd.Changelog, cmd.Actor).Scan(
 		&published.ID,
 		&published.ListType,
 		&published.Version,
 		&published.Status,
+		&published.OwnerType,
+		&published.OwnerKey,
+		&published.PriceSourcePublicationID,
+		&published.StyleSourcePublicationID,
+		&published.SourceVersion,
 		&configJSON,
 		&contentJSON,
 		&published.Changelog,
@@ -283,8 +298,12 @@ func (r Repository) PublishBeanList(ctx context.Context, cmd appcosting.PublishB
 		return nil, fmt.Errorf("publish failed")
 	}
 	if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, cmd.Actor, "bean_list_publication", &published.ID, "publish", postgresinfra.StrPtr("status"), nil, postgresinfra.StrPtr("published"), postgresinfra.AuditMeta{
-		"list_type": cmd.ListType,
-		"version":   cmd.Version,
+		"list_type":                cmd.ListType,
+		"version":                  cmd.Version,
+		"owner_type":               cmd.OwnerType,
+		"owner_key":                cmd.OwnerKey,
+		"price_source_publication": cmd.PriceSourcePublicationID,
+		"style_source_publication": cmd.StyleSourcePublicationID,
 	}); err != nil {
 		return nil, err
 	}
@@ -306,21 +325,23 @@ func (r Repository) WithdrawBeanList(ctx context.Context, cmd appcosting.Withdra
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
-	var listType, version string
+	var listType, version, ownerType, ownerKey string
 	if err := tx.QueryRow(ctx, fmt.Sprintf(`
 		UPDATE %s.bean_list_publications
 		SET status='withdrawn', withdrawn_at=now(), updated_at=now()
-		WHERE id=$1 AND status='published'
-		RETURNING list_type, version_no
-	`, r.schema), cmd.ID).Scan(&listType, &version); err != nil {
+		WHERE id=$1 AND owner_type=$2 AND owner_key=$3 AND status='published'
+		RETURNING list_type, version_no, owner_type, owner_key
+	`, r.schema), cmd.ID, cmd.OwnerType, cmd.OwnerKey).Scan(&listType, &version, &ownerType, &ownerKey); err != nil {
 		if err == pgx.ErrNoRows {
 			return fmt.Errorf("published bean list not found")
 		}
 		return err
 	}
 	if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, cmd.Actor, "bean_list_publication", &cmd.ID, "withdraw", postgresinfra.StrPtr("status"), postgresinfra.StrPtr("published"), postgresinfra.StrPtr("withdrawn"), postgresinfra.AuditMeta{
-		"list_type": listType,
-		"version":   version,
+		"list_type":  listType,
+		"version":    version,
+		"owner_type": ownerType,
+		"owner_key":  ownerKey,
 	}); err != nil {
 		return err
 	}
@@ -479,7 +500,23 @@ type beanListPublicationScanner interface {
 func scanBeanListPublication(row beanListPublicationScanner) (appcosting.BeanListPublication, error) {
 	var out appcosting.BeanListPublication
 	var configJSON, contentJSON []byte
-	if err := row.Scan(&out.ID, &out.ListType, &out.Version, &out.Status, &configJSON, &contentJSON, &out.Changelog, &out.PublishedAt, &out.WithdrawnAt, &out.CreatedAt); err != nil {
+	if err := row.Scan(
+		&out.ID,
+		&out.ListType,
+		&out.Version,
+		&out.Status,
+		&out.OwnerType,
+		&out.OwnerKey,
+		&out.PriceSourcePublicationID,
+		&out.StyleSourcePublicationID,
+		&out.SourceVersion,
+		&configJSON,
+		&contentJSON,
+		&out.Changelog,
+		&out.PublishedAt,
+		&out.WithdrawnAt,
+		&out.CreatedAt,
+	); err != nil {
 		return out, err
 	}
 	out.Config = map[string]any{}

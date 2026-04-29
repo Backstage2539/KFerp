@@ -42,6 +42,11 @@ CREATE TABLE IF NOT EXISTS %[1]s.bean_list_publications (
 	list_type TEXT NOT NULL,
 	version_no TEXT NOT NULL DEFAULT '',
 	status TEXT NOT NULL DEFAULT 'published',
+	owner_type TEXT NOT NULL DEFAULT 'official',
+	owner_key TEXT NOT NULL DEFAULT '',
+	price_source_publication_id BIGINT NULL,
+	style_source_publication_id BIGINT NULL,
+	source_version_no TEXT NOT NULL DEFAULT '',
 	config_json JSONB NOT NULL DEFAULT '{}'::jsonb,
 	content_json JSONB NOT NULL DEFAULT '{}'::jsonb,
 	changelog TEXT NOT NULL DEFAULT '',
@@ -51,9 +56,15 @@ CREATE TABLE IF NOT EXISTS %[1]s.bean_list_publications (
 	created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
 	updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+ALTER TABLE %[1]s.bean_list_publications ADD COLUMN IF NOT EXISTS owner_type TEXT NOT NULL DEFAULT 'official';
+ALTER TABLE %[1]s.bean_list_publications ADD COLUMN IF NOT EXISTS owner_key TEXT NOT NULL DEFAULT '';
+ALTER TABLE %[1]s.bean_list_publications ADD COLUMN IF NOT EXISTS price_source_publication_id BIGINT NULL;
+ALTER TABLE %[1]s.bean_list_publications ADD COLUMN IF NOT EXISTS style_source_publication_id BIGINT NULL;
+ALTER TABLE %[1]s.bean_list_publications ADD COLUMN IF NOT EXISTS source_version_no TEXT NOT NULL DEFAULT '';
 CREATE INDEX IF NOT EXISTS bean_list_publications_type_created_idx ON %[1]s.bean_list_publications(list_type, created_at DESC);
-CREATE UNIQUE INDEX IF NOT EXISTS bean_list_publications_one_published_idx
-	ON %[1]s.bean_list_publications(list_type)
+DROP INDEX IF EXISTS %[1]s.bean_list_publications_one_published_idx;
+CREATE UNIQUE INDEX IF NOT EXISTS bean_list_publications_one_published_owner_idx
+	ON %[1]s.bean_list_publications(list_type, owner_type, owner_key)
 	WHERE status = 'published';
 `, schema)
 	if _, err := pool.Exec(ctx, q); err != nil {
