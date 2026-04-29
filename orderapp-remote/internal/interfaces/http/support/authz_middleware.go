@@ -105,6 +105,15 @@ func requiredPermissionForRequest(method, path string) string {
 		}
 		return "bom.write"
 	}
+	if strings.HasPrefix(path, "/api/costing/bean-list/publications") {
+		if method == http.MethodGet {
+			return "costing.read"
+		}
+		return "auth.manage"
+	}
+	if strings.HasPrefix(path, "/api/costing/bean-list/drafts") {
+		return "costing.read"
+	}
 	if strings.HasPrefix(path, "/api/costing/") {
 		if method == http.MethodGet {
 			return "costing.read"

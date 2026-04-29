@@ -62,7 +62,7 @@ func registerAppRoutes(e *echo.Echo, pool *pgxpool.Pool, schema string, assetDir
 	cataloghttp.RegisterRoutes(e, cataloghttp.Dependencies{Catalog: catalogSvc})
 	materialshttp.RegisterRoutes(e, materialshttp.Dependencies{Materials: materialsSvc})
 	bomhttp.RegisterRoutes(e, bomhttp.Dependencies{Bom: bomSvc})
-	costinghttp.RegisterRoutes(e, costinghttp.Dependencies{Costing: costingSvc})
+	costinghttp.RegisterRoutes(e, costinghttp.Dependencies{Costing: costingSvc, Authz: authzSvc})
 	inventoryhttp.RegisterRoutes(e, inventoryhttp.Dependencies{Inventory: inventorySvc})
 	stockhttp.RegisterRoutes(e, stockhttp.Dependencies{Stock: stockSvc})
 	purchasehttp.RegisterRoutes(e, purchasehttp.Dependencies{Purchase: purchaseSvc})
