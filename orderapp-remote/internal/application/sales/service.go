@@ -3,6 +3,7 @@ package sales
 import (
 	"context"
 	"fmt"
+	salesdomain "orderapp/internal/domain/sales"
 	"strings"
 	"time"
 )
@@ -378,6 +379,93 @@ type ShippingExportRow struct {
 	WeightKg    float64
 }
 
+type SalesOrderSettings struct {
+	CompanyName  string                  `json:"company_name"`
+	Note         string                  `json:"note"`
+	PaymentText  string                  `json:"payment_text"`
+	Seal         *SalesOrderAsset        `json:"seal,omitempty"`
+	PaymentCodes []SalesOrderPaymentCode `json:"payment_codes"`
+}
+
+type SalesOrderAsset struct {
+	ID          int64  `json:"id"`
+	Kind        string `json:"kind"`
+	Filename    string `json:"filename"`
+	ContentType string `json:"content_type"`
+	Bytes       int64  `json:"bytes"`
+	SHA256      string `json:"sha256"`
+	ObjectKey   string `json:"object_key"`
+	CreatedAt   string `json:"created_at"`
+	CreatedBy   string `json:"created_by"`
+	URL         string `json:"url"`
+}
+
+type SalesOrderPaymentCode struct {
+	ID          int64           `json:"id"`
+	Label       string          `json:"label"`
+	Description string          `json:"description"`
+	AssetID     int64           `json:"asset_id"`
+	Sort        int             `json:"sort"`
+	Active      bool            `json:"active"`
+	Asset       SalesOrderAsset `json:"asset"`
+}
+
+type SaveSalesOrderSettingsCommand struct {
+	Actor       string `json:"actor"`
+	CompanyName string `json:"company_name"`
+	Note        string `json:"note"`
+	PaymentText string `json:"payment_text"`
+}
+
+type SaveSalesOrderAssetCommand struct {
+	Actor       string
+	Kind        string
+	Filename    string
+	ContentType string
+	Bytes       int64
+	SHA256      string
+	ObjectKey   string
+}
+
+type SaveSalesOrderPaymentCodeCommand struct {
+	Actor       string `json:"actor"`
+	ID          int64  `json:"id"`
+	Label       string `json:"label"`
+	Description string `json:"description"`
+	AssetID     int64  `json:"asset_id"`
+	Sort        int    `json:"sort"`
+	Active      bool   `json:"active"`
+}
+
+type GenerateSalesOrderDocumentCommand struct {
+	Actor   string
+	OrderID int64
+}
+
+type GenerateSalesOrderDocumentResult struct {
+	Document SalesOrderDocument             `json:"document"`
+	Snapshot salesdomain.SalesOrderSnapshot `json:"snapshot"`
+}
+
+type SalesOrderDocument struct {
+	ID          int64                          `json:"id"`
+	OrderID     int64                          `json:"order_id"`
+	OrderNo     string                         `json:"order_no"`
+	VersionNo   int                            `json:"version_no"`
+	Snapshot    salesdomain.SalesOrderSnapshot `json:"snapshot"`
+	PDFAssetID  int64                          `json:"pdf_asset_id"`
+	IsLatest    bool                           `json:"is_latest"`
+	CreatedAt   string                         `json:"created_at"`
+	CreatedBy   string                         `json:"created_by"`
+	DownloadURL string                         `json:"download_url"`
+}
+
+type SalesOrderDocumentFile struct {
+	Document SalesOrderDocument
+	Path     string
+	Filename string
+}
+
 type Repository interface {
 	SaveOrder(ctx context.Context, cmd SaveOrderCommand) (SaveOrderResult, error)
 	UpdateHeader(ctx context.Context, id int64, cmd UpdateHeaderCommand) error
@@ -400,6 +488,15 @@ type Repository interface {
 	CreateOrderShipment(ctx context.Context, cmd CreateOrderShipmentCommand) (OrderShipmentResult, error)
 	FillShipmentTracking(ctx context.Context, cmd FillShipmentTrackingCommand) (FillShipmentTrackingResult, error)
 	FillShipmentTrackingByOrderNo(ctx context.Context, cmd FillShipmentTrackingByOrderNoCommand) (FillShipmentTrackingResult, error)
+	LoadSalesOrderSettings(ctx context.Context) (SalesOrderSettings, error)
+	SaveSalesOrderSettings(ctx context.Context, cmd SaveSalesOrderSettingsCommand) error
+	SaveSalesOrderAsset(ctx context.Context, cmd SaveSalesOrderAssetCommand) (SalesOrderAsset, error)
+	SaveSalesOrderPaymentCode(ctx context.Context, cmd SaveSalesOrderPaymentCodeCommand) (SalesOrderPaymentCode, error)
+	DeleteSalesOrderPaymentCode(ctx context.Context, id int64, actor string) error
+	SetSalesOrderSealAsset(ctx context.Context, assetID int64, actor string) error
+	ListSalesOrderDocuments(ctx context.Context, orderID int64) ([]SalesOrderDocument, error)
+	GenerateSalesOrderDocument(ctx context.Context, cmd GenerateSalesOrderDocumentCommand) (GenerateSalesOrderDocumentResult, error)
+	LoadSalesOrderDocumentFile(ctx context.Context, orderID, documentID int64, latest bool) (SalesOrderDocumentFile, error)
 }
 
 type Service struct {
@@ -730,6 +827,109 @@ func (s *Service) LoadOrderShippingExportData(ctx context.Context, orderID int64
 		return OrderShippingExportData{}, fmt.Errorf("invalid order id")
 	}
 	return s.repo.LoadOrderShippingExportData(ctx, orderID)
+}
+
+func (s *Service) LoadSalesOrderSettings(ctx context.Context) (SalesOrderSettings, error) {
+	return s.repo.LoadSalesOrderSettings(ctx)
+}
+
+func (s *Service) SaveSalesOrderSettings(ctx context.Context, cmd SaveSalesOrderSettingsCommand) error {
+	cmd.Actor = strings.TrimSpace(cmd.Actor)
+	if cmd.Actor == "" {
+		cmd.Actor = "sales"
+	}
+	cmd.CompanyName = strings.TrimSpace(cmd.CompanyName)
+	cmd.Note = strings.TrimSpace(cmd.Note)
+	cmd.PaymentText = strings.TrimSpace(cmd.PaymentText)
+	if cmd.CompanyName == "" {
+		return fmt.Errorf("company_name required")
+	}
+	return s.repo.SaveSalesOrderSettings(ctx, cmd)
+}
+
+func (s *Service) SaveSalesOrderAsset(ctx context.Context, cmd SaveSalesOrderAssetCommand) (SalesOrderAsset, error) {
+	cmd.Actor = strings.TrimSpace(cmd.Actor)
+	if cmd.Actor == "" {
+		cmd.Actor = "sales"
+	}
+	cmd.Kind = strings.TrimSpace(cmd.Kind)
+	cmd.Filename = strings.TrimSpace(cmd.Filename)
+	cmd.ContentType = strings.TrimSpace(cmd.ContentType)
+	cmd.SHA256 = strings.TrimSpace(cmd.SHA256)
+	cmd.ObjectKey = strings.TrimSpace(cmd.ObjectKey)
+	if cmd.Kind == "" {
+		return SalesOrderAsset{}, fmt.Errorf("kind required")
+	}
+	if cmd.ObjectKey == "" {
+		return SalesOrderAsset{}, fmt.Errorf("object_key required")
+	}
+	return s.repo.SaveSalesOrderAsset(ctx, cmd)
+}
+
+func (s *Service) SaveSalesOrderPaymentCode(ctx context.Context, cmd SaveSalesOrderPaymentCodeCommand) (SalesOrderPaymentCode, error) {
+	cmd.Actor = strings.TrimSpace(cmd.Actor)
+	if cmd.Actor == "" {
+		cmd.Actor = "sales"
+	}
+	cmd.Label = strings.TrimSpace(cmd.Label)
+	cmd.Description = strings.TrimSpace(cmd.Description)
+	if cmd.Label == "" {
+		return SalesOrderPaymentCode{}, fmt.Errorf("label required")
+	}
+	if cmd.AssetID <= 0 {
+		return SalesOrderPaymentCode{}, fmt.Errorf("asset required")
+	}
+	return s.repo.SaveSalesOrderPaymentCode(ctx, cmd)
+}
+
+func (s *Service) DeleteSalesOrderPaymentCode(ctx context.Context, id int64, actor string) error {
+	if id <= 0 {
+		return fmt.Errorf("payment code required")
+	}
+	actor = strings.TrimSpace(actor)
+	if actor == "" {
+		actor = "sales"
+	}
+	return s.repo.DeleteSalesOrderPaymentCode(ctx, id, actor)
+}
+
+func (s *Service) SetSalesOrderSealAsset(ctx context.Context, assetID int64, actor string) error {
+	if assetID <= 0 {
+		return fmt.Errorf("asset required")
+	}
+	actor = strings.TrimSpace(actor)
+	if actor == "" {
+		actor = "sales"
+	}
+	return s.repo.SetSalesOrderSealAsset(ctx, assetID, actor)
+}
+
+func (s *Service) ListSalesOrderDocuments(ctx context.Context, orderID int64) ([]SalesOrderDocument, error) {
+	if orderID <= 0 {
+		return nil, fmt.Errorf("invalid order id")
+	}
+	return s.repo.ListSalesOrderDocuments(ctx, orderID)
+}
+
+func (s *Service) GenerateSalesOrderDocument(ctx context.Context, cmd GenerateSalesOrderDocumentCommand) (GenerateSalesOrderDocumentResult, error) {
+	cmd.Actor = strings.TrimSpace(cmd.Actor)
+	if cmd.Actor == "" {
+		cmd.Actor = "sales"
+	}
+	if cmd.OrderID <= 0 {
+		return GenerateSalesOrderDocumentResult{}, fmt.Errorf("invalid order id")
+	}
+	return s.repo.GenerateSalesOrderDocument(ctx, cmd)
+}
+
+func (s *Service) LoadSalesOrderDocumentFile(ctx context.Context, orderID, documentID int64, latest bool) (SalesOrderDocumentFile, error) {
+	if orderID <= 0 {
+		return SalesOrderDocumentFile{}, fmt.Errorf("invalid order id")
+	}
+	if !latest && documentID <= 0 {
+		return SalesOrderDocumentFile{}, fmt.Errorf("invalid document id")
+	}
+	return s.repo.LoadSalesOrderDocumentFile(ctx, orderID, documentID, latest)
 }
 
 func digitsOnly(s string) string {
