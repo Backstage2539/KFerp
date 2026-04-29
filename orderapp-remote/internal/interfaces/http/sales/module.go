@@ -7,7 +7,8 @@ import (
 )
 
 type Dependencies struct {
-	Sales *salesapp.Service
+	Sales    *salesapp.Service
+	AssetDir string
 }
 
 func RegisterRoutes(e *echo.Echo, deps Dependencies) {
@@ -17,4 +18,6 @@ func RegisterRoutes(e *echo.Echo, deps Dependencies) {
 	registerOrderRoutes(e, deps.Sales)
 	registerOrderAPI(e, deps.Sales)
 	registerOrderShippingExcelRoutes(e, deps.Sales)
+	registerSalesOrderSettingsRoutes(e, deps.Sales, deps.AssetDir)
+	registerSalesOrderDocumentRoutes(e, deps.Sales)
 }
