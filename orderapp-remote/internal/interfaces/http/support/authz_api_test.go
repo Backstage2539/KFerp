@@ -123,6 +123,24 @@ func TestAuthorizationMiddlewareAllowsMatchingPermission(t *testing.T) {
 	}
 }
 
+func TestBeanListPublicationPermissionsSeparatePublishAndDraft(t *testing.T) {
+	cases := []struct {
+		method string
+		path   string
+		want   string
+	}{
+		{http.MethodPost, "/api/costing/bean-list/publications", "auth.manage"},
+		{http.MethodPost, "/api/costing/bean-list/publications/8/withdraw", "auth.manage"},
+		{http.MethodPost, "/api/costing/bean-list/drafts", "costing.read"},
+		{http.MethodGet, "/api/costing/bean-list/publications", "costing.read"},
+	}
+	for _, tc := range cases {
+		if got := requiredPermissionForRequest(tc.method, tc.path); got != tc.want {
+			t.Fatalf("%s %s permission = %q, want %q", tc.method, tc.path, got, tc.want)
+		}
+	}
+}
+
 func TestAssignEmployeeRolesAPIRequiresAuthManage(t *testing.T) {
 	e := echo.New()
 	authz := &fakeAuthzService{actor: authzapp.Actor{Permissions: []string{"auth.manage"}}}

@@ -34,6 +34,7 @@
         <button class="toggle" @click="toggleMenu">{{ toggleLabel }}</button>
         <div v-if="showTitle" class="title">{{ title }}</div>
         <div v-if="actorName" class="actor">{{ actorName }}</div>
+        <button v-if="currentActor" class="logout" type="button" @click="logout">退出</button>
       </header>
       <div v-if="authLoading" class="status">加载中</div>
       <div v-else-if="authError" class="status">{{ authError }}</div>
@@ -81,7 +82,7 @@ import UserPermissionsView from './views/UserPermissionsView.vue'
 import WipMaterialsView from './views/WipMaterialsView.vue'
 import WarehouseInventoryView from './views/WarehouseInventoryView.vue'
 import WorkOrdersView from './views/WorkOrdersView.vue'
-import { fetchCurrentActor } from './api/auth.js'
+import { fetchCurrentActor, logoutCurrentSession } from './api/auth.js'
 import { replaceHistoryURL } from './lib/url-state.js'
 import {
   defaultExpandedGroups,
@@ -245,6 +246,24 @@ async function loadActor() {
   }
 }
 
+function clearAuthToken() {
+  try {
+    window.localStorage.removeItem('auth_token')
+  } catch {
+    // localStorage may be unavailable in private or embedded contexts.
+  }
+}
+
+async function logout() {
+  try {
+    await logoutCurrentSession()
+  } catch {
+    // Local logout should still complete if the session is already invalid.
+  }
+  clearAuthToken()
+  window.location.href = '/login'
+}
+
 onMounted(async () => {
   handleResize()
   expandedGroups.value = restoreExpandedGroups(
@@ -325,6 +344,9 @@ const currentInternalView = computed(() => internalViews[currentKey.value] || Or
 .top.compact { gap: 0; }
 .title { font-weight: 600; }
 .actor { margin-left: auto; color: #666; font-size: 13px; }
+.logout { margin-left: auto; border: 1px solid #d8d8d8; background: #fff; border-radius: 8px; padding: 6px 10px; cursor: pointer; color: #333; }
+.actor + .logout { margin-left: 0; }
+.logout:hover { border-color: #999; }
 .status { padding: 28px; color: #666; }
 .internal-view { min-height: calc(100vh - 56px); background: #fff; }
 .overlay { position: fixed; inset: 0; background: rgba(0,0,0,.25); z-index: 25; }

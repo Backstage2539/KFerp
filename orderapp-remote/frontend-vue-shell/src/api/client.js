@@ -5,6 +5,21 @@ async function readJson(res) {
   return data
 }
 
+function readAuthToken() {
+  try {
+    if (typeof window === 'undefined') return ''
+    return window.localStorage?.getItem('auth_token') || ''
+  } catch {
+    return ''
+  }
+}
+
+function authHeaders(headers = {}) {
+  const token = readAuthToken()
+  if (!token || headers.Authorization) return headers
+  return { ...headers, Authorization: `Bearer ${token}` }
+}
+
 export function apiURL(url) {
   if (url instanceof URL) {
     if (typeof window === 'undefined' || url.origin !== window.location.origin) return url.toString()
@@ -16,7 +31,7 @@ export function apiURL(url) {
 
 export async function apiGet(url) {
   const res = await fetch(apiURL(url), {
-    headers: { Accept: 'application/json' },
+    headers: authHeaders({ Accept: 'application/json' }),
   })
   return readJson(res)
 }
@@ -29,7 +44,7 @@ export async function apiSend(url, { method = 'POST', body, headers = {} } = {})
   }
   const res = await fetch(apiURL(url), {
     method,
-    headers: { ...baseHeaders, ...headers },
+    headers: authHeaders({ ...baseHeaders, ...headers }),
     body: payload,
   })
   return readJson(res)

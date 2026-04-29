@@ -32,3 +32,29 @@ func TestBasicAuthAllowsPublicBeanListWithoutCredentials(t *testing.T) {
 		t.Fatalf("private route status = %d, want 401", rec.Code)
 	}
 }
+
+func TestLogoutEndpointRequiresAuthentication(t *testing.T) {
+	if isAuthPublicPath("/api/auth/logout") {
+		t.Fatal("/api/auth/logout must stay behind auth middleware so only the current session can be revoked")
+	}
+}
+
+func TestVueShellCanLoadBeforeBearerAPIAuth(t *testing.T) {
+	for _, path := range []string{"/vue-shell", "/vue-shell/assets/index.js"} {
+		if !isPublicUnauthenticatedPath(path) {
+			t.Fatalf("%s must be public so mobile login can load the Vue shell before API calls attach Bearer token", path)
+		}
+	}
+}
+
+func TestBearerTokenFromHeader(t *testing.T) {
+	if got := bearerTokenFromHeader("Bearer abc123"); got != "abc123" {
+		t.Fatalf("token=%q", got)
+	}
+	if got := bearerTokenFromHeader("bearer  abc123  "); got != "abc123" {
+		t.Fatalf("lowercase token=%q", got)
+	}
+	if got := bearerTokenFromHeader("Basic abc123"); got != "" {
+		t.Fatalf("basic token=%q, want empty", got)
+	}
+}

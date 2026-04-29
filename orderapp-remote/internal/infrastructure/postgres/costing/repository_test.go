@@ -121,3 +121,33 @@ func TestPublishBeanListWithdrawsOnlySameOwnerSnapshot(t *testing.T) {
 		}
 	}
 }
+
+func TestSaveBeanListDraftInsertsCustomerDraftWithoutPublishing(t *testing.T) {
+	b, err := os.ReadFile("repository.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := string(b)
+	start := strings.Index(src, "func (r Repository) SaveBeanListDraft")
+	end := strings.Index(src, "func (r Repository) WithdrawBeanList")
+	if start < 0 || end < 0 || end <= start {
+		t.Fatalf("SaveBeanListDraft function not found before WithdrawBeanList")
+	}
+	body := src[start:end]
+	for _, want := range []string{
+		"VALUES($1,$2,'draft'",
+		"owner_type",
+		"owner_key",
+		"price_source_publication_id",
+		"style_source_publication_id",
+		"source_version_no",
+		"save_draft",
+	} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("SaveBeanListDraft must insert owned draft snapshots; missing %q", want)
+		}
+	}
+	if strings.Contains(body, "SET status='withdrawn'") {
+		t.Fatalf("SaveBeanListDraft must not withdraw published rows")
+	}
+}

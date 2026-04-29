@@ -13,6 +13,7 @@ type fakeRepo struct {
 	savedItems        []domain.ProductResult
 	publishedID       int64
 	publishedBeanList PublishBeanListCommand
+	draftBeanList     PublishBeanListCommand
 }
 
 func (r *fakeRepo) LoadParameters(context.Context) (domain.Parameters, error) {
@@ -55,6 +56,11 @@ func (r *fakeRepo) PublishedBeanList(context.Context, BeanListPublicationQuery) 
 func (r *fakeRepo) PublishBeanList(_ context.Context, cmd PublishBeanListCommand) (*BeanListPublication, error) {
 	r.publishedBeanList = cmd
 	return &BeanListPublication{ID: 1, ListType: cmd.ListType, Version: cmd.Version, Status: "published", OwnerType: cmd.OwnerType, OwnerKey: cmd.OwnerKey, PriceSourcePublicationID: cmd.PriceSourcePublicationID, StyleSourcePublicationID: cmd.StyleSourcePublicationID}, nil
+}
+
+func (r *fakeRepo) SaveBeanListDraft(_ context.Context, cmd PublishBeanListCommand) (*BeanListPublication, error) {
+	r.draftBeanList = cmd
+	return &BeanListPublication{ID: 2, ListType: cmd.ListType, Version: cmd.Version, Status: "draft", OwnerType: cmd.OwnerType, OwnerKey: cmd.OwnerKey, PriceSourcePublicationID: cmd.PriceSourcePublicationID, StyleSourcePublicationID: cmd.StyleSourcePublicationID}, nil
 }
 
 func (r *fakeRepo) WithdrawBeanList(context.Context, WithdrawBeanListCommand) error {
@@ -184,5 +190,31 @@ func TestPublishBeanListKeepsCustomerSnapshotOwnerAndSources(t *testing.T) {
 	}
 	if repo.publishedBeanList.PriceSourcePublicationID != 11 || repo.publishedBeanList.StyleSourcePublicationID != 5 {
 		t.Fatalf("source ids = %+v", repo.publishedBeanList)
+	}
+}
+
+func TestSaveBeanListDraftValidatesAndKeepsCustomerOwner(t *testing.T) {
+	repo := &fakeRepo{}
+	svc := NewService(repo)
+
+	row, err := svc.SaveBeanListDraft(context.Background(), PublishBeanListCommand{
+		ListType:  "retail",
+		Version:   " V3.0.8 ",
+		OwnerType: "actor",
+		OwnerKey:  "employee:7",
+		Config:    map[string]any{"layoutStyle": "card"},
+		Content:   map[string]any{"totalItems": float64(1)},
+	})
+	if err != nil {
+		t.Fatalf("SaveBeanListDraft() error = %v", err)
+	}
+	if row.Status != "draft" || row.ListType != "retail" || row.Version != "V3.0.8" {
+		t.Fatalf("draft row = %+v", row)
+	}
+	if repo.draftBeanList.OwnerType != "actor" || repo.draftBeanList.OwnerKey != "employee:7" {
+		t.Fatalf("draft owner = %+v", repo.draftBeanList)
+	}
+	if repo.draftBeanList.Config == nil || repo.draftBeanList.Content == nil {
+		t.Fatalf("draft should normalize empty config/content maps: %+v", repo.draftBeanList)
 	}
 }
