@@ -47,6 +47,7 @@ export const menuGroups = [
     items: [
       { key: 'costingSettings', label: '成本参数设置', title: '成本参数设置' },
       { key: 'machines', label: '设备产能配置', title: '设备产能配置' },
+      { key: 'salesOrderSettings', label: '销售单设置', title: '销售单设置' },
       { key: 'senderSettings', label: '发货人设置', title: '发货人设置' },
       { key: 'outsourceSettings', label: '代加工模板设置', title: '代加工模板设置' },
     ],
@@ -85,6 +86,7 @@ export const hiddenViewTitles = {
   allocationLogs: '分配批次查看',
   products: '产品设置',
   costing: '产品设置',
+  salesOrder: '销售单',
 }
 
 export const menuMap = Object.fromEntries([

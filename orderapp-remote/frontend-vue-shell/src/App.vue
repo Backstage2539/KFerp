@@ -71,6 +71,8 @@ import ProductsView from './views/ProductsView.vue'
 import PurchaseView from './views/PurchaseView.vue'
 import QualityInspectionsView from './views/QualityInspectionsView.vue'
 import RequirementsView from './views/RequirementsView.vue'
+import SalesOrderSettingsView from './views/SalesOrderSettingsView.vue'
+import SalesOrderView from './views/SalesOrderView.vue'
 import SenderSettingsView from './views/SenderSettingsView.vue'
 import StockAdjustmentsView from './views/StockAdjustmentsView.vue'
 import StockBatchesView from './views/StockBatchesView.vue'
@@ -107,6 +109,7 @@ const currentActor = ref(null)
 const internalViews = {
   order: OrderEntryView,
   orders: OrdersView,
+  salesOrder: SalesOrderView,
   warehouseInventory: WarehouseInventoryView,
   stockOperations: StockOperationsView,
   purchase: PurchaseView,
@@ -137,6 +140,7 @@ const internalViews = {
   inventory: InventoryView,
   quotePrint: ProductsView,
   machines: MachinesView,
+  salesOrderSettings: SalesOrderSettingsView,
   senderSettings: SenderSettingsView,
   outsourceSettings: OutsourceSettingsView,
   audit: AuditView,

@@ -54,7 +54,7 @@ func registerAppRoutes(e *echo.Echo, pool *pgxpool.Pool, schema string, assetDir
 	productionSvc := productionapp.NewService(postgresproduction.NewRepository(pool, schema))
 	stockSvc := stockapp.NewService(postgresstock.NewRepository(pool, schema))
 	purchaseSvc := purchaseapp.NewService(postgrespurchase.NewRepository(pool, schema), stockSvc)
-	salesSvc := salesapp.NewService(postgressales.NewRepository(pool, schema))
+	salesSvc := salesapp.NewService(postgressales.NewRepository(pool, schema, postgressales.WithSalesOrderAssetDir(assetDir)))
 
 	e.Use(supporthttp.AuthorizationMiddleware(authzSvc))
 
@@ -69,5 +69,5 @@ func registerAppRoutes(e *echo.Echo, pool *pgxpool.Pool, schema string, assetDir
 	productionhttp.RegisterRoutes(e, productionhttp.Dependencies{Production: productionSvc})
 	companyhttp.RegisterRoutes(e, companyhttp.Dependencies{Company: companySvc})
 	customerhttp.RegisterRoutes(e, customerhttp.Dependencies{Customer: customerSvc, AssetDir: assetDir})
-	saleshttp.RegisterRoutes(e, saleshttp.Dependencies{Sales: salesSvc})
+	saleshttp.RegisterRoutes(e, saleshttp.Dependencies{Sales: salesSvc, AssetDir: assetDir})
 }

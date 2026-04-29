@@ -12,6 +12,7 @@ WORKDIR /app
 COPY --from=build /out/orderapp /app/orderapp
 COPY templates /app/templates
 COPY docs /app/docs
+COPY assets /app/assets
 # Vue shell static files
 COPY frontend-vue-shell/dist /app/frontend-vue-shell/dist
 EXPOSE 8080
