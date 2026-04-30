@@ -17,6 +17,8 @@ var cnPhoneRe = regexp.MustCompile(`^1\d{10}$`)
 
 type loginReq struct {
 	Mode     string `json:"mode"`
+	Login    string `json:"login"`
+	Username string `json:"username"`
 	Phone    string `json:"phone"`
 	Password string `json:"password"`
 	Code     string `json:"code"`
@@ -64,6 +66,34 @@ func ensureEmployeeByPhone(ctx context.Context, pool *pgxpool.Pool, schema, phon
 		return 0, "", err
 	}
 	return eid, strings.TrimSpace(ename), nil
+}
+
+func passwordLoginIdentifier(req loginReq) string {
+	for _, raw := range []string{req.Login, req.Username, req.Phone} {
+		if value := strings.TrimSpace(raw); value != "" {
+			return value
+		}
+	}
+	return ""
+}
+
+func resolveEmployeeByPasswordLogin(ctx context.Context, pool *pgxpool.Pool, schema, login string) (int64, string, string, error) {
+	login = strings.TrimSpace(login)
+	if login == "" {
+		return 0, "", "", fmt.Errorf("login required")
+	}
+	var eid int64
+	var ename, phone string
+	var err error
+	if cnPhoneRe.MatchString(login) {
+		err = pool.QueryRow(ctx, "SELECT id,COALESCE(name,''),COALESCE(phone,'') FROM "+schema+".company_employees WHERE phone=$1 AND active=true LIMIT 1", login).Scan(&eid, &ename, &phone)
+	} else {
+		err = pool.QueryRow(ctx, "SELECT id,COALESCE(name,''),COALESCE(phone,'') FROM "+schema+".company_employees WHERE name=$1 AND active=true ORDER BY id LIMIT 1", login).Scan(&eid, &ename, &phone)
+	}
+	if err != nil {
+		return 0, "", "", fmt.Errorf("employee not found")
+	}
+	return eid, strings.TrimSpace(ename), strings.TrimSpace(phone), nil
 }
 
 func hashPassword(raw string) string {
@@ -204,37 +234,58 @@ func registerMobileAuthAPI(e *echo.Echo, pool *pgxpool.Pool, schema string, auth
 			return c.JSON(400, map[string]string{"error": "invalid request"})
 		}
 		mode := strings.TrimSpace(req.Mode)
-		phone := strings.TrimSpace(req.Phone)
 		if mode == "" {
 			mode = "password"
 		}
-		if !cnPhoneRe.MatchString(phone) {
-			return c.JSON(400, map[string]string{"error": "invalid phone"})
-		}
-		eid, ename, err := ensureEmployeeByPhone(c.Request().Context(), pool, schema, phone)
-		if err != nil {
-			return c.JSON(400, map[string]string{"error": err.Error()})
-		}
-		disabled, err := isLoginDisabled(c.Request().Context(), pool, schema, eid)
-		if err != nil {
-			return c.JSON(500, map[string]string{"error": err.Error()})
-		}
-		if disabled {
-			return c.JSON(403, map[string]string{"error": "login disabled"})
-		}
+		var eid int64
+		var ename, phone, auditLogin string
 
 		switch mode {
 		case "password":
+			login := passwordLoginIdentifier(req)
+			if login == "" {
+				return c.JSON(400, map[string]string{"error": "login required"})
+			}
+			var err error
+			eid, ename, phone, err = resolveEmployeeByPasswordLogin(c.Request().Context(), pool, schema, login)
+			if err != nil {
+				return c.JSON(401, map[string]string{"error": "invalid login"})
+			}
+			auditLogin = login
+			disabled, err := isLoginDisabled(c.Request().Context(), pool, schema, eid)
+			if err != nil {
+				return c.JSON(500, map[string]string{"error": err.Error()})
+			}
+			if disabled {
+				return c.JSON(403, map[string]string{"error": "login disabled"})
+			}
 			pwd := strings.TrimSpace(req.Password)
 			if pwd == "" {
 				return c.JSON(400, map[string]string{"error": "password required"})
 			}
 			var ph string
-			err := pool.QueryRow(c.Request().Context(), "SELECT password_hash FROM "+schema+".employee_login_passwords WHERE employee_id=$1 AND login_disabled=false", eid).Scan(&ph)
+			err = pool.QueryRow(c.Request().Context(), "SELECT password_hash FROM "+schema+".employee_login_passwords WHERE employee_id=$1 AND login_disabled=false", eid).Scan(&ph)
 			if err != nil || ph != hashPassword(pwd) {
 				return c.JSON(401, map[string]string{"error": "invalid password"})
 			}
 		case "sms":
+			phone = strings.TrimSpace(req.Phone)
+			if !cnPhoneRe.MatchString(phone) {
+				return c.JSON(400, map[string]string{"error": "invalid phone"})
+			}
+			var err error
+			eid, ename, err = ensureEmployeeByPhone(c.Request().Context(), pool, schema, phone)
+			if err != nil {
+				return c.JSON(400, map[string]string{"error": err.Error()})
+			}
+			auditLogin = phone
+			disabled, err := isLoginDisabled(c.Request().Context(), pool, schema, eid)
+			if err != nil {
+				return c.JSON(500, map[string]string{"error": err.Error()})
+			}
+			if disabled {
+				return c.JSON(403, map[string]string{"error": "login disabled"})
+			}
 			code := strings.TrimSpace(req.Code)
 			if len(code) != 6 {
 				return c.JSON(400, map[string]string{"error": "invalid code"})
@@ -261,7 +312,7 @@ func registerMobileAuthAPI(e *echo.Echo, pool *pgxpool.Pool, schema string, auth
 		c.Set("employee_id", eid)
 		c.Set("operator_employee", strings.TrimSpace(ename))
 		c.Set("actor", strings.TrimSpace(ename))
-		AuditInsert(c.Request().Context(), pool, schema, strings.TrimSpace(ename), "auth", &eid, "login", nil, nil, nil, AuditMeta{"mode": mode, "phone": phone})
+		AuditInsert(c.Request().Context(), pool, schema, strings.TrimSpace(ename), "auth", &eid, "login", nil, nil, nil, AuditMeta{"mode": mode, "phone": phone, "login": auditLogin})
 		return c.JSON(200, map[string]any{
 			"ok":       true,
 			"token":    token,

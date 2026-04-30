@@ -590,6 +590,13 @@ func seedReqWorkflowA(ctx context.Context, pool *pgxpool.Pool, schema string) er
 		{table: "req_unit", code: "UT-115-01", title: "单元测试覆盖WIP占用领域规则、应用服务归一化、Vue入口和需求种子", status: "done", assignee: "Codex", evidence: "TestWIPReservationRemainingAndAdjustment; TestServiceOwnsWIPReservationAndAcceptanceUseCases; TestProductionAcceptanceWIPVueWiring"},
 		{table: "req_api", code: "API-115-01", title: "API测试覆盖生产验收、WIP占用列表、调整、释放和物料计划新增字段", status: "done", assignee: "Codex", evidence: "TestManufacturingGapAPIs"},
 		{table: "req_review", code: "REV-115-01", prCode: "PR-115", title: "验收：生产验收页可看核心检查项；生产计划显示建议领到WIP；工单/仓库库存可查看并处理WIP占用", status: "todo", assignee: "VA", evidence: "待 Van 功能分支验收"},
+		{table: "req_product", code: "PR-116", title: "登录加固：支持用户名密码登录、admin 全权限菜单，并防止退出后 BasicAuth 缓存绕过登录", status: "review", assignee: "VA", evidence: "codex/auth-hardening-20260501"},
+		{table: "req_dev", code: "DEV-116-01", title: "密码登录支持用户名或手机号作为登录标识，短信登录继续只允许手机号", status: "done", assignee: "Codex", evidence: "passwordLoginIdentifier; resolveEmployeeByPasswordLogin; login.html"},
+		{table: "req_dev", code: "DEV-116-02", title: "Vue 权限判断识别 admin 角色为全权限，allowed_views 为 null 时不再误判为无权限", status: "done", assignee: "Codex", evidence: "actorHasFullViewAccess; App.vue allowedViewKeys"},
+		{table: "req_dev", code: "DEV-116-03", title: "Vue 工作台加载前必须存在本机 Bearer token，退出后即使浏览器保留 BasicAuth 缓存也回到登录页", status: "done", assignee: "Codex", evidence: "hasStoredAuthToken; redirectToLogin; clearStoredAuthToken"},
+		{table: "req_unit", code: "UT-116-01", title: "单测覆盖用户名登录标识、登录页用户名入口、admin 全权限菜单和退出后 token 预检查", status: "done", assignee: "Codex", evidence: "TestPasswordLoginIdentifierSupportsUsernameOrPhone; auth.test.js; menu-permissions.test.js"},
+		{table: "req_api", code: "API-116-01", title: "API/线上 smoke 覆盖 13800138075 密码登录、用户名登录、auth/me 全权限、退出后 token 失效和无 token 工作台回登录页", status: "done", assignee: "Codex", evidence: "postdeploy curl/browser smoke"},
+		{table: "req_review", code: "REV-116-01", prCode: "PR-116", title: "验收：13800138075 可用手机号或用户名密码登录并看到全权限菜单，退出后直接打开系统地址不能绕过登录", status: "todo", assignee: "VA", evidence: "待 Van 服务器验收"},
 	} {
 		if err := seedReqRow(ctx, pool, schema, row); err != nil {
 			return err

@@ -1,4 +1,22 @@
-import { apiGet, apiSend } from './client'
+import { apiGet, apiSend } from './client.js'
+
+export function hasStoredAuthToken() {
+  try {
+    if (typeof window === 'undefined') return false
+    return !!window.localStorage?.getItem('auth_token')
+  } catch {
+    return false
+  }
+}
+
+export function clearStoredAuthToken() {
+  try {
+    if (typeof window === 'undefined') return
+    window.localStorage?.removeItem('auth_token')
+  } catch {
+    // localStorage may be unavailable in private or embedded contexts.
+  }
+}
 
 export function fetchCurrentActor() {
   return apiGet('/api/auth/me')

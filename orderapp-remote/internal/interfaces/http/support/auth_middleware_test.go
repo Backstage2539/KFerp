@@ -3,6 +3,8 @@ package support
 import (
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"strings"
 	"testing"
 
 	"github.com/labstack/echo/v4"
@@ -57,4 +59,59 @@ func TestBearerTokenFromHeader(t *testing.T) {
 	if got := bearerTokenFromHeader("Basic abc123"); got != "" {
 		t.Fatalf("basic token=%q, want empty", got)
 	}
+}
+
+func TestPasswordLoginIdentifierSupportsUsernameOrPhone(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		req  loginReq
+		want string
+	}{
+		{name: "legacy phone field", req: loginReq{Mode: "password", Phone: "13800138075"}, want: "13800138075"},
+		{name: "login field username", req: loginReq{Mode: "password", Login: "Van"}, want: "Van"},
+		{name: "username fallback", req: loginReq{Mode: "password", Username: "管理员"}, want: "管理员"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got := passwordLoginIdentifier(tc.req)
+			if got != tc.want {
+				t.Fatalf("identifier=%q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestLoginPageSupportsUsernamePasswordAndDoesNotRequirePhoneForPassword(t *testing.T) {
+	src := readSupportTestFile(t, "templates/login.html")
+	for _, want := range []string{
+		"用户名/手机号+密码",
+		"getLoginIdentifier",
+		"validatePasswordLogin",
+		"body.login",
+	} {
+		if !strings.Contains(src, want) {
+			t.Fatalf("login page missing %q", want)
+		}
+	}
+}
+
+func TestVueShellRedirectsToLoginWithoutStoredToken(t *testing.T) {
+	src := readSupportTestFile(t, "frontend-vue-shell/src/App.vue")
+	for _, want := range []string{
+		"hasStoredAuthToken()",
+		"redirectToLogin()",
+		"clearStoredAuthToken()",
+	} {
+		if !strings.Contains(src, want) {
+			t.Fatalf("App.vue missing %q", want)
+		}
+	}
+}
+
+func readSupportTestFile(t *testing.T, path string) string {
+	t.Helper()
+	b, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(b)
 }
