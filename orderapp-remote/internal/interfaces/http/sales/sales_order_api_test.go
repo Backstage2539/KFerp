@@ -2,6 +2,7 @@ package sales
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -64,12 +65,84 @@ func TestSalesOrderDocumentAPI(t *testing.T) {
 	if !strings.Contains(rec.Body.String(), `"version_no":1`) {
 		t.Fatalf("POST response = %s", rec.Body.String())
 	}
+	var created salesapp.SalesOrderDocument
+	if err := json.Unmarshal(rec.Body.Bytes(), &created); err != nil {
+		t.Fatalf("decode generated document: %v", err)
+	}
 
 	downloadReq := httptest.NewRequest(http.MethodGet, "/orders/1/sales-order-latest.pdf", nil)
 	downloadRec := httptest.NewRecorder()
 	e.ServeHTTP(downloadRec, downloadReq)
 	if downloadRec.Code != http.StatusOK || downloadRec.Header().Get(echo.HeaderContentType) != "application/pdf" {
 		t.Fatalf("download status=%d content-type=%q body=%s", downloadRec.Code, downloadRec.Header().Get(echo.HeaderContentType), downloadRec.Body.String())
+	}
+	historyReq := httptest.NewRequest(http.MethodGet, fmt.Sprintf("/orders/1/sales-orders/%d.pdf", created.ID), nil)
+	historyRec := httptest.NewRecorder()
+	e.ServeHTTP(historyRec, historyReq)
+	if historyRec.Code != http.StatusOK || historyRec.Header().Get(echo.HeaderContentType) != "application/pdf" {
+		t.Fatalf("history download status=%d content-type=%q body=%s", historyRec.Code, historyRec.Header().Get(echo.HeaderContentType), historyRec.Body.String())
+	}
+}
+
+func TestSalesOrderPreviewAPIDoesNotCreateDocumentVersion(t *testing.T) {
+	pool, schema := newOrderAPITestDB(t)
+	ctx := context.Background()
+	seedOrderAPITestData(t, ctx, pool, schema)
+	if err := postgressales.EnsureSchema(ctx, pool, schema); err != nil {
+		t.Fatalf("EnsureSchema: %v", err)
+	}
+	seedSalesOrderAPITestOrder(t, ctx, pool, schema)
+	e := newSalesOrderAPITestEcho(pool, schema, t.TempDir())
+
+	previewReq := httptest.NewRequest(http.MethodGet, "/api/orders/1/sales-order-preview", nil)
+	previewRec := httptest.NewRecorder()
+	e.ServeHTTP(previewRec, previewReq)
+	if previewRec.Code != http.StatusOK {
+		t.Fatalf("preview status=%d body=%s", previewRec.Code, previewRec.Body.String())
+	}
+	for _, want := range []string{
+		`"next_version_no":1`,
+		`"order_no":"SO-20260430-0008"`,
+		`"customer_name":"测试客户"`,
+		`"items":[`,
+	} {
+		if !strings.Contains(previewRec.Body.String(), want) {
+			t.Fatalf("preview response missing %s: %s", want, previewRec.Body.String())
+		}
+	}
+
+	listReq := httptest.NewRequest(http.MethodGet, "/api/orders/1/sales-orders", nil)
+	listRec := httptest.NewRecorder()
+	e.ServeHTTP(listRec, listReq)
+	if listRec.Code != http.StatusOK || !strings.Contains(listRec.Body.String(), `"rows":[]`) {
+		t.Fatalf("list after preview status=%d body=%s", listRec.Code, listRec.Body.String())
+	}
+
+	generateReq := httptest.NewRequest(http.MethodPost, "/api/orders/1/sales-orders", nil)
+	generateRec := httptest.NewRecorder()
+	e.ServeHTTP(generateRec, generateReq)
+	if generateRec.Code != http.StatusOK || !strings.Contains(generateRec.Body.String(), `"version_no":1`) {
+		t.Fatalf("generate after preview status=%d body=%s", generateRec.Code, generateRec.Body.String())
+	}
+}
+
+func TestParseSalesOrderDocumentIDAcceptsPDFPathFallback(t *testing.T) {
+	got, err := parseSalesOrderDocumentID("", "/orders/254/sales-orders/1.pdf")
+	if err != nil {
+		t.Fatalf("parse pdf fallback: %v", err)
+	}
+	if got != 1 {
+		t.Fatalf("parse pdf fallback = %d, want 1", got)
+	}
+	got, err = parseSalesOrderDocumentID("2.pdf", "/orders/254/sales-orders/2.pdf")
+	if err != nil {
+		t.Fatalf("parse param with suffix: %v", err)
+	}
+	if got != 2 {
+		t.Fatalf("parse param with suffix = %d, want 2", got)
+	}
+	if _, err := parseSalesOrderDocumentID("", "/orders/254/sales-orders/0.pdf"); err == nil {
+		t.Fatal("parse invalid document id error = nil")
 	}
 }
 

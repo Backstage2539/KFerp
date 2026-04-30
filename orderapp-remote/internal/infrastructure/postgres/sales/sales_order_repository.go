@@ -182,24 +182,10 @@ func (r Repository) GenerateSalesOrderDocument(ctx context.Context, cmd salesapp
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
-	versionRows, err := tx.Query(ctx, fmt.Sprintf(`SELECT version_no FROM %s.sales_order_documents WHERE order_id=$1 FOR UPDATE`, r.schema), cmd.OrderID)
+	existing, err := r.loadSalesOrderVersionsTx(ctx, tx, cmd.OrderID, true)
 	if err != nil {
 		return salesapp.GenerateSalesOrderDocumentResult{}, err
 	}
-	existing := make([]int, 0)
-	for versionRows.Next() {
-		var version int
-		if err := versionRows.Scan(&version); err != nil {
-			versionRows.Close()
-			return salesapp.GenerateSalesOrderDocumentResult{}, err
-		}
-		existing = append(existing, version)
-	}
-	if err := versionRows.Err(); err != nil {
-		versionRows.Close()
-		return salesapp.GenerateSalesOrderDocumentResult{}, err
-	}
-	versionRows.Close()
 	versionNo := salesdomain.NextSalesOrderVersion(existing)
 
 	snapshot, err := r.buildSalesOrderSnapshotTx(ctx, tx, cmd.OrderID, settings)
@@ -249,6 +235,57 @@ func (r Repository) GenerateSalesOrderDocument(ctx context.Context, cmd salesapp
 		return salesapp.GenerateSalesOrderDocumentResult{}, err
 	}
 	return salesapp.GenerateSalesOrderDocumentResult{Document: doc, Snapshot: snapshot}, nil
+}
+
+func (r Repository) PreviewSalesOrderDocument(ctx context.Context, orderID int64) (salesapp.SalesOrderPreview, error) {
+	settings, err := r.LoadSalesOrderSettings(ctx)
+	if err != nil {
+		return salesapp.SalesOrderPreview{}, err
+	}
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return salesapp.SalesOrderPreview{}, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	existing, err := r.loadSalesOrderVersionsTx(ctx, tx, orderID, false)
+	if err != nil {
+		return salesapp.SalesOrderPreview{}, err
+	}
+	snapshot, err := r.buildSalesOrderSnapshotTx(ctx, tx, orderID, settings)
+	if err != nil {
+		return salesapp.SalesOrderPreview{}, err
+	}
+	return salesapp.SalesOrderPreview{
+		OrderID:       snapshot.OrderID,
+		OrderNo:       snapshot.OrderNo,
+		NextVersionNo: salesdomain.NextSalesOrderVersion(existing),
+		Snapshot:      snapshot,
+	}, nil
+}
+
+func (r Repository) loadSalesOrderVersionsTx(ctx context.Context, tx pgx.Tx, orderID int64, lock bool) ([]int, error) {
+	q := fmt.Sprintf(`SELECT version_no FROM %s.sales_order_documents WHERE order_id=$1`, r.schema)
+	if lock {
+		q += " FOR UPDATE"
+	}
+	versionRows, err := tx.Query(ctx, q, orderID)
+	if err != nil {
+		return nil, err
+	}
+	defer versionRows.Close()
+	existing := make([]int, 0)
+	for versionRows.Next() {
+		var version int
+		if err := versionRows.Scan(&version); err != nil {
+			return nil, err
+		}
+		existing = append(existing, version)
+	}
+	if err := versionRows.Err(); err != nil {
+		return nil, err
+	}
+	return existing, nil
 }
 
 func (r Repository) buildSalesOrderSnapshotTx(ctx context.Context, tx pgx.Tx, orderID int64, settings salesapp.SalesOrderSettings) (salesdomain.SalesOrderSnapshot, error) {

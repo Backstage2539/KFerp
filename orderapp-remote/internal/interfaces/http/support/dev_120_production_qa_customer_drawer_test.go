@@ -14,14 +14,14 @@ func TestProductionQACustomerDrawerRequirementSeeds(t *testing.T) {
 	}
 	text := string(content)
 	for _, want := range []string{
-		"PR-119",
-		"DEV-119-01",
-		"DEV-119-02",
-		"DEV-119-03",
-		"DEV-119-04",
-		"UT-119-01",
-		"API-119-01",
-		"REV-119-01",
+		"PR-120",
+		"DEV-120-01",
+		"DEV-120-02",
+		"DEV-120-03",
+		"DEV-120-04",
+		"UT-120-01",
+		"API-120-01",
+		"REV-120-01",
 		"生产质检",
 		"LEGACY-MAT",
 		"抽屉式新增客户",
@@ -34,11 +34,11 @@ func TestProductionQACustomerDrawerRequirementSeeds(t *testing.T) {
 
 func TestProductionQACustomerDrawerVueWiring(t *testing.T) {
 	root := filepath.Join("frontend-vue-shell", "src")
-	app := readDev119File(t, filepath.Join(root, "App.vue"))
-	acceptance := readDev119File(t, filepath.Join(root, "views", "ProductionAcceptanceView.vue"))
-	warehouse := readDev119File(t, filepath.Join(root, "views", "WarehouseInventoryView.vue"))
-	order := readDev119File(t, filepath.Join(root, "views", "OrderEntryView.vue"))
-	parser := readDev119File(t, filepath.Join(root, "lib", "customer-recipient.js"))
+	app := readDev120File(t, filepath.Join(root, "App.vue"))
+	acceptance := readDev120File(t, filepath.Join(root, "views", "ProductionAcceptanceView.vue"))
+	warehouse := readDev120File(t, filepath.Join(root, "views", "WarehouseInventoryView.vue"))
+	order := readDev120File(t, filepath.Join(root, "views", "OrderEntryView.vue"))
+	parser := readDev120File(t, filepath.Join(root, "lib", "customer-recipient.js"))
 
 	for _, want := range []string{"currentViewParams", "view-params", "event?.detail?.params"} {
 		if !strings.Contains(app, want) {
@@ -73,7 +73,7 @@ func TestProductionQACustomerDrawerManualDocs(t *testing.T) {
 		filepath.Join("docs", "REQUIREMENTS.md"),
 		filepath.Join("docs", "ACCEPTANCE_TESTS.md"),
 	} {
-		text := readDev119File(t, path)
+		text := readDev120File(t, path)
 		for _, want := range []string{"生产质检", "LEGACY-MAT", "录单", "新增客户"} {
 			if !strings.Contains(text, want) {
 				t.Fatalf("%s missing %q", path, want)
@@ -82,7 +82,7 @@ func TestProductionQACustomerDrawerManualDocs(t *testing.T) {
 	}
 }
 
-func readDev119File(t *testing.T, path string) string {
+func readDev120File(t *testing.T, path string) string {
 	t.Helper()
 	b, err := os.ReadFile(path)
 	if err == nil {

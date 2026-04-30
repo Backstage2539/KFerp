@@ -5,7 +5,9 @@ import (
 	"net/http"
 	salesapp "orderapp/internal/application/sales"
 	support "orderapp/internal/interfaces/http/support"
+	"path"
 	"strconv"
+	"strings"
 
 	"github.com/labstack/echo/v4"
 )
@@ -20,6 +22,7 @@ func registerSalesOrderDocumentRoutes(e *echo.Echo, salesSvc *salesapp.Service) 
 		return c.Redirect(http.StatusFound, "/vue-shell?view=salesOrder&order_id="+c.Param("id"))
 	})
 	e.GET("/api/orders/:id/sales-orders", h.list)
+	e.GET("/api/orders/:id/sales-order-preview", h.preview)
 	e.POST("/api/orders/:id/sales-orders", h.generate)
 	e.GET("/orders/:id/sales-orders/:doc_id.pdf", h.download)
 	e.GET("/orders/:id/sales-order-latest.pdf", h.downloadLatest)
@@ -41,6 +44,18 @@ func (h salesOrderDocumentHandler) list(c echo.Context) error {
 	return c.JSON(http.StatusOK, map[string]any{"rows": docs, "order": ctx})
 }
 
+func (h salesOrderDocumentHandler) preview(c echo.Context) error {
+	orderID, err := parseSalesOrderID(c)
+	if err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]any{"error": err.Error()})
+	}
+	preview, err := h.sales.PreviewSalesOrderDocument(c.Request().Context(), orderID)
+	if err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]any{"error": err.Error()})
+	}
+	return c.JSON(http.StatusOK, preview)
+}
+
 func (h salesOrderDocumentHandler) generate(c echo.Context) error {
 	orderID, err := parseSalesOrderID(c)
 	if err != nil {
@@ -58,8 +73,8 @@ func (h salesOrderDocumentHandler) download(c echo.Context) error {
 	if err != nil {
 		return c.JSON(http.StatusBadRequest, map[string]any{"error": err.Error()})
 	}
-	docID, err := strconv.ParseInt(c.Param("doc_id"), 10, 64)
-	if err != nil || docID <= 0 {
+	docID, err := parseSalesOrderDocumentID(c.Param("doc_id"), c.Request().URL.Path)
+	if err != nil {
 		return c.JSON(http.StatusBadRequest, map[string]any{"error": "invalid document id"})
 	}
 	return h.downloadFile(c, orderID, docID, false)
@@ -81,6 +96,19 @@ func (h salesOrderDocumentHandler) downloadFile(c echo.Context, orderID, docID i
 	c.Response().Header().Set(echo.HeaderContentType, "application/pdf")
 	c.Response().Header().Set(echo.HeaderContentDisposition, fmt.Sprintf(`attachment; filename="%s"`, file.Filename))
 	return c.File(file.Path)
+}
+
+func parseSalesOrderDocumentID(rawParam, requestPath string) (int64, error) {
+	raw := strings.TrimSpace(rawParam)
+	if raw == "" {
+		raw = path.Base(strings.TrimSpace(requestPath))
+	}
+	raw = strings.TrimSuffix(raw, ".pdf")
+	docID, err := strconv.ParseInt(raw, 10, 64)
+	if err != nil || docID <= 0 {
+		return 0, fmt.Errorf("invalid document id")
+	}
+	return docID, nil
 }
 
 func parseSalesOrderID(c echo.Context) (int64, error) {

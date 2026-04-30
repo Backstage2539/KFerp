@@ -18,6 +18,7 @@ type fakeRepo struct {
 	orderNoTracking FillShipmentTrackingByOrderNoCommand
 	settingsCmd     SaveSalesOrderSettingsCommand
 	generateCmd     GenerateSalesOrderDocumentCommand
+	previewOrderID  int64
 }
 
 func (r *fakeRepo) SaveOrder(ctx context.Context, cmd SaveOrderCommand) (SaveOrderResult, error) {
@@ -149,6 +150,11 @@ func (r *fakeRepo) LoadSalesOrderContext(ctx context.Context, orderID int64) (Sa
 func (r *fakeRepo) GenerateSalesOrderDocument(ctx context.Context, cmd GenerateSalesOrderDocumentCommand) (GenerateSalesOrderDocumentResult, error) {
 	r.generateCmd = cmd
 	return GenerateSalesOrderDocumentResult{Document: SalesOrderDocument{ID: 10, OrderID: cmd.OrderID, OrderNo: "SO-TEST", VersionNo: 1, IsLatest: true}}, nil
+}
+
+func (r *fakeRepo) PreviewSalesOrderDocument(ctx context.Context, orderID int64) (SalesOrderPreview, error) {
+	r.previewOrderID = orderID
+	return SalesOrderPreview{OrderID: orderID, OrderNo: "SO-TEST", NextVersionNo: 3}, nil
 }
 
 func (r *fakeRepo) LoadSalesOrderDocumentFile(ctx context.Context, orderID, documentID int64, latest bool) (SalesOrderDocumentFile, error) {
@@ -413,6 +419,16 @@ func TestServiceOwnsSalesOrderDocumentUseCases(t *testing.T) {
 	}
 	if _, err := svc.GenerateSalesOrderDocument(context.Background(), GenerateSalesOrderDocumentCommand{OrderID: 0}); err == nil {
 		t.Fatal("GenerateSalesOrderDocument invalid order error = nil")
+	}
+	preview, err := svc.PreviewSalesOrderDocument(context.Background(), 18)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if preview.NextVersionNo != 3 || repo.previewOrderID != 18 {
+		t.Fatalf("preview=%+v orderID=%d", preview, repo.previewOrderID)
+	}
+	if _, err := svc.PreviewSalesOrderDocument(context.Background(), 0); err == nil {
+		t.Fatal("PreviewSalesOrderDocument invalid order error = nil")
 	}
 
 	docs, err := svc.ListSalesOrderDocuments(context.Background(), 18)

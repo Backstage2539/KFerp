@@ -447,6 +447,13 @@ type GenerateSalesOrderDocumentResult struct {
 	Snapshot salesdomain.SalesOrderSnapshot `json:"snapshot"`
 }
 
+type SalesOrderPreview struct {
+	OrderID       int64                          `json:"order_id"`
+	OrderNo       string                         `json:"order_no"`
+	NextVersionNo int                            `json:"next_version_no"`
+	Snapshot      salesdomain.SalesOrderSnapshot `json:"snapshot"`
+}
+
 type SalesOrderDocument struct {
 	ID          int64                          `json:"id"`
 	OrderID     int64                          `json:"order_id"`
@@ -513,6 +520,7 @@ type Repository interface {
 	SetSalesOrderSealAsset(ctx context.Context, assetID int64, actor string) error
 	LoadSalesOrderContext(ctx context.Context, orderID int64) (SalesOrderContext, error)
 	ListSalesOrderDocuments(ctx context.Context, orderID int64) ([]SalesOrderDocument, error)
+	PreviewSalesOrderDocument(ctx context.Context, orderID int64) (SalesOrderPreview, error)
 	GenerateSalesOrderDocument(ctx context.Context, cmd GenerateSalesOrderDocumentCommand) (GenerateSalesOrderDocumentResult, error)
 	LoadSalesOrderDocumentFile(ctx context.Context, orderID, documentID int64, latest bool) (SalesOrderDocumentFile, error)
 }
@@ -942,6 +950,13 @@ func (s *Service) GenerateSalesOrderDocument(ctx context.Context, cmd GenerateSa
 		return GenerateSalesOrderDocumentResult{}, fmt.Errorf("invalid order id")
 	}
 	return s.repo.GenerateSalesOrderDocument(ctx, cmd)
+}
+
+func (s *Service) PreviewSalesOrderDocument(ctx context.Context, orderID int64) (SalesOrderPreview, error) {
+	if orderID <= 0 {
+		return SalesOrderPreview{}, fmt.Errorf("invalid order id")
+	}
+	return s.repo.PreviewSalesOrderDocument(ctx, orderID)
 }
 
 func (s *Service) LoadSalesOrderDocumentFile(ctx context.Context, orderID, documentID int64, latest bool) (SalesOrderDocumentFile, error) {
