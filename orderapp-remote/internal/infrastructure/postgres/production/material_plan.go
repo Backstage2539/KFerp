@@ -93,22 +93,31 @@ func (r Repository) MaterialPlan(ctx context.Context, query productionapp.Materi
 		if availableG < 0 {
 			availableG = 0
 		}
+		wipTransferSuggestionG := need.DeductG - availableG
+		if wipTransferSuggestionG < 0 {
+			wipTransferSuggestionG = 0
+		}
+		if wipTransferSuggestionG > rawG {
+			wipTransferSuggestionG = rawG
+		}
 		shortageG := need.DeductG - availableG - rawG
 		if shortageG < 0 {
 			shortageG = 0
 		}
 		purchaseSuggestionG := shortageG
 		out = append(out, productionapp.MaterialPlanRow{
-			MaterialID:          materialID,
-			MaterialName:        need.MaterialName,
-			Unit:                strings.TrimSpace(need.Unit),
-			RequiredG:           need.DeductG,
-			RequiredUnits:       need.DeductUnits,
-			WIPG:                wipG,
-			RawG:                rawG,
-			ReservedG:           reservedG,
-			ShortageG:           shortageG,
-			PurchaseSuggestionG: purchaseSuggestionG,
+			MaterialID:             materialID,
+			MaterialName:           need.MaterialName,
+			Unit:                   strings.TrimSpace(need.Unit),
+			RequiredG:              need.DeductG,
+			RequiredUnits:          need.DeductUnits,
+			WIPG:                   wipG,
+			AvailableG:             availableG,
+			RawG:                   rawG,
+			ReservedG:              reservedG,
+			WIPTransferSuggestionG: wipTransferSuggestionG,
+			ShortageG:              shortageG,
+			PurchaseSuggestionG:    purchaseSuggestionG,
 		})
 	}
 	if err := tx.Commit(ctx); err != nil {

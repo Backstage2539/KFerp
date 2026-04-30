@@ -75,6 +75,18 @@ func (r *workOrderAPIRepo) CreateQualityInspection(ctx context.Context, cmd prod
 func (r *workOrderAPIRepo) ListQualityInspections(ctx context.Context, query productionapp.QualityInspectionQuery) ([]productionapp.QualityInspectionRow, error) {
 	return nil, nil
 }
+func (r *workOrderAPIRepo) ListWIPReservations(ctx context.Context, query productionapp.WIPReservationQuery) (productionapp.WIPReservationResult, error) {
+	return productionapp.WIPReservationResult{}, nil
+}
+func (r *workOrderAPIRepo) AdjustWIPReservation(ctx context.Context, cmd productionapp.WIPReservationAdjustCommand) (productionapp.WIPReservationRow, error) {
+	return productionapp.WIPReservationRow{}, nil
+}
+func (r *workOrderAPIRepo) ReleaseWIPReservations(ctx context.Context, cmd productionapp.WIPReservationReleaseCommand) (productionapp.WIPReservationReleaseResult, error) {
+	return productionapp.WIPReservationReleaseResult{}, nil
+}
+func (r *workOrderAPIRepo) AcceptanceSmoke(ctx context.Context) (productionapp.AcceptanceSmokeResult, error) {
+	return productionapp.AcceptanceSmokeResult{}, nil
+}
 
 func TestWorkOrderAPIIncludesRoastAdvice(t *testing.T) {
 	e := echo.New()

@@ -308,29 +308,32 @@ type WorkOrderQuery struct {
 }
 
 type WorkOrderRow struct {
-	ID                  int64   `json:"id"`
-	WorkOrderNo         string  `json:"work_order_no"`
-	RunningItemID       int64   `json:"running_item_id"`
-	BatchID             string  `json:"batch_id"`
-	ProductID           int64   `json:"product_id"`
-	ProductName         string  `json:"product_name"`
-	SpecG               int64   `json:"spec_g"`
-	PlannedG            int64   `json:"planned_g"`
-	Status              string  `json:"status"`
-	ActualCost          float64 `json:"actual_cost"`
-	CreatedAt           string  `json:"created_at"`
-	CompletedAt         string  `json:"completed_at"`
-	RoastLevel          string  `json:"roast_level"`
-	YieldRate           float64 `json:"yield_rate"`
-	SuggestedInputG     int64   `json:"suggested_input_g"`
-	SuggestedMachine    string  `json:"suggested_machine"`
-	SuggestedBatchCount int64   `json:"suggested_batch_count"`
-	SuggestedBatchG     int64   `json:"suggested_batch_g"`
-	SuggestedBatchPlan  string  `json:"suggested_batch_plan"`
-	PlannedUnits        int64   `json:"planned_units"`
-	PlannedLooseG       int64   `json:"planned_loose_g"`
-	MaterialSummary     string  `json:"material_summary"`
-	OrderNos            string  `json:"order_nos"`
+	ID                    int64   `json:"id"`
+	WorkOrderNo           string  `json:"work_order_no"`
+	RunningItemID         int64   `json:"running_item_id"`
+	BatchID               string  `json:"batch_id"`
+	ProductID             int64   `json:"product_id"`
+	ProductName           string  `json:"product_name"`
+	SpecG                 int64   `json:"spec_g"`
+	PlannedG              int64   `json:"planned_g"`
+	Status                string  `json:"status"`
+	ActualCost            float64 `json:"actual_cost"`
+	CreatedAt             string  `json:"created_at"`
+	CompletedAt           string  `json:"completed_at"`
+	RoastLevel            string  `json:"roast_level"`
+	YieldRate             float64 `json:"yield_rate"`
+	SuggestedInputG       int64   `json:"suggested_input_g"`
+	SuggestedMachine      string  `json:"suggested_machine"`
+	SuggestedBatchCount   int64   `json:"suggested_batch_count"`
+	SuggestedBatchG       int64   `json:"suggested_batch_g"`
+	SuggestedBatchPlan    string  `json:"suggested_batch_plan"`
+	PlannedUnits          int64   `json:"planned_units"`
+	PlannedLooseG         int64   `json:"planned_loose_g"`
+	MaterialSummary       string  `json:"material_summary"`
+	OrderNos              string  `json:"order_nos"`
+	WIPReservedG          int64   `json:"wip_reserved_g"`
+	WIPConsumedG          int64   `json:"wip_consumed_g"`
+	WIPRemainingReservedG int64   `json:"remaining_reserved_g"`
 }
 
 type JobCardQuery struct {
@@ -375,16 +378,18 @@ type MaterialPlanQuery struct {
 }
 
 type MaterialPlanRow struct {
-	MaterialID          int64  `json:"material_id"`
-	MaterialName        string `json:"material_name"`
-	Unit                string `json:"unit"`
-	RequiredG           int64  `json:"required_g"`
-	RequiredUnits       int64  `json:"required_units"`
-	WIPG                int64  `json:"wip_g"`
-	RawG                int64  `json:"raw_g"`
-	ReservedG           int64  `json:"reserved_g"`
-	ShortageG           int64  `json:"shortage_g"`
-	PurchaseSuggestionG int64  `json:"purchase_suggestion_g"`
+	MaterialID             int64  `json:"material_id"`
+	MaterialName           string `json:"material_name"`
+	Unit                   string `json:"unit"`
+	RequiredG              int64  `json:"required_g"`
+	RequiredUnits          int64  `json:"required_units"`
+	WIPG                   int64  `json:"wip_g"`
+	AvailableG             int64  `json:"available_g"`
+	RawG                   int64  `json:"raw_g"`
+	ReservedG              int64  `json:"reserved_g"`
+	WIPTransferSuggestionG int64  `json:"wip_transfer_suggestion_g"`
+	ShortageG              int64  `json:"shortage_g"`
+	PurchaseSuggestionG    int64  `json:"purchase_suggestion_g"`
 }
 
 type MaterialPlanResult struct {
@@ -421,6 +426,78 @@ type QualityInspectionRow struct {
 	CreatedAt     string `json:"created_at"`
 }
 
+type WIPReservationQuery struct {
+	Status      string
+	WorkOrderNo string
+	MaterialID  int64
+	Limit       int
+}
+
+type WIPReservationRow struct {
+	ID                 int64  `json:"id"`
+	WorkOrderID        int64  `json:"work_order_id"`
+	WorkOrderNo        string `json:"work_order_no"`
+	RunningItemID      int64  `json:"running_item_id"`
+	ProductName        string `json:"product_name"`
+	MaterialID         int64  `json:"material_id"`
+	MaterialName       string `json:"material_name"`
+	Unit               string `json:"unit"`
+	RequiredG          int64  `json:"required_g"`
+	RequiredUnits      int64  `json:"required_units"`
+	ReservedG          int64  `json:"reserved_g"`
+	ReservedUnits      int64  `json:"reserved_units"`
+	ConsumedG          int64  `json:"consumed_g"`
+	ConsumedUnits      int64  `json:"consumed_units"`
+	ReturnedG          int64  `json:"returned_g"`
+	ReturnedUnits      int64  `json:"returned_units"`
+	RemainingReservedG int64  `json:"remaining_reserved_g"`
+	Status             string `json:"status"`
+	WIPG               int64  `json:"wip_g"`
+	AvailableG         int64  `json:"available_g"`
+	UpdatedAt          string `json:"updated_at"`
+}
+
+type WIPReservationResult struct {
+	Rows            []WIPReservationRow `json:"rows"`
+	TotalReservedG  int64               `json:"total_reserved_g"`
+	TotalConsumedG  int64               `json:"total_consumed_g"`
+	TotalRemainingG int64               `json:"total_remaining_g"`
+}
+
+type WIPReservationAdjustCommand struct {
+	ReservationID int64
+	ReservedG     int64
+	ReservedUnits int64
+	Operator      string
+	Note          string
+}
+
+type WIPReservationReleaseCommand struct {
+	RunningItemID int64
+	WorkOrderNo   string
+	Operator      string
+	Note          string
+}
+
+type WIPReservationReleaseResult struct {
+	ReleasedCount int64 `json:"released_count"`
+	ReleasedG     int64 `json:"released_g"`
+	ReleasedUnits int64 `json:"released_units"`
+}
+
+type AcceptanceSmokeRow struct {
+	Code   string `json:"code"`
+	Title  string `json:"title"`
+	Status string `json:"status"`
+	Count  int64  `json:"count"`
+	Detail string `json:"detail"`
+	View   string `json:"view"`
+}
+
+type AcceptanceSmokeResult struct {
+	Rows []AcceptanceSmokeRow `json:"rows"`
+}
+
 type Repository interface {
 	CreateBatch(ctx context.Context, cmd CreateBatchCommand) (CreateBatchResult, error)
 	ListBatches(ctx context.Context, cmd ListBatchesCommand) ([]BatchListItem, error)
@@ -442,6 +519,10 @@ type Repository interface {
 	MaterialPlan(ctx context.Context, query MaterialPlanQuery) (MaterialPlanResult, error)
 	CreateQualityInspection(ctx context.Context, cmd QualityInspectionCommand) (QualityInspectionRow, error)
 	ListQualityInspections(ctx context.Context, query QualityInspectionQuery) ([]QualityInspectionRow, error)
+	ListWIPReservations(ctx context.Context, query WIPReservationQuery) (WIPReservationResult, error)
+	AdjustWIPReservation(ctx context.Context, cmd WIPReservationAdjustCommand) (WIPReservationRow, error)
+	ReleaseWIPReservations(ctx context.Context, cmd WIPReservationReleaseCommand) (WIPReservationReleaseResult, error)
+	AcceptanceSmoke(ctx context.Context) (AcceptanceSmokeResult, error)
 }
 
 type Service struct {
@@ -611,6 +692,41 @@ func (s *Service) ListQualityInspections(ctx context.Context, query QualityInspe
 		query.Limit = 200
 	}
 	return s.repo.ListQualityInspections(ctx, query)
+}
+
+func (s *Service) ListWIPReservations(ctx context.Context, query WIPReservationQuery) (WIPReservationResult, error) {
+	query.Status = strings.ToLower(strings.TrimSpace(query.Status))
+	query.WorkOrderNo = strings.TrimSpace(query.WorkOrderNo)
+	if query.Limit <= 0 || query.Limit > 200 {
+		query.Limit = 200
+	}
+	return s.repo.ListWIPReservations(ctx, query)
+}
+
+func (s *Service) AdjustWIPReservation(ctx context.Context, cmd WIPReservationAdjustCommand) (WIPReservationRow, error) {
+	if cmd.ReservationID <= 0 {
+		return WIPReservationRow{}, fmt.Errorf("reservation_id required")
+	}
+	if cmd.ReservedG < 0 || cmd.ReservedUnits < 0 {
+		return WIPReservationRow{}, fmt.Errorf("reserved quantity must be >= 0")
+	}
+	cmd.Operator = strings.TrimSpace(cmd.Operator)
+	cmd.Note = strings.TrimSpace(cmd.Note)
+	return s.repo.AdjustWIPReservation(ctx, cmd)
+}
+
+func (s *Service) ReleaseWIPReservations(ctx context.Context, cmd WIPReservationReleaseCommand) (WIPReservationReleaseResult, error) {
+	cmd.WorkOrderNo = strings.TrimSpace(cmd.WorkOrderNo)
+	cmd.Operator = strings.TrimSpace(cmd.Operator)
+	cmd.Note = strings.TrimSpace(cmd.Note)
+	if cmd.RunningItemID <= 0 && cmd.WorkOrderNo == "" {
+		return WIPReservationReleaseResult{}, fmt.Errorf("running_item_id or work_order_no required")
+	}
+	return s.repo.ReleaseWIPReservations(ctx, cmd)
+}
+
+func (s *Service) AcceptanceSmoke(ctx context.Context) (AcceptanceSmokeResult, error) {
+	return s.repo.AcceptanceSmoke(ctx)
 }
 
 func validQualityInspectionResult(result string) bool {

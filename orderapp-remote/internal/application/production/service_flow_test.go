@@ -17,6 +17,11 @@ type fakeFlowRepo struct {
 	qualityCommand     QualityInspectionCommand
 	qualityQuery       QualityInspectionQuery
 	qualityRows        []QualityInspectionRow
+	reservationQuery   WIPReservationQuery
+	reservationRows    []WIPReservationRow
+	adjustReservation  WIPReservationAdjustCommand
+	releaseReservation WIPReservationReleaseCommand
+	acceptanceRows     []AcceptanceSmokeRow
 }
 
 func (r *fakeFlowRepo) CreateBatch(ctx context.Context, cmd CreateBatchCommand) (CreateBatchResult, error) {
@@ -116,6 +121,25 @@ func (r *fakeFlowRepo) CreateQualityInspection(ctx context.Context, cmd QualityI
 func (r *fakeFlowRepo) ListQualityInspections(ctx context.Context, query QualityInspectionQuery) ([]QualityInspectionRow, error) {
 	r.qualityQuery = query
 	return r.qualityRows, nil
+}
+
+func (r *fakeFlowRepo) ListWIPReservations(ctx context.Context, query WIPReservationQuery) (WIPReservationResult, error) {
+	r.reservationQuery = query
+	return WIPReservationResult{Rows: r.reservationRows, TotalRemainingG: 40000}, nil
+}
+
+func (r *fakeFlowRepo) AdjustWIPReservation(ctx context.Context, cmd WIPReservationAdjustCommand) (WIPReservationRow, error) {
+	r.adjustReservation = cmd
+	return WIPReservationRow{ID: cmd.ReservationID, ReservedG: cmd.ReservedG, ConsumedG: 10000, RemainingReservedG: cmd.ReservedG - 10000}, nil
+}
+
+func (r *fakeFlowRepo) ReleaseWIPReservations(ctx context.Context, cmd WIPReservationReleaseCommand) (WIPReservationReleaseResult, error) {
+	r.releaseReservation = cmd
+	return WIPReservationReleaseResult{ReleasedCount: 2, ReleasedG: 40000}, nil
+}
+
+func (r *fakeFlowRepo) AcceptanceSmoke(ctx context.Context) (AcceptanceSmokeResult, error) {
+	return AcceptanceSmokeResult{Rows: r.acceptanceRows}, nil
 }
 
 func TestServiceOwnsRunningProductionUseCases(t *testing.T) {
@@ -241,5 +265,60 @@ func TestServiceOwnsManufacturingGapUseCases(t *testing.T) {
 	}
 	if len(rows) != 1 || repo.qualityQuery.Limit != 200 || repo.qualityQuery.Scope != "work_order" || repo.qualityQuery.Result != "pass" {
 		t.Fatalf("quality list rows=%+v query=%+v", rows, repo.qualityQuery)
+	}
+}
+
+func TestServiceOwnsWIPReservationAndAcceptanceUseCases(t *testing.T) {
+	repo := &fakeFlowRepo{
+		reservationRows: []WIPReservationRow{{
+			ID:                 9,
+			WorkOrderNo:        "WO-0000000020",
+			RunningItemID:      20,
+			MaterialName:       "孟连水洗5T批次",
+			ReservedG:          60000,
+			ConsumedG:          20000,
+			RemainingReservedG: 40000,
+			WIPG:               90000,
+			AvailableG:         50000,
+			Status:             "reserved",
+		}},
+		acceptanceRows: []AcceptanceSmokeRow{{Code: "work_orders", Title: "生产工单", Status: "ok", Count: 1}},
+	}
+	svc := NewService(repo)
+	ctx := context.Background()
+
+	reservations, err := svc.ListWIPReservations(ctx, WIPReservationQuery{Status: " reserved ", WorkOrderNo: " WO-0000000020 ", Limit: 999})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(reservations.Rows) != 1 || reservations.TotalRemainingG != 40000 {
+		t.Fatalf("reservations = %+v", reservations)
+	}
+	if repo.reservationQuery.Status != "reserved" || repo.reservationQuery.WorkOrderNo != "WO-0000000020" || repo.reservationQuery.Limit != 200 {
+		t.Fatalf("reservation query not normalized: %+v", repo.reservationQuery)
+	}
+
+	adjusted, err := svc.AdjustWIPReservation(ctx, WIPReservationAdjustCommand{ReservationID: 9, ReservedG: 50000, Operator: " 测试员 ", Note: " 调整 "})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if adjusted.RemainingReservedG != 40000 || repo.adjustReservation.Operator != "测试员" || repo.adjustReservation.Note != "调整" {
+		t.Fatalf("adjusted=%+v command=%+v", adjusted, repo.adjustReservation)
+	}
+
+	released, err := svc.ReleaseWIPReservations(ctx, WIPReservationReleaseCommand{RunningItemID: 20, WorkOrderNo: " WO-0000000020 ", Operator: " 测试员 ", Note: " 清理 "})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if released.ReleasedCount != 2 || repo.releaseReservation.WorkOrderNo != "WO-0000000020" || repo.releaseReservation.Operator != "测试员" {
+		t.Fatalf("release result=%+v command=%+v", released, repo.releaseReservation)
+	}
+
+	smoke, err := svc.AcceptanceSmoke(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(smoke.Rows) != 1 || smoke.Rows[0].Code != "work_orders" {
+		t.Fatalf("AcceptanceSmoke() = %+v", smoke)
 	}
 }

@@ -63,6 +63,7 @@ import OrdersView from './views/OrdersView.vue'
 import OutsourceSettingsView from './views/OutsourceSettingsView.vue'
 import ProducePlanView from './views/ProducePlanView.vue'
 import ProduceRunningView from './views/ProduceRunningView.vue'
+import ProductionAcceptanceView from './views/ProductionAcceptanceView.vue'
 import ProductionCostsView from './views/ProductionCostsView.vue'
 import ProductionLogsView from './views/ProductionLogsView.vue'
 import ProductionManualView from './views/ProductionManualView.vue'
@@ -82,7 +83,7 @@ import UserPermissionsView from './views/UserPermissionsView.vue'
 import WipMaterialsView from './views/WipMaterialsView.vue'
 import WarehouseInventoryView from './views/WarehouseInventoryView.vue'
 import WorkOrdersView from './views/WorkOrdersView.vue'
-import { fetchCurrentActor, logoutCurrentSession } from './api/auth.js'
+import { clearStoredAuthToken, fetchCurrentActor, hasStoredAuthToken, logoutCurrentSession } from './api/auth.js'
 import { replaceHistoryURL } from './lib/url-state.js'
 import {
   defaultExpandedGroups,
@@ -92,7 +93,7 @@ import {
   restoreExpandedGroups,
   toggleExpandedGroup,
 } from './lib/menu-ia.js'
-import { filterMenuGroups, isViewAllowed } from './lib/menu-permissions.js'
+import { actorHasFullViewAccess, filterMenuGroups, isViewAllowed } from './lib/menu-permissions.js'
 
 const collapsed = ref(false)
 const requestedView = new URL(window.location.href).searchParams.get('view')
@@ -125,6 +126,7 @@ const internalViews = {
   costing: ProductSettingsView,
   costingSettings: CostingSettingsView,
   producePlan: ProducePlanView,
+  productionAcceptance: ProductionAcceptanceView,
   produceRunning: ProduceRunningView,
   produceLogs: ProductionLogsView,
   workOrders: WorkOrdersView,
@@ -228,6 +230,10 @@ function firstAllowedMenuKey() {
 async function loadActor() {
   authLoading.value = true
   authError.value = ''
+  if (!hasStoredAuthToken()) {
+    redirectToLogin()
+    return
+  }
   try {
     currentActor.value = await fetchCurrentActor()
     expandedGroups.value = restoreExpandedGroups(
@@ -240,18 +246,19 @@ async function loadActor() {
       if (first) open(first)
     }
   } catch (err) {
+    if (err.status === 401) {
+      clearStoredAuthToken()
+      redirectToLogin()
+      return
+    }
     authError.value = err.message || '权限加载失败'
   } finally {
     authLoading.value = false
   }
 }
 
-function clearAuthToken() {
-  try {
-    window.localStorage.removeItem('auth_token')
-  } catch {
-    // localStorage may be unavailable in private or embedded contexts.
-  }
+function redirectToLogin() {
+  window.location.replace('/login')
 }
 
 async function logout() {
@@ -260,8 +267,8 @@ async function logout() {
   } catch {
     // Local logout should still complete if the session is already invalid.
   }
-  clearAuthToken()
-  window.location.href = '/login'
+  clearStoredAuthToken()
+  redirectToLogin()
 }
 
 onMounted(async () => {
@@ -290,7 +297,7 @@ const sidebarClass = computed(() => ({
 const showTitle = computed(() => !isMobile.value && !collapsed.value)
 const allowedViewKeys = computed(() => {
   if (!currentActor.value) return []
-  if (currentActor.value.basic_auth_admin) return null
+  if (actorHasFullViewAccess(currentActor.value)) return null
   return Array.isArray(currentActor.value.allowed_views) ? currentActor.value.allowed_views : []
 })
 const availableMenuGroups = computed(() => filterMenuGroups(menuGroups, allowedViewKeys.value))

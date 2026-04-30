@@ -154,6 +154,21 @@ func (r Repository) ListWorkOrders(ctx context.Context, query productionapp.Work
 		       COALESCE(ri.order_nos,''),
 		       COALESCE(wo.material_snapshot,'[]'::jsonb)::text,
 		       COALESCE((
+		           SELECT SUM(r.reserved_g)::bigint
+		           FROM %s.work_order_material_reservations r
+		           WHERE r.running_item_id=wo.running_item_id
+		       ),0),
+		       COALESCE((
+		           SELECT SUM(r.consumed_g)::bigint
+		           FROM %s.work_order_material_reservations r
+		           WHERE r.running_item_id=wo.running_item_id
+		       ),0),
+		       COALESCE((
+		           SELECT SUM(GREATEST(0,r.reserved_g-r.consumed_g-r.returned_g))::bigint
+		           FROM %s.work_order_material_reservations r
+		           WHERE r.running_item_id=wo.running_item_id AND r.status='reserved'
+		       ),0),
+		       COALESCE((
 		           SELECT string_agg(COALESCE(m.name,'') || ' ' || COALESCE(NULLIF(trim(trailing '.' from trim(trailing '0' from COALESCE(bi.ratio_pct,0)::text)), ''), '0') || '%%', '、' ORDER BY bi.id)
 		           FROM %s.product_bom_items bi
 		           LEFT JOIN %s.materials m ON m.id=bi.material_id
@@ -166,7 +181,7 @@ func (r Repository) ListWorkOrders(ctx context.Context, query productionapp.Work
 		WHERE %s
 		ORDER BY wo.created_at DESC, wo.id DESC
 		LIMIT $%d
-	`, r.schema, r.schema, r.schema, r.schema, r.schema, r.schema, where, limitArg), args...)
+	`, r.schema, r.schema, r.schema, r.schema, r.schema, r.schema, r.schema, r.schema, r.schema, where, limitArg), args...)
 	if err != nil {
 		return nil, err
 	}
@@ -177,7 +192,7 @@ func (r Repository) ListWorkOrders(ctx context.Context, query productionapp.Work
 		var snapshotText, fallbackMaterialSummary string
 		if err := rows.Scan(
 			&row.ID, &row.WorkOrderNo, &row.RunningItemID, &row.BatchID, &row.ProductID, &row.ProductName, &row.SpecG, &row.PlannedG, &row.Status, &row.ActualCost, &row.CreatedAt, &row.CompletedAt,
-			&row.RoastLevel, &row.YieldRate, &row.SuggestedInputG, &row.PlannedUnits, &row.PlannedLooseG, &row.OrderNos, &snapshotText, &fallbackMaterialSummary,
+			&row.RoastLevel, &row.YieldRate, &row.SuggestedInputG, &row.PlannedUnits, &row.PlannedLooseG, &row.OrderNos, &snapshotText, &row.WIPReservedG, &row.WIPConsumedG, &row.WIPRemainingReservedG, &fallbackMaterialSummary,
 		); err != nil {
 			return nil, err
 		}
