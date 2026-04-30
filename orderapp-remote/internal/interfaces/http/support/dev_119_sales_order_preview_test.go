@@ -9,12 +9,12 @@ import (
 func TestSalesOrderPreviewDownloadRequirementSeeds(t *testing.T) {
 	src := string(readOrderAppFileForTest(t, filepath.Join("internal", "interfaces", "http", "support", "req_store.go")))
 	for _, want := range []string{
-		"PR-118",
-		"DEV-118-01",
-		"DEV-118-02",
-		"UT-118-01",
-		"API-118-01",
-		"REV-118-01",
+		"PR-119",
+		"DEV-119-01",
+		"DEV-119-02",
+		"UT-119-01",
+		"API-119-01",
+		"REV-119-01",
 		"销售单预览",
 		"历史版本下载",
 	} {

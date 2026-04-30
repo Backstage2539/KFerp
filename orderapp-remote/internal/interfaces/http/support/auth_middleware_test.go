@@ -88,6 +88,7 @@ func TestLoginPageSupportsUsernamePasswordAndDoesNotRequirePhoneForPassword(t *t
 		"getLoginIdentifier",
 		"validatePasswordLogin",
 		"body.login",
+		"/vue-shell?fresh_login=1",
 	} {
 		if !strings.Contains(src, want) {
 			t.Fatalf("login page missing %q", want)
@@ -101,6 +102,19 @@ func TestVueShellRedirectsToLoginWithoutStoredToken(t *testing.T) {
 		"hasStoredAuthToken()",
 		"redirectToLogin()",
 		"clearStoredAuthToken()",
+	} {
+		if !strings.Contains(src, want) {
+			t.Fatalf("App.vue missing %q", want)
+		}
+	}
+}
+
+func TestVueShellUsesDefaultMenuExpansionAfterFreshLogin(t *testing.T) {
+	src := readSupportTestFile(t, "frontend-vue-shell/src/App.vue")
+	for _, want := range []string{
+		"fresh_login",
+		"defaultExpandedGroups(availableMenuGroups.value, currentKey.value)",
+		"searchParams.delete('fresh_login')",
 	} {
 		if !strings.Contains(src, want) {
 			t.Fatalf("App.vue missing %q", want)

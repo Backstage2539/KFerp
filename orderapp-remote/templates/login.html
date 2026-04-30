@@ -94,7 +94,7 @@ async function login(){
     if(d.token) localStorage.setItem('auth_token', d.token);
   }catch(e){}
   setMsg('登录成功', 'ok');
-  window.location.href='/vue-shell';
+  window.location.href='/vue-shell?fresh_login=1';
 }
 </script>
 </body>
