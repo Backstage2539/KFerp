@@ -170,7 +170,16 @@ func prepareSalesSchemaPrerequisites(t *testing.T, ctx context.Context, pool *pg
 	stmts := []string{
 		fmt.Sprintf(`CREATE TABLE %s.order_process_statuses (id BIGSERIAL PRIMARY KEY, name TEXT NOT NULL, sort INTEGER NOT NULL DEFAULT 0, active BOOLEAN NOT NULL DEFAULT true)`, schema),
 		fmt.Sprintf(`CREATE TABLE %s.ship_statuses (id BIGSERIAL PRIMARY KEY, name TEXT NOT NULL)`, schema),
-		fmt.Sprintf(`CREATE TABLE %s.customers (id BIGSERIAL PRIMARY KEY, name TEXT NOT NULL DEFAULT '')`, schema),
+		fmt.Sprintf(`CREATE TABLE %s.customers (
+			id BIGSERIAL PRIMARY KEY,
+			name TEXT NOT NULL DEFAULT '',
+			company_name TEXT NOT NULL DEFAULT '',
+			company_address TEXT NOT NULL DEFAULT '',
+			company_phone TEXT NOT NULL DEFAULT '',
+			contact TEXT NOT NULL DEFAULT '',
+			phone TEXT NOT NULL DEFAULT '',
+			address TEXT NOT NULL DEFAULT ''
+		)`, schema),
 		fmt.Sprintf(`CREATE TABLE %s.products (id BIGSERIAL PRIMARY KEY, name TEXT NOT NULL DEFAULT '')`, schema),
 		fmt.Sprintf(`CREATE TABLE %s.orders (
 			id BIGSERIAL PRIMARY KEY,
@@ -217,7 +226,7 @@ func prepareSalesSchemaPrerequisites(t *testing.T, ctx context.Context, pool *pg
 func seedSalesOrderDocumentOrder(t *testing.T, ctx context.Context, pool *pgxpool.Pool, schema string) {
 	t.Helper()
 	stmts := []string{
-		fmt.Sprintf(`INSERT INTO %s.customers(id, name) VALUES(1, '某某咖啡馆')`, schema),
+		fmt.Sprintf(`INSERT INTO %s.customers(id, name, company_name, company_address, company_phone) VALUES(1, '某某咖啡馆', '某某咖啡贸易公司', '上海市徐汇区', '021-12345678')`, schema),
 		fmt.Sprintf(`INSERT INTO %s.products(id, name) VALUES(1, '橘皮乌龙')`, schema),
 		fmt.Sprintf(`INSERT INTO %s.orders(id, order_no, order_date, customer_id, total_amount, shipping_amount, discount_amount, grand_total)
 			VALUES(1, 'SO-20260430-0008', '2026-04-30', 1, 134, 0, 0, 134)`, schema),

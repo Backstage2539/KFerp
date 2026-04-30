@@ -7,11 +7,16 @@ import (
 )
 
 type SalesOrderSnapshot struct {
-	OrderID      int64                    `json:"order_id"`
-	OrderNo      string                   `json:"order_no"`
-	OrderDate    string                   `json:"order_date"`
-	CustomerName string                   `json:"customer_name"`
-	CompanyName  string                   `json:"company_name"`
+	OrderID      int64  `json:"order_id"`
+	OrderNo      string `json:"order_no"`
+	OrderDate    string `json:"order_date"`
+	CustomerName string `json:"customer_name"`
+	CompanyName  string `json:"company_name"`
+
+	CustomerCompanyName    string `json:"customer_company_name"`
+	CustomerCompanyAddress string `json:"customer_company_address"`
+	CustomerCompanyPhone   string `json:"customer_company_phone"`
+
 	PaymentText  string                   `json:"payment_text"`
 	Note         string                   `json:"note"`
 	Items        []SalesOrderSnapshotItem `json:"items"`

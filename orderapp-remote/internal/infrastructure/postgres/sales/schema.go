@@ -23,7 +23,24 @@ func EnsureSchema(ctx context.Context, pool *pgxpool.Pool, schema string) error 
 	if err := ensureOutsourceTemplateTables(ctx, pool, schema); err != nil {
 		return err
 	}
+	if err := ensureCustomerCompanyColumns(ctx, pool, schema); err != nil {
+		return err
+	}
 	return ensureSalesOrderTables(ctx, pool, schema)
+}
+
+func ensureCustomerCompanyColumns(ctx context.Context, pool *pgxpool.Pool, schema string) error {
+	stmts := []string{
+		fmt.Sprintf(`ALTER TABLE %s.customers ADD COLUMN IF NOT EXISTS company_name TEXT NOT NULL DEFAULT ''`, schema),
+		fmt.Sprintf(`ALTER TABLE %s.customers ADD COLUMN IF NOT EXISTS company_address TEXT NOT NULL DEFAULT ''`, schema),
+		fmt.Sprintf(`ALTER TABLE %s.customers ADD COLUMN IF NOT EXISTS company_phone TEXT NOT NULL DEFAULT ''`, schema),
+	}
+	for _, stmt := range stmts {
+		if _, err := pool.Exec(ctx, stmt); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func ensureOrderProcessStatuses(ctx context.Context, pool *pgxpool.Pool, schema string) error {

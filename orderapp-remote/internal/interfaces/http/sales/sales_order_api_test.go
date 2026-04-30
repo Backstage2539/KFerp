@@ -73,6 +73,38 @@ func TestSalesOrderDocumentAPI(t *testing.T) {
 	}
 }
 
+func TestSalesOrderDocumentAPIUsesCustomerCompanyFallback(t *testing.T) {
+	pool, schema := newOrderAPITestDB(t)
+	ctx := context.Background()
+	seedOrderAPITestData(t, ctx, pool, schema)
+	if err := postgressales.EnsureSchema(ctx, pool, schema); err != nil {
+		t.Fatalf("EnsureSchema: %v", err)
+	}
+	seedSalesOrderAPITestOrder(t, ctx, pool, schema)
+	mustExecOrderAPITestSQL(t, ctx, pool, fmt.Sprintf(`UPDATE %s.customers
+		SET company_name='', company_address='上海市徐汇区', company_phone='021-12345678'
+		WHERE id=3`, schema))
+	e := newSalesOrderAPITestEcho(pool, schema, t.TempDir())
+
+	req := httptest.NewRequest(http.MethodPost, "/api/orders/1/sales-orders", nil)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("POST status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	for _, want := range []string{
+		`"company_name":"测试客户"`,
+		`"customer_company_name":"测试客户"`,
+		`"customer_company_address":"上海市徐汇区"`,
+		`"customer_company_phone":"021-12345678"`,
+	} {
+		if !strings.Contains(rec.Body.String(), want) {
+			t.Fatalf("POST response missing %s: %s", want, rec.Body.String())
+		}
+	}
+}
+
 func newSalesOrderAPITestEcho(pool *pgxpool.Pool, schema string, assetDir string) *echo.Echo {
 	e := echo.New()
 	e.Use(func(next echo.HandlerFunc) echo.HandlerFunc {

@@ -34,7 +34,11 @@ func (h salesOrderDocumentHandler) list(c echo.Context) error {
 	if err != nil {
 		return c.JSON(http.StatusInternalServerError, map[string]any{"error": err.Error()})
 	}
-	return c.JSON(http.StatusOK, map[string]any{"rows": docs})
+	ctx, err := h.sales.LoadSalesOrderContext(c.Request().Context(), orderID)
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]any{"error": err.Error()})
+	}
+	return c.JSON(http.StatusOK, map[string]any{"rows": docs, "order": ctx})
 }
 
 func (h salesOrderDocumentHandler) generate(c echo.Context) error {

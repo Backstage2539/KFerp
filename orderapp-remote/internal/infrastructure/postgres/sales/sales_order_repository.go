@@ -146,6 +146,31 @@ func salesOrderAssetURL(objectKey string) string {
 	return "/assets/" + objectKey
 }
 
+func (r Repository) LoadSalesOrderContext(ctx context.Context, orderID int64) (salesapp.SalesOrderContext, error) {
+	q := fmt.Sprintf(`SELECT o.id, COALESCE(o.order_no,''), COALESCE(c.id,0), COALESCE(c.name,''),
+			COALESCE(NULLIF(c.company_name,''), c.name, ''), COALESCE(NULLIF(c.company_address,''), c.address, ''),
+			COALESCE(NULLIF(c.company_phone,''), c.phone, ''), COALESCE(c.contact,''), COALESCE(c.phone,''), COALESCE(c.address,'')
+		FROM %s.orders o
+		LEFT JOIN %s.customers c ON c.id=o.customer_id
+		WHERE o.id=$1`, r.schema, r.schema)
+	var out salesapp.SalesOrderContext
+	if err := r.pool.QueryRow(ctx, q, orderID).Scan(
+		&out.OrderID,
+		&out.OrderNo,
+		&out.Customer.ID,
+		&out.Customer.Name,
+		&out.Customer.CompanyName,
+		&out.Customer.CompanyAddress,
+		&out.Customer.CompanyPhone,
+		&out.Customer.Contact,
+		&out.Customer.Phone,
+		&out.Customer.Address,
+	); err != nil {
+		return salesapp.SalesOrderContext{}, err
+	}
+	return out, nil
+}
+
 func (r Repository) GenerateSalesOrderDocument(ctx context.Context, cmd salesapp.GenerateSalesOrderDocumentCommand) (salesapp.GenerateSalesOrderDocumentResult, error) {
 	settings, err := r.LoadSalesOrderSettings(ctx)
 	if err != nil {
@@ -230,15 +255,17 @@ func (r Repository) buildSalesOrderSnapshotTx(ctx context.Context, tx pgx.Tx, or
 	var snapshot salesdomain.SalesOrderSnapshot
 	var total, shipping, discount, grand float64
 	q := fmt.Sprintf(`SELECT o.id, o.order_no, COALESCE(to_char(o.order_date,'YYYY-MM-DD'),''), COALESCE(c.name,''),
+			COALESCE(NULLIF(c.company_name,''), c.name, ''), COALESCE(NULLIF(c.company_address,''), c.address, ''),
+			COALESCE(NULLIF(c.company_phone,''), c.phone, ''),
 			COALESCE(o.total_amount,0)::float8, COALESCE(o.shipping_amount,0)::float8,
 			COALESCE(o.discount_amount,0)::float8, COALESCE(o.grand_total,0)::float8
 		FROM %s.orders o
 		LEFT JOIN %s.customers c ON c.id=o.customer_id
 		WHERE o.id=$1`, r.schema, r.schema)
-	if err := tx.QueryRow(ctx, q, orderID).Scan(&snapshot.OrderID, &snapshot.OrderNo, &snapshot.OrderDate, &snapshot.CustomerName, &total, &shipping, &discount, &grand); err != nil {
+	if err := tx.QueryRow(ctx, q, orderID).Scan(&snapshot.OrderID, &snapshot.OrderNo, &snapshot.OrderDate, &snapshot.CustomerName, &snapshot.CustomerCompanyName, &snapshot.CustomerCompanyAddress, &snapshot.CustomerCompanyPhone, &total, &shipping, &discount, &grand); err != nil {
 		return salesdomain.SalesOrderSnapshot{}, err
 	}
-	snapshot.CompanyName = settings.CompanyName
+	snapshot.CompanyName = firstNonEmpty(settings.CompanyName, snapshot.CustomerCompanyName, snapshot.CustomerName)
 	snapshot.Note = settings.Note
 	snapshot.PaymentText = settings.PaymentText
 	snapshot.TotalAmount = salesdomain.FormatSalesOrderMoney(total)
@@ -282,6 +309,15 @@ func (r Repository) buildSalesOrderSnapshotTx(ctx context.Context, tx pgx.Tx, or
 		return salesdomain.SalesOrderSnapshot{}, err
 	}
 	return snapshot, nil
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if s := strings.TrimSpace(value); s != "" {
+			return s
+		}
+	}
+	return ""
 }
 
 func (r Repository) ListSalesOrderDocuments(ctx context.Context, orderID int64) ([]salesapp.SalesOrderDocument, error) {
