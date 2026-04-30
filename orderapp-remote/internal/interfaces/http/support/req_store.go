@@ -597,6 +597,13 @@ func seedReqWorkflowA(ctx context.Context, pool *pgxpool.Pool, schema string) er
 		{table: "req_unit", code: "UT-116-01", title: "单测覆盖用户名登录标识、登录页用户名入口、admin 全权限菜单和退出后 token 预检查", status: "done", assignee: "Codex", evidence: "TestPasswordLoginIdentifierSupportsUsernameOrPhone; auth.test.js; menu-permissions.test.js"},
 		{table: "req_api", code: "API-116-01", title: "API/线上 smoke 覆盖 13800138075 密码登录、用户名登录、auth/me 全权限、退出后 token 失效和无 token 工作台回登录页", status: "done", assignee: "Codex", evidence: "postdeploy curl/browser smoke"},
 		{table: "req_review", code: "REV-116-01", prCode: "PR-116", title: "验收：13800138075 可用手机号或用户名密码登录并看到全权限菜单，退出后直接打开系统地址不能绕过登录", status: "todo", assignee: "VA", evidence: "待 Van 服务器验收"},
+		{table: "req_product", code: "PR-117", title: "客户档案支持客户公司名称、公司地址、联系电话；销售单生成时可维护客户信息并默认客户名为公司名", status: "review", assignee: "VA", evidence: "codex/customer-sales-order-company-20260501"},
+		{table: "req_dev", code: "DEV-117-01", title: "客户模型、API、Postgres schema 增加 company_name、company_address、company_phone，并在客户列表/编辑页展示保存", status: "done", assignee: "Codex", evidence: "Customer service/repository/routes; CustomersView"},
+		{table: "req_dev", code: "DEV-117-02", title: "销售单快照和 PDF 使用客户公司信息；销售单设置公司名为空时按客户公司名称再按客户名兜底，避免 company_name required", status: "done", assignee: "Codex", evidence: "SalesOrderSnapshot; buildSalesOrderSnapshotTx; sales_order_pdf"},
+		{table: "req_dev", code: "DEV-117-03", title: "销售单页面右侧抽屉支持编辑客户信息，生成前可维护客户公司名称、公司地址和联系电话", status: "done", assignee: "Codex", evidence: "frontend-vue-shell/src/views/SalesOrderView.vue"},
+		{table: "req_unit", code: "UT-117-01", title: "单测覆盖客户公司字段 API 映射、销售单客户公司兜底和 Vue 抽屉源码守卫", status: "done", assignee: "Codex", evidence: "TestCustomerAPIStoresCompanyContactFields; TestSalesOrderVueExposesCustomerInfoDrawer"},
+		{table: "req_api", code: "API-117-01", title: "API 测试覆盖 POST/PUT 客户公司信息保存，以及未设置销售单公司名时生成销售单使用客户名兜底", status: "done", assignee: "Codex", evidence: "TestCustomerAPIStoresCompanyContactFields; TestSalesOrderDocumentAPIUsesCustomerCompanyFallback"},
+		{table: "req_review", code: "REV-117-01", prCode: "PR-117", title: "验收：客户录入可维护公司信息；销售单页面右侧抽屉可编辑客户信息；公司名为空时 PDF 使用客户名", status: "todo", assignee: "VA", evidence: "待 Van 服务器验收"},
 	} {
 		if err := seedReqRow(ctx, pool, schema, row); err != nil {
 			return err

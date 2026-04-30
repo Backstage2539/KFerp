@@ -142,6 +142,10 @@ func (r *fakeRepo) ListSalesOrderDocuments(ctx context.Context, orderID int64) (
 	return []SalesOrderDocument{{ID: 9, OrderID: orderID, OrderNo: "SO-TEST", VersionNo: 2, IsLatest: true}}, nil
 }
 
+func (r *fakeRepo) LoadSalesOrderContext(ctx context.Context, orderID int64) (SalesOrderContext, error) {
+	return SalesOrderContext{OrderID: orderID, OrderNo: "SO-TEST", Customer: SalesOrderCustomerInfo{ID: 3, Name: "测试客户"}}, nil
+}
+
 func (r *fakeRepo) GenerateSalesOrderDocument(ctx context.Context, cmd GenerateSalesOrderDocumentCommand) (GenerateSalesOrderDocumentResult, error) {
 	r.generateCmd = cmd
 	return GenerateSalesOrderDocumentResult{Document: SalesOrderDocument{ID: 10, OrderID: cmd.OrderID, OrderNo: "SO-TEST", VersionNo: 1, IsLatest: true}}, nil
@@ -380,8 +384,11 @@ func TestServiceOwnsSalesOrderSettingsUseCases(t *testing.T) {
 	if repo.settingsCmd.Actor != "tester" || repo.settingsCmd.CompanyName != "浅焙作坊咖啡" || repo.settingsCmd.Note != "请密封保存" || repo.settingsCmd.PaymentText != "微信或对公转账" {
 		t.Fatalf("settings command = %+v", repo.settingsCmd)
 	}
-	if err := svc.SaveSalesOrderSettings(context.Background(), SaveSalesOrderSettingsCommand{CompanyName: ""}); err == nil {
-		t.Fatal("SaveSalesOrderSettings empty company error = nil")
+	if err := svc.SaveSalesOrderSettings(context.Background(), SaveSalesOrderSettingsCommand{CompanyName: ""}); err != nil {
+		t.Fatalf("SaveSalesOrderSettings empty company error = %v", err)
+	}
+	if repo.settingsCmd.Actor != "sales" || repo.settingsCmd.CompanyName != "" {
+		t.Fatalf("empty settings command = %+v", repo.settingsCmd)
 	}
 
 	got, err := svc.LoadSalesOrderSettings(context.Background())

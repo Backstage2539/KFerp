@@ -9,6 +9,9 @@ type CustomerEditData = customerapp.CustomerEditData
 type CustomerUpsertRequest struct {
 	Name               string `form:"name"`
 	RawName            string `form:"raw_name"`
+	CompanyName        string `form:"company_name"`
+	CompanyAddress     string `form:"company_address"`
+	CompanyPhone       string `form:"company_phone"`
 	Contact            string `form:"contact"`
 	Phone              string `form:"phone"`
 	Address            string `form:"address"`
