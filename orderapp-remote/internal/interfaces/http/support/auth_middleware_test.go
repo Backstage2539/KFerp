@@ -83,6 +83,7 @@ func TestPasswordLoginIdentifierSupportsUsernameOrPhone(t *testing.T) {
 func TestLoginPageSupportsUsernamePasswordAndDoesNotRequirePhoneForPassword(t *testing.T) {
 	src := readSupportTestFile(t, "templates/login.html")
 	for _, want := range []string{
+		"<title>系统登录</title>",
 		"用户名/手机号+密码",
 		"getLoginIdentifier",
 		"validatePasswordLogin",
