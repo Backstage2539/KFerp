@@ -13,7 +13,7 @@
       <div class="filters">
         <label>
           <span>搜索</span>
-          <input v-model.trim="q" placeholder="客户/联系人/电话/地址" @keyup.enter="loadPage(1)" />
+          <input v-model.trim="q" placeholder="客户/公司/联系人/电话/地址" @keyup.enter="loadPage(1)" />
         </label>
         <button class="primary" type="button" @click="loadPage(1)" :disabled="loading">查询</button>
       </div>
@@ -32,6 +32,14 @@
         <label>
           <span>原始名称</span>
           <input v-model.trim="form.raw_name" />
+        </label>
+        <label>
+          <span>公司名称</span>
+          <input v-model.trim="form.company_name" placeholder="不填则销售单默认使用客户名" />
+        </label>
+        <label>
+          <span>联系电话</span>
+          <input v-model.trim="form.company_phone" />
         </label>
         <label>
           <span>联系人</span>
@@ -54,6 +62,10 @@
             <option :value="0">未设置</option>
             <option v-for="item in orderTypes" :key="item.id" :value="item.id">{{ item.name }}</option>
           </select>
+        </label>
+        <label class="wide">
+          <span>公司地址</span>
+          <textarea v-model.trim="form.company_address" rows="2"></textarea>
         </label>
         <label class="wide">
           <span>地址</span>
@@ -114,6 +126,8 @@
           <thead>
             <tr>
               <th>客户</th>
+              <th>公司</th>
+              <th>联系电话</th>
               <th>联系人</th>
               <th>电话</th>
               <th>地址</th>
@@ -127,6 +141,8 @@
           <tbody>
             <tr v-for="row in rows" :key="row.id" :class="{ active: row.id === editingId }">
               <td>{{ row.name }}</td>
+              <td>{{ row.company_name || row.name }}</td>
+              <td>{{ row.company_phone || '' }}</td>
               <td>{{ row.contact || '' }}</td>
               <td>{{ row.phone || '' }}</td>
               <td class="address">{{ row.address || '' }}</td>
@@ -137,7 +153,7 @@
               <td><button class="text-button" type="button" @click="editCustomer(row.id)">编辑</button></td>
             </tr>
             <tr v-if="!rows.length">
-              <td colspan="9" class="muted">暂无客户</td>
+              <td colspan="11" class="muted">暂无客户</td>
             </tr>
           </tbody>
         </table>
@@ -185,6 +201,9 @@ function emptyForm() {
   return {
     name: '',
     raw_name: '',
+    company_name: '',
+    company_address: '',
+    company_phone: '',
     contact: '',
     phone: '',
     address: '',
@@ -198,6 +217,9 @@ function assignForm(data) {
   Object.assign(form, {
     name: data?.name || '',
     raw_name: data?.raw_name || '',
+    company_name: data?.company_name || '',
+    company_address: data?.company_address || '',
+    company_phone: data?.company_phone || '',
     contact: data?.contact || '',
     phone: data?.phone || '',
     address: data?.address || '',
@@ -327,6 +349,9 @@ async function saveCustomer() {
     const body = {
       name: form.name,
       raw_name: form.raw_name,
+      company_name: form.company_name,
+      company_address: form.company_address,
+      company_phone: form.company_phone,
       contact: form.contact,
       phone: form.phone,
       address: form.address,

@@ -460,6 +460,23 @@ type SalesOrderDocument struct {
 	DownloadURL string                         `json:"download_url"`
 }
 
+type SalesOrderCustomerInfo struct {
+	ID             int64  `json:"id"`
+	Name           string `json:"name"`
+	CompanyName    string `json:"company_name"`
+	CompanyAddress string `json:"company_address"`
+	CompanyPhone   string `json:"company_phone"`
+	Contact        string `json:"contact"`
+	Phone          string `json:"phone"`
+	Address        string `json:"address"`
+}
+
+type SalesOrderContext struct {
+	OrderID  int64                  `json:"order_id"`
+	OrderNo  string                 `json:"order_no"`
+	Customer SalesOrderCustomerInfo `json:"customer"`
+}
+
 type SalesOrderDocumentFile struct {
 	Document SalesOrderDocument
 	Path     string
@@ -494,6 +511,7 @@ type Repository interface {
 	SaveSalesOrderPaymentCode(ctx context.Context, cmd SaveSalesOrderPaymentCodeCommand) (SalesOrderPaymentCode, error)
 	DeleteSalesOrderPaymentCode(ctx context.Context, id int64, actor string) error
 	SetSalesOrderSealAsset(ctx context.Context, assetID int64, actor string) error
+	LoadSalesOrderContext(ctx context.Context, orderID int64) (SalesOrderContext, error)
 	ListSalesOrderDocuments(ctx context.Context, orderID int64) ([]SalesOrderDocument, error)
 	GenerateSalesOrderDocument(ctx context.Context, cmd GenerateSalesOrderDocumentCommand) (GenerateSalesOrderDocumentResult, error)
 	LoadSalesOrderDocumentFile(ctx context.Context, orderID, documentID int64, latest bool) (SalesOrderDocumentFile, error)
@@ -841,9 +859,6 @@ func (s *Service) SaveSalesOrderSettings(ctx context.Context, cmd SaveSalesOrder
 	cmd.CompanyName = strings.TrimSpace(cmd.CompanyName)
 	cmd.Note = strings.TrimSpace(cmd.Note)
 	cmd.PaymentText = strings.TrimSpace(cmd.PaymentText)
-	if cmd.CompanyName == "" {
-		return fmt.Errorf("company_name required")
-	}
 	return s.repo.SaveSalesOrderSettings(ctx, cmd)
 }
 
@@ -909,6 +924,13 @@ func (s *Service) ListSalesOrderDocuments(ctx context.Context, orderID int64) ([
 		return nil, fmt.Errorf("invalid order id")
 	}
 	return s.repo.ListSalesOrderDocuments(ctx, orderID)
+}
+
+func (s *Service) LoadSalesOrderContext(ctx context.Context, orderID int64) (SalesOrderContext, error) {
+	if orderID <= 0 {
+		return SalesOrderContext{}, fmt.Errorf("invalid order id")
+	}
+	return s.repo.LoadSalesOrderContext(ctx, orderID)
 }
 
 func (s *Service) GenerateSalesOrderDocument(ctx context.Context, cmd GenerateSalesOrderDocumentCommand) (GenerateSalesOrderDocumentResult, error) {

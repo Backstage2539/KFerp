@@ -583,6 +583,13 @@ func seedReqWorkflowA(ctx context.Context, pool *pgxpool.Pool, schema string) er
 		{table: "req_unit", code: "UT-114-01", title: "单测覆盖 API 客户端自动携带 Bearer token 和 logout header 行为", status: "done", assignee: "Codex", evidence: "frontend-vue-shell/src/api/client.test.js"},
 		{table: "req_api", code: "API-114-01", title: "API 级验证退出登录端点保持鉴权保护，Bearer token 解析符合预期", status: "done", assignee: "Codex", evidence: "TestLogoutEndpointRequiresAuthentication; TestBearerTokenFromHeader"},
 		{table: "req_review", code: "REV-114-01", prCode: "PR-114", title: "验收：13800138075 使用密码登录后可进入系统，点击退出后回到登录页且当前 token 不再继续使用", status: "todo", assignee: "VA", evidence: "待 Van 服务器验收"},
+		{table: "req_product", code: "PR-116", title: "客户档案支持客户公司名称、公司地址、联系电话；销售单生成时可维护客户信息并默认客户名为公司名", status: "review", assignee: "VA", evidence: "codex/customer-sales-order-company-20260501"},
+		{table: "req_dev", code: "DEV-116-01", title: "客户模型、API、Postgres schema 增加 company_name、company_address、company_phone，并在客户列表/编辑页展示保存", status: "done", assignee: "Codex", evidence: "Customer service/repository/routes; CustomersView"},
+		{table: "req_dev", code: "DEV-116-02", title: "销售单快照和 PDF 使用客户公司信息；销售单设置公司名为空时按客户公司名称再按客户名兜底，避免 company_name required", status: "done", assignee: "Codex", evidence: "SalesOrderSnapshot; buildSalesOrderSnapshotTx; sales_order_pdf"},
+		{table: "req_dev", code: "DEV-116-03", title: "销售单页面右侧抽屉支持编辑客户信息，生成前可维护客户公司名称、公司地址和联系电话", status: "done", assignee: "Codex", evidence: "frontend-vue-shell/src/views/SalesOrderView.vue"},
+		{table: "req_unit", code: "UT-116-01", title: "单测覆盖客户公司字段 API 映射、销售单客户公司兜底和 Vue 抽屉源码守卫", status: "done", assignee: "Codex", evidence: "TestCustomerAPIStoresCompanyContactFields; TestSalesOrderVueExposesCustomerInfoDrawer"},
+		{table: "req_api", code: "API-116-01", title: "API 测试覆盖 POST/PUT 客户公司信息保存，以及未设置销售单公司名时生成销售单使用客户名兜底", status: "done", assignee: "Codex", evidence: "TestCustomerAPIStoresCompanyContactFields; TestSalesOrderDocumentAPIUsesCustomerCompanyFallback"},
+		{table: "req_review", code: "REV-116-01", prCode: "PR-116", title: "验收：客户录入可维护公司信息；销售单页面右侧抽屉可编辑客户信息；公司名为空时 PDF 使用客户名", status: "todo", assignee: "VA", evidence: "待 Van 服务器验收"},
 	} {
 		if err := seedReqRow(ctx, pool, schema, row); err != nil {
 			return err

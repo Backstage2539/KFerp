@@ -45,6 +45,13 @@ func (r SalesOrderRenderer) Render(snapshot salesdomain.SalesOrderSnapshot) ([]b
 	pdf.CellFormat(0, 7, "订单号："+snapshot.OrderNo, "", 1, "R", false, 0, "")
 	pdf.CellFormat(88, 7, "客户："+snapshot.CustomerName, "", 0, "L", false, 0, "")
 	pdf.CellFormat(0, 7, "日期："+snapshot.OrderDate, "", 1, "R", false, 0, "")
+	if snapshot.CustomerCompanyName != "" || snapshot.CustomerCompanyPhone != "" {
+		pdf.CellFormat(88, 7, "客户公司："+snapshot.CustomerCompanyName, "", 0, "L", false, 0, "")
+		pdf.CellFormat(0, 7, "联系电话："+snapshot.CustomerCompanyPhone, "", 1, "R", false, 0, "")
+	}
+	if snapshot.CustomerCompanyAddress != "" {
+		pdf.MultiCell(0, 6, "公司地址："+snapshot.CustomerCompanyAddress, "", "L", false)
+	}
 	pdf.Ln(4)
 
 	colWidths := []float64{62, 22, 20, 18, 30, 32}
