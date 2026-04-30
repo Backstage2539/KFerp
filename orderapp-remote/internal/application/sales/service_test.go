@@ -16,6 +16,8 @@ type fakeRepo struct {
 	shipmentCmd     CreateOrderShipmentCommand
 	trackingItems   FillShipmentTrackingCommand
 	orderNoTracking FillShipmentTrackingByOrderNoCommand
+	settingsCmd     SaveSalesOrderSettingsCommand
+	generateCmd     GenerateSalesOrderDocumentCommand
 }
 
 func (r *fakeRepo) SaveOrder(ctx context.Context, cmd SaveOrderCommand) (SaveOrderResult, error) {
@@ -109,6 +111,44 @@ func (r *fakeRepo) FillShipmentTracking(ctx context.Context, cmd FillShipmentTra
 func (r *fakeRepo) FillShipmentTrackingByOrderNo(ctx context.Context, cmd FillShipmentTrackingByOrderNoCommand) (FillShipmentTrackingResult, error) {
 	r.orderNoTracking = cmd
 	return FillShipmentTrackingResult{Updated: len(cmd.Items), Total: len(cmd.Items)}, nil
+}
+
+func (r *fakeRepo) LoadSalesOrderSettings(ctx context.Context) (SalesOrderSettings, error) {
+	return SalesOrderSettings{CompanyName: "浅焙作坊咖啡", PaymentText: "微信或对公转账"}, nil
+}
+
+func (r *fakeRepo) SaveSalesOrderSettings(ctx context.Context, cmd SaveSalesOrderSettingsCommand) error {
+	r.settingsCmd = cmd
+	return nil
+}
+
+func (r *fakeRepo) SaveSalesOrderAsset(ctx context.Context, cmd SaveSalesOrderAssetCommand) (SalesOrderAsset, error) {
+	return SalesOrderAsset{ID: 3, Kind: cmd.Kind, Filename: cmd.Filename, ContentType: cmd.ContentType, ObjectKey: cmd.ObjectKey}, nil
+}
+
+func (r *fakeRepo) SaveSalesOrderPaymentCode(ctx context.Context, cmd SaveSalesOrderPaymentCodeCommand) (SalesOrderPaymentCode, error) {
+	return SalesOrderPaymentCode{ID: 4, Label: cmd.Label, Description: cmd.Description, AssetID: cmd.AssetID, Sort: cmd.Sort, Active: cmd.Active}, nil
+}
+
+func (r *fakeRepo) DeleteSalesOrderPaymentCode(ctx context.Context, id int64, actor string) error {
+	return nil
+}
+
+func (r *fakeRepo) SetSalesOrderSealAsset(ctx context.Context, assetID int64, actor string) error {
+	return nil
+}
+
+func (r *fakeRepo) ListSalesOrderDocuments(ctx context.Context, orderID int64) ([]SalesOrderDocument, error) {
+	return []SalesOrderDocument{{ID: 9, OrderID: orderID, OrderNo: "SO-TEST", VersionNo: 2, IsLatest: true}}, nil
+}
+
+func (r *fakeRepo) GenerateSalesOrderDocument(ctx context.Context, cmd GenerateSalesOrderDocumentCommand) (GenerateSalesOrderDocumentResult, error) {
+	r.generateCmd = cmd
+	return GenerateSalesOrderDocumentResult{Document: SalesOrderDocument{ID: 10, OrderID: cmd.OrderID, OrderNo: "SO-TEST", VersionNo: 1, IsLatest: true}}, nil
+}
+
+func (r *fakeRepo) LoadSalesOrderDocumentFile(ctx context.Context, orderID, documentID int64, latest bool) (SalesOrderDocumentFile, error) {
+	return SalesOrderDocumentFile{Document: SalesOrderDocument{ID: documentID, OrderID: orderID, OrderNo: "SO-TEST", VersionNo: 1}, Path: "/tmp/test.pdf", Filename: "SO-TEST-V1.pdf"}, nil
 }
 
 func TestServiceDelegatesSaveOrder(t *testing.T) {
@@ -322,5 +362,57 @@ func TestServiceNormalizesShipmentTrackingByOrderNo(t *testing.T) {
 	first := repo.orderNoTracking.Items[0]
 	if first.OrderNo != "SO-20260428-0001" || first.TrackingNo != "SF5199040648127" {
 		t.Fatalf("first normalized item = %+v", first)
+	}
+}
+
+func TestServiceOwnsSalesOrderSettingsUseCases(t *testing.T) {
+	repo := &fakeRepo{}
+	svc := NewService(repo)
+
+	if err := svc.SaveSalesOrderSettings(context.Background(), SaveSalesOrderSettingsCommand{
+		Actor:       " tester ",
+		CompanyName: " 浅焙作坊咖啡 ",
+		Note:        " 请密封保存 ",
+		PaymentText: " 微信或对公转账 ",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if repo.settingsCmd.Actor != "tester" || repo.settingsCmd.CompanyName != "浅焙作坊咖啡" || repo.settingsCmd.Note != "请密封保存" || repo.settingsCmd.PaymentText != "微信或对公转账" {
+		t.Fatalf("settings command = %+v", repo.settingsCmd)
+	}
+	if err := svc.SaveSalesOrderSettings(context.Background(), SaveSalesOrderSettingsCommand{CompanyName: ""}); err == nil {
+		t.Fatal("SaveSalesOrderSettings empty company error = nil")
+	}
+
+	got, err := svc.LoadSalesOrderSettings(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.CompanyName != "浅焙作坊咖啡" {
+		t.Fatalf("LoadSalesOrderSettings() = %+v", got)
+	}
+}
+
+func TestServiceOwnsSalesOrderDocumentUseCases(t *testing.T) {
+	repo := &fakeRepo{}
+	svc := NewService(repo)
+
+	doc, err := svc.GenerateSalesOrderDocument(context.Background(), GenerateSalesOrderDocumentCommand{Actor: " sales ", OrderID: 18})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if doc.Document.VersionNo != 1 || repo.generateCmd.Actor != "sales" || repo.generateCmd.OrderID != 18 {
+		t.Fatalf("document=%+v command=%+v", doc, repo.generateCmd)
+	}
+	if _, err := svc.GenerateSalesOrderDocument(context.Background(), GenerateSalesOrderDocumentCommand{OrderID: 0}); err == nil {
+		t.Fatal("GenerateSalesOrderDocument invalid order error = nil")
+	}
+
+	docs, err := svc.ListSalesOrderDocuments(context.Background(), 18)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(docs) != 1 || docs[0].OrderID != 18 {
+		t.Fatalf("ListSalesOrderDocuments() = %+v", docs)
 	}
 }
