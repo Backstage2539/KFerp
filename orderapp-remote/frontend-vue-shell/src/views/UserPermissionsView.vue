@@ -26,8 +26,8 @@
                   {{ accountOf(employee.id).login_enabled ? '可登录' : '已停用' }}
                 </label>
                 <div class="password-row">
-                  <input v-model.trim="passwordMap[String(employee.id)]" type="password" placeholder="新密码" />
-                  <button class="secondary" type="button" @click="resetPassword(employee.id)" :disabled="saving || !passwordMap[String(employee.id)]">重置</button>
+                  <input v-model.trim="passwordMap[String(employee.id)]" type="password" :placeholder="passwordPlaceholder(employee.id)" />
+                  <button class="secondary" type="button" @click="savePassword(employee.id)" :disabled="saving || !passwordMap[String(employee.id)]">{{ passwordActionLabel(employee.id) }}</button>
                 </div>
               </td>
               <td>
@@ -73,6 +73,16 @@ function selectedRoles(employeeId) {
 
 function accountOf(employeeId) {
   return accountMap[String(employeeId)] || { login_enabled: true, has_password: false }
+}
+
+function passwordActionLabel(employeeId) {
+  const { has_password } = accountOf(employeeId)
+  return has_password ? '重置密码' : '设置密码'
+}
+
+function passwordPlaceholder(employeeId) {
+  const { has_password } = accountOf(employeeId)
+  return has_password ? '新密码' : '设置密码'
 }
 
 function toggleRole(employeeId, roleCode, checked) {
@@ -132,7 +142,7 @@ async function setEnabled(employeeId, loginEnabled) {
   }
 }
 
-async function resetPassword(employeeId) {
+async function savePassword(employeeId) {
   saving.value = true
   error.value = ''
   ok.value = false
@@ -142,7 +152,7 @@ async function resetPassword(employeeId) {
     ok.value = true
     await load()
   } catch (err) {
-    error.value = err.message || '重置失败'
+    error.value = err.message || '密码保存失败'
   } finally {
     saving.value = false
   }
@@ -179,7 +189,7 @@ th { background: #f8fafc; }
 .role { display: inline-flex; align-items: center; gap: 5px; margin: 0 12px 8px 0; white-space: nowrap; }
 .account-cell { min-width: 240px; }
 .switch { display: inline-flex; align-items: center; gap: 6px; margin-bottom: 8px; white-space: nowrap; }
-.password-row { display: grid; grid-template-columns: minmax(120px, 1fr) 70px; gap: 6px; }
+.password-row { display: grid; grid-template-columns: minmax(130px, 1fr) 88px; gap: 6px; }
 .password-row input { height: 34px; border: 1px solid #cfc8bf; border-radius: 6px; padding: 6px 8px; }
 button { height: 38px; border-radius: 6px; border: 1px solid #1f1f1f; padding: 0 12px; font: inherit; cursor: pointer; }
 .primary { background: #1f1f1f; color: #fff; }

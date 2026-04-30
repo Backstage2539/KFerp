@@ -122,6 +122,20 @@ func TestVueShellUsesDefaultMenuExpansionAfterFreshLogin(t *testing.T) {
 	}
 }
 
+func TestUserPermissionsDistinguishesSetAndResetPasswordLabels(t *testing.T) {
+	src := readSupportTestFile(t, "frontend-vue-shell/src/views/UserPermissionsView.vue")
+	for _, want := range []string{
+		"passwordActionLabel(employee.id)",
+		"has_password ? '重置密码' : '设置密码'",
+		"passwordPlaceholder(employee.id)",
+		"savePassword(employee.id)",
+	} {
+		if !strings.Contains(src, want) {
+			t.Fatalf("UserPermissionsView.vue missing %q", want)
+		}
+	}
+}
+
 func readSupportTestFile(t *testing.T, path string) string {
 	t.Helper()
 	b, err := os.ReadFile(path)
