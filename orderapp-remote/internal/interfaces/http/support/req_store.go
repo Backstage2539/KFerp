@@ -624,6 +624,11 @@ func seedReqWorkflowA(ctx context.Context, pool *pgxpool.Pool, schema string) er
 		{table: "req_unit", code: "UT-120-01", title: "单测覆盖质检中文状态归一化、原料批次追溯结构、Vue 入口参数 wiring、录单客户抽屉和收件信息解析", status: "done", assignee: "Codex", evidence: "TestServiceOwnsManufacturingGapUseCases; TestVueStockWorkspaceIncludesFinishedTransferAndTraceLookup; customer-recipient.test.js; dev_120 source guards"},
 		{table: "req_api", code: "API-120-01", title: "API 测试覆盖生产质检创建、生产验收 view_params 返回、库存追溯接口原料批次 fallback 和客户新增接口复用", status: "done", assignee: "Codex", evidence: "TestManufacturingGapAPIs; TestStockAPIRoutes; TestCustomerAPIStoresCompanyContactFields"},
 		{table: "req_review", code: "REV-120-01", prCode: "PR-120", title: "验收：WO-0000000020 质检可保存待定/不通过；仓库批次可解释 LEGACY-MAT；生产验收打开对应仓库；录单可抽屉新增客户并自动识别地址", status: "todo", assignee: "VA", evidence: "待 Van 服务器验收"},
+		{table: "req_product", code: "PR-121", title: "用户权限页密码操作文案必须区分首次设置和已有密码重置", status: "review", assignee: "VA", evidence: "codex/password-action-label-20260501"},
+		{table: "req_dev", code: "DEV-121-01", title: "用户权限页根据 auth_accounts.has_password 显示设置密码或重置密码，并同步输入框占位文案", status: "done", assignee: "Codex", evidence: "UserPermissionsView passwordActionLabel/passwordPlaceholder"},
+		{table: "req_unit", code: "UT-121-01", title: "单测覆盖用户权限页必须包含设置密码/重置密码的状态化文案", status: "done", assignee: "Codex", evidence: "TestUserPermissionsDistinguishesSetAndResetPasswordLabels"},
+		{table: "req_api", code: "API-121-01", title: "API/线上 smoke 覆盖账号列表 has_password 状态可驱动页面显示设置密码或重置密码", status: "done", assignee: "Codex", evidence: "GET /api/auth/accounts; postdeploy browser smoke"},
+		{table: "req_review", code: "REV-121-01", prCode: "PR-121", title: "验收：无密码员工看到设置密码，已有密码员工看到重置密码，管理员不会把首次创建密码理解为重置", status: "todo", assignee: "VA", evidence: "待 Van 服务器验收"},
 	} {
 		if err := seedReqRow(ctx, pool, schema, row); err != nil {
 			return err
