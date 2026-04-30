@@ -100,6 +100,16 @@ func TestSalesOrderPDFMultilineTextAndSealPositionHelpers(t *testing.T) {
 	}
 }
 
+func TestSalesOrderImageTypeDetectsJPEGMagicForUnknownExtension(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "wechat.pic")
+	if err := os.WriteFile(path, []byte{0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, 'J', 'F', 'I', 'F'}, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if got := salesOrderImageType("image/pict", path); got != "JPG" {
+		t.Fatalf("salesOrderImageType(.pic JPEG) = %q, want JPG", got)
+	}
+}
+
 func writeTestPNG(t *testing.T, path string) {
 	t.Helper()
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {

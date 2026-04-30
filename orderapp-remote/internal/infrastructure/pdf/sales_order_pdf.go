@@ -208,9 +208,29 @@ func salesOrderImageType(contentType, path string) string {
 		return "JPG"
 	case ".gif":
 		return "GIF"
-	default:
+	}
+	return salesOrderImageTypeByMagic(path)
+}
+
+func salesOrderImageTypeByMagic(path string) string {
+	f, err := os.Open(path)
+	if err != nil {
 		return ""
 	}
+	defer f.Close()
+	buf := make([]byte, 12)
+	n, _ := f.Read(buf)
+	head := buf[:n]
+	if len(head) >= 3 && head[0] == 0xff && head[1] == 0xd8 && head[2] == 0xff {
+		return "JPG"
+	}
+	if bytes.HasPrefix(head, []byte{0x89, 'P', 'N', 'G', '\r', '\n', 0x1a, '\n'}) {
+		return "PNG"
+	}
+	if bytes.HasPrefix(head, []byte("GIF87a")) || bytes.HasPrefix(head, []byte("GIF89a")) {
+		return "GIF"
+	}
+	return ""
 }
 
 func fitSalesOrderImage(info *gofpdf.ImageInfoType, maxW, maxH float64) (float64, float64) {

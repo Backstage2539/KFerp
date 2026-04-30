@@ -42,7 +42,7 @@ func TestLogoutEndpointRequiresAuthentication(t *testing.T) {
 }
 
 func TestVueShellCanLoadBeforeBearerAPIAuth(t *testing.T) {
-	for _, path := range []string{"/vue-shell", "/vue-shell/assets/index.js"} {
+	for _, path := range []string{"/vue-shell", "/vue-shell/assets/index.js", "/assets/sales_order_assets/payment_code/qr.pic"} {
 		if !isPublicUnauthenticatedPath(path) {
 			t.Fatalf("%s must be public so mobile login can load the Vue shell before API calls attach Bearer token", path)
 		}

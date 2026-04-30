@@ -8,6 +8,8 @@ import (
 	"net/http/httptest"
 	salesapp "orderapp/internal/application/sales"
 	postgressales "orderapp/internal/infrastructure/postgres/sales"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -42,6 +44,27 @@ func TestSalesOrderSettingsAPI(t *testing.T) {
 		if !strings.Contains(rec.Body.String(), want) {
 			t.Fatalf("POST response missing %s: %s", want, rec.Body.String())
 		}
+	}
+}
+
+func TestSalesOrderSettingsServesSalesOrderAssets(t *testing.T) {
+	assetDir := t.TempDir()
+	assetPath := filepath.Join(assetDir, "sales_order_assets", "payment_code", "qr.pic")
+	if err := os.MkdirAll(filepath.Dir(assetPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(assetPath, []byte("asset-bytes"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	e := echo.New()
+	registerSalesOrderSettingsRoutes(e, salesapp.NewService(nil), assetDir)
+
+	req := httptest.NewRequest(http.MethodGet, "/assets/sales_order_assets/payment_code/qr.pic", nil)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK || rec.Body.String() != "asset-bytes" {
+		t.Fatalf("asset route status=%d body=%q", rec.Code, rec.Body.String())
 	}
 }
 

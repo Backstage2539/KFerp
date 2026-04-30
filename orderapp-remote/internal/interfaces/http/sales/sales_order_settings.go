@@ -55,6 +55,7 @@ func registerSalesOrderSettingsRoutes(e *echo.Echo, salesSvc *salesapp.Service, 
 	e.PUT("/api/settings/sales-order/payment-codes/:id", h.updatePaymentCode)
 	e.DELETE("/api/settings/sales-order/payment-codes/:id", h.deletePaymentCode)
 	e.POST("/api/settings/sales-order/seal", h.uploadSeal)
+	e.Static("/assets/sales_order_assets", filepath.Join(assetDir, "sales_order_assets"))
 }
 
 func (h salesOrderSettingsHandler) get(c echo.Context) error {
