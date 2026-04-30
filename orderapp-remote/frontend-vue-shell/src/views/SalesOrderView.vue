@@ -6,8 +6,9 @@
         <div class="actions">
           <a class="secondary link-button" href="/vue-shell?view=orders">返回订单列表</a>
           <button class="secondary" type="button" @click="openCustomerDrawer" :disabled="!customerSummary.id">客户信息</button>
+          <button class="secondary" type="button" @click="loadPreview" :disabled="previewLoading || !orderID">{{ previewLoading ? '预览中' : '刷新预览' }}</button>
           <a v-if="documents.length" class="secondary link-button" :href="salesOrderDownloadUrl(orderID)" target="_blank" rel="noopener">下载最新版</a>
-          <button class="primary" type="button" @click="generate" :disabled="generating || !orderID">{{ generating ? '生成中' : '生成销售单 PDF' }}</button>
+          <button class="primary" type="button" @click="generate" :disabled="generating || !orderID || !preview">{{ generating ? '生成中' : '确认生成 PDF' }}</button>
         </div>
       </div>
       <div v-if="error" class="error">{{ error }}</div>
@@ -22,11 +23,57 @@
         <summary>销售单手册</summary>
         <ul>
           <li>首次生成销售单为 V1，同一订单再次生成会创建 V2，不覆盖旧文件。</li>
-          <li>生成前可点“客户信息”维护客户公司名称、公司地址、联系电话；公司名称为空时默认使用客户名。</li>
+          <li>生成前先查看“销售单预览”；客户信息调整后可刷新预览，确认内容后再生成 PDF。</li>
           <li>销售单内容按生成时的订单和设置保存快照，后续修改设置不会改动旧版本。</li>
           <li>需要给客户最新文件时使用“下载最新版”，需要追溯时下载指定历史版本。</li>
         </ul>
       </details>
+    </section>
+
+    <section class="panel">
+      <div class="panel-head">
+        <h3>销售单预览 <span v-if="preview" class="version-tag">V{{ preview.next_version_no }}</span></h3>
+        <button class="secondary" type="button" @click="loadPreview" :disabled="previewLoading || !orderID">{{ previewLoading ? '预览中' : '刷新预览' }}</button>
+      </div>
+      <div v-if="!preview" class="muted preview-empty">暂无预览</div>
+      <div v-else class="preview-box">
+        <div class="preview-title">
+          <strong>{{ preview.snapshot.company_name }}</strong>
+          <span>销售单 SALES ORDER</span>
+        </div>
+        <div class="preview-meta">
+          <span>订单号：{{ preview.snapshot.order_no }}</span>
+          <span>订单日期：{{ preview.snapshot.order_date || '-' }}</span>
+          <span>客户：{{ preview.snapshot.customer_name || '-' }}</span>
+          <span>客户公司：{{ preview.snapshot.customer_company_name || preview.snapshot.customer_name || '-' }}</span>
+          <span>联系电话：{{ preview.snapshot.customer_company_phone || '-' }}</span>
+          <span>公司地址：{{ preview.snapshot.customer_company_address || '-' }}</span>
+        </div>
+        <table>
+          <thead>
+            <tr><th>商品</th><th>规格</th><th>数量</th><th>单价</th><th>小计</th></tr>
+          </thead>
+          <tbody>
+            <tr v-for="(item, idx) in preview.snapshot.items" :key="`${item.name}-${idx}`">
+              <td>{{ item.name }}</td>
+              <td>{{ item.spec }}</td>
+              <td>{{ item.qty }}{{ item.unit }}</td>
+              <td>{{ item.unit_price }}</td>
+              <td>{{ item.line_total }}</td>
+            </tr>
+          </tbody>
+        </table>
+        <div class="preview-total">
+          <span>商品合计：{{ preview.snapshot.total_amount }}</span>
+          <span>运费：{{ preview.snapshot.shipping }}</span>
+          <span>优惠：{{ preview.snapshot.discount }}</span>
+          <strong>应收：{{ preview.snapshot.grand_total }}</strong>
+        </div>
+        <div v-if="preview.snapshot.note || preview.snapshot.payment_text" class="preview-notes">
+          <p v-if="preview.snapshot.note">{{ preview.snapshot.note }}</p>
+          <p v-if="preview.snapshot.payment_text">{{ preview.snapshot.payment_text }}</p>
+        </div>
+      </div>
     </section>
 
     <section class="panel">
@@ -102,10 +149,12 @@ import { apiGet, apiSend } from '../api/client'
 import { salesOrderDownloadUrl } from '../lib/sales-order'
 
 const loading = ref(false)
+const previewLoading = ref(false)
 const generating = ref(false)
 const error = ref('')
 const message = ref('')
 const documents = ref([])
+const preview = ref(null)
 const drawerOpen = ref(false)
 const savingCustomer = ref(false)
 const customerSummary = reactive(emptyCustomer())
@@ -128,8 +177,27 @@ async function load() {
   }
 }
 
-async function generate() {
+async function loadPage() {
+  await load()
+  await loadPreview()
+}
+
+async function loadPreview() {
   if (!orderID.value) return
+  previewLoading.value = true
+  error.value = ''
+  try {
+    preview.value = await apiGet(`/api/orders/${orderID.value}/sales-order-preview`)
+  } catch (err) {
+    preview.value = null
+    error.value = err.message || '加载销售单预览失败'
+  } finally {
+    previewLoading.value = false
+  }
+}
+
+async function generate() {
+  if (!orderID.value || !preview.value) return
   generating.value = true
   error.value = ''
   message.value = ''
@@ -137,6 +205,7 @@ async function generate() {
     const data = await apiSend(`/api/orders/${orderID.value}/sales-orders`)
     message.value = `已生成 V${data.version_no}`
     await load()
+    await loadPreview()
   } catch (err) {
     error.value = err.message || '生成失败'
   } finally {
@@ -222,6 +291,7 @@ async function saveCustomer() {
     assignCustomer(customerForm, data.customer || {})
     assignCustomer(customerSummary, data.customer || {})
     message.value = '客户信息已保存'
+    await loadPreview()
   } catch (err) {
     error.value = err.message || '保存客户信息失败'
   } finally {
@@ -229,7 +299,7 @@ async function saveCustomer() {
   }
 }
 
-onMounted(load)
+onMounted(loadPage)
 </script>
 
 <style scoped>
@@ -255,6 +325,17 @@ th, td { border-bottom: 1px solid #eee8df; padding: 9px 8px; text-align: left; }
 th { background: #fbfaf8; }
 .text-link { color: #1f4f82; text-decoration: none; }
 .muted { color: #666; text-align: center; }
+.version-tag { display: inline-block; margin-left: 6px; border: 1px solid #d0d0d0; border-radius: 999px; padding: 1px 7px; color: #555; font-size: 12px; vertical-align: middle; }
+.preview-empty { padding: 18px 0; }
+.preview-box { border: 1px solid #e5ded3; border-radius: 8px; padding: 14px; background: #fffdf9; }
+.preview-title { display: flex; justify-content: space-between; gap: 12px; border-bottom: 2px solid #1f1f1f; padding-bottom: 10px; margin-bottom: 10px; }
+.preview-title strong { font-size: 18px; }
+.preview-title span { font-weight: 800; }
+.preview-meta { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px 14px; margin-bottom: 12px; color: #555; }
+.preview-total { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 14px; padding-top: 12px; }
+.preview-total strong { font-size: 18px; }
+.preview-notes { border-top: 1px solid #eee2d4; margin-top: 12px; padding-top: 10px; color: #555; }
+.preview-notes p { margin: 4px 0; }
 .error, .ok { border-radius: 6px; padding: 9px; margin-bottom: 12px; }
 .error { background: #fff0f0; border: 1px solid #e6b7b7; color: #8a1f1f; }
 .ok { background: #f0fff0; border: 1px solid #b7d9b7; color: #246024; }
@@ -273,6 +354,7 @@ th { background: #fbfaf8; }
   .actions { justify-content: flex-start; }
   table { min-width: 760px; }
   .panel { overflow: auto; }
+  .preview-meta { grid-template-columns: 1fr; }
   .drawer { width: 100vw; }
 }
 </style>

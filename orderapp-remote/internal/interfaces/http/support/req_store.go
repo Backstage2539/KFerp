@@ -604,6 +604,13 @@ func seedReqWorkflowA(ctx context.Context, pool *pgxpool.Pool, schema string) er
 		{table: "req_unit", code: "UT-117-01", title: "单测覆盖客户公司字段 API 映射、销售单客户公司兜底和 Vue 抽屉源码守卫", status: "done", assignee: "Codex", evidence: "TestCustomerAPIStoresCompanyContactFields; TestSalesOrderVueExposesCustomerInfoDrawer"},
 		{table: "req_api", code: "API-117-01", title: "API 测试覆盖 POST/PUT 客户公司信息保存，以及未设置销售单公司名时生成销售单使用客户名兜底", status: "done", assignee: "Codex", evidence: "TestCustomerAPIStoresCompanyContactFields; TestSalesOrderDocumentAPIUsesCustomerCompanyFallback"},
 		{table: "req_review", code: "REV-117-01", prCode: "PR-117", title: "验收：客户录入可维护公司信息；销售单页面右侧抽屉可编辑客户信息；公司名为空时 PDF 使用客户名", status: "todo", assignee: "VA", evidence: "待 Van 服务器验收"},
+		{table: "req_product", code: "PR-118", title: "销售单生成前必须先显示销售单预览，确认后再生成；修复历史版本下载 invalid document id", status: "review", assignee: "VA", evidence: "codex/sales-order-preview-download-20260501"},
+		{table: "req_dev", code: "DEV-118-01", title: "新增销售单预览 API，复用生成快照逻辑返回下一版本号和预览内容，不创建销售单版本", status: "done", assignee: "Codex", evidence: "GET /api/orders/:id/sales-order-preview; PreviewSalesOrderDocument"},
+		{table: "req_dev", code: "DEV-118-02", title: "修复历史版本下载路由的 PDF document id 解析，兼容 .pdf 后缀和路由参数为空的回退解析", status: "done", assignee: "Codex", evidence: "parseSalesOrderDocumentID; /orders/:id/sales-orders/:doc_id.pdf"},
+		{table: "req_dev", code: "DEV-118-03", title: "销售单 Vue 页面展示销售单预览，确认生成按钮必须在预览加载后才能提交生成", status: "done", assignee: "Codex", evidence: "SalesOrderView preview panel and confirm button"},
+		{table: "req_unit", code: "UT-118-01", title: "单测覆盖销售单预览服务、PDF document id 解析和 Vue 预览确认源码守卫", status: "done", assignee: "Codex", evidence: "TestServiceOwnsSalesOrderDocumentUseCases; TestParseSalesOrderDocumentIDAcceptsPDFPathFallback; TestSalesOrderVueRequiresPreviewBeforeGenerate"},
+		{table: "req_api", code: "API-118-01", title: "API 测试覆盖预览接口不创建版本、确认生成仍从 V1 开始、历史版本 PDF 下载返回 application/pdf", status: "done", assignee: "Codex", evidence: "TestSalesOrderPreviewAPIDoesNotCreateDocumentVersion; TestSalesOrderDocumentAPI"},
+		{table: "req_review", code: "REV-118-01", prCode: "PR-118", title: "验收：SO-20260428-0001 历史销售单可下载；页面先展示预览，点击确认生成后才创建新版本", status: "todo", assignee: "VA", evidence: "待 Van 服务器验收"},
 	} {
 		if err := seedReqRow(ctx, pool, schema, row); err != nil {
 			return err
