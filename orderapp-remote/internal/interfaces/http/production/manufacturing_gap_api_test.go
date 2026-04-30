@@ -124,7 +124,15 @@ func (r *fakeManufacturingGapRepo) ReleaseWIPReservations(ctx context.Context, c
 	return productionapp.WIPReservationReleaseResult{ReleasedCount: 1, ReleasedG: 40000}, nil
 }
 func (r *fakeManufacturingGapRepo) AcceptanceSmoke(ctx context.Context) (productionapp.AcceptanceSmokeResult, error) {
-	return productionapp.AcceptanceSmokeResult{Rows: []productionapp.AcceptanceSmokeRow{{Code: "wip_stock", Title: "WIP库存", Status: "ok", Count: 1, Detail: "已有 WIP 批次", View: "warehouseInventory"}}}, nil
+	return productionapp.AcceptanceSmokeResult{Rows: []productionapp.AcceptanceSmokeRow{{
+		Code:       "wip_stock",
+		Title:      "WIP库存",
+		Status:     "ok",
+		Count:      1,
+		Detail:     "已有 WIP 批次",
+		View:       "warehouseInventory",
+		ViewParams: map[string]string{"warehouse": "wip", "item_type": "material"},
+	}}}, nil
 }
 
 func TestManufacturingGapAPIs(t *testing.T) {
@@ -241,7 +249,7 @@ func TestManufacturingGapAPIs(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("GET /api/produce/acceptance-smoke status=%d body=%s", rec.Code, rec.Body.String())
 	}
-	if !strings.Contains(rec.Body.String(), `"code":"wip_stock"`) || !strings.Contains(rec.Body.String(), `"view":"warehouseInventory"`) {
+	if !strings.Contains(rec.Body.String(), `"code":"wip_stock"`) || !strings.Contains(rec.Body.String(), `"view":"warehouseInventory"`) || !strings.Contains(rec.Body.String(), `"view_params":{"item_type":"material","warehouse":"wip"}`) {
 		t.Fatalf("acceptance smoke response missing checklist row: %s", rec.Body.String())
 	}
 }

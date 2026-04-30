@@ -609,6 +609,14 @@ func seedReqWorkflowA(ctx context.Context, pool *pgxpool.Pool, schema string) er
 		{table: "req_unit", code: "UT-118-01", title: "单测覆盖登录页 fresh_login 跳转和 Vue 工作台首登默认展开菜单源码守卫", status: "done", assignee: "Codex", evidence: "TestLoginPageSupportsUsernamePasswordAndDoesNotRequirePhoneForPassword; TestVueShellUsesDefaultMenuExpansionAfterFreshLogin"},
 		{table: "req_api", code: "API-118-01", title: "线上 smoke 覆盖 13800138075 登录后首屏菜单直接可见，auth/me 仍返回 admin 全权限", status: "done", assignee: "Codex", evidence: "postdeploy browser/API smoke"},
 		{table: "req_review", code: "REV-118-01", prCode: "PR-118", title: "验收：13800138075 登录后不刷新也能看到功能菜单，刷新前后菜单权限一致", status: "todo", assignee: "VA", evidence: "待 Van 服务器验收"},
+		{table: "req_product", code: "PR-119", title: "生产质检、仓库追溯、生产验收入口和录单新增客户抽屉修正：质检待定/不通过可保存，原料/LEGACY-MAT 批次可查询，验收打开对应仓库，录单可快速新增客户", status: "review", assignee: "VA", evidence: "codex/production-qa-fixes-customer-drawer-20260501"},
+		{table: "req_dev", code: "DEV-119-01", title: "生产质检服务接受中文范围和结果并归一化为 work_order/raw_material/finished_batch 与 pass/hold/reject", status: "done", assignee: "Codex", evidence: "normalizeQualityInspectionScope; normalizeQualityInspectionResult"},
+		{table: "req_dev", code: "DEV-119-02", title: "仓库库存批次追溯同时支持 FP 成品批次和 MB/LEGACY-MAT 原料批次，LEGACY-MAT 明确展示为系统升级期初批次和当前仓库位置", status: "done", assignee: "Codex", evidence: "GetStockTrace material_batch fallback; WarehouseInventoryView material trace"},
+		{table: "req_dev", code: "DEV-119-03", title: "生产验收检查项返回 view_params，点击仓库相关入口时进入对应仓库和库存类型，而不是全部仓库", status: "done", assignee: "Codex", evidence: "AcceptanceSmokeRow.view_params; App.vue currentViewParams; WarehouseInventoryView viewParams"},
+		{table: "req_dev", code: "DEV-119-04", title: "录单页支持抽屉式新增客户，粘贴收件信息自动识别姓名/电话/地址，并默认客户来源微信、订单类型批发", status: "done", assignee: "Codex", evidence: "OrderEntryView customerDrawerOpen; customer-recipient.js"},
+		{table: "req_unit", code: "UT-119-01", title: "单测覆盖质检中文状态归一化、原料批次追溯结构、Vue 入口参数 wiring、录单客户抽屉和收件信息解析", status: "done", assignee: "Codex", evidence: "TestServiceOwnsManufacturingGapUseCases; TestVueStockWorkspaceIncludesFinishedTransferAndTraceLookup; customer-recipient.test.js; dev_119 source guards"},
+		{table: "req_api", code: "API-119-01", title: "API 测试覆盖生产质检创建、生产验收 view_params 返回、库存追溯接口原料批次 fallback 和客户新增接口复用", status: "done", assignee: "Codex", evidence: "TestManufacturingGapAPIs; TestStockAPIRoutes; TestCustomerAPIStoresCompanyContactFields"},
+		{table: "req_review", code: "REV-119-01", prCode: "PR-119", title: "验收：WO-0000000020 质检可保存待定/不通过；仓库批次可解释 LEGACY-MAT；生产验收打开对应仓库；录单可抽屉新增客户并自动识别地址", status: "todo", assignee: "VA", evidence: "待 Van 服务器验收"},
 	} {
 		if err := seedReqRow(ctx, pool, schema, row); err != nil {
 			return err

@@ -210,10 +210,28 @@ type TraceMaterial struct {
 	MaterialBatchCode string `json:"material_batch_code"`
 }
 
+type TraceMaterialBatch struct {
+	ID           int64   `json:"id"`
+	BatchCode    string  `json:"batch_code"`
+	MaterialID   int64   `json:"material_id"`
+	MaterialName string  `json:"material_name"`
+	Supplier     string  `json:"supplier"`
+	ReceiptID    int64   `json:"receipt_id"`
+	QtyG         int64   `json:"qty_g"`
+	RemainingG   int64   `json:"remaining_g"`
+	UnitCost     float64 `json:"unit_cost"`
+	ReceivedAt   string  `json:"received_at"`
+	Status       string  `json:"status"`
+	Note         string  `json:"note"`
+}
+
 type StockTraceResult struct {
-	FinishedBatch TraceFinishedBatch `json:"finished_batch"`
-	Production    TraceProduction    `json:"production"`
-	Materials     []TraceMaterial    `json:"materials"`
+	TraceType         string                     `json:"trace_type"`
+	FinishedBatch     TraceFinishedBatch         `json:"finished_batch"`
+	Production        TraceProduction            `json:"production"`
+	Materials         []TraceMaterial            `json:"materials"`
+	MaterialBatch     TraceMaterialBatch         `json:"material_batch"`
+	MaterialLocations []MaterialBatchLocationRow `json:"material_locations,omitempty"`
 }
 
 type MaterialTransferCommand struct {

@@ -33,7 +33,7 @@
             <td><span class="status" :class="row.status">{{ statusLabel(row.status) }}</span></td>
             <td>{{ Number(row.count || 0).toLocaleString('zh-CN') }}</td>
             <td>{{ row.detail || '-' }}</td>
-            <td><button class="link" type="button" @click="openView(row.view)" :disabled="!row.view">打开</button></td>
+            <td><button class="link" type="button" @click="openView(row)" :disabled="!row.view">打开</button></td>
           </tr>
           <tr v-if="!rows.length"><td colspan="5" class="muted">暂无检查结果</td></tr>
         </tbody>
@@ -78,9 +78,14 @@ function statusLabel(status) {
   return '待补'
 }
 
-function openView(view) {
-  if (!view) return
-  window.dispatchEvent(new CustomEvent('kferp:navigate-view', { detail: { key: view } }))
+function openView(row) {
+  if (!row?.view) return
+  window.dispatchEvent(new CustomEvent('kferp:navigate-view', {
+    detail: {
+      key: row.view,
+      params: row.view_params || {},
+    },
+  }))
 }
 
 async function load() {

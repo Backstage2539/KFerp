@@ -259,6 +259,32 @@ func TestServiceOwnsManufacturingGapUseCases(t *testing.T) {
 		t.Fatalf("quality operator was not trimmed: %+v", repo.qualityCommand)
 	}
 
+	created, err = svc.CreateQualityInspection(ctx, QualityInspectionCommand{
+		Scope:       "生产工单",
+		ReferenceNo: " WO-0000000020 ",
+		ItemName:    " 测试拼配 ",
+		Result:      "不通过",
+		Operator:    " 测试员 ",
+	})
+	if err != nil {
+		t.Fatalf("CreateQualityInspection should accept Chinese failed result: %v", err)
+	}
+	if created.Scope != "work_order" || created.ReferenceType != "work_order" || created.Result != "reject" {
+		t.Fatalf("quality Chinese failed result = %+v", created)
+	}
+
+	created, err = svc.CreateQualityInspection(ctx, QualityInspectionCommand{
+		Scope:       "work_order",
+		ReferenceNo: "WO-0000000020",
+		Result:      "待定",
+	})
+	if err != nil {
+		t.Fatalf("CreateQualityInspection should accept Chinese pending result: %v", err)
+	}
+	if created.Result != "hold" {
+		t.Fatalf("quality Chinese pending result = %+v, want hold", created)
+	}
+
 	rows, err := svc.ListQualityInspections(ctx, QualityInspectionQuery{Scope: " work_order ", Result: " pass ", Limit: 999})
 	if err != nil {
 		t.Fatal(err)
