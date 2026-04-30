@@ -78,6 +78,28 @@ func TestRenderSalesOrderPDFEmbedsPaymentCodeAndSealImages(t *testing.T) {
 	}
 }
 
+func TestSalesOrderPDFMultilineTextAndSealPositionHelpers(t *testing.T) {
+	lines := salesOrderMultilineLines("说明", "第一行\r\n第二行\n\n第四行")
+	wantLines := []string{"说明：第一行", "第二行", "", "第四行"}
+	if len(lines) != len(wantLines) {
+		t.Fatalf("lines=%+v want %+v", lines, wantLines)
+	}
+	for i := range wantLines {
+		if lines[i] != wantLines[i] {
+			t.Fatalf("lines[%d]=%q want %q", i, lines[i], wantLines[i])
+		}
+	}
+
+	pos := salesOrderSealPosition(0, 0, 0)
+	if pos.XMM <= 16 || pos.YMM <= 14 || pos.WidthMM <= 0 {
+		t.Fatalf("default seal position should stamp near company header, got %+v", pos)
+	}
+	custom := salesOrderSealPosition(42, 21, 38)
+	if custom.XMM != 42 || custom.YMM != 21 || custom.WidthMM != 38 {
+		t.Fatalf("custom seal position = %+v", custom)
+	}
+}
+
 func writeTestPNG(t *testing.T, path string) {
 	t.Helper()
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {

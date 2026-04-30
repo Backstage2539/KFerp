@@ -624,6 +624,13 @@ func seedReqWorkflowA(ctx context.Context, pool *pgxpool.Pool, schema string) er
 		{table: "req_unit", code: "UT-120-01", title: "单测覆盖质检中文状态归一化、原料批次追溯结构、Vue 入口参数 wiring、录单客户抽屉和收件信息解析", status: "done", assignee: "Codex", evidence: "TestServiceOwnsManufacturingGapUseCases; TestVueStockWorkspaceIncludesFinishedTransferAndTraceLookup; customer-recipient.test.js; dev_120 source guards"},
 		{table: "req_api", code: "API-120-01", title: "API 测试覆盖生产质检创建、生产验收 view_params 返回、库存追溯接口原料批次 fallback 和客户新增接口复用", status: "done", assignee: "Codex", evidence: "TestManufacturingGapAPIs; TestStockAPIRoutes; TestCustomerAPIStoresCompanyContactFields"},
 		{table: "req_review", code: "REV-120-01", prCode: "PR-120", title: "验收：WO-0000000020 质检可保存待定/不通过；仓库批次可解释 LEGACY-MAT；生产验收打开对应仓库；录单可抽屉新增客户并自动识别地址", status: "todo", assignee: "VA", evidence: "待 Van 服务器验收"},
+		{table: "req_product", code: "PR-122", title: "销售单预览与PDF一致：预览展示收款码和公章，说明/收款方式保留换行，公章可拖动盖在公司名称上，并新增全局公司设置", status: "review", assignee: "VA", evidence: "codex/sales-order-layout-settings-20260501"},
+		{table: "req_dev", code: "DEV-122-01", title: "新增全局公司设置表、API 和 Vue 设置页，销售单公司名称从全局公司设置读取，不再在销售单设置中维护", status: "done", assignee: "Codex", evidence: "company_profile; GET/POST /api/company/profile; CompanyProfileView"},
+		{table: "req_dev", code: "DEV-122-02", title: "销售单快照补充资产 URL 和公章位置，PDF 渲染收款方式/说明时保留换行，公章按坐标覆盖在公司名称上", status: "done", assignee: "Codex", evidence: "SalesOrderAssetRef URL/XMM/YMM/WidthMM; sales_order_pdf"},
+		{table: "req_dev", code: "DEV-122-03", title: "销售单预览页按 PDF 内容展示收款码、公章和多行文本；销售单设置页支持拖动公章位置", status: "done", assignee: "Codex", evidence: "SalesOrderView payment-code-preview/seal-stamp-preview; SalesOrderSettingsView seal-position-stage"},
+		{table: "req_unit", code: "UT-122-01", title: "单测覆盖公司设置服务、销售单设置公章坐标、PDF 多行文本和公章位置、Vue 源码守卫及菜单权限", status: "done", assignee: "Codex", evidence: "TestServiceValidatesAndNormalizesCompanyProfile; TestSalesOrderPDFMultilineTextAndSealPositionHelpers; TestSalesOrderLayoutCompanySettingsRequirementSeeds"},
+		{table: "req_api", code: "API-122-01", title: "API 测试覆盖全局公司设置保存/读取、销售单设置保存多行内容和公章坐标", status: "done", assignee: "Codex", evidence: "TestCompanyProfileAPI; TestSalesOrderSettingsAPI"},
+		{table: "req_review", code: "REV-122-01", prCode: "PR-122", title: "验收：销售单预览与下载 PDF 的收款码、公章、换行和公司名称一致；公章位置可拖动调整", status: "todo", assignee: "VA", evidence: "待 Van 服务器验收"},
 	} {
 		if err := seedReqRow(ctx, pool, schema, row); err != nil {
 			return err

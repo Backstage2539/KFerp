@@ -36,6 +36,9 @@ func requiredPermissionForRequest(method, path string) string {
 	if strings.HasPrefix(path, "/api/audit") {
 		return "audit.read"
 	}
+	if path == "/api/company/profile" {
+		return "settings.write"
+	}
 	if strings.HasPrefix(path, "/api/company/") {
 		return "company.manage"
 	}

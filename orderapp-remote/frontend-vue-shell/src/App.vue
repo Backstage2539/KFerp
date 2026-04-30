@@ -49,6 +49,7 @@ import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import AllocationLogsView from './views/AllocationLogsView.vue'
 import AuditView from './views/AuditView.vue'
 import BomView from './views/BomView.vue'
+import CompanyProfileView from './views/CompanyProfileView.vue'
 import CompanyStaffView from './views/CompanyStaffView.vue'
 import CostingSettingsView from './views/CostingSettingsView.vue'
 import CustomersView from './views/CustomersView.vue'
@@ -144,6 +145,7 @@ const internalViews = {
   inventory: InventoryView,
   quotePrint: ProductsView,
   machines: MachinesView,
+  companyProfile: CompanyProfileView,
   salesOrderSettings: SalesOrderSettingsView,
   senderSettings: SenderSettingsView,
   outsourceSettings: OutsourceSettingsView,

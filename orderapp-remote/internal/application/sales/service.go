@@ -383,6 +383,9 @@ type SalesOrderSettings struct {
 	CompanyName  string                  `json:"company_name"`
 	Note         string                  `json:"note"`
 	PaymentText  string                  `json:"payment_text"`
+	SealXMM      float64                 `json:"seal_x_mm"`
+	SealYMM      float64                 `json:"seal_y_mm"`
+	SealWidthMM  float64                 `json:"seal_width_mm"`
 	Seal         *SalesOrderAsset        `json:"seal,omitempty"`
 	PaymentCodes []SalesOrderPaymentCode `json:"payment_codes"`
 }
@@ -411,10 +414,13 @@ type SalesOrderPaymentCode struct {
 }
 
 type SaveSalesOrderSettingsCommand struct {
-	Actor       string `json:"actor"`
-	CompanyName string `json:"company_name"`
-	Note        string `json:"note"`
-	PaymentText string `json:"payment_text"`
+	Actor       string  `json:"actor"`
+	CompanyName string  `json:"company_name"`
+	Note        string  `json:"note"`
+	PaymentText string  `json:"payment_text"`
+	SealXMM     float64 `json:"seal_x_mm"`
+	SealYMM     float64 `json:"seal_y_mm"`
+	SealWidthMM float64 `json:"seal_width_mm"`
 }
 
 type SaveSalesOrderAssetCommand struct {
@@ -867,6 +873,15 @@ func (s *Service) SaveSalesOrderSettings(ctx context.Context, cmd SaveSalesOrder
 	cmd.CompanyName = strings.TrimSpace(cmd.CompanyName)
 	cmd.Note = strings.TrimSpace(cmd.Note)
 	cmd.PaymentText = strings.TrimSpace(cmd.PaymentText)
+	if cmd.SealXMM <= 0 {
+		cmd.SealXMM = 32
+	}
+	if cmd.SealYMM <= 0 {
+		cmd.SealYMM = 22
+	}
+	if cmd.SealWidthMM <= 0 {
+		cmd.SealWidthMM = 42
+	}
 	return s.repo.SaveSalesOrderSettings(ctx, cmd)
 }
 

@@ -164,6 +164,9 @@ func ensureSalesOrderTables(ctx context.Context, pool *pgxpool.Pool, schema stri
 			note TEXT NOT NULL DEFAULT '',
 			payment_text TEXT NOT NULL DEFAULT '',
 			seal_asset_id BIGINT REFERENCES %s.sales_order_assets(id),
+			seal_x_mm NUMERIC(8,2) NOT NULL DEFAULT 32,
+			seal_y_mm NUMERIC(8,2) NOT NULL DEFAULT 22,
+			seal_width_mm NUMERIC(8,2) NOT NULL DEFAULT 42,
 			updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
 			updated_by TEXT NOT NULL DEFAULT '',
 			CONSTRAINT sales_order_settings_singleton CHECK (id = 1)
@@ -193,6 +196,15 @@ func ensureSalesOrderTables(ctx context.Context, pool *pgxpool.Pool, schema stri
 		fmt.Sprintf(`CREATE UNIQUE INDEX IF NOT EXISTS idx_%s_sales_order_latest ON %s.sales_order_documents(order_id) WHERE is_latest`, schema, schema),
 	}
 	for _, stmt := range stmts {
+		if _, err := pool.Exec(ctx, stmt); err != nil {
+			return err
+		}
+	}
+	for _, stmt := range []string{
+		fmt.Sprintf(`ALTER TABLE %s.sales_order_settings ADD COLUMN IF NOT EXISTS seal_x_mm NUMERIC(8,2) NOT NULL DEFAULT 32`, schema),
+		fmt.Sprintf(`ALTER TABLE %s.sales_order_settings ADD COLUMN IF NOT EXISTS seal_y_mm NUMERIC(8,2) NOT NULL DEFAULT 22`, schema),
+		fmt.Sprintf(`ALTER TABLE %s.sales_order_settings ADD COLUMN IF NOT EXISTS seal_width_mm NUMERIC(8,2) NOT NULL DEFAULT 42`, schema),
+	} {
 		if _, err := pool.Exec(ctx, stmt); err != nil {
 			return err
 		}

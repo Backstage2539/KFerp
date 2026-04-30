@@ -170,6 +170,7 @@ func defaultViewPermissions() map[string]string {
 		"costing":              "costing.read",
 		"costingSettings":      "costing.write",
 		"machines":             "settings.write",
+		"companyProfile":       "settings.write",
 		"salesOrderSettings":   "settings.write",
 		"senderSettings":       "settings.write",
 		"outsourceSettings":    "settings.write",

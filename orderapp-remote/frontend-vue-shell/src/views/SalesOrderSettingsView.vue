@@ -9,8 +9,7 @@
       <div v-if="ok" class="ok">已保存</div>
 
       <div class="form-grid">
-        <label><span>公司名称</span><input v-model.trim="form.company_name" /></label>
-        <label><span>收款方式</span><input v-model.trim="form.payment_text" /></label>
+        <label class="wide"><span>收款方式</span><textarea v-model.trim="form.payment_text" rows="2"></textarea></label>
         <label class="wide"><span>个性化说明</span><textarea v-model.trim="form.note" rows="3"></textarea></label>
       </div>
       <div class="actions">
@@ -19,9 +18,9 @@
       <details class="manual">
         <summary>销售单设置手册</summary>
         <ul>
-          <li>公司名称、说明和收款方式会进入之后新生成的销售单快照。</li>
+          <li>公司名称在“公司设置”里维护；本页只维护销售单说明、收款方式、收款码和公章。</li>
           <li>收款码支持多个，名称和说明会随 PDF 一起展示。</li>
-          <li>公章重新上传后只影响新生成版本，已生成历史版本不变。</li>
+          <li>公章建议上传无背景 PNG，可拖动调整盖在公司名称上的位置；重新上传或调整后只影响新生成版本。</li>
         </ul>
       </details>
     </section>
@@ -63,12 +62,35 @@
         <input type="file" accept="image/*" @change="handleSealFile" />
         <button class="primary" type="button" @click="uploadSeal" :disabled="uploadingSeal || !sealFile">上传公章</button>
       </div>
+      <div class="seal-position">
+        <div
+          ref="sealStage"
+          class="seal-position-stage"
+          @pointerdown="startSealDrag"
+        >
+          <div class="company-line">公司：公司名称</div>
+          <img
+            v-if="settings.seal?.url"
+            class="seal-drag-image"
+            :src="settings.seal.url"
+            alt="公章"
+            :style="sealDragStyle"
+          />
+          <div v-else class="seal-placeholder" :style="sealDragStyle">公章</div>
+        </div>
+        <div class="seal-position-fields">
+          <label><span>X(mm)</span><input v-model.number="form.seal_x_mm" type="number" min="0" step="1" /></label>
+          <label><span>Y(mm)</span><input v-model.number="form.seal_y_mm" type="number" min="0" step="1" /></label>
+          <label><span>宽(mm)</span><input v-model.number="form.seal_width_mm" type="number" min="20" step="1" /></label>
+        </div>
+      </div>
     </section>
   </div>
 </template>
 
 <script setup>
-import { onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
+import { apiGet, apiSend } from '../api/client'
 
 const loading = ref(false)
 const saving = ref(false)
@@ -79,11 +101,14 @@ const ok = ref(false)
 const settings = ref({})
 const paymentFile = ref(null)
 const sealFile = ref(null)
+const sealStage = ref(null)
 
 const form = reactive({
-  company_name: '',
   note: '',
   payment_text: '',
+  seal_x_mm: 32,
+  seal_y_mm: 22,
+  seal_width_mm: 42,
 })
 
 const paymentForm = reactive({
@@ -94,19 +119,29 @@ const paymentForm = reactive({
 
 function assignSettings(data) {
   settings.value = data || {}
-  form.company_name = data?.company_name || ''
   form.note = data?.note || ''
   form.payment_text = data?.payment_text || ''
+  form.seal_x_mm = Number(data?.seal_x_mm || 32)
+  form.seal_y_mm = Number(data?.seal_y_mm || 22)
+  form.seal_width_mm = Number(data?.seal_width_mm || 42)
 }
+
+const sealDragStyle = computed(() => {
+  const scale = 2.2
+  const width = Math.max(20, Number(form.seal_width_mm || 42)) * scale
+  return {
+    left: `${Math.max(0, Number(form.seal_x_mm || 0)) * scale}px`,
+    top: `${Math.max(0, Number(form.seal_y_mm || 0)) * scale}px`,
+    width: `${width}px`,
+    height: `${width * 0.62}px`,
+  }
+})
 
 async function load() {
   loading.value = true
   error.value = ''
   try {
-    const res = await fetch('/api/settings/sales-order')
-    const data = await res.json()
-    if (!res.ok) throw new Error(data.error || '加载失败')
-    assignSettings(data)
+    assignSettings(await apiGet('/api/settings/sales-order'))
   } catch (err) {
     error.value = err.message || '加载失败'
   } finally {
@@ -114,19 +149,32 @@ async function load() {
   }
 }
 
+function startSealDrag(event) {
+  if (!sealStage.value) return
+  const stage = sealStage.value
+  const rect = stage.getBoundingClientRect()
+  const scaleX = 210 / rect.width
+  const scaleY = 84 / rect.height
+  const update = (clientX, clientY) => {
+    form.seal_x_mm = Math.max(0, Math.round((clientX - rect.left) * scaleX))
+    form.seal_y_mm = Math.max(0, Math.round((clientY - rect.top) * scaleY))
+  }
+  update(event.clientX, event.clientY)
+  const move = (moveEvent) => update(moveEvent.clientX, moveEvent.clientY)
+  const up = () => {
+    window.removeEventListener('pointermove', move)
+    window.removeEventListener('pointerup', up)
+  }
+  window.addEventListener('pointermove', move)
+  window.addEventListener('pointerup', up, { once: true })
+}
+
 async function save() {
   saving.value = true
   error.value = ''
   ok.value = false
   try {
-    const res = await fetch('/api/settings/sales-order', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(form),
-    })
-    const data = await res.json()
-    if (!res.ok) throw new Error(data.error || '保存失败')
-    assignSettings(data)
+    assignSettings(await apiSend('/api/settings/sales-order', { body: { ...form } }))
     ok.value = true
   } catch (err) {
     error.value = err.message || '保存失败'
@@ -153,9 +201,7 @@ async function uploadPaymentCode() {
     body.append('label', paymentForm.label || paymentFile.value.name)
     body.append('description', paymentForm.description)
     body.append('sort', String(paymentForm.sort || 0))
-    const res = await fetch('/api/settings/sales-order/payment-codes', { method: 'POST', body })
-    const data = await res.json()
-    if (!res.ok) throw new Error(data.error || '上传失败')
+    await apiSend('/api/settings/sales-order/payment-codes', { body })
     paymentFile.value = null
     paymentForm.label = ''
     paymentForm.description = ''
@@ -173,9 +219,7 @@ async function deletePaymentCode(code) {
   saving.value = true
   error.value = ''
   try {
-    const res = await fetch(`/api/settings/sales-order/payment-codes/${code.id}`, { method: 'DELETE' })
-    const data = await res.json()
-    if (!res.ok) throw new Error(data.error || '停用失败')
+    await apiSend(`/api/settings/sales-order/payment-codes/${code.id}`, { method: 'DELETE' })
     await load()
   } catch (err) {
     error.value = err.message || '停用失败'
@@ -191,9 +235,7 @@ async function uploadSeal() {
   try {
     const body = new FormData()
     body.append('file', sealFile.value)
-    const res = await fetch('/api/settings/sales-order/seal', { method: 'POST', body })
-    const data = await res.json()
-    if (!res.ok) throw new Error(data.error || '上传失败')
+    await apiSend('/api/settings/sales-order/seal', { body })
     sealFile.value = null
     await load()
   } catch (err) {
@@ -230,6 +272,12 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .upload-row { display: grid; grid-template-columns: 180px 1fr 100px minmax(220px, 1fr) 90px; gap: 10px; align-items: center; margin-bottom: 12px; }
 .seal-row { grid-template-columns: 1fr minmax(220px, 1fr) 110px; }
 .current-seal { color: #555; }
+.seal-position { display: grid; grid-template-columns: minmax(320px, 462px) 1fr; gap: 12px; align-items: start; }
+.seal-position-stage { position: relative; width: 100%; aspect-ratio: 2.5 / 1; border: 1px dashed #d2c8bc; border-radius: 8px; background: #fffdf9; overflow: hidden; cursor: crosshair; }
+.company-line { position: absolute; left: 35px; top: 48px; font-weight: 700; }
+.seal-drag-image, .seal-placeholder { position: absolute; user-select: none; pointer-events: none; object-fit: contain; opacity: .86; }
+.seal-placeholder { border: 2px solid #b91c1c; border-radius: 999px; color: #b91c1c; display: grid; place-items: center; font-weight: 800; }
+.seal-position-fields { display: grid; grid-template-columns: repeat(3, minmax(80px, 1fr)); gap: 10px; }
 table { width: 100%; border-collapse: collapse; }
 th, td { border-bottom: 1px solid #eee8df; padding: 9px 8px; text-align: left; }
 th { background: #fbfaf8; }
@@ -239,6 +287,7 @@ th { background: #fbfaf8; }
 .ok { background: #f0fff0; border: 1px solid #b7d9b7; color: #246024; }
 @media (max-width: 900px) {
   .page { padding: 12px; }
-  .form-grid, .upload-row, .seal-row { grid-template-columns: 1fr; }
+  .form-grid, .upload-row, .seal-row, .seal-position { grid-template-columns: 1fr; }
+  .seal-position-fields { grid-template-columns: 1fr; }
 }
 </style>

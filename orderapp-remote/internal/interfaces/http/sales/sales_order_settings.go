@@ -24,9 +24,12 @@ type salesOrderSettingsHandler struct {
 }
 
 type salesOrderSettingsRequest struct {
-	CompanyName string `json:"company_name"`
-	Note        string `json:"note"`
-	PaymentText string `json:"payment_text"`
+	CompanyName string  `json:"company_name"`
+	Note        string  `json:"note"`
+	PaymentText string  `json:"payment_text"`
+	SealXMM     float64 `json:"seal_x_mm"`
+	SealYMM     float64 `json:"seal_y_mm"`
+	SealWidthMM float64 `json:"seal_width_mm"`
 }
 
 type salesOrderPaymentCodeRequest struct {
@@ -72,6 +75,9 @@ func (h salesOrderSettingsHandler) save(c echo.Context) error {
 		CompanyName: req.CompanyName,
 		Note:        req.Note,
 		PaymentText: req.PaymentText,
+		SealXMM:     req.SealXMM,
+		SealYMM:     req.SealYMM,
+		SealWidthMM: req.SealWidthMM,
 	}); err != nil {
 		return c.JSON(http.StatusBadRequest, map[string]any{"error": err.Error()})
 	}

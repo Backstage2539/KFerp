@@ -17,6 +17,13 @@ type SalesOrderRenderer struct {
 	AssetBaseDir string
 }
 
+type salesOrderSealBox struct {
+	XMM      float64
+	YMM      float64
+	WidthMM  float64
+	HeightMM float64
+}
+
 func (r SalesOrderRenderer) Render(snapshot salesdomain.SalesOrderSnapshot) ([]byte, error) {
 	if err := snapshot.Validate(); err != nil {
 		return nil, err
@@ -43,6 +50,9 @@ func (r SalesOrderRenderer) Render(snapshot salesdomain.SalesOrderSnapshot) ([]b
 	pdf.SetFont("noto", "", 10)
 	pdf.CellFormat(88, 7, "公司："+snapshot.CompanyName, "", 0, "L", false, 0, "")
 	pdf.CellFormat(0, 7, "订单号："+snapshot.OrderNo, "", 1, "R", false, 0, "")
+	if snapshot.Seal != nil {
+		r.renderSealStamp(pdf, *snapshot.Seal)
+	}
 	pdf.CellFormat(88, 7, "客户："+snapshot.CustomerName, "", 0, "L", false, 0, "")
 	pdf.CellFormat(0, 7, "日期："+snapshot.OrderDate, "", 1, "R", false, 0, "")
 	if snapshot.CustomerCompanyName != "" || snapshot.CustomerCompanyPhone != "" {
@@ -78,16 +88,13 @@ func (r SalesOrderRenderer) Render(snapshot salesdomain.SalesOrderSnapshot) ([]b
 	pdf.SetFont("noto", "", 10)
 	pdf.Ln(4)
 	if snapshot.PaymentText != "" {
-		pdf.MultiCell(0, 6, "收款方式："+snapshot.PaymentText, "", "L", false)
+		writeSalesOrderLabeledMultiline(pdf, "收款方式", snapshot.PaymentText)
 	}
 	for _, code := range snapshot.PaymentCodes {
 		r.renderAssetRef(pdf, code, "收款码", 36, 36)
 	}
 	if snapshot.Note != "" {
-		pdf.MultiCell(0, 6, "说明："+snapshot.Note, "", "L", false)
-	}
-	if snapshot.Seal != nil {
-		r.renderAssetRef(pdf, *snapshot.Seal, "公章", 42, 26)
+		writeSalesOrderLabeledMultiline(pdf, "说明", snapshot.Note)
 	}
 
 	if pdf.Error() != nil {
@@ -98,6 +105,44 @@ func (r SalesOrderRenderer) Render(snapshot salesdomain.SalesOrderSnapshot) ([]b
 		return nil, err
 	}
 	return buf.Bytes(), nil
+}
+
+func writeSalesOrderLabeledMultiline(pdf *gofpdf.Fpdf, label, text string) {
+	for _, line := range salesOrderMultilineLines(label, text) {
+		pdf.MultiCell(0, 6, line, "", "L", false)
+	}
+}
+
+func salesOrderMultilineLines(label, text string) []string {
+	text = strings.ReplaceAll(text, "\r\n", "\n")
+	text = strings.ReplaceAll(text, "\r", "\n")
+	lines := strings.Split(text, "\n")
+	if len(lines) == 0 {
+		return nil
+	}
+	prefix := strings.TrimSpace(label)
+	if prefix != "" {
+		lines[0] = prefix + "：" + lines[0]
+	}
+	return lines
+}
+
+func (r SalesOrderRenderer) renderSealStamp(pdf *gofpdf.Fpdf, ref salesdomain.SalesOrderAssetRef) {
+	path, ok := r.resolveAssetPath(ref.ObjectKey)
+	if !ok {
+		return
+	}
+	imageType := salesOrderImageType(ref.ContentType, path)
+	if imageType == "" {
+		return
+	}
+	opts := gofpdf.ImageOptions{ImageType: imageType, ReadDpi: true}
+	info := pdf.RegisterImageOptions(path, opts)
+	if info == nil || pdf.Error() != nil {
+		return
+	}
+	pos := salesOrderSealPosition(ref.XMM, ref.YMM, ref.WidthMM)
+	pdf.ImageOptions(path, pos.XMM, pos.YMM, pos.WidthMM, pos.HeightMM, false, opts, 0, "")
 }
 
 func (r SalesOrderRenderer) renderAssetRef(pdf *gofpdf.Fpdf, ref salesdomain.SalesOrderAssetRef, labelPrefix string, maxW, maxH float64) {
@@ -181,6 +226,19 @@ func fitSalesOrderImage(info *gofpdf.ImageInfoType, maxW, maxH float64) (float64
 		return maxW, maxH
 	}
 	return w * scale, h * scale
+}
+
+func salesOrderSealPosition(xMM, yMM, widthMM float64) salesOrderSealBox {
+	if xMM <= 0 {
+		xMM = 32
+	}
+	if yMM <= 0 {
+		yMM = 22
+	}
+	if widthMM <= 0 {
+		widthMM = 42
+	}
+	return salesOrderSealBox{XMM: xMM, YMM: yMM, WidthMM: widthMM, HeightMM: widthMM * 0.62}
 }
 
 func (r SalesOrderRenderer) resolveFontPath() (string, error) {

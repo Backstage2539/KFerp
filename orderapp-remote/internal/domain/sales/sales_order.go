@@ -38,11 +38,15 @@ type SalesOrderSnapshotItem struct {
 }
 
 type SalesOrderAssetRef struct {
-	ID          int64  `json:"id"`
-	Label       string `json:"label"`
-	Description string `json:"description"`
-	ObjectKey   string `json:"object_key"`
-	ContentType string `json:"content_type"`
+	ID          int64   `json:"id"`
+	Label       string  `json:"label"`
+	Description string  `json:"description"`
+	ObjectKey   string  `json:"object_key"`
+	ContentType string  `json:"content_type"`
+	URL         string  `json:"url"`
+	XMM         float64 `json:"x_mm,omitempty"`
+	YMM         float64 `json:"y_mm,omitempty"`
+	WidthMM     float64 `json:"width_mm,omitempty"`
 }
 
 func NextSalesOrderVersion(existing []int) int {

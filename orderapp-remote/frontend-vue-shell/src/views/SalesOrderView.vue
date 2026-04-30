@@ -40,6 +40,13 @@
         <div class="preview-title">
           <strong>{{ preview.snapshot.company_name }}</strong>
           <span>销售单 SALES ORDER</span>
+          <img
+            v-if="preview.snapshot.seal"
+            class="seal-stamp-preview"
+            :src="assetURL(preview.snapshot.seal)"
+            alt="公章"
+            :style="sealPositionStyle(preview.snapshot.seal)"
+          />
         </div>
         <div class="preview-meta">
           <span>订单号：{{ preview.snapshot.order_no }}</span>
@@ -69,9 +76,22 @@
           <span>优惠：{{ preview.snapshot.discount }}</span>
           <strong>应收：{{ preview.snapshot.grand_total }}</strong>
         </div>
-        <div v-if="preview.snapshot.note || preview.snapshot.payment_text" class="preview-notes">
-          <p v-if="preview.snapshot.note">{{ preview.snapshot.note }}</p>
-          <p v-if="preview.snapshot.payment_text">{{ preview.snapshot.payment_text }}</p>
+        <div v-if="preview.snapshot.payment_text" class="preview-notes">
+          <strong>收款方式</strong>
+          <p>{{ preview.snapshot.payment_text }}</p>
+        </div>
+        <div v-if="(preview.snapshot.payment_codes || []).length" class="payment-code-preview-list">
+          <div v-for="code in preview.snapshot.payment_codes" :key="`${code.id}-${code.label}`" class="payment-code-preview">
+            <img :src="assetURL(code)" :alt="code.label || '收款码'" />
+            <div>
+              <strong>{{ code.label || '收款码' }}</strong>
+              <span v-if="code.description">{{ code.description }}</span>
+            </div>
+          </div>
+        </div>
+        <div v-if="preview.snapshot.note" class="preview-notes">
+          <strong>说明</strong>
+          <p>{{ preview.snapshot.note }}</p>
         </div>
       </div>
     </section>
@@ -247,6 +267,24 @@ function assignCustomer(target, data = {}) {
   })
 }
 
+function assetURL(ref = {}) {
+  if (ref.url) return ref.url
+  return ref.object_key ? `/assets/${ref.object_key}` : ''
+}
+
+function sealPositionStyle(seal = {}) {
+  const scale = 2.2
+  const x = Number(seal.x_mm || 32)
+  const y = Number(seal.y_mm || 22)
+  const w = Number(seal.width_mm || 42)
+  return {
+    left: `${x * scale}px`,
+    top: `${y * scale}px`,
+    width: `${w * scale}px`,
+    height: `${w * 0.62 * scale}px`,
+  }
+}
+
 async function openCustomerDrawer() {
   if (!customerSummary.id) return
   loading.value = true
@@ -327,15 +365,21 @@ th { background: #fbfaf8; }
 .muted { color: #666; text-align: center; }
 .version-tag { display: inline-block; margin-left: 6px; border: 1px solid #d0d0d0; border-radius: 999px; padding: 1px 7px; color: #555; font-size: 12px; vertical-align: middle; }
 .preview-empty { padding: 18px 0; }
-.preview-box { border: 1px solid #e5ded3; border-radius: 8px; padding: 14px; background: #fffdf9; }
-.preview-title { display: flex; justify-content: space-between; gap: 12px; border-bottom: 2px solid #1f1f1f; padding-bottom: 10px; margin-bottom: 10px; }
+.preview-box { border: 1px solid #e5ded3; border-radius: 8px; padding: 14px; background: #fffdf9; position: relative; }
+.preview-title { position: relative; display: flex; justify-content: space-between; gap: 12px; border-bottom: 2px solid #1f1f1f; padding: 22px 0 10px; margin-bottom: 10px; min-height: 82px; }
 .preview-title strong { font-size: 18px; }
 .preview-title span { font-weight: 800; }
+.seal-stamp-preview { position: absolute; object-fit: contain; opacity: .86; pointer-events: none; }
 .preview-meta { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px 14px; margin-bottom: 12px; color: #555; }
 .preview-total { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 14px; padding-top: 12px; }
 .preview-total strong { font-size: 18px; }
 .preview-notes { border-top: 1px solid #eee2d4; margin-top: 12px; padding-top: 10px; color: #555; }
-.preview-notes p { margin: 4px 0; }
+.preview-notes p { margin: 4px 0; white-space: pre-line; }
+.payment-code-preview-list { display: flex; flex-wrap: wrap; gap: 14px; border-top: 1px solid #eee2d4; margin-top: 12px; padding-top: 12px; }
+.payment-code-preview { display: grid; grid-template-columns: 86px minmax(120px, 1fr); gap: 10px; align-items: center; min-width: 220px; }
+.payment-code-preview img { width: 86px; height: 86px; object-fit: contain; border: 1px solid #eee2d4; border-radius: 6px; background: #fff; }
+.payment-code-preview strong, .payment-code-preview span { display: block; }
+.payment-code-preview span { color: #666; margin-top: 4px; white-space: pre-line; }
 .error, .ok { border-radius: 6px; padding: 9px; margin-bottom: 12px; }
 .error { background: #fff0f0; border: 1px solid #e6b7b7; color: #8a1f1f; }
 .ok { background: #f0fff0; border: 1px solid #b7d9b7; color: #246024; }

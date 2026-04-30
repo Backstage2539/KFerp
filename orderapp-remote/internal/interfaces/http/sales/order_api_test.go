@@ -814,6 +814,15 @@ CREATE TABLE %s.customers (
 	default_source_id BIGINT,
 	default_order_type_id BIGINT
 );
+CREATE TABLE %s.company_profile (
+	id INTEGER PRIMARY KEY DEFAULT 1,
+	company_name TEXT NOT NULL DEFAULT '',
+	company_address TEXT NOT NULL DEFAULT '',
+	company_phone TEXT NOT NULL DEFAULT '',
+	updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+	updated_by TEXT NOT NULL DEFAULT '',
+	CONSTRAINT company_profile_singleton CHECK (id = 1)
+);
 CREATE TABLE %s.sources (
 	id BIGSERIAL PRIMARY KEY,
 	name TEXT NOT NULL
@@ -920,7 +929,7 @@ CREATE TABLE %s.sender_settings (
 	updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 INSERT INTO %s.sender_settings(id, sender_label, is_default, active) VALUES(1, '默认寄件人', true, true);
-`, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema)
+`, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema)
 }
 
 func writeOrderShippingTemplateForTest(t *testing.T, path string) {

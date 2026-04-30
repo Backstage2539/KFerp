@@ -20,14 +20,15 @@ import (
 func (r Repository) LoadSalesOrderSettings(ctx context.Context) (salesapp.SalesOrderSettings, error) {
 	var settings salesapp.SalesOrderSettings
 	q := fmt.Sprintf(`SELECT s.company_name, s.note, s.payment_text,
+			COALESCE(s.seal_x_mm,32)::float8, COALESCE(s.seal_y_mm,22)::float8, COALESCE(s.seal_width_mm,42)::float8,
 			COALESCE(a.id,0), COALESCE(a.kind,''), COALESCE(a.filename,''), COALESCE(a.content_type,''), COALESCE(a.bytes,0), COALESCE(a.sha256,''), COALESCE(a.object_key,''), COALESCE(to_char(a.created_at,'YYYY-MM-DD HH24:MI:SS'),''), COALESCE(a.created_by,'')
 		FROM %s.sales_order_settings s
 		LEFT JOIN %s.sales_order_assets a ON a.id=s.seal_asset_id
 		WHERE s.id=1`, r.schema, r.schema)
 	var seal salesapp.SalesOrderAsset
-	err := r.pool.QueryRow(ctx, q).Scan(&settings.CompanyName, &settings.Note, &settings.PaymentText, &seal.ID, &seal.Kind, &seal.Filename, &seal.ContentType, &seal.Bytes, &seal.SHA256, &seal.ObjectKey, &seal.CreatedAt, &seal.CreatedBy)
+	err := r.pool.QueryRow(ctx, q).Scan(&settings.CompanyName, &settings.Note, &settings.PaymentText, &settings.SealXMM, &settings.SealYMM, &settings.SealWidthMM, &seal.ID, &seal.Kind, &seal.Filename, &seal.ContentType, &seal.Bytes, &seal.SHA256, &seal.ObjectKey, &seal.CreatedAt, &seal.CreatedBy)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return salesapp.SalesOrderSettings{}, nil
+		return salesapp.SalesOrderSettings{SealXMM: 32, SealYMM: 22, SealWidthMM: 42}, nil
 	}
 	if err != nil {
 		return salesapp.SalesOrderSettings{}, err
@@ -45,17 +46,20 @@ func (r Repository) LoadSalesOrderSettings(ctx context.Context) (salesapp.SalesO
 }
 
 func (r Repository) SaveSalesOrderSettings(ctx context.Context, cmd salesapp.SaveSalesOrderSettingsCommand) error {
-	q := fmt.Sprintf(`INSERT INTO %s.sales_order_settings(id, company_name, note, payment_text, updated_at, updated_by)
-		VALUES(1,$1,$2,$3,now(),$4)
+	q := fmt.Sprintf(`INSERT INTO %s.sales_order_settings(id, company_name, note, payment_text, seal_x_mm, seal_y_mm, seal_width_mm, updated_at, updated_by)
+		VALUES(1,$1,$2,$3,$4,$5,$6,now(),$7)
 		ON CONFLICT(id) DO UPDATE SET
 			company_name=excluded.company_name,
 			note=excluded.note,
 			payment_text=excluded.payment_text,
+			seal_x_mm=excluded.seal_x_mm,
+			seal_y_mm=excluded.seal_y_mm,
+			seal_width_mm=excluded.seal_width_mm,
 			updated_at=now(),
 			updated_by=excluded.updated_by`, r.schema)
-	_, err := r.pool.Exec(ctx, q, cmd.CompanyName, cmd.Note, cmd.PaymentText, cmd.Actor)
+	_, err := r.pool.Exec(ctx, q, cmd.CompanyName, cmd.Note, cmd.PaymentText, cmd.SealXMM, cmd.SealYMM, cmd.SealWidthMM, cmd.Actor)
 	if err == nil {
-		postgresinfra.AuditInsert(ctx, r.pool, r.schema, cmd.Actor, "sales_order_settings", nil, "update", postgresinfra.StrPtr("settings"), nil, postgresinfra.StrPtr(cmd.CompanyName), postgresinfra.AuditMeta{"company_name": cmd.CompanyName})
+		postgresinfra.AuditInsert(ctx, r.pool, r.schema, cmd.Actor, "sales_order_settings", nil, "update", postgresinfra.StrPtr("settings"), nil, postgresinfra.StrPtr(cmd.CompanyName), postgresinfra.AuditMeta{"company_name": cmd.CompanyName, "seal_x_mm": cmd.SealXMM, "seal_y_mm": cmd.SealYMM, "seal_width_mm": cmd.SealWidthMM})
 	}
 	return err
 }
@@ -302,7 +306,11 @@ func (r Repository) buildSalesOrderSnapshotTx(ctx context.Context, tx pgx.Tx, or
 	if err := tx.QueryRow(ctx, q, orderID).Scan(&snapshot.OrderID, &snapshot.OrderNo, &snapshot.OrderDate, &snapshot.CustomerName, &snapshot.CustomerCompanyName, &snapshot.CustomerCompanyAddress, &snapshot.CustomerCompanyPhone, &total, &shipping, &discount, &grand); err != nil {
 		return salesdomain.SalesOrderSnapshot{}, err
 	}
-	snapshot.CompanyName = firstNonEmpty(settings.CompanyName, snapshot.CustomerCompanyName, snapshot.CustomerName)
+	companyProfileName, err := r.loadCompanyProfileNameTx(ctx, tx)
+	if err != nil {
+		return salesdomain.SalesOrderSnapshot{}, err
+	}
+	snapshot.CompanyName = firstNonEmpty(companyProfileName, settings.CompanyName, snapshot.CustomerCompanyName, snapshot.CustomerName)
 	snapshot.Note = settings.Note
 	snapshot.PaymentText = settings.PaymentText
 	snapshot.TotalAmount = salesdomain.FormatSalesOrderMoney(total)
@@ -311,11 +319,11 @@ func (r Repository) buildSalesOrderSnapshotTx(ctx context.Context, tx pgx.Tx, or
 	snapshot.GrandTotal = salesdomain.FormatSalesOrderMoney(grand)
 	for _, code := range settings.PaymentCodes {
 		snapshot.PaymentCodes = append(snapshot.PaymentCodes, salesdomain.SalesOrderAssetRef{
-			ID: code.Asset.ID, Label: code.Label, Description: code.Description, ObjectKey: code.Asset.ObjectKey, ContentType: code.Asset.ContentType,
+			ID: code.Asset.ID, Label: code.Label, Description: code.Description, ObjectKey: code.Asset.ObjectKey, ContentType: code.Asset.ContentType, URL: code.Asset.URL,
 		})
 	}
 	if settings.Seal != nil {
-		snapshot.Seal = &salesdomain.SalesOrderAssetRef{ID: settings.Seal.ID, Label: settings.Seal.Filename, ObjectKey: settings.Seal.ObjectKey, ContentType: settings.Seal.ContentType}
+		snapshot.Seal = &salesdomain.SalesOrderAssetRef{ID: settings.Seal.ID, Label: settings.Seal.Filename, ObjectKey: settings.Seal.ObjectKey, ContentType: settings.Seal.ContentType, URL: settings.Seal.URL, XMM: settings.SealXMM, YMM: settings.SealYMM, WidthMM: settings.SealWidthMM}
 	}
 
 	rows, err := tx.Query(ctx, fmt.Sprintf(`SELECT COALESCE(NULLIF(oi.item_name,''), p.name, ''), COALESCE(oi.spec,''), COALESCE(oi.qty,0)::float8,
@@ -346,6 +354,18 @@ func (r Repository) buildSalesOrderSnapshotTx(ctx context.Context, tx pgx.Tx, or
 		return salesdomain.SalesOrderSnapshot{}, err
 	}
 	return snapshot, nil
+}
+
+func (r Repository) loadCompanyProfileNameTx(ctx context.Context, tx pgx.Tx) (string, error) {
+	var name string
+	err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT COALESCE(company_name,'') FROM %s.company_profile WHERE id=1`, r.schema)).Scan(&name)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", nil
+	}
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(name), nil
 }
 
 func firstNonEmpty(values ...string) string {

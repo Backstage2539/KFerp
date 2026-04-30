@@ -24,7 +24,7 @@ func TestSalesOrderSettingsAPI(t *testing.T) {
 	}
 	e := newSalesOrderAPITestEcho(pool, schema, t.TempDir())
 
-	body := strings.NewReader(`{"company_name":"浅焙作坊咖啡","note":"请密封保存","payment_text":"微信或对公转账"}`)
+	body := strings.NewReader(`{"note":"请密封保存\n第二行","payment_text":"微信\n对公转账","seal_x_mm":42,"seal_y_mm":21,"seal_width_mm":38}`)
 	req := httptest.NewRequest(http.MethodPost, "/api/settings/sales-order", body)
 	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
 	rec := httptest.NewRecorder()
@@ -32,8 +32,16 @@ func TestSalesOrderSettingsAPI(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("POST status=%d body=%s", rec.Code, rec.Body.String())
 	}
-	if !strings.Contains(rec.Body.String(), `"company_name":"浅焙作坊咖啡"`) {
-		t.Fatalf("POST response = %s", rec.Body.String())
+	for _, want := range []string{
+		`"note":"请密封保存\n第二行"`,
+		`"payment_text":"微信\n对公转账"`,
+		`"seal_x_mm":42`,
+		`"seal_y_mm":21`,
+		`"seal_width_mm":38`,
+	} {
+		if !strings.Contains(rec.Body.String(), want) {
+			t.Fatalf("POST response missing %s: %s", want, rec.Body.String())
+		}
 	}
 }
 
@@ -175,6 +183,29 @@ func TestSalesOrderDocumentAPIUsesCustomerCompanyFallback(t *testing.T) {
 		if !strings.Contains(rec.Body.String(), want) {
 			t.Fatalf("POST response missing %s: %s", want, rec.Body.String())
 		}
+	}
+}
+
+func TestSalesOrderPreviewAPIUsesGlobalCompanyProfile(t *testing.T) {
+	pool, schema := newOrderAPITestDB(t)
+	ctx := context.Background()
+	seedOrderAPITestData(t, ctx, pool, schema)
+	if err := postgressales.EnsureSchema(ctx, pool, schema); err != nil {
+		t.Fatalf("EnsureSchema: %v", err)
+	}
+	seedSalesOrderAPITestOrder(t, ctx, pool, schema)
+	mustExecOrderAPITestSQL(t, ctx, pool, fmt.Sprintf(`INSERT INTO %s.company_profile(id, company_name) VALUES(1, '棵凡咖啡')`, schema))
+	e := newSalesOrderAPITestEcho(pool, schema, t.TempDir())
+
+	req := httptest.NewRequest(http.MethodGet, "/api/orders/1/sales-order-preview", nil)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("preview status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), `"company_name":"棵凡咖啡"`) {
+		t.Fatalf("preview response should use global company profile name: %s", rec.Body.String())
 	}
 }
 

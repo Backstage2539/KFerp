@@ -13,4 +13,5 @@ type Dependencies struct {
 func RegisterRoutes(e *echo.Echo, deps Dependencies) {
 	registerCompanyStaffPages(e)
 	registerCompanyStaffAPI(e, deps.Company)
+	registerCompanyProfileAPI(e, deps.Company)
 }

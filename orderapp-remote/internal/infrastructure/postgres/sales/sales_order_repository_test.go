@@ -90,10 +90,16 @@ func TestGenerateSalesOrderDocumentCreatesVersions(t *testing.T) {
 	if err := repo.SaveSalesOrderSettings(ctx, salesapp.SaveSalesOrderSettingsCommand{Actor: "测试员", CompanyName: "浅焙作坊咖啡", Note: "请密封保存"}); err != nil {
 		t.Fatalf("SaveSalesOrderSettings: %v", err)
 	}
+	if _, err := pool.Exec(ctx, fmt.Sprintf(`INSERT INTO %s.company_profile(id, company_name) VALUES(1, '棵凡咖啡')`, schema)); err != nil {
+		t.Fatalf("insert company profile: %v", err)
+	}
 
 	first, err := repo.GenerateSalesOrderDocument(ctx, salesapp.GenerateSalesOrderDocumentCommand{Actor: "测试员", OrderID: 1})
 	if err != nil {
 		t.Fatalf("Generate first: %v", err)
+	}
+	if first.Snapshot.CompanyName != "棵凡咖啡" {
+		t.Fatalf("generated snapshot company_name = %q, want global company profile name", first.Snapshot.CompanyName)
 	}
 	second, err := repo.GenerateSalesOrderDocument(ctx, salesapp.GenerateSalesOrderDocumentCommand{Actor: "测试员", OrderID: 1})
 	if err != nil {
@@ -179,6 +185,15 @@ func prepareSalesSchemaPrerequisites(t *testing.T, ctx context.Context, pool *pg
 			contact TEXT NOT NULL DEFAULT '',
 			phone TEXT NOT NULL DEFAULT '',
 			address TEXT NOT NULL DEFAULT ''
+		)`, schema),
+		fmt.Sprintf(`CREATE TABLE %s.company_profile (
+			id INTEGER PRIMARY KEY DEFAULT 1,
+			company_name TEXT NOT NULL DEFAULT '',
+			company_address TEXT NOT NULL DEFAULT '',
+			company_phone TEXT NOT NULL DEFAULT '',
+			updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+			updated_by TEXT NOT NULL DEFAULT '',
+			CONSTRAINT company_profile_singleton CHECK (id = 1)
 		)`, schema),
 		fmt.Sprintf(`CREATE TABLE %s.products (id BIGSERIAL PRIMARY KEY, name TEXT NOT NULL DEFAULT '')`, schema),
 		fmt.Sprintf(`CREATE TABLE %s.orders (

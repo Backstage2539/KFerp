@@ -141,6 +141,12 @@ func TestBeanListPublicationPermissionsSeparatePublishAndDraft(t *testing.T) {
 	}
 }
 
+func TestCompanyProfileAPIRequiresSettingsPermission(t *testing.T) {
+	if got := requiredPermissionForRequest(http.MethodPost, "/api/company/profile"); got != "settings.write" {
+		t.Fatalf("company profile permission = %q, want settings.write", got)
+	}
+}
+
 func TestAssignEmployeeRolesAPIRequiresAuthManage(t *testing.T) {
 	e := echo.New()
 	authz := &fakeAuthzService{actor: authzapp.Actor{Permissions: []string{"auth.manage"}}}

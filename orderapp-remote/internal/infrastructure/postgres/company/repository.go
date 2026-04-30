@@ -2,10 +2,13 @@ package company
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	companyapp "orderapp/internal/application/company"
+	postgresinfra "orderapp/internal/infrastructure/postgres"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -90,4 +93,39 @@ func (r Repository) UpdateEmployee(ctx context.Context, id int64, cmd companyapp
 		return fmt.Errorf("employee not found")
 	}
 	return nil
+}
+
+func (r Repository) LoadCompanyProfile(ctx context.Context) (companyapp.CompanyProfile, error) {
+	var profile companyapp.CompanyProfile
+	q := fmt.Sprintf(`SELECT company_name, company_address, company_phone FROM %s.company_profile WHERE id=1`, r.schema)
+	err := r.pool.QueryRow(ctx, q).Scan(&profile.Name, &profile.Address, &profile.Phone)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return companyapp.CompanyProfile{}, nil
+	}
+	if err != nil {
+		return companyapp.CompanyProfile{}, err
+	}
+	return profile, nil
+}
+
+func (r Repository) SaveCompanyProfile(ctx context.Context, cmd companyapp.CompanyProfileCommand) (companyapp.CompanyProfile, error) {
+	q := fmt.Sprintf(`INSERT INTO %s.company_profile(id, company_name, company_address, company_phone, updated_at, updated_by)
+		VALUES(1,$1,$2,$3,now(),$4)
+		ON CONFLICT(id) DO UPDATE SET
+			company_name=excluded.company_name,
+			company_address=excluded.company_address,
+			company_phone=excluded.company_phone,
+			updated_at=now(),
+			updated_by=excluded.updated_by
+		RETURNING company_name, company_address, company_phone`, r.schema)
+	var profile companyapp.CompanyProfile
+	actor := cmd.Actor
+	if actor == "" {
+		actor = "unknown"
+	}
+	if err := r.pool.QueryRow(ctx, q, cmd.Name, cmd.Address, cmd.Phone, actor).Scan(&profile.Name, &profile.Address, &profile.Phone); err != nil {
+		return companyapp.CompanyProfile{}, err
+	}
+	postgresinfra.AuditInsert(ctx, r.pool, r.schema, actor, "company_profile", nil, "update", postgresinfra.StrPtr("company_name"), nil, postgresinfra.StrPtr(profile.Name), postgresinfra.AuditMeta{"company_address": profile.Address, "company_phone": profile.Phone})
+	return profile, nil
 }

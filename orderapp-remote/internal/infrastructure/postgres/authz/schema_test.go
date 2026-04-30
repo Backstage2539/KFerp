@@ -32,7 +32,7 @@ func TestDefaultViewPermissionsCoverVueShellMenuKeys(t *testing.T) {
 		"producePlan", "productionAcceptance", "produceRunning", "workOrders", "jobCards", "qualityInspections", "produceLogs", "productionCosts", "productionManual",
 		"warehouseInventory", "stockOperations", "materials", "materialReceipts", "materialBatches", "wipMaterials", "stockLedger", "stockBatches", "stockAdjustments", "inventory", "allocationLogs",
 		"productSettings", "bom", "products", "costing",
-		"costingSettings", "machines", "salesOrderSettings", "senderSettings", "outsourceSettings",
+		"costingSettings", "machines", "companyProfile", "salesOrderSettings", "senderSettings", "outsourceSettings",
 		"departments", "employees", "audit", "userPermissions",
 		"reqProduct", "reqDev", "reqUnit", "reqApi", "reqReview",
 	} {

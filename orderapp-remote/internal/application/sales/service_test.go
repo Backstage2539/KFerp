@@ -384,10 +384,13 @@ func TestServiceOwnsSalesOrderSettingsUseCases(t *testing.T) {
 		CompanyName: " 浅焙作坊咖啡 ",
 		Note:        " 请密封保存 ",
 		PaymentText: " 微信或对公转账 ",
+		SealXMM:     32.4,
+		SealYMM:     22.5,
+		SealWidthMM: 40,
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if repo.settingsCmd.Actor != "tester" || repo.settingsCmd.CompanyName != "浅焙作坊咖啡" || repo.settingsCmd.Note != "请密封保存" || repo.settingsCmd.PaymentText != "微信或对公转账" {
+	if repo.settingsCmd.Actor != "tester" || repo.settingsCmd.CompanyName != "浅焙作坊咖啡" || repo.settingsCmd.Note != "请密封保存" || repo.settingsCmd.PaymentText != "微信或对公转账" || repo.settingsCmd.SealXMM != 32.4 || repo.settingsCmd.SealYMM != 22.5 || repo.settingsCmd.SealWidthMM != 40 {
 		t.Fatalf("settings command = %+v", repo.settingsCmd)
 	}
 	if err := svc.SaveSalesOrderSettings(context.Background(), SaveSalesOrderSettingsCommand{CompanyName: ""}); err != nil {
