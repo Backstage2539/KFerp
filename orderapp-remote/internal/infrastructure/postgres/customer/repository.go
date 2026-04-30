@@ -365,7 +365,7 @@ func upsertCustomer(ctx context.Context, pool *pgxpool.Pool, schema string, acto
 	if id == nil {
 		q := fmt.Sprintf(`INSERT INTO %s.customers(name, raw_name, company_name, company_address, company_phone, contact, phone, address, active, default_source_id, default_order_type_id, created_at, updated_at)
 			VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11, now(), now()) RETURNING id`, schema)
-		if err := tx.QueryRow(ctx, q, name, raw, nullText(companyName), nullText(companyAddress), nullText(companyPhone), nullText(contact), nullText(phone), nullText(address), active, ds, dt).Scan(&newID); err != nil {
+		if err := tx.QueryRow(ctx, q, name, raw, companyName, companyAddress, companyPhone, nullText(contact), nullText(phone), nullText(address), active, ds, dt).Scan(&newID); err != nil {
 			return 0, err
 		}
 		if err := postgresinfra.AuditInsertTx(ctx, tx, schema, actor, "customer", &newID, "create", nil, nil, nil, postgresinfra.AuditMeta{"name": name}); err != nil {
@@ -382,7 +382,7 @@ func upsertCustomer(ctx context.Context, pool *pgxpool.Pool, schema string, acto
 		}
 		q := fmt.Sprintf(`UPDATE %s.customers SET name=$2, raw_name=$3, company_name=$4, company_address=$5, company_phone=$6, contact=$7, phone=$8, address=$9, active=$10,
 			default_source_id=$11, default_order_type_id=$12, updated_at=$13 WHERE id=$1`, schema)
-		if _, err := tx.Exec(ctx, q, newID, name, raw, nullText(companyName), nullText(companyAddress), nullText(companyPhone), nullText(contact), nullText(phone), nullText(address), active, ds, dt, time.Now()); err != nil {
+		if _, err := tx.Exec(ctx, q, newID, name, raw, companyName, companyAddress, companyPhone, nullText(contact), nullText(phone), nullText(address), active, ds, dt, time.Now()); err != nil {
 			return 0, err
 		}
 		if err := auditCustomerDiffs(ctx, tx, schema, actor, newID, customerSnapshot{oldName, oldCompanyName, oldCompanyAddress, oldCompanyPhone, oldContact, oldPhone, oldAddr, oldActive, oldDS, oldDT}, customerSnapshot{name, companyName, companyAddress, companyPhone, contact, phone, address, active, ds, dt}); err != nil {
@@ -435,7 +435,7 @@ func inlineUpdateCustomer(ctx context.Context, pool *pgxpool.Pool, schema, actor
 	}
 	q := fmt.Sprintf(`UPDATE %s.customers SET name=$2, company_name=$3, company_address=$4, company_phone=$5, contact=$6, phone=$7, address=$8, active=$9,
 		default_source_id=$10, default_order_type_id=$11, updated_at=$12 WHERE id=$1`, schema)
-	if _, err := tx.Exec(ctx, q, id, next.name, nullText(next.companyName), nullText(next.companyAddress), nullText(next.companyPhone), nullText(next.contact), nullText(next.phone), nullText(next.address), next.active, next.sourceID, next.typeID, time.Now()); err != nil {
+	if _, err := tx.Exec(ctx, q, id, next.name, next.companyName, next.companyAddress, next.companyPhone, nullText(next.contact), nullText(next.phone), nullText(next.address), next.active, next.sourceID, next.typeID, time.Now()); err != nil {
 		return err
 	}
 	if err := auditCustomerDiffs(ctx, tx, schema, actor, id, old, next); err != nil {

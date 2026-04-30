@@ -40,3 +40,19 @@ func TestSalesOrderVueExposesCustomerInfoDrawer(t *testing.T) {
 		}
 	}
 }
+
+func TestCustomerCompanyFieldsRemainOptionalAtRepositoryWrite(t *testing.T) {
+	src := string(readOrderAppFileForTest(t, filepath.Join("internal", "infrastructure", "postgres", "customer", "repository.go")))
+	for _, forbidden := range []string{
+		"nullText(companyName)",
+		"nullText(companyAddress)",
+		"nullText(companyPhone)",
+		"nullText(next.companyName)",
+		"nullText(next.companyAddress)",
+		"nullText(next.companyPhone)",
+	} {
+		if strings.Contains(src, forbidden) {
+			t.Fatalf("customer company optional field must not be written as NULL: found %q", forbidden)
+		}
+	}
+}
