@@ -486,12 +486,13 @@ type WIPReservationReleaseResult struct {
 }
 
 type AcceptanceSmokeRow struct {
-	Code   string `json:"code"`
-	Title  string `json:"title"`
-	Status string `json:"status"`
-	Count  int64  `json:"count"`
-	Detail string `json:"detail"`
-	View   string `json:"view"`
+	Code       string            `json:"code"`
+	Title      string            `json:"title"`
+	Status     string            `json:"status"`
+	Count      int64             `json:"count"`
+	Detail     string            `json:"detail"`
+	View       string            `json:"view"`
+	ViewParams map[string]string `json:"view_params,omitempty"`
 }
 
 type AcceptanceSmokeResult struct {
@@ -665,11 +666,11 @@ func (s *Service) MaterialPlan(ctx context.Context, query MaterialPlanQuery) (Ma
 }
 
 func (s *Service) CreateQualityInspection(ctx context.Context, cmd QualityInspectionCommand) (QualityInspectionRow, error) {
-	cmd.Scope = strings.ToLower(strings.TrimSpace(cmd.Scope))
-	cmd.ReferenceType = strings.ToLower(strings.TrimSpace(cmd.ReferenceType))
+	cmd.Scope = normalizeQualityInspectionScope(cmd.Scope)
+	cmd.ReferenceType = normalizeQualityInspectionScope(cmd.ReferenceType)
 	cmd.ReferenceNo = strings.TrimSpace(cmd.ReferenceNo)
 	cmd.ItemName = strings.TrimSpace(cmd.ItemName)
-	cmd.Result = strings.ToLower(strings.TrimSpace(cmd.Result))
+	cmd.Result = normalizeQualityInspectionResult(cmd.Result)
 	cmd.MetricsJSON = strings.TrimSpace(cmd.MetricsJSON)
 	cmd.Note = strings.TrimSpace(cmd.Note)
 	cmd.Operator = strings.TrimSpace(cmd.Operator)
@@ -686,8 +687,8 @@ func (s *Service) CreateQualityInspection(ctx context.Context, cmd QualityInspec
 }
 
 func (s *Service) ListQualityInspections(ctx context.Context, query QualityInspectionQuery) ([]QualityInspectionRow, error) {
-	query.Scope = strings.ToLower(strings.TrimSpace(query.Scope))
-	query.Result = strings.ToLower(strings.TrimSpace(query.Result))
+	query.Scope = normalizeQualityInspectionScope(query.Scope)
+	query.Result = normalizeQualityInspectionResult(query.Result)
 	if query.Limit <= 0 || query.Limit > 200 {
 		query.Limit = 200
 	}
@@ -727,6 +728,32 @@ func (s *Service) ReleaseWIPReservations(ctx context.Context, cmd WIPReservation
 
 func (s *Service) AcceptanceSmoke(ctx context.Context) (AcceptanceSmokeResult, error) {
 	return s.repo.AcceptanceSmoke(ctx)
+}
+
+func normalizeQualityInspectionScope(scope string) string {
+	switch strings.ToLower(strings.TrimSpace(scope)) {
+	case "原料", "raw", "raw_material", "material":
+		return "raw_material"
+	case "生产工单", "工单", "workorder", "work_order":
+		return "work_order"
+	case "成品批次", "成品", "finished", "finished_batch":
+		return "finished_batch"
+	default:
+		return strings.ToLower(strings.TrimSpace(scope))
+	}
+}
+
+func normalizeQualityInspectionResult(result string) string {
+	switch strings.ToLower(strings.TrimSpace(result)) {
+	case "通过", "合格", "pass", "passed", "ok":
+		return "pass"
+	case "待定", "待处理", "待确认", "pending", "hold", "held":
+		return "hold"
+	case "不通过", "不合格", "失败", "reject", "rejected", "fail", "failed":
+		return "reject"
+	default:
+		return strings.ToLower(strings.TrimSpace(result))
+	}
 }
 
 func validQualityInspectionResult(result string) bool {

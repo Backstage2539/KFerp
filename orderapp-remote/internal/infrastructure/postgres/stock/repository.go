@@ -380,10 +380,11 @@ func (r Repository) GetStockTrace(ctx context.Context, query stockapp.StockTrace
 	)
 	if err != nil {
 		if err == pgx.ErrNoRows {
-			return stockapp.StockTraceResult{}, fmt.Errorf("batch not found")
+			return r.getMaterialStockTrace(ctx, query.BatchCode)
 		}
 		return stockapp.StockTraceResult{}, err
 	}
+	result.TraceType = "finished_batch"
 
 	var runningItemID int64
 	err = r.pool.QueryRow(ctx, fmt.Sprintf(`
@@ -440,6 +441,68 @@ func (r Repository) GetStockTrace(ctx context.Context, query stockapp.StockTrace
 			return stockapp.StockTraceResult{}, err
 		}
 		result.Materials = append(result.Materials, row)
+	}
+	if err := rows.Err(); err != nil {
+		return stockapp.StockTraceResult{}, err
+	}
+	return result, nil
+}
+
+func (r Repository) getMaterialStockTrace(ctx context.Context, batchCode string) (stockapp.StockTraceResult, error) {
+	var result stockapp.StockTraceResult
+	result.TraceType = "material_batch"
+	err := r.pool.QueryRow(ctx, fmt.Sprintf(`
+		SELECT b.id,b.batch_code,b.material_id,COALESCE(m.name,''),b.supplier,b.receipt_id,
+		       b.qty_g,b.remaining_g,COALESCE(b.unit_cost,0),
+		       to_char(b.received_at,'YYYY-MM-DD HH24:MI'),b.status,b.note
+		FROM %s.material_batches b
+		LEFT JOIN %s.materials m ON m.id=b.material_id
+		WHERE b.batch_code=$1
+		LIMIT 1
+	`, r.schema, r.schema), batchCode).Scan(
+		&result.MaterialBatch.ID,
+		&result.MaterialBatch.BatchCode,
+		&result.MaterialBatch.MaterialID,
+		&result.MaterialBatch.MaterialName,
+		&result.MaterialBatch.Supplier,
+		&result.MaterialBatch.ReceiptID,
+		&result.MaterialBatch.QtyG,
+		&result.MaterialBatch.RemainingG,
+		&result.MaterialBatch.UnitCost,
+		&result.MaterialBatch.ReceivedAt,
+		&result.MaterialBatch.Status,
+		&result.MaterialBatch.Note,
+	)
+	if err != nil {
+		if err == pgx.ErrNoRows {
+			return stockapp.StockTraceResult{}, fmt.Errorf("batch not found")
+		}
+		return stockapp.StockTraceResult{}, err
+	}
+	rows, err := r.pool.Query(ctx, fmt.Sprintf(`
+		SELECT l.material_batch_id,l.batch_code,l.material_id,COALESCE(m.name,''),l.warehouse,
+		       COALESCE(w.name,l.warehouse),l.qty_g,
+		       COALESCE(to_char(b.received_at,'YYYY-MM-DD HH24:MI'),''),
+		       to_char(l.updated_at,'YYYY-MM-DD HH24:MI')
+		FROM %s.material_batch_locations l
+		LEFT JOIN %s.material_batches b ON b.id=l.material_batch_id
+		LEFT JOIN %s.materials m ON m.id=l.material_id
+		LEFT JOIN %s.warehouses w ON w.code=l.warehouse
+		WHERE l.batch_code=$1
+		  AND l.qty_g <> 0
+		ORDER BY l.warehouse, l.material_batch_id
+	`, r.schema, r.schema, r.schema, r.schema), batchCode)
+	if err != nil {
+		return stockapp.StockTraceResult{}, err
+	}
+	defer rows.Close()
+	result.MaterialLocations = make([]stockapp.MaterialBatchLocationRow, 0)
+	for rows.Next() {
+		var row stockapp.MaterialBatchLocationRow
+		if err := rows.Scan(&row.MaterialBatchID, &row.BatchCode, &row.MaterialID, &row.MaterialName, &row.Warehouse, &row.WarehouseName, &row.QtyG, &row.ReceivedAt, &row.UpdatedAt); err != nil {
+			return stockapp.StockTraceResult{}, err
+		}
+		result.MaterialLocations = append(result.MaterialLocations, row)
 	}
 	if err := rows.Err(); err != nil {
 		return stockapp.StockTraceResult{}, err

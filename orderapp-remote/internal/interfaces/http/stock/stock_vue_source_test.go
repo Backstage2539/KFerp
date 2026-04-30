@@ -85,6 +85,8 @@ func TestVueStockWorkspaceIncludesFinishedTransferAndTraceLookup(t *testing.T) {
 		"/api/stock/trace",
 		"traceDrawerOpen",
 		"追溯",
+		"material_batch",
+		"LEGACY-MAT",
 	} {
 		if !strings.Contains(warehouseSrc, want) {
 			t.Fatalf("WarehouseInventoryView.vue missing trace lookup %q", want)

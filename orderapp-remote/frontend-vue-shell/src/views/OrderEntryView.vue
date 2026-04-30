@@ -26,7 +26,10 @@
         </label>
 
         <label class="customer-combobox combobox">
-          <span>客户</span>
+          <div class="label-row">
+            <span>客户</span>
+            <button class="text-button" type="button" @click="openCustomerDrawer">新增客户</button>
+          </div>
           <input
             v-model.trim="customerQuery"
             type="search"
@@ -220,6 +223,7 @@
         <summary>录单手册</summary>
         <ul>
           <li>客户和商品输入框支持名称、拼音和首字母搜索。</li>
+          <li>录单时可点“新增客户”打开右侧抽屉，粘贴收件信息后自动识别姓名、电话和地址。</li>
           <li>选择客户后会带入客户档案中的默认来源和订单类型。</li>
           <li>常用规格：36g、80g、100g、227g、454g、500g、1000g、2.5kg。</li>
           <li>新订单默认已付款、未发货；商品单价会随规格和数量匹配价格梯度。</li>
@@ -227,11 +231,60 @@
         </ul>
       </details>
     </section>
+
+    <div v-if="customerDrawerOpen" class="drawer-mask" @click.self="closeCustomerDrawer">
+      <aside class="drawer">
+        <div class="drawer-head">
+          <h3>新增客户</h3>
+          <button class="secondary" type="button" @click="closeCustomerDrawer">关闭</button>
+        </div>
+        <label class="wide-field">
+          <span>粘贴收件信息</span>
+          <textarea v-model.trim="customerPaste" rows="4" placeholder="张三 13800138000 云南省普洱市思茅区咖啡路 88 号"></textarea>
+        </label>
+        <button class="secondary parse-button" type="button" @click="applyRecipientParse">自动识别</button>
+        <div v-if="customerError" class="notice error">{{ customerError }}</div>
+        <div class="drawer-grid">
+          <label>
+            <span>客户名</span>
+            <input v-model.trim="customerForm.name" />
+          </label>
+          <label>
+            <span>联系人</span>
+            <input v-model.trim="customerForm.contact" />
+          </label>
+          <label>
+            <span>电话</span>
+            <input v-model.trim="customerForm.phone" />
+          </label>
+          <label>
+            <span>客户来源</span>
+            <select v-model.number="customerForm.default_source_id">
+              <option v-for="item in sources" :key="item.id" :value="item.id">{{ item.name }}</option>
+            </select>
+          </label>
+          <label>
+            <span>订单类型</span>
+            <select v-model.number="customerForm.default_order_type_id">
+              <option v-for="item in orderTypes" :key="item.id" :value="item.id">{{ item.name }}</option>
+            </select>
+          </label>
+          <label class="wide-field">
+            <span>地址</span>
+            <textarea v-model.trim="customerForm.address" rows="3"></textarea>
+          </label>
+        </div>
+        <div class="drawer-actions">
+          <button class="primary" type="button" @click="saveCustomerFromDrawer" :disabled="customerSaving">保存并选择</button>
+        </div>
+      </aside>
+    </div>
   </div>
 </template>
 
 <script setup>
 import { computed, onMounted, reactive, ref } from 'vue'
+import { apiSend } from '../api/client'
 import {
   CUSTOM_SPEC_VALUE,
   buildOrderPayload,
@@ -248,6 +301,7 @@ import {
   wholesaleTierPriceRows,
   wholesaleSpecOptions,
 } from '../lib/order-entry'
+import { parseRecipientText } from '../lib/customer-recipient'
 
 const loading = ref(false)
 const saving = ref(false)
@@ -262,6 +316,11 @@ const products = ref([])
 const rows = ref([newRow()])
 const customerQuery = ref('')
 const customerOpen = ref(false)
+const customerDrawerOpen = ref(false)
+const customerSaving = ref(false)
+const customerError = ref('')
+const customerPaste = ref('')
+const customerForm = reactive(emptyCustomerForm())
 
 const form = reactive({
   edit_id: 0,
@@ -303,6 +362,17 @@ function newRow() {
   }
 }
 
+function emptyCustomerForm() {
+  return {
+    name: '',
+    contact: '',
+    phone: '',
+    address: '',
+    default_source_id: 0,
+    default_order_type_id: 0,
+  }
+}
+
 function selectedOrderType() {
   return orderTypes.value.find((item) => Number(item.id) === Number(form.order_type_id)) || null
 }
@@ -323,6 +393,19 @@ function optionName(options, id) {
   return (options || []).find((item) => Number(item.id) === Number(id))?.name || ''
 }
 
+function defaultOptionID(options, labels) {
+  const row = (options || []).find((item) => labels.some((label) => String(item.name || '').includes(label)))
+  return Number(row?.id || options?.[0]?.id || 0)
+}
+
+function defaultSourceID() {
+  return defaultOptionID(sources.value, ['微信', 'Wechat', 'wechat'])
+}
+
+function defaultOrderTypeID() {
+  return defaultOptionID(orderTypes.value, ['批发', 'Wholesale', 'wholesale'])
+}
+
 function chooseCustomer(item) {
   form.customer_id = Number(item.id || 0)
   customerQuery.value = item.name || ''
@@ -331,6 +414,67 @@ function chooseCustomer(item) {
   if (Number(item.default_order_type_id || 0) > 0) {
     form.order_type_id = Number(item.default_order_type_id)
     syncRowsForType()
+  }
+}
+
+function resetCustomerDrawerForm() {
+  Object.assign(customerForm, emptyCustomerForm(), {
+    default_source_id: defaultSourceID(),
+    default_order_type_id: defaultOrderTypeID(),
+  })
+  customerPaste.value = ''
+  customerError.value = ''
+}
+
+function openCustomerDrawer() {
+  resetCustomerDrawerForm()
+  customerDrawerOpen.value = true
+}
+
+function closeCustomerDrawer() {
+  customerDrawerOpen.value = false
+}
+
+function applyRecipientParse() {
+  const parsed = parseRecipientText(customerPaste.value)
+  if (parsed.recipient_name) {
+    customerForm.contact = parsed.recipient_name
+    if (!customerForm.name) customerForm.name = parsed.recipient_name
+  }
+  if (parsed.phone) customerForm.phone = parsed.phone
+  if (parsed.address) customerForm.address = parsed.address
+}
+
+async function saveCustomerFromDrawer() {
+  customerSaving.value = true
+  customerError.value = ''
+  try {
+    if (!customerForm.name && customerForm.contact) customerForm.name = customerForm.contact
+    if (!customerForm.name) throw new Error('请填写客户名')
+    const data = await apiSend('/api/customers', {
+      body: {
+        name: customerForm.name,
+        raw_name: '',
+        company_name: '',
+        company_address: '',
+        company_phone: '',
+        contact: customerForm.contact,
+        phone: customerForm.phone,
+        address: customerForm.address,
+        default_source_id: customerForm.default_source_id || null,
+        default_order_type_id: customerForm.default_order_type_id || null,
+        active: true,
+      },
+    })
+    const saved = data.customer
+    if (!saved?.id) throw new Error('客户保存失败')
+    customers.value = [saved, ...customers.value.filter((item) => Number(item.id) !== Number(saved.id))]
+    chooseCustomer(saved)
+    closeCustomerDrawer()
+  } catch (err) {
+    customerError.value = err.message || '保存客户失败'
+  } finally {
+    customerSaving.value = false
   }
 }
 
@@ -446,8 +590,8 @@ function removeRow(idx) {
 }
 
 function applyDefaultSelections(data) {
-  if (!form.order_type_id && orderTypes.value.length) form.order_type_id = Number(orderTypes.value[0].id)
-  if (!form.source_id && sources.value.length) form.source_id = Number(sources.value[0].id)
+  if (!form.order_type_id && orderTypes.value.length) form.order_type_id = defaultOrderTypeID()
+  if (!form.source_id && sources.value.length) form.source_id = defaultSourceID()
   if (!form.pay_status_id) {
     form.pay_status_id = defaultStatusID(payStatuses.value, ['已付款', '已收款']) || Number(payStatuses.value[0]?.id || 0)
   }
@@ -583,7 +727,9 @@ button { border-radius: 7px; padding: 8px 12px; cursor: pointer; white-space: no
 button:disabled { cursor: not-allowed; opacity: 0.5; }
 .primary { border: 1px solid #111827; background: #111827; color: #fff; }
 .secondary { border: 1px solid #c9ced8; background: #fff; color: #111827; }
+.text-button { border: 0; background: transparent; color: #174ea6; padding: 0; min-height: 0; font-size: 12px; text-decoration: underline; }
 .danger { color: #9f1239; }
+.label-row { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
 .notes { margin-top: 14px; }
 .notice { border-radius: 8px; padding: 10px 12px; }
 .notice.ok { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
@@ -616,6 +762,14 @@ button:disabled { cursor: not-allowed; opacity: 0.5; }
 .manual { border-top: 1px solid #edf0f5; padding-top: 10px; color: #4b5563; font-size: 13px; }
 .manual summary { cursor: pointer; font-weight: 700; color: #111827; }
 .manual ul { margin: 8px 0 0; padding-left: 18px; }
+.drawer-mask { position: fixed; inset: 0; background: rgba(15, 23, 42, 0.28); display: flex; justify-content: flex-end; z-index: 40; }
+.drawer { width: min(480px, 100%); height: 100%; overflow: auto; background: #fff; border-left: 1px solid #d7dbe3; padding: 16px; box-shadow: -12px 0 28px rgba(15, 23, 42, 0.12); }
+.drawer-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 12px; }
+.drawer-head h3 { margin: 0; font-size: 18px; }
+.drawer-grid { display: grid; gap: 12px; margin-top: 12px; }
+.wide-field textarea, .drawer-grid input, .drawer-grid select { width: 100%; }
+.parse-button { margin-top: 8px; }
+.drawer-actions { display: flex; justify-content: flex-end; margin-top: 14px; }
 
 @media (max-width: 1100px) {
   .line-item { grid-template-columns: repeat(2, minmax(0, 1fr)); }

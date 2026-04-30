@@ -43,7 +43,22 @@ func (f *fakeStockRepo) ListWarehouseInventory(ctx context.Context, query stocka
 }
 func (f *fakeStockRepo) GetStockTrace(ctx context.Context, query stockapp.StockTraceQuery) (stockapp.StockTraceResult, error) {
 	f.traceQuery = query
+	if query.BatchCode == "LEGACY-MAT-0000000001" {
+		return stockapp.StockTraceResult{
+			TraceType:     "material_batch",
+			MaterialBatch: stockapp.TraceMaterialBatch{BatchCode: "LEGACY-MAT-0000000001", MaterialID: 1, MaterialName: "孟连水洗5T批次", QtyG: 60000, RemainingG: 60000, Note: "系统升级按物料现有库存生成的期初批次"},
+			MaterialLocations: []stockapp.MaterialBatchLocationRow{{
+				BatchCode:     "LEGACY-MAT-0000000001",
+				MaterialID:    1,
+				MaterialName:  "孟连水洗5T批次",
+				Warehouse:     "wip",
+				WarehouseName: "WIP在制仓",
+				QtyG:          60000,
+			}},
+		}, nil
+	}
 	return stockapp.StockTraceResult{
+		TraceType:     "finished_batch",
 		FinishedBatch: stockapp.TraceFinishedBatch{BatchCode: "FP-0000000042", ProductName: "橘皮乌龙", Warehouse: "finished_goods", QtyG: 464, QtyUnits: 2},
 		Production:    stockapp.TraceProduction{RunningItemID: 42, WorkOrderNo: "WO-0000000042", BatchID: "PLAN-BATCH-001"},
 		Materials:     []stockapp.TraceMaterial{{MaterialName: "卡蒂姆水洗", MaterialBatchCode: "MB-0000000007", DeductG: 600}},
@@ -150,6 +165,18 @@ func TestStockAPIRoutes(t *testing.T) {
 	for _, want := range []string{`"batch_code":"FP-0000000042"`, `"work_order_no":"WO-0000000042"`, `"material_batch_code":"MB-0000000007"`} {
 		if !bytes.Contains(rec.Body.Bytes(), []byte(want)) {
 			t.Fatalf("trace response missing %s: %s", want, rec.Body.String())
+		}
+	}
+
+	req = httptest.NewRequest(http.MethodGet, "/api/stock/trace?batch=LEGACY-MAT-0000000001", nil)
+	rec = httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET material trace status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	for _, want := range []string{`"trace_type":"material_batch"`, `"batch_code":"LEGACY-MAT-0000000001"`, `"warehouse":"wip"`, `"material_name":"孟连水洗5T批次"`} {
+		if !bytes.Contains(rec.Body.Bytes(), []byte(want)) {
+			t.Fatalf("material trace response missing %s: %s", want, rec.Body.String())
 		}
 	}
 }

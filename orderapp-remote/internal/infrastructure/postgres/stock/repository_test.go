@@ -475,6 +475,17 @@ INSERT INTO %s.materials(id,code,name,onhand_g,purchase_price) VALUES (1,'Mengli
 	if onhandG != 60000 || rawG != 0 || wipG != 60000 || batchRemainingG != 60000 {
 		t.Fatalf("onhand/raw/wip/batch remaining = %d/%d/%d/%d, want 60000/0/60000/60000", onhandG, rawG, wipG, batchRemainingG)
 	}
+
+	trace, err := repo.GetStockTrace(ctx, stockapp.StockTraceQuery{BatchCode: "LEGACY-MAT-0000000001"})
+	if err != nil {
+		t.Fatalf("GetStockTrace legacy material batch: %v", err)
+	}
+	if trace.TraceType != "material_batch" || trace.MaterialBatch.BatchCode != "LEGACY-MAT-0000000001" || trace.MaterialBatch.MaterialName != "孟连水洗5T批次" {
+		t.Fatalf("legacy material trace = %+v", trace)
+	}
+	if len(trace.MaterialLocations) != 1 || trace.MaterialLocations[0].Warehouse != "wip" || trace.MaterialLocations[0].QtyG != 60000 {
+		t.Fatalf("legacy material trace locations = %+v", trace.MaterialLocations)
+	}
 }
 
 func newStockTestDB(t *testing.T) (*pgxpool.Pool, string) {

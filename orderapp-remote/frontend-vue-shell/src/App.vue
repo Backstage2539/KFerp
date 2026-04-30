@@ -39,7 +39,7 @@
       <div v-if="authLoading" class="status">加载中</div>
       <div v-else-if="authError" class="status">{{ authError }}</div>
       <div v-else-if="!isCurrentAllowed" class="status">无权访问</div>
-      <component v-else :is="currentInternalView" class="internal-view" :title="title" :view-key="currentKey" />
+      <component v-else :is="currentInternalView" class="internal-view" :title="title" :view-key="currentKey" :view-params="currentViewParams" />
     </main>
   </div>
 </template>
@@ -100,6 +100,7 @@ const requestedView = new URL(window.location.href).searchParams.get('view')
 const requestedViewFromUrl = !!requestedView
 const freshLogin = new URL(window.location.href).searchParams.get('fresh_login') === '1'
 const currentKey = ref(requestedView && menuMap[requestedView] ? requestedView : 'order')
+const currentViewParams = ref(readViewParams())
 const isMobile = ref(false)
 const mobileOpen = ref(false)
 const expandedGroups = ref(defaultExpandedGroups(menuGroups, currentKey.value))
@@ -155,18 +156,37 @@ const internalViews = {
   reqReview: RequirementsView,
 }
 
-function applyKeyToUrl(key) {
+function readViewParams() {
+  const params = new URL(window.location.href).searchParams
+  const out = {}
+  for (const key of ['warehouse', 'item_type', 'batch']) {
+    const value = params.get(key)
+    if (value) out[key] = value
+  }
+  return out
+}
+
+function applyKeyToUrl(key, params = {}) {
   const url = new URL(window.location.href)
   url.searchParams.set('view', key)
+  for (const name of ['warehouse', 'item_type', 'batch']) {
+    url.searchParams.delete(name)
+  }
+  Object.entries(params || {}).forEach(([name, value]) => {
+    if (value !== undefined && value !== null && String(value) !== '') {
+      url.searchParams.set(name, String(value))
+    }
+  })
   replaceHistoryURL(url)
 }
 
-function open(key) {
+function open(key, params = {}) {
   if (!menuMap[key]) return
   if (!isViewAllowed(key, allowedViewKeys.value)) return
   currentKey.value = key
+  currentViewParams.value = { ...(params || {}) }
   ensureCurrentGroupOpen(key)
-  applyKeyToUrl(key)
+  applyKeyToUrl(key, currentViewParams.value)
   if (isMobile.value) mobileOpen.value = false
 }
 
@@ -220,7 +240,7 @@ function toggleMenu() {
 function handleNavigateView(event) {
   const key = event?.detail?.key
   if (key && menuMap[key] && isViewAllowed(key, allowedViewKeys.value)) {
-    open(key)
+    open(key, event?.detail?.params || {})
   }
 }
 
