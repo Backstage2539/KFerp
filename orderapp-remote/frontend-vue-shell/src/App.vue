@@ -98,6 +98,7 @@ import { actorHasFullViewAccess, filterMenuGroups, isViewAllowed } from './lib/m
 const collapsed = ref(false)
 const requestedView = new URL(window.location.href).searchParams.get('view')
 const requestedViewFromUrl = !!requestedView
+const freshLogin = new URL(window.location.href).searchParams.get('fresh_login') === '1'
 const currentKey = ref(requestedView && menuMap[requestedView] ? requestedView : 'order')
 const isMobile = ref(false)
 const mobileOpen = ref(false)
@@ -227,6 +228,13 @@ function firstAllowedMenuKey() {
   return availableMenuGroups.value[0]?.items?.[0]?.key || ''
 }
 
+function clearFreshLoginFlag() {
+  if (!freshLogin) return
+  const url = new URL(window.location.href)
+  url.searchParams.delete('fresh_login')
+  replaceHistoryURL(url)
+}
+
 async function loadActor() {
   authLoading.value = true
   authError.value = ''
@@ -236,11 +244,14 @@ async function loadActor() {
   }
   try {
     currentActor.value = await fetchCurrentActor()
-    expandedGroups.value = restoreExpandedGroups(
-      availableMenuGroups.value,
-      readStoredExpandedGroups(),
-      currentKey.value,
-    )
+    expandedGroups.value = freshLogin
+      ? defaultExpandedGroups(availableMenuGroups.value, currentKey.value)
+      : restoreExpandedGroups(
+        availableMenuGroups.value,
+        readStoredExpandedGroups(),
+        currentKey.value,
+      )
+    clearFreshLoginFlag()
     if (!requestedViewFromUrl && !isViewAllowed(currentKey.value, allowedViewKeys.value)) {
       const first = firstAllowedMenuKey()
       if (first) open(first)

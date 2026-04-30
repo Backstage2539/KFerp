@@ -604,6 +604,11 @@ func seedReqWorkflowA(ctx context.Context, pool *pgxpool.Pool, schema string) er
 		{table: "req_unit", code: "UT-117-01", title: "单测覆盖客户公司字段 API 映射、销售单客户公司兜底和 Vue 抽屉源码守卫", status: "done", assignee: "Codex", evidence: "TestCustomerAPIStoresCompanyContactFields; TestSalesOrderVueExposesCustomerInfoDrawer"},
 		{table: "req_api", code: "API-117-01", title: "API 测试覆盖 POST/PUT 客户公司信息保存，以及未设置销售单公司名时生成销售单使用客户名兜底", status: "done", assignee: "Codex", evidence: "TestCustomerAPIStoresCompanyContactFields; TestSalesOrderDocumentAPIUsesCustomerCompanyFallback"},
 		{table: "req_review", code: "REV-117-01", prCode: "PR-117", title: "验收：客户录入可维护公司信息；销售单页面右侧抽屉可编辑客户信息；公司名为空时 PDF 使用客户名", status: "todo", assignee: "VA", evidence: "待 Van 服务器验收"},
+		{table: "req_product", code: "PR-118", title: "登录后首屏必须直接显示默认功能菜单，不需要刷新页面", status: "review", assignee: "VA", evidence: "codex/login-first-load-menu-20260501"},
+		{table: "req_dev", code: "DEV-118-01", title: "登录成功跳转 Vue 工作台时携带 fresh_login 标记，Vue 首次加载后按默认菜单展开并清除标记", status: "done", assignee: "Codex", evidence: "login.html fresh_login; App.vue defaultExpandedGroups"},
+		{table: "req_unit", code: "UT-118-01", title: "单测覆盖登录页 fresh_login 跳转和 Vue 工作台首登默认展开菜单源码守卫", status: "done", assignee: "Codex", evidence: "TestLoginPageSupportsUsernamePasswordAndDoesNotRequirePhoneForPassword; TestVueShellUsesDefaultMenuExpansionAfterFreshLogin"},
+		{table: "req_api", code: "API-118-01", title: "线上 smoke 覆盖 13800138075 登录后首屏菜单直接可见，auth/me 仍返回 admin 全权限", status: "done", assignee: "Codex", evidence: "postdeploy browser/API smoke"},
+		{table: "req_review", code: "REV-118-01", prCode: "PR-118", title: "验收：13800138075 登录后不刷新也能看到功能菜单，刷新前后菜单权限一致", status: "todo", assignee: "VA", evidence: "待 Van 服务器验收"},
 	} {
 		if err := seedReqRow(ctx, pool, schema, row); err != nil {
 			return err
