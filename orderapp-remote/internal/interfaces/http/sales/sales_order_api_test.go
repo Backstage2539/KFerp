@@ -1,9 +1,13 @@
 package sales
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
+	"image"
+	"image/color"
+	"image/png"
 	"net/http"
 	"net/http/httptest"
 	salesapp "orderapp/internal/application/sales"
@@ -44,6 +48,147 @@ func TestSalesOrderSettingsAPI(t *testing.T) {
 		if !strings.Contains(rec.Body.String(), want) {
 			t.Fatalf("POST response missing %s: %s", want, rec.Body.String())
 		}
+	}
+}
+
+func TestSalesOrderSettingsRegistersSealToolRoutes(t *testing.T) {
+	e := echo.New()
+	registerSalesOrderSettingsRoutes(e, salesapp.NewService(nil), t.TempDir())
+	routes := map[string]bool{}
+	for _, route := range e.Routes() {
+		routes[route.Method+" "+route.Path] = true
+	}
+	for _, want := range []string{
+		"POST /api/settings/sales-order/seal-position",
+		"POST /api/settings/sales-order/seal/remove-background",
+	} {
+		if !routes[want] {
+			t.Fatalf("missing route %s", want)
+		}
+	}
+}
+
+func TestRemoveSealImageBackgroundTurnsLightNeutralPixelsTransparent(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "seal.png")
+	writeSealWithWhiteBackground(t, path)
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, err := removeSealImageBackground(data)
+	if err != nil {
+		t.Fatalf("remove background: %v", err)
+	}
+	img, err := png.Decode(bytes.NewReader(out))
+	if err != nil {
+		t.Fatalf("decode output: %v", err)
+	}
+	_, _, _, whiteAlpha := img.At(0, 0).RGBA()
+	redR, _, _, redAlpha := img.At(1, 1).RGBA()
+	if whiteAlpha != 0 {
+		t.Fatalf("white background alpha = %d, want 0", whiteAlpha)
+	}
+	if redAlpha == 0 || redR == 0 {
+		t.Fatalf("red foreground should stay visible, rgba=(%d,%d)", redR, redAlpha)
+	}
+}
+
+func TestSalesOrderSealPositionAPIOnlyUpdatesCoordinates(t *testing.T) {
+	pool, schema := newOrderAPITestDB(t)
+	ctx := context.Background()
+	seedOrderAPITestData(t, ctx, pool, schema)
+	if err := postgressales.EnsureSchema(ctx, pool, schema); err != nil {
+		t.Fatalf("EnsureSchema: %v", err)
+	}
+	e := newSalesOrderAPITestEcho(pool, schema, t.TempDir())
+
+	settingsBody := strings.NewReader(`{"note":"第一行\n第二行","payment_text":"微信付款","seal_x_mm":32,"seal_y_mm":22,"seal_width_mm":42}`)
+	settingsReq := httptest.NewRequest(http.MethodPost, "/api/settings/sales-order", settingsBody)
+	settingsReq.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	settingsRec := httptest.NewRecorder()
+	e.ServeHTTP(settingsRec, settingsReq)
+	if settingsRec.Code != http.StatusOK {
+		t.Fatalf("settings status=%d body=%s", settingsRec.Code, settingsRec.Body.String())
+	}
+
+	body := strings.NewReader(`{"seal_x_mm":58,"seal_y_mm":19,"seal_width_mm":46}`)
+	req := httptest.NewRequest(http.MethodPost, "/api/settings/sales-order/seal-position", body)
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("seal position status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	for _, want := range []string{
+		`"note":"第一行\n第二行"`,
+		`"payment_text":"微信付款"`,
+		`"seal_x_mm":58`,
+		`"seal_y_mm":19`,
+		`"seal_width_mm":46`,
+	} {
+		if !strings.Contains(rec.Body.String(), want) {
+			t.Fatalf("seal position response missing %s: %s", want, rec.Body.String())
+		}
+	}
+}
+
+func TestSalesOrderSealBackgroundRemovalCreatesTransparentPNG(t *testing.T) {
+	pool, schema := newOrderAPITestDB(t)
+	ctx := context.Background()
+	seedOrderAPITestData(t, ctx, pool, schema)
+	if err := postgressales.EnsureSchema(ctx, pool, schema); err != nil {
+		t.Fatalf("EnsureSchema: %v", err)
+	}
+	assetDir := t.TempDir()
+	objectKey := "sales_order_assets/seal/original-seal.png"
+	assetPath := filepath.Join(assetDir, objectKey)
+	writeSealWithWhiteBackground(t, assetPath)
+	mustExecOrderAPITestSQL(t, ctx, pool, fmt.Sprintf(`
+		INSERT INTO %s.sales_order_assets(id, kind, filename, content_type, bytes, sha256, object_key, created_by)
+		VALUES(1001, 'seal', 'original-seal.png', 'image/png', 12, 'seed', '%s', '测试员')`, schema, objectKey))
+	mustExecOrderAPITestSQL(t, ctx, pool, fmt.Sprintf(`
+		INSERT INTO %s.sales_order_settings(id, note, payment_text, seal_asset_id, seal_x_mm, seal_y_mm, seal_width_mm)
+		VALUES(1, '说明', '微信', 1001, 32, 22, 42)`, schema))
+	e := newSalesOrderAPITestEcho(pool, schema, assetDir)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/settings/sales-order/seal/remove-background", nil)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("remove background status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), `"content_type":"image/png"`) || !strings.Contains(rec.Body.String(), "-transparent.png") {
+		t.Fatalf("remove background response should return transparent PNG asset: %s", rec.Body.String())
+	}
+
+	var payload struct {
+		Asset salesapp.SalesOrderAsset `json:"asset"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("decode remove background response: %v", err)
+	}
+	data, err := os.ReadFile(filepath.Join(assetDir, payload.Asset.ObjectKey))
+	if err != nil {
+		t.Fatalf("read transparent seal: %v", err)
+	}
+	img, err := png.Decode(bytes.NewReader(data))
+	if err != nil {
+		t.Fatalf("decode transparent seal: %v", err)
+	}
+	_, _, _, whiteAlpha := img.At(0, 0).RGBA()
+	redR, _, _, redAlpha := img.At(1, 1).RGBA()
+	if whiteAlpha != 0 {
+		t.Fatalf("white background alpha = %d, want 0", whiteAlpha)
+	}
+	if redAlpha == 0 || redR == 0 {
+		t.Fatalf("seal foreground should remain opaque red, rgba=(%d,%d)", redR, redAlpha)
+	}
+
+	getReq := httptest.NewRequest(http.MethodGet, "/api/settings/sales-order", nil)
+	getRec := httptest.NewRecorder()
+	e.ServeHTTP(getRec, getReq)
+	if getRec.Code != http.StatusOK || !strings.Contains(getRec.Body.String(), payload.Asset.ObjectKey) {
+		t.Fatalf("settings should point to transparent seal status=%d body=%s", getRec.Code, getRec.Body.String())
 	}
 }
 
@@ -243,7 +388,7 @@ func newSalesOrderAPITestEcho(pool *pgxpool.Pool, schema string, assetDir string
 		}
 	})
 	svc := salesapp.NewService(postgressales.NewRepository(pool, schema, postgressales.WithSalesOrderAssetDir(assetDir)))
-	registerSalesOrderSettingsRoutes(e, svc)
+	registerSalesOrderSettingsRoutes(e, svc, assetDir)
 	registerSalesOrderDocumentRoutes(e, svc)
 	return e
 }
@@ -254,4 +399,25 @@ func seedSalesOrderAPITestOrder(t *testing.T, ctx context.Context, pool *pgxpool
 		VALUES(1, '2026-04-30', 3, 1, 2, 1, 1, 134, 0, 0, 134, 'SO-20260430-0008')`, schema))
 	mustExecOrderAPITestSQL(t, ctx, pool, fmt.Sprintf(`INSERT INTO %s.order_items(order_id, line_no, product_id, item_name, qty, unit, spec, unit_price, line_total)
 		VALUES(1, 1, 7, '橘皮乌龙', 2, '件', '300g', 67, 134)`, schema))
+}
+
+func writeSealWithWhiteBackground(t *testing.T, path string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	img := image.NewRGBA(image.Rect(0, 0, 3, 3))
+	for y := 0; y < 3; y++ {
+		for x := 0; x < 3; x++ {
+			img.Set(x, y, color.RGBA{R: 255, G: 255, B: 255, A: 255})
+		}
+	}
+	img.Set(1, 1, color.RGBA{R: 190, G: 18, B: 30, A: 255})
+	var buf bytes.Buffer
+	if err := png.Encode(&buf, img); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, buf.Bytes(), 0o644); err != nil {
+		t.Fatal(err)
+	}
 }

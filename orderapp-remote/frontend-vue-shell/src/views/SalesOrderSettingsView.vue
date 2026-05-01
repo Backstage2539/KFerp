@@ -20,7 +20,7 @@
         <ul>
           <li>公司名称在“公司设置”里维护；本页只维护销售单说明、收款方式、收款码和公章。</li>
           <li>收款码支持多个，名称和说明会随 PDF 一起展示。</li>
-          <li>公章建议上传无背景 PNG，可拖动调整盖在公司名称上的位置；重新上传或调整后只影响新生成版本。</li>
+          <li>公章可上传图片后点击“去除背景”生成透明 PNG；也可拖动调整盖在公司名称上的位置，调整后只影响新生成版本。</li>
         </ul>
       </details>
     </section>
@@ -61,6 +61,7 @@
         <div class="current-seal">当前：{{ settings.seal?.filename || '未设置' }}</div>
         <input type="file" accept="image/*" @change="handleSealFile" />
         <button class="primary" type="button" @click="uploadSeal" :disabled="uploadingSeal || !sealFile">上传公章</button>
+        <button class="secondary" type="button" @click="removeSealBackground" :disabled="removingSealBackground || !settings.seal">{{ removingSealBackground ? '处理中' : '去除背景' }}</button>
       </div>
       <div class="seal-position">
         <div
@@ -96,6 +97,7 @@ const loading = ref(false)
 const saving = ref(false)
 const uploadingPayment = ref(false)
 const uploadingSeal = ref(false)
+const removingSealBackground = ref(false)
 const error = ref('')
 const ok = ref(false)
 const settings = ref({})
@@ -245,6 +247,22 @@ async function uploadSeal() {
   }
 }
 
+async function removeSealBackground() {
+  if (!settings.value?.seal) return
+  removingSealBackground.value = true
+  error.value = ''
+  ok.value = false
+  try {
+    await apiSend('/api/settings/sales-order/seal/remove-background')
+    await load()
+    ok.value = true
+  } catch (err) {
+    error.value = err.message || '去除公章背景失败'
+  } finally {
+    removingSealBackground.value = false
+  }
+}
+
 onMounted(load)
 </script>
 
@@ -270,7 +288,7 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .primary { background: #1f1f1f; color: #fff; }
 .secondary { background: #fff; color: #1f1f1f; }
 .upload-row { display: grid; grid-template-columns: 180px 1fr 100px minmax(220px, 1fr) 90px; gap: 10px; align-items: center; margin-bottom: 12px; }
-.seal-row { grid-template-columns: 1fr minmax(220px, 1fr) 110px; }
+.seal-row { grid-template-columns: 1fr minmax(220px, 1fr) 110px 110px; }
 .current-seal { color: #555; }
 .seal-position { display: grid; grid-template-columns: minmax(320px, 462px) 1fr; gap: 12px; align-items: start; }
 .seal-position-stage { position: relative; width: 100%; aspect-ratio: 2.5 / 1; border: 1px dashed #d2c8bc; border-radius: 8px; background: #fffdf9; overflow: hidden; cursor: crosshair; }

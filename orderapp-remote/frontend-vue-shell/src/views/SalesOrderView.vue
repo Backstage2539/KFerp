@@ -24,6 +24,7 @@
         <ul>
           <li>首次生成销售单为 V1，同一订单再次生成会创建 V2，不覆盖旧文件。</li>
           <li>生成前先查看“销售单预览”；客户信息调整后可刷新预览，确认内容后再生成 PDF。</li>
+          <li>预览里的公章可直接拖动，松开后保存位置；位置只影响之后生成的新销售单。</li>
           <li>销售单内容按生成时的订单和设置保存快照，后续修改设置不会改动旧版本。</li>
           <li>需要给客户最新文件时使用“下载最新版”，需要追溯时下载指定历史版本。</li>
         </ul>
@@ -37,7 +38,7 @@
       </div>
       <div v-if="!preview" class="muted preview-empty">暂无预览</div>
       <div v-else class="preview-box">
-        <div class="preview-title">
+        <div ref="previewSealStage" class="preview-title">
           <strong>{{ preview.snapshot.company_name }}</strong>
           <span>销售单 SALES ORDER</span>
           <img
@@ -46,6 +47,8 @@
             :src="assetURL(preview.snapshot.seal)"
             alt="公章"
             :style="sealPositionStyle(preview.snapshot.seal)"
+            title="拖动调整公章位置"
+            @pointerdown.stop="startPreviewSealDrag"
           />
         </div>
         <div class="preview-meta">
@@ -81,7 +84,7 @@
           <p>{{ preview.snapshot.payment_text }}</p>
         </div>
         <div v-if="(preview.snapshot.payment_codes || []).length" class="payment-code-preview-list">
-          <div v-for="code in preview.snapshot.payment_codes" :key="`${code.id}-${code.label}`" class="payment-code-preview">
+          <div v-for="code in preview.snapshot.payment_codes" :key="`${code.id}-${code.label}`" class="payment-code-preview payment-code-preview-card">
             <img :src="assetURL(code)" :alt="code.label || '收款码'" />
             <div>
               <strong>{{ code.label || '收款码' }}</strong>
@@ -177,6 +180,8 @@ const documents = ref([])
 const preview = ref(null)
 const drawerOpen = ref(false)
 const savingCustomer = ref(false)
+const sealDragSaving = ref(false)
+const previewSealStage = ref(null)
 const customerSummary = reactive(emptyCustomer())
 const customerForm = reactive(emptyCustomer())
 
@@ -273,7 +278,7 @@ function assetURL(ref = {}) {
 }
 
 function sealPositionStyle(seal = {}) {
-  const scale = 2.2
+  const scale = previewSealScale()
   const x = Number(seal.x_mm || 32)
   const y = Number(seal.y_mm || 22)
   const w = Number(seal.width_mm || 42)
@@ -282,6 +287,55 @@ function sealPositionStyle(seal = {}) {
     top: `${y * scale}px`,
     width: `${w * scale}px`,
     height: `${w * 0.62 * scale}px`,
+  }
+}
+
+function previewSealScale() {
+  return 2.2
+}
+
+function startPreviewSealDrag(event) {
+  const seal = preview.value?.snapshot?.seal
+  if (!seal || !previewSealStage.value || sealDragSaving.value) return
+  event.preventDefault()
+  const scale = previewSealScale()
+  const originX = Number(seal.x_mm || 32)
+  const originY = Number(seal.y_mm || 22)
+  const startX = event.clientX
+  const startY = event.clientY
+  const update = (clientX, clientY) => {
+    seal.x_mm = Math.max(1, Math.round(originX + (clientX - startX) / scale))
+    seal.y_mm = Math.max(1, Math.round(originY + (clientY - startY) / scale))
+  }
+  update(event.clientX, event.clientY)
+  const move = (moveEvent) => update(moveEvent.clientX, moveEvent.clientY)
+  const up = async () => {
+    window.removeEventListener('pointermove', move)
+    window.removeEventListener('pointerup', up)
+    await savePreviewSealPosition()
+  }
+  window.addEventListener('pointermove', move)
+  window.addEventListener('pointerup', up, { once: true })
+}
+
+async function savePreviewSealPosition() {
+  const seal = preview.value?.snapshot?.seal
+  if (!seal) return
+  sealDragSaving.value = true
+  error.value = ''
+  try {
+    await apiSend('/api/settings/sales-order/seal-position', {
+      body: {
+        seal_x_mm: Number(seal.x_mm || 32),
+        seal_y_mm: Number(seal.y_mm || 22),
+        seal_width_mm: Number(seal.width_mm || 42),
+      },
+    })
+    message.value = '公章位置已保存'
+  } catch (err) {
+    error.value = err.message || '保存公章位置失败'
+  } finally {
+    sealDragSaving.value = false
   }
 }
 
@@ -369,17 +423,17 @@ th { background: #fbfaf8; }
 .preview-title { position: relative; display: flex; justify-content: space-between; gap: 12px; border-bottom: 2px solid #1f1f1f; padding: 22px 0 10px; margin-bottom: 10px; min-height: 82px; }
 .preview-title strong { font-size: 18px; }
 .preview-title span { font-weight: 800; }
-.seal-stamp-preview { position: absolute; object-fit: contain; opacity: .86; pointer-events: none; }
+.seal-stamp-preview { position: absolute; object-fit: contain; opacity: .86; cursor: move; touch-action: none; }
 .preview-meta { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px 14px; margin-bottom: 12px; color: #555; }
 .preview-total { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 14px; padding-top: 12px; }
 .preview-total strong { font-size: 18px; }
 .preview-notes { border-top: 1px solid #eee2d4; margin-top: 12px; padding-top: 10px; color: #555; }
 .preview-notes p { margin: 4px 0; white-space: pre-line; }
-.payment-code-preview-list { display: flex; flex-wrap: wrap; gap: 14px; border-top: 1px solid #eee2d4; margin-top: 12px; padding-top: 12px; }
-.payment-code-preview { display: grid; grid-template-columns: 86px minmax(120px, 1fr); gap: 10px; align-items: center; min-width: 220px; }
-.payment-code-preview img { width: 86px; height: 86px; object-fit: contain; border: 1px solid #eee2d4; border-radius: 6px; background: #fff; }
+.payment-code-preview-list { display: grid; grid-template-columns: repeat(auto-fit, minmax(112px, 128px)); justify-content: start; gap: 14px; border-top: 1px solid #eee2d4; margin-top: 12px; padding-top: 12px; }
+.payment-code-preview { display: grid; gap: 7px; align-items: start; justify-items: center; text-align: center; }
+.payment-code-preview img { width: 96px; height: 96px; object-fit: contain; border: 1px solid #eee2d4; border-radius: 6px; background: #fff; }
 .payment-code-preview strong, .payment-code-preview span { display: block; }
-.payment-code-preview span { color: #666; margin-top: 4px; white-space: pre-line; }
+.payment-code-preview span { color: #666; margin-top: 4px; white-space: pre-line; font-size: 12px; line-height: 1.35; }
 .error, .ok { border-radius: 6px; padding: 9px; margin-bottom: 12px; }
 .error { background: #fff0f0; border: 1px solid #e6b7b7; color: #8a1f1f; }
 .ok { background: #f0fff0; border: 1px solid #b7d9b7; color: #246024; }

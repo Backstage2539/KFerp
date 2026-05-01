@@ -636,6 +636,13 @@ func seedReqWorkflowA(ctx context.Context, pool *pgxpool.Pool, schema string) er
 		{table: "req_unit", code: "UT-122-01", title: "单测覆盖公司设置服务、销售单设置公章坐标、PDF 多行文本和公章位置、Vue 源码守卫及菜单权限", status: "done", assignee: "Codex", evidence: "TestServiceValidatesAndNormalizesCompanyProfile; TestSalesOrderPDFMultilineTextAndSealPositionHelpers; TestSalesOrderLayoutCompanySettingsRequirementSeeds"},
 		{table: "req_api", code: "API-122-01", title: "API 测试覆盖全局公司设置保存/读取、销售单设置保存多行内容和公章坐标", status: "done", assignee: "Codex", evidence: "TestCompanyProfileAPI; TestSalesOrderSettingsAPI"},
 		{table: "req_review", code: "REV-122-01", prCode: "PR-122", title: "验收：销售单预览与下载 PDF 的收款码、公章、换行和公司名称一致；公章位置可拖动调整", status: "todo", assignee: "VA", evidence: "待 Van 服务器验收"},
+		{table: "req_product", code: "PR-123", title: "销售单预览公章拖动可保存，公章支持去除背景，收款码并排展示", status: "review", assignee: "VA", evidence: "codex/sales-order-preview-seal-tools-20260501"},
+		{table: "req_dev", code: "DEV-123-01", title: "销售单预览公章拖动后通过独立接口保存坐标，避免覆盖销售单说明和收款方式", status: "done", assignee: "Codex", evidence: "SalesOrderView previewSealStage; POST /api/settings/sales-order/seal-position"},
+		{table: "req_dev", code: "DEV-123-02", title: "销售单设置页新增公章去除背景操作，后端生成透明 PNG 并设为当前公章", status: "done", assignee: "Codex", evidence: "SalesOrderSettingsView removeSealBackground; removeSealImageBackground"},
+		{table: "req_dev", code: "DEV-123-03", title: "销售单预览和 PDF 中收款码改为横向并排展示，二维码和说明保持一致", status: "done", assignee: "Codex", evidence: "payment-code-preview-list grid; SalesOrderRenderer.renderPaymentCodes"},
+		{table: "req_unit", code: "UT-123-01", title: "单测覆盖需求表种子、预览拖动源码守卫、公章去背景源码守卫和 PDF 并排布局源码守卫", status: "done", assignee: "Codex", evidence: "dev_123_sales_order_preview_seal_tools_test.go"},
+		{table: "req_api", code: "API-123-01", title: "API 测试覆盖公章坐标独立保存不覆盖文本，以及公章去背景生成透明 PNG 并更新当前公章", status: "done", assignee: "Codex", evidence: "TestSalesOrderSealPositionAPIOnlyUpdatesCoordinates; TestSalesOrderSealBackgroundRemovalCreatesTransparentPNG"},
+		{table: "req_review", code: "REV-123-01", prCode: "PR-123", title: "验收：销售单预览可拖动公章并保存；设置页可去除公章背景；收款码在预览和 PDF 并排展示", status: "todo", assignee: "VA", evidence: "待 Van 服务器验收"},
 	} {
 		if err := seedReqRow(ctx, pool, schema, row); err != nil {
 			return err

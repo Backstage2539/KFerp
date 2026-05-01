@@ -1,9 +1,15 @@
 package sales
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"image"
+	"image/color"
+	_ "image/gif"
+	_ "image/jpeg"
+	"image/png"
 	"io"
 	"net/http"
 	"os"
@@ -51,10 +57,12 @@ func registerSalesOrderSettingsRoutes(e *echo.Echo, salesSvc *salesapp.Service, 
 	})
 	e.GET("/api/settings/sales-order", h.get)
 	e.POST("/api/settings/sales-order", h.save)
+	e.POST("/api/settings/sales-order/seal-position", h.saveSealPosition)
 	e.POST("/api/settings/sales-order/payment-codes", h.uploadPaymentCode)
 	e.PUT("/api/settings/sales-order/payment-codes/:id", h.updatePaymentCode)
 	e.DELETE("/api/settings/sales-order/payment-codes/:id", h.deletePaymentCode)
 	e.POST("/api/settings/sales-order/seal", h.uploadSeal)
+	e.POST("/api/settings/sales-order/seal/remove-background", h.removeSealBackground)
 	e.GET("/assets/sales_order_assets/*", h.serveSalesOrderAsset)
 	e.HEAD("/assets/sales_order_assets/*", h.serveSalesOrderAsset)
 }
@@ -84,6 +92,36 @@ func (h salesOrderSettingsHandler) save(c echo.Context) error {
 		return c.JSON(http.StatusBadRequest, map[string]any{"error": err.Error()})
 	}
 	settings, err := h.sales.LoadSalesOrderSettings(c.Request().Context())
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]any{"error": err.Error()})
+	}
+	return c.JSON(http.StatusOK, settings)
+}
+
+func (h salesOrderSettingsHandler) saveSealPosition(c echo.Context) error {
+	var req salesOrderSettingsRequest
+	if err := c.Bind(&req); err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]any{"error": "bad request"})
+	}
+	settings, err := h.sales.LoadSalesOrderSettings(c.Request().Context())
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]any{"error": err.Error()})
+	}
+	if req.SealWidthMM <= 0 {
+		req.SealWidthMM = settings.SealWidthMM
+	}
+	if err := h.sales.SaveSalesOrderSettings(c.Request().Context(), salesapp.SaveSalesOrderSettingsCommand{
+		Actor:       support.ActorOf(c),
+		CompanyName: settings.CompanyName,
+		Note:        settings.Note,
+		PaymentText: settings.PaymentText,
+		SealXMM:     req.SealXMM,
+		SealYMM:     req.SealYMM,
+		SealWidthMM: req.SealWidthMM,
+	}); err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]any{"error": err.Error()})
+	}
+	settings, err = h.sales.LoadSalesOrderSettings(c.Request().Context())
 	if err != nil {
 		return c.JSON(http.StatusInternalServerError, map[string]any{"error": err.Error()})
 	}
@@ -141,6 +179,53 @@ func (h salesOrderSettingsHandler) deletePaymentCode(c echo.Context) error {
 
 func (h salesOrderSettingsHandler) uploadSeal(c echo.Context) error {
 	asset, err := h.saveUploadedSalesOrderAsset(c, "seal")
+	if err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]any{"error": err.Error()})
+	}
+	if err := h.sales.SetSalesOrderSealAsset(c.Request().Context(), asset.ID, support.ActorOf(c)); err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]any{"error": err.Error()})
+	}
+	return c.JSON(http.StatusOK, map[string]any{"asset": asset})
+}
+
+func (h salesOrderSettingsHandler) removeSealBackground(c echo.Context) error {
+	settings, err := h.sales.LoadSalesOrderSettings(c.Request().Context())
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]any{"error": err.Error()})
+	}
+	if settings.Seal == nil || strings.TrimSpace(settings.Seal.ObjectKey) == "" {
+		return c.JSON(http.StatusBadRequest, map[string]any{"error": "seal required"})
+	}
+	path, ok := h.storedSalesOrderAssetPath(settings.Seal.ObjectKey)
+	if !ok {
+		return c.JSON(http.StatusBadRequest, map[string]any{"error": "invalid seal asset"})
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]any{"error": "seal file not found"})
+	}
+	transparent, err := removeSealImageBackground(data)
+	if err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]any{"error": err.Error()})
+	}
+	filename := transparentSealFilename(settings.Seal.Filename)
+	objectKey := filepath.ToSlash(filepath.Join("sales_order_assets", "seal", fmt.Sprintf("%d-%s", time.Now().UnixNano(), filename)))
+	if err := os.MkdirAll(filepath.Dir(filepath.Join(h.assetDir, objectKey)), 0755); err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]any{"error": err.Error()})
+	}
+	if err := os.WriteFile(filepath.Join(h.assetDir, objectKey), transparent, 0644); err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]any{"error": err.Error()})
+	}
+	sum := sha256.Sum256(transparent)
+	asset, err := h.sales.SaveSalesOrderAsset(c.Request().Context(), salesapp.SaveSalesOrderAssetCommand{
+		Actor:       support.ActorOf(c),
+		Kind:        "seal",
+		Filename:    filename,
+		ContentType: "image/png",
+		Bytes:       int64(len(transparent)),
+		SHA256:      hex.EncodeToString(sum[:]),
+		ObjectKey:   objectKey,
+	})
 	if err != nil {
 		return c.JSON(http.StatusBadRequest, map[string]any{"error": err.Error()})
 	}
@@ -220,4 +305,55 @@ func (h salesOrderSettingsHandler) saveUploadedSalesOrderAsset(c echo.Context, k
 		SHA256:      hex.EncodeToString(sum[:]),
 		ObjectKey:   objectKey,
 	})
+}
+
+func (h salesOrderSettingsHandler) storedSalesOrderAssetPath(objectKey string) (string, bool) {
+	clean := filepath.Clean(filepath.FromSlash(strings.TrimSpace(objectKey)))
+	if clean == "." || filepath.IsAbs(clean) || clean == ".." || strings.HasPrefix(clean, ".."+string(os.PathSeparator)) {
+		return "", false
+	}
+	return filepath.Join(h.assetDir, clean), true
+}
+
+func transparentSealFilename(filename string) string {
+	filename = filepath.Base(strings.TrimSpace(filename))
+	ext := filepath.Ext(filename)
+	base := strings.TrimSuffix(filename, ext)
+	if base == "" || base == "." {
+		base = "seal"
+	}
+	return base + "-transparent.png"
+}
+
+func removeSealImageBackground(data []byte) ([]byte, error) {
+	img, _, err := image.Decode(bytes.NewReader(data))
+	if err != nil {
+		return nil, fmt.Errorf("unsupported seal image")
+	}
+	bounds := img.Bounds()
+	out := image.NewNRGBA(image.Rect(0, 0, bounds.Dx(), bounds.Dy()))
+	for y := bounds.Min.Y; y < bounds.Max.Y; y++ {
+		for x := bounds.Min.X; x < bounds.Max.X; x++ {
+			r16, g16, b16, a16 := img.At(x, y).RGBA()
+			r := uint8(r16 >> 8)
+			g := uint8(g16 >> 8)
+			b := uint8(b16 >> 8)
+			a := uint8(a16 >> 8)
+			if a > 0 && isLightNeutralSealBackground(r, g, b) {
+				a = 0
+			}
+			out.SetNRGBA(x-bounds.Min.X, y-bounds.Min.Y, color.NRGBA{R: r, G: g, B: b, A: a})
+		}
+	}
+	var buf bytes.Buffer
+	if err := png.Encode(&buf, out); err != nil {
+		return nil, err
+	}
+	return buf.Bytes(), nil
+}
+
+func isLightNeutralSealBackground(r, g, b uint8) bool {
+	maxV := max(max(r, g), b)
+	minV := min(min(r, g), b)
+	return minV >= 238 && maxV-minV <= 24
 }

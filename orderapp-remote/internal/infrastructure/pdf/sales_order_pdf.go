@@ -24,6 +24,13 @@ type salesOrderSealBox struct {
 	HeightMM float64
 }
 
+const (
+	paymentCodeCellWidth = 42.0
+	paymentCodeGap       = 8.0
+	paymentCodeImageSize = 28.0
+	paymentCodeCellH     = 50.0
+)
+
 func (r SalesOrderRenderer) Render(snapshot salesdomain.SalesOrderSnapshot) ([]byte, error) {
 	if err := snapshot.Validate(); err != nil {
 		return nil, err
@@ -90,9 +97,7 @@ func (r SalesOrderRenderer) Render(snapshot salesdomain.SalesOrderSnapshot) ([]b
 	if snapshot.PaymentText != "" {
 		writeSalesOrderLabeledMultiline(pdf, "收款方式", snapshot.PaymentText)
 	}
-	for _, code := range snapshot.PaymentCodes {
-		r.renderAssetRef(pdf, code, "收款码", 36, 36)
-	}
+	r.renderPaymentCodes(pdf, snapshot.PaymentCodes)
 	if snapshot.Note != "" {
 		writeSalesOrderLabeledMultiline(pdf, "说明", snapshot.Note)
 	}
@@ -143,6 +148,58 @@ func (r SalesOrderRenderer) renderSealStamp(pdf *gofpdf.Fpdf, ref salesdomain.Sa
 	}
 	pos := salesOrderSealPosition(ref.XMM, ref.YMM, ref.WidthMM)
 	pdf.ImageOptions(path, pos.XMM, pos.YMM, pos.WidthMM, pos.HeightMM, false, opts, 0, "")
+}
+
+func (r SalesOrderRenderer) renderPaymentCodes(pdf *gofpdf.Fpdf, codes []salesdomain.SalesOrderAssetRef) {
+	if len(codes) == 0 {
+		return
+	}
+	pdf.Ln(1)
+	startX, startY := pdf.GetXY()
+	pageW, _ := pdf.GetPageSize()
+	_, _, rightMargin, _ := pdf.GetMargins()
+	availableW := pageW - rightMargin - startX
+	cols := int((availableW + paymentCodeGap) / (paymentCodeCellWidth + paymentCodeGap))
+	if cols < 1 {
+		cols = 1
+	}
+	x := startX
+	y := startY
+	for i, code := range codes {
+		if i > 0 && i%cols == 0 {
+			x = startX
+			y += paymentCodeCellH + 3
+		}
+		r.renderPaymentCodeCell(pdf, code, x, y)
+		x += paymentCodeCellWidth + paymentCodeGap
+	}
+	pdf.SetXY(startX, y+paymentCodeCellH+3)
+}
+
+func (r SalesOrderRenderer) renderPaymentCodeCell(pdf *gofpdf.Fpdf, ref salesdomain.SalesOrderAssetRef, x, y float64) {
+	label := strings.TrimSpace(ref.Label)
+	if label == "" {
+		label = "收款码"
+	}
+	pdf.SetXY(x, y)
+	pdf.MultiCell(paymentCodeCellWidth, 5, label, "", "C", false)
+
+	path, ok := r.resolveAssetPath(ref.ObjectKey)
+	if ok {
+		imageType := salesOrderImageType(ref.ContentType, path)
+		if imageType != "" {
+			opts := gofpdf.ImageOptions{ImageType: imageType, ReadDpi: true}
+			info := pdf.RegisterImageOptions(path, opts)
+			if info != nil && pdf.Error() == nil {
+				w, h := fitSalesOrderImage(info, paymentCodeImageSize, paymentCodeImageSize)
+				pdf.ImageOptions(path, x+(paymentCodeCellWidth-w)/2, y+8, w, h, false, opts, 0, "")
+			}
+		}
+	}
+	if desc := strings.TrimSpace(ref.Description); desc != "" {
+		pdf.SetXY(x, y+paymentCodeImageSize+11)
+		pdf.MultiCell(paymentCodeCellWidth, 4.5, desc, "", "C", false)
+	}
 }
 
 func (r SalesOrderRenderer) renderAssetRef(pdf *gofpdf.Fpdf, ref salesdomain.SalesOrderAssetRef, labelPrefix string, maxW, maxH float64) {
