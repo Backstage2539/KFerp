@@ -43,7 +43,10 @@ func (r Repository) ListWIPReservations(ctx context.Context, query productionapp
 		LEFT JOIN LATERAL (
 			SELECT SUM(l.qty_g)::bigint AS wip_g
 			FROM %s.material_batch_locations l
-			WHERE l.material_id=res.material_id AND l.warehouse='wip'
+			JOIN %s.material_batches b ON b.id=l.material_batch_id
+			WHERE l.material_id=res.material_id
+			  AND l.warehouse='wip'
+			  AND COALESCE(b.quality_status,'unchecked') NOT IN ('hold','reject')
 		) wip ON true
 		LEFT JOIN LATERAL (
 			SELECT SUM(GREATEST(0,r2.reserved_g-r2.consumed_g-r2.returned_g))::bigint AS open_reserved_g
@@ -53,7 +56,7 @@ func (r Repository) ListWIPReservations(ctx context.Context, query productionapp
 		WHERE %s
 		ORDER BY res.updated_at DESC,res.id DESC
 		LIMIT $%d
-	`, r.schema, r.schema, r.schema, r.schema, strings.Join(where, " AND "), limitArg), args...)
+	`, r.schema, r.schema, r.schema, r.schema, r.schema, strings.Join(where, " AND "), limitArg), args...)
 	if err != nil {
 		return productionapp.WIPReservationResult{}, err
 	}

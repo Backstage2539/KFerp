@@ -307,9 +307,10 @@ func ensureWIPStockForNeedsTx(ctx context.Context, tx pgx.Tx, schema string, nee
 			  AND l.qty_g > 0
 			  AND b.status='active'
 			  AND b.remaining_g > 0
+			  AND COALESCE(b.quality_status,'unchecked') NOT IN ('hold','reject')
 		`, schema, schema), need.MaterialID, stockdomain.WarehouseWIP).Scan(&availableG)
 		if err != nil {
-			if strings.Contains(err.Error(), "material_batches") || strings.Contains(err.Error(), "material_batch_locations") {
+			if strings.Contains(err.Error(), "material_batches") || strings.Contains(err.Error(), "material_batch_locations") || strings.Contains(err.Error(), "quality_status") {
 				return nil
 			}
 			return err
@@ -523,7 +524,7 @@ func materialBatchAllocationsTx(ctx context.Context, tx pgx.Tx, schema string, m
 		return nil, nil
 	}
 	rows, err := tx.Query(ctx, fmt.Sprintf(`
-		SELECT b.id,b.batch_code,l.qty_g
+		SELECT b.id,b.batch_code,l.qty_g,COALESCE(b.quality_status,'unchecked')
 		FROM %s.material_batch_locations l
 		JOIN %s.material_batches b ON b.id=l.material_batch_id
 		WHERE l.material_id=$1
@@ -535,17 +536,23 @@ func materialBatchAllocationsTx(ctx context.Context, tx pgx.Tx, schema string, m
 		FOR UPDATE OF l,b
 	`, schema, schema), materialID, stockdomain.WarehouseWIP)
 	if err != nil {
-		if strings.Contains(err.Error(), "material_batches") || strings.Contains(err.Error(), "material_batch_locations") {
+		if strings.Contains(err.Error(), "material_batches") || strings.Contains(err.Error(), "material_batch_locations") || strings.Contains(err.Error(), "quality_status") {
 			return nil, nil
 		}
 		return nil, err
 	}
 	defer rows.Close()
 	available := make([]stockdomain.BatchAvailability, 0)
+	var frozenG int64
 	for rows.Next() {
 		var batch stockdomain.BatchAvailability
-		if err := rows.Scan(&batch.BatchID, &batch.BatchCode, &batch.AvailableG); err != nil {
+		var qualityStatus string
+		if err := rows.Scan(&batch.BatchID, &batch.BatchCode, &batch.AvailableG, &qualityStatus); err != nil {
 			return nil, err
+		}
+		if qualityStatus == "hold" || qualityStatus == "reject" {
+			frozenG += batch.AvailableG
+			continue
 		}
 		available = append(available, batch)
 	}
@@ -553,10 +560,16 @@ func materialBatchAllocationsTx(ctx context.Context, tx pgx.Tx, schema string, m
 		return nil, err
 	}
 	if len(available) == 0 {
+		if frozenG > 0 {
+			return nil, fmt.Errorf("WIP stock blocked by quality status for material %d", materialID)
+		}
 		return nil, fmt.Errorf("WIP stock insufficient for material %d", materialID)
 	}
 	allocations, err := stockdomain.AllocateFIFO(available, deductG)
 	if err != nil {
+		if frozenG > 0 {
+			return nil, fmt.Errorf("WIP stock blocked by quality status for material %d", materialID)
+		}
 		return nil, err
 	}
 	for _, alloc := range allocations {

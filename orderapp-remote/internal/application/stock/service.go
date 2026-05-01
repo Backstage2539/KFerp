@@ -67,6 +67,7 @@ type BatchRow struct {
 	RemainingG     int64   `json:"remaining_g"`
 	RemainingUnits int64   `json:"remaining_units"`
 	UnitCost       float64 `json:"unit_cost"`
+	QualityStatus  string  `json:"quality_status"`
 	Operator       string  `json:"operator"`
 	CreatedAt      string  `json:"created_at"`
 }
@@ -85,18 +86,19 @@ type MaterialBatchQuery struct {
 }
 
 type MaterialBatchRow struct {
-	ID           int64   `json:"id"`
-	BatchCode    string  `json:"batch_code"`
-	MaterialID   int64   `json:"material_id"`
-	MaterialName string  `json:"material_name"`
-	Supplier     string  `json:"supplier"`
-	ReceiptID    int64   `json:"receipt_id"`
-	QtyG         int64   `json:"qty_g"`
-	RemainingG   int64   `json:"remaining_g"`
-	UnitCost     float64 `json:"unit_cost"`
-	ReceivedAt   string  `json:"received_at"`
-	Status       string  `json:"status"`
-	Note         string  `json:"note"`
+	ID            int64   `json:"id"`
+	BatchCode     string  `json:"batch_code"`
+	MaterialID    int64   `json:"material_id"`
+	MaterialName  string  `json:"material_name"`
+	Supplier      string  `json:"supplier"`
+	ReceiptID     int64   `json:"receipt_id"`
+	QtyG          int64   `json:"qty_g"`
+	RemainingG    int64   `json:"remaining_g"`
+	UnitCost      float64 `json:"unit_cost"`
+	ReceivedAt    string  `json:"received_at"`
+	Status        string  `json:"status"`
+	QualityStatus string  `json:"quality_status"`
+	Note          string  `json:"note"`
 }
 
 type MaterialBatchResult struct {
@@ -132,6 +134,7 @@ type MaterialBatchLocationRow struct {
 	Warehouse       string `json:"warehouse"`
 	WarehouseName   string `json:"warehouse_name"`
 	QtyG            int64  `json:"qty_g"`
+	QualityStatus   string `json:"quality_status"`
 	ReceivedAt      string `json:"received_at"`
 	UpdatedAt       string `json:"updated_at"`
 }
@@ -162,6 +165,7 @@ type WarehouseInventoryRow struct {
 	QtyG          int64   `json:"qty_g"`
 	QtyUnits      int64   `json:"qty_units"`
 	UnitCost      float64 `json:"unit_cost"`
+	QualityStatus string  `json:"quality_status"`
 	UpdatedAt     string  `json:"updated_at"`
 }
 
@@ -184,6 +188,7 @@ type TraceFinishedBatch struct {
 	QtyUnits       int64  `json:"qty_units"`
 	RemainingG     int64  `json:"remaining_g"`
 	RemainingUnits int64  `json:"remaining_units"`
+	QualityStatus  string `json:"quality_status"`
 	CreatedAt      string `json:"created_at"`
 }
 
@@ -211,18 +216,19 @@ type TraceMaterial struct {
 }
 
 type TraceMaterialBatch struct {
-	ID           int64   `json:"id"`
-	BatchCode    string  `json:"batch_code"`
-	MaterialID   int64   `json:"material_id"`
-	MaterialName string  `json:"material_name"`
-	Supplier     string  `json:"supplier"`
-	ReceiptID    int64   `json:"receipt_id"`
-	QtyG         int64   `json:"qty_g"`
-	RemainingG   int64   `json:"remaining_g"`
-	UnitCost     float64 `json:"unit_cost"`
-	ReceivedAt   string  `json:"received_at"`
-	Status       string  `json:"status"`
-	Note         string  `json:"note"`
+	ID            int64   `json:"id"`
+	BatchCode     string  `json:"batch_code"`
+	MaterialID    int64   `json:"material_id"`
+	MaterialName  string  `json:"material_name"`
+	Supplier      string  `json:"supplier"`
+	ReceiptID     int64   `json:"receipt_id"`
+	QtyG          int64   `json:"qty_g"`
+	RemainingG    int64   `json:"remaining_g"`
+	UnitCost      float64 `json:"unit_cost"`
+	ReceivedAt    string  `json:"received_at"`
+	Status        string  `json:"status"`
+	QualityStatus string  `json:"quality_status"`
+	Note          string  `json:"note"`
 }
 
 type StockTraceResult struct {

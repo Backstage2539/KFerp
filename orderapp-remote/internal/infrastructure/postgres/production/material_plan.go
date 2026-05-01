@@ -149,9 +149,10 @@ func materialWarehouseGTx(ctx context.Context, tx pgx.Tx, schema string, materia
 		  AND l.qty_g > 0
 		  AND b.status='active'
 		  AND b.remaining_g > 0
+		  AND COALESCE(b.quality_status,'unchecked') NOT IN ('hold','reject')
 	`, schema, schema), materialID, warehouse).Scan(&qtyG)
 	if err != nil {
-		if strings.Contains(err.Error(), "material_batches") || strings.Contains(err.Error(), "material_batch_locations") {
+		if strings.Contains(err.Error(), "material_batches") || strings.Contains(err.Error(), "material_batch_locations") || strings.Contains(err.Error(), "quality_status") {
 			return 0, nil
 		}
 		return 0, err
