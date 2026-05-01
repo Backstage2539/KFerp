@@ -116,6 +116,7 @@ func (r Repository) ListBatches(ctx context.Context, query stockapp.BatchQuery) 
 		SELECT id,batch_code,item_type,item_id,item_name,spec_g,
 		       source_doc_type,source_doc_id,source_batch_id,
 		       qty_g,qty_units,remaining_g,remaining_units,COALESCE(unit_cost,0),
+		       COALESCE(quality_status,'unchecked'),
 		       operator,to_char(created_at,'YYYY-MM-DD HH24:MI')
 		FROM %s.stock_batches
 		WHERE %s
@@ -130,7 +131,7 @@ func (r Repository) ListBatches(ctx context.Context, query stockapp.BatchQuery) 
 	out := make([]stockapp.BatchRow, 0)
 	for rows.Next() {
 		var row stockapp.BatchRow
-		if err := rows.Scan(&row.ID, &row.BatchCode, &row.ItemType, &row.ItemID, &row.ItemName, &row.SpecG, &row.SourceDocType, &row.SourceDocID, &row.SourceBatchID, &row.QtyG, &row.QtyUnits, &row.RemainingG, &row.RemainingUnits, &row.UnitCost, &row.Operator, &row.CreatedAt); err != nil {
+		if err := rows.Scan(&row.ID, &row.BatchCode, &row.ItemType, &row.ItemID, &row.ItemName, &row.SpecG, &row.SourceDocType, &row.SourceDocID, &row.SourceBatchID, &row.QtyG, &row.QtyUnits, &row.RemainingG, &row.RemainingUnits, &row.UnitCost, &row.QualityStatus, &row.Operator, &row.CreatedAt); err != nil {
 			return stockapp.BatchResult{}, err
 		}
 		out = append(out, row)
@@ -157,14 +158,14 @@ func (r Repository) ListMaterialBatches(ctx context.Context, query stockapp.Mate
 		where = append(where, fmt.Sprintf("b.material_id=$%d", len(args)))
 	}
 	if query.ActiveOnly {
-		where = append(where, "b.remaining_g > 0 AND b.status='active'")
+		where = append(where, "b.remaining_g > 0 AND b.status='active' AND COALESCE(b.quality_status,'unchecked') NOT IN ('hold','reject')")
 	}
 	args = append(args, query.Limit+1, query.Offset)
 	limitArg, offsetArg := len(args)-1, len(args)
 	sql := fmt.Sprintf(`
 		SELECT b.id,b.batch_code,b.material_id,COALESCE(m.name,''),b.supplier,b.receipt_id,
 		       b.qty_g,b.remaining_g,COALESCE(b.unit_cost,0),
-		       to_char(b.received_at,'YYYY-MM-DD HH24:MI'),b.status,b.note
+		       to_char(b.received_at,'YYYY-MM-DD HH24:MI'),b.status,COALESCE(b.quality_status,'unchecked'),b.note
 		FROM %s.material_batches b
 		LEFT JOIN %s.materials m ON m.id=b.material_id
 		WHERE %s
@@ -179,7 +180,7 @@ func (r Repository) ListMaterialBatches(ctx context.Context, query stockapp.Mate
 	out := make([]stockapp.MaterialBatchRow, 0)
 	for rows.Next() {
 		var row stockapp.MaterialBatchRow
-		if err := rows.Scan(&row.ID, &row.BatchCode, &row.MaterialID, &row.MaterialName, &row.Supplier, &row.ReceiptID, &row.QtyG, &row.RemainingG, &row.UnitCost, &row.ReceivedAt, &row.Status, &row.Note); err != nil {
+		if err := rows.Scan(&row.ID, &row.BatchCode, &row.MaterialID, &row.MaterialName, &row.Supplier, &row.ReceiptID, &row.QtyG, &row.RemainingG, &row.UnitCost, &row.ReceivedAt, &row.Status, &row.QualityStatus, &row.Note); err != nil {
 			return stockapp.MaterialBatchResult{}, err
 		}
 		out = append(out, row)
@@ -232,13 +233,14 @@ func (r Repository) ListMaterialBatchLocations(ctx context.Context, query stocka
 		where = append(where, fmt.Sprintf("l.warehouse=$%d", len(args)))
 	}
 	if query.ActiveOnly {
-		where = append(where, "l.qty_g > 0")
+		where = append(where, "l.qty_g > 0 AND COALESCE(b.quality_status,'unchecked') NOT IN ('hold','reject')")
 	}
 	args = append(args, query.Limit+1, query.Offset)
 	limitArg, offsetArg := len(args)-1, len(args)
 	rows, err := r.pool.Query(ctx, fmt.Sprintf(`
 		SELECT l.material_batch_id,l.batch_code,l.material_id,COALESCE(m.name,''),l.warehouse,
 		       COALESCE(w.name,l.warehouse),l.qty_g,
+		       COALESCE(b.quality_status,'unchecked'),
 		       COALESCE(to_char(b.received_at,'YYYY-MM-DD HH24:MI'),''),
 		       to_char(l.updated_at,'YYYY-MM-DD HH24:MI')
 		FROM %s.material_batch_locations l
@@ -256,7 +258,7 @@ func (r Repository) ListMaterialBatchLocations(ctx context.Context, query stocka
 	out := make([]stockapp.MaterialBatchLocationRow, 0)
 	for rows.Next() {
 		var row stockapp.MaterialBatchLocationRow
-		if err := rows.Scan(&row.MaterialBatchID, &row.BatchCode, &row.MaterialID, &row.MaterialName, &row.Warehouse, &row.WarehouseName, &row.QtyG, &row.ReceivedAt, &row.UpdatedAt); err != nil {
+		if err := rows.Scan(&row.MaterialBatchID, &row.BatchCode, &row.MaterialID, &row.MaterialName, &row.Warehouse, &row.WarehouseName, &row.QtyG, &row.QualityStatus, &row.ReceivedAt, &row.UpdatedAt); err != nil {
 			return stockapp.MaterialBatchLocationResult{}, err
 		}
 		out = append(out, row)
@@ -289,6 +291,7 @@ func (r Repository) ListWarehouseInventory(ctx context.Context, query stockapp.W
 			       l.qty_g AS qty_g,
 			       0::bigint AS qty_units,
 			       COALESCE(b.unit_cost,0) AS unit_cost,
+			       COALESCE(b.quality_status,'unchecked') AS quality_status,
 			       l.updated_at AS updated_at
 			FROM %s.material_batch_locations l
 			LEFT JOIN %s.material_batches b ON b.id=l.material_batch_id
@@ -298,6 +301,39 @@ func (r Repository) ListWarehouseInventory(ctx context.Context, query stockapp.W
 			  AND ($1 = '' OR l.batch_code ILIKE $2 OR m.name ILIKE $2)
 			  AND ($3 = '' OR l.warehouse = $3)
 			  AND ($4 = '' OR $4 = 'material')
+			UNION ALL
+			SELECT COALESCE(last_ledger.warehouse,'finished_goods') AS warehouse,
+			       COALESCE(w.name,COALESCE(last_ledger.warehouse,'finished_goods')) AS warehouse_name,
+			       COALESCE(w.kind,'finished') AS warehouse_kind,
+			       'finished_product' AS item_type,
+			       b.item_id AS item_id,
+			       COALESCE(p.name,'') AS item_name,
+			       b.spec_g,
+			       b.id AS batch_id,
+			       b.batch_code AS batch_code,
+			       b.remaining_g AS qty_g,
+			       b.remaining_units AS qty_units,
+			       COALESCE(b.unit_cost,0) AS unit_cost,
+			       COALESCE(b.quality_status,'unchecked') AS quality_status,
+			       COALESCE(last_ledger.created_at,b.created_at) AS updated_at
+			FROM %s.stock_batches b
+			LEFT JOIN %s.products p ON p.id=b.item_id
+			LEFT JOIN LATERAL (
+				SELECT l.warehouse,l.created_at
+				FROM %s.stock_ledger_entries l
+				WHERE l.source_batch_code=b.batch_code
+				  AND l.item_type=b.item_type
+				  AND l.item_id=b.item_id
+				  AND l.spec_g=b.spec_g
+				ORDER BY l.id DESC
+				LIMIT 1
+			) last_ledger ON true
+			LEFT JOIN %s.warehouses w ON w.code=COALESCE(last_ledger.warehouse,'finished_goods')
+			WHERE b.item_type='finished_product'
+			  AND (b.remaining_g <> 0 OR b.remaining_units <> 0)
+			  AND ($1 = '' OR b.batch_code ILIKE $2 OR p.name ILIKE $2)
+			  AND ($3 = '' OR COALESCE(last_ledger.warehouse,'finished_goods') = $3)
+			  AND ($4 = '' OR $4 = 'finished_product')
 			UNION ALL
 			SELECT fi.warehouse,
 			       COALESCE(w.name,fi.warehouse) AS warehouse_name,
@@ -311,6 +347,7 @@ func (r Repository) ListWarehouseInventory(ctx context.Context, query stockapp.W
 			       (fi.onhand_units * fi.spec_g + fi.onhand_loose_g) AS qty_g,
 			       fi.onhand_units AS qty_units,
 			       0::numeric AS unit_cost,
+			       'unchecked' AS quality_status,
 			       fi.updated_at AS updated_at
 			FROM %s.finished_inventory fi
 			LEFT JOIN %s.products p ON p.id=fi.product_id
@@ -319,13 +356,21 @@ func (r Repository) ListWarehouseInventory(ctx context.Context, query stockapp.W
 			  AND ($1 = '' OR p.name ILIKE $2)
 			  AND ($3 = '' OR fi.warehouse = $3)
 			  AND ($4 = '' OR $4 = 'finished_product')
+			  AND NOT EXISTS (
+			    SELECT 1
+			    FROM %s.stock_batches b
+			    WHERE b.item_type='finished_product'
+			      AND b.item_id=fi.product_id
+			      AND b.spec_g=fi.spec_g
+			      AND (b.remaining_g <> 0 OR b.remaining_units <> 0)
+			  )
 		)
 		SELECT warehouse,warehouse_name,warehouse_kind,item_type,item_id,item_name,spec_g,batch_id,batch_code,
-		       qty_g,qty_units,COALESCE(unit_cost,0),to_char(updated_at,'YYYY-MM-DD HH24:MI')
+		       qty_g,qty_units,COALESCE(unit_cost,0),quality_status,to_char(updated_at,'YYYY-MM-DD HH24:MI')
 		FROM warehouse_inventory
 		ORDER BY warehouse_name,item_type,item_name,spec_g,batch_code
 		LIMIT $5 OFFSET $6
-	`, r.schema, r.schema, r.schema, r.schema, r.schema, r.schema, r.schema), q, qLike, query.Warehouse, query.ItemType, query.Limit+1, query.Offset)
+	`, r.schema, r.schema, r.schema, r.schema, r.schema, r.schema, r.schema, r.schema, r.schema, r.schema, r.schema, r.schema), q, qLike, query.Warehouse, query.ItemType, query.Limit+1, query.Offset)
 	if err != nil {
 		return stockapp.WarehouseInventoryResult{}, err
 	}
@@ -333,7 +378,7 @@ func (r Repository) ListWarehouseInventory(ctx context.Context, query stockapp.W
 	out := make([]stockapp.WarehouseInventoryRow, 0)
 	for rows.Next() {
 		var row stockapp.WarehouseInventoryRow
-		if err := rows.Scan(&row.Warehouse, &row.WarehouseName, &row.WarehouseKind, &row.ItemType, &row.ItemID, &row.ItemName, &row.SpecG, &row.BatchID, &row.BatchCode, &row.QtyG, &row.QtyUnits, &row.UnitCost, &row.UpdatedAt); err != nil {
+		if err := rows.Scan(&row.Warehouse, &row.WarehouseName, &row.WarehouseKind, &row.ItemType, &row.ItemID, &row.ItemName, &row.SpecG, &row.BatchID, &row.BatchCode, &row.QtyG, &row.QtyUnits, &row.UnitCost, &row.QualityStatus, &row.UpdatedAt); err != nil {
 			return stockapp.WarehouseInventoryResult{}, err
 		}
 		out = append(out, row)
@@ -353,7 +398,7 @@ func (r Repository) GetStockTrace(ctx context.Context, query stockapp.StockTrace
 	var result stockapp.StockTraceResult
 	err := r.pool.QueryRow(ctx, fmt.Sprintf(`
 		SELECT b.batch_code,b.item_id,b.item_name,b.spec_g,COALESCE(l.warehouse,'finished_goods'),
-		       b.qty_g,b.qty_units,b.remaining_g,b.remaining_units,to_char(b.created_at,'YYYY-MM-DD HH24:MI')
+		       b.qty_g,b.qty_units,b.remaining_g,b.remaining_units,COALESCE(b.quality_status,'unchecked'),to_char(b.created_at,'YYYY-MM-DD HH24:MI')
 		FROM %s.stock_batches b
 		LEFT JOIN %s.stock_ledger_entries l
 		  ON l.source_doc_type=b.source_doc_type
@@ -376,6 +421,7 @@ func (r Repository) GetStockTrace(ctx context.Context, query stockapp.StockTrace
 		&result.FinishedBatch.QtyUnits,
 		&result.FinishedBatch.RemainingG,
 		&result.FinishedBatch.RemainingUnits,
+		&result.FinishedBatch.QualityStatus,
 		&result.FinishedBatch.CreatedAt,
 	)
 	if err != nil {
@@ -454,7 +500,7 @@ func (r Repository) getMaterialStockTrace(ctx context.Context, batchCode string)
 	err := r.pool.QueryRow(ctx, fmt.Sprintf(`
 		SELECT b.id,b.batch_code,b.material_id,COALESCE(m.name,''),b.supplier,b.receipt_id,
 		       b.qty_g,b.remaining_g,COALESCE(b.unit_cost,0),
-		       to_char(b.received_at,'YYYY-MM-DD HH24:MI'),b.status,b.note
+		       to_char(b.received_at,'YYYY-MM-DD HH24:MI'),b.status,COALESCE(b.quality_status,'unchecked'),b.note
 		FROM %s.material_batches b
 		LEFT JOIN %s.materials m ON m.id=b.material_id
 		WHERE b.batch_code=$1
@@ -471,6 +517,7 @@ func (r Repository) getMaterialStockTrace(ctx context.Context, batchCode string)
 		&result.MaterialBatch.UnitCost,
 		&result.MaterialBatch.ReceivedAt,
 		&result.MaterialBatch.Status,
+		&result.MaterialBatch.QualityStatus,
 		&result.MaterialBatch.Note,
 	)
 	if err != nil {
@@ -482,6 +529,7 @@ func (r Repository) getMaterialStockTrace(ctx context.Context, batchCode string)
 	rows, err := r.pool.Query(ctx, fmt.Sprintf(`
 		SELECT l.material_batch_id,l.batch_code,l.material_id,COALESCE(m.name,''),l.warehouse,
 		       COALESCE(w.name,l.warehouse),l.qty_g,
+		       COALESCE(b.quality_status,'unchecked'),
 		       COALESCE(to_char(b.received_at,'YYYY-MM-DD HH24:MI'),''),
 		       to_char(l.updated_at,'YYYY-MM-DD HH24:MI')
 		FROM %s.material_batch_locations l
@@ -499,7 +547,7 @@ func (r Repository) getMaterialStockTrace(ctx context.Context, batchCode string)
 	result.MaterialLocations = make([]stockapp.MaterialBatchLocationRow, 0)
 	for rows.Next() {
 		var row stockapp.MaterialBatchLocationRow
-		if err := rows.Scan(&row.MaterialBatchID, &row.BatchCode, &row.MaterialID, &row.MaterialName, &row.Warehouse, &row.WarehouseName, &row.QtyG, &row.ReceivedAt, &row.UpdatedAt); err != nil {
+		if err := rows.Scan(&row.MaterialBatchID, &row.BatchCode, &row.MaterialID, &row.MaterialName, &row.Warehouse, &row.WarehouseName, &row.QtyG, &row.QualityStatus, &row.ReceivedAt, &row.UpdatedAt); err != nil {
 			return stockapp.StockTraceResult{}, err
 		}
 		result.MaterialLocations = append(result.MaterialLocations, row)
@@ -618,7 +666,7 @@ func (r Repository) TransferMaterial(ctx context.Context, cmd stockapp.MaterialT
 	}
 
 	rows, err := tx.Query(ctx, fmt.Sprintf(`
-		SELECT b.id,b.batch_code,l.qty_g
+		SELECT b.id,b.batch_code,l.qty_g,COALESCE(b.quality_status,'unchecked')
 		FROM %s.material_batch_locations l
 		JOIN %s.material_batches b ON b.id=l.material_batch_id
 		WHERE l.material_id=$1
@@ -635,10 +683,16 @@ func (r Repository) TransferMaterial(ctx context.Context, cmd stockapp.MaterialT
 	defer rows.Close()
 	available := make([]stockdomain.BatchAvailability, 0)
 	beforeFromByBatch := map[int64]int64{}
+	var frozenG int64
 	for rows.Next() {
 		var batch stockdomain.BatchAvailability
-		if err := rows.Scan(&batch.BatchID, &batch.BatchCode, &batch.AvailableG); err != nil {
+		var qualityStatus string
+		if err := rows.Scan(&batch.BatchID, &batch.BatchCode, &batch.AvailableG, &qualityStatus); err != nil {
 			return stockapp.MaterialTransferResult{}, err
+		}
+		if qualityStatus == "hold" || qualityStatus == "reject" {
+			frozenG += batch.AvailableG
+			continue
 		}
 		available = append(available, batch)
 		beforeFromByBatch[batch.BatchID] = batch.AvailableG
@@ -648,9 +702,15 @@ func (r Repository) TransferMaterial(ctx context.Context, cmd stockapp.MaterialT
 	}
 	allocations, err := stockdomain.AllocateFIFO(available, cmd.QtyG)
 	if err != nil {
+		if frozenG > 0 {
+			return stockapp.MaterialTransferResult{}, fmt.Errorf("material stock blocked by quality status in %s", cmd.FromWarehouse)
+		}
 		return stockapp.MaterialTransferResult{}, err
 	}
 	if len(allocations) == 0 {
+		if frozenG > 0 {
+			return stockapp.MaterialTransferResult{}, fmt.Errorf("material stock blocked by quality status in %s", cmd.FromWarehouse)
+		}
 		return stockapp.MaterialTransferResult{}, fmt.Errorf("material stock insufficient in %s", cmd.FromWarehouse)
 	}
 
@@ -796,6 +856,13 @@ func (r Repository) TransferFinishedProduct(ctx context.Context, cmd stockapp.Fi
 	beforeFromG := beforeFromUnits*cmd.SpecG + beforeFromLoose
 	if beforeFromG < transferG {
 		return stockapp.FinishedProductTransferResult{}, fmt.Errorf("finished stock insufficient in %s", cmd.FromWarehouse)
+	}
+	qualityAvailableG, hasQualityBatches, err := availableFinishedQualityGTx(ctx, tx, r.schema, cmd.ProductID, cmd.SpecG, cmd.FromWarehouse)
+	if err != nil {
+		return stockapp.FinishedProductTransferResult{}, err
+	}
+	if hasQualityBatches && qualityAvailableG < transferG {
+		return stockapp.FinishedProductTransferResult{}, fmt.Errorf("finished stock blocked by quality status in %s", cmd.FromWarehouse)
 	}
 	afterFromUnits, afterFromLoose, _, err := normalizeFinishedQty(cmd.SpecG, 0, beforeFromG-transferG)
 	if err != nil {
@@ -1099,6 +1166,44 @@ func finishedInventoryQtyTx(ctx context.Context, tx pgx.Tx, schema string, produ
 		return 0, 0, err
 	}
 	return units, looseG, nil
+}
+
+func availableFinishedQualityGTx(ctx context.Context, tx pgx.Tx, schema string, productID, specG int64, warehouse string) (int64, bool, error) {
+	var availableG, batchCount int64
+	err := tx.QueryRow(ctx, fmt.Sprintf(`
+		WITH finished_batches AS (
+			SELECT b.id,
+			       b.remaining_g,
+			       COALESCE(b.quality_status,'unchecked') AS quality_status,
+			       COALESCE(last_ledger.warehouse,'finished_goods') AS warehouse
+			FROM %s.stock_batches b
+			LEFT JOIN LATERAL (
+				SELECT l.warehouse
+				FROM %s.stock_ledger_entries l
+				WHERE l.source_batch_code=b.batch_code
+				  AND l.item_type=b.item_type
+				  AND l.item_id=b.item_id
+				  AND l.spec_g=b.spec_g
+				ORDER BY l.id DESC
+				LIMIT 1
+			) last_ledger ON true
+			WHERE b.item_type=$1
+			  AND b.item_id=$2
+			  AND b.spec_g=$3
+			  AND b.remaining_g > 0
+		)
+		SELECT COALESCE(SUM(CASE WHEN quality_status NOT IN ('hold','reject') THEN remaining_g ELSE 0 END),0)::bigint,
+		       COUNT(*)::bigint
+		FROM finished_batches
+		WHERE warehouse=$4
+	`, schema, schema), itemTypeFinishedProduct, productID, specG, warehouse).Scan(&availableG, &batchCount)
+	if err != nil {
+		if strings.Contains(err.Error(), "stock_batches") || strings.Contains(err.Error(), "quality_status") {
+			return 0, false, nil
+		}
+		return 0, false, err
+	}
+	return availableG, batchCount > 0, nil
 }
 
 func upsertFinishedInventoryTx(ctx context.Context, tx pgx.Tx, schema string, productID, specG int64, warehouse string, units, looseG int64) error {

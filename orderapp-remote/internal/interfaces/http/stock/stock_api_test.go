@@ -24,21 +24,21 @@ func (f *fakeStockRepo) ListLedger(ctx context.Context, query stockapp.LedgerQue
 	return stockapp.LedgerResult{Rows: []stockapp.LedgerRow{{ID: 1, ItemType: "material", ItemName: "水洗豆", QtyChangeG: 1200}}}, nil
 }
 func (f *fakeStockRepo) ListBatches(ctx context.Context, query stockapp.BatchQuery) (stockapp.BatchResult, error) {
-	return stockapp.BatchResult{Rows: []stockapp.BatchRow{{ID: 2, BatchCode: "MB-0000000002", ItemType: "material", ItemName: "水洗豆"}}}, nil
+	return stockapp.BatchResult{Rows: []stockapp.BatchRow{{ID: 2, BatchCode: "MB-0000000002", ItemType: "material", ItemName: "水洗豆", QualityStatus: "pass"}}}, nil
 }
 func (f *fakeStockRepo) ListMaterialBatches(ctx context.Context, query stockapp.MaterialBatchQuery) (stockapp.MaterialBatchResult, error) {
-	return stockapp.MaterialBatchResult{Rows: []stockapp.MaterialBatchRow{{ID: 2, BatchCode: "MB-0000000002", RemainingG: 1200}}}, nil
+	return stockapp.MaterialBatchResult{Rows: []stockapp.MaterialBatchRow{{ID: 2, BatchCode: "MB-0000000002", RemainingG: 1200, QualityStatus: "hold"}}}, nil
 }
 func (f *fakeStockRepo) ListWarehouses(ctx context.Context) ([]stockapp.WarehouseRow, error) {
 	return []stockapp.WarehouseRow{{Code: "raw_materials", Name: "原料仓"}, {Code: "wip", Name: "WIP在制仓"}}, nil
 }
 func (f *fakeStockRepo) ListMaterialBatchLocations(ctx context.Context, query stockapp.MaterialBatchLocationQuery) (stockapp.MaterialBatchLocationResult, error) {
-	return stockapp.MaterialBatchLocationResult{Rows: []stockapp.MaterialBatchLocationRow{{BatchCode: "MB-0000000002", Warehouse: "wip", QtyG: 60000}}}, nil
+	return stockapp.MaterialBatchLocationResult{Rows: []stockapp.MaterialBatchLocationRow{{BatchCode: "MB-0000000002", Warehouse: "wip", QtyG: 60000, QualityStatus: "pass"}}}, nil
 }
 func (f *fakeStockRepo) ListWarehouseInventory(ctx context.Context, query stockapp.WarehouseInventoryQuery) (stockapp.WarehouseInventoryResult, error) {
 	return stockapp.WarehouseInventoryResult{Rows: []stockapp.WarehouseInventoryRow{
-		{Warehouse: "raw_materials", WarehouseName: "原料仓", ItemType: "material", ItemID: 1, ItemName: "水洗豆", BatchCode: "MB-0000000002", QtyG: 1200},
-		{Warehouse: "finished_goods", WarehouseName: "成品仓", ItemType: "finished_product", ItemID: 9, ItemName: "橘皮乌龙", SpecG: 454, QtyG: 908, QtyUnits: 2},
+		{Warehouse: "raw_materials", WarehouseName: "原料仓", ItemType: "material", ItemID: 1, ItemName: "水洗豆", BatchCode: "MB-0000000002", QtyG: 1200, QualityStatus: "pass"},
+		{Warehouse: "finished_goods", WarehouseName: "成品仓", ItemType: "finished_product", ItemID: 9, ItemName: "橘皮乌龙", SpecG: 454, BatchCode: "FP-0000000042", QtyG: 908, QtyUnits: 2, QualityStatus: "reject"},
 	}}, nil
 }
 func (f *fakeStockRepo) GetStockTrace(ctx context.Context, query stockapp.StockTraceQuery) (stockapp.StockTraceResult, error) {
@@ -46,7 +46,7 @@ func (f *fakeStockRepo) GetStockTrace(ctx context.Context, query stockapp.StockT
 	if query.BatchCode == "LEGACY-MAT-0000000001" {
 		return stockapp.StockTraceResult{
 			TraceType:     "material_batch",
-			MaterialBatch: stockapp.TraceMaterialBatch{BatchCode: "LEGACY-MAT-0000000001", MaterialID: 1, MaterialName: "孟连水洗5T批次", QtyG: 60000, RemainingG: 60000, Note: "系统升级按物料现有库存生成的期初批次"},
+			MaterialBatch: stockapp.TraceMaterialBatch{BatchCode: "LEGACY-MAT-0000000001", MaterialID: 1, MaterialName: "孟连水洗5T批次", QtyG: 60000, RemainingG: 60000, QualityStatus: "hold", Note: "系统升级按物料现有库存生成的期初批次"},
 			MaterialLocations: []stockapp.MaterialBatchLocationRow{{
 				BatchCode:     "LEGACY-MAT-0000000001",
 				MaterialID:    1,
@@ -54,12 +54,13 @@ func (f *fakeStockRepo) GetStockTrace(ctx context.Context, query stockapp.StockT
 				Warehouse:     "wip",
 				WarehouseName: "WIP在制仓",
 				QtyG:          60000,
+				QualityStatus: "hold",
 			}},
 		}, nil
 	}
 	return stockapp.StockTraceResult{
 		TraceType:     "finished_batch",
-		FinishedBatch: stockapp.TraceFinishedBatch{BatchCode: "FP-0000000042", ProductName: "橘皮乌龙", Warehouse: "finished_goods", QtyG: 464, QtyUnits: 2},
+		FinishedBatch: stockapp.TraceFinishedBatch{BatchCode: "FP-0000000042", ProductName: "橘皮乌龙", Warehouse: "finished_goods", QtyG: 464, QtyUnits: 2, QualityStatus: "reject"},
 		Production:    stockapp.TraceProduction{RunningItemID: 42, WorkOrderNo: "WO-0000000042", BatchID: "PLAN-BATCH-001"},
 		Materials:     []stockapp.TraceMaterial{{MaterialName: "卡蒂姆水洗", MaterialBatchCode: "MB-0000000007", DeductG: 600}},
 	}, nil
@@ -130,6 +131,9 @@ func TestStockAPIRoutes(t *testing.T) {
 	if !bytes.Contains(rec.Body.Bytes(), []byte(`"warehouse":"finished_goods"`)) || !bytes.Contains(rec.Body.Bytes(), []byte(`"item_type":"finished_product"`)) {
 		t.Fatalf("GET warehouse inventory missing finished stock: %s", rec.Body.String())
 	}
+	if !bytes.Contains(rec.Body.Bytes(), []byte(`"quality_status":"reject"`)) {
+		t.Fatalf("GET warehouse inventory missing quality status: %s", rec.Body.String())
+	}
 
 	req = httptest.NewRequest(http.MethodPost, "/api/stock/material-transfers", bytes.NewBufferString(`{"material_id":1,"from_warehouse":"raw_materials","to_warehouse":"wip","qty_g":60000,"note":"三天生产领料"}`))
 	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
@@ -162,7 +166,7 @@ func TestStockAPIRoutes(t *testing.T) {
 	if repo.traceQuery.BatchCode != "FP-0000000042" {
 		t.Fatalf("trace query = %+v", repo.traceQuery)
 	}
-	for _, want := range []string{`"batch_code":"FP-0000000042"`, `"work_order_no":"WO-0000000042"`, `"material_batch_code":"MB-0000000007"`} {
+	for _, want := range []string{`"batch_code":"FP-0000000042"`, `"work_order_no":"WO-0000000042"`, `"material_batch_code":"MB-0000000007"`, `"quality_status":"reject"`} {
 		if !bytes.Contains(rec.Body.Bytes(), []byte(want)) {
 			t.Fatalf("trace response missing %s: %s", want, rec.Body.String())
 		}
@@ -174,7 +178,7 @@ func TestStockAPIRoutes(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("GET material trace status=%d body=%s", rec.Code, rec.Body.String())
 	}
-	for _, want := range []string{`"trace_type":"material_batch"`, `"batch_code":"LEGACY-MAT-0000000001"`, `"warehouse":"wip"`, `"material_name":"孟连水洗5T批次"`} {
+	for _, want := range []string{`"trace_type":"material_batch"`, `"batch_code":"LEGACY-MAT-0000000001"`, `"warehouse":"wip"`, `"material_name":"孟连水洗5T批次"`, `"quality_status":"hold"`} {
 		if !bytes.Contains(rec.Body.Bytes(), []byte(want)) {
 			t.Fatalf("material trace response missing %s: %s", want, rec.Body.String())
 		}

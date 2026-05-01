@@ -87,9 +87,31 @@ func TestVueStockWorkspaceIncludesFinishedTransferAndTraceLookup(t *testing.T) {
 		"追溯",
 		"material_batch",
 		"LEGACY-MAT",
+		"quality_status",
+		"qualityLabel",
+		"质检",
 	} {
 		if !strings.Contains(warehouseSrc, want) {
 			t.Fatalf("WarehouseInventoryView.vue missing trace lookup %q", want)
+		}
+	}
+
+	materialBatches, err := readStockWorkspaceFile(filepath.Join("frontend-vue-shell", "src", "views", "MaterialBatchesView.vue"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	stockBatches, err := readStockWorkspaceFile(filepath.Join("frontend-vue-shell", "src", "views", "StockBatchesView.vue"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for path, src := range map[string]string{
+		"MaterialBatchesView.vue": string(materialBatches),
+		"StockBatchesView.vue":    string(stockBatches),
+	} {
+		for _, want := range []string{"quality_status", "qualityLabel", "质检"} {
+			if !strings.Contains(src, want) {
+				t.Fatalf("%s missing %q", path, want)
+			}
 		}
 	}
 }

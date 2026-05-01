@@ -636,6 +636,13 @@ func seedReqWorkflowA(ctx context.Context, pool *pgxpool.Pool, schema string) er
 		{table: "req_unit", code: "UT-122-01", title: "单测覆盖公司设置服务、销售单设置公章坐标、PDF 多行文本和公章位置、Vue 源码守卫及菜单权限", status: "done", assignee: "Codex", evidence: "TestServiceValidatesAndNormalizesCompanyProfile; TestSalesOrderPDFMultilineTextAndSealPositionHelpers; TestSalesOrderLayoutCompanySettingsRequirementSeeds"},
 		{table: "req_api", code: "API-122-01", title: "API 测试覆盖全局公司设置保存/读取、销售单设置保存多行内容和公章坐标", status: "done", assignee: "Codex", evidence: "TestCompanyProfileAPI; TestSalesOrderSettingsAPI"},
 		{table: "req_review", code: "REV-122-01", prCode: "PR-122", title: "验收：销售单预览与下载 PDF 的收款码、公章、换行和公司名称一致；公章位置可拖动调整", status: "todo", assignee: "VA", evidence: "待 Van 服务器验收"},
+		{table: "req_product", code: "PR-123", title: "质检拦截生产/库存：待处理或不通过批次进入冻结状态，原料/WIP/成品统一显示 quality_status", status: "review", assignee: "VA", evidence: "codex/quality-gate-p2-20260501"},
+		{table: "req_dev", code: "DEV-123-01", title: "质检保存后按 work_order、finished_batch、raw_material 同步更新 stock_batches/material_batches.quality_status", status: "done", assignee: "Codex", evidence: "CreateQualityInspection applyQualityInspectionStatusTx"},
+		{table: "req_dev", code: "DEV-123-02", title: "原料批次、WIP 仓库存、库存批次和成品批次追溯统一返回并展示质检状态", status: "done", assignee: "Codex", evidence: "stock read models quality_status; WarehouseInventoryView/MaterialBatchesView/StockBatchesView"},
+		{table: "req_dev", code: "DEV-123-03", title: "冻结批次不得被领料到 WIP、生产扣料或成品出库/转仓误用", status: "done", assignee: "Codex", evidence: "TransferMaterial; materialBatchAllocationsTx; TransferFinishedProduct quality block"},
+		{table: "req_unit", code: "UT-123-01", title: "单测覆盖质检同步批次状态、冻结原料/WIP/成品拦截、Vue 质检状态显示和需求种子", status: "done", assignee: "Codex", evidence: "quality_gate_test; repository_test; material_consumption_test; stock_vue_source_test; dev_122_quality_gate_test"},
+		{table: "req_api", code: "API-123-01", title: "API 测试覆盖仓库库存和批次追溯返回 quality_status，冻结批次不会作为可用库存误用", status: "done", assignee: "Codex", evidence: "TestStockAPIRoutes; go test focused packages"},
+		{table: "req_review", code: "REV-123-01", prCode: "PR-123", title: "验收：WO-0000000020 质检不通过后成品批次显示不通过；原料/WIP/成品状态一致；冻结批次不能出库或生产扣料", status: "todo", assignee: "VA", evidence: "待 Van 服务器验收"},
 	} {
 		if err := seedReqRow(ctx, pool, schema, row); err != nil {
 			return err

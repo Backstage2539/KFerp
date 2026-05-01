@@ -78,6 +78,7 @@ CREATE TABLE %s.material_batches (
 	remaining_g BIGINT NOT NULL DEFAULT 0,
 	unit_cost NUMERIC(12,4) NOT NULL DEFAULT 0,
 	status TEXT NOT NULL DEFAULT 'active',
+	quality_status TEXT NOT NULL DEFAULT 'unchecked',
 	note TEXT NOT NULL DEFAULT '',
 	received_at TIMESTAMPTZ NOT NULL DEFAULT now(),
 	created_at TIMESTAMPTZ NOT NULL DEFAULT now()
@@ -106,6 +107,7 @@ CREATE TABLE %s.stock_batches (
 	remaining_g BIGINT NOT NULL DEFAULT 0,
 	remaining_units BIGINT NOT NULL DEFAULT 0,
 	unit_cost NUMERIC(12,4) NOT NULL DEFAULT 0,
+	quality_status TEXT NOT NULL DEFAULT 'unchecked',
 	operator TEXT NOT NULL DEFAULT '',
 	created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
@@ -164,6 +166,56 @@ VALUES (1,'MB-OLD',7,'wip',700);
 	}
 	if rawG != 300 || wipG != 100 || remainingG != 400 || stockBatchRemainingG != 400 {
 		t.Fatalf("raw/wip/material/stock batch = %d/%d/%d/%d, want 300/100/400/400", rawG, wipG, remainingG, stockBatchRemainingG)
+	}
+}
+
+func TestMaterialBatchAllocationsSkipFrozenWIPBatches(t *testing.T) {
+	pool, schema := newProductionTestDB(t)
+	ctx := context.Background()
+	defer func() {
+		_, _ = pool.Exec(ctx, "DROP SCHEMA IF EXISTS "+schema+" CASCADE")
+		pool.Close()
+	}()
+	mustExecProductionSQL(t, ctx, pool, fmt.Sprintf(`
+CREATE TABLE %s.material_batches (
+	id BIGSERIAL PRIMARY KEY,
+	batch_code TEXT NOT NULL UNIQUE,
+	material_id BIGINT NOT NULL,
+	qty_g BIGINT NOT NULL DEFAULT 0,
+	remaining_g BIGINT NOT NULL DEFAULT 0,
+	status TEXT NOT NULL DEFAULT 'active',
+	quality_status TEXT NOT NULL DEFAULT 'unchecked',
+	received_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE TABLE %s.material_batch_locations (
+	material_batch_id BIGINT NOT NULL,
+	batch_code TEXT NOT NULL DEFAULT '',
+	material_id BIGINT NOT NULL DEFAULT 0,
+	warehouse TEXT NOT NULL DEFAULT '',
+	qty_g BIGINT NOT NULL DEFAULT 0,
+	updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+	PRIMARY KEY(material_batch_id, warehouse)
+);
+CREATE TABLE %s.stock_batches (
+	id BIGSERIAL PRIMARY KEY,
+	batch_code TEXT NOT NULL UNIQUE,
+	remaining_g BIGINT NOT NULL DEFAULT 0
+);
+INSERT INTO %s.material_batches(id,batch_code,material_id,qty_g,remaining_g,quality_status,received_at)
+VALUES (1,'MB-HOLD',7,1000,1000,'hold',now() - interval '1 day');
+INSERT INTO %s.material_batch_locations(material_batch_id,batch_code,material_id,warehouse,qty_g)
+VALUES (1,'MB-HOLD',7,'wip',1000);
+INSERT INTO %s.stock_batches(batch_code,remaining_g) VALUES ('MB-HOLD',1000);
+`, schema, schema, schema, schema, schema, schema))
+
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = materialBatchAllocationsTx(ctx, tx, schema, 7, 600)
+	_ = tx.Rollback(ctx)
+	if err == nil || !strings.Contains(err.Error(), "quality") {
+		t.Fatalf("materialBatchAllocationsTx frozen error = %v, want quality block", err)
 	}
 }
 
