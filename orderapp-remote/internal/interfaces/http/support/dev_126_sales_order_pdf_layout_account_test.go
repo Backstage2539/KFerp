@@ -67,16 +67,16 @@ func TestSalesOrderPreviewShowsAccountAndSharedPaymentLayout(t *testing.T) {
 	}
 }
 
-func TestSalesOrderSettingsExposesBankAccountSettings(t *testing.T) {
+func TestSalesOrderSettingsNoLongerOwnsBankAccountSettings(t *testing.T) {
 	src := string(readOrderAppFileForTest(t, filepath.Join("frontend-vue-shell", "src", "views", "SalesOrderSettingsView.vue")))
-	for _, want := range []string{
+	for _, forbidden := range []string{
 		"公账收款设置",
 		"bank_account_name",
 		"bank_name",
 		"bank_account_no",
 	} {
-		if !strings.Contains(src, want) {
-			t.Fatalf("SalesOrderSettingsView missing bank account setting marker %q", want)
+		if strings.Contains(src, forbidden) {
+			t.Fatalf("SalesOrderSettingsView should not keep company-owned bank account marker %q", forbidden)
 		}
 	}
 }

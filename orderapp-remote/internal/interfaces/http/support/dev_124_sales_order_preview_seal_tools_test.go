@@ -34,7 +34,8 @@ func TestSalesOrderPreviewSupportsDraggingSealAndInlinePaymentCodes(t *testing.T
 		"savePreviewSealPosition",
 		"/api/settings/sales-order/seal-position",
 		"payment-code-preview-list",
-		"grid-template-columns: repeat(auto-fit",
+		"single-payment-code",
+		"payment-code-stack",
 		"payment-code-preview-card",
 	} {
 		if !strings.Contains(src, want) {
@@ -60,15 +61,15 @@ func TestSalesOrderSettingsExposesSealBackgroundRemoval(t *testing.T) {
 	}
 }
 
-func TestSalesOrderPDFRendersPaymentCodesSideBySide(t *testing.T) {
+func TestSalesOrderPDFRendersPaymentCodesWithAdaptiveLayout(t *testing.T) {
 	src := string(readOrderAppFileForTest(t, filepath.Join("internal", "infrastructure", "pdf", "sales_order_pdf.go")))
 	for _, want := range []string{
 		"renderPaymentCodes",
-		"paymentCodeCellWidth",
-		"paymentCodeGap",
+		"salesOrderPaymentCodeMetrics",
+		"Stacked",
 	} {
 		if !strings.Contains(src, want) {
-			t.Fatalf("sales order PDF missing side-by-side payment code marker %q", want)
+			t.Fatalf("sales order PDF missing adaptive payment code marker %q", want)
 		}
 	}
 }

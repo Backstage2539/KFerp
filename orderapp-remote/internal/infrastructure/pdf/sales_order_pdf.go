@@ -24,12 +24,13 @@ type salesOrderSealBox struct {
 	HeightMM float64
 }
 
-const (
-	paymentCodeCellWidth = 34.0
-	paymentCodeGap       = 6.0
-	paymentCodeImageSize = 28.0
-	paymentCodeCellH     = 50.0
-)
+type salesOrderPaymentCodeLayout struct {
+	CellWidth  float64
+	ImageSize  float64
+	CellHeight float64
+	Gap        float64
+	Stacked    bool
+}
 
 func (r SalesOrderRenderer) Render(snapshot salesdomain.SalesOrderSnapshot) ([]byte, error) {
 	if err := snapshot.Validate(); err != nil {
@@ -82,18 +83,48 @@ func (r SalesOrderRenderer) renderSalesOrderHeader(pdf *gofpdf.Fpdf, snapshot sa
 	pdf.SetY(y + 5)
 	pdf.SetFont("noto", "", 10)
 	colW := (pageW - left - right) / 3
-	writeSalesOrderMetaCell(pdf, colW, "订单号："+snapshot.OrderNo)
-	writeSalesOrderMetaCell(pdf, colW, "订单日期："+snapshot.OrderDate)
-	writeSalesOrderMetaCell(pdf, colW, "客户："+snapshot.CustomerName)
-	pdf.Ln(7)
-	writeSalesOrderMetaCell(pdf, colW, "客户公司："+firstNonEmpty(snapshot.CustomerCompanyName, snapshot.CustomerName))
-	writeSalesOrderMetaCell(pdf, colW, "联系电话："+snapshot.CustomerCompanyPhone)
-	writeSalesOrderMetaCell(pdf, colW, "公司地址："+snapshot.CustomerCompanyAddress)
-	pdf.Ln(9)
+	widths := []float64{colW, colW, colW}
+	writeSalesOrderMetaRow(pdf, widths, []string{
+		"订单号：" + snapshot.OrderNo,
+		"订单日期：" + snapshot.OrderDate,
+		"客户：" + snapshot.CustomerName,
+	}, 6)
+	writeSalesOrderMetaRow(pdf, widths, []string{
+		"客户公司：" + firstNonEmpty(snapshot.CustomerCompanyName, snapshot.CustomerName),
+		"联系电话：" + snapshot.CustomerCompanyPhone,
+		"公司地址：" + snapshot.CustomerCompanyAddress,
+	}, 6)
+	pdf.Ln(3)
 }
 
-func writeSalesOrderMetaCell(pdf *gofpdf.Fpdf, width float64, text string) {
-	pdf.CellFormat(width, 7, text, "", 0, "L", false, 0, "")
+func writeSalesOrderMetaRow(pdf *gofpdf.Fpdf, widths []float64, texts []string, lineHeight float64) {
+	if lineHeight <= 0 {
+		lineHeight = 6
+	}
+	startX, startY := pdf.GetXY()
+	rowH := lineHeight
+	for i, text := range texts {
+		if i >= len(widths) {
+			break
+		}
+		lines := pdf.SplitLines([]byte(text), widths[i])
+		if len(lines) == 0 {
+			lines = [][]byte{[]byte("")}
+		}
+		if h := float64(len(lines)) * lineHeight; h > rowH {
+			rowH = h
+		}
+	}
+	x := startX
+	for i, text := range texts {
+		if i >= len(widths) {
+			break
+		}
+		pdf.SetXY(x, startY)
+		pdf.MultiCell(widths[i], lineHeight, text, "", "L", false)
+		x += widths[i]
+	}
+	pdf.SetXY(startX, startY+rowH)
 }
 
 func (r SalesOrderRenderer) renderSalesOrderItemsTable(pdf *gofpdf.Fpdf, snapshot salesdomain.SalesOrderSnapshot) {
@@ -138,7 +169,7 @@ func (r SalesOrderRenderer) renderSalesOrderPaymentInfoSection(pdf *gofpdf.Fpdf,
 	startY = pdf.GetY() + 3
 	codeW := 0.0
 	if len(snapshot.PaymentCodes) > 0 {
-		codeW = 78
+		codeW = salesOrderPaymentCodeMetrics(len(snapshot.PaymentCodes)).CellWidth
 	}
 	gap := 8.0
 	textW := contentW
@@ -191,9 +222,15 @@ func salesOrderTextLines(text string) []string {
 }
 
 func renderSalesOrderAccountLines(snapshot salesdomain.SalesOrderSnapshot) []string {
-	lines := make([]string, 0, 3)
+	lines := make([]string, 0, 5)
 	if snapshot.BankAccountName != "" {
 		lines = append(lines, "户名："+snapshot.BankAccountName)
+	}
+	if snapshot.TaxpayerID != "" {
+		lines = append(lines, "纳税人识别号："+snapshot.TaxpayerID)
+	}
+	if snapshot.CompanyAddress != "" {
+		lines = append(lines, "地址："+snapshot.CompanyAddress)
 	}
 	if snapshot.BankName != "" {
 		lines = append(lines, "开户行："+snapshot.BankName)
@@ -248,30 +285,41 @@ func (r SalesOrderRenderer) renderPaymentCodes(pdf *gofpdf.Fpdf, codes []salesdo
 	if len(codes) == 0 {
 		return 0
 	}
-	cols := int((availableW + paymentCodeGap) / (paymentCodeCellWidth + paymentCodeGap))
-	if cols < 1 {
-		cols = 1
+	metrics := salesOrderPaymentCodeMetrics(len(codes))
+	if availableW > 0 && availableW < metrics.CellWidth {
+		metrics.CellWidth = availableW
 	}
 	x := startX
 	y := startY
-	for i, code := range codes {
-		if i > 0 && i%cols == 0 {
+	for _, code := range codes {
+		r.renderPaymentCodeCell(pdf, code, x, y, metrics)
+		if metrics.Stacked {
+			y += metrics.CellHeight + metrics.Gap
 			x = startX
-			y += paymentCodeCellH + 3
+		} else {
+			x += metrics.CellWidth + metrics.Gap
 		}
-		r.renderPaymentCodeCell(pdf, code, x, y)
-		x += paymentCodeCellWidth + paymentCodeGap
 	}
-	return y + paymentCodeCellH - startY
+	if metrics.Stacked {
+		return y - metrics.Gap - startY
+	}
+	return metrics.CellHeight
 }
 
-func (r SalesOrderRenderer) renderPaymentCodeCell(pdf *gofpdf.Fpdf, ref salesdomain.SalesOrderAssetRef, x, y float64) {
+func salesOrderPaymentCodeMetrics(count int) salesOrderPaymentCodeLayout {
+	if count <= 1 {
+		return salesOrderPaymentCodeLayout{CellWidth: 78, ImageSize: 52, CellHeight: 76, Gap: 0, Stacked: false}
+	}
+	return salesOrderPaymentCodeLayout{CellWidth: 78, ImageSize: 42, CellHeight: 64, Gap: 7, Stacked: true}
+}
+
+func (r SalesOrderRenderer) renderPaymentCodeCell(pdf *gofpdf.Fpdf, ref salesdomain.SalesOrderAssetRef, x, y float64, metrics salesOrderPaymentCodeLayout) {
 	label := strings.TrimSpace(ref.Label)
 	if label == "" {
 		label = "收款码"
 	}
 	pdf.SetXY(x, y)
-	pdf.MultiCell(paymentCodeCellWidth, 5, label, "", "C", false)
+	pdf.MultiCell(metrics.CellWidth, 5, label, "", "C", false)
 
 	path, ok := r.resolveAssetPath(ref.ObjectKey)
 	if ok {
@@ -280,14 +328,14 @@ func (r SalesOrderRenderer) renderPaymentCodeCell(pdf *gofpdf.Fpdf, ref salesdom
 			opts := gofpdf.ImageOptions{ImageType: imageType, ReadDpi: true}
 			info := pdf.RegisterImageOptions(path, opts)
 			if info != nil && pdf.Error() == nil {
-				w, h := fitSalesOrderImage(info, paymentCodeImageSize, paymentCodeImageSize)
-				pdf.ImageOptions(path, x+(paymentCodeCellWidth-w)/2, y+8, w, h, false, opts, 0, "")
+				w, h := fitSalesOrderImage(info, metrics.ImageSize, metrics.ImageSize)
+				pdf.ImageOptions(path, x+(metrics.CellWidth-w)/2, y+8, w, h, false, opts, 0, "")
 			}
 		}
 	}
 	if desc := strings.TrimSpace(ref.Description); desc != "" {
-		pdf.SetXY(x, y+paymentCodeImageSize+11)
-		pdf.MultiCell(paymentCodeCellWidth, 4.5, desc, "", "C", false)
+		pdf.SetXY(x, y+metrics.ImageSize+11)
+		pdf.MultiCell(metrics.CellWidth, 4.5, desc, "", "C", false)
 	}
 }
 

@@ -118,6 +118,17 @@ func TestSalesOrderPDFSealImageFitPreservesAspectRatio(t *testing.T) {
 	}
 }
 
+func TestSalesOrderPDFPaymentCodeSizingAdaptsToCount(t *testing.T) {
+	single := salesOrderPaymentCodeMetrics(1)
+	multiple := salesOrderPaymentCodeMetrics(2)
+	if single.ImageSize <= multiple.ImageSize {
+		t.Fatalf("single payment code image should be larger than multiple layout: single=%+v multiple=%+v", single, multiple)
+	}
+	if !multiple.Stacked {
+		t.Fatalf("multiple payment codes should stack vertically to fill the payment area: %+v", multiple)
+	}
+}
+
 func TestSalesOrderImageTypeDetectsJPEGMagicForUnknownExtension(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "wechat.pic")
 	if err := os.WriteFile(path, []byte{0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, 'J', 'F', 'I', 'F'}, 0o644); err != nil {

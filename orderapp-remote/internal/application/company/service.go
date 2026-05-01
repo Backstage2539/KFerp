@@ -25,9 +25,13 @@ type Employee struct {
 }
 
 type CompanyProfile struct {
-	Name    string `json:"company_name"`
-	Address string `json:"company_address"`
-	Phone   string `json:"company_phone"`
+	Name            string `json:"company_name"`
+	Address         string `json:"company_address"`
+	Phone           string `json:"company_phone"`
+	TaxpayerID      string `json:"taxpayer_id"`
+	BankAccountName string `json:"bank_account_name"`
+	BankName        string `json:"bank_name"`
+	BankAccountNo   string `json:"bank_account_no"`
 }
 
 type DepartmentCommand struct {
@@ -43,10 +47,14 @@ type EmployeeCommand struct {
 }
 
 type CompanyProfileCommand struct {
-	Actor   string `json:"actor"`
-	Name    string `json:"company_name"`
-	Address string `json:"company_address"`
-	Phone   string `json:"company_phone"`
+	Actor           string `json:"actor"`
+	Name            string `json:"company_name"`
+	Address         string `json:"company_address"`
+	Phone           string `json:"company_phone"`
+	TaxpayerID      string `json:"taxpayer_id"`
+	BankAccountName string `json:"bank_account_name"`
+	BankName        string `json:"bank_name"`
+	BankAccountNo   string `json:"bank_account_no"`
 }
 
 type Repository interface {
@@ -151,6 +159,10 @@ func normalizeCompanyProfileCommand(cmd CompanyProfileCommand) (CompanyProfileCo
 	cmd.Name = strings.TrimSpace(cmd.Name)
 	cmd.Address = strings.TrimSpace(cmd.Address)
 	cmd.Phone = strings.TrimSpace(cmd.Phone)
+	cmd.TaxpayerID = strings.TrimSpace(cmd.TaxpayerID)
+	cmd.BankAccountName = strings.TrimSpace(cmd.BankAccountName)
+	cmd.BankName = strings.TrimSpace(cmd.BankName)
+	cmd.BankAccountNo = strings.TrimSpace(cmd.BankAccountNo)
 	if cmd.Name == "" {
 		return CompanyProfileCommand{}, fmt.Errorf("company_name required")
 	}

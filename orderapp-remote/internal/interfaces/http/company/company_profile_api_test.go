@@ -29,7 +29,7 @@ func TestCompanyProfileAPI(t *testing.T) {
 	e := echo.New()
 	RegisterRoutes(e, Dependencies{Company: companyapp.NewService(postgrescompany.NewRepository(pool, schema))})
 
-	body := strings.NewReader(`{"company_name":" 棵凡咖啡 ","company_address":" 昆明市人民东路 ","company_phone":" 0871-12345678 "}`)
+	body := strings.NewReader(`{"company_name":" 棵凡咖啡 ","company_address":" 昆明市人民东路 ","company_phone":" 0871-12345678 ","taxpayer_id":" 91530827MACGJ29D6J ","bank_account_name":" 棵凡咖啡 ","bank_name":" 中国农业银行孟连支行 ","bank_account_no":" 6222000000000000 "}`)
 	req := httptest.NewRequest(http.MethodPost, "/api/company/profile", body)
 	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
 	rec := httptest.NewRecorder()
@@ -41,6 +41,10 @@ func TestCompanyProfileAPI(t *testing.T) {
 		`"company_name":"棵凡咖啡"`,
 		`"company_address":"昆明市人民东路"`,
 		`"company_phone":"0871-12345678"`,
+		`"taxpayer_id":"91530827MACGJ29D6J"`,
+		`"bank_account_name":"棵凡咖啡"`,
+		`"bank_name":"中国农业银行孟连支行"`,
+		`"bank_account_no":"6222000000000000"`,
 	} {
 		if !strings.Contains(rec.Body.String(), want) {
 			t.Fatalf("POST profile response missing %s: %s", want, rec.Body.String())
@@ -50,7 +54,7 @@ func TestCompanyProfileAPI(t *testing.T) {
 	getReq := httptest.NewRequest(http.MethodGet, "/api/company/profile", nil)
 	getRec := httptest.NewRecorder()
 	e.ServeHTTP(getRec, getReq)
-	if getRec.Code != http.StatusOK || !strings.Contains(getRec.Body.String(), `"company_name":"棵凡咖啡"`) {
+	if getRec.Code != http.StatusOK || !strings.Contains(getRec.Body.String(), `"company_name":"棵凡咖啡"`) || !strings.Contains(getRec.Body.String(), `"taxpayer_id":"91530827MACGJ29D6J"`) {
 		t.Fatalf("GET profile status=%d body=%s", getRec.Code, getRec.Body.String())
 	}
 }

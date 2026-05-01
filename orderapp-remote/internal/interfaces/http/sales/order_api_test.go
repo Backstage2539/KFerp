@@ -819,6 +819,10 @@ CREATE TABLE %s.company_profile (
 	company_name TEXT NOT NULL DEFAULT '',
 	company_address TEXT NOT NULL DEFAULT '',
 	company_phone TEXT NOT NULL DEFAULT '',
+	taxpayer_id TEXT NOT NULL DEFAULT '',
+	bank_account_name TEXT NOT NULL DEFAULT '',
+	bank_name TEXT NOT NULL DEFAULT '',
+	bank_account_no TEXT NOT NULL DEFAULT '',
 	updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
 	updated_by TEXT NOT NULL DEFAULT '',
 	CONSTRAINT company_profile_singleton CHECK (id = 1)
