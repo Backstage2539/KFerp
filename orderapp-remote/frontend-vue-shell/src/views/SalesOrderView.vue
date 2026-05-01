@@ -1,10 +1,12 @@
 <template>
-  <div class="page">
+  <div class="page" :class="{ 'embedded-page': props.embedded }">
     <section class="panel">
       <div class="panel-head">
         <h2>销售单</h2>
         <div class="actions">
-          <a class="secondary link-button" href="/vue-shell?view=orders">返回订单列表</a>
+          <button v-if="props.embedded" class="secondary" type="button" @click="emit('close')">关闭</button>
+          <a v-else class="secondary link-button" href="/vue-shell?view=orders">返回订单列表</a>
+          <button class="secondary" type="button" @click="openSettingsDrawer">销售单设置</button>
           <button class="secondary" type="button" @click="openCustomerDrawer" :disabled="!customerSummary.id">客户信息</button>
           <button class="secondary" type="button" @click="loadPreview" :disabled="previewLoading || !orderID">{{ previewLoading ? '预览中' : '刷新预览' }}</button>
           <a v-if="documents.length" class="secondary link-button" :href="salesOrderDownloadUrl(orderID)" target="_blank" rel="noopener">下载最新版</a>
@@ -163,6 +165,16 @@
         </form>
       </aside>
     </div>
+
+    <div v-if="settingsDrawerOpen" class="drawer-mask settings-drawer-mask" @click.self="closeSettingsDrawer">
+      <aside class="drawer settings-drawer" aria-label="销售单设置">
+        <div class="drawer-head">
+          <h3>销售单设置</h3>
+          <button class="secondary" type="button" @click="closeSettingsDrawer">关闭</button>
+        </div>
+        <SalesOrderSettingsView embedded />
+      </aside>
+    </div>
   </div>
 </template>
 
@@ -170,6 +182,14 @@
 import { computed, onMounted, reactive, ref } from 'vue'
 import { apiGet, apiSend } from '../api/client'
 import { salesOrderDownloadUrl } from '../lib/sales-order'
+import SalesOrderSettingsView from './SalesOrderSettingsView.vue'
+
+const props = defineProps({
+  orderId: { type: [Number, String], default: 0 },
+  embedded: { type: Boolean, default: false },
+})
+
+const emit = defineEmits(['close'])
 
 const loading = ref(false)
 const previewLoading = ref(false)
@@ -179,13 +199,14 @@ const message = ref('')
 const documents = ref([])
 const preview = ref(null)
 const drawerOpen = ref(false)
+const settingsDrawerOpen = ref(false)
 const savingCustomer = ref(false)
 const sealDragSaving = ref(false)
 const previewSealStage = ref(null)
 const customerSummary = reactive(emptyCustomer())
 const customerForm = reactive(emptyCustomer())
 
-const orderID = computed(() => Number(new URL(window.location.href).searchParams.get('order_id') || 0))
+const orderID = computed(() => Number(props.orderId || new URL(window.location.href).searchParams.get('order_id') || 0))
 
 async function load() {
   if (!orderID.value) return
@@ -358,6 +379,15 @@ function closeCustomerDrawer() {
   drawerOpen.value = false
 }
 
+function openSettingsDrawer() {
+  settingsDrawerOpen.value = true
+}
+
+async function closeSettingsDrawer() {
+  settingsDrawerOpen.value = false
+  await loadPreview()
+}
+
 async function saveCustomer() {
   if (!customerForm.id) return
   savingCustomer.value = true
@@ -397,7 +427,9 @@ onMounted(loadPage)
 <style scoped>
 * { box-sizing: border-box; }
 .page { padding: 18px; color: #171717; }
+.embedded-page { padding: 14px; }
 .panel { border: 1px solid #e6e0d8; border-radius: 8px; background: #fff; padding: 14px; margin-bottom: 14px; max-width: 1180px; }
+.embedded-page .panel { max-width: none; }
 .panel-head, .actions, .summary { display: flex; align-items: center; gap: 12px; }
 .panel-head { justify-content: space-between; margin-bottom: 12px; }
 .actions { flex-wrap: wrap; justify-content: flex-end; }
@@ -439,6 +471,8 @@ th { background: #fbfaf8; }
 .ok { background: #f0fff0; border: 1px solid #b7d9b7; color: #246024; }
 .drawer-mask { position: fixed; inset: 0; z-index: 40; display: flex; justify-content: flex-end; background: rgba(0, 0, 0, .24); }
 .drawer { width: min(520px, 100vw); height: 100%; overflow: auto; background: #fff; border-left: 1px solid #e6e0d8; padding: 16px; box-shadow: -10px 0 24px rgba(0, 0, 0, .12); }
+.settings-drawer-mask { z-index: 60; }
+.settings-drawer { width: min(760px, 100vw); background: #f8f7f4; }
 .drawer-head, .drawer-actions { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 14px; }
 .drawer-form { display: grid; gap: 12px; }
 .drawer-form label span { display: block; color: #555; font-size: 12px; margin-bottom: 5px; }

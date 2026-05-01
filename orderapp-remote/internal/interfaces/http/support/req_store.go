@@ -650,6 +650,13 @@ func seedReqWorkflowA(ctx context.Context, pool *pgxpool.Pool, schema string) er
 		{table: "req_unit", code: "UT-124-01", title: "单测覆盖需求表种子、预览拖动源码守卫、公章去背景源码守卫和 PDF 并排布局源码守卫", status: "done", assignee: "Codex", evidence: "dev_124_sales_order_preview_seal_tools_test.go"},
 		{table: "req_api", code: "API-124-01", title: "API 测试覆盖公章坐标独立保存不覆盖文本，以及公章去背景生成透明 PNG 并更新当前公章", status: "done", assignee: "Codex", evidence: "TestSalesOrderSealPositionAPIOnlyUpdatesCoordinates; TestSalesOrderSealBackgroundRemovalCreatesTransparentPNG"},
 		{table: "req_review", code: "REV-124-01", prCode: "PR-124", title: "验收：销售单预览可拖动公章并保存；设置页可去除公章背景；收款码在预览和 PDF 并排展示", status: "todo", assignee: "VA", evidence: "待 Van 服务器验收"},
+		{table: "req_product", code: "PR-125", title: "订单列表销售单抽屉内预览销售单，并可打开销售单设置抽屉；公章大小可调整", status: "review", assignee: "VA", evidence: "codex/sales-order-drawer-settings-20260502"},
+		{table: "req_dev", code: "DEV-125-01", title: "订单列表点击销售单时在当前页面打开销售单抽屉，不再跳转到独立销售单页面", status: "done", assignee: "Codex", evidence: "OrdersView salesOrderDrawerOpen; SalesOrderView embedded"},
+		{table: "req_dev", code: "DEV-125-02", title: "销售单抽屉内提供销售单设置按钮，并在右侧销售单设置抽屉中维护说明、收款码和公章", status: "done", assignee: "Codex", evidence: "SalesOrderView settingsDrawerOpen; SalesOrderSettingsView embedded"},
+		{table: "req_dev", code: "DEV-125-03", title: "销售单设置公章区域明确支持公章大小调整，并沿用 seal_width_mm 影响预览和 PDF", status: "done", assignee: "Codex", evidence: "SalesOrderSettingsView seal-size-control"},
+		{table: "req_unit", code: "UT-125-01", title: "单测覆盖订单列表销售单抽屉、销售单设置抽屉、公章大小控件和需求表种子", status: "done", assignee: "Codex", evidence: "dev_125_sales_order_drawer_settings_test.go"},
+		{table: "req_api", code: "API-125-01", title: "API/构建验证覆盖销售单预览、设置读取和前端 Vue/Vite 打包通过", status: "done", assignee: "Codex", evidence: "go test ./...; npm run build; deployment smoke"},
+		{table: "req_review", code: "REV-125-01", prCode: "PR-125", title: "验收：订单列表点击销售单弹出销售单抽屉；抽屉内可打开销售单设置；公章可调位置和大小", status: "todo", assignee: "VA", evidence: "待 Van 服务器验收"},
 	} {
 		if err := seedReqRow(ctx, pool, schema, row); err != nil {
 			return err

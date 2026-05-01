@@ -1,5 +1,5 @@
 <template>
-  <div class="page">
+  <div class="page" :class="{ 'embedded-page': props.embedded }">
     <section class="panel">
       <div class="panel-head">
         <h2>销售单设置</h2>
@@ -20,7 +20,7 @@
         <ul>
           <li>公司名称在“公司设置”里维护；本页只维护销售单说明、收款方式、收款码和公章。</li>
           <li>收款码支持多个，名称和说明会随 PDF 一起展示。</li>
-          <li>公章可上传图片后点击“去除背景”生成透明 PNG；也可拖动调整盖在公司名称上的位置，调整后只影响新生成版本。</li>
+          <li>公章可上传图片后点击“去除背景”生成透明 PNG；也可拖动调整盖在公司名称上的位置，并调整公章大小，调整后只影响新生成版本。</li>
         </ul>
       </details>
     </section>
@@ -82,7 +82,13 @@
         <div class="seal-position-fields">
           <label><span>X(mm)</span><input v-model.number="form.seal_x_mm" type="number" min="0" step="1" /></label>
           <label><span>Y(mm)</span><input v-model.number="form.seal_y_mm" type="number" min="0" step="1" /></label>
-          <label><span>宽(mm)</span><input v-model.number="form.seal_width_mm" type="number" min="20" step="1" /></label>
+          <label class="seal-size-control">
+            <span>公章大小(mm)</span>
+            <div class="seal-size-inputs">
+              <input v-model.number="form.seal_width_mm" type="range" min="20" max="80" step="1" />
+              <input v-model.number="form.seal_width_mm" type="number" min="20" max="80" step="1" />
+            </div>
+          </label>
         </div>
       </div>
     </section>
@@ -92,6 +98,10 @@
 <script setup>
 import { computed, onMounted, reactive, ref } from 'vue'
 import { apiGet, apiSend } from '../api/client'
+
+const props = defineProps({
+  embedded: { type: Boolean, default: false },
+})
 
 const loading = ref(false)
 const saving = ref(false)
@@ -269,7 +279,9 @@ onMounted(load)
 <style scoped>
 * { box-sizing: border-box; }
 .page { padding: 18px; color: #171717; }
+.embedded-page { padding: 0; }
 .panel { border: 1px solid #e6e0d8; border-radius: 8px; background: #fff; padding: 14px; margin-bottom: 14px; max-width: 1180px; }
+.embedded-page .panel { max-width: none; }
 .panel-head, .actions { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 12px; }
 h2, h3 { margin: 0; }
 h2 { font-size: 20px; }
@@ -296,6 +308,9 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .seal-drag-image, .seal-placeholder { position: absolute; user-select: none; pointer-events: none; object-fit: contain; opacity: .86; }
 .seal-placeholder { border: 2px solid #b91c1c; border-radius: 999px; color: #b91c1c; display: grid; place-items: center; font-weight: 800; }
 .seal-position-fields { display: grid; grid-template-columns: repeat(3, minmax(80px, 1fr)); gap: 10px; }
+.seal-size-control { grid-column: 1 / -1; }
+.seal-size-inputs { display: grid; grid-template-columns: minmax(180px, 1fr) 88px; gap: 10px; align-items: center; }
+.seal-size-inputs input[type="range"] { padding: 0; }
 table { width: 100%; border-collapse: collapse; }
 th, td { border-bottom: 1px solid #eee8df; padding: 9px 8px; text-align: left; }
 th { background: #fbfaf8; }
