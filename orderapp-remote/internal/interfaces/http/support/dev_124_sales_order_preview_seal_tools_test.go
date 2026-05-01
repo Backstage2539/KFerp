@@ -9,13 +9,13 @@ import (
 func TestSalesOrderPreviewSealToolsRequirementSeeds(t *testing.T) {
 	src := string(readOrderAppFileForTest(t, filepath.Join("internal", "interfaces", "http", "support", "req_store.go")))
 	for _, want := range []string{
-		"PR-123",
-		"DEV-123-01",
-		"DEV-123-02",
-		"DEV-123-03",
-		"UT-123-01",
-		"API-123-01",
-		"REV-123-01",
+		"PR-124",
+		"DEV-124-01",
+		"DEV-124-02",
+		"DEV-124-03",
+		"UT-124-01",
+		"API-124-01",
+		"REV-124-01",
 		"销售单预览公章拖动",
 		"公章去除背景",
 		"收款码并排展示",

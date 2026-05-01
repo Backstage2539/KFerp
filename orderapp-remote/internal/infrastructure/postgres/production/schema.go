@@ -26,7 +26,10 @@ func EnsureSchema(ctx context.Context, pool *pgxpool.Pool, schema string) error 
 	if err := ensureWorkOrderTables(ctx, pool, schema); err != nil {
 		return err
 	}
-	return ensureQualityInspectionTables(ctx, pool, schema)
+	if err := ensureQualityInspectionTables(ctx, pool, schema); err != nil {
+		return err
+	}
+	return backfillQualityStatusesFromInspections(ctx, pool, schema)
 }
 
 func ensureMachineCapacityTable(ctx context.Context, pool *pgxpool.Pool, schema string) error {

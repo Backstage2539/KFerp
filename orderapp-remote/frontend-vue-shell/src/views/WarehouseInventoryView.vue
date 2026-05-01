@@ -61,6 +61,7 @@
                 <th>物品</th>
                 <th>规格</th>
                 <th>批次</th>
+                <th>质检</th>
                 <th>数量(g)</th>
                 <th>件数</th>
                 <th>单位成本</th>
@@ -75,13 +76,14 @@
                 <td>{{ row.item_name }}</td>
                 <td>{{ row.spec_g ? `${row.spec_g}g` : '-' }}</td>
                 <td>{{ row.batch_code || '-' }}</td>
+                <td><span class="quality-pill" :class="qualityClass(row.quality_status)">{{ qualityLabel(row.quality_status) }}</span></td>
                 <td>{{ Number(row.qty_g || 0).toLocaleString('zh-CN') }}</td>
                 <td>{{ row.qty_units || '-' }}</td>
                 <td>{{ money(row.unit_cost) }}</td>
                 <td>{{ row.updated_at || '-' }}</td>
                 <td><button class="link" type="button" @click="openTraceDrawer(row.batch_code || '')">追溯</button></td>
               </tr>
-              <tr v-if="!rows.length"><td colspan="10" class="muted">暂无库存</td></tr>
+              <tr v-if="!rows.length"><td colspan="11" class="muted">暂无库存</td></tr>
             </tbody>
           </table>
         </div>
@@ -107,6 +109,7 @@
             </div>
             <dl>
               <div><dt>原料批次</dt><dd>{{ traceResult.material_batch?.batch_code || '-' }}</dd></div>
+              <div><dt>质检状态</dt><dd><span class="quality-pill" :class="qualityClass(traceResult.material_batch?.quality_status)">{{ qualityLabel(traceResult.material_batch?.quality_status) }}</span></dd></div>
               <div><dt>供应商</dt><dd>{{ traceResult.material_batch?.supplier || '-' }}</dd></div>
               <div><dt>入库单</dt><dd>{{ traceResult.material_batch?.receipt_id || '-' }}</dd></div>
               <div><dt>数量</dt><dd>{{ traceResult.material_batch?.qty_g || 0 }}g / 剩余 {{ traceResult.material_batch?.remaining_g || 0 }}g</dd></div>
@@ -114,14 +117,15 @@
             </dl>
             <h4>当前仓库位置</h4>
             <table class="trace-table">
-              <thead><tr><th>仓库</th><th>批次</th><th>数量</th></tr></thead>
+              <thead><tr><th>仓库</th><th>批次</th><th>质检</th><th>数量</th></tr></thead>
               <tbody>
                 <tr v-for="item in traceResult.material_locations || []" :key="`${item.material_batch_id}-${item.warehouse}`">
                   <td>{{ item.warehouse_name || warehouseName(item.warehouse) }}</td>
                   <td>{{ item.batch_code }}</td>
+                  <td><span class="quality-pill" :class="qualityClass(item.quality_status)">{{ qualityLabel(item.quality_status) }}</span></td>
                   <td>{{ Number(item.qty_g || 0).toLocaleString('zh-CN') }}g</td>
                 </tr>
-                <tr v-if="!(traceResult.material_locations || []).length"><td colspan="3" class="muted">暂无仓库库存</td></tr>
+                <tr v-if="!(traceResult.material_locations || []).length"><td colspan="4" class="muted">暂无仓库库存</td></tr>
               </tbody>
             </table>
           </template>
@@ -129,6 +133,7 @@
             <div class="trace-title">{{ traceResult.finished_batch?.product_name || '-' }}</div>
             <dl>
               <div><dt>成品批次</dt><dd>{{ traceResult.finished_batch?.batch_code || '-' }}</dd></div>
+              <div><dt>质检状态</dt><dd><span class="quality-pill" :class="qualityClass(traceResult.finished_batch?.quality_status)">{{ qualityLabel(traceResult.finished_batch?.quality_status) }}</span></dd></div>
               <div><dt>工单</dt><dd>{{ traceResult.production?.work_order_no || '-' }}</dd></div>
               <div><dt>生产批次</dt><dd>{{ traceResult.production?.batch_id || '-' }}</dd></div>
               <div><dt>入库仓</dt><dd>{{ warehouseName(traceResult.finished_batch?.warehouse) }}</dd></div>
@@ -236,6 +241,19 @@ function kindLabel(kind) {
 
 function typeLabel(type) {
   return type === 'finished_product' ? '成品' : '原料/包材'
+}
+
+function qualityLabel(status) {
+  return {
+    pass: '通过',
+    hold: '待处理',
+    reject: '不通过',
+    unchecked: '未检',
+  }[status || 'unchecked'] || '未检'
+}
+
+function qualityClass(status) {
+  return `quality-${status || 'unchecked'}`
 }
 
 function money(value) {
@@ -385,6 +403,6 @@ onMounted(loadAll)
 </script>
 
 <style scoped>
-.page{padding:16px;display:grid;gap:16px}.panel{border:1px solid #e5e7eb;border-radius:8px;background:#fff;padding:12px}.panel-head{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;margin-bottom:12px}.panel-head h2{margin:0 0 4px;font-size:18px}.panel-head p{margin:0;color:#6b7280;font-size:13px}.head-actions{display:flex;gap:8px;align-items:center}.filters{display:grid;grid-template-columns:minmax(220px,1fr) 150px 90px;gap:10px;align-items:end}label span{display:block;color:#666;font-size:12px;margin-bottom:5px}input,select,button{font:inherit;min-height:36px;border-radius:6px}input,select{width:100%;border:1px solid #d1d5db;padding:7px 9px}button{cursor:pointer}.primary{border:1px solid #111;background:#111;color:#fff;padding:8px 12px}.secondary{border:1px solid #9ca3af;background:#fff;color:#111;padding:8px 12px}.link{border:0;background:transparent;color:#111;text-decoration:underline;padding:0;min-height:0}.workspace{display:grid;grid-template-columns:260px minmax(0,1fr);gap:16px}.warehouse-panel{align-self:start}.panel-title{font-weight:700;margin-bottom:10px}.warehouse{width:100%;text-align:left;border:1px solid #e5e7eb;background:#fff;border-radius:8px;padding:9px;margin-bottom:8px}.warehouse strong{display:block}.warehouse small{display:block;color:#6b7280;margin-top:3px;line-height:1.35}.warehouse.active{border-color:#111;background:#111;color:#fff}.warehouse.active small{color:#e5e7eb}.summary{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin-bottom:12px}.summary div{border:1px solid #e5e7eb;border-radius:8px;padding:10px}.summary span{display:block;color:#6b7280;font-size:12px;margin-bottom:4px}.summary strong{font-size:18px}.table-wrap{overflow:auto}table{width:100%;min-width:1040px;border-collapse:collapse}th,td{border-bottom:1px solid #f0f0f0;padding:8px;text-align:left;font-size:13px}th{background:#fbfbfb}td small{display:block;color:#6b7280;margin-top:3px;line-height:1.35}.pill{display:inline-flex;border:1px solid #d1d5db;border-radius:999px;padding:2px 8px;background:#f9fafb}.muted{color:#666;text-align:center}.error{background:#ffecec;border:1px solid #ffb9b9;border-radius:8px;padding:10px}.tip{border:1px solid #fde68a;background:#fffbeb;color:#92400e;border-radius:8px;padding:9px 10px;margin-bottom:12px;font-size:13px;line-height:1.45}.drawer-mask{position:fixed;inset:0;background:rgba(0,0,0,.22);display:flex;justify-content:flex-end;z-index:40}.drawer{width:min(460px,100%);height:100%;background:#fff;border-left:1px solid #d1d5db;padding:16px;overflow:auto}.drawer.wide{width:min(760px,100%)}.drawer-head{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:12px}.drawer h3{margin:0;font-size:18px}.trace-search{display:grid;grid-template-columns:1fr 84px;gap:10px;align-items:end;margin-bottom:12px}.trace-title{font-weight:700;margin-bottom:10px}dl{display:grid;gap:8px;margin:0 0 14px}dl div{display:grid;grid-template-columns:88px 1fr;gap:8px}dt{color:#6b7280}dd{margin:0}.trace-block h4{margin:14px 0 8px;font-size:14px}.trace-table{min-width:0}.reservation-summary{margin-bottom:12px}.reservation-table input{min-width:110px}.danger{color:#b91c1c;margin-left:8px}
+.page{padding:16px;display:grid;gap:16px}.panel{border:1px solid #e5e7eb;border-radius:8px;background:#fff;padding:12px}.panel-head{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;margin-bottom:12px}.panel-head h2{margin:0 0 4px;font-size:18px}.panel-head p{margin:0;color:#6b7280;font-size:13px}.head-actions{display:flex;gap:8px;align-items:center}.filters{display:grid;grid-template-columns:minmax(220px,1fr) 150px 90px;gap:10px;align-items:end}label span{display:block;color:#666;font-size:12px;margin-bottom:5px}input,select,button{font:inherit;min-height:36px;border-radius:6px}input,select{width:100%;border:1px solid #d1d5db;padding:7px 9px}button{cursor:pointer}.primary{border:1px solid #111;background:#111;color:#fff;padding:8px 12px}.secondary{border:1px solid #9ca3af;background:#fff;color:#111;padding:8px 12px}.link{border:0;background:transparent;color:#111;text-decoration:underline;padding:0;min-height:0}.workspace{display:grid;grid-template-columns:260px minmax(0,1fr);gap:16px}.warehouse-panel{align-self:start}.panel-title{font-weight:700;margin-bottom:10px}.warehouse{width:100%;text-align:left;border:1px solid #e5e7eb;background:#fff;border-radius:8px;padding:9px;margin-bottom:8px}.warehouse strong{display:block}.warehouse small{display:block;color:#6b7280;margin-top:3px;line-height:1.35}.warehouse.active{border-color:#111;background:#111;color:#fff}.warehouse.active small{color:#e5e7eb}.summary{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin-bottom:12px}.summary div{border:1px solid #e5e7eb;border-radius:8px;padding:10px}.summary span{display:block;color:#6b7280;font-size:12px;margin-bottom:4px}.summary strong{font-size:18px}.table-wrap{overflow:auto}table{width:100%;min-width:1100px;border-collapse:collapse}th,td{border-bottom:1px solid #f0f0f0;padding:8px;text-align:left;font-size:13px}th{background:#fbfbfb}td small{display:block;color:#6b7280;margin-top:3px;line-height:1.35}.pill,.quality-pill{display:inline-flex;border:1px solid #d1d5db;border-radius:999px;padding:2px 8px;background:#f9fafb;white-space:nowrap}.quality-pass{border-color:#bbf7d0;background:#f0fdf4;color:#166534}.quality-hold{border-color:#fde68a;background:#fffbeb;color:#92400e}.quality-reject{border-color:#fecaca;background:#fef2f2;color:#991b1b}.quality-unchecked{border-color:#d1d5db;background:#f9fafb;color:#4b5563}.muted{color:#666;text-align:center}.error{background:#ffecec;border:1px solid #ffb9b9;border-radius:8px;padding:10px}.tip{border:1px solid #fde68a;background:#fffbeb;color:#92400e;border-radius:8px;padding:9px 10px;margin-bottom:12px;font-size:13px;line-height:1.45}.drawer-mask{position:fixed;inset:0;background:rgba(0,0,0,.22);display:flex;justify-content:flex-end;z-index:40}.drawer{width:min(460px,100%);height:100%;background:#fff;border-left:1px solid #d1d5db;padding:16px;overflow:auto}.drawer.wide{width:min(760px,100%)}.drawer-head{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:12px}.drawer h3{margin:0;font-size:18px}.trace-search{display:grid;grid-template-columns:1fr 84px;gap:10px;align-items:end;margin-bottom:12px}.trace-title{font-weight:700;margin-bottom:10px}dl{display:grid;gap:8px;margin:0 0 14px}dl div{display:grid;grid-template-columns:88px 1fr;gap:8px}dt{color:#6b7280}dd{margin:0}.trace-block h4{margin:14px 0 8px;font-size:14px}.trace-table{min-width:0}.reservation-summary{margin-bottom:12px}.reservation-table input{min-width:110px}.danger{color:#b91c1c;margin-left:8px}
 @media (max-width:900px){.page{padding:12px}.filters,.workspace,.summary{grid-template-columns:1fr}}
 </style>
