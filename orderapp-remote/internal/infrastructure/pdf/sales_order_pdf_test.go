@@ -5,6 +5,7 @@ import (
 	"image"
 	"image/color"
 	"image/png"
+	"math"
 	salesdomain "orderapp/internal/domain/sales"
 	"os"
 	"path/filepath"
@@ -97,6 +98,23 @@ func TestSalesOrderPDFMultilineTextAndSealPositionHelpers(t *testing.T) {
 	custom := salesOrderSealPosition(42, 21, 38)
 	if custom.XMM != 42 || custom.YMM != 21 || custom.WidthMM != 38 {
 		t.Fatalf("custom seal position = %+v", custom)
+	}
+}
+
+func TestSalesOrderPDFSealImageFitPreservesAspectRatio(t *testing.T) {
+	box := salesOrderSealPosition(32, 22, 42)
+	got := fitSalesOrderImageInBox(100, 100, box.XMM, box.YMM, box.WidthMM, box.HeightMM)
+	if math.Abs(got.WidthMM-box.HeightMM) > 0.001 || math.Abs(got.HeightMM-box.HeightMM) > 0.001 {
+		t.Fatalf("square seal should fit by height without stretching, got %+v in %+v", got, box)
+	}
+	wantX := box.XMM + (box.WidthMM-box.HeightMM)/2
+	if math.Abs(got.XMM-wantX) > 0.001 || math.Abs(got.YMM-box.YMM) > 0.001 {
+		t.Fatalf("square seal should be centered in stamp box, got %+v want x=%v y=%v", got, wantX, box.YMM)
+	}
+
+	wide := fitSalesOrderImageInBox(200, 100, 10, 20, 40, 20)
+	if math.Abs(wide.WidthMM-40) > 0.001 || math.Abs(wide.HeightMM-20) > 0.001 {
+		t.Fatalf("wide image should fill matching wide box without stretching, got %+v", wide)
 	}
 }
 

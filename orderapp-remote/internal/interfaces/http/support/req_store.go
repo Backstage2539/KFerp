@@ -657,6 +657,13 @@ func seedReqWorkflowA(ctx context.Context, pool *pgxpool.Pool, schema string) er
 		{table: "req_unit", code: "UT-125-01", title: "单测覆盖订单列表销售单抽屉、销售单设置抽屉、公章大小控件和需求表种子", status: "done", assignee: "Codex", evidence: "dev_125_sales_order_drawer_settings_test.go"},
 		{table: "req_api", code: "API-125-01", title: "API/构建验证覆盖销售单预览、设置读取和前端 Vue/Vite 打包通过", status: "done", assignee: "Codex", evidence: "go test ./...; npm run build; deployment smoke"},
 		{table: "req_review", code: "REV-125-01", prCode: "PR-125", title: "验收：订单列表点击销售单弹出销售单抽屉；抽屉内可打开销售单设置；公章可调位置和大小", status: "todo", assignee: "VA", evidence: "待 Van 服务器验收"},
+		{table: "req_product", code: "PR-126", title: "销售单导出 PDF 与预览版式一致，PDF 公章等比渲染，并新增公账收款设置", status: "review", assignee: "VA", evidence: "codex/sales-order-pdf-layout-account-20260502"},
+		{table: "req_dev", code: "DEV-126-01", title: "PDF 公章等比渲染，按公章设置区域居中放入，避免透明背景或圆章被横向拉伸", status: "done", assignee: "Codex", evidence: "fitSalesOrderImageInBox; renderSealStamp"},
+		{table: "req_dev", code: "DEV-126-02", title: "预览和导出 PDF 版式一致，商品表、合计、收款说明和二维码使用同一信息结构", status: "done", assignee: "Codex", evidence: "renderSalesOrderHeader/items/totals/paymentInfo; SalesOrderView payment-info-grid"},
+		{table: "req_dev", code: "DEV-126-03", title: "销售单设置新增公账收款设置，保存户名、开户行和账号并写入销售单快照", status: "done", assignee: "Codex", evidence: "bank_account_name/bank_name/bank_account_no"},
+		{table: "req_unit", code: "UT-126-01", title: "单测覆盖需求种子、PDF 公章等比 helper、PDF/预览布局源码守卫和公账字段持久化", status: "done", assignee: "Codex", evidence: "dev_126_sales_order_pdf_layout_account_test.go; sales_order_pdf_test.go; sales_order_repository_test.go"},
+		{table: "req_api", code: "API-126-01", title: "API 测试覆盖销售单设置保存和返回公账收款字段，部署后 smoke 验证预览与下载接口", status: "done", assignee: "Codex", evidence: "TestSalesOrderSettingsAPI; postdeploy smoke"},
+		{table: "req_review", code: "REV-126-01", prCode: "PR-126", title: "验收：导出 PDF 公章不拉伸；预览与下载 PDF 版式一致；收款说明、二维码、公账信息排版紧凑", status: "todo", assignee: "VA", evidence: "待 Van 服务器验收"},
 	} {
 		if err := seedReqRow(ctx, pool, schema, row); err != nil {
 			return err

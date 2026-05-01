@@ -20,13 +20,14 @@ import (
 func (r Repository) LoadSalesOrderSettings(ctx context.Context) (salesapp.SalesOrderSettings, error) {
 	var settings salesapp.SalesOrderSettings
 	q := fmt.Sprintf(`SELECT s.company_name, s.note, s.payment_text,
+			COALESCE(s.bank_account_name,''), COALESCE(s.bank_name,''), COALESCE(s.bank_account_no,''),
 			COALESCE(s.seal_x_mm,32)::float8, COALESCE(s.seal_y_mm,22)::float8, COALESCE(s.seal_width_mm,42)::float8,
 			COALESCE(a.id,0), COALESCE(a.kind,''), COALESCE(a.filename,''), COALESCE(a.content_type,''), COALESCE(a.bytes,0), COALESCE(a.sha256,''), COALESCE(a.object_key,''), COALESCE(to_char(a.created_at,'YYYY-MM-DD HH24:MI:SS'),''), COALESCE(a.created_by,'')
 		FROM %s.sales_order_settings s
 		LEFT JOIN %s.sales_order_assets a ON a.id=s.seal_asset_id
 		WHERE s.id=1`, r.schema, r.schema)
 	var seal salesapp.SalesOrderAsset
-	err := r.pool.QueryRow(ctx, q).Scan(&settings.CompanyName, &settings.Note, &settings.PaymentText, &settings.SealXMM, &settings.SealYMM, &settings.SealWidthMM, &seal.ID, &seal.Kind, &seal.Filename, &seal.ContentType, &seal.Bytes, &seal.SHA256, &seal.ObjectKey, &seal.CreatedAt, &seal.CreatedBy)
+	err := r.pool.QueryRow(ctx, q).Scan(&settings.CompanyName, &settings.Note, &settings.PaymentText, &settings.BankAccountName, &settings.BankName, &settings.BankAccountNo, &settings.SealXMM, &settings.SealYMM, &settings.SealWidthMM, &seal.ID, &seal.Kind, &seal.Filename, &seal.ContentType, &seal.Bytes, &seal.SHA256, &seal.ObjectKey, &seal.CreatedAt, &seal.CreatedBy)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return salesapp.SalesOrderSettings{SealXMM: 32, SealYMM: 22, SealWidthMM: 42}, nil
 	}
@@ -46,20 +47,23 @@ func (r Repository) LoadSalesOrderSettings(ctx context.Context) (salesapp.SalesO
 }
 
 func (r Repository) SaveSalesOrderSettings(ctx context.Context, cmd salesapp.SaveSalesOrderSettingsCommand) error {
-	q := fmt.Sprintf(`INSERT INTO %s.sales_order_settings(id, company_name, note, payment_text, seal_x_mm, seal_y_mm, seal_width_mm, updated_at, updated_by)
-		VALUES(1,$1,$2,$3,$4,$5,$6,now(),$7)
+	q := fmt.Sprintf(`INSERT INTO %s.sales_order_settings(id, company_name, note, payment_text, bank_account_name, bank_name, bank_account_no, seal_x_mm, seal_y_mm, seal_width_mm, updated_at, updated_by)
+		VALUES(1,$1,$2,$3,$4,$5,$6,$7,$8,$9,now(),$10)
 		ON CONFLICT(id) DO UPDATE SET
 			company_name=excluded.company_name,
 			note=excluded.note,
 			payment_text=excluded.payment_text,
+			bank_account_name=excluded.bank_account_name,
+			bank_name=excluded.bank_name,
+			bank_account_no=excluded.bank_account_no,
 			seal_x_mm=excluded.seal_x_mm,
 			seal_y_mm=excluded.seal_y_mm,
 			seal_width_mm=excluded.seal_width_mm,
 			updated_at=now(),
 			updated_by=excluded.updated_by`, r.schema)
-	_, err := r.pool.Exec(ctx, q, cmd.CompanyName, cmd.Note, cmd.PaymentText, cmd.SealXMM, cmd.SealYMM, cmd.SealWidthMM, cmd.Actor)
+	_, err := r.pool.Exec(ctx, q, cmd.CompanyName, cmd.Note, cmd.PaymentText, cmd.BankAccountName, cmd.BankName, cmd.BankAccountNo, cmd.SealXMM, cmd.SealYMM, cmd.SealWidthMM, cmd.Actor)
 	if err == nil {
-		postgresinfra.AuditInsert(ctx, r.pool, r.schema, cmd.Actor, "sales_order_settings", nil, "update", postgresinfra.StrPtr("settings"), nil, postgresinfra.StrPtr(cmd.CompanyName), postgresinfra.AuditMeta{"company_name": cmd.CompanyName, "seal_x_mm": cmd.SealXMM, "seal_y_mm": cmd.SealYMM, "seal_width_mm": cmd.SealWidthMM})
+		postgresinfra.AuditInsert(ctx, r.pool, r.schema, cmd.Actor, "sales_order_settings", nil, "update", postgresinfra.StrPtr("settings"), nil, postgresinfra.StrPtr(cmd.CompanyName), postgresinfra.AuditMeta{"company_name": cmd.CompanyName, "bank_account_name": cmd.BankAccountName, "bank_name": cmd.BankName, "bank_account_no": cmd.BankAccountNo, "seal_x_mm": cmd.SealXMM, "seal_y_mm": cmd.SealYMM, "seal_width_mm": cmd.SealWidthMM})
 	}
 	return err
 }
@@ -313,6 +317,9 @@ func (r Repository) buildSalesOrderSnapshotTx(ctx context.Context, tx pgx.Tx, or
 	snapshot.CompanyName = firstNonEmpty(companyProfileName, settings.CompanyName, snapshot.CustomerCompanyName, snapshot.CustomerName)
 	snapshot.Note = settings.Note
 	snapshot.PaymentText = settings.PaymentText
+	snapshot.BankAccountName = settings.BankAccountName
+	snapshot.BankName = settings.BankName
+	snapshot.BankAccountNo = settings.BankAccountNo
 	snapshot.TotalAmount = salesdomain.FormatSalesOrderMoney(total)
 	snapshot.Shipping = salesdomain.FormatSalesOrderMoney(shipping)
 	snapshot.Discount = salesdomain.FormatSalesOrderMoney(discount)

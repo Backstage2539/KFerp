@@ -10,6 +10,14 @@
 
       <div class="form-grid">
         <label class="wide"><span>收款方式</span><textarea v-model.trim="form.payment_text" rows="2"></textarea></label>
+        <div class="wide account-settings">
+          <h3>公账收款设置</h3>
+          <div class="account-grid">
+            <label><span>户名</span><input v-model.trim="form.bank_account_name" name="bank_account_name" /></label>
+            <label><span>开户行</span><input v-model.trim="form.bank_name" name="bank_name" /></label>
+            <label><span>账号</span><input v-model.trim="form.bank_account_no" name="bank_account_no" /></label>
+          </div>
+        </div>
         <label class="wide"><span>个性化说明</span><textarea v-model.trim="form.note" rows="3"></textarea></label>
       </div>
       <div class="actions">
@@ -19,6 +27,7 @@
         <summary>销售单设置手册</summary>
         <ul>
           <li>公司名称在“公司设置”里维护；本页只维护销售单说明、收款方式、收款码和公章。</li>
+          <li>公账收款设置可维护户名、开户行和账号；为空时销售单不展示公账信息。</li>
           <li>收款码支持多个，名称和说明会随 PDF 一起展示。</li>
           <li>公章可上传图片后点击“去除背景”生成透明 PNG；也可拖动调整盖在公司名称上的位置，并调整公章大小，调整后只影响新生成版本。</li>
         </ul>
@@ -118,6 +127,9 @@ const sealStage = ref(null)
 const form = reactive({
   note: '',
   payment_text: '',
+  bank_account_name: '',
+  bank_name: '',
+  bank_account_no: '',
   seal_x_mm: 32,
   seal_y_mm: 22,
   seal_width_mm: 42,
@@ -133,6 +145,9 @@ function assignSettings(data) {
   settings.value = data || {}
   form.note = data?.note || ''
   form.payment_text = data?.payment_text || ''
+  form.bank_account_name = data?.bank_account_name || ''
+  form.bank_name = data?.bank_name || ''
+  form.bank_account_no = data?.bank_account_no || ''
   form.seal_x_mm = Number(data?.seal_x_mm || 32)
   form.seal_y_mm = Number(data?.seal_y_mm || 22)
   form.seal_width_mm = Number(data?.seal_width_mm || 42)
@@ -291,6 +306,9 @@ h3 { font-size: 16px; }
 .manual ul { margin: 8px 0 0; padding-left: 18px; }
 .form-grid { display: grid; grid-template-columns: repeat(2, minmax(220px, 1fr)); gap: 10px; margin-bottom: 12px; }
 .wide { grid-column: 1 / -1; }
+.account-settings { border: 1px solid #eee2d4; border-radius: 8px; padding: 12px; background: #fffdf9; }
+.account-settings h3 { margin-bottom: 10px; }
+.account-grid { display: grid; grid-template-columns: repeat(3, minmax(160px, 1fr)); gap: 10px; }
 label span { display: block; color: #666; font-size: 12px; margin-bottom: 5px; }
 input, textarea { width: 100%; border: 1px solid #cfc8bf; border-radius: 6px; padding: 7px 9px; font: inherit; background: #fff; }
 input { height: 38px; }
@@ -320,7 +338,7 @@ th { background: #fbfaf8; }
 .ok { background: #f0fff0; border: 1px solid #b7d9b7; color: #246024; }
 @media (max-width: 900px) {
   .page { padding: 12px; }
-  .form-grid, .upload-row, .seal-row, .seal-position { grid-template-columns: 1fr; }
+  .form-grid, .account-grid, .upload-row, .seal-row, .seal-position { grid-template-columns: 1fr; }
   .seal-position-fields { grid-template-columns: 1fr; }
 }
 </style>

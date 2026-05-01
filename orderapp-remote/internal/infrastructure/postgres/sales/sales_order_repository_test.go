@@ -29,6 +29,7 @@ func TestSalesOrderSettingsRoundTrip(t *testing.T) {
 	}
 	if err := repo.SaveSalesOrderSettings(ctx, salesapp.SaveSalesOrderSettingsCommand{
 		Actor: "测试员", CompanyName: "浅焙作坊咖啡", Note: "请密封保存", PaymentText: "微信或对公转账",
+		BankAccountName: "孟连口加农业科技有限公司", BankName: "中国农业银行孟连支行", BankAccountNo: "6222000000000000",
 	}); err != nil {
 		t.Fatalf("SaveSalesOrderSettings: %v", err)
 	}
@@ -38,6 +39,9 @@ func TestSalesOrderSettingsRoundTrip(t *testing.T) {
 	}
 	if got.CompanyName != "浅焙作坊咖啡" || got.Note != "请密封保存" || got.PaymentText != "微信或对公转账" {
 		t.Fatalf("settings = %+v", got)
+	}
+	if got.BankAccountName != "孟连口加农业科技有限公司" || got.BankName != "中国农业银行孟连支行" || got.BankAccountNo != "6222000000000000" {
+		t.Fatalf("bank account settings = %+v", got)
 	}
 }
 
@@ -87,7 +91,10 @@ func TestGenerateSalesOrderDocumentCreatesVersions(t *testing.T) {
 		t.Fatalf("EnsureSchema: %v", err)
 	}
 	seedSalesOrderDocumentOrder(t, ctx, pool, schema)
-	if err := repo.SaveSalesOrderSettings(ctx, salesapp.SaveSalesOrderSettingsCommand{Actor: "测试员", CompanyName: "浅焙作坊咖啡", Note: "请密封保存"}); err != nil {
+	if err := repo.SaveSalesOrderSettings(ctx, salesapp.SaveSalesOrderSettingsCommand{
+		Actor: "测试员", CompanyName: "浅焙作坊咖啡", Note: "请密封保存",
+		BankAccountName: "孟连口加农业科技有限公司", BankName: "中国农业银行孟连支行", BankAccountNo: "6222000000000000",
+	}); err != nil {
 		t.Fatalf("SaveSalesOrderSettings: %v", err)
 	}
 	if _, err := pool.Exec(ctx, fmt.Sprintf(`INSERT INTO %s.company_profile(id, company_name) VALUES(1, '棵凡咖啡')`, schema)); err != nil {
@@ -100,6 +107,9 @@ func TestGenerateSalesOrderDocumentCreatesVersions(t *testing.T) {
 	}
 	if first.Snapshot.CompanyName != "棵凡咖啡" {
 		t.Fatalf("generated snapshot company_name = %q, want global company profile name", first.Snapshot.CompanyName)
+	}
+	if first.Snapshot.BankAccountName != "孟连口加农业科技有限公司" || first.Snapshot.BankName != "中国农业银行孟连支行" || first.Snapshot.BankAccountNo != "6222000000000000" {
+		t.Fatalf("generated snapshot bank account fields = %+v", first.Snapshot)
 	}
 	second, err := repo.GenerateSalesOrderDocument(ctx, salesapp.GenerateSalesOrderDocumentCommand{Actor: "测试员", OrderID: 1})
 	if err != nil {

@@ -17,15 +17,18 @@ type SalesOrderSnapshot struct {
 	CustomerCompanyAddress string `json:"customer_company_address"`
 	CustomerCompanyPhone   string `json:"customer_company_phone"`
 
-	PaymentText  string                   `json:"payment_text"`
-	Note         string                   `json:"note"`
-	Items        []SalesOrderSnapshotItem `json:"items"`
-	TotalAmount  string                   `json:"total_amount"`
-	Shipping     string                   `json:"shipping"`
-	Discount     string                   `json:"discount"`
-	GrandTotal   string                   `json:"grand_total"`
-	PaymentCodes []SalesOrderAssetRef     `json:"payment_codes"`
-	Seal         *SalesOrderAssetRef      `json:"seal,omitempty"`
+	PaymentText     string                   `json:"payment_text"`
+	BankAccountName string                   `json:"bank_account_name"`
+	BankName        string                   `json:"bank_name"`
+	BankAccountNo   string                   `json:"bank_account_no"`
+	Note            string                   `json:"note"`
+	Items           []SalesOrderSnapshotItem `json:"items"`
+	TotalAmount     string                   `json:"total_amount"`
+	Shipping        string                   `json:"shipping"`
+	Discount        string                   `json:"discount"`
+	GrandTotal      string                   `json:"grand_total"`
+	PaymentCodes    []SalesOrderAssetRef     `json:"payment_codes"`
+	Seal            *SalesOrderAssetRef      `json:"seal,omitempty"`
 }
 
 type SalesOrderSnapshotItem struct {

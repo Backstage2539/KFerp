@@ -163,6 +163,9 @@ func ensureSalesOrderTables(ctx context.Context, pool *pgxpool.Pool, schema stri
 			company_name TEXT NOT NULL DEFAULT '',
 			note TEXT NOT NULL DEFAULT '',
 			payment_text TEXT NOT NULL DEFAULT '',
+			bank_account_name TEXT NOT NULL DEFAULT '',
+			bank_name TEXT NOT NULL DEFAULT '',
+			bank_account_no TEXT NOT NULL DEFAULT '',
 			seal_asset_id BIGINT REFERENCES %s.sales_order_assets(id),
 			seal_x_mm NUMERIC(8,2) NOT NULL DEFAULT 32,
 			seal_y_mm NUMERIC(8,2) NOT NULL DEFAULT 22,
@@ -204,6 +207,9 @@ func ensureSalesOrderTables(ctx context.Context, pool *pgxpool.Pool, schema stri
 		fmt.Sprintf(`ALTER TABLE %s.sales_order_settings ADD COLUMN IF NOT EXISTS seal_x_mm NUMERIC(8,2) NOT NULL DEFAULT 32`, schema),
 		fmt.Sprintf(`ALTER TABLE %s.sales_order_settings ADD COLUMN IF NOT EXISTS seal_y_mm NUMERIC(8,2) NOT NULL DEFAULT 22`, schema),
 		fmt.Sprintf(`ALTER TABLE %s.sales_order_settings ADD COLUMN IF NOT EXISTS seal_width_mm NUMERIC(8,2) NOT NULL DEFAULT 42`, schema),
+		fmt.Sprintf(`ALTER TABLE %s.sales_order_settings ADD COLUMN IF NOT EXISTS bank_account_name TEXT NOT NULL DEFAULT ''`, schema),
+		fmt.Sprintf(`ALTER TABLE %s.sales_order_settings ADD COLUMN IF NOT EXISTS bank_name TEXT NOT NULL DEFAULT ''`, schema),
+		fmt.Sprintf(`ALTER TABLE %s.sales_order_settings ADD COLUMN IF NOT EXISTS bank_account_no TEXT NOT NULL DEFAULT ''`, schema),
 	} {
 		if _, err := pool.Exec(ctx, stmt); err != nil {
 			return err

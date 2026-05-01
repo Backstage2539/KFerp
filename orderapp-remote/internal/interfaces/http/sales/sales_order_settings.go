@@ -30,12 +30,15 @@ type salesOrderSettingsHandler struct {
 }
 
 type salesOrderSettingsRequest struct {
-	CompanyName string  `json:"company_name"`
-	Note        string  `json:"note"`
-	PaymentText string  `json:"payment_text"`
-	SealXMM     float64 `json:"seal_x_mm"`
-	SealYMM     float64 `json:"seal_y_mm"`
-	SealWidthMM float64 `json:"seal_width_mm"`
+	CompanyName     string  `json:"company_name"`
+	Note            string  `json:"note"`
+	PaymentText     string  `json:"payment_text"`
+	BankAccountName string  `json:"bank_account_name"`
+	BankName        string  `json:"bank_name"`
+	BankAccountNo   string  `json:"bank_account_no"`
+	SealXMM         float64 `json:"seal_x_mm"`
+	SealYMM         float64 `json:"seal_y_mm"`
+	SealWidthMM     float64 `json:"seal_width_mm"`
 }
 
 type salesOrderPaymentCodeRequest struct {
@@ -81,13 +84,16 @@ func (h salesOrderSettingsHandler) save(c echo.Context) error {
 		return c.JSON(http.StatusBadRequest, map[string]any{"error": "bad request"})
 	}
 	if err := h.sales.SaveSalesOrderSettings(c.Request().Context(), salesapp.SaveSalesOrderSettingsCommand{
-		Actor:       support.ActorOf(c),
-		CompanyName: req.CompanyName,
-		Note:        req.Note,
-		PaymentText: req.PaymentText,
-		SealXMM:     req.SealXMM,
-		SealYMM:     req.SealYMM,
-		SealWidthMM: req.SealWidthMM,
+		Actor:           support.ActorOf(c),
+		CompanyName:     req.CompanyName,
+		Note:            req.Note,
+		PaymentText:     req.PaymentText,
+		BankAccountName: req.BankAccountName,
+		BankName:        req.BankName,
+		BankAccountNo:   req.BankAccountNo,
+		SealXMM:         req.SealXMM,
+		SealYMM:         req.SealYMM,
+		SealWidthMM:     req.SealWidthMM,
 	}); err != nil {
 		return c.JSON(http.StatusBadRequest, map[string]any{"error": err.Error()})
 	}
@@ -111,13 +117,16 @@ func (h salesOrderSettingsHandler) saveSealPosition(c echo.Context) error {
 		req.SealWidthMM = settings.SealWidthMM
 	}
 	if err := h.sales.SaveSalesOrderSettings(c.Request().Context(), salesapp.SaveSalesOrderSettingsCommand{
-		Actor:       support.ActorOf(c),
-		CompanyName: settings.CompanyName,
-		Note:        settings.Note,
-		PaymentText: settings.PaymentText,
-		SealXMM:     req.SealXMM,
-		SealYMM:     req.SealYMM,
-		SealWidthMM: req.SealWidthMM,
+		Actor:           support.ActorOf(c),
+		CompanyName:     settings.CompanyName,
+		Note:            settings.Note,
+		PaymentText:     settings.PaymentText,
+		BankAccountName: settings.BankAccountName,
+		BankName:        settings.BankName,
+		BankAccountNo:   settings.BankAccountNo,
+		SealXMM:         req.SealXMM,
+		SealYMM:         req.SealYMM,
+		SealWidthMM:     req.SealWidthMM,
 	}); err != nil {
 		return c.JSON(http.StatusBadRequest, map[string]any{"error": err.Error()})
 	}

@@ -81,22 +81,34 @@
           <span>优惠：{{ preview.snapshot.discount }}</span>
           <strong>应收：{{ preview.snapshot.grand_total }}</strong>
         </div>
-        <div v-if="preview.snapshot.payment_text" class="preview-notes">
-          <strong>收款方式</strong>
-          <p>{{ preview.snapshot.payment_text }}</p>
-        </div>
-        <div v-if="(preview.snapshot.payment_codes || []).length" class="payment-code-preview-list">
-          <div v-for="code in preview.snapshot.payment_codes" :key="`${code.id}-${code.label}`" class="payment-code-preview payment-code-preview-card">
-            <img :src="assetURL(code)" :alt="code.label || '收款码'" />
-            <div>
-              <strong>{{ code.label || '收款码' }}</strong>
-              <span v-if="code.description">{{ code.description }}</span>
+        <div v-if="hasPaymentInfo(preview.snapshot)" class="payment-info-grid">
+          <div class="payment-text-panel">
+            <div v-if="preview.snapshot.payment_text" class="preview-notes compact-notes">
+              <strong>收款方式</strong>
+              <p>{{ preview.snapshot.payment_text }}</p>
+            </div>
+            <div v-if="hasBankAccount(preview.snapshot)" class="preview-notes compact-notes account-payment-preview">
+              <strong>公账收款</strong>
+              <p v-if="preview.snapshot.bank_account_name">户名：{{ preview.snapshot.bank_account_name }}</p>
+              <p v-if="preview.snapshot.bank_name">开户行：{{ preview.snapshot.bank_name }}</p>
+              <p v-if="preview.snapshot.bank_account_no">账号：{{ preview.snapshot.bank_account_no }}</p>
+            </div>
+            <div v-if="preview.snapshot.note" class="preview-notes compact-notes">
+              <strong>说明</strong>
+              <p>{{ preview.snapshot.note }}</p>
             </div>
           </div>
-        </div>
-        <div v-if="preview.snapshot.note" class="preview-notes">
-          <strong>说明</strong>
-          <p>{{ preview.snapshot.note }}</p>
+          <div v-if="(preview.snapshot.payment_codes || []).length" class="payment-code-panel">
+            <div class="payment-code-preview-list">
+              <div v-for="code in preview.snapshot.payment_codes" :key="`${code.id}-${code.label}`" class="payment-code-preview payment-code-preview-card">
+                <img :src="assetURL(code)" :alt="code.label || '收款码'" />
+                <div>
+                  <strong>{{ code.label || '收款码' }}</strong>
+                  <span v-if="code.description">{{ code.description }}</span>
+                </div>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
     </section>
@@ -311,6 +323,14 @@ function sealPositionStyle(seal = {}) {
   }
 }
 
+function hasBankAccount(snapshot = {}) {
+  return Boolean(snapshot.bank_account_name || snapshot.bank_name || snapshot.bank_account_no)
+}
+
+function hasPaymentInfo(snapshot = {}) {
+  return Boolean(snapshot.payment_text || snapshot.note || hasBankAccount(snapshot) || (snapshot.payment_codes || []).length)
+}
+
 function previewSealScale() {
   return 2.2
 }
@@ -461,7 +481,12 @@ th { background: #fbfaf8; }
 .preview-total strong { font-size: 18px; }
 .preview-notes { border-top: 1px solid #eee2d4; margin-top: 12px; padding-top: 10px; color: #555; }
 .preview-notes p { margin: 4px 0; white-space: pre-line; }
-.payment-code-preview-list { display: grid; grid-template-columns: repeat(auto-fit, minmax(112px, 128px)); justify-content: start; gap: 14px; border-top: 1px solid #eee2d4; margin-top: 12px; padding-top: 12px; }
+.payment-info-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(260px, 360px); gap: 18px; border-top: 1px solid #eee2d4; margin-top: 12px; padding-top: 12px; }
+.payment-text-panel { display: grid; gap: 10px; align-content: start; }
+.payment-code-panel { align-self: start; }
+.compact-notes { border-top: 0; margin-top: 0; padding-top: 0; }
+.account-payment-preview p { margin: 2px 0; }
+.payment-code-preview-list { display: grid; grid-template-columns: repeat(auto-fit, minmax(112px, 128px)); justify-content: start; gap: 14px; }
 .payment-code-preview { display: grid; gap: 7px; align-items: start; justify-items: center; text-align: center; }
 .payment-code-preview img { width: 96px; height: 96px; object-fit: contain; border: 1px solid #eee2d4; border-radius: 6px; background: #fff; }
 .payment-code-preview strong, .payment-code-preview span { display: block; }
@@ -487,6 +512,7 @@ th { background: #fbfaf8; }
   table { min-width: 760px; }
   .panel { overflow: auto; }
   .preview-meta { grid-template-columns: 1fr; }
+  .payment-info-grid { grid-template-columns: 1fr; }
   .drawer { width: 100vw; }
 }
 </style>

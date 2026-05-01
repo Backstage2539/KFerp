@@ -30,7 +30,7 @@ func TestSalesOrderSettingsAPI(t *testing.T) {
 	}
 	e := newSalesOrderAPITestEcho(pool, schema, t.TempDir())
 
-	body := strings.NewReader(`{"note":"请密封保存\n第二行","payment_text":"微信\n对公转账","seal_x_mm":42,"seal_y_mm":21,"seal_width_mm":38}`)
+	body := strings.NewReader(`{"note":"请密封保存\n第二行","payment_text":"微信\n对公转账","bank_account_name":"孟连口加农业科技有限公司","bank_name":"中国农业银行孟连支行","bank_account_no":"6222000000000000","seal_x_mm":42,"seal_y_mm":21,"seal_width_mm":38}`)
 	req := httptest.NewRequest(http.MethodPost, "/api/settings/sales-order", body)
 	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
 	rec := httptest.NewRecorder()
@@ -41,6 +41,9 @@ func TestSalesOrderSettingsAPI(t *testing.T) {
 	for _, want := range []string{
 		`"note":"请密封保存\n第二行"`,
 		`"payment_text":"微信\n对公转账"`,
+		`"bank_account_name":"孟连口加农业科技有限公司"`,
+		`"bank_name":"中国农业银行孟连支行"`,
+		`"bank_account_no":"6222000000000000"`,
 		`"seal_x_mm":42`,
 		`"seal_y_mm":21`,
 		`"seal_width_mm":38`,

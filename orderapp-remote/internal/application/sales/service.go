@@ -380,14 +380,17 @@ type ShippingExportRow struct {
 }
 
 type SalesOrderSettings struct {
-	CompanyName  string                  `json:"company_name"`
-	Note         string                  `json:"note"`
-	PaymentText  string                  `json:"payment_text"`
-	SealXMM      float64                 `json:"seal_x_mm"`
-	SealYMM      float64                 `json:"seal_y_mm"`
-	SealWidthMM  float64                 `json:"seal_width_mm"`
-	Seal         *SalesOrderAsset        `json:"seal,omitempty"`
-	PaymentCodes []SalesOrderPaymentCode `json:"payment_codes"`
+	CompanyName     string                  `json:"company_name"`
+	Note            string                  `json:"note"`
+	PaymentText     string                  `json:"payment_text"`
+	BankAccountName string                  `json:"bank_account_name"`
+	BankName        string                  `json:"bank_name"`
+	BankAccountNo   string                  `json:"bank_account_no"`
+	SealXMM         float64                 `json:"seal_x_mm"`
+	SealYMM         float64                 `json:"seal_y_mm"`
+	SealWidthMM     float64                 `json:"seal_width_mm"`
+	Seal            *SalesOrderAsset        `json:"seal,omitempty"`
+	PaymentCodes    []SalesOrderPaymentCode `json:"payment_codes"`
 }
 
 type SalesOrderAsset struct {
@@ -414,13 +417,16 @@ type SalesOrderPaymentCode struct {
 }
 
 type SaveSalesOrderSettingsCommand struct {
-	Actor       string  `json:"actor"`
-	CompanyName string  `json:"company_name"`
-	Note        string  `json:"note"`
-	PaymentText string  `json:"payment_text"`
-	SealXMM     float64 `json:"seal_x_mm"`
-	SealYMM     float64 `json:"seal_y_mm"`
-	SealWidthMM float64 `json:"seal_width_mm"`
+	Actor           string  `json:"actor"`
+	CompanyName     string  `json:"company_name"`
+	Note            string  `json:"note"`
+	PaymentText     string  `json:"payment_text"`
+	BankAccountName string  `json:"bank_account_name"`
+	BankName        string  `json:"bank_name"`
+	BankAccountNo   string  `json:"bank_account_no"`
+	SealXMM         float64 `json:"seal_x_mm"`
+	SealYMM         float64 `json:"seal_y_mm"`
+	SealWidthMM     float64 `json:"seal_width_mm"`
 }
 
 type SaveSalesOrderAssetCommand struct {
@@ -873,6 +879,9 @@ func (s *Service) SaveSalesOrderSettings(ctx context.Context, cmd SaveSalesOrder
 	cmd.CompanyName = strings.TrimSpace(cmd.CompanyName)
 	cmd.Note = strings.TrimSpace(cmd.Note)
 	cmd.PaymentText = strings.TrimSpace(cmd.PaymentText)
+	cmd.BankAccountName = strings.TrimSpace(cmd.BankAccountName)
+	cmd.BankName = strings.TrimSpace(cmd.BankName)
+	cmd.BankAccountNo = strings.TrimSpace(cmd.BankAccountNo)
 	if cmd.SealXMM <= 0 {
 		cmd.SealXMM = 32
 	}
