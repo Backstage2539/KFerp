@@ -53,7 +53,7 @@ func TestSalesOrderSettingsServesSalesOrderAssets(t *testing.T) {
 	if err := os.MkdirAll(filepath.Dir(assetPath), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(assetPath, []byte("asset-bytes"), 0o644); err != nil {
+	if err := os.WriteFile(assetPath, []byte{0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, 'J', 'F', 'I', 'F'}, 0o644); err != nil {
 		t.Fatal(err)
 	}
 	e := echo.New()
@@ -63,8 +63,8 @@ func TestSalesOrderSettingsServesSalesOrderAssets(t *testing.T) {
 	rec := httptest.NewRecorder()
 	e.ServeHTTP(rec, req)
 
-	if rec.Code != http.StatusOK || rec.Body.String() != "asset-bytes" {
-		t.Fatalf("asset route status=%d body=%q", rec.Code, rec.Body.String())
+	if rec.Code != http.StatusOK || !strings.HasPrefix(rec.Header().Get(echo.HeaderContentType), "image/jpeg") {
+		t.Fatalf("asset route status=%d content-type=%q body=%q", rec.Code, rec.Header().Get(echo.HeaderContentType), rec.Body.String())
 	}
 }
 

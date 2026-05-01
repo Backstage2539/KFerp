@@ -55,7 +55,8 @@ func registerSalesOrderSettingsRoutes(e *echo.Echo, salesSvc *salesapp.Service, 
 	e.PUT("/api/settings/sales-order/payment-codes/:id", h.updatePaymentCode)
 	e.DELETE("/api/settings/sales-order/payment-codes/:id", h.deletePaymentCode)
 	e.POST("/api/settings/sales-order/seal", h.uploadSeal)
-	e.Static("/assets/sales_order_assets", filepath.Join(assetDir, "sales_order_assets"))
+	e.GET("/assets/sales_order_assets/*", h.serveSalesOrderAsset)
+	e.HEAD("/assets/sales_order_assets/*", h.serveSalesOrderAsset)
 }
 
 func (h salesOrderSettingsHandler) get(c echo.Context) error {
@@ -147,6 +148,41 @@ func (h salesOrderSettingsHandler) uploadSeal(c echo.Context) error {
 		return c.JSON(http.StatusBadRequest, map[string]any{"error": err.Error()})
 	}
 	return c.JSON(http.StatusOK, map[string]any{"asset": asset})
+}
+
+func (h salesOrderSettingsHandler) serveSalesOrderAsset(c echo.Context) error {
+	rel := strings.TrimPrefix(c.Param("*"), "/")
+	clean := filepath.Clean(filepath.FromSlash(rel))
+	if clean == "." || filepath.IsAbs(clean) || strings.HasPrefix(clean, ".."+string(os.PathSeparator)) {
+		return c.NoContent(http.StatusNotFound)
+	}
+	path := filepath.Join(h.assetDir, "sales_order_assets", clean)
+	f, err := os.Open(path)
+	if err != nil {
+		return c.NoContent(http.StatusNotFound)
+	}
+	defer f.Close()
+	stat, err := f.Stat()
+	if err != nil || stat.IsDir() {
+		return c.NoContent(http.StatusNotFound)
+	}
+	if contentType := detectSalesOrderAssetContentType(f); contentType != "" {
+		c.Response().Header().Set(echo.HeaderContentType, contentType)
+	}
+	if _, err := f.Seek(0, io.SeekStart); err != nil {
+		return c.NoContent(http.StatusInternalServerError)
+	}
+	http.ServeContent(c.Response(), c.Request(), stat.Name(), stat.ModTime(), f)
+	return nil
+}
+
+func detectSalesOrderAssetContentType(f *os.File) string {
+	buf := make([]byte, 512)
+	n, _ := f.Read(buf)
+	if n == 0 {
+		return ""
+	}
+	return http.DetectContentType(buf[:n])
 }
 
 func (h salesOrderSettingsHandler) saveUploadedSalesOrderAsset(c echo.Context, kind string) (salesapp.SalesOrderAsset, error) {
