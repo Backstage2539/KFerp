@@ -93,11 +93,10 @@ func TestGenerateSalesOrderDocumentCreatesVersions(t *testing.T) {
 	seedSalesOrderDocumentOrder(t, ctx, pool, schema)
 	if err := repo.SaveSalesOrderSettings(ctx, salesapp.SaveSalesOrderSettingsCommand{
 		Actor: "测试员", CompanyName: "浅焙作坊咖啡", Note: "请密封保存",
-		BankAccountName: "孟连口加农业科技有限公司", BankName: "中国农业银行孟连支行", BankAccountNo: "6222000000000000",
 	}); err != nil {
 		t.Fatalf("SaveSalesOrderSettings: %v", err)
 	}
-	if _, err := pool.Exec(ctx, fmt.Sprintf(`INSERT INTO %s.company_profile(id, company_name) VALUES(1, '棵凡咖啡')`, schema)); err != nil {
+	if _, err := pool.Exec(ctx, fmt.Sprintf(`INSERT INTO %s.company_profile(id, company_name, company_address, taxpayer_id, bank_account_name, bank_name, bank_account_no) VALUES(1, '棵凡咖啡', '云南省普洱市孟连县', '91530827MACGJ29D6J', '孟连口加农业科技有限公司', '中国农业银行孟连支行', '6222000000000000')`, schema)); err != nil {
 		t.Fatalf("insert company profile: %v", err)
 	}
 
@@ -110,6 +109,9 @@ func TestGenerateSalesOrderDocumentCreatesVersions(t *testing.T) {
 	}
 	if first.Snapshot.BankAccountName != "孟连口加农业科技有限公司" || first.Snapshot.BankName != "中国农业银行孟连支行" || first.Snapshot.BankAccountNo != "6222000000000000" {
 		t.Fatalf("generated snapshot bank account fields = %+v", first.Snapshot)
+	}
+	if first.Snapshot.CompanyAddress != "云南省普洱市孟连县" || first.Snapshot.TaxpayerID != "91530827MACGJ29D6J" {
+		t.Fatalf("generated snapshot company account identity fields = %+v", first.Snapshot)
 	}
 	second, err := repo.GenerateSalesOrderDocument(ctx, salesapp.GenerateSalesOrderDocumentCommand{Actor: "测试员", OrderID: 1})
 	if err != nil {
@@ -201,6 +203,10 @@ func prepareSalesSchemaPrerequisites(t *testing.T, ctx context.Context, pool *pg
 			company_name TEXT NOT NULL DEFAULT '',
 			company_address TEXT NOT NULL DEFAULT '',
 			company_phone TEXT NOT NULL DEFAULT '',
+			taxpayer_id TEXT NOT NULL DEFAULT '',
+			bank_account_name TEXT NOT NULL DEFAULT '',
+			bank_name TEXT NOT NULL DEFAULT '',
+			bank_account_no TEXT NOT NULL DEFAULT '',
 			updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
 			updated_by TEXT NOT NULL DEFAULT '',
 			CONSTRAINT company_profile_singleton CHECK (id = 1)

@@ -97,8 +97,8 @@ func (r Repository) UpdateEmployee(ctx context.Context, id int64, cmd companyapp
 
 func (r Repository) LoadCompanyProfile(ctx context.Context) (companyapp.CompanyProfile, error) {
 	var profile companyapp.CompanyProfile
-	q := fmt.Sprintf(`SELECT company_name, company_address, company_phone FROM %s.company_profile WHERE id=1`, r.schema)
-	err := r.pool.QueryRow(ctx, q).Scan(&profile.Name, &profile.Address, &profile.Phone)
+	q := fmt.Sprintf(`SELECT company_name, company_address, company_phone, taxpayer_id, bank_account_name, bank_name, bank_account_no FROM %s.company_profile WHERE id=1`, r.schema)
+	err := r.pool.QueryRow(ctx, q).Scan(&profile.Name, &profile.Address, &profile.Phone, &profile.TaxpayerID, &profile.BankAccountName, &profile.BankName, &profile.BankAccountNo)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return companyapp.CompanyProfile{}, nil
 	}
@@ -109,23 +109,27 @@ func (r Repository) LoadCompanyProfile(ctx context.Context) (companyapp.CompanyP
 }
 
 func (r Repository) SaveCompanyProfile(ctx context.Context, cmd companyapp.CompanyProfileCommand) (companyapp.CompanyProfile, error) {
-	q := fmt.Sprintf(`INSERT INTO %s.company_profile(id, company_name, company_address, company_phone, updated_at, updated_by)
-		VALUES(1,$1,$2,$3,now(),$4)
+	q := fmt.Sprintf(`INSERT INTO %s.company_profile(id, company_name, company_address, company_phone, taxpayer_id, bank_account_name, bank_name, bank_account_no, updated_at, updated_by)
+		VALUES(1,$1,$2,$3,$4,$5,$6,$7,now(),$8)
 		ON CONFLICT(id) DO UPDATE SET
 			company_name=excluded.company_name,
 			company_address=excluded.company_address,
 			company_phone=excluded.company_phone,
+			taxpayer_id=excluded.taxpayer_id,
+			bank_account_name=excluded.bank_account_name,
+			bank_name=excluded.bank_name,
+			bank_account_no=excluded.bank_account_no,
 			updated_at=now(),
 			updated_by=excluded.updated_by
-		RETURNING company_name, company_address, company_phone`, r.schema)
+		RETURNING company_name, company_address, company_phone, taxpayer_id, bank_account_name, bank_name, bank_account_no`, r.schema)
 	var profile companyapp.CompanyProfile
 	actor := cmd.Actor
 	if actor == "" {
 		actor = "unknown"
 	}
-	if err := r.pool.QueryRow(ctx, q, cmd.Name, cmd.Address, cmd.Phone, actor).Scan(&profile.Name, &profile.Address, &profile.Phone); err != nil {
+	if err := r.pool.QueryRow(ctx, q, cmd.Name, cmd.Address, cmd.Phone, cmd.TaxpayerID, cmd.BankAccountName, cmd.BankName, cmd.BankAccountNo, actor).Scan(&profile.Name, &profile.Address, &profile.Phone, &profile.TaxpayerID, &profile.BankAccountName, &profile.BankName, &profile.BankAccountNo); err != nil {
 		return companyapp.CompanyProfile{}, err
 	}
-	postgresinfra.AuditInsert(ctx, r.pool, r.schema, actor, "company_profile", nil, "update", postgresinfra.StrPtr("company_name"), nil, postgresinfra.StrPtr(profile.Name), postgresinfra.AuditMeta{"company_address": profile.Address, "company_phone": profile.Phone})
+	postgresinfra.AuditInsert(ctx, r.pool, r.schema, actor, "company_profile", nil, "update", postgresinfra.StrPtr("company_name"), nil, postgresinfra.StrPtr(profile.Name), postgresinfra.AuditMeta{"company_address": profile.Address, "company_phone": profile.Phone, "taxpayer_id": profile.TaxpayerID, "bank_account_name": profile.BankAccountName, "bank_name": profile.BankName, "bank_account_no": profile.BankAccountNo})
 	return profile, nil
 }

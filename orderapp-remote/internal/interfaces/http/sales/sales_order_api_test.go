@@ -30,7 +30,7 @@ func TestSalesOrderSettingsAPI(t *testing.T) {
 	}
 	e := newSalesOrderAPITestEcho(pool, schema, t.TempDir())
 
-	body := strings.NewReader(`{"note":"请密封保存\n第二行","payment_text":"微信\n对公转账","bank_account_name":"孟连口加农业科技有限公司","bank_name":"中国农业银行孟连支行","bank_account_no":"6222000000000000","seal_x_mm":42,"seal_y_mm":21,"seal_width_mm":38}`)
+	body := strings.NewReader(`{"note":"请密封保存\n第二行","payment_text":"微信\n对公转账","seal_x_mm":42,"seal_y_mm":21,"seal_width_mm":38}`)
 	req := httptest.NewRequest(http.MethodPost, "/api/settings/sales-order", body)
 	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
 	rec := httptest.NewRecorder()
@@ -41,9 +41,6 @@ func TestSalesOrderSettingsAPI(t *testing.T) {
 	for _, want := range []string{
 		`"note":"请密封保存\n第二行"`,
 		`"payment_text":"微信\n对公转账"`,
-		`"bank_account_name":"孟连口加农业科技有限公司"`,
-		`"bank_name":"中国农业银行孟连支行"`,
-		`"bank_account_no":"6222000000000000"`,
 		`"seal_x_mm":42`,
 		`"seal_y_mm":21`,
 		`"seal_width_mm":38`,
@@ -365,7 +362,7 @@ func TestSalesOrderPreviewAPIUsesGlobalCompanyProfile(t *testing.T) {
 		t.Fatalf("EnsureSchema: %v", err)
 	}
 	seedSalesOrderAPITestOrder(t, ctx, pool, schema)
-	mustExecOrderAPITestSQL(t, ctx, pool, fmt.Sprintf(`INSERT INTO %s.company_profile(id, company_name) VALUES(1, '棵凡咖啡')`, schema))
+	mustExecOrderAPITestSQL(t, ctx, pool, fmt.Sprintf(`INSERT INTO %s.company_profile(id, company_name, company_address, taxpayer_id, bank_account_name, bank_name, bank_account_no) VALUES(1, '棵凡咖啡', '云南省普洱市孟连县', '91530827MACGJ29D6J', '孟连口加农业科技有限公司', '中国农业银行孟连支行', '6222000000000000')`, schema))
 	e := newSalesOrderAPITestEcho(pool, schema, t.TempDir())
 
 	req := httptest.NewRequest(http.MethodGet, "/api/orders/1/sales-order-preview", nil)
@@ -375,8 +372,17 @@ func TestSalesOrderPreviewAPIUsesGlobalCompanyProfile(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("preview status=%d body=%s", rec.Code, rec.Body.String())
 	}
-	if !strings.Contains(rec.Body.String(), `"company_name":"棵凡咖啡"`) {
-		t.Fatalf("preview response should use global company profile name: %s", rec.Body.String())
+	for _, want := range []string{
+		`"company_name":"棵凡咖啡"`,
+		`"company_address":"云南省普洱市孟连县"`,
+		`"taxpayer_id":"91530827MACGJ29D6J"`,
+		`"bank_account_name":"孟连口加农业科技有限公司"`,
+		`"bank_name":"中国农业银行孟连支行"`,
+		`"bank_account_no":"6222000000000000"`,
+	} {
+		if !strings.Contains(rec.Body.String(), want) {
+			t.Fatalf("preview response should use global company account profile, missing %s: %s", want, rec.Body.String())
+		}
 	}
 }
 

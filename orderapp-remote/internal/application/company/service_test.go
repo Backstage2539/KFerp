@@ -41,12 +41,28 @@ func (r *fakeRepo) UpdateEmployee(ctx context.Context, id int64, cmd EmployeeCom
 }
 
 func (r *fakeRepo) LoadCompanyProfile(ctx context.Context) (CompanyProfile, error) {
-	return CompanyProfile{Name: "棵凡咖啡", Address: "昆明市人民东路", Phone: "0871-12345678"}, nil
+	return CompanyProfile{
+		Name:            "棵凡咖啡",
+		Address:         "昆明市人民东路",
+		Phone:           "0871-12345678",
+		TaxpayerID:      "91530827MACGJ29D6J",
+		BankAccountName: "棵凡咖啡",
+		BankName:        "中国农业银行孟连支行",
+		BankAccountNo:   "6222000000000000",
+	}, nil
 }
 
 func (r *fakeRepo) SaveCompanyProfile(ctx context.Context, cmd CompanyProfileCommand) (CompanyProfile, error) {
 	r.profile = cmd
-	return CompanyProfile{Name: cmd.Name, Address: cmd.Address, Phone: cmd.Phone}, nil
+	return CompanyProfile{
+		Name:            cmd.Name,
+		Address:         cmd.Address,
+		Phone:           cmd.Phone,
+		TaxpayerID:      cmd.TaxpayerID,
+		BankAccountName: cmd.BankAccountName,
+		BankName:        cmd.BankName,
+		BankAccountNo:   cmd.BankAccountNo,
+	}, nil
 }
 
 func TestServiceValidatesAndNormalizesDepartment(t *testing.T) {
@@ -84,16 +100,23 @@ func TestServiceValidatesAndNormalizesCompanyProfile(t *testing.T) {
 	svc := NewService(repo)
 
 	got, err := svc.SaveCompanyProfile(context.Background(), CompanyProfileCommand{
-		Actor:   " 设置员 ",
-		Name:    " 棵凡咖啡 ",
-		Address: " 昆明市人民东路 ",
-		Phone:   " 0871-12345678 ",
+		Actor:           " 设置员 ",
+		Name:            " 棵凡咖啡 ",
+		Address:         " 昆明市人民东路 ",
+		Phone:           " 0871-12345678 ",
+		TaxpayerID:      " 91530827MACGJ29D6J ",
+		BankAccountName: " 棵凡咖啡 ",
+		BankName:        " 中国农业银行孟连支行 ",
+		BankAccountNo:   " 6222000000000000 ",
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if got.Name != "棵凡咖啡" || repo.profile.Actor != "设置员" || repo.profile.Name != "棵凡咖啡" || repo.profile.Address != "昆明市人民东路" || repo.profile.Phone != "0871-12345678" {
 		t.Fatalf("profile=%+v command=%+v", got, repo.profile)
+	}
+	if got.TaxpayerID != "91530827MACGJ29D6J" || got.BankAccountName != "棵凡咖啡" || got.BankName != "中国农业银行孟连支行" || got.BankAccountNo != "6222000000000000" {
+		t.Fatalf("account profile=%+v command=%+v", got, repo.profile)
 	}
 	if _, err := svc.SaveCompanyProfile(context.Background(), CompanyProfileCommand{}); err == nil || !strings.Contains(err.Error(), "company_name required") {
 		t.Fatalf("empty company profile error = %v", err)

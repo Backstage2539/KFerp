@@ -30,6 +30,10 @@ CREATE TABLE IF NOT EXISTS %s.company_profile (
 	company_name TEXT NOT NULL DEFAULT '',
 	company_address TEXT NOT NULL DEFAULT '',
 	company_phone TEXT NOT NULL DEFAULT '',
+	taxpayer_id TEXT NOT NULL DEFAULT '',
+	bank_account_name TEXT NOT NULL DEFAULT '',
+	bank_name TEXT NOT NULL DEFAULT '',
+	bank_account_no TEXT NOT NULL DEFAULT '',
 	updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
 	updated_by TEXT NOT NULL DEFAULT '',
 	CONSTRAINT company_profile_singleton CHECK (id = 1)
@@ -37,6 +41,16 @@ CREATE TABLE IF NOT EXISTS %s.company_profile (
 `, schema, schema, schema, schema, schema)
 	if _, err := pool.Exec(ctx, q); err != nil {
 		return err
+	}
+	for _, stmt := range []string{
+		fmt.Sprintf(`ALTER TABLE %s.company_profile ADD COLUMN IF NOT EXISTS taxpayer_id TEXT NOT NULL DEFAULT ''`, schema),
+		fmt.Sprintf(`ALTER TABLE %s.company_profile ADD COLUMN IF NOT EXISTS bank_account_name TEXT NOT NULL DEFAULT ''`, schema),
+		fmt.Sprintf(`ALTER TABLE %s.company_profile ADD COLUMN IF NOT EXISTS bank_name TEXT NOT NULL DEFAULT ''`, schema),
+		fmt.Sprintf(`ALTER TABLE %s.company_profile ADD COLUMN IF NOT EXISTS bank_account_no TEXT NOT NULL DEFAULT ''`, schema),
+	} {
+		if _, err := pool.Exec(ctx, stmt); err != nil {
+			return err
+		}
 	}
 	seed := fmt.Sprintf(`
 INSERT INTO %s.company_departments(name,active) VALUES

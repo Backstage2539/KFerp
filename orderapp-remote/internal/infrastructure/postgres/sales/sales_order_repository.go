@@ -310,16 +310,18 @@ func (r Repository) buildSalesOrderSnapshotTx(ctx context.Context, tx pgx.Tx, or
 	if err := tx.QueryRow(ctx, q, orderID).Scan(&snapshot.OrderID, &snapshot.OrderNo, &snapshot.OrderDate, &snapshot.CustomerName, &snapshot.CustomerCompanyName, &snapshot.CustomerCompanyAddress, &snapshot.CustomerCompanyPhone, &total, &shipping, &discount, &grand); err != nil {
 		return salesdomain.SalesOrderSnapshot{}, err
 	}
-	companyProfileName, err := r.loadCompanyProfileNameTx(ctx, tx)
+	companyProfile, err := r.loadCompanyProfileForSalesOrderTx(ctx, tx)
 	if err != nil {
 		return salesdomain.SalesOrderSnapshot{}, err
 	}
-	snapshot.CompanyName = firstNonEmpty(companyProfileName, settings.CompanyName, snapshot.CustomerCompanyName, snapshot.CustomerName)
+	snapshot.CompanyName = firstNonEmpty(companyProfile.Name, settings.CompanyName, snapshot.CustomerCompanyName, snapshot.CustomerName)
+	snapshot.CompanyAddress = companyProfile.Address
 	snapshot.Note = settings.Note
 	snapshot.PaymentText = settings.PaymentText
-	snapshot.BankAccountName = settings.BankAccountName
-	snapshot.BankName = settings.BankName
-	snapshot.BankAccountNo = settings.BankAccountNo
+	snapshot.TaxpayerID = companyProfile.TaxpayerID
+	snapshot.BankAccountName = firstNonEmpty(companyProfile.BankAccountName, settings.BankAccountName)
+	snapshot.BankName = firstNonEmpty(companyProfile.BankName, settings.BankName)
+	snapshot.BankAccountNo = firstNonEmpty(companyProfile.BankAccountNo, settings.BankAccountNo)
 	snapshot.TotalAmount = salesdomain.FormatSalesOrderMoney(total)
 	snapshot.Shipping = salesdomain.FormatSalesOrderMoney(shipping)
 	snapshot.Discount = salesdomain.FormatSalesOrderMoney(discount)
@@ -363,16 +365,31 @@ func (r Repository) buildSalesOrderSnapshotTx(ctx context.Context, tx pgx.Tx, or
 	return snapshot, nil
 }
 
-func (r Repository) loadCompanyProfileNameTx(ctx context.Context, tx pgx.Tx) (string, error) {
-	var name string
-	err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT COALESCE(company_name,'') FROM %s.company_profile WHERE id=1`, r.schema)).Scan(&name)
+type salesOrderCompanyProfile struct {
+	Name            string
+	Address         string
+	TaxpayerID      string
+	BankAccountName string
+	BankName        string
+	BankAccountNo   string
+}
+
+func (r Repository) loadCompanyProfileForSalesOrderTx(ctx context.Context, tx pgx.Tx) (salesOrderCompanyProfile, error) {
+	var profile salesOrderCompanyProfile
+	err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT COALESCE(company_name,''), COALESCE(company_address,''), COALESCE(taxpayer_id,''), COALESCE(bank_account_name,''), COALESCE(bank_name,''), COALESCE(bank_account_no,'') FROM %s.company_profile WHERE id=1`, r.schema)).Scan(&profile.Name, &profile.Address, &profile.TaxpayerID, &profile.BankAccountName, &profile.BankName, &profile.BankAccountNo)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return "", nil
+		return salesOrderCompanyProfile{}, nil
 	}
 	if err != nil {
-		return "", err
+		return salesOrderCompanyProfile{}, err
 	}
-	return strings.TrimSpace(name), nil
+	profile.Name = strings.TrimSpace(profile.Name)
+	profile.Address = strings.TrimSpace(profile.Address)
+	profile.TaxpayerID = strings.TrimSpace(profile.TaxpayerID)
+	profile.BankAccountName = strings.TrimSpace(profile.BankAccountName)
+	profile.BankName = strings.TrimSpace(profile.BankName)
+	profile.BankAccountNo = strings.TrimSpace(profile.BankAccountNo)
+	return profile, nil
 }
 
 func firstNonEmpty(values ...string) string {

@@ -664,6 +664,13 @@ func seedReqWorkflowA(ctx context.Context, pool *pgxpool.Pool, schema string) er
 		{table: "req_unit", code: "UT-126-01", title: "单测覆盖需求种子、PDF 公章等比 helper、PDF/预览布局源码守卫和公账字段持久化", status: "done", assignee: "Codex", evidence: "dev_126_sales_order_pdf_layout_account_test.go; sales_order_pdf_test.go; sales_order_repository_test.go"},
 		{table: "req_api", code: "API-126-01", title: "API 测试覆盖销售单设置保存和返回公账收款字段，部署后 smoke 验证预览与下载接口", status: "done", assignee: "Codex", evidence: "TestSalesOrderSettingsAPI; postdeploy smoke"},
 		{table: "req_review", code: "REV-126-01", prCode: "PR-126", title: "验收：导出 PDF 公章不拉伸；预览与下载 PDF 版式一致；收款说明、二维码、公账信息排版紧凑", status: "todo", assignee: "VA", evidence: "待 Van 服务器验收"},
+		{table: "req_product", code: "PR-127", title: "销售单公账收款信息移入公司设置，补充纳税人识别号和公司地址；销售单长地址不截断，收款码自适应填充空白", status: "review", assignee: "VA", evidence: "codex/company-account-sales-order-layout-20260502"},
+		{table: "req_dev", code: "DEV-127-01", title: "公司设置维护公账收款信息、纳税人识别号和公司地址，并支持一键复制公账收款信息", status: "done", assignee: "Codex", evidence: "CompanyProfileView copyAccountInfo; /api/company/profile"},
+		{table: "req_dev", code: "DEV-127-02", title: "销售单快照从公司设置读取公账户名、开户行、账号、纳税人识别号和公司地址，销售单设置不再维护公账字段", status: "done", assignee: "Codex", evidence: "buildSalesOrderSnapshotTx; SalesOrderSettingsView"},
+		{table: "req_dev", code: "DEV-127-03", title: "PDF 和预览修复客户地址不截断，并按收款码数量自适应填充：单码更大，多码竖向排列", status: "done", assignee: "Codex", evidence: "writeSalesOrderMetaRow; salesOrderPaymentCodeMetrics; single-payment-code/payment-code-stack"},
+		{table: "req_unit", code: "UT-127-01", title: "单测覆盖公司设置公账字段归一化、PDF 收款码尺寸 helper、Vue/需求种子源码守卫和销售单快照公账来源", status: "done", assignee: "Codex", evidence: "TestServiceValidatesAndNormalizesCompanyProfile; TestSalesOrderPDFPaymentCodeSizingAdaptsToCount; dev_127_company_account_sales_order_layout_test.go"},
+		{table: "req_api", code: "API-127-01", title: "API 测试覆盖公司设置保存/读取公账字段，以及销售单预览返回公司公账字段", status: "done", assignee: "Codex", evidence: "TestCompanyProfileAPI; TestSalesOrderPreviewAPIUsesGlobalCompanyProfile"},
+		{table: "req_review", code: "REV-127-01", prCode: "PR-127", title: "验收：公司设置可维护并复制公账信息；销售单客户地址完整换行；收款码尺寸和排列更充分利用空白", status: "todo", assignee: "VA", evidence: "待 Van 服务器验收"},
 	} {
 		if err := seedReqRow(ctx, pool, schema, row); err != nil {
 			return err

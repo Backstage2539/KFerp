@@ -26,6 +26,8 @@
         <ul>
           <li>首次生成销售单为 V1，同一订单再次生成会创建 V2，不覆盖旧文件。</li>
           <li>生成前先查看“销售单预览”；客户信息调整后可刷新预览，确认内容后再生成 PDF。</li>
+          <li>公账收款信息在“公司设置”维护；预览会展示纳税人识别号、公司地址、户名、开户行和账号。</li>
+          <li>客户公司地址过长时会自动换行；收款码会按数量自动放大或排列，减少空白区域。</li>
           <li>预览里的公章可直接拖动，松开后保存位置；位置只影响之后生成的新销售单。</li>
           <li>销售单内容按生成时的订单和设置保存快照，后续修改设置不会改动旧版本。</li>
           <li>需要给客户最新文件时使用“下载最新版”，需要追溯时下载指定历史版本。</li>
@@ -90,6 +92,8 @@
             <div v-if="hasBankAccount(preview.snapshot)" class="preview-notes compact-notes account-payment-preview">
               <strong>公账收款</strong>
               <p v-if="preview.snapshot.bank_account_name">户名：{{ preview.snapshot.bank_account_name }}</p>
+              <p v-if="preview.snapshot.taxpayer_id">纳税人识别号：{{ preview.snapshot.taxpayer_id }}</p>
+              <p v-if="preview.snapshot.company_address">地址：{{ preview.snapshot.company_address }}</p>
               <p v-if="preview.snapshot.bank_name">开户行：{{ preview.snapshot.bank_name }}</p>
               <p v-if="preview.snapshot.bank_account_no">账号：{{ preview.snapshot.bank_account_no }}</p>
             </div>
@@ -99,7 +103,13 @@
             </div>
           </div>
           <div v-if="(preview.snapshot.payment_codes || []).length" class="payment-code-panel">
-            <div class="payment-code-preview-list">
+            <div
+              class="payment-code-preview-list"
+              :class="{
+                'single-payment-code': (preview.snapshot.payment_codes || []).length === 1,
+                'payment-code-stack': (preview.snapshot.payment_codes || []).length > 1,
+              }"
+            >
               <div v-for="code in preview.snapshot.payment_codes" :key="`${code.id}-${code.label}`" class="payment-code-preview payment-code-preview-card">
                 <img :src="assetURL(code)" :alt="code.label || '收款码'" />
                 <div>
@@ -324,7 +334,7 @@ function sealPositionStyle(seal = {}) {
 }
 
 function hasBankAccount(snapshot = {}) {
-  return Boolean(snapshot.bank_account_name || snapshot.bank_name || snapshot.bank_account_no)
+  return Boolean(snapshot.bank_account_name || snapshot.taxpayer_id || snapshot.company_address || snapshot.bank_name || snapshot.bank_account_no)
 }
 
 function hasPaymentInfo(snapshot = {}) {
@@ -477,6 +487,7 @@ th { background: #fbfaf8; }
 .preview-title span { font-weight: 800; }
 .seal-stamp-preview { position: absolute; object-fit: contain; opacity: .86; cursor: move; touch-action: none; }
 .preview-meta { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px 14px; margin-bottom: 12px; color: #555; }
+.preview-meta span { min-width: 0; overflow-wrap: anywhere; line-height: 1.45; }
 .preview-total { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 14px; padding-top: 12px; }
 .preview-total strong { font-size: 18px; }
 .preview-notes { border-top: 1px solid #eee2d4; margin-top: 12px; padding-top: 10px; color: #555; }
@@ -486,9 +497,11 @@ th { background: #fbfaf8; }
 .payment-code-panel { align-self: start; }
 .compact-notes { border-top: 0; margin-top: 0; padding-top: 0; }
 .account-payment-preview p { margin: 2px 0; }
-.payment-code-preview-list { display: grid; grid-template-columns: repeat(auto-fit, minmax(112px, 128px)); justify-content: start; gap: 14px; }
-.payment-code-preview { display: grid; gap: 7px; align-items: start; justify-items: center; text-align: center; }
-.payment-code-preview img { width: 96px; height: 96px; object-fit: contain; border: 1px solid #eee2d4; border-radius: 6px; background: #fff; }
+.payment-code-preview-list { display: grid; grid-template-columns: 1fr; justify-content: stretch; gap: 14px; }
+.payment-code-preview { display: grid; grid-template-columns: 132px minmax(0, 1fr); gap: 12px; align-items: center; justify-items: start; text-align: left; }
+.payment-code-preview img { width: 132px; height: 132px; object-fit: contain; border: 1px solid #eee2d4; border-radius: 6px; background: #fff; }
+.single-payment-code .payment-code-preview { grid-template-columns: 1fr; justify-items: center; text-align: center; }
+.single-payment-code .payment-code-preview img { width: 168px; height: 168px; }
 .payment-code-preview strong, .payment-code-preview span { display: block; }
 .payment-code-preview span { color: #666; margin-top: 4px; white-space: pre-line; font-size: 12px; line-height: 1.35; }
 .error, .ok { border-radius: 6px; padding: 9px; margin-bottom: 12px; }
