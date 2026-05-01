@@ -5,7 +5,14 @@
       <div v-if="error" class="error">{{ error }}</div>
       <div v-if="ok" class="ok">已入库：{{ ok }}</div>
       <div class="form-grid">
-        <label><span>物料</span><select v-model.number="form.material_id"><option :value="0">请选择</option><option v-for="m in materials" :key="m.id" :value="m.id">{{ m.name }}</option></select></label>
+        <label class="material-field">
+          <span>物料</span>
+          <input v-model.trim="materialQuery" placeholder="物料名称 / 编号" />
+          <select v-model.number="form.material_id">
+            <option :value="0">请选择</option>
+            <option v-for="m in materialOptions" :key="m.id" :value="m.id">{{ receiptMaterialLabel(m) }}</option>
+          </select>
+        </label>
         <label><span>供应商</span><input v-model.trim="form.supplier" /></label>
         <label><span>数量(g)</span><input type="number" min="1" step="1" v-model.number="form.qty_g" /></label>
         <label><span>成本/千克</span><input type="number" min="0" step="0.01" v-model.number="form.unit_cost" /></label>
@@ -17,20 +24,30 @@
 </template>
 
 <script setup>
-import { onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
 import { apiGet, apiSend } from '../api/client'
+import { filterReceiptMaterials, receiptMaterialLabel, selectableReceiptMaterials } from '../lib/material-receipts'
 const materials = ref([])
+const materialQuery = ref('')
 const loading = ref(false)
 const saving = ref(false)
 const error = ref('')
 const ok = ref('')
 const form = reactive({ material_id: 0, supplier: '', qty_g: 0, unit_cost: 0, note: '' })
+const materialOptions = computed(() => {
+  const filtered = filterReceiptMaterials(materials.value, materialQuery.value)
+  const selected = materials.value.find((m) => Number(m.id) === Number(form.material_id))
+  if (selected && !filtered.some((m) => Number(m.id) === Number(selected.id))) {
+    return [selected, ...filtered]
+  }
+  return filtered
+})
 async function loadMaterials() {
   loading.value = true
   error.value = ''
   try {
     const data = await apiGet('/api/materials?limit=500')
-    materials.value = (data.rows || []).filter((m) => (m.kind || m.Kind) !== 'pack')
+    materials.value = selectableReceiptMaterials(data.rows || [])
   } catch (err) { error.value = err.message || '加载失败' } finally { loading.value = false }
 }
 async function submit() {
@@ -57,6 +74,7 @@ h2 { margin:0; font-size:18px; }
 label span { display:block; color:#666; font-size:12px; margin-bottom:5px; }
 input, select, button { font:inherit; min-height:36px; border-radius:6px; }
 input, select { width:100%; border:1px solid #ddd; padding:7px 9px; }
+.material-field { display:grid; gap:6px; }
 button { padding:8px 12px; cursor:pointer; }
 .primary { border:1px solid #111; background:#111; color:#fff; }
 .secondary { border:1px solid #999; background:#fff; color:#111; }

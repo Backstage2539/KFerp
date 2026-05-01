@@ -97,19 +97,9 @@ func (repo Repository) Finish(ctx context.Context, cmd productionapp.FinishComma
 	if err != nil {
 		return err
 	}
-	partial := cmd.Partial && finishedTotal < r.NeedG
-	consumedInputG := r.InputG
-	if partial {
-		consumedInputG = cmd.ConsumedInputG
-		if consumedInputG <= 0 {
-			consumedInputG = int64(math.Ceil(float64(finishedTotal) / r.BomYieldRate))
-		}
-		if consumedInputG <= 0 {
-			return fmt.Errorf("本次消耗投料必须大于0")
-		}
-		if consumedInputG > r.InputG {
-			return fmt.Errorf("本次消耗投料不能大于工单剩余投料")
-		}
+	consumedInputG, partial, err := resolveFinishConsumedInput(r, cmd, finishedTotal)
+	if err != nil {
+		return err
 	}
 	actualYield, err := actualYieldRate(r.SpecG, add.Units, add.LooseG, consumedInputG)
 	if err != nil {
@@ -127,9 +117,9 @@ func (repo Repository) Finish(ctx context.Context, cmd productionapp.FinishComma
 		return err
 	}
 	consumeRun := r
+	consumeRun.InputG = consumedInputG
 	if partial {
 		consumeRun.NeedG = finishedTotal
-		consumeRun.InputG = consumedInputG
 		consumeRun.PlanUnits = add.Units
 		consumeRun.PlanLooseG = add.LooseG
 	}
@@ -214,8 +204,33 @@ func (repo Repository) Finish(ctx context.Context, cmd productionapp.FinishComma
 	if err := tx.Commit(ctx); err != nil {
 		return err
 	}
-	postgresinfra.AuditInsert(ctx, repo.pool, schema, operator, "produce_running", &id, "finish", postgresinfra.StrPtr("material_consumption"), nil, postgresinfra.StrPtr("deducted"), postgresinfra.AuditMeta{"running_item_id": id, "product_id": r.ProductID, "spec_g": r.SpecG, "need_g": r.NeedG, "input_g": r.InputG, "bom_yield_rate": r.BomYieldRate, "finished_units": add.Units, "finished_loose_g": add.LooseG, "finished_total_g": finishedTotal, "actual_yield_rate": actualYield})
+	postgresinfra.AuditInsert(ctx, repo.pool, schema, operator, "produce_running", &id, "finish", postgresinfra.StrPtr("material_consumption"), nil, postgresinfra.StrPtr("deducted"), postgresinfra.AuditMeta{"running_item_id": id, "product_id": r.ProductID, "spec_g": r.SpecG, "need_g": r.NeedG, "input_g": consumedInputG, "bom_yield_rate": r.BomYieldRate, "finished_units": add.Units, "finished_loose_g": add.LooseG, "finished_total_g": finishedTotal, "actual_yield_rate": actualYield})
 	return nil
+}
+
+func resolveFinishConsumedInput(r ProduceRunRow, cmd productionapp.FinishCommand, finishedTotal int64) (int64, bool, error) {
+	partial := cmd.Partial && finishedTotal < r.NeedG
+	if !partial {
+		if cmd.ConsumedInputG > 0 {
+			return cmd.ConsumedInputG, false, nil
+		}
+		if r.InputG > 0 {
+			return r.InputG, false, nil
+		}
+		return 0, false, fmt.Errorf("投料数必须大于0")
+	}
+
+	consumedInputG := cmd.ConsumedInputG
+	if consumedInputG <= 0 {
+		consumedInputG = int64(math.Ceil(float64(finishedTotal) / r.BomYieldRate))
+	}
+	if consumedInputG <= 0 {
+		return 0, false, fmt.Errorf("本次消耗投料必须大于0")
+	}
+	if consumedInputG > r.InputG {
+		return 0, false, fmt.Errorf("本次消耗投料不能大于工单剩余投料")
+	}
+	return consumedInputG, true, nil
 }
 
 func nextCompletionNoForRunningItemTx(ctx context.Context, tx pgx.Tx, schema string, runningItemID int64) (int64, error) {

@@ -175,6 +175,18 @@ func TestManufacturingGapAPIs(t *testing.T) {
 		t.Fatalf("finish command = %+v", repo.finish)
 	}
 
+	finishBody = []byte(`{"id":8,"finished_units":2,"finished_loose_g":10,"warehouse":"finished_goods","consumed_input_g":700}`)
+	req = httptest.NewRequest(http.MethodPost, "/api/produce/running/finish", bytes.NewReader(finishBody))
+	req.Header.Set("Content-Type", "application/json")
+	rec = httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("POST /api/produce/running/finish edited input status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if repo.finish.ID != 8 || repo.finish.Partial || repo.finish.ConsumedInputG != 700 {
+		t.Fatalf("edited full finish command = %+v", repo.finish)
+	}
+
 	qualityBody := []byte(`{"scope":"work_order","reference_type":"work_order","reference_no":"WO-0000000020","item_name":"测试拼配","result":"pass","metrics_json":"{\"色值\":\"正常\"}","note":"首锅通过"}`)
 	req = httptest.NewRequest(http.MethodPost, "/api/produce/quality-inspections", bytes.NewReader(qualityBody))
 	req.Header.Set("Content-Type", "application/json")
