@@ -63,7 +63,9 @@ func TestManufacturingPlanningQualityVueWiring(t *testing.T) {
 		"缺料(g)",
 		"采购建议(g)",
 		"部分完工",
-		"本次消耗投料(g)",
+		"部分完工（保留剩余）",
+		"formatActualYield",
+		"consumed_input_g",
 		"质检范围",
 		"检查结果",
 	} {

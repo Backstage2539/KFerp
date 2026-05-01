@@ -664,6 +664,13 @@ func seedReqWorkflowA(ctx context.Context, pool *pgxpool.Pool, schema string) er
 		{table: "req_unit", code: "UT-126-01", title: "单测覆盖需求种子、PDF 公章等比 helper、PDF/预览布局源码守卫和公账字段持久化", status: "done", assignee: "Codex", evidence: "dev_126_sales_order_pdf_layout_account_test.go; sales_order_pdf_test.go; sales_order_repository_test.go"},
 		{table: "req_api", code: "API-126-01", title: "API 测试覆盖销售单设置保存和返回公账收款字段，部署后 smoke 验证预览与下载接口", status: "done", assignee: "Codex", evidence: "TestSalesOrderSettingsAPI; postdeploy smoke"},
 		{table: "req_review", code: "REV-126-01", prCode: "PR-126", title: "验收：导出 PDF 公章不拉伸；预览与下载 PDF 版式一致；收款说明、二维码、公账信息排版紧凑", status: "todo", assignee: "VA", evidence: "待 Van 服务器验收"},
+		{table: "req_product", code: "PR-127", title: "原料入库物料模糊搜索；生产中投料和成品数合并编辑，实时显示实际出品率，并明确部分完工说明", status: "review", assignee: "VA", evidence: "codex/production-running-receipts-yield-20260502"},
+		{table: "req_dev", code: "DEV-127-01", title: "原料入库物料选择增加名称/编号模糊搜索，且继续排除包装物料", status: "done", assignee: "Codex", evidence: "MaterialReceiptsView; material-receipts.js"},
+		{table: "req_dev", code: "DEV-127-02", title: "生产中页面把投料、成品件数/余料和实际出品率合并到同一条生产数据中编辑展示", status: "done", assignee: "Codex", evidence: "ProduceRunningView; produce-running.js"},
+		{table: "req_dev", code: "DEV-127-03", title: "完成生产接口在全量完工时也采用页面编辑后的实际投料数，部分完工说明保留剩余继续生产", status: "done", assignee: "Codex", evidence: "resolveFinishConsumedInput; POST /api/produce/running/finish"},
+		{table: "req_unit", code: "UT-127-01", title: "单测覆盖原料入库模糊搜索、生产中实时出品率 helper、完成生产实际投料规则和需求种子", status: "done", assignee: "Codex", evidence: "material-receipts.test.js; produce-running.test.js; running_repository_test.go; dev_127_production_running_receipts_test.go"},
+		{table: "req_api", code: "API-127-01", title: "API 测试覆盖生产中完成接口提交 consumed_input_g 后写入生产日志并按实际投料扣料", status: "done", assignee: "Codex", evidence: "TestProduceFinishAPIUsesEditedInputForFullCompletion"},
+		{table: "req_review", code: "REV-127-01", prCode: "PR-127", title: "验收：原料入库可搜索物料；生产中一行内可改投料和成品数，实际出品率实时变化；部分完工含明确含义", status: "todo", assignee: "VA", evidence: "待 Van 服务器验收"},
 	} {
 		if err := seedReqRow(ctx, pool, schema, row); err != nil {
 			return err

@@ -240,6 +240,77 @@ func TestProduceFinishHandlerWritesProductionLog(t *testing.T) {
 	}
 }
 
+func TestProduceFinishAPIUsesEditedInputForFullCompletion(t *testing.T) {
+	pool, schema := newProductionFlowTestDB(t)
+	ctx := context.Background()
+
+	mustExecProductionFlowTestSQL(t, ctx, pool, fmt.Sprintf(`
+		INSERT INTO %s.products(id,name,default_price,active) VALUES (1,'橘皮乌龙',50,true);
+		INSERT INTO %s.order_process_statuses(name,sort,active) VALUES
+			('生产中',20,true)
+		ON CONFLICT (name) DO NOTHING;
+		INSERT INTO %s.orders(id,order_no,order_date,is_void,process_status_id) VALUES
+			(1,'SO-EDITED-INPUT','2026-05-02',false,(SELECT id FROM %s.order_process_statuses WHERE name='生产中' LIMIT 1));
+		INSERT INTO %s.product_bom(product_id,yield_rate) VALUES (1,0.8200);
+		INSERT INTO %s.materials(id,code,name,kind,unit,onhand_g,onhand_units,purchase_price,sale_price)
+			VALUES
+			(10,'RAW-001','卡蒂姆水洗','bean','g',1000,0,54,0),
+			(11,'BAG-227','227g豆袋','pack','个',0,10,1,0);
+		INSERT INTO %s.product_bom_items(product_id,material_id,ratio_pct) VALUES (1,10,100.0000);
+		INSERT INTO %s.packaging_spec_material_map(spec_g,material_id) VALUES (227,11);
+		INSERT INTO %s.produce_running_items(
+			id,batch_id,product_id,product_name,spec_g,need_g,order_nos,status,
+			started_by,started_at,input_g,bom_yield_rate,planned_units,planned_loose_g
+		) VALUES (
+			1,'BATCH-EDITED-INPUT',1,'橘皮乌龙',227,454,'SO-EDITED-INPUT','running',
+			'测试员',now(),600,0.8200,2,38
+		);
+	`, schema, schema, schema, schema, schema, schema, schema, schema, schema))
+
+	app := newProductionFlowTestEcho(pool, schema)
+	body := bytes.NewBufferString(`{"id":1,"finished_units":2,"finished_loose_g":10,"consumed_input_g":700}`)
+	req := httptest.NewRequest(http.MethodPost, "/api/produce/running/finish", body)
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+	app.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("POST /api/produce/running/finish status = %d, want 200 body=%s", rec.Code, rec.Body.String())
+	}
+
+	var inputG, rawDeductG, rawOnhandG int64
+	var actualYield float64
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`
+		SELECT input_g, actual_yield_rate
+		FROM %s.production_logs
+		WHERE running_item_id=1
+	`, schema)).Scan(&inputG, &actualYield); err != nil {
+		t.Fatalf("query production log: %v", err)
+	}
+	if inputG != 700 {
+		t.Fatalf("production log input_g = %d, want edited 700", inputG)
+	}
+	if math.Abs(actualYield-0.6629) > 0.0001 {
+		t.Fatalf("actual_yield_rate = %.4f, want 0.6629", actualYield)
+	}
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`
+		SELECT COALESCE(SUM(deduct_g),0)::bigint
+		FROM %s.material_consumption_logs
+		WHERE running_item_id=1 AND material_id=10
+	`, schema)).Scan(&rawDeductG); err != nil {
+		t.Fatalf("query raw material consumption: %v", err)
+	}
+	if rawDeductG != 700 {
+		t.Fatalf("raw material deduct_g = %d, want 700", rawDeductG)
+	}
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT onhand_g FROM %s.materials WHERE id=10`, schema)).Scan(&rawOnhandG); err != nil {
+		t.Fatalf("query raw material onhand: %v", err)
+	}
+	if rawOnhandG != 300 {
+		t.Fatalf("raw material onhand_g = %d, want 300", rawOnhandG)
+	}
+}
+
 func TestProduceFinishHandlerWritesStockLedgerAndFinishedBatch(t *testing.T) {
 	pool, schema := newProductionFlowTestDB(t)
 	ctx := context.Background()
