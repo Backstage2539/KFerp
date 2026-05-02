@@ -678,6 +678,12 @@ func seedReqWorkflowA(ctx context.Context, pool *pgxpool.Pool, schema string) er
 		{table: "req_unit", code: "UT-128-01", title: "单测覆盖原料入库模糊搜索、生产中实时出品率 helper、完成生产实际投料规则和需求种子", status: "done", assignee: "Codex", evidence: "material-receipts.test.js; produce-running.test.js; running_repository_test.go; dev_128_production_running_receipts_test.go"},
 		{table: "req_api", code: "API-128-01", title: "API 测试覆盖生产中完成接口提交 consumed_input_g 后写入生产日志并按实际投料扣料", status: "done", assignee: "Codex", evidence: "TestProduceFinishAPIUsesEditedInputForFullCompletion"},
 		{table: "req_review", code: "REV-128-01", prCode: "PR-128", title: "验收：原料入库可搜索物料；生产中一行内可改投料和成品数，实际出品率实时变化；部分完工含明确含义", status: "todo", assignee: "VA", evidence: "待 Van 服务器验收"},
+		{table: "req_product", code: "PR-129", title: "生产质检对象选择抽屉：按仓库库存式工作台布局选择工单质检、原料质检和产品质检对象", status: "review", assignee: "VA", evidence: "codex/production-quality-drawer-20260502"},
+		{table: "req_dev", code: "DEV-129-01", title: "生产质检页改为工作台布局，左侧切换工单质检、原料质检、产品质检，表单保留结果、指标和备注", status: "done", assignee: "Codex", evidence: "QualityInspectionsView workspace/type-panel"},
+		{table: "req_dev", code: "DEV-129-02", title: "生产质检页右侧抽屉复用工单、原料批次和库存批次 API 选择对象并回填单据号/批次号和名称", status: "done", assignee: "Codex", evidence: "quality-inspections.js; QualityInspectionsView targetDrawerOpen"},
+		{table: "req_unit", code: "UT-129-01", title: "单测覆盖质检对象 helper、Vue 工作台抽屉源码守卫、需求种子和生产手册更新", status: "done", assignee: "Codex", evidence: "quality-inspections.test.js; dev_129_quality_drawer_test.go"},
+		{table: "req_api", code: "API-129-01", title: "API 验证复用 GET /api/produce/work-orders、GET /api/stock/material-batches、GET /api/stock/batches 作为质检对象来源，保存仍走 POST /api/produce/quality-inspections", status: "done", assignee: "Codex", evidence: "TestManufacturingGapAPIs; TestStockAPIRoutes; QualityInspectionsView API wiring"},
+		{table: "req_review", code: "REV-129-01", prCode: "PR-129", title: "验收：生产质检页点击选择质检对象后右侧弹出工单/原料/产品三类候选，选择后可保存质检记录", status: "todo", assignee: "VA", evidence: "待 Van 服务器验收"},
 	} {
 		if err := seedReqRow(ctx, pool, schema, row); err != nil {
 			return err
