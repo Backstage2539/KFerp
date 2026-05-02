@@ -90,6 +90,10 @@ func finishedProductionBatchCode(runningItemID int64) string {
 	return fmt.Sprintf("FP-%010d", runningItemID)
 }
 
+func finishedProductionBatchCodeForSpec(runningItemID int64, specG int64) string {
+	return fmt.Sprintf("FP-%010d-%dg", runningItemID, specG)
+}
+
 func finishedInventoryLedgerQty(specG int64, before, add, after InvQty) (stockLedgerQty, error) {
 	beforeG, err := invTotalG(specG, before)
 	if err != nil {
@@ -114,7 +118,10 @@ func finishedInventoryLedgerQty(specG int64, before, add, after InvQty) (stockLe
 }
 
 func createFinishedStockBatchTx(ctx context.Context, tx pgx.Tx, schema string, r ProduceRunRow, add InvQty, finishedTotalG int64, operator string) (string, error) {
-	batchCode := finishedProductionBatchCode(r.ID)
+	return createFinishedStockBatchWithCodeTx(ctx, tx, schema, finishedProductionBatchCode(r.ID), r, add, finishedTotalG, operator)
+}
+
+func createFinishedStockBatchWithCodeTx(ctx context.Context, tx pgx.Tx, schema string, batchCode string, r ProduceRunRow, add InvQty, finishedTotalG int64, operator string) (string, error) {
 	_, err := tx.Exec(ctx, fmt.Sprintf(`
 		INSERT INTO %s.stock_batches(
 			batch_code,item_type,item_id,item_name,spec_g,
@@ -166,6 +173,22 @@ func insertStockLedgerEntryTx(ctx context.Context, tx pgx.Tx, schema string, ite
 
 func recordFinishedProductStockMovementTx(ctx context.Context, tx pgx.Tx, schema string, r ProduceRunRow, before, add, after InvQty, finishedTotalG int64, warehouse string, operator string) error {
 	batchCode, err := createFinishedStockBatchTx(ctx, tx, schema, r, add, finishedTotalG, operator)
+	if err != nil {
+		return err
+	}
+	qty, err := finishedInventoryLedgerQty(r.SpecG, before, add, after)
+	if err != nil {
+		return err
+	}
+	return insertStockLedgerEntryTx(ctx, tx, schema,
+		stockItemTypeFinishedProduct, r.ProductID, r.Product, r.SpecG, warehouse,
+		stockSourceProductionRun, r.ID, batchCode, r.BatchID,
+		qty, operator,
+	)
+}
+
+func recordFinishedProductStockMovementWithBatchCodeTx(ctx context.Context, tx pgx.Tx, schema string, batchCode string, r ProduceRunRow, before, add, after InvQty, finishedTotalG int64, warehouse string, operator string) error {
+	batchCode, err := createFinishedStockBatchWithCodeTx(ctx, tx, schema, batchCode, r, add, finishedTotalG, operator)
 	if err != nil {
 		return err
 	}

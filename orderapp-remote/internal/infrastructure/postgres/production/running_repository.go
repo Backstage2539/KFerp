@@ -30,6 +30,7 @@ type ProduceRunRow struct {
 	StartedAt        string
 	StartedAtTime    time.Time
 	MaterialSnapshot string
+	Outputs          []ProduceRunOutputRow
 }
 
 func listRunningItems(ctx context.Context, pool *pgxpool.Pool, schema string) ([]ProduceRunRow, error) {
@@ -53,7 +54,13 @@ func listRunningItems(ctx context.Context, pool *pgxpool.Pool, schema string) ([
 		r.PlanLooseG = plan.LooseG
 		out = append(out, r)
 	}
-	return out, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	if err := attachRunningOutputs(ctx, pool, schema, out); err != nil {
+		return nil, err
+	}
+	return out, nil
 }
 
 func (repo Repository) Finish(ctx context.Context, cmd productionapp.FinishCommand) error {
@@ -73,6 +80,13 @@ func (repo Repository) Finish(ctx context.Context, cmd productionapp.FinishComma
 	r.BomYieldRate = normalizeYieldRate(r.BomYieldRate)
 	if r.InputG <= 0 {
 		r.InputG = defaultProductionInputG(r.NeedG, r.BomYieldRate)
+	}
+	outputs, err := loadRunningOutputsForUpdateTx(ctx, tx, schema, r.ID)
+	if err != nil {
+		return err
+	}
+	if len(outputs) > 0 {
+		return repo.finishRunningOutputs(ctx, tx, r, outputs, cmd)
 	}
 
 	var unitsBefore, looseBefore int64
@@ -208,6 +222,173 @@ func (repo Repository) Finish(ctx context.Context, cmd productionapp.FinishComma
 	return nil
 }
 
+func (repo Repository) finishRunningOutputs(ctx context.Context, tx pgx.Tx, r ProduceRunRow, outputs []ProduceRunOutputRow, cmd productionapp.FinishCommand) error {
+	if cmd.Partial {
+		return fmt.Errorf("合并多规格生产暂不支持部分完工")
+	}
+	schema := repo.schema
+	operator := cmd.Operator
+	warehouse := strings.TrimSpace(cmd.Warehouse)
+	if warehouse == "" {
+		warehouse = "finished_goods"
+	}
+	finishedOutputs, totalFinishedG, err := normalizeFinishedOutputs(outputs, cmd.Outputs)
+	if err != nil {
+		return err
+	}
+	consumedInputG := cmd.ConsumedInputG
+	if consumedInputG <= 0 {
+		consumedInputG = r.InputG
+	}
+	if consumedInputG <= 0 {
+		return fmt.Errorf("本次消耗投料必须大于0")
+	}
+	actualYield := math.Round((float64(totalFinishedG)/float64(consumedInputG))*10000) / 10000
+	finishedAt := time.Now()
+	completionNo, err := nextCompletionNoForRunningItemTx(ctx, tx, schema, r.ID)
+	if err != nil {
+		return err
+	}
+	type outputInventoryLog struct {
+		unitsBefore int64
+		looseBefore int64
+		unitsAfter  int64
+		looseAfter  int64
+	}
+	inventoryBySpec := map[int64]outputInventoryLog{}
+
+	for _, output := range finishedOutputs {
+		var unitsBefore, looseBefore int64
+		_ = tx.QueryRow(ctx, fmt.Sprintf(`SELECT onhand_units,onhand_loose_g FROM %s.finished_inventory WHERE product_id=$1 AND spec_g=$2 AND warehouse=$3 FOR UPDATE`, schema), output.ProductID, output.SpecG, warehouse).Scan(&unitsBefore, &looseBefore)
+		cur := InvQty{Units: unitsBefore, LooseG: looseBefore}
+		add := InvQty{Units: output.FinishedUnits, LooseG: output.FinishedLooseG}
+		norm, err := invNormalize(output.SpecG, InvQty{Units: cur.Units + add.Units, LooseG: cur.LooseG + add.LooseG})
+		if err != nil {
+			return err
+		}
+		finishedTotal := finishedTotalG(output.SpecG, add.Units, add.LooseG)
+		if _, err := tx.Exec(ctx, fmt.Sprintf(`INSERT INTO %s.finished_inventory(product_id,spec_g,warehouse,onhand_units,onhand_loose_g,updated_at) VALUES($1,$2,$3,$4,$5,now()) ON CONFLICT (product_id,spec_g,warehouse) DO UPDATE SET onhand_units=excluded.onhand_units,onhand_loose_g=excluded.onhand_loose_g,updated_at=now()`, schema), output.ProductID, output.SpecG, warehouse, norm.Units, norm.LooseG); err != nil {
+			return err
+		}
+		outputRun := r
+		outputRun.ProductID = output.ProductID
+		outputRun.Product = firstNonEmpty(output.Product, r.Product)
+		outputRun.SpecG = output.SpecG
+		outputRun.NeedG = output.NeedG
+		outputRun.OrderNos = output.OrderNos
+		if err := recordFinishedProductStockMovementWithBatchCodeTx(ctx, tx, schema, finishedProductionBatchCodeForSpec(r.ID, output.SpecG), outputRun, cur, add, norm, finishedTotal, warehouse, operator); err != nil {
+			return err
+		}
+		inventoryBySpec[output.SpecG] = outputInventoryLog{
+			unitsBefore: unitsBefore,
+			looseBefore: looseBefore,
+			unitsAfter:  norm.Units,
+			looseAfter:  norm.LooseG,
+		}
+		if _, err := tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.produce_running_outputs SET finished_units=$2,finished_loose_g=$3 WHERE id=$1`, schema), output.ID, output.FinishedUnits, output.FinishedLooseG); err != nil {
+			return err
+		}
+	}
+
+	r.Outputs = finishedOutputs
+	if err := deductMaterialsForRunOutputsTx(ctx, tx, schema, r, finishedOutputs, operator); err != nil {
+		return err
+	}
+	materialSummary, err := listMaterialConsumptionSummaryTx(ctx, tx, schema, r.ID)
+	if err != nil {
+		return err
+	}
+	materialSummaryJSON, err := marshalMaterialConsumptionSummary(materialSummary)
+	if err != nil {
+		return err
+	}
+	for _, output := range finishedOutputs {
+		finishedTotal := finishedTotalG(output.SpecG, output.FinishedUnits, output.FinishedLooseG)
+		inventoryLog := inventoryBySpec[output.SpecG]
+		if _, err := tx.Exec(ctx, fmt.Sprintf(`
+			INSERT INTO %s.production_logs(
+				running_item_id,completion_no,batch_id,product_id,product_name,spec_g,order_nos,
+				planned_need_g,input_g,bom_yield_rate,
+				finished_units,finished_loose_g,finished_total_g,actual_yield_rate,
+				started_by,started_at,finished_by,finished_at,
+				inventory_units_before,inventory_loose_g_before,
+				inventory_units_after,inventory_loose_g_after,
+				material_summary,created_at
+			) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,now())
+		`, schema),
+			r.ID, completionNo, r.BatchID, output.ProductID, firstNonEmpty(output.Product, r.Product), output.SpecG, output.OrderNos,
+			output.NeedG, consumedInputG, r.BomYieldRate,
+			output.FinishedUnits, output.FinishedLooseG, finishedTotal, actualYield,
+			r.StartedBy, r.StartedAtTime, operator, finishedAt,
+			inventoryLog.unitsBefore, inventoryLog.looseBefore, inventoryLog.unitsAfter, inventoryLog.looseAfter,
+			materialSummaryJSON,
+		); err != nil {
+			return err
+		}
+	}
+	actualCost, err := recordBatchCostForRunningItemTx(ctx, tx, schema, r, totalFinishedG)
+	if err != nil {
+		return err
+	}
+	if err := completeMaterialReservationsForRunningItemTx(ctx, tx, schema, r.ID); err != nil {
+		return err
+	}
+	if err := completeWorkOrderForRunningItemTx(ctx, tx, schema, r.ID, actualCost, operator); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.produce_running_items SET status='done',finished_by=$2,finished_at=$3 WHERE id=$1`, schema), r.ID, operator, finishedAt); err != nil {
+		return err
+	}
+	for _, no := range splitOrderNos(r.OrderNos) {
+		if err := completeOrderIfAllRunningDone(ctx, tx, schema, no); err != nil {
+			return err
+		}
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return err
+	}
+	postgresinfra.AuditInsert(ctx, repo.pool, schema, operator, "produce_running", &r.ID, "finish", postgresinfra.StrPtr("material_consumption"), nil, postgresinfra.StrPtr("deducted"), postgresinfra.AuditMeta{"running_item_id": r.ID, "product_id": r.ProductID, "spec_g": 0, "need_g": r.NeedG, "input_g": consumedInputG, "bom_yield_rate": r.BomYieldRate, "finished_total_g": totalFinishedG, "actual_yield_rate": actualYield})
+	return nil
+}
+
+func normalizeFinishedOutputs(outputs []ProduceRunOutputRow, commands []productionapp.FinishOutputCommand) ([]ProduceRunOutputRow, int64, error) {
+	bySpec := map[int64]productionapp.FinishOutputCommand{}
+	for _, cmd := range commands {
+		if cmd.SpecG > 0 {
+			bySpec[cmd.SpecG] = cmd
+		}
+	}
+	out := make([]ProduceRunOutputRow, 0, len(outputs))
+	total := int64(0)
+	for _, output := range outputs {
+		if output.SpecG <= 0 {
+			continue
+		}
+		units := output.PlanUnits
+		looseG := output.PlanLooseG
+		if cmd, ok := bySpec[output.SpecG]; ok {
+			units = cmd.FinishedUnits
+			looseG = cmd.FinishedLooseG
+		}
+		norm, err := normalizeFinishedInventoryAddition(output.SpecG, units, looseG)
+		if err != nil {
+			return nil, 0, err
+		}
+		finishedTotal := finishedTotalG(output.SpecG, norm.Units, norm.LooseG)
+		if finishedTotal <= 0 {
+			return nil, 0, fmt.Errorf("请填写 %dg 完成件数或散装余量", output.SpecG)
+		}
+		output.FinishedUnits = norm.Units
+		output.FinishedLooseG = norm.LooseG
+		total += finishedTotal
+		out = append(out, output)
+	}
+	if total <= 0 {
+		return nil, 0, fmt.Errorf("请填写完成件数或散装余量")
+	}
+	return out, total, nil
+}
+
 func resolveFinishConsumedInput(r ProduceRunRow, cmd productionapp.FinishCommand, finishedTotal int64) (int64, bool, error) {
 	partial := cmd.Partial && finishedTotal < r.NeedG
 	if !partial {
@@ -268,7 +449,11 @@ func (repo Repository) Cancel(ctx context.Context, cmd productionapp.CancelComma
 	if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT id,batch_id,product_name,product_id,spec_g,need_g,COALESCE(input_g,0),COALESCE(bom_yield_rate,0.8),COALESCE(planned_units,0),COALESCE(planned_loose_g,0),order_nos,COALESCE(started_by,''),started_at,to_char(started_at,'YYYY-MM-DD HH24:MI'),COALESCE(material_snapshot,'[]'::jsonb)::text FROM %s.produce_running_items WHERE id=$1 AND status='running' FOR UPDATE`, schema), id).Scan(&r.ID, &r.BatchID, &r.Product, &r.ProductID, &r.SpecG, &r.NeedG, &r.InputG, &r.BomYieldRate, &r.PlanUnits, &r.PlanLooseG, &r.OrderNos, &r.StartedBy, &r.StartedAtTime, &r.StartedAt, &r.MaterialSnapshot); err != nil {
 		return err
 	}
-	restoredG, err := restoreRunningAllocationTx(ctx, tx, schema, r)
+	outputs, err := loadRunningOutputsForUpdateTx(ctx, tx, schema, r.ID)
+	if err != nil {
+		return err
+	}
+	restoredG, err := restoreRunningAllocationTx(ctx, tx, schema, r, outputs)
 	if err != nil {
 		return err
 	}
@@ -291,7 +476,10 @@ func (repo Repository) Cancel(ctx context.Context, cmd productionapp.CancelComma
 	return nil
 }
 
-func restoreRunningAllocationTx(ctx context.Context, tx pgx.Tx, schema string, r ProduceRunRow) (int64, error) {
+func restoreRunningAllocationTx(ctx context.Context, tx pgx.Tx, schema string, r ProduceRunRow, outputs []ProduceRunOutputRow) (int64, error) {
+	if len(outputs) > 0 {
+		return restoreRunningOutputAllocationsTx(ctx, tx, schema, r, outputs)
+	}
 	var deductedG int64
 	err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT deducted_g FROM %s.finished_allocation_logs WHERE batch_id=$1 AND product_id=$2 AND spec_g=$3 ORDER BY id DESC LIMIT 1`, schema), r.BatchID, r.ProductID, r.SpecG).Scan(&deductedG)
 	if err != nil {
@@ -313,6 +501,53 @@ func restoreRunningAllocationTx(ctx context.Context, tx pgx.Tx, schema string, r
 		return 0, err
 	}
 	return deductedG, nil
+}
+
+func restoreRunningOutputAllocationsTx(ctx context.Context, tx pgx.Tx, schema string, r ProduceRunRow, outputs []ProduceRunOutputRow) (int64, error) {
+	totalRestoredG := int64(0)
+	for _, output := range outputs {
+		if output.ProductID <= 0 || output.SpecG <= 0 {
+			continue
+		}
+		var deductedG int64
+		err := tx.QueryRow(ctx, fmt.Sprintf(`
+			SELECT deducted_g
+			FROM %s.finished_allocation_logs
+			WHERE batch_id=$1 AND product_id=$2 AND spec_g=$3
+			ORDER BY id DESC
+			LIMIT 1
+		`, schema), r.BatchID, output.ProductID, output.SpecG).Scan(&deductedG)
+		if err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				continue
+			}
+			return 0, err
+		}
+		if deductedG <= 0 {
+			continue
+		}
+		var units, loose int64
+		_ = tx.QueryRow(ctx, fmt.Sprintf(`
+			SELECT onhand_units,onhand_loose_g
+			FROM %s.finished_inventory
+			WHERE product_id=$1 AND spec_g=$2 AND warehouse='finished_goods'
+			FOR UPDATE
+		`, schema), output.ProductID, output.SpecG).Scan(&units, &loose)
+		norm, err := restoreAllocatedInventory(output.SpecG, InvQty{Units: units, LooseG: loose}, deductedG)
+		if err != nil {
+			return 0, err
+		}
+		if _, err := tx.Exec(ctx, fmt.Sprintf(`
+			INSERT INTO %s.finished_inventory(product_id,spec_g,warehouse,onhand_units,onhand_loose_g,updated_at)
+			VALUES($1,$2,'finished_goods',$3,$4,now())
+			ON CONFLICT (product_id,spec_g,warehouse) DO UPDATE
+			SET onhand_units=excluded.onhand_units,onhand_loose_g=excluded.onhand_loose_g,updated_at=now()
+		`, schema), output.ProductID, output.SpecG, norm.Units, norm.LooseG); err != nil {
+			return 0, err
+		}
+		totalRestoredG += deductedG
+	}
+	return totalRestoredG, nil
 }
 
 func splitOrderNos(v string) []string {

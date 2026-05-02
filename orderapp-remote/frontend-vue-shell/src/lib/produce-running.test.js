@@ -59,3 +59,40 @@ test('buildFinishPayload submits the same editable input and output values shown
     warehouse: 'finished_shop',
   })
 })
+
+test('multi-spec running rows submit separate finished outputs and calculate combined yield', () => {
+  const mergedRow = {
+    id: 21,
+    spec_g: 0,
+    input_g: 16600,
+    bom_yield_rate: 0.82,
+    outputs: [
+      { spec_g: 454, plan_units: 24, plan_loose_g: 0 },
+      { spec_g: 227, plan_units: 2, plan_loose_g: 0 },
+    ],
+  }
+  const input = buildFinishInput(mergedRow)
+
+  assert.deepEqual(input.outputs, [
+    { spec_g: 454, finished_units: 24, finished_loose_g: 0 },
+    { spec_g: 227, finished_units: 2, finished_loose_g: 0 },
+  ])
+  assert.equal(formatActualYield(mergedRow, input), '82.00%')
+
+  markYieldDirty(input)
+  assert.equal(formatActualYield(mergedRow, input), '68.37%')
+
+  input.outputs[1].finished_units = 3
+  assert.deepEqual(buildFinishPayload(mergedRow, input), {
+    id: 21,
+    finished_units: 0,
+    finished_loose_g: 0,
+    consumed_input_g: 16600,
+    partial: false,
+    warehouse: 'finished_goods',
+    outputs: [
+      { spec_g: 454, finished_units: 24, finished_loose_g: 0 },
+      { spec_g: 227, finished_units: 3, finished_loose_g: 0 },
+    ],
+  })
+})

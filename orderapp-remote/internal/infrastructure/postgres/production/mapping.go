@@ -20,6 +20,24 @@ func productionRunningToApp(rows []ProduceRunRow) []productionapp.RunningItem {
 			StartedBy:     r.StartedBy,
 			StartedAt:     r.StartedAt,
 			StartedAtTime: r.StartedAtTime,
+			Outputs:       runningOutputsToApp(r.Outputs),
+		})
+	}
+	return out
+}
+
+func runningOutputsToApp(rows []ProduceRunOutputRow) []productionapp.RunningOutput {
+	out := make([]productionapp.RunningOutput, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, productionapp.RunningOutput{
+			ID:             row.ID,
+			SpecG:          row.SpecG,
+			NeedG:          row.NeedG,
+			OrderNos:       row.OrderNos,
+			PlanUnits:      row.PlanUnits,
+			PlanLooseG:     row.PlanLooseG,
+			FinishedUnits:  row.FinishedUnits,
+			FinishedLooseG: row.FinishedLooseG,
 		})
 	}
 	return out
