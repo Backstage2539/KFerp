@@ -179,7 +179,7 @@ const internalViews = {
 function readViewParams() {
   const params = new URL(window.location.href).searchParams
   const out = {}
-  for (const key of ['warehouse', 'item_type', 'batch']) {
+  for (const key of ['warehouse', 'item_type', 'batch', 'ship_ready']) {
     const value = params.get(key)
     if (value) out[key] = value
   }
@@ -189,7 +189,7 @@ function readViewParams() {
 function applyKeyToUrl(key, params = {}) {
   const url = new URL(window.location.href)
   url.searchParams.set('view', key)
-  for (const name of ['warehouse', 'item_type', 'batch']) {
+  for (const name of ['warehouse', 'item_type', 'batch', 'ship_ready']) {
     url.searchParams.delete(name)
   }
   Object.entries(params || {}).forEach(([name, value]) => {

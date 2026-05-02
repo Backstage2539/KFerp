@@ -6,7 +6,13 @@
         <button class="secondary" type="button" @click="load(false)" :disabled="loading">刷新</button>
       </div>
       <div v-if="error" class="error">{{ error }}</div>
-      <div v-if="stockTip" class="ok">{{ stockTip }}</div>
+      <div v-if="stockTip" class="ok direct-ship-tip">
+        <div>
+          <strong>{{ stockTip }}</strong>
+          <span>库存充足的订单生产状态设为“无需生产”，发货状态保持“未发货”；回填快递单号后再变为“已发货”。</span>
+        </div>
+        <button class="secondary" type="button" @click="openShipReadyOrders">去订单列表直接发货</button>
+      </div>
       <div class="filters">
         <label>
           <span>开始日期</span>
@@ -24,7 +30,6 @@
       <div class="actions">
         <button class="secondary" type="button" @click="pickInsufficient">勾选库存不足商品</button>
         <button class="primary" type="button" @click="buildPlan" :disabled="loading">生成计划</button>
-        <button class="secondary" type="button" @click="loadMaterialPlan" :disabled="materialPlanLoading || !planReady">物料需求计划</button>
         <button class="primary" type="button" @click="startProduction" :disabled="saving || !planReady">开始生产</button>
       </div>
     </section>
@@ -109,6 +114,10 @@
               <th>物料</th>
               <th>预计消耗数量</th>
               <th>单位</th>
+              <th>WIP可用(g)</th>
+              <th>建议领到WIP(g)</th>
+              <th>原料仓(g)</th>
+              <th>采购建议(g)</th>
             </tr>
           </thead>
           <tbody>
@@ -116,54 +125,13 @@
               <td>{{ item.name }}</td>
               <td>{{ item.qty }}</td>
               <td>{{ item.unit }}</td>
+              <td>{{ item.available_g || 0 }}</td>
+              <td><strong>{{ item.wip_transfer_suggestion_g || 0 }}</strong></td>
+              <td>{{ item.raw_g || 0 }}</td>
+              <td>{{ item.purchase_suggestion_g || 0 }}</td>
             </tr>
             <tr v-if="!computedMaterials.length">
-              <td colspan="3" class="muted">暂无物料汇总</td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
-    </section>
-
-    <section class="panel">
-      <div class="panel-head">
-        <div class="section-title">物料需求计划</div>
-        <button class="secondary" type="button" @click="loadMaterialPlan" :disabled="materialPlanLoading || !planReady">刷新物料计划</button>
-      </div>
-      <div v-if="!planReady" class="muted">请先选择产品并点击“生成计划”。</div>
-      <div v-else class="table-wrap">
-        <table>
-          <thead>
-            <tr>
-              <th>物料</th>
-              <th>单位</th>
-              <th>需求(g)</th>
-              <th>需求(个)</th>
-              <th>WIP(g)</th>
-              <th>已占用(g)</th>
-              <th>WIP可用(g)</th>
-              <th>建议领到WIP(g)</th>
-              <th>原料仓(g)</th>
-              <th>缺料(g)</th>
-              <th>采购建议(g)</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-for="item in materialPlanRows" :key="item.material_id || item.material_name">
-              <td>{{ item.material_name }}</td>
-              <td>{{ item.unit }}</td>
-              <td>{{ item.required_g }}</td>
-              <td>{{ item.required_units }}</td>
-              <td>{{ item.wip_g }}</td>
-              <td>{{ item.reserved_g }}</td>
-              <td>{{ item.available_g }}</td>
-              <td>{{ item.wip_transfer_suggestion_g }}</td>
-              <td>{{ item.raw_g }}</td>
-              <td><strong>{{ item.shortage_g }}</strong></td>
-              <td>{{ item.purchase_suggestion_g }}</td>
-            </tr>
-            <tr v-if="!materialPlanRows.length">
-              <td colspan="11" class="muted">暂无物料需求计划</td>
+              <td colspan="7" class="muted">暂无物料汇总</td>
             </tr>
           </tbody>
         </table>
@@ -218,8 +186,6 @@ const planRows = ref([])
 const roastPlans = ref([])
 const materialRatios = ref([])
 const initialMaterials = ref([])
-const materialPlanRows = ref([])
-const materialPlanLoading = ref(false)
 const selected = reactive({})
 
 const filters = reactive({
@@ -321,39 +287,11 @@ async function buildPlan() {
     return
   }
   await load(true)
-  await loadMaterialPlan()
 }
 
 function syncRoastPlan(row) {
   row.batch_g = Math.max(1, Number(row.batch_g || 0))
   row.final_input_g = row.batch_g * Number(row.batch_count || 0)
-}
-
-async function loadMaterialPlan() {
-  if (!planReady.value) return
-  materialPlanLoading.value = true
-  error.value = ''
-  try {
-    const url = new URL('/api/produce/material-plan', window.location.origin)
-    if (filters.from) url.searchParams.set('from', filters.from)
-    if (filters.to) url.searchParams.set('to', filters.to)
-    if (filters.customer_id) url.searchParams.set('customer_id', filters.customer_id)
-    const keys = selectedKeys()
-    if (keys.length) url.searchParams.set('selected', keys.join(','))
-    for (const row of computedPlanRows.value) {
-      const key = rowKey(row)
-      const inputG = Number(row.input_g || 0)
-      if (key && inputG > 0) {
-        url.searchParams.set(`input_${key.replaceAll('-', '_')}`, String(inputG))
-      }
-    }
-    const data = await apiGet(url)
-    materialPlanRows.value = data.rows || []
-  } catch (err) {
-    error.value = err.message || '物料需求计划加载失败'
-  } finally {
-    materialPlanLoading.value = false
-  }
 }
 
 async function startProduction() {
@@ -379,6 +317,12 @@ async function startProduction() {
   }
 }
 
+function openShipReadyOrders() {
+  window.dispatchEvent(new CustomEvent('kferp:navigate-view', {
+    detail: { key: 'orders', params: { ship_ready: '1' } },
+  }))
+}
+
 onMounted(async () => {
   const url = new URL(window.location.href)
   filters.from = url.searchParams.get('from') || ''
@@ -391,9 +335,6 @@ onMounted(async () => {
     }
   }
   await load(url.searchParams.get('plan') === '1')
-  if (url.searchParams.get('plan') === '1') {
-    await loadMaterialPlan()
-  }
 })
 </script>
 
@@ -419,9 +360,13 @@ th, td { border-bottom: 1px solid #f1f1f1; padding: 10px 8px; text-align: left; 
 .error, .ok { border-radius: 8px; padding: 10px; margin-bottom: 12px; }
 .error { background: #ffecec; border: 1px solid #ffb9b9; }
 .ok { background: #e9ffe9; border: 1px solid #b8f5b8; }
+.direct-ship-tip { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.direct-ship-tip div { display: grid; gap: 4px; }
+.direct-ship-tip span { color: #28633b; font-size: 13px; }
 
 @media (max-width: 900px) {
   .page { padding: 12px; }
   .filters { grid-template-columns: 1fr; }
+  .direct-ship-tip { align-items: stretch; flex-direction: column; }
 }
 </style>

@@ -90,7 +90,7 @@ func (r Repository) ListOrderAuditLogs(ctx context.Context, orderID int64, limit
 }
 
 func fetchOrders(ctx context.Context, pool *pgxpool.Pool, schema string, query salesapp.OrderListQuery) ([]salesapp.OrderRow, bool, error) {
-	where, args, nextArg := orderListWhere(query)
+	where, args, nextArg := orderListWhere(schema, query)
 
 	wsql := ""
 	if len(where) > 0 {
@@ -211,7 +211,7 @@ func auditIDTextToLabel(v *string, labels map[int64]string) *string {
 }
 
 func fetchOrdersSummary(ctx context.Context, pool *pgxpool.Pool, schema string, query salesapp.OrderListQuery) (salesapp.OrdersSummary, error) {
-	where, args, _ := orderListWhere(query)
+	where, args, _ := orderListWhere(schema, query)
 	wsql := ""
 	if len(where) > 0 {
 		wsql = "WHERE " + strings.Join(where, " AND ")
@@ -232,7 +232,7 @@ func fetchOrdersSummary(ctx context.Context, pool *pgxpool.Pool, schema string, 
 	return s, nil
 }
 
-func orderListWhere(query salesapp.OrderListQuery) ([]string, []any, int) {
+func orderListWhere(schema string, query salesapp.OrderListQuery) ([]string, []any, int) {
 	where := make([]string, 0)
 	args := make([]any, 0)
 	argn := 1
@@ -267,6 +267,9 @@ func orderListWhere(query salesapp.OrderListQuery) ([]string, []any, int) {
 	}
 	if query.CompletedOnly {
 		where = append(where, "COALESCE(o.pay_status_id,0)=2 AND COALESCE(o.ship_status_id,0) IN (3,4)")
+	}
+	if query.ShipReadyOnly {
+		where = append(where, fmt.Sprintf("EXISTS (SELECT 1 FROM %s.order_process_statuses ops WHERE ops.id=o.process_status_id AND ops.name IN ('生产完成','已生产完成','无需生产'))", schema))
 	}
 	if from := strings.TrimSpace(query.From); from != "" {
 		where = append(where, fmt.Sprintf("o.order_date >= $%d", argn))

@@ -63,8 +63,18 @@ func ensureOrderProcessStatuses(ctx context.Context, pool *pgxpool.Pool, schema 
 			SELECT 1 FROM %s.order_process_statuses WHERE name=$1
 		)
 	`, schema, schema)
-	_, err := pool.Exec(ctx, q, "生产完成", 35)
-	return err
+	for _, item := range []struct {
+		name string
+		sort int
+	}{
+		{name: "无需生产", sort: 34},
+		{name: "生产完成", sort: 35},
+	} {
+		if _, err := pool.Exec(ctx, q, item.name, item.sort); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func ensureShippingClosureSchema(ctx context.Context, pool *pgxpool.Pool, schema string) error {

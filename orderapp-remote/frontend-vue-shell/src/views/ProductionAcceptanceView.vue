@@ -4,7 +4,7 @@
       <div class="panel-head">
         <div>
           <h2>生产验收</h2>
-          <p>部署后先看这张检查表，再按生产手册跑一条真实工单。</p>
+          <p>部署后先看这张检查表，再按生产流程跑一条真实工单。</p>
         </div>
         <button class="secondary" type="button" @click="load" :disabled="loading">刷新</button>
       </div>
@@ -65,7 +65,8 @@ const todoCount = computed(() => rows.value.filter((row) => row.status !== 'ok')
 const steps = [
   '原料入库并确认原料仓库存',
   '把要生产的原料领到 WIP',
-  '在生产计划查看物料需求和建议领到WIP',
+  '在生产计划判断库存充足或库存不足',
+  '库存充足订单标记无需生产并直接发货',
   '开始生产并确认工单生成 WIP占用',
   '生产中部分完工或最终完工',
   '记录生产质检',

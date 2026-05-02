@@ -208,9 +208,16 @@ type UnprodNeedRow struct {
 }
 
 type MaterialNeed struct {
-	Name string `json:"name"`
-	Qty  int64  `json:"qty"`
-	Unit string `json:"unit"`
+	Name                   string `json:"name"`
+	Qty                    int64  `json:"qty"`
+	Unit                   string `json:"unit"`
+	WIPG                   int64  `json:"wip_g,omitempty"`
+	AvailableG             int64  `json:"available_g,omitempty"`
+	RawG                   int64  `json:"raw_g,omitempty"`
+	ReservedG              int64  `json:"reserved_g,omitempty"`
+	WIPTransferSuggestionG int64  `json:"wip_transfer_suggestion_g,omitempty"`
+	ShortageG              int64  `json:"shortage_g,omitempty"`
+	PurchaseSuggestionG    int64  `json:"purchase_suggestion_g,omitempty"`
 }
 
 type ProducePlanDisplayRow struct {

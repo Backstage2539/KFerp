@@ -61,7 +61,7 @@ func (r Repository) ListSFSmallShippingRows(ctx context.Context, query salesapp.
 		where = append(where, "COALESCE(o.pay_status_id,0)=2 AND COALESCE(o.ship_status_id,0) IN (3,4)")
 	}
 	if query.OneClick {
-		where = append(where, "EXISTS (SELECT 1 FROM "+r.schema+".order_process_statuses ops WHERE ops.id=o.process_status_id AND ops.name IN ('生产完成','已生产完成'))")
+		where = append(where, "EXISTS (SELECT 1 FROM "+r.schema+".order_process_statuses ops WHERE ops.id=o.process_status_id AND ops.name IN ('生产完成','已生产完成','无需生产'))")
 	} else {
 		where = append(where, "COALESCE(o.ship_method,'') = 'sf_small'")
 	}

@@ -117,6 +117,7 @@ type OrderListQuery struct {
 	ProcessStatusID int64
 	UnproducedOnly  bool
 	CompletedOnly   bool
+	ShipReadyOnly   bool
 	Limit           int
 	Offset          int
 }

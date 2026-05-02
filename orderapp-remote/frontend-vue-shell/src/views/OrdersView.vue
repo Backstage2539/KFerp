@@ -60,7 +60,7 @@
       <div class="shipping-bar">
         <div>
           <h3>快递处理</h3>
-          <p>订单生产完成后，在这里勾选并生成快递录单 Excel；单号在订单抽屉内回填。</p>
+          <p>订单生产完成或标记“无需生产”后，在这里勾选并生成快递录单 Excel；单号在订单抽屉内回填。</p>
         </div>
         <div class="shipping-actions">
           <label class="sender-picker">
@@ -72,8 +72,8 @@
               </option>
             </select>
           </label>
-          <button class="secondary" type="button" @click="applyShipReadyPreset" :disabled="loading">只看生产完成</button>
-          <button class="secondary" type="button" @click="selectVisibleCompleted" :disabled="!rows.length">勾选本页生产完成</button>
+          <button class="secondary" type="button" @click="applyShipReadyPreset" :disabled="loading">只看可发货</button>
+          <button class="secondary" type="button" @click="selectVisibleShipReady" :disabled="!rows.length">勾选本页可发货</button>
           <button class="primary" type="button" @click="generateShippingExcel" :disabled="shippingLoading || !selectedOrderIDs.length">
             {{ shippingLoading ? '生成中' : `生成快递录单 Excel(${selectedOrderIDs.length})` }}
           </button>
@@ -112,8 +112,8 @@
                 <input
                   type="checkbox"
                   :checked="selectedOrderIDs.includes(Number(row.id))"
-                  :disabled="!isProductionComplete(row)"
-                  :title="isProductionComplete(row) ? '选择发货' : '生产完成后可发货'"
+                  :disabled="!isShipReady(row)"
+                  :title="isShipReady(row) ? '选择发货' : '生产完成或无需生产后可发货'"
                   @change="toggleOrder(row, $event.target.checked)"
                 />
               </td>
@@ -252,7 +252,7 @@
 </template>
 
 <script setup>
-import { computed, onMounted, reactive, ref } from 'vue'
+import { onMounted, reactive, ref } from 'vue'
 import { apiGet, apiSend } from '../api/client'
 import { invoiceStatusLabel, invoiceStatusTone } from '../lib/order-invoice'
 import { replaceHistoryURL } from '../lib/url-state'
@@ -299,13 +299,9 @@ const filters = reactive({
   pay_status_id: 0,
   ship_status_id: 0,
   process_status_id: 0,
+  ship_ready: false,
   void: 'normal',
   limit: 10,
-})
-
-const completedStatusID = computed(() => {
-  const hit = processStatuses.value.find((item) => String(item.name || '').includes('生产完成'))
-  return Number(hit?.id || 0)
 })
 
 function applyUrlFilters() {
@@ -317,6 +313,7 @@ function applyUrlFilters() {
   filters.pay_status_id = Number(params.get('pay_status_id') || 0)
   filters.ship_status_id = Number(params.get('ship_status_id') || 0)
   filters.process_status_id = Number(params.get('process_status_id') || 0)
+  filters.ship_ready = params.get('ship_ready') === '1'
   page.value = Math.max(1, Number(params.get('page') || 1))
 }
 
@@ -328,6 +325,7 @@ function buildUrl(nextPage) {
   for (const key of ['pay_status_id', 'ship_status_id', 'process_status_id']) {
     if (filters[key]) url.searchParams.set(key, String(filters[key]))
   }
+  if (filters.ship_ready) url.searchParams.set('ship_ready', '1')
   url.searchParams.set('page', String(nextPage))
   url.searchParams.set('limit', String(filters.limit))
   return url
@@ -344,6 +342,8 @@ function updateBrowserUrl(nextPage) {
     if (filters[key]) url.searchParams.set(key, String(filters[key]))
     else url.searchParams.delete(key)
   }
+  if (filters.ship_ready) url.searchParams.set('ship_ready', '1')
+  else url.searchParams.delete('ship_ready')
   url.searchParams.set('page', String(nextPage))
   replaceHistoryURL(url)
 }
@@ -404,8 +404,9 @@ async function loadPage(nextPage) {
   await load()
 }
 
-function isProductionComplete(row) {
-  return String(row?.process_status || '').includes('生产完成')
+function isShipReady(row) {
+  const status = String(row?.process_status || '').trim()
+  return status.includes('生产完成') || status === '无需生产'
 }
 
 function isShipped(row) {
@@ -439,7 +440,7 @@ function senderDisplay(row) {
 
 function toggleOrder(row, checked) {
   const id = Number(row?.id || 0)
-  if (!id || !isProductionComplete(row)) return
+  if (!id || !isShipReady(row)) return
   if (checked) {
     if (!selectedOrderIDs.value.includes(id)) selectedOrderIDs.value = [...selectedOrderIDs.value, id]
     if (orderSenderIDs[id] === undefined) orderSenderIDs[id] = 0
@@ -450,17 +451,18 @@ function toggleOrder(row, checked) {
   shippingError.value = ''
 }
 
-function selectVisibleCompleted() {
-  const ids = rows.value.filter(isProductionComplete).map((row) => Number(row.id)).filter(Boolean)
+function selectVisibleShipReady() {
+  const ids = rows.value.filter(isShipReady).map((row) => Number(row.id)).filter(Boolean)
   selectedOrderIDs.value = Array.from(new Set([...selectedOrderIDs.value, ...ids]))
   for (const id of ids) {
     if (orderSenderIDs[id] === undefined) orderSenderIDs[id] = 0
   }
-  shippingError.value = ids.length ? '' : '本页没有生产完成的订单'
+  shippingError.value = ids.length ? '' : '本页没有可发货的订单'
 }
 
 async function applyShipReadyPreset() {
-  if (completedStatusID.value) filters.process_status_id = completedStatusID.value
+  filters.process_status_id = 0
+  filters.ship_ready = true
   filters.void = 'normal'
   await loadPage(1)
 }
@@ -571,7 +573,7 @@ async function load() {
         if (drawerTrackingNo.value === previousDrawerTrackingNo) drawerTrackingNo.value = refreshed.ship_tracking_no || ''
       }
     }
-    selectedOrderIDs.value = selectedOrderIDs.value.filter((id) => rows.value.some((row) => Number(row.id) === id && isProductionComplete(row)))
+    selectedOrderIDs.value = selectedOrderIDs.value.filter((id) => rows.value.some((row) => Number(row.id) === id && isShipReady(row)))
     for (const key of Object.keys(orderSenderIDs)) {
       const id = Number(key)
       if (!rows.value.some((row) => Number(row.id) === id)) delete orderSenderIDs[key]

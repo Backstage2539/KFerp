@@ -335,6 +335,66 @@ func TestOrdersShippingExcelAPIGeneratesFromSelectedOrders(t *testing.T) {
 	}
 }
 
+func TestOrdersShippingExcelAPIAcceptsNoProductionShipReadyOrders(t *testing.T) {
+	if !orderShippingReady(salesapp.OrderShippingExportData{ProcessStatus: "无需生产"}) {
+		t.Fatal("无需生产 status should be treated as ready for shipping")
+	}
+
+	pool, schema := newOrderAPITestDB(t)
+	ctx := context.Background()
+	seedOrderAPITestData(t, ctx, pool, schema)
+	if err := postgressales.EnsureSchema(ctx, pool, schema); err != nil {
+		t.Fatalf("EnsureSchema: %v", err)
+	}
+
+	dir := t.TempDir()
+	templatePath := filepath.Join(dir, "ship_temp.xlsx")
+	exportDir := filepath.Join(dir, "exports")
+	writeOrderShippingTemplateForTest(t, templatePath)
+	t.Setenv("ORDER_SHIP_TEMPLATE", templatePath)
+	t.Setenv("ORDER_SHIP_EXPORT_DIR", exportDir)
+	mustExecOrderAPITestSQL(t, ctx, pool, fmt.Sprintf(`
+		UPDATE %s.sender_settings
+		SET sender_name='寄件人', sender_phone='13900000000', sender_addr='上海市测试路', sender_company='寄件公司', sender_goods='', sf_biz_type='标快'
+		WHERE id=1;
+		INSERT INTO %s.order_process_statuses(name,sort,active) VALUES ('无需生产',34,true);
+		INSERT INTO %s.orders(id, order_no, order_date, customer_id, order_type_id, pay_status_id, ship_status_id, process_status_id, grand_total, is_void)
+		VALUES
+			(30, 'SO-STOCK-READY', '2026-05-03', 3, 1, 2, 1, (SELECT id FROM %s.order_process_statuses WHERE name='无需生产' LIMIT 1), 176, false),
+			(31, 'SO-STILL-PENDING', '2026-05-03', 3, 1, 2, 1, 1, 88, false);
+		INSERT INTO %s.order_items(order_id,line_no,product_id,item_name,qty,unit,spec,unit_price,line_total)
+		VALUES
+			(30, 1, 7, '库存熟豆', 2, '件', '454g', 88, 176),
+			(31, 1, 7, '待生产熟豆', 1, '件', '454g', 88, 88);
+	`, schema, schema, schema, schema, schema))
+
+	e := newOrderAPITestEcho(pool, schema)
+	req := httptest.NewRequest(http.MethodGet, "/api/orders?ship_ready=1&limit=50", nil)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET /api/orders ship_ready status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "SO-STOCK-READY") {
+		t.Fatalf("ship_ready list should include no-production order: %s", rec.Body.String())
+	}
+	if strings.Contains(rec.Body.String(), "SO-STILL-PENDING") {
+		t.Fatalf("ship_ready list should exclude pending order: %s", rec.Body.String())
+	}
+
+	body, _ := json.Marshal(map[string]any{"order_ids": []int64{30}})
+	req = httptest.NewRequest(http.MethodPost, "/api/orders/shipping-excel", bytes.NewReader(body))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec = httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("POST /api/orders/shipping-excel no-production status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if files, err := os.ReadDir(exportDir); err != nil || len(files) != 1 {
+		t.Fatalf("export files err=%v count=%d, want 1", err, len(files))
+	}
+}
+
 func TestOrdersShippingExcelAPIUsesSelectedSenderProfile(t *testing.T) {
 	pool, schema := newOrderAPITestDB(t)
 	ctx := context.Background()
