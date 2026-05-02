@@ -45,10 +45,21 @@ func TestQualityInspectionVueUsesWorkspaceDrawerSelection(t *testing.T) {
 		"工单质检",
 		"原料质检",
 		"产品质检",
-		"选择质检对象",
+		"选择工单",
+		"选择原料批次",
+		"选择产品批次",
 	} {
 		if !strings.Contains(combined, want) {
 			t.Fatalf("quality inspection Vue/helper source missing %q", want)
+		}
+	}
+	for _, forbidden := range []string{
+		"打开对象抽屉",
+		"<div class=\"target-tabs\">",
+		"class=\"target-tab\"",
+	} {
+		if strings.Contains(view, forbidden) {
+			t.Fatalf("quality inspection Vue source should not contain %q", forbidden)
 		}
 	}
 }
@@ -60,7 +71,7 @@ func TestQualityInspectionDrawerDocs(t *testing.T) {
 		filepath.Join("docs", "ACCEPTANCE_TESTS.md"),
 	} {
 		text := readDev129File(t, path)
-		for _, want := range []string{"生产质检", "选择质检对象", "工单质检", "原料质检", "产品质检"} {
+		for _, want := range []string{"生产质检", "选择工单", "选择原料批次", "选择产品批次"} {
 			if !strings.Contains(text, want) {
 				t.Fatalf("%s missing %q", path, want)
 			}

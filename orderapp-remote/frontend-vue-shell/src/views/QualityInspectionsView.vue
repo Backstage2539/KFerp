@@ -7,7 +7,7 @@
           <p>原料、生产工单和成品批次的检查结果</p>
         </div>
         <div class="head-actions">
-          <button class="secondary" type="button" @click="openTargetDrawer(form.scope)">选择质检对象</button>
+          <button class="secondary" type="button" @click="openTargetDrawer(form.scope)">{{ targetActionLabel(form.scope) }}</button>
           <button class="secondary" type="button" @click="load" :disabled="loading">刷新</button>
         </div>
       </div>
@@ -36,7 +36,7 @@
             <div class="panel-title">新增质检记录</div>
             <p>{{ scopeLabel(form.scope) }} · {{ form.reference_no || '未选择对象' }}</p>
           </div>
-          <button class="secondary" type="button" @click="openTargetDrawer(form.scope)">打开对象抽屉</button>
+          <button class="secondary" type="button" @click="openTargetDrawer(form.scope)">{{ targetActionLabel(form.scope) }}</button>
         </div>
 
         <div v-if="selectedTarget" class="target-summary">
@@ -141,26 +141,14 @@
     <div v-if="targetDrawerOpen" class="drawer-mask" @click.self="targetDrawerOpen = false">
       <aside class="drawer wide">
         <div class="drawer-head">
-          <h3>选择质检对象</h3>
+          <h3>{{ targetDrawerTitle(activeTargetScope) }}</h3>
           <button class="secondary" type="button" @click="targetDrawerOpen = false">关闭</button>
-        </div>
-
-        <div class="target-tabs">
-          <button
-            v-for="tab in qualityTargetTabs"
-            :key="tab.scope"
-            class="target-tab"
-            :class="{ active: activeTargetScope === tab.scope }"
-            type="button"
-            @click="setTargetScope(tab.scope)">
-            {{ tab.label }}
-          </button>
         </div>
 
         <div class="drawer-search">
           <label>
             <span>搜索</span>
-            <input v-model.trim="targetQ" placeholder="工单/批次/名称" @keyup.enter="loadTargets" />
+            <input v-model.trim="targetQ" :placeholder="targetSearchPlaceholder(activeTargetScope)" @keyup.enter="loadTargets" />
           </label>
           <button class="primary" type="button" @click="loadTargets" :disabled="targetLoading">查询</button>
         </div>
@@ -210,11 +198,14 @@ import { computed, onMounted, reactive, ref } from 'vue'
 import { apiGet, apiSend } from '../api/client'
 import {
   filterQualityTargets,
+  qualityTargetActionLabel,
   qualityTargetAPIPath,
+  qualityTargetDrawerTitle,
   qualityTargetFromRow,
   qualityTargetMeta,
   qualityTargetName,
   qualityTargetPrimary,
+  qualityTargetSearchPlaceholder,
   qualityTargetStatus,
   qualityTargetTabs,
 } from '../lib/quality-inspections'
@@ -295,13 +286,10 @@ function switchScope(scope) {
   form.reference_type = scope
   activeTargetScope.value = scope
   selectedTarget.value = null
+  targetRows.value = []
+  targetError.value = ''
   form.reference_no = ''
   form.item_name = ''
-}
-
-function setTargetScope(scope) {
-  switchScope(scope)
-  loadTargets()
 }
 
 function targetPrimary(row) {
@@ -321,13 +309,11 @@ function targetKey(row) {
 }
 
 function openTargetDrawer(scope) {
-  activeTargetScope.value = scope
+  activeTargetScope.value = scope || form.scope
+  targetRows.value = []
+  targetError.value = ''
   targetDrawerOpen.value = true
-  if (!targetRows.value.length || activeTargetScope.value !== scope) {
-    loadTargets()
-  } else {
-    loadTargets()
-  }
+  loadTargets()
 }
 
 async function loadTargets() {
@@ -403,6 +389,6 @@ onMounted(load)
 </script>
 
 <style scoped>
-*{box-sizing:border-box}.page{padding:16px;color:#171717;display:grid;gap:16px}.panel{border:1px solid #e5e7eb;border-radius:8px;background:#fff;padding:12px}.panel-head,.section-head{display:flex;justify-content:space-between;align-items:flex-start;gap:12px}.panel-head h2{margin:0 0 4px;font-size:18px}.panel-head p,.section-head p{margin:0;color:#6b7280;font-size:13px}.head-actions{display:flex;gap:8px;align-items:center}.panel-title{font-weight:700;margin-bottom:10px}.workspace{display:grid;grid-template-columns:260px minmax(0,1fr);gap:16px}.type-panel{align-self:start}.type-button{width:100%;text-align:left;border:1px solid #e5e7eb;background:#fff;border-radius:8px;padding:9px;margin-bottom:8px}.type-button strong{display:block}.type-button small{display:block;color:#6b7280;margin-top:3px;line-height:1.35}.type-button.active{border-color:#111;background:#111;color:#fff}.type-button.active small{color:#e5e7eb}.target-summary,.drawer-summary{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin:12px 0}.target-summary div,.drawer-summary div{border:1px solid #e5e7eb;border-radius:8px;padding:10px}.target-summary span,.drawer-summary span{display:block;color:#6b7280;font-size:12px;margin-bottom:4px}.target-summary strong,.drawer-summary strong{font-size:16px}.form-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}.note-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:10px}label span{display:block;color:#666;font-size:12px;margin-bottom:5px}input,select,textarea,button{font:inherit}input,select,textarea{width:100%;border:1px solid #d1d5db;border-radius:6px;padding:8px 9px;background:#fff}textarea{resize:vertical}button{min-height:36px;border-radius:6px;cursor:pointer;white-space:nowrap}button:disabled{cursor:not-allowed;opacity:.55}.primary{border:1px solid #111;background:#111;color:#fff;padding:8px 12px}.secondary{border:1px solid #9ca3af;background:#fff;color:#111;padding:8px 12px}.link{border:0;background:transparent;color:#111;text-decoration:underline;padding:0;min-height:0}.actions,.filters{display:flex;gap:8px;flex-wrap:wrap}.filters select{max-width:180px}.notice,.error{border-radius:8px;padding:9px 10px}.notice{border:1px solid #b7d9b7;background:#f0fff0;color:#246024}.error{border:1px solid #ffb9b9;background:#ffecec;color:#8a1f1f}.table-wrap{overflow:auto}table{width:100%;min-width:1080px;border-collapse:collapse}th,td{border-bottom:1px solid #f0f0f0;padding:8px;text-align:left;font-size:13px;vertical-align:top}th{background:#fbfbfb;position:sticky;top:0}td small{display:block;color:#6b7280;margin-top:3px}.mono{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:12px}.empty{color:#666;text-align:center}.quality-pill,.status-pill{display:inline-flex;border:1px solid #d1d5db;border-radius:999px;padding:2px 8px;background:#f9fafb;white-space:nowrap}.quality-pass{border-color:#bbf7d0;background:#f0fdf4;color:#166534}.quality-hold{border-color:#fde68a;background:#fffbeb;color:#92400e}.quality-reject{border-color:#fecaca;background:#fef2f2;color:#991b1b}.quality-unchecked{border-color:#d1d5db;background:#f9fafb;color:#4b5563}.drawer-mask{position:fixed;inset:0;background:rgba(0,0,0,.22);display:flex;justify-content:flex-end;z-index:40}.drawer{width:min(520px,100%);height:100%;background:#fff;border-left:1px solid #d1d5db;padding:16px;overflow:auto}.drawer.wide{width:min(820px,100%)}.drawer-head{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:12px}.drawer h3{margin:0;font-size:18px}.target-tabs{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px}.target-tab{border:1px solid #d1d5db;background:#fff;padding:8px 12px}.target-tab.active{border-color:#111;background:#111;color:#fff}.drawer-search{display:grid;grid-template-columns:1fr 84px;gap:10px;align-items:end;margin-bottom:12px}.drawer-table table{min-width:720px}.form-panel{min-width:0}
+*{box-sizing:border-box}.page{padding:16px;color:#171717;display:grid;gap:16px}.panel{border:1px solid #e5e7eb;border-radius:8px;background:#fff;padding:12px}.panel-head,.section-head{display:flex;justify-content:space-between;align-items:flex-start;gap:12px}.panel-head h2{margin:0 0 4px;font-size:18px}.panel-head p,.section-head p{margin:0;color:#6b7280;font-size:13px}.head-actions{display:flex;gap:8px;align-items:center}.panel-title{font-weight:700;margin-bottom:10px}.workspace{display:grid;grid-template-columns:260px minmax(0,1fr);gap:16px}.type-panel{align-self:start}.type-button{width:100%;text-align:left;border:1px solid #e5e7eb;background:#fff;border-radius:8px;padding:9px;margin-bottom:8px}.type-button strong{display:block}.type-button small{display:block;color:#6b7280;margin-top:3px;line-height:1.35}.type-button.active{border-color:#111;background:#111;color:#fff}.type-button.active small{color:#e5e7eb}.target-summary,.drawer-summary{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin:12px 0}.target-summary div,.drawer-summary div{border:1px solid #e5e7eb;border-radius:8px;padding:10px}.target-summary span,.drawer-summary span{display:block;color:#6b7280;font-size:12px;margin-bottom:4px}.target-summary strong,.drawer-summary strong{font-size:16px}.form-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}.note-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:10px}label span{display:block;color:#666;font-size:12px;margin-bottom:5px}input,select,textarea,button{font:inherit}input,select,textarea{width:100%;border:1px solid #d1d5db;border-radius:6px;padding:8px 9px;background:#fff}textarea{resize:vertical}button{min-height:36px;border-radius:6px;cursor:pointer;white-space:nowrap}button:disabled{cursor:not-allowed;opacity:.55}.primary{border:1px solid #111;background:#111;color:#fff;padding:8px 12px}.secondary{border:1px solid #9ca3af;background:#fff;color:#111;padding:8px 12px}.link{border:0;background:transparent;color:#111;text-decoration:underline;padding:0;min-height:0}.actions,.filters{display:flex;gap:8px;flex-wrap:wrap}.filters select{max-width:180px}.notice,.error{border-radius:8px;padding:9px 10px}.notice{border:1px solid #b7d9b7;background:#f0fff0;color:#246024}.error{border:1px solid #ffb9b9;background:#ffecec;color:#8a1f1f}.table-wrap{overflow:auto}table{width:100%;min-width:1080px;border-collapse:collapse}th,td{border-bottom:1px solid #f0f0f0;padding:8px;text-align:left;font-size:13px;vertical-align:top}th{background:#fbfbfb;position:sticky;top:0}td small{display:block;color:#6b7280;margin-top:3px}.mono{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:12px}.empty{color:#666;text-align:center}.quality-pill,.status-pill{display:inline-flex;border:1px solid #d1d5db;border-radius:999px;padding:2px 8px;background:#f9fafb;white-space:nowrap}.quality-pass{border-color:#bbf7d0;background:#f0fdf4;color:#166534}.quality-hold{border-color:#fde68a;background:#fffbeb;color:#92400e}.quality-reject{border-color:#fecaca;background:#fef2f2;color:#991b1b}.quality-unchecked{border-color:#d1d5db;background:#f9fafb;color:#4b5563}.drawer-mask{position:fixed;inset:0;background:rgba(0,0,0,.22);display:flex;justify-content:flex-end;z-index:40}.drawer{width:min(520px,100%);height:100%;background:#fff;border-left:1px solid #d1d5db;padding:16px;overflow:auto}.drawer.wide{width:min(820px,100%)}.drawer-head{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:12px}.drawer h3{margin:0;font-size:18px}.drawer-search{display:grid;grid-template-columns:1fr 84px;gap:10px;align-items:end;margin-bottom:12px}.drawer-table table{min-width:720px}.form-panel{min-width:0}
 @media (max-width:900px){.page{padding:12px}.panel-head,.section-head{display:grid}.head-actions,.filters{width:100%}.workspace,.form-grid,.note-grid,.target-summary,.drawer-summary,.drawer-search{grid-template-columns:1fr}}
 </style>
