@@ -170,32 +170,19 @@
         <div v-if="shippingMessage" class="notice ok">{{ shippingMessage }}</div>
         <div v-if="activeOrderDetail" class="drawer-body">
           <section class="drawer-section">
-            <div class="section-head">
-              <h4>快递信息</h4>
-              <label class="drawer-check">
-                <input
-                  type="checkbox"
-                  :checked="selectedOrderIDs.includes(Number(activeOrderDetail.id))"
-                  :disabled="!isProductionComplete(activeOrderDetail)"
-                  @change="toggleOrder(activeOrderDetail, $event.target.checked)"
-                />
-                <span>加入本次快递录单</span>
-              </label>
-            </div>
+            <h4>快递信息</h4>
             <div class="drawer-grid">
               <label>
                 <span>寄件人</span>
                 <select
-                  v-if="selectedOrderIDs.includes(Number(activeOrderDetail.id)) && isProductionComplete(activeOrderDetail)"
                   v-model.number="orderSenderIDs[Number(activeOrderDetail.id)]"
-                  aria-label="单独选择寄件人"
+                  aria-label="选择寄件人"
                 >
-                  <option :value="0">跟随默认</option>
+                  <option :value="0">跟随本次寄件人：{{ globalSenderLabel() }}</option>
                   <option v-for="profile in senderProfiles" :key="profile.sender_id" :value="profile.sender_id">
                     {{ profileLabel(profile) }}{{ profile.is_default ? '（默认）' : '' }}
                   </option>
                 </select>
-                <input v-else :value="senderDisplay(activeOrderDetail)" disabled />
               </label>
               <label class="tracking-fill">
                 <span>快递单号</span>
@@ -403,7 +390,7 @@ function openOrderDetailDrawer(row) {
   activeOrderDetail.value = { ...row }
   drawerTrackingNo.value = row.ship_tracking_no || ''
   orderDetailDrawerOpen.value = true
-  if (selectedOrderIDs.value.includes(id) && orderSenderIDs[id] === undefined) orderSenderIDs[id] = 0
+  if (orderSenderIDs[id] === undefined) orderSenderIDs[id] = 0
 }
 
 function closeOrderDetailDrawer() {
@@ -434,10 +421,18 @@ function senderProfileLabel(id) {
   return hit ? profileLabel(hit) : ''
 }
 
+function globalSenderLabel() {
+  const id = Number(selectedSenderID.value || 0)
+  if (id > 0) return senderProfileLabel(id) || `寄件人${id}`
+  const def = senderProfiles.value.find((profile) => profile.is_default)
+  return def ? profileLabel(def) : '默认寄件人'
+}
+
 function senderDisplay(row) {
   const id = Number(row?.id || 0)
   const overrideID = Number(orderSenderIDs[id] || 0)
-  if (selectedOrderIDs.value.includes(id) && overrideID > 0) return senderProfileLabel(overrideID) || `寄件人${overrideID}`
+  if (overrideID > 0) return senderProfileLabel(overrideID) || `寄件人${overrideID}`
+  if (selectedOrderIDs.value.includes(id)) return globalSenderLabel()
   if (row?.sender_label || row?.sender_name) return row.sender_label || row.sender_name
   return row?.ship_tracking_no ? '未记录寄件人' : '未生成'
 }
@@ -579,7 +574,7 @@ async function load() {
     selectedOrderIDs.value = selectedOrderIDs.value.filter((id) => rows.value.some((row) => Number(row.id) === id && isProductionComplete(row)))
     for (const key of Object.keys(orderSenderIDs)) {
       const id = Number(key)
-      if (!selectedOrderIDs.value.includes(id)) delete orderSenderIDs[key]
+      if (!rows.value.some((row) => Number(row.id) === id)) delete orderSenderIDs[key]
     }
     payStatuses.value = data.pay_statuses || []
     shipStatuses.value = data.ship_statuses || []
@@ -663,8 +658,6 @@ a, .text-link { color: #1f4f82; text-decoration: none; }
 .section-head { display: flex; justify-content: space-between; gap: 12px; align-items: center; margin-bottom: 10px; }
 .drawer-section h4 { margin: 0 0 10px; font-size: 15px; }
 .section-head h4 { margin-bottom: 0; }
-.drawer-check { display: inline-flex; align-items: center; gap: 6px; color: #555; font-size: 13px; }
-.drawer-check input { width: 16px; height: 16px; padding: 0; }
 .drawer-grid { display: grid; gap: 10px; }
 .tracking-fill-row { display: grid; grid-template-columns: 1fr auto; gap: 8px; }
 .drawer-status-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; color: #333; font-size: 13px; }
