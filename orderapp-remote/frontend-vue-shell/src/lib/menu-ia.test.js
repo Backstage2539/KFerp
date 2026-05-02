@@ -58,3 +58,11 @@ test('settings menu exposes sales order settings and keeps sales order detail hi
   assert.equal(groupForView(menuGroups, 'companyProfile')?.id, 'settings')
   assert.equal(groupForView(menuGroups, 'salesOrderSettings')?.id, 'settings')
 })
+
+test('finance menu exposes monthly finance workflows as primary pages', () => {
+  const keys = primaryMenuKeys(menuGroups)
+  for (const key of ['financeDashboard', 'financeExpenses', 'financeClosing', 'financeReport', 'financeSettings', 'financeManual']) {
+    assert.ok(keys.includes(key))
+    assert.equal(groupForView(menuGroups, key)?.id, 'finance')
+  }
+})

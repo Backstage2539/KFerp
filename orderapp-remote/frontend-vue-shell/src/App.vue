@@ -54,6 +54,12 @@ import CompanyStaffView from './views/CompanyStaffView.vue'
 import CostingSettingsView from './views/CostingSettingsView.vue'
 import CustomersView from './views/CustomersView.vue'
 import DeliveryNoteView from './views/DeliveryNoteView.vue'
+import FinanceClosingView from './views/FinanceClosingView.vue'
+import FinanceDashboardView from './views/FinanceDashboardView.vue'
+import FinanceExpensesView from './views/FinanceExpensesView.vue'
+import FinanceManualView from './views/FinanceManualView.vue'
+import FinanceReportView from './views/FinanceReportView.vue'
+import FinanceSettingsView from './views/FinanceSettingsView.vue'
 import InventoryView from './views/InventoryView.vue'
 import JobCardsView from './views/JobCardsView.vue'
 import MachinesView from './views/MachinesView.vue'
@@ -130,6 +136,12 @@ const internalViews = {
   productSettings: ProductSettingsView,
   costing: ProductSettingsView,
   costingSettings: CostingSettingsView,
+  financeDashboard: FinanceDashboardView,
+  financeExpenses: FinanceExpensesView,
+  financeClosing: FinanceClosingView,
+  financeReport: FinanceReportView,
+  financeSettings: FinanceSettingsView,
+  financeManual: FinanceManualView,
   producePlan: ProducePlanView,
   productionAcceptance: ProductionAcceptanceView,
   produceRunning: ProduceRunningView,

@@ -717,6 +717,21 @@ func seedReqWorkflowA(ctx context.Context, pool *pgxpool.Pool, schema string) er
 		{table: "req_unit", code: "UT-134-01", title: "单测覆盖销售单 PNG 字体高度与行高匹配，并用源码守卫防止 DPI 回退导致叠行", status: "done", assignee: "Codex", evidence: "TestSalesOrderPNGTextMetricsFitConfiguredLineHeights; dev_134_sales_order_image_layout_test.go"},
 		{table: "req_api", code: "API-134-01", title: "API 回归沿用销售单图片生成/下载接口测试，确保修复后图片仍可通过 image/png 接口生成和下载", status: "done", assignee: "Codex", evidence: "TestSalesOrderDocumentAPI image branch; go test ./internal/interfaces/http/sales"},
 		{table: "req_review", code: "REV-134-01", prCode: "PR-134", title: "验收：重新生成销售单图片后文字不重叠，订单信息、商品表、收款说明和二维码排版清晰", status: "todo", assignee: "VA", evidence: "待 Van 服务器验收"},
+		{table: "req_product", code: "PR-FIN-001", title: "财务月结一期：面向咖啡烘焙厂、咖啡贸易商、咖啡壳豆加工厂，提供月度收入、成本、费用、毛利、净利、税费估算、强锁账、结账调整和 PDF/Excel 报告", status: "review", assignee: "VA", evidence: "预计开发 5-7 个工作日；codex/finance-monthly-closing-20260502"},
+		{table: "req_dev", code: "DEV-FIN-001", title: "新增 finance 领域模型，支持小规模/一般纳税人、咖啡企业类型、毛利净利、增值税、附加税、企业所得税和小微优惠估算", status: "done", assignee: "Codex", evidence: "internal/domain/finance; go test ./internal/domain/finance"},
+		{table: "req_dev", code: "DEV-FIN-002", title: "新增 finance 应用服务，支持设置、费用、月度报表、默认强锁账、隐藏白名单锁账模式切换和结账后金额调整", status: "done", assignee: "Codex", evidence: "internal/application/finance; go test ./internal/application/finance"},
+		{table: "req_dev", code: "DEV-FIN-003", title: "新增 finance Postgres schema/repository，保存财务设置、费用、月结快照、调整记录，并从订单、生产成本和费用表聚合月度来源", status: "done", assignee: "Codex", evidence: "internal/infrastructure/postgres/finance; go test ./internal/infrastructure/postgres/finance"},
+		{table: "req_dev", code: "DEV-FIN-004", title: "新增财务 HTTP API 和 PDF/Excel 导出接口，覆盖设置、首页、费用、报表、结账、调整和下载", status: "done", assignee: "Codex", evidence: "internal/interfaces/http/finance; internal/infrastructure/pdf; internal/infrastructure/excel"},
+		{table: "req_dev", code: "DEV-FIN-005", title: "财务模块接入 appmain、schema 初始化和权限体系，新增 finance.read/write/close/close_mode.manage 与财务菜单权限", status: "done", assignee: "Codex", evidence: "app_routes.go; schema_setup.go; authz schema; AuthorizationMiddleware"},
+		{table: "req_dev", code: "DEV-FIN-006", title: "Vue/Vite 新增财务首页、费用管理、月度结账、经营报告和财务设置页面，锁账模式切换仅对白名单用户显示", status: "done", assignee: "Codex", evidence: "frontend-vue-shell/src/views/Finance*.vue; npm run build"},
+		{table: "req_dev", code: "DEV-FIN-007", title: "补充财务月结产品需求、验收清单、操作手册和需求表种子", status: "done", assignee: "Codex", evidence: "docs/REQUIREMENTS.md; docs/ACCEPTANCE_TESTS.md; finance-monthly-closing-user-manual.md"},
+		{table: "req_unit", code: "UT-FIN-001", title: "单测覆盖财务领域税费估算、毛利净利、调整和强锁账可编辑规则", status: "done", assignee: "Codex", evidence: "go test ./internal/domain/finance -count=1"},
+		{table: "req_unit", code: "UT-FIN-002", title: "单测覆盖财务应用服务设置、费用校验、强锁账拦截、月结状态、调整和白名单切换", status: "done", assignee: "Codex", evidence: "go test ./internal/application/finance -count=1"},
+		{table: "req_unit", code: "UT-FIN-003", title: "单测/源码守卫覆盖财务仓储 schema、月度聚合、appmain 接线、权限、文档和需求种子", status: "done", assignee: "Codex", evidence: "go test ./internal/infrastructure/postgres/finance ./internal/interfaces/http/support -count=1"},
+		{table: "req_unit", code: "UT-FIN-004", title: "前端单测覆盖财务格式化、API 封装、菜单入口和 Vue 页面接线", status: "done", assignee: "Codex", evidence: "node --test src/lib/*.test.js src/api/*.test.js"},
+		{table: "req_api", code: "API-FIN-001", title: "API 测试覆盖财务设置、首页、费用、月度报表、结账、调整、PDF 和 Excel 导出", status: "done", assignee: "Codex", evidence: "go test ./internal/interfaces/http/finance -count=1"},
+		{table: "req_api", code: "API-FIN-002", title: "API 级权限验证覆盖财务接口权限映射、结账权限和锁账模式管理权限", status: "done", assignee: "Codex", evidence: "go test ./internal/interfaces/http/support -count=1"},
+		{table: "req_review", code: "REV-FIN-001", prCode: "PR-FIN-001", title: "验收：财务首页能看当月收入/成本/费用/毛利/净利/税费，费用可补录，默认强锁账，结账后只能走金额调整，报告可导出 PDF 和 Excel", status: "todo", assignee: "VA", evidence: "待 Van 服务器验收；自动化验收随分支测试记录"},
 	} {
 		if err := seedReqRow(ctx, pool, schema, row); err != nil {
 			return err

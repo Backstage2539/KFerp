@@ -43,6 +43,18 @@ export const menuGroups = [
     ],
   },
   {
+    id: 'finance',
+    name: '财务管理',
+    items: [
+      { key: 'financeDashboard', label: '财务首页', title: '财务首页' },
+      { key: 'financeExpenses', label: '费用管理', title: '费用管理' },
+      { key: 'financeClosing', label: '月度结账', title: '月度结账' },
+      { key: 'financeReport', label: '经营报告', title: '月度经营报告' },
+      { key: 'financeSettings', label: '财务设置', title: '财务设置' },
+      { key: 'financeManual', label: '财务手册', title: '财务月结手册' },
+    ],
+  },
+  {
     id: 'settings',
     name: '设置',
     items: [

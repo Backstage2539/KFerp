@@ -1,0 +1,42 @@
+import { apiGet, apiSend } from './client.js'
+import { currentMonth } from '../lib/finance.js'
+
+function monthValue(month) {
+  return encodeURIComponent(month || currentMonth())
+}
+
+export function fetchFinanceSettings() {
+  return apiGet('/api/finance/settings')
+}
+
+export function saveFinanceSettings(payload) {
+  return apiSend('/api/finance/settings', { body: payload })
+}
+
+export function switchFinanceClosingMode(mode) {
+  return apiSend('/api/finance/settings/closing-mode', { body: { mode } })
+}
+
+export function fetchFinanceDashboard(month) {
+  return apiGet(`/api/finance/dashboard?month=${monthValue(month)}`)
+}
+
+export function fetchFinanceExpenses(month) {
+  return apiGet(`/api/finance/expenses?month=${monthValue(month)}`)
+}
+
+export function createFinanceExpense(payload) {
+  return apiSend('/api/finance/expenses', { body: payload })
+}
+
+export function fetchFinanceReport(month) {
+  return apiGet(`/api/finance/reports/${monthValue(month)}`)
+}
+
+export function closeFinanceMonth(month) {
+  return apiSend(`/api/finance/reports/${monthValue(month)}/close`, { body: {} })
+}
+
+export function createFinanceAdjustment(payload) {
+  return apiSend('/api/finance/adjustments', { body: payload })
+}
