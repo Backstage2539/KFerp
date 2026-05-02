@@ -9,13 +9,13 @@ import (
 func TestMobileLoginPrefixRequirementSeeds(t *testing.T) {
 	src := string(readOrderAppFileForTest(t, filepath.Join("internal", "interfaces", "http", "support", "req_store.go")))
 	for _, want := range []string{
-		"PR-143",
-		"DEV-143-01",
-		"DEV-143-02",
-		"DEV-143-03",
-		"UT-143-01",
-		"API-143-01",
-		"REV-143-01",
+		"PR-144",
+		"DEV-144-01",
+		"DEV-144-02",
+		"DEV-144-03",
+		"UT-144-01",
+		"API-144-01",
+		"REV-144-01",
 		"手机从 /app 登录",
 		"只需一次外层 order 认证和一次系统账号登录",
 	} {
