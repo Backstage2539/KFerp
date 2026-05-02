@@ -81,7 +81,7 @@ func TestOrdersVueGeneratesShippingExcelForProductionCompletedSelection(t *testi
 		"selectedOrderIDs",
 		"/api/orders/shipping-excel",
 		"生产完成",
-		"生成快递录单 Excel",
+		"生成顺丰发货 Excel",
 		"shippingExcelUrl",
 		"senderProfiles",
 		"selectedSenderID",

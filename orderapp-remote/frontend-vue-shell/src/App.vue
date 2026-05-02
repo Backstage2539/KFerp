@@ -89,6 +89,7 @@ import StockAdjustmentsView from './views/StockAdjustmentsView.vue'
 import StockBatchesView from './views/StockBatchesView.vue'
 import StockLedgerView from './views/StockLedgerView.vue'
 import StockOperationsView from './views/StockOperationsView.vue'
+import StockOutboundLogsView from './views/StockOutboundLogsView.vue'
 import UserPermissionsView from './views/UserPermissionsView.vue'
 import WipMaterialsView from './views/WipMaterialsView.vue'
 import WarehouseInventoryView from './views/WarehouseInventoryView.vue'
@@ -135,6 +136,7 @@ const internalViews = {
   stockLedger: StockLedgerView,
   stockBatches: StockBatchesView,
   stockAdjustments: StockAdjustmentsView,
+  stockOutboundLogs: StockOutboundLogsView,
   bom: BomView,
   productSettings: ProductSettingsView,
   costing: CostingView,

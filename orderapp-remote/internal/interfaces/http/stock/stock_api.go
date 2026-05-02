@@ -25,6 +25,7 @@ func registerStockPages(e *echo.Echo) {
 		{"/stock/material-receipts", "materialReceipts"},
 		{"/stock/material-batches", "materialBatches"},
 		{"/stock/adjustments", "stockAdjustments"},
+		{"/stock/outbound-logs", "stockOutboundLogs"},
 	} {
 		path, view := route.path, route.view
 		e.GET(path, func(c echo.Context) error {
@@ -113,6 +114,20 @@ func registerStockAPI(e *echo.Echo, stockSvc *stockapp.Service) {
 			ItemType:  strings.TrimSpace(c.QueryParam("item_type")),
 			Limit:     support.IntParam(c, "limit", 100),
 			Offset:    stockOffset(c),
+		})
+		if err != nil {
+			return c.JSON(http.StatusInternalServerError, errorResponse{Error: err.Error()})
+		}
+		return c.JSON(http.StatusOK, result)
+	})
+
+	e.GET("/api/stock/outbound-logs", func(c echo.Context) error {
+		result, err := stockSvc.ListOutboundLogs(c.Request().Context(), stockapp.OutboundLogQuery{
+			Q:      strings.TrimSpace(c.QueryParam("q")),
+			From:   strings.TrimSpace(c.QueryParam("from")),
+			To:     strings.TrimSpace(c.QueryParam("to")),
+			Limit:  support.IntParam(c, "limit", 100),
+			Offset: stockOffset(c),
 		})
 		if err != nil {
 			return c.JSON(http.StatusInternalServerError, errorResponse{Error: err.Error()})

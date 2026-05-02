@@ -704,6 +704,95 @@ INSERT INTO %s.materials(id,code,name,onhand_g,purchase_price) VALUES (1,'Mengli
 	}
 }
 
+func TestListOutboundLogsReturnsDeliveryNoteDocumentsForInventory(t *testing.T) {
+	pool, schema := newStockTestDB(t)
+	ctx := context.Background()
+	defer func() {
+		_, _ = pool.Exec(ctx, "DROP SCHEMA IF EXISTS "+schema+" CASCADE")
+		pool.Close()
+	}()
+	mustExecStockSQL(t, ctx, pool, fmt.Sprintf(`
+CREATE TABLE %s.customers (
+	id BIGINT PRIMARY KEY,
+	name TEXT NOT NULL DEFAULT '',
+	company_name TEXT NOT NULL DEFAULT ''
+);
+CREATE TABLE %s.pay_statuses (id BIGINT PRIMARY KEY, name TEXT NOT NULL);
+CREATE TABLE %s.ship_statuses (id BIGINT PRIMARY KEY, name TEXT NOT NULL);
+CREATE TABLE %s.order_process_statuses (id BIGINT PRIMARY KEY, name TEXT NOT NULL);
+CREATE TABLE %s.orders (
+	id BIGINT PRIMARY KEY,
+	order_no TEXT NOT NULL DEFAULT '',
+	customer_id BIGINT,
+	pay_status_id BIGINT,
+	ship_status_id BIGINT,
+	process_status_id BIGINT,
+	ship_method TEXT NOT NULL DEFAULT '',
+	ship_tracking_no TEXT NOT NULL DEFAULT ''
+);
+CREATE TABLE %s.warehouses (code TEXT PRIMARY KEY, name TEXT NOT NULL DEFAULT '');
+CREATE TABLE %s.delivery_note_forms (
+	order_id BIGINT PRIMARY KEY,
+	posting_date DATE,
+	source_warehouse TEXT NOT NULL DEFAULT 'finished_goods',
+	delivery_method TEXT NOT NULL DEFAULT '',
+	tracking_no TEXT NOT NULL DEFAULT ''
+);
+CREATE TABLE %s.delivery_note_documents (
+	id BIGINT PRIMARY KEY,
+	order_id BIGINT NOT NULL,
+	order_no TEXT NOT NULL DEFAULT '',
+	version_no INTEGER NOT NULL,
+	snapshot_json JSONB NOT NULL,
+	is_latest BOOLEAN NOT NULL DEFAULT true,
+	created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+	created_by TEXT NOT NULL DEFAULT ''
+);
+CREATE TABLE %s.order_invoices (
+	order_id BIGINT PRIMARY KEY,
+	status TEXT NOT NULL DEFAULT 'requested'
+);
+INSERT INTO %s.customers(id,name,company_name) VALUES (1,'上海门店','上海门店公司');
+INSERT INTO %s.pay_statuses(id,name) VALUES (1,'已付款');
+INSERT INTO %s.ship_statuses(id,name) VALUES (1,'已发货');
+INSERT INTO %s.order_process_statuses(id,name) VALUES (1,'无需生产');
+INSERT INTO %s.orders(id,order_no,customer_id,pay_status_id,ship_status_id,process_status_id,ship_method,ship_tracking_no)
+	VALUES (22,'SO-20260503-0001',1,1,1,1,'sf_small','SF123456789');
+INSERT INTO %s.warehouses(code,name) VALUES ('finished_goods','成品仓');
+INSERT INTO %s.delivery_note_forms(order_id,posting_date,source_warehouse,delivery_method,tracking_no)
+	VALUES (22,'2026-05-03','finished_goods','sf_small','SF123456789');
+INSERT INTO %s.delivery_note_documents(id,order_id,order_no,version_no,snapshot_json,is_latest,created_at,created_by)
+	VALUES (11,22,'SO-20260503-0001',2,$${
+		"customer_name":"上海门店",
+		"posting_date":"2026-05-03",
+		"source_warehouse":"finished_goods",
+		"source_warehouse_name":"成品仓",
+		"delivery_method":"sf_small",
+		"tracking_no":"SF123456789"
+	}$$::jsonb,true,'2026-05-03 10:00:00+08','stock');
+INSERT INTO %s.order_invoices(order_id,status) VALUES (22,'uploaded');
+`, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema))
+
+	repo := NewRepository(pool, schema)
+	result, err := repo.ListOutboundLogs(ctx, stockapp.OutboundLogQuery{Q: "SO-20260503", Limit: 20})
+	if err != nil {
+		t.Fatalf("ListOutboundLogs: %v", err)
+	}
+	if len(result.Rows) != 1 {
+		t.Fatalf("rows=%d, want 1: %+v", len(result.Rows), result.Rows)
+	}
+	row := result.Rows[0]
+	if row.DocumentID != 11 || row.OrderID != 22 || row.OrderNo != "SO-20260503-0001" || row.DeliveryMethod != "顺丰发货" {
+		t.Fatalf("outbound log row = %+v", row)
+	}
+	if row.DownloadURL != "/orders/22/delivery-notes/11.pdf" || row.LatestURL != "/orders/22/delivery-note-latest.pdf" {
+		t.Fatalf("download urls = %q / %q", row.DownloadURL, row.LatestURL)
+	}
+	if row.PayStatus != "已付款" || row.ShipStatus != "已发货" || row.ProcessStatus != "无需生产" || row.InvoiceStatus != "uploaded" {
+		t.Fatalf("status fields = %+v", row)
+	}
+}
+
 func newStockTestDB(t *testing.T) (*pgxpool.Pool, string) {
 	t.Helper()
 	dsn := strings.TrimSpace(os.Getenv("ORDERAPP_TEST_DATABASE_URL"))

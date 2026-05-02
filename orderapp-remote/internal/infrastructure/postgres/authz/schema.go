@@ -168,6 +168,7 @@ func defaultViewPermissions() map[string]string {
 		"stockLedger":          "stock.read",
 		"stockBatches":         "stock.read",
 		"stockAdjustments":     "stock.write",
+		"stockOutboundLogs":    "stock.read",
 		"inventory":            "stock.read",
 		"allocationLogs":       "stock.read",
 		"productSettings":      "products.write",

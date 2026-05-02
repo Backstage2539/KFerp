@@ -12,6 +12,7 @@ type fakeRepo struct {
 	transfer         MaterialTransferCommand
 	finishedTransfer FinishedProductTransferCommand
 	traceQuery       StockTraceQuery
+	outboundQuery    OutboundLogQuery
 }
 
 func (f *fakeRepo) ListLedger(ctx context.Context, query LedgerQuery) (LedgerResult, error) {
@@ -32,6 +33,10 @@ func (f *fakeRepo) ListMaterialBatchLocations(ctx context.Context, query Materia
 }
 func (f *fakeRepo) ListWarehouseInventory(ctx context.Context, query WarehouseInventoryQuery) (WarehouseInventoryResult, error) {
 	return WarehouseInventoryResult{}, nil
+}
+func (f *fakeRepo) ListOutboundLogs(ctx context.Context, query OutboundLogQuery) (OutboundLogResult, error) {
+	f.outboundQuery = query
+	return OutboundLogResult{}, nil
 }
 func (f *fakeRepo) GetStockTrace(ctx context.Context, query StockTraceQuery) (StockTraceResult, error) {
 	f.traceQuery = query

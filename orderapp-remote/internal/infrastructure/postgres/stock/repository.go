@@ -394,6 +394,89 @@ func (r Repository) ListWarehouseInventory(ctx context.Context, query stockapp.W
 	return stockapp.WarehouseInventoryResult{Rows: out, HasNext: hasNext}, nil
 }
 
+func (r Repository) ListOutboundLogs(ctx context.Context, query stockapp.OutboundLogQuery) (stockapp.OutboundLogResult, error) {
+	q := strings.TrimSpace(query.Q)
+	qLike := "%" + q + "%"
+	rows, err := r.pool.Query(ctx, fmt.Sprintf(`
+		WITH outbound_logs AS (
+			SELECT d.id AS document_id,
+			       d.order_id,
+			       COALESCE(d.order_no, '') AS order_no,
+			       COALESCE(NULLIF(d.snapshot_json->>'customer_company_name', ''), NULLIF(d.snapshot_json->>'customer_name', ''), NULLIF(c.company_name, ''), c.name, '') AS customer_name,
+			       COALESCE(NULLIF(d.snapshot_json->>'posting_date', ''), COALESCE(to_char(f.posting_date, 'YYYY-MM-DD'), '')) AS posting_date,
+			       COALESCE(NULLIF(d.snapshot_json->>'source_warehouse', ''), NULLIF(f.source_warehouse, ''), 'finished_goods') AS source_warehouse,
+			       COALESCE(
+			          NULLIF(d.snapshot_json->>'source_warehouse_name', ''),
+			          NULLIF(w.name, ''),
+			          CASE COALESCE(NULLIF(d.snapshot_json->>'source_warehouse', ''), NULLIF(f.source_warehouse, ''), 'finished_goods')
+			             WHEN 'finished_goods' THEN '成品仓'
+			             WHEN 'finished_shop' THEN '门店成品仓'
+			             ELSE COALESCE(NULLIF(d.snapshot_json->>'source_warehouse', ''), NULLIF(f.source_warehouse, ''), 'finished_goods')
+			          END
+			       ) AS warehouse_name,
+			       CASE COALESCE(NULLIF(d.snapshot_json->>'delivery_method', ''), NULLIF(f.delivery_method, ''), NULLIF(o.ship_method, ''), '')
+			          WHEN 'sf_small' THEN '顺丰发货'
+			          WHEN 'sf_large' THEN '顺丰大件'
+			          WHEN 'sf_express' THEN '顺丰标快'
+			          WHEN 'sf_fast' THEN '顺丰特快'
+			          WHEN 'sf_cold' THEN '顺丰冷运'
+			          ELSE COALESCE(NULLIF(d.snapshot_json->>'delivery_method', ''), NULLIF(f.delivery_method, ''), NULLIF(o.ship_method, ''), '')
+			       END AS delivery_method,
+			       COALESCE(NULLIF(d.snapshot_json->>'tracking_no', ''), NULLIF(f.tracking_no, ''), o.ship_tracking_no, '') AS tracking_no,
+			       d.version_no,
+			       d.is_latest,
+			       d.created_at AS created_sort,
+			       to_char(d.created_at, 'YYYY-MM-DD HH24:MI') AS created_at,
+			       COALESCE(d.created_by, '') AS created_by,
+			       COALESCE(ps.name, '') AS pay_status,
+			       COALESCE(ss.name, '') AS ship_status,
+			       COALESCE(ops.name, '') AS process_status,
+			       COALESCE(oi.status, '') AS invoice_status
+			FROM %s.delivery_note_documents d
+			LEFT JOIN %s.orders o ON o.id=d.order_id
+			LEFT JOIN %s.customers c ON c.id=o.customer_id
+			LEFT JOIN %s.delivery_note_forms f ON f.order_id=d.order_id
+			LEFT JOIN %s.warehouses w ON w.code=COALESCE(NULLIF(d.snapshot_json->>'source_warehouse', ''), NULLIF(f.source_warehouse, ''), 'finished_goods')
+			LEFT JOIN %s.pay_statuses ps ON ps.id=o.pay_status_id
+			LEFT JOIN %s.ship_statuses ss ON ss.id=o.ship_status_id
+			LEFT JOIN %s.order_process_statuses ops ON ops.id=o.process_status_id
+			LEFT JOIN %s.order_invoices oi ON oi.order_id=o.id
+		)
+		SELECT document_id, order_id, order_no, customer_name, posting_date, source_warehouse, warehouse_name,
+		       delivery_method, tracking_no, version_no, is_latest, created_at, created_by,
+		       pay_status, ship_status, process_status, invoice_status
+		FROM outbound_logs
+		WHERE ($1 = '' OR order_no ILIKE $2 OR customer_name ILIKE $2 OR tracking_no ILIKE $2 OR delivery_method ILIKE $2)
+		  AND ($3 = '' OR created_sort >= $3::date)
+		  AND ($4 = '' OR created_sort < ($4::date + INTERVAL '1 day'))
+		ORDER BY created_sort DESC, document_id DESC
+		LIMIT $5 OFFSET $6
+	`, r.schema, r.schema, r.schema, r.schema, r.schema, r.schema, r.schema, r.schema, r.schema), q, qLike, query.From, query.To, query.Limit+1, query.Offset)
+	if err != nil {
+		return stockapp.OutboundLogResult{}, err
+	}
+	defer rows.Close()
+	out := make([]stockapp.OutboundLogRow, 0)
+	for rows.Next() {
+		var row stockapp.OutboundLogRow
+		if err := rows.Scan(&row.DocumentID, &row.OrderID, &row.OrderNo, &row.CustomerName, &row.PostingDate, &row.SourceWarehouse, &row.WarehouseName, &row.DeliveryMethod, &row.TrackingNo, &row.VersionNo, &row.IsLatest, &row.CreatedAt, &row.CreatedBy, &row.PayStatus, &row.ShipStatus, &row.ProcessStatus, &row.InvoiceStatus); err != nil {
+			return stockapp.OutboundLogResult{}, err
+		}
+		row.DownloadURL = fmt.Sprintf("/orders/%d/delivery-notes/%d.pdf", row.OrderID, row.DocumentID)
+		row.LatestURL = fmt.Sprintf("/orders/%d/delivery-note-latest.pdf", row.OrderID)
+		out = append(out, row)
+	}
+	if err := rows.Err(); err != nil {
+		return stockapp.OutboundLogResult{}, err
+	}
+	hasNext := false
+	if len(out) > query.Limit {
+		out = out[:query.Limit]
+		hasNext = true
+	}
+	return stockapp.OutboundLogResult{Rows: out, HasNext: hasNext}, nil
+}
+
 func (r Repository) GetStockTrace(ctx context.Context, query stockapp.StockTraceQuery) (stockapp.StockTraceResult, error) {
 	var result stockapp.StockTraceResult
 	err := r.pool.QueryRow(ctx, fmt.Sprintf(`

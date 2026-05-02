@@ -174,6 +174,41 @@ type WarehouseInventoryResult struct {
 	HasNext bool                    `json:"has_next"`
 }
 
+type OutboundLogQuery struct {
+	Q      string
+	From   string
+	To     string
+	Limit  int
+	Offset int
+}
+
+type OutboundLogRow struct {
+	DocumentID      int64  `json:"document_id"`
+	OrderID         int64  `json:"order_id"`
+	OrderNo         string `json:"order_no"`
+	CustomerName    string `json:"customer_name"`
+	PostingDate     string `json:"posting_date"`
+	SourceWarehouse string `json:"source_warehouse"`
+	WarehouseName   string `json:"warehouse_name"`
+	DeliveryMethod  string `json:"delivery_method"`
+	TrackingNo      string `json:"tracking_no"`
+	VersionNo       int    `json:"version_no"`
+	IsLatest        bool   `json:"is_latest"`
+	CreatedAt       string `json:"created_at"`
+	CreatedBy       string `json:"created_by"`
+	PayStatus       string `json:"pay_status"`
+	ShipStatus      string `json:"ship_status"`
+	ProcessStatus   string `json:"process_status"`
+	InvoiceStatus   string `json:"invoice_status"`
+	DownloadURL     string `json:"download_url"`
+	LatestURL       string `json:"latest_url"`
+}
+
+type OutboundLogResult struct {
+	Rows    []OutboundLogRow `json:"rows"`
+	HasNext bool             `json:"has_next"`
+}
+
 type StockTraceQuery struct {
 	BatchCode string
 }
@@ -316,6 +351,7 @@ type Repository interface {
 	ListWarehouses(ctx context.Context) ([]WarehouseRow, error)
 	ListMaterialBatchLocations(ctx context.Context, query MaterialBatchLocationQuery) (MaterialBatchLocationResult, error)
 	ListWarehouseInventory(ctx context.Context, query WarehouseInventoryQuery) (WarehouseInventoryResult, error)
+	ListOutboundLogs(ctx context.Context, query OutboundLogQuery) (OutboundLogResult, error)
 	GetStockTrace(ctx context.Context, query StockTraceQuery) (StockTraceResult, error)
 	ReceiveMaterial(ctx context.Context, cmd MaterialReceiptCommand) (MaterialReceiptResult, error)
 	CreateAdjustment(ctx context.Context, cmd StockAdjustmentCommand) (StockAdjustmentResult, error)
@@ -373,6 +409,14 @@ func (s *Service) ListWarehouseInventory(ctx context.Context, query WarehouseInv
 	query.ItemType = strings.TrimSpace(query.ItemType)
 	query.Limit, query.Offset = normalizePage(query.Limit, query.Offset, 100, 500)
 	return s.repo.ListWarehouseInventory(ctx, query)
+}
+
+func (s *Service) ListOutboundLogs(ctx context.Context, query OutboundLogQuery) (OutboundLogResult, error) {
+	query.Q = strings.TrimSpace(query.Q)
+	query.From = strings.TrimSpace(query.From)
+	query.To = strings.TrimSpace(query.To)
+	query.Limit, query.Offset = normalizePage(query.Limit, query.Offset, 100, 500)
+	return s.repo.ListOutboundLogs(ctx, query)
 }
 
 func (s *Service) GetStockTrace(ctx context.Context, query StockTraceQuery) (StockTraceResult, error) {

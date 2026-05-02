@@ -148,7 +148,7 @@ const mainFlow = [
   { title: '开始生产', note: '仅处理缺口商品' },
   { title: '生产工单', note: '查看烘焙建议并打印' },
   { title: '质检完工', note: '可部分完工并记录质检' },
-  { title: '发货追溯', note: '订单列表 / 仓库库存' },
+  { title: '发货追溯', note: '订单列表 / 出库日志' },
 ]
 
 const dailyRows = [
@@ -161,7 +161,7 @@ const dailyRows = [
   { when: '占用处理', where: '库存管理 -> 仓库库存 -> WIP占用', action: '按工单查看、调整或释放 WIP 占用', result: '异常工单不再锁住可用原料' },
   { when: '质检', where: '生产管理 -> 生产质检', action: '按当前类型选择工单、原料批次或产品批次，再记录通过/待处理/不合格', result: '质量记录可随单据追溯' },
   { when: '生产后', where: '生产管理 -> 生产中', action: '填实际产出和本次消耗投料，可选择部分完工', result: '扣 WIP 原料，生成成品库存，未完工部分继续保留' },
-  { when: '复盘', where: '库存管理 -> 仓库库存', action: '查库存、查 FP 成品批次追溯；查 MB/LEGACY-MAT 原料批次位置', result: '看到成品用了哪些原料批次，也能解释旧库存期初批次在哪个仓库' },
+  { when: '复盘', where: '库存管理 -> 仓库库存 / 出库日志', action: '查库存、查 FP 成品批次追溯；查 MB/LEGACY-MAT 原料批次位置；查看并下载出库单', result: '看到成品用了哪些原料批次，也能追到订单出库凭证' },
 ]
 
 const operationSteps = [

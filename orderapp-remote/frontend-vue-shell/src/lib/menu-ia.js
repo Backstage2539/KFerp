@@ -30,6 +30,7 @@ export const menuGroups = [
     items: [
       { key: 'warehouseInventory', label: '仓库库存', title: '仓库库存' },
       { key: 'stockOperations', label: '库存作业', title: '库存作业' },
+      { key: 'stockOutboundLogs', label: '出库日志', title: '出库日志' },
       { key: 'purchase', label: '采购入库', title: '采购入库' },
       { key: 'materials', label: '物料档案', title: '物料档案' },
     ],
@@ -99,6 +100,7 @@ export const hiddenViewTitles = {
   stockLedger: '库存流水',
   stockBatches: '批次追溯',
   stockAdjustments: '库存调整单',
+  stockOutboundLogs: '出库日志',
   inventory: '成品库存',
   allocationLogs: '分配批次查看',
   products: '产品设置',

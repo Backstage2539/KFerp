@@ -453,6 +453,8 @@ func deliveryWarehouseDisplayName(code string) string {
 func deliveryMethodDisplayName(code string) string {
 	value := strings.TrimSpace(code)
 	switch value {
+	case "sf_small":
+		return "顺丰发货"
 	case "sf_large":
 		return "顺丰大件"
 	case "sf_express":

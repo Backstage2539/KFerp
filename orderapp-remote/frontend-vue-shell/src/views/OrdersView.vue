@@ -59,8 +59,8 @@
     <section class="panel">
       <div class="shipping-bar">
         <div>
-          <h3>快递处理</h3>
-          <p>订单生产完成或标记“无需生产”后，在这里勾选并生成快递录单 Excel；单号在订单抽屉内回填。</p>
+          <h3>顺丰发货</h3>
+          <p>订单生产完成或标记“无需生产”后，在这里勾选并生成顺丰发货 Excel；单号在订单抽屉内回填。</p>
         </div>
         <div class="shipping-actions">
           <label class="sender-picker">
@@ -75,7 +75,7 @@
           <button class="secondary" type="button" @click="applyShipReadyPreset" :disabled="loading">只看可发货</button>
           <button class="secondary" type="button" @click="selectVisibleShipReady" :disabled="!rows.length">勾选本页可发货</button>
           <button class="primary" type="button" @click="generateShippingExcel" :disabled="shippingLoading || !selectedOrderIDs.length">
-            {{ shippingLoading ? '生成中' : `生成快递录单 Excel(${selectedOrderIDs.length})` }}
+            {{ shippingLoading ? '生成中' : `生成顺丰发货 Excel(${selectedOrderIDs.length})` }}
           </button>
           <label class="tracking-upload">
             <span>回传 Excel</span>
@@ -481,7 +481,7 @@ async function generateShippingExcel() {
     })
     shippingExcelUrl.value = data.shipping_excel_url || ''
     const shipmentNo = data.shipment_no || ''
-    shippingMessage.value = `已生成 ${Number(data.count || selectedOrderIDs.value.length)} 个订单的快递录单${shipmentNo ? `：${shipmentNo}` : ''}，单号请在订单抽屉回填，或上传回传 Excel`
+    shippingMessage.value = `已生成 ${Number(data.count || selectedOrderIDs.value.length)} 个订单的顺丰发货录单${shipmentNo ? `：${shipmentNo}` : ''}，单号请在订单抽屉回填，或上传回传 Excel`
     await load()
   } catch (err) {
     shippingError.value = err.message || '生成失败'

@@ -18,6 +18,7 @@ type fakeStockRepo struct {
 	transfer         stockapp.MaterialTransferCommand
 	finishedTransfer stockapp.FinishedProductTransferCommand
 	traceQuery       stockapp.StockTraceQuery
+	outboundQuery    stockapp.OutboundLogQuery
 }
 
 func (f *fakeStockRepo) ListLedger(ctx context.Context, query stockapp.LedgerQuery) (stockapp.LedgerResult, error) {
@@ -40,6 +41,26 @@ func (f *fakeStockRepo) ListWarehouseInventory(ctx context.Context, query stocka
 		{Warehouse: "raw_materials", WarehouseName: "原料仓", ItemType: "material", ItemID: 1, ItemName: "水洗豆", BatchCode: "MB-0000000002", QtyG: 1200, QualityStatus: "pass"},
 		{Warehouse: "finished_goods", WarehouseName: "成品仓", ItemType: "finished_product", ItemID: 9, ItemName: "橘皮乌龙", SpecG: 454, BatchCode: "FP-0000000042", QtyG: 908, QtyUnits: 2, QualityStatus: "reject"},
 	}}, nil
+}
+func (f *fakeStockRepo) ListOutboundLogs(ctx context.Context, query stockapp.OutboundLogQuery) (stockapp.OutboundLogResult, error) {
+	f.outboundQuery = query
+	return stockapp.OutboundLogResult{Rows: []stockapp.OutboundLogRow{{
+		DocumentID:      11,
+		OrderID:         22,
+		OrderNo:         "SO-20260503-0001",
+		CustomerName:    "上海门店",
+		PostingDate:     "2026-05-03",
+		SourceWarehouse: "finished_goods",
+		WarehouseName:   "成品仓",
+		DeliveryMethod:  "顺丰发货",
+		TrackingNo:      "SF123456789",
+		VersionNo:       2,
+		IsLatest:        true,
+		CreatedAt:       "2026-05-03 10:00",
+		CreatedBy:       "stock",
+		DownloadURL:     "/orders/22/delivery-notes/11.pdf",
+		LatestURL:       "/orders/22/delivery-note-latest.pdf",
+	}}}, nil
 }
 func (f *fakeStockRepo) GetStockTrace(ctx context.Context, query stockapp.StockTraceQuery) (stockapp.StockTraceResult, error) {
 	f.traceQuery = query
@@ -133,6 +154,21 @@ func TestStockAPIRoutes(t *testing.T) {
 	}
 	if !bytes.Contains(rec.Body.Bytes(), []byte(`"quality_status":"reject"`)) {
 		t.Fatalf("GET warehouse inventory missing quality status: %s", rec.Body.String())
+	}
+
+	req = httptest.NewRequest(http.MethodGet, "/api/stock/outbound-logs?q=SO-20260503&limit=30", nil)
+	rec = httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET outbound logs status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if repo.outboundQuery.Q != "SO-20260503" || repo.outboundQuery.Limit != 30 {
+		t.Fatalf("outbound log query = %+v", repo.outboundQuery)
+	}
+	for _, want := range []string{`"order_no":"SO-20260503-0001"`, `"delivery_method":"顺丰发货"`, `"download_url":"/orders/22/delivery-notes/11.pdf"`, `"latest_url":"/orders/22/delivery-note-latest.pdf"`} {
+		if !bytes.Contains(rec.Body.Bytes(), []byte(want)) {
+			t.Fatalf("GET outbound logs missing %s: %s", want, rec.Body.String())
+		}
 	}
 
 	req = httptest.NewRequest(http.MethodPost, "/api/stock/material-transfers", bytes.NewBufferString(`{"material_id":1,"from_warehouse":"raw_materials","to_warehouse":"wip","qty_g":60000,"note":"三天生产领料"}`))
