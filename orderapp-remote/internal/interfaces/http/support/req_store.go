@@ -712,6 +712,11 @@ func seedReqWorkflowA(ctx context.Context, pool *pgxpool.Pool, schema string) er
 		{table: "req_unit", code: "UT-133-01", title: "单测覆盖出库单领域规则、服务用例、Vue 源码守卫、前端 URL helper 和需求种子", status: "done", assignee: "Codex", evidence: "delivery_note_test.go; TestServiceOwnsDeliveryNoteUseCases; dev_133_delivery_note_outbound_test.go; delivery-note.test.js"},
 		{table: "req_api", code: "API-133-01", title: "API 测试覆盖已发货订单出库单保存/预览/生成/下载，以及未发货订单禁止生成出库单", status: "done", assignee: "Codex", evidence: "TestDeliveryNoteDocumentAPI; TestDeliveryNoteRequiresShippedOrder"},
 		{table: "req_review", code: "REV-133-01", prCode: "PR-133", title: "验收：已发货订单可打开出库单抽屉维护信息，先预览后生成 PDF，最新版和历史版本均可下载", status: "todo", assignee: "VA", evidence: "待 Van 服务器验收"},
+		{table: "req_product", code: "PR-134", title: "销售单图片字体和排版必须清晰，不得出现文字叠行、溢出或整页排版混乱", status: "review", assignee: "VA", evidence: "codex/sales-order-image-layout-fix-20260502"},
+		{table: "req_dev", code: "DEV-134-01", title: "修正销售单 PNG 渲染字体 DPI 和行高关系，确保 PNG 字体高度不得超过行高，长文本按块正常换行", status: "done", assignee: "Codex", evidence: "salesOrderPNGDPI=72; TestSalesOrderPNGTextMetricsFitConfiguredLineHeights"},
+		{table: "req_unit", code: "UT-134-01", title: "单测覆盖销售单 PNG 字体高度与行高匹配，并用源码守卫防止 DPI 回退导致叠行", status: "done", assignee: "Codex", evidence: "TestSalesOrderPNGTextMetricsFitConfiguredLineHeights; dev_134_sales_order_image_layout_test.go"},
+		{table: "req_api", code: "API-134-01", title: "API 回归沿用销售单图片生成/下载接口测试，确保修复后图片仍可通过 image/png 接口生成和下载", status: "done", assignee: "Codex", evidence: "TestSalesOrderDocumentAPI image branch; go test ./internal/interfaces/http/sales"},
+		{table: "req_review", code: "REV-134-01", prCode: "PR-134", title: "验收：重新生成销售单图片后文字不重叠，订单信息、商品表、收款说明和二维码排版清晰", status: "todo", assignee: "VA", evidence: "待 Van 服务器验收"},
 	} {
 		if err := seedReqRow(ctx, pool, schema, row); err != nil {
 			return err

@@ -24,6 +24,7 @@ const (
 	salesOrderPNGWidth  = 1240
 	salesOrderPNGHeight = 1754
 	salesOrderPNGMargin = 70
+	salesOrderPNGDPI    = 72
 )
 
 type salesOrderPNGCanvas struct {
@@ -307,7 +308,7 @@ func (c *salesOrderPNGCanvas) measure(text string, size float64) int {
 func (c *salesOrderPNGCanvas) face(size float64) font.Face {
 	face, err := opentype.NewFace(c.font, &opentype.FaceOptions{
 		Size:    size,
-		DPI:     144,
+		DPI:     salesOrderPNGDPI,
 		Hinting: font.HintingFull,
 	})
 	if err != nil {

@@ -10,6 +10,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"golang.org/x/image/font/opentype"
 )
 
 func TestRenderSalesOrderPDF(t *testing.T) {
@@ -83,6 +85,37 @@ func TestRenderSalesOrderPNG(t *testing.T) {
 	}
 	if img.Bounds().Dx() < 1000 || img.Bounds().Dy() < 1400 {
 		t.Fatalf("PNG bounds = %v, want A4-like document image", img.Bounds())
+	}
+}
+
+func TestSalesOrderPNGTextMetricsFitConfiguredLineHeights(t *testing.T) {
+	renderer := SalesOrderRenderer{}
+	fontPath, err := renderer.resolveFontPath()
+	if err != nil {
+		t.Fatal(err)
+	}
+	fontBytes, err := os.ReadFile(fontPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	parsedFont, err := opentype.Parse(fontBytes)
+	if err != nil {
+		t.Fatal(err)
+	}
+	canvas := salesOrderPNGCanvas{font: parsedFont}
+	for _, tc := range []struct {
+		name       string
+		size       float64
+		lineHeight int
+	}{
+		{name: "meta", size: 20, lineHeight: 28},
+		{name: "text block", size: 20, lineHeight: 30},
+		{name: "payment code description", size: 16, lineHeight: 24},
+	} {
+		height := canvas.face(tc.size).Metrics().Height.Ceil()
+		if height > tc.lineHeight {
+			t.Fatalf("%s font height %d exceeds line height %d at size %.0f", tc.name, height, tc.lineHeight, tc.size)
+		}
 	}
 }
 
