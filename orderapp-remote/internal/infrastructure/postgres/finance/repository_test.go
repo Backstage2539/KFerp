@@ -33,6 +33,22 @@ func TestFinanceSchemaDefinesSettingsExpensesReportsAndAdjustments(t *testing.T)
 	}
 }
 
+func TestFinanceSchemaBackfillsExpenseEmployeeColumnBeforeEmployeeIndex(t *testing.T) {
+	b, err := os.ReadFile("schema.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := string(b)
+	addColumn := strings.Index(src, "ALTER TABLE %s.finance_expenses ADD COLUMN IF NOT EXISTS employee_id")
+	createIndex := strings.Index(src, "CREATE INDEX IF NOT EXISTS finance_expenses_employee_idx")
+	if addColumn < 0 || createIndex < 0 {
+		t.Fatalf("employee schema migration pieces missing: addColumn=%d createIndex=%d", addColumn, createIndex)
+	}
+	if addColumn > createIndex {
+		t.Fatalf("employee_id column must be added before finance_expenses_employee_idx is created")
+	}
+}
+
 func TestFinanceRepositoryAggregatesOrdersCostsExpensesAndAdjustments(t *testing.T) {
 	b, err := os.ReadFile("repository.go")
 	if err != nil {
