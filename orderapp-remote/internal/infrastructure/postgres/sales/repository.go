@@ -26,6 +26,7 @@ type Repository struct {
 
 type SalesOrderPDFRenderer interface {
 	Render(snapshot salesdomain.SalesOrderSnapshot) ([]byte, error)
+	RenderPNG(snapshot salesdomain.SalesOrderSnapshot) ([]byte, error)
 }
 
 type DeliveryNotePDFRenderer interface {

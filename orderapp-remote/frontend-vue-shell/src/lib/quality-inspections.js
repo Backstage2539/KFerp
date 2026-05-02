@@ -4,6 +4,22 @@ export const qualityTargetTabs = [
   { scope: 'finished_batch', label: '产品质检' },
 ]
 
+export function qualityTargetActionLabel(scope) {
+  if (scope === 'raw_material') return '选择原料批次'
+  if (scope === 'finished_batch') return '选择产品批次'
+  return '选择工单'
+}
+
+export function qualityTargetDrawerTitle(scope) {
+  return qualityTargetActionLabel(scope)
+}
+
+export function qualityTargetSearchPlaceholder(scope) {
+  if (scope === 'raw_material') return '原料批次/名称/供应商'
+  if (scope === 'finished_batch') return '产品批次/名称'
+  return '工单号/产品名称/订单号'
+}
+
 export function qualityTargetAPIPath(scope) {
   if (scope === 'raw_material') return '/api/stock/material-batches?active_only=1&limit=100'
   if (scope === 'finished_batch') return '/api/stock/batches?item_type=finished_product&limit=100'

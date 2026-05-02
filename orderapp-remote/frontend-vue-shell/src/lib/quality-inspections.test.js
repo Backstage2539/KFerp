@@ -1,7 +1,9 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import {
+  qualityTargetActionLabel,
   qualityTargetAPIPath,
+  qualityTargetDrawerTitle,
   qualityTargetFromRow,
   qualityTargetStatus,
   qualityTargetTabs,
@@ -16,6 +18,16 @@ test('qualityTargetAPIPath maps every drawer tab to its API source', () => {
   assert.equal(qualityTargetAPIPath('work_order'), '/api/produce/work-orders?limit=100')
   assert.equal(qualityTargetAPIPath('raw_material'), '/api/stock/material-batches?active_only=1&limit=100')
   assert.equal(qualityTargetAPIPath('finished_batch'), '/api/stock/batches?item_type=finished_product&limit=100')
+})
+
+test('quality target drawer labels match the active inspection scope', () => {
+  assert.equal(qualityTargetActionLabel('work_order'), '选择工单')
+  assert.equal(qualityTargetActionLabel('raw_material'), '选择原料批次')
+  assert.equal(qualityTargetActionLabel('finished_batch'), '选择产品批次')
+
+  assert.equal(qualityTargetDrawerTitle('work_order'), '选择工单')
+  assert.equal(qualityTargetDrawerTitle('raw_material'), '选择原料批次')
+  assert.equal(qualityTargetDrawerTitle('finished_batch'), '选择产品批次')
 })
 
 test('qualityTargetFromRow fills the quality form from selected target rows', () => {

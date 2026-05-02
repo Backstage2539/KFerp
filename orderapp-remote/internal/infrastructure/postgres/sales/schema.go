@@ -200,6 +200,19 @@ func ensureSalesOrderTables(ctx context.Context, pool *pgxpool.Pool, schema stri
 			UNIQUE(order_id, version_no)
 		)`, schema, schema, schema),
 		fmt.Sprintf(`CREATE UNIQUE INDEX IF NOT EXISTS idx_%s_sales_order_latest ON %s.sales_order_documents(order_id) WHERE is_latest`, schema, schema),
+		fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s.sales_order_images (
+			id BIGSERIAL PRIMARY KEY,
+			order_id BIGINT NOT NULL REFERENCES %s.orders(id),
+			order_no TEXT NOT NULL DEFAULT '',
+			version_no INTEGER NOT NULL,
+			snapshot_json JSONB NOT NULL,
+			image_asset_id BIGINT REFERENCES %s.sales_order_assets(id),
+			is_latest BOOLEAN NOT NULL DEFAULT true,
+			created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+			created_by TEXT NOT NULL DEFAULT '',
+			UNIQUE(order_id, version_no)
+		)`, schema, schema, schema),
+		fmt.Sprintf(`CREATE UNIQUE INDEX IF NOT EXISTS idx_%s_sales_order_image_latest ON %s.sales_order_images(order_id) WHERE is_latest`, schema, schema),
 	}
 	for _, stmt := range stmts {
 		if _, err := pool.Exec(ctx, stmt); err != nil {

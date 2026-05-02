@@ -5,3 +5,7 @@ export function salesOrderPageUrl(orderID) {
 export function salesOrderDownloadUrl(orderID) {
   return `/orders/${Number(orderID || 0)}/sales-order-latest.pdf`
 }
+
+export function salesOrderImageDownloadUrl(orderID) {
+  return `/orders/${Number(orderID || 0)}/sales-order-image-latest.png`
+}

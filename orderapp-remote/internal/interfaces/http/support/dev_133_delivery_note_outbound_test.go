@@ -9,13 +9,13 @@ import (
 func TestDeliveryNoteOutboundRequirementSeeds(t *testing.T) {
 	src := string(readOrderAppFileForTest(t, filepath.Join("internal", "interfaces", "http", "support", "req_store.go")))
 	for _, want := range []string{
-		"PR-132",
-		"DEV-132-01",
-		"DEV-132-02",
-		"DEV-132-03",
-		"UT-132-01",
-		"API-132-01",
-		"REV-132-01",
+		"PR-133",
+		"DEV-133-01",
+		"DEV-133-02",
+		"DEV-133-03",
+		"UT-133-01",
+		"API-133-01",
+		"REV-133-01",
 		"订单发货后维护出库单",
 		"出库单预览",
 		"出库单 PDF",

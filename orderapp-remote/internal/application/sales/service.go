@@ -454,8 +454,18 @@ type GenerateSalesOrderDocumentCommand struct {
 	OrderID int64
 }
 
+type GenerateSalesOrderImageCommand struct {
+	Actor   string
+	OrderID int64
+}
+
 type GenerateSalesOrderDocumentResult struct {
 	Document SalesOrderDocument             `json:"document"`
+	Snapshot salesdomain.SalesOrderSnapshot `json:"snapshot"`
+}
+
+type GenerateSalesOrderImageResult struct {
+	Document SalesOrderImageDocument        `json:"document"`
 	Snapshot salesdomain.SalesOrderSnapshot `json:"snapshot"`
 }
 
@@ -477,6 +487,19 @@ type SalesOrderDocument struct {
 	CreatedAt   string                         `json:"created_at"`
 	CreatedBy   string                         `json:"created_by"`
 	DownloadURL string                         `json:"download_url"`
+}
+
+type SalesOrderImageDocument struct {
+	ID           int64                          `json:"id"`
+	OrderID      int64                          `json:"order_id"`
+	OrderNo      string                         `json:"order_no"`
+	VersionNo    int                            `json:"version_no"`
+	Snapshot     salesdomain.SalesOrderSnapshot `json:"snapshot"`
+	ImageAssetID int64                          `json:"image_asset_id"`
+	IsLatest     bool                           `json:"is_latest"`
+	CreatedAt    string                         `json:"created_at"`
+	CreatedBy    string                         `json:"created_by"`
+	DownloadURL  string                         `json:"download_url"`
 }
 
 type SalesOrderCustomerInfo struct {
@@ -569,6 +592,12 @@ type DeliveryNoteDocumentFile struct {
 	Filename string
 }
 
+type SalesOrderImageFile struct {
+	Document SalesOrderImageDocument
+	Path     string
+	Filename string
+}
+
 type Repository interface {
 	SaveOrder(ctx context.Context, cmd SaveOrderCommand) (SaveOrderResult, error)
 	UpdateHeader(ctx context.Context, id int64, cmd UpdateHeaderCommand) error
@@ -599,9 +628,12 @@ type Repository interface {
 	SetSalesOrderSealAsset(ctx context.Context, assetID int64, actor string) error
 	LoadSalesOrderContext(ctx context.Context, orderID int64) (SalesOrderContext, error)
 	ListSalesOrderDocuments(ctx context.Context, orderID int64) ([]SalesOrderDocument, error)
+	ListSalesOrderImageDocuments(ctx context.Context, orderID int64) ([]SalesOrderImageDocument, error)
 	PreviewSalesOrderDocument(ctx context.Context, orderID int64) (SalesOrderPreview, error)
 	GenerateSalesOrderDocument(ctx context.Context, cmd GenerateSalesOrderDocumentCommand) (GenerateSalesOrderDocumentResult, error)
+	GenerateSalesOrderImage(ctx context.Context, cmd GenerateSalesOrderImageCommand) (GenerateSalesOrderImageResult, error)
 	LoadSalesOrderDocumentFile(ctx context.Context, orderID, documentID int64, latest bool) (SalesOrderDocumentFile, error)
+	LoadSalesOrderImageFile(ctx context.Context, orderID, imageID int64, latest bool) (SalesOrderImageFile, error)
 	LoadDeliveryNoteContext(ctx context.Context, orderID int64) (DeliveryNoteContext, error)
 	LoadDeliveryNoteForm(ctx context.Context, orderID int64) (DeliveryNoteForm, error)
 	SaveDeliveryNoteForm(ctx context.Context, cmd SaveDeliveryNoteFormCommand) (DeliveryNoteForm, error)
@@ -1032,6 +1064,13 @@ func (s *Service) ListSalesOrderDocuments(ctx context.Context, orderID int64) ([
 	return s.repo.ListSalesOrderDocuments(ctx, orderID)
 }
 
+func (s *Service) ListSalesOrderImageDocuments(ctx context.Context, orderID int64) ([]SalesOrderImageDocument, error) {
+	if orderID <= 0 {
+		return nil, fmt.Errorf("invalid order id")
+	}
+	return s.repo.ListSalesOrderImageDocuments(ctx, orderID)
+}
+
 func (s *Service) LoadSalesOrderContext(ctx context.Context, orderID int64) (SalesOrderContext, error) {
 	if orderID <= 0 {
 		return SalesOrderContext{}, fmt.Errorf("invalid order id")
@@ -1050,6 +1089,17 @@ func (s *Service) GenerateSalesOrderDocument(ctx context.Context, cmd GenerateSa
 	return s.repo.GenerateSalesOrderDocument(ctx, cmd)
 }
 
+func (s *Service) GenerateSalesOrderImage(ctx context.Context, cmd GenerateSalesOrderImageCommand) (GenerateSalesOrderImageResult, error) {
+	cmd.Actor = strings.TrimSpace(cmd.Actor)
+	if cmd.Actor == "" {
+		cmd.Actor = "sales"
+	}
+	if cmd.OrderID <= 0 {
+		return GenerateSalesOrderImageResult{}, fmt.Errorf("invalid order id")
+	}
+	return s.repo.GenerateSalesOrderImage(ctx, cmd)
+}
+
 func (s *Service) PreviewSalesOrderDocument(ctx context.Context, orderID int64) (SalesOrderPreview, error) {
 	if orderID <= 0 {
 		return SalesOrderPreview{}, fmt.Errorf("invalid order id")
@@ -1065,6 +1115,16 @@ func (s *Service) LoadSalesOrderDocumentFile(ctx context.Context, orderID, docum
 		return SalesOrderDocumentFile{}, fmt.Errorf("invalid document id")
 	}
 	return s.repo.LoadSalesOrderDocumentFile(ctx, orderID, documentID, latest)
+}
+
+func (s *Service) LoadSalesOrderImageFile(ctx context.Context, orderID, imageID int64, latest bool) (SalesOrderImageFile, error) {
+	if orderID <= 0 {
+		return SalesOrderImageFile{}, fmt.Errorf("invalid order id")
+	}
+	if !latest && imageID <= 0 {
+		return SalesOrderImageFile{}, fmt.Errorf("invalid image id")
+	}
+	return s.repo.LoadSalesOrderImageFile(ctx, orderID, imageID, latest)
 }
 
 func (s *Service) LoadDeliveryNoteContext(ctx context.Context, orderID int64) (DeliveryNoteContext, error) {

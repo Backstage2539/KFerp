@@ -258,6 +258,39 @@ func TestSalesOrderDocumentAPI(t *testing.T) {
 	if historyRec.Code != http.StatusOK || historyRec.Header().Get(echo.HeaderContentType) != "application/pdf" {
 		t.Fatalf("history download status=%d content-type=%q body=%s", historyRec.Code, historyRec.Header().Get(echo.HeaderContentType), historyRec.Body.String())
 	}
+
+	imageReq := httptest.NewRequest(http.MethodPost, "/api/orders/1/sales-order-images", nil)
+	imageRec := httptest.NewRecorder()
+	e.ServeHTTP(imageRec, imageReq)
+	if imageRec.Code != http.StatusOK {
+		t.Fatalf("image POST status=%d body=%s", imageRec.Code, imageRec.Body.String())
+	}
+	if !strings.Contains(imageRec.Body.String(), `"version_no":1`) || !strings.Contains(imageRec.Body.String(), `"download_url":"`) {
+		t.Fatalf("image POST response = %s", imageRec.Body.String())
+	}
+	var createdImage salesapp.SalesOrderImageDocument
+	if err := json.Unmarshal(imageRec.Body.Bytes(), &createdImage); err != nil {
+		t.Fatalf("decode generated image document: %v", err)
+	}
+
+	imageListReq := httptest.NewRequest(http.MethodGet, "/api/orders/1/sales-order-images", nil)
+	imageListRec := httptest.NewRecorder()
+	e.ServeHTTP(imageListRec, imageListReq)
+	if imageListRec.Code != http.StatusOK || !strings.Contains(imageListRec.Body.String(), `"rows":[`) {
+		t.Fatalf("image list status=%d body=%s", imageListRec.Code, imageListRec.Body.String())
+	}
+	imageLatestReq := httptest.NewRequest(http.MethodGet, "/orders/1/sales-order-image-latest.png", nil)
+	imageLatestRec := httptest.NewRecorder()
+	e.ServeHTTP(imageLatestRec, imageLatestReq)
+	if imageLatestRec.Code != http.StatusOK || imageLatestRec.Header().Get(echo.HeaderContentType) != "image/png" {
+		t.Fatalf("latest image download status=%d content-type=%q body=%s", imageLatestRec.Code, imageLatestRec.Header().Get(echo.HeaderContentType), imageLatestRec.Body.String())
+	}
+	imageHistoryReq := httptest.NewRequest(http.MethodGet, fmt.Sprintf("/orders/1/sales-order-images/%d.png", createdImage.ID), nil)
+	imageHistoryRec := httptest.NewRecorder()
+	e.ServeHTTP(imageHistoryRec, imageHistoryReq)
+	if imageHistoryRec.Code != http.StatusOK || imageHistoryRec.Header().Get(echo.HeaderContentType) != "image/png" {
+		t.Fatalf("history image download status=%d content-type=%q body=%s", imageHistoryRec.Code, imageHistoryRec.Header().Get(echo.HeaderContentType), imageHistoryRec.Body.String())
+	}
 }
 
 func TestSalesOrderPreviewAPIDoesNotCreateDocumentVersion(t *testing.T) {
