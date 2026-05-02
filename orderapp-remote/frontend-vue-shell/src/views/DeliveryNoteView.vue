@@ -270,12 +270,12 @@ async function shareDeliveryNote() {
       body: buildShareResourcePayload('delivery_note_pdf', orderID.value),
     })
     const result = await shareResourceToWechat(share)
-    if (result === 'shared') {
-      message.value = '已打开系统分享面板，选择微信发送给客户'
-    } else if (result === 'copied') {
-      message.value = '浏览器不支持直接分享，微信分享链接已复制'
+    if (result === 'file-shared') {
+      message.value = '已打开系统分享面板，请选择微信发送文件'
+    } else if (result === 'unsupported') {
+      message.value = '当前浏览器不支持直接分享文件，请下载最新版后手动发送到微信'
     } else {
-      message.value = share.share_url ? `复制链接后发给客户：${share.share_url}` : '分享链接已生成'
+      message.value = '无法直接分享文件，请下载最新版后手动发送到微信'
     }
     await load()
   } catch (err) {

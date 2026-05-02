@@ -24,28 +24,49 @@ export function absoluteShareURL(rawURL, origin = defaultOrigin()) {
 export async function shareResourceToWechat(resource = {}, env = {}) {
   const origin = env.origin || defaultOrigin()
   const nav = env.navigator || globalThis.navigator || {}
-  const shareURL = absoluteShareURL(resource.share_url || resource.file_url, origin)
+  const fetchFile = env.fetch || globalThis.fetch
+  const FileCtor = env.File || globalThis.File
+  const fileURL = absoluteShareURL(resource.file_url, origin)
   const title = resource.title || resource.filename || '分享资源'
-  const text = normalizeShareText(resource.share_text, title, shareURL)
 
-  if (shareURL && typeof nav.share === 'function') {
-    await nav.share({ title, text, url: shareURL })
-    return 'shared'
+  if (!fileURL || typeof fetchFile !== 'function' || typeof FileCtor !== 'function' || typeof nav.share !== 'function') {
+    return 'unsupported'
   }
-  if (shareURL && nav.clipboard && typeof nav.clipboard.writeText === 'function') {
-    await nav.clipboard.writeText(shareURL)
-    return 'copied'
+
+  const response = await fetchFile(fileURL)
+  if (!response?.ok || typeof response.blob !== 'function') {
+    throw new Error('share file download failed')
   }
-  return 'manual'
+  const blob = await response.blob()
+  const fileName = normalizeFileName(resource.filename, resource.resource_type)
+  const fileType = resource.content_type || blob.type || 'application/octet-stream'
+  const file = new FileCtor([blob], fileName, { type: fileType })
+  const sharePayload = { title, text: title, files: [file] }
+
+  if (typeof nav.canShare === 'function' && !nav.canShare({ files: [file] })) {
+    return 'unsupported'
+  }
+
+  try {
+    await nav.share(sharePayload)
+  } catch (err) {
+    if (isUnsupportedShareError(err)) return 'unsupported'
+    throw err
+  }
+  return 'file-shared'
 }
 
-function normalizeShareText(raw, title, shareURL) {
+function normalizeFileName(raw, resourceType) {
   const value = String(raw || '').trim()
-  if (!value) return shareURL ? `${title}\n${shareURL}` : title
-  if (shareURL && value.includes('/share/')) {
-    return value.replace(/(^|\s)(\/share\/[^\s]+)/g, `$1${shareURL}`)
-  }
-  return value
+  if (value) return value
+  const suffix = String(resourceType || '').includes('image') ? 'png' : 'pdf'
+  return `share-resource.${suffix}`
+}
+
+function isUnsupportedShareError(err) {
+  const name = String(err?.name || '')
+  const message = String(err?.message || '')
+  return name === 'TypeError' || /file|share|unsupported/i.test(message)
 }
 
 function defaultOrigin() {

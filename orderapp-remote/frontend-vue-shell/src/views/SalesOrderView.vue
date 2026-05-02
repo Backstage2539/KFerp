@@ -36,7 +36,7 @@
           <li>预览里的公章可直接拖动，松开后保存位置；位置只影响之后生成的新销售单。</li>
           <li>销售单内容按生成时的订单和设置保存快照，后续修改设置不会改动旧版本。</li>
           <li>需要给客户最新文件时使用“下载最新版 PDF”或“下载最新版图片”，需要追溯时下载指定历史版本。</li>
-          <li>“分享到微信”会生成一个外部分享链接；微信客户无需登录即可打开该链接查看本次分享的 PDF 或图片。</li>
+          <li>“分享到微信”会调起系统分享面板直接发送 PDF 或图片文件；浏览器不支持文件分享时，请下载最新版后手动发送。</li>
         </ul>
       </details>
     </section>
@@ -343,12 +343,12 @@ async function shareLatestResource(resourceType) {
       body: buildShareResourcePayload(resourceType, orderID.value),
     })
     const result = await shareResourceToWechat(share)
-    if (result === 'shared') {
-      message.value = '已打开系统分享面板，选择微信发送给客户'
-    } else if (result === 'copied') {
-      message.value = '浏览器不支持直接分享，微信分享链接已复制'
+    if (result === 'file-shared') {
+      message.value = '已打开系统分享面板，请选择微信发送文件'
+    } else if (result === 'unsupported') {
+      message.value = '当前浏览器不支持直接分享文件，请下载最新版后手动发送到微信'
     } else {
-      message.value = share.share_url ? `复制链接后发给客户：${share.share_url}` : '分享链接已生成'
+      message.value = '无法直接分享文件，请下载最新版后手动发送到微信'
     }
     await load()
   } catch (err) {

@@ -110,7 +110,7 @@ var externalSharePageTemplate = template.Must(template.New("external-share").Par
   <main>
     <section class="panel">
       <h1>{{.Title}}</h1>
-      <p class="hint">微信分享资源。可直接打开查看，也可以转发本页面链接给客户。</p>
+      <p class="hint">微信分享资源文件。请优先使用 ERP 内的分享按钮直接发送文件；本页仅用于打开文件。</p>
       <a class="action" href="{{.FileURL}}">打开文件</a>
       <div class="preview">
         {{if .IsImage}}
