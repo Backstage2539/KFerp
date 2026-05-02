@@ -49,6 +49,20 @@ func TestVueShellCanLoadBeforeBearerAPIAuth(t *testing.T) {
 	}
 }
 
+func TestExternalSharePagesArePublicButShareCreationRequiresOrderWrite(t *testing.T) {
+	for _, path := range []string{"/share/abc123", "/share/abc123/file"} {
+		if !isPublicUnauthenticatedPath(path) {
+			t.Fatalf("%s must be public so WeChat recipients can open shared resources", path)
+		}
+	}
+	if isPublicUnauthenticatedPath("/api/share-resources") {
+		t.Fatal("/api/share-resources must stay authenticated because it creates external share links")
+	}
+	if got := requiredPermissionForRequest(http.MethodPost, "/api/share-resources"); got != "orders.write" {
+		t.Fatalf("POST /api/share-resources permission=%q, want orders.write", got)
+	}
+}
+
 func TestBearerTokenFromHeader(t *testing.T) {
 	if got := bearerTokenFromHeader("Bearer abc123"); got != "abc123" {
 		t.Fatalf("token=%q", got)

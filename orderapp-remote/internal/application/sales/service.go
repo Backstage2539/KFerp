@@ -601,6 +601,40 @@ type SalesOrderImageFile struct {
 	Filename string
 }
 
+const (
+	ExternalShareSalesOrderPDF   = "sales_order_pdf"
+	ExternalShareSalesOrderImage = "sales_order_image"
+	ExternalShareDeliveryNotePDF = "delivery_note_pdf"
+)
+
+type CreateExternalShareResourceCommand struct {
+	Actor        string `json:"actor"`
+	ResourceType string `json:"resource_type"`
+	OrderID      int64  `json:"order_id"`
+	DocumentID   int64  `json:"document_id"`
+	Latest       bool   `json:"latest"`
+}
+
+type ExternalShareResource struct {
+	Token        string `json:"token"`
+	ResourceType string `json:"resource_type"`
+	OrderID      int64  `json:"order_id"`
+	ResourceID   int64  `json:"resource_id"`
+	Title        string `json:"title"`
+	Filename     string `json:"filename"`
+	ContentType  string `json:"content_type"`
+	ShareURL     string `json:"share_url"`
+	FileURL      string `json:"file_url"`
+	ShareText    string `json:"share_text"`
+	CreatedAt    string `json:"created_at"`
+	CreatedBy    string `json:"created_by"`
+}
+
+type ExternalShareResourceFile struct {
+	Resource ExternalShareResource
+	Path     string
+}
+
 type OrderInvoice struct {
 	OrderID     int64            `json:"order_id"`
 	OrderNo     string           `json:"order_no"`
@@ -670,6 +704,8 @@ type Repository interface {
 	PreviewDeliveryNoteDocument(ctx context.Context, orderID int64) (DeliveryNotePreview, error)
 	GenerateDeliveryNoteDocument(ctx context.Context, cmd GenerateDeliveryNoteDocumentCommand) (GenerateDeliveryNoteDocumentResult, error)
 	LoadDeliveryNoteDocumentFile(ctx context.Context, orderID, documentID int64, latest bool) (DeliveryNoteDocumentFile, error)
+	CreateExternalShareResource(ctx context.Context, cmd CreateExternalShareResourceCommand) (ExternalShareResource, error)
+	LoadExternalShareResourceFile(ctx context.Context, token string) (ExternalShareResourceFile, error)
 	LoadOrderInvoice(ctx context.Context, orderID int64) (OrderInvoice, error)
 	RequestOrderInvoice(ctx context.Context, cmd RequestOrderInvoiceCommand) (OrderInvoice, error)
 	SaveOrderInvoiceFile(ctx context.Context, cmd SaveOrderInvoiceFileCommand) (OrderInvoice, error)
@@ -1226,6 +1262,41 @@ func (s *Service) LoadDeliveryNoteDocumentFile(ctx context.Context, orderID, doc
 		return DeliveryNoteDocumentFile{}, fmt.Errorf("invalid document id")
 	}
 	return s.repo.LoadDeliveryNoteDocumentFile(ctx, orderID, documentID, latest)
+}
+
+func (s *Service) CreateExternalShareResource(ctx context.Context, cmd CreateExternalShareResourceCommand) (ExternalShareResource, error) {
+	cmd.Actor = strings.TrimSpace(cmd.Actor)
+	if cmd.Actor == "" {
+		cmd.Actor = "sales"
+	}
+	cmd.ResourceType = strings.TrimSpace(cmd.ResourceType)
+	if !isExternalShareResourceType(cmd.ResourceType) {
+		return ExternalShareResource{}, fmt.Errorf("invalid share resource type")
+	}
+	if cmd.OrderID <= 0 {
+		return ExternalShareResource{}, fmt.Errorf("invalid order id")
+	}
+	if !cmd.Latest && cmd.DocumentID <= 0 {
+		return ExternalShareResource{}, fmt.Errorf("invalid document id")
+	}
+	return s.repo.CreateExternalShareResource(ctx, cmd)
+}
+
+func (s *Service) LoadExternalShareResourceFile(ctx context.Context, token string) (ExternalShareResourceFile, error) {
+	token = strings.TrimSpace(token)
+	if token == "" {
+		return ExternalShareResourceFile{}, fmt.Errorf("invalid share token")
+	}
+	return s.repo.LoadExternalShareResourceFile(ctx, token)
+}
+
+func isExternalShareResourceType(resourceType string) bool {
+	switch resourceType {
+	case ExternalShareSalesOrderPDF, ExternalShareSalesOrderImage, ExternalShareDeliveryNotePDF:
+		return true
+	default:
+		return false
+	}
 }
 
 func (s *Service) LoadOrderInvoice(ctx context.Context, orderID int64) (OrderInvoice, error) {

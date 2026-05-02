@@ -23,6 +23,7 @@ type fakeRepo struct {
 	deliveryFormCmd        SaveDeliveryNoteFormCommand
 	generateDeliveryCmd    GenerateDeliveryNoteDocumentCommand
 	previewDeliveryOrderID int64
+	shareCmd               CreateExternalShareResourceCommand
 	invoiceRequestCmd      RequestOrderInvoiceCommand
 	invoiceFileCmd         SaveOrderInvoiceFileCommand
 }
@@ -211,6 +212,15 @@ func (r *fakeRepo) LoadDeliveryNoteDocumentFile(ctx context.Context, orderID, do
 	return DeliveryNoteDocumentFile{Document: DeliveryNoteDocument{ID: documentID, OrderID: orderID, OrderNo: "SO-TEST", VersionNo: 1}, Path: "/tmp/test.pdf", Filename: "SO-TEST-DN-V1.pdf"}, nil
 }
 
+func (r *fakeRepo) CreateExternalShareResource(ctx context.Context, cmd CreateExternalShareResourceCommand) (ExternalShareResource, error) {
+	r.shareCmd = cmd
+	return ExternalShareResource{Token: "token", ResourceType: cmd.ResourceType, OrderID: cmd.OrderID, ResourceID: cmd.DocumentID, ShareURL: "/share/token", FileURL: "/share/token/file"}, nil
+}
+
+func (r *fakeRepo) LoadExternalShareResourceFile(ctx context.Context, token string) (ExternalShareResourceFile, error) {
+	return ExternalShareResourceFile{Resource: ExternalShareResource{Token: token, ContentType: "application/pdf", Filename: "SO-TEST-V1.pdf"}, Path: "/tmp/test.pdf"}, nil
+}
+
 func (r *fakeRepo) LoadOrderInvoice(ctx context.Context, orderID int64) (OrderInvoice, error) {
 	return OrderInvoice{OrderID: orderID, OrderNo: "SO-TEST", Status: "requested"}, nil
 }
@@ -301,6 +311,45 @@ func TestServiceOwnsOrderInvoiceUseCases(t *testing.T) {
 	}
 	if _, err := svc.SaveOrderInvoiceFile(context.Background(), SaveOrderInvoiceFileCommand{OrderID: 9, Filename: "invoice.txt", ContentType: "text/plain", Bytes: 1, SHA256: "x", ObjectKey: "x"}); err == nil {
 		t.Fatal("SaveOrderInvoiceFile unsupported content type error = nil")
+	}
+}
+
+func TestServiceOwnsExternalShareResourceUseCases(t *testing.T) {
+	repo := &fakeRepo{}
+	svc := NewService(repo)
+
+	share, err := svc.CreateExternalShareResource(context.Background(), CreateExternalShareResourceCommand{
+		Actor:        " 销售 ",
+		ResourceType: ExternalShareSalesOrderPDF,
+		OrderID:      18,
+		Latest:       true,
+	})
+	if err != nil {
+		t.Fatalf("CreateExternalShareResource: %v", err)
+	}
+	if share.ShareURL != "/share/token" || repo.shareCmd.Actor != "销售" || repo.shareCmd.ResourceType != ExternalShareSalesOrderPDF || repo.shareCmd.OrderID != 18 || !repo.shareCmd.Latest {
+		t.Fatalf("share=%+v cmd=%+v", share, repo.shareCmd)
+	}
+
+	if _, err := svc.CreateExternalShareResource(context.Background(), CreateExternalShareResourceCommand{ResourceType: "unknown", OrderID: 18, Latest: true}); err == nil {
+		t.Fatal("invalid resource type error = nil")
+	}
+	if _, err := svc.CreateExternalShareResource(context.Background(), CreateExternalShareResourceCommand{ResourceType: ExternalShareDeliveryNotePDF, OrderID: 0, Latest: true}); err == nil {
+		t.Fatal("invalid order id error = nil")
+	}
+	if _, err := svc.CreateExternalShareResource(context.Background(), CreateExternalShareResourceCommand{ResourceType: ExternalShareSalesOrderImage, OrderID: 18}); err == nil {
+		t.Fatal("missing explicit document id for non-latest share error = nil")
+	}
+
+	file, err := svc.LoadExternalShareResourceFile(context.Background(), " token ")
+	if err != nil {
+		t.Fatalf("LoadExternalShareResourceFile: %v", err)
+	}
+	if file.Resource.Token != "token" {
+		t.Fatalf("share file=%+v", file)
+	}
+	if _, err := svc.LoadExternalShareResourceFile(context.Background(), ""); err == nil {
+		t.Fatal("empty token error = nil")
 	}
 }
 

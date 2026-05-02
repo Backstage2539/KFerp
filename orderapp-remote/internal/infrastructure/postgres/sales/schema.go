@@ -32,7 +32,10 @@ func EnsureSchema(ctx context.Context, pool *pgxpool.Pool, schema string) error 
 	if err := ensureOrderInvoiceTables(ctx, pool, schema); err != nil {
 		return err
 	}
-	return ensureDeliveryNoteTables(ctx, pool, schema)
+	if err := ensureDeliveryNoteTables(ctx, pool, schema); err != nil {
+		return err
+	}
+	return ensureExternalShareResourceTables(ctx, pool, schema)
 }
 
 func ensureCustomerCompanyColumns(ctx context.Context, pool *pgxpool.Pool, schema string) error {
@@ -318,6 +321,31 @@ func ensureDeliveryNoteTables(ctx context.Context, pool *pgxpool.Pool, schema st
 			UNIQUE(order_id, version_no)
 		)`, schema, schema, schema),
 		fmt.Sprintf(`CREATE UNIQUE INDEX IF NOT EXISTS idx_%s_delivery_note_latest ON %s.delivery_note_documents(order_id) WHERE is_latest`, schema, schema),
+	}
+	for _, stmt := range stmts {
+		if _, err := pool.Exec(ctx, stmt); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func ensureExternalShareResourceTables(ctx context.Context, pool *pgxpool.Pool, schema string) error {
+	stmts := []string{
+		fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s.external_share_resources (
+			token TEXT PRIMARY KEY,
+			resource_type TEXT NOT NULL,
+			order_id BIGINT NOT NULL REFERENCES %s.orders(id) ON DELETE CASCADE,
+			resource_id BIGINT NOT NULL,
+			title TEXT NOT NULL DEFAULT '',
+			filename TEXT NOT NULL DEFAULT '',
+			content_type TEXT NOT NULL DEFAULT '',
+			created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+			created_by TEXT NOT NULL DEFAULT '',
+			last_accessed_at TIMESTAMPTZ
+		)`, schema, schema),
+		fmt.Sprintf(`CREATE INDEX IF NOT EXISTS idx_%s_external_share_order ON %s.external_share_resources(order_id, resource_type)`, schema, schema),
+		fmt.Sprintf(`CREATE INDEX IF NOT EXISTS idx_%s_external_share_resource ON %s.external_share_resources(resource_type, resource_id)`, schema, schema),
 	}
 	for _, stmt := range stmts {
 		if _, err := pool.Exec(ctx, stmt); err != nil {

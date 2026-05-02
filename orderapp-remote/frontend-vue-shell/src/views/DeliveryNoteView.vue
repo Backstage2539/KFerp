@@ -8,6 +8,7 @@
           <a v-else class="secondary link-button" href="/vue-shell?view=orders">返回订单列表</a>
           <button class="secondary" type="button" @click="loadPreview" :disabled="previewLoading || !orderID">{{ previewLoading ? '预览中' : '刷新预览' }}</button>
           <a v-if="documents.length" class="secondary link-button" :href="deliveryNoteDownloadUrl(orderID)" target="_blank" rel="noopener">下载最新版</a>
+          <button class="secondary" type="button" @click="shareDeliveryNote" :disabled="shareLoading || !orderID || !documents.length">{{ shareLoading ? '分享中' : '分享到微信' }}</button>
           <button class="primary" type="button" @click="confirmGenerateDeliveryNote" :disabled="generating || !orderID || !preview">{{ generating ? '生成中' : '确认生成 PDF' }}</button>
         </div>
       </div>
@@ -125,6 +126,7 @@
 import { computed, onMounted, reactive, ref } from 'vue'
 import { apiGet, apiSend } from '../api/client'
 import { deliveryNoteDownloadUrl } from '../lib/delivery-note'
+import { buildShareResourcePayload, shareResourceToWechat } from '../lib/external-share'
 
 const props = defineProps({
   orderId: { type: [Number, String], default: 0 },
@@ -141,6 +143,7 @@ const error = ref('')
 const message = ref('')
 const documents = ref([])
 const preview = ref(null)
+const shareLoading = ref(false)
 const orderSummary = reactive({ order_id: 0, order_no: '', ship_status: '', customer: {} })
 const form = reactive(emptyForm())
 
@@ -254,6 +257,31 @@ async function confirmGenerateDeliveryNote() {
     error.value = err.message || '生成失败'
   } finally {
     generating.value = false
+  }
+}
+
+async function shareDeliveryNote() {
+  if (!orderID.value || shareLoading.value) return
+  shareLoading.value = true
+  error.value = ''
+  message.value = ''
+  try {
+    const share = await apiSend('/api/share-resources', {
+      body: buildShareResourcePayload('delivery_note_pdf', orderID.value),
+    })
+    const result = await shareResourceToWechat(share)
+    if (result === 'shared') {
+      message.value = '已打开系统分享面板，选择微信发送给客户'
+    } else if (result === 'copied') {
+      message.value = '浏览器不支持直接分享，微信分享链接已复制'
+    } else {
+      message.value = share.share_url ? `复制链接后发给客户：${share.share_url}` : '分享链接已生成'
+    }
+    await load()
+  } catch (err) {
+    error.value = err.message || '分享到微信失败'
+  } finally {
+    shareLoading.value = false
   }
 }
 
