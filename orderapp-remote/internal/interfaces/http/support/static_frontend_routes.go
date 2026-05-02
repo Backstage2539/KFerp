@@ -20,6 +20,6 @@ func registerStaticFrontendRoutes(e *echo.Echo) {
 		if raw := c.QueryString(); raw != "" {
 			target += "&" + raw
 		}
-		return c.Redirect(http.StatusFound, target)
+		return c.Redirect(http.StatusFound, PrefixRelativeLocation(c, target))
 	})
 }

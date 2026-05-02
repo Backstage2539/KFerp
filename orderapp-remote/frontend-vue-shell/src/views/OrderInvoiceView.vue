@@ -8,7 +8,7 @@
         </div>
         <div class="actions">
           <button v-if="props.embedded" class="secondary" type="button" @click="emit('close')">关闭</button>
-          <a v-else class="secondary link-button" href="/vue-shell?view=orders">返回订单列表</a>
+          <a v-else class="secondary link-button" :href="appURL('/vue-shell?view=orders')">返回订单列表</a>
           <button class="secondary" type="button" @click="load" :disabled="loading || !orderID">{{ loading ? '刷新中' : '刷新' }}</button>
           <button class="primary" type="button" @click="requestInvoice" :disabled="requesting || !orderID || invoice.status === 'uploaded'">
             {{ requesting ? '申请中' : invoice.status ? '重新标记申请' : '申请发票' }}
@@ -54,7 +54,7 @@
 
 <script setup>
 import { computed, onMounted, reactive, ref } from 'vue'
-import { apiGet, apiSend } from '../api/client'
+import { apiGet, apiSend, appURL } from '../api/client'
 import {
   invoiceStatusLabel,
   invoiceStatusTone,

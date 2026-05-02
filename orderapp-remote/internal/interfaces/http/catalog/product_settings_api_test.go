@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	catalogapp "orderapp/internal/application/catalog"
 	"testing"
 
@@ -227,7 +228,15 @@ func TestLegacyProductAndCostingRoutesRedirectToProductSettings(t *testing.T) {
 		req := httptest.NewRequest(http.MethodGet, tc.path, nil)
 		rec := httptest.NewRecorder()
 		e.ServeHTTP(rec, req)
-		if rec.Code != http.StatusFound || rec.Header().Get("Location") != tc.want {
+		loc, err := url.Parse(rec.Header().Get("Location"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		base, err := url.Parse("https://example.test" + tc.path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if rec.Code != http.StatusFound || base.ResolveReference(loc).RequestURI() != tc.want {
 			t.Fatalf("GET %s status=%d location=%q want %s", tc.path, rec.Code, rec.Header().Get("Location"), tc.want)
 		}
 	}

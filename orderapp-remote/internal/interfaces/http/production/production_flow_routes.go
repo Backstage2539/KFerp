@@ -83,15 +83,15 @@ type ProduceRunningActionAPIResponse struct {
 func registerProductionFlowPages(e *echo.Echo, productionSvc *productionapp.Service) {
 	e.POST("/produce/start", func(c echo.Context) error {
 		if err := support.RequireEmployeeBound(c); err != nil {
-			return c.Redirect(http.StatusSeeOther, "/produce/plan?err="+url.QueryEscape(err.Error()))
+			return c.Redirect(http.StatusSeeOther, support.PrefixRelativeLocation(c, "/produce/plan?err="+url.QueryEscape(err.Error())))
 		}
 		values, err := c.FormParams()
 		if err != nil {
-			return c.Redirect(http.StatusSeeOther, "/produce/plan?err=invalid+request")
+			return c.Redirect(http.StatusSeeOther, support.PrefixRelativeLocation(c, "/produce/plan?err=invalid+request"))
 		}
 		selected := selectedKeysFromForm(values)
 		if len(selected) == 0 {
-			return c.Redirect(http.StatusSeeOther, "/produce/plan?err="+url.QueryEscape("请先生成计划并选择项目"))
+			return c.Redirect(http.StatusSeeOther, support.PrefixRelativeLocation(c, "/produce/plan?err="+url.QueryEscape("请先生成计划并选择项目")))
 		}
 		if _, err := productionSvc.Start(c.Request().Context(), productionapp.StartCommand{
 			From:       strings.TrimSpace(c.FormValue("from")),
@@ -101,9 +101,9 @@ func registerProductionFlowPages(e *echo.Echo, productionSvc *productionapp.Serv
 			InputByKey: parseInputByKey(values),
 			Operator:   support.ActorOf(c),
 		}); err != nil {
-			return c.Redirect(http.StatusSeeOther, "/produce/plan?err="+url.QueryEscape(err.Error()))
+			return c.Redirect(http.StatusSeeOther, support.PrefixRelativeLocation(c, "/produce/plan?err="+url.QueryEscape(err.Error())))
 		}
-		return c.Redirect(http.StatusSeeOther, "/produce/running?ok=1")
+		return c.Redirect(http.StatusSeeOther, support.PrefixRelativeLocation(c, "/produce/running?ok=1"))
 	})
 
 	e.POST("/api/produce/start", func(c echo.Context) error {
@@ -146,7 +146,7 @@ func registerProductionFlowPages(e *echo.Echo, productionSvc *productionapp.Serv
 		if errText := strings.TrimSpace(c.QueryParam("err")); errText != "" {
 			target += "&err=" + url.QueryEscape(errText)
 		}
-		return c.Redirect(http.StatusSeeOther, target)
+		return c.Redirect(http.StatusSeeOther, support.PrefixRelativeLocation(c, target))
 	})
 
 	e.GET("/api/produce/running", func(c echo.Context) error {
@@ -159,7 +159,7 @@ func registerProductionFlowPages(e *echo.Echo, productionSvc *productionapp.Serv
 
 	e.POST("/produce/running/finish", func(c echo.Context) error {
 		if err := support.RequireEmployeeBound(c); err != nil {
-			return c.Redirect(http.StatusSeeOther, "/produce/running?err="+url.QueryEscape(err.Error()))
+			return c.Redirect(http.StatusSeeOther, support.PrefixRelativeLocation(c, "/produce/running?err="+url.QueryEscape(err.Error())))
 		}
 		if err := productionSvc.Finish(c.Request().Context(), productionapp.FinishCommand{
 			ID:               parseInt64(c.FormValue("id")),
@@ -171,9 +171,9 @@ func registerProductionFlowPages(e *echo.Echo, productionSvc *productionapp.Serv
 			ConsumedInputG:   parseInt64(c.FormValue("consumed_input_g")),
 			Operator:         support.ActorOf(c),
 		}); err != nil {
-			return c.Redirect(http.StatusSeeOther, "/produce/running?err="+url.QueryEscape(err.Error()))
+			return c.Redirect(http.StatusSeeOther, support.PrefixRelativeLocation(c, "/produce/running?err="+url.QueryEscape(err.Error())))
 		}
-		return c.Redirect(http.StatusSeeOther, "/produce/running?ok=1")
+		return c.Redirect(http.StatusSeeOther, support.PrefixRelativeLocation(c, "/produce/running?ok=1"))
 	})
 
 	e.POST("/api/produce/running/finish", func(c echo.Context) error {

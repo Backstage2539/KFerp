@@ -95,6 +95,7 @@ import WipMaterialsView from './views/WipMaterialsView.vue'
 import WarehouseInventoryView from './views/WarehouseInventoryView.vue'
 import WorkOrdersView from './views/WorkOrdersView.vue'
 import { clearStoredAuthToken, fetchCurrentActor, hasStoredAuthToken, logoutCurrentSession } from './api/auth.js'
+import { appURL } from './api/client.js'
 import { replaceHistoryURL } from './lib/url-state.js'
 import {
   defaultExpandedGroups,
@@ -310,7 +311,7 @@ async function loadActor() {
 }
 
 function redirectToLogin() {
-  window.location.replace('/login')
+  window.location.replace(appURL('/login'))
 }
 
 async function logout() {

@@ -918,7 +918,7 @@ func TestProduceRunningPageRedirectsToVueShellWithQueryError(t *testing.T) {
 		t.Fatalf("GET /produce/running status = %d, want %d", rec.Code, http.StatusSeeOther)
 	}
 	loc := rec.Header().Get("Location")
-	if !strings.Contains(loc, "/vue-shell?view=produceRunning") || !strings.Contains(loc, "err=input_g+must+be+greater+than+0") {
+	if !strings.Contains(loc, "vue-shell?view=produceRunning") || !strings.Contains(loc, "err=input_g+must+be+greater+than+0") {
 		t.Fatalf("GET /produce/running Location = %q", loc)
 	}
 }

@@ -27,7 +27,7 @@ type deliveryNoteFormRequest struct {
 func registerDeliveryNoteDocumentRoutes(e *echo.Echo, salesSvc *salesapp.Service) {
 	h := deliveryNoteDocumentHandler{sales: salesSvc}
 	e.GET("/orders/:id/delivery-note", func(c echo.Context) error {
-		return c.Redirect(http.StatusFound, "/vue-shell?view=deliveryNote&order_id="+c.Param("id"))
+		return c.Redirect(http.StatusFound, support.PrefixRelativeLocation(c, "/vue-shell?view=deliveryNote&order_id="+c.Param("id")))
 	})
 	e.GET("/api/orders/:id/delivery-notes", h.list)
 	e.GET("/api/orders/:id/delivery-note-preview", h.preview)

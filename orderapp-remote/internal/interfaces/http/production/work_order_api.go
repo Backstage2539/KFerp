@@ -15,17 +15,17 @@ func registerWorkOrderAPI(e *echo.Echo, productionSvc *productionapp.Service) {
 		if raw := c.QueryString(); raw != "" {
 			target += "&" + raw
 		}
-		return c.Redirect(http.StatusFound, target)
+		return c.Redirect(http.StatusFound, support.PrefixRelativeLocation(c, target))
 	})
 	e.GET("/produce/job-cards", func(c echo.Context) error {
 		target := "/vue-shell?view=jobCards"
 		if raw := c.QueryString(); raw != "" {
 			target += "&" + raw
 		}
-		return c.Redirect(http.StatusFound, target)
+		return c.Redirect(http.StatusFound, support.PrefixRelativeLocation(c, target))
 	})
 	e.GET("/produce/costs", func(c echo.Context) error {
-		return c.Redirect(http.StatusFound, "/vue-shell?view=productionCosts")
+		return c.Redirect(http.StatusFound, support.PrefixRelativeLocation(c, "/vue-shell?view=productionCosts"))
 	})
 	e.GET("/api/produce/work-orders", func(c echo.Context) error {
 		rows, err := productionSvc.ListWorkOrders(c.Request().Context(), productionapp.WorkOrderQuery{

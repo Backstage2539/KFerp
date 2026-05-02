@@ -24,13 +24,30 @@ function authHeaders(headers = {}) {
   return { ...headers, Authorization: `Bearer ${token}` }
 }
 
+function appBasePath() {
+  if (typeof window === 'undefined') return ''
+  try {
+    const pathname = window.location?.pathname || new URL(window.location?.href || '', window.location?.origin || 'http://localhost').pathname
+    return pathname === '/app' || pathname.startsWith('/app/') ? '/app' : ''
+  } catch {
+    return ''
+  }
+}
+
+export function appURL(url) {
+  if (typeof url !== 'string' || !url.startsWith('/')) return url
+  const base = appBasePath()
+  if (!base || url === base || url.startsWith(`${base}/`)) return url
+  return `${base}${url}`
+}
+
 export function apiURL(url) {
   if (url instanceof URL) {
     if (typeof window === 'undefined' || url.origin !== window.location.origin) return url.toString()
-    return new URL(`${url.pathname}${url.search}${url.hash}`, window.location.origin).toString()
+    return new URL(appURL(`${url.pathname}${url.search}${url.hash}`), window.location.origin).toString()
   }
   if (typeof window === 'undefined' || typeof url !== 'string' || !url.startsWith('/')) return url
-  return new URL(url, window.location.origin).toString()
+  return new URL(appURL(url), window.location.origin).toString()
 }
 
 export async function apiFetch(url, options = {}) {

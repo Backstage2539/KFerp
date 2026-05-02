@@ -9,12 +9,12 @@ import (
 func TestOutboundLogsStockRequirementSeeds(t *testing.T) {
 	src := string(readOrderAppFileForTest(t, filepath.Join("internal", "interfaces", "http", "support", "req_store.go")))
 	for _, want := range []string{
-		"PR-145",
-		"DEV-145-01",
-		"DEV-145-02",
-		"UT-145-01",
-		"API-145-01",
-		"REV-145-01",
+		"PR-146",
+		"DEV-146-01",
+		"DEV-146-02",
+		"UT-146-01",
+		"API-146-01",
+		"REV-146-01",
 		"顺丰发货",
 		"出库日志",
 		"库存管理",
