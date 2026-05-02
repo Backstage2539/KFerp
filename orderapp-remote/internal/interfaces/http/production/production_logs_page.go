@@ -3,6 +3,7 @@ package production
 import (
 	"net/http"
 	productionapp "orderapp/internal/application/production"
+	support "orderapp/internal/interfaces/http/support"
 	"strconv"
 	"strings"
 
@@ -34,7 +35,7 @@ func registerProductionLogPages(e *echo.Echo, productionSvc *productionapp.Servi
 		if raw := c.QueryString(); raw != "" {
 			target += "&" + raw
 		}
-		return c.Redirect(http.StatusFound, target)
+		return c.Redirect(http.StatusFound, support.PrefixRelativeLocation(c, target))
 	})
 
 	e.GET("/api/produce/logs", func(c echo.Context) error {

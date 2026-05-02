@@ -161,6 +161,12 @@
 
 ---
 
+## G. 用户权限与账号（/app/login / /app/vue-shell）
+- [ ] 手机从 `/app` 入口打开系统时，只需输入一次外层 `order` 认证和一次系统账号。
+- [ ] 登录成功、刷新、页面跳转和退出回登录都不跳出 `/app` 前缀，不再反复要求登录。
+
+---
+
 ## H. 生产制造（/vue-shell?view=productionAcceptance / producePlan / workOrders / warehouseInventory）
 - [ ] 生产验收页展示仓库、原料库存、WIP、生产工单、WIP 占用、生产日志、质检和成品追溯检查项。
 - [ ] 生产计划页不再显示“物料需求计划”；库存充足时提示生产状态设为“无需生产”、发货状态保持“未发货”。

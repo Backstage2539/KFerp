@@ -173,7 +173,7 @@
 
 <script setup>
 import { computed, onMounted, reactive, ref } from 'vue'
-import { apiGet, apiSend } from '../api/client'
+import { apiGet, apiSend, appURL } from '../api/client'
 import { buildMaterialSummary, buildStartPayload, rebuildPlanRows, producePlanKey } from '../lib/produce-plan'
 import { replaceHistoryURL } from '../lib/url-state'
 
@@ -309,7 +309,7 @@ async function startProduction() {
   try {
     const payload = buildStartPayload(filters, keys, roastPlans.value, computedPlanRows.value)
     await apiSend('/api/produce/start', { body: payload })
-    window.location.href = '/produce/running?ok=1'
+    window.location.href = appURL('/produce/running?ok=1')
   } catch (err) {
     error.value = err.message || '开始生产失败'
   } finally {

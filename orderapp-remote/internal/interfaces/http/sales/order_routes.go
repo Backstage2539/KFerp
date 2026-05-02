@@ -82,7 +82,7 @@ func (h orderHandler) detailRedirect(c echo.Context) error {
 	if err != nil || id <= 0 {
 		return c.String(http.StatusBadRequest, "invalid id")
 	}
-	return c.Redirect(http.StatusSeeOther, fmt.Sprintf("/orders/%d/edit", id))
+	return c.Redirect(http.StatusSeeOther, support.PrefixRelativeLocation(c, fmt.Sprintf("/orders/%d/edit", id)))
 
 }
 
@@ -91,7 +91,7 @@ func (h orderHandler) editRedirect(c echo.Context) error {
 	if err != nil || id <= 0 {
 		return c.String(http.StatusBadRequest, "invalid id")
 	}
-	return c.Redirect(http.StatusSeeOther, fmt.Sprintf("/order?edit_id=%d", id))
+	return c.Redirect(http.StatusSeeOther, support.PrefixRelativeLocation(c, fmt.Sprintf("/order?edit_id=%d", id)))
 
 }
 
@@ -108,7 +108,7 @@ func (h orderHandler) editPost(c echo.Context) error {
 	if err := h.sales.UpdateHeader(ctx, id, updateHeaderCommandFromRequest(req, support.ActorOf(c))); err != nil {
 		return c.String(http.StatusBadRequest, err.Error())
 	}
-	return c.Redirect(http.StatusSeeOther, fmt.Sprintf("/orders/%d", id))
+	return c.Redirect(http.StatusSeeOther, support.PrefixRelativeLocation(c, fmt.Sprintf("/orders/%d", id)))
 
 }
 
@@ -121,7 +121,7 @@ func (h orderHandler) void(c echo.Context) error {
 	if err := h.sales.Void(c.Request().Context(), id, support.ActorOf(c), reason); err != nil {
 		return err
 	}
-	return c.Redirect(http.StatusSeeOther, fmt.Sprintf("/orders/%d", id))
+	return c.Redirect(http.StatusSeeOther, support.PrefixRelativeLocation(c, fmt.Sprintf("/orders/%d", id)))
 
 }
 
@@ -133,7 +133,7 @@ func (h orderHandler) unvoid(c echo.Context) error {
 	if err := h.sales.Unvoid(c.Request().Context(), id, support.ActorOf(c)); err != nil {
 		return err
 	}
-	return c.Redirect(http.StatusSeeOther, fmt.Sprintf("/orders/%d", id))
+	return c.Redirect(http.StatusSeeOther, support.PrefixRelativeLocation(c, fmt.Sprintf("/orders/%d", id)))
 
 }
 
@@ -142,6 +142,6 @@ func (h orderHandler) entry(c echo.Context) error {
 	if raw := c.QueryString(); raw != "" {
 		target += "&" + raw
 	}
-	return c.Redirect(http.StatusFound, target)
+	return c.Redirect(http.StatusFound, support.PrefixRelativeLocation(c, target))
 
 }

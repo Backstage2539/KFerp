@@ -5,7 +5,7 @@
         <h2>销售单</h2>
         <div class="actions">
           <button v-if="props.embedded" class="secondary" type="button" @click="emit('close')">关闭</button>
-          <a v-else class="secondary link-button" href="/vue-shell?view=orders">返回订单列表</a>
+          <a v-else class="secondary link-button" :href="appURL('/vue-shell?view=orders')">返回订单列表</a>
           <button class="secondary" type="button" @click="openSettingsDrawer">销售单设置</button>
           <button class="secondary" type="button" @click="openCustomerDrawer" :disabled="!customerSummary.id">客户信息</button>
           <button class="secondary" type="button" @click="loadPreview" :disabled="previewLoading || !orderID">{{ previewLoading ? '预览中' : '刷新预览' }}</button>
@@ -231,7 +231,7 @@
 
 <script setup>
 import { computed, onMounted, reactive, ref } from 'vue'
-import { apiGet, apiSend } from '../api/client'
+import { apiGet, apiSend, appURL } from '../api/client'
 import { salesOrderDownloadUrl, salesOrderImageDownloadUrl } from '../lib/sales-order'
 import { beginSalesOrderSealDrag, moveSalesOrderSealDrag, salesOrderSealPreviewScale, salesOrderSealStyle } from '../lib/sales-order-seal'
 import { buildShareResourcePayload, shareResourceToWechat } from '../lib/external-share'

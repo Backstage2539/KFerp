@@ -21,7 +21,7 @@ func registerFinishedInventoryPages(e *echo.Echo, inventorySvc *inventoryapp.Ser
 		if q := strings.TrimSpace(c.QueryParam("q")); q != "" {
 			target += "&q=" + url.QueryEscape(q)
 		}
-		return c.Redirect(http.StatusFound, target)
+		return c.Redirect(http.StatusFound, support.PrefixRelativeLocation(c, target))
 	})
 	e.GET("/api/products/inventory", func(c echo.Context) error {
 		q := strings.TrimSpace(c.QueryParam("q"))

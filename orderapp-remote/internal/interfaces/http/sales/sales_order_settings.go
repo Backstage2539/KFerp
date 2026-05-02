@@ -56,7 +56,7 @@ func registerSalesOrderSettingsRoutes(e *echo.Echo, salesSvc *salesapp.Service, 
 	}
 	h := salesOrderSettingsHandler{sales: salesSvc, assetDir: assetDir}
 	e.GET("/settings/sales-order", func(c echo.Context) error {
-		return c.Redirect(http.StatusFound, "/vue-shell?view=salesOrderSettings")
+		return c.Redirect(http.StatusFound, support.PrefixRelativeLocation(c, "/vue-shell?view=salesOrderSettings"))
 	})
 	e.GET("/api/settings/sales-order", h.get)
 	e.POST("/api/settings/sales-order", h.save)

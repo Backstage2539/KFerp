@@ -3,6 +3,7 @@ package support_test
 import (
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	supporthttp "orderapp/internal/interfaces/http/support"
 	"os"
 	"strings"
@@ -147,8 +148,20 @@ func assertRedirects(t *testing.T, e *echo.Echo, cases []struct {
 		if rec.Code != http.StatusFound {
 			t.Fatalf("GET %s status = %d, want %d body=%s", tc.path, rec.Code, http.StatusFound, rec.Body.String())
 		}
-		if got := rec.Header().Get("Location"); got != tc.want {
-			t.Fatalf("GET %s Location = %q, want %q", tc.path, got, tc.want)
+		got := rec.Header().Get("Location")
+		if strings.HasPrefix(got, "/") {
+			t.Fatalf("GET %s Location = %q; redirects must be relative so /app prefix is preserved", tc.path, got)
+		}
+		base, err := url.Parse("https://example.test" + tc.path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		loc, err := url.Parse(got)
+		if err != nil {
+			t.Fatalf("GET %s invalid Location %q: %v", tc.path, got, err)
+		}
+		if resolved := base.ResolveReference(loc).RequestURI(); resolved != tc.want {
+			t.Fatalf("GET %s Location = %q resolves to %q, want %q", tc.path, got, resolved, tc.want)
 		}
 	}
 }

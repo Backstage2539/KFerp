@@ -3,6 +3,7 @@ package sales
 import (
 	"net/http"
 	salesapp "orderapp/internal/application/sales"
+	support "orderapp/internal/interfaces/http/support"
 	"strings"
 
 	"github.com/labstack/echo/v4"
@@ -41,7 +42,7 @@ func registerOutsourceSettingsRoutes(e *echo.Echo, salesSvc *salesapp.Service) {
 		if raw := strings.TrimSpace(c.QueryString()); raw != "" {
 			target += "&" + raw
 		}
-		return c.Redirect(http.StatusFound, target)
+		return c.Redirect(http.StatusFound, support.PrefixRelativeLocation(c, target))
 	})
 
 }

@@ -3,6 +3,7 @@ package materials
 import (
 	"net/http"
 	"net/url"
+	support "orderapp/internal/interfaces/http/support"
 	"strings"
 
 	"github.com/labstack/echo/v4"
@@ -14,6 +15,6 @@ func registerMaterialsPages(e *echo.Echo) {
 		if q := strings.TrimSpace(c.QueryParam("q")); q != "" {
 			target += "&q=" + url.QueryEscape(q)
 		}
-		return c.Redirect(http.StatusFound, target)
+		return c.Redirect(http.StatusFound, support.PrefixRelativeLocation(c, target))
 	})
 }

@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	inventoryapp "orderapp/internal/application/inventory"
+	support "orderapp/internal/interfaces/http/support"
 
 	"github.com/labstack/echo/v4"
 )
@@ -43,7 +44,7 @@ func registerAllocationLogPages(e *echo.Echo, inventorySvc *inventoryapp.Service
 		if raw := strings.TrimSpace(c.QueryString()); raw != "" {
 			target += "&" + raw
 		}
-		return c.Redirect(http.StatusFound, target)
+		return c.Redirect(http.StatusFound, support.PrefixRelativeLocation(c, target))
 	})
 
 	e.GET("/api/produce/allocations", func(c echo.Context) error {
