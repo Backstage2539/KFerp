@@ -19,12 +19,43 @@
           <span>类型</span>
           <select v-model="filters.type">
             <option value="">全部</option>
-            <option value="order">订单</option>
-            <option value="product">商品</option>
-            <option value="material">物料</option>
-            <option value="customer">客户</option>
-            <option value="produce_running">生产任务</option>
-            <option value="operation">操作</option>
+            <optgroup label="订单销售">
+              <option value="order">订单</option>
+              <option value="customer">客户</option>
+              <option value="customer_asset">客户附件</option>
+              <option value="sales_order_settings">销售单设置</option>
+              <option value="sales_order_asset">销售单素材</option>
+              <option value="sales_order_payment_code">收款二维码</option>
+              <option value="sales_order_document">销售单文件</option>
+              <option value="sales_order_image">销售单图片</option>
+            </optgroup>
+            <optgroup label="库存管理">
+              <option value="material">物料</option>
+              <option value="material_receipt">原料入库单</option>
+              <option value="material_transfer">原料转仓单</option>
+              <option value="finished_product_transfer">成品转仓单</option>
+              <option value="finished_inventory">成品库存</option>
+            </optgroup>
+            <optgroup label="商品与配方">
+              <option value="product">产品</option>
+              <option value="product_category">产品分类</option>
+              <option value="bean_list_publication">豆单发布</option>
+            </optgroup>
+            <optgroup label="生产管理">
+              <option value="produce_batch">生产批次</option>
+              <option value="produce_running">生产任务</option>
+              <option value="wip_reservation">WIP占用</option>
+              <option value="costing_run">成本试算</option>
+            </optgroup>
+            <optgroup label="设置/系统">
+              <option value="company_profile">公司信息</option>
+              <option value="cost_parameter">成本参数</option>
+              <option value="auth">登录</option>
+              <option value="auth_account">员工账号</option>
+              <option value="operation">操作</option>
+              <option value="import">导入</option>
+              <option value="system">系统</option>
+            </optgroup>
           </select>
         </label>
         <label>

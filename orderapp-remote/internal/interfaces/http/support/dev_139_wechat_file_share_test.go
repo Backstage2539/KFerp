@@ -9,12 +9,12 @@ import (
 func TestWechatFileShareRequirementSeeds(t *testing.T) {
 	src := string(readOrderAppFileForTest(t, filepath.Join("internal", "interfaces", "http", "support", "req_store.go")))
 	for _, want := range []string{
-		"PR-138",
-		"DEV-138-01",
-		"DEV-138-02",
-		"UT-138-01",
-		"API-138-01",
-		"REV-138-01",
+		"PR-139",
+		"DEV-139-01",
+		"DEV-139-02",
+		"UT-139-01",
+		"API-139-01",
+		"REV-139-01",
 		"直接分享文件",
 		"不发送链接",
 	} {
