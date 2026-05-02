@@ -30,7 +30,11 @@
         </label>
         <label>
           <span>类别</span>
-          <input v-model.trim="form.category" placeholder="房租/物流/人工" />
+          <input
+            v-model.trim="form.category"
+            list="finance-expense-category-options"
+            placeholder="输入筛选或自定义类别"
+          />
         </label>
         <label>
           <span>金额</span>
@@ -54,7 +58,11 @@
         </label>
         <label>
           <span>付款方式</span>
-          <input v-model.trim="form.payment" placeholder="微信/银行/现金" />
+          <input
+            v-model.trim="form.payment"
+            list="finance-expense-payment-options"
+            placeholder="输入筛选或自定义付款方式"
+          />
         </label>
         <label class="note">
           <span>备注</span>
@@ -62,6 +70,12 @@
         </label>
         <button type="button" @click="save" :disabled="saving">保存</button>
       </div>
+      <datalist id="finance-expense-category-options">
+        <option v-for="item in filteredExpenseCategoryOptions" :key="item" :value="item" />
+      </datalist>
+      <datalist id="finance-expense-payment-options">
+        <option v-for="item in filteredExpensePaymentOptions" :key="item" :value="item" />
+      </datalist>
     </section>
 
     <section class="panel table-wrap">
@@ -112,6 +126,7 @@
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { apiGet } from '../api/client.js'
 import { createFinanceExpense, fetchFinanceExpenses } from '../api/finance.js'
+import { expenseCategoryOptions, expensePaymentOptions, filterExpenseOptions } from '../lib/finance-expense-options.js'
 import { currentMonth, money, monthFromDate } from '../lib/finance.js'
 
 const month = ref(currentMonth())
@@ -133,6 +148,8 @@ const form = reactive({
 })
 
 const activeEmployees = computed(() => employees.value.filter((employee) => employee.active !== false))
+const filteredExpenseCategoryOptions = computed(() => filterExpenseOptions(expenseCategoryOptions, form.category))
+const filteredExpensePaymentOptions = computed(() => filterExpenseOptions(expensePaymentOptions, form.payment))
 
 function allocationLabel(value) {
   return value === 'main_cost' ? '主营成本' : '期间费用'

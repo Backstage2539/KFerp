@@ -762,6 +762,11 @@ func seedReqWorkflowA(ctx context.Context, pool *pgxpool.Pool, schema string) er
 		{table: "req_unit", code: "UT-FIN-006", title: "单测覆盖费用员工关联字段、员工过滤参数、仓储员工 join、前端 API 参数和 Vue 源码守卫", status: "done", assignee: "Codex", evidence: "go test ./internal/application/finance ./internal/infrastructure/postgres/finance; node --test finance.test.js finance-ui.test.js"},
 		{table: "req_api", code: "API-FIN-004", title: "API 测试覆盖 POST /api/finance/expenses 保存 employee_id，以及 GET /api/finance/expenses?employee_id=... 过滤员工费用", status: "done", assignee: "Codex", evidence: "go test ./internal/interfaces/http/finance -count=1"},
 		{table: "req_review", code: "REV-FIN-003", prCode: "PR-FIN-003", title: "验收：新增费用选择员工后列表显示员工名；点击员工名后列表只显示该员工相关费用，可清除员工筛选", status: "todo", assignee: "VA", evidence: "待 Van 服务器验收"},
+		{table: "req_product", code: "PR-FIN-004", title: "费用管理的类别和付款方式必须使用可搜索候选列表，内置覆盖常见咖啡烘焙、贸易和加工费用场景，并允许自定义输入", status: "review", assignee: "VA", evidence: "codex/finance-expense-selectable-fields-20260502"},
+		{table: "req_dev", code: "DEV-FIN-010", title: "Vue 费用管理新增类别和付款方式候选数据、输入框下拉候选、模糊筛选和自定义输入保留", status: "done", assignee: "Codex", evidence: "finance-expense-options.js; FinanceExpensesView filteredExpenseCategoryOptions/filteredExpensePaymentOptions"},
+		{table: "req_unit", code: "UT-FIN-007", title: "前端单测覆盖类别/付款方式候选数量、常用项、模糊匹配 helper 和费用页 datalist 接线", status: "done", assignee: "Codex", evidence: "node --test src/lib/finance-ui.test.js src/lib/finance-expense-options.test.js"},
+		{table: "req_api", code: "API-FIN-005", title: "API 测试覆盖费用保存时类别、付款方式和员工字段进入 POST /api/finance/expenses 并在响应中返回", status: "done", assignee: "Codex", evidence: "go test ./internal/interfaces/http/finance -run TestFinanceExpenseAndClosingAPI -count=1"},
+		{table: "req_review", code: "REV-FIN-004", prCode: "PR-FIN-004", title: "验收：费用管理新增费用时，类别和付款方式可从下拉候选选择；输入关键字可模糊筛选；仍可保存自定义值", status: "todo", assignee: "VA", evidence: "待 Van 服务器验收"},
 	} {
 		if err := seedReqRow(ctx, pool, schema, row); err != nil {
 			return err
