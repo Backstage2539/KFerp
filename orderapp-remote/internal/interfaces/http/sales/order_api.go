@@ -95,6 +95,7 @@ func (h orderAPIHandler) list(c echo.Context) error {
 		ProcessStatusID: query.ProcessStatusID,
 		UnproducedOnly:  query.UnproducedOnly,
 		CompletedOnly:   query.CompletedOnly,
+		ShipReadyOnly:   query.ShipReadyOnly,
 		Limit:           query.Limit,
 		Offset:          query.Offset,
 	})
@@ -166,6 +167,7 @@ type ordersAPIQuery struct {
 	ProcessStatusID int64
 	UnproducedOnly  bool
 	CompletedOnly   bool
+	ShipReadyOnly   bool
 	Limit           int
 	Offset          int
 	Page            int
@@ -203,6 +205,7 @@ func ordersQueryFromContext(c echo.Context) ordersAPIQuery {
 	q.ProcessStatusID = int64(support.IntParam(c, "process_status_id", 0))
 	q.UnproducedOnly = strings.TrimSpace(c.QueryParam("preset")) == "unprod"
 	q.CompletedOnly = strings.TrimSpace(c.QueryParam("completed")) == "1"
+	q.ShipReadyOnly = strings.TrimSpace(c.QueryParam("ship_ready")) == "1"
 	if q.Void == "" {
 		q.Void = "normal"
 	}

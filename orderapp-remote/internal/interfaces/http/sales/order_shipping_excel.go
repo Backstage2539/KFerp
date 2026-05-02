@@ -450,7 +450,8 @@ func orderShippingRemark(data salesapp.OrderShippingExportData) string {
 }
 
 func orderShippingReady(data salesapp.OrderShippingExportData) bool {
-	return strings.Contains(strings.TrimSpace(data.ProcessStatus), "生产完成")
+	status := strings.TrimSpace(data.ProcessStatus)
+	return strings.Contains(status, "生产完成") || status == "无需生产"
 }
 
 func normalizeOrderShippingIDs(ids []int64) []int64 {

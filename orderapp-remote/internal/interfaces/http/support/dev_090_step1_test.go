@@ -44,7 +44,7 @@ func TestProductionManualVueWiring(t *testing.T) {
 	for _, want := range []string{
 		"ProductionManualView",
 		"productionManual",
-		"生产手册",
+		"生产流程",
 		"原料入库",
 		"WIP在制仓",
 		"生产工单",

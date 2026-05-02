@@ -152,10 +152,12 @@
 
 ## I. 生产制造（/vue-shell?view=producePlan / produceRunning / qualityInspections）
 
-### I1. 物料需求计划
-- [ ] 在生产计划选择商品并生成计划后，点击“物料需求计划”。
-- [ ] 表格展示物料需求、WIP 库存、WIP 可用、建议领到 WIP、已占用 WIP、原料仓库存、缺料量和采购建议。
-- [ ] 接口 `/api/produce/material-plan` 返回 `required_g`、`wip_g`、`available_g`、`wip_transfer_suggestion_g`、`reserved_g`、`raw_g`、`shortage_g`、`purchase_suggestion_g`。
+### I1. 库存充足与无需生产
+- [ ] 生产计划页面不再显示“物料需求计划”按钮或区块。
+- [ ] 选择的商品库存都充足时，页面提示无需补产，并说明生产状态应设为“无需生产”、发货状态保持“未发货”。
+- [ ] 库存不足商品生成计划后，物料需求汇总仍展示 `WIP可用(g)` 和 `建议领到WIP(g)`。
+- [ ] 订单列表点击“只看可发货”时，同时包含“生产完成”和“无需生产”的订单。
+- [ ] “无需生产”订单可以生成快递录单 Excel；回填快递单号后发货状态变为“已发货”。
 
 ### I2. WIP 占用
 - [ ] 开始生产后，工单建立 WIP 软占用。

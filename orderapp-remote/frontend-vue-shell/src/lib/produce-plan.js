@@ -29,6 +29,11 @@ export function rebuildPlanRows(planRows, roastPlans) {
 export function buildMaterialSummary(planRows, roastPlans, materialRatios, initialMaterials) {
   const out = new Map()
   const dynamicNames = new Set()
+  const availabilityByName = new Map()
+
+  for (const item of initialMaterials || []) {
+    availabilityByName.set(`${item.name}::${String(item.unit || '').trim().toLowerCase()}`, item)
+  }
 
   for (const ratio of materialRatios || []) {
     if (WEIGHT_UNITS.has(String(ratio.material_unit || '').trim().toLowerCase())) {
@@ -60,7 +65,13 @@ export function buildMaterialSummary(planRows, roastPlans, materialRatios, initi
     if (qty <= 0) continue
 
     const mapKey = `${ratio.material_name}::${unit}`
-    const existing = out.get(mapKey) || { name: ratio.material_name, unit, qty: 0 }
+    const initial = availabilityByName.get(`${ratio.material_name}::${normalized}`) || {}
+    const existing = out.get(mapKey) || {
+      ...initial,
+      name: ratio.material_name,
+      unit,
+      qty: 0,
+    }
     existing.qty += qty
     out.set(mapKey, existing)
   }

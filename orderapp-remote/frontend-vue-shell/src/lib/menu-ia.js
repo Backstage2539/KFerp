@@ -13,15 +13,15 @@ export const menuGroups = [
     id: 'production',
     name: '生产管理',
     items: [
-      { key: 'producePlan', label: '生产计划/开始生产', title: '生产计划/开始生产' },
+      { key: 'productionManual', label: '生产流程', title: '生产流程' },
       { key: 'productionAcceptance', label: '生产验收', title: '生产验收' },
+      { key: 'producePlan', label: '生产计划/开始生产', title: '生产计划/开始生产' },
       { key: 'produceRunning', label: '生产中', title: '生产中' },
       { key: 'workOrders', label: '生产工单', title: '生产工单' },
       { key: 'jobCards', label: '工序卡', title: '工序卡' },
       { key: 'qualityInspections', label: '生产质检', title: '生产质检' },
       { key: 'produceLogs', label: '生产日志', title: '生产日志' },
       { key: 'productionCosts', label: '生产成本', title: '生产成本' },
-      { key: 'productionManual', label: '生产手册', title: '生产流程手册' },
     ],
   },
   {
