@@ -36,6 +36,7 @@ CREATE TABLE IF NOT EXISTS %[1]s.finance_expenses (
 	category TEXT NOT NULL DEFAULT '',
 	amount NUMERIC(14,2) NOT NULL DEFAULT 0,
 	allocation TEXT NOT NULL DEFAULT 'period_expense',
+	employee_id BIGINT NULL REFERENCES %[1]s.company_employees(id) ON DELETE SET NULL,
 	input_vat NUMERIC(14,2) NOT NULL DEFAULT 0,
 	non_deductible_input_vat NUMERIC(14,2) NOT NULL DEFAULT 0,
 	payment TEXT NOT NULL DEFAULT '',
@@ -44,6 +45,7 @@ CREATE TABLE IF NOT EXISTS %[1]s.finance_expenses (
 	created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS finance_expenses_month_idx ON %[1]s.finance_expenses(month, expense_date, id);
+CREATE INDEX IF NOT EXISTS finance_expenses_employee_idx ON %[1]s.finance_expenses(employee_id, month, expense_date, id);
 CREATE TABLE IF NOT EXISTS %[1]s.finance_monthly_reports (
 	month TEXT PRIMARY KEY,
 	status TEXT NOT NULL DEFAULT 'draft',
@@ -67,6 +69,27 @@ CREATE INDEX IF NOT EXISTS finance_adjustments_month_idx ON %[1]s.finance_adjust
 `, schema)
 	if _, err := pool.Exec(ctx, q); err != nil {
 		return err
+	}
+	for _, stmt := range []string{
+		fmt.Sprintf(`ALTER TABLE %s.finance_expenses ADD COLUMN IF NOT EXISTS employee_id BIGINT NULL`, schema),
+		fmt.Sprintf(`
+DO $$
+BEGIN
+	IF NOT EXISTS (
+		SELECT 1 FROM pg_constraint
+		WHERE conname = 'finance_expenses_employee_fk'
+		  AND conrelid = '%[1]s.finance_expenses'::regclass
+	) THEN
+		ALTER TABLE %[1]s.finance_expenses
+		ADD CONSTRAINT finance_expenses_employee_fk
+		FOREIGN KEY (employee_id) REFERENCES %[1]s.company_employees(id) ON DELETE SET NULL;
+	END IF;
+END $$;
+`, schema),
+	} {
+		if _, err := pool.Exec(ctx, stmt); err != nil {
+			return err
+		}
 	}
 	_, err := pool.Exec(ctx, fmt.Sprintf(`INSERT INTO %s.finance_settings(id) VALUES(1) ON CONFLICT(id) DO NOTHING`, schema))
 	return err

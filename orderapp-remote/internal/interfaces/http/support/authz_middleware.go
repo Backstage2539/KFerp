@@ -123,6 +123,9 @@ func requiredPermissionForRequest(method, path string) string {
 		}
 		return "costing.write"
 	}
+	if strings.HasPrefix(path, "/api/finance/employees") {
+		return "finance.write"
+	}
 	if strings.HasPrefix(path, "/api/finance/settings/closing-mode") {
 		return "finance.close_mode.manage"
 	}

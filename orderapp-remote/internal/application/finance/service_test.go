@@ -43,6 +43,7 @@ func TestCreateExpenseValidatesAndNormalizesPeriodExpense(t *testing.T) {
 		Category:   "房租",
 		Amount:     3800,
 		Allocation: AllocationPeriodExpense,
+		EmployeeID: 7,
 		Actor:      "Van",
 	})
 	if err != nil {
@@ -51,11 +52,53 @@ func TestCreateExpenseValidatesAndNormalizesPeriodExpense(t *testing.T) {
 	if expense.Month != "2026-05" || expense.Allocation != AllocationPeriodExpense {
 		t.Fatalf("unexpected expense: %#v", expense)
 	}
+	if expense.EmployeeID != 7 {
+		t.Fatalf("employee_id = %d, want 7", expense.EmployeeID)
+	}
 	if _, err := svc.CreateExpense(context.Background(), CreateExpenseCommand{Date: "bad", Category: "房租", Amount: 1}); err == nil {
 		t.Fatal("invalid date should fail")
 	}
 	if _, err := svc.CreateExpense(context.Background(), CreateExpenseCommand{Date: "2026-05-02", Category: "房租", Amount: -1}); err == nil {
 		t.Fatal("negative amount should fail")
+	}
+	if _, err := svc.CreateExpense(context.Background(), CreateExpenseCommand{Date: "2026-05-02", Category: "房租", Amount: 1, EmployeeID: -1}); err == nil {
+		t.Fatal("negative employee_id should fail")
+	}
+}
+
+func TestListExpensesFiltersByEmployee(t *testing.T) {
+	repo := newFakeRepo()
+	repo.expenses = []Expense{
+		{ID: 1, Date: "2026-05-02", Month: "2026-05", Category: "工资", EmployeeID: 7, EmployeeName: "小王"},
+	}
+	svc := NewService(repo)
+
+	rows, err := svc.ListExpenses(context.Background(), ExpenseFilter{Month: "2026-05", EmployeeID: 7})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 1 || rows[0].EmployeeID != 7 || rows[0].EmployeeName != "小王" {
+		t.Fatalf("unexpected rows: %#v", rows)
+	}
+	if repo.listExpenseFilter.EmployeeID != 7 {
+		t.Fatalf("employee filter = %d, want 7", repo.listExpenseFilter.EmployeeID)
+	}
+	if _, err := svc.ListExpenses(context.Background(), ExpenseFilter{Month: "2026-05", EmployeeID: -1}); err == nil {
+		t.Fatal("negative employee filter should fail")
+	}
+}
+
+func TestListExpenseEmployeesReturnsRepositoryRows(t *testing.T) {
+	repo := newFakeRepo()
+	repo.expenseEmployees = []ExpenseEmployee{{ID: 7, Name: "小王", Active: true}}
+	svc := NewService(repo)
+
+	rows, err := svc.ListExpenseEmployees(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 1 || rows[0].ID != 7 || rows[0].Name != "小王" || !rows[0].Active {
+		t.Fatalf("unexpected employees: %#v", rows)
 	}
 }
 
@@ -219,6 +262,8 @@ type fakeRepo struct {
 	reportStatus        string
 	closedBy            string
 	expenses            []Expense
+	listExpenseFilter   ExpenseFilter
+	expenseEmployees    []ExpenseEmployee
 }
 
 func newFakeRepo() *fakeRepo {
@@ -244,13 +289,18 @@ func (r *fakeRepo) ListAdjustments(context.Context, string) ([]AdjustmentRecord,
 }
 
 func (r *fakeRepo) CreateExpense(_ context.Context, cmd CreateExpenseCommand) (Expense, error) {
-	row := Expense{ID: int64(len(r.expenses) + 1), Date: cmd.Date, Month: monthFromDate(cmd.Date), Category: cmd.Category, Amount: cmd.Amount, Allocation: cmd.Allocation, Actor: cmd.Actor}
+	row := Expense{ID: int64(len(r.expenses) + 1), Date: cmd.Date, Month: monthFromDate(cmd.Date), Category: cmd.Category, Amount: cmd.Amount, Allocation: cmd.Allocation, EmployeeID: cmd.EmployeeID, Actor: cmd.Actor}
 	r.expenses = append(r.expenses, row)
 	return row, nil
 }
 
-func (r *fakeRepo) ListExpenses(context.Context, string) ([]Expense, error) {
+func (r *fakeRepo) ListExpenses(_ context.Context, filter ExpenseFilter) ([]Expense, error) {
+	r.listExpenseFilter = filter
 	return r.expenses, nil
+}
+
+func (r *fakeRepo) ListExpenseEmployees(context.Context) ([]ExpenseEmployee, error) {
+	return r.expenseEmployees, nil
 }
 
 func (r *fakeRepo) SaveMonthlyReport(_ context.Context, report domain.MonthlyReport, actor string) (domain.MonthlyReport, error) {
