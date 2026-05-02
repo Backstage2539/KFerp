@@ -53,6 +53,7 @@
 
 <script setup>
 import { onMounted, reactive, ref } from 'vue'
+import { apiGet, apiSend } from '../api/client'
 
 const rows = ref([])
 const products = ref([])
@@ -69,9 +70,7 @@ async function load() {
   try {
     const url = new URL('/api/products/inventory', window.location.origin)
     if (q.value) url.searchParams.set('q', q.value)
-    const res = await fetch(url)
-    const data = await res.json()
-    if (!res.ok) throw new Error(data.error || '加载失败')
+    const data = await apiGet(url)
     rows.value = data.rows || []
     products.value = data.products || []
   } catch (err) {
@@ -86,13 +85,7 @@ async function save() {
   error.value = ''
   ok.value = false
   try {
-    const res = await fetch('/api/products/inventory', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(form),
-    })
-    const data = await res.json()
-    if (!res.ok) throw new Error(data.error || '保存失败')
+    await apiSend('/api/products/inventory', { body: form })
     ok.value = true
     await load()
   } catch (err) {

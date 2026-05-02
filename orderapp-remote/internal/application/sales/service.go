@@ -1024,10 +1024,10 @@ func (s *Service) SaveSalesOrderSettings(ctx context.Context, cmd SaveSalesOrder
 		cmd.SealXMM = 32
 	}
 	if cmd.SealYMM <= 0 {
-		cmd.SealYMM = 22
+		cmd.SealYMM = 5
 	}
 	if cmd.SealWidthMM <= 0 {
-		cmd.SealWidthMM = 42
+		cmd.SealWidthMM = 36
 	}
 	return s.repo.SaveSalesOrderSettings(ctx, cmd)
 }

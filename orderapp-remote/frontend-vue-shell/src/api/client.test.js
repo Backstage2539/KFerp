@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 
-import { apiGet, apiSend, apiURL } from './client.js'
+import { apiFetch, apiGet, apiSend, apiURL } from './client.js'
 
 test('apiURL builds relative API requests from clean origin even when page URL has basic-auth credentials', () => {
   const previousWindow = globalThis.window
@@ -70,6 +70,37 @@ test('apiSend preserves custom headers while sending Bearer token', async () => 
     await apiSend('/api/auth/logout', { headers: { 'X-Test': '1' } })
     assert.equal(requestHeaders.Authorization, 'Bearer token-logout')
     assert.equal(requestHeaders['X-Test'], '1')
+  } finally {
+    globalThis.window = previousWindow
+    globalThis.fetch = previousFetch
+  }
+})
+
+test('apiFetch sends Bearer token while returning the raw response for file and form flows', async () => {
+  const previousWindow = globalThis.window
+  const previousFetch = globalThis.fetch
+  let requestURL = ''
+  let requestHeaders = {}
+  let requestBody
+  globalThis.window = {
+    location: { origin: 'https://erp.qacoohee.com' },
+    localStorage: { getItem: (key) => (key === 'auth_token' ? 'token-download' : null) },
+  }
+  globalThis.fetch = async (url, init = {}) => {
+    requestURL = url
+    requestHeaders = init.headers
+    requestBody = init.body
+    return new Response('xlsx', { status: 200, headers: { 'Content-Type': 'application/octet-stream' } })
+  }
+  try {
+    const form = new FormData()
+    form.append('file', new Blob(['a']), 'tracking.xlsx')
+    const res = await apiFetch('/api/orders/shipping-tracking-excel', { method: 'POST', body: form })
+    assert.equal(requestURL, 'https://erp.qacoohee.com/api/orders/shipping-tracking-excel')
+    assert.equal(requestHeaders.Authorization, 'Bearer token-download')
+    assert.equal(requestHeaders['Content-Type'], undefined)
+    assert.equal(requestBody, form)
+    assert.equal(res.status, 200)
   } finally {
     globalThis.window = previousWindow
     globalThis.fetch = previousFetch
