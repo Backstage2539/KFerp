@@ -60,7 +60,7 @@
       <div class="shipping-bar">
         <div>
           <h3>快递处理</h3>
-          <p>订单生产完成后，在这里勾选并生成快递录单 Excel。</p>
+          <p>订单生产完成后，在这里勾选并生成快递录单 Excel；单号在订单抽屉内回填。</p>
         </div>
         <div class="shipping-actions">
           <label class="sender-picker">
@@ -90,45 +90,19 @@
         <span>{{ shippingMessage }}</span>
         <a v-if="shippingExcelUrl" :href="shippingExcelUrl" target="_blank" rel="noopener">下载 Excel</a>
       </div>
-      <div v-if="currentShipment.shipment_id" class="tracking-box">
-        <div class="tracking-head">
-          <div>
-            <strong>{{ currentShipment.shipment_no }}</strong>
-            <span>回填快递单号后，订单会自动标记为已发货。</span>
-          </div>
-          <button class="secondary" type="button" @click="load" :disabled="loading">刷新列表</button>
-        </div>
-        <div class="tracking-grid">
-          <label v-for="row in selectedRows" :key="row.id">
-            <span>{{ row.order_no }} · {{ row.customer }}</span>
-            <input v-model.trim="trackingInputs[Number(row.id)]" placeholder="快递单号" />
-          </label>
-        </div>
-        <div class="tracking-actions">
-          <button class="primary" type="button" @click="fillShipmentTracking" :disabled="trackingLoading || !trackingReady">
-            {{ trackingLoading ? '回填中' : '回填单号并标记已发货' }}
-          </button>
-        </div>
-      </div>
       <div v-if="shippingError" class="notice error">{{ shippingError }}</div>
       <div class="table-wrap">
         <table>
           <thead>
             <tr>
               <th class="select-col">发货</th>
-              <th class="row-sender">寄件人</th>
               <th>订单号</th>
               <th>日期</th>
               <th>客户</th>
               <th>金额</th>
               <th>类型</th>
-              <th>收款</th>
-              <th>发货</th>
-              <th>单号</th>
-              <th>生产</th>
-              <th>发票</th>
-              <th>录入</th>
-              <th>备注</th>
+              <th>快递信息</th>
+              <th>订单状态</th>
               <th>操作</th>
             </tr>
           </thead>
@@ -143,44 +117,36 @@
                   @change="toggleOrder(row, $event.target.checked)"
                 />
               </td>
-              <td class="row-sender">
-                <select
-                  v-if="selectedOrderIDs.includes(Number(row.id)) && isProductionComplete(row)"
-                  v-model.number="orderSenderIDs[Number(row.id)]"
-                  aria-label="单独选择寄件人"
-                >
-                  <option :value="0">跟随默认</option>
-                  <option v-for="profile in senderProfiles" :key="profile.sender_id" :value="profile.sender_id">
-                    {{ profile.sender_label || profile.sender_name || `寄件人${profile.sender_id}` }}{{ profile.is_default ? '（默认）' : '' }}
-                  </option>
-                </select>
-                <span v-else class="muted">-</span>
-              </td>
-              <td><a :href="`/order?edit_id=${row.id}`">{{ row.order_no }}</a></td>
+              <td><button class="order-link" type="button" @click.prevent="openOrderDetailDrawer(row)">{{ row.order_no }}</button></td>
               <td>{{ row.order_date }}</td>
               <td>{{ row.customer }}</td>
               <td>{{ row.grand_total }}</td>
               <td>{{ row.order_type }}</td>
-              <td>{{ row.pay_status }}</td>
-              <td>{{ row.ship_status }}</td>
-              <td>{{ row.ship_tracking_no || '-' }}</td>
-              <td>{{ row.process_status }}</td>
               <td>
-                <span :class="['invoice-status', invoiceStatusTone(row.invoice_status)]">{{ invoiceStatusLabel(row.invoice_status) }}</span>
-                <a v-if="row.invoice_file_url" class="text-link invoice-file-link" :href="row.invoice_file_url" target="_blank" rel="noopener">文件</a>
+                <div class="shipping-summary">
+                  <span>{{ senderDisplay(row) }}</span>
+                  <strong>{{ row.ship_tracking_no || '未回填' }}</strong>
+                </div>
               </td>
-              <td>{{ row.created_by_employee }}</td>
-              <td class="notes">{{ row.notes }}</td>
+              <td>
+                <div class="status-stack">
+                  <span>收款：{{ row.pay_status || '-' }}</span>
+                  <span>发货：{{ row.ship_status || '-' }}</span>
+                  <span>生产：{{ row.process_status || '-' }}</span>
+                  <span>发票：{{ invoiceStatusLabel(row.invoice_status) }}</span>
+                </div>
+              </td>
               <td class="actions-cell">
                 <a class="text-link" href="#" @click.prevent="openSalesOrderDrawer(row)">销售单</a>
                 <a v-if="isShipped(row)" class="text-link" href="#" @click.prevent="openDeliveryNoteDrawer(row)">出库单</a>
                 <span v-else class="muted inline-muted">出库单</span>
                 <a class="text-link" href="#" @click.prevent="openInvoiceDrawer(row)">发票</a>
+                <a class="text-link" :href="`/order?edit_id=${row.id}`">编辑</a>
                 <a class="text-link" :href="`/orders/${row.id}/audit`">审计</a>
               </td>
             </tr>
             <tr v-if="!rows.length">
-              <td colspan="15" class="muted">暂无订单</td>
+              <td colspan="9" class="muted">暂无订单</td>
             </tr>
           </tbody>
         </table>
@@ -191,6 +157,85 @@
         <button class="secondary" type="button" @click="loadPage(page + 1)" :disabled="!hasNext || loading">下一页</button>
       </div>
     </section>
+
+    <div v-if="orderDetailDrawerOpen" class="order-detail-drawer-mask" @click.self="closeOrderDetailDrawer">
+      <aside class="order-detail-drawer" aria-label="订单详情">
+        <div class="drawer-head">
+          <div>
+            <h3>{{ activeOrderDetail?.order_no || '订单详情' }}</h3>
+            <p>{{ activeOrderDetail?.customer || '-' }} · {{ activeOrderDetail?.order_date || '-' }}</p>
+          </div>
+          <button class="secondary" type="button" @click="closeOrderDetailDrawer">关闭</button>
+        </div>
+        <div v-if="shippingError" class="notice error">{{ shippingError }}</div>
+        <div v-if="shippingMessage" class="notice ok">{{ shippingMessage }}</div>
+        <div v-if="activeOrderDetail" class="drawer-body">
+          <section class="drawer-section">
+            <div class="section-head">
+              <h4>快递信息</h4>
+              <label class="drawer-check">
+                <input
+                  type="checkbox"
+                  :checked="selectedOrderIDs.includes(Number(activeOrderDetail.id))"
+                  :disabled="!isProductionComplete(activeOrderDetail)"
+                  @change="toggleOrder(activeOrderDetail, $event.target.checked)"
+                />
+                <span>加入本次快递录单</span>
+              </label>
+            </div>
+            <div class="drawer-grid">
+              <label>
+                <span>寄件人</span>
+                <select
+                  v-if="selectedOrderIDs.includes(Number(activeOrderDetail.id)) && isProductionComplete(activeOrderDetail)"
+                  v-model.number="orderSenderIDs[Number(activeOrderDetail.id)]"
+                  aria-label="单独选择寄件人"
+                >
+                  <option :value="0">跟随默认</option>
+                  <option v-for="profile in senderProfiles" :key="profile.sender_id" :value="profile.sender_id">
+                    {{ profileLabel(profile) }}{{ profile.is_default ? '（默认）' : '' }}
+                  </option>
+                </select>
+                <input v-else :value="senderDisplay(activeOrderDetail)" disabled />
+              </label>
+              <label class="tracking-fill">
+                <span>快递单号</span>
+                <div class="tracking-fill-row">
+                  <input v-model.trim="drawerTrackingNo" placeholder="输入单号后回填并标记已发货" @keyup.enter="fillOrderTracking" />
+                  <button class="primary" type="button" @click="fillOrderTracking" :disabled="drawerTrackingSaving || !drawerTrackingNo.trim()">
+                    {{ drawerTrackingSaving ? '回填中' : '回填' }}
+                  </button>
+                </div>
+              </label>
+            </div>
+          </section>
+          <section class="drawer-section">
+            <h4>订单状态</h4>
+            <div class="drawer-status-grid">
+              <span>收款：{{ activeOrderDetail.pay_status || '-' }}</span>
+              <span>发货：{{ activeOrderDetail.ship_status || '-' }}</span>
+              <span>生产：{{ activeOrderDetail.process_status || '-' }}</span>
+              <span>发票：{{ invoiceStatusLabel(activeOrderDetail.invoice_status) }}</span>
+            </div>
+          </section>
+          <section class="drawer-section">
+            <h4>订单信息</h4>
+            <div class="drawer-status-grid">
+              <span>金额：{{ activeOrderDetail.grand_total || '-' }}</span>
+              <span>类型：{{ activeOrderDetail.order_type || '-' }}</span>
+              <span>录入：{{ activeOrderDetail.created_by_employee || '-' }}</span>
+              <span>备注：{{ activeOrderDetail.notes || '-' }}</span>
+            </div>
+          </section>
+          <div class="drawer-actions">
+            <button class="secondary" type="button" @click="openSalesOrderDrawer(activeOrderDetail)">销售单</button>
+            <button class="secondary" type="button" @click="openDeliveryNoteDrawer(activeOrderDetail)" :disabled="!isShipped(activeOrderDetail)">出库单</button>
+            <button class="secondary" type="button" @click="openInvoiceDrawer(activeOrderDetail)">发票</button>
+            <a class="secondary link-button" :href="`/order?edit_id=${activeOrderDetail.id}`">编辑订单</a>
+          </div>
+        </div>
+      </aside>
+    </div>
 
     <div v-if="salesOrderDrawerOpen" class="sales-order-drawer-mask" @click.self="closeSalesOrderDrawer">
       <aside class="sales-order-drawer" aria-label="销售单">
@@ -239,11 +284,12 @@ const shippingError = ref('')
 const senderProfiles = ref([])
 const selectedSenderID = ref(0)
 const orderSenderIDs = reactive({})
-const currentShipment = reactive({ shipment_id: 0, shipment_no: '' })
-const trackingInputs = reactive({})
-const trackingLoading = ref(false)
 const trackingExcelFile = ref(null)
 const trackingExcelLoading = ref(false)
+const orderDetailDrawerOpen = ref(false)
+const activeOrderDetail = ref(null)
+const drawerTrackingNo = ref('')
+const drawerTrackingSaving = ref(false)
 const salesOrderDrawerOpen = ref(false)
 const activeSalesOrderID = ref(0)
 const deliveryNoteDrawerOpen = ref(false)
@@ -265,15 +311,6 @@ const filters = reactive({
 const completedStatusID = computed(() => {
   const hit = processStatuses.value.find((item) => String(item.name || '').includes('生产完成'))
   return Number(hit?.id || 0)
-})
-
-const selectedRows = computed(() => {
-  const selected = new Set(selectedOrderIDs.value.map((id) => Number(id)))
-  return rows.value.filter((row) => selected.has(Number(row.id)))
-})
-
-const trackingReady = computed(() => {
-  return selectedRows.value.some((row) => String(trackingInputs[Number(row.id)] || '').trim() !== '')
 })
 
 function applyUrlFilters() {
@@ -352,6 +389,21 @@ function closeInvoiceDrawer() {
   activeInvoiceID.value = 0
 }
 
+function openOrderDetailDrawer(row) {
+  const id = Number(row?.id || 0)
+  if (!id) return
+  activeOrderDetail.value = { ...row }
+  drawerTrackingNo.value = row.ship_tracking_no || ''
+  orderDetailDrawerOpen.value = true
+  if (selectedOrderIDs.value.includes(id) && orderSenderIDs[id] === undefined) orderSenderIDs[id] = 0
+}
+
+function closeOrderDetailDrawer() {
+  orderDetailDrawerOpen.value = false
+  activeOrderDetail.value = null
+  drawerTrackingNo.value = ''
+}
+
 async function loadPage(nextPage) {
   page.value = Math.max(1, nextPage)
   await load()
@@ -363,6 +415,23 @@ function isProductionComplete(row) {
 
 function isShipped(row) {
   return String(row?.ship_status || '').includes('已发货')
+}
+
+function profileLabel(profile = {}) {
+  return profile.sender_label || profile.sender_name || `寄件人${profile.sender_id}`
+}
+
+function senderProfileLabel(id) {
+  const hit = senderProfiles.value.find((profile) => Number(profile.sender_id) === Number(id))
+  return hit ? profileLabel(hit) : ''
+}
+
+function senderDisplay(row) {
+  const id = Number(row?.id || 0)
+  const overrideID = Number(orderSenderIDs[id] || 0)
+  if (selectedOrderIDs.value.includes(id) && overrideID > 0) return senderProfileLabel(overrideID) || `寄件人${overrideID}`
+  if (row?.sender_label || row?.sender_name) return row.sender_label || row.sender_name
+  return row?.ship_tracking_no ? '未记录寄件人' : '未生成'
 }
 
 function toggleOrder(row, checked) {
@@ -406,12 +475,9 @@ async function generateShippingExcel() {
       body: { order_ids: selectedOrderIDs.value, sender_id: selectedSenderID.value, order_senders: orderSenders },
     })
     shippingExcelUrl.value = data.shipping_excel_url || ''
-    currentShipment.shipment_id = Number(data.shipment_id || 0)
-    currentShipment.shipment_no = data.shipment_no || ''
-    for (const id of selectedOrderIDs.value) {
-      if (trackingInputs[id] === undefined) trackingInputs[id] = ''
-    }
-    shippingMessage.value = `已生成 ${Number(data.count || selectedOrderIDs.value.length)} 个订单的快递录单：${currentShipment.shipment_no || '待回填'}`
+    const shipmentNo = data.shipment_no || ''
+    shippingMessage.value = `已生成 ${Number(data.count || selectedOrderIDs.value.length)} 个订单的快递录单${shipmentNo ? `：${shipmentNo}` : ''}，单号请在订单抽屉回填，或上传回传 Excel`
+    await load()
   } catch (err) {
     shippingError.value = err.message || '生成失败'
   } finally {
@@ -419,31 +485,26 @@ async function generateShippingExcel() {
   }
 }
 
-async function fillShipmentTracking() {
-  trackingLoading.value = true
+async function fillOrderTracking() {
+  const orderID = Number(activeOrderDetail.value?.id || 0)
+  const trackingNo = String(drawerTrackingNo.value || '').trim()
+  if (!orderID || !trackingNo) return
+  drawerTrackingSaving.value = true
   shippingError.value = ''
   shippingMessage.value = ''
   try {
-    const items = selectedRows.value
-      .map((row) => ({
-        order_id: Number(row.id),
-        tracking_no: String(trackingInputs[Number(row.id)] || '').trim(),
-      }))
-      .filter((item) => item.tracking_no)
-    const data = await apiSend('/api/orders/shipping-tracking', {
-      body: { shipment_id: currentShipment.shipment_id, items },
+    const data = await apiSend(`/api/orders/${activeOrderDetail.value.id}/shipping-tracking`, {
+      body: { tracking_no: trackingNo },
     })
     shippingMessage.value = `已回填 ${Number(data.updated || 0)} 个订单并标记已发货`
-    selectedOrderIDs.value = []
-    for (const key of Object.keys(orderSenderIDs)) delete orderSenderIDs[key]
-    for (const key of Object.keys(trackingInputs)) delete trackingInputs[key]
-    currentShipment.shipment_id = 0
-    currentShipment.shipment_no = ''
     await load()
+    const refreshed = rows.value.find((row) => Number(row.id) === orderID)
+    activeOrderDetail.value = refreshed ? { ...refreshed } : { ...activeOrderDetail.value, ship_tracking_no: trackingNo, ship_status: '已发货' }
+    drawerTrackingNo.value = trackingNo
   } catch (err) {
     shippingError.value = err.message || '回填失败'
   } finally {
-    trackingLoading.value = false
+    drawerTrackingSaving.value = false
   }
 }
 
@@ -490,7 +551,16 @@ async function load() {
   error.value = ''
   try {
     const data = await apiGet(buildUrl(page.value))
+    const currentDetailID = Number(activeOrderDetail.value?.id || 0)
+    const previousDrawerTrackingNo = activeOrderDetail.value?.ship_tracking_no || ''
     rows.value = data.rows || []
+    if (currentDetailID) {
+      const refreshed = rows.value.find((row) => Number(row.id) === currentDetailID)
+      if (refreshed) {
+        activeOrderDetail.value = { ...refreshed }
+        if (drawerTrackingNo.value === previousDrawerTrackingNo) drawerTrackingNo.value = refreshed.ship_tracking_no || ''
+      }
+    }
     selectedOrderIDs.value = selectedOrderIDs.value.filter((id) => rows.value.some((row) => Number(row.id) === id && isProductionComplete(row)))
     for (const key of Object.keys(orderSenderIDs)) {
       const id = Number(key)
@@ -542,23 +612,20 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .tracking-upload input { padding: 6px; }
 .notice { display: flex; align-items: center; justify-content: space-between; gap: 10px; border-radius: 6px; padding: 9px; margin-bottom: 12px; }
 .ok { background: #eef8f1; border: 1px solid #b9dfc4; color: #1f6b38; }
-.tracking-box { border: 1px solid #d9e3ef; border-radius: 8px; padding: 10px; margin-bottom: 12px; background: #f8fbff; }
-.tracking-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 10px; }
-.tracking-head strong { display: block; margin-bottom: 3px; }
-.tracking-head span { color: #576575; font-size: 13px; }
-.tracking-grid { display: grid; grid-template-columns: repeat(3, minmax(180px, 1fr)); gap: 10px; }
-.tracking-actions { display: flex; justify-content: flex-end; margin-top: 10px; }
 .table-wrap { overflow: auto; }
-table { width: 100%; min-width: 1180px; border-collapse: collapse; }
+table { width: 100%; min-width: 960px; border-collapse: collapse; }
 th, td { border-bottom: 1px solid #eee8df; padding: 9px 8px; text-align: left; font-size: 14px; vertical-align: top; }
 th { background: #fbfaf8; position: sticky; top: 0; }
 .select-col { width: 54px; text-align: center; }
 .select-col input { width: 18px; height: 18px; padding: 0; }
-.row-sender { width: 170px; }
-.row-sender select { width: 154px; height: 34px; padding: 5px 7px; }
 a, .text-link { color: #1f4f82; text-decoration: none; }
-.notes { max-width: 220px; white-space: pre-wrap; }
-.actions-cell { min-width: 160px; }
+.link-button { display: inline-flex; align-items: center; justify-content: center; text-decoration: none; }
+.order-link { height: auto; border: 0; border-radius: 0; padding: 0; background: transparent; color: #1f4f82; font: inherit; text-align: left; cursor: pointer; }
+.shipping-summary { display: grid; gap: 4px; min-width: 130px; }
+.shipping-summary span { color: #666; font-size: 12px; }
+.shipping-summary strong { font-weight: 600; color: #171717; }
+.status-stack { display: grid; grid-template-columns: repeat(2, minmax(90px, 1fr)); gap: 4px 8px; min-width: 230px; color: #333; font-size: 13px; }
+.actions-cell { min-width: 210px; }
 .actions-cell a, .actions-cell .inline-muted { display: inline-block; margin-right: 8px; }
 .inline-muted { font-size: 14px; }
 .invoice-status { display: inline-block; border: 1px solid #ddd5ca; border-radius: 6px; padding: 3px 7px; font-size: 12px; white-space: nowrap; }
@@ -570,6 +637,22 @@ a, .text-link { color: #1f4f82; text-decoration: none; }
 .voided { color: #8a1f1f; background: #fff7f7; }
 .pager { display: flex; gap: 10px; align-items: center; justify-content: flex-end; margin-top: 12px; }
 .error { background: #fff0f0; border: 1px solid #e6b7b7; border-radius: 6px; padding: 9px; margin-bottom: 12px; color: #8a1f1f; }
+.order-detail-drawer-mask { position: fixed; inset: 0; z-index: 35; display: flex; justify-content: flex-end; background: rgba(0, 0, 0, .24); }
+.order-detail-drawer { width: min(620px, calc(100vw - 28px)); height: 100%; overflow: auto; background: #f8f7f4; border-left: 1px solid #e6e0d8; box-shadow: -10px 0 24px rgba(0, 0, 0, .14); padding: 16px; }
+.drawer-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; margin-bottom: 14px; }
+.drawer-head h3 { margin: 0 0 4px; font-size: 18px; }
+.drawer-head p { margin: 0; color: #666; font-size: 13px; }
+.drawer-body { display: grid; gap: 12px; }
+.drawer-section { background: #fff; border: 1px solid #e6e0d8; border-radius: 8px; padding: 12px; }
+.section-head { display: flex; justify-content: space-between; gap: 12px; align-items: center; margin-bottom: 10px; }
+.drawer-section h4 { margin: 0 0 10px; font-size: 15px; }
+.section-head h4 { margin-bottom: 0; }
+.drawer-check { display: inline-flex; align-items: center; gap: 6px; color: #555; font-size: 13px; }
+.drawer-check input { width: 16px; height: 16px; padding: 0; }
+.drawer-grid { display: grid; gap: 10px; }
+.tracking-fill-row { display: grid; grid-template-columns: 1fr auto; gap: 8px; }
+.drawer-status-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; color: #333; font-size: 13px; }
+.drawer-actions { display: flex; flex-wrap: wrap; gap: 8px; justify-content: flex-end; }
 .sales-order-drawer-mask { position: fixed; inset: 0; z-index: 35; display: flex; justify-content: flex-end; background: rgba(0, 0, 0, .24); }
 .sales-order-drawer { width: min(1160px, calc(100vw - 28px)); height: 100%; overflow: auto; background: #f8f7f4; border-left: 1px solid #e6e0d8; box-shadow: -10px 0 24px rgba(0, 0, 0, .14); }
 .delivery-note-drawer-mask { position: fixed; inset: 0; z-index: 35; display: flex; justify-content: flex-end; background: rgba(0, 0, 0, .24); }
@@ -581,9 +664,8 @@ a, .text-link { color: #1f4f82; text-decoration: none; }
   .filters { grid-template-columns: 1fr; }
   .shipping-bar { align-items: stretch; flex-direction: column; }
   .shipping-actions { align-self: stretch; justify-content: flex-start; }
-  .tracking-head { align-items: stretch; flex-direction: column; }
-  .tracking-grid { grid-template-columns: 1fr; }
   table { min-width: 980px; }
-  .sales-order-drawer, .delivery-note-drawer, .invoice-drawer { width: 100vw; }
+  .status-stack, .drawer-status-grid { grid-template-columns: 1fr; }
+  .order-detail-drawer, .sales-order-drawer, .delivery-note-drawer, .invoice-drawer { width: 100vw; }
 }
 </style>

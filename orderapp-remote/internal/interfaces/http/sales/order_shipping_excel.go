@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -40,6 +41,10 @@ type orderShippingSenderOverride struct {
 type orderShippingTrackingRequest struct {
 	ShipmentID int64                          `json:"shipment_id"`
 	Items      []orderShippingTrackingItemAPI `json:"items"`
+}
+
+type orderSingleShippingTrackingRequest struct {
+	TrackingNo string `json:"tracking_no"`
 }
 
 type orderShippingTrackingItemAPI struct {
@@ -114,6 +119,28 @@ func registerOrderShippingExcelRoutes(e *echo.Echo, salesSvc *salesapp.Service) 
 			Actor:      support.ActorOf(c),
 			ShipmentID: req.ShipmentID,
 			Items:      items,
+		})
+		if err != nil {
+			return c.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
+		}
+		return c.JSON(http.StatusOK, res)
+	})
+	e.POST("/api/orders/:id/shipping-tracking", func(c echo.Context) error {
+		if err := support.RequireEmployeeBound(c); err != nil {
+			return c.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
+		}
+		orderID, err := strconv.ParseInt(strings.TrimSpace(c.Param("id")), 10, 64)
+		if err != nil || orderID <= 0 {
+			return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid order id"})
+		}
+		var req orderSingleShippingTrackingRequest
+		if err := c.Bind(&req); err != nil {
+			return c.JSON(http.StatusBadRequest, map[string]string{"error": "bad request"})
+		}
+		res, err := salesSvc.FillOrderTracking(c.Request().Context(), salesapp.FillOrderTrackingCommand{
+			Actor:      support.ActorOf(c),
+			OrderID:    orderID,
+			TrackingNo: req.TrackingNo,
 		})
 		if err != nil {
 			return c.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})

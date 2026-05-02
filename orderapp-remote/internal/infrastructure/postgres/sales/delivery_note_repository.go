@@ -297,6 +297,11 @@ func (r Repository) buildDeliveryNoteSnapshotTx(ctx context.Context, tx pgx.Tx, 
 		TrackingNo:             firstNonEmpty(form.TrackingNo, base.TrackingNo),
 		Note:                   firstNonEmpty(form.Note, base.Note),
 	}
+	seal, err := r.loadDeliveryNoteSealRefTx(ctx, tx)
+	if err != nil {
+		return salesdomain.DeliveryNoteSnapshot{}, err
+	}
+	snapshot.Seal = seal
 	rows, err := tx.Query(ctx, fmt.Sprintf(`SELECT COALESCE(NULLIF(oi.item_name,''), p.name, ''), COALESCE(oi.spec,''), COALESCE(oi.qty,0)::float8, COALESCE(oi.unit,'')
 		FROM %s.order_items oi
 		LEFT JOIN %s.products p ON p.id=oi.product_id
@@ -324,6 +329,28 @@ func (r Repository) buildDeliveryNoteSnapshotTx(ctx context.Context, tx pgx.Tx, 
 		return salesdomain.DeliveryNoteSnapshot{}, err
 	}
 	return snapshot, nil
+}
+
+func (r Repository) loadDeliveryNoteSealRefTx(ctx context.Context, tx pgx.Tx) (*salesdomain.SalesOrderAssetRef, error) {
+	q := fmt.Sprintf(`SELECT
+			COALESCE(a.id,0), COALESCE(a.content_type,''), COALESCE(a.object_key,''),
+			COALESCE(s.seal_x_mm,32)::float8, COALESCE(s.seal_y_mm,5)::float8, COALESCE(s.seal_width_mm,36)::float8
+		FROM %s.sales_order_settings s
+		LEFT JOIN %s.sales_order_assets a ON a.id=s.seal_asset_id
+		WHERE s.id=1`, r.schema, r.schema)
+	ref := salesdomain.SalesOrderAssetRef{Label: "公章"}
+	err := tx.QueryRow(ctx, q).Scan(&ref.ID, &ref.ContentType, &ref.ObjectKey, &ref.XMM, &ref.YMM, &ref.WidthMM)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	if ref.ID <= 0 || strings.TrimSpace(ref.ObjectKey) == "" {
+		return nil, nil
+	}
+	ref.URL = salesOrderAssetURL(ref.ObjectKey)
+	return &ref, nil
 }
 
 func (r Repository) loadDeliveryNoteVersionsTx(ctx context.Context, tx pgx.Tx, orderID int64, lock bool) ([]int, error) {

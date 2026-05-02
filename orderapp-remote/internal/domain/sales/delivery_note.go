@@ -28,6 +28,7 @@ type DeliveryNoteSnapshot struct {
 	TrackingNo          string                     `json:"tracking_no"`
 	Note                string                     `json:"note"`
 	Items               []DeliveryNoteSnapshotItem `json:"items"`
+	Seal                *SalesOrderAssetRef        `json:"seal,omitempty"`
 }
 
 type DeliveryNoteSnapshotItem struct {

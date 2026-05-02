@@ -594,6 +594,96 @@ func TestOrdersShippingTrackingAPIMarksOrdersShipped(t *testing.T) {
 	}
 }
 
+func TestOrdersSingleShippingTrackingAPIMarksOrderShipped(t *testing.T) {
+	pool, schema := newOrderAPITestDB(t)
+	ctx := context.Background()
+	seedOrderAPITestData(t, ctx, pool, schema)
+	if err := postgressales.EnsureSchema(ctx, pool, schema); err != nil {
+		t.Fatalf("EnsureSchema: %v", err)
+	}
+	mustExecOrderAPITestSQL(t, ctx, pool, fmt.Sprintf(`
+		INSERT INTO %s.orders(id, order_no, order_date, customer_id, order_type_id, pay_status_id, ship_status_id, process_status_id, grand_total, is_void)
+		VALUES (28, 'SO-DRAWER-TRACK', '2026-05-03', 3, 1, 2, 1, (SELECT id FROM %s.order_process_statuses WHERE name='生产完成' LIMIT 1), 88, false);
+		INSERT INTO %s.order_shipments(id, shipment_no, created_by, sender_id, file_url, status)
+		VALUES (13, 'SHIP-20260503-0001', '测试员', 1, '/ship/order_exports/test.xlsx', 'excel_generated');
+		INSERT INTO %s.order_shipment_orders(shipment_id, order_id, sender_id)
+		VALUES (13, 28, 1);
+	`, schema, schema, schema, schema))
+
+	e := newOrderAPITestEcho(pool, schema)
+	body, _ := json.Marshal(map[string]any{"tracking_no": "SF-DRAWER-001"})
+	req := httptest.NewRequest(http.MethodPost, "/api/orders/28/shipping-tracking", bytes.NewReader(body))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("POST /api/orders/28/shipping-tracking status = %d, want 200, body=%s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), `"updated":1`) || !strings.Contains(rec.Body.String(), `"total":1`) {
+		t.Fatalf("single tracking response should include updated=1 total=1: %s", rec.Body.String())
+	}
+
+	var trackingNo, shipStatus string
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`
+		SELECT COALESCE(o.ship_tracking_no,''), COALESCE(ss.name,'')
+		FROM %s.orders o
+		LEFT JOIN %s.ship_statuses ss ON ss.id=o.ship_status_id
+		WHERE o.id=28
+	`, schema, schema)).Scan(&trackingNo, &shipStatus); err != nil {
+		t.Fatalf("query order tracking: %v", err)
+	}
+	if trackingNo != "SF-DRAWER-001" || shipStatus != "已发货" {
+		t.Fatalf("order tracking=%q ship_status=%q, want shipped", trackingNo, shipStatus)
+	}
+
+	var rowTracking, shipmentStatus string
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`
+		SELECT COALESCE(so.tracking_no,''), s.status
+		FROM %s.order_shipment_orders so
+		JOIN %s.order_shipments s ON s.id=so.shipment_id
+		WHERE so.shipment_id=13 AND so.order_id=28
+	`, schema, schema)).Scan(&rowTracking, &shipmentStatus); err != nil {
+		t.Fatalf("query shipment tracking: %v", err)
+	}
+	if rowTracking != "SF-DRAWER-001" || shipmentStatus != "shipped" {
+		t.Fatalf("shipment tracking=%q status=%q, want shipped", rowTracking, shipmentStatus)
+	}
+}
+
+func TestOrdersListIncludesLatestShipmentSender(t *testing.T) {
+	pool, schema := newOrderAPITestDB(t)
+	ctx := context.Background()
+	seedOrderAPITestData(t, ctx, pool, schema)
+	if err := postgressales.EnsureSchema(ctx, pool, schema); err != nil {
+		t.Fatalf("EnsureSchema: %v", err)
+	}
+	mustExecOrderAPITestSQL(t, ctx, pool, fmt.Sprintf(`
+		INSERT INTO %s.sender_settings(id, sender_label, sender_name, sender_phone, sender_addr, sender_company, sender_goods, sf_biz_type, is_default, active)
+		VALUES (4, '仓库', '王小二', '13900000000', '普洱仓库', '棵凡咖啡', '茶叶', '顺丰标快', false, true);
+		INSERT INTO %s.orders(id, order_no, order_date, customer_id, order_type_id, pay_status_id, ship_status_id, process_status_id, grand_total, ship_tracking_no, is_void)
+		VALUES (29, 'SO-SENDER-LIST', '2026-05-03', 3, 1, 2, 1, (SELECT id FROM %s.order_process_statuses WHERE name='生产完成' LIMIT 1), 88, 'SF-SENDER-001', false);
+		INSERT INTO %s.order_shipments(id, shipment_no, created_by, sender_id, file_url, status)
+		VALUES (14, 'SHIP-20260503-0002', '测试员', 1, '/ship/order_exports/test.xlsx', 'excel_generated');
+		INSERT INTO %s.order_shipment_orders(shipment_id, order_id, sender_id, tracking_no)
+		VALUES (14, 29, 4, 'SF-SENDER-001');
+	`, schema, schema, schema, schema, schema))
+
+	e := newOrderAPITestEcho(pool, schema)
+	req := httptest.NewRequest(http.MethodGet, "/api/orders?limit=10", nil)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET /api/orders status = %d, want 200, body=%s", rec.Code, rec.Body.String())
+	}
+	for _, want := range []string{`"order_no":"SO-SENDER-LIST"`, `"sender_id":4`, `"sender_label":"仓库"`, `"ship_tracking_no":"SF-SENDER-001"`} {
+		if !strings.Contains(rec.Body.String(), want) {
+			t.Fatalf("orders list missing %s: %s", want, rec.Body.String())
+		}
+	}
+}
+
 func TestOrdersShippingTrackingExcelAPIMarksOrdersByRemarkOrderNo(t *testing.T) {
 	pool, schema := newOrderAPITestDB(t)
 	ctx := context.Background()
