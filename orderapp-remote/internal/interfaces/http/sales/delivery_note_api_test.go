@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	salesapp "orderapp/internal/application/sales"
+	salesdomain "orderapp/internal/domain/sales"
 	postgressales "orderapp/internal/infrastructure/postgres/sales"
 	"strings"
 	"testing"
@@ -81,6 +82,47 @@ func TestDeliveryNoteDocumentAPI(t *testing.T) {
 	e.ServeHTTP(historyRec, historyReq)
 	if historyRec.Code != http.StatusOK || historyRec.Header().Get(echo.HeaderContentType) != "application/pdf" {
 		t.Fatalf("history download status=%d content-type=%q body=%s", historyRec.Code, historyRec.Header().Get(echo.HeaderContentType), historyRec.Body.String())
+	}
+}
+
+func TestDeliveryNotePreviewIncludesConfiguredSeal(t *testing.T) {
+	pool, schema := newOrderAPITestDB(t)
+	ctx := context.Background()
+	seedOrderAPITestData(t, ctx, pool, schema)
+	if err := postgressales.EnsureSchema(ctx, pool, schema); err != nil {
+		t.Fatalf("EnsureSchema: %v", err)
+	}
+	seedDeliveryNoteAPITestOrder(t, ctx, pool, schema, true)
+	mustExecOrderAPITestSQL(t, ctx, pool, fmt.Sprintf(`
+		INSERT INTO %s.sales_order_assets(id, kind, filename, content_type, bytes, sha256, object_key, created_by)
+		VALUES(201, 'seal', 'seal.png', 'image/png', 128, 'abc', 'sales-order/seal/seal.png', '测试员');
+		INSERT INTO %s.sales_order_settings(id, company_name, seal_asset_id, seal_x_mm, seal_y_mm, seal_width_mm, updated_by)
+		VALUES(1, '棵凡咖啡', 201, 48, 9, 30, '测试员')
+		ON CONFLICT(id) DO UPDATE SET seal_asset_id=excluded.seal_asset_id, seal_x_mm=excluded.seal_x_mm, seal_y_mm=excluded.seal_y_mm, seal_width_mm=excluded.seal_width_mm;
+	`, schema, schema))
+
+	e := newDeliveryNoteAPITestEcho(pool, schema, t.TempDir())
+	req := httptest.NewRequest(http.MethodGet, "/api/orders/1/delivery-note-preview", nil)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("preview status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	var preview struct {
+		Snapshot salesdomain.DeliveryNoteSnapshot `json:"snapshot"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &preview); err != nil {
+		t.Fatalf("decode preview: %v", err)
+	}
+	if preview.Snapshot.Seal == nil {
+		t.Fatalf("delivery note preview missing configured seal: %s", rec.Body.String())
+	}
+	if preview.Snapshot.Seal.ID != 201 || preview.Snapshot.Seal.XMM != 48 || preview.Snapshot.Seal.YMM != 9 || preview.Snapshot.Seal.WidthMM != 30 {
+		t.Fatalf("delivery note seal = %+v", preview.Snapshot.Seal)
+	}
+	if preview.Snapshot.Seal.URL != "/assets/sales-order/seal/seal.png" {
+		t.Fatalf("delivery note seal URL = %q", preview.Snapshot.Seal.URL)
 	}
 }
 

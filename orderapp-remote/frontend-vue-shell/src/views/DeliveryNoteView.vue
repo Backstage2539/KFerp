@@ -8,6 +8,7 @@
           <a v-else class="secondary link-button" href="/vue-shell?view=orders">返回订单列表</a>
           <button class="secondary" type="button" @click="loadPreview" :disabled="previewLoading || !orderID">{{ previewLoading ? '预览中' : '刷新预览' }}</button>
           <a v-if="documents.length" class="secondary link-button" :href="deliveryNoteDownloadUrl(orderID)" target="_blank" rel="noopener">下载最新版</a>
+          <button class="secondary" type="button" @click="openSettingsDrawer">公章设置</button>
           <button class="secondary" type="button" @click="shareDeliveryNote" :disabled="shareLoading || !orderID || !documents.length">{{ shareLoading ? '分享中' : '分享到微信' }}</button>
           <button class="primary" type="button" @click="confirmGenerateDeliveryNote" :disabled="generating || !orderID || !preview">{{ generating ? '生成中' : '确认生成 PDF' }}</button>
         </div>
@@ -61,9 +62,18 @@
       </div>
       <div v-if="!preview" class="muted preview-empty">暂无预览</div>
       <div v-else class="preview-box">
-        <div class="preview-title">
+        <div ref="previewSealStage" class="preview-title">
           <strong>{{ preview.snapshot.company_name }}</strong>
           <span>出库单 DELIVERY NOTE</span>
+          <img
+            v-if="preview.snapshot.seal?.url"
+            class="seal-stamp-preview"
+            :src="preview.snapshot.seal.url"
+            alt="公章"
+            :style="sealPreviewStyle"
+            title="拖动调整公章位置，松手自动保存"
+            @pointerdown.stop="startPreviewSealDrag"
+          />
         </div>
         <div class="preview-meta">
           <span>出库单号：{{ preview.snapshot.delivery_note_no }}</span>
@@ -119,6 +129,12 @@
         </tbody>
       </table>
     </section>
+
+    <div v-if="settingsDrawerOpen" class="settings-drawer-mask" @click.self="closeSettingsDrawer">
+      <aside class="settings-drawer" aria-label="公章设置">
+        <CompanySealSettingsView embedded @close="closeSettingsDrawer" @updated="loadPreview" />
+      </aside>
+    </div>
   </div>
 </template>
 
@@ -127,6 +143,8 @@ import { computed, onMounted, reactive, ref } from 'vue'
 import { apiGet, apiSend } from '../api/client'
 import { deliveryNoteDownloadUrl } from '../lib/delivery-note'
 import { buildShareResourcePayload, shareResourceToWechat } from '../lib/external-share'
+import { beginSalesOrderSealDrag, moveSalesOrderSealDrag, salesOrderSealPreviewScale, salesOrderSealStyle } from '../lib/sales-order-seal'
+import CompanySealSettingsView from './CompanySealSettingsView.vue'
 
 const props = defineProps({
   orderId: { type: [Number, String], default: 0 },
@@ -144,6 +162,9 @@ const message = ref('')
 const documents = ref([])
 const preview = ref(null)
 const shareLoading = ref(false)
+const settingsDrawerOpen = ref(false)
+const previewSealStage = ref(null)
+const sealDragSaving = ref(false)
 const orderSummary = reactive({ order_id: 0, order_no: '', ship_status: '', customer: {} })
 const form = reactive(emptyForm())
 
@@ -153,6 +174,7 @@ const warehouseOptions = [
 ]
 
 const orderID = computed(() => Number(props.orderId || new URL(window.location.href).searchParams.get('order_id') || 0))
+const sealPreviewStyle = computed(() => salesOrderSealStyle(preview.value?.snapshot?.seal || {}, salesOrderSealPreviewScale))
 
 function emptyForm() {
   return {
@@ -285,6 +307,63 @@ async function shareDeliveryNote() {
   }
 }
 
+function openSettingsDrawer() {
+  settingsDrawerOpen.value = true
+}
+
+async function closeSettingsDrawer() {
+  settingsDrawerOpen.value = false
+  await loadPreview()
+}
+
+function startPreviewSealDrag(event) {
+  const seal = preview.value?.snapshot?.seal
+  if (!seal || !previewSealStage.value || sealDragSaving.value) return
+  event.preventDefault()
+  const drag = beginSalesOrderSealDrag({
+    seal,
+    clientX: event.clientX,
+    clientY: event.clientY,
+    scale: salesOrderSealPreviewScale,
+  })
+  const update = (clientX, clientY) => {
+    const next = moveSalesOrderSealDrag(drag, { clientX, clientY })
+    seal.x_mm = next.x_mm
+    seal.y_mm = next.y_mm
+    seal.width_mm = next.width_mm
+  }
+  const move = (moveEvent) => update(moveEvent.clientX, moveEvent.clientY)
+  const up = async () => {
+    window.removeEventListener('pointermove', move)
+    window.removeEventListener('pointerup', up)
+    await savePreviewSealPosition()
+  }
+  event.currentTarget?.setPointerCapture?.(event.pointerId)
+  window.addEventListener('pointermove', move)
+  window.addEventListener('pointerup', up, { once: true })
+}
+
+async function savePreviewSealPosition() {
+  const seal = preview.value?.snapshot?.seal
+  if (!seal) return
+  sealDragSaving.value = true
+  error.value = ''
+  try {
+    await apiSend('/api/settings/sales-order/seal-position', {
+      body: {
+        seal_x_mm: Number(seal.x_mm || 32),
+        seal_y_mm: Number(seal.y_mm || 5),
+        seal_width_mm: Number(seal.width_mm || 36),
+      },
+    })
+    message.value = '公章位置已保存，请重新生成出库单 PDF 后下载'
+  } catch (err) {
+    error.value = err.message || '保存公章位置失败'
+  } finally {
+    sealDragSaving.value = false
+  }
+}
+
 onMounted(loadPage)
 </script>
 
@@ -312,9 +391,10 @@ textarea { resize: vertical; }
 .wide { grid-column: 1 / -1; }
 .preview-empty { padding: 20px 0; text-align: center; }
 .preview-box { border: 1px solid #e3dccf; border-radius: 8px; padding: 18px; background: #fffdf9; }
-.preview-title { display: flex; justify-content: space-between; gap: 12px; align-items: baseline; border-bottom: 1px solid #d8d1c8; padding-bottom: 10px; margin-bottom: 12px; }
+.preview-title { position: relative; display: flex; justify-content: space-between; gap: 12px; align-items: baseline; border-bottom: 1px solid #d8d1c8; padding-bottom: 10px; margin-bottom: 12px; min-height: 46px; }
 .preview-title strong { font-size: 20px; }
 .preview-title span { font-size: 16px; font-weight: 600; }
+.seal-stamp-preview { position: absolute; object-fit: contain; opacity: .86; cursor: move; touch-action: none; z-index: 1; }
 .preview-meta { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px 14px; font-size: 13px; color: #3d3d3d; margin-bottom: 12px; }
 table { width: 100%; border-collapse: collapse; font-size: 14px; }
 th, td { border-bottom: 1px solid #eee7df; padding: 9px 8px; text-align: left; vertical-align: top; }
@@ -326,9 +406,12 @@ th { color: #555; background: #faf8f4; font-weight: 600; }
 .notice.ok { background: #eef8f1; border: 1px solid #cfe8d4; color: #1f6f4a; }
 .notice.error { background: #fff1f1; border: 1px solid #f0caca; color: #9d1c1c; }
 .muted { color: #888; }
+.settings-drawer-mask { position: fixed; inset: 0; z-index: 45; display: flex; justify-content: flex-end; background: rgba(0, 0, 0, .24); }
+.settings-drawer { width: min(720px, calc(100vw - 28px)); height: 100%; overflow: auto; background: #f8f7f4; border-left: 1px solid #e6e0d8; box-shadow: -10px 0 24px rgba(0, 0, 0, .14); }
 @media (max-width: 900px) {
   .delivery-note-page { padding: 12px; }
   .panel-head, .actions { align-items: stretch; flex-direction: column; }
   .form-grid, .preview-meta { grid-template-columns: 1fr; }
+  .settings-drawer { width: 100vw; }
 }
 </style>

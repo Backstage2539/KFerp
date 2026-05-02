@@ -240,6 +240,9 @@ type OrderRow struct {
 	PayStatus         string `json:"pay_status"`
 	ShipStatus        string `json:"ship_status"`
 	ShipTrackingNo    string `json:"ship_tracking_no"`
+	SenderID          int64  `json:"sender_id"`
+	SenderLabel       string `json:"sender_label"`
+	SenderName        string `json:"sender_name"`
 	OrderTypeID       int64  `json:"order_type_id"`
 	PayStatusID       int64  `json:"pay_status_id"`
 	ShipStatusID      int64  `json:"ship_status_id"`
@@ -337,6 +340,12 @@ type FillShipmentTrackingCommand struct {
 type FillShipmentTrackingByOrderNoCommand struct {
 	Actor string
 	Items []ShipmentTrackingByOrderNoItemCommand
+}
+
+type FillOrderTrackingCommand struct {
+	Actor      string
+	OrderID    int64
+	TrackingNo string
 }
 
 type FillShipmentTrackingResult struct {
@@ -683,6 +692,7 @@ type Repository interface {
 	CreateOrderShipment(ctx context.Context, cmd CreateOrderShipmentCommand) (OrderShipmentResult, error)
 	FillShipmentTracking(ctx context.Context, cmd FillShipmentTrackingCommand) (FillShipmentTrackingResult, error)
 	FillShipmentTrackingByOrderNo(ctx context.Context, cmd FillShipmentTrackingByOrderNoCommand) (FillShipmentTrackingResult, error)
+	FillOrderTracking(ctx context.Context, cmd FillOrderTrackingCommand) (FillShipmentTrackingResult, error)
 	LoadSalesOrderSettings(ctx context.Context) (SalesOrderSettings, error)
 	SaveSalesOrderSettings(ctx context.Context, cmd SaveSalesOrderSettingsCommand) error
 	SaveSalesOrderAsset(ctx context.Context, cmd SaveSalesOrderAssetCommand) (SalesOrderAsset, error)
@@ -949,6 +959,21 @@ func (s *Service) FillShipmentTrackingByOrderNo(ctx context.Context, cmd FillShi
 	}
 	cmd.Items = items
 	return s.repo.FillShipmentTrackingByOrderNo(ctx, cmd)
+}
+
+func (s *Service) FillOrderTracking(ctx context.Context, cmd FillOrderTrackingCommand) (FillShipmentTrackingResult, error) {
+	cmd.Actor = strings.TrimSpace(cmd.Actor)
+	if cmd.Actor == "" {
+		cmd.Actor = "shipping"
+	}
+	if cmd.OrderID <= 0 {
+		return FillShipmentTrackingResult{}, fmt.Errorf("order required")
+	}
+	cmd.TrackingNo = strings.TrimSpace(cmd.TrackingNo)
+	if cmd.TrackingNo == "" {
+		return FillShipmentTrackingResult{}, fmt.Errorf("tracking_no required")
+	}
+	return s.repo.FillOrderTracking(ctx, cmd)
 }
 
 func (s *Service) LoadSenderProfile(ctx context.Context) (SenderProfile, error) {

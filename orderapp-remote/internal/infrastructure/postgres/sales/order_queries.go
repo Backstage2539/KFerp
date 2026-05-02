@@ -113,6 +113,9 @@ func fetchOrders(ctx context.Context, pool *pgxpool.Pool, schema string, query s
 			COALESCE(ps.name, '') AS pay_status,
 			COALESCE(ss.name, '') AS ship_status,
 			COALESCE(o.ship_tracking_no, '') AS ship_tracking_no,
+			COALESCE(ship_sender.sender_id, 0) AS sender_id,
+			COALESCE(sender.sender_label, '') AS sender_label,
+			COALESCE(sender.sender_name, '') AS sender_name,
 			COALESCE(ops.name, '') AS process_status,
 			COALESCE((SELECT al.actor FROM %s.order_audit_logs al WHERE al.order_id=o.id ORDER BY al.id ASC LIMIT 1), '未知') AS created_by_employee,
 			COALESCE(o.order_type_id,0) AS order_type_id,
@@ -132,10 +135,19 @@ func fetchOrders(ctx context.Context, pool *pgxpool.Pool, schema string, query s
 		LEFT JOIN %s.order_process_statuses ops ON ops.id = o.process_status_id
 		LEFT JOIN %s.order_invoices oi ON oi.order_id = o.id
 		LEFT JOIN %s.sales_order_assets ia ON ia.id = oi.invoice_asset_id
+		LEFT JOIN LATERAL (
+			SELECT COALESCE(oso.sender_id, os.sender_id, 0) AS sender_id
+			FROM %s.order_shipment_orders oso
+			JOIN %s.order_shipments os ON os.id=oso.shipment_id
+			WHERE oso.order_id=o.id
+			ORDER BY os.created_at DESC, oso.id DESC
+			LIMIT 1
+		) ship_sender ON true
+		LEFT JOIN %s.sender_settings sender ON sender.id=ship_sender.sender_id
 		%s
 		ORDER BY o.order_date DESC, o.id DESC
 		LIMIT $%d OFFSET $%d
-	`, schema, schema, schema, schema, schema, schema, schema, schema, schema, wsql, limitArg, offsetArg)
+	`, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, wsql, limitArg, offsetArg)
 
 	dbRows, err := pool.Query(ctx, sql, args...)
 	if err != nil {
@@ -147,7 +159,7 @@ func fetchOrders(ctx context.Context, pool *pgxpool.Pool, schema string, query s
 	for dbRows.Next() {
 		var r salesapp.OrderRow
 		var invoiceObjectKey string
-		if err := dbRows.Scan(&r.ID, &r.OrderNo, &r.OrderDate, &r.CustomerID, &r.Customer, &r.GrandTotal, &r.OrderType, &r.PayStatus, &r.ShipStatus, &r.ShipTrackingNo, &r.ProcessStatus, &r.CreatedByEmployee, &r.OrderTypeID, &r.PayStatusID, &r.ShipStatusID, &r.ProcessStatusID, &r.Notes, &r.IsVoid, &r.InvoiceStatus, &r.InvoiceFilename, &invoiceObjectKey); err != nil {
+		if err := dbRows.Scan(&r.ID, &r.OrderNo, &r.OrderDate, &r.CustomerID, &r.Customer, &r.GrandTotal, &r.OrderType, &r.PayStatus, &r.ShipStatus, &r.ShipTrackingNo, &r.SenderID, &r.SenderLabel, &r.SenderName, &r.ProcessStatus, &r.CreatedByEmployee, &r.OrderTypeID, &r.PayStatusID, &r.ShipStatusID, &r.ProcessStatusID, &r.Notes, &r.IsVoid, &r.InvoiceStatus, &r.InvoiceFilename, &invoiceObjectKey); err != nil {
 			return nil, false, err
 		}
 		r.InvoiceFileURL = salesOrderAssetURL(invoiceObjectKey)

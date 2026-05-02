@@ -16,6 +16,7 @@ type fakeRepo struct {
 	shipmentCmd            CreateOrderShipmentCommand
 	trackingItems          FillShipmentTrackingCommand
 	orderNoTracking        FillShipmentTrackingByOrderNoCommand
+	orderTracking          FillOrderTrackingCommand
 	settingsCmd            SaveSalesOrderSettingsCommand
 	generateCmd            GenerateSalesOrderDocumentCommand
 	imageCmd               GenerateSalesOrderImageCommand
@@ -119,6 +120,11 @@ func (r *fakeRepo) FillShipmentTracking(ctx context.Context, cmd FillShipmentTra
 func (r *fakeRepo) FillShipmentTrackingByOrderNo(ctx context.Context, cmd FillShipmentTrackingByOrderNoCommand) (FillShipmentTrackingResult, error) {
 	r.orderNoTracking = cmd
 	return FillShipmentTrackingResult{Updated: len(cmd.Items), Total: len(cmd.Items)}, nil
+}
+
+func (r *fakeRepo) FillOrderTracking(ctx context.Context, cmd FillOrderTrackingCommand) (FillShipmentTrackingResult, error) {
+	r.orderTracking = cmd
+	return FillShipmentTrackingResult{Updated: 1, Total: 1}, nil
 }
 
 func (r *fakeRepo) LoadSalesOrderSettings(ctx context.Context) (SalesOrderSettings, error) {
@@ -535,6 +541,26 @@ func TestServiceNormalizesShipmentTrackingByOrderNo(t *testing.T) {
 	first := repo.orderNoTracking.Items[0]
 	if first.OrderNo != "SO-20260428-0001" || first.TrackingNo != "SF5199040648127" {
 		t.Fatalf("first normalized item = %+v", first)
+	}
+}
+
+func TestServiceNormalizesSingleOrderTracking(t *testing.T) {
+	repo := &fakeRepo{}
+	svc := NewService(repo)
+
+	updated, err := svc.FillOrderTracking(context.Background(), FillOrderTrackingCommand{
+		Actor:      "",
+		OrderID:    33,
+		TrackingNo: " SF-DRAWER-001 ",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updated.Updated != 1 || updated.Total != 1 {
+		t.Fatalf("tracking result = %+v", updated)
+	}
+	if repo.orderTracking.Actor != "shipping" || repo.orderTracking.OrderID != 33 || repo.orderTracking.TrackingNo != "SF-DRAWER-001" {
+		t.Fatalf("single order tracking command = %+v", repo.orderTracking)
 	}
 }
 

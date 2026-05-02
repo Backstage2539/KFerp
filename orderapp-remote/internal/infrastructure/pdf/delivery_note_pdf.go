@@ -37,7 +37,7 @@ func (r DeliveryNoteRenderer) Render(snapshot salesdomain.DeliveryNoteSnapshot) 
 	pdf.AddUTF8Font("noto", "", filepath.Base(fontPath))
 	pdf.AddPage()
 
-	renderDeliveryNoteHeader(pdf, snapshot)
+	r.renderDeliveryNoteHeader(pdf, snapshot)
 	renderDeliveryNoteItemsTable(pdf, snapshot)
 	renderDeliveryNoteNote(pdf, snapshot)
 
@@ -51,7 +51,7 @@ func (r DeliveryNoteRenderer) Render(snapshot salesdomain.DeliveryNoteSnapshot) 
 	return buf.Bytes(), nil
 }
 
-func renderDeliveryNoteHeader(pdf *gofpdf.Fpdf, snapshot salesdomain.DeliveryNoteSnapshot) {
+func (r DeliveryNoteRenderer) renderDeliveryNoteHeader(pdf *gofpdf.Fpdf, snapshot salesdomain.DeliveryNoteSnapshot) {
 	pdf.SetFont("noto", "", 14)
 	pdf.CellFormat(100, 10, snapshot.CompanyName, "", 0, "L", false, 0, "")
 	pdf.SetFont("noto", "", 12)
@@ -60,6 +60,9 @@ func renderDeliveryNoteHeader(pdf *gofpdf.Fpdf, snapshot salesdomain.DeliveryNot
 	left, _, right, _ := pdf.GetMargins()
 	pageW, _ := pdf.GetPageSize()
 	pdf.Line(left, y, pageW-right, y)
+	if snapshot.Seal != nil {
+		SalesOrderRenderer{AssetBaseDir: r.AssetBaseDir}.renderSealStamp(pdf, *snapshot.Seal)
+	}
 	pdf.SetY(y + 5)
 	pdf.SetFont("noto", "", 10)
 	colW := (pageW - left - right) / 3
