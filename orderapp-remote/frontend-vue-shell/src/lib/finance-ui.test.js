@@ -37,3 +37,12 @@ test('Finance expenses keeps the list month aligned with the expense posting dat
   assert.ok(src.includes('const created = await createFinanceExpense'))
   assert.ok(src.includes('created?.month'))
 })
+
+test('Finance expenses associates expenses with employees and filters when an employee is clicked', () => {
+  const src = read('src/views/FinanceExpensesView.vue')
+  assert.ok(src.includes("apiGet('/api/finance/employees')"))
+  assert.ok(src.includes('employee_id: form.employee_id'))
+  assert.ok(src.includes('employeeFilter'))
+  assert.ok(src.includes('selectEmployeeFilter(row.employee_id)'))
+  assert.ok(src.includes('row.employee_name'))
+})

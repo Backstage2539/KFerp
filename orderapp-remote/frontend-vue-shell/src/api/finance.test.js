@@ -37,11 +37,11 @@ test('finance API wrappers use the month-scoped dashboard, report and expense en
   await withMockFetch(async (requests) => {
     await fetchFinanceDashboard('2026-05')
     await fetchFinanceReport('2026-05')
-    await fetchFinanceExpenses('2026-05')
+    await fetchFinanceExpenses('2026-05', 7)
     assert.deepEqual(requests.map((req) => req.url), [
       'https://erp.qacoohee.com/api/finance/dashboard?month=2026-05',
       'https://erp.qacoohee.com/api/finance/reports/2026-05',
-      'https://erp.qacoohee.com/api/finance/expenses?month=2026-05',
+      'https://erp.qacoohee.com/api/finance/expenses?month=2026-05&employee_id=7',
     ])
   })
 })

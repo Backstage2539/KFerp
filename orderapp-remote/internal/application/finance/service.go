@@ -22,16 +22,18 @@ type SettingsSnapshot struct {
 }
 
 type Expense struct {
-	ID         int64        `json:"id"`
-	Date       string       `json:"date"`
-	Month      string       `json:"month"`
-	Category   string       `json:"category"`
-	Amount     domain.Money `json:"amount"`
-	Allocation string       `json:"allocation"`
-	Payment    string       `json:"payment,omitempty"`
-	Note       string       `json:"note,omitempty"`
-	Actor      string       `json:"actor,omitempty"`
-	CreatedAt  string       `json:"created_at,omitempty"`
+	ID           int64        `json:"id"`
+	Date         string       `json:"date"`
+	Month        string       `json:"month"`
+	Category     string       `json:"category"`
+	Amount       domain.Money `json:"amount"`
+	Allocation   string       `json:"allocation"`
+	EmployeeID   int64        `json:"employee_id,omitempty"`
+	EmployeeName string       `json:"employee_name,omitempty"`
+	Payment      string       `json:"payment,omitempty"`
+	Note         string       `json:"note,omitempty"`
+	Actor        string       `json:"actor,omitempty"`
+	CreatedAt    string       `json:"created_at,omitempty"`
 }
 
 type CreateExpenseCommand struct {
@@ -40,9 +42,21 @@ type CreateExpenseCommand struct {
 	Category   string       `json:"category"`
 	Amount     domain.Money `json:"amount"`
 	Allocation string       `json:"allocation"`
+	EmployeeID int64        `json:"employee_id,omitempty"`
 	Payment    string       `json:"payment,omitempty"`
 	Note       string       `json:"note,omitempty"`
 	Actor      string       `json:"-"`
+}
+
+type ExpenseFilter struct {
+	Month      string `json:"month"`
+	EmployeeID int64  `json:"employee_id,omitempty"`
+}
+
+type ExpenseEmployee struct {
+	ID     int64  `json:"id"`
+	Name   string `json:"name"`
+	Active bool   `json:"active"`
 }
 
 type Exception struct {
@@ -93,7 +107,8 @@ type Repository interface {
 	MonthlySourceTotals(ctx context.Context, month string) (domain.MonthlySourceTotals, []Exception, error)
 	ListAdjustments(ctx context.Context, month string) ([]AdjustmentRecord, error)
 	CreateExpense(ctx context.Context, cmd CreateExpenseCommand) (Expense, error)
-	ListExpenses(ctx context.Context, month string) ([]Expense, error)
+	ListExpenses(ctx context.Context, filter ExpenseFilter) ([]Expense, error)
+	ListExpenseEmployees(ctx context.Context) ([]ExpenseEmployee, error)
 	SaveMonthlyReport(ctx context.Context, report domain.MonthlyReport, actor string) (domain.MonthlyReport, error)
 	MonthlyReportStatus(ctx context.Context, month string) (string, error)
 	CreateAdjustment(ctx context.Context, cmd CreateAdjustmentCommand) (AdjustmentRecord, error)
@@ -226,14 +241,22 @@ func (s *Service) CreateExpense(ctx context.Context, cmd CreateExpenseCommand) (
 	return s.repo.CreateExpense(ctx, normalized)
 }
 
-func (s *Service) ListExpenses(ctx context.Context, month string) ([]Expense, error) {
-	if err := validateMonth(month); err != nil {
+func (s *Service) ListExpenses(ctx context.Context, filter ExpenseFilter) ([]Expense, error) {
+	normalized, err := normalizeExpenseFilter(filter)
+	if err != nil {
 		return nil, err
 	}
 	if s.repo == nil {
 		return []Expense{}, nil
 	}
-	return s.repo.ListExpenses(ctx, month)
+	return s.repo.ListExpenses(ctx, normalized)
+}
+
+func (s *Service) ListExpenseEmployees(ctx context.Context) ([]ExpenseEmployee, error) {
+	if s.repo == nil {
+		return []ExpenseEmployee{}, nil
+	}
+	return s.repo.ListExpenseEmployees(ctx)
 }
 
 func (s *Service) CreateAdjustment(ctx context.Context, cmd CreateAdjustmentCommand) (AdjustmentRecord, error) {
@@ -312,6 +335,9 @@ func normalizeExpenseCommand(cmd CreateExpenseCommand) (CreateExpenseCommand, er
 	if cmd.Amount <= 0 {
 		return CreateExpenseCommand{}, fmt.Errorf("amount must be > 0")
 	}
+	if cmd.EmployeeID < 0 {
+		return CreateExpenseCommand{}, fmt.Errorf("invalid employee_id")
+	}
 	cmd.Allocation = strings.TrimSpace(cmd.Allocation)
 	if cmd.Allocation == "" {
 		cmd.Allocation = AllocationPeriodExpense
@@ -321,6 +347,17 @@ func normalizeExpenseCommand(cmd CreateExpenseCommand) (CreateExpenseCommand, er
 	}
 	cmd.Month = monthFromDate(cmd.Date)
 	return cmd, nil
+}
+
+func normalizeExpenseFilter(filter ExpenseFilter) (ExpenseFilter, error) {
+	filter.Month = strings.TrimSpace(filter.Month)
+	if err := validateMonth(filter.Month); err != nil {
+		return ExpenseFilter{}, err
+	}
+	if filter.EmployeeID < 0 {
+		return ExpenseFilter{}, fmt.Errorf("invalid employee_id")
+	}
+	return filter, nil
 }
 
 func normalizeAdjustmentCommand(cmd CreateAdjustmentCommand) (CreateAdjustmentCommand, error) {
