@@ -1,6 +1,6 @@
 const defaultSealXMM = 32
-const defaultSealYMM = 22
-const defaultSealWidthMM = 42
+const defaultSealYMM = 5
+const defaultSealWidthMM = 36
 
 export const salesOrderSealPreviewScale = 2.2
 

@@ -30,7 +30,7 @@
       <form class="form-grid" @submit.prevent="saveForm">
         <label>
           <span>出库日期</span>
-          <input v-model.trim="form.posting_date" type="date" />
+          <input v-model.trim="form.posting_date" type="text" inputmode="numeric" placeholder="YYYY-MM-DD" />
         </label>
         <label>
           <span>出库仓库</span>

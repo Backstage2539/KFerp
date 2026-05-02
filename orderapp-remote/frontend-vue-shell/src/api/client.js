@@ -33,9 +33,17 @@ export function apiURL(url) {
   return new URL(url, window.location.origin).toString()
 }
 
+export async function apiFetch(url, options = {}) {
+  const { headers = {}, ...rest } = options
+  return fetch(apiURL(url), {
+    ...rest,
+    headers: authHeaders(headers),
+  })
+}
+
 export async function apiGet(url) {
-  const res = await fetch(apiURL(url), {
-    headers: authHeaders({ Accept: 'application/json' }),
+  const res = await apiFetch(url, {
+    headers: { Accept: 'application/json' },
   })
   return readJson(res)
 }
@@ -46,9 +54,9 @@ export async function apiSend(url, { method = 'POST', body, headers = {} } = {})
   if (!(body instanceof FormData)) {
     baseHeaders['Content-Type'] = body instanceof URLSearchParams ? 'application/x-www-form-urlencoded' : 'application/json'
   }
-  const res = await fetch(apiURL(url), {
+  const res = await apiFetch(url, {
     method,
-    headers: authHeaders({ ...baseHeaders, ...headers }),
+    headers: { ...baseHeaders, ...headers },
     body: payload,
   })
   return readJson(res)

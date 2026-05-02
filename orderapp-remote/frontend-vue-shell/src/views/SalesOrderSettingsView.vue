@@ -119,8 +119,8 @@ const form = reactive({
   note: '',
   payment_text: '',
   seal_x_mm: 32,
-  seal_y_mm: 22,
-  seal_width_mm: 42,
+  seal_y_mm: 5,
+  seal_width_mm: 36,
 })
 
 const paymentForm = reactive({
@@ -134,8 +134,8 @@ function assignSettings(data) {
   form.note = data?.note || ''
   form.payment_text = data?.payment_text || ''
   form.seal_x_mm = Number(data?.seal_x_mm || 32)
-  form.seal_y_mm = Number(data?.seal_y_mm || 22)
-  form.seal_width_mm = Number(data?.seal_width_mm || 42)
+  form.seal_y_mm = Number(data?.seal_y_mm || 5)
+  form.seal_width_mm = Number(data?.seal_width_mm || 36)
 }
 
 const sealDragStyle = computed(() => {
@@ -188,8 +188,8 @@ async function saveSealPosition() {
     assignSettings(await apiSend('/api/settings/sales-order/seal-position', {
       body: {
         seal_x_mm: Number(form.seal_x_mm || 32),
-        seal_y_mm: Number(form.seal_y_mm || 22),
-        seal_width_mm: Number(form.seal_width_mm || 42),
+        seal_y_mm: Number(form.seal_y_mm || 5),
+        seal_width_mm: Number(form.seal_width_mm || 36),
       },
     }))
     ok.value = true

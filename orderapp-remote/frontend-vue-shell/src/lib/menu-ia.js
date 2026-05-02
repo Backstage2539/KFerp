@@ -39,6 +39,7 @@ export const menuGroups = [
     name: '商品与配方',
     items: [
       { key: 'productSettings', label: '产品设置', title: '产品设置' },
+      { key: 'costing', label: '价格与豆单', title: '价格与豆单' },
       { key: 'bom', label: 'BOM配方维护', title: 'BOM配方维护' },
     ],
   },
@@ -101,7 +102,6 @@ export const hiddenViewTitles = {
   inventory: '成品库存',
   allocationLogs: '分配批次查看',
   products: '产品设置',
-  costing: '产品设置',
   salesOrder: '销售单',
 }
 

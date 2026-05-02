@@ -50,6 +50,9 @@ func ensureCustomerCompanyColumns(ctx context.Context, pool *pgxpool.Pool, schem
 }
 
 func ensureOrderProcessStatuses(ctx context.Context, pool *pgxpool.Pool, schema string) error {
+	if err := syncSerialIDSequence(ctx, pool, schema, "order_process_statuses"); err != nil {
+		return err
+	}
 	q := fmt.Sprintf(`
 		INSERT INTO %s.order_process_statuses(name, sort, active)
 		SELECT $1, $2, true
@@ -62,6 +65,9 @@ func ensureOrderProcessStatuses(ctx context.Context, pool *pgxpool.Pool, schema 
 }
 
 func ensureShippingClosureSchema(ctx context.Context, pool *pgxpool.Pool, schema string) error {
+	if err := syncSerialIDSequence(ctx, pool, schema, "ship_statuses"); err != nil {
+		return err
+	}
 	statusQ := fmt.Sprintf(`
 		INSERT INTO %s.ship_statuses(name)
 		SELECT $1
@@ -101,6 +107,21 @@ func ensureShippingClosureSchema(ctx context.Context, pool *pgxpool.Pool, schema
 		}
 	}
 	return nil
+}
+
+func syncSerialIDSequence(ctx context.Context, pool *pgxpool.Pool, schema, table string) error {
+	q := fmt.Sprintf(`
+DO $$
+DECLARE
+	seq TEXT;
+BEGIN
+	SELECT pg_get_serial_sequence('%[1]s.%[2]s', 'id') INTO seq;
+	IF seq IS NOT NULL THEN
+		PERFORM setval(seq, COALESCE((SELECT MAX(id) FROM %[1]s.%[2]s), 0) + 1, false);
+	END IF;
+END $$;`, schema, table)
+	_, err := pool.Exec(ctx, q)
+	return err
 }
 
 func ensureOutsourceFeeColumns(ctx context.Context, pool *pgxpool.Pool, schema string) error {
@@ -174,8 +195,8 @@ func ensureSalesOrderTables(ctx context.Context, pool *pgxpool.Pool, schema stri
 			bank_account_no TEXT NOT NULL DEFAULT '',
 			seal_asset_id BIGINT REFERENCES %s.sales_order_assets(id),
 			seal_x_mm NUMERIC(8,2) NOT NULL DEFAULT 32,
-			seal_y_mm NUMERIC(8,2) NOT NULL DEFAULT 22,
-			seal_width_mm NUMERIC(8,2) NOT NULL DEFAULT 42,
+			seal_y_mm NUMERIC(8,2) NOT NULL DEFAULT 5,
+			seal_width_mm NUMERIC(8,2) NOT NULL DEFAULT 36,
 			updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
 			updated_by TEXT NOT NULL DEFAULT '',
 			CONSTRAINT sales_order_settings_singleton CHECK (id = 1)
@@ -224,8 +245,8 @@ func ensureSalesOrderTables(ctx context.Context, pool *pgxpool.Pool, schema stri
 	}
 	for _, stmt := range []string{
 		fmt.Sprintf(`ALTER TABLE %s.sales_order_settings ADD COLUMN IF NOT EXISTS seal_x_mm NUMERIC(8,2) NOT NULL DEFAULT 32`, schema),
-		fmt.Sprintf(`ALTER TABLE %s.sales_order_settings ADD COLUMN IF NOT EXISTS seal_y_mm NUMERIC(8,2) NOT NULL DEFAULT 22`, schema),
-		fmt.Sprintf(`ALTER TABLE %s.sales_order_settings ADD COLUMN IF NOT EXISTS seal_width_mm NUMERIC(8,2) NOT NULL DEFAULT 42`, schema),
+		fmt.Sprintf(`ALTER TABLE %s.sales_order_settings ADD COLUMN IF NOT EXISTS seal_y_mm NUMERIC(8,2) NOT NULL DEFAULT 5`, schema),
+		fmt.Sprintf(`ALTER TABLE %s.sales_order_settings ADD COLUMN IF NOT EXISTS seal_width_mm NUMERIC(8,2) NOT NULL DEFAULT 36`, schema),
 		fmt.Sprintf(`ALTER TABLE %s.sales_order_settings ADD COLUMN IF NOT EXISTS bank_account_name TEXT NOT NULL DEFAULT ''`, schema),
 		fmt.Sprintf(`ALTER TABLE %s.sales_order_settings ADD COLUMN IF NOT EXISTS bank_name TEXT NOT NULL DEFAULT ''`, schema),
 		fmt.Sprintf(`ALTER TABLE %s.sales_order_settings ADD COLUMN IF NOT EXISTS bank_account_no TEXT NOT NULL DEFAULT ''`, schema),

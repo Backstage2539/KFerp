@@ -419,8 +419,8 @@ async function savePreviewSealPosition() {
     await apiSend('/api/settings/sales-order/seal-position', {
       body: {
         seal_x_mm: Number(seal.x_mm || 32),
-        seal_y_mm: Number(seal.y_mm || 22),
-        seal_width_mm: Number(seal.width_mm || 42),
+        seal_y_mm: Number(seal.y_mm || 5),
+        seal_width_mm: Number(seal.width_mm || 36),
       },
     })
     message.value = '公章位置已保存，请重新生成图片或 PDF 后下载'

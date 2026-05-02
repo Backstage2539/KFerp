@@ -214,6 +214,7 @@
 
 <script setup>
 import { computed, onMounted, reactive, ref } from 'vue'
+import { apiGet, apiSend } from '../api/client'
 import { invoiceStatusLabel, invoiceStatusTone } from '../lib/order-invoice'
 import { replaceHistoryURL } from '../lib/url-state'
 import DeliveryNoteView from './DeliveryNoteView.vue'
@@ -401,13 +402,9 @@ async function generateShippingExcel() {
     const orderSenders = selectedOrderIDs.value
       .map((id) => ({ order_id: id, sender_id: Number(orderSenderIDs[id] || 0) }))
       .filter((item) => item.sender_id > 0)
-    const res = await fetch('/api/orders/shipping-excel', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ order_ids: selectedOrderIDs.value, sender_id: selectedSenderID.value, order_senders: orderSenders }),
+    const data = await apiSend('/api/orders/shipping-excel', {
+      body: { order_ids: selectedOrderIDs.value, sender_id: selectedSenderID.value, order_senders: orderSenders },
     })
-    const data = await res.json()
-    if (!res.ok) throw new Error(data.error || '生成失败')
     shippingExcelUrl.value = data.shipping_excel_url || ''
     currentShipment.shipment_id = Number(data.shipment_id || 0)
     currentShipment.shipment_no = data.shipment_no || ''
@@ -433,13 +430,9 @@ async function fillShipmentTracking() {
         tracking_no: String(trackingInputs[Number(row.id)] || '').trim(),
       }))
       .filter((item) => item.tracking_no)
-    const res = await fetch('/api/orders/shipping-tracking', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ shipment_id: currentShipment.shipment_id, items }),
+    const data = await apiSend('/api/orders/shipping-tracking', {
+      body: { shipment_id: currentShipment.shipment_id, items },
     })
-    const data = await res.json()
-    if (!res.ok) throw new Error(data.error || '回填失败')
     shippingMessage.value = `已回填 ${Number(data.updated || 0)} 个订单并标记已发货`
     selectedOrderIDs.value = []
     for (const key of Object.keys(orderSenderIDs)) delete orderSenderIDs[key]
@@ -470,12 +463,7 @@ async function uploadTrackingExcel() {
   try {
     const body = new FormData()
     body.append('file', trackingExcelFile.value)
-    const res = await fetch('/api/orders/shipping-tracking-excel', {
-      method: 'POST',
-      body,
-    })
-    const data = await res.json()
-    if (!res.ok) throw new Error(data.error || 'Excel 回填失败')
+    const data = await apiSend('/api/orders/shipping-tracking-excel', { body })
     shippingMessage.value = `已从 Excel 回填 ${Number(data.updated || 0)}/${Number(data.total || 0)} 个快递单号`
     trackingExcelFile.value = null
     await load()
@@ -488,9 +476,7 @@ async function uploadTrackingExcel() {
 
 async function loadSenderProfiles() {
   try {
-    const res = await fetch('/api/settings/sender')
-    const data = await res.json()
-    if (!res.ok) throw new Error(data.error || '加载寄件人失败')
+    const data = await apiGet('/api/settings/sender')
     senderProfiles.value = data.profiles || []
     const def = senderProfiles.value.find((profile) => profile.is_default)
     selectedSenderID.value = Number(def?.sender_id || 0)
@@ -503,9 +489,7 @@ async function load() {
   loading.value = true
   error.value = ''
   try {
-    const res = await fetch(buildUrl(page.value))
-    const data = await res.json()
-    if (!res.ok) throw new Error(data.error || '加载失败')
+    const data = await apiGet(buildUrl(page.value))
     rows.value = data.rows || []
     selectedOrderIDs.value = selectedOrderIDs.value.filter((id) => rows.value.some((row) => Number(row.id) === id && isProductionComplete(row)))
     for (const key of Object.keys(orderSenderIDs)) {

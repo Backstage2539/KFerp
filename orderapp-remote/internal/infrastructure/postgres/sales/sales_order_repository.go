@@ -18,20 +18,17 @@ import (
 )
 
 func (r Repository) LoadSalesOrderSettings(ctx context.Context) (salesapp.SalesOrderSettings, error) {
-	var settings salesapp.SalesOrderSettings
+	settings := salesapp.SalesOrderSettings{SealXMM: 32, SealYMM: 5, SealWidthMM: 36}
 	q := fmt.Sprintf(`SELECT s.company_name, s.note, s.payment_text,
 			COALESCE(s.bank_account_name,''), COALESCE(s.bank_name,''), COALESCE(s.bank_account_no,''),
-			COALESCE(s.seal_x_mm,32)::float8, COALESCE(s.seal_y_mm,22)::float8, COALESCE(s.seal_width_mm,42)::float8,
+			COALESCE(s.seal_x_mm,32)::float8, COALESCE(s.seal_y_mm,5)::float8, COALESCE(s.seal_width_mm,36)::float8,
 			COALESCE(a.id,0), COALESCE(a.kind,''), COALESCE(a.filename,''), COALESCE(a.content_type,''), COALESCE(a.bytes,0), COALESCE(a.sha256,''), COALESCE(a.object_key,''), COALESCE(to_char(a.created_at,'YYYY-MM-DD HH24:MI:SS'),''), COALESCE(a.created_by,'')
 		FROM %s.sales_order_settings s
 		LEFT JOIN %s.sales_order_assets a ON a.id=s.seal_asset_id
 		WHERE s.id=1`, r.schema, r.schema)
 	var seal salesapp.SalesOrderAsset
 	err := r.pool.QueryRow(ctx, q).Scan(&settings.CompanyName, &settings.Note, &settings.PaymentText, &settings.BankAccountName, &settings.BankName, &settings.BankAccountNo, &settings.SealXMM, &settings.SealYMM, &settings.SealWidthMM, &seal.ID, &seal.Kind, &seal.Filename, &seal.ContentType, &seal.Bytes, &seal.SHA256, &seal.ObjectKey, &seal.CreatedAt, &seal.CreatedBy)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return salesapp.SalesOrderSettings{SealXMM: 32, SealYMM: 22, SealWidthMM: 42}, nil
-	}
-	if err != nil {
+	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 		return salesapp.SalesOrderSettings{}, err
 	}
 	if seal.ID > 0 {

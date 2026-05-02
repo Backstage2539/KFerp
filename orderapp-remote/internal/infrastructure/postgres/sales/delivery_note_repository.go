@@ -88,7 +88,7 @@ func (r Repository) loadDeliveryNoteFormTx(ctx context.Context, tx pgx.Tx, order
 		PostingDate:         time.Now().Format("2006-01-02"),
 		SourceWarehouse:     "finished_goods",
 		SourceWarehouseName: deliveryWarehouseDisplayName("finished_goods"),
-		DeliveryMethod:      base.DeliveryMethod,
+		DeliveryMethod:      deliveryMethodDisplayName(base.DeliveryMethod),
 		TrackingNo:          base.TrackingNo,
 		Note:                base.Note,
 	}
@@ -108,6 +108,7 @@ func (r Repository) loadDeliveryNoteFormTx(ctx context.Context, tx pgx.Tx, order
 	if strings.TrimSpace(form.PostingDate) == "" {
 		form.PostingDate = time.Now().Format("2006-01-02")
 	}
+	form.DeliveryMethod = deliveryMethodDisplayName(form.DeliveryMethod)
 	return form, nil
 }
 
@@ -292,7 +293,7 @@ func (r Repository) buildDeliveryNoteSnapshotTx(ctx context.Context, tx pgx.Tx, 
 		ReceiverAddress:        base.ReceiverAddress,
 		SourceWarehouse:        sourceWarehouse,
 		SourceWarehouseName:    deliveryWarehouseDisplayName(sourceWarehouse),
-		DeliveryMethod:         firstNonEmpty(form.DeliveryMethod, base.DeliveryMethod),
+		DeliveryMethod:         deliveryMethodDisplayName(firstNonEmpty(form.DeliveryMethod, base.DeliveryMethod)),
 		TrackingNo:             firstNonEmpty(form.TrackingNo, base.TrackingNo),
 		Note:                   firstNonEmpty(form.Note, base.Note),
 	}
@@ -419,6 +420,22 @@ func deliveryWarehouseDisplayName(code string) string {
 		return "包材仓"
 	default:
 		return strings.TrimSpace(code)
+	}
+}
+
+func deliveryMethodDisplayName(code string) string {
+	value := strings.TrimSpace(code)
+	switch value {
+	case "sf_large":
+		return "顺丰大件"
+	case "sf_express":
+		return "顺丰标快"
+	case "sf_fast":
+		return "顺丰特快"
+	case "sf_cold":
+		return "顺丰冷运"
+	default:
+		return value
 	}
 }
 

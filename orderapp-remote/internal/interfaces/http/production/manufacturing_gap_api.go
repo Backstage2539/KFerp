@@ -198,10 +198,18 @@ func parseSelectedKeys(raw string) map[string]bool {
 func parseInputByKey(values map[string][]string) map[string]int64 {
 	out := map[string]int64{}
 	for key, rawValues := range values {
-		if !strings.HasPrefix(key, "input_") || len(rawValues) == 0 {
+		if len(rawValues) == 0 {
 			continue
 		}
-		planKey := strings.TrimPrefix(key, "input_")
+		planKey := ""
+		switch {
+		case strings.HasPrefix(key, "input_g_"):
+			planKey = strings.TrimPrefix(key, "input_g_")
+		case strings.HasPrefix(key, "input_"):
+			planKey = strings.TrimPrefix(key, "input_")
+		default:
+			continue
+		}
 		planKey = strings.ReplaceAll(planKey, "_", "-")
 		value := parseInt64(rawValues[0])
 		if planKey != "" && value > 0 {

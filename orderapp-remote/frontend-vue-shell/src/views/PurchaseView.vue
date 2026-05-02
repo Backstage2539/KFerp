@@ -76,6 +76,7 @@
 
 <script setup>
 import { onMounted, reactive, ref } from 'vue'
+import { apiGet, apiSend } from '../api/client'
 
 const loading = ref(false)
 const saving = ref(false)
@@ -97,22 +98,15 @@ function materialName(id) {
   return materials.value.find((row) => Number(row.id) === Number(id))?.name || ''
 }
 
-async function api(path, options = {}) {
-  const res = await fetch(path, options)
-  const data = await res.json()
-  if (!res.ok) throw new Error(data.error || '请求失败')
-  return data
-}
-
 async function loadAll() {
   loading.value = true
   error.value = ''
   try {
     const [supplierData, materialData, orderData, receiptData] = await Promise.all([
-      api('/api/purchase/suppliers'),
-      api('/api/materials?limit=500'),
-      api('/api/purchase/orders'),
-      api('/api/purchase/receipts'),
+      apiGet('/api/purchase/suppliers'),
+      apiGet('/api/materials?limit=500'),
+      apiGet('/api/purchase/orders'),
+      apiGet('/api/purchase/receipts'),
     ])
     suppliers.value = supplierData.rows || []
     materials.value = materialData.rows || []
@@ -130,11 +124,7 @@ async function saveSupplier() {
   message.value = ''
   error.value = ''
   try {
-    await api('/api/purchase/suppliers', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(supplierForm),
-    })
+    await apiSend('/api/purchase/suppliers', { body: supplierForm })
     supplierForm.name = ''
     supplierForm.contact = ''
     supplierForm.phone = ''
@@ -153,11 +143,7 @@ async function createOrder() {
   message.value = ''
   error.value = ''
   try {
-    await api('/api/purchase/orders', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(orderForm),
-    })
+    await apiSend('/api/purchase/orders', { body: orderForm })
     orderForm.material_id = 0
     orderForm.qty_g = 0
     orderForm.unit_cost = 0
@@ -176,10 +162,8 @@ async function receiveOrder(row) {
   message.value = ''
   error.value = ''
   try {
-    await api('/api/purchase/receipts', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
+    await apiSend('/api/purchase/receipts', {
+      body: {
         purchase_order_id: row.id,
         supplier_id: row.supplier_id,
         supplier_name: row.supplier_name || supplierName(row.supplier_id),
@@ -187,7 +171,7 @@ async function receiveOrder(row) {
         qty_g: row.qty_g,
         unit_cost: row.unit_cost,
         note: `采购单 ${row.order_no} 收货`,
-      }),
+      },
     })
     message.value = '已收货入库并更新物料采购价'
     await loadAll()
