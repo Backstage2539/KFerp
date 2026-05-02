@@ -19,7 +19,7 @@ type salesOrderDocumentHandler struct {
 func registerSalesOrderDocumentRoutes(e *echo.Echo, salesSvc *salesapp.Service) {
 	h := salesOrderDocumentHandler{sales: salesSvc}
 	e.GET("/orders/:id/sales-order", func(c echo.Context) error {
-		return c.Redirect(http.StatusFound, "/vue-shell?view=salesOrder&order_id="+c.Param("id"))
+		return c.Redirect(http.StatusFound, support.PrefixRelativeLocation(c, "/vue-shell?view=salesOrder&order_id="+c.Param("id")))
 	})
 	e.GET("/api/orders/:id/sales-orders", h.list)
 	e.GET("/api/orders/:id/sales-order-preview", h.preview)

@@ -34,7 +34,7 @@ func TestOrderEntryRedirectsToVueShell(t *testing.T) {
 	if rec.Code != http.StatusFound {
 		t.Fatalf("GET /order status = %d, want %d", rec.Code, http.StatusFound)
 	}
-	if got := rec.Header().Get("Location"); got != "/vue-shell?view=order&edit_id=9" {
+	if got := rec.Header().Get("Location"); got != "vue-shell?view=order&edit_id=9" {
 		t.Fatalf("GET /order Location = %q, want Vue order shell with edit_id", got)
 	}
 }

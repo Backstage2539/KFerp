@@ -27,19 +27,19 @@ type coreHandler struct {
 }
 
 func (h coreHandler) home(c echo.Context) error {
-	return c.Redirect(http.StatusSeeOther, "/orders")
+	return c.Redirect(http.StatusSeeOther, PrefixRelativeLocation(c, "/orders"))
 }
 
 func (h coreHandler) orderListAlias(c echo.Context) error {
-	return c.Redirect(http.StatusSeeOther, "/orders")
+	return c.Redirect(http.StatusSeeOther, PrefixRelativeLocation(c, "/orders"))
 }
 
 func (h coreHandler) orderDetailAlias(c echo.Context) error {
 	id := strings.TrimSpace(c.Param("id"))
 	if id == "" {
-		return c.Redirect(http.StatusSeeOther, "/orders")
+		return c.Redirect(http.StatusSeeOther, PrefixRelativeLocation(c, "/orders"))
 	}
-	return c.Redirect(http.StatusSeeOther, "/orders/"+id)
+	return c.Redirect(http.StatusSeeOther, PrefixRelativeLocation(c, "/orders/"+id))
 }
 
 func (h coreHandler) login(c echo.Context) error {

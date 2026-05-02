@@ -18,6 +18,24 @@ test('apiURL builds relative API requests from clean origin even when page URL h
   }
 })
 
+test('apiURL keeps /app prefix when Vue shell is opened from production app path', () => {
+  const previousWindow = globalThis.window
+  globalThis.window = {
+    location: {
+      origin: 'https://erp.qacoohee.com',
+      pathname: '/app/vue-shell',
+      href: 'https://erp.qacoohee.com/app/vue-shell?view=orders',
+    },
+  }
+  try {
+    assert.equal(apiURL('/api/auth/me'), 'https://erp.qacoohee.com/app/api/auth/me')
+    const url = new URL('/api/orders?page=1', 'https://erp.qacoohee.com')
+    assert.equal(apiURL(url), 'https://erp.qacoohee.com/app/api/orders?page=1')
+  } finally {
+    globalThis.window = previousWindow
+  }
+})
+
 test('apiURL leaves absolute URLs unchanged', () => {
   assert.equal(apiURL('https://example.com/api'), 'https://example.com/api')
 })

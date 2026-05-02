@@ -54,6 +54,11 @@ function setMode(m){
   setMsg('', 'muted');
 }
 function setMsg(t, cls){ const el=document.getElementById('msg'); el.className=cls; el.textContent=t; }
+function appPath(path){
+  const p=window.location.pathname || '';
+  const prefix = (p === '/app' || p.startsWith('/app/')) ? '/app' : '';
+  return prefix + path;
+}
 function getLoginIdentifier(){ return (document.getElementById('login').value||'').trim(); }
 function getPhone(){ return getLoginIdentifier(); }
 function validatePasswordLogin(){
@@ -69,7 +74,7 @@ function validatePhone(){
 async function sendSms(){
   if(!validatePhone()) return;
   const p=getPhone();
-  const r=await fetch('/api/auth/sms/send',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({phone:p})});
+  const r=await fetch(appPath('/api/auth/sms/send'),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({phone:p})});
   const t=await r.text();
   if(!r.ok){ setMsg('发送失败: '+t, 'err'); return; }
   setMsg('验证码已发送（联调环境会回显code）', 'ok');
@@ -86,7 +91,7 @@ async function login(){
     body.phone=identifier;
     body.code=(document.getElementById('code').value||'').trim();
   }
-  const r=await fetch('/api/auth/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+  const r=await fetch(appPath('/api/auth/login'),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
   const txt=await r.text();
   if(!r.ok){ setMsg('登录失败: '+txt, 'err'); return; }
   try{
@@ -94,7 +99,7 @@ async function login(){
     if(d.token) localStorage.setItem('auth_token', d.token);
   }catch(e){}
   setMsg('登录成功', 'ok');
-  window.location.href='/vue-shell?fresh_login=1';
+  window.location.href=appPath('/vue-shell?fresh_login=1');
 }
 </script>
 </body>

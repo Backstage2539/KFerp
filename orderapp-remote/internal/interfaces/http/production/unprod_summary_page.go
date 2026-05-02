@@ -5,6 +5,7 @@ import (
 	"net/http"
 	productionapp "orderapp/internal/application/production"
 	bomdomain "orderapp/internal/domain/bom"
+	support "orderapp/internal/interfaces/http/support"
 	"strconv"
 	"strings"
 
@@ -140,6 +141,6 @@ func registerUnprodSummaryPages(e *echo.Echo) {
 		if raw := c.QueryString(); raw != "" {
 			target += "&" + raw
 		}
-		return c.Redirect(http.StatusFound, target)
+		return c.Redirect(http.StatusFound, support.PrefixRelativeLocation(c, target))
 	})
 }

@@ -110,12 +110,70 @@ func TestLoginPageSupportsUsernamePasswordAndDoesNotRequirePhoneForPassword(t *t
 	}
 }
 
+func TestLoginPageKeepsAppPrefixDuringMobileLogin(t *testing.T) {
+	src := readSupportTestFile(t, "templates/login.html")
+	for _, want := range []string{
+		"function appPath(path)",
+		"fetch(appPath('/api/auth/sms/send')",
+		"fetch(appPath('/api/auth/login')",
+		"window.location.href=appPath('/vue-shell?fresh_login=1')",
+	} {
+		if !strings.Contains(src, want) {
+			t.Fatalf("login page must keep /app prefix, missing %q", want)
+		}
+	}
+	for _, bad := range []string{
+		"fetch('/api/auth/sms/send'",
+		"fetch('/api/auth/login'",
+		"window.location.href='/vue-shell?fresh_login=1'",
+	} {
+		if strings.Contains(src, bad) {
+			t.Fatalf("login page still uses root-scoped mobile login path %q", bad)
+		}
+	}
+}
+
+func TestCoreRedirectsUseRelativeLocationsForAppPrefix(t *testing.T) {
+	e := echo.New()
+	registerCoreRoutes(e, nil, "public")
+
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusSeeOther {
+		t.Fatalf("status=%d, want %d", rec.Code, http.StatusSeeOther)
+	}
+	if got := rec.Header().Get("Location"); got != "orders" {
+		t.Fatalf("Location=%q, want relative orders", got)
+	}
+}
+
+func TestVueShellRedirectUsesRelativeLocationForAppPrefix(t *testing.T) {
+	e := echo.New()
+	e.GET("/orders", func(c echo.Context) error {
+		return VueShellRedirect(c, "orders")
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/orders?q=SO-1", nil)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusFound {
+		t.Fatalf("status=%d, want %d", rec.Code, http.StatusFound)
+	}
+	if got := rec.Header().Get("Location"); got != "vue-shell?view=orders&q=SO-1" {
+		t.Fatalf("Location=%q, want relative vue-shell redirect", got)
+	}
+}
+
 func TestVueShellRedirectsToLoginWithoutStoredToken(t *testing.T) {
 	src := readSupportTestFile(t, "frontend-vue-shell/src/App.vue")
 	for _, want := range []string{
 		"hasStoredAuthToken()",
 		"redirectToLogin()",
 		"clearStoredAuthToken()",
+		"appURL('/login')",
 	} {
 		if !strings.Contains(src, want) {
 			t.Fatalf("App.vue missing %q", want)

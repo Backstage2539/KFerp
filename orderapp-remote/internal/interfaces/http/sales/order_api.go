@@ -229,6 +229,7 @@ func (h orderAPIHandler) save(c echo.Context) error {
 	if res.Edited {
 		redirectURL = "/orders/" + strconv.FormatInt(res.OrderID, 10)
 	}
+	redirectURL = support.PrefixRelativeLocation(c, redirectURL)
 	return c.JSON(http.StatusOK, map[string]any{
 		"order_id":     res.OrderID,
 		"order_no":     res.OrderNo,
