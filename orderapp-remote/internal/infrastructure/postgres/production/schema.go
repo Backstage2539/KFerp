@@ -8,6 +8,9 @@ import (
 )
 
 func EnsureSchema(ctx context.Context, pool *pgxpool.Pool, schema string) error {
+	if err := ensureProductCompatibilityColumns(ctx, pool, schema); err != nil {
+		return err
+	}
 	if err := ensureStockLedgerTables(ctx, pool, schema); err != nil {
 		return err
 	}
@@ -30,6 +33,18 @@ func EnsureSchema(ctx context.Context, pool *pgxpool.Pool, schema string) error 
 		return err
 	}
 	return backfillQualityStatusesFromInspections(ctx, pool, schema)
+}
+
+func ensureProductCompatibilityColumns(ctx context.Context, pool *pgxpool.Pool, schema string) error {
+	_, err := pool.Exec(ctx, fmt.Sprintf(`
+DO $$
+BEGIN
+	IF to_regclass('%[1]s.products') IS NOT NULL THEN
+		ALTER TABLE %[1]s.products ADD COLUMN IF NOT EXISTS roast_level TEXT NOT NULL DEFAULT '';
+		ALTER TABLE %[1]s.products ADD COLUMN IF NOT EXISTS active BOOLEAN NOT NULL DEFAULT true;
+	END IF;
+END $$;`, schema))
+	return err
 }
 
 func ensureMachineCapacityTable(ctx context.Context, pool *pgxpool.Pool, schema string) error {

@@ -120,17 +120,22 @@ func fetchOrders(ctx context.Context, pool *pgxpool.Pool, schema string, query s
 			COALESCE(o.ship_status_id,0) AS ship_status_id,
 			COALESCE(o.process_status_id,0) AS process_status_id,
 			COALESCE(o.notes,'') AS notes,
-			o.is_void
+			o.is_void,
+			COALESCE(oi.status,'') AS invoice_status,
+			COALESCE(ia.filename,'') AS invoice_filename,
+			COALESCE(ia.object_key,'') AS invoice_object_key
 		FROM %s.orders o
 		LEFT JOIN %s.customers c ON c.id = o.customer_id
 		LEFT JOIN %s.order_types ot ON ot.id = o.order_type_id
 		LEFT JOIN %s.pay_statuses ps ON ps.id = o.pay_status_id
 		LEFT JOIN %s.ship_statuses ss ON ss.id = o.ship_status_id
 		LEFT JOIN %s.order_process_statuses ops ON ops.id = o.process_status_id
+		LEFT JOIN %s.order_invoices oi ON oi.order_id = o.id
+		LEFT JOIN %s.sales_order_assets ia ON ia.id = oi.invoice_asset_id
 		%s
 		ORDER BY o.order_date DESC, o.id DESC
 		LIMIT $%d OFFSET $%d
-	`, schema, schema, schema, schema, schema, schema, schema, wsql, limitArg, offsetArg)
+	`, schema, schema, schema, schema, schema, schema, schema, schema, schema, wsql, limitArg, offsetArg)
 
 	dbRows, err := pool.Query(ctx, sql, args...)
 	if err != nil {
@@ -141,9 +146,11 @@ func fetchOrders(ctx context.Context, pool *pgxpool.Pool, schema string, query s
 	out := make([]salesapp.OrderRow, 0)
 	for dbRows.Next() {
 		var r salesapp.OrderRow
-		if err := dbRows.Scan(&r.ID, &r.OrderNo, &r.OrderDate, &r.CustomerID, &r.Customer, &r.GrandTotal, &r.OrderType, &r.PayStatus, &r.ShipStatus, &r.ShipTrackingNo, &r.ProcessStatus, &r.CreatedByEmployee, &r.OrderTypeID, &r.PayStatusID, &r.ShipStatusID, &r.ProcessStatusID, &r.Notes, &r.IsVoid); err != nil {
+		var invoiceObjectKey string
+		if err := dbRows.Scan(&r.ID, &r.OrderNo, &r.OrderDate, &r.CustomerID, &r.Customer, &r.GrandTotal, &r.OrderType, &r.PayStatus, &r.ShipStatus, &r.ShipTrackingNo, &r.ProcessStatus, &r.CreatedByEmployee, &r.OrderTypeID, &r.PayStatusID, &r.ShipStatusID, &r.ProcessStatusID, &r.Notes, &r.IsVoid, &r.InvoiceStatus, &r.InvoiceFilename, &invoiceObjectKey); err != nil {
 			return nil, false, err
 		}
+		r.InvoiceFileURL = salesOrderAssetURL(invoiceObjectKey)
 		out = append(out, r)
 	}
 	if err := dbRows.Err(); err != nil {

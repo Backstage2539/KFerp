@@ -10,6 +10,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"golang.org/x/image/font/opentype"
 )
 
 func TestRenderSalesOrderPDF(t *testing.T) {
@@ -86,6 +88,37 @@ func TestRenderSalesOrderPNG(t *testing.T) {
 	}
 }
 
+func TestSalesOrderPNGTextMetricsFitConfiguredLineHeights(t *testing.T) {
+	renderer := SalesOrderRenderer{}
+	fontPath, err := renderer.resolveFontPath()
+	if err != nil {
+		t.Fatal(err)
+	}
+	fontBytes, err := os.ReadFile(fontPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	parsedFont, err := opentype.Parse(fontBytes)
+	if err != nil {
+		t.Fatal(err)
+	}
+	canvas := salesOrderPNGCanvas{font: parsedFont}
+	for _, tc := range []struct {
+		name       string
+		size       float64
+		lineHeight int
+	}{
+		{name: "meta", size: 20, lineHeight: 28},
+		{name: "text block", size: 20, lineHeight: 30},
+		{name: "payment code description", size: 16, lineHeight: 24},
+	} {
+		height := canvas.face(tc.size).Metrics().Height.Ceil()
+		if height > tc.lineHeight {
+			t.Fatalf("%s font height %d exceeds line height %d at size %.0f", tc.name, height, tc.lineHeight, tc.size)
+		}
+	}
+}
+
 func TestRenderSalesOrderPDFEmbedsPaymentCodeAndSealImages(t *testing.T) {
 	dir := t.TempDir()
 	writeTestPNG(t, filepath.Join(dir, "sales-order", "payment", "wechat.png"))
@@ -133,12 +166,20 @@ func TestSalesOrderPDFMultilineTextAndSealPositionHelpers(t *testing.T) {
 	}
 
 	pos := salesOrderSealPosition(0, 0, 0)
-	if pos.XMM <= 16 || pos.YMM <= 14 || pos.WidthMM <= 0 {
-		t.Fatalf("default seal position should stamp near company header, got %+v", pos)
+	if pos.XMM <= 16 || pos.YMM < 4 || pos.WidthMM <= 0 {
+		t.Fatalf("default seal position should stamp near company header without leaving the page, got %+v", pos)
+	}
+	metaStartY := 31.0
+	if pos.YMM+pos.HeightMM > metaStartY {
+		t.Fatalf("default seal overlaps sales order metadata: pos=%+v meta_start_y=%.1f", pos, metaStartY)
 	}
 	custom := salesOrderSealPosition(42, 21, 38)
 	if custom.XMM != 42 || custom.YMM != 21 || custom.WidthMM != 38 {
 		t.Fatalf("custom seal position = %+v", custom)
+	}
+	oldDefault := salesOrderSealPosition(32, 22, 42)
+	if oldDefault.YMM+oldDefault.HeightMM > metaStartY {
+		t.Fatalf("legacy default seal should be normalized away from metadata: pos=%+v", oldDefault)
 	}
 }
 

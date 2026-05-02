@@ -248,6 +248,9 @@ type OrderRow struct {
 	CreatedByEmployee string `json:"created_by_employee"`
 	Notes             string `json:"notes"`
 	IsVoid            bool   `json:"is_void"`
+	InvoiceStatus     string `json:"invoice_status"`
+	InvoiceFilename   string `json:"invoice_filename"`
+	InvoiceFileURL    string `json:"invoice_file_url"`
 }
 
 type AuditRow struct {
@@ -525,10 +528,137 @@ type SalesOrderDocumentFile struct {
 	Filename string
 }
 
+type DeliveryNoteForm struct {
+	OrderID             int64  `json:"order_id"`
+	OrderNo             string `json:"order_no"`
+	PostingDate         string `json:"posting_date"`
+	SourceWarehouse     string `json:"source_warehouse"`
+	SourceWarehouseName string `json:"source_warehouse_name"`
+	DeliveryMethod      string `json:"delivery_method"`
+	TrackingNo          string `json:"tracking_no"`
+	Note                string `json:"note"`
+	UpdatedAt           string `json:"updated_at"`
+	UpdatedBy           string `json:"updated_by"`
+}
+
+type SaveDeliveryNoteFormCommand struct {
+	Actor           string `json:"actor"`
+	OrderID         int64  `json:"order_id"`
+	PostingDate     string `json:"posting_date"`
+	SourceWarehouse string `json:"source_warehouse"`
+	DeliveryMethod  string `json:"delivery_method"`
+	TrackingNo      string `json:"tracking_no"`
+	Note            string `json:"note"`
+}
+
+type GenerateDeliveryNoteDocumentCommand struct {
+	Actor   string
+	OrderID int64
+}
+
+type GenerateDeliveryNoteDocumentResult struct {
+	Document DeliveryNoteDocument             `json:"document"`
+	Snapshot salesdomain.DeliveryNoteSnapshot `json:"snapshot"`
+}
+
+type DeliveryNotePreview struct {
+	OrderID       int64                            `json:"order_id"`
+	OrderNo       string                           `json:"order_no"`
+	NextVersionNo int                              `json:"next_version_no"`
+	Form          DeliveryNoteForm                 `json:"form"`
+	Snapshot      salesdomain.DeliveryNoteSnapshot `json:"snapshot"`
+}
+
+type DeliveryNoteDocument struct {
+	ID          int64                            `json:"id"`
+	OrderID     int64                            `json:"order_id"`
+	OrderNo     string                           `json:"order_no"`
+	VersionNo   int                              `json:"version_no"`
+	Snapshot    salesdomain.DeliveryNoteSnapshot `json:"snapshot"`
+	PDFAssetID  int64                            `json:"pdf_asset_id"`
+	IsLatest    bool                             `json:"is_latest"`
+	CreatedAt   string                           `json:"created_at"`
+	CreatedBy   string                           `json:"created_by"`
+	DownloadURL string                           `json:"download_url"`
+}
+
+type DeliveryNoteContext struct {
+	OrderID    int64                  `json:"order_id"`
+	OrderNo    string                 `json:"order_no"`
+	ShipStatus string                 `json:"ship_status"`
+	Customer   SalesOrderCustomerInfo `json:"customer"`
+}
+
+type DeliveryNoteDocumentFile struct {
+	Document DeliveryNoteDocument
+	Path     string
+	Filename string
+}
+
 type SalesOrderImageFile struct {
 	Document SalesOrderImageDocument
 	Path     string
 	Filename string
+}
+
+const (
+	ExternalShareSalesOrderPDF   = "sales_order_pdf"
+	ExternalShareSalesOrderImage = "sales_order_image"
+	ExternalShareDeliveryNotePDF = "delivery_note_pdf"
+)
+
+type CreateExternalShareResourceCommand struct {
+	Actor        string `json:"actor"`
+	ResourceType string `json:"resource_type"`
+	OrderID      int64  `json:"order_id"`
+	DocumentID   int64  `json:"document_id"`
+	Latest       bool   `json:"latest"`
+}
+
+type ExternalShareResource struct {
+	Token        string `json:"token"`
+	ResourceType string `json:"resource_type"`
+	OrderID      int64  `json:"order_id"`
+	ResourceID   int64  `json:"resource_id"`
+	Title        string `json:"title"`
+	Filename     string `json:"filename"`
+	ContentType  string `json:"content_type"`
+	ShareURL     string `json:"share_url"`
+	FileURL      string `json:"file_url"`
+	ShareText    string `json:"share_text"`
+	CreatedAt    string `json:"created_at"`
+	CreatedBy    string `json:"created_by"`
+}
+
+type ExternalShareResourceFile struct {
+	Resource ExternalShareResource
+	Path     string
+}
+
+type OrderInvoice struct {
+	OrderID     int64            `json:"order_id"`
+	OrderNo     string           `json:"order_no"`
+	Status      string           `json:"status"`
+	RequestedAt string           `json:"requested_at"`
+	RequestedBy string           `json:"requested_by"`
+	UploadedAt  string           `json:"uploaded_at"`
+	UploadedBy  string           `json:"uploaded_by"`
+	Asset       *SalesOrderAsset `json:"asset,omitempty"`
+}
+
+type RequestOrderInvoiceCommand struct {
+	Actor   string
+	OrderID int64
+}
+
+type SaveOrderInvoiceFileCommand struct {
+	Actor       string
+	OrderID     int64
+	Filename    string
+	ContentType string
+	Bytes       int64
+	SHA256      string
+	ObjectKey   string
 }
 
 type Repository interface {
@@ -567,6 +697,18 @@ type Repository interface {
 	GenerateSalesOrderImage(ctx context.Context, cmd GenerateSalesOrderImageCommand) (GenerateSalesOrderImageResult, error)
 	LoadSalesOrderDocumentFile(ctx context.Context, orderID, documentID int64, latest bool) (SalesOrderDocumentFile, error)
 	LoadSalesOrderImageFile(ctx context.Context, orderID, imageID int64, latest bool) (SalesOrderImageFile, error)
+	LoadDeliveryNoteContext(ctx context.Context, orderID int64) (DeliveryNoteContext, error)
+	LoadDeliveryNoteForm(ctx context.Context, orderID int64) (DeliveryNoteForm, error)
+	SaveDeliveryNoteForm(ctx context.Context, cmd SaveDeliveryNoteFormCommand) (DeliveryNoteForm, error)
+	ListDeliveryNoteDocuments(ctx context.Context, orderID int64) ([]DeliveryNoteDocument, error)
+	PreviewDeliveryNoteDocument(ctx context.Context, orderID int64) (DeliveryNotePreview, error)
+	GenerateDeliveryNoteDocument(ctx context.Context, cmd GenerateDeliveryNoteDocumentCommand) (GenerateDeliveryNoteDocumentResult, error)
+	LoadDeliveryNoteDocumentFile(ctx context.Context, orderID, documentID int64, latest bool) (DeliveryNoteDocumentFile, error)
+	CreateExternalShareResource(ctx context.Context, cmd CreateExternalShareResourceCommand) (ExternalShareResource, error)
+	LoadExternalShareResourceFile(ctx context.Context, token string) (ExternalShareResourceFile, error)
+	LoadOrderInvoice(ctx context.Context, orderID int64) (OrderInvoice, error)
+	RequestOrderInvoice(ctx context.Context, cmd RequestOrderInvoiceCommand) (OrderInvoice, error)
+	SaveOrderInvoiceFile(ctx context.Context, cmd SaveOrderInvoiceFileCommand) (OrderInvoice, error)
 }
 
 type Service struct {
@@ -918,10 +1060,10 @@ func (s *Service) SaveSalesOrderSettings(ctx context.Context, cmd SaveSalesOrder
 		cmd.SealXMM = 32
 	}
 	if cmd.SealYMM <= 0 {
-		cmd.SealYMM = 22
+		cmd.SealYMM = 5
 	}
 	if cmd.SealWidthMM <= 0 {
-		cmd.SealWidthMM = 42
+		cmd.SealWidthMM = 36
 	}
 	return s.repo.SaveSalesOrderSettings(ctx, cmd)
 }
@@ -1051,6 +1193,155 @@ func (s *Service) LoadSalesOrderImageFile(ctx context.Context, orderID, imageID 
 		return SalesOrderImageFile{}, fmt.Errorf("invalid image id")
 	}
 	return s.repo.LoadSalesOrderImageFile(ctx, orderID, imageID, latest)
+}
+
+func (s *Service) LoadDeliveryNoteContext(ctx context.Context, orderID int64) (DeliveryNoteContext, error) {
+	if orderID <= 0 {
+		return DeliveryNoteContext{}, fmt.Errorf("invalid order id")
+	}
+	return s.repo.LoadDeliveryNoteContext(ctx, orderID)
+}
+
+func (s *Service) LoadDeliveryNoteForm(ctx context.Context, orderID int64) (DeliveryNoteForm, error) {
+	if orderID <= 0 {
+		return DeliveryNoteForm{}, fmt.Errorf("invalid order id")
+	}
+	return s.repo.LoadDeliveryNoteForm(ctx, orderID)
+}
+
+func (s *Service) SaveDeliveryNoteForm(ctx context.Context, cmd SaveDeliveryNoteFormCommand) error {
+	cmd.Actor = strings.TrimSpace(cmd.Actor)
+	if cmd.Actor == "" {
+		cmd.Actor = "warehouse"
+	}
+	if cmd.OrderID <= 0 {
+		return fmt.Errorf("invalid order id")
+	}
+	cmd.PostingDate = strings.TrimSpace(cmd.PostingDate)
+	cmd.SourceWarehouse = strings.TrimSpace(cmd.SourceWarehouse)
+	if cmd.SourceWarehouse == "" {
+		cmd.SourceWarehouse = "finished_goods"
+	}
+	cmd.DeliveryMethod = strings.TrimSpace(cmd.DeliveryMethod)
+	cmd.TrackingNo = strings.TrimSpace(cmd.TrackingNo)
+	cmd.Note = strings.TrimSpace(cmd.Note)
+	_, err := s.repo.SaveDeliveryNoteForm(ctx, cmd)
+	return err
+}
+
+func (s *Service) ListDeliveryNoteDocuments(ctx context.Context, orderID int64) ([]DeliveryNoteDocument, error) {
+	if orderID <= 0 {
+		return nil, fmt.Errorf("invalid order id")
+	}
+	return s.repo.ListDeliveryNoteDocuments(ctx, orderID)
+}
+
+func (s *Service) PreviewDeliveryNoteDocument(ctx context.Context, orderID int64) (DeliveryNotePreview, error) {
+	if orderID <= 0 {
+		return DeliveryNotePreview{}, fmt.Errorf("invalid order id")
+	}
+	return s.repo.PreviewDeliveryNoteDocument(ctx, orderID)
+}
+
+func (s *Service) GenerateDeliveryNoteDocument(ctx context.Context, cmd GenerateDeliveryNoteDocumentCommand) (GenerateDeliveryNoteDocumentResult, error) {
+	cmd.Actor = strings.TrimSpace(cmd.Actor)
+	if cmd.Actor == "" {
+		cmd.Actor = "warehouse"
+	}
+	if cmd.OrderID <= 0 {
+		return GenerateDeliveryNoteDocumentResult{}, fmt.Errorf("invalid order id")
+	}
+	return s.repo.GenerateDeliveryNoteDocument(ctx, cmd)
+}
+
+func (s *Service) LoadDeliveryNoteDocumentFile(ctx context.Context, orderID, documentID int64, latest bool) (DeliveryNoteDocumentFile, error) {
+	if orderID <= 0 {
+		return DeliveryNoteDocumentFile{}, fmt.Errorf("invalid order id")
+	}
+	if !latest && documentID <= 0 {
+		return DeliveryNoteDocumentFile{}, fmt.Errorf("invalid document id")
+	}
+	return s.repo.LoadDeliveryNoteDocumentFile(ctx, orderID, documentID, latest)
+}
+
+func (s *Service) CreateExternalShareResource(ctx context.Context, cmd CreateExternalShareResourceCommand) (ExternalShareResource, error) {
+	cmd.Actor = strings.TrimSpace(cmd.Actor)
+	if cmd.Actor == "" {
+		cmd.Actor = "sales"
+	}
+	cmd.ResourceType = strings.TrimSpace(cmd.ResourceType)
+	if !isExternalShareResourceType(cmd.ResourceType) {
+		return ExternalShareResource{}, fmt.Errorf("invalid share resource type")
+	}
+	if cmd.OrderID <= 0 {
+		return ExternalShareResource{}, fmt.Errorf("invalid order id")
+	}
+	if !cmd.Latest && cmd.DocumentID <= 0 {
+		return ExternalShareResource{}, fmt.Errorf("invalid document id")
+	}
+	return s.repo.CreateExternalShareResource(ctx, cmd)
+}
+
+func (s *Service) LoadExternalShareResourceFile(ctx context.Context, token string) (ExternalShareResourceFile, error) {
+	token = strings.TrimSpace(token)
+	if token == "" {
+		return ExternalShareResourceFile{}, fmt.Errorf("invalid share token")
+	}
+	return s.repo.LoadExternalShareResourceFile(ctx, token)
+}
+
+func isExternalShareResourceType(resourceType string) bool {
+	switch resourceType {
+	case ExternalShareSalesOrderPDF, ExternalShareSalesOrderImage, ExternalShareDeliveryNotePDF:
+		return true
+	default:
+		return false
+	}
+}
+
+func (s *Service) LoadOrderInvoice(ctx context.Context, orderID int64) (OrderInvoice, error) {
+	if orderID <= 0 {
+		return OrderInvoice{}, fmt.Errorf("invalid order id")
+	}
+	return s.repo.LoadOrderInvoice(ctx, orderID)
+}
+
+func (s *Service) RequestOrderInvoice(ctx context.Context, cmd RequestOrderInvoiceCommand) (OrderInvoice, error) {
+	if cmd.OrderID <= 0 {
+		return OrderInvoice{}, fmt.Errorf("invalid order id")
+	}
+	return s.repo.RequestOrderInvoice(ctx, cmd)
+}
+
+func (s *Service) SaveOrderInvoiceFile(ctx context.Context, cmd SaveOrderInvoiceFileCommand) (OrderInvoice, error) {
+	if cmd.OrderID <= 0 {
+		return OrderInvoice{}, fmt.Errorf("invalid order id")
+	}
+	if strings.TrimSpace(cmd.Filename) == "" {
+		return OrderInvoice{}, fmt.Errorf("filename required")
+	}
+	if !IsOrderInvoiceContentTypeAllowed(cmd.ContentType) {
+		return OrderInvoice{}, fmt.Errorf("only PDF and image files are allowed")
+	}
+	if cmd.Bytes <= 0 {
+		return OrderInvoice{}, fmt.Errorf("empty file")
+	}
+	if strings.TrimSpace(cmd.SHA256) == "" {
+		return OrderInvoice{}, fmt.Errorf("sha256 required")
+	}
+	if strings.TrimSpace(cmd.ObjectKey) == "" {
+		return OrderInvoice{}, fmt.Errorf("object_key required")
+	}
+	return s.repo.SaveOrderInvoiceFile(ctx, cmd)
+}
+
+func IsOrderInvoiceContentTypeAllowed(contentType string) bool {
+	switch strings.ToLower(strings.TrimSpace(contentType)) {
+	case "application/pdf", "image/png", "image/jpeg", "image/gif", "image/webp":
+		return true
+	default:
+		return false
+	}
 }
 
 func digitsOnly(s string) string {

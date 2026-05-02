@@ -88,6 +88,9 @@ CREATE TABLE %s.audit_logs (
 );
 INSERT INTO %s.products(id,name,active) VALUES (1,'橘皮乌龙',true);
 `, schema, schema, schema, schema, schema, schema))
+	if err := postgresinventory.EnsureSchema(ctx, pool, schema); err != nil {
+		t.Fatalf("inventory EnsureSchema: %v", err)
+	}
 
 	e := echo.New()
 	registerFinishedInventoryPages(e, inventoryapp.NewService(postgresinventory.NewRepository(pool, schema)))

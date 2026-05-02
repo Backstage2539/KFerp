@@ -7,20 +7,20 @@ import (
 	"testing"
 )
 
-func TestDev133AuditLogReadabilityRequirementSeeds(t *testing.T) {
+func TestDev138AuditLogReadabilityRequirementSeeds(t *testing.T) {
 	content, err := os.ReadFile(filepath.Join("internal", "interfaces", "http", "support", "req_store.go"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	src := string(content)
 	for _, want := range []string{
-		"PR-133",
-		"DEV-133-01",
-		"DEV-133-02",
-		"DEV-133-03",
-		"UT-133-01",
-		"API-133-01",
-		"REV-133-01",
+		"PR-138",
+		"DEV-138-01",
+		"DEV-138-02",
+		"DEV-138-03",
+		"UT-138-01",
+		"API-138-01",
+		"REV-138-01",
 		"操作日志可读性修正",
 		"菜单与系统左侧菜单一致",
 	} {
@@ -30,7 +30,7 @@ func TestDev133AuditLogReadabilityRequirementSeeds(t *testing.T) {
 	}
 }
 
-func TestDev133AuditLogFilterIncludesReadableEntityTypes(t *testing.T) {
+func TestDev138AuditLogFilterIncludesReadableEntityTypes(t *testing.T) {
 	content, err := os.ReadFile(filepath.Join("frontend-vue-shell", "src", "views", "AuditView.vue"))
 	if err != nil {
 		t.Fatal(err)

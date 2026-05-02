@@ -7,19 +7,25 @@ import (
 )
 
 type fakeRepo struct {
-	saveCmd         SaveOrderCommand
-	inlineCmd       InlineUpdateCommand
-	saveCalls       int
-	outsourceSaved  SaveOutsourceTemplateCommand
-	trackingCmd     FillTrackingPairsCommand
-	shipMethodCmd   SetShipMethodCommand
-	shipmentCmd     CreateOrderShipmentCommand
-	trackingItems   FillShipmentTrackingCommand
-	orderNoTracking FillShipmentTrackingByOrderNoCommand
-	settingsCmd     SaveSalesOrderSettingsCommand
-	generateCmd     GenerateSalesOrderDocumentCommand
-	imageCmd        GenerateSalesOrderImageCommand
-	previewOrderID  int64
+	saveCmd                SaveOrderCommand
+	inlineCmd              InlineUpdateCommand
+	saveCalls              int
+	outsourceSaved         SaveOutsourceTemplateCommand
+	trackingCmd            FillTrackingPairsCommand
+	shipMethodCmd          SetShipMethodCommand
+	shipmentCmd            CreateOrderShipmentCommand
+	trackingItems          FillShipmentTrackingCommand
+	orderNoTracking        FillShipmentTrackingByOrderNoCommand
+	settingsCmd            SaveSalesOrderSettingsCommand
+	generateCmd            GenerateSalesOrderDocumentCommand
+	imageCmd               GenerateSalesOrderImageCommand
+	previewOrderID         int64
+	deliveryFormCmd        SaveDeliveryNoteFormCommand
+	generateDeliveryCmd    GenerateDeliveryNoteDocumentCommand
+	previewDeliveryOrderID int64
+	shareCmd               CreateExternalShareResourceCommand
+	invoiceRequestCmd      RequestOrderInvoiceCommand
+	invoiceFileCmd         SaveOrderInvoiceFileCommand
 }
 
 func (r *fakeRepo) SaveOrder(ctx context.Context, cmd SaveOrderCommand) (SaveOrderResult, error) {
@@ -175,6 +181,74 @@ func (r *fakeRepo) LoadSalesOrderImageFile(ctx context.Context, orderID, imageID
 	return SalesOrderImageFile{Document: SalesOrderImageDocument{ID: imageID, OrderID: orderID, OrderNo: "SO-TEST", VersionNo: 1}, Path: "/tmp/test.png", Filename: "SO-TEST-V1.png"}, nil
 }
 
+func (r *fakeRepo) LoadDeliveryNoteContext(ctx context.Context, orderID int64) (DeliveryNoteContext, error) {
+	return DeliveryNoteContext{OrderID: orderID, OrderNo: "SO-TEST", ShipStatus: "已发货", Customer: SalesOrderCustomerInfo{ID: 3, Name: "测试客户"}}, nil
+}
+
+func (r *fakeRepo) LoadDeliveryNoteForm(ctx context.Context, orderID int64) (DeliveryNoteForm, error) {
+	return DeliveryNoteForm{OrderID: orderID, OrderNo: "SO-TEST", SourceWarehouse: "finished_goods"}, nil
+}
+
+func (r *fakeRepo) SaveDeliveryNoteForm(ctx context.Context, cmd SaveDeliveryNoteFormCommand) (DeliveryNoteForm, error) {
+	r.deliveryFormCmd = cmd
+	return DeliveryNoteForm{OrderID: cmd.OrderID, OrderNo: "SO-TEST", PostingDate: cmd.PostingDate, SourceWarehouse: cmd.SourceWarehouse, DeliveryMethod: cmd.DeliveryMethod, TrackingNo: cmd.TrackingNo, Note: cmd.Note}, nil
+}
+
+func (r *fakeRepo) ListDeliveryNoteDocuments(ctx context.Context, orderID int64) ([]DeliveryNoteDocument, error) {
+	return []DeliveryNoteDocument{{ID: 9, OrderID: orderID, OrderNo: "SO-TEST", VersionNo: 1, IsLatest: true}}, nil
+}
+
+func (r *fakeRepo) PreviewDeliveryNoteDocument(ctx context.Context, orderID int64) (DeliveryNotePreview, error) {
+	r.previewDeliveryOrderID = orderID
+	return DeliveryNotePreview{OrderID: orderID, OrderNo: "SO-TEST", NextVersionNo: 2}, nil
+}
+
+func (r *fakeRepo) GenerateDeliveryNoteDocument(ctx context.Context, cmd GenerateDeliveryNoteDocumentCommand) (GenerateDeliveryNoteDocumentResult, error) {
+	r.generateDeliveryCmd = cmd
+	return GenerateDeliveryNoteDocumentResult{Document: DeliveryNoteDocument{ID: 10, OrderID: cmd.OrderID, OrderNo: "SO-TEST", VersionNo: 1, IsLatest: true}}, nil
+}
+
+func (r *fakeRepo) LoadDeliveryNoteDocumentFile(ctx context.Context, orderID, documentID int64, latest bool) (DeliveryNoteDocumentFile, error) {
+	return DeliveryNoteDocumentFile{Document: DeliveryNoteDocument{ID: documentID, OrderID: orderID, OrderNo: "SO-TEST", VersionNo: 1}, Path: "/tmp/test.pdf", Filename: "SO-TEST-DN-V1.pdf"}, nil
+}
+
+func (r *fakeRepo) CreateExternalShareResource(ctx context.Context, cmd CreateExternalShareResourceCommand) (ExternalShareResource, error) {
+	r.shareCmd = cmd
+	return ExternalShareResource{Token: "token", ResourceType: cmd.ResourceType, OrderID: cmd.OrderID, ResourceID: cmd.DocumentID, ShareURL: "/share/token", FileURL: "/share/token/file"}, nil
+}
+
+func (r *fakeRepo) LoadExternalShareResourceFile(ctx context.Context, token string) (ExternalShareResourceFile, error) {
+	return ExternalShareResourceFile{Resource: ExternalShareResource{Token: token, ContentType: "application/pdf", Filename: "SO-TEST-V1.pdf"}, Path: "/tmp/test.pdf"}, nil
+}
+
+func (r *fakeRepo) LoadOrderInvoice(ctx context.Context, orderID int64) (OrderInvoice, error) {
+	return OrderInvoice{OrderID: orderID, OrderNo: "SO-TEST", Status: "requested"}, nil
+}
+
+func (r *fakeRepo) RequestOrderInvoice(ctx context.Context, cmd RequestOrderInvoiceCommand) (OrderInvoice, error) {
+	r.invoiceRequestCmd = cmd
+	return OrderInvoice{OrderID: cmd.OrderID, OrderNo: "SO-TEST", Status: "requested", RequestedBy: cmd.Actor}, nil
+}
+
+func (r *fakeRepo) SaveOrderInvoiceFile(ctx context.Context, cmd SaveOrderInvoiceFileCommand) (OrderInvoice, error) {
+	r.invoiceFileCmd = cmd
+	return OrderInvoice{
+		OrderID: cmd.OrderID,
+		OrderNo: "SO-TEST",
+		Status:  "uploaded",
+		Asset: &SalesOrderAsset{
+			ID:          33,
+			Kind:        "order_invoice",
+			Filename:    cmd.Filename,
+			ContentType: cmd.ContentType,
+			Bytes:       cmd.Bytes,
+			SHA256:      cmd.SHA256,
+			ObjectKey:   cmd.ObjectKey,
+			URL:         "/assets/" + cmd.ObjectKey,
+		},
+	}, nil
+}
+
 func TestServiceDelegatesSaveOrder(t *testing.T) {
 	repo := &fakeRepo{}
 	svc := NewService(repo)
@@ -201,6 +275,81 @@ func TestServiceDelegatesSaveOrder(t *testing.T) {
 	}
 	if len(repo.saveCmd.Items) != 1 || repo.saveCmd.Items[0].SpecG != 227 {
 		t.Fatalf("repo items = %+v", repo.saveCmd.Items)
+	}
+}
+
+func TestServiceOwnsOrderInvoiceUseCases(t *testing.T) {
+	repo := &fakeRepo{}
+	svc := NewService(repo)
+
+	requested, err := svc.RequestOrderInvoice(context.Background(), RequestOrderInvoiceCommand{Actor: "财务", OrderID: 9})
+	if err != nil {
+		t.Fatalf("RequestOrderInvoice: %v", err)
+	}
+	if requested.Status != "requested" || repo.invoiceRequestCmd.Actor != "财务" || repo.invoiceRequestCmd.OrderID != 9 {
+		t.Fatalf("requested invoice=%+v cmd=%+v", requested, repo.invoiceRequestCmd)
+	}
+
+	uploaded, err := svc.SaveOrderInvoiceFile(context.Background(), SaveOrderInvoiceFileCommand{
+		Actor:       "财务",
+		OrderID:     9,
+		Filename:    "invoice.pdf",
+		ContentType: "application/pdf",
+		Bytes:       128,
+		SHA256:      "abc123",
+		ObjectKey:   "sales_order_assets/order_invoices/SO-TEST/invoice.pdf",
+	})
+	if err != nil {
+		t.Fatalf("SaveOrderInvoiceFile: %v", err)
+	}
+	if uploaded.Status != "uploaded" || uploaded.Asset == nil || uploaded.Asset.Filename != "invoice.pdf" {
+		t.Fatalf("uploaded invoice=%+v", uploaded)
+	}
+
+	if _, err := svc.RequestOrderInvoice(context.Background(), RequestOrderInvoiceCommand{OrderID: 0}); err == nil {
+		t.Fatal("RequestOrderInvoice invalid order id error = nil")
+	}
+	if _, err := svc.SaveOrderInvoiceFile(context.Background(), SaveOrderInvoiceFileCommand{OrderID: 9, Filename: "invoice.txt", ContentType: "text/plain", Bytes: 1, SHA256: "x", ObjectKey: "x"}); err == nil {
+		t.Fatal("SaveOrderInvoiceFile unsupported content type error = nil")
+	}
+}
+
+func TestServiceOwnsExternalShareResourceUseCases(t *testing.T) {
+	repo := &fakeRepo{}
+	svc := NewService(repo)
+
+	share, err := svc.CreateExternalShareResource(context.Background(), CreateExternalShareResourceCommand{
+		Actor:        " 销售 ",
+		ResourceType: ExternalShareSalesOrderPDF,
+		OrderID:      18,
+		Latest:       true,
+	})
+	if err != nil {
+		t.Fatalf("CreateExternalShareResource: %v", err)
+	}
+	if share.ShareURL != "/share/token" || repo.shareCmd.Actor != "销售" || repo.shareCmd.ResourceType != ExternalShareSalesOrderPDF || repo.shareCmd.OrderID != 18 || !repo.shareCmd.Latest {
+		t.Fatalf("share=%+v cmd=%+v", share, repo.shareCmd)
+	}
+
+	if _, err := svc.CreateExternalShareResource(context.Background(), CreateExternalShareResourceCommand{ResourceType: "unknown", OrderID: 18, Latest: true}); err == nil {
+		t.Fatal("invalid resource type error = nil")
+	}
+	if _, err := svc.CreateExternalShareResource(context.Background(), CreateExternalShareResourceCommand{ResourceType: ExternalShareDeliveryNotePDF, OrderID: 0, Latest: true}); err == nil {
+		t.Fatal("invalid order id error = nil")
+	}
+	if _, err := svc.CreateExternalShareResource(context.Background(), CreateExternalShareResourceCommand{ResourceType: ExternalShareSalesOrderImage, OrderID: 18}); err == nil {
+		t.Fatal("missing explicit document id for non-latest share error = nil")
+	}
+
+	file, err := svc.LoadExternalShareResourceFile(context.Background(), " token ")
+	if err != nil {
+		t.Fatalf("LoadExternalShareResourceFile: %v", err)
+	}
+	if file.Resource.Token != "token" {
+		t.Fatalf("share file=%+v", file)
+	}
+	if _, err := svc.LoadExternalShareResourceFile(context.Background(), ""); err == nil {
+		t.Fatal("empty token error = nil")
 	}
 }
 
@@ -487,5 +636,54 @@ func TestServiceOwnsSalesOrderImageUseCases(t *testing.T) {
 	}
 	if _, err := svc.LoadSalesOrderImageFile(context.Background(), 18, 0, true); err != nil {
 		t.Fatalf("LoadSalesOrderImageFile latest error = %v", err)
+	}
+}
+
+func TestServiceOwnsDeliveryNoteUseCases(t *testing.T) {
+	repo := &fakeRepo{}
+	svc := NewService(repo)
+
+	if err := svc.SaveDeliveryNoteForm(context.Background(), SaveDeliveryNoteFormCommand{
+		Actor:           " warehouse ",
+		OrderID:         18,
+		PostingDate:     " 2026-05-02 ",
+		SourceWarehouse: " finished_goods ",
+		DeliveryMethod:  " 顺丰 ",
+		TrackingNo:      " SF123 ",
+		Note:            " 随货附单 ",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if repo.deliveryFormCmd.Actor != "warehouse" || repo.deliveryFormCmd.OrderID != 18 || repo.deliveryFormCmd.SourceWarehouse != "finished_goods" || repo.deliveryFormCmd.TrackingNo != "SF123" {
+		t.Fatalf("delivery form command = %+v", repo.deliveryFormCmd)
+	}
+
+	doc, err := svc.GenerateDeliveryNoteDocument(context.Background(), GenerateDeliveryNoteDocumentCommand{Actor: " stock ", OrderID: 18})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if doc.Document.VersionNo != 1 || repo.generateDeliveryCmd.Actor != "stock" || repo.generateDeliveryCmd.OrderID != 18 {
+		t.Fatalf("document=%+v command=%+v", doc, repo.generateDeliveryCmd)
+	}
+	if _, err := svc.GenerateDeliveryNoteDocument(context.Background(), GenerateDeliveryNoteDocumentCommand{OrderID: 0}); err == nil {
+		t.Fatal("GenerateDeliveryNoteDocument invalid order error = nil")
+	}
+	preview, err := svc.PreviewDeliveryNoteDocument(context.Background(), 18)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if preview.NextVersionNo != 2 || repo.previewDeliveryOrderID != 18 {
+		t.Fatalf("preview=%+v orderID=%d", preview, repo.previewDeliveryOrderID)
+	}
+	if _, err := svc.PreviewDeliveryNoteDocument(context.Background(), 0); err == nil {
+		t.Fatal("PreviewDeliveryNoteDocument invalid order error = nil")
+	}
+
+	docs, err := svc.ListDeliveryNoteDocuments(context.Background(), 18)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(docs) != 1 || docs[0].OrderID != 18 {
+		t.Fatalf("ListDeliveryNoteDocuments() = %+v", docs)
 	}
 }

@@ -48,6 +48,9 @@ func TestQualityInspectionVueUsesWorkspaceDrawerSelection(t *testing.T) {
 		"选择工单",
 		"选择原料批次",
 		"选择产品批次",
+		"qualityTargetActionLabel(form.scope)",
+		"qualityTargetDrawerTitle(activeTargetScope)",
+		"qualityTargetSearchPlaceholder(activeTargetScope)",
 	} {
 		if !strings.Contains(combined, want) {
 			t.Fatalf("quality inspection Vue/helper source missing %q", want)
@@ -57,6 +60,9 @@ func TestQualityInspectionVueUsesWorkspaceDrawerSelection(t *testing.T) {
 		"打开对象抽屉",
 		"<div class=\"target-tabs\">",
 		"class=\"target-tab\"",
+		"{{ targetActionLabel",
+		"{{ targetDrawerTitle",
+		":placeholder=\"targetSearchPlaceholder",
 	} {
 		if strings.Contains(view, forbidden) {
 			t.Fatalf("quality inspection Vue source should not contain %q", forbidden)

@@ -11,6 +11,8 @@
           <button class="secondary" type="button" @click="loadPreview" :disabled="previewLoading || !orderID">{{ previewLoading ? '预览中' : '刷新预览' }}</button>
           <a v-if="documents.length" class="secondary link-button" :href="salesOrderDownloadUrl(orderID)" target="_blank" rel="noopener">下载最新版 PDF</a>
           <a v-if="imageDocuments.length" class="secondary link-button" :href="salesOrderImageDownloadUrl(orderID)" target="_blank" rel="noopener">下载最新版图片</a>
+          <button class="secondary" type="button" @click="shareLatestResource('sales_order_pdf')" :disabled="shareLoading || !orderID || !documents.length">{{ shareLoading === 'sales_order_pdf' ? '分享中' : '分享PDF到微信' }}</button>
+          <button class="secondary" type="button" @click="shareLatestResource('sales_order_image')" :disabled="shareLoading || !orderID || !imageDocuments.length">{{ shareLoading === 'sales_order_image' ? '分享中' : '分享图片到微信' }}</button>
           <button class="primary" type="button" @click="generate" :disabled="generating || !orderID || !preview">{{ generating ? '生成中' : '确认生成 PDF' }}</button>
           <button class="primary" type="button" @click="generateImage" :disabled="imageGenerating || !orderID || !preview">{{ imageGenerating ? '生成图片中' : '确认生成图片' }}</button>
         </div>
@@ -34,6 +36,7 @@
           <li>预览里的公章可直接拖动，松开后保存位置；位置只影响之后生成的新销售单。</li>
           <li>销售单内容按生成时的订单和设置保存快照，后续修改设置不会改动旧版本。</li>
           <li>需要给客户最新文件时使用“下载最新版 PDF”或“下载最新版图片”，需要追溯时下载指定历史版本。</li>
+          <li>“分享到微信”会生成一个外部分享链接；微信客户无需登录即可打开该链接查看本次分享的 PDF 或图片。</li>
         </ul>
       </details>
     </section>
@@ -230,6 +233,8 @@
 import { computed, onMounted, reactive, ref } from 'vue'
 import { apiGet, apiSend } from '../api/client'
 import { salesOrderDownloadUrl, salesOrderImageDownloadUrl } from '../lib/sales-order'
+import { beginSalesOrderSealDrag, moveSalesOrderSealDrag, salesOrderSealPreviewScale, salesOrderSealStyle } from '../lib/sales-order-seal'
+import { buildShareResourcePayload, shareResourceToWechat } from '../lib/external-share'
 import SalesOrderSettingsView from './SalesOrderSettingsView.vue'
 
 const props = defineProps({
@@ -252,6 +257,7 @@ const drawerOpen = ref(false)
 const settingsDrawerOpen = ref(false)
 const savingCustomer = ref(false)
 const sealDragSaving = ref(false)
+const shareLoading = ref('')
 const previewSealStage = ref(null)
 const customerSummary = reactive(emptyCustomer())
 const customerForm = reactive(emptyCustomer())
@@ -327,6 +333,31 @@ async function generateImage() {
   }
 }
 
+async function shareLatestResource(resourceType) {
+  if (!orderID.value || shareLoading.value) return
+  shareLoading.value = resourceType
+  error.value = ''
+  message.value = ''
+  try {
+    const share = await apiSend('/api/share-resources', {
+      body: buildShareResourcePayload(resourceType, orderID.value),
+    })
+    const result = await shareResourceToWechat(share)
+    if (result === 'shared') {
+      message.value = '已打开系统分享面板，选择微信发送给客户'
+    } else if (result === 'copied') {
+      message.value = '浏览器不支持直接分享，微信分享链接已复制'
+    } else {
+      message.value = share.share_url ? `复制链接后发给客户：${share.share_url}` : '分享链接已生成'
+    }
+    await load()
+  } catch (err) {
+    error.value = err.message || '分享到微信失败'
+  } finally {
+    shareLoading.value = ''
+  }
+}
+
 function emptyCustomer() {
   return {
     id: 0,
@@ -367,16 +398,7 @@ function assetURL(ref = {}) {
 }
 
 function sealPositionStyle(seal = {}) {
-  const scale = previewSealScale()
-  const x = Number(seal.x_mm || 32)
-  const y = Number(seal.y_mm || 22)
-  const w = Number(seal.width_mm || 42)
-  return {
-    left: `${x * scale}px`,
-    top: `${y * scale}px`,
-    width: `${w * scale}px`,
-    height: `${w * 0.62 * scale}px`,
-  }
+  return salesOrderSealStyle(seal, previewSealScale())
 }
 
 function hasBankAccount(snapshot = {}) {
@@ -388,29 +410,32 @@ function hasPaymentInfo(snapshot = {}) {
 }
 
 function previewSealScale() {
-  return 2.2
+  return salesOrderSealPreviewScale
 }
 
 function startPreviewSealDrag(event) {
   const seal = preview.value?.snapshot?.seal
   if (!seal || !previewSealStage.value || sealDragSaving.value) return
   event.preventDefault()
-  const scale = previewSealScale()
-  const originX = Number(seal.x_mm || 32)
-  const originY = Number(seal.y_mm || 22)
-  const startX = event.clientX
-  const startY = event.clientY
+  const drag = beginSalesOrderSealDrag({
+    seal,
+    clientX: event.clientX,
+    clientY: event.clientY,
+    scale: previewSealScale(),
+  })
   const update = (clientX, clientY) => {
-    seal.x_mm = Math.max(1, Math.round(originX + (clientX - startX) / scale))
-    seal.y_mm = Math.max(1, Math.round(originY + (clientY - startY) / scale))
+    const next = moveSalesOrderSealDrag(drag, { clientX, clientY })
+    seal.x_mm = next.x_mm
+    seal.y_mm = next.y_mm
+    seal.width_mm = next.width_mm
   }
-  update(event.clientX, event.clientY)
   const move = (moveEvent) => update(moveEvent.clientX, moveEvent.clientY)
   const up = async () => {
     window.removeEventListener('pointermove', move)
     window.removeEventListener('pointerup', up)
     await savePreviewSealPosition()
   }
+  event.currentTarget?.setPointerCapture?.(event.pointerId)
   window.addEventListener('pointermove', move)
   window.addEventListener('pointerup', up, { once: true })
 }
@@ -424,11 +449,11 @@ async function savePreviewSealPosition() {
     await apiSend('/api/settings/sales-order/seal-position', {
       body: {
         seal_x_mm: Number(seal.x_mm || 32),
-        seal_y_mm: Number(seal.y_mm || 22),
-        seal_width_mm: Number(seal.width_mm || 42),
+        seal_y_mm: Number(seal.y_mm || 5),
+        seal_width_mm: Number(seal.width_mm || 36),
       },
     })
-    message.value = '公章位置已保存'
+    message.value = '公章位置已保存，请重新生成图片或 PDF 后下载'
   } catch (err) {
     error.value = err.message || '保存公章位置失败'
   } finally {

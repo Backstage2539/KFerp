@@ -205,6 +205,7 @@
 
 <script setup>
 import { computed, onMounted, reactive, ref } from 'vue'
+import { apiGet, apiSend } from '../api/client'
 import { buildMaterialSummary, buildStartPayload, rebuildPlanRows, producePlanKey } from '../lib/produce-plan'
 import { replaceHistoryURL } from '../lib/url-state'
 
@@ -278,9 +279,7 @@ async function load(plan) {
       url.searchParams.set('plan', '1')
       url.searchParams.set('selected', keys.join(','))
     }
-    const res = await fetch(url)
-    const data = await res.json()
-    if (!res.ok) throw new Error(data.error || '加载失败')
+    const data = await apiGet(url)
 
     rows.value = data.rows || []
     stockTip.value = data.stock_tip || ''
@@ -348,9 +347,7 @@ async function loadMaterialPlan() {
         url.searchParams.set(`input_${key.replaceAll('-', '_')}`, String(inputG))
       }
     }
-    const res = await fetch(url)
-    const data = await res.json()
-    if (!res.ok) throw new Error(data.error || '物料需求计划加载失败')
+    const data = await apiGet(url)
     materialPlanRows.value = data.rows || []
   } catch (err) {
     error.value = err.message || '物料需求计划加载失败'
@@ -373,13 +370,7 @@ async function startProduction() {
   error.value = ''
   try {
     const payload = buildStartPayload(filters, keys, roastPlans.value, computedPlanRows.value)
-    const res = await fetch('/api/produce/start', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
-    })
-    const data = await res.json()
-    if (!res.ok) throw new Error(data.error || '开始生产失败')
+    await apiSend('/api/produce/start', { body: payload })
     window.location.href = '/produce/running?ok=1'
   } catch (err) {
     error.value = err.message || '开始生产失败'

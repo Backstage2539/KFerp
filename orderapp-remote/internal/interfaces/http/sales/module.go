@@ -20,4 +20,7 @@ func RegisterRoutes(e *echo.Echo, deps Dependencies) {
 	registerOrderShippingExcelRoutes(e, deps.Sales)
 	registerSalesOrderSettingsRoutes(e, deps.Sales, deps.AssetDir)
 	registerSalesOrderDocumentRoutes(e, deps.Sales)
+	registerDeliveryNoteDocumentRoutes(e, deps.Sales)
+	registerExternalShareResourceRoutes(e, deps.Sales)
+	registerOrderInvoiceRoutes(e, deps.Sales, deps.AssetDir)
 }

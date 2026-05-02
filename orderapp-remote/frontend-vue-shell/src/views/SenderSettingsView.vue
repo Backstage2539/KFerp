@@ -53,6 +53,7 @@
 
 <script setup>
 import { onMounted, reactive, ref } from 'vue'
+import { apiGet, apiSend } from '../api/client'
 
 const loading = ref(false)
 const saving = ref(false)
@@ -102,9 +103,7 @@ async function load() {
   loading.value = true
   error.value = ''
   try {
-    const res = await fetch('/api/settings/sender')
-    const data = await res.json()
-    if (!res.ok) throw new Error(data.error || '加载失败')
+    const data = await apiGet('/api/settings/sender')
     profiles.value = data.profiles || []
     assignProfile(data.profile || profiles.value[0] || null)
   } catch (err) {
@@ -119,13 +118,7 @@ async function save() {
   error.value = ''
   ok.value = false
   try {
-    const res = await fetch('/api/settings/sender', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(form),
-    })
-    const data = await res.json()
-    if (!res.ok) throw new Error(data.error || '保存失败')
+    await apiSend('/api/settings/sender', { body: form })
     ok.value = true
     await load()
   } catch (err) {

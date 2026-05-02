@@ -72,6 +72,9 @@ func requiredPermissionForRequest(method, path string) string {
 	if strings.HasPrefix(path, "/api/order/form") {
 		return "orders.write"
 	}
+	if path == "/api/share-resources" {
+		return "orders.write"
+	}
 	if strings.HasPrefix(path, "/api/order") {
 		if method == http.MethodGet {
 			return "orders.read"
@@ -122,6 +125,24 @@ func requiredPermissionForRequest(method, path string) string {
 			return "costing.read"
 		}
 		return "costing.write"
+	}
+	if strings.HasPrefix(path, "/api/finance/employees") {
+		return "finance.write"
+	}
+	if strings.HasPrefix(path, "/api/finance/settings/closing-mode") {
+		return "finance.close_mode.manage"
+	}
+	if strings.HasPrefix(path, "/api/finance/reports/") && strings.Contains(path, "/close") {
+		return "finance.close"
+	}
+	if strings.HasPrefix(path, "/api/finance/adjustments") {
+		return "finance.close"
+	}
+	if strings.HasPrefix(path, "/api/finance/") {
+		if method == http.MethodGet {
+			return "finance.read"
+		}
+		return "finance.write"
 	}
 	if strings.HasPrefix(path, "/api/produce/allocations") {
 		return "stock.read"

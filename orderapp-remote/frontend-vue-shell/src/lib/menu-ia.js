@@ -39,7 +39,20 @@ export const menuGroups = [
     name: '商品与配方',
     items: [
       { key: 'productSettings', label: '产品设置', title: '产品设置' },
+      { key: 'costing', label: '价格与豆单', title: '价格与豆单' },
       { key: 'bom', label: 'BOM配方维护', title: 'BOM配方维护' },
+    ],
+  },
+  {
+    id: 'finance',
+    name: '财务管理',
+    items: [
+      { key: 'financeDashboard', label: '财务首页', title: '财务首页' },
+      { key: 'financeExpenses', label: '费用管理', title: '费用管理' },
+      { key: 'financeClosing', label: '月度结账', title: '月度结账' },
+      { key: 'financeReport', label: '经营报告', title: '月度经营报告' },
+      { key: 'financeSettings', label: '财务设置', title: '财务设置' },
+      { key: 'financeManual', label: '财务手册', title: '财务月结手册' },
     ],
   },
   {
@@ -78,6 +91,8 @@ export const menuGroups = [
 ]
 
 export const hiddenViewTitles = {
+  deliveryNote: '出库单',
+  orderInvoice: '发票',
   materialReceipts: '原料入库',
   materialBatches: '原料批次',
   wipMaterials: 'WIP在制仓',
@@ -87,7 +102,6 @@ export const hiddenViewTitles = {
   inventory: '成品库存',
   allocationLogs: '分配批次查看',
   products: '产品设置',
-  costing: '产品设置',
   salesOrder: '销售单',
 }
 

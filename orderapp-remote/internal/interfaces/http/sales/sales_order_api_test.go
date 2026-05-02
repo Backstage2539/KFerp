@@ -132,6 +132,52 @@ func TestSalesOrderSealPositionAPIOnlyUpdatesCoordinates(t *testing.T) {
 	}
 }
 
+func TestSalesOrderImageGenerationUsesSavedSealPosition(t *testing.T) {
+	pool, schema := newOrderAPITestDB(t)
+	ctx := context.Background()
+	seedOrderAPITestData(t, ctx, pool, schema)
+	if err := postgressales.EnsureSchema(ctx, pool, schema); err != nil {
+		t.Fatalf("EnsureSchema: %v", err)
+	}
+	seedSalesOrderAPITestOrder(t, ctx, pool, schema)
+	assetDir := t.TempDir()
+	objectKey := "sales_order_assets/seal/current-seal.png"
+	writeSealWithWhiteBackground(t, filepath.Join(assetDir, objectKey))
+	mustExecOrderAPITestSQL(t, ctx, pool, fmt.Sprintf(`
+		INSERT INTO %s.sales_order_assets(id, kind, filename, content_type, bytes, sha256, object_key, created_by)
+		VALUES(1101, 'seal', 'current-seal.png', 'image/png', 12, 'seed', '%s', '测试员')`, schema, objectKey))
+	mustExecOrderAPITestSQL(t, ctx, pool, fmt.Sprintf(`
+		INSERT INTO %s.sales_order_settings(id, note, payment_text, seal_asset_id, seal_x_mm, seal_y_mm, seal_width_mm)
+		VALUES(1, '说明', '微信', 1101, 32, 22, 42)`, schema))
+	e := newSalesOrderAPITestEcho(pool, schema, assetDir)
+
+	body := strings.NewReader(`{"seal_x_mm":61,"seal_y_mm":18,"seal_width_mm":48}`)
+	positionReq := httptest.NewRequest(http.MethodPost, "/api/settings/sales-order/seal-position", body)
+	positionReq.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	positionRec := httptest.NewRecorder()
+	e.ServeHTTP(positionRec, positionReq)
+	if positionRec.Code != http.StatusOK {
+		t.Fatalf("seal position status=%d body=%s", positionRec.Code, positionRec.Body.String())
+	}
+
+	imageReq := httptest.NewRequest(http.MethodPost, "/api/orders/1/sales-order-images", nil)
+	imageRec := httptest.NewRecorder()
+	e.ServeHTTP(imageRec, imageReq)
+	if imageRec.Code != http.StatusOK {
+		t.Fatalf("image status=%d body=%s", imageRec.Code, imageRec.Body.String())
+	}
+	var doc salesapp.SalesOrderImageDocument
+	if err := json.Unmarshal(imageRec.Body.Bytes(), &doc); err != nil {
+		t.Fatalf("decode image response: %v", err)
+	}
+	if doc.Snapshot.Seal == nil {
+		t.Fatalf("generated image snapshot missing seal: %+v", doc.Snapshot)
+	}
+	if doc.Snapshot.Seal.XMM != 61 || doc.Snapshot.Seal.YMM != 18 || doc.Snapshot.Seal.WidthMM != 48 {
+		t.Fatalf("generated image snapshot seal = %+v, want x=61 y=18 width=48", doc.Snapshot.Seal)
+	}
+}
+
 func TestSalesOrderSealBackgroundRemovalCreatesTransparentPNG(t *testing.T) {
 	pool, schema := newOrderAPITestDB(t)
 	ctx := context.Background()
@@ -293,6 +339,80 @@ func TestSalesOrderDocumentAPI(t *testing.T) {
 	}
 }
 
+func TestExternalShareResourceAPIUsesOneFlowForSalesOrderAndDeliveryNote(t *testing.T) {
+	pool, schema := newOrderAPITestDB(t)
+	ctx := context.Background()
+	seedOrderAPITestData(t, ctx, pool, schema)
+	if err := postgressales.EnsureSchema(ctx, pool, schema); err != nil {
+		t.Fatalf("EnsureSchema: %v", err)
+	}
+	seedDeliveryNoteAPITestOrder(t, ctx, pool, schema, true)
+	e := newExternalShareAPITestEcho(pool, schema, t.TempDir())
+
+	postJSON := func(path, body string) *httptest.ResponseRecorder {
+		req := httptest.NewRequest(http.MethodPost, path, strings.NewReader(body))
+		req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+		rec := httptest.NewRecorder()
+		e.ServeHTTP(rec, req)
+		return rec
+	}
+
+	if rec := postJSON("/api/orders/1/sales-orders", ""); rec.Code != http.StatusOK {
+		t.Fatalf("generate sales order status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if rec := postJSON("/api/orders/1/sales-order-images", ""); rec.Code != http.StatusOK {
+		t.Fatalf("generate sales image status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if rec := postJSON("/api/orders/1/delivery-notes", ""); rec.Code != http.StatusOK {
+		t.Fatalf("generate delivery note status=%d body=%s", rec.Code, rec.Body.String())
+	}
+
+	for _, tc := range []struct {
+		name        string
+		body        string
+		contentType string
+		wantTitle   string
+	}{
+		{name: "sales pdf", body: `{"resource_type":"sales_order_pdf","order_id":1,"latest":true}`, contentType: "application/pdf", wantTitle: "销售单"},
+		{name: "sales image", body: `{"resource_type":"sales_order_image","order_id":1,"latest":true}`, contentType: "image/png", wantTitle: "销售单图片"},
+		{name: "delivery pdf", body: `{"resource_type":"delivery_note_pdf","order_id":1,"latest":true}`, contentType: "application/pdf", wantTitle: "出库单"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			rec := postJSON("/api/share-resources", tc.body)
+			if rec.Code != http.StatusOK {
+				t.Fatalf("share status=%d body=%s", rec.Code, rec.Body.String())
+			}
+			var share salesapp.ExternalShareResource
+			if err := json.Unmarshal(rec.Body.Bytes(), &share); err != nil {
+				t.Fatalf("decode share response: %v", err)
+			}
+			if share.Token == "" || !strings.HasPrefix(share.ShareURL, "/share/") || !strings.HasSuffix(share.FileURL, "/file") {
+				t.Fatalf("share urls not populated: %+v", share)
+			}
+			if share.ContentType != tc.contentType || !strings.Contains(share.Title, tc.wantTitle) {
+				t.Fatalf("share metadata = %+v, want content type %s and title containing %q", share, tc.contentType, tc.wantTitle)
+			}
+
+			pageReq := httptest.NewRequest(http.MethodGet, share.ShareURL, nil)
+			pageRec := httptest.NewRecorder()
+			e.ServeHTTP(pageRec, pageReq)
+			if pageRec.Code != http.StatusOK || !strings.Contains(pageRec.Body.String(), "微信分享") || !strings.Contains(pageRec.Body.String(), share.FileURL) {
+				t.Fatalf("share page status=%d body=%s", pageRec.Code, pageRec.Body.String())
+			}
+
+			fileReq := httptest.NewRequest(http.MethodGet, share.FileURL, nil)
+			fileRec := httptest.NewRecorder()
+			e.ServeHTTP(fileRec, fileReq)
+			if fileRec.Code != http.StatusOK || fileRec.Header().Get(echo.HeaderContentType) != tc.contentType {
+				t.Fatalf("share file status=%d content-type=%q body=%s", fileRec.Code, fileRec.Header().Get(echo.HeaderContentType), fileRec.Body.String())
+			}
+			if disposition := fileRec.Header().Get(echo.HeaderContentDisposition); !strings.HasPrefix(disposition, "inline;") {
+				t.Fatalf("share file disposition=%q, want inline", disposition)
+			}
+		})
+	}
+}
+
 func TestSalesOrderPreviewAPIDoesNotCreateDocumentVersion(t *testing.T) {
 	pool, schema := newOrderAPITestDB(t)
 	ctx := context.Background()
@@ -432,6 +552,23 @@ func newSalesOrderAPITestEcho(pool *pgxpool.Pool, schema string, assetDir string
 	svc := salesapp.NewService(postgressales.NewRepository(pool, schema, postgressales.WithSalesOrderAssetDir(assetDir)))
 	registerSalesOrderSettingsRoutes(e, svc, assetDir)
 	registerSalesOrderDocumentRoutes(e, svc)
+	return e
+}
+
+func newExternalShareAPITestEcho(pool *pgxpool.Pool, schema string, assetDir string) *echo.Echo {
+	e := echo.New()
+	e.Use(func(next echo.HandlerFunc) echo.HandlerFunc {
+		return func(c echo.Context) error {
+			c.Set("employee_id", int64(1))
+			c.Set("operator_employee", "测试员")
+			c.Set("actor", "测试员")
+			return next(c)
+		}
+	})
+	svc := salesapp.NewService(postgressales.NewRepository(pool, schema, postgressales.WithSalesOrderAssetDir(assetDir)))
+	registerSalesOrderDocumentRoutes(e, svc)
+	registerDeliveryNoteDocumentRoutes(e, svc)
+	registerExternalShareResourceRoutes(e, svc)
 	return e
 }
 

@@ -7,6 +7,7 @@ import (
 	companyapp "orderapp/internal/application/company"
 	costingapp "orderapp/internal/application/costing"
 	customerapp "orderapp/internal/application/customer"
+	financeapp "orderapp/internal/application/finance"
 	inventoryapp "orderapp/internal/application/inventory"
 	materialsapp "orderapp/internal/application/materials"
 	productionapp "orderapp/internal/application/production"
@@ -19,6 +20,7 @@ import (
 	postgrescompany "orderapp/internal/infrastructure/postgres/company"
 	postgrescosting "orderapp/internal/infrastructure/postgres/costing"
 	postgrescustomer "orderapp/internal/infrastructure/postgres/customer"
+	postgresfinance "orderapp/internal/infrastructure/postgres/finance"
 	postgresinventory "orderapp/internal/infrastructure/postgres/inventory"
 	postgresmaterials "orderapp/internal/infrastructure/postgres/materials"
 	postgresproduction "orderapp/internal/infrastructure/postgres/production"
@@ -30,6 +32,7 @@ import (
 	companyhttp "orderapp/internal/interfaces/http/company"
 	costinghttp "orderapp/internal/interfaces/http/costing"
 	customerhttp "orderapp/internal/interfaces/http/customer"
+	financehttp "orderapp/internal/interfaces/http/finance"
 	inventoryhttp "orderapp/internal/interfaces/http/inventory"
 	materialshttp "orderapp/internal/interfaces/http/materials"
 	productionhttp "orderapp/internal/interfaces/http/production"
@@ -49,6 +52,7 @@ func registerAppRoutes(e *echo.Echo, pool *pgxpool.Pool, schema string, assetDir
 	companySvc := companyapp.NewService(postgrescompany.NewRepository(pool, schema))
 	costingSvc := costingapp.NewService(postgrescosting.NewRepository(pool, schema))
 	customerSvc := customerapp.NewService(postgrescustomer.NewRepository(pool, schema, assetDir))
+	financeSvc := financeapp.NewService(postgresfinance.NewRepository(pool, schema))
 	inventorySvc := inventoryapp.NewService(postgresinventory.NewRepository(pool, schema))
 	materialsSvc := materialsapp.NewService(postgresmaterials.NewRepository(pool, schema))
 	productionSvc := productionapp.NewService(postgresproduction.NewRepository(pool, schema))
@@ -70,4 +74,5 @@ func registerAppRoutes(e *echo.Echo, pool *pgxpool.Pool, schema string, assetDir
 	companyhttp.RegisterRoutes(e, companyhttp.Dependencies{Company: companySvc})
 	customerhttp.RegisterRoutes(e, customerhttp.Dependencies{Customer: customerSvc, AssetDir: assetDir})
 	saleshttp.RegisterRoutes(e, saleshttp.Dependencies{Sales: salesSvc, AssetDir: assetDir})
+	financehttp.RegisterRoutes(e, financehttp.Dependencies{Finance: financeSvc})
 }
