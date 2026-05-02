@@ -203,6 +203,27 @@ func TestManufacturingGapAPIs(t *testing.T) {
 		t.Fatalf("quality create response=%+v command=%+v", createResp, repo.qualityCommand)
 	}
 
+	for _, tc := range []struct {
+		scope       string
+		referenceNo string
+		itemName    string
+	}{
+		{scope: "raw_material", referenceNo: "MB-0000000007", itemName: "孟连水洗5T批次"},
+		{scope: "finished_batch", referenceNo: "FP-0000000042", itemName: "耶加雪菲 227g"},
+	} {
+		body := []byte(`{"scope":"` + tc.scope + `","reference_type":"` + tc.scope + `","reference_no":"` + tc.referenceNo + `","item_name":"` + tc.itemName + `","result":"hold","metrics_json":"{}","note":"抽屉选择"}`)
+		req = httptest.NewRequest(http.MethodPost, "/api/produce/quality-inspections", bytes.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		rec = httptest.NewRecorder()
+		e.ServeHTTP(rec, req)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("POST /api/produce/quality-inspections %s status=%d body=%s", tc.scope, rec.Code, rec.Body.String())
+		}
+		if repo.qualityCommand.Scope != tc.scope || repo.qualityCommand.ReferenceNo != tc.referenceNo || repo.qualityCommand.ItemName != tc.itemName {
+			t.Fatalf("quality command for %s = %+v", tc.scope, repo.qualityCommand)
+		}
+	}
+
 	req = httptest.NewRequest(http.MethodGet, "/api/produce/quality-inspections?scope=work_order&result=pass", nil)
 	rec = httptest.NewRecorder()
 	e.ServeHTTP(rec, req)
