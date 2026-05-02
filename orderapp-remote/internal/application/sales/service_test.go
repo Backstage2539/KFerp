@@ -23,6 +23,8 @@ type fakeRepo struct {
 	deliveryFormCmd        SaveDeliveryNoteFormCommand
 	generateDeliveryCmd    GenerateDeliveryNoteDocumentCommand
 	previewDeliveryOrderID int64
+	invoiceRequestCmd      RequestOrderInvoiceCommand
+	invoiceFileCmd         SaveOrderInvoiceFileCommand
 }
 
 func (r *fakeRepo) SaveOrder(ctx context.Context, cmd SaveOrderCommand) (SaveOrderResult, error) {
@@ -209,6 +211,34 @@ func (r *fakeRepo) LoadDeliveryNoteDocumentFile(ctx context.Context, orderID, do
 	return DeliveryNoteDocumentFile{Document: DeliveryNoteDocument{ID: documentID, OrderID: orderID, OrderNo: "SO-TEST", VersionNo: 1}, Path: "/tmp/test.pdf", Filename: "SO-TEST-DN-V1.pdf"}, nil
 }
 
+func (r *fakeRepo) LoadOrderInvoice(ctx context.Context, orderID int64) (OrderInvoice, error) {
+	return OrderInvoice{OrderID: orderID, OrderNo: "SO-TEST", Status: "requested"}, nil
+}
+
+func (r *fakeRepo) RequestOrderInvoice(ctx context.Context, cmd RequestOrderInvoiceCommand) (OrderInvoice, error) {
+	r.invoiceRequestCmd = cmd
+	return OrderInvoice{OrderID: cmd.OrderID, OrderNo: "SO-TEST", Status: "requested", RequestedBy: cmd.Actor}, nil
+}
+
+func (r *fakeRepo) SaveOrderInvoiceFile(ctx context.Context, cmd SaveOrderInvoiceFileCommand) (OrderInvoice, error) {
+	r.invoiceFileCmd = cmd
+	return OrderInvoice{
+		OrderID: cmd.OrderID,
+		OrderNo: "SO-TEST",
+		Status:  "uploaded",
+		Asset: &SalesOrderAsset{
+			ID:          33,
+			Kind:        "order_invoice",
+			Filename:    cmd.Filename,
+			ContentType: cmd.ContentType,
+			Bytes:       cmd.Bytes,
+			SHA256:      cmd.SHA256,
+			ObjectKey:   cmd.ObjectKey,
+			URL:         "/assets/" + cmd.ObjectKey,
+		},
+	}, nil
+}
+
 func TestServiceDelegatesSaveOrder(t *testing.T) {
 	repo := &fakeRepo{}
 	svc := NewService(repo)
@@ -235,6 +265,42 @@ func TestServiceDelegatesSaveOrder(t *testing.T) {
 	}
 	if len(repo.saveCmd.Items) != 1 || repo.saveCmd.Items[0].SpecG != 227 {
 		t.Fatalf("repo items = %+v", repo.saveCmd.Items)
+	}
+}
+
+func TestServiceOwnsOrderInvoiceUseCases(t *testing.T) {
+	repo := &fakeRepo{}
+	svc := NewService(repo)
+
+	requested, err := svc.RequestOrderInvoice(context.Background(), RequestOrderInvoiceCommand{Actor: "财务", OrderID: 9})
+	if err != nil {
+		t.Fatalf("RequestOrderInvoice: %v", err)
+	}
+	if requested.Status != "requested" || repo.invoiceRequestCmd.Actor != "财务" || repo.invoiceRequestCmd.OrderID != 9 {
+		t.Fatalf("requested invoice=%+v cmd=%+v", requested, repo.invoiceRequestCmd)
+	}
+
+	uploaded, err := svc.SaveOrderInvoiceFile(context.Background(), SaveOrderInvoiceFileCommand{
+		Actor:       "财务",
+		OrderID:     9,
+		Filename:    "invoice.pdf",
+		ContentType: "application/pdf",
+		Bytes:       128,
+		SHA256:      "abc123",
+		ObjectKey:   "sales_order_assets/order_invoices/SO-TEST/invoice.pdf",
+	})
+	if err != nil {
+		t.Fatalf("SaveOrderInvoiceFile: %v", err)
+	}
+	if uploaded.Status != "uploaded" || uploaded.Asset == nil || uploaded.Asset.Filename != "invoice.pdf" {
+		t.Fatalf("uploaded invoice=%+v", uploaded)
+	}
+
+	if _, err := svc.RequestOrderInvoice(context.Background(), RequestOrderInvoiceCommand{OrderID: 0}); err == nil {
+		t.Fatal("RequestOrderInvoice invalid order id error = nil")
+	}
+	if _, err := svc.SaveOrderInvoiceFile(context.Background(), SaveOrderInvoiceFileCommand{OrderID: 9, Filename: "invoice.txt", ContentType: "text/plain", Bytes: 1, SHA256: "x", ObjectKey: "x"}); err == nil {
+		t.Fatal("SaveOrderInvoiceFile unsupported content type error = nil")
 	}
 }
 

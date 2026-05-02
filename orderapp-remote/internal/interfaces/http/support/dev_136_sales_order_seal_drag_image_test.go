@@ -9,12 +9,12 @@ import (
 func TestSalesOrderSealDragImageRequirementSeeds(t *testing.T) {
 	src := string(readOrderAppFileForTest(t, filepath.Join("internal", "interfaces", "http", "support", "req_store.go")))
 	for _, want := range []string{
-		"PR-135",
-		"DEV-135-01",
-		"DEV-135-02",
-		"UT-135-01",
-		"API-135-01",
-		"REV-135-01",
+		"PR-136",
+		"DEV-136-01",
+		"DEV-136-02",
+		"UT-136-01",
+		"API-136-01",
+		"REV-136-01",
 		"销售单公章拖动",
 		"图片使用最新公章位置",
 	} {
