@@ -162,21 +162,35 @@ func (r Repository) MonthlySourceTotals(ctx context.Context, month string) (doma
 func (r Repository) CreateExpense(ctx context.Context, cmd appfinance.CreateExpenseCommand) (appfinance.Expense, error) {
 	var row appfinance.Expense
 	err := r.pool.QueryRow(ctx, fmt.Sprintf(`
-		INSERT INTO %s.finance_expenses(expense_date,month,category,amount,allocation,input_vat,non_deductible_input_vat,payment,note,created_by)
-		VALUES($1::date,$2,$3,$4,$5,0,0,$6,$7,$8)
-		RETURNING id,to_char(expense_date,'YYYY-MM-DD'),month,category,amount::float8,allocation,payment,note,created_by,to_char(created_at,'YYYY-MM-DD HH24:MI')
-	`, r.schema), cmd.Date, cmd.Month, cmd.Category, cmd.Amount, cmd.Allocation, cmd.Payment, cmd.Note, cmd.Actor).
-		Scan(&row.ID, &row.Date, &row.Month, &row.Category, &row.Amount, &row.Allocation, &row.Payment, &row.Note, &row.Actor, &row.CreatedAt)
+		WITH inserted AS (
+			INSERT INTO %s.finance_expenses(expense_date,month,category,amount,allocation,employee_id,input_vat,non_deductible_input_vat,payment,note,created_by)
+			VALUES($1::date,$2,$3,$4,$5,$6,0,0,$7,$8,$9)
+			RETURNING id,expense_date,month,category,amount,allocation,employee_id,payment,note,created_by,created_at
+		)
+		SELECT i.id,to_char(i.expense_date,'YYYY-MM-DD'),i.month,i.category,i.amount::float8,i.allocation,
+		       COALESCE(i.employee_id,0),COALESCE(e.name,''),i.payment,i.note,i.created_by,to_char(i.created_at,'YYYY-MM-DD HH24:MI')
+		FROM inserted i
+		LEFT JOIN %s.company_employees e ON e.id=i.employee_id
+	`, r.schema, r.schema), cmd.Date, cmd.Month, cmd.Category, cmd.Amount, cmd.Allocation, nullableEmployeeID(cmd.EmployeeID), cmd.Payment, cmd.Note, cmd.Actor).
+		Scan(&row.ID, &row.Date, &row.Month, &row.Category, &row.Amount, &row.Allocation, &row.EmployeeID, &row.EmployeeName, &row.Payment, &row.Note, &row.Actor, &row.CreatedAt)
 	return row, err
 }
 
-func (r Repository) ListExpenses(ctx context.Context, month string) ([]appfinance.Expense, error) {
+func (r Repository) ListExpenses(ctx context.Context, filter appfinance.ExpenseFilter) ([]appfinance.Expense, error) {
+	where := "WHERE fe.month=$1"
+	args := []any{filter.Month}
+	if filter.EmployeeID > 0 {
+		where += " AND fe.employee_id=$2"
+		args = append(args, filter.EmployeeID)
+	}
 	rows, err := r.pool.Query(ctx, fmt.Sprintf(`
-		SELECT id,to_char(expense_date,'YYYY-MM-DD'),month,category,amount::float8,allocation,payment,note,created_by,to_char(created_at,'YYYY-MM-DD HH24:MI')
-		FROM %s.finance_expenses
-		WHERE month=$1
-		ORDER BY expense_date DESC,id DESC
-	`, r.schema), month)
+		SELECT fe.id,to_char(fe.expense_date,'YYYY-MM-DD'),fe.month,fe.category,fe.amount::float8,fe.allocation,
+		       COALESCE(fe.employee_id,0),COALESCE(e.name,''),fe.payment,fe.note,fe.created_by,to_char(fe.created_at,'YYYY-MM-DD HH24:MI')
+		FROM %s.finance_expenses fe
+		LEFT JOIN %s.company_employees e ON e.id=fe.employee_id
+		%s
+		ORDER BY fe.expense_date DESC,fe.id DESC
+	`, r.schema, r.schema, where), args...)
 	if err != nil {
 		return nil, err
 	}
@@ -184,7 +198,35 @@ func (r Repository) ListExpenses(ctx context.Context, month string) ([]appfinanc
 	out := []appfinance.Expense{}
 	for rows.Next() {
 		var row appfinance.Expense
-		if err := rows.Scan(&row.ID, &row.Date, &row.Month, &row.Category, &row.Amount, &row.Allocation, &row.Payment, &row.Note, &row.Actor, &row.CreatedAt); err != nil {
+		if err := rows.Scan(&row.ID, &row.Date, &row.Month, &row.Category, &row.Amount, &row.Allocation, &row.EmployeeID, &row.EmployeeName, &row.Payment, &row.Note, &row.Actor, &row.CreatedAt); err != nil {
+			return nil, err
+		}
+		out = append(out, row)
+	}
+	return out, rows.Err()
+}
+
+func nullableEmployeeID(id int64) any {
+	if id <= 0 {
+		return nil
+	}
+	return id
+}
+
+func (r Repository) ListExpenseEmployees(ctx context.Context) ([]appfinance.ExpenseEmployee, error) {
+	rows, err := r.pool.Query(ctx, fmt.Sprintf(`
+		SELECT id,name,active
+		FROM %s.company_employees
+		ORDER BY active DESC,name,id
+	`, r.schema))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []appfinance.ExpenseEmployee{}
+	for rows.Next() {
+		var row appfinance.ExpenseEmployee
+		if err := rows.Scan(&row.ID, &row.Name, &row.Active); err != nil {
 			return nil, err
 		}
 		out = append(out, row)

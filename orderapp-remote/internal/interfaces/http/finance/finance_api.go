@@ -7,6 +7,7 @@ import (
 	financeexcel "orderapp/internal/infrastructure/excel"
 	financepdf "orderapp/internal/infrastructure/pdf"
 	support "orderapp/internal/interfaces/http/support"
+	"strconv"
 	"strings"
 	"time"
 
@@ -56,8 +57,20 @@ func registerFinanceAPI(e *echo.Echo, svc Service) {
 		return c.JSON(http.StatusOK, resp)
 	})
 
+	e.GET("/api/finance/employees", func(c echo.Context) error {
+		rows, err := svc.ListExpenseEmployees(c.Request().Context())
+		if err != nil {
+			return jsonError(c, http.StatusInternalServerError, err)
+		}
+		return c.JSON(http.StatusOK, rows)
+	})
+
 	e.GET("/api/finance/expenses", func(c echo.Context) error {
-		rows, err := svc.ListExpenses(c.Request().Context(), monthParam(c))
+		filter, err := expenseFilterFromRequest(c)
+		if err != nil {
+			return jsonError(c, http.StatusBadRequest, err)
+		}
+		rows, err := svc.ListExpenses(c.Request().Context(), filter)
 		if err != nil {
 			return jsonError(c, http.StatusBadRequest, err)
 		}
@@ -147,6 +160,18 @@ func monthParam(c echo.Context) string {
 		return month
 	}
 	return time.Now().Format("2006-01")
+}
+
+func expenseFilterFromRequest(c echo.Context) (appfinance.ExpenseFilter, error) {
+	filter := appfinance.ExpenseFilter{Month: monthParam(c)}
+	if value := strings.TrimSpace(c.QueryParam("employee_id")); value != "" {
+		id, err := strconv.ParseInt(value, 10, 64)
+		if err != nil || id < 0 {
+			return appfinance.ExpenseFilter{}, fmt.Errorf("invalid employee_id")
+		}
+		filter.EmployeeID = id
+	}
+	return filter, nil
 }
 
 func jsonError(c echo.Context, status int, err error) error {

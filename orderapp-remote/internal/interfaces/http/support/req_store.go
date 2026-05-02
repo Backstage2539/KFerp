@@ -744,6 +744,11 @@ func seedReqWorkflowA(ctx context.Context, pool *pgxpool.Pool, schema string) er
 		{table: "req_unit", code: "UT-FIN-005", title: "前端单测覆盖 monthFromDate 和费用页保存后按费用月份刷新列表的源码守卫", status: "done", assignee: "Codex", evidence: "finance.test.js; finance-ui.test.js"},
 		{table: "req_api", code: "API-FIN-003", title: "线上 API 验证 2026-04 费用可通过 GET /api/finance/expenses?month=2026-04 查到", status: "done", assignee: "Codex", evidence: "curl /api/finance/expenses?month=2026-04 返回 id=1 人工费用"},
 		{table: "req_review", code: "REV-FIN-002", prCode: "PR-FIN-002", title: "验收：在费用管理选择 2026-04-15 费用日期保存后，页面自动切到 2026-04 并展示该费用", status: "todo", assignee: "VA", evidence: "待 Van 服务器验收"},
+		{table: "req_product", code: "PR-FIN-003", title: "费用管理必须支持费用关联员工；点击费用列表中的员工名后，应过滤出该员工相关费用", status: "review", assignee: "VA", evidence: "codex/finance-expense-employee-filter-20260502"},
+		{table: "req_dev", code: "DEV-FIN-009", title: "费用表新增 employee_id 关联公司员工，费用 API 支持员工候选、employee_id 保存和筛选，费用管理页新增员工选择、员工列和点击员工过滤", status: "done", assignee: "Codex", evidence: "finance_expenses.employee_id; /api/finance/employees; ExpenseFilter; FinanceExpensesView employeeFilter"},
+		{table: "req_unit", code: "UT-FIN-006", title: "单测覆盖费用员工关联字段、员工过滤参数、仓储员工 join、前端 API 参数和 Vue 源码守卫", status: "done", assignee: "Codex", evidence: "go test ./internal/application/finance ./internal/infrastructure/postgres/finance; node --test finance.test.js finance-ui.test.js"},
+		{table: "req_api", code: "API-FIN-004", title: "API 测试覆盖 POST /api/finance/expenses 保存 employee_id，以及 GET /api/finance/expenses?employee_id=... 过滤员工费用", status: "done", assignee: "Codex", evidence: "go test ./internal/interfaces/http/finance -count=1"},
+		{table: "req_review", code: "REV-FIN-003", prCode: "PR-FIN-003", title: "验收：新增费用选择员工后列表显示员工名；点击员工名后列表只显示该员工相关费用，可清除员工筛选", status: "todo", assignee: "VA", evidence: "待 Van 服务器验收"},
 	} {
 		if err := seedReqRow(ctx, pool, schema, row); err != nil {
 			return err

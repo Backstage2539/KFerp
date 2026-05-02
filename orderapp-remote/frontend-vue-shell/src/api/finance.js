@@ -21,8 +21,12 @@ export function fetchFinanceDashboard(month) {
   return apiGet(`/api/finance/dashboard?month=${monthValue(month)}`)
 }
 
-export function fetchFinanceExpenses(month) {
-  return apiGet(`/api/finance/expenses?month=${monthValue(month)}`)
+export function fetchFinanceExpenses(month, employeeId = 0) {
+  const params = new URLSearchParams({ month: month || currentMonth() })
+  if (Number(employeeId) > 0) {
+    params.set('employee_id', String(Number(employeeId)))
+  }
+  return apiGet(`/api/finance/expenses?${params.toString()}`)
 }
 
 export function createFinanceExpense(payload) {

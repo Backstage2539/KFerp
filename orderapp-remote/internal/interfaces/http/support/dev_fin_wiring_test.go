@@ -44,6 +44,8 @@ func TestFinanceModuleIsWiredIntoAppmainAndPermissions(t *testing.T) {
 			wants: []string{
 				`strings.HasPrefix(path, "/api/finance/settings/closing-mode")`,
 				`finance.close_mode.manage`,
+				`strings.HasPrefix(path, "/api/finance/employees")`,
+				`finance.write`,
 				`strings.HasPrefix(path, "/api/finance/")`,
 			},
 		},
