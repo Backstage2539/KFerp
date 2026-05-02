@@ -7,7 +7,7 @@
           <p>原料、生产工单和成品批次的检查结果</p>
         </div>
         <div class="head-actions">
-          <button class="secondary" type="button" @click="openTargetDrawer(form.scope)">{{ targetActionLabel(form.scope) }}</button>
+          <button class="secondary" type="button" @click="openTargetDrawer(form.scope)">{{ qualityTargetActionLabel(form.scope) }}</button>
           <button class="secondary" type="button" @click="load" :disabled="loading">刷新</button>
         </div>
       </div>
@@ -36,7 +36,7 @@
             <div class="panel-title">新增质检记录</div>
             <p>{{ scopeLabel(form.scope) }} · {{ form.reference_no || '未选择对象' }}</p>
           </div>
-          <button class="secondary" type="button" @click="openTargetDrawer(form.scope)">{{ targetActionLabel(form.scope) }}</button>
+          <button class="secondary" type="button" @click="openTargetDrawer(form.scope)">{{ qualityTargetActionLabel(form.scope) }}</button>
         </div>
 
         <div v-if="selectedTarget" class="target-summary">
@@ -141,14 +141,14 @@
     <div v-if="targetDrawerOpen" class="drawer-mask" @click.self="targetDrawerOpen = false">
       <aside class="drawer wide">
         <div class="drawer-head">
-          <h3>{{ targetDrawerTitle(activeTargetScope) }}</h3>
+          <h3>{{ qualityTargetDrawerTitle(activeTargetScope) }}</h3>
           <button class="secondary" type="button" @click="targetDrawerOpen = false">关闭</button>
         </div>
 
         <div class="drawer-search">
           <label>
             <span>搜索</span>
-            <input v-model.trim="targetQ" :placeholder="targetSearchPlaceholder(activeTargetScope)" @keyup.enter="loadTargets" />
+            <input v-model.trim="targetQ" :placeholder="qualityTargetSearchPlaceholder(activeTargetScope)" @keyup.enter="loadTargets" />
           </label>
           <button class="primary" type="button" @click="loadTargets" :disabled="targetLoading">查询</button>
         </div>
