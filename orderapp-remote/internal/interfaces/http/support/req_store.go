@@ -678,6 +678,13 @@ func seedReqWorkflowA(ctx context.Context, pool *pgxpool.Pool, schema string) er
 		{table: "req_unit", code: "UT-128-01", title: "单测覆盖原料入库模糊搜索、生产中实时出品率 helper、完成生产实际投料规则和需求种子", status: "done", assignee: "Codex", evidence: "material-receipts.test.js; produce-running.test.js; running_repository_test.go; dev_128_production_running_receipts_test.go"},
 		{table: "req_api", code: "API-128-01", title: "API 测试覆盖生产中完成接口提交 consumed_input_g 后写入生产日志并按实际投料扣料", status: "done", assignee: "Codex", evidence: "TestProduceFinishAPIUsesEditedInputForFullCompletion"},
 		{table: "req_review", code: "REV-128-01", prCode: "PR-128", title: "验收：原料入库可搜索物料；生产中一行内可改投料和成品数，实际出品率实时变化；部分完工含明确含义", status: "todo", assignee: "VA", evidence: "待 Van 服务器验收"},
+		{table: "req_product", code: "PR-129", title: "库存作业下拉框内搜索，统一四个库存作业页面排版，并在生产中WIP不足时打开库存作业抽屉", status: "review", assignee: "VA", evidence: "codex/stock-operation-combobox-layout-20260502"},
+		{table: "req_dev", code: "DEV-129-01", title: "原料入库、WIP领退/转仓、成品转仓的物料/成品选择改为下拉框内搜索，不再额外放独立搜索框", status: "done", assignee: "Codex", evidence: "SearchableSelect; MaterialReceiptsView; WipMaterialsView; FinishedTransfersView"},
+		{table: "req_dev", code: "DEV-129-02", title: "四个库存作业页面统一为类似仓库库存的面板、网格和表格排版，库存作业输入框高度和列宽对齐", status: "done", assignee: "Codex", evidence: "stock-operation-page; operation-grid"},
+		{table: "req_dev", code: "DEV-129-03", title: "生产中完成生产遇到 WIP 库存不足时自动打开右侧库存作业抽屉，默认进入 WIP领退/转仓", status: "done", assignee: "Codex", evidence: "ProduceRunningView stockDrawerOpen; StockOperationsView initialTab"},
+		{table: "req_unit", code: "UT-129-01", title: "单测覆盖可搜索下拉过滤、多库存作业页面源码守卫、WIP不足抽屉和需求种子", status: "done", assignee: "Codex", evidence: "searchable-select.test.js; dev_129_stock_operation_combobox_test.go"},
+		{table: "req_api", code: "API-129-01", title: "API级回归覆盖库存作业接口和生产完成接口仍可被 Vue/Vite 页面调用，WIP不足错误保持可识别", status: "done", assignee: "Codex", evidence: "go test ./internal/interfaces/http/stock ./internal/interfaces/http/production ./internal/interfaces/http/support"},
+		{table: "req_review", code: "REV-129-01", prCode: "PR-129", title: "验收：库存作业下拉框可直接输入搜索，三类作业输入对齐；生产中 WIP 不足时右侧抽屉打开库存作业页", status: "todo", assignee: "VA", evidence: "待 Van 服务器验收"},
 	} {
 		if err := seedReqRow(ctx, pool, schema, row); err != nil {
 			return err
