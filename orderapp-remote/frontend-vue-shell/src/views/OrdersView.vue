@@ -126,6 +126,7 @@
               <th>发货</th>
               <th>单号</th>
               <th>生产</th>
+              <th>发票</th>
               <th>录入</th>
               <th>备注</th>
               <th>操作</th>
@@ -164,17 +165,22 @@
               <td>{{ row.ship_status }}</td>
               <td>{{ row.ship_tracking_no || '-' }}</td>
               <td>{{ row.process_status }}</td>
+              <td>
+                <span :class="['invoice-status', invoiceStatusTone(row.invoice_status)]">{{ invoiceStatusLabel(row.invoice_status) }}</span>
+                <a v-if="row.invoice_file_url" class="text-link invoice-file-link" :href="row.invoice_file_url" target="_blank" rel="noopener">文件</a>
+              </td>
               <td>{{ row.created_by_employee }}</td>
               <td class="notes">{{ row.notes }}</td>
               <td class="actions-cell">
                 <a class="text-link" href="#" @click.prevent="openSalesOrderDrawer(row)">销售单</a>
                 <a v-if="isShipped(row)" class="text-link" href="#" @click.prevent="openDeliveryNoteDrawer(row)">出库单</a>
                 <span v-else class="muted inline-muted">出库单</span>
+                <a class="text-link" href="#" @click.prevent="openInvoiceDrawer(row)">发票</a>
                 <a class="text-link" :href="`/orders/${row.id}/audit`">审计</a>
               </td>
             </tr>
             <tr v-if="!rows.length">
-              <td colspan="14" class="muted">暂无订单</td>
+              <td colspan="15" class="muted">暂无订单</td>
             </tr>
           </tbody>
         </table>
@@ -197,13 +203,21 @@
         <DeliveryNoteView :order-id="activeDeliveryNoteID" embedded @close="closeDeliveryNoteDrawer" />
       </aside>
     </div>
+
+    <div v-if="invoiceDrawerOpen" class="invoice-drawer-mask" @click.self="closeInvoiceDrawer">
+      <aside class="invoice-drawer" aria-label="发票">
+        <OrderInvoiceView :order-id="activeInvoiceID" embedded @close="closeInvoiceDrawer" @updated="load" />
+      </aside>
+    </div>
   </div>
 </template>
 
 <script setup>
 import { computed, onMounted, reactive, ref } from 'vue'
+import { invoiceStatusLabel, invoiceStatusTone } from '../lib/order-invoice'
 import { replaceHistoryURL } from '../lib/url-state'
 import DeliveryNoteView from './DeliveryNoteView.vue'
+import OrderInvoiceView from './OrderInvoiceView.vue'
 import SalesOrderView from './SalesOrderView.vue'
 
 const loading = ref(false)
@@ -233,6 +247,8 @@ const salesOrderDrawerOpen = ref(false)
 const activeSalesOrderID = ref(0)
 const deliveryNoteDrawerOpen = ref(false)
 const activeDeliveryNoteID = ref(0)
+const invoiceDrawerOpen = ref(false)
+const activeInvoiceID = ref(0)
 
 const filters = reactive({
   q: '',
@@ -321,6 +337,18 @@ function openDeliveryNoteDrawer(row) {
 function closeDeliveryNoteDrawer() {
   deliveryNoteDrawerOpen.value = false
   activeDeliveryNoteID.value = 0
+}
+
+function openInvoiceDrawer(row) {
+  const id = Number(row?.id || 0)
+  if (!id) return
+  activeInvoiceID.value = id
+  invoiceDrawerOpen.value = true
+}
+
+function closeInvoiceDrawer() {
+  invoiceDrawerOpen.value = false
+  activeInvoiceID.value = 0
 }
 
 async function loadPage(nextPage) {
@@ -549,6 +577,11 @@ a, .text-link { color: #1f4f82; text-decoration: none; }
 .actions-cell { min-width: 160px; }
 .actions-cell a, .actions-cell .inline-muted { display: inline-block; margin-right: 8px; }
 .inline-muted { font-size: 14px; }
+.invoice-status { display: inline-block; border: 1px solid #ddd5ca; border-radius: 6px; padding: 3px 7px; font-size: 12px; white-space: nowrap; }
+.invoice-status.ok { background: #eef8f1; border-color: #cfe8d4; color: #1f6f4a; }
+.invoice-status.warn { background: #fff8e8; border-color: #ead9a8; color: #765a11; }
+.invoice-status.muted { color: #777; background: #f8f7f4; }
+.invoice-file-link { margin-left: 6px; font-size: 12px; }
 .muted { color: #666; text-align: center; }
 .voided { color: #8a1f1f; background: #fff7f7; }
 .pager { display: flex; gap: 10px; align-items: center; justify-content: flex-end; margin-top: 12px; }
@@ -557,6 +590,8 @@ a, .text-link { color: #1f4f82; text-decoration: none; }
 .sales-order-drawer { width: min(1160px, calc(100vw - 28px)); height: 100%; overflow: auto; background: #f8f7f4; border-left: 1px solid #e6e0d8; box-shadow: -10px 0 24px rgba(0, 0, 0, .14); }
 .delivery-note-drawer-mask { position: fixed; inset: 0; z-index: 35; display: flex; justify-content: flex-end; background: rgba(0, 0, 0, .24); }
 .delivery-note-drawer { width: min(1160px, calc(100vw - 28px)); height: 100%; overflow: auto; background: #f8f7f4; border-left: 1px solid #e6e0d8; box-shadow: -10px 0 24px rgba(0, 0, 0, .14); }
+.invoice-drawer-mask { position: fixed; inset: 0; z-index: 35; display: flex; justify-content: flex-end; background: rgba(0, 0, 0, .24); }
+.invoice-drawer { width: min(760px, calc(100vw - 28px)); height: 100%; overflow: auto; background: #f8f7f4; border-left: 1px solid #e6e0d8; box-shadow: -10px 0 24px rgba(0, 0, 0, .14); }
 @media (max-width: 900px) {
   .page { padding: 12px; }
   .filters { grid-template-columns: 1fr; }
@@ -565,6 +600,6 @@ a, .text-link { color: #1f4f82; text-decoration: none; }
   .tracking-head { align-items: stretch; flex-direction: column; }
   .tracking-grid { grid-template-columns: 1fr; }
   table { min-width: 980px; }
-  .sales-order-drawer, .delivery-note-drawer { width: 100vw; }
+  .sales-order-drawer, .delivery-note-drawer, .invoice-drawer { width: 100vw; }
 }
 </style>

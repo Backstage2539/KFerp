@@ -67,6 +67,7 @@ import MaterialBatchesView from './views/MaterialBatchesView.vue'
 import MaterialReceiptsView from './views/MaterialReceiptsView.vue'
 import MaterialsView from './views/MaterialsView.vue'
 import OrderEntryView from './views/OrderEntryView.vue'
+import OrderInvoiceView from './views/OrderInvoiceView.vue'
 import OrdersView from './views/OrdersView.vue'
 import OutsourceSettingsView from './views/OutsourceSettingsView.vue'
 import ProducePlanView from './views/ProducePlanView.vue'
@@ -120,6 +121,7 @@ const currentActor = ref(null)
 const internalViews = {
   order: OrderEntryView,
   orders: OrdersView,
+  orderInvoice: OrderInvoiceView,
   salesOrder: SalesOrderView,
   deliveryNote: DeliveryNoteView,
   warehouseInventory: WarehouseInventoryView,

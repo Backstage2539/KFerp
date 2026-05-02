@@ -919,6 +919,29 @@ CREATE TABLE %s.order_items (
 	unit_price NUMERIC NOT NULL DEFAULT 0,
 	line_total NUMERIC NOT NULL DEFAULT 0
 );
+CREATE TABLE %s.sales_order_assets (
+	id BIGSERIAL PRIMARY KEY,
+	kind TEXT NOT NULL,
+	filename TEXT NOT NULL DEFAULT '',
+	content_type TEXT NOT NULL DEFAULT '',
+	bytes BIGINT NOT NULL DEFAULT 0,
+	sha256 TEXT NOT NULL DEFAULT '',
+	object_key TEXT NOT NULL DEFAULT '',
+	created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+	created_by TEXT NOT NULL DEFAULT ''
+);
+CREATE TABLE %s.order_invoices (
+	order_id BIGINT PRIMARY KEY REFERENCES %s.orders(id) ON DELETE CASCADE,
+	order_no TEXT NOT NULL DEFAULT '',
+	status TEXT NOT NULL DEFAULT 'requested',
+	requested_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+	requested_by TEXT NOT NULL DEFAULT '',
+	invoice_asset_id BIGINT REFERENCES %s.sales_order_assets(id),
+	uploaded_at TIMESTAMPTZ,
+	uploaded_by TEXT NOT NULL DEFAULT '',
+	updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+	updated_by TEXT NOT NULL DEFAULT ''
+);
 CREATE TABLE %s.sender_settings (
 	id SMALLINT PRIMARY KEY DEFAULT 1,
 	sender_label TEXT NOT NULL DEFAULT '',
@@ -933,7 +956,7 @@ CREATE TABLE %s.sender_settings (
 	updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 INSERT INTO %s.sender_settings(id, sender_label, is_default, active) VALUES(1, '默认寄件人', true, true);
-`, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema)
+`, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema)
 }
 
 func writeOrderShippingTemplateForTest(t *testing.T, path string) {
