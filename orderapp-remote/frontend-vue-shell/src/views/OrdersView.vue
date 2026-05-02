@@ -141,7 +141,6 @@
                 <a v-if="isShipped(row)" class="text-link" href="#" @click.prevent="openDeliveryNoteDrawer(row)">出库单</a>
                 <span v-else class="muted inline-muted">出库单</span>
                 <a class="text-link" href="#" @click.prevent="openInvoiceDrawer(row)">发票</a>
-                <a class="text-link" :href="`/order?edit_id=${row.id}`">编辑</a>
                 <a class="text-link" :href="`/orders/${row.id}/audit`">审计</a>
               </td>
             </tr>
@@ -231,8 +230,16 @@
             <button class="secondary" type="button" @click="openSalesOrderDrawer(activeOrderDetail)">销售单</button>
             <button class="secondary" type="button" @click="openDeliveryNoteDrawer(activeOrderDetail)" :disabled="!isShipped(activeOrderDetail)">出库单</button>
             <button class="secondary" type="button" @click="openInvoiceDrawer(activeOrderDetail)">发票</button>
-            <a class="secondary link-button" :href="`/order?edit_id=${activeOrderDetail.id}`">编辑订单</a>
           </div>
+          <section class="drawer-section order-edit-panel">
+            <OrderEntryView
+              :key="activeOrderDetail.id"
+              :edit-id="activeOrderDetail.id"
+              embedded
+              @close="closeOrderDetailDrawer"
+              @saved="handleOrderEditSaved"
+            />
+          </section>
         </div>
       </aside>
     </div>
@@ -263,6 +270,7 @@ import { apiGet, apiSend } from '../api/client'
 import { invoiceStatusLabel, invoiceStatusTone } from '../lib/order-invoice'
 import { replaceHistoryURL } from '../lib/url-state'
 import DeliveryNoteView from './DeliveryNoteView.vue'
+import OrderEntryView from './OrderEntryView.vue'
 import OrderInvoiceView from './OrderInvoiceView.vue'
 import SalesOrderView from './SalesOrderView.vue'
 
@@ -508,6 +516,13 @@ async function fillOrderTracking() {
   }
 }
 
+async function handleOrderEditSaved() {
+  const orderID = Number(activeOrderDetail.value?.id || 0)
+  await load()
+  const refreshed = rows.value.find((row) => Number(row.id) === orderID)
+  if (refreshed) activeOrderDetail.value = { ...refreshed }
+}
+
 function handleTrackingExcelFile(event) {
   trackingExcelFile.value = event.target.files?.[0] || null
   shippingError.value = ''
@@ -638,12 +653,13 @@ a, .text-link { color: #1f4f82; text-decoration: none; }
 .pager { display: flex; gap: 10px; align-items: center; justify-content: flex-end; margin-top: 12px; }
 .error { background: #fff0f0; border: 1px solid #e6b7b7; border-radius: 6px; padding: 9px; margin-bottom: 12px; color: #8a1f1f; }
 .order-detail-drawer-mask { position: fixed; inset: 0; z-index: 35; display: flex; justify-content: flex-end; background: rgba(0, 0, 0, .24); }
-.order-detail-drawer { width: min(620px, calc(100vw - 28px)); height: 100%; overflow: auto; background: #f8f7f4; border-left: 1px solid #e6e0d8; box-shadow: -10px 0 24px rgba(0, 0, 0, .14); padding: 16px; }
+.order-detail-drawer { width: min(1040px, calc(100vw - 28px)); height: 100%; overflow: auto; background: #f8f7f4; border-left: 1px solid #e6e0d8; box-shadow: -10px 0 24px rgba(0, 0, 0, .14); padding: 16px; }
 .drawer-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; margin-bottom: 14px; }
 .drawer-head h3 { margin: 0 0 4px; font-size: 18px; }
 .drawer-head p { margin: 0; color: #666; font-size: 13px; }
 .drawer-body { display: grid; gap: 12px; }
 .drawer-section { background: #fff; border: 1px solid #e6e0d8; border-radius: 8px; padding: 12px; }
+.order-edit-panel { border: 0; background: transparent; padding: 0; }
 .section-head { display: flex; justify-content: space-between; gap: 12px; align-items: center; margin-bottom: 10px; }
 .drawer-section h4 { margin: 0 0 10px; font-size: 15px; }
 .section-head h4 { margin-bottom: 0; }

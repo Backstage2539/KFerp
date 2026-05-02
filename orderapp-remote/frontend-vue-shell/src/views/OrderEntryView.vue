@@ -1,5 +1,5 @@
 <template>
-  <div class="page">
+  <div class="page" :class="{ embedded: props.embedded }">
     <section class="order-hero">
       <div>
         <p class="eyebrow">订单销售</p>
@@ -10,6 +10,7 @@
           <span>商品合计</span>
           <strong>{{ money(itemsTotal) }}</strong>
         </div>
+        <button v-if="props.embedded" class="secondary" type="button" @click="emit('close')">关闭</button>
         <button class="secondary" type="button" @click="load" :disabled="loading">刷新</button>
       </div>
     </section>
@@ -283,7 +284,7 @@
 </template>
 
 <script setup>
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { apiGet, apiSend } from '../api/client'
 import {
   CUSTOM_SPEC_VALUE,
@@ -302,6 +303,13 @@ import {
   wholesaleSpecOptions,
 } from '../lib/order-entry'
 import { parseRecipientText } from '../lib/customer-recipient'
+
+const props = defineProps({
+  editId: { type: [Number, String], default: 0 },
+  embedded: { type: Boolean, default: false },
+})
+
+const emit = defineEmits(['close', 'saved'])
 
 const loading = ref(false)
 const saving = ref(false)
@@ -654,7 +662,9 @@ async function load() {
   ok.value = ''
   try {
     const url = new URL('/api/order/form', window.location.origin)
-    const editID = new URL(window.location.href).searchParams.get('edit_id')
+    const propEditID = Number(props.editId || 0)
+    const urlEditID = new URL(window.location.href).searchParams.get('edit_id')
+    const editID = propEditID > 0 ? String(propEditID) : urlEditID
     if (editID) url.searchParams.set('edit_id', editID)
     const data = await apiGet(url)
     customers.value = data.customers || []
@@ -685,7 +695,8 @@ async function save() {
     if (!payload.product_id.length) throw new Error('请至少录入一条有效明细')
     const data = await apiSend('/api/order', { body: payload })
     ok.value = data.order_no || '成功'
-    if (data.redirect_url) window.location.href = data.redirect_url
+    if (props.embedded) emit('saved', data)
+    if (!props.embedded && data.redirect_url) window.location.href = data.redirect_url
   } catch (err) {
     error.value = err.message || '保存失败'
   } finally {
@@ -694,10 +705,19 @@ async function save() {
 }
 
 onMounted(load)
+
+watch(
+  () => props.editId,
+  (next, prev) => {
+    if (!props.embedded || Number(next || 0) === Number(prev || 0)) return
+    load()
+  },
+)
 </script>
 
 <style scoped>
 .page { min-height: 100%; padding: 18px; display: grid; gap: 14px; background: #f6f7f9; color: #15171a; }
+.page.embedded { min-height: auto; padding: 0; background: transparent; }
 .order-hero, .panel { background: #fff; border: 1px solid #e7e9ee; border-radius: 8px; box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04); }
 .order-hero { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 18px 20px; }
 .eyebrow { margin: 0 0 4px; color: #6b7280; font-size: 12px; }
