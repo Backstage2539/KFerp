@@ -46,3 +46,16 @@ test('Finance expenses associates expenses with employees and filters when an em
   assert.ok(src.includes('selectEmployeeFilter(row.employee_id)'))
   assert.ok(src.includes('row.employee_name'))
 })
+
+test('Finance expenses exposes searchable category and payment option lists', () => {
+  const src = read('src/views/FinanceExpensesView.vue')
+  assert.ok(src.includes('expenseCategoryOptions'))
+  assert.ok(src.includes('expensePaymentOptions'))
+  assert.ok(src.includes('filterExpenseOptions'))
+  assert.ok(src.includes('filteredExpenseCategoryOptions'))
+  assert.ok(src.includes('filteredExpensePaymentOptions'))
+  assert.ok(src.includes('list="finance-expense-category-options"'))
+  assert.ok(src.includes('list="finance-expense-payment-options"'))
+  assert.ok(src.includes('<datalist id="finance-expense-category-options"'))
+  assert.ok(src.includes('<datalist id="finance-expense-payment-options"'))
+})

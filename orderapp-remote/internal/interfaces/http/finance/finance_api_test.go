@@ -67,12 +67,12 @@ func TestFinanceExpenseEmployeesAPI(t *testing.T) {
 
 func TestFinanceExpenseAndClosingAPI(t *testing.T) {
 	e, svc := newFinanceTestEcho()
-	body := strings.NewReader(`{"date":"2026-05-02","category":"房租","amount":3800,"allocation":"period_expense","employee_id":7}`)
+	body := strings.NewReader(`{"date":"2026-05-02","category":"差旅费","amount":3800,"allocation":"period_expense","employee_id":7,"payment":"银行转账"}`)
 	req := httptest.NewRequest(http.MethodPost, "/api/finance/expenses", body)
 	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
 	rec := httptest.NewRecorder()
 	e.ServeHTTP(rec, req)
-	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"category":"房租"`) || !strings.Contains(rec.Body.String(), `"employee_id":7`) {
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"category":"差旅费"`) || !strings.Contains(rec.Body.String(), `"payment":"银行转账"`) || !strings.Contains(rec.Body.String(), `"employee_id":7`) {
 		t.Fatalf("expense status=%d body=%s", rec.Code, rec.Body.String())
 	}
 
@@ -160,7 +160,7 @@ func (s *fakeFinanceService) ListExpenseEmployees(context.Context) ([]appfinance
 }
 
 func (s *fakeFinanceService) CreateExpense(_ context.Context, cmd appfinance.CreateExpenseCommand) (appfinance.Expense, error) {
-	return appfinance.Expense{ID: 1, Date: cmd.Date, Month: "2026-05", Category: cmd.Category, Amount: cmd.Amount, Allocation: cmd.Allocation, EmployeeID: cmd.EmployeeID, EmployeeName: "小王"}, nil
+	return appfinance.Expense{ID: 1, Date: cmd.Date, Month: "2026-05", Category: cmd.Category, Amount: cmd.Amount, Allocation: cmd.Allocation, EmployeeID: cmd.EmployeeID, EmployeeName: "小王", Payment: cmd.Payment}, nil
 }
 
 func (s *fakeFinanceService) ListExpenses(_ context.Context, filter appfinance.ExpenseFilter) ([]appfinance.Expense, error) {

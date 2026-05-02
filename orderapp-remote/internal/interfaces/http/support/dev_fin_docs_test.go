@@ -19,6 +19,7 @@ func TestFinanceRequirementsManualAndSeedsAreRecorded(t *testing.T) {
 				"API-FIN-001",
 				"REV-FIN-001",
 				"PR-FIN-003",
+				"PR-FIN-004",
 			},
 		},
 		{
@@ -28,6 +29,7 @@ func TestFinanceRequirementsManualAndSeedsAreRecorded(t *testing.T) {
 				"咖啡贸易商",
 				"咖啡壳豆加工厂",
 				"关联员工",
+				"模糊搜索",
 			},
 		},
 		{
@@ -37,6 +39,7 @@ func TestFinanceRequirementsManualAndSeedsAreRecorded(t *testing.T) {
 				"强锁账",
 				"PDF 和 Excel",
 				"点击员工",
+				"付款方式",
 			},
 		},
 		{
@@ -46,6 +49,7 @@ func TestFinanceRequirementsManualAndSeedsAreRecorded(t *testing.T) {
 				"月度结账",
 				"结账后调整",
 				"关联员工",
+				"候选",
 			},
 		},
 	} {
