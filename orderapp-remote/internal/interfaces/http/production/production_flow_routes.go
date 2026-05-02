@@ -81,6 +81,31 @@ type ProduceRunningActionAPIResponse struct {
 }
 
 func registerProductionFlowPages(e *echo.Echo, productionSvc *productionapp.Service) {
+	e.POST("/produce/start", func(c echo.Context) error {
+		if err := support.RequireEmployeeBound(c); err != nil {
+			return c.Redirect(http.StatusSeeOther, "/produce/plan?err="+url.QueryEscape(err.Error()))
+		}
+		values, err := c.FormParams()
+		if err != nil {
+			return c.Redirect(http.StatusSeeOther, "/produce/plan?err=invalid+request")
+		}
+		selected := selectedKeysFromForm(values)
+		if len(selected) == 0 {
+			return c.Redirect(http.StatusSeeOther, "/produce/plan?err="+url.QueryEscape("请先生成计划并选择项目"))
+		}
+		if _, err := productionSvc.Start(c.Request().Context(), productionapp.StartCommand{
+			From:       strings.TrimSpace(c.FormValue("from")),
+			To:         strings.TrimSpace(c.FormValue("to")),
+			CustomerID: parseInt64(c.FormValue("customer_id")),
+			Selected:   selected,
+			InputByKey: parseInputByKey(values),
+			Operator:   support.ActorOf(c),
+		}); err != nil {
+			return c.Redirect(http.StatusSeeOther, "/produce/plan?err="+url.QueryEscape(err.Error()))
+		}
+		return c.Redirect(http.StatusSeeOther, "/produce/running?ok=1")
+	})
+
 	e.POST("/api/produce/start", func(c echo.Context) error {
 		if err := support.RequireEmployeeBound(c); err != nil {
 			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: err.Error()})
@@ -132,6 +157,25 @@ func registerProductionFlowPages(e *echo.Echo, productionSvc *productionapp.Serv
 		return c.JSON(http.StatusOK, ProduceRunningAPIResponse{Rows: produceRunningAPIRows(rows)})
 	})
 
+	e.POST("/produce/running/finish", func(c echo.Context) error {
+		if err := support.RequireEmployeeBound(c); err != nil {
+			return c.Redirect(http.StatusSeeOther, "/produce/running?err="+url.QueryEscape(err.Error()))
+		}
+		if err := productionSvc.Finish(c.Request().Context(), productionapp.FinishCommand{
+			ID:               parseInt64(c.FormValue("id")),
+			FinishedUnits:    parseInt64(c.FormValue("finished_units")),
+			FinishedLooseG:   parseInt64(c.FormValue("finished_loose_g")),
+			HasFinishedInput: true,
+			Warehouse:        strings.TrimSpace(c.FormValue("warehouse")),
+			Partial:          strings.TrimSpace(c.FormValue("partial")) == "true" || strings.TrimSpace(c.FormValue("partial")) == "on",
+			ConsumedInputG:   parseInt64(c.FormValue("consumed_input_g")),
+			Operator:         support.ActorOf(c),
+		}); err != nil {
+			return c.Redirect(http.StatusSeeOther, "/produce/running?err="+url.QueryEscape(err.Error()))
+		}
+		return c.Redirect(http.StatusSeeOther, "/produce/running?ok=1")
+	})
+
 	e.POST("/api/produce/running/finish", func(c echo.Context) error {
 		if err := support.RequireEmployeeBound(c); err != nil {
 			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: err.Error()})
@@ -175,6 +219,16 @@ func registerProductionFlowPages(e *echo.Echo, productionSvc *productionapp.Serv
 		}
 		return c.JSON(http.StatusOK, ProduceRunningActionAPIResponse{OK: true})
 	})
+}
+
+func selectedKeysFromForm(values map[string][]string) map[string]bool {
+	selected := map[string]bool{}
+	for _, raw := range values["selected"] {
+		for key := range parseSelectedKeys(raw) {
+			selected[key] = true
+		}
+	}
+	return selected
 }
 
 func produceRunningAPIRows(rows []productionapp.RunningItem) []ProduceRunningAPIRow {

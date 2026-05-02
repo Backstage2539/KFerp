@@ -18,6 +18,7 @@ import (
 	productionapp "orderapp/internal/application/production"
 	postgresbom "orderapp/internal/infrastructure/postgres/bom"
 	postgrescompany "orderapp/internal/infrastructure/postgres/company"
+	postgresinventory "orderapp/internal/infrastructure/postgres/inventory"
 	postgresmaterials "orderapp/internal/infrastructure/postgres/materials"
 	postgresproduction "orderapp/internal/infrastructure/postgres/production"
 	postgressales "orderapp/internal/infrastructure/postgres/sales"
@@ -49,7 +50,11 @@ func TestProduceStartHandlerPersistsInputG(t *testing.T) {
 		INSERT INTO %s.order_items(order_id,line_no,item_name,qty,unit,spec,product_id,unit_price,line_total)
 		VALUES (1,1,'橘皮乌龙',2,'袋','227g',1,50,100);
 		INSERT INTO %s.product_bom(product_id,yield_rate) VALUES (1,0.8200);
-	`, schema, schema, schema, schema, schema, schema))
+		INSERT INTO %s.materials(id,code,name,kind,unit,onhand_g,onhand_units,purchase_price,sale_price)
+			VALUES (10,'RAW-001','卡蒂姆水洗','bean','g',1000,0,54,0);
+		INSERT INTO %s.product_bom_items(product_id,material_id,ratio_pct) VALUES (1,10,100.0000);
+	`, schema, schema, schema, schema, schema, schema, schema, schema))
+	seedProductionFlowWIPBatch(t, ctx, pool, schema, 10, 10, "MB-RAW-001", "卡蒂姆水洗", 1000)
 
 	app := newProductionFlowTestEcho(pool, schema)
 	form := url.Values{
@@ -312,6 +317,7 @@ func TestProduceFinishHandlerWritesProductionLog(t *testing.T) {
 			'测试员',now(),600,0.8200,2,0
 		);
 		`, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema))
+	seedProductionFlowWIPBatch(t, ctx, pool, schema, 10, 10, "MB-RAW-001", "卡蒂姆水洗", 1000)
 
 	app := newProductionFlowTestEcho(pool, schema)
 	form := url.Values{
@@ -444,6 +450,7 @@ func TestProduceFinishAPIUsesEditedInputForFullCompletion(t *testing.T) {
 			'测试员',now(),600,0.8200,2,38
 		);
 	`, schema, schema, schema, schema, schema, schema, schema, schema, schema))
+	seedProductionFlowWIPBatch(t, ctx, pool, schema, 10, 10, "MB-RAW-001", "卡蒂姆水洗", 1000)
 
 	app := newProductionFlowTestEcho(pool, schema)
 	body := bytes.NewBufferString(`{"id":1,"finished_units":2,"finished_loose_g":10,"consumed_input_g":700}`)
@@ -511,6 +518,7 @@ func TestProduceFinishHandlerWritesStockLedgerAndFinishedBatch(t *testing.T) {
 			'测试员',now(),600,0.8200,2,0
 		);
 	`, schema, schema, schema, schema, schema, schema, schema))
+	seedProductionFlowWIPBatch(t, ctx, pool, schema, 10, 10, "MB-RAW-001", "卡蒂姆水洗", 1000)
 
 	app := newProductionFlowTestEcho(pool, schema)
 	form := url.Values{
@@ -614,6 +622,7 @@ func TestProduceStartFreezesMaterialSnapshotForFinishAndWorkOrder(t *testing.T) 
 			(12,'RAW-B','后改B批次','bean','g',1000,0,60,0);
 		INSERT INTO %s.product_bom_items(product_id,material_id,ratio_pct) VALUES (1,10,100.0000);
 	`, schema, schema, schema, schema, schema, schema, schema, schema))
+	seedProductionFlowWIPBatch(t, ctx, pool, schema, 10, 10, "MB-SNAPSHOT-A", "孟连水洗5T批次", 1000)
 
 	app := newProductionFlowTestEcho(pool, schema)
 	startBody := bytes.NewBufferString(`{"selected":["1-227"],"input_by_key":{"1-227":600}}`)
@@ -718,7 +727,11 @@ func TestProduceStartAPIUsesSubmittedInputG(t *testing.T) {
 		INSERT INTO %s.order_items(order_id,line_no,item_name,qty,unit,spec,product_id,unit_price,line_total)
 		VALUES (1,1,'曲奇拼配',1,'袋','1000g',1,50,50);
 		INSERT INTO %s.product_bom(product_id,yield_rate) VALUES (1,0.8000);
-		`, schema, schema, schema, schema, schema, schema))
+		INSERT INTO %s.materials(id,code,name,kind,unit,onhand_g,onhand_units,purchase_price,sale_price)
+			VALUES (10,'RAW-COOKIE','曲奇拼配生豆','bean','g',3000,0,54,0);
+		INSERT INTO %s.product_bom_items(product_id,material_id,ratio_pct) VALUES (1,10,100.0000);
+		`, schema, schema, schema, schema, schema, schema, schema, schema))
+	seedProductionFlowWIPBatch(t, ctx, pool, schema, 10, 10, "MB-COOKIE", "曲奇拼配生豆", 3000)
 
 	app := newProductionFlowTestEcho(pool, schema)
 	body := bytes.NewBufferString(`{"selected":["1-1000"],"input_by_key":{"1-1000":2000}}`)
@@ -944,6 +957,9 @@ func newProductionFlowTestDB(t *testing.T) (*pgxpool.Pool, string) {
 	if err := postgresstock.EnsureSchema(ctx, pool, schema); err != nil {
 		t.Fatalf("stock EnsureSchema: %v", err)
 	}
+	if err := postgresinventory.EnsureSchema(ctx, pool, schema); err != nil {
+		t.Fatalf("inventory EnsureSchema: %v", err)
+	}
 	if err := postgresproduction.EnsureSchema(ctx, pool, schema); err != nil {
 		t.Fatalf("production EnsureSchema: %v", err)
 	}
@@ -997,11 +1013,41 @@ func mustExecProductionFlowTestSQL(t *testing.T, ctx context.Context, pool *pgxp
 	}
 }
 
+func seedProductionFlowWIPBatch(t *testing.T, ctx context.Context, pool *pgxpool.Pool, schema string, batchID, materialID int64, batchCode, materialName string, qtyG int64) {
+	t.Helper()
+	if _, err := pool.Exec(ctx, fmt.Sprintf(`
+		INSERT INTO %s.material_batches(id,batch_code,material_id,material_name,received_g,qty_g,remaining_g,unit_cost,status,quality_status)
+		VALUES($1,$2,$3,$4,$5,$5,$5,0,'active','pass')
+		ON CONFLICT (id) DO UPDATE SET
+			batch_code=excluded.batch_code,
+			material_id=excluded.material_id,
+			material_name=excluded.material_name,
+			received_g=excluded.received_g,
+			qty_g=excluded.qty_g,
+			remaining_g=excluded.remaining_g,
+			status='active',
+			quality_status='pass';
+	`, schema), batchID, batchCode, materialID, materialName, qtyG); err != nil {
+		t.Fatalf("seed WIP material batch: %v", err)
+	}
+	if _, err := pool.Exec(ctx, fmt.Sprintf(`
+		INSERT INTO %s.material_batch_locations(material_batch_id,batch_code,material_id,warehouse,qty_g)
+		VALUES($1,$2,$3,'wip',$4)
+		ON CONFLICT (material_batch_id, warehouse) DO UPDATE SET
+			batch_code=excluded.batch_code,
+			material_id=excluded.material_id,
+			qty_g=excluded.qty_g;
+	`, schema), batchID, batchCode, materialID, qtyG); err != nil {
+		t.Fatalf("seed WIP material location: %v", err)
+	}
+}
+
 func productionFlowTestBaseDDL(schema string) string {
 	return fmt.Sprintf(`
 		CREATE TABLE %s.products (
 			id BIGSERIAL PRIMARY KEY,
 			name TEXT NOT NULL UNIQUE,
+			roast_level TEXT NOT NULL DEFAULT '',
 			default_price NUMERIC NOT NULL DEFAULT 0,
 			active BOOLEAN NOT NULL DEFAULT true,
 			created_at TIMESTAMPTZ NOT NULL DEFAULT now()
@@ -1014,11 +1060,26 @@ func productionFlowTestBaseDDL(schema string) string {
 			price_per_lb NUMERIC(12,2),
 			active BOOLEAN NOT NULL DEFAULT true
 		);
+		CREATE TABLE %s.customers (
+			id BIGSERIAL PRIMARY KEY,
+			name TEXT NOT NULL DEFAULT '',
+			company_name TEXT NOT NULL DEFAULT '',
+			company_address TEXT NOT NULL DEFAULT '',
+			company_phone TEXT NOT NULL DEFAULT '',
+			contact TEXT NOT NULL DEFAULT '',
+			phone TEXT NOT NULL DEFAULT '',
+			address TEXT NOT NULL DEFAULT '',
+			active BOOLEAN NOT NULL DEFAULT true
+		);
 		CREATE TABLE %s.order_process_statuses (
 			id SERIAL PRIMARY KEY,
 			name TEXT NOT NULL UNIQUE,
 			sort INTEGER NOT NULL DEFAULT 0,
 			active BOOLEAN NOT NULL DEFAULT true
+		);
+		CREATE TABLE %s.ship_statuses (
+			id BIGSERIAL PRIMARY KEY,
+			name TEXT NOT NULL
 		);
 		CREATE TABLE %s.orders (
 			id BIGSERIAL PRIMARY KEY,
@@ -1040,5 +1101,5 @@ func productionFlowTestBaseDDL(schema string) string {
 			line_total NUMERIC,
 			price_overridden BOOLEAN NOT NULL DEFAULT false
 		);
-	`, schema, schema, schema, schema, schema, schema, schema, schema, schema)
+	`, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema)
 }

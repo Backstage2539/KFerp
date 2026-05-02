@@ -80,6 +80,7 @@
 
 <script setup>
 import { onMounted, reactive, ref } from 'vue'
+import { apiGet } from '../api/client'
 import { replaceHistoryURL } from '../lib/url-state'
 
 const loading = ref(false)
@@ -118,9 +119,7 @@ async function load() {
     for (const key of ['from', 'to', 'type', 'q']) {
       if (filters[key]) url.searchParams.set(key, filters[key])
     }
-    const res = await fetch(url)
-    const data = await res.json()
-    if (!res.ok) throw new Error(data.error || '加载失败')
+    const data = await apiGet(url)
     rows.value = data.rows || []
     updateUrl()
   } catch (err) {

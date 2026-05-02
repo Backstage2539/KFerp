@@ -369,8 +369,8 @@ function assetURL(ref = {}) {
 function sealPositionStyle(seal = {}) {
   const scale = previewSealScale()
   const x = Number(seal.x_mm || 32)
-  const y = Number(seal.y_mm || 22)
-  const w = Number(seal.width_mm || 42)
+  const y = Number(seal.y_mm || 5)
+  const w = Number(seal.width_mm || 36)
   return {
     left: `${x * scale}px`,
     top: `${y * scale}px`,
@@ -397,7 +397,7 @@ function startPreviewSealDrag(event) {
   event.preventDefault()
   const scale = previewSealScale()
   const originX = Number(seal.x_mm || 32)
-  const originY = Number(seal.y_mm || 22)
+  const originY = Number(seal.y_mm || 5)
   const startX = event.clientX
   const startY = event.clientY
   const update = (clientX, clientY) => {
@@ -424,8 +424,8 @@ async function savePreviewSealPosition() {
     await apiSend('/api/settings/sales-order/seal-position', {
       body: {
         seal_x_mm: Number(seal.x_mm || 32),
-        seal_y_mm: Number(seal.y_mm || 22),
-        seal_width_mm: Number(seal.width_mm || 42),
+        seal_y_mm: Number(seal.y_mm || 5),
+        seal_width_mm: Number(seal.width_mm || 36),
       },
     })
     message.value = '公章位置已保存'
