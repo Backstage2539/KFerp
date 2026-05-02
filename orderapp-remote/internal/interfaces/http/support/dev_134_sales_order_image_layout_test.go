@@ -35,7 +35,7 @@ func TestDev134SalesOrderPNGUsesReadableFontMetrics(t *testing.T) {
 	}
 	src := string(content)
 	for _, want := range []string{
-		"salesOrderPNGDPI    = 72",
+		"salesOrderPNGDPI",
 		"DPI:     salesOrderPNGDPI",
 	} {
 		if !strings.Contains(src, want) {

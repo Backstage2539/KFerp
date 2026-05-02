@@ -206,8 +206,54 @@ func TestSalesOrderPDFPaymentCodeSizingAdaptsToCount(t *testing.T) {
 	if single.ImageSize <= multiple.ImageSize {
 		t.Fatalf("single payment code image should be larger than multiple layout: single=%+v multiple=%+v", single, multiple)
 	}
+	if single.ImageSize < 62 {
+		t.Fatalf("single payment code image too small for scanning: %+v", single)
+	}
+	if multiple.ImageSize < 50 {
+		t.Fatalf("multiple payment code image too small for scanning: %+v", multiple)
+	}
 	if !multiple.Stacked {
 		t.Fatalf("multiple payment codes should stack vertically to fill the payment area: %+v", multiple)
+	}
+}
+
+func TestRenderSalesOrderPNGUsesHighResolutionCanvasAndLargePaymentCode(t *testing.T) {
+	dir := t.TempDir()
+	writeSolidPNG(t, filepath.Join(dir, "sales-order", "payment", "wechat.png"), color.RGBA{G: 0xf0, A: 0xff}, 64, 64)
+
+	renderer := SalesOrderRenderer{AssetBaseDir: dir}
+	b, err := renderer.RenderPNG(salesdomain.SalesOrderSnapshot{
+		OrderID:      1,
+		OrderNo:      "SO-20260430-0008",
+		OrderDate:    "2026-04-30",
+		CustomerName: "某某咖啡馆",
+		CompanyName:  "浅焙作坊咖啡",
+		PaymentText:  "微信",
+		Note:         "请密封避光保存",
+		Items: []salesdomain.SalesOrderSnapshotItem{{
+			Name: "橘皮乌龙", Spec: "300g", Qty: "2", Unit: "件", UnitPrice: "67.00", LineTotal: "134.00",
+		}},
+		TotalAmount: "134.00",
+		Shipping:    "0.00",
+		Discount:    "0.00",
+		GrandTotal:  "134.00",
+		PaymentCodes: []salesdomain.SalesOrderAssetRef{{
+			Label: "微信", ObjectKey: "sales-order/payment/wechat.png", ContentType: "image/png",
+		}},
+	})
+	if err != nil {
+		t.Fatalf("RenderPNG() error = %v", err)
+	}
+	img, err := png.Decode(bytes.NewReader(b))
+	if err != nil {
+		t.Fatalf("decode PNG: %v", err)
+	}
+	if img.Bounds().Dx() < 2480 || img.Bounds().Dy() < 3508 {
+		t.Fatalf("PNG bounds = %v, want 2x A4-like export for WeChat sharing", img.Bounds())
+	}
+	codeBounds := dominantGreenBounds(img)
+	if codeBounds.Empty() || codeBounds.Dx() < 620 || codeBounds.Dy() < 620 {
+		t.Fatalf("payment code bounds = %v, want at least 620px square for scanning", codeBounds)
 	}
 }
 
@@ -243,4 +289,53 @@ func writeTestPNG(t *testing.T, path string) {
 	if err := png.Encode(f, img); err != nil {
 		t.Fatal(err)
 	}
+}
+
+func writeSolidPNG(t *testing.T, path string, col color.RGBA, w, h int) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	f, err := os.Create(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	img := image.NewRGBA(image.Rect(0, 0, w, h))
+	for y := 0; y < h; y++ {
+		for x := 0; x < w; x++ {
+			img.SetRGBA(x, y, col)
+		}
+	}
+	if err := png.Encode(f, img); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func dominantGreenBounds(img image.Image) image.Rectangle {
+	minX, minY := img.Bounds().Max.X, img.Bounds().Max.Y
+	maxX, maxY := img.Bounds().Min.X, img.Bounds().Min.Y
+	for y := img.Bounds().Min.Y; y < img.Bounds().Max.Y; y++ {
+		for x := img.Bounds().Min.X; x < img.Bounds().Max.X; x++ {
+			r, g, b, a := img.At(x, y).RGBA()
+			if a > 0x8000 && g > 0xc000 && r < 0x4000 && b < 0x4000 {
+				if x < minX {
+					minX = x
+				}
+				if y < minY {
+					minY = y
+				}
+				if x+1 > maxX {
+					maxX = x + 1
+				}
+				if y+1 > maxY {
+					maxY = y + 1
+				}
+			}
+		}
+	}
+	if maxX <= minX || maxY <= minY {
+		return image.Rectangle{}
+	}
+	return image.Rect(minX, minY, maxX, maxY)
 }

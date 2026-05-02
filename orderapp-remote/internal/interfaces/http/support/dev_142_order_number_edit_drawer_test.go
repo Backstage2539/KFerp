@@ -9,11 +9,11 @@ import (
 func TestOrderNumberEditDrawerRequirementSeeds(t *testing.T) {
 	src := string(readOrderAppFileForTest(t, filepath.Join("internal", "interfaces", "http", "support", "req_store.go")))
 	for _, want := range []string{
-		"PR-141",
-		"DEV-141-01",
-		"UT-141-01",
-		"API-141-01",
-		"REV-141-01",
+		"PR-142",
+		"DEV-142-01",
+		"UT-142-01",
+		"API-142-01",
+		"REV-142-01",
 		"订单号编辑抽屉",
 		"点击订单号直接在抽屉编辑订单",
 	} {
