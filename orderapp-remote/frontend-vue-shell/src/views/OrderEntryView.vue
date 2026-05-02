@@ -284,7 +284,7 @@
 
 <script setup>
 import { computed, onMounted, reactive, ref } from 'vue'
-import { apiSend } from '../api/client'
+import { apiGet, apiSend } from '../api/client'
 import {
   CUSTOM_SPEC_VALUE,
   buildOrderPayload,
@@ -656,9 +656,7 @@ async function load() {
     const url = new URL('/api/order/form', window.location.origin)
     const editID = new URL(window.location.href).searchParams.get('edit_id')
     if (editID) url.searchParams.set('edit_id', editID)
-    const res = await fetch(url)
-    const data = await res.json()
-    if (!res.ok) throw new Error(data.error || '加载失败')
+    const data = await apiGet(url)
     customers.value = data.customers || []
     sources.value = data.sources || []
     shipStatuses.value = data.ship_statuses || []
@@ -685,13 +683,7 @@ async function save() {
     const payload = buildOrderPayload({ form, rows: rows.value })
     if (!payload.customer_id) throw new Error('请选择客户')
     if (!payload.product_id.length) throw new Error('请至少录入一条有效明细')
-    const res = await fetch('/api/order', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
-    })
-    const data = await res.json()
-    if (!res.ok) throw new Error(data.error || '保存失败')
+    const data = await apiSend('/api/order', { body: payload })
     ok.value = data.order_no || '成功'
     if (data.redirect_url) window.location.href = data.redirect_url
   } catch (err) {

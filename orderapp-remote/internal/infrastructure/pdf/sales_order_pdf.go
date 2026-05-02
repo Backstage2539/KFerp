@@ -32,6 +32,18 @@ type salesOrderPaymentCodeLayout struct {
 	Stacked    bool
 }
 
+const (
+	salesOrderSealDefaultXMM     = 32
+	salesOrderSealDefaultYMM     = 5
+	salesOrderSealDefaultWidthMM = 36
+	salesOrderSealLegacyXMM      = 32
+	salesOrderSealLegacyYMM      = 22
+	salesOrderSealLegacyWidthMM  = 42
+	salesOrderSealHeightRatio    = 0.62
+	salesOrderPaymentLineMM      = 6.2
+	salesOrderPaymentBlockGapMM  = 3.5
+)
+
 func (r SalesOrderRenderer) Render(snapshot salesdomain.SalesOrderSnapshot) ([]byte, error) {
 	if err := snapshot.Validate(); err != nil {
 		return nil, err
@@ -205,10 +217,10 @@ func renderSalesOrderTextBlock(pdf *gofpdf.Fpdf, x, y, width float64, title stri
 	y = pdf.GetY()
 	for _, line := range lines {
 		pdf.SetXY(x, y)
-		pdf.MultiCell(width, 5.5, line, "", "L", false)
+		pdf.MultiCell(width, salesOrderPaymentLineMM, line, "", "L", false)
 		y = pdf.GetY()
 	}
-	return y + 2
+	return y + salesOrderPaymentBlockGapMM
 }
 
 func salesOrderTextLines(text string) []string {
@@ -461,16 +473,25 @@ func fitSalesOrderImageInBox(imageW, imageH, x, y, maxW, maxH float64) salesOrde
 }
 
 func salesOrderSealPosition(xMM, yMM, widthMM float64) salesOrderSealBox {
+	if isLegacyDefaultSalesOrderSeal(xMM, yMM, widthMM) {
+		xMM = salesOrderSealDefaultXMM
+		yMM = salesOrderSealDefaultYMM
+		widthMM = salesOrderSealDefaultWidthMM
+	}
 	if xMM <= 0 {
-		xMM = 32
+		xMM = salesOrderSealDefaultXMM
 	}
 	if yMM <= 0 {
-		yMM = 22
+		yMM = salesOrderSealDefaultYMM
 	}
 	if widthMM <= 0 {
-		widthMM = 42
+		widthMM = salesOrderSealDefaultWidthMM
 	}
-	return salesOrderSealBox{XMM: xMM, YMM: yMM, WidthMM: widthMM, HeightMM: widthMM * 0.62}
+	return salesOrderSealBox{XMM: xMM, YMM: yMM, WidthMM: widthMM, HeightMM: widthMM * salesOrderSealHeightRatio}
+}
+
+func isLegacyDefaultSalesOrderSeal(xMM, yMM, widthMM float64) bool {
+	return xMM == salesOrderSealLegacyXMM && yMM == salesOrderSealLegacyYMM && widthMM == salesOrderSealLegacyWidthMM
 }
 
 func firstNonEmpty(values ...string) string {

@@ -51,6 +51,7 @@ import AuditView from './views/AuditView.vue'
 import BomView from './views/BomView.vue'
 import CompanyProfileView from './views/CompanyProfileView.vue'
 import CompanyStaffView from './views/CompanyStaffView.vue'
+import CostingView from './views/CostingView.vue'
 import CostingSettingsView from './views/CostingSettingsView.vue'
 import CustomersView from './views/CustomersView.vue'
 import DeliveryNoteView from './views/DeliveryNoteView.vue'
@@ -136,7 +137,7 @@ const internalViews = {
   stockAdjustments: StockAdjustmentsView,
   bom: BomView,
   productSettings: ProductSettingsView,
-  costing: ProductSettingsView,
+  costing: CostingView,
   costingSettings: CostingSettingsView,
   financeDashboard: FinanceDashboardView,
   financeExpenses: FinanceExpensesView,

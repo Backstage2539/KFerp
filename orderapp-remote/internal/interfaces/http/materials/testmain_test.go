@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	postgrescompany "orderapp/internal/infrastructure/postgres/company"
 	postgresmaterials "orderapp/internal/infrastructure/postgres/materials"
 	supporthttp "orderapp/internal/interfaces/http/support"
 
@@ -58,6 +59,9 @@ func newProductionFlowTestDB(t *testing.T) (*pgxpool.Pool, string) {
 	schema := fmt.Sprintf("test_materials_%d", time.Now().UnixNano())
 	if _, err := pool.Exec(ctx, "CREATE SCHEMA "+schema); err != nil {
 		t.Fatalf("create schema: %v", err)
+	}
+	if err := postgrescompany.EnsureSchema(ctx, pool, schema); err != nil {
+		t.Fatalf("company EnsureSchema: %v", err)
 	}
 	if err := supporthttp.EnsureSchema(ctx, pool, schema); err != nil {
 		t.Fatalf("support EnsureSchema: %v", err)

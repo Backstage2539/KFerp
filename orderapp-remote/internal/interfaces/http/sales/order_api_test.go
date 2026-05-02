@@ -476,13 +476,14 @@ func TestOrdersShippingExcelAPICreatesShipmentRecord(t *testing.T) {
 	t.Setenv("ORDER_SHIP_TEMPLATE", templatePath)
 	t.Setenv("ORDER_SHIP_EXPORT_DIR", exportDir)
 	mustExecOrderAPITestSQL(t, ctx, pool, fmt.Sprintf(`
+		UPDATE %s.sender_settings SET is_default=false WHERE is_default=true;
 		INSERT INTO %s.sender_settings(id, sender_label, sender_name, sender_phone, sender_addr, sender_company, sender_goods, sf_biz_type, is_default, active)
 		VALUES (4, '仓库', '仓库寄件人', '13900000004', '仓库地址', '仓库公司', '茶叶', '标快', true, true);
 		INSERT INTO %s.orders(id, order_no, order_date, customer_id, order_type_id, pay_status_id, ship_status_id, process_status_id, grand_total, is_void)
 		VALUES (25, 'SO-SHIPMENT-CREATE', '2026-04-28', 3, 1, 2, 1, (SELECT id FROM %s.order_process_statuses WHERE name='生产完成' LIMIT 1), 88, false);
 		INSERT INTO %s.order_items(order_id,line_no,product_id,item_name,qty,unit,spec,unit_price,line_total)
 		VALUES (25, 1, 7, '橘皮乌龙', 1, '件', '454g', 88, 88);
-	`, schema, schema, schema, schema))
+	`, schema, schema, schema, schema, schema))
 
 	e := newOrderAPITestEcho(pool, schema)
 	body, _ := json.Marshal(map[string]any{"order_ids": []int64{25}, "sender_id": int64(4)})
@@ -955,8 +956,26 @@ CREATE TABLE %s.sender_settings (
 	active BOOLEAN NOT NULL DEFAULT true,
 	updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+CREATE TABLE %s.order_shipments (
+	id BIGSERIAL PRIMARY KEY,
+	shipment_no TEXT NOT NULL UNIQUE,
+	created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+	created_by TEXT NOT NULL DEFAULT '',
+	sender_id BIGINT,
+	file_url TEXT NOT NULL DEFAULT '',
+	status TEXT NOT NULL DEFAULT 'excel_generated'
+);
+CREATE TABLE %s.order_shipment_orders (
+	id BIGSERIAL PRIMARY KEY,
+	shipment_id BIGINT NOT NULL REFERENCES %s.order_shipments(id) ON DELETE CASCADE,
+	order_id BIGINT NOT NULL REFERENCES %s.orders(id) ON DELETE CASCADE,
+	sender_id BIGINT,
+	tracking_no TEXT NOT NULL DEFAULT '',
+	shipped_at TIMESTAMPTZ,
+	UNIQUE(shipment_id, order_id)
+);
 INSERT INTO %s.sender_settings(id, sender_label, is_default, active) VALUES(1, '默认寄件人', true, true);
-`, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema)
+	`, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema)
 }
 
 func writeOrderShippingTemplateForTest(t *testing.T, path string) {

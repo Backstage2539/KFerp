@@ -166,12 +166,20 @@ func TestSalesOrderPDFMultilineTextAndSealPositionHelpers(t *testing.T) {
 	}
 
 	pos := salesOrderSealPosition(0, 0, 0)
-	if pos.XMM <= 16 || pos.YMM <= 14 || pos.WidthMM <= 0 {
-		t.Fatalf("default seal position should stamp near company header, got %+v", pos)
+	if pos.XMM <= 16 || pos.YMM < 4 || pos.WidthMM <= 0 {
+		t.Fatalf("default seal position should stamp near company header without leaving the page, got %+v", pos)
+	}
+	metaStartY := 31.0
+	if pos.YMM+pos.HeightMM > metaStartY {
+		t.Fatalf("default seal overlaps sales order metadata: pos=%+v meta_start_y=%.1f", pos, metaStartY)
 	}
 	custom := salesOrderSealPosition(42, 21, 38)
 	if custom.XMM != 42 || custom.YMM != 21 || custom.WidthMM != 38 {
 		t.Fatalf("custom seal position = %+v", custom)
+	}
+	oldDefault := salesOrderSealPosition(32, 22, 42)
+	if oldDefault.YMM+oldDefault.HeightMM > metaStartY {
+		t.Fatalf("legacy default seal should be normalized away from metadata: pos=%+v", oldDefault)
 	}
 }
 

@@ -139,12 +139,18 @@ func newDeliveryNoteAPITestEcho(pool *pgxpool.Pool, schema string, assetDir stri
 
 func seedDeliveryNoteAPITestOrder(t *testing.T, ctx context.Context, pool *pgxpool.Pool, schema string, shipped bool) {
 	t.Helper()
-	mustExecOrderAPITestSQL(t, ctx, pool, fmt.Sprintf(`INSERT INTO %s.ship_statuses(id,name) VALUES(2,'已发货') ON CONFLICT DO NOTHING`, schema))
-	shipStatusID := 1
+	statusName := "未发货"
 	trackingNo := ""
 	if shipped {
-		shipStatusID = 2
+		mustExecOrderAPITestSQL(t, ctx, pool, fmt.Sprintf(`INSERT INTO %s.ship_statuses(name)
+			SELECT '已发货'
+			WHERE NOT EXISTS (SELECT 1 FROM %s.ship_statuses WHERE name='已发货')`, schema, schema))
+		statusName = "已发货"
 		trackingNo = "SF123456789"
+	}
+	shipStatusID := 1
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT id FROM %s.ship_statuses WHERE name=$1 ORDER BY id LIMIT 1`, schema), statusName).Scan(&shipStatusID); err != nil {
+		t.Fatalf("query ship status %q: %v", statusName, err)
 	}
 	mustExecOrderAPITestSQL(t, ctx, pool, fmt.Sprintf(`INSERT INTO %s.company_profile(id, company_name, company_address) VALUES(1, '棵凡咖啡', '云南省普洱市孟连县')`, schema))
 	mustExecOrderAPITestSQL(t, ctx, pool, fmt.Sprintf(`INSERT INTO %s.orders(id, order_date, customer_id, source_id, order_type_id, pay_status_id, ship_status_id, ship_method, ship_tracking_no, total_amount, shipping_amount, discount_amount, grand_total, order_no)
