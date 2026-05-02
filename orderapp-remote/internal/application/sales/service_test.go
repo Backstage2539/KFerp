@@ -18,6 +18,7 @@ type fakeRepo struct {
 	orderNoTracking FillShipmentTrackingByOrderNoCommand
 	settingsCmd     SaveSalesOrderSettingsCommand
 	generateCmd     GenerateSalesOrderDocumentCommand
+	imageCmd        GenerateSalesOrderImageCommand
 	previewOrderID  int64
 }
 
@@ -143,6 +144,10 @@ func (r *fakeRepo) ListSalesOrderDocuments(ctx context.Context, orderID int64) (
 	return []SalesOrderDocument{{ID: 9, OrderID: orderID, OrderNo: "SO-TEST", VersionNo: 2, IsLatest: true}}, nil
 }
 
+func (r *fakeRepo) ListSalesOrderImageDocuments(ctx context.Context, orderID int64) ([]SalesOrderImageDocument, error) {
+	return []SalesOrderImageDocument{{ID: 19, OrderID: orderID, OrderNo: "SO-TEST", VersionNo: 2, IsLatest: true}}, nil
+}
+
 func (r *fakeRepo) LoadSalesOrderContext(ctx context.Context, orderID int64) (SalesOrderContext, error) {
 	return SalesOrderContext{OrderID: orderID, OrderNo: "SO-TEST", Customer: SalesOrderCustomerInfo{ID: 3, Name: "测试客户"}}, nil
 }
@@ -152,6 +157,11 @@ func (r *fakeRepo) GenerateSalesOrderDocument(ctx context.Context, cmd GenerateS
 	return GenerateSalesOrderDocumentResult{Document: SalesOrderDocument{ID: 10, OrderID: cmd.OrderID, OrderNo: "SO-TEST", VersionNo: 1, IsLatest: true}}, nil
 }
 
+func (r *fakeRepo) GenerateSalesOrderImage(ctx context.Context, cmd GenerateSalesOrderImageCommand) (GenerateSalesOrderImageResult, error) {
+	r.imageCmd = cmd
+	return GenerateSalesOrderImageResult{Document: SalesOrderImageDocument{ID: 20, OrderID: cmd.OrderID, OrderNo: "SO-TEST", VersionNo: 1, IsLatest: true}}, nil
+}
+
 func (r *fakeRepo) PreviewSalesOrderDocument(ctx context.Context, orderID int64) (SalesOrderPreview, error) {
 	r.previewOrderID = orderID
 	return SalesOrderPreview{OrderID: orderID, OrderNo: "SO-TEST", NextVersionNo: 3}, nil
@@ -159,6 +169,10 @@ func (r *fakeRepo) PreviewSalesOrderDocument(ctx context.Context, orderID int64)
 
 func (r *fakeRepo) LoadSalesOrderDocumentFile(ctx context.Context, orderID, documentID int64, latest bool) (SalesOrderDocumentFile, error) {
 	return SalesOrderDocumentFile{Document: SalesOrderDocument{ID: documentID, OrderID: orderID, OrderNo: "SO-TEST", VersionNo: 1}, Path: "/tmp/test.pdf", Filename: "SO-TEST-V1.pdf"}, nil
+}
+
+func (r *fakeRepo) LoadSalesOrderImageFile(ctx context.Context, orderID, imageID int64, latest bool) (SalesOrderImageFile, error) {
+	return SalesOrderImageFile{Document: SalesOrderImageDocument{ID: imageID, OrderID: orderID, OrderNo: "SO-TEST", VersionNo: 1}, Path: "/tmp/test.png", Filename: "SO-TEST-V1.png"}, nil
 }
 
 func TestServiceDelegatesSaveOrder(t *testing.T) {
@@ -440,5 +454,38 @@ func TestServiceOwnsSalesOrderDocumentUseCases(t *testing.T) {
 	}
 	if len(docs) != 1 || docs[0].OrderID != 18 {
 		t.Fatalf("ListSalesOrderDocuments() = %+v", docs)
+	}
+}
+
+func TestServiceOwnsSalesOrderImageUseCases(t *testing.T) {
+	repo := &fakeRepo{}
+	svc := NewService(repo)
+
+	generated, err := svc.GenerateSalesOrderImage(context.Background(), GenerateSalesOrderImageCommand{OrderID: 18})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if generated.Document.VersionNo != 1 || repo.imageCmd.Actor != "sales" || repo.imageCmd.OrderID != 18 {
+		t.Fatalf("image=%+v command=%+v", generated, repo.imageCmd)
+	}
+	if _, err := svc.GenerateSalesOrderImage(context.Background(), GenerateSalesOrderImageCommand{OrderID: 0}); err == nil {
+		t.Fatal("GenerateSalesOrderImage invalid order error = nil")
+	}
+
+	images, err := svc.ListSalesOrderImageDocuments(context.Background(), 18)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(images) != 1 || images[0].OrderID != 18 {
+		t.Fatalf("ListSalesOrderImageDocuments() = %+v", images)
+	}
+	if _, err := svc.ListSalesOrderImageDocuments(context.Background(), 0); err == nil {
+		t.Fatal("ListSalesOrderImageDocuments invalid order error = nil")
+	}
+	if _, err := svc.LoadSalesOrderImageFile(context.Background(), 18, 0, false); err == nil {
+		t.Fatal("LoadSalesOrderImageFile should require image id unless latest")
+	}
+	if _, err := svc.LoadSalesOrderImageFile(context.Background(), 18, 0, true); err != nil {
+		t.Fatalf("LoadSalesOrderImageFile latest error = %v", err)
 	}
 }

@@ -140,6 +140,64 @@ func TestGenerateSalesOrderDocumentCreatesVersions(t *testing.T) {
 	}
 }
 
+func TestGenerateSalesOrderImageCreatesIndependentImageVersions(t *testing.T) {
+	pool, schema := newSalesPostgresTestDB(t)
+	ctx := context.Background()
+	defer func() {
+		_, _ = pool.Exec(ctx, "DROP SCHEMA IF EXISTS "+schema+" CASCADE")
+		pool.Close()
+	}()
+	prepareSalesSchemaPrerequisites(t, ctx, pool, schema)
+	assetDir := t.TempDir()
+	repo := NewRepository(pool, schema, WithSalesOrderAssetDir(assetDir), WithSalesOrderRenderer(fakeSalesOrderRenderer{}))
+	if err := EnsureSchema(ctx, pool, schema); err != nil {
+		t.Fatalf("EnsureSchema: %v", err)
+	}
+	seedSalesOrderDocumentOrder(t, ctx, pool, schema)
+	if err := repo.SaveSalesOrderSettings(ctx, salesapp.SaveSalesOrderSettingsCommand{
+		Actor: "测试员", CompanyName: "浅焙作坊咖啡", Note: "请密封保存",
+	}); err != nil {
+		t.Fatalf("SaveSalesOrderSettings: %v", err)
+	}
+
+	pdf, err := repo.GenerateSalesOrderDocument(ctx, salesapp.GenerateSalesOrderDocumentCommand{Actor: "测试员", OrderID: 1})
+	if err != nil {
+		t.Fatalf("Generate PDF: %v", err)
+	}
+	first, err := repo.GenerateSalesOrderImage(ctx, salesapp.GenerateSalesOrderImageCommand{Actor: "测试员", OrderID: 1})
+	if err != nil {
+		t.Fatalf("Generate first image: %v", err)
+	}
+	second, err := repo.GenerateSalesOrderImage(ctx, salesapp.GenerateSalesOrderImageCommand{Actor: "测试员", OrderID: 1})
+	if err != nil {
+		t.Fatalf("Generate second image: %v", err)
+	}
+	if first.Document.VersionNo != 1 || second.Document.VersionNo != 2 || !second.Document.IsLatest {
+		t.Fatalf("image versions first=%+v second=%+v", first.Document, second.Document)
+	}
+	if pdfDocs, err := repo.ListSalesOrderDocuments(ctx, 1); err != nil || len(pdfDocs) != 1 || !pdfDocs[0].IsLatest || pdfDocs[0].ID != pdf.Document.ID {
+		t.Fatalf("PDF latest should remain independent of image generation, docs=%+v err=%v", pdfDocs, err)
+	}
+	images, err := repo.ListSalesOrderImageDocuments(ctx, 1)
+	if err != nil {
+		t.Fatalf("ListSalesOrderImageDocuments: %v", err)
+	}
+	if len(images) != 2 || images[0].VersionNo != 2 || !images[0].IsLatest || images[0].DownloadURL == "" || images[1].IsLatest {
+		t.Fatalf("images = %+v", images)
+	}
+	file, err := repo.LoadSalesOrderImageFile(ctx, 1, 0, true)
+	if err != nil {
+		t.Fatalf("LoadSalesOrderImageFile latest: %v", err)
+	}
+	b, err := os.ReadFile(file.Path)
+	if err != nil {
+		t.Fatalf("read png: %v", err)
+	}
+	if string(b) != "\x89PNG\r\n\x1a\nimage-test" || file.Filename != "SO-20260430-0008-V2.png" {
+		t.Fatalf("file=%+v bytes=%q", file, b)
+	}
+}
+
 func TestNewRepositoryPassesAssetDirToDefaultSalesOrderRenderer(t *testing.T) {
 	dir := t.TempDir()
 	repo := NewRepository(nil, "public", WithSalesOrderAssetDir(dir))
@@ -159,6 +217,13 @@ func (fakeSalesOrderRenderer) Render(snapshot salesdomain.SalesOrderSnapshot) ([
 		return nil, err
 	}
 	return []byte("%PDF-test"), nil
+}
+
+func (fakeSalesOrderRenderer) RenderPNG(snapshot salesdomain.SalesOrderSnapshot) ([]byte, error) {
+	if err := snapshot.Validate(); err != nil {
+		return nil, err
+	}
+	return []byte("\x89PNG\r\n\x1a\nimage-test"), nil
 }
 
 func newSalesPostgresTestDB(t *testing.T) (*pgxpool.Pool, string) {
