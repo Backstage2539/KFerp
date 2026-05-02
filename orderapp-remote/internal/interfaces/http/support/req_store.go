@@ -685,6 +685,13 @@ func seedReqWorkflowA(ctx context.Context, pool *pgxpool.Pool, schema string) er
 		{table: "req_unit", code: "UT-129-01", title: "单测覆盖可搜索下拉过滤、多库存作业页面源码守卫、WIP不足抽屉和需求种子", status: "done", assignee: "Codex", evidence: "searchable-select.test.js; dev_129_stock_operation_combobox_test.go"},
 		{table: "req_api", code: "API-129-01", title: "API级回归覆盖库存作业接口和生产完成接口仍可被 Vue/Vite 页面调用，WIP不足错误保持可识别", status: "done", assignee: "Codex", evidence: "go test ./internal/interfaces/http/stock ./internal/interfaces/http/production ./internal/interfaces/http/support"},
 		{table: "req_review", code: "REV-129-01", prCode: "PR-129", title: "验收：库存作业下拉框可直接输入搜索，三类作业输入对齐；生产中 WIP 不足时右侧抽屉打开库存作业页", status: "todo", assignee: "VA", evidence: "待 Van 服务器验收"},
+		{table: "req_product", code: "PR-130", title: "同一商品不同规格的待生产订单合并成一个烘焙工单时，工单必须保留全部订单号并在完工时分别入库各规格", status: "review", assignee: "VA", evidence: "codex/production-merged-order-links-20260502"},
+		{table: "req_dev", code: "DEV-130-01", title: "开始生产按 product_id 合并同商品缺口，produce_running_items 保存全部 order_nos，produce_running_outputs 保存各规格需求和计划成品数", status: "done", assignee: "Codex", evidence: "groupStartNeedsForRuns; produce_running_outputs"},
+		{table: "req_dev", code: "DEV-130-02", title: "生产中列表和完成生产 API 支持多规格 outputs，完工时按规格分别增加成品库存、批次流水和生产日志", status: "done", assignee: "Codex", evidence: "RunningItem.Outputs; FinishCommand.Outputs; finishRunningOutputs"},
+		{table: "req_dev", code: "DEV-130-03", title: "生产中 Vue 页面展示多规格输出行，按规格填写完成件数和散装余量，并按合计成品克重计算实际出品率", status: "done", assignee: "Codex", evidence: "ProduceRunningView multi-output controls; produce-running.js"},
+		{table: "req_unit", code: "UT-130-01", title: "单测覆盖同商品多规格分组保留全部订单号、前端多规格完工 payload 和需求种子源码守卫", status: "done", assignee: "Codex", evidence: "running_merge_test.go; produce-running.test.js; dev_130_production_merge_orders_test.go"},
+		{table: "req_api", code: "API-130-01", title: "API 测试覆盖开始生产合并 454g/227g 同商品工单，以及多规格完工后两个订单都进入生产完成", status: "done", assignee: "Codex", evidence: "TestProduceStartAPIMergesSameProductSpecsAndKeepsAllOrderNos; TestProduceFinishAPIMultiSpecRunCompletesAllLinkedOrders"},
+		{table: "req_review", code: "REV-130-01", prCode: "PR-130", title: "验收：SO-20260427-0002 和 SO-20260501-0001 同属乌拉嘎时只建一个生产工单，但工单显示两个订单号，完工后 454g/227g 分别入库且两个订单均生产完成", status: "todo", assignee: "VA", evidence: "待 Van 服务器验收"},
 	} {
 		if err := seedReqRow(ctx, pool, schema, row); err != nil {
 			return err

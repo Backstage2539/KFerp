@@ -107,6 +107,184 @@ func TestProduceStartHandlerPersistsInputG(t *testing.T) {
 	}
 }
 
+func TestProduceStartAPIMergesSameProductSpecsAndKeepsAllOrderNos(t *testing.T) {
+	pool, schema := newProductionFlowTestDB(t)
+	ctx := context.Background()
+
+	mustExecProductionFlowTestSQL(t, ctx, pool, fmt.Sprintf(`
+		INSERT INTO %s.products(id,name,default_price,active) VALUES (1,'Uraga乌拉嘎',50,true);
+		INSERT INTO %s.order_process_statuses(name,sort,active) VALUES
+			('待处理',10,true),
+			('生产中',20,true)
+		ON CONFLICT (name) DO NOTHING;
+		INSERT INTO %s.orders(id,order_no,order_date,is_void,process_status_id) VALUES
+			(1,'SO-MERGE-454','2026-05-01',false,(SELECT id FROM %s.order_process_statuses WHERE name='待处理' LIMIT 1)),
+			(2,'SO-MERGE-227','2026-05-01',false,(SELECT id FROM %s.order_process_statuses WHERE name='待处理' LIMIT 1));
+		INSERT INTO %s.order_items(order_id,line_no,item_name,qty,unit,spec,product_id,unit_price,line_total)
+		VALUES
+			(1,1,'Uraga乌拉嘎',24,'袋','454g',1,50,1200),
+			(2,1,'Uraga乌拉嘎',2,'袋','227g',1,50,100);
+		INSERT INTO %s.product_bom(product_id,yield_rate) VALUES (1,0.8200);
+		INSERT INTO %s.materials(id,code,name,kind,unit,onhand_g,onhand_units,purchase_price,sale_price)
+			VALUES (10,'RAW-URAGA','乌拉嘎生豆','bean','g',30000,0,54,0);
+		INSERT INTO %s.product_bom_items(product_id,material_id,ratio_pct) VALUES (1,10,100.0000);
+		INSERT INTO %s.material_batches(id,batch_code,material_id,material_name,received_g,remaining_g,unit_cost,status,quality_status)
+			VALUES (10,'MB-URAGA',10,'乌拉嘎生豆',30000,30000,54,'active','pass');
+		INSERT INTO %s.material_batch_locations(material_batch_id,material_id,warehouse,qty_g)
+			VALUES (10,10,'wip',30000);
+	`, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema))
+
+	app := newProductionFlowTestEcho(pool, schema)
+	body := bytes.NewReader([]byte(`{"selected":["1-454","1-227"],"input_by_key":{"1-454":16000,"1-227":600}}`))
+	req := httptest.NewRequest(http.MethodPost, "/api/produce/start", body)
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+	app.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("POST /api/produce/start status = %d, want 200, body=%s", rec.Code, rec.Body.String())
+	}
+
+	var runningCount int
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT COUNT(*)::int FROM %s.produce_running_items WHERE product_id=1 AND status='running'`, schema)).Scan(&runningCount); err != nil {
+		t.Fatalf("query running count: %v", err)
+	}
+	if runningCount != 1 {
+		t.Fatalf("running item count = %d, want 1 merged product-level item", runningCount)
+	}
+
+	var runningItemID, needG, inputG int64
+	var orderNos string
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`
+		SELECT id, need_g, input_g, order_nos
+		FROM %s.produce_running_items
+		WHERE product_id=1 AND status='running'
+	`, schema)).Scan(&runningItemID, &needG, &inputG, &orderNos); err != nil {
+		t.Fatalf("query running item: %v", err)
+	}
+	if needG != 11350 || inputG != 16600 {
+		t.Fatalf("running item need/input = %d/%d, want 11350/16600", needG, inputG)
+	}
+	for _, want := range []string{"SO-MERGE-454", "SO-MERGE-227"} {
+		if !strings.Contains(orderNos, want) {
+			t.Fatalf("running order_nos = %q, missing %s", orderNos, want)
+		}
+	}
+
+	var outputCount int
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT COUNT(*)::int FROM %s.produce_running_outputs WHERE running_item_id=$1`, schema), runningItemID).Scan(&outputCount); err != nil {
+		t.Fatalf("query running outputs: %v", err)
+	}
+	if outputCount != 2 {
+		t.Fatalf("running output count = %d, want 2", outputCount)
+	}
+}
+
+func TestProduceFinishAPIMultiSpecRunCompletesAllLinkedOrders(t *testing.T) {
+	pool, schema := newProductionFlowTestDB(t)
+	ctx := context.Background()
+
+	mustExecProductionFlowTestSQL(t, ctx, pool, fmt.Sprintf(`
+		INSERT INTO %s.products(id,name,default_price,active) VALUES (1,'Uraga乌拉嘎',50,true);
+		INSERT INTO %s.order_process_statuses(name,sort,active) VALUES
+			('生产中',20,true),
+			('生产完成',35,true)
+		ON CONFLICT (name) DO NOTHING;
+		INSERT INTO %s.orders(id,order_no,order_date,is_void,process_status_id) VALUES
+			(1,'SO-MERGE-454','2026-05-01',false,(SELECT id FROM %s.order_process_statuses WHERE name='生产中' LIMIT 1)),
+			(2,'SO-MERGE-227','2026-05-01',false,(SELECT id FROM %s.order_process_statuses WHERE name='生产中' LIMIT 1));
+		INSERT INTO %s.product_bom(product_id,yield_rate) VALUES (1,0.8200);
+		INSERT INTO %s.materials(id,code,name,kind,unit,onhand_g,onhand_units,purchase_price,sale_price)
+			VALUES
+			(10,'RAW-URAGA','乌拉嘎生豆','bean','g',30000,0,54,0),
+			(11,'BAG-454','454g豆袋','pack','个',0,30,1,0),
+			(12,'BAG-227','227g豆袋','pack','个',0,10,1,0);
+		INSERT INTO %s.product_bom_items(product_id,material_id,ratio_pct) VALUES (1,10,100.0000);
+		INSERT INTO %s.packaging_spec_material_map(spec_g,material_id) VALUES (454,11),(227,12);
+		INSERT INTO %s.material_batches(id,batch_code,material_id,material_name,received_g,remaining_g,unit_cost,status,quality_status)
+			VALUES (10,'MB-URAGA',10,'乌拉嘎生豆',30000,30000,54,'active','pass');
+		INSERT INTO %s.material_batch_locations(material_batch_id,material_id,warehouse,qty_g)
+			VALUES (10,10,'wip',30000);
+		INSERT INTO %s.produce_running_items(
+			id,batch_id,product_id,product_name,spec_g,need_g,order_nos,status,
+			started_by,started_at,input_g,bom_yield_rate,planned_units,planned_loose_g
+		) VALUES (
+			1,'BATCH-MERGE-001',1,'Uraga乌拉嘎',0,11350,'SO-MERGE-454,SO-MERGE-227','running',
+			'测试员',now(),16600,0.8200,0,0
+		);
+		INSERT INTO %s.produce_running_outputs(
+			running_item_id,product_id,product_name,spec_g,need_g,order_nos,planned_units,planned_loose_g
+		) VALUES
+			(1,1,'Uraga乌拉嘎',454,10896,'SO-MERGE-454',24,0),
+			(1,1,'Uraga乌拉嘎',227,454,'SO-MERGE-227',2,0);
+		INSERT INTO %s.work_orders(work_order_no,running_item_id,batch_id,product_id,product_name,spec_g,planned_g,status)
+		VALUES ('WO-0000000001',1,'BATCH-MERGE-001',1,'Uraga乌拉嘎',0,16600,'running');
+	`, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema))
+
+	app := newProductionFlowTestEcho(pool, schema)
+	body := bytes.NewReader([]byte(`{
+		"id":1,
+		"warehouse":"finished_goods",
+		"consumed_input_g":16600,
+		"outputs":[
+			{"spec_g":454,"finished_units":24,"finished_loose_g":0},
+			{"spec_g":227,"finished_units":2,"finished_loose_g":0}
+		]
+	}`))
+	req := httptest.NewRequest(http.MethodPost, "/api/produce/running/finish", body)
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+	app.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("POST /api/produce/running/finish status = %d, want 200, body=%s", rec.Code, rec.Body.String())
+	}
+
+	for _, tc := range []struct {
+		specG int64
+		units int64
+	}{
+		{specG: 454, units: 24},
+		{specG: 227, units: 2},
+	} {
+		var units, looseG int64
+		if err := pool.QueryRow(ctx, fmt.Sprintf(`
+			SELECT onhand_units,onhand_loose_g
+			FROM %s.finished_inventory
+			WHERE product_id=1 AND spec_g=$1 AND warehouse='finished_goods'
+		`, schema), tc.specG).Scan(&units, &looseG); err != nil {
+			t.Fatalf("query finished inventory spec %d: %v", tc.specG, err)
+		}
+		if units != tc.units || looseG != 0 {
+			t.Fatalf("inventory spec %d = %d units + %dg, want %d units + 0g", tc.specG, units, looseG, tc.units)
+		}
+	}
+
+	rows, err := pool.Query(ctx, fmt.Sprintf(`
+		SELECT o.order_no,COALESCE(s.name,'')
+		FROM %s.orders o
+		LEFT JOIN %s.order_process_statuses s ON s.id=o.process_status_id
+		WHERE o.id IN (1,2)
+		ORDER BY o.id
+	`, schema, schema))
+	if err != nil {
+		t.Fatalf("query order statuses: %v", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var orderNo, status string
+		if err := rows.Scan(&orderNo, &status); err != nil {
+			t.Fatalf("scan order status: %v", err)
+		}
+		if status != "生产完成" {
+			t.Fatalf("order %s status = %q, want 生产完成", orderNo, status)
+		}
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestProduceFinishHandlerWritesProductionLog(t *testing.T) {
 	pool, schema := newProductionFlowTestDB(t)
 	ctx := context.Background()

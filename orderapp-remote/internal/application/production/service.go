@@ -112,6 +112,18 @@ type RunningItem struct {
 	StartedBy     string
 	StartedAt     string
 	StartedAtTime time.Time
+	Outputs       []RunningOutput
+}
+
+type RunningOutput struct {
+	ID             int64  `json:"id"`
+	SpecG          int64  `json:"spec_g"`
+	NeedG          int64  `json:"need_g"`
+	OrderNos       string `json:"order_nos"`
+	PlanUnits      int64  `json:"plan_units"`
+	PlanLooseG     int64  `json:"plan_loose_g"`
+	FinishedUnits  int64  `json:"finished_units"`
+	FinishedLooseG int64  `json:"finished_loose_g"`
 }
 
 type StartCommand struct {
@@ -150,6 +162,13 @@ type FinishCommand struct {
 	Partial          bool
 	ConsumedInputG   int64
 	Operator         string
+	Outputs          []FinishOutputCommand
+}
+
+type FinishOutputCommand struct {
+	SpecG          int64 `json:"spec_g"`
+	FinishedUnits  int64 `json:"finished_units"`
+	FinishedLooseG int64 `json:"finished_loose_g"`
 }
 
 type CancelCommand struct {

@@ -184,6 +184,137 @@ func currentMaterialNeedsTx(ctx context.Context, tx pgx.Tx, schema string, r Pro
 	return needs, nil
 }
 
+func materialNeedsForRunOutputsTx(ctx context.Context, tx pgx.Tx, schema string, r ProduceRunRow, outputs []ProduceRunOutputRow) ([]materialConsumptionNeed, error) {
+	if r.ProductID <= 0 || r.NeedG <= 0 {
+		return nil, nil
+	}
+	q := fmt.Sprintf(`
+		SELECT bi.material_id,
+		       COALESCE(m.name,''),
+		       COALESCE(NULLIF(m.unit,''),'g'),
+		       COALESCE(bi.ratio_pct,0),
+		       COALESCE(p.roast_level,''),
+		       COALESCE(pb.yield_rate,0)
+		FROM %s.product_bom_items bi
+		LEFT JOIN %s.products p ON p.id=bi.product_id
+		LEFT JOIN %s.product_bom pb ON pb.product_id=bi.product_id
+		LEFT JOIN %s.materials m ON m.id=bi.material_id
+		WHERE bi.product_id=$1
+		ORDER BY bi.id
+	`, schema, schema, schema, schema)
+	rows, err := tx.Query(ctx, q, r.ProductID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	type bomRow struct {
+		materialID int64
+		name       string
+		unit       string
+		ratio      float64
+		roastLevel string
+		yieldRate  float64
+	}
+	bomRows := make([]bomRow, 0)
+	for rows.Next() {
+		var x bomRow
+		if err := rows.Scan(&x.materialID, &x.name, &x.unit, &x.ratio, &x.roastLevel, &x.yieldRate); err != nil {
+			return nil, err
+		}
+		x.ratio = bomdomain.NormalizeRatioPct(x.ratio)
+		if x.materialID <= 0 || strings.TrimSpace(x.name) == "" || x.ratio <= 0 {
+			continue
+		}
+		bomRows = append(bomRows, x)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	if len(bomRows) == 0 {
+		return nil, fmt.Errorf("product BOM not configured: %s", r.Product)
+	}
+
+	yield := catalogdomain.ResolveYieldRate(bomRows[0].roastLevel, bomRows[0].yieldRate)
+	rawG := r.InputG
+	if rawG <= 0 {
+		rawG = int64(math.Ceil(float64(r.NeedG) / yield))
+	}
+	totalPackedUnits := int64(0)
+	for _, output := range outputs {
+		totalPackedUnits += outputPackedUnits(output)
+	}
+
+	needs := make([]materialConsumptionNeed, 0, len(bomRows)+len(outputs))
+	for _, bi := range bomRows {
+		unit := strings.TrimSpace(bi.unit)
+		if unit == "" {
+			unit = "g"
+		}
+		qty := int64(0)
+		if isWeightMaterialUnit(unit) {
+			if strings.EqualFold(unit, "kg") || unit == "千克" {
+				qty = int64(math.Ceil((float64(rawG) * bi.ratio / 100.0) / 1000.0))
+			} else {
+				qty = int64(math.Ceil(float64(rawG) * bi.ratio / 100.0))
+			}
+		} else {
+			qty = int64(math.Ceil(float64(totalPackedUnits) * bi.ratio / 100.0))
+		}
+		deductG, deductUnits := materialNeedToDeduct(unit, qty)
+		needs = append(needs, materialConsumptionNeed{
+			MaterialID:   bi.materialID,
+			MaterialName: strings.TrimSpace(bi.name),
+			Unit:         unit,
+			Qty:          qty,
+			DeductG:      deductG,
+			DeductUnits:  deductUnits,
+			RatioPct:     bi.ratio,
+			Source:       "bom",
+		})
+	}
+
+	for _, output := range outputs {
+		packedUnits := outputPackedUnits(output)
+		if output.SpecG <= 0 || packedUnits <= 0 {
+			continue
+		}
+		var bagID int64
+		var bagName, bagUnit string
+		err = tx.QueryRow(ctx, fmt.Sprintf(`
+			SELECT m.material_id, COALESCE(mat.name,''), COALESCE(NULLIF(mat.unit,''),'个')
+			FROM %s.packaging_spec_material_map m
+			LEFT JOIN %s.materials mat ON mat.id=m.material_id
+			WHERE m.spec_g=$1
+		`, schema, schema), output.SpecG).Scan(&bagID, &bagName, &bagUnit)
+		if err == nil && bagID > 0 && strings.TrimSpace(bagName) != "" {
+			deductG, deductUnits := materialNeedToDeduct(bagUnit, packedUnits)
+			needs = append(needs, materialConsumptionNeed{
+				MaterialID:   bagID,
+				MaterialName: strings.TrimSpace(bagName),
+				Unit:         strings.TrimSpace(bagUnit),
+				Qty:          packedUnits,
+				DeductG:      deductG,
+				DeductUnits:  deductUnits,
+				Source:       "packaging",
+			})
+		} else if err != nil && err != pgx.ErrNoRows {
+			return nil, err
+		}
+	}
+	return aggregateMaterialConsumptionNeeds(needs), nil
+}
+
+func outputPackedUnits(output ProduceRunOutputRow) int64 {
+	if output.FinishedUnits > 0 {
+		return output.FinishedUnits
+	}
+	if output.PlanUnits > 0 {
+		return output.PlanUnits
+	}
+	return 0
+}
+
 func buildMaterialSnapshotForRunningItemTx(ctx context.Context, tx pgx.Tx, schema string, r ProduceRunRow) ([]byte, error) {
 	needs, err := currentMaterialNeedsTx(ctx, tx, schema, r, InvQty{Units: r.PlanUnits, LooseG: r.PlanLooseG})
 	if err != nil {
@@ -336,6 +467,18 @@ func deductMaterialsForRunningItemTx(ctx context.Context, tx pgx.Tx, schema stri
 	if err != nil {
 		return err
 	}
+	return deductMaterialNeedsForRunningItemTx(ctx, tx, schema, r, needs, operator)
+}
+
+func deductMaterialsForRunOutputsTx(ctx context.Context, tx pgx.Tx, schema string, r ProduceRunRow, outputs []ProduceRunOutputRow, operator string) error {
+	needs, err := materialNeedsForRunOutputsTx(ctx, tx, schema, r, outputs)
+	if err != nil {
+		return err
+	}
+	return deductMaterialNeedsForRunningItemTx(ctx, tx, schema, r, needs, operator)
+}
+
+func deductMaterialNeedsForRunningItemTx(ctx context.Context, tx pgx.Tx, schema string, r ProduceRunRow, needs []materialConsumptionNeed, operator string) error {
 	for _, need := range needs {
 		if need.DeductG <= 0 && need.DeductUnits <= 0 {
 			continue
