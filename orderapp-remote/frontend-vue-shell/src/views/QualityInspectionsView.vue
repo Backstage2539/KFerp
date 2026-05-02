@@ -219,12 +219,6 @@ import {
   qualityTargetTabs,
 } from '../lib/quality-inspections'
 
-const targetApiSources = {
-  work_order: '/api/produce/work-orders',
-  raw_material: '/api/stock/material-batches',
-  finished_batch: '/api/stock/batches',
-}
-
 const loading = ref(false)
 const saving = ref(false)
 const error = ref('')
