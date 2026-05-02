@@ -1,13 +1,16 @@
 <template>
-  <div class="page">
+  <div class="stock-operation-page" :class="{ embedded: props.embedded }">
     <section class="panel">
       <div class="panel-head">
-        <h2>WIP在制仓</h2>
+        <div>
+          <h2>WIP在制仓</h2>
+          <p>把原料领到 WIP，或把未使用原料退回原料仓。</p>
+        </div>
         <button class="secondary" type="button" @click="loadAll" :disabled="loading">刷新</button>
       </div>
       <div v-if="error" class="error">{{ error }}</div>
       <div v-if="ok" class="ok">已提交：{{ ok }}</div>
-      <div class="form-grid">
+      <div class="operation-grid">
         <label>
           <span>操作</span>
           <select v-model="mode" @change="applyModeWarehouses">
@@ -15,12 +18,19 @@
             <option value="return">退回原料仓</option>
           </select>
         </label>
-        <label>
+        <label class="span-2">
           <span>物料</span>
-          <select v-model.number="form.material_id">
-            <option :value="0">请选择</option>
-            <option v-for="m in materials" :key="m.id" :value="m.id">{{ m.name }}</option>
-          </select>
+          <SearchableSelect
+            v-model="form.material_id"
+            :options="materials"
+            :option-label="materialLabel"
+            placeholder="输入物料名称 / 编号"
+            empty-text="没有匹配物料"
+          />
+        </label>
+        <label>
+          <span>数量(g)</span>
+          <input type="number" min="1" step="1" v-model.number="form.qty_g" />
         </label>
         <label>
           <span>来源仓</span>
@@ -34,11 +44,7 @@
             <option v-for="w in warehouses" :key="w.code" :value="w.code">{{ w.name }}</option>
           </select>
         </label>
-        <label>
-          <span>数量(g)</span>
-          <input type="number" min="1" step="1" v-model.number="form.qty_g" />
-        </label>
-        <label class="wide">
+        <label class="span-2">
           <span>备注</span>
           <input v-model.trim="form.note" />
         </label>
@@ -48,12 +54,22 @@
 
     <section class="panel">
       <div class="panel-head">
-        <h2>WIP批次库存</h2>
+        <div>
+          <h2>WIP批次库存</h2>
+          <p>查看原料仓和 WIP 在制仓的物料批次位置。</p>
+        </div>
         <button class="secondary" type="button" @click="loadLocations" :disabled="loading">刷新库存</button>
       </div>
       <div class="filters">
         <label><span>搜索</span><input v-model.trim="filters.q" placeholder="批次/物料" @keyup.enter="loadLocations" /></label>
-        <label><span>仓库</span><select v-model="filters.warehouse"><option value="wip">WIP在制仓</option><option value="raw_materials">原料仓</option><option value="">全部</option></select></label>
+        <label>
+          <span>仓库</span>
+          <select v-model="filters.warehouse">
+            <option value="wip">WIP在制仓</option>
+            <option value="raw_materials">原料仓</option>
+            <option value="">全部</option>
+          </select>
+        </label>
         <button class="primary" type="button" @click="loadLocations" :disabled="loading">查询</button>
       </div>
       <div class="table-wrap">
@@ -81,6 +97,11 @@
 <script setup>
 import { onMounted, reactive, ref } from 'vue'
 import { apiGet, apiSend } from '../api/client'
+import SearchableSelect from '../components/SearchableSelect.vue'
+
+const props = defineProps({
+  embedded: { type: Boolean, default: false },
+})
 
 const materials = ref([])
 const warehouses = ref([])
@@ -99,6 +120,16 @@ const form = reactive({
 })
 const filters = reactive({ q: '', warehouse: 'wip' })
 
+function materialLabel(row) {
+  const name = String(row?.name || row?.Name || '').trim()
+  const code = String(row?.code || row?.Code || '').trim()
+  return code ? `${name} (${code})` : name
+}
+
+function materialKind(row) {
+  return String(row?.kind || row?.Kind || '').trim().toLowerCase()
+}
+
 function applyModeWarehouses() {
   if (mode.value === 'return') {
     form.from_warehouse = 'wip'
@@ -114,7 +145,7 @@ async function loadOptions() {
     apiGet('/api/materials?limit=500'),
     apiGet('/api/stock/warehouses'),
   ])
-  materials.value = (mat.rows || []).filter((m) => (m.kind || m.Kind) !== 'pack')
+  materials.value = (mat.rows || []).filter((m) => materialKind(m) !== 'pack')
   warehouses.value = wh.rows || []
 }
 
@@ -161,19 +192,23 @@ onMounted(loadAll)
 </script>
 
 <style scoped>
-.page { padding:16px; display:grid; gap:16px; }
-.panel { border:1px solid #eee; border-radius:8px; padding:12px; background:#fff; }
-.panel-head { display:flex; justify-content:space-between; align-items:center; gap:12px; margin-bottom:12px; }
-h2 { margin:0; font-size:18px; }
-.form-grid { display:grid; grid-template-columns:130px minmax(220px,1.5fr) 150px 150px 110px; gap:10px; align-items:end; }
-.wide { grid-column:span 4; }
+.stock-operation-page { padding:16px; display:grid; gap:16px; }
+.stock-operation-page.embedded { padding:0; }
+.panel { border:1px solid #e5e7eb; border-radius:8px; padding:12px; background:#fff; }
+.panel-head { display:flex; justify-content:space-between; align-items:flex-start; gap:12px; margin-bottom:12px; }
+.panel-head h2 { margin:0 0 4px; font-size:18px; }
+.panel-head p { margin:0; color:#6b7280; font-size:13px; }
+.operation-grid { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:10px; align-items:end; }
 .filters { display:grid; grid-template-columns:minmax(220px,1fr) 150px 90px; gap:10px; align-items:end; margin-bottom:12px; }
+.span-2 { grid-column:span 2; }
+label { min-width:0; position:relative; }
 label span { display:block; color:#666; font-size:12px; margin-bottom:5px; }
-input, select, button { font:inherit; min-height:36px; border-radius:6px; }
-input, select { width:100%; border:1px solid #ddd; padding:7px 9px; }
+input, select, button { font:inherit; min-height:38px; border-radius:6px; }
+input, select { width:100%; border:1px solid #d1d5db; padding:7px 9px; }
 button { padding:8px 12px; cursor:pointer; }
+button:disabled { cursor:not-allowed; opacity:.6; }
 .primary { border:1px solid #111; background:#111; color:#fff; }
-.secondary { border:1px solid #999; background:#fff; color:#111; }
+.secondary { border:1px solid #9ca3af; background:#fff; color:#111; }
 .table-wrap { overflow:auto; }
 table { width:100%; min-width:860px; border-collapse:collapse; }
 th, td { border-bottom:1px solid #f0f0f0; padding:8px; text-align:left; font-size:13px; }
@@ -182,5 +217,5 @@ th { background:#fbfbfb; }
 .error, .ok { border-radius:8px; padding:10px; margin-bottom:12px; }
 .error { background:#ffecec; border:1px solid #ffb9b9; }
 .ok { background:#e9ffe9; border:1px solid #b8f5b8; }
-@media (max-width:900px){ .page{padding:12px;} .form-grid,.filters{grid-template-columns:1fr;} .wide{grid-column:auto;} }
+@media (max-width:900px){ .stock-operation-page{padding:12px;} .operation-grid,.filters{grid-template-columns:1fr;} .span-2{grid-column:auto;} }
 </style>

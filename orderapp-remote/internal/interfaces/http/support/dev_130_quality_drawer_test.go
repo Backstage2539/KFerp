@@ -14,12 +14,12 @@ func TestQualityInspectionDrawerRequirementSeeds(t *testing.T) {
 	}
 	text := string(content)
 	for _, want := range []string{
-		"PR-129",
-		"DEV-129-01",
-		"DEV-129-02",
-		"UT-129-01",
-		"API-129-01",
-		"REV-129-01",
+		"PR-130",
+		"DEV-130-01",
+		"DEV-130-02",
+		"UT-130-01",
+		"API-130-01",
+		"REV-130-01",
 		"生产质检对象选择抽屉",
 		"工单质检",
 		"原料质检",

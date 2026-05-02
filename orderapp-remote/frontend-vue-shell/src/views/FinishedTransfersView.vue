@@ -1,5 +1,5 @@
 <template>
-  <div class="page">
+  <div class="stock-operation-page" :class="{ embedded: props.embedded }">
     <section class="panel">
       <div class="panel-head">
         <div>
@@ -10,13 +10,16 @@
       </div>
       <div v-if="error" class="error">{{ error }}</div>
       <div v-if="ok" class="ok">转仓单已提交：{{ ok }}</div>
-      <div class="form-grid">
-        <label>
+      <div class="operation-grid">
+        <label class="span-2">
           <span>成品</span>
-          <select v-model.number="form.product_id">
-            <option :value="0">请选择</option>
-            <option v-for="item in products" :key="item.id" :value="item.id">{{ item.name }}</option>
-          </select>
+          <SearchableSelect
+            v-model="form.product_id"
+            :options="products"
+            :option-label="productLabel"
+            placeholder="输入成品名称 / 编号"
+            empty-text="没有匹配成品"
+          />
         </label>
         <label><span>规格(g)</span><input v-model.number="form.spec_g" type="number" min="1" step="1" /></label>
         <label>
@@ -33,7 +36,7 @@
         </label>
         <label><span>件数</span><input v-model.number="form.qty_units" type="number" min="0" step="1" /></label>
         <label><span>散装(g)</span><input v-model.number="form.qty_loose_g" type="number" min="0" step="1" /></label>
-        <label class="wide"><span>备注</span><input v-model.trim="form.note" placeholder="门店备货/展会备货/仓库整理" /></label>
+        <label class="span-3"><span>备注</span><input v-model.trim="form.note" placeholder="门店备货/展会备货/仓库整理" /></label>
         <button class="primary" type="button" @click="submit" :disabled="saving">提交转仓</button>
       </div>
     </section>
@@ -43,6 +46,11 @@
 <script setup>
 import { computed, onMounted, reactive, ref } from 'vue'
 import { apiGet, apiSend } from '../api/client'
+import SearchableSelect from '../components/SearchableSelect.vue'
+
+const props = defineProps({
+  embedded: { type: Boolean, default: false },
+})
 
 const products = ref([])
 const warehouses = ref([])
@@ -64,6 +72,12 @@ const finishedWarehouses = computed(() => {
   const rows = warehouses.value.filter((row) => row.kind === 'finished')
   return rows.length ? rows : [{ code: 'finished_goods', name: '成品仓' }]
 })
+
+function productLabel(row) {
+  const name = String(row?.name || row?.Name || '').trim()
+  const code = String(row?.code || row?.Code || '').trim()
+  return code ? `${name} (${code})` : name
+}
 
 async function loadOptions() {
   loading.value = true
@@ -103,6 +117,25 @@ onMounted(loadOptions)
 </script>
 
 <style scoped>
-.page{padding:16px}.panel{border:1px solid #e5e7eb;border-radius:8px;background:#fff;padding:12px}.panel-head{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;margin-bottom:12px}.panel-head h2{margin:0 0 4px;font-size:18px}.panel-head p{margin:0;color:#6b7280;font-size:13px}.form-grid{display:grid;grid-template-columns:minmax(220px,1.3fr) 100px 150px 150px 90px 100px;gap:10px;align-items:end}.wide{grid-column:span 5}label span{display:block;color:#666;font-size:12px;margin-bottom:5px}input,select,button{font:inherit;min-height:36px;border-radius:6px}input,select{width:100%;border:1px solid #d1d5db;padding:7px 9px}button{padding:8px 12px;cursor:pointer}.primary{border:1px solid #111;background:#111;color:#fff}.secondary{border:1px solid #9ca3af;background:#fff;color:#111}.error,.ok{border-radius:8px;padding:10px;margin-bottom:12px}.error{background:#ffecec;border:1px solid #ffb9b9}.ok{background:#e9ffe9;border:1px solid #b8f5b8}
-@media (max-width:900px){.page{padding:12px}.form-grid{grid-template-columns:1fr}.wide{grid-column:auto}}
+.stock-operation-page { padding:16px; display:grid; gap:16px; }
+.stock-operation-page.embedded { padding:0; }
+.panel { border:1px solid #e5e7eb; border-radius:8px; background:#fff; padding:12px; }
+.panel-head { display:flex; justify-content:space-between; align-items:flex-start; gap:12px; margin-bottom:12px; }
+.panel-head h2 { margin:0 0 4px; font-size:18px; }
+.panel-head p { margin:0; color:#6b7280; font-size:13px; }
+.operation-grid { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:10px; align-items:end; }
+.span-2 { grid-column:span 2; }
+.span-3 { grid-column:span 3; }
+label { min-width:0; position:relative; }
+label span { display:block; color:#666; font-size:12px; margin-bottom:5px; }
+input, select, button { font:inherit; min-height:38px; border-radius:6px; }
+input, select { width:100%; border:1px solid #d1d5db; padding:7px 9px; }
+button { padding:8px 12px; cursor:pointer; }
+button:disabled { cursor:not-allowed; opacity:.6; }
+.primary { border:1px solid #111; background:#111; color:#fff; }
+.secondary { border:1px solid #9ca3af; background:#fff; color:#111; }
+.error, .ok { border-radius:8px; padding:10px; margin-bottom:12px; }
+.error { background:#ffecec; border:1px solid #ffb9b9; }
+.ok { background:#e9ffe9; border:1px solid #b8f5b8; }
+@media (max-width:900px){ .stock-operation-page{padding:12px;} .operation-grid{grid-template-columns:1fr;} .span-2,.span-3{grid-column:auto;} }
 </style>
