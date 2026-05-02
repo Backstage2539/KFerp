@@ -698,6 +698,13 @@ func seedReqWorkflowA(ctx context.Context, pool *pgxpool.Pool, schema string) er
 		{table: "req_unit", code: "UT-131-01", title: "单测覆盖质检对象 helper、Vue 工作台抽屉源码守卫、需求种子和生产手册更新", status: "done", assignee: "Codex", evidence: "quality-inspections.test.js; dev_131_quality_drawer_test.go"},
 		{table: "req_api", code: "API-131-01", title: "API 验证复用 GET /api/produce/work-orders、GET /api/stock/material-batches、GET /api/stock/batches 作为质检对象来源，保存仍走 POST /api/produce/quality-inspections", status: "done", assignee: "Codex", evidence: "TestManufacturingGapAPIs; TestStockAPIRoutes; QualityInspectionsView API wiring"},
 		{table: "req_review", code: "REV-131-01", prCode: "PR-131", title: "验收：生产质检页点击选择质检对象后右侧弹出工单/原料/产品三类候选，选择后可保存质检记录", status: "todo", assignee: "VA", evidence: "待 Van 服务器验收"},
+		{table: "req_product", code: "PR-132", title: "订单发货后维护出库单：已发货订单可维护出库信息、预览并下载版本化出库单 PDF", status: "review", assignee: "VA", evidence: "codex/delivery-note-outbound-20260502"},
+		{table: "req_dev", code: "DEV-132-01", title: "新增出库单领域快照、出库维护表、版本化出库单文档表和 PDF 渲染", status: "done", assignee: "Codex", evidence: "DeliveryNoteSnapshot; delivery_note_forms/documents; DeliveryNoteRenderer"},
+		{table: "req_dev", code: "DEV-132-02", title: "新增出库单 API：维护出库信息、出库单预览、确认生成、历史版本和最新版下载", status: "done", assignee: "Codex", evidence: "GET/POST /api/orders/:id/delivery-note*; /orders/:id/delivery-note-latest.pdf"},
+		{table: "req_dev", code: "DEV-132-03", title: "订单列表新增出库单抽屉，Vue 页面维护出库日期、出库仓库、发货方式、快递单号和备注", status: "done", assignee: "Codex", evidence: "OrdersView DeliveryNoteView drawer; DeliveryNoteView.vue"},
+		{table: "req_unit", code: "UT-132-01", title: "单测覆盖出库单领域规则、服务用例、Vue 源码守卫、前端 URL helper 和需求种子", status: "done", assignee: "Codex", evidence: "delivery_note_test.go; TestServiceOwnsDeliveryNoteUseCases; dev_132_delivery_note_outbound_test.go; delivery-note.test.js"},
+		{table: "req_api", code: "API-132-01", title: "API 测试覆盖已发货订单出库单保存/预览/生成/下载，以及未发货订单禁止生成出库单", status: "done", assignee: "Codex", evidence: "TestDeliveryNoteDocumentAPI; TestDeliveryNoteRequiresShippedOrder"},
+		{table: "req_review", code: "REV-132-01", prCode: "PR-132", title: "验收：已发货订单可打开出库单抽屉维护信息，先预览后生成 PDF，最新版和历史版本均可下载", status: "todo", assignee: "VA", evidence: "待 Van 服务器验收"},
 	} {
 		if err := seedReqRow(ctx, pool, schema, row); err != nil {
 			return err

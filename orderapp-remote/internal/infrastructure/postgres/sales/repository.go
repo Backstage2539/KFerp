@@ -17,14 +17,19 @@ import (
 )
 
 type Repository struct {
-	pool     *pgxpool.Pool
-	schema   string
-	assetDir string
-	renderer SalesOrderPDFRenderer
+	pool                 *pgxpool.Pool
+	schema               string
+	assetDir             string
+	renderer             SalesOrderPDFRenderer
+	deliveryNoteRenderer DeliveryNotePDFRenderer
 }
 
 type SalesOrderPDFRenderer interface {
 	Render(snapshot salesdomain.SalesOrderSnapshot) ([]byte, error)
+}
+
+type DeliveryNotePDFRenderer interface {
+	Render(snapshot salesdomain.DeliveryNoteSnapshot) ([]byte, error)
 }
 
 type RepositoryOption func(*Repository)
@@ -48,6 +53,9 @@ func NewRepository(pool *pgxpool.Pool, schema string, opts ...RepositoryOption) 
 	}
 	if repo.renderer == nil {
 		repo.renderer = pdfinfra.SalesOrderRenderer{AssetBaseDir: repo.assetDir}
+	}
+	if repo.deliveryNoteRenderer == nil {
+		repo.deliveryNoteRenderer = pdfinfra.DeliveryNoteRenderer{AssetBaseDir: repo.assetDir}
 	}
 	return repo
 }

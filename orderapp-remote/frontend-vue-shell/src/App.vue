@@ -53,6 +53,7 @@ import CompanyProfileView from './views/CompanyProfileView.vue'
 import CompanyStaffView from './views/CompanyStaffView.vue'
 import CostingSettingsView from './views/CostingSettingsView.vue'
 import CustomersView from './views/CustomersView.vue'
+import DeliveryNoteView from './views/DeliveryNoteView.vue'
 import InventoryView from './views/InventoryView.vue'
 import JobCardsView from './views/JobCardsView.vue'
 import MachinesView from './views/MachinesView.vue'
@@ -114,6 +115,7 @@ const internalViews = {
   order: OrderEntryView,
   orders: OrdersView,
   salesOrder: SalesOrderView,
+  deliveryNote: DeliveryNoteView,
   warehouseInventory: WarehouseInventoryView,
   stockOperations: StockOperationsView,
   purchase: PurchaseView,

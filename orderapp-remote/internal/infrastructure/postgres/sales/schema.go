@@ -26,7 +26,10 @@ func EnsureSchema(ctx context.Context, pool *pgxpool.Pool, schema string) error 
 	if err := ensureCustomerCompanyColumns(ctx, pool, schema); err != nil {
 		return err
 	}
-	return ensureSalesOrderTables(ctx, pool, schema)
+	if err := ensureSalesOrderTables(ctx, pool, schema); err != nil {
+		return err
+	}
+	return ensureDeliveryNoteTables(ctx, pool, schema)
 }
 
 func ensureCustomerCompanyColumns(ctx context.Context, pool *pgxpool.Pool, schema string) error {
@@ -211,6 +214,51 @@ func ensureSalesOrderTables(ctx context.Context, pool *pgxpool.Pool, schema stri
 		fmt.Sprintf(`ALTER TABLE %s.sales_order_settings ADD COLUMN IF NOT EXISTS bank_name TEXT NOT NULL DEFAULT ''`, schema),
 		fmt.Sprintf(`ALTER TABLE %s.sales_order_settings ADD COLUMN IF NOT EXISTS bank_account_no TEXT NOT NULL DEFAULT ''`, schema),
 	} {
+		if _, err := pool.Exec(ctx, stmt); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func ensureDeliveryNoteTables(ctx context.Context, pool *pgxpool.Pool, schema string) error {
+	stmts := []string{
+		fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s.delivery_note_assets (
+			id BIGSERIAL PRIMARY KEY,
+			kind TEXT NOT NULL,
+			filename TEXT NOT NULL DEFAULT '',
+			content_type TEXT NOT NULL DEFAULT '',
+			bytes BIGINT NOT NULL DEFAULT 0,
+			sha256 TEXT NOT NULL DEFAULT '',
+			object_key TEXT NOT NULL DEFAULT '',
+			created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+			created_by TEXT NOT NULL DEFAULT ''
+		)`, schema),
+		fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s.delivery_note_forms (
+			order_id BIGINT PRIMARY KEY REFERENCES %s.orders(id) ON DELETE CASCADE,
+			posting_date DATE,
+			source_warehouse TEXT NOT NULL DEFAULT 'finished_goods',
+			delivery_method TEXT NOT NULL DEFAULT '',
+			tracking_no TEXT NOT NULL DEFAULT '',
+			note TEXT NOT NULL DEFAULT '',
+			updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+			updated_by TEXT NOT NULL DEFAULT ''
+		)`, schema, schema),
+		fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s.delivery_note_documents (
+			id BIGSERIAL PRIMARY KEY,
+			order_id BIGINT NOT NULL REFERENCES %s.orders(id),
+			order_no TEXT NOT NULL DEFAULT '',
+			version_no INTEGER NOT NULL,
+			snapshot_json JSONB NOT NULL,
+			pdf_asset_id BIGINT REFERENCES %s.delivery_note_assets(id),
+			is_latest BOOLEAN NOT NULL DEFAULT true,
+			created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+			created_by TEXT NOT NULL DEFAULT '',
+			UNIQUE(order_id, version_no)
+		)`, schema, schema, schema),
+		fmt.Sprintf(`CREATE UNIQUE INDEX IF NOT EXISTS idx_%s_delivery_note_latest ON %s.delivery_note_documents(order_id) WHERE is_latest`, schema, schema),
+	}
+	for _, stmt := range stmts {
 		if _, err := pool.Exec(ctx, stmt); err != nil {
 			return err
 		}

@@ -141,6 +141,7 @@ func defaultViewPermissions() map[string]string {
 		"order":                "orders.write",
 		"orders":               "orders.read",
 		"salesOrder":           "orders.read",
+		"deliveryNote":         "orders.read",
 		"customers":            "customers.read",
 		"quotePrint":           "products.read",
 		"producePlan":          "production.run",

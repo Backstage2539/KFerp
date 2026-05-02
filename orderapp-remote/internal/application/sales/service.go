@@ -502,6 +502,73 @@ type SalesOrderDocumentFile struct {
 	Filename string
 }
 
+type DeliveryNoteForm struct {
+	OrderID             int64  `json:"order_id"`
+	OrderNo             string `json:"order_no"`
+	PostingDate         string `json:"posting_date"`
+	SourceWarehouse     string `json:"source_warehouse"`
+	SourceWarehouseName string `json:"source_warehouse_name"`
+	DeliveryMethod      string `json:"delivery_method"`
+	TrackingNo          string `json:"tracking_no"`
+	Note                string `json:"note"`
+	UpdatedAt           string `json:"updated_at"`
+	UpdatedBy           string `json:"updated_by"`
+}
+
+type SaveDeliveryNoteFormCommand struct {
+	Actor           string `json:"actor"`
+	OrderID         int64  `json:"order_id"`
+	PostingDate     string `json:"posting_date"`
+	SourceWarehouse string `json:"source_warehouse"`
+	DeliveryMethod  string `json:"delivery_method"`
+	TrackingNo      string `json:"tracking_no"`
+	Note            string `json:"note"`
+}
+
+type GenerateDeliveryNoteDocumentCommand struct {
+	Actor   string
+	OrderID int64
+}
+
+type GenerateDeliveryNoteDocumentResult struct {
+	Document DeliveryNoteDocument             `json:"document"`
+	Snapshot salesdomain.DeliveryNoteSnapshot `json:"snapshot"`
+}
+
+type DeliveryNotePreview struct {
+	OrderID       int64                            `json:"order_id"`
+	OrderNo       string                           `json:"order_no"`
+	NextVersionNo int                              `json:"next_version_no"`
+	Form          DeliveryNoteForm                 `json:"form"`
+	Snapshot      salesdomain.DeliveryNoteSnapshot `json:"snapshot"`
+}
+
+type DeliveryNoteDocument struct {
+	ID          int64                            `json:"id"`
+	OrderID     int64                            `json:"order_id"`
+	OrderNo     string                           `json:"order_no"`
+	VersionNo   int                              `json:"version_no"`
+	Snapshot    salesdomain.DeliveryNoteSnapshot `json:"snapshot"`
+	PDFAssetID  int64                            `json:"pdf_asset_id"`
+	IsLatest    bool                             `json:"is_latest"`
+	CreatedAt   string                           `json:"created_at"`
+	CreatedBy   string                           `json:"created_by"`
+	DownloadURL string                           `json:"download_url"`
+}
+
+type DeliveryNoteContext struct {
+	OrderID    int64                  `json:"order_id"`
+	OrderNo    string                 `json:"order_no"`
+	ShipStatus string                 `json:"ship_status"`
+	Customer   SalesOrderCustomerInfo `json:"customer"`
+}
+
+type DeliveryNoteDocumentFile struct {
+	Document DeliveryNoteDocument
+	Path     string
+	Filename string
+}
+
 type Repository interface {
 	SaveOrder(ctx context.Context, cmd SaveOrderCommand) (SaveOrderResult, error)
 	UpdateHeader(ctx context.Context, id int64, cmd UpdateHeaderCommand) error
@@ -535,6 +602,13 @@ type Repository interface {
 	PreviewSalesOrderDocument(ctx context.Context, orderID int64) (SalesOrderPreview, error)
 	GenerateSalesOrderDocument(ctx context.Context, cmd GenerateSalesOrderDocumentCommand) (GenerateSalesOrderDocumentResult, error)
 	LoadSalesOrderDocumentFile(ctx context.Context, orderID, documentID int64, latest bool) (SalesOrderDocumentFile, error)
+	LoadDeliveryNoteContext(ctx context.Context, orderID int64) (DeliveryNoteContext, error)
+	LoadDeliveryNoteForm(ctx context.Context, orderID int64) (DeliveryNoteForm, error)
+	SaveDeliveryNoteForm(ctx context.Context, cmd SaveDeliveryNoteFormCommand) (DeliveryNoteForm, error)
+	ListDeliveryNoteDocuments(ctx context.Context, orderID int64) ([]DeliveryNoteDocument, error)
+	PreviewDeliveryNoteDocument(ctx context.Context, orderID int64) (DeliveryNotePreview, error)
+	GenerateDeliveryNoteDocument(ctx context.Context, cmd GenerateDeliveryNoteDocumentCommand) (GenerateDeliveryNoteDocumentResult, error)
+	LoadDeliveryNoteDocumentFile(ctx context.Context, orderID, documentID int64, latest bool) (DeliveryNoteDocumentFile, error)
 }
 
 type Service struct {
@@ -991,6 +1065,75 @@ func (s *Service) LoadSalesOrderDocumentFile(ctx context.Context, orderID, docum
 		return SalesOrderDocumentFile{}, fmt.Errorf("invalid document id")
 	}
 	return s.repo.LoadSalesOrderDocumentFile(ctx, orderID, documentID, latest)
+}
+
+func (s *Service) LoadDeliveryNoteContext(ctx context.Context, orderID int64) (DeliveryNoteContext, error) {
+	if orderID <= 0 {
+		return DeliveryNoteContext{}, fmt.Errorf("invalid order id")
+	}
+	return s.repo.LoadDeliveryNoteContext(ctx, orderID)
+}
+
+func (s *Service) LoadDeliveryNoteForm(ctx context.Context, orderID int64) (DeliveryNoteForm, error) {
+	if orderID <= 0 {
+		return DeliveryNoteForm{}, fmt.Errorf("invalid order id")
+	}
+	return s.repo.LoadDeliveryNoteForm(ctx, orderID)
+}
+
+func (s *Service) SaveDeliveryNoteForm(ctx context.Context, cmd SaveDeliveryNoteFormCommand) error {
+	cmd.Actor = strings.TrimSpace(cmd.Actor)
+	if cmd.Actor == "" {
+		cmd.Actor = "warehouse"
+	}
+	if cmd.OrderID <= 0 {
+		return fmt.Errorf("invalid order id")
+	}
+	cmd.PostingDate = strings.TrimSpace(cmd.PostingDate)
+	cmd.SourceWarehouse = strings.TrimSpace(cmd.SourceWarehouse)
+	if cmd.SourceWarehouse == "" {
+		cmd.SourceWarehouse = "finished_goods"
+	}
+	cmd.DeliveryMethod = strings.TrimSpace(cmd.DeliveryMethod)
+	cmd.TrackingNo = strings.TrimSpace(cmd.TrackingNo)
+	cmd.Note = strings.TrimSpace(cmd.Note)
+	_, err := s.repo.SaveDeliveryNoteForm(ctx, cmd)
+	return err
+}
+
+func (s *Service) ListDeliveryNoteDocuments(ctx context.Context, orderID int64) ([]DeliveryNoteDocument, error) {
+	if orderID <= 0 {
+		return nil, fmt.Errorf("invalid order id")
+	}
+	return s.repo.ListDeliveryNoteDocuments(ctx, orderID)
+}
+
+func (s *Service) PreviewDeliveryNoteDocument(ctx context.Context, orderID int64) (DeliveryNotePreview, error) {
+	if orderID <= 0 {
+		return DeliveryNotePreview{}, fmt.Errorf("invalid order id")
+	}
+	return s.repo.PreviewDeliveryNoteDocument(ctx, orderID)
+}
+
+func (s *Service) GenerateDeliveryNoteDocument(ctx context.Context, cmd GenerateDeliveryNoteDocumentCommand) (GenerateDeliveryNoteDocumentResult, error) {
+	cmd.Actor = strings.TrimSpace(cmd.Actor)
+	if cmd.Actor == "" {
+		cmd.Actor = "warehouse"
+	}
+	if cmd.OrderID <= 0 {
+		return GenerateDeliveryNoteDocumentResult{}, fmt.Errorf("invalid order id")
+	}
+	return s.repo.GenerateDeliveryNoteDocument(ctx, cmd)
+}
+
+func (s *Service) LoadDeliveryNoteDocumentFile(ctx context.Context, orderID, documentID int64, latest bool) (DeliveryNoteDocumentFile, error) {
+	if orderID <= 0 {
+		return DeliveryNoteDocumentFile{}, fmt.Errorf("invalid order id")
+	}
+	if !latest && documentID <= 0 {
+		return DeliveryNoteDocumentFile{}, fmt.Errorf("invalid document id")
+	}
+	return s.repo.LoadDeliveryNoteDocumentFile(ctx, orderID, documentID, latest)
 }
 
 func digitsOnly(s string) string {

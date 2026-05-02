@@ -78,6 +78,7 @@ export const menuGroups = [
 ]
 
 export const hiddenViewTitles = {
+  deliveryNote: '出库单',
   materialReceipts: '原料入库',
   materialBatches: '原料批次',
   wipMaterials: 'WIP在制仓',

@@ -168,6 +168,8 @@
               <td class="notes">{{ row.notes }}</td>
               <td class="actions-cell">
                 <a class="text-link" href="#" @click.prevent="openSalesOrderDrawer(row)">销售单</a>
+                <a v-if="isShipped(row)" class="text-link" href="#" @click.prevent="openDeliveryNoteDrawer(row)">出库单</a>
+                <span v-else class="muted inline-muted">出库单</span>
                 <a class="text-link" :href="`/orders/${row.id}/audit`">审计</a>
               </td>
             </tr>
@@ -189,12 +191,19 @@
         <SalesOrderView :order-id="activeSalesOrderID" embedded @close="closeSalesOrderDrawer" />
       </aside>
     </div>
+
+    <div v-if="deliveryNoteDrawerOpen" class="delivery-note-drawer-mask" @click.self="closeDeliveryNoteDrawer">
+      <aside class="delivery-note-drawer" aria-label="出库单">
+        <DeliveryNoteView :order-id="activeDeliveryNoteID" embedded @close="closeDeliveryNoteDrawer" />
+      </aside>
+    </div>
   </div>
 </template>
 
 <script setup>
 import { computed, onMounted, reactive, ref } from 'vue'
 import { replaceHistoryURL } from '../lib/url-state'
+import DeliveryNoteView from './DeliveryNoteView.vue'
 import SalesOrderView from './SalesOrderView.vue'
 
 const loading = ref(false)
@@ -222,6 +231,8 @@ const trackingExcelFile = ref(null)
 const trackingExcelLoading = ref(false)
 const salesOrderDrawerOpen = ref(false)
 const activeSalesOrderID = ref(0)
+const deliveryNoteDrawerOpen = ref(false)
+const activeDeliveryNoteID = ref(0)
 
 const filters = reactive({
   q: '',
@@ -300,6 +311,18 @@ function closeSalesOrderDrawer() {
   activeSalesOrderID.value = 0
 }
 
+function openDeliveryNoteDrawer(row) {
+  const id = Number(row?.id || 0)
+  if (!id) return
+  activeDeliveryNoteID.value = id
+  deliveryNoteDrawerOpen.value = true
+}
+
+function closeDeliveryNoteDrawer() {
+  deliveryNoteDrawerOpen.value = false
+  activeDeliveryNoteID.value = 0
+}
+
 async function loadPage(nextPage) {
   page.value = Math.max(1, nextPage)
   await load()
@@ -307,6 +330,10 @@ async function loadPage(nextPage) {
 
 function isProductionComplete(row) {
   return String(row?.process_status || '').includes('生产完成')
+}
+
+function isShipped(row) {
+  return String(row?.ship_status || '').includes('已发货')
 }
 
 function toggleOrder(row, checked) {
@@ -519,14 +546,17 @@ th { background: #fbfaf8; position: sticky; top: 0; }
 .row-sender select { width: 154px; height: 34px; padding: 5px 7px; }
 a, .text-link { color: #1f4f82; text-decoration: none; }
 .notes { max-width: 220px; white-space: pre-wrap; }
-.actions-cell { min-width: 110px; }
-.actions-cell a { display: inline-block; margin-right: 8px; }
+.actions-cell { min-width: 160px; }
+.actions-cell a, .actions-cell .inline-muted { display: inline-block; margin-right: 8px; }
+.inline-muted { font-size: 14px; }
 .muted { color: #666; text-align: center; }
 .voided { color: #8a1f1f; background: #fff7f7; }
 .pager { display: flex; gap: 10px; align-items: center; justify-content: flex-end; margin-top: 12px; }
 .error { background: #fff0f0; border: 1px solid #e6b7b7; border-radius: 6px; padding: 9px; margin-bottom: 12px; color: #8a1f1f; }
 .sales-order-drawer-mask { position: fixed; inset: 0; z-index: 35; display: flex; justify-content: flex-end; background: rgba(0, 0, 0, .24); }
 .sales-order-drawer { width: min(1160px, calc(100vw - 28px)); height: 100%; overflow: auto; background: #f8f7f4; border-left: 1px solid #e6e0d8; box-shadow: -10px 0 24px rgba(0, 0, 0, .14); }
+.delivery-note-drawer-mask { position: fixed; inset: 0; z-index: 35; display: flex; justify-content: flex-end; background: rgba(0, 0, 0, .24); }
+.delivery-note-drawer { width: min(1160px, calc(100vw - 28px)); height: 100%; overflow: auto; background: #f8f7f4; border-left: 1px solid #e6e0d8; box-shadow: -10px 0 24px rgba(0, 0, 0, .14); }
 @media (max-width: 900px) {
   .page { padding: 12px; }
   .filters { grid-template-columns: 1fr; }
@@ -535,6 +565,6 @@ a, .text-link { color: #1f4f82; text-decoration: none; }
   .tracking-head { align-items: stretch; flex-direction: column; }
   .tracking-grid { grid-template-columns: 1fr; }
   table { min-width: 980px; }
-  .sales-order-drawer { width: 100vw; }
+  .sales-order-drawer, .delivery-note-drawer { width: 100vw; }
 }
 </style>

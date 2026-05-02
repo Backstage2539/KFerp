@@ -7,18 +7,21 @@ import (
 )
 
 type fakeRepo struct {
-	saveCmd         SaveOrderCommand
-	inlineCmd       InlineUpdateCommand
-	saveCalls       int
-	outsourceSaved  SaveOutsourceTemplateCommand
-	trackingCmd     FillTrackingPairsCommand
-	shipMethodCmd   SetShipMethodCommand
-	shipmentCmd     CreateOrderShipmentCommand
-	trackingItems   FillShipmentTrackingCommand
-	orderNoTracking FillShipmentTrackingByOrderNoCommand
-	settingsCmd     SaveSalesOrderSettingsCommand
-	generateCmd     GenerateSalesOrderDocumentCommand
-	previewOrderID  int64
+	saveCmd                SaveOrderCommand
+	inlineCmd              InlineUpdateCommand
+	saveCalls              int
+	outsourceSaved         SaveOutsourceTemplateCommand
+	trackingCmd            FillTrackingPairsCommand
+	shipMethodCmd          SetShipMethodCommand
+	shipmentCmd            CreateOrderShipmentCommand
+	trackingItems          FillShipmentTrackingCommand
+	orderNoTracking        FillShipmentTrackingByOrderNoCommand
+	settingsCmd            SaveSalesOrderSettingsCommand
+	generateCmd            GenerateSalesOrderDocumentCommand
+	previewOrderID         int64
+	deliveryFormCmd        SaveDeliveryNoteFormCommand
+	generateDeliveryCmd    GenerateDeliveryNoteDocumentCommand
+	previewDeliveryOrderID int64
 }
 
 func (r *fakeRepo) SaveOrder(ctx context.Context, cmd SaveOrderCommand) (SaveOrderResult, error) {
@@ -159,6 +162,37 @@ func (r *fakeRepo) PreviewSalesOrderDocument(ctx context.Context, orderID int64)
 
 func (r *fakeRepo) LoadSalesOrderDocumentFile(ctx context.Context, orderID, documentID int64, latest bool) (SalesOrderDocumentFile, error) {
 	return SalesOrderDocumentFile{Document: SalesOrderDocument{ID: documentID, OrderID: orderID, OrderNo: "SO-TEST", VersionNo: 1}, Path: "/tmp/test.pdf", Filename: "SO-TEST-V1.pdf"}, nil
+}
+
+func (r *fakeRepo) LoadDeliveryNoteContext(ctx context.Context, orderID int64) (DeliveryNoteContext, error) {
+	return DeliveryNoteContext{OrderID: orderID, OrderNo: "SO-TEST", ShipStatus: "已发货", Customer: SalesOrderCustomerInfo{ID: 3, Name: "测试客户"}}, nil
+}
+
+func (r *fakeRepo) LoadDeliveryNoteForm(ctx context.Context, orderID int64) (DeliveryNoteForm, error) {
+	return DeliveryNoteForm{OrderID: orderID, OrderNo: "SO-TEST", SourceWarehouse: "finished_goods"}, nil
+}
+
+func (r *fakeRepo) SaveDeliveryNoteForm(ctx context.Context, cmd SaveDeliveryNoteFormCommand) (DeliveryNoteForm, error) {
+	r.deliveryFormCmd = cmd
+	return DeliveryNoteForm{OrderID: cmd.OrderID, OrderNo: "SO-TEST", PostingDate: cmd.PostingDate, SourceWarehouse: cmd.SourceWarehouse, DeliveryMethod: cmd.DeliveryMethod, TrackingNo: cmd.TrackingNo, Note: cmd.Note}, nil
+}
+
+func (r *fakeRepo) ListDeliveryNoteDocuments(ctx context.Context, orderID int64) ([]DeliveryNoteDocument, error) {
+	return []DeliveryNoteDocument{{ID: 9, OrderID: orderID, OrderNo: "SO-TEST", VersionNo: 1, IsLatest: true}}, nil
+}
+
+func (r *fakeRepo) PreviewDeliveryNoteDocument(ctx context.Context, orderID int64) (DeliveryNotePreview, error) {
+	r.previewDeliveryOrderID = orderID
+	return DeliveryNotePreview{OrderID: orderID, OrderNo: "SO-TEST", NextVersionNo: 2}, nil
+}
+
+func (r *fakeRepo) GenerateDeliveryNoteDocument(ctx context.Context, cmd GenerateDeliveryNoteDocumentCommand) (GenerateDeliveryNoteDocumentResult, error) {
+	r.generateDeliveryCmd = cmd
+	return GenerateDeliveryNoteDocumentResult{Document: DeliveryNoteDocument{ID: 10, OrderID: cmd.OrderID, OrderNo: "SO-TEST", VersionNo: 1, IsLatest: true}}, nil
+}
+
+func (r *fakeRepo) LoadDeliveryNoteDocumentFile(ctx context.Context, orderID, documentID int64, latest bool) (DeliveryNoteDocumentFile, error) {
+	return DeliveryNoteDocumentFile{Document: DeliveryNoteDocument{ID: documentID, OrderID: orderID, OrderNo: "SO-TEST", VersionNo: 1}, Path: "/tmp/test.pdf", Filename: "SO-TEST-DN-V1.pdf"}, nil
 }
 
 func TestServiceDelegatesSaveOrder(t *testing.T) {
@@ -440,5 +474,54 @@ func TestServiceOwnsSalesOrderDocumentUseCases(t *testing.T) {
 	}
 	if len(docs) != 1 || docs[0].OrderID != 18 {
 		t.Fatalf("ListSalesOrderDocuments() = %+v", docs)
+	}
+}
+
+func TestServiceOwnsDeliveryNoteUseCases(t *testing.T) {
+	repo := &fakeRepo{}
+	svc := NewService(repo)
+
+	if err := svc.SaveDeliveryNoteForm(context.Background(), SaveDeliveryNoteFormCommand{
+		Actor:           " warehouse ",
+		OrderID:         18,
+		PostingDate:     " 2026-05-02 ",
+		SourceWarehouse: " finished_goods ",
+		DeliveryMethod:  " 顺丰 ",
+		TrackingNo:      " SF123 ",
+		Note:            " 随货附单 ",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if repo.deliveryFormCmd.Actor != "warehouse" || repo.deliveryFormCmd.OrderID != 18 || repo.deliveryFormCmd.SourceWarehouse != "finished_goods" || repo.deliveryFormCmd.TrackingNo != "SF123" {
+		t.Fatalf("delivery form command = %+v", repo.deliveryFormCmd)
+	}
+
+	doc, err := svc.GenerateDeliveryNoteDocument(context.Background(), GenerateDeliveryNoteDocumentCommand{Actor: " stock ", OrderID: 18})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if doc.Document.VersionNo != 1 || repo.generateDeliveryCmd.Actor != "stock" || repo.generateDeliveryCmd.OrderID != 18 {
+		t.Fatalf("document=%+v command=%+v", doc, repo.generateDeliveryCmd)
+	}
+	if _, err := svc.GenerateDeliveryNoteDocument(context.Background(), GenerateDeliveryNoteDocumentCommand{OrderID: 0}); err == nil {
+		t.Fatal("GenerateDeliveryNoteDocument invalid order error = nil")
+	}
+	preview, err := svc.PreviewDeliveryNoteDocument(context.Background(), 18)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if preview.NextVersionNo != 2 || repo.previewDeliveryOrderID != 18 {
+		t.Fatalf("preview=%+v orderID=%d", preview, repo.previewDeliveryOrderID)
+	}
+	if _, err := svc.PreviewDeliveryNoteDocument(context.Background(), 0); err == nil {
+		t.Fatal("PreviewDeliveryNoteDocument invalid order error = nil")
+	}
+
+	docs, err := svc.ListDeliveryNoteDocuments(context.Background(), 18)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(docs) != 1 || docs[0].OrderID != 18 {
+		t.Fatalf("ListDeliveryNoteDocuments() = %+v", docs)
 	}
 }
