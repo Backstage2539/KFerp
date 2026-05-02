@@ -28,7 +28,7 @@ func TestDefaultRoleSeedsIncludeCoreInternalRoles(t *testing.T) {
 func TestDefaultViewPermissionsCoverVueShellMenuKeys(t *testing.T) {
 	views := defaultViewPermissions()
 	for _, key := range []string{
-		"order", "orders", "salesOrder", "deliveryNote", "customers", "quotePrint",
+		"order", "orders", "orderInvoice", "salesOrder", "deliveryNote", "customers", "quotePrint",
 		"producePlan", "productionAcceptance", "produceRunning", "workOrders", "jobCards", "qualityInspections", "produceLogs", "productionCosts", "productionManual",
 		"warehouseInventory", "stockOperations", "materials", "materialReceipts", "materialBatches", "wipMaterials", "stockLedger", "stockBatches", "stockAdjustments", "inventory", "allocationLogs",
 		"productSettings", "bom", "products", "costing",
