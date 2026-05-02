@@ -331,6 +331,13 @@ func TestSalesOrderDocumentAPI(t *testing.T) {
 	if imageLatestRec.Code != http.StatusOK || imageLatestRec.Header().Get(echo.HeaderContentType) != "image/png" {
 		t.Fatalf("latest image download status=%d content-type=%q body=%s", imageLatestRec.Code, imageLatestRec.Header().Get(echo.HeaderContentType), imageLatestRec.Body.String())
 	}
+	latestImage, err := png.Decode(bytes.NewReader(imageLatestRec.Body.Bytes()))
+	if err != nil {
+		t.Fatalf("decode latest sales order image: %v", err)
+	}
+	if latestImage.Bounds().Dx() < 2480 || latestImage.Bounds().Dy() < 3508 {
+		t.Fatalf("latest sales order image bounds = %v, want high-resolution PNG", latestImage.Bounds())
+	}
 	imageHistoryReq := httptest.NewRequest(http.MethodGet, fmt.Sprintf("/orders/1/sales-order-images/%d.png", createdImage.ID), nil)
 	imageHistoryRec := httptest.NewRecorder()
 	e.ServeHTTP(imageHistoryRec, imageHistoryReq)

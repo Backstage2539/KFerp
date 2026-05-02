@@ -320,9 +320,9 @@ func (r SalesOrderRenderer) renderPaymentCodes(pdf *gofpdf.Fpdf, codes []salesdo
 
 func salesOrderPaymentCodeMetrics(count int) salesOrderPaymentCodeLayout {
 	if count <= 1 {
-		return salesOrderPaymentCodeLayout{CellWidth: 78, ImageSize: 52, CellHeight: 76, Gap: 0, Stacked: false}
+		return salesOrderPaymentCodeLayout{CellWidth: 88, ImageSize: 64, CellHeight: 90, Gap: 0, Stacked: false}
 	}
-	return salesOrderPaymentCodeLayout{CellWidth: 78, ImageSize: 42, CellHeight: 64, Gap: 7, Stacked: true}
+	return salesOrderPaymentCodeLayout{CellWidth: 88, ImageSize: 52, CellHeight: 78, Gap: 6, Stacked: true}
 }
 
 func (r SalesOrderRenderer) renderPaymentCodeCell(pdf *gofpdf.Fpdf, ref salesdomain.SalesOrderAssetRef, x, y float64, metrics salesOrderPaymentCodeLayout) {
