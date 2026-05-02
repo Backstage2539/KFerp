@@ -9,12 +9,12 @@ import (
 func TestDeliveryNoteSealAndOrderDrawerRequirementSeeds(t *testing.T) {
 	src := string(readOrderAppFileForTest(t, filepath.Join("internal", "interfaces", "http", "support", "req_store.go")))
 	for _, want := range []string{
-		"PR-139",
-		"DEV-139-01",
-		"DEV-139-02",
-		"UT-139-01",
-		"API-139-01",
-		"REV-139-01",
+		"PR-140",
+		"DEV-140-01",
+		"DEV-140-02",
+		"UT-140-01",
+		"API-140-01",
+		"REV-140-01",
 		"出库单公章设置",
 		"订单抽屉",
 		"快递信息合并",
