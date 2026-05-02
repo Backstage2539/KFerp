@@ -29,6 +29,9 @@ func EnsureSchema(ctx context.Context, pool *pgxpool.Pool, schema string) error 
 	if err := ensureSalesOrderTables(ctx, pool, schema); err != nil {
 		return err
 	}
+	if err := ensureOrderInvoiceTables(ctx, pool, schema); err != nil {
+		return err
+	}
 	return ensureDeliveryNoteTables(ctx, pool, schema)
 }
 
@@ -227,6 +230,30 @@ func ensureSalesOrderTables(ctx context.Context, pool *pgxpool.Pool, schema stri
 		fmt.Sprintf(`ALTER TABLE %s.sales_order_settings ADD COLUMN IF NOT EXISTS bank_name TEXT NOT NULL DEFAULT ''`, schema),
 		fmt.Sprintf(`ALTER TABLE %s.sales_order_settings ADD COLUMN IF NOT EXISTS bank_account_no TEXT NOT NULL DEFAULT ''`, schema),
 	} {
+		if _, err := pool.Exec(ctx, stmt); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func ensureOrderInvoiceTables(ctx context.Context, pool *pgxpool.Pool, schema string) error {
+	stmts := []string{
+		fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s.order_invoices (
+			order_id BIGINT PRIMARY KEY REFERENCES %s.orders(id) ON DELETE CASCADE,
+			order_no TEXT NOT NULL DEFAULT '',
+			status TEXT NOT NULL DEFAULT 'requested',
+			requested_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+			requested_by TEXT NOT NULL DEFAULT '',
+			invoice_asset_id BIGINT REFERENCES %s.sales_order_assets(id),
+			uploaded_at TIMESTAMPTZ,
+			uploaded_by TEXT NOT NULL DEFAULT '',
+			updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+			updated_by TEXT NOT NULL DEFAULT ''
+		)`, schema, schema, schema),
+		fmt.Sprintf(`CREATE INDEX IF NOT EXISTS idx_%s_order_invoices_status ON %s.order_invoices(status)`, schema, schema),
+	}
+	for _, stmt := range stmts {
 		if _, err := pool.Exec(ctx, stmt); err != nil {
 			return err
 		}

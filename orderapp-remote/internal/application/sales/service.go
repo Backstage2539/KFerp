@@ -248,6 +248,9 @@ type OrderRow struct {
 	CreatedByEmployee string `json:"created_by_employee"`
 	Notes             string `json:"notes"`
 	IsVoid            bool   `json:"is_void"`
+	InvoiceStatus     string `json:"invoice_status"`
+	InvoiceFilename   string `json:"invoice_filename"`
+	InvoiceFileURL    string `json:"invoice_file_url"`
 }
 
 type AuditRow struct {
@@ -598,6 +601,32 @@ type SalesOrderImageFile struct {
 	Filename string
 }
 
+type OrderInvoice struct {
+	OrderID     int64            `json:"order_id"`
+	OrderNo     string           `json:"order_no"`
+	Status      string           `json:"status"`
+	RequestedAt string           `json:"requested_at"`
+	RequestedBy string           `json:"requested_by"`
+	UploadedAt  string           `json:"uploaded_at"`
+	UploadedBy  string           `json:"uploaded_by"`
+	Asset       *SalesOrderAsset `json:"asset,omitempty"`
+}
+
+type RequestOrderInvoiceCommand struct {
+	Actor   string
+	OrderID int64
+}
+
+type SaveOrderInvoiceFileCommand struct {
+	Actor       string
+	OrderID     int64
+	Filename    string
+	ContentType string
+	Bytes       int64
+	SHA256      string
+	ObjectKey   string
+}
+
 type Repository interface {
 	SaveOrder(ctx context.Context, cmd SaveOrderCommand) (SaveOrderResult, error)
 	UpdateHeader(ctx context.Context, id int64, cmd UpdateHeaderCommand) error
@@ -641,6 +670,9 @@ type Repository interface {
 	PreviewDeliveryNoteDocument(ctx context.Context, orderID int64) (DeliveryNotePreview, error)
 	GenerateDeliveryNoteDocument(ctx context.Context, cmd GenerateDeliveryNoteDocumentCommand) (GenerateDeliveryNoteDocumentResult, error)
 	LoadDeliveryNoteDocumentFile(ctx context.Context, orderID, documentID int64, latest bool) (DeliveryNoteDocumentFile, error)
+	LoadOrderInvoice(ctx context.Context, orderID int64) (OrderInvoice, error)
+	RequestOrderInvoice(ctx context.Context, cmd RequestOrderInvoiceCommand) (OrderInvoice, error)
+	SaveOrderInvoiceFile(ctx context.Context, cmd SaveOrderInvoiceFileCommand) (OrderInvoice, error)
 }
 
 type Service struct {
@@ -1194,6 +1226,51 @@ func (s *Service) LoadDeliveryNoteDocumentFile(ctx context.Context, orderID, doc
 		return DeliveryNoteDocumentFile{}, fmt.Errorf("invalid document id")
 	}
 	return s.repo.LoadDeliveryNoteDocumentFile(ctx, orderID, documentID, latest)
+}
+
+func (s *Service) LoadOrderInvoice(ctx context.Context, orderID int64) (OrderInvoice, error) {
+	if orderID <= 0 {
+		return OrderInvoice{}, fmt.Errorf("invalid order id")
+	}
+	return s.repo.LoadOrderInvoice(ctx, orderID)
+}
+
+func (s *Service) RequestOrderInvoice(ctx context.Context, cmd RequestOrderInvoiceCommand) (OrderInvoice, error) {
+	if cmd.OrderID <= 0 {
+		return OrderInvoice{}, fmt.Errorf("invalid order id")
+	}
+	return s.repo.RequestOrderInvoice(ctx, cmd)
+}
+
+func (s *Service) SaveOrderInvoiceFile(ctx context.Context, cmd SaveOrderInvoiceFileCommand) (OrderInvoice, error) {
+	if cmd.OrderID <= 0 {
+		return OrderInvoice{}, fmt.Errorf("invalid order id")
+	}
+	if strings.TrimSpace(cmd.Filename) == "" {
+		return OrderInvoice{}, fmt.Errorf("filename required")
+	}
+	if !IsOrderInvoiceContentTypeAllowed(cmd.ContentType) {
+		return OrderInvoice{}, fmt.Errorf("only PDF and image files are allowed")
+	}
+	if cmd.Bytes <= 0 {
+		return OrderInvoice{}, fmt.Errorf("empty file")
+	}
+	if strings.TrimSpace(cmd.SHA256) == "" {
+		return OrderInvoice{}, fmt.Errorf("sha256 required")
+	}
+	if strings.TrimSpace(cmd.ObjectKey) == "" {
+		return OrderInvoice{}, fmt.Errorf("object_key required")
+	}
+	return s.repo.SaveOrderInvoiceFile(ctx, cmd)
+}
+
+func IsOrderInvoiceContentTypeAllowed(contentType string) bool {
+	switch strings.ToLower(strings.TrimSpace(contentType)) {
+	case "application/pdf", "image/png", "image/jpeg", "image/gif", "image/webp":
+		return true
+	default:
+		return false
+	}
 }
 
 func digitsOnly(s string) string {
