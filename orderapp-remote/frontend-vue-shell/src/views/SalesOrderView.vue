@@ -9,8 +9,10 @@
           <button class="secondary" type="button" @click="openSettingsDrawer">销售单设置</button>
           <button class="secondary" type="button" @click="openCustomerDrawer" :disabled="!customerSummary.id">客户信息</button>
           <button class="secondary" type="button" @click="loadPreview" :disabled="previewLoading || !orderID">{{ previewLoading ? '预览中' : '刷新预览' }}</button>
-          <a v-if="documents.length" class="secondary link-button" :href="salesOrderDownloadUrl(orderID)" target="_blank" rel="noopener">下载最新版</a>
+          <a v-if="documents.length" class="secondary link-button" :href="salesOrderDownloadUrl(orderID)" target="_blank" rel="noopener">下载最新版 PDF</a>
+          <a v-if="imageDocuments.length" class="secondary link-button" :href="salesOrderImageDownloadUrl(orderID)" target="_blank" rel="noopener">下载最新版图片</a>
           <button class="primary" type="button" @click="generate" :disabled="generating || !orderID || !preview">{{ generating ? '生成中' : '确认生成 PDF' }}</button>
+          <button class="primary" type="button" @click="generateImage" :disabled="imageGenerating || !orderID || !preview">{{ imageGenerating ? '生成图片中' : '确认生成图片' }}</button>
         </div>
       </div>
       <div v-if="error" class="error">{{ error }}</div>
@@ -19,18 +21,19 @@
         <span>订单 ID：{{ orderID || '-' }}</span>
         <span>客户：{{ customerSummary.name || '-' }}</span>
         <span>公司：{{ customerSummary.company_name || customerSummary.name || '-' }}</span>
-        <span>版本数：{{ documents.length }}</span>
+        <span>PDF版本：{{ documents.length }}</span>
+        <span>图片版本：{{ imageDocuments.length }}</span>
       </div>
       <details class="manual">
         <summary>销售单手册</summary>
         <ul>
-          <li>首次生成销售单为 V1，同一订单再次生成会创建 V2，不覆盖旧文件。</li>
-          <li>生成前先查看“销售单预览”；客户信息调整后可刷新预览，确认内容后再生成 PDF。</li>
+          <li>首次生成销售单 PDF 或图片都从 V1 开始，同一订单再次生成会创建新版本，不覆盖旧文件。</li>
+          <li>生成前先查看“销售单预览”；客户信息调整后可刷新预览，确认内容后再生成 PDF 或图片。</li>
           <li>公账收款信息在“公司设置”维护；预览会展示纳税人识别号、公司地址、户名、开户行和账号。</li>
           <li>客户公司地址过长时会自动换行；收款码会按数量自动放大或排列，减少空白区域。</li>
           <li>预览里的公章可直接拖动，松开后保存位置；位置只影响之后生成的新销售单。</li>
           <li>销售单内容按生成时的订单和设置保存快照，后续修改设置不会改动旧版本。</li>
-          <li>需要给客户最新文件时使用“下载最新版”，需要追溯时下载指定历史版本。</li>
+          <li>需要给客户最新文件时使用“下载最新版 PDF”或“下载最新版图片”，需要追溯时下载指定历史版本。</li>
         </ul>
       </details>
     </section>
@@ -125,7 +128,7 @@
 
     <section class="panel">
       <div class="panel-head">
-        <h3>历史版本</h3>
+        <h3>PDF版本</h3>
         <button class="secondary" type="button" @click="load" :disabled="loading">刷新</button>
       </div>
       <table>
@@ -142,6 +145,29 @@
             <td><a class="text-link" :href="doc.download_url" target="_blank" rel="noopener">下载</a></td>
           </tr>
           <tr v-if="!documents.length"><td colspan="6" class="muted">暂无销售单版本</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section class="panel">
+      <div class="panel-head">
+        <h3>图片版本</h3>
+        <button class="secondary" type="button" @click="load" :disabled="loading">刷新</button>
+      </div>
+      <table>
+        <thead>
+          <tr><th>版本</th><th>订单号</th><th>生成时间</th><th>操作人</th><th>状态</th><th>操作</th></tr>
+        </thead>
+        <tbody>
+          <tr v-for="doc in imageDocuments" :key="doc.id">
+            <td>V{{ doc.version_no }}</td>
+            <td>{{ doc.order_no }}</td>
+            <td>{{ doc.created_at }}</td>
+            <td>{{ doc.created_by || '-' }}</td>
+            <td>{{ doc.is_latest ? '最新版' : '历史版本' }}</td>
+            <td><a class="text-link" :href="doc.download_url" target="_blank" rel="noopener">下载图片</a></td>
+          </tr>
+          <tr v-if="!imageDocuments.length"><td colspan="6" class="muted">暂无销售单图片版本</td></tr>
         </tbody>
       </table>
     </section>
@@ -203,7 +229,7 @@
 <script setup>
 import { computed, onMounted, reactive, ref } from 'vue'
 import { apiGet, apiSend } from '../api/client'
-import { salesOrderDownloadUrl } from '../lib/sales-order'
+import { salesOrderDownloadUrl, salesOrderImageDownloadUrl } from '../lib/sales-order'
 import SalesOrderSettingsView from './SalesOrderSettingsView.vue'
 
 const props = defineProps({
@@ -216,9 +242,11 @@ const emit = defineEmits(['close'])
 const loading = ref(false)
 const previewLoading = ref(false)
 const generating = ref(false)
+const imageGenerating = ref(false)
 const error = ref('')
 const message = ref('')
 const documents = ref([])
+const imageDocuments = ref([])
 const preview = ref(null)
 const drawerOpen = ref(false)
 const settingsDrawerOpen = ref(false)
@@ -237,6 +265,7 @@ async function load() {
   try {
     const data = await apiGet(`/api/orders/${orderID.value}/sales-orders`)
     documents.value = data.rows || []
+    imageDocuments.value = data.image_rows || []
     assignCustomer(customerSummary, data.order?.customer || {})
   } catch (err) {
     error.value = err.message || '加载失败'
@@ -278,6 +307,23 @@ async function generate() {
     error.value = err.message || '生成失败'
   } finally {
     generating.value = false
+  }
+}
+
+async function generateImage() {
+  if (!orderID.value || !preview.value) return
+  imageGenerating.value = true
+  error.value = ''
+  message.value = ''
+  try {
+    const data = await apiSend(`/api/orders/${orderID.value}/sales-order-images`)
+    message.value = `已生成图片 V${data.version_no}`
+    await load()
+    await loadPreview()
+  } catch (err) {
+    error.value = err.message || '生成图片失败'
+  } finally {
+    imageGenerating.value = false
   }
 }
 

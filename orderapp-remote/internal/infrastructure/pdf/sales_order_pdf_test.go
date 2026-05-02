@@ -45,6 +45,47 @@ func TestRenderSalesOrderPDF(t *testing.T) {
 	}
 }
 
+func TestRenderSalesOrderPNG(t *testing.T) {
+	renderer := SalesOrderRenderer{}
+	b, err := renderer.RenderPNG(salesdomain.SalesOrderSnapshot{
+		OrderID:                1,
+		OrderNo:                "SO-20260430-0008",
+		OrderDate:              "2026-04-30",
+		CustomerName:           "某某咖啡馆",
+		CompanyName:            "浅焙作坊咖啡",
+		CustomerCompanyName:    "某某咖啡贸易公司",
+		CustomerCompanyAddress: "上海市徐汇区长地址一二三四五六七八九十",
+		CustomerCompanyPhone:   "021-12345678",
+		PaymentText:            "微信或对公转账",
+		BankAccountName:        "孟连口加农业科技有限公司",
+		BankName:               "中国农业银行孟连支行",
+		BankAccountNo:          "6222000000000000",
+		TaxpayerID:             "91530827MACGJ29D6J",
+		CompanyAddress:         "云南省普洱市孟连县",
+		Note:                   "第一行\n第二行",
+		Items: []salesdomain.SalesOrderSnapshotItem{{
+			Name: "橘皮乌龙", Spec: "300g", Qty: "2", Unit: "件", UnitPrice: "67.00", LineTotal: "134.00",
+		}},
+		TotalAmount: "134.00",
+		Shipping:    "0.00",
+		Discount:    "0.00",
+		GrandTotal:  "134.00",
+	})
+	if err != nil {
+		t.Fatalf("RenderPNG() error = %v", err)
+	}
+	if !bytes.HasPrefix(b, []byte{0x89, 'P', 'N', 'G', '\r', '\n', 0x1a, '\n'}) {
+		t.Fatalf("PNG missing header: %q", b[:8])
+	}
+	img, err := png.Decode(bytes.NewReader(b))
+	if err != nil {
+		t.Fatalf("decode PNG: %v", err)
+	}
+	if img.Bounds().Dx() < 1000 || img.Bounds().Dy() < 1400 {
+		t.Fatalf("PNG bounds = %v, want A4-like document image", img.Bounds())
+	}
+}
+
 func TestRenderSalesOrderPDFEmbedsPaymentCodeAndSealImages(t *testing.T) {
 	dir := t.TempDir()
 	writeTestPNG(t, filepath.Join(dir, "sales-order", "payment", "wechat.png"))

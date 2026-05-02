@@ -698,6 +698,13 @@ func seedReqWorkflowA(ctx context.Context, pool *pgxpool.Pool, schema string) er
 		{table: "req_unit", code: "UT-131-01", title: "单测覆盖质检对象 helper、Vue 工作台抽屉源码守卫、需求种子和生产手册更新", status: "done", assignee: "Codex", evidence: "quality-inspections.test.js; dev_131_quality_drawer_test.go"},
 		{table: "req_api", code: "API-131-01", title: "API 验证复用 GET /api/produce/work-orders、GET /api/stock/material-batches、GET /api/stock/batches 作为质检对象来源，保存仍走 POST /api/produce/quality-inspections", status: "done", assignee: "Codex", evidence: "TestManufacturingGapAPIs; TestStockAPIRoutes; QualityInspectionsView API wiring"},
 		{table: "req_review", code: "REV-131-01", prCode: "PR-131", title: "验收：生产质检页点击选择质检对象后右侧弹出工单/原料/产品三类候选，选择后可保存质检记录", status: "todo", assignee: "VA", evidence: "待 Van 服务器验收"},
+		{table: "req_product", code: "PR-132", title: "销售单支持生成图片，和 PDF 一样按订单快照保留 PNG 图片版本", status: "review", assignee: "VA", evidence: "codex/sales-order-image-export-20260502"},
+		{table: "req_dev", code: "DEV-132-01", title: "新增销售单 PNG 图片版本表和应用服务，用同一销售单快照生成图片资产，图片最新版独立于 PDF 最新版", status: "done", assignee: "Codex", evidence: "sales_order_images; GenerateSalesOrderImage; RenderPNG"},
+		{table: "req_dev", code: "DEV-132-02", title: "新增销售单图片生成、列表、历史下载和最新版下载 API，下载返回 image/png", status: "done", assignee: "Codex", evidence: "POST/GET /api/orders/:id/sales-order-images; /orders/:id/sales-order-image-latest.png"},
+		{table: "req_dev", code: "DEV-132-03", title: "销售单 Vue 抽屉增加确认生成图片、下载最新版图片和图片版本列表，并更新销售单手册", status: "done", assignee: "Codex", evidence: "SalesOrderView imageDocuments; sales-order-user-manual"},
+		{table: "req_unit", code: "UT-132-01", title: "单测覆盖销售单图片应用服务、PNG 渲染、仓储版本、前端下载 helper 和需求种子源码守卫", status: "done", assignee: "Codex", evidence: "TestServiceOwnsSalesOrderImageUseCases; TestRenderSalesOrderPNG; TestGenerateSalesOrderImageCreatesIndependentImageVersions; sales-order.test.js; dev_132"},
+		{table: "req_api", code: "API-132-01", title: "API 测试覆盖确认生成销售单图片、图片版本列表、历史 PNG 下载和最新版 PNG 下载", status: "done", assignee: "Codex", evidence: "TestSalesOrderDocumentAPI image branch"},
+		{table: "req_review", code: "REV-132-01", prCode: "PR-132", title: "验收：销售单抽屉可基于预览生成图片；图片可下载最新版和历史版本；PDF 最新版不受图片生成影响", status: "todo", assignee: "VA", evidence: "待 Van 服务器验收"},
 	} {
 		if err := seedReqRow(ctx, pool, schema, row); err != nil {
 			return err
