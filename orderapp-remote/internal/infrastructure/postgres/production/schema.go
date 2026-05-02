@@ -138,7 +138,23 @@ func ensureProductionRunTable(ctx context.Context, pool *pgxpool.Pool, schema st
 		finished_by TEXT,
 		finished_at TIMESTAMPTZ
 	);
-	CREATE INDEX IF NOT EXISTS produce_running_items_status_idx ON %s.produce_running_items(status, started_at DESC);`, schema, schema)
+	CREATE INDEX IF NOT EXISTS produce_running_items_status_idx ON %s.produce_running_items(status, started_at DESC);
+	CREATE TABLE IF NOT EXISTS %s.produce_running_outputs (
+		id BIGSERIAL PRIMARY KEY,
+		running_item_id BIGINT NOT NULL REFERENCES %s.produce_running_items(id) ON DELETE CASCADE,
+		product_id BIGINT NOT NULL DEFAULT 0,
+		product_name TEXT NOT NULL DEFAULT '',
+		spec_g BIGINT NOT NULL DEFAULT 0,
+		need_g BIGINT NOT NULL DEFAULT 0,
+		order_nos TEXT NOT NULL DEFAULT '',
+		planned_units BIGINT NOT NULL DEFAULT 0,
+		planned_loose_g BIGINT NOT NULL DEFAULT 0,
+		finished_units BIGINT NOT NULL DEFAULT 0,
+		finished_loose_g BIGINT NOT NULL DEFAULT 0,
+		created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+		UNIQUE(running_item_id, product_id, spec_g)
+	);
+	CREATE INDEX IF NOT EXISTS produce_running_outputs_running_idx ON %s.produce_running_outputs(running_item_id, spec_g);`, schema, schema, schema, schema, schema)
 	if _, err := pool.Exec(ctx, q); err != nil {
 		return err
 	}

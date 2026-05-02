@@ -29,28 +29,47 @@ type ProduceRunningAPIResponse struct {
 }
 
 type ProduceRunningAPIRow struct {
-	ID           int64   `json:"id"`
-	BatchID      string  `json:"batch_id"`
-	ProductID    int64   `json:"product_id"`
-	ProductName  string  `json:"product_name"`
-	SpecG        int64   `json:"spec_g"`
-	NeedG        int64   `json:"need_g"`
-	InputG       int64   `json:"input_g"`
-	BomYieldRate float64 `json:"bom_yield_rate"`
-	PlanUnits    int64   `json:"plan_units"`
-	PlanLooseG   int64   `json:"plan_loose_g"`
-	OrderNos     string  `json:"order_nos"`
-	StartedBy    string  `json:"started_by"`
-	StartedAt    string  `json:"started_at"`
+	ID           int64                     `json:"id"`
+	BatchID      string                    `json:"batch_id"`
+	ProductID    int64                     `json:"product_id"`
+	ProductName  string                    `json:"product_name"`
+	SpecG        int64                     `json:"spec_g"`
+	NeedG        int64                     `json:"need_g"`
+	InputG       int64                     `json:"input_g"`
+	BomYieldRate float64                   `json:"bom_yield_rate"`
+	PlanUnits    int64                     `json:"plan_units"`
+	PlanLooseG   int64                     `json:"plan_loose_g"`
+	OrderNos     string                    `json:"order_nos"`
+	StartedBy    string                    `json:"started_by"`
+	StartedAt    string                    `json:"started_at"`
+	Outputs      []ProduceRunningAPIOutput `json:"outputs"`
+}
+
+type ProduceRunningAPIOutput struct {
+	ID             int64  `json:"id"`
+	SpecG          int64  `json:"spec_g"`
+	NeedG          int64  `json:"need_g"`
+	OrderNos       string `json:"order_nos"`
+	PlanUnits      int64  `json:"plan_units"`
+	PlanLooseG     int64  `json:"plan_loose_g"`
+	FinishedUnits  int64  `json:"finished_units"`
+	FinishedLooseG int64  `json:"finished_loose_g"`
 }
 
 type ProduceRunningFinishAPIRequest struct {
-	ID             int64  `json:"id" form:"id"`
-	FinishedUnits  int64  `json:"finished_units" form:"finished_units"`
-	FinishedLooseG int64  `json:"finished_loose_g" form:"finished_loose_g"`
-	Warehouse      string `json:"warehouse" form:"warehouse"`
-	Partial        bool   `json:"partial" form:"partial"`
-	ConsumedInputG int64  `json:"consumed_input_g" form:"consumed_input_g"`
+	ID             int64                                  `json:"id" form:"id"`
+	FinishedUnits  int64                                  `json:"finished_units" form:"finished_units"`
+	FinishedLooseG int64                                  `json:"finished_loose_g" form:"finished_loose_g"`
+	Warehouse      string                                 `json:"warehouse" form:"warehouse"`
+	Partial        bool                                   `json:"partial" form:"partial"`
+	ConsumedInputG int64                                  `json:"consumed_input_g" form:"consumed_input_g"`
+	Outputs        []ProduceRunningFinishOutputAPIRequest `json:"outputs"`
+}
+
+type ProduceRunningFinishOutputAPIRequest struct {
+	SpecG          int64 `json:"spec_g"`
+	FinishedUnits  int64 `json:"finished_units"`
+	FinishedLooseG int64 `json:"finished_loose_g"`
 }
 
 type ProduceRunningCancelAPIRequest struct {
@@ -133,6 +152,7 @@ func registerProductionFlowPages(e *echo.Echo, productionSvc *productionapp.Serv
 			Partial:          req.Partial,
 			ConsumedInputG:   req.ConsumedInputG,
 			Operator:         support.ActorOf(c),
+			Outputs:          finishOutputsToApp(req.Outputs),
 		}); err != nil {
 			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: err.Error()})
 		}
@@ -174,6 +194,36 @@ func produceRunningAPIRows(rows []productionapp.RunningItem) []ProduceRunningAPI
 			OrderNos:     r.OrderNos,
 			StartedBy:    r.StartedBy,
 			StartedAt:    r.StartedAt,
+			Outputs:      produceRunningAPIOutputs(r.Outputs),
+		})
+	}
+	return out
+}
+
+func produceRunningAPIOutputs(rows []productionapp.RunningOutput) []ProduceRunningAPIOutput {
+	out := make([]ProduceRunningAPIOutput, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, ProduceRunningAPIOutput{
+			ID:             row.ID,
+			SpecG:          row.SpecG,
+			NeedG:          row.NeedG,
+			OrderNos:       row.OrderNos,
+			PlanUnits:      row.PlanUnits,
+			PlanLooseG:     row.PlanLooseG,
+			FinishedUnits:  row.FinishedUnits,
+			FinishedLooseG: row.FinishedLooseG,
+		})
+	}
+	return out
+}
+
+func finishOutputsToApp(rows []ProduceRunningFinishOutputAPIRequest) []productionapp.FinishOutputCommand {
+	out := make([]productionapp.FinishOutputCommand, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, productionapp.FinishOutputCommand{
+			SpecG:          row.SpecG,
+			FinishedUnits:  row.FinishedUnits,
+			FinishedLooseG: row.FinishedLooseG,
 		})
 	}
 	return out
