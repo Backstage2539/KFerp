@@ -21,7 +21,7 @@
           <li>公司名称在“公司设置”里维护；本页只维护销售单说明、收款方式、收款码和公章。</li>
           <li>公账收款信息在“公司设置”里维护；为空时销售单不展示公账信息。</li>
           <li>收款码支持多个，名称和说明会随 PDF 一起展示。</li>
-          <li>公章可上传图片后点击“去除背景”生成透明 PNG；也可拖动调整盖在公司名称上的位置，并调整公章大小，调整后只影响新生成版本。</li>
+          <li>公章可上传图片后点击“去除背景”生成透明 PNG；也可拖动调整盖在公司名称上的位置，松手自动保存，并调整公章大小，调整后只影响新生成版本。</li>
         </ul>
       </details>
     </section>
@@ -65,11 +65,7 @@
         <button class="secondary" type="button" @click="removeSealBackground" :disabled="removingSealBackground || !settings.seal">{{ removingSealBackground ? '处理中' : '去除背景' }}</button>
       </div>
       <div class="seal-position">
-        <div
-          ref="sealStage"
-          class="seal-position-stage"
-          @pointerdown="startSealDrag"
-        >
+        <div class="seal-position-stage">
           <div class="company-line">公司：公司名称</div>
           <img
             v-if="settings.seal?.url"
@@ -77,8 +73,10 @@
             :src="settings.seal.url"
             alt="公章"
             :style="sealDragStyle"
+            title="拖动调整公章位置，松手自动保存"
+            @pointerdown.stop="startSealDrag"
           />
-          <div v-else class="seal-placeholder" :style="sealDragStyle">公章</div>
+          <div v-else class="seal-placeholder" :style="sealDragStyle" title="拖动调整公章位置，松手自动保存" @pointerdown.stop="startSealDrag">公章</div>
         </div>
         <div class="seal-position-fields">
           <label><span>X(mm)</span><input v-model.number="form.seal_x_mm" type="number" min="0" step="1" /></label>
@@ -99,6 +97,7 @@
 <script setup>
 import { computed, onMounted, reactive, ref } from 'vue'
 import { apiGet, apiSend } from '../api/client'
+import { beginSalesOrderSealDrag, moveSalesOrderSealDrag, salesOrderSealPreviewScale, salesOrderSealStyle } from '../lib/sales-order-seal'
 
 const props = defineProps({
   embedded: { type: Boolean, default: false },
@@ -109,12 +108,12 @@ const saving = ref(false)
 const uploadingPayment = ref(false)
 const uploadingSeal = ref(false)
 const removingSealBackground = ref(false)
+const sealPositionSaving = ref(false)
 const error = ref('')
 const ok = ref(false)
 const settings = ref({})
 const paymentFile = ref(null)
 const sealFile = ref(null)
-const sealStage = ref(null)
 
 const form = reactive({
   note: '',
@@ -140,14 +139,7 @@ function assignSettings(data) {
 }
 
 const sealDragStyle = computed(() => {
-  const scale = 2.2
-  const width = Math.max(20, Number(form.seal_width_mm || 42)) * scale
-  return {
-    left: `${Math.max(0, Number(form.seal_x_mm || 0)) * scale}px`,
-    top: `${Math.max(0, Number(form.seal_y_mm || 0)) * scale}px`,
-    width: `${width}px`,
-    height: `${width * 0.62}px`,
-  }
+  return salesOrderSealStyle(form, salesOrderSealPreviewScale)
 })
 
 async function load() {
@@ -163,23 +155,49 @@ async function load() {
 }
 
 function startSealDrag(event) {
-  if (!sealStage.value) return
-  const stage = sealStage.value
-  const rect = stage.getBoundingClientRect()
-  const scaleX = 210 / rect.width
-  const scaleY = 84 / rect.height
+  if (sealPositionSaving.value) return
+  event.preventDefault()
+  const drag = beginSalesOrderSealDrag({
+    seal: form,
+    clientX: event.clientX,
+    clientY: event.clientY,
+    scale: salesOrderSealPreviewScale,
+  })
   const update = (clientX, clientY) => {
-    form.seal_x_mm = Math.max(0, Math.round((clientX - rect.left) * scaleX))
-    form.seal_y_mm = Math.max(0, Math.round((clientY - rect.top) * scaleY))
+    const next = moveSalesOrderSealDrag(drag, { clientX, clientY })
+    form.seal_x_mm = next.x_mm
+    form.seal_y_mm = next.y_mm
+    form.seal_width_mm = next.width_mm
   }
-  update(event.clientX, event.clientY)
   const move = (moveEvent) => update(moveEvent.clientX, moveEvent.clientY)
-  const up = () => {
+  const up = async () => {
     window.removeEventListener('pointermove', move)
     window.removeEventListener('pointerup', up)
+    await saveSealPosition()
   }
+  event.currentTarget?.setPointerCapture?.(event.pointerId)
   window.addEventListener('pointermove', move)
   window.addEventListener('pointerup', up, { once: true })
+}
+
+async function saveSealPosition() {
+  sealPositionSaving.value = true
+  error.value = ''
+  ok.value = false
+  try {
+    assignSettings(await apiSend('/api/settings/sales-order/seal-position', {
+      body: {
+        seal_x_mm: Number(form.seal_x_mm || 32),
+        seal_y_mm: Number(form.seal_y_mm || 22),
+        seal_width_mm: Number(form.seal_width_mm || 42),
+      },
+    }))
+    ok.value = true
+  } catch (err) {
+    error.value = err.message || '保存公章位置失败'
+  } finally {
+    sealPositionSaving.value = false
+  }
 }
 
 async function save() {
@@ -304,9 +322,9 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .seal-row { grid-template-columns: 1fr minmax(220px, 1fr) 110px 110px; }
 .current-seal { color: #555; }
 .seal-position { display: grid; grid-template-columns: minmax(320px, 462px) 1fr; gap: 12px; align-items: start; }
-.seal-position-stage { position: relative; width: 100%; aspect-ratio: 2.5 / 1; border: 1px dashed #d2c8bc; border-radius: 8px; background: #fffdf9; overflow: hidden; cursor: crosshair; }
+.seal-position-stage { position: relative; width: 100%; aspect-ratio: 2.5 / 1; border: 1px dashed #d2c8bc; border-radius: 8px; background: #fffdf9; overflow: hidden; }
 .company-line { position: absolute; left: 35px; top: 48px; font-weight: 700; }
-.seal-drag-image, .seal-placeholder { position: absolute; user-select: none; pointer-events: none; object-fit: contain; opacity: .86; }
+.seal-drag-image, .seal-placeholder { position: absolute; user-select: none; object-fit: contain; opacity: .86; cursor: move; touch-action: none; }
 .seal-placeholder { border: 2px solid #b91c1c; border-radius: 999px; color: #b91c1c; display: grid; place-items: center; font-weight: 800; }
 .seal-position-fields { display: grid; grid-template-columns: repeat(3, minmax(80px, 1fr)); gap: 10px; }
 .seal-size-control { grid-column: 1 / -1; }

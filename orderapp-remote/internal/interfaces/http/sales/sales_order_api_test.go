@@ -132,6 +132,52 @@ func TestSalesOrderSealPositionAPIOnlyUpdatesCoordinates(t *testing.T) {
 	}
 }
 
+func TestSalesOrderImageGenerationUsesSavedSealPosition(t *testing.T) {
+	pool, schema := newOrderAPITestDB(t)
+	ctx := context.Background()
+	seedOrderAPITestData(t, ctx, pool, schema)
+	if err := postgressales.EnsureSchema(ctx, pool, schema); err != nil {
+		t.Fatalf("EnsureSchema: %v", err)
+	}
+	seedSalesOrderAPITestOrder(t, ctx, pool, schema)
+	assetDir := t.TempDir()
+	objectKey := "sales_order_assets/seal/current-seal.png"
+	writeSealWithWhiteBackground(t, filepath.Join(assetDir, objectKey))
+	mustExecOrderAPITestSQL(t, ctx, pool, fmt.Sprintf(`
+		INSERT INTO %s.sales_order_assets(id, kind, filename, content_type, bytes, sha256, object_key, created_by)
+		VALUES(1101, 'seal', 'current-seal.png', 'image/png', 12, 'seed', '%s', '测试员')`, schema, objectKey))
+	mustExecOrderAPITestSQL(t, ctx, pool, fmt.Sprintf(`
+		INSERT INTO %s.sales_order_settings(id, note, payment_text, seal_asset_id, seal_x_mm, seal_y_mm, seal_width_mm)
+		VALUES(1, '说明', '微信', 1101, 32, 22, 42)`, schema))
+	e := newSalesOrderAPITestEcho(pool, schema, assetDir)
+
+	body := strings.NewReader(`{"seal_x_mm":61,"seal_y_mm":18,"seal_width_mm":48}`)
+	positionReq := httptest.NewRequest(http.MethodPost, "/api/settings/sales-order/seal-position", body)
+	positionReq.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	positionRec := httptest.NewRecorder()
+	e.ServeHTTP(positionRec, positionReq)
+	if positionRec.Code != http.StatusOK {
+		t.Fatalf("seal position status=%d body=%s", positionRec.Code, positionRec.Body.String())
+	}
+
+	imageReq := httptest.NewRequest(http.MethodPost, "/api/orders/1/sales-order-images", nil)
+	imageRec := httptest.NewRecorder()
+	e.ServeHTTP(imageRec, imageReq)
+	if imageRec.Code != http.StatusOK {
+		t.Fatalf("image status=%d body=%s", imageRec.Code, imageRec.Body.String())
+	}
+	var doc salesapp.SalesOrderImageDocument
+	if err := json.Unmarshal(imageRec.Body.Bytes(), &doc); err != nil {
+		t.Fatalf("decode image response: %v", err)
+	}
+	if doc.Snapshot.Seal == nil {
+		t.Fatalf("generated image snapshot missing seal: %+v", doc.Snapshot)
+	}
+	if doc.Snapshot.Seal.XMM != 61 || doc.Snapshot.Seal.YMM != 18 || doc.Snapshot.Seal.WidthMM != 48 {
+		t.Fatalf("generated image snapshot seal = %+v, want x=61 y=18 width=48", doc.Snapshot.Seal)
+	}
+}
+
 func TestSalesOrderSealBackgroundRemovalCreatesTransparentPNG(t *testing.T) {
 	pool, schema := newOrderAPITestDB(t)
 	ctx := context.Background()

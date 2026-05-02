@@ -230,6 +230,7 @@
 import { computed, onMounted, reactive, ref } from 'vue'
 import { apiGet, apiSend } from '../api/client'
 import { salesOrderDownloadUrl, salesOrderImageDownloadUrl } from '../lib/sales-order'
+import { beginSalesOrderSealDrag, moveSalesOrderSealDrag, salesOrderSealPreviewScale, salesOrderSealStyle } from '../lib/sales-order-seal'
 import SalesOrderSettingsView from './SalesOrderSettingsView.vue'
 
 const props = defineProps({
@@ -367,16 +368,7 @@ function assetURL(ref = {}) {
 }
 
 function sealPositionStyle(seal = {}) {
-  const scale = previewSealScale()
-  const x = Number(seal.x_mm || 32)
-  const y = Number(seal.y_mm || 22)
-  const w = Number(seal.width_mm || 42)
-  return {
-    left: `${x * scale}px`,
-    top: `${y * scale}px`,
-    width: `${w * scale}px`,
-    height: `${w * 0.62 * scale}px`,
-  }
+  return salesOrderSealStyle(seal, previewSealScale())
 }
 
 function hasBankAccount(snapshot = {}) {
@@ -388,29 +380,32 @@ function hasPaymentInfo(snapshot = {}) {
 }
 
 function previewSealScale() {
-  return 2.2
+  return salesOrderSealPreviewScale
 }
 
 function startPreviewSealDrag(event) {
   const seal = preview.value?.snapshot?.seal
   if (!seal || !previewSealStage.value || sealDragSaving.value) return
   event.preventDefault()
-  const scale = previewSealScale()
-  const originX = Number(seal.x_mm || 32)
-  const originY = Number(seal.y_mm || 22)
-  const startX = event.clientX
-  const startY = event.clientY
+  const drag = beginSalesOrderSealDrag({
+    seal,
+    clientX: event.clientX,
+    clientY: event.clientY,
+    scale: previewSealScale(),
+  })
   const update = (clientX, clientY) => {
-    seal.x_mm = Math.max(1, Math.round(originX + (clientX - startX) / scale))
-    seal.y_mm = Math.max(1, Math.round(originY + (clientY - startY) / scale))
+    const next = moveSalesOrderSealDrag(drag, { clientX, clientY })
+    seal.x_mm = next.x_mm
+    seal.y_mm = next.y_mm
+    seal.width_mm = next.width_mm
   }
-  update(event.clientX, event.clientY)
   const move = (moveEvent) => update(moveEvent.clientX, moveEvent.clientY)
   const up = async () => {
     window.removeEventListener('pointermove', move)
     window.removeEventListener('pointerup', up)
     await savePreviewSealPosition()
   }
+  event.currentTarget?.setPointerCapture?.(event.pointerId)
   window.addEventListener('pointermove', move)
   window.addEventListener('pointerup', up, { once: true })
 }
@@ -428,7 +423,7 @@ async function savePreviewSealPosition() {
         seal_width_mm: Number(seal.width_mm || 42),
       },
     })
-    message.value = '公章位置已保存'
+    message.value = '公章位置已保存，请重新生成图片或 PDF 后下载'
   } catch (err) {
     error.value = err.message || '保存公章位置失败'
   } finally {
