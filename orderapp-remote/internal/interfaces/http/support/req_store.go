@@ -705,6 +705,13 @@ func seedReqWorkflowA(ctx context.Context, pool *pgxpool.Pool, schema string) er
 		{table: "req_unit", code: "UT-132-01", title: "单测覆盖销售单图片应用服务、PNG 渲染、仓储版本、前端下载 helper 和需求种子源码守卫", status: "done", assignee: "Codex", evidence: "TestServiceOwnsSalesOrderImageUseCases; TestRenderSalesOrderPNG; TestGenerateSalesOrderImageCreatesIndependentImageVersions; sales-order.test.js; dev_132"},
 		{table: "req_api", code: "API-132-01", title: "API 测试覆盖确认生成销售单图片、图片版本列表、历史 PNG 下载和最新版 PNG 下载", status: "done", assignee: "Codex", evidence: "TestSalesOrderDocumentAPI image branch"},
 		{table: "req_review", code: "REV-132-01", prCode: "PR-132", title: "验收：销售单抽屉可基于预览生成图片；图片可下载最新版和历史版本；PDF 最新版不受图片生成影响", status: "todo", assignee: "VA", evidence: "待 Van 服务器验收"},
+		{table: "req_product", code: "PR-133", title: "操作日志可读性修正：对象、菜单、功能和摘要按当前业务流程显示中文", status: "review", assignee: "VA", evidence: "codex/audit-log-readability-20260502"},
+		{table: "req_dev", code: "DEV-133-01", title: "扫描审计日志写入对象，补齐订单、生产、库存、成本、销售单、公司和账号实体的菜单/功能映射", status: "done", assignee: "Codex", evidence: "auditMenuFeature entity mapping"},
+		{table: "req_dev", code: "DEV-133-02", title: "操作请求路由按当前 Vue 菜单 IA 输出菜单和功能，避免旧菜单、未分类和访问系统页面兜底", status: "done", assignee: "Codex", evidence: "operationMenuFeature route mapping"},
+		{table: "req_dev", code: "DEV-133-03", title: "日志对象和摘要优先显示批次号、工单号、订单号、参数名、版本号等业务可读标识，不直接暴露内部对象名", status: "done", assignee: "Codex", evidence: "labelEntityType/labelAction/labelField/auditTargetHint"},
+		{table: "req_unit", code: "UT-133-01", title: "单测覆盖扫描到的审计对象、动作、字段、菜单、功能和摘要可读性", status: "done", assignee: "Codex", evidence: "TestDecorateAuditLogRowScannedEntitiesUseReadableLabels; TestDecorateAuditLogRowScannedOperationRoutesUseCurrentMenuIA"},
+		{table: "req_api", code: "API-133-01", title: "API 级回归覆盖 /api/audit 输出仍走统一装饰层，返回当前菜单 IA 和中文对象摘要", status: "done", assignee: "Codex", evidence: "go test ./internal/interfaces/http/support -count=1"},
+		{table: "req_review", code: "REV-133-01", prCode: "PR-133", title: "验收：打开操作日志后不再看到大批未分类/英文对象；菜单与系统左侧菜单一致；摘要能直接看懂业务对象", status: "todo", assignee: "VA", evidence: "待 Van 功能分支验收"},
 	} {
 		if err := seedReqRow(ctx, pool, schema, row); err != nil {
 			return err
