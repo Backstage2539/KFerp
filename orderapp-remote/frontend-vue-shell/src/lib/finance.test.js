@@ -6,6 +6,7 @@ import {
   financeMetricCards,
   financeReportExportUrls,
   financeStatusLabel,
+  monthFromDate,
   money,
   percent,
   rateFromPercent,
@@ -14,6 +15,12 @@ import {
 
 test('currentMonth formats a date as YYYY-MM', () => {
   assert.equal(currentMonth(new Date('2026-05-02T08:30:00+08:00')), '2026-05')
+})
+
+test('monthFromDate returns the posting month for finance expense dates', () => {
+  assert.equal(monthFromDate('2026-04-15'), '2026-04')
+  assert.equal(monthFromDate(''), '')
+  assert.equal(monthFromDate('bad'), '')
 })
 
 test('finance labels and formatters keep boss brief values readable', () => {
