@@ -45,7 +45,6 @@ CREATE TABLE IF NOT EXISTS %[1]s.finance_expenses (
 	created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS finance_expenses_month_idx ON %[1]s.finance_expenses(month, expense_date, id);
-CREATE INDEX IF NOT EXISTS finance_expenses_employee_idx ON %[1]s.finance_expenses(employee_id, month, expense_date, id);
 CREATE TABLE IF NOT EXISTS %[1]s.finance_monthly_reports (
 	month TEXT PRIMARY KEY,
 	status TEXT NOT NULL DEFAULT 'draft',
@@ -72,6 +71,7 @@ CREATE INDEX IF NOT EXISTS finance_adjustments_month_idx ON %[1]s.finance_adjust
 	}
 	for _, stmt := range []string{
 		fmt.Sprintf(`ALTER TABLE %s.finance_expenses ADD COLUMN IF NOT EXISTS employee_id BIGINT NULL`, schema),
+		fmt.Sprintf(`CREATE INDEX IF NOT EXISTS finance_expenses_employee_idx ON %s.finance_expenses(employee_id, month, expense_date, id)`, schema),
 		fmt.Sprintf(`
 DO $$
 BEGIN
