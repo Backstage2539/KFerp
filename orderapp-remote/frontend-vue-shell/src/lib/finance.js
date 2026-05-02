@@ -4,6 +4,11 @@ export function currentMonth(date = new Date()) {
   return `${year}-${month}`
 }
 
+export function monthFromDate(value) {
+  const text = String(value || '').trim()
+  return /^\d{4}-\d{2}-\d{2}$/.test(text) ? text.slice(0, 7) : ''
+}
+
 export function money(value) {
   const n = Number(value || 0)
   return n.toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })

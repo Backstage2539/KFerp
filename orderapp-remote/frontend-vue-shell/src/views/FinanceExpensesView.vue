@@ -83,7 +83,7 @@
 <script setup>
 import { onMounted, reactive, ref, watch } from 'vue'
 import { createFinanceExpense, fetchFinanceExpenses } from '../api/finance.js'
-import { currentMonth, money } from '../lib/finance.js'
+import { currentMonth, money, monthFromDate } from '../lib/finance.js'
 
 const month = ref(currentMonth())
 const rows = ref([])
@@ -131,7 +131,7 @@ async function save() {
   error.value = ''
   ok.value = false
   try {
-    await createFinanceExpense({
+    const created = await createFinanceExpense({
       date: form.date,
       month: month.value,
       category: form.category,
@@ -140,6 +140,9 @@ async function save() {
       payment: form.payment,
       note: form.note,
     })
+    if (created?.month && created.month !== month.value) {
+      month.value = created.month
+    }
     ok.value = true
     resetForm()
     await load()
@@ -151,8 +154,19 @@ async function save() {
 }
 
 watch(month, () => {
-  form.date = `${month.value}-01`
+  if (monthFromDate(form.date) !== month.value) {
+    form.date = `${month.value}-01`
+  }
 })
+
+function syncMonthFromDate() {
+  const postingMonth = monthFromDate(form.date)
+  if (postingMonth && postingMonth !== month.value) {
+    month.value = postingMonth
+  }
+}
+
+watch(() => form.date, syncMonthFromDate)
 
 onMounted(load)
 </script>

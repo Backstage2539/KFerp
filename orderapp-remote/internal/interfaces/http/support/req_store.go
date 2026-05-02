@@ -739,6 +739,11 @@ func seedReqWorkflowA(ctx context.Context, pool *pgxpool.Pool, schema string) er
 		{table: "req_api", code: "API-FIN-001", title: "API 测试覆盖财务设置、首页、费用、月度报表、结账、调整、PDF 和 Excel 导出", status: "done", assignee: "Codex", evidence: "go test ./internal/interfaces/http/finance -count=1"},
 		{table: "req_api", code: "API-FIN-002", title: "API 级权限验证覆盖财务接口权限映射、结账权限和锁账模式管理权限", status: "done", assignee: "Codex", evidence: "go test ./internal/interfaces/http/support -count=1"},
 		{table: "req_review", code: "REV-FIN-001", prCode: "PR-FIN-001", title: "验收：财务首页能看当月收入/成本/费用/毛利/净利/税费，费用可补录，默认强锁账，结账后只能走金额调整，报告可导出 PDF 和 Excel", status: "todo", assignee: "VA", evidence: "待 Van 服务器验收；自动化验收随分支测试记录"},
+		{table: "req_product", code: "PR-FIN-002", title: "费用管理保存费用后必须显示在正确月份；费用日期和月份筛选不一致时页面应自动切到费用发生月份", status: "review", assignee: "VA", evidence: "codex/finance-expense-month-sync-20260502"},
+		{table: "req_dev", code: "DEV-FIN-008", title: "费用管理页新增费用日期到月份筛选的同步逻辑，保存后按后端返回的费用月份刷新列表", status: "done", assignee: "Codex", evidence: "FinanceExpensesView syncMonthFromDate; created.month"},
+		{table: "req_unit", code: "UT-FIN-005", title: "前端单测覆盖 monthFromDate 和费用页保存后按费用月份刷新列表的源码守卫", status: "done", assignee: "Codex", evidence: "finance.test.js; finance-ui.test.js"},
+		{table: "req_api", code: "API-FIN-003", title: "线上 API 验证 2026-04 费用可通过 GET /api/finance/expenses?month=2026-04 查到", status: "done", assignee: "Codex", evidence: "curl /api/finance/expenses?month=2026-04 返回 id=1 人工费用"},
+		{table: "req_review", code: "REV-FIN-002", prCode: "PR-FIN-002", title: "验收：在费用管理选择 2026-04-15 费用日期保存后，页面自动切到 2026-04 并展示该费用", status: "todo", assignee: "VA", evidence: "待 Van 服务器验收"},
 	} {
 		if err := seedReqRow(ctx, pool, schema, row); err != nil {
 			return err
