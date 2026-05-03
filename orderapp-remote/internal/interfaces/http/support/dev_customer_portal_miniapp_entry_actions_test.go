@@ -28,6 +28,12 @@ func TestCustomerPortalMiniappEntryActionRequirementSeeds(t *testing.T) {
 
 func TestCustomerPortalMiniappEntriesAreTappable(t *testing.T) {
 	root := filepath.Join("..", "miniapp", "src")
+	if _, err := os.Stat(root); err != nil {
+		if os.IsNotExist(err) {
+			t.Skip("miniapp source is not present in the orderapp-only Docker build context")
+		}
+		t.Fatalf("stat miniapp source: %v", err)
+	}
 	home, err := os.ReadFile(filepath.Join(root, "pages", "home", "home.vue"))
 	if err != nil {
 		t.Fatalf("read home.vue: %v", err)
