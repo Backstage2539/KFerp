@@ -11,6 +11,12 @@
       "style": {
         "navigationBarTitleText": "客户中心"
       }
+    },
+    {
+      "path": "pages/service/service",
+      "style": {
+        "navigationBarTitleText": "服务入口"
+      }
     }
   ],
   "globalStyle": {

@@ -874,6 +874,11 @@ func seedReqWorkflowA(ctx context.Context, pool *pgxpool.Pool, schema string) er
 		{table: "req_unit", code: "UT-CUSTOMER-PORTAL-WECHAT-CONNECT-01", title: "单元测试覆盖微信配置读取、身份提供器选择、code2Session 请求、稳定模拟 openid 和小程序 API 地址拼接", status: "done", assignee: "Codex", evidence: "go test ./internal/config ./internal/interfaces/http/customerportal ./internal/appmain; npm test --prefix miniapp"},
 		{table: "req_api", code: "API-CUSTOMER-PORTAL-WECHAT-CONNECT-01", title: "API 验证覆盖 /app/api/mini/login 在未配置微信时禁用、配置测试登录时可生成 token、/app/api/mini/me 可按 token 返回客户上下文", status: "done", assignee: "Codex", evidence: "go test ./internal/interfaces/http/customerportal -count=1; deploy smoke 待执行"},
 		{table: "req_review", code: "REV-CUSTOMER-PORTAL-WECHAT-CONNECT-01", prCode: "PR-CUSTOMER-PORTAL-WECHAT-CONNECT", title: "验收：微信开发者工具导入测试小程序后，点击登录可进入客户中心并看到绑定客户的能力入口", status: "todo", assignee: "VA", evidence: "待 Van 使用测试小程序验收"},
+		{table: "req_product", code: "PR-CUSTOMER-PORTAL-MINIAPP-ENTRY-ACTIONS", title: "客户中心服务入口必须可点击，点击后进入对应服务占位页并明确当前接入状态", status: "review", assignee: "VA", evidence: "codex/miniapp-entry-actions-20260503"},
+		{table: "req_dev", code: "DEV-CUSTOMER-PORTAL-MINIAPP-ENTRY-ACTIONS-01", title: "小程序客户首页入口绑定 tap 导航，新增统一服务入口页，保留后续业务页面接入空间", status: "done", assignee: "Codex", evidence: "home.vue openEntry; pages/service/service.vue"},
+		{table: "req_unit", code: "UT-CUSTOMER-PORTAL-MINIAPP-ENTRY-ACTIONS-01", title: "单元测试覆盖每个可见入口带服务页 URL，源码守卫覆盖首页 tap、服务页注册和占位说明", status: "done", assignee: "Codex", evidence: "npm test --prefix miniapp -- capabilities.test.ts; go test ./internal/interfaces/http/support -run TestCustomerPortalMiniappEntriesAreTappable"},
+		{table: "req_api", code: "API-CUSTOMER-PORTAL-MINIAPP-ENTRY-ACTIONS-01", title: "API 层不变，复用 /app/api/mini/me 的客户能力返回作为入口展示来源，微信构建验证页面路由可编译", status: "done", assignee: "Codex", evidence: "VITE_KFERP_API_BASE=https://erp.qacoohee.com/app npm run build:mp-weixin --prefix miniapp"},
+		{table: "req_review", code: "REV-CUSTOMER-PORTAL-MINIAPP-ENTRY-ACTIONS-01", prCode: "PR-CUSTOMER-PORTAL-MINIAPP-ENTRY-ACTIONS", title: "验收：客户中心每个服务卡片点击后进入对应服务入口页，页面显示入口已打通和后续接入状态", status: "todo", assignee: "VA", evidence: "待 Van 微信开发者工具验收"},
 	} {
 		if err := seedReqRow(ctx, pool, schema, row); err != nil {
 			return err

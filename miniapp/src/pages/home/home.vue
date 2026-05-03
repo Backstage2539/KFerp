@@ -12,6 +12,10 @@ const errorMessage = ref('')
 const entries = computed(() => visibleHomeEntries(session.capabilities))
 const customerName = computed(() => session.currentCustomerName || '客户中心')
 
+function openEntry(url: string) {
+  uni.navigateTo({ url })
+}
+
 async function loadContext() {
   if (!session.token) {
     uni.redirectTo({ url: '/pages/login/login' })
@@ -55,7 +59,7 @@ onShow(() => {
     </view>
 
     <view v-else-if="entries.length" class="grid">
-      <view v-for="entry in entries" :key="entry.key" class="entry">
+      <view v-for="entry in entries" :key="entry.key" class="entry" hover-class="entry-pressed" @tap="openEntry(entry.url)">
         <text class="entry-label">{{ entry.label }}</text>
       </view>
     </view>
@@ -114,6 +118,10 @@ onShow(() => {
   border: 1rpx solid #e8e8e8;
   border-radius: 8rpx;
   box-sizing: border-box;
+}
+
+.entry-pressed {
+  background: #f0f0f0;
 }
 
 .entry-label {

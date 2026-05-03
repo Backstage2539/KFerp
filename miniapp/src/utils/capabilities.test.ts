@@ -15,6 +15,18 @@ describe('visibleHomeEntries', () => {
     expect(entries.map((entry) => entry.key)).toEqual(['directShip', 'settlement'])
   })
 
+  it('gives every visible entry a service detail URL for tap navigation', () => {
+    const entries = visibleHomeEntries([
+      { code: 'bean_list', enabled: true },
+      { code: 'direct_ship', enabled: true },
+    ])
+
+    expect(entries.map((entry) => entry.url)).toEqual([
+      '/pages/service/service?key=beanList',
+      '/pages/service/service?key=directShip',
+    ])
+  })
+
   it('ignores unknown capability codes', () => {
     const entries = visibleHomeEntries([{ code: 'unknown', enabled: true }])
     expect(entries).toEqual([])
