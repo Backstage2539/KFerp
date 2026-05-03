@@ -84,11 +84,11 @@ func registerOrderShippingExcelRoutes(e *echo.Echo, salesSvc *salesapp.Service) 
 		}
 		orderIDs := normalizeOrderShippingIDs(req.OrderIDs)
 		if len(orderIDs) == 0 {
-			return c.JSON(http.StatusBadRequest, map[string]string{"error": "请选择生产完成的订单"})
+			return c.JSON(http.StatusBadRequest, map[string]string{"error": "请选择可发货的订单"})
 		}
 		file, err := generateOrdersShippingExcel(salesSvc, c, orderIDs, req.SenderID, req.OrderSenders)
 		if err != nil {
-			if strings.Contains(err.Error(), "尚未生产完成") {
+			if strings.Contains(err.Error(), "尚不可发货") {
 				return c.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
 			}
 			return c.JSON(http.StatusInternalServerError, map[string]string{"error": "快递录单 Excel 生成失败：" + err.Error()})
@@ -256,7 +256,7 @@ func generateOrdersShippingExcel(salesSvc *salesapp.Service, c echo.Context, ord
 			return orderShippingExcelFile{}, err
 		}
 		if !orderShippingReady(data) {
-			return orderShippingExcelFile{}, fmt.Errorf("订单 %s 尚未生产完成", firstNonEmpty(data.OrderNo, fmt.Sprintf("%d", data.OrderID)))
+			return orderShippingExcelFile{}, fmt.Errorf("订单 %s 尚不可发货", firstNonEmpty(data.OrderNo, fmt.Sprintf("%d", data.OrderID)))
 		}
 		sender := defaultSender
 		if overrideSenderID := senderOverrides[orderID]; overrideSenderID > 0 {
@@ -451,7 +451,7 @@ func orderShippingRemark(data salesapp.OrderShippingExportData) string {
 
 func orderShippingReady(data salesapp.OrderShippingExportData) bool {
 	status := strings.TrimSpace(data.ProcessStatus)
-	return strings.Contains(status, "生产完成") || status == "无需生产"
+	return strings.Contains(status, "生产完成") || status == "无需生产" || status == "库存待发货"
 }
 
 func normalizeOrderShippingIDs(ids []int64) []int64 {

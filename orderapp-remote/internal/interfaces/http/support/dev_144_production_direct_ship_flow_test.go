@@ -42,7 +42,7 @@ func TestProductionPlanRemovesMaterialPlanAndGuidesDirectShipping(t *testing.T) 
 			t.Fatalf("ProducePlanView.vue should remove %q", forbidden)
 		}
 	}
-	for _, want := range []string{"库存充足", "无需生产", "直接发货", "openShipReadyOrders"} {
+	for _, want := range []string{"库存充足", "库存待发货", "直接发货", "openShipReadyOrders"} {
 		if !strings.Contains(src, want) {
 			t.Fatalf("ProducePlanView.vue missing direct shipping guidance %q", want)
 		}
@@ -55,7 +55,7 @@ func TestOrdersViewTreatsNoProductionAsShipReady(t *testing.T) {
 		t.Fatal(err)
 	}
 	src := string(orders)
-	for _, want := range []string{"isShipReady", "无需生产", "只看可发货", "ship_ready"} {
+	for _, want := range []string{"isShipReady", "无需生产", "库存待发货", "只看可发货", "ship_ready"} {
 		if !strings.Contains(src, want) {
 			t.Fatalf("OrdersView.vue missing ship-ready source %q", want)
 		}
@@ -88,7 +88,7 @@ func TestProductionFlowPageIsPrimaryNewEmployeeEntry(t *testing.T) {
 		t.Fatal(err)
 	}
 	manualSrc := string(manual)
-	for _, want := range []string{"生产流程用户手册", "流程导航", "无需生产", "直接发货"} {
+	for _, want := range []string{"生产流程用户手册", "流程导航", "库存待发货", "直接发货"} {
 		if !strings.Contains(manualSrc, want) {
 			t.Fatalf("ProductionManualView.vue missing %q", want)
 		}

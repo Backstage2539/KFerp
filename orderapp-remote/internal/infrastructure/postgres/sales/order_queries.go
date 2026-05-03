@@ -269,7 +269,7 @@ func orderListWhere(schema string, query salesapp.OrderListQuery) ([]string, []a
 		where = append(where, "COALESCE(o.pay_status_id,0)=2 AND COALESCE(o.ship_status_id,0) IN (3,4)")
 	}
 	if query.ShipReadyOnly {
-		where = append(where, fmt.Sprintf("EXISTS (SELECT 1 FROM %s.order_process_statuses ops WHERE ops.id=o.process_status_id AND ops.name IN ('生产完成','已生产完成','无需生产'))", schema))
+		where = append(where, fmt.Sprintf("EXISTS (SELECT 1 FROM %s.order_process_statuses ops WHERE ops.id=o.process_status_id AND ops.name IN ('生产完成','已生产完成','无需生产','库存待发货'))", schema))
 	}
 	if from := strings.TrimSpace(query.From); from != "" {
 		where = append(where, fmt.Sprintf("o.order_date >= $%d", argn))

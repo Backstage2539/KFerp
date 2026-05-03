@@ -49,10 +49,12 @@ func fetchUnproducedNeeds(ctx context.Context, pool *pgxpool.Pool, schema, from,
 				COALESCE(p.name,'') AS product,
 				STRING_AGG(DISTINCT COALESCE(o.order_no,''), ',' ORDER BY COALESCE(o.order_no,'')) AS order_nos,
 				COALESCE(NULLIF(regexp_replace(COALESCE(oi.spec,''), '[^0-9]', '', 'g'), ''), '0')::bigint AS spec_g,
-				SUM(COALESCE(oi.qty,0))::bigint AS need_units
+				SUM(COALESCE(oi.qty,0))::bigint AS need_units,
+				SUM(CASE WHEN COALESCE(osd.decision,'') = 'produce' THEN COALESCE(oi.qty,0) ELSE 0 END)::bigint AS force_produce_units
 			FROM %s.order_items oi
 			JOIN %s.orders o ON o.id = oi.order_id
 			LEFT JOIN %s.products p ON p.id = oi.product_id
+			LEFT JOIN %s.order_stock_decisions osd ON osd.order_id = o.id
 			%s
 			GROUP BY oi.product_id, p.name, COALESCE(NULLIF(regexp_replace(COALESCE(oi.spec,''), '[^0-9]', '', 'g'), ''), '0')
 		)
@@ -66,13 +68,20 @@ func fetchUnproducedNeeds(ctx context.Context, pool *pgxpool.Pool, schema, from,
 			COALESCE(fi.onhand_units,0) AS inv_units,
 			COALESCE(fi.onhand_loose_g,0) AS inv_loose_g,
 			(COALESCE(fi.onhand_units,0) * n.spec_g + COALESCE(fi.onhand_loose_g,0)) AS inv_g,
-			GREATEST(0, (n.need_units * n.spec_g) - (COALESCE(fi.onhand_units,0) * n.spec_g + COALESCE(fi.onhand_loose_g,0))) AS gap_g
+			(
+				(n.force_produce_units * n.spec_g)
+				+ GREATEST(
+					0,
+					((n.need_units - n.force_produce_units) * n.spec_g)
+					- (COALESCE(fi.onhand_units,0) * n.spec_g + COALESCE(fi.onhand_loose_g,0))
+				)
+			)::bigint AS gap_g
 		FROM need n
 		LEFT JOIN %s.finished_inventory fi
 			ON fi.product_id = n.product_id AND fi.spec_g = n.spec_g AND fi.warehouse = 'finished_goods'
 		WHERE n.spec_g > 0
 		ORDER BY gap_g DESC, n.product, n.spec_g
-	`, schema, schema, schema, where, schema)
+	`, schema, schema, schema, schema, where, schema)
 
 	rows, err := pool.Query(ctx, q, args...)
 	if err != nil {

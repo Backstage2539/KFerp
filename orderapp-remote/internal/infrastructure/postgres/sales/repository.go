@@ -434,13 +434,31 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 		}
 	}
 
+	stockItems := make([]orderStockItem, 0, len(items))
+	for _, it := range items {
+		if it.productID == nil || *it.productID <= 0 || it.specG <= 0 || it.units <= 0 {
+			continue
+		}
+		stockItems = append(stockItems, orderStockItem{
+			ProductID:   *it.productID,
+			ProductName: it.name,
+			SpecG:       it.specG,
+			Units:       it.units,
+			NeedG:       it.specG * it.units,
+		})
+	}
+	stockDecision := strings.TrimSpace(cmd.StockBatchDecision)
+	if err := r.applyOrderStockDecisionTx(ctx, tx, orderID, stockItems, stockDecision, cmd.Actor); err != nil {
+		return salesapp.SaveOrderResult{}, err
+	}
+
 	if err := tx.Commit(ctx); err != nil {
 		return salesapp.SaveOrderResult{}, err
 	}
 
 	r.logOrderSave(ctx, cmd.Actor, orderID, orderNo, editID > 0)
 
-	return salesapp.SaveOrderResult{OrderID: orderID, OrderNo: orderNo, Edited: editID > 0}, nil
+	return salesapp.SaveOrderResult{OrderID: orderID, OrderNo: orderNo, Edited: editID > 0, StockBatchUsed: stockDecision == "use_batch"}, nil
 
 }
 

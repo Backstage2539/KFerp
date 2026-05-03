@@ -17,6 +17,7 @@
 
     <div v-if="error" class="notice error">{{ error }}</div>
     <div v-if="ok" class="notice ok">订单已保存：{{ ok }}</div>
+    <div v-if="stockBatchNotice" class="notice warn">{{ stockBatchNotice }}</div>
 
     <section class="panel order-fields">
       <div class="section-title">订单信息</div>
@@ -315,6 +316,7 @@ const loading = ref(false)
 const saving = ref(false)
 const error = ref('')
 const ok = ref('')
+const stockBatchNotice = ref('')
 const customers = ref([])
 const sources = ref([])
 const shipStatuses = ref([])
@@ -689,12 +691,20 @@ async function save() {
   saving.value = true
   error.value = ''
   ok.value = ''
+  stockBatchNotice.value = ''
   try {
     const payload = buildOrderPayload({ form, rows: rows.value })
     if (!payload.customer_id) throw new Error('请选择客户')
     if (!payload.product_id.length) throw new Error('请至少录入一条有效明细')
+    const stockDecision = await previewStockBatchesBeforeSave(payload)
+    if (stockDecision) payload.stock_batch_decision = stockDecision
     const data = await apiSend('/api/order', { body: payload })
     ok.value = data.order_no || '成功'
+    if (data.stock_batch_used) {
+      stockBatchNotice.value = '已使用成品批次，订单状态已进入“库存待发货”。'
+    } else if (stockDecision === 'produce') {
+      stockBatchNotice.value = '已选择不使用库存批次，订单会进入生产计划的库存不足/待生产流程。'
+    }
     if (props.embedded) emit('saved', data)
     if (!props.embedded && data.redirect_url) window.location.href = data.redirect_url
   } catch (err) {
@@ -702,6 +712,29 @@ async function save() {
   } finally {
     saving.value = false
   }
+}
+
+async function previewStockBatchesBeforeSave(payload) {
+  const preview = await apiSend('/api/order/stock-batch-preview', { body: payload })
+  if (!preview?.sufficient || !preview?.has_batch_choices) return ''
+  const message = stockBatchConfirmText(preview)
+  const useBatch = window.confirm(message)
+  return useBatch ? 'use_batch' : 'produce'
+}
+
+function stockBatchConfirmText(preview) {
+  const lines = (preview.lines || []).map((line) => {
+    const batches = (line.allocations || [])
+      .map((batch) => `${batch.batch_code} 使用${batch.allocated_g}g`)
+      .join('，')
+    return `${line.product_name || '商品'} ${line.spec_g}g x ${line.need_units}件：${batches}`
+  })
+  return [
+    '库存充足，可直接使用以下成品批次发货。',
+    ...lines,
+    '确定使用以上批次吗？',
+    '确定：订单状态改为“库存待发货”；取消：不使用库存，进入库存不足/待生产流程。',
+  ].join('\n')
 }
 
 onMounted(load)

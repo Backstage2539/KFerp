@@ -63,6 +63,7 @@ type orderSaveAPIRequest struct {
 	OutsourceManualFee    string `json:"outsource_manual_fee"`
 	OutsourceTaxFee       string `json:"outsource_tax_fee"`
 	OutsourceOtherFee     string `json:"outsource_other_fee"`
+	StockBatchDecision    string `json:"stock_batch_decision"`
 
 	ProductID []string `json:"product_id"`
 	TierID    []string `json:"tier_id"`
@@ -79,6 +80,7 @@ func registerOrderAPI(e *echo.Echo, salesSvc *salesapp.Service) {
 	}
 	e.GET("/api/orders", h.list)
 	e.GET("/api/order/form", h.form)
+	e.POST("/api/order/stock-batch-preview", h.stockBatchPreview)
 	e.POST("/api/order", h.save)
 }
 
@@ -234,11 +236,28 @@ func (h orderAPIHandler) save(c echo.Context) error {
 	}
 	redirectURL = support.PrefixRelativeLocation(c, redirectURL)
 	return c.JSON(http.StatusOK, map[string]any{
-		"order_id":     res.OrderID,
-		"order_no":     res.OrderNo,
-		"edited":       res.Edited,
-		"redirect_url": redirectURL,
+		"order_id":         res.OrderID,
+		"order_no":         res.OrderNo,
+		"edited":           res.Edited,
+		"redirect_url":     redirectURL,
+		"stock_batch_used": res.StockBatchUsed,
 	})
+}
+
+func (h orderAPIHandler) stockBatchPreview(c echo.Context) error {
+	var req orderSaveAPIRequest
+	if err := c.Bind(&req); err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]string{"error": "bad request"})
+	}
+	cmd, err := saveOrderCommandFromCreateRequest(req.toCreateRequest(), req.EditID, support.ActorOf(c))
+	if err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
+	}
+	preview, err := h.sales.PreviewOrderStockBatches(c.Request().Context(), salesapp.OrderStockBatchPreviewCommand{EditID: req.EditID, Items: cmd.Items})
+	if err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
+	}
+	return c.JSON(http.StatusOK, preview)
 }
 
 func (r orderSaveAPIRequest) toCreateRequest() CreateOrderRequest {
@@ -262,6 +281,7 @@ func (r orderSaveAPIRequest) toCreateRequest() CreateOrderRequest {
 		OutsourceManualFee:    r.OutsourceManualFee,
 		OutsourceTaxFee:       r.OutsourceTaxFee,
 		OutsourceOtherFee:     r.OutsourceOtherFee,
+		StockBatchDecision:    r.StockBatchDecision,
 		ProductID:             r.ProductID,
 		TierID:                r.TierID,
 		UnitPrice:             r.UnitPrice,

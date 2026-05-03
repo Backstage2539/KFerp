@@ -60,7 +60,7 @@
       <div class="shipping-bar">
         <div>
           <h3>顺丰发货</h3>
-          <p>订单生产完成或标记“无需生产”后，在这里勾选并生成顺丰发货 Excel；单号在订单抽屉内回填。</p>
+          <p>订单生产完成、标记“无需生产”或进入“库存待发货”后，在这里勾选并生成顺丰发货 Excel；单号在订单抽屉内回填。</p>
         </div>
         <div class="shipping-actions">
           <label class="sender-picker">
@@ -113,7 +113,7 @@
                   type="checkbox"
                   :checked="selectedOrderIDs.includes(Number(row.id))"
                   :disabled="!isShipReady(row)"
-                  :title="isShipReady(row) ? '选择发货' : '生产完成或无需生产后可发货'"
+                  :title="isShipReady(row) ? '选择发货' : '生产完成、无需生产或库存待发货后可发货'"
                   @change="toggleOrder(row, $event.target.checked)"
                 />
               </td>
@@ -406,7 +406,7 @@ async function loadPage(nextPage) {
 
 function isShipReady(row) {
   const status = String(row?.process_status || '').trim()
-  return status.includes('生产完成') || status === '无需生产'
+  return status.includes('生产完成') || status === '无需生产' || status === '库存待发货'
 }
 
 function isShipped(row) {

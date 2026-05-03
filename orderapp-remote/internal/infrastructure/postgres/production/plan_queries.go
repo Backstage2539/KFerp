@@ -63,7 +63,7 @@ func (r Repository) PlanSummary(ctx context.Context, query productionapp.PlanSum
 		planRows = append(planRows, row)
 	}
 	if selectedCount > 0 && len(planRows) == 0 {
-		data.StockTip = "库存充足：当前已选商品库存均可满足，无需补产，可按无需生产处理后直接发货。"
+		data.StockTip = "库存充足：当前已选商品库存均可满足；录单确认使用成品批次后会进入库存待发货，可直接发货。"
 		return data, nil
 	}
 
