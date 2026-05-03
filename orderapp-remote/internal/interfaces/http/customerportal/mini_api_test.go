@@ -15,9 +15,12 @@ import (
 )
 
 type fakeService struct {
-	login customerportalapp.LoginResult
-	me    customerportalapp.CurrentContext
-	err   error
+	login      customerportalapp.LoginResult
+	me         customerportalapp.CurrentContext
+	service    customerportalapp.ServicePage
+	directShip customerportalapp.DirectShipBatch
+	processing customerportalapp.ProcessingRequest
+	err        error
 }
 
 func (s fakeService) Login(context.Context, customerportalapp.LoginCommand) (customerportalapp.LoginResult, error) {
@@ -39,6 +42,27 @@ func (s fakeService) SwitchCurrentCustomer(context.Context, string, int64) (cust
 		return customerportalapp.CurrentContext{}, s.err
 	}
 	return s.me, nil
+}
+
+func (s fakeService) GetServicePage(context.Context, string, string) (customerportalapp.ServicePage, error) {
+	if s.err != nil {
+		return customerportalapp.ServicePage{}, s.err
+	}
+	return s.service, nil
+}
+
+func (s fakeService) CreateDirectShipBatch(context.Context, string, customerportalapp.CreateDirectShipBatchCommand) (customerportalapp.DirectShipBatch, error) {
+	if s.err != nil {
+		return customerportalapp.DirectShipBatch{}, s.err
+	}
+	return s.directShip, nil
+}
+
+func (s fakeService) CreateProcessingRequest(context.Context, string, customerportalapp.CreateProcessingRequestCommand) (customerportalapp.ProcessingRequest, error) {
+	if s.err != nil {
+		return customerportalapp.ProcessingRequest{}, s.err
+	}
+	return s.processing, nil
 }
 
 func TestMiniLoginAndMeAPI(t *testing.T) {
@@ -152,6 +176,70 @@ func TestMiniCurrentCustomerInvalidPayloadMapsToBadRequest(t *testing.T) {
 	e.ServeHTTP(rec, req)
 	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), `"error":"customer required"`) {
 		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestMiniServicePageAPIRequiresTokenAndReturnsScopedData(t *testing.T) {
+	e := echo.New()
+	RegisterRoutes(e, Dependencies{CustomerPortal: fakeService{service: customerportalapp.ServicePage{
+		Key:                 customerportalapp.ServiceKeyShipping,
+		Title:               "物流查询",
+		CurrentCustomerID:   8,
+		CurrentCustomerName: "客户A",
+		Orders:              []customerportalapp.CustomerOrderSummary{{OrderNo: "SO-1", ShipTrackingNo: "SF123"}},
+	}}})
+
+	req := httptest.NewRequest(http.MethodGet, "/api/mini/services/shipping", nil)
+	req.Header.Set(echo.HeaderAuthorization, "Bearer mini-token")
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"ship_tracking_no":"SF123"`) || !strings.Contains(rec.Body.String(), `"current_customer_id":8`) {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+
+	noToken := httptest.NewRequest(http.MethodGet, "/api/mini/services/shipping", nil)
+	noTokenRec := httptest.NewRecorder()
+	e.ServeHTTP(noTokenRec, noToken)
+	if noTokenRec.Code != http.StatusUnauthorized {
+		t.Fatalf("no token status=%d body=%s", noTokenRec.Code, noTokenRec.Body.String())
+	}
+}
+
+func TestMiniServicePageCapabilityDeniedMapsToForbidden(t *testing.T) {
+	e := echo.New()
+	RegisterRoutes(e, Dependencies{CustomerPortal: fakeService{err: customerportalapp.ErrCapabilityNotEnabled}})
+	req := httptest.NewRequest(http.MethodGet, "/api/mini/services/directShip", nil)
+	req.Header.Set(echo.HeaderAuthorization, "Bearer mini-token")
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusForbidden || !strings.Contains(rec.Body.String(), `"error":"capability not enabled"`) {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestMiniDirectShipAndProcessingSubmitAPIs(t *testing.T) {
+	e := echo.New()
+	RegisterRoutes(e, Dependencies{CustomerPortal: fakeService{
+		directShip: customerportalapp.DirectShipBatch{ID: 5, BatchNo: "DS-20260503-0005", Status: "submitted", TotalRows: 100},
+		processing: customerportalapp.ProcessingRequest{ID: 7, RequestNo: "PJ-20260503-0007", Status: "submitted"},
+	}})
+
+	directReq := httptest.NewRequest(http.MethodPost, "/api/mini/direct-ship/batches", strings.NewReader(`{"source_name":"5月直播订单","total_rows":100,"note":"客户一次发来100单"}`))
+	directReq.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	directReq.Header.Set(echo.HeaderAuthorization, "Bearer mini-token")
+	directRec := httptest.NewRecorder()
+	e.ServeHTTP(directRec, directReq)
+	if directRec.Code != http.StatusOK || !strings.Contains(directRec.Body.String(), `"batch_no":"DS-20260503-0005"`) {
+		t.Fatalf("direct status=%d body=%s", directRec.Code, directRec.Body.String())
+	}
+
+	processingReq := httptest.NewRequest(http.MethodPost, "/api/mini/processing-requests", strings.NewReader(`{"input_material_id":4,"input_qty_g":30000,"target_product_id":5,"target_spec_g":454,"target_qty":50,"note":"代加工申请"}`))
+	processingReq.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	processingReq.Header.Set(echo.HeaderAuthorization, "Bearer mini-token")
+	processingRec := httptest.NewRecorder()
+	e.ServeHTTP(processingRec, processingReq)
+	if processingRec.Code != http.StatusOK || !strings.Contains(processingRec.Body.String(), `"request_no":"PJ-20260503-0007"`) {
+		t.Fatalf("processing status=%d body=%s", processingRec.Code, processingRec.Body.String())
 	}
 }
 

@@ -18,6 +18,9 @@ type Service interface {
 	Login(context.Context, customerportalapp.LoginCommand) (customerportalapp.LoginResult, error)
 	Me(context.Context, string) (customerportalapp.CurrentContext, error)
 	SwitchCurrentCustomer(context.Context, string, int64) (customerportalapp.CurrentContext, error)
+	GetServicePage(context.Context, string, string) (customerportalapp.ServicePage, error)
+	CreateDirectShipBatch(context.Context, string, customerportalapp.CreateDirectShipBatchCommand) (customerportalapp.DirectShipBatch, error)
+	CreateProcessingRequest(context.Context, string, customerportalapp.CreateProcessingRequestCommand) (customerportalapp.ProcessingRequest, error)
 }
 
 type Dependencies struct {
