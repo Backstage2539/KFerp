@@ -19,14 +19,16 @@ func (p fakeIdentityProvider) Resolve(ctx context.Context, code string) (MiniIde
 }
 
 type fakeRepository struct {
-	loginResult LoginResult
-	context     CurrentContext
-	session     string
-	err         error
-	switchErr   error
+	loginResult  LoginResult
+	loginCommand CreateLoginSessionCommand
+	context      CurrentContext
+	session      string
+	err          error
+	switchErr    error
 }
 
 func (r *fakeRepository) CreateLoginSession(ctx context.Context, cmd CreateLoginSessionCommand) (LoginResult, error) {
+	r.loginCommand = cmd
 	if r.err != nil {
 		return LoginResult{}, r.err
 	}
@@ -60,13 +62,16 @@ func TestLoginRejectsEmptyCode(t *testing.T) {
 
 func TestLoginCreatesSessionFromResolvedIdentity(t *testing.T) {
 	repo := &fakeRepository{loginResult: LoginResult{Token: "mini-token", MiniUserID: 9}}
-	svc := NewService(repo, fakeIdentityProvider{identity: MiniIdentity{OpenID: "openid-1", UnionID: "union-1"}})
-	got, err := svc.Login(context.Background(), LoginCommand{Code: "wx-code", Phone: "13800138000", Nickname: "客户"})
+	svc := NewService(repo, fakeIdentityProvider{identity: MiniIdentity{OpenID: " openid-1 ", UnionID: " union-1 "}})
+	got, err := svc.Login(context.Background(), LoginCommand{Code: "wx-code", Phone: " 13800138000 ", Nickname: " 客户 "})
 	if err != nil {
 		t.Fatalf("Login() err=%v", err)
 	}
 	if got.Token != "mini-token" || got.MiniUserID != 9 {
 		t.Fatalf("Login()=%+v", got)
+	}
+	if repo.loginCommand.OpenID != "openid-1" || repo.loginCommand.UnionID != "union-1" || repo.loginCommand.Phone != "13800138000" || repo.loginCommand.Nickname != "客户" {
+		t.Fatalf("CreateLoginSession() cmd=%+v", repo.loginCommand)
 	}
 }
 
