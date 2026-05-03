@@ -101,8 +101,24 @@ func ensureOrderStockDecisionTables(ctx context.Context, pool *pgxpool.Pool, sch
 			operator TEXT NOT NULL DEFAULT '',
 			created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 		)`, schema, schema),
+		fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s.order_stock_deductions (
+			id BIGSERIAL PRIMARY KEY,
+			order_id BIGINT NOT NULL REFERENCES %s.orders(id) ON DELETE CASCADE,
+			product_id BIGINT NOT NULL DEFAULT 0,
+			spec_g BIGINT NOT NULL DEFAULT 0,
+			batch_id BIGINT NOT NULL DEFAULT 0,
+			batch_code TEXT NOT NULL DEFAULT '',
+			deducted_g BIGINT NOT NULL DEFAULT 0,
+			source_doc_type TEXT NOT NULL DEFAULT '',
+			source_doc_id BIGINT NOT NULL DEFAULT 0,
+			operator TEXT NOT NULL DEFAULT '',
+			created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+			UNIQUE(order_id, product_id, spec_g, batch_code)
+		)`, schema, schema),
 		fmt.Sprintf(`CREATE INDEX IF NOT EXISTS idx_%s_order_stock_alloc_order ON %s.order_stock_batch_allocations(order_id)`, schema, schema),
 		fmt.Sprintf(`CREATE INDEX IF NOT EXISTS idx_%s_order_stock_alloc_batch ON %s.order_stock_batch_allocations(batch_code)`, schema, schema),
+		fmt.Sprintf(`CREATE INDEX IF NOT EXISTS idx_%s_order_stock_deduct_order ON %s.order_stock_deductions(order_id)`, schema, schema),
+		fmt.Sprintf(`CREATE INDEX IF NOT EXISTS idx_%s_order_stock_deduct_batch ON %s.order_stock_deductions(batch_code)`, schema, schema),
 	}
 	for _, stmt := range stmts {
 		if _, err := pool.Exec(ctx, stmt); err != nil {

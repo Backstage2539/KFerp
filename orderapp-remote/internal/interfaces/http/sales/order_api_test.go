@@ -899,6 +899,166 @@ func TestOrdersShippingTrackingAPIMarksOrdersShipped(t *testing.T) {
 	}
 }
 
+func TestOrdersShippingTrackingAPIDeductsReservedLegacyFinishedInventoryOnce(t *testing.T) {
+	pool, schema := newOrderAPITestDB(t)
+	ctx := context.Background()
+	seedOrderAPITestData(t, ctx, pool, schema)
+	if err := postgressales.EnsureSchema(ctx, pool, schema); err != nil {
+		t.Fatalf("EnsureSchema: %v", err)
+	}
+	seedOrderAPILegacyFinishedInventory(t, ctx, pool, schema)
+	mustExecOrderAPITestSQL(t, ctx, pool, fmt.Sprintf(`
+		INSERT INTO %s.ship_statuses(id,name) VALUES (2,'已发货') ON CONFLICT DO NOTHING;
+		INSERT INTO %s.orders(id, order_no, order_date, customer_id, order_type_id, pay_status_id, ship_status_id, process_status_id, grand_total, is_void)
+		VALUES (30, 'SO-LEGACY-STOCK-SHIP', '2026-05-03', 3, 1, 2, 1, (SELECT id FROM %s.order_process_statuses WHERE name='库存待发货' LIMIT 1), 100, false);
+		INSERT INTO %s.order_items(order_id,line_no,product_id,item_name,qty,unit,spec,unit_price,line_total)
+		VALUES (30,1,7,'橘皮乌龙',2,'袋','454g',50,100);
+		INSERT INTO %s.order_stock_decisions(order_id,decision,operator) VALUES (30,'use_batch','录单员');
+		INSERT INTO %s.order_stock_batch_allocations(order_id,product_id,spec_g,need_g,batch_id,batch_code,allocated_g,operator)
+		VALUES (30,7,454,908,0,'LEGACY-FP-7-454',908,'录单员');
+		INSERT INTO %s.order_shipments(id, shipment_no, created_by, sender_id, file_url, status)
+		VALUES (15, 'SHIP-20260503-LEGACY', '测试员', 1, '/ship/order_exports/test.xlsx', 'excel_generated');
+		INSERT INTO %s.order_shipment_orders(shipment_id, order_id, sender_id)
+		VALUES (15, 30, 1);
+	`, schema, schema, schema, schema, schema, schema, schema, schema))
+
+	e := newOrderAPITestEcho(pool, schema)
+	body, _ := json.Marshal(map[string]any{
+		"shipment_id": int64(15),
+		"items": []map[string]any{
+			{"order_id": int64(30), "tracking_no": "SF-LEGACY-001"},
+		},
+	})
+	req := httptest.NewRequest(http.MethodPost, "/api/orders/shipping-tracking", bytes.NewReader(body))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("POST /api/orders/shipping-tracking status = %d, want 200, body=%s", rec.Code, rec.Body.String())
+	}
+	var units, looseG int64
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`
+		SELECT onhand_units,onhand_loose_g
+		FROM %s.finished_inventory
+		WHERE product_id=7 AND spec_g=454 AND warehouse='finished_goods'
+	`, schema)).Scan(&units, &looseG); err != nil {
+		t.Fatalf("query finished inventory: %v", err)
+	}
+	if units != 2 || looseG != 0 {
+		t.Fatalf("finished inventory after shipment = %d units + %dg, want 2 + 0g", units, looseG)
+	}
+	var deductionCount, ledgerCount int64
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT COUNT(*) FROM %s.order_stock_deductions WHERE order_id=30 AND batch_code='LEGACY-FP-7-454' AND deducted_g=908`, schema)).Scan(&deductionCount); err != nil {
+		t.Fatalf("query order stock deductions: %v", err)
+	}
+	if deductionCount != 1 {
+		t.Fatalf("deduction rows = %d, want 1", deductionCount)
+	}
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`
+		SELECT COUNT(*)
+		FROM %s.stock_ledger_entries
+		WHERE item_type='finished_product'
+		  AND item_id=7
+		  AND spec_g=454
+		  AND source_doc_type='sales_order_shipment'
+		  AND source_doc_id=30
+		  AND source_batch_code='LEGACY-FP-7-454'
+		  AND qty_change_g=-908
+	`, schema)).Scan(&ledgerCount); err != nil {
+		t.Fatalf("query stock ledger entries: %v", err)
+	}
+	if ledgerCount != 1 {
+		t.Fatalf("stock ledger rows = %d, want 1", ledgerCount)
+	}
+
+	req = httptest.NewRequest(http.MethodPost, "/api/orders/shipping-tracking", bytes.NewReader(body))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec = httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("second POST /api/orders/shipping-tracking status = %d, want 200, body=%s", rec.Code, rec.Body.String())
+	}
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`
+		SELECT onhand_units,onhand_loose_g
+		FROM %s.finished_inventory
+		WHERE product_id=7 AND spec_g=454 AND warehouse='finished_goods'
+	`, schema)).Scan(&units, &looseG); err != nil {
+		t.Fatalf("query finished inventory after second post: %v", err)
+	}
+	if units != 2 || looseG != 0 {
+		t.Fatalf("finished inventory after duplicate shipment update = %d units + %dg, want 2 + 0g", units, looseG)
+	}
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT COUNT(*) FROM %s.order_stock_deductions WHERE order_id=30`, schema)).Scan(&deductionCount); err != nil {
+		t.Fatalf("query order stock deductions after second post: %v", err)
+	}
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT COUNT(*) FROM %s.stock_ledger_entries WHERE source_doc_type='sales_order_shipment' AND source_doc_id=30`, schema)).Scan(&ledgerCount); err != nil {
+		t.Fatalf("query stock ledger entries after second post: %v", err)
+	}
+	if deductionCount != 1 || ledgerCount != 1 {
+		t.Fatalf("duplicate shipment update should not double deduct: deductions=%d ledger=%d", deductionCount, ledgerCount)
+	}
+}
+
+func TestOrdersSingleShippingTrackingAPIDeductsReservedFinishedBatch(t *testing.T) {
+	pool, schema := newOrderAPITestDB(t)
+	ctx := context.Background()
+	seedOrderAPITestData(t, ctx, pool, schema)
+	if err := postgressales.EnsureSchema(ctx, pool, schema); err != nil {
+		t.Fatalf("EnsureSchema: %v", err)
+	}
+	seedOrderAPIFinishedBatches(t, ctx, pool, schema)
+	mustExecOrderAPITestSQL(t, ctx, pool, fmt.Sprintf(`
+		INSERT INTO %s.ship_statuses(id,name) VALUES (2,'已发货') ON CONFLICT DO NOTHING;
+		INSERT INTO %s.orders(id, order_no, order_date, customer_id, order_type_id, pay_status_id, ship_status_id, process_status_id, grand_total, is_void)
+		VALUES (31, 'SO-FP-STOCK-SHIP', '2026-05-03', 3, 1, 2, 1, (SELECT id FROM %s.order_process_statuses WHERE name='库存待发货' LIMIT 1), 100, false);
+		INSERT INTO %s.order_items(order_id,line_no,product_id,item_name,qty,unit,spec,unit_price,line_total)
+		VALUES (31,1,7,'橘皮乌龙',2,'袋','454g',50,100);
+		INSERT INTO %s.order_stock_decisions(order_id,decision,operator) VALUES (31,'use_batch','录单员');
+		INSERT INTO %s.order_stock_batch_allocations(order_id,product_id,spec_g,need_g,batch_id,batch_code,allocated_g,operator)
+		VALUES (31,7,454,908,101,'FP-OLD-454',908,'录单员');
+		INSERT INTO %s.order_shipments(id, shipment_no, created_by, sender_id, file_url, status)
+		VALUES (16, 'SHIP-20260503-FP', '测试员', 1, '/ship/order_exports/test.xlsx', 'excel_generated');
+		INSERT INTO %s.order_shipment_orders(shipment_id, order_id, sender_id)
+		VALUES (16, 31, 1);
+	`, schema, schema, schema, schema, schema, schema, schema, schema))
+
+	e := newOrderAPITestEcho(pool, schema)
+	body, _ := json.Marshal(map[string]any{"tracking_no": "SF-FP-001"})
+	req := httptest.NewRequest(http.MethodPost, "/api/orders/31/shipping-tracking", bytes.NewReader(body))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("POST /api/orders/31/shipping-tracking status = %d, want 200, body=%s", rec.Code, rec.Body.String())
+	}
+	var remainingG, remainingUnits int64
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT remaining_g,remaining_units FROM %s.stock_batches WHERE id=101`, schema)).Scan(&remainingG, &remainingUnits); err != nil {
+		t.Fatalf("query finished stock batch: %v", err)
+	}
+	if remainingG != 0 || remainingUnits != 0 {
+		t.Fatalf("finished batch remaining = %dg/%d units, want 0/0", remainingG, remainingUnits)
+	}
+	var ledgerCount int64
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`
+		SELECT COUNT(*)
+		FROM %s.stock_ledger_entries
+		WHERE item_type='finished_product'
+		  AND item_id=7
+		  AND spec_g=454
+		  AND source_doc_type='sales_order_shipment'
+		  AND source_doc_id=31
+		  AND source_batch_code='FP-OLD-454'
+		  AND qty_change_g=-908
+	`, schema)).Scan(&ledgerCount); err != nil {
+		t.Fatalf("query stock ledger entries: %v", err)
+	}
+	if ledgerCount != 1 {
+		t.Fatalf("stock ledger rows = %d, want 1", ledgerCount)
+	}
+}
+
 func TestOrdersSingleShippingTrackingAPIMarksOrderShipped(t *testing.T) {
 	pool, schema := newOrderAPITestDB(t)
 	ctx := context.Background()
@@ -1404,6 +1564,20 @@ CREATE TABLE %s.order_stock_batch_allocations (
 	operator TEXT NOT NULL DEFAULT '',
 	created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+CREATE TABLE %s.order_stock_deductions (
+	id BIGSERIAL PRIMARY KEY,
+	order_id BIGINT NOT NULL REFERENCES %s.orders(id) ON DELETE CASCADE,
+	product_id BIGINT NOT NULL DEFAULT 0,
+	spec_g BIGINT NOT NULL DEFAULT 0,
+	batch_id BIGINT NOT NULL DEFAULT 0,
+	batch_code TEXT NOT NULL DEFAULT '',
+	deducted_g BIGINT NOT NULL DEFAULT 0,
+	source_doc_type TEXT NOT NULL DEFAULT '',
+	source_doc_id BIGINT NOT NULL DEFAULT 0,
+	operator TEXT NOT NULL DEFAULT '',
+	created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+	UNIQUE(order_id, product_id, spec_g, batch_code)
+);
 CREATE TABLE %s.sales_order_assets (
 	id BIGSERIAL PRIMARY KEY,
 	kind TEXT NOT NULL,
@@ -1459,7 +1633,7 @@ CREATE TABLE %s.order_shipment_orders (
 	UNIQUE(shipment_id, order_id)
 );
 INSERT INTO %s.sender_settings(id, sender_label, is_default, active) VALUES(1, '默认寄件人', true, true);
-	`, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema)
+	`, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema)
 }
 
 func writeOrderShippingTemplateForTest(t *testing.T, path string) {

@@ -91,6 +91,49 @@ func TestProducePlanTreatsDeclinedStockBatchDecisionAsProductionGap(t *testing.T
 	}
 }
 
+func TestProducePlanExcludesShippedOrdersWithBlankProcessStatus(t *testing.T) {
+	pool, schema := newProductionFlowTestDB(t)
+	ctx := context.Background()
+
+	mustExecProductionFlowTestSQL(t, ctx, pool, fmt.Sprintf(`
+		INSERT INTO %s.products(id,name,default_price,active) VALUES (1,'曜石2.0',50,true);
+		INSERT INTO %s.order_process_statuses(name,sort,active) VALUES ('待处理',10,true)
+		ON CONFLICT (name) DO NOTHING;
+		INSERT INTO %s.ship_statuses(name) VALUES ('未发货'),('已发货');
+		ALTER TABLE %s.orders ADD COLUMN IF NOT EXISTS ship_status_id BIGINT;
+		INSERT INTO %s.orders(id,order_no,order_date,is_void,process_status_id,ship_status_id) VALUES
+			(1,'SO-SHIPPED-BLANK','2026-03-28',false,NULL,(SELECT id FROM %s.ship_statuses WHERE name='已发货' LIMIT 1)),
+			(2,'SO-DECLINE-STOCK','2026-05-03',false,NULL,(SELECT id FROM %s.ship_statuses WHERE name='未发货' LIMIT 1));
+		INSERT INTO %s.order_items(order_id,line_no,item_name,qty,unit,spec,product_id,unit_price,line_total)
+		VALUES
+			(1,1,'曜石2.0',80,'袋','454g',1,50,4000),
+			(2,1,'曜石2.0',2,'袋','454g',1,50,100);
+		INSERT INTO %s.finished_inventory(product_id,spec_g,warehouse,onhand_units,onhand_loose_g) VALUES (1,454,'finished_goods',170,0);
+		INSERT INTO %s.order_stock_decisions(order_id,decision,operator) VALUES (2,'produce','测试员');
+		INSERT INTO %s.product_bom(product_id,yield_rate) VALUES (1,0.8000);
+		INSERT INTO %s.roast_machines(name,capacity_g,allowed_specs,min_roast_g,active)
+		VALUES ('样机',2000,'2000',1000,true);
+	`, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema))
+
+	e := newProducePlanTestEcho(pool, schema)
+	req := httptest.NewRequest(http.MethodGet, "/api/produce/unproduced?selected=1-454&plan=1", nil)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET /api/produce/unproduced status = %d, want 200, body=%s", rec.Code, rec.Body.String())
+	}
+	body := rec.Body.String()
+	for _, needle := range []string{`"order_nos":"SO-DECLINE-STOCK"`, `"need_units":2`, `"need_g":908`, `"gap_g":908`} {
+		if !strings.Contains(body, needle) {
+			t.Fatalf("response missing %s: %s", needle, body)
+		}
+	}
+	if strings.Contains(body, "SO-SHIPPED-BLANK") || strings.Contains(body, `"need_units":82`) {
+		t.Fatalf("shipped blank-process order should not inflate production need: %s", body)
+	}
+}
+
 func newProducePlanTestEcho(pool *pgxpool.Pool, schema string) *echo.Echo {
 	e := echo.New()
 	e.Use(func(next echo.HandlerFunc) echo.HandlerFunc {
