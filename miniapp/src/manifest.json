@@ -1,0 +1,14 @@
+{
+  "name": "KFerp客户中心",
+  "appid": "__UNI__KFERP",
+  "description": "KFerp客户服务小程序",
+  "versionName": "0.1.0",
+  "versionCode": "100",
+  "mp-weixin": {
+    "appid": "",
+    "setting": {
+      "urlCheck": true
+    },
+    "usingComponents": true
+  }
+}
