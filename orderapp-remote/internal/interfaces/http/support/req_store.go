@@ -829,6 +829,16 @@ func seedReqWorkflowA(ctx context.Context, pool *pgxpool.Pool, schema string) er
 		{table: "req_unit", code: "UT-FIN-007", title: "前端单测覆盖类别/付款方式候选数量、常用项、模糊匹配 helper 和费用页 datalist 接线", status: "done", assignee: "Codex", evidence: "node --test src/lib/finance-ui.test.js src/lib/finance-expense-options.test.js"},
 		{table: "req_api", code: "API-FIN-005", title: "API 测试覆盖费用保存时类别、付款方式和员工字段进入 POST /api/finance/expenses 并在响应中返回", status: "done", assignee: "Codex", evidence: "go test ./internal/interfaces/http/finance -run TestFinanceExpenseAndClosingAPI -count=1"},
 		{table: "req_review", code: "REV-FIN-004", prCode: "PR-FIN-004", title: "验收：费用管理新增费用时，类别和付款方式可从下拉候选选择；输入关键字可模糊筛选；仍可保存自定义值", status: "todo", assignee: "VA", evidence: "待 Van 服务器验收"},
+		{table: "req_product", code: "PR-FIN-005", title: "财务二期：参照国内 ERP 月结体验，补齐月结前检查、报表来源钻取、票税台账、成本配比异常、费用多维归集和会计交接导出", status: "review", assignee: "VA", evidence: "codex/finance-improvements-yonyou-20260503"},
+		{table: "req_dev", code: "DEV-FIN-011", title: "新增月结前检查服务和 API，结账前展示来源异常、来源明细、票税台账、成本配比和会计交接检查项", status: "done", assignee: "Codex", evidence: "ClosingReview; GET /api/finance/reports/:month/closing-review"},
+		{table: "req_dev", code: "DEV-FIN-012", title: "新增经营报告来源钻取，按收入、主营成本、期间费用和票税来源列出来源单据与金额", status: "done", assignee: "Codex", evidence: "FinanceSourceDetails; GET /api/finance/reports/:month/drilldown"},
+		{table: "req_dev", code: "DEV-FIN-013", title: "新增票税台账 schema、仓储、服务、API 和 Vue 页面，记录销售发票、采购发票、税款缴纳和其他票税事项", status: "done", assignee: "Codex", evidence: "finance_tax_ledger; FinanceTaxLedgerView.vue"},
+		{table: "req_dev", code: "DEV-FIN-014", title: "新增成本配比异常检查，收入存在但主营成本缺失时在月结前检查中提示处理", status: "done", assignee: "Codex", evidence: "cost_matching check"},
+		{table: "req_dev", code: "DEV-FIN-015", title: "费用管理新增订单、客户、商品、批次和维度说明字段，支持费用按业务维度归集和后续分析", status: "done", assignee: "Codex", evidence: "finance_expenses order_id/customer_id/product_id/batch_no/dimension_note"},
+		{table: "req_dev", code: "DEV-FIN-016", title: "新增会计交接 Excel 导出，包含经营汇总、月结检查、来源明细、票税台账和凭证草稿", status: "done", assignee: "Codex", evidence: "GET /api/finance/reports/:month/accountant-handoff.xlsx"},
+		{table: "req_unit", code: "UT-FIN-008", title: "单测覆盖财务二期服务、仓储 schema/source guard、Vue 接线和需求表种子", status: "done", assignee: "Codex", evidence: "go test ./internal/application/finance ./internal/infrastructure/postgres/finance ./internal/interfaces/http/support; node --test finance-ui.test.js"},
+		{table: "req_api", code: "API-FIN-006", title: "API 测试覆盖月结前检查、报表钻取、票税台账增查和会计交接 Excel 下载", status: "done", assignee: "Codex", evidence: "go test ./internal/interfaces/http/finance -run TestFinanceImprovementAPIs -count=1"},
+		{table: "req_review", code: "REV-FIN-005", prCode: "PR-FIN-005", title: "验收：月结页显示月结前检查；经营报告可看来源明细并导出会计交接；票税台账可新增和查看；费用可记录业务维度", status: "todo", assignee: "VA", evidence: "待 Van 服务器验收"},
 	} {
 		if err := seedReqRow(ctx, pool, schema, row); err != nil {
 			return err

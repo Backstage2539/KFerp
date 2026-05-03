@@ -61,6 +61,7 @@ import FinanceExpensesView from './views/FinanceExpensesView.vue'
 import FinanceManualView from './views/FinanceManualView.vue'
 import FinanceReportView from './views/FinanceReportView.vue'
 import FinanceSettingsView from './views/FinanceSettingsView.vue'
+import FinanceTaxLedgerView from './views/FinanceTaxLedgerView.vue'
 import InventoryView from './views/InventoryView.vue'
 import JobCardsView from './views/JobCardsView.vue'
 import MachinesView from './views/MachinesView.vue'
@@ -146,6 +147,7 @@ const internalViews = {
   financeExpenses: FinanceExpensesView,
   financeClosing: FinanceClosingView,
   financeReport: FinanceReportView,
+  financeTaxLedger: FinanceTaxLedgerView,
   financeSettings: FinanceSettingsView,
   financeManual: FinanceManualView,
   producePlan: ProducePlanView,

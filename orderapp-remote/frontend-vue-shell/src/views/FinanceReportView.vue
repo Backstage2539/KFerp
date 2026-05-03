@@ -10,6 +10,7 @@
         <button class="secondary" type="button" @click="load" :disabled="loading">刷新</button>
         <a :href="exportUrls.pdf" target="_blank" rel="noreferrer">PDF</a>
         <a :href="exportUrls.excel" target="_blank" rel="noreferrer">Excel</a>
+        <a :href="accountantHandoffUrl" target="_blank" rel="noreferrer" data-export-kind="accountant-handoff.xlsx">会计交接</a>
       </div>
     </section>
 
@@ -74,14 +75,46 @@
         <p class="note">{{ report.tax?.estimate_note }}</p>
       </div>
     </section>
+
+    <section class="panel table-wrap">
+      <div class="section-title">来源明细</div>
+      <div v-if="!drilldown.sections?.length" class="empty">暂无来源明细</div>
+      <div v-for="section in drilldown.sections" :key="section.section" class="drill-section">
+        <div class="drill-head">
+          <strong>{{ section.title || section.section }}</strong>
+          <span>{{ money(section.total) }}</span>
+        </div>
+        <table>
+          <thead>
+            <tr>
+              <th>日期</th>
+              <th>来源</th>
+              <th>名称</th>
+              <th>对象</th>
+              <th>金额</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="row in section.rows" :key="`${row.source_type}-${row.source_id}-${row.name}`">
+              <td>{{ row.date }}</td>
+              <td>{{ sourceTypeLabel(row.source_type) }}</td>
+              <td>{{ row.name || row.category }}</td>
+              <td>{{ row.counterparty }}</td>
+              <td>{{ money(row.amount) }}</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
   </div>
 </template>
 
 <script setup>
 import { computed, onMounted, ref } from 'vue'
-import { fetchFinanceReport } from '../api/finance.js'
+import { fetchFinanceReport, fetchFinanceReportDrilldown } from '../api/finance.js'
 import {
   currentMonth,
+  financeAccountantHandoffUrl,
   financeMetricCards,
   financeReportExportUrls,
   financeStatusLabel,
@@ -92,17 +125,34 @@ import {
 
 const month = ref(currentMonth())
 const report = ref({})
+const drilldown = ref({})
 const loading = ref(false)
 const error = ref('')
 const cards = computed(() => financeMetricCards(report.value))
 const taxRows = computed(() => financeTaxRows(report.value))
 const exportUrls = computed(() => financeReportExportUrls(month.value))
+const accountantHandoffUrl = computed(() => financeAccountantHandoffUrl(month.value))
+
+function sourceTypeLabel(value) {
+  const labels = {
+    order_revenue: '订单收入',
+    production_cost: '生产成本',
+    expense: '费用',
+    tax_ledger: '票税',
+  }
+  return labels[value] || value || ''
+}
 
 async function load() {
   loading.value = true
   error.value = ''
   try {
-    report.value = await fetchFinanceReport(month.value)
+    const [reportData, drilldownData] = await Promise.all([
+      fetchFinanceReport(month.value),
+      fetchFinanceReportDrilldown(month.value),
+    ])
+    report.value = reportData
+    drilldown.value = drilldownData
   } catch (err) {
     error.value = err.message || '加载失败'
   } finally {
@@ -137,6 +187,9 @@ table { width: 100%; border-collapse: collapse; }
 th, td { border-bottom: 1px solid #eee; padding: 9px 8px; text-align: left; font-size: 14px; }
 th { width: 52%; background: #fbfbfb; }
 .note { margin-top: 10px; font-size: 13px; }
+.drill-section { display: grid; gap: 8px; margin-top: 12px; }
+.drill-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 8px 0; border-bottom: 1px solid #eee; }
+.empty { color: #666; padding: 8px 0; }
 .error { background: #fff0f0; border: 1px solid #e6b7b7; color: #8a1f1f; border-radius: 6px; padding: 10px; }
 @media (max-width: 900px) {
   .page { padding: 12px; }

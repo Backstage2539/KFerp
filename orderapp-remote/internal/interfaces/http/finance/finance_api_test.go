@@ -67,12 +67,12 @@ func TestFinanceExpenseEmployeesAPI(t *testing.T) {
 
 func TestFinanceExpenseAndClosingAPI(t *testing.T) {
 	e, svc := newFinanceTestEcho()
-	body := strings.NewReader(`{"date":"2026-05-02","category":"差旅费","amount":3800,"allocation":"period_expense","employee_id":7,"payment":"银行转账"}`)
+	body := strings.NewReader(`{"date":"2026-05-02","category":"差旅费","amount":3800,"allocation":"period_expense","employee_id":7,"payment":"银行转账","order_id":256,"customer_id":18,"product_id":9,"batch_no":"BATCH-0503","dimension_note":"客户样品"}`)
 	req := httptest.NewRequest(http.MethodPost, "/api/finance/expenses", body)
 	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
 	rec := httptest.NewRecorder()
 	e.ServeHTTP(rec, req)
-	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"category":"差旅费"`) || !strings.Contains(rec.Body.String(), `"payment":"银行转账"`) || !strings.Contains(rec.Body.String(), `"employee_id":7`) {
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"category":"差旅费"`) || !strings.Contains(rec.Body.String(), `"payment":"银行转账"`) || !strings.Contains(rec.Body.String(), `"employee_id":7`) || !strings.Contains(rec.Body.String(), `"order_id":256`) {
 		t.Fatalf("expense status=%d body=%s", rec.Code, rec.Body.String())
 	}
 
@@ -100,6 +100,41 @@ func TestFinanceExpenseAndClosingAPI(t *testing.T) {
 	e.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"reason":"补记费用"`) {
 		t.Fatalf("adjustment status=%d body=%s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestFinanceImprovementAPIs(t *testing.T) {
+	e, _ := newFinanceTestEcho()
+	for _, tc := range []struct {
+		path string
+		want string
+	}{
+		{"/api/finance/reports/2026-05/closing-review", `"source_exceptions"`},
+		{"/api/finance/reports/2026-05/drilldown", `"section":"revenue"`},
+		{"/api/finance/tax-ledger?month=2026-05", `"invoice_no":"INV-001"`},
+	} {
+		req := httptest.NewRequest(http.MethodGet, tc.path, nil)
+		rec := httptest.NewRecorder()
+		e.ServeHTTP(rec, req)
+		if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), tc.want) {
+			t.Fatalf("%s status=%d body=%s", tc.path, rec.Code, rec.Body.String())
+		}
+	}
+
+	body := strings.NewReader(`{"month":"2026-05","kind":"purchase_invoice","invoice_no":"PINV-001","counterparty":"生豆供应商","total_amount":500,"tax_amount":15,"status":"pending"}`)
+	req := httptest.NewRequest(http.MethodPost, "/api/finance/tax-ledger", body)
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"invoice_no":"PINV-001"`) {
+		t.Fatalf("create tax ledger status=%d body=%s", rec.Code, rec.Body.String())
+	}
+
+	req = httptest.NewRequest(http.MethodGet, "/api/finance/reports/2026-05/accountant-handoff.xlsx", nil)
+	rec = httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Header().Get(echo.HeaderContentType), "spreadsheetml.sheet") || rec.Body.Len() == 0 {
+		t.Fatalf("accountant handoff status=%d type=%q bytes=%d", rec.Code, rec.Header().Get(echo.HeaderContentType), rec.Body.Len())
 	}
 }
 
@@ -160,7 +195,7 @@ func (s *fakeFinanceService) ListExpenseEmployees(context.Context) ([]appfinance
 }
 
 func (s *fakeFinanceService) CreateExpense(_ context.Context, cmd appfinance.CreateExpenseCommand) (appfinance.Expense, error) {
-	return appfinance.Expense{ID: 1, Date: cmd.Date, Month: "2026-05", Category: cmd.Category, Amount: cmd.Amount, Allocation: cmd.Allocation, EmployeeID: cmd.EmployeeID, EmployeeName: "小王", Payment: cmd.Payment}, nil
+	return appfinance.Expense{ID: 1, Date: cmd.Date, Month: "2026-05", Category: cmd.Category, Amount: cmd.Amount, Allocation: cmd.Allocation, EmployeeID: cmd.EmployeeID, EmployeeName: "小王", Payment: cmd.Payment, OrderID: cmd.OrderID, CustomerID: cmd.CustomerID, ProductID: cmd.ProductID, BatchNo: cmd.BatchNo, DimensionNote: cmd.DimensionNote}, nil
 }
 
 func (s *fakeFinanceService) ListExpenses(_ context.Context, filter appfinance.ExpenseFilter) ([]appfinance.Expense, error) {
@@ -180,6 +215,26 @@ func (s *fakeFinanceService) CloseMonth(context.Context, appfinance.CloseMonthCo
 
 func (s *fakeFinanceService) CreateAdjustment(_ context.Context, cmd appfinance.CreateAdjustmentCommand) (appfinance.AdjustmentRecord, error) {
 	return appfinance.AdjustmentRecord{ID: 1, Month: cmd.Month, Type: cmd.Type, Amount: cmd.Amount, Reason: cmd.Reason}, nil
+}
+
+func (s *fakeFinanceService) ClosingReview(context.Context, string) (appfinance.ClosingReview, error) {
+	return appfinance.ClosingReview{Month: "2026-05", Items: []appfinance.ClosingCheckItem{{Code: "source_exceptions", Status: "warn", Message: "有未处理异常"}}}, nil
+}
+
+func (s *fakeFinanceService) ReportDrilldown(context.Context, string) (appfinance.ReportDrilldown, error) {
+	return appfinance.ReportDrilldown{Month: "2026-05", Sections: []appfinance.DrilldownSection{{Section: "revenue", Title: "收入", Total: 103000, Rows: []appfinance.SourceDetail{{Section: "revenue", SourceType: "order", SourceID: 256, Name: "SO-20260502-0001", Amount: 103000}}}}}, nil
+}
+
+func (s *fakeFinanceService) ListTaxLedger(context.Context, string) ([]appfinance.TaxLedgerEntry, error) {
+	return []appfinance.TaxLedgerEntry{{ID: 1, Month: "2026-05", Kind: "sales_invoice", InvoiceNo: "INV-001", Counterparty: "咖啡客户A", TotalAmount: 1030, TaxAmount: 30, Status: "confirmed"}}, nil
+}
+
+func (s *fakeFinanceService) CreateTaxLedgerEntry(_ context.Context, cmd appfinance.CreateTaxLedgerCommand) (appfinance.TaxLedgerEntry, error) {
+	return appfinance.TaxLedgerEntry{ID: 2, Month: cmd.Month, Kind: cmd.Kind, InvoiceNo: cmd.InvoiceNo, Counterparty: cmd.Counterparty, TotalAmount: cmd.TotalAmount, TaxAmount: cmd.TaxAmount, Status: cmd.Status}, nil
+}
+
+func (s *fakeFinanceService) AccountantHandoff(context.Context, string) (appfinance.AccountantHandoff, error) {
+	return appfinance.AccountantHandoff{Month: "2026-05", VoucherDrafts: []appfinance.VoucherDraft{{Summary: "收入结转", Debit: "应收账款", Credit: "主营业务收入", Amount: 1000}}}, nil
 }
 
 func decodeJSON(t *testing.T, body string, out any) {

@@ -37,6 +37,7 @@ func TestFinanceModuleIsWiredIntoAppmainAndPermissions(t *testing.T) {
 				`{Code: "finance.close_mode.manage"`,
 				`"financeDashboard":`,
 				`"financeClosing":`,
+				`"financeTaxLedger":`,
 			},
 		},
 		{

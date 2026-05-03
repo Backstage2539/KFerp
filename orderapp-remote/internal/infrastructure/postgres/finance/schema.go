@@ -37,6 +37,11 @@ CREATE TABLE IF NOT EXISTS %[1]s.finance_expenses (
 	amount NUMERIC(14,2) NOT NULL DEFAULT 0,
 	allocation TEXT NOT NULL DEFAULT 'period_expense',
 	employee_id BIGINT NULL REFERENCES %[1]s.company_employees(id) ON DELETE SET NULL,
+	order_id BIGINT NOT NULL DEFAULT 0,
+	customer_id BIGINT NOT NULL DEFAULT 0,
+	product_id BIGINT NOT NULL DEFAULT 0,
+	batch_no TEXT NOT NULL DEFAULT '',
+	dimension_note TEXT NOT NULL DEFAULT '',
 	input_vat NUMERIC(14,2) NOT NULL DEFAULT 0,
 	non_deductible_input_vat NUMERIC(14,2) NOT NULL DEFAULT 0,
 	payment TEXT NOT NULL DEFAULT '',
@@ -45,6 +50,20 @@ CREATE TABLE IF NOT EXISTS %[1]s.finance_expenses (
 	created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS finance_expenses_month_idx ON %[1]s.finance_expenses(month, expense_date, id);
+CREATE TABLE IF NOT EXISTS %[1]s.finance_tax_ledger (
+	id BIGSERIAL PRIMARY KEY,
+	month TEXT NOT NULL DEFAULT '',
+	kind TEXT NOT NULL DEFAULT '',
+	invoice_no TEXT NOT NULL DEFAULT '',
+	counterparty TEXT NOT NULL DEFAULT '',
+	total_amount NUMERIC(14,2) NOT NULL DEFAULT 0,
+	tax_amount NUMERIC(14,2) NOT NULL DEFAULT 0,
+	status TEXT NOT NULL DEFAULT 'pending',
+	note TEXT NOT NULL DEFAULT '',
+	created_by TEXT NOT NULL DEFAULT '',
+	created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS finance_tax_ledger_month_idx ON %[1]s.finance_tax_ledger(month, id);
 CREATE TABLE IF NOT EXISTS %[1]s.finance_monthly_reports (
 	month TEXT PRIMARY KEY,
 	status TEXT NOT NULL DEFAULT 'draft',
@@ -71,7 +90,13 @@ CREATE INDEX IF NOT EXISTS finance_adjustments_month_idx ON %[1]s.finance_adjust
 	}
 	for _, stmt := range []string{
 		fmt.Sprintf(`ALTER TABLE %s.finance_expenses ADD COLUMN IF NOT EXISTS employee_id BIGINT NULL`, schema),
+		fmt.Sprintf(`ALTER TABLE %s.finance_expenses ADD COLUMN IF NOT EXISTS order_id BIGINT NOT NULL DEFAULT 0`, schema),
+		fmt.Sprintf(`ALTER TABLE %s.finance_expenses ADD COLUMN IF NOT EXISTS customer_id BIGINT NOT NULL DEFAULT 0`, schema),
+		fmt.Sprintf(`ALTER TABLE %s.finance_expenses ADD COLUMN IF NOT EXISTS product_id BIGINT NOT NULL DEFAULT 0`, schema),
+		fmt.Sprintf(`ALTER TABLE %s.finance_expenses ADD COLUMN IF NOT EXISTS batch_no TEXT NOT NULL DEFAULT ''`, schema),
+		fmt.Sprintf(`ALTER TABLE %s.finance_expenses ADD COLUMN IF NOT EXISTS dimension_note TEXT NOT NULL DEFAULT ''`, schema),
 		fmt.Sprintf(`CREATE INDEX IF NOT EXISTS finance_expenses_employee_idx ON %s.finance_expenses(employee_id, month, expense_date, id)`, schema),
+		fmt.Sprintf(`CREATE INDEX IF NOT EXISTS finance_expenses_dimension_idx ON %s.finance_expenses(month, order_id, customer_id, product_id, batch_no)`, schema),
 		fmt.Sprintf(`
 DO $$
 BEGIN

@@ -72,6 +72,11 @@ export function financeReportExportUrls(month) {
   }
 }
 
+export function financeAccountantHandoffUrl(month) {
+  const safeMonth = encodeURIComponent(month || currentMonth())
+  return `/api/finance/reports/${safeMonth}/accountant-handoff.xlsx`
+}
+
 function numberOrNull(value) {
   if (value === undefined || value === null || value === '') return null
   const n = Number(value)

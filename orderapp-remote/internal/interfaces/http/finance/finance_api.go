@@ -90,6 +90,27 @@ func registerFinanceAPI(e *echo.Echo, svc Service) {
 		return c.JSON(http.StatusOK, row)
 	})
 
+	e.GET("/api/finance/tax-ledger", func(c echo.Context) error {
+		rows, err := svc.ListTaxLedger(c.Request().Context(), monthParam(c))
+		if err != nil {
+			return jsonError(c, http.StatusBadRequest, err)
+		}
+		return c.JSON(http.StatusOK, map[string]any{"rows": rows})
+	})
+
+	e.POST("/api/finance/tax-ledger", func(c echo.Context) error {
+		var req appfinance.CreateTaxLedgerCommand
+		if err := c.Bind(&req); err != nil {
+			return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid request"})
+		}
+		req.Actor = actorFromRequest(c)
+		row, err := svc.CreateTaxLedgerEntry(c.Request().Context(), req)
+		if err != nil {
+			return jsonError(c, http.StatusBadRequest, err)
+		}
+		return c.JSON(http.StatusOK, row)
+	})
+
 	e.POST("/api/finance/adjustments", func(c echo.Context) error {
 		var req appfinance.CreateAdjustmentCommand
 		if err := c.Bind(&req); err != nil {
@@ -127,6 +148,36 @@ func registerFinanceAPI(e *echo.Echo, svc Service) {
 			return jsonError(c, http.StatusInternalServerError, err)
 		}
 		filename := fmt.Sprintf("KFerp-finance-report-%s.xlsx", report.Month)
+		c.Response().Header().Set(echo.HeaderContentDisposition, `attachment; filename="`+filename+`"`)
+		return c.Blob(http.StatusOK, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", b)
+	})
+
+	e.GET("/api/finance/reports/:month/closing-review", func(c echo.Context) error {
+		review, err := svc.ClosingReview(c.Request().Context(), c.Param("month"))
+		if err != nil {
+			return jsonError(c, http.StatusBadRequest, err)
+		}
+		return c.JSON(http.StatusOK, review)
+	})
+
+	e.GET("/api/finance/reports/:month/drilldown", func(c echo.Context) error {
+		drilldown, err := svc.ReportDrilldown(c.Request().Context(), c.Param("month"))
+		if err != nil {
+			return jsonError(c, http.StatusBadRequest, err)
+		}
+		return c.JSON(http.StatusOK, drilldown)
+	})
+
+	e.GET("/api/finance/reports/:month/accountant-handoff.xlsx", func(c echo.Context) error {
+		handoff, err := svc.AccountantHandoff(c.Request().Context(), c.Param("month"))
+		if err != nil {
+			return jsonError(c, http.StatusBadRequest, err)
+		}
+		b, err := financeexcel.RenderFinanceAccountantHandoff(handoff)
+		if err != nil {
+			return jsonError(c, http.StatusInternalServerError, err)
+		}
+		filename := fmt.Sprintf("KFerp-accountant-handoff-%s.xlsx", handoff.Month)
 		c.Response().Header().Set(echo.HeaderContentDisposition, `attachment; filename="`+filename+`"`)
 		return c.Blob(http.StatusOK, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", b)
 	})

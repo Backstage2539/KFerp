@@ -180,6 +180,7 @@ func defaultViewPermissions() map[string]string {
 		"financeExpenses":      "finance.write",
 		"financeClosing":       "finance.close",
 		"financeReport":        "finance.read",
+		"financeTaxLedger":     "finance.write",
 		"financeSettings":      "finance.write",
 		"financeManual":        "finance.read",
 		"machines":             "settings.write",
