@@ -49,6 +49,12 @@ func TestVueShellCanLoadBeforeBearerAPIAuth(t *testing.T) {
 	}
 }
 
+func TestMiniAPIBypassesBasicAuthForMiniTokenHandlers(t *testing.T) {
+	if !isPublicUnauthenticatedPath("/api/mini/me") || !isPublicUnauthenticatedPath("/api/mini/login") {
+		t.Fatal("/api/mini/* must bypass BasicAuth so mini handlers can enforce mini token auth")
+	}
+}
+
 func TestExternalSharePagesArePublicButShareCreationRequiresOrderWrite(t *testing.T) {
 	for _, path := range []string{"/share/abc123", "/share/abc123/file"} {
 		if !isPublicUnauthenticatedPath(path) {

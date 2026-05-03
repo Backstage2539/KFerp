@@ -31,6 +31,30 @@ func TestLoadRuntimeDefaults(t *testing.T) {
 	if cfg.ListenAddr != ":8080" {
 		t.Fatalf("ListenAddr = %q", cfg.ListenAddr)
 	}
+	if cfg.CustomerPortalDevLogin {
+		t.Fatal("CustomerPortalDevLogin = true, want default false")
+	}
+}
+
+func TestLoadRuntimeCustomerPortalDevLogin(t *testing.T) {
+	cfg, err := LoadRuntime(func(key string) string {
+		switch key {
+		case "DATABASE_URL":
+			return "postgres://example"
+		case "APP_PASS":
+			return "secret"
+		case "CUSTOMER_PORTAL_DEV_LOGIN":
+			return " true "
+		default:
+			return ""
+		}
+	})
+	if err != nil {
+		t.Fatalf("LoadRuntime() error = %v", err)
+	}
+	if !cfg.CustomerPortalDevLogin {
+		t.Fatal("CustomerPortalDevLogin = false, want true")
+	}
 }
 
 func TestLoadRuntimeRequiredValues(t *testing.T) {
