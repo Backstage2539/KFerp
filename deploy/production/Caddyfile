@@ -1,0 +1,20 @@
+{
+  auto_https disable_redirects
+}
+
+erp.qacoohee.com:443 {
+  encode zstd gzip
+
+  handle_path /import/* {
+    root * /srv/import
+    file_server
+  }
+
+  handle_path /app/* {
+    reverse_proxy orderapp:8080
+  }
+
+  handle {
+    reverse_proxy orderapp:8080
+  }
+}

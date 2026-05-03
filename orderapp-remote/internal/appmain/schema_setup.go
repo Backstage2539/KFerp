@@ -19,10 +19,14 @@ import (
 	postgresstock "orderapp/internal/infrastructure/postgres/stock"
 	supporthttp "orderapp/internal/interfaces/http/support"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 func ensureAppSchema(ctx context.Context, pool *pgxpool.Pool, schema string) error {
+	if _, err := pool.Exec(ctx, "CREATE SCHEMA IF NOT EXISTS "+pgx.Identifier{schema}.Sanitize()); err != nil {
+		return err
+	}
 	return postgresinfra.EnsureSchema(ctx, []postgresinfra.SchemaStep{
 		{Name: "company", Run: func(ctx context.Context) error { return postgrescompany.EnsureSchema(ctx, pool, schema) }},
 		{Name: "core", Run: func(ctx context.Context) error { return postgrescore.EnsureSchema(ctx, pool, schema) }},

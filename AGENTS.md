@@ -241,34 +241,45 @@ There may be multiple agents or worktrees writing code at the same time.
 - Always do implementation work on your own feature branch, normally `codex/<task-name>`.
 - Before integration, run tests and push your own branch to GitHub first.
 - Then fetch the latest `origin/develop`, verify what changed, and merge your branch into `develop` only after confirming the merge is clean.
-- Deploy only after the feature branch has been pushed and the merge into `develop` is complete.
+- Deploy to the development environment only after the feature branch has been pushed and the merge into `develop` is complete.
 - If `develop` moved while you were working, rebase or merge from the latest `origin/develop` in your own branch first; do not overwrite or force-push shared branches.
 - Treat other worktrees' changes as user/agent work. Never revert them unless Van explicitly asks.
 
+## Environment Deployment Rule
+
+Future online releases use the formal `production` environment. The development environment stays available for integration testing but is not the future online release target.
+
+- `./deploy_orderapp.sh` defaults to `production`.
+- Production deploy requires local branch `main`, pushed to `origin/main`, and targets `/opt/stacks/erp-production`.
+- `./deploy_orderapp.sh development` preserves the old development deploy flow.
+- Development deploy requires local branch `develop`, pushed to `origin/develop`, and targets `/opt/stacks/erp`.
+- Do not deploy `develop` as the formal online release. Promote the verified version to `main` before production deployment.
+- Use `./deploy_orderapp.sh --print-plan` or `./deploy_orderapp.sh --print-plan development` before deploying when the target is unclear.
+
 ## Develop Deployment Coordination
 
-When multiple workflows are active, treat `develop` as the shared integration and deployment branch, not as an individual development branch.
+When multiple workflows are active, treat `develop` as the shared integration branch and development-environment deployment branch, not as an individual development branch.
 
 - Parallel work is allowed only on separate feature branches.
-- Integration and deployment from `develop` must be serialized.
+- Integration and development-environment deployment from `develop` must be serialized.
 - Before merging into `develop`, each workflow must:
   - `git fetch origin`
   - merge or rebase the latest `origin/develop` into its own feature branch
   - resolve conflicts on the feature branch
   - rerun the relevant unit/API/build checks
   - push the feature branch
-- After merging to `develop`, the workflow that performed the merge owns the next deployment unless Van explicitly asks another workflow to deploy.
-- Before deploying, verify that `origin/develop` is exactly the commit intended for deployment:
+- After merging to `develop`, the workflow that performed the merge owns the next development-environment deployment unless Van explicitly asks another workflow to deploy.
+- Before deploying to the development environment, verify that `origin/develop` is exactly the commit intended for deployment:
   - run `git fetch origin`
   - inspect `git log --oneline -3 origin/develop`
   - record `git rev-parse origin/develop` in the deployment notes or final response
 - If `origin/develop` changed after local testing, stop deployment, merge the latest `origin/develop` back into the feature branch, rerun checks, and only then integrate again.
-- Never deploy from a stale local `develop`. Fast-forward local `develop` from `origin/develop` first.
+- Never deploy the development environment from a stale local `develop`. Fast-forward local `develop` from `origin/develop` first.
 - Never force-push `develop`.
 - Do not deploy another workflow's newly merged commit unless that workflow has finished its verification or Van explicitly asks.
-- If two workflows both need deployment, deploy in order:
-  - workflow A merges to `develop`, deploys, and verifies
-  - workflow B updates from the new `origin/develop`, tests, merges, deploys, and verifies
+- If two workflows both need development-environment deployment, deploy in order:
+  - workflow A merges to `develop`, deploys development, and verifies
+  - workflow B updates from the new `origin/develop`, tests, merges, deploys development, and verifies
 
 ## Make It Yours
 

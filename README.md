@@ -72,12 +72,20 @@ cd orderapp-remote
 go test ./...
 ```
 
-- 一键部署（按仓库脚本）
+- 一键部署（正式环境，按仓库脚本）
 
 ```bash
 chmod +x deploy_orderapp.sh
 ./deploy_orderapp.sh
 ```
+
+- 开发环境部署（保留旧 develop 链路）
+
+```bash
+./deploy_orderapp.sh development
+```
+
+`./deploy_orderapp.sh` 默认发布正式环境；`./deploy_orderapp.sh development` 保留开发环境发布。可用 `./deploy_orderapp.sh --print-plan` 或 `./deploy_orderapp.sh --print-plan development` 先查看目标分支和服务器目录。
 
 ## 目录结构
 

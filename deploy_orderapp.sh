@@ -1,18 +1,93 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Deploy orderapp code + docs to server, rebuild and restart containers.
-# Usage: ./deploy_orderapp.sh
+# Deploy orderapp code + docs to a named environment, rebuild and restart containers.
+# Usage:
+#   ./deploy_orderapp.sh                  # production (formal online release)
+#   ./deploy_orderapp.sh production
+#   ./deploy_orderapp.sh development      # legacy develop environment
+#   ./deploy_orderapp.sh --print-plan [production|development]
 
 KEY="openclaw_jj_ed25519"
 SERVER="root@1.12.242.58"
-APP_DIR="/opt/stacks/erp/orderapp"
+DEPLOY_ENV="${DEPLOY_ENV:-}"
+MODE="deploy"
+
+if [ "${1:-}" = "--print-plan" ]; then
+  MODE="print-plan"
+  shift
+fi
+
+if [ "${1:-}" = "-h" ] || [ "${1:-}" = "--help" ]; then
+  sed -n '2,12p' "$0"
+  exit 0
+fi
+
+if [ $# -gt 1 ]; then
+  echo "ERROR: expected at most one environment argument" >&2
+  exit 1
+fi
+
+if [ $# -eq 1 ]; then
+  if [ -n "$DEPLOY_ENV" ] && [ "$DEPLOY_ENV" != "$1" ]; then
+    echo "ERROR: DEPLOY_ENV=$DEPLOY_ENV conflicts with argument $1" >&2
+    exit 1
+  fi
+  DEPLOY_ENV="$1"
+fi
+
+DEPLOY_ENV="${DEPLOY_ENV:-production}"
+
+case "$DEPLOY_ENV" in
+  prod|production)
+    DEPLOY_ENV="production"
+    REQUIRED_BRANCH="main"
+    REMOTE_BRANCH="main"
+    STACK_DIR="/opt/stacks/erp-production"
+    ;;
+  dev|development)
+    DEPLOY_ENV="development"
+    REQUIRED_BRANCH="develop"
+    REMOTE_BRANCH="develop"
+    STACK_DIR="/opt/stacks/erp"
+    ;;
+  *)
+    echo "ERROR: unknown deploy environment '$DEPLOY_ENV' (use production or development)" >&2
+    exit 1
+    ;;
+esac
+
+REMOTE_REF="origin/$REMOTE_BRANCH"
+APP_DIR="$STACK_DIR/orderapp"
 DOCS_DIR="$APP_DIR/docs"
 
-# 0) Ensure local develop has been pushed
+if [ "$MODE" = "print-plan" ]; then
+  cat <<PLAN
+deploy_env=$DEPLOY_ENV
+server=$SERVER
+required_branch=$REQUIRED_BRANCH
+remote_ref=$REMOTE_REF
+stack_dir=$STACK_DIR
+app_dir=$APP_DIR
+docs_dir=$DOCS_DIR
+compose_service=orderapp
+PLAN
+  exit 0
+fi
+
+SSH_KEY_ARGS=()
+if [ -f "$KEY" ]; then
+  SSH_KEY_ARGS=(-i "$KEY")
+fi
+
+echo "Deploy environment: $DEPLOY_ENV"
+echo "Target branch: $REQUIRED_BRANCH ($REMOTE_REF)"
+echo "Target stack: $SERVER:$STACK_DIR"
+
+# 0) Ensure local branch has been pushed to its environment branch.
 BRANCH="$(git rev-parse --abbrev-ref HEAD)"
-if [ "$BRANCH" != "develop" ]; then
-  echo "ERROR: deploy requires branch=develop, got $BRANCH" >&2
+if [ "$BRANCH" != "$REQUIRED_BRANCH" ]; then
+  echo "ERROR: $DEPLOY_ENV deploy requires branch=$REQUIRED_BRANCH, got $BRANCH" >&2
   exit 1
 fi
 if [ -n "$(git status --porcelain --untracked-files=no)" ]; then
@@ -20,17 +95,17 @@ if [ -n "$(git status --porcelain --untracked-files=no)" ]; then
   exit 1
 fi
 if git remote get-url origin >/dev/null 2>&1; then
-  git fetch origin develop >/dev/null 2>&1 || true
+  git fetch origin "$REMOTE_BRANCH" >/dev/null 2>&1 || true
   LOCAL_HEAD="$(git rev-parse HEAD)"
-  REMOTE_HEAD="$(git rev-parse origin/develop 2>/dev/null || echo '')"
+  REMOTE_HEAD="$(git rev-parse "$REMOTE_REF" 2>/dev/null || echo '')"
   if [ "$REMOTE_HEAD" = "" ]; then
-    echo "ERROR: origin/develop not found; push first" >&2
+    echo "ERROR: $REMOTE_REF not found; push first" >&2
     exit 1
   fi
   if [ "$LOCAL_HEAD" != "$REMOTE_HEAD" ]; then
-    echo "ERROR: local HEAD not pushed to origin/develop; push first" >&2
+    echo "ERROR: local HEAD not pushed to $REMOTE_REF; push first" >&2
     echo "  local:  $LOCAL_HEAD" >&2
-    echo "  origin: $REMOTE_HEAD" >&2
+    echo "  $REMOTE_REF: $REMOTE_HEAD" >&2
     exit 1
   fi
 else
@@ -45,18 +120,19 @@ npm ci 2>/dev/null || npm install
 npm run build
 cd ../..
 
-# 2) Replace app source so deleted files do not linger on the server.
+# 2) Replace app source so deleted files do not linger on the target environment.
 BACKUP="$APP_DIR.backup.deploy-$(date +%Y%m%d%H%M%S)"
-ssh -i "$KEY" "$SERVER" "set -e; cd /opt/stacks/erp; if [ -d orderapp ]; then mv orderapp $BACKUP; fi; mkdir -p orderapp"
-COPYFILE_DISABLE=1 tar --no-xattrs --no-mac-metadata --exclude='._*' --exclude='*/._*' --exclude='./frontend-vue-shell/node_modules' --exclude='./frontend-vue-shell/.vite' -C orderapp-remote -cf - . | ssh -i "$KEY" "$SERVER" "tar -C $APP_DIR -xf -"
+ssh "${SSH_KEY_ARGS[@]}" "$SERVER" "test -f $STACK_DIR/docker-compose.yml || { echo 'ERROR: missing $STACK_DIR/docker-compose.yml for $DEPLOY_ENV environment' >&2; exit 1; }"
+ssh "${SSH_KEY_ARGS[@]}" "$SERVER" "set -e; cd $STACK_DIR; if [ -d orderapp ]; then mv orderapp $BACKUP; fi; mkdir -p orderapp"
+COPYFILE_DISABLE=1 tar --no-xattrs --no-mac-metadata --exclude='._*' --exclude='*/._*' --exclude='./frontend-vue-shell/node_modules' --exclude='./frontend-vue-shell/.vite' -C orderapp-remote -cf - . | ssh "${SSH_KEY_ARGS[@]}" "$SERVER" "tar -C $APP_DIR -xf -"
 
 # 3) Sync docs
-ssh -i "$KEY" "$SERVER" "mkdir -p $DOCS_DIR"
-scp -i "$KEY" REQUIREMENTS.md ACCEPTANCE_TESTS.md HOW_TO_WORKFLOW.md DEPLOYMENT.md "$SERVER:$DOCS_DIR/"
-ssh -i "$KEY" "$SERVER" "set -e; mkdir -p /opt/stacks/erp/orderapp_data/shipping_exports; if [ -f /data/ship_temp.xlsx ]; then cp /data/ship_temp.xlsx /opt/stacks/erp/orderapp_data/ship_temp.xlsx; fi"
+ssh "${SSH_KEY_ARGS[@]}" "$SERVER" "mkdir -p $DOCS_DIR"
+scp "${SSH_KEY_ARGS[@]}" REQUIREMENTS.md ACCEPTANCE_TESTS.md HOW_TO_WORKFLOW.md DEPLOYMENT.md "$SERVER:$DOCS_DIR/"
+ssh "${SSH_KEY_ARGS[@]}" "$SERVER" "set -e; mkdir -p $STACK_DIR/orderapp_data/shipping_exports; if [ -f /data/ship_temp.xlsx ]; then cp /data/ship_temp.xlsx $STACK_DIR/orderapp_data/ship_temp.xlsx; fi"
 
 # 4) Build & restart
-ssh -i "$KEY" "$SERVER" "cd /opt/stacks/erp && docker compose build orderapp && docker compose up -d orderapp"
+ssh "${SSH_KEY_ARGS[@]}" "$SERVER" "cd $STACK_DIR && docker compose build orderapp && docker compose up -d orderapp"
 
-echo "Deployed origin/develop=$REMOTE_HEAD with docs synced to $SERVER:$DOCS_DIR"
+echo "Deployed $DEPLOY_ENV $REMOTE_REF=$REMOTE_HEAD with docs synced to $SERVER:$DOCS_DIR"
 echo "Previous app backup: $SERVER:$BACKUP"

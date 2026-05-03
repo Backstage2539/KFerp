@@ -1,0 +1,51 @@
+services:
+  orderapp:
+    build: ./orderapp
+    container_name: erp_prod_orderapp
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: "postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}"
+      DB_SCHEMA: ${DB_SCHEMA:-p2rms15pepb5ciz}
+      APP_USER: ${ORDERAPP_USER:-order}
+      APP_PASS: ${ORDERAPP_PASS}
+      TZ: ${TZ:-Asia/Shanghai}
+    volumes:
+      - ./orderapp_data:/app/data
+
+  postgres:
+    image: docker.m.daocloud.io/library/postgres:16-alpine
+    container_name: erp_prod_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+      TZ: ${TZ:-Asia/Shanghai}
+    volumes:
+      - ./postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  caddy:
+    image: docker.m.daocloud.io/library/caddy:2-alpine
+    container_name: erp_prod_caddy
+    restart: unless-stopped
+    depends_on:
+      - orderapp
+    ports:
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./caddy_data:/data
+      - ./caddy_config:/config
+      - ./import:/srv/import:ro
+
+networks:
+  default:
+    name: erp_production_net

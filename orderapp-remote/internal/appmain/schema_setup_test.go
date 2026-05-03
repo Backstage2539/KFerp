@@ -22,3 +22,19 @@ func TestSchemaSetupInitializesCompanyBeforeEmployeeDependentModules(t *testing.
 		t.Fatalf("company schema must run before support/authz because both reference employees")
 	}
 }
+
+func TestSchemaSetupCreatesConfiguredSchemaBeforeModuleMigrations(t *testing.T) {
+	body, err := os.ReadFile("internal/appmain/schema_setup.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := string(body)
+	for _, want := range []string{
+		"CREATE SCHEMA IF NOT EXISTS",
+		"pgx.Identifier{schema}.Sanitize()",
+	} {
+		if !strings.Contains(src, want) {
+			t.Fatalf("schema setup should create configured schema before module migrations; missing %q", want)
+		}
+	}
+}

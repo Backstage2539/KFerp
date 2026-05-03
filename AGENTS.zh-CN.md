@@ -245,34 +245,45 @@ Skills 提供工具。需要某个工具时，查看它的 `SKILL.md`。把本�
 - 实现工作必须在自己的功能分支上做，通常命名为 `codex/<task-name>`。
 - 集成前，先运行测试，并先把自己的功能分支推到 GitHub。
 - 然后拉取最新 `origin/develop`，检查变更，确认合并干净后再把功能分支合入 `develop`。
-- 只有功能分支已经推送，并且已经合入 `develop` 后，才可以部署。
+- 只有功能分支已经推送，并且已经合入 `develop` 后，才可以部署到开发环境。
 - 如果你工作期间 `develop` 发生变化，先在自己的分支上从最新 `origin/develop` rebase 或 merge；不要覆盖或 force-push 共享分支。
 - 把其他 worktree 的变更视为用户或其他 agent 的工作。除非 Van 明确要求，否则绝不回滚。
 
+## 环境发布规则
+
+未来线上发布使用正式环境 `production`。开发环境继续用于集成验证，但不再作为未来线上正式发布目标。
+
+- `./deploy_orderapp.sh` 默认发布 `production`。
+- 正式环境部署要求本地分支为 `main`，并且已推送到 `origin/main`，目标目录为 `/opt/stacks/erp-production`。
+- `./deploy_orderapp.sh development` 保留原来的开发环境部署流程。
+- 开发环境部署要求本地分支为 `develop`，并且已推送到 `origin/develop`，目标目录为 `/opt/stacks/erp`。
+- 不要把 `develop` 部署当作正式线上发布。要正式上线时，先把确认过的版本推进 `main`，再发布正式环境。
+- 目标不确定时，先执行 `./deploy_orderapp.sh --print-plan` 或 `./deploy_orderapp.sh --print-plan development` 查看发布计划。
+
 ## Develop 部署协调规则
 
-多个 workflow 同时活跃时，把 `develop` 视为共享集成和部署分支，不是个人开发分支。
+多个 workflow 同时活跃时，把 `develop` 视为共享集成分支和开发环境部署分支，不是个人开发分支。
 
 - 并行工作只能发生在不同功能分支上。
-- 从 `develop` 集成和部署必须串行。
+- 从 `develop` 集成和开发环境部署必须串行。
 - 合入 `develop` 前，每个 workflow 必须：
   - `git fetch origin`
   - 把最新 `origin/develop` merge 或 rebase 到自己的功能分支
   - 在功能分支上解决冲突
   - 重新运行相关单元测试、API 测试和构建检查
   - 推送功能分支
-- 合入 `develop` 后，执行合并的 workflow 负责下一次部署，除非 Van 明确要求另一个 workflow 部署。
-- 部署前，必须确认 `origin/develop` 正是本次要部署的 commit：
+- 合入 `develop` 后，执行合并的 workflow 负责下一次开发环境部署，除非 Van 明确要求另一个 workflow 部署。
+- 开发环境部署前，必须确认 `origin/develop` 正是本次要部署的 commit：
   - 运行 `git fetch origin`
   - 查看 `git log --oneline -3 origin/develop`
   - 在部署记录或最终回复中记录 `git rev-parse origin/develop`
 - 如果本地测试后 `origin/develop` 又发生变化，停止部署，把最新 `origin/develop` 合回功能分支，重新运行检查，然后再集成。
-- 不要从过期的本地 `develop` 部署。必须先从 `origin/develop` 快进本地 `develop`。
+- 不要从过期的本地 `develop` 部署开发环境。必须先从 `origin/develop` 快进本地 `develop`。
 - 绝不 force-push `develop`。
 - 不要部署另一个 workflow 刚合入的提交，除非该 workflow 已完成验证，或 Van 明确要求你部署。
-- 如果两个 workflow 都需要部署，按顺序执行：
-  - workflow A 合入 `develop`，部署并验证
-  - workflow B 从新的 `origin/develop` 更新，测试、合入、部署并验证
+- 如果两个 workflow 都需要开发环境部署，按顺序执行：
+  - workflow A 合入 `develop`，部署开发环境并验证
+  - workflow B 从新的 `origin/develop` 更新，测试、合入、部署开发环境并验证
 
 ## 继续完善
 

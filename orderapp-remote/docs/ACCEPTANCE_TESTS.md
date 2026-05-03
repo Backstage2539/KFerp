@@ -2,6 +2,12 @@
 
 > 目标：给日常验收/回归测试用。每次上线前按此清单抽测。
 
+## 0. 发布环境
+- [ ] 执行 `./deploy_orderapp.sh --print-plan` 时，输出环境为 `production`、分支为 `main` / `origin/main`、目标目录为 `/opt/stacks/erp-production`。
+- [ ] 执行 `./deploy_orderapp.sh --print-plan development` 时，输出环境为 `development`、分支为 `develop` / `origin/develop`、目标目录为 `/opt/stacks/erp`。
+- [ ] 正式线上发布只使用 `./deploy_orderapp.sh` 或 `./deploy_orderapp.sh production`。
+- [ ] 开发环境发布只使用 `./deploy_orderapp.sh development`，并确认不会写入 `/opt/stacks/erp-production`。
+
 ## A. 录单（/app/order）
 
 ### A1. 客户选择与联动
