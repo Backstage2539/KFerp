@@ -66,8 +66,8 @@ func TestProduceStartHandlerPersistsInputG(t *testing.T) {
 	if rec.Code != http.StatusSeeOther {
 		t.Fatalf("POST /produce/start status = %d, want %d", rec.Code, http.StatusSeeOther)
 	}
-	if got := rec.Header().Get("Location"); got != "/produce/running?ok=1" {
-		t.Fatalf("POST /produce/start Location = %q, want %q", got, "/produce/running?ok=1")
+	if got := rec.Header().Get("Location"); got != "../produce/running?ok=1" {
+		t.Fatalf("POST /produce/start Location = %q, want %q", got, "../produce/running?ok=1")
 	}
 
 	var inputG, plannedUnits, plannedLooseG int64
@@ -330,8 +330,8 @@ func TestProduceFinishHandlerWritesProductionLog(t *testing.T) {
 	if rec.Code != http.StatusSeeOther {
 		t.Fatalf("POST /produce/running/finish status = %d, want %d", rec.Code, http.StatusSeeOther)
 	}
-	if got := rec.Header().Get("Location"); got != "/produce/running?ok=1" {
-		t.Fatalf("POST /produce/running/finish Location = %q, want %q", got, "/produce/running?ok=1")
+	if got := rec.Header().Get("Location"); got != "../../produce/running?ok=1" {
+		t.Fatalf("POST /produce/running/finish Location = %q, want %q", got, "../../produce/running?ok=1")
 	}
 
 	var finishedUnits, finishedLooseG, finishedTotalG, inputG int64

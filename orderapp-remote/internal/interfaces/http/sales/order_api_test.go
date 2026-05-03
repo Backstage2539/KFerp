@@ -234,6 +234,37 @@ func TestOrderStockBatchPreviewAPIShowsFIFOBatchChoice(t *testing.T) {
 	}
 }
 
+func TestOrderStockBatchPreviewAPIUsesLegacyFinishedInventoryWhenNoBatchRows(t *testing.T) {
+	pool, schema := newOrderAPITestDB(t)
+	ctx := context.Background()
+	seedOrderAPITestData(t, ctx, pool, schema)
+	seedOrderAPILegacyFinishedInventory(t, ctx, pool, schema)
+
+	e := newOrderAPITestEcho(pool, schema)
+	payload := map[string]any{
+		"product_id": []string{"7"},
+		"item_name":  []string{"橘皮乌龙"},
+		"qty":        []string{"2"},
+		"unit":       []string{"件"},
+		"spec":       []string{"454"},
+	}
+	body, _ := json.Marshal(payload)
+	req := httptest.NewRequest(http.MethodPost, "/api/order/stock-batch-preview", bytes.NewReader(body))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("POST /api/order/stock-batch-preview status = %d, want 200, body=%s", rec.Code, rec.Body.String())
+	}
+	bodyText := rec.Body.String()
+	for _, needle := range []string{`"sufficient":true`, `"has_batch_choices":true`, `"batch_id":0`, `"batch_code":"LEGACY-FP-7-454"`, `"total_available_g":1816`, `"allocated_g":908`} {
+		if !strings.Contains(bodyText, needle) {
+			t.Fatalf("legacy stock preview missing %s: %s", needle, bodyText)
+		}
+	}
+}
+
 func TestOrderAPISaveWithStockBatchDecisionMarksInventoryReadyAndStoresBatchChoice(t *testing.T) {
 	pool, schema := newOrderAPITestDB(t)
 	ctx := context.Background()
@@ -288,6 +319,70 @@ func TestOrderAPISaveWithStockBatchDecisionMarksInventoryReadyAndStoresBatchChoi
 	}
 	if processStatus != "库存待发货" || decision != "use_batch" || batchCode != "FP-OLD-454" || allocatedG != 908 {
 		t.Fatalf("stock decision process=%q decision=%q batch=%q allocated=%d, want 库存待发货/use_batch/FP-OLD-454/908", processStatus, decision, batchCode, allocatedG)
+	}
+}
+
+func TestOrderAPISaveWithLegacyFinishedInventoryDecisionMarksReadyAndShipReady(t *testing.T) {
+	pool, schema := newOrderAPITestDB(t)
+	ctx := context.Background()
+	seedOrderAPITestData(t, ctx, pool, schema)
+	seedOrderAPILegacyFinishedInventory(t, ctx, pool, schema)
+
+	e := newOrderAPITestEcho(pool, schema)
+	payload := map[string]any{
+		"order_date":           "2026-05-03",
+		"customer_id":          3,
+		"source_id":            1,
+		"order_type_id":        1,
+		"pay_status_id":        2,
+		"ship_status_id":       1,
+		"stock_batch_decision": "use_batch",
+		"product_id":           []string{"7"},
+		"tier_id":              []string{"manual"},
+		"unit_price":           []string{"88"},
+		"item_name":            []string{"橘皮乌龙"},
+		"qty":                  []string{"2"},
+		"unit":                 []string{"件"},
+		"spec":                 []string{"454"},
+	}
+	body, _ := json.Marshal(payload)
+	req := httptest.NewRequest(http.MethodPost, "/api/order", bytes.NewReader(body))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("POST /api/order status = %d, want 200, body=%s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), `"stock_batch_used":true`) {
+		t.Fatalf("save response should report legacy stock used: %s", rec.Body.String())
+	}
+
+	var orderNo, processStatus, decision, batchCode string
+	var batchID, allocatedG int64
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`
+		SELECT COALESCE(o.order_no,''), COALESCE(ops.name,''), COALESCE(d.decision,''), COALESCE(a.batch_id,0), COALESCE(a.batch_code,''), COALESCE(a.allocated_g,0)
+		FROM %s.orders o
+		LEFT JOIN %s.order_process_statuses ops ON ops.id=o.process_status_id
+		LEFT JOIN %s.order_stock_decisions d ON d.order_id=o.id
+		LEFT JOIN %s.order_stock_batch_allocations a ON a.order_id=o.id
+		ORDER BY o.id DESC, a.id
+		LIMIT 1
+	`, schema, schema, schema, schema)).Scan(&orderNo, &processStatus, &decision, &batchID, &batchCode, &allocatedG); err != nil {
+		t.Fatalf("query legacy stock decision: %v", err)
+	}
+	if processStatus != "库存待发货" || decision != "use_batch" || batchID != 0 || batchCode != "LEGACY-FP-7-454" || allocatedG != 908 {
+		t.Fatalf("legacy stock decision process=%q decision=%q batch_id=%d batch=%q allocated=%d, want 库存待发货/use_batch/0/LEGACY-FP-7-454/908", processStatus, decision, batchID, batchCode, allocatedG)
+	}
+
+	req = httptest.NewRequest(http.MethodGet, "/api/orders?ship_ready=1&limit=50", nil)
+	rec = httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET /api/orders ship_ready status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), orderNo) {
+		t.Fatalf("ship_ready list should include legacy stock-ready order %s: %s", orderNo, rec.Body.String())
 	}
 }
 
@@ -415,12 +510,13 @@ func TestOrdersShippingExcelAPIGeneratesFromSelectedOrders(t *testing.T) {
 		UPDATE %s.sender_settings
 		SET sender_name='寄件人', sender_phone='13900000000', sender_addr='上海市测试路', sender_company='寄件公司', sender_goods='', sf_biz_type='标快'
 		WHERE id=1;
-		INSERT INTO %s.order_process_statuses(id,name,sort,active) VALUES (2,'生产完成',20,true);
+		INSERT INTO %s.order_process_statuses(name,sort,active) VALUES ('生产完成',20,true)
+		ON CONFLICT(name) DO UPDATE SET sort=excluded.sort, active=excluded.active;
 		INSERT INTO %s.orders(id, order_no, order_date, customer_id, order_type_id, pay_status_id, ship_status_id, process_status_id, grand_total, is_void)
-		VALUES (20, 'SO-SHIP-LIST', '2026-04-27', 3, 1, 2, 1, 2, 176, false);
+		VALUES (20, 'SO-SHIP-LIST', '2026-04-27', 3, 1, 2, 1, (SELECT id FROM %s.order_process_statuses WHERE name='生产完成' LIMIT 1), 176, false);
 		INSERT INTO %s.order_items(order_id,line_no,product_id,item_name,qty,unit,spec,unit_price,line_total)
 		VALUES (20, 1, 7, '橘皮乌龙', 2, '件', '454g', 88, 176);
-	`, schema, schema, schema, schema))
+	`, schema, schema, schema, schema, schema))
 
 	e := newOrderAPITestEcho(pool, schema)
 	body, _ := json.Marshal(map[string]any{"order_ids": []int64{20}})
@@ -558,12 +654,13 @@ func TestOrdersShippingExcelAPIUsesSelectedSenderProfile(t *testing.T) {
 		VALUES
 			(2, '默认仓库', '默认寄件人', '13900000000', '默认地址', '默认公司', '茶叶', '标快', true, true),
 			(3, '门店', '门店寄件人', '13900000003', '门店地址', '门店公司', '茶叶', '特快', false, true);
-		INSERT INTO %s.order_process_statuses(id,name,sort,active) VALUES (2,'生产完成',20,true);
+		INSERT INTO %s.order_process_statuses(name,sort,active) VALUES ('生产完成',20,true)
+		ON CONFLICT(name) DO UPDATE SET sort=excluded.sort, active=excluded.active;
 		INSERT INTO %s.orders(id, order_no, order_date, customer_id, order_type_id, pay_status_id, ship_status_id, process_status_id, grand_total, is_void)
-		VALUES (22, 'SO-SENDER-SELECTED', '2026-04-27', 3, 1, 2, 1, 2, 88, false);
+		VALUES (22, 'SO-SENDER-SELECTED', '2026-04-27', 3, 1, 2, 1, (SELECT id FROM %s.order_process_statuses WHERE name='生产完成' LIMIT 1), 88, false);
 		INSERT INTO %s.order_items(order_id,line_no,product_id,item_name,qty,unit,spec,unit_price,line_total)
 		VALUES (22, 1, 7, '橘皮乌龙', 1, '件', '454g', 88, 88);
-	`, schema, schema, schema, schema))
+	`, schema, schema, schema, schema, schema))
 
 	e := newOrderAPITestEcho(pool, schema)
 	body, _ := json.Marshal(map[string]any{"order_ids": []int64{22}, "sender_id": int64(3)})
@@ -616,16 +713,17 @@ func TestOrdersShippingExcelAPIUsesPerOrderSenderOverrides(t *testing.T) {
 		VALUES
 			(2, '默认仓库', '默认寄件人', '13900000000', '默认地址', '默认公司', '茶叶', '标快', true, true),
 			(3, '门店', '门店寄件人', '13900000003', '门店地址', '门店公司', '茶叶', '特快', false, true);
-		INSERT INTO %s.order_process_statuses(id,name,sort,active) VALUES (2,'生产完成',20,true);
+		INSERT INTO %s.order_process_statuses(name,sort,active) VALUES ('生产完成',20,true)
+		ON CONFLICT(name) DO UPDATE SET sort=excluded.sort, active=excluded.active;
 		INSERT INTO %s.orders(id, order_no, order_date, customer_id, order_type_id, pay_status_id, ship_status_id, process_status_id, grand_total, is_void)
 		VALUES
-			(23, 'SO-SENDER-DEFAULT', '2026-04-27', 3, 1, 2, 1, 2, 88, false),
-			(24, 'SO-SENDER-OVERRIDE', '2026-04-27', 3, 1, 2, 1, 2, 88, false);
+			(23, 'SO-SENDER-DEFAULT', '2026-04-27', 3, 1, 2, 1, (SELECT id FROM %s.order_process_statuses WHERE name='生产完成' LIMIT 1), 88, false),
+			(24, 'SO-SENDER-OVERRIDE', '2026-04-27', 3, 1, 2, 1, (SELECT id FROM %s.order_process_statuses WHERE name='生产完成' LIMIT 1), 88, false);
 		INSERT INTO %s.order_items(order_id,line_no,product_id,item_name,qty,unit,spec,unit_price,line_total)
 		VALUES
 			(23, 1, 7, '橘皮乌龙', 1, '件', '454g', 88, 88),
 			(24, 1, 7, '橘皮乌龙', 1, '件', '454g', 88, 88);
-	`, schema, schema, schema, schema))
+	`, schema, schema, schema, schema, schema, schema))
 
 	e := newOrderAPITestEcho(pool, schema)
 	body, _ := json.Marshal(map[string]any{
@@ -1085,9 +1183,10 @@ func seedOrderAPITestData(t *testing.T, ctx context.Context, pool *pgxpool.Pool,
 		INSERT INTO %s.pay_statuses(id,name) VALUES (1,'未付款'),(2,'已付款');
 		INSERT INTO %s.ship_statuses(id,name) VALUES (1,'未发货');
 		INSERT INTO %s.order_process_statuses(id,name,sort,active) VALUES (1,'待处理',10,true),(2,'库存待发货',33,true);
+		SELECT setval(pg_get_serial_sequence('%s.order_process_statuses','id'), (SELECT COALESCE(MAX(id),1) FROM %s.order_process_statuses));
 		INSERT INTO %s.products(id,name,default_price,active,retail_price_227g,retail_price_250g)
 		VALUES (7,'橘皮乌龙',50,true,50,56);
-	`, schema, schema, schema, schema, schema, schema, schema))
+	`, schema, schema, schema, schema, schema, schema, schema, schema, schema))
 }
 
 func seedOrderAPIFinishedBatches(t *testing.T, ctx context.Context, pool *pgxpool.Pool, schema string) {
@@ -1102,6 +1201,14 @@ func seedOrderAPIFinishedBatches(t *testing.T, ctx context.Context, pool *pgxpoo
 			('finished_product',7,'橘皮乌龙',454,'finished_goods','production_run',501,'FP-OLD-454','PB-OLD',0,908,908,0,2,2,'烘焙员','2026-05-01 08:00:00+08'),
 			('finished_product',7,'橘皮乌龙',454,'finished_goods','production_run',502,'FP-NEW-454','PB-NEW',908,908,1816,2,2,4,'烘焙员','2026-05-02 08:00:00+08');
 	`, schema, schema))
+}
+
+func seedOrderAPILegacyFinishedInventory(t *testing.T, ctx context.Context, pool *pgxpool.Pool, schema string) {
+	t.Helper()
+	mustExecOrderAPITestSQL(t, ctx, pool, fmt.Sprintf(`
+		INSERT INTO %s.finished_inventory(product_id,spec_g,warehouse,onhand_units,onhand_loose_g)
+		VALUES (7,454,'finished_goods',4,0);
+	`, schema))
 }
 
 func mustExecOrderAPITestSQL(t *testing.T, ctx context.Context, pool *pgxpool.Pool, sql string) {
@@ -1199,6 +1306,15 @@ CREATE TABLE %s.stock_ledger_entries (
 	qty_after_units BIGINT NOT NULL DEFAULT 0,
 	operator TEXT NOT NULL DEFAULT '',
 	created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE TABLE %s.finished_inventory (
+	product_id BIGINT NOT NULL,
+	spec_g BIGINT NOT NULL,
+	warehouse TEXT NOT NULL DEFAULT 'finished_goods',
+	onhand_units BIGINT NOT NULL DEFAULT 0,
+	onhand_loose_g BIGINT NOT NULL DEFAULT 0,
+	updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+	PRIMARY KEY(product_id, spec_g, warehouse)
 );
 CREATE TABLE %s.products (
 	id BIGSERIAL PRIMARY KEY,
@@ -1343,7 +1459,7 @@ CREATE TABLE %s.order_shipment_orders (
 	UNIQUE(shipment_id, order_id)
 );
 INSERT INTO %s.sender_settings(id, sender_label, is_default, active) VALUES(1, '默认寄件人', true, true);
-	`, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema)
+	`, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema)
 }
 
 func writeOrderShippingTemplateForTest(t *testing.T, path string) {

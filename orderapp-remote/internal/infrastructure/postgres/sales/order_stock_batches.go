@@ -28,6 +28,8 @@ type orderStockBatchRow struct {
 	CreatedAt   string
 }
 
+const legacyFinishedInventoryCreatedAt = "库存余额"
+
 type stockBatchQueryer interface {
 	Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error)
 }
@@ -73,6 +75,11 @@ func (r Repository) previewOrderStockBatches(ctx context.Context, q stockBatchQu
 		if err != nil {
 			return salesapp.OrderStockBatchPreview{}, err
 		}
+		legacyBatches, err := r.loadLegacyFinishedInventoryAvailability(ctx, q, item.ProductID, item.SpecG, excludeOrderID, sumOrderStockBatchAvailableG(batches), lock)
+		if err != nil {
+			return salesapp.OrderStockBatchPreview{}, err
+		}
+		batches = append(batches, legacyBatches...)
 		available := int64(0)
 		availability := make([]stockdomain.BatchAvailability, 0, len(batches))
 		productName := strings.TrimSpace(item.ProductName)
@@ -210,6 +217,110 @@ func (r Repository) loadOrderStockBatchAvailability(ctx context.Context, q stock
 		}
 	}
 	return out, rows.Err()
+}
+
+func sumOrderStockBatchAvailableG(batches []orderStockBatchRow) int64 {
+	total := int64(0)
+	for _, batch := range batches {
+		total += batch.AvailableG
+	}
+	return total
+}
+
+func legacyFinishedInventoryBatchCode(productID, specG int64) string {
+	return fmt.Sprintf("LEGACY-FP-%d-%d", productID, specG)
+}
+
+func (r Repository) loadLegacyFinishedInventoryAvailability(ctx context.Context, q stockBatchQueryer, productID, specG, excludeOrderID, realBatchAvailableG int64, lock bool) ([]orderStockBatchRow, error) {
+	if productID <= 0 || specG <= 0 {
+		return nil, nil
+	}
+	hasBatchRows, err := r.hasAnyFinishedStockBatchRows(ctx, q, productID, specG)
+	if err != nil {
+		return nil, err
+	}
+	if hasBatchRows {
+		return nil, nil
+	}
+
+	lockClause := ""
+	if lock {
+		lockClause = " FOR UPDATE OF fi"
+	}
+	sql := fmt.Sprintf(`
+		SELECT COALESCE(fi.onhand_units,0)::bigint,
+		       COALESCE(fi.onhand_loose_g,0)::bigint,
+		       COALESCE(NULLIF(p.name,''), '') AS product_name,
+		       COALESCE(reserved.reserved_g,0)::bigint AS reserved_g
+		FROM %s.finished_inventory fi
+		LEFT JOIN %s.products p ON p.id=fi.product_id
+		LEFT JOIN LATERAL (
+			SELECT COALESCE(SUM(a.allocated_g),0)::bigint AS reserved_g
+			FROM %s.order_stock_batch_allocations a
+			WHERE a.product_id=$1
+			  AND a.spec_g=$2
+			  AND ($3::bigint <= 0 OR a.order_id <> $3::bigint)
+		) reserved ON true
+		WHERE fi.product_id=$1
+		  AND fi.spec_g=$2
+		  AND fi.warehouse='finished_goods'%s
+	`, r.schema, r.schema, r.schema, lockClause)
+	rows, err := q.Query(ctx, sql, productID, specG, excludeOrderID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	inventoryG := int64(0)
+	reservedG := int64(0)
+	productName := ""
+	for rows.Next() {
+		var units, looseG, rowReservedG int64
+		var rowProductName string
+		if err := rows.Scan(&units, &looseG, &rowProductName, &rowReservedG); err != nil {
+			return nil, err
+		}
+		inventoryG += units*specG + looseG
+		reservedG = rowReservedG
+		if productName == "" {
+			productName = rowProductName
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	availableG := inventoryG - reservedG - realBatchAvailableG
+	if availableG <= 0 {
+		return nil, nil
+	}
+	return []orderStockBatchRow{{
+		BatchID:     0,
+		BatchCode:   legacyFinishedInventoryBatchCode(productID, specG),
+		ProductName: productName,
+		AvailableG:  availableG,
+		CreatedAt:   legacyFinishedInventoryCreatedAt,
+	}}, nil
+}
+
+func (r Repository) hasAnyFinishedStockBatchRows(ctx context.Context, q stockBatchQueryer, productID, specG int64) (bool, error) {
+	rows, err := q.Query(ctx, fmt.Sprintf(`
+		SELECT 1
+		FROM %s.stock_batches
+		WHERE item_type='finished_product'
+		  AND item_id=$1
+		  AND spec_g=$2
+		  AND COALESCE(remaining_g,0) > 0
+		LIMIT 1
+	`, r.schema), productID, specG)
+	if err != nil {
+		return false, err
+	}
+	defer rows.Close()
+	exists := rows.Next()
+	if err := rows.Err(); err != nil {
+		return false, err
+	}
+	return exists, nil
 }
 
 func (r Repository) applyOrderStockDecisionTx(ctx context.Context, tx pgx.Tx, orderID int64, items []orderStockItem, decision, actor string) error {
