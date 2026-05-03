@@ -1,5 +1,6 @@
 export type ServiceKey =
   | 'beanList'
+  | 'orders'
   | 'productOrder'
   | 'directShip'
   | 'processing'
@@ -29,6 +30,7 @@ export type ServiceSection = {
 
 const labels: Record<ServiceKey, string> = {
   beanList: '我的豆单',
+  orders: '我的订单',
   productOrder: '现货下单',
   directShip: '一件代发',
   processing: '代加工',
@@ -39,6 +41,7 @@ const labels: Record<ServiceKey, string> = {
 
 const capabilities: Record<ServiceKey, string> = {
   beanList: 'bean_list',
+  orders: 'product_order',
   productOrder: 'product_order',
   directShip: 'direct_ship',
   processing: 'processing',
@@ -64,7 +67,7 @@ export function visibleServiceSections(payload: ServicePayload): ServiceSection[
   const sections: ServiceSection[] = []
   addSection(sections, '豆单', payload.bean_lists)
   addSection(sections, '现货商品', payload.products)
-  addSection(sections, '订单 / 物流', payload.orders)
+  addSection(sections, payload.key === 'orders' ? '我的订单' : '订单 / 物流', payload.orders)
   addSection(sections, '一件代发批次', payload.direct_ship_batches)
   addSection(sections, '库存', payload.inventory)
   addSection(sections, '加工申请', payload.processing_requests)

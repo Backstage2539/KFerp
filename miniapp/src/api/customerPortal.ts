@@ -37,6 +37,28 @@ export type BeanListSummary = {
   status: string
   published_at: string
   changelog: string
+  groups?: BeanListGroupSummary[]
+}
+
+export type BeanListGroupSummary = {
+  category: string
+  items: BeanListProductSummary[]
+}
+
+export type BeanListProductSummary = {
+  code?: string
+  name: string
+  badge_label?: string
+  recommended_use?: string
+  flavor?: string
+  description?: string
+  prices?: BeanListPriceSummary[]
+}
+
+export type BeanListPriceSummary = {
+  label: string
+  value: string
+  red?: boolean
 }
 
 export type ProductSummary = {

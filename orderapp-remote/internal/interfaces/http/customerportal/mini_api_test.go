@@ -235,6 +235,63 @@ func TestMiniServicePageAPIRequiresTokenAndReturnsScopedData(t *testing.T) {
 	}
 }
 
+func TestMiniOrdersServicePageAPIReturnsDirectOrderPayload(t *testing.T) {
+	e := echo.New()
+	RegisterRoutes(e, Dependencies{CustomerPortal: fakeService{service: customerportalapp.ServicePage{
+		Key:                 customerportalapp.ServiceKeyOrders,
+		Title:               "我的订单",
+		CurrentCustomerID:   8,
+		CurrentCustomerName: "客户A",
+		Orders: []customerportalapp.CustomerOrderSummary{{
+			OrderNo: "SO-DIRECT", ProcessStatus: "生产中", PayStatus: "已收款", ShipStatus: "待发货", GrandTotal: "258.00",
+			Items: []customerportalapp.CustomerOrderItemSummary{{ItemName: "乌拉嘎", Spec: "454g", Qty: "1", UnitPrice: "258.00", LineTotal: "258.00"}},
+		}},
+	}}})
+
+	req := httptest.NewRequest(http.MethodGet, "/api/mini/services/orders", nil)
+	req.Header.Set(echo.HeaderAuthorization, "Bearer mini-token")
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK ||
+		!strings.Contains(rec.Body.String(), `"key":"orders"`) ||
+		!strings.Contains(rec.Body.String(), `"title":"我的订单"`) ||
+		!strings.Contains(rec.Body.String(), `"order_no":"SO-DIRECT"`) ||
+		!strings.Contains(rec.Body.String(), `"grand_total":"258.00"`) {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestMiniBeanListServicePageAPIReturnsDisplayContent(t *testing.T) {
+	e := echo.New()
+	RegisterRoutes(e, Dependencies{CustomerPortal: fakeService{service: customerportalapp.ServicePage{
+		Key:                 customerportalapp.ServiceKeyBeanList,
+		Title:               "我的豆单",
+		CurrentCustomerID:   8,
+		CurrentCustomerName: "客户A",
+		BeanLists: []customerportalapp.BeanListSummary{{
+			ID: 1, ListType: "commercial", VersionNo: "V3.0.5", Status: "published",
+			Groups: []customerportalapp.BeanListGroupSummary{{
+				Category: "原产地精选豆",
+				Items: []customerportalapp.BeanListProductSummary{{
+					Code: "5.2", Name: "乌拉嘎", Flavor: "柑橘/莓果",
+					Prices: []customerportalapp.BeanListPriceSummary{{Label: "454g", Value: "¥118/包"}},
+				}},
+			}},
+		}},
+	}}})
+
+	req := httptest.NewRequest(http.MethodGet, "/api/mini/services/beanList", nil)
+	req.Header.Set(echo.HeaderAuthorization, "Bearer mini-token")
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK ||
+		!strings.Contains(rec.Body.String(), `"groups":[`) ||
+		!strings.Contains(rec.Body.String(), `"name":"乌拉嘎"`) ||
+		!strings.Contains(rec.Body.String(), `"prices":[`) {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+}
+
 func TestPortalAdminVisibilityAPIsExposeAndSaveCustomerCapabilities(t *testing.T) {
 	e := echo.New()
 	RegisterRoutes(e, Dependencies{CustomerPortal: fakeService{

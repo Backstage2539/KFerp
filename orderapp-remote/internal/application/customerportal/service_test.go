@@ -209,6 +209,30 @@ func TestGetServicePageLoadsCustomerScopedData(t *testing.T) {
 	}
 }
 
+func TestGetOrdersServicePageAllowsAnyOrderRelatedCapability(t *testing.T) {
+	for _, capability := range []string{CapabilityProductOrder, CapabilityDirectShip, CapabilityShippingQuery} {
+		repo := &fakeRepository{
+			context: CurrentContext{
+				CurrentCustomerID:   7,
+				CurrentCustomerName: "客户A",
+				Capabilities:        []Capability{{Code: capability, Enabled: true}},
+			},
+			servicePage: ServicePage{
+				Key:    ServiceKeyOrders,
+				Orders: []CustomerOrderSummary{{OrderNo: "SO-ORDER", GrandTotal: "128.00"}},
+			},
+		}
+		svc := NewService(repo, fakeIdentityProvider{})
+		got, err := svc.GetServicePage(context.Background(), "mini-token", ServiceKeyOrders)
+		if err != nil {
+			t.Fatalf("GetServicePage(orders) with %s err=%v", capability, err)
+		}
+		if repo.serviceQuery.Key != ServiceKeyOrders || got.Title != "我的订单" || got.Capability != CapabilityProductOrder || len(got.Orders) != 1 {
+			t.Fatalf("capability=%s query=%+v page=%+v", capability, repo.serviceQuery, got)
+		}
+	}
+}
+
 func TestCreateDirectShipBatchRequiresCapabilityAndTrimsInput(t *testing.T) {
 	repo := &fakeRepository{
 		context: CurrentContext{

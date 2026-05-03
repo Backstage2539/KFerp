@@ -1,6 +1,7 @@
 package customerportal
 
 import (
+	"encoding/json"
 	"os"
 	"strings"
 	"testing"
@@ -39,5 +40,61 @@ func TestCustomerPortalBeanListFallsBackToLatestOfficialPublications(t *testing.
 		if !strings.Contains(text, want) {
 			t.Fatalf("latest official bean list fallback missing %q", want)
 		}
+	}
+}
+
+func TestCustomerPortalBeanListLoadsDisplayItemsFromPublishedContent(t *testing.T) {
+	body, err := os.ReadFile("business_repository.go")
+	if err != nil {
+		t.Fatalf("read business_repository.go: %v", err)
+	}
+	text := string(body)
+	for _, want := range []string{
+		"content_json",
+		"parseBeanListContentSummary",
+		"BeanListGroupSummary",
+		"BeanListProductSummary",
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("customer portal bean list content display missing %q", want)
+		}
+	}
+}
+
+func TestParseBeanListContentSummaryExtractsGroupsItemsAndPrices(t *testing.T) {
+	raw, err := json.Marshal(map[string]any{
+		"groups": []any{
+			map[string]any{
+				"category": "原产地精选豆",
+				"items": []any{
+					map[string]any{
+						"code":           "5.2",
+						"name":           "乌拉嘎",
+						"recommendedUse": "手冲/SOE/冷萃",
+						"flavor":         "柑橘/莓果",
+						"prices": []any{
+							map[string]any{"label": "454g", "price": 118, "unit": "包"},
+						},
+					},
+				},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	groups, err := parseBeanListContentSummary(raw)
+	if err != nil {
+		t.Fatalf("parseBeanListContentSummary() err=%v", err)
+	}
+	if len(groups) != 1 || groups[0].Category != "原产地精选豆" || len(groups[0].Items) != 1 {
+		t.Fatalf("groups=%+v", groups)
+	}
+	item := groups[0].Items[0]
+	if item.Code != "5.2" || item.Name != "乌拉嘎" || item.RecommendedUse == "" || item.Flavor == "" {
+		t.Fatalf("item=%+v", item)
+	}
+	if len(item.Prices) != 1 || item.Prices[0].Label != "454g" || item.Prices[0].Value != "¥118/包" {
+		t.Fatalf("prices=%+v", item.Prices)
 	}
 }

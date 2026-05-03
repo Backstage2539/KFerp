@@ -6,12 +6,14 @@ export type Capability = {
 export type HomeEntry = {
   key: string
   label: string
-  capability: string
+  capability?: string
+  capabilities?: string[]
   url: string
 }
 
 const entries: HomeEntry[] = [
   { key: 'beanList', label: '我的豆单', capability: 'bean_list', url: '/pages/service/service?key=beanList' },
+  { key: 'orders', label: '我的订单', capabilities: ['product_order', 'direct_ship', 'shipping_query'], url: '/pages/service/service?key=orders' },
   { key: 'productOrder', label: '现货下单', capability: 'product_order', url: '/pages/service/service?key=productOrder' },
   { key: 'directShip', label: '一件代发', capability: 'direct_ship', url: '/pages/service/service?key=directShip' },
   { key: 'processing', label: '代加工', capability: 'processing', url: '/pages/service/service?key=processing' },
@@ -22,5 +24,10 @@ const entries: HomeEntry[] = [
 
 export function visibleHomeEntries(capabilities: Capability[] = []): HomeEntry[] {
   const enabled = new Set(capabilities.filter((item) => item.enabled).map((item) => item.code))
-  return entries.filter((entry) => enabled.has(entry.capability))
+  return entries.filter((entry) => entryCapabilities(entry).some((code) => enabled.has(code)))
+}
+
+function entryCapabilities(entry: HomeEntry): string[] {
+  if (entry.capabilities?.length) return entry.capabilities
+  return entry.capability ? [entry.capability] : []
 }
