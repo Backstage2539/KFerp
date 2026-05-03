@@ -59,11 +59,36 @@ CREATE TABLE IF NOT EXISTS %s.customer_service_capabilities (
 	capability_code TEXT NOT NULL,
 	enabled BOOLEAN NOT NULL DEFAULT true,
 	config_json JSONB NOT NULL DEFAULT '{}'::jsonb,
-	updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+	updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+	CONSTRAINT customer_service_capabilities_config_object_chk CHECK (jsonb_typeof(config_json) = 'object')
 );
 CREATE UNIQUE INDEX IF NOT EXISTS customer_service_capabilities_customer_code_uq
 	ON %s.customer_service_capabilities(customer_id, capability_code);
 `, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema)
+	if _, err := pool.Exec(ctx, q); err != nil {
+		return err
+	}
+	return ensureCapabilityConfigConstraint(ctx, pool, schema)
+}
+
+func ensureCapabilityConfigConstraint(ctx context.Context, pool *pgxpool.Pool, schema string) error {
+	q := fmt.Sprintf(`
+DO $$
+BEGIN
+	IF NOT EXISTS (
+		SELECT 1
+		FROM pg_constraint c
+		JOIN pg_class t ON t.oid=c.conrelid
+		JOIN pg_namespace n ON n.oid=t.relnamespace
+		WHERE n.nspname='%[1]s'
+		  AND t.relname='customer_service_capabilities'
+		  AND c.conname='customer_service_capabilities_config_object_chk'
+	) THEN
+		ALTER TABLE %[1]s.customer_service_capabilities
+			ADD CONSTRAINT customer_service_capabilities_config_object_chk CHECK (jsonb_typeof(config_json) = 'object');
+	END IF;
+END $$;
+`, schema)
 	_, err := pool.Exec(ctx, q)
 	return err
 }

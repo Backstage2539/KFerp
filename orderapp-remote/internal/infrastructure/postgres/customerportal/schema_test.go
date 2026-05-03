@@ -21,6 +21,7 @@ func TestCustomerPortalSchemaDefinesP0Tables(t *testing.T) {
 		"mini_users_openid_uq",
 		"customer_portal_user_bindings_user_customer_uq",
 		"customer_service_capabilities_customer_code_uq",
+		"jsonb_typeof(config_json) = 'object'",
 	} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("schema missing %q", want)

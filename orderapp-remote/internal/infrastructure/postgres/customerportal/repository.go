@@ -97,30 +97,65 @@ func (r Repository) CurrentContextByToken(ctx context.Context, token string) (cu
 	if token == "" {
 		return customerportalapp.CurrentContext{}, fmt.Errorf("mini session not found")
 	}
-	var out customerportalapp.CurrentContext
-	if err := r.pool.QueryRow(ctx, fmt.Sprintf(`
-		SELECT s.mini_user_id, COALESCE(s.current_customer_id,0), COALESCE(c.name,'')
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return customerportalapp.CurrentContext{}, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	var miniUserID, sessionCustomerID int64
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`
+		SELECT s.mini_user_id, COALESCE(s.current_customer_id,0)
 		FROM %s.mini_sessions s
 		JOIN %s.mini_users u ON u.id=s.mini_user_id
-		LEFT JOIN %s.customers c ON c.id=s.current_customer_id
 		WHERE s.token=$1 AND s.expire_at>now() AND u.active=true
-	`, r.schema, r.schema, r.schema), token).Scan(&out.MiniUserID, &out.CurrentCustomerID, &out.CurrentCustomerName); err != nil {
+		FOR UPDATE OF s
+	`, r.schema, r.schema), token).Scan(&miniUserID, &sessionCustomerID); err != nil {
 		if err == pgx.ErrNoRows {
 			return customerportalapp.CurrentContext{}, fmt.Errorf("mini session not found")
 		}
 		return customerportalapp.CurrentContext{}, err
 	}
-	bindings, err := r.ListBindings(ctx, out.MiniUserID)
+	bindings, err := r.listBindingsTx(ctx, tx, miniUserID)
 	if err != nil {
 		return customerportalapp.CurrentContext{}, err
 	}
-	capabilities, err := r.CapabilitiesForCustomer(ctx, out.CurrentCustomerID)
+	var currentCustomerID int64
+	var currentCustomerName string
+	for _, binding := range bindings {
+		if binding.CustomerID == sessionCustomerID {
+			currentCustomerID = binding.CustomerID
+			currentCustomerName = binding.CustomerName
+			break
+		}
+	}
+	if currentCustomerID == 0 && len(bindings) > 0 {
+		currentCustomerID = bindings[0].CustomerID
+		currentCustomerName = bindings[0].CustomerName
+	}
+	if currentCustomerID != sessionCustomerID {
+		if _, err := tx.Exec(ctx, fmt.Sprintf(`
+			UPDATE %s.mini_sessions
+			SET current_customer_id=NULLIF($2,0)
+			WHERE token=$1
+		`, r.schema), token, currentCustomerID); err != nil {
+			return customerportalapp.CurrentContext{}, err
+		}
+	}
+	capabilities, err := r.capabilitiesForCustomerTx(ctx, tx, currentCustomerID)
 	if err != nil {
 		return customerportalapp.CurrentContext{}, err
 	}
-	out.Bindings = bindings
-	out.Capabilities = capabilities
-	return out, nil
+	if err := tx.Commit(ctx); err != nil {
+		return customerportalapp.CurrentContext{}, err
+	}
+	return customerportalapp.CurrentContext{
+		MiniUserID:          miniUserID,
+		CurrentCustomerID:   currentCustomerID,
+		CurrentCustomerName: currentCustomerName,
+		Bindings:            bindings,
+		Capabilities:        capabilities,
+	}, nil
 }
 
 func (r Repository) SwitchCurrentCustomer(ctx context.Context, token string, customerID int64) (customerportalapp.CurrentContext, error) {
