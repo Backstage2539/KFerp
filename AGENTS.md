@@ -256,6 +256,19 @@ Future online releases use the formal `production` environment. The development 
 - Do not deploy `develop` as the formal online release. Promote the verified version to `main` before production deployment.
 - Use `./deploy_orderapp.sh --print-plan` or `./deploy_orderapp.sh --print-plan development` before deploying when the target is unclear.
 
+## Public Environment Switching
+
+`erp.qacoohee.com` is controlled by whichever Caddy container currently binds `443`.
+
+- Production stack: `/opt/stacks/erp-production`, Caddy container `erp_prod_caddy`.
+- Development stack: `/opt/stacks/erp`, Caddy container `erp_caddy`.
+- Switch public traffic by stopping only the non-target stack's `caddy` and starting only the target stack's `caddy`.
+- Do not stop either stack's `orderapp` or `postgres` merely to switch public traffic.
+- Preferred commands:
+  - `./deploy_orderapp.sh --switch-public production`
+  - `./deploy_orderapp.sh --switch-public development`
+- After switching, verify `docker compose ps`, unauthenticated `/app/` 401, and a read-only API marker that distinguishes the target environment.
+
 ## Develop Deployment Coordination
 
 When multiple workflows are active, treat `develop` as the shared integration branch and development-environment deployment branch, not as an individual development branch.

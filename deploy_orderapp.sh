@@ -7,6 +7,7 @@ set -euo pipefail
 #   ./deploy_orderapp.sh production
 #   ./deploy_orderapp.sh development      # legacy develop environment
 #   ./deploy_orderapp.sh --print-plan [production|development]
+#   ./deploy_orderapp.sh --switch-public production|development
 
 KEY="openclaw_jj_ed25519"
 SERVER="root@1.12.242.58"
@@ -15,6 +16,10 @@ MODE="deploy"
 
 if [ "${1:-}" = "--print-plan" ]; then
   MODE="print-plan"
+  shift
+fi
+if [ "${1:-}" = "--switch-public" ]; then
+  MODE="switch-public"
   shift
 fi
 
@@ -44,12 +49,16 @@ case "$DEPLOY_ENV" in
     REQUIRED_BRANCH="main"
     REMOTE_BRANCH="main"
     STACK_DIR="/opt/stacks/erp-production"
+    OTHER_ENV="development"
+    OTHER_STACK_DIR="/opt/stacks/erp"
     ;;
   dev|development)
     DEPLOY_ENV="development"
     REQUIRED_BRANCH="develop"
     REMOTE_BRANCH="develop"
     STACK_DIR="/opt/stacks/erp"
+    OTHER_ENV="production"
+    OTHER_STACK_DIR="/opt/stacks/erp-production"
     ;;
   *)
     echo "ERROR: unknown deploy environment '$DEPLOY_ENV' (use production or development)" >&2
@@ -71,13 +80,25 @@ stack_dir=$STACK_DIR
 app_dir=$APP_DIR
 docs_dir=$DOCS_DIR
 compose_service=orderapp
+other_env=$OTHER_ENV
+other_stack_dir=$OTHER_STACK_DIR
 PLAN
   exit 0
 fi
 
-SSH_KEY_ARGS=()
+SSH_KEY_ARGS=(-o BatchMode=yes)
 if [ -f "$KEY" ]; then
-  SSH_KEY_ARGS=(-i "$KEY")
+  SSH_KEY_ARGS+=(-i "$KEY")
+fi
+
+if [ "$MODE" = "switch-public" ]; then
+  echo "Switching public endpoint to $DEPLOY_ENV"
+  echo "Target stack: $SERVER:$STACK_DIR"
+  echo "Stopping Caddy in $OTHER_ENV stack only: $OTHER_STACK_DIR"
+  echo "Starting Caddy in $DEPLOY_ENV stack only: $STACK_DIR"
+  ssh "${SSH_KEY_ARGS[@]}" "$SERVER" "set -e; test -f $STACK_DIR/docker-compose.yml || { echo 'ERROR: missing $STACK_DIR/docker-compose.yml' >&2; exit 1; }; test -f $OTHER_STACK_DIR/docker-compose.yml || { echo 'ERROR: missing $OTHER_STACK_DIR/docker-compose.yml' >&2; exit 1; }; cd $OTHER_STACK_DIR; docker compose stop caddy || true; cd $STACK_DIR; docker compose up -d caddy; echo 'target stack:'; docker compose ps; echo 'other stack:'; cd $OTHER_STACK_DIR; docker compose ps"
+  echo "Public endpoint switched to $DEPLOY_ENV. Verify with curl/browser before handing off."
+  exit 0
 fi
 
 echo "Deploy environment: $DEPLOY_ENV"

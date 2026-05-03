@@ -26,6 +26,23 @@ func TestProductionEnvironmentRequirementSeeds(t *testing.T) {
 	}
 }
 
+func TestPublicEnvironmentSwitchRequirementSeeds(t *testing.T) {
+	src := string(readOrderAppFileForTest(t, filepath.Join("internal", "interfaces", "http", "support", "req_store.go")))
+	for _, want := range []string{
+		"PR-153",
+		"DEV-153-01",
+		"UT-153-01",
+		"API-153-01",
+		"REV-153-01",
+		"--switch-public production|development",
+		"只操作 Caddy",
+	} {
+		if !strings.Contains(src, want) {
+			t.Fatalf("public environment switch requirement seed missing %q", want)
+		}
+	}
+}
+
 func TestProductionEnvironmentTemplatesExist(t *testing.T) {
 	repoRoot := repoRootForProductionDeployTest(t)
 	for _, rel := range []string{
@@ -86,6 +103,31 @@ func TestDeploymentDocsDescribeProductionDefaultAndDevelopmentPreservation(t *te
 	} {
 		if !strings.Contains(combined, want) {
 			t.Fatalf("deployment docs missing %q under %s", want, repoRoot)
+		}
+	}
+}
+
+func TestDeploymentDocsDescribePublicSwitching(t *testing.T) {
+	repoRoot := repoRootForProductionDeployTest(t)
+	script := string(readOrderAppFileForTest(t, filepath.Join("..", "deploy_orderapp.sh")))
+	combined := script +
+		"\n" + string(readOrderAppFileForTest(t, filepath.Join("..", "DEPLOYMENT.md"))) +
+		"\n" + string(readOrderAppFileForTest(t, filepath.Join("..", "README.md"))) +
+		"\n" + string(readOrderAppFileForTest(t, filepath.Join("..", "AGENTS.md"))) +
+		"\n" + string(readOrderAppFileForTest(t, filepath.Join("..", "REQUIREMENTS.md"))) +
+		"\n" + string(readOrderAppFileForTest(t, filepath.Join("..", "ACCEPTANCE_TESTS.md")))
+
+	for _, want := range []string{
+		"--switch-public production",
+		"--switch-public development",
+		"docker compose stop caddy",
+		"docker compose up -d caddy",
+		"erp_prod_caddy",
+		"erp_caddy",
+		"不停止两边的 `orderapp` 和 `postgres`",
+	} {
+		if !strings.Contains(combined, want) {
+			t.Fatalf("public environment switch docs missing %q under %s", want, repoRoot)
 		}
 	}
 }

@@ -67,6 +67,47 @@ scp -i openclaw_jj_ed25519 deploy/production/.env.example root@1.12.242.58:/opt/
 
 ---
 
+## 0.4 公网入口切换逻辑
+
+`https://erp.qacoohee.com` 只有一个公网入口，当前由绑定 `443` 的 Caddy 容器接管。正式环境和开发环境可以同时保留 `orderapp`、`postgres` 运行，但同一时间只能有一个 Caddy 绑定 `443`。
+
+切换原则：
+- 只停当前公网环境的 `caddy`。
+- 只启动目标环境的 `caddy`。
+- 不停止两边的 `orderapp` 和 `postgres`。
+- 切换后用公网 smoke 判断当前命中的环境。
+
+推荐用脚本切换公网入口：
+
+```bash
+# 公网切到正式环境
+./deploy_orderapp.sh --switch-public production
+
+# 公网切回开发环境
+./deploy_orderapp.sh --switch-public development
+```
+
+手动兜底命令：
+
+```bash
+# 公网切到正式环境
+ssh -i openclaw_jj_ed25519 root@1.12.242.58 "cd /opt/stacks/erp && docker compose stop caddy && cd /opt/stacks/erp-production && docker compose up -d caddy"
+
+# 公网切回开发环境
+ssh -i openclaw_jj_ed25519 root@1.12.242.58 "cd /opt/stacks/erp-production && docker compose stop caddy && cd /opt/stacks/erp && docker compose up -d caddy"
+```
+
+切换后检查：
+
+```bash
+ssh -i openclaw_jj_ed25519 root@1.12.242.58 "cd /opt/stacks/erp-production && docker compose ps && cd /opt/stacks/erp && docker compose ps"
+curl -k -I https://erp.qacoohee.com/app/
+```
+
+判断命中哪个环境时，优先用目标环境独有的需求编号或版本信息做只读 API smoke。例如正式环境试运行期间可用 `PR-151`，开发环境当前可用最近的 develop 需求编号；不要依赖浏览器缓存。
+
+---
+
 ## 1. 环境结构说明（你在服务器上会看到什么）
 
 登录服务器：

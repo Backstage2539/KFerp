@@ -7,6 +7,8 @@
 - [ ] 执行 `./deploy_orderapp.sh --print-plan development` 时，输出环境为 `development`、分支为 `develop` / `origin/develop`、目标目录为 `/opt/stacks/erp`。
 - [ ] 正式线上发布只使用 `./deploy_orderapp.sh` 或 `./deploy_orderapp.sh production`。
 - [ ] 开发环境发布只使用 `./deploy_orderapp.sh development`，并确认不会写入 `/opt/stacks/erp-production`。
+- [ ] 执行 `./deploy_orderapp.sh --switch-public development` 时，只停止正式环境 Caddy 并启动开发环境 Caddy，不重建或停止两边的 `orderapp/postgres`。
+- [ ] 公网切回开发环境后，`/app/` 未认证返回 401，带开发环境 BasicAuth 的 Vue 页面返回 200，需求表 API 能看到开发环境标记且看不到正式环境试运行标记。
 
 ## A. 录单（/app/order）
 

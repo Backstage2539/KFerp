@@ -18,6 +18,8 @@
 - 正式环境发布使用 `main` / `origin/main`，目标服务器目录为 `/opt/stacks/erp-production`。
 - 开发环境发布继续使用 `develop` / `origin/develop`，目标服务器目录为 `/opt/stacks/erp`，保留原开发链路不动。
 - 发布脚本必须提供可读的发布计划输出，部署前能确认目标环境、分支和服务器目录。
+- 公网入口切换必须只切换 Caddy：正式环境和开发环境的 `orderapp/postgres` 可同时保留运行，同一时间只有目标环境 Caddy 绑定 443。
+- 发布脚本必须提供 `--switch-public production|development`，用于在正式环境和开发环境之间切换 `erp.qacoohee.com` 公网入口。
 
 ## 2. 计价与单位（关键业务规则）
 ### 2.1 阶梯价
