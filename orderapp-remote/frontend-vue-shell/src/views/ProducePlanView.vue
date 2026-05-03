@@ -28,26 +28,30 @@
         </label>
       </div>
       <div class="actions">
-        <label class="select-all-control">
-          <input type="checkbox" :checked="allInsufficientSelected" @change="toggleAllInsufficient($event.target.checked)" />
-          <span>库存不足全选/全取消</span>
-        </label>
-        <button class="secondary" type="button" @click="pickInsufficient">全选库存不足</button>
-        <button class="secondary" type="button" @click="clearSelected">全取消</button>
         <button class="primary" type="button" @click="buildPlan" :disabled="loading">生成计划</button>
         <button class="primary" type="button" @click="startProduction" :disabled="saving || !planReady">开始生产</button>
       </div>
     </section>
 
     <section class="panel">
-      <div class="section-title">库存不足（需生产）</div>
+      <div class="section-title section-title-with-checkbox">
+        <input
+          ref="insufficientHeaderCheckbox"
+          class="bulk-checkbox"
+          type="checkbox"
+          :checked="allInsufficientSelected"
+          :disabled="!stockInsufficientRows.length"
+          :aria-checked="insufficientSelection.indeterminate ? 'mixed' : String(insufficientSelection.checked)"
+          aria-label="全选库存不足商品"
+          @change="toggleAllInsufficient($event.target.checked)"
+        />
+        <span>库存不足（需生产）</span>
+      </div>
       <div class="table-wrap">
         <table>
           <thead>
             <tr>
-              <th>
-                <input type="checkbox" :checked="allInsufficientSelected" @change="toggleAllInsufficient($event.target.checked)" />
-              </th>
+              <th>选择</th>
               <th>商品</th>
               <th>订单号</th>
               <th>规格(g)</th>
@@ -61,7 +65,7 @@
           </thead>
           <tbody>
             <tr v-for="row in stockInsufficientRows" :key="rowKey(row)">
-              <td><input type="checkbox" :checked="!!selected[rowKey(row)]" @change="selected[rowKey(row)] = !selected[rowKey(row)]" /></td>
+              <td><input type="checkbox" :checked="!!selected[rowKey(row)]" @change="toggleInsufficientRow(row, $event.target.checked)" /></td>
               <td>{{ row.product }}</td>
               <td class="muted">{{ row.order_nos }}</td>
               <td>{{ row.spec_g }}</td>
@@ -215,9 +219,16 @@
 </template>
 
 <script setup>
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref, watchEffect } from 'vue'
 import { apiGet, apiSend, appURL } from '../api/client'
-import { buildMaterialSummary, buildStartPayload, rebuildPlanRows, producePlanKey } from '../lib/produce-plan'
+import {
+  buildInsufficientSelection,
+  buildMaterialSummary,
+  buildStartPayload,
+  insufficientSelectionState,
+  rebuildPlanRows,
+  producePlanKey,
+} from '../lib/produce-plan'
 import { replaceHistoryURL } from '../lib/url-state'
 
 const loading = ref(false)
@@ -229,6 +240,7 @@ const planRows = ref([])
 const roastPlans = ref([])
 const materialRatios = ref([])
 const initialMaterials = ref([])
+const insufficientHeaderCheckbox = ref(null)
 const selected = reactive({})
 
 const filters = reactive({
@@ -252,12 +264,22 @@ const computedMaterials = computed(() =>
 )
 const stockInsufficientRows = computed(() => rows.value.filter((row) => Number(row.gap_g || 0) > 0))
 const stockSufficientRows = computed(() => rows.value.filter((row) => Number(row.gap_g || 0) <= 0))
-const allInsufficientSelected = computed(() =>
-  stockInsufficientRows.value.length > 0 && stockInsufficientRows.value.every((row) => !!selected[rowKey(row)]),
-)
+const insufficientSelection = computed(() => insufficientSelectionState(stockInsufficientRows.value, selected))
+const allInsufficientSelected = computed(() => insufficientSelection.value.checked)
+
+watchEffect(() => {
+  if (insufficientHeaderCheckbox.value) {
+    insufficientHeaderCheckbox.value.indeterminate = insufficientSelection.value.indeterminate
+  }
+})
 
 function selectedKeys() {
   return Object.keys(selected).filter((key) => selected[key])
+}
+
+function replaceSelected(nextSelected) {
+  Object.keys(selected).forEach((key) => delete selected[key])
+  Object.assign(selected, nextSelected)
 }
 
 function updateUrl(plan) {
@@ -321,23 +343,14 @@ async function load(plan) {
   }
 }
 
-function pickInsufficient() {
-  Object.keys(selected).forEach((key) => delete selected[key])
-  for (const row of stockInsufficientRows.value) {
-    selected[rowKey(row)] = true
-  }
-}
-
-function clearSelected() {
-  Object.keys(selected).forEach((key) => delete selected[key])
-}
-
 function toggleAllInsufficient(checked) {
-  clearSelected()
-  if (!checked) return
-  for (const row of stockInsufficientRows.value) {
-    selected[rowKey(row)] = true
-  }
+  replaceSelected(buildInsufficientSelection(stockInsufficientRows.value, checked))
+}
+
+function toggleInsufficientRow(row, checked) {
+  const key = rowKey(row)
+  if (checked) selected[key] = true
+  else delete selected[key]
 }
 
 function pruneSufficientSelections() {
@@ -414,13 +427,12 @@ onMounted(async () => {
 .filters label { flex-direction: column; }
 .filters span { font-size: 12px; color: #666; }
 .actions { margin-top: 12px; flex-wrap: wrap; }
-.select-all-control { display: inline-flex; flex-direction: row; align-items: center; gap: 6px; width: auto; padding: 8px 10px; border: 1px solid #d8dde6; border-radius: 8px; background: #fff; }
-.select-all-control input { width: auto; padding: 0; }
+.section-title-with-checkbox { display: inline-flex; align-items: center; gap: 8px; }
 .section-hint { margin: 6px 0 10px; }
 input, button { font: inherit; }
 input { width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 8px; }
 button { border-radius: 8px; padding: 10px 12px; cursor: pointer; }
-.select-all-control input { width: auto; min-width: 16px; padding: 0; }
+input.bulk-checkbox { width: 18px; min-width: 18px; height: 18px; padding: 0; cursor: pointer; }
 .primary { border: 1px solid #111; background: #111; color: #fff; }
 .secondary { border: 1px solid #999; background: #fff; color: #111; }
 .table-wrap { overflow: auto; }

@@ -10,6 +10,27 @@ export function producePlanKey(productId, specG) {
   return `${productId}-${specG}`
 }
 
+function defaultSelectionKey(row) {
+  return producePlanKey(row.product_id, row.spec_g)
+}
+
+export function insufficientSelectionState(rows, selected, keyForRow = defaultSelectionKey) {
+  const keys = (rows || []).map(keyForRow)
+  const selectedCount = keys.filter((key) => !!selected?.[key]).length
+  const total = keys.length
+  return {
+    checked: total > 0 && selectedCount === total,
+    indeterminate: selectedCount > 0 && selectedCount < total,
+    selectedCount,
+    total,
+  }
+}
+
+export function buildInsufficientSelection(rows, checked, keyForRow = defaultSelectionKey) {
+  if (!checked) return {}
+  return Object.fromEntries((rows || []).map((row) => [keyForRow(row), true]))
+}
+
 export function buildFinalInputMap(roastPlans) {
   const out = {}
   for (const row of roastPlans || []) {

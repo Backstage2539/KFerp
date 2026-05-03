@@ -32,7 +32,7 @@ func TestProducePlanSplitsStockSufficientAndInsufficientWithBulkCheckbox(t *test
 		"stockSufficientRows",
 		"toggleAllInsufficient",
 		"allInsufficientSelected",
-		"全取消",
+		"insufficientHeaderCheckbox",
 	} {
 		if !strings.Contains(src, want) {
 			t.Fatalf("ProducePlanView.vue missing %q", want)
