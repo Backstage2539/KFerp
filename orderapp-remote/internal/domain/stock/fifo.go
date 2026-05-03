@@ -51,7 +51,7 @@ func AllocateFIFO(batches []BatchAvailability, requiredG int64) ([]BatchAllocati
 		if remaining <= 0 {
 			break
 		}
-		if batch.BatchID <= 0 || batch.AvailableG <= 0 {
+		if batch.AvailableG <= 0 || batch.BatchID < 0 || (batch.BatchID == 0 && batch.BatchCode == "") {
 			continue
 		}
 		qty := batch.AvailableG

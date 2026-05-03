@@ -24,6 +24,16 @@ func TestAllocateFIFOConsumesOldestPositiveBatches(t *testing.T) {
 	}
 }
 
+func TestAllocateFIFOAllowsNamedVirtualBatchWithoutNumericID(t *testing.T) {
+	alloc, err := AllocateFIFO([]BatchAvailability{{BatchID: 0, BatchCode: "LEGACY-FP-7-454", AvailableG: 908}}, 454)
+	if err != nil {
+		t.Fatalf("AllocateFIFO virtual batch: %v", err)
+	}
+	if len(alloc) != 1 || alloc[0].BatchID != 0 || alloc[0].BatchCode != "LEGACY-FP-7-454" || alloc[0].QtyG != 454 {
+		t.Fatalf("virtual allocation = %+v, want batch 0 LEGACY-FP-7-454 / 454g", alloc)
+	}
+}
+
 func TestAllocateFIFOFailsWhenStockIsInsufficient(t *testing.T) {
 	_, err := AllocateFIFO([]BatchAvailability{{BatchID: 1, BatchCode: "MB-1", AvailableG: 300}}, 450)
 	if err == nil {

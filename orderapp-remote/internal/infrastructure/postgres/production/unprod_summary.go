@@ -22,7 +22,14 @@ type UnprodNeedRow struct {
 }
 
 func fetchUnproducedNeeds(ctx context.Context, pool *pgxpool.Pool, schema, from, to string, customerID int64) ([]UnprodNeedRow, error) {
-	where := "WHERE o.is_void=false AND COALESCE(o.process_status_id,0) IN (0,1,2)"
+	where := fmt.Sprintf(`WHERE o.is_void=false AND (
+		COALESCE(o.process_status_id,0) = 0
+		OR EXISTS (
+			SELECT 1 FROM %s.order_process_statuses ops
+			WHERE ops.id=o.process_status_id
+			  AND ops.name IN ('待处理','待生产')
+		)
+	)`, schema)
 	args := []any{}
 	argn := 1
 	if customerID > 0 {

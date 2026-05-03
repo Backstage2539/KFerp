@@ -230,6 +230,7 @@
           <li>常用规格：36g、80g、100g、227g、454g、500g、1000g、2.5kg。</li>
           <li>新订单默认已付款、未发货；商品单价会随规格和数量匹配价格梯度。</li>
           <li>需要临时改价时直接修改单价，点击 ↺ 恢复自动梯度价。</li>
+          <li>库存充足时保存前会提示成品批次；历史库存没有 FP 批次时会提示库存余额，确认使用后进入库存待发货。</li>
         </ul>
       </details>
     </section>
@@ -725,12 +726,12 @@ async function previewStockBatchesBeforeSave(payload) {
 function stockBatchConfirmText(preview) {
   const lines = (preview.lines || []).map((line) => {
     const batches = (line.allocations || [])
-      .map((batch) => `${batch.batch_code} 使用${batch.allocated_g}g`)
+      .map((batch) => `${batch.created_at === '库存余额' ? '库存余额 ' : ''}${batch.batch_code} 使用${batch.allocated_g}g`)
       .join('，')
     return `${line.product_name || '商品'} ${line.spec_g}g x ${line.need_units}件：${batches}`
   })
   return [
-    '库存充足，可直接使用以下成品批次发货。',
+    '库存充足，可直接使用以下成品批次或库存余额发货。',
     ...lines,
     '确定使用以上批次吗？',
     '确定：订单状态改为“库存待发货”；取消：不使用库存，进入库存不足/待生产流程。',
