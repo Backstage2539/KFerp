@@ -46,7 +46,8 @@ func BasicAuth(user, pass, schema string, pool *pgxpool.Pool) echo.MiddlewareFun
 }
 
 func isPublicUnauthenticatedPath(path string) bool {
-	return strings.HasPrefix(path, "/public/bean-list/") ||
+	return strings.HasPrefix(path, "/api/mini/") ||
+		strings.HasPrefix(path, "/public/bean-list/") ||
 		strings.HasPrefix(path, "/share/") ||
 		strings.HasPrefix(path, "/assets/sales_order_assets/") ||
 		path == "/vue-shell" ||
