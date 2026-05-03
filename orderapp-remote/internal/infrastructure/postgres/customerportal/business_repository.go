@@ -348,6 +348,18 @@ func (r Repository) listCustomerOrders(ctx context.Context, query customerportal
 		args = append(args, query.DateTo)
 		where = append(where, fmt.Sprintf("o.order_date <= $%d::date", len(args)))
 	}
+	if status := strings.TrimSpace(query.ProcessStatus); status != "" {
+		args = append(args, strings.ToLower(status))
+		where = append(where, fmt.Sprintf("LOWER(COALESCE(ops.name,'')) = $%d", len(args)))
+	}
+	if status := strings.TrimSpace(query.PayStatus); status != "" {
+		args = append(args, strings.ToLower(status))
+		where = append(where, fmt.Sprintf("LOWER(COALESCE(ps.name,'')) = $%d", len(args)))
+	}
+	if status := strings.TrimSpace(query.ShipStatus); status != "" {
+		args = append(args, strings.ToLower(status))
+		where = append(where, fmt.Sprintf("LOWER(COALESCE(ss.name,'')) = $%d", len(args)))
+	}
 	args = append(args, limit)
 	rows, err := r.pool.Query(ctx, fmt.Sprintf(`
 		SELECT o.id,

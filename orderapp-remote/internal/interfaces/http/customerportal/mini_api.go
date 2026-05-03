@@ -96,9 +96,12 @@ func registerMiniAPI(e *echo.Echo, svc Service, beanListPDFRenderer BeanListPDFR
 			return c.JSON(http.StatusUnauthorized, map[string]string{"error": "mini token required"})
 		}
 		result, err := svc.GetServicePage(c.Request().Context(), token, c.Param("key"), customerportalapp.ServicePageFilter{
-			Query:    c.QueryParam("q"),
-			DateFrom: c.QueryParam("date_from"),
-			DateTo:   c.QueryParam("date_to"),
+			Query:         c.QueryParam("q"),
+			DateFrom:      c.QueryParam("date_from"),
+			DateTo:        c.QueryParam("date_to"),
+			ProcessStatus: c.QueryParam("process_status"),
+			PayStatus:     c.QueryParam("pay_status"),
+			ShipStatus:    c.QueryParam("ship_status"),
 		})
 		if err != nil {
 			return miniBusinessError(c, err)

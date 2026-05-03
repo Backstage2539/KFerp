@@ -231,14 +231,22 @@ func TestGetServicePageNormalizesOrderSearchFilters(t *testing.T) {
 	}
 	svc := NewService(repo, fakeIdentityProvider{})
 	_, err := svc.GetServicePage(context.Background(), "mini-token", ServiceKeyOrders, ServicePageFilter{
-		Query:    "  乌拉嘎 上海 张三  ",
-		DateFrom: "2026-05-01",
-		DateTo:   "2026-05-03",
+		Query:         "  乌拉嘎 上海 张三  ",
+		DateFrom:      "2026-05-01",
+		DateTo:        "2026-05-03",
+		ProcessStatus: "  生产中  ",
+		PayStatus:     "  已收款  ",
+		ShipStatus:    "  待发货  ",
 	})
 	if err != nil {
 		t.Fatalf("GetServicePage() err=%v", err)
 	}
-	if repo.serviceQuery.Query != "乌拉嘎 上海 张三" || repo.serviceQuery.DateFrom != "2026-05-01" || repo.serviceQuery.DateTo != "2026-05-03" {
+	if repo.serviceQuery.Query != "乌拉嘎 上海 张三" ||
+		repo.serviceQuery.DateFrom != "2026-05-01" ||
+		repo.serviceQuery.DateTo != "2026-05-03" ||
+		repo.serviceQuery.ProcessStatus != "生产中" ||
+		repo.serviceQuery.PayStatus != "已收款" ||
+		repo.serviceQuery.ShipStatus != "待发货" {
 		t.Fatalf("service query filters=%+v", repo.serviceQuery)
 	}
 	if repo.serviceQuery.Limit != 50 {

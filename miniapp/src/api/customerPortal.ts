@@ -204,6 +204,9 @@ export type ServicePageFilters = {
   q?: string
   date_from?: string
   date_to?: string
+  process_status?: string
+  pay_status?: string
+  ship_status?: string
 }
 
 export function loginWithCode(code: string): Promise<LoginResponse> {
@@ -219,6 +222,9 @@ export function buildServicePagePath(key: ServiceKey, filters: ServicePageFilter
     ['q', filters.q],
     ['date_from', filters.date_from],
     ['date_to', filters.date_to],
+    ['process_status', filters.process_status],
+    ['pay_status', filters.pay_status],
+    ['ship_status', filters.ship_status],
   ]
     .filter(([, value]) => String(value || '').trim() !== '')
     .map(([name, value]) => `${name}=${encodeURIComponent(String(value).trim())}`)

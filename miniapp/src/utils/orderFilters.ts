@@ -7,12 +7,18 @@ export type OrderDateRange = {
 
 export type OrderFilterForm = OrderDateRange & {
   keyword?: string
+  process_status?: string
+  pay_status?: string
+  ship_status?: string
 }
 
 export type OrderServiceFilters = {
   q?: string
   date_from?: string
   date_to?: string
+  process_status?: string
+  pay_status?: string
+  ship_status?: string
 }
 
 export function datePresetRange(preset: OrderDatePreset, now = new Date()): Required<OrderDateRange> {
@@ -46,9 +52,15 @@ export function normalizeDateRange(dateFrom?: string, dateTo?: string): OrderDat
 export function buildOrderServiceFilters(form: OrderFilterForm): OrderServiceFilters {
   const range = normalizeDateRange(form.date_from, form.date_to)
   const keyword = (form.keyword || '').trim().replace(/\s+/g, ' ')
+  const processStatus = normalizeStatusFilter(form.process_status)
+  const payStatus = normalizeStatusFilter(form.pay_status)
+  const shipStatus = normalizeStatusFilter(form.ship_status)
   return {
     ...(keyword ? { q: keyword } : {}),
     ...range,
+    ...(processStatus ? { process_status: processStatus } : {}),
+    ...(payStatus ? { pay_status: payStatus } : {}),
+    ...(shipStatus ? { ship_status: shipStatus } : {}),
   }
 }
 
@@ -66,4 +78,8 @@ function formatDate(value: Date): string {
 function validDateString(value?: string): string {
   const text = (value || '').trim()
   return /^\d{4}-\d{2}-\d{2}$/.test(text) ? text : ''
+}
+
+function normalizeStatusFilter(value?: string): string {
+  return (value || '').trim().replace(/\s+/g, ' ')
 }

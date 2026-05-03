@@ -19,12 +19,24 @@ describe('order filter helpers', () => {
     expect(normalizeDateRange('bad', '2026-05-03')).toEqual({ date_to: '2026-05-03' })
   })
 
-  it('builds query params only from meaningful keyword and date filters', () => {
-    expect(buildOrderServiceFilters({ keyword: ' 乌拉嘎 上海 ', date_from: '2026-05-01', date_to: '2026-05-03' })).toEqual({
+  it('builds query params only from meaningful keyword, date, and status filters', () => {
+    expect(
+      buildOrderServiceFilters({
+        keyword: ' 乌拉嘎 上海 ',
+        date_from: '2026-05-01',
+        date_to: '2026-05-03',
+        process_status: ' 生产中 ',
+        pay_status: ' 已收款 ',
+        ship_status: ' 待发货 ',
+      }),
+    ).toEqual({
       q: '乌拉嘎 上海',
       date_from: '2026-05-01',
       date_to: '2026-05-03',
+      process_status: '生产中',
+      pay_status: '已收款',
+      ship_status: '待发货',
     })
-    expect(buildOrderServiceFilters({ keyword: '   ' })).toEqual({})
+    expect(buildOrderServiceFilters({ keyword: '   ', process_status: ' ', pay_status: '', ship_status: '  ' })).toEqual({})
   })
 })

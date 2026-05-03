@@ -248,18 +248,24 @@ type ServicePage struct {
 }
 
 type ServicePageQuery struct {
-	CustomerID int64
-	Key        string
-	Limit      int
-	Query      string
-	DateFrom   string
-	DateTo     string
+	CustomerID    int64
+	Key           string
+	Limit         int
+	Query         string
+	DateFrom      string
+	DateTo        string
+	ProcessStatus string
+	PayStatus     string
+	ShipStatus    string
 }
 
 type ServicePageFilter struct {
-	Query    string
-	DateFrom string
-	DateTo   string
+	Query         string
+	DateFrom      string
+	DateTo        string
+	ProcessStatus string
+	PayStatus     string
+	ShipStatus    string
 }
 
 type CreateDirectShipBatchCommand struct {
@@ -457,12 +463,15 @@ func (s *Service) GetServicePage(ctx context.Context, token, key string, filter 
 		limit = 50
 	}
 	page, err := s.repo.LoadServicePage(ctx, ServicePageQuery{
-		CustomerID: current.CurrentCustomerID,
-		Key:        def.key,
-		Limit:      limit,
-		Query:      filter.Query,
-		DateFrom:   filter.DateFrom,
-		DateTo:     filter.DateTo,
+		CustomerID:    current.CurrentCustomerID,
+		Key:           def.key,
+		Limit:         limit,
+		Query:         filter.Query,
+		DateFrom:      filter.DateFrom,
+		DateTo:        filter.DateTo,
+		ProcessStatus: filter.ProcessStatus,
+		PayStatus:     filter.PayStatus,
+		ShipStatus:    filter.ShipStatus,
 	})
 	if err != nil {
 		return ServicePage{}, err
@@ -637,9 +646,12 @@ func serviceKeyContainsOrders(key string) bool {
 
 func normalizeServicePageFilter(filter ServicePageFilter) ServicePageFilter {
 	out := ServicePageFilter{
-		Query:    strings.Join(strings.Fields(strings.TrimSpace(filter.Query)), " "),
-		DateFrom: normalizeDateString(filter.DateFrom),
-		DateTo:   normalizeDateString(filter.DateTo),
+		Query:         strings.Join(strings.Fields(strings.TrimSpace(filter.Query)), " "),
+		DateFrom:      normalizeDateString(filter.DateFrom),
+		DateTo:        normalizeDateString(filter.DateTo),
+		ProcessStatus: normalizeStatusFilter(filter.ProcessStatus),
+		PayStatus:     normalizeStatusFilter(filter.PayStatus),
+		ShipStatus:    normalizeStatusFilter(filter.ShipStatus),
 	}
 	if out.DateFrom != "" && out.DateTo != "" {
 		from, _ := time.Parse("2006-01-02", out.DateFrom)
@@ -649,6 +661,10 @@ func normalizeServicePageFilter(filter ServicePageFilter) ServicePageFilter {
 		}
 	}
 	return out
+}
+
+func normalizeStatusFilter(value string) string {
+	return strings.Join(strings.Fields(strings.TrimSpace(value)), " ")
 }
 
 func normalizeDateString(value string) string {
