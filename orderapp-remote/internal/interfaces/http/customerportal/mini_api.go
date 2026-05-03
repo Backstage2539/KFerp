@@ -1,6 +1,7 @@
 package customerportal
 
 import (
+	"errors"
 	"net/http"
 	"strings"
 
@@ -22,7 +23,7 @@ type switchCustomerRequest struct {
 func registerMiniAPI(e *echo.Echo, svc Service) {
 	e.POST("/api/mini/login", func(c echo.Context) error {
 		if svc == nil {
-			return c.JSON(http.StatusInternalServerError, map[string]string{"error": "customer portal service required"})
+			return miniInternalError(c)
 		}
 		var req miniLoginRequest
 		if err := c.Bind(&req); err != nil {
@@ -30,14 +31,14 @@ func registerMiniAPI(e *echo.Echo, svc Service) {
 		}
 		result, err := svc.Login(c.Request().Context(), customerportalapp.LoginCommand{Code: req.Code, Phone: req.Phone, Nickname: req.Nickname})
 		if err != nil {
-			return c.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
+			return miniLoginError(c, err)
 		}
 		return c.JSON(http.StatusOK, result)
 	})
 
 	e.GET("/api/mini/me", func(c echo.Context) error {
 		if svc == nil {
-			return c.JSON(http.StatusInternalServerError, map[string]string{"error": "customer portal service required"})
+			return miniInternalError(c)
 		}
 		token := miniTokenFromHeader(c.Request().Header.Get(echo.HeaderAuthorization))
 		if token == "" {
@@ -45,14 +46,14 @@ func registerMiniAPI(e *echo.Echo, svc Service) {
 		}
 		result, err := svc.Me(c.Request().Context(), token)
 		if err != nil {
-			return c.JSON(http.StatusUnauthorized, map[string]string{"error": err.Error()})
+			return miniSessionError(c, err)
 		}
 		return c.JSON(http.StatusOK, result)
 	})
 
 	e.POST("/api/mini/current-customer", func(c echo.Context) error {
 		if svc == nil {
-			return c.JSON(http.StatusInternalServerError, map[string]string{"error": "customer portal service required"})
+			return miniInternalError(c)
 		}
 		token := miniTokenFromHeader(c.Request().Header.Get(echo.HeaderAuthorization))
 		if token == "" {
@@ -64,10 +65,53 @@ func registerMiniAPI(e *echo.Echo, svc Service) {
 		}
 		result, err := svc.SwitchCurrentCustomer(c.Request().Context(), token, req.CustomerID)
 		if err != nil {
-			return c.JSON(http.StatusForbidden, map[string]string{"error": err.Error()})
+			return miniSwitchCustomerError(c, err)
 		}
 		return c.JSON(http.StatusOK, result)
 	})
+}
+
+func miniLoginError(c echo.Context, err error) error {
+	if errors.Is(err, customerportalapp.ErrMiniLoginDisabled) {
+		return c.JSON(http.StatusServiceUnavailable, map[string]string{"error": "mini login disabled"})
+	}
+	if isMiniValidationError(err) {
+		return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid request"})
+	}
+	return miniInternalError(c)
+}
+
+func miniSessionError(c echo.Context, err error) error {
+	if errors.Is(err, customerportalapp.ErrMiniSessionNotFound) {
+		return c.JSON(http.StatusUnauthorized, map[string]string{"error": "invalid or expired mini token"})
+	}
+	return miniInternalError(c)
+}
+
+func miniSwitchCustomerError(c echo.Context, err error) error {
+	if errors.Is(err, customerportalapp.ErrMiniSessionNotFound) {
+		return c.JSON(http.StatusUnauthorized, map[string]string{"error": "invalid or expired mini token"})
+	}
+	if errors.Is(err, customerportalapp.ErrCustomerBindingNotFound) {
+		return c.JSON(http.StatusForbidden, map[string]string{"error": "customer binding not found"})
+	}
+	return miniInternalError(c)
+}
+
+func miniInternalError(c echo.Context) error {
+	return c.JSON(http.StatusInternalServerError, map[string]string{"error": "internal error"})
+}
+
+func isMiniValidationError(err error) bool {
+	if err == nil {
+		return false
+	}
+	switch err.Error() {
+	case "code required", "openid required", "customer required", "mini token required":
+		return true
+	default:
+		return false
+	}
 }
 
 func miniTokenFromHeader(authz string) string {

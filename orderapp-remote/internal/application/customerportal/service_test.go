@@ -101,3 +101,12 @@ func TestSwitchCustomerRejectsUnauthorizedBinding(t *testing.T) {
 		t.Fatalf("SwitchCurrentCustomer() err=%v", err)
 	}
 }
+
+func TestServicePreservesMiniSessionNotFoundSentinel(t *testing.T) {
+	repo := &fakeRepository{err: ErrMiniSessionNotFound}
+	svc := NewService(repo, fakeIdentityProvider{})
+	_, err := svc.Me(context.Background(), "missing-token")
+	if !errors.Is(err, ErrMiniSessionNotFound) {
+		t.Fatalf("Me() err=%v, want ErrMiniSessionNotFound", err)
+	}
+}

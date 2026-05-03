@@ -141,6 +141,15 @@ func TestBeanListPublicationPermissionsSeparatePublishAndDraft(t *testing.T) {
 	}
 }
 
+func TestMiniAPIHasNoEmployeePermissionBoundary(t *testing.T) {
+	if got := requiredPermissionForRequest(http.MethodGet, "/api/mini/me"); got != "" {
+		t.Fatalf("GET /api/mini/me permission = %q, want empty", got)
+	}
+	if got := requiredPermissionForRequest(http.MethodGet, "/api/customers"); got != "customers.read" {
+		t.Fatalf("GET /api/customers permission = %q, want customers.read", got)
+	}
+}
+
 func TestCompanyProfileAPIRequiresSettingsPermission(t *testing.T) {
 	if got := requiredPermissionForRequest(http.MethodPost, "/api/company/profile"); got != "settings.write" {
 		t.Fatalf("company profile permission = %q, want settings.write", got)

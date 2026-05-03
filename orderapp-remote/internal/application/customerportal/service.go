@@ -17,7 +17,11 @@ const (
 	CapabilitySettlement       = "settlement"
 )
 
-var ErrCustomerBindingNotFound = errors.New("customer binding not found")
+var (
+	ErrCustomerBindingNotFound = errors.New("customer binding not found")
+	ErrMiniSessionNotFound     = errors.New("mini session not found")
+	ErrMiniLoginDisabled       = errors.New("mini login disabled")
+)
 
 type LoginCommand struct {
 	Code     string

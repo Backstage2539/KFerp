@@ -95,7 +95,7 @@ func (r Repository) CreateLoginSession(ctx context.Context, cmd customerportalap
 func (r Repository) CurrentContextByToken(ctx context.Context, token string) (customerportalapp.CurrentContext, error) {
 	token = strings.TrimSpace(token)
 	if token == "" {
-		return customerportalapp.CurrentContext{}, fmt.Errorf("mini session not found")
+		return customerportalapp.CurrentContext{}, customerportalapp.ErrMiniSessionNotFound
 	}
 	tx, err := r.pool.Begin(ctx)
 	if err != nil {
@@ -112,7 +112,7 @@ func (r Repository) CurrentContextByToken(ctx context.Context, token string) (cu
 		FOR UPDATE OF s
 	`, r.schema, r.schema), token).Scan(&miniUserID, &sessionCustomerID); err != nil {
 		if err == pgx.ErrNoRows {
-			return customerportalapp.CurrentContext{}, fmt.Errorf("mini session not found")
+			return customerportalapp.CurrentContext{}, customerportalapp.ErrMiniSessionNotFound
 		}
 		return customerportalapp.CurrentContext{}, err
 	}
@@ -161,7 +161,7 @@ func (r Repository) CurrentContextByToken(ctx context.Context, token string) (cu
 func (r Repository) SwitchCurrentCustomer(ctx context.Context, token string, customerID int64) (customerportalapp.CurrentContext, error) {
 	token = strings.TrimSpace(token)
 	if token == "" {
-		return customerportalapp.CurrentContext{}, fmt.Errorf("mini session not found")
+		return customerportalapp.CurrentContext{}, customerportalapp.ErrMiniSessionNotFound
 	}
 	tx, err := r.pool.Begin(ctx)
 	if err != nil {
@@ -178,7 +178,7 @@ func (r Repository) SwitchCurrentCustomer(ctx context.Context, token string, cus
 		FOR UPDATE OF s
 	`, r.schema, r.schema), token).Scan(&miniUserID); err != nil {
 		if err == pgx.ErrNoRows {
-			return customerportalapp.CurrentContext{}, fmt.Errorf("mini session not found")
+			return customerportalapp.CurrentContext{}, customerportalapp.ErrMiniSessionNotFound
 		}
 		return customerportalapp.CurrentContext{}, err
 	}

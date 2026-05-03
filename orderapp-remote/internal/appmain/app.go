@@ -27,7 +27,7 @@ func Main() {
 	}
 
 	e := newHTTPServer(cfg, pool)
-	registerAppRoutes(e, pool, cfg.Schema, cfg.AssetDir)
+	registerAppRoutes(e, pool, cfg)
 
 	log.Printf("orderapp listening on %s", cfg.ListenAddr)
 	if err := e.Start(cfg.ListenAddr); err != nil && err != http.ErrServerClosed {

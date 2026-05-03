@@ -33,3 +33,9 @@ func (StaticIdentityProvider) Resolve(ctx context.Context, code string) (custome
 	}
 	return customerportalapp.MiniIdentity{OpenID: "dev-openid-" + code}, nil
 }
+
+type DisabledIdentityProvider struct{}
+
+func (DisabledIdentityProvider) Resolve(ctx context.Context, code string) (customerportalapp.MiniIdentity, error) {
+	return customerportalapp.MiniIdentity{}, customerportalapp.ErrMiniLoginDisabled
+}
