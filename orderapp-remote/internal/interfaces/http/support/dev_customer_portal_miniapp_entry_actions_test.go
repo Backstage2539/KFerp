@@ -46,7 +46,9 @@ func TestCustomerPortalMiniappEntriesAreTappable(t *testing.T) {
 	if !strings.Contains(string(pages), "pages/service/service") {
 		t.Fatal("service page must be registered")
 	}
-	if !strings.Contains(string(service), "这个入口已经打通") {
-		t.Fatal("service page must show an explicit connected placeholder")
+	for _, want := range []string{"fetchServicePage", "createDirectShipBatch", "createProcessingRequest"} {
+		if !strings.Contains(string(service), want) {
+			t.Fatalf("service page must connect real business API, missing %q", want)
+		}
 	}
 }

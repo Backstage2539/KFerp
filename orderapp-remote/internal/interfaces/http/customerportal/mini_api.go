@@ -20,6 +20,21 @@ type switchCustomerRequest struct {
 	CustomerID int64 `json:"customer_id"`
 }
 
+type directShipBatchRequest struct {
+	SourceName string `json:"source_name"`
+	TotalRows  int    `json:"total_rows"`
+	Note       string `json:"note"`
+}
+
+type processingRequestPayload struct {
+	InputMaterialID int64  `json:"input_material_id"`
+	InputQtyG       int64  `json:"input_qty_g"`
+	TargetProductID int64  `json:"target_product_id"`
+	TargetSpecG     int64  `json:"target_spec_g"`
+	TargetQty       int    `json:"target_qty"`
+	Note            string `json:"note"`
+}
+
 func registerMiniAPI(e *echo.Echo, svc Service) {
 	e.POST("/api/mini/login", func(c echo.Context) error {
 		if svc == nil {
@@ -69,6 +84,70 @@ func registerMiniAPI(e *echo.Echo, svc Service) {
 		}
 		return c.JSON(http.StatusOK, result)
 	})
+
+	e.GET("/api/mini/services/:key", func(c echo.Context) error {
+		if svc == nil {
+			return miniInternalError(c)
+		}
+		token := miniTokenFromHeader(c.Request().Header.Get(echo.HeaderAuthorization))
+		if token == "" {
+			return c.JSON(http.StatusUnauthorized, map[string]string{"error": "mini token required"})
+		}
+		result, err := svc.GetServicePage(c.Request().Context(), token, c.Param("key"))
+		if err != nil {
+			return miniBusinessError(c, err)
+		}
+		return c.JSON(http.StatusOK, result)
+	})
+
+	e.POST("/api/mini/direct-ship/batches", func(c echo.Context) error {
+		if svc == nil {
+			return miniInternalError(c)
+		}
+		token := miniTokenFromHeader(c.Request().Header.Get(echo.HeaderAuthorization))
+		if token == "" {
+			return c.JSON(http.StatusUnauthorized, map[string]string{"error": "mini token required"})
+		}
+		var req directShipBatchRequest
+		if err := c.Bind(&req); err != nil {
+			return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid request"})
+		}
+		result, err := svc.CreateDirectShipBatch(c.Request().Context(), token, customerportalapp.CreateDirectShipBatchCommand{
+			SourceName: req.SourceName,
+			TotalRows:  req.TotalRows,
+			Note:       req.Note,
+		})
+		if err != nil {
+			return miniBusinessError(c, err)
+		}
+		return c.JSON(http.StatusOK, result)
+	})
+
+	e.POST("/api/mini/processing-requests", func(c echo.Context) error {
+		if svc == nil {
+			return miniInternalError(c)
+		}
+		token := miniTokenFromHeader(c.Request().Header.Get(echo.HeaderAuthorization))
+		if token == "" {
+			return c.JSON(http.StatusUnauthorized, map[string]string{"error": "mini token required"})
+		}
+		var req processingRequestPayload
+		if err := c.Bind(&req); err != nil {
+			return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid request"})
+		}
+		result, err := svc.CreateProcessingRequest(c.Request().Context(), token, customerportalapp.CreateProcessingRequestCommand{
+			InputMaterialID: req.InputMaterialID,
+			InputQtyG:       req.InputQtyG,
+			TargetProductID: req.TargetProductID,
+			TargetSpecG:     req.TargetSpecG,
+			TargetQty:       req.TargetQty,
+			Note:            req.Note,
+		})
+		if err != nil {
+			return miniBusinessError(c, err)
+		}
+		return c.JSON(http.StatusOK, result)
+	})
 }
 
 func miniLoginError(c echo.Context, err error) error {
@@ -101,6 +180,22 @@ func miniSwitchCustomerError(c echo.Context, err error) error {
 	return miniInternalError(c)
 }
 
+func miniBusinessError(c echo.Context, err error) error {
+	if errors.Is(err, customerportalapp.ErrMiniSessionNotFound) {
+		return c.JSON(http.StatusUnauthorized, map[string]string{"error": "invalid or expired mini token"})
+	}
+	if errors.Is(err, customerportalapp.ErrCustomerBindingNotFound) {
+		return c.JSON(http.StatusForbidden, map[string]string{"error": "customer binding not found"})
+	}
+	if errors.Is(err, customerportalapp.ErrCapabilityNotEnabled) {
+		return c.JSON(http.StatusForbidden, map[string]string{"error": "capability not enabled"})
+	}
+	if isMiniValidationError(err) {
+		return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid request"})
+	}
+	return miniInternalError(c)
+}
+
 func miniInternalError(c echo.Context) error {
 	return c.JSON(http.StatusInternalServerError, map[string]string{"error": "internal error"})
 }
@@ -110,7 +205,9 @@ func isMiniValidationError(err error) bool {
 		return false
 	}
 	switch err.Error() {
-	case "code required", "openid required", "customer required", "mini token required":
+	case "code required", "openid required", "customer required", "mini token required",
+		"service key invalid", "source_name required", "total_rows invalid", "input_material required",
+		"input_qty required", "target_product required", "target_spec required", "target_qty required":
 		return true
 	default:
 		return false
