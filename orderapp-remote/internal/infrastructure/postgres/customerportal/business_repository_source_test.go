@@ -61,6 +61,44 @@ func TestCustomerPortalBeanListLoadsDisplayItemsFromPublishedContent(t *testing.
 	}
 }
 
+func TestCustomerPortalBeanListSummariesExposePDFCacheMetadata(t *testing.T) {
+	body, err := os.ReadFile("business_repository.go")
+	if err != nil {
+		t.Fatalf("read business_repository.go: %v", err)
+	}
+	text := string(body)
+	for _, want := range []string{
+		"PDFURL",
+		"CacheKey",
+		"beanListPDFPath",
+		"beanListCacheKey",
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("bean list PDF cache metadata missing %q", want)
+		}
+	}
+}
+
+func TestCustomerPortalOrderQuerySupportsKeywordAndDateFilters(t *testing.T) {
+	body, err := os.ReadFile("business_repository.go")
+	if err != nil {
+		t.Fatalf("read business_repository.go: %v", err)
+	}
+	text := string(body)
+	for _, want := range []string{
+		"query.Query",
+		"query.DateFrom",
+		"query.DateTo",
+		"LOWER(COALESCE(c.contact,''))",
+		"LOWER(COALESCE(c.address,''))",
+		"EXISTS (SELECT 1 FROM %s.order_items",
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("customer portal order filter query missing %q", want)
+		}
+	}
+}
+
 func TestParseBeanListContentSummaryExtractsGroupsItemsAndPrices(t *testing.T) {
 	raw, err := json.Marshal(map[string]any{
 		"groups": []any{

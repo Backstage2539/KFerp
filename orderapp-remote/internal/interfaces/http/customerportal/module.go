@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	customerportalapp "orderapp/internal/application/customerportal"
+	pdfinfra "orderapp/internal/infrastructure/pdf"
 
 	"github.com/labstack/echo/v4"
 )
@@ -18,7 +19,8 @@ type Service interface {
 	Login(context.Context, customerportalapp.LoginCommand) (customerportalapp.LoginResult, error)
 	Me(context.Context, string) (customerportalapp.CurrentContext, error)
 	SwitchCurrentCustomer(context.Context, string, int64) (customerportalapp.CurrentContext, error)
-	GetServicePage(context.Context, string, string) (customerportalapp.ServicePage, error)
+	GetServicePage(context.Context, string, string, customerportalapp.ServicePageFilter) (customerportalapp.ServicePage, error)
+	GetBeanListPublication(context.Context, string, int64) (customerportalapp.BeanListSummary, error)
 	ListPortalAdminCustomers(context.Context, customerportalapp.PortalAdminCustomerQuery) ([]customerportalapp.PortalAdminCustomer, error)
 	PortalAdminDetail(context.Context, int64) (customerportalapp.PortalAdminDetail, error)
 	UpdatePortalVisibility(context.Context, customerportalapp.UpdatePortalVisibilityCommand) (customerportalapp.PortalAdminDetail, error)
@@ -27,11 +29,20 @@ type Service interface {
 }
 
 type Dependencies struct {
-	CustomerPortal Service
+	CustomerPortal      Service
+	BeanListPDFRenderer BeanListPDFRenderer
+}
+
+type BeanListPDFRenderer interface {
+	Render(pdfinfra.BeanListDocument) ([]byte, error)
 }
 
 func RegisterRoutes(e *echo.Echo, deps Dependencies) {
-	registerMiniAPI(e, deps.CustomerPortal)
+	renderer := deps.BeanListPDFRenderer
+	if renderer == nil {
+		renderer = pdfinfra.BeanListRenderer{}
+	}
+	registerMiniAPI(e, deps.CustomerPortal, renderer)
 	registerAdminAPI(e, deps.CustomerPortal)
 }
 

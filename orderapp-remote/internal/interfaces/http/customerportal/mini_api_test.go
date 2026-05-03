@@ -18,10 +18,12 @@ type fakeService struct {
 	login      customerportalapp.LoginResult
 	me         customerportalapp.CurrentContext
 	service    customerportalapp.ServicePage
+	filter     *customerportalapp.ServicePageFilter
 	customers  []customerportalapp.PortalAdminCustomer
 	detail     customerportalapp.PortalAdminDetail
 	directShip customerportalapp.DirectShipBatch
 	processing customerportalapp.ProcessingRequest
+	beanList   customerportalapp.BeanListSummary
 	err        error
 }
 
@@ -46,11 +48,21 @@ func (s fakeService) SwitchCurrentCustomer(context.Context, string, int64) (cust
 	return s.me, nil
 }
 
-func (s fakeService) GetServicePage(context.Context, string, string) (customerportalapp.ServicePage, error) {
+func (s fakeService) GetServicePage(ctx context.Context, token, key string, filter customerportalapp.ServicePageFilter) (customerportalapp.ServicePage, error) {
 	if s.err != nil {
 		return customerportalapp.ServicePage{}, s.err
 	}
+	if s.filter != nil {
+		*s.filter = filter
+	}
 	return s.service, nil
+}
+
+func (s fakeService) GetBeanListPublication(context.Context, string, int64) (customerportalapp.BeanListSummary, error) {
+	if s.err != nil {
+		return customerportalapp.BeanListSummary{}, s.err
+	}
+	return s.beanList, nil
 }
 
 func (s fakeService) ListPortalAdminCustomers(context.Context, customerportalapp.PortalAdminCustomerQuery) ([]customerportalapp.PortalAdminCustomer, error) {
@@ -261,6 +273,31 @@ func TestMiniOrdersServicePageAPIReturnsDirectOrderPayload(t *testing.T) {
 	}
 }
 
+func TestMiniOrdersServicePageAPIParsesKeywordAndDateFilters(t *testing.T) {
+	var gotFilter customerportalapp.ServicePageFilter
+	e := echo.New()
+	RegisterRoutes(e, Dependencies{CustomerPortal: fakeService{
+		filter: &gotFilter,
+		service: customerportalapp.ServicePage{
+			Key:                 customerportalapp.ServiceKeyOrders,
+			Title:               "我的订单",
+			CurrentCustomerID:   8,
+			CurrentCustomerName: "客户A",
+		},
+	}})
+
+	req := httptest.NewRequest(http.MethodGet, "/api/mini/services/orders?q=%E4%B9%8C%E6%8B%89%E5%98%8E&date_from=2026-05-01&date_to=2026-05-03", nil)
+	req.Header.Set(echo.HeaderAuthorization, "Bearer mini-token")
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if gotFilter.Query != "乌拉嘎" || gotFilter.DateFrom != "2026-05-01" || gotFilter.DateTo != "2026-05-03" {
+		t.Fatalf("filter=%+v", gotFilter)
+	}
+}
+
 func TestMiniBeanListServicePageAPIReturnsDisplayContent(t *testing.T) {
 	e := echo.New()
 	RegisterRoutes(e, Dependencies{CustomerPortal: fakeService{service: customerportalapp.ServicePage{
@@ -270,6 +307,7 @@ func TestMiniBeanListServicePageAPIReturnsDisplayContent(t *testing.T) {
 		CurrentCustomerName: "客户A",
 		BeanLists: []customerportalapp.BeanListSummary{{
 			ID: 1, ListType: "commercial", VersionNo: "V3.0.5", Status: "published",
+			PDFURL: "/api/mini/bean-lists/1.pdf", CacheKey: "bean-list:1:V3.0.5",
 			Groups: []customerportalapp.BeanListGroupSummary{{
 				Category: "原产地精选豆",
 				Items: []customerportalapp.BeanListProductSummary{{
@@ -286,9 +324,38 @@ func TestMiniBeanListServicePageAPIReturnsDisplayContent(t *testing.T) {
 	e.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK ||
 		!strings.Contains(rec.Body.String(), `"groups":[`) ||
+		!strings.Contains(rec.Body.String(), `"pdf_url":"/api/mini/bean-lists/1.pdf"`) ||
+		!strings.Contains(rec.Body.String(), `"cache_key":"bean-list:1:V3.0.5"`) ||
 		!strings.Contains(rec.Body.String(), `"name":"乌拉嘎"`) ||
 		!strings.Contains(rec.Body.String(), `"prices":[`) {
 		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestMiniBeanListPDFAPIReturnsPDFDownload(t *testing.T) {
+	e := echo.New()
+	RegisterRoutes(e, Dependencies{CustomerPortal: fakeService{
+		beanList: customerportalapp.BeanListSummary{
+			ID: 1, ListType: "commercial", VersionNo: "V3.0.5", Status: "published", PublishedAt: "2026-05-03 12:00",
+			Groups: []customerportalapp.BeanListGroupSummary{{
+				Category: "原产地精选豆",
+				Items: []customerportalapp.BeanListProductSummary{{
+					Code: "5.2", Name: "乌拉嘎", Flavor: "柑橘/莓果",
+					Prices: []customerportalapp.BeanListPriceSummary{{Label: "454g", Value: "¥118/包"}},
+				}},
+			}},
+		},
+	}})
+
+	req := httptest.NewRequest(http.MethodGet, "/api/mini/bean-lists/1.pdf", nil)
+	req.Header.Set(echo.HeaderAuthorization, "Bearer mini-token")
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK || rec.Header().Get(echo.HeaderContentType) != "application/pdf" || !strings.HasPrefix(rec.Body.String(), "%PDF") {
+		t.Fatalf("status=%d content-type=%q body=%q", rec.Code, rec.Header().Get(echo.HeaderContentType), rec.Body.String())
+	}
+	if !strings.Contains(rec.Header().Get(echo.HeaderContentDisposition), "bean-list-commercial-V3.0.5.pdf") {
+		t.Fatalf("content-disposition=%q", rec.Header().Get(echo.HeaderContentDisposition))
 	}
 }
 

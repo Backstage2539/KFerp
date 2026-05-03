@@ -3,11 +3,14 @@ package customerportal
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
 
 	customerportalapp "orderapp/internal/application/customerportal"
+
+	"github.com/jackc/pgx/v5"
 )
 
 func (r Repository) LoadServicePage(ctx context.Context, query customerportalapp.ServicePageQuery) (customerportalapp.ServicePage, error) {
@@ -21,17 +24,17 @@ func (r Repository) LoadServicePage(ctx context.Context, query customerportalapp
 	case customerportalapp.ServiceKeyBeanList:
 		page.BeanLists, err = r.listBeanLists(ctx, query.CustomerID, limit)
 	case customerportalapp.ServiceKeyOrders:
-		page.Orders, err = r.listCustomerOrders(ctx, query.CustomerID, limit)
+		page.Orders, err = r.listCustomerOrders(ctx, query, limit)
 	case customerportalapp.ServiceKeyProductOrder:
 		if page.Products, err = r.listProducts(ctx, limit); err != nil {
 			return customerportalapp.ServicePage{}, err
 		}
-		page.Orders, err = r.listCustomerOrders(ctx, query.CustomerID, limit)
+		page.Orders, err = r.listCustomerOrders(ctx, query, limit)
 	case customerportalapp.ServiceKeyDirectShip:
 		if page.DirectShipBatches, err = r.listDirectShipBatches(ctx, query.CustomerID, limit); err != nil {
 			return customerportalapp.ServicePage{}, err
 		}
-		page.Orders, err = r.listCustomerOrders(ctx, query.CustomerID, limit)
+		page.Orders, err = r.listCustomerOrders(ctx, query, limit)
 	case customerportalapp.ServiceKeyProcessing:
 		if page.Inventory, err = r.listInventory(ctx, query.CustomerID, limit); err != nil {
 			return customerportalapp.ServicePage{}, err
@@ -40,7 +43,7 @@ func (r Repository) LoadServicePage(ctx context.Context, query customerportalapp
 	case customerportalapp.ServiceKeyInventory:
 		page.Inventory, err = r.listInventory(ctx, query.CustomerID, limit)
 	case customerportalapp.ServiceKeyShipping:
-		page.Orders, err = r.listCustomerOrders(ctx, query.CustomerID, limit)
+		page.Orders, err = r.listCustomerOrders(ctx, query, limit)
 	case customerportalapp.ServiceKeySettlement:
 		if page.FeeItems, err = r.listFeeItems(ctx, query.CustomerID, limit); err != nil {
 			return customerportalapp.ServicePage{}, err
@@ -53,6 +56,32 @@ func (r Repository) LoadServicePage(ctx context.Context, query customerportalapp
 		return customerportalapp.ServicePage{}, err
 	}
 	return page, nil
+}
+
+func (r Repository) LoadBeanListPublication(ctx context.Context, customerID, publicationID int64) (customerportalapp.BeanListSummary, error) {
+	var row customerportalapp.BeanListSummary
+	var contentJSON []byte
+	err := r.pool.QueryRow(ctx, fmt.Sprintf(`
+		SELECT id, list_type, version_no, status, to_char(published_at,'YYYY-MM-DD HH24:MI'), changelog, content_json
+		FROM %s.bean_list_publications
+		WHERE id=$1
+		  AND status='published'
+		  AND ((owner_type='customer' AND owner_key=$2) OR owner_type='official')
+	`, r.schema), publicationID, fmt.Sprintf("%d", customerID)).
+		Scan(&row.ID, &row.ListType, &row.VersionNo, &row.Status, &row.PublishedAt, &row.Changelog, &contentJSON)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return customerportalapp.BeanListSummary{}, customerportalapp.ErrBeanListPublicationNotFound
+		}
+		return customerportalapp.BeanListSummary{}, err
+	}
+	groups, err := parseBeanListContentSummary(contentJSON)
+	if err != nil {
+		return customerportalapp.BeanListSummary{}, err
+	}
+	row.Groups = groups
+	populateBeanListPDFMetadata(&row)
+	return row, nil
 }
 
 func (r Repository) listBeanLists(ctx context.Context, customerID int64, limit int) ([]customerportalapp.BeanListSummary, error) {
@@ -115,9 +144,30 @@ func scanBeanListSummaries(rows beanListRows) ([]customerportalapp.BeanListSumma
 			return nil, err
 		}
 		row.Groups = groups
+		populateBeanListPDFMetadata(&row)
 		out = append(out, row)
 	}
 	return out, rows.Err()
+}
+
+func populateBeanListPDFMetadata(row *customerportalapp.BeanListSummary) {
+	if row == nil || row.ID <= 0 {
+		return
+	}
+	row.PDFURL = beanListPDFPath(row.ID)
+	row.CacheKey = beanListCacheKey(*row)
+}
+
+func beanListPDFPath(publicationID int64) string {
+	return fmt.Sprintf("/api/mini/bean-lists/%d.pdf", publicationID)
+}
+
+func beanListCacheKey(row customerportalapp.BeanListSummary) string {
+	version := strings.TrimSpace(row.VersionNo)
+	if version == "" {
+		version = "published"
+	}
+	return fmt.Sprintf("bean-list:%d:%s", row.ID, version)
 }
 
 func parseBeanListContentSummary(contentJSON []byte) ([]customerportalapp.BeanListGroupSummary, error) {
@@ -272,11 +322,40 @@ func (r Repository) listProducts(ctx context.Context, limit int) ([]customerport
 	return out, rows.Err()
 }
 
-func (r Repository) listCustomerOrders(ctx context.Context, customerID int64, limit int) ([]customerportalapp.CustomerOrderSummary, error) {
+func (r Repository) listCustomerOrders(ctx context.Context, query customerportalapp.ServicePageQuery, limit int) ([]customerportalapp.CustomerOrderSummary, error) {
+	where := []string{"o.customer_id=$1", "o.is_void=false"}
+	args := []any{query.CustomerID}
+	if keyword := strings.TrimSpace(query.Query); keyword != "" {
+		args = append(args, "%"+strings.ToLower(keyword)+"%")
+		placeholder := fmt.Sprintf("$%d", len(args))
+		where = append(where, fmt.Sprintf(`(
+			LOWER(COALESCE(o.order_no,'')) LIKE %[1]s
+			OR LOWER(COALESCE(c.contact,'')) LIKE %[1]s
+			OR LOWER(COALESCE(c.name,'')) LIKE %[1]s
+			OR LOWER(COALESCE(c.phone,'')) LIKE %[1]s
+			OR LOWER(COALESCE(c.address,'')) LIKE %[1]s
+			OR LOWER(COALESCE(c.company_address,'')) LIKE %[1]s
+			OR EXISTS (SELECT 1 FROM %s.order_items oi2
+				WHERE oi2.order_id=o.id
+				  AND (LOWER(COALESCE(oi2.item_name,'')) LIKE %[1]s OR LOWER(COALESCE(oi2.spec,'')) LIKE %[1]s))
+		)`, placeholder, r.schema))
+	}
+	if query.DateFrom != "" {
+		args = append(args, query.DateFrom)
+		where = append(where, fmt.Sprintf("o.order_date >= $%d::date", len(args)))
+	}
+	if query.DateTo != "" {
+		args = append(args, query.DateTo)
+		where = append(where, fmt.Sprintf("o.order_date <= $%d::date", len(args)))
+	}
+	args = append(args, limit)
 	rows, err := r.pool.Query(ctx, fmt.Sprintf(`
 		SELECT o.id,
 		       COALESCE(o.order_no,''),
 		       COALESCE(to_char(o.order_date,'YYYY-MM-DD'),''),
+		       COALESCE(NULLIF(c.contact,''), c.name, ''),
+		       COALESCE(c.phone,''),
+		       COALESCE(NULLIF(c.address,''), c.company_address, ''),
 		       COALESCE(ops.name,''),
 		       COALESCE(ps.name,''),
 		       COALESCE(ss.name,''),
@@ -284,13 +363,14 @@ func (r Repository) listCustomerOrders(ctx context.Context, customerID int64, li
 		       to_char(COALESCE(o.grand_total,0), 'FM999999990.00'),
 		       to_char(COALESCE(o.shipping_amount,0), 'FM999999990.00')
 		FROM %s.orders o
+		LEFT JOIN %s.customers c ON c.id=o.customer_id
 		LEFT JOIN %s.order_process_statuses ops ON ops.id=o.process_status_id
 		LEFT JOIN %s.pay_statuses ps ON ps.id=o.pay_status_id
 		LEFT JOIN %s.ship_statuses ss ON ss.id=o.ship_status_id
-		WHERE o.customer_id=$1 AND o.is_void=false
+		WHERE %s
 		ORDER BY o.order_date DESC, o.id DESC
-		LIMIT $2
-	`, r.schema, r.schema, r.schema, r.schema), customerID, limit)
+		LIMIT $%d
+	`, r.schema, r.schema, r.schema, r.schema, r.schema, strings.Join(where, " AND "), len(args)), args...)
 	if err != nil {
 		return nil, err
 	}
@@ -299,7 +379,7 @@ func (r Repository) listCustomerOrders(ctx context.Context, customerID int64, li
 	orderIDs := make([]int64, 0)
 	for rows.Next() {
 		var row customerportalapp.CustomerOrderSummary
-		if err := rows.Scan(&row.ID, &row.OrderNo, &row.OrderDate, &row.ProcessStatus, &row.PayStatus, &row.ShipStatus, &row.ShipTrackingNo, &row.GrandTotal, &row.ShippingAmount); err != nil {
+		if err := rows.Scan(&row.ID, &row.OrderNo, &row.OrderDate, &row.ReceiverName, &row.ReceiverPhone, &row.ReceiverAddress, &row.ProcessStatus, &row.PayStatus, &row.ShipStatus, &row.ShipTrackingNo, &row.GrandTotal, &row.ShippingAmount); err != nil {
 			return nil, err
 		}
 		orderIDs = append(orderIDs, row.ID)

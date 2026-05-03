@@ -2,7 +2,9 @@ package customerportal
 
 import (
 	"errors"
+	"fmt"
 	"net/http"
+	"strconv"
 	"strings"
 
 	customerportalapp "orderapp/internal/application/customerportal"
@@ -35,7 +37,7 @@ type processingRequestPayload struct {
 	Note            string `json:"note"`
 }
 
-func registerMiniAPI(e *echo.Echo, svc Service) {
+func registerMiniAPI(e *echo.Echo, svc Service, beanListPDFRenderer BeanListPDFRenderer) {
 	e.POST("/api/mini/login", func(c echo.Context) error {
 		if svc == nil {
 			return miniInternalError(c)
@@ -93,11 +95,39 @@ func registerMiniAPI(e *echo.Echo, svc Service) {
 		if token == "" {
 			return c.JSON(http.StatusUnauthorized, map[string]string{"error": "mini token required"})
 		}
-		result, err := svc.GetServicePage(c.Request().Context(), token, c.Param("key"))
+		result, err := svc.GetServicePage(c.Request().Context(), token, c.Param("key"), customerportalapp.ServicePageFilter{
+			Query:    c.QueryParam("q"),
+			DateFrom: c.QueryParam("date_from"),
+			DateTo:   c.QueryParam("date_to"),
+		})
 		if err != nil {
 			return miniBusinessError(c, err)
 		}
 		return c.JSON(http.StatusOK, result)
+	})
+
+	e.GET("/api/mini/bean-lists/:id", func(c echo.Context) error {
+		if svc == nil || beanListPDFRenderer == nil {
+			return miniInternalError(c)
+		}
+		token := miniTokenFromHeader(c.Request().Header.Get(echo.HeaderAuthorization))
+		if token == "" {
+			return c.JSON(http.StatusUnauthorized, map[string]string{"error": "mini token required"})
+		}
+		publicationID, err := strconv.ParseInt(strings.TrimSuffix(c.Param("id"), ".pdf"), 10, 64)
+		if err != nil || publicationID <= 0 {
+			return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid request"})
+		}
+		row, err := svc.GetBeanListPublication(c.Request().Context(), token, publicationID)
+		if err != nil {
+			return miniBusinessError(c, err)
+		}
+		body, err := beanListPDFRenderer.Render(beanListPDFDocument(row))
+		if err != nil {
+			return miniInternalError(c)
+		}
+		c.Response().Header().Set(echo.HeaderContentDisposition, fmt.Sprintf(`inline; filename="%s"`, beanListPDFFilename(row)))
+		return c.Blob(http.StatusOK, "application/pdf", body)
 	})
 
 	e.POST("/api/mini/direct-ship/batches", func(c echo.Context) error {
@@ -190,6 +220,9 @@ func miniBusinessError(c echo.Context, err error) error {
 	if errors.Is(err, customerportalapp.ErrCapabilityNotEnabled) {
 		return c.JSON(http.StatusForbidden, map[string]string{"error": "capability not enabled"})
 	}
+	if errors.Is(err, customerportalapp.ErrBeanListPublicationNotFound) {
+		return c.JSON(http.StatusNotFound, map[string]string{"error": "bean list publication not found"})
+	}
 	if isMiniValidationError(err) {
 		return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid request"})
 	}
@@ -207,7 +240,8 @@ func isMiniValidationError(err error) bool {
 	switch err.Error() {
 	case "code required", "openid required", "customer required", "mini token required",
 		"service key invalid", "source_name required", "total_rows invalid", "input_material required",
-		"input_qty required", "target_product required", "target_spec required", "target_qty required":
+		"input_qty required", "target_product required", "target_spec required", "target_qty required",
+		"bean_list required":
 		return true
 	default:
 		return false

@@ -37,6 +37,8 @@ export type BeanListSummary = {
   status: string
   published_at: string
   changelog: string
+  pdf_url: string
+  cache_key: string
   groups?: BeanListGroupSummary[]
 }
 
@@ -76,6 +78,9 @@ export type CustomerOrderSummary = {
   id: number
   order_no: string
   order_date: string
+  receiver_name: string
+  receiver_phone: string
+  receiver_address: string
   process_status: string
   pay_status: string
   ship_status: string
@@ -195,6 +200,12 @@ export type CreateProcessingRequestPayload = {
   note?: string
 }
 
+export type ServicePageFilters = {
+  q?: string
+  date_from?: string
+  date_to?: string
+}
+
 export function loginWithCode(code: string): Promise<LoginResponse> {
   return miniRequest<LoginResponse>('/api/mini/login', { method: 'POST', data: { code } })
 }
@@ -203,8 +214,20 @@ export function fetchMe(token: string): Promise<MeResponse> {
   return miniRequest<MeResponse>('/api/mini/me', { token })
 }
 
-export function fetchServicePage(token: string, key: ServiceKey): Promise<ServicePageResponse> {
-  return miniRequest<ServicePageResponse>(`/api/mini/services/${key}`, { token })
+export function buildServicePagePath(key: ServiceKey, filters: ServicePageFilters = {}): string {
+  const params = [
+    ['q', filters.q],
+    ['date_from', filters.date_from],
+    ['date_to', filters.date_to],
+  ]
+    .filter(([, value]) => String(value || '').trim() !== '')
+    .map(([name, value]) => `${name}=${encodeURIComponent(String(value).trim())}`)
+  const suffix = params.length ? `?${params.join('&')}` : ''
+  return `/api/mini/services/${key}${suffix}`
+}
+
+export function fetchServicePage(token: string, key: ServiceKey, filters: ServicePageFilters = {}): Promise<ServicePageResponse> {
+  return miniRequest<ServicePageResponse>(buildServicePagePath(key, filters), { token })
 }
 
 export function createDirectShipBatch(
