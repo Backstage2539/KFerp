@@ -2,12 +2,21 @@
 import { computed, ref } from 'vue'
 import { onLoad, onShow } from '@dcloudio/uni-app'
 import {
+  type BeanListSummary,
   createDirectShipBatch,
   createProcessingRequest,
   fetchServicePage,
   type ServicePageResponse,
 } from '../../api/customerPortal'
+import { buildAPIURL } from '../../api/client'
 import { useSessionStore } from '../../stores/session'
+import {
+  beanListCacheStorageKey,
+  beanListVersionChanged,
+  nextBeanListCacheRecord,
+  type BeanListPDFCacheRecord,
+} from '../../utils/beanListPdfCache'
+import { buildOrderServiceFilters, datePresetRange, normalizeDateRange, type OrderDatePreset } from '../../utils/orderFilters'
 import { normalizeServiceKey, serviceTitle, visibleServiceSections, type ServiceKey } from '../../utils/servicePage'
 
 const session = useSessionStore()
@@ -15,7 +24,10 @@ const serviceKey = ref<ServiceKey>('beanList')
 const page = ref<ServicePageResponse | null>(null)
 const loading = ref(false)
 const submitting = ref(false)
+const openingBeanListPDF = ref(false)
 const errorMessage = ref('')
+const autoOpenedBeanListCacheKey = ref('')
+const orderSearch = ref({ keyword: '', date_from: '', date_to: '' })
 
 const directShipForm = ref({ source_name: '', total_rows: 0, note: '' })
 const processingForm = ref({
@@ -40,12 +52,157 @@ async function loadPage() {
   loading.value = true
   errorMessage.value = ''
   try {
-    page.value = await fetchServicePage(session.token, serviceKey.value)
+    const filters = serviceKey.value === 'orders' ? buildOrderServiceFilters(orderSearch.value) : {}
+    page.value = await fetchServicePage(session.token, serviceKey.value, filters)
+    maybeAutoOpenLatestBeanListPDF()
   } catch (error) {
     errorMessage.value = error instanceof Error ? error.message : '服务数据加载失败'
   } finally {
     loading.value = false
   }
+}
+
+function maybeAutoOpenLatestBeanListPDF() {
+  if (serviceKey.value !== 'beanList') return
+  const item = page.value?.bean_lists?.find((row) => row.pdf_url)
+  if (!item) return
+  const cacheKey = item.cache_key || `${item.id}-${item.version_no}`
+  if (autoOpenedBeanListCacheKey.value === cacheKey) return
+  autoOpenedBeanListCacheKey.value = cacheKey
+  void openBeanListPDF(item, true)
+}
+
+async function openBeanListPDF(item: BeanListSummary, auto = false) {
+  if (!session.token || !item.pdf_url) {
+    if (!auto) uni.showToast({ title: '暂无 PDF', icon: 'none' })
+    return
+  }
+  openingBeanListPDF.value = true
+  errorMessage.value = ''
+  try {
+    const cached = cachedBeanListPDF(item)
+    if (cached && !beanListVersionChanged(cached, item) && (await savedFileExists(cached.saved_file_path))) {
+      await openPDFFile(cached.saved_file_path)
+      return
+    }
+    if (cached && beanListVersionChanged(cached, item) && (await savedFileExists(cached.saved_file_path))) {
+      const shouldUpdate = await confirmBeanListPDFUpdate(item)
+      if (!shouldUpdate) {
+        await openPDFFile(cached.saved_file_path)
+        return
+      }
+    }
+    await downloadSaveAndOpenBeanListPDF(item)
+  } catch (error) {
+    const message = error instanceof Error ? error.message : '豆单 PDF 打开失败'
+    if (!auto) errorMessage.value = message
+  } finally {
+    openingBeanListPDF.value = false
+  }
+}
+
+function cachedBeanListPDF(item: BeanListSummary): BeanListPDFCacheRecord | null {
+  const value = uni.getStorageSync(beanListCacheStorageKey(page.value?.current_customer_id || session.currentCustomerID, item))
+  if (!value || typeof value !== 'object') return null
+  return value as BeanListPDFCacheRecord
+}
+
+function confirmBeanListPDFUpdate(item: BeanListSummary): Promise<boolean> {
+  return new Promise((resolve) => {
+    uni.showModal({
+      title: '豆单有更新',
+      content: `检测到 ${item.version_no || '新版本'}，是否更新本地 PDF？`,
+      confirmText: '更新',
+      cancelText: '先看旧版',
+      success: (res) => resolve(Boolean(res.confirm)),
+      fail: () => resolve(true),
+    })
+  })
+}
+
+function savedFileExists(filePath: string): Promise<boolean> {
+  return new Promise((resolve) => {
+    if (!filePath) {
+      resolve(false)
+      return
+    }
+    uni.getSavedFileInfo({
+      filePath,
+      success: () => resolve(true),
+      fail: () => resolve(false),
+    })
+  })
+}
+
+function openPDFFile(filePath: string): Promise<void> {
+  return new Promise((resolve, reject) => {
+    uni.openDocument({
+      filePath,
+      fileType: 'pdf',
+      showMenu: true,
+      success: () => resolve(),
+      fail: (err) => reject(new Error(err.errMsg || 'PDF 打开失败')),
+    })
+  })
+}
+
+function downloadSaveAndOpenBeanListPDF(item: BeanListSummary): Promise<void> {
+  return new Promise((resolve, reject) => {
+    uni.downloadFile({
+      url: buildAPIURL(item.pdf_url),
+      header: { Authorization: `Bearer ${session.token}` },
+      success: (downloadRes) => {
+        if (downloadRes.statusCode && downloadRes.statusCode >= 400) {
+          reject(new Error(`PDF 下载失败：${downloadRes.statusCode}`))
+          return
+        }
+        uni.saveFile({
+          tempFilePath: downloadRes.tempFilePath,
+          success: async (saveRes) => {
+            try {
+              uni.setStorageSync(
+                beanListCacheStorageKey(page.value?.current_customer_id || session.currentCustomerID, item),
+                nextBeanListCacheRecord(item, saveRes.savedFilePath),
+              )
+              await openPDFFile(saveRes.savedFilePath)
+              resolve()
+            } catch (error) {
+              reject(error)
+            }
+          },
+          fail: (err) => reject(new Error(err.errMsg || 'PDF 保存失败')),
+        })
+      },
+      fail: (err) => reject(new Error(err.errMsg || 'PDF 下载失败')),
+    })
+  })
+}
+
+async function applyOrderFilters() {
+  const normalized = normalizeDateRange(orderSearch.value.date_from, orderSearch.value.date_to)
+  orderSearch.value.date_from = normalized.date_from || ''
+  orderSearch.value.date_to = normalized.date_to || ''
+  await loadPage()
+}
+
+async function applyDatePreset(preset: OrderDatePreset) {
+  const range = datePresetRange(preset)
+  orderSearch.value.date_from = range.date_from
+  orderSearch.value.date_to = range.date_to
+  await loadPage()
+}
+
+async function clearOrderFilters() {
+  orderSearch.value = { keyword: '', date_from: '', date_to: '' }
+  await loadPage()
+}
+
+function setOrderDateFrom(event: { detail?: { value?: string } }) {
+  orderSearch.value.date_from = event.detail?.value || ''
+}
+
+function setOrderDateTo(event: { detail?: { value?: string } }) {
+  orderSearch.value.date_to = event.detail?.value || ''
 }
 
 async function submitDirectShipBatch() {
@@ -167,9 +324,14 @@ onShow(() => {
       <view v-if="page?.bean_lists?.length" class="panel">
         <text class="panel-title">豆单</text>
         <view v-for="item in page.bean_lists" :key="item.id" class="list-row">
-          <text class="row-main">{{ item.list_type }} {{ item.version_no }}</text>
-          <text class="row-sub">{{ item.published_at }}</text>
-          <view v-if="item.groups?.length" class="bean-list-items">
+          <view class="row-head">
+            <text class="row-main">{{ item.list_type }} {{ item.version_no }}</text>
+            <button class="small-action" :disabled="openingBeanListPDF || !item.pdf_url" @tap="openBeanListPDF(item)">
+              打开 PDF
+            </button>
+          </view>
+          <text class="row-sub">{{ item.published_at }} / 本地缓存随版本更新</text>
+          <view v-if="!item.pdf_url && item.groups?.length" class="bean-list-items">
             <view v-for="group in item.groups" :key="`${item.id}-${group.category}`" class="bean-list-group">
               <text v-if="group.category" class="bean-list-category">{{ group.category }}</text>
               <view v-for="bean in group.items" :key="`${item.id}-${group.category}-${bean.code || bean.name}`" class="bean-list-product">
@@ -191,6 +353,35 @@ onShow(() => {
         </view>
       </view>
 
+      <view v-if="serviceKey === 'orders'" class="panel filter-panel">
+        <text class="panel-title">订单查询</text>
+        <input
+          v-model="orderSearch.keyword"
+          class="input"
+          confirm-type="search"
+          placeholder="收件人/地址/产品"
+          @confirm="applyOrderFilters"
+        />
+        <view class="date-presets">
+          <button class="chip" @tap="applyDatePreset('today')">今天</button>
+          <button class="chip" @tap="applyDatePreset('last3')">最近三天</button>
+          <button class="chip" @tap="applyDatePreset('last7')">最近7天</button>
+          <button class="chip" @tap="applyDatePreset('month')">本月</button>
+        </view>
+        <view class="date-range">
+          <picker mode="date" :value="orderSearch.date_from" @change="setOrderDateFrom">
+            <view class="picker-field">{{ orderSearch.date_from || '开始日期' }}</view>
+          </picker>
+          <picker mode="date" :value="orderSearch.date_to" @change="setOrderDateTo">
+            <view class="picker-field">{{ orderSearch.date_to || '结束日期' }}</view>
+          </picker>
+        </view>
+        <view class="filter-actions">
+          <button class="secondary" @tap="clearOrderFilters">清除</button>
+          <button class="primary compact" @tap="applyOrderFilters">查询</button>
+        </view>
+      </view>
+
       <view v-if="page?.products?.length" class="panel">
         <text class="panel-title">现货商品</text>
         <view v-for="item in page.products" :key="item.id" class="list-row">
@@ -206,6 +397,9 @@ onShow(() => {
             <text class="row-main">{{ item.order_no || '未编号订单' }}</text>
             <text class="price">¥{{ item.grand_total || '0.00' }}</text>
           </view>
+          <text v-if="item.receiver_name || item.receiver_phone || item.receiver_address" class="row-sub">
+            收件人：{{ item.receiver_name || '未填写' }} {{ item.receiver_phone || '' }} {{ item.receiver_address || '' }}
+          </text>
           <text class="row-sub">{{ item.order_date || '未填写日期' }} / {{ item.process_status || '生产待处理' }} / {{ item.pay_status || '未收款' }} / {{ item.ship_status || '待发货' }}</text>
           <view v-if="item.items?.length" class="order-items">
             <view v-for="line in item.items" :key="line.id" class="item-line">
@@ -378,6 +572,82 @@ onShow(() => {
   color: #ffffff;
   border-radius: 8rpx;
   font-size: 28rpx;
+}
+
+.primary.compact,
+.secondary {
+  min-height: 72rpx;
+  font-size: 26rpx;
+}
+
+.secondary {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #ffffff;
+  color: #171717;
+  border: 1rpx solid #d8d8d8;
+  border-radius: 8rpx;
+}
+
+.small-action {
+  min-width: 152rpx;
+  min-height: 60rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0;
+  padding: 0 18rpx;
+  background: #171717;
+  color: #ffffff;
+  border-radius: 8rpx;
+  font-size: 24rpx;
+  line-height: 1;
+}
+
+.filter-panel {
+  gap: 16rpx;
+}
+
+.date-presets {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10rpx;
+}
+
+.chip {
+  min-height: 64rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0;
+  padding: 0 6rpx;
+  background: #f8f8f8;
+  color: #171717;
+  border: 1rpx solid #e2e2e2;
+  border-radius: 8rpx;
+  font-size: 22rpx;
+  line-height: 1.1;
+}
+
+.date-range,
+.filter-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12rpx;
+}
+
+.picker-field {
+  min-height: 72rpx;
+  display: flex;
+  align-items: center;
+  padding: 0 18rpx;
+  background: #f8f8f8;
+  border: 1rpx solid #e2e2e2;
+  border-radius: 8rpx;
+  color: #171717;
+  font-size: 25rpx;
+  box-sizing: border-box;
 }
 
 .section-list {

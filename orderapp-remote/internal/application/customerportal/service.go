@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"time"
 )
 
 const (
@@ -30,12 +31,13 @@ const (
 )
 
 var (
-	ErrCustomerBindingNotFound = errors.New("customer binding not found")
-	ErrMiniSessionNotFound     = errors.New("mini session not found")
-	ErrMiniLoginDisabled       = errors.New("mini login disabled")
-	ErrMiniUserDisabled        = errors.New("mini user disabled")
-	ErrCapabilityNotEnabled    = errors.New("capability not enabled")
-	ErrPortalCustomerNotFound  = errors.New("portal customer not found")
+	ErrCustomerBindingNotFound     = errors.New("customer binding not found")
+	ErrMiniSessionNotFound         = errors.New("mini session not found")
+	ErrMiniLoginDisabled           = errors.New("mini login disabled")
+	ErrMiniUserDisabled            = errors.New("mini user disabled")
+	ErrCapabilityNotEnabled        = errors.New("capability not enabled")
+	ErrPortalCustomerNotFound      = errors.New("portal customer not found")
+	ErrBeanListPublicationNotFound = errors.New("bean list publication not found")
 )
 
 type LoginCommand struct {
@@ -97,6 +99,8 @@ type BeanListSummary struct {
 	Status      string                 `json:"status"`
 	PublishedAt string                 `json:"published_at"`
 	Changelog   string                 `json:"changelog"`
+	PDFURL      string                 `json:"pdf_url,omitempty"`
+	CacheKey    string                 `json:"cache_key,omitempty"`
 	Groups      []BeanListGroupSummary `json:"groups,omitempty"`
 }
 
@@ -133,16 +137,19 @@ type ProductSummary struct {
 }
 
 type CustomerOrderSummary struct {
-	ID             int64                      `json:"id"`
-	OrderNo        string                     `json:"order_no"`
-	OrderDate      string                     `json:"order_date"`
-	ProcessStatus  string                     `json:"process_status"`
-	PayStatus      string                     `json:"pay_status"`
-	ShipStatus     string                     `json:"ship_status"`
-	ShipTrackingNo string                     `json:"ship_tracking_no"`
-	GrandTotal     string                     `json:"grand_total"`
-	ShippingAmount string                     `json:"shipping_amount"`
-	Items          []CustomerOrderItemSummary `json:"items,omitempty"`
+	ID              int64                      `json:"id"`
+	OrderNo         string                     `json:"order_no"`
+	OrderDate       string                     `json:"order_date"`
+	ReceiverName    string                     `json:"receiver_name"`
+	ReceiverPhone   string                     `json:"receiver_phone"`
+	ReceiverAddress string                     `json:"receiver_address"`
+	ProcessStatus   string                     `json:"process_status"`
+	PayStatus       string                     `json:"pay_status"`
+	ShipStatus      string                     `json:"ship_status"`
+	ShipTrackingNo  string                     `json:"ship_tracking_no"`
+	GrandTotal      string                     `json:"grand_total"`
+	ShippingAmount  string                     `json:"shipping_amount"`
+	Items           []CustomerOrderItemSummary `json:"items,omitempty"`
 }
 
 type CustomerOrderItemSummary struct {
@@ -244,6 +251,15 @@ type ServicePageQuery struct {
 	CustomerID int64
 	Key        string
 	Limit      int
+	Query      string
+	DateFrom   string
+	DateTo     string
+}
+
+type ServicePageFilter struct {
+	Query    string
+	DateFrom string
+	DateTo   string
 }
 
 type CreateDirectShipBatchCommand struct {
@@ -351,6 +367,7 @@ type Repository interface {
 	CurrentContextByToken(ctx context.Context, token string) (CurrentContext, error)
 	SwitchCurrentCustomer(ctx context.Context, token string, customerID int64) (CurrentContext, error)
 	LoadServicePage(ctx context.Context, query ServicePageQuery) (ServicePage, error)
+	LoadBeanListPublication(ctx context.Context, customerID, publicationID int64) (BeanListSummary, error)
 	ListPortalAdminCustomers(ctx context.Context, query PortalAdminCustomerQuery) ([]PortalAdminCustomer, error)
 	PortalAdminDetail(ctx context.Context, customerID int64) (PortalAdminDetail, error)
 	UpdatePortalVisibility(ctx context.Context, cmd UpdatePortalVisibilityCommand) (PortalAdminDetail, error)
@@ -419,7 +436,7 @@ func (s *Service) SwitchCurrentCustomer(ctx context.Context, token string, custo
 	return s.repo.SwitchCurrentCustomer(ctx, token, customerID)
 }
 
-func (s *Service) GetServicePage(ctx context.Context, token, key string) (ServicePage, error) {
+func (s *Service) GetServicePage(ctx context.Context, token, key string, filter ServicePageFilter) (ServicePage, error) {
 	def, err := serviceDefinition(key)
 	if err != nil {
 		return ServicePage{}, err
@@ -434,7 +451,19 @@ func (s *Service) GetServicePage(ctx context.Context, token, key string) (Servic
 	if !current.HasAnyCapability(def.capabilities) {
 		return ServicePage{}, ErrCapabilityNotEnabled
 	}
-	page, err := s.repo.LoadServicePage(ctx, ServicePageQuery{CustomerID: current.CurrentCustomerID, Key: def.key, Limit: 20})
+	filter = normalizeServicePageFilter(filter)
+	limit := 20
+	if serviceKeyContainsOrders(def.key) {
+		limit = 50
+	}
+	page, err := s.repo.LoadServicePage(ctx, ServicePageQuery{
+		CustomerID: current.CurrentCustomerID,
+		Key:        def.key,
+		Limit:      limit,
+		Query:      filter.Query,
+		DateFrom:   filter.DateFrom,
+		DateTo:     filter.DateTo,
+	})
 	if err != nil {
 		return ServicePage{}, err
 	}
@@ -445,6 +474,17 @@ func (s *Service) GetServicePage(ctx context.Context, token, key string) (Servic
 	page.CurrentCustomerName = current.CurrentCustomerName
 	page.Summary = serviceSummary(page)
 	return page, nil
+}
+
+func (s *Service) GetBeanListPublication(ctx context.Context, token string, publicationID int64) (BeanListSummary, error) {
+	if publicationID <= 0 {
+		return BeanListSummary{}, fmt.Errorf("bean_list required")
+	}
+	current, err := s.requireCustomerCapability(ctx, token, CapabilityBeanList)
+	if err != nil {
+		return BeanListSummary{}, err
+	}
+	return s.repo.LoadBeanListPublication(ctx, current.CurrentCustomerID, publicationID)
 }
 
 func (s *Service) ListPortalAdminCustomers(ctx context.Context, query PortalAdminCustomerQuery) ([]PortalAdminCustomer, error) {
@@ -589,6 +629,37 @@ func serviceDefinition(key string) (serviceDef, error) {
 
 func singleCapabilityServiceDef(key, title, capability string) serviceDef {
 	return serviceDef{key: key, title: title, capability: capability, capabilities: []string{capability}}
+}
+
+func serviceKeyContainsOrders(key string) bool {
+	return key == ServiceKeyOrders
+}
+
+func normalizeServicePageFilter(filter ServicePageFilter) ServicePageFilter {
+	out := ServicePageFilter{
+		Query:    strings.Join(strings.Fields(strings.TrimSpace(filter.Query)), " "),
+		DateFrom: normalizeDateString(filter.DateFrom),
+		DateTo:   normalizeDateString(filter.DateTo),
+	}
+	if out.DateFrom != "" && out.DateTo != "" {
+		from, _ := time.Parse("2006-01-02", out.DateFrom)
+		to, _ := time.Parse("2006-01-02", out.DateTo)
+		if from.After(to) {
+			out.DateFrom, out.DateTo = out.DateTo, out.DateFrom
+		}
+	}
+	return out
+}
+
+func normalizeDateString(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return ""
+	}
+	if _, err := time.Parse("2006-01-02", value); err != nil {
+		return ""
+	}
+	return value
 }
 
 func DefaultCapabilityOptions() []CapabilityOption {

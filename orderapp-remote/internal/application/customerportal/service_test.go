@@ -25,6 +25,7 @@ type fakeRepository struct {
 	session           string
 	serviceQuery      ServicePageQuery
 	servicePage       ServicePage
+	beanList          BeanListSummary
 	portalCustomers   []PortalAdminCustomer
 	portalDetail      PortalAdminDetail
 	visibilityCommand UpdatePortalVisibilityCommand
@@ -67,6 +68,13 @@ func (r *fakeRepository) LoadServicePage(ctx context.Context, query ServicePageQ
 		return ServicePage{}, r.err
 	}
 	return r.servicePage, nil
+}
+
+func (r *fakeRepository) LoadBeanListPublication(ctx context.Context, customerID, publicationID int64) (BeanListSummary, error) {
+	if r.err != nil {
+		return BeanListSummary{}, r.err
+	}
+	return r.beanList, nil
 }
 
 func (r *fakeRepository) ListPortalAdminCustomers(ctx context.Context, query PortalAdminCustomerQuery) ([]PortalAdminCustomer, error) {
@@ -177,7 +185,7 @@ func TestGetServicePageRequiresEnabledCapability(t *testing.T) {
 		Capabilities:        []Capability{{Code: CapabilityDirectShip, Enabled: false}},
 	}}
 	svc := NewService(repo, fakeIdentityProvider{})
-	_, err := svc.GetServicePage(context.Background(), "mini-token", "directShip")
+	_, err := svc.GetServicePage(context.Background(), "mini-token", "directShip", ServicePageFilter{})
 	if !errors.Is(err, ErrCapabilityNotEnabled) {
 		t.Fatalf("GetServicePage() err=%v, want ErrCapabilityNotEnabled", err)
 	}
@@ -197,7 +205,7 @@ func TestGetServicePageLoadsCustomerScopedData(t *testing.T) {
 		},
 	}
 	svc := NewService(repo, fakeIdentityProvider{})
-	got, err := svc.GetServicePage(context.Background(), "mini-token", ServiceKeyShipping)
+	got, err := svc.GetServicePage(context.Background(), "mini-token", ServiceKeyShipping, ServicePageFilter{})
 	if err != nil {
 		t.Fatalf("GetServicePage() err=%v", err)
 	}
@@ -206,6 +214,35 @@ func TestGetServicePageLoadsCustomerScopedData(t *testing.T) {
 	}
 	if got.CurrentCustomerID != 7 || len(got.Orders) != 1 || got.Orders[0].ShipTrackingNo != "SF123" {
 		t.Fatalf("GetServicePage()=%+v", got)
+	}
+}
+
+func TestGetServicePageNormalizesOrderSearchFilters(t *testing.T) {
+	repo := &fakeRepository{
+		context: CurrentContext{
+			CurrentCustomerID:   7,
+			CurrentCustomerName: "客户A",
+			Capabilities:        []Capability{{Code: CapabilityProductOrder, Enabled: true}},
+		},
+		servicePage: ServicePage{
+			Key:    ServiceKeyOrders,
+			Orders: []CustomerOrderSummary{{OrderNo: "SO-1"}},
+		},
+	}
+	svc := NewService(repo, fakeIdentityProvider{})
+	_, err := svc.GetServicePage(context.Background(), "mini-token", ServiceKeyOrders, ServicePageFilter{
+		Query:    "  乌拉嘎 上海 张三  ",
+		DateFrom: "2026-05-01",
+		DateTo:   "2026-05-03",
+	})
+	if err != nil {
+		t.Fatalf("GetServicePage() err=%v", err)
+	}
+	if repo.serviceQuery.Query != "乌拉嘎 上海 张三" || repo.serviceQuery.DateFrom != "2026-05-01" || repo.serviceQuery.DateTo != "2026-05-03" {
+		t.Fatalf("service query filters=%+v", repo.serviceQuery)
+	}
+	if repo.serviceQuery.Limit != 50 {
+		t.Fatalf("orders limit=%d, want 50 for searchable history", repo.serviceQuery.Limit)
 	}
 }
 
@@ -223,7 +260,7 @@ func TestGetOrdersServicePageAllowsAnyOrderRelatedCapability(t *testing.T) {
 			},
 		}
 		svc := NewService(repo, fakeIdentityProvider{})
-		got, err := svc.GetServicePage(context.Background(), "mini-token", ServiceKeyOrders)
+		got, err := svc.GetServicePage(context.Background(), "mini-token", ServiceKeyOrders, ServicePageFilter{})
 		if err != nil {
 			t.Fatalf("GetServicePage(orders) with %s err=%v", capability, err)
 		}
