@@ -52,7 +52,7 @@ async function handleLogin() {
     </view>
 
     <view class="panel">
-      <button class="login-button" type="primary" :loading="loading" :disabled="loading" @tap="handleLogin">
+      <button class="login-button" :loading="loading" :disabled="loading" @tap="handleLogin">
         微信一键登录
       </button>
       <text v-if="errorMessage" class="error">{{ errorMessage }}</text>

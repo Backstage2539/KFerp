@@ -18,6 +18,15 @@ export const useSessionStore = defineStore('session', {
       this.token = token
       uni.setStorageSync(tokenKey, token)
     },
+    clearSession() {
+      this.token = ''
+      this.miniUserID = 0
+      this.currentCustomerID = 0
+      this.currentCustomerName = ''
+      this.bindings = []
+      this.capabilities = []
+      uni.removeStorageSync(tokenKey)
+    },
     applyContext(context: {
       mini_user_id: number
       current_customer_id: number

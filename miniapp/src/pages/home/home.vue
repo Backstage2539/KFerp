@@ -26,6 +26,7 @@ async function loadContext() {
     session.applyContext(response)
   } catch (error) {
     errorMessage.value = error instanceof Error ? error.message : '客户信息加载失败'
+    session.clearSession()
     uni.redirectTo({ url: '/pages/login/login' })
   } finally {
     loading.value = false

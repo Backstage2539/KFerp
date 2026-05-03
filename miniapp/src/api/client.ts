@@ -3,7 +3,7 @@ const API_BASE = 'https://erp.qacoohee.com/app'
 export type RequestOptions = {
   method?: 'GET' | 'POST'
   token?: string
-  data?: unknown
+  data?: UniNamespace.RequestOptions['data']
 }
 
 export function miniRequest<T>(path: string, options: RequestOptions = {}): Promise<T> {
