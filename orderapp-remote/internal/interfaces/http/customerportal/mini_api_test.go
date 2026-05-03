@@ -312,12 +312,26 @@ func TestMiniBeanListServicePageAPIReturnsDisplayContent(t *testing.T) {
 		CurrentCustomerName: "客户A",
 		BeanLists: []customerportalapp.BeanListSummary{{
 			ID: 1, ListType: "commercial", VersionNo: "V3.0.5", Status: "published",
-			PDFURL: "/api/mini/bean-lists/1.pdf", CacheKey: "bean-list:1:V3.0.5",
+			CacheKey:            "bean-list:1:V3.0.5",
+			Title:               "棵凡咖啡批发豆单",
+			Subtitle:            "报价不含税、不含运",
+			ListTypeLabel:       "商用",
+			BrandName:           "棵凡咖啡",
+			BrandIntro:          "源头工厂现烘现发",
+			LayoutStyle:         "card",
+			CardsPerRow:         2,
+			ShowVersion:         true,
+			ShowChangelog:       true,
+			ShowCategoryNumbers: true,
+			BackgroundColor:     "#f8f1e5",
+			FontColor:           "#171717",
 			Groups: []customerportalapp.BeanListGroupSummary{{
-				Category: "原产地精选豆",
+				Category:     "原产地精选豆",
+				ShowCategory: true,
 				Items: []customerportalapp.BeanListProductSummary{{
-					Code: "5.2", Name: "乌拉嘎", Flavor: "柑橘/莓果",
-					Prices: []customerportalapp.BeanListPriceSummary{{Label: "454g", Value: "¥118/包"}},
+					Code: "5.2", Name: "乌拉嘎", Badge: "new", BadgeLabel: "NEW", Flavor: "柑橘/莓果",
+					HighlightTerms: []string{"乌拉嘎"},
+					Prices:         []customerportalapp.BeanListPriceSummary{{Label: "454g", Value: "118/包", Red: true}},
 				}},
 			}},
 		}},
@@ -329,8 +343,13 @@ func TestMiniBeanListServicePageAPIReturnsDisplayContent(t *testing.T) {
 	e.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK ||
 		!strings.Contains(rec.Body.String(), `"groups":[`) ||
-		!strings.Contains(rec.Body.String(), `"pdf_url":"/api/mini/bean-lists/1.pdf"`) ||
 		!strings.Contains(rec.Body.String(), `"cache_key":"bean-list:1:V3.0.5"`) ||
+		!strings.Contains(rec.Body.String(), `"title":"棵凡咖啡批发豆单"`) ||
+		!strings.Contains(rec.Body.String(), `"layout_style":"card"`) ||
+		!strings.Contains(rec.Body.String(), `"cards_per_row":2`) ||
+		!strings.Contains(rec.Body.String(), `"background_color":"#f8f1e5"`) ||
+		!strings.Contains(rec.Body.String(), `"show_category":true`) ||
+		!strings.Contains(rec.Body.String(), `"highlight_terms":["乌拉嘎"]`) ||
 		!strings.Contains(rec.Body.String(), `"name":"乌拉嘎"`) ||
 		!strings.Contains(rec.Body.String(), `"prices":[`) {
 		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())

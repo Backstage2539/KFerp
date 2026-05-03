@@ -93,29 +93,46 @@ type ServiceMetric struct {
 }
 
 type BeanListSummary struct {
-	ID          int64                  `json:"id"`
-	ListType    string                 `json:"list_type"`
-	VersionNo   string                 `json:"version_no"`
-	Status      string                 `json:"status"`
-	PublishedAt string                 `json:"published_at"`
-	Changelog   string                 `json:"changelog"`
-	PDFURL      string                 `json:"pdf_url,omitempty"`
-	CacheKey    string                 `json:"cache_key,omitempty"`
-	Groups      []BeanListGroupSummary `json:"groups,omitempty"`
+	ID                  int64                  `json:"id"`
+	ListType            string                 `json:"list_type"`
+	VersionNo           string                 `json:"version_no"`
+	Status              string                 `json:"status"`
+	PublishedAt         string                 `json:"published_at"`
+	Changelog           string                 `json:"changelog"`
+	PDFURL              string                 `json:"pdf_url,omitempty"`
+	CacheKey            string                 `json:"cache_key,omitempty"`
+	Title               string                 `json:"title,omitempty"`
+	Subtitle            string                 `json:"subtitle,omitempty"`
+	ListTypeLabel       string                 `json:"list_type_label,omitempty"`
+	BrandName           string                 `json:"brand_name,omitempty"`
+	BrandIntro          string                 `json:"brand_intro,omitempty"`
+	LayoutStyle         string                 `json:"layout_style,omitempty"`
+	CardsPerRow         int                    `json:"cards_per_row,omitempty"`
+	ShowVersion         bool                   `json:"show_version"`
+	ShowChangelog       bool                   `json:"show_changelog"`
+	ShowCategoryNumbers bool                   `json:"show_category_numbers"`
+	BackgroundColor     string                 `json:"background_color,omitempty"`
+	FontColor           string                 `json:"font_color,omitempty"`
+	BackgroundImage     string                 `json:"background_image,omitempty"`
+	LogoImage           string                 `json:"logo_image,omitempty"`
+	Groups              []BeanListGroupSummary `json:"groups,omitempty"`
 }
 
 type BeanListGroupSummary struct {
-	Category string                   `json:"category"`
-	Items    []BeanListProductSummary `json:"items"`
+	Category     string                   `json:"category"`
+	ShowCategory bool                     `json:"show_category"`
+	Items        []BeanListProductSummary `json:"items"`
 }
 
 type BeanListProductSummary struct {
 	Code           string                 `json:"code,omitempty"`
 	Name           string                 `json:"name"`
+	Badge          string                 `json:"badge,omitempty"`
 	BadgeLabel     string                 `json:"badge_label,omitempty"`
 	RecommendedUse string                 `json:"recommended_use,omitempty"`
 	Flavor         string                 `json:"flavor,omitempty"`
 	Description    string                 `json:"description,omitempty"`
+	HighlightTerms []string               `json:"highlight_terms,omitempty"`
 	Prices         []BeanListPriceSummary `json:"prices,omitempty"`
 }
 

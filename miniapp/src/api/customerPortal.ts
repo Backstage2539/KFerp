@@ -37,23 +37,40 @@ export type BeanListSummary = {
   status: string
   published_at: string
   changelog: string
-  pdf_url: string
+  pdf_url?: string
   cache_key: string
+  title?: string
+  subtitle?: string
+  list_type_label?: string
+  brand_name?: string
+  brand_intro?: string
+  layout_style?: 'card' | 'table' | string
+  cards_per_row?: number
+  show_version?: boolean
+  show_changelog?: boolean
+  show_category_numbers?: boolean
+  background_color?: string
+  font_color?: string
+  background_image?: string
+  logo_image?: string
   groups?: BeanListGroupSummary[]
 }
 
 export type BeanListGroupSummary = {
   category: string
+  show_category?: boolean
   items: BeanListProductSummary[]
 }
 
 export type BeanListProductSummary = {
   code?: string
   name: string
+  badge?: string
   badge_label?: string
   recommended_use?: string
   flavor?: string
   description?: string
+  highlight_terms?: string[]
   prices?: BeanListPriceSummary[]
 }
 

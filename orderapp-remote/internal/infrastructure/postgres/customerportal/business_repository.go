@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"strconv"
 	"strings"
 
@@ -60,33 +61,31 @@ func (r Repository) LoadServicePage(ctx context.Context, query customerportalapp
 
 func (r Repository) LoadBeanListPublication(ctx context.Context, customerID, publicationID int64) (customerportalapp.BeanListSummary, error) {
 	var row customerportalapp.BeanListSummary
+	var configJSON []byte
 	var contentJSON []byte
 	err := r.pool.QueryRow(ctx, fmt.Sprintf(`
-		SELECT id, list_type, version_no, status, to_char(published_at,'YYYY-MM-DD HH24:MI'), changelog, content_json
+		SELECT id, list_type, version_no, status, to_char(published_at,'YYYY-MM-DD HH24:MI'), changelog, config_json, content_json
 		FROM %s.bean_list_publications
 		WHERE id=$1
 		  AND status='published'
 		  AND ((owner_type='customer' AND owner_key=$2) OR owner_type='official')
 	`, r.schema), publicationID, fmt.Sprintf("%d", customerID)).
-		Scan(&row.ID, &row.ListType, &row.VersionNo, &row.Status, &row.PublishedAt, &row.Changelog, &contentJSON)
+		Scan(&row.ID, &row.ListType, &row.VersionNo, &row.Status, &row.PublishedAt, &row.Changelog, &configJSON, &contentJSON)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return customerportalapp.BeanListSummary{}, customerportalapp.ErrBeanListPublicationNotFound
 		}
 		return customerportalapp.BeanListSummary{}, err
 	}
-	groups, err := parseBeanListContentSummary(contentJSON)
-	if err != nil {
+	if err := parseBeanListDisplaySummary(configJSON, contentJSON, &row); err != nil {
 		return customerportalapp.BeanListSummary{}, err
 	}
-	row.Groups = groups
-	populateBeanListPDFMetadata(&row)
 	return row, nil
 }
 
 func (r Repository) listBeanLists(ctx context.Context, customerID int64, limit int) ([]customerportalapp.BeanListSummary, error) {
 	rows, err := r.pool.Query(ctx, fmt.Sprintf(`
-		SELECT id, list_type, version_no, status, to_char(published_at,'YYYY-MM-DD HH24:MI'), changelog, content_json
+		SELECT id, list_type, version_no, status, to_char(published_at,'YYYY-MM-DD HH24:MI'), changelog, config_json, content_json
 		FROM %s.bean_list_publications
 		WHERE owner_type='customer' AND owner_key=$1 AND status='published'
 		ORDER BY published_at DESC, id DESC
@@ -108,9 +107,9 @@ func (r Repository) listBeanLists(ctx context.Context, customerID int64, limit i
 
 func (r Repository) listLatestOfficialBeanLists(ctx context.Context, limit int) ([]customerportalapp.BeanListSummary, error) {
 	rows, err := r.pool.Query(ctx, fmt.Sprintf(`
-		SELECT id, list_type, version_no, status, to_char(published_at,'YYYY-MM-DD HH24:MI'), changelog, content_json
+		SELECT id, list_type, version_no, status, to_char(published_at,'YYYY-MM-DD HH24:MI'), changelog, config_json, content_json
 		FROM (
-			SELECT DISTINCT ON (list_type) id, list_type, version_no, status, published_at, changelog, content_json
+			SELECT DISTINCT ON (list_type) id, list_type, version_no, status, published_at, changelog, config_json, content_json
 			FROM %s.bean_list_publications
 			WHERE owner_type='official' AND status='published'
 			ORDER BY list_type, published_at DESC, id DESC
@@ -135,31 +134,24 @@ func scanBeanListSummaries(rows beanListRows) ([]customerportalapp.BeanListSumma
 	out := make([]customerportalapp.BeanListSummary, 0)
 	for rows.Next() {
 		var row customerportalapp.BeanListSummary
+		var configJSON []byte
 		var contentJSON []byte
-		if err := rows.Scan(&row.ID, &row.ListType, &row.VersionNo, &row.Status, &row.PublishedAt, &row.Changelog, &contentJSON); err != nil {
+		if err := rows.Scan(&row.ID, &row.ListType, &row.VersionNo, &row.Status, &row.PublishedAt, &row.Changelog, &configJSON, &contentJSON); err != nil {
 			return nil, err
 		}
-		groups, err := parseBeanListContentSummary(contentJSON)
-		if err != nil {
+		if err := parseBeanListDisplaySummary(configJSON, contentJSON, &row); err != nil {
 			return nil, err
 		}
-		row.Groups = groups
-		populateBeanListPDFMetadata(&row)
 		out = append(out, row)
 	}
 	return out, rows.Err()
 }
 
-func populateBeanListPDFMetadata(row *customerportalapp.BeanListSummary) {
+func populateBeanListMetadata(row *customerportalapp.BeanListSummary) {
 	if row == nil || row.ID <= 0 {
 		return
 	}
-	row.PDFURL = beanListPDFPath(row.ID)
 	row.CacheKey = beanListCacheKey(*row)
-}
-
-func beanListPDFPath(publicationID int64) string {
-	return fmt.Sprintf("/api/mini/bean-lists/%d.pdf", publicationID)
 }
 
 func beanListCacheKey(row customerportalapp.BeanListSummary) string {
@@ -170,28 +162,62 @@ func beanListCacheKey(row customerportalapp.BeanListSummary) string {
 	return fmt.Sprintf("bean-list:%d:%s", row.ID, version)
 }
 
-func parseBeanListContentSummary(contentJSON []byte) ([]customerportalapp.BeanListGroupSummary, error) {
-	if len(contentJSON) == 0 {
-		return nil, nil
+func parseBeanListDisplaySummary(configJSON, contentJSON []byte, row *customerportalapp.BeanListSummary) error {
+	if row == nil {
+		return nil
+	}
+	cfg := map[string]any{}
+	if len(configJSON) > 0 {
+		if err := json.Unmarshal(configJSON, &cfg); err != nil {
+			return err
+		}
 	}
 	var content map[string]any
-	if err := json.Unmarshal(contentJSON, &content); err != nil {
-		return nil, err
+	if len(contentJSON) > 0 {
+		if err := json.Unmarshal(contentJSON, &content); err != nil {
+			return err
+		}
 	}
+	if content == nil {
+		content = map[string]any{}
+	}
+
+	row.BrandName = beanListMapString(cfg, "brandName", "棵凡咖啡")
+	row.BrandIntro = beanListMapString(cfg, "brandIntro", "")
+	row.Title = beanListMapString(content, "title", buildBeanListDisplayTitle(row.ListType, row.BrandName))
+	row.Subtitle = beanListMapString(content, "subtitle", buildBeanListDisplaySubtitle(row.ListType))
+	row.ListTypeLabel = beanListTypeLabel(row.ListType)
+	if changelog := beanListMapString(cfg, "changelog", ""); changelog != "" {
+		row.Changelog = changelog
+	}
+	row.LayoutStyle = beanListLayoutStyle(beanListMapString(cfg, "layoutStyle", "card"))
+	row.CardsPerRow = clampBeanListInt(beanListMapNumber(cfg, "cardsPerRow", 2), 2, 1, 4)
+	row.ShowVersion = beanListMapBool(cfg, "showVersion", true)
+	row.ShowChangelog = beanListMapBool(cfg, "showChangelog", true)
+	row.ShowCategoryNumbers = beanListMapBool(cfg, "showCategoryNumbers", true)
+	row.BackgroundColor = beanListHexColor(beanListMapString(cfg, "backgroundColor", "#f8f1e5"), "#f8f1e5")
+	row.FontColor = beanListHexColor(beanListMapString(cfg, "fontColor", "#171717"), "#171717")
+	row.BackgroundImage = safeBeanListImageURL(beanListMapString(cfg, "backgroundImage", ""))
+	row.LogoImage = safeBeanListImageURL(beanListMapString(cfg, "logoImage", ""))
+
 	groups := make([]customerportalapp.BeanListGroupSummary, 0)
 	for _, groupMap := range beanListMapsFromAny(content["groups"]) {
 		group := customerportalapp.BeanListGroupSummary{
-			Category: beanListMapString(groupMap, "category", ""),
-			Items:    make([]customerportalapp.BeanListProductSummary, 0),
+			Category:     beanListMapString(groupMap, "category", ""),
+			ShowCategory: beanListMapBool(groupMap, "showCategory", true),
+			Items:        make([]customerportalapp.BeanListProductSummary, 0),
 		}
 		for _, itemMap := range beanListMapsFromAny(groupMap["items"]) {
+			highlightTerms := beanListStringList(itemMap["highlightTerms"])
 			item := customerportalapp.BeanListProductSummary{
 				Code:           beanListMapString(itemMap, "code", ""),
 				Name:           beanListMapString(itemMap, "name", ""),
+				Badge:          beanListMapString(itemMap, "badge", ""),
 				BadgeLabel:     beanListMapString(itemMap, "badgeLabel", ""),
 				RecommendedUse: beanListMapString(itemMap, "recommendedUse", ""),
 				Flavor:         beanListMapString(itemMap, "flavor", ""),
 				Description:    beanListMapString(itemMap, "description", ""),
+				HighlightTerms: highlightTerms,
 				Prices:         make([]customerportalapp.BeanListPriceSummary, 0),
 			}
 			if strings.TrimSpace(item.Name) == "" {
@@ -206,6 +232,9 @@ func parseBeanListContentSummary(contentJSON []byte) ([]customerportalapp.BeanLi
 				if price.Value == "" {
 					price.Value = formatBeanListPrice(beanListMapNumber(priceMap, "price", 0), beanListMapString(priceMap, "unit", ""))
 				}
+				if !price.Red {
+					price.Red = beanListContainsHighlight(price.Label, highlightTerms) || beanListContainsHighlight(price.Value, highlightTerms)
+				}
 				if strings.TrimSpace(price.Label) == "" && strings.TrimSpace(price.Value) == "" {
 					continue
 				}
@@ -217,24 +246,32 @@ func parseBeanListContentSummary(contentJSON []byte) ([]customerportalapp.BeanLi
 			groups = append(groups, group)
 		}
 	}
-	return groups, nil
+	row.Groups = groups
+	populateBeanListMetadata(row)
+	return nil
 }
 
 func beanListMapsFromAny(value any) []map[string]any {
-	items, ok := value.([]any)
-	if !ok {
+	switch items := value.(type) {
+	case []any:
+		out := make([]map[string]any, 0, len(items))
+		for _, item := range items {
+			if m, ok := item.(map[string]any); ok {
+				out = append(out, m)
+			}
+		}
+		return out
+	case []map[string]any:
+		return items
+	default:
 		return nil
 	}
-	out := make([]map[string]any, 0, len(items))
-	for _, item := range items {
-		if m, ok := item.(map[string]any); ok {
-			out = append(out, m)
-		}
-	}
-	return out
 }
 
 func beanListMapString(m map[string]any, key, fallback string) string {
+	if m == nil {
+		return fallback
+	}
 	if v, ok := m[key]; ok {
 		switch value := v.(type) {
 		case string:
@@ -245,21 +282,39 @@ func beanListMapString(m map[string]any, key, fallback string) string {
 			if strings.TrimSpace(value.String()) != "" {
 				return strings.TrimSpace(value.String())
 			}
+		default:
+			if s := strings.TrimSpace(fmt.Sprint(value)); s != "" && s != "<nil>" {
+				return s
+			}
 		}
 	}
 	return fallback
 }
 
 func beanListMapBool(m map[string]any, key string, fallback bool) bool {
+	if m == nil {
+		return fallback
+	}
 	if v, ok := m[key]; ok {
-		if value, ok := v.(bool); ok {
+		switch value := v.(type) {
+		case bool:
 			return value
+		case string:
+			switch strings.ToLower(strings.TrimSpace(value)) {
+			case "true", "1", "yes":
+				return true
+			case "false", "0", "no":
+				return false
+			}
 		}
 	}
 	return fallback
 }
 
 func beanListMapNumber(m map[string]any, key string, fallback float64) float64 {
+	if m == nil {
+		return fallback
+	}
 	if v, ok := m[key]; ok {
 		switch value := v.(type) {
 		case float64:
@@ -281,13 +336,128 @@ func beanListMapNumber(m map[string]any, key string, fallback float64) float64 {
 	return fallback
 }
 
+func beanListStringList(value any) []string {
+	switch rows := value.(type) {
+	case []string:
+		out := make([]string, 0, len(rows))
+		for _, row := range rows {
+			if s := strings.TrimSpace(row); s != "" {
+				out = append(out, s)
+			}
+		}
+		return out
+	case []any:
+		out := make([]string, 0, len(rows))
+		for _, row := range rows {
+			if s := strings.TrimSpace(fmt.Sprint(row)); s != "" && s != "<nil>" {
+				out = append(out, s)
+			}
+		}
+		return out
+	case string:
+		parts := strings.FieldsFunc(rows, func(r rune) bool { return r == ',' || r == '，' || r == '\n' })
+		out := make([]string, 0, len(parts))
+		for _, part := range parts {
+			if s := strings.TrimSpace(part); s != "" {
+				out = append(out, s)
+			}
+		}
+		return out
+	default:
+		return nil
+	}
+}
+
+func buildBeanListDisplayTitle(listType, brandName string) string {
+	brand := strings.TrimSpace(brandName)
+	if brand == "" {
+		brand = "棵凡咖啡"
+	}
+	if strings.TrimSpace(listType) == "retail" {
+		return brand + "零售豆单"
+	}
+	return brand + "批发豆单"
+}
+
+func buildBeanListDisplaySubtitle(listType string) string {
+	if strings.TrimSpace(listType) == "retail" {
+		return "报价含税运"
+	}
+	return "报价不含税、不含运"
+}
+
+func beanListTypeLabel(listType string) string {
+	if strings.TrimSpace(listType) == "retail" {
+		return "零售"
+	}
+	return "商用"
+}
+
+func beanListLayoutStyle(value string) string {
+	if strings.TrimSpace(value) == "table" {
+		return "table"
+	}
+	return "card"
+}
+
+func clampBeanListInt(value float64, fallback, min, max int) int {
+	if math.IsNaN(value) || math.IsInf(value, 0) {
+		return fallback
+	}
+	n := int(value)
+	if n < min {
+		return min
+	}
+	if n > max {
+		return max
+	}
+	return n
+}
+
+func beanListHexColor(value, fallback string) string {
+	value = strings.TrimSpace(value)
+	if len(value) != 7 || value[0] != '#' {
+		return fallback
+	}
+	for _, r := range value[1:] {
+		if !((r >= '0' && r <= '9') || (r >= 'a' && r <= 'f') || (r >= 'A' && r <= 'F')) {
+			return fallback
+		}
+	}
+	return value
+}
+
+func safeBeanListImageURL(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return ""
+	}
+	lower := strings.ToLower(value)
+	if strings.HasPrefix(lower, "data:image/") || strings.HasPrefix(lower, "https://") || strings.HasPrefix(lower, "http://") || strings.HasPrefix(value, "/") {
+		return value
+	}
+	return ""
+}
+
+func beanListContainsHighlight(text string, terms []string) bool {
+	if text == "" || len(terms) == 0 {
+		return false
+	}
+	for _, term := range terms {
+		term = strings.TrimSpace(term)
+		if term != "" && strings.Contains(text, term) {
+			return true
+		}
+	}
+	return false
+}
+
 func formatBeanListPrice(price float64, unit string) string {
 	if price <= 0 {
 		return ""
 	}
-	value := strconv.FormatFloat(price, 'f', 2, 64)
-	value = strings.TrimSuffix(strings.TrimRight(value, "0"), ".")
-	out := "¥" + value
+	value := strconv.FormatFloat(math.Round(price), 'f', 0, 64)
+	out := value
 	if unit = strings.TrimSpace(unit); unit != "" {
 		out += "/" + unit
 	}

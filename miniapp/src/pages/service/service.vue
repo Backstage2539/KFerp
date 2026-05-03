@@ -8,14 +8,14 @@ import {
   fetchServicePage,
   type ServicePageResponse,
 } from '../../api/customerPortal'
-import { buildAPIURL } from '../../api/client'
 import { useSessionStore } from '../../stores/session'
+import { beanListCardRows, beanListDisplayStyle, splitBeanListHighlight } from '../../utils/beanListDisplay'
 import {
-  beanListCacheStorageKey,
-  beanListVersionChanged,
-  nextBeanListCacheRecord,
-  type BeanListPDFCacheRecord,
-} from '../../utils/beanListPdfCache'
+  beanListPageCacheChanged,
+  beanListPageCacheStorageKey,
+  nextBeanListPageCacheRecord,
+  type BeanListPageCacheRecord,
+} from '../../utils/beanListPageCache'
 import { buildOrderServiceFilters, datePresetRange, normalizeDateRange, type OrderDatePreset } from '../../utils/orderFilters'
 import { normalizeServiceKey, serviceTitle, visibleServiceSections, type ServiceKey } from '../../utils/servicePage'
 
@@ -35,11 +35,9 @@ const serviceKey = ref<ServiceKey>('beanList')
 const page = ref<ServicePageResponse | null>(null)
 const loading = ref(false)
 const submitting = ref(false)
-const openingBeanListPDF = ref(false)
 const errorMessage = ref('')
-const autoOpenedBeanListCacheKey = ref('')
-const directBeanListPDFStatus = ref('')
-const beanListPDFRetryItem = ref<BeanListSummary | null>(null)
+const cachedBeanList = ref<BeanListSummary | null>(null)
+const beanListCacheStatus = ref('')
 const orderSearch = ref<OrderSearchForm>(emptyOrderSearch())
 
 const defaultProcessStatusOptions = ['待处理', '生产中', '生产完成', '库存待发货', '无需生产']
@@ -60,7 +58,11 @@ const title = computed(() => page.value?.title || serviceTitle(serviceKey.value)
 const summary = computed(() => page.value?.summary || [])
 const sections = computed(() => (page.value ? visibleServiceSections(page.value) : []))
 const orderPanelTitle = computed(() => (serviceKey.value === 'orders' ? '我的订单' : '订单 / 物流'))
-const currentBeanListPDF = computed(() => page.value?.bean_lists?.find((row) => row.pdf_url) || null)
+const beanListsForDisplay = computed(() => {
+  if (page.value?.bean_lists?.length) return page.value.bean_lists
+  return cachedBeanList.value ? [cachedBeanList.value] : []
+})
+const hasDisplayData = computed(() => sections.value.length > 0 || (serviceKey.value === 'beanList' && beanListsForDisplay.value.length > 0))
 const processStatusPickerOptions = computed(() => orderStatusOptions('process_status', defaultProcessStatusOptions, '全部生产状态'))
 const payStatusPickerOptions = computed(() => orderStatusOptions('pay_status', defaultPayStatusOptions, '全部收款状态'))
 const shipStatusPickerOptions = computed(() => orderStatusOptions('ship_status', defaultShipStatusOptions, '全部发货状态'))
@@ -73,9 +75,14 @@ async function loadPage() {
   loading.value = true
   errorMessage.value = ''
   try {
+    if (serviceKey.value === 'beanList') {
+      primeCachedBeanListPage()
+    }
     const filters = serviceKey.value === 'orders' ? buildOrderServiceFilters(orderSearch.value) : {}
     page.value = await fetchServicePage(session.token, serviceKey.value, filters)
-    maybeAutoOpenLatestBeanListPDF()
+    if (serviceKey.value === 'beanList') {
+      cacheBeanListPages(page.value.bean_lists || [])
+    }
   } catch (error) {
     errorMessage.value = error instanceof Error ? error.message : '服务数据加载失败'
   } finally {
@@ -83,141 +90,49 @@ async function loadPage() {
   }
 }
 
-function maybeAutoOpenLatestBeanListPDF() {
-  if (serviceKey.value !== 'beanList') return
-  const item = page.value?.bean_lists?.find((row) => row.pdf_url)
-  beanListPDFRetryItem.value = null
-  if (!item) {
-    directBeanListPDFStatus.value = '暂无可展示的豆单 PDF'
-    return
-  }
-  const cacheKey = item.cache_key || `${item.id}-${item.version_no}`
-  if (autoOpenedBeanListCacheKey.value === cacheKey) {
-    if (!directBeanListPDFStatus.value) directBeanListPDFStatus.value = '豆单 PDF 已准备，本地缓存随版本更新'
-    return
-  }
-  autoOpenedBeanListCacheKey.value = cacheKey
-  directBeanListPDFStatus.value = '正在展示豆单 PDF 内容...'
-  void openBeanListPDF(item, true)
-}
-
-async function openBeanListPDF(item: BeanListSummary, auto = false) {
-  if (!session.token || !item.pdf_url) {
-    if (!auto) uni.showToast({ title: '暂无 PDF', icon: 'none' })
-    return
-  }
-  openingBeanListPDF.value = true
-  errorMessage.value = ''
-  directBeanListPDFStatus.value = '正在展示豆单 PDF 内容...'
-  beanListPDFRetryItem.value = null
-  try {
-    const cached = cachedBeanListPDF(item)
-    if (cached && !beanListVersionChanged(cached, item) && (await savedFileExists(cached.saved_file_path))) {
-      await openPDFFile(cached.saved_file_path)
-      directBeanListPDFStatus.value = `${item.version_no || '最新版本'} 已使用本地缓存展示`
+function primeCachedBeanListPage() {
+  const customerID = page.value?.current_customer_id || session.currentCustomerID
+  for (const listType of ['commercial', 'retail']) {
+    const cached = cachedBeanListPage({ id: 0, list_type: listType, version_no: '', status: '', published_at: '', changelog: '', cache_key: '' })
+    if (cached?.page) {
+      cachedBeanList.value = cached.page
+      beanListCacheStatus.value = `${cached.version_no || '本地版本'} 已缓存，本次打开先展示本地内容`
       return
     }
-    if (cached && beanListVersionChanged(cached, item) && (await savedFileExists(cached.saved_file_path))) {
-      const shouldUpdate = await confirmBeanListPDFUpdate(item)
-      if (!shouldUpdate) {
-        await openPDFFile(cached.saved_file_path)
-        directBeanListPDFStatus.value = `${cached.version_no || '旧版本'} 已使用本地缓存展示`
-        return
-      }
-    }
-    await downloadSaveAndOpenBeanListPDF(item)
-    directBeanListPDFStatus.value = `${item.version_no || '最新版本'} 已更新并展示`
-  } catch (error) {
-    const message = error instanceof Error ? error.message : '豆单内容展示失败'
-    directBeanListPDFStatus.value = message
-    beanListPDFRetryItem.value = item
-    if (!auto) errorMessage.value = message
-  } finally {
-    openingBeanListPDF.value = false
   }
+  if (!customerID) beanListCacheStatus.value = ''
 }
 
-async function retryBeanListPDF() {
-  const item = beanListPDFRetryItem.value
-  if (!item) return
-  await openBeanListPDF(item)
-}
-
-function cachedBeanListPDF(item: BeanListSummary): BeanListPDFCacheRecord | null {
-  const value = uni.getStorageSync(beanListCacheStorageKey(page.value?.current_customer_id || session.currentCustomerID, item))
+function cachedBeanListPage(item: BeanListSummary): BeanListPageCacheRecord | null {
+  const value = uni.getStorageSync(beanListPageCacheStorageKey(page.value?.current_customer_id || session.currentCustomerID, item))
   if (!value || typeof value !== 'object') return null
-  return value as BeanListPDFCacheRecord
+  return value as BeanListPageCacheRecord
 }
 
-function confirmBeanListPDFUpdate(item: BeanListSummary): Promise<boolean> {
-  return new Promise((resolve) => {
-    uni.showModal({
-      title: '豆单有更新',
-      content: `检测到 ${item.version_no || '新版本'}，是否更新本地 PDF？`,
-      confirmText: '更新',
-      cancelText: '先看旧版',
-      success: (res) => resolve(Boolean(res.confirm)),
-      fail: () => resolve(true),
-    })
-  })
+function cacheBeanListPages(items: BeanListSummary[]) {
+  if (!items.length) {
+    if (!cachedBeanList.value) beanListCacheStatus.value = '暂无已发布豆单'
+    return
+  }
+  let updated = false
+  for (const item of items) {
+    updated = cacheBeanListPage(item) || updated
+  }
+  cachedBeanList.value = items[0]
+  beanListCacheStatus.value = updated ? '检测到新版豆单，已更新本地缓存' : '已使用本地缓存，发布新版后自动更新'
 }
 
-function savedFileExists(filePath: string): Promise<boolean> {
-  return new Promise((resolve) => {
-    if (!filePath) {
-      resolve(false)
-      return
-    }
-    uni.getSavedFileInfo({
-      filePath,
-      success: () => resolve(true),
-      fail: () => resolve(false),
-    })
-  })
+function cacheBeanListPage(item: BeanListSummary): boolean {
+  const cached = cachedBeanListPage(item)
+  const changed = !cached || beanListPageCacheChanged(cached, item)
+  if (changed) {
+    uni.setStorageSync(beanListPageCacheStorageKey(page.value?.current_customer_id || session.currentCustomerID, item), nextBeanListPageCacheRecord(item))
+  }
+  return changed
 }
 
-function openPDFFile(filePath: string): Promise<void> {
-  return new Promise((resolve, reject) => {
-    uni.openDocument({
-      filePath,
-      fileType: 'pdf',
-      showMenu: true,
-      success: () => resolve(),
-      fail: (err) => reject(new Error(err.errMsg || 'PDF 打开失败')),
-    })
-  })
-}
-
-function downloadSaveAndOpenBeanListPDF(item: BeanListSummary): Promise<void> {
-  return new Promise((resolve, reject) => {
-    uni.downloadFile({
-      url: buildAPIURL(item.pdf_url),
-      header: { Authorization: `Bearer ${session.token}` },
-      success: (downloadRes) => {
-        if (downloadRes.statusCode && downloadRes.statusCode >= 400) {
-          reject(new Error(`PDF 下载失败：${downloadRes.statusCode}`))
-          return
-        }
-        uni.saveFile({
-          tempFilePath: downloadRes.tempFilePath,
-          success: async (saveRes) => {
-            try {
-              uni.setStorageSync(
-                beanListCacheStorageKey(page.value?.current_customer_id || session.currentCustomerID, item),
-                nextBeanListCacheRecord(item, saveRes.savedFilePath),
-              )
-              await openPDFFile(saveRes.savedFilePath)
-              resolve()
-            } catch (error) {
-              reject(error)
-            }
-          },
-          fail: (err) => reject(new Error(err.errMsg || 'PDF 保存失败')),
-        })
-      },
-      fail: (err) => reject(new Error(err.errMsg || 'PDF 下载失败')),
-    })
-  })
+function showBeanListCategory(item: BeanListSummary, group: { show_category?: boolean; category?: string }): boolean {
+  return item.show_category_numbers !== false && group.show_category !== false && Boolean(group.category)
 }
 
 async function applyOrderFilters() {
@@ -405,38 +320,98 @@ onShow(() => {
         </view>
       </view>
 
-      <view v-if="serviceKey === 'beanList' && page?.bean_lists?.length" class="panel">
-        <text class="panel-title">豆单 PDF</text>
-        <text class="row-main">{{ currentBeanListPDF?.list_type || '豆单' }} {{ currentBeanListPDF?.version_no || '' }}</text>
-        <text class="row-sub">{{ directBeanListPDFStatus || '正在展示豆单 PDF 内容，本地缓存随版本更新' }}</text>
-        <button v-if="beanListPDFRetryItem" class="secondary" :disabled="openingBeanListPDF" @tap="retryBeanListPDF">重新展示</button>
-      </view>
-
-      <view v-if="page?.bean_lists?.length" class="panel">
-        <text class="panel-title">豆单</text>
-        <view v-for="item in page.bean_lists" :key="item.id" class="list-row">
-          <view class="row-head">
-            <text class="row-main">{{ item.list_type }} {{ item.version_no }}</text>
+      <view v-if="serviceKey === 'beanList' && beanListsForDisplay.length" class="bean-list-native">
+        <view v-for="item in beanListsForDisplay" :key="`${item.id}-${item.cache_key || item.version_no}`" class="bean-list-surface" :style="beanListDisplayStyle(item)">
+          <view class="bean-list-cover">
+            <view class="bean-list-cover-main">
+              <image v-if="item.logo_image" class="bean-list-logo" :src="item.logo_image" mode="aspectFit" />
+              <text v-if="item.show_version !== false" class="bean-list-version">{{ item.version_no || '当前版本' }}</text>
+              <text class="bean-list-title">{{ item.title || '我的豆单' }}</text>
+              <text v-if="item.subtitle" class="bean-list-subtitle">{{ item.subtitle }}</text>
+              <text v-if="item.brand_intro" class="bean-list-brand-intro">{{ item.brand_intro }}</text>
+            </view>
+            <text class="bean-list-type">{{ item.list_type_label || item.list_type }}</text>
           </view>
-          <text class="row-sub">{{ item.published_at }} / PDF 内容自动展示，本地缓存随版本更新</text>
-          <view v-if="!item.pdf_url && item.groups?.length" class="bean-list-items">
-            <view v-for="group in item.groups" :key="`${item.id}-${group.category}`" class="bean-list-group">
-              <text v-if="group.category" class="bean-list-category">{{ group.category }}</text>
-              <view v-for="bean in group.items" :key="`${item.id}-${group.category}-${bean.code || bean.name}`" class="bean-list-product">
-                <view class="bean-list-product-head">
-                  <text class="bean-list-name">{{ bean.code ? `${bean.code} ${bean.name}` : bean.name }}</text>
-                  <text v-if="bean.badge_label" class="bean-list-badge">{{ bean.badge_label }}</text>
-                </view>
-                <text v-if="bean.recommended_use" class="row-sub">{{ bean.recommended_use }}</text>
-                <text v-if="bean.flavor" class="row-sub">{{ bean.flavor }}</text>
-                <text v-if="bean.description" class="bean-list-description">{{ bean.description }}</text>
-                <view v-if="bean.prices?.length" class="bean-list-prices">
-                  <text v-for="price in bean.prices" :key="`${price.label}-${price.value}`" :class="['bean-list-price', { red: price.red }]">
-                    {{ price.label }} {{ price.value }}
+          <text v-if="beanListCacheStatus" class="bean-list-cache-hint">{{ beanListCacheStatus }}</text>
+
+          <view v-for="group in item.groups || []" :key="`${item.id}-${group.category}`" class="bean-list-group">
+            <text v-if="showBeanListCategory(item, group)" class="bean-list-category">{{ group.category }}</text>
+
+            <view v-if="item.layout_style === 'table'" class="bean-list-table">
+              <view v-for="bean in group.items" :key="`${item.id}-${group.category}-${bean.code || bean.name}`" class="bean-list-table-row">
+                <text class="bean-list-code-cell">{{ bean.code || '-' }}</text>
+                <view class="bean-list-table-main">
+                  <view class="bean-list-product-head">
+                    <text class="bean-list-name">
+                      <text v-for="(part, index) in splitBeanListHighlight(bean.name, bean.highlight_terms || [])" :key="`${bean.name}-${index}`" :class="{ red: part.red }">{{ part.text }}</text>
+                    </text>
+                    <text v-if="bean.badge_label" :class="['bean-list-badge', bean.badge ? `badge-${bean.badge}` : '']">{{ bean.badge_label }}</text>
+                  </view>
+                  <text v-if="bean.recommended_use" class="bean-list-table-line">
+                    出品建议 <text v-for="(part, index) in splitBeanListHighlight(bean.recommended_use, bean.highlight_terms || [])" :key="`${bean.name}-use-${index}`" :class="{ red: part.red }">{{ part.text }}</text>
                   </text>
+                  <text v-if="bean.flavor" class="bean-list-table-line">
+                    风味 <text v-for="(part, index) in splitBeanListHighlight(bean.flavor, bean.highlight_terms || [])" :key="`${bean.name}-flavor-${index}`" :class="{ red: part.red }">{{ part.text }}</text>
+                  </text>
+                  <text v-if="bean.description" class="bean-list-table-line">
+                    特点 <text v-for="(part, index) in splitBeanListHighlight(bean.description, bean.highlight_terms || [])" :key="`${bean.name}-desc-${index}`" :class="{ red: part.red }">{{ part.text }}</text>
+                  </text>
+                </view>
+                <view class="bean-list-table-prices">
+                  <text v-for="price in bean.prices || []" :key="`${price.label}-${price.value}`" :class="['bean-list-table-price', { red: price.red }]">{{ price.label }} {{ price.value }}</text>
                 </view>
               </view>
             </view>
+
+            <view v-else class="bean-list-card-rows">
+              <view v-for="(row, rowIndex) in beanListCardRows(group.items, item.cards_per_row || 1)" :key="`${item.id}-${group.category}-row-${rowIndex}`" class="bean-list-card-row">
+                <view v-for="bean in row" :key="`${item.id}-${group.category}-${bean.code || bean.name}`" class="bean-list-product">
+                  <view class="bean-list-product-head">
+                    <text v-if="bean.code" class="bean-list-code">{{ bean.code }}</text>
+                    <text class="bean-list-name">
+                      <text v-for="(part, index) in splitBeanListHighlight(bean.name, bean.highlight_terms || [])" :key="`${bean.name}-${index}`" :class="{ red: part.red }">{{ part.text }}</text>
+                    </text>
+                    <text v-if="bean.badge_label" :class="['bean-list-badge', bean.badge ? `badge-${bean.badge}` : '']">{{ bean.badge_label }}</text>
+                  </view>
+                  <view v-if="bean.recommended_use" class="bean-list-detail">
+                    <text class="bean-list-detail-label">出品建议</text>
+                    <text class="bean-list-detail-value">
+                      <text v-for="(part, index) in splitBeanListHighlight(bean.recommended_use, bean.highlight_terms || [])" :key="`${bean.name}-use-${index}`" :class="{ red: part.red }">{{ part.text }}</text>
+                    </text>
+                  </view>
+                  <view v-if="bean.flavor" class="bean-list-detail">
+                    <text class="bean-list-detail-label">风味</text>
+                    <text class="bean-list-detail-value">
+                      <text v-for="(part, index) in splitBeanListHighlight(bean.flavor, bean.highlight_terms || [])" :key="`${bean.name}-flavor-${index}`" :class="{ red: part.red }">{{ part.text }}</text>
+                    </text>
+                  </view>
+                  <view v-if="bean.description" class="bean-list-detail">
+                    <text class="bean-list-detail-label">特点</text>
+                    <text class="bean-list-detail-value">
+                      <text v-for="(part, index) in splitBeanListHighlight(bean.description, bean.highlight_terms || [])" :key="`${bean.name}-desc-${index}`" :class="{ red: part.red }">{{ part.text }}</text>
+                    </text>
+                  </view>
+                  <view v-if="bean.prices?.length" class="bean-list-price-block">
+                    <text class="bean-list-section-label">报价</text>
+                    <view class="bean-list-prices">
+                      <view v-for="price in bean.prices" :key="`${price.label}-${price.value}`" class="bean-list-price">
+                        <text :class="{ red: price.red }">{{ price.label }}</text>
+                        <text :class="['bean-list-price-value', { red: price.red }]">{{ price.value }}</text>
+                      </view>
+                    </view>
+                  </view>
+                </view>
+              </view>
+            </view>
+          </view>
+
+          <view v-if="item.show_changelog !== false && item.changelog" class="bean-list-changelog">
+            <text class="bean-list-section-label">更新</text>
+            <text>{{ item.changelog }}</text>
+          </view>
+          <view class="bean-list-footer">
+            <text>{{ item.brand_name || '棵凡咖啡' }}</text>
+            <text>{{ item.version_no }}</text>
           </view>
         </view>
       </view>
@@ -551,7 +526,7 @@ onShow(() => {
         </view>
       </view>
 
-      <view v-if="page && !sections.length" class="state">
+      <view v-if="page && !hasDisplayData" class="state">
         <text>暂无数据</text>
       </view>
     </view>
@@ -794,76 +769,284 @@ onShow(() => {
   border-radius: 8rpx;
 }
 
-.bean-list-items {
+.bean-list-native {
+  margin-bottom: 20rpx;
+}
+
+.bean-list-surface {
   display: flex;
+  min-height: 100vh;
   flex-direction: column;
+  gap: 26rpx;
+  padding: 34rpx 28rpx 40rpx;
+  border: 1rpx solid rgba(0, 0, 0, 0.12);
+  border-radius: 8rpx;
+  background-color: #f8f1e5;
+  background-position: center;
+  background-size: cover;
+  box-sizing: border-box;
+}
+
+.bean-list-cover {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
   gap: 18rpx;
-  padding-top: 10rpx;
+  padding-bottom: 22rpx;
+  border-bottom: 6rpx solid currentColor;
+}
+
+.bean-list-cover-main {
+  min-width: 0;
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 10rpx;
+}
+
+.bean-list-logo {
+  width: 96rpx;
+  height: 96rpx;
+  margin-bottom: 4rpx;
+}
+
+.bean-list-version,
+.bean-list-cache-hint,
+.bean-list-footer {
+  color: #666666;
+  font-size: 23rpx;
+  line-height: 1.45;
+}
+
+.bean-list-title {
+  font-size: 46rpx;
+  font-weight: 900;
+  line-height: 1.15;
+}
+
+.bean-list-subtitle,
+.bean-list-brand-intro {
+  font-size: 26rpx;
+  line-height: 1.5;
+}
+
+.bean-list-type {
+  flex: 0 0 auto;
+  border: 3rpx solid currentColor;
+  border-radius: 999rpx;
+  padding: 8rpx 18rpx;
+  font-size: 24rpx;
+  font-weight: 900;
 }
 
 .bean-list-group {
   display: flex;
   flex-direction: column;
-  gap: 12rpx;
+  gap: 18rpx;
 }
 
 .bean-list-category {
-  color: #6f5d2e;
-  font-size: 25rpx;
-  font-weight: 700;
+  padding: 10rpx 0 10rpx 16rpx;
+  border-left: 8rpx solid currentColor;
+  font-size: 32rpx;
+  font-weight: 900;
+  line-height: 1.25;
+}
+
+.bean-list-card-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 18rpx;
+}
+
+.bean-list-card-row {
+  display: flex;
+  gap: 18rpx;
+  align-items: stretch;
 }
 
 .bean-list-product {
+  min-width: 0;
   display: flex;
+  flex: 1 1 0;
   flex-direction: column;
-  gap: 8rpx;
-  padding: 16rpx;
-  background: #f8f8f8;
-  border: 1rpx solid #ececec;
+  gap: 16rpx;
+  padding: 18rpx;
+  border: 1rpx solid rgba(0, 0, 0, 0.18);
   border-radius: 8rpx;
+  background: rgba(255, 255, 255, 0.86);
+  box-sizing: border-box;
 }
 
 .bean-list-product-head {
   display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
+  align-items: center;
   gap: 12rpx;
 }
 
+.bean-list-code,
+.bean-list-code-cell {
+  flex: 0 0 auto;
+  border: 1rpx solid currentColor;
+  border-radius: 8rpx;
+  padding: 6rpx 10rpx;
+  font-size: 26rpx;
+  font-weight: 900;
+  line-height: 1.1;
+}
+
 .bean-list-name {
-  color: #171717;
-  font-size: 27rpx;
-  font-weight: 700;
-  line-height: 1.35;
+  min-width: 0;
+  flex: 1 1 auto;
+  font-size: 32rpx;
+  font-weight: 900;
+  line-height: 1.2;
+  overflow-wrap: anywhere;
 }
 
 .bean-list-badge {
   flex: 0 0 auto;
-  color: #6f5d2e;
-  font-size: 22rpx;
-  font-weight: 700;
+  border: 1rpx solid currentColor;
+  border-radius: 6rpx;
+  padding: 2rpx 8rpx;
+  font-size: 20rpx;
+  font-weight: 900;
 }
 
-.bean-list-description {
-  color: #333333;
+.badge-new,
+.red {
+  color: #d81717;
+}
+
+.badge-thumb,
+.badge-medal {
+  color: #7a4d00;
+}
+
+.bean-list-detail {
+  display: grid;
+  grid-template-columns: 112rpx minmax(0, 1fr);
+  gap: 10rpx;
   font-size: 24rpx;
-  line-height: 1.5;
+  font-weight: 700;
+  line-height: 1.55;
+}
+
+.bean-list-detail-label,
+.bean-list-section-label {
+  color: #777777;
+  font-weight: 900;
+}
+
+.bean-list-detail-value {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.bean-list-price-block {
+  margin-top: auto;
+  padding-top: 8rpx;
 }
 
 .bean-list-prices {
   display: flex;
-  flex-wrap: wrap;
+  flex-direction: column;
   gap: 10rpx;
+  margin-top: 8rpx;
 }
 
 .bean-list-price {
-  color: #171717;
+  min-height: 70rpx;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12rpx;
+  padding: 12rpx;
+  border: 1rpx solid rgba(55, 128, 55, 0.18);
+  border-radius: 8rpx;
+  background: #dff5d8;
   font-size: 24rpx;
-  font-weight: 700;
+  font-weight: 800;
+  box-sizing: border-box;
 }
 
-.bean-list-price.red {
-  color: #b42318;
+.bean-list-price:nth-child(even) {
+  background: #d9ebf8;
+  border-color: rgba(46, 93, 125, 0.18);
+}
+
+.bean-list-price-value {
+  flex: 0 0 auto;
+  font-size: 30rpx;
+  font-weight: 950;
+}
+
+.bean-list-table {
+  overflow: hidden;
+  border: 1rpx solid rgba(0, 0, 0, 0.22);
+  background: rgba(255, 255, 255, 0.84);
+}
+
+.bean-list-table-row {
+  display: grid;
+  grid-template-columns: 82rpx minmax(0, 1fr) 164rpx;
+  border-top: 1rpx solid rgba(0, 0, 0, 0.22);
+}
+
+.bean-list-table-row:first-child {
+  border-top: 0;
+}
+
+.bean-list-code-cell {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-right: 1rpx solid rgba(0, 0, 0, 0.22);
+  border-radius: 0;
+}
+
+.bean-list-table-main,
+.bean-list-table-prices {
+  display: flex;
+  flex-direction: column;
+  gap: 8rpx;
+  padding: 12rpx;
+  border-right: 1rpx solid rgba(0, 0, 0, 0.22);
+  box-sizing: border-box;
+}
+
+.bean-list-table-prices {
+  border-right: 0;
+}
+
+.bean-list-table-line,
+.bean-list-table-price {
+  color: #444444;
+  font-size: 22rpx;
+  line-height: 1.45;
+}
+
+.bean-list-table-price {
+  font-weight: 900;
+}
+
+.bean-list-changelog {
+  display: flex;
+  flex-direction: column;
+  gap: 8rpx;
+  margin-top: 8rpx;
+  padding-top: 18rpx;
+  border-top: 2rpx solid rgba(0, 0, 0, 0.18);
+  font-size: 24rpx;
+  line-height: 1.6;
+}
+
+.bean-list-footer {
+  display: flex;
+  justify-content: space-between;
+  gap: 18rpx;
+  margin-top: 4rpx;
 }
 
 .item-line {
