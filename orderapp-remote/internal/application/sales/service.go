@@ -30,6 +30,7 @@ type SaveOrderCommand struct {
 	OutsourceManualFee    float64
 	OutsourceTaxFee       float64
 	OutsourceOtherFee     float64
+	StockBatchDecision    string
 	Items                 []OrderItemCommand
 }
 
@@ -44,9 +45,42 @@ type OrderItemCommand struct {
 }
 
 type SaveOrderResult struct {
-	OrderID int64
-	OrderNo string
-	Edited  bool
+	OrderID        int64
+	OrderNo        string
+	Edited         bool
+	StockBatchUsed bool
+}
+
+type OrderStockBatchPreviewCommand struct {
+	EditID int64
+	Items  []OrderItemCommand
+}
+
+type OrderStockBatchAllocation struct {
+	BatchID    int64  `json:"batch_id"`
+	BatchCode  string `json:"batch_code"`
+	AvailableG int64  `json:"available_g"`
+	AllocatedG int64  `json:"allocated_g"`
+	CreatedAt  string `json:"created_at"`
+}
+
+type OrderStockBatchPreviewLine struct {
+	ProductID   int64                       `json:"product_id"`
+	ProductName string                      `json:"product_name"`
+	SpecG       int64                       `json:"spec_g"`
+	NeedUnits   int64                       `json:"need_units"`
+	NeedG       int64                       `json:"need_g"`
+	AvailableG  int64                       `json:"available_g"`
+	Sufficient  bool                        `json:"sufficient"`
+	Allocations []OrderStockBatchAllocation `json:"allocations"`
+}
+
+type OrderStockBatchPreview struct {
+	Sufficient      bool                         `json:"sufficient"`
+	HasBatchChoices bool                         `json:"has_batch_choices"`
+	TotalNeedG      int64                        `json:"total_need_g"`
+	TotalAvailableG int64                        `json:"total_available_g"`
+	Lines           []OrderStockBatchPreviewLine `json:"lines"`
 }
 
 type OrderShippingExportData struct {
@@ -673,6 +707,7 @@ type SaveOrderInvoiceFileCommand struct {
 
 type Repository interface {
 	SaveOrder(ctx context.Context, cmd SaveOrderCommand) (SaveOrderResult, error)
+	PreviewOrderStockBatches(ctx context.Context, cmd OrderStockBatchPreviewCommand) (OrderStockBatchPreview, error)
 	UpdateHeader(ctx context.Context, id int64, cmd UpdateHeaderCommand) error
 	InlineUpdate(ctx context.Context, id int64, actor string, cmd InlineUpdateCommand) error
 	Void(ctx context.Context, id int64, actor, reason string) error
@@ -734,7 +769,36 @@ func (s *Service) SaveOrder(ctx context.Context, cmd SaveOrderCommand) (SaveOrde
 	if err := validateSaveOrderCommand(cmd); err != nil {
 		return SaveOrderResult{}, err
 	}
+	if decision := strings.TrimSpace(cmd.StockBatchDecision); decision != "" && decision != "use_batch" && decision != "produce" {
+		return SaveOrderResult{}, fmt.Errorf("invalid stock_batch_decision")
+	}
 	return s.repo.SaveOrder(ctx, cmd)
+}
+
+func (s *Service) PreviewOrderStockBatches(ctx context.Context, cmd OrderStockBatchPreviewCommand) (OrderStockBatchPreview, error) {
+	if len(cmd.Items) == 0 {
+		return OrderStockBatchPreview{}, fmt.Errorf("at least one item required")
+	}
+	hasValid := false
+	for _, item := range cmd.Items {
+		if item.ProductID == nil && strings.TrimSpace(item.Name) == "" {
+			continue
+		}
+		if item.ProductID == nil {
+			return OrderStockBatchPreview{}, fmt.Errorf("product required")
+		}
+		if item.SpecG <= 0 {
+			return OrderStockBatchPreview{}, fmt.Errorf("spec required")
+		}
+		if item.Units <= 0 {
+			return OrderStockBatchPreview{}, fmt.Errorf("qty required")
+		}
+		hasValid = true
+	}
+	if !hasValid {
+		return OrderStockBatchPreview{}, fmt.Errorf("at least one item required")
+	}
+	return s.repo.PreviewOrderStockBatches(ctx, cmd)
 }
 
 func validateSaveOrderCommand(cmd SaveOrderCommand) error {

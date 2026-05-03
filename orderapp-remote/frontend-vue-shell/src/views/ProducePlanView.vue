@@ -9,7 +9,7 @@
       <div v-if="stockTip" class="ok direct-ship-tip">
         <div>
           <strong>{{ stockTip }}</strong>
-          <span>库存充足的订单生产状态设为“无需生产”，发货状态保持“未发货”；回填快递单号后再变为“已发货”。</span>
+          <span>库存充足订单在录单保存时确认是否使用成品批次；确认使用后进入“库存待发货”，可直接发货。</span>
         </div>
         <button class="secondary" type="button" @click="openShipReadyOrders">去订单列表直接发货</button>
       </div>
@@ -28,19 +28,26 @@
         </label>
       </div>
       <div class="actions">
-        <button class="secondary" type="button" @click="pickInsufficient">勾选库存不足商品</button>
+        <label class="select-all-control">
+          <input type="checkbox" :checked="allInsufficientSelected" @change="toggleAllInsufficient($event.target.checked)" />
+          <span>库存不足全选/全取消</span>
+        </label>
+        <button class="secondary" type="button" @click="pickInsufficient">全选库存不足</button>
+        <button class="secondary" type="button" @click="clearSelected">全取消</button>
         <button class="primary" type="button" @click="buildPlan" :disabled="loading">生成计划</button>
         <button class="primary" type="button" @click="startProduction" :disabled="saving || !planReady">开始生产</button>
       </div>
     </section>
 
     <section class="panel">
-      <div class="section-title">待发货产品</div>
+      <div class="section-title">库存不足（需生产）</div>
       <div class="table-wrap">
         <table>
           <thead>
             <tr>
-              <th>选择</th>
+              <th>
+                <input type="checkbox" :checked="allInsufficientSelected" @change="toggleAllInsufficient($event.target.checked)" />
+              </th>
               <th>商品</th>
               <th>订单号</th>
               <th>规格(g)</th>
@@ -53,7 +60,7 @@
             </tr>
           </thead>
           <tbody>
-            <tr v-for="row in rows" :key="rowKey(row)">
+            <tr v-for="row in stockInsufficientRows" :key="rowKey(row)">
               <td><input type="checkbox" :checked="!!selected[rowKey(row)]" @change="selected[rowKey(row)] = !selected[rowKey(row)]" /></td>
               <td>{{ row.product }}</td>
               <td class="muted">{{ row.order_nos }}</td>
@@ -65,8 +72,44 @@
               <td>{{ row.inv_g }}</td>
               <td><strong>{{ row.gap_g }}</strong></td>
             </tr>
-            <tr v-if="!rows.length">
-              <td colspan="10" class="muted">暂无待发货产品</td>
+            <tr v-if="!stockInsufficientRows.length">
+              <td colspan="10" class="muted">暂无库存不足商品</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="panel">
+      <div class="section-title">库存充足（只提示）</div>
+      <div class="muted section-hint">以下订单已有成品库存覆盖，不进入生产计划；录单时确认使用批次后会进入库存待发货。</div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>商品</th>
+              <th>订单号</th>
+              <th>规格(g)</th>
+              <th>需求(件)</th>
+              <th>需求(g)</th>
+              <th>库存(件)</th>
+              <th>库存散装(g)</th>
+              <th>库存合计(g)</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="row in stockSufficientRows" :key="rowKey(row)">
+              <td>{{ row.product }}</td>
+              <td class="muted">{{ row.order_nos }}</td>
+              <td>{{ row.spec_g }}</td>
+              <td>{{ row.need_units }}</td>
+              <td>{{ row.need_g }}</td>
+              <td>{{ row.inv_units }}</td>
+              <td>{{ row.inv_loose_g }}</td>
+              <td>{{ row.inv_g }}</td>
+            </tr>
+            <tr v-if="!stockSufficientRows.length">
+              <td colspan="8" class="muted">暂无库存充足商品</td>
             </tr>
           </tbody>
         </table>
@@ -207,6 +250,11 @@ const computedPlanRows = computed(() => rebuildPlanRows(planRows.value, roastPla
 const computedMaterials = computed(() =>
   buildMaterialSummary(planRows.value, roastPlans.value, materialRatios.value, initialMaterials.value),
 )
+const stockInsufficientRows = computed(() => rows.value.filter((row) => Number(row.gap_g || 0) > 0))
+const stockSufficientRows = computed(() => rows.value.filter((row) => Number(row.gap_g || 0) <= 0))
+const allInsufficientSelected = computed(() =>
+  stockInsufficientRows.value.length > 0 && stockInsufficientRows.value.every((row) => !!selected[rowKey(row)]),
+)
 
 function selectedKeys() {
   return Object.keys(selected).filter((key) => selected[key])
@@ -264,6 +312,7 @@ async function load(plan) {
         if (data.selected[key]) selected[key] = true
       }
     }
+    pruneSufficientSelections()
     updateUrl(plan)
   } catch (err) {
     error.value = err.message || '加载失败'
@@ -274,10 +323,27 @@ async function load(plan) {
 
 function pickInsufficient() {
   Object.keys(selected).forEach((key) => delete selected[key])
-  for (const row of rows.value) {
-    if (Number(row.gap_g || 0) > 0) {
-      selected[rowKey(row)] = true
-    }
+  for (const row of stockInsufficientRows.value) {
+    selected[rowKey(row)] = true
+  }
+}
+
+function clearSelected() {
+  Object.keys(selected).forEach((key) => delete selected[key])
+}
+
+function toggleAllInsufficient(checked) {
+  clearSelected()
+  if (!checked) return
+  for (const row of stockInsufficientRows.value) {
+    selected[rowKey(row)] = true
+  }
+}
+
+function pruneSufficientSelections() {
+  const allowed = new Set(stockInsufficientRows.value.map((row) => rowKey(row)))
+  for (const key of Object.keys(selected)) {
+    if (!allowed.has(key)) delete selected[key]
   }
 }
 
@@ -348,9 +414,13 @@ onMounted(async () => {
 .filters label { flex-direction: column; }
 .filters span { font-size: 12px; color: #666; }
 .actions { margin-top: 12px; flex-wrap: wrap; }
+.select-all-control { display: inline-flex; flex-direction: row; align-items: center; gap: 6px; width: auto; padding: 8px 10px; border: 1px solid #d8dde6; border-radius: 8px; background: #fff; }
+.select-all-control input { width: auto; padding: 0; }
+.section-hint { margin: 6px 0 10px; }
 input, button { font: inherit; }
 input { width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 8px; }
 button { border-radius: 8px; padding: 10px 12px; cursor: pointer; }
+.select-all-control input { width: auto; min-width: 16px; padding: 0; }
 .primary { border: 1px solid #111; background: #111; color: #fff; }
 .secondary { border: 1px solid #999; background: #fff; color: #111; }
 .table-wrap { overflow: auto; }

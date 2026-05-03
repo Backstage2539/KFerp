@@ -73,6 +73,7 @@ func saveOrderCommandFromCreateRequest(req CreateOrderRequest, editID int64, act
 		OutsourceManualFee:    manualFee,
 		OutsourceTaxFee:       taxFee,
 		OutsourceOtherFee:     otherFee,
+		StockBatchDecision:    strings.TrimSpace(req.StockBatchDecision),
 		Items:                 orderItemCommandsFromCreateRequest(req),
 	}, nil
 }

@@ -8,6 +8,7 @@ import (
 
 type fakeRepo struct {
 	saveCmd                SaveOrderCommand
+	stockPreviewCmd        OrderStockBatchPreviewCommand
 	inlineCmd              InlineUpdateCommand
 	saveCalls              int
 	outsourceSaved         SaveOutsourceTemplateCommand
@@ -32,7 +33,12 @@ type fakeRepo struct {
 func (r *fakeRepo) SaveOrder(ctx context.Context, cmd SaveOrderCommand) (SaveOrderResult, error) {
 	r.saveCmd = cmd
 	r.saveCalls++
-	return SaveOrderResult{OrderID: 7, OrderNo: "SO-TEST", Edited: cmd.EditID > 0}, nil
+	return SaveOrderResult{OrderID: 7, OrderNo: "SO-TEST", Edited: cmd.EditID > 0, StockBatchUsed: cmd.StockBatchDecision == "use_batch"}, nil
+}
+
+func (r *fakeRepo) PreviewOrderStockBatches(ctx context.Context, cmd OrderStockBatchPreviewCommand) (OrderStockBatchPreview, error) {
+	r.stockPreviewCmd = cmd
+	return OrderStockBatchPreview{Sufficient: true, HasBatchChoices: true}, nil
 }
 
 func (r *fakeRepo) UpdateHeader(ctx context.Context, id int64, cmd UpdateHeaderCommand) error {
@@ -281,6 +287,33 @@ func TestServiceDelegatesSaveOrder(t *testing.T) {
 	}
 	if len(repo.saveCmd.Items) != 1 || repo.saveCmd.Items[0].SpecG != 227 {
 		t.Fatalf("repo items = %+v", repo.saveCmd.Items)
+	}
+}
+
+func TestServiceValidatesAndDelegatesStockBatchPreview(t *testing.T) {
+	repo := &fakeRepo{}
+	svc := NewService(repo)
+	productID := int64(7)
+
+	preview, err := svc.PreviewOrderStockBatches(context.Background(), OrderStockBatchPreviewCommand{
+		EditID: 9,
+		Items:  []OrderItemCommand{{ProductID: &productID, Name: "橘皮乌龙", Units: 2, Unit: "件", SpecG: 454}},
+	})
+	if err != nil {
+		t.Fatalf("PreviewOrderStockBatches() error = %v", err)
+	}
+	if !preview.Sufficient || len(repo.stockPreviewCmd.Items) != 1 {
+		t.Fatalf("preview=%+v cmd=%+v, want delegated sufficient preview", preview, repo.stockPreviewCmd)
+	}
+	if repo.stockPreviewCmd.EditID != 9 {
+		t.Fatalf("preview edit id = %d, want 9", repo.stockPreviewCmd.EditID)
+	}
+
+	_, err = svc.PreviewOrderStockBatches(context.Background(), OrderStockBatchPreviewCommand{
+		Items: []OrderItemCommand{{ProductID: &productID, Units: 0, SpecG: 454}},
+	})
+	if err == nil {
+		t.Fatal("PreviewOrderStockBatches invalid quantity error = nil")
 	}
 }
 

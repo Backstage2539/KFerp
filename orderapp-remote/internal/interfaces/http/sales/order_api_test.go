@@ -203,6 +203,144 @@ func TestOrderAPIDefaultsNewOrderToPaidAndUnshipped(t *testing.T) {
 	}
 }
 
+func TestOrderStockBatchPreviewAPIShowsFIFOBatchChoice(t *testing.T) {
+	pool, schema := newOrderAPITestDB(t)
+	ctx := context.Background()
+	seedOrderAPITestData(t, ctx, pool, schema)
+	seedOrderAPIFinishedBatches(t, ctx, pool, schema)
+
+	e := newOrderAPITestEcho(pool, schema)
+	payload := map[string]any{
+		"product_id": []string{"7"},
+		"item_name":  []string{"橘皮乌龙"},
+		"qty":        []string{"3"},
+		"unit":       []string{"件"},
+		"spec":       []string{"454"},
+	}
+	body, _ := json.Marshal(payload)
+	req := httptest.NewRequest(http.MethodPost, "/api/order/stock-batch-preview", bytes.NewReader(body))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("POST /api/order/stock-batch-preview status = %d, want 200, body=%s", rec.Code, rec.Body.String())
+	}
+	bodyText := rec.Body.String()
+	for _, needle := range []string{`"sufficient":true`, `"product_name":"橘皮乌龙"`, `"batch_code":"FP-OLD-454"`, `"batch_code":"FP-NEW-454"`, `"total_need_g":1362`, `"allocated_g":908`, `"allocated_g":454`} {
+		if !strings.Contains(bodyText, needle) {
+			t.Fatalf("stock batch preview missing %s: %s", needle, bodyText)
+		}
+	}
+}
+
+func TestOrderAPISaveWithStockBatchDecisionMarksInventoryReadyAndStoresBatchChoice(t *testing.T) {
+	pool, schema := newOrderAPITestDB(t)
+	ctx := context.Background()
+	seedOrderAPITestData(t, ctx, pool, schema)
+	seedOrderAPIFinishedBatches(t, ctx, pool, schema)
+
+	e := newOrderAPITestEcho(pool, schema)
+	payload := map[string]any{
+		"order_date":           "2026-05-03",
+		"customer_id":          3,
+		"source_id":            1,
+		"order_type_id":        1,
+		"pay_status_id":        2,
+		"ship_status_id":       1,
+		"stock_batch_decision": "use_batch",
+		"product_id":           []string{"7"},
+		"tier_id":              []string{"manual"},
+		"unit_price":           []string{"88"},
+		"item_name":            []string{"橘皮乌龙"},
+		"qty":                  []string{"2"},
+		"unit":                 []string{"件"},
+		"spec":                 []string{"454"},
+	}
+	body, _ := json.Marshal(payload)
+	req := httptest.NewRequest(http.MethodPost, "/api/order", bytes.NewReader(body))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("POST /api/order status = %d, want 200, body=%s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), `"stock_batch_used":true`) {
+		t.Fatalf("save response should report stock batch used: %s", rec.Body.String())
+	}
+
+	var processStatus, decision, batchCode string
+	var allocatedG int64
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`
+		SELECT COALESCE(ops.name,''), COALESCE(d.decision,''), COALESCE(a.batch_code,''), COALESCE(a.allocated_g,0)
+		FROM %s.orders o
+		LEFT JOIN %s.order_process_statuses ops ON ops.id=o.process_status_id
+		LEFT JOIN %s.order_stock_decisions d ON d.order_id=o.id
+		LEFT JOIN %s.order_stock_batch_allocations a ON a.order_id=o.id
+		WHERE o.order_no = (
+			SELECT order_no FROM %s.orders ORDER BY id DESC LIMIT 1
+		)
+		ORDER BY a.id
+		LIMIT 1
+	`, schema, schema, schema, schema, schema)).Scan(&processStatus, &decision, &batchCode, &allocatedG); err != nil {
+		t.Fatalf("query stock decision: %v", err)
+	}
+	if processStatus != "库存待发货" || decision != "use_batch" || batchCode != "FP-OLD-454" || allocatedG != 908 {
+		t.Fatalf("stock decision process=%q decision=%q batch=%q allocated=%d, want 库存待发货/use_batch/FP-OLD-454/908", processStatus, decision, batchCode, allocatedG)
+	}
+}
+
+func TestOrderAPISaveWithProduceDecisionKeepsOrderInProductionGap(t *testing.T) {
+	pool, schema := newOrderAPITestDB(t)
+	ctx := context.Background()
+	seedOrderAPITestData(t, ctx, pool, schema)
+	seedOrderAPIFinishedBatches(t, ctx, pool, schema)
+
+	e := newOrderAPITestEcho(pool, schema)
+	payload := map[string]any{
+		"order_date":           "2026-05-03",
+		"customer_id":          3,
+		"source_id":            1,
+		"order_type_id":        1,
+		"pay_status_id":        2,
+		"ship_status_id":       1,
+		"stock_batch_decision": "produce",
+		"product_id":           []string{"7"},
+		"tier_id":              []string{"manual"},
+		"unit_price":           []string{"88"},
+		"item_name":            []string{"橘皮乌龙"},
+		"qty":                  []string{"1"},
+		"unit":                 []string{"件"},
+		"spec":                 []string{"454"},
+	}
+	body, _ := json.Marshal(payload)
+	req := httptest.NewRequest(http.MethodPost, "/api/order", bytes.NewReader(body))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("POST /api/order status = %d, want 200, body=%s", rec.Code, rec.Body.String())
+	}
+
+	var processStatus *string
+	var decision string
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`
+		SELECT ops.name, COALESCE(d.decision,'')
+		FROM %s.orders o
+		LEFT JOIN %s.order_process_statuses ops ON ops.id=o.process_status_id
+		LEFT JOIN %s.order_stock_decisions d ON d.order_id=o.id
+		ORDER BY o.id DESC
+		LIMIT 1
+	`, schema, schema, schema)).Scan(&processStatus, &decision); err != nil {
+		t.Fatalf("query produce decision: %v", err)
+	}
+	if processStatus != nil || decision != "produce" {
+		t.Fatalf("declined stock process=%v decision=%q, want nil/produce", processStatus, decision)
+	}
+}
+
 func TestOrderAPISaveDoesNotGenerateShippingExcel(t *testing.T) {
 	pool, schema := newOrderAPITestDB(t)
 	ctx := context.Background()
@@ -339,6 +477,9 @@ func TestOrdersShippingExcelAPIAcceptsNoProductionShipReadyOrders(t *testing.T) 
 	if !orderShippingReady(salesapp.OrderShippingExportData{ProcessStatus: "无需生产"}) {
 		t.Fatal("无需生产 status should be treated as ready for shipping")
 	}
+	if !orderShippingReady(salesapp.OrderShippingExportData{ProcessStatus: "库存待发货"}) {
+		t.Fatal("库存待发货 status should be treated as ready for shipping")
+	}
 
 	pool, schema := newOrderAPITestDB(t)
 	ctx := context.Background()
@@ -357,16 +498,19 @@ func TestOrdersShippingExcelAPIAcceptsNoProductionShipReadyOrders(t *testing.T) 
 		UPDATE %s.sender_settings
 		SET sender_name='寄件人', sender_phone='13900000000', sender_addr='上海市测试路', sender_company='寄件公司', sender_goods='', sf_biz_type='标快'
 		WHERE id=1;
-		INSERT INTO %s.order_process_statuses(name,sort,active) VALUES ('无需生产',34,true);
+		INSERT INTO %s.order_process_statuses(name,sort,active) VALUES ('无需生产',34,true)
+		ON CONFLICT(name) DO NOTHING;
 		INSERT INTO %s.orders(id, order_no, order_date, customer_id, order_type_id, pay_status_id, ship_status_id, process_status_id, grand_total, is_void)
 		VALUES
 			(30, 'SO-STOCK-READY', '2026-05-03', 3, 1, 2, 1, (SELECT id FROM %s.order_process_statuses WHERE name='无需生产' LIMIT 1), 176, false),
+			(32, 'SO-BATCH-READY', '2026-05-03', 3, 1, 2, 1, (SELECT id FROM %s.order_process_statuses WHERE name='库存待发货' LIMIT 1), 88, false),
 			(31, 'SO-STILL-PENDING', '2026-05-03', 3, 1, 2, 1, 1, 88, false);
 		INSERT INTO %s.order_items(order_id,line_no,product_id,item_name,qty,unit,spec,unit_price,line_total)
 		VALUES
 			(30, 1, 7, '库存熟豆', 2, '件', '454g', 88, 176),
+			(32, 1, 7, '批次熟豆', 1, '件', '454g', 88, 88),
 			(31, 1, 7, '待生产熟豆', 1, '件', '454g', 88, 88);
-	`, schema, schema, schema, schema, schema))
+	`, schema, schema, schema, schema, schema, schema))
 
 	e := newOrderAPITestEcho(pool, schema)
 	req := httptest.NewRequest(http.MethodGet, "/api/orders?ship_ready=1&limit=50", nil)
@@ -378,11 +522,14 @@ func TestOrdersShippingExcelAPIAcceptsNoProductionShipReadyOrders(t *testing.T) 
 	if !strings.Contains(rec.Body.String(), "SO-STOCK-READY") {
 		t.Fatalf("ship_ready list should include no-production order: %s", rec.Body.String())
 	}
+	if !strings.Contains(rec.Body.String(), "SO-BATCH-READY") {
+		t.Fatalf("ship_ready list should include stock-batch-ready order: %s", rec.Body.String())
+	}
 	if strings.Contains(rec.Body.String(), "SO-STILL-PENDING") {
 		t.Fatalf("ship_ready list should exclude pending order: %s", rec.Body.String())
 	}
 
-	body, _ := json.Marshal(map[string]any{"order_ids": []int64{30}})
+	body, _ := json.Marshal(map[string]any{"order_ids": []int64{30, 32}})
 	req = httptest.NewRequest(http.MethodPost, "/api/orders/shipping-excel", bytes.NewReader(body))
 	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
 	rec = httptest.NewRecorder()
@@ -850,7 +997,7 @@ func TestOrdersShippingExcelAPIRejectsUnfinishedOrders(t *testing.T) {
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("POST /api/orders/shipping-excel status = %d, want 400, body=%s", rec.Code, rec.Body.String())
 	}
-	if !strings.Contains(rec.Body.String(), "尚未生产完成") {
+	if !strings.Contains(rec.Body.String(), "尚不可发货") {
 		t.Fatalf("unfinished order error body=%s", rec.Body.String())
 	}
 	files, err := os.ReadDir(exportDir)
@@ -937,10 +1084,24 @@ func seedOrderAPITestData(t *testing.T, ctx context.Context, pool *pgxpool.Pool,
 		INSERT INTO %s.order_types(id,name) VALUES (1,'批发订单'),(2,'零售订单');
 		INSERT INTO %s.pay_statuses(id,name) VALUES (1,'未付款'),(2,'已付款');
 		INSERT INTO %s.ship_statuses(id,name) VALUES (1,'未发货');
-		INSERT INTO %s.order_process_statuses(id,name,sort,active) VALUES (1,'待处理',10,true);
+		INSERT INTO %s.order_process_statuses(id,name,sort,active) VALUES (1,'待处理',10,true),(2,'库存待发货',33,true);
 		INSERT INTO %s.products(id,name,default_price,active,retail_price_227g,retail_price_250g)
 		VALUES (7,'橘皮乌龙',50,true,50,56);
 	`, schema, schema, schema, schema, schema, schema, schema))
+}
+
+func seedOrderAPIFinishedBatches(t *testing.T, ctx context.Context, pool *pgxpool.Pool, schema string) {
+	t.Helper()
+	mustExecOrderAPITestSQL(t, ctx, pool, fmt.Sprintf(`
+		INSERT INTO %s.stock_batches(id,batch_code,item_type,item_id,item_name,spec_g,source_doc_type,source_doc_id,source_batch_id,qty_g,qty_units,remaining_g,remaining_units,quality_status,operator,created_at)
+		VALUES
+			(101,'FP-OLD-454','finished_product',7,'橘皮乌龙',454,'production_run',501,'PB-OLD',908,2,908,2,'pass','烘焙员','2026-05-01 08:00:00+08'),
+			(102,'FP-NEW-454','finished_product',7,'橘皮乌龙',454,'production_run',502,'PB-NEW',908,2,908,2,'pass','烘焙员','2026-05-02 08:00:00+08');
+		INSERT INTO %s.stock_ledger_entries(item_type,item_id,item_name,spec_g,warehouse,source_doc_type,source_doc_id,source_batch_code,source_batch_id,qty_before_g,qty_change_g,qty_after_g,qty_before_units,qty_change_units,qty_after_units,operator,created_at)
+		VALUES
+			('finished_product',7,'橘皮乌龙',454,'finished_goods','production_run',501,'FP-OLD-454','PB-OLD',0,908,908,0,2,2,'烘焙员','2026-05-01 08:00:00+08'),
+			('finished_product',7,'橘皮乌龙',454,'finished_goods','production_run',502,'FP-NEW-454','PB-NEW',908,908,1816,2,2,4,'烘焙员','2026-05-02 08:00:00+08');
+	`, schema, schema))
 }
 
 func mustExecOrderAPITestSQL(t *testing.T, ctx context.Context, pool *pgxpool.Pool, sql string) {
@@ -999,6 +1160,45 @@ CREATE TABLE %s.order_process_statuses (
 	name TEXT NOT NULL UNIQUE,
 	sort INTEGER NOT NULL DEFAULT 0,
 	active BOOLEAN NOT NULL DEFAULT true
+);
+CREATE TABLE %s.stock_batches (
+	id BIGSERIAL PRIMARY KEY,
+	batch_code TEXT NOT NULL UNIQUE,
+	item_type TEXT NOT NULL,
+	item_id BIGINT NOT NULL DEFAULT 0,
+	item_name TEXT NOT NULL DEFAULT '',
+	spec_g BIGINT NOT NULL DEFAULT 0,
+	source_doc_type TEXT NOT NULL DEFAULT '',
+	source_doc_id BIGINT NOT NULL DEFAULT 0,
+	source_batch_id TEXT NOT NULL DEFAULT '',
+	qty_g BIGINT NOT NULL DEFAULT 0,
+	qty_units BIGINT NOT NULL DEFAULT 0,
+	remaining_g BIGINT NOT NULL DEFAULT 0,
+	remaining_units BIGINT NOT NULL DEFAULT 0,
+	unit_cost NUMERIC(12,4) NOT NULL DEFAULT 0,
+	quality_status TEXT NOT NULL DEFAULT 'unchecked',
+	operator TEXT NOT NULL DEFAULT '',
+	created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE TABLE %s.stock_ledger_entries (
+	id BIGSERIAL PRIMARY KEY,
+	item_type TEXT NOT NULL,
+	item_id BIGINT NOT NULL DEFAULT 0,
+	item_name TEXT NOT NULL DEFAULT '',
+	spec_g BIGINT NOT NULL DEFAULT 0,
+	warehouse TEXT NOT NULL DEFAULT 'finished_goods',
+	source_doc_type TEXT NOT NULL DEFAULT '',
+	source_doc_id BIGINT NOT NULL DEFAULT 0,
+	source_batch_code TEXT NOT NULL DEFAULT '',
+	source_batch_id TEXT NOT NULL DEFAULT '',
+	qty_before_g BIGINT NOT NULL DEFAULT 0,
+	qty_change_g BIGINT NOT NULL DEFAULT 0,
+	qty_after_g BIGINT NOT NULL DEFAULT 0,
+	qty_before_units BIGINT NOT NULL DEFAULT 0,
+	qty_change_units BIGINT NOT NULL DEFAULT 0,
+	qty_after_units BIGINT NOT NULL DEFAULT 0,
+	operator TEXT NOT NULL DEFAULT '',
+	created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE TABLE %s.products (
 	id BIGSERIAL PRIMARY KEY,
@@ -1070,6 +1270,24 @@ CREATE TABLE %s.order_items (
 	unit_price NUMERIC NOT NULL DEFAULT 0,
 	line_total NUMERIC NOT NULL DEFAULT 0
 );
+CREATE TABLE %s.order_stock_decisions (
+	order_id BIGINT PRIMARY KEY REFERENCES %s.orders(id) ON DELETE CASCADE,
+	decision TEXT NOT NULL DEFAULT '',
+	operator TEXT NOT NULL DEFAULT '',
+	updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE TABLE %s.order_stock_batch_allocations (
+	id BIGSERIAL PRIMARY KEY,
+	order_id BIGINT NOT NULL REFERENCES %s.orders(id) ON DELETE CASCADE,
+	product_id BIGINT NOT NULL DEFAULT 0,
+	spec_g BIGINT NOT NULL DEFAULT 0,
+	need_g BIGINT NOT NULL DEFAULT 0,
+	batch_id BIGINT NOT NULL DEFAULT 0,
+	batch_code TEXT NOT NULL DEFAULT '',
+	allocated_g BIGINT NOT NULL DEFAULT 0,
+	operator TEXT NOT NULL DEFAULT '',
+	created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
 CREATE TABLE %s.sales_order_assets (
 	id BIGSERIAL PRIMARY KEY,
 	kind TEXT NOT NULL,
@@ -1125,7 +1343,7 @@ CREATE TABLE %s.order_shipment_orders (
 	UNIQUE(shipment_id, order_id)
 );
 INSERT INTO %s.sender_settings(id, sender_label, is_default, active) VALUES(1, '默认寄件人', true, true);
-	`, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema)
+	`, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema)
 }
 
 func writeOrderShippingTemplateForTest(t *testing.T, path string) {

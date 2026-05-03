@@ -32,6 +32,9 @@ func EnsureSchema(ctx context.Context, pool *pgxpool.Pool, schema string) error 
 	if err := ensureOrderInvoiceTables(ctx, pool, schema); err != nil {
 		return err
 	}
+	if err := ensureOrderStockDecisionTables(ctx, pool, schema); err != nil {
+		return err
+	}
 	if err := ensureDeliveryNoteTables(ctx, pool, schema); err != nil {
 		return err
 	}
@@ -67,10 +70,42 @@ func ensureOrderProcessStatuses(ctx context.Context, pool *pgxpool.Pool, schema 
 		name string
 		sort int
 	}{
+		{name: "库存待发货", sort: 33},
 		{name: "无需生产", sort: 34},
 		{name: "生产完成", sort: 35},
 	} {
 		if _, err := pool.Exec(ctx, q, item.name, item.sort); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func ensureOrderStockDecisionTables(ctx context.Context, pool *pgxpool.Pool, schema string) error {
+	stmts := []string{
+		fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s.order_stock_decisions (
+			order_id BIGINT PRIMARY KEY REFERENCES %s.orders(id) ON DELETE CASCADE,
+			decision TEXT NOT NULL DEFAULT '',
+			operator TEXT NOT NULL DEFAULT '',
+			updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+		)`, schema, schema),
+		fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s.order_stock_batch_allocations (
+			id BIGSERIAL PRIMARY KEY,
+			order_id BIGINT NOT NULL REFERENCES %s.orders(id) ON DELETE CASCADE,
+			product_id BIGINT NOT NULL DEFAULT 0,
+			spec_g BIGINT NOT NULL DEFAULT 0,
+			need_g BIGINT NOT NULL DEFAULT 0,
+			batch_id BIGINT NOT NULL DEFAULT 0,
+			batch_code TEXT NOT NULL DEFAULT '',
+			allocated_g BIGINT NOT NULL DEFAULT 0,
+			operator TEXT NOT NULL DEFAULT '',
+			created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+		)`, schema, schema),
+		fmt.Sprintf(`CREATE INDEX IF NOT EXISTS idx_%s_order_stock_alloc_order ON %s.order_stock_batch_allocations(order_id)`, schema, schema),
+		fmt.Sprintf(`CREATE INDEX IF NOT EXISTS idx_%s_order_stock_alloc_batch ON %s.order_stock_batch_allocations(batch_code)`, schema, schema),
+	}
+	for _, stmt := range stmts {
+		if _, err := pool.Exec(ctx, stmt); err != nil {
 			return err
 		}
 	}
