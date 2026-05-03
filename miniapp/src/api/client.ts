@@ -1,4 +1,4 @@
-const API_BASE = 'https://erp.qacoohee.com/app'
+const DEFAULT_API_BASE = 'https://erp.qacoohee.com/app'
 
 export type RequestOptions = {
   method?: 'GET' | 'POST'
@@ -6,10 +6,24 @@ export type RequestOptions = {
   data?: UniNamespace.RequestOptions['data']
 }
 
+export function normalizeAPIBase(base: string): string {
+  const trimmed = base.trim().replace(/\/+$/, '')
+  return trimmed || DEFAULT_API_BASE
+}
+
+export function configuredAPIBase(): string {
+  return normalizeAPIBase(import.meta.env.VITE_KFERP_API_BASE || DEFAULT_API_BASE)
+}
+
+export function buildAPIURL(path: string, base = configuredAPIBase()): string {
+  const normalizedPath = path.startsWith('/') ? path : `/${path}`
+  return `${normalizeAPIBase(base)}${normalizedPath}`
+}
+
 export function miniRequest<T>(path: string, options: RequestOptions = {}): Promise<T> {
   return new Promise((resolve, reject) => {
     uni.request({
-      url: `${API_BASE}${path}`,
+      url: buildAPIURL(path),
       method: options.method || 'GET',
       data: options.data,
       header: {
