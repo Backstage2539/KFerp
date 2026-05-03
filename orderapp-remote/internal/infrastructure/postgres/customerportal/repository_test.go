@@ -2,6 +2,7 @@ package customerportal
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -165,7 +166,104 @@ func TestEnsureSchemaRejectsNonObjectCapabilityConfig(t *testing.T) {
 	}
 }
 
+func TestEnsureSchemaToleratesExistingNonObjectCapabilityConfig(t *testing.T) {
+	ctx := context.Background()
+	pool, schema := newCustomerPortalCoreOnlyTestDB(t)
+
+	var customerID int64
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`
+		INSERT INTO %s.customers(name) VALUES('历史客户') RETURNING id
+	`, schema)).Scan(&customerID); err != nil {
+		t.Fatalf("insert customer: %v", err)
+	}
+	if _, err := pool.Exec(ctx, fmt.Sprintf(`
+		CREATE TABLE %[1]s.customer_service_capabilities (
+			id BIGSERIAL PRIMARY KEY,
+			customer_id BIGINT NOT NULL REFERENCES %[1]s.customers(id) ON DELETE CASCADE,
+			capability_code TEXT NOT NULL,
+			enabled BOOLEAN NOT NULL DEFAULT true,
+			config_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+			updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+		)
+	`, schema)); err != nil {
+		t.Fatalf("create legacy capability table: %v", err)
+	}
+	if _, err := pool.Exec(ctx, fmt.Sprintf(`
+		INSERT INTO %[1]s.customer_service_capabilities(customer_id, capability_code, config_json)
+		VALUES($1,'legacy_bad','[]'::jsonb)
+	`, schema), customerID); err != nil {
+		t.Fatalf("seed legacy capability config: %v", err)
+	}
+
+	if err := EnsureSchema(ctx, pool, schema); err != nil {
+		t.Fatalf("EnsureSchema with existing non-object config: %v", err)
+	}
+	_, err := pool.Exec(ctx, fmt.Sprintf(`
+		INSERT INTO %[1]s.customer_service_capabilities(customer_id, capability_code, config_json)
+		VALUES($1,'new_bad','[]'::jsonb)
+	`, schema), customerID)
+	if err == nil {
+		t.Fatal("insert new array config_json err=nil, want NOT VALID check constraint to reject new bad data")
+	}
+}
+
+func TestCreateLoginSessionDoesNotReactivateDisabledMiniUser(t *testing.T) {
+	ctx := context.Background()
+	pool, schema := newCustomerPortalTestDB(t)
+	repo := NewRepository(pool, schema)
+
+	if _, err := pool.Exec(ctx, fmt.Sprintf(`
+		INSERT INTO %[1]s.mini_users(openid, unionid, phone, nickname, active)
+		VALUES('disabled-openid','old-union','old-phone','old-name',false)
+	`, schema)); err != nil {
+		t.Fatalf("insert disabled mini user: %v", err)
+	}
+
+	_, err := repo.CreateLoginSession(ctx, customerportalapp.CreateLoginSessionCommand{
+		OpenID:   " disabled-openid ",
+		UnionID:  "new-union",
+		Phone:    "new-phone",
+		Nickname: "new-name",
+	})
+	if !errors.Is(err, customerportalapp.ErrMiniUserDisabled) {
+		t.Fatalf("CreateLoginSession() err=%v, want ErrMiniUserDisabled", err)
+	}
+
+	var active bool
+	var unionID, phone, nickname string
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`
+		SELECT active, unionid, phone, nickname
+		FROM %[1]s.mini_users
+		WHERE openid='disabled-openid'
+	`, schema)).Scan(&active, &unionID, &phone, &nickname); err != nil {
+		t.Fatalf("load disabled mini user: %v", err)
+	}
+	if active || unionID != "old-union" || phone != "old-phone" || nickname != "old-name" {
+		t.Fatalf("disabled mini user changed active=%v union=%q phone=%q nickname=%q", active, unionID, phone, nickname)
+	}
+	var sessions int
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`
+		SELECT count(*) FROM %[1]s.mini_sessions s
+		JOIN %[1]s.mini_users u ON u.id=s.mini_user_id
+		WHERE u.openid='disabled-openid'
+	`, schema)).Scan(&sessions); err != nil {
+		t.Fatalf("count disabled user sessions: %v", err)
+	}
+	if sessions != 0 {
+		t.Fatalf("disabled mini user sessions=%d, want 0", sessions)
+	}
+}
+
 func newCustomerPortalTestDB(t *testing.T) (*pgxpool.Pool, string) {
+	t.Helper()
+	pool, schema := newCustomerPortalCoreOnlyTestDB(t)
+	if err := EnsureSchema(context.Background(), pool, schema); err != nil {
+		t.Fatalf("customerportal.EnsureSchema: %v", err)
+	}
+	return pool, schema
+}
+
+func newCustomerPortalCoreOnlyTestDB(t *testing.T) (*pgxpool.Pool, string) {
 	t.Helper()
 	dsn := strings.TrimSpace(os.Getenv("ORDERAPP_TEST_DATABASE_URL"))
 	if dsn == "" {
@@ -190,9 +288,6 @@ func newCustomerPortalTestDB(t *testing.T) (*pgxpool.Pool, string) {
 	})
 	if err := postgrescore.EnsureSchema(ctx, pool, schema); err != nil {
 		t.Fatalf("core.EnsureSchema: %v", err)
-	}
-	if err := EnsureSchema(ctx, pool, schema); err != nil {
-		t.Fatalf("customerportal.EnsureSchema: %v", err)
 	}
 	return pool, schema
 }

@@ -85,7 +85,15 @@ BEGIN
 		  AND c.conname='customer_service_capabilities_config_object_chk'
 	) THEN
 		ALTER TABLE %[1]s.customer_service_capabilities
-			ADD CONSTRAINT customer_service_capabilities_config_object_chk CHECK (jsonb_typeof(config_json) = 'object');
+			ADD CONSTRAINT customer_service_capabilities_config_object_chk CHECK (jsonb_typeof(config_json) = 'object') NOT VALID;
+	END IF;
+	IF NOT EXISTS (
+		SELECT 1
+		FROM %[1]s.customer_service_capabilities
+		WHERE jsonb_typeof(config_json) <> 'object'
+	) THEN
+		ALTER TABLE %[1]s.customer_service_capabilities
+			VALIDATE CONSTRAINT customer_service_capabilities_config_object_chk;
 	END IF;
 END $$;
 `, schema)

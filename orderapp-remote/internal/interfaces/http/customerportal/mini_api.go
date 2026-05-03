@@ -75,6 +75,9 @@ func miniLoginError(c echo.Context, err error) error {
 	if errors.Is(err, customerportalapp.ErrMiniLoginDisabled) {
 		return c.JSON(http.StatusServiceUnavailable, map[string]string{"error": "mini login disabled"})
 	}
+	if errors.Is(err, customerportalapp.ErrMiniUserDisabled) {
+		return c.JSON(http.StatusForbidden, map[string]string{"error": "mini user disabled"})
+	}
 	if isMiniValidationError(err) {
 		return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid request"})
 	}

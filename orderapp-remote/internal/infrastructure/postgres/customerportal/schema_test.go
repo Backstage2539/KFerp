@@ -22,6 +22,8 @@ func TestCustomerPortalSchemaDefinesP0Tables(t *testing.T) {
 		"customer_portal_user_bindings_user_customer_uq",
 		"customer_service_capabilities_customer_code_uq",
 		"jsonb_typeof(config_json) = 'object'",
+		"ADD CONSTRAINT customer_service_capabilities_config_object_chk CHECK (jsonb_typeof(config_json) = 'object') NOT VALID",
+		"VALIDATE CONSTRAINT customer_service_capabilities_config_object_chk",
 	} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("schema missing %q", want)

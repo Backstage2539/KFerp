@@ -44,18 +44,21 @@ func (r Repository) CreateLoginSession(ctx context.Context, cmd customerportalap
 	defer func() { _ = tx.Rollback(ctx) }()
 
 	var miniUserID int64
+	var active bool
 	if err := tx.QueryRow(ctx, fmt.Sprintf(`
 		INSERT INTO %s.mini_users(openid, unionid, phone, nickname, active, last_login_at)
 		VALUES($1,$2,$3,$4,true,now())
 		ON CONFLICT(openid) DO UPDATE SET
-			unionid=CASE WHEN EXCLUDED.unionid<>'' THEN EXCLUDED.unionid ELSE mini_users.unionid END,
-			phone=CASE WHEN EXCLUDED.phone<>'' THEN EXCLUDED.phone ELSE mini_users.phone END,
-			nickname=CASE WHEN EXCLUDED.nickname<>'' THEN EXCLUDED.nickname ELSE mini_users.nickname END,
-			active=true,
-			last_login_at=now()
-		RETURNING id
-	`, r.schema), openID, unionID, phone, nickname).Scan(&miniUserID); err != nil {
+			unionid=CASE WHEN mini_users.active AND EXCLUDED.unionid<>'' THEN EXCLUDED.unionid ELSE mini_users.unionid END,
+			phone=CASE WHEN mini_users.active AND EXCLUDED.phone<>'' THEN EXCLUDED.phone ELSE mini_users.phone END,
+			nickname=CASE WHEN mini_users.active AND EXCLUDED.nickname<>'' THEN EXCLUDED.nickname ELSE mini_users.nickname END,
+			last_login_at=CASE WHEN mini_users.active THEN now() ELSE mini_users.last_login_at END
+		RETURNING id, active
+	`, r.schema), openID, unionID, phone, nickname).Scan(&miniUserID, &active); err != nil {
 		return customerportalapp.LoginResult{}, err
+	}
+	if !active {
+		return customerportalapp.LoginResult{}, customerportalapp.ErrMiniUserDisabled
 	}
 
 	bindings, err := r.listBindingsTx(ctx, tx, miniUserID)

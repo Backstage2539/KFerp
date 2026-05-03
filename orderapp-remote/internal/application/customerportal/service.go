@@ -21,6 +21,7 @@ var (
 	ErrCustomerBindingNotFound = errors.New("customer binding not found")
 	ErrMiniSessionNotFound     = errors.New("mini session not found")
 	ErrMiniLoginDisabled       = errors.New("mini login disabled")
+	ErrMiniUserDisabled        = errors.New("mini user disabled")
 )
 
 type LoginCommand struct {
