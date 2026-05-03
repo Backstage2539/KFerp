@@ -181,7 +181,17 @@ func (r Repository) loadOrderStockBatchAvailability(ctx context.Context, q stock
 			SELECT COALESCE(SUM(a.allocated_g),0)::bigint AS reserved_g
 			FROM %s.order_stock_batch_allocations a
 			WHERE a.batch_code=b.batch_code
+			  AND a.product_id=b.item_id
+			  AND a.spec_g=b.spec_g
 			  AND ($3::bigint <= 0 OR a.order_id <> $3::bigint)
+			  AND NOT EXISTS (
+				SELECT 1
+				FROM %s.order_stock_deductions d
+				WHERE d.order_id=a.order_id
+				  AND d.product_id=a.product_id
+				  AND d.spec_g=a.spec_g
+				  AND d.batch_code=a.batch_code
+			  )
 		) reserved ON true
 		LEFT JOIN LATERAL (
 			SELECT l.warehouse
@@ -200,7 +210,7 @@ func (r Repository) loadOrderStockBatchAvailability(ctx context.Context, q stock
 		  AND COALESCE(b.quality_status,'unchecked') NOT IN ('hold','reject')
 		  AND COALESCE(last_ledger.warehouse,'finished_goods') = 'finished_goods'
 		ORDER BY b.created_at, b.id%s
-	`, r.schema, r.schema, r.schema, r.schema, lockClause)
+	`, r.schema, r.schema, r.schema, r.schema, r.schema, lockClause)
 	rows, err := q.Query(ctx, sql, productID, specG, excludeOrderID)
 	if err != nil {
 		return nil, err
@@ -260,11 +270,19 @@ func (r Repository) loadLegacyFinishedInventoryAvailability(ctx context.Context,
 			WHERE a.product_id=$1
 			  AND a.spec_g=$2
 			  AND ($3::bigint <= 0 OR a.order_id <> $3::bigint)
+			  AND NOT EXISTS (
+				SELECT 1
+				FROM %s.order_stock_deductions d
+				WHERE d.order_id=a.order_id
+				  AND d.product_id=a.product_id
+				  AND d.spec_g=a.spec_g
+				  AND d.batch_code=a.batch_code
+			  )
 		) reserved ON true
 		WHERE fi.product_id=$1
 		  AND fi.spec_g=$2
 		  AND fi.warehouse='finished_goods'%s
-	`, r.schema, r.schema, r.schema, lockClause)
+	`, r.schema, r.schema, r.schema, r.schema, lockClause)
 	rows, err := q.Query(ctx, sql, productID, specG, excludeOrderID)
 	if err != nil {
 		return nil, err

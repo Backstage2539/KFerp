@@ -1086,7 +1086,8 @@ func productionFlowTestBaseDDL(schema string) string {
 			order_no TEXT,
 			order_date DATE,
 			is_void BOOLEAN NOT NULL DEFAULT false,
-			process_status_id INTEGER REFERENCES %s.order_process_statuses(id)
+			process_status_id INTEGER REFERENCES %s.order_process_statuses(id),
+			ship_status_id BIGINT REFERENCES %s.ship_statuses(id)
 		);
 		CREATE TABLE %s.order_items (
 			id BIGSERIAL PRIMARY KEY,
@@ -1101,5 +1102,5 @@ func productionFlowTestBaseDDL(schema string) string {
 			line_total NUMERIC,
 			price_overridden BOOLEAN NOT NULL DEFAULT false
 		);
-	`, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema)
+	`, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema)
 }

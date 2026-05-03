@@ -100,6 +100,9 @@ func (r Repository) FillShipmentTracking(ctx context.Context, cmd salesapp.FillS
 		if err := r.insertShippingAuditTx(ctx, tx, cmd.Actor, item.OrderID, "ship_status_id", fmt.Sprintf("%d", shippedStatusID)); err != nil {
 			return salesapp.FillShipmentTrackingResult{}, err
 		}
+		if err := r.deductOrderAllocatedStockTx(ctx, tx, item.OrderID, cmd.Actor); err != nil {
+			return salesapp.FillShipmentTrackingResult{}, err
+		}
 		updated++
 	}
 	if updated > 0 {
@@ -177,6 +180,9 @@ func (r Repository) FillShipmentTrackingByOrderNo(ctx context.Context, cmd sales
 		if err := r.insertShippingAuditTx(ctx, tx, cmd.Actor, orderID, "ship_status_id", fmt.Sprintf("%d", shippedStatusID)); err != nil {
 			return salesapp.FillShipmentTrackingResult{}, err
 		}
+		if err := r.deductOrderAllocatedStockTx(ctx, tx, orderID, cmd.Actor); err != nil {
+			return salesapp.FillShipmentTrackingResult{}, err
+		}
 		updated++
 	}
 	if err := tx.Commit(ctx); err != nil {
@@ -249,6 +255,9 @@ func (r Repository) FillOrderTracking(ctx context.Context, cmd salesapp.FillOrde
 		return salesapp.FillShipmentTrackingResult{}, err
 	}
 	if err := r.insertShippingAuditTx(ctx, tx, cmd.Actor, orderID, "ship_status_id", fmt.Sprintf("%d", shippedStatusID)); err != nil {
+		return salesapp.FillShipmentTrackingResult{}, err
+	}
+	if err := r.deductOrderAllocatedStockTx(ctx, tx, orderID, cmd.Actor); err != nil {
 		return salesapp.FillShipmentTrackingResult{}, err
 	}
 	if err := tx.Commit(ctx); err != nil {
