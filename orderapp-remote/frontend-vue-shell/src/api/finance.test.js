@@ -6,10 +6,14 @@ import {
   createFinanceAdjustment,
   createFinanceExpense,
   fetchFinanceDashboard,
+  fetchFinanceClosingReview,
   fetchFinanceExpenses,
   fetchFinanceReport,
+  fetchFinanceReportDrilldown,
   fetchFinanceSettings,
+  fetchFinanceTaxLedger,
   saveFinanceSettings,
+  saveFinanceTaxLedgerEntry,
   switchFinanceClosingMode,
 } from './finance.js'
 
@@ -37,10 +41,16 @@ test('finance API wrappers use the month-scoped dashboard, report and expense en
   await withMockFetch(async (requests) => {
     await fetchFinanceDashboard('2026-05')
     await fetchFinanceReport('2026-05')
+    await fetchFinanceClosingReview('2026-05')
+    await fetchFinanceReportDrilldown('2026-05')
+    await fetchFinanceTaxLedger('2026-05')
     await fetchFinanceExpenses('2026-05', 7)
     assert.deepEqual(requests.map((req) => req.url), [
       'https://erp.qacoohee.com/api/finance/dashboard?month=2026-05',
       'https://erp.qacoohee.com/api/finance/reports/2026-05',
+      'https://erp.qacoohee.com/api/finance/reports/2026-05/closing-review',
+      'https://erp.qacoohee.com/api/finance/reports/2026-05/drilldown',
+      'https://erp.qacoohee.com/api/finance/tax-ledger?month=2026-05',
       'https://erp.qacoohee.com/api/finance/expenses?month=2026-05&employee_id=7',
     ])
   })
@@ -52,6 +62,7 @@ test('finance API wrappers send settings, close-mode, expenses, close and adjust
     await saveFinanceSettings({ taxpayer_type: 'general' })
     await switchFinanceClosingMode('light_confirmation')
     await createFinanceExpense({ date: '2026-05-02', category: '物流', amount: 100, allocation: 'period_expense' })
+    await saveFinanceTaxLedgerEntry({ month: '2026-05', kind: 'sales_invoice', invoice_no: 'INV-001' })
     await closeFinanceMonth('2026-05')
     await createFinanceAdjustment({ month: '2026-05', type: 'expense', amount: 50, reason: '补录费用' })
 
@@ -60,6 +71,7 @@ test('finance API wrappers send settings, close-mode, expenses, close and adjust
       ['/api/finance/settings', 'POST'],
       ['/api/finance/settings/closing-mode', 'POST'],
       ['/api/finance/expenses', 'POST'],
+      ['/api/finance/tax-ledger', 'POST'],
       ['/api/finance/reports/2026-05/close', 'POST'],
       ['/api/finance/adjustments', 'POST'],
     ])

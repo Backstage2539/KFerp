@@ -163,16 +163,26 @@ func (r Repository) CreateExpense(ctx context.Context, cmd appfinance.CreateExpe
 	var row appfinance.Expense
 	err := r.pool.QueryRow(ctx, fmt.Sprintf(`
 		WITH inserted AS (
-			INSERT INTO %s.finance_expenses(expense_date,month,category,amount,allocation,employee_id,input_vat,non_deductible_input_vat,payment,note,created_by)
-			VALUES($1::date,$2,$3,$4,$5,$6,0,0,$7,$8,$9)
-			RETURNING id,expense_date,month,category,amount,allocation,employee_id,payment,note,created_by,created_at
+			INSERT INTO %s.finance_expenses(
+				expense_date,month,category,amount,allocation,employee_id,
+				order_id,customer_id,product_id,batch_no,dimension_note,
+				input_vat,non_deductible_input_vat,payment,note,created_by
+			)
+			VALUES($1::date,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,0,0,$12,$13,$14)
+			RETURNING id,expense_date,month,category,amount,allocation,employee_id,
+			          order_id,customer_id,product_id,batch_no,dimension_note,
+			          payment,note,created_by,created_at
 		)
 		SELECT i.id,to_char(i.expense_date,'YYYY-MM-DD'),i.month,i.category,i.amount::float8,i.allocation,
-		       COALESCE(i.employee_id,0),COALESCE(e.name,''),i.payment,i.note,i.created_by,to_char(i.created_at,'YYYY-MM-DD HH24:MI')
+		       COALESCE(i.employee_id,0),COALESCE(e.name,''),
+		       i.order_id,i.customer_id,i.product_id,i.batch_no,i.dimension_note,
+		       i.payment,i.note,i.created_by,to_char(i.created_at,'YYYY-MM-DD HH24:MI')
 		FROM inserted i
 		LEFT JOIN %s.company_employees e ON e.id=i.employee_id
-	`, r.schema, r.schema), cmd.Date, cmd.Month, cmd.Category, cmd.Amount, cmd.Allocation, nullableEmployeeID(cmd.EmployeeID), cmd.Payment, cmd.Note, cmd.Actor).
-		Scan(&row.ID, &row.Date, &row.Month, &row.Category, &row.Amount, &row.Allocation, &row.EmployeeID, &row.EmployeeName, &row.Payment, &row.Note, &row.Actor, &row.CreatedAt)
+	`, r.schema, r.schema), cmd.Date, cmd.Month, cmd.Category, cmd.Amount, cmd.Allocation, nullableEmployeeID(cmd.EmployeeID),
+		cmd.OrderID, cmd.CustomerID, cmd.ProductID, cmd.BatchNo, cmd.DimensionNote, cmd.Payment, cmd.Note, cmd.Actor).
+		Scan(&row.ID, &row.Date, &row.Month, &row.Category, &row.Amount, &row.Allocation, &row.EmployeeID, &row.EmployeeName,
+			&row.OrderID, &row.CustomerID, &row.ProductID, &row.BatchNo, &row.DimensionNote, &row.Payment, &row.Note, &row.Actor, &row.CreatedAt)
 	return row, err
 }
 
@@ -185,7 +195,9 @@ func (r Repository) ListExpenses(ctx context.Context, filter appfinance.ExpenseF
 	}
 	rows, err := r.pool.Query(ctx, fmt.Sprintf(`
 		SELECT fe.id,to_char(fe.expense_date,'YYYY-MM-DD'),fe.month,fe.category,fe.amount::float8,fe.allocation,
-		       COALESCE(fe.employee_id,0),COALESCE(e.name,''),fe.payment,fe.note,fe.created_by,to_char(fe.created_at,'YYYY-MM-DD HH24:MI')
+		       COALESCE(fe.employee_id,0),COALESCE(e.name,''),
+		       fe.order_id,fe.customer_id,fe.product_id,fe.batch_no,fe.dimension_note,
+		       fe.payment,fe.note,fe.created_by,to_char(fe.created_at,'YYYY-MM-DD HH24:MI')
 		FROM %s.finance_expenses fe
 		LEFT JOIN %s.company_employees e ON e.id=fe.employee_id
 		%s
@@ -198,12 +210,93 @@ func (r Repository) ListExpenses(ctx context.Context, filter appfinance.ExpenseF
 	out := []appfinance.Expense{}
 	for rows.Next() {
 		var row appfinance.Expense
-		if err := rows.Scan(&row.ID, &row.Date, &row.Month, &row.Category, &row.Amount, &row.Allocation, &row.EmployeeID, &row.EmployeeName, &row.Payment, &row.Note, &row.Actor, &row.CreatedAt); err != nil {
+		if err := rows.Scan(&row.ID, &row.Date, &row.Month, &row.Category, &row.Amount, &row.Allocation, &row.EmployeeID, &row.EmployeeName,
+			&row.OrderID, &row.CustomerID, &row.ProductID, &row.BatchNo, &row.DimensionNote, &row.Payment, &row.Note, &row.Actor, &row.CreatedAt); err != nil {
 			return nil, err
 		}
 		out = append(out, row)
 	}
 	return out, rows.Err()
+}
+
+func (r Repository) FinanceSourceDetails(ctx context.Context, month string) ([]appfinance.SourceDetail, error) {
+	if r.pool == nil {
+		return []appfinance.SourceDetail{}, nil
+	}
+	start := month + "-01"
+	out := []appfinance.SourceDetail{}
+	queries := []struct {
+		sql  string
+		args []any
+	}{
+		{
+			sql: fmt.Sprintf(`
+				SELECT 'revenue' AS section,'order_revenue' AS source_type,o.id AS source_id,
+				       COALESCE(to_char(o.order_date,'YYYY-MM-DD'),'') AS source_date,
+				       COALESCE(NULLIF(o.order_no,''), '订单#' || o.id::text) AS name,
+				       '' AS category,COALESCE(NULLIF(c.name,''),NULLIF(c.company_name,''),'') AS counterparty,
+				       COALESCE(o.grand_total,o.total_amount,0)::float8 AS amount,
+				       '/app/vue-shell?view=orders' AS link
+				FROM %s.orders o
+				LEFT JOIN %s.customers c ON c.id=o.customer_id
+				WHERE COALESCE(o.is_void,false)=false
+				  AND o.order_date >= $1::date
+				  AND o.order_date < ($1::date + INTERVAL '1 month')
+				ORDER BY o.order_date,o.id
+			`, r.schema, r.schema),
+			args: []any{start},
+		},
+		{
+			sql: fmt.Sprintf(`
+				SELECT 'main_cost' AS section,'production_cost' AS source_type,id AS source_id,
+				       to_char(created_at,'YYYY-MM-DD') AS source_date,
+				       COALESCE(NULLIF(product_name,''),'生产批次成本') AS name,
+				       '生产批次成本' AS category,'' AS counterparty,total_cost::float8 AS amount,
+				       '/app/vue-shell?view=productionCosts' AS link
+				FROM %s.production_batch_costs
+				WHERE created_at >= $1::date
+				  AND created_at < ($1::date + INTERVAL '1 month')
+				ORDER BY created_at,id
+			`, r.schema),
+			args: []any{start},
+		},
+		{
+			sql: fmt.Sprintf(`
+				SELECT fe.allocation AS section,'expense' AS source_type,fe.id AS source_id,
+				       to_char(fe.expense_date,'YYYY-MM-DD') AS source_date,
+				       fe.category AS name,fe.category AS category,COALESCE(e.name,'') AS counterparty,
+				       fe.amount::float8 AS amount,'/app/vue-shell?view=financeExpenses' AS link
+				FROM %s.finance_expenses fe
+				LEFT JOIN %s.company_employees e ON e.id=fe.employee_id
+				WHERE fe.month=$1
+				ORDER BY fe.expense_date,fe.id
+			`, r.schema, r.schema),
+			args: []any{month},
+		},
+		{
+			sql: fmt.Sprintf(`
+				SELECT 'tax' AS section,'tax_ledger' AS source_type,id AS source_id,
+				       to_char(created_at,'YYYY-MM-DD') AS source_date,
+				       COALESCE(NULLIF(invoice_no,''),kind) AS name,kind AS category,counterparty,
+				       CASE WHEN tax_amount > 0 THEN tax_amount ELSE total_amount END::float8 AS amount,
+				       '/app/vue-shell?view=financeTaxLedger' AS link
+				FROM %s.finance_tax_ledger
+				WHERE month=$1
+				ORDER BY id
+			`, r.schema),
+			args: []any{month},
+		},
+	}
+	for _, query := range queries {
+		rows, err := r.pool.Query(ctx, query.sql, query.args...)
+		if err != nil {
+			return nil, err
+		}
+		if err := scanSourceDetails(rows, &out); err != nil {
+			return nil, err
+		}
+	}
+	return out, nil
 }
 
 func nullableEmployeeID(id int64) any {
@@ -232,6 +325,64 @@ func (r Repository) ListExpenseEmployees(ctx context.Context) ([]appfinance.Expe
 		out = append(out, row)
 	}
 	return out, rows.Err()
+}
+
+func (r Repository) ListTaxLedger(ctx context.Context, month string) ([]appfinance.TaxLedgerEntry, error) {
+	rows, err := r.pool.Query(ctx, fmt.Sprintf(`
+		SELECT id,month,kind,invoice_no,counterparty,total_amount::float8,tax_amount::float8,status,note,created_by,to_char(created_at,'YYYY-MM-DD HH24:MI')
+		FROM %s.finance_tax_ledger
+		WHERE month=$1
+		ORDER BY id DESC
+	`, r.schema), month)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []appfinance.TaxLedgerEntry{}
+	for rows.Next() {
+		var row appfinance.TaxLedgerEntry
+		if err := rows.Scan(&row.ID, &row.Month, &row.Kind, &row.InvoiceNo, &row.Counterparty, &row.TotalAmount, &row.TaxAmount, &row.Status, &row.Note, &row.Actor, &row.CreatedAt); err != nil {
+			return nil, err
+		}
+		out = append(out, row)
+	}
+	return out, rows.Err()
+}
+
+func (r Repository) CreateTaxLedgerEntry(ctx context.Context, cmd appfinance.CreateTaxLedgerCommand) (appfinance.TaxLedgerEntry, error) {
+	conn, err := r.pool.Acquire(ctx)
+	if err != nil {
+		return appfinance.TaxLedgerEntry{}, err
+	}
+	defer conn.Release()
+	tx, err := conn.Begin(ctx)
+	if err != nil {
+		return appfinance.TaxLedgerEntry{}, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	var row appfinance.TaxLedgerEntry
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`
+		INSERT INTO %s.finance_tax_ledger(month,kind,invoice_no,counterparty,total_amount,tax_amount,status,note,created_by)
+		VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)
+		RETURNING id,month,kind,invoice_no,counterparty,total_amount::float8,tax_amount::float8,status,note,created_by,to_char(created_at,'YYYY-MM-DD HH24:MI')
+	`, r.schema), cmd.Month, cmd.Kind, cmd.InvoiceNo, cmd.Counterparty, cmd.TotalAmount, cmd.TaxAmount, cmd.Status, cmd.Note, cmd.Actor).
+		Scan(&row.ID, &row.Month, &row.Kind, &row.InvoiceNo, &row.Counterparty, &row.TotalAmount, &row.TaxAmount, &row.Status, &row.Note, &row.Actor, &row.CreatedAt); err != nil {
+		return appfinance.TaxLedgerEntry{}, err
+	}
+	if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, cmd.Actor, "finance_tax_ledger", &row.ID, "create", postgresinfra.StrPtr(row.Kind), nil, postgresinfra.StrPtr(row.InvoiceNo), postgresinfra.AuditMeta{
+		"month":         row.Month,
+		"counterparty":  row.Counterparty,
+		"total_amount":  row.TotalAmount,
+		"tax_amount":    row.TaxAmount,
+		"ledger_status": row.Status,
+	}); err != nil {
+		return appfinance.TaxLedgerEntry{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return appfinance.TaxLedgerEntry{}, err
+	}
+	return row, nil
 }
 
 func (r Repository) SaveMonthlyReport(ctx context.Context, report domain.MonthlyReport, actor string) (domain.MonthlyReport, error) {
@@ -315,6 +466,18 @@ func (r Repository) ListAdjustments(ctx context.Context, month string) ([]appfin
 		out = append(out, row)
 	}
 	return out, rows.Err()
+}
+
+func scanSourceDetails(rows pgx.Rows, out *[]appfinance.SourceDetail) error {
+	defer rows.Close()
+	for rows.Next() {
+		var row appfinance.SourceDetail
+		if err := rows.Scan(&row.Section, &row.SourceType, &row.SourceID, &row.Date, &row.Name, &row.Category, &row.Counterparty, &row.Amount, &row.Link); err != nil {
+			return err
+		}
+		*out = append(*out, row)
+	}
+	return rows.Err()
 }
 
 func scanSettings(row pgx.Row) (appfinance.SettingsSnapshot, error) {

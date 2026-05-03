@@ -55,6 +55,9 @@ func TestCreateExpenseValidatesAndNormalizesPeriodExpense(t *testing.T) {
 	if expense.EmployeeID != 7 {
 		t.Fatalf("employee_id = %d, want 7", expense.EmployeeID)
 	}
+	if _, err := svc.CreateExpense(context.Background(), CreateExpenseCommand{Date: "2026-05-02", Category: "房租", Amount: 1, OrderID: -1}); err == nil {
+		t.Fatal("negative order_id should fail")
+	}
 	if _, err := svc.CreateExpense(context.Background(), CreateExpenseCommand{Date: "bad", Category: "房租", Amount: 1}); err == nil {
 		t.Fatal("invalid date should fail")
 	}
@@ -63,6 +66,93 @@ func TestCreateExpenseValidatesAndNormalizesPeriodExpense(t *testing.T) {
 	}
 	if _, err := svc.CreateExpense(context.Background(), CreateExpenseCommand{Date: "2026-05-02", Category: "房租", Amount: 1, EmployeeID: -1}); err == nil {
 		t.Fatal("negative employee_id should fail")
+	}
+}
+
+func TestCreateExpenseCapturesFinanceDimensions(t *testing.T) {
+	repo := newFakeRepo()
+	repo.reportStatus = domain.MonthStatusDraft
+	svc := NewService(repo)
+
+	expense, err := svc.CreateExpense(context.Background(), CreateExpenseCommand{
+		Date:          "2026-05-02",
+		Category:      "样品费",
+		Amount:        120,
+		Allocation:    AllocationPeriodExpense,
+		OrderID:       256,
+		CustomerID:    18,
+		ProductID:     9,
+		BatchNo:       "BATCH-0503",
+		DimensionNote: "客户杯测样品",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if expense.OrderID != 256 || expense.CustomerID != 18 || expense.ProductID != 9 || expense.BatchNo != "BATCH-0503" || expense.DimensionNote != "客户杯测样品" {
+		t.Fatalf("finance dimensions not preserved: %#v", expense)
+	}
+}
+
+func TestFinanceClosingReviewDrilldownTaxLedgerAndHandoff(t *testing.T) {
+	repo := newFakeRepo()
+	repo.reportStatus = domain.MonthStatusDraft
+	repo.totals = domain.MonthlySourceTotals{Month: "2026-05", RevenueTaxInclusive: 1030, MainBusinessCost: 300, PeriodExpenses: 120}
+	repo.sourceDetails = []SourceDetail{
+		{Section: "revenue", SourceType: "order", SourceID: 256, Date: "2026-05-02", Name: "SO-20260502-0001", Amount: 1030},
+		{Section: "main_cost", SourceType: "production_cost", SourceID: 9, Date: "2026-05-03", Name: "烘焙批次成本", Amount: 300},
+		{Section: "period_expense", SourceType: "expense", SourceID: 1, Date: "2026-05-03", Name: "房租", Amount: 120},
+	}
+	repo.taxLedger = []TaxLedgerEntry{
+		{ID: 1, Month: "2026-05", Kind: "sales_invoice", InvoiceNo: "INV-001", Counterparty: "咖啡客户A", TotalAmount: 1030, TaxAmount: 30, Status: "confirmed"},
+	}
+	svc := NewService(repo)
+
+	review, err := svc.ClosingReview(context.Background(), "2026-05")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(review.Items) < 4 || !review.HasCode("source_exceptions") || !review.HasCode("tax_ledger") || !review.HasCode("accountant_handoff") {
+		t.Fatalf("closing review missing expected checks: %#v", review.Items)
+	}
+
+	drilldown, err := svc.ReportDrilldown(context.Background(), "2026-05")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if drilldown.SectionTotal("revenue") != 1030 || drilldown.SectionTotal("main_cost") != 300 || drilldown.SectionTotal("period_expense") != 120 {
+		t.Fatalf("unexpected drilldown totals: %#v", drilldown.Sections)
+	}
+
+	ledgerRow, err := svc.CreateTaxLedgerEntry(context.Background(), CreateTaxLedgerCommand{
+		Month:        "2026-05",
+		Kind:         "purchase_invoice",
+		InvoiceNo:    "PINV-001",
+		Counterparty: "生豆供应商",
+		TotalAmount:  500,
+		TaxAmount:    15,
+		Status:       "pending",
+		Actor:        "Van",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ledgerRow.Kind != "purchase_invoice" || ledgerRow.InvoiceNo != "PINV-001" {
+		t.Fatalf("unexpected ledger row: %#v", ledgerRow)
+	}
+	ledger, err := svc.ListTaxLedger(context.Background(), "2026-05")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(ledger) != 2 {
+		t.Fatalf("ledger rows = %d, want 2", len(ledger))
+	}
+
+	handoff, err := svc.AccountantHandoff(context.Background(), "2026-05")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if handoff.Month != "2026-05" || len(handoff.VoucherDrafts) < 4 || len(handoff.TaxLedger) != 2 {
+		t.Fatalf("unexpected handoff: %#v", handoff)
 	}
 }
 
@@ -264,6 +354,8 @@ type fakeRepo struct {
 	expenses            []Expense
 	listExpenseFilter   ExpenseFilter
 	expenseEmployees    []ExpenseEmployee
+	sourceDetails       []SourceDetail
+	taxLedger           []TaxLedgerEntry
 }
 
 func newFakeRepo() *fakeRepo {
@@ -289,7 +381,7 @@ func (r *fakeRepo) ListAdjustments(context.Context, string) ([]AdjustmentRecord,
 }
 
 func (r *fakeRepo) CreateExpense(_ context.Context, cmd CreateExpenseCommand) (Expense, error) {
-	row := Expense{ID: int64(len(r.expenses) + 1), Date: cmd.Date, Month: monthFromDate(cmd.Date), Category: cmd.Category, Amount: cmd.Amount, Allocation: cmd.Allocation, EmployeeID: cmd.EmployeeID, Actor: cmd.Actor}
+	row := Expense{ID: int64(len(r.expenses) + 1), Date: cmd.Date, Month: monthFromDate(cmd.Date), Category: cmd.Category, Amount: cmd.Amount, Allocation: cmd.Allocation, EmployeeID: cmd.EmployeeID, OrderID: cmd.OrderID, CustomerID: cmd.CustomerID, ProductID: cmd.ProductID, BatchNo: cmd.BatchNo, DimensionNote: cmd.DimensionNote, Actor: cmd.Actor}
 	r.expenses = append(r.expenses, row)
 	return row, nil
 }
@@ -316,6 +408,20 @@ func (r *fakeRepo) MonthlyReportStatus(context.Context, string) (string, error) 
 func (r *fakeRepo) CreateAdjustment(_ context.Context, cmd CreateAdjustmentCommand) (AdjustmentRecord, error) {
 	row := AdjustmentRecord{ID: int64(len(r.adjustments) + 1), Month: cmd.Month, Type: cmd.Type, Amount: cmd.Amount, Reason: cmd.Reason, Actor: cmd.Actor}
 	r.adjustments = append(r.adjustments, row)
+	return row, nil
+}
+
+func (r *fakeRepo) FinanceSourceDetails(context.Context, string) ([]SourceDetail, error) {
+	return r.sourceDetails, nil
+}
+
+func (r *fakeRepo) ListTaxLedger(context.Context, string) ([]TaxLedgerEntry, error) {
+	return r.taxLedger, nil
+}
+
+func (r *fakeRepo) CreateTaxLedgerEntry(_ context.Context, cmd CreateTaxLedgerCommand) (TaxLedgerEntry, error) {
+	row := TaxLedgerEntry{ID: int64(len(r.taxLedger) + 1), Month: cmd.Month, Kind: cmd.Kind, InvoiceNo: cmd.InvoiceNo, Counterparty: cmd.Counterparty, TotalAmount: cmd.TotalAmount, TaxAmount: cmd.TaxAmount, Status: cmd.Status, Note: cmd.Note, Actor: cmd.Actor}
+	r.taxLedger = append(r.taxLedger, row)
 	return row, nil
 }
 

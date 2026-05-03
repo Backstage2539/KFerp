@@ -36,6 +36,18 @@
       </div>
 
       <div class="panel">
+        <div class="section-title">月结前检查</div>
+        <div v-if="!review.items?.length" class="empty">暂无检查项</div>
+        <div v-for="item in review.items" :key="item.code" class="check-row" :class="item.status">
+          <div>
+            <strong>{{ item.title }}</strong>
+            <span>{{ item.message }}</span>
+          </div>
+          <em>{{ checkStatusLabel(item.status) }}</em>
+        </div>
+      </div>
+
+      <div class="panel">
         <div class="section-title">结账后调整</div>
         <div class="adjust-form">
           <label>
@@ -74,11 +86,12 @@
 
 <script setup>
 import { computed, onMounted, reactive, ref } from 'vue'
-import { closeFinanceMonth, createFinanceAdjustment, fetchFinanceReport } from '../api/finance.js'
+import { closeFinanceMonth, createFinanceAdjustment, fetchFinanceClosingReview, fetchFinanceReport } from '../api/finance.js'
 import { currentMonth, financeMetricCards, financeStatusLabel, money } from '../lib/finance.js'
 
 const month = ref(currentMonth())
 const report = ref({})
+const review = ref({})
 const loading = ref(false)
 const saving = ref(false)
 const error = ref('')
@@ -98,6 +111,10 @@ function adjustmentTypeLabel(type) {
   return labels[type] || type
 }
 
+function checkStatusLabel(status) {
+  return status === 'ok' ? '通过' : '需确认'
+}
+
 function resetAdjustment() {
   adjustment.type = 'expense'
   adjustment.amount = ''
@@ -109,7 +126,12 @@ async function load() {
   loading.value = true
   error.value = ''
   try {
-    report.value = await fetchFinanceReport(month.value)
+    const [reportData, reviewData] = await Promise.all([
+      fetchFinanceReport(month.value),
+      fetchFinanceClosingReview(month.value),
+    ])
+    report.value = reportData
+    review.value = reviewData
   } catch (err) {
     error.value = err.message || '加载失败'
   } finally {
@@ -180,6 +202,10 @@ button:disabled { opacity: .55; cursor: not-allowed; }
 .section-title { font-weight: 800; margin-bottom: 10px; }
 .rows { display: grid; gap: 8px; }
 .rows div, .adjust-row { display: flex; justify-content: space-between; gap: 14px; border-bottom: 1px solid #f0f0f0; padding-bottom: 8px; }
+.check-row { display: grid; grid-template-columns: 1fr auto; gap: 12px; align-items: start; border-bottom: 1px solid #f0f0f0; padding: 10px 0; }
+.check-row div { display: grid; gap: 4px; }
+.check-row span, .check-row em { color: #666; font-style: normal; font-size: 13px; }
+.check-row.warn em { color: #9a3412; font-weight: 700; }
 .rows span, label span { color: #666; }
 label span { display: block; font-size: 12px; margin-bottom: 5px; }
 .adjust-form { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; align-items: end; margin-bottom: 12px; }

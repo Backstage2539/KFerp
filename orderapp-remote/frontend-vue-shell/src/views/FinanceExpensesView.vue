@@ -57,12 +57,32 @@
           </select>
         </label>
         <label>
+          <span>订单ID</span>
+          <input v-model="form.order_id" type="number" min="0" placeholder="可选" />
+        </label>
+        <label>
+          <span>客户ID</span>
+          <input v-model="form.customer_id" type="number" min="0" placeholder="可选" />
+        </label>
+        <label>
+          <span>商品ID</span>
+          <input v-model="form.product_id" type="number" min="0" placeholder="可选" />
+        </label>
+        <label>
+          <span>批次号</span>
+          <input v-model.trim="form.batch_no" placeholder="可选" />
+        </label>
+        <label>
           <span>付款方式</span>
           <input
             v-model.trim="form.payment"
             list="finance-expense-payment-options"
             placeholder="输入筛选或自定义付款方式"
           />
+        </label>
+        <label class="note">
+          <span>维度说明</span>
+          <input v-model.trim="form.dimension_note" placeholder="客户样品/批次损耗/订单补贴" />
         </label>
         <label class="note">
           <span>备注</span>
@@ -87,6 +107,7 @@
             <th>金额</th>
             <th>归集</th>
             <th>关联员工</th>
+            <th>业务维度</th>
             <th>付款方式</th>
             <th>备注</th>
             <th>录入人</th>
@@ -109,12 +130,19 @@
               </button>
               <span v-else class="muted">未关联</span>
             </td>
+            <td>
+              <span v-if="row.order_id">订单#{{ row.order_id }}</span>
+              <span v-if="row.customer_id"> 客户#{{ row.customer_id }}</span>
+              <span v-if="row.product_id"> 商品#{{ row.product_id }}</span>
+              <span v-if="row.batch_no"> {{ row.batch_no }}</span>
+              <span v-if="row.dimension_note" class="muted">{{ row.dimension_note }}</span>
+            </td>
             <td>{{ row.payment }}</td>
             <td>{{ row.note }}</td>
             <td>{{ row.actor }}</td>
           </tr>
           <tr v-if="!rows.length">
-            <td colspan="8" class="empty">暂无费用记录</td>
+            <td colspan="9" class="empty">暂无费用记录</td>
           </tr>
         </tbody>
       </table>
@@ -143,6 +171,11 @@ const form = reactive({
   amount: '',
   allocation: 'period_expense',
   employee_id: 0,
+  order_id: '',
+  customer_id: '',
+  product_id: '',
+  batch_no: '',
+  dimension_note: '',
   payment: '',
   note: '',
 })
@@ -166,6 +199,11 @@ function resetForm() {
   form.amount = ''
   form.allocation = 'period_expense'
   form.employee_id = 0
+  form.order_id = ''
+  form.customer_id = ''
+  form.product_id = ''
+  form.batch_no = ''
+  form.dimension_note = ''
   form.payment = ''
   form.note = ''
 }
@@ -200,6 +238,11 @@ async function save() {
       amount: Number(form.amount || 0),
       allocation: form.allocation,
       employee_id: form.employee_id,
+      order_id: Number(form.order_id || 0),
+      customer_id: Number(form.customer_id || 0),
+      product_id: Number(form.product_id || 0),
+      batch_no: form.batch_no,
+      dimension_note: form.dimension_note,
       payment: form.payment,
       note: form.note,
     })
@@ -251,7 +294,7 @@ h2 { margin: 0 0 4px; font-size: 20px; }
 p { margin: 0; color: #666; }
 .toolbar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .section-title { font-weight: 800; margin-bottom: 10px; }
-.form-grid { display: grid; grid-template-columns: 150px 1fr 140px 140px 150px 150px 1fr 86px; gap: 10px; align-items: end; }
+.form-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 10px; align-items: end; }
 label span { display: block; color: #666; font-size: 12px; margin-bottom: 5px; }
 input, select { width: 100%; height: 38px; border: 1px solid #cfcfcf; border-radius: 6px; padding: 7px 9px; font: inherit; background: #fff; }
 button { min-height: 38px; border-radius: 6px; border: 1px solid #1f1f1f; background: #1f1f1f; color: #fff; padding: 0 12px; font: inherit; cursor: pointer; }

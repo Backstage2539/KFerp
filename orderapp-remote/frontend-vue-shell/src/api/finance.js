@@ -37,6 +37,22 @@ export function fetchFinanceReport(month) {
   return apiGet(`/api/finance/reports/${monthValue(month)}`)
 }
 
+export function fetchFinanceClosingReview(month) {
+  return apiGet(`/api/finance/reports/${monthValue(month)}/closing-review`)
+}
+
+export function fetchFinanceReportDrilldown(month) {
+  return apiGet(`/api/finance/reports/${monthValue(month)}/drilldown`)
+}
+
+export function fetchFinanceTaxLedger(month) {
+  return apiGet(`/api/finance/tax-ledger?month=${monthValue(month)}`)
+}
+
+export function saveFinanceTaxLedgerEntry(payload) {
+  return apiSend('/api/finance/tax-ledger', { body: payload })
+}
+
 export function closeFinanceMonth(month) {
   return apiSend(`/api/finance/reports/${monthValue(month)}/close`, { body: {} })
 }

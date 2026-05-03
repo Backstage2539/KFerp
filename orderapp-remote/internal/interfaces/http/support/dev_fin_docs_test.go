@@ -20,6 +20,7 @@ func TestFinanceRequirementsManualAndSeedsAreRecorded(t *testing.T) {
 				"REV-FIN-001",
 				"PR-FIN-003",
 				"PR-FIN-004",
+				"PR-FIN-005",
 			},
 		},
 		{
@@ -30,6 +31,7 @@ func TestFinanceRequirementsManualAndSeedsAreRecorded(t *testing.T) {
 				"咖啡壳豆加工厂",
 				"关联员工",
 				"模糊搜索",
+				"票税台账",
 			},
 		},
 		{
@@ -40,6 +42,7 @@ func TestFinanceRequirementsManualAndSeedsAreRecorded(t *testing.T) {
 				"PDF 和 Excel",
 				"点击员工",
 				"付款方式",
+				"月结前检查",
 			},
 		},
 		{
@@ -50,6 +53,7 @@ func TestFinanceRequirementsManualAndSeedsAreRecorded(t *testing.T) {
 				"结账后调整",
 				"关联员工",
 				"候选",
+				"会计交接",
 			},
 		},
 	} {

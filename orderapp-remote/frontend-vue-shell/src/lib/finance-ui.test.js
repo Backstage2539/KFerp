@@ -13,12 +13,13 @@ test('App.vue wires every finance menu key to a Vue view', () => {
     'FinanceExpensesView',
     'FinanceClosingView',
     'FinanceReportView',
+    'FinanceTaxLedgerView',
     'FinanceSettingsView',
     'FinanceManualView',
   ]) {
     assert.ok(src.includes(name), `App.vue missing ${name}`)
   }
-  for (const key of ['financeDashboard', 'financeExpenses', 'financeClosing', 'financeReport', 'financeSettings', 'financeManual']) {
+  for (const key of ['financeDashboard', 'financeExpenses', 'financeClosing', 'financeReport', 'financeTaxLedger', 'financeSettings', 'financeManual']) {
     assert.ok(src.includes(`${key}:`), `App.vue missing ${key} view mapping`)
   }
 })
@@ -58,4 +59,24 @@ test('Finance expenses exposes searchable category and payment option lists', ()
   assert.ok(src.includes('list="finance-expense-payment-options"'))
   assert.ok(src.includes('<datalist id="finance-expense-category-options"'))
   assert.ok(src.includes('<datalist id="finance-expense-payment-options"'))
+})
+
+test('Finance improvements expose closing review, drilldown, tax ledger and accountant handoff in Vue', () => {
+  const menu = read('src/lib/menu-ia.js')
+  const report = read('src/views/FinanceReportView.vue')
+  const closing = read('src/views/FinanceClosingView.vue')
+  const expenses = read('src/views/FinanceExpensesView.vue')
+  const taxLedger = read('src/views/FinanceTaxLedgerView.vue')
+  const api = read('src/api/finance.js')
+
+  assert.ok(menu.includes('financeTaxLedger'))
+  assert.ok(report.includes('fetchFinanceReportDrilldown'))
+  assert.ok(report.includes('accountant-handoff.xlsx'))
+  assert.ok(closing.includes('fetchFinanceClosingReview'))
+  assert.ok(expenses.includes('order_id'))
+  assert.ok(expenses.includes('dimension_note'))
+  assert.ok(taxLedger.includes('saveFinanceTaxLedgerEntry'))
+  assert.ok(api.includes('/closing-review'))
+  assert.ok(api.includes('/drilldown'))
+  assert.ok(api.includes('/tax-ledger'))
 })

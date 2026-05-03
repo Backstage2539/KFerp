@@ -22,30 +22,40 @@ type SettingsSnapshot struct {
 }
 
 type Expense struct {
-	ID           int64        `json:"id"`
-	Date         string       `json:"date"`
-	Month        string       `json:"month"`
-	Category     string       `json:"category"`
-	Amount       domain.Money `json:"amount"`
-	Allocation   string       `json:"allocation"`
-	EmployeeID   int64        `json:"employee_id,omitempty"`
-	EmployeeName string       `json:"employee_name,omitempty"`
-	Payment      string       `json:"payment,omitempty"`
-	Note         string       `json:"note,omitempty"`
-	Actor        string       `json:"actor,omitempty"`
-	CreatedAt    string       `json:"created_at,omitempty"`
+	ID            int64        `json:"id"`
+	Date          string       `json:"date"`
+	Month         string       `json:"month"`
+	Category      string       `json:"category"`
+	Amount        domain.Money `json:"amount"`
+	Allocation    string       `json:"allocation"`
+	EmployeeID    int64        `json:"employee_id,omitempty"`
+	EmployeeName  string       `json:"employee_name,omitempty"`
+	OrderID       int64        `json:"order_id,omitempty"`
+	CustomerID    int64        `json:"customer_id,omitempty"`
+	ProductID     int64        `json:"product_id,omitempty"`
+	BatchNo       string       `json:"batch_no,omitempty"`
+	DimensionNote string       `json:"dimension_note,omitempty"`
+	Payment       string       `json:"payment,omitempty"`
+	Note          string       `json:"note,omitempty"`
+	Actor         string       `json:"actor,omitempty"`
+	CreatedAt     string       `json:"created_at,omitempty"`
 }
 
 type CreateExpenseCommand struct {
-	Date       string       `json:"date"`
-	Month      string       `json:"month,omitempty"`
-	Category   string       `json:"category"`
-	Amount     domain.Money `json:"amount"`
-	Allocation string       `json:"allocation"`
-	EmployeeID int64        `json:"employee_id,omitempty"`
-	Payment    string       `json:"payment,omitempty"`
-	Note       string       `json:"note,omitempty"`
-	Actor      string       `json:"-"`
+	Date          string       `json:"date"`
+	Month         string       `json:"month,omitempty"`
+	Category      string       `json:"category"`
+	Amount        domain.Money `json:"amount"`
+	Allocation    string       `json:"allocation"`
+	EmployeeID    int64        `json:"employee_id,omitempty"`
+	OrderID       int64        `json:"order_id,omitempty"`
+	CustomerID    int64        `json:"customer_id,omitempty"`
+	ProductID     int64        `json:"product_id,omitempty"`
+	BatchNo       string       `json:"batch_no,omitempty"`
+	DimensionNote string       `json:"dimension_note,omitempty"`
+	Payment       string       `json:"payment,omitempty"`
+	Note          string       `json:"note,omitempty"`
+	Actor         string       `json:"-"`
 }
 
 type ExpenseFilter struct {
@@ -63,6 +73,105 @@ type Exception struct {
 	Code    string `json:"code"`
 	Message string `json:"message"`
 	Count   int    `json:"count,omitempty"`
+}
+
+type ClosingReview struct {
+	Month string             `json:"month"`
+	Items []ClosingCheckItem `json:"items"`
+}
+
+func (r ClosingReview) HasCode(code string) bool {
+	for _, item := range r.Items {
+		if item.Code == code {
+			return true
+		}
+	}
+	return false
+}
+
+type ClosingCheckItem struct {
+	Code     string `json:"code"`
+	Title    string `json:"title"`
+	Status   string `json:"status"`
+	Severity string `json:"severity"`
+	Message  string `json:"message"`
+	Count    int    `json:"count,omitempty"`
+}
+
+type SourceDetail struct {
+	Section      string       `json:"section"`
+	SourceType   string       `json:"source_type"`
+	SourceID     int64        `json:"source_id,omitempty"`
+	Date         string       `json:"date,omitempty"`
+	Name         string       `json:"name"`
+	Category     string       `json:"category,omitempty"`
+	Counterparty string       `json:"counterparty,omitempty"`
+	Amount       domain.Money `json:"amount"`
+	Link         string       `json:"link,omitempty"`
+}
+
+type DrilldownSection struct {
+	Section string         `json:"section"`
+	Title   string         `json:"title"`
+	Total   domain.Money   `json:"total"`
+	Rows    []SourceDetail `json:"rows"`
+}
+
+type ReportDrilldown struct {
+	Month    string             `json:"month"`
+	Sections []DrilldownSection `json:"sections"`
+}
+
+func (d ReportDrilldown) SectionTotal(section string) domain.Money {
+	for _, row := range d.Sections {
+		if row.Section == section {
+			return row.Total
+		}
+	}
+	return 0
+}
+
+type TaxLedgerEntry struct {
+	ID           int64        `json:"id"`
+	Month        string       `json:"month"`
+	Kind         string       `json:"kind"`
+	InvoiceNo    string       `json:"invoice_no,omitempty"`
+	Counterparty string       `json:"counterparty,omitempty"`
+	TotalAmount  domain.Money `json:"total_amount"`
+	TaxAmount    domain.Money `json:"tax_amount"`
+	Status       string       `json:"status"`
+	Note         string       `json:"note,omitempty"`
+	Actor        string       `json:"actor,omitempty"`
+	CreatedAt    string       `json:"created_at,omitempty"`
+}
+
+type CreateTaxLedgerCommand struct {
+	Month        string       `json:"month"`
+	Kind         string       `json:"kind"`
+	InvoiceNo    string       `json:"invoice_no,omitempty"`
+	Counterparty string       `json:"counterparty,omitempty"`
+	TotalAmount  domain.Money `json:"total_amount"`
+	TaxAmount    domain.Money `json:"tax_amount"`
+	Status       string       `json:"status"`
+	Note         string       `json:"note,omitempty"`
+	Actor        string       `json:"-"`
+}
+
+type VoucherDraft struct {
+	Summary string       `json:"summary"`
+	Debit   string       `json:"debit"`
+	Credit  string       `json:"credit"`
+	Amount  domain.Money `json:"amount"`
+	Source  string       `json:"source,omitempty"`
+}
+
+type AccountantHandoff struct {
+	Month         string               `json:"month"`
+	Report        domain.MonthlyReport `json:"report"`
+	Checklist     []ClosingCheckItem   `json:"checklist"`
+	Drilldown     ReportDrilldown      `json:"drilldown"`
+	TaxLedger     []TaxLedgerEntry     `json:"tax_ledger"`
+	VoucherDrafts []VoucherDraft       `json:"voucher_drafts"`
 }
 
 type Dashboard struct {
@@ -109,6 +218,9 @@ type Repository interface {
 	CreateExpense(ctx context.Context, cmd CreateExpenseCommand) (Expense, error)
 	ListExpenses(ctx context.Context, filter ExpenseFilter) ([]Expense, error)
 	ListExpenseEmployees(ctx context.Context) ([]ExpenseEmployee, error)
+	FinanceSourceDetails(ctx context.Context, month string) ([]SourceDetail, error)
+	ListTaxLedger(ctx context.Context, month string) ([]TaxLedgerEntry, error)
+	CreateTaxLedgerEntry(ctx context.Context, cmd CreateTaxLedgerCommand) (TaxLedgerEntry, error)
 	SaveMonthlyReport(ctx context.Context, report domain.MonthlyReport, actor string) (domain.MonthlyReport, error)
 	MonthlyReportStatus(ctx context.Context, month string) (string, error)
 	CreateAdjustment(ctx context.Context, cmd CreateAdjustmentCommand) (AdjustmentRecord, error)
@@ -259,6 +371,130 @@ func (s *Service) ListExpenseEmployees(ctx context.Context) ([]ExpenseEmployee, 
 	return s.repo.ListExpenseEmployees(ctx)
 }
 
+func (s *Service) ClosingReview(ctx context.Context, month string) (ClosingReview, error) {
+	if err := validateMonth(month); err != nil {
+		return ClosingReview{}, err
+	}
+	dashboard, err := s.Dashboard(ctx, month)
+	if err != nil {
+		return ClosingReview{}, err
+	}
+	ledger, err := s.ListTaxLedger(ctx, month)
+	if err != nil {
+		return ClosingReview{}, err
+	}
+	drilldown, err := s.ReportDrilldown(ctx, month)
+	if err != nil {
+		return ClosingReview{}, err
+	}
+	items := []ClosingCheckItem{
+		{
+			Code:     "source_exceptions",
+			Title:    "来源异常",
+			Status:   statusFromCount(len(dashboard.Exceptions)),
+			Severity: severityFromCount(len(dashboard.Exceptions)),
+			Message:  sourceExceptionMessage(len(dashboard.Exceptions)),
+			Count:    len(dashboard.Exceptions),
+		},
+		{
+			Code:     "source_drilldown",
+			Title:    "报表来源明细",
+			Status:   statusFromCount(emptyDrilldownSections(drilldown)),
+			Severity: severityFromCount(emptyDrilldownSections(drilldown)),
+			Message:  drilldownMessage(drilldown),
+			Count:    len(drilldown.Sections),
+		},
+		{
+			Code:     "tax_ledger",
+			Title:    "票税台账",
+			Status:   statusFromCount(emptyTaxLedgerCount(ledger)),
+			Severity: severityFromCount(emptyTaxLedgerCount(ledger)),
+			Message:  taxLedgerMessage(ledger),
+			Count:    len(ledger),
+		},
+		{
+			Code:     "cost_matching",
+			Title:    "成本配比",
+			Status:   costMatchingStatus(dashboard.Report),
+			Severity: costMatchingSeverity(dashboard.Report),
+			Message:  costMatchingMessage(dashboard.Report),
+		},
+		{
+			Code:     "accountant_handoff",
+			Title:    "会计交接",
+			Status:   "ok",
+			Severity: "info",
+			Message:  "可导出会计交接 Excel，包含结账检查、来源明细、票税台账和凭证草稿。",
+		},
+	}
+	return ClosingReview{Month: month, Items: items}, nil
+}
+
+func (s *Service) ReportDrilldown(ctx context.Context, month string) (ReportDrilldown, error) {
+	if err := validateMonth(month); err != nil {
+		return ReportDrilldown{}, err
+	}
+	if s.repo == nil {
+		return ReportDrilldown{Month: month}, nil
+	}
+	rows, err := s.repo.FinanceSourceDetails(ctx, month)
+	if err != nil {
+		return ReportDrilldown{}, err
+	}
+	return drilldownFromDetails(month, rows), nil
+}
+
+func (s *Service) ListTaxLedger(ctx context.Context, month string) ([]TaxLedgerEntry, error) {
+	if err := validateMonth(month); err != nil {
+		return nil, err
+	}
+	if s.repo == nil {
+		return []TaxLedgerEntry{}, nil
+	}
+	return s.repo.ListTaxLedger(ctx, month)
+}
+
+func (s *Service) CreateTaxLedgerEntry(ctx context.Context, cmd CreateTaxLedgerCommand) (TaxLedgerEntry, error) {
+	if s.repo == nil {
+		return TaxLedgerEntry{}, fmt.Errorf("repository required")
+	}
+	normalized, err := normalizeTaxLedgerCommand(cmd)
+	if err != nil {
+		return TaxLedgerEntry{}, err
+	}
+	return s.repo.CreateTaxLedgerEntry(ctx, normalized)
+}
+
+func (s *Service) AccountantHandoff(ctx context.Context, month string) (AccountantHandoff, error) {
+	if err := validateMonth(month); err != nil {
+		return AccountantHandoff{}, err
+	}
+	report, err := s.DraftReport(ctx, month)
+	if err != nil {
+		return AccountantHandoff{}, err
+	}
+	review, err := s.ClosingReview(ctx, month)
+	if err != nil {
+		return AccountantHandoff{}, err
+	}
+	drilldown, err := s.ReportDrilldown(ctx, month)
+	if err != nil {
+		return AccountantHandoff{}, err
+	}
+	ledger, err := s.ListTaxLedger(ctx, month)
+	if err != nil {
+		return AccountantHandoff{}, err
+	}
+	return AccountantHandoff{
+		Month:         month,
+		Report:        report,
+		Checklist:     review.Items,
+		Drilldown:     drilldown,
+		TaxLedger:     ledger,
+		VoucherDrafts: voucherDraftsFromReport(report),
+	}, nil
+}
+
 func (s *Service) CreateAdjustment(ctx context.Context, cmd CreateAdjustmentCommand) (AdjustmentRecord, error) {
 	if s.repo == nil {
 		return AdjustmentRecord{}, fmt.Errorf("repository required")
@@ -338,6 +574,20 @@ func normalizeExpenseCommand(cmd CreateExpenseCommand) (CreateExpenseCommand, er
 	if cmd.EmployeeID < 0 {
 		return CreateExpenseCommand{}, fmt.Errorf("invalid employee_id")
 	}
+	if cmd.OrderID < 0 {
+		return CreateExpenseCommand{}, fmt.Errorf("invalid order_id")
+	}
+	if cmd.CustomerID < 0 {
+		return CreateExpenseCommand{}, fmt.Errorf("invalid customer_id")
+	}
+	if cmd.ProductID < 0 {
+		return CreateExpenseCommand{}, fmt.Errorf("invalid product_id")
+	}
+	cmd.BatchNo = strings.TrimSpace(cmd.BatchNo)
+	cmd.DimensionNote = strings.TrimSpace(cmd.DimensionNote)
+	cmd.Payment = strings.TrimSpace(cmd.Payment)
+	cmd.Note = strings.TrimSpace(cmd.Note)
+	cmd.Actor = strings.TrimSpace(cmd.Actor)
 	cmd.Allocation = strings.TrimSpace(cmd.Allocation)
 	if cmd.Allocation == "" {
 		cmd.Allocation = AllocationPeriodExpense
@@ -347,6 +597,183 @@ func normalizeExpenseCommand(cmd CreateExpenseCommand) (CreateExpenseCommand, er
 	}
 	cmd.Month = monthFromDate(cmd.Date)
 	return cmd, nil
+}
+
+func normalizeTaxLedgerCommand(cmd CreateTaxLedgerCommand) (CreateTaxLedgerCommand, error) {
+	cmd.Month = strings.TrimSpace(cmd.Month)
+	if err := validateMonth(cmd.Month); err != nil {
+		return CreateTaxLedgerCommand{}, err
+	}
+	cmd.Kind = strings.TrimSpace(cmd.Kind)
+	switch cmd.Kind {
+	case "sales_invoice", "purchase_invoice", "tax_payment", "other":
+	default:
+		return CreateTaxLedgerCommand{}, fmt.Errorf("invalid tax ledger kind")
+	}
+	cmd.InvoiceNo = strings.TrimSpace(cmd.InvoiceNo)
+	cmd.Counterparty = strings.TrimSpace(cmd.Counterparty)
+	if cmd.TotalAmount <= 0 {
+		return CreateTaxLedgerCommand{}, fmt.Errorf("total amount must be > 0")
+	}
+	if cmd.TaxAmount < 0 {
+		return CreateTaxLedgerCommand{}, fmt.Errorf("tax amount must be >= 0")
+	}
+	if cmd.TaxAmount > cmd.TotalAmount {
+		return CreateTaxLedgerCommand{}, fmt.Errorf("tax amount exceeds total amount")
+	}
+	cmd.Status = strings.TrimSpace(cmd.Status)
+	if cmd.Status == "" {
+		cmd.Status = "pending"
+	}
+	switch cmd.Status {
+	case "pending", "confirmed", "matched":
+	default:
+		return CreateTaxLedgerCommand{}, fmt.Errorf("invalid tax ledger status")
+	}
+	cmd.Note = strings.TrimSpace(cmd.Note)
+	cmd.Actor = strings.TrimSpace(cmd.Actor)
+	return cmd, nil
+}
+
+func drilldownFromDetails(month string, rows []SourceDetail) ReportDrilldown {
+	order := []string{"revenue", "main_cost", "period_expense", "tax"}
+	seen := map[string]*DrilldownSection{}
+	for _, row := range rows {
+		row.Section = strings.TrimSpace(row.Section)
+		if row.Section == "" {
+			row.Section = "other"
+		}
+		if _, ok := seen[row.Section]; !ok {
+			seen[row.Section] = &DrilldownSection{Section: row.Section, Title: titleForDrilldownSection(row.Section)}
+			if !containsString(order, row.Section) {
+				order = append(order, row.Section)
+			}
+		}
+		section := seen[row.Section]
+		section.Total += row.Amount
+		section.Rows = append(section.Rows, row)
+	}
+	sections := make([]DrilldownSection, 0, len(seen))
+	for _, key := range order {
+		if section, ok := seen[key]; ok {
+			sections = append(sections, *section)
+		}
+	}
+	return ReportDrilldown{Month: month, Sections: sections}
+}
+
+func titleForDrilldownSection(section string) string {
+	switch section {
+	case "revenue":
+		return "收入来源"
+	case "main_cost":
+		return "主营成本来源"
+	case "period_expense":
+		return "期间费用来源"
+	case "tax":
+		return "票税来源"
+	default:
+		return "其他来源"
+	}
+}
+
+func containsString(rows []string, want string) bool {
+	for _, row := range rows {
+		if row == want {
+			return true
+		}
+	}
+	return false
+}
+
+func statusFromCount(count int) string {
+	if count > 0 {
+		return "warn"
+	}
+	return "ok"
+}
+
+func severityFromCount(count int) string {
+	if count > 0 {
+		return "warning"
+	}
+	return "info"
+}
+
+func sourceExceptionMessage(count int) string {
+	if count > 0 {
+		return fmt.Sprintf("发现 %d 项来源异常，结账前建议处理。", count)
+	}
+	return "未发现来源异常。"
+}
+
+func emptyDrilldownSections(drilldown ReportDrilldown) int {
+	if len(drilldown.Sections) == 0 {
+		return 1
+	}
+	return 0
+}
+
+func drilldownMessage(drilldown ReportDrilldown) string {
+	if len(drilldown.Sections) == 0 {
+		return "本月暂未归集到可钻取来源。"
+	}
+	return "收入、成本、费用来源明细已生成，可在经营报告中钻取查看。"
+}
+
+func emptyTaxLedgerCount(rows []TaxLedgerEntry) int {
+	if len(rows) == 0 {
+		return 1
+	}
+	return 0
+}
+
+func taxLedgerMessage(rows []TaxLedgerEntry) string {
+	if len(rows) == 0 {
+		return "本月暂无票税台账记录，结账前建议补齐发票、税款或未取票说明。"
+	}
+	return fmt.Sprintf("本月已有 %d 条票税台账记录。", len(rows))
+}
+
+func costMatchingStatus(report domain.MonthlyReport) string {
+	if report.RevenueTaxInclusive > 0 && report.MainBusinessCost <= 0 {
+		return "warn"
+	}
+	return "ok"
+}
+
+func costMatchingSeverity(report domain.MonthlyReport) string {
+	if costMatchingStatus(report) == "warn" {
+		return "warning"
+	}
+	return "info"
+}
+
+func costMatchingMessage(report domain.MonthlyReport) string {
+	if costMatchingStatus(report) == "warn" {
+		return "本月有收入但未匹配主营成本，需确认生产成本、进货成本或主营成本费用归集。"
+	}
+	return "主营成本已参与毛利测算。"
+}
+
+func voucherDraftsFromReport(report domain.MonthlyReport) []VoucherDraft {
+	rows := []VoucherDraft{
+		{Summary: report.Month + " 收入结转", Debit: "应收账款/银行存款", Credit: "主营业务收入", Amount: report.TaxExclusiveRevenue, Source: "finance_report.revenue"},
+		{Summary: report.Month + " 主营成本结转", Debit: "主营业务成本", Credit: "库存商品/生产成本", Amount: report.MainBusinessCost, Source: "finance_report.main_cost"},
+		{Summary: report.Month + " 期间费用归集", Debit: "销售费用/管理费用", Credit: "银行存款/应付账款", Amount: report.PeriodExpenses, Source: "finance_report.expense"},
+		{Summary: report.Month + " 增值税估算", Debit: "应交税费-应交增值税", Credit: "应交税费-未交增值税", Amount: report.Tax.VATPayable, Source: "finance_report.tax"},
+		{Summary: report.Month + " 附加税估算", Debit: "税金及附加", Credit: "应交税费-附加税", Amount: report.Tax.Surtax, Source: "finance_report.tax"},
+		{Summary: report.Month + " 企业所得税估算", Debit: "所得税费用", Credit: "应交税费-企业所得税", Amount: report.Tax.CITPayable, Source: "finance_report.tax"},
+		{Summary: report.Month + " 本年利润结转", Debit: "主营业务收入", Credit: "本年利润", Amount: report.AdjustedNetProfit, Source: "finance_report.net_profit"},
+	}
+	out := make([]VoucherDraft, 0, len(rows))
+	for _, row := range rows {
+		if row.Amount < 0 {
+			row.Amount = -row.Amount
+		}
+		out = append(out, row)
+	}
+	return out
 }
 
 func normalizeExpenseFilter(filter ExpenseFilter) (ExpenseFilter, error) {
