@@ -57,6 +57,37 @@ func TestLoadRuntimeCustomerPortalDevLogin(t *testing.T) {
 	}
 }
 
+func TestLoadRuntimeCustomerPortalWechatConfig(t *testing.T) {
+	cfg, err := LoadRuntime(func(key string) string {
+		switch key {
+		case "DATABASE_URL":
+			return "postgres://example"
+		case "APP_PASS":
+			return "secret"
+		case "WECHAT_MINI_APP_ID":
+			return " wx-test-app "
+		case "WECHAT_MINI_APP_SECRET":
+			return " wx-test-secret "
+		case "CUSTOMER_PORTAL_DEV_OPENID":
+			return " dev-openid-van "
+		default:
+			return ""
+		}
+	})
+	if err != nil {
+		t.Fatalf("LoadRuntime() error = %v", err)
+	}
+	if cfg.WechatMiniAppID != "wx-test-app" {
+		t.Fatalf("WechatMiniAppID = %q", cfg.WechatMiniAppID)
+	}
+	if cfg.WechatMiniAppSecret != "wx-test-secret" {
+		t.Fatalf("WechatMiniAppSecret = %q", cfg.WechatMiniAppSecret)
+	}
+	if cfg.CustomerPortalDevOpenID != "dev-openid-van" {
+		t.Fatalf("CustomerPortalDevOpenID = %q", cfg.CustomerPortalDevOpenID)
+	}
+}
+
 func TestLoadRuntimeRequiredValues(t *testing.T) {
 	if _, err := LoadRuntime(func(string) string { return "" }); err == nil {
 		t.Fatal("LoadRuntime() error = nil, want DATABASE_URL error")

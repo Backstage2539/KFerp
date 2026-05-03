@@ -57,10 +57,7 @@ func registerAppRoutes(e *echo.Echo, pool *pgxpool.Pool, cfg appConfig) {
 	companySvc := companyapp.NewService(postgrescompany.NewRepository(pool, schema))
 	costingSvc := costingapp.NewService(postgrescosting.NewRepository(pool, schema))
 	customerSvc := customerapp.NewService(postgrescustomer.NewRepository(pool, schema, assetDir))
-	customerPortalIdentity := customerportalapp.IdentityProvider(customerportalhttp.DisabledIdentityProvider{})
-	if cfg.CustomerPortalDevLogin {
-		customerPortalIdentity = customerportalhttp.StaticIdentityProvider{}
-	}
+	customerPortalIdentity := customerPortalIdentityProvider(cfg)
 	customerPortalSvc := customerportalapp.NewService(postgrescustomerportal.NewRepository(pool, schema), customerPortalIdentity)
 	financeSvc := financeapp.NewService(postgresfinance.NewRepository(pool, schema))
 	inventorySvc := inventoryapp.NewService(postgresinventory.NewRepository(pool, schema))
@@ -86,4 +83,20 @@ func registerAppRoutes(e *echo.Echo, pool *pgxpool.Pool, cfg appConfig) {
 	customerhttp.RegisterRoutes(e, customerhttp.Dependencies{Customer: customerSvc, AssetDir: assetDir})
 	saleshttp.RegisterRoutes(e, saleshttp.Dependencies{Sales: salesSvc, AssetDir: assetDir})
 	financehttp.RegisterRoutes(e, financehttp.Dependencies{Finance: financeSvc})
+}
+
+func customerPortalIdentityProvider(cfg appConfig) customerportalapp.IdentityProvider {
+	if cfg.CustomerPortalDevLogin {
+		return customerportalhttp.StaticIdentityProvider{
+			OpenID:  cfg.CustomerPortalDevOpenID,
+			UnionID: cfg.CustomerPortalDevUnionID,
+		}
+	}
+	if cfg.WechatMiniAppID != "" && cfg.WechatMiniAppSecret != "" {
+		return customerportalhttp.WechatIdentityProvider{
+			AppID:     cfg.WechatMiniAppID,
+			AppSecret: cfg.WechatMiniAppSecret,
+		}
+	}
+	return customerportalhttp.DisabledIdentityProvider{}
 }
