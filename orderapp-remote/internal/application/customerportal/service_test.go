@@ -25,6 +25,9 @@ type fakeRepository struct {
 	session           string
 	serviceQuery      ServicePageQuery
 	servicePage       ServicePage
+	portalCustomers   []PortalAdminCustomer
+	portalDetail      PortalAdminDetail
+	visibilityCommand UpdatePortalVisibilityCommand
 	directShipCommand CreateDirectShipBatchCommand
 	directShipBatch   DirectShipBatch
 	processingCommand CreateProcessingRequestCommand
@@ -64,6 +67,32 @@ func (r *fakeRepository) LoadServicePage(ctx context.Context, query ServicePageQ
 		return ServicePage{}, r.err
 	}
 	return r.servicePage, nil
+}
+
+func (r *fakeRepository) ListPortalAdminCustomers(ctx context.Context, query PortalAdminCustomerQuery) ([]PortalAdminCustomer, error) {
+	if r.err != nil {
+		return nil, r.err
+	}
+	return r.portalCustomers, nil
+}
+
+func (r *fakeRepository) PortalAdminDetail(ctx context.Context, customerID int64) (PortalAdminDetail, error) {
+	if r.err != nil {
+		return PortalAdminDetail{}, r.err
+	}
+	r.portalDetail.Customer.ID = customerID
+	return r.portalDetail, nil
+}
+
+func (r *fakeRepository) UpdatePortalVisibility(ctx context.Context, cmd UpdatePortalVisibilityCommand) (PortalAdminDetail, error) {
+	r.visibilityCommand = cmd
+	if r.err != nil {
+		return PortalAdminDetail{}, r.err
+	}
+	r.portalDetail.Customer.ID = cmd.CustomerID
+	r.portalDetail.Customer.DisplayName = cmd.DisplayName
+	r.portalDetail.Customer.PortalEnabled = cmd.Enabled
+	return r.portalDetail, nil
 }
 
 func (r *fakeRepository) CreateDirectShipBatch(ctx context.Context, cmd CreateDirectShipBatchCommand) (DirectShipBatch, error) {
@@ -224,5 +253,56 @@ func TestCreateProcessingRequestValidatesAndRequiresCapability(t *testing.T) {
 	}
 	if got.RequestNo != "PJ-20260503-0009" || repo.processingCommand.CustomerID != 7 || repo.processingCommand.Note != "做成454g" {
 		t.Fatalf("request=%+v command=%+v", got, repo.processingCommand)
+	}
+}
+
+func TestPortalAdminDetailAlwaysReturnsCompleteCapabilityCatalog(t *testing.T) {
+	repo := &fakeRepository{portalDetail: PortalAdminDetail{
+		Customer: PortalAdminCustomer{ID: 147, Name: "13800138075", DisplayName: "测试客户", PortalEnabled: true},
+		Capabilities: []CapabilityOption{
+			{Code: CapabilityDirectShip, Enabled: true},
+			{Code: CapabilitySettlement, Enabled: false},
+		},
+	}}
+	svc := NewService(repo, fakeIdentityProvider{})
+	got, err := svc.PortalAdminDetail(context.Background(), 147)
+	if err != nil {
+		t.Fatalf("PortalAdminDetail() err=%v", err)
+	}
+	if got.Customer.ID != 147 || got.Customer.DisplayName != "测试客户" {
+		t.Fatalf("detail customer=%+v", got.Customer)
+	}
+	if len(got.Capabilities) != len(DefaultCapabilityOptions()) {
+		t.Fatalf("capabilities=%+v, want complete catalog", got.Capabilities)
+	}
+	for _, code := range []string{CapabilityBeanList, CapabilityProductOrder, CapabilityDirectShip, CapabilityProcessing, CapabilityInventoryCustody, CapabilityShippingQuery, CapabilitySettlement} {
+		if !got.HasCapabilityOption(code) {
+			t.Fatalf("capability catalog missing %s: %+v", code, got.Capabilities)
+		}
+	}
+}
+
+func TestUpdatePortalVisibilityTrimsAndNormalizesCapabilities(t *testing.T) {
+	repo := &fakeRepository{portalDetail: PortalAdminDetail{
+		Customer: PortalAdminCustomer{Name: "13800138075"},
+	}}
+	svc := NewService(repo, fakeIdentityProvider{})
+	_, err := svc.UpdatePortalVisibility(context.Background(), UpdatePortalVisibilityCommand{
+		CustomerID:   147,
+		DisplayName:  "  测试客户  ",
+		Enabled:      true,
+		Capabilities: []CapabilityOption{{Code: CapabilityDirectShip, Enabled: true}, {Code: "unknown", Enabled: true}, {Code: CapabilityBeanList, Enabled: false}},
+	})
+	if err != nil {
+		t.Fatalf("UpdatePortalVisibility() err=%v", err)
+	}
+	if repo.visibilityCommand.CustomerID != 147 || repo.visibilityCommand.DisplayName != "测试客户" || !repo.visibilityCommand.Enabled {
+		t.Fatalf("visibility command=%+v", repo.visibilityCommand)
+	}
+	if len(repo.visibilityCommand.Capabilities) != 2 {
+		t.Fatalf("visibility capabilities=%+v, want only known codes from payload", repo.visibilityCommand.Capabilities)
+	}
+	if repo.visibilityCommand.Capabilities[0].Code != CapabilityBeanList || repo.visibilityCommand.Capabilities[1].Code != CapabilityDirectShip {
+		t.Fatalf("capabilities sorted/normalized incorrectly: %+v", repo.visibilityCommand.Capabilities)
 	}
 }

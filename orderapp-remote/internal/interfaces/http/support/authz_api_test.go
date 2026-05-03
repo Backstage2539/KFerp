@@ -123,6 +123,23 @@ func TestAuthorizationMiddlewareAllowsMatchingPermission(t *testing.T) {
 	}
 }
 
+func TestCustomerPortalAdminAPIRequiresCustomerPermissions(t *testing.T) {
+	cases := []struct {
+		method string
+		path   string
+		want   string
+	}{
+		{http.MethodGet, "/api/customer-portal/admin/customers", "customers.read"},
+		{http.MethodGet, "/api/customer-portal/admin/customers/147", "customers.read"},
+		{http.MethodPut, "/api/customer-portal/admin/customers/147/visibility", "customers.write"},
+	}
+	for _, tc := range cases {
+		if got := requiredPermissionForRequest(tc.method, tc.path); got != tc.want {
+			t.Fatalf("%s %s permission = %q, want %q", tc.method, tc.path, got, tc.want)
+		}
+	}
+}
+
 func TestBeanListPublicationPermissionsSeparatePublishAndDraft(t *testing.T) {
 	cases := []struct {
 		method string

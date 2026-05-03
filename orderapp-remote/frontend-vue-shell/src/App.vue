@@ -54,6 +54,7 @@ import CompanyStaffView from './views/CompanyStaffView.vue'
 import CostingView from './views/CostingView.vue'
 import CostingSettingsView from './views/CostingSettingsView.vue'
 import CustomersView from './views/CustomersView.vue'
+import CustomerPortalSettingsView from './views/CustomerPortalSettingsView.vue'
 import DeliveryNoteView from './views/DeliveryNoteView.vue'
 import FinanceClosingView from './views/FinanceClosingView.vue'
 import FinanceDashboardView from './views/FinanceDashboardView.vue'
@@ -171,6 +172,7 @@ const internalViews = {
   salesOrderSettings: SalesOrderSettingsView,
   senderSettings: SenderSettingsView,
   outsourceSettings: OutsourceSettingsView,
+  customerPortalSettings: CustomerPortalSettingsView,
   audit: AuditView,
   userPermissions: UserPermissionsView,
   reqProduct: RequirementsView,

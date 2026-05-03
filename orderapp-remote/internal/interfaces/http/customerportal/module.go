@@ -19,6 +19,9 @@ type Service interface {
 	Me(context.Context, string) (customerportalapp.CurrentContext, error)
 	SwitchCurrentCustomer(context.Context, string, int64) (customerportalapp.CurrentContext, error)
 	GetServicePage(context.Context, string, string) (customerportalapp.ServicePage, error)
+	ListPortalAdminCustomers(context.Context, customerportalapp.PortalAdminCustomerQuery) ([]customerportalapp.PortalAdminCustomer, error)
+	PortalAdminDetail(context.Context, int64) (customerportalapp.PortalAdminDetail, error)
+	UpdatePortalVisibility(context.Context, customerportalapp.UpdatePortalVisibilityCommand) (customerportalapp.PortalAdminDetail, error)
 	CreateDirectShipBatch(context.Context, string, customerportalapp.CreateDirectShipBatchCommand) (customerportalapp.DirectShipBatch, error)
 	CreateProcessingRequest(context.Context, string, customerportalapp.CreateProcessingRequestCommand) (customerportalapp.ProcessingRequest, error)
 }
@@ -29,6 +32,7 @@ type Dependencies struct {
 
 func RegisterRoutes(e *echo.Echo, deps Dependencies) {
 	registerMiniAPI(e, deps.CustomerPortal)
+	registerAdminAPI(e, deps.CustomerPortal)
 }
 
 type StaticIdentityProvider struct {

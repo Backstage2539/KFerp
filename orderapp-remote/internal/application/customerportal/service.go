@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 )
 
@@ -33,6 +34,7 @@ var (
 	ErrMiniLoginDisabled       = errors.New("mini login disabled")
 	ErrMiniUserDisabled        = errors.New("mini user disabled")
 	ErrCapabilityNotEnabled    = errors.New("capability not enabled")
+	ErrPortalCustomerNotFound  = errors.New("portal customer not found")
 )
 
 type LoginCommand struct {
@@ -108,15 +110,26 @@ type ProductSummary struct {
 }
 
 type CustomerOrderSummary struct {
-	ID             int64  `json:"id"`
-	OrderNo        string `json:"order_no"`
-	OrderDate      string `json:"order_date"`
-	ProcessStatus  string `json:"process_status"`
-	PayStatus      string `json:"pay_status"`
-	ShipStatus     string `json:"ship_status"`
-	ShipTrackingNo string `json:"ship_tracking_no"`
-	GrandTotal     string `json:"grand_total"`
-	ShippingAmount string `json:"shipping_amount"`
+	ID             int64                      `json:"id"`
+	OrderNo        string                     `json:"order_no"`
+	OrderDate      string                     `json:"order_date"`
+	ProcessStatus  string                     `json:"process_status"`
+	PayStatus      string                     `json:"pay_status"`
+	ShipStatus     string                     `json:"ship_status"`
+	ShipTrackingNo string                     `json:"ship_tracking_no"`
+	GrandTotal     string                     `json:"grand_total"`
+	ShippingAmount string                     `json:"shipping_amount"`
+	Items          []CustomerOrderItemSummary `json:"items,omitempty"`
+}
+
+type CustomerOrderItemSummary struct {
+	ID        int64  `json:"id"`
+	ItemName  string `json:"item_name"`
+	Spec      string `json:"spec"`
+	Qty       string `json:"qty"`
+	Unit      string `json:"unit"`
+	UnitPrice string `json:"unit_price"`
+	LineTotal string `json:"line_total"`
 }
 
 type DirectShipBatch struct {
@@ -229,6 +242,64 @@ type CreateProcessingRequestCommand struct {
 	Note                string
 }
 
+type CapabilityOption struct {
+	Code        string         `json:"code"`
+	Label       string         `json:"label"`
+	Description string         `json:"description,omitempty"`
+	Enabled     bool           `json:"enabled"`
+	Config      map[string]any `json:"config,omitempty"`
+}
+
+type PortalAdminCustomerQuery struct {
+	Query string
+	Limit int
+}
+
+type PortalAdminCustomer struct {
+	ID            int64  `json:"id"`
+	Name          string `json:"name"`
+	Phone         string `json:"phone"`
+	CompanyName   string `json:"company_name"`
+	DisplayName   string `json:"display_name"`
+	PortalEnabled bool   `json:"portal_enabled"`
+	PortalStatus  string `json:"portal_status"`
+	BindingCount  int    `json:"binding_count"`
+}
+
+type PortalUserBinding struct {
+	MiniUserID int64  `json:"mini_user_id"`
+	OpenID     string `json:"openid,omitempty"`
+	Phone      string `json:"phone"`
+	Nickname   string `json:"nickname"`
+	Role       string `json:"role"`
+	Status     string `json:"status"`
+	CreatedAt  string `json:"created_at"`
+}
+
+type PortalAdminDetail struct {
+	Customer     PortalAdminCustomer `json:"customer"`
+	Bindings     []PortalUserBinding `json:"bindings"`
+	Capabilities []CapabilityOption  `json:"capabilities"`
+}
+
+type UpdatePortalVisibilityCommand struct {
+	CustomerID   int64
+	DisplayName  string
+	Enabled      bool
+	Capabilities []CapabilityOption
+	UpdatedBy    string
+}
+
+func (d PortalAdminDetail) HasCapabilityOption(code string) bool {
+	code = strings.TrimSpace(code)
+	for _, capability := range d.Capabilities {
+		if capability.Code == code {
+			return true
+		}
+	}
+	return false
+}
+
 func (c CurrentContext) HasCapability(code string) bool {
 	code = strings.TrimSpace(code)
 	for _, capability := range c.Capabilities {
@@ -248,6 +319,9 @@ type Repository interface {
 	CurrentContextByToken(ctx context.Context, token string) (CurrentContext, error)
 	SwitchCurrentCustomer(ctx context.Context, token string, customerID int64) (CurrentContext, error)
 	LoadServicePage(ctx context.Context, query ServicePageQuery) (ServicePage, error)
+	ListPortalAdminCustomers(ctx context.Context, query PortalAdminCustomerQuery) ([]PortalAdminCustomer, error)
+	PortalAdminDetail(ctx context.Context, customerID int64) (PortalAdminDetail, error)
+	UpdatePortalVisibility(ctx context.Context, cmd UpdatePortalVisibilityCommand) (PortalAdminDetail, error)
 	CreateDirectShipBatch(ctx context.Context, cmd CreateDirectShipBatchCommand) (DirectShipBatch, error)
 	CreateProcessingRequest(ctx context.Context, cmd CreateProcessingRequestCommand) (ProcessingRequest, error)
 }
@@ -341,6 +415,53 @@ func (s *Service) GetServicePage(ctx context.Context, token, key string) (Servic
 	return page, nil
 }
 
+func (s *Service) ListPortalAdminCustomers(ctx context.Context, query PortalAdminCustomerQuery) ([]PortalAdminCustomer, error) {
+	if s.repo == nil {
+		return nil, fmt.Errorf("repository required")
+	}
+	query.Query = strings.TrimSpace(query.Query)
+	if query.Limit <= 0 {
+		query.Limit = 20
+	}
+	if query.Limit > 100 {
+		query.Limit = 100
+	}
+	return s.repo.ListPortalAdminCustomers(ctx, query)
+}
+
+func (s *Service) PortalAdminDetail(ctx context.Context, customerID int64) (PortalAdminDetail, error) {
+	if customerID <= 0 {
+		return PortalAdminDetail{}, fmt.Errorf("customer required")
+	}
+	if s.repo == nil {
+		return PortalAdminDetail{}, fmt.Errorf("repository required")
+	}
+	detail, err := s.repo.PortalAdminDetail(ctx, customerID)
+	if err != nil {
+		return PortalAdminDetail{}, err
+	}
+	detail.Capabilities = completeCapabilityOptions(detail.Capabilities)
+	return detail, nil
+}
+
+func (s *Service) UpdatePortalVisibility(ctx context.Context, cmd UpdatePortalVisibilityCommand) (PortalAdminDetail, error) {
+	if cmd.CustomerID <= 0 {
+		return PortalAdminDetail{}, fmt.Errorf("customer required")
+	}
+	if s.repo == nil {
+		return PortalAdminDetail{}, fmt.Errorf("repository required")
+	}
+	cmd.DisplayName = strings.TrimSpace(cmd.DisplayName)
+	cmd.UpdatedBy = strings.TrimSpace(cmd.UpdatedBy)
+	cmd.Capabilities = normalizeCapabilityOptions(cmd.Capabilities)
+	detail, err := s.repo.UpdatePortalVisibility(ctx, cmd)
+	if err != nil {
+		return PortalAdminDetail{}, err
+	}
+	detail.Capabilities = completeCapabilityOptions(detail.Capabilities)
+	return detail, nil
+}
+
 func (s *Service) CreateDirectShipBatch(ctx context.Context, token string, cmd CreateDirectShipBatchCommand) (DirectShipBatch, error) {
 	current, err := s.requireCustomerCapability(ctx, token, CapabilityDirectShip)
 	if err != nil {
@@ -424,6 +545,78 @@ func serviceDefinition(key string) (serviceDef, error) {
 	default:
 		return serviceDef{}, fmt.Errorf("service key invalid")
 	}
+}
+
+func DefaultCapabilityOptions() []CapabilityOption {
+	return []CapabilityOption{
+		{Code: CapabilityBeanList, Label: "我的豆单", Description: "查看客户专属豆单；没有专属豆单时默认查看系统最新已发布豆单"},
+		{Code: CapabilityProductOrder, Label: "现货下单", Description: "查看现货商品和自己的历史订单"},
+		{Code: CapabilityDirectShip, Label: "一件代发", Description: "查看代发批次、订单生产和发货状态"},
+		{Code: CapabilityProcessing, Label: "代加工", Description: "查看托管库存并提交加工申请"},
+		{Code: CapabilityInventoryCustody, Label: "我的库存", Description: "查看客户托管的生豆、成品和包材库存"},
+		{Code: CapabilityShippingQuery, Label: "物流查询", Description: "查看订单发货和物流单号"},
+		{Code: CapabilitySettlement, Label: "结算中心", Description: "查看费用明细和结算单"},
+	}
+}
+
+func completeCapabilityOptions(existing []CapabilityOption) []CapabilityOption {
+	byCode := map[string]CapabilityOption{}
+	for _, item := range existing {
+		code := strings.TrimSpace(item.Code)
+		if code == "" {
+			continue
+		}
+		item.Code = code
+		if item.Config == nil {
+			item.Config = map[string]any{}
+		}
+		byCode[code] = item
+	}
+	out := DefaultCapabilityOptions()
+	for i, item := range out {
+		if got, ok := byCode[item.Code]; ok {
+			out[i].Enabled = got.Enabled
+			out[i].Config = got.Config
+			if strings.TrimSpace(got.Label) != "" {
+				out[i].Label = strings.TrimSpace(got.Label)
+			}
+			if strings.TrimSpace(got.Description) != "" {
+				out[i].Description = strings.TrimSpace(got.Description)
+			}
+		}
+	}
+	return out
+}
+
+func normalizeCapabilityOptions(input []CapabilityOption) []CapabilityOption {
+	known := map[string]bool{}
+	for _, item := range DefaultCapabilityOptions() {
+		known[item.Code] = true
+	}
+	byCode := map[string]CapabilityOption{}
+	for _, item := range input {
+		code := strings.TrimSpace(item.Code)
+		if !known[code] {
+			continue
+		}
+		item.Code = code
+		if item.Config == nil {
+			item.Config = map[string]any{}
+		}
+		byCode[code] = item
+	}
+	out := make([]CapabilityOption, 0, len(byCode))
+	for _, item := range DefaultCapabilityOptions() {
+		if got, ok := byCode[item.Code]; ok {
+			got.Label = item.Label
+			got.Description = item.Description
+			out = append(out, got)
+		}
+	}
+	sort.SliceStable(out, func(i, j int) bool {
+		return out[i].Code < out[j].Code
+	})
+	return out
 }
 
 func serviceSummary(page ServicePage) []ServiceMetric {
