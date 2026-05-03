@@ -12,7 +12,7 @@ describe('visibleHomeEntries', () => {
       { code: 'processing', enabled: false },
       { code: 'settlement', enabled: true },
     ])
-    expect(entries.map((entry) => entry.key)).toEqual(['directShip', 'settlement'])
+    expect(entries.map((entry) => entry.key)).toEqual(['orders', 'directShip', 'settlement'])
   })
 
   it('gives every visible entry a service detail URL for tap navigation', () => {
@@ -23,8 +23,18 @@ describe('visibleHomeEntries', () => {
 
     expect(entries.map((entry) => entry.url)).toEqual([
       '/pages/service/service?key=beanList',
+      '/pages/service/service?key=orders',
       '/pages/service/service?key=directShip',
     ])
+  })
+
+  it('shows a direct order entrance for any order-related customer capability', () => {
+    for (const code of ['product_order', 'direct_ship', 'shipping_query']) {
+      const entries = visibleHomeEntries([{ code, enabled: true }])
+      const orders = entries.find((entry) => entry.key === 'orders')
+      expect(orders?.label).toBe('我的订单')
+      expect(orders?.url).toBe('/pages/service/service?key=orders')
+    }
   })
 
   it('ignores unknown capability codes', () => {

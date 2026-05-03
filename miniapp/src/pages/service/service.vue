@@ -30,6 +30,7 @@ const processingForm = ref({
 const title = computed(() => page.value?.title || serviceTitle(serviceKey.value))
 const summary = computed(() => page.value?.summary || [])
 const sections = computed(() => (page.value ? visibleServiceSections(page.value) : []))
+const orderPanelTitle = computed(() => (serviceKey.value === 'orders' ? '我的订单' : '订单 / 物流'))
 
 async function loadPage() {
   if (!session.token) {
@@ -168,6 +169,25 @@ onShow(() => {
         <view v-for="item in page.bean_lists" :key="item.id" class="list-row">
           <text class="row-main">{{ item.list_type }} {{ item.version_no }}</text>
           <text class="row-sub">{{ item.published_at }}</text>
+          <view v-if="item.groups?.length" class="bean-list-items">
+            <view v-for="group in item.groups" :key="`${item.id}-${group.category}`" class="bean-list-group">
+              <text v-if="group.category" class="bean-list-category">{{ group.category }}</text>
+              <view v-for="bean in group.items" :key="`${item.id}-${group.category}-${bean.code || bean.name}`" class="bean-list-product">
+                <view class="bean-list-product-head">
+                  <text class="bean-list-name">{{ bean.code ? `${bean.code} ${bean.name}` : bean.name }}</text>
+                  <text v-if="bean.badge_label" class="bean-list-badge">{{ bean.badge_label }}</text>
+                </view>
+                <text v-if="bean.recommended_use" class="row-sub">{{ bean.recommended_use }}</text>
+                <text v-if="bean.flavor" class="row-sub">{{ bean.flavor }}</text>
+                <text v-if="bean.description" class="bean-list-description">{{ bean.description }}</text>
+                <view v-if="bean.prices?.length" class="bean-list-prices">
+                  <text v-for="price in bean.prices" :key="`${price.label}-${price.value}`" :class="['bean-list-price', { red: price.red }]">
+                    {{ price.label }} {{ price.value }}
+                  </text>
+                </view>
+              </view>
+            </view>
+          </view>
         </view>
       </view>
 
@@ -180,7 +200,7 @@ onShow(() => {
       </view>
 
       <view v-if="page?.orders?.length" class="panel">
-        <text class="panel-title">订单 / 物流</text>
+        <text class="panel-title">{{ orderPanelTitle }}</text>
         <view v-for="item in page.orders" :key="item.id" class="list-row">
           <view class="row-head">
             <text class="row-main">{{ item.order_no || '未编号订单' }}</text>
@@ -403,6 +423,78 @@ onShow(() => {
   padding: 12rpx;
   background: #f8f8f8;
   border-radius: 8rpx;
+}
+
+.bean-list-items {
+  display: flex;
+  flex-direction: column;
+  gap: 18rpx;
+  padding-top: 10rpx;
+}
+
+.bean-list-group {
+  display: flex;
+  flex-direction: column;
+  gap: 12rpx;
+}
+
+.bean-list-category {
+  color: #6f5d2e;
+  font-size: 25rpx;
+  font-weight: 700;
+}
+
+.bean-list-product {
+  display: flex;
+  flex-direction: column;
+  gap: 8rpx;
+  padding: 16rpx;
+  background: #f8f8f8;
+  border: 1rpx solid #ececec;
+  border-radius: 8rpx;
+}
+
+.bean-list-product-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12rpx;
+}
+
+.bean-list-name {
+  color: #171717;
+  font-size: 27rpx;
+  font-weight: 700;
+  line-height: 1.35;
+}
+
+.bean-list-badge {
+  flex: 0 0 auto;
+  color: #6f5d2e;
+  font-size: 22rpx;
+  font-weight: 700;
+}
+
+.bean-list-description {
+  color: #333333;
+  font-size: 24rpx;
+  line-height: 1.5;
+}
+
+.bean-list-prices {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10rpx;
+}
+
+.bean-list-price {
+  color: #171717;
+  font-size: 24rpx;
+  font-weight: 700;
+}
+
+.bean-list-price.red {
+  color: #b42318;
 }
 
 .item-line {

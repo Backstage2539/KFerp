@@ -2,7 +2,9 @@ package customerportal
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"strconv"
 	"strings"
 
 	customerportalapp "orderapp/internal/application/customerportal"
@@ -18,6 +20,8 @@ func (r Repository) LoadServicePage(ctx context.Context, query customerportalapp
 	switch query.Key {
 	case customerportalapp.ServiceKeyBeanList:
 		page.BeanLists, err = r.listBeanLists(ctx, query.CustomerID, limit)
+	case customerportalapp.ServiceKeyOrders:
+		page.Orders, err = r.listCustomerOrders(ctx, query.CustomerID, limit)
 	case customerportalapp.ServiceKeyProductOrder:
 		if page.Products, err = r.listProducts(ctx, limit); err != nil {
 			return customerportalapp.ServicePage{}, err
@@ -53,7 +57,7 @@ func (r Repository) LoadServicePage(ctx context.Context, query customerportalapp
 
 func (r Repository) listBeanLists(ctx context.Context, customerID int64, limit int) ([]customerportalapp.BeanListSummary, error) {
 	rows, err := r.pool.Query(ctx, fmt.Sprintf(`
-		SELECT id, list_type, version_no, status, to_char(published_at,'YYYY-MM-DD HH24:MI'), changelog
+		SELECT id, list_type, version_no, status, to_char(published_at,'YYYY-MM-DD HH24:MI'), changelog, content_json
 		FROM %s.bean_list_publications
 		WHERE owner_type='customer' AND owner_key=$1 AND status='published'
 		ORDER BY published_at DESC, id DESC
@@ -75,9 +79,9 @@ func (r Repository) listBeanLists(ctx context.Context, customerID int64, limit i
 
 func (r Repository) listLatestOfficialBeanLists(ctx context.Context, limit int) ([]customerportalapp.BeanListSummary, error) {
 	rows, err := r.pool.Query(ctx, fmt.Sprintf(`
-		SELECT id, list_type, version_no, status, to_char(published_at,'YYYY-MM-DD HH24:MI'), changelog
+		SELECT id, list_type, version_no, status, to_char(published_at,'YYYY-MM-DD HH24:MI'), changelog, content_json
 		FROM (
-			SELECT DISTINCT ON (list_type) id, list_type, version_no, status, published_at, changelog
+			SELECT DISTINCT ON (list_type) id, list_type, version_no, status, published_at, changelog, content_json
 			FROM %s.bean_list_publications
 			WHERE owner_type='official' AND status='published'
 			ORDER BY list_type, published_at DESC, id DESC
@@ -102,12 +106,142 @@ func scanBeanListSummaries(rows beanListRows) ([]customerportalapp.BeanListSumma
 	out := make([]customerportalapp.BeanListSummary, 0)
 	for rows.Next() {
 		var row customerportalapp.BeanListSummary
-		if err := rows.Scan(&row.ID, &row.ListType, &row.VersionNo, &row.Status, &row.PublishedAt, &row.Changelog); err != nil {
+		var contentJSON []byte
+		if err := rows.Scan(&row.ID, &row.ListType, &row.VersionNo, &row.Status, &row.PublishedAt, &row.Changelog, &contentJSON); err != nil {
 			return nil, err
 		}
+		groups, err := parseBeanListContentSummary(contentJSON)
+		if err != nil {
+			return nil, err
+		}
+		row.Groups = groups
 		out = append(out, row)
 	}
 	return out, rows.Err()
+}
+
+func parseBeanListContentSummary(contentJSON []byte) ([]customerportalapp.BeanListGroupSummary, error) {
+	if len(contentJSON) == 0 {
+		return nil, nil
+	}
+	var content map[string]any
+	if err := json.Unmarshal(contentJSON, &content); err != nil {
+		return nil, err
+	}
+	groups := make([]customerportalapp.BeanListGroupSummary, 0)
+	for _, groupMap := range beanListMapsFromAny(content["groups"]) {
+		group := customerportalapp.BeanListGroupSummary{
+			Category: beanListMapString(groupMap, "category", ""),
+			Items:    make([]customerportalapp.BeanListProductSummary, 0),
+		}
+		for _, itemMap := range beanListMapsFromAny(groupMap["items"]) {
+			item := customerportalapp.BeanListProductSummary{
+				Code:           beanListMapString(itemMap, "code", ""),
+				Name:           beanListMapString(itemMap, "name", ""),
+				BadgeLabel:     beanListMapString(itemMap, "badgeLabel", ""),
+				RecommendedUse: beanListMapString(itemMap, "recommendedUse", ""),
+				Flavor:         beanListMapString(itemMap, "flavor", ""),
+				Description:    beanListMapString(itemMap, "description", ""),
+				Prices:         make([]customerportalapp.BeanListPriceSummary, 0),
+			}
+			if strings.TrimSpace(item.Name) == "" {
+				continue
+			}
+			for _, priceMap := range beanListMapsFromAny(itemMap["prices"]) {
+				price := customerportalapp.BeanListPriceSummary{
+					Label: beanListMapString(priceMap, "label", ""),
+					Value: beanListMapString(priceMap, "value", ""),
+					Red:   beanListMapBool(priceMap, "red", false),
+				}
+				if price.Value == "" {
+					price.Value = formatBeanListPrice(beanListMapNumber(priceMap, "price", 0), beanListMapString(priceMap, "unit", ""))
+				}
+				if strings.TrimSpace(price.Label) == "" && strings.TrimSpace(price.Value) == "" {
+					continue
+				}
+				item.Prices = append(item.Prices, price)
+			}
+			group.Items = append(group.Items, item)
+		}
+		if len(group.Items) > 0 {
+			groups = append(groups, group)
+		}
+	}
+	return groups, nil
+}
+
+func beanListMapsFromAny(value any) []map[string]any {
+	items, ok := value.([]any)
+	if !ok {
+		return nil
+	}
+	out := make([]map[string]any, 0, len(items))
+	for _, item := range items {
+		if m, ok := item.(map[string]any); ok {
+			out = append(out, m)
+		}
+	}
+	return out
+}
+
+func beanListMapString(m map[string]any, key, fallback string) string {
+	if v, ok := m[key]; ok {
+		switch value := v.(type) {
+		case string:
+			if strings.TrimSpace(value) != "" {
+				return strings.TrimSpace(value)
+			}
+		case fmt.Stringer:
+			if strings.TrimSpace(value.String()) != "" {
+				return strings.TrimSpace(value.String())
+			}
+		}
+	}
+	return fallback
+}
+
+func beanListMapBool(m map[string]any, key string, fallback bool) bool {
+	if v, ok := m[key]; ok {
+		if value, ok := v.(bool); ok {
+			return value
+		}
+	}
+	return fallback
+}
+
+func beanListMapNumber(m map[string]any, key string, fallback float64) float64 {
+	if v, ok := m[key]; ok {
+		switch value := v.(type) {
+		case float64:
+			return value
+		case int:
+			return float64(value)
+		case int64:
+			return float64(value)
+		case json.Number:
+			if n, err := value.Float64(); err == nil {
+				return n
+			}
+		case string:
+			if n, err := strconv.ParseFloat(strings.TrimSpace(value), 64); err == nil {
+				return n
+			}
+		}
+	}
+	return fallback
+}
+
+func formatBeanListPrice(price float64, unit string) string {
+	if price <= 0 {
+		return ""
+	}
+	value := strconv.FormatFloat(price, 'f', 2, 64)
+	value = strings.TrimSuffix(strings.TrimRight(value, "0"), ".")
+	out := "¥" + value
+	if unit = strings.TrimSpace(unit); unit != "" {
+		out += "/" + unit
+	}
+	return out
 }
 
 func (r Repository) listProducts(ctx context.Context, limit int) ([]customerportalapp.ProductSummary, error) {

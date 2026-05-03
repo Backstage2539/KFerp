@@ -4,7 +4,9 @@ import { serviceCapability, serviceTitle, visibleServiceSections } from './servi
 describe('service page helpers', () => {
   it('maps mini service keys to capability codes and titles', () => {
     expect(serviceCapability('directShip')).toBe('direct_ship')
+    expect(serviceCapability('orders')).toBe('product_order')
     expect(serviceCapability('processing')).toBe('processing')
+    expect(serviceTitle('orders')).toBe('我的订单')
     expect(serviceTitle('settlement')).toBe('结算中心')
   })
 

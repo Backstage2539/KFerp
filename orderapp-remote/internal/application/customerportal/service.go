@@ -20,6 +20,7 @@ const (
 
 const (
 	ServiceKeyBeanList     = "beanList"
+	ServiceKeyOrders       = "orders"
 	ServiceKeyProductOrder = "productOrder"
 	ServiceKeyDirectShip   = "directShip"
 	ServiceKeyProcessing   = "processing"
@@ -90,12 +91,34 @@ type ServiceMetric struct {
 }
 
 type BeanListSummary struct {
-	ID          int64  `json:"id"`
-	ListType    string `json:"list_type"`
-	VersionNo   string `json:"version_no"`
-	Status      string `json:"status"`
-	PublishedAt string `json:"published_at"`
-	Changelog   string `json:"changelog"`
+	ID          int64                  `json:"id"`
+	ListType    string                 `json:"list_type"`
+	VersionNo   string                 `json:"version_no"`
+	Status      string                 `json:"status"`
+	PublishedAt string                 `json:"published_at"`
+	Changelog   string                 `json:"changelog"`
+	Groups      []BeanListGroupSummary `json:"groups,omitempty"`
+}
+
+type BeanListGroupSummary struct {
+	Category string                   `json:"category"`
+	Items    []BeanListProductSummary `json:"items"`
+}
+
+type BeanListProductSummary struct {
+	Code           string                 `json:"code,omitempty"`
+	Name           string                 `json:"name"`
+	BadgeLabel     string                 `json:"badge_label,omitempty"`
+	RecommendedUse string                 `json:"recommended_use,omitempty"`
+	Flavor         string                 `json:"flavor,omitempty"`
+	Description    string                 `json:"description,omitempty"`
+	Prices         []BeanListPriceSummary `json:"prices,omitempty"`
+}
+
+type BeanListPriceSummary struct {
+	Label string `json:"label"`
+	Value string `json:"value"`
+	Red   bool   `json:"red,omitempty"`
 }
 
 type ProductSummary struct {
@@ -310,6 +333,15 @@ func (c CurrentContext) HasCapability(code string) bool {
 	return false
 }
 
+func (c CurrentContext) HasAnyCapability(codes []string) bool {
+	for _, code := range codes {
+		if c.HasCapability(code) {
+			return true
+		}
+	}
+	return false
+}
+
 type IdentityProvider interface {
 	Resolve(ctx context.Context, code string) (MiniIdentity, error)
 }
@@ -399,7 +431,7 @@ func (s *Service) GetServicePage(ctx context.Context, token, key string) (Servic
 	if current.CurrentCustomerID <= 0 {
 		return ServicePage{}, ErrCustomerBindingNotFound
 	}
-	if !current.HasCapability(def.capability) {
+	if !current.HasAnyCapability(def.capabilities) {
 		return ServicePage{}, ErrCapabilityNotEnabled
 	}
 	page, err := s.repo.LoadServicePage(ctx, ServicePageQuery{CustomerID: current.CurrentCustomerID, Key: def.key, Limit: 20})
@@ -521,30 +553,42 @@ func (s *Service) requireCustomerCapability(ctx context.Context, token, capabili
 }
 
 type serviceDef struct {
-	key        string
-	title      string
-	capability string
+	key          string
+	title        string
+	capability   string
+	capabilities []string
 }
 
 func serviceDefinition(key string) (serviceDef, error) {
 	switch strings.ToLower(strings.TrimSpace(key)) {
 	case "beanlist", "bean_list":
-		return serviceDef{key: ServiceKeyBeanList, title: "我的豆单", capability: CapabilityBeanList}, nil
+		return singleCapabilityServiceDef(ServiceKeyBeanList, "我的豆单", CapabilityBeanList), nil
+	case "orders", "order", "myorders", "my_orders":
+		return serviceDef{
+			key:          ServiceKeyOrders,
+			title:        "我的订单",
+			capability:   CapabilityProductOrder,
+			capabilities: []string{CapabilityProductOrder, CapabilityDirectShip, CapabilityShippingQuery},
+		}, nil
 	case "productorder", "product_order":
-		return serviceDef{key: ServiceKeyProductOrder, title: "现货下单", capability: CapabilityProductOrder}, nil
+		return singleCapabilityServiceDef(ServiceKeyProductOrder, "现货下单", CapabilityProductOrder), nil
 	case "directship", "direct_ship":
-		return serviceDef{key: ServiceKeyDirectShip, title: "一件代发", capability: CapabilityDirectShip}, nil
+		return singleCapabilityServiceDef(ServiceKeyDirectShip, "一件代发", CapabilityDirectShip), nil
 	case "processing":
-		return serviceDef{key: ServiceKeyProcessing, title: "代加工", capability: CapabilityProcessing}, nil
+		return singleCapabilityServiceDef(ServiceKeyProcessing, "代加工", CapabilityProcessing), nil
 	case "inventory", "inventory_custody":
-		return serviceDef{key: ServiceKeyInventory, title: "我的库存", capability: CapabilityInventoryCustody}, nil
+		return singleCapabilityServiceDef(ServiceKeyInventory, "我的库存", CapabilityInventoryCustody), nil
 	case "shipping", "shipping_query":
-		return serviceDef{key: ServiceKeyShipping, title: "物流查询", capability: CapabilityShippingQuery}, nil
+		return singleCapabilityServiceDef(ServiceKeyShipping, "物流查询", CapabilityShippingQuery), nil
 	case "settlement":
-		return serviceDef{key: ServiceKeySettlement, title: "结算中心", capability: CapabilitySettlement}, nil
+		return singleCapabilityServiceDef(ServiceKeySettlement, "结算中心", CapabilitySettlement), nil
 	default:
 		return serviceDef{}, fmt.Errorf("service key invalid")
 	}
+}
+
+func singleCapabilityServiceDef(key, title, capability string) serviceDef {
+	return serviceDef{key: key, title: title, capability: capability, capabilities: []string{capability}}
 }
 
 func DefaultCapabilityOptions() []CapabilityOption {
@@ -623,6 +667,8 @@ func serviceSummary(page ServicePage) []ServiceMetric {
 	switch page.Key {
 	case ServiceKeyBeanList:
 		return []ServiceMetric{{Label: "已发布豆单", Value: fmt.Sprintf("%d", len(page.BeanLists))}}
+	case ServiceKeyOrders:
+		return []ServiceMetric{{Label: "近期订单", Value: fmt.Sprintf("%d", len(page.Orders))}}
 	case ServiceKeyProductOrder:
 		return []ServiceMetric{{Label: "可见商品", Value: fmt.Sprintf("%d", len(page.Products))}, {Label: "近期订单", Value: fmt.Sprintf("%d", len(page.Orders))}}
 	case ServiceKeyDirectShip:
