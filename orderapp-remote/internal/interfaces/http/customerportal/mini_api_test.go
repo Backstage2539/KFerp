@@ -286,14 +286,19 @@ func TestMiniOrdersServicePageAPIParsesKeywordAndDateFilters(t *testing.T) {
 		},
 	}})
 
-	req := httptest.NewRequest(http.MethodGet, "/api/mini/services/orders?q=%E4%B9%8C%E6%8B%89%E5%98%8E&date_from=2026-05-01&date_to=2026-05-03", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/mini/services/orders?q=%E4%B9%8C%E6%8B%89%E5%98%8E&date_from=2026-05-01&date_to=2026-05-03&process_status=%E7%94%9F%E4%BA%A7%E4%B8%AD&pay_status=%E5%B7%B2%E6%94%B6%E6%AC%BE&ship_status=%E5%BE%85%E5%8F%91%E8%B4%A7", nil)
 	req.Header.Set(echo.HeaderAuthorization, "Bearer mini-token")
 	rec := httptest.NewRecorder()
 	e.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
 	}
-	if gotFilter.Query != "乌拉嘎" || gotFilter.DateFrom != "2026-05-01" || gotFilter.DateTo != "2026-05-03" {
+	if gotFilter.Query != "乌拉嘎" ||
+		gotFilter.DateFrom != "2026-05-01" ||
+		gotFilter.DateTo != "2026-05-03" ||
+		gotFilter.ProcessStatus != "生产中" ||
+		gotFilter.PayStatus != "已收款" ||
+		gotFilter.ShipStatus != "待发货" {
 		t.Fatalf("filter=%+v", gotFilter)
 	}
 }

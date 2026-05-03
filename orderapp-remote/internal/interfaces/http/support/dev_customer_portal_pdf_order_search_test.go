@@ -44,6 +44,7 @@ func TestMiniappServicePageSupportsBeanListPDFCacheAndOrderSearch(t *testing.T) 
 	serviceSrc := string(servicePage)
 	for _, want := range []string{
 		"openBeanListPDF",
+		"directBeanListPDFStatus",
 		"uni.downloadFile",
 		"uni.saveFile",
 		"uni.openDocument",
@@ -52,9 +53,35 @@ func TestMiniappServicePageSupportsBeanListPDFCacheAndOrderSearch(t *testing.T) 
 		"最近7天",
 		"本月",
 		"收件人/地址/产品",
+		"生产状态",
+		"收款状态",
+		"发货状态",
 	} {
 		if !strings.Contains(serviceSrc, want) {
 			t.Fatalf("miniapp PDF cache/order search source missing %q", want)
+		}
+	}
+	if strings.Contains(serviceSrc, "打开 PDF") {
+		t.Fatalf("miniapp bean list page must display PDF directly instead of exposing an open/download button")
+	}
+}
+
+func TestCustomerPortalInlinePDFStatusFilterRequirementSeeds(t *testing.T) {
+	body, err := os.ReadFile(filepath.Join("internal", "interfaces", "http", "support", "req_store.go"))
+	if err != nil {
+		t.Fatalf("read req_store.go: %v", err)
+	}
+	text := string(body)
+	for _, want := range []string{
+		"PR-CUSTOMER-PORTAL-INLINE-PDF-STATUS-FILTER",
+		"DEV-CUSTOMER-PORTAL-INLINE-PDF-STATUS-FILTER-01",
+		"DEV-CUSTOMER-PORTAL-INLINE-PDF-STATUS-FILTER-02",
+		"UT-CUSTOMER-PORTAL-INLINE-PDF-STATUS-FILTER-01",
+		"API-CUSTOMER-PORTAL-INLINE-PDF-STATUS-FILTER-01",
+		"REV-CUSTOMER-PORTAL-INLINE-PDF-STATUS-FILTER-01",
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("customer portal inline PDF/status filter seed missing %q", want)
 		}
 	}
 }

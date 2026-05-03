@@ -99,6 +99,26 @@ func TestCustomerPortalOrderQuerySupportsKeywordAndDateFilters(t *testing.T) {
 	}
 }
 
+func TestCustomerPortalOrderQuerySupportsStatusFilters(t *testing.T) {
+	body, err := os.ReadFile("business_repository.go")
+	if err != nil {
+		t.Fatalf("read business_repository.go: %v", err)
+	}
+	text := string(body)
+	for _, want := range []string{
+		"query.ProcessStatus",
+		"query.PayStatus",
+		"query.ShipStatus",
+		"LOWER(COALESCE(ops.name,'')) =",
+		"LOWER(COALESCE(ps.name,'')) =",
+		"LOWER(COALESCE(ss.name,'')) =",
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("customer portal order status filter query missing %q", want)
+		}
+	}
+}
+
 func TestParseBeanListContentSummaryExtractsGroupsItemsAndPrices(t *testing.T) {
 	raw, err := json.Marshal(map[string]any{
 		"groups": []any{

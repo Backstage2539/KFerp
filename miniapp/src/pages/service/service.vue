@@ -19,6 +19,17 @@ import {
 import { buildOrderServiceFilters, datePresetRange, normalizeDateRange, type OrderDatePreset } from '../../utils/orderFilters'
 import { normalizeServiceKey, serviceTitle, visibleServiceSections, type ServiceKey } from '../../utils/servicePage'
 
+type OrderSearchForm = {
+  keyword: string
+  date_from: string
+  date_to: string
+  process_status: string
+  pay_status: string
+  ship_status: string
+}
+
+type OrderStatusField = 'process_status' | 'pay_status' | 'ship_status'
+
 const session = useSessionStore()
 const serviceKey = ref<ServiceKey>('beanList')
 const page = ref<ServicePageResponse | null>(null)
@@ -27,7 +38,13 @@ const submitting = ref(false)
 const openingBeanListPDF = ref(false)
 const errorMessage = ref('')
 const autoOpenedBeanListCacheKey = ref('')
-const orderSearch = ref({ keyword: '', date_from: '', date_to: '' })
+const directBeanListPDFStatus = ref('')
+const beanListPDFRetryItem = ref<BeanListSummary | null>(null)
+const orderSearch = ref<OrderSearchForm>(emptyOrderSearch())
+
+const defaultProcessStatusOptions = ['待处理', '生产中', '生产完成', '库存待发货', '无需生产']
+const defaultPayStatusOptions = ['未付款', '已付款', '未收款', '已收款']
+const defaultShipStatusOptions = ['未发货', '待发货', '已发货']
 
 const directShipForm = ref({ source_name: '', total_rows: 0, note: '' })
 const processingForm = ref({
@@ -43,6 +60,10 @@ const title = computed(() => page.value?.title || serviceTitle(serviceKey.value)
 const summary = computed(() => page.value?.summary || [])
 const sections = computed(() => (page.value ? visibleServiceSections(page.value) : []))
 const orderPanelTitle = computed(() => (serviceKey.value === 'orders' ? '我的订单' : '订单 / 物流'))
+const currentBeanListPDF = computed(() => page.value?.bean_lists?.find((row) => row.pdf_url) || null)
+const processStatusPickerOptions = computed(() => orderStatusOptions('process_status', defaultProcessStatusOptions, '全部生产状态'))
+const payStatusPickerOptions = computed(() => orderStatusOptions('pay_status', defaultPayStatusOptions, '全部收款状态'))
+const shipStatusPickerOptions = computed(() => orderStatusOptions('ship_status', defaultShipStatusOptions, '全部发货状态'))
 
 async function loadPage() {
   if (!session.token) {
@@ -65,10 +86,18 @@ async function loadPage() {
 function maybeAutoOpenLatestBeanListPDF() {
   if (serviceKey.value !== 'beanList') return
   const item = page.value?.bean_lists?.find((row) => row.pdf_url)
-  if (!item) return
+  beanListPDFRetryItem.value = null
+  if (!item) {
+    directBeanListPDFStatus.value = '暂无可展示的豆单 PDF'
+    return
+  }
   const cacheKey = item.cache_key || `${item.id}-${item.version_no}`
-  if (autoOpenedBeanListCacheKey.value === cacheKey) return
+  if (autoOpenedBeanListCacheKey.value === cacheKey) {
+    if (!directBeanListPDFStatus.value) directBeanListPDFStatus.value = '豆单 PDF 已准备，本地缓存随版本更新'
+    return
+  }
   autoOpenedBeanListCacheKey.value = cacheKey
+  directBeanListPDFStatus.value = '正在展示豆单 PDF 内容...'
   void openBeanListPDF(item, true)
 }
 
@@ -79,26 +108,39 @@ async function openBeanListPDF(item: BeanListSummary, auto = false) {
   }
   openingBeanListPDF.value = true
   errorMessage.value = ''
+  directBeanListPDFStatus.value = '正在展示豆单 PDF 内容...'
+  beanListPDFRetryItem.value = null
   try {
     const cached = cachedBeanListPDF(item)
     if (cached && !beanListVersionChanged(cached, item) && (await savedFileExists(cached.saved_file_path))) {
       await openPDFFile(cached.saved_file_path)
+      directBeanListPDFStatus.value = `${item.version_no || '最新版本'} 已使用本地缓存展示`
       return
     }
     if (cached && beanListVersionChanged(cached, item) && (await savedFileExists(cached.saved_file_path))) {
       const shouldUpdate = await confirmBeanListPDFUpdate(item)
       if (!shouldUpdate) {
         await openPDFFile(cached.saved_file_path)
+        directBeanListPDFStatus.value = `${cached.version_no || '旧版本'} 已使用本地缓存展示`
         return
       }
     }
     await downloadSaveAndOpenBeanListPDF(item)
+    directBeanListPDFStatus.value = `${item.version_no || '最新版本'} 已更新并展示`
   } catch (error) {
-    const message = error instanceof Error ? error.message : '豆单 PDF 打开失败'
+    const message = error instanceof Error ? error.message : '豆单内容展示失败'
+    directBeanListPDFStatus.value = message
+    beanListPDFRetryItem.value = item
     if (!auto) errorMessage.value = message
   } finally {
     openingBeanListPDF.value = false
   }
+}
+
+async function retryBeanListPDF() {
+  const item = beanListPDFRetryItem.value
+  if (!item) return
+  await openBeanListPDF(item)
 }
 
 function cachedBeanListPDF(item: BeanListSummary): BeanListPDFCacheRecord | null {
@@ -193,7 +235,7 @@ async function applyDatePreset(preset: OrderDatePreset) {
 }
 
 async function clearOrderFilters() {
-  orderSearch.value = { keyword: '', date_from: '', date_to: '' }
+  orderSearch.value = emptyOrderSearch()
   await loadPage()
 }
 
@@ -203,6 +245,48 @@ function setOrderDateFrom(event: { detail?: { value?: string } }) {
 
 function setOrderDateTo(event: { detail?: { value?: string } }) {
   orderSearch.value.date_to = event.detail?.value || ''
+}
+
+function setOrderProcessStatus(event: { detail?: { value?: number | string } }) {
+  setOrderStatus('process_status', processStatusPickerOptions.value, event)
+}
+
+function setOrderPayStatus(event: { detail?: { value?: number | string } }) {
+  setOrderStatus('pay_status', payStatusPickerOptions.value, event)
+}
+
+function setOrderShipStatus(event: { detail?: { value?: number | string } }) {
+  setOrderStatus('ship_status', shipStatusPickerOptions.value, event)
+}
+
+function setOrderStatus(field: OrderStatusField, options: string[], event: { detail?: { value?: number | string } }) {
+  const index = Number(event.detail?.value ?? 0)
+  orderSearch.value[field] = index > 0 ? options[index] || '' : ''
+}
+
+function statusPickerValue(options: string[], value: string): number {
+  const index = options.indexOf(normalizeStatusText(value))
+  return index > 0 ? index : 0
+}
+
+function orderStatusOptions(field: OrderStatusField, defaults: string[], emptyLabel: string): string[] {
+  const seen = new Set<string>()
+  const out = [emptyLabel]
+  for (const value of [...defaults, orderSearch.value[field], ...(page.value?.orders || []).map((item) => item[field])]) {
+    const normalized = normalizeStatusText(value)
+    if (!normalized || seen.has(normalized)) continue
+    seen.add(normalized)
+    out.push(normalized)
+  }
+  return out
+}
+
+function normalizeStatusText(value?: string): string {
+  return (value || '').trim().replace(/\s+/g, ' ')
+}
+
+function emptyOrderSearch(): OrderSearchForm {
+  return { keyword: '', date_from: '', date_to: '', process_status: '', pay_status: '', ship_status: '' }
 }
 
 async function submitDirectShipBatch() {
@@ -321,16 +405,20 @@ onShow(() => {
         </view>
       </view>
 
+      <view v-if="serviceKey === 'beanList' && page?.bean_lists?.length" class="panel">
+        <text class="panel-title">豆单 PDF</text>
+        <text class="row-main">{{ currentBeanListPDF?.list_type || '豆单' }} {{ currentBeanListPDF?.version_no || '' }}</text>
+        <text class="row-sub">{{ directBeanListPDFStatus || '正在展示豆单 PDF 内容，本地缓存随版本更新' }}</text>
+        <button v-if="beanListPDFRetryItem" class="secondary" :disabled="openingBeanListPDF" @tap="retryBeanListPDF">重新展示</button>
+      </view>
+
       <view v-if="page?.bean_lists?.length" class="panel">
         <text class="panel-title">豆单</text>
         <view v-for="item in page.bean_lists" :key="item.id" class="list-row">
           <view class="row-head">
             <text class="row-main">{{ item.list_type }} {{ item.version_no }}</text>
-            <button class="small-action" :disabled="openingBeanListPDF || !item.pdf_url" @tap="openBeanListPDF(item)">
-              打开 PDF
-            </button>
           </view>
-          <text class="row-sub">{{ item.published_at }} / 本地缓存随版本更新</text>
+          <text class="row-sub">{{ item.published_at }} / PDF 内容自动展示，本地缓存随版本更新</text>
           <view v-if="!item.pdf_url && item.groups?.length" class="bean-list-items">
             <view v-for="group in item.groups" :key="`${item.id}-${group.category}`" class="bean-list-group">
               <text v-if="group.category" class="bean-list-category">{{ group.category }}</text>
@@ -374,6 +462,17 @@ onShow(() => {
           </picker>
           <picker mode="date" :value="orderSearch.date_to" @change="setOrderDateTo">
             <view class="picker-field">{{ orderSearch.date_to || '结束日期' }}</view>
+          </picker>
+        </view>
+        <view class="status-filters">
+          <picker mode="selector" :range="processStatusPickerOptions" :value="statusPickerValue(processStatusPickerOptions, orderSearch.process_status)" @change="setOrderProcessStatus">
+            <view class="picker-field status-picker">{{ orderSearch.process_status || '生产状态' }}</view>
+          </picker>
+          <picker mode="selector" :range="payStatusPickerOptions" :value="statusPickerValue(payStatusPickerOptions, orderSearch.pay_status)" @change="setOrderPayStatus">
+            <view class="picker-field status-picker">{{ orderSearch.pay_status || '收款状态' }}</view>
+          </picker>
+          <picker mode="selector" :range="shipStatusPickerOptions" :value="statusPickerValue(shipStatusPickerOptions, orderSearch.ship_status)" @change="setOrderShipStatus">
+            <view class="picker-field status-picker">{{ orderSearch.ship_status || '发货状态' }}</view>
           </picker>
         </view>
         <view class="filter-actions">
@@ -590,21 +689,6 @@ onShow(() => {
   border-radius: 8rpx;
 }
 
-.small-action {
-  min-width: 152rpx;
-  min-height: 60rpx;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  margin: 0;
-  padding: 0 18rpx;
-  background: #171717;
-  color: #ffffff;
-  border-radius: 8rpx;
-  font-size: 24rpx;
-  line-height: 1;
-}
-
 .filter-panel {
   gap: 16rpx;
 }
@@ -631,10 +715,19 @@ onShow(() => {
 }
 
 .date-range,
+.status-filters,
 .filter-actions {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 12rpx;
+}
+
+.date-range,
+.filter-actions {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.status-filters {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
 .picker-field {
@@ -648,6 +741,12 @@ onShow(() => {
   color: #171717;
   font-size: 25rpx;
   box-sizing: border-box;
+}
+
+.status-picker {
+  justify-content: center;
+  padding: 0 10rpx;
+  font-size: 23rpx;
 }
 
 .section-list {
