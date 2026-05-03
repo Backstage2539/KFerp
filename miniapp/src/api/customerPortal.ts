@@ -60,6 +60,17 @@ export type CustomerOrderSummary = {
   ship_tracking_no: string
   grand_total: string
   shipping_amount: string
+  items?: CustomerOrderItemSummary[]
+}
+
+export type CustomerOrderItemSummary = {
+  id: number
+  item_name: string
+  spec: string
+  qty: string
+  unit: string
+  unit_price: string
+  line_total: string
 }
 
 export type DirectShipBatch = {

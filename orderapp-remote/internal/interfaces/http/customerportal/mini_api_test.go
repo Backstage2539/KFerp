@@ -18,6 +18,8 @@ type fakeService struct {
 	login      customerportalapp.LoginResult
 	me         customerportalapp.CurrentContext
 	service    customerportalapp.ServicePage
+	customers  []customerportalapp.PortalAdminCustomer
+	detail     customerportalapp.PortalAdminDetail
 	directShip customerportalapp.DirectShipBatch
 	processing customerportalapp.ProcessingRequest
 	err        error
@@ -49,6 +51,27 @@ func (s fakeService) GetServicePage(context.Context, string, string) (customerpo
 		return customerportalapp.ServicePage{}, s.err
 	}
 	return s.service, nil
+}
+
+func (s fakeService) ListPortalAdminCustomers(context.Context, customerportalapp.PortalAdminCustomerQuery) ([]customerportalapp.PortalAdminCustomer, error) {
+	if s.err != nil {
+		return nil, s.err
+	}
+	return s.customers, nil
+}
+
+func (s fakeService) PortalAdminDetail(context.Context, int64) (customerportalapp.PortalAdminDetail, error) {
+	if s.err != nil {
+		return customerportalapp.PortalAdminDetail{}, s.err
+	}
+	return s.detail, nil
+}
+
+func (s fakeService) UpdatePortalVisibility(context.Context, customerportalapp.UpdatePortalVisibilityCommand) (customerportalapp.PortalAdminDetail, error) {
+	if s.err != nil {
+		return customerportalapp.PortalAdminDetail{}, s.err
+	}
+	return s.detail, nil
 }
 
 func (s fakeService) CreateDirectShipBatch(context.Context, string, customerportalapp.CreateDirectShipBatchCommand) (customerportalapp.DirectShipBatch, error) {
@@ -186,14 +209,21 @@ func TestMiniServicePageAPIRequiresTokenAndReturnsScopedData(t *testing.T) {
 		Title:               "物流查询",
 		CurrentCustomerID:   8,
 		CurrentCustomerName: "客户A",
-		Orders:              []customerportalapp.CustomerOrderSummary{{OrderNo: "SO-1", ShipTrackingNo: "SF123"}},
+		Orders: []customerportalapp.CustomerOrderSummary{{
+			OrderNo: "SO-1", ShipTrackingNo: "SF123", GrandTotal: "137.00",
+			Items: []customerportalapp.CustomerOrderItemSummary{{ItemName: "乌拉嘎", Spec: "454g", Qty: "2", UnitPrice: "68.50", LineTotal: "137.00"}},
+		}},
 	}}})
 
 	req := httptest.NewRequest(http.MethodGet, "/api/mini/services/shipping", nil)
 	req.Header.Set(echo.HeaderAuthorization, "Bearer mini-token")
 	rec := httptest.NewRecorder()
 	e.ServeHTTP(rec, req)
-	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"ship_tracking_no":"SF123"`) || !strings.Contains(rec.Body.String(), `"current_customer_id":8`) {
+	if rec.Code != http.StatusOK ||
+		!strings.Contains(rec.Body.String(), `"ship_tracking_no":"SF123"`) ||
+		!strings.Contains(rec.Body.String(), `"grand_total":"137.00"`) ||
+		!strings.Contains(rec.Body.String(), `"items":[`) ||
+		!strings.Contains(rec.Body.String(), `"current_customer_id":8`) {
 		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
 	}
 
@@ -202,6 +232,44 @@ func TestMiniServicePageAPIRequiresTokenAndReturnsScopedData(t *testing.T) {
 	e.ServeHTTP(noTokenRec, noToken)
 	if noTokenRec.Code != http.StatusUnauthorized {
 		t.Fatalf("no token status=%d body=%s", noTokenRec.Code, noTokenRec.Body.String())
+	}
+}
+
+func TestPortalAdminVisibilityAPIsExposeAndSaveCustomerCapabilities(t *testing.T) {
+	e := echo.New()
+	RegisterRoutes(e, Dependencies{CustomerPortal: fakeService{
+		customers: []customerportalapp.PortalAdminCustomer{{ID: 147, Name: "13800138075", PortalEnabled: true, BindingCount: 1}},
+		detail: customerportalapp.PortalAdminDetail{
+			Customer: customerportalapp.PortalAdminCustomer{ID: 147, Name: "13800138075", DisplayName: "测试客户", PortalEnabled: true},
+			Bindings: []customerportalapp.PortalUserBinding{{MiniUserID: 1, Phone: "13800138075", Role: "owner", Status: "approved"}},
+			Capabilities: []customerportalapp.CapabilityOption{
+				{Code: customerportalapp.CapabilityBeanList, Label: "我的豆单", Enabled: true},
+				{Code: customerportalapp.CapabilityDirectShip, Label: "一件代发", Enabled: true},
+			},
+		},
+	}})
+
+	listReq := httptest.NewRequest(http.MethodGet, "/api/customer-portal/admin/customers?q=13800138075", nil)
+	listRec := httptest.NewRecorder()
+	e.ServeHTTP(listRec, listReq)
+	if listRec.Code != http.StatusOK || !strings.Contains(listRec.Body.String(), `"name":"13800138075"`) || !strings.Contains(listRec.Body.String(), `"binding_count":1`) {
+		t.Fatalf("list status=%d body=%s", listRec.Code, listRec.Body.String())
+	}
+
+	detailReq := httptest.NewRequest(http.MethodGet, "/api/customer-portal/admin/customers/147", nil)
+	detailRec := httptest.NewRecorder()
+	e.ServeHTTP(detailRec, detailReq)
+	if detailRec.Code != http.StatusOK || !strings.Contains(detailRec.Body.String(), `"bindings":[`) || !strings.Contains(detailRec.Body.String(), `"capabilities":[`) {
+		t.Fatalf("detail status=%d body=%s", detailRec.Code, detailRec.Body.String())
+	}
+
+	body := strings.NewReader(`{"display_name":"测试客户","enabled":true,"capabilities":[{"code":"bean_list","enabled":true},{"code":"direct_ship","enabled":false}]}`)
+	saveReq := httptest.NewRequest(http.MethodPut, "/api/customer-portal/admin/customers/147/visibility", body)
+	saveReq.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	saveRec := httptest.NewRecorder()
+	e.ServeHTTP(saveRec, saveReq)
+	if saveRec.Code != http.StatusOK || !strings.Contains(saveRec.Body.String(), `"display_name":"测试客户"`) {
+		t.Fatalf("save status=%d body=%s", saveRec.Code, saveRec.Body.String())
 	}
 }
 

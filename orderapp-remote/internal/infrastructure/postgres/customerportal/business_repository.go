@@ -63,6 +63,42 @@ func (r Repository) listBeanLists(ctx context.Context, customerID int64, limit i
 		return nil, err
 	}
 	defer rows.Close()
+	out, err := scanBeanListSummaries(rows)
+	if err != nil {
+		return nil, err
+	}
+	if len(out) > 0 {
+		return out, nil
+	}
+	return r.listLatestOfficialBeanLists(ctx, limit)
+}
+
+func (r Repository) listLatestOfficialBeanLists(ctx context.Context, limit int) ([]customerportalapp.BeanListSummary, error) {
+	rows, err := r.pool.Query(ctx, fmt.Sprintf(`
+		SELECT id, list_type, version_no, status, to_char(published_at,'YYYY-MM-DD HH24:MI'), changelog
+		FROM (
+			SELECT DISTINCT ON (list_type) id, list_type, version_no, status, published_at, changelog
+			FROM %s.bean_list_publications
+			WHERE owner_type='official' AND status='published'
+			ORDER BY list_type, published_at DESC, id DESC
+		) latest
+		ORDER BY published_at DESC, id DESC
+		LIMIT $1
+	`, r.schema), limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	return scanBeanListSummaries(rows)
+}
+
+type beanListRows interface {
+	Next() bool
+	Scan(dest ...any) error
+	Err() error
+}
+
+func scanBeanListSummaries(rows beanListRows) ([]customerportalapp.BeanListSummary, error) {
 	out := make([]customerportalapp.BeanListSummary, 0)
 	for rows.Next() {
 		var row customerportalapp.BeanListSummary
@@ -126,12 +162,63 @@ func (r Repository) listCustomerOrders(ctx context.Context, customerID int64, li
 	}
 	defer rows.Close()
 	out := make([]customerportalapp.CustomerOrderSummary, 0)
+	orderIDs := make([]int64, 0)
 	for rows.Next() {
 		var row customerportalapp.CustomerOrderSummary
 		if err := rows.Scan(&row.ID, &row.OrderNo, &row.OrderDate, &row.ProcessStatus, &row.PayStatus, &row.ShipStatus, &row.ShipTrackingNo, &row.GrandTotal, &row.ShippingAmount); err != nil {
 			return nil, err
 		}
+		orderIDs = append(orderIDs, row.ID)
 		out = append(out, row)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	items, err := r.listCustomerOrderItems(ctx, orderIDs)
+	if err != nil {
+		return nil, err
+	}
+	for i := range out {
+		out[i].Items = items[out[i].ID]
+	}
+	return out, nil
+}
+
+func (r Repository) listCustomerOrderItems(ctx context.Context, orderIDs []int64) (map[int64][]customerportalapp.CustomerOrderItemSummary, error) {
+	out := make(map[int64][]customerportalapp.CustomerOrderItemSummary, len(orderIDs))
+	if len(orderIDs) == 0 {
+		return out, nil
+	}
+	placeholders := make([]string, 0, len(orderIDs))
+	args := make([]any, 0, len(orderIDs))
+	for i, id := range orderIDs {
+		placeholders = append(placeholders, fmt.Sprintf("$%d", i+1))
+		args = append(args, id)
+	}
+	rows, err := r.pool.Query(ctx, fmt.Sprintf(`
+		SELECT oi.order_id,
+		       oi.id,
+		       COALESCE(oi.item_name,''),
+		       COALESCE(oi.spec,''),
+		       to_char(COALESCE(oi.qty,0), 'FM999999990.##'),
+		       COALESCE(oi.unit,''),
+		       to_char(COALESCE(oi.unit_price,0), 'FM999999990.00'),
+		       to_char(COALESCE(oi.line_total,0), 'FM999999990.00')
+		FROM %s.order_items oi
+		WHERE oi.order_id IN (`+strings.Join(placeholders, ",")+`)
+		ORDER BY oi.order_id, oi.line_no, oi.id
+	`, r.schema), args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var orderID int64
+		var row customerportalapp.CustomerOrderItemSummary
+		if err := rows.Scan(&orderID, &row.ID, &row.ItemName, &row.Spec, &row.Qty, &row.Unit, &row.UnitPrice, &row.LineTotal); err != nil {
+			return nil, err
+		}
+		out[orderID] = append(out[orderID], row)
 	}
 	return out, rows.Err()
 }

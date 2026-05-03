@@ -182,8 +182,18 @@ onShow(() => {
       <view v-if="page?.orders?.length" class="panel">
         <text class="panel-title">订单 / 物流</text>
         <view v-for="item in page.orders" :key="item.id" class="list-row">
-          <text class="row-main">{{ item.order_no || '未编号订单' }}</text>
-          <text class="row-sub">{{ item.process_status || '生产待处理' }} / {{ item.ship_status || '待发货' }}</text>
+          <view class="row-head">
+            <text class="row-main">{{ item.order_no || '未编号订单' }}</text>
+            <text class="price">¥{{ item.grand_total || '0.00' }}</text>
+          </view>
+          <text class="row-sub">{{ item.order_date || '未填写日期' }} / {{ item.process_status || '生产待处理' }} / {{ item.pay_status || '未收款' }} / {{ item.ship_status || '待发货' }}</text>
+          <view v-if="item.items?.length" class="order-items">
+            <view v-for="line in item.items" :key="line.id" class="item-line">
+              <text>{{ line.item_name }} {{ line.spec }}</text>
+              <text>{{ line.qty }}{{ line.unit }} x ¥{{ line.unit_price }} = ¥{{ line.line_total }}</text>
+            </view>
+          </view>
+          <text class="row-sub">运费：¥{{ item.shipping_amount || '0.00' }}</text>
           <text class="row-sub">物流：{{ item.ship_tracking_no || '暂无单号' }}</text>
         </view>
       </view>
@@ -370,6 +380,38 @@ onShow(() => {
   color: #171717;
   font-size: 28rpx;
   font-weight: 600;
+}
+
+.row-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16rpx;
+}
+
+.price {
+  color: #171717;
+  font-size: 28rpx;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.order-items {
+  display: flex;
+  flex-direction: column;
+  gap: 8rpx;
+  padding: 12rpx;
+  background: #f8f8f8;
+  border-radius: 8rpx;
+}
+
+.item-line {
+  display: flex;
+  justify-content: space-between;
+  gap: 16rpx;
+  color: #333333;
+  font-size: 24rpx;
+  line-height: 1.45;
 }
 
 .section-count {

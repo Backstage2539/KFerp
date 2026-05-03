@@ -69,6 +69,12 @@ func requiredPermissionForRequest(method, path string) string {
 		}
 		return "customers.write"
 	}
+	if strings.HasPrefix(path, "/api/customer-portal/admin/") {
+		if method == http.MethodGet {
+			return "customers.read"
+		}
+		return "customers.write"
+	}
 	if strings.HasPrefix(path, "/api/order/form") {
 		return "orders.write"
 	}
