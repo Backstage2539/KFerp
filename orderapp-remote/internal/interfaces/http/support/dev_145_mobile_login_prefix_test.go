@@ -25,6 +25,23 @@ func TestMobileLoginPrefixRequirementSeeds(t *testing.T) {
 	}
 }
 
+func TestAPIAuthFailureDoesNotAdvertiseBrowserChallengeRequirementSeeds(t *testing.T) {
+	src := string(readOrderAppFileForTest(t, filepath.Join("internal", "interfaces", "http", "support", "req_store.go")))
+	for _, want := range []string{
+		"PR-154",
+		"DEV-154-01",
+		"UT-154-01",
+		"API-154-01",
+		"REV-154-01",
+		"旧 token 或 API 401 不能反复弹出浏览器原生 order 密码框",
+		"shouldAdvertiseBasicAuthChallenge",
+	} {
+		if !strings.Contains(src, want) {
+			t.Fatalf("api auth challenge requirement seed missing %q", want)
+		}
+	}
+}
+
 func TestMobileLoginPrefixSourceGuards(t *testing.T) {
 	login := string(readOrderAppFileForTest(t, "templates/login.html"))
 	app := string(readOrderAppFileForTest(t, filepath.Join("frontend-vue-shell", "src", "App.vue")))

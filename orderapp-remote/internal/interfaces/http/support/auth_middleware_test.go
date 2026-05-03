@@ -75,6 +75,29 @@ func TestBearerTokenFromHeader(t *testing.T) {
 	}
 }
 
+func TestBasicAuthChallengeIsNotAdvertisedForAPIOrBearerFailures(t *testing.T) {
+	tests := []struct {
+		name        string
+		path        string
+		requestPath string
+		authz       string
+		want        bool
+	}{
+		{name: "page request can trigger outer browser auth", path: "/orders", requestPath: "/app/orders", want: true},
+		{name: "api path returns JSON unauthorized", path: "/api/orders", requestPath: "/api/orders", want: false},
+		{name: "app prefixed api path returns JSON unauthorized", path: "/api/auth/me", requestPath: "/app/api/auth/me", want: false},
+		{name: "expired bearer never triggers browser basic auth prompt", path: "/api/auth/me", requestPath: "/app/api/auth/me", authz: "Bearer stale-token", want: false},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := shouldAdvertiseBasicAuthChallenge(tc.path, tc.requestPath, tc.authz)
+			if got != tc.want {
+				t.Fatalf("shouldAdvertiseBasicAuthChallenge=%v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
 func TestPasswordLoginIdentifierSupportsUsernameOrPhone(t *testing.T) {
 	for _, tc := range []struct {
 		name string

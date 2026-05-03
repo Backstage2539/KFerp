@@ -39,10 +39,26 @@ func BasicAuth(user, pass, schema string, pool *pgxpool.Pool) echo.MiddlewareFun
 				}
 			}
 
-			c.Response().Header().Set("WWW-Authenticate", `Basic realm="orderapp"`)
-			return c.NoContent(http.StatusUnauthorized)
+			if shouldAdvertiseBasicAuthChallenge(path, requestPath, authz) {
+				c.Response().Header().Set("WWW-Authenticate", `Basic realm="orderapp"`)
+				return c.NoContent(http.StatusUnauthorized)
+			}
+			return c.JSON(http.StatusUnauthorized, map[string]string{"error": "auth required"})
 		}
 	}
+}
+
+func shouldAdvertiseBasicAuthChallenge(path, requestPath, authz string) bool {
+	authz = strings.TrimSpace(authz)
+	if strings.HasPrefix(strings.ToLower(authz), "bearer ") {
+		return false
+	}
+	return !isAPIPath(path) && !isAPIPath(requestPath)
+}
+
+func isAPIPath(path string) bool {
+	path = strings.TrimSpace(path)
+	return strings.HasPrefix(path, "/api/") || strings.HasPrefix(path, "/app/api/")
 }
 
 func isPublicUnauthenticatedPath(path string) bool {
