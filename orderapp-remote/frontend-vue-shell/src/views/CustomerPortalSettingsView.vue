@@ -43,6 +43,22 @@
             <input v-model="row.form.enabled" type="checkbox" />
             <span>{{ row.form.enabled ? '门户启用' : '门户停用' }}</span>
           </label>
+          <div class="theme-picker">
+            <span>小程序主题</span>
+            <div class="theme-options">
+              <button
+                v-for="theme in customerPortalThemeOptions"
+                :key="`${row.customer.id}-${theme.key}`"
+                type="button"
+                class="theme-option"
+                :class="{ selected: row.form.theme_key === theme.key }"
+                @click="row.form.theme_key = theme.key">
+                <i :class="['theme-swatch', theme.swatchClass]"></i>
+                <strong>{{ theme.label }}</strong>
+                <small>{{ theme.description }}</small>
+              </button>
+            </div>
+          </div>
           <button class="primary" type="button" @click="saveVisibility(row)" :disabled="row.saving || row.loading">
             {{ row.saving ? '保存中' : '保存配置' }}
           </button>
@@ -72,6 +88,7 @@
 <script setup>
 import { onMounted, ref } from 'vue'
 import { apiGet, apiSend } from '../api/client'
+import { customerPortalThemeOptions, normalizeCustomerPortalThemeKey } from '../lib/customer-portal-theme'
 
 const q = ref('')
 const portalRows = ref([])
@@ -111,6 +128,7 @@ function createPortalRow(customer) {
     form: {
       display_name: customer.display_name || '',
       enabled: customer.portal_enabled !== false,
+      theme_key: normalizeCustomerPortalThemeKey(customer.theme_key),
     },
     capabilities: [],
     bindings: [],
@@ -133,6 +151,7 @@ function assignRowDetail(row, data) {
   row.customer = data?.customer || row.customer
   row.form.display_name = row.customer.display_name || ''
   row.form.enabled = row.customer.portal_enabled !== false
+  row.form.theme_key = normalizeCustomerPortalThemeKey(row.customer.theme_key)
   row.bindings = data?.bindings || []
   row.capabilities = (data?.capabilities || []).map((item) => ({
     code: item.code,
@@ -154,6 +173,7 @@ async function saveVisibility(row) {
       body: {
         display_name: row.form.display_name,
         enabled: !!row.form.enabled,
+        theme_key: normalizeCustomerPortalThemeKey(row.form.theme_key),
         capabilities: row.capabilities.map((item) => ({
           code: item.code,
           enabled: !!item.enabled,
@@ -197,6 +217,32 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .check { display: inline-flex; align-items: center; gap: 8px; }
 .check input, .capability input { width: auto; height: auto; }
 .check span { margin: 0; color: #333; font-size: 13px; }
+.theme-picker { display: flex; flex-direction: column; gap: 8px; }
+.theme-picker > span { color: #666; font-size: 12px; }
+.theme-options { display: grid; grid-template-columns: 1fr; gap: 8px; }
+.theme-option {
+  min-height: 72px;
+  display: grid;
+  grid-template-columns: 28px 1fr;
+  column-gap: 8px;
+  row-gap: 3px;
+  align-items: start;
+  width: 100%;
+  height: auto;
+  padding: 9px;
+  border: 1px solid #e4e7ec;
+  border-radius: 8px;
+  background: #fff;
+  color: #171717;
+  text-align: left;
+}
+.theme-option.selected { border-color: #1f1f1f; box-shadow: 0 0 0 2px rgba(31,31,31,.08); }
+.theme-option strong { font-size: 13px; line-height: 1.3; }
+.theme-option small { grid-column: 2; color: #666; font-size: 12px; line-height: 1.35; }
+.theme-swatch { width: 22px; height: 22px; border-radius: 999px; }
+.theme-swatch-coffee { background: linear-gradient(135deg, #2b2118, #9b7141); }
+.theme-swatch-clean { background: linear-gradient(135deg, #e7f0eb, #28624a); }
+.theme-swatch-premium { background: linear-gradient(135deg, #111, #b88a46); }
 .capability-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 8px; }
 .capability { min-height: 74px; border: 1px solid #e4e7ec; border-radius: 8px; padding: 9px; display: grid; grid-template-columns: auto 1fr; column-gap: 8px; row-gap: 4px; align-items: start; }
 .capability strong { font-size: 14px; line-height: 1.3; }
