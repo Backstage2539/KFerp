@@ -48,6 +48,10 @@ func (r *fakeRepo) AssignProductCategory(ctx context.Context, cmd AssignProductC
 	return nil
 }
 
+func (r *fakeRepo) CreateCustomProduct(ctx context.Context, cmd CreateCustomProductCommand) (Product, error) {
+	return Product{ID: 10, Name: cmd.Name, CustomerID: cmd.CustomerID, BaseProductID: cmd.BaseProductID, Visibility: "customer_only", CustomType: cmd.CustomType}, nil
+}
+
 func TestServiceDelegatesCatalogOperations(t *testing.T) {
 	repo := &fakeRepo{}
 	svc := NewService(repo)

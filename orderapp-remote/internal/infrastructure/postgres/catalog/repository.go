@@ -3,6 +3,7 @@ package catalog
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	catalogapp "orderapp/internal/application/catalog"
 	catalogdomain "orderapp/internal/domain/catalog"
@@ -363,6 +364,120 @@ func (r Repository) AssignProductCategory(ctx context.Context, cmd catalogapp.As
 	return nil
 }
 
+func (r Repository) CreateCustomProduct(ctx context.Context, cmd catalogapp.CreateCustomProductCommand) (catalogapp.Product, error) {
+	conn, err := r.pool.Acquire(ctx)
+	if err != nil {
+		return catalogapp.Product{}, err
+	}
+	defer conn.Release()
+	tx, err := conn.Begin(ctx)
+	if err != nil {
+		return catalogapp.Product{}, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	var customerExists bool
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT EXISTS(SELECT 1 FROM %s.customers WHERE id=$1 AND active=true)`, r.schema), cmd.CustomerID).Scan(&customerExists); err != nil {
+		return catalogapp.Product{}, err
+	}
+	if !customerExists {
+		return catalogapp.Product{}, fmt.Errorf("customer not found")
+	}
+
+	var base struct {
+		Name                    string
+		DefaultPrice            float64
+		RetailPrice100G         float64
+		RetailPrice200G         float64
+		RetailPrice227G         float64
+		RetailPrice250G         float64
+		ProductCategoryID       int64
+		ProductCategoryPosition int
+	}
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`
+		SELECT name,
+		       default_price,
+		       COALESCE(retail_price_100g,0),
+		       COALESCE(retail_price_200g,0),
+		       COALESCE(retail_price_227g,default_price,0),
+		       COALESCE(retail_price_250g,0),
+		       COALESCE(product_category_id,0),
+		       COALESCE(product_category_position,0)
+		FROM %s.products
+		WHERE id=$1 AND active=true
+	`, r.schema), cmd.BaseProductID).Scan(&base.Name, &base.DefaultPrice, &base.RetailPrice100G, &base.RetailPrice200G, &base.RetailPrice227G, &base.RetailPrice250G, &base.ProductCategoryID, &base.ProductCategoryPosition); err != nil {
+		return catalogapp.Product{}, fmt.Errorf("base product not found")
+	}
+
+	roastLevel := catalogdomain.NormalizeRoastLevel(cmd.RoastLevel)
+	yieldRate := catalogdomain.ResolveYieldRate(roastLevel, 0.8)
+	name := strings.TrimSpace(cmd.Name)
+	var productID int64
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`
+		INSERT INTO %s.products(
+			name, roast_level, default_price, active,
+			retail_price_100g, retail_price_200g, retail_price_227g, retail_price_250g,
+			product_category_id, product_category_position,
+			customer_id, base_product_id, visibility, custom_type, created_at
+		)
+		VALUES($1,$2,$3,true,$4,$5,$6,$7,NULLIF($8,0),$9,$10,$11,'customer_only',$12,now())
+		RETURNING id
+	`, r.schema), name, roastLevel, base.DefaultPrice, base.RetailPrice100G, base.RetailPrice200G, base.RetailPrice227G, base.RetailPrice250G, base.ProductCategoryID, base.ProductCategoryPosition, cmd.CustomerID, cmd.BaseProductID, strings.TrimSpace(cmd.CustomType)).Scan(&productID); err != nil {
+		return catalogapp.Product{}, err
+	}
+
+	if _, err := tx.Exec(ctx, fmt.Sprintf(`
+		INSERT INTO %s.product_bom(product_id,yield_rate,updated_at)
+		VALUES($1,$2,now())
+		ON CONFLICT (product_id) DO UPDATE SET yield_rate=excluded.yield_rate, updated_at=now()
+	`, r.schema), productID, yieldRate); err != nil {
+		return catalogapp.Product{}, err
+	}
+	if cmd.CopyBOM {
+		if _, err := tx.Exec(ctx, fmt.Sprintf(`
+			INSERT INTO %s.product_bom_items(product_id,material_id,ratio_pct,updated_at)
+			SELECT $1,material_id,ratio_pct,now()
+			FROM %s.product_bom_items
+			WHERE product_id=$2
+			ORDER BY id
+		`, r.schema, r.schema), productID, cmd.BaseProductID); err != nil {
+			return catalogapp.Product{}, err
+		}
+	}
+	if cmd.CopyPriceTiers {
+		if _, err := tx.Exec(ctx, fmt.Sprintf(`
+			INSERT INTO %s.product_price_tiers(product_id,spec_g,min_qty_units,max_qty_units,price_per_unit,min_qty_lb,max_qty_lb,price_per_lb,active)
+			SELECT $1,spec_g,min_qty_units,max_qty_units,price_per_unit,min_qty_lb,max_qty_lb,price_per_lb,active
+			FROM %s.product_price_tiers
+			WHERE product_id=$2 AND active=true
+			ORDER BY id
+		`, r.schema, r.schema), productID, cmd.BaseProductID); err != nil {
+			return catalogapp.Product{}, err
+		}
+	}
+	if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, cmd.Actor, "product", &productID, "create", postgresinfra.StrPtr("customer_custom_product"), nil, postgresinfra.StrPtr(name), postgresinfra.AuditMeta{
+		"customer_id":      cmd.CustomerID,
+		"base_product_id":  cmd.BaseProductID,
+		"roast_level":      roastLevel,
+		"custom_type":      strings.TrimSpace(cmd.CustomType),
+		"copy_bom":         cmd.CopyBOM,
+		"copy_price_tiers": cmd.CopyPriceTiers,
+	}); err != nil {
+		return catalogapp.Product{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return catalogapp.Product{}, err
+	}
+	product, err := r.GetProduct(ctx, productID)
+	if err != nil {
+		return catalogapp.Product{}, err
+	}
+	if product == nil {
+		return catalogapp.Product{}, fmt.Errorf("created product not found")
+	}
+	return *product, nil
+}
+
 func fetchProductByID(ctx context.Context, pool *pgxpool.Pool, schema string, id int64) (*postgresinfra.ProductOption, error) {
 	ps, err := postgresinfra.FetchProducts(ctx, pool, schema)
 	if err != nil {
@@ -378,8 +493,10 @@ func fetchProductByID(ctx context.Context, pool *pgxpool.Pool, schema string, id
 		COALESCE(retail_price_100g, 0), COALESCE(retail_price_200g, 0),
 		COALESCE(retail_price_227g, default_price, 0), COALESCE(retail_price_250g, 0),
 		COALESCE((SELECT yield_rate FROM %[1]s.product_bom WHERE product_id=products.id), 0.8),
-		COALESCE(product_category_id,0), COALESCE(product_category_position,0)
-		FROM %[1]s.products WHERE id=$1`, schema), id).Scan(&p.ID, &p.Name, &p.RoastLevel, &p.DefaultPrice, &p.RetailPrice100G, &p.RetailPrice200G, &p.RetailPrice227G, &p.RetailPrice250G, &p.YieldRate, &p.ProductCategoryID, &p.ProductCategoryPosition)
+		COALESCE(product_category_id,0), COALESCE(product_category_position,0),
+		COALESCE(customer_id,0), COALESCE(base_product_id,0),
+		COALESCE(NULLIF(visibility,''),'public'), COALESCE(custom_type,'')
+		FROM %[1]s.products WHERE id=$1`, schema), id).Scan(&p.ID, &p.Name, &p.RoastLevel, &p.DefaultPrice, &p.RetailPrice100G, &p.RetailPrice200G, &p.RetailPrice227G, &p.RetailPrice250G, &p.YieldRate, &p.ProductCategoryID, &p.ProductCategoryPosition, &p.CustomerID, &p.BaseProductID, &p.Visibility, &p.CustomType)
 	if err != nil {
 		return nil, nil
 	}
@@ -387,7 +504,7 @@ func fetchProductByID(ctx context.Context, pool *pgxpool.Pool, schema string, id
 }
 
 func catalogProductFromOption(p postgresinfra.ProductOption) catalogapp.Product {
-	out := catalogapp.Product{ID: p.ID, Name: p.Name, RoastLevel: p.RoastLevel, DefaultPrice: p.DefaultPrice, RetailPrice100G: p.RetailPrice100G, RetailPrice200G: p.RetailPrice200G, RetailPrice227G: p.RetailPrice227G, RetailPrice250G: p.RetailPrice250G, YieldRate: p.YieldRate, ProductCategoryID: p.ProductCategoryID, ProductCategoryPosition: p.ProductCategoryPosition}
+	out := catalogapp.Product{ID: p.ID, Name: p.Name, RoastLevel: p.RoastLevel, DefaultPrice: p.DefaultPrice, RetailPrice100G: p.RetailPrice100G, RetailPrice200G: p.RetailPrice200G, RetailPrice227G: p.RetailPrice227G, RetailPrice250G: p.RetailPrice250G, YieldRate: p.YieldRate, ProductCategoryID: p.ProductCategoryID, ProductCategoryPosition: p.ProductCategoryPosition, CustomerID: p.CustomerID, BaseProductID: p.BaseProductID, Visibility: p.Visibility, CustomType: p.CustomType}
 	out.Tiers = make([]catalogapp.PriceTier, 0, len(p.Tiers))
 	for _, t := range p.Tiers {
 		out.Tiers = append(out.Tiers, catalogapp.PriceTier{ID: t.ID, SpecG: t.SpecG, MinQty: t.MinQty, MaxQty: t.MaxQty, UnitPrice: t.UnitPrice})

@@ -6,6 +6,7 @@ import {
   defaultWholesaleSpec,
   defaultStatusID,
   filterOptions,
+  filterProductsForCustomer,
   formatSpecLabel,
   lineTotal,
   syncWholesaleTierPrice,
@@ -185,6 +186,17 @@ test('filterOptions searches names, full pinyin, initials, and codes', () => {
 
   assert.deepEqual(filterOptions(rows, 'jp').map((item) => item.name), ['橘皮乌龙'])
   assert.deepEqual(filterOptions(rows, '001').map((item) => item.name), ['测试客户'])
+})
+
+test('filterProductsForCustomer keeps public and selected customer products only', () => {
+  const rows = [
+    { id: 1, name: '公共拼配', customer_id: 0, visibility: 'public' },
+    { id: 2, name: '客户A深烘', customer_id: 3, visibility: 'customer_only' },
+    { id: 3, name: '客户B深烘', customer_id: 4, visibility: 'customer_only' },
+  ]
+
+  assert.deepEqual(filterProductsForCustomer(rows, 3).map((item) => item.name), ['公共拼配', '客户A深烘'])
+  assert.deepEqual(filterProductsForCustomer(rows, 0).map((item) => item.name), ['公共拼配'])
 })
 
 test('defaultStatusID picks paid and unshipped status labels', () => {

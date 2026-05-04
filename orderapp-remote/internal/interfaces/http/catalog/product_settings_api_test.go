@@ -21,11 +21,13 @@ type productSettingsRepo struct {
 	deletedCategory catalogapp.DeleteProductCategoryCommand
 	assigned        catalogapp.AssignProductCategoryCommand
 	updated         catalogapp.UpdateProductBasicsCommand
+	createdProduct  catalogapp.CreateCustomProductCommand
 	categoryCreated bool
 	categoryMoved   bool
 	categoryDeleted bool
 	productAssigned bool
 	productUpdated  bool
+	productCreated  bool
 }
 
 func (r *productSettingsRepo) ListProducts(ctx context.Context) ([]catalogapp.Product, error) {
@@ -79,6 +81,20 @@ func (r *productSettingsRepo) AssignProductCategory(ctx context.Context, cmd cat
 	return nil
 }
 
+func (r *productSettingsRepo) CreateCustomProduct(ctx context.Context, cmd catalogapp.CreateCustomProductCommand) (catalogapp.Product, error) {
+	r.createdProduct = cmd
+	r.productCreated = true
+	return catalogapp.Product{
+		ID:            88,
+		Name:          cmd.Name,
+		RoastLevel:    cmd.RoastLevel,
+		CustomerID:    cmd.CustomerID,
+		BaseProductID: cmd.BaseProductID,
+		Visibility:    "customer_only",
+		CustomType:    cmd.CustomType,
+	}, nil
+}
+
 func TestProductSettingsAPISupportsCategoryTreeAndDragAssignments(t *testing.T) {
 	repo := &productSettingsRepo{
 		products: []catalogapp.Product{{
@@ -101,6 +117,11 @@ func TestProductSettingsAPISupportsCategoryTreeAndDragAssignments(t *testing.T) 
 	for _, want := range []string{`"categories"`, `"children"`, `"products"`, `"number":1`, `"name":"咖啡豆"`, `"name":"意式拼配"`, `"name":"曲奇拼配"`, `"yield_rate":0.82`} {
 		if !bytes.Contains(rec.Body.Bytes(), []byte(want)) {
 			t.Fatalf("product settings response missing %s: %s", want, rec.Body.String())
+		}
+	}
+	for _, want := range []string{`"customer_id":0`, `"base_product_id":0`, `"visibility":"public"`, `"custom_type":""`} {
+		if !bytes.Contains(rec.Body.Bytes(), []byte(want)) {
+			t.Fatalf("product settings response missing ownership field %s: %s", want, rec.Body.String())
 		}
 	}
 
@@ -145,6 +166,30 @@ func TestProductSettingsAPISupportsCategoryTreeAndDragAssignments(t *testing.T) 
 	}
 	if !repo.productAssigned || repo.assigned.ProductID != 7 || repo.assigned.CategoryID != 2 || repo.assigned.Position != 3 {
 		t.Fatalf("assign product command = %+v assigned=%v", repo.assigned, repo.productAssigned)
+	}
+}
+
+func TestProductSettingsAPICreatesCustomerCustomProduct(t *testing.T) {
+	repo := &productSettingsRepo{}
+	e := echo.New()
+	registerProductRoutes(e, catalogapp.NewService(repo))
+
+	body := `{"customer_id":3,"base_product_id":7,"name":"测试客户-橘皮乌龙-中深烘","roast_level":"中深烘","custom_type":"custom_roast","copy_bom":true,"copy_price_tiers":true}`
+	req := httptest.NewRequest(http.MethodPost, "/api/product-settings/custom-products", bytes.NewBufferString(body))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("POST custom product status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if !repo.productCreated || repo.createdProduct.CustomerID != 3 || repo.createdProduct.BaseProductID != 7 || !repo.createdProduct.CopyBOM || !repo.createdProduct.CopyPriceTiers {
+		t.Fatalf("custom product command = %+v created=%v", repo.createdProduct, repo.productCreated)
+	}
+	for _, want := range []string{`"product"`, `"customer_id":3`, `"base_product_id":7`, `"visibility":"customer_only"`, `"custom_type":"custom_roast"`} {
+		if !bytes.Contains(rec.Body.Bytes(), []byte(want)) {
+			t.Fatalf("custom product response missing %s: %s", want, rec.Body.String())
+		}
 	}
 }
 

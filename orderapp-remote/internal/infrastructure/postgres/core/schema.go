@@ -57,7 +57,11 @@ CREATE TABLE IF NOT EXISTS %[1]s.products (
 	retail_price_100g NUMERIC NOT NULL DEFAULT 0,
 	retail_price_200g NUMERIC NOT NULL DEFAULT 0,
 	retail_price_227g NUMERIC NOT NULL DEFAULT 0,
-	retail_price_250g NUMERIC NOT NULL DEFAULT 0
+	retail_price_250g NUMERIC NOT NULL DEFAULT 0,
+	customer_id BIGINT NOT NULL DEFAULT 0,
+	base_product_id BIGINT NOT NULL DEFAULT 0,
+	visibility TEXT NOT NULL DEFAULT 'public',
+	custom_type TEXT NOT NULL DEFAULT ''
 );
 CREATE TABLE IF NOT EXISTS %[1]s.product_price_tiers (
 	id BIGSERIAL PRIMARY KEY,
@@ -141,6 +145,13 @@ func ensureCoreColumns(ctx context.Context, pool *pgxpool.Pool, schema string) e
 		`ALTER TABLE %[1]s.products ADD COLUMN IF NOT EXISTS default_price NUMERIC NOT NULL DEFAULT 0`,
 		`ALTER TABLE %[1]s.products ADD COLUMN IF NOT EXISTS active BOOLEAN NOT NULL DEFAULT true`,
 		`ALTER TABLE %[1]s.products ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT now()`,
+		`ALTER TABLE %[1]s.products ADD COLUMN IF NOT EXISTS customer_id BIGINT NOT NULL DEFAULT 0`,
+		`ALTER TABLE %[1]s.products ADD COLUMN IF NOT EXISTS base_product_id BIGINT NOT NULL DEFAULT 0`,
+		`ALTER TABLE %[1]s.products ADD COLUMN IF NOT EXISTS visibility TEXT NOT NULL DEFAULT 'public'`,
+		`ALTER TABLE %[1]s.products ADD COLUMN IF NOT EXISTS custom_type TEXT NOT NULL DEFAULT ''`,
+		`UPDATE %[1]s.products SET visibility='public' WHERE COALESCE(visibility,'')=''`,
+		`CREATE INDEX IF NOT EXISTS products_customer_visibility_idx ON %[1]s.products(customer_id, visibility, active)`,
+		`CREATE INDEX IF NOT EXISTS products_base_product_idx ON %[1]s.products(base_product_id)`,
 		`ALTER TABLE %[1]s.product_price_tiers ADD COLUMN IF NOT EXISTS active BOOLEAN NOT NULL DEFAULT true`,
 		`ALTER TABLE %[1]s.orders ADD COLUMN IF NOT EXISTS order_no TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE %[1]s.orders ADD COLUMN IF NOT EXISTS source_id BIGINT`,

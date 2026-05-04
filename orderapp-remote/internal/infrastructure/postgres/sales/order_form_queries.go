@@ -75,7 +75,11 @@ func (r Repository) fetchOrderProducts(ctx context.Context) ([]salesapp.ProductO
 		COALESCE(retail_price_100g, 0),
 		COALESCE(retail_price_200g, 0),
 		COALESCE(retail_price_227g, default_price, 0),
-		COALESCE(retail_price_250g, 0)
+		COALESCE(retail_price_250g, 0),
+		COALESCE(customer_id, 0),
+		COALESCE(base_product_id, 0),
+		COALESCE(NULLIF(visibility,''), 'public'),
+		COALESCE(custom_type, '')
 		FROM %s.products WHERE active=true ORDER BY name`, r.schema)
 	rows, err := r.pool.Query(ctx, sqlstr)
 	if err != nil {
@@ -86,7 +90,7 @@ func (r Repository) fetchOrderProducts(ctx context.Context) ([]salesapp.ProductO
 	out := make([]salesapp.ProductOption, 0)
 	for rows.Next() {
 		var p salesapp.ProductOption
-		if err := rows.Scan(&p.ID, &p.Name, &p.RoastLevel, &p.DefaultPrice, &p.RetailPrice100G, &p.RetailPrice200G, &p.RetailPrice227G, &p.RetailPrice250G); err != nil {
+		if err := rows.Scan(&p.ID, &p.Name, &p.RoastLevel, &p.DefaultPrice, &p.RetailPrice100G, &p.RetailPrice200G, &p.RetailPrice227G, &p.RetailPrice250G, &p.CustomerID, &p.BaseProductID, &p.Visibility, &p.CustomType); err != nil {
 			return nil, err
 		}
 		p.RetailSpecs = salesdomain.RetailAvailableSpecs(salesdomain.RetailSpecPrices{

@@ -922,6 +922,12 @@ func seedReqWorkflowA(ctx context.Context, pool *pgxpool.Pool, schema string) er
 		{table: "req_unit", code: "UT-CUSTOMER-PORTAL-NATIVE-BEANLIST-CACHE-01", title: "单元测试覆盖豆单发布样式解析、小程序原生页面缓存、卡片分行和红字拆分，以及源码守卫禁止继续走 openDocument", status: "done", assignee: "Codex", evidence: "go test ./internal/infrastructure/postgres/customerportal ./internal/interfaces/http/support -count=1; npm test --prefix miniapp"},
 		{table: "req_api", code: "API-CUSTOMER-PORTAL-NATIVE-BEANLIST-CACHE-01", title: "API 测试覆盖 GET /api/mini/services/beanList 返回原生展示字段、cache_key、分组显示和高亮价格契约", status: "done", assignee: "Codex", evidence: "go test ./internal/interfaces/http/customerportal -run TestMiniBeanListServicePageAPIReturnsDisplayContent -count=1"},
 		{table: "req_review", code: "REV-CUSTOMER-PORTAL-NATIVE-BEANLIST-CACHE-01", prCode: "PR-CUSTOMER-PORTAL-NATIVE-BEANLIST-CACHE", title: "验收：13800138075 打开我的豆单后直接看到和 ERP 发布页风格一致的豆单；再次打开复用本地缓存，新发布版本后自动更新", status: "todo", assignee: "VA", evidence: "待 Van 微信开发者工具验收"},
+		{table: "req_product", code: "PR-150", title: "客户定制咖啡产品需要作为可复购、可入库存、可成本统计的客户专属 SKU，原料与公共产品共享", status: "review", assignee: "VA", evidence: "codex/customer-custom-products-20260505"},
+		{table: "req_dev", code: "DEV-150-01", title: "产品主档新增客户归属、基础产品、可见性和定制类型字段，支持从公共产品创建客户专属 SKU 并复制 BOM/价格", status: "done", assignee: "Codex", evidence: "products customer_id/base_product_id/visibility/custom_type; POST /api/product-settings/custom-products"},
+		{table: "req_dev", code: "DEV-150-02", title: "产品设置页新增客户专属 SKU 创建入口；录单商品下拉只展示公共产品和当前客户专属产品", status: "done", assignee: "Codex", evidence: "ProductSettingsView custom-product-form; OrderEntryView filterProductsForCustomer"},
+		{table: "req_unit", code: "UT-150-01", title: "单元测试覆盖客户专属 SKU 元数据输出、录单客户商品过滤 helper 和 Vue 源码接线", status: "done", assignee: "Codex", evidence: "TestProductSettingsAPISupportsCategoryTreeAndDragAssignments; TestFilterOrderProductsForCustomerKeepsPublicAndOwnProducts; order-entry.test.js; TestCustomerCustomProductsFrontendWiring"},
+		{table: "req_api", code: "API-150-01", title: "API 测试覆盖创建客户专属 SKU、产品设置返回客户归属字段，以及录单按 customer_id 过滤客户专属商品", status: "done", assignee: "Codex", evidence: "TestProductSettingsAPICreatesCustomerCustomProduct; TestOrderAPIFormFiltersCustomerSpecificProducts"},
+		{table: "req_review", code: "REV-150-01", prCode: "PR-150", title: "验收：可从公共咖啡产品创建客户专属 SKU，定制 SKU 可维护 BOM/烘焙度，录单时只对对应客户可选，并独立入库存/算成本", status: "todo", assignee: "VA", evidence: "待 Van ERP 后台验收"},
 	} {
 		if err := seedReqRow(ctx, pool, schema, row); err != nil {
 			return err

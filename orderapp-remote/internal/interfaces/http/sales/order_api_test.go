@@ -81,6 +81,54 @@ func TestOrderAPIFormReturnsCustomerDefaultsForOrderEntry(t *testing.T) {
 	}
 }
 
+func TestOrderAPIFormFiltersCustomerSpecificProducts(t *testing.T) {
+	pool, schema := newOrderAPITestDB(t)
+	ctx := context.Background()
+	seedOrderAPITestData(t, ctx, pool, schema)
+	mustExecOrderAPITestSQL(t, ctx, pool, fmt.Sprintf(`
+		INSERT INTO %s.customers(id,name,active) VALUES (4,'其他客户',true);
+		INSERT INTO %s.products(id,name,default_price,active,retail_price_227g,customer_id,base_product_id,visibility,custom_type)
+		VALUES
+			(8,'测试客户专属深烘',58,true,58,3,7,'customer_only','custom_roast'),
+			(9,'其他客户专属深烘',59,true,59,4,7,'customer_only','custom_roast');
+	`, schema, schema))
+
+	e := newOrderAPITestEcho(pool, schema)
+	req := httptest.NewRequest(http.MethodGet, "/api/order/form?customer_id=3", nil)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET /api/order/form status = %d, want 200, body=%s", rec.Code, rec.Body.String())
+	}
+	body := rec.Body.String()
+	for _, needle := range []string{`"name":"橘皮乌龙"`, `"name":"测试客户专属深烘"`, `"customer_id":3`, `"base_product_id":7`, `"visibility":"customer_only"`} {
+		if !strings.Contains(body, needle) {
+			t.Fatalf("GET /api/order/form missing %s: %s", needle, body)
+		}
+	}
+	if strings.Contains(body, "其他客户专属深烘") {
+		t.Fatalf("GET /api/order/form leaked another customer's product: %s", body)
+	}
+}
+
+func TestFilterOrderProductsForCustomerKeepsPublicAndOwnProducts(t *testing.T) {
+	products := []ProductOption{
+		{ID: 1, Name: "公共拼配", CustomerID: 0, Visibility: "public"},
+		{ID: 2, Name: "测试客户专属深烘", CustomerID: 3, Visibility: "customer_only"},
+		{ID: 3, Name: "其他客户专属深烘", CustomerID: 4, Visibility: "customer_only"},
+	}
+
+	got := filterOrderProductsForCustomer(products, 3)
+	names := make([]string, 0, len(got))
+	for _, product := range got {
+		names = append(names, product.Name)
+	}
+	if strings.Join(names, ",") != "公共拼配,测试客户专属深烘" {
+		t.Fatalf("filtered names = %q", strings.Join(names, ","))
+	}
+}
+
 func TestOrderAPIListUsesSalesReadModel(t *testing.T) {
 	pool, schema := newOrderAPITestDB(t)
 	ctx := context.Background()
@@ -1486,7 +1534,11 @@ CREATE TABLE %s.products (
 	retail_price_100g NUMERIC NOT NULL DEFAULT 0,
 	retail_price_200g NUMERIC NOT NULL DEFAULT 0,
 	retail_price_227g NUMERIC NOT NULL DEFAULT 0,
-	retail_price_250g NUMERIC NOT NULL DEFAULT 0
+	retail_price_250g NUMERIC NOT NULL DEFAULT 0,
+	customer_id BIGINT NOT NULL DEFAULT 0,
+	base_product_id BIGINT NOT NULL DEFAULT 0,
+	visibility TEXT NOT NULL DEFAULT 'public',
+	custom_type TEXT NOT NULL DEFAULT ''
 );
 CREATE TABLE %s.product_price_tiers (
 	id BIGSERIAL PRIMARY KEY,

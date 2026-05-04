@@ -113,6 +113,16 @@ export function filterOptions(options, query) {
   })
 }
 
+export function filterProductsForCustomer(products, customerID) {
+  const selectedCustomerID = toInt(customerID)
+  return (products || []).filter((product) => {
+    const productCustomerID = toInt(product?.customer_id)
+    const visibility = String(product?.visibility || (productCustomerID > 0 ? 'customer_only' : 'public')).trim()
+    if (visibility === 'public' || productCustomerID === 0) return true
+    return selectedCustomerID > 0 && productCustomerID === selectedCustomerID
+  })
+}
+
 export function defaultStatusID(options, names) {
   const wanted = (names || []).map((name) => String(name).trim()).filter(Boolean)
   for (const name of wanted) {

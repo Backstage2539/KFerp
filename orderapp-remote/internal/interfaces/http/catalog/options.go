@@ -25,6 +25,10 @@ type ProductOption struct {
 	YieldRate               float64             `json:"yield_rate"`
 	ProductCategoryID       int64               `json:"product_category_id"`
 	ProductCategoryPosition int                 `json:"product_category_position"`
+	CustomerID              int64               `json:"customer_id"`
+	BaseProductID           int64               `json:"base_product_id"`
+	Visibility              string              `json:"visibility"`
+	CustomType              string              `json:"custom_type"`
 	RetailSpecs             []int64             `json:"retail_specs"`
 	Tiers                   []ProductTierOption `json:"tiers"`
 }
