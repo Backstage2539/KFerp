@@ -30,6 +30,12 @@ const (
 	ServiceKeySettlement   = "settlement"
 )
 
+const (
+	PortalThemeCoffeeFactory  = "coffee_factory"
+	PortalThemeCleanOps       = "clean_ops"
+	PortalThemePremiumPartner = "premium_partner"
+)
+
 var (
 	ErrCustomerBindingNotFound     = errors.New("customer binding not found")
 	ErrMiniSessionNotFound         = errors.New("mini session not found")
@@ -62,6 +68,7 @@ type LoginResult struct {
 	Token             string            `json:"token"`
 	MiniUserID        int64             `json:"mini_user_id"`
 	CurrentCustomerID int64             `json:"current_customer_id"`
+	ThemeKey          string            `json:"theme_key"`
 	Bindings          []CustomerBinding `json:"bindings"`
 	Capabilities      []Capability      `json:"capabilities"`
 }
@@ -83,6 +90,7 @@ type CurrentContext struct {
 	MiniUserID          int64             `json:"mini_user_id"`
 	CurrentCustomerID   int64             `json:"current_customer_id"`
 	CurrentCustomerName string            `json:"current_customer_name"`
+	ThemeKey            string            `json:"theme_key"`
 	Bindings            []CustomerBinding `json:"bindings"`
 	Capabilities        []Capability      `json:"capabilities"`
 }
@@ -251,6 +259,7 @@ type ServicePage struct {
 	Key                 string                 `json:"key"`
 	Title               string                 `json:"title"`
 	Capability          string                 `json:"capability"`
+	ThemeKey            string                 `json:"theme_key"`
 	CurrentCustomerID   int64                  `json:"current_customer_id"`
 	CurrentCustomerName string                 `json:"current_customer_name"`
 	Summary             []ServiceMetric        `json:"summary"`
@@ -325,6 +334,7 @@ type PortalAdminCustomer struct {
 	DisplayName   string `json:"display_name"`
 	PortalEnabled bool   `json:"portal_enabled"`
 	PortalStatus  string `json:"portal_status"`
+	ThemeKey      string `json:"theme_key"`
 	BindingCount  int    `json:"binding_count"`
 }
 
@@ -348,6 +358,7 @@ type UpdatePortalVisibilityCommand struct {
 	CustomerID   int64
 	DisplayName  string
 	Enabled      bool
+	ThemeKey     string
 	Capabilities []CapabilityOption
 	UpdatedBy    string
 }
@@ -496,6 +507,7 @@ func (s *Service) GetServicePage(ctx context.Context, token, key string, filter 
 	page.Key = def.key
 	page.Title = def.title
 	page.Capability = def.capability
+	page.ThemeKey = NormalizePortalThemeKey(current.ThemeKey)
 	page.CurrentCustomerID = current.CurrentCustomerID
 	page.CurrentCustomerName = current.CurrentCustomerName
 	page.Summary = serviceSummary(page)
@@ -551,6 +563,7 @@ func (s *Service) UpdatePortalVisibility(ctx context.Context, cmd UpdatePortalVi
 	}
 	cmd.DisplayName = strings.TrimSpace(cmd.DisplayName)
 	cmd.UpdatedBy = strings.TrimSpace(cmd.UpdatedBy)
+	cmd.ThemeKey = NormalizePortalThemeKey(cmd.ThemeKey)
 	cmd.Capabilities = normalizeCapabilityOptions(cmd.Capabilities)
 	detail, err := s.repo.UpdatePortalVisibility(ctx, cmd)
 	if err != nil {
@@ -659,6 +672,19 @@ func singleCapabilityServiceDef(key, title, capability string) serviceDef {
 
 func serviceKeyContainsOrders(key string) bool {
 	return key == ServiceKeyOrders
+}
+
+func NormalizePortalThemeKey(value string) string {
+	switch strings.TrimSpace(value) {
+	case PortalThemeCoffeeFactory:
+		return PortalThemeCoffeeFactory
+	case PortalThemeCleanOps:
+		return PortalThemeCleanOps
+	case PortalThemePremiumPartner:
+		return PortalThemePremiumPartner
+	default:
+		return PortalThemeCoffeeFactory
+	}
 }
 
 func normalizeServicePageFilter(filter ServicePageFilter) ServicePageFilter {

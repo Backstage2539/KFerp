@@ -21,6 +21,7 @@ type fakeService struct {
 	filter     *customerportalapp.ServicePageFilter
 	customers  []customerportalapp.PortalAdminCustomer
 	detail     customerportalapp.PortalAdminDetail
+	saveCmd    *customerportalapp.UpdatePortalVisibilityCommand
 	directShip customerportalapp.DirectShipBatch
 	processing customerportalapp.ProcessingRequest
 	beanList   customerportalapp.BeanListSummary
@@ -79,9 +80,12 @@ func (s fakeService) PortalAdminDetail(context.Context, int64) (customerportalap
 	return s.detail, nil
 }
 
-func (s fakeService) UpdatePortalVisibility(context.Context, customerportalapp.UpdatePortalVisibilityCommand) (customerportalapp.PortalAdminDetail, error) {
+func (s fakeService) UpdatePortalVisibility(_ context.Context, cmd customerportalapp.UpdatePortalVisibilityCommand) (customerportalapp.PortalAdminDetail, error) {
 	if s.err != nil {
 		return customerportalapp.PortalAdminDetail{}, s.err
+	}
+	if s.saveCmd != nil {
+		*s.saveCmd = cmd
 	}
 	return s.detail, nil
 }
@@ -103,9 +107,15 @@ func (s fakeService) CreateProcessingRequest(context.Context, string, customerpo
 func TestMiniLoginAndMeAPI(t *testing.T) {
 	e := echo.New()
 	RegisterRoutes(e, Dependencies{CustomerPortal: fakeService{
-		login: customerportalapp.LoginResult{Token: "mini-token", MiniUserID: 3},
+		login: customerportalapp.LoginResult{
+			Token:             "mini-token",
+			MiniUserID:        3,
+			ThemeKey:          customerportalapp.PortalThemePremiumPartner,
+			CurrentCustomerID: 8,
+		},
 		me: customerportalapp.CurrentContext{
 			MiniUserID: 3, CurrentCustomerID: 8, CurrentCustomerName: "客户A",
+			ThemeKey:     customerportalapp.PortalThemePremiumPartner,
 			Capabilities: []customerportalapp.Capability{{Code: customerportalapp.CapabilityDirectShip, Enabled: true}},
 		},
 	}})
@@ -114,7 +124,9 @@ func TestMiniLoginAndMeAPI(t *testing.T) {
 	loginReq.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
 	loginRec := httptest.NewRecorder()
 	e.ServeHTTP(loginRec, loginReq)
-	if loginRec.Code != http.StatusOK || !strings.Contains(loginRec.Body.String(), `"token":"mini-token"`) {
+	if loginRec.Code != http.StatusOK ||
+		!strings.Contains(loginRec.Body.String(), `"token":"mini-token"`) ||
+		!strings.Contains(loginRec.Body.String(), `"theme_key":"premium_partner"`) {
 		t.Fatalf("login status=%d body=%s", loginRec.Code, loginRec.Body.String())
 	}
 
@@ -122,7 +134,10 @@ func TestMiniLoginAndMeAPI(t *testing.T) {
 	meReq.Header.Set(echo.HeaderAuthorization, "Bearer mini-token")
 	meRec := httptest.NewRecorder()
 	e.ServeHTTP(meRec, meReq)
-	if meRec.Code != http.StatusOK || !strings.Contains(meRec.Body.String(), `"current_customer_name":"客户A"`) || !strings.Contains(meRec.Body.String(), customerportalapp.CapabilityDirectShip) {
+	if meRec.Code != http.StatusOK ||
+		!strings.Contains(meRec.Body.String(), `"current_customer_name":"客户A"`) ||
+		!strings.Contains(meRec.Body.String(), `"theme_key":"premium_partner"`) ||
+		!strings.Contains(meRec.Body.String(), customerportalapp.CapabilityDirectShip) {
 		t.Fatalf("me status=%d body=%s", meRec.Code, meRec.Body.String())
 	}
 }
@@ -219,6 +234,7 @@ func TestMiniServicePageAPIRequiresTokenAndReturnsScopedData(t *testing.T) {
 	RegisterRoutes(e, Dependencies{CustomerPortal: fakeService{service: customerportalapp.ServicePage{
 		Key:                 customerportalapp.ServiceKeyShipping,
 		Title:               "物流查询",
+		ThemeKey:            customerportalapp.PortalThemeCleanOps,
 		CurrentCustomerID:   8,
 		CurrentCustomerName: "客户A",
 		Orders: []customerportalapp.CustomerOrderSummary{{
@@ -235,6 +251,7 @@ func TestMiniServicePageAPIRequiresTokenAndReturnsScopedData(t *testing.T) {
 		!strings.Contains(rec.Body.String(), `"ship_tracking_no":"SF123"`) ||
 		!strings.Contains(rec.Body.String(), `"grand_total":"137.00"`) ||
 		!strings.Contains(rec.Body.String(), `"items":[`) ||
+		!strings.Contains(rec.Body.String(), `"theme_key":"clean_ops"`) ||
 		!strings.Contains(rec.Body.String(), `"current_customer_id":8`) {
 		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
 	}
@@ -384,11 +401,13 @@ func TestMiniBeanListPDFAPIReturnsPDFDownload(t *testing.T) {
 }
 
 func TestPortalAdminVisibilityAPIsExposeAndSaveCustomerCapabilities(t *testing.T) {
+	var saveCmd customerportalapp.UpdatePortalVisibilityCommand
 	e := echo.New()
 	RegisterRoutes(e, Dependencies{CustomerPortal: fakeService{
-		customers: []customerportalapp.PortalAdminCustomer{{ID: 147, Name: "13800138075", PortalEnabled: true, BindingCount: 1}},
+		saveCmd:   &saveCmd,
+		customers: []customerportalapp.PortalAdminCustomer{{ID: 147, Name: "13800138075", PortalEnabled: true, BindingCount: 1, ThemeKey: customerportalapp.PortalThemeCoffeeFactory}},
 		detail: customerportalapp.PortalAdminDetail{
-			Customer: customerportalapp.PortalAdminCustomer{ID: 147, Name: "13800138075", DisplayName: "测试客户", PortalEnabled: true},
+			Customer: customerportalapp.PortalAdminCustomer{ID: 147, Name: "13800138075", DisplayName: "测试客户", PortalEnabled: true, ThemeKey: customerportalapp.PortalThemePremiumPartner},
 			Bindings: []customerportalapp.PortalUserBinding{{MiniUserID: 1, Phone: "13800138075", Role: "owner", Status: "approved"}},
 			Capabilities: []customerportalapp.CapabilityOption{
 				{Code: customerportalapp.CapabilityBeanList, Label: "我的豆单", Enabled: true},
@@ -400,24 +419,33 @@ func TestPortalAdminVisibilityAPIsExposeAndSaveCustomerCapabilities(t *testing.T
 	listReq := httptest.NewRequest(http.MethodGet, "/api/customer-portal/admin/customers?q=13800138075", nil)
 	listRec := httptest.NewRecorder()
 	e.ServeHTTP(listRec, listReq)
-	if listRec.Code != http.StatusOK || !strings.Contains(listRec.Body.String(), `"name":"13800138075"`) || !strings.Contains(listRec.Body.String(), `"binding_count":1`) {
+	if listRec.Code != http.StatusOK ||
+		!strings.Contains(listRec.Body.String(), `"name":"13800138075"`) ||
+		!strings.Contains(listRec.Body.String(), `"theme_key":"coffee_factory"`) ||
+		!strings.Contains(listRec.Body.String(), `"binding_count":1`) {
 		t.Fatalf("list status=%d body=%s", listRec.Code, listRec.Body.String())
 	}
 
 	detailReq := httptest.NewRequest(http.MethodGet, "/api/customer-portal/admin/customers/147", nil)
 	detailRec := httptest.NewRecorder()
 	e.ServeHTTP(detailRec, detailReq)
-	if detailRec.Code != http.StatusOK || !strings.Contains(detailRec.Body.String(), `"bindings":[`) || !strings.Contains(detailRec.Body.String(), `"capabilities":[`) {
+	if detailRec.Code != http.StatusOK ||
+		!strings.Contains(detailRec.Body.String(), `"theme_key":"premium_partner"`) ||
+		!strings.Contains(detailRec.Body.String(), `"bindings":[`) ||
+		!strings.Contains(detailRec.Body.String(), `"capabilities":[`) {
 		t.Fatalf("detail status=%d body=%s", detailRec.Code, detailRec.Body.String())
 	}
 
-	body := strings.NewReader(`{"display_name":"测试客户","enabled":true,"capabilities":[{"code":"bean_list","enabled":true},{"code":"direct_ship","enabled":false}]}`)
+	body := strings.NewReader(`{"display_name":"测试客户","enabled":true,"theme_key":"premium_partner","capabilities":[{"code":"bean_list","enabled":true},{"code":"direct_ship","enabled":false}]}`)
 	saveReq := httptest.NewRequest(http.MethodPut, "/api/customer-portal/admin/customers/147/visibility", body)
 	saveReq.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
 	saveRec := httptest.NewRecorder()
 	e.ServeHTTP(saveRec, saveReq)
 	if saveRec.Code != http.StatusOK || !strings.Contains(saveRec.Body.String(), `"display_name":"测试客户"`) {
 		t.Fatalf("save status=%d body=%s", saveRec.Code, saveRec.Body.String())
+	}
+	if saveCmd.ThemeKey != customerportalapp.PortalThemePremiumPartner {
+		t.Fatalf("save theme_key=%q, want premium_partner", saveCmd.ThemeKey)
 	}
 }
 
