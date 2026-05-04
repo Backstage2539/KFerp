@@ -83,6 +83,10 @@ func (r Repository) CreateLoginSession(ctx context.Context, cmd customerportalap
 	if err != nil {
 		return customerportalapp.LoginResult{}, err
 	}
+	themeKey, err := r.themeForCustomerTx(ctx, tx, currentCustomerID)
+	if err != nil {
+		return customerportalapp.LoginResult{}, err
+	}
 	if err := tx.Commit(ctx); err != nil {
 		return customerportalapp.LoginResult{}, err
 	}
@@ -92,6 +96,7 @@ func (r Repository) CreateLoginSession(ctx context.Context, cmd customerportalap
 		CurrentCustomerID: currentCustomerID,
 		Bindings:          bindings,
 		Capabilities:      capabilities,
+		ThemeKey:          themeKey,
 	}, nil
 }
 
@@ -149,6 +154,10 @@ func (r Repository) CurrentContextByToken(ctx context.Context, token string) (cu
 	if err != nil {
 		return customerportalapp.CurrentContext{}, err
 	}
+	themeKey, err := r.themeForCustomerTx(ctx, tx, currentCustomerID)
+	if err != nil {
+		return customerportalapp.CurrentContext{}, err
+	}
 	if err := tx.Commit(ctx); err != nil {
 		return customerportalapp.CurrentContext{}, err
 	}
@@ -158,6 +167,7 @@ func (r Repository) CurrentContextByToken(ctx context.Context, token string) (cu
 		CurrentCustomerName: currentCustomerName,
 		Bindings:            bindings,
 		Capabilities:        capabilities,
+		ThemeKey:            themeKey,
 	}, nil
 }
 
@@ -272,6 +282,25 @@ func (r Repository) capabilitiesForCustomerTx(ctx context.Context, q txQuerier, 
 		out = append(out, row)
 	}
 	return out, rows.Err()
+}
+
+func (r Repository) themeForCustomerTx(ctx context.Context, q txQuerier, customerID int64) (string, error) {
+	if customerID <= 0 {
+		return customerportalapp.PortalThemeCoffeeFactory, nil
+	}
+	var raw string
+	err := q.QueryRow(ctx, fmt.Sprintf(`
+		SELECT COALESCE(NULLIF(theme_key,''),'coffee_factory')
+		FROM %s.customer_portal_profiles
+		WHERE customer_id=$1
+	`, r.schema), customerID).Scan(&raw)
+	if err == pgx.ErrNoRows {
+		return customerportalapp.PortalThemeCoffeeFactory, nil
+	}
+	if err != nil {
+		return "", err
+	}
+	return customerportalapp.NormalizePortalThemeKey(raw), nil
 }
 
 func randomToken(n int) (string, error) {

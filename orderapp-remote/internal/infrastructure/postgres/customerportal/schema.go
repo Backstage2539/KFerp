@@ -36,6 +36,7 @@ CREATE TABLE IF NOT EXISTS %s.customer_portal_profiles (
 	status TEXT NOT NULL DEFAULT 'active',
 	default_settlement_cycle TEXT NOT NULL DEFAULT 'monthly',
 	default_payment_terms TEXT NOT NULL DEFAULT '',
+	theme_key TEXT NOT NULL DEFAULT 'coffee_factory',
 	enabled BOOLEAN NOT NULL DEFAULT true,
 	updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
 	updated_by TEXT NOT NULL DEFAULT ''
@@ -64,7 +65,10 @@ CREATE TABLE IF NOT EXISTS %s.customer_service_capabilities (
 );
 CREATE UNIQUE INDEX IF NOT EXISTS customer_service_capabilities_customer_code_uq
 	ON %s.customer_service_capabilities(customer_id, capability_code);
-`, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema)
+
+ALTER TABLE %s.customer_portal_profiles
+	ADD COLUMN IF NOT EXISTS theme_key TEXT NOT NULL DEFAULT 'coffee_factory';
+`, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema)
 	if _, err := pool.Exec(ctx, q); err != nil {
 		return err
 	}

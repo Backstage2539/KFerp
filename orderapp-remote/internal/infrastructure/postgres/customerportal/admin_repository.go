@@ -25,13 +25,14 @@ func (r Repository) ListPortalAdminCustomers(ctx context.Context, query customer
 		       COALESCE(p.display_name,''),
 		       COALESCE(p.enabled,true),
 		       COALESCE(p.status,'active'),
+		       COALESCE(NULLIF(p.theme_key,''),'coffee_factory'),
 		       COUNT(b.id) FILTER (WHERE b.status='approved')::int
 		FROM %s.customers c
 		LEFT JOIN %s.customer_portal_profiles p ON p.customer_id=c.id
 		LEFT JOIN %s.customer_portal_user_bindings b ON b.customer_id=c.id
 		WHERE c.active=true
 		  AND ($1='' OR c.name ILIKE '%%' || $1 || '%%' OR c.phone ILIKE '%%' || $1 || '%%' OR c.company_name ILIKE '%%' || $1 || '%%')
-		GROUP BY c.id, c.name, c.phone, c.company_name, p.display_name, p.enabled, p.status
+		GROUP BY c.id, c.name, c.phone, c.company_name, p.display_name, p.enabled, p.status, p.theme_key
 		ORDER BY c.name, c.id
 		LIMIT $2
 	`, r.schema, r.schema, r.schema), q, limit)
@@ -42,9 +43,10 @@ func (r Repository) ListPortalAdminCustomers(ctx context.Context, query customer
 	out := make([]customerportalapp.PortalAdminCustomer, 0)
 	for rows.Next() {
 		var row customerportalapp.PortalAdminCustomer
-		if err := rows.Scan(&row.ID, &row.Name, &row.Phone, &row.CompanyName, &row.DisplayName, &row.PortalEnabled, &row.PortalStatus, &row.BindingCount); err != nil {
+		if err := rows.Scan(&row.ID, &row.Name, &row.Phone, &row.CompanyName, &row.DisplayName, &row.PortalEnabled, &row.PortalStatus, &row.ThemeKey, &row.BindingCount); err != nil {
 			return nil, err
 		}
+		row.ThemeKey = customerportalapp.NormalizePortalThemeKey(row.ThemeKey)
 		out = append(out, row)
 	}
 	return out, rows.Err()
@@ -85,15 +87,16 @@ func (r Repository) UpdatePortalVisibility(ctx context.Context, cmd customerport
 		return customerportalapp.PortalAdminDetail{}, err
 	}
 	if _, err := tx.Exec(ctx, fmt.Sprintf(`
-		INSERT INTO %s.customer_portal_profiles(customer_id, display_name, enabled, status, updated_at, updated_by)
-		VALUES($1,$2,$3,'active',now(),$4)
+		INSERT INTO %s.customer_portal_profiles(customer_id, display_name, enabled, status, theme_key, updated_at, updated_by)
+		VALUES($1,$2,$3,'active',$4,now(),$5)
 		ON CONFLICT(customer_id) DO UPDATE SET
 			display_name=excluded.display_name,
 			enabled=excluded.enabled,
 			status='active',
+			theme_key=excluded.theme_key,
 			updated_at=now(),
 			updated_by=excluded.updated_by
-	`, r.schema), cmd.CustomerID, strings.TrimSpace(cmd.DisplayName), cmd.Enabled, strings.TrimSpace(cmd.UpdatedBy)); err != nil {
+	`, r.schema), cmd.CustomerID, strings.TrimSpace(cmd.DisplayName), cmd.Enabled, customerportalapp.NormalizePortalThemeKey(cmd.ThemeKey), strings.TrimSpace(cmd.UpdatedBy)); err != nil {
 		return customerportalapp.PortalAdminDetail{}, err
 	}
 	for _, capability := range cmd.Capabilities {
@@ -134,11 +137,15 @@ func (r Repository) portalAdminCustomer(ctx context.Context, customerID int64) (
 		       COALESCE(p.display_name,''),
 		       COALESCE(p.enabled,true),
 		       COALESCE(p.status,'active'),
+		       COALESCE(NULLIF(p.theme_key,''),'coffee_factory'),
 		       COALESCE((SELECT COUNT(*)::int FROM %s.customer_portal_user_bindings b WHERE b.customer_id=c.id AND b.status='approved'),0)
 		FROM %s.customers c
 		LEFT JOIN %s.customer_portal_profiles p ON p.customer_id=c.id
 		WHERE c.id=$1
-	`, r.schema, r.schema, r.schema), customerID).Scan(&row.ID, &row.Name, &row.Phone, &row.CompanyName, &row.DisplayName, &row.PortalEnabled, &row.PortalStatus, &row.BindingCount)
+	`, r.schema, r.schema, r.schema), customerID).Scan(&row.ID, &row.Name, &row.Phone, &row.CompanyName, &row.DisplayName, &row.PortalEnabled, &row.PortalStatus, &row.ThemeKey, &row.BindingCount)
+	if err == nil {
+		row.ThemeKey = customerportalapp.NormalizePortalThemeKey(row.ThemeKey)
+	}
 	if err == pgx.ErrNoRows {
 		return customerportalapp.PortalAdminCustomer{}, customerportalapp.ErrPortalCustomerNotFound
 	}
