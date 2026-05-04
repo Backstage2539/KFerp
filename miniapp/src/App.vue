@@ -7,7 +7,7 @@
 
 <style>
 page {
-  background: #f6f6f6;
+  background: #f7f2ea;
   color: #171717;
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
 }

@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia'
 import type { CustomerBinding } from '../api/customerPortal'
 import type { Capability } from '../utils/capabilities'
+import { defaultMiniappThemeKey, normalizeMiniappThemeKey, type MiniappThemeKey } from '../utils/themes'
 
 const tokenKey = 'kferp.mini.token'
 
@@ -10,6 +11,7 @@ export const useSessionStore = defineStore('session', {
     miniUserID: 0,
     currentCustomerID: 0,
     currentCustomerName: '',
+    themeKey: defaultMiniappThemeKey as MiniappThemeKey,
     bindings: [] as CustomerBinding[],
     capabilities: [] as Capability[],
   }),
@@ -23,6 +25,7 @@ export const useSessionStore = defineStore('session', {
       this.miniUserID = 0
       this.currentCustomerID = 0
       this.currentCustomerName = ''
+      this.themeKey = defaultMiniappThemeKey
       this.bindings = []
       this.capabilities = []
       uni.removeStorageSync(tokenKey)
@@ -31,6 +34,7 @@ export const useSessionStore = defineStore('session', {
       mini_user_id: number
       current_customer_id: number
       current_customer_name?: string
+      theme_key?: string
       bindings: CustomerBinding[]
       capabilities: Capability[]
     }) {
@@ -39,6 +43,7 @@ export const useSessionStore = defineStore('session', {
       this.currentCustomerName = context.current_customer_name || ''
       this.bindings = context.bindings || []
       this.capabilities = context.capabilities || []
+      this.themeKey = normalizeMiniappThemeKey(context.theme_key)
     },
   },
 })
