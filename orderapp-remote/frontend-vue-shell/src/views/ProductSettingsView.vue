@@ -20,17 +20,27 @@
         <form class="custom-product-form" @submit.prevent="createCustomProduct">
           <label>
             <span>客户</span>
-            <select v-model.number="customForm.customer_id" @change="fillCustomProductName">
-              <option :value="0">选择客户</option>
-              <option v-for="customer in customers" :key="customer.id" :value="customer.id">{{ customer.name }}</option>
-            </select>
+            <SearchableSelect
+              v-model="customForm.customer_id"
+              :options="customers"
+              :option-label="customerOptionLabel"
+              :option-meta="customerOptionMeta"
+              :option-value="optionNumericValue"
+              placeholder="输入客户名/拼音"
+              empty-text="没有匹配客户"
+              @select="fillCustomProductName" />
           </label>
           <label>
             <span>基础产品</span>
-            <select v-model.number="customForm.base_product_id" @change="fillCustomProductName">
-              <option :value="0">选择公共产品</option>
-              <option v-for="product in baseProducts" :key="product.id" :value="product.id">{{ product.name }}</option>
-            </select>
+            <SearchableSelect
+              v-model="customForm.base_product_id"
+              :options="baseProducts"
+              :option-label="baseProductOptionLabel"
+              :option-meta="baseProductOptionMeta"
+              :option-value="optionNumericValue"
+              placeholder="输入产品名"
+              empty-text="没有匹配产品"
+              @select="fillCustomProductName" />
           </label>
           <label>
             <span>定制类型</span>
@@ -234,6 +244,7 @@
 <script setup>
 import { computed, onMounted, ref } from 'vue'
 import { apiGet, apiSend } from '../api/client'
+import SearchableSelect from '../components/SearchableSelect.vue'
 import CostingView from './CostingView.vue'
 
 const categories = ref([])
@@ -347,6 +358,33 @@ function productVisibility(product) {
 
 function customerName(id) {
   return customers.value.find((customer) => Number(customer.id) === Number(id))?.name || ''
+}
+
+function customerOptionLabel(customer) {
+  return customer?.name || ''
+}
+
+function customerOptionMeta(customer) {
+  const parts = []
+  if (customer?.company_name && customer.company_name !== customer?.name) parts.push(customer.company_name)
+  if (customer?.contact) parts.push(customer.contact)
+  if (customer?.phone || customer?.company_phone) parts.push(customer.phone || customer.company_phone)
+  return parts.join(' / ')
+}
+
+function optionNumericValue(option) {
+  return Number(option?.id || 0)
+}
+
+function baseProductOptionLabel(product) {
+  return product?.name || ''
+}
+
+function baseProductOptionMeta(product) {
+  const parts = []
+  if (product?.number) parts.push(`编号 ${product.number}`)
+  if (product?.roast_level) parts.push(product.roast_level)
+  return parts.join(' / ')
 }
 
 function ownerLabel(row) {

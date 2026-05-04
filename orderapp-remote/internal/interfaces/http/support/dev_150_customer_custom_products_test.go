@@ -16,8 +16,14 @@ func TestCustomerCustomProductsRequirementSeeds(t *testing.T) {
 		"UT-150-01",
 		"API-150-01",
 		"REV-150-01",
+		"PR-151",
+		"DEV-151-01",
+		"UT-151-01",
+		"API-151-01",
+		"REV-151-01",
 		"客户专属 SKU",
 		"原料与公共产品共享",
+		"模糊搜索",
 	} {
 		if !strings.Contains(src, want) {
 			t.Fatalf("customer custom product requirement seed missing %q", want)
@@ -47,6 +53,23 @@ func TestCustomerCustomProductsFrontendWiring(t *testing.T) {
 	} {
 		if !strings.Contains(orderEntry, want) {
 			t.Fatalf("OrderEntryView.vue missing %q", want)
+		}
+	}
+}
+
+func TestCustomerCustomSkuFormUsesSearchableDropdowns(t *testing.T) {
+	productSettings := string(readDev150File(t, filepath.Join("frontend-vue-shell", "src", "views", "ProductSettingsView.vue")))
+	for _, want := range []string{
+		"SearchableSelect",
+		"customerOptionLabel",
+		"baseProductOptionLabel",
+		"输入客户名/拼音",
+		"输入产品名",
+		"没有匹配客户",
+		"没有匹配产品",
+	} {
+		if !strings.Contains(productSettings, want) {
+			t.Fatalf("ProductSettingsView.vue missing searchable custom SKU dropdown wiring %q", want)
 		}
 	}
 }

@@ -928,6 +928,11 @@ func seedReqWorkflowA(ctx context.Context, pool *pgxpool.Pool, schema string) er
 		{table: "req_unit", code: "UT-150-01", title: "单元测试覆盖客户专属 SKU 元数据输出、录单客户商品过滤 helper 和 Vue 源码接线", status: "done", assignee: "Codex", evidence: "TestProductSettingsAPISupportsCategoryTreeAndDragAssignments; TestFilterOrderProductsForCustomerKeepsPublicAndOwnProducts; order-entry.test.js; TestCustomerCustomProductsFrontendWiring"},
 		{table: "req_api", code: "API-150-01", title: "API 测试覆盖创建客户专属 SKU、产品设置返回客户归属字段，以及录单按 customer_id 过滤客户专属商品", status: "done", assignee: "Codex", evidence: "TestProductSettingsAPICreatesCustomerCustomProduct; TestOrderAPIFormFiltersCustomerSpecificProducts"},
 		{table: "req_review", code: "REV-150-01", prCode: "PR-150", title: "验收：可从公共咖啡产品创建客户专属 SKU，定制 SKU 可维护 BOM/烘焙度，录单时只对对应客户可选，并独立入库存/算成本", status: "todo", assignee: "VA", evidence: "待 Van ERP 后台验收"},
+		{table: "req_product", code: "PR-151", title: "客户专属 SKU 创建表单的客户和基础产品下拉选项支持模糊搜索", status: "review", assignee: "VA", evidence: "codex/custom-sku-fuzzy-dropdowns-20260505"},
+		{table: "req_dev", code: "DEV-151-01", title: "产品设置页客户专属 SKU 表单复用 SearchableSelect，客户可按名称/公司/联系人/电话搜索，基础产品可按名称/编号搜索", status: "done", assignee: "Codex", evidence: "ProductSettingsView SearchableSelect; searchable-select optionSearchText"},
+		{table: "req_unit", code: "UT-151-01", title: "单元测试覆盖客户专属 SKU 可搜索下拉源码接线和搜索字段匹配", status: "done", assignee: "Codex", evidence: "TestCustomerCustomSkuFormUsesSearchableDropdowns; node --test src/lib/searchable-select.test.js"},
+		{table: "req_api", code: "API-151-01", title: "API 层不变，继续复用 /api/customers 和 /api/product-settings 给可搜索下拉提供客户与公共产品数据", status: "done", assignee: "Codex", evidence: "go test ./internal/interfaces/http/catalog -run TestProductSettingsAPI -count=1; go test ./internal/interfaces/http/sales -run TestOrderAPIFormFiltersCustomerSpecificProducts -count=1"},
+		{table: "req_review", code: "REV-151-01", prCode: "PR-151", title: "验收：创建客户专属 SKU 时，客户和基础产品下拉可输入关键词筛选并选择正确项", status: "todo", assignee: "VA", evidence: "待 Van ERP 后台验收"},
 	} {
 		if err := seedReqRow(ctx, pool, schema, row); err != nil {
 			return err
