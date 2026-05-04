@@ -52,10 +52,10 @@
                 type="button"
                 class="theme-option"
                 :class="{ selected: row.form.theme_key === theme.key }"
+                :title="theme.description"
                 @click="row.form.theme_key = theme.key">
                 <i :class="['theme-swatch', theme.swatchClass]"></i>
-                <strong>{{ theme.label }}</strong>
-                <small>{{ theme.description }}</small>
+                <span>{{ theme.label }}</span>
               </button>
             </div>
           </div>
@@ -217,29 +217,27 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .check { display: inline-flex; align-items: center; gap: 8px; }
 .check input, .capability input { width: auto; height: auto; }
 .check span { margin: 0; color: #333; font-size: 13px; }
-.theme-picker { display: flex; flex-direction: column; gap: 8px; }
+.theme-picker { display: flex; flex-direction: column; gap: 5px; }
 .theme-picker > span { color: #666; font-size: 12px; }
-.theme-options { display: grid; grid-template-columns: 1fr; gap: 8px; }
+.theme-options { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 4px; }
 .theme-option {
-  min-height: 72px;
+  min-height: 44px;
   display: grid;
-  grid-template-columns: 28px 1fr;
-  column-gap: 8px;
-  row-gap: 3px;
-  align-items: start;
+  grid-template-columns: 14px minmax(0, 1fr);
+  column-gap: 5px;
+  align-items: center;
   width: 100%;
   height: auto;
-  padding: 9px;
+  padding: 5px 6px;
   border: 1px solid #e4e7ec;
-  border-radius: 8px;
+  border-radius: 6px;
   background: #fff;
   color: #171717;
   text-align: left;
 }
 .theme-option.selected { border-color: #1f1f1f; box-shadow: 0 0 0 2px rgba(31,31,31,.08); }
-.theme-option strong { font-size: 13px; line-height: 1.3; }
-.theme-option small { grid-column: 2; color: #666; font-size: 12px; line-height: 1.35; }
-.theme-swatch { width: 22px; height: 22px; border-radius: 999px; }
+.theme-option span { min-width: 0; color: #333; font-size: 12px; line-height: 1.2; overflow-wrap: anywhere; }
+.theme-swatch { width: 14px; height: 14px; border-radius: 999px; }
 .theme-swatch-coffee { background: linear-gradient(135deg, #2b2118, #9b7141); }
 .theme-swatch-clean { background: linear-gradient(135deg, #e7f0eb, #28624a); }
 .theme-swatch-premium { background: linear-gradient(135deg, #111, #b88a46); }
