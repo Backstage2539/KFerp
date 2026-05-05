@@ -81,6 +81,7 @@ type Repository interface {
 	Materials(ctx context.Context) ([]Option, error)
 	BagSpecMappings(ctx context.Context) ([]BagSpecMapping, error)
 	SyncProductYield(ctx context.Context, productID int64) error
+	DeleteBom(ctx context.Context, productID int64) error
 	SaveItem(ctx context.Context, cmd SaveItemCommand) error
 	DeleteItem(ctx context.Context, cmd DeleteItemCommand) error
 	SaveBagSpecMapping(ctx context.Context, cmd SaveBagSpecMappingCommand) error
@@ -126,6 +127,13 @@ func (s *Service) SyncProductYield(ctx context.Context, productID int64) error {
 		return fmt.Errorf("product required")
 	}
 	return s.repo.SyncProductYield(ctx, productID)
+}
+
+func (s *Service) DeleteBom(ctx context.Context, productID int64) error {
+	if productID <= 0 {
+		return fmt.Errorf("product required")
+	}
+	return s.repo.DeleteBom(ctx, productID)
 }
 
 func (s *Service) SaveItem(ctx context.Context, cmd SaveItemCommand) error {

@@ -138,6 +138,17 @@ func registerBomAPI(e *echo.Echo, bomSvc *bomapp.Service) {
 		return c.NoContent(http.StatusOK)
 	})
 
+	e.DELETE("/api/bom/:product_id", func(c echo.Context) error {
+		productID, err := strconv.ParseInt(c.Param("product_id"), 10, 64)
+		if err != nil {
+			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: "invalid product_id"})
+		}
+		if err := bomSvc.DeleteBom(c.Request().Context(), productID); err != nil {
+			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: err.Error()})
+		}
+		return c.JSON(http.StatusOK, map[string]any{"ok": true})
+	})
+
 	e.POST("/api/bom/item/save", func(c echo.Context) error {
 		var req SaveBomItemRequest
 		if err := c.Bind(&req); err != nil {

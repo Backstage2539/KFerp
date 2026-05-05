@@ -940,6 +940,13 @@ func seedReqWorkflowA(ctx context.Context, pool *pgxpool.Pool, schema string) er
 		{table: "req_unit", code: "UT-151-01", title: "单元测试覆盖客户专属 SKU 可搜索下拉源码接线和搜索字段匹配", status: "done", assignee: "Codex", evidence: "TestCustomerCustomSkuFormUsesSearchableDropdowns; node --test src/lib/searchable-select.test.js"},
 		{table: "req_api", code: "API-151-01", title: "API 层不变，继续复用 /api/customers 和 /api/product-settings 给可搜索下拉提供客户与公共产品数据", status: "done", assignee: "Codex", evidence: "go test ./internal/interfaces/http/catalog -run TestProductSettingsAPI -count=1; go test ./internal/interfaces/http/sales -run TestOrderAPIFormFiltersCustomerSpecificProducts -count=1"},
 		{table: "req_review", code: "REV-151-01", prCode: "PR-151", title: "验收：创建客户专属 SKU 时，客户和基础产品下拉可输入关键词筛选并选择正确项", status: "todo", assignee: "VA", evidence: "待 Van ERP 后台验收"},
+		{table: "req_product", code: "PR-152", title: "客户专属 SKU 二期：BOM 增删查、产品设置可查看客户专属 SKU，并支持给指定客户发布只含公共 SKU 和该客户 SKU 的客户豆单", status: "review", assignee: "VA", evidence: "codex/customer-sku-bom-bean-list-20260505"},
+		{table: "req_dev", code: "DEV-152-01", title: "BOM 增删查：BOM 页面支持可搜索产品/物料、维护明细、删除当前 BOM，并保留历史版本", status: "done", assignee: "Codex", evidence: "DELETE /api/bom/:product_id; BomView deleteBom/SearchableSelect"},
+		{table: "req_dev", code: "DEV-152-02", title: "产品设置增加客户专属 SKU 列表，展示客户、基础产品、定制类型、烘焙度和 BOM 物料数，并可跳转维护 BOM", status: "done", assignee: "Codex", evidence: "ProductSettingsView customerSkuRows; bom_item_count"},
+		{table: "req_dev", code: "DEV-152-03", title: "客户豆单只能选择公共 SKU 和对应客户 SKU；官方豆单排除客户 SKU，跨客户 SKU 后端拒绝发布", status: "done", assignee: "Codex", evidence: "CostingView customerBeanListItems; validateBeanListProductScope"},
+		{table: "req_unit", code: "UT-152-01", title: "单元测试覆盖需求种子、BOM/产品设置/客户豆单源码接线和客户豆单 SKU 范围过滤 helper", status: "done", assignee: "Codex", evidence: "TestCustomerSkuBomBeanListRequirementSeeds; bean-list-pdf.test"},
+		{table: "req_api", code: "API-152-01", title: "API 测试覆盖 BOM 删除接口、产品设置返回 bom_item_count、客户豆单 customer scope owner 解析", status: "done", assignee: "Codex", evidence: "TestBomDeleteAPIDeletesCurrentBom; TestBeanListPublicationAPISupportsCustomerScope; TestProductSettingsAPI"},
+		{table: "req_review", code: "REV-152-01", prCode: "PR-152", title: "验收：客户 SKU 可在产品设置查看并维护 BOM；客户 A 豆单只能添加公共 SKU 和客户 A SKU，客户 B SKU 需复制成客户 A SKU 后再用", status: "todo", assignee: "VA", evidence: "待 Van ERP 后台验收"},
 	} {
 		if err := seedReqRow(ctx, pool, schema, row); err != nil {
 			return err

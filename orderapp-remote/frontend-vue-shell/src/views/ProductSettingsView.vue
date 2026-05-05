@@ -71,6 +71,54 @@
             <button class="primary" type="submit" :disabled="customSaving">创建专属 SKU</button>
           </div>
         </form>
+        <div class="customer-sku-list">
+          <div class="sku-list-head">
+            <div>
+              <strong>客户专属 SKU 列表</strong>
+              <span class="muted">只展示客户维度的定制产品，可直接进入 BOM 维护。</span>
+            </div>
+            <div class="sku-filter">
+              <SearchableSelect
+                v-model="selectedCustomerSkuCustomerID"
+                :options="customers"
+                :option-label="customerOptionLabel"
+                :option-meta="customerOptionMeta"
+                :option-value="optionNumericValue"
+                placeholder="筛选客户"
+                empty-text="没有匹配客户" />
+              <button class="secondary" type="button" @click="selectedCustomerSkuCustomerID = 0">全部</button>
+            </div>
+          </div>
+          <div class="table-wrap compact-table">
+            <table>
+              <thead>
+                <tr>
+                  <th>客户</th>
+                  <th>客户 SKU</th>
+                  <th>基础产品</th>
+                  <th>类型</th>
+                  <th>烘焙度</th>
+                  <th>BOM物料</th>
+                  <th>BOM</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="row in customerSkuRows" :key="`customer-sku-${row.id}`">
+                  <td>{{ ownerLabel(row) }}</td>
+                  <td>{{ row.name }}</td>
+                  <td>{{ baseProductName(row.base_product_id) }}</td>
+                  <td>{{ customTypeLabel(row.custom_type) }}</td>
+                  <td>{{ row.roast_level || '-' }}</td>
+                  <td>{{ row.bom_item_count || 0 }}</td>
+                  <td><button class="text-button" type="button" @click="openProductBom(row)">维护 BOM</button></td>
+                </tr>
+                <tr v-if="!customerSkuRows.length">
+                  <td colspan="7" class="muted">暂无客户专属 SKU</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
       </div>
 
       <div class="panel category-panel">
@@ -264,6 +312,7 @@ const editingCategoryId = ref(0)
 const editingCategoryName = ref('')
 const categoryCollapsed = ref(false)
 const productsCollapsed = ref(false)
+const selectedCustomerSkuCustomerID = ref(0)
 const roastLevels = ['浅烘', '中烘', '中深烘', '深烘']
 const customForm = ref(defaultCustomForm())
 
@@ -294,6 +343,10 @@ const categorizedProductIDs = computed(() => {
 
 const uncategorizedProducts = computed(() => products.value.filter((product) => !categorizedProductIDs.value.has(Number(product.id))))
 const baseProducts = computed(() => products.value.filter((product) => Number(product.customer_id || 0) === 0 && productVisibility(product) === 'public'))
+const customerSkuRows = computed(() => products.value
+  .filter((product) => Number(product.customer_id || 0) > 0)
+  .filter((product) => !selectedCustomerSkuCustomerID.value || Number(product.customer_id || 0) === Number(selectedCustomerSkuCustomerID.value))
+  .sort((a, b) => ownerLabel(a).localeCompare(ownerLabel(b)) || a.name.localeCompare(b.name)))
 
 function categoryLabel(row, level) {
   return level === 1 ? row.primary_name || '' : row.secondary_name || ''
@@ -322,6 +375,7 @@ function decorateProduct(product) {
     base_product_id: Number(product.base_product_id || 0),
     visibility: productVisibility(product),
     custom_type: product.custom_type || '',
+    bom_item_count: Number(product.bom_item_count || 0),
   }
 }
 
@@ -402,12 +456,23 @@ function selectedBaseProduct() {
   return products.value.find((product) => Number(product.id) === Number(customForm.value.base_product_id)) || null
 }
 
+function baseProductName(id) {
+  return products.value.find((product) => Number(product.id) === Number(id))?.name || '-'
+}
+
 function fillCustomProductName() {
   if (customForm.value.name) return
   const customer = customerName(customForm.value.customer_id)
   const base = selectedBaseProduct()
   if (!customer || !base) return
   customForm.value.name = `${customer}-${base.name}-${customForm.value.roast_level}`
+}
+
+function openProductBom(row) {
+  const url = new URL(window.location.href)
+  url.searchParams.set('view', 'bom')
+  url.searchParams.set('product_id', String(row.id))
+  window.location.href = url.toString()
 }
 
 async function createCustomProduct() {
@@ -795,6 +860,10 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .custom-product-form { display: grid; grid-template-columns: repeat(4, minmax(160px, 1fr)); gap: 10px; align-items: end; }
 .custom-product-form label { display: grid; gap: 5px; font-size: 13px; }
 .custom-product-form .wide-field { grid-column: span 2; }
+.customer-sku-list { margin-top: 14px; border-top: 1px solid #eee8df; padding-top: 12px; }
+.sku-list-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 12px; margin-bottom: 10px; }
+.sku-list-head strong { display: block; margin-bottom: 4px; }
+.sku-filter { display: grid; grid-template-columns: minmax(220px, 320px) auto; gap: 8px; align-items: end; }
 .checkline { display: flex !important; align-items: center; gap: 8px; min-height: 36px; }
 .checkline input { width: auto; min-height: 0; }
 .form-actions { display: flex; justify-content: flex-end; }
@@ -814,6 +883,7 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .product-chip { border: 1px solid #ddd; border-radius: 8px; padding: 5px 8px; background: #fff; font-size: 12px; cursor: grab; }
 .table-wrap { overflow: auto; }
 table { width: 100%; min-width: 940px; border-collapse: collapse; }
+.compact-table table { min-width: 760px; }
 th, td { border-bottom: 1px solid #eee8df; padding: 8px; text-align: left; font-size: 13px; vertical-align: middle; }
 th { background: #fbfaf8; position: sticky; top: 0; }
 .roast-select { min-width: 92px; }
@@ -826,7 +896,8 @@ th { background: #fbfaf8; position: sticky; top: 0; }
 .muted { color: #666; font-size: 12px; }
 @media (max-width: 900px) {
   .page { padding: 12px; }
-  .settings-grid, .inline-form, .custom-product-form { grid-template-columns: 1fr; }
+  .settings-grid, .inline-form, .custom-product-form, .sku-filter { grid-template-columns: 1fr; }
+  .sku-list-head { align-items: stretch; flex-direction: column; }
   .custom-product-form .wide-field { grid-column: auto; }
   table { min-width: 900px; }
 }

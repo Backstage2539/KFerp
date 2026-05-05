@@ -118,7 +118,25 @@ func (r Repository) SyncProductYield(ctx context.Context, productID int64) error
 	return err
 }
 
+func (r Repository) DeleteBom(ctx context.Context, productID int64) error {
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	if _, err := tx.Exec(ctx, "DELETE FROM "+r.schema+".product_bom_items WHERE product_id=$1", productID); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, "DELETE FROM "+r.schema+".product_bom WHERE product_id=$1", productID); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
+}
+
 func (r Repository) SaveItem(ctx context.Context, cmd bomapp.SaveItemCommand) error {
+	if err := r.SyncProductYield(ctx, cmd.ProductID); err != nil {
+		return err
+	}
 	_, total, err := listBomItems(ctx, r.pool, r.schema, cmd.ProductID)
 	if err != nil {
 		return err

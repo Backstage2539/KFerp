@@ -129,14 +129,29 @@ func (fakeService) WithdrawBeanList(context.Context, appcosting.WithdrawBeanList
 
 type recordingBeanListService struct {
 	fakeService
-	published int
-	drafted   int
-	lastDraft appcosting.PublishBeanListCommand
+	published   int
+	drafted     int
+	lastQuery   appcosting.BeanListPublicationQuery
+	lastPublish appcosting.PublishBeanListCommand
+	lastDraft   appcosting.PublishBeanListCommand
+}
+
+func (s *recordingBeanListService) ListBeanListPublications(ctx context.Context, query appcosting.BeanListPublicationQuery) ([]appcosting.BeanListPublication, error) {
+	s.lastQuery = query
+	return s.fakeService.ListBeanListPublications(ctx, query)
 }
 
 func (s *recordingBeanListService) PublishBeanList(ctx context.Context, cmd appcosting.PublishBeanListCommand) (*appcosting.BeanListPublication, error) {
 	s.published++
-	return s.fakeService.PublishBeanList(ctx, cmd)
+	s.lastPublish = cmd
+	return &appcosting.BeanListPublication{
+		ID:        8,
+		ListType:  cmd.ListType,
+		Version:   cmd.Version,
+		Status:    "published",
+		OwnerType: cmd.OwnerType,
+		OwnerKey:  cmd.OwnerKey,
+	}, nil
 }
 
 func (s *recordingBeanListService) SaveBeanListDraft(ctx context.Context, cmd appcosting.PublishBeanListCommand) (*appcosting.BeanListPublication, error) {
@@ -519,6 +534,41 @@ func TestBeanListPublicationAPI(t *testing.T) {
 	e.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("withdraw status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestBeanListPublicationAPISupportsCustomerScope(t *testing.T) {
+	svc := &recordingBeanListService{}
+	e := echo.New()
+	e.Use(func(next echo.HandlerFunc) echo.HandlerFunc {
+		return func(c echo.Context) error {
+			c.Set("basic_auth_admin", true)
+			c.Set("employee_id", int64(7))
+			return next(c)
+		}
+	})
+	RegisterRoutes(e, Dependencies{Costing: svc})
+
+	req := httptest.NewRequest(http.MethodGet, "/api/costing/bean-list/publications?list_type=commercial&scope=customer&customer_id=42", nil)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("list status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	if svc.lastQuery.OwnerType != "customer" || svc.lastQuery.OwnerKey != "42" {
+		t.Fatalf("customer query owner = %+v", svc.lastQuery)
+	}
+
+	body := bytes.NewBufferString(`{"list_type":"commercial","version":"V3.0.8","scope":"customer","customer_id":42,"config":{"layoutStyle":"card"},"content":{"totalItems":1},"changelog":"客户 A 豆单"}`)
+	req = httptest.NewRequest(http.MethodPost, "/api/costing/bean-list/publications", body)
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec = httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("publish status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	if svc.lastPublish.OwnerType != "customer" || svc.lastPublish.OwnerKey != "42" {
+		t.Fatalf("customer publish owner = %+v", svc.lastPublish)
 	}
 }
 
