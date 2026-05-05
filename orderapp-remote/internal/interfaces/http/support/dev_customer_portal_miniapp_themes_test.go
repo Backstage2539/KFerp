@@ -33,11 +33,14 @@ func TestCustomerPortalMiniappThemeSourceWiring(t *testing.T) {
 	servicePath := filepath.Join(miniRoot, "pages", "service", "service.vue")
 	homePath := filepath.Join(miniRoot, "pages", "home", "home.vue")
 	themePath := filepath.Join(miniRoot, "utils", "themes.ts")
+	if _, err := os.Stat(miniRoot); err != nil {
+		if os.IsNotExist(err) {
+			t.Skip("miniapp source is not present in the orderapp-only Docker build context")
+		}
+		t.Fatalf("stat %s: %v", miniRoot, err)
+	}
 	for _, path := range []string{servicePath, homePath, themePath} {
 		if _, err := os.Stat(path); err != nil {
-			if os.IsNotExist(err) {
-				t.Skip("miniapp source is not present in the orderapp-only Docker build context")
-			}
 			t.Fatalf("stat %s: %v", path, err)
 		}
 	}
