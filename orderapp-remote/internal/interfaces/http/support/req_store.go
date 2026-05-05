@@ -940,6 +940,11 @@ func seedReqWorkflowA(ctx context.Context, pool *pgxpool.Pool, schema string) er
 		{table: "req_unit", code: "UT-152-01", title: "单元测试覆盖需求种子、BOM/产品设置/客户豆单源码接线和客户豆单 SKU 范围过滤 helper", status: "done", assignee: "Codex", evidence: "TestCustomerSkuBomBeanListRequirementSeeds; bean-list-pdf.test"},
 		{table: "req_api", code: "API-152-01", title: "API 测试覆盖 BOM 删除接口、产品设置返回 bom_item_count、客户豆单 customer scope owner 解析", status: "done", assignee: "Codex", evidence: "TestBomDeleteAPIDeletesCurrentBom; TestBeanListPublicationAPISupportsCustomerScope; TestProductSettingsAPI"},
 		{table: "req_review", code: "REV-152-01", prCode: "PR-152", title: "验收：客户 SKU 可在产品设置查看并维护 BOM；客户 A 豆单只能添加公共 SKU 和客户 A SKU，客户 B SKU 需复制成客户 A SKU 后再用", status: "todo", assignee: "VA", evidence: "待 Van ERP 后台验收"},
+		{table: "req_product", code: "PR-153", title: "普通产品和新建产品也能在产品设置直接维护 BOM，避免只给客户专属 SKU 留入口", status: "review", assignee: "VA", evidence: "codex/product-settings-all-product-bom-entry-20260506"},
+		{table: "req_dev", code: "DEV-153-01", title: "商品基础信息表新增 BOM 列，每个产品行提供维护 BOM 入口，跳转到 BOM 页面并带 product_id", status: "done", assignee: "Codex", evidence: "ProductSettingsView productRows openProductBom(row)"},
+		{table: "req_unit", code: "UT-153-01", title: "单元测试覆盖普通产品行必须展示 BOM 维护入口和需求种子", status: "done", assignee: "Codex", evidence: "TestProductSettingsBasicProductRowsExposeBomEntry"},
+		{table: "req_api", code: "API-153-01", title: "API 层复用现有 BOM 查询/保存接口，新建产品通过 product_id 进入 /api/bom/detail 和 /api/bom/item/save 添加配方", status: "done", assignee: "Codex", evidence: "go test ./internal/interfaces/http/bom ./internal/interfaces/http/catalog"},
+		{table: "req_review", code: "REV-153-01", prCode: "PR-153", title: "验收：新增普通产品后，在产品设置商品基础信息行点击维护 BOM，即可进入该产品 BOM 并添加物料比例", status: "todo", assignee: "VA", evidence: "待 Van ERP 后台验收"},
 	} {
 		if err := seedReqRow(ctx, pool, schema, row); err != nil {
 			return err

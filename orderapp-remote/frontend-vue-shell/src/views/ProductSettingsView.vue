@@ -245,6 +245,7 @@
                 <th>类型</th>
                 <th>烘焙度</th>
                 <th>BOM出品率</th>
+                <th>BOM</th>
               </tr>
             </thead>
             <tbody>
@@ -273,9 +274,10 @@
                     <span>%</span>
                   </div>
                 </td>
+                <td><button class="text-button" type="button" @click="openProductBom(row)">维护 BOM</button></td>
               </tr>
               <tr v-if="!productRows.length">
-                <td colspan="8" class="muted">暂无商品</td>
+                <td colspan="9" class="muted">暂无商品</td>
               </tr>
             </tbody>
           </table>
