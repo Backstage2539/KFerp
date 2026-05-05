@@ -23,6 +23,10 @@ func (r *fakeRepo) BagSpecMappings(ctx context.Context) ([]BagSpecMapping, error
 	return nil, nil
 }
 func (r *fakeRepo) SyncProductYield(ctx context.Context, productID int64) error { return nil }
+func (r *fakeRepo) DeleteBom(ctx context.Context, productID int64) error {
+	r.deletedID = productID
+	return nil
+}
 func (r *fakeRepo) SaveItem(ctx context.Context, cmd SaveItemCommand) error {
 	r.savedItem = cmd
 	return nil
@@ -116,6 +120,9 @@ func (r errorRepo) BagSpecMappings(ctx context.Context) ([]BagSpecMapping, error
 	return nil, r.err
 }
 func (r errorRepo) SyncProductYield(ctx context.Context, productID int64) error {
+	return r.err
+}
+func (r errorRepo) DeleteBom(ctx context.Context, productID int64) error {
 	return r.err
 }
 func (r errorRepo) SaveItem(ctx context.Context, cmd SaveItemCommand) error {

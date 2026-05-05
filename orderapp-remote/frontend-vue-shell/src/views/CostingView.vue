@@ -182,12 +182,30 @@
             <select v-model="publicationScope" :disabled="!isBeanListAdmin">
               <option value="official">棵凡官方豆单</option>
               <option value="mine">我的客户豆单</option>
+              <option value="customer">指定客户豆单</option>
             </select>
           </div>
           <p v-if="actorLoaded && !isBeanListAdmin" class="muted">客户账号只能保存修改和下载豆单，发布由管理员执行。</p>
         </div>
 
-        <div class="copy-config-box" v-if="publicationScope === 'mine' && officialPriceSourcePublications.length">
+        <div class="copy-config-box" v-if="publicationScope === 'customer'">
+          <div>
+            <strong>客户</strong>
+            <p>客户专属 SKU 只会出现在对应客户的豆单里；如果其他客户需要同款 SKU，请先复制一份给该客户。</p>
+          </div>
+          <div class="copy-config-actions">
+            <SearchableSelect
+              v-model="selectedBeanListCustomerID"
+              :options="customers"
+              :option-label="customerOptionLabel"
+              :option-meta="customerOptionMeta"
+              :option-value="optionNumericValue"
+              placeholder="选择客户"
+              empty-text="没有匹配客户" />
+          </div>
+        </div>
+
+        <div class="copy-config-box" v-if="(publicationScope === 'mine' || publicationScope === 'customer') && officialPriceSourcePublications.length">
           <div>
             <strong>复制官方价格来源</strong>
             <p>复制棵凡已发布豆单的报价、风味、特点和出品建议，作为本次客户豆单的锁定内容快照。</p>
@@ -330,8 +348,8 @@
           <span>{{ pdfTotalItems }} 款</span>
           <div class="pdf-actions">
             <button v-if="isBeanListAdmin" class="secondary" type="button" :disabled="beanListWithdrawing || !currentBeanListPublication" @click="withdrawBeanList">撤回发布</button>
-            <button v-if="isBeanListAdmin" class="primary" type="button" :disabled="beanListPublishing || !pdfGroups.length || !pdfTheme.version" @click="publishBeanList">发布豆单</button>
-            <button v-else class="primary" type="button" :disabled="beanListPublishing || !pdfGroups.length || !pdfTheme.version" @click="saveBeanListDraft">保存修改</button>
+            <button v-if="isBeanListAdmin" class="primary" type="button" :disabled="beanListPublishing || !pdfGroups.length || !pdfTheme.version || !customerScopeReady" @click="publishBeanList">发布豆单</button>
+            <button v-else class="primary" type="button" :disabled="beanListPublishing || !pdfGroups.length || !pdfTheme.version || !customerScopeReady" @click="saveBeanListDraft">保存修改</button>
             <button class="secondary" type="button" :disabled="!pdfGroups.length" @click="generateBeanListPdf">生成 PDF</button>
           </div>
         </div>
@@ -558,6 +576,7 @@ import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { fetchCurrentActor } from '../api/auth'
 import { apiGet, apiSend } from '../api/client'
 import CostingSettingsPanel from '../components/CostingSettingsPanel.vue'
+import SearchableSelect from '../components/SearchableSelect.vue'
 import {
   DEFAULT_BEAN_LIST_PDF_VERSION,
   buildBeanListPdfGroups,
@@ -565,6 +584,7 @@ import {
   buildBeanListPdfTitle,
   copyBeanListPublicationContentGroups,
   copyBeanListPublicationConfig,
+  filterBeanListItemsForScope,
   sanitizeBeanListPdfTheme,
   splitHighlightedText,
 } from '../lib/bean-list-pdf'
@@ -579,6 +599,7 @@ const pdfDrawerOpen = ref(false)
 const pdfPrinting = ref(false)
 const pricingCollapsed = ref(true)
 const publicationScope = ref('official')
+const selectedBeanListCustomerID = ref(0)
 const actorLoaded = ref(false)
 const currentActor = ref(null)
 const selectedCopyPublicationID = ref('')
@@ -587,10 +608,12 @@ const error = ref('')
 const message = ref('')
 const parameters = ref(null)
 const items = ref([])
+const customers = ref([])
 const runId = ref(null)
 const beanListPublications = ref({
   official: { commercial: [], retail: [] },
   mine: { commercial: [], retail: [] },
+  customer: { commercial: [], retail: [] },
 })
 const priceSourcePublicationByType = ref({ commercial: null, retail: null })
 const styleSourcePublicationIDByType = ref({ commercial: 0, retail: 0 })
@@ -630,12 +653,12 @@ const pdfGenerationOptions = computed(() => ({
   visibleCategoryCodes: pdfVisibleCategoryCodes.value,
   customizers: pdfCustomizers.value,
 }))
-const currentPriceSourcePublication = computed(() => (publicationScope.value === 'mine' ? priceSourcePublicationByType.value[pdfTheme.value.listType] : null))
+const currentPriceSourcePublication = computed(() => (publicationScope.value === 'mine' || publicationScope.value === 'customer' ? priceSourcePublicationByType.value[pdfTheme.value.listType] : null))
 const pdfGroups = computed(() => {
   if (currentPriceSourcePublication.value?.content?.groups) {
     return copyBeanListPublicationContentGroups(currentPriceSourcePublication.value)
   }
-  return buildBeanListPdfGroups(items.value, pdfTheme.value.listType, pdfGenerationOptions.value)
+  return buildBeanListPdfGroups(pdfAvailableItems.value, pdfTheme.value.listType, pdfGenerationOptions.value)
 })
 const pdfTotalItems = computed(() => pdfGroups.value.reduce((sum, group) => sum + group.items.length, 0))
 const pdfTitle = computed(() => buildBeanListPdfTitle(pdfTheme.value.listType, pdfTheme.value.brandName))
@@ -650,6 +673,7 @@ const isBeanListAdmin = computed(() => {
     permissions.includes('auth.manage'),
   )
 })
+const customerScopeReady = computed(() => publicationScope.value !== 'customer' || Number(selectedBeanListCustomerID.value || 0) > 0)
 const currentScopePublicationRows = computed(() => publicationRows(publicationScope.value, pdfTheme.value.listType))
 const currentBeanListPublication = computed(() => currentScopePublicationRows.value.find((row) => row.status === 'published') || null)
 const copyableBeanListPublications = computed(() => currentScopePublicationRows.value)
@@ -675,6 +699,9 @@ watch(() => pdfOptions.value.listType, (listType) => {
   initializePdfDefaultsForType(listType)
   loadBeanListPublications(listType, 'official')
   loadBeanListPublications(listType, 'mine')
+  if (publicationScope.value === 'customer' && selectedBeanListCustomerID.value) {
+    loadBeanListPublications(listType, 'customer')
+  }
 })
 
 watch(publicationScope, (scope) => {
@@ -684,6 +711,19 @@ watch(publicationScope, (scope) => {
   }
   selectedCopyPublicationID.value = ''
   loadBeanListPublications(pdfTheme.value.listType, scope)
+  initializePdfDefaultsForType(pdfTheme.value.listType)
+})
+
+watch(selectedBeanListCustomerID, () => {
+  beanListPublications.value = {
+    ...beanListPublications.value,
+    customer: { commercial: [], retail: [] },
+  }
+  selectedCopyPublicationID.value = ''
+  initializePdfDefaults()
+  if (publicationScope.value === 'customer' && selectedBeanListCustomerID.value) {
+    loadBeanListPublications(pdfTheme.value.listType, 'customer')
+  }
 })
 
 watch(isBeanListAdmin, (canPublish) => {
@@ -705,6 +745,22 @@ function tierUnit(tier) {
   if (specG === 1000) return 'kg'
   if (specG === 227) return '227g'
   return '包'
+}
+
+function customerOptionLabel(customer) {
+  return customer?.name || ''
+}
+
+function customerOptionMeta(customer) {
+  const parts = []
+  if (customer?.company_name && customer.company_name !== customer?.name) parts.push(customer.company_name)
+  if (customer?.contact) parts.push(customer.contact)
+  if (customer?.phone || customer?.company_phone) parts.push(customer.phone || customer.company_phone)
+  return parts.join(' / ')
+}
+
+function optionNumericValue(option) {
+  return Number(option?.id || 0)
 }
 
 function beanMeta(item, key) {
@@ -737,10 +793,23 @@ function tierKeyForListType(listType) {
 
 function beanListItemsForType(listType) {
   const key = metaKeyForListType(listType)
-  return items.value
+  return scopedBeanListItems(publicationScope.value, listType)
     .filter((item) => beanMeta(item, key).code)
     .slice()
     .sort((a, b) => compareBeanCodes(beanMeta(a, key).code, beanMeta(b, key).code))
+}
+
+function customerBeanListItems(listType) {
+  const key = metaKeyForListType(listType)
+  return scopedBeanListItems('customer', listType)
+    .filter((item) => beanMeta(item, key).code)
+    .slice()
+    .sort((a, b) => compareBeanCodes(beanMeta(a, key).code, beanMeta(b, key).code))
+}
+
+function scopedBeanListItems(scope, listType) {
+  void listType
+  return filterBeanListItemsForScope(items.value, scope, selectedBeanListCustomerID.value)
 }
 
 function beanListCategoryOptions(listType) {
@@ -800,6 +869,9 @@ function openBeanListDrawer(listType = 'commercial') {
   initializePdfDefaultsForType(listType)
   loadBeanListPublications(listType, 'official')
   loadBeanListPublications(listType, 'mine')
+  if (publicationScope.value === 'customer' && selectedBeanListCustomerID.value) {
+    loadBeanListPublications(listType, 'customer')
+  }
   pdfDrawerOpen.value = true
 }
 
@@ -954,7 +1026,7 @@ function badgeClass(badge) {
 
 function groupBeanItems(key) {
   const groups = new Map()
-  items.value
+  filterBeanListItemsForScope(items.value, 'official', 0)
     .filter((item) => beanMeta(item, key).code)
     .slice()
     .sort((a, b) => compareBeanCodes(beanMeta(a, key).code, beanMeta(b, key).code))
@@ -1015,6 +1087,15 @@ async function loadBeanList() {
   }
 }
 
+async function loadCustomers() {
+  try {
+    const data = await apiGet('/api/customers?limit=200')
+    customers.value = (data.rows || []).filter((row) => row.active !== false)
+  } catch (err) {
+    customers.value = []
+  }
+}
+
 async function loadCurrentActor() {
   try {
     currentActor.value = await fetchCurrentActor()
@@ -1029,8 +1110,18 @@ async function loadCurrentActor() {
 }
 
 async function loadBeanListPublications(listType = pdfTheme.value.listType, scope = publicationScope.value) {
+  if (scope === 'customer' && !selectedBeanListCustomerID.value) {
+    beanListPublications.value = {
+      ...beanListPublications.value,
+      customer: {
+        ...(beanListPublications.value.customer || {}),
+        [listType]: [],
+      },
+    }
+    return
+  }
   try {
-    const data = await apiGet(`/api/costing/bean-list/publications?list_type=${encodeURIComponent(listType)}&scope=${encodeURIComponent(scope)}`)
+    const data = await apiGet(beanListPublicationURL(listType, scope))
     const rows = Array.isArray(data.rows) ? data.rows : []
     beanListPublications.value = {
       ...beanListPublications.value,
@@ -1042,6 +1133,14 @@ async function loadBeanListPublications(listType = pdfTheme.value.listType, scop
   } catch (err) {
     error.value = err.message || '加载豆单发布记录失败'
   }
+}
+
+function beanListPublicationURL(listType, scope) {
+  const params = new URLSearchParams({ list_type: listType, scope })
+  if (scope === 'customer') {
+    params.set('customer_id', String(selectedBeanListCustomerID.value || 0))
+  }
+  return `/api/costing/bean-list/publications?${params.toString()}`
 }
 
 async function createRun() {
@@ -1122,6 +1221,10 @@ function generateBeanListPdf() {
 
 async function publishBeanList() {
   if (!pdfGroups.value.length) return
+  if (!customerScopeReady.value) {
+    error.value = '请选择客户'
+    return
+  }
   beanListPublishing.value = true
   error.value = ''
   message.value = ''
@@ -1141,6 +1244,10 @@ async function publishBeanList() {
 
 async function saveBeanListDraft() {
   if (!pdfGroups.value.length) return
+  if (!customerScopeReady.value) {
+    error.value = '请选择客户'
+    return
+  }
   beanListPublishing.value = true
   error.value = ''
   message.value = ''
@@ -1148,7 +1255,7 @@ async function saveBeanListDraft() {
   try {
     const row = await apiSend('/api/costing/bean-list/drafts', { body: beanListPublicationPayload() })
     message.value = `已保存${listType === 'retail' ? '零售' : '商用'}豆单修改 ${row.version}，可继续生成 PDF 下载`
-    await loadBeanListPublications(listType, 'mine')
+    await loadBeanListPublications(listType, publicationScope.value)
   } catch (err) {
     error.value = err.message || '保存豆单修改失败'
   } finally {
@@ -1162,6 +1269,7 @@ function beanListPublicationPayload() {
     list_type: listType,
     version: pdfTheme.value.version,
     scope: publicationScope.value,
+    customer_id: Number(selectedBeanListCustomerID.value || 0),
     price_source_publication_id: Number(currentPriceSourcePublication.value?.id || 0),
     style_source_publication_id: Number(styleSourcePublicationIDByType.value[listType] || 0),
     source_version: currentPriceSourcePublication.value?.version || '',
@@ -1200,7 +1308,11 @@ async function withdrawBeanList() {
   message.value = ''
   const listType = pdfTheme.value.listType
   try {
-    await apiSend(`/api/costing/bean-list/publications/${row.id}/withdraw?scope=${encodeURIComponent(publicationScope.value)}`)
+    const params = new URLSearchParams({ scope: publicationScope.value })
+    if (publicationScope.value === 'customer') {
+      params.set('customer_id', String(selectedBeanListCustomerID.value || 0))
+    }
+    await apiSend(`/api/costing/bean-list/publications/${row.id}/withdraw?${params.toString()}`)
     message.value = `已撤回${listType === 'retail' ? '零售' : '商用'}豆单 ${row.version}`
     await loadBeanListPublications(listType, publicationScope.value)
   } catch (err) {
@@ -1213,6 +1325,7 @@ async function withdrawBeanList() {
 onMounted(() => {
   loadCurrentActor()
   loadBeanList()
+  loadCustomers()
   loadBeanListPublications('commercial', 'official')
   loadBeanListPublications('commercial', 'mine')
   window.addEventListener('afterprint', clearPdfPrintMode)

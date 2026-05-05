@@ -35,6 +35,11 @@ type Parameters struct {
 type ProductInput struct {
 	ProductID                 int64     `json:"product_id"`
 	Name                      string    `json:"name"`
+	CustomerID                int64     `json:"customer_id,omitempty"`
+	BaseProductID             int64     `json:"base_product_id,omitempty"`
+	Visibility                string    `json:"visibility,omitempty"`
+	CustomType                string    `json:"custom_type,omitempty"`
+	BeanListTemplateName      string    `json:"bean_list_template_name,omitempty"`
 	Flavor                    string    `json:"flavor,omitempty"`
 	Origin                    string    `json:"origin,omitempty"`
 	ProcessingStation         string    `json:"processing_station,omitempty"`
@@ -85,6 +90,10 @@ type BeanListDisplay struct {
 type ProductResult struct {
 	ProductID                      int64                     `json:"product_id"`
 	Name                           string                    `json:"name"`
+	CustomerID                     int64                     `json:"customer_id,omitempty"`
+	BaseProductID                  int64                     `json:"base_product_id,omitempty"`
+	Visibility                     string                    `json:"visibility,omitempty"`
+	CustomType                     string                    `json:"custom_type,omitempty"`
 	CommercialBeanList             BeanListDisplay           `json:"commercial_bean_list"`
 	RetailBeanList                 BeanListDisplay           `json:"retail_bean_list"`
 	Flavor                         string                    `json:"flavor,omitempty"`
@@ -163,20 +172,21 @@ func ValidateProductInput(params Parameters, in ProductInput) (ProductInput, err
 }
 
 func ApplyExcelCommercialPricingProfile(params Parameters, in ProductInput) ProductInput {
+	profileName := costingProfileName(in)
 	if strings.TrimSpace(in.WholesaleTierScheme) == "" {
-		in.WholesaleTierScheme = inferWholesaleTierScheme(in.Name)
+		in.WholesaleTierScheme = inferWholesaleTierScheme(profileName)
 	} else {
 		in.WholesaleTierScheme = normalizeWholesaleTierScheme(in.WholesaleTierScheme)
 	}
 	if len(in.WholesaleKgMarginRates) == 0 {
 		switch {
-		case isCookieBlend(in.Name):
+		case isCookieBlend(profileName):
 			in.WholesaleKgMarginRates = cookieWholesaleMarginRates(params)
-		case isWineSunBean(in.Name):
+		case isWineSunBean(profileName):
 			in.WholesaleKgMarginRates = wineSunWholesaleMarginRates(params)
-		case isYirgacheffeG2(in.Name):
+		case isYirgacheffeG2(profileName):
 			in.WholesaleKgMarginRates = premiumFirstThreeWholesaleMarginRates(params)
-		case isPremiumCommercialBean(in.Name):
+		case isPremiumCommercialBean(profileName):
 			in.WholesaleKgMarginRates = premiumWholesaleMarginRates(params)
 		default:
 			in.WholesaleKgMarginRates = normalizeWholesaleMarginRates(params, nil)
@@ -187,22 +197,37 @@ func ApplyExcelCommercialPricingProfile(params Parameters, in ProductInput) Prod
 
 func CalculateProduct(params Parameters, in ProductInput) ProductResult {
 	in, _ = ValidateProductInput(params, in)
+	profileName := costingProfileName(in)
 	roasted := in.GreenBeanCostPerKg / in.YieldRate
 	small := roasted + params.SmallBatchProductionCostPerKg
 	large := roasted + params.LargeBatchProductionCostPerKg
 	dripBase := small*params.DripGreenRatioKgPerBag + params.DripProcessCostPerBag + params.DripExtraCostPerBag
 	retailTax := small * params.RetailBeanMarginRate * params.RetailTaxRate
 	retailSmall := small
-	if retailGreenCost, ok := excelRetailGreenCostOverride(in.Name); ok {
+	if retailGreenCost, ok := excelRetailGreenCostOverride(profileName); ok {
 		retailSmall = retailGreenCost/in.YieldRate + params.SmallBatchProductionCostPerKg
 		retailTax = retailSmall * params.RetailBeanMarginRate * params.RetailTaxRate
+	}
+	commercialDisplay := commercialBeanListDisplay(profileName)
+	retailDisplay := retailBeanListDisplay(profileName)
+	if in.CustomerID > 0 {
+		if commercialDisplay.Code != "" {
+			commercialDisplay.DisplayName = in.Name
+		}
+		if retailDisplay.Code != "" {
+			retailDisplay.DisplayName = in.Name
+		}
 	}
 
 	out := ProductResult{
 		ProductID:            in.ProductID,
 		Name:                 in.Name,
-		CommercialBeanList:   commercialBeanListDisplay(in.Name),
-		RetailBeanList:       retailBeanListDisplay(in.Name),
+		CustomerID:           in.CustomerID,
+		BaseProductID:        in.BaseProductID,
+		Visibility:           in.Visibility,
+		CustomType:           in.CustomType,
+		CommercialBeanList:   commercialDisplay,
+		RetailBeanList:       retailDisplay,
 		Flavor:               in.Flavor,
 		Origin:               in.Origin,
 		ProcessingStation:    in.ProcessingStation,
@@ -250,12 +275,13 @@ func CalculateProduct(params Parameters, in ProductInput) ProductResult {
 	out.Retail200gPrice = out.RetailKgPrice * 0.2
 	out.Retail100gPrice = out.RetailKgPrice * 0.1
 	out.RetailDrip10BagPrice = dripBase*10*params.RetailDripMultiplier + in.DripTaxAddPerBagRetail*10 + params.DripPackingMaterialPerBag + params.RetailDripLogisticsPer10Bags
-	out.RetailBeanTiers = buildRetailBeanTiers(in.Name, out)
+	out.RetailBeanTiers = buildRetailBeanTiers(profileName, out)
 	roundProductPrices(&out)
 	return out
 }
 
 func buildCommercialWholesaleTiers(in ProductInput, kgPrices, lbPrices []float64) []CommercialWholesaleTier {
+	profileName := costingProfileName(in)
 	type tierDef struct {
 		label      string
 		specG      int64
@@ -283,7 +309,7 @@ func buildCommercialWholesaleTiers(in ProductInput, kgPrices, lbPrices []float64
 			{"2包-7包", 227, 2, ptrFloat64(7), 0, "half_lb"},
 			{"8包+", 227, 8, nil, 1, "half_lb"},
 		}
-		if isMorningNayi(in.Name) {
+		if isMorningNayi(profileName) {
 			defs[1].priceIndex = 2
 		}
 	}
@@ -313,7 +339,15 @@ func buildCommercialWholesaleTiers(in ProductInput, kgPrices, lbPrices []float64
 			PricePerLb:   pricePerLb,
 		})
 	}
-	return applyCommercialTierOverrides(in.Name, out)
+	return applyCommercialTierOverrides(profileName, out)
+}
+
+func costingProfileName(in ProductInput) string {
+	name := strings.TrimSpace(in.BeanListTemplateName)
+	if name != "" {
+		return name
+	}
+	return in.Name
 }
 
 func buildRetailBeanTiers(name string, out ProductResult) []RetailBeanTier {

@@ -32,6 +32,7 @@ type Product struct {
 	BaseProductID           int64
 	Visibility              string
 	CustomType              string
+	BomItemCount            int
 	Tiers                   []PriceTier
 }
 
@@ -60,6 +61,7 @@ type ProductSettingsProduct struct {
 	BaseProductID           int64   `json:"base_product_id"`
 	Visibility              string  `json:"visibility"`
 	CustomType              string  `json:"custom_type"`
+	BomItemCount            int     `json:"bom_item_count"`
 	Number                  int     `json:"number"`
 }
 
@@ -296,6 +298,7 @@ func productSettingsProduct(p Product) ProductSettingsProduct {
 		BaseProductID:           p.BaseProductID,
 		Visibility:              productVisibility(p.Visibility, p.CustomerID),
 		CustomType:              p.CustomType,
+		BomItemCount:            p.BomItemCount,
 	}
 }
 

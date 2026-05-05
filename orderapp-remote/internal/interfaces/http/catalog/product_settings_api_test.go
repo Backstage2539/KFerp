@@ -98,7 +98,7 @@ func (r *productSettingsRepo) CreateCustomProduct(ctx context.Context, cmd catal
 func TestProductSettingsAPISupportsCategoryTreeAndDragAssignments(t *testing.T) {
 	repo := &productSettingsRepo{
 		products: []catalogapp.Product{{
-			ID: 7, Name: "曲奇拼配", ProductCategoryID: 2, ProductCategoryPosition: 1, YieldRate: 0.82,
+			ID: 7, Name: "曲奇拼配", ProductCategoryID: 2, ProductCategoryPosition: 1, YieldRate: 0.82, BomItemCount: 2,
 		}},
 		categories: []catalogapp.ProductCategory{
 			{ID: 1, Name: "咖啡豆", Level: 1, Position: 1},
@@ -119,7 +119,7 @@ func TestProductSettingsAPISupportsCategoryTreeAndDragAssignments(t *testing.T) 
 			t.Fatalf("product settings response missing %s: %s", want, rec.Body.String())
 		}
 	}
-	for _, want := range []string{`"customer_id":0`, `"base_product_id":0`, `"visibility":"public"`, `"custom_type":""`} {
+	for _, want := range []string{`"customer_id":0`, `"base_product_id":0`, `"visibility":"public"`, `"custom_type":""`, `"bom_item_count":2`} {
 		if !bytes.Contains(rec.Body.Bytes(), []byte(want)) {
 			t.Fatalf("product settings response missing ownership field %s: %s", want, rec.Body.String())
 		}
