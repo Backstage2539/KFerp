@@ -142,6 +142,70 @@ func (r Repository) UpdateProductBasics(ctx context.Context, cmd catalogapp.Upda
 	return nil
 }
 
+func (r Repository) CreateProduct(ctx context.Context, cmd catalogapp.CreateProductCommand) (catalogapp.Product, error) {
+	roastLevel := catalogdomain.NormalizeRoastLevel(cmd.RoastLevel)
+	yieldRate := cmd.YieldRate
+	if yieldRate <= 0 {
+		yieldRate = catalogdomain.ResolveYieldRate(roastLevel, 0.8)
+	}
+	name := strings.TrimSpace(cmd.Name)
+
+	conn, err := r.pool.Acquire(ctx)
+	if err != nil {
+		return catalogapp.Product{}, err
+	}
+	defer conn.Release()
+	tx, err := conn.Begin(ctx)
+	if err != nil {
+		return catalogapp.Product{}, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	var productID int64
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`
+		INSERT INTO %s.products(
+			name, roast_level, default_price, active,
+			retail_price_100g, retail_price_200g, retail_price_227g, retail_price_250g,
+			customer_id, base_product_id, visibility, custom_type, created_at
+		)
+		VALUES($1,$2,$3,true,$4,$5,$6,$7,0,0,'public','',now())
+		RETURNING id
+	`, r.schema), name, roastLevel, cmd.DefaultPrice, cmd.RetailPrice100G, cmd.RetailPrice200G, cmd.RetailPrice227G, cmd.RetailPrice250G).Scan(&productID); err != nil {
+		return catalogapp.Product{}, err
+	}
+
+	if _, err := tx.Exec(ctx, fmt.Sprintf(`
+		INSERT INTO %s.product_bom(product_id,yield_rate,updated_at)
+		VALUES($1,$2,now())
+		ON CONFLICT (product_id) DO UPDATE SET yield_rate=excluded.yield_rate, updated_at=now()
+	`, r.schema), productID, yieldRate); err != nil {
+		return catalogapp.Product{}, err
+	}
+	if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, cmd.Actor, "product", &productID, "create", postgresinfra.StrPtr("public_product"), nil, postgresinfra.StrPtr(name), postgresinfra.AuditMeta{
+		"product_id":        productID,
+		"roast_level":       roastLevel,
+		"default_price":     cmd.DefaultPrice,
+		"yield_rate":        yieldRate,
+		"retail_price_100g": cmd.RetailPrice100G,
+		"retail_price_200g": cmd.RetailPrice200G,
+		"retail_price_227g": cmd.RetailPrice227G,
+		"retail_price_250g": cmd.RetailPrice250G,
+	}); err != nil {
+		return catalogapp.Product{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return catalogapp.Product{}, err
+	}
+	product, err := r.GetProduct(ctx, productID)
+	if err != nil {
+		return catalogapp.Product{}, err
+	}
+	if product == nil {
+		return catalogapp.Product{}, fmt.Errorf("created product not found")
+	}
+	return *product, nil
+}
+
 func (r Repository) ListProductCategories(ctx context.Context) ([]catalogapp.ProductCategory, error) {
 	rows, err := r.pool.Query(ctx, fmt.Sprintf(`SELECT id, COALESCE(parent_id,0), name, level, position
 		FROM %s.product_categories

@@ -952,6 +952,11 @@ func seedReqWorkflowA(ctx context.Context, pool *pgxpool.Pool, schema string) er
 		{table: "req_unit", code: "UT-153-01", title: "单元测试覆盖普通产品行必须展示 BOM 维护入口和需求种子", status: "done", assignee: "Codex", evidence: "TestProductSettingsBasicProductRowsExposeBomEntry"},
 		{table: "req_api", code: "API-153-01", title: "API 层复用现有 BOM 查询/保存接口，新建产品通过 product_id 进入 /api/bom/detail 和 /api/bom/item/save 添加配方", status: "done", assignee: "Codex", evidence: "go test ./internal/interfaces/http/bom ./internal/interfaces/http/catalog"},
 		{table: "req_review", code: "REV-153-01", prCode: "PR-153", title: "验收：新增普通产品后，在产品设置商品基础信息行点击维护 BOM，即可进入该产品 BOM 并添加物料比例", status: "todo", assignee: "VA", evidence: "待 Van ERP 后台验收"},
+		{table: "req_product", code: "PR-154", title: "产品设置支持新增公共基础产品，新增后可反复下单、入库存、做成本和 BOM 维护", status: "review", assignee: "VA", evidence: "codex/product-settings-create-product-20260506"},
+		{table: "req_dev", code: "DEV-154-01", title: "产品设置新增公共产品表单，支持填写商品名、烘焙度、默认价和 BOM 出品率，保存后进入商品基础信息列表", status: "done", assignee: "Codex", evidence: "ProductSettingsView createProduct"},
+		{table: "req_unit", code: "UT-154-01", title: "单元测试覆盖新增公共产品表单、API 路由和需求种子", status: "done", assignee: "Codex", evidence: "TestProductSettingsCanCreatePublicProducts; TestServiceDelegatesCatalogOperations"},
+		{table: "req_api", code: "API-154-01", title: "API 测试覆盖 POST /api/product-settings/products 创建公共产品并返回 public 产品元数据", status: "done", assignee: "Codex", evidence: "TestProductSettingsAPICreatesPublicProduct"},
+		{table: "req_review", code: "REV-154-01", prCode: "PR-154", title: "验收：在产品设置新增公共产品后，可在商品基础信息看到该产品并点击维护 BOM 添加配方", status: "todo", assignee: "VA", evidence: "待 Van ERP 后台验收"},
 	} {
 		if err := seedReqRow(ctx, pool, schema, row); err != nil {
 			return err

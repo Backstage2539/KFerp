@@ -98,6 +98,18 @@ type UpdateProductBasicsCommand struct {
 	YieldRate       float64
 }
 
+type CreateProductCommand struct {
+	Actor           string
+	Name            string
+	RoastLevel      string
+	DefaultPrice    float64
+	RetailPrice100G float64
+	RetailPrice200G float64
+	RetailPrice227G float64
+	RetailPrice250G float64
+	YieldRate       float64
+}
+
 type CreateCustomProductCommand struct {
 	Actor          string
 	CustomerID     int64
@@ -141,6 +153,7 @@ type Repository interface {
 	GetProduct(ctx context.Context, id int64) (*Product, error)
 	ReplacePriceTiers(ctx context.Context, cmd ReplacePriceTiersCommand) error
 	UpdateProductBasics(ctx context.Context, cmd UpdateProductBasicsCommand) error
+	CreateProduct(ctx context.Context, cmd CreateProductCommand) (Product, error)
 	ListProductCategories(ctx context.Context) ([]ProductCategory, error)
 	SaveProductCategory(ctx context.Context, cmd SaveProductCategoryCommand) (ProductCategory, error)
 	MoveProductCategory(ctx context.Context, cmd MoveProductCategoryCommand) error
@@ -171,6 +184,30 @@ func (s *Service) ReplacePriceTiers(ctx context.Context, cmd ReplacePriceTiersCo
 
 func (s *Service) UpdateProductBasics(ctx context.Context, cmd UpdateProductBasicsCommand) error {
 	return s.repo.UpdateProductBasics(ctx, cmd)
+}
+
+func (s *Service) CreateProduct(ctx context.Context, cmd CreateProductCommand) (Product, error) {
+	cmd.Name = strings.TrimSpace(cmd.Name)
+	if cmd.Name == "" {
+		return Product{}, fmt.Errorf("name required")
+	}
+	cmd.RoastLevel = catalogdomain.NormalizeRoastLevel(cmd.RoastLevel)
+	if cmd.RoastLevel == "" {
+		return Product{}, fmt.Errorf("invalid roast_level")
+	}
+	if cmd.DefaultPrice < 0 || cmd.RetailPrice100G < 0 || cmd.RetailPrice200G < 0 || cmd.RetailPrice227G < 0 || cmd.RetailPrice250G < 0 {
+		return Product{}, fmt.Errorf("price must not be negative")
+	}
+	if cmd.RetailPrice227G <= 0 && cmd.DefaultPrice > 0 {
+		cmd.RetailPrice227G = cmd.DefaultPrice
+	}
+	if cmd.YieldRate <= 0 {
+		cmd.YieldRate = catalogdomain.ResolveYieldRate(cmd.RoastLevel, 0.8)
+	}
+	if cmd.YieldRate <= 0 || cmd.YieldRate > 1 {
+		return Product{}, fmt.Errorf("invalid yield_rate")
+	}
+	return s.repo.CreateProduct(ctx, cmd)
 }
 
 func (s *Service) ProductSettings(ctx context.Context) (ProductSettingsData, error) {

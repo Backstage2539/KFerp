@@ -13,6 +13,44 @@
     </section>
 
     <section class="settings-grid">
+      <div class="panel public-product-panel">
+        <div class="panel-title">
+          <span>新增公共产品</span>
+        </div>
+        <form class="product-create-form" @submit.prevent="createProduct">
+          <label class="wide-field">
+            <span>商品名称</span>
+            <input v-model.trim="productForm.name" placeholder="如 花魁 SOE" />
+          </label>
+          <label>
+            <span>烘焙度</span>
+            <select v-model="productForm.roast_level">
+              <option v-for="level in roastLevels" :key="level" :value="level">{{ level }}</option>
+            </select>
+          </label>
+          <label>
+            <span>BOM出品率</span>
+            <div class="yield-editor">
+              <input
+                class="yield-input"
+                v-model.number="productForm.yield_percent"
+                type="number"
+                min="1"
+                max="100"
+                step="0.01" />
+              <span>%</span>
+            </div>
+          </label>
+          <label>
+            <span>默认价</span>
+            <input v-model.number="productForm.default_price" type="number" min="0" step="0.01" />
+          </label>
+          <div class="form-actions">
+            <button class="primary" type="submit" :disabled="productSaving">创建公共产品</button>
+          </div>
+        </form>
+      </div>
+
       <div class="panel custom-product-panel">
         <div class="panel-title">
           <span>客户专属 SKU</span>
@@ -301,6 +339,7 @@ const categories = ref([])
 const products = ref([])
 const customers = ref([])
 const loading = ref(false)
+const productSaving = ref(false)
 const customSaving = ref(false)
 const error = ref('')
 const ok = ref('')
@@ -316,6 +355,7 @@ const categoryCollapsed = ref(false)
 const productsCollapsed = ref(false)
 const selectedCustomerSkuCustomerID = ref(0)
 const roastLevels = ['浅烘', '中烘', '中深烘', '深烘']
+const productForm = ref(defaultProductForm())
 const customForm = ref(defaultCustomForm())
 
 const productRows = computed(() => {
@@ -349,6 +389,15 @@ const customerSkuRows = computed(() => products.value
   .filter((product) => Number(product.customer_id || 0) > 0)
   .filter((product) => !selectedCustomerSkuCustomerID.value || Number(product.customer_id || 0) === Number(selectedCustomerSkuCustomerID.value))
   .sort((a, b) => ownerLabel(a).localeCompare(ownerLabel(b)) || a.name.localeCompare(b.name)))
+
+function defaultProductForm() {
+  return {
+    name: '',
+    roast_level: '中烘',
+    yield_percent: 80,
+    default_price: 0,
+  }
+}
 
 function categoryLabel(row, level) {
   return level === 1 ? row.primary_name || '' : row.secondary_name || ''
@@ -475,6 +524,38 @@ function openProductBom(row) {
   url.searchParams.set('view', 'bom')
   url.searchParams.set('product_id', String(row.id))
   window.location.href = url.toString()
+}
+
+async function createProduct() {
+  if (!productForm.value.name) {
+    error.value = '请填写商品名称'
+    return
+  }
+  const yieldPercent = Number(productForm.value.yield_percent || 0)
+  if (yieldPercent <= 0 || yieldPercent > 100) {
+    error.value = 'BOM出品率必须在 1% 到 100% 之间'
+    return
+  }
+  productSaving.value = true
+  error.value = ''
+  ok.value = ''
+  try {
+    await apiSend('/api/product-settings/products', {
+      body: {
+        name: productForm.value.name,
+        roast_level: productForm.value.roast_level,
+        yield_rate: Number((yieldPercent / 100).toFixed(4)),
+        default_price: Number(productForm.value.default_price || 0),
+      },
+    })
+    ok.value = '公共产品已创建'
+    productForm.value = defaultProductForm()
+    await loadAll()
+  } catch (err) {
+    error.value = err.message || '创建公共产品失败'
+  } finally {
+    productSaving.value = false
+  }
 }
 
 async function createCustomProduct() {
@@ -858,10 +939,10 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .text-button { border: 0; background: transparent; color: #1f4f82; padding: 0; min-height: 28px; }
 .danger-text { color: #a33; }
 .settings-grid { display: grid; grid-template-columns: minmax(280px, 380px) minmax(0, 1fr); gap: 14px; align-items: start; }
-.custom-product-panel { grid-column: 1 / -1; }
-.custom-product-form { display: grid; grid-template-columns: repeat(4, minmax(160px, 1fr)); gap: 10px; align-items: end; }
-.custom-product-form label { display: grid; gap: 5px; font-size: 13px; }
-.custom-product-form .wide-field { grid-column: span 2; }
+.public-product-panel, .custom-product-panel { grid-column: 1 / -1; }
+.product-create-form, .custom-product-form { display: grid; grid-template-columns: repeat(4, minmax(160px, 1fr)); gap: 10px; align-items: end; }
+.product-create-form label, .custom-product-form label { display: grid; gap: 5px; font-size: 13px; }
+.product-create-form .wide-field, .custom-product-form .wide-field { grid-column: span 2; }
 .customer-sku-list { margin-top: 14px; border-top: 1px solid #eee8df; padding-top: 12px; }
 .sku-list-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 12px; margin-bottom: 10px; }
 .sku-list-head strong { display: block; margin-bottom: 4px; }
@@ -898,9 +979,9 @@ th { background: #fbfaf8; position: sticky; top: 0; }
 .muted { color: #666; font-size: 12px; }
 @media (max-width: 900px) {
   .page { padding: 12px; }
-  .settings-grid, .inline-form, .custom-product-form, .sku-filter { grid-template-columns: 1fr; }
+  .settings-grid, .inline-form, .product-create-form, .custom-product-form, .sku-filter { grid-template-columns: 1fr; }
   .sku-list-head { align-items: stretch; flex-direction: column; }
-  .custom-product-form .wide-field { grid-column: auto; }
+  .product-create-form .wide-field, .custom-product-form .wide-field { grid-column: auto; }
   table { min-width: 900px; }
 }
 </style>

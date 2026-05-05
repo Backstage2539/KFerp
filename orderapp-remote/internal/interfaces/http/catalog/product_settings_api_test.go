@@ -21,12 +21,14 @@ type productSettingsRepo struct {
 	deletedCategory catalogapp.DeleteProductCategoryCommand
 	assigned        catalogapp.AssignProductCategoryCommand
 	updated         catalogapp.UpdateProductBasicsCommand
+	createdPublic   catalogapp.CreateProductCommand
 	createdProduct  catalogapp.CreateCustomProductCommand
 	categoryCreated bool
 	categoryMoved   bool
 	categoryDeleted bool
 	productAssigned bool
 	productUpdated  bool
+	publicCreated   bool
 	productCreated  bool
 }
 
@@ -51,6 +53,22 @@ func (r *productSettingsRepo) UpdateProductBasics(ctx context.Context, cmd catal
 	r.updated = cmd
 	r.productUpdated = true
 	return nil
+}
+
+func (r *productSettingsRepo) CreateProduct(ctx context.Context, cmd catalogapp.CreateProductCommand) (catalogapp.Product, error) {
+	r.createdPublic = cmd
+	r.publicCreated = true
+	return catalogapp.Product{
+		ID:            77,
+		Name:          cmd.Name,
+		RoastLevel:    cmd.RoastLevel,
+		DefaultPrice:  cmd.DefaultPrice,
+		YieldRate:     cmd.YieldRate,
+		Visibility:    "public",
+		BomItemCount:  0,
+		CustomerID:    0,
+		BaseProductID: 0,
+	}, nil
 }
 
 func (r *productSettingsRepo) ListProductCategories(ctx context.Context) ([]catalogapp.ProductCategory, error) {
@@ -189,6 +207,30 @@ func TestProductSettingsAPICreatesCustomerCustomProduct(t *testing.T) {
 	for _, want := range []string{`"product"`, `"customer_id":3`, `"base_product_id":7`, `"visibility":"customer_only"`, `"custom_type":"custom_roast"`} {
 		if !bytes.Contains(rec.Body.Bytes(), []byte(want)) {
 			t.Fatalf("custom product response missing %s: %s", want, rec.Body.String())
+		}
+	}
+}
+
+func TestProductSettingsAPICreatesPublicProduct(t *testing.T) {
+	repo := &productSettingsRepo{}
+	e := echo.New()
+	registerProductRoutes(e, catalogapp.NewService(repo))
+
+	body := `{"name":"新公共拼配","roast_level":"中深烘","default_price":88,"yield_rate":0.805}`
+	req := httptest.NewRequest(http.MethodPost, "/api/product-settings/products", bytes.NewBufferString(body))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("POST public product status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if !repo.publicCreated || repo.createdPublic.Name != "新公共拼配" || repo.createdPublic.RoastLevel != "中深烘" || repo.createdPublic.DefaultPrice != 88 || repo.createdPublic.RetailPrice227G != 88 || repo.createdPublic.YieldRate != 0.805 {
+		t.Fatalf("public product command = %+v created=%v", repo.createdPublic, repo.publicCreated)
+	}
+	for _, want := range []string{`"product"`, `"name":"新公共拼配"`, `"customer_id":0`, `"visibility":"public"`, `"bom_item_count":0`} {
+		if !bytes.Contains(rec.Body.Bytes(), []byte(want)) {
+			t.Fatalf("public product response missing %s: %s", want, rec.Body.String())
 		}
 	}
 }

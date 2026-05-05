@@ -8,6 +8,7 @@ import (
 type fakeRepo struct {
 	replace ReplacePriceTiersCommand
 	update  UpdateProductBasicsCommand
+	create  CreateProductCommand
 }
 
 func (r *fakeRepo) ListProducts(ctx context.Context) ([]Product, error) {
@@ -26,6 +27,11 @@ func (r *fakeRepo) ReplacePriceTiers(ctx context.Context, cmd ReplacePriceTiersC
 func (r *fakeRepo) UpdateProductBasics(ctx context.Context, cmd UpdateProductBasicsCommand) error {
 	r.update = cmd
 	return nil
+}
+
+func (r *fakeRepo) CreateProduct(ctx context.Context, cmd CreateProductCommand) (Product, error) {
+	r.create = cmd
+	return Product{ID: 11, Name: cmd.Name, RoastLevel: cmd.RoastLevel, YieldRate: cmd.YieldRate, Visibility: "public"}, nil
 }
 
 func (r *fakeRepo) ListProductCategories(ctx context.Context) ([]ProductCategory, error) {
@@ -75,6 +81,13 @@ func TestServiceDelegatesCatalogOperations(t *testing.T) {
 	}
 	if repo.update.ProductID != 9 {
 		t.Fatalf("update command = %+v", repo.update)
+	}
+	product, err := svc.CreateProduct(context.Background(), CreateProductCommand{Actor: "tester", Name: "新拼配", RoastLevel: "中烘", YieldRate: 0.81})
+	if err != nil || product.ID != 11 {
+		t.Fatalf("CreateProduct() = %+v, %v", product, err)
+	}
+	if repo.create.Name != "新拼配" || repo.create.RoastLevel != "中烘" || repo.create.Actor != "tester" {
+		t.Fatalf("create command = %+v", repo.create)
 	}
 	settings, err := svc.ProductSettings(context.Background())
 	if err != nil || len(settings.Categories) != 1 || len(settings.Products) != 1 {
