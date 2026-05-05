@@ -14,6 +14,7 @@ import (
 type portalVisibilityRequest struct {
 	DisplayName  string                               `json:"display_name"`
 	Enabled      *bool                                `json:"enabled"`
+	ThemeKey     string                               `json:"theme_key"`
 	Capabilities []customerportalapp.CapabilityOption `json:"capabilities"`
 }
 
@@ -67,6 +68,7 @@ func registerAdminAPI(e *echo.Echo, svc Service) {
 			CustomerID:   id,
 			DisplayName:  req.DisplayName,
 			Enabled:      enabled,
+			ThemeKey:     req.ThemeKey,
 			Capabilities: req.Capabilities,
 			UpdatedBy:    support.ActorOf(c),
 		})

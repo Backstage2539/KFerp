@@ -18,6 +18,7 @@ import {
 } from '../../utils/beanListPageCache'
 import { buildOrderServiceFilters, datePresetRange, normalizeDateRange, type OrderDatePreset } from '../../utils/orderFilters'
 import { normalizeServiceKey, serviceTitle, visibleServiceSections, type ServiceKey } from '../../utils/servicePage'
+import { miniappThemeClass, miniappThemeMeta } from '../../utils/themes'
 
 type OrderSearchForm = {
   keyword: string
@@ -55,6 +56,9 @@ const processingForm = ref({
 })
 
 const title = computed(() => page.value?.title || serviceTitle(serviceKey.value))
+const activeThemeKey = computed(() => page.value?.theme_key || session.themeKey)
+const themeClass = computed(() => miniappThemeClass(activeThemeKey.value))
+const themeMeta = computed(() => miniappThemeMeta(activeThemeKey.value))
 const summary = computed(() => page.value?.summary || [])
 const sections = computed(() => (page.value ? visibleServiceSections(page.value) : []))
 const orderPanelTitle = computed(() => (serviceKey.value === 'orders' ? '我的订单' : '订单 / 物流'))
@@ -80,6 +84,16 @@ async function loadPage() {
     }
     const filters = serviceKey.value === 'orders' ? buildOrderServiceFilters(orderSearch.value) : {}
     page.value = await fetchServicePage(session.token, serviceKey.value, filters)
+    if (page.value.theme_key) {
+      session.applyContext({
+        mini_user_id: session.miniUserID,
+        current_customer_id: page.value.current_customer_id || session.currentCustomerID,
+        current_customer_name: page.value.current_customer_name || session.currentCustomerName,
+        theme_key: page.value.theme_key,
+        bindings: session.bindings,
+        capabilities: session.capabilities,
+      })
+    }
     if (serviceKey.value === 'beanList') {
       cacheBeanListPages(page.value.bean_lists || [])
     }
@@ -271,9 +285,9 @@ onShow(() => {
 </script>
 
 <template>
-  <view class="page">
+  <view class="page" :class="themeClass">
     <view class="header">
-      <text class="eyebrow">服务入口</text>
+      <text class="eyebrow">{{ themeMeta.eyebrow }}</text>
       <text class="title">{{ title }}</text>
       <text class="subtitle">{{ page?.current_customer_name || session.currentCustomerName || '客户中心' }}</text>
     </view>
@@ -537,32 +551,70 @@ onShow(() => {
 .page {
   min-height: 100vh;
   padding: 32rpx;
-  background: #f6f6f6;
+  background: #f7f2ea;
   box-sizing: border-box;
+}
+
+.page.theme-coffee-factory {
+  background: #f7f2ea;
+}
+
+.page.theme-clean-ops {
+  background: #f5f7f6;
+}
+
+.page.theme-premium-partner {
+  background: #fbf7ef;
 }
 
 .header {
   display: flex;
   flex-direction: column;
   gap: 14rpx;
-  padding: 24rpx 0 32rpx;
+  padding: 30rpx 28rpx 34rpx;
+  margin-bottom: 24rpx;
+  border-radius: 28rpx;
+  background: linear-gradient(135deg, #2b2118 0%, #6b4b2b 100%);
+}
+
+.theme-clean-ops .header {
+  background: #ffffff;
+  border: 1rpx solid #dfe7e2;
+}
+
+.theme-premium-partner .header {
+  background: linear-gradient(135deg, #111111 0%, #513018 55%, #b88a46 100%);
 }
 
 .eyebrow {
-  color: #6f5d2e;
+  color: rgba(255, 248, 235, 0.78);
   font-size: 24rpx;
-  font-weight: 600;
+  font-weight: 900;
+}
+
+.theme-clean-ops .eyebrow {
+  color: #28624a;
 }
 
 .title {
-  color: #171717;
+  color: #fff8eb;
   font-size: 42rpx;
-  font-weight: 700;
+  font-weight: 900;
+  line-height: 1.18;
+}
+
+.theme-clean-ops .title {
+  color: #14201a;
 }
 
 .subtitle {
-  color: #666666;
+  color: rgba(255, 248, 235, 0.82);
   font-size: 26rpx;
+  line-height: 1.55;
+}
+
+.theme-clean-ops .subtitle {
+  color: #66756c;
 }
 
 .metrics {
@@ -578,6 +630,19 @@ onShow(() => {
   background: #ffffff;
   border: 1rpx solid #e8e8e8;
   border-radius: 8rpx;
+}
+
+.theme-clean-ops .metric,
+.theme-clean-ops .panel,
+.theme-clean-ops .section-row {
+  border-color: #dde7e1;
+}
+
+.theme-premium-partner .metric,
+.theme-premium-partner .panel,
+.theme-premium-partner .section-row {
+  border-color: #eadab7;
+  background: #fffdf8;
 }
 
 .metric {
@@ -648,6 +713,15 @@ onShow(() => {
   font-size: 28rpx;
 }
 
+.theme-clean-ops .primary {
+  background: #173b2e;
+}
+
+.theme-premium-partner .primary {
+  background: #17120d;
+  color: #f8ddb0;
+}
+
 .primary.compact,
 .secondary {
   min-height: 72rpx;
@@ -662,6 +736,16 @@ onShow(() => {
   color: #171717;
   border: 1rpx solid #d8d8d8;
   border-radius: 8rpx;
+}
+
+.theme-clean-ops .secondary {
+  border-color: #c9d8d0;
+  color: #173b2e;
+}
+
+.theme-premium-partner .secondary {
+  border-color: #eadab7;
+  color: #6b431a;
 }
 
 .filter-panel {
@@ -687,6 +771,18 @@ onShow(() => {
   border-radius: 8rpx;
   font-size: 22rpx;
   line-height: 1.1;
+}
+
+.theme-clean-ops .chip {
+  background: #f5f7f6;
+  border-color: #d7e4dd;
+  color: #173b2e;
+}
+
+.theme-premium-partner .chip {
+  background: #fff8eb;
+  border-color: #eadab7;
+  color: #6b431a;
 }
 
 .date-range,
@@ -716,6 +812,20 @@ onShow(() => {
   color: #171717;
   font-size: 25rpx;
   box-sizing: border-box;
+}
+
+.theme-clean-ops .input,
+.theme-clean-ops .textarea,
+.theme-clean-ops .picker-field {
+  background: #f7faf8;
+  border-color: #d7e4dd;
+}
+
+.theme-premium-partner .input,
+.theme-premium-partner .textarea,
+.theme-premium-partner .picker-field {
+  background: #fffaf2;
+  border-color: #eadab7;
 }
 
 .status-picker {
@@ -771,6 +881,11 @@ onShow(() => {
 
 .bean-list-native {
   margin-bottom: 20rpx;
+}
+
+.theme-clean-ops .bean-list-native,
+.theme-premium-partner .bean-list-native {
+  border-radius: 16rpx;
 }
 
 .bean-list-surface {
@@ -1062,6 +1177,14 @@ onShow(() => {
   color: #6f5d2e;
   font-size: 30rpx;
   font-weight: 700;
+}
+
+.theme-clean-ops .section-count {
+  color: #28624a;
+}
+
+.theme-premium-partner .section-count {
+  color: #8a5c20;
 }
 
 .list-row {

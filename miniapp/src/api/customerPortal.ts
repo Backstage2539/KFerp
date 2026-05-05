@@ -1,6 +1,7 @@
 import { miniRequest } from './client'
 import type { Capability } from '../utils/capabilities'
 import type { ServiceKey } from '../utils/servicePage'
+import type { MiniappThemeKey } from '../utils/themes'
 
 export type CustomerBinding = {
   customer_id: number
@@ -13,6 +14,7 @@ export type LoginResponse = {
   token: string
   mini_user_id: number
   current_customer_id: number
+  theme_key?: MiniappThemeKey | string
   bindings: CustomerBinding[]
   capabilities: Capability[]
 }
@@ -21,6 +23,7 @@ export type MeResponse = {
   mini_user_id: number
   current_customer_id: number
   current_customer_name: string
+  theme_key?: MiniappThemeKey | string
   bindings: CustomerBinding[]
   capabilities: Capability[]
 }
@@ -189,6 +192,7 @@ export type ServicePageResponse = {
   key: ServiceKey
   title: string
   capability: string
+  theme_key?: MiniappThemeKey | string
   current_customer_id: number
   current_customer_name: string
   summary: ServiceMetric[]

@@ -2,10 +2,13 @@
 import { ref } from 'vue'
 import { loginWithCode } from '../../api/customerPortal'
 import { useSessionStore } from '../../stores/session'
+import { miniappThemeClass, miniappThemeMeta } from '../../utils/themes'
 
 const session = useSessionStore()
 const loading = ref(false)
 const errorMessage = ref('')
+const themeClass = miniappThemeClass()
+const themeMeta = miniappThemeMeta()
 
 function requestLoginCode(): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -44,11 +47,11 @@ async function handleLogin() {
 </script>
 
 <template>
-  <view class="page">
+  <view class="page" :class="themeClass">
     <view class="hero">
-      <text class="eyebrow">KFerp</text>
+      <text class="eyebrow">{{ themeMeta.eyebrow }}</text>
       <text class="title">客户中心</text>
-      <text class="subtitle">登录后查看豆单、订单、库存、物流和结算服务。</text>
+      <text class="subtitle">{{ themeMeta.subtitle }}</text>
     </view>
 
     <view class="panel">
@@ -64,8 +67,20 @@ async function handleLogin() {
 .page {
   min-height: 100vh;
   padding: 56rpx 32rpx;
-  background: #f6f6f6;
+  background: #f7f2ea;
   box-sizing: border-box;
+}
+
+.page.theme-coffee-factory {
+  background: #f7f2ea;
+}
+
+.page.theme-clean-ops {
+  background: #f5f7f6;
+}
+
+.page.theme-premium-partner {
+  background: #fbf7ef;
 }
 
 .hero {
@@ -78,17 +93,26 @@ async function handleLogin() {
 .eyebrow {
   color: #6f5d2e;
   font-size: 26rpx;
-  font-weight: 600;
+  font-weight: 800;
+}
+
+.theme-clean-ops .eyebrow {
+  color: #28624a;
+}
+
+.theme-premium-partner .eyebrow {
+  color: #8a5c20;
 }
 
 .title {
   color: #171717;
-  font-size: 48rpx;
-  font-weight: 700;
+  font-size: 52rpx;
+  font-weight: 900;
+  line-height: 1.14;
 }
 
 .subtitle {
-  color: #666666;
+  color: #5f5a52;
   font-size: 28rpx;
   line-height: 1.6;
 }
@@ -101,10 +125,21 @@ async function handleLogin() {
 
 .login-button {
   width: 100%;
-  background: #171717;
-  border-radius: 8rpx;
+  min-height: 88rpx;
+  background: #2b2118;
+  border-radius: 10rpx;
   color: #ffffff;
   font-size: 30rpx;
+  font-weight: 800;
+}
+
+.theme-clean-ops .login-button {
+  background: #173b2e;
+}
+
+.theme-premium-partner .login-button {
+  background: #17120d;
+  color: #f8ddb0;
 }
 
 .error {

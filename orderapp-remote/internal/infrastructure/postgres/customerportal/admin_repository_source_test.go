@@ -19,6 +19,8 @@ func TestCustomerPortalAdminRepositoryPersistsProfilesCapabilitiesAndBindings(t 
 		"customer_portal_profiles",
 		"customer_portal_user_bindings",
 		"customer_service_capabilities",
+		"theme_key",
+		"NormalizePortalThemeKey",
 		"ON CONFLICT(customer_id, capability_code) DO UPDATE",
 	} {
 		if !strings.Contains(text, want) {

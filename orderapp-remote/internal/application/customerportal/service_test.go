@@ -142,6 +142,39 @@ func TestLoginCreatesSessionFromResolvedIdentity(t *testing.T) {
 	}
 }
 
+func TestMiniCustomerContextResponsesNormalizeThemeKey(t *testing.T) {
+	repo := &fakeRepository{
+		loginResult: LoginResult{Token: "mini-token", MiniUserID: 9},
+		context:     CurrentContext{MiniUserID: 9, CurrentCustomerID: 7, ThemeKey: "  premium_partner  "},
+	}
+	svc := NewService(repo, fakeIdentityProvider{identity: MiniIdentity{OpenID: "openid-1"}})
+
+	login, err := svc.Login(context.Background(), LoginCommand{Code: "wx-code"})
+	if err != nil {
+		t.Fatalf("Login() err=%v", err)
+	}
+	if login.ThemeKey != PortalThemeCoffeeFactory {
+		t.Fatalf("Login() theme_key=%q, want coffee_factory", login.ThemeKey)
+	}
+
+	me, err := svc.Me(context.Background(), "mini-token")
+	if err != nil {
+		t.Fatalf("Me() err=%v", err)
+	}
+	if me.ThemeKey != PortalThemePremiumPartner {
+		t.Fatalf("Me() theme_key=%q, want premium_partner", me.ThemeKey)
+	}
+
+	repo.context.ThemeKey = "unknown-theme"
+	switched, err := svc.SwitchCurrentCustomer(context.Background(), "mini-token", 8)
+	if err != nil {
+		t.Fatalf("SwitchCurrentCustomer() err=%v", err)
+	}
+	if switched.ThemeKey != PortalThemeCoffeeFactory {
+		t.Fatalf("SwitchCurrentCustomer() theme_key=%q, want coffee_factory", switched.ThemeKey)
+	}
+}
+
 func TestMeRequiresTokenAndReturnsBoundCapabilities(t *testing.T) {
 	repo := &fakeRepository{context: CurrentContext{
 		MiniUserID:          8,
@@ -351,6 +384,38 @@ func TestPortalAdminDetailAlwaysReturnsCompleteCapabilityCatalog(t *testing.T) {
 	}
 }
 
+func TestPortalAdminCustomerResponsesNormalizeThemeKey(t *testing.T) {
+	repo := &fakeRepository{
+		portalCustomers: []PortalAdminCustomer{
+			{ID: 1, Name: "empty"},
+			{ID: 2, Name: "clean", ThemeKey: "  clean_ops  "},
+			{ID: 3, Name: "unknown", ThemeKey: "unknown-theme"},
+		},
+		portalDetail: PortalAdminDetail{
+			Customer: PortalAdminCustomer{Name: "detail", ThemeKey: "  premium_partner  "},
+		},
+	}
+	svc := NewService(repo, fakeIdentityProvider{})
+
+	rows, err := svc.ListPortalAdminCustomers(context.Background(), PortalAdminCustomerQuery{})
+	if err != nil {
+		t.Fatalf("ListPortalAdminCustomers() err=%v", err)
+	}
+	if rows[0].ThemeKey != PortalThemeCoffeeFactory ||
+		rows[1].ThemeKey != PortalThemeCleanOps ||
+		rows[2].ThemeKey != PortalThemeCoffeeFactory {
+		t.Fatalf("admin customer theme keys=%+v", rows)
+	}
+
+	detail, err := svc.PortalAdminDetail(context.Background(), 147)
+	if err != nil {
+		t.Fatalf("PortalAdminDetail() err=%v", err)
+	}
+	if detail.Customer.ThemeKey != PortalThemePremiumPartner {
+		t.Fatalf("PortalAdminDetail() theme_key=%q, want premium_partner", detail.Customer.ThemeKey)
+	}
+}
+
 func TestUpdatePortalVisibilityTrimsAndNormalizesCapabilities(t *testing.T) {
 	repo := &fakeRepository{portalDetail: PortalAdminDetail{
 		Customer: PortalAdminCustomer{Name: "13800138075"},
@@ -360,6 +425,7 @@ func TestUpdatePortalVisibilityTrimsAndNormalizesCapabilities(t *testing.T) {
 		CustomerID:   147,
 		DisplayName:  "  测试客户  ",
 		Enabled:      true,
+		ThemeKey:     "  premium_partner  ",
 		Capabilities: []CapabilityOption{{Code: CapabilityDirectShip, Enabled: true}, {Code: "unknown", Enabled: true}, {Code: CapabilityBeanList, Enabled: false}},
 	})
 	if err != nil {
@@ -367,6 +433,9 @@ func TestUpdatePortalVisibilityTrimsAndNormalizesCapabilities(t *testing.T) {
 	}
 	if repo.visibilityCommand.CustomerID != 147 || repo.visibilityCommand.DisplayName != "测试客户" || !repo.visibilityCommand.Enabled {
 		t.Fatalf("visibility command=%+v", repo.visibilityCommand)
+	}
+	if repo.visibilityCommand.ThemeKey != PortalThemePremiumPartner {
+		t.Fatalf("visibility theme_key=%q, want premium_partner", repo.visibilityCommand.ThemeKey)
 	}
 	if len(repo.visibilityCommand.Capabilities) != 2 {
 		t.Fatalf("visibility capabilities=%+v, want only known codes from payload", repo.visibilityCommand.Capabilities)
