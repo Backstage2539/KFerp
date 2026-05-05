@@ -195,6 +195,10 @@ type ProductOption struct {
 	RetailPrice200G float64             `json:"retail_price_200g"`
 	RetailPrice227G float64             `json:"retail_price_227g"`
 	RetailPrice250G float64             `json:"retail_price_250g"`
+	CustomerID      int64               `json:"customer_id"`
+	BaseProductID   int64               `json:"base_product_id"`
+	Visibility      string              `json:"visibility"`
+	CustomType      string              `json:"custom_type"`
 	RetailSpecs     []int64             `json:"retail_specs"`
 	Tiers           []ProductTierOption `json:"tiers"`
 }

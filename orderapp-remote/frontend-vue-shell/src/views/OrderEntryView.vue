@@ -293,6 +293,7 @@ import {
   buildOrderPayload,
   defaultWholesaleSpec,
   defaultStatusID,
+  filterProductsForCustomer,
   filterOptions,
   lineTotal,
   normalizeSpecG,
@@ -490,7 +491,7 @@ async function saveCustomerFromDrawer() {
 }
 
 function productOptions(row) {
-  return filterOptions(products.value, row.product_query).slice(0, 30)
+  return filterOptions(filterProductsForCustomer(products.value, form.customer_id), row.product_query).slice(0, 30)
 }
 
 function clearProduct(row) {

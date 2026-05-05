@@ -15,6 +15,10 @@ func productOptionFromCatalog(p catalogapp.Product) ProductOption {
 		YieldRate:               p.YieldRate,
 		ProductCategoryID:       p.ProductCategoryID,
 		ProductCategoryPosition: p.ProductCategoryPosition,
+		CustomerID:              p.CustomerID,
+		BaseProductID:           p.BaseProductID,
+		Visibility:              p.Visibility,
+		CustomType:              p.CustomType,
 	}
 	out.Tiers = make([]ProductTierOption, 0, len(p.Tiers))
 	for _, t := range p.Tiers {

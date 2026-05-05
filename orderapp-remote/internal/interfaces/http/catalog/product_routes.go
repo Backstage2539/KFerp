@@ -23,6 +23,7 @@ func registerProductRoutes(e *echo.Echo, catalogSvc *catalogapp.Service) {
 	e.GET("/api/product-settings", h.productSettingsAPI)
 	e.GET("/api/product-settings/categories", h.productCategoriesAPI)
 	e.POST("/api/product-settings/categories", h.saveProductCategoryAPI)
+	e.POST("/api/product-settings/custom-products", h.createCustomProductAPI)
 	e.PUT("/api/product-settings/categories/:id", h.saveProductCategoryAPI)
 	e.DELETE("/api/product-settings/categories/:id", h.deleteProductCategoryAPI)
 	e.POST("/api/product-settings/categories/:id/move", h.moveProductCategoryAPI)
@@ -66,6 +67,16 @@ type productCategoryMoveAPIRequest struct {
 type productAssignCategoryAPIRequest struct {
 	CategoryID int64 `json:"category_id"`
 	Position   int   `json:"position"`
+}
+
+type customProductAPIRequest struct {
+	CustomerID     int64  `json:"customer_id"`
+	BaseProductID  int64  `json:"base_product_id"`
+	Name           string `json:"name"`
+	RoastLevel     string `json:"roast_level"`
+	CustomType     string `json:"custom_type"`
+	CopyBOM        bool   `json:"copy_bom"`
+	CopyPriceTiers bool   `json:"copy_price_tiers"`
 }
 
 func (h productHandler) index(c echo.Context) error {
@@ -193,6 +204,27 @@ func (h productHandler) saveProductCategoryAPI(c echo.Context) error {
 		return c.JSON(http.StatusInternalServerError, map[string]any{"error": err.Error()})
 	}
 	return c.JSON(http.StatusOK, map[string]any{"category": row})
+}
+
+func (h productHandler) createCustomProductAPI(c echo.Context) error {
+	var req customProductAPIRequest
+	if err := c.Bind(&req); err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]any{"error": "bad request"})
+	}
+	product, err := h.catalog.CreateCustomProduct(c.Request().Context(), catalogapp.CreateCustomProductCommand{
+		Actor:          support.ActorOf(c),
+		CustomerID:     req.CustomerID,
+		BaseProductID:  req.BaseProductID,
+		Name:           req.Name,
+		RoastLevel:     req.RoastLevel,
+		CustomType:     req.CustomType,
+		CopyBOM:        req.CopyBOM,
+		CopyPriceTiers: req.CopyPriceTiers,
+	})
+	if err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]any{"error": err.Error()})
+	}
+	return c.JSON(http.StatusOK, map[string]any{"product": productOptionFromCatalog(product)})
 }
 
 func (h productHandler) moveProductCategoryAPI(c echo.Context) error {

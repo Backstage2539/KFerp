@@ -134,6 +134,19 @@ func (h orderAPIHandler) form(c echo.Context) error {
 	if err != nil {
 		return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
 	}
+	customerID := int64(0)
+	filterByCustomer := false
+	if v := strings.TrimSpace(c.QueryParam("customer_id")); v != "" {
+		id, err := strconv.ParseInt(v, 10, 64)
+		if err != nil || id < 0 {
+			return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid customer_id"})
+		}
+		customerID = id
+		filterByCustomer = true
+	}
+	if filterByCustomer {
+		data.Products = filterOrderProductsForCustomer(data.Products, customerID)
+	}
 
 	resp := orderFormAPIResponse{
 		Today:        data.Today,
@@ -327,6 +340,10 @@ func apiProducts(ps []ProductOption) []jsProduct {
 			RetailPrice200G: p.RetailPrice200G,
 			RetailPrice227G: p.RetailPrice227G,
 			RetailPrice250G: p.RetailPrice250G,
+			CustomerID:      p.CustomerID,
+			BaseProductID:   p.BaseProductID,
+			Visibility:      productVisibilityForAPI(p.Visibility, p.CustomerID),
+			CustomType:      p.CustomType,
 			RetailSpecs:     p.RetailSpecs,
 		}
 		for _, t := range p.Tiers {
@@ -335,6 +352,34 @@ func apiProducts(ps []ProductOption) []jsProduct {
 		out = append(out, jp)
 	}
 	return out
+}
+
+func filterOrderProductsForCustomer(products []ProductOption, customerID int64) []ProductOption {
+	out := make([]ProductOption, 0, len(products))
+	for _, product := range products {
+		visibility := productVisibilityForAPI(product.Visibility, product.CustomerID)
+		if visibility == "public" || product.CustomerID == 0 {
+			product.Visibility = "public"
+			out = append(out, product)
+			continue
+		}
+		if customerID > 0 && product.CustomerID == customerID {
+			product.Visibility = "customer_only"
+			out = append(out, product)
+		}
+	}
+	return out
+}
+
+func productVisibilityForAPI(visibility string, customerID int64) string {
+	visibility = strings.TrimSpace(visibility)
+	if visibility != "" {
+		return visibility
+	}
+	if customerID > 0 {
+		return "customer_only"
+	}
+	return "public"
 }
 
 func editDataForAPI(ed *OrderEditData) map[string]any {

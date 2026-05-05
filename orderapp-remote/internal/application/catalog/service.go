@@ -2,7 +2,10 @@ package catalog
 
 import (
 	"context"
+	"fmt"
+	catalogdomain "orderapp/internal/domain/catalog"
 	"sort"
+	"strings"
 )
 
 type PriceTier struct {
@@ -25,6 +28,10 @@ type Product struct {
 	YieldRate               float64
 	ProductCategoryID       int64
 	ProductCategoryPosition int
+	CustomerID              int64
+	BaseProductID           int64
+	Visibility              string
+	CustomType              string
 	Tiers                   []PriceTier
 }
 
@@ -49,6 +56,10 @@ type ProductSettingsProduct struct {
 	YieldRate               float64 `json:"yield_rate"`
 	ProductCategoryID       int64   `json:"product_category_id"`
 	ProductCategoryPosition int     `json:"product_category_position"`
+	CustomerID              int64   `json:"customer_id"`
+	BaseProductID           int64   `json:"base_product_id"`
+	Visibility              string  `json:"visibility"`
+	CustomType              string  `json:"custom_type"`
 	Number                  int     `json:"number"`
 }
 
@@ -83,6 +94,17 @@ type UpdateProductBasicsCommand struct {
 	RetailPrice227G float64
 	RetailPrice250G float64
 	YieldRate       float64
+}
+
+type CreateCustomProductCommand struct {
+	Actor          string
+	CustomerID     int64
+	BaseProductID  int64
+	Name           string
+	RoastLevel     string
+	CustomType     string
+	CopyBOM        bool
+	CopyPriceTiers bool
 }
 
 type SaveProductCategoryCommand struct {
@@ -122,6 +144,7 @@ type Repository interface {
 	MoveProductCategory(ctx context.Context, cmd MoveProductCategoryCommand) error
 	DeleteProductCategory(ctx context.Context, cmd DeleteProductCategoryCommand) error
 	AssignProductCategory(ctx context.Context, cmd AssignProductCategoryCommand) error
+	CreateCustomProduct(ctx context.Context, cmd CreateCustomProductCommand) (Product, error)
 }
 
 type Service struct {
@@ -174,6 +197,27 @@ func (s *Service) DeleteProductCategory(ctx context.Context, cmd DeleteProductCa
 
 func (s *Service) AssignProductCategory(ctx context.Context, cmd AssignProductCategoryCommand) error {
 	return s.repo.AssignProductCategory(ctx, cmd)
+}
+
+func (s *Service) CreateCustomProduct(ctx context.Context, cmd CreateCustomProductCommand) (Product, error) {
+	if cmd.CustomerID <= 0 {
+		return Product{}, fmt.Errorf("customer_id required")
+	}
+	if cmd.BaseProductID <= 0 {
+		return Product{}, fmt.Errorf("base_product_id required")
+	}
+	if strings.TrimSpace(cmd.Name) == "" {
+		return Product{}, fmt.Errorf("name required")
+	}
+	cmd.RoastLevel = catalogdomain.NormalizeRoastLevel(cmd.RoastLevel)
+	if cmd.RoastLevel == "" {
+		return Product{}, fmt.Errorf("invalid roast_level")
+	}
+	cmd.CustomType = strings.TrimSpace(cmd.CustomType)
+	if cmd.CustomType != "custom_blend" && cmd.CustomType != "custom_roast" {
+		return Product{}, fmt.Errorf("invalid custom_type")
+	}
+	return s.repo.CreateCustomProduct(ctx, cmd)
 }
 
 func BuildProductSettings(categories []ProductCategory, products []Product) ProductSettingsData {
@@ -248,7 +292,22 @@ func productSettingsProduct(p Product) ProductSettingsProduct {
 		YieldRate:               p.YieldRate,
 		ProductCategoryID:       p.ProductCategoryID,
 		ProductCategoryPosition: p.ProductCategoryPosition,
+		CustomerID:              p.CustomerID,
+		BaseProductID:           p.BaseProductID,
+		Visibility:              productVisibility(p.Visibility, p.CustomerID),
+		CustomType:              p.CustomType,
 	}
+}
+
+func productVisibility(visibility string, customerID int64) string {
+	visibility = strings.TrimSpace(visibility)
+	if visibility != "" {
+		return visibility
+	}
+	if customerID > 0 {
+		return "customer_only"
+	}
+	return "public"
 }
 
 func sortCategories(categories []ProductCategory) {

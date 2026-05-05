@@ -13,6 +13,66 @@
     </section>
 
     <section class="settings-grid">
+      <div class="panel custom-product-panel">
+        <div class="panel-title">
+          <span>客户专属 SKU</span>
+        </div>
+        <form class="custom-product-form" @submit.prevent="createCustomProduct">
+          <label>
+            <span>客户</span>
+            <SearchableSelect
+              v-model="customForm.customer_id"
+              :options="customers"
+              :option-label="customerOptionLabel"
+              :option-meta="customerOptionMeta"
+              :option-value="optionNumericValue"
+              placeholder="输入客户名/拼音"
+              empty-text="没有匹配客户"
+              @select="fillCustomProductName" />
+          </label>
+          <label>
+            <span>基础产品</span>
+            <SearchableSelect
+              v-model="customForm.base_product_id"
+              :options="baseProducts"
+              :option-label="baseProductOptionLabel"
+              :option-meta="baseProductOptionMeta"
+              :option-value="optionNumericValue"
+              placeholder="输入产品名"
+              empty-text="没有匹配产品"
+              @select="fillCustomProductName" />
+          </label>
+          <label>
+            <span>定制类型</span>
+            <select v-model="customForm.custom_type">
+              <option value="custom_roast">定制烘焙度</option>
+              <option value="custom_blend">定制拼配 BOM</option>
+            </select>
+          </label>
+          <label>
+            <span>烘焙度</span>
+            <select v-model="customForm.roast_level" @change="fillCustomProductName">
+              <option v-for="level in roastLevels" :key="level" :value="level">{{ level }}</option>
+            </select>
+          </label>
+          <label class="wide-field">
+            <span>专属 SKU 名称</span>
+            <input v-model.trim="customForm.name" placeholder="如 客户A-暖阳拼配-中深烘" />
+          </label>
+          <label class="checkline">
+            <input v-model="customForm.copy_bom" type="checkbox" />
+            <span>复制基础产品 BOM</span>
+          </label>
+          <label class="checkline">
+            <input v-model="customForm.copy_price_tiers" type="checkbox" />
+            <span>复制基础产品价格梯度</span>
+          </label>
+          <div class="form-actions">
+            <button class="primary" type="submit" :disabled="customSaving">创建专属 SKU</button>
+          </div>
+        </form>
+      </div>
+
       <div class="panel category-panel">
         <div class="panel-title">
           <span>商品分类</span>
@@ -133,6 +193,8 @@
                 <th>二级分类</th>
                 <th>商品编号</th>
                 <th>商品</th>
+                <th>归属</th>
+                <th>类型</th>
                 <th>烘焙度</th>
                 <th>BOM出品率</th>
               </tr>
@@ -143,6 +205,8 @@
                 <td>{{ categoryLabel(row, 2) }}</td>
                 <td>{{ row.number || '' }}</td>
                 <td>{{ row.name }}</td>
+                <td>{{ ownerLabel(row) }}</td>
+                <td>{{ customTypeLabel(row.custom_type) }}</td>
                 <td>
                   <select class="roast-select" v-model="row.roast_level" @change="saveProductBasics(row)">
                     <option v-for="level in roastLevels" :key="level" :value="level">{{ level }}</option>
@@ -163,7 +227,7 @@
                 </td>
               </tr>
               <tr v-if="!productRows.length">
-                <td colspan="6" class="muted">暂无商品</td>
+                <td colspan="8" class="muted">暂无商品</td>
               </tr>
             </tbody>
           </table>
@@ -180,11 +244,14 @@
 <script setup>
 import { computed, onMounted, ref } from 'vue'
 import { apiGet, apiSend } from '../api/client'
+import SearchableSelect from '../components/SearchableSelect.vue'
 import CostingView from './CostingView.vue'
 
 const categories = ref([])
 const products = ref([])
+const customers = ref([])
 const loading = ref(false)
+const customSaving = ref(false)
 const error = ref('')
 const ok = ref('')
 const newPrimaryName = ref('')
@@ -198,6 +265,7 @@ const editingCategoryName = ref('')
 const categoryCollapsed = ref(false)
 const productsCollapsed = ref(false)
 const roastLevels = ['浅烘', '中烘', '中深烘', '深烘']
+const customForm = ref(defaultCustomForm())
 
 const productRows = computed(() => {
   const rows = []
@@ -225,9 +293,22 @@ const categorizedProductIDs = computed(() => {
 })
 
 const uncategorizedProducts = computed(() => products.value.filter((product) => !categorizedProductIDs.value.has(Number(product.id))))
+const baseProducts = computed(() => products.value.filter((product) => Number(product.customer_id || 0) === 0 && productVisibility(product) === 'public'))
 
 function categoryLabel(row, level) {
   return level === 1 ? row.primary_name || '' : row.secondary_name || ''
+}
+
+function defaultCustomForm() {
+  return {
+    customer_id: 0,
+    base_product_id: 0,
+    name: '',
+    roast_level: '中烘',
+    custom_type: 'custom_roast',
+    copy_bom: true,
+    copy_price_tiers: true,
+  }
 }
 
 function decorateProduct(product) {
@@ -237,6 +318,10 @@ function decorateProduct(product) {
     roast_level: roastLevels.includes(product.roast_level) ? product.roast_level : '中烘',
     yield_rate: yieldRate,
     yield_percent: Number((yieldRate * 100).toFixed(2)),
+    customer_id: Number(product.customer_id || 0),
+    base_product_id: Number(product.base_product_id || 0),
+    visibility: productVisibility(product),
+    custom_type: product.custom_type || '',
   }
 }
 
@@ -252,13 +337,107 @@ async function loadAll() {
   loading.value = true
   error.value = ''
   try {
-    const data = await apiGet('/api/product-settings')
+    const [data, customerData] = await Promise.all([
+      apiGet('/api/product-settings'),
+      apiGet('/api/customers?limit=200'),
+    ])
     categories.value = (data.categories || []).map(decorateCategory)
     products.value = (data.products || []).map(decorateProduct)
+    customers.value = (customerData.rows || []).filter((row) => row.active !== false)
   } catch (err) {
     error.value = err.message || '加载失败'
   } finally {
     loading.value = false
+  }
+}
+
+function productVisibility(product) {
+  const customerID = Number(product?.customer_id || 0)
+  return product?.visibility || (customerID > 0 ? 'customer_only' : 'public')
+}
+
+function customerName(id) {
+  return customers.value.find((customer) => Number(customer.id) === Number(id))?.name || ''
+}
+
+function customerOptionLabel(customer) {
+  return customer?.name || ''
+}
+
+function customerOptionMeta(customer) {
+  const parts = []
+  if (customer?.company_name && customer.company_name !== customer?.name) parts.push(customer.company_name)
+  if (customer?.contact) parts.push(customer.contact)
+  if (customer?.phone || customer?.company_phone) parts.push(customer.phone || customer.company_phone)
+  return parts.join(' / ')
+}
+
+function optionNumericValue(option) {
+  return Number(option?.id || 0)
+}
+
+function baseProductOptionLabel(product) {
+  return product?.name || ''
+}
+
+function baseProductOptionMeta(product) {
+  const parts = []
+  if (product?.number) parts.push(`编号 ${product.number}`)
+  if (product?.roast_level) parts.push(product.roast_level)
+  return parts.join(' / ')
+}
+
+function ownerLabel(row) {
+  if (Number(row.customer_id || 0) <= 0) return '公共'
+  return customerName(row.customer_id) || `客户 #${row.customer_id}`
+}
+
+function customTypeLabel(value) {
+  if (value === 'custom_blend') return '定制拼配'
+  if (value === 'custom_roast') return '定制烘焙'
+  return '标准'
+}
+
+function selectedBaseProduct() {
+  return products.value.find((product) => Number(product.id) === Number(customForm.value.base_product_id)) || null
+}
+
+function fillCustomProductName() {
+  if (customForm.value.name) return
+  const customer = customerName(customForm.value.customer_id)
+  const base = selectedBaseProduct()
+  if (!customer || !base) return
+  customForm.value.name = `${customer}-${base.name}-${customForm.value.roast_level}`
+}
+
+async function createCustomProduct() {
+  if (!customForm.value.customer_id) {
+    error.value = '请选择客户'
+    return
+  }
+  if (!customForm.value.base_product_id) {
+    error.value = '请选择基础产品'
+    return
+  }
+  if (!customForm.value.name) {
+    fillCustomProductName()
+  }
+  if (!customForm.value.name) {
+    error.value = '请填写专属 SKU 名称'
+    return
+  }
+  customSaving.value = true
+  error.value = ''
+  ok.value = ''
+  try {
+    await apiSend('/api/product-settings/custom-products', { body: customForm.value })
+    ok.value = '客户专属 SKU 已创建'
+    customForm.value = defaultCustomForm()
+    await loadAll()
+  } catch (err) {
+    error.value = err.message || '创建专属 SKU 失败'
+  } finally {
+    customSaving.value = false
   }
 }
 
@@ -612,6 +791,13 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .text-button { border: 0; background: transparent; color: #1f4f82; padding: 0; min-height: 28px; }
 .danger-text { color: #a33; }
 .settings-grid { display: grid; grid-template-columns: minmax(280px, 380px) minmax(0, 1fr); gap: 14px; align-items: start; }
+.custom-product-panel { grid-column: 1 / -1; }
+.custom-product-form { display: grid; grid-template-columns: repeat(4, minmax(160px, 1fr)); gap: 10px; align-items: end; }
+.custom-product-form label { display: grid; gap: 5px; font-size: 13px; }
+.custom-product-form .wide-field { grid-column: span 2; }
+.checkline { display: flex !important; align-items: center; gap: 8px; min-height: 36px; }
+.checkline input { width: auto; min-height: 0; }
+.form-actions { display: flex; justify-content: flex-end; }
 .inline-form { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; margin-bottom: 10px; }
 .sub-form { margin: 8px 0; }
 .category-tree { display: grid; gap: 10px; }
@@ -627,7 +813,7 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .product-chip-list, .uncategorized { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
 .product-chip { border: 1px solid #ddd; border-radius: 8px; padding: 5px 8px; background: #fff; font-size: 12px; cursor: grab; }
 .table-wrap { overflow: auto; }
-table { width: 100%; min-width: 760px; border-collapse: collapse; }
+table { width: 100%; min-width: 940px; border-collapse: collapse; }
 th, td { border-bottom: 1px solid #eee8df; padding: 8px; text-align: left; font-size: 13px; vertical-align: middle; }
 th { background: #fbfaf8; position: sticky; top: 0; }
 .roast-select { min-width: 92px; }
@@ -640,7 +826,8 @@ th { background: #fbfaf8; position: sticky; top: 0; }
 .muted { color: #666; font-size: 12px; }
 @media (max-width: 900px) {
   .page { padding: 12px; }
-  .settings-grid, .inline-form { grid-template-columns: 1fr; }
-  table { min-width: 720px; }
+  .settings-grid, .inline-form, .custom-product-form { grid-template-columns: 1fr; }
+  .custom-product-form .wide-field { grid-column: auto; }
+  table { min-width: 900px; }
 }
 </style>
