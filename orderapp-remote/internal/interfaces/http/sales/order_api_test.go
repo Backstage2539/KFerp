@@ -108,6 +108,48 @@ func TestOrderAPIListUsesSalesReadModel(t *testing.T) {
 	}
 }
 
+func TestOrderAPIListUsesOrderRecipientSnapshot(t *testing.T) {
+	pool, schema := newOrderAPITestDB(t)
+	ctx := context.Background()
+	seedOrderAPITestData(t, ctx, pool, schema)
+	mustExecOrderAPITestSQL(t, ctx, pool, fmt.Sprintf(`
+		INSERT INTO %s.orders(
+			id, order_no, order_date, customer_id, source_id, order_type_id, pay_status_id,
+			ship_status_id, process_status_id, grand_total, is_void,
+			receiver_name, receiver_phone, receiver_address, receiver_company,
+			portal_service_code, source_warehouse
+		)
+		VALUES (
+			19, 'SO-RECIPIENT-SNAPSHOT', '2026-05-04', 3, 1, 1, 2,
+			1, 1, 88.00, false,
+			'张三', '13800000001', '上海市测试路1号', '上海测试公司',
+			'processing_ship', 'cust_3_processing'
+		);
+	`, schema))
+
+	e := newOrderAPITestEcho(pool, schema)
+	req := httptest.NewRequest(http.MethodGet, "/api/orders?limit=1", nil)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET /api/orders status = %d, want 200, body=%s", rec.Code, rec.Body.String())
+	}
+	body := rec.Body.String()
+	for _, needle := range []string{
+		`"receiver_name":"张三"`,
+		`"receiver_phone":"13800000001"`,
+		`"receiver_address":"上海市测试路1号"`,
+		`"receiver_company":"上海测试公司"`,
+		`"portal_service_code":"processing_ship"`,
+		`"source_warehouse":"cust_3_processing"`,
+	} {
+		if !strings.Contains(body, needle) {
+			t.Fatalf("GET /api/orders missing %s: %s", needle, body)
+		}
+	}
+}
+
 func TestOrderAPISavesRetailCustomSpecPrice(t *testing.T) {
 	pool, schema := newOrderAPITestDB(t)
 	ctx := context.Background()
@@ -1000,6 +1042,64 @@ func TestOrdersShippingTrackingAPIDeductsReservedLegacyFinishedInventoryOnce(t *
 	}
 }
 
+func TestOrdersShippingTrackingAPIDeductsOrderSourceWarehouseWithoutAllocation(t *testing.T) {
+	pool, schema := newOrderAPITestDB(t)
+	ctx := context.Background()
+	seedOrderAPITestData(t, ctx, pool, schema)
+	if err := postgressales.EnsureSchema(ctx, pool, schema); err != nil {
+		t.Fatalf("EnsureSchema: %v", err)
+	}
+	mustExecOrderAPITestSQL(t, ctx, pool, fmt.Sprintf(`
+		INSERT INTO %s.ship_statuses(id,name) VALUES (2,'已发货') ON CONFLICT DO NOTHING;
+		INSERT INTO %s.orders(id, order_no, order_date, customer_id, order_type_id, pay_status_id, ship_status_id, process_status_id, grand_total, is_void, source_warehouse, portal_service_code)
+		VALUES (32, 'SO-CUSTOMER-WH-SHIP', '2026-05-04', 3, 1, 2, 1, (SELECT id FROM %s.order_process_statuses WHERE name='无需生产' LIMIT 1), 100, false, 'cust_147_processing', 'processing_ship');
+		INSERT INTO %s.order_items(order_id,line_no,product_id,item_name,qty,unit,spec,unit_price,line_total)
+		VALUES (32,1,7,'橘皮乌龙',2,'袋','454g',50,100);
+		INSERT INTO %s.finished_inventory(product_id,spec_g,warehouse,onhand_units,onhand_loose_g)
+		VALUES (7,454,'cust_147_processing',3,0), (7,454,'finished_goods',9,0);
+		INSERT INTO %s.order_shipments(id, shipment_no, created_by, sender_id, file_url, status)
+		VALUES (16, 'SHIP-20260504-CUSTOMER', '测试员', 1, '/ship/order_exports/test.xlsx', 'excel_generated');
+		INSERT INTO %s.order_shipment_orders(shipment_id, order_id, sender_id)
+		VALUES (16, 32, 1);
+	`, schema, schema, schema, schema, schema, schema, schema))
+
+	e := newOrderAPITestEcho(pool, schema)
+	body, _ := json.Marshal(map[string]any{
+		"shipment_id": int64(16),
+		"items": []map[string]any{
+			{"order_id": int64(32), "tracking_no": "SF-CUSTOMER-001"},
+		},
+	})
+	req := httptest.NewRequest(http.MethodPost, "/api/orders/shipping-tracking", bytes.NewReader(body))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("POST /api/orders/shipping-tracking status = %d, want 200, body=%s", rec.Code, rec.Body.String())
+	}
+	var customerUnits, publicUnits int64
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT onhand_units FROM %s.finished_inventory WHERE product_id=7 AND spec_g=454 AND warehouse='cust_147_processing'`, schema)).Scan(&customerUnits); err != nil {
+		t.Fatalf("query customer warehouse inventory: %v", err)
+	}
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT onhand_units FROM %s.finished_inventory WHERE product_id=7 AND spec_g=454 AND warehouse='finished_goods'`, schema)).Scan(&publicUnits); err != nil {
+		t.Fatalf("query public warehouse inventory: %v", err)
+	}
+	if customerUnits != 1 || publicUnits != 9 {
+		t.Fatalf("inventory after shipment customer=%d public=%d, want customer=1 public=9", customerUnits, publicUnits)
+	}
+	var deductionCount, ledgerCount int64
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT COUNT(*) FROM %s.order_stock_deductions WHERE order_id=32 AND batch_code='SOURCE-WH:cust_147_processing' AND deducted_g=908`, schema)).Scan(&deductionCount); err != nil {
+		t.Fatalf("query source warehouse deductions: %v", err)
+	}
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT COUNT(*) FROM %s.stock_ledger_entries WHERE source_doc_type='sales_order_shipment' AND source_doc_id=32 AND warehouse='cust_147_processing' AND qty_change_g=-908`, schema)).Scan(&ledgerCount); err != nil {
+		t.Fatalf("query source warehouse ledger: %v", err)
+	}
+	if deductionCount != 1 || ledgerCount != 1 {
+		t.Fatalf("source warehouse deduction=%d ledger=%d, want 1/1", deductionCount, ledgerCount)
+	}
+}
+
 func TestOrdersSingleShippingTrackingAPIDeductsReservedFinishedBatch(t *testing.T) {
 	pool, schema := newOrderAPITestDB(t)
 	ctx := context.Background()
@@ -1510,6 +1610,13 @@ CREATE TABLE %s.orders (
 	ship_status_id BIGINT,
 	ship_method TEXT,
 	ship_tracking_no TEXT,
+	receiver_name TEXT NOT NULL DEFAULT '',
+	receiver_phone TEXT NOT NULL DEFAULT '',
+	receiver_address TEXT NOT NULL DEFAULT '',
+	receiver_company TEXT NOT NULL DEFAULT '',
+	portal_service_code TEXT NOT NULL DEFAULT '',
+	source_warehouse TEXT NOT NULL DEFAULT '',
+	sender_id BIGINT NOT NULL DEFAULT 0,
 	notes TEXT,
 	total_amount NUMERIC NOT NULL DEFAULT 0,
 	shipping_amount NUMERIC NOT NULL DEFAULT 0,

@@ -16,6 +16,8 @@ func TestCustomerPortalSchemaDefinesP0Tables(t *testing.T) {
 		"CREATE TABLE IF NOT EXISTS %s.mini_users",
 		"CREATE TABLE IF NOT EXISTS %s.mini_sessions",
 		"CREATE TABLE IF NOT EXISTS %s.customer_portal_profiles",
+		"processing_warehouse_code TEXT NOT NULL DEFAULT ''",
+		"default_sender_id BIGINT NOT NULL DEFAULT 0",
 		"CREATE TABLE IF NOT EXISTS %s.customer_portal_user_bindings",
 		"CREATE TABLE IF NOT EXISTS %s.customer_service_capabilities",
 		"mini_users_openid_uq",

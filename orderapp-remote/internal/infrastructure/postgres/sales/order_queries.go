@@ -113,7 +113,13 @@ func fetchOrders(ctx context.Context, pool *pgxpool.Pool, schema string, query s
 			COALESCE(ps.name, '') AS pay_status,
 			COALESCE(ss.name, '') AS ship_status,
 			COALESCE(o.ship_tracking_no, '') AS ship_tracking_no,
-			COALESCE(ship_sender.sender_id, 0) AS sender_id,
+			COALESCE(NULLIF(o.receiver_name,''), NULLIF(c.contact,''), c.name, '') AS receiver_name,
+			COALESCE(NULLIF(o.receiver_phone,''), c.phone, '') AS receiver_phone,
+			COALESCE(NULLIF(o.receiver_address,''), c.address, '') AS receiver_address,
+			COALESCE(o.receiver_company, '') AS receiver_company,
+			COALESCE(o.portal_service_code,'') AS portal_service_code,
+			COALESCE(o.source_warehouse,'') AS source_warehouse,
+			COALESCE(NULLIF(ship_sender.sender_id,0), NULLIF(o.sender_id,0), 0) AS sender_id,
 			COALESCE(sender.sender_label, '') AS sender_label,
 			COALESCE(sender.sender_name, '') AS sender_name,
 			COALESCE(ops.name, '') AS process_status,
@@ -159,7 +165,7 @@ func fetchOrders(ctx context.Context, pool *pgxpool.Pool, schema string, query s
 	for dbRows.Next() {
 		var r salesapp.OrderRow
 		var invoiceObjectKey string
-		if err := dbRows.Scan(&r.ID, &r.OrderNo, &r.OrderDate, &r.CustomerID, &r.Customer, &r.GrandTotal, &r.OrderType, &r.PayStatus, &r.ShipStatus, &r.ShipTrackingNo, &r.SenderID, &r.SenderLabel, &r.SenderName, &r.ProcessStatus, &r.CreatedByEmployee, &r.OrderTypeID, &r.PayStatusID, &r.ShipStatusID, &r.ProcessStatusID, &r.Notes, &r.IsVoid, &r.InvoiceStatus, &r.InvoiceFilename, &invoiceObjectKey); err != nil {
+		if err := dbRows.Scan(&r.ID, &r.OrderNo, &r.OrderDate, &r.CustomerID, &r.Customer, &r.GrandTotal, &r.OrderType, &r.PayStatus, &r.ShipStatus, &r.ShipTrackingNo, &r.ReceiverName, &r.ReceiverPhone, &r.ReceiverAddress, &r.ReceiverCompany, &r.PortalServiceCode, &r.SourceWarehouse, &r.SenderID, &r.SenderLabel, &r.SenderName, &r.ProcessStatus, &r.CreatedByEmployee, &r.OrderTypeID, &r.PayStatusID, &r.ShipStatusID, &r.ProcessStatusID, &r.Notes, &r.IsVoid, &r.InvoiceStatus, &r.InvoiceFilename, &invoiceObjectKey); err != nil {
 			return nil, false, err
 		}
 		r.InvoiceFileURL = salesOrderAssetURL(invoiceObjectKey)

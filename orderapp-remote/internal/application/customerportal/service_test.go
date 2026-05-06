@@ -19,22 +19,24 @@ func (p fakeIdentityProvider) Resolve(ctx context.Context, code string) (MiniIde
 }
 
 type fakeRepository struct {
-	loginResult       LoginResult
-	loginCommand      CreateLoginSessionCommand
-	context           CurrentContext
-	session           string
-	serviceQuery      ServicePageQuery
-	servicePage       ServicePage
-	beanList          BeanListSummary
-	portalCustomers   []PortalAdminCustomer
-	portalDetail      PortalAdminDetail
-	visibilityCommand UpdatePortalVisibilityCommand
-	directShipCommand CreateDirectShipBatchCommand
-	directShipBatch   DirectShipBatch
-	processingCommand CreateProcessingRequestCommand
-	processingRequest ProcessingRequest
-	err               error
-	switchErr         error
+	loginResult        LoginResult
+	loginCommand       CreateLoginSessionCommand
+	context            CurrentContext
+	session            string
+	serviceQuery       ServicePageQuery
+	servicePage        ServicePage
+	beanList           BeanListSummary
+	portalCustomers    []PortalAdminCustomer
+	portalDetail       PortalAdminDetail
+	visibilityCommand  UpdatePortalVisibilityCommand
+	directShipCommand  CreateDirectShipBatchCommand
+	directShipBatch    DirectShipBatch
+	processingCommand  CreateProcessingRequestCommand
+	processingRequest  ProcessingRequest
+	fulfillmentCommand CreateFulfillmentOrderCommand
+	fulfillmentOrder   FulfillmentOrder
+	err                error
+	switchErr          error
 }
 
 func (r *fakeRepository) CreateLoginSession(ctx context.Context, cmd CreateLoginSessionCommand) (LoginResult, error) {
@@ -117,6 +119,14 @@ func (r *fakeRepository) CreateProcessingRequest(ctx context.Context, cmd Create
 		return ProcessingRequest{}, r.err
 	}
 	return r.processingRequest, nil
+}
+
+func (r *fakeRepository) CreateFulfillmentOrder(ctx context.Context, cmd CreateFulfillmentOrderCommand) (FulfillmentOrder, error) {
+	r.fulfillmentCommand = cmd
+	if r.err != nil {
+		return FulfillmentOrder{}, r.err
+	}
+	return r.fulfillmentOrder, nil
 }
 
 func TestLoginRejectsEmptyCode(t *testing.T) {
@@ -327,7 +337,7 @@ func TestCreateProcessingRequestValidatesAndRequiresCapability(t *testing.T) {
 
 func TestPortalAdminDetailAlwaysReturnsCompleteCapabilityCatalog(t *testing.T) {
 	repo := &fakeRepository{portalDetail: PortalAdminDetail{
-		Customer: PortalAdminCustomer{ID: 147, Name: "13800138075", DisplayName: "测试客户", PortalEnabled: true},
+		Customer: PortalAdminCustomer{ID: 147, Name: "13800138075", DisplayName: "测试客户", PortalEnabled: true, ProcessingWarehouseCode: "cust_147_processing", DefaultSenderID: 3},
 		Capabilities: []CapabilityOption{
 			{Code: CapabilityDirectShip, Enabled: true},
 			{Code: CapabilitySettlement, Enabled: false},
@@ -338,16 +348,19 @@ func TestPortalAdminDetailAlwaysReturnsCompleteCapabilityCatalog(t *testing.T) {
 	if err != nil {
 		t.Fatalf("PortalAdminDetail() err=%v", err)
 	}
-	if got.Customer.ID != 147 || got.Customer.DisplayName != "测试客户" {
+	if got.Customer.ID != 147 || got.Customer.DisplayName != "测试客户" || got.Customer.ProcessingWarehouseCode != "cust_147_processing" || got.Customer.DefaultSenderID != 3 {
 		t.Fatalf("detail customer=%+v", got.Customer)
 	}
 	if len(got.Capabilities) != len(DefaultCapabilityOptions()) {
 		t.Fatalf("capabilities=%+v, want complete catalog", got.Capabilities)
 	}
-	for _, code := range []string{CapabilityBeanList, CapabilityProductOrder, CapabilityDirectShip, CapabilityProcessing, CapabilityInventoryCustody, CapabilityShippingQuery, CapabilitySettlement} {
+	for _, code := range []string{CapabilityBeanList, CapabilityProductOrder, CapabilityDirectShip, CapabilityProcessing, CapabilityInventoryCustody, CapabilitySettlement} {
 		if !got.HasCapabilityOption(code) {
 			t.Fatalf("capability catalog missing %s: %+v", code, got.Capabilities)
 		}
+	}
+	if got.HasCapabilityOption(CapabilityShippingQuery) {
+		t.Fatalf("capability catalog should not expose standalone logistics: %+v", got.Capabilities)
 	}
 }
 
@@ -357,16 +370,21 @@ func TestUpdatePortalVisibilityTrimsAndNormalizesCapabilities(t *testing.T) {
 	}}
 	svc := NewService(repo, fakeIdentityProvider{})
 	_, err := svc.UpdatePortalVisibility(context.Background(), UpdatePortalVisibilityCommand{
-		CustomerID:   147,
-		DisplayName:  "  测试客户  ",
-		Enabled:      true,
-		Capabilities: []CapabilityOption{{Code: CapabilityDirectShip, Enabled: true}, {Code: "unknown", Enabled: true}, {Code: CapabilityBeanList, Enabled: false}},
+		CustomerID:              147,
+		DisplayName:             "  测试客户  ",
+		Enabled:                 true,
+		ProcessingWarehouseCode: "  cust_147_processing  ",
+		DefaultSenderID:         8,
+		Capabilities:            []CapabilityOption{{Code: CapabilityDirectShip, Enabled: true}, {Code: "unknown", Enabled: true}, {Code: CapabilityBeanList, Enabled: false}},
 	})
 	if err != nil {
 		t.Fatalf("UpdatePortalVisibility() err=%v", err)
 	}
 	if repo.visibilityCommand.CustomerID != 147 || repo.visibilityCommand.DisplayName != "测试客户" || !repo.visibilityCommand.Enabled {
 		t.Fatalf("visibility command=%+v", repo.visibilityCommand)
+	}
+	if repo.visibilityCommand.ProcessingWarehouseCode != "cust_147_processing" || repo.visibilityCommand.DefaultSenderID != 8 {
+		t.Fatalf("visibility warehouse/sender not normalized: %+v", repo.visibilityCommand)
 	}
 	if len(repo.visibilityCommand.Capabilities) != 2 {
 		t.Fatalf("visibility capabilities=%+v, want only known codes from payload", repo.visibilityCommand.Capabilities)

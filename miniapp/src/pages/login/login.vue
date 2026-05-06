@@ -48,7 +48,7 @@ async function handleLogin() {
     <view class="hero">
       <text class="eyebrow">KFerp</text>
       <text class="title">客户中心</text>
-      <text class="subtitle">登录后查看豆单、订单、库存、物流和结算服务。</text>
+      <text class="subtitle">登录后查看豆单、订单、库存和结算服务。</text>
     </view>
 
     <view class="panel">

@@ -17,10 +17,11 @@ func (r Repository) LoadOrderShippingExportData(ctx context.Context, orderID int
 			COALESCE(o.order_no,''),
 			COALESCE(to_char(o.order_date, 'YYYY-MM-DD'), ''),
 			COALESCE(c.name,''),
-			COALESCE(NULLIF(c.contact,''), c.name, ''),
-			COALESCE(c.phone,''),
-			COALESCE(c.address,''),
-			'',
+			COALESCE(NULLIF(o.receiver_name,''), NULLIF(c.contact,''), c.name, ''),
+			COALESCE(NULLIF(o.receiver_phone,''), c.phone, ''),
+			COALESCE(NULLIF(o.receiver_address,''), c.address, ''),
+			COALESCE(o.receiver_company,''),
+			COALESCE(o.sender_id,0) AS sender_id,
 			COALESCE(ops.name,'')
 		FROM %s.orders o
 		LEFT JOIN %s.customers c ON c.id=o.customer_id
@@ -36,6 +37,7 @@ func (r Repository) LoadOrderShippingExportData(ctx context.Context, orderID int
 		&out.RecvPhone,
 		&out.RecvAddr,
 		&out.RecvCompany,
+		&out.SenderID,
 		&out.ProcessStatus,
 	); err != nil {
 		return salesapp.OrderShippingExportData{}, err

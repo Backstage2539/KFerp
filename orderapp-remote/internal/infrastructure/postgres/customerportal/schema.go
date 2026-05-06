@@ -33,6 +33,8 @@ CREATE INDEX IF NOT EXISTS mini_sessions_user_idx ON %s.mini_sessions(mini_user_
 CREATE TABLE IF NOT EXISTS %s.customer_portal_profiles (
 	customer_id BIGINT PRIMARY KEY REFERENCES %s.customers(id) ON DELETE CASCADE,
 	display_name TEXT NOT NULL DEFAULT '',
+	processing_warehouse_code TEXT NOT NULL DEFAULT '',
+	default_sender_id BIGINT NOT NULL DEFAULT 0,
 	status TEXT NOT NULL DEFAULT 'active',
 	default_settlement_cycle TEXT NOT NULL DEFAULT 'monthly',
 	default_payment_terms TEXT NOT NULL DEFAULT '',
@@ -71,7 +73,23 @@ CREATE UNIQUE INDEX IF NOT EXISTS customer_service_capabilities_customer_code_uq
 	if err := ensureBusinessSchema(ctx, pool, schema); err != nil {
 		return err
 	}
+	if err := ensurePortalProfileColumns(ctx, pool, schema); err != nil {
+		return err
+	}
 	return ensureCapabilityConfigConstraint(ctx, pool, schema)
+}
+
+func ensurePortalProfileColumns(ctx context.Context, pool *pgxpool.Pool, schema string) error {
+	stmts := []string{
+		`ALTER TABLE %[1]s.customer_portal_profiles ADD COLUMN IF NOT EXISTS processing_warehouse_code TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE %[1]s.customer_portal_profiles ADD COLUMN IF NOT EXISTS default_sender_id BIGINT NOT NULL DEFAULT 0`,
+	}
+	for _, stmt := range stmts {
+		if _, err := pool.Exec(ctx, fmt.Sprintf(stmt, schema)); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func ensureBusinessSchema(ctx context.Context, pool *pgxpool.Pool, schema string) error {
@@ -118,6 +136,28 @@ CREATE INDEX IF NOT EXISTS processing_job_requests_customer_idx
 CREATE UNIQUE INDEX IF NOT EXISTS processing_job_requests_request_no_uq
 	ON %s.processing_job_requests(request_no)
 	WHERE request_no <> '';
+
+CREATE TABLE IF NOT EXISTS %s.customer_processing_production_demands (
+	id BIGSERIAL PRIMARY KEY,
+	request_id BIGINT NOT NULL REFERENCES %s.processing_job_requests(id) ON DELETE CASCADE,
+	request_no TEXT NOT NULL DEFAULT '',
+	customer_id BIGINT NOT NULL REFERENCES %s.customers(id) ON DELETE CASCADE,
+	product_id BIGINT NOT NULL DEFAULT 0,
+	product_name TEXT NOT NULL DEFAULT '',
+	spec_g BIGINT NOT NULL DEFAULT 0,
+	target_qty BIGINT NOT NULL DEFAULT 0,
+	need_g BIGINT NOT NULL DEFAULT 0,
+	target_warehouse TEXT NOT NULL DEFAULT '',
+	status TEXT NOT NULL DEFAULT 'planned',
+	linked_batch_id TEXT NOT NULL DEFAULT '',
+	linked_running_item_id BIGINT NOT NULL DEFAULT 0,
+	linked_work_order_id BIGINT NOT NULL DEFAULT 0,
+	created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+	updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+	UNIQUE(request_id)
+);
+CREATE INDEX IF NOT EXISTS customer_processing_production_demands_status_idx
+	ON %s.customer_processing_production_demands(status, customer_id, product_id, spec_g);
 
 CREATE TABLE IF NOT EXISTS %s.customer_inventory_items (
 	id BIGSERIAL PRIMARY KEY,
@@ -172,7 +212,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS customer_settlement_batches_no_uq
 	WHERE settlement_no <> '';
 CREATE INDEX IF NOT EXISTS customer_settlement_batches_customer_status_idx
 	ON %s.customer_settlement_batches(customer_id, status, created_at DESC, id DESC);
-`, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema)
+`, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema)
 	_, err := pool.Exec(ctx, q)
 	return err
 }

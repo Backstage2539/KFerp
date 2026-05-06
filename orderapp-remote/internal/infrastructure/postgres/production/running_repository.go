@@ -90,9 +90,9 @@ func (repo Repository) Finish(ctx context.Context, cmd productionapp.FinishComma
 	}
 
 	var unitsBefore, looseBefore int64
-	warehouse := strings.TrimSpace(cmd.Warehouse)
-	if warehouse == "" {
-		warehouse = "finished_goods"
+	warehouse, err := finishWarehouseForRunningItemTx(ctx, tx, schema, r.ID, cmd.Warehouse)
+	if err != nil {
+		return err
 	}
 	_ = tx.QueryRow(ctx, fmt.Sprintf(`SELECT onhand_units,onhand_loose_g FROM %s.finished_inventory WHERE product_id=$1 AND spec_g=$2 AND warehouse=$3 FOR UPDATE`, schema), r.ProductID, r.SpecG, warehouse).Scan(&unitsBefore, &looseBefore)
 	cur := InvQty{Units: unitsBefore, LooseG: looseBefore}
@@ -210,6 +210,9 @@ func (repo Repository) Finish(ctx context.Context, cmd productionapp.FinishComma
 	if _, err := tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.produce_running_items SET status='done',finished_by=$2,finished_at=$3 WHERE id=$1`, schema), id, operator, finishedAt); err != nil {
 		return err
 	}
+	if err := markProcessingDemandsDoneTx(ctx, tx, schema, r.ID); err != nil {
+		return err
+	}
 	for _, no := range splitOrderNos(r.OrderNos) {
 		if err := completeOrderIfAllRunningDone(ctx, tx, schema, no); err != nil {
 			return err
@@ -228,9 +231,9 @@ func (repo Repository) finishRunningOutputs(ctx context.Context, tx pgx.Tx, r Pr
 	}
 	schema := repo.schema
 	operator := cmd.Operator
-	warehouse := strings.TrimSpace(cmd.Warehouse)
-	if warehouse == "" {
-		warehouse = "finished_goods"
+	warehouse, err := finishWarehouseForRunningItemTx(ctx, tx, schema, r.ID, cmd.Warehouse)
+	if err != nil {
+		return err
 	}
 	finishedOutputs, totalFinishedG, err := normalizeFinishedOutputs(outputs, cmd.Outputs)
 	if err != nil {
@@ -339,6 +342,9 @@ func (repo Repository) finishRunningOutputs(ctx context.Context, tx pgx.Tx, r Pr
 	if _, err := tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.produce_running_items SET status='done',finished_by=$2,finished_at=$3 WHERE id=$1`, schema), r.ID, operator, finishedAt); err != nil {
 		return err
 	}
+	if err := markProcessingDemandsDoneTx(ctx, tx, schema, r.ID); err != nil {
+		return err
+	}
 	for _, no := range splitOrderNos(r.OrderNos) {
 		if err := completeOrderIfAllRunningDone(ctx, tx, schema, no); err != nil {
 			return err
@@ -435,6 +441,79 @@ func cumulativeFinishedTotalGForRunningItemTx(ctx context.Context, tx pgx.Tx, sc
 	return totalG, nil
 }
 
+func finishWarehouseForRunningItemTx(ctx context.Context, tx pgx.Tx, schema string, runningItemID int64, requested string) (string, error) {
+	warehouse := strings.TrimSpace(requested)
+	if warehouse != "" {
+		return warehouse, nil
+	}
+	warehouse, err := processingDemandTargetWarehouseForRunningItemTx(ctx, tx, schema, runningItemID)
+	if err != nil {
+		return "", err
+	}
+	if warehouse != "" {
+		return warehouse, nil
+	}
+	return "finished_goods", nil
+}
+
+func processingDemandTargetWarehouseForRunningItemTx(ctx context.Context, tx pgx.Tx, schema string, runningItemID int64) (string, error) {
+	rows, err := tx.Query(ctx, fmt.Sprintf(`
+		SELECT DISTINCT COALESCE(target_warehouse,'')
+		FROM %s.customer_processing_production_demands
+		WHERE linked_running_item_id=$1
+		  AND status='running'
+	`, schema), runningItemID)
+	if err != nil {
+		return "", err
+	}
+	defer rows.Close()
+
+	warehouses := make([]string, 0, 1)
+	for rows.Next() {
+		var warehouse string
+		if err := rows.Scan(&warehouse); err != nil {
+			return "", err
+		}
+		warehouse = strings.TrimSpace(warehouse)
+		if warehouse == "" {
+			continue
+		}
+		warehouses = append(warehouses, warehouse)
+	}
+	if err := rows.Err(); err != nil {
+		return "", err
+	}
+	if len(warehouses) != 1 {
+		return "", nil
+	}
+	return warehouses[0], nil
+}
+
+func markProcessingDemandsDoneTx(ctx context.Context, tx pgx.Tx, schema string, runningItemID int64) error {
+	_, err := tx.Exec(ctx, fmt.Sprintf(`
+		UPDATE %s.customer_processing_production_demands
+		SET status='done',
+		    updated_at=now()
+		WHERE linked_running_item_id=$1
+		  AND status='running'
+	`, schema), runningItemID)
+	return err
+}
+
+func markProcessingDemandsPlannedTx(ctx context.Context, tx pgx.Tx, schema string, runningItemID int64) error {
+	_, err := tx.Exec(ctx, fmt.Sprintf(`
+		UPDATE %s.customer_processing_production_demands
+		SET status='planned',
+		    linked_batch_id='',
+		    linked_running_item_id=0,
+		    linked_work_order_id=0,
+		    updated_at=now()
+		WHERE linked_running_item_id=$1
+		  AND status='running'
+	`, schema), runningItemID)
+	return err
+}
+
 func (repo Repository) Cancel(ctx context.Context, cmd productionapp.CancelCommand) error {
 	id := cmd.ID
 	schema := repo.schema
@@ -462,6 +541,9 @@ func (repo Repository) Cancel(ctx context.Context, cmd productionapp.CancelComma
 		return err
 	}
 	if err := cancelWorkOrderForRunningItemTx(ctx, tx, schema, r.ID, operator); err != nil {
+		return err
+	}
+	if err := markProcessingDemandsPlannedTx(ctx, tx, schema, r.ID); err != nil {
 		return err
 	}
 	for _, no := range splitOrderNos(r.OrderNos) {

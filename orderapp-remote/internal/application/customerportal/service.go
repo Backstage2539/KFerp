@@ -30,6 +30,12 @@ const (
 	ServiceKeySettlement   = "settlement"
 )
 
+const (
+	PortalServiceProductOrder       = "product_order"
+	PortalServiceDirectShip         = "direct_ship"
+	PortalServiceProcessingShipment = "processing_ship"
+)
+
 var (
 	ErrCustomerBindingNotFound     = errors.New("customer binding not found")
 	ErrMiniSessionNotFound         = errors.New("mini session not found")
@@ -222,6 +228,13 @@ type ProcessingRequest struct {
 	LinkedWorkOrderID int64  `json:"linked_work_order_id"`
 }
 
+type FulfillmentOrder struct {
+	OrderID           int64  `json:"order_id"`
+	OrderNo           string `json:"order_no"`
+	PortalServiceCode string `json:"portal_service_code"`
+	SourceWarehouse   string `json:"source_warehouse"`
+}
+
 type FeeItem struct {
 	ID                int64  `json:"id"`
 	SourceType        string `json:"source_type"`
@@ -304,6 +317,23 @@ type CreateProcessingRequestCommand struct {
 	Note                string
 }
 
+type CreateFulfillmentOrderCommand struct {
+	CustomerID          int64
+	CreatedByMiniUserID int64
+	PortalServiceCode   string
+	RecipientName       string
+	RecipientPhone      string
+	RecipientAddress    string
+	RecipientCompany    string
+	ProductID           int64
+	ProductName         string
+	SpecG               int64
+	Qty                 int64
+	UnitPrice           float64
+	ShippingAmount      float64
+	Note                string
+}
+
 type CapabilityOption struct {
 	Code        string         `json:"code"`
 	Label       string         `json:"label"`
@@ -318,14 +348,16 @@ type PortalAdminCustomerQuery struct {
 }
 
 type PortalAdminCustomer struct {
-	ID            int64  `json:"id"`
-	Name          string `json:"name"`
-	Phone         string `json:"phone"`
-	CompanyName   string `json:"company_name"`
-	DisplayName   string `json:"display_name"`
-	PortalEnabled bool   `json:"portal_enabled"`
-	PortalStatus  string `json:"portal_status"`
-	BindingCount  int    `json:"binding_count"`
+	ID                      int64  `json:"id"`
+	Name                    string `json:"name"`
+	Phone                   string `json:"phone"`
+	CompanyName             string `json:"company_name"`
+	DisplayName             string `json:"display_name"`
+	ProcessingWarehouseCode string `json:"processing_warehouse_code"`
+	DefaultSenderID         int64  `json:"default_sender_id"`
+	PortalEnabled           bool   `json:"portal_enabled"`
+	PortalStatus            string `json:"portal_status"`
+	BindingCount            int    `json:"binding_count"`
 }
 
 type PortalUserBinding struct {
@@ -345,11 +377,13 @@ type PortalAdminDetail struct {
 }
 
 type UpdatePortalVisibilityCommand struct {
-	CustomerID   int64
-	DisplayName  string
-	Enabled      bool
-	Capabilities []CapabilityOption
-	UpdatedBy    string
+	CustomerID              int64
+	DisplayName             string
+	ProcessingWarehouseCode string
+	DefaultSenderID         int64
+	Enabled                 bool
+	Capabilities            []CapabilityOption
+	UpdatedBy               string
 }
 
 func (d PortalAdminDetail) HasCapabilityOption(code string) bool {
@@ -396,6 +430,7 @@ type Repository interface {
 	UpdatePortalVisibility(ctx context.Context, cmd UpdatePortalVisibilityCommand) (PortalAdminDetail, error)
 	CreateDirectShipBatch(ctx context.Context, cmd CreateDirectShipBatchCommand) (DirectShipBatch, error)
 	CreateProcessingRequest(ctx context.Context, cmd CreateProcessingRequestCommand) (ProcessingRequest, error)
+	CreateFulfillmentOrder(ctx context.Context, cmd CreateFulfillmentOrderCommand) (FulfillmentOrder, error)
 }
 
 type Service struct {
@@ -550,6 +585,7 @@ func (s *Service) UpdatePortalVisibility(ctx context.Context, cmd UpdatePortalVi
 		return PortalAdminDetail{}, fmt.Errorf("repository required")
 	}
 	cmd.DisplayName = strings.TrimSpace(cmd.DisplayName)
+	cmd.ProcessingWarehouseCode = strings.TrimSpace(cmd.ProcessingWarehouseCode)
 	cmd.UpdatedBy = strings.TrimSpace(cmd.UpdatedBy)
 	cmd.Capabilities = normalizeCapabilityOptions(cmd.Capabilities)
 	detail, err := s.repo.UpdatePortalVisibility(ctx, cmd)
@@ -602,6 +638,58 @@ func (s *Service) CreateProcessingRequest(ctx context.Context, token string, cmd
 		return ProcessingRequest{}, fmt.Errorf("target_qty required")
 	}
 	return s.repo.CreateProcessingRequest(ctx, cmd)
+}
+
+func (s *Service) CreateFulfillmentOrder(ctx context.Context, token string, cmd CreateFulfillmentOrderCommand) (FulfillmentOrder, error) {
+	capability, serviceCode, err := fulfillmentOrderCapability(cmd.PortalServiceCode)
+	if err != nil {
+		return FulfillmentOrder{}, err
+	}
+	current, err := s.requireCustomerCapability(ctx, token, capability)
+	if err != nil {
+		return FulfillmentOrder{}, err
+	}
+	cmd.CustomerID = current.CurrentCustomerID
+	cmd.CreatedByMiniUserID = current.MiniUserID
+	cmd.PortalServiceCode = serviceCode
+	cmd.RecipientName = strings.TrimSpace(cmd.RecipientName)
+	cmd.RecipientPhone = strings.TrimSpace(cmd.RecipientPhone)
+	cmd.RecipientAddress = strings.TrimSpace(cmd.RecipientAddress)
+	cmd.RecipientCompany = strings.TrimSpace(cmd.RecipientCompany)
+	cmd.ProductName = strings.TrimSpace(cmd.ProductName)
+	cmd.Note = strings.TrimSpace(cmd.Note)
+	if cmd.RecipientName == "" {
+		return FulfillmentOrder{}, fmt.Errorf("recipient_name required")
+	}
+	if cmd.RecipientPhone == "" {
+		return FulfillmentOrder{}, fmt.Errorf("recipient_phone required")
+	}
+	if cmd.RecipientAddress == "" {
+		return FulfillmentOrder{}, fmt.Errorf("recipient_address required")
+	}
+	if cmd.ProductID <= 0 {
+		return FulfillmentOrder{}, fmt.Errorf("product required")
+	}
+	if cmd.SpecG <= 0 {
+		return FulfillmentOrder{}, fmt.Errorf("spec required")
+	}
+	if cmd.Qty <= 0 {
+		return FulfillmentOrder{}, fmt.Errorf("qty required")
+	}
+	return s.repo.CreateFulfillmentOrder(ctx, cmd)
+}
+
+func fulfillmentOrderCapability(raw string) (string, string, error) {
+	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case "", "directship", PortalServiceDirectShip:
+		return CapabilityDirectShip, PortalServiceDirectShip, nil
+	case "processing", "processingshipment", PortalServiceProcessingShipment:
+		return CapabilityProcessing, PortalServiceProcessingShipment, nil
+	case "productorder", PortalServiceProductOrder:
+		return CapabilityProductOrder, PortalServiceProductOrder, nil
+	default:
+		return "", "", fmt.Errorf("service_code invalid")
+	}
 }
 
 func (s *Service) requireCustomerCapability(ctx context.Context, token, capability string) (CurrentContext, error) {
@@ -702,7 +790,6 @@ func DefaultCapabilityOptions() []CapabilityOption {
 		{Code: CapabilityDirectShip, Label: "一件代发", Description: "查看代发批次、订单生产和发货状态"},
 		{Code: CapabilityProcessing, Label: "代加工", Description: "查看托管库存并提交加工申请"},
 		{Code: CapabilityInventoryCustody, Label: "我的库存", Description: "查看客户托管的生豆、成品和包材库存"},
-		{Code: CapabilityShippingQuery, Label: "物流查询", Description: "查看订单发货和物流单号"},
 		{Code: CapabilitySettlement, Label: "结算中心", Description: "查看费用明细和结算单"},
 	}
 }
