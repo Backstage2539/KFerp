@@ -76,6 +76,34 @@ func lookupDefaultStatusID(ctx context.Context, tx pgx.Tx, schema, table string,
 	return 0
 }
 
+func resolveOrderResponsibleParty(ctx context.Context, tx pgx.Tx, schema, responsibleType string, responsibleID int64) (string, int64, string, error) {
+	typ := strings.TrimSpace(responsibleType)
+	if typ == "" && responsibleID == 0 {
+		return "", 0, "", nil
+	}
+	if responsibleID <= 0 {
+		return "", 0, "", fmt.Errorf("responsible_id required")
+	}
+	switch typ {
+	case "employee":
+		var name string
+		q := fmt.Sprintf(`SELECT COALESCE(name,'') FROM %s.company_employees WHERE id=$1 AND active=true`, schema)
+		if err := tx.QueryRow(ctx, q, responsibleID).Scan(&name); err != nil || strings.TrimSpace(name) == "" {
+			return "", 0, "", fmt.Errorf("responsible employee not found")
+		}
+		return typ, responsibleID, strings.TrimSpace(name), nil
+	case "customer":
+		var name string
+		q := fmt.Sprintf(`SELECT COALESCE(name,'') FROM %s.customers WHERE id=$1 AND active=true`, schema)
+		if err := tx.QueryRow(ctx, q, responsibleID).Scan(&name); err != nil || strings.TrimSpace(name) == "" {
+			return "", 0, "", fmt.Errorf("responsible customer not found")
+		}
+		return typ, responsibleID, strings.TrimSpace(name), nil
+	default:
+		return "", 0, "", fmt.Errorf("invalid responsible_type")
+	}
+}
+
 func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand) (salesapp.SaveOrderResult, error) {
 	od := cmd.OrderDate
 	if od.IsZero() {
@@ -299,6 +327,11 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 		}
 	}
 
+	responsibleType, responsibleID, responsibleName, err := resolveOrderResponsibleParty(ctx, tx, r.schema, cmd.ResponsibleType, cmd.ResponsibleID)
+	if err != nil {
+		return salesapp.SaveOrderResult{}, err
+	}
+
 	editID := cmd.EditID
 
 	insertItemSQL := fmt.Sprintf(`INSERT INTO %s.order_items(order_id,line_no,product_id,price_tier_id,price_overridden,item_name,qty,unit,spec,unit_price,line_total)
@@ -333,7 +366,10 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 					outsource_manual_fee=$21,
 					outsource_tax_fee=$22,
 					outsource_other_fee=$23,
-					outsource_total_fee=$24
+					outsource_total_fee=$24,
+					responsible_party_type=$25,
+					responsible_party_id=$26,
+					responsible_party_name=$27
 				WHERE id=$1
 			`, r.schema)
 		if _, err := tx.Exec(ctx, uq,
@@ -361,6 +397,9 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 			outsourceFees[4],
 			outsourceFees[5],
 			outsourceTotal,
+			responsibleType,
+			responsibleID,
+			responsibleName,
 		); err != nil {
 			return salesapp.SaveOrderResult{}, err
 		}
@@ -383,13 +422,15 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 					express_fee,
 					outsource_material_fee, outsource_roast_fee, outsource_packaging_fee,
 					outsource_manual_fee, outsource_tax_fee, outsource_other_fee, outsource_total_fee,
+					responsible_party_type, responsible_party_id, responsible_party_name,
 					order_no
 				) VALUES (
 					$1,$2,$3,$4,$5,$6,$7,$8,$9,
 					$10,$11,$12,
 					$13,$14,$15,
 					$16,$17,$18,$19,$20,$21,$22,$23,
-					$24
+					$24,$25,$26,
+					$27
 				)
 				RETURNING id
 			`, r.schema)
@@ -417,6 +458,9 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 			outsourceFees[4],
 			outsourceFees[5],
 			outsourceTotal,
+			responsibleType,
+			responsibleID,
+			responsibleName,
 			orderNo,
 		).Scan(&orderID)
 		if err != nil {

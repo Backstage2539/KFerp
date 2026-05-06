@@ -37,6 +37,9 @@ func (r Repository) OrderForm(ctx context.Context, editID int64) (salesapp.Order
 	if data.Products, err = r.fetchOrderProducts(ctx); err != nil {
 		return salesapp.OrderFormData{}, err
 	}
+	if data.Employees, err = r.fetchOrderEmployees(ctx); err != nil {
+		return salesapp.OrderFormData{}, err
+	}
 	if editID > 0 {
 		editData, err := r.fetchOrderEdit(ctx, editID)
 		if err != nil {
@@ -49,7 +52,7 @@ func (r Repository) OrderForm(ctx context.Context, editID int64) (salesapp.Order
 
 func (r Repository) fetchOrderCustomers(ctx context.Context) ([]salesapp.CustomerOption, error) {
 	q := fmt.Sprintf(`
-		SELECT id, name, COALESCE(default_source_id,0), COALESCE(default_order_type_id,0)
+		SELECT id, name, COALESCE(contact,''), COALESCE(phone,''), COALESCE(default_source_id,0), COALESCE(default_order_type_id,0)
 		FROM %s.customers
 		WHERE active=true
 		ORDER BY name
@@ -62,7 +65,31 @@ func (r Repository) fetchOrderCustomers(ctx context.Context) ([]salesapp.Custome
 	out := make([]salesapp.CustomerOption, 0)
 	for rows.Next() {
 		var row salesapp.CustomerOption
-		if err := rows.Scan(&row.ID, &row.Name, &row.DefaultSourceID, &row.DefaultOrderTypeID); err != nil {
+		if err := rows.Scan(&row.ID, &row.Name, &row.Contact, &row.Phone, &row.DefaultSourceID, &row.DefaultOrderTypeID); err != nil {
+			return nil, err
+		}
+		out = append(out, row)
+	}
+	return out, rows.Err()
+}
+
+func (r Repository) fetchOrderEmployees(ctx context.Context) ([]salesapp.EmployeeOption, error) {
+	q := fmt.Sprintf(`
+		SELECT e.id, e.name, COALESCE(e.phone,''), COALESCE(e.department_id,0), COALESCE(d.name,'')
+		FROM %s.company_employees e
+		LEFT JOIN %s.company_departments d ON d.id=e.department_id
+		WHERE e.active=true
+		ORDER BY e.id DESC
+	`, r.schema, r.schema)
+	rows, err := r.pool.Query(ctx, q)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := make([]salesapp.EmployeeOption, 0)
+	for rows.Next() {
+		var row salesapp.EmployeeOption
+		if err := rows.Scan(&row.ID, &row.Name, &row.Phone, &row.DepartmentID, &row.Department); err != nil {
 			return nil, err
 		}
 		out = append(out, row)
@@ -156,6 +183,9 @@ func (r Repository) fetchOrderEdit(ctx context.Context, id int64) (*salesapp.Ord
 			COALESCE(o.ship_status_id,0) as ship_status_id,
 			COALESCE(o.ship_method,'') as ship_method,
 			COALESCE(o.ship_tracking_no,'') as ship_tracking_no,
+			COALESCE(o.responsible_party_type,'') as responsible_party_type,
+			COALESCE(o.responsible_party_id,0) as responsible_party_id,
+			COALESCE(o.responsible_party_name,'') as responsible_party_name,
 			COALESCE(o.notes,'') as notes,
 			COALESCE(o.total_amount,0) as total_amount,
 			COALESCE(o.shipping_amount,0) as shipping_amount,
@@ -192,6 +222,9 @@ func (r Repository) fetchOrderEdit(ctx context.Context, id int64) (*salesapp.Ord
 		&d.ShipStatusID,
 		&d.ShipMethod,
 		&d.ShipTrackingNo,
+		&d.ResponsibleType,
+		&d.ResponsibleID,
+		&d.ResponsibleName,
 		&d.Notes,
 		&totalAmt,
 		&shipAmt,

@@ -11,6 +11,7 @@ import {
   lineTotal,
   syncWholesaleTierPrice,
   normalizeSpecG,
+  responsibleOptions,
   retailPackagePrice,
   retailSpecOptions,
   wholesaleTierPriceRows,
@@ -167,6 +168,51 @@ test('buildOrderPayload preserves manual unit price override', () => {
 
   assert.equal(payload.tier_id[0], 'manual')
   assert.equal(payload.unit_price[0], '92')
+})
+
+test('buildOrderPayload includes structured order responsible person', () => {
+  const payload = buildOrderPayload({
+    form: {
+      order_date: '2026-05-06',
+      customer_id: 3,
+      source_id: 1,
+      order_type_id: 1,
+      pay_status_id: 2,
+      ship_status_id: 1,
+      responsible_type: 'employee',
+      responsible_id: 8,
+    },
+    rows: [
+      {
+        product_id: 7,
+        product_name: '橘皮乌龙',
+        tier_id: 'manual',
+        spec_mode: '454',
+        qty: 1,
+        unit: '件',
+        unit_price: '88',
+      },
+    ],
+  })
+
+  assert.equal(payload.responsible_type, 'employee')
+  assert.equal(payload.responsible_id, 8)
+})
+
+test('responsibleOptions groups employees and customer partners for commission ownership', () => {
+  const got = responsibleOptions({
+    employees: [
+      { id: 8, name: '销售小王', department: '销售', phone: '13800000008' },
+    ],
+    customers: [
+      { id: 3, name: '测试客户', contact: '门店老板', phone: '13800000003' },
+    ],
+  })
+
+  assert.deepEqual(got, [
+    { type: 'employee', id: 8, name: '销售小王', label: '员工 - 销售小王', meta: '销售 13800000008', search: '员工 销售小王 销售 13800000008' },
+    { type: 'customer', id: 3, name: '测试客户', label: '合作方/客户 - 测试客户', meta: '门店老板 13800000003', search: '合作方 客户 测试客户 门店老板 13800000003' },
+  ])
 })
 
 test('lineTotal uses manual unit price even for retail rows', () => {

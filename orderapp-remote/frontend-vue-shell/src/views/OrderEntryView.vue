@@ -58,6 +58,32 @@
           </div>
         </label>
 
+        <label class="responsible-combobox combobox">
+          <span>订单负责人</span>
+          <input
+            v-model.trim="responsibleQuery"
+            type="search"
+            placeholder="员工/合作方/客户"
+            autocomplete="off"
+            @focus="responsibleOpen = true"
+            @input="clearResponsible"
+            @keydown.down.prevent="responsibleOpen = true"
+          />
+          <div v-if="responsibleOpen" class="combo-menu">
+            <button
+              v-for="item in filteredResponsibleOptions"
+              :key="`${item.type}-${item.id}`"
+              type="button"
+              class="combo-option"
+              @mousedown.prevent="chooseResponsible(item)"
+            >
+              <strong>{{ item.label }}</strong>
+              <small v-if="item.meta">{{ item.meta }}</small>
+            </button>
+            <div v-if="!filteredResponsibleOptions.length" class="combo-empty">没有匹配负责人</div>
+          </div>
+        </label>
+
         <label>
           <span>来源</span>
           <select v-model.number="form.source_id">
@@ -297,6 +323,7 @@ import {
   filterOptions,
   lineTotal,
   normalizeSpecG,
+  responsibleOptions,
   retailPackagePrice,
   retailSpecOptions,
   syncWholesaleTierPrice,
@@ -325,9 +352,12 @@ const shipStatuses = ref([])
 const payStatuses = ref([])
 const orderTypes = ref([])
 const products = ref([])
+const employees = ref([])
 const rows = ref([newRow()])
 const customerQuery = ref('')
 const customerOpen = ref(false)
+const responsibleQuery = ref('')
+const responsibleOpen = ref(false)
 const customerDrawerOpen = ref(false)
 const customerSaving = ref(false)
 const customerError = ref('')
@@ -344,6 +374,8 @@ const form = reactive({
   ship_status_id: 0,
   ship_method: '',
   ship_tracking_no: '',
+  responsible_type: '',
+  responsible_id: 0,
   notes: '',
   shipping_amount: '',
   discount_amount: '',
@@ -396,6 +428,14 @@ const retailOrder = computed(() => {
 
 const itemsTotal = computed(() => rows.value.reduce((sum, row) => sum + rowTotal(row), 0))
 const filteredCustomers = computed(() => filterOptions(customers.value, customerQuery.value).slice(0, 20))
+const responsibleCandidateOptions = computed(() => responsibleOptions({ employees: employees.value, customers: customers.value }))
+const filteredResponsibleOptions = computed(() => {
+  const q = String(responsibleQuery.value || '').trim().toLowerCase()
+  if (!q) return responsibleCandidateOptions.value.slice(0, 30)
+  return responsibleCandidateOptions.value
+    .filter((item) => String(item.search || '').toLowerCase().includes(q))
+    .slice(0, 30)
+})
 
 function productByID(id) {
   return products.value.find((item) => Number(item.id) === Number(id)) || null
@@ -427,6 +467,23 @@ function chooseCustomer(item) {
     form.order_type_id = Number(item.default_order_type_id)
     syncRowsForType()
   }
+}
+
+function clearResponsible() {
+  form.responsible_type = ''
+  form.responsible_id = 0
+  responsibleOpen.value = true
+}
+
+function chooseResponsible(item) {
+  form.responsible_type = item.type || ''
+  form.responsible_id = Number(item.id || 0)
+  responsibleQuery.value = item.label || item.name || ''
+  responsibleOpen.value = false
+}
+
+function responsibleOptionByValue(type, id) {
+  return responsibleCandidateOptions.value.find((item) => item.type === type && Number(item.id) === Number(id)) || null
 }
 
 function resetCustomerDrawerForm() {
@@ -625,6 +682,8 @@ function applyEditData(data) {
     ship_status_id: Number(data.ship_status_id || 0),
     ship_method: data.ship_method || '',
     ship_tracking_no: data.ship_tracking_no || '',
+    responsible_type: data.responsible_type || '',
+    responsible_id: Number(data.responsible_id || 0),
     notes: data.notes || '',
     shipping_amount: data.shipping_amount || '',
     discount_amount: data.discount_amount || '',
@@ -638,6 +697,8 @@ function applyEditData(data) {
     outsource_other_fee: data.outsource_other_fee || '',
   })
   customerQuery.value = optionName(customers.value, form.customer_id)
+  const responsible = responsibleOptionByValue(form.responsible_type, form.responsible_id)
+  responsibleQuery.value = responsible?.label || data.responsible_name || ''
   rows.value = (data.items || []).map((item) => {
     const spec = String(item.spec || '').replace(/g$/i, '')
     const product = productByID(item.product_id)
@@ -677,6 +738,7 @@ async function load() {
     payStatuses.value = data.pay_statuses || []
     orderTypes.value = data.order_types || []
     products.value = data.products || []
+    employees.value = data.employees || []
     applyDefaultSelections(data)
     if (data.edit_mode) {
       form.edit_id = Number(data.edit_id || 0)

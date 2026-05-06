@@ -957,6 +957,12 @@ func seedReqWorkflowA(ctx context.Context, pool *pgxpool.Pool, schema string) er
 		{table: "req_unit", code: "UT-154-01", title: "单元测试覆盖新增公共产品表单、API 路由和需求种子", status: "done", assignee: "Codex", evidence: "TestProductSettingsCanCreatePublicProducts; TestServiceDelegatesCatalogOperations"},
 		{table: "req_api", code: "API-154-01", title: "API 测试覆盖 POST /api/product-settings/products 创建公共产品并返回 public 产品元数据", status: "done", assignee: "Codex", evidence: "TestProductSettingsAPICreatesPublicProduct"},
 		{table: "req_review", code: "REV-154-01", prCode: "PR-154", title: "验收：在产品设置新增公共产品后，可在商品基础信息看到该产品并点击维护 BOM 添加配方", status: "todo", assignee: "VA", evidence: "待 Van ERP 后台验收"},
+		{table: "req_product", code: "PR-155", title: "订单增加订单负责人字段，用于识别售前售后归属人，并为未来提成结算保留结构化负责人来源", status: "review", assignee: "VA", evidence: "codex/order-responsible-person-20260506"},
+		{table: "req_dev", code: "DEV-155-01", title: "订单保存负责人类型、负责人 ID 和负责人名称快照，支持内部员工和合作方/客户两类来源", status: "done", assignee: "Codex", evidence: "orders responsible_party_type/responsible_party_id/responsible_party_name"},
+		{table: "req_dev", code: "DEV-155-02", title: "录单和订单详情展示订单负责人，候选项来自员工、渠道客户、代理、代加工客户等客户档案", status: "done", assignee: "Codex", evidence: "OrderEntryView responsibleOptions; OrdersView responsible_name"},
+		{table: "req_unit", code: "UT-155-01", title: "单元测试覆盖负责人 payload、员工/客户候选分组和需求种子源码接线", status: "done", assignee: "Codex", evidence: "order-entry.test.js; TestOrderResponsiblePersonRequirementSeeds"},
+		{table: "req_api", code: "API-155-01", title: "API 测试覆盖订单表单返回负责人候选、保存员工/客户负责人、列表与编辑回显负责人", status: "done", assignee: "Codex", evidence: "TestOrderAPIFormReturnsResponsiblePersonOptions; TestOrderAPISavesAndListsEmployeeResponsiblePerson; TestOrderAPISavesCustomerResponsiblePersonForPartnerCommission"},
+		{table: "req_review", code: "REV-155-01", prCode: "PR-155", title: "验收：录单可选择订单负责人；保存后订单列表和详情能看到负责人；负责人可来自员工或合作方/客户并能支持后续提成结算", status: "todo", assignee: "VA", evidence: "待 Van ERP 后台验收"},
 	} {
 		if err := seedReqRow(ctx, pool, schema, row); err != nil {
 			return err

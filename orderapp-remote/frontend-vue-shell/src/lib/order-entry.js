@@ -123,6 +123,42 @@ export function filterProductsForCustomer(products, customerID) {
   })
 }
 
+export function responsibleOptions({ employees = [], customers = [] } = {}) {
+  const employeeOptions = (employees || [])
+    .filter((item) => toInt(item?.id) > 0 && String(item?.name || '').trim())
+    .map((item) => {
+      const name = String(item.name || '').trim()
+      const department = String(item.department || '').trim()
+      const phone = String(item.phone || '').trim()
+      const meta = [department, phone].filter(Boolean).join(' ')
+      return {
+        type: 'employee',
+        id: toInt(item.id),
+        name,
+        label: `员工 - ${name}`,
+        meta,
+        search: ['员工', name, department, phone].filter(Boolean).join(' '),
+      }
+    })
+  const customerOptions = (customers || [])
+    .filter((item) => toInt(item?.id) > 0 && String(item?.name || '').trim())
+    .map((item) => {
+      const name = String(item.name || '').trim()
+      const contact = String(item.contact || '').trim()
+      const phone = String(item.phone || '').trim()
+      const meta = [contact, phone].filter(Boolean).join(' ')
+      return {
+        type: 'customer',
+        id: toInt(item.id),
+        name,
+        label: `合作方/客户 - ${name}`,
+        meta,
+        search: ['合作方', '客户', name, contact, phone].filter(Boolean).join(' '),
+      }
+    })
+  return [...employeeOptions, ...customerOptions]
+}
+
 export function defaultStatusID(options, names) {
   const wanted = (names || []).map((name) => String(name).trim()).filter(Boolean)
   for (const name of wanted) {
@@ -164,6 +200,8 @@ export function buildOrderPayload({ form, rows }) {
     ship_status_id: Number(form.ship_status_id || 0),
     ship_method: form.ship_method || '',
     ship_tracking_no: form.ship_tracking_no || '',
+    responsible_type: form.responsible_type || '',
+    responsible_id: Number(form.responsible_id || 0),
     notes: form.notes || '',
     shipping_amount: String(form.shipping_amount || ''),
     discount_amount: String(form.discount_amount || ''),
