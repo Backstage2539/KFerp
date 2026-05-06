@@ -94,6 +94,7 @@ type OrderShippingExportData struct {
 	RecvPhone     string
 	RecvAddr      string
 	RecvCompany   string
+	SenderID      int64
 	ProcessStatus string
 	Items         []OrderShippingExportItem
 }
@@ -298,6 +299,12 @@ type OrderRow struct {
 	PayStatus         string `json:"pay_status"`
 	ShipStatus        string `json:"ship_status"`
 	ShipTrackingNo    string `json:"ship_tracking_no"`
+	ReceiverName      string `json:"receiver_name"`
+	ReceiverPhone     string `json:"receiver_phone"`
+	ReceiverAddress   string `json:"receiver_address"`
+	ReceiverCompany   string `json:"receiver_company"`
+	PortalServiceCode string `json:"portal_service_code"`
+	SourceWarehouse   string `json:"source_warehouse"`
 	SenderID          int64  `json:"sender_id"`
 	SenderLabel       string `json:"sender_label"`
 	SenderName        string `json:"sender_name"`

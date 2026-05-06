@@ -8,6 +8,7 @@ import (
 	"math"
 	"strconv"
 	"strings"
+	"time"
 
 	customerportalapp "orderapp/internal/application/customerportal"
 
@@ -770,8 +771,14 @@ func (r Repository) CreateDirectShipBatch(ctx context.Context, cmd customerporta
 
 func (r Repository) CreateProcessingRequest(ctx context.Context, cmd customerportalapp.CreateProcessingRequestCommand) (customerportalapp.ProcessingRequest, error) {
 	note := strings.TrimSpace(cmd.Note)
+	tx, err := r.pool.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return customerportalapp.ProcessingRequest{}, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
 	var id int64
-	if err := r.pool.QueryRow(ctx, fmt.Sprintf(`
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`
 		INSERT INTO %s.processing_job_requests(customer_id, input_material_id, input_qty_g, target_product_id, target_spec_g, target_qty, status, note, created_by_mini_user_id)
 		VALUES($1,$2,$3,$4,$5,$6,'submitted',$7,$8)
 		RETURNING id
@@ -779,7 +786,7 @@ func (r Repository) CreateProcessingRequest(ctx context.Context, cmd customerpor
 		return customerportalapp.ProcessingRequest{}, err
 	}
 	var row customerportalapp.ProcessingRequest
-	if err := r.pool.QueryRow(ctx, fmt.Sprintf(`
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`
 		UPDATE %s.processing_job_requests
 		SET request_no='PJ-' || to_char(created_at,'YYYYMMDD') || '-' || lpad(id::text,4,'0')
 		WHERE id=$1
@@ -787,5 +794,217 @@ func (r Repository) CreateProcessingRequest(ctx context.Context, cmd customerpor
 	`, r.schema), id).Scan(&row.ID, &row.RequestNo, &row.InputMaterialID, &row.InputQtyG, &row.TargetProductID, &row.TargetSpecG, &row.TargetQty, &row.Status, &row.Note, &row.CreatedAt, &row.AcceptedAt, &row.LinkedWorkOrderID); err != nil {
 		return customerportalapp.ProcessingRequest{}, err
 	}
+	warehouseCode, err := r.processingWarehouseForCustomerTx(ctx, tx, cmd.CustomerID)
+	if err != nil {
+		return customerportalapp.ProcessingRequest{}, err
+	}
+	if err := r.ensureProcessingWarehouseTx(ctx, tx, warehouseCode, ""); err != nil {
+		return customerportalapp.ProcessingRequest{}, err
+	}
+	if _, err := tx.Exec(ctx, fmt.Sprintf(`
+		INSERT INTO %s.customer_processing_production_demands(
+			request_id,request_no,customer_id,product_id,product_name,spec_g,target_qty,need_g,target_warehouse,status,created_at,updated_at
+		)
+		SELECT $1,$2,$3,$4,COALESCE(p.name,''),$5,$6,$7,$8,'planned',now(),now()
+		FROM %s.products p
+		WHERE p.id=$4
+		ON CONFLICT(request_id) DO UPDATE SET
+			request_no=excluded.request_no,
+			product_id=excluded.product_id,
+			product_name=excluded.product_name,
+			spec_g=excluded.spec_g,
+			target_qty=excluded.target_qty,
+			need_g=excluded.need_g,
+			target_warehouse=excluded.target_warehouse,
+			updated_at=now()
+	`, r.schema, r.schema), row.ID, row.RequestNo, cmd.CustomerID, cmd.TargetProductID, cmd.TargetSpecG, int64(cmd.TargetQty), int64(cmd.TargetQty)*cmd.TargetSpecG, warehouseCode); err != nil {
+		return customerportalapp.ProcessingRequest{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return customerportalapp.ProcessingRequest{}, err
+	}
 	return row, nil
+}
+
+func (r Repository) CreateFulfillmentOrder(ctx context.Context, cmd customerportalapp.CreateFulfillmentOrderCommand) (customerportalapp.FulfillmentOrder, error) {
+	tx, err := r.pool.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return customerportalapp.FulfillmentOrder{}, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	if _, err := tx.Exec(ctx, fmt.Sprintf("LOCK TABLE %s.orders IN SHARE ROW EXCLUSIVE MODE", r.schema)); err != nil {
+		return customerportalapp.FulfillmentOrder{}, err
+	}
+
+	serviceCode := strings.TrimSpace(cmd.PortalServiceCode)
+	sourceWarehouse := "finished_goods"
+	if serviceCode == customerportalapp.PortalServiceProcessingShipment {
+		sourceWarehouse, err = r.processingWarehouseForCustomerTx(ctx, tx, cmd.CustomerID)
+		if err != nil {
+			return customerportalapp.FulfillmentOrder{}, err
+		}
+		if err := r.ensureProcessingWarehouseTx(ctx, tx, sourceWarehouse, ""); err != nil {
+			return customerportalapp.FulfillmentOrder{}, err
+		}
+	}
+	senderID, err := r.defaultSenderForCustomerTx(ctx, tx, cmd.CustomerID)
+	if err != nil {
+		return customerportalapp.FulfillmentOrder{}, err
+	}
+
+	var productName string
+	var defaultPrice float64
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`
+		SELECT COALESCE(name,''), COALESCE(default_price,0)
+		FROM %s.products
+		WHERE id=$1 AND active=true
+	`, r.schema), cmd.ProductID).Scan(&productName, &defaultPrice); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return customerportalapp.FulfillmentOrder{}, fmt.Errorf("product not found")
+		}
+		return customerportalapp.FulfillmentOrder{}, err
+	}
+	productName = firstNonEmpty(strings.TrimSpace(cmd.ProductName), productName)
+	unitPrice := cmd.UnitPrice
+	if unitPrice < 0 {
+		unitPrice = 0
+	}
+	if unitPrice == 0 {
+		unitPrice = defaultPrice
+	}
+	totalAmount := unitPrice * float64(cmd.Qty)
+	shippingAmount := cmd.ShippingAmount
+	if shippingAmount < 0 {
+		shippingAmount = 0
+	}
+	grandTotal := totalAmount + shippingAmount
+
+	orderDate := time.Now()
+	orderNo, err := nextCustomerPortalOrderNo(ctx, tx, r.schema, orderDate)
+	if err != nil {
+		return customerportalapp.FulfillmentOrder{}, err
+	}
+	payStatusID := customerPortalStatusID(ctx, tx, r.schema, "pay_statuses", "未付款", "未收款")
+	shipStatusID := customerPortalStatusID(ctx, tx, r.schema, "ship_statuses", "未发货")
+	processStatusNames := []string{"待处理", "待生产"}
+	if serviceCode == customerportalapp.PortalServiceProcessingShipment {
+		processStatusNames = []string{"无需生产", "库存待发货", "生产完成"}
+	}
+	processStatusID := customerPortalStatusID(ctx, tx, r.schema, "order_process_statuses", processStatusNames...)
+
+	var orderID int64
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`
+		INSERT INTO %s.orders(
+			order_date,customer_id,pay_status_id,ship_status_id,process_status_id,
+			receiver_name,receiver_phone,receiver_address,receiver_company,
+			portal_service_code,source_warehouse,sender_id,notes,
+			total_amount,shipping_amount,grand_total,order_no
+		) VALUES (
+			$1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17
+		)
+		RETURNING id
+	`, r.schema),
+		orderDate,
+		cmd.CustomerID,
+		portalNullInt(payStatusID),
+		portalNullInt(shipStatusID),
+		portalNullInt(processStatusID),
+		strings.TrimSpace(cmd.RecipientName),
+		strings.TrimSpace(cmd.RecipientPhone),
+		strings.TrimSpace(cmd.RecipientAddress),
+		strings.TrimSpace(cmd.RecipientCompany),
+		serviceCode,
+		sourceWarehouse,
+		senderID,
+		strings.TrimSpace(cmd.Note),
+		totalAmount,
+		shippingAmount,
+		grandTotal,
+		orderNo,
+	).Scan(&orderID); err != nil {
+		return customerportalapp.FulfillmentOrder{}, err
+	}
+	if _, err := tx.Exec(ctx, fmt.Sprintf(`
+		INSERT INTO %s.order_items(order_id,line_no,product_id,item_name,qty,unit,spec,unit_price,line_total)
+		VALUES($1,1,$2,$3,$4,'件',$5,$6,$7)
+	`, r.schema), orderID, cmd.ProductID, productName, cmd.Qty, fmt.Sprintf("%dg", cmd.SpecG), unitPrice, totalAmount); err != nil {
+		return customerportalapp.FulfillmentOrder{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return customerportalapp.FulfillmentOrder{}, err
+	}
+	return customerportalapp.FulfillmentOrder{
+		OrderID:           orderID,
+		OrderNo:           orderNo,
+		PortalServiceCode: serviceCode,
+		SourceWarehouse:   sourceWarehouse,
+	}, nil
+}
+
+func (r Repository) processingWarehouseForCustomerTx(ctx context.Context, tx pgx.Tx, customerID int64) (string, error) {
+	code := ""
+	err := tx.QueryRow(ctx, fmt.Sprintf(`
+		SELECT COALESCE(processing_warehouse_code,'')
+		FROM %s.customer_portal_profiles
+		WHERE customer_id=$1
+	`, r.schema), customerID).Scan(&code)
+	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		return "", err
+	}
+	code = strings.TrimSpace(code)
+	if code == "" {
+		code = defaultProcessingWarehouseCode(customerID)
+	}
+	return code, nil
+}
+
+func (r Repository) defaultSenderForCustomerTx(ctx context.Context, tx pgx.Tx, customerID int64) (int64, error) {
+	var senderID int64
+	err := tx.QueryRow(ctx, fmt.Sprintf(`
+		SELECT COALESCE(default_sender_id,0)
+		FROM %s.customer_portal_profiles
+		WHERE customer_id=$1
+	`, r.schema), customerID).Scan(&senderID)
+	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		return 0, err
+	}
+	return senderID, nil
+}
+
+func nextCustomerPortalOrderNo(ctx context.Context, tx pgx.Tx, schema string, od time.Time) (string, error) {
+	ymd := od.Format("20060102")
+	prefix := "SO-" + ymd + "-"
+	var maxNo int
+	q := fmt.Sprintf(`
+		SELECT COALESCE(MAX(CAST(right(order_no,4) AS INT)), 0)
+		FROM %s.orders
+		WHERE order_no LIKE $1
+	`, schema)
+	if err := tx.QueryRow(ctx, q, prefix+"%").Scan(&maxNo); err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("%s%04d", prefix, maxNo+1), nil
+}
+
+func customerPortalStatusID(ctx context.Context, tx pgx.Tx, schema, table string, names ...string) int64 {
+	for _, name := range names {
+		name = strings.TrimSpace(name)
+		if name == "" {
+			continue
+		}
+		var id int64
+		q := fmt.Sprintf("SELECT id FROM %s.%s WHERE name=$1 ORDER BY id LIMIT 1", schema, table)
+		if err := tx.QueryRow(ctx, q, name).Scan(&id); err == nil && id > 0 {
+			return id
+		}
+	}
+	return 0
+}
+
+func portalNullInt(v int64) any {
+	if v <= 0 {
+		return nil
+	}
+	return v
 }

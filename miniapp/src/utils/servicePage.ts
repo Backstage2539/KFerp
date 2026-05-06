@@ -5,7 +5,6 @@ export type ServiceKey =
   | 'directShip'
   | 'processing'
   | 'inventory'
-  | 'shipping'
   | 'settlement'
 
 export type ServicePayload = {
@@ -35,7 +34,6 @@ const labels: Record<ServiceKey, string> = {
   directShip: '一件代发',
   processing: '代加工',
   inventory: '我的库存',
-  shipping: '物流查询',
   settlement: '结算中心',
 }
 
@@ -46,11 +44,11 @@ const capabilities: Record<ServiceKey, string> = {
   directShip: 'direct_ship',
   processing: 'processing',
   inventory: 'inventory_custody',
-  shipping: 'shipping_query',
   settlement: 'settlement',
 }
 
 export function normalizeServiceKey(value: string): ServiceKey {
+  if (value === 'shipping' || value === 'shipping_query') return 'orders'
   if (value in labels) return value as ServiceKey
   return 'beanList'
 }
@@ -67,7 +65,7 @@ export function visibleServiceSections(payload: ServicePayload): ServiceSection[
   const sections: ServiceSection[] = []
   addSection(sections, '豆单', payload.bean_lists)
   addSection(sections, '现货商品', payload.products)
-  addSection(sections, payload.key === 'orders' ? '我的订单' : '订单 / 物流', payload.orders)
+  addSection(sections, normalizeServiceKey(String(payload.key)) === 'orders' ? '我的订单' : '订单 / 物流', payload.orders)
   addSection(sections, '一件代发批次', payload.direct_ship_batches)
   addSection(sections, '库存', payload.inventory)
   addSection(sections, '加工申请', payload.processing_requests)
