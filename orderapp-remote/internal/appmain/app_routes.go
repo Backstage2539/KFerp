@@ -7,6 +7,7 @@ import (
 	companyapp "orderapp/internal/application/company"
 	costingapp "orderapp/internal/application/costing"
 	customerapp "orderapp/internal/application/customer"
+	customerfulfillmentapp "orderapp/internal/application/customerfulfillment"
 	customerportalapp "orderapp/internal/application/customerportal"
 	financeapp "orderapp/internal/application/finance"
 	inventoryapp "orderapp/internal/application/inventory"
@@ -21,6 +22,7 @@ import (
 	postgrescompany "orderapp/internal/infrastructure/postgres/company"
 	postgrescosting "orderapp/internal/infrastructure/postgres/costing"
 	postgrescustomer "orderapp/internal/infrastructure/postgres/customer"
+	postgrescustomerfulfillment "orderapp/internal/infrastructure/postgres/customerfulfillment"
 	postgrescustomerportal "orderapp/internal/infrastructure/postgres/customerportal"
 	postgresfinance "orderapp/internal/infrastructure/postgres/finance"
 	postgresinventory "orderapp/internal/infrastructure/postgres/inventory"
@@ -34,6 +36,7 @@ import (
 	companyhttp "orderapp/internal/interfaces/http/company"
 	costinghttp "orderapp/internal/interfaces/http/costing"
 	customerhttp "orderapp/internal/interfaces/http/customer"
+	customerfulfillmenthttp "orderapp/internal/interfaces/http/customerfulfillment"
 	customerportalhttp "orderapp/internal/interfaces/http/customerportal"
 	financehttp "orderapp/internal/interfaces/http/finance"
 	inventoryhttp "orderapp/internal/interfaces/http/inventory"
@@ -57,6 +60,7 @@ func registerAppRoutes(e *echo.Echo, pool *pgxpool.Pool, cfg appConfig) {
 	companySvc := companyapp.NewService(postgrescompany.NewRepository(pool, schema))
 	costingSvc := costingapp.NewService(postgrescosting.NewRepository(pool, schema))
 	customerSvc := customerapp.NewService(postgrescustomer.NewRepository(pool, schema, assetDir))
+	customerFulfillmentSvc := customerfulfillmentapp.NewService(postgrescustomerfulfillment.NewRepository(pool, schema))
 	customerPortalIdentity := customerPortalIdentityProvider(cfg)
 	customerPortalSvc := customerportalapp.NewService(postgrescustomerportal.NewRepository(pool, schema), customerPortalIdentity)
 	financeSvc := financeapp.NewService(postgresfinance.NewRepository(pool, schema))
@@ -71,6 +75,7 @@ func registerAppRoutes(e *echo.Echo, pool *pgxpool.Pool, cfg appConfig) {
 
 	supporthttp.RegisterRoutes(e, pool, schema, supporthttp.Dependencies{Authz: authzSvc})
 	customerportalhttp.RegisterRoutes(e, customerportalhttp.Dependencies{CustomerPortal: customerPortalSvc})
+	customerfulfillmenthttp.RegisterRoutes(e, customerfulfillmenthttp.Dependencies{CustomerFulfillment: customerFulfillmentSvc})
 	cataloghttp.RegisterRoutes(e, cataloghttp.Dependencies{Catalog: catalogSvc})
 	materialshttp.RegisterRoutes(e, materialshttp.Dependencies{Materials: materialsSvc})
 	bomhttp.RegisterRoutes(e, bomhttp.Dependencies{Bom: bomSvc})

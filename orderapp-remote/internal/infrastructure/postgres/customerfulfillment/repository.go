@@ -1,0 +1,1288 @@
+package customerfulfillment
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"strings"
+	"time"
+
+	app "orderapp/internal/application/customerfulfillment"
+
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
+)
+
+type Repository struct {
+	pool   *pgxpool.Pool
+	schema string
+}
+
+func NewRepository(pool *pgxpool.Pool, schema string) *Repository {
+	return &Repository{pool: pool, schema: schema}
+}
+
+func (r *Repository) StoreParsedImport(ctx context.Context, cmd app.StoreParsedImportCommand) (app.ImportBatch, error) {
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return app.ImportBatch{}, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	summaryJSON, err := json.Marshal(cmd.Parsed.Summary)
+	if err != nil {
+		return app.ImportBatch{}, err
+	}
+	sourceFilename := strings.TrimSpace(cmd.SourceFilename)
+	sourceSHA := strings.ToLower(strings.TrimSpace(cmd.SourceSHA256))
+	var batchID int64
+	inserted := true
+	err = tx.QueryRow(ctx, fmt.Sprintf(`
+		INSERT INTO %s.customer_fulfillment_import_batches(
+			customer_id, import_type, source_filename, source_sha256, status,
+			total_rows, valid_rows, invalid_rows, summary_json, created_by
+		)
+		VALUES($1,$2,$3,$4,'parsed',$5,$6,$7,$8::jsonb,$9)
+		ON CONFLICT (customer_id, import_type, source_sha256) DO NOTHING
+		RETURNING id
+	`, r.schema),
+		cmd.CustomerID,
+		string(cmd.ImportType),
+		sourceFilename,
+		sourceSHA,
+		cmd.Parsed.Summary.TotalRows,
+		cmd.Parsed.Summary.ValidRows,
+		cmd.Parsed.Summary.InvalidRows,
+		string(summaryJSON),
+		strings.TrimSpace(cmd.CreatedBy),
+	).Scan(&batchID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		inserted = false
+		if err := tx.QueryRow(ctx, fmt.Sprintf(`
+			SELECT id FROM %s.customer_fulfillment_import_batches
+			WHERE customer_id=$1 AND import_type=$2 AND source_sha256=$3
+		`, r.schema), cmd.CustomerID, string(cmd.ImportType), sourceSHA).Scan(&batchID); err != nil {
+			return app.ImportBatch{}, err
+		}
+	} else if err != nil {
+		return app.ImportBatch{}, err
+	}
+
+	if inserted {
+		for _, row := range cmd.Parsed.Rows {
+			payloadJSON, err := json.Marshal(row.Payload)
+			if err != nil {
+				return app.ImportBatch{}, err
+			}
+			status := "valid"
+			if strings.TrimSpace(row.Error) != "" {
+				status = "invalid"
+			}
+			if _, err := tx.Exec(ctx, fmt.Sprintf(`
+				INSERT INTO %s.customer_fulfillment_import_rows(
+					batch_id, sheet_name, row_no, row_type, external_key, status, payload, error
+				)
+				VALUES($1,$2,$3,$4,$5,$6,$7::jsonb,$8)
+			`, r.schema),
+				batchID,
+				row.SheetName,
+				row.RowNo,
+				row.RowType,
+				row.ExternalKey,
+				status,
+				string(payloadJSON),
+				row.Error,
+			); err != nil {
+				return app.ImportBatch{}, err
+			}
+		}
+	}
+
+	batch, err := r.loadImportBatchTx(ctx, tx, batchID)
+	if err != nil {
+		return app.ImportBatch{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return app.ImportBatch{}, err
+	}
+	return batch, nil
+}
+
+func (r *Repository) ApplyImport(ctx context.Context, cmd app.ApplyImportCommand) (app.ApplyResult, error) {
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return app.ApplyResult{}, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	var customerID int64
+	var importType string
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`
+		SELECT customer_id, import_type
+		FROM %s.customer_fulfillment_import_batches
+		WHERE id=$1
+		FOR UPDATE
+	`, r.schema), cmd.BatchID).Scan(&customerID, &importType); err != nil {
+		return app.ApplyResult{}, err
+	}
+	rows, err := r.loadValidImportRowsTx(ctx, tx, cmd.BatchID)
+	if err != nil {
+		return app.ApplyResult{}, err
+	}
+	result := app.ApplyResult{BatchID: cmd.BatchID}
+	directShipState := newDirectShipApplyState()
+	for _, row := range rows {
+		var target applyTarget
+		switch app.ImportType(importType) {
+		case app.ImportTypeProcessingWorkbook:
+			target, err = r.applyProcessingImportRow(ctx, tx, customerID, cmd.BatchID, row)
+		case app.ImportTypeDirectShipWorkbook:
+			target, err = r.applyDirectShipImportRow(ctx, tx, customerID, cmd.BatchID, directShipState, row)
+		case app.ImportTypeSettlementWorkbook:
+			target, err = r.applySettlementImportRow(ctx, tx, customerID, row)
+		default:
+			target = applyTarget{}
+		}
+		if err != nil {
+			return app.ApplyResult{}, err
+		}
+		if err := r.markImportRowAppliedTx(ctx, tx, row.ID, target.TargetType, target.TargetID); err != nil {
+			return app.ApplyResult{}, err
+		}
+		result.AppliedRows++
+		result.ProcessingOrders += target.ProcessingOrders
+		result.DirectShipOrders += target.DirectShipOrders
+		result.FeeItems += target.FeeItems
+	}
+	if _, err := tx.Exec(ctx, fmt.Sprintf(`
+		UPDATE %s.customer_fulfillment_import_batches
+		SET status='applied', applied_at=COALESCE(applied_at, now())
+		WHERE id=$1
+	`, r.schema), cmd.BatchID); err != nil {
+		return app.ApplyResult{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return app.ApplyResult{}, err
+	}
+	return result, nil
+}
+
+type importRowRecord struct {
+	ID          int64
+	RowType     string
+	ExternalKey string
+	Payload     map[string]any
+}
+
+type applyTarget struct {
+	TargetType       string
+	TargetID         int64
+	ProcessingOrders int
+	DirectShipOrders int
+	FeeItems         int
+}
+
+func (r *Repository) loadValidImportRowsTx(ctx context.Context, tx pgx.Tx, batchID int64) ([]importRowRecord, error) {
+	rows, err := tx.Query(ctx, fmt.Sprintf(`
+		SELECT id, row_type, external_key, payload
+		FROM %s.customer_fulfillment_import_rows
+		WHERE batch_id=$1 AND status='valid'
+		ORDER BY id
+	`, r.schema), batchID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := make([]importRowRecord, 0)
+	for rows.Next() {
+		var row importRowRecord
+		var payloadJSON []byte
+		if err := rows.Scan(&row.ID, &row.RowType, &row.ExternalKey, &payloadJSON); err != nil {
+			return nil, err
+		}
+		if len(payloadJSON) > 0 {
+			if err := json.Unmarshal(payloadJSON, &row.Payload); err != nil {
+				return nil, err
+			}
+		}
+		if row.Payload == nil {
+			row.Payload = map[string]any{}
+		}
+		out = append(out, row)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (r *Repository) markImportRowAppliedTx(ctx context.Context, tx pgx.Tx, rowID int64, targetType string, targetID int64) error {
+	_, err := tx.Exec(ctx, fmt.Sprintf(`
+		UPDATE %s.customer_fulfillment_import_rows
+		SET status='applied', target_type=$2, target_id=$3, applied_at=now()
+		WHERE id=$1
+	`, r.schema), rowID, targetType, targetID)
+	return err
+}
+
+func (r *Repository) applyProcessingImportRow(ctx context.Context, tx pgx.Tx, customerID, batchID int64, row importRowRecord) (applyTarget, error) {
+	switch row.RowType {
+	case "customer_sku":
+		id, err := r.upsertCustomerProductTx(ctx, tx, customerID, row.Payload)
+		return applyTarget{TargetType: "product", TargetID: id}, err
+	case "raw_bean_receipt":
+		id, err := r.applyRawBeanMovementTx(ctx, tx, customerID, row, "receipt", 1)
+		return applyTarget{TargetType: "customer_custody_item", TargetID: id}, err
+	case "raw_bean_issue":
+		id, err := r.applyRawBeanMovementTx(ctx, tx, customerID, row, "issue", -1)
+		return applyTarget{TargetType: "customer_custody_item", TargetID: id}, err
+	case "raw_bean_balance":
+		id, err := r.applyRawBeanBalanceTx(ctx, tx, customerID, row)
+		return applyTarget{TargetType: "customer_custody_balance", TargetID: id}, err
+	case "packaging_balance":
+		id, err := r.applyPackagingBalanceTx(ctx, tx, customerID, row)
+		return applyTarget{TargetType: "customer_custody_balance", TargetID: id}, err
+	case "processing_work_order":
+		id, err := r.applyProcessingWorkOrderTx(ctx, tx, customerID, batchID, row)
+		return applyTarget{TargetType: "customer_processing_work_order", TargetID: id, ProcessingOrders: 1}, err
+	case "packaging_job":
+		id, err := r.applyPackagingJobTx(ctx, tx, customerID, batchID, row)
+		return applyTarget{TargetType: "customer_processing_packaging_job", TargetID: id}, err
+	case "conversion_job":
+		id, err := r.applyConversionJobTx(ctx, tx, customerID, batchID, row)
+		return applyTarget{TargetType: "customer_inventory_conversion_job", TargetID: id}, err
+	default:
+		return applyTarget{}, nil
+	}
+}
+
+func (r *Repository) upsertCustomerProductTx(ctx context.Context, tx pgx.Tx, customerID int64, payload map[string]any) (int64, error) {
+	name := payloadString(payload, "sku_name", "product_name", "name")
+	if name == "" {
+		return 0, fmt.Errorf("customer sku name required")
+	}
+	roastDegree := payloadString(payload, "roast_degree")
+	var id int64
+	err := tx.QueryRow(ctx, fmt.Sprintf(`
+		SELECT id FROM %s.products
+		WHERE customer_id=$1 AND name=$2 AND visibility='customer_only' AND active=true
+		ORDER BY id
+		LIMIT 1
+	`, r.schema), customerID, name).Scan(&id)
+	if err == nil {
+		_, err = tx.Exec(ctx, fmt.Sprintf(`
+			UPDATE %s.products
+			SET roast_level=$2, custom_type='processing_customer_sku'
+			WHERE id=$1
+		`, r.schema), id, roastDegree)
+		return id, err
+	}
+	if !errors.Is(err, pgx.ErrNoRows) {
+		return 0, err
+	}
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`
+		INSERT INTO %s.products(name, roast_level, default_price, active, customer_id, visibility, custom_type, created_at)
+		VALUES($1,$2,0,true,$3,'customer_only','processing_customer_sku',now())
+		RETURNING id
+	`, r.schema), name, roastDegree, customerID).Scan(&id); err != nil {
+		return 0, err
+	}
+	return id, nil
+}
+
+func (r *Repository) applyRawBeanMovementTx(ctx context.Context, tx pgx.Tx, customerID int64, row importRowRecord, movementType string, sign int64) (int64, error) {
+	name := payloadString(row.Payload, "raw_bean_name", "item_name")
+	if name == "" {
+		return 0, fmt.Errorf("raw bean name required")
+	}
+	qtyG := payloadInt64(row.Payload, "quantity_g")
+	itemID, err := r.upsertCustodyItemTx(ctx, tx, customerID, "raw_bean", name, name, "g", row.Payload)
+	if err != nil {
+		return 0, err
+	}
+	deltaG := qtyG * sign
+	if err := r.insertCustodyLedgerOnceTx(ctx, tx, customerID, itemID, "raw_bean", row.RowType, row.ExternalKey, movementType, deltaG, 0); err != nil {
+		return 0, err
+	}
+	if _, err := r.addCustodyBalanceTx(ctx, tx, customerID, itemID, "raw_bean", name, "", deltaG, 0); err != nil {
+		return 0, err
+	}
+	return itemID, nil
+}
+
+func (r *Repository) applyRawBeanBalanceTx(ctx context.Context, tx pgx.Tx, customerID int64, row importRowRecord) (int64, error) {
+	name := payloadString(row.Payload, "raw_bean_name", "item_name")
+	if name == "" {
+		return 0, fmt.Errorf("raw bean name required")
+	}
+	qtyG := payloadInt64(row.Payload, "quantity_g")
+	itemID, err := r.upsertCustodyItemTx(ctx, tx, customerID, "raw_bean", name, name, "g", row.Payload)
+	if err != nil {
+		return 0, err
+	}
+	currentG, currentUnits, err := r.currentCustodyBalanceTx(ctx, tx, customerID, itemID, "raw_bean")
+	if err != nil {
+		return 0, err
+	}
+	if err := r.insertCustodyLedgerOnceTx(ctx, tx, customerID, itemID, "raw_bean", row.RowType, row.ExternalKey, "balance_adjustment", qtyG-currentG, -currentUnits); err != nil {
+		return 0, err
+	}
+	return r.setCustodyBalanceTx(ctx, tx, customerID, itemID, "raw_bean", name, "", qtyG, 0)
+}
+
+func (r *Repository) applyPackagingBalanceTx(ctx context.Context, tx pgx.Tx, customerID int64, row importRowRecord) (int64, error) {
+	name := payloadString(row.Payload, "packaging_name", "item_name")
+	if name == "" {
+		return 0, fmt.Errorf("packaging name required")
+	}
+	units := payloadInt64(row.Payload, "quantity_units")
+	itemID, err := r.upsertCustodyItemTx(ctx, tx, customerID, "packaging", name, name, "unit", row.Payload)
+	if err != nil {
+		return 0, err
+	}
+	currentG, currentUnits, err := r.currentCustodyBalanceTx(ctx, tx, customerID, itemID, "packaging")
+	if err != nil {
+		return 0, err
+	}
+	if err := r.insertCustodyLedgerOnceTx(ctx, tx, customerID, itemID, "packaging", row.RowType, row.ExternalKey, "balance_adjustment", -currentG, units-currentUnits); err != nil {
+		return 0, err
+	}
+	return r.setCustodyBalanceTx(ctx, tx, customerID, itemID, "packaging", name, "", 0, units)
+}
+
+func (r *Repository) applyProcessingWorkOrderTx(ctx context.Context, tx pgx.Tx, customerID, batchID int64, row importRowRecord) (int64, error) {
+	workOrderNo := payloadString(row.Payload, "work_order_no")
+	productName := payloadString(row.Payload, "product_name")
+	rawBeanName := payloadString(row.Payload, "raw_bean_name")
+	if workOrderNo == "" || productName == "" {
+		return 0, fmt.Errorf("work order no and product name required")
+	}
+	productID, _ := r.findCustomerProductIDTx(ctx, tx, customerID, productName)
+	inputQtyG := payloadInt64(row.Payload, "input_quantity_g")
+	plannedUnits := payloadInt64(row.Payload, "planned_output_units")
+	var id int64
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`
+		INSERT INTO %s.customer_processing_work_orders(
+			batch_id, customer_id, external_key, work_order_no, order_date,
+			product_id, product_name, status, input_quantity_g, planned_output_units, payload
+		)
+		VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11::jsonb)
+		ON CONFLICT (customer_id, external_key) WHERE external_key <> '' DO UPDATE SET
+			batch_id=excluded.batch_id,
+			work_order_no=excluded.work_order_no,
+			order_date=excluded.order_date,
+			product_id=excluded.product_id,
+			product_name=excluded.product_name,
+			status=excluded.status,
+			input_quantity_g=excluded.input_quantity_g,
+			planned_output_units=excluded.planned_output_units,
+			payload=excluded.payload,
+			updated_at=now()
+		RETURNING id
+	`, r.schema),
+		batchID,
+		customerID,
+		row.ExternalKey,
+		workOrderNo,
+		parseDateValue(payloadString(row.Payload, "date")),
+		productID,
+		productName,
+		payloadString(row.Payload, "status"),
+		inputQtyG,
+		plannedUnits,
+		mustPayloadJSON(row.Payload),
+	).Scan(&id); err != nil {
+		return 0, err
+	}
+	if _, err := tx.Exec(ctx, fmt.Sprintf(`DELETE FROM %s.customer_processing_work_order_inputs WHERE work_order_id=$1`, r.schema), id); err != nil {
+		return 0, err
+	}
+	if rawBeanName != "" || inputQtyG != 0 {
+		rawItemID, err := r.upsertCustodyItemTx(ctx, tx, customerID, "raw_bean", rawBeanName, rawBeanName, "g", map[string]any{"raw_bean_name": rawBeanName})
+		if err != nil {
+			return 0, err
+		}
+		if _, err := tx.Exec(ctx, fmt.Sprintf(`
+			INSERT INTO %s.customer_processing_work_order_inputs(work_order_id, raw_bean_item_id, raw_bean_name, quantity_g, payload)
+			VALUES($1,$2,$3,$4,$5::jsonb)
+		`, r.schema), id, rawItemID, rawBeanName, inputQtyG, mustPayloadJSON(row.Payload)); err != nil {
+			return 0, err
+		}
+	}
+	return id, nil
+}
+
+func (r *Repository) applyPackagingJobTx(ctx context.Context, tx pgx.Tx, customerID, batchID int64, row importRowRecord) (int64, error) {
+	packagingName := payloadString(row.Payload, "packaging_name")
+	if packagingName == "" {
+		return 0, fmt.Errorf("packaging name required")
+	}
+	if _, err := r.upsertCustodyItemTx(ctx, tx, customerID, "packaging", packagingName, packagingName, "unit", row.Payload); err != nil {
+		return 0, err
+	}
+	var id int64
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`
+		INSERT INTO %s.customer_processing_packaging_jobs(
+			batch_id, customer_id, external_key, work_order_no, product_name, packaging_name, quantity_units, payload
+		)
+		VALUES($1,$2,$3,$4,$5,$6,$7,$8::jsonb)
+		ON CONFLICT (customer_id, external_key) WHERE external_key <> '' DO UPDATE SET
+			batch_id=excluded.batch_id,
+			work_order_no=excluded.work_order_no,
+			product_name=excluded.product_name,
+			packaging_name=excluded.packaging_name,
+			quantity_units=excluded.quantity_units,
+			payload=excluded.payload
+		RETURNING id
+	`, r.schema),
+		batchID,
+		customerID,
+		row.ExternalKey,
+		payloadString(row.Payload, "work_order_no"),
+		payloadString(row.Payload, "product_name"),
+		packagingName,
+		payloadInt64(row.Payload, "quantity_units"),
+		mustPayloadJSON(row.Payload),
+	).Scan(&id); err != nil {
+		return 0, err
+	}
+	return id, nil
+}
+
+func (r *Repository) applyConversionJobTx(ctx context.Context, tx pgx.Tx, customerID, batchID int64, row importRowRecord) (int64, error) {
+	var id int64
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`
+		INSERT INTO %s.customer_inventory_conversion_jobs(
+			batch_id, customer_id, external_key, job_no, from_product, to_product, quantity_units, payload
+		)
+		VALUES($1,$2,$3,$4,$5,$6,$7,$8::jsonb)
+		ON CONFLICT (customer_id, external_key) WHERE external_key <> '' DO UPDATE SET
+			batch_id=excluded.batch_id,
+			job_no=excluded.job_no,
+			from_product=excluded.from_product,
+			to_product=excluded.to_product,
+			quantity_units=excluded.quantity_units,
+			payload=excluded.payload
+		RETURNING id
+	`, r.schema),
+		batchID,
+		customerID,
+		row.ExternalKey,
+		payloadString(row.Payload, "job_no"),
+		payloadString(row.Payload, "from_product"),
+		payloadString(row.Payload, "to_product"),
+		payloadInt64(row.Payload, "quantity_units"),
+		mustPayloadJSON(row.Payload),
+	).Scan(&id); err != nil {
+		return 0, err
+	}
+	return id, nil
+}
+
+func (r *Repository) upsertCustodyItemTx(ctx context.Context, tx pgx.Tx, customerID int64, itemType, externalCode, itemName, unit string, payload map[string]any) (int64, error) {
+	externalCode = strings.TrimSpace(externalCode)
+	itemName = strings.TrimSpace(itemName)
+	if itemName == "" {
+		return 0, fmt.Errorf("custody item name required")
+	}
+	if externalCode == "" {
+		externalCode = itemName
+	}
+	var id int64
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`
+		INSERT INTO %s.customer_custody_items(customer_id, item_type, external_code, item_name, unit, payload, updated_at)
+		VALUES($1,$2,$3,$4,$5,$6::jsonb,now())
+		ON CONFLICT (customer_id, item_type, external_code) WHERE external_code <> '' DO UPDATE SET
+			item_name=excluded.item_name,
+			unit=excluded.unit,
+			payload=excluded.payload,
+			updated_at=now()
+		RETURNING id
+	`, r.schema), customerID, itemType, externalCode, itemName, unit, mustPayloadJSON(payload)).Scan(&id); err != nil {
+		return 0, err
+	}
+	return id, nil
+}
+
+func (r *Repository) insertCustodyLedgerOnceTx(ctx context.Context, tx pgx.Tx, customerID, itemID int64, itemType, sourceType, sourceExternalKey, movementType string, deltaG, deltaUnits int64) error {
+	_, err := tx.Exec(ctx, fmt.Sprintf(`
+		INSERT INTO %s.customer_custody_ledger_entries(
+			customer_id, item_id, item_type, source_type, source_external_key, movement_type, qty_g_delta, qty_units_delta
+		)
+		VALUES($1,$2,$3,$4,$5,$6,$7,$8)
+		ON CONFLICT (customer_id, source_type, source_external_key, item_id, movement_type)
+			WHERE source_external_key <> ''
+		DO NOTHING
+	`, r.schema), customerID, itemID, itemType, sourceType, sourceExternalKey, movementType, deltaG, deltaUnits)
+	return err
+}
+
+func (r *Repository) currentCustodyBalanceTx(ctx context.Context, tx pgx.Tx, customerID, itemID int64, itemType string) (int64, int64, error) {
+	var qtyG, qtyUnits int64
+	err := tx.QueryRow(ctx, fmt.Sprintf(`
+		SELECT quantity_g, quantity_units
+		FROM %s.customer_custody_balances
+		WHERE customer_id=$1 AND item_type=$2 AND item_id=$3
+	`, r.schema), customerID, itemType, itemID).Scan(&qtyG, &qtyUnits)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return 0, 0, nil
+	}
+	return qtyG, qtyUnits, err
+}
+
+func (r *Repository) addCustodyBalanceTx(ctx context.Context, tx pgx.Tx, customerID, itemID int64, itemType, itemName, spec string, deltaG, deltaUnits int64) (int64, error) {
+	var id int64
+	err := tx.QueryRow(ctx, fmt.Sprintf(`
+		INSERT INTO %s.customer_custody_balances(customer_id, item_id, item_type, item_name, spec, quantity_g, quantity_units, updated_at)
+		VALUES($1,$2,$3,$4,$5,$6,$7,now())
+		ON CONFLICT (customer_id, item_type, item_id) DO UPDATE SET
+			item_name=excluded.item_name,
+			spec=excluded.spec,
+			quantity_g=%s.customer_custody_balances.quantity_g + excluded.quantity_g,
+			quantity_units=%s.customer_custody_balances.quantity_units + excluded.quantity_units,
+			updated_at=now()
+		RETURNING id
+	`, r.schema, r.schema, r.schema), customerID, itemID, itemType, itemName, spec, deltaG, deltaUnits).Scan(&id)
+	return id, err
+}
+
+func (r *Repository) setCustodyBalanceTx(ctx context.Context, tx pgx.Tx, customerID, itemID int64, itemType, itemName, spec string, qtyG, qtyUnits int64) (int64, error) {
+	var id int64
+	err := tx.QueryRow(ctx, fmt.Sprintf(`
+		INSERT INTO %s.customer_custody_balances(customer_id, item_id, item_type, item_name, spec, quantity_g, quantity_units, updated_at)
+		VALUES($1,$2,$3,$4,$5,$6,$7,now())
+		ON CONFLICT (customer_id, item_type, item_id) DO UPDATE SET
+			item_name=excluded.item_name,
+			spec=excluded.spec,
+			quantity_g=excluded.quantity_g,
+			quantity_units=excluded.quantity_units,
+			updated_at=now()
+		RETURNING id
+	`, r.schema), customerID, itemID, itemType, itemName, spec, qtyG, qtyUnits).Scan(&id)
+	return id, err
+}
+
+func (r *Repository) findCustomerProductIDTx(ctx context.Context, tx pgx.Tx, customerID int64, name string) (int64, error) {
+	var id int64
+	err := tx.QueryRow(ctx, fmt.Sprintf(`
+		SELECT id FROM %s.products
+		WHERE customer_id=$1 AND name=$2 AND visibility='customer_only' AND active=true
+		ORDER BY id
+		LIMIT 1
+	`, r.schema), customerID, strings.TrimSpace(name)).Scan(&id)
+	return id, err
+}
+
+type directShipApplyState struct {
+	importOrderIDs map[string]int64
+	orderIDs       map[string]int64
+	lineNoByOrder  map[string]int
+}
+
+func newDirectShipApplyState() *directShipApplyState {
+	return &directShipApplyState{
+		importOrderIDs: map[string]int64{},
+		orderIDs:       map[string]int64{},
+		lineNoByOrder:  map[string]int{},
+	}
+}
+
+func (r *Repository) applyDirectShipImportRow(ctx context.Context, tx pgx.Tx, customerID, batchID int64, state *directShipApplyState, row importRowRecord) (applyTarget, error) {
+	switch row.RowType {
+	case "direct_ship_order":
+		importOrderID, orderID, err := r.applyDirectShipOrderTx(ctx, tx, customerID, batchID, row)
+		if err != nil {
+			return applyTarget{}, err
+		}
+		orderNo := payloadString(row.Payload, "order_no")
+		if orderNo != "" {
+			state.importOrderIDs[orderNo] = importOrderID
+			state.orderIDs[orderNo] = orderID
+		}
+		return applyTarget{TargetType: "customer_direct_ship_import_order", TargetID: importOrderID, DirectShipOrders: 1}, nil
+	case "direct_ship_item":
+		itemID, err := r.applyDirectShipItemTx(ctx, tx, customerID, batchID, state, row)
+		return applyTarget{TargetType: "customer_direct_ship_import_order_item", TargetID: itemID}, err
+	default:
+		return applyTarget{}, nil
+	}
+}
+
+func (r *Repository) applyDirectShipOrderTx(ctx context.Context, tx pgx.Tx, customerID, batchID int64, row importRowRecord) (int64, int64, error) {
+	orderNo := payloadString(row.Payload, "order_no")
+	if orderNo == "" {
+		return 0, 0, fmt.Errorf("direct ship order no required")
+	}
+	seq := payloadString(row.Payload, "sequence_no")
+	receiverName, receiverPhone, receiverAddress := parseReceiverSnapshot(payloadString(row.Payload, "receiver_address"))
+	warehouse, err := r.customerProcessingWarehouseTx(ctx, tx, customerID)
+	if err != nil {
+		return 0, 0, err
+	}
+	var importOrderID, orderID int64
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`
+		INSERT INTO %s.customer_direct_ship_import_orders(
+			batch_id, customer_id, external_order_no, external_seq, order_date,
+			receiver_address, status, payload
+		)
+		VALUES($1,$2,$3,$4,$5,$6,$7,$8::jsonb)
+		ON CONFLICT (customer_id, external_order_no, external_seq) WHERE external_order_no <> '' DO UPDATE SET
+			batch_id=excluded.batch_id,
+			order_date=excluded.order_date,
+			receiver_address=excluded.receiver_address,
+			status=excluded.status,
+			payload=excluded.payload
+		RETURNING id, order_id
+	`, r.schema),
+		batchID,
+		customerID,
+		orderNo,
+		seq,
+		parseDateValue(payloadString(row.Payload, "order_date")),
+		payloadString(row.Payload, "receiver_address"),
+		payloadString(row.Payload, "status"),
+		mustPayloadJSON(row.Payload),
+	).Scan(&importOrderID, &orderID); err != nil {
+		return 0, 0, err
+	}
+	if orderID <= 0 {
+		if err := tx.QueryRow(ctx, fmt.Sprintf(`
+			INSERT INTO %s.orders(
+				order_no, order_date, customer_id, portal_service_code,
+				receiver_name, receiver_phone, receiver_address,
+				ship_tracking_no, source_warehouse, notes, created_at
+			)
+			VALUES($1,$2,$3,'direct_ship',$4,$5,$6,$7,$8,$9,now())
+			RETURNING id
+		`, r.schema),
+			orderNo,
+			parseDateValue(payloadString(row.Payload, "order_date")),
+			customerID,
+			receiverName,
+			receiverPhone,
+			receiverAddress,
+			payloadString(row.Payload, "waybill_no"),
+			warehouse,
+			payloadString(row.Payload, "remark"),
+		).Scan(&orderID); err != nil {
+			return 0, 0, err
+		}
+	} else {
+		if _, err := tx.Exec(ctx, fmt.Sprintf(`
+			UPDATE %s.orders
+			SET receiver_name=$2,
+				receiver_phone=$3,
+				receiver_address=$4,
+				ship_tracking_no=$5,
+				source_warehouse=$6,
+				portal_service_code='direct_ship'
+			WHERE id=$1
+		`, r.schema), orderID, receiverName, receiverPhone, receiverAddress, payloadString(row.Payload, "waybill_no"), warehouse); err != nil {
+			return 0, 0, err
+		}
+	}
+	if _, err := tx.Exec(ctx, fmt.Sprintf(`
+		UPDATE %s.customer_direct_ship_import_orders SET order_id=$2 WHERE id=$1
+	`, r.schema), importOrderID, orderID); err != nil {
+		return 0, 0, err
+	}
+	return importOrderID, orderID, nil
+}
+
+func (r *Repository) applyDirectShipItemTx(ctx context.Context, tx pgx.Tx, customerID, batchID int64, state *directShipApplyState, row importRowRecord) (int64, error) {
+	orderNo := payloadString(row.Payload, "order_no")
+	if orderNo == "" {
+		return 0, fmt.Errorf("direct ship item order no required")
+	}
+	importOrderID := state.importOrderIDs[orderNo]
+	orderID := state.orderIDs[orderNo]
+	if importOrderID <= 0 || orderID <= 0 {
+		var seq string
+		if err := tx.QueryRow(ctx, fmt.Sprintf(`
+			SELECT id, order_id, external_seq
+			FROM %s.customer_direct_ship_import_orders
+			WHERE customer_id=$1 AND external_order_no=$2
+			ORDER BY id DESC
+			LIMIT 1
+		`, r.schema), customerID, orderNo).Scan(&importOrderID, &orderID, &seq); err != nil {
+			return 0, err
+		}
+		state.importOrderIDs[orderNo] = importOrderID
+		state.orderIDs[orderNo] = orderID
+	}
+	if orderID <= 0 {
+		return 0, fmt.Errorf("direct ship order not applied")
+	}
+	state.lineNoByOrder[orderNo]++
+	lineNo := state.lineNoByOrder[orderNo]
+	productTitle := payloadString(row.Payload, "product_title", "product_name")
+	productID, _ := r.findProductForDirectShipTx(ctx, tx, customerID, productTitle)
+	quantity := payloadInt64(row.Payload, "quantity_units")
+	var importItemID int64
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`
+		INSERT INTO %s.customer_direct_ship_import_order_items(
+			import_order_id, batch_id, customer_id, line_no, product_title, spec, quantity_units, payload
+		)
+		VALUES($1,$2,$3,$4,$5,$6,$7,$8::jsonb)
+		RETURNING id
+	`, r.schema),
+		importOrderID,
+		batchID,
+		customerID,
+		lineNo,
+		productTitle,
+		payloadString(row.Payload, "spec"),
+		quantity,
+		mustPayloadJSON(row.Payload),
+	).Scan(&importItemID); err != nil {
+		return 0, err
+	}
+	if _, err := tx.Exec(ctx, fmt.Sprintf(`
+		INSERT INTO %s.order_items(order_id, line_no, product_id, item_name, qty, unit, spec, unit_price, line_total)
+		VALUES($1,$2,$3,$4,$5,'件',$6,0,0)
+	`, r.schema), orderID, lineNo, productID, productTitle, quantity, payloadString(row.Payload, "spec")); err != nil {
+		return 0, err
+	}
+	if waybillNo := payloadString(row.Payload, "waybill_no"); waybillNo != "" {
+		if _, err := tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.orders SET ship_tracking_no=$2 WHERE id=$1`, r.schema), orderID, waybillNo); err != nil {
+			return 0, err
+		}
+	}
+	return importItemID, nil
+}
+
+func (r *Repository) customerProcessingWarehouseTx(ctx context.Context, tx pgx.Tx, customerID int64) (string, error) {
+	var warehouse string
+	err := tx.QueryRow(ctx, fmt.Sprintf(`
+		SELECT processing_warehouse_code
+		FROM %s.customer_portal_profiles
+		WHERE customer_id=$1
+	`, r.schema), customerID).Scan(&warehouse)
+	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		return "", err
+	}
+	warehouse = strings.TrimSpace(warehouse)
+	if warehouse == "" {
+		warehouse = fmt.Sprintf("cust_%d_processing", customerID)
+	}
+	return warehouse, nil
+}
+
+func (r *Repository) findProductForDirectShipTx(ctx context.Context, tx pgx.Tx, customerID int64, name string) (int64, error) {
+	var id int64
+	err := tx.QueryRow(ctx, fmt.Sprintf(`
+		SELECT id
+		FROM %s.products
+		WHERE active=true AND name=$1 AND (customer_id=0 OR customer_id=$2)
+		ORDER BY CASE WHEN customer_id=$2 THEN 0 ELSE 1 END, id
+		LIMIT 1
+	`, r.schema), strings.TrimSpace(name), customerID).Scan(&id)
+	return id, err
+}
+
+func parseReceiverSnapshot(raw string) (string, string, string) {
+	fields := strings.Fields(strings.TrimSpace(raw))
+	if len(fields) == 0 {
+		return "", "", ""
+	}
+	phoneIndex := -1
+	for i, field := range fields {
+		if isChineseMobileLike(field) {
+			phoneIndex = i
+			break
+		}
+	}
+	if phoneIndex < 0 {
+		return "", "", strings.TrimSpace(raw)
+	}
+	name := strings.Join(fields[:phoneIndex], " ")
+	phone := fields[phoneIndex]
+	address := strings.Join(fields[phoneIndex+1:], " ")
+	return name, phone, address
+}
+
+func isChineseMobileLike(value string) bool {
+	if len(value) != 11 || !strings.HasPrefix(value, "1") {
+		return false
+	}
+	for _, r := range value {
+		if r < '0' || r > '9' {
+			return false
+		}
+	}
+	return true
+}
+
+func (r *Repository) applySettlementImportRow(ctx context.Context, tx pgx.Tx, customerID int64, row importRowRecord) (applyTarget, error) {
+	if row.RowType != "fee_item" {
+		return applyTarget{}, nil
+	}
+	mappedFeeType := mapSettlementFeeType(payloadString(row.Payload, "fee_type"))
+	if mappedFeeType == "" {
+		return applyTarget{}, fmt.Errorf("fee type invalid")
+	}
+	var existingID int64
+	err := tx.QueryRow(ctx, fmt.Sprintf(`
+		SELECT id
+		FROM %s.customer_fee_items
+		WHERE source_type='customer_fulfillment_import' AND source_id=$1
+	`, r.schema), row.ID).Scan(&existingID)
+	if err == nil {
+		return applyTarget{TargetType: "customer_fee_item", TargetID: existingID, FeeItems: 1}, nil
+	}
+	if !errors.Is(err, pgx.ErrNoRows) {
+		return applyTarget{}, err
+	}
+	amountCents := payloadInt64(row.Payload, "amount_cents")
+	amount := fmt.Sprintf("%.2f", float64(amountCents)/100)
+	occurredAt := parseDateValue(payloadString(row.Payload, "date"))
+	if occurredAt == nil {
+		occurredAt = time.Now()
+	}
+	note := payloadString(row.Payload, "fee_name")
+	var feeID int64
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`
+		INSERT INTO %s.customer_fee_items(
+			customer_id, source_type, source_id, fee_type, amount, occurred_at, status, note
+		)
+		VALUES($1,'customer_fulfillment_import',$2,$3,$4,$5,'unsettled',$6)
+		RETURNING id
+	`, r.schema), customerID, row.ID, mappedFeeType, amount, occurredAt, note).Scan(&feeID); err != nil {
+		return applyTarget{}, err
+	}
+	return applyTarget{TargetType: "customer_fee_item", TargetID: feeID, FeeItems: 1}, nil
+}
+
+func mapSettlementFeeType(feeType string) string {
+	switch strings.TrimSpace(feeType) {
+	case "roasting", "grinding", "drip_bag":
+		return "processing"
+	case "bagging", "boxing", "packaging":
+		return "packaging"
+	case "direct_ship_service":
+		return "direct_ship_service"
+	case "storage":
+		return "storage"
+	case "shipping":
+		return "shipping"
+	case "adjustment":
+		return "adjustment"
+	default:
+		return ""
+	}
+}
+
+func (r *Repository) CreateSettlement(ctx context.Context, cmd app.CreateSettlementCommand) (app.SettlementResult, error) {
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return app.SettlementResult{}, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	periodFrom, err := time.Parse("2006-01-02", cmd.PeriodFrom)
+	if err != nil {
+		return app.SettlementResult{}, fmt.Errorf("period from invalid")
+	}
+	periodTo, err := time.Parse("2006-01-02", cmd.PeriodTo)
+	if err != nil {
+		return app.SettlementResult{}, fmt.Errorf("period to invalid")
+	}
+	settlementNo := fmt.Sprintf("CS-%d-%s-%s", cmd.CustomerID, periodFrom.Format("20060102"), periodTo.Format("20060102"))
+
+	var batchID int64
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`
+		INSERT INTO %s.customer_settlement_batches(customer_id, settlement_no, period_from, period_to, status, total_amount, created_by)
+		VALUES($1,$2,$3,$4,'draft',0,$5)
+		ON CONFLICT (settlement_no) WHERE settlement_no <> '' DO UPDATE SET
+			period_from=excluded.period_from,
+			period_to=excluded.period_to,
+			created_by=excluded.created_by
+		RETURNING id
+	`, r.schema), cmd.CustomerID, settlementNo, periodFrom, periodTo, strings.TrimSpace(cmd.CreatedBy)).Scan(&batchID); err != nil {
+		return app.SettlementResult{}, err
+	}
+
+	var feeItems int
+	var totalCents int64
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`
+		SELECT COUNT(*), COALESCE(ROUND(SUM(amount) * 100),0)::bigint
+		FROM %s.customer_fee_items
+		WHERE customer_id=$1
+			AND status='unsettled'
+			AND settlement_batch_id=0
+			AND occurred_at::date BETWEEN $2 AND $3
+	`, r.schema), cmd.CustomerID, periodFrom, periodTo).Scan(&feeItems, &totalCents); err != nil {
+		return app.SettlementResult{}, err
+	}
+	if _, err := tx.Exec(ctx, fmt.Sprintf(`
+		UPDATE %s.customer_fee_items
+		SET settlement_batch_id=$4, status='settled'
+		WHERE customer_id=$1
+			AND status='unsettled'
+			AND settlement_batch_id=0
+			AND occurred_at::date BETWEEN $2 AND $3
+	`, r.schema), cmd.CustomerID, periodFrom, periodTo, batchID); err != nil {
+		return app.SettlementResult{}, err
+	}
+	if _, err := tx.Exec(ctx, fmt.Sprintf(`
+		UPDATE %s.customer_settlement_batches
+		SET total_amount=$2
+		WHERE id=$1
+	`, r.schema), batchID, fmt.Sprintf("%.2f", float64(totalCents)/100)); err != nil {
+		return app.SettlementResult{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return app.SettlementResult{}, err
+	}
+	return app.SettlementResult{
+		BatchID:          batchID,
+		CustomerID:       cmd.CustomerID,
+		PeriodFrom:       periodFrom.Format("2006-01-02"),
+		PeriodTo:         periodTo.Format("2006-01-02"),
+		FeeItems:         feeItems,
+		TotalAmountCents: totalCents,
+	}, nil
+}
+
+func (r *Repository) Overview(ctx context.Context, query app.OverviewQuery) (app.Overview, error) {
+	var overview app.Overview
+	overview.CustomerID = query.CustomerID
+	_ = r.pool.QueryRow(ctx, fmt.Sprintf(`SELECT name FROM %s.customers WHERE id=$1`, r.schema), query.CustomerID).Scan(&overview.CustomerName)
+	imports, err := r.ListImports(ctx, app.ListImportsQuery{CustomerID: query.CustomerID, Limit: 20})
+	if err != nil {
+		return app.Overview{}, err
+	}
+	overview.Imports = imports
+	if overview.CustodyBalances, err = r.listCustodyBalances(ctx, query.CustomerID); err != nil {
+		return app.Overview{}, err
+	}
+	if overview.ProcessingOrders, err = r.listProcessingOrders(ctx, query.CustomerID); err != nil {
+		return app.Overview{}, err
+	}
+	if overview.DirectShipOrders, err = r.listDirectShipOrders(ctx, query.CustomerID); err != nil {
+		return app.Overview{}, err
+	}
+	if overview.Fees, err = r.listFeeItems(ctx, query.CustomerID); err != nil {
+		return app.Overview{}, err
+	}
+	if overview.Settlements, err = r.listSettlements(ctx, query.CustomerID); err != nil {
+		return app.Overview{}, err
+	}
+	return overview, nil
+}
+
+func (r *Repository) listCustodyBalances(ctx context.Context, customerID int64) ([]app.CustodyBalance, error) {
+	rows, err := r.pool.Query(ctx, fmt.Sprintf(`
+		SELECT item_type, item_name, spec, quantity_g, quantity_units
+		FROM %s.customer_custody_balances
+		WHERE customer_id=$1
+		ORDER BY item_type, item_name
+		LIMIT 200
+	`, r.schema), customerID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := make([]app.CustodyBalance, 0)
+	for rows.Next() {
+		var row app.CustodyBalance
+		if err := rows.Scan(&row.ItemType, &row.ItemName, &row.Spec, &row.QuantityG, &row.QuantityUnits); err != nil {
+			return nil, err
+		}
+		out = append(out, row)
+	}
+	return out, rows.Err()
+}
+
+func (r *Repository) listProcessingOrders(ctx context.Context, customerID int64) ([]app.ProcessingOrderSummary, error) {
+	rows, err := r.pool.Query(ctx, fmt.Sprintf(`
+		SELECT work_order_no, product_name, status, input_quantity_g, planned_output_units
+		FROM %s.customer_processing_work_orders
+		WHERE customer_id=$1
+		ORDER BY created_at DESC, id DESC
+		LIMIT 100
+	`, r.schema), customerID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := make([]app.ProcessingOrderSummary, 0)
+	for rows.Next() {
+		var row app.ProcessingOrderSummary
+		if err := rows.Scan(&row.WorkOrderNo, &row.ProductName, &row.Status, &row.QuantityG, &row.Units); err != nil {
+			return nil, err
+		}
+		out = append(out, row)
+	}
+	return out, rows.Err()
+}
+
+func (r *Repository) listDirectShipOrders(ctx context.Context, customerID int64) ([]app.DirectShipOrderSummary, error) {
+	rows, err := r.pool.Query(ctx, fmt.Sprintf(`
+		SELECT o.external_order_no,
+			COALESCE(to_char(o.order_date, 'YYYY-MM-DD'), ''),
+			o.receiver_address,
+			o.status,
+			COUNT(i.id)::int
+		FROM %s.customer_direct_ship_import_orders o
+		LEFT JOIN %s.customer_direct_ship_import_order_items i ON i.import_order_id=o.id
+		WHERE o.customer_id=$1
+		GROUP BY o.id
+		ORDER BY o.created_at DESC, o.id DESC
+		LIMIT 100
+	`, r.schema, r.schema), customerID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := make([]app.DirectShipOrderSummary, 0)
+	for rows.Next() {
+		var row app.DirectShipOrderSummary
+		if err := rows.Scan(&row.OrderNo, &row.OrderDate, &row.ReceiverAddress, &row.Status, &row.ItemCount); err != nil {
+			return nil, err
+		}
+		out = append(out, row)
+	}
+	return out, rows.Err()
+}
+
+func (r *Repository) listFeeItems(ctx context.Context, customerID int64) ([]app.FeeItemSummary, error) {
+	rows, err := r.pool.Query(ctx, fmt.Sprintf(`
+		SELECT fee_type, note, ROUND(amount * 100)::bigint, source_type
+		FROM %s.customer_fee_items
+		WHERE customer_id=$1
+		ORDER BY occurred_at DESC, id DESC
+		LIMIT 100
+	`, r.schema), customerID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := make([]app.FeeItemSummary, 0)
+	for rows.Next() {
+		var row app.FeeItemSummary
+		if err := rows.Scan(&row.FeeType, &row.FeeName, &row.AmountCents, &row.Source); err != nil {
+			return nil, err
+		}
+		out = append(out, row)
+	}
+	return out, rows.Err()
+}
+
+func (r *Repository) listSettlements(ctx context.Context, customerID int64) ([]app.SettlementSummary, error) {
+	rows, err := r.pool.Query(ctx, fmt.Sprintf(`
+		SELECT id,
+			COALESCE(to_char(period_from, 'YYYY-MM-DD'), ''),
+			COALESCE(to_char(period_to, 'YYYY-MM-DD'), ''),
+			status,
+			ROUND(total_amount * 100)::bigint
+		FROM %s.customer_settlement_batches
+		WHERE customer_id=$1
+		ORDER BY created_at DESC, id DESC
+		LIMIT 100
+	`, r.schema), customerID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := make([]app.SettlementSummary, 0)
+	for rows.Next() {
+		var row app.SettlementSummary
+		if err := rows.Scan(&row.BatchID, &row.PeriodFrom, &row.PeriodTo, &row.Status, &row.TotalAmountCents); err != nil {
+			return nil, err
+		}
+		out = append(out, row)
+	}
+	return out, rows.Err()
+}
+
+func (r *Repository) ListImports(ctx context.Context, query app.ListImportsQuery) ([]app.ImportBatch, error) {
+	limit := query.Limit
+	if limit <= 0 {
+		limit = 20
+	}
+	if limit > 200 {
+		limit = 200
+	}
+	if query.Offset < 0 {
+		query.Offset = 0
+	}
+	rows, err := r.pool.Query(ctx, fmt.Sprintf(`
+		SELECT id, customer_id, import_type, source_filename, source_sha256, status,
+			total_rows, valid_rows, invalid_rows, summary_json, created_by, created_at, applied_at
+		FROM %s.customer_fulfillment_import_batches
+		WHERE customer_id=$1
+		ORDER BY created_at DESC, id DESC
+		LIMIT $2 OFFSET $3
+	`, r.schema), query.CustomerID, limit, query.Offset)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := make([]app.ImportBatch, 0)
+	for rows.Next() {
+		batch, err := scanImportBatch(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, batch)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (r *Repository) loadImportBatchTx(ctx context.Context, tx pgx.Tx, id int64) (app.ImportBatch, error) {
+	return scanImportBatch(tx.QueryRow(ctx, fmt.Sprintf(`
+		SELECT id, customer_id, import_type, source_filename, source_sha256, status,
+			total_rows, valid_rows, invalid_rows, summary_json, created_by, created_at, applied_at
+		FROM %s.customer_fulfillment_import_batches
+		WHERE id=$1
+	`, r.schema), id))
+}
+
+type importBatchScanner interface {
+	Scan(dest ...any) error
+}
+
+func scanImportBatch(row importBatchScanner) (app.ImportBatch, error) {
+	var batch app.ImportBatch
+	var importType string
+	var summaryJSON []byte
+	var createdAt time.Time
+	var appliedAt *time.Time
+	if err := row.Scan(
+		&batch.ID,
+		&batch.CustomerID,
+		&importType,
+		&batch.SourceFilename,
+		&batch.SourceSHA256,
+		&batch.Status,
+		&batch.Summary.TotalRows,
+		&batch.Summary.ValidRows,
+		&batch.Summary.InvalidRows,
+		&summaryJSON,
+		&batch.CreatedBy,
+		&createdAt,
+		&appliedAt,
+	); err != nil {
+		return app.ImportBatch{}, err
+	}
+	batch.ImportType = app.ImportType(importType)
+	var parsedSummary app.ImportSummary
+	if len(summaryJSON) > 0 {
+		_ = json.Unmarshal(summaryJSON, &parsedSummary)
+	}
+	parsedSummary.TotalRows = batch.Summary.TotalRows
+	parsedSummary.ValidRows = batch.Summary.ValidRows
+	parsedSummary.InvalidRows = batch.Summary.InvalidRows
+	batch.Summary = parsedSummary
+	batch.CreatedAt = createdAt.Format(time.RFC3339)
+	if appliedAt != nil {
+		batch.AppliedAt = appliedAt.Format(time.RFC3339)
+	}
+	return batch, nil
+}
+
+func payloadString(payload map[string]any, keys ...string) string {
+	for _, key := range keys {
+		value, ok := payload[key]
+		if !ok || value == nil {
+			continue
+		}
+		switch v := value.(type) {
+		case string:
+			if strings.TrimSpace(v) != "" {
+				return strings.TrimSpace(v)
+			}
+		case fmt.Stringer:
+			if strings.TrimSpace(v.String()) != "" {
+				return strings.TrimSpace(v.String())
+			}
+		default:
+			text := strings.TrimSpace(fmt.Sprint(v))
+			if text != "" && text != "<nil>" {
+				return text
+			}
+		}
+	}
+	return ""
+}
+
+func payloadInt64(payload map[string]any, key string) int64 {
+	value, ok := payload[key]
+	if !ok || value == nil {
+		return 0
+	}
+	switch v := value.(type) {
+	case int:
+		return int64(v)
+	case int64:
+		return v
+	case int32:
+		return int64(v)
+	case float64:
+		return int64(v)
+	case float32:
+		return int64(v)
+	case json.Number:
+		n, _ := v.Int64()
+		return n
+	case string:
+		n, _ := parseIntText(v)
+		return n
+	default:
+		n, _ := parseIntText(fmt.Sprint(v))
+		return n
+	}
+}
+
+func parseIntText(value string) (int64, bool) {
+	value = strings.TrimSpace(strings.ReplaceAll(value, ",", ""))
+	if value == "" {
+		return 0, false
+	}
+	var integerText strings.Builder
+	for _, r := range value {
+		if r >= '0' && r <= '9' || r == '-' {
+			integerText.WriteRune(r)
+			continue
+		}
+		if integerText.Len() > 0 {
+			break
+		}
+	}
+	if integerText.Len() == 0 {
+		return 0, false
+	}
+	var n int64
+	if _, err := fmt.Sscan(integerText.String(), &n); err != nil {
+		return 0, false
+	}
+	return n, true
+}
+
+func parseDateValue(value string) any {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return nil
+	}
+	ts, err := time.Parse("2006-01-02", value)
+	if err != nil {
+		return nil
+	}
+	return ts
+}
+
+func mustPayloadJSON(payload map[string]any) string {
+	if payload == nil {
+		return "{}"
+	}
+	b, err := json.Marshal(payload)
+	if err != nil {
+		return "{}"
+	}
+	return string(b)
+}

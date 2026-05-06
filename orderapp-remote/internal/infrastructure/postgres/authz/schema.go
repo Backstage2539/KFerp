@@ -189,6 +189,7 @@ func defaultViewPermissions() map[string]string {
 		"senderSettings":         "settings.write",
 		"outsourceSettings":      "settings.write",
 		"customerPortalSettings": "customers.write",
+		"customerFulfillment":    "stock.write",
 		"departments":            "company.manage",
 		"employees":              "company.manage",
 		"audit":                  "audit.read",
