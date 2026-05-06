@@ -963,6 +963,12 @@ func seedReqWorkflowA(ctx context.Context, pool *pgxpool.Pool, schema string) er
 		{table: "req_unit", code: "UT-155-01", title: "单元测试覆盖负责人 payload、员工/客户候选分组和需求种子源码接线", status: "done", assignee: "Codex", evidence: "order-entry.test.js; TestOrderResponsiblePersonRequirementSeeds"},
 		{table: "req_api", code: "API-155-01", title: "API 测试覆盖订单表单返回负责人候选、保存员工/客户负责人、列表与编辑回显负责人", status: "done", assignee: "Codex", evidence: "TestOrderAPIFormReturnsResponsiblePersonOptions; TestOrderAPISavesAndListsEmployeeResponsiblePerson; TestOrderAPISavesCustomerResponsiblePersonForPartnerCommission"},
 		{table: "req_review", code: "REV-155-01", prCode: "PR-155", title: "验收：录单可选择订单负责人；保存后订单列表和详情能看到负责人；负责人可来自员工或合作方/客户并能支持后续提成结算", status: "todo", assignee: "VA", evidence: "待 Van ERP 后台验收"},
+		{table: "req_product", code: "PR-156", title: "订单列表支持负责人搜索订单，用于快速定位售前售后归属人的订单", status: "review", assignee: "VA", evidence: "codex/order-responsible-search-20260506"},
+		{table: "req_dev", code: "DEV-156-01", title: "GET /api/orders?q= 同时按订单号、客户和订单负责人名称快照模糊搜索订单", status: "done", assignee: "Codex", evidence: "orderListWhere responsible_party_name ILIKE"},
+		{table: "req_dev", code: "DEV-156-02", title: "Vue 订单列表搜索框提示包含负责人，明确可按负责人搜索订单", status: "done", assignee: "Codex", evidence: "OrdersView placeholder 订单号/客户/负责人"},
+		{table: "req_unit", code: "UT-156-01", title: "单元测试覆盖订单列表搜索 where 条件、Vue 搜索提示和需求种子源码守卫", status: "done", assignee: "Codex", evidence: "TestOrderListWhereSearchMatchesResponsibleName; TestOrderResponsibleSearchFrontendAndQueryWiring; TestOrderResponsibleSearchRequirementSeeds"},
+		{table: "req_api", code: "API-156-01", title: "API 测试覆盖按负责人名称搜索订单，只返回匹配负责人快照的订单", status: "done", assignee: "Codex", evidence: "TestOrderAPIListKeepsSearchKeywordForResponsibleLookup; TestOrderAPIListSearchMatchesResponsibleName"},
+		{table: "req_review", code: "REV-156-01", prCode: "PR-156", title: "验收：订单列表输入负责人名称后，只展示该负责人负责的售前售后订单", status: "todo", assignee: "VA", evidence: "待 Van ERP 后台验收"},
 	} {
 		if err := seedReqRow(ctx, pool, schema, row); err != nil {
 			return err
