@@ -99,6 +99,7 @@
               <th>订单号</th>
               <th>日期</th>
               <th>客户</th>
+              <th>负责人</th>
               <th>金额</th>
               <th>类型</th>
               <th>快递信息</th>
@@ -120,6 +121,7 @@
               <td><button class="order-link" type="button" @click.prevent="openOrderDetailDrawer(row)">{{ row.order_no }}</button></td>
               <td>{{ row.order_date }}</td>
               <td>{{ row.customer }}</td>
+              <td>{{ row.responsible_name || '-' }}</td>
               <td>{{ row.grand_total }}</td>
               <td>{{ row.order_type }}</td>
               <td>
@@ -145,7 +147,7 @@
               </td>
             </tr>
             <tr v-if="!rows.length">
-              <td colspan="9" class="muted">暂无订单</td>
+              <td colspan="10" class="muted">暂无订单</td>
             </tr>
           </tbody>
         </table>
@@ -209,6 +211,7 @@
             <div class="drawer-status-grid">
               <span>金额：{{ activeOrderDetail.grand_total || '-' }}</span>
               <span>类型：{{ activeOrderDetail.order_type || '-' }}</span>
+              <span>负责人：{{ activeOrderDetail.responsible_name || '-' }}</span>
               <span>录入：{{ activeOrderDetail.created_by_employee || '-' }}</span>
               <span>备注：{{ activeOrderDetail.notes || '-' }}</span>
             </div>

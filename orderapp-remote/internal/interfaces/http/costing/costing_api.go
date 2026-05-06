@@ -86,7 +86,10 @@ func registerCostingAPI(e *echo.Echo, svc Service, authz support.AuthzService) {
 	})
 
 	e.GET("/api/costing/bean-list/publications", func(c echo.Context) error {
-		query := beanListPublicationQueryFromRequest(c)
+		query, err := beanListPublicationQueryFromRequest(c)
+		if err != nil {
+			return c.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
+		}
 		rows, err := svc.ListBeanListPublications(c.Request().Context(), query)
 		if err != nil {
 			return c.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
@@ -103,7 +106,10 @@ func registerCostingAPI(e *echo.Echo, svc Service, authz support.AuthzService) {
 			return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid request"})
 		}
 		req.Actor = support.ActorOf(c)
-		ownerType, ownerKey := beanListOwnerFromScope(c, req.Scope)
+		ownerType, ownerKey, err := beanListOwnerFromScope(c, req.Scope, req.CustomerID)
+		if err != nil {
+			return c.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
+		}
 		req.OwnerType = ownerType
 		req.OwnerKey = ownerKey
 		row, err := svc.PublishBeanList(c.Request().Context(), req)
@@ -128,7 +134,10 @@ func registerCostingAPI(e *echo.Echo, svc Service, authz support.AuthzService) {
 			scope = "mine"
 			req.Scope = scope
 		}
-		ownerType, ownerKey := beanListOwnerFromScope(c, scope)
+		ownerType, ownerKey, err := beanListOwnerFromScope(c, scope, req.CustomerID)
+		if err != nil {
+			return c.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
+		}
 		req.OwnerType = ownerType
 		req.OwnerKey = ownerKey
 		row, err := svc.SaveBeanListDraft(c.Request().Context(), req)
@@ -146,7 +155,10 @@ func registerCostingAPI(e *echo.Echo, svc Service, authz support.AuthzService) {
 		if err != nil || id <= 0 {
 			return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid id"})
 		}
-		query := beanListPublicationQueryFromRequest(c)
+		query, err := beanListPublicationQueryFromRequest(c)
+		if err != nil {
+			return c.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
+		}
 		if err := svc.WithdrawBeanList(c.Request().Context(), appcosting.WithdrawBeanListCommand{
 			ID:        id,
 			OwnerType: query.OwnerType,
@@ -200,26 +212,47 @@ func currentActorCanPublishBeanList(c echo.Context, authz support.AuthzService) 
 	return actor.IsAdmin() || actor.Can("auth.manage"), nil
 }
 
-func beanListPublicationQueryFromRequest(c echo.Context) appcosting.BeanListPublicationQuery {
-	ownerType, ownerKey := beanListOwnerFromScope(c, c.QueryParam("scope"))
-	return appcosting.BeanListPublicationQuery{
-		ListType:  c.QueryParam("list_type"),
-		Scope:     c.QueryParam("scope"),
-		OwnerType: ownerType,
-		OwnerKey:  ownerKey,
+func beanListPublicationQueryFromRequest(c echo.Context) (appcosting.BeanListPublicationQuery, error) {
+	customerID, err := parseOptionalInt64(c.QueryParam("customer_id"))
+	if err != nil {
+		return appcosting.BeanListPublicationQuery{}, fmt.Errorf("invalid customer_id")
 	}
+	ownerType, ownerKey, err := beanListOwnerFromScope(c, c.QueryParam("scope"), customerID)
+	if err != nil {
+		return appcosting.BeanListPublicationQuery{}, err
+	}
+	return appcosting.BeanListPublicationQuery{
+		ListType:   c.QueryParam("list_type"),
+		Scope:      c.QueryParam("scope"),
+		CustomerID: customerID,
+		OwnerType:  ownerType,
+		OwnerKey:   ownerKey,
+	}, nil
 }
 
-func beanListOwnerFromScope(c echo.Context, scope string) (string, string) {
+func beanListOwnerFromScope(c echo.Context, scope string, customerID int64) (string, string, error) {
 	switch strings.TrimSpace(scope) {
+	case "customer":
+		if customerID <= 0 {
+			return "", "", fmt.Errorf("customer_id required")
+		}
+		return "customer", strconv.FormatInt(customerID, 10), nil
 	case "mine":
 		if v := c.Get("employee_id"); v != nil {
 			if id, ok := v.(int64); ok && id > 0 {
-				return "actor", fmt.Sprintf("employee:%d", id)
+				return "actor", fmt.Sprintf("employee:%d", id), nil
 			}
 		}
-		return "actor", "actor:" + support.ActorOf(c)
+		return "actor", "actor:" + support.ActorOf(c), nil
 	default:
-		return "official", ""
+		return "official", "", nil
 	}
+}
+
+func parseOptionalInt64(raw string) (int64, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return 0, nil
+	}
+	return strconv.ParseInt(raw, 10, 64)
 }

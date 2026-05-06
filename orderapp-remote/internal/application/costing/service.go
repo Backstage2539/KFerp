@@ -60,16 +60,18 @@ type BeanListPublication struct {
 }
 
 type BeanListPublicationQuery struct {
-	ListType  string `json:"list_type"`
-	Scope     string `json:"scope,omitempty"`
-	OwnerType string `json:"owner_type,omitempty"`
-	OwnerKey  string `json:"owner_key,omitempty"`
+	ListType   string `json:"list_type"`
+	Scope      string `json:"scope,omitempty"`
+	CustomerID int64  `json:"customer_id,omitempty"`
+	OwnerType  string `json:"owner_type,omitempty"`
+	OwnerKey   string `json:"owner_key,omitempty"`
 }
 
 type PublishBeanListCommand struct {
 	ListType                 string         `json:"list_type"`
 	Version                  string         `json:"version"`
 	Scope                    string         `json:"scope,omitempty"`
+	CustomerID               int64          `json:"customer_id,omitempty"`
 	OwnerType                string         `json:"owner_type,omitempty"`
 	OwnerKey                 string         `json:"owner_key,omitempty"`
 	PriceSourcePublicationID int64          `json:"price_source_publication_id,omitempty"`

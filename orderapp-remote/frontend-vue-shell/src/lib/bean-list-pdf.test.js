@@ -7,6 +7,7 @@ import {
   buildBeanListPdfTitle,
   copyBeanListPublicationContentGroups,
   copyBeanListPublicationConfig,
+  filterBeanListItemsForScope,
   sanitizeBeanListPdfTheme,
   splitHighlightedText,
 } from './bean-list-pdf.js'
@@ -101,6 +102,18 @@ test('PDF bean-list helper builds separate commercial and retail groups from Exc
   assert.equal(retail[0].items[0].recommendedUse, '手冲/SOE/冷萃')
   assert.equal(buildBeanListPdfTitle('commercial'), '棵凡咖啡批发豆单')
   assert.equal(buildBeanListPdfTitle('retail'), '棵凡咖啡零售豆单')
+})
+
+test('bean-list scope filter keeps customer SKUs isolated by customer', () => {
+  const scopedRows = [
+    { product_id: 1, name: '公共豆', customer_id: 0 },
+    { product_id: 2, name: '客户 A 专属', customer_id: 42 },
+    { product_id: 3, name: '客户 B 专属', customer_id: 88 },
+  ]
+
+  assert.deepEqual(filterBeanListItemsForScope(scopedRows, 'official', 42).map((item) => item.product_id), [1])
+  assert.deepEqual(filterBeanListItemsForScope(scopedRows, 'customer', 42).map((item) => item.product_id), [1, 2])
+  assert.deepEqual(filterBeanListItemsForScope(scopedRows, 'customer', 0).map((item) => item.product_id), [1])
 })
 
 test('PDF bean-list helper supports product selection, category filtering, and Excel-style renumbering', () => {

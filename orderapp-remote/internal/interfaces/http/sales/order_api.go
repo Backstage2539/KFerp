@@ -23,15 +23,28 @@ type apiOption struct {
 type customerAPIOption struct {
 	ID                 int64  `json:"id"`
 	Name               string `json:"name"`
+	Contact            string `json:"contact,omitempty"`
+	Phone              string `json:"phone,omitempty"`
 	Py                 string `json:"py"`
 	Pyi                string `json:"pyi"`
 	DefaultSourceID    int64  `json:"default_source_id,omitempty"`
 	DefaultOrderTypeID int64  `json:"default_order_type_id,omitempty"`
 }
 
+type employeeAPIOption struct {
+	ID           int64  `json:"id"`
+	Name         string `json:"name"`
+	Phone        string `json:"phone,omitempty"`
+	DepartmentID int64  `json:"department_id,omitempty"`
+	Department   string `json:"department,omitempty"`
+	Py           string `json:"py"`
+	Pyi          string `json:"pyi"`
+}
+
 type orderFormAPIResponse struct {
 	Today        string              `json:"today"`
 	Customers    []customerAPIOption `json:"customers"`
+	Employees    []employeeAPIOption `json:"employees"`
 	Sources      []apiOption         `json:"sources"`
 	ShipStatuses []apiOption         `json:"ship_statuses"`
 	PayStatuses  []apiOption         `json:"pay_statuses"`
@@ -52,6 +65,8 @@ type orderSaveAPIRequest struct {
 	ShipStatusID          int64  `json:"ship_status_id"`
 	ShipMethod            string `json:"ship_method"`
 	ShipTrackingNo        string `json:"ship_tracking_no"`
+	ResponsibleType       string `json:"responsible_type"`
+	ResponsibleID         int64  `json:"responsible_id"`
 	Notes                 string `json:"notes"`
 	ShippingAmount        string `json:"shipping_amount"`
 	DiscountAmount        string `json:"discount_amount"`
@@ -134,10 +149,24 @@ func (h orderAPIHandler) form(c echo.Context) error {
 	if err != nil {
 		return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
 	}
+	customerID := int64(0)
+	filterByCustomer := false
+	if v := strings.TrimSpace(c.QueryParam("customer_id")); v != "" {
+		id, err := strconv.ParseInt(v, 10, 64)
+		if err != nil || id < 0 {
+			return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid customer_id"})
+		}
+		customerID = id
+		filterByCustomer = true
+	}
+	if filterByCustomer {
+		data.Products = filterOrderProductsForCustomer(data.Products, customerID)
+	}
 
 	resp := orderFormAPIResponse{
 		Today:        data.Today,
 		Customers:    apiCustomerOptions(data.Customers),
+		Employees:    apiEmployeeOptions(data.Employees),
 		Sources:      apiOptions(data.Sources),
 		ShipStatuses: apiOptions(data.ShipStatuses),
 		PayStatuses:  apiOptions(data.PayStatuses),
@@ -270,6 +299,8 @@ func (r orderSaveAPIRequest) toCreateRequest() CreateOrderRequest {
 		ShipStatusID:          r.ShipStatusID,
 		ShipMethod:            r.ShipMethod,
 		ShipTrackingNo:        r.ShipTrackingNo,
+		ResponsibleType:       r.ResponsibleType,
+		ResponsibleID:         r.ResponsibleID,
 		Notes:                 r.Notes,
 		ShippingAmount:        r.ShippingAmount,
 		DiscountAmount:        r.DiscountAmount,
@@ -306,10 +337,28 @@ func apiCustomerOptions(in []CustomerOption) []customerAPIOption {
 		out = append(out, customerAPIOption{
 			ID:                 item.ID,
 			Name:               item.Name,
+			Contact:            item.Contact,
+			Phone:              item.Phone,
 			Py:                 support.PinyinFull(item.Name),
 			Pyi:                support.PinyinInitials(item.Name),
 			DefaultSourceID:    item.DefaultSourceID,
 			DefaultOrderTypeID: item.DefaultOrderTypeID,
+		})
+	}
+	return out
+}
+
+func apiEmployeeOptions(in []EmployeeOption) []employeeAPIOption {
+	out := make([]employeeAPIOption, 0, len(in))
+	for _, item := range in {
+		out = append(out, employeeAPIOption{
+			ID:           item.ID,
+			Name:         item.Name,
+			Phone:        item.Phone,
+			DepartmentID: item.DepartmentID,
+			Department:   item.Department,
+			Py:           support.PinyinFull(item.Name),
+			Pyi:          support.PinyinInitials(item.Name),
 		})
 	}
 	return out
@@ -327,6 +376,10 @@ func apiProducts(ps []ProductOption) []jsProduct {
 			RetailPrice200G: p.RetailPrice200G,
 			RetailPrice227G: p.RetailPrice227G,
 			RetailPrice250G: p.RetailPrice250G,
+			CustomerID:      p.CustomerID,
+			BaseProductID:   p.BaseProductID,
+			Visibility:      productVisibilityForAPI(p.Visibility, p.CustomerID),
+			CustomType:      p.CustomType,
 			RetailSpecs:     p.RetailSpecs,
 		}
 		for _, t := range p.Tiers {
@@ -335,6 +388,34 @@ func apiProducts(ps []ProductOption) []jsProduct {
 		out = append(out, jp)
 	}
 	return out
+}
+
+func filterOrderProductsForCustomer(products []ProductOption, customerID int64) []ProductOption {
+	out := make([]ProductOption, 0, len(products))
+	for _, product := range products {
+		visibility := productVisibilityForAPI(product.Visibility, product.CustomerID)
+		if visibility == "public" || product.CustomerID == 0 {
+			product.Visibility = "public"
+			out = append(out, product)
+			continue
+		}
+		if customerID > 0 && product.CustomerID == customerID {
+			product.Visibility = "customer_only"
+			out = append(out, product)
+		}
+	}
+	return out
+}
+
+func productVisibilityForAPI(visibility string, customerID int64) string {
+	visibility = strings.TrimSpace(visibility)
+	if visibility != "" {
+		return visibility
+	}
+	if customerID > 0 {
+		return "customer_only"
+	}
+	return "public"
 }
 
 func editDataForAPI(ed *OrderEditData) map[string]any {
@@ -373,6 +454,9 @@ func editDataForAPI(ed *OrderEditData) map[string]any {
 		"ship_status_id":          strconv.FormatInt(ed.ShipStatusID, 10),
 		"ship_method":             ed.ShipMethod,
 		"ship_tracking_no":        ed.ShipTrackingNo,
+		"responsible_type":        ed.ResponsibleType,
+		"responsible_id":          ed.ResponsibleID,
+		"responsible_name":        ed.ResponsibleName,
 		"notes":                   ed.Notes,
 		"shipping_amount":         ed.ShippingAmount,
 		"discount_amount":         ed.DiscountAmount,

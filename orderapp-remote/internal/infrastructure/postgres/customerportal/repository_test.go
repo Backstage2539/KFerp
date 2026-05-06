@@ -147,6 +147,87 @@ func TestCurrentContextByTokenSwitchesStaleCurrentCustomerToFirstApprovedBinding
 	}
 }
 
+func TestCurrentContextByTokenReturnsCurrentCustomerTheme(t *testing.T) {
+	ctx := context.Background()
+	pool, schema := newCustomerPortalTestDB(t)
+	repo := NewRepository(pool, schema)
+
+	var miniUserID, customerAID, customerBID int64
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`
+		INSERT INTO %s.mini_users(openid) VALUES('openid-theme') RETURNING id
+	`, schema)).Scan(&miniUserID); err != nil {
+		t.Fatalf("insert mini user: %v", err)
+	}
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`
+		INSERT INTO %s.customers(name) VALUES('主题客户A') RETURNING id
+	`, schema)).Scan(&customerAID); err != nil {
+		t.Fatalf("insert customer A: %v", err)
+	}
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`
+		INSERT INTO %s.customers(name) VALUES('主题客户B') RETURNING id
+	`, schema)).Scan(&customerBID); err != nil {
+		t.Fatalf("insert customer B: %v", err)
+	}
+	if _, err := pool.Exec(ctx, fmt.Sprintf(`
+		INSERT INTO %[1]s.customer_portal_profiles(customer_id, display_name, theme_key)
+		VALUES($1,'主题A展示名','clean_ops'),($2,'主题B展示名','premium_partner')
+	`, schema), customerAID, customerBID); err != nil {
+		t.Fatalf("insert profiles: %v", err)
+	}
+	if _, err := pool.Exec(ctx, fmt.Sprintf(`
+		INSERT INTO %[1]s.customer_portal_user_bindings(mini_user_id, customer_id, role, status)
+		VALUES($1,$2,'owner','approved'),($1,$3,'member','approved')
+	`, schema), miniUserID, customerAID, customerBID); err != nil {
+		t.Fatalf("insert bindings: %v", err)
+	}
+	if _, err := pool.Exec(ctx, fmt.Sprintf(`
+		INSERT INTO %[1]s.mini_sessions(token, mini_user_id, current_customer_id, expire_at)
+		VALUES('token-theme',$1,$2,now() + INTERVAL '1 day')
+	`, schema), miniUserID, customerBID); err != nil {
+		t.Fatalf("insert session: %v", err)
+	}
+
+	got, err := repo.CurrentContextByToken(ctx, "token-theme")
+	if err != nil {
+		t.Fatalf("CurrentContextByToken: %v", err)
+	}
+	if got.CurrentCustomerID != customerBID || got.ThemeKey != customerportalapp.PortalThemePremiumPartner {
+		t.Fatalf("current=%d theme=%q, want customerB premium_partner", got.CurrentCustomerID, got.ThemeKey)
+	}
+}
+
+func TestCreateLoginSessionReturnsDefaultThemeForUnconfiguredCustomer(t *testing.T) {
+	ctx := context.Background()
+	pool, schema := newCustomerPortalTestDB(t)
+	repo := NewRepository(pool, schema)
+
+	var miniUserID, customerID int64
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`
+		INSERT INTO %s.mini_users(openid) VALUES('openid-default-theme') RETURNING id
+	`, schema)).Scan(&miniUserID); err != nil {
+		t.Fatalf("insert mini user: %v", err)
+	}
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`
+		INSERT INTO %s.customers(name) VALUES('默认主题客户') RETURNING id
+	`, schema)).Scan(&customerID); err != nil {
+		t.Fatalf("insert customer: %v", err)
+	}
+	if _, err := pool.Exec(ctx, fmt.Sprintf(`
+		INSERT INTO %[1]s.customer_portal_user_bindings(mini_user_id, customer_id, role, status)
+		VALUES($1,$2,'owner','approved')
+	`, schema), miniUserID, customerID); err != nil {
+		t.Fatalf("insert binding: %v", err)
+	}
+
+	got, err := repo.CreateLoginSession(ctx, customerportalapp.CreateLoginSessionCommand{OpenID: "openid-default-theme"})
+	if err != nil {
+		t.Fatalf("CreateLoginSession: %v", err)
+	}
+	if got.CurrentCustomerID != customerID || got.ThemeKey != customerportalapp.PortalThemeCoffeeFactory {
+		t.Fatalf("current=%d theme=%q, want default coffee_factory", got.CurrentCustomerID, got.ThemeKey)
+	}
+}
+
 func TestEnsureSchemaRejectsNonObjectCapabilityConfig(t *testing.T) {
 	ctx := context.Background()
 	pool, schema := newCustomerPortalTestDB(t)

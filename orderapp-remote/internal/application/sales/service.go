@@ -19,6 +19,8 @@ type SaveOrderCommand struct {
 	ShipStatusID          int64
 	ShipMethod            string
 	ShipTrackingNo        string
+	ResponsibleType       string
+	ResponsibleID         int64
 	Notes                 string
 	ShippingAmount        float64
 	DiscountAmount        float64
@@ -175,8 +177,18 @@ type Option struct {
 type CustomerOption struct {
 	ID                 int64  `json:"id"`
 	Name               string `json:"name"`
+	Contact            string `json:"contact"`
+	Phone              string `json:"phone"`
 	DefaultSourceID    int64  `json:"default_source_id"`
 	DefaultOrderTypeID int64  `json:"default_order_type_id"`
+}
+
+type EmployeeOption struct {
+	ID           int64  `json:"id"`
+	Name         string `json:"name"`
+	Phone        string `json:"phone"`
+	DepartmentID int64  `json:"department_id"`
+	Department   string `json:"department"`
 }
 
 type ProductTierOption struct {
@@ -196,6 +208,10 @@ type ProductOption struct {
 	RetailPrice200G float64             `json:"retail_price_200g"`
 	RetailPrice227G float64             `json:"retail_price_227g"`
 	RetailPrice250G float64             `json:"retail_price_250g"`
+	CustomerID      int64               `json:"customer_id"`
+	BaseProductID   int64               `json:"base_product_id"`
+	Visibility      string              `json:"visibility"`
+	CustomType      string              `json:"custom_type"`
 	RetailSpecs     []int64             `json:"retail_specs"`
 	Tiers           []ProductTierOption `json:"tiers"`
 }
@@ -208,6 +224,7 @@ type OrderFormData struct {
 	PayStatuses  []Option
 	OrderTypes   []Option
 	Products     []ProductOption
+	Employees    []EmployeeOption
 	EditData     *OrderEditData
 }
 
@@ -225,17 +242,20 @@ type OrderEditItem struct {
 }
 
 type OrderEditData struct {
-	ID             int64
-	OrderNo        string
-	OrderDate      string
-	CustomerID     int64
-	SourceID       int64
-	OrderTypeID    int64
-	PayStatusID    int64
-	ShipStatusID   int64
-	ShipMethod     string
-	ShipTrackingNo string
-	Notes          string
+	ID              int64
+	OrderNo         string
+	OrderDate       string
+	CustomerID      int64
+	SourceID        int64
+	OrderTypeID     int64
+	PayStatusID     int64
+	ShipStatusID    int64
+	ShipMethod      string
+	ShipTrackingNo  string
+	ResponsibleType string
+	ResponsibleID   int64
+	ResponsibleName string
+	Notes           string
 
 	TotalAmount           string
 	ShippingAmount        string
@@ -271,6 +291,9 @@ type OrderRow struct {
 	OrderDate         string `json:"order_date"`
 	CustomerID        int64  `json:"customer_id"`
 	Customer          string `json:"customer"`
+	ResponsibleType   string `json:"responsible_type"`
+	ResponsibleID     int64  `json:"responsible_id"`
+	ResponsibleName   string `json:"responsible_name"`
 	GrandTotal        string `json:"grand_total"`
 	OrderType         string `json:"order_type"`
 	PayStatus         string `json:"pay_status"`

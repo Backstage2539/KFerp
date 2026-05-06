@@ -24,6 +24,17 @@ export function buildBeanListPdfTitle(listType, brandName = '棵凡咖啡') {
   return listType === 'retail' ? `${brand}零售豆单` : `${brand}批发豆单`
 }
 
+export function filterBeanListItemsForScope(items = [], scope = 'official', customerID = 0) {
+  const selectedCustomerID = Number(customerID || 0)
+  return (Array.isArray(items) ? items : []).filter((item) => {
+    const itemCustomerID = Number(item?.customer_id ?? item?.customerID ?? 0)
+    if (scope === 'customer') {
+      return itemCustomerID <= 0 || (selectedCustomerID > 0 && itemCustomerID === selectedCustomerID)
+    }
+    return itemCustomerID <= 0
+  })
+}
+
 export function buildBeanListPdfSubtitle(listType) {
   return listType === 'retail' ? '报价含税运' : '报价不含税、不含运'
 }

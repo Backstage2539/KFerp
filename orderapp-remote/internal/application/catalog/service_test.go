@@ -8,6 +8,7 @@ import (
 type fakeRepo struct {
 	replace ReplacePriceTiersCommand
 	update  UpdateProductBasicsCommand
+	create  CreateProductCommand
 }
 
 func (r *fakeRepo) ListProducts(ctx context.Context) ([]Product, error) {
@@ -28,6 +29,11 @@ func (r *fakeRepo) UpdateProductBasics(ctx context.Context, cmd UpdateProductBas
 	return nil
 }
 
+func (r *fakeRepo) CreateProduct(ctx context.Context, cmd CreateProductCommand) (Product, error) {
+	r.create = cmd
+	return Product{ID: 11, Name: cmd.Name, RoastLevel: cmd.RoastLevel, YieldRate: cmd.YieldRate, Visibility: "public"}, nil
+}
+
 func (r *fakeRepo) ListProductCategories(ctx context.Context) ([]ProductCategory, error) {
 	return []ProductCategory{{ID: 1, Name: "咖啡豆", Level: 1, Position: 1}}, nil
 }
@@ -46,6 +52,10 @@ func (r *fakeRepo) DeleteProductCategory(ctx context.Context, cmd DeleteProductC
 
 func (r *fakeRepo) AssignProductCategory(ctx context.Context, cmd AssignProductCategoryCommand) error {
 	return nil
+}
+
+func (r *fakeRepo) CreateCustomProduct(ctx context.Context, cmd CreateCustomProductCommand) (Product, error) {
+	return Product{ID: 10, Name: cmd.Name, CustomerID: cmd.CustomerID, BaseProductID: cmd.BaseProductID, Visibility: "customer_only", CustomType: cmd.CustomType}, nil
 }
 
 func TestServiceDelegatesCatalogOperations(t *testing.T) {
@@ -71,6 +81,13 @@ func TestServiceDelegatesCatalogOperations(t *testing.T) {
 	}
 	if repo.update.ProductID != 9 {
 		t.Fatalf("update command = %+v", repo.update)
+	}
+	product, err := svc.CreateProduct(context.Background(), CreateProductCommand{Actor: "tester", Name: "新拼配", RoastLevel: "中烘", YieldRate: 0.81})
+	if err != nil || product.ID != 11 {
+		t.Fatalf("CreateProduct() = %+v, %v", product, err)
+	}
+	if repo.create.Name != "新拼配" || repo.create.RoastLevel != "中烘" || repo.create.Actor != "tester" {
+		t.Fatalf("create command = %+v", repo.create)
 	}
 	settings, err := svc.ProductSettings(context.Background())
 	if err != nil || len(settings.Categories) != 1 || len(settings.Products) != 1 {

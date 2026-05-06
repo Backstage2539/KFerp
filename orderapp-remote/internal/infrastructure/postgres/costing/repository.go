@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strconv"
 	"strings"
 
 	appcosting "orderapp/internal/application/costing"
@@ -48,7 +49,12 @@ func (r Repository) LoadProductInputs(ctx context.Context, params domain.Paramet
 	q := fmt.Sprintf(`
 		SELECT p.id,
 		       p.name,
+		       COALESCE(base_p.name, p.name),
 		       COALESCE(p.roast_level, ''),
+		       COALESCE(p.customer_id, 0),
+		       COALESCE(p.base_product_id, 0),
+		       COALESCE(NULLIF(p.visibility, ''), 'public'),
+		       COALESCE(p.custom_type, ''),
 		       COALESCE(NULLIF(b.yield_rate,0), $1),
 		       COALESCE(SUM(COALESCE(m.purchase_price,0) * COALESCE(bi.ratio_pct,0) / 100.0),0),
 		       COALESCE(string_agg(DISTINCT NULLIF(bp.flavor, ''), ' / ') FILTER (WHERE NULLIF(bp.flavor, '') IS NOT NULL), ''),
@@ -64,10 +70,11 @@ func (r Repository) LoadProductInputs(ctx context.Context, params domain.Paramet
 		LEFT JOIN %s.product_bom_items bi ON bi.product_id = p.id
 		LEFT JOIN %s.materials m ON m.id = bi.material_id
 		LEFT JOIN %s.material_bean_profiles bp ON bp.material_id = m.id
+		LEFT JOIN %s.products base_p ON base_p.id = p.base_product_id
 		WHERE p.active = true
-		GROUP BY p.id, p.name, p.roast_level, b.yield_rate
+		GROUP BY p.id, p.name, base_p.name, p.roast_level, p.customer_id, p.base_product_id, p.visibility, p.custom_type, b.yield_rate
 		ORDER BY p.name
-	`, r.schema, r.schema, r.schema, r.schema, r.schema)
+	`, r.schema, r.schema, r.schema, r.schema, r.schema, r.schema)
 	rows, err := r.pool.Query(ctx, q, params.RoastYieldRate)
 	if err != nil {
 		return nil, err
@@ -79,7 +86,7 @@ func (r Repository) LoadProductInputs(ctx context.Context, params domain.Paramet
 		var input domain.ProductInput
 		var roastLevel string
 		var fallbackYield float64
-		if err := rows.Scan(&input.ProductID, &input.Name, &roastLevel, &fallbackYield, &input.GreenBeanCostPerKg, &input.Flavor, &input.Origin, &input.ProcessingStation, &input.Variety, &input.ProcessMethod, &input.Grade, &input.Altitude, &input.BeanListNote); err != nil {
+		if err := rows.Scan(&input.ProductID, &input.Name, &input.BeanListTemplateName, &roastLevel, &input.CustomerID, &input.BaseProductID, &input.Visibility, &input.CustomType, &fallbackYield, &input.GreenBeanCostPerKg, &input.Flavor, &input.Origin, &input.ProcessingStation, &input.Variety, &input.ProcessMethod, &input.Grade, &input.Altitude, &input.BeanListNote); err != nil {
 			return nil, err
 		}
 		_ = roastLevel
@@ -238,6 +245,9 @@ func (r Repository) PublishBeanList(ctx context.Context, cmd appcosting.PublishB
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
+	if err := validateBeanListProductScope(ctx, tx, r.schema, cmd); err != nil {
+		return nil, err
+	}
 	if _, err := tx.Exec(ctx, fmt.Sprintf(`
 		UPDATE %s.bean_list_publications
 		SET status='withdrawn', withdrawn_at=now(), updated_at=now()
@@ -325,6 +335,9 @@ func (r Repository) SaveBeanListDraft(ctx context.Context, cmd appcosting.Publis
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
+	if err := validateBeanListProductScope(ctx, tx, r.schema, cmd); err != nil {
+		return nil, err
+	}
 	config, err := json.Marshal(cmd.Config)
 	if err != nil {
 		return nil, err
@@ -670,6 +683,133 @@ func applyParameter(params *domain.Parameters, key string, value float64) {
 
 func floatPtr(v float64) *float64 {
 	return &v
+}
+
+func validateBeanListProductScope(ctx context.Context, tx pgx.Tx, schema string, cmd appcosting.PublishBeanListCommand) error {
+	ids := beanListContentProductIDs(cmd.Content)
+	if len(ids) == 0 {
+		return nil
+	}
+	ownerType := strings.TrimSpace(cmd.OwnerType)
+	if ownerType != "official" && ownerType != "customer" {
+		return nil
+	}
+	customerID := int64(0)
+	if ownerType == "customer" {
+		id, err := strconv.ParseInt(strings.TrimSpace(cmd.OwnerKey), 10, 64)
+		if err != nil || id <= 0 {
+			return fmt.Errorf("customer_id required")
+		}
+		customerID = id
+	}
+	rows, err := tx.Query(ctx, fmt.Sprintf(`
+		SELECT id, COALESCE(customer_id,0)
+		FROM %s.products
+		WHERE active=true AND id = ANY($1)
+	`, schema), ids)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	seen := map[int64]bool{}
+	for rows.Next() {
+		var productID, productCustomerID int64
+		if err := rows.Scan(&productID, &productCustomerID); err != nil {
+			return err
+		}
+		seen[productID] = true
+		if ownerType == "official" && productCustomerID > 0 {
+			return fmt.Errorf("official bean list cannot include customer SKU")
+		}
+		if ownerType == "customer" && productCustomerID > 0 && productCustomerID != customerID {
+			return fmt.Errorf("customer bean list cannot include another customer's SKU")
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	for _, id := range ids {
+		if !seen[id] {
+			return fmt.Errorf("bean list product not found")
+		}
+	}
+	return nil
+}
+
+func beanListContentProductIDs(content map[string]any) []int64 {
+	groups, ok := anySlice(content["groups"])
+	if !ok {
+		return nil
+	}
+	seen := map[int64]bool{}
+	out := make([]int64, 0)
+	for _, group := range groups {
+		groupMap, ok := anyMap(group)
+		if !ok {
+			continue
+		}
+		items, ok := anySlice(groupMap["items"])
+		if !ok {
+			continue
+		}
+		for _, item := range items {
+			itemMap, ok := anyMap(item)
+			if !ok {
+				continue
+			}
+			id := anyInt64(itemMap["productId"])
+			if id <= 0 {
+				id = anyInt64(itemMap["product_id"])
+			}
+			if id <= 0 {
+				id = anyInt64(itemMap["productID"])
+			}
+			if id > 0 && !seen[id] {
+				seen[id] = true
+				out = append(out, id)
+			}
+		}
+	}
+	return out
+}
+
+func anySlice(value any) ([]any, bool) {
+	switch v := value.(type) {
+	case []any:
+		return v, true
+	case []map[string]any:
+		out := make([]any, 0, len(v))
+		for _, item := range v {
+			out = append(out, item)
+		}
+		return out, true
+	default:
+		return nil, false
+	}
+}
+
+func anyMap(value any) (map[string]any, bool) {
+	v, ok := value.(map[string]any)
+	return v, ok
+}
+
+func anyInt64(value any) int64 {
+	switch v := value.(type) {
+	case int64:
+		return v
+	case int:
+		return int64(v)
+	case float64:
+		return int64(v)
+	case json.Number:
+		i, _ := v.Int64()
+		return i
+	case string:
+		i, _ := strconv.ParseInt(strings.TrimSpace(v), 10, 64)
+		return i
+	default:
+		return 0
+	}
 }
 
 func commercialTiersForPublish(item domain.ProductResult) []domain.CommercialWholesaleTier {

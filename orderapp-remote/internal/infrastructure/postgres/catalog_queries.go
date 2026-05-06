@@ -34,6 +34,11 @@ type ProductOption struct {
 	YieldRate               float64
 	ProductCategoryID       int64
 	ProductCategoryPosition int
+	CustomerID              int64
+	BaseProductID           int64
+	Visibility              string
+	CustomType              string
+	BomItemCount            int
 	RetailSpecs             []int64
 	Tiers                   []ProductTierOption
 }
@@ -64,7 +69,12 @@ func FetchProducts(ctx context.Context, pool *pgxpool.Pool, schema string) ([]Pr
 		COALESCE(p.retail_price_250g, 0),
 		COALESCE(b.yield_rate, 0.8),
 		COALESCE(p.product_category_id, 0),
-		COALESCE(p.product_category_position, 0)
+		COALESCE(p.product_category_position, 0),
+		COALESCE(p.customer_id, 0),
+		COALESCE(p.base_product_id, 0),
+		COALESCE(NULLIF(p.visibility,''), 'public'),
+		COALESCE(p.custom_type, ''),
+		COALESCE((SELECT COUNT(*) FROM %[1]s.product_bom_items bi WHERE bi.product_id=p.id), 0)
 		FROM %[1]s.products p
 		LEFT JOIN %[1]s.product_bom b ON b.product_id=p.id
 		WHERE p.active=true ORDER BY p.name`, schema)
@@ -77,7 +87,7 @@ func FetchProducts(ctx context.Context, pool *pgxpool.Pool, schema string) ([]Pr
 	out := make([]ProductOption, 0)
 	for rows.Next() {
 		var p ProductOption
-		if err := rows.Scan(&p.ID, &p.Name, &p.RoastLevel, &p.DefaultPrice, &p.RetailPrice100G, &p.RetailPrice200G, &p.RetailPrice227G, &p.RetailPrice250G, &p.YieldRate, &p.ProductCategoryID, &p.ProductCategoryPosition); err != nil {
+		if err := rows.Scan(&p.ID, &p.Name, &p.RoastLevel, &p.DefaultPrice, &p.RetailPrice100G, &p.RetailPrice200G, &p.RetailPrice227G, &p.RetailPrice250G, &p.YieldRate, &p.ProductCategoryID, &p.ProductCategoryPosition, &p.CustomerID, &p.BaseProductID, &p.Visibility, &p.CustomType, &p.BomItemCount); err != nil {
 			return nil, err
 		}
 		p.RetailSpecs = salesdomain.RetailAvailableSpecs(salesdomain.RetailSpecPrices{

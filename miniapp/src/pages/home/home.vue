@@ -4,6 +4,7 @@ import { onShow } from '@dcloudio/uni-app'
 import { fetchMe } from '../../api/customerPortal'
 import { useSessionStore } from '../../stores/session'
 import { visibleHomeEntries } from '../../utils/capabilities'
+import { miniappThemeClass, miniappThemeMeta } from '../../utils/themes'
 
 const session = useSessionStore()
 const loading = ref(false)
@@ -11,6 +12,8 @@ const errorMessage = ref('')
 
 const entries = computed(() => visibleHomeEntries(session.capabilities))
 const customerName = computed(() => session.currentCustomerName || '客户中心')
+const themeClass = computed(() => miniappThemeClass(session.themeKey))
+const themeMeta = computed(() => miniappThemeMeta(session.themeKey))
 
 function openEntry(url: string) {
   uni.navigateTo({ url })
@@ -43,11 +46,11 @@ onShow(() => {
 </script>
 
 <template>
-  <view class="page">
+  <view class="page" :class="themeClass">
     <view class="header">
-      <text class="eyebrow">当前客户</text>
+      <text class="eyebrow">{{ themeMeta.eyebrow }}</text>
       <text class="title">{{ customerName }}</text>
-      <text class="subtitle">选择一个服务入口继续办理。</text>
+      <text class="subtitle">{{ themeMeta.subtitle }}</text>
     </view>
 
     <view v-if="loading" class="state">
@@ -74,32 +77,70 @@ onShow(() => {
 .page {
   min-height: 100vh;
   padding: 32rpx;
-  background: #f6f6f6;
+  background: #f7f2ea;
   box-sizing: border-box;
+}
+
+.page.theme-coffee-factory {
+  background: #f7f2ea;
+}
+
+.page.theme-clean-ops {
+  background: #f5f7f6;
+}
+
+.page.theme-premium-partner {
+  background: #fbf7ef;
 }
 
 .header {
   display: flex;
   flex-direction: column;
   gap: 14rpx;
-  padding: 24rpx 0 36rpx;
+  padding: 30rpx 28rpx 34rpx;
+  margin-bottom: 24rpx;
+  border-radius: 28rpx;
+  background: linear-gradient(135deg, #2b2118 0%, #6b4b2b 100%);
+}
+
+.theme-clean-ops .header {
+  background: #ffffff;
+  border: 1rpx solid #dfe7e2;
+}
+
+.theme-premium-partner .header {
+  background: linear-gradient(135deg, #111111 0%, #513018 55%, #b88a46 100%);
 }
 
 .eyebrow {
-  color: #6f5d2e;
+  color: rgba(255, 248, 235, 0.78);
   font-size: 24rpx;
-  font-weight: 600;
+  font-weight: 900;
+}
+
+.theme-clean-ops .eyebrow {
+  color: #28624a;
 }
 
 .title {
-  color: #171717;
-  font-size: 40rpx;
-  font-weight: 700;
+  color: #fff8eb;
+  font-size: 42rpx;
+  font-weight: 900;
+  line-height: 1.18;
+}
+
+.theme-clean-ops .title {
+  color: #14201a;
 }
 
 .subtitle {
-  color: #666666;
+  color: rgba(255, 248, 235, 0.82);
   font-size: 26rpx;
+  line-height: 1.55;
+}
+
+.theme-clean-ops .subtitle {
+  color: #66756c;
 }
 
 .grid {
@@ -109,25 +150,38 @@ onShow(() => {
 }
 
 .entry {
-  min-height: 156rpx;
+  min-height: 168rpx;
   display: flex;
   align-items: center;
   justify-content: center;
   padding: 24rpx;
-  background: #ffffff;
-  border: 1rpx solid #e8e8e8;
-  border-radius: 8rpx;
+  background: #fffaf2;
+  border: 1rpx solid #ead9bd;
+  border-radius: 16rpx;
   box-sizing: border-box;
 }
 
+.theme-clean-ops .entry {
+  background: #ffffff;
+  border-color: #dde7e1;
+}
+
+.theme-premium-partner .entry {
+  background: #fffdf8;
+  border-color: #eadab7;
+}
+
 .entry-pressed {
-  background: #f0f0f0;
+  transform: scale(.99);
+  opacity: .86;
 }
 
 .entry-label {
   color: #171717;
   font-size: 30rpx;
-  font-weight: 600;
+  font-weight: 800;
+  line-height: 1.35;
+  text-align: center;
 }
 
 .state {

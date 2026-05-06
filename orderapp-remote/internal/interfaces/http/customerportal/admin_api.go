@@ -16,6 +16,7 @@ type portalVisibilityRequest struct {
 	ProcessingWarehouseCode string                               `json:"processing_warehouse_code"`
 	DefaultSenderID         int64                                `json:"default_sender_id"`
 	Enabled                 *bool                                `json:"enabled"`
+	ThemeKey                string                               `json:"theme_key"`
 	Capabilities            []customerportalapp.CapabilityOption `json:"capabilities"`
 }
 
@@ -71,6 +72,7 @@ func registerAdminAPI(e *echo.Echo, svc Service) {
 			ProcessingWarehouseCode: req.ProcessingWarehouseCode,
 			DefaultSenderID:         req.DefaultSenderID,
 			Enabled:                 enabled,
+			ThemeKey:                req.ThemeKey,
 			Capabilities:            req.Capabilities,
 			UpdatedBy:               support.ActorOf(c),
 		})

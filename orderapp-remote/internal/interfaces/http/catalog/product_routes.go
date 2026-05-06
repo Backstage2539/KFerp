@@ -22,7 +22,9 @@ func registerProductRoutes(e *echo.Echo, catalogSvc *catalogapp.Service) {
 	e.PUT("/api/products/:id", h.updateAPI)
 	e.GET("/api/product-settings", h.productSettingsAPI)
 	e.GET("/api/product-settings/categories", h.productCategoriesAPI)
+	e.POST("/api/product-settings/products", h.createProductAPI)
 	e.POST("/api/product-settings/categories", h.saveProductCategoryAPI)
+	e.POST("/api/product-settings/custom-products", h.createCustomProductAPI)
 	e.PUT("/api/product-settings/categories/:id", h.saveProductCategoryAPI)
 	e.DELETE("/api/product-settings/categories/:id", h.deleteProductCategoryAPI)
 	e.POST("/api/product-settings/categories/:id/move", h.moveProductCategoryAPI)
@@ -42,6 +44,17 @@ type productUpdateAPIRequest struct {
 	RetailPrice250G float64                   `json:"retail_price_250g"`
 	YieldRate       float64                   `json:"yield_rate"`
 	Tiers           []productTierAPIUpsertRow `json:"tiers"`
+}
+
+type productCreateAPIRequest struct {
+	Name            string  `json:"name"`
+	RoastLevel      string  `json:"roast_level"`
+	DefaultPrice    float64 `json:"default_price"`
+	RetailPrice100G float64 `json:"retail_price_100g"`
+	RetailPrice200G float64 `json:"retail_price_200g"`
+	RetailPrice227G float64 `json:"retail_price_227g"`
+	RetailPrice250G float64 `json:"retail_price_250g"`
+	YieldRate       float64 `json:"yield_rate"`
 }
 
 type productTierAPIUpsertRow struct {
@@ -66,6 +79,16 @@ type productCategoryMoveAPIRequest struct {
 type productAssignCategoryAPIRequest struct {
 	CategoryID int64 `json:"category_id"`
 	Position   int   `json:"position"`
+}
+
+type customProductAPIRequest struct {
+	CustomerID     int64  `json:"customer_id"`
+	BaseProductID  int64  `json:"base_product_id"`
+	Name           string `json:"name"`
+	RoastLevel     string `json:"roast_level"`
+	CustomType     string `json:"custom_type"`
+	CopyBOM        bool   `json:"copy_bom"`
+	CopyPriceTiers bool   `json:"copy_price_tiers"`
 }
 
 func (h productHandler) index(c echo.Context) error {
@@ -138,6 +161,36 @@ func (h productHandler) updateAPI(c echo.Context) error {
 	return c.JSON(http.StatusOK, map[string]any{"product": productOptionFromCatalog(*p)})
 }
 
+func (h productHandler) createProductAPI(c echo.Context) error {
+	var req productCreateAPIRequest
+	if err := c.Bind(&req); err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]any{"error": "bad request"})
+	}
+	roastLevel := NormalizeRoastLevel(req.RoastLevel)
+	if roastLevel == "" {
+		return c.JSON(http.StatusBadRequest, map[string]any{"error": "invalid roast_level"})
+	}
+	yieldRate := normalizeProductYieldRate(req.YieldRate)
+	if req.YieldRate > 0 && yieldRate <= 0 {
+		return c.JSON(http.StatusBadRequest, map[string]any{"error": "invalid yield_rate"})
+	}
+	product, err := h.catalog.CreateProduct(c.Request().Context(), catalogapp.CreateProductCommand{
+		Actor:           support.ActorOf(c),
+		Name:            req.Name,
+		RoastLevel:      roastLevel,
+		DefaultPrice:    req.DefaultPrice,
+		RetailPrice100G: req.RetailPrice100G,
+		RetailPrice200G: req.RetailPrice200G,
+		RetailPrice227G: req.RetailPrice227G,
+		RetailPrice250G: req.RetailPrice250G,
+		YieldRate:       yieldRate,
+	})
+	if err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]any{"error": err.Error()})
+	}
+	return c.JSON(http.StatusOK, map[string]any{"product": productOptionFromCatalog(product)})
+}
+
 func normalizeProductYieldRate(value float64) float64 {
 	if value <= 0 {
 		return 0
@@ -193,6 +246,27 @@ func (h productHandler) saveProductCategoryAPI(c echo.Context) error {
 		return c.JSON(http.StatusInternalServerError, map[string]any{"error": err.Error()})
 	}
 	return c.JSON(http.StatusOK, map[string]any{"category": row})
+}
+
+func (h productHandler) createCustomProductAPI(c echo.Context) error {
+	var req customProductAPIRequest
+	if err := c.Bind(&req); err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]any{"error": "bad request"})
+	}
+	product, err := h.catalog.CreateCustomProduct(c.Request().Context(), catalogapp.CreateCustomProductCommand{
+		Actor:          support.ActorOf(c),
+		CustomerID:     req.CustomerID,
+		BaseProductID:  req.BaseProductID,
+		Name:           req.Name,
+		RoastLevel:     req.RoastLevel,
+		CustomType:     req.CustomType,
+		CopyBOM:        req.CopyBOM,
+		CopyPriceTiers: req.CopyPriceTiers,
+	})
+	if err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]any{"error": err.Error()})
+	}
+	return c.JSON(http.StatusOK, map[string]any{"product": productOptionFromCatalog(product)})
 }
 
 func (h productHandler) moveProductCategoryAPI(c echo.Context) error {

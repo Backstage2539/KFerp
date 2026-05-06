@@ -56,6 +56,22 @@
             <input v-model="row.form.enabled" type="checkbox" />
             <span>{{ row.form.enabled ? '门户启用' : '门户停用' }}</span>
           </label>
+          <div class="theme-picker">
+            <span>小程序主题</span>
+            <div class="theme-options">
+              <button
+                v-for="theme in customerPortalThemeOptions"
+                :key="`${row.customer.id}-${theme.key}`"
+                type="button"
+                class="theme-option"
+                :class="{ selected: row.form.theme_key === theme.key }"
+                :title="theme.description"
+                @click="row.form.theme_key = theme.key">
+                <i :class="['theme-swatch', theme.swatchClass]"></i>
+                <span>{{ theme.label }}</span>
+              </button>
+            </div>
+          </div>
           <button class="primary" type="button" @click="saveVisibility(row)" :disabled="row.saving || row.loading">
             {{ row.saving ? '保存中' : '保存配置' }}
           </button>
@@ -85,6 +101,7 @@
 <script setup>
 import { onMounted, ref } from 'vue'
 import { apiGet, apiSend } from '../api/client'
+import { customerPortalThemeOptions, normalizeCustomerPortalThemeKey } from '../lib/customer-portal-theme'
 
 const q = ref('')
 const portalRows = ref([])
@@ -139,6 +156,7 @@ function createPortalRow(customer) {
       processing_warehouse_code: customer.processing_warehouse_code || '',
       default_sender_id: Number(customer.default_sender_id || 0),
       enabled: customer.portal_enabled !== false,
+      theme_key: normalizeCustomerPortalThemeKey(customer.theme_key),
     },
     capabilities: [],
     bindings: [],
@@ -163,6 +181,7 @@ function assignRowDetail(row, data) {
   row.form.processing_warehouse_code = row.customer.processing_warehouse_code || ''
   row.form.default_sender_id = Number(row.customer.default_sender_id || 0)
   row.form.enabled = row.customer.portal_enabled !== false
+  row.form.theme_key = normalizeCustomerPortalThemeKey(row.customer.theme_key)
   row.bindings = data?.bindings || []
   row.capabilities = (data?.capabilities || []).map((item) => ({
     code: item.code,
@@ -186,6 +205,7 @@ async function saveVisibility(row) {
         processing_warehouse_code: row.form.processing_warehouse_code,
         default_sender_id: Number(row.form.default_sender_id || 0),
         enabled: !!row.form.enabled,
+        theme_key: normalizeCustomerPortalThemeKey(row.form.theme_key),
         capabilities: row.capabilities.map((item) => ({
           code: item.code,
           enabled: !!item.enabled,
@@ -232,6 +252,30 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .check { display: inline-flex; align-items: center; gap: 8px; }
 .check input, .capability input { width: auto; height: auto; }
 .check span { margin: 0; color: #333; font-size: 13px; }
+.theme-picker { display: flex; flex-direction: column; gap: 5px; }
+.theme-picker > span { color: #666; font-size: 12px; }
+.theme-options { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 4px; }
+.theme-option {
+  min-height: 44px;
+  display: grid;
+  grid-template-columns: 14px minmax(0, 1fr);
+  column-gap: 5px;
+  align-items: center;
+  width: 100%;
+  height: auto;
+  padding: 5px 6px;
+  border: 1px solid #e4e7ec;
+  border-radius: 6px;
+  background: #fff;
+  color: #171717;
+  text-align: left;
+}
+.theme-option.selected { border-color: #1f1f1f; box-shadow: 0 0 0 2px rgba(31,31,31,.08); }
+.theme-option span { min-width: 0; color: #333; font-size: 12px; line-height: 1.2; overflow-wrap: anywhere; }
+.theme-swatch { width: 14px; height: 14px; border-radius: 999px; }
+.theme-swatch-coffee { background: linear-gradient(135deg, #2b2118, #9b7141); }
+.theme-swatch-clean { background: linear-gradient(135deg, #e7f0eb, #28624a); }
+.theme-swatch-premium { background: linear-gradient(135deg, #111, #b88a46); }
 .capability-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 8px; }
 .capability { min-height: 74px; border: 1px solid #e4e7ec; border-radius: 8px; padding: 9px; display: grid; grid-template-columns: auto 1fr; column-gap: 8px; row-gap: 4px; align-items: start; }
 .capability strong { font-size: 14px; line-height: 1.3; }
