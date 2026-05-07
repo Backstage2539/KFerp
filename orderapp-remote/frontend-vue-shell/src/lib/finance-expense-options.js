@@ -1,0 +1,61 @@
+export const expenseCategoryOptions = [
+  '人工',
+  '工资',
+  '社保公积金',
+  '员工福利',
+  '员工报销',
+  '房租',
+  '物业费',
+  '水电燃气',
+  '办公用品',
+  '包材耗材',
+  '生产耗材',
+  '物流快递',
+  '仓储费',
+  '装卸搬运',
+  '差旅费',
+  '业务招待',
+  '广告推广',
+  '平台服务费',
+  '软件服务费',
+  '设备维修',
+  '设备折旧',
+  '装修摊销',
+  '检测费',
+  '样品费',
+  '外协加工费',
+  '烘焙加工费',
+  '分拣加工费',
+  '清洁消杀',
+  '培训费',
+  '保险费',
+  '税费',
+  '银行手续费',
+  '咨询服务费',
+  '财务代账',
+  '其他',
+]
+
+export const expensePaymentOptions = [
+  '微信支付',
+  '支付宝',
+  '银行转账',
+  '对公银行',
+  '现金',
+  'POS刷卡',
+  '公司信用卡',
+  '员工垫付',
+  '员工报销',
+  '供应商月结',
+  '应付未付',
+  '货到付款',
+  '余额抵扣',
+  '支票',
+  '其他',
+]
+
+export function filterExpenseOptions(options, query) {
+  const keyword = String(query || '').trim().toLowerCase()
+  if (!keyword) return [...options]
+  return options.filter((option) => String(option).toLowerCase().includes(keyword))
+}

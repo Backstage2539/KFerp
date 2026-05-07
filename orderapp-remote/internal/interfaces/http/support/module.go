@@ -7,11 +7,20 @@ import (
 	"github.com/labstack/echo/v4"
 )
 
-func RegisterRoutes(e *echo.Echo, pool *pgxpool.Pool, schema string) {
+type Dependencies struct {
+	Authz AuthzService
+}
+
+func RegisterRoutes(e *echo.Echo, pool *pgxpool.Pool, schema string, deps ...Dependencies) {
+	var d Dependencies
+	if len(deps) > 0 {
+		d = deps[0]
+	}
 	registerStaticFrontendRoutes(e)
+	registerAuthzAPI(e, d.Authz)
 	registerRequirementPages(e, pool, schema)
 	registerRequirementAPIs(e, pool, schema)
-	registerMobileAuthAPI(e, pool, schema)
+	registerMobileAuthAPI(e, pool, schema, d.Authz)
 	registerCoreRoutes(e, pool, schema)
 	registerDocsRoutes(e)
 }

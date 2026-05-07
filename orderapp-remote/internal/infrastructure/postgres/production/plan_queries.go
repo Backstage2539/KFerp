@@ -63,7 +63,7 @@ func (r Repository) PlanSummary(ctx context.Context, query productionapp.PlanSum
 		planRows = append(planRows, row)
 	}
 	if selectedCount > 0 && len(planRows) == 0 {
-		data.StockTip = "库存充足：当前已选商品库存均可满足，无需补产。"
+		data.StockTip = "库存充足：当前已选商品库存均可满足；录单确认使用成品批次后会进入库存待发货，可直接发货。"
 		return data, nil
 	}
 
@@ -85,6 +85,15 @@ func (r Repository) PlanSummary(ctx context.Context, query productionapp.PlanSum
 	}
 	data.PlanRows = buildProducePlanDisplayRows(planRows, yieldMap, finalInputByKey)
 	data.Materials = calcProducePlanMaterialsFromFinalInputs(planRows, finalInputByKey, bomMap, params)
+	if materialPlan, err := r.MaterialPlan(ctx, productionapp.MaterialPlanQuery{
+		From:       query.From,
+		To:         query.To,
+		CustomerID: query.CustomerID,
+		Selected:   query.Selected,
+		InputByKey: finalInputByKey,
+	}); err == nil {
+		data.Materials = mergeMaterialAvailability(data.Materials, materialPlan.Rows)
+	}
 	data.RoastSplits = calcRoastSplits(planRows, machines, params.YieldRate)
 	return data, nil
 }
@@ -361,6 +370,34 @@ func calcProducePlanMaterialsFromFinalInputs(rows []productionapp.UnprodNeedRow,
 		return out[i].Name < out[j].Name
 	})
 	return out
+}
+
+func mergeMaterialAvailability(materials []productionapp.MaterialNeed, planRows []productionapp.MaterialPlanRow) []productionapp.MaterialNeed {
+	if len(materials) == 0 || len(planRows) == 0 {
+		return materials
+	}
+	availabilityByKey := map[string]productionapp.MaterialPlanRow{}
+	for _, row := range planRows {
+		availabilityByKey[materialAvailabilityKey(row.MaterialName, row.Unit)] = row
+	}
+	for i := range materials {
+		row, ok := availabilityByKey[materialAvailabilityKey(materials[i].Name, materials[i].Unit)]
+		if !ok {
+			continue
+		}
+		materials[i].WIPG = row.WIPG
+		materials[i].AvailableG = row.AvailableG
+		materials[i].RawG = row.RawG
+		materials[i].ReservedG = row.ReservedG
+		materials[i].WIPTransferSuggestionG = row.WIPTransferSuggestionG
+		materials[i].ShortageG = row.ShortageG
+		materials[i].PurchaseSuggestionG = row.PurchaseSuggestionG
+	}
+	return materials
+}
+
+func materialAvailabilityKey(name string, unit string) string {
+	return strings.TrimSpace(name) + "::" + strings.ToLower(strings.TrimSpace(unit))
 }
 
 func calcNoBomProducePlanMaterials(row productionapp.UnprodNeedRow, p planParams) []productionapp.MaterialNeed {

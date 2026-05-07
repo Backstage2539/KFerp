@@ -8,6 +8,9 @@ import (
 type UpsertCommand struct {
 	Name               string
 	RawName            string
+	CompanyName        string
+	CompanyAddress     string
+	CompanyPhone       string
 	Contact            string
 	Phone              string
 	Address            string
@@ -18,6 +21,9 @@ type UpsertCommand struct {
 
 type InlineUpdateCommand struct {
 	Name               string
+	CompanyName        string
+	CompanyAddress     string
+	CompanyPhone       string
 	Contact            string
 	Phone              string
 	Address            string
@@ -73,6 +79,9 @@ type ListResult struct {
 type CustomerRow struct {
 	ID                 int64   `json:"id"`
 	Name               string  `json:"name"`
+	CompanyName        string  `json:"company_name"`
+	CompanyAddress     string  `json:"company_address"`
+	CompanyPhone       string  `json:"company_phone"`
 	Contact            *string `json:"contact"`
 	Phone              *string `json:"phone"`
 	Address            *string `json:"address"`
@@ -86,6 +95,9 @@ type CustomerEditData struct {
 	ID                 int64
 	Name               string
 	RawName            string
+	CompanyName        string
+	CompanyAddress     string
+	CompanyPhone       string
 	Contact            string
 	Phone              string
 	Address            string

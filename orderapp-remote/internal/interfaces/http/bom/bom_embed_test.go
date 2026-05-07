@@ -14,12 +14,18 @@ func TestVueShellEmbedsBomWithoutNestedMenu(t *testing.T) {
 	appSrc := string(app)
 	for _, want := range []string{
 		"import BomView from './views/BomView.vue'",
-		"bom: { title: 'BOM配方维护'",
 		"bom: BomView",
 	} {
 		if !strings.Contains(appSrc, want) {
 			t.Fatalf("frontend-vue-shell/src/App.vue missing %q", want)
 		}
+	}
+	menuIA, err := os.ReadFile("frontend-vue-shell/src/lib/menu-ia.js")
+	if err != nil {
+		t.Fatalf("ReadFile(menu-ia.js): %v", err)
+	}
+	if !strings.Contains(string(menuIA), "BOM配方维护") {
+		t.Fatal("frontend-vue-shell/src/lib/menu-ia.js missing BOM menu title")
 	}
 	for _, bad := range []string{"BOM_REACT_URL", "legacyUrl: BOM_REACT_URL"} {
 		if strings.Contains(appSrc, bad) {

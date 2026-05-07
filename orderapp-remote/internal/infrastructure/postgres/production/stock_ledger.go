@@ -77,6 +77,8 @@ CREATE INDEX IF NOT EXISTS stock_ledger_item_idx
 	_, _ = pool.Exec(ctx, fmt.Sprintf(`ALTER TABLE %s.stock_batches ADD COLUMN IF NOT EXISTS remaining_g BIGINT NOT NULL DEFAULT 0`, schema))
 	_, _ = pool.Exec(ctx, fmt.Sprintf(`ALTER TABLE %s.stock_batches ADD COLUMN IF NOT EXISTS remaining_units BIGINT NOT NULL DEFAULT 0`, schema))
 	_, _ = pool.Exec(ctx, fmt.Sprintf(`ALTER TABLE %s.stock_batches ADD COLUMN IF NOT EXISTS unit_cost NUMERIC(12,4) NOT NULL DEFAULT 0`, schema))
+	_, _ = pool.Exec(ctx, fmt.Sprintf(`ALTER TABLE %s.stock_batches ADD COLUMN IF NOT EXISTS quality_status TEXT NOT NULL DEFAULT 'unchecked'`, schema))
+	_, _ = pool.Exec(ctx, fmt.Sprintf(`CREATE INDEX IF NOT EXISTS stock_batches_quality_idx ON %s.stock_batches(item_type, quality_status, batch_code)`, schema))
 	return nil
 }
 
@@ -86,6 +88,10 @@ func EnsureStockLedgerTables(ctx context.Context, pool *pgxpool.Pool, schema str
 
 func finishedProductionBatchCode(runningItemID int64) string {
 	return fmt.Sprintf("FP-%010d", runningItemID)
+}
+
+func finishedProductionBatchCodeForSpec(runningItemID int64, specG int64) string {
+	return fmt.Sprintf("FP-%010d-%dg", runningItemID, specG)
 }
 
 func finishedInventoryLedgerQty(specG int64, before, add, after InvQty) (stockLedgerQty, error) {
@@ -112,7 +118,10 @@ func finishedInventoryLedgerQty(specG int64, before, add, after InvQty) (stockLe
 }
 
 func createFinishedStockBatchTx(ctx context.Context, tx pgx.Tx, schema string, r ProduceRunRow, add InvQty, finishedTotalG int64, operator string) (string, error) {
-	batchCode := finishedProductionBatchCode(r.ID)
+	return createFinishedStockBatchWithCodeTx(ctx, tx, schema, finishedProductionBatchCode(r.ID), r, add, finishedTotalG, operator)
+}
+
+func createFinishedStockBatchWithCodeTx(ctx context.Context, tx pgx.Tx, schema string, batchCode string, r ProduceRunRow, add InvQty, finishedTotalG int64, operator string) (string, error) {
 	_, err := tx.Exec(ctx, fmt.Sprintf(`
 		INSERT INTO %s.stock_batches(
 			batch_code,item_type,item_id,item_name,spec_g,
@@ -127,10 +136,10 @@ func createFinishedStockBatchTx(ctx context.Context, tx pgx.Tx, schema string, r
 			source_doc_type=excluded.source_doc_type,
 			source_doc_id=excluded.source_doc_id,
 			source_batch_id=excluded.source_batch_id,
-			qty_g=excluded.qty_g,
-			qty_units=excluded.qty_units,
-			remaining_g=excluded.remaining_g,
-			remaining_units=excluded.remaining_units,
+			qty_g=stock_batches.qty_g+excluded.qty_g,
+			qty_units=stock_batches.qty_units+excluded.qty_units,
+			remaining_g=stock_batches.remaining_g+excluded.remaining_g,
+			remaining_units=stock_batches.remaining_units+excluded.remaining_units,
 			operator=excluded.operator
 	`, schema),
 		batchCode, stockItemTypeFinishedProduct, r.ProductID, r.Product, r.SpecG,
@@ -162,7 +171,7 @@ func insertStockLedgerEntryTx(ctx context.Context, tx pgx.Tx, schema string, ite
 	return err
 }
 
-func recordFinishedProductStockMovementTx(ctx context.Context, tx pgx.Tx, schema string, r ProduceRunRow, before, add, after InvQty, finishedTotalG int64, operator string) error {
+func recordFinishedProductStockMovementTx(ctx context.Context, tx pgx.Tx, schema string, r ProduceRunRow, before, add, after InvQty, finishedTotalG int64, warehouse string, operator string) error {
 	batchCode, err := createFinishedStockBatchTx(ctx, tx, schema, r, add, finishedTotalG, operator)
 	if err != nil {
 		return err
@@ -172,7 +181,23 @@ func recordFinishedProductStockMovementTx(ctx context.Context, tx pgx.Tx, schema
 		return err
 	}
 	return insertStockLedgerEntryTx(ctx, tx, schema,
-		stockItemTypeFinishedProduct, r.ProductID, r.Product, r.SpecG, "finished_goods",
+		stockItemTypeFinishedProduct, r.ProductID, r.Product, r.SpecG, warehouse,
+		stockSourceProductionRun, r.ID, batchCode, r.BatchID,
+		qty, operator,
+	)
+}
+
+func recordFinishedProductStockMovementWithBatchCodeTx(ctx context.Context, tx pgx.Tx, schema string, batchCode string, r ProduceRunRow, before, add, after InvQty, finishedTotalG int64, warehouse string, operator string) error {
+	batchCode, err := createFinishedStockBatchWithCodeTx(ctx, tx, schema, batchCode, r, add, finishedTotalG, operator)
+	if err != nil {
+		return err
+	}
+	qty, err := finishedInventoryLedgerQty(r.SpecG, before, add, after)
+	if err != nil {
+		return err
+	}
+	return insertStockLedgerEntryTx(ctx, tx, schema,
+		stockItemTypeFinishedProduct, r.ProductID, r.Product, r.SpecG, warehouse,
 		stockSourceProductionRun, r.ID, batchCode, r.BatchID,
 		qty, operator,
 	)

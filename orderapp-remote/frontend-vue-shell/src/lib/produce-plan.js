@@ -10,6 +10,27 @@ export function producePlanKey(productId, specG) {
   return `${productId}-${specG}`
 }
 
+function defaultSelectionKey(row) {
+  return producePlanKey(row.product_id, row.spec_g)
+}
+
+export function insufficientSelectionState(rows, selected, keyForRow = defaultSelectionKey) {
+  const keys = (rows || []).map(keyForRow)
+  const selectedCount = keys.filter((key) => !!selected?.[key]).length
+  const total = keys.length
+  return {
+    checked: total > 0 && selectedCount === total,
+    indeterminate: selectedCount > 0 && selectedCount < total,
+    selectedCount,
+    total,
+  }
+}
+
+export function buildInsufficientSelection(rows, checked, keyForRow = defaultSelectionKey) {
+  if (!checked) return {}
+  return Object.fromEntries((rows || []).map((row) => [keyForRow(row), true]))
+}
+
 export function buildFinalInputMap(roastPlans) {
   const out = {}
   for (const row of roastPlans || []) {
@@ -29,6 +50,11 @@ export function rebuildPlanRows(planRows, roastPlans) {
 export function buildMaterialSummary(planRows, roastPlans, materialRatios, initialMaterials) {
   const out = new Map()
   const dynamicNames = new Set()
+  const availabilityByName = new Map()
+
+  for (const item of initialMaterials || []) {
+    availabilityByName.set(`${item.name}::${String(item.unit || '').trim().toLowerCase()}`, item)
+  }
 
   for (const ratio of materialRatios || []) {
     if (WEIGHT_UNITS.has(String(ratio.material_unit || '').trim().toLowerCase())) {
@@ -60,7 +86,13 @@ export function buildMaterialSummary(planRows, roastPlans, materialRatios, initi
     if (qty <= 0) continue
 
     const mapKey = `${ratio.material_name}::${unit}`
-    const existing = out.get(mapKey) || { name: ratio.material_name, unit, qty: 0 }
+    const initial = availabilityByName.get(`${ratio.material_name}::${normalized}`) || {}
+    const existing = out.get(mapKey) || {
+      ...initial,
+      name: ratio.material_name,
+      unit,
+      qty: 0,
+    }
     existing.qty += qty
     out.set(mapKey, existing)
   }

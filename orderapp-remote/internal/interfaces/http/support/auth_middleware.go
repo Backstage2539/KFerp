@@ -13,13 +13,15 @@ func BasicAuth(user, pass, schema string, pool *pgxpool.Pool) echo.MiddlewareFun
 	return func(next echo.HandlerFunc) echo.HandlerFunc {
 		return func(c echo.Context) error {
 			path := c.Path()
-			if strings.HasPrefix(path, "/api/auth/") || path == "/login" {
+			requestPath := c.Request().URL.Path
+			if isAuthPublicPath(path) || isAuthPublicPath(requestPath) || path == "/login" || isPublicUnauthenticatedPath(path) || isPublicUnauthenticatedPath(requestPath) {
 				return next(c)
 			}
 
 			if u, p, ok := c.Request().BasicAuth(); ok {
 				if subtle.ConstantTimeCompare([]byte(u), []byte(user)) == 1 && subtle.ConstantTimeCompare([]byte(p), []byte(pass)) == 1 {
 					c.Set("actor", u)
+					c.Set("basic_auth_admin", true)
 					return next(c)
 				}
 			}
@@ -37,9 +39,43 @@ func BasicAuth(user, pass, schema string, pool *pgxpool.Pool) echo.MiddlewareFun
 				}
 			}
 
-			c.Response().Header().Set("WWW-Authenticate", `Basic realm="orderapp"`)
-			return c.NoContent(http.StatusUnauthorized)
+			if shouldAdvertiseBasicAuthChallenge(path, requestPath, authz) {
+				c.Response().Header().Set("WWW-Authenticate", `Basic realm="orderapp"`)
+				return c.NoContent(http.StatusUnauthorized)
+			}
+			return c.JSON(http.StatusUnauthorized, map[string]string{"error": "auth required"})
 		}
+	}
+}
+
+func shouldAdvertiseBasicAuthChallenge(path, requestPath, authz string) bool {
+	authz = strings.TrimSpace(authz)
+	if strings.HasPrefix(strings.ToLower(authz), "bearer ") {
+		return false
+	}
+	return !isAPIPath(path) && !isAPIPath(requestPath)
+}
+
+func isAPIPath(path string) bool {
+	path = strings.TrimSpace(path)
+	return strings.HasPrefix(path, "/api/") || strings.HasPrefix(path, "/app/api/")
+}
+
+func isPublicUnauthenticatedPath(path string) bool {
+	return strings.HasPrefix(path, "/api/mini/") ||
+		strings.HasPrefix(path, "/public/bean-list/") ||
+		strings.HasPrefix(path, "/share/") ||
+		strings.HasPrefix(path, "/assets/sales_order_assets/") ||
+		path == "/vue-shell" ||
+		strings.HasPrefix(path, "/vue-shell/")
+}
+
+func isAuthPublicPath(path string) bool {
+	switch path {
+	case "/api/auth/login", "/api/auth/sms/send", "/api/auth/password/set":
+		return true
+	default:
+		return false
 	}
 }
 

@@ -22,6 +22,7 @@ func EnsureSchema(ctx context.Context, pool *pgxpool.Pool, schema string) error 
 		onhand_units BIGINT NOT NULL DEFAULT 0,
 		min_level_g BIGINT NOT NULL DEFAULT 0,
 		min_level_units BIGINT NOT NULL DEFAULT 0,
+		deprecated_at TIMESTAMPTZ NULL,
 		updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 	)`, schema)
 	if _, err := pool.Exec(ctx, q); err != nil {
@@ -31,6 +32,7 @@ func EnsureSchema(ctx context.Context, pool *pgxpool.Pool, schema string) error 
 		`ALTER TABLE %[1]s.materials ADD COLUMN IF NOT EXISTS purchase_price NUMERIC(12,2) NOT NULL DEFAULT 0`,
 		`ALTER TABLE %[1]s.materials ADD COLUMN IF NOT EXISTS sale_price NUMERIC(12,2) NOT NULL DEFAULT 0`,
 		`ALTER TABLE %[1]s.materials ADD COLUMN IF NOT EXISTS batch_no TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE %[1]s.materials ADD COLUMN IF NOT EXISTS deprecated_at TIMESTAMPTZ NULL`,
 		`UPDATE %[1]s.materials SET batch_no=to_char(now(),'YYYYMMDD') WHERE batch_no=''`,
 	} {
 		if _, err := pool.Exec(ctx, fmt.Sprintf(stmt, schema)); err != nil {
@@ -38,6 +40,9 @@ func EnsureSchema(ctx context.Context, pool *pgxpool.Pool, schema string) error 
 		}
 	}
 	if err := ensureBeanProfileSchema(ctx, pool, schema); err != nil {
+		return err
+	}
+	if err := ensurePackProfileSchema(ctx, pool, schema); err != nil {
 		return err
 	}
 	logQ := fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s.material_consumption_logs (
@@ -67,6 +72,22 @@ func EnsureSchema(ctx context.Context, pool *pgxpool.Pool, schema string) error 
 	_, _ = pool.Exec(ctx, fmt.Sprintf(`ALTER TABLE %s.material_consumption_logs ADD COLUMN IF NOT EXISTS material_batch_id BIGINT NOT NULL DEFAULT 0`, schema))
 	_, _ = pool.Exec(ctx, fmt.Sprintf(`ALTER TABLE %s.material_consumption_logs ADD COLUMN IF NOT EXISTS material_batch_code TEXT NOT NULL DEFAULT ''`, schema))
 	return nil
+}
+
+func ensurePackProfileSchema(ctx context.Context, pool *pgxpool.Pool, schema string) error {
+	q := fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s.material_pack_profiles (
+		material_id BIGINT PRIMARY KEY REFERENCES %s.materials(id) ON DELETE CASCADE,
+		size_spec TEXT NOT NULL DEFAULT '',
+		dimensions TEXT NOT NULL DEFAULT '',
+		material_texture TEXT NOT NULL DEFAULT '',
+		capacity TEXT NOT NULL DEFAULT '',
+		color TEXT NOT NULL DEFAULT '',
+		note TEXT NOT NULL DEFAULT '',
+		updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+	);
+	CREATE INDEX IF NOT EXISTS material_pack_profiles_size_spec_idx ON %s.material_pack_profiles(size_spec);`, schema, schema, schema)
+	_, err := pool.Exec(ctx, q)
+	return err
 }
 
 func ensureBeanProfileSchema(ctx context.Context, pool *pgxpool.Pool, schema string) error {

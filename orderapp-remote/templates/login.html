@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>手机号登录</title>
+  <title>系统登录</title>
   <style>
     body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial; margin:0; background:#f7f7f7;}
     .wrap{max-width:420px; margin:40px auto; padding:16px;}
@@ -22,14 +22,14 @@
 <body>
   <div class="wrap">
     <div class="card">
-      <h3 style="margin-top:0">手机号登录</h3>
+      <h3 style="margin-top:0">系统登录</h3>
       <div class="tabs">
-        <button id="tabPwd" class="btn2 active" type="button" onclick="setMode('password')">手机号+密码</button>
+        <button id="tabPwd" class="btn2 active" type="button" onclick="setMode('password')">用户名/手机号+密码</button>
         <button id="tabSms" class="btn2" type="button" onclick="setMode('sms')">手机号+验证码</button>
       </div>
 
       <div class="row">
-        <input id="phone" placeholder="请输入11位手机号" />
+        <input id="login" placeholder="请输入用户名或11位手机号" />
         <input id="password" type="password" placeholder="请输入密码" />
         <div id="smsRow" style="display:none; gap:8px; grid-template-columns:1fr auto;">
           <input id="code" placeholder="6位验证码" />
@@ -49,11 +49,23 @@ function setMode(m){
   document.getElementById('tabPwd').classList.toggle('active', m==='password');
   document.getElementById('tabSms').classList.toggle('active', m==='sms');
   document.getElementById('password').style.display = m==='password' ? '' : 'none';
+  document.getElementById('login').placeholder = m==='password' ? '请输入用户名或11位手机号' : '请输入11位手机号';
   document.getElementById('smsRow').style.display = m==='sms' ? 'grid' : 'none';
   setMsg('', 'muted');
 }
 function setMsg(t, cls){ const el=document.getElementById('msg'); el.className=cls; el.textContent=t; }
-function getPhone(){ return (document.getElementById('phone').value||'').trim(); }
+function appPath(path){
+  const p=window.location.pathname || '';
+  const prefix = (p === '/app' || p.startsWith('/app/')) ? '/app' : '';
+  return prefix + path;
+}
+function getLoginIdentifier(){ return (document.getElementById('login').value||'').trim(); }
+function getPhone(){ return getLoginIdentifier(); }
+function validatePasswordLogin(){
+  if(!getLoginIdentifier()){ setMsg('请输入用户名或手机号', 'err'); return false; }
+  if(!(document.getElementById('password').value||'').trim()){ setMsg('请输入密码', 'err'); return false; }
+  return true;
+}
 function validatePhone(){
   const p=getPhone();
   if(!phoneRe.test(p)){ setMsg('仅支持中国大陆11位手机号', 'err'); return false; }
@@ -62,18 +74,24 @@ function validatePhone(){
 async function sendSms(){
   if(!validatePhone()) return;
   const p=getPhone();
-  const r=await fetch('/api/auth/sms/send',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({phone:p})});
+  const r=await fetch(appPath('/api/auth/sms/send'),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({phone:p})});
   const t=await r.text();
   if(!r.ok){ setMsg('发送失败: '+t, 'err'); return; }
   setMsg('验证码已发送（联调环境会回显code）', 'ok');
 }
 async function login(){
-  if(!validatePhone()) return;
-  const p=getPhone();
-  let body={mode, phone:p};
-  if(mode==='password') body.password=(document.getElementById('password').value||'').trim();
-  else body.code=(document.getElementById('code').value||'').trim();
-  const r=await fetch('/api/auth/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+  if(mode==='password' && !validatePasswordLogin()) return;
+  if(mode==='sms' && !validatePhone()) return;
+  const identifier=getLoginIdentifier();
+  let body={mode};
+  if(mode==='password'){
+    body.login=identifier;
+    body.password=(document.getElementById('password').value||'').trim();
+  } else {
+    body.phone=identifier;
+    body.code=(document.getElementById('code').value||'').trim();
+  }
+  const r=await fetch(appPath('/api/auth/login'),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
   const txt=await r.text();
   if(!r.ok){ setMsg('登录失败: '+txt, 'err'); return; }
   try{
@@ -81,6 +99,7 @@ async function login(){
     if(d.token) localStorage.setItem('auth_token', d.token);
   }catch(e){}
   setMsg('登录成功', 'ok');
+  window.location.href=appPath('/vue-shell?fresh_login=1');
 }
 </script>
 </body>

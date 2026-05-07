@@ -158,7 +158,10 @@ func registerShipExportRoutes(e *echo.Echo, salesSvc *salesapp.Service) {
 			return c.String(http.StatusInternalServerError, err.Error())
 		}
 
-		tmpl := strings.TrimSpace(env("SF_SMALL_TEMPLATE", "/app/docs/ship_temp.xlsx"))
+		tmpl, err := orderShippingTemplatePath()
+		if err != nil {
+			return c.String(http.StatusInternalServerError, err.Error())
+		}
 		wb, err := excelize.OpenFile(tmpl)
 		if err != nil {
 			return c.String(http.StatusInternalServerError, fmt.Sprintf("open template %s: %v", tmpl, err))
@@ -254,7 +257,10 @@ func registerShipExportRoutes(e *echo.Echo, salesSvc *salesapp.Service) {
 			return c.String(http.StatusInternalServerError, err.Error())
 		}
 
-		tmpl := strings.TrimSpace(env("SF_SMALL_TEMPLATE", "/app/docs/ship_temp.xlsx"))
+		tmpl, err := orderShippingTemplatePath()
+		if err != nil {
+			return c.String(http.StatusInternalServerError, err.Error())
+		}
 		wb, err := excelize.OpenFile(tmpl)
 		if err != nil {
 			return c.String(http.StatusInternalServerError, fmt.Sprintf("open template %s: %v", tmpl, err))

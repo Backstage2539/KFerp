@@ -74,6 +74,27 @@ func (r *fakeRepo) ListJobCards(ctx context.Context, query JobCardQuery) ([]JobC
 func (r *fakeRepo) ListBatchCosts(ctx context.Context, query BatchCostQuery) ([]BatchCostRow, error) {
 	return nil, nil
 }
+func (r *fakeRepo) MaterialPlan(ctx context.Context, query MaterialPlanQuery) (MaterialPlanResult, error) {
+	return MaterialPlanResult{}, nil
+}
+func (r *fakeRepo) CreateQualityInspection(ctx context.Context, cmd QualityInspectionCommand) (QualityInspectionRow, error) {
+	return QualityInspectionRow{}, nil
+}
+func (r *fakeRepo) ListQualityInspections(ctx context.Context, query QualityInspectionQuery) ([]QualityInspectionRow, error) {
+	return nil, nil
+}
+func (r *fakeRepo) ListWIPReservations(ctx context.Context, query WIPReservationQuery) (WIPReservationResult, error) {
+	return WIPReservationResult{}, nil
+}
+func (r *fakeRepo) AdjustWIPReservation(ctx context.Context, cmd WIPReservationAdjustCommand) (WIPReservationRow, error) {
+	return WIPReservationRow{}, nil
+}
+func (r *fakeRepo) ReleaseWIPReservations(ctx context.Context, cmd WIPReservationReleaseCommand) (WIPReservationReleaseResult, error) {
+	return WIPReservationReleaseResult{}, nil
+}
+func (r *fakeRepo) AcceptanceSmoke(ctx context.Context) (AcceptanceSmokeResult, error) {
+	return AcceptanceSmokeResult{}, nil
+}
 
 func TestServiceDelegatesProductionUseCases(t *testing.T) {
 	repo := &fakeRepo{}
@@ -123,6 +144,24 @@ func TestServiceNormalizesMachineCommand(t *testing.T) {
 	}
 	if repo.machine.Name != "新设备" || repo.machine.AllowedSpecs != "1000,3000" {
 		t.Fatalf("machine command = %+v", repo.machine)
+	}
+}
+
+func TestServiceMachineAllowedSpecsErrorExplainsRoastLoads(t *testing.T) {
+	svc := NewService(&machineFakeRepo{})
+	err := svc.SaveMachine(context.Background(), RoastMachineCommand{
+		Name:         "样机",
+		CapacityG:    3000,
+		MinRoastG:    1000,
+		AllowedSpecs: "227,454",
+		Active:       true,
+	})
+	if err == nil {
+		t.Fatal("SaveMachine error = nil, want allowed_specs validation")
+	}
+	want := "allowed_specs must list roast load grams between min_roast_g and capacity_g"
+	if err.Error() != want {
+		t.Fatalf("SaveMachine error = %q, want %q", err.Error(), want)
 	}
 }
 

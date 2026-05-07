@@ -10,12 +10,17 @@
       <div class="filters">
         <label>
           <span>商品</span>
-          <select v-model.number="selectedProductId" @change="selectProduct(selectedProductId)">
-            <option :value="0">选择商品</option>
-            <option v-for="product in products" :key="product.id" :value="product.id">{{ product.name }}</option>
-          </select>
+          <SearchableSelect
+            v-model="selectedProductId"
+            :options="products"
+            :option-label="optionLabel"
+            :option-value="optionNumericValue"
+            placeholder="选择商品"
+            empty-text="没有匹配商品"
+            @select="selectProduct(optionNumericValue($event))" />
         </label>
         <button class="primary" type="button" @click="saveBom" :disabled="!selectedProductId || loading">同步出品率</button>
+        <button class="secondary danger-outline" type="button" @click="deleteBom" :disabled="!selectedProductId || loading">删除当前 BOM</button>
       </div>
     </section>
 
@@ -66,10 +71,14 @@
         <form class="inline-form" @submit.prevent="saveItem">
           <label>
             <span>物料</span>
-            <select v-model.number="itemForm.material_id" :disabled="!detail">
-              <option :value="0">选择物料</option>
-              <option v-for="material in materials" :key="material.id" :value="material.id">{{ material.name }}</option>
-            </select>
+            <SearchableSelect
+              v-model="itemForm.material_id"
+              :options="materials"
+              :option-label="optionLabel"
+              :option-value="optionNumericValue"
+              placeholder="选择物料"
+              empty-text="没有匹配物料"
+              :disabled="!detail" />
           </label>
           <label>
             <span>比例 %</span>
@@ -186,6 +195,8 @@
 <script setup>
 import { computed, onMounted, reactive, ref } from 'vue'
 import { apiGet, apiSend } from '../api/client'
+import SearchableSelect from '../components/SearchableSelect.vue'
+import { replaceHistoryURL } from '../lib/url-state'
 
 const rows = ref([])
 const products = ref([])
@@ -213,12 +224,20 @@ function ratio(value) {
   return `${n.toFixed(2)}%`
 }
 
+function optionLabel(option) {
+  return option?.name || ''
+}
+
+function optionNumericValue(option) {
+  return Number(option?.id || 0)
+}
+
 function updateUrl() {
   const url = new URL(window.location.href)
   url.searchParams.set('view', 'bom')
   if (selectedProductId.value) url.searchParams.set('product_id', String(selectedProductId.value))
   else url.searchParams.delete('product_id')
-  window.history.replaceState({}, '', url.toString())
+  replaceHistoryURL(url)
 }
 
 async function loadAll() {
@@ -280,6 +299,19 @@ async function saveBom() {
   await mutate(async () => {
     await apiSend('/api/bom/save', { body: { product_id: selectedProductId.value } })
     ok.value = '已同步'
+    await loadAll()
+  })
+}
+
+async function deleteBom() {
+  if (!selectedProductId.value) return
+  const okToDelete = window.confirm('确认删除当前 BOM？历史版本会保留。')
+  if (!okToDelete) return
+  await mutate(async () => {
+    await apiSend(`/api/bom/${selectedProductId.value}`, { method: 'DELETE' })
+    itemForm.material_id = 0
+    itemForm.ratio_pct = ''
+    ok.value = '当前 BOM 已删除'
     await loadAll()
   })
 }
@@ -382,6 +414,7 @@ button { height: 38px; border-radius: 6px; border: 1px solid #1f1f1f; padding: 0
 button:disabled { cursor: not-allowed; opacity: .55; }
 .primary { background: #1f1f1f; color: #fff; }
 .secondary { background: #fff; color: #1f1f1f; }
+.danger-outline { border-color: #9d2626; color: #9d2626; }
 .text-button { height: 30px; border: 0; background: transparent; color: #1f4f82; padding: 0; }
 .table-wrap { overflow: auto; }
 table { width: 100%; min-width: 640px; border-collapse: collapse; }

@@ -55,6 +55,9 @@ type customerHandler struct {
 type customerUpsertAPIRequest struct {
 	Name               string `json:"name"`
 	RawName            string `json:"raw_name"`
+	CompanyName        string `json:"company_name"`
+	CompanyAddress     string `json:"company_address"`
+	CompanyPhone       string `json:"company_phone"`
 	Contact            string `json:"contact"`
 	Phone              string `json:"phone"`
 	Address            string `json:"address"`
@@ -67,6 +70,9 @@ type customerAPIModel struct {
 	ID                 int64  `json:"id"`
 	Name               string `json:"name"`
 	RawName            string `json:"raw_name"`
+	CompanyName        string `json:"company_name"`
+	CompanyAddress     string `json:"company_address"`
+	CompanyPhone       string `json:"company_phone"`
 	Contact            string `json:"contact"`
 	Phone              string `json:"phone"`
 	Address            string `json:"address"`
@@ -216,6 +222,9 @@ func (req customerUpsertAPIRequest) toFormRequest() CustomerUpsertRequest {
 	return CustomerUpsertRequest{
 		Name:               req.Name,
 		RawName:            req.RawName,
+		CompanyName:        req.CompanyName,
+		CompanyAddress:     req.CompanyAddress,
+		CompanyPhone:       req.CompanyPhone,
 		Contact:            req.Contact,
 		Phone:              req.Phone,
 		Address:            req.Address,
@@ -245,6 +254,9 @@ func customerAPIModelFromEdit(data *CustomerEditData) customerAPIModel {
 		ID:                 data.ID,
 		Name:               data.Name,
 		RawName:            data.RawName,
+		CompanyName:        data.CompanyName,
+		CompanyAddress:     data.CompanyAddress,
+		CompanyPhone:       data.CompanyPhone,
 		Contact:            data.Contact,
 		Phone:              data.Phone,
 		Address:            data.Address,

@@ -3,6 +3,8 @@ package sales
 import salesapp "orderapp/internal/application/sales"
 
 type Option = salesapp.Option
+type CustomerOption = salesapp.CustomerOption
+type EmployeeOption = salesapp.EmployeeOption
 type ProductTierOption = salesapp.ProductTierOption
 type ProductOption = salesapp.ProductOption
 type PageData = salesapp.OrderFormData
@@ -16,6 +18,8 @@ type CreateOrderRequest struct {
 	ShipStatusID          int64  `form:"ship_status_id"`
 	ShipMethod            string `form:"ship_method"`
 	ShipTrackingNo        string `form:"ship_tracking_no"`
+	ResponsibleType       string `form:"responsible_type"`
+	ResponsibleID         int64  `form:"responsible_id"`
 	Notes                 string `form:"notes"`
 	ShippingAmount        string `form:"shipping_amount"`
 	DiscountAmount        string `form:"discount_amount"`
@@ -27,6 +31,7 @@ type CreateOrderRequest struct {
 	OutsourceManualFee    string `form:"outsource_manual_fee"`
 	OutsourceTaxFee       string `form:"outsource_tax_fee"`
 	OutsourceOtherFee     string `form:"outsource_other_fee"`
+	StockBatchDecision    string `form:"stock_batch_decision"`
 
 	ProductID []string `form:"product_id[]"`
 	TierID    []string `form:"tier_id[]"`

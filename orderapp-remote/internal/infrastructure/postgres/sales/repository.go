@@ -3,6 +3,7 @@ package sales
 import (
 	"context"
 	"fmt"
+	pdfinfra "orderapp/internal/infrastructure/pdf"
 	"strconv"
 	"strings"
 	"time"
@@ -16,12 +17,48 @@ import (
 )
 
 type Repository struct {
-	pool   *pgxpool.Pool
-	schema string
+	pool                 *pgxpool.Pool
+	schema               string
+	assetDir             string
+	renderer             SalesOrderPDFRenderer
+	deliveryNoteRenderer DeliveryNotePDFRenderer
 }
 
-func NewRepository(pool *pgxpool.Pool, schema string) Repository {
-	return Repository{pool: pool, schema: schema}
+type SalesOrderPDFRenderer interface {
+	Render(snapshot salesdomain.SalesOrderSnapshot) ([]byte, error)
+	RenderPNG(snapshot salesdomain.SalesOrderSnapshot) ([]byte, error)
+}
+
+type DeliveryNotePDFRenderer interface {
+	Render(snapshot salesdomain.DeliveryNoteSnapshot) ([]byte, error)
+}
+
+type RepositoryOption func(*Repository)
+
+func WithSalesOrderAssetDir(assetDir string) RepositoryOption {
+	return func(r *Repository) {
+		r.assetDir = assetDir
+	}
+}
+
+func WithSalesOrderRenderer(renderer SalesOrderPDFRenderer) RepositoryOption {
+	return func(r *Repository) {
+		r.renderer = renderer
+	}
+}
+
+func NewRepository(pool *pgxpool.Pool, schema string, opts ...RepositoryOption) Repository {
+	repo := Repository{pool: pool, schema: schema, assetDir: "/app/data/assets"}
+	for _, opt := range opts {
+		opt(&repo)
+	}
+	if repo.renderer == nil {
+		repo.renderer = pdfinfra.SalesOrderRenderer{AssetBaseDir: repo.assetDir}
+	}
+	if repo.deliveryNoteRenderer == nil {
+		repo.deliveryNoteRenderer = pdfinfra.DeliveryNoteRenderer{AssetBaseDir: repo.assetDir}
+	}
+	return repo
 }
 
 func lookupDefaultStatusID(ctx context.Context, tx pgx.Tx, schema, table string, names ...string) int64 {
@@ -37,6 +74,34 @@ func lookupDefaultStatusID(ctx context.Context, tx pgx.Tx, schema, table string,
 		}
 	}
 	return 0
+}
+
+func resolveOrderResponsibleParty(ctx context.Context, tx pgx.Tx, schema, responsibleType string, responsibleID int64) (string, int64, string, error) {
+	typ := strings.TrimSpace(responsibleType)
+	if typ == "" && responsibleID == 0 {
+		return "", 0, "", nil
+	}
+	if responsibleID <= 0 {
+		return "", 0, "", fmt.Errorf("responsible_id required")
+	}
+	switch typ {
+	case "employee":
+		var name string
+		q := fmt.Sprintf(`SELECT COALESCE(name,'') FROM %s.company_employees WHERE id=$1 AND active=true`, schema)
+		if err := tx.QueryRow(ctx, q, responsibleID).Scan(&name); err != nil || strings.TrimSpace(name) == "" {
+			return "", 0, "", fmt.Errorf("responsible employee not found")
+		}
+		return typ, responsibleID, strings.TrimSpace(name), nil
+	case "customer":
+		var name string
+		q := fmt.Sprintf(`SELECT COALESCE(name,'') FROM %s.customers WHERE id=$1 AND active=true`, schema)
+		if err := tx.QueryRow(ctx, q, responsibleID).Scan(&name); err != nil || strings.TrimSpace(name) == "" {
+			return "", 0, "", fmt.Errorf("responsible customer not found")
+		}
+		return typ, responsibleID, strings.TrimSpace(name), nil
+	default:
+		return "", 0, "", fmt.Errorf("invalid responsible_type")
+	}
 }
 
 func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand) (salesapp.SaveOrderResult, error) {
@@ -132,7 +197,16 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 		totalG := float64(itemWeightG)
 		qtyLb := totalG / 454.0
 
-		if retailOrder && items[idx].productID != nil {
+		if items[idx].manualPrice != nil {
+			lineTotal := *items[idx].manualPrice * float64(items[idx].units)
+			items[idx].lineTotal = lineTotal
+			if qtyLb > 0 {
+				items[idx].unitPrice = lineTotal / qtyLb
+			}
+			items[idx].priceOverride = true
+			totalAmt += items[idx].lineTotal
+			continue
+		} else if retailOrder && items[idx].productID != nil {
 			retailPrices := salesdomain.RetailSpecPrices{}
 			q := fmt.Sprintf(`SELECT
 				COALESCE(retail_price_100g, 0),
@@ -146,15 +220,6 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 			if qtyLb > 0 {
 				items[idx].unitPrice = lineTotal / qtyLb
 			}
-			totalAmt += items[idx].lineTotal
-			continue
-		} else if items[idx].manualPrice != nil {
-			lineTotal := *items[idx].manualPrice * float64(items[idx].units)
-			items[idx].lineTotal = lineTotal
-			if qtyLb > 0 {
-				items[idx].unitPrice = lineTotal / qtyLb
-			}
-			items[idx].priceOverride = true
 			totalAmt += items[idx].lineTotal
 			continue
 		} else if items[idx].productID != nil {
@@ -241,10 +306,10 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 	grand0 := totalAmt + shippingAmt - discountAmt + outsourceTotal
 	grandTotal, roundingAmt := applyRoundToInt(grand0, roundToInt)
 
-	// 默认付款状态：未选择时自动写入“未付款”（系统状态名兼容“未收款”）。
+	// 默认付款状态：未选择时自动写入“已付款”（兼容“已收款”命名）。
 	payStatusID := cmd.PayStatusID
 	if payStatusID == 0 {
-		payStatusID = lookupDefaultStatusID(ctx, tx, r.schema, "pay_statuses", "未付款", "未收款")
+		payStatusID = lookupDefaultStatusID(ctx, tx, r.schema, "pay_statuses", "已付款", "已收款")
 	}
 
 	// 默认发货状态：未选择时自动写入“未发货”。
@@ -260,6 +325,11 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 		} else {
 			shipMethod = "sf_large"
 		}
+	}
+
+	responsibleType, responsibleID, responsibleName, err := resolveOrderResponsibleParty(ctx, tx, r.schema, cmd.ResponsibleType, cmd.ResponsibleID)
+	if err != nil {
+		return salesapp.SaveOrderResult{}, err
 	}
 
 	editID := cmd.EditID
@@ -296,7 +366,10 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 					outsource_manual_fee=$21,
 					outsource_tax_fee=$22,
 					outsource_other_fee=$23,
-					outsource_total_fee=$24
+					outsource_total_fee=$24,
+					responsible_party_type=$25,
+					responsible_party_id=$26,
+					responsible_party_name=$27
 				WHERE id=$1
 			`, r.schema)
 		if _, err := tx.Exec(ctx, uq,
@@ -324,6 +397,9 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 			outsourceFees[4],
 			outsourceFees[5],
 			outsourceTotal,
+			responsibleType,
+			responsibleID,
+			responsibleName,
 		); err != nil {
 			return salesapp.SaveOrderResult{}, err
 		}
@@ -346,13 +422,15 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 					express_fee,
 					outsource_material_fee, outsource_roast_fee, outsource_packaging_fee,
 					outsource_manual_fee, outsource_tax_fee, outsource_other_fee, outsource_total_fee,
+					responsible_party_type, responsible_party_id, responsible_party_name,
 					order_no
 				) VALUES (
 					$1,$2,$3,$4,$5,$6,$7,$8,$9,
 					$10,$11,$12,
 					$13,$14,$15,
 					$16,$17,$18,$19,$20,$21,$22,$23,
-					$24
+					$24,$25,$26,
+					$27
 				)
 				RETURNING id
 			`, r.schema)
@@ -380,6 +458,9 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 			outsourceFees[4],
 			outsourceFees[5],
 			outsourceTotal,
+			responsibleType,
+			responsibleID,
+			responsibleName,
 			orderNo,
 		).Scan(&orderID)
 		if err != nil {
@@ -397,13 +478,31 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 		}
 	}
 
+	stockItems := make([]orderStockItem, 0, len(items))
+	for _, it := range items {
+		if it.productID == nil || *it.productID <= 0 || it.specG <= 0 || it.units <= 0 {
+			continue
+		}
+		stockItems = append(stockItems, orderStockItem{
+			ProductID:   *it.productID,
+			ProductName: it.name,
+			SpecG:       it.specG,
+			Units:       it.units,
+			NeedG:       it.specG * it.units,
+		})
+	}
+	stockDecision := strings.TrimSpace(cmd.StockBatchDecision)
+	if err := r.applyOrderStockDecisionTx(ctx, tx, orderID, stockItems, stockDecision, cmd.Actor); err != nil {
+		return salesapp.SaveOrderResult{}, err
+	}
+
 	if err := tx.Commit(ctx); err != nil {
 		return salesapp.SaveOrderResult{}, err
 	}
 
 	r.logOrderSave(ctx, cmd.Actor, orderID, orderNo, editID > 0)
 
-	return salesapp.SaveOrderResult{OrderID: orderID, OrderNo: orderNo, Edited: editID > 0}, nil
+	return salesapp.SaveOrderResult{OrderID: orderID, OrderNo: orderNo, Edited: editID > 0, StockBatchUsed: stockDecision == "use_batch"}, nil
 
 }
 

@@ -29,23 +29,45 @@ type ProduceRunningAPIResponse struct {
 }
 
 type ProduceRunningAPIRow struct {
-	ID           int64   `json:"id"`
-	BatchID      string  `json:"batch_id"`
-	ProductID    int64   `json:"product_id"`
-	ProductName  string  `json:"product_name"`
-	SpecG        int64   `json:"spec_g"`
-	NeedG        int64   `json:"need_g"`
-	InputG       int64   `json:"input_g"`
-	BomYieldRate float64 `json:"bom_yield_rate"`
-	PlanUnits    int64   `json:"plan_units"`
-	PlanLooseG   int64   `json:"plan_loose_g"`
-	OrderNos     string  `json:"order_nos"`
-	StartedBy    string  `json:"started_by"`
-	StartedAt    string  `json:"started_at"`
+	ID           int64                     `json:"id"`
+	BatchID      string                    `json:"batch_id"`
+	ProductID    int64                     `json:"product_id"`
+	ProductName  string                    `json:"product_name"`
+	SpecG        int64                     `json:"spec_g"`
+	NeedG        int64                     `json:"need_g"`
+	InputG       int64                     `json:"input_g"`
+	BomYieldRate float64                   `json:"bom_yield_rate"`
+	PlanUnits    int64                     `json:"plan_units"`
+	PlanLooseG   int64                     `json:"plan_loose_g"`
+	OrderNos     string                    `json:"order_nos"`
+	StartedBy    string                    `json:"started_by"`
+	StartedAt    string                    `json:"started_at"`
+	Outputs      []ProduceRunningAPIOutput `json:"outputs"`
+}
+
+type ProduceRunningAPIOutput struct {
+	ID             int64  `json:"id"`
+	SpecG          int64  `json:"spec_g"`
+	NeedG          int64  `json:"need_g"`
+	OrderNos       string `json:"order_nos"`
+	PlanUnits      int64  `json:"plan_units"`
+	PlanLooseG     int64  `json:"plan_loose_g"`
+	FinishedUnits  int64  `json:"finished_units"`
+	FinishedLooseG int64  `json:"finished_loose_g"`
 }
 
 type ProduceRunningFinishAPIRequest struct {
-	ID             int64 `json:"id"`
+	ID             int64                                  `json:"id" form:"id"`
+	FinishedUnits  int64                                  `json:"finished_units" form:"finished_units"`
+	FinishedLooseG int64                                  `json:"finished_loose_g" form:"finished_loose_g"`
+	Warehouse      string                                 `json:"warehouse" form:"warehouse"`
+	Partial        bool                                   `json:"partial" form:"partial"`
+	ConsumedInputG int64                                  `json:"consumed_input_g" form:"consumed_input_g"`
+	Outputs        []ProduceRunningFinishOutputAPIRequest `json:"outputs"`
+}
+
+type ProduceRunningFinishOutputAPIRequest struct {
+	SpecG          int64 `json:"spec_g"`
 	FinishedUnits  int64 `json:"finished_units"`
 	FinishedLooseG int64 `json:"finished_loose_g"`
 }
@@ -59,6 +81,31 @@ type ProduceRunningActionAPIResponse struct {
 }
 
 func registerProductionFlowPages(e *echo.Echo, productionSvc *productionapp.Service) {
+	e.POST("/produce/start", func(c echo.Context) error {
+		if err := support.RequireEmployeeBound(c); err != nil {
+			return c.Redirect(http.StatusSeeOther, support.PrefixRelativeLocation(c, "/produce/plan?err="+url.QueryEscape(err.Error())))
+		}
+		values, err := c.FormParams()
+		if err != nil {
+			return c.Redirect(http.StatusSeeOther, support.PrefixRelativeLocation(c, "/produce/plan?err=invalid+request"))
+		}
+		selected := selectedKeysFromForm(values)
+		if len(selected) == 0 {
+			return c.Redirect(http.StatusSeeOther, support.PrefixRelativeLocation(c, "/produce/plan?err="+url.QueryEscape("请先生成计划并选择项目")))
+		}
+		if _, err := productionSvc.Start(c.Request().Context(), productionapp.StartCommand{
+			From:       strings.TrimSpace(c.FormValue("from")),
+			To:         strings.TrimSpace(c.FormValue("to")),
+			CustomerID: parseInt64(c.FormValue("customer_id")),
+			Selected:   selected,
+			InputByKey: parseInputByKey(values),
+			Operator:   support.ActorOf(c),
+		}); err != nil {
+			return c.Redirect(http.StatusSeeOther, support.PrefixRelativeLocation(c, "/produce/plan?err="+url.QueryEscape(err.Error())))
+		}
+		return c.Redirect(http.StatusSeeOther, support.PrefixRelativeLocation(c, "/produce/running?ok=1"))
+	})
+
 	e.POST("/api/produce/start", func(c echo.Context) error {
 		if err := support.RequireEmployeeBound(c); err != nil {
 			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: err.Error()})
@@ -99,7 +146,7 @@ func registerProductionFlowPages(e *echo.Echo, productionSvc *productionapp.Serv
 		if errText := strings.TrimSpace(c.QueryParam("err")); errText != "" {
 			target += "&err=" + url.QueryEscape(errText)
 		}
-		return c.Redirect(http.StatusSeeOther, target)
+		return c.Redirect(http.StatusSeeOther, support.PrefixRelativeLocation(c, target))
 	})
 
 	e.GET("/api/produce/running", func(c echo.Context) error {
@@ -108,6 +155,25 @@ func registerProductionFlowPages(e *echo.Echo, productionSvc *productionapp.Serv
 			return c.JSON(http.StatusInternalServerError, ErrorResponse{Error: err.Error()})
 		}
 		return c.JSON(http.StatusOK, ProduceRunningAPIResponse{Rows: produceRunningAPIRows(rows)})
+	})
+
+	e.POST("/produce/running/finish", func(c echo.Context) error {
+		if err := support.RequireEmployeeBound(c); err != nil {
+			return c.Redirect(http.StatusSeeOther, support.PrefixRelativeLocation(c, "/produce/running?err="+url.QueryEscape(err.Error())))
+		}
+		if err := productionSvc.Finish(c.Request().Context(), productionapp.FinishCommand{
+			ID:               parseInt64(c.FormValue("id")),
+			FinishedUnits:    parseInt64(c.FormValue("finished_units")),
+			FinishedLooseG:   parseInt64(c.FormValue("finished_loose_g")),
+			HasFinishedInput: true,
+			Warehouse:        strings.TrimSpace(c.FormValue("warehouse")),
+			Partial:          strings.TrimSpace(c.FormValue("partial")) == "true" || strings.TrimSpace(c.FormValue("partial")) == "on",
+			ConsumedInputG:   parseInt64(c.FormValue("consumed_input_g")),
+			Operator:         support.ActorOf(c),
+		}); err != nil {
+			return c.Redirect(http.StatusSeeOther, support.PrefixRelativeLocation(c, "/produce/running?err="+url.QueryEscape(err.Error())))
+		}
+		return c.Redirect(http.StatusSeeOther, support.PrefixRelativeLocation(c, "/produce/running?ok=1"))
 	})
 
 	e.POST("/api/produce/running/finish", func(c echo.Context) error {
@@ -126,7 +192,11 @@ func registerProductionFlowPages(e *echo.Echo, productionSvc *productionapp.Serv
 			FinishedUnits:    req.FinishedUnits,
 			FinishedLooseG:   req.FinishedLooseG,
 			HasFinishedInput: true,
+			Warehouse:        req.Warehouse,
+			Partial:          req.Partial,
+			ConsumedInputG:   req.ConsumedInputG,
 			Operator:         support.ActorOf(c),
+			Outputs:          finishOutputsToApp(req.Outputs),
 		}); err != nil {
 			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: err.Error()})
 		}
@@ -151,6 +221,16 @@ func registerProductionFlowPages(e *echo.Echo, productionSvc *productionapp.Serv
 	})
 }
 
+func selectedKeysFromForm(values map[string][]string) map[string]bool {
+	selected := map[string]bool{}
+	for _, raw := range values["selected"] {
+		for key := range parseSelectedKeys(raw) {
+			selected[key] = true
+		}
+	}
+	return selected
+}
+
 func produceRunningAPIRows(rows []productionapp.RunningItem) []ProduceRunningAPIRow {
 	out := make([]ProduceRunningAPIRow, 0, len(rows))
 	for _, r := range rows {
@@ -168,6 +248,36 @@ func produceRunningAPIRows(rows []productionapp.RunningItem) []ProduceRunningAPI
 			OrderNos:     r.OrderNos,
 			StartedBy:    r.StartedBy,
 			StartedAt:    r.StartedAt,
+			Outputs:      produceRunningAPIOutputs(r.Outputs),
+		})
+	}
+	return out
+}
+
+func produceRunningAPIOutputs(rows []productionapp.RunningOutput) []ProduceRunningAPIOutput {
+	out := make([]ProduceRunningAPIOutput, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, ProduceRunningAPIOutput{
+			ID:             row.ID,
+			SpecG:          row.SpecG,
+			NeedG:          row.NeedG,
+			OrderNos:       row.OrderNos,
+			PlanUnits:      row.PlanUnits,
+			PlanLooseG:     row.PlanLooseG,
+			FinishedUnits:  row.FinishedUnits,
+			FinishedLooseG: row.FinishedLooseG,
+		})
+	}
+	return out
+}
+
+func finishOutputsToApp(rows []ProduceRunningFinishOutputAPIRequest) []productionapp.FinishOutputCommand {
+	out := make([]productionapp.FinishOutputCommand, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, productionapp.FinishOutputCommand{
+			SpecG:          row.SpecG,
+			FinishedUnits:  row.FinishedUnits,
+			FinishedLooseG: row.FinishedLooseG,
 		})
 	}
 	return out

@@ -104,6 +104,8 @@
 
 <script setup>
 import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { apiGet, apiSend } from '../api/client'
+import { replaceHistoryURL } from '../lib/url-state'
 
 const props = defineProps({
   viewKey: { type: String, default: 'reqProduct' },
@@ -149,7 +151,7 @@ function updateUrl() {
   const url = new URL(window.location.href)
   url.searchParams.set('view', props.viewKey)
   url.searchParams.set('page', String(page.value))
-  window.history.replaceState({}, '', url.toString())
+  replaceHistoryURL(url)
 }
 
 async function loadPage(nextPage) {
@@ -164,9 +166,7 @@ async function load() {
     const url = new URL(`/api/req/${config.value.type}`, window.location.origin)
     url.searchParams.set('page', String(page.value))
     url.searchParams.set('limit', '10')
-    const res = await fetch(url)
-    const data = await res.json()
-    if (!res.ok) throw new Error(data.error || '加载失败')
+    const data = await apiGet(`${url.pathname}${url.search}`)
     rows.value = data.rows || []
     total.value = Number(data.total || 0)
     totalPages.value = Number(data.total_pages || 1)
@@ -189,13 +189,7 @@ async function createRow() {
   error.value = ''
   ok.value = false
   try {
-    const res = await fetch(`/api/req/${config.value.type}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(form),
-    })
-    const data = await res.json()
-    if (!res.ok) throw new Error(data.error || '保存失败')
+    await apiSend(`/api/req/${config.value.type}`, { body: form })
     ok.value = true
     resetForm()
     await loadPage(1)
@@ -211,13 +205,7 @@ async function updateReview(row) {
   error.value = ''
   ok.value = false
   try {
-    const res = await fetch('/api/req/review/status', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ code: row.code, status: statusDraft[row.code] || row.status }),
-    })
-    const data = await res.json()
-    if (!res.ok) throw new Error(data.error || '保存失败')
+    await apiSend('/api/req/review/status', { body: { code: row.code, status: statusDraft[row.code] || row.status } })
     ok.value = true
     await load()
   } catch (err) {
@@ -231,7 +219,7 @@ function switchTab(key) {
   const url = new URL(window.location.href)
   url.searchParams.set('view', key)
   url.searchParams.delete('page')
-  window.history.replaceState({}, '', url.toString())
+  replaceHistoryURL(url)
   window.dispatchEvent(new CustomEvent('kferp:navigate-view', { detail: { key } }))
 }
 

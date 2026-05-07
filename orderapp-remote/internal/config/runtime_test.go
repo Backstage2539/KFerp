@@ -22,11 +22,69 @@ func TestLoadRuntimeDefaults(t *testing.T) {
 	if cfg.AssetDir != "/app/data/assets" {
 		t.Fatalf("AssetDir = %q", cfg.AssetDir)
 	}
+	if cfg.TemplateDir != "templates" {
+		t.Fatalf("TemplateDir = %q", cfg.TemplateDir)
+	}
 	if cfg.AuthUser != "order" {
 		t.Fatalf("AuthUser = %q", cfg.AuthUser)
 	}
 	if cfg.ListenAddr != ":8080" {
 		t.Fatalf("ListenAddr = %q", cfg.ListenAddr)
+	}
+	if cfg.CustomerPortalDevLogin {
+		t.Fatal("CustomerPortalDevLogin = true, want default false")
+	}
+}
+
+func TestLoadRuntimeCustomerPortalDevLogin(t *testing.T) {
+	cfg, err := LoadRuntime(func(key string) string {
+		switch key {
+		case "DATABASE_URL":
+			return "postgres://example"
+		case "APP_PASS":
+			return "secret"
+		case "CUSTOMER_PORTAL_DEV_LOGIN":
+			return " true "
+		default:
+			return ""
+		}
+	})
+	if err != nil {
+		t.Fatalf("LoadRuntime() error = %v", err)
+	}
+	if !cfg.CustomerPortalDevLogin {
+		t.Fatal("CustomerPortalDevLogin = false, want true")
+	}
+}
+
+func TestLoadRuntimeCustomerPortalWechatConfig(t *testing.T) {
+	cfg, err := LoadRuntime(func(key string) string {
+		switch key {
+		case "DATABASE_URL":
+			return "postgres://example"
+		case "APP_PASS":
+			return "secret"
+		case "WECHAT_MINI_APP_ID":
+			return " wx-test-app "
+		case "WECHAT_MINI_APP_SECRET":
+			return " wx-test-secret "
+		case "CUSTOMER_PORTAL_DEV_OPENID":
+			return " dev-openid-van "
+		default:
+			return ""
+		}
+	})
+	if err != nil {
+		t.Fatalf("LoadRuntime() error = %v", err)
+	}
+	if cfg.WechatMiniAppID != "wx-test-app" {
+		t.Fatalf("WechatMiniAppID = %q", cfg.WechatMiniAppID)
+	}
+	if cfg.WechatMiniAppSecret != "wx-test-secret" {
+		t.Fatalf("WechatMiniAppSecret = %q", cfg.WechatMiniAppSecret)
+	}
+	if cfg.CustomerPortalDevOpenID != "dev-openid-van" {
+		t.Fatalf("CustomerPortalDevOpenID = %q", cfg.CustomerPortalDevOpenID)
 	}
 }
 
@@ -54,6 +112,8 @@ func TestLoadRuntimeTrimsValues(t *testing.T) {
 			return " secret "
 		case "DB_SCHEMA":
 			return " tenant_schema "
+		case "TEMPLATE_DIR":
+			return " templates "
 		case "LISTEN":
 			return " :9090 "
 		default:
@@ -71,6 +131,9 @@ func TestLoadRuntimeTrimsValues(t *testing.T) {
 	}
 	if cfg.Schema != "tenant_schema" {
 		t.Fatalf("Schema = %q", cfg.Schema)
+	}
+	if cfg.TemplateDir != "templates" {
+		t.Fatalf("TemplateDir = %q", cfg.TemplateDir)
 	}
 	if cfg.ListenAddr != ":9090" {
 		t.Fatalf("ListenAddr = %q", cfg.ListenAddr)

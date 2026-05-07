@@ -5,20 +5,29 @@ import "fmt"
 type MovementKind string
 
 const (
-	MovementMaterialReceipt MovementKind = "material_receipt"
-	MovementMaterialIssue   MovementKind = "material_issue"
-	MovementFinishedReceipt MovementKind = "finished_receipt"
-	MovementAdjustment      MovementKind = "stock_adjustment"
+	MovementMaterialReceipt  MovementKind = "material_receipt"
+	MovementMaterialIssue    MovementKind = "material_issue"
+	MovementFinishedReceipt  MovementKind = "finished_receipt"
+	MovementMaterialTransfer MovementKind = "material_transfer"
+	MovementAdjustment       MovementKind = "stock_adjustment"
 )
 
 func (k MovementKind) Valid() bool {
 	switch k {
-	case MovementMaterialReceipt, MovementMaterialIssue, MovementFinishedReceipt, MovementAdjustment:
+	case MovementMaterialReceipt, MovementMaterialIssue, MovementFinishedReceipt, MovementMaterialTransfer, MovementAdjustment:
 		return true
 	default:
 		return false
 	}
 }
+
+const (
+	WarehouseRawMaterials  = "raw_materials"
+	WarehousePackaging     = "packaging"
+	WarehouseWIP           = "wip"
+	WarehouseFinishedGoods = "finished_goods"
+	WarehouseLoss          = "loss"
+)
 
 type BatchAvailability struct {
 	BatchID    int64
@@ -42,7 +51,7 @@ func AllocateFIFO(batches []BatchAvailability, requiredG int64) ([]BatchAllocati
 		if remaining <= 0 {
 			break
 		}
-		if batch.BatchID <= 0 || batch.AvailableG <= 0 {
+		if batch.AvailableG <= 0 || batch.BatchID < 0 || (batch.BatchID == 0 && batch.BatchCode == "") {
 			continue
 		}
 		qty := batch.AvailableG

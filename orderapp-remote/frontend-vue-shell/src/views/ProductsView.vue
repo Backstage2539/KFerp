@@ -2,7 +2,7 @@
   <div class="page">
     <section class="panel">
       <div class="panel-head">
-        <h2>{{ printMode ? '报价导出' : '商品档案' }}</h2>
+        <h2>{{ printMode ? '报价导出' : '商品基础信息' }}</h2>
         <button class="secondary" type="button" @click="load" :disabled="loading">刷新</button>
       </div>
       <div v-if="error" class="error">{{ error }}</div>
@@ -11,7 +11,7 @@
 
     <section v-if="editorVisible && !printMode" class="panel">
       <div class="panel-head">
-        <h3>编辑价格</h3>
+        <h3>编辑商品基础信息</h3>
         <button class="secondary" type="button" @click="closeEditor">关闭</button>
       </div>
       <form class="form" @submit.prevent="saveProduct">
@@ -47,35 +47,7 @@
           </label>
         </div>
 
-        <div class="tier-head">
-          <div class="panel-title">阶梯价</div>
-          <button class="secondary" type="button" @click="addTier">添加阶梯</button>
-        </div>
-        <div class="table-wrap compact">
-          <table>
-            <thead>
-              <tr>
-                <th>规格 g</th>
-                <th>最小数量</th>
-                <th>最大数量</th>
-                <th>单价</th>
-                <th>操作</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr v-for="(tier, index) in tiers" :key="tier.local_id">
-                <td><input v-model.number="tier.spec_g" type="number" min="1" step="1" /></td>
-                <td><input v-model.number="tier.min_qty" type="number" min="0" step="0.01" /></td>
-                <td><input v-model="tier.max_qty" type="number" min="0" step="0.01" placeholder="不封顶" /></td>
-                <td><input v-model.number="tier.unit_price" type="number" min="0" step="0.01" /></td>
-                <td><button class="text-button" type="button" @click="removeTier(index)">删除</button></td>
-              </tr>
-              <tr v-if="!tiers.length">
-                <td colspan="5" class="muted">暂无阶梯价</td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
+        <p class="hint">商用阶梯价由产品设置里的成本核算发布生成，这里只维护商品基础售价。</p>
         <div class="form-actions">
           <button class="primary" type="submit" :disabled="loading">保存</button>
         </div>
@@ -94,7 +66,6 @@
               <th>200g</th>
               <th>227g</th>
               <th>250g</th>
-              <th>阶梯价</th>
               <th v-if="!printMode">操作</th>
             </tr>
           </thead>
@@ -107,11 +78,10 @@
               <td>{{ money(row.retail_price_200g) }}</td>
               <td>{{ money(row.retail_price_227g) }}</td>
               <td>{{ money(row.retail_price_250g) }}</td>
-              <td class="tiers">{{ tierText(row.tiers) }}</td>
-              <td v-if="!printMode"><button class="text-button" type="button" @click="editProduct(row.id)">编辑价格</button></td>
+              <td v-if="!printMode"><button class="text-button" type="button" @click="editProduct(row.id)">编辑基础信息</button></td>
             </tr>
             <tr v-if="!rows.length">
-              <td :colspan="printMode ? 8 : 9" class="muted">暂无商品</td>
+              <td :colspan="printMode ? 7 : 8" class="muted">暂无商品</td>
             </tr>
           </tbody>
         </table>
@@ -123,6 +93,7 @@
 <script setup>
 import { computed, onMounted, reactive, ref } from 'vue'
 import { apiGet, apiSend } from '../api/client'
+import { replaceHistoryURL } from '../lib/url-state'
 
 const props = defineProps({
   viewKey: { type: String, default: 'products' },
@@ -134,7 +105,6 @@ const error = ref('')
 const ok = ref('')
 const editorVisible = ref(false)
 const editingId = ref(0)
-const tiers = ref([])
 const roastLevels = ['浅烘', '中烘', '中深烘', '深烘']
 const form = reactive({
   name: '',
@@ -151,19 +121,12 @@ function money(value) {
   return n > 0 ? n.toFixed(2) : ''
 }
 
-function tierText(items) {
-  return (items || []).map((tier) => {
-    const max = tier.max_qty ? `-${tier.max_qty}` : '+'
-    return `${tier.spec_g}g ${tier.min_qty}${max}: ${money(tier.unit_price)}`
-  }).join('\n')
-}
-
 function updateUrl() {
   const url = new URL(window.location.href)
   url.searchParams.set('view', props.viewKey)
   if (editingId.value) url.searchParams.set('edit_id', String(editingId.value))
   else url.searchParams.delete('edit_id')
-  window.history.replaceState({}, '', url.toString())
+  replaceHistoryURL(url)
 }
 
 async function load() {
@@ -194,13 +157,6 @@ async function editProduct(id) {
     form.retail_price_200g = Number(product.retail_price_200g || 0)
     form.retail_price_227g = Number(product.retail_price_227g || 0)
     form.retail_price_250g = Number(product.retail_price_250g || 0)
-    tiers.value = (product.tiers || []).map((tier, index) => ({
-      local_id: `${tier.id || 'new'}-${index}`,
-      spec_g: Number(tier.spec_g || 454),
-      min_qty: Number(tier.min_qty || 0),
-      max_qty: tier.max_qty == null ? '' : Number(tier.max_qty),
-      unit_price: Number(tier.unit_price || 0),
-    }))
     updateUrl()
   } catch (err) {
     error.value = err.message || '加载失败'
@@ -212,22 +168,7 @@ async function editProduct(id) {
 function closeEditor() {
   editorVisible.value = false
   editingId.value = 0
-  tiers.value = []
   updateUrl()
-}
-
-function addTier() {
-  tiers.value.push({
-    local_id: `new-${Date.now()}-${tiers.value.length}`,
-    spec_g: 454,
-    min_qty: 1,
-    max_qty: '',
-    unit_price: 0,
-  })
-}
-
-function removeTier(index) {
-  tiers.value.splice(index, 1)
 }
 
 async function saveProduct() {
@@ -242,14 +183,6 @@ async function saveProduct() {
       retail_price_200g: Number(form.retail_price_200g || 0),
       retail_price_227g: Number(form.retail_price_227g || 0),
       retail_price_250g: Number(form.retail_price_250g || 0),
-      tiers: tiers.value
-        .filter((tier) => Number(tier.min_qty || 0) > 0)
-        .map((tier) => ({
-          spec_g: Number(tier.spec_g || 454),
-          min_qty: Number(tier.min_qty || 0),
-          max_qty: tier.max_qty === '' || tier.max_qty == null ? null : Number(tier.max_qty),
-          unit_price: Number(tier.unit_price || 0),
-        })),
     }
     await apiSend(`/api/products/${editingId.value}`, { method: 'PUT', body })
     ok.value = '已保存'
@@ -275,9 +208,9 @@ onMounted(async () => {
 .page { padding: 18px; color: #171717; }
 .panel { border: 1px solid #e6e0d8; border-radius: 8px; background: #fff; padding: 14px; margin-bottom: 14px; }
 .panel-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
-.panel-title { font-weight: 700; }
 h2, h3 { margin: 0; font-size: 20px; }
 h3 { font-size: 18px; }
+.hint { margin: 0; color: #666; font-size: 13px; line-height: 1.45; }
 label span { display: block; color: #666; font-size: 12px; margin-bottom: 5px; }
 input, select { width: 100%; height: 38px; border: 1px solid #cfc8bf; border-radius: 6px; padding: 7px 9px; font: inherit; background: #fff; }
 button { height: 38px; border-radius: 6px; border: 1px solid #1f1f1f; padding: 0 12px; font: inherit; cursor: pointer; }
@@ -288,15 +221,12 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .form { display: grid; gap: 14px; }
 .form-row, .price-grid { display: grid; grid-template-columns: repeat(2, minmax(220px, 1fr)); gap: 12px; }
 .price-grid { grid-template-columns: repeat(4, minmax(150px, 1fr)); }
-.tier-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .form-actions { display: flex; justify-content: flex-end; }
 .table-wrap { overflow: auto; }
-table { width: 100%; min-width: 1040px; border-collapse: collapse; }
-.compact table { min-width: 720px; }
+table { width: 100%; min-width: 860px; border-collapse: collapse; }
 th, td { border-bottom: 1px solid #eee8df; padding: 9px 8px; text-align: left; font-size: 14px; vertical-align: top; }
 th { background: #fbfaf8; position: sticky; top: 0; }
 tr.active { background: #f3f7fb; }
-.tiers { white-space: pre-wrap; min-width: 260px; }
 .muted { color: #666; text-align: center; }
 .error, .ok { border-radius: 6px; padding: 9px; margin-top: 12px; }
 .error { background: #fff0f0; border: 1px solid #e6b7b7; color: #8a1f1f; }

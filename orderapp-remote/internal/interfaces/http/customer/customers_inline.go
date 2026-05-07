@@ -2,6 +2,9 @@ package customer
 
 type CustomerInlineReq struct {
 	Name               string `form:"name"`
+	CompanyName        string `form:"company_name"`
+	CompanyAddress     string `form:"company_address"`
+	CompanyPhone       string `form:"company_phone"`
 	Contact            string `form:"contact"`
 	Phone              string `form:"phone"`
 	Address            string `form:"address"`

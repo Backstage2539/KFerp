@@ -1,7 +1,7 @@
 export const categorySummaries = {
   base: '影响所有成本公式的基础换算和默认出成率。',
   production: '把烘焙、包装和损耗折入熟豆每公斤成本。',
-  commercialBeans: '控制商用熟豆 2-13磅、14-23磅、24-47磅、大于47磅四档报价。',
+  commercialBeans: '控制商用熟豆 454g 四档、227g 两档和 kg 三档报价。',
   retailBeans: '控制零售熟豆价格中的利润、税费和物流。',
   dripBags: '控制挂耳单袋成本、包装、物流和商用/零售利润系数。',
   other: '接口返回但前端暂未识别的参数。',
@@ -87,23 +87,33 @@ const settingMeta = {
   },
   wholesale_kg_margin_rate_1: {
     category: 'commercialBeans',
-    description: '商用熟豆 2-13 磅档利润系数。',
+    description: '商用熟豆 2包-13包档利润系数；227g 两档的第一档也使用它。',
     order: 10,
   },
   wholesale_kg_margin_rate_2: {
     category: 'commercialBeans',
-    description: '商用熟豆 14-23 磅档利润系数。',
+    description: '商用熟豆 14包-23包档利润系数；227g 两档的第二档也使用它。',
     order: 20,
   },
   wholesale_kg_margin_rate_3: {
     category: 'commercialBeans',
-    description: '商用熟豆 24-47 磅档利润系数。',
+    description: '商用熟豆 24包-47包档利润系数。',
     order: 30,
   },
   wholesale_kg_margin_rate_4: {
     category: 'commercialBeans',
-    description: '商用熟豆大于 47 磅档利润系数。',
+    description: '商用熟豆 48包+ 档利润系数；kg 三档的 24-49kg 档也使用它。',
     order: 40,
+  },
+  wholesale_kg_margin_rate_5: {
+    category: 'commercialBeans',
+    description: '商用熟豆 kg 三档的 50-99kg 档利润系数。',
+    order: 50,
+  },
+  wholesale_kg_margin_rate_6: {
+    category: 'commercialBeans',
+    description: '商用熟豆 kg 三档的 100-199kg 档利润系数。',
+    order: 60,
   },
   wholesale_drip_multiplier_1: {
     category: 'dripBags',

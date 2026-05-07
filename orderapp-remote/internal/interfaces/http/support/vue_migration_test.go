@@ -3,6 +3,7 @@ package support_test
 import (
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	supporthttp "orderapp/internal/interfaces/http/support"
 	"os"
 	"strings"
@@ -72,6 +73,7 @@ func TestVueShellMigratesCatalogAndSettingsPages(t *testing.T) {
 	for _, want := range []string{
 		"import CustomersView from './views/CustomersView.vue'",
 		"import ProductsView from './views/ProductsView.vue'",
+		"import ProductSettingsView from './views/ProductSettingsView.vue'",
 		"import BomView from './views/BomView.vue'",
 		"import CompanyStaffView from './views/CompanyStaffView.vue'",
 		"import InventoryView from './views/InventoryView.vue'",
@@ -80,7 +82,8 @@ func TestVueShellMigratesCatalogAndSettingsPages(t *testing.T) {
 		"import SenderSettingsView from './views/SenderSettingsView.vue'",
 		"import OutsourceSettingsView from './views/OutsourceSettingsView.vue'",
 		"customers: CustomersView",
-		"products: ProductsView",
+		"products: ProductSettingsView",
+		"productSettings: ProductSettingsView",
 		"bom: BomView",
 		"departments: CompanyStaffView",
 		"employees: CompanyStaffView",
@@ -118,8 +121,8 @@ func TestCatalogAndSettingsRoutesRedirectToVueShell(t *testing.T) {
 		{path: "/customers/new", want: "/vue-shell?view=customers&mode=new"},
 		{path: "/customers/new?from=order", want: "/vue-shell?view=customers&from=order&mode=new"},
 		{path: "/customers/7", want: "/vue-shell?view=customers&edit_id=7"},
-		{path: "/products", want: "/vue-shell?view=products"},
-		{path: "/products/7", want: "/vue-shell?view=products&edit_id=7"},
+		{path: "/products", want: "/vue-shell?view=productSettings"},
+		{path: "/products/7", want: "/vue-shell?view=productSettings&edit_id=7"},
 		{path: "/products/print", want: "/vue-shell?view=quotePrint"},
 		{path: "/bom?product_id=7", want: "/vue-shell?view=bom&product_id=7"},
 		{path: "/company/departments", want: "/vue-shell?view=departments"},
@@ -145,8 +148,20 @@ func assertRedirects(t *testing.T, e *echo.Echo, cases []struct {
 		if rec.Code != http.StatusFound {
 			t.Fatalf("GET %s status = %d, want %d body=%s", tc.path, rec.Code, http.StatusFound, rec.Body.String())
 		}
-		if got := rec.Header().Get("Location"); got != tc.want {
-			t.Fatalf("GET %s Location = %q, want %q", tc.path, got, tc.want)
+		got := rec.Header().Get("Location")
+		if strings.HasPrefix(got, "/") {
+			t.Fatalf("GET %s Location = %q; redirects must be relative so /app prefix is preserved", tc.path, got)
+		}
+		base, err := url.Parse("https://example.test" + tc.path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		loc, err := url.Parse(got)
+		if err != nil {
+			t.Fatalf("GET %s invalid Location %q: %v", tc.path, got, err)
+		}
+		if resolved := base.ResolveReference(loc).RequestURI(); resolved != tc.want {
+			t.Fatalf("GET %s Location = %q resolves to %q, want %q", tc.path, got, resolved, tc.want)
 		}
 	}
 }

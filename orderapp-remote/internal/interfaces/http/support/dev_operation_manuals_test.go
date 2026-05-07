@@ -12,7 +12,7 @@ import (
 )
 
 func TestOperationManualGovernanceRequirementSeeds(t *testing.T) {
-	b, err := readFirstExisting(
+	b, err := readFirstExistingManual(
 		filepath.Join("internal", "interfaces", "http", "support", "req_store.go"),
 		"req_store.go",
 	)
@@ -40,7 +40,7 @@ func TestOperationManualGovernanceRequirementSeeds(t *testing.T) {
 }
 
 func TestOperationManualWorkflowGuard(t *testing.T) {
-	b, err := readFirstExisting(
+	b, err := readFirstExistingManual(
 		filepath.Join("..", "HOW_TO_WORKFLOW.md"),
 		filepath.Join("..", "..", "HOW_TO_WORKFLOW.md"),
 		filepath.Join("..", "..", "..", "..", "..", "HOW_TO_WORKFLOW.md"),
@@ -71,6 +71,18 @@ func TestOperationManualWorkflowGuard(t *testing.T) {
 	if manualStep > reviewStep {
 		t.Fatal("workflow must update operation manuals before REV")
 	}
+}
+
+func readFirstExistingManual(paths ...string) ([]byte, error) {
+	var lastErr error
+	for _, path := range paths {
+		b, err := os.ReadFile(path)
+		if err == nil {
+			return b, nil
+		}
+		lastErr = err
+	}
+	return nil, lastErr
 }
 
 func TestOperationManualDocsAreMirrored(t *testing.T) {

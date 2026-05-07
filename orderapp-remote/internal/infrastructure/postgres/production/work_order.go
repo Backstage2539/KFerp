@@ -2,7 +2,9 @@ package production
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	catalogdomain "orderapp/internal/domain/catalog"
 	"strings"
 
 	productionapp "orderapp/internal/application/production"
@@ -14,21 +16,21 @@ func workOrderNo(runningItemID int64) string {
 	return fmt.Sprintf("WO-%010d", runningItemID)
 }
 
-func createWorkOrderForRunningItemTx(ctx context.Context, tx pgx.Tx, schema string, runningItemID int64, batchID string, productID int64, productName string, specG int64, plannedG int64, operator string) error {
+func createWorkOrderForRunningItemTx(ctx context.Context, tx pgx.Tx, schema string, runningItemID int64, batchID string, productID int64, productName string, specG int64, plannedG int64, materialSnapshot []byte, operator string) (int64, error) {
 	var workOrderID int64
 	if err := tx.QueryRow(ctx, fmt.Sprintf(`
-		INSERT INTO %s.work_orders(work_order_no,running_item_id,batch_id,product_id,product_name,spec_g,planned_g,status,created_at)
-		VALUES($1,$2,$3,$4,$5,$6,$7,'running',now())
-		ON CONFLICT (running_item_id) DO UPDATE SET status='running'
+		INSERT INTO %s.work_orders(work_order_no,running_item_id,batch_id,product_id,product_name,spec_g,planned_g,status,material_snapshot,created_at)
+		VALUES($1,$2,$3,$4,$5,$6,$7,'running',$8,now())
+		ON CONFLICT (running_item_id) DO UPDATE SET status='running', material_snapshot=excluded.material_snapshot
 		RETURNING id
-	`, schema), workOrderNo(runningItemID), runningItemID, batchID, productID, productName, specG, plannedG).Scan(&workOrderID); err != nil {
-		return err
+	`, schema), workOrderNo(runningItemID), runningItemID, batchID, productID, productName, specG, plannedG, materialSnapshot).Scan(&workOrderID); err != nil {
+		return 0, err
 	}
 	_, err := tx.Exec(ctx, fmt.Sprintf(`
 		INSERT INTO %s.job_cards(work_order_id,operation,workstation,status,started_at,operator)
 		VALUES($1,'roast','roaster','running',now(),$2)
 	`, schema), workOrderID, operator)
-	return err
+	return workOrderID, err
 }
 
 func completeWorkOrderForRunningItemTx(ctx context.Context, tx pgx.Tx, schema string, runningItemID int64, actualCost float64, operator string) error {
@@ -70,7 +72,10 @@ func cancelWorkOrderForRunningItemTx(ctx context.Context, tx pgx.Tx, schema stri
 		SET status='cancelled', completed_at=now(), operator=COALESCE(NULLIF(operator,''),$2)
 		WHERE work_order_id=$1 AND status <> 'completed'
 	`, schema), workOrderID, operator)
-	return err
+	if err != nil {
+		return err
+	}
+	return releaseMaterialReservationsForRunningItemTx(ctx, tx, schema, runningItemID)
 }
 
 func recordBatchCostForRunningItemTx(ctx context.Context, tx pgx.Tx, schema string, r ProduceRunRow, finishedTotalG int64) (float64, error) {
@@ -130,18 +135,53 @@ func (r Repository) ListWorkOrders(ctx context.Context, query productionapp.Work
 	where := "1=1"
 	if query.Status != "" {
 		args = append(args, query.Status)
-		where += fmt.Sprintf(" AND status=$%d", len(args))
+		where += fmt.Sprintf(" AND wo.status=$%d", len(args))
 	}
 	args = append(args, query.Limit)
 	limitArg := len(args)
+	machines, err := r.ListMachines(ctx, true)
+	if err != nil {
+		return nil, err
+	}
 	rows, err := r.pool.Query(ctx, fmt.Sprintf(`
-		SELECT id,work_order_no,running_item_id,batch_id,product_id,product_name,spec_g,planned_g,status,
-		       COALESCE(actual_cost,0),to_char(created_at,'YYYY-MM-DD HH24:MI'),COALESCE(to_char(completed_at,'YYYY-MM-DD HH24:MI'),'')
-		FROM %s.work_orders
+		SELECT wo.id,wo.work_order_no,wo.running_item_id,wo.batch_id,wo.product_id,wo.product_name,wo.spec_g,wo.planned_g,wo.status,
+		       COALESCE(wo.actual_cost,0),to_char(wo.created_at,'YYYY-MM-DD HH24:MI'),COALESCE(to_char(wo.completed_at,'YYYY-MM-DD HH24:MI'),''),
+		       COALESCE(p.roast_level,''),
+		       COALESCE(NULLIF(ri.bom_yield_rate,0), pb.yield_rate, 0),
+		       COALESCE(NULLIF(ri.input_g,0), wo.planned_g, 0),
+		       COALESCE(ri.planned_units,0),
+		       COALESCE(ri.planned_loose_g,0),
+		       COALESCE(ri.order_nos,''),
+		       COALESCE(wo.material_snapshot,'[]'::jsonb)::text,
+		       COALESCE((
+		           SELECT SUM(r.reserved_g)::bigint
+		           FROM %s.work_order_material_reservations r
+		           WHERE r.running_item_id=wo.running_item_id
+		       ),0),
+		       COALESCE((
+		           SELECT SUM(r.consumed_g)::bigint
+		           FROM %s.work_order_material_reservations r
+		           WHERE r.running_item_id=wo.running_item_id
+		       ),0),
+		       COALESCE((
+		           SELECT SUM(GREATEST(0,r.reserved_g-r.consumed_g-r.returned_g))::bigint
+		           FROM %s.work_order_material_reservations r
+		           WHERE r.running_item_id=wo.running_item_id AND r.status='reserved'
+		       ),0),
+		       COALESCE((
+		           SELECT string_agg(COALESCE(m.name,'') || ' ' || COALESCE(NULLIF(trim(trailing '.' from trim(trailing '0' from COALESCE(bi.ratio_pct,0)::text)), ''), '0') || '%%', '、' ORDER BY bi.id)
+		           FROM %s.product_bom_items bi
+		           LEFT JOIN %s.materials m ON m.id=bi.material_id
+		           WHERE bi.product_id=wo.product_id
+		       ), '')
+		FROM %s.work_orders wo
+		LEFT JOIN %s.produce_running_items ri ON ri.id=wo.running_item_id
+		LEFT JOIN %s.products p ON p.id=wo.product_id
+		LEFT JOIN %s.product_bom pb ON pb.product_id=wo.product_id
 		WHERE %s
-		ORDER BY created_at DESC, id DESC
+		ORDER BY wo.created_at DESC, wo.id DESC
 		LIMIT $%d
-	`, r.schema, where, limitArg), args...)
+	`, r.schema, r.schema, r.schema, r.schema, r.schema, r.schema, r.schema, r.schema, r.schema, where, limitArg), args...)
 	if err != nil {
 		return nil, err
 	}
@@ -149,12 +189,94 @@ func (r Repository) ListWorkOrders(ctx context.Context, query productionapp.Work
 	out := make([]productionapp.WorkOrderRow, 0)
 	for rows.Next() {
 		var row productionapp.WorkOrderRow
-		if err := rows.Scan(&row.ID, &row.WorkOrderNo, &row.RunningItemID, &row.BatchID, &row.ProductID, &row.ProductName, &row.SpecG, &row.PlannedG, &row.Status, &row.ActualCost, &row.CreatedAt, &row.CompletedAt); err != nil {
+		var snapshotText, fallbackMaterialSummary string
+		if err := rows.Scan(
+			&row.ID, &row.WorkOrderNo, &row.RunningItemID, &row.BatchID, &row.ProductID, &row.ProductName, &row.SpecG, &row.PlannedG, &row.Status, &row.ActualCost, &row.CreatedAt, &row.CompletedAt,
+			&row.RoastLevel, &row.YieldRate, &row.SuggestedInputG, &row.PlannedUnits, &row.PlannedLooseG, &row.OrderNos, &snapshotText, &row.WIPReservedG, &row.WIPConsumedG, &row.WIPRemainingReservedG, &fallbackMaterialSummary,
+		); err != nil {
 			return nil, err
 		}
+		row.MaterialSummary = formatMaterialSnapshotSummary(snapshotText)
+		if row.MaterialSummary == "" {
+			row.MaterialSummary = fallbackMaterialSummary
+		}
+		row.YieldRate = catalogdomain.ResolveYieldRate(row.RoastLevel, row.YieldRate)
+		if row.SuggestedInputG <= 0 {
+			row.SuggestedInputG = row.PlannedG
+		}
+		machine, batches := pickMachineAndBatches(row.SuggestedInputG, machines)
+		row.SuggestedMachine = machine.Name
+		row.SuggestedBatchCount = int64(len(batches))
+		if row.SuggestedBatchCount == 0 && row.SuggestedInputG > 0 {
+			row.SuggestedBatchCount = 1
+		}
+		if len(batches) > 0 {
+			row.SuggestedBatchG = batches[0]
+		} else {
+			row.SuggestedBatchG = row.SuggestedInputG
+		}
+		row.SuggestedBatchPlan = formatWorkOrderBatchPlan(batches, row.SuggestedInputG)
 		out = append(out, row)
 	}
 	return out, rows.Err()
+}
+
+func formatMaterialSnapshotSummary(raw string) string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" || raw == "[]" || raw == "null" {
+		return ""
+	}
+	var rows []materialSnapshotRow
+	if err := json.Unmarshal([]byte(raw), &rows); err != nil {
+		return ""
+	}
+	parts := make([]string, 0, len(rows))
+	for _, row := range rows {
+		name := strings.TrimSpace(row.MaterialName)
+		if name == "" {
+			continue
+		}
+		if row.Source == "packaging" {
+			parts = append(parts, name+" 包材")
+			continue
+		}
+		ratio := strings.TrimRight(strings.TrimRight(fmt.Sprintf("%.4f", row.RatioPct), "0"), ".")
+		if ratio == "" || ratio == "0" {
+			parts = append(parts, name)
+		} else {
+			parts = append(parts, name+" "+ratio+"%")
+		}
+	}
+	return strings.Join(parts, "、")
+}
+
+func formatWorkOrderBatchPlan(batches []int64, fallbackG int64) string {
+	if len(batches) == 0 {
+		if fallbackG <= 0 {
+			return "0"
+		}
+		return formatKg(fallbackG) + "kg"
+	}
+	parts := make([]string, 0, len(batches))
+	used := make([]bool, len(batches))
+	for i, batch := range batches {
+		if used[i] {
+			continue
+		}
+		count := 1
+		for j := i + 1; j < len(batches); j++ {
+			if batches[j] == batch {
+				used[j] = true
+				count++
+			}
+		}
+		part := formatKg(batch) + "kg"
+		if count > 1 {
+			part += fmt.Sprintf(" x %d", count)
+		}
+		parts = append(parts, part)
+	}
+	return strings.Join(parts, " + ")
 }
 
 func (r Repository) ListJobCards(ctx context.Context, query productionapp.JobCardQuery) ([]productionapp.JobCardRow, error) {

@@ -1,15 +1,36 @@
 package costing
 
 import (
+	"fmt"
 	"net/http"
 	appcosting "orderapp/internal/application/costing"
 	support "orderapp/internal/interfaces/http/support"
 	"strconv"
+	"strings"
 
 	"github.com/labstack/echo/v4"
 )
 
-func registerCostingAPI(e *echo.Echo, svc Service) {
+func registerCostingAPI(e *echo.Echo, svc Service, authz support.AuthzService) {
+	e.GET("/public/bean-list/:list_type", func(c echo.Context) error {
+		listType := c.Param("list_type")
+		row, err := svc.PublishedBeanList(c.Request().Context(), appcosting.BeanListPublicationQuery{
+			ListType:  listType,
+			OwnerType: "official",
+		})
+		if err != nil {
+			return c.HTML(http.StatusBadRequest, renderNoPublishedBeanListPage(listType))
+		}
+		if row == nil {
+			return c.HTML(http.StatusNotFound, renderNoPublishedBeanListPage(listType))
+		}
+		page, err := renderPublicBeanListPage(*row)
+		if err != nil {
+			return c.HTML(http.StatusInternalServerError, renderNoPublishedBeanListPage(listType))
+		}
+		return c.HTML(http.StatusOK, page)
+	})
+
 	e.GET("/api/costing/parameters", func(c echo.Context) error {
 		params, err := svc.Parameters(c.Request().Context())
 		if err != nil {
@@ -64,6 +85,91 @@ func registerCostingAPI(e *echo.Echo, svc Service) {
 		return c.JSON(http.StatusOK, resp)
 	})
 
+	e.GET("/api/costing/bean-list/publications", func(c echo.Context) error {
+		query, err := beanListPublicationQueryFromRequest(c)
+		if err != nil {
+			return c.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
+		}
+		rows, err := svc.ListBeanListPublications(c.Request().Context(), query)
+		if err != nil {
+			return c.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
+		}
+		return c.JSON(http.StatusOK, map[string]any{"rows": rows})
+	})
+
+	e.POST("/api/costing/bean-list/publications", func(c echo.Context) error {
+		if err := requireBeanListPublisher(c, authz); err != nil {
+			return err
+		}
+		var req appcosting.PublishBeanListCommand
+		if err := c.Bind(&req); err != nil {
+			return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid request"})
+		}
+		req.Actor = support.ActorOf(c)
+		ownerType, ownerKey, err := beanListOwnerFromScope(c, req.Scope, req.CustomerID)
+		if err != nil {
+			return c.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
+		}
+		req.OwnerType = ownerType
+		req.OwnerKey = ownerKey
+		row, err := svc.PublishBeanList(c.Request().Context(), req)
+		if err != nil {
+			return c.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
+		}
+		return c.JSON(http.StatusOK, row)
+	})
+
+	e.POST("/api/costing/bean-list/drafts", func(c echo.Context) error {
+		canPublish, err := currentActorCanPublishBeanList(c, authz)
+		if err != nil {
+			return err
+		}
+		var req appcosting.PublishBeanListCommand
+		if err := c.Bind(&req); err != nil {
+			return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid request"})
+		}
+		req.Actor = support.ActorOf(c)
+		scope := req.Scope
+		if !canPublish {
+			scope = "mine"
+			req.Scope = scope
+		}
+		ownerType, ownerKey, err := beanListOwnerFromScope(c, scope, req.CustomerID)
+		if err != nil {
+			return c.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
+		}
+		req.OwnerType = ownerType
+		req.OwnerKey = ownerKey
+		row, err := svc.SaveBeanListDraft(c.Request().Context(), req)
+		if err != nil {
+			return c.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
+		}
+		return c.JSON(http.StatusOK, row)
+	})
+
+	e.POST("/api/costing/bean-list/publications/:id/withdraw", func(c echo.Context) error {
+		if err := requireBeanListPublisher(c, authz); err != nil {
+			return err
+		}
+		id, err := strconv.ParseInt(c.Param("id"), 10, 64)
+		if err != nil || id <= 0 {
+			return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid id"})
+		}
+		query, err := beanListPublicationQueryFromRequest(c)
+		if err != nil {
+			return c.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
+		}
+		if err := svc.WithdrawBeanList(c.Request().Context(), appcosting.WithdrawBeanListCommand{
+			ID:        id,
+			OwnerType: query.OwnerType,
+			OwnerKey:  query.OwnerKey,
+			Actor:     support.ActorOf(c),
+		}); err != nil {
+			return c.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
+		}
+		return c.JSON(http.StatusOK, map[string]any{"ok": true, "id": id})
+	})
+
 	e.POST("/api/costing/runs", func(c echo.Context) error {
 		run, err := svc.CreateRun(c.Request().Context(), support.ActorOf(c))
 		if err != nil {
@@ -82,4 +188,71 @@ func registerCostingAPI(e *echo.Echo, svc Service) {
 		}
 		return c.JSON(http.StatusOK, map[string]any{"ok": true, "id": id})
 	})
+}
+
+func requireBeanListPublisher(c echo.Context, authz support.AuthzService) error {
+	canPublish, err := currentActorCanPublishBeanList(c, authz)
+	if err != nil {
+		return err
+	}
+	if !canPublish {
+		return echo.NewHTTPError(http.StatusForbidden, map[string]string{"error": "only admins can publish bean lists"})
+	}
+	return nil
+}
+
+func currentActorCanPublishBeanList(c echo.Context, authz support.AuthzService) (bool, error) {
+	actor, ok, err := support.CurrentActor(c, authz)
+	if err != nil {
+		return false, echo.NewHTTPError(http.StatusForbidden, map[string]string{"error": err.Error()})
+	}
+	if !ok {
+		return false, echo.NewHTTPError(http.StatusUnauthorized, map[string]string{"error": "auth required"})
+	}
+	return actor.IsAdmin() || actor.Can("auth.manage"), nil
+}
+
+func beanListPublicationQueryFromRequest(c echo.Context) (appcosting.BeanListPublicationQuery, error) {
+	customerID, err := parseOptionalInt64(c.QueryParam("customer_id"))
+	if err != nil {
+		return appcosting.BeanListPublicationQuery{}, fmt.Errorf("invalid customer_id")
+	}
+	ownerType, ownerKey, err := beanListOwnerFromScope(c, c.QueryParam("scope"), customerID)
+	if err != nil {
+		return appcosting.BeanListPublicationQuery{}, err
+	}
+	return appcosting.BeanListPublicationQuery{
+		ListType:   c.QueryParam("list_type"),
+		Scope:      c.QueryParam("scope"),
+		CustomerID: customerID,
+		OwnerType:  ownerType,
+		OwnerKey:   ownerKey,
+	}, nil
+}
+
+func beanListOwnerFromScope(c echo.Context, scope string, customerID int64) (string, string, error) {
+	switch strings.TrimSpace(scope) {
+	case "customer":
+		if customerID <= 0 {
+			return "", "", fmt.Errorf("customer_id required")
+		}
+		return "customer", strconv.FormatInt(customerID, 10), nil
+	case "mine":
+		if v := c.Get("employee_id"); v != nil {
+			if id, ok := v.(int64); ok && id > 0 {
+				return "actor", fmt.Sprintf("employee:%d", id), nil
+			}
+		}
+		return "actor", "actor:" + support.ActorOf(c), nil
+	default:
+		return "official", "", nil
+	}
+}
+
+func parseOptionalInt64(raw string) (int64, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return 0, nil
+	}
+	return strconv.ParseInt(raw, 10, 64)
 }

@@ -3,6 +3,7 @@ package sales
 import (
 	"context"
 	"fmt"
+	salesdomain "orderapp/internal/domain/sales"
 	"strings"
 	"time"
 )
@@ -18,6 +19,8 @@ type SaveOrderCommand struct {
 	ShipStatusID          int64
 	ShipMethod            string
 	ShipTrackingNo        string
+	ResponsibleType       string
+	ResponsibleID         int64
 	Notes                 string
 	ShippingAmount        float64
 	DiscountAmount        float64
@@ -29,6 +32,7 @@ type SaveOrderCommand struct {
 	OutsourceManualFee    float64
 	OutsourceTaxFee       float64
 	OutsourceOtherFee     float64
+	StockBatchDecision    string
 	Items                 []OrderItemCommand
 }
 
@@ -43,9 +47,66 @@ type OrderItemCommand struct {
 }
 
 type SaveOrderResult struct {
-	OrderID int64
-	OrderNo string
-	Edited  bool
+	OrderID        int64
+	OrderNo        string
+	Edited         bool
+	StockBatchUsed bool
+}
+
+type OrderStockBatchPreviewCommand struct {
+	EditID int64
+	Items  []OrderItemCommand
+}
+
+type OrderStockBatchAllocation struct {
+	BatchID    int64  `json:"batch_id"`
+	BatchCode  string `json:"batch_code"`
+	AvailableG int64  `json:"available_g"`
+	AllocatedG int64  `json:"allocated_g"`
+	CreatedAt  string `json:"created_at"`
+}
+
+type OrderStockBatchPreviewLine struct {
+	ProductID   int64                       `json:"product_id"`
+	ProductName string                      `json:"product_name"`
+	SpecG       int64                       `json:"spec_g"`
+	NeedUnits   int64                       `json:"need_units"`
+	NeedG       int64                       `json:"need_g"`
+	AvailableG  int64                       `json:"available_g"`
+	Sufficient  bool                        `json:"sufficient"`
+	Allocations []OrderStockBatchAllocation `json:"allocations"`
+}
+
+type OrderStockBatchPreview struct {
+	Sufficient      bool                         `json:"sufficient"`
+	HasBatchChoices bool                         `json:"has_batch_choices"`
+	TotalNeedG      int64                        `json:"total_need_g"`
+	TotalAvailableG int64                        `json:"total_available_g"`
+	Lines           []OrderStockBatchPreviewLine `json:"lines"`
+}
+
+type OrderShippingExportData struct {
+	OrderID       int64
+	OrderNo       string
+	OrderDate     string
+	CustomerName  string
+	RecvName      string
+	RecvPhone     string
+	RecvAddr      string
+	RecvCompany   string
+	SenderID      int64
+	ProcessStatus string
+	Items         []OrderShippingExportItem
+}
+
+type OrderShippingExportItem struct {
+	LineNo    int
+	Name      string
+	Spec      string
+	Qty       string
+	Unit      string
+	UnitPrice string
+	LineTotal string
 }
 
 type UpdateHeaderCommand struct {
@@ -93,6 +154,7 @@ type OrderListQuery struct {
 	ProcessStatusID int64
 	UnproducedOnly  bool
 	CompletedOnly   bool
+	ShipReadyOnly   bool
 	Limit           int
 	Offset          int
 }
@@ -112,6 +174,23 @@ type Option struct {
 	Name string `json:"name"`
 }
 
+type CustomerOption struct {
+	ID                 int64  `json:"id"`
+	Name               string `json:"name"`
+	Contact            string `json:"contact"`
+	Phone              string `json:"phone"`
+	DefaultSourceID    int64  `json:"default_source_id"`
+	DefaultOrderTypeID int64  `json:"default_order_type_id"`
+}
+
+type EmployeeOption struct {
+	ID           int64  `json:"id"`
+	Name         string `json:"name"`
+	Phone        string `json:"phone"`
+	DepartmentID int64  `json:"department_id"`
+	Department   string `json:"department"`
+}
+
 type ProductTierOption struct {
 	ID        int64    `json:"id"`
 	SpecG     int64    `json:"spec_g"`
@@ -129,18 +208,23 @@ type ProductOption struct {
 	RetailPrice200G float64             `json:"retail_price_200g"`
 	RetailPrice227G float64             `json:"retail_price_227g"`
 	RetailPrice250G float64             `json:"retail_price_250g"`
+	CustomerID      int64               `json:"customer_id"`
+	BaseProductID   int64               `json:"base_product_id"`
+	Visibility      string              `json:"visibility"`
+	CustomType      string              `json:"custom_type"`
 	RetailSpecs     []int64             `json:"retail_specs"`
 	Tiers           []ProductTierOption `json:"tiers"`
 }
 
 type OrderFormData struct {
 	Today        string
-	Customers    []Option
+	Customers    []CustomerOption
 	Sources      []Option
 	ShipStatuses []Option
 	PayStatuses  []Option
 	OrderTypes   []Option
 	Products     []ProductOption
+	Employees    []EmployeeOption
 	EditData     *OrderEditData
 }
 
@@ -158,17 +242,20 @@ type OrderEditItem struct {
 }
 
 type OrderEditData struct {
-	ID             int64
-	OrderNo        string
-	OrderDate      string
-	CustomerID     int64
-	SourceID       int64
-	OrderTypeID    int64
-	PayStatusID    int64
-	ShipStatusID   int64
-	ShipMethod     string
-	ShipTrackingNo string
-	Notes          string
+	ID              int64
+	OrderNo         string
+	OrderDate       string
+	CustomerID      int64
+	SourceID        int64
+	OrderTypeID     int64
+	PayStatusID     int64
+	ShipStatusID    int64
+	ShipMethod      string
+	ShipTrackingNo  string
+	ResponsibleType string
+	ResponsibleID   int64
+	ResponsibleName string
+	Notes           string
 
 	TotalAmount           string
 	ShippingAmount        string
@@ -204,10 +291,23 @@ type OrderRow struct {
 	OrderDate         string `json:"order_date"`
 	CustomerID        int64  `json:"customer_id"`
 	Customer          string `json:"customer"`
+	ResponsibleType   string `json:"responsible_type"`
+	ResponsibleID     int64  `json:"responsible_id"`
+	ResponsibleName   string `json:"responsible_name"`
 	GrandTotal        string `json:"grand_total"`
 	OrderType         string `json:"order_type"`
 	PayStatus         string `json:"pay_status"`
 	ShipStatus        string `json:"ship_status"`
+	ShipTrackingNo    string `json:"ship_tracking_no"`
+	ReceiverName      string `json:"receiver_name"`
+	ReceiverPhone     string `json:"receiver_phone"`
+	ReceiverAddress   string `json:"receiver_address"`
+	ReceiverCompany   string `json:"receiver_company"`
+	PortalServiceCode string `json:"portal_service_code"`
+	SourceWarehouse   string `json:"source_warehouse"`
+	SenderID          int64  `json:"sender_id"`
+	SenderLabel       string `json:"sender_label"`
+	SenderName        string `json:"sender_name"`
 	OrderTypeID       int64  `json:"order_type_id"`
 	PayStatusID       int64  `json:"pay_status_id"`
 	ShipStatusID      int64  `json:"ship_status_id"`
@@ -216,6 +316,9 @@ type OrderRow struct {
 	CreatedByEmployee string `json:"created_by_employee"`
 	Notes             string `json:"notes"`
 	IsVoid            bool   `json:"is_void"`
+	InvoiceStatus     string `json:"invoice_status"`
+	InvoiceFilename   string `json:"invoice_filename"`
+	InvoiceFileURL    string `json:"invoice_file_url"`
 }
 
 type AuditRow struct {
@@ -266,13 +369,66 @@ type SetShipMethodCommand struct {
 	Method   string
 }
 
+type OrderShipmentOrderCommand struct {
+	OrderID  int64
+	SenderID int64
+}
+
+type CreateOrderShipmentCommand struct {
+	Actor    string
+	SenderID int64
+	FileURL  string
+	Orders   []OrderShipmentOrderCommand
+}
+
+type OrderShipmentResult struct {
+	ShipmentID int64  `json:"shipment_id"`
+	ShipmentNo string `json:"shipment_no"`
+}
+
+type ShipmentTrackingItemCommand struct {
+	OrderID    int64  `json:"order_id"`
+	TrackingNo string `json:"tracking_no"`
+}
+
+type ShipmentTrackingByOrderNoItemCommand struct {
+	OrderNo    string `json:"order_no"`
+	TrackingNo string `json:"tracking_no"`
+}
+
+type FillShipmentTrackingCommand struct {
+	Actor      string
+	ShipmentID int64
+	Items      []ShipmentTrackingItemCommand
+}
+
+type FillShipmentTrackingByOrderNoCommand struct {
+	Actor string
+	Items []ShipmentTrackingByOrderNoItemCommand
+}
+
+type FillOrderTrackingCommand struct {
+	Actor      string
+	OrderID    int64
+	TrackingNo string
+}
+
+type FillShipmentTrackingResult struct {
+	Updated int `json:"updated"`
+	Total   int `json:"total"`
+}
+
 type SenderProfile struct {
-	Name    string `json:"sender_name"`
-	Phone   string `json:"sender_phone"`
-	Addr    string `json:"sender_addr"`
-	Company string `json:"sender_company"`
-	Goods   string `json:"sender_goods"`
-	BizType string `json:"sf_biz_type"`
+	ID        int64  `json:"sender_id"`
+	Label     string `json:"sender_label"`
+	Name      string `json:"sender_name"`
+	Phone     string `json:"sender_phone"`
+	Addr      string `json:"sender_addr"`
+	Company   string `json:"sender_company"`
+	Goods     string `json:"sender_goods"`
+	BizType   string `json:"sf_biz_type"`
+	IsDefault bool   `json:"is_default"`
+	Active    bool   `json:"active"`
 }
 
 type ShippingExportQuery struct {
@@ -300,8 +456,288 @@ type ShippingExportRow struct {
 	WeightKg    float64
 }
 
+type SalesOrderSettings struct {
+	CompanyName     string                  `json:"company_name"`
+	Note            string                  `json:"note"`
+	PaymentText     string                  `json:"payment_text"`
+	BankAccountName string                  `json:"bank_account_name"`
+	BankName        string                  `json:"bank_name"`
+	BankAccountNo   string                  `json:"bank_account_no"`
+	SealXMM         float64                 `json:"seal_x_mm"`
+	SealYMM         float64                 `json:"seal_y_mm"`
+	SealWidthMM     float64                 `json:"seal_width_mm"`
+	Seal            *SalesOrderAsset        `json:"seal,omitempty"`
+	PaymentCodes    []SalesOrderPaymentCode `json:"payment_codes"`
+}
+
+type SalesOrderAsset struct {
+	ID          int64  `json:"id"`
+	Kind        string `json:"kind"`
+	Filename    string `json:"filename"`
+	ContentType string `json:"content_type"`
+	Bytes       int64  `json:"bytes"`
+	SHA256      string `json:"sha256"`
+	ObjectKey   string `json:"object_key"`
+	CreatedAt   string `json:"created_at"`
+	CreatedBy   string `json:"created_by"`
+	URL         string `json:"url"`
+}
+
+type SalesOrderPaymentCode struct {
+	ID          int64           `json:"id"`
+	Label       string          `json:"label"`
+	Description string          `json:"description"`
+	AssetID     int64           `json:"asset_id"`
+	Sort        int             `json:"sort"`
+	Active      bool            `json:"active"`
+	Asset       SalesOrderAsset `json:"asset"`
+}
+
+type SaveSalesOrderSettingsCommand struct {
+	Actor           string  `json:"actor"`
+	CompanyName     string  `json:"company_name"`
+	Note            string  `json:"note"`
+	PaymentText     string  `json:"payment_text"`
+	BankAccountName string  `json:"bank_account_name"`
+	BankName        string  `json:"bank_name"`
+	BankAccountNo   string  `json:"bank_account_no"`
+	SealXMM         float64 `json:"seal_x_mm"`
+	SealYMM         float64 `json:"seal_y_mm"`
+	SealWidthMM     float64 `json:"seal_width_mm"`
+}
+
+type SaveSalesOrderAssetCommand struct {
+	Actor       string
+	Kind        string
+	Filename    string
+	ContentType string
+	Bytes       int64
+	SHA256      string
+	ObjectKey   string
+}
+
+type SaveSalesOrderPaymentCodeCommand struct {
+	Actor       string `json:"actor"`
+	ID          int64  `json:"id"`
+	Label       string `json:"label"`
+	Description string `json:"description"`
+	AssetID     int64  `json:"asset_id"`
+	Sort        int    `json:"sort"`
+	Active      bool   `json:"active"`
+}
+
+type GenerateSalesOrderDocumentCommand struct {
+	Actor   string
+	OrderID int64
+}
+
+type GenerateSalesOrderImageCommand struct {
+	Actor   string
+	OrderID int64
+}
+
+type GenerateSalesOrderDocumentResult struct {
+	Document SalesOrderDocument             `json:"document"`
+	Snapshot salesdomain.SalesOrderSnapshot `json:"snapshot"`
+}
+
+type GenerateSalesOrderImageResult struct {
+	Document SalesOrderImageDocument        `json:"document"`
+	Snapshot salesdomain.SalesOrderSnapshot `json:"snapshot"`
+}
+
+type SalesOrderPreview struct {
+	OrderID       int64                          `json:"order_id"`
+	OrderNo       string                         `json:"order_no"`
+	NextVersionNo int                            `json:"next_version_no"`
+	Snapshot      salesdomain.SalesOrderSnapshot `json:"snapshot"`
+}
+
+type SalesOrderDocument struct {
+	ID          int64                          `json:"id"`
+	OrderID     int64                          `json:"order_id"`
+	OrderNo     string                         `json:"order_no"`
+	VersionNo   int                            `json:"version_no"`
+	Snapshot    salesdomain.SalesOrderSnapshot `json:"snapshot"`
+	PDFAssetID  int64                          `json:"pdf_asset_id"`
+	IsLatest    bool                           `json:"is_latest"`
+	CreatedAt   string                         `json:"created_at"`
+	CreatedBy   string                         `json:"created_by"`
+	DownloadURL string                         `json:"download_url"`
+}
+
+type SalesOrderImageDocument struct {
+	ID           int64                          `json:"id"`
+	OrderID      int64                          `json:"order_id"`
+	OrderNo      string                         `json:"order_no"`
+	VersionNo    int                            `json:"version_no"`
+	Snapshot     salesdomain.SalesOrderSnapshot `json:"snapshot"`
+	ImageAssetID int64                          `json:"image_asset_id"`
+	IsLatest     bool                           `json:"is_latest"`
+	CreatedAt    string                         `json:"created_at"`
+	CreatedBy    string                         `json:"created_by"`
+	DownloadURL  string                         `json:"download_url"`
+}
+
+type SalesOrderCustomerInfo struct {
+	ID             int64  `json:"id"`
+	Name           string `json:"name"`
+	CompanyName    string `json:"company_name"`
+	CompanyAddress string `json:"company_address"`
+	CompanyPhone   string `json:"company_phone"`
+	Contact        string `json:"contact"`
+	Phone          string `json:"phone"`
+	Address        string `json:"address"`
+}
+
+type SalesOrderContext struct {
+	OrderID  int64                  `json:"order_id"`
+	OrderNo  string                 `json:"order_no"`
+	Customer SalesOrderCustomerInfo `json:"customer"`
+}
+
+type SalesOrderDocumentFile struct {
+	Document SalesOrderDocument
+	Path     string
+	Filename string
+}
+
+type DeliveryNoteForm struct {
+	OrderID             int64  `json:"order_id"`
+	OrderNo             string `json:"order_no"`
+	PostingDate         string `json:"posting_date"`
+	SourceWarehouse     string `json:"source_warehouse"`
+	SourceWarehouseName string `json:"source_warehouse_name"`
+	DeliveryMethod      string `json:"delivery_method"`
+	TrackingNo          string `json:"tracking_no"`
+	Note                string `json:"note"`
+	UpdatedAt           string `json:"updated_at"`
+	UpdatedBy           string `json:"updated_by"`
+}
+
+type SaveDeliveryNoteFormCommand struct {
+	Actor           string `json:"actor"`
+	OrderID         int64  `json:"order_id"`
+	PostingDate     string `json:"posting_date"`
+	SourceWarehouse string `json:"source_warehouse"`
+	DeliveryMethod  string `json:"delivery_method"`
+	TrackingNo      string `json:"tracking_no"`
+	Note            string `json:"note"`
+}
+
+type GenerateDeliveryNoteDocumentCommand struct {
+	Actor   string
+	OrderID int64
+}
+
+type GenerateDeliveryNoteDocumentResult struct {
+	Document DeliveryNoteDocument             `json:"document"`
+	Snapshot salesdomain.DeliveryNoteSnapshot `json:"snapshot"`
+}
+
+type DeliveryNotePreview struct {
+	OrderID       int64                            `json:"order_id"`
+	OrderNo       string                           `json:"order_no"`
+	NextVersionNo int                              `json:"next_version_no"`
+	Form          DeliveryNoteForm                 `json:"form"`
+	Snapshot      salesdomain.DeliveryNoteSnapshot `json:"snapshot"`
+}
+
+type DeliveryNoteDocument struct {
+	ID          int64                            `json:"id"`
+	OrderID     int64                            `json:"order_id"`
+	OrderNo     string                           `json:"order_no"`
+	VersionNo   int                              `json:"version_no"`
+	Snapshot    salesdomain.DeliveryNoteSnapshot `json:"snapshot"`
+	PDFAssetID  int64                            `json:"pdf_asset_id"`
+	IsLatest    bool                             `json:"is_latest"`
+	CreatedAt   string                           `json:"created_at"`
+	CreatedBy   string                           `json:"created_by"`
+	DownloadURL string                           `json:"download_url"`
+}
+
+type DeliveryNoteContext struct {
+	OrderID    int64                  `json:"order_id"`
+	OrderNo    string                 `json:"order_no"`
+	ShipStatus string                 `json:"ship_status"`
+	Customer   SalesOrderCustomerInfo `json:"customer"`
+}
+
+type DeliveryNoteDocumentFile struct {
+	Document DeliveryNoteDocument
+	Path     string
+	Filename string
+}
+
+type SalesOrderImageFile struct {
+	Document SalesOrderImageDocument
+	Path     string
+	Filename string
+}
+
+const (
+	ExternalShareSalesOrderPDF   = "sales_order_pdf"
+	ExternalShareSalesOrderImage = "sales_order_image"
+	ExternalShareDeliveryNotePDF = "delivery_note_pdf"
+)
+
+type CreateExternalShareResourceCommand struct {
+	Actor        string `json:"actor"`
+	ResourceType string `json:"resource_type"`
+	OrderID      int64  `json:"order_id"`
+	DocumentID   int64  `json:"document_id"`
+	Latest       bool   `json:"latest"`
+}
+
+type ExternalShareResource struct {
+	Token        string `json:"token"`
+	ResourceType string `json:"resource_type"`
+	OrderID      int64  `json:"order_id"`
+	ResourceID   int64  `json:"resource_id"`
+	Title        string `json:"title"`
+	Filename     string `json:"filename"`
+	ContentType  string `json:"content_type"`
+	ShareURL     string `json:"share_url"`
+	FileURL      string `json:"file_url"`
+	ShareText    string `json:"share_text"`
+	CreatedAt    string `json:"created_at"`
+	CreatedBy    string `json:"created_by"`
+}
+
+type ExternalShareResourceFile struct {
+	Resource ExternalShareResource
+	Path     string
+}
+
+type OrderInvoice struct {
+	OrderID     int64            `json:"order_id"`
+	OrderNo     string           `json:"order_no"`
+	Status      string           `json:"status"`
+	RequestedAt string           `json:"requested_at"`
+	RequestedBy string           `json:"requested_by"`
+	UploadedAt  string           `json:"uploaded_at"`
+	UploadedBy  string           `json:"uploaded_by"`
+	Asset       *SalesOrderAsset `json:"asset,omitempty"`
+}
+
+type RequestOrderInvoiceCommand struct {
+	Actor   string
+	OrderID int64
+}
+
+type SaveOrderInvoiceFileCommand struct {
+	Actor       string
+	OrderID     int64
+	Filename    string
+	ContentType string
+	Bytes       int64
+	SHA256      string
+	ObjectKey   string
+}
+
 type Repository interface {
 	SaveOrder(ctx context.Context, cmd SaveOrderCommand) (SaveOrderResult, error)
+	PreviewOrderStockBatches(ctx context.Context, cmd OrderStockBatchPreviewCommand) (OrderStockBatchPreview, error)
 	UpdateHeader(ctx context.Context, id int64, cmd UpdateHeaderCommand) error
 	InlineUpdate(ctx context.Context, id int64, actor string, cmd InlineUpdateCommand) error
 	Void(ctx context.Context, id int64, actor, reason string) error
@@ -314,8 +750,41 @@ type Repository interface {
 	FillTrackingPairs(ctx context.Context, cmd FillTrackingPairsCommand) (FillTrackingResult, error)
 	SetShipMethod(ctx context.Context, cmd SetShipMethodCommand) error
 	LoadSenderProfile(ctx context.Context) (SenderProfile, error)
+	LoadSenderProfileByID(ctx context.Context, id int64) (SenderProfile, error)
+	ListSenderProfiles(ctx context.Context) ([]SenderProfile, error)
 	SaveSenderProfile(ctx context.Context, profile SenderProfile) error
 	ListSFSmallShippingRows(ctx context.Context, query ShippingExportQuery) ([]ShippingExportRow, error)
+	LoadOrderShippingExportData(ctx context.Context, orderID int64) (OrderShippingExportData, error)
+	CreateOrderShipment(ctx context.Context, cmd CreateOrderShipmentCommand) (OrderShipmentResult, error)
+	FillShipmentTracking(ctx context.Context, cmd FillShipmentTrackingCommand) (FillShipmentTrackingResult, error)
+	FillShipmentTrackingByOrderNo(ctx context.Context, cmd FillShipmentTrackingByOrderNoCommand) (FillShipmentTrackingResult, error)
+	FillOrderTracking(ctx context.Context, cmd FillOrderTrackingCommand) (FillShipmentTrackingResult, error)
+	LoadSalesOrderSettings(ctx context.Context) (SalesOrderSettings, error)
+	SaveSalesOrderSettings(ctx context.Context, cmd SaveSalesOrderSettingsCommand) error
+	SaveSalesOrderAsset(ctx context.Context, cmd SaveSalesOrderAssetCommand) (SalesOrderAsset, error)
+	SaveSalesOrderPaymentCode(ctx context.Context, cmd SaveSalesOrderPaymentCodeCommand) (SalesOrderPaymentCode, error)
+	DeleteSalesOrderPaymentCode(ctx context.Context, id int64, actor string) error
+	SetSalesOrderSealAsset(ctx context.Context, assetID int64, actor string) error
+	LoadSalesOrderContext(ctx context.Context, orderID int64) (SalesOrderContext, error)
+	ListSalesOrderDocuments(ctx context.Context, orderID int64) ([]SalesOrderDocument, error)
+	ListSalesOrderImageDocuments(ctx context.Context, orderID int64) ([]SalesOrderImageDocument, error)
+	PreviewSalesOrderDocument(ctx context.Context, orderID int64) (SalesOrderPreview, error)
+	GenerateSalesOrderDocument(ctx context.Context, cmd GenerateSalesOrderDocumentCommand) (GenerateSalesOrderDocumentResult, error)
+	GenerateSalesOrderImage(ctx context.Context, cmd GenerateSalesOrderImageCommand) (GenerateSalesOrderImageResult, error)
+	LoadSalesOrderDocumentFile(ctx context.Context, orderID, documentID int64, latest bool) (SalesOrderDocumentFile, error)
+	LoadSalesOrderImageFile(ctx context.Context, orderID, imageID int64, latest bool) (SalesOrderImageFile, error)
+	LoadDeliveryNoteContext(ctx context.Context, orderID int64) (DeliveryNoteContext, error)
+	LoadDeliveryNoteForm(ctx context.Context, orderID int64) (DeliveryNoteForm, error)
+	SaveDeliveryNoteForm(ctx context.Context, cmd SaveDeliveryNoteFormCommand) (DeliveryNoteForm, error)
+	ListDeliveryNoteDocuments(ctx context.Context, orderID int64) ([]DeliveryNoteDocument, error)
+	PreviewDeliveryNoteDocument(ctx context.Context, orderID int64) (DeliveryNotePreview, error)
+	GenerateDeliveryNoteDocument(ctx context.Context, cmd GenerateDeliveryNoteDocumentCommand) (GenerateDeliveryNoteDocumentResult, error)
+	LoadDeliveryNoteDocumentFile(ctx context.Context, orderID, documentID int64, latest bool) (DeliveryNoteDocumentFile, error)
+	CreateExternalShareResource(ctx context.Context, cmd CreateExternalShareResourceCommand) (ExternalShareResource, error)
+	LoadExternalShareResourceFile(ctx context.Context, token string) (ExternalShareResourceFile, error)
+	LoadOrderInvoice(ctx context.Context, orderID int64) (OrderInvoice, error)
+	RequestOrderInvoice(ctx context.Context, cmd RequestOrderInvoiceCommand) (OrderInvoice, error)
+	SaveOrderInvoiceFile(ctx context.Context, cmd SaveOrderInvoiceFileCommand) (OrderInvoice, error)
 }
 
 type Service struct {
@@ -330,7 +799,36 @@ func (s *Service) SaveOrder(ctx context.Context, cmd SaveOrderCommand) (SaveOrde
 	if err := validateSaveOrderCommand(cmd); err != nil {
 		return SaveOrderResult{}, err
 	}
+	if decision := strings.TrimSpace(cmd.StockBatchDecision); decision != "" && decision != "use_batch" && decision != "produce" {
+		return SaveOrderResult{}, fmt.Errorf("invalid stock_batch_decision")
+	}
 	return s.repo.SaveOrder(ctx, cmd)
+}
+
+func (s *Service) PreviewOrderStockBatches(ctx context.Context, cmd OrderStockBatchPreviewCommand) (OrderStockBatchPreview, error) {
+	if len(cmd.Items) == 0 {
+		return OrderStockBatchPreview{}, fmt.Errorf("at least one item required")
+	}
+	hasValid := false
+	for _, item := range cmd.Items {
+		if item.ProductID == nil && strings.TrimSpace(item.Name) == "" {
+			continue
+		}
+		if item.ProductID == nil {
+			return OrderStockBatchPreview{}, fmt.Errorf("product required")
+		}
+		if item.SpecG <= 0 {
+			return OrderStockBatchPreview{}, fmt.Errorf("spec required")
+		}
+		if item.Units <= 0 {
+			return OrderStockBatchPreview{}, fmt.Errorf("qty required")
+		}
+		hasValid = true
+	}
+	if !hasValid {
+		return OrderStockBatchPreview{}, fmt.Errorf("at least one item required")
+	}
+	return s.repo.PreviewOrderStockBatches(ctx, cmd)
 }
 
 func validateSaveOrderCommand(cmd SaveOrderCommand) error {
@@ -482,28 +980,167 @@ func (s *Service) SetShipMethod(ctx context.Context, cmd SetShipMethodCommand) e
 	return s.repo.SetShipMethod(ctx, cmd)
 }
 
+func (s *Service) CreateOrderShipment(ctx context.Context, cmd CreateOrderShipmentCommand) (OrderShipmentResult, error) {
+	cmd.Actor = strings.TrimSpace(cmd.Actor)
+	if cmd.Actor == "" {
+		cmd.Actor = "shipping"
+	}
+	cmd.FileURL = strings.TrimSpace(cmd.FileURL)
+	if cmd.FileURL == "" {
+		return OrderShipmentResult{}, fmt.Errorf("file_url required")
+	}
+	seen := map[int64]bool{}
+	orders := make([]OrderShipmentOrderCommand, 0, len(cmd.Orders))
+	for _, order := range cmd.Orders {
+		if order.OrderID <= 0 || seen[order.OrderID] {
+			continue
+		}
+		seen[order.OrderID] = true
+		if order.SenderID <= 0 {
+			order.SenderID = cmd.SenderID
+		}
+		orders = append(orders, order)
+	}
+	if len(orders) == 0 {
+		return OrderShipmentResult{}, fmt.Errorf("order required")
+	}
+	cmd.Orders = orders
+	return s.repo.CreateOrderShipment(ctx, cmd)
+}
+
+func (s *Service) FillShipmentTracking(ctx context.Context, cmd FillShipmentTrackingCommand) (FillShipmentTrackingResult, error) {
+	cmd.Actor = strings.TrimSpace(cmd.Actor)
+	if cmd.Actor == "" {
+		cmd.Actor = "shipping"
+	}
+	if cmd.ShipmentID <= 0 {
+		return FillShipmentTrackingResult{}, fmt.Errorf("shipment required")
+	}
+	seen := map[int64]bool{}
+	items := make([]ShipmentTrackingItemCommand, 0, len(cmd.Items))
+	for _, item := range cmd.Items {
+		item.TrackingNo = strings.TrimSpace(item.TrackingNo)
+		if item.OrderID <= 0 || item.TrackingNo == "" || seen[item.OrderID] {
+			continue
+		}
+		seen[item.OrderID] = true
+		items = append(items, item)
+	}
+	if len(items) == 0 {
+		return FillShipmentTrackingResult{}, nil
+	}
+	cmd.Items = items
+	return s.repo.FillShipmentTracking(ctx, cmd)
+}
+
+func (s *Service) FillShipmentTrackingByOrderNo(ctx context.Context, cmd FillShipmentTrackingByOrderNoCommand) (FillShipmentTrackingResult, error) {
+	cmd.Actor = strings.TrimSpace(cmd.Actor)
+	if cmd.Actor == "" {
+		cmd.Actor = "shipping"
+	}
+	seen := map[string]bool{}
+	items := make([]ShipmentTrackingByOrderNoItemCommand, 0, len(cmd.Items))
+	for _, item := range cmd.Items {
+		item.OrderNo = strings.TrimSpace(item.OrderNo)
+		item.TrackingNo = strings.TrimSpace(item.TrackingNo)
+		if item.OrderNo == "" || item.TrackingNo == "" || seen[item.OrderNo] {
+			continue
+		}
+		seen[item.OrderNo] = true
+		items = append(items, item)
+	}
+	if len(items) == 0 {
+		return FillShipmentTrackingResult{}, nil
+	}
+	cmd.Items = items
+	return s.repo.FillShipmentTrackingByOrderNo(ctx, cmd)
+}
+
+func (s *Service) FillOrderTracking(ctx context.Context, cmd FillOrderTrackingCommand) (FillShipmentTrackingResult, error) {
+	cmd.Actor = strings.TrimSpace(cmd.Actor)
+	if cmd.Actor == "" {
+		cmd.Actor = "shipping"
+	}
+	if cmd.OrderID <= 0 {
+		return FillShipmentTrackingResult{}, fmt.Errorf("order required")
+	}
+	cmd.TrackingNo = strings.TrimSpace(cmd.TrackingNo)
+	if cmd.TrackingNo == "" {
+		return FillShipmentTrackingResult{}, fmt.Errorf("tracking_no required")
+	}
+	return s.repo.FillOrderTracking(ctx, cmd)
+}
+
 func (s *Service) LoadSenderProfile(ctx context.Context) (SenderProfile, error) {
 	profile, err := s.repo.LoadSenderProfile(ctx)
 	if err != nil {
 		return SenderProfile{}, err
 	}
 	if strings.TrimSpace(profile.Goods) == "" {
-		profile.Goods = "咖啡"
+		profile.Goods = "茶叶"
 	}
 	return profile, nil
 }
 
+func (s *Service) LoadSenderProfileByID(ctx context.Context, id int64) (SenderProfile, error) {
+	var (
+		profile SenderProfile
+		err     error
+	)
+	if id > 0 {
+		profile, err = s.repo.LoadSenderProfileByID(ctx, id)
+	} else {
+		profile, err = s.repo.LoadSenderProfile(ctx)
+	}
+	if err != nil {
+		return SenderProfile{}, err
+	}
+	if strings.TrimSpace(profile.Goods) == "" {
+		profile.Goods = "茶叶"
+	}
+	return profile, nil
+}
+
+func (s *Service) ListSenderProfiles(ctx context.Context) ([]SenderProfile, error) {
+	profiles, err := s.repo.ListSenderProfiles(ctx)
+	if err != nil {
+		return nil, err
+	}
+	for i := range profiles {
+		if strings.TrimSpace(profiles[i].Goods) == "" {
+			profiles[i].Goods = "茶叶"
+		}
+	}
+	return profiles, nil
+}
+
 func (s *Service) SaveSenderProfile(ctx context.Context, profile SenderProfile) error {
+	profile.Label = strings.TrimSpace(profile.Label)
 	profile.Name = strings.TrimSpace(profile.Name)
 	profile.Phone = strings.TrimSpace(profile.Phone)
 	profile.Addr = strings.TrimSpace(profile.Addr)
 	profile.Company = strings.TrimSpace(profile.Company)
 	profile.Goods = strings.TrimSpace(profile.Goods)
 	if profile.Goods == "" {
-		profile.Goods = "咖啡"
+		profile.Goods = "茶叶"
 	}
 	profile.BizType = strings.TrimSpace(profile.BizType)
+	if profile.Label == "" {
+		profile.Label = firstNonEmptyText(profile.Name, profile.Company, "寄件人")
+	}
+	if !profile.Active && profile.ID == 0 {
+		profile.Active = true
+	}
 	return s.repo.SaveSenderProfile(ctx, profile)
+}
+
+func firstNonEmptyText(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return strings.TrimSpace(value)
+		}
+	}
+	return ""
 }
 
 func (s *Service) ListSFSmallShippingRows(ctx context.Context, query ShippingExportQuery) ([]ShippingExportRow, error) {
@@ -515,6 +1152,316 @@ func (s *Service) ListSFSmallShippingRows(ctx context.Context, query ShippingExp
 		query.Void = "normal"
 	}
 	return s.repo.ListSFSmallShippingRows(ctx, query)
+}
+
+func (s *Service) LoadOrderShippingExportData(ctx context.Context, orderID int64) (OrderShippingExportData, error) {
+	if orderID <= 0 {
+		return OrderShippingExportData{}, fmt.Errorf("invalid order id")
+	}
+	return s.repo.LoadOrderShippingExportData(ctx, orderID)
+}
+
+func (s *Service) LoadSalesOrderSettings(ctx context.Context) (SalesOrderSettings, error) {
+	return s.repo.LoadSalesOrderSettings(ctx)
+}
+
+func (s *Service) SaveSalesOrderSettings(ctx context.Context, cmd SaveSalesOrderSettingsCommand) error {
+	cmd.Actor = strings.TrimSpace(cmd.Actor)
+	if cmd.Actor == "" {
+		cmd.Actor = "sales"
+	}
+	cmd.CompanyName = strings.TrimSpace(cmd.CompanyName)
+	cmd.Note = strings.TrimSpace(cmd.Note)
+	cmd.PaymentText = strings.TrimSpace(cmd.PaymentText)
+	cmd.BankAccountName = strings.TrimSpace(cmd.BankAccountName)
+	cmd.BankName = strings.TrimSpace(cmd.BankName)
+	cmd.BankAccountNo = strings.TrimSpace(cmd.BankAccountNo)
+	if cmd.SealXMM <= 0 {
+		cmd.SealXMM = 32
+	}
+	if cmd.SealYMM <= 0 {
+		cmd.SealYMM = 5
+	}
+	if cmd.SealWidthMM <= 0 {
+		cmd.SealWidthMM = 36
+	}
+	return s.repo.SaveSalesOrderSettings(ctx, cmd)
+}
+
+func (s *Service) SaveSalesOrderAsset(ctx context.Context, cmd SaveSalesOrderAssetCommand) (SalesOrderAsset, error) {
+	cmd.Actor = strings.TrimSpace(cmd.Actor)
+	if cmd.Actor == "" {
+		cmd.Actor = "sales"
+	}
+	cmd.Kind = strings.TrimSpace(cmd.Kind)
+	cmd.Filename = strings.TrimSpace(cmd.Filename)
+	cmd.ContentType = strings.TrimSpace(cmd.ContentType)
+	cmd.SHA256 = strings.TrimSpace(cmd.SHA256)
+	cmd.ObjectKey = strings.TrimSpace(cmd.ObjectKey)
+	if cmd.Kind == "" {
+		return SalesOrderAsset{}, fmt.Errorf("kind required")
+	}
+	if cmd.ObjectKey == "" {
+		return SalesOrderAsset{}, fmt.Errorf("object_key required")
+	}
+	return s.repo.SaveSalesOrderAsset(ctx, cmd)
+}
+
+func (s *Service) SaveSalesOrderPaymentCode(ctx context.Context, cmd SaveSalesOrderPaymentCodeCommand) (SalesOrderPaymentCode, error) {
+	cmd.Actor = strings.TrimSpace(cmd.Actor)
+	if cmd.Actor == "" {
+		cmd.Actor = "sales"
+	}
+	cmd.Label = strings.TrimSpace(cmd.Label)
+	cmd.Description = strings.TrimSpace(cmd.Description)
+	if cmd.Label == "" {
+		return SalesOrderPaymentCode{}, fmt.Errorf("label required")
+	}
+	if cmd.AssetID <= 0 {
+		return SalesOrderPaymentCode{}, fmt.Errorf("asset required")
+	}
+	return s.repo.SaveSalesOrderPaymentCode(ctx, cmd)
+}
+
+func (s *Service) DeleteSalesOrderPaymentCode(ctx context.Context, id int64, actor string) error {
+	if id <= 0 {
+		return fmt.Errorf("payment code required")
+	}
+	actor = strings.TrimSpace(actor)
+	if actor == "" {
+		actor = "sales"
+	}
+	return s.repo.DeleteSalesOrderPaymentCode(ctx, id, actor)
+}
+
+func (s *Service) SetSalesOrderSealAsset(ctx context.Context, assetID int64, actor string) error {
+	if assetID <= 0 {
+		return fmt.Errorf("asset required")
+	}
+	actor = strings.TrimSpace(actor)
+	if actor == "" {
+		actor = "sales"
+	}
+	return s.repo.SetSalesOrderSealAsset(ctx, assetID, actor)
+}
+
+func (s *Service) ListSalesOrderDocuments(ctx context.Context, orderID int64) ([]SalesOrderDocument, error) {
+	if orderID <= 0 {
+		return nil, fmt.Errorf("invalid order id")
+	}
+	return s.repo.ListSalesOrderDocuments(ctx, orderID)
+}
+
+func (s *Service) ListSalesOrderImageDocuments(ctx context.Context, orderID int64) ([]SalesOrderImageDocument, error) {
+	if orderID <= 0 {
+		return nil, fmt.Errorf("invalid order id")
+	}
+	return s.repo.ListSalesOrderImageDocuments(ctx, orderID)
+}
+
+func (s *Service) LoadSalesOrderContext(ctx context.Context, orderID int64) (SalesOrderContext, error) {
+	if orderID <= 0 {
+		return SalesOrderContext{}, fmt.Errorf("invalid order id")
+	}
+	return s.repo.LoadSalesOrderContext(ctx, orderID)
+}
+
+func (s *Service) GenerateSalesOrderDocument(ctx context.Context, cmd GenerateSalesOrderDocumentCommand) (GenerateSalesOrderDocumentResult, error) {
+	cmd.Actor = strings.TrimSpace(cmd.Actor)
+	if cmd.Actor == "" {
+		cmd.Actor = "sales"
+	}
+	if cmd.OrderID <= 0 {
+		return GenerateSalesOrderDocumentResult{}, fmt.Errorf("invalid order id")
+	}
+	return s.repo.GenerateSalesOrderDocument(ctx, cmd)
+}
+
+func (s *Service) GenerateSalesOrderImage(ctx context.Context, cmd GenerateSalesOrderImageCommand) (GenerateSalesOrderImageResult, error) {
+	cmd.Actor = strings.TrimSpace(cmd.Actor)
+	if cmd.Actor == "" {
+		cmd.Actor = "sales"
+	}
+	if cmd.OrderID <= 0 {
+		return GenerateSalesOrderImageResult{}, fmt.Errorf("invalid order id")
+	}
+	return s.repo.GenerateSalesOrderImage(ctx, cmd)
+}
+
+func (s *Service) PreviewSalesOrderDocument(ctx context.Context, orderID int64) (SalesOrderPreview, error) {
+	if orderID <= 0 {
+		return SalesOrderPreview{}, fmt.Errorf("invalid order id")
+	}
+	return s.repo.PreviewSalesOrderDocument(ctx, orderID)
+}
+
+func (s *Service) LoadSalesOrderDocumentFile(ctx context.Context, orderID, documentID int64, latest bool) (SalesOrderDocumentFile, error) {
+	if orderID <= 0 {
+		return SalesOrderDocumentFile{}, fmt.Errorf("invalid order id")
+	}
+	if !latest && documentID <= 0 {
+		return SalesOrderDocumentFile{}, fmt.Errorf("invalid document id")
+	}
+	return s.repo.LoadSalesOrderDocumentFile(ctx, orderID, documentID, latest)
+}
+
+func (s *Service) LoadSalesOrderImageFile(ctx context.Context, orderID, imageID int64, latest bool) (SalesOrderImageFile, error) {
+	if orderID <= 0 {
+		return SalesOrderImageFile{}, fmt.Errorf("invalid order id")
+	}
+	if !latest && imageID <= 0 {
+		return SalesOrderImageFile{}, fmt.Errorf("invalid image id")
+	}
+	return s.repo.LoadSalesOrderImageFile(ctx, orderID, imageID, latest)
+}
+
+func (s *Service) LoadDeliveryNoteContext(ctx context.Context, orderID int64) (DeliveryNoteContext, error) {
+	if orderID <= 0 {
+		return DeliveryNoteContext{}, fmt.Errorf("invalid order id")
+	}
+	return s.repo.LoadDeliveryNoteContext(ctx, orderID)
+}
+
+func (s *Service) LoadDeliveryNoteForm(ctx context.Context, orderID int64) (DeliveryNoteForm, error) {
+	if orderID <= 0 {
+		return DeliveryNoteForm{}, fmt.Errorf("invalid order id")
+	}
+	return s.repo.LoadDeliveryNoteForm(ctx, orderID)
+}
+
+func (s *Service) SaveDeliveryNoteForm(ctx context.Context, cmd SaveDeliveryNoteFormCommand) error {
+	cmd.Actor = strings.TrimSpace(cmd.Actor)
+	if cmd.Actor == "" {
+		cmd.Actor = "warehouse"
+	}
+	if cmd.OrderID <= 0 {
+		return fmt.Errorf("invalid order id")
+	}
+	cmd.PostingDate = strings.TrimSpace(cmd.PostingDate)
+	cmd.SourceWarehouse = strings.TrimSpace(cmd.SourceWarehouse)
+	if cmd.SourceWarehouse == "" {
+		cmd.SourceWarehouse = "finished_goods"
+	}
+	cmd.DeliveryMethod = strings.TrimSpace(cmd.DeliveryMethod)
+	cmd.TrackingNo = strings.TrimSpace(cmd.TrackingNo)
+	cmd.Note = strings.TrimSpace(cmd.Note)
+	_, err := s.repo.SaveDeliveryNoteForm(ctx, cmd)
+	return err
+}
+
+func (s *Service) ListDeliveryNoteDocuments(ctx context.Context, orderID int64) ([]DeliveryNoteDocument, error) {
+	if orderID <= 0 {
+		return nil, fmt.Errorf("invalid order id")
+	}
+	return s.repo.ListDeliveryNoteDocuments(ctx, orderID)
+}
+
+func (s *Service) PreviewDeliveryNoteDocument(ctx context.Context, orderID int64) (DeliveryNotePreview, error) {
+	if orderID <= 0 {
+		return DeliveryNotePreview{}, fmt.Errorf("invalid order id")
+	}
+	return s.repo.PreviewDeliveryNoteDocument(ctx, orderID)
+}
+
+func (s *Service) GenerateDeliveryNoteDocument(ctx context.Context, cmd GenerateDeliveryNoteDocumentCommand) (GenerateDeliveryNoteDocumentResult, error) {
+	cmd.Actor = strings.TrimSpace(cmd.Actor)
+	if cmd.Actor == "" {
+		cmd.Actor = "warehouse"
+	}
+	if cmd.OrderID <= 0 {
+		return GenerateDeliveryNoteDocumentResult{}, fmt.Errorf("invalid order id")
+	}
+	return s.repo.GenerateDeliveryNoteDocument(ctx, cmd)
+}
+
+func (s *Service) LoadDeliveryNoteDocumentFile(ctx context.Context, orderID, documentID int64, latest bool) (DeliveryNoteDocumentFile, error) {
+	if orderID <= 0 {
+		return DeliveryNoteDocumentFile{}, fmt.Errorf("invalid order id")
+	}
+	if !latest && documentID <= 0 {
+		return DeliveryNoteDocumentFile{}, fmt.Errorf("invalid document id")
+	}
+	return s.repo.LoadDeliveryNoteDocumentFile(ctx, orderID, documentID, latest)
+}
+
+func (s *Service) CreateExternalShareResource(ctx context.Context, cmd CreateExternalShareResourceCommand) (ExternalShareResource, error) {
+	cmd.Actor = strings.TrimSpace(cmd.Actor)
+	if cmd.Actor == "" {
+		cmd.Actor = "sales"
+	}
+	cmd.ResourceType = strings.TrimSpace(cmd.ResourceType)
+	if !isExternalShareResourceType(cmd.ResourceType) {
+		return ExternalShareResource{}, fmt.Errorf("invalid share resource type")
+	}
+	if cmd.OrderID <= 0 {
+		return ExternalShareResource{}, fmt.Errorf("invalid order id")
+	}
+	if !cmd.Latest && cmd.DocumentID <= 0 {
+		return ExternalShareResource{}, fmt.Errorf("invalid document id")
+	}
+	return s.repo.CreateExternalShareResource(ctx, cmd)
+}
+
+func (s *Service) LoadExternalShareResourceFile(ctx context.Context, token string) (ExternalShareResourceFile, error) {
+	token = strings.TrimSpace(token)
+	if token == "" {
+		return ExternalShareResourceFile{}, fmt.Errorf("invalid share token")
+	}
+	return s.repo.LoadExternalShareResourceFile(ctx, token)
+}
+
+func isExternalShareResourceType(resourceType string) bool {
+	switch resourceType {
+	case ExternalShareSalesOrderPDF, ExternalShareSalesOrderImage, ExternalShareDeliveryNotePDF:
+		return true
+	default:
+		return false
+	}
+}
+
+func (s *Service) LoadOrderInvoice(ctx context.Context, orderID int64) (OrderInvoice, error) {
+	if orderID <= 0 {
+		return OrderInvoice{}, fmt.Errorf("invalid order id")
+	}
+	return s.repo.LoadOrderInvoice(ctx, orderID)
+}
+
+func (s *Service) RequestOrderInvoice(ctx context.Context, cmd RequestOrderInvoiceCommand) (OrderInvoice, error) {
+	if cmd.OrderID <= 0 {
+		return OrderInvoice{}, fmt.Errorf("invalid order id")
+	}
+	return s.repo.RequestOrderInvoice(ctx, cmd)
+}
+
+func (s *Service) SaveOrderInvoiceFile(ctx context.Context, cmd SaveOrderInvoiceFileCommand) (OrderInvoice, error) {
+	if cmd.OrderID <= 0 {
+		return OrderInvoice{}, fmt.Errorf("invalid order id")
+	}
+	if strings.TrimSpace(cmd.Filename) == "" {
+		return OrderInvoice{}, fmt.Errorf("filename required")
+	}
+	if !IsOrderInvoiceContentTypeAllowed(cmd.ContentType) {
+		return OrderInvoice{}, fmt.Errorf("only PDF and image files are allowed")
+	}
+	if cmd.Bytes <= 0 {
+		return OrderInvoice{}, fmt.Errorf("empty file")
+	}
+	if strings.TrimSpace(cmd.SHA256) == "" {
+		return OrderInvoice{}, fmt.Errorf("sha256 required")
+	}
+	if strings.TrimSpace(cmd.ObjectKey) == "" {
+		return OrderInvoice{}, fmt.Errorf("object_key required")
+	}
+	return s.repo.SaveOrderInvoiceFile(ctx, cmd)
+}
+
+func IsOrderInvoiceContentTypeAllowed(contentType string) bool {
+	switch strings.ToLower(strings.TrimSpace(contentType)) {
+	case "application/pdf", "image/png", "image/jpeg", "image/gif", "image/webp":
+		return true
+	default:
+		return false
+	}
 }
 
 func digitsOnly(s string) string {

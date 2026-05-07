@@ -17,6 +17,8 @@ var cnPhoneRe = regexp.MustCompile(`^1\d{10}$`)
 
 type loginReq struct {
 	Mode     string `json:"mode"`
+	Login    string `json:"login"`
+	Username string `json:"username"`
 	Phone    string `json:"phone"`
 	Password string `json:"password"`
 	Code     string `json:"code"`
@@ -29,6 +31,16 @@ type smsSendReq struct {
 type pwdSetReq struct {
 	Phone    string `json:"phone"`
 	Password string `json:"password"`
+}
+
+type accountStateReq struct {
+	EmployeeID   int64 `json:"employee_id"`
+	LoginEnabled bool  `json:"login_enabled"`
+}
+
+type passwordResetReq struct {
+	EmployeeID int64  `json:"employee_id"`
+	Password   string `json:"password"`
 }
 
 func ensureEmployeeByPhone(ctx context.Context, pool *pgxpool.Pool, schema, phone string) (int64, string, error) {
@@ -56,6 +68,34 @@ func ensureEmployeeByPhone(ctx context.Context, pool *pgxpool.Pool, schema, phon
 	return eid, strings.TrimSpace(ename), nil
 }
 
+func passwordLoginIdentifier(req loginReq) string {
+	for _, raw := range []string{req.Login, req.Username, req.Phone} {
+		if value := strings.TrimSpace(raw); value != "" {
+			return value
+		}
+	}
+	return ""
+}
+
+func resolveEmployeeByPasswordLogin(ctx context.Context, pool *pgxpool.Pool, schema, login string) (int64, string, string, error) {
+	login = strings.TrimSpace(login)
+	if login == "" {
+		return 0, "", "", fmt.Errorf("login required")
+	}
+	var eid int64
+	var ename, phone string
+	var err error
+	if cnPhoneRe.MatchString(login) {
+		err = pool.QueryRow(ctx, "SELECT id,COALESCE(name,''),COALESCE(phone,'') FROM "+schema+".company_employees WHERE phone=$1 AND active=true LIMIT 1", login).Scan(&eid, &ename, &phone)
+	} else {
+		err = pool.QueryRow(ctx, "SELECT id,COALESCE(name,''),COALESCE(phone,'') FROM "+schema+".company_employees WHERE name=$1 AND active=true ORDER BY id LIMIT 1", login).Scan(&eid, &ename, &phone)
+	}
+	if err != nil {
+		return 0, "", "", fmt.Errorf("employee not found")
+	}
+	return eid, strings.TrimSpace(ename), strings.TrimSpace(phone), nil
+}
+
 func hashPassword(raw string) string {
 	s := sha256.Sum256([]byte("orderapp-mobile-auth:" + raw))
 	return hex.EncodeToString(s[:])
@@ -69,11 +109,21 @@ func randToken(n int) (string, error) {
 	return hex.EncodeToString(b), nil
 }
 
+func bearerTokenFromHeader(authz string) string {
+	authz = strings.TrimSpace(authz)
+	if !strings.HasPrefix(strings.ToLower(authz), "bearer ") {
+		return ""
+	}
+	return strings.TrimSpace(authz[7:])
+}
+
 func ensureMobileAuthTables(ctx context.Context, pool *pgxpool.Pool, schema string) error {
 	q := fmt.Sprintf(`
 CREATE TABLE IF NOT EXISTS %s.employee_login_passwords (
 	employee_id BIGINT PRIMARY KEY REFERENCES %s.company_employees(id) ON DELETE CASCADE,
 	password_hash TEXT NOT NULL,
+	login_disabled BOOLEAN NOT NULL DEFAULT false,
+	must_reset_password BOOLEAN NOT NULL DEFAULT false,
 	updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE TABLE IF NOT EXISTS %s.login_sms_codes (
@@ -93,11 +143,21 @@ CREATE TABLE IF NOT EXISTS %s.login_sessions (
 );
 CREATE INDEX IF NOT EXISTS login_sessions_employee_idx ON %s.login_sessions(employee_id, created_at DESC);
 `, schema, schema, schema, schema, schema, schema, schema)
-	_, err := pool.Exec(ctx, q)
-	return err
+	if _, err := pool.Exec(ctx, q); err != nil {
+		return err
+	}
+	for _, stmt := range []string{
+		`ALTER TABLE %[1]s.employee_login_passwords ADD COLUMN IF NOT EXISTS login_disabled BOOLEAN NOT NULL DEFAULT false`,
+		`ALTER TABLE %[1]s.employee_login_passwords ADD COLUMN IF NOT EXISTS must_reset_password BOOLEAN NOT NULL DEFAULT false`,
+	} {
+		if _, err := pool.Exec(ctx, fmt.Sprintf(stmt, schema)); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
-func registerMobileAuthAPI(e *echo.Echo, pool *pgxpool.Pool, schema string) {
+func registerMobileAuthAPI(e *echo.Echo, pool *pgxpool.Pool, schema string, authz AuthzService) {
 	e.POST("/api/auth/password/set", func(c echo.Context) error {
 		var req pwdSetReq
 		if err := c.Bind(&req); err != nil {
@@ -116,7 +176,7 @@ func registerMobileAuthAPI(e *echo.Echo, pool *pgxpool.Pool, schema string) {
 			return c.JSON(400, map[string]string{"error": err.Error()})
 		}
 		_, err = pool.Exec(c.Request().Context(),
-			"INSERT INTO "+schema+".employee_login_passwords(employee_id,password_hash,updated_at) VALUES($1,$2,now()) ON CONFLICT (employee_id) DO UPDATE SET password_hash=excluded.password_hash,updated_at=now()",
+			"INSERT INTO "+schema+".employee_login_passwords(employee_id,password_hash,login_disabled,must_reset_password,updated_at) VALUES($1,$2,false,false,now()) ON CONFLICT (employee_id) DO UPDATE SET password_hash=excluded.password_hash,login_disabled=false,must_reset_password=false,updated_at=now()",
 			eid, hashPassword(pwd),
 		)
 		if err != nil {
@@ -174,30 +234,58 @@ func registerMobileAuthAPI(e *echo.Echo, pool *pgxpool.Pool, schema string) {
 			return c.JSON(400, map[string]string{"error": "invalid request"})
 		}
 		mode := strings.TrimSpace(req.Mode)
-		phone := strings.TrimSpace(req.Phone)
 		if mode == "" {
 			mode = "password"
 		}
-		if !cnPhoneRe.MatchString(phone) {
-			return c.JSON(400, map[string]string{"error": "invalid phone"})
-		}
-		eid, ename, err := ensureEmployeeByPhone(c.Request().Context(), pool, schema, phone)
-		if err != nil {
-			return c.JSON(400, map[string]string{"error": err.Error()})
-		}
+		var eid int64
+		var ename, phone, auditLogin string
 
 		switch mode {
 		case "password":
+			login := passwordLoginIdentifier(req)
+			if login == "" {
+				return c.JSON(400, map[string]string{"error": "login required"})
+			}
+			var err error
+			eid, ename, phone, err = resolveEmployeeByPasswordLogin(c.Request().Context(), pool, schema, login)
+			if err != nil {
+				return c.JSON(401, map[string]string{"error": "invalid login"})
+			}
+			auditLogin = login
+			disabled, err := isLoginDisabled(c.Request().Context(), pool, schema, eid)
+			if err != nil {
+				return c.JSON(500, map[string]string{"error": err.Error()})
+			}
+			if disabled {
+				return c.JSON(403, map[string]string{"error": "login disabled"})
+			}
 			pwd := strings.TrimSpace(req.Password)
 			if pwd == "" {
 				return c.JSON(400, map[string]string{"error": "password required"})
 			}
 			var ph string
-			err := pool.QueryRow(c.Request().Context(), "SELECT password_hash FROM "+schema+".employee_login_passwords WHERE employee_id=$1", eid).Scan(&ph)
+			err = pool.QueryRow(c.Request().Context(), "SELECT password_hash FROM "+schema+".employee_login_passwords WHERE employee_id=$1 AND login_disabled=false", eid).Scan(&ph)
 			if err != nil || ph != hashPassword(pwd) {
 				return c.JSON(401, map[string]string{"error": "invalid password"})
 			}
 		case "sms":
+			phone = strings.TrimSpace(req.Phone)
+			if !cnPhoneRe.MatchString(phone) {
+				return c.JSON(400, map[string]string{"error": "invalid phone"})
+			}
+			var err error
+			eid, ename, err = ensureEmployeeByPhone(c.Request().Context(), pool, schema, phone)
+			if err != nil {
+				return c.JSON(400, map[string]string{"error": err.Error()})
+			}
+			auditLogin = phone
+			disabled, err := isLoginDisabled(c.Request().Context(), pool, schema, eid)
+			if err != nil {
+				return c.JSON(500, map[string]string{"error": err.Error()})
+			}
+			if disabled {
+				return c.JSON(403, map[string]string{"error": "login disabled"})
+			}
 			code := strings.TrimSpace(req.Code)
 			if len(code) != 6 {
 				return c.JSON(400, map[string]string{"error": "invalid code"})
@@ -224,11 +312,117 @@ func registerMobileAuthAPI(e *echo.Echo, pool *pgxpool.Pool, schema string) {
 		c.Set("employee_id", eid)
 		c.Set("operator_employee", strings.TrimSpace(ename))
 		c.Set("actor", strings.TrimSpace(ename))
-		AuditInsert(c.Request().Context(), pool, schema, strings.TrimSpace(ename), "auth", &eid, "login", nil, nil, nil, AuditMeta{"mode": mode, "phone": phone})
+		AuditInsert(c.Request().Context(), pool, schema, strings.TrimSpace(ename), "auth", &eid, "login", nil, nil, nil, AuditMeta{"mode": mode, "phone": phone, "login": auditLogin})
 		return c.JSON(200, map[string]any{
 			"ok":       true,
 			"token":    token,
 			"employee": map[string]any{"id": eid, "name": ename, "phone": phone},
 		})
 	})
+
+	e.POST("/api/auth/logout", func(c echo.Context) error {
+		token := bearerTokenFromHeader(c.Request().Header.Get("Authorization"))
+		if token != "" {
+			if _, err := pool.Exec(c.Request().Context(), "DELETE FROM "+schema+".login_sessions WHERE token=$1", token); err != nil {
+				return c.JSON(500, map[string]string{"error": err.Error()})
+			}
+		}
+		return c.JSON(200, map[string]any{"ok": true})
+	})
+
+	e.GET("/api/auth/accounts", func(c echo.Context) error {
+		if err := requireCurrentPermission(c, authz, "auth.manage"); err != nil {
+			return err
+		}
+		rows, err := pool.Query(c.Request().Context(), fmt.Sprintf(`
+			SELECT e.id,COALESCE(e.name,''),COALESCE(e.phone,''),COALESCE(d.name,''),
+			       COALESCE(p.password_hash,'') <> '' AS has_password,
+			       COALESCE(p.login_disabled,false) AS login_disabled,
+			       COALESCE(p.must_reset_password,false) AS must_reset_password
+			FROM %s.company_employees e
+			LEFT JOIN %s.company_departments d ON d.id=e.department_id
+			LEFT JOIN %s.employee_login_passwords p ON p.employee_id=e.id
+			WHERE e.active=true
+			ORDER BY e.id
+		`, schema, schema, schema))
+		if err != nil {
+			return c.JSON(500, map[string]string{"error": err.Error()})
+		}
+		defer rows.Close()
+		out := make([]map[string]any, 0)
+		for rows.Next() {
+			var id int64
+			var name, phone, department string
+			var hasPassword, loginDisabled, mustReset bool
+			if err := rows.Scan(&id, &name, &phone, &department, &hasPassword, &loginDisabled, &mustReset); err != nil {
+				return c.JSON(500, map[string]string{"error": err.Error()})
+			}
+			out = append(out, map[string]any{
+				"employee_id":         id,
+				"name":                name,
+				"phone":               phone,
+				"department":          department,
+				"has_password":        hasPassword,
+				"login_disabled":      loginDisabled,
+				"must_reset_password": mustReset,
+			})
+		}
+		if err := rows.Err(); err != nil {
+			return c.JSON(500, map[string]string{"error": err.Error()})
+		}
+		return c.JSON(200, map[string]any{"rows": out})
+	})
+
+	e.POST("/api/auth/account-state", func(c echo.Context) error {
+		if err := requireCurrentPermission(c, authz, "auth.manage"); err != nil {
+			return err
+		}
+		var req accountStateReq
+		if err := c.Bind(&req); err != nil || req.EmployeeID <= 0 {
+			return c.JSON(400, map[string]string{"error": "invalid request"})
+		}
+		_, err := pool.Exec(c.Request().Context(), fmt.Sprintf(`
+			INSERT INTO %s.employee_login_passwords(employee_id,password_hash,login_disabled,updated_at)
+			VALUES($1,'',$2,now())
+			ON CONFLICT (employee_id) DO UPDATE SET login_disabled=excluded.login_disabled,updated_at=now()
+		`, schema), req.EmployeeID, !req.LoginEnabled)
+		if err != nil {
+			return c.JSON(500, map[string]string{"error": err.Error()})
+		}
+		AuditInsert(c.Request().Context(), pool, schema, ActorOf(c), "auth_account", &req.EmployeeID, "set_login_enabled", nil, nil, nil, AuditMeta{"login_enabled": req.LoginEnabled})
+		return c.JSON(200, map[string]any{"ok": true})
+	})
+
+	e.POST("/api/auth/password/reset", func(c echo.Context) error {
+		if err := requireCurrentPermission(c, authz, "auth.manage"); err != nil {
+			return err
+		}
+		var req passwordResetReq
+		if err := c.Bind(&req); err != nil || req.EmployeeID <= 0 {
+			return c.JSON(400, map[string]string{"error": "invalid request"})
+		}
+		pwd := strings.TrimSpace(req.Password)
+		if len(pwd) < 6 {
+			return c.JSON(400, map[string]string{"error": "password too short"})
+		}
+		_, err := pool.Exec(c.Request().Context(), fmt.Sprintf(`
+			INSERT INTO %s.employee_login_passwords(employee_id,password_hash,login_disabled,must_reset_password,updated_at)
+			VALUES($1,$2,false,true,now())
+			ON CONFLICT (employee_id) DO UPDATE SET password_hash=excluded.password_hash,login_disabled=false,must_reset_password=true,updated_at=now()
+		`, schema), req.EmployeeID, hashPassword(pwd))
+		if err != nil {
+			return c.JSON(500, map[string]string{"error": err.Error()})
+		}
+		AuditInsert(c.Request().Context(), pool, schema, ActorOf(c), "auth_account", &req.EmployeeID, "reset_password", nil, nil, nil, AuditMeta{"employee_id": req.EmployeeID})
+		return c.JSON(200, map[string]any{"ok": true})
+	})
+}
+
+func isLoginDisabled(ctx context.Context, pool *pgxpool.Pool, schema string, employeeID int64) (bool, error) {
+	var disabled bool
+	err := pool.QueryRow(ctx, "SELECT COALESCE(login_disabled,false) FROM "+schema+".employee_login_passwords WHERE employee_id=$1", employeeID).Scan(&disabled)
+	if err != nil {
+		return false, nil
+	}
+	return disabled, nil
 }

@@ -11,6 +11,17 @@ type fakeFlowRepo struct {
 	startExecution StartExecutionCommand
 	finish         FinishCommand
 	cancel         CancelCommand
+
+	materialPlanQuery  MaterialPlanQuery
+	materialPlanResult MaterialPlanResult
+	qualityCommand     QualityInspectionCommand
+	qualityQuery       QualityInspectionQuery
+	qualityRows        []QualityInspectionRow
+	reservationQuery   WIPReservationQuery
+	reservationRows    []WIPReservationRow
+	adjustReservation  WIPReservationAdjustCommand
+	releaseReservation WIPReservationReleaseCommand
+	acceptanceRows     []AcceptanceSmokeRow
 }
 
 func (r *fakeFlowRepo) CreateBatch(ctx context.Context, cmd CreateBatchCommand) (CreateBatchResult, error) {
@@ -86,6 +97,51 @@ func (r *fakeFlowRepo) ListBatchCosts(ctx context.Context, query BatchCostQuery)
 	return nil, nil
 }
 
+func (r *fakeFlowRepo) MaterialPlan(ctx context.Context, query MaterialPlanQuery) (MaterialPlanResult, error) {
+	r.materialPlanQuery = query
+	return r.materialPlanResult, nil
+}
+
+func (r *fakeFlowRepo) CreateQualityInspection(ctx context.Context, cmd QualityInspectionCommand) (QualityInspectionRow, error) {
+	r.qualityCommand = cmd
+	return QualityInspectionRow{
+		ID:            1,
+		Scope:         cmd.Scope,
+		ReferenceType: cmd.ReferenceType,
+		ReferenceNo:   cmd.ReferenceNo,
+		ItemName:      cmd.ItemName,
+		Result:        cmd.Result,
+		MetricsJSON:   cmd.MetricsJSON,
+		Note:          cmd.Note,
+		Operator:      cmd.Operator,
+		CreatedAt:     "2026-04-28 10:00",
+	}, nil
+}
+
+func (r *fakeFlowRepo) ListQualityInspections(ctx context.Context, query QualityInspectionQuery) ([]QualityInspectionRow, error) {
+	r.qualityQuery = query
+	return r.qualityRows, nil
+}
+
+func (r *fakeFlowRepo) ListWIPReservations(ctx context.Context, query WIPReservationQuery) (WIPReservationResult, error) {
+	r.reservationQuery = query
+	return WIPReservationResult{Rows: r.reservationRows, TotalRemainingG: 40000}, nil
+}
+
+func (r *fakeFlowRepo) AdjustWIPReservation(ctx context.Context, cmd WIPReservationAdjustCommand) (WIPReservationRow, error) {
+	r.adjustReservation = cmd
+	return WIPReservationRow{ID: cmd.ReservationID, ReservedG: cmd.ReservedG, ConsumedG: 10000, RemainingReservedG: cmd.ReservedG - 10000}, nil
+}
+
+func (r *fakeFlowRepo) ReleaseWIPReservations(ctx context.Context, cmd WIPReservationReleaseCommand) (WIPReservationReleaseResult, error) {
+	r.releaseReservation = cmd
+	return WIPReservationReleaseResult{ReleasedCount: 2, ReleasedG: 40000}, nil
+}
+
+func (r *fakeFlowRepo) AcceptanceSmoke(ctx context.Context) (AcceptanceSmokeResult, error) {
+	return AcceptanceSmokeResult{Rows: r.acceptanceRows}, nil
+}
+
 func TestServiceOwnsRunningProductionUseCases(t *testing.T) {
 	repo := &fakeFlowRepo{
 		startNeeds: []StartNeed{
@@ -131,5 +187,164 @@ func TestServiceOwnsRunningProductionUseCases(t *testing.T) {
 	}
 	if repo.cancel.ID != 7 {
 		t.Fatalf("Cancel command = %+v", repo.cancel)
+	}
+}
+
+func TestServiceOwnsManufacturingGapUseCases(t *testing.T) {
+	repo := &fakeFlowRepo{
+		materialPlanResult: MaterialPlanResult{Rows: []MaterialPlanRow{{
+			MaterialID:          10,
+			MaterialName:        "孟连水洗5T批次",
+			Unit:                "g",
+			RequiredG:           60000,
+			WIPG:                20000,
+			RawG:                30000,
+			ReservedG:           5000,
+			ShortageG:           15000,
+			PurchaseSuggestionG: 15000,
+		}}},
+		qualityRows: []QualityInspectionRow{{ID: 2, Scope: "work_order", ReferenceNo: "WO-0000000020", Result: "pass"}},
+	}
+	svc := NewService(repo)
+	ctx := context.Background()
+
+	plan, err := svc.MaterialPlan(ctx, MaterialPlanQuery{
+		From:       " 2026-04-01 ",
+		To:         " 2026-04-28 ",
+		Selected:   nil,
+		InputByKey: nil,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(plan.Rows) != 1 || plan.Rows[0].ShortageG != 15000 || plan.Rows[0].PurchaseSuggestionG != 15000 {
+		t.Fatalf("MaterialPlan() = %+v", plan.Rows)
+	}
+	if repo.materialPlanQuery.From != "2026-04-01" || repo.materialPlanQuery.To != "2026-04-28" {
+		t.Fatalf("MaterialPlan query was not trimmed: %+v", repo.materialPlanQuery)
+	}
+	if repo.materialPlanQuery.Selected == nil || repo.materialPlanQuery.InputByKey == nil {
+		t.Fatalf("MaterialPlan query maps must be initialized: %+v", repo.materialPlanQuery)
+	}
+
+	if err := svc.Finish(ctx, FinishCommand{
+		ID:               7,
+		FinishedUnits:    1,
+		HasFinishedInput: true,
+		Partial:          true,
+		ConsumedInputG:   300,
+		Operator:         "测试员",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if !repo.finish.Partial || repo.finish.ConsumedInputG != 300 {
+		t.Fatalf("partial finish command = %+v", repo.finish)
+	}
+
+	created, err := svc.CreateQualityInspection(ctx, QualityInspectionCommand{
+		Scope:         " work_order ",
+		ReferenceType: " work_order ",
+		ReferenceNo:   " WO-0000000020 ",
+		ItemName:      " 测试拼配 ",
+		Result:        " PASS ",
+		Operator:      " 测试员 ",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if created.Scope != "work_order" || created.Result != "pass" || created.ReferenceNo != "WO-0000000020" {
+		t.Fatalf("quality inspection = %+v", created)
+	}
+	if repo.qualityCommand.Operator != "测试员" {
+		t.Fatalf("quality operator was not trimmed: %+v", repo.qualityCommand)
+	}
+
+	created, err = svc.CreateQualityInspection(ctx, QualityInspectionCommand{
+		Scope:       "生产工单",
+		ReferenceNo: " WO-0000000020 ",
+		ItemName:    " 测试拼配 ",
+		Result:      "不通过",
+		Operator:    " 测试员 ",
+	})
+	if err != nil {
+		t.Fatalf("CreateQualityInspection should accept Chinese failed result: %v", err)
+	}
+	if created.Scope != "work_order" || created.ReferenceType != "work_order" || created.Result != "reject" {
+		t.Fatalf("quality Chinese failed result = %+v", created)
+	}
+
+	created, err = svc.CreateQualityInspection(ctx, QualityInspectionCommand{
+		Scope:       "work_order",
+		ReferenceNo: "WO-0000000020",
+		Result:      "待定",
+	})
+	if err != nil {
+		t.Fatalf("CreateQualityInspection should accept Chinese pending result: %v", err)
+	}
+	if created.Result != "hold" {
+		t.Fatalf("quality Chinese pending result = %+v, want hold", created)
+	}
+
+	rows, err := svc.ListQualityInspections(ctx, QualityInspectionQuery{Scope: " work_order ", Result: " pass ", Limit: 999})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 1 || repo.qualityQuery.Limit != 200 || repo.qualityQuery.Scope != "work_order" || repo.qualityQuery.Result != "pass" {
+		t.Fatalf("quality list rows=%+v query=%+v", rows, repo.qualityQuery)
+	}
+}
+
+func TestServiceOwnsWIPReservationAndAcceptanceUseCases(t *testing.T) {
+	repo := &fakeFlowRepo{
+		reservationRows: []WIPReservationRow{{
+			ID:                 9,
+			WorkOrderNo:        "WO-0000000020",
+			RunningItemID:      20,
+			MaterialName:       "孟连水洗5T批次",
+			ReservedG:          60000,
+			ConsumedG:          20000,
+			RemainingReservedG: 40000,
+			WIPG:               90000,
+			AvailableG:         50000,
+			Status:             "reserved",
+		}},
+		acceptanceRows: []AcceptanceSmokeRow{{Code: "work_orders", Title: "生产工单", Status: "ok", Count: 1}},
+	}
+	svc := NewService(repo)
+	ctx := context.Background()
+
+	reservations, err := svc.ListWIPReservations(ctx, WIPReservationQuery{Status: " reserved ", WorkOrderNo: " WO-0000000020 ", Limit: 999})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(reservations.Rows) != 1 || reservations.TotalRemainingG != 40000 {
+		t.Fatalf("reservations = %+v", reservations)
+	}
+	if repo.reservationQuery.Status != "reserved" || repo.reservationQuery.WorkOrderNo != "WO-0000000020" || repo.reservationQuery.Limit != 200 {
+		t.Fatalf("reservation query not normalized: %+v", repo.reservationQuery)
+	}
+
+	adjusted, err := svc.AdjustWIPReservation(ctx, WIPReservationAdjustCommand{ReservationID: 9, ReservedG: 50000, Operator: " 测试员 ", Note: " 调整 "})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if adjusted.RemainingReservedG != 40000 || repo.adjustReservation.Operator != "测试员" || repo.adjustReservation.Note != "调整" {
+		t.Fatalf("adjusted=%+v command=%+v", adjusted, repo.adjustReservation)
+	}
+
+	released, err := svc.ReleaseWIPReservations(ctx, WIPReservationReleaseCommand{RunningItemID: 20, WorkOrderNo: " WO-0000000020 ", Operator: " 测试员 ", Note: " 清理 "})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if released.ReleasedCount != 2 || repo.releaseReservation.WorkOrderNo != "WO-0000000020" || repo.releaseReservation.Operator != "测试员" {
+		t.Fatalf("release result=%+v command=%+v", released, repo.releaseReservation)
+	}
+
+	smoke, err := svc.AcceptanceSmoke(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(smoke.Rows) != 1 || smoke.Rows[0].Code != "work_orders" {
+		t.Fatalf("AcceptanceSmoke() = %+v", smoke)
 	}
 }

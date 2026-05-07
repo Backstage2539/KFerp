@@ -6,7 +6,13 @@
         <button class="secondary" type="button" @click="load(false)" :disabled="loading">刷新</button>
       </div>
       <div v-if="error" class="error">{{ error }}</div>
-      <div v-if="stockTip" class="ok">{{ stockTip }}</div>
+      <div v-if="stockTip" class="ok direct-ship-tip">
+        <div>
+          <strong>{{ stockTip }}</strong>
+          <span>库存充足订单在录单保存时确认是否使用成品批次；确认使用后进入“库存待发货”，可直接发货。</span>
+        </div>
+        <button class="secondary" type="button" @click="openShipReadyOrders">去订单列表直接发货</button>
+      </div>
       <div class="filters">
         <label>
           <span>开始日期</span>
@@ -22,14 +28,25 @@
         </label>
       </div>
       <div class="actions">
-        <button class="secondary" type="button" @click="pickInsufficient">勾选库存不足商品</button>
         <button class="primary" type="button" @click="buildPlan" :disabled="loading">生成计划</button>
         <button class="primary" type="button" @click="startProduction" :disabled="saving || !planReady">开始生产</button>
       </div>
     </section>
 
     <section class="panel">
-      <div class="section-title">待发货产品</div>
+      <div class="section-title section-title-with-checkbox">
+        <input
+          ref="insufficientHeaderCheckbox"
+          class="bulk-checkbox"
+          type="checkbox"
+          :checked="allInsufficientSelected"
+          :disabled="!stockInsufficientRows.length"
+          :aria-checked="insufficientSelection.indeterminate ? 'mixed' : String(insufficientSelection.checked)"
+          aria-label="全选库存不足商品"
+          @change="toggleAllInsufficient($event.target.checked)"
+        />
+        <span>库存不足（需生产）</span>
+      </div>
       <div class="table-wrap">
         <table>
           <thead>
@@ -47,8 +64,8 @@
             </tr>
           </thead>
           <tbody>
-            <tr v-for="row in rows" :key="rowKey(row)">
-              <td><input type="checkbox" :checked="!!selected[rowKey(row)]" @change="selected[rowKey(row)] = !selected[rowKey(row)]" /></td>
+            <tr v-for="row in stockInsufficientRows" :key="rowKey(row)">
+              <td><input type="checkbox" :checked="!!selected[rowKey(row)]" @change="toggleInsufficientRow(row, $event.target.checked)" /></td>
               <td>{{ row.product }}</td>
               <td class="muted">{{ row.order_nos }}</td>
               <td>{{ row.spec_g }}</td>
@@ -59,8 +76,44 @@
               <td>{{ row.inv_g }}</td>
               <td><strong>{{ row.gap_g }}</strong></td>
             </tr>
-            <tr v-if="!rows.length">
-              <td colspan="10" class="muted">暂无待发货产品</td>
+            <tr v-if="!stockInsufficientRows.length">
+              <td colspan="10" class="muted">暂无库存不足商品</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="panel">
+      <div class="section-title">库存充足（只提示）</div>
+      <div class="muted section-hint">以下订单已有成品库存覆盖，不进入生产计划；录单时确认使用批次后会进入库存待发货。</div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>商品</th>
+              <th>订单号</th>
+              <th>规格(g)</th>
+              <th>需求(件)</th>
+              <th>需求(g)</th>
+              <th>库存(件)</th>
+              <th>库存散装(g)</th>
+              <th>库存合计(g)</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="row in stockSufficientRows" :key="rowKey(row)">
+              <td>{{ row.product }}</td>
+              <td class="muted">{{ row.order_nos }}</td>
+              <td>{{ row.spec_g }}</td>
+              <td>{{ row.need_units }}</td>
+              <td>{{ row.need_g }}</td>
+              <td>{{ row.inv_units }}</td>
+              <td>{{ row.inv_loose_g }}</td>
+              <td>{{ row.inv_g }}</td>
+            </tr>
+            <tr v-if="!stockSufficientRows.length">
+              <td colspan="8" class="muted">暂无库存充足商品</td>
             </tr>
           </tbody>
         </table>
@@ -108,6 +161,10 @@
               <th>物料</th>
               <th>预计消耗数量</th>
               <th>单位</th>
+              <th>WIP可用(g)</th>
+              <th>建议领到WIP(g)</th>
+              <th>原料仓(g)</th>
+              <th>采购建议(g)</th>
             </tr>
           </thead>
           <tbody>
@@ -115,9 +172,13 @@
               <td>{{ item.name }}</td>
               <td>{{ item.qty }}</td>
               <td>{{ item.unit }}</td>
+              <td>{{ item.available_g || 0 }}</td>
+              <td><strong>{{ item.wip_transfer_suggestion_g || 0 }}</strong></td>
+              <td>{{ item.raw_g || 0 }}</td>
+              <td>{{ item.purchase_suggestion_g || 0 }}</td>
             </tr>
             <tr v-if="!computedMaterials.length">
-              <td colspan="3" class="muted">暂无物料汇总</td>
+              <td colspan="7" class="muted">暂无物料汇总</td>
             </tr>
           </tbody>
         </table>
@@ -158,8 +219,17 @@
 </template>
 
 <script setup>
-import { computed, onMounted, reactive, ref } from 'vue'
-import { buildMaterialSummary, buildStartPayload, rebuildPlanRows, producePlanKey } from '../lib/produce-plan'
+import { computed, onMounted, reactive, ref, watchEffect } from 'vue'
+import { apiGet, apiSend, appURL } from '../api/client'
+import {
+  buildInsufficientSelection,
+  buildMaterialSummary,
+  buildStartPayload,
+  insufficientSelectionState,
+  rebuildPlanRows,
+  producePlanKey,
+} from '../lib/produce-plan'
+import { replaceHistoryURL } from '../lib/url-state'
 
 const loading = ref(false)
 const saving = ref(false)
@@ -170,6 +240,7 @@ const planRows = ref([])
 const roastPlans = ref([])
 const materialRatios = ref([])
 const initialMaterials = ref([])
+const insufficientHeaderCheckbox = ref(null)
 const selected = reactive({})
 
 const filters = reactive({
@@ -191,9 +262,24 @@ const computedPlanRows = computed(() => rebuildPlanRows(planRows.value, roastPla
 const computedMaterials = computed(() =>
   buildMaterialSummary(planRows.value, roastPlans.value, materialRatios.value, initialMaterials.value),
 )
+const stockInsufficientRows = computed(() => rows.value.filter((row) => Number(row.gap_g || 0) > 0))
+const stockSufficientRows = computed(() => rows.value.filter((row) => Number(row.gap_g || 0) <= 0))
+const insufficientSelection = computed(() => insufficientSelectionState(stockInsufficientRows.value, selected))
+const allInsufficientSelected = computed(() => insufficientSelection.value.checked)
+
+watchEffect(() => {
+  if (insufficientHeaderCheckbox.value) {
+    insufficientHeaderCheckbox.value.indeterminate = insufficientSelection.value.indeterminate
+  }
+})
 
 function selectedKeys() {
   return Object.keys(selected).filter((key) => selected[key])
+}
+
+function replaceSelected(nextSelected) {
+  Object.keys(selected).forEach((key) => delete selected[key])
+  Object.assign(selected, nextSelected)
 }
 
 function updateUrl(plan) {
@@ -213,7 +299,7 @@ function updateUrl(plan) {
     url.searchParams.delete('plan')
     url.searchParams.delete('selected')
   }
-  window.history.replaceState({}, '', url.toString())
+  replaceHistoryURL(url)
 }
 
 async function load(plan) {
@@ -229,9 +315,7 @@ async function load(plan) {
       url.searchParams.set('plan', '1')
       url.searchParams.set('selected', keys.join(','))
     }
-    const res = await fetch(url)
-    const data = await res.json()
-    if (!res.ok) throw new Error(data.error || '加载失败')
+    const data = await apiGet(url)
 
     rows.value = data.rows || []
     stockTip.value = data.stock_tip || ''
@@ -250,6 +334,7 @@ async function load(plan) {
         if (data.selected[key]) selected[key] = true
       }
     }
+    pruneSufficientSelections()
     updateUrl(plan)
   } catch (err) {
     error.value = err.message || '加载失败'
@@ -258,12 +343,20 @@ async function load(plan) {
   }
 }
 
-function pickInsufficient() {
-  Object.keys(selected).forEach((key) => delete selected[key])
-  for (const row of rows.value) {
-    if (Number(row.gap_g || 0) > 0) {
-      selected[rowKey(row)] = true
-    }
+function toggleAllInsufficient(checked) {
+  replaceSelected(buildInsufficientSelection(stockInsufficientRows.value, checked))
+}
+
+function toggleInsufficientRow(row, checked) {
+  const key = rowKey(row)
+  if (checked) selected[key] = true
+  else delete selected[key]
+}
+
+function pruneSufficientSelections() {
+  const allowed = new Set(stockInsufficientRows.value.map((row) => rowKey(row)))
+  for (const key of Object.keys(selected)) {
+    if (!allowed.has(key)) delete selected[key]
   }
 }
 
@@ -294,19 +387,19 @@ async function startProduction() {
   error.value = ''
   try {
     const payload = buildStartPayload(filters, keys, roastPlans.value, computedPlanRows.value)
-    const res = await fetch('/api/produce/start', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
-    })
-    const data = await res.json()
-    if (!res.ok) throw new Error(data.error || '开始生产失败')
-    window.location.href = '/produce/running?ok=1'
+    await apiSend('/api/produce/start', { body: payload })
+    window.location.href = appURL('/produce/running?ok=1')
   } catch (err) {
     error.value = err.message || '开始生产失败'
   } finally {
     saving.value = false
   }
+}
+
+function openShipReadyOrders() {
+  window.dispatchEvent(new CustomEvent('kferp:navigate-view', {
+    detail: { key: 'orders', params: { ship_ready: '1' } },
+  }))
 }
 
 onMounted(async () => {
@@ -334,9 +427,12 @@ onMounted(async () => {
 .filters label { flex-direction: column; }
 .filters span { font-size: 12px; color: #666; }
 .actions { margin-top: 12px; flex-wrap: wrap; }
+.section-title-with-checkbox { display: inline-flex; align-items: center; gap: 8px; }
+.section-hint { margin: 6px 0 10px; }
 input, button { font: inherit; }
 input { width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 8px; }
 button { border-radius: 8px; padding: 10px 12px; cursor: pointer; }
+input.bulk-checkbox { width: 18px; min-width: 18px; height: 18px; padding: 0; cursor: pointer; }
 .primary { border: 1px solid #111; background: #111; color: #fff; }
 .secondary { border: 1px solid #999; background: #fff; color: #111; }
 .table-wrap { overflow: auto; }
@@ -346,9 +442,13 @@ th, td { border-bottom: 1px solid #f1f1f1; padding: 10px 8px; text-align: left; 
 .error, .ok { border-radius: 8px; padding: 10px; margin-bottom: 12px; }
 .error { background: #ffecec; border: 1px solid #ffb9b9; }
 .ok { background: #e9ffe9; border: 1px solid #b8f5b8; }
+.direct-ship-tip { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.direct-ship-tip div { display: grid; gap: 4px; }
+.direct-ship-tip span { color: #28633b; font-size: 13px; }
 
 @media (max-width: 900px) {
   .page { padding: 12px; }
   .filters { grid-template-columns: 1fr; }
+  .direct-ship-tip { align-items: stretch; flex-direction: column; }
 }
 </style>

@@ -9,7 +9,10 @@
     </section>
 
     <div v-if="message" class="notice">{{ message }}</div>
-    <div v-if="error" class="error">{{ error }}</div>
+    <div v-if="error" class="error">
+      <span>{{ error }}</span>
+      <button v-if="isWipInsufficientError(error)" class="secondary small-button" type="button" @click="openStockDrawer">打开库存作业</button>
+    </div>
 
     <section class="table-wrap">
       <table>
@@ -23,7 +26,8 @@
             <th>需求(g)</th>
             <th>投料(g)</th>
             <th>BOM出品率</th>
-            <th>计划成品</th>
+            <th>成品数</th>
+            <th>实际出品率</th>
             <th>操作人</th>
             <th>完成生产</th>
             <th>取消</th>
@@ -34,27 +38,78 @@
             <td>{{ row.started_at }}</td>
             <td>{{ row.batch_id }}</td>
             <td>{{ row.product_name }}</td>
-            <td>{{ row.spec_g }}</td>
+            <td>{{ row.outputs?.length ? '多规格' : row.spec_g }}</td>
             <td class="muted">{{ row.order_nos }}</td>
             <td>{{ row.need_g }}</td>
-            <td>{{ row.input_g }}</td>
+            <td>
+              <input
+                v-model.number="finishInputs[row.id].consumed_input_g"
+                class="input-g"
+                min="0"
+                type="number"
+                aria-label="投料(g)"
+                @input="markRowEdited(row)"
+              />
+            </td>
             <td>{{ percent(row.bom_yield_rate) }}</td>
-            <td>{{ row.plan_units }} 件 / {{ row.plan_loose_g }}g</td>
+            <td>
+              <div v-if="row.outputs?.length" class="output-grid multi-output-grid">
+                <label v-for="output in finishInputs[row.id].outputs" :key="output.spec_g">
+                  <span>{{ output.spec_g }}g 件</span>
+                  <input
+                    v-model.number="output.finished_units"
+                    min="0"
+                    type="number"
+                    aria-label="完成件数"
+                    @input="markRowEdited(row)"
+                  />
+                </label>
+                <label v-for="output in finishInputs[row.id].outputs" :key="`${output.spec_g}-loose`">
+                  <span>{{ output.spec_g }}g 余g</span>
+                  <input
+                    v-model.number="output.finished_loose_g"
+                    min="0"
+                    type="number"
+                    aria-label="散装余量"
+                    @input="markRowEdited(row)"
+                  />
+                </label>
+              </div>
+              <div v-else class="output-grid">
+                <label>
+                  <span>件</span>
+                  <input
+                    v-model.number="finishInputs[row.id].finished_units"
+                    min="0"
+                    type="number"
+                    aria-label="完成件数"
+                    @input="markRowEdited(row)"
+                  />
+                </label>
+                <label>
+                  <span>余g</span>
+                  <input
+                    v-model.number="finishInputs[row.id].finished_loose_g"
+                    min="0"
+                    type="number"
+                    aria-label="散装余量"
+                    @input="markRowEdited(row)"
+                  />
+                </label>
+              </div>
+            </td>
+            <td><strong>{{ formatActualYield(row, finishInputs[row.id]) }}</strong></td>
             <td>{{ row.started_by }}</td>
             <td>
               <div class="finish-grid">
-                <input
-                  v-model.number="finishInputs[row.id].finished_units"
-                  min="0"
-                  type="number"
-                  aria-label="完成件数"
-                />
-                <input
-                  v-model.number="finishInputs[row.id].finished_loose_g"
-                  min="0"
-                  type="number"
-                  aria-label="散装余量"
-                />
+                <select v-model="finishInputs[row.id].warehouse" aria-label="成品入库仓">
+                  <option v-for="wh in finishedWarehouses" :key="wh.code" :value="wh.code">{{ wh.name }}</option>
+                </select>
+                <label v-if="!row.outputs?.length" class="partial-check">
+                  <input v-model="finishInputs[row.id].partial" type="checkbox" />
+                  部分完工（保留剩余）
+                </label>
+                <div v-if="!row.outputs?.length && finishInputs[row.id].partial" class="partial-note">本次入库并扣本次投料，剩余继续留在生产中。</div>
                 <button class="primary" type="button" @click="finish(row)" :disabled="busyId === row.id">
                   完成
                 </button>
@@ -67,37 +122,88 @@
             </td>
           </tr>
           <tr v-if="!rows.length">
-            <td colspan="12" class="empty">暂无生产中项目</td>
+            <td colspan="13" class="empty">暂无生产中项目</td>
           </tr>
         </tbody>
       </table>
     </section>
+
+    <div v-if="stockDrawerOpen" class="drawer-mask" @click.self="stockDrawerOpen = false">
+      <aside class="stock-drawer" aria-label="库存作业">
+        <div class="drawer-head">
+          <div>
+            <h3>WIP库存不足</h3>
+            <p>先把原料从原料仓领到 WIP，再回到生产中完成生产。</p>
+          </div>
+          <button class="secondary" type="button" @click="stockDrawerOpen = false">关闭</button>
+        </div>
+        <StockOperationsView embedded initial-tab="wip" />
+      </aside>
+    </div>
   </div>
 </template>
 
 <script setup>
 import { onMounted, reactive, ref } from 'vue'
+import { apiGet } from '../api/client'
 import { cancelRunningProduction, fetchRunningProduction, finishRunningProduction } from '../api/production.js'
+import { buildFinishInput, buildFinishPayload, formatActualYield, markYieldDirty } from '../lib/produce-running'
+import StockOperationsView from './StockOperationsView.vue'
 
 const loading = ref(false)
 const busyId = ref(0)
 const error = ref('')
 const message = ref('')
 const rows = ref([])
+const finishedWarehouses = ref([{ code: 'finished_goods', name: '成品仓' }])
 const finishInputs = reactive({})
+const stockDrawerOpen = ref(false)
 
 function percent(v) {
   return `${(Number(v || 0) * 100).toFixed(2)}%`
 }
 
+function rowSignature(row) {
+  const outputSignature = (row.outputs || []).map((output) => `${output.spec_g}:${output.plan_units}:${output.plan_loose_g}`).join('|')
+  return [row.input_g, row.plan_units, row.plan_loose_g, row.bom_yield_rate, outputSignature].map((v) => String(v || 0)).join(':')
+}
+
 function ensureInputs() {
+  const activeIds = new Set(rows.value.map((row) => String(row.id)))
+  for (const id of Object.keys(finishInputs)) {
+    if (!activeIds.has(String(id))) delete finishInputs[id]
+  }
   for (const row of rows.value) {
-    if (!finishInputs[row.id]) {
+    const signature = rowSignature(row)
+    if (!finishInputs[row.id] || finishInputs[row.id].source_signature !== signature) {
       finishInputs[row.id] = {
-        finished_units: Number(row.plan_units || 0),
-        finished_loose_g: Number(row.plan_loose_g || 0),
+        ...buildFinishInput(row),
+        source_signature: signature,
       }
     }
+  }
+}
+
+function markRowEdited(row) {
+  markYieldDirty(finishInputs[row.id])
+}
+
+function isWipInsufficientError(value) {
+  const text = String(value || '').toLowerCase()
+  return text.includes('wip stock insufficient') || text.includes('wip库存不足') || (text.includes('wip') && text.includes('insufficient'))
+}
+
+function openStockDrawer() {
+  stockDrawerOpen.value = true
+}
+
+async function loadWarehouses() {
+  try {
+    const data = await apiGet('/api/stock/warehouses')
+    const rows = (data.rows || []).filter((row) => row.kind === 'finished')
+    if (rows.length) finishedWarehouses.value = rows
+  } catch {
+    finishedWarehouses.value = [{ code: 'finished_goods', name: '成品仓' }]
   }
 }
 
@@ -127,15 +233,13 @@ async function finish(row) {
   message.value = ''
   try {
     const input = finishInputs[row.id] || {}
-    await finishRunningProduction({
-      id: row.id,
-      finished_units: Number(input.finished_units || 0),
-      finished_loose_g: Number(input.finished_loose_g || 0),
-    })
-    message.value = '生产已完成'
+    await finishRunningProduction(buildFinishPayload(row, input))
+    message.value = input.partial ? '已记录部分完工' : '生产已完成'
     await load()
   } catch (err) {
-    error.value = err.message || '完成失败'
+    const errMessage = err.message || '完成失败'
+    error.value = errMessage
+    if (isWipInsufficientError(errMessage)) openStockDrawer()
   } finally {
     busyId.value = 0
   }
@@ -158,6 +262,7 @@ async function cancel(row) {
 
 onMounted(() => {
   applyUrlState()
+  loadWarehouses()
   load()
 })
 </script>
@@ -193,9 +298,10 @@ button:disabled { cursor: not-allowed; opacity: .55; }
   margin-bottom: 12px;
 }
 .notice { border: 1px solid #b7d9b7; background: #f0fff0; color: #246024; }
-.error { border: 1px solid #e0b0b0; background: #fff3f3; color: #8a1f1f; }
+.error { display: flex; justify-content: space-between; align-items: center; gap: 10px; border: 1px solid #e0b0b0; background: #fff3f3; color: #8a1f1f; }
+.small-button { height: 32px; padding: 0 10px; }
 .table-wrap { overflow: auto; border: 1px solid #e6e0d8; border-radius: 8px; }
-table { width: 100%; min-width: 1320px; border-collapse: collapse; }
+table { width: 100%; min-width: 1380px; border-collapse: collapse; }
 th, td { border-bottom: 1px solid #eee8df; padding: 9px 8px; text-align: left; font-size: 14px; vertical-align: top; }
 th { background: #fbfaf8; position: sticky; top: 0; }
 input {
@@ -206,17 +312,75 @@ input {
   padding: 6px 8px;
   font: inherit;
 }
+.input-g { width: 104px; }
+.output-grid {
+  display: grid;
+  grid-template-columns: 72px 82px;
+  gap: 6px;
+}
+.output-grid span {
+  display: block;
+  margin-bottom: 3px;
+  color: #666;
+  font-size: 12px;
+}
 .finish-grid {
   display: grid;
-  grid-template-columns: 72px 72px 58px;
+  grid-template-columns: 132px 150px 58px;
   gap: 6px;
   align-items: center;
 }
+.partial-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  white-space: nowrap;
+  color: #333;
+}
+.partial-check input {
+  width: 16px;
+  height: 16px;
+}
+.partial-note { grid-column: 1 / -1; color: #666; font-size: 12px; line-height: 1.35; }
 .muted { color: #666; }
 .empty { color: #666; text-align: center; }
+.drawer-mask {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  justify-content: flex-end;
+  background: rgba(0, 0, 0, .24);
+}
+.stock-drawer {
+  width: min(980px, calc(100vw - 28px));
+  height: 100%;
+  overflow: auto;
+  background: #f8fafc;
+  border-left: 1px solid #d1d5db;
+  padding: 16px;
+  box-shadow: -12px 0 28px rgba(15, 23, 42, .14);
+}
+.drawer-head {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+  margin: -16px -16px 14px;
+  padding: 16px;
+  border-bottom: 1px solid #e5e7eb;
+  background: #f8fafc;
+}
+.drawer-head h3 { margin: 0 0 4px; font-size: 18px; }
+.drawer-head p { margin: 0; color: #666; font-size: 13px; }
 @media (max-width: 900px) {
   .page { padding: 12px; }
   .toolbar { align-items: flex-start; }
-  table { min-width: 1100px; }
+  table { min-width: 1220px; }
+  .error { align-items: flex-start; flex-direction: column; }
+  .stock-drawer { width: 100vw; }
 }
 </style>

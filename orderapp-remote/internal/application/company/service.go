@@ -24,6 +24,16 @@ type Employee struct {
 	Active       bool
 }
 
+type CompanyProfile struct {
+	Name            string `json:"company_name"`
+	Address         string `json:"company_address"`
+	Phone           string `json:"company_phone"`
+	TaxpayerID      string `json:"taxpayer_id"`
+	BankAccountName string `json:"bank_account_name"`
+	BankName        string `json:"bank_name"`
+	BankAccountNo   string `json:"bank_account_no"`
+}
+
 type DepartmentCommand struct {
 	Name   string
 	Active bool
@@ -36,6 +46,17 @@ type EmployeeCommand struct {
 	Active       bool
 }
 
+type CompanyProfileCommand struct {
+	Actor           string `json:"actor"`
+	Name            string `json:"company_name"`
+	Address         string `json:"company_address"`
+	Phone           string `json:"company_phone"`
+	TaxpayerID      string `json:"taxpayer_id"`
+	BankAccountName string `json:"bank_account_name"`
+	BankName        string `json:"bank_name"`
+	BankAccountNo   string `json:"bank_account_no"`
+}
+
 type Repository interface {
 	ListDepartments(ctx context.Context) ([]Department, error)
 	CreateDepartment(ctx context.Context, cmd DepartmentCommand) (int64, error)
@@ -43,6 +64,8 @@ type Repository interface {
 	ListEmployees(ctx context.Context, departmentID int64) ([]Employee, error)
 	CreateEmployee(ctx context.Context, cmd EmployeeCommand) (int64, error)
 	UpdateEmployee(ctx context.Context, id int64, cmd EmployeeCommand) error
+	LoadCompanyProfile(ctx context.Context) (CompanyProfile, error)
+	SaveCompanyProfile(ctx context.Context, cmd CompanyProfileCommand) (CompanyProfile, error)
 }
 
 type Service struct {
@@ -99,6 +122,18 @@ func (s *Service) UpdateEmployee(ctx context.Context, id int64, cmd EmployeeComm
 	return s.repo.UpdateEmployee(ctx, id, cmd)
 }
 
+func (s *Service) LoadCompanyProfile(ctx context.Context) (CompanyProfile, error) {
+	return s.repo.LoadCompanyProfile(ctx)
+}
+
+func (s *Service) SaveCompanyProfile(ctx context.Context, cmd CompanyProfileCommand) (CompanyProfile, error) {
+	cmd, err := normalizeCompanyProfileCommand(cmd)
+	if err != nil {
+		return CompanyProfile{}, err
+	}
+	return s.repo.SaveCompanyProfile(ctx, cmd)
+}
+
 func normalizeDepartmentCommand(cmd DepartmentCommand) (DepartmentCommand, error) {
 	cmd.Name = strings.TrimSpace(cmd.Name)
 	if cmd.Name == "" {
@@ -115,6 +150,21 @@ func normalizeEmployeeCommand(cmd EmployeeCommand) (EmployeeCommand, error) {
 	}
 	if !phonePattern.MatchString(cmd.Phone) {
 		return EmployeeCommand{}, fmt.Errorf("invalid phone format")
+	}
+	return cmd, nil
+}
+
+func normalizeCompanyProfileCommand(cmd CompanyProfileCommand) (CompanyProfileCommand, error) {
+	cmd.Actor = strings.TrimSpace(cmd.Actor)
+	cmd.Name = strings.TrimSpace(cmd.Name)
+	cmd.Address = strings.TrimSpace(cmd.Address)
+	cmd.Phone = strings.TrimSpace(cmd.Phone)
+	cmd.TaxpayerID = strings.TrimSpace(cmd.TaxpayerID)
+	cmd.BankAccountName = strings.TrimSpace(cmd.BankAccountName)
+	cmd.BankName = strings.TrimSpace(cmd.BankName)
+	cmd.BankAccountNo = strings.TrimSpace(cmd.BankAccountNo)
+	if cmd.Name == "" {
+		return CompanyProfileCommand{}, fmt.Errorf("company_name required")
 	}
 	return cmd, nil
 }

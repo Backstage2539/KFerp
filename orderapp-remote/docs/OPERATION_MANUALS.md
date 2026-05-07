@@ -10,6 +10,7 @@
 - REV 证据必须包含手册路径；部署时必须把手册同步到 `/app/docs`。
 
 ## 当前手册
+- 现有线上用户手册仍有效，包含 `orderapp-remote/docs/*-user-manual.md` 和 Vue/Vite 中的手册页。
 - `OP_MANUAL_REQUIREMENTS.md`：需求管理 5 张表和证据闭环。
 - `OP_MANUAL_ORDER_SALES.md`：录单、订单列表、客户档案、商品档案、报价导出。
 - `OP_MANUAL_PRODUCTION.md`：生产计划、生产中、工单、工序卡、生产成本、生产日志、分配批次。
@@ -22,7 +23,7 @@
 - 已补大功能级初版手册，覆盖当前 Vue/Vite 左侧菜单里的主要用户操作区。
 - 已补 `HOW_TO_WORKFLOW.md`：操作手册更新进入固定交付流程。
 - 已补 `DEPLOYMENT.md` 和 `deploy_orderapp.sh`：部署时同步 `OPERATION_MANUALS.md` 和 `OP_MANUAL_*.md`。
-- 后续新增大功能时，必须新增对应 `OP_MANUAL_<FEATURE>.md`，并同步到 `orderapp-remote/docs/`。
+- 后续新增大功能时，必须新增对应 `OP_MANUAL_<FEATURE>.md`，或在既有 `*-user-manual.md` / Vue/Vite 手册页中明确扩展并在本索引登记。
 
 ## 后续必须补的手册
 - 财务月度经营结账中心上线时新增 `OP_MANUAL_FINANCE.md`。

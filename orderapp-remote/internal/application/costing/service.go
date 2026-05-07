@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"math"
+	"sort"
+	"strconv"
 	"strings"
 
 	domain "orderapp/internal/domain/costing"
@@ -39,6 +41,56 @@ type UpdateParameterCommand struct {
 	Actor string  `json:"actor,omitempty"`
 }
 
+type BeanListPublication struct {
+	ID                       int64          `json:"id"`
+	ListType                 string         `json:"list_type"`
+	Version                  string         `json:"version"`
+	Status                   string         `json:"status"`
+	OwnerType                string         `json:"owner_type"`
+	OwnerKey                 string         `json:"owner_key,omitempty"`
+	PriceSourcePublicationID int64          `json:"price_source_publication_id,omitempty"`
+	StyleSourcePublicationID int64          `json:"style_source_publication_id,omitempty"`
+	SourceVersion            string         `json:"source_version,omitempty"`
+	Config                   map[string]any `json:"config"`
+	Content                  map[string]any `json:"content"`
+	Changelog                string         `json:"changelog"`
+	PublishedAt              string         `json:"published_at,omitempty"`
+	WithdrawnAt              string         `json:"withdrawn_at,omitempty"`
+	CreatedAt                string         `json:"created_at,omitempty"`
+}
+
+type BeanListPublicationQuery struct {
+	ListType   string `json:"list_type"`
+	Scope      string `json:"scope,omitempty"`
+	CustomerID int64  `json:"customer_id,omitempty"`
+	OwnerType  string `json:"owner_type,omitempty"`
+	OwnerKey   string `json:"owner_key,omitempty"`
+}
+
+type PublishBeanListCommand struct {
+	ListType                 string         `json:"list_type"`
+	Version                  string         `json:"version"`
+	Scope                    string         `json:"scope,omitempty"`
+	CustomerID               int64          `json:"customer_id,omitempty"`
+	OwnerType                string         `json:"owner_type,omitempty"`
+	OwnerKey                 string         `json:"owner_key,omitempty"`
+	PriceSourcePublicationID int64          `json:"price_source_publication_id,omitempty"`
+	StyleSourcePublicationID int64          `json:"style_source_publication_id,omitempty"`
+	SourceVersion            string         `json:"source_version,omitempty"`
+	Config                   map[string]any `json:"config"`
+	Content                  map[string]any `json:"content"`
+	Changelog                string         `json:"changelog"`
+	Actor                    string         `json:"actor,omitempty"`
+}
+
+type WithdrawBeanListCommand struct {
+	ID        int64  `json:"id"`
+	Scope     string `json:"scope,omitempty"`
+	OwnerType string `json:"owner_type,omitempty"`
+	OwnerKey  string `json:"owner_key,omitempty"`
+	Actor     string `json:"actor,omitempty"`
+}
+
 type Repository interface {
 	LoadParameters(ctx context.Context) (domain.Parameters, error)
 	LoadProductInputs(ctx context.Context, params domain.Parameters) ([]domain.ProductInput, error)
@@ -46,6 +98,11 @@ type Repository interface {
 	PublishRun(ctx context.Context, actor string, runID int64) error
 	ListParameterSettings(ctx context.Context) ([]ParameterSetting, error)
 	UpdateParameterSetting(ctx context.Context, cmd UpdateParameterCommand) (ParameterSetting, error)
+	ListBeanListPublications(ctx context.Context, query BeanListPublicationQuery) ([]BeanListPublication, error)
+	PublishedBeanList(ctx context.Context, query BeanListPublicationQuery) (*BeanListPublication, error)
+	PublishBeanList(ctx context.Context, cmd PublishBeanListCommand) (*BeanListPublication, error)
+	SaveBeanListDraft(ctx context.Context, cmd PublishBeanListCommand) (*BeanListPublication, error)
+	WithdrawBeanList(ctx context.Context, cmd WithdrawBeanListCommand) error
 }
 
 type Service struct {
@@ -112,6 +169,7 @@ func (s *Service) BeanList(ctx context.Context) (*CalculateResponse, error) {
 	if err != nil {
 		return nil, err
 	}
+	sortBeanListResults(items)
 	return &CalculateResponse{Parameters: params, Items: items}, nil
 }
 
@@ -136,6 +194,96 @@ func (s *Service) PublishRun(ctx context.Context, actor string, runID int64) err
 	return s.repo.PublishRun(ctx, actor, runID)
 }
 
+func (s *Service) ListBeanListPublications(ctx context.Context, query BeanListPublicationQuery) ([]BeanListPublication, error) {
+	normalized, err := normalizeBeanListPublicationQuery(query)
+	if err != nil {
+		return nil, err
+	}
+	if s.repo == nil {
+		return []BeanListPublication{}, nil
+	}
+	return s.repo.ListBeanListPublications(ctx, normalized)
+}
+
+func (s *Service) PublishedBeanList(ctx context.Context, query BeanListPublicationQuery) (*BeanListPublication, error) {
+	normalized, err := normalizeBeanListPublicationQuery(query)
+	if err != nil {
+		return nil, err
+	}
+	if s.repo == nil {
+		return nil, nil
+	}
+	return s.repo.PublishedBeanList(ctx, normalized)
+}
+
+func (s *Service) PublishBeanList(ctx context.Context, cmd PublishBeanListCommand) (*BeanListPublication, error) {
+	normalized, err := normalizeBeanListCommand(cmd)
+	if err != nil {
+		return nil, err
+	}
+	if s.repo == nil {
+		return nil, fmt.Errorf("repository required")
+	}
+	return s.repo.PublishBeanList(ctx, normalized)
+}
+
+func (s *Service) SaveBeanListDraft(ctx context.Context, cmd PublishBeanListCommand) (*BeanListPublication, error) {
+	normalized, err := normalizeBeanListCommand(cmd)
+	if err != nil {
+		return nil, err
+	}
+	if s.repo == nil {
+		return nil, fmt.Errorf("repository required")
+	}
+	return s.repo.SaveBeanListDraft(ctx, normalized)
+}
+
+func normalizeBeanListCommand(cmd PublishBeanListCommand) (PublishBeanListCommand, error) {
+	listType, err := normalizeBeanListType(cmd.ListType)
+	if err != nil {
+		return PublishBeanListCommand{}, err
+	}
+	cmd.ListType = listType
+	cmd.Version = strings.TrimSpace(cmd.Version)
+	cmd.Changelog = strings.TrimSpace(cmd.Changelog)
+	cmd.SourceVersion = strings.TrimSpace(cmd.SourceVersion)
+	if cmd.Version == "" {
+		return PublishBeanListCommand{}, fmt.Errorf("version required")
+	}
+	ownerType, ownerKey, err := normalizeBeanListOwner(cmd.OwnerType, cmd.OwnerKey)
+	if err != nil {
+		return PublishBeanListCommand{}, err
+	}
+	cmd.OwnerType = ownerType
+	cmd.OwnerKey = ownerKey
+	if cmd.PriceSourcePublicationID < 0 || cmd.StyleSourcePublicationID < 0 {
+		return PublishBeanListCommand{}, fmt.Errorf("source publication id must be >= 0")
+	}
+	if cmd.Config == nil {
+		cmd.Config = map[string]any{}
+	}
+	if cmd.Content == nil {
+		cmd.Content = map[string]any{}
+	}
+	return cmd, nil
+}
+
+func (s *Service) WithdrawBeanList(ctx context.Context, cmd WithdrawBeanListCommand) error {
+	if cmd.ID <= 0 {
+		return fmt.Errorf("invalid id")
+	}
+	ownerType, ownerKey, err := normalizeBeanListOwner(cmd.OwnerType, cmd.OwnerKey)
+	if err != nil {
+		return err
+	}
+	cmd.OwnerType = ownerType
+	cmd.OwnerKey = ownerKey
+	if s.repo == nil {
+		return fmt.Errorf("repository required")
+	}
+	return s.repo.WithdrawBeanList(ctx, cmd)
+}
+
 func calculate(req CalculateRequest, params domain.Parameters) ([]domain.ProductResult, error) {
 	if len(req.Products) == 0 {
 		return nil, fmt.Errorf("products required")
@@ -149,6 +297,102 @@ func calculate(req CalculateRequest, params domain.Parameters) ([]domain.Product
 		out = append(out, domain.CalculateProduct(params, in))
 	}
 	return out, nil
+}
+
+func normalizeBeanListType(listType string) (string, error) {
+	switch strings.TrimSpace(listType) {
+	case "", "commercial":
+		return "commercial", nil
+	case "retail":
+		return "retail", nil
+	default:
+		return "", fmt.Errorf("invalid list_type")
+	}
+}
+
+func normalizeBeanListPublicationQuery(query BeanListPublicationQuery) (BeanListPublicationQuery, error) {
+	listType, err := normalizeBeanListType(query.ListType)
+	if err != nil {
+		return BeanListPublicationQuery{}, err
+	}
+	ownerType, ownerKey, err := normalizeBeanListOwner(query.OwnerType, query.OwnerKey)
+	if err != nil {
+		return BeanListPublicationQuery{}, err
+	}
+	query.ListType = listType
+	query.OwnerType = ownerType
+	query.OwnerKey = ownerKey
+	return query, nil
+}
+
+func normalizeBeanListOwner(ownerType, ownerKey string) (string, string, error) {
+	typ := strings.TrimSpace(ownerType)
+	key := strings.TrimSpace(ownerKey)
+	switch typ {
+	case "", "official":
+		return "official", "", nil
+	case "actor", "customer":
+		if key == "" {
+			return "", "", fmt.Errorf("owner_key required")
+		}
+		return typ, key, nil
+	default:
+		return "", "", fmt.Errorf("invalid owner_type")
+	}
+}
+
+func sortBeanListResults(items []domain.ProductResult) {
+	sort.SliceStable(items, func(i, j int) bool {
+		return compareBeanListCodes(beanListSortCode(items[i]), beanListSortCode(items[j])) < 0
+	})
+}
+
+func beanListSortCode(item domain.ProductResult) string {
+	if item.CommercialBeanList.Code != "" {
+		return item.CommercialBeanList.Code
+	}
+	if item.RetailBeanList.Code != "" {
+		return item.RetailBeanList.Code
+	}
+	return "9999"
+}
+
+func compareBeanListCodes(a, b string) int {
+	aa := parseBeanListCode(a)
+	bb := parseBeanListCode(b)
+	max := len(aa)
+	if len(bb) > max {
+		max = len(bb)
+	}
+	for i := 0; i < max; i++ {
+		var av, bv int
+		if i < len(aa) {
+			av = aa[i]
+		}
+		if i < len(bb) {
+			bv = bb[i]
+		}
+		if av < bv {
+			return -1
+		}
+		if av > bv {
+			return 1
+		}
+	}
+	return strings.Compare(a, b)
+}
+
+func parseBeanListCode(code string) []int {
+	parts := strings.Split(code, ".")
+	out := make([]int, 0, len(parts))
+	for _, part := range parts {
+		n, err := strconv.Atoi(strings.TrimSpace(part))
+		if err != nil {
+			n = 0
+		}
+		out = append(out, n)
+	}
+	return out
 }
 
 func defaultParameterSettings() []ParameterSetting {
@@ -169,10 +413,12 @@ func defaultParameterSettings() []ParameterSetting {
 		{Key: "drip_extra_cost_per_bag", Label: "挂耳额外成本", Value: params.DripExtraCostPerBag, Unit: "元/袋"},
 		{Key: "drip_packing_material_per_bag", Label: "挂耳外包装材料", Value: params.DripPackingMaterialPerBag, Unit: "元/袋"},
 		{Key: "retail_drip_multiplier", Label: "零售挂耳利润系数", Value: params.RetailDripMultiplier, Unit: "ratio"},
-		{Key: "wholesale_kg_margin_rate_1", Label: "商用熟豆 2-13磅 利润系数", Value: params.WholesaleKgMarginRates[0], Unit: "ratio"},
-		{Key: "wholesale_kg_margin_rate_2", Label: "商用熟豆 14-23磅 利润系数", Value: params.WholesaleKgMarginRates[1], Unit: "ratio"},
-		{Key: "wholesale_kg_margin_rate_3", Label: "商用熟豆 24-47磅 利润系数", Value: params.WholesaleKgMarginRates[2], Unit: "ratio"},
-		{Key: "wholesale_kg_margin_rate_4", Label: "商用熟豆 大于47磅 利润系数", Value: params.WholesaleKgMarginRates[3], Unit: "ratio"},
+		{Key: "wholesale_kg_margin_rate_1", Label: "商用熟豆 2包-13包 利润系数", Value: params.WholesaleKgMarginRates[0], Unit: "ratio"},
+		{Key: "wholesale_kg_margin_rate_2", Label: "商用熟豆 14包-23包 利润系数", Value: params.WholesaleKgMarginRates[1], Unit: "ratio"},
+		{Key: "wholesale_kg_margin_rate_3", Label: "商用熟豆 24包-47包 利润系数", Value: params.WholesaleKgMarginRates[2], Unit: "ratio"},
+		{Key: "wholesale_kg_margin_rate_4", Label: "商用熟豆 48包+ / 24-49kg 利润系数", Value: params.WholesaleKgMarginRates[3], Unit: "ratio"},
+		{Key: "wholesale_kg_margin_rate_5", Label: "商用熟豆 50-99kg 利润系数", Value: params.WholesaleKgMarginRates[4], Unit: "ratio"},
+		{Key: "wholesale_kg_margin_rate_6", Label: "商用熟豆 100-199kg 利润系数", Value: params.WholesaleKgMarginRates[5], Unit: "ratio"},
 		{Key: "wholesale_drip_multiplier_1", Label: "商用挂耳 100包 利润系数", Value: params.WholesaleDripMultipliers[0], Unit: "ratio"},
 		{Key: "wholesale_drip_multiplier_2", Label: "商用挂耳 200包 利润系数", Value: params.WholesaleDripMultipliers[1], Unit: "ratio"},
 		{Key: "wholesale_drip_multiplier_3", Label: "商用挂耳 300包 利润系数", Value: params.WholesaleDripMultipliers[2], Unit: "ratio"},

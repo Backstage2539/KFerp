@@ -14,6 +14,42 @@ ALTER TABLE %[1]s.products ADD COLUMN IF NOT EXISTS retail_price_100g NUMERIC(12
 ALTER TABLE %[1]s.products ADD COLUMN IF NOT EXISTS retail_price_200g NUMERIC(12,2);
 ALTER TABLE %[1]s.products ADD COLUMN IF NOT EXISTS retail_price_250g NUMERIC(12,2);
 ALTER TABLE %[1]s.products ADD COLUMN IF NOT EXISTS roast_level TEXT NOT NULL DEFAULT '';
+ALTER TABLE %[1]s.products ADD COLUMN IF NOT EXISTS product_category_id BIGINT;
+ALTER TABLE %[1]s.products ADD COLUMN IF NOT EXISTS product_category_position INT NOT NULL DEFAULT 0;
+ALTER TABLE %[1]s.products ADD COLUMN IF NOT EXISTS customer_id BIGINT NOT NULL DEFAULT 0;
+ALTER TABLE %[1]s.products ADD COLUMN IF NOT EXISTS base_product_id BIGINT NOT NULL DEFAULT 0;
+ALTER TABLE %[1]s.products ADD COLUMN IF NOT EXISTS visibility TEXT NOT NULL DEFAULT 'public';
+ALTER TABLE %[1]s.products ADD COLUMN IF NOT EXISTS custom_type TEXT NOT NULL DEFAULT '';
+UPDATE %[1]s.products SET visibility='public' WHERE COALESCE(visibility,'')='';
+CREATE INDEX IF NOT EXISTS products_customer_visibility_idx ON %[1]s.products(customer_id, visibility, active);
+CREATE INDEX IF NOT EXISTS products_base_product_idx ON %[1]s.products(base_product_id);
+CREATE TABLE IF NOT EXISTS %[1]s.product_categories (
+	id BIGSERIAL PRIMARY KEY,
+	parent_id BIGINT,
+	name TEXT NOT NULL,
+	level INT NOT NULL DEFAULT 1,
+	position INT NOT NULL DEFAULT 1,
+	active BOOLEAN NOT NULL DEFAULT true,
+	created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+	updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE UNIQUE INDEX IF NOT EXISTS product_categories_parent_name_uniq
+ON %[1]s.product_categories (COALESCE(parent_id,0), lower(name))
+WHERE active=true;
+INSERT INTO %[1]s.product_categories(parent_id,name,level,position)
+SELECT NULL,'咖啡豆',1,1
+WHERE NOT EXISTS (SELECT 1 FROM %[1]s.product_categories WHERE active=true AND COALESCE(parent_id,0)=0 AND name='咖啡豆');
+INSERT INTO %[1]s.product_categories(parent_id,name,level,position)
+SELECT NULL,'挂耳',1,2
+WHERE NOT EXISTS (SELECT 1 FROM %[1]s.product_categories WHERE active=true AND COALESCE(parent_id,0)=0 AND name='挂耳');
+INSERT INTO %[1]s.product_categories(parent_id,name,level,position)
+SELECT p.id,'意式拼配',2,1 FROM %[1]s.product_categories p
+WHERE p.active=true AND COALESCE(p.parent_id,0)=0 AND p.name='咖啡豆'
+  AND NOT EXISTS (SELECT 1 FROM %[1]s.product_categories c WHERE c.active=true AND c.parent_id=p.id AND c.name='意式拼配');
+INSERT INTO %[1]s.product_categories(parent_id,name,level,position)
+SELECT p.id,'单品豆',2,2 FROM %[1]s.product_categories p
+WHERE p.active=true AND COALESCE(p.parent_id,0)=0 AND p.name='咖啡豆'
+  AND NOT EXISTS (SELECT 1 FROM %[1]s.product_categories c WHERE c.active=true AND c.parent_id=p.id AND c.name='单品豆');
 ALTER TABLE %[1]s.product_price_tiers ADD COLUMN IF NOT EXISTS spec_g BIGINT;
 ALTER TABLE %[1]s.product_price_tiers ADD COLUMN IF NOT EXISTS min_qty_units NUMERIC;
 ALTER TABLE %[1]s.product_price_tiers ADD COLUMN IF NOT EXISTS max_qty_units NUMERIC;

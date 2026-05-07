@@ -21,9 +21,11 @@ func registerStockPages(e *echo.Echo) {
 	}{
 		{"/stock/ledger", "stockLedger"},
 		{"/stock/batches", "stockBatches"},
+		{"/stock/wip", "wipMaterials"},
 		{"/stock/material-receipts", "materialReceipts"},
 		{"/stock/material-batches", "materialBatches"},
 		{"/stock/adjustments", "stockAdjustments"},
+		{"/stock/outbound-logs", "stockOutboundLogs"},
 	} {
 		path, view := route.path, route.view
 		e.GET(path, func(c echo.Context) error {
@@ -31,7 +33,7 @@ func registerStockPages(e *echo.Echo) {
 			if raw := c.QueryString(); raw != "" {
 				target += "&" + raw
 			}
-			return c.Redirect(http.StatusFound, target)
+			return c.Redirect(http.StatusFound, support.PrefixRelativeLocation(c, target))
 		})
 	}
 }
@@ -78,6 +80,67 @@ func registerStockAPI(e *echo.Echo, stockSvc *stockapp.Service) {
 		})
 		if err != nil {
 			return c.JSON(http.StatusInternalServerError, errorResponse{Error: err.Error()})
+		}
+		return c.JSON(http.StatusOK, result)
+	})
+
+	e.GET("/api/stock/warehouses", func(c echo.Context) error {
+		rows, err := stockSvc.ListWarehouses(c.Request().Context())
+		if err != nil {
+			return c.JSON(http.StatusInternalServerError, errorResponse{Error: err.Error()})
+		}
+		return c.JSON(http.StatusOK, map[string]any{"rows": rows})
+	})
+
+	e.GET("/api/stock/material-batch-locations", func(c echo.Context) error {
+		result, err := stockSvc.ListMaterialBatchLocations(c.Request().Context(), stockapp.MaterialBatchLocationQuery{
+			Q:          strings.TrimSpace(c.QueryParam("q")),
+			MaterialID: int64(support.IntParam(c, "material_id", 0)),
+			Warehouse:  strings.TrimSpace(c.QueryParam("warehouse")),
+			ActiveOnly: strings.TrimSpace(c.QueryParam("active_only")) == "1",
+			Limit:      support.IntParam(c, "limit", 100),
+			Offset:     stockOffset(c),
+		})
+		if err != nil {
+			return c.JSON(http.StatusInternalServerError, errorResponse{Error: err.Error()})
+		}
+		return c.JSON(http.StatusOK, result)
+	})
+
+	e.GET("/api/stock/warehouse-inventory", func(c echo.Context) error {
+		result, err := stockSvc.ListWarehouseInventory(c.Request().Context(), stockapp.WarehouseInventoryQuery{
+			Q:         strings.TrimSpace(c.QueryParam("q")),
+			Warehouse: strings.TrimSpace(c.QueryParam("warehouse")),
+			ItemType:  strings.TrimSpace(c.QueryParam("item_type")),
+			Limit:     support.IntParam(c, "limit", 100),
+			Offset:    stockOffset(c),
+		})
+		if err != nil {
+			return c.JSON(http.StatusInternalServerError, errorResponse{Error: err.Error()})
+		}
+		return c.JSON(http.StatusOK, result)
+	})
+
+	e.GET("/api/stock/outbound-logs", func(c echo.Context) error {
+		result, err := stockSvc.ListOutboundLogs(c.Request().Context(), stockapp.OutboundLogQuery{
+			Q:      strings.TrimSpace(c.QueryParam("q")),
+			From:   strings.TrimSpace(c.QueryParam("from")),
+			To:     strings.TrimSpace(c.QueryParam("to")),
+			Limit:  support.IntParam(c, "limit", 100),
+			Offset: stockOffset(c),
+		})
+		if err != nil {
+			return c.JSON(http.StatusInternalServerError, errorResponse{Error: err.Error()})
+		}
+		return c.JSON(http.StatusOK, result)
+	})
+
+	e.GET("/api/stock/trace", func(c echo.Context) error {
+		result, err := stockSvc.GetStockTrace(c.Request().Context(), stockapp.StockTraceQuery{
+			BatchCode: strings.TrimSpace(c.QueryParam("batch")),
+		})
+		if err != nil {
+			return c.JSON(http.StatusBadRequest, errorResponse{Error: err.Error()})
 		}
 		return c.JSON(http.StatusOK, result)
 	})
@@ -129,6 +192,64 @@ func registerStockAPI(e *echo.Echo, stockSvc *stockapp.Service) {
 			TargetUnits: req.TargetUnits,
 			Reason:      req.Reason,
 			Operator:    support.ActorOf(c),
+		})
+		if err != nil {
+			return c.JSON(http.StatusBadRequest, errorResponse{Error: err.Error()})
+		}
+		return c.JSON(http.StatusOK, result)
+	})
+
+	e.POST("/api/stock/finished-transfers", func(c echo.Context) error {
+		var req struct {
+			ProductID      int64  `json:"product_id"`
+			SpecG          int64  `json:"spec_g"`
+			FromWarehouse  string `json:"from_warehouse"`
+			ToWarehouse    string `json:"to_warehouse"`
+			QtyUnits       int64  `json:"qty_units"`
+			QtyLooseG      int64  `json:"qty_loose_g"`
+			Note           string `json:"note"`
+			IdempotencyKey string `json:"idempotency_key"`
+		}
+		if err := c.Bind(&req); err != nil {
+			return c.JSON(http.StatusBadRequest, errorResponse{Error: "invalid request"})
+		}
+		result, err := stockSvc.TransferFinishedProduct(c.Request().Context(), stockapp.FinishedProductTransferCommand{
+			ProductID:      req.ProductID,
+			SpecG:          req.SpecG,
+			FromWarehouse:  req.FromWarehouse,
+			ToWarehouse:    req.ToWarehouse,
+			QtyUnits:       req.QtyUnits,
+			QtyLooseG:      req.QtyLooseG,
+			Note:           req.Note,
+			Operator:       support.ActorOf(c),
+			IdempotencyKey: req.IdempotencyKey,
+		})
+		if err != nil {
+			return c.JSON(http.StatusBadRequest, errorResponse{Error: err.Error()})
+		}
+		return c.JSON(http.StatusOK, result)
+	})
+
+	e.POST("/api/stock/material-transfers", func(c echo.Context) error {
+		var req struct {
+			MaterialID     int64  `json:"material_id"`
+			FromWarehouse  string `json:"from_warehouse"`
+			ToWarehouse    string `json:"to_warehouse"`
+			QtyG           int64  `json:"qty_g"`
+			Note           string `json:"note"`
+			IdempotencyKey string `json:"idempotency_key"`
+		}
+		if err := c.Bind(&req); err != nil {
+			return c.JSON(http.StatusBadRequest, errorResponse{Error: "invalid request"})
+		}
+		result, err := stockSvc.TransferMaterial(c.Request().Context(), stockapp.MaterialTransferCommand{
+			MaterialID:     req.MaterialID,
+			FromWarehouse:  req.FromWarehouse,
+			ToWarehouse:    req.ToWarehouse,
+			QtyG:           req.QtyG,
+			Note:           req.Note,
+			Operator:       support.ActorOf(c),
+			IdempotencyKey: req.IdempotencyKey,
 		})
 		if err != nil {
 			return c.JSON(http.StatusBadRequest, errorResponse{Error: err.Error()})

@@ -62,6 +62,8 @@ func saveOrderCommandFromCreateRequest(req CreateOrderRequest, editID int64, act
 		ShipStatusID:          req.ShipStatusID,
 		ShipMethod:            req.ShipMethod,
 		ShipTrackingNo:        req.ShipTrackingNo,
+		ResponsibleType:       strings.TrimSpace(req.ResponsibleType),
+		ResponsibleID:         req.ResponsibleID,
 		Notes:                 req.Notes,
 		ShippingAmount:        shippingAmount,
 		DiscountAmount:        discountAmount,
@@ -73,6 +75,7 @@ func saveOrderCommandFromCreateRequest(req CreateOrderRequest, editID int64, act
 		OutsourceManualFee:    manualFee,
 		OutsourceTaxFee:       taxFee,
 		OutsourceOtherFee:     otherFee,
+		StockBatchDecision:    strings.TrimSpace(req.StockBatchDecision),
 		Items:                 orderItemCommandsFromCreateRequest(req),
 	}, nil
 }

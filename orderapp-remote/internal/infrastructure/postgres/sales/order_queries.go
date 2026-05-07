@@ -90,7 +90,7 @@ func (r Repository) ListOrderAuditLogs(ctx context.Context, orderID int64, limit
 }
 
 func fetchOrders(ctx context.Context, pool *pgxpool.Pool, schema string, query salesapp.OrderListQuery) ([]salesapp.OrderRow, bool, error) {
-	where, args, nextArg := orderListWhere(query)
+	where, args, nextArg := orderListWhere(schema, query)
 
 	wsql := ""
 	if len(where) > 0 {
@@ -108,10 +108,23 @@ func fetchOrders(ctx context.Context, pool *pgxpool.Pool, schema string, query s
 			COALESCE(to_char(o.order_date, 'YYYY-MM-DD'), '') AS order_date,
 			COALESCE(o.customer_id,0) AS customer_id,
 			COALESCE(c.name, '') AS customer,
+			COALESCE(o.responsible_party_type, '') AS responsible_party_type,
+			COALESCE(o.responsible_party_id, 0) AS responsible_party_id,
+			COALESCE(o.responsible_party_name, '') AS responsible_party_name,
 			COALESCE(to_char(o.grand_total, 'FM999999999.00'), '') AS grand_total,
 			COALESCE(ot.name, '') AS order_type,
 			COALESCE(ps.name, '') AS pay_status,
 			COALESCE(ss.name, '') AS ship_status,
+			COALESCE(o.ship_tracking_no, '') AS ship_tracking_no,
+			COALESCE(NULLIF(o.receiver_name,''), NULLIF(c.contact,''), c.name, '') AS receiver_name,
+			COALESCE(NULLIF(o.receiver_phone,''), c.phone, '') AS receiver_phone,
+			COALESCE(NULLIF(o.receiver_address,''), c.address, '') AS receiver_address,
+			COALESCE(o.receiver_company, '') AS receiver_company,
+			COALESCE(o.portal_service_code,'') AS portal_service_code,
+			COALESCE(o.source_warehouse,'') AS source_warehouse,
+			COALESCE(NULLIF(ship_sender.sender_id,0), NULLIF(o.sender_id,0), 0) AS sender_id,
+			COALESCE(sender.sender_label, '') AS sender_label,
+			COALESCE(sender.sender_name, '') AS sender_name,
 			COALESCE(ops.name, '') AS process_status,
 			COALESCE((SELECT al.actor FROM %s.order_audit_logs al WHERE al.order_id=o.id ORDER BY al.id ASC LIMIT 1), '未知') AS created_by_employee,
 			COALESCE(o.order_type_id,0) AS order_type_id,
@@ -119,17 +132,31 @@ func fetchOrders(ctx context.Context, pool *pgxpool.Pool, schema string, query s
 			COALESCE(o.ship_status_id,0) AS ship_status_id,
 			COALESCE(o.process_status_id,0) AS process_status_id,
 			COALESCE(o.notes,'') AS notes,
-			o.is_void
+			o.is_void,
+			COALESCE(oi.status,'') AS invoice_status,
+			COALESCE(ia.filename,'') AS invoice_filename,
+			COALESCE(ia.object_key,'') AS invoice_object_key
 		FROM %s.orders o
 		LEFT JOIN %s.customers c ON c.id = o.customer_id
 		LEFT JOIN %s.order_types ot ON ot.id = o.order_type_id
 		LEFT JOIN %s.pay_statuses ps ON ps.id = o.pay_status_id
 		LEFT JOIN %s.ship_statuses ss ON ss.id = o.ship_status_id
 		LEFT JOIN %s.order_process_statuses ops ON ops.id = o.process_status_id
+		LEFT JOIN %s.order_invoices oi ON oi.order_id = o.id
+		LEFT JOIN %s.sales_order_assets ia ON ia.id = oi.invoice_asset_id
+		LEFT JOIN LATERAL (
+			SELECT COALESCE(oso.sender_id, os.sender_id, 0) AS sender_id
+			FROM %s.order_shipment_orders oso
+			JOIN %s.order_shipments os ON os.id=oso.shipment_id
+			WHERE oso.order_id=o.id
+			ORDER BY os.created_at DESC, oso.id DESC
+			LIMIT 1
+		) ship_sender ON true
+		LEFT JOIN %s.sender_settings sender ON sender.id=ship_sender.sender_id
 		%s
 		ORDER BY o.order_date DESC, o.id DESC
 		LIMIT $%d OFFSET $%d
-	`, schema, schema, schema, schema, schema, schema, schema, wsql, limitArg, offsetArg)
+	`, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, wsql, limitArg, offsetArg)
 
 	dbRows, err := pool.Query(ctx, sql, args...)
 	if err != nil {
@@ -140,9 +167,11 @@ func fetchOrders(ctx context.Context, pool *pgxpool.Pool, schema string, query s
 	out := make([]salesapp.OrderRow, 0)
 	for dbRows.Next() {
 		var r salesapp.OrderRow
-		if err := dbRows.Scan(&r.ID, &r.OrderNo, &r.OrderDate, &r.CustomerID, &r.Customer, &r.GrandTotal, &r.OrderType, &r.PayStatus, &r.ShipStatus, &r.ProcessStatus, &r.CreatedByEmployee, &r.OrderTypeID, &r.PayStatusID, &r.ShipStatusID, &r.ProcessStatusID, &r.Notes, &r.IsVoid); err != nil {
+		var invoiceObjectKey string
+		if err := dbRows.Scan(&r.ID, &r.OrderNo, &r.OrderDate, &r.CustomerID, &r.Customer, &r.ResponsibleType, &r.ResponsibleID, &r.ResponsibleName, &r.GrandTotal, &r.OrderType, &r.PayStatus, &r.ShipStatus, &r.ShipTrackingNo, &r.ReceiverName, &r.ReceiverPhone, &r.ReceiverAddress, &r.ReceiverCompany, &r.PortalServiceCode, &r.SourceWarehouse, &r.SenderID, &r.SenderLabel, &r.SenderName, &r.ProcessStatus, &r.CreatedByEmployee, &r.OrderTypeID, &r.PayStatusID, &r.ShipStatusID, &r.ProcessStatusID, &r.Notes, &r.IsVoid, &r.InvoiceStatus, &r.InvoiceFilename, &invoiceObjectKey); err != nil {
 			return nil, false, err
 		}
+		r.InvoiceFileURL = salesOrderAssetURL(invoiceObjectKey)
 		out = append(out, r)
 	}
 	if err := dbRows.Err(); err != nil {
@@ -191,7 +220,7 @@ func auditIDTextToLabel(v *string, labels map[int64]string) *string {
 }
 
 func fetchOrdersSummary(ctx context.Context, pool *pgxpool.Pool, schema string, query salesapp.OrderListQuery) (salesapp.OrdersSummary, error) {
-	where, args, _ := orderListWhere(query)
+	where, args, _ := orderListWhere(schema, query)
 	wsql := ""
 	if len(where) > 0 {
 		wsql = "WHERE " + strings.Join(where, " AND ")
@@ -212,7 +241,7 @@ func fetchOrdersSummary(ctx context.Context, pool *pgxpool.Pool, schema string, 
 	return s, nil
 }
 
-func orderListWhere(query salesapp.OrderListQuery) ([]string, []any, int) {
+func orderListWhere(schema string, query salesapp.OrderListQuery) ([]string, []any, int) {
 	where := make([]string, 0)
 	args := make([]any, 0)
 	argn := 1
@@ -247,6 +276,9 @@ func orderListWhere(query salesapp.OrderListQuery) ([]string, []any, int) {
 	}
 	if query.CompletedOnly {
 		where = append(where, "COALESCE(o.pay_status_id,0)=2 AND COALESCE(o.ship_status_id,0) IN (3,4)")
+	}
+	if query.ShipReadyOnly {
+		where = append(where, fmt.Sprintf("EXISTS (SELECT 1 FROM %s.order_process_statuses ops WHERE ops.id=o.process_status_id AND ops.name IN ('生产完成','已生产完成','无需生产','库存待发货'))", schema))
 	}
 	if from := strings.TrimSpace(query.From); from != "" {
 		where = append(where, fmt.Sprintf("o.order_date >= $%d", argn))

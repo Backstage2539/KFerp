@@ -88,7 +88,7 @@ func resolveEmployeeBySessionToken(ctx echo.Context, pool *pgxpool.Pool, schema,
 	var id int64
 	var name string
 	err := pool.QueryRow(ctx.Request().Context(),
-		"SELECT e.id,COALESCE(e.name,'') FROM "+schema+".login_sessions s JOIN "+schema+".company_employees e ON e.id=s.employee_id WHERE s.token=$1 AND s.expire_at>now() AND e.active=true LIMIT 1",
+		"SELECT e.id,COALESCE(e.name,'') FROM "+schema+".login_sessions s JOIN "+schema+".company_employees e ON e.id=s.employee_id LEFT JOIN "+schema+".employee_login_passwords p ON p.employee_id=e.id WHERE s.token=$1 AND s.expire_at>now() AND e.active=true AND COALESCE(p.login_disabled,false)=false LIMIT 1",
 		token,
 	).Scan(&id, &name)
 	if err != nil {

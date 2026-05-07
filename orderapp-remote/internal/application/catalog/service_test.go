@@ -7,6 +7,8 @@ import (
 
 type fakeRepo struct {
 	replace ReplacePriceTiersCommand
+	update  UpdateProductBasicsCommand
+	create  CreateProductCommand
 }
 
 func (r *fakeRepo) ListProducts(ctx context.Context) ([]Product, error) {
@@ -20,6 +22,40 @@ func (r *fakeRepo) GetProduct(ctx context.Context, id int64) (*Product, error) {
 func (r *fakeRepo) ReplacePriceTiers(ctx context.Context, cmd ReplacePriceTiersCommand) error {
 	r.replace = cmd
 	return nil
+}
+
+func (r *fakeRepo) UpdateProductBasics(ctx context.Context, cmd UpdateProductBasicsCommand) error {
+	r.update = cmd
+	return nil
+}
+
+func (r *fakeRepo) CreateProduct(ctx context.Context, cmd CreateProductCommand) (Product, error) {
+	r.create = cmd
+	return Product{ID: 11, Name: cmd.Name, RoastLevel: cmd.RoastLevel, YieldRate: cmd.YieldRate, Visibility: "public"}, nil
+}
+
+func (r *fakeRepo) ListProductCategories(ctx context.Context) ([]ProductCategory, error) {
+	return []ProductCategory{{ID: 1, Name: "咖啡豆", Level: 1, Position: 1}}, nil
+}
+
+func (r *fakeRepo) SaveProductCategory(ctx context.Context, cmd SaveProductCategoryCommand) (ProductCategory, error) {
+	return ProductCategory{ID: 2, Name: cmd.Name, ParentID: cmd.ParentID, Position: cmd.Position}, nil
+}
+
+func (r *fakeRepo) MoveProductCategory(ctx context.Context, cmd MoveProductCategoryCommand) error {
+	return nil
+}
+
+func (r *fakeRepo) DeleteProductCategory(ctx context.Context, cmd DeleteProductCategoryCommand) error {
+	return nil
+}
+
+func (r *fakeRepo) AssignProductCategory(ctx context.Context, cmd AssignProductCategoryCommand) error {
+	return nil
+}
+
+func (r *fakeRepo) CreateCustomProduct(ctx context.Context, cmd CreateCustomProductCommand) (Product, error) {
+	return Product{ID: 10, Name: cmd.Name, CustomerID: cmd.CustomerID, BaseProductID: cmd.BaseProductID, Visibility: "customer_only", CustomType: cmd.CustomType}, nil
 }
 
 func TestServiceDelegatesCatalogOperations(t *testing.T) {
@@ -39,5 +75,22 @@ func TestServiceDelegatesCatalogOperations(t *testing.T) {
 	}
 	if repo.replace.ProductID != 9 || len(repo.replace.Tiers) != 1 {
 		t.Fatalf("replace command = %+v", repo.replace)
+	}
+	if err := svc.UpdateProductBasics(context.Background(), UpdateProductBasicsCommand{ProductID: 9, RoastLevel: "中烘"}); err != nil {
+		t.Fatalf("UpdateProductBasics() error = %v", err)
+	}
+	if repo.update.ProductID != 9 {
+		t.Fatalf("update command = %+v", repo.update)
+	}
+	product, err := svc.CreateProduct(context.Background(), CreateProductCommand{Actor: "tester", Name: "新拼配", RoastLevel: "中烘", YieldRate: 0.81})
+	if err != nil || product.ID != 11 {
+		t.Fatalf("CreateProduct() = %+v, %v", product, err)
+	}
+	if repo.create.Name != "新拼配" || repo.create.RoastLevel != "中烘" || repo.create.Actor != "tester" {
+		t.Fatalf("create command = %+v", repo.create)
+	}
+	settings, err := svc.ProductSettings(context.Background())
+	if err != nil || len(settings.Categories) != 1 || len(settings.Products) != 1 {
+		t.Fatalf("ProductSettings() = %+v, %v", settings, err)
 	}
 }

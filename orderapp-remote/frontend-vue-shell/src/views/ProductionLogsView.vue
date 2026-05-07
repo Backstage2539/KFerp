@@ -93,6 +93,8 @@
 
 <script setup>
 import { onMounted, reactive, ref } from 'vue'
+import { apiGet } from '../api/client'
+import { replaceHistoryURL } from '../lib/url-state'
 
 const loading = ref(false)
 const error = ref('')
@@ -120,7 +122,7 @@ function updateUrl() {
   }
   if (filters.product_id) url.searchParams.set('product_id', String(filters.product_id))
   else url.searchParams.delete('product_id')
-  window.history.replaceState({}, '', url.toString())
+  replaceHistoryURL(url)
 }
 
 function applyUrlFilters() {
@@ -159,9 +161,7 @@ async function load() {
     if (filters.batch_id) url.searchParams.set('batch_id', filters.batch_id)
     if (filters.operator) url.searchParams.set('operator', filters.operator)
 
-    const res = await fetch(url)
-    const data = await res.json()
-    if (!res.ok) throw new Error(data.error || '加载失败')
+    const data = await apiGet(url)
     products.value = (data.products || []).map((p) => ({ id: Number(p.id || p.ID || 0), name: p.name || p.Name || '' }))
     rows.value = data.rows || []
     updateUrl()

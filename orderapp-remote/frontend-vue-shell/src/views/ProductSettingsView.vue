@@ -1,0 +1,987 @@
+<template>
+  <div class="page">
+    <section class="panel">
+      <div class="panel-head">
+        <div>
+          <h2>产品设置</h2>
+          <p>合并商品基础信息、产品分类和价格试算。商用阶梯价由价格发布生成。</p>
+        </div>
+        <button class="secondary" type="button" @click="loadAll" :disabled="loading">刷新</button>
+      </div>
+      <div v-if="error" class="error">{{ error }}</div>
+      <div v-if="ok" class="ok">{{ ok }}</div>
+    </section>
+
+    <section class="settings-grid">
+      <div class="panel public-product-panel">
+        <div class="panel-title">
+          <span>新增公共产品</span>
+        </div>
+        <form class="product-create-form" @submit.prevent="createProduct">
+          <label class="wide-field">
+            <span>商品名称</span>
+            <input v-model.trim="productForm.name" placeholder="如 花魁 SOE" />
+          </label>
+          <label>
+            <span>烘焙度</span>
+            <select v-model="productForm.roast_level">
+              <option v-for="level in roastLevels" :key="level" :value="level">{{ level }}</option>
+            </select>
+          </label>
+          <label>
+            <span>BOM出品率</span>
+            <div class="yield-editor">
+              <input
+                class="yield-input"
+                v-model.number="productForm.yield_percent"
+                type="number"
+                min="1"
+                max="100"
+                step="0.01" />
+              <span>%</span>
+            </div>
+          </label>
+          <label>
+            <span>默认价</span>
+            <input v-model.number="productForm.default_price" type="number" min="0" step="0.01" />
+          </label>
+          <div class="form-actions">
+            <button class="primary" type="submit" :disabled="productSaving">创建公共产品</button>
+          </div>
+        </form>
+      </div>
+
+      <div class="panel custom-product-panel">
+        <div class="panel-title">
+          <span>客户专属 SKU</span>
+        </div>
+        <form class="custom-product-form" @submit.prevent="createCustomProduct">
+          <label>
+            <span>客户</span>
+            <SearchableSelect
+              v-model="customForm.customer_id"
+              :options="customers"
+              :option-label="customerOptionLabel"
+              :option-meta="customerOptionMeta"
+              :option-value="optionNumericValue"
+              placeholder="输入客户名/拼音"
+              empty-text="没有匹配客户"
+              @select="fillCustomProductName" />
+          </label>
+          <label>
+            <span>基础产品</span>
+            <SearchableSelect
+              v-model="customForm.base_product_id"
+              :options="baseProducts"
+              :option-label="baseProductOptionLabel"
+              :option-meta="baseProductOptionMeta"
+              :option-value="optionNumericValue"
+              placeholder="输入产品名"
+              empty-text="没有匹配产品"
+              @select="fillCustomProductName" />
+          </label>
+          <label>
+            <span>定制类型</span>
+            <select v-model="customForm.custom_type">
+              <option value="custom_roast">定制烘焙度</option>
+              <option value="custom_blend">定制拼配 BOM</option>
+            </select>
+          </label>
+          <label>
+            <span>烘焙度</span>
+            <select v-model="customForm.roast_level" @change="fillCustomProductName">
+              <option v-for="level in roastLevels" :key="level" :value="level">{{ level }}</option>
+            </select>
+          </label>
+          <label class="wide-field">
+            <span>专属 SKU 名称</span>
+            <input v-model.trim="customForm.name" placeholder="如 客户A-暖阳拼配-中深烘" />
+          </label>
+          <label class="checkline">
+            <input v-model="customForm.copy_bom" type="checkbox" />
+            <span>复制基础产品 BOM</span>
+          </label>
+          <label class="checkline">
+            <input v-model="customForm.copy_price_tiers" type="checkbox" />
+            <span>复制基础产品价格梯度</span>
+          </label>
+          <div class="form-actions">
+            <button class="primary" type="submit" :disabled="customSaving">创建专属 SKU</button>
+          </div>
+        </form>
+        <div class="customer-sku-list">
+          <div class="sku-list-head">
+            <div>
+              <strong>客户专属 SKU 列表</strong>
+              <span class="muted">只展示客户维度的定制产品，可直接进入 BOM 维护。</span>
+            </div>
+            <div class="sku-filter">
+              <SearchableSelect
+                v-model="selectedCustomerSkuCustomerID"
+                :options="customers"
+                :option-label="customerOptionLabel"
+                :option-meta="customerOptionMeta"
+                :option-value="optionNumericValue"
+                placeholder="筛选客户"
+                empty-text="没有匹配客户" />
+              <button class="secondary" type="button" @click="selectedCustomerSkuCustomerID = 0">全部</button>
+            </div>
+          </div>
+          <div class="table-wrap compact-table">
+            <table>
+              <thead>
+                <tr>
+                  <th>客户</th>
+                  <th>客户 SKU</th>
+                  <th>基础产品</th>
+                  <th>类型</th>
+                  <th>烘焙度</th>
+                  <th>BOM物料</th>
+                  <th>BOM</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="row in customerSkuRows" :key="`customer-sku-${row.id}`">
+                  <td>{{ ownerLabel(row) }}</td>
+                  <td>{{ row.name }}</td>
+                  <td>{{ baseProductName(row.base_product_id) }}</td>
+                  <td>{{ customTypeLabel(row.custom_type) }}</td>
+                  <td>{{ row.roast_level || '-' }}</td>
+                  <td>{{ row.bom_item_count || 0 }}</td>
+                  <td><button class="text-button" type="button" @click="openProductBom(row)">维护 BOM</button></td>
+                </tr>
+                <tr v-if="!customerSkuRows.length">
+                  <td colspan="7" class="muted">暂无客户专属 SKU</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <div class="panel category-panel">
+        <div class="panel-title">
+          <span>商品分类</span>
+          <button class="toggle-section" type="button" @click="categoryCollapsed = !categoryCollapsed">
+            {{ categoryCollapsed ? '展开' : '收起' }}
+          </button>
+        </div>
+        <div v-show="!categoryCollapsed">
+          <form class="inline-form" @submit.prevent="savePrimaryCategory">
+            <input v-model.trim="newPrimaryName" placeholder="新增一级分类，如 咖啡豆" />
+            <button class="secondary" type="submit">新增一级分类</button>
+          </form>
+
+          <div class="category-tree">
+            <div
+              v-for="primary in categories"
+              :key="primary.id"
+              class="primary-category"
+              :data-primary-id="primary.id"
+              @dragover.prevent="handlePrimaryCategoryDragOver($event, primary)"
+              @drop.prevent="dropCategoryOnCurrentTarget(primary)">
+              <form v-if="editingCategoryId === primary.id" class="inline-form sub-form" @submit.prevent="saveCategoryName(primary)">
+                <input v-model.trim="editingCategoryName" placeholder="一级分类名称" />
+                <button class="secondary" type="submit">保存</button>
+              </form>
+              <div v-else class="category-head">
+                <strong>{{ primary.number }}. {{ primary.name }}</strong>
+                <div class="category-actions">
+                  <button class="text-button" type="button" @click="startCategoryEdit(primary)">改名</button>
+                  <button class="text-button" type="button" @click="startAddingSecondary(primary)">新增二级</button>
+                  <button class="text-button danger-text" type="button" @click="deleteCategory(primary)">删除</button>
+                </div>
+              </div>
+
+              <form v-if="addingSecondaryFor === primary.id" class="inline-form sub-form" @submit.prevent="saveSecondaryCategory(primary)">
+                <input v-model.trim="newSecondaryName" placeholder="新增二级分类，如 意式拼配" />
+                <button class="secondary" type="submit">保存</button>
+              </form>
+
+              <div
+                class="category-drop-line"
+                :class="{ active: isCategoryDropTarget(primary, 1) }"
+                @dragover.prevent.stop="setCategoryDropTarget(primary, 1)"
+                @drop.prevent.stop="dropCategoryAtPosition(primary, 1)">
+              </div>
+
+              <template v-for="(secondary, index) in primary.children" :key="secondary.id">
+                <div
+                  class="secondary-category"
+                  :class="{ dragging: isDraggingCategory(secondary), 'pointer-dragging': isPointerDraggingCategory(secondary) }"
+                  :data-secondary-id="secondary.id"
+                  :data-secondary-position="index + 1"
+                  @pointerdown="startCategoryPointerDrag($event, primary, index + 1, secondary)"
+                  @dragenter.prevent.stop="handleSecondaryCategoryDragOver($event, primary, index + 1)"
+                  @dragover.prevent.stop="handleSecondaryCategoryDragOver($event, primary, index + 1)"
+                  @drop.prevent.stop="dropCategoryOrProductOnSecondary(primary, index + 1, secondary)">
+                  <form v-if="editingCategoryId === secondary.id" class="inline-form sub-form" @submit.prevent="saveCategoryName(secondary)">
+                    <input v-model.trim="editingCategoryName" placeholder="二级分类名称" />
+                    <button class="secondary" type="submit">保存</button>
+                  </form>
+                  <div v-else class="secondary-head">
+                    <span>{{ secondary.number }}</span>
+                    <b>{{ secondary.name }}</b>
+                    <small>{{ secondary.products.length }} 款</small>
+                    <button class="text-button" type="button" @click="startCategoryEdit(secondary)">改名</button>
+                    <button class="text-button danger-text" type="button" @click="deleteCategory(secondary)">删除</button>
+                  </div>
+                  <div class="product-chip-list">
+                    <span
+                      v-for="product in secondary.products"
+                      :key="product.id"
+                      class="product-chip"
+                      draggable="true"
+                      @dragstart.stop="startProductDrag(product)"
+                      @dragend="scheduleClearDrag">
+                      {{ product.number }}. {{ product.name }}
+                    </span>
+                  </div>
+                </div>
+                <div
+                  class="category-drop-line"
+                  :class="{ active: isCategoryDropTarget(primary, index + 2) }"
+                  @dragover.prevent.stop="setCategoryDropTarget(primary, index + 2)"
+                  @drop.prevent.stop="dropCategoryAtPosition(primary, index + 2)">
+                </div>
+              </template>
+            </div>
+          </div>
+
+          <div class="uncategorized" @dragover.prevent @drop="dropProductOnSecondary({ id: 0 })">
+            <div class="sub-title">未分类商品</div>
+            <span
+              v-for="product in uncategorizedProducts"
+              :key="product.id"
+              class="product-chip"
+              draggable="true"
+              @dragstart="startProductDrag(product)"
+              @dragend="scheduleClearDrag">
+              {{ product.name }}
+            </span>
+            <p v-if="!uncategorizedProducts.length" class="muted">暂无未分类商品</p>
+          </div>
+        </div>
+      </div>
+
+      <div class="panel product-panel">
+        <div class="panel-title">
+          <span>商品基础信息</span>
+          <button class="toggle-section" type="button" @click="productsCollapsed = !productsCollapsed">
+            {{ productsCollapsed ? '展开' : '收起' }}
+          </button>
+        </div>
+        <div v-show="!productsCollapsed" class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>一级分类</th>
+                <th>二级分类</th>
+                <th>商品编号</th>
+                <th>商品</th>
+                <th>归属</th>
+                <th>类型</th>
+                <th>烘焙度</th>
+                <th>BOM出品率</th>
+                <th>BOM</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="row in productRows" :key="row.id">
+                <td>{{ categoryLabel(row, 1) }}</td>
+                <td>{{ categoryLabel(row, 2) }}</td>
+                <td>{{ row.number || '' }}</td>
+                <td>{{ row.name }}</td>
+                <td>{{ ownerLabel(row) }}</td>
+                <td>{{ customTypeLabel(row.custom_type) }}</td>
+                <td>
+                  <select class="roast-select" v-model="row.roast_level" @change="saveProductBasics(row)">
+                    <option v-for="level in roastLevels" :key="level" :value="level">{{ level }}</option>
+                  </select>
+                </td>
+                <td>
+                  <div class="yield-editor">
+                    <input
+                      class="yield-input"
+                      v-model.number="row.yield_percent"
+                      type="number"
+                      min="1"
+                      max="100"
+                      step="0.01"
+                      @change="saveProductBasics(row)" />
+                    <span>%</span>
+                  </div>
+                </td>
+                <td><button class="text-button" type="button" @click="openProductBom(row)">维护 BOM</button></td>
+              </tr>
+              <tr v-if="!productRows.length">
+                <td colspan="9" class="muted">暂无商品</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <section class="panel costing-panel">
+      <CostingView />
+    </section>
+  </div>
+</template>
+
+<script setup>
+import { computed, onMounted, ref } from 'vue'
+import { apiGet, apiSend } from '../api/client'
+import SearchableSelect from '../components/SearchableSelect.vue'
+import CostingView from './CostingView.vue'
+
+const categories = ref([])
+const products = ref([])
+const customers = ref([])
+const loading = ref(false)
+const productSaving = ref(false)
+const customSaving = ref(false)
+const error = ref('')
+const ok = ref('')
+const newPrimaryName = ref('')
+const newSecondaryName = ref('')
+const addingSecondaryFor = ref(0)
+const dragging = ref(null)
+const pointerDrag = ref(null)
+const categoryDropTarget = ref(null)
+const editingCategoryId = ref(0)
+const editingCategoryName = ref('')
+const categoryCollapsed = ref(false)
+const productsCollapsed = ref(false)
+const selectedCustomerSkuCustomerID = ref(0)
+const roastLevels = ['浅烘', '中烘', '中深烘', '深烘']
+const productForm = ref(defaultProductForm())
+const customForm = ref(defaultCustomForm())
+
+const productRows = computed(() => {
+  const rows = []
+  for (const primary of categories.value) {
+    for (const secondary of primary.children || []) {
+      for (const product of secondary.products || []) {
+        rows.push({ ...product, primary_name: primary.name, secondary_name: secondary.name })
+      }
+    }
+  }
+  for (const product of uncategorizedProducts.value) {
+    rows.push(product)
+  }
+  return rows
+})
+
+const categorizedProductIDs = computed(() => {
+  const ids = new Set()
+  for (const primary of categories.value) {
+    for (const secondary of primary.children || []) {
+      for (const product of secondary.products || []) ids.add(Number(product.id))
+    }
+  }
+  return ids
+})
+
+const uncategorizedProducts = computed(() => products.value.filter((product) => !categorizedProductIDs.value.has(Number(product.id))))
+const baseProducts = computed(() => products.value.filter((product) => Number(product.customer_id || 0) === 0 && productVisibility(product) === 'public'))
+const customerSkuRows = computed(() => products.value
+  .filter((product) => Number(product.customer_id || 0) > 0)
+  .filter((product) => !selectedCustomerSkuCustomerID.value || Number(product.customer_id || 0) === Number(selectedCustomerSkuCustomerID.value))
+  .sort((a, b) => ownerLabel(a).localeCompare(ownerLabel(b)) || a.name.localeCompare(b.name)))
+
+function defaultProductForm() {
+  return {
+    name: '',
+    roast_level: '中烘',
+    yield_percent: 80,
+    default_price: 0,
+  }
+}
+
+function categoryLabel(row, level) {
+  return level === 1 ? row.primary_name || '' : row.secondary_name || ''
+}
+
+function defaultCustomForm() {
+  return {
+    customer_id: 0,
+    base_product_id: 0,
+    name: '',
+    roast_level: '中烘',
+    custom_type: 'custom_roast',
+    copy_bom: true,
+    copy_price_tiers: true,
+  }
+}
+
+function decorateProduct(product) {
+  const yieldRate = Number(product.yield_rate || 0.8)
+  return {
+    ...product,
+    roast_level: roastLevels.includes(product.roast_level) ? product.roast_level : '中烘',
+    yield_rate: yieldRate,
+    yield_percent: Number((yieldRate * 100).toFixed(2)),
+    customer_id: Number(product.customer_id || 0),
+    base_product_id: Number(product.base_product_id || 0),
+    visibility: productVisibility(product),
+    custom_type: product.custom_type || '',
+    bom_item_count: Number(product.bom_item_count || 0),
+  }
+}
+
+function decorateCategory(category) {
+  return {
+    ...category,
+    children: (category.children || []).map(decorateCategory),
+    products: (category.products || []).map(decorateProduct),
+  }
+}
+
+async function loadAll() {
+  loading.value = true
+  error.value = ''
+  try {
+    const [data, customerData] = await Promise.all([
+      apiGet('/api/product-settings'),
+      apiGet('/api/customers?limit=200'),
+    ])
+    categories.value = (data.categories || []).map(decorateCategory)
+    products.value = (data.products || []).map(decorateProduct)
+    customers.value = (customerData.rows || []).filter((row) => row.active !== false)
+  } catch (err) {
+    error.value = err.message || '加载失败'
+  } finally {
+    loading.value = false
+  }
+}
+
+function productVisibility(product) {
+  const customerID = Number(product?.customer_id || 0)
+  return product?.visibility || (customerID > 0 ? 'customer_only' : 'public')
+}
+
+function customerName(id) {
+  return customers.value.find((customer) => Number(customer.id) === Number(id))?.name || ''
+}
+
+function customerOptionLabel(customer) {
+  return customer?.name || ''
+}
+
+function customerOptionMeta(customer) {
+  const parts = []
+  if (customer?.company_name && customer.company_name !== customer?.name) parts.push(customer.company_name)
+  if (customer?.contact) parts.push(customer.contact)
+  if (customer?.phone || customer?.company_phone) parts.push(customer.phone || customer.company_phone)
+  return parts.join(' / ')
+}
+
+function optionNumericValue(option) {
+  return Number(option?.id || 0)
+}
+
+function baseProductOptionLabel(product) {
+  return product?.name || ''
+}
+
+function baseProductOptionMeta(product) {
+  const parts = []
+  if (product?.number) parts.push(`编号 ${product.number}`)
+  if (product?.roast_level) parts.push(product.roast_level)
+  return parts.join(' / ')
+}
+
+function ownerLabel(row) {
+  if (Number(row.customer_id || 0) <= 0) return '公共'
+  return customerName(row.customer_id) || `客户 #${row.customer_id}`
+}
+
+function customTypeLabel(value) {
+  if (value === 'custom_blend') return '定制拼配'
+  if (value === 'custom_roast') return '定制烘焙'
+  return '标准'
+}
+
+function selectedBaseProduct() {
+  return products.value.find((product) => Number(product.id) === Number(customForm.value.base_product_id)) || null
+}
+
+function baseProductName(id) {
+  return products.value.find((product) => Number(product.id) === Number(id))?.name || '-'
+}
+
+function fillCustomProductName() {
+  if (customForm.value.name) return
+  const customer = customerName(customForm.value.customer_id)
+  const base = selectedBaseProduct()
+  if (!customer || !base) return
+  customForm.value.name = `${customer}-${base.name}-${customForm.value.roast_level}`
+}
+
+function openProductBom(row) {
+  const url = new URL(window.location.href)
+  url.searchParams.set('view', 'bom')
+  url.searchParams.set('product_id', String(row.id))
+  window.location.href = url.toString()
+}
+
+async function createProduct() {
+  if (!productForm.value.name) {
+    error.value = '请填写商品名称'
+    return
+  }
+  const yieldPercent = Number(productForm.value.yield_percent || 0)
+  if (yieldPercent <= 0 || yieldPercent > 100) {
+    error.value = 'BOM出品率必须在 1% 到 100% 之间'
+    return
+  }
+  productSaving.value = true
+  error.value = ''
+  ok.value = ''
+  try {
+    await apiSend('/api/product-settings/products', {
+      body: {
+        name: productForm.value.name,
+        roast_level: productForm.value.roast_level,
+        yield_rate: Number((yieldPercent / 100).toFixed(4)),
+        default_price: Number(productForm.value.default_price || 0),
+      },
+    })
+    ok.value = '公共产品已创建'
+    productForm.value = defaultProductForm()
+    await loadAll()
+  } catch (err) {
+    error.value = err.message || '创建公共产品失败'
+  } finally {
+    productSaving.value = false
+  }
+}
+
+async function createCustomProduct() {
+  if (!customForm.value.customer_id) {
+    error.value = '请选择客户'
+    return
+  }
+  if (!customForm.value.base_product_id) {
+    error.value = '请选择基础产品'
+    return
+  }
+  if (!customForm.value.name) {
+    fillCustomProductName()
+  }
+  if (!customForm.value.name) {
+    error.value = '请填写专属 SKU 名称'
+    return
+  }
+  customSaving.value = true
+  error.value = ''
+  ok.value = ''
+  try {
+    await apiSend('/api/product-settings/custom-products', { body: customForm.value })
+    ok.value = '客户专属 SKU 已创建'
+    customForm.value = defaultCustomForm()
+    await loadAll()
+  } catch (err) {
+    error.value = err.message || '创建专属 SKU 失败'
+  } finally {
+    customSaving.value = false
+  }
+}
+
+async function savePrimaryCategory() {
+  if (!newPrimaryName.value) return
+  await saveCategory({ name: newPrimaryName.value, parent_id: 0, position: categories.value.length + 1 })
+  newPrimaryName.value = ''
+}
+
+function startAddingSecondary(primary) {
+  addingSecondaryFor.value = Number(primary.id)
+  newSecondaryName.value = ''
+}
+
+async function saveSecondaryCategory(primary) {
+  if (!newSecondaryName.value) return
+  await saveCategory({
+    name: newSecondaryName.value,
+    parent_id: Number(primary.id),
+    position: Number(primary.children?.length || 0) + 1,
+  })
+  newSecondaryName.value = ''
+  addingSecondaryFor.value = 0
+}
+
+async function saveCategory(body) {
+  loading.value = true
+  error.value = ''
+  ok.value = ''
+  try {
+    await apiSend('/api/product-settings/categories', { body })
+    ok.value = '分类已保存'
+    await loadAll()
+  } catch (err) {
+    error.value = err.message || '保存分类失败'
+  } finally {
+    loading.value = false
+  }
+}
+
+function startCategoryEdit(category) {
+  editingCategoryId.value = Number(category.id)
+  editingCategoryName.value = category.name || ''
+}
+
+async function saveCategoryName(category) {
+  if (!editingCategoryName.value) return
+  loading.value = true
+  error.value = ''
+  ok.value = ''
+  try {
+    await apiSend(`/api/product-settings/categories/${category.id}`, {
+      method: 'PUT',
+      body: {
+        name: editingCategoryName.value,
+        parent_id: Number(category.parent_id || 0),
+        position: Number(category.position || category.number || 1),
+      },
+    })
+    editingCategoryId.value = 0
+    editingCategoryName.value = ''
+    ok.value = '分类已保存'
+    await loadAll()
+  } catch (err) {
+    error.value = err.message || '保存分类失败'
+  } finally {
+    loading.value = false
+  }
+}
+
+async function deleteCategory(category) {
+  const name = category.name || '该分类'
+  const okToDelete = window.confirm(`确认删除「${name}」？删除分类后，分类内商品会回到未分类。`)
+  if (!okToDelete) return
+  loading.value = true
+  error.value = ''
+  ok.value = ''
+  try {
+    await apiSend(`/api/product-settings/categories/${category.id}`, { method: 'DELETE' })
+    ok.value = '分类已删除，相关商品已回到未分类'
+    await loadAll()
+  } catch (err) {
+    error.value = err.message || '删除分类失败'
+  } finally {
+    loading.value = false
+  }
+}
+
+function startCategoryDrag(category) {
+  dragging.value = {
+    type: 'category',
+    id: Number(category.id),
+    parentID: Number(category.parent_id || 0),
+    position: Number(category.number || category.position || 0),
+  }
+  categoryDropTarget.value = null
+}
+
+function startCategoryPointerDrag(event, primary, visualPosition, category) {
+  if (event.button !== 0 || isInteractiveDragSource(event.target)) return
+  pointerDrag.value = {
+    pointerID: event.pointerId,
+    startX: event.clientX,
+    startY: event.clientY,
+    primaryID: Number(primary.id),
+    visualPosition: Number(visualPosition),
+    category,
+    active: false,
+    element: event.currentTarget,
+  }
+  event.currentTarget.setPointerCapture?.(event.pointerId)
+  event.currentTarget.addEventListener('pointermove', handleCategoryPointerMove)
+  event.currentTarget.addEventListener('pointerup', handleCategoryPointerUp)
+  event.currentTarget.addEventListener('pointercancel', cancelCategoryPointerDrag)
+}
+
+function isInteractiveDragSource(target) {
+  return Boolean(target?.closest?.('button,input,select,textarea,a,.product-chip'))
+}
+
+function handleCategoryPointerMove(event) {
+  const state = pointerDrag.value
+  if (!state || state.pointerID !== event.pointerId) return
+  const moved = Math.abs(event.clientX - state.startX) + Math.abs(event.clientY - state.startY)
+  if (!state.active) {
+    if (moved < 5) return
+    state.active = true
+    startCategoryDrag(state.category)
+  }
+  event.preventDefault()
+  const target = resolveCategoryPointerTarget(event.clientX, event.clientY, state.primaryID)
+  if (!target) return
+  categoryDropTarget.value = { parentID: Number(target.primary.id), position: Number(target.position) }
+}
+
+async function handleCategoryPointerUp(event) {
+  const state = pointerDrag.value
+  if (!state || state.pointerID !== event.pointerId) return
+  const target = categoryDropTarget.value
+  const active = state.active
+  cleanupCategoryPointerDrag()
+  if (!active) {
+    clearDrag()
+    return
+  }
+  event.preventDefault()
+  const primary = categories.value.find((item) => Number(item.id) === Number(target?.parentID))
+  if (!primary || !target) {
+    clearDrag()
+    return
+  }
+  await dropCategoryAtPosition(primary, target.position)
+}
+
+function cancelCategoryPointerDrag() {
+  cleanupCategoryPointerDrag()
+  clearDrag()
+}
+
+function cleanupCategoryPointerDrag() {
+  const state = pointerDrag.value
+  if (state?.element) {
+    state.element.removeEventListener('pointermove', handleCategoryPointerMove)
+    state.element.removeEventListener('pointerup', handleCategoryPointerUp)
+    state.element.removeEventListener('pointercancel', cancelCategoryPointerDrag)
+  }
+  pointerDrag.value = null
+}
+
+function resolveCategoryPointerTarget(clientX, clientY, fallbackPrimaryID) {
+  const elements = document.elementsFromPoint(clientX, clientY)
+  const primaryElement = elements.find((item) => item.classList?.contains('primary-category'))
+    || document.querySelector(`[data-primary-id="${fallbackPrimaryID}"]`)
+  if (!primaryElement) return null
+  const primaryID = Number(primaryElement.dataset.primaryId || fallbackPrimaryID)
+  const primary = categories.value.find((item) => Number(item.id) === primaryID)
+  if (!primary) return null
+  const secondaryElements = Array.from(primaryElement.querySelectorAll('.secondary-category'))
+  if (!secondaryElements.length) return { primary, position: 1 }
+  for (let index = 0; index < secondaryElements.length; index += 1) {
+    const rect = secondaryElements[index].getBoundingClientRect()
+    if (clientY < rect.top + rect.height / 2) {
+      return { primary, position: index + 1 }
+    }
+  }
+  return { primary, position: secondaryElements.length + 1 }
+}
+
+function startProductDrag(product) {
+  dragging.value = { type: 'product', id: Number(product.id) }
+  categoryDropTarget.value = null
+}
+
+function clearDrag() {
+  dragging.value = null
+  categoryDropTarget.value = null
+}
+
+function scheduleClearDrag() {
+  window.setTimeout(clearDrag, 0)
+}
+
+function isDraggingCategory(category) {
+  return dragging.value?.type === 'category' && dragging.value.id === Number(category.id)
+}
+
+function isPointerDraggingCategory(category) {
+  return pointerDrag.value?.active && Number(pointerDrag.value.category?.id) === Number(category.id)
+}
+
+function setCategoryDropTarget(primary, position) {
+  if (dragging.value?.type !== 'category') return
+  categoryDropTarget.value = { parentID: Number(primary.id), position: Number(position) }
+}
+
+function handlePrimaryCategoryDragOver(event, primary) {
+  if (dragging.value?.type !== 'category') return
+  const target = resolveCategoryPointerTarget(event.clientX, event.clientY, Number(primary.id))
+  if (target) {
+    categoryDropTarget.value = { parentID: Number(target.primary.id), position: Number(target.position) }
+  }
+}
+
+function handleSecondaryCategoryDragOver(event, primary, visualPosition) {
+  if (dragging.value?.type !== 'category') return
+  const rect = event.currentTarget.getBoundingClientRect()
+  const position = event.clientY > rect.top + rect.height / 2 ? Number(visualPosition) + 1 : Number(visualPosition)
+  categoryDropTarget.value = { parentID: Number(primary.id), position }
+}
+
+function isCategoryDropTarget(primary, position) {
+  return dragging.value?.type === 'category'
+    && categoryDropTarget.value?.parentID === Number(primary.id)
+    && categoryDropTarget.value?.position === Number(position)
+}
+
+async function dropCategoryAtPosition(primary, visualPosition) {
+  const drag = dragging.value
+  if (drag?.type !== 'category') return
+  const parentID = Number(primary.id)
+  let position = Number(visualPosition)
+  if (drag.parentID === parentID && drag.position > 0 && drag.position < visualPosition) {
+    position -= 1
+  }
+  if (position <= 0) position = 1
+  try {
+    await apiSend(`/api/product-settings/categories/${drag.id}/move`, {
+      body: { parent_id: parentID, position },
+    })
+    ok.value = '分类顺序已保存'
+    await loadAll()
+  } catch (err) {
+    error.value = err.message || '移动分类失败'
+  } finally {
+    clearDrag()
+  }
+}
+
+async function dropCategoryOnPrimary(primary) {
+  if (dragging.value?.type !== 'category') return
+  await dropCategoryAtPosition(primary, Number(primary.children?.length || 0) + 1)
+}
+
+async function dropCategoryOnCurrentTarget(primary) {
+  if (dragging.value?.type !== 'category') return
+  const parentID = Number(primary.id)
+  const position = categoryDropTarget.value?.parentID === parentID
+    ? categoryDropTarget.value.position
+    : Number(primary.children?.length || 0) + 1
+  await dropCategoryAtPosition(primary, position)
+}
+
+async function dropCategoryOrProductOnSecondary(primary, visualPosition, secondary) {
+  const drag = dragging.value
+  if (drag?.type === 'category') {
+    const parentID = Number(primary.id)
+    const position = categoryDropTarget.value?.parentID === parentID
+      ? categoryDropTarget.value.position
+      : visualPosition
+    await dropCategoryAtPosition(primary, position)
+    return
+  }
+  await dropProductOnSecondary(secondary)
+}
+
+async function dropProductOnSecondary(secondary) {
+  const drag = dragging.value
+  if (drag?.type !== 'product') return
+  try {
+    await apiSend(`/api/product-settings/products/${drag.id}/category`, {
+      body: { category_id: Number(secondary.id || 0), position: Number(secondary.products?.length || 0) + 1 },
+    })
+    ok.value = '商品分类已保存'
+    await loadAll()
+  } catch (err) {
+    error.value = err.message || '移动商品失败'
+  } finally {
+    clearDrag()
+  }
+}
+
+async function saveProductBasics(row) {
+  const yieldPercent = Number(row.yield_percent || 0)
+  if (yieldPercent <= 0 || yieldPercent > 100) {
+    error.value = 'BOM出品率必须在 1% 到 100% 之间'
+    return
+  }
+  loading.value = true
+  error.value = ''
+  ok.value = ''
+  try {
+    await apiSend(`/api/products/${row.id}`, {
+      method: 'PUT',
+      body: {
+        roast_level: row.roast_level,
+        yield_rate: Number((yieldPercent / 100).toFixed(4)),
+        retail_price_100g: Number(row.retail_price_100g || 0),
+        retail_price_200g: Number(row.retail_price_200g || 0),
+        retail_price_227g: Number(row.retail_price_227g || 0),
+        retail_price_250g: Number(row.retail_price_250g || 0),
+      },
+    })
+    ok.value = '商品基础信息已保存'
+    await loadAll()
+  } catch (err) {
+    error.value = err.message || '保存商品失败'
+  } finally {
+    loading.value = false
+  }
+}
+
+onMounted(loadAll)
+</script>
+
+<style scoped>
+* { box-sizing: border-box; }
+.page { padding: 18px; color: #171717; display: grid; gap: 14px; }
+.panel { border: 1px solid #e6e0d8; border-radius: 8px; background: #fff; padding: 14px; }
+.panel-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
+.panel-head h2 { margin: 0 0 4px; font-size: 20px; }
+.panel-head p { margin: 0; color: #666; font-size: 13px; }
+.panel-title { display: flex; align-items: center; justify-content: space-between; gap: 10px; font-weight: 700; margin-bottom: 10px; }
+.sub-title { width: 100%; font-weight: 700; font-size: 13px; }
+button, input, select { font: inherit; min-height: 36px; border-radius: 6px; }
+input, select { border: 1px solid #cfc8bf; padding: 7px 9px; background: #fff; width: 100%; }
+button { border: 1px solid #1f1f1f; background: #fff; padding: 0 12px; cursor: pointer; }
+button:disabled { cursor: not-allowed; opacity: .55; }
+.primary { background: #111; color: #fff; }
+.secondary, .toggle-section { background: #fff; color: #111; }
+.toggle-section { min-height: 30px; padding: 0 10px; }
+.text-button { border: 0; background: transparent; color: #1f4f82; padding: 0; min-height: 28px; }
+.danger-text { color: #a33; }
+.settings-grid { display: grid; grid-template-columns: minmax(280px, 380px) minmax(0, 1fr); gap: 14px; align-items: start; }
+.public-product-panel, .custom-product-panel { grid-column: 1 / -1; }
+.product-create-form, .custom-product-form { display: grid; grid-template-columns: repeat(4, minmax(160px, 1fr)); gap: 10px; align-items: end; }
+.product-create-form label, .custom-product-form label { display: grid; gap: 5px; font-size: 13px; }
+.product-create-form .wide-field, .custom-product-form .wide-field { grid-column: span 2; }
+.customer-sku-list { margin-top: 14px; border-top: 1px solid #eee8df; padding-top: 12px; }
+.sku-list-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 12px; margin-bottom: 10px; }
+.sku-list-head strong { display: block; margin-bottom: 4px; }
+.sku-filter { display: grid; grid-template-columns: minmax(220px, 320px) auto; gap: 8px; align-items: end; }
+.checkline { display: flex !important; align-items: center; gap: 8px; min-height: 36px; }
+.checkline input { width: auto; min-height: 0; }
+.form-actions { display: flex; justify-content: flex-end; }
+.inline-form { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; margin-bottom: 10px; }
+.sub-form { margin: 8px 0; }
+.category-tree { display: grid; gap: 10px; }
+.primary-category { border: 1px solid #eee8df; border-radius: 8px; padding: 10px; background: #fbfaf8; }
+.category-head, .secondary-head, .category-actions { display: flex; align-items: center; gap: 8px; justify-content: space-between; }
+.secondary-category { border: 1px solid #ddd; border-radius: 8px; padding: 9px; background: #fff; cursor: grab; user-select: none; touch-action: none; }
+.secondary-category.dragging { opacity: .45; }
+.secondary-category.pointer-dragging { cursor: grabbing; }
+.secondary-head span { display: inline-flex; width: 24px; height: 24px; align-items: center; justify-content: center; border: 1px solid #ddd; border-radius: 6px; }
+.secondary-head small { color: #666; }
+.category-drop-line { height: 16px; border-top: 2px solid transparent; margin: 2px 0; transition: border-color .12s ease, background .12s ease; }
+.category-drop-line.active { border-top-color: #1f4f82; background: #edf5ff; }
+.product-chip-list, .uncategorized { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
+.product-chip { border: 1px solid #ddd; border-radius: 8px; padding: 5px 8px; background: #fff; font-size: 12px; cursor: grab; }
+.table-wrap { overflow: auto; }
+table { width: 100%; min-width: 940px; border-collapse: collapse; }
+.compact-table table { min-width: 760px; }
+th, td { border-bottom: 1px solid #eee8df; padding: 8px; text-align: left; font-size: 13px; vertical-align: middle; }
+th { background: #fbfaf8; position: sticky; top: 0; }
+.roast-select { min-width: 92px; }
+.yield-editor { display: flex; align-items: center; gap: 6px; max-width: 130px; }
+.yield-input { width: 90px; }
+.costing-panel { padding: 0; overflow: hidden; }
+.error, .ok { border-radius: 6px; padding: 9px; margin-top: 12px; }
+.error { background: #fff0f0; border: 1px solid #e6b7b7; color: #8a1f1f; }
+.ok { background: #f0fff6; border: 1px solid #a9d8ba; color: #1f6a3f; }
+.muted { color: #666; font-size: 12px; }
+@media (max-width: 900px) {
+  .page { padding: 12px; }
+  .settings-grid, .inline-form, .product-create-form, .custom-product-form, .sku-filter { grid-template-columns: 1fr; }
+  .sku-list-head { align-items: stretch; flex-direction: column; }
+  .product-create-form .wide-field, .custom-product-form .wide-field { grid-column: auto; }
+  table { min-width: 900px; }
+}
+</style>

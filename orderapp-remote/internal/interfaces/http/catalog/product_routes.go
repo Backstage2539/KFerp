@@ -20,6 +20,15 @@ func registerProductRoutes(e *echo.Echo, catalogSvc *catalogapp.Service) {
 	e.GET("/api/products", h.listAPI)
 	e.GET("/api/products/:id", h.detailAPI)
 	e.PUT("/api/products/:id", h.updateAPI)
+	e.GET("/api/product-settings", h.productSettingsAPI)
+	e.GET("/api/product-settings/categories", h.productCategoriesAPI)
+	e.POST("/api/product-settings/products", h.createProductAPI)
+	e.POST("/api/product-settings/categories", h.saveProductCategoryAPI)
+	e.POST("/api/product-settings/custom-products", h.createCustomProductAPI)
+	e.PUT("/api/product-settings/categories/:id", h.saveProductCategoryAPI)
+	e.DELETE("/api/product-settings/categories/:id", h.deleteProductCategoryAPI)
+	e.POST("/api/product-settings/categories/:id/move", h.moveProductCategoryAPI)
+	e.POST("/api/product-settings/products/:id/category", h.assignProductCategoryAPI)
 	e.GET("/products/:id", h.edit)
 }
 
@@ -33,7 +42,19 @@ type productUpdateAPIRequest struct {
 	RetailPrice200G float64                   `json:"retail_price_200g"`
 	RetailPrice227G float64                   `json:"retail_price_227g"`
 	RetailPrice250G float64                   `json:"retail_price_250g"`
+	YieldRate       float64                   `json:"yield_rate"`
 	Tiers           []productTierAPIUpsertRow `json:"tiers"`
+}
+
+type productCreateAPIRequest struct {
+	Name            string  `json:"name"`
+	RoastLevel      string  `json:"roast_level"`
+	DefaultPrice    float64 `json:"default_price"`
+	RetailPrice100G float64 `json:"retail_price_100g"`
+	RetailPrice200G float64 `json:"retail_price_200g"`
+	RetailPrice227G float64 `json:"retail_price_227g"`
+	RetailPrice250G float64 `json:"retail_price_250g"`
+	YieldRate       float64 `json:"yield_rate"`
 }
 
 type productTierAPIUpsertRow struct {
@@ -43,8 +64,35 @@ type productTierAPIUpsertRow struct {
 	UnitPrice float64  `json:"unit_price"`
 }
 
+type productCategoryAPIRequest struct {
+	ID       int64  `json:"id"`
+	Name     string `json:"name"`
+	ParentID int64  `json:"parent_id"`
+	Position int    `json:"position"`
+}
+
+type productCategoryMoveAPIRequest struct {
+	ParentID int64 `json:"parent_id"`
+	Position int   `json:"position"`
+}
+
+type productAssignCategoryAPIRequest struct {
+	CategoryID int64 `json:"category_id"`
+	Position   int   `json:"position"`
+}
+
+type customProductAPIRequest struct {
+	CustomerID     int64  `json:"customer_id"`
+	BaseProductID  int64  `json:"base_product_id"`
+	Name           string `json:"name"`
+	RoastLevel     string `json:"roast_level"`
+	CustomType     string `json:"custom_type"`
+	CopyBOM        bool   `json:"copy_bom"`
+	CopyPriceTiers bool   `json:"copy_price_tiers"`
+}
+
 func (h productHandler) index(c echo.Context) error {
-	return support.VueShellRedirect(c, "products")
+	return support.VueShellRedirect(c, "productSettings")
 }
 
 func (h productHandler) print(c echo.Context) error {
@@ -87,18 +135,11 @@ func (h productHandler) updateAPI(c echo.Context) error {
 	if roastLevel == "" {
 		return c.JSON(http.StatusBadRequest, map[string]any{"error": "invalid roast_level"})
 	}
-	tiers := make([]catalogapp.PriceTier, 0, len(req.Tiers))
-	for _, row := range req.Tiers {
-		if row.MinQty <= 0 || row.UnitPrice < 0 {
-			continue
-		}
-		specG := row.SpecG
-		if specG <= 0 {
-			specG = 454
-		}
-		tiers = append(tiers, catalogapp.PriceTier{SpecG: specG, MinQty: row.MinQty, MaxQty: row.MaxQty, UnitPrice: row.UnitPrice})
+	yieldRate := normalizeProductYieldRate(req.YieldRate)
+	if req.YieldRate > 0 && yieldRate <= 0 {
+		return c.JSON(http.StatusBadRequest, map[string]any{"error": "invalid yield_rate"})
 	}
-	if err := h.catalog.ReplacePriceTiers(c.Request().Context(), catalogapp.ReplacePriceTiersCommand{
+	if err := h.catalog.UpdateProductBasics(c.Request().Context(), catalogapp.UpdateProductBasicsCommand{
 		Actor:           support.ActorOf(c),
 		ProductID:       id,
 		RoastLevel:      roastLevel,
@@ -106,7 +147,7 @@ func (h productHandler) updateAPI(c echo.Context) error {
 		RetailPrice200G: req.RetailPrice200G,
 		RetailPrice227G: req.RetailPrice227G,
 		RetailPrice250G: req.RetailPrice250G,
-		Tiers:           tiers,
+		YieldRate:       yieldRate,
 	}); err != nil {
 		return c.JSON(http.StatusInternalServerError, map[string]any{"error": err.Error()})
 	}
@@ -120,10 +161,172 @@ func (h productHandler) updateAPI(c echo.Context) error {
 	return c.JSON(http.StatusOK, map[string]any{"product": productOptionFromCatalog(*p)})
 }
 
+func (h productHandler) createProductAPI(c echo.Context) error {
+	var req productCreateAPIRequest
+	if err := c.Bind(&req); err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]any{"error": "bad request"})
+	}
+	roastLevel := NormalizeRoastLevel(req.RoastLevel)
+	if roastLevel == "" {
+		return c.JSON(http.StatusBadRequest, map[string]any{"error": "invalid roast_level"})
+	}
+	yieldRate := normalizeProductYieldRate(req.YieldRate)
+	if req.YieldRate > 0 && yieldRate <= 0 {
+		return c.JSON(http.StatusBadRequest, map[string]any{"error": "invalid yield_rate"})
+	}
+	product, err := h.catalog.CreateProduct(c.Request().Context(), catalogapp.CreateProductCommand{
+		Actor:           support.ActorOf(c),
+		Name:            req.Name,
+		RoastLevel:      roastLevel,
+		DefaultPrice:    req.DefaultPrice,
+		RetailPrice100G: req.RetailPrice100G,
+		RetailPrice200G: req.RetailPrice200G,
+		RetailPrice227G: req.RetailPrice227G,
+		RetailPrice250G: req.RetailPrice250G,
+		YieldRate:       yieldRate,
+	})
+	if err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]any{"error": err.Error()})
+	}
+	return c.JSON(http.StatusOK, map[string]any{"product": productOptionFromCatalog(product)})
+}
+
+func normalizeProductYieldRate(value float64) float64 {
+	if value <= 0 {
+		return 0
+	}
+	if value > 1 && value <= 100 {
+		value = value / 100
+	}
+	if value <= 0 || value > 1 {
+		return 0
+	}
+	return value
+}
+
+func (h productHandler) productSettingsAPI(c echo.Context) error {
+	data, err := h.catalog.ProductSettings(c.Request().Context())
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]any{"error": err.Error()})
+	}
+	return c.JSON(http.StatusOK, data)
+}
+
+func (h productHandler) productCategoriesAPI(c echo.Context) error {
+	data, err := h.catalog.ProductSettings(c.Request().Context())
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]any{"error": err.Error()})
+	}
+	return c.JSON(http.StatusOK, map[string]any{"categories": data.Categories})
+}
+
+func (h productHandler) saveProductCategoryAPI(c echo.Context) error {
+	var req productCategoryAPIRequest
+	if err := c.Bind(&req); err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]any{"error": "bad request"})
+	}
+	if idText := c.Param("id"); idText != "" {
+		id, err := strconv.ParseInt(idText, 10, 64)
+		if err != nil || id <= 0 {
+			return c.JSON(http.StatusBadRequest, map[string]any{"error": "invalid id"})
+		}
+		req.ID = id
+	}
+	if req.Name == "" {
+		return c.JSON(http.StatusBadRequest, map[string]any{"error": "name required"})
+	}
+	row, err := h.catalog.SaveProductCategory(c.Request().Context(), catalogapp.SaveProductCategoryCommand{
+		Actor:    support.ActorOf(c),
+		ID:       req.ID,
+		ParentID: req.ParentID,
+		Name:     req.Name,
+		Position: req.Position,
+	})
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]any{"error": err.Error()})
+	}
+	return c.JSON(http.StatusOK, map[string]any{"category": row})
+}
+
+func (h productHandler) createCustomProductAPI(c echo.Context) error {
+	var req customProductAPIRequest
+	if err := c.Bind(&req); err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]any{"error": "bad request"})
+	}
+	product, err := h.catalog.CreateCustomProduct(c.Request().Context(), catalogapp.CreateCustomProductCommand{
+		Actor:          support.ActorOf(c),
+		CustomerID:     req.CustomerID,
+		BaseProductID:  req.BaseProductID,
+		Name:           req.Name,
+		RoastLevel:     req.RoastLevel,
+		CustomType:     req.CustomType,
+		CopyBOM:        req.CopyBOM,
+		CopyPriceTiers: req.CopyPriceTiers,
+	})
+	if err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]any{"error": err.Error()})
+	}
+	return c.JSON(http.StatusOK, map[string]any{"product": productOptionFromCatalog(product)})
+}
+
+func (h productHandler) moveProductCategoryAPI(c echo.Context) error {
+	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil || id <= 0 {
+		return c.JSON(http.StatusBadRequest, map[string]any{"error": "invalid id"})
+	}
+	var req productCategoryMoveAPIRequest
+	if err := c.Bind(&req); err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]any{"error": "bad request"})
+	}
+	if err := h.catalog.MoveProductCategory(c.Request().Context(), catalogapp.MoveProductCategoryCommand{
+		Actor:    support.ActorOf(c),
+		ID:       id,
+		ParentID: req.ParentID,
+		Position: req.Position,
+	}); err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]any{"error": err.Error()})
+	}
+	return c.JSON(http.StatusOK, map[string]any{"ok": true})
+}
+
+func (h productHandler) deleteProductCategoryAPI(c echo.Context) error {
+	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil || id <= 0 {
+		return c.JSON(http.StatusBadRequest, map[string]any{"error": "invalid id"})
+	}
+	if err := h.catalog.DeleteProductCategory(c.Request().Context(), catalogapp.DeleteProductCategoryCommand{
+		Actor: support.ActorOf(c),
+		ID:    id,
+	}); err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]any{"error": err.Error()})
+	}
+	return c.JSON(http.StatusOK, map[string]any{"ok": true})
+}
+
+func (h productHandler) assignProductCategoryAPI(c echo.Context) error {
+	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil || id <= 0 {
+		return c.JSON(http.StatusBadRequest, map[string]any{"error": "invalid id"})
+	}
+	var req productAssignCategoryAPIRequest
+	if err := c.Bind(&req); err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]any{"error": "bad request"})
+	}
+	if err := h.catalog.AssignProductCategory(c.Request().Context(), catalogapp.AssignProductCategoryCommand{
+		Actor:      support.ActorOf(c),
+		ProductID:  id,
+		CategoryID: req.CategoryID,
+		Position:   req.Position,
+	}); err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]any{"error": err.Error()})
+	}
+	return c.JSON(http.StatusOK, map[string]any{"ok": true})
+}
+
 func (h productHandler) edit(c echo.Context) error {
 	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	if err != nil || id <= 0 {
 		return c.String(http.StatusBadRequest, "invalid id")
 	}
-	return support.VueShellRedirectWith(c, "products", map[string]string{"edit_id": strconv.FormatInt(id, 10)})
+	return support.VueShellRedirectWith(c, "productSettings", map[string]string{"edit_id": strconv.FormatInt(id, 10)})
 }

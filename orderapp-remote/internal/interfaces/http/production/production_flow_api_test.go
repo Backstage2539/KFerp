@@ -16,9 +16,13 @@ import (
 	"time"
 
 	productionapp "orderapp/internal/application/production"
+	postgresbom "orderapp/internal/infrastructure/postgres/bom"
 	postgrescompany "orderapp/internal/infrastructure/postgres/company"
+	postgresinventory "orderapp/internal/infrastructure/postgres/inventory"
+	postgresmaterials "orderapp/internal/infrastructure/postgres/materials"
 	postgresproduction "orderapp/internal/infrastructure/postgres/production"
 	postgressales "orderapp/internal/infrastructure/postgres/sales"
+	postgresstock "orderapp/internal/infrastructure/postgres/stock"
 	supporthttp "orderapp/internal/interfaces/http/support"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -46,7 +50,11 @@ func TestProduceStartHandlerPersistsInputG(t *testing.T) {
 		INSERT INTO %s.order_items(order_id,line_no,item_name,qty,unit,spec,product_id,unit_price,line_total)
 		VALUES (1,1,'橘皮乌龙',2,'袋','227g',1,50,100);
 		INSERT INTO %s.product_bom(product_id,yield_rate) VALUES (1,0.8200);
-	`, schema, schema, schema, schema, schema, schema))
+		INSERT INTO %s.materials(id,code,name,kind,unit,onhand_g,onhand_units,purchase_price,sale_price)
+			VALUES (10,'RAW-001','卡蒂姆水洗','bean','g',1000,0,54,0);
+		INSERT INTO %s.product_bom_items(product_id,material_id,ratio_pct) VALUES (1,10,100.0000);
+	`, schema, schema, schema, schema, schema, schema, schema, schema))
+	seedProductionFlowWIPBatch(t, ctx, pool, schema, 10, 10, "MB-RAW-001", "卡蒂姆水洗", 1000)
 
 	app := newProductionFlowTestEcho(pool, schema)
 	form := url.Values{
@@ -58,8 +66,8 @@ func TestProduceStartHandlerPersistsInputG(t *testing.T) {
 	if rec.Code != http.StatusSeeOther {
 		t.Fatalf("POST /produce/start status = %d, want %d", rec.Code, http.StatusSeeOther)
 	}
-	if got := rec.Header().Get("Location"); got != "/produce/running?ok=1" {
-		t.Fatalf("POST /produce/start Location = %q, want %q", got, "/produce/running?ok=1")
+	if got := rec.Header().Get("Location"); got != "../produce/running?ok=1" {
+		t.Fatalf("POST /produce/start Location = %q, want %q", got, "../produce/running?ok=1")
 	}
 
 	var inputG, plannedUnits, plannedLooseG int64
@@ -104,6 +112,184 @@ func TestProduceStartHandlerPersistsInputG(t *testing.T) {
 	}
 }
 
+func TestProduceStartAPIMergesSameProductSpecsAndKeepsAllOrderNos(t *testing.T) {
+	pool, schema := newProductionFlowTestDB(t)
+	ctx := context.Background()
+
+	mustExecProductionFlowTestSQL(t, ctx, pool, fmt.Sprintf(`
+		INSERT INTO %s.products(id,name,default_price,active) VALUES (1,'Uraga乌拉嘎',50,true);
+		INSERT INTO %s.order_process_statuses(name,sort,active) VALUES
+			('待处理',10,true),
+			('生产中',20,true)
+		ON CONFLICT (name) DO NOTHING;
+		INSERT INTO %s.orders(id,order_no,order_date,is_void,process_status_id) VALUES
+			(1,'SO-MERGE-454','2026-05-01',false,(SELECT id FROM %s.order_process_statuses WHERE name='待处理' LIMIT 1)),
+			(2,'SO-MERGE-227','2026-05-01',false,(SELECT id FROM %s.order_process_statuses WHERE name='待处理' LIMIT 1));
+		INSERT INTO %s.order_items(order_id,line_no,item_name,qty,unit,spec,product_id,unit_price,line_total)
+		VALUES
+			(1,1,'Uraga乌拉嘎',24,'袋','454g',1,50,1200),
+			(2,1,'Uraga乌拉嘎',2,'袋','227g',1,50,100);
+		INSERT INTO %s.product_bom(product_id,yield_rate) VALUES (1,0.8200);
+		INSERT INTO %s.materials(id,code,name,kind,unit,onhand_g,onhand_units,purchase_price,sale_price)
+			VALUES (10,'RAW-URAGA','乌拉嘎生豆','bean','g',30000,0,54,0);
+		INSERT INTO %s.product_bom_items(product_id,material_id,ratio_pct) VALUES (1,10,100.0000);
+		INSERT INTO %s.material_batches(id,batch_code,material_id,material_name,received_g,remaining_g,unit_cost,status,quality_status)
+			VALUES (10,'MB-URAGA',10,'乌拉嘎生豆',30000,30000,54,'active','pass');
+		INSERT INTO %s.material_batch_locations(material_batch_id,material_id,warehouse,qty_g)
+			VALUES (10,10,'wip',30000);
+	`, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema))
+
+	app := newProductionFlowTestEcho(pool, schema)
+	body := bytes.NewReader([]byte(`{"selected":["1-454","1-227"],"input_by_key":{"1-454":16000,"1-227":600}}`))
+	req := httptest.NewRequest(http.MethodPost, "/api/produce/start", body)
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+	app.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("POST /api/produce/start status = %d, want 200, body=%s", rec.Code, rec.Body.String())
+	}
+
+	var runningCount int
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT COUNT(*)::int FROM %s.produce_running_items WHERE product_id=1 AND status='running'`, schema)).Scan(&runningCount); err != nil {
+		t.Fatalf("query running count: %v", err)
+	}
+	if runningCount != 1 {
+		t.Fatalf("running item count = %d, want 1 merged product-level item", runningCount)
+	}
+
+	var runningItemID, needG, inputG int64
+	var orderNos string
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`
+		SELECT id, need_g, input_g, order_nos
+		FROM %s.produce_running_items
+		WHERE product_id=1 AND status='running'
+	`, schema)).Scan(&runningItemID, &needG, &inputG, &orderNos); err != nil {
+		t.Fatalf("query running item: %v", err)
+	}
+	if needG != 11350 || inputG != 16600 {
+		t.Fatalf("running item need/input = %d/%d, want 11350/16600", needG, inputG)
+	}
+	for _, want := range []string{"SO-MERGE-454", "SO-MERGE-227"} {
+		if !strings.Contains(orderNos, want) {
+			t.Fatalf("running order_nos = %q, missing %s", orderNos, want)
+		}
+	}
+
+	var outputCount int
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT COUNT(*)::int FROM %s.produce_running_outputs WHERE running_item_id=$1`, schema), runningItemID).Scan(&outputCount); err != nil {
+		t.Fatalf("query running outputs: %v", err)
+	}
+	if outputCount != 2 {
+		t.Fatalf("running output count = %d, want 2", outputCount)
+	}
+}
+
+func TestProduceFinishAPIMultiSpecRunCompletesAllLinkedOrders(t *testing.T) {
+	pool, schema := newProductionFlowTestDB(t)
+	ctx := context.Background()
+
+	mustExecProductionFlowTestSQL(t, ctx, pool, fmt.Sprintf(`
+		INSERT INTO %s.products(id,name,default_price,active) VALUES (1,'Uraga乌拉嘎',50,true);
+		INSERT INTO %s.order_process_statuses(name,sort,active) VALUES
+			('生产中',20,true),
+			('生产完成',35,true)
+		ON CONFLICT (name) DO NOTHING;
+		INSERT INTO %s.orders(id,order_no,order_date,is_void,process_status_id) VALUES
+			(1,'SO-MERGE-454','2026-05-01',false,(SELECT id FROM %s.order_process_statuses WHERE name='生产中' LIMIT 1)),
+			(2,'SO-MERGE-227','2026-05-01',false,(SELECT id FROM %s.order_process_statuses WHERE name='生产中' LIMIT 1));
+		INSERT INTO %s.product_bom(product_id,yield_rate) VALUES (1,0.8200);
+		INSERT INTO %s.materials(id,code,name,kind,unit,onhand_g,onhand_units,purchase_price,sale_price)
+			VALUES
+			(10,'RAW-URAGA','乌拉嘎生豆','bean','g',30000,0,54,0),
+			(11,'BAG-454','454g豆袋','pack','个',0,30,1,0),
+			(12,'BAG-227','227g豆袋','pack','个',0,10,1,0);
+		INSERT INTO %s.product_bom_items(product_id,material_id,ratio_pct) VALUES (1,10,100.0000);
+		INSERT INTO %s.packaging_spec_material_map(spec_g,material_id) VALUES (454,11),(227,12);
+		INSERT INTO %s.material_batches(id,batch_code,material_id,material_name,received_g,remaining_g,unit_cost,status,quality_status)
+			VALUES (10,'MB-URAGA',10,'乌拉嘎生豆',30000,30000,54,'active','pass');
+		INSERT INTO %s.material_batch_locations(material_batch_id,material_id,warehouse,qty_g)
+			VALUES (10,10,'wip',30000);
+		INSERT INTO %s.produce_running_items(
+			id,batch_id,product_id,product_name,spec_g,need_g,order_nos,status,
+			started_by,started_at,input_g,bom_yield_rate,planned_units,planned_loose_g
+		) VALUES (
+			1,'BATCH-MERGE-001',1,'Uraga乌拉嘎',0,11350,'SO-MERGE-454,SO-MERGE-227','running',
+			'测试员',now(),16600,0.8200,0,0
+		);
+		INSERT INTO %s.produce_running_outputs(
+			running_item_id,product_id,product_name,spec_g,need_g,order_nos,planned_units,planned_loose_g
+		) VALUES
+			(1,1,'Uraga乌拉嘎',454,10896,'SO-MERGE-454',24,0),
+			(1,1,'Uraga乌拉嘎',227,454,'SO-MERGE-227',2,0);
+		INSERT INTO %s.work_orders(work_order_no,running_item_id,batch_id,product_id,product_name,spec_g,planned_g,status)
+		VALUES ('WO-0000000001',1,'BATCH-MERGE-001',1,'Uraga乌拉嘎',0,16600,'running');
+	`, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema))
+
+	app := newProductionFlowTestEcho(pool, schema)
+	body := bytes.NewReader([]byte(`{
+		"id":1,
+		"warehouse":"finished_goods",
+		"consumed_input_g":16600,
+		"outputs":[
+			{"spec_g":454,"finished_units":24,"finished_loose_g":0},
+			{"spec_g":227,"finished_units":2,"finished_loose_g":0}
+		]
+	}`))
+	req := httptest.NewRequest(http.MethodPost, "/api/produce/running/finish", body)
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+	app.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("POST /api/produce/running/finish status = %d, want 200, body=%s", rec.Code, rec.Body.String())
+	}
+
+	for _, tc := range []struct {
+		specG int64
+		units int64
+	}{
+		{specG: 454, units: 24},
+		{specG: 227, units: 2},
+	} {
+		var units, looseG int64
+		if err := pool.QueryRow(ctx, fmt.Sprintf(`
+			SELECT onhand_units,onhand_loose_g
+			FROM %s.finished_inventory
+			WHERE product_id=1 AND spec_g=$1 AND warehouse='finished_goods'
+		`, schema), tc.specG).Scan(&units, &looseG); err != nil {
+			t.Fatalf("query finished inventory spec %d: %v", tc.specG, err)
+		}
+		if units != tc.units || looseG != 0 {
+			t.Fatalf("inventory spec %d = %d units + %dg, want %d units + 0g", tc.specG, units, looseG, tc.units)
+		}
+	}
+
+	rows, err := pool.Query(ctx, fmt.Sprintf(`
+		SELECT o.order_no,COALESCE(s.name,'')
+		FROM %s.orders o
+		LEFT JOIN %s.order_process_statuses s ON s.id=o.process_status_id
+		WHERE o.id IN (1,2)
+		ORDER BY o.id
+	`, schema, schema))
+	if err != nil {
+		t.Fatalf("query order statuses: %v", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var orderNo, status string
+		if err := rows.Scan(&orderNo, &status); err != nil {
+			t.Fatalf("scan order status: %v", err)
+		}
+		if status != "生产完成" {
+			t.Fatalf("order %s status = %q, want 生产完成", orderNo, status)
+		}
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestProduceFinishHandlerWritesProductionLog(t *testing.T) {
 	pool, schema := newProductionFlowTestDB(t)
 	ctx := context.Background()
@@ -131,6 +317,7 @@ func TestProduceFinishHandlerWritesProductionLog(t *testing.T) {
 			'测试员',now(),600,0.8200,2,0
 		);
 		`, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema))
+	seedProductionFlowWIPBatch(t, ctx, pool, schema, 10, 10, "MB-RAW-001", "卡蒂姆水洗", 1000)
 
 	app := newProductionFlowTestEcho(pool, schema)
 	form := url.Values{
@@ -143,8 +330,8 @@ func TestProduceFinishHandlerWritesProductionLog(t *testing.T) {
 	if rec.Code != http.StatusSeeOther {
 		t.Fatalf("POST /produce/running/finish status = %d, want %d", rec.Code, http.StatusSeeOther)
 	}
-	if got := rec.Header().Get("Location"); got != "/produce/running?ok=1" {
-		t.Fatalf("POST /produce/running/finish Location = %q, want %q", got, "/produce/running?ok=1")
+	if got := rec.Header().Get("Location"); got != "../../produce/running?ok=1" {
+		t.Fatalf("POST /produce/running/finish Location = %q, want %q", got, "../../produce/running?ok=1")
 	}
 
 	var finishedUnits, finishedLooseG, finishedTotalG, inputG int64
@@ -237,6 +424,78 @@ func TestProduceFinishHandlerWritesProductionLog(t *testing.T) {
 	}
 }
 
+func TestProduceFinishAPIUsesEditedInputForFullCompletion(t *testing.T) {
+	pool, schema := newProductionFlowTestDB(t)
+	ctx := context.Background()
+
+	mustExecProductionFlowTestSQL(t, ctx, pool, fmt.Sprintf(`
+		INSERT INTO %s.products(id,name,default_price,active) VALUES (1,'橘皮乌龙',50,true);
+		INSERT INTO %s.order_process_statuses(name,sort,active) VALUES
+			('生产中',20,true)
+		ON CONFLICT (name) DO NOTHING;
+		INSERT INTO %s.orders(id,order_no,order_date,is_void,process_status_id) VALUES
+			(1,'SO-EDITED-INPUT','2026-05-02',false,(SELECT id FROM %s.order_process_statuses WHERE name='生产中' LIMIT 1));
+		INSERT INTO %s.product_bom(product_id,yield_rate) VALUES (1,0.8200);
+		INSERT INTO %s.materials(id,code,name,kind,unit,onhand_g,onhand_units,purchase_price,sale_price)
+			VALUES
+			(10,'RAW-001','卡蒂姆水洗','bean','g',1000,0,54,0),
+			(11,'BAG-227','227g豆袋','pack','个',0,10,1,0);
+		INSERT INTO %s.product_bom_items(product_id,material_id,ratio_pct) VALUES (1,10,100.0000);
+		INSERT INTO %s.packaging_spec_material_map(spec_g,material_id) VALUES (227,11);
+		INSERT INTO %s.produce_running_items(
+			id,batch_id,product_id,product_name,spec_g,need_g,order_nos,status,
+			started_by,started_at,input_g,bom_yield_rate,planned_units,planned_loose_g
+		) VALUES (
+			1,'BATCH-EDITED-INPUT',1,'橘皮乌龙',227,454,'SO-EDITED-INPUT','running',
+			'测试员',now(),600,0.8200,2,38
+		);
+	`, schema, schema, schema, schema, schema, schema, schema, schema, schema))
+	seedProductionFlowWIPBatch(t, ctx, pool, schema, 10, 10, "MB-RAW-001", "卡蒂姆水洗", 1000)
+
+	app := newProductionFlowTestEcho(pool, schema)
+	body := bytes.NewBufferString(`{"id":1,"finished_units":2,"finished_loose_g":10,"consumed_input_g":700}`)
+	req := httptest.NewRequest(http.MethodPost, "/api/produce/running/finish", body)
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+	app.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("POST /api/produce/running/finish status = %d, want 200 body=%s", rec.Code, rec.Body.String())
+	}
+
+	var inputG, rawDeductG, rawOnhandG int64
+	var actualYield float64
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`
+		SELECT input_g, actual_yield_rate
+		FROM %s.production_logs
+		WHERE running_item_id=1
+	`, schema)).Scan(&inputG, &actualYield); err != nil {
+		t.Fatalf("query production log: %v", err)
+	}
+	if inputG != 700 {
+		t.Fatalf("production log input_g = %d, want edited 700", inputG)
+	}
+	if math.Abs(actualYield-0.6629) > 0.0001 {
+		t.Fatalf("actual_yield_rate = %.4f, want 0.6629", actualYield)
+	}
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`
+		SELECT COALESCE(SUM(deduct_g),0)::bigint
+		FROM %s.material_consumption_logs
+		WHERE running_item_id=1 AND material_id=10
+	`, schema)).Scan(&rawDeductG); err != nil {
+		t.Fatalf("query raw material consumption: %v", err)
+	}
+	if rawDeductG != 700 {
+		t.Fatalf("raw material deduct_g = %d, want 700", rawDeductG)
+	}
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT onhand_g FROM %s.materials WHERE id=10`, schema)).Scan(&rawOnhandG); err != nil {
+		t.Fatalf("query raw material onhand: %v", err)
+	}
+	if rawOnhandG != 300 {
+		t.Fatalf("raw material onhand_g = %d, want 300", rawOnhandG)
+	}
+}
+
 func TestProduceFinishHandlerWritesStockLedgerAndFinishedBatch(t *testing.T) {
 	pool, schema := newProductionFlowTestDB(t)
 	ctx := context.Background()
@@ -259,6 +518,7 @@ func TestProduceFinishHandlerWritesStockLedgerAndFinishedBatch(t *testing.T) {
 			'测试员',now(),600,0.8200,2,0
 		);
 	`, schema, schema, schema, schema, schema, schema, schema))
+	seedProductionFlowWIPBatch(t, ctx, pool, schema, 10, 10, "MB-RAW-001", "卡蒂姆水洗", 1000)
 
 	app := newProductionFlowTestEcho(pool, schema)
 	form := url.Values{
@@ -341,6 +601,117 @@ func TestProduceFinishHandlerWritesStockLedgerAndFinishedBatch(t *testing.T) {
 	}
 }
 
+func TestProduceStartFreezesMaterialSnapshotForFinishAndWorkOrder(t *testing.T) {
+	pool, schema := newProductionFlowTestDB(t)
+	ctx := context.Background()
+
+	mustExecProductionFlowTestSQL(t, ctx, pool, fmt.Sprintf(`
+		INSERT INTO %s.products(id,name,default_price,active) VALUES (1,'橘皮乌龙',50,true);
+		INSERT INTO %s.order_process_statuses(name,sort,active) VALUES
+			('待处理',10,true),
+			('生产中',20,true)
+		ON CONFLICT (name) DO NOTHING;
+		INSERT INTO %s.orders(id,order_no,order_date,is_void,process_status_id) VALUES
+			(1,'SO-SNAPSHOT','2026-04-25',false,(SELECT id FROM %s.order_process_statuses WHERE name='待处理' LIMIT 1));
+		INSERT INTO %s.order_items(order_id,line_no,item_name,qty,unit,spec,product_id,unit_price,line_total)
+		VALUES (1,1,'橘皮乌龙',2,'袋','227g',1,50,100);
+		INSERT INTO %s.product_bom(product_id,yield_rate) VALUES (1,0.8200);
+		INSERT INTO %s.materials(id,code,name,kind,unit,onhand_g,onhand_units,purchase_price,sale_price)
+			VALUES
+			(10,'RAW-A','孟连水洗5T批次','bean','g',1000,0,54,0),
+			(12,'RAW-B','后改B批次','bean','g',1000,0,60,0);
+		INSERT INTO %s.product_bom_items(product_id,material_id,ratio_pct) VALUES (1,10,100.0000);
+	`, schema, schema, schema, schema, schema, schema, schema, schema))
+	seedProductionFlowWIPBatch(t, ctx, pool, schema, 10, 10, "MB-SNAPSHOT-A", "孟连水洗5T批次", 1000)
+
+	app := newProductionFlowTestEcho(pool, schema)
+	startBody := bytes.NewBufferString(`{"selected":["1-227"],"input_by_key":{"1-227":600}}`)
+	startReq := httptest.NewRequest(http.MethodPost, "/api/produce/start", startBody)
+	startReq.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	startRec := httptest.NewRecorder()
+	app.ServeHTTP(startRec, startReq)
+	if startRec.Code != http.StatusOK {
+		t.Fatalf("POST /api/produce/start status=%d body=%s", startRec.Code, startRec.Body.String())
+	}
+
+	mustExecProductionFlowTestSQL(t, ctx, pool, fmt.Sprintf(`
+		DELETE FROM %s.product_bom_items WHERE product_id=1;
+		INSERT INTO %s.product_bom_items(product_id,material_id,ratio_pct) VALUES (1,12,100.0000);
+	`, schema, schema))
+
+	var runningItemID int64
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT id FROM %s.produce_running_items WHERE product_id=1 AND spec_g=227 ORDER BY id DESC LIMIT 1`, schema)).Scan(&runningItemID); err != nil {
+		t.Fatalf("query running item id: %v", err)
+	}
+	finishBody := bytes.NewBufferString(fmt.Sprintf(`{"id":%d,"finished_units":2,"finished_loose_g":10}`, runningItemID))
+	finishReq := httptest.NewRequest(http.MethodPost, "/api/produce/running/finish", finishBody)
+	finishReq.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	finishRec := httptest.NewRecorder()
+	app.ServeHTTP(finishRec, finishReq)
+	if finishRec.Code != http.StatusOK {
+		t.Fatalf("POST /api/produce/running/finish status=%d body=%s", finishRec.Code, finishRec.Body.String())
+	}
+
+	var consumedMaterial string
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`
+		SELECT COALESCE(material_name,'')
+		FROM %s.material_consumption_logs
+		WHERE running_item_id=$1
+		ORDER BY id
+		LIMIT 1
+	`, schema), runningItemID).Scan(&consumedMaterial); err != nil {
+		t.Fatalf("query material consumption: %v", err)
+	}
+	if consumedMaterial != "孟连水洗5T批次" {
+		t.Fatalf("consumed material = %q, want frozen 孟连水洗5T批次", consumedMaterial)
+	}
+
+	workOrders, err := postgresproduction.NewRepository(pool, schema).ListWorkOrders(ctx, productionapp.WorkOrderQuery{Limit: 10})
+	if err != nil {
+		t.Fatalf("ListWorkOrders: %v", err)
+	}
+	if len(workOrders) == 0 {
+		t.Fatal("expected a work order")
+	}
+	if !strings.Contains(workOrders[0].MaterialSummary, "孟连水洗5T批次") || strings.Contains(workOrders[0].MaterialSummary, "后改B批次") {
+		t.Fatalf("work order material summary = %q, want frozen material A only", workOrders[0].MaterialSummary)
+	}
+}
+
+func TestProductionSourceStoresAndUsesMaterialSnapshot(t *testing.T) {
+	schemaSrc, err := os.ReadFile("internal/infrastructure/postgres/production/schema.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	repoSrc, err := os.ReadFile("internal/infrastructure/postgres/production/repository.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	workOrderSrc, err := os.ReadFile("internal/infrastructure/postgres/production/work_order.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	consumptionSrc, err := os.ReadFile("internal/infrastructure/postgres/production/material_consumption.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, check := range []struct {
+		name string
+		src  string
+		want string
+	}{
+		{"schema running snapshot", string(schemaSrc), "produce_running_items ADD COLUMN IF NOT EXISTS material_snapshot JSONB NOT NULL DEFAULT '[]'::jsonb"},
+		{"schema work order snapshot", string(schemaSrc), "work_orders ADD COLUMN IF NOT EXISTS material_snapshot JSONB NOT NULL DEFAULT '[]'::jsonb"},
+		{"start builds snapshot", string(repoSrc), "buildMaterialSnapshotForRunningItemTx"},
+		{"work order persists snapshot", string(workOrderSrc), "material_snapshot"},
+		{"finish consumes snapshot", string(consumptionSrc), "materialSnapshotNeedsTx"},
+	} {
+		if !strings.Contains(check.src, check.want) {
+			t.Fatalf("%s missing %q", check.name, check.want)
+		}
+	}
+}
+
 func TestProduceStartAPIUsesSubmittedInputG(t *testing.T) {
 	pool, schema := newProductionFlowTestDB(t)
 	ctx := context.Background()
@@ -356,7 +727,11 @@ func TestProduceStartAPIUsesSubmittedInputG(t *testing.T) {
 		INSERT INTO %s.order_items(order_id,line_no,item_name,qty,unit,spec,product_id,unit_price,line_total)
 		VALUES (1,1,'曲奇拼配',1,'袋','1000g',1,50,50);
 		INSERT INTO %s.product_bom(product_id,yield_rate) VALUES (1,0.8000);
-		`, schema, schema, schema, schema, schema, schema))
+		INSERT INTO %s.materials(id,code,name,kind,unit,onhand_g,onhand_units,purchase_price,sale_price)
+			VALUES (10,'RAW-COOKIE','曲奇拼配生豆','bean','g',3000,0,54,0);
+		INSERT INTO %s.product_bom_items(product_id,material_id,ratio_pct) VALUES (1,10,100.0000);
+		`, schema, schema, schema, schema, schema, schema, schema, schema))
+	seedProductionFlowWIPBatch(t, ctx, pool, schema, 10, 10, "MB-COOKIE", "曲奇拼配生豆", 3000)
 
 	app := newProductionFlowTestEcho(pool, schema)
 	body := bytes.NewBufferString(`{"selected":["1-1000"],"input_by_key":{"1-1000":2000}}`)
@@ -439,10 +814,19 @@ func TestProduceRunningVueRouteContract(t *testing.T) {
 	for _, want := range []string{
 		"ProduceRunningView",
 		"produceRunning: ProduceRunningView",
-		"produceRunning: { title: '生产中'",
 	} {
 		if !strings.Contains(appContent, want) {
 			t.Fatalf("App.vue missing running production Vue wiring %q", want)
+		}
+	}
+	menuIA, err := os.ReadFile("frontend-vue-shell/src/lib/menu-ia.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	menuContent := string(menuIA)
+	for _, want := range []string{"produceRunning", "生产中"} {
+		if !strings.Contains(menuContent, want) {
+			t.Fatalf("menu-ia.js missing running production menu wiring %q", want)
 		}
 	}
 
@@ -534,7 +918,7 @@ func TestProduceRunningPageRedirectsToVueShellWithQueryError(t *testing.T) {
 		t.Fatalf("GET /produce/running status = %d, want %d", rec.Code, http.StatusSeeOther)
 	}
 	loc := rec.Header().Get("Location")
-	if !strings.Contains(loc, "/vue-shell?view=produceRunning") || !strings.Contains(loc, "err=input_g+must+be+greater+than+0") {
+	if !strings.Contains(loc, "vue-shell?view=produceRunning") || !strings.Contains(loc, "err=input_g+must+be+greater+than+0") {
 		t.Fatalf("GET /produce/running Location = %q", loc)
 	}
 }
@@ -563,6 +947,18 @@ func newProductionFlowTestDB(t *testing.T) (*pgxpool.Pool, string) {
 	}
 	if err := supporthttp.EnsureSchema(ctx, pool, schema); err != nil {
 		t.Fatalf("support EnsureSchema: %v", err)
+	}
+	if err := postgresmaterials.EnsureSchema(ctx, pool, schema); err != nil {
+		t.Fatalf("materials EnsureSchema: %v", err)
+	}
+	if err := postgresbom.EnsureSchema(ctx, pool, schema); err != nil {
+		t.Fatalf("bom EnsureSchema: %v", err)
+	}
+	if err := postgresstock.EnsureSchema(ctx, pool, schema); err != nil {
+		t.Fatalf("stock EnsureSchema: %v", err)
+	}
+	if err := postgresinventory.EnsureSchema(ctx, pool, schema); err != nil {
+		t.Fatalf("inventory EnsureSchema: %v", err)
 	}
 	if err := postgresproduction.EnsureSchema(ctx, pool, schema); err != nil {
 		t.Fatalf("production EnsureSchema: %v", err)
@@ -617,11 +1013,41 @@ func mustExecProductionFlowTestSQL(t *testing.T, ctx context.Context, pool *pgxp
 	}
 }
 
+func seedProductionFlowWIPBatch(t *testing.T, ctx context.Context, pool *pgxpool.Pool, schema string, batchID, materialID int64, batchCode, materialName string, qtyG int64) {
+	t.Helper()
+	if _, err := pool.Exec(ctx, fmt.Sprintf(`
+		INSERT INTO %s.material_batches(id,batch_code,material_id,material_name,received_g,qty_g,remaining_g,unit_cost,status,quality_status)
+		VALUES($1,$2,$3,$4,$5,$5,$5,0,'active','pass')
+		ON CONFLICT (id) DO UPDATE SET
+			batch_code=excluded.batch_code,
+			material_id=excluded.material_id,
+			material_name=excluded.material_name,
+			received_g=excluded.received_g,
+			qty_g=excluded.qty_g,
+			remaining_g=excluded.remaining_g,
+			status='active',
+			quality_status='pass';
+	`, schema), batchID, batchCode, materialID, materialName, qtyG); err != nil {
+		t.Fatalf("seed WIP material batch: %v", err)
+	}
+	if _, err := pool.Exec(ctx, fmt.Sprintf(`
+		INSERT INTO %s.material_batch_locations(material_batch_id,batch_code,material_id,warehouse,qty_g)
+		VALUES($1,$2,$3,'wip',$4)
+		ON CONFLICT (material_batch_id, warehouse) DO UPDATE SET
+			batch_code=excluded.batch_code,
+			material_id=excluded.material_id,
+			qty_g=excluded.qty_g;
+	`, schema), batchID, batchCode, materialID, qtyG); err != nil {
+		t.Fatalf("seed WIP material location: %v", err)
+	}
+}
+
 func productionFlowTestBaseDDL(schema string) string {
 	return fmt.Sprintf(`
 		CREATE TABLE %s.products (
 			id BIGSERIAL PRIMARY KEY,
 			name TEXT NOT NULL UNIQUE,
+			roast_level TEXT NOT NULL DEFAULT '',
 			default_price NUMERIC NOT NULL DEFAULT 0,
 			active BOOLEAN NOT NULL DEFAULT true,
 			created_at TIMESTAMPTZ NOT NULL DEFAULT now()
@@ -634,18 +1060,34 @@ func productionFlowTestBaseDDL(schema string) string {
 			price_per_lb NUMERIC(12,2),
 			active BOOLEAN NOT NULL DEFAULT true
 		);
+		CREATE TABLE %s.customers (
+			id BIGSERIAL PRIMARY KEY,
+			name TEXT NOT NULL DEFAULT '',
+			company_name TEXT NOT NULL DEFAULT '',
+			company_address TEXT NOT NULL DEFAULT '',
+			company_phone TEXT NOT NULL DEFAULT '',
+			contact TEXT NOT NULL DEFAULT '',
+			phone TEXT NOT NULL DEFAULT '',
+			address TEXT NOT NULL DEFAULT '',
+			active BOOLEAN NOT NULL DEFAULT true
+		);
 		CREATE TABLE %s.order_process_statuses (
 			id SERIAL PRIMARY KEY,
 			name TEXT NOT NULL UNIQUE,
 			sort INTEGER NOT NULL DEFAULT 0,
 			active BOOLEAN NOT NULL DEFAULT true
 		);
+		CREATE TABLE %s.ship_statuses (
+			id BIGSERIAL PRIMARY KEY,
+			name TEXT NOT NULL
+		);
 		CREATE TABLE %s.orders (
 			id BIGSERIAL PRIMARY KEY,
 			order_no TEXT,
 			order_date DATE,
 			is_void BOOLEAN NOT NULL DEFAULT false,
-			process_status_id INTEGER REFERENCES %s.order_process_statuses(id)
+			process_status_id INTEGER REFERENCES %s.order_process_statuses(id),
+			ship_status_id BIGINT REFERENCES %s.ship_statuses(id)
 		);
 		CREATE TABLE %s.order_items (
 			id BIGSERIAL PRIMARY KEY,
@@ -660,5 +1102,5 @@ func productionFlowTestBaseDDL(schema string) string {
 			line_total NUMERIC,
 			price_overridden BOOLEAN NOT NULL DEFAULT false
 		);
-	`, schema, schema, schema, schema, schema, schema, schema, schema, schema)
+	`, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema)
 }
