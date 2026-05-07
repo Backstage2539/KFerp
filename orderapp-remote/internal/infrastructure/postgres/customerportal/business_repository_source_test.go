@@ -123,6 +123,27 @@ func TestCustomerPortalOrderQuerySupportsStatusFilters(t *testing.T) {
 	}
 }
 
+func TestBusinessRepositoryCreatesMallOrdersFromPublishedMallProducts(t *testing.T) {
+	body, err := os.ReadFile("business_repository.go")
+	if err != nil {
+		t.Fatalf("read business_repository.go: %v", err)
+	}
+	text := string(body)
+	for _, want := range []string{
+		"LoadMallPage",
+		"CreateMallOrder",
+		"mall_products",
+		"PortalServiceMall",
+		"created_by_mini_user_id",
+		"status='published'",
+		"line_no,product_id,item_name,qty,unit,spec,unit_price,line_total",
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("mall order repository missing %q", want)
+		}
+	}
+}
+
 func TestParseBeanListDisplaySummaryExtractsPublishedStyleAndContent(t *testing.T) {
 	configRaw, err := json.Marshal(map[string]any{
 		"brandName":           "棵凡咖啡",

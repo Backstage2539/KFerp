@@ -970,6 +970,13 @@ func seedReqWorkflowA(ctx context.Context, pool *pgxpool.Pool, schema string) er
 		{table: "req_unit", code: "UT-155-01", title: "单元测试覆盖负责人 payload、员工/客户候选分组和需求种子源码接线", status: "done", assignee: "Codex", evidence: "order-entry.test.js; TestOrderResponsiblePersonRequirementSeeds"},
 		{table: "req_api", code: "API-155-01", title: "API 测试覆盖订单表单返回负责人候选、保存员工/客户负责人、列表与编辑回显负责人", status: "done", assignee: "Codex", evidence: "TestOrderAPIFormReturnsResponsiblePersonOptions; TestOrderAPISavesAndListsEmployeeResponsiblePerson; TestOrderAPISavesCustomerResponsiblePersonForPartnerCommission"},
 		{table: "req_review", code: "REV-155-01", prCode: "PR-155", title: "验收：录单可选择订单负责人；保存后订单列表和详情能看到负责人；负责人可来自员工或合作方/客户并能支持后续提成结算", status: "todo", assignee: "VA", evidence: "待 Van ERP 后台验收"},
+		{table: "req_product", code: "PR-CUSTOMER-PORTAL-MALL-01", title: "客户门户增加 C 端商城：后台上架商品和图片，小程序按客户配置进入商城并提交 ERP 订单", status: "review", assignee: "VA", evidence: "codex/customer-mall-20260507"},
+		{table: "req_dev", code: "DEV-CUSTOMER-PORTAL-MALL-01", title: "客户门户 profile 新增 miniapp_entry_mode，后台可配置客户小程序首页为订单处理或商城，并新增 mall 能力", status: "done", assignee: "Codex", evidence: "customer_portal_profiles.miniapp_entry_mode; CustomerPortalSettingsView"},
+		{table: "req_dev", code: "DEV-CUSTOMER-PORTAL-MALL-02", title: "新增商城商品 schema、后台 API、图片上传和 ERP Vue 商城管理实时预览", status: "done", assignee: "Codex", evidence: "mall_products; /api/customer-portal/admin/mall-products; MallSettingsView.vue"},
+		{table: "req_dev", code: "DEV-CUSTOMER-PORTAL-MALL-03", title: "新增小程序商城页、购物车和 /api/mini/mall/orders 下单，订单写入现有 orders/order_items 并标记 portal_service_code=mall", status: "done", assignee: "Codex", evidence: "miniapp/src/pages/mall/mall.vue; CreateMallOrder"},
+		{table: "req_unit", code: "UT-CUSTOMER-PORTAL-MALL-01", title: "单测覆盖入口模式、商城商品归一化、商城购物车、后台菜单/预览源码和需求种子", status: "done", assignee: "Codex", evidence: "go test ./internal/application/customerportal ./internal/infrastructure/postgres/customerportal ./internal/interfaces/http/support; node/vitest customer-mall/mall tests"},
+		{table: "req_api", code: "API-CUSTOMER-PORTAL-MALL-01", title: "API 测试覆盖商城后台列表/保存/图片上传、/api/mini/mall 和 /api/mini/mall/orders 下单", status: "done", assignee: "Codex", evidence: "go test ./internal/interfaces/http/customerportal ./internal/interfaces/http/support -count=1"},
+		{table: "req_review", code: "REV-CUSTOMER-PORTAL-MALL-01", prCode: "PR-CUSTOMER-PORTAL-MALL-01", title: "验收：客户配置为商城首页后登录小程序直接看商城，可下单并在 ERP 订单列表看到 mall 来源订单；订单处理客户不受影响", status: "todo", assignee: "VA", evidence: "待 Van ERP 后台和微信开发者工具验收"},
 	} {
 		if err := seedReqRow(ctx, pool, schema, row); err != nil {
 			return err

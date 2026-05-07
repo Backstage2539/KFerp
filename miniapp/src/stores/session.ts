@@ -1,5 +1,5 @@
 import { defineStore } from 'pinia'
-import type { CustomerBinding } from '../api/customerPortal'
+import type { CustomerBinding, MiniappEntryMode } from '../api/customerPortal'
 import type { Capability } from '../utils/capabilities'
 import { defaultMiniappThemeKey, normalizeMiniappThemeKey, type MiniappThemeKey } from '../utils/themes'
 
@@ -12,6 +12,7 @@ export const useSessionStore = defineStore('session', {
     currentCustomerID: 0,
     currentCustomerName: '',
     themeKey: defaultMiniappThemeKey as MiniappThemeKey,
+    entryMode: 'services' as MiniappEntryMode,
     bindings: [] as CustomerBinding[],
     capabilities: [] as Capability[],
   }),
@@ -26,6 +27,7 @@ export const useSessionStore = defineStore('session', {
       this.currentCustomerID = 0
       this.currentCustomerName = ''
       this.themeKey = defaultMiniappThemeKey
+      this.entryMode = 'services'
       this.bindings = []
       this.capabilities = []
       uni.removeStorageSync(tokenKey)
@@ -35,6 +37,7 @@ export const useSessionStore = defineStore('session', {
       current_customer_id: number
       current_customer_name?: string
       theme_key?: string
+      miniapp_entry_mode?: string
       bindings: CustomerBinding[]
       capabilities: Capability[]
     }) {
@@ -44,6 +47,7 @@ export const useSessionStore = defineStore('session', {
       this.bindings = context.bindings || []
       this.capabilities = context.capabilities || []
       this.themeKey = normalizeMiniappThemeKey(context.theme_key)
+      this.entryMode = context.miniapp_entry_mode === 'mall' ? 'mall' : 'services'
     },
   },
 })

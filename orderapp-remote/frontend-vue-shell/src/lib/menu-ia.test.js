@@ -41,9 +41,11 @@ test('expanded menu groups persist and keep current group open', () => {
 test('product menu exposes unified product settings and keeps legacy views hidden', () => {
   const keys = primaryMenuKeys(menuGroups)
   assert.ok(keys.includes('productSettings'))
+  assert.ok(keys.includes('mallSettings'))
   assert.ok(keys.includes('costing'))
   assert.equal(keys.includes('products'), false)
   assert.equal(groupForView(menuGroups, 'productSettings')?.id, 'product')
+  assert.equal(groupForView(menuGroups, 'mallSettings')?.id, 'product')
   assert.equal(groupForView(menuGroups, 'costing')?.id, 'product')
 })
 

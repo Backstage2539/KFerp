@@ -29,6 +29,13 @@ type fakeRepository struct {
 	portalCustomers    []PortalAdminCustomer
 	portalDetail       PortalAdminDetail
 	visibilityCommand  UpdatePortalVisibilityCommand
+	mallProducts       []MallProduct
+	mallProductOptions []MallProductOption
+	mallProductCommand SaveMallProductCommand
+	mallImageCommand   UpdateMallProductImageCommand
+	mallPage           MallPage
+	mallOrderCommand   CreateMallOrderCommand
+	mallOrder          FulfillmentOrder
 	directShipCommand  CreateDirectShipBatchCommand
 	directShipBatch    DirectShipBatch
 	processingCommand  CreateProcessingRequestCommand
@@ -102,7 +109,58 @@ func (r *fakeRepository) UpdatePortalVisibility(ctx context.Context, cmd UpdateP
 	r.portalDetail.Customer.ID = cmd.CustomerID
 	r.portalDetail.Customer.DisplayName = cmd.DisplayName
 	r.portalDetail.Customer.PortalEnabled = cmd.Enabled
+	r.portalDetail.Customer.MiniappEntryMode = cmd.MiniappEntryMode
 	return r.portalDetail, nil
+}
+
+func (r *fakeRepository) ListMallProducts(ctx context.Context) ([]MallProduct, []MallProductOption, error) {
+	if r.err != nil {
+		return nil, nil, r.err
+	}
+	return r.mallProducts, r.mallProductOptions, nil
+}
+
+func (r *fakeRepository) SaveMallProduct(ctx context.Context, cmd SaveMallProductCommand) (MallProduct, error) {
+	r.mallProductCommand = cmd
+	if r.err != nil {
+		return MallProduct{}, r.err
+	}
+	return MallProduct{
+		ID:          9,
+		ProductID:   cmd.ProductID,
+		Title:       cmd.Title,
+		Subtitle:    cmd.Subtitle,
+		Description: cmd.Description,
+		ImageURL:    cmd.ImageURL,
+		SpecG:       cmd.SpecG,
+		UnitPrice:   cmd.UnitPrice,
+		TemplateKey: cmd.TemplateKey,
+		Status:      cmd.Status,
+		SortOrder:   cmd.SortOrder,
+	}, nil
+}
+
+func (r *fakeRepository) UpdateMallProductImage(ctx context.Context, cmd UpdateMallProductImageCommand) (MallProduct, error) {
+	r.mallImageCommand = cmd
+	if r.err != nil {
+		return MallProduct{}, r.err
+	}
+	return MallProduct{ID: cmd.ID, ImageURL: cmd.ImageURL}, nil
+}
+
+func (r *fakeRepository) LoadMallPage(ctx context.Context, customerID int64) (MallPage, error) {
+	if r.err != nil {
+		return MallPage{}, r.err
+	}
+	return r.mallPage, nil
+}
+
+func (r *fakeRepository) CreateMallOrder(ctx context.Context, cmd CreateMallOrderCommand) (FulfillmentOrder, error) {
+	r.mallOrderCommand = cmd
+	if r.err != nil {
+		return FulfillmentOrder{}, r.err
+	}
+	return r.mallOrder, nil
 }
 
 func (r *fakeRepository) CreateDirectShipBatch(ctx context.Context, cmd CreateDirectShipBatchCommand) (DirectShipBatch, error) {
@@ -155,7 +213,7 @@ func TestLoginCreatesSessionFromResolvedIdentity(t *testing.T) {
 func TestMiniCustomerContextResponsesNormalizeThemeKey(t *testing.T) {
 	repo := &fakeRepository{
 		loginResult: LoginResult{Token: "mini-token", MiniUserID: 9},
-		context:     CurrentContext{MiniUserID: 9, CurrentCustomerID: 7, ThemeKey: "  premium_partner  "},
+		context:     CurrentContext{MiniUserID: 9, CurrentCustomerID: 7, ThemeKey: "  premium_partner  ", MiniappEntryMode: "  mall  "},
 	}
 	svc := NewService(repo, fakeIdentityProvider{identity: MiniIdentity{OpenID: "openid-1"}})
 
@@ -174,14 +232,21 @@ func TestMiniCustomerContextResponsesNormalizeThemeKey(t *testing.T) {
 	if me.ThemeKey != PortalThemePremiumPartner {
 		t.Fatalf("Me() theme_key=%q, want premium_partner", me.ThemeKey)
 	}
+	if me.MiniappEntryMode != MiniappEntryModeMall {
+		t.Fatalf("Me() miniapp_entry_mode=%q, want mall", me.MiniappEntryMode)
+	}
 
 	repo.context.ThemeKey = "unknown-theme"
+	repo.context.MiniappEntryMode = "unknown-entry"
 	switched, err := svc.SwitchCurrentCustomer(context.Background(), "mini-token", 8)
 	if err != nil {
 		t.Fatalf("SwitchCurrentCustomer() err=%v", err)
 	}
 	if switched.ThemeKey != PortalThemeCoffeeFactory {
 		t.Fatalf("SwitchCurrentCustomer() theme_key=%q, want coffee_factory", switched.ThemeKey)
+	}
+	if switched.MiniappEntryMode != MiniappEntryModeServices {
+		t.Fatalf("SwitchCurrentCustomer() miniapp_entry_mode=%q, want services", switched.MiniappEntryMode)
 	}
 }
 
@@ -401,11 +466,11 @@ func TestPortalAdminCustomerResponsesNormalizeThemeKey(t *testing.T) {
 	repo := &fakeRepository{
 		portalCustomers: []PortalAdminCustomer{
 			{ID: 1, Name: "empty"},
-			{ID: 2, Name: "clean", ThemeKey: "  clean_ops  "},
-			{ID: 3, Name: "unknown", ThemeKey: "unknown-theme"},
+			{ID: 2, Name: "clean", ThemeKey: "  clean_ops  ", MiniappEntryMode: "  mall  "},
+			{ID: 3, Name: "unknown", ThemeKey: "unknown-theme", MiniappEntryMode: "unknown-entry"},
 		},
 		portalDetail: PortalAdminDetail{
-			Customer: PortalAdminCustomer{Name: "detail", ThemeKey: "  premium_partner  "},
+			Customer: PortalAdminCustomer{Name: "detail", ThemeKey: "  premium_partner  ", MiniappEntryMode: "  mall  "},
 		},
 	}
 	svc := NewService(repo, fakeIdentityProvider{})
@@ -419,6 +484,11 @@ func TestPortalAdminCustomerResponsesNormalizeThemeKey(t *testing.T) {
 		rows[2].ThemeKey != PortalThemeCoffeeFactory {
 		t.Fatalf("admin customer theme keys=%+v", rows)
 	}
+	if rows[0].MiniappEntryMode != MiniappEntryModeServices ||
+		rows[1].MiniappEntryMode != MiniappEntryModeMall ||
+		rows[2].MiniappEntryMode != MiniappEntryModeServices {
+		t.Fatalf("admin customer entry modes=%+v", rows)
+	}
 
 	detail, err := svc.PortalAdminDetail(context.Background(), 147)
 	if err != nil {
@@ -426,6 +496,9 @@ func TestPortalAdminCustomerResponsesNormalizeThemeKey(t *testing.T) {
 	}
 	if detail.Customer.ThemeKey != PortalThemePremiumPartner {
 		t.Fatalf("PortalAdminDetail() theme_key=%q, want premium_partner", detail.Customer.ThemeKey)
+	}
+	if detail.Customer.MiniappEntryMode != MiniappEntryModeMall {
+		t.Fatalf("PortalAdminDetail() miniapp_entry_mode=%q, want mall", detail.Customer.MiniappEntryMode)
 	}
 }
 
@@ -441,7 +514,8 @@ func TestUpdatePortalVisibilityTrimsAndNormalizesCapabilities(t *testing.T) {
 		ProcessingWarehouseCode: "  cust_147_processing  ",
 		DefaultSenderID:         8,
 		ThemeKey:                "  premium_partner  ",
-		Capabilities:            []CapabilityOption{{Code: CapabilityDirectShip, Enabled: true}, {Code: "unknown", Enabled: true}, {Code: CapabilityBeanList, Enabled: false}},
+		MiniappEntryMode:        "  mall  ",
+		Capabilities:            []CapabilityOption{{Code: CapabilityDirectShip, Enabled: true}, {Code: CapabilityMall, Enabled: true}, {Code: "unknown", Enabled: true}, {Code: CapabilityBeanList, Enabled: false}},
 	})
 	if err != nil {
 		t.Fatalf("UpdatePortalVisibility() err=%v", err)
@@ -455,10 +529,99 @@ func TestUpdatePortalVisibilityTrimsAndNormalizesCapabilities(t *testing.T) {
 	if repo.visibilityCommand.ThemeKey != PortalThemePremiumPartner {
 		t.Fatalf("visibility theme_key=%q, want premium_partner", repo.visibilityCommand.ThemeKey)
 	}
-	if len(repo.visibilityCommand.Capabilities) != 2 {
+	if repo.visibilityCommand.MiniappEntryMode != MiniappEntryModeMall {
+		t.Fatalf("visibility miniapp_entry_mode=%q, want mall", repo.visibilityCommand.MiniappEntryMode)
+	}
+	if len(repo.visibilityCommand.Capabilities) != 3 {
 		t.Fatalf("visibility capabilities=%+v, want only known codes from payload", repo.visibilityCommand.Capabilities)
 	}
-	if repo.visibilityCommand.Capabilities[0].Code != CapabilityBeanList || repo.visibilityCommand.Capabilities[1].Code != CapabilityDirectShip {
+	if repo.visibilityCommand.Capabilities[0].Code != CapabilityBeanList || repo.visibilityCommand.Capabilities[1].Code != CapabilityMall || repo.visibilityCommand.Capabilities[2].Code != CapabilityDirectShip {
 		t.Fatalf("capabilities sorted/normalized incorrectly: %+v", repo.visibilityCommand.Capabilities)
+	}
+}
+
+func TestMallAdminSavesProductsAndNormalizesListing(t *testing.T) {
+	repo := &fakeRepository{
+		mallProducts: []MallProduct{{ID: 1, ProductID: 7, Title: "  乌拉嘎  ", SpecG: 0, UnitPrice: 88, TemplateKey: "wide", Status: "published"}},
+		mallProductOptions: []MallProductOption{{ID: 7, Name: "乌拉嘎", DefaultPrice: 88}},
+	}
+	svc := NewService(repo, fakeIdentityProvider{})
+
+	rows, options, err := svc.ListMallProducts(context.Background())
+	if err != nil {
+		t.Fatalf("ListMallProducts() err=%v", err)
+	}
+	if len(rows) != 1 || rows[0].Title != "乌拉嘎" || rows[0].SpecG != 454 || rows[0].TemplateKey != MallTemplateWide || rows[0].Status != MallProductStatusPublished {
+		t.Fatalf("mall products normalized incorrectly: %+v", rows)
+	}
+	if len(options) != 1 || options[0].Name != "乌拉嘎" {
+		t.Fatalf("mall product options=%+v", options)
+	}
+
+	got, err := svc.SaveMallProduct(context.Background(), SaveMallProductCommand{
+		ProductID: 7,
+		Title: "  乌拉嘎  ",
+		Subtitle: "  柑橘莓果  ",
+		Description: "  适合手冲  ",
+		ImageURL: "  /assets/mall_products/ulagaa.png  ",
+		SpecG: 250,
+		UnitPrice: 68,
+		TemplateKey: "compact",
+		Status: "draft",
+		SortOrder: 3,
+		Actor: "  测试员  ",
+	})
+	if err != nil {
+		t.Fatalf("SaveMallProduct() err=%v", err)
+	}
+	if got.Title != "乌拉嘎" || repo.mallProductCommand.Subtitle != "柑橘莓果" || repo.mallProductCommand.TemplateKey != MallTemplateCompact || repo.mallProductCommand.Status != MallProductStatusDraft || repo.mallProductCommand.Actor != "测试员" {
+		t.Fatalf("saved=%+v command=%+v", got, repo.mallProductCommand)
+	}
+}
+
+func TestMallPageAndOrderRequireMallCapability(t *testing.T) {
+	repo := &fakeRepository{
+		context: CurrentContext{
+			MiniUserID:        3,
+			CurrentCustomerID: 7,
+			Capabilities:      []Capability{{Code: CapabilityMall, Enabled: true}},
+			ThemeKey:          PortalThemeCleanOps,
+			MiniappEntryMode:  MiniappEntryModeMall,
+		},
+		mallPage: MallPage{
+			ThemeKey:          PortalThemeCleanOps,
+			MiniappEntryMode:  MiniappEntryModeMall,
+			CurrentCustomerID: 7,
+			Products:          []MallProduct{{ID: 11, ProductID: 8, Title: "冷萃拼配", SpecG: 250, UnitPrice: 59, Status: MallProductStatusPublished}},
+		},
+		mallOrder: FulfillmentOrder{OrderID: 88, OrderNo: "SO-20260507-0088", PortalServiceCode: PortalServiceMall, SourceWarehouse: "finished_goods"},
+	}
+	svc := NewService(repo, fakeIdentityProvider{})
+
+	page, err := svc.GetMallPage(context.Background(), "mini-token")
+	if err != nil {
+		t.Fatalf("GetMallPage() err=%v", err)
+	}
+	if page.CurrentCustomerID != 7 || page.ThemeKey != PortalThemeCleanOps || page.MiniappEntryMode != MiniappEntryModeMall || len(page.Products) != 1 {
+		t.Fatalf("mall page=%+v", page)
+	}
+
+	order, err := svc.CreateMallOrder(context.Background(), "mini-token", CreateMallOrderCommand{
+		RecipientName: " 张三 ",
+		RecipientPhone: " 13800138000 ",
+		RecipientAddress: " 上海市 ",
+		Items: []MallOrderItemCommand{{MallProductID: 11, Qty: 2}},
+	})
+	if err != nil {
+		t.Fatalf("CreateMallOrder() err=%v", err)
+	}
+	if order.OrderNo != "SO-20260507-0088" || repo.mallOrderCommand.CustomerID != 7 || repo.mallOrderCommand.CreatedByMiniUserID != 3 || repo.mallOrderCommand.RecipientName != "张三" || repo.mallOrderCommand.Items[0].Qty != 2 {
+		t.Fatalf("mall order=%+v command=%+v", order, repo.mallOrderCommand)
+	}
+
+	repo.context.Capabilities = []Capability{{Code: CapabilityProductOrder, Enabled: true}}
+	_, err = svc.GetMallPage(context.Background(), "mini-token")
+	if !errors.Is(err, ErrCapabilityNotEnabled) {
+		t.Fatalf("GetMallPage without mall capability err=%v, want ErrCapabilityNotEnabled", err)
 	}
 }
