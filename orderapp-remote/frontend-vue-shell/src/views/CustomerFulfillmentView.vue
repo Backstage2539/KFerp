@@ -40,9 +40,14 @@
             {{ option.label }}
           </button>
         </div>
-        <input type="file" accept=".xlsx,.xls" @change="onFileChange" />
+        <label class="file-picker">
+          <span>Excel 文件</span>
+          <input type="file" accept=".xlsx,.xls" @change="onFileChange" />
+          <strong>{{ selectedFileName || '未选择文件' }}</strong>
+        </label>
         <button class="primary" type="button" @click="parseImport" :disabled="loading || !normalizedCustomerId || !selectedFile">解析导入</button>
-        <button class="secondary" type="button" @click="applyLatest" :disabled="loading || !latestParsedBatchId">应用最新批次</button>
+        <button class="secondary" type="button" @click="applyLatest" :disabled="loading || !selectedParsedBatchId">应用当前类型最新批次</button>
+        <span v-if="!normalizedCustomerId" class="muted import-hint">先选择客户再上传 Excel</span>
       </div>
 
       <div class="settlement-row">
@@ -61,7 +66,31 @@
       <div v-if="ok" class="ok">{{ ok }}</div>
     </section>
 
-    <section v-if="summaryCards.length" class="metric-grid">
+    <section v-if="selectedParsedBatch" class="panel apply-panel">
+      <div class="panel-head">
+        <div>
+          <h3>当前可应用批次</h3>
+          <p>{{ selectedParsedBatchLabel }}</p>
+        </div>
+        <button class="secondary" type="button" @click="loadApplyPreview" :disabled="loading || !selectedParsedBatchId">刷新预览</button>
+      </div>
+      <div class="batch-line">
+        <span>ID {{ selectedParsedBatch.id }}</span>
+        <span>{{ importTypeLabel(selectedParsedBatch.import_type) }}</span>
+        <span>{{ rowStatusLabel(selectedParsedBatch.status) }}</span>
+        <span>有效 {{ selectedParsedBatch.summary?.valid_rows || 0 }}</span>
+        <span>错误 {{ selectedParsedBatch.summary?.invalid_rows || 0 }}</span>
+      </div>
+      <div v-if="applyPreviewEffects.length" class="preview-grid">
+        <div v-for="effect in applyPreviewEffects" :key="effect.label" class="preview-item">
+          <span>{{ effect.label }}</span>
+          <strong>{{ effect.value }}</strong>
+        </div>
+      </div>
+      <div v-if="applyPreview?.warning" class="muted">{{ applyPreview.warning }}</div>
+    </section>
+
+    <section ref="resultAnchor" v-if="summaryCards.length" class="metric-grid">
       <div v-for="card in summaryCards" :key="card.label" class="metric">
         <span>{{ card.label }}</span>
         <strong>{{ card.value }}</strong>
@@ -73,7 +102,13 @@
         <h3>错误行</h3>
       </div>
       <div v-if="latestInvalidCount && !invalidRows.length" class="muted">最近批次有 {{ latestInvalidCount }} 行错误，请在导入批次中查看源文件。</div>
-      <table v-else>
+      <div v-if="invalidRowGroups.length" class="error-groups">
+        <div v-for="group in invalidRowGroups" :key="group.key">
+          <strong>{{ group.count }}</strong>
+          <span>{{ group.sheet_name }} / {{ group.row_type }} / {{ group.error }}</span>
+        </div>
+      </div>
+      <table v-if="invalidRows.length">
         <thead>
           <tr><th>表</th><th>行号</th><th>类型</th><th>错误</th></tr>
         </thead>
@@ -92,7 +127,7 @@
       <DataPanel title="导入批次" :rows="imports" empty="暂无导入批次">
         <table>
           <thead>
-            <tr><th>ID</th><th>类型</th><th>文件</th><th>状态</th><th>有效/错误</th></tr>
+            <tr><th>ID</th><th>类型</th><th>文件</th><th>状态</th><th>有效/错误</th><th>操作</th></tr>
           </thead>
           <tbody>
             <tr v-for="row in imports" :key="row.id">
@@ -101,6 +136,9 @@
               <td>{{ row.source_filename }}</td>
               <td>{{ rowStatusLabel(row.status) }}</td>
               <td>{{ row.summary?.valid_rows || 0 }} / {{ row.summary?.invalid_rows || 0 }}</td>
+              <td>
+                <button class="link-button" type="button" @click="loadInvalidRows(row)" :disabled="loading || !(row.summary?.invalid_rows > 0)">查看错误行</button>
+              </td>
             </tr>
           </tbody>
         </table>
@@ -193,39 +231,30 @@
 </template>
 
 <script setup>
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue'
+import DataPanel from '../components/DataPanel.vue'
 import SearchableSelect from '../components/SearchableSelect.vue'
 import {
   applyCustomerFulfillmentImport,
   createCustomerFulfillmentSettlement,
   fetchCustomerFulfillmentCustomers,
+  fetchCustomerFulfillmentImportPreview,
+  fetchCustomerFulfillmentImportRows,
   fetchCustomerFulfillmentImports,
   fetchCustomerFulfillmentOverview,
   parseCustomerFulfillmentImport,
 } from '../api/customer-fulfillment'
 import {
   activeCustomerFulfillmentCustomers,
+  buildImportPreviewEffects,
   customerFulfillmentCustomerOptionLabel,
   customerFulfillmentCustomerOptionMeta,
+  groupInvalidImportRows,
   importSummaryCards,
   importTypeOptions,
+  latestParsedBatchForType,
   rowStatusLabel,
 } from '../lib/customer-fulfillment'
-
-const DataPanel = {
-  props: {
-    title: { type: String, required: true },
-    rows: { type: Array, default: () => [] },
-    empty: { type: String, default: '暂无数据' },
-  },
-  template: `
-    <section class="panel data-panel">
-      <div class="panel-head"><h3>{{ title }}</h3></div>
-      <div v-if="!rows.length" class="muted empty">{{ empty }}</div>
-      <slot v-else />
-    </section>
-  `,
-}
 
 const customerId = ref(0)
 const customerOptions = ref([])
@@ -233,9 +262,11 @@ const selectedImportType = ref('processing_workbook')
 const selectedFile = ref(null)
 const latestSummary = ref(null)
 const latestBatch = ref(null)
+const applyPreview = ref(null)
 const imports = ref([])
 const overview = ref({})
 const invalidRows = ref([])
+const resultAnchor = ref(null)
 const loading = ref(false)
 const error = ref('')
 const ok = ref('')
@@ -248,13 +279,29 @@ const importTypes = importTypeOptions()
 const normalizedCustomerId = computed(() => Number(customerId.value || 0))
 const selectedCustomer = computed(() => customerOptions.value.find((row) => Number(row.id) === normalizedCustomerId.value) || null)
 const selectedCustomerLabel = computed(() => selectedCustomer.value ? customerFulfillmentCustomerOptionLabel(selectedCustomer.value) : '')
+const selectedFileName = computed(() => selectedFile.value?.name || '')
 const summaryCards = computed(() => importSummaryCards(latestSummary.value || latestBatch.value?.summary || {}))
 const latestInvalidCount = computed(() => Number((latestSummary.value || latestBatch.value?.summary || {}).invalid_rows || 0))
-const latestParsedBatchId = computed(() => {
-  if (latestBatch.value?.batch_id) return latestBatch.value.batch_id
-  if (latestBatch.value?.id) return latestBatch.value.id
-  const parsed = imports.value.find((row) => row.status === 'parsed')
-  return parsed?.id || 0
+const invalidRowGroups = computed(() => groupInvalidImportRows(invalidRows.value))
+const selectedParsedBatch = computed(() => latestParsedBatchForType(imports.value, latestBatch.value, selectedImportType.value))
+const selectedParsedBatchId = computed(() => Number(selectedParsedBatch.value?.id || selectedParsedBatch.value?.batch_id || 0))
+const selectedParsedBatchLabel = computed(() => {
+  const batch = selectedParsedBatch.value
+  if (!batch) return ''
+  return `${batch.source_filename || '未命名文件'} / ${importTypeLabel(batch.import_type)}`
+})
+const applyPreviewEffects = computed(() => {
+  if (Array.isArray(applyPreview.value?.effects) && applyPreview.value.effects.length) return applyPreview.value.effects
+  return buildImportPreviewEffects(selectedParsedBatch.value?.summary || {})
+})
+
+watch(selectedImportType, async () => {
+  invalidRows.value = []
+  await loadApplyPreview()
+})
+
+watch(selectedParsedBatchId, async () => {
+  await loadApplyPreview()
 })
 
 onMounted(async () => {
@@ -314,6 +361,9 @@ async function parseImport() {
     invalidRows.value = data.invalid_rows || []
     ok.value = `已解析批次 ${data.batch_id || latestBatch.value?.id || ''}`
     await loadAll()
+    await loadApplyPreview()
+    await nextTick()
+    resultAnchor.value?.scrollIntoView?.({ behavior: 'smooth', block: 'start' })
   } catch (err) {
     error.value = err.message || '解析失败'
   } finally {
@@ -322,8 +372,11 @@ async function parseImport() {
 }
 
 async function applyLatest() {
-  const batchId = latestParsedBatchId.value
-  if (!batchId) return
+  const batch = selectedParsedBatch.value
+  const batchId = selectedParsedBatchId.value
+  if (!batch || !batchId) return
+  const confirmed = window.confirm(`确认应用 ${importTypeLabel(batch.import_type)} 批次 ${batchId}？\n文件：${batch.source_filename || '-'}\n有效行：${batch.summary?.valid_rows || 0}\n错误行：${batch.summary?.invalid_rows || 0}`)
+  if (!confirmed) return
   loading.value = true
   error.value = ''
   ok.value = ''
@@ -335,6 +388,44 @@ async function applyLatest() {
     error.value = err.message || '应用失败'
   } finally {
     loading.value = false
+  }
+}
+
+async function loadInvalidRows(batch) {
+  const batchId = Number(batch?.id || 0)
+  if (!batchId) return
+  loading.value = true
+  error.value = ''
+  ok.value = ''
+  try {
+    const data = await fetchCustomerFulfillmentImportRows(batchId, { status: 'invalid', limit: 200 })
+    invalidRows.value = data?.rows || []
+    latestBatch.value = batch
+    latestSummary.value = batch?.summary || {}
+    ok.value = `已载入批次 ${batchId} 的错误行`
+    await nextTick()
+    resultAnchor.value?.scrollIntoView?.({ behavior: 'smooth', block: 'start' })
+  } catch (err) {
+    error.value = err.message || '加载错误行失败'
+  } finally {
+    loading.value = false
+  }
+}
+
+async function loadApplyPreview() {
+  const batchId = selectedParsedBatchId.value
+  if (!batchId) {
+    applyPreview.value = null
+    return
+  }
+  try {
+    applyPreview.value = await fetchCustomerFulfillmentImportPreview(batchId)
+  } catch {
+    applyPreview.value = {
+      batch: selectedParsedBatch.value,
+      effects: buildImportPreviewEffects(selectedParsedBatch.value?.summary || {}),
+      warning: '应用预览暂时不可用，请按批次摘要核对后再应用。',
+    }
   }
 }
 
@@ -441,6 +532,25 @@ function openManual() {
   max-width: 520px;
 }
 
+.file-picker {
+  min-width: 260px;
+}
+
+.file-picker input {
+  max-width: 260px;
+}
+
+.file-picker strong {
+  color: #0f172a;
+  font-weight: 600;
+  max-width: 260px;
+  overflow-wrap: anywhere;
+}
+
+.import-hint {
+  align-self: center;
+}
+
 label {
   display: grid;
   gap: 4px;
@@ -478,6 +588,15 @@ button:disabled {
 
 .secondary {
   background: #f8fafc;
+}
+
+.link-button {
+  min-height: 28px;
+  border: 0;
+  padding: 0;
+  color: #0f766e;
+  background: transparent;
+  font-weight: 600;
 }
 
 .segmented {
@@ -524,6 +643,72 @@ button:disabled {
   display: block;
   margin-top: 6px;
   font-size: 22px;
+}
+
+.apply-panel {
+  display: grid;
+  gap: 10px;
+}
+
+.batch-line {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.batch-line span {
+  border: 1px solid #d8dee4;
+  border-radius: 999px;
+  padding: 4px 8px;
+  background: #f8fafc;
+  color: #334155;
+  font-size: 12px;
+}
+
+.preview-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: 8px;
+}
+
+.preview-item {
+  border: 1px solid #d8dee4;
+  border-radius: 8px;
+  padding: 10px;
+  background: #fff;
+}
+
+.preview-item span {
+  display: block;
+  color: #64748b;
+  font-size: 12px;
+}
+
+.preview-item strong {
+  display: block;
+  margin-top: 4px;
+  color: #0f172a;
+}
+
+.error-groups {
+  display: grid;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.error-groups div {
+  display: flex;
+  align-items: start;
+  gap: 8px;
+  border: 1px solid #fecaca;
+  border-radius: 8px;
+  padding: 8px;
+  background: #fef2f2;
+  color: #991b1b;
+}
+
+.error-groups strong {
+  min-width: 28px;
 }
 
 .grid-2 {

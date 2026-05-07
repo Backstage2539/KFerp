@@ -6,6 +6,8 @@ import {
   buildCustomerFulfillmentImportForm,
   createCustomerFulfillmentSettlement,
   fetchCustomerFulfillmentCustomers,
+  fetchCustomerFulfillmentImportPreview,
+  fetchCustomerFulfillmentImportRows,
   fetchCustomerFulfillmentImports,
   fetchCustomerFulfillmentOverview,
   parseCustomerFulfillmentImport,
@@ -48,6 +50,8 @@ test('customer fulfillment API wrappers call the expected endpoints', async () =
     await fetchCustomerFulfillmentOverview(147)
     await fetchCustomerFulfillmentImports(147)
     await fetchCustomerFulfillmentCustomers('誉观山', 60)
+    await fetchCustomerFulfillmentImportRows(55, { status: 'invalid', limit: 80 })
+    await fetchCustomerFulfillmentImportPreview(55)
     await createCustomerFulfillmentSettlement(147, { period_from: '2026-03-01', period_to: '2026-03-31' })
 
     assert.deepEqual(requests.map((req) => [new URL(req.url).pathname, req.init.method || 'GET']), [
@@ -56,12 +60,16 @@ test('customer fulfillment API wrappers call the expected endpoints', async () =
       ['/api/customer-fulfillment/147/overview', 'GET'],
       ['/api/customer-fulfillment/147/imports', 'GET'],
       ['/api/customer-fulfillment/customers', 'GET'],
+      ['/api/customer-fulfillment/imports/55/rows', 'GET'],
+      ['/api/customer-fulfillment/imports/55/preview', 'GET'],
       ['/api/customer-fulfillment/147/settlements', 'POST'],
     ])
     assert.equal(new URL(requests[4].url).searchParams.get('q'), '誉观山')
     assert.equal(new URL(requests[4].url).searchParams.get('limit'), '60')
+    assert.equal(new URL(requests[5].url).searchParams.get('status'), 'invalid')
+    assert.equal(new URL(requests[5].url).searchParams.get('limit'), '80')
     assert.ok(requests[0].init.body instanceof FormData)
     assert.equal(requests[0].init.headers?.['Content-Type'], undefined)
-    assert.equal(JSON.parse(requests[5].init.body).period_from, '2026-03-01')
+    assert.equal(JSON.parse(requests[7].init.body).period_from, '2026-03-01')
   })
 })

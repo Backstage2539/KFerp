@@ -91,6 +91,17 @@ type ListImportsQuery struct {
 	Offset     int
 }
 
+type ListImportRowsQuery struct {
+	BatchID int64
+	Status  string
+	Limit   int
+	Offset  int
+}
+
+type ImportPreviewQuery struct {
+	BatchID int64
+}
+
 type ImportBatch struct {
 	ID             int64         `json:"id"`
 	CustomerID     int64         `json:"customer_id"`
@@ -102,6 +113,28 @@ type ImportBatch struct {
 	CreatedBy      string        `json:"created_by"`
 	CreatedAt      string        `json:"created_at"`
 	AppliedAt      string        `json:"applied_at,omitempty"`
+}
+
+type ImportRow struct {
+	ID          int64  `json:"id"`
+	BatchID     int64  `json:"batch_id"`
+	SheetName   string `json:"sheet_name"`
+	RowNo       int    `json:"row_no"`
+	RowType     string `json:"row_type"`
+	ExternalKey string `json:"external_key,omitempty"`
+	Status      string `json:"status"`
+	Error       string `json:"error,omitempty"`
+}
+
+type ImportPreviewEffect struct {
+	Label string `json:"label"`
+	Value int    `json:"value"`
+}
+
+type ImportPreview struct {
+	Batch   ImportBatch           `json:"batch"`
+	Effects []ImportPreviewEffect `json:"effects"`
+	Warning string                `json:"warning"`
 }
 
 type ApplyResult struct {
@@ -174,6 +207,8 @@ type SettlementSummary struct {
 
 type Repository interface {
 	StoreParsedImport(context.Context, StoreParsedImportCommand) (ImportBatch, error)
+	ImportBatch(context.Context, int64) (ImportBatch, error)
+	ListImportRows(context.Context, ListImportRowsQuery) ([]ImportRow, error)
 	ApplyImport(context.Context, ApplyImportCommand) (ApplyResult, error)
 	CreateSettlement(context.Context, CreateSettlementCommand) (SettlementResult, error)
 	Overview(context.Context, OverviewQuery) (Overview, error)
@@ -236,6 +271,38 @@ func (s *Service) ApplyImport(ctx context.Context, cmd ApplyImportCommand) (Appl
 	return s.repo.ApplyImport(ctx, cmd)
 }
 
+func (s *Service) ListImportRows(ctx context.Context, query ListImportRowsQuery) ([]ImportRow, error) {
+	if query.BatchID <= 0 {
+		return nil, fmt.Errorf("batch required")
+	}
+	query.Status = normalizeImportRowStatus(query.Status)
+	if query.Limit <= 0 {
+		query.Limit = 200
+	}
+	if query.Limit > 500 {
+		query.Limit = 500
+	}
+	if query.Offset < 0 {
+		query.Offset = 0
+	}
+	return s.repo.ListImportRows(ctx, query)
+}
+
+func (s *Service) ImportPreview(ctx context.Context, query ImportPreviewQuery) (ImportPreview, error) {
+	if query.BatchID <= 0 {
+		return ImportPreview{}, fmt.Errorf("batch required")
+	}
+	batch, err := s.repo.ImportBatch(ctx, query.BatchID)
+	if err != nil {
+		return ImportPreview{}, err
+	}
+	return ImportPreview{
+		Batch:   batch,
+		Effects: importPreviewEffects(batch.Summary),
+		Warning: "预览不写入业务数据；确认应用后才会写入库存、工单、订单和费用。",
+	}, nil
+}
+
 func (s *Service) CreateSettlement(ctx context.Context, cmd CreateSettlementCommand) (SettlementResult, error) {
 	if cmd.CustomerID <= 0 {
 		return SettlementResult{}, fmt.Errorf("customer required")
@@ -278,4 +345,39 @@ func validImportType(importType ImportType) bool {
 	default:
 		return false
 	}
+}
+
+func normalizeImportRowStatus(status string) string {
+	switch strings.TrimSpace(status) {
+	case "valid", "invalid", "applied":
+		return strings.TrimSpace(status)
+	default:
+		return ""
+	}
+}
+
+func importPreviewEffects(summary ImportSummary) []ImportPreviewEffect {
+	effects := make([]ImportPreviewEffect, 0, 12)
+	addPreviewEffect(&effects, "将应用有效行", summary.ValidRows)
+	addPreviewEffect(&effects, "需先处理错误行", summary.InvalidRows)
+	addPreviewEffect(&effects, "托管生豆入库", summary.RawBeanReceipts)
+	addPreviewEffect(&effects, "托管生豆出库", summary.RawBeanIssues)
+	addPreviewEffect(&effects, "托管生豆盘点", summary.RawBeanBalances)
+	addPreviewEffect(&effects, "客户 SKU", summary.CustomerSKUs)
+	addPreviewEffect(&effects, "包材库存", summary.PackagingBalances)
+	addPreviewEffect(&effects, "加工工单", summary.ProcessingOrders)
+	addPreviewEffect(&effects, "包装任务", summary.PackagingJobs)
+	addPreviewEffect(&effects, "库存转换", summary.ConversionJobs)
+	addPreviewEffect(&effects, "代发订单", summary.DirectShipOrders)
+	addPreviewEffect(&effects, "代发明细", summary.DirectShipItems)
+	addPreviewEffect(&effects, "费用明细", summary.FeeItems)
+	addPreviewEffect(&effects, "结算批次", summary.SettlementBatches)
+	return effects
+}
+
+func addPreviewEffect(effects *[]ImportPreviewEffect, label string, value int) {
+	if value <= 0 {
+		return
+	}
+	*effects = append(*effects, ImportPreviewEffect{Label: label, Value: value})
 }

@@ -16,6 +16,45 @@ export function importSummaryCards(summary = {}) {
   return cards
 }
 
+export function latestParsedBatchForType(imports = [], latestBatch = null, importType = '') {
+  if (isParsedBatchForType(latestBatch, importType)) return latestBatch
+  const rows = Array.isArray(imports) ? imports : []
+  return rows.find((row) => isParsedBatchForType(row, importType)) || null
+}
+
+export function groupInvalidImportRows(rows = []) {
+  const groups = new Map()
+  for (const row of Array.isArray(rows) ? rows : []) {
+    const sheet = String(row?.sheet_name || '-').trim() || '-'
+    const rowType = String(row?.row_type || '-').trim() || '-'
+    const error = String(row?.error || '校验未通过').trim() || '校验未通过'
+    const key = `${sheet}|${rowType}|${error}`
+    const current = groups.get(key) || { key, sheet_name: sheet, row_type: rowType, error, count: 0 }
+    current.count += 1
+    groups.set(key, current)
+  }
+  return [...groups.values()]
+}
+
+export function buildImportPreviewEffects(summary = {}) {
+  const effects = []
+  addPositiveEffect(effects, '将应用有效行', summary.valid_rows)
+  addPositiveEffect(effects, '需先处理错误行', summary.invalid_rows)
+  addPositiveEffect(effects, '托管生豆入库', summary.raw_bean_receipts)
+  addPositiveEffect(effects, '托管生豆出库', summary.raw_bean_issues)
+  addPositiveEffect(effects, '托管生豆盘点', summary.raw_bean_balances)
+  addPositiveEffect(effects, '客户 SKU', summary.customer_skus)
+  addPositiveEffect(effects, '包材库存', summary.packaging_balances)
+  addPositiveEffect(effects, '加工工单', summary.processing_orders)
+  addPositiveEffect(effects, '包装任务', summary.packaging_jobs)
+  addPositiveEffect(effects, '库存转换', summary.conversion_jobs)
+  addPositiveEffect(effects, '代发订单', summary.direct_ship_orders)
+  addPositiveEffect(effects, '代发明细', summary.direct_ship_items)
+  addPositiveEffect(effects, '费用明细', summary.fee_items)
+  addPositiveEffect(effects, '结算批次', summary.settlement_batches)
+  return effects
+}
+
 export function rowStatusLabel(status) {
   return {
     valid: '有效',
@@ -44,7 +83,16 @@ export function customerFulfillmentCustomerOptionMeta(customer) {
   return parts.join(' / ')
 }
 
+function isParsedBatchForType(batch, importType) {
+  return Boolean(batch && batch.status === 'parsed' && batch.import_type === importType)
+}
+
 function addPositiveCard(cards, label, value) {
   const n = Number(value || 0)
   if (n > 0) cards.push({ label, value: n })
+}
+
+function addPositiveEffect(effects, label, value) {
+  const n = Number(value || 0)
+  if (n > 0) effects.push({ label, value: n })
 }

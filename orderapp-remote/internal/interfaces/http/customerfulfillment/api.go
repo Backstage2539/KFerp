@@ -93,6 +93,42 @@ func (a api) applyImport(c echo.Context) error {
 	return c.JSON(http.StatusOK, result)
 }
 
+func (a api) listImportRows(c echo.Context) error {
+	batchID, err := parseID(c.Param("batch_id"), "batch")
+	if err != nil {
+		return customerFulfillmentError(c, http.StatusBadRequest, err)
+	}
+	limit, _ := strconv.Atoi(strings.TrimSpace(c.QueryParam("limit")))
+	offset, _ := strconv.Atoi(strings.TrimSpace(c.QueryParam("offset")))
+	query := app.ListImportRowsQuery{
+		BatchID: batchID,
+		Status:  c.QueryParam("status"),
+		Limit:   limit,
+		Offset:  offset,
+	}
+	rows, err := a.svc.ListImportRows(c.Request().Context(), query)
+	if err != nil {
+		return customerFulfillmentError(c, http.StatusBadRequest, err)
+	}
+	return c.JSON(http.StatusOK, map[string]any{
+		"rows":   rows,
+		"limit":  limit,
+		"offset": offset,
+	})
+}
+
+func (a api) importPreview(c echo.Context) error {
+	batchID, err := parseID(c.Param("batch_id"), "batch")
+	if err != nil {
+		return customerFulfillmentError(c, http.StatusBadRequest, err)
+	}
+	preview, err := a.svc.ImportPreview(c.Request().Context(), app.ImportPreviewQuery{BatchID: batchID})
+	if err != nil {
+		return customerFulfillmentError(c, http.StatusBadRequest, err)
+	}
+	return c.JSON(http.StatusOK, preview)
+}
+
 func (a api) overview(c echo.Context) error {
 	customerID, err := parseID(c.Param("customer_id"), "customer")
 	if err != nil {
