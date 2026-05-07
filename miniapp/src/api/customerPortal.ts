@@ -1,5 +1,6 @@
 import { miniRequest } from './client'
 import type { Capability } from '../utils/capabilities'
+import type { MallOrderPayload, MallProduct } from '../utils/mall'
 import type { ServiceKey } from '../utils/servicePage'
 import type { MiniappThemeKey } from '../utils/themes'
 
@@ -15,6 +16,7 @@ export type LoginResponse = {
   mini_user_id: number
   current_customer_id: number
   theme_key?: MiniappThemeKey | string
+  miniapp_entry_mode?: MiniappEntryMode | string
   bindings: CustomerBinding[]
   capabilities: Capability[]
 }
@@ -24,9 +26,12 @@ export type MeResponse = {
   current_customer_id: number
   current_customer_name: string
   theme_key?: MiniappThemeKey | string
+  miniapp_entry_mode?: MiniappEntryMode | string
   bindings: CustomerBinding[]
   capabilities: Capability[]
 }
+
+export type MiniappEntryMode = 'services' | 'mall'
 
 export type ServiceMetric = {
   label: string
@@ -170,6 +175,14 @@ export type FulfillmentOrder = {
   source_warehouse: string
 }
 
+export type MallPageResponse = {
+  theme_key?: MiniappThemeKey | string
+  miniapp_entry_mode?: MiniappEntryMode | string
+  current_customer_id: number
+  current_customer_name: string
+  products: MallProduct[]
+}
+
 export type FeeItem = {
   id: number
   source_type: string
@@ -275,8 +288,28 @@ export function buildServicePagePath(key: ServiceKey, filters: ServicePageFilter
   return `/api/mini/services/${key}${suffix}`
 }
 
+export function buildMallPagePath(): string {
+  return '/api/mini/mall'
+}
+
+export function buildMallOrderPath(): string {
+  return '/api/mini/mall/orders'
+}
+
 export function fetchServicePage(token: string, key: ServiceKey, filters: ServicePageFilters = {}): Promise<ServicePageResponse> {
   return miniRequest<ServicePageResponse>(buildServicePagePath(key, filters), { token })
+}
+
+export function fetchMallPage(token: string): Promise<MallPageResponse> {
+  return miniRequest<MallPageResponse>(buildMallPagePath(), { token })
+}
+
+export function createMallOrder(token: string, payload: MallOrderPayload): Promise<FulfillmentOrder> {
+  return miniRequest<FulfillmentOrder>(buildMallOrderPath(), {
+    method: 'POST',
+    token,
+    data: payload,
+  })
 }
 
 export function createDirectShipBatch(

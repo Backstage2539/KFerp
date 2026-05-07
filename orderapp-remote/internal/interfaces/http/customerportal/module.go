@@ -24,6 +24,11 @@ type Service interface {
 	ListPortalAdminCustomers(context.Context, customerportalapp.PortalAdminCustomerQuery) ([]customerportalapp.PortalAdminCustomer, error)
 	PortalAdminDetail(context.Context, int64) (customerportalapp.PortalAdminDetail, error)
 	UpdatePortalVisibility(context.Context, customerportalapp.UpdatePortalVisibilityCommand) (customerportalapp.PortalAdminDetail, error)
+	ListMallProducts(context.Context) ([]customerportalapp.MallProduct, []customerportalapp.MallProductOption, error)
+	SaveMallProduct(context.Context, customerportalapp.SaveMallProductCommand) (customerportalapp.MallProduct, error)
+	UpdateMallProductImage(context.Context, customerportalapp.UpdateMallProductImageCommand) (customerportalapp.MallProduct, error)
+	GetMallPage(context.Context, string) (customerportalapp.MallPage, error)
+	CreateMallOrder(context.Context, string, customerportalapp.CreateMallOrderCommand) (customerportalapp.FulfillmentOrder, error)
 	CreateDirectShipBatch(context.Context, string, customerportalapp.CreateDirectShipBatchCommand) (customerportalapp.DirectShipBatch, error)
 	CreateProcessingRequest(context.Context, string, customerportalapp.CreateProcessingRequestCommand) (customerportalapp.ProcessingRequest, error)
 	CreateFulfillmentOrder(context.Context, string, customerportalapp.CreateFulfillmentOrderCommand) (customerportalapp.FulfillmentOrder, error)
@@ -32,6 +37,7 @@ type Service interface {
 type Dependencies struct {
 	CustomerPortal      Service
 	BeanListPDFRenderer BeanListPDFRenderer
+	AssetDir            string
 }
 
 type BeanListPDFRenderer interface {
@@ -44,7 +50,7 @@ func RegisterRoutes(e *echo.Echo, deps Dependencies) {
 		renderer = pdfinfra.BeanListRenderer{}
 	}
 	registerMiniAPI(e, deps.CustomerPortal, renderer)
-	registerAdminAPI(e, deps.CustomerPortal)
+	registerAdminAPI(e, deps.CustomerPortal, deps.AssetDir)
 }
 
 type StaticIdentityProvider struct {

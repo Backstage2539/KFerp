@@ -40,6 +40,7 @@ export const menuGroups = [
     name: '商品与配方',
     items: [
       { key: 'productSettings', label: '产品设置', title: '产品设置' },
+      { key: 'mallSettings', label: '商城管理', title: '商城管理' },
       { key: 'costing', label: '价格与豆单', title: '价格与豆单' },
       { key: 'bom', label: 'BOM配方维护', title: 'BOM配方维护' },
     ],

@@ -2,8 +2,14 @@ package customerportal
 
 import (
 	"errors"
+	"fmt"
+	"io"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strconv"
+	"strings"
+	"time"
 
 	customerportalapp "orderapp/internal/application/customerportal"
 	"orderapp/internal/interfaces/http/support"
@@ -17,10 +23,29 @@ type portalVisibilityRequest struct {
 	DefaultSenderID         int64                                `json:"default_sender_id"`
 	Enabled                 *bool                                `json:"enabled"`
 	ThemeKey                string                               `json:"theme_key"`
+	MiniappEntryMode        string                               `json:"miniapp_entry_mode"`
 	Capabilities            []customerportalapp.CapabilityOption `json:"capabilities"`
 }
 
-func registerAdminAPI(e *echo.Echo, svc Service) {
+type mallProductRequest struct {
+	ID          int64   `json:"id"`
+	ProductID   int64   `json:"product_id"`
+	Title       string  `json:"title"`
+	Subtitle    string  `json:"subtitle"`
+	Description string  `json:"description"`
+	ImageURL    string  `json:"image_url"`
+	SpecG       int64   `json:"spec_g"`
+	UnitPrice   float64 `json:"unit_price"`
+	TemplateKey string  `json:"template_key"`
+	Status      string  `json:"status"`
+	SortOrder   int     `json:"sort_order"`
+}
+
+func registerAdminAPI(e *echo.Echo, svc Service, assetDirs ...string) {
+	assetDir := "/app/data/assets"
+	if len(assetDirs) > 0 && strings.TrimSpace(assetDirs[0]) != "" {
+		assetDir = strings.TrimSpace(assetDirs[0])
+	}
 	e.GET("/api/customer-portal/admin/customers", func(c echo.Context) error {
 		if svc == nil {
 			return c.JSON(http.StatusInternalServerError, map[string]string{"error": "internal error"})
@@ -73,6 +98,7 @@ func registerAdminAPI(e *echo.Echo, svc Service) {
 			DefaultSenderID:         req.DefaultSenderID,
 			Enabled:                 enabled,
 			ThemeKey:                req.ThemeKey,
+			MiniappEntryMode:        req.MiniappEntryMode,
 			Capabilities:            req.Capabilities,
 			UpdatedBy:               support.ActorOf(c),
 		})
@@ -81,6 +107,90 @@ func registerAdminAPI(e *echo.Echo, svc Service) {
 		}
 		return c.JSON(http.StatusOK, detail)
 	})
+
+	e.GET("/api/customer-portal/admin/mall-products", func(c echo.Context) error {
+		if svc == nil {
+			return c.JSON(http.StatusInternalServerError, map[string]string{"error": "internal error"})
+		}
+		rows, options, err := svc.ListMallProducts(c.Request().Context())
+		if err != nil {
+			return c.JSON(http.StatusInternalServerError, map[string]string{"error": "internal error"})
+		}
+		return c.JSON(http.StatusOK, map[string]any{"rows": rows, "product_options": options})
+	})
+
+	e.POST("/api/customer-portal/admin/mall-products", func(c echo.Context) error {
+		return saveMallProduct(c, svc, 0)
+	})
+
+	e.PUT("/api/customer-portal/admin/mall-products/:id", func(c echo.Context) error {
+		id, err := strconv.ParseInt(c.Param("id"), 10, 64)
+		if err != nil || id <= 0 {
+			return c.JSON(http.StatusBadRequest, map[string]string{"error": "mall product required"})
+		}
+		return saveMallProduct(c, svc, id)
+	})
+
+	e.POST("/api/customer-portal/admin/mall-products/:id/image", func(c echo.Context) error {
+		if svc == nil {
+			return c.JSON(http.StatusInternalServerError, map[string]string{"error": "internal error"})
+		}
+		id, err := strconv.ParseInt(c.Param("id"), 10, 64)
+		if err != nil || id <= 0 {
+			return c.JSON(http.StatusBadRequest, map[string]string{"error": "mall product required"})
+		}
+		imageURL, err := saveUploadedMallProductAsset(c, assetDir, id)
+		if err != nil {
+			return c.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
+		}
+		row, err := svc.UpdateMallProductImage(c.Request().Context(), customerportalapp.UpdateMallProductImageCommand{
+			ID:       id,
+			ImageURL: imageURL,
+			Actor:    support.ActorOf(c),
+		})
+		if err != nil {
+			return portalAdminError(c, err)
+		}
+		return c.JSON(http.StatusOK, row)
+	})
+
+	e.GET("/assets/mall_products/*", func(c echo.Context) error {
+		return serveMallProductAsset(c, assetDir)
+	})
+	e.HEAD("/assets/mall_products/*", func(c echo.Context) error {
+		return serveMallProductAsset(c, assetDir)
+	})
+}
+
+func saveMallProduct(c echo.Context, svc Service, id int64) error {
+	if svc == nil {
+		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "internal error"})
+	}
+	var req mallProductRequest
+	if err := c.Bind(&req); err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid request"})
+	}
+	if id > 0 {
+		req.ID = id
+	}
+	row, err := svc.SaveMallProduct(c.Request().Context(), customerportalapp.SaveMallProductCommand{
+		ID:          req.ID,
+		ProductID:   req.ProductID,
+		Title:       req.Title,
+		Subtitle:    req.Subtitle,
+		Description: req.Description,
+		ImageURL:    req.ImageURL,
+		SpecG:       req.SpecG,
+		UnitPrice:   req.UnitPrice,
+		TemplateKey: req.TemplateKey,
+		Status:      req.Status,
+		SortOrder:   req.SortOrder,
+		Actor:       support.ActorOf(c),
+	})
+	if err != nil {
+		return portalAdminError(c, err)
+	}
+	return c.JSON(http.StatusOK, row)
 }
 
 func portalAdminError(c echo.Context, err error) error {
@@ -91,4 +201,76 @@ func portalAdminError(c echo.Context, err error) error {
 		return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid request"})
 	}
 	return c.JSON(http.StatusInternalServerError, map[string]string{"error": "internal error"})
+}
+
+func saveUploadedMallProductAsset(c echo.Context, assetDir string, mallProductID int64) (string, error) {
+	file, err := c.FormFile("file")
+	if err != nil {
+		return "", fmt.Errorf("file required")
+	}
+	src, err := file.Open()
+	if err != nil {
+		return "", err
+	}
+	defer src.Close()
+	data, err := io.ReadAll(io.LimitReader(src, 8<<20))
+	if err != nil {
+		return "", err
+	}
+	if len(data) == 0 {
+		return "", fmt.Errorf("empty file")
+	}
+	filename := mallAssetFilename(file.Filename)
+	objectKey := filepath.ToSlash(filepath.Join("mall_products", strconv.FormatInt(mallProductID, 10), fmt.Sprintf("%d-%s", time.Now().UnixNano(), filename)))
+	path := filepath.Join(assetDir, objectKey)
+	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+		return "", err
+	}
+	if err := os.WriteFile(path, data, 0644); err != nil {
+		return "", err
+	}
+	return "/" + filepath.ToSlash(filepath.Join("assets", objectKey)), nil
+}
+
+func mallAssetFilename(filename string) string {
+	filename = filepath.Base(strings.TrimSpace(filename))
+	if filename == "" || filename == "." {
+		return "mall-product"
+	}
+	return filename
+}
+
+func serveMallProductAsset(c echo.Context, assetDir string) error {
+	rel := strings.TrimPrefix(c.Param("*"), "/")
+	clean := filepath.Clean(filepath.FromSlash(rel))
+	if clean == "." || filepath.IsAbs(clean) || clean == ".." || strings.HasPrefix(clean, ".."+string(os.PathSeparator)) {
+		return c.NoContent(http.StatusNotFound)
+	}
+	path := filepath.Join(assetDir, "mall_products", clean)
+	f, err := os.Open(path)
+	if err != nil {
+		return c.NoContent(http.StatusNotFound)
+	}
+	defer f.Close()
+	stat, err := f.Stat()
+	if err != nil || stat.IsDir() {
+		return c.NoContent(http.StatusNotFound)
+	}
+	if contentType := detectMallProductAssetContentType(f); contentType != "" {
+		c.Response().Header().Set(echo.HeaderContentType, contentType)
+	}
+	if _, err := f.Seek(0, io.SeekStart); err != nil {
+		return c.NoContent(http.StatusInternalServerError)
+	}
+	http.ServeContent(c.Response(), c.Request(), stat.Name(), stat.ModTime(), f)
+	return nil
+}
+
+func detectMallProductAssetContentType(f *os.File) string {
+	buf := make([]byte, 512)
+	n, _ := f.Read(buf)
+	if n == 0 {
+		return ""
+	}
+	return http.DetectContentType(buf[:n])
 }

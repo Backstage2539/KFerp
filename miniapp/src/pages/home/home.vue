@@ -31,6 +31,10 @@ async function loadContext() {
   try {
     const response = await fetchMe(session.token)
     session.applyContext(response)
+    if (session.entryMode === 'mall' && session.capabilities.some((item) => item.code === 'mall' && item.enabled)) {
+      uni.redirectTo({ url: '/pages/mall/mall' })
+      return
+    }
   } catch (error) {
     errorMessage.value = error instanceof Error ? error.message : '客户信息加载失败'
     session.clearSession()

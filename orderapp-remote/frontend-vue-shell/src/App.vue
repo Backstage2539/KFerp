@@ -67,6 +67,7 @@ import FinanceTaxLedgerView from './views/FinanceTaxLedgerView.vue'
 import InventoryView from './views/InventoryView.vue'
 import JobCardsView from './views/JobCardsView.vue'
 import MachinesView from './views/MachinesView.vue'
+import MallSettingsView from './views/MallSettingsView.vue'
 import MaterialBatchesView from './views/MaterialBatchesView.vue'
 import MaterialReceiptsView from './views/MaterialReceiptsView.vue'
 import MaterialsView from './views/MaterialsView.vue'
@@ -143,6 +144,7 @@ const internalViews = {
   stockOutboundLogs: StockOutboundLogsView,
   bom: BomView,
   productSettings: ProductSettingsView,
+  mallSettings: MallSettingsView,
   costing: CostingView,
   costingSettings: CostingSettingsView,
   financeDashboard: FinanceDashboardView,

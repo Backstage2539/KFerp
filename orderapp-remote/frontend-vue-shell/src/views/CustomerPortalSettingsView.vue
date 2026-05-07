@@ -56,6 +56,25 @@
             <input v-model="row.form.enabled" type="checkbox" />
             <span>{{ row.form.enabled ? '门户启用' : '门户停用' }}</span>
           </label>
+          <div class="entry-picker">
+            <span>小程序首页</span>
+            <div class="entry-options">
+              <button
+                type="button"
+                class="entry-option"
+                :class="{ selected: row.form.miniapp_entry_mode === 'services' }"
+                @click="row.form.miniapp_entry_mode = 'services'">
+                订单处理
+              </button>
+              <button
+                type="button"
+                class="entry-option"
+                :class="{ selected: row.form.miniapp_entry_mode === 'mall' }"
+                @click="row.form.miniapp_entry_mode = 'mall'">
+                商城
+              </button>
+            </div>
+          </div>
           <div class="theme-picker">
             <span>小程序主题</span>
             <div class="theme-options">
@@ -111,6 +130,7 @@ const error = ref('')
 const ok = ref('')
 const capabilityLabels = {
   bean_list: '我的豆单',
+  mall: '商城下单',
   product_order: '现货下单',
   direct_ship: '一件代发',
   processing: '代加工',
@@ -157,6 +177,7 @@ function createPortalRow(customer) {
       default_sender_id: Number(customer.default_sender_id || 0),
       enabled: customer.portal_enabled !== false,
       theme_key: normalizeCustomerPortalThemeKey(customer.theme_key),
+      miniapp_entry_mode: normalizeEntryMode(customer.miniapp_entry_mode),
     },
     capabilities: [],
     bindings: [],
@@ -182,6 +203,7 @@ function assignRowDetail(row, data) {
   row.form.default_sender_id = Number(row.customer.default_sender_id || 0)
   row.form.enabled = row.customer.portal_enabled !== false
   row.form.theme_key = normalizeCustomerPortalThemeKey(row.customer.theme_key)
+  row.form.miniapp_entry_mode = normalizeEntryMode(row.customer.miniapp_entry_mode)
   row.bindings = data?.bindings || []
   row.capabilities = (data?.capabilities || []).map((item) => ({
     code: item.code,
@@ -206,6 +228,7 @@ async function saveVisibility(row) {
         default_sender_id: Number(row.form.default_sender_id || 0),
         enabled: !!row.form.enabled,
         theme_key: normalizeCustomerPortalThemeKey(row.form.theme_key),
+        miniapp_entry_mode: normalizeEntryMode(row.form.miniapp_entry_mode),
         capabilities: row.capabilities.map((item) => ({
           code: item.code,
           enabled: !!item.enabled,
@@ -220,6 +243,10 @@ async function saveVisibility(row) {
   } finally {
     row.saving = false
   }
+}
+
+function normalizeEntryMode(value) {
+  return value === 'mall' ? 'mall' : 'services'
 }
 
 onMounted(() => {
@@ -252,6 +279,18 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .check { display: inline-flex; align-items: center; gap: 8px; }
 .check input, .capability input { width: auto; height: auto; }
 .check span { margin: 0; color: #333; font-size: 13px; }
+.entry-picker { display: flex; flex-direction: column; gap: 5px; }
+.entry-picker > span { color: #666; font-size: 12px; }
+.entry-options { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4px; }
+.entry-option {
+  min-height: 38px;
+  height: auto;
+  padding: 6px 8px;
+  border-color: #e4e7ec;
+  background: #fff;
+  color: #171717;
+}
+.entry-option.selected { border-color: #1f1f1f; background: #f7f8f9; box-shadow: 0 0 0 2px rgba(31,31,31,.07); }
 .theme-picker { display: flex; flex-direction: column; gap: 5px; }
 .theme-picker > span { color: #666; font-size: 12px; }
 .theme-options { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 4px; }

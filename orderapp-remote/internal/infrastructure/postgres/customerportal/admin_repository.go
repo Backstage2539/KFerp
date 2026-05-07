@@ -28,13 +28,14 @@ func (r Repository) ListPortalAdminCustomers(ctx context.Context, query customer
 		       COALESCE(p.enabled,true),
 		       COALESCE(p.status,'active'),
 		       COALESCE(NULLIF(p.theme_key,''),'coffee_factory'),
+		       COALESCE(NULLIF(p.miniapp_entry_mode,''),'services'),
 		       COUNT(b.id) FILTER (WHERE b.status='approved')::int
 		FROM %s.customers c
 		LEFT JOIN %s.customer_portal_profiles p ON p.customer_id=c.id
 		LEFT JOIN %s.customer_portal_user_bindings b ON b.customer_id=c.id
 		WHERE c.active=true
 		  AND ($1='' OR c.name ILIKE '%%' || $1 || '%%' OR c.phone ILIKE '%%' || $1 || '%%' OR c.company_name ILIKE '%%' || $1 || '%%')
-		GROUP BY c.id, c.name, c.phone, c.company_name, p.display_name, p.processing_warehouse_code, p.default_sender_id, p.enabled, p.status, p.theme_key
+		GROUP BY c.id, c.name, c.phone, c.company_name, p.display_name, p.processing_warehouse_code, p.default_sender_id, p.enabled, p.status, p.theme_key, p.miniapp_entry_mode
 		ORDER BY c.name, c.id
 		LIMIT $2
 	`, r.schema, r.schema, r.schema), q, limit)
@@ -45,10 +46,11 @@ func (r Repository) ListPortalAdminCustomers(ctx context.Context, query customer
 	out := make([]customerportalapp.PortalAdminCustomer, 0)
 	for rows.Next() {
 		var row customerportalapp.PortalAdminCustomer
-		if err := rows.Scan(&row.ID, &row.Name, &row.Phone, &row.CompanyName, &row.DisplayName, &row.ProcessingWarehouseCode, &row.DefaultSenderID, &row.PortalEnabled, &row.PortalStatus, &row.ThemeKey, &row.BindingCount); err != nil {
+		if err := rows.Scan(&row.ID, &row.Name, &row.Phone, &row.CompanyName, &row.DisplayName, &row.ProcessingWarehouseCode, &row.DefaultSenderID, &row.PortalEnabled, &row.PortalStatus, &row.ThemeKey, &row.MiniappEntryMode, &row.BindingCount); err != nil {
 			return nil, err
 		}
 		row.ThemeKey = customerportalapp.NormalizePortalThemeKey(row.ThemeKey)
+		row.MiniappEntryMode = customerportalapp.NormalizeMiniappEntryMode(row.MiniappEntryMode)
 		out = append(out, row)
 	}
 	return out, rows.Err()
@@ -93,8 +95,8 @@ func (r Repository) UpdatePortalVisibility(ctx context.Context, cmd customerport
 		warehouseCode = defaultProcessingWarehouseCode(cmd.CustomerID)
 	}
 	if _, err := tx.Exec(ctx, fmt.Sprintf(`
-		INSERT INTO %s.customer_portal_profiles(customer_id, display_name, processing_warehouse_code, default_sender_id, enabled, status, theme_key, updated_at, updated_by)
-		VALUES($1,$2,$3,$4,$5,'active',$6,now(),$7)
+		INSERT INTO %s.customer_portal_profiles(customer_id, display_name, processing_warehouse_code, default_sender_id, enabled, status, theme_key, miniapp_entry_mode, updated_at, updated_by)
+		VALUES($1,$2,$3,$4,$5,'active',$6,$7,now(),$8)
 		ON CONFLICT(customer_id) DO UPDATE SET
 			display_name=excluded.display_name,
 			processing_warehouse_code=excluded.processing_warehouse_code,
@@ -102,9 +104,10 @@ func (r Repository) UpdatePortalVisibility(ctx context.Context, cmd customerport
 			enabled=excluded.enabled,
 			status='active',
 			theme_key=excluded.theme_key,
+			miniapp_entry_mode=excluded.miniapp_entry_mode,
 			updated_at=now(),
 			updated_by=excluded.updated_by
-	`, r.schema), cmd.CustomerID, strings.TrimSpace(cmd.DisplayName), warehouseCode, cmd.DefaultSenderID, cmd.Enabled, customerportalapp.NormalizePortalThemeKey(cmd.ThemeKey), strings.TrimSpace(cmd.UpdatedBy)); err != nil {
+	`, r.schema), cmd.CustomerID, strings.TrimSpace(cmd.DisplayName), warehouseCode, cmd.DefaultSenderID, cmd.Enabled, customerportalapp.NormalizePortalThemeKey(cmd.ThemeKey), customerportalapp.NormalizeMiniappEntryMode(cmd.MiniappEntryMode), strings.TrimSpace(cmd.UpdatedBy)); err != nil {
 		return customerportalapp.PortalAdminDetail{}, err
 	}
 	if warehouseCode != "" {
@@ -202,18 +205,134 @@ func (r Repository) portalAdminCustomer(ctx context.Context, customerID int64) (
 		       COALESCE(p.enabled,true),
 		       COALESCE(p.status,'active'),
 		       COALESCE(NULLIF(p.theme_key,''),'coffee_factory'),
+		       COALESCE(NULLIF(p.miniapp_entry_mode,''),'services'),
 		       COALESCE((SELECT COUNT(*)::int FROM %s.customer_portal_user_bindings b WHERE b.customer_id=c.id AND b.status='approved'),0)
 		FROM %s.customers c
 		LEFT JOIN %s.customer_portal_profiles p ON p.customer_id=c.id
 		WHERE c.id=$1
-	`, r.schema, r.schema, r.schema), customerID).Scan(&row.ID, &row.Name, &row.Phone, &row.CompanyName, &row.DisplayName, &row.ProcessingWarehouseCode, &row.DefaultSenderID, &row.PortalEnabled, &row.PortalStatus, &row.ThemeKey, &row.BindingCount)
+	`, r.schema, r.schema, r.schema), customerID).Scan(&row.ID, &row.Name, &row.Phone, &row.CompanyName, &row.DisplayName, &row.ProcessingWarehouseCode, &row.DefaultSenderID, &row.PortalEnabled, &row.PortalStatus, &row.ThemeKey, &row.MiniappEntryMode, &row.BindingCount)
 	if err == nil {
 		row.ThemeKey = customerportalapp.NormalizePortalThemeKey(row.ThemeKey)
+		row.MiniappEntryMode = customerportalapp.NormalizeMiniappEntryMode(row.MiniappEntryMode)
 	}
 	if err == pgx.ErrNoRows {
 		return customerportalapp.PortalAdminCustomer{}, customerportalapp.ErrPortalCustomerNotFound
 	}
 	return row, err
+}
+
+func (r Repository) ListMallProducts(ctx context.Context) ([]customerportalapp.MallProduct, []customerportalapp.MallProductOption, error) {
+	rows, err := r.pool.Query(ctx, fmt.Sprintf(`
+		SELECT m.id, m.product_id, COALESCE(p.name,''), COALESCE(NULLIF(m.title,''), p.name, ''), m.subtitle, m.description,
+		       m.image_url, m.spec_g, m.unit_price, m.template_key, m.status, m.sort_order,
+		       to_char(m.updated_at,'YYYY-MM-DD HH24:MI')
+		FROM %s.mall_products m
+		JOIN %s.products p ON p.id=m.product_id
+		WHERE p.active=true
+		ORDER BY m.sort_order, m.id
+	`, r.schema, r.schema))
+	if err != nil {
+		return nil, nil, err
+	}
+	defer rows.Close()
+	mallRows := make([]customerportalapp.MallProduct, 0)
+	for rows.Next() {
+		var row customerportalapp.MallProduct
+		if err := rows.Scan(&row.ID, &row.ProductID, &row.ProductName, &row.Title, &row.Subtitle, &row.Description, &row.ImageURL, &row.SpecG, &row.UnitPrice, &row.TemplateKey, &row.Status, &row.SortOrder, &row.UpdatedAt); err != nil {
+			return nil, nil, err
+		}
+		row.TemplateKey = customerportalapp.NormalizeMallTemplateKey(row.TemplateKey)
+		row.Status = customerportalapp.NormalizeMallProductStatus(row.Status)
+		mallRows = append(mallRows, row)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, nil, err
+	}
+
+	optionRows, err := r.pool.Query(ctx, fmt.Sprintf(`
+		SELECT id, COALESCE(name,''), COALESCE(default_price,0)
+		FROM %s.products
+		WHERE active=true
+		ORDER BY name, id
+	`, r.schema))
+	if err != nil {
+		return nil, nil, err
+	}
+	defer optionRows.Close()
+	// product_options for the admin API are returned alongside mall rows.
+	productOptions := make([]customerportalapp.MallProductOption, 0)
+	for optionRows.Next() {
+		var row customerportalapp.MallProductOption
+		if err := optionRows.Scan(&row.ID, &row.Name, &row.DefaultPrice); err != nil {
+			return nil, nil, err
+		}
+		productOptions = append(productOptions, row)
+	}
+	return mallRows, productOptions, optionRows.Err()
+}
+
+func (r Repository) SaveMallProduct(ctx context.Context, cmd customerportalapp.SaveMallProductCommand) (customerportalapp.MallProduct, error) {
+	if cmd.ID > 0 {
+		if _, err := r.pool.Exec(ctx, fmt.Sprintf(`
+			INSERT INTO %s.mall_products(id, product_id, title, subtitle, description, image_url, spec_g, unit_price, template_key, status, sort_order, updated_at, updated_by)
+			VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,now(),$12)
+			ON CONFLICT(id) DO UPDATE SET
+				product_id=excluded.product_id,
+				title=excluded.title,
+				subtitle=excluded.subtitle,
+				description=excluded.description,
+				image_url=excluded.image_url,
+				spec_g=excluded.spec_g,
+				unit_price=excluded.unit_price,
+				template_key=excluded.template_key,
+				status=excluded.status,
+				sort_order=excluded.sort_order,
+				updated_at=now(),
+				updated_by=excluded.updated_by
+		`, r.schema), cmd.ID, cmd.ProductID, cmd.Title, cmd.Subtitle, cmd.Description, cmd.ImageURL, cmd.SpecG, cmd.UnitPrice, customerportalapp.NormalizeMallTemplateKey(cmd.TemplateKey), customerportalapp.NormalizeMallProductStatus(cmd.Status), cmd.SortOrder, strings.TrimSpace(cmd.Actor)); err != nil {
+			return customerportalapp.MallProduct{}, err
+		}
+		return r.mallProductByID(ctx, cmd.ID)
+	}
+
+	var id int64
+	if err := r.pool.QueryRow(ctx, fmt.Sprintf(`
+		INSERT INTO %s.mall_products(product_id, title, subtitle, description, image_url, spec_g, unit_price, template_key, status, sort_order, updated_at, updated_by)
+		VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,now(),$11)
+		RETURNING id
+	`, r.schema), cmd.ProductID, cmd.Title, cmd.Subtitle, cmd.Description, cmd.ImageURL, cmd.SpecG, cmd.UnitPrice, customerportalapp.NormalizeMallTemplateKey(cmd.TemplateKey), customerportalapp.NormalizeMallProductStatus(cmd.Status), cmd.SortOrder, strings.TrimSpace(cmd.Actor)).Scan(&id); err != nil {
+		return customerportalapp.MallProduct{}, err
+	}
+	return r.mallProductByID(ctx, id)
+}
+
+func (r Repository) UpdateMallProductImage(ctx context.Context, cmd customerportalapp.UpdateMallProductImageCommand) (customerportalapp.MallProduct, error) {
+	if _, err := r.pool.Exec(ctx, fmt.Sprintf(`
+		UPDATE %s.mall_products
+		SET image_url=$2, updated_at=now(), updated_by=$3
+		WHERE id=$1
+	`, r.schema), cmd.ID, strings.TrimSpace(cmd.ImageURL), strings.TrimSpace(cmd.Actor)); err != nil {
+		return customerportalapp.MallProduct{}, err
+	}
+	return r.mallProductByID(ctx, cmd.ID)
+}
+
+func (r Repository) mallProductByID(ctx context.Context, id int64) (customerportalapp.MallProduct, error) {
+	var row customerportalapp.MallProduct
+	err := r.pool.QueryRow(ctx, fmt.Sprintf(`
+		SELECT m.id, m.product_id, COALESCE(p.name,''), COALESCE(NULLIF(m.title,''), p.name, ''), m.subtitle, m.description,
+		       m.image_url, m.spec_g, m.unit_price, m.template_key, m.status, m.sort_order,
+		       to_char(m.updated_at,'YYYY-MM-DD HH24:MI')
+		FROM %s.mall_products m
+		JOIN %s.products p ON p.id=m.product_id
+		WHERE m.id=$1
+	`, r.schema, r.schema), id).Scan(&row.ID, &row.ProductID, &row.ProductName, &row.Title, &row.Subtitle, &row.Description, &row.ImageURL, &row.SpecG, &row.UnitPrice, &row.TemplateKey, &row.Status, &row.SortOrder, &row.UpdatedAt)
+	if err != nil {
+		return customerportalapp.MallProduct{}, err
+	}
+	row.TemplateKey = customerportalapp.NormalizeMallTemplateKey(row.TemplateKey)
+	row.Status = customerportalapp.NormalizeMallProductStatus(row.Status)
+	return row, nil
 }
 
 func (r Repository) portalAdminBindings(ctx context.Context, customerID int64) ([]customerportalapp.PortalUserBinding, error) {

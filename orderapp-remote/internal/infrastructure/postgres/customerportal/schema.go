@@ -39,6 +39,7 @@ CREATE TABLE IF NOT EXISTS %s.customer_portal_profiles (
 	default_settlement_cycle TEXT NOT NULL DEFAULT 'monthly',
 	default_payment_terms TEXT NOT NULL DEFAULT '',
 	theme_key TEXT NOT NULL DEFAULT 'coffee_factory',
+	miniapp_entry_mode TEXT NOT NULL DEFAULT 'services',
 	enabled BOOLEAN NOT NULL DEFAULT true,
 	updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
 	updated_by TEXT NOT NULL DEFAULT ''
@@ -70,7 +71,9 @@ CREATE UNIQUE INDEX IF NOT EXISTS customer_service_capabilities_customer_code_uq
 
 ALTER TABLE %s.customer_portal_profiles
 	ADD COLUMN IF NOT EXISTS theme_key TEXT NOT NULL DEFAULT 'coffee_factory';
-`, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema)
+ALTER TABLE %s.customer_portal_profiles
+	ADD COLUMN IF NOT EXISTS miniapp_entry_mode TEXT NOT NULL DEFAULT 'services';
+`, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema)
 	if _, err := pool.Exec(ctx, q); err != nil {
 		return err
 	}
@@ -87,6 +90,7 @@ func ensurePortalProfileColumns(ctx context.Context, pool *pgxpool.Pool, schema 
 	stmts := []string{
 		`ALTER TABLE %[1]s.customer_portal_profiles ADD COLUMN IF NOT EXISTS processing_warehouse_code TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE %[1]s.customer_portal_profiles ADD COLUMN IF NOT EXISTS default_sender_id BIGINT NOT NULL DEFAULT 0`,
+		`ALTER TABLE %[1]s.customer_portal_profiles ADD COLUMN IF NOT EXISTS miniapp_entry_mode TEXT NOT NULL DEFAULT 'services'`,
 	}
 	for _, stmt := range stmts {
 		if _, err := pool.Exec(ctx, fmt.Sprintf(stmt, schema)); err != nil {
@@ -216,7 +220,26 @@ CREATE UNIQUE INDEX IF NOT EXISTS customer_settlement_batches_no_uq
 	WHERE settlement_no <> '';
 CREATE INDEX IF NOT EXISTS customer_settlement_batches_customer_status_idx
 	ON %s.customer_settlement_batches(customer_id, status, created_at DESC, id DESC);
-`, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema)
+
+CREATE TABLE IF NOT EXISTS %s.mall_products (
+	id BIGSERIAL PRIMARY KEY,
+	product_id BIGINT NOT NULL REFERENCES %s.products(id) ON DELETE RESTRICT,
+	title TEXT NOT NULL DEFAULT '',
+	subtitle TEXT NOT NULL DEFAULT '',
+	description TEXT NOT NULL DEFAULT '',
+	image_url TEXT NOT NULL DEFAULT '',
+	spec_g BIGINT NOT NULL DEFAULT 454,
+	unit_price NUMERIC(12,2) NOT NULL DEFAULT 0,
+	template_key TEXT NOT NULL DEFAULT 'hero',
+	status TEXT NOT NULL DEFAULT 'draft',
+	sort_order INT NOT NULL DEFAULT 100,
+	created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+	updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+	updated_by TEXT NOT NULL DEFAULT ''
+);
+CREATE INDEX IF NOT EXISTS mall_products_status_sort_idx
+	ON %s.mall_products(status, sort_order, id);
+`, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema)
 	_, err := pool.Exec(ctx, q)
 	return err
 }

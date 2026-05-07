@@ -172,6 +172,7 @@ func defaultViewPermissions() map[string]string {
 		"inventory":              "stock.read",
 		"allocationLogs":         "stock.read",
 		"productSettings":        "products.write",
+		"mallSettings":           "products.write",
 		"bom":                    "bom.read",
 		"products":               "products.read",
 		"costing":                "costing.read",
