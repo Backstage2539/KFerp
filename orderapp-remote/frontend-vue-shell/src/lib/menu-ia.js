@@ -68,6 +68,8 @@ export const menuGroups = [
       { key: 'senderSettings', label: '发货人设置', title: '发货人设置' },
       { key: 'outsourceSettings', label: '代加工模板设置', title: '代加工模板设置' },
       { key: 'customerPortalSettings', label: '客户门户配置', title: '客户门户配置' },
+      { key: 'customerFulfillment', label: '客户履约账户', title: '客户履约账户' },
+      { key: 'customerFulfillmentManual', label: '客户履约手册', title: '客户履约手册' },
     ],
   },
   {

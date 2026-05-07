@@ -39,6 +39,19 @@
             <span>小程序显示名</span>
             <input v-model.trim="row.form.display_name" placeholder="默认使用客户名" />
           </label>
+          <label>
+            <span>代加工仓库</span>
+            <input v-model.trim="row.form.processing_warehouse_code" placeholder="默认 cust_ID_processing" />
+          </label>
+          <label>
+            <span>默认寄件人</span>
+            <select v-model.number="row.form.default_sender_id">
+              <option :value="0">使用系统默认寄件人</option>
+              <option v-for="profile in senderProfiles" :key="profile.sender_id" :value="profile.sender_id">
+                {{ senderProfileLabel(profile) }}
+              </option>
+            </select>
+          </label>
           <label class="check">
             <input v-model="row.form.enabled" type="checkbox" />
             <span>{{ row.form.enabled ? '门户启用' : '门户停用' }}</span>
@@ -92,6 +105,7 @@ import { customerPortalThemeOptions, normalizeCustomerPortalThemeKey } from '../
 
 const q = ref('')
 const portalRows = ref([])
+const senderProfiles = ref([])
 const loading = ref(false)
 const error = ref('')
 const ok = ref('')
@@ -101,7 +115,6 @@ const capabilityLabels = {
   direct_ship: '一件代发',
   processing: '代加工',
   inventory_custody: '我的库存',
-  shipping_query: '物流查询',
   settlement: '结算中心',
 }
 
@@ -122,11 +135,26 @@ async function loadCustomers() {
   }
 }
 
+async function loadSenderProfiles() {
+  try {
+    const data = await apiGet('/api/settings/sender')
+    senderProfiles.value = data.profiles || []
+  } catch (err) {
+    senderProfiles.value = []
+  }
+}
+
+function senderProfileLabel(profile) {
+  return profile?.sender_label || profile?.sender_name || `寄件人${profile?.sender_id || ''}`
+}
+
 function createPortalRow(customer) {
   return {
     customer,
     form: {
       display_name: customer.display_name || '',
+      processing_warehouse_code: customer.processing_warehouse_code || '',
+      default_sender_id: Number(customer.default_sender_id || 0),
       enabled: customer.portal_enabled !== false,
       theme_key: normalizeCustomerPortalThemeKey(customer.theme_key),
     },
@@ -150,6 +178,8 @@ async function loadRowDetail(row) {
 function assignRowDetail(row, data) {
   row.customer = data?.customer || row.customer
   row.form.display_name = row.customer.display_name || ''
+  row.form.processing_warehouse_code = row.customer.processing_warehouse_code || ''
+  row.form.default_sender_id = Number(row.customer.default_sender_id || 0)
   row.form.enabled = row.customer.portal_enabled !== false
   row.form.theme_key = normalizeCustomerPortalThemeKey(row.customer.theme_key)
   row.bindings = data?.bindings || []
@@ -172,6 +202,8 @@ async function saveVisibility(row) {
       method: 'PUT',
       body: {
         display_name: row.form.display_name,
+        processing_warehouse_code: row.form.processing_warehouse_code,
+        default_sender_id: Number(row.form.default_sender_id || 0),
         enabled: !!row.form.enabled,
         theme_key: normalizeCustomerPortalThemeKey(row.form.theme_key),
         capabilities: row.capabilities.map((item) => ({
@@ -190,7 +222,10 @@ async function saveVisibility(row) {
   }
 }
 
-onMounted(loadCustomers)
+onMounted(() => {
+  loadSenderProfiles()
+  loadCustomers()
+})
 </script>
 
 <style scoped>
@@ -201,19 +236,19 @@ onMounted(loadCustomers)
 .filters { justify-content: flex-start; margin-top: 12px; }
 h2 { margin: 0; font-size: 20px; }
 label span { display: block; color: #666; font-size: 12px; margin-bottom: 5px; }
-input { width: min(420px, 70vw); height: 38px; border: 1px solid #cfc8bf; border-radius: 6px; padding: 7px 9px; font: inherit; background: #fff; }
+input, select { width: min(420px, 70vw); height: 38px; border: 1px solid #cfc8bf; border-radius: 6px; padding: 7px 9px; font: inherit; background: #fff; }
 button { height: 38px; border-radius: 6px; border: 1px solid #1f1f1f; padding: 0 12px; font: inherit; cursor: pointer; }
 button:disabled { cursor: not-allowed; opacity: .55; }
 .primary { background: #1f1f1f; color: #fff; }
 .secondary { background: #fff; color: #1f1f1f; }
-.list-head, .portal-row { display: grid; grid-template-columns: 210px 260px minmax(320px, 1fr) 220px; gap: 14px; align-items: start; }
+.list-head, .portal-row { display: grid; grid-template-columns: 210px 300px minmax(320px, 1fr) 220px; gap: 14px; align-items: start; }
 .list-head { padding: 8px 10px; background: #f8fafc; border-bottom: 1px solid #eef1f4; color: #666; font-size: 13px; font-weight: 700; }
 .portal-row { padding: 14px 10px; border-bottom: 1px solid #eef1f4; }
 .portal-row:last-child { border-bottom: 0; }
 .customer-cell, .config-cell, .binding-list { display: flex; flex-direction: column; gap: 8px; }
 .customer-cell strong { font-size: 15px; }
 .customer-cell span, .binding-row span { color: #666; font-size: 13px; line-height: 1.4; }
-.config-cell input { width: 100%; }
+.config-cell input, .config-cell select { width: 100%; }
 .check { display: inline-flex; align-items: center; gap: 8px; }
 .check input, .capability input { width: auto; height: auto; }
 .check span { margin: 0; color: #333; font-size: 13px; }

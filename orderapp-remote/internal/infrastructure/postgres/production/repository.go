@@ -350,6 +350,9 @@ func (r Repository) Start(ctx context.Context, cmd productionapp.StartExecutionC
 		if err := createMaterialReservationsForRunningItemTx(ctx, tx, r.schema, workOrderID, runningItemID, reservationNeeds); err != nil {
 			return productionapp.StartResult{}, err
 		}
+		if err := markProcessingDemandsRunningTx(ctx, tx, r.schema, group.OrderNos, batchID, runningItemID, workOrderID); err != nil {
+			return productionapp.StartResult{}, err
+		}
 	}
 	if err := setOrdersProcessStatusByNeedsTx(ctx, tx, r.schema, startNeedsFromApp(cmd.Needs), "生产中"); err != nil {
 		return productionapp.StartResult{}, err
@@ -358,6 +361,24 @@ func (r Repository) Start(ctx context.Context, cmd productionapp.StartExecutionC
 		return productionapp.StartResult{}, err
 	}
 	return productionapp.StartResult{BatchID: batchID}, nil
+}
+
+func markProcessingDemandsRunningTx(ctx context.Context, tx pgx.Tx, schema, refs, batchID string, runningItemID, workOrderID int64) error {
+	requestNos := splitOrderNos(refs)
+	if len(requestNos) == 0 {
+		return nil
+	}
+	_, err := tx.Exec(ctx, fmt.Sprintf(`
+		UPDATE %s.customer_processing_production_demands
+		SET status='running',
+		    linked_batch_id=$2,
+		    linked_running_item_id=$3,
+		    linked_work_order_id=$4,
+		    updated_at=now()
+		WHERE request_no = ANY($1)
+		  AND status='planned'
+	`, schema), requestNos, batchID, runningItemID, workOrderID)
+	return err
 }
 
 func productionSummaryToApp(items []ProduceBatchSummaryItem) []productionapp.SummaryItem {

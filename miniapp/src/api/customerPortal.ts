@@ -163,6 +163,13 @@ export type ProcessingRequest = {
   linked_work_order_id: number
 }
 
+export type FulfillmentOrder = {
+  order_id: number
+  order_no: string
+  portal_service_code: string
+  source_warehouse: string
+}
+
 export type FeeItem = {
   id: number
   source_type: string
@@ -221,6 +228,21 @@ export type CreateProcessingRequestPayload = {
   note?: string
 }
 
+export type CreateFulfillmentOrderPayload = {
+  service_code: 'direct_ship' | 'processing_ship' | 'product_order' | string
+  recipient_name: string
+  recipient_phone: string
+  recipient_address: string
+  recipient_company?: string
+  product_id: number
+  product_name?: string
+  spec_g: number
+  qty: number
+  unit_price?: number
+  shipping_amount?: number
+  note?: string
+}
+
 export type ServicePageFilters = {
   q?: string
   date_from?: string
@@ -273,6 +295,17 @@ export function createProcessingRequest(
   payload: CreateProcessingRequestPayload,
 ): Promise<ProcessingRequest> {
   return miniRequest<ProcessingRequest>('/api/mini/processing-requests', {
+    method: 'POST',
+    token,
+    data: payload,
+  })
+}
+
+export function createFulfillmentOrder(
+  token: string,
+  payload: CreateFulfillmentOrderPayload,
+): Promise<FulfillmentOrder> {
+  return miniRequest<FulfillmentOrder>('/api/mini/fulfillment-orders', {
     method: 'POST',
     token,
     data: payload,

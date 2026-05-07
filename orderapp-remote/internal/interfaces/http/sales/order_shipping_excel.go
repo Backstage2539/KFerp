@@ -269,6 +269,16 @@ func generateOrdersShippingExcel(salesSvc *salesapp.Service, c echo.Context, ord
 				senderCache[overrideSenderID] = cached
 			}
 			sender = cached
+		} else if data.SenderID > 0 {
+			cached, ok := senderCache[data.SenderID]
+			if !ok {
+				cached, err = salesSvc.LoadSenderProfileByID(c.Request().Context(), data.SenderID)
+				if err != nil {
+					return orderShippingExcelFile{}, err
+				}
+				senderCache[data.SenderID] = cached
+			}
+			sender = cached
 		}
 		rows = append(rows, data)
 		excelRows = append(excelRows, orderShippingExcelRow{Data: data, Sender: sender})

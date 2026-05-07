@@ -35,20 +35,24 @@ func fetchUnproducedNeeds(ctx context.Context, pool *pgxpool.Pool, schema, from,
 		WHERE ss.id=o.ship_status_id
 		  AND ss.name='已发货'
 	)`, schema, schema)
+	demandWhere := []string{"d.status='planned'"}
 	args := []any{}
 	argn := 1
 	if customerID > 0 {
 		where += fmt.Sprintf(" AND o.customer_id = $%d", argn)
+		demandWhere = append(demandWhere, fmt.Sprintf("d.customer_id = $%d", argn))
 		args = append(args, customerID)
 		argn++
 	}
 	if s := strings.TrimSpace(from); s != "" {
 		where += fmt.Sprintf(" AND o.order_date >= $%d", argn)
+		demandWhere = append(demandWhere, fmt.Sprintf("d.created_at::date >= $%d::date", argn))
 		args = append(args, s)
 		argn++
 	}
 	if s := strings.TrimSpace(to); s != "" {
 		where += fmt.Sprintf(" AND o.order_date <= $%d", argn)
+		demandWhere = append(demandWhere, fmt.Sprintf("d.created_at::date <= $%d::date", argn))
 		args = append(args, s)
 		argn++
 	}
@@ -69,6 +73,18 @@ func fetchUnproducedNeeds(ctx context.Context, pool *pgxpool.Pool, schema, from,
 			LEFT JOIN %s.order_stock_decisions osd ON osd.order_id = o.id
 			%s
 			GROUP BY oi.product_id, p.name, COALESCE(NULLIF(regexp_replace(COALESCE(oi.spec,''), '[^0-9]', '', 'g'), ''), '0')
+			UNION ALL
+			SELECT
+				d.product_id,
+				COALESCE(NULLIF(d.product_name,''), p.name, '') AS product,
+				STRING_AGG(DISTINCT COALESCE(d.request_no,''), ',' ORDER BY COALESCE(d.request_no,'')) AS order_nos,
+				d.spec_g,
+				SUM(COALESCE(d.target_qty,0))::bigint AS need_units,
+				SUM(COALESCE(d.target_qty,0))::bigint AS force_produce_units
+			FROM %s.customer_processing_production_demands d
+			LEFT JOIN %s.products p ON p.id=d.product_id
+			WHERE %s
+			GROUP BY d.product_id, d.product_name, p.name, d.spec_g
 		)
 		, reserved AS (
 			SELECT
@@ -115,7 +131,7 @@ func fetchUnproducedNeeds(ctx context.Context, pool *pgxpool.Pool, schema, from,
 			ON reserved.product_id = n.product_id AND reserved.spec_g = n.spec_g
 		WHERE n.spec_g > 0
 		ORDER BY gap_g DESC, n.product, n.spec_g
-	`, schema, schema, schema, schema, where, schema, schema, schema)
+	`, schema, schema, schema, schema, where, schema, schema, strings.Join(demandWhere, " AND "), schema, schema, schema)
 
 	rows, err := pool.Query(ctx, q, args...)
 	if err != nil {

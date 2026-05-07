@@ -10,14 +10,19 @@ describe('service page helpers', () => {
     expect(serviceTitle('settlement')).toBe('结算中心')
   })
 
+  it('maps legacy logistics service links to the order service', () => {
+    expect(serviceCapability('shipping')).toBe('product_order')
+    expect(serviceTitle('shipping')).toBe('我的订单')
+  })
+
   it('returns visible data sections for a service payload', () => {
     const sections = visibleServiceSections({
-      key: 'shipping',
-      title: '物流查询',
+      key: 'orders',
+      title: '我的订单',
       orders: [{ order_no: 'SO-1', ship_tracking_no: 'SF123' }],
       fee_items: [{ fee_type: 'shipping', amount: '12.00', status: 'unsettled' }],
     })
 
-    expect(sections.map((section) => section.title)).toEqual(['订单 / 物流', '费用明细'])
+    expect(sections.map((section) => section.title)).toEqual(['我的订单', '费用明细'])
   })
 })

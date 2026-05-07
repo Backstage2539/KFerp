@@ -37,6 +37,12 @@ describe('visibleHomeEntries', () => {
     }
   })
 
+  it('does not expose logistics as a standalone home entry', () => {
+    const entries = visibleHomeEntries([{ code: 'shipping_query', enabled: true }])
+
+    expect(entries.map((entry) => entry.key)).toEqual(['orders'])
+  })
+
   it('ignores unknown capability codes', () => {
     const entries = visibleHomeEntries([{ code: 'unknown', enabled: true }])
     expect(entries).toEqual([])

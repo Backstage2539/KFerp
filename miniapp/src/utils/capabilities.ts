@@ -18,7 +18,6 @@ const entries: HomeEntry[] = [
   { key: 'directShip', label: '一件代发', capability: 'direct_ship', url: '/pages/service/service?key=directShip' },
   { key: 'processing', label: '代加工', capability: 'processing', url: '/pages/service/service?key=processing' },
   { key: 'inventory', label: '我的库存', capability: 'inventory_custody', url: '/pages/service/service?key=inventory' },
-  { key: 'shipping', label: '物流查询', capability: 'shipping_query', url: '/pages/service/service?key=shipping' },
   { key: 'settlement', label: '结算中心', capability: 'settlement', url: '/pages/service/service?key=settlement' },
 ]
 

@@ -15,17 +15,18 @@ import (
 )
 
 type fakeService struct {
-	login      customerportalapp.LoginResult
-	me         customerportalapp.CurrentContext
-	service    customerportalapp.ServicePage
-	filter     *customerportalapp.ServicePageFilter
-	customers  []customerportalapp.PortalAdminCustomer
-	detail     customerportalapp.PortalAdminDetail
-	saveCmd    *customerportalapp.UpdatePortalVisibilityCommand
-	directShip customerportalapp.DirectShipBatch
-	processing customerportalapp.ProcessingRequest
-	beanList   customerportalapp.BeanListSummary
-	err        error
+	login       customerportalapp.LoginResult
+	me          customerportalapp.CurrentContext
+	service     customerportalapp.ServicePage
+	filter      *customerportalapp.ServicePageFilter
+	customers   []customerportalapp.PortalAdminCustomer
+	detail      customerportalapp.PortalAdminDetail
+	saveCmd     *customerportalapp.UpdatePortalVisibilityCommand
+	directShip  customerportalapp.DirectShipBatch
+	processing  customerportalapp.ProcessingRequest
+	fulfillment customerportalapp.FulfillmentOrder
+	beanList    customerportalapp.BeanListSummary
+	err         error
 }
 
 func (s fakeService) Login(context.Context, customerportalapp.LoginCommand) (customerportalapp.LoginResult, error) {
@@ -102,6 +103,13 @@ func (s fakeService) CreateProcessingRequest(context.Context, string, customerpo
 		return customerportalapp.ProcessingRequest{}, s.err
 	}
 	return s.processing, nil
+}
+
+func (s fakeService) CreateFulfillmentOrder(context.Context, string, customerportalapp.CreateFulfillmentOrderCommand) (customerportalapp.FulfillmentOrder, error) {
+	if s.err != nil {
+		return customerportalapp.FulfillmentOrder{}, s.err
+	}
+	return s.fulfillment, nil
 }
 
 func TestMiniLoginAndMeAPI(t *testing.T) {
@@ -464,8 +472,9 @@ func TestMiniServicePageCapabilityDeniedMapsToForbidden(t *testing.T) {
 func TestMiniDirectShipAndProcessingSubmitAPIs(t *testing.T) {
 	e := echo.New()
 	RegisterRoutes(e, Dependencies{CustomerPortal: fakeService{
-		directShip: customerportalapp.DirectShipBatch{ID: 5, BatchNo: "DS-20260503-0005", Status: "submitted", TotalRows: 100},
-		processing: customerportalapp.ProcessingRequest{ID: 7, RequestNo: "PJ-20260503-0007", Status: "submitted"},
+		directShip:  customerportalapp.DirectShipBatch{ID: 5, BatchNo: "DS-20260503-0005", Status: "submitted", TotalRows: 100},
+		processing:  customerportalapp.ProcessingRequest{ID: 7, RequestNo: "PJ-20260503-0007", Status: "submitted"},
+		fulfillment: customerportalapp.FulfillmentOrder{OrderID: 9, OrderNo: "SO-20260504-0009", PortalServiceCode: customerportalapp.PortalServiceProcessingShipment, SourceWarehouse: "cust_147_processing"},
 	}})
 
 	directReq := httptest.NewRequest(http.MethodPost, "/api/mini/direct-ship/batches", strings.NewReader(`{"source_name":"5月直播订单","total_rows":100,"note":"客户一次发来100单"}`))
@@ -484,6 +493,15 @@ func TestMiniDirectShipAndProcessingSubmitAPIs(t *testing.T) {
 	e.ServeHTTP(processingRec, processingReq)
 	if processingRec.Code != http.StatusOK || !strings.Contains(processingRec.Body.String(), `"request_no":"PJ-20260503-0007"`) {
 		t.Fatalf("processing status=%d body=%s", processingRec.Code, processingRec.Body.String())
+	}
+
+	orderReq := httptest.NewRequest(http.MethodPost, "/api/mini/fulfillment-orders", strings.NewReader(`{"service_code":"processing_ship","recipient_name":"张三","recipient_phone":"13800138000","recipient_address":"上海市","product_id":5,"spec_g":454,"qty":2,"shipping_amount":12}`))
+	orderReq.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	orderReq.Header.Set(echo.HeaderAuthorization, "Bearer mini-token")
+	orderRec := httptest.NewRecorder()
+	e.ServeHTTP(orderRec, orderReq)
+	if orderRec.Code != http.StatusOK || !strings.Contains(orderRec.Body.String(), `"order_no":"SO-20260504-0009"`) || !strings.Contains(orderRec.Body.String(), `"source_warehouse":"cust_147_processing"`) {
+		t.Fatalf("fulfillment status=%d body=%s", orderRec.Code, orderRec.Body.String())
 	}
 }
 

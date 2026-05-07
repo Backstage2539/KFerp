@@ -4,6 +4,7 @@ import { onLoad, onShow } from '@dcloudio/uni-app'
 import {
   type BeanListSummary,
   createDirectShipBatch,
+  createFulfillmentOrder,
   createProcessingRequest,
   fetchServicePage,
   type ServicePageResponse,
@@ -52,6 +53,19 @@ const processingForm = ref({
   target_product_id: 0,
   target_spec_g: 454,
   target_qty: 1,
+  note: '',
+})
+const fulfillmentForm = ref({
+  recipient_name: '',
+  recipient_phone: '',
+  recipient_address: '',
+  recipient_company: '',
+  product_id: 0,
+  product_name: '',
+  spec_g: 454,
+  qty: 1,
+  unit_price: 0,
+  shipping_amount: 0,
   note: '',
 })
 
@@ -275,6 +289,57 @@ async function submitProcessingRequest() {
   }
 }
 
+function fulfillmentServiceCode(): 'direct_ship' | 'processing_ship' | 'product_order' {
+  if (serviceKey.value === 'processing') return 'processing_ship'
+  if (serviceKey.value === 'productOrder') return 'product_order'
+  return 'direct_ship'
+}
+
+async function submitFulfillmentOrder() {
+  const payload = {
+    service_code: fulfillmentServiceCode(),
+    recipient_name: fulfillmentForm.value.recipient_name.trim(),
+    recipient_phone: fulfillmentForm.value.recipient_phone.trim(),
+    recipient_address: fulfillmentForm.value.recipient_address.trim(),
+    recipient_company: fulfillmentForm.value.recipient_company.trim(),
+    product_id: Number(fulfillmentForm.value.product_id) || 0,
+    product_name: fulfillmentForm.value.product_name.trim(),
+    spec_g: Number(fulfillmentForm.value.spec_g) || 0,
+    qty: Number(fulfillmentForm.value.qty) || 0,
+    unit_price: Number(fulfillmentForm.value.unit_price) || 0,
+    shipping_amount: Number(fulfillmentForm.value.shipping_amount) || 0,
+    note: fulfillmentForm.value.note,
+  }
+  if (!payload.recipient_name || !payload.recipient_phone || !payload.recipient_address || !payload.product_id || !payload.spec_g || !payload.qty) {
+    errorMessage.value = '请填写完整发货订单'
+    return
+  }
+  submitting.value = true
+  errorMessage.value = ''
+  try {
+    await createFulfillmentOrder(session.token, payload)
+    fulfillmentForm.value = {
+      recipient_name: '',
+      recipient_phone: '',
+      recipient_address: '',
+      recipient_company: '',
+      product_id: 0,
+      product_name: '',
+      spec_g: 454,
+      qty: 1,
+      unit_price: 0,
+      shipping_amount: 0,
+      note: '',
+    }
+    uni.showToast({ title: '订单已提交', icon: 'success' })
+    await loadPage()
+  } catch (error) {
+    errorMessage.value = error instanceof Error ? error.message : '提交失败'
+  } finally {
+    submitting.value = false
+  }
+}
+
 onLoad((query) => {
   serviceKey.value = normalizeServiceKey(String(query?.key || 'beanList'))
 })
@@ -325,6 +390,22 @@ onShow(() => {
         <input v-model.number="processingForm.target_qty" class="input" type="number" placeholder="目标件数" />
         <textarea v-model="processingForm.note" class="textarea" placeholder="加工要求" />
         <button class="primary" :disabled="submitting" @tap="submitProcessingRequest">提交申请</button>
+      </view>
+
+      <view v-if="serviceKey === 'directShip' || serviceKey === 'processing' || serviceKey === 'productOrder'" class="panel">
+        <text class="panel-title">新建发货订单</text>
+        <input v-model="fulfillmentForm.recipient_name" class="input" placeholder="收件人" />
+        <input v-model="fulfillmentForm.recipient_phone" class="input" placeholder="手机号" />
+        <input v-model="fulfillmentForm.recipient_address" class="input" placeholder="收件地址" />
+        <input v-model="fulfillmentForm.recipient_company" class="input" placeholder="公司/门店，可选" />
+        <input v-model.number="fulfillmentForm.product_id" class="input" type="number" placeholder="产品ID" />
+        <input v-model="fulfillmentForm.product_name" class="input" placeholder="产品名称，可选" />
+        <input v-model.number="fulfillmentForm.spec_g" class="input" type="number" placeholder="规格克重" />
+        <input v-model.number="fulfillmentForm.qty" class="input" type="number" placeholder="件数" />
+        <input v-model.number="fulfillmentForm.unit_price" class="input" type="digit" placeholder="单价，可不填" />
+        <input v-model.number="fulfillmentForm.shipping_amount" class="input" type="digit" placeholder="运费，可不填" />
+        <textarea v-model="fulfillmentForm.note" class="textarea" placeholder="订单备注" />
+        <button class="primary" :disabled="submitting" @tap="submitFulfillmentOrder">提交订单</button>
       </view>
 
       <view v-if="sections.length" class="section-list">
