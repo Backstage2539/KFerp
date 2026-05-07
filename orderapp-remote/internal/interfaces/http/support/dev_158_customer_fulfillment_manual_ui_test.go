@@ -11,11 +11,11 @@ func TestCustomerFulfillmentManualVisibleInVueShell(t *testing.T) {
 	app := string(readOrderAppFileForTest(t, filepath.Join("frontend-vue-shell", "src", "App.vue")))
 	menu := string(readOrderAppFileForTest(t, filepath.Join("frontend-vue-shell", "src", "lib", "menu-ia.js")))
 	account := string(readOrderAppFileForTest(t, filepath.Join("frontend-vue-shell", "src", "views", "CustomerFulfillmentView.vue")))
-	manual := string(readOrderAppFileForTest(t, filepath.Join("frontend-vue-shell", "src", "views", "CustomerFulfillmentManualView.vue")))
+	manual := string(readOrderAppFileForTest(t, filepath.Join("docs", "OP_MANUAL_CUSTOMER_FULFILLMENT.md")))
 
 	for _, want := range []string{
-		"import CustomerFulfillmentManualView from './views/CustomerFulfillmentManualView.vue'",
-		"customerFulfillmentManual: CustomerFulfillmentManualView",
+		"import OperationManualView from './views/OperationManualView.vue'",
+		"customerFulfillmentManual: OperationManualView",
 	} {
 		if !strings.Contains(app, want) {
 			t.Fatalf("App.vue missing %q", want)
@@ -40,15 +40,15 @@ func TestCustomerFulfillmentManualVisibleInVueShell(t *testing.T) {
 		}
 	}
 	for _, want := range []string{
-		"客户履约账户操作手册",
+		"操作手册：客户履约账户",
 		"解析导入",
 		"应用最新批次",
 		"代发清单",
-		"生成月结",
+		"月结",
 		"常见问题",
 	} {
 		if !strings.Contains(manual, want) {
-			t.Fatalf("CustomerFulfillmentManualView.vue missing %q", want)
+			t.Fatalf("OP_MANUAL_CUSTOMER_FULFILLMENT.md missing %q", want)
 		}
 	}
 }
@@ -66,13 +66,13 @@ func TestCustomerFulfillmentManualPermissionAndRequirementSeeds(t *testing.T) {
 	}
 }
 
-func TestCustomerFulfillmentManualMarkdownStillShips(t *testing.T) {
-	path := filepath.Join("docs", "customer-fulfillment-user-manual.md")
+func TestCustomerFulfillmentManualUsesConsolidatedOperationManual(t *testing.T) {
+	path := filepath.Join("docs", "OP_MANUAL_CUSTOMER_FULFILLMENT.md")
 	body, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatalf("ReadFile(%s): %v", path, err)
 	}
-	for _, want := range []string{"客户履约账户用户手册", "三类 Excel 怎么选", "验收检查"} {
+	for _, want := range []string{"操作手册：客户履约账户", "三类 Excel", "结果校验"} {
 		if !strings.Contains(string(body), want) {
 			t.Fatalf("%s missing %q", path, want)
 		}

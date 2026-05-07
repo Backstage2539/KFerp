@@ -144,6 +144,7 @@ func defaultViewPermissions() map[string]string {
 	return map[string]string{
 		"order":                     "orders.write",
 		"orders":                    "orders.read",
+		"orderSalesManual":          "orders.read",
 		"orderInvoice":              "orders.read",
 		"salesOrder":                "orders.read",
 		"deliveryNote":              "orders.read",
@@ -169,12 +170,14 @@ func defaultViewPermissions() map[string]string {
 		"stockBatches":              "stock.read",
 		"stockAdjustments":          "stock.write",
 		"stockOutboundLogs":         "stock.read",
+		"inventoryMaterialsManual":  "stock.read",
 		"inventory":                 "stock.read",
 		"allocationLogs":            "stock.read",
 		"productSettings":           "products.write",
 		"bom":                       "bom.read",
 		"products":                  "products.read",
 		"costing":                   "costing.read",
+		"costingManual":             "costing.read",
 		"costingSettings":           "costing.write",
 		"financeDashboard":          "finance.read",
 		"financeExpenses":           "finance.write",
@@ -191,6 +194,7 @@ func defaultViewPermissions() map[string]string {
 		"customerPortalSettings":    "customers.write",
 		"customerFulfillment":       "stock.write",
 		"customerFulfillmentManual": "stock.read",
+		"settingsAuditManual":       "audit.read",
 		"departments":               "company.manage",
 		"employees":                 "company.manage",
 		"audit":                     "audit.read",
@@ -200,5 +204,6 @@ func defaultViewPermissions() map[string]string {
 		"reqUnit":                   "requirements.manage",
 		"reqApi":                    "requirements.manage",
 		"reqReview":                 "requirements.manage",
+		"requirementsManual":        "requirements.manage",
 	}
 }

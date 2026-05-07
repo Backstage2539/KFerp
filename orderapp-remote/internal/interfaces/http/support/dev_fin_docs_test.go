@@ -46,7 +46,7 @@ func TestFinanceRequirementsManualAndSeedsAreRecorded(t *testing.T) {
 			},
 		},
 		{
-			path: "docs/finance-monthly-closing-user-manual.md",
+			path: "docs/OP_MANUAL_FINANCE.md",
 			wants: []string{
 				"财务首页",
 				"月度结账",

@@ -72,7 +72,7 @@ func TestQualityInspectionVueUsesWorkspaceDrawerSelection(t *testing.T) {
 
 func TestQualityInspectionDrawerDocs(t *testing.T) {
 	for _, path := range []string{
-		filepath.Join("docs", "production-flow-user-manual.md"),
+		filepath.Join("docs", "OP_MANUAL_PRODUCTION.md"),
 		filepath.Join("docs", "REQUIREMENTS.md"),
 		filepath.Join("docs", "ACCEPTANCE_TESTS.md"),
 	} {

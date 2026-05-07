@@ -54,14 +54,12 @@ import CompanyStaffView from './views/CompanyStaffView.vue'
 import CostingView from './views/CostingView.vue'
 import CostingSettingsView from './views/CostingSettingsView.vue'
 import CustomersView from './views/CustomersView.vue'
-import CustomerFulfillmentManualView from './views/CustomerFulfillmentManualView.vue'
 import CustomerFulfillmentView from './views/CustomerFulfillmentView.vue'
 import CustomerPortalSettingsView from './views/CustomerPortalSettingsView.vue'
 import DeliveryNoteView from './views/DeliveryNoteView.vue'
 import FinanceClosingView from './views/FinanceClosingView.vue'
 import FinanceDashboardView from './views/FinanceDashboardView.vue'
 import FinanceExpensesView from './views/FinanceExpensesView.vue'
-import FinanceManualView from './views/FinanceManualView.vue'
 import FinanceReportView from './views/FinanceReportView.vue'
 import FinanceSettingsView from './views/FinanceSettingsView.vue'
 import FinanceTaxLedgerView from './views/FinanceTaxLedgerView.vue'
@@ -74,13 +72,13 @@ import MaterialsView from './views/MaterialsView.vue'
 import OrderEntryView from './views/OrderEntryView.vue'
 import OrderInvoiceView from './views/OrderInvoiceView.vue'
 import OrdersView from './views/OrdersView.vue'
+import OperationManualView from './views/OperationManualView.vue'
 import OutsourceSettingsView from './views/OutsourceSettingsView.vue'
 import ProducePlanView from './views/ProducePlanView.vue'
 import ProduceRunningView from './views/ProduceRunningView.vue'
 import ProductionAcceptanceView from './views/ProductionAcceptanceView.vue'
 import ProductionCostsView from './views/ProductionCostsView.vue'
 import ProductionLogsView from './views/ProductionLogsView.vue'
-import ProductionManualView from './views/ProductionManualView.vue'
 import ProductSettingsView from './views/ProductSettingsView.vue'
 import ProductsView from './views/ProductsView.vue'
 import PurchaseView from './views/PurchaseView.vue'
@@ -128,6 +126,7 @@ const currentActor = ref(null)
 const internalViews = {
   order: OrderEntryView,
   orders: OrdersView,
+  orderSalesManual: OperationManualView,
   orderInvoice: OrderInvoiceView,
   salesOrder: SalesOrderView,
   deliveryNote: DeliveryNoteView,
@@ -142,9 +141,11 @@ const internalViews = {
   stockBatches: StockBatchesView,
   stockAdjustments: StockAdjustmentsView,
   stockOutboundLogs: StockOutboundLogsView,
+  inventoryMaterialsManual: OperationManualView,
   bom: BomView,
   productSettings: ProductSettingsView,
   costing: CostingView,
+  costingManual: OperationManualView,
   costingSettings: CostingSettingsView,
   financeDashboard: FinanceDashboardView,
   financeExpenses: FinanceExpensesView,
@@ -152,7 +153,7 @@ const internalViews = {
   financeReport: FinanceReportView,
   financeTaxLedger: FinanceTaxLedgerView,
   financeSettings: FinanceSettingsView,
-  financeManual: FinanceManualView,
+  financeManual: OperationManualView,
   producePlan: ProducePlanView,
   productionAcceptance: ProductionAcceptanceView,
   produceRunning: ProduceRunningView,
@@ -161,7 +162,7 @@ const internalViews = {
   jobCards: JobCardsView,
   qualityInspections: QualityInspectionsView,
   productionCosts: ProductionCostsView,
-  productionManual: ProductionManualView,
+  productionManual: OperationManualView,
   allocationLogs: AllocationLogsView,
   customers: CustomersView,
   products: ProductSettingsView,
@@ -176,7 +177,8 @@ const internalViews = {
   outsourceSettings: OutsourceSettingsView,
   customerPortalSettings: CustomerPortalSettingsView,
   customerFulfillment: CustomerFulfillmentView,
-  customerFulfillmentManual: CustomerFulfillmentManualView,
+  customerFulfillmentManual: OperationManualView,
+  settingsAuditManual: OperationManualView,
   audit: AuditView,
   userPermissions: UserPermissionsView,
   reqProduct: RequirementsView,
@@ -184,6 +186,7 @@ const internalViews = {
   reqUnit: RequirementsView,
   reqApi: RequirementsView,
   reqReview: RequirementsView,
+  requirementsManual: OperationManualView,
 }
 
 function readViewParams() {

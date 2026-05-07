@@ -53,6 +53,23 @@ test('production menu exposes the production flow manual as a primary page', () 
   assert.equal(groupForView(menuGroups, 'productionManual')?.id, 'production')
 })
 
+test('operation manuals live inside their functional menu groups', () => {
+  const expectations = [
+    ['orderSalesManual', 'sales'],
+    ['productionManual', 'production'],
+    ['inventoryMaterialsManual', 'inventory'],
+    ['costingManual', 'product'],
+    ['settingsAuditManual', 'settings'],
+    ['requirementsManual', 'requirements'],
+  ]
+  const keys = primaryMenuKeys(menuGroups)
+  for (const [key, groupID] of expectations) {
+    assert.ok(keys.includes(key), `${key} should be a primary menu item`)
+    assert.equal(groupForView(menuGroups, key)?.id, groupID)
+  }
+  assert.equal(menuGroups.some((group) => /手册|文档/.test(group.name)), false)
+})
+
 test('settings menu exposes sales order settings and keeps sales order detail hidden', () => {
   const keys = primaryMenuKeys(menuGroups)
   assert.ok(keys.includes('companyProfile'))

@@ -5,6 +5,7 @@ export const menuGroups = [
     items: [
       { key: 'order', label: '录单', title: '录单' },
       { key: 'orders', label: '订单列表', title: '订单列表' },
+      { key: 'orderSalesManual', label: '订单销售手册', title: '订单销售手册' },
       { key: 'customers', label: '客户档案', title: '客户档案' },
       { key: 'quotePrint', label: '报价导出', title: '报价导出' },
     ],
@@ -13,7 +14,7 @@ export const menuGroups = [
     id: 'production',
     name: '生产管理',
     items: [
-      { key: 'productionManual', label: '生产流程', title: '生产流程' },
+      { key: 'productionManual', label: '生产手册', title: '生产手册' },
       { key: 'productionAcceptance', label: '生产验收', title: '生产验收' },
       { key: 'producePlan', label: '生产计划/开始生产', title: '生产计划/开始生产' },
       { key: 'produceRunning', label: '生产中', title: '生产中' },
@@ -31,6 +32,7 @@ export const menuGroups = [
       { key: 'warehouseInventory', label: '仓库库存', title: '仓库库存' },
       { key: 'stockOperations', label: '库存作业', title: '库存作业' },
       { key: 'stockOutboundLogs', label: '出库日志', title: '出库日志' },
+      { key: 'inventoryMaterialsManual', label: '库存物料手册', title: '库存物料手册' },
       { key: 'purchase', label: '采购入库', title: '采购入库' },
       { key: 'materials', label: '物料档案', title: '物料档案' },
     ],
@@ -42,6 +44,7 @@ export const menuGroups = [
       { key: 'productSettings', label: '产品设置', title: '产品设置' },
       { key: 'costing', label: '价格与豆单', title: '价格与豆单' },
       { key: 'bom', label: 'BOM配方维护', title: 'BOM配方维护' },
+      { key: 'costingManual', label: '成本核价手册', title: '成本核价手册' },
     ],
   },
   {
@@ -70,6 +73,7 @@ export const menuGroups = [
       { key: 'customerPortalSettings', label: '客户门户配置', title: '客户门户配置' },
       { key: 'customerFulfillment', label: '客户履约账户', title: '客户履约账户' },
       { key: 'customerFulfillmentManual', label: '客户履约手册', title: '客户履约手册' },
+      { key: 'settingsAuditManual', label: '设置审计手册', title: '设置审计手册' },
     ],
   },
   {
@@ -91,6 +95,7 @@ export const menuGroups = [
       { key: 'reqUnit', label: '单元测试表', title: '单元测试表' },
       { key: 'reqApi', label: 'API 测试表', title: 'API 测试表' },
       { key: 'reqReview', label: '需求审核表', title: '需求审核表' },
+      { key: 'requirementsManual', label: '需求管理手册', title: '需求管理手册' },
     ],
   },
 ]

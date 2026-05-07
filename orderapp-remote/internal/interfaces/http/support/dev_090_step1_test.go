@@ -36,20 +36,24 @@ func TestProductionManualVueWiring(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	view, err := os.ReadFile(filepath.Join("frontend-vue-shell", "src", "views", "ProductionManualView.vue"))
+	view, err := os.ReadFile(filepath.Join("frontend-vue-shell", "src", "views", "OperationManualView.vue"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	combined := string(app) + "\n" + string(menu) + "\n" + string(view)
+	manual, err := os.ReadFile(filepath.Join("docs", "OP_MANUAL_PRODUCTION.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	combined := string(app) + "\n" + string(menu) + "\n" + string(view) + "\n" + string(manual)
 	for _, want := range []string{
-		"ProductionManualView",
+		"OperationManualView",
 		"productionManual",
-		"生产流程",
+		"生产手册",
 		"原料入库",
-		"WIP在制仓",
+		"WIP 在制仓",
 		"生产工单",
 		"成品批次",
-		"现场检查清单",
+		"生产验收",
 	} {
 		if !strings.Contains(combined, want) {
 			t.Fatalf("production manual Vue source missing %q", want)

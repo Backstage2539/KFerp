@@ -15,7 +15,7 @@ test('App.vue wires every finance menu key to a Vue view', () => {
     'FinanceReportView',
     'FinanceTaxLedgerView',
     'FinanceSettingsView',
-    'FinanceManualView',
+    'OperationManualView',
   ]) {
     assert.ok(src.includes(name), `App.vue missing ${name}`)
   }

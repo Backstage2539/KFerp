@@ -307,3 +307,10 @@
 - [ ] `deploy_orderapp.sh` 同步 `OPERATION_MANUALS.md` 和 `OP_MANUAL_*.md`。
 - [ ] docs raw route 能读取 `OPERATION_MANUALS.md`。
 - [ ] PR/DEV/UT/API/REV 需求种子包含 PR-DOCS-001。
+
+### O4. 大功能菜单内展示手册（PR-DOCS-002）
+- [ ] ERP 左侧不新增单独“手册”菜单。
+- [ ] 订单销售、生产管理、库存管理、商品与配方、财务管理、设置、需求管理各自菜单内能看到对应操作手册入口。
+- [ ] 客户履约账户仍可从设置菜单和客户履约账户页面顶部进入客户履约手册。
+- [ ] 手册页面读取 `OP_MANUAL_*.md?raw=1`，界面内容与部署 docs 文件一致。
+- [ ] 被合并的旧 `*-user-manual.md` 不再出现在 `orderapp-remote/docs/` 和线上 docs 列表。

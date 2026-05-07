@@ -71,10 +71,10 @@ func TestProductionFlowPageIsPrimaryNewEmployeeEntry(t *testing.T) {
 		t.Fatal(err)
 	}
 	menuSrc := string(menu)
-	flowIndex := strings.Index(menuSrc, "{ key: 'productionManual', label: '生产流程'")
+	flowIndex := strings.Index(menuSrc, "{ key: 'productionManual', label: '生产手册'")
 	planIndex := strings.Index(menuSrc, "{ key: 'producePlan'")
 	if flowIndex < 0 {
-		t.Fatal("production menu must expose productionManual as label 生产流程")
+		t.Fatal("production menu must expose productionManual as label 生产手册")
 	}
 	if planIndex < 0 {
 		t.Fatal("production menu missing producePlan")
@@ -83,17 +83,17 @@ func TestProductionFlowPageIsPrimaryNewEmployeeEntry(t *testing.T) {
 		t.Fatal("production flow page should appear before production plan for new operators")
 	}
 
-	manual, err := os.ReadFile(filepath.Join("frontend-vue-shell", "src", "views", "ProductionManualView.vue"))
+	manual, err := os.ReadFile(filepath.Join("docs", "OP_MANUAL_PRODUCTION.md"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	manualSrc := string(manual)
-	for _, want := range []string{"生产流程用户手册", "流程导航", "库存待发货", "直接发货"} {
+	for _, want := range []string{"操作手册：生产流程", "生产验收", "库存待发货", "直接发货"} {
 		if !strings.Contains(manualSrc, want) {
-			t.Fatalf("ProductionManualView.vue missing %q", want)
+			t.Fatalf("OP_MANUAL_PRODUCTION.md missing %q", want)
 		}
 	}
 	if strings.Contains(manualSrc, "物料需求计划") {
-		t.Fatal("ProductionManualView.vue should not refer operators to the removed material plan page")
+		t.Fatal("OP_MANUAL_PRODUCTION.md should not refer operators to the removed material plan page")
 	}
 }

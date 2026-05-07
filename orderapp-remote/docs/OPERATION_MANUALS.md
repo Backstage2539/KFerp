@@ -10,22 +10,24 @@
 - REV 证据必须包含手册路径；部署时必须把手册同步到 `/app/docs`。
 
 ## 当前手册
-- 现有线上用户手册仍有效，包含 `orderapp-remote/docs/*-user-manual.md` 和 Vue/Vite 中的手册页。
+- 手册入口必须直接放在对应大功能菜单内，不单独建立“手册”或“文档”菜单。
 - `OP_MANUAL_REQUIREMENTS.md`：需求管理 5 张表和证据闭环。
 - `OP_MANUAL_ORDER_SALES.md`：录单、订单列表、客户档案、商品档案、报价导出。
 - `OP_MANUAL_PRODUCTION.md`：生产计划、生产中、工单、工序卡、生产成本、生产日志、分配批次。
 - `OP_MANUAL_INVENTORY_MATERIALS.md`：物料、原料入库、批次、库存流水、库存调整、BOM。
 - `OP_MANUAL_COSTING.md`：成本参数、成本试算、豆单预览、价格发布。
+- `OP_MANUAL_FINANCE.md`：财务首页、费用管理、月度结账、经营报告、票税台账、财务设置。
 - `OP_MANUAL_SETTINGS_AUDIT.md`：设备产能、发货人、代加工模板、部门员工、操作日志。
+- `OP_MANUAL_CUSTOMER_FULFILLMENT.md`：客户履约账户、Excel 导入、客户托管库存、代发订单、费用和月结。
 
 ## 2026-05-07 查缺补漏结果
 - 已补操作手册总索引，统一命名和维护规则。
 - 已补大功能级初版手册，覆盖当前 Vue/Vite 左侧菜单里的主要用户操作区。
+- 已将手册入口放入各大功能菜单，并删除被大功能手册覆盖的旧 `*-user-manual.md` 文档。
 - 已补 `HOW_TO_WORKFLOW.md`：操作手册更新进入固定交付流程。
 - 已补 `DEPLOYMENT.md` 和 `deploy_orderapp.sh`：部署时同步 `OPERATION_MANUALS.md` 和 `OP_MANUAL_*.md`。
-- 后续新增大功能时，必须新增对应 `OP_MANUAL_<FEATURE>.md`，或在既有 `*-user-manual.md` / Vue/Vite 手册页中明确扩展并在本索引登记。
+- 后续新增大功能时，必须新增对应 `OP_MANUAL_<FEATURE>.md`，并把入口放在对应大功能菜单里。
 
 ## 后续必须补的手册
-- 财务月度经营结账中心上线时新增 `OP_MANUAL_FINANCE.md`。
 - 客户门户/小程序主题、客户自助服务等独立大功能稳定后新增客户门户手册。
 - 任何仍由旧 HTML 模板承载的页面迁移到 Vue/Vite 后，要把真实入口和步骤补进对应手册。

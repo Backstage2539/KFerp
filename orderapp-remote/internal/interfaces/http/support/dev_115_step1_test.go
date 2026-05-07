@@ -88,20 +88,20 @@ func TestProductionAcceptanceWIPVueWiring(t *testing.T) {
 		}
 	}
 
-	manual, err := os.ReadFile(filepath.Join(root, "views", "ProductionManualView.vue"))
+	manual, err := os.ReadFile(filepath.Join("docs", "OP_MANUAL_PRODUCTION.md"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	for _, want := range []string{"生产验收", "建议领到 WIP", "WIP占用"} {
 		if !strings.Contains(string(manual), want) {
-			t.Fatalf("ProductionManualView.vue missing %q", want)
+			t.Fatalf("OP_MANUAL_PRODUCTION.md missing %q", want)
 		}
 	}
 }
 
 func TestProductionAcceptanceWIPManualDocs(t *testing.T) {
 	for _, path := range []string{
-		filepath.Join("docs", "production-flow-user-manual.md"),
+		filepath.Join("docs", "OP_MANUAL_PRODUCTION.md"),
 		filepath.Join("docs", "REQUIREMENTS.md"),
 		filepath.Join("docs", "ACCEPTANCE_TESTS.md"),
 	} {

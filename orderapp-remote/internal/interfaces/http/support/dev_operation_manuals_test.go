@@ -93,7 +93,9 @@ func TestOperationManualDocsAreMirrored(t *testing.T) {
 		"OP_MANUAL_PRODUCTION.md",
 		"OP_MANUAL_INVENTORY_MATERIALS.md",
 		"OP_MANUAL_COSTING.md",
+		"OP_MANUAL_FINANCE.md",
 		"OP_MANUAL_SETTINGS_AUDIT.md",
+		"OP_MANUAL_CUSTOMER_FULFILLMENT.md",
 	}
 	for _, name := range manuals {
 		local, err := os.ReadFile(filepath.Join("docs", name))
@@ -114,6 +116,25 @@ func TestOperationManualDocsAreMirrored(t *testing.T) {
 		}
 		if string(root) != string(local) {
 			t.Fatalf("root manual %s and orderapp docs copy differ", name)
+		}
+	}
+}
+
+func TestConsolidatedOperationManualsReplaceLegacyDocs(t *testing.T) {
+	deprecated := []string{
+		"delivery-note-user-manual.md",
+		"order-entry-user-manual.md",
+		"orders-user-manual.md",
+		"production-flow-user-manual.md",
+		"purchase-user-manual.md",
+		"sales-order-user-manual.md",
+		"user-permissions-user-manual.md",
+		"finance-monthly-closing-user-manual.md",
+		"customer-fulfillment-user-manual.md",
+	}
+	for _, name := range deprecated {
+		if _, err := os.Stat(filepath.Join("docs", name)); !os.IsNotExist(err) {
+			t.Fatalf("legacy manual %s should be consolidated into OP_MANUAL_*.md and removed from docs", name)
 		}
 	}
 }
