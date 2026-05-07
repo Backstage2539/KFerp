@@ -39,6 +39,17 @@ func TestOrderResponsibleSearchFrontendAndQueryWiring(t *testing.T) {
 	if !strings.Contains(view, `placeholder="订单号/客户/负责人"`) {
 		t.Fatalf("OrdersView.vue search placeholder must mention responsible person")
 	}
+
+	manual := string(readDev156File(t, "docs/OP_MANUAL_ORDER_SALES.md"))
+	for _, want := range []string{
+		"订单负责人",
+		"负责人名称",
+		"名称快照",
+	} {
+		if !strings.Contains(manual, want) {
+			t.Fatalf("order sales manual missing responsible search guidance %q", want)
+		}
+	}
 }
 
 func readDev156File(t *testing.T, path string) []byte {
