@@ -31,6 +31,26 @@ func TestWorkflowRequiresTestsBeforeImplementation(t *testing.T) {
 	}
 }
 
+func TestDeployScriptSyncsOperationManualDocs(t *testing.T) {
+	body, err := os.ReadFile("../deploy_orderapp.sh")
+	if err != nil {
+		if os.IsNotExist(err) {
+			t.Skip("deploy_orderapp.sh is outside the orderapp Docker build context")
+		}
+		t.Fatal(err)
+	}
+	content := string(body)
+	for _, want := range []string{
+		"OPERATION_MANUALS.md",
+		"OP_MANUAL_*.md",
+		"DOC_FILES=(",
+	} {
+		if !strings.Contains(content, want) {
+			t.Fatalf("deploy script must sync operation manual docs, missing %q", want)
+		}
+	}
+}
+
 func TestProductionLogPlanDoesNotExtendLegacyTemplates(t *testing.T) {
 	body, err := os.ReadFile("docs/superpowers/plans/2026-04-25-production-log-yield.md")
 	if err != nil {

@@ -52,7 +52,9 @@ COPYFILE_DISABLE=1 tar --no-xattrs --no-mac-metadata --exclude='._*' --exclude='
 
 # 3) Sync docs
 ssh -i "$KEY" "$SERVER" "mkdir -p $DOCS_DIR"
-scp -i "$KEY" REQUIREMENTS.md ACCEPTANCE_TESTS.md HOW_TO_WORKFLOW.md DEPLOYMENT.md "$SERVER:$DOCS_DIR/"
+shopt -s nullglob
+DOC_FILES=(REQUIREMENTS.md ACCEPTANCE_TESTS.md HOW_TO_WORKFLOW.md OPERATION_MANUALS.md OP_MANUAL_*.md DEPLOYMENT.md)
+scp -i "$KEY" "${DOC_FILES[@]}" "$SERVER:$DOCS_DIR/"
 
 # 4) Build & restart
 ssh -i "$KEY" "$SERVER" "cd /opt/stacks/erp && docker compose build orderapp && docker compose up -d orderapp"
