@@ -1,9 +1,11 @@
 package customerportal
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
+	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -15,18 +17,25 @@ import (
 )
 
 type fakeService struct {
-	login       customerportalapp.LoginResult
-	me          customerportalapp.CurrentContext
-	service     customerportalapp.ServicePage
-	filter      *customerportalapp.ServicePageFilter
-	customers   []customerportalapp.PortalAdminCustomer
-	detail      customerportalapp.PortalAdminDetail
-	saveCmd     *customerportalapp.UpdatePortalVisibilityCommand
-	directShip  customerportalapp.DirectShipBatch
-	processing  customerportalapp.ProcessingRequest
-	fulfillment customerportalapp.FulfillmentOrder
-	beanList    customerportalapp.BeanListSummary
-	err         error
+	login        customerportalapp.LoginResult
+	me           customerportalapp.CurrentContext
+	service      customerportalapp.ServicePage
+	filter       *customerportalapp.ServicePageFilter
+	customers    []customerportalapp.PortalAdminCustomer
+	detail       customerportalapp.PortalAdminDetail
+	saveCmd      *customerportalapp.UpdatePortalVisibilityCommand
+	mallRows     []customerportalapp.MallProduct
+	mallOptions  []customerportalapp.MallProductOption
+	mallSaveCmd  *customerportalapp.SaveMallProductCommand
+	mallImageCmd *customerportalapp.UpdateMallProductImageCommand
+	mallPage     customerportalapp.MallPage
+	mallOrder    customerportalapp.FulfillmentOrder
+	mallOrderCmd *customerportalapp.CreateMallOrderCommand
+	directShip   customerportalapp.DirectShipBatch
+	processing   customerportalapp.ProcessingRequest
+	fulfillment  customerportalapp.FulfillmentOrder
+	beanList     customerportalapp.BeanListSummary
+	err          error
 }
 
 func (s fakeService) Login(context.Context, customerportalapp.LoginCommand) (customerportalapp.LoginResult, error) {
@@ -89,6 +98,50 @@ func (s fakeService) UpdatePortalVisibility(_ context.Context, cmd customerporta
 		*s.saveCmd = cmd
 	}
 	return s.detail, nil
+}
+
+func (s fakeService) ListMallProducts(context.Context) ([]customerportalapp.MallProduct, []customerportalapp.MallProductOption, error) {
+	if s.err != nil {
+		return nil, nil, s.err
+	}
+	return s.mallRows, s.mallOptions, nil
+}
+
+func (s fakeService) SaveMallProduct(_ context.Context, cmd customerportalapp.SaveMallProductCommand) (customerportalapp.MallProduct, error) {
+	if s.err != nil {
+		return customerportalapp.MallProduct{}, s.err
+	}
+	if s.mallSaveCmd != nil {
+		*s.mallSaveCmd = cmd
+	}
+	return customerportalapp.MallProduct{ID: 12, ProductID: cmd.ProductID, Title: cmd.Title, SpecG: cmd.SpecG, UnitPrice: cmd.UnitPrice, TemplateKey: cmd.TemplateKey, Status: cmd.Status}, nil
+}
+
+func (s fakeService) UpdateMallProductImage(_ context.Context, cmd customerportalapp.UpdateMallProductImageCommand) (customerportalapp.MallProduct, error) {
+	if s.err != nil {
+		return customerportalapp.MallProduct{}, s.err
+	}
+	if s.mallImageCmd != nil {
+		*s.mallImageCmd = cmd
+	}
+	return customerportalapp.MallProduct{ID: cmd.ID, ImageURL: cmd.ImageURL}, nil
+}
+
+func (s fakeService) GetMallPage(context.Context, string) (customerportalapp.MallPage, error) {
+	if s.err != nil {
+		return customerportalapp.MallPage{}, s.err
+	}
+	return s.mallPage, nil
+}
+
+func (s fakeService) CreateMallOrder(_ context.Context, token string, cmd customerportalapp.CreateMallOrderCommand) (customerportalapp.FulfillmentOrder, error) {
+	if s.err != nil {
+		return customerportalapp.FulfillmentOrder{}, s.err
+	}
+	if s.mallOrderCmd != nil {
+		*s.mallOrderCmd = cmd
+	}
+	return s.mallOrder, nil
 }
 
 func (s fakeService) CreateDirectShipBatch(context.Context, string, customerportalapp.CreateDirectShipBatchCommand) (customerportalapp.DirectShipBatch, error) {
@@ -413,12 +466,13 @@ func TestPortalAdminVisibilityAPIsExposeAndSaveCustomerCapabilities(t *testing.T
 	e := echo.New()
 	RegisterRoutes(e, Dependencies{CustomerPortal: fakeService{
 		saveCmd:   &saveCmd,
-		customers: []customerportalapp.PortalAdminCustomer{{ID: 147, Name: "13800138075", PortalEnabled: true, BindingCount: 1, ThemeKey: customerportalapp.PortalThemeCoffeeFactory}},
+		customers: []customerportalapp.PortalAdminCustomer{{ID: 147, Name: "13800138075", PortalEnabled: true, BindingCount: 1, ThemeKey: customerportalapp.PortalThemeCoffeeFactory, MiniappEntryMode: customerportalapp.MiniappEntryModeServices}},
 		detail: customerportalapp.PortalAdminDetail{
-			Customer: customerportalapp.PortalAdminCustomer{ID: 147, Name: "13800138075", DisplayName: "测试客户", PortalEnabled: true, ThemeKey: customerportalapp.PortalThemePremiumPartner},
+			Customer: customerportalapp.PortalAdminCustomer{ID: 147, Name: "13800138075", DisplayName: "测试客户", PortalEnabled: true, ThemeKey: customerportalapp.PortalThemePremiumPartner, MiniappEntryMode: customerportalapp.MiniappEntryModeMall},
 			Bindings: []customerportalapp.PortalUserBinding{{MiniUserID: 1, Phone: "13800138075", Role: "owner", Status: "approved"}},
 			Capabilities: []customerportalapp.CapabilityOption{
 				{Code: customerportalapp.CapabilityBeanList, Label: "我的豆单", Enabled: true},
+				{Code: customerportalapp.CapabilityMall, Label: "商城下单", Enabled: true},
 				{Code: customerportalapp.CapabilityDirectShip, Label: "一件代发", Enabled: true},
 			},
 		},
@@ -430,6 +484,7 @@ func TestPortalAdminVisibilityAPIsExposeAndSaveCustomerCapabilities(t *testing.T
 	if listRec.Code != http.StatusOK ||
 		!strings.Contains(listRec.Body.String(), `"name":"13800138075"`) ||
 		!strings.Contains(listRec.Body.String(), `"theme_key":"coffee_factory"`) ||
+		!strings.Contains(listRec.Body.String(), `"miniapp_entry_mode":"services"`) ||
 		!strings.Contains(listRec.Body.String(), `"binding_count":1`) {
 		t.Fatalf("list status=%d body=%s", listRec.Code, listRec.Body.String())
 	}
@@ -439,12 +494,13 @@ func TestPortalAdminVisibilityAPIsExposeAndSaveCustomerCapabilities(t *testing.T
 	e.ServeHTTP(detailRec, detailReq)
 	if detailRec.Code != http.StatusOK ||
 		!strings.Contains(detailRec.Body.String(), `"theme_key":"premium_partner"`) ||
+		!strings.Contains(detailRec.Body.String(), `"miniapp_entry_mode":"mall"`) ||
 		!strings.Contains(detailRec.Body.String(), `"bindings":[`) ||
 		!strings.Contains(detailRec.Body.String(), `"capabilities":[`) {
 		t.Fatalf("detail status=%d body=%s", detailRec.Code, detailRec.Body.String())
 	}
 
-	body := strings.NewReader(`{"display_name":"测试客户","enabled":true,"theme_key":"premium_partner","capabilities":[{"code":"bean_list","enabled":true},{"code":"direct_ship","enabled":false}]}`)
+	body := strings.NewReader(`{"display_name":"测试客户","enabled":true,"theme_key":"premium_partner","miniapp_entry_mode":"mall","capabilities":[{"code":"bean_list","enabled":true},{"code":"mall","enabled":true},{"code":"direct_ship","enabled":false}]}`)
 	saveReq := httptest.NewRequest(http.MethodPut, "/api/customer-portal/admin/customers/147/visibility", body)
 	saveReq.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
 	saveRec := httptest.NewRecorder()
@@ -454,6 +510,122 @@ func TestPortalAdminVisibilityAPIsExposeAndSaveCustomerCapabilities(t *testing.T
 	}
 	if saveCmd.ThemeKey != customerportalapp.PortalThemePremiumPartner {
 		t.Fatalf("save theme_key=%q, want premium_partner", saveCmd.ThemeKey)
+	}
+	if saveCmd.MiniappEntryMode != customerportalapp.MiniappEntryModeMall {
+		t.Fatalf("save miniapp_entry_mode=%q, want mall", saveCmd.MiniappEntryMode)
+	}
+}
+
+func TestMallAdminAndMiniAPIs(t *testing.T) {
+	var saveCmd customerportalapp.SaveMallProductCommand
+	var orderCmd customerportalapp.CreateMallOrderCommand
+	e := echo.New()
+	RegisterRoutes(e, Dependencies{CustomerPortal: fakeService{
+		mallSaveCmd:  &saveCmd,
+		mallOrderCmd: &orderCmd,
+		mallRows: []customerportalapp.MallProduct{{
+			ID: 11, ProductID: 7, Title: "乌拉嘎", Subtitle: "柑橘莓果", ImageURL: "/assets/mall_products/ulagaa.png",
+			SpecG: 250, UnitPrice: 68, TemplateKey: customerportalapp.MallTemplateHero, Status: customerportalapp.MallProductStatusPublished,
+		}},
+		mallOptions: []customerportalapp.MallProductOption{{ID: 7, Name: "乌拉嘎", DefaultPrice: 88}},
+		mallPage: customerportalapp.MallPage{
+			ThemeKey:            customerportalapp.PortalThemeCleanOps,
+			MiniappEntryMode:    customerportalapp.MiniappEntryModeMall,
+			CurrentCustomerID:   147,
+			CurrentCustomerName: "测试客户",
+			Products: []customerportalapp.MallProduct{{
+				ID: 11, ProductID: 7, Title: "乌拉嘎", Subtitle: "柑橘莓果", SpecG: 250, UnitPrice: 68,
+				TemplateKey: customerportalapp.MallTemplateHero, Status: customerportalapp.MallProductStatusPublished,
+			}},
+		},
+		mallOrder: customerportalapp.FulfillmentOrder{OrderID: 99, OrderNo: "SO-20260507-0099", PortalServiceCode: customerportalapp.PortalServiceMall, SourceWarehouse: "finished_goods"},
+	}})
+
+	listReq := httptest.NewRequest(http.MethodGet, "/api/customer-portal/admin/mall-products", nil)
+	listRec := httptest.NewRecorder()
+	e.ServeHTTP(listRec, listReq)
+	if listRec.Code != http.StatusOK ||
+		!strings.Contains(listRec.Body.String(), `"rows":[`) ||
+		!strings.Contains(listRec.Body.String(), `"product_options":[`) ||
+		!strings.Contains(listRec.Body.String(), `"title":"乌拉嘎"`) ||
+		!strings.Contains(listRec.Body.String(), `"template_key":"hero"`) {
+		t.Fatalf("mall admin list status=%d body=%s", listRec.Code, listRec.Body.String())
+	}
+
+	saveReq := httptest.NewRequest(http.MethodPost, "/api/customer-portal/admin/mall-products", strings.NewReader(`{"product_id":7,"title":"乌拉嘎","subtitle":"柑橘莓果","spec_g":250,"unit_price":68,"template_key":"hero","status":"published","sort_order":3}`))
+	saveReq.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	saveRec := httptest.NewRecorder()
+	e.ServeHTTP(saveRec, saveReq)
+	if saveRec.Code != http.StatusOK || !strings.Contains(saveRec.Body.String(), `"id":12`) {
+		t.Fatalf("mall admin save status=%d body=%s", saveRec.Code, saveRec.Body.String())
+	}
+	if saveCmd.ProductID != 7 || saveCmd.Title != "乌拉嘎" || saveCmd.TemplateKey != customerportalapp.MallTemplateHero || saveCmd.Status != customerportalapp.MallProductStatusPublished {
+		t.Fatalf("mall save command=%+v", saveCmd)
+	}
+
+	mallReq := httptest.NewRequest(http.MethodGet, "/api/mini/mall", nil)
+	mallReq.Header.Set(echo.HeaderAuthorization, "Bearer mini-token")
+	mallRec := httptest.NewRecorder()
+	e.ServeHTTP(mallRec, mallReq)
+	if mallRec.Code != http.StatusOK ||
+		!strings.Contains(mallRec.Body.String(), `"miniapp_entry_mode":"mall"`) ||
+		!strings.Contains(mallRec.Body.String(), `"products":[`) ||
+		!strings.Contains(mallRec.Body.String(), `"unit_price":68`) {
+		t.Fatalf("mini mall status=%d body=%s", mallRec.Code, mallRec.Body.String())
+	}
+
+	orderReq := httptest.NewRequest(http.MethodPost, "/api/mini/mall/orders", strings.NewReader(`{"recipient_name":"张三","recipient_phone":"13800138000","recipient_address":"上海市","items":[{"mall_product_id":11,"qty":2}]}`))
+	orderReq.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	orderReq.Header.Set(echo.HeaderAuthorization, "Bearer mini-token")
+	orderRec := httptest.NewRecorder()
+	e.ServeHTTP(orderRec, orderReq)
+	if orderRec.Code != http.StatusOK ||
+		!strings.Contains(orderRec.Body.String(), `"order_no":"SO-20260507-0099"`) ||
+		!strings.Contains(orderRec.Body.String(), `"portal_service_code":"mall"`) {
+		t.Fatalf("mini mall order status=%d body=%s", orderRec.Code, orderRec.Body.String())
+	}
+	if orderCmd.RecipientName != "张三" || len(orderCmd.Items) != 1 || orderCmd.Items[0].MallProductID != 11 || orderCmd.Items[0].Qty != 2 {
+		t.Fatalf("mall order command=%+v", orderCmd)
+	}
+}
+
+func TestMallAdminImageUploadStoresAndServesPublicAsset(t *testing.T) {
+	var imageCmd customerportalapp.UpdateMallProductImageCommand
+	e := echo.New()
+	RegisterRoutes(e, Dependencies{
+		CustomerPortal: fakeService{mallImageCmd: &imageCmd},
+		AssetDir:       t.TempDir(),
+	})
+
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
+	part, err := writer.CreateFormFile("file", "hero.png")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := part.Write([]byte("fake-image")); err != nil {
+		t.Fatal(err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	uploadReq := httptest.NewRequest(http.MethodPost, "/api/customer-portal/admin/mall-products/12/image", &body)
+	uploadReq.Header.Set(echo.HeaderContentType, writer.FormDataContentType())
+	uploadRec := httptest.NewRecorder()
+	e.ServeHTTP(uploadRec, uploadReq)
+	if uploadRec.Code != http.StatusOK ||
+		imageCmd.ID != 12 ||
+		!strings.HasPrefix(imageCmd.ImageURL, "/assets/mall_products/12/") ||
+		!strings.Contains(uploadRec.Body.String(), `"image_url":"`) {
+		t.Fatalf("upload status=%d cmd=%+v body=%s", uploadRec.Code, imageCmd, uploadRec.Body.String())
+	}
+
+	assetReq := httptest.NewRequest(http.MethodGet, imageCmd.ImageURL, nil)
+	assetRec := httptest.NewRecorder()
+	e.ServeHTTP(assetRec, assetReq)
+	if assetRec.Code != http.StatusOK || assetRec.Body.String() != "fake-image" {
+		t.Fatalf("asset status=%d body=%q", assetRec.Code, assetRec.Body.String())
 	}
 }
 

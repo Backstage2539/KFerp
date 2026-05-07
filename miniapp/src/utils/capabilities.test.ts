@@ -9,10 +9,21 @@ describe('visibleHomeEntries', () => {
   it('shows only entries enabled by customer capabilities', () => {
     const entries = visibleHomeEntries([
       { code: 'direct_ship', enabled: true },
+      { code: 'mall', enabled: true },
       { code: 'processing', enabled: false },
       { code: 'settlement', enabled: true },
     ])
-    expect(entries.map((entry) => entry.key)).toEqual(['orders', 'directShip', 'settlement'])
+    expect(entries.map((entry) => entry.key)).toEqual(['mall', 'orders', 'directShip', 'settlement'])
+  })
+
+  it('uses the dedicated mall page for customer shopping', () => {
+    const entries = visibleHomeEntries([{ code: 'mall', enabled: true }])
+    expect(entries).toContainEqual({
+      key: 'mall',
+      label: '商城下单',
+      capability: 'mall',
+      url: '/pages/mall/mall',
+    })
   })
 
   it('gives every visible entry a service detail URL for tap navigation', () => {

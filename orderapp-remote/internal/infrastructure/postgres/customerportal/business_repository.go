@@ -60,6 +60,49 @@ func (r Repository) LoadServicePage(ctx context.Context, query customerportalapp
 	return page, nil
 }
 
+func (r Repository) LoadMallPage(ctx context.Context, customerID int64) (customerportalapp.MallPage, error) {
+	page := customerportalapp.MallPage{
+		ThemeKey:         customerportalapp.PortalThemeCoffeeFactory,
+		MiniappEntryMode: customerportalapp.MiniappEntryModeServices,
+		Products:         []customerportalapp.MallProduct{},
+	}
+	_ = r.pool.QueryRow(ctx, fmt.Sprintf(`
+		SELECT COALESCE(NULLIF(p.theme_key,''),'coffee_factory'),
+		       COALESCE(NULLIF(p.miniapp_entry_mode,''),'services'),
+		       COALESCE(NULLIF(p.display_name,''), c.name, '')
+		FROM %s.customers c
+		LEFT JOIN %s.customer_portal_profiles p ON p.customer_id=c.id
+		WHERE c.id=$1
+	`, r.schema, r.schema), customerID).Scan(&page.ThemeKey, &page.MiniappEntryMode, &page.CurrentCustomerName)
+	page.ThemeKey = customerportalapp.NormalizePortalThemeKey(page.ThemeKey)
+	page.MiniappEntryMode = customerportalapp.NormalizeMiniappEntryMode(page.MiniappEntryMode)
+	page.CurrentCustomerID = customerID
+
+	rows, err := r.pool.Query(ctx, fmt.Sprintf(`
+		SELECT m.id, m.product_id, COALESCE(p.name,''), COALESCE(NULLIF(m.title,''), p.name, ''), m.subtitle, m.description,
+		       m.image_url, m.spec_g, m.unit_price, m.template_key, m.status, m.sort_order,
+		       to_char(m.updated_at,'YYYY-MM-DD HH24:MI')
+		FROM %s.mall_products m
+		JOIN %s.products p ON p.id=m.product_id
+		WHERE p.active=true AND m.status='published'
+		ORDER BY m.sort_order, m.id
+	`, r.schema, r.schema))
+	if err != nil {
+		return customerportalapp.MallPage{}, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var row customerportalapp.MallProduct
+		if err := rows.Scan(&row.ID, &row.ProductID, &row.ProductName, &row.Title, &row.Subtitle, &row.Description, &row.ImageURL, &row.SpecG, &row.UnitPrice, &row.TemplateKey, &row.Status, &row.SortOrder, &row.UpdatedAt); err != nil {
+			return customerportalapp.MallPage{}, err
+		}
+		row.TemplateKey = customerportalapp.NormalizeMallTemplateKey(row.TemplateKey)
+		row.Status = customerportalapp.NormalizeMallProductStatus(row.Status)
+		page.Products = append(page.Products, row)
+	}
+	return page, rows.Err()
+}
+
 func (r Repository) LoadBeanListPublication(ctx context.Context, customerID, publicationID int64) (customerportalapp.BeanListSummary, error) {
 	var row customerportalapp.BeanListSummary
 	var configJSON []byte
@@ -824,6 +867,134 @@ func (r Repository) CreateProcessingRequest(ctx context.Context, cmd customerpor
 		return customerportalapp.ProcessingRequest{}, err
 	}
 	return row, nil
+}
+
+type mallOrderLine struct {
+	MallProductID int64
+	ProductID     int64
+	Title         string
+	SpecG         int64
+	UnitPrice     float64
+}
+
+func (r Repository) CreateMallOrder(ctx context.Context, cmd customerportalapp.CreateMallOrderCommand) (customerportalapp.FulfillmentOrder, error) {
+	tx, err := r.pool.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return customerportalapp.FulfillmentOrder{}, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	if _, err := tx.Exec(ctx, fmt.Sprintf("LOCK TABLE %s.orders IN SHARE ROW EXCLUSIVE MODE", r.schema)); err != nil {
+		return customerportalapp.FulfillmentOrder{}, err
+	}
+
+	ids := make([]int64, 0, len(cmd.Items))
+	for _, item := range cmd.Items {
+		ids = append(ids, item.MallProductID)
+	}
+	rows, err := tx.Query(ctx, fmt.Sprintf(`
+		SELECT m.id, m.product_id, COALESCE(NULLIF(m.title,''), p.name, ''), m.spec_g, m.unit_price
+		FROM %s.mall_products m
+		JOIN %s.products p ON p.id=m.product_id
+		WHERE m.id = ANY($1) AND m.status='published' AND p.active=true
+	`, r.schema, r.schema), ids)
+	if err != nil {
+		return customerportalapp.FulfillmentOrder{}, err
+	}
+	linesByMallProduct := map[int64]mallOrderLine{}
+	for rows.Next() {
+		var line mallOrderLine
+		if err := rows.Scan(&line.MallProductID, &line.ProductID, &line.Title, &line.SpecG, &line.UnitPrice); err != nil {
+			rows.Close()
+			return customerportalapp.FulfillmentOrder{}, err
+		}
+		linesByMallProduct[line.MallProductID] = line
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return customerportalapp.FulfillmentOrder{}, err
+	}
+	rows.Close()
+
+	totalAmount := 0.0
+	for _, item := range cmd.Items {
+		line, ok := linesByMallProduct[item.MallProductID]
+		if !ok {
+			return customerportalapp.FulfillmentOrder{}, fmt.Errorf("mall product not found")
+		}
+		totalAmount += line.UnitPrice * float64(item.Qty)
+	}
+	shippingAmount := cmd.ShippingAmount
+	if shippingAmount < 0 {
+		shippingAmount = 0
+	}
+	grandTotal := totalAmount + shippingAmount
+	senderID, err := r.defaultSenderForCustomerTx(ctx, tx, cmd.CustomerID)
+	if err != nil {
+		return customerportalapp.FulfillmentOrder{}, err
+	}
+	orderDate := time.Now()
+	orderNo, err := nextCustomerPortalOrderNo(ctx, tx, r.schema, orderDate)
+	if err != nil {
+		return customerportalapp.FulfillmentOrder{}, err
+	}
+	payStatusID := customerPortalStatusID(ctx, tx, r.schema, "pay_statuses", "未付款", "未收款")
+	shipStatusID := customerPortalStatusID(ctx, tx, r.schema, "ship_statuses", "未发货")
+	processStatusID := customerPortalStatusID(ctx, tx, r.schema, "order_process_statuses", "待处理", "待生产")
+
+	var orderID int64
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`
+		INSERT INTO %s.orders(
+			order_date,customer_id,pay_status_id,ship_status_id,process_status_id,
+			receiver_name,receiver_phone,receiver_address,receiver_company,
+			portal_service_code,source_warehouse,sender_id,notes,
+			total_amount,shipping_amount,grand_total,order_no
+		) VALUES (
+			$1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17
+		)
+		RETURNING id
+	`, r.schema),
+		orderDate,
+		cmd.CustomerID,
+		portalNullInt(payStatusID),
+		portalNullInt(shipStatusID),
+		portalNullInt(processStatusID),
+		strings.TrimSpace(cmd.RecipientName),
+		strings.TrimSpace(cmd.RecipientPhone),
+		strings.TrimSpace(cmd.RecipientAddress),
+		strings.TrimSpace(cmd.RecipientCompany),
+		customerportalapp.PortalServiceMall,
+		"finished_goods",
+		senderID,
+		strings.TrimSpace(cmd.Note),
+		totalAmount,
+		shippingAmount,
+		grandTotal,
+		orderNo,
+	).Scan(&orderID); err != nil {
+		return customerportalapp.FulfillmentOrder{}, err
+	}
+
+	for i, item := range cmd.Items {
+		line := linesByMallProduct[item.MallProductID]
+		lineTotal := line.UnitPrice * float64(item.Qty)
+		if _, err := tx.Exec(ctx, fmt.Sprintf(`
+			INSERT INTO %s.order_items(order_id,line_no,product_id,item_name,qty,unit,spec,unit_price,line_total)
+			VALUES($1,$2,$3,$4,$5,'件',$6,$7,$8)
+		`, r.schema), orderID, i+1, line.ProductID, line.Title, item.Qty, fmt.Sprintf("%dg", line.SpecG), line.UnitPrice, lineTotal); err != nil {
+			return customerportalapp.FulfillmentOrder{}, err
+		}
+	}
+	_ = cmd.CreatedByMiniUserID
+	if err := tx.Commit(ctx); err != nil {
+		return customerportalapp.FulfillmentOrder{}, err
+	}
+	return customerportalapp.FulfillmentOrder{
+		OrderID:           orderID,
+		OrderNo:           orderNo,
+		PortalServiceCode: customerportalapp.PortalServiceMall,
+		SourceWarehouse:   "finished_goods",
+	}, nil
 }
 
 func (r Repository) CreateFulfillmentOrder(ctx context.Context, cmd customerportalapp.CreateFulfillmentOrderCommand) (customerportalapp.FulfillmentOrder, error) {

@@ -52,6 +52,16 @@ type fulfillmentOrderRequest struct {
 	Note             string  `json:"note"`
 }
 
+type mallOrderRequest struct {
+	RecipientName    string                                   `json:"recipient_name"`
+	RecipientPhone   string                                   `json:"recipient_phone"`
+	RecipientAddress string                                   `json:"recipient_address"`
+	RecipientCompany string                                   `json:"recipient_company"`
+	ShippingAmount   float64                                  `json:"shipping_amount"`
+	Note             string                                   `json:"note"`
+	Items            []customerportalapp.MallOrderItemCommand `json:"items"`
+}
+
 func registerMiniAPI(e *echo.Echo, svc Service, beanListPDFRenderer BeanListPDFRenderer) {
 	e.POST("/api/mini/login", func(c echo.Context) error {
 		if svc == nil {
@@ -117,6 +127,48 @@ func registerMiniAPI(e *echo.Echo, svc Service, beanListPDFRenderer BeanListPDFR
 			ProcessStatus: c.QueryParam("process_status"),
 			PayStatus:     c.QueryParam("pay_status"),
 			ShipStatus:    c.QueryParam("ship_status"),
+		})
+		if err != nil {
+			return miniBusinessError(c, err)
+		}
+		return c.JSON(http.StatusOK, result)
+	})
+
+	e.GET("/api/mini/mall", func(c echo.Context) error {
+		if svc == nil {
+			return miniInternalError(c)
+		}
+		token := miniTokenFromHeader(c.Request().Header.Get(echo.HeaderAuthorization))
+		if token == "" {
+			return c.JSON(http.StatusUnauthorized, map[string]string{"error": "mini token required"})
+		}
+		result, err := svc.GetMallPage(c.Request().Context(), token)
+		if err != nil {
+			return miniBusinessError(c, err)
+		}
+		return c.JSON(http.StatusOK, result)
+	})
+
+	e.POST("/api/mini/mall/orders", func(c echo.Context) error {
+		if svc == nil {
+			return miniInternalError(c)
+		}
+		token := miniTokenFromHeader(c.Request().Header.Get(echo.HeaderAuthorization))
+		if token == "" {
+			return c.JSON(http.StatusUnauthorized, map[string]string{"error": "mini token required"})
+		}
+		var req mallOrderRequest
+		if err := c.Bind(&req); err != nil {
+			return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid request"})
+		}
+		result, err := svc.CreateMallOrder(c.Request().Context(), token, customerportalapp.CreateMallOrderCommand{
+			RecipientName:    req.RecipientName,
+			RecipientPhone:   req.RecipientPhone,
+			RecipientAddress: req.RecipientAddress,
+			RecipientCompany: req.RecipientCompany,
+			ShippingAmount:   req.ShippingAmount,
+			Note:             req.Note,
+			Items:            req.Items,
 		})
 		if err != nil {
 			return miniBusinessError(c, err)
@@ -291,7 +343,8 @@ func isMiniValidationError(err error) bool {
 	case "code required", "openid required", "customer required", "mini token required",
 		"service key invalid", "source_name required", "total_rows invalid", "input_material required",
 		"input_qty required", "target_product required", "target_spec required", "target_qty required",
-		"bean_list required":
+		"bean_list required", "recipient_name required", "recipient_phone required", "recipient_address required",
+		"items required", "mall_product required", "qty required":
 		return true
 	default:
 		return false

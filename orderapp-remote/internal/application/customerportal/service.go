@@ -4,12 +4,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"sort"
 	"strings"
 	"time"
 )
 
 const (
+	CapabilityMall             = "mall"
 	CapabilityBeanList         = "bean_list"
 	CapabilityProductOrder     = "product_order"
 	CapabilityDirectShip       = "direct_ship"
@@ -34,12 +34,29 @@ const (
 	PortalServiceProductOrder       = "product_order"
 	PortalServiceDirectShip         = "direct_ship"
 	PortalServiceProcessingShipment = "processing_ship"
+	PortalServiceMall               = "mall"
 )
 
 const (
 	PortalThemeCoffeeFactory  = "coffee_factory"
 	PortalThemeCleanOps       = "clean_ops"
 	PortalThemePremiumPartner = "premium_partner"
+)
+
+const (
+	MiniappEntryModeServices = "services"
+	MiniappEntryModeMall     = "mall"
+)
+
+const (
+	MallProductStatusDraft     = "draft"
+	MallProductStatusPublished = "published"
+)
+
+const (
+	MallTemplateHero    = "hero"
+	MallTemplateCompact = "compact"
+	MallTemplateWide    = "wide"
 )
 
 var (
@@ -75,6 +92,7 @@ type LoginResult struct {
 	MiniUserID        int64             `json:"mini_user_id"`
 	CurrentCustomerID int64             `json:"current_customer_id"`
 	ThemeKey          string            `json:"theme_key"`
+	MiniappEntryMode  string            `json:"miniapp_entry_mode"`
 	Bindings          []CustomerBinding `json:"bindings"`
 	Capabilities      []Capability      `json:"capabilities"`
 }
@@ -97,6 +115,7 @@ type CurrentContext struct {
 	CurrentCustomerID   int64             `json:"current_customer_id"`
 	CurrentCustomerName string            `json:"current_customer_name"`
 	ThemeKey            string            `json:"theme_key"`
+	MiniappEntryMode    string            `json:"miniapp_entry_mode"`
 	Bindings            []CustomerBinding `json:"bindings"`
 	Capabilities        []Capability      `json:"capabilities"`
 }
@@ -165,6 +184,74 @@ type ProductSummary struct {
 	RetailPrice200 string `json:"retail_price_200g"`
 	RetailPrice227 string `json:"retail_price_227g"`
 	RetailPrice250 string `json:"retail_price_250g"`
+}
+
+type MallProduct struct {
+	ID          int64   `json:"id"`
+	ProductID   int64   `json:"product_id"`
+	ProductName string  `json:"product_name"`
+	Title       string  `json:"title"`
+	Subtitle    string  `json:"subtitle"`
+	Description string  `json:"description"`
+	ImageURL    string  `json:"image_url"`
+	SpecG       int64   `json:"spec_g"`
+	UnitPrice   float64 `json:"unit_price"`
+	TemplateKey string  `json:"template_key"`
+	Status      string  `json:"status"`
+	SortOrder   int     `json:"sort_order"`
+	UpdatedAt   string  `json:"updated_at"`
+}
+
+type MallProductOption struct {
+	ID           int64   `json:"id"`
+	Name         string  `json:"name"`
+	DefaultPrice float64 `json:"default_price"`
+}
+
+type MallPage struct {
+	ThemeKey            string        `json:"theme_key"`
+	MiniappEntryMode    string        `json:"miniapp_entry_mode"`
+	CurrentCustomerID   int64         `json:"current_customer_id"`
+	CurrentCustomerName string        `json:"current_customer_name"`
+	Products            []MallProduct `json:"products"`
+}
+
+type SaveMallProductCommand struct {
+	ID          int64
+	ProductID   int64
+	Title       string
+	Subtitle    string
+	Description string
+	ImageURL    string
+	SpecG       int64
+	UnitPrice   float64
+	TemplateKey string
+	Status      string
+	SortOrder   int
+	Actor       string
+}
+
+type UpdateMallProductImageCommand struct {
+	ID       int64
+	ImageURL string
+	Actor    string
+}
+
+type MallOrderItemCommand struct {
+	MallProductID int64 `json:"mall_product_id"`
+	Qty           int64 `json:"qty"`
+}
+
+type CreateMallOrderCommand struct {
+	CustomerID          int64
+	CreatedByMiniUserID int64
+	RecipientName       string
+	RecipientPhone      string
+	RecipientAddress    string
+	RecipientCompany    string
+	ShippingAmount      float64
+	Note                string
+	Items               []MallOrderItemCommand
 }
 
 type CustomerOrderSummary struct {
@@ -367,6 +454,7 @@ type PortalAdminCustomer struct {
 	PortalEnabled           bool   `json:"portal_enabled"`
 	PortalStatus            string `json:"portal_status"`
 	ThemeKey                string `json:"theme_key"`
+	MiniappEntryMode        string `json:"miniapp_entry_mode"`
 	BindingCount            int    `json:"binding_count"`
 }
 
@@ -393,6 +481,7 @@ type UpdatePortalVisibilityCommand struct {
 	DefaultSenderID         int64
 	Enabled                 bool
 	ThemeKey                string
+	MiniappEntryMode        string
 	Capabilities            []CapabilityOption
 	UpdatedBy               string
 }
@@ -439,6 +528,11 @@ type Repository interface {
 	ListPortalAdminCustomers(ctx context.Context, query PortalAdminCustomerQuery) ([]PortalAdminCustomer, error)
 	PortalAdminDetail(ctx context.Context, customerID int64) (PortalAdminDetail, error)
 	UpdatePortalVisibility(ctx context.Context, cmd UpdatePortalVisibilityCommand) (PortalAdminDetail, error)
+	ListMallProducts(ctx context.Context) ([]MallProduct, []MallProductOption, error)
+	SaveMallProduct(ctx context.Context, cmd SaveMallProductCommand) (MallProduct, error)
+	UpdateMallProductImage(ctx context.Context, cmd UpdateMallProductImageCommand) (MallProduct, error)
+	LoadMallPage(ctx context.Context, customerID int64) (MallPage, error)
+	CreateMallOrder(ctx context.Context, cmd CreateMallOrderCommand) (FulfillmentOrder, error)
 	CreateDirectShipBatch(ctx context.Context, cmd CreateDirectShipBatchCommand) (DirectShipBatch, error)
 	CreateProcessingRequest(ctx context.Context, cmd CreateProcessingRequestCommand) (ProcessingRequest, error)
 	CreateFulfillmentOrder(ctx context.Context, cmd CreateFulfillmentOrderCommand) (FulfillmentOrder, error)
@@ -620,6 +714,7 @@ func (s *Service) UpdatePortalVisibility(ctx context.Context, cmd UpdatePortalVi
 	cmd.ProcessingWarehouseCode = strings.TrimSpace(cmd.ProcessingWarehouseCode)
 	cmd.UpdatedBy = strings.TrimSpace(cmd.UpdatedBy)
 	cmd.ThemeKey = NormalizePortalThemeKey(cmd.ThemeKey)
+	cmd.MiniappEntryMode = NormalizeMiniappEntryMode(cmd.MiniappEntryMode)
 	cmd.Capabilities = normalizeCapabilityOptions(cmd.Capabilities)
 	detail, err := s.repo.UpdatePortalVisibility(ctx, cmd)
 	if err != nil {
@@ -628,6 +723,123 @@ func (s *Service) UpdatePortalVisibility(ctx context.Context, cmd UpdatePortalVi
 	detail.Customer = normalizePortalAdminCustomer(detail.Customer)
 	detail.Capabilities = completeCapabilityOptions(detail.Capabilities)
 	return detail, nil
+}
+
+func (s *Service) ListMallProducts(ctx context.Context) ([]MallProduct, []MallProductOption, error) {
+	if s.repo == nil {
+		return nil, nil, fmt.Errorf("repository required")
+	}
+	rows, options, err := s.repo.ListMallProducts(ctx)
+	if err != nil {
+		return nil, nil, err
+	}
+	for i := range rows {
+		rows[i] = normalizeMallProduct(rows[i])
+	}
+	if options == nil {
+		options = []MallProductOption{}
+	}
+	return rows, options, nil
+}
+
+func (s *Service) SaveMallProduct(ctx context.Context, cmd SaveMallProductCommand) (MallProduct, error) {
+	if s.repo == nil {
+		return MallProduct{}, fmt.Errorf("repository required")
+	}
+	cmd = normalizeMallProductCommand(cmd)
+	if cmd.ProductID <= 0 {
+		return MallProduct{}, fmt.Errorf("product required")
+	}
+	if cmd.Title == "" {
+		return MallProduct{}, fmt.Errorf("title required")
+	}
+	if cmd.SpecG <= 0 {
+		return MallProduct{}, fmt.Errorf("spec required")
+	}
+	if cmd.UnitPrice < 0 {
+		return MallProduct{}, fmt.Errorf("unit_price invalid")
+	}
+	row, err := s.repo.SaveMallProduct(ctx, cmd)
+	if err != nil {
+		return MallProduct{}, err
+	}
+	return normalizeMallProduct(row), nil
+}
+
+func (s *Service) UpdateMallProductImage(ctx context.Context, cmd UpdateMallProductImageCommand) (MallProduct, error) {
+	if s.repo == nil {
+		return MallProduct{}, fmt.Errorf("repository required")
+	}
+	cmd.ImageURL = strings.TrimSpace(cmd.ImageURL)
+	cmd.Actor = strings.TrimSpace(cmd.Actor)
+	if cmd.ID <= 0 {
+		return MallProduct{}, fmt.Errorf("mall_product required")
+	}
+	if cmd.ImageURL == "" {
+		return MallProduct{}, fmt.Errorf("image_url required")
+	}
+	row, err := s.repo.UpdateMallProductImage(ctx, cmd)
+	if err != nil {
+		return MallProduct{}, err
+	}
+	return normalizeMallProduct(row), nil
+}
+
+func (s *Service) GetMallPage(ctx context.Context, token string) (MallPage, error) {
+	current, err := s.requireCustomerCapability(ctx, token, CapabilityMall)
+	if err != nil {
+		return MallPage{}, err
+	}
+	page, err := s.repo.LoadMallPage(ctx, current.CurrentCustomerID)
+	if err != nil {
+		return MallPage{}, err
+	}
+	page.ThemeKey = NormalizePortalThemeKey(firstNonEmpty(page.ThemeKey, current.ThemeKey))
+	page.MiniappEntryMode = NormalizeMiniappEntryMode(firstNonEmpty(page.MiniappEntryMode, current.MiniappEntryMode))
+	page.CurrentCustomerID = current.CurrentCustomerID
+	page.CurrentCustomerName = firstNonEmpty(page.CurrentCustomerName, current.CurrentCustomerName)
+	if page.Products == nil {
+		page.Products = []MallProduct{}
+	}
+	for i := range page.Products {
+		page.Products[i] = normalizeMallProduct(page.Products[i])
+	}
+	return page, nil
+}
+
+func (s *Service) CreateMallOrder(ctx context.Context, token string, cmd CreateMallOrderCommand) (FulfillmentOrder, error) {
+	current, err := s.requireCustomerCapability(ctx, token, CapabilityMall)
+	if err != nil {
+		return FulfillmentOrder{}, err
+	}
+	cmd.CustomerID = current.CurrentCustomerID
+	cmd.CreatedByMiniUserID = current.MiniUserID
+	cmd.RecipientName = strings.TrimSpace(cmd.RecipientName)
+	cmd.RecipientPhone = strings.TrimSpace(cmd.RecipientPhone)
+	cmd.RecipientAddress = strings.TrimSpace(cmd.RecipientAddress)
+	cmd.RecipientCompany = strings.TrimSpace(cmd.RecipientCompany)
+	cmd.Note = strings.TrimSpace(cmd.Note)
+	if cmd.RecipientName == "" {
+		return FulfillmentOrder{}, fmt.Errorf("recipient_name required")
+	}
+	if cmd.RecipientPhone == "" {
+		return FulfillmentOrder{}, fmt.Errorf("recipient_phone required")
+	}
+	if cmd.RecipientAddress == "" {
+		return FulfillmentOrder{}, fmt.Errorf("recipient_address required")
+	}
+	if len(cmd.Items) == 0 {
+		return FulfillmentOrder{}, fmt.Errorf("items required")
+	}
+	for i := range cmd.Items {
+		if cmd.Items[i].MallProductID <= 0 {
+			return FulfillmentOrder{}, fmt.Errorf("mall_product required")
+		}
+		if cmd.Items[i].Qty <= 0 {
+			return FulfillmentOrder{}, fmt.Errorf("qty required")
+		}
+	}
+	return s.repo.CreateMallOrder(ctx, cmd)
 }
 
 func (s *Service) CreateDirectShipBatch(ctx context.Context, token string, cmd CreateDirectShipBatchCommand) (DirectShipBatch, error) {
@@ -785,16 +997,19 @@ func serviceKeyContainsOrders(key string) bool {
 
 func normalizeLoginResult(result LoginResult) LoginResult {
 	result.ThemeKey = NormalizePortalThemeKey(result.ThemeKey)
+	result.MiniappEntryMode = NormalizeMiniappEntryMode(result.MiniappEntryMode)
 	return result
 }
 
 func normalizeCurrentContext(current CurrentContext) CurrentContext {
 	current.ThemeKey = NormalizePortalThemeKey(current.ThemeKey)
+	current.MiniappEntryMode = NormalizeMiniappEntryMode(current.MiniappEntryMode)
 	return current
 }
 
 func normalizePortalAdminCustomer(customer PortalAdminCustomer) PortalAdminCustomer {
 	customer.ThemeKey = NormalizePortalThemeKey(customer.ThemeKey)
+	customer.MiniappEntryMode = NormalizeMiniappEntryMode(customer.MiniappEntryMode)
 	return customer
 }
 
@@ -808,6 +1023,64 @@ func NormalizePortalThemeKey(value string) string {
 		return PortalThemePremiumPartner
 	default:
 		return PortalThemeCoffeeFactory
+	}
+}
+
+func NormalizeMiniappEntryMode(value string) string {
+	switch strings.TrimSpace(value) {
+	case MiniappEntryModeMall:
+		return MiniappEntryModeMall
+	default:
+		return MiniappEntryModeServices
+	}
+}
+
+func normalizeMallProductCommand(cmd SaveMallProductCommand) SaveMallProductCommand {
+	cmd.Title = strings.Join(strings.Fields(strings.TrimSpace(cmd.Title)), " ")
+	cmd.Subtitle = strings.Join(strings.Fields(strings.TrimSpace(cmd.Subtitle)), " ")
+	cmd.Description = strings.TrimSpace(cmd.Description)
+	cmd.ImageURL = strings.TrimSpace(cmd.ImageURL)
+	cmd.Actor = strings.TrimSpace(cmd.Actor)
+	if cmd.SpecG <= 0 {
+		cmd.SpecG = 454
+	}
+	cmd.TemplateKey = NormalizeMallTemplateKey(cmd.TemplateKey)
+	cmd.Status = NormalizeMallProductStatus(cmd.Status)
+	return cmd
+}
+
+func normalizeMallProduct(row MallProduct) MallProduct {
+	row.Title = strings.Join(strings.Fields(strings.TrimSpace(row.Title)), " ")
+	row.Subtitle = strings.Join(strings.Fields(strings.TrimSpace(row.Subtitle)), " ")
+	row.Description = strings.TrimSpace(row.Description)
+	row.ImageURL = strings.TrimSpace(row.ImageURL)
+	if row.SpecG <= 0 {
+		row.SpecG = 454
+	}
+	row.TemplateKey = NormalizeMallTemplateKey(row.TemplateKey)
+	row.Status = NormalizeMallProductStatus(row.Status)
+	return row
+}
+
+func NormalizeMallProductStatus(value string) string {
+	switch strings.TrimSpace(value) {
+	case MallProductStatusPublished:
+		return MallProductStatusPublished
+	default:
+		return MallProductStatusDraft
+	}
+}
+
+func NormalizeMallTemplateKey(value string) string {
+	switch strings.TrimSpace(value) {
+	case MallTemplateHero:
+		return MallTemplateHero
+	case MallTemplateCompact:
+		return MallTemplateCompact
+	case MallTemplateWide:
+		return MallTemplateWide
+	default:
+		return MallTemplateHero
 	}
 }
 
@@ -848,12 +1121,23 @@ func normalizeDateString(value string) string {
 func DefaultCapabilityOptions() []CapabilityOption {
 	return []CapabilityOption{
 		{Code: CapabilityBeanList, Label: "我的豆单", Description: "查看客户专属豆单；没有专属豆单时默认查看系统最新已发布豆单"},
+		{Code: CapabilityMall, Label: "商城下单", Description: "面向 C 端客户展示商城、浏览上架商品并提交订单"},
 		{Code: CapabilityProductOrder, Label: "现货下单", Description: "查看现货商品和自己的历史订单"},
 		{Code: CapabilityDirectShip, Label: "一件代发", Description: "查看代发批次、订单生产和发货状态"},
 		{Code: CapabilityProcessing, Label: "代加工", Description: "查看托管库存并提交加工申请"},
 		{Code: CapabilityInventoryCustody, Label: "我的库存", Description: "查看客户托管的生豆、成品和包材库存"},
 		{Code: CapabilitySettlement, Label: "结算中心", Description: "查看费用明细和结算单"},
 	}
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value != "" {
+			return value
+		}
+	}
+	return ""
 }
 
 func completeCapabilityOptions(existing []CapabilityOption) []CapabilityOption {
@@ -910,9 +1194,6 @@ func normalizeCapabilityOptions(input []CapabilityOption) []CapabilityOption {
 			out = append(out, got)
 		}
 	}
-	sort.SliceStable(out, func(i, j int) bool {
-		return out[i].Code < out[j].Code
-	})
 	return out
 }
 

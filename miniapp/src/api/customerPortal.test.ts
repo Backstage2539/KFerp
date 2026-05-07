@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { buildServicePagePath } from './customerPortal'
+import { buildMallOrderPath, buildMallPagePath, buildServicePagePath } from './customerPortal'
 
 describe('customer portal API helpers', () => {
   it('encodes service page filters into the mini service path', () => {
@@ -17,5 +17,10 @@ describe('customer portal API helpers', () => {
 
   it('does not add a query string when no filters are set', () => {
     expect(buildServicePagePath('beanList', {})).toBe('/api/mini/services/beanList')
+  })
+
+  it('exposes stable mini mall API paths', () => {
+    expect(buildMallPagePath()).toBe('/api/mini/mall')
+    expect(buildMallOrderPath()).toBe('/api/mini/mall/orders')
   })
 })

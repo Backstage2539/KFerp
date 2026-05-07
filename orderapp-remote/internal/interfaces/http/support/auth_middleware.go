@@ -66,6 +66,7 @@ func isPublicUnauthenticatedPath(path string) bool {
 		strings.HasPrefix(path, "/public/bean-list/") ||
 		strings.HasPrefix(path, "/share/") ||
 		strings.HasPrefix(path, "/assets/sales_order_assets/") ||
+		strings.HasPrefix(path, "/assets/mall_products/") ||
 		path == "/vue-shell" ||
 		strings.HasPrefix(path, "/vue-shell/")
 }
