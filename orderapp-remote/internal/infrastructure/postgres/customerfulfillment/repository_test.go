@@ -140,6 +140,22 @@ func TestApplyProcessingImportRepositoryWiring(t *testing.T) {
 	}
 }
 
+func TestImportRowsRepositoryWiring(t *testing.T) {
+	src := string(readCustomerFulfillmentRepoFile(t, "internal/infrastructure/postgres/customerfulfillment/repository.go"))
+	for _, want := range []string{
+		"func (r *Repository) ImportBatch",
+		"func (r *Repository) ListImportRows",
+		"customer_fulfillment_import_rows",
+		"sheet_name, row_no, row_type, external_key, status, error",
+		"WHERE batch_id=$1%s",
+		"ORDER BY row_no, id",
+	} {
+		if !strings.Contains(src, want) {
+			t.Fatalf("repository.go missing import row lookup marker %q", want)
+		}
+	}
+}
+
 func TestApplyProcessingImportCreatesCustodyAndWorkOrdersIdempotently(t *testing.T) {
 	ctx := context.Background()
 	pool, schema := newCustomerFulfillmentTestDB(t)

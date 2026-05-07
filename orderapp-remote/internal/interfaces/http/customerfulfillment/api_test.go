@@ -113,6 +113,68 @@ func TestApplyImportAPIReturnsApplySummary(t *testing.T) {
 	}
 }
 
+func TestImportRowsAPIReturnsInvalidRowsForTroubleshooting(t *testing.T) {
+	svc := &fakeCustomerFulfillmentService{
+		listImportRowsResult: []app.ImportRow{{
+			BatchID:   55,
+			SheetName: "生产工单",
+			RowNo:     8,
+			RowType:   "processing_work_order",
+			Status:    "invalid",
+			Error:     "投豆量无效",
+		}},
+	}
+	e := echo.New()
+	RegisterRoutes(e, Dependencies{CustomerFulfillment: svc})
+
+	req := httptest.NewRequest(http.MethodGet, "/api/customer-fulfillment/imports/55/rows?status=invalid&limit=80", nil)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("rows status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	for _, want := range []string{`"rows"`, `"sheet_name":"生产工单"`, `"row_no":8`, `"error":"投豆量无效"`} {
+		if !strings.Contains(rec.Body.String(), want) {
+			t.Fatalf("rows response missing %s: %s", want, rec.Body.String())
+		}
+	}
+	if svc.listImportRowsQuery.BatchID != 55 || svc.listImportRowsQuery.Status != "invalid" || svc.listImportRowsQuery.Limit != 80 {
+		t.Fatalf("rows query = %+v", svc.listImportRowsQuery)
+	}
+}
+
+func TestImportPreviewAPIReturnsNonMutatingSummary(t *testing.T) {
+	svc := &fakeCustomerFulfillmentService{
+		importPreviewResult: app.ImportPreview{
+			Batch: app.ImportBatch{ID: 55, CustomerID: 147, ImportType: app.ImportTypeProcessingWorkbook, Status: "parsed"},
+			Effects: []app.ImportPreviewEffect{
+				{Label: "将应用有效行", Value: 44},
+				{Label: "加工工单", Value: 136},
+			},
+			Warning: "预览不写入业务数据",
+		},
+	}
+	e := echo.New()
+	RegisterRoutes(e, Dependencies{CustomerFulfillment: svc})
+
+	req := httptest.NewRequest(http.MethodGet, "/api/customer-fulfillment/imports/55/preview", nil)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("preview status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	for _, want := range []string{`"batch"`, `"id":55`, `"effects"`, `"label":"加工工单"`, `"warning":"预览不写入业务数据"`} {
+		if !strings.Contains(rec.Body.String(), want) {
+			t.Fatalf("preview response missing %s: %s", want, rec.Body.String())
+		}
+	}
+	if svc.importPreviewQuery.BatchID != 55 {
+		t.Fatalf("preview query batch = %d, want 55", svc.importPreviewQuery.BatchID)
+	}
+}
+
 func TestOverviewAPIReturnsCustomerFulfillmentData(t *testing.T) {
 	svc := &fakeCustomerFulfillmentService{
 		overviewResult: app.Overview{
@@ -178,17 +240,21 @@ func TestCreateSettlementAPIRequiresPeriod(t *testing.T) {
 }
 
 type fakeCustomerFulfillmentService struct {
-	parseCmd          app.ParseImportCommand
-	parseFile         string
-	parseResult       app.ImportBatch
-	applyCmd          app.ApplyImportCommand
-	applyResult       app.ApplyResult
-	settlementCmd     app.CreateSettlementCommand
-	settlementResult  app.SettlementResult
-	overviewQuery     app.OverviewQuery
-	overviewResult    app.Overview
-	listImportsQuery  app.ListImportsQuery
-	listImportsResult []app.ImportBatch
+	parseCmd             app.ParseImportCommand
+	parseFile            string
+	parseResult          app.ImportBatch
+	applyCmd             app.ApplyImportCommand
+	applyResult          app.ApplyResult
+	importPreviewQuery   app.ImportPreviewQuery
+	importPreviewResult  app.ImportPreview
+	listImportRowsQuery  app.ListImportRowsQuery
+	listImportRowsResult []app.ImportRow
+	settlementCmd        app.CreateSettlementCommand
+	settlementResult     app.SettlementResult
+	overviewQuery        app.OverviewQuery
+	overviewResult       app.Overview
+	listImportsQuery     app.ListImportsQuery
+	listImportsResult    []app.ImportBatch
 }
 
 func (s *fakeCustomerFulfillmentService) ParseImport(ctx context.Context, cmd app.ParseImportCommand) (app.ImportBatch, error) {
@@ -203,6 +269,16 @@ func (s *fakeCustomerFulfillmentService) ParseImport(ctx context.Context, cmd ap
 func (s *fakeCustomerFulfillmentService) ApplyImport(ctx context.Context, cmd app.ApplyImportCommand) (app.ApplyResult, error) {
 	s.applyCmd = cmd
 	return s.applyResult, nil
+}
+
+func (s *fakeCustomerFulfillmentService) ImportPreview(ctx context.Context, query app.ImportPreviewQuery) (app.ImportPreview, error) {
+	s.importPreviewQuery = query
+	return s.importPreviewResult, nil
+}
+
+func (s *fakeCustomerFulfillmentService) ListImportRows(ctx context.Context, query app.ListImportRowsQuery) ([]app.ImportRow, error) {
+	s.listImportRowsQuery = query
+	return s.listImportRowsResult, nil
 }
 
 func (s *fakeCustomerFulfillmentService) CreateSettlement(ctx context.Context, cmd app.CreateSettlementCommand) (app.SettlementResult, error) {

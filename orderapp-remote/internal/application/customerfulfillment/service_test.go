@@ -78,6 +78,67 @@ func TestServiceApplyImportDelegatesToRepository(t *testing.T) {
 	}
 }
 
+func TestServiceListImportRowsValidatesAndClampsQuery(t *testing.T) {
+	repo := &fakeCustomerFulfillmentRepository{
+		listImportRowsResult: []ImportRow{{BatchID: 7, SheetName: "生产工单", RowNo: 5, RowType: "processing_work_order", Status: "invalid", Error: "投豆量无效"}},
+	}
+	svc := NewService(repo)
+	if _, err := svc.ListImportRows(context.Background(), ListImportRowsQuery{Status: "invalid"}); err == nil || !strings.Contains(err.Error(), "batch") {
+		t.Fatalf("ListImportRows without batch error = %v, want batch validation", err)
+	}
+
+	got, err := svc.ListImportRows(context.Background(), ListImportRowsQuery{BatchID: 7, Status: " invalid ", Limit: 999, Offset: -1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0].Error != "投豆量无效" {
+		t.Fatalf("ListImportRows result = %#v", got)
+	}
+	if repo.listImportRowsQuery.BatchID != 7 || repo.listImportRowsQuery.Status != "invalid" || repo.listImportRowsQuery.Limit != 500 || repo.listImportRowsQuery.Offset != 0 {
+		t.Fatalf("ListImportRows query = %#v, want normalized invalid limit 500 offset 0", repo.listImportRowsQuery)
+	}
+}
+
+func TestServiceImportPreviewSummarizesBatchWithoutApplying(t *testing.T) {
+	repo := &fakeCustomerFulfillmentRepository{
+		importBatchResult: ImportBatch{
+			ID:             7,
+			CustomerID:     42,
+			ImportType:     ImportTypeProcessingWorkbook,
+			SourceFilename: "誉观山生产工单&物料库存.xlsx",
+			Status:         "parsed",
+			Summary:        ImportSummary{ValidRows: 44, InvalidRows: 194, ProcessingOrders: 136, RawBeanReceipts: 8},
+		},
+	}
+	svc := NewService(repo)
+	if _, err := svc.ImportPreview(context.Background(), ImportPreviewQuery{}); err == nil || !strings.Contains(err.Error(), "batch") {
+		t.Fatalf("ImportPreview without batch error = %v, want batch validation", err)
+	}
+
+	got, err := svc.ImportPreview(context.Background(), ImportPreviewQuery{BatchID: 7})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Batch.ID != 7 || got.Batch.ImportType != ImportTypeProcessingWorkbook {
+		t.Fatalf("preview batch = %#v", got.Batch)
+	}
+	if repo.importBatchID != 7 {
+		t.Fatalf("import batch id = %d, want 7", repo.importBatchID)
+	}
+	wantLabels := []string{"将应用有效行", "需先处理错误行", "托管生豆入库", "加工工单"}
+	if len(got.Effects) != len(wantLabels) {
+		t.Fatalf("effects = %#v, want %d effects", got.Effects, len(wantLabels))
+	}
+	for i, label := range wantLabels {
+		if got.Effects[i].Label != label {
+			t.Fatalf("effect[%d] = %#v, want label %q", i, got.Effects[i], label)
+		}
+	}
+	if !strings.Contains(got.Warning, "不写入业务数据") {
+		t.Fatalf("preview warning = %q, want non-mutating warning", got.Warning)
+	}
+}
+
 func TestServiceCreateSettlementRequiresPeriod(t *testing.T) {
 	repo := &fakeCustomerFulfillmentRepository{
 		settlementResult: SettlementResult{BatchID: 11, FeeItems: 4},
@@ -118,16 +179,20 @@ func directShipWorkbookForServiceTest(t *testing.T) *excelize.File {
 }
 
 type fakeCustomerFulfillmentRepository struct {
-	storeCmd          StoreParsedImportCommand
-	storeResult       ImportBatch
-	applyCmd          ApplyImportCommand
-	applyResult       ApplyResult
-	settlementCmd     CreateSettlementCommand
-	settlementResult  SettlementResult
-	overviewQuery     OverviewQuery
-	overviewResult    Overview
-	listImportsQuery  ListImportsQuery
-	listImportsResult []ImportBatch
+	storeCmd             StoreParsedImportCommand
+	storeResult          ImportBatch
+	importBatchID        int64
+	importBatchResult    ImportBatch
+	applyCmd             ApplyImportCommand
+	applyResult          ApplyResult
+	settlementCmd        CreateSettlementCommand
+	settlementResult     SettlementResult
+	overviewQuery        OverviewQuery
+	overviewResult       Overview
+	listImportsQuery     ListImportsQuery
+	listImportsResult    []ImportBatch
+	listImportRowsQuery  ListImportRowsQuery
+	listImportRowsResult []ImportRow
 }
 
 func (r *fakeCustomerFulfillmentRepository) StoreParsedImport(ctx context.Context, cmd StoreParsedImportCommand) (ImportBatch, error) {
@@ -138,6 +203,16 @@ func (r *fakeCustomerFulfillmentRepository) StoreParsedImport(ctx context.Contex
 func (r *fakeCustomerFulfillmentRepository) ApplyImport(ctx context.Context, cmd ApplyImportCommand) (ApplyResult, error) {
 	r.applyCmd = cmd
 	return r.applyResult, nil
+}
+
+func (r *fakeCustomerFulfillmentRepository) ImportBatch(ctx context.Context, batchID int64) (ImportBatch, error) {
+	r.importBatchID = batchID
+	return r.importBatchResult, nil
+}
+
+func (r *fakeCustomerFulfillmentRepository) ListImportRows(ctx context.Context, query ListImportRowsQuery) ([]ImportRow, error) {
+	r.listImportRowsQuery = query
+	return r.listImportRowsResult, nil
 }
 
 func (r *fakeCustomerFulfillmentRepository) CreateSettlement(ctx context.Context, cmd CreateSettlementCommand) (SettlementResult, error) {

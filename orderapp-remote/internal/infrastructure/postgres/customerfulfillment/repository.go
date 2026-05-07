@@ -1134,6 +1134,70 @@ func (r *Repository) ListImports(ctx context.Context, query app.ListImportsQuery
 	return out, nil
 }
 
+func (r *Repository) ImportBatch(ctx context.Context, batchID int64) (app.ImportBatch, error) {
+	return scanImportBatch(r.pool.QueryRow(ctx, fmt.Sprintf(`
+		SELECT id, customer_id, import_type, source_filename, source_sha256, status,
+			total_rows, valid_rows, invalid_rows, summary_json, created_by, created_at, applied_at
+		FROM %s.customer_fulfillment_import_batches
+		WHERE id=$1
+	`, r.schema), batchID))
+}
+
+func (r *Repository) ListImportRows(ctx context.Context, query app.ListImportRowsQuery) ([]app.ImportRow, error) {
+	limit := query.Limit
+	if limit <= 0 {
+		limit = 200
+	}
+	if limit > 500 {
+		limit = 500
+	}
+	if query.Offset < 0 {
+		query.Offset = 0
+	}
+	status := strings.TrimSpace(query.Status)
+	args := []any{query.BatchID}
+	statusWhere := ""
+	if status != "" {
+		statusWhere = " AND status=$2"
+		args = append(args, status)
+	}
+	args = append(args, limit, query.Offset)
+	limitArg := len(args) - 1
+	offsetArg := len(args)
+	rows, err := r.pool.Query(ctx, fmt.Sprintf(`
+		SELECT id, batch_id, sheet_name, row_no, row_type, external_key, status, error
+		FROM %s.customer_fulfillment_import_rows
+		WHERE batch_id=$1%s
+		ORDER BY row_no, id
+		LIMIT $%d OFFSET $%d
+	`, r.schema, statusWhere, limitArg, offsetArg), args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := make([]app.ImportRow, 0)
+	for rows.Next() {
+		var row app.ImportRow
+		if err := rows.Scan(
+			&row.ID,
+			&row.BatchID,
+			&row.SheetName,
+			&row.RowNo,
+			&row.RowType,
+			&row.ExternalKey,
+			&row.Status,
+			&row.Error,
+		); err != nil {
+			return nil, err
+		}
+		out = append(out, row)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (r *Repository) loadImportBatchTx(ctx context.Context, tx pgx.Tx, id int64) (app.ImportBatch, error) {
 	return scanImportBatch(tx.QueryRow(ctx, fmt.Sprintf(`
 		SELECT id, customer_id, import_type, source_filename, source_sha256, status,
