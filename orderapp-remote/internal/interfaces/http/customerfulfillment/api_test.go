@@ -7,6 +7,7 @@ import (
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
+	customerapp "orderapp/internal/application/customer"
 	app "orderapp/internal/application/customerfulfillment"
 	"strings"
 	"testing"
@@ -57,6 +58,36 @@ func TestParseImportAPIAcceptsMultipartFile(t *testing.T) {
 	}
 	if svc.parseCmd.CustomerID != 147 || svc.parseCmd.ImportType != app.ImportTypeDirectShipWorkbook || svc.parseCmd.SourceFilename != "direct.xlsx" || svc.parseFile != "xlsx-bytes" {
 		t.Fatalf("parse command = %+v file=%q", svc.parseCmd, svc.parseFile)
+	}
+}
+
+func TestCustomerOptionsAPIReturnsActiveCustomersForPicker(t *testing.T) {
+	customers := &fakeCustomerDirectory{
+		result: customerapp.ListResult{Rows: []customerapp.CustomerRow{
+			{ID: 147, Name: "誉观山", CompanyName: "誉观山咖啡", Active: true},
+			{ID: 148, Name: "停用客户", Active: false},
+		}},
+	}
+	e := echo.New()
+	RegisterRoutes(e, Dependencies{CustomerFulfillment: &fakeCustomerFulfillmentService{}, Customers: customers})
+
+	req := httptest.NewRequest(http.MethodGet, "/api/customer-fulfillment/customers?q=誉观山&limit=60", nil)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("customer options status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	for _, want := range []string{`"customers"`, `"id":147`, `"name":"誉观山"`} {
+		if !strings.Contains(rec.Body.String(), want) {
+			t.Fatalf("customer options response missing %s: %s", want, rec.Body.String())
+		}
+	}
+	if strings.Contains(rec.Body.String(), "停用客户") {
+		t.Fatalf("customer options must hide inactive customers: %s", rec.Body.String())
+	}
+	if customers.query.Query != "誉观山" || customers.query.Limit != 60 {
+		t.Fatalf("customer query = %+v, want q 誉观山 limit 60", customers.query)
 	}
 }
 
@@ -187,4 +218,14 @@ func (s *fakeCustomerFulfillmentService) Overview(ctx context.Context, query app
 func (s *fakeCustomerFulfillmentService) ListImports(ctx context.Context, query app.ListImportsQuery) ([]app.ImportBatch, error) {
 	s.listImportsQuery = query
 	return s.listImportsResult, nil
+}
+
+type fakeCustomerDirectory struct {
+	query  customerapp.ListQuery
+	result customerapp.ListResult
+}
+
+func (s *fakeCustomerDirectory) List(ctx context.Context, query customerapp.ListQuery) (customerapp.ListResult, error) {
+	s.query = query
+	return s.result, nil
 }

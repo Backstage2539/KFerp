@@ -3,6 +3,7 @@ package customerfulfillment
 import (
 	"context"
 
+	customerapp "orderapp/internal/application/customer"
 	app "orderapp/internal/application/customerfulfillment"
 
 	"github.com/labstack/echo/v4"
@@ -16,12 +17,18 @@ type Service interface {
 	ListImports(context.Context, app.ListImportsQuery) ([]app.ImportBatch, error)
 }
 
+type CustomerDirectory interface {
+	List(context.Context, customerapp.ListQuery) (customerapp.ListResult, error)
+}
+
 type Dependencies struct {
 	CustomerFulfillment Service
+	Customers           CustomerDirectory
 }
 
 func RegisterRoutes(e *echo.Echo, deps Dependencies) {
-	api := api{svc: deps.CustomerFulfillment}
+	api := api{svc: deps.CustomerFulfillment, customers: deps.Customers}
+	e.GET("/api/customer-fulfillment/customers", api.listCustomers)
 	e.GET("/api/customer-fulfillment/:customer_id/overview", api.overview)
 	e.POST("/api/customer-fulfillment/:customer_id/imports/parse", api.parseImport)
 	e.POST("/api/customer-fulfillment/imports/:batch_id/apply", api.applyImport)

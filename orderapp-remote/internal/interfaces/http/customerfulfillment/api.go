@@ -3,6 +3,7 @@ package customerfulfillment
 import (
 	"fmt"
 	"net/http"
+	customerapp "orderapp/internal/application/customer"
 	app "orderapp/internal/application/customerfulfillment"
 	"strconv"
 	"strings"
@@ -11,7 +12,42 @@ import (
 )
 
 type api struct {
-	svc Service
+	svc       Service
+	customers CustomerDirectory
+}
+
+func (a api) listCustomers(c echo.Context) error {
+	if a.customers == nil {
+		return customerFulfillmentError(c, http.StatusInternalServerError, fmt.Errorf("customer directory unavailable"))
+	}
+	q := strings.TrimSpace(c.QueryParam("q"))
+	limit, _ := strconv.Atoi(strings.TrimSpace(c.QueryParam("limit")))
+	if limit <= 0 {
+		limit = 80
+	}
+	if limit > 200 {
+		limit = 200
+	}
+	offset, _ := strconv.Atoi(strings.TrimSpace(c.QueryParam("offset")))
+	if offset < 0 {
+		offset = 0
+	}
+	result, err := a.customers.List(c.Request().Context(), customerapp.ListQuery{Query: q, Limit: limit, Offset: offset})
+	if err != nil {
+		return customerFulfillmentError(c, http.StatusInternalServerError, err)
+	}
+	rows := make([]customerapp.CustomerRow, 0, len(result.Rows))
+	for _, row := range result.Rows {
+		if row.Active {
+			rows = append(rows, row)
+		}
+	}
+	return c.JSON(http.StatusOK, map[string]any{
+		"customers": rows,
+		"limit":     limit,
+		"offset":    offset,
+		"has_next":  result.HasNext,
+	})
 }
 
 func (a api) parseImport(c echo.Context) error {
