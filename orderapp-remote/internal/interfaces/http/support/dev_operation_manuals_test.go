@@ -22,13 +22,19 @@ func TestOperationManualGovernanceRequirementSeeds(t *testing.T) {
 	text := string(b)
 	for _, want := range []string{
 		"PR-DOCS-001",
+		"PR-DOCS-003",
 		"DEV-DOCS-001",
 		"DEV-DOCS-002",
 		"DEV-DOCS-003",
+		"DEV-DOCS-006",
 		"UT-DOCS-001",
+		"UT-DOCS-003",
 		"API-DOCS-001",
+		"API-DOCS-003",
 		"REV-DOCS-001",
+		"REV-DOCS-003",
 		"操作手册强制更新机制",
+		"操作手册图示化",
 		"单个大功能一个手册",
 		"OPERATION_MANUALS.md",
 		"OP_MANUAL_*.md",
@@ -117,6 +123,33 @@ func TestOperationManualDocsAreMirrored(t *testing.T) {
 		}
 		if string(root) != string(local) {
 			t.Fatalf("root manual %s and orderapp docs copy differ", name)
+		}
+	}
+}
+
+func TestOperationManualDocsHaveFlowcharts(t *testing.T) {
+	manuals := []string{
+		"OP_MANUAL_REQUIREMENTS.md",
+		"OP_MANUAL_ORDER_SALES.md",
+		"OP_MANUAL_PRODUCTION.md",
+		"OP_MANUAL_INVENTORY_MATERIALS.md",
+		"OP_MANUAL_COSTING.md",
+		"OP_MANUAL_FINANCE.md",
+		"OP_MANUAL_SETTINGS_AUDIT.md",
+		"OP_MANUAL_CUSTOMER_PORTAL.md",
+		"OP_MANUAL_CUSTOMER_FULFILLMENT.md",
+	}
+	for _, name := range manuals {
+		b, err := os.ReadFile(filepath.Join("docs", name))
+		if err != nil {
+			t.Fatalf("missing orderapp docs manual %s: %v", name, err)
+		}
+		text := string(b)
+		if !strings.Contains(text, "## 流程图") {
+			t.Fatalf("%s should include a flowchart section", name)
+		}
+		if !strings.Contains(text, "```mermaid") || !strings.Contains(text, "flowchart ") {
+			t.Fatalf("%s should include a Mermaid flowchart", name)
 		}
 	}
 }

@@ -50,6 +50,12 @@ export function parseManualMarkdown(markdown) {
       index += 1
       continue
     }
+    if (line.startsWith('```')) {
+      const parsed = parseFencedBlock(lines, index)
+      blocks.push(parsed.block)
+      index = parsed.nextIndex
+      continue
+    }
     if (isTableStart(lines, index)) {
       const parsed = parseTable(lines, index)
       blocks.push(parsed.block)
@@ -97,8 +103,89 @@ function isSpecialLine(line) {
     line.startsWith('## ') ||
     line.startsWith('### ') ||
     line.startsWith('>') ||
+    line.startsWith('```') ||
     line.startsWith('- ') ||
     /^\d+\.\s+/.test(line)
+}
+
+function parseFencedBlock(lines, index) {
+  const lang = lines[index].trim().replace(/^```/, '').trim().toLowerCase()
+  index += 1
+  const content = []
+  while (index < lines.length && !lines[index].trim().startsWith('```')) {
+    content.push(lines[index])
+    index += 1
+  }
+  if (index < lines.length) index += 1
+
+  const source = content.join('\n').trim()
+  if (lang === 'mermaid') {
+    const flowchart = parseMermaidFlowchart(source)
+    if (flowchart) return { block: flowchart, nextIndex: index }
+  }
+  return { block: { type: 'code', lang, source }, nextIndex: index }
+}
+
+function parseMermaidFlowchart(source) {
+  const lines = source.split('\n')
+    .map((line) => line.trim())
+    .filter((line) => line && !line.startsWith('%%'))
+  const head = lines[0]?.match(/^(?:flowchart|graph)\s+([A-Z]{2})$/i)
+  if (!head) return null
+
+  const nodes = {}
+  const edges = []
+  for (const line of lines.slice(1)) {
+    const parsed = parseMermaidEdge(line, nodes)
+    if (parsed) {
+      edges.push(parsed)
+    } else {
+      parseMermaidNode(line, nodes)
+    }
+  }
+  if (!edges.length) return null
+
+  return {
+    type: 'flowchart',
+    direction: head[1].toUpperCase(),
+    source,
+    nodes,
+    edges,
+  }
+}
+
+function parseMermaidEdge(line, nodes) {
+  const clean = line.replace(/;$/, '').trim()
+  const labeled = clean.match(/^(.+?)\s*-->\|(.+?)\|\s*(.+)$/)
+  const plain = labeled ? null : clean.match(/^(.+?)\s*-->\s*(.+)$/)
+  const match = labeled || plain
+  if (!match) return null
+
+  const from = parseMermaidNode(match[1], nodes)
+  const to = parseMermaidNode(labeled ? match[3] : match[2], nodes)
+  if (!from || !to) return null
+  return { from, to, label: labeled ? match[2].trim() : '' }
+}
+
+function parseMermaidNode(token, nodes) {
+  const match = token.trim().replace(/;$/, '').match(/^([A-Za-z][A-Za-z0-9_-]*)(.*)$/)
+  if (!match) return ''
+
+  const id = match[1]
+  const rest = match[2].trim()
+  const existing = nodes[id]
+  let label = existing?.label || id
+  let shape = existing?.shape || 'step'
+
+  const quoted = rest.match(/^[\[{(]\s*"([^"]+)"\s*[\]})]$/)
+  const unquoted = rest.match(/^[\[{(]\s*([^\]})]+)\s*[\]})]$/)
+  if (quoted || unquoted) {
+    label = (quoted?.[1] || unquoted?.[1] || id).trim()
+    shape = rest.startsWith('{') ? 'decision' : 'step'
+  }
+
+  nodes[id] = { id, label, shape }
+  return id
 }
 
 function isTableStart(lines, index) {

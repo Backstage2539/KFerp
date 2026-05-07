@@ -1009,6 +1009,12 @@ func seedReqWorkflowA(ctx context.Context, pool *pgxpool.Pool, schema string) er
 		{table: "req_unit", code: "UT-DOCS-002", title: "单元测试覆盖手册菜单分组、手册 key 到 OP_MANUAL 文件映射、旧手册删除守卫和权限种子", status: "done", assignee: "Codex", evidence: "menu-ia.test.js; operation-manuals.test.js; dev_operation_manuals_test.go; authz schema_test.go"},
 		{table: "req_api", code: "API-DOCS-002", title: "API 级文档路由继续通过 docs raw route 读取大功能 OP_MANUAL 文件", status: "done", assignee: "Codex", evidence: "TestDocsRawRouteServesOperationManual; OperationManualView fetch /docs/{OP_MANUAL}.md?raw=1"},
 		{table: "req_review", code: "REV-DOCS-002", prCode: "PR-DOCS-002", title: "验收：ERP 左侧各大功能菜单内能直接看到对应操作手册，旧功能手册不再出现在 docs 列表", status: "todo", assignee: "VA", evidence: "待 Van ERP 后台验收"},
+		{table: "req_product", code: "PR-DOCS-003", title: "操作手册图示化：大功能手册必须有流程图，界面中不能只有文字说明", status: "review", assignee: "VA", evidence: "codex/manual-flowcharts-20260507; OP_MANUAL_*.md"},
+		{table: "req_dev", code: "DEV-DOCS-006", title: "Vue/Vite 通用手册页解析 Mermaid flowchart，并渲染为节点和箭头图示；无法识别时保留代码块", status: "done", assignee: "Codex", evidence: "operation-manuals.js; OperationManualView.vue"},
+		{table: "req_dev", code: "DEV-DOCS-007", title: "为订单、生产、库存、成本、财务、设置审计、客户门户、客户履约和需求管理手册补流程图并同步部署 docs", status: "done", assignee: "Codex", evidence: "OP_MANUAL_*.md; orderapp-remote/docs/OP_MANUAL_*.md"},
+		{table: "req_unit", code: "UT-DOCS-003", title: "单元测试覆盖 Mermaid 流程图解析、所有大功能手册包含流程图、手册副本同步和需求种子", status: "done", assignee: "Codex", evidence: "operation-manuals.test.js; dev_operation_manuals_test.go"},
+		{table: "req_api", code: "API-DOCS-003", title: "API 级验证 docs raw route 可读取含流程图的 OP_MANUAL 文件，线上手册路由可展示图示化手册", status: "done", assignee: "Codex", evidence: "TestDocsRawRouteServesOperationManual; curl /app/docs/OP_MANUAL_ORDER_SALES.md?raw=1"},
+		{table: "req_review", code: "REV-DOCS-003", prCode: "PR-DOCS-003", title: "验收：每个大功能操作手册在 ERP 界面中能看到流程图，文字步骤仍保留", status: "todo", assignee: "VA", evidence: "待 Van ERP 后台验收"},
 	} {
 		if err := seedReqRow(ctx, pool, schema, row); err != nil {
 			return err
