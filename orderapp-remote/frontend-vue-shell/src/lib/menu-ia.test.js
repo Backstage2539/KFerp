@@ -58,10 +58,12 @@ test('settings menu exposes sales order settings and keeps sales order detail hi
   assert.ok(keys.includes('companyProfile'))
   assert.ok(keys.includes('salesOrderSettings'))
   assert.ok(keys.includes('customerPortalSettings'))
+  assert.ok(keys.includes('customerFulfillment'))
   assert.equal(keys.includes('salesOrder'), false)
   assert.equal(groupForView(menuGroups, 'companyProfile')?.id, 'settings')
   assert.equal(groupForView(menuGroups, 'salesOrderSettings')?.id, 'settings')
   assert.equal(groupForView(menuGroups, 'customerPortalSettings')?.id, 'settings')
+  assert.equal(groupForView(menuGroups, 'customerFulfillment')?.id, 'settings')
 })
 
 test('finance menu exposes monthly finance workflows as primary pages', () => {
