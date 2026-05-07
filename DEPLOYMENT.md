@@ -68,6 +68,8 @@ ssh -i openclaw_jj_ed25519 root@1.12.242.58
 - `REQUIREMENTS.md`
 - `ACCEPTANCE_TESTS.md`
 - `HOW_TO_WORKFLOW.md`
+- `OPERATION_MANUALS.md`
+- `OP_MANUAL_*.md`
 - `DEPLOYMENT.md`（本教程）
 
 2) 同步应用源码：
@@ -95,7 +97,7 @@ chmod +x deploy_orderapp.sh
 ### 3.1 同步 docs
 ```bash
 ssh -i openclaw_jj_ed25519 root@1.12.242.58 "mkdir -p /opt/stacks/erp/orderapp/docs"
-scp -i openclaw_jj_ed25519 REQUIREMENTS.md ACCEPTANCE_TESTS.md HOW_TO_WORKFLOW.md DEPLOYMENT.md root@1.12.242.58:/opt/stacks/erp/orderapp/docs/
+scp -i openclaw_jj_ed25519 REQUIREMENTS.md ACCEPTANCE_TESTS.md HOW_TO_WORKFLOW.md OPERATION_MANUALS.md OP_MANUAL_*.md DEPLOYMENT.md root@1.12.242.58:/opt/stacks/erp/orderapp/docs/
 ```
 
 ### 3.2 同步源码

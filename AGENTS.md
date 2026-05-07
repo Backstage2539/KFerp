@@ -212,7 +212,11 @@ The goal: Be helpful without being annoying. Check in a few times a day, do usef
 For every requirement, follow the fixed pipeline:
 - Unit tests
 - API-level tests (prefer not to rely on UI)
+- Operation manual update when new features or behavior changes affect user workflows
 - Acceptance review against REQUIREMENTS / ACCEPTANCE_TESTS with evidence
+
+Any new feature development or functional change that changes how users operate the system must update the relevant operation/user manual in the Vue/Vite frontend and any source Markdown/manual docs. Treat the manual update as part of the same requirement, not as optional follow-up work.
+For every single major feature, keep one standalone operation manual. Smaller changes update the existing feature manual. During development, audit existing manuals for missing entry points, changed fields, changed workflow order, permissions, export/import behavior, and common failure handling; patch gaps before marking DEV/UT/API/REV complete.
 
 ## Frontend Architecture Rule
 

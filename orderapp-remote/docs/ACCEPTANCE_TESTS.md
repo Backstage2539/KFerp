@@ -288,3 +288,22 @@
 - [ ] ERP 客户门户配置页中，同一客户可以选择“咖啡工厂专业风 / 清爽业务工具风 / 品牌会员高级风”之一并保存。
 - [ ] 小程序登录该客户后，首页和服务页视觉跟随 ERP 选择的主题；切换客户后主题跟随当前客户变化。
 - [ ] 未配置主题的客户默认显示咖啡工厂专业风；小程序用户端没有自行切换主题入口。
+
+---
+
+## O. 操作手册强制治理（PR-DOCS-001）
+
+### O1. 手册规则
+- [ ] `HOW_TO_WORKFLOW.md` 明确要求操作手册更新先于 REV。
+- [ ] `AGENTS.md` 和 `AGENTS.zh-CN.md` 明确要求开发时同步更新操作手册。
+- [ ] 手册规则包含“单个大功能一个独立操作手册”和“现有手册查缺补漏”。
+
+### O2. 手册文件
+- [ ] 存在 `OPERATION_MANUALS.md` 总索引。
+- [ ] 当前主要大功能已有初版 `OP_MANUAL_*.md` 或对应既有用户手册。
+- [ ] `orderapp-remote/docs/` 中存在线上展示副本。
+
+### O3. 部署与验证
+- [ ] `deploy_orderapp.sh` 同步 `OPERATION_MANUALS.md` 和 `OP_MANUAL_*.md`。
+- [ ] docs raw route 能读取 `OPERATION_MANUALS.md`。
+- [ ] PR/DEV/UT/API/REV 需求种子包含 PR-DOCS-001。

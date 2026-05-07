@@ -989,6 +989,13 @@ func seedReqWorkflowA(ctx context.Context, pool *pgxpool.Pool, schema string) er
 		{table: "req_unit", code: "UT-158-01", title: "单元测试覆盖客户履约手册菜单入口、Vue 注册、账户页跳转入口、权限种子和手册内容源码守卫", status: "done", assignee: "Codex", evidence: "menu-ia.test.js; dev_158_customer_fulfillment_manual_ui_test.go; authz schema_test.go"},
 		{table: "req_api", code: "API-158-01", title: "API 级源码守卫覆盖 ERP 权限种子和需求表证据，确保部署后可按权限看到客户履约手册", status: "done", assignee: "Codex", evidence: "go test ./internal/interfaces/http/support ./internal/infrastructure/postgres/authz -count=1"},
 		{table: "req_review", code: "REV-158-01", prCode: "PR-158", title: "验收：ERP 左侧设置菜单能看到客户履约手册，客户履约账户页面顶部也能进入手册", status: "review", assignee: "VA", evidence: "待 Van ERP 后台验收"},
+		{table: "req_product", code: "PR-DOCS-001", title: "建立操作手册强制更新机制：开发时同步手册，单个大功能一个手册，并查缺补漏现有手册", status: "review", assignee: "VA", evidence: "OPERATION_MANUALS.md; HOW_TO_WORKFLOW.md"},
+		{table: "req_dev", code: "DEV-DOCS-001", title: "更新交付流程和 AGENTS 规则，把操作手册更新列入 UT/API/REV 交付闭环", status: "done", assignee: "Codex", evidence: "HOW_TO_WORKFLOW.md; AGENTS.md; AGENTS.zh-CN.md"},
+		{table: "req_dev", code: "DEV-DOCS-002", title: "新增操作手册总索引和大功能级初版手册，补齐订单、生产、库存、成本、设置审计和需求管理手册", status: "done", assignee: "Codex", evidence: "OPERATION_MANUALS.md; OP_MANUAL_*.md"},
+		{table: "req_dev", code: "DEV-DOCS-003", title: "更新部署文档和部署脚本，确保 OPERATION_MANUALS.md 与 OP_MANUAL_*.md 同步到线上 docs", status: "done", assignee: "Codex", evidence: "DEPLOYMENT.md; deploy_orderapp.sh"},
+		{table: "req_unit", code: "UT-DOCS-001", title: "文档守卫覆盖操作手册规则、手册副本同步、需求种子和部署脚本同步范围", status: "done", assignee: "Codex", evidence: "go test ./internal/interfaces/http/support -run OperationManual -count=1"},
+		{table: "req_api", code: "API-DOCS-001", title: "Docs raw route 可读取 OPERATION_MANUALS.md，线上 /docs 能展示操作手册文件", status: "done", assignee: "Codex", evidence: "TestDocsRawRouteServesOperationManual"},
+		{table: "req_review", code: "REV-DOCS-001", prCode: "PR-DOCS-001", title: "验收：后续开发必须更新操作手册，单个大功能一个手册，现有手册缺口已形成索引并补初版", status: "todo", assignee: "VA", evidence: "待 Van 验收"},
 	} {
 		if err := seedReqRow(ctx, pool, schema, row); err != nil {
 			return err
