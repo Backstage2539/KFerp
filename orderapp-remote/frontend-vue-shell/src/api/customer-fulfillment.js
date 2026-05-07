@@ -26,6 +26,14 @@ export function fetchCustomerFulfillmentImports(customerId) {
   return apiGet(`/api/customer-fulfillment/${Number(customerId)}/imports`)
 }
 
+export function fetchCustomerFulfillmentCustomers(query = '', limit = 200) {
+  const params = new URLSearchParams()
+  const q = String(query || '').trim()
+  if (q) params.set('q', q)
+  params.set('limit', String(Number(limit) || 200))
+  return apiGet(`/api/customer-fulfillment/customers?${params.toString()}`)
+}
+
 export function createCustomerFulfillmentSettlement(customerId, payload) {
   return apiSend(`/api/customer-fulfillment/${Number(customerId)}/settlements`, { body: payload })
 }
