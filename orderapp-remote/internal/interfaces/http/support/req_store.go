@@ -978,6 +978,11 @@ func seedReqWorkflowA(ctx context.Context, pool *pgxpool.Pool, schema string) er
 		{table: "req_unit", code: "UT-157-01", title: "单元测试覆盖 parser/service/repository/frontend helper，校验三类 Excel、幂等规则、费用分类和 UI 汇总", status: "done", assignee: "Codex", evidence: "go test ./internal/application/customerfulfillment ./internal/infrastructure/postgres/customerfulfillment -count=1; node --test src/lib/customer-fulfillment.test.js src/api/customer-fulfillment.test.js"},
 		{table: "req_api", code: "API-157-01", title: "API 测试覆盖客户履约 parse/apply/overview/imports/settlements 接口，尽量不依赖 UI 完成验收", status: "done", assignee: "Codex", evidence: "go test ./internal/interfaces/http/customerfulfillment ./internal/interfaces/http/support -count=1; multipart parse/apply/overview/settlement handlers"},
 		{table: "req_review", code: "REV-157-01", prCode: "PR-157", title: "验收：按誉观山三份样本文件导入后，可看到客户托管生豆、客户产品库存、加工工单、代发订单、费用和月结批次", status: "review", assignee: "VA", evidence: "本地验收：三类 Excel parser、parse 不改业务数据、apply 幂等写库存/工单/订单/费用/月结、Vue/Vite 页面无 template debt；操作手册 customer-fulfillment-user-manual.md；待 Van ERP 样本验收"},
+		{table: "req_product", code: "PR-158", title: "客户履约账户操作手册必须在 ERP 界面可见，操作人员不需要知道服务器 docs 文件路径", status: "review", assignee: "VA", evidence: "codex/customer-fulfillment-manual-ui-20260507"},
+		{table: "req_dev", code: "DEV-158-01", title: "新增 Vue/Vite 客户履约手册页面，挂入设置菜单，并在客户履约账户页面提供跳转入口", status: "done", assignee: "Codex", evidence: "CustomerFulfillmentManualView.vue; menu key customerFulfillmentManual; CustomerFulfillmentView openManual"},
+		{table: "req_unit", code: "UT-158-01", title: "单元测试覆盖客户履约手册菜单入口、Vue 注册、账户页跳转入口、权限种子和手册内容源码守卫", status: "done", assignee: "Codex", evidence: "menu-ia.test.js; dev_158_customer_fulfillment_manual_ui_test.go; authz schema_test.go"},
+		{table: "req_api", code: "API-158-01", title: "API 级源码守卫覆盖 ERP 权限种子和需求表证据，确保部署后可按权限看到客户履约手册", status: "done", assignee: "Codex", evidence: "go test ./internal/interfaces/http/support ./internal/infrastructure/postgres/authz -count=1"},
+		{table: "req_review", code: "REV-158-01", prCode: "PR-158", title: "验收：ERP 左侧设置菜单能看到客户履约手册，客户履约账户页面顶部也能进入手册", status: "review", assignee: "VA", evidence: "待 Van ERP 后台验收"},
 	} {
 		if err := seedReqRow(ctx, pool, schema, row); err != nil {
 			return err
