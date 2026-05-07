@@ -4,7 +4,7 @@
       <div class="panel-head">
         <div>
           <h2>客户履约账户</h2>
-          <p>{{ overview.customer_name || (customerId ? `客户 ${customerId}` : '未选择客户') }}</p>
+          <p>{{ overview.customer_name || selectedCustomerLabel || '未选择客户' }}</p>
         </div>
         <div class="head-actions">
           <button class="secondary" type="button" @click="openManual">客户履约手册</button>
@@ -13,9 +13,18 @@
       </div>
 
       <div class="toolbar">
-        <label>
-          <span>客户 ID</span>
-          <input v-model.trim="customerId" inputmode="numeric" placeholder="例如 147" @keyup.enter="loadAll" />
+        <label class="customer-picker-field">
+          <span>选择客户</span>
+          <SearchableSelect
+            v-model="customerId"
+            :options="customerOptions"
+            :option-label="customerFulfillmentCustomerOptionLabel"
+            :option-meta="customerFulfillmentCustomerOptionMeta"
+            :option-value="optionNumericValue"
+            placeholder="搜索客户名/公司/联系人/电话"
+            empty-text="没有匹配客户"
+            :disabled="loading"
+            @select="selectCustomer" />
         </label>
         <button class="primary" type="button" @click="loadAll" :disabled="loading || !normalizedCustomerId">载入账户</button>
       </div>
@@ -185,14 +194,23 @@
 
 <script setup>
 import { computed, onMounted, reactive, ref } from 'vue'
+import SearchableSelect from '../components/SearchableSelect.vue'
 import {
   applyCustomerFulfillmentImport,
   createCustomerFulfillmentSettlement,
+  fetchCustomerFulfillmentCustomers,
   fetchCustomerFulfillmentImports,
   fetchCustomerFulfillmentOverview,
   parseCustomerFulfillmentImport,
 } from '../api/customer-fulfillment'
-import { importSummaryCards, importTypeOptions, rowStatusLabel } from '../lib/customer-fulfillment'
+import {
+  activeCustomerFulfillmentCustomers,
+  customerFulfillmentCustomerOptionLabel,
+  customerFulfillmentCustomerOptionMeta,
+  importSummaryCards,
+  importTypeOptions,
+  rowStatusLabel,
+} from '../lib/customer-fulfillment'
 
 const DataPanel = {
   props: {
@@ -209,7 +227,8 @@ const DataPanel = {
   `,
 }
 
-const customerId = ref('')
+const customerId = ref(0)
+const customerOptions = ref([])
 const selectedImportType = ref('processing_workbook')
 const selectedFile = ref(null)
 const latestSummary = ref(null)
@@ -227,6 +246,8 @@ const settlement = reactive({
 
 const importTypes = importTypeOptions()
 const normalizedCustomerId = computed(() => Number(customerId.value || 0))
+const selectedCustomer = computed(() => customerOptions.value.find((row) => Number(row.id) === normalizedCustomerId.value) || null)
+const selectedCustomerLabel = computed(() => selectedCustomer.value ? customerFulfillmentCustomerOptionLabel(selectedCustomer.value) : '')
 const summaryCards = computed(() => importSummaryCards(latestSummary.value || latestBatch.value?.summary || {}))
 const latestInvalidCount = computed(() => Number((latestSummary.value || latestBatch.value?.summary || {}).invalid_rows || 0))
 const latestParsedBatchId = computed(() => {
@@ -236,14 +257,29 @@ const latestParsedBatchId = computed(() => {
   return parsed?.id || 0
 })
 
-onMounted(() => {
+onMounted(async () => {
+  await loadCustomerOptions()
   const params = new URL(window.location.href).searchParams
-  customerId.value = params.get('customer_id') || ''
-  if (customerId.value) loadAll()
+  customerId.value = Number(params.get('customer_id') || 0)
+  if (customerId.value) await loadAll()
 })
 
 function onFileChange(event) {
   selectedFile.value = event.target.files?.[0] || null
+}
+
+async function loadCustomerOptions(query = '') {
+  try {
+    const data = await fetchCustomerFulfillmentCustomers(query, 200)
+    customerOptions.value = activeCustomerFulfillmentCustomers(data)
+  } catch (err) {
+    if (!customerOptions.value.length) error.value = err.message || '加载客户列表失败'
+  }
+}
+
+async function selectCustomer(customer) {
+  customerId.value = Number(customer?.id || 0)
+  if (customerId.value) await loadAll()
 }
 
 async function loadAll() {
@@ -257,6 +293,7 @@ async function loadAll() {
       fetchCustomerFulfillmentImports(normalizedCustomerId.value),
     ])
     overview.value = overviewData || {}
+    rememberOverviewCustomer(overviewData)
     imports.value = importData?.imports || overviewData?.imports || []
   } catch (err) {
     error.value = err.message || '加载客户履约账户失败'
@@ -329,6 +366,20 @@ function moneyFromCents(value) {
   return (Number(value || 0) / 100).toFixed(2)
 }
 
+function optionNumericValue(option) {
+  return Number(option?.id || 0)
+}
+
+function rememberOverviewCustomer(data) {
+  const id = Number(data?.customer_id || 0)
+  if (!id || !data?.customer_name) return
+  if (customerOptions.value.some((row) => Number(row.id) === id)) return
+  customerOptions.value = [
+    { id, name: data.customer_name, active: true },
+    ...customerOptions.value,
+  ]
+}
+
 function openManual() {
   window.dispatchEvent(new CustomEvent('kferp:navigate-view', {
     detail: { key: 'customerFulfillmentManual' },
@@ -383,6 +434,11 @@ function openManual() {
   align-items: end;
   gap: 10px;
   margin-top: 10px;
+}
+
+.customer-picker-field {
+  flex: 1 1 340px;
+  max-width: 520px;
 }
 
 label {
