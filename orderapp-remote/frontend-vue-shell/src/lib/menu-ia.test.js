@@ -62,6 +62,7 @@ test('operation manuals live inside their functional menu groups', () => {
     ['inventoryMaterialsManual', 'inventory'],
     ['costingManual', 'product'],
     ['settingsAuditManual', 'settings'],
+    ['customerPortalManual', 'settings'],
     ['requirementsManual', 'requirements'],
   ]
   const keys = primaryMenuKeys(menuGroups)
@@ -77,12 +78,14 @@ test('settings menu exposes sales order settings and keeps sales order detail hi
   assert.ok(keys.includes('companyProfile'))
   assert.ok(keys.includes('salesOrderSettings'))
   assert.ok(keys.includes('customerPortalSettings'))
+  assert.ok(keys.includes('customerPortalManual'))
   assert.ok(keys.includes('customerFulfillment'))
   assert.ok(keys.includes('customerFulfillmentManual'))
   assert.equal(keys.includes('salesOrder'), false)
   assert.equal(groupForView(menuGroups, 'companyProfile')?.id, 'settings')
   assert.equal(groupForView(menuGroups, 'salesOrderSettings')?.id, 'settings')
   assert.equal(groupForView(menuGroups, 'customerPortalSettings')?.id, 'settings')
+  assert.equal(groupForView(menuGroups, 'customerPortalManual')?.id, 'settings')
   assert.equal(groupForView(menuGroups, 'customerFulfillment')?.id, 'settings')
   assert.equal(groupForView(menuGroups, 'customerFulfillmentManual')?.id, 'settings')
 })

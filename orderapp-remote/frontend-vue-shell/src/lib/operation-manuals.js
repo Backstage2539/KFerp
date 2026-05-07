@@ -5,6 +5,7 @@ export const operationManualsByView = {
   costingManual: { doc: 'OP_MANUAL_COSTING.md', title: '成本核价手册' },
   financeManual: { doc: 'OP_MANUAL_FINANCE.md', title: '财务手册' },
   settingsAuditManual: { doc: 'OP_MANUAL_SETTINGS_AUDIT.md', title: '设置审计手册' },
+  customerPortalManual: { doc: 'OP_MANUAL_CUSTOMER_PORTAL.md', title: '客户门户手册' },
   customerFulfillmentManual: { doc: 'OP_MANUAL_CUSTOMER_FULFILLMENT.md', title: '客户履约手册' },
   requirementsManual: { doc: 'OP_MANUAL_REQUIREMENTS.md', title: '需求管理手册' },
 }

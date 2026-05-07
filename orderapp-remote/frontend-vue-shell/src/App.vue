@@ -178,6 +178,7 @@ const internalViews = {
   senderSettings: SenderSettingsView,
   outsourceSettings: OutsourceSettingsView,
   customerPortalSettings: CustomerPortalSettingsView,
+  customerPortalManual: OperationManualView,
   customerFulfillment: CustomerFulfillmentView,
   customerFulfillmentManual: OperationManualView,
   settingsAuditManual: OperationManualView,

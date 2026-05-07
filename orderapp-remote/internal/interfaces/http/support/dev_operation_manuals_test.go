@@ -95,6 +95,7 @@ func TestOperationManualDocsAreMirrored(t *testing.T) {
 		"OP_MANUAL_COSTING.md",
 		"OP_MANUAL_FINANCE.md",
 		"OP_MANUAL_SETTINGS_AUDIT.md",
+		"OP_MANUAL_CUSTOMER_PORTAL.md",
 		"OP_MANUAL_CUSTOMER_FULFILLMENT.md",
 	}
 	for _, name := range manuals {
@@ -131,6 +132,7 @@ func TestConsolidatedOperationManualsReplaceLegacyDocs(t *testing.T) {
 		"user-permissions-user-manual.md",
 		"finance-monthly-closing-user-manual.md",
 		"customer-fulfillment-user-manual.md",
+		"customer-portal-mall-user-manual.md",
 	}
 	for _, name := range deprecated {
 		if _, err := os.Stat(filepath.Join("docs", name)); !os.IsNotExist(err) {
