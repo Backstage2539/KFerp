@@ -6,7 +6,10 @@
           <h2>客户履约账户</h2>
           <p>{{ overview.customer_name || (customerId ? `客户 ${customerId}` : '未选择客户') }}</p>
         </div>
-        <button class="secondary" type="button" @click="loadAll" :disabled="loading || !normalizedCustomerId">刷新</button>
+        <div class="head-actions">
+          <button class="secondary" type="button" @click="openManual">客户履约手册</button>
+          <button class="secondary" type="button" @click="loadAll" :disabled="loading || !normalizedCustomerId">刷新</button>
+        </div>
       </div>
 
       <div class="toolbar">
@@ -325,6 +328,12 @@ function custodyTypeLabel(value) {
 function moneyFromCents(value) {
   return (Number(value || 0) / 100).toFixed(2)
 }
+
+function openManual() {
+  window.dispatchEvent(new CustomEvent('kferp:navigate-view', {
+    detail: { key: 'customerFulfillmentManual' },
+  }))
+}
 </script>
 
 <style scoped>
@@ -357,6 +366,13 @@ function moneyFromCents(value) {
 .panel-head p {
   margin: 4px 0 0;
   color: #64748b;
+}
+
+.head-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
 }
 
 .toolbar,
