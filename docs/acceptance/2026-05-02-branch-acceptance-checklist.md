@@ -1,8 +1,8 @@
 # 2026-05-02 今日任务验收清单
 
-记录时间：2026-05-02 12:13:53 +0800  
-整理分支：`codex/today-acceptance-checklist-20260502`  
-远端基线：`origin/develop` = `f64bb32dfe4b90d4ae9e01d6fd2dfc2a76c4d6ae`  
+记录时间：2026-05-02 12:13:53 +0800
+整理分支：`codex/today-acceptance-checklist-20260502`
+远端基线：`origin/develop` = `f64bb32dfe4b90d4ae9e01d6fd2dfc2a76c4d6ae`
 用途：给 Van 做今日分支验收、后续开发查历史、清理分支前复核。
 
 ## 使用规则

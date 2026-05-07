@@ -9,7 +9,7 @@
       <div class="filters">
         <label>
           <span>搜索</span>
-          <input v-model.trim="filters.q" placeholder="订单号/客户" @keyup.enter="loadPage(1)" />
+          <input v-model.trim="filters.q" placeholder="订单号/客户/负责人" @keyup.enter="loadPage(1)" />
         </label>
         <label>
           <span>开始日期</span>

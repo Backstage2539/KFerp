@@ -8,6 +8,7 @@ import (
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -307,6 +308,36 @@ func TestOrderAPIListUsesSalesReadModel(t *testing.T) {
 	}
 }
 
+func TestOrderAPIListSearchMatchesResponsibleName(t *testing.T) {
+	pool, schema := newOrderAPITestDB(t)
+	ctx := context.Background()
+	seedOrderAPITestData(t, ctx, pool, schema)
+	mustExecOrderAPITestSQL(t, ctx, pool, fmt.Sprintf(`
+		INSERT INTO %s.orders(id, order_no, order_date, customer_id, order_type_id, pay_status_id, ship_status_id, process_status_id, grand_total, responsible_party_type, responsible_party_id, responsible_party_name, is_void)
+		VALUES
+			(31, 'SO-RESP-001', '2026-05-06', 3, 1, 2, 1, 1, 88, 'employee', 5, '销售小王', false),
+			(32, 'SO-RESP-002', '2026-05-06', 3, 1, 2, 1, 1, 99, 'employee', 6, '售后小李', false);
+	`, schema))
+
+	e := newOrderAPITestEcho(pool, schema)
+	req := httptest.NewRequest(http.MethodGet, "/api/orders?q=销售小王&limit=10", nil)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET /api/orders status = %d, want 200, body=%s", rec.Code, rec.Body.String())
+	}
+	body := rec.Body.String()
+	for _, needle := range []string{`"order_no":"SO-RESP-001"`, `"responsible_name":"销售小王"`} {
+		if !strings.Contains(body, needle) {
+			t.Fatalf("GET /api/orders responsible search missing %s: %s", needle, body)
+		}
+	}
+	if strings.Contains(body, "SO-RESP-002") {
+		t.Fatalf("GET /api/orders responsible search returned non-matching order: %s", body)
+	}
+}
+
 func TestOrderAPIListUsesOrderRecipientSnapshot(t *testing.T) {
 	pool, schema := newOrderAPITestDB(t)
 	ctx := context.Background()
@@ -347,6 +378,43 @@ func TestOrderAPIListUsesOrderRecipientSnapshot(t *testing.T) {
 			t.Fatalf("GET /api/orders missing %s: %s", needle, body)
 		}
 	}
+}
+
+func TestOrderAPIListKeepsSearchKeywordForResponsibleLookup(t *testing.T) {
+	repo := &capturingOrderListRepo{}
+	e := echo.New()
+	registerOrderAPI(e, salesapp.NewService(repo))
+
+	req := httptest.NewRequest(http.MethodGet, "/api/orders?q="+url.QueryEscape("销售小王")+"&limit=20", nil)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET /api/orders status = %d, want 200, body=%s", rec.Code, rec.Body.String())
+	}
+	if repo.query.Q != "销售小王" {
+		t.Fatalf("orders API q = %q, want responsible search keyword", repo.query.Q)
+	}
+	if repo.query.Limit != 20 {
+		t.Fatalf("orders API limit = %d, want 20", repo.query.Limit)
+	}
+}
+
+type capturingOrderListRepo struct {
+	salesapp.Repository
+	query salesapp.OrderListQuery
+}
+
+func (r *capturingOrderListRepo) ListOrders(ctx context.Context, query salesapp.OrderListQuery) (salesapp.OrderListResult, error) {
+	r.query = query
+	return salesapp.OrderListResult{
+		Rows: []salesapp.OrderRow{{
+			ID:              31,
+			OrderNo:         "SO-RESP-001",
+			ResponsibleName: "销售小王",
+		}},
+		Summary: salesapp.OrdersSummary{Orders: 1, Customers: 1},
+	}, nil
 }
 
 func TestOrderAPISavesRetailCustomSpecPrice(t *testing.T) {

@@ -235,3 +235,20 @@
 - [ ] 小程序商城可把商品加入购物车、增减数量、填写收货信息并提交订单。
 - [ ] 提交后 ERP 订单列表能看到新订单，订单来源服务为 `mall`，订单明细与小程序购物车数量一致。
 - [ ] 商城需求和验收结果已录入 PR/DEV/UT/API/REV 五张表。
+
+## L. 操作手册强制治理（PR-DOCS-001）
+
+### L1. 手册规则
+- [ ] `HOW_TO_WORKFLOW.md` 明确要求操作手册更新先于 REV。
+- [ ] `AGENTS.md` 和 `AGENTS.zh-CN.md` 明确要求开发时同步更新操作手册。
+- [ ] 手册规则包含“单个大功能一个独立操作手册”和“现有手册查缺补漏”。
+
+### L2. 手册文件
+- [ ] 存在 `OPERATION_MANUALS.md` 总索引。
+- [ ] 当前主要大功能已有初版 `OP_MANUAL_*.md` 或对应既有用户手册。
+- [ ] `orderapp-remote/docs/` 中存在线上展示副本。
+
+### L3. 部署与验证
+- [ ] `deploy_orderapp.sh` 同步 `OPERATION_MANUALS.md` 和 `OP_MANUAL_*.md`。
+- [ ] docs raw route 能读取 `OPERATION_MANUALS.md`。
+- [ ] PR/DEV/UT/API/REV 需求种子包含 PR-DOCS-001。

@@ -247,7 +247,7 @@ func orderListWhere(schema string, query salesapp.OrderListQuery) ([]string, []a
 	argn := 1
 
 	if q := strings.TrimSpace(query.Q); q != "" {
-		where = append(where, fmt.Sprintf("(o.order_no ILIKE $%d OR c.name ILIKE $%d)", argn, argn))
+		where = append(where, fmt.Sprintf("(o.order_no ILIKE $%d OR c.name ILIKE $%d OR o.responsible_party_name ILIKE $%d)", argn, argn, argn))
 		args = append(args, "%"+q+"%")
 		argn++
 	}
