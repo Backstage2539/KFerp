@@ -2,7 +2,12 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { salesOrderPageUrl, salesOrderDownloadUrl, salesOrderImageDownloadUrl } from './sales-order.js'
 import { buildShareResourcePayload, shareResourceToWechat } from './external-share.js'
-import { beginSalesOrderSealDrag, moveSalesOrderSealDrag } from './sales-order-seal.js'
+import {
+  beginSalesOrderSealDrag,
+  moveSalesOrderSealDrag,
+  salesOrderSealMaxWidthMM,
+  salesOrderSealStyle,
+} from './sales-order-seal.js'
 
 test('salesOrderPageUrl keeps order id in vue shell', () => {
   assert.equal(salesOrderPageUrl(12), '/vue-shell?view=salesOrder&order_id=12')
@@ -125,5 +130,15 @@ test('sales order seal drag keeps the clicked offset instead of snapping the sea
     x_mm: 42,
     y_mm: 32,
     width_mm: 42,
+  })
+})
+
+test('sales order seal size control supports a visibly larger configured seal', () => {
+  assert.equal(salesOrderSealMaxWidthMM, 120)
+  assert.deepEqual(salesOrderSealStyle({ seal_width_mm: salesOrderSealMaxWidthMM }, 1), {
+    left: '32px',
+    top: '5px',
+    width: '120px',
+    height: '74.4px',
   })
 })

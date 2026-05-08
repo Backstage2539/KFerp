@@ -8,6 +8,7 @@ import (
 	"image"
 	"image/color"
 	"image/png"
+	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
 	salesapp "orderapp/internal/application/sales"
@@ -90,6 +91,39 @@ func TestRemoveSealImageBackgroundTurnsLightNeutralPixelsTransparent(t *testing.
 	}
 	if redAlpha == 0 || redR == 0 {
 		t.Fatalf("red foreground should stay visible, rgba=(%d,%d)", redR, redAlpha)
+	}
+}
+
+func TestRemoveSealImageBackgroundCropsWhitePaddingAroundSeal(t *testing.T) {
+	var input bytes.Buffer
+	img := image.NewNRGBA(image.Rect(0, 0, 120, 120))
+	for y := 0; y < 120; y++ {
+		for x := 0; x < 120; x++ {
+			img.SetNRGBA(x, y, color.NRGBA{R: 255, G: 255, B: 255, A: 255})
+		}
+	}
+	for y := 45; y < 75; y++ {
+		for x := 45; x < 75; x++ {
+			img.SetNRGBA(x, y, color.NRGBA{R: 210, G: 0, B: 0, A: 255})
+		}
+	}
+	if err := png.Encode(&input, img); err != nil {
+		t.Fatal(err)
+	}
+
+	out, err := removeSealImageBackground(input.Bytes())
+	if err != nil {
+		t.Fatalf("remove background: %v", err)
+	}
+	got, err := png.Decode(bytes.NewReader(out))
+	if err != nil {
+		t.Fatalf("decode output: %v", err)
+	}
+	if got.Bounds().Dx() > 40 || got.Bounds().Dy() > 40 {
+		t.Fatalf("cropped seal bounds = %v, want the red seal body without the original white padding", got.Bounds())
+	}
+	if got.Bounds().Dx() < 30 || got.Bounds().Dy() < 30 {
+		t.Fatalf("cropped seal bounds = %v, want to keep the full red seal body", got.Bounds())
 	}
 }
 
@@ -235,6 +269,48 @@ func TestSalesOrderSealBackgroundRemovalCreatesTransparentPNG(t *testing.T) {
 	e.ServeHTTP(getRec, getReq)
 	if getRec.Code != http.StatusOK || !strings.Contains(getRec.Body.String(), payload.Asset.ObjectKey) {
 		t.Fatalf("settings should point to transparent seal status=%d body=%s", getRec.Code, getRec.Body.String())
+	}
+}
+
+func TestSalesOrderSealUploadNormalizesWhitePadding(t *testing.T) {
+	pool, schema := newOrderAPITestDB(t)
+	ctx := context.Background()
+	seedOrderAPITestData(t, ctx, pool, schema)
+	if err := postgressales.EnsureSchema(ctx, pool, schema); err != nil {
+		t.Fatalf("EnsureSchema: %v", err)
+	}
+	assetDir := t.TempDir()
+	paddedSeal := paddedSealPNG(t)
+	body, contentType := multipartSalesOrderAssetBody(t, "seal.png", "image/png", paddedSeal)
+	e := newSalesOrderAPITestEcho(pool, schema, assetDir)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/settings/sales-order/seal", body)
+	req.Header.Set(echo.HeaderContentType, contentType)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("upload seal status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	var payload struct {
+		Asset salesapp.SalesOrderAsset `json:"asset"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("decode upload response: %v", err)
+	}
+	if payload.Asset.ContentType != "image/png" {
+		t.Fatalf("uploaded seal content type = %q, want normalized image/png", payload.Asset.ContentType)
+	}
+	data, err := os.ReadFile(filepath.Join(assetDir, payload.Asset.ObjectKey))
+	if err != nil {
+		t.Fatalf("read normalized seal: %v", err)
+	}
+	img, err := png.Decode(bytes.NewReader(data))
+	if err != nil {
+		t.Fatalf("decode normalized seal: %v", err)
+	}
+	if img.Bounds().Dx() > 40 || img.Bounds().Dy() > 40 {
+		t.Fatalf("uploaded seal bounds = %v, want white padding cropped before saving", img.Bounds())
 	}
 }
 
@@ -606,4 +682,44 @@ func writeSealWithWhiteBackground(t *testing.T, path string) {
 	if err := os.WriteFile(path, buf.Bytes(), 0o644); err != nil {
 		t.Fatal(err)
 	}
+}
+
+func paddedSealPNG(t *testing.T) []byte {
+	t.Helper()
+	img := image.NewNRGBA(image.Rect(0, 0, 120, 120))
+	for y := 0; y < 120; y++ {
+		for x := 0; x < 120; x++ {
+			img.SetNRGBA(x, y, color.NRGBA{R: 255, G: 255, B: 255, A: 255})
+		}
+	}
+	for y := 45; y < 75; y++ {
+		for x := 45; x < 75; x++ {
+			img.SetNRGBA(x, y, color.NRGBA{R: 210, G: 0, B: 0, A: 255})
+		}
+	}
+	var buf bytes.Buffer
+	if err := png.Encode(&buf, img); err != nil {
+		t.Fatal(err)
+	}
+	return buf.Bytes()
+}
+
+func multipartSalesOrderAssetBody(t *testing.T, filename, contentType string, data []byte) (*bytes.Buffer, string) {
+	t.Helper()
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
+	part, err := writer.CreatePart(map[string][]string{
+		"Content-Disposition": {fmt.Sprintf(`form-data; name="file"; filename="%s"`, filename)},
+		"Content-Type":        {contentType},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := part.Write(data); err != nil {
+		t.Fatal(err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatal(err)
+	}
+	return &body, writer.FormDataContentType()
 }

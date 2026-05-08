@@ -6,7 +6,7 @@
         <button class="secondary" type="button" @click="load" :disabled="loading">刷新</button>
       </div>
       <div v-if="error" class="error">{{ error }}</div>
-      <div v-if="ok" class="ok">已保存</div>
+      <div v-if="ok" class="ok">{{ ok }}</div>
 
       <div class="form-grid">
         <label class="wide"><span>收款方式</span><textarea v-model.trim="form.payment_text" rows="2"></textarea></label>
@@ -21,7 +21,8 @@
           <li>公司名称在“公司设置”里维护；本页只维护销售单说明、收款方式、收款码和公章。</li>
           <li>公账收款信息在“公司设置”里维护；为空时销售单不展示公账信息。</li>
           <li>收款码支持多个，名称和说明会随 PDF 一起展示。</li>
-          <li>公章可上传图片后点击“去除背景”生成透明 PNG；也可拖动调整盖在公司名称上的位置，松手自动保存，并调整公章大小，调整后只影响新生成版本。</li>
+          <li>上传公章时会自动裁掉图片白边；旧公章可点击“去除背景”重新生成透明 PNG。</li>
+          <li>公章可拖动调整盖在公司名称上的位置，松手自动保存；调整公章大小后会自动保存，调整后只影响新生成版本。</li>
         </ul>
       </details>
     </section>
@@ -84,8 +85,8 @@
           <label class="seal-size-control">
             <span>公章大小(mm)</span>
             <div class="seal-size-inputs">
-              <input v-model.number="form.seal_width_mm" type="range" min="20" max="80" step="1" />
-              <input v-model.number="form.seal_width_mm" type="number" min="20" max="80" step="1" />
+              <input v-model.number="form.seal_width_mm" type="range" :min="salesOrderSealMinWidthMM" :max="salesOrderSealMaxWidthMM" step="1" @change="saveSealPosition" />
+              <input v-model.number="form.seal_width_mm" type="number" :min="salesOrderSealMinWidthMM" :max="salesOrderSealMaxWidthMM" step="1" @change="saveSealPosition" />
             </div>
           </label>
         </div>
@@ -97,7 +98,14 @@
 <script setup>
 import { computed, onMounted, reactive, ref } from 'vue'
 import { apiGet, apiSend } from '../api/client'
-import { beginSalesOrderSealDrag, moveSalesOrderSealDrag, salesOrderSealPreviewScale, salesOrderSealStyle } from '../lib/sales-order-seal'
+import {
+  beginSalesOrderSealDrag,
+  moveSalesOrderSealDrag,
+  salesOrderSealMaxWidthMM,
+  salesOrderSealMinWidthMM,
+  salesOrderSealPreviewScale,
+  salesOrderSealStyle,
+} from '../lib/sales-order-seal'
 
 const props = defineProps({
   embedded: { type: Boolean, default: false },
@@ -110,7 +118,7 @@ const uploadingSeal = ref(false)
 const removingSealBackground = ref(false)
 const sealPositionSaving = ref(false)
 const error = ref('')
-const ok = ref(false)
+const ok = ref('')
 const settings = ref({})
 const paymentFile = ref(null)
 const sealFile = ref(null)
@@ -173,17 +181,18 @@ function startSealDrag(event) {
   const up = async () => {
     window.removeEventListener('pointermove', move)
     window.removeEventListener('pointerup', up)
-    await saveSealPosition()
+    await saveSealPosition('公章位置已保存')
   }
   event.currentTarget?.setPointerCapture?.(event.pointerId)
   window.addEventListener('pointermove', move)
   window.addEventListener('pointerup', up, { once: true })
 }
 
-async function saveSealPosition() {
+async function saveSealPosition(eventOrMessage) {
   sealPositionSaving.value = true
   error.value = ''
-  ok.value = false
+  ok.value = ''
+  const successText = typeof eventOrMessage === 'string' ? eventOrMessage : '公章大小已保存'
   try {
     assignSettings(await apiSend('/api/settings/sales-order/seal-position', {
       body: {
@@ -192,7 +201,7 @@ async function saveSealPosition() {
         seal_width_mm: Number(form.seal_width_mm || 36),
       },
     }))
-    ok.value = true
+    ok.value = successText
   } catch (err) {
     error.value = err.message || '保存公章位置失败'
   } finally {
@@ -203,10 +212,10 @@ async function saveSealPosition() {
 async function save() {
   saving.value = true
   error.value = ''
-  ok.value = false
+  ok.value = ''
   try {
     assignSettings(await apiSend('/api/settings/sales-order', { body: { ...form } }))
-    ok.value = true
+    ok.value = '已保存'
   } catch (err) {
     error.value = err.message || '保存失败'
   } finally {
@@ -263,12 +272,14 @@ async function uploadSeal() {
   if (!sealFile.value) return
   uploadingSeal.value = true
   error.value = ''
+  ok.value = ''
   try {
     const body = new FormData()
     body.append('file', sealFile.value)
     await apiSend('/api/settings/sales-order/seal', { body })
     sealFile.value = null
     await load()
+    ok.value = '公章已上传并裁掉图片白边'
   } catch (err) {
     error.value = err.message || '上传失败'
   } finally {
@@ -280,11 +291,11 @@ async function removeSealBackground() {
   if (!settings.value?.seal) return
   removingSealBackground.value = true
   error.value = ''
-  ok.value = false
+  ok.value = ''
   try {
     await apiSend('/api/settings/sales-order/seal/remove-background')
     await load()
-    ok.value = true
+    ok.value = '已保存'
   } catch (err) {
     error.value = err.message || '去除公章背景失败'
   } finally {
