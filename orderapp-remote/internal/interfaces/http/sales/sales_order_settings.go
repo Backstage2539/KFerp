@@ -296,8 +296,18 @@ func (h salesOrderSettingsHandler) saveUploadedSalesOrderAsset(c echo.Context, k
 	if len(data) == 0 {
 		return salesapp.SalesOrderAsset{}, fmt.Errorf("empty file")
 	}
-	sum := sha256.Sum256(data)
 	filename := filepath.Base(file.Filename)
+	contentType := file.Header.Get("Content-Type")
+	if kind == "seal" {
+		normalized, err := removeSealImageBackground(data)
+		if err != nil {
+			return salesapp.SalesOrderAsset{}, err
+		}
+		data = normalized
+		filename = transparentSealFilename(filename)
+		contentType = "image/png"
+	}
+	sum := sha256.Sum256(data)
 	objectKey := filepath.ToSlash(filepath.Join("sales_order_assets", kind, fmt.Sprintf("%d-%s", time.Now().UnixNano(), filename)))
 	if err := os.MkdirAll(filepath.Dir(filepath.Join(h.assetDir, objectKey)), 0755); err != nil {
 		return salesapp.SalesOrderAsset{}, err
@@ -309,7 +319,7 @@ func (h salesOrderSettingsHandler) saveUploadedSalesOrderAsset(c echo.Context, k
 		Actor:       support.ActorOf(c),
 		Kind:        kind,
 		Filename:    filename,
-		ContentType: file.Header.Get("Content-Type"),
+		ContentType: contentType,
 		Bytes:       int64(len(data)),
 		SHA256:      hex.EncodeToString(sum[:]),
 		ObjectKey:   objectKey,
@@ -339,8 +349,19 @@ func removeSealImageBackground(data []byte) ([]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("unsupported seal image")
 	}
+	out := normalizeSealImage(img)
+	var buf bytes.Buffer
+	if err := png.Encode(&buf, out); err != nil {
+		return nil, err
+	}
+	return buf.Bytes(), nil
+}
+
+func normalizeSealImage(img image.Image) *image.NRGBA {
 	bounds := img.Bounds()
 	out := image.NewNRGBA(image.Rect(0, 0, bounds.Dx(), bounds.Dy()))
+	foreground := image.Rectangle{}
+	hasForeground := false
 	for y := bounds.Min.Y; y < bounds.Max.Y; y++ {
 		for x := bounds.Min.X; x < bounds.Max.X; x++ {
 			r16, g16, b16, a16 := img.At(x, y).RGBA()
@@ -351,18 +372,73 @@ func removeSealImageBackground(data []byte) ([]byte, error) {
 			if a > 0 && isLightNeutralSealBackground(r, g, b) {
 				a = 0
 			}
-			out.SetNRGBA(x-bounds.Min.X, y-bounds.Min.Y, color.NRGBA{R: r, G: g, B: b, A: a})
+			dstX := x - bounds.Min.X
+			dstY := y - bounds.Min.Y
+			out.SetNRGBA(dstX, dstY, color.NRGBA{R: r, G: g, B: b, A: a})
+			if a > 0 {
+				if !hasForeground {
+					foreground = image.Rect(dstX, dstY, dstX+1, dstY+1)
+					hasForeground = true
+					continue
+				}
+				if dstX < foreground.Min.X {
+					foreground.Min.X = dstX
+				}
+				if dstY < foreground.Min.Y {
+					foreground.Min.Y = dstY
+				}
+				if dstX+1 > foreground.Max.X {
+					foreground.Max.X = dstX + 1
+				}
+				if dstY+1 > foreground.Max.Y {
+					foreground.Max.Y = dstY + 1
+				}
+			}
 		}
 	}
-	var buf bytes.Buffer
-	if err := png.Encode(&buf, out); err != nil {
-		return nil, err
+	if hasForeground && shouldCropSealPadding(out.Bounds(), foreground) {
+		return cropSealImage(out, paddedSealForegroundBounds(out.Bounds(), foreground))
 	}
-	return buf.Bytes(), nil
+	return out
 }
 
 func isLightNeutralSealBackground(r, g, b uint8) bool {
 	maxV := max(max(r, g), b)
 	minV := min(min(r, g), b)
 	return minV >= 238 && maxV-minV <= 24
+}
+
+func shouldCropSealPadding(bounds, foreground image.Rectangle) bool {
+	if bounds.Empty() || foreground.Empty() {
+		return false
+	}
+	minPadding := max(3, min(bounds.Dx(), bounds.Dy())/20)
+	return foreground.Min.X > minPadding ||
+		foreground.Min.Y > minPadding ||
+		bounds.Max.X-foreground.Max.X > minPadding ||
+		bounds.Max.Y-foreground.Max.Y > minPadding
+}
+
+func paddedSealForegroundBounds(bounds, foreground image.Rectangle) image.Rectangle {
+	padding := max(2, min(foreground.Dx(), foreground.Dy())/20)
+	crop := image.Rect(
+		max(bounds.Min.X, foreground.Min.X-padding),
+		max(bounds.Min.Y, foreground.Min.Y-padding),
+		min(bounds.Max.X, foreground.Max.X+padding),
+		min(bounds.Max.Y, foreground.Max.Y+padding),
+	)
+	if crop.Empty() {
+		return bounds
+	}
+	return crop
+}
+
+func cropSealImage(src *image.NRGBA, crop image.Rectangle) *image.NRGBA {
+	dst := image.NewNRGBA(image.Rect(0, 0, crop.Dx(), crop.Dy()))
+	for y := crop.Min.Y; y < crop.Max.Y; y++ {
+		for x := crop.Min.X; x < crop.Max.X; x++ {
+			dst.SetNRGBA(x-crop.Min.X, y-crop.Min.Y, src.NRGBAAt(x, y))
+		}
+	}
+	return dst
 }

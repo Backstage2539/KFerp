@@ -2,6 +2,8 @@ const defaultSealXMM = 32
 const defaultSealYMM = 5
 const defaultSealWidthMM = 36
 
+export const salesOrderSealMinWidthMM = 20
+export const salesOrderSealMaxWidthMM = 120
 export const salesOrderSealPreviewScale = 2.2
 
 export function normalizeSalesOrderSeal(seal = {}) {
@@ -17,7 +19,7 @@ export function normalizeSalesOrderSeal(seal = {}) {
 
 export function salesOrderSealStyle(seal = {}, scale = salesOrderSealPreviewScale) {
   const pos = normalizeSalesOrderSeal(seal)
-  const width = Math.max(20, pos.width_mm)
+  const width = Math.max(salesOrderSealMinWidthMM, pos.width_mm)
   return {
     left: `${Math.max(0, pos.x_mm) * scale}px`,
     top: `${Math.max(0, pos.y_mm) * scale}px`,
