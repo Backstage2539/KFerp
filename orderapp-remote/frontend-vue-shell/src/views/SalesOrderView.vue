@@ -41,25 +41,25 @@
       </details>
     </section>
 
-    <section class="panel">
+    <section class="panel preview-panel">
       <div class="panel-head">
         <h3>销售单预览 <span v-if="preview" class="version-tag">V{{ preview.next_version_no }}</span></h3>
         <button class="secondary" type="button" @click="loadPreview" :disabled="previewLoading || !orderID">{{ previewLoading ? '预览中' : '刷新预览' }}</button>
       </div>
       <div v-if="!preview" class="muted preview-empty">暂无预览</div>
-      <div v-else class="preview-box">
-        <div ref="previewSealStage" class="preview-title">
+      <div v-else ref="previewSealStage" class="preview-box">
+        <img
+          v-if="preview.snapshot.seal"
+          class="seal-stamp-preview"
+          :src="assetURL(preview.snapshot.seal)"
+          alt="公章"
+          :style="sealPositionStyle(preview.snapshot.seal)"
+          title="拖动调整公章位置"
+          @pointerdown.stop="startPreviewSealDrag"
+        />
+        <div class="preview-title">
           <strong>{{ preview.snapshot.company_name }}</strong>
           <span>销售单 SALES ORDER</span>
-          <img
-            v-if="preview.snapshot.seal"
-            class="seal-stamp-preview"
-            :src="assetURL(preview.snapshot.seal)"
-            alt="公章"
-            :style="sealPositionStyle(preview.snapshot.seal)"
-            title="拖动调整公章位置"
-            @pointerdown.stop="startPreviewSealDrag"
-          />
         </div>
         <div class="preview-meta">
           <span>订单号：{{ preview.snapshot.order_no }}</span>
@@ -531,6 +531,7 @@ onMounted(loadPage)
 .embedded-page { padding: 14px; }
 .panel { border: 1px solid #e6e0d8; border-radius: 8px; background: #fff; padding: 14px; margin-bottom: 14px; max-width: 1180px; }
 .embedded-page .panel { max-width: none; }
+.preview-panel { overflow: auto; }
 .panel-head, .actions, .summary { display: flex; align-items: center; gap: 12px; }
 .panel-head { justify-content: space-between; margin-bottom: 12px; }
 .actions { flex-wrap: wrap; justify-content: flex-end; }
@@ -552,18 +553,21 @@ th { background: #fbfaf8; }
 .muted { color: #666; text-align: center; }
 .version-tag { display: inline-block; margin-left: 6px; border: 1px solid #d0d0d0; border-radius: 999px; padding: 1px 7px; color: #555; font-size: 12px; vertical-align: middle; }
 .preview-empty { padding: 18px 0; }
-.preview-box { border: 1px solid #e5ded3; border-radius: 8px; padding: 14px; background: #fffdf9; position: relative; }
-.preview-title { position: relative; display: flex; justify-content: space-between; gap: 12px; border-bottom: 2px solid #1f1f1f; padding: 22px 0 10px; margin-bottom: 10px; min-height: 82px; }
-.preview-title strong { font-size: 18px; }
-.preview-title span { font-weight: 800; }
-.seal-stamp-preview { position: absolute; object-fit: contain; opacity: .86; cursor: move; touch-action: none; }
-.preview-meta { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px 14px; margin-bottom: 12px; color: #555; }
-.preview-meta span { min-width: 0; overflow-wrap: anywhere; line-height: 1.45; }
-.preview-total { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 14px; padding-top: 12px; }
-.preview-total strong { font-size: 18px; }
+.preview-box { width: 1240px; min-height: 1754px; border: 1px solid #e5ded3; border-radius: 8px; padding: 0; background: #fff; position: relative; color: #171717; }
+.preview-title { display: flex; justify-content: space-between; align-items: flex-start; gap: 24px; height: 58px; border-bottom: 2px solid #1f1f1f; padding: 0 0 28px; margin: 62px 70px 42px; }
+.preview-title strong { font-size: 24px; line-height: 28px; font-weight: 700; }
+.preview-title span { font-size: 22px; line-height: 28px; font-weight: 500; }
+.seal-stamp-preview { position: absolute; object-fit: contain; opacity: .86; cursor: move; touch-action: none; z-index: 2; }
+.preview-meta { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px 14px; margin: 0 70px 30px; color: #555; font-size: 20px; line-height: 28px; }
+.preview-meta span { min-width: 0; overflow-wrap: anywhere; line-height: 28px; }
+.preview-box table { width: calc(100% - 140px); margin: 0 70px; table-layout: fixed; }
+.preview-box th, .preview-box td { font-size: 20px; padding: 16px 8px; }
+.preview-box th { font-size: 21px; }
+.preview-total { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 22px; margin: 0 70px; padding: 20px 0 18px; border-bottom: 2px solid #1f1f1f; font-size: 22px; }
+.preview-total strong { font-size: 22px; }
 .preview-notes { border-top: 1px solid #eee2d4; margin-top: 12px; padding-top: 10px; color: #555; }
 .preview-notes p { margin: 4px 0; white-space: pre-line; }
-.payment-info-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(260px, 360px); gap: 18px; border-top: 1px solid #eee2d4; margin-top: 12px; padding-top: 12px; }
+.payment-info-grid { display: grid; grid-template-columns: minmax(0, 650px) minmax(260px, 360px); gap: 18px; margin: 28px 70px 0; padding-top: 0; }
 .payment-text-panel { display: grid; gap: 10px; align-content: start; }
 .payment-code-panel { align-self: start; }
 .compact-notes { border-top: 0; margin-top: 0; padding-top: 0; }

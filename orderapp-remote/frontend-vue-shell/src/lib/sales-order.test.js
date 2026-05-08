@@ -5,7 +5,10 @@ import { buildShareResourcePayload, shareResourceToWechat } from './external-sha
 import {
   beginSalesOrderSealDrag,
   moveSalesOrderSealDrag,
+  salesOrderPreviewDesignWidthPX,
+  salesOrderPreviewPageWidthMM,
   salesOrderSealMaxWidthMM,
+  salesOrderSealPreviewScale,
   salesOrderSealStyle,
 } from './sales-order-seal.js'
 
@@ -140,5 +143,17 @@ test('sales order seal size control supports a visibly larger configured seal', 
     top: '5px',
     width: '120px',
     height: '74.4px',
+  })
+})
+
+test('sales order seal preview uses the same A4 page scale as downloaded images', () => {
+  assert.equal(salesOrderPreviewDesignWidthPX, 1240)
+  assert.equal(salesOrderPreviewPageWidthMM, 210)
+  assert.equal(salesOrderSealPreviewScale, salesOrderPreviewDesignWidthPX / salesOrderPreviewPageWidthMM)
+  assert.deepEqual(salesOrderSealStyle({ x_mm: 32, y_mm: 5, width_mm: 120 }), {
+    left: `${32 * salesOrderSealPreviewScale}px`,
+    top: `${5 * salesOrderSealPreviewScale}px`,
+    width: `${120 * salesOrderSealPreviewScale}px`,
+    height: `${120 * 0.62 * salesOrderSealPreviewScale}px`,
   })
 })
