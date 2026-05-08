@@ -253,6 +253,22 @@ func TestApplyDirectShipImportRepositoryWiring(t *testing.T) {
 	}
 }
 
+func TestDirectShipImportLeavesERPProductIDNullWhenNoProductMatches(t *testing.T) {
+	src := string(readCustomerFulfillmentRepoFile(t, "internal/infrastructure/postgres/customerfulfillment/repository.go"))
+	if strings.Contains(src, "productID, _ := r.findProductForDirectShipTx") {
+		t.Fatalf("direct ship import must not discard missing-product lookup errors and insert product_id=0")
+	}
+	for _, want := range []string{
+		"var productID any",
+		"errors.Is(productErr, pgx.ErrNoRows)",
+		"productID = matchedProductID",
+	} {
+		if !strings.Contains(src, want) {
+			t.Fatalf("repository.go missing nullable direct-ship product marker %q", want)
+		}
+	}
+}
+
 func TestApplyDirectShipImportCreatesOrdersAndSnapshotsIdempotently(t *testing.T) {
 	ctx := context.Background()
 	pool, schema := newCustomerFulfillmentTestDB(t)

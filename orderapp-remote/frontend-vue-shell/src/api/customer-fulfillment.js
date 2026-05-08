@@ -53,3 +53,27 @@ export function fetchCustomerFulfillmentCustomers(query = '', limit = 200) {
 export function createCustomerFulfillmentSettlement(customerId, payload) {
   return apiSend(`/api/customer-fulfillment/${Number(customerId)}/settlements`, { body: payload })
 }
+
+export function adjustCustomerFulfillmentCustodyInventory(customerId, payload) {
+  return apiSend(`/api/customer-fulfillment/${Number(customerId)}/custody-adjustments`, { body: payload })
+}
+
+export function fetchCustomerFulfillmentERPBindings(customerId) {
+  return apiGet(`/api/customer-fulfillment/${Number(customerId)}/erp-bindings`)
+}
+
+export function upsertCustomerFulfillmentERPBinding(customerId, payload) {
+  return apiSend(`/api/customer-fulfillment/${Number(customerId)}/erp-bindings`, { body: payload })
+}
+
+export function fetchCustomerProcessingPortalOverview() {
+  return apiGet('/api/customer-processing/portal/overview')
+}
+
+export function submitCustomerProcessingWorkOrder(payload) {
+  return apiSend('/api/customer-processing/portal/work-orders', { body: payload })
+}
+
+export function submitCustomerDirectShipOrder(payload) {
+  return apiSend('/api/customer-processing/portal/direct-ship-orders', { body: payload })
+}

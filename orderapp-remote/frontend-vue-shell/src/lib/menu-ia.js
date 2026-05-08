@@ -1,5 +1,12 @@
 export const menuGroups = [
   {
+    id: 'customerProcessing',
+    name: '客户代加工',
+    items: [
+      { key: 'customerProcessingPortal', label: '代加工工作台', title: '代加工工作台' },
+    ],
+  },
+  {
     id: 'sales',
     name: '订单销售',
     items: [

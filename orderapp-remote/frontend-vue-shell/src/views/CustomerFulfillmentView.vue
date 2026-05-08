@@ -62,6 +62,67 @@
         <button class="secondary" type="button" @click="createSettlement" :disabled="loading || !normalizedCustomerId">生成月结</button>
       </div>
 
+      <div class="ops-grid">
+        <div class="ops-panel">
+          <h3>库存手动调整</h3>
+          <div class="ops-form">
+            <label>
+              <span>类型</span>
+              <select v-model="adjustment.item_type">
+                <option value="raw_bean">生豆</option>
+                <option value="packaging">包材</option>
+                <option value="product">成品</option>
+              </select>
+            </label>
+            <label>
+              <span>名称</span>
+              <input v-model.trim="adjustment.item_name" placeholder="库存名称" />
+            </label>
+            <label>
+              <span>规格</span>
+              <input v-model.trim="adjustment.spec" placeholder="可选" />
+            </label>
+            <label>
+              <span>克重增减</span>
+              <input v-model.number="adjustment.quantity_g_delta" type="number" />
+            </label>
+            <label>
+              <span>件数增减</span>
+              <input v-model.number="adjustment.quantity_units_delta" type="number" />
+            </label>
+            <label class="wide-field">
+              <span>备注</span>
+              <input v-model.trim="adjustment.note" placeholder="手工调整原因" />
+            </label>
+            <button class="secondary" type="button" @click="adjustCustody" :disabled="loading || !normalizedCustomerId">保存调整</button>
+          </div>
+        </div>
+
+        <div class="ops-panel">
+          <h3>客户 ERP 账号绑定</h3>
+          <div class="ops-form binding-form">
+            <label>
+              <span>员工ID</span>
+              <input v-model.number="binding.employee_id" type="number" min="1" placeholder="客户登录账号的员工ID" />
+            </label>
+            <label>
+              <span>状态</span>
+              <select v-model="binding.status">
+                <option value="active">启用</option>
+                <option value="inactive">停用</option>
+              </select>
+            </label>
+            <button class="secondary" type="button" @click="saveERPBinding" :disabled="loading || !normalizedCustomerId">绑定账号</button>
+          </div>
+          <div v-if="erpBindings.length" class="binding-list">
+            <span v-for="row in erpBindings" :key="`${row.customer_id}-${row.employee_id}`">
+              #{{ row.employee_id }} {{ row.employee_name || '未命名员工' }} / {{ bindingStatusLabel(row.status) }}
+            </span>
+          </div>
+          <div v-else class="muted">暂无绑定账号</div>
+        </div>
+      </div>
+
       <div v-if="error" class="error">{{ error }}</div>
       <div v-if="ok" class="ok">{{ ok }}</div>
     </section>
@@ -236,13 +297,16 @@ import DataPanel from '../components/DataPanel.vue'
 import SearchableSelect from '../components/SearchableSelect.vue'
 import {
   applyCustomerFulfillmentImport,
+  adjustCustomerFulfillmentCustodyInventory,
   createCustomerFulfillmentSettlement,
   fetchCustomerFulfillmentCustomers,
+  fetchCustomerFulfillmentERPBindings,
   fetchCustomerFulfillmentImportPreview,
   fetchCustomerFulfillmentImportRows,
   fetchCustomerFulfillmentImports,
   fetchCustomerFulfillmentOverview,
   parseCustomerFulfillmentImport,
+  upsertCustomerFulfillmentERPBinding,
 } from '../api/customer-fulfillment'
 import {
   activeCustomerFulfillmentCustomers,
@@ -266,6 +330,7 @@ const applyPreview = ref(null)
 const imports = ref([])
 const overview = ref({})
 const invalidRows = ref([])
+const erpBindings = ref([])
 const resultAnchor = ref(null)
 const loading = ref(false)
 const error = ref('')
@@ -273,6 +338,18 @@ const ok = ref('')
 const settlement = reactive({
   period_from: '',
   period_to: '',
+})
+const adjustment = reactive({
+  item_type: 'raw_bean',
+  item_name: '',
+  spec: '',
+  quantity_g_delta: 0,
+  quantity_units_delta: 0,
+  note: '',
+})
+const binding = reactive({
+  employee_id: '',
+  status: 'active',
 })
 
 const importTypes = importTypeOptions()
@@ -335,13 +412,15 @@ async function loadAll() {
   error.value = ''
   ok.value = ''
   try {
-    const [overviewData, importData] = await Promise.all([
+    const [overviewData, importData, bindingData] = await Promise.all([
       fetchCustomerFulfillmentOverview(normalizedCustomerId.value),
       fetchCustomerFulfillmentImports(normalizedCustomerId.value),
+      fetchCustomerFulfillmentERPBindings(normalizedCustomerId.value),
     ])
     overview.value = overviewData || {}
     rememberOverviewCustomer(overviewData)
     imports.value = importData?.imports || overviewData?.imports || []
+    erpBindings.value = bindingData?.bindings || []
   } catch (err) {
     error.value = err.message || '加载客户履约账户失败'
   } finally {
@@ -389,6 +468,58 @@ async function applyLatest() {
   } finally {
     loading.value = false
   }
+}
+
+async function adjustCustody() {
+  if (!normalizedCustomerId.value) return
+  loading.value = true
+  error.value = ''
+  ok.value = ''
+  try {
+    const row = await adjustCustomerFulfillmentCustodyInventory(normalizedCustomerId.value, {
+      item_type: adjustment.item_type,
+      item_name: adjustment.item_name,
+      spec: adjustment.spec,
+      quantity_g_delta: Number(adjustment.quantity_g_delta || 0),
+      quantity_units_delta: Number(adjustment.quantity_units_delta || 0),
+      note: adjustment.note,
+    })
+    ok.value = `已调整库存：${row.item_name || adjustment.item_name}`
+    adjustment.quantity_g_delta = 0
+    adjustment.quantity_units_delta = 0
+    adjustment.note = ''
+    await loadAll()
+  } catch (err) {
+    error.value = err.message || '库存调整失败'
+  } finally {
+    loading.value = false
+  }
+}
+
+async function saveERPBinding() {
+  if (!normalizedCustomerId.value) return
+  loading.value = true
+  error.value = ''
+  ok.value = ''
+  try {
+    const row = await upsertCustomerFulfillmentERPBinding(normalizedCustomerId.value, {
+      employee_id: Number(binding.employee_id || 0),
+      status: binding.status,
+    })
+    ok.value = `已绑定账号 #${row.employee_id}`
+    binding.employee_id = ''
+    await loadERPBindings()
+  } catch (err) {
+    error.value = err.message || '绑定账号失败'
+  } finally {
+    loading.value = false
+  }
+}
+
+async function loadERPBindings() {
+  if (!normalizedCustomerId.value) return
+  const data = await fetchCustomerFulfillmentERPBindings(normalizedCustomerId.value)
+  erpBindings.value = data?.bindings || []
 }
 
 async function loadInvalidRows(batch) {
@@ -451,6 +582,10 @@ function importTypeLabel(value) {
 
 function custodyTypeLabel(value) {
   return { raw_bean: '生豆', packaging: '包材', product: '产品' }[value] || value
+}
+
+function bindingStatusLabel(value) {
+  return value === 'active' ? '启用' : '停用'
 }
 
 function moneyFromCents(value) {
@@ -566,6 +701,15 @@ input {
   font: inherit;
 }
 
+select {
+  min-height: 34px;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  padding: 6px 8px;
+  background: #fff;
+  font: inherit;
+}
+
 button {
   min-height: 34px;
   border: 1px solid #cbd5e1;
@@ -618,6 +762,56 @@ button:disabled {
 .segmented .active {
   background: #0f766e;
   color: #fff;
+}
+
+.ops-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: 12px;
+  margin-top: 12px;
+}
+
+.ops-panel {
+  border: 1px solid #d8dee4;
+  border-radius: 8px;
+  padding: 12px;
+  background: #f8fafc;
+}
+
+.ops-panel h3 {
+  margin: 0 0 10px;
+  font-size: 16px;
+}
+
+.ops-form {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+  gap: 8px;
+  align-items: end;
+}
+
+.binding-form {
+  grid-template-columns: minmax(160px, 1fr) 120px 100px;
+}
+
+.wide-field {
+  grid-column: span 2;
+}
+
+.binding-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.binding-list span {
+  border: 1px solid #cbd5e1;
+  border-radius: 999px;
+  padding: 5px 8px;
+  background: #fff;
+  color: #334155;
+  font-size: 12px;
 }
 
 .metric-grid {

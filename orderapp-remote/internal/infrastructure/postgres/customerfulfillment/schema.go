@@ -27,6 +27,23 @@ CREATE TABLE IF NOT EXISTS %[1]s.customer_fulfillment_import_batches (
 CREATE UNIQUE INDEX IF NOT EXISTS customer_fulfillment_import_batches_customer_type_sha_idx
 	ON %[1]s.customer_fulfillment_import_batches(customer_id, import_type, source_sha256);
 
+CREATE TABLE IF NOT EXISTS %[1]s.customer_erp_user_bindings (
+	id BIGSERIAL PRIMARY KEY,
+	customer_id BIGINT NOT NULL REFERENCES %[1]s.customers(id) ON DELETE CASCADE,
+	employee_id BIGINT NOT NULL REFERENCES %[1]s.company_employees(id) ON DELETE CASCADE,
+	role TEXT NOT NULL DEFAULT 'customer',
+	status TEXT NOT NULL DEFAULT 'active',
+	created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+	updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+	updated_by TEXT NOT NULL DEFAULT ''
+);
+CREATE UNIQUE INDEX IF NOT EXISTS customer_erp_user_bindings_employee_customer_uq
+	ON %[1]s.customer_erp_user_bindings(employee_id, customer_id);
+CREATE INDEX IF NOT EXISTS customer_erp_user_bindings_employee_status_idx
+	ON %[1]s.customer_erp_user_bindings(employee_id, status, customer_id);
+CREATE INDEX IF NOT EXISTS customer_erp_user_bindings_customer_idx
+	ON %[1]s.customer_erp_user_bindings(customer_id, employee_id);
+
 CREATE TABLE IF NOT EXISTS %[1]s.customer_fulfillment_import_rows (
 	id BIGSERIAL PRIMARY KEY,
 	batch_id BIGINT NOT NULL REFERENCES %[1]s.customer_fulfillment_import_batches(id) ON DELETE CASCADE,
@@ -99,6 +116,25 @@ CREATE TABLE IF NOT EXISTS %[1]s.customer_custody_balances (
 );
 CREATE UNIQUE INDEX IF NOT EXISTS customer_custody_balances_customer_item_idx
 	ON %[1]s.customer_custody_balances(customer_id, item_type, item_id);
+
+CREATE TABLE IF NOT EXISTS %[1]s.customer_inventory_items (
+	id BIGSERIAL PRIMARY KEY,
+	customer_id BIGINT NOT NULL REFERENCES %[1]s.customers(id) ON DELETE CASCADE,
+	item_type TEXT NOT NULL DEFAULT '',
+	item_id BIGINT NOT NULL DEFAULT 0,
+	item_name TEXT NOT NULL DEFAULT '',
+	spec_g BIGINT NOT NULL DEFAULT 0,
+	warehouse TEXT NOT NULL DEFAULT '',
+	qty_g BIGINT NOT NULL DEFAULT 0,
+	qty_units BIGINT NOT NULL DEFAULT 0,
+	status TEXT NOT NULL DEFAULT 'available',
+	note TEXT NOT NULL DEFAULT '',
+	updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS customer_inventory_items_customer_idx
+	ON %[1]s.customer_inventory_items(customer_id, item_type, item_name);
+CREATE UNIQUE INDEX IF NOT EXISTS customer_inventory_items_customer_item_uq
+	ON %[1]s.customer_inventory_items(customer_id, item_type, item_id, spec_g, warehouse);
 
 CREATE TABLE IF NOT EXISTS %[1]s.customer_processing_work_orders (
 	id BIGSERIAL PRIMARY KEY,

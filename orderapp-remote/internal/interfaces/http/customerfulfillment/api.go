@@ -5,6 +5,7 @@ import (
 	"net/http"
 	customerapp "orderapp/internal/application/customer"
 	app "orderapp/internal/application/customerfulfillment"
+	"orderapp/internal/interfaces/http/support"
 	"strconv"
 	"strings"
 
@@ -91,6 +92,90 @@ func (a api) applyImport(c echo.Context) error {
 		return customerFulfillmentError(c, http.StatusBadRequest, err)
 	}
 	return c.JSON(http.StatusOK, result)
+}
+
+func (a api) customerPortalOverview(c echo.Context) error {
+	employeeID := support.CurrentEmployeeID(c)
+	if employeeID <= 0 {
+		return customerFulfillmentError(c, http.StatusUnauthorized, fmt.Errorf("employee required"))
+	}
+	overview, err := a.svc.CustomerPortalOverview(c.Request().Context(), employeeID)
+	if err != nil {
+		return customerPortalError(c, err)
+	}
+	return c.JSON(http.StatusOK, overview)
+}
+
+func (a api) submitCustomerProcessingWorkOrder(c echo.Context) error {
+	employeeID := support.CurrentEmployeeID(c)
+	if employeeID <= 0 {
+		return customerFulfillmentError(c, http.StatusUnauthorized, fmt.Errorf("employee required"))
+	}
+	var req struct {
+		ProductID          int64  `json:"product_id"`
+		ProductName        string `json:"product_name"`
+		RawBeanItemID      int64  `json:"raw_bean_item_id"`
+		RawBeanName        string `json:"raw_bean_name"`
+		InputQuantityG     int64  `json:"input_quantity_g"`
+		PlannedOutputUnits int64  `json:"planned_output_units"`
+		ExpectedDate       string `json:"expected_date"`
+		Note               string `json:"note"`
+	}
+	if err := c.Bind(&req); err != nil {
+		return customerFulfillmentError(c, http.StatusBadRequest, fmt.Errorf("invalid request"))
+	}
+	row, err := a.svc.SubmitCustomerProcessingWorkOrder(c.Request().Context(), app.SubmitCustomerProcessingWorkOrderCommand{
+		EmployeeID:         employeeID,
+		ProductID:          req.ProductID,
+		ProductName:        req.ProductName,
+		RawBeanItemID:      req.RawBeanItemID,
+		RawBeanName:        req.RawBeanName,
+		InputQuantityG:     req.InputQuantityG,
+		PlannedOutputUnits: req.PlannedOutputUnits,
+		ExpectedDate:       req.ExpectedDate,
+		Note:               req.Note,
+	})
+	if err != nil {
+		return customerPortalError(c, err)
+	}
+	return c.JSON(http.StatusOK, row)
+}
+
+func (a api) submitCustomerDirectShipOrder(c echo.Context) error {
+	employeeID := support.CurrentEmployeeID(c)
+	if employeeID <= 0 {
+		return customerFulfillmentError(c, http.StatusUnauthorized, fmt.Errorf("employee required"))
+	}
+	var req struct {
+		ReceiverName    string `json:"receiver_name"`
+		ReceiverPhone   string `json:"receiver_phone"`
+		ReceiverAddress string `json:"receiver_address"`
+		ReceiverCompany string `json:"receiver_company"`
+		ProductID       int64  `json:"product_id"`
+		ProductName     string `json:"product_name"`
+		Spec            string `json:"spec"`
+		QuantityUnits   int64  `json:"quantity_units"`
+		Note            string `json:"note"`
+	}
+	if err := c.Bind(&req); err != nil {
+		return customerFulfillmentError(c, http.StatusBadRequest, fmt.Errorf("invalid request"))
+	}
+	row, err := a.svc.SubmitCustomerDirectShipOrder(c.Request().Context(), app.SubmitCustomerDirectShipOrderCommand{
+		EmployeeID:      employeeID,
+		ReceiverName:    req.ReceiverName,
+		ReceiverPhone:   req.ReceiverPhone,
+		ReceiverAddress: req.ReceiverAddress,
+		ReceiverCompany: req.ReceiverCompany,
+		ProductID:       req.ProductID,
+		ProductName:     req.ProductName,
+		Spec:            req.Spec,
+		QuantityUnits:   req.QuantityUnits,
+		Note:            req.Note,
+	})
+	if err != nil {
+		return customerPortalError(c, err)
+	}
+	return c.JSON(http.StatusOK, row)
 }
 
 func (a api) listImportRows(c echo.Context) error {
@@ -184,6 +269,76 @@ func (a api) createSettlement(c echo.Context) error {
 	return c.JSON(http.StatusOK, result)
 }
 
+func (a api) adjustCustodyInventory(c echo.Context) error {
+	customerID, err := parseID(c.Param("customer_id"), "customer")
+	if err != nil {
+		return customerFulfillmentError(c, http.StatusBadRequest, err)
+	}
+	var req struct {
+		ItemType           string `json:"item_type"`
+		ItemName           string `json:"item_name"`
+		Spec               string `json:"spec"`
+		QuantityGDelta     int64  `json:"quantity_g_delta"`
+		QuantityUnitsDelta int64  `json:"quantity_units_delta"`
+		Note               string `json:"note"`
+	}
+	if err := c.Bind(&req); err != nil {
+		return customerFulfillmentError(c, http.StatusBadRequest, fmt.Errorf("invalid request"))
+	}
+	row, err := a.svc.AdjustCustodyInventory(c.Request().Context(), app.AdjustCustodyInventoryCommand{
+		CustomerID:         customerID,
+		ItemType:           req.ItemType,
+		ItemName:           req.ItemName,
+		Spec:               req.Spec,
+		QuantityGDelta:     req.QuantityGDelta,
+		QuantityUnitsDelta: req.QuantityUnitsDelta,
+		Note:               req.Note,
+		Actor:              currentCustomerFulfillmentActor(c),
+	})
+	if err != nil {
+		return customerFulfillmentError(c, http.StatusBadRequest, err)
+	}
+	return c.JSON(http.StatusOK, row)
+}
+
+func (a api) listERPBindings(c echo.Context) error {
+	customerID, err := parseID(c.Param("customer_id"), "customer")
+	if err != nil {
+		return customerFulfillmentError(c, http.StatusBadRequest, err)
+	}
+	rows, err := a.svc.ListCustomerERPBindings(c.Request().Context(), customerID)
+	if err != nil {
+		return customerFulfillmentError(c, http.StatusBadRequest, err)
+	}
+	return c.JSON(http.StatusOK, map[string]any{"bindings": rows})
+}
+
+func (a api) upsertERPBinding(c echo.Context) error {
+	customerID, err := parseID(c.Param("customer_id"), "customer")
+	if err != nil {
+		return customerFulfillmentError(c, http.StatusBadRequest, err)
+	}
+	var req struct {
+		EmployeeID int64  `json:"employee_id"`
+		Role       string `json:"role"`
+		Status     string `json:"status"`
+	}
+	if err := c.Bind(&req); err != nil {
+		return customerFulfillmentError(c, http.StatusBadRequest, fmt.Errorf("invalid request"))
+	}
+	row, err := a.svc.UpsertCustomerERPBinding(c.Request().Context(), app.UpsertCustomerERPBindingCommand{
+		CustomerID: customerID,
+		EmployeeID: req.EmployeeID,
+		Role:       req.Role,
+		Status:     req.Status,
+		Actor:      currentCustomerFulfillmentActor(c),
+	})
+	if err != nil {
+		return customerFulfillmentError(c, http.StatusBadRequest, err)
+	}
+	return c.JSON(http.StatusOK, row)
+}
+
 func importBatchResponse(batch app.ImportBatch) map[string]any {
 	return map[string]any{
 		"batch":              batch,
@@ -219,4 +374,11 @@ func currentCustomerFulfillmentActor(c echo.Context) string {
 
 func customerFulfillmentError(c echo.Context, status int, err error) error {
 	return c.JSON(status, map[string]any{"error": err.Error()})
+}
+
+func customerPortalError(c echo.Context, err error) error {
+	if err == app.ErrCustomerERPBindingNotFound {
+		return customerFulfillmentError(c, http.StatusForbidden, err)
+	}
+	return customerFulfillmentError(c, http.StatusBadRequest, err)
 }

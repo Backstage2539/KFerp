@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 	"strings"
@@ -79,6 +80,83 @@ type CreateSettlementCommand struct {
 	PeriodFrom string
 	PeriodTo   string
 	CreatedBy  string
+}
+
+var ErrCustomerERPBindingNotFound = errors.New("customer erp binding not found")
+
+type CustomerERPContext struct {
+	EmployeeID    int64  `json:"employee_id"`
+	CustomerID    int64  `json:"customer_id"`
+	CustomerName  string `json:"customer_name"`
+	BindingRole   string `json:"binding_role"`
+	BindingStatus string `json:"binding_status"`
+}
+
+type CustomerPortalOverview struct {
+	CustomerID       int64                    `json:"customer_id"`
+	CustomerName     string                   `json:"customer_name"`
+	CustodyBalances  []CustodyBalance         `json:"custody_balances,omitempty"`
+	FinishedGoods    []FinishedGoodsBalance   `json:"finished_goods,omitempty"`
+	ProcessingOrders []ProcessingOrderSummary `json:"processing_orders,omitempty"`
+	DirectShipOrders []DirectShipOrderSummary `json:"direct_ship_orders,omitempty"`
+	Fees             []FeeItemSummary         `json:"fees,omitempty"`
+	Settlements      []SettlementSummary      `json:"settlements,omitempty"`
+}
+
+type SubmitCustomerProcessingWorkOrderCommand struct {
+	EmployeeID         int64
+	CustomerID         int64
+	ProductID          int64
+	ProductName        string
+	RawBeanItemID      int64
+	RawBeanName        string
+	InputQuantityG     int64
+	PlannedOutputUnits int64
+	ExpectedDate       string
+	Note               string
+}
+
+type SubmitCustomerDirectShipOrderCommand struct {
+	EmployeeID      int64
+	CustomerID      int64
+	ReceiverName    string
+	ReceiverPhone   string
+	ReceiverAddress string
+	ReceiverCompany string
+	ProductID       int64
+	ProductName     string
+	Spec            string
+	QuantityUnits   int64
+	Note            string
+}
+
+type AdjustCustodyInventoryCommand struct {
+	CustomerID         int64
+	ItemType           string
+	ItemName           string
+	Spec               string
+	QuantityGDelta     int64
+	QuantityUnitsDelta int64
+	Note               string
+	Actor              string
+}
+
+type UpsertCustomerERPBindingCommand struct {
+	CustomerID int64
+	EmployeeID int64
+	Role       string
+	Status     string
+	Actor      string
+}
+
+type CustomerERPBinding struct {
+	CustomerID   int64  `json:"customer_id"`
+	EmployeeID   int64  `json:"employee_id"`
+	EmployeeName string `json:"employee_name"`
+	Role         string `json:"role"`
+	Status       string `json:"status"`
+	UpdatedBy    string `json:"updated_by,omitempty"`
+	UpdatedAt    string `json:"updated_at,omitempty"`
 }
 
 type OverviewQuery struct {
@@ -160,6 +238,7 @@ type Overview struct {
 	CustomerName     string                   `json:"customer_name"`
 	Imports          []ImportBatch            `json:"imports,omitempty"`
 	CustodyBalances  []CustodyBalance         `json:"custody_balances,omitempty"`
+	FinishedGoods    []FinishedGoodsBalance   `json:"finished_goods,omitempty"`
 	ProcessingOrders []ProcessingOrderSummary `json:"processing_orders,omitempty"`
 	DirectShipOrders []DirectShipOrderSummary `json:"direct_ship_orders,omitempty"`
 	Fees             []FeeItemSummary         `json:"fees,omitempty"`
@@ -172,6 +251,16 @@ type CustodyBalance struct {
 	Spec          string `json:"spec,omitempty"`
 	QuantityG     int64  `json:"quantity_g"`
 	QuantityUnits int64  `json:"quantity_units"`
+}
+
+type FinishedGoodsBalance struct {
+	ProductID     int64  `json:"product_id"`
+	ProductName   string `json:"product_name"`
+	SpecG         int64  `json:"spec_g"`
+	Warehouse     string `json:"warehouse"`
+	QuantityG     int64  `json:"quantity_g"`
+	QuantityUnits int64  `json:"quantity_units"`
+	Status        string `json:"status"`
 }
 
 type ProcessingOrderSummary struct {
@@ -210,6 +299,13 @@ type Repository interface {
 	ImportBatch(context.Context, int64) (ImportBatch, error)
 	ListImportRows(context.Context, ListImportRowsQuery) ([]ImportRow, error)
 	ApplyImport(context.Context, ApplyImportCommand) (ApplyResult, error)
+	CustomerPortalContext(context.Context, int64) (CustomerERPContext, error)
+	CustomerPortalOverview(context.Context, int64) (CustomerPortalOverview, error)
+	SubmitCustomerProcessingWorkOrder(context.Context, SubmitCustomerProcessingWorkOrderCommand) (ProcessingOrderSummary, error)
+	SubmitCustomerDirectShipOrder(context.Context, SubmitCustomerDirectShipOrderCommand) (DirectShipOrderSummary, error)
+	AdjustCustodyInventory(context.Context, AdjustCustodyInventoryCommand) (CustodyBalance, error)
+	UpsertCustomerERPBinding(context.Context, UpsertCustomerERPBindingCommand) (CustomerERPBinding, error)
+	ListCustomerERPBindings(context.Context, int64) ([]CustomerERPBinding, error)
 	CreateSettlement(context.Context, CreateSettlementCommand) (SettlementResult, error)
 	Overview(context.Context, OverviewQuery) (Overview, error)
 	ListImports(context.Context, ListImportsQuery) ([]ImportBatch, error)
@@ -269,6 +365,106 @@ func (s *Service) ApplyImport(ctx context.Context, cmd ApplyImportCommand) (Appl
 	}
 	cmd.Actor = strings.TrimSpace(cmd.Actor)
 	return s.repo.ApplyImport(ctx, cmd)
+}
+
+func (s *Service) CustomerPortalOverview(ctx context.Context, employeeID int64) (CustomerPortalOverview, error) {
+	if employeeID <= 0 {
+		return CustomerPortalOverview{}, fmt.Errorf("employee required")
+	}
+	return s.repo.CustomerPortalOverview(ctx, employeeID)
+}
+
+func (s *Service) SubmitCustomerProcessingWorkOrder(ctx context.Context, cmd SubmitCustomerProcessingWorkOrderCommand) (ProcessingOrderSummary, error) {
+	if cmd.EmployeeID <= 0 {
+		return ProcessingOrderSummary{}, fmt.Errorf("employee required")
+	}
+	cmd.ProductName = strings.Join(strings.Fields(strings.TrimSpace(cmd.ProductName)), " ")
+	cmd.RawBeanName = strings.Join(strings.Fields(strings.TrimSpace(cmd.RawBeanName)), " ")
+	cmd.ExpectedDate = normalizeOptionalDate(cmd.ExpectedDate)
+	cmd.Note = strings.TrimSpace(cmd.Note)
+	if cmd.ProductName == "" && cmd.ProductID <= 0 {
+		return ProcessingOrderSummary{}, fmt.Errorf("product required")
+	}
+	if cmd.InputQuantityG <= 0 {
+		return ProcessingOrderSummary{}, fmt.Errorf("input quantity required")
+	}
+	if cmd.PlannedOutputUnits <= 0 {
+		return ProcessingOrderSummary{}, fmt.Errorf("planned output required")
+	}
+	return s.repo.SubmitCustomerProcessingWorkOrder(ctx, cmd)
+}
+
+func (s *Service) SubmitCustomerDirectShipOrder(ctx context.Context, cmd SubmitCustomerDirectShipOrderCommand) (DirectShipOrderSummary, error) {
+	if cmd.EmployeeID <= 0 {
+		return DirectShipOrderSummary{}, fmt.Errorf("employee required")
+	}
+	cmd.ReceiverName = strings.Join(strings.Fields(strings.TrimSpace(cmd.ReceiverName)), " ")
+	cmd.ReceiverPhone = strings.TrimSpace(cmd.ReceiverPhone)
+	cmd.ReceiverAddress = strings.Join(strings.Fields(strings.TrimSpace(cmd.ReceiverAddress)), " ")
+	cmd.ReceiverCompany = strings.Join(strings.Fields(strings.TrimSpace(cmd.ReceiverCompany)), " ")
+	cmd.ProductName = strings.Join(strings.Fields(strings.TrimSpace(cmd.ProductName)), " ")
+	cmd.Spec = strings.Join(strings.Fields(strings.TrimSpace(cmd.Spec)), " ")
+	cmd.Note = strings.TrimSpace(cmd.Note)
+	if cmd.ReceiverName == "" {
+		return DirectShipOrderSummary{}, fmt.Errorf("receiver_name required")
+	}
+	if cmd.ReceiverPhone == "" {
+		return DirectShipOrderSummary{}, fmt.Errorf("receiver_phone required")
+	}
+	if cmd.ReceiverAddress == "" {
+		return DirectShipOrderSummary{}, fmt.Errorf("receiver_address required")
+	}
+	if cmd.ProductName == "" && cmd.ProductID <= 0 {
+		return DirectShipOrderSummary{}, fmt.Errorf("product required")
+	}
+	if cmd.QuantityUnits <= 0 {
+		return DirectShipOrderSummary{}, fmt.Errorf("quantity required")
+	}
+	return s.repo.SubmitCustomerDirectShipOrder(ctx, cmd)
+}
+
+func (s *Service) AdjustCustodyInventory(ctx context.Context, cmd AdjustCustodyInventoryCommand) (CustodyBalance, error) {
+	if cmd.CustomerID <= 0 {
+		return CustodyBalance{}, fmt.Errorf("customer required")
+	}
+	cmd.ItemType = normalizeCustodyItemType(cmd.ItemType)
+	cmd.ItemName = strings.Join(strings.Fields(strings.TrimSpace(cmd.ItemName)), " ")
+	cmd.Spec = strings.Join(strings.Fields(strings.TrimSpace(cmd.Spec)), " ")
+	cmd.Note = strings.TrimSpace(cmd.Note)
+	cmd.Actor = strings.TrimSpace(cmd.Actor)
+	if cmd.ItemType == "" {
+		return CustodyBalance{}, fmt.Errorf("item_type invalid")
+	}
+	if cmd.ItemName == "" {
+		return CustodyBalance{}, fmt.Errorf("item_name required")
+	}
+	if cmd.QuantityGDelta == 0 && cmd.QuantityUnitsDelta == 0 {
+		return CustodyBalance{}, fmt.Errorf("quantity delta required")
+	}
+	return s.repo.AdjustCustodyInventory(ctx, cmd)
+}
+
+func (s *Service) UpsertCustomerERPBinding(ctx context.Context, cmd UpsertCustomerERPBindingCommand) (CustomerERPBinding, error) {
+	if cmd.CustomerID <= 0 {
+		return CustomerERPBinding{}, fmt.Errorf("customer required")
+	}
+	if cmd.EmployeeID <= 0 {
+		return CustomerERPBinding{}, fmt.Errorf("employee required")
+	}
+	cmd.Role = strings.TrimSpace(cmd.Role)
+	if cmd.Role == "" {
+		cmd.Role = "customer"
+	}
+	cmd.Status = normalizeCustomerERPBindingStatus(cmd.Status)
+	cmd.Actor = strings.TrimSpace(cmd.Actor)
+	return s.repo.UpsertCustomerERPBinding(ctx, cmd)
+}
+
+func (s *Service) ListCustomerERPBindings(ctx context.Context, customerID int64) ([]CustomerERPBinding, error) {
+	if customerID <= 0 {
+		return nil, fmt.Errorf("customer required")
+	}
+	return s.repo.ListCustomerERPBindings(ctx, customerID)
 }
 
 func (s *Service) ListImportRows(ctx context.Context, query ListImportRowsQuery) ([]ImportRow, error) {
@@ -353,6 +549,36 @@ func normalizeImportRowStatus(status string) string {
 		return strings.TrimSpace(status)
 	default:
 		return ""
+	}
+}
+
+func normalizeOptionalDate(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return ""
+	}
+	parsed, err := time.Parse("2006-01-02", value)
+	if err != nil {
+		return ""
+	}
+	return parsed.Format("2006-01-02")
+}
+
+func normalizeCustodyItemType(value string) string {
+	switch strings.TrimSpace(value) {
+	case "raw_bean", "packaging", "product":
+		return strings.TrimSpace(value)
+	default:
+		return ""
+	}
+}
+
+func normalizeCustomerERPBindingStatus(value string) string {
+	switch strings.TrimSpace(value) {
+	case "inactive", "disabled":
+		return "inactive"
+	default:
+		return "active"
 	}
 }
 
