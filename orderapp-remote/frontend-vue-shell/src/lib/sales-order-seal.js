@@ -4,7 +4,9 @@ const defaultSealWidthMM = 36
 
 export const salesOrderSealMinWidthMM = 20
 export const salesOrderSealMaxWidthMM = 120
-export const salesOrderSealPreviewScale = 2.2
+export const salesOrderPreviewDesignWidthPX = 1240
+export const salesOrderPreviewPageWidthMM = 210
+export const salesOrderSealPreviewScale = salesOrderPreviewDesignWidthPX / salesOrderPreviewPageWidthMM
 
 export function normalizeSalesOrderSeal(seal = {}) {
   const x = Number(seal.x_mm ?? seal.seal_x_mm ?? defaultSealXMM)
