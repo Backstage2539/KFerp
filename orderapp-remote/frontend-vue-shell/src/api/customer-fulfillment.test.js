@@ -8,6 +8,7 @@ import {
   createCustomerFulfillmentSettlement,
   fetchCustomerFulfillmentCustomers,
   fetchCustomerFulfillmentERPBindings,
+  fetchCustomerFulfillmentOptions,
   fetchCustomerFulfillmentImportPreview,
   fetchCustomerFulfillmentImportRows,
   fetchCustomerFulfillmentImports,
@@ -56,6 +57,7 @@ test('customer fulfillment API wrappers call the expected endpoints', async () =
     await parseCustomerFulfillmentImport(147, 'direct_ship_workbook', file)
     await applyCustomerFulfillmentImport(55)
     await fetchCustomerFulfillmentOverview(147)
+    await fetchCustomerFulfillmentOptions(147)
     await fetchCustomerFulfillmentImports(147)
     await fetchCustomerFulfillmentCustomers('誉观山', 60)
     await fetchCustomerFulfillmentImportRows(55, { status: 'invalid', limit: 80 })
@@ -74,6 +76,7 @@ test('customer fulfillment API wrappers call the expected endpoints', async () =
       ['/api/customer-fulfillment/147/imports/parse', 'POST'],
       ['/api/customer-fulfillment/imports/55/apply', 'POST'],
       ['/api/customer-fulfillment/147/overview', 'GET'],
+      ['/api/customer-fulfillment/147/options', 'GET'],
       ['/api/customer-fulfillment/147/imports', 'GET'],
       ['/api/customer-fulfillment/customers', 'GET'],
       ['/api/customer-fulfillment/imports/55/rows', 'GET'],
@@ -88,18 +91,18 @@ test('customer fulfillment API wrappers call the expected endpoints', async () =
       ['/api/customer-processing/portal/work-orders', 'POST'],
       ['/api/customer-processing/portal/direct-ship-orders', 'POST'],
     ])
-    assert.equal(new URL(requests[4].url).searchParams.get('q'), '誉观山')
-    assert.equal(new URL(requests[4].url).searchParams.get('limit'), '60')
-    assert.equal(new URL(requests[5].url).searchParams.get('status'), 'invalid')
-    assert.equal(new URL(requests[5].url).searchParams.get('limit'), '80')
+    assert.equal(new URL(requests[5].url).searchParams.get('q'), '誉观山')
+    assert.equal(new URL(requests[5].url).searchParams.get('limit'), '60')
+    assert.equal(new URL(requests[6].url).searchParams.get('status'), 'invalid')
+    assert.equal(new URL(requests[6].url).searchParams.get('limit'), '80')
     assert.ok(requests[0].init.body instanceof FormData)
     assert.equal(requests[0].init.headers?.['Content-Type'], undefined)
-    assert.equal(JSON.parse(requests[7].init.body).period_from, '2026-03-01')
-    assert.equal(JSON.parse(requests[8].init.body).item_name, '埃塞花魁')
-    assert.equal(JSON.parse(requests[10].init.body).employee_id, 23)
-    assert.equal(JSON.parse(requests[11].init.body).product_name, '誉观山冷萃豆')
-    assert.equal(JSON.parse(requests[12].init.body).receiver_name, '张三')
-    assert.equal(JSON.parse(requests[14].init.body).product_name, '誉观山冷萃豆')
-    assert.equal(JSON.parse(requests[15].init.body).receiver_name, '张三')
+    assert.equal(JSON.parse(requests[8].init.body).period_from, '2026-03-01')
+    assert.equal(JSON.parse(requests[9].init.body).item_name, '埃塞花魁')
+    assert.equal(JSON.parse(requests[11].init.body).employee_id, 23)
+    assert.equal(JSON.parse(requests[12].init.body).product_name, '誉观山冷萃豆')
+    assert.equal(JSON.parse(requests[13].init.body).receiver_name, '张三')
+    assert.equal(JSON.parse(requests[15].init.body).product_name, '誉观山冷萃豆')
+    assert.equal(JSON.parse(requests[16].init.body).receiver_name, '张三')
   })
 })

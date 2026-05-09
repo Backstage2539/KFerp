@@ -38,6 +38,10 @@ export function fetchCustomerFulfillmentOverview(customerId) {
   return apiGet(`/api/customer-fulfillment/${Number(customerId)}/overview`)
 }
 
+export function fetchCustomerFulfillmentOptions(customerId) {
+  return apiGet(`/api/customer-fulfillment/${Number(customerId)}/options`)
+}
+
 export function fetchCustomerFulfillmentImports(customerId) {
   return apiGet(`/api/customer-fulfillment/${Number(customerId)}/imports`)
 }

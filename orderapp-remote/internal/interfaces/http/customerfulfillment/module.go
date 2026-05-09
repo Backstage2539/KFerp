@@ -18,6 +18,7 @@ type Service interface {
 	AdjustCustodyInventory(context.Context, app.AdjustCustodyInventoryCommand) (app.CustodyBalance, error)
 	UpsertCustomerERPBinding(context.Context, app.UpsertCustomerERPBindingCommand) (app.CustomerERPBinding, error)
 	ListCustomerERPBindings(context.Context, int64) ([]app.CustomerERPBinding, error)
+	CustomerFulfillmentOptions(context.Context, int64) (app.CustomerFulfillmentOptions, error)
 	ImportPreview(context.Context, app.ImportPreviewQuery) (app.ImportPreview, error)
 	ListImportRows(context.Context, app.ListImportRowsQuery) ([]app.ImportRow, error)
 	CreateSettlement(context.Context, app.CreateSettlementCommand) (app.SettlementResult, error)
@@ -38,6 +39,7 @@ func RegisterRoutes(e *echo.Echo, deps Dependencies) {
 	api := api{svc: deps.CustomerFulfillment, customers: deps.Customers}
 	e.GET("/api/customer-fulfillment/customers", api.listCustomers)
 	e.GET("/api/customer-fulfillment/:customer_id/overview", api.overview)
+	e.GET("/api/customer-fulfillment/:customer_id/options", api.options)
 	e.POST("/api/customer-fulfillment/:customer_id/imports/parse", api.parseImport)
 	e.GET("/api/customer-fulfillment/imports/:batch_id/rows", api.listImportRows)
 	e.GET("/api/customer-fulfillment/imports/:batch_id/preview", api.importPreview)

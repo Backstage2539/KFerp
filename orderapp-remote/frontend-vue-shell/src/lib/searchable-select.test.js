@@ -38,3 +38,17 @@ test('filterSearchableOptions supports customer custom SKU dropdown fields', () 
   assert.deepEqual(filterSearchableOptions(products, '12').map((row) => row.id), [7])
   assert.deepEqual(filterSearchableOptions(products, '暖 拼').map((row) => row.id), [7])
 })
+
+test('filterSearchableOptions supports customer fulfillment picker fields', () => {
+  const rows = [
+    { product_id: 88, product_name: '誉观山冷萃豆', sku_code: 'YGS-LC-100', spec: '100g' },
+    { item_id: 19, item_name: '埃塞花魁', item_type: 'raw_bean' },
+    { employee_id: 23, name: '誉观山客户', phone: '13800138000', department: '代加工' },
+    { receiver_name: '张三', receiver_phone: '13900139000', receiver_address: '浙江省杭州市西湖区文三路 10 号' },
+  ]
+
+  assert.deepEqual(filterSearchableOptions(rows, 'YGS').map((row) => row.product_id), [88])
+  assert.deepEqual(filterSearchableOptions(rows, '花魁').map((row) => row.item_id), [19])
+  assert.deepEqual(filterSearchableOptions(rows, '23').map((row) => row.employee_id), [23])
+  assert.deepEqual(filterSearchableOptions(rows, '西湖 文三').map((row) => row.receiver_name), ['张三'])
+})

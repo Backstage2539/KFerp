@@ -207,6 +207,35 @@ func TestOverviewAPIReturnsCustomerFulfillmentData(t *testing.T) {
 	}
 }
 
+func TestCustomerFulfillmentOptionsAPIReturnsPickerData(t *testing.T) {
+	svc := &fakeCustomerFulfillmentService{
+		optionsResult: app.CustomerFulfillmentOptions{
+			CustomerSKUs: []app.CustomerSKUOption{{ProductID: 88, ProductName: "誉观山冷萃豆", Spec: "100g"}},
+			CustodyItems: []app.CustodyItemOption{{ItemID: 19, ItemType: "raw_bean", ItemName: "埃塞花魁", QuantityG: 12000}},
+			Employees:    []app.EmployeeOption{{ID: 23, Name: "誉观山客户", Active: true}},
+			Recipients:   []app.RecipientOption{{ReceiverName: "张三", ReceiverPhone: "13800000000", ReceiverAddress: "浙江杭州"}},
+		},
+	}
+	e := echo.New()
+	RegisterRoutes(e, Dependencies{CustomerFulfillment: svc})
+
+	req := httptest.NewRequest(http.MethodGet, "/api/customer-fulfillment/149/options", nil)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("options status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	for _, want := range []string{`"customer_skus"`, `"product_name":"誉观山冷萃豆"`, `"custody_items"`, `"item_name":"埃塞花魁"`, `"employees"`, `"employee_id":23`, `"recipients"`, `"receiver_phone":"13800000000"`} {
+		if !strings.Contains(rec.Body.String(), want) {
+			t.Fatalf("options response missing %s: %s", want, rec.Body.String())
+		}
+	}
+	if svc.optionsCustomerID != 149 {
+		t.Fatalf("options customer id = %d, want 149", svc.optionsCustomerID)
+	}
+}
+
 func TestCustomerPortalOverviewAPIDerivesCustomerFromEmployeeBinding(t *testing.T) {
 	svc := &fakeCustomerFulfillmentService{
 		customerOverviewResult: app.CustomerPortalOverview{
@@ -439,6 +468,8 @@ type fakeCustomerFulfillmentService struct {
 	erpBindingResult           app.CustomerERPBinding
 	listERPBindingsCustomerID  int64
 	listERPBindingsResult      []app.CustomerERPBinding
+	optionsCustomerID          int64
+	optionsResult              app.CustomerFulfillmentOptions
 	importPreviewQuery         app.ImportPreviewQuery
 	importPreviewResult        app.ImportPreview
 	listImportRowsQuery        app.ListImportRowsQuery
@@ -493,6 +524,11 @@ func (s *fakeCustomerFulfillmentService) UpsertCustomerERPBinding(ctx context.Co
 func (s *fakeCustomerFulfillmentService) ListCustomerERPBindings(ctx context.Context, customerID int64) ([]app.CustomerERPBinding, error) {
 	s.listERPBindingsCustomerID = customerID
 	return s.listERPBindingsResult, nil
+}
+
+func (s *fakeCustomerFulfillmentService) CustomerFulfillmentOptions(ctx context.Context, customerID int64) (app.CustomerFulfillmentOptions, error) {
+	s.optionsCustomerID = customerID
+	return s.optionsResult, nil
 }
 
 func (s *fakeCustomerFulfillmentService) ImportPreview(ctx context.Context, query app.ImportPreviewQuery) (app.ImportPreview, error) {

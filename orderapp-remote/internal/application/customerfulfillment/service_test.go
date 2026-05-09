@@ -214,6 +214,35 @@ func TestServiceSubmitInternalCustomerWorkOrderAcceptsExplicitCustomerWithoutBin
 	}
 }
 
+func TestServiceCustomerFulfillmentOptionsRequiresCustomerAndDelegates(t *testing.T) {
+	repo := &fakeCustomerFulfillmentRepository{
+		optionsResult: CustomerFulfillmentOptions{
+			CustomerSKUs: []CustomerSKUOption{{ProductID: 88, ProductName: "誉观山冷萃豆", Spec: "100g"}},
+			CustodyItems: []CustodyItemOption{{ItemID: 19, ItemType: "raw_bean", ItemName: "埃塞花魁", QuantityG: 12000}},
+			Employees:    []EmployeeOption{{ID: 23, Name: "誉观山客户", Active: true}},
+			Recipients:   []RecipientOption{{ReceiverName: "张三", ReceiverPhone: "13800000000", ReceiverAddress: "浙江杭州"}},
+		},
+	}
+	svc := NewService(repo)
+	if _, err := svc.CustomerFulfillmentOptions(context.Background(), 0); err == nil || !strings.Contains(err.Error(), "customer") {
+		t.Fatalf("CustomerFulfillmentOptions without customer error = %v, want customer validation", err)
+	}
+
+	got, err := svc.CustomerFulfillmentOptions(context.Background(), 149)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if repo.optionsCustomerID != 149 {
+		t.Fatalf("options customer id = %d, want 149", repo.optionsCustomerID)
+	}
+	if len(got.CustomerSKUs) != 1 || got.CustomerSKUs[0].ProductName != "誉观山冷萃豆" {
+		t.Fatalf("options customer skus = %#v", got.CustomerSKUs)
+	}
+	if len(got.Employees) != 1 || got.Employees[0].Name != "誉观山客户" {
+		t.Fatalf("options employees = %#v", got.Employees)
+	}
+}
+
 func TestServiceAdjustCustodyInventoryRequiresInternalCustomerAndDelta(t *testing.T) {
 	repo := &fakeCustomerFulfillmentRepository{
 		custodyAdjustmentResult: CustodyBalance{ItemType: "raw_bean", ItemName: "埃塞花魁", QuantityG: 12000},
@@ -375,6 +404,8 @@ type fakeCustomerFulfillmentRepository struct {
 	erpBindingResult           CustomerERPBinding
 	listERPBindingsCustomerID  int64
 	listERPBindingsResult      []CustomerERPBinding
+	optionsCustomerID          int64
+	optionsResult              CustomerFulfillmentOptions
 	settlementCmd              CreateSettlementCommand
 	settlementResult           SettlementResult
 	overviewQuery              OverviewQuery
@@ -428,6 +459,11 @@ func (r *fakeCustomerFulfillmentRepository) UpsertCustomerERPBinding(ctx context
 func (r *fakeCustomerFulfillmentRepository) ListCustomerERPBindings(ctx context.Context, customerID int64) ([]CustomerERPBinding, error) {
 	r.listERPBindingsCustomerID = customerID
 	return r.listERPBindingsResult, nil
+}
+
+func (r *fakeCustomerFulfillmentRepository) CustomerFulfillmentOptions(ctx context.Context, customerID int64) (CustomerFulfillmentOptions, error) {
+	r.optionsCustomerID = customerID
+	return r.optionsResult, nil
 }
 
 func (r *fakeCustomerFulfillmentRepository) ImportBatch(ctx context.Context, batchID int64) (ImportBatch, error) {
