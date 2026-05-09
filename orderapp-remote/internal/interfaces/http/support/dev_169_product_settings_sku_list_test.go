@@ -1,6 +1,7 @@
 package support
 
 import (
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -58,9 +59,12 @@ func TestDev169ManualsDocumentUnifiedSkuListOperation(t *testing.T) {
 		"docs/REQUIREMENTS.md",
 		"docs/ACCEPTANCE_TESTS.md",
 		"docs/OP_MANUAL_INVENTORY_MATERIALS.md",
-		filepath.Join("..", "REQUIREMENTS.md"),
-		filepath.Join("..", "ACCEPTANCE_TESTS.md"),
-		filepath.Join("..", "OP_MANUAL_INVENTORY_MATERIALS.md"),
+	}
+	root := filepath.Join(findAncestorForTest(t, "go.mod"), "..")
+	for _, name := range []string{"REQUIREMENTS.md", "ACCEPTANCE_TESTS.md", "OP_MANUAL_INVENTORY_MATERIALS.md"} {
+		if _, err := os.Stat(filepath.Join(root, name)); err == nil {
+			rels = append(rels, filepath.Join("..", name))
+		}
 	}
 	for _, rel := range rels {
 		doc := string(readOrderAppFileForTest(t, rel))
