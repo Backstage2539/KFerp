@@ -80,7 +80,7 @@ func (r Repository) ListSFSmallShippingRows(ctx context.Context, query salesapp.
 			COALESCE(NULLIF(o.receiver_phone,''), c.phone, '') AS recv_phone,
 			COALESCE(NULLIF(o.receiver_address,''), c.address, '') AS recv_addr,
 			COALESCE(o.receiver_company,'') AS recv_company,
-			COALESCE(o.ship_tracking_no,'') AS tracking_no,
+			%s AS tracking_no,
 			COALESCE(SUM(
 				COALESCE(NULLIF(regexp_replace(COALESCE(oi.qty::text,''), '[^0-9.\-]', '', 'g'), ''), '0')::numeric
 				*
@@ -92,7 +92,7 @@ func (r Repository) ListSFSmallShippingRows(ctx context.Context, query salesapp.
 		%s
 		GROUP BY o.id, o.order_no, o.customer_id, recv_name, recv_phone, recv_addr, recv_company, tracking_no
 		ORDER BY o.id DESC
-	`, r.schema, r.schema, r.schema, wsql)
+	`, orderTrackingSummaryExpr(r.schema, "o"), r.schema, r.schema, r.schema, wsql)
 
 	rows, err := r.pool.Query(ctx, qsql, args...)
 	if err != nil {

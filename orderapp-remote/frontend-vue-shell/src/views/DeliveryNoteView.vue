@@ -45,8 +45,8 @@
           <input v-model.trim="form.delivery_method" />
         </label>
         <label>
-          <span>快递单号</span>
-          <input v-model.trim="form.tracking_no" />
+          <span>快递单号（可多个）</span>
+          <textarea v-model.trim="form.tracking_no" rows="2" placeholder="多个单号可用换行、逗号或分号分隔"></textarea>
         </label>
         <label class="wide">
           <span>备注</span>
@@ -89,7 +89,7 @@
         </div>
         <table>
           <thead>
-            <tr><th>商品</th><th>规格</th><th>出库数量</th><th>出库仓</th></tr>
+            <tr><th>商品</th><th>规格</th><th>出库数量</th><th>出库仓</th><th>备注</th></tr>
           </thead>
           <tbody>
             <tr v-for="(item, idx) in preview.snapshot.items" :key="`${item.name}-${idx}`">
@@ -97,6 +97,7 @@
               <td>{{ item.spec }}</td>
               <td>{{ item.qty }}{{ item.unit }}</td>
               <td>{{ item.warehouse_name || item.warehouse }}</td>
+              <td>{{ item.note || '-' }}</td>
             </tr>
           </tbody>
         </table>

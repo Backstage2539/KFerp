@@ -115,7 +115,7 @@ func fetchOrders(ctx context.Context, pool *pgxpool.Pool, schema string, query s
 			COALESCE(ot.name, '') AS order_type,
 			COALESCE(ps.name, '') AS pay_status,
 			COALESCE(ss.name, '') AS ship_status,
-			COALESCE(o.ship_tracking_no, '') AS ship_tracking_no,
+			%s AS ship_tracking_no,
 			COALESCE(NULLIF(o.receiver_name,''), NULLIF(c.contact,''), c.name, '') AS receiver_name,
 			COALESCE(NULLIF(o.receiver_phone,''), c.phone, '') AS receiver_phone,
 			COALESCE(NULLIF(o.receiver_address,''), c.address, '') AS receiver_address,
@@ -156,7 +156,7 @@ func fetchOrders(ctx context.Context, pool *pgxpool.Pool, schema string, query s
 		%s
 		ORDER BY o.order_date DESC, o.id DESC
 		LIMIT $%d OFFSET $%d
-	`, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, wsql, limitArg, offsetArg)
+	`, orderTrackingSummaryExpr(schema, "o"), schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, wsql, limitArg, offsetArg)
 
 	dbRows, err := pool.Query(ctx, sql, args...)
 	if err != nil {
@@ -247,7 +247,9 @@ func orderListWhere(schema string, query salesapp.OrderListQuery) ([]string, []a
 	argn := 1
 
 	if q := strings.TrimSpace(query.Q); q != "" {
-		where = append(where, fmt.Sprintf("(o.order_no ILIKE $%d OR c.name ILIKE $%d OR o.responsible_party_name ILIKE $%d)", argn, argn, argn))
+		where = append(where, fmt.Sprintf(`(o.order_no ILIKE $%d OR c.name ILIKE $%d OR o.responsible_party_name ILIKE $%d OR o.ship_tracking_no ILIKE $%d OR EXISTS (
+			SELECT 1 FROM %s.order_shipping_trackings ost WHERE ost.order_id=o.id AND ost.tracking_no ILIKE $%d
+		))`, argn, argn, argn, argn, schema, argn))
 		args = append(args, "%"+q+"%")
 		argn++
 	}

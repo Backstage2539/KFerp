@@ -275,6 +275,23 @@ func TestValidateProductInputRejectsInvalidInputs(t *testing.T) {
 	}
 }
 
+func TestCalculateProductCarriesInactiveBomWarning(t *testing.T) {
+	params := DefaultParameters()
+	got := CalculateProduct(params, ProductInput{
+		Name:               "曲奇拼配",
+		GreenBeanCostPerKg: 51.75,
+		YieldRate:          0.8,
+		BomStatus:          "inactive",
+		Warnings:           []string{"BOM已失效：请重新启用 BOM 后再发布价格策略"},
+	})
+	if got.BomStatus != "inactive" {
+		t.Fatalf("BomStatus = %q, want inactive", got.BomStatus)
+	}
+	if len(got.Warnings) != 1 || got.Warnings[0] != "BOM已失效：请重新启用 BOM 后再发布价格策略" {
+		t.Fatalf("warnings = %+v", got.Warnings)
+	}
+}
+
 func f64(v float64) *float64 {
 	return &v
 }

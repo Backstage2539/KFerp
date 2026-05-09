@@ -87,14 +87,25 @@ func (r Repository) FillShipmentTracking(ctx context.Context, cmd salesapp.FillS
 		if tag.RowsAffected() == 0 {
 			continue
 		}
-		if _, err := tx.Exec(ctx, fmt.Sprintf(`
-			UPDATE %s.orders
-			SET ship_tracking_no=$2, ship_status_id=$3
-			WHERE id=$1
-		`, r.schema), item.OrderID, item.TrackingNo, shippedStatusID); err != nil {
+		summary, err := appendOrderTrackingNumbersTx(ctx, tx, r.schema, item.OrderID, item.TrackingNo, "shipment_batch", cmd.Actor)
+		if err != nil {
 			return salesapp.FillShipmentTrackingResult{}, err
 		}
-		if err := r.insertShippingAuditTx(ctx, tx, cmd.Actor, item.OrderID, "ship_tracking_no", item.TrackingNo); err != nil {
+		if _, err := tx.Exec(ctx, fmt.Sprintf(`
+			UPDATE %s.orders
+			SET ship_status_id=$2
+			WHERE id=$1
+		`, r.schema), item.OrderID, shippedStatusID); err != nil {
+			return salesapp.FillShipmentTrackingResult{}, err
+		}
+		if _, err := tx.Exec(ctx, fmt.Sprintf(`
+			UPDATE %s.order_shipment_orders
+			SET tracking_no=$3
+			WHERE shipment_id=$1 AND order_id=$2
+		`, r.schema), cmd.ShipmentID, item.OrderID, summary); err != nil {
+			return salesapp.FillShipmentTrackingResult{}, err
+		}
+		if err := r.insertShippingAuditTx(ctx, tx, cmd.Actor, item.OrderID, "ship_tracking_no", summary); err != nil {
 			return salesapp.FillShipmentTrackingResult{}, err
 		}
 		if err := r.insertShippingAuditTx(ctx, tx, cmd.Actor, item.OrderID, "ship_status_id", fmt.Sprintf("%d", shippedStatusID)); err != nil {
@@ -143,11 +154,11 @@ func (r Repository) FillShipmentTrackingByOrderNo(ctx context.Context, cmd sales
 		if err != nil {
 			return salesapp.FillShipmentTrackingResult{}, err
 		}
-		if _, err := tx.Exec(ctx, fmt.Sprintf(`
-			UPDATE %s.orders
-			SET ship_tracking_no=$2, ship_status_id=$3
-			WHERE id=$1
-		`, r.schema), orderID, item.TrackingNo, shippedStatusID); err != nil {
+		summary, err := appendOrderTrackingNumbersTx(ctx, tx, r.schema, orderID, item.TrackingNo, "tracking_excel", cmd.Actor)
+		if err != nil {
+			return salesapp.FillShipmentTrackingResult{}, err
+		}
+		if _, err := tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.orders SET ship_status_id=$2 WHERE id=$1`, r.schema), orderID, shippedStatusID); err != nil {
 			return salesapp.FillShipmentTrackingResult{}, err
 		}
 
@@ -165,7 +176,7 @@ func (r Repository) FillShipmentTrackingByOrderNo(ctx context.Context, cmd sales
 			FROM target
 			WHERE oso.id=target.id
 			RETURNING oso.shipment_id
-		`, r.schema, r.schema), orderID, item.TrackingNo).Scan(&shipmentID)
+		`, r.schema, r.schema), orderID, summary).Scan(&shipmentID)
 		if err != nil && err != pgx.ErrNoRows {
 			return salesapp.FillShipmentTrackingResult{}, err
 		}
@@ -174,7 +185,7 @@ func (r Repository) FillShipmentTrackingByOrderNo(ctx context.Context, cmd sales
 				return salesapp.FillShipmentTrackingResult{}, err
 			}
 		}
-		if err := r.insertShippingAuditTx(ctx, tx, cmd.Actor, orderID, "ship_tracking_no", item.TrackingNo); err != nil {
+		if err := r.insertShippingAuditTx(ctx, tx, cmd.Actor, orderID, "ship_tracking_no", summary); err != nil {
 			return salesapp.FillShipmentTrackingResult{}, err
 		}
 		if err := r.insertShippingAuditTx(ctx, tx, cmd.Actor, orderID, "ship_status_id", fmt.Sprintf("%d", shippedStatusID)); err != nil {
@@ -220,11 +231,11 @@ func (r Repository) FillOrderTracking(ctx context.Context, cmd salesapp.FillOrde
 		return salesapp.FillShipmentTrackingResult{}, err
 	}
 
-	if _, err := tx.Exec(ctx, fmt.Sprintf(`
-		UPDATE %s.orders
-		SET ship_tracking_no=$2, ship_status_id=$3
-		WHERE id=$1
-	`, r.schema), orderID, cmd.TrackingNo, shippedStatusID); err != nil {
+	summary, err := appendOrderTrackingNumbersTx(ctx, tx, r.schema, orderID, cmd.TrackingNo, "order_drawer", cmd.Actor)
+	if err != nil {
+		return salesapp.FillShipmentTrackingResult{}, err
+	}
+	if _, err := tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.orders SET ship_status_id=$2 WHERE id=$1`, r.schema), orderID, shippedStatusID); err != nil {
 		return salesapp.FillShipmentTrackingResult{}, err
 	}
 
@@ -242,7 +253,7 @@ func (r Repository) FillOrderTracking(ctx context.Context, cmd salesapp.FillOrde
 		FROM target
 		WHERE oso.id=target.id
 		RETURNING oso.shipment_id
-	`, r.schema, r.schema), orderID, cmd.TrackingNo).Scan(&shipmentID)
+	`, r.schema, r.schema), orderID, summary).Scan(&shipmentID)
 	if err != nil && err != pgx.ErrNoRows {
 		return salesapp.FillShipmentTrackingResult{}, err
 	}
@@ -251,7 +262,7 @@ func (r Repository) FillOrderTracking(ctx context.Context, cmd salesapp.FillOrde
 			return salesapp.FillShipmentTrackingResult{}, err
 		}
 	}
-	if err := r.insertShippingAuditTx(ctx, tx, cmd.Actor, orderID, "ship_tracking_no", cmd.TrackingNo); err != nil {
+	if err := r.insertShippingAuditTx(ctx, tx, cmd.Actor, orderID, "ship_tracking_no", summary); err != nil {
 		return salesapp.FillShipmentTrackingResult{}, err
 	}
 	if err := r.insertShippingAuditTx(ctx, tx, cmd.Actor, orderID, "ship_status_id", fmt.Sprintf("%d", shippedStatusID)); err != nil {

@@ -7,10 +7,11 @@ import (
 )
 
 type fakeRepo struct {
-	savedItem  SaveItemCommand
-	deletedID  int64
-	activated  int64
-	versionFor int64
+	savedItem     SaveItemCommand
+	deletedID     int64
+	deactivatedID int64
+	activated     int64
+	versionFor    int64
 }
 
 func (r *fakeRepo) List(ctx context.Context) ([]ListItem, error) { return nil, nil }
@@ -23,8 +24,8 @@ func (r *fakeRepo) BagSpecMappings(ctx context.Context) ([]BagSpecMapping, error
 	return nil, nil
 }
 func (r *fakeRepo) SyncProductYield(ctx context.Context, productID int64) error { return nil }
-func (r *fakeRepo) DeleteBom(ctx context.Context, productID int64) error {
-	r.deletedID = productID
+func (r *fakeRepo) DeactivateBom(ctx context.Context, productID int64) error {
+	r.deactivatedID = productID
 	return nil
 }
 func (r *fakeRepo) SaveItem(ctx context.Context, cmd SaveItemCommand) error {
@@ -106,6 +107,22 @@ func TestServiceValidatesBOMVersions(t *testing.T) {
 	}
 }
 
+func TestServiceValidatesDeactivateBom(t *testing.T) {
+	repo := &fakeRepo{}
+	svc := NewService(repo)
+	ctx := context.Background()
+
+	if err := svc.DeactivateBom(ctx, 0); err == nil {
+		t.Fatal("DeactivateBom should require product id")
+	}
+	if err := svc.DeactivateBom(ctx, 7); err != nil {
+		t.Fatalf("DeactivateBom valid command: %v", err)
+	}
+	if repo.deactivatedID != 7 {
+		t.Fatalf("deactivatedID = %d, want 7", repo.deactivatedID)
+	}
+}
+
 type errorRepo struct {
 	err error
 }
@@ -122,7 +139,7 @@ func (r errorRepo) BagSpecMappings(ctx context.Context) ([]BagSpecMapping, error
 func (r errorRepo) SyncProductYield(ctx context.Context, productID int64) error {
 	return r.err
 }
-func (r errorRepo) DeleteBom(ctx context.Context, productID int64) error {
+func (r errorRepo) DeactivateBom(ctx context.Context, productID int64) error {
 	return r.err
 }
 func (r errorRepo) SaveItem(ctx context.Context, cmd SaveItemCommand) error {

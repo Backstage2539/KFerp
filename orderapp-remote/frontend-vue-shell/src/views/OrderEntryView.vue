@@ -113,6 +113,11 @@
             <option v-for="item in shipStatuses" :key="item.id" :value="item.id">{{ item.name }}</option>
           </select>
         </label>
+
+        <label>
+          <span>快递单号（可多个）</span>
+          <textarea v-model.trim="form.ship_tracking_no" rows="2" placeholder="多个单号可用换行、逗号或分号分隔"></textarea>
+        </label>
       </div>
 
       <label class="notes">
@@ -181,7 +186,7 @@
           </label>
 
           <label>
-            <span>单价</span>
+            <span>{{ retailOrder ? '单价' : `单价（${priceUnitLabel(row)}）` }}</span>
             <div class="price-control">
               <input
                 v-model.trim="row.unit_price"
@@ -203,6 +208,11 @@
 
           <button class="secondary danger" type="button" @click="removeRow(idx)" :disabled="rows.length === 1">删除</button>
 
+          <label class="line-note">
+            <span>条目备注</span>
+            <input v-model.trim="row.item_note" placeholder="如贴标、磨粉、特殊包装" />
+          </label>
+
           <div v-if="tierRows(row).length" class="tier-prices">
             <button
               v-for="tier in tierRows(row)"
@@ -213,7 +223,7 @@
               @click="selectTier(row, tier)"
             >
               <span>{{ tier.specLabel }} {{ tier.rangeLabel }}</span>
-              <strong>{{ money(tier.unitPrice) }}/件</strong>
+              <strong>{{ unitPriceMoney(tier.unitPrice) }}{{ tier.priceUnit?.suffix || '/磅' }}</strong>
             </button>
           </div>
         </article>
@@ -256,6 +266,7 @@
           <li>常用规格：36g、80g、100g、227g、454g、500g、1000g、2.5kg。</li>
           <li>新订单默认已付款、未发货；商品单价会随规格和数量匹配价格梯度。</li>
           <li>需要临时改价时直接修改单价，点击 ↺ 恢复自动梯度价。</li>
+          <li>每条商品明细可填写“条目备注”，会随该商品带入销售单和出库单。</li>
           <li>库存充足时保存前会提示成品批次；历史库存没有 FP 批次时会提示库存余额，确认使用后进入库存待发货。</li>
         </ul>
       </details>
@@ -329,6 +340,7 @@ import {
   syncWholesaleTierPrice,
   toInt,
   toNumber,
+  wholesalePriceUnit,
   wholesaleTierPriceRows,
   wholesaleSpecOptions,
 } from '../lib/order-entry'
@@ -403,6 +415,7 @@ function newRow() {
     custom_spec_g: '',
     qty: 1,
     unit: '件',
+    item_note: '',
   }
 }
 
@@ -625,7 +638,7 @@ function resetAutoPrice(row) {
 
 function tierRows(row) {
   if (retailOrder.value) return []
-  return wholesaleTierPriceRows(productByID(row.product_id))
+  return wholesaleTierPriceRows(productByID(row.product_id), row)
 }
 
 function selectTier(row, tier) {
@@ -641,12 +654,22 @@ function autoPriceLabel(row) {
   return '自动价'
 }
 
+function priceUnitLabel(row) {
+  return wholesalePriceUnit(row).label
+}
+
 function rowTotal(row) {
   return lineTotal(productByID(row.product_id), row, retailOrder.value)
 }
 
 function money(value) {
   return Number(value || 0).toFixed(2)
+}
+
+function unitPriceMoney(value) {
+  const n = Number(value || 0)
+  if (!Number.isFinite(n)) return '0'
+  return Number.isInteger(n) ? String(n) : n.toFixed(2)
 }
 
 function addRow() {
@@ -716,6 +739,7 @@ function applyEditData(data) {
       custom_spec_g: shouldUseCustomSpec ? spec : '',
       qty: Number(item.qty || 1),
       unit: item.unit || '件',
+      item_note: item.note || '',
     }
   })
   if (!rows.value.length) rows.value = [newRow()]
@@ -860,6 +884,7 @@ button:disabled { cursor: not-allowed; opacity: 0.5; }
 .line-total { display: grid; gap: 3px; padding-bottom: 2px; }
 .line-total strong { font-size: 18px; }
 .line-total small { color: #667085; font-size: 12px; }
+.line-note { grid-column: 1 / -1; }
 .tier-prices { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 8px; padding-top: 2px; }
 .tier-price-chip { display: grid; grid-template-columns: auto auto; align-items: center; gap: 8px; min-height: 32px; border: 1px solid #d7dbe3; background: #fff; color: #344054; border-radius: 7px; padding: 6px 8px; font-size: 12px; }
 .tier-price-chip strong { color: #111827; }

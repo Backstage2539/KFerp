@@ -12,10 +12,10 @@ func TestProductSettingsBasicProductRowsExposeBomEntry(t *testing.T) {
 		t.Fatal(err)
 	}
 	src := string(b)
-	rowStart := strings.Index(src, `<tr v-for="row in productRows"`)
-	rowEnd := strings.Index(src[rowStart:], `<tr v-if="!productRows.length"`)
+	rowStart := strings.Index(src, `<tr v-for="row in displaySkuRows"`)
+	rowEnd := strings.Index(src[rowStart:], `<tr v-if="!displaySkuRows.length"`)
 	if rowStart < 0 || rowEnd < 0 {
-		t.Fatalf("product basics table rows not found")
+		t.Fatalf("product SKU list table rows not found")
 	}
 	rowBlock := src[rowStart : rowStart+rowEnd]
 	if !strings.Contains(src, "<th>BOM</th>") {

@@ -73,35 +73,89 @@ export function formatTierRange(tier) {
   return '全部数量'
 }
 
-export function wholesaleTierPriceRows(product) {
+function tierSpecG(tier) {
+  return Math.max(1, toInt(tier?.spec_g) || 454)
+}
+
+function tierMinLb(tier) {
+  return toNumber(tier?.min) * tierSpecG(tier) / 454
+}
+
+function tierMaxLb(tier) {
+  if (tier?.max == null) return null
+  return toNumber(tier.max) * tierSpecG(tier) / 454
+}
+
+function rowQuantityLb(row) {
+  return normalizeSpecG(row) * Math.max(1, toInt(row?.qty)) / 454
+}
+
+export function wholesalePriceUnit(rowOrSpec) {
+  const specG = typeof rowOrSpec === 'object' ? normalizeSpecG(rowOrSpec) : toInt(rowOrSpec)
+  if (specG >= 1000) return { label: '元/kg', suffix: '/kg', unitG: 1000 }
+  return { label: '元/磅', suffix: '/磅', unitG: 454 }
+}
+
+function rowQuantityForWholesalePriceUnit(row) {
+  const unit = wholesalePriceUnit(row)
+  return normalizeSpecG(row) * Math.max(1, toInt(row?.qty)) / unit.unitG
+}
+
+function wholesaleTierUnitPriceLb(tier) {
+  const configuredPrice = toNumber(tier?.unit_price)
+  const pricePerPackage = configuredPrice > 0 ? configuredPrice : toNumber(tier?.price)
+  if (pricePerPackage <= 0) return 0
+  return pricePerPackage * 454 / tierSpecG(tier)
+}
+
+function wholesaleDisplayUnitPrice(pricePerLb, rowOrSpec) {
+  const unit = wholesalePriceUnit(rowOrSpec)
+  const price = toNumber(pricePerLb) * unit.unitG / 454
+  if (unit.unitG === 1000) return Math.round(price)
+  return price
+}
+
+function matchTierByQuantity(tiers, quantity, minValue, maxValue) {
+  const sorted = [...tiers].sort((a, b) => minValue(b) - minValue(a))
+  const exact = sorted.find((item) => minValue(item) <= quantity && (maxValue(item) == null || maxValue(item) >= quantity))
+  if (exact) return exact
+  return sorted.find((item) => minValue(item) <= quantity)
+    || [...tiers].sort((a, b) => minValue(a) - minValue(b))[0]
+    || null
+}
+
+export function wholesaleTierPriceRows(product, row = null) {
   return (product?.tiers || [])
     .filter((tier) => toInt(tier.spec_g) > 0)
-    .map((tier) => ({
-      id: String(tier.id || ''),
-      specG: toInt(tier.spec_g),
-      specLabel: formatSpecLabel(tier.spec_g),
-      rangeLabel: formatTierRange(tier),
-      unitPrice: toNumber(tier.unit_price || tier.price),
-    }))
+    .map((tier) => {
+      const priceUnitTarget = row || toInt(tier.spec_g)
+      return {
+        id: String(tier.id || ''),
+        specG: toInt(tier.spec_g),
+        specLabel: formatSpecLabel(tier.spec_g),
+        rangeLabel: formatTierRange(tier),
+        unitPrice: wholesaleDisplayUnitPrice(wholesaleTierUnitPriceLb(tier), priceUnitTarget),
+        priceUnit: wholesalePriceUnit(priceUnitTarget),
+      }
+    })
 }
 
 export function findWholesaleTier(product, row) {
   const specG = normalizeSpecG(row)
   const qty = Math.max(1, toInt(row?.qty))
-  const tiers = (product?.tiers || [])
+  const tiers = (product?.tiers || []).filter((item) => toInt(item.spec_g) > 0)
+  const exactSpecTiers = tiers
     .filter((item) => toInt(item.spec_g) === specG)
-    .sort((a, b) => toNumber(b.min) - toNumber(a.min))
-  const exact = tiers.find((item) => toNumber(item.min) <= qty && (!item.max || toNumber(item.max) >= qty))
-  if (exact) return exact
-  return tiers
-    .filter((item) => toNumber(item.min) <= qty)
-    .sort((a, b) => toNumber(b.min) - toNumber(a.min))[0] || tiers.sort((a, b) => toNumber(a.min) - toNumber(b.min))[0] || null
+  if (exactSpecTiers.length) {
+    return matchTierByQuantity(exactSpecTiers, qty, (item) => toNumber(item.min), (item) => (item.max == null ? null : toNumber(item.max)))
+  }
+  return matchTierByQuantity(tiers, rowQuantityLb(row), tierMinLb, tierMaxLb)
 }
 
 export function syncWholesaleTierPrice(product, row) {
   const tier = findWholesaleTier(product, row)
   if (!tier) return { tierID: 'auto', unitPrice: '' }
-  return { tierID: String(tier.id), unitPrice: String(tier.unit_price || tier.price || 0) }
+  return { tierID: String(tier.id), unitPrice: String(wholesaleDisplayUnitPrice(wholesaleTierUnitPriceLb(tier), row) || 0) }
 }
 
 export function filterOptions(options, query) {
@@ -183,10 +237,12 @@ export function lineTotal(product, row, retailOrder) {
   const units = Math.max(0, toInt(row?.qty))
   const specG = normalizeSpecG(row)
   if (units <= 0 || specG <= 0) return 0
-  if (row?.tier_id === 'manual') return toNumber(row?.unit_price) * units
+  if (row?.tier_id === 'manual') {
+    return retailOrder ? toNumber(row?.unit_price) * units : toNumber(row?.unit_price) * rowQuantityForWholesalePriceUnit(row)
+  }
   if (retailOrder) return retailPackagePrice(product, specG) * units
   const price = toNumber(row?.unit_price)
-  return price * units
+  return price * rowQuantityForWholesalePriceUnit(row)
 }
 
 export function buildOrderPayload({ form, rows }) {
@@ -217,6 +273,7 @@ export function buildOrderPayload({ form, rows }) {
     tier_id: [],
     unit_price: [],
     item_name: [],
+    item_note: [],
     qty: [],
     unit: [],
     spec: [],
@@ -231,6 +288,7 @@ export function buildOrderPayload({ form, rows }) {
     payload.tier_id.push(row.tier_id || 'auto')
     payload.unit_price.push(String(row.unit_price || ''))
     payload.item_name.push(row.product_name || row.item_name || '')
+    payload.item_note.push(String(row.item_note || '').trim())
     payload.qty.push(String(qty))
     payload.unit.push(row.unit || '件')
     payload.spec.push(String(specG))

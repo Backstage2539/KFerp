@@ -508,7 +508,7 @@ func TestProductSettingsRepositorySoftDeletesCategoriesAndUnassignsProducts(t *t
 		"SET product_category_id=NULL, product_category_position=0",
 		"COALESCE(parent_id,0)=$1",
 		"normalizeCategoryPositions",
-		"normalizeProductPositions(ctx, tx, r.schema, 0)",
+		"normalizeProductPositions(ctx, tx, r.schema, 0, customerID)",
 	} {
 		if !strings.Contains(src, want) {
 			t.Fatalf("product settings repository delete behavior missing %q", want)

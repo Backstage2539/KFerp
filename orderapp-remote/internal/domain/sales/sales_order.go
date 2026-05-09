@@ -35,6 +35,7 @@ type SalesOrderSnapshot struct {
 
 type SalesOrderSnapshotItem struct {
 	Name      string `json:"name"`
+	Note      string `json:"note"`
 	Spec      string `json:"spec"`
 	Qty       string `json:"qty"`
 	Unit      string `json:"unit"`

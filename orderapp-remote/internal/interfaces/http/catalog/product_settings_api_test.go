@@ -14,22 +14,24 @@ import (
 )
 
 type productSettingsRepo struct {
-	products        []catalogapp.Product
-	categories      []catalogapp.ProductCategory
-	savedCategory   catalogapp.SaveProductCategoryCommand
-	movedCategory   catalogapp.MoveProductCategoryCommand
-	deletedCategory catalogapp.DeleteProductCategoryCommand
-	assigned        catalogapp.AssignProductCategoryCommand
-	updated         catalogapp.UpdateProductBasicsCommand
-	createdPublic   catalogapp.CreateProductCommand
-	createdProduct  catalogapp.CreateCustomProductCommand
-	categoryCreated bool
-	categoryMoved   bool
-	categoryDeleted bool
-	productAssigned bool
-	productUpdated  bool
-	publicCreated   bool
-	productCreated  bool
+	products            []catalogapp.Product
+	categories          []catalogapp.ProductCategory
+	savedCategory       catalogapp.SaveProductCategoryCommand
+	movedCategory       catalogapp.MoveProductCategoryCommand
+	deletedCategory     catalogapp.DeleteProductCategoryCommand
+	assigned            catalogapp.AssignProductCategoryCommand
+	updated             catalogapp.UpdateProductBasicsCommand
+	deactivated         catalogapp.DeactivateProductsCommand
+	createdPublic       catalogapp.CreateProductCommand
+	createdProduct      catalogapp.CreateCustomProductCommand
+	categoryCreated     bool
+	categoryMoved       bool
+	categoryDeleted     bool
+	productAssigned     bool
+	productUpdated      bool
+	productsDeactivated bool
+	publicCreated       bool
+	productCreated      bool
 }
 
 func (r *productSettingsRepo) ListProducts(ctx context.Context) ([]catalogapp.Product, error) {
@@ -52,6 +54,12 @@ func (r *productSettingsRepo) ReplacePriceTiers(ctx context.Context, cmd catalog
 func (r *productSettingsRepo) UpdateProductBasics(ctx context.Context, cmd catalogapp.UpdateProductBasicsCommand) error {
 	r.updated = cmd
 	r.productUpdated = true
+	return nil
+}
+
+func (r *productSettingsRepo) DeactivateProducts(ctx context.Context, cmd catalogapp.DeactivateProductsCommand) error {
+	r.deactivated = cmd
+	r.productsDeactivated = true
 	return nil
 }
 
@@ -78,7 +86,7 @@ func (r *productSettingsRepo) ListProductCategories(ctx context.Context) ([]cata
 func (r *productSettingsRepo) SaveProductCategory(ctx context.Context, cmd catalogapp.SaveProductCategoryCommand) (catalogapp.ProductCategory, error) {
 	r.savedCategory = cmd
 	r.categoryCreated = true
-	return catalogapp.ProductCategory{ID: 99, ParentID: cmd.ParentID, Name: cmd.Name, Position: cmd.Position}, nil
+	return catalogapp.ProductCategory{ID: 99, ParentID: cmd.ParentID, CustomerID: cmd.CustomerID, Name: cmd.Name, Position: cmd.Position}, nil
 }
 
 func (r *productSettingsRepo) MoveProductCategory(ctx context.Context, cmd catalogapp.MoveProductCategoryCommand) error {
@@ -121,6 +129,8 @@ func TestProductSettingsAPISupportsCategoryTreeAndDragAssignments(t *testing.T) 
 		categories: []catalogapp.ProductCategory{
 			{ID: 1, Name: "咖啡豆", Level: 1, Position: 1},
 			{ID: 2, ParentID: 1, Name: "意式拼配", Level: 2, Position: 1},
+			{ID: 10, Name: "客户A分类", Level: 1, Position: 1, CustomerID: 3},
+			{ID: 11, ParentID: 10, Name: "客户A二级", Level: 2, Position: 1, CustomerID: 3},
 		},
 	}
 	e := echo.New()
@@ -132,7 +142,7 @@ func TestProductSettingsAPISupportsCategoryTreeAndDragAssignments(t *testing.T) 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("GET /api/product-settings status=%d body=%s", rec.Code, rec.Body.String())
 	}
-	for _, want := range []string{`"categories"`, `"children"`, `"products"`, `"number":1`, `"name":"咖啡豆"`, `"name":"意式拼配"`, `"name":"曲奇拼配"`, `"yield_rate":0.82`} {
+	for _, want := range []string{`"categories"`, `"children"`, `"products"`, `"number":1`, `"name":"咖啡豆"`, `"name":"意式拼配"`, `"name":"客户A分类"`, `"customer_id":3`, `"name":"曲奇拼配"`, `"yield_rate":0.82`} {
 		if !bytes.Contains(rec.Body.Bytes(), []byte(want)) {
 			t.Fatalf("product settings response missing %s: %s", want, rec.Body.String())
 		}
@@ -143,14 +153,14 @@ func TestProductSettingsAPISupportsCategoryTreeAndDragAssignments(t *testing.T) 
 		}
 	}
 
-	req = httptest.NewRequest(http.MethodPost, "/api/product-settings/categories", bytes.NewBufferString(`{"name":"单品豆","parent_id":1,"position":2}`))
+	req = httptest.NewRequest(http.MethodPost, "/api/product-settings/categories", bytes.NewBufferString(`{"name":"单品豆","parent_id":1,"position":2,"customer_id":3}`))
 	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
 	rec = httptest.NewRecorder()
 	e.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("POST category status=%d body=%s", rec.Code, rec.Body.String())
 	}
-	if !repo.categoryCreated || repo.savedCategory.Name != "单品豆" || repo.savedCategory.ParentID != 1 || repo.savedCategory.Position != 2 {
+	if !repo.categoryCreated || repo.savedCategory.Name != "单品豆" || repo.savedCategory.ParentID != 1 || repo.savedCategory.Position != 2 || repo.savedCategory.CustomerID != 3 {
 		t.Fatalf("category command = %+v created=%v", repo.savedCategory, repo.categoryCreated)
 	}
 
@@ -251,6 +261,23 @@ func TestProductSettingsAPIUpdatesProductYieldRate(t *testing.T) {
 	}
 	if !repo.productUpdated || repo.updated.ProductID != 7 || repo.updated.YieldRate != 0.835 {
 		t.Fatalf("update command = %+v updated=%v", repo.updated, repo.productUpdated)
+	}
+}
+
+func TestProductSettingsAPIDeactivatesMultipleProducts(t *testing.T) {
+	repo := &productSettingsRepo{}
+	e := echo.New()
+	registerProductRoutes(e, catalogapp.NewService(repo))
+
+	req := httptest.NewRequest(http.MethodPost, "/api/product-settings/products/deactivate", bytes.NewBufferString(`{"product_ids":[7,8]}`))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("POST deactivate products status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if !repo.productsDeactivated || len(repo.deactivated.ProductIDs) != 2 || repo.deactivated.ProductIDs[0] != 7 || repo.deactivated.ProductIDs[1] != 8 {
+		t.Fatalf("deactivate command = %+v deactivated=%v", repo.deactivated, repo.productsDeactivated)
 	}
 }
 

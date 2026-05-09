@@ -6,9 +6,11 @@ import (
 )
 
 type fakeRepo struct {
-	replace ReplacePriceTiersCommand
-	update  UpdateProductBasicsCommand
-	create  CreateProductCommand
+	replace     ReplacePriceTiersCommand
+	update      UpdateProductBasicsCommand
+	create      CreateProductCommand
+	deactivate  DeactivateProductsCommand
+	deactivated bool
 }
 
 func (r *fakeRepo) ListProducts(ctx context.Context) ([]Product, error) {
@@ -29,6 +31,12 @@ func (r *fakeRepo) UpdateProductBasics(ctx context.Context, cmd UpdateProductBas
 	return nil
 }
 
+func (r *fakeRepo) DeactivateProducts(ctx context.Context, cmd DeactivateProductsCommand) error {
+	r.deactivate = cmd
+	r.deactivated = true
+	return nil
+}
+
 func (r *fakeRepo) CreateProduct(ctx context.Context, cmd CreateProductCommand) (Product, error) {
 	r.create = cmd
 	return Product{ID: 11, Name: cmd.Name, RoastLevel: cmd.RoastLevel, YieldRate: cmd.YieldRate, Visibility: "public"}, nil
@@ -39,7 +47,7 @@ func (r *fakeRepo) ListProductCategories(ctx context.Context) ([]ProductCategory
 }
 
 func (r *fakeRepo) SaveProductCategory(ctx context.Context, cmd SaveProductCategoryCommand) (ProductCategory, error) {
-	return ProductCategory{ID: 2, Name: cmd.Name, ParentID: cmd.ParentID, Position: cmd.Position}, nil
+	return ProductCategory{ID: 2, Name: cmd.Name, ParentID: cmd.ParentID, CustomerID: cmd.CustomerID, Position: cmd.Position}, nil
 }
 
 func (r *fakeRepo) MoveProductCategory(ctx context.Context, cmd MoveProductCategoryCommand) error {
@@ -81,6 +89,12 @@ func TestServiceDelegatesCatalogOperations(t *testing.T) {
 	}
 	if repo.update.ProductID != 9 {
 		t.Fatalf("update command = %+v", repo.update)
+	}
+	if err := svc.DeactivateProducts(context.Background(), DeactivateProductsCommand{Actor: "tester", ProductIDs: []int64{9, 10}}); err != nil {
+		t.Fatalf("DeactivateProducts() error = %v", err)
+	}
+	if !repo.deactivated || repo.deactivate.Actor != "tester" || len(repo.deactivate.ProductIDs) != 2 || repo.deactivate.ProductIDs[0] != 9 || repo.deactivate.ProductIDs[1] != 10 {
+		t.Fatalf("deactivate command = %+v deactivated=%v", repo.deactivate, repo.deactivated)
 	}
 	product, err := svc.CreateProduct(context.Background(), CreateProductCommand{Actor: "tester", Name: "新拼配", RoastLevel: "中烘", YieldRate: 0.81})
 	if err != nil || product.ID != 11 {

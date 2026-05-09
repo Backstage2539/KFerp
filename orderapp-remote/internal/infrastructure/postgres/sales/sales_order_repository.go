@@ -422,7 +422,7 @@ func (r Repository) buildSalesOrderSnapshotTx(ctx context.Context, tx pgx.Tx, or
 		snapshot.Seal = &salesdomain.SalesOrderAssetRef{ID: settings.Seal.ID, Label: settings.Seal.Filename, ObjectKey: settings.Seal.ObjectKey, ContentType: settings.Seal.ContentType, URL: settings.Seal.URL, XMM: settings.SealXMM, YMM: settings.SealYMM, WidthMM: settings.SealWidthMM}
 	}
 
-	rows, err := tx.Query(ctx, fmt.Sprintf(`SELECT COALESCE(NULLIF(oi.item_name,''), p.name, ''), COALESCE(oi.spec,''), COALESCE(oi.qty,0)::float8,
+	rows, err := tx.Query(ctx, fmt.Sprintf(`SELECT COALESCE(NULLIF(oi.item_name,''), p.name, ''), COALESCE(oi.item_note,''), COALESCE(oi.spec,''), COALESCE(oi.qty,0)::float8,
 			COALESCE(oi.unit,''), COALESCE(oi.unit_price,0)::float8, COALESCE(oi.line_total,0)::float8
 		FROM %s.order_items oi
 		LEFT JOIN %s.products p ON p.id=oi.product_id
@@ -435,7 +435,7 @@ func (r Repository) buildSalesOrderSnapshotTx(ctx context.Context, tx pgx.Tx, or
 	for rows.Next() {
 		var item salesdomain.SalesOrderSnapshotItem
 		var qty, unitPrice, lineTotal float64
-		if err := rows.Scan(&item.Name, &item.Spec, &qty, &item.Unit, &unitPrice, &lineTotal); err != nil {
+		if err := rows.Scan(&item.Name, &item.Note, &item.Spec, &qty, &item.Unit, &unitPrice, &lineTotal); err != nil {
 			return salesdomain.SalesOrderSnapshot{}, err
 		}
 		item.Qty = trimFloatZero(qty)

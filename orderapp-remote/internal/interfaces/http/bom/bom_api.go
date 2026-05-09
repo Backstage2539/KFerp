@@ -143,7 +143,7 @@ func registerBomAPI(e *echo.Echo, bomSvc *bomapp.Service) {
 		if err != nil {
 			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: "invalid product_id"})
 		}
-		if err := bomSvc.DeleteBom(c.Request().Context(), productID); err != nil {
+		if err := bomSvc.DeactivateBom(c.Request().Context(), productID); err != nil {
 			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: err.Error()})
 		}
 		return c.JSON(http.StatusOK, map[string]any{"ok": true})

@@ -37,6 +37,7 @@ type CreateOrderRequest struct {
 	TierID    []string `form:"tier_id[]"`
 	UnitPrice []string `form:"unit_price[]"`
 	ItemName  []string `form:"item_name[]"`
+	ItemNote  []string `form:"item_note[]"`
 	Qty       []string `form:"qty[]"`
 	Unit      []string `form:"unit[]"`
 	Spec      []string `form:"spec[]"`

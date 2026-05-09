@@ -48,6 +48,8 @@ type ProductInput struct {
 	Grade                     string    `json:"grade,omitempty"`
 	Altitude                  string    `json:"altitude,omitempty"`
 	BeanListNote              string    `json:"bean_list_note,omitempty"`
+	BomStatus                 string    `json:"bom_status,omitempty"`
+	Warnings                  []string  `json:"warnings,omitempty"`
 	GreenBeanCostPerKg        float64   `json:"green_bean_cost_per_kg"`
 	YieldRate                 float64   `json:"yield_rate"`
 	WholesaleTaxAddPerKg      float64   `json:"wholesale_tax_add_per_kg"`
@@ -104,6 +106,8 @@ type ProductResult struct {
 	Grade                          string                    `json:"grade,omitempty"`
 	Altitude                       string                    `json:"altitude,omitempty"`
 	BeanListNote                   string                    `json:"bean_list_note,omitempty"`
+	BomStatus                      string                    `json:"bom_status,omitempty"`
+	Warnings                       []string                  `json:"warnings,omitempty"`
 	GreenBeanCostPerKg             float64                   `json:"green_bean_cost_per_kg"`
 	RoastedBeanCostPerKg           float64                   `json:"roasted_bean_cost_per_kg"`
 	SmallBatchCostPerKg            float64                   `json:"small_batch_cost_per_kg"`
@@ -168,6 +172,8 @@ func ValidateProductInput(params Parameters, in ProductInput) (ProductInput, err
 	if len(in.WholesaleDripMultipliers) == 0 {
 		in.WholesaleDripMultipliers = params.WholesaleDripMultipliers
 	}
+	in.BomStatus = normalizeBomStatus(in.BomStatus)
+	in.Warnings = normalizeWarnings(in.Warnings)
 	return in, nil
 }
 
@@ -236,6 +242,8 @@ func CalculateProduct(params Parameters, in ProductInput) ProductResult {
 		Grade:                in.Grade,
 		Altitude:             in.Altitude,
 		BeanListNote:         in.BeanListNote,
+		BomStatus:            in.BomStatus,
+		Warnings:             append([]string(nil), in.Warnings...),
 		GreenBeanCostPerKg:   in.GreenBeanCostPerKg,
 		RoastedBeanCostPerKg: roasted,
 		SmallBatchCostPerKg:  small,
@@ -277,6 +285,28 @@ func CalculateProduct(params Parameters, in ProductInput) ProductResult {
 	out.RetailDrip10BagPrice = dripBase*10*params.RetailDripMultiplier + in.DripTaxAddPerBagRetail*10 + params.DripPackingMaterialPerBag + params.RetailDripLogisticsPer10Bags
 	out.RetailBeanTiers = buildRetailBeanTiers(profileName, out)
 	roundProductPrices(&out)
+	return out
+}
+
+func normalizeBomStatus(status string) string {
+	status = strings.TrimSpace(status)
+	if status == "" {
+		return "active"
+	}
+	return status
+}
+
+func normalizeWarnings(warnings []string) []string {
+	out := make([]string, 0, len(warnings))
+	seen := map[string]bool{}
+	for _, warning := range warnings {
+		warning = strings.TrimSpace(warning)
+		if warning == "" || seen[warning] {
+			continue
+		}
+		out = append(out, warning)
+		seen[warning] = true
+	}
 	return out
 }
 

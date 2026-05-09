@@ -471,6 +471,61 @@ func (r *capturingOrderListRepo) ListOrders(ctx context.Context, query salesapp.
 	}, nil
 }
 
+type capturingSaveOrderRepo struct {
+	salesapp.Repository
+	cmd salesapp.SaveOrderCommand
+}
+
+func (r *capturingSaveOrderRepo) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand) (salesapp.SaveOrderResult, error) {
+	r.cmd = cmd
+	return salesapp.SaveOrderResult{OrderID: 71, OrderNo: "SO-NOTE-001"}, nil
+}
+
+func TestOrderAPISaveCarriesItemNotes(t *testing.T) {
+	repo := &capturingSaveOrderRepo{}
+	e := echo.New()
+	e.Use(func(next echo.HandlerFunc) echo.HandlerFunc {
+		return func(c echo.Context) error {
+			c.Set("employee_id", int64(1))
+			c.Set("operator_employee", "测试员")
+			return next(c)
+		}
+	})
+	registerOrderAPI(e, salesapp.NewService(repo))
+
+	payload := map[string]any{
+		"order_date":     "2026-05-09",
+		"customer_id":    3,
+		"source_id":      1,
+		"order_type_id":  1,
+		"pay_status_id":  2,
+		"ship_status_id": 1,
+		"product_id":     []string{"7"},
+		"tier_id":        []string{"manual"},
+		"unit_price":     []string{"88"},
+		"item_name":      []string{"橘皮乌龙"},
+		"item_note":      []string{"贴标：A店"},
+		"qty":            []string{"2"},
+		"unit":           []string{"件"},
+		"spec":           []string{"454"},
+	}
+	body, _ := json.Marshal(payload)
+	req := httptest.NewRequest(http.MethodPost, "/api/order", bytes.NewReader(body))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("POST /api/order status = %d, want 200, body=%s", rec.Code, rec.Body.String())
+	}
+	if len(repo.cmd.Items) != 1 {
+		t.Fatalf("captured items len = %d, want 1", len(repo.cmd.Items))
+	}
+	if repo.cmd.Items[0].Note != "贴标：A店" {
+		t.Fatalf("captured item note = %q, want per-item note", repo.cmd.Items[0].Note)
+	}
+}
+
 func TestOrderAPISavesRetailCustomSpecPrice(t *testing.T) {
 	pool, schema := newOrderAPITestDB(t)
 	ctx := context.Background()
@@ -518,6 +573,121 @@ func TestOrderAPISavesRetailCustomSpecPrice(t *testing.T) {
 	}
 	if lineTotal != 134 {
 		t.Fatalf("line_total = %.2f, want 134.00", lineTotal)
+	}
+}
+
+func TestOrderAPISavesWholesale1000gByBeanListWeightTier(t *testing.T) {
+	pool, schema := newOrderAPITestDB(t)
+	ctx := context.Background()
+	seedOrderAPITestData(t, ctx, pool, schema)
+	mustExecOrderAPITestSQL(t, ctx, pool, fmt.Sprintf(`
+		INSERT INTO %s.product_price_tiers(product_id,spec_g,min_qty_units,max_qty_units,price_per_unit,min_qty_lb,max_qty_lb,price_per_lb,active)
+		VALUES
+			(7,454,2,13,63,2,13,63,true),
+			(7,454,14,23,57,14,23,57,true),
+			(7,454,24,48,51,24,48,51,true),
+			(7,454,49,NULL,48,49,NULL,48,true);
+	`, schema))
+
+	e := newOrderAPITestEcho(pool, schema)
+	payload := map[string]any{
+		"order_date":     "2026-05-09",
+		"customer_id":    3,
+		"source_id":      1,
+		"order_type_id":  1,
+		"pay_status_id":  1,
+		"ship_status_id": 1,
+		"product_id":     []string{"7"},
+		"tier_id":        []string{"auto"},
+		"unit_price":     []string{""},
+		"item_name":      []string{"榛巧拼配"},
+		"qty":            []string{"30"},
+		"unit":           []string{"袋"},
+		"spec":           []string{"1000"},
+	}
+	body, _ := json.Marshal(payload)
+	req := httptest.NewRequest(http.MethodPost, "/api/order", bytes.NewReader(body))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("POST /api/order status = %d, want 200, body=%s", rec.Code, rec.Body.String())
+	}
+
+	var tierID int64
+	var spec string
+	var unitPrice, lineTotal float64
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`
+		SELECT COALESCE(price_tier_id,0), COALESCE(spec,''), COALESCE(unit_price,0)::float8, COALESCE(line_total,0)::float8
+		FROM %s.order_items
+		WHERE product_id=7
+		ORDER BY id DESC
+		LIMIT 1
+	`, schema)).Scan(&tierID, &spec, &unitPrice, &lineTotal); err != nil {
+		t.Fatalf("query order item: %v", err)
+	}
+	if tierID == 0 {
+		t.Fatalf("price_tier_id = 0, want matched bean-list tier")
+	}
+	if spec != "1000g" {
+		t.Fatalf("saved spec = %q, want 1000g", spec)
+	}
+	if unitPrice != 106 {
+		t.Fatalf("unit_price = %.2f, want 106.00", unitPrice)
+	}
+	wantLineTotal := 106 * 30.0
+	if diff := lineTotal - wantLineTotal; diff > 0.0001 || diff < -0.0001 {
+		t.Fatalf("line_total = %.6f, want %.6f", lineTotal, wantLineTotal)
+	}
+}
+
+func TestOrderAPISavesManualWholesale1000gPriceAsKgUnit(t *testing.T) {
+	pool, schema := newOrderAPITestDB(t)
+	ctx := context.Background()
+	seedOrderAPITestData(t, ctx, pool, schema)
+
+	e := newOrderAPITestEcho(pool, schema)
+	payload := map[string]any{
+		"order_date":     "2026-05-09",
+		"customer_id":    3,
+		"source_id":      1,
+		"order_type_id":  1,
+		"pay_status_id":  1,
+		"ship_status_id": 1,
+		"product_id":     []string{"7"},
+		"tier_id":        []string{"manual"},
+		"unit_price":     []string{"106"},
+		"item_name":      []string{"榛巧拼配"},
+		"qty":            []string{"30"},
+		"unit":           []string{"袋"},
+		"spec":           []string{"1000"},
+	}
+	body, _ := json.Marshal(payload)
+	req := httptest.NewRequest(http.MethodPost, "/api/order", bytes.NewReader(body))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("POST /api/order status = %d, want 200, body=%s", rec.Code, rec.Body.String())
+	}
+
+	var unitPrice, lineTotal float64
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`
+		SELECT COALESCE(unit_price,0)::float8, COALESCE(line_total,0)::float8
+		FROM %s.order_items
+		WHERE product_id=7
+		ORDER BY id DESC
+		LIMIT 1
+	`, schema)).Scan(&unitPrice, &lineTotal); err != nil {
+		t.Fatalf("query order item: %v", err)
+	}
+	if unitPrice != 106 {
+		t.Fatalf("unit_price = %.2f, want 106.00", unitPrice)
+	}
+	if lineTotal != 3180 {
+		t.Fatalf("line_total = %.2f, want 3180.00", lineTotal)
 	}
 }
 
@@ -1537,6 +1707,54 @@ func TestOrdersSingleShippingTrackingAPIMarksOrderShipped(t *testing.T) {
 	}
 }
 
+func TestOrdersSingleShippingTrackingAPIPreservesMultipleNumbers(t *testing.T) {
+	pool, schema := newOrderAPITestDB(t)
+	ctx := context.Background()
+	seedOrderAPITestData(t, ctx, pool, schema)
+	if err := postgressales.EnsureSchema(ctx, pool, schema); err != nil {
+		t.Fatalf("EnsureSchema: %v", err)
+	}
+	mustExecOrderAPITestSQL(t, ctx, pool, fmt.Sprintf(`
+		INSERT INTO %s.orders(id, order_no, order_date, customer_id, order_type_id, pay_status_id, ship_status_id, process_status_id, grand_total, ship_tracking_no, is_void)
+		VALUES (34, 'SO-MULTI-TRACK', '2026-05-09', 3, 1, 2, 1, (SELECT id FROM %s.order_process_statuses WHERE name='生产完成' LIMIT 1), 88, 'SF-OLD-001', false);
+		INSERT INTO %s.order_shipments(id, shipment_no, created_by, sender_id, file_url, status)
+		VALUES (15, 'SHIP-20260509-0001', '测试员', 1, '/ship/order_exports/test.xlsx', 'excel_generated');
+		INSERT INTO %s.order_shipment_orders(shipment_id, order_id, sender_id, tracking_no)
+		VALUES (15, 34, 1, 'SF-OLD-001');
+	`, schema, schema, schema, schema))
+
+	e := newOrderAPITestEcho(pool, schema)
+	body, _ := json.Marshal(map[string]any{"tracking_no": "SF-NEW-001，SF-NEW-002"})
+	req := httptest.NewRequest(http.MethodPost, "/api/orders/34/shipping-tracking", bytes.NewReader(body))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("POST /api/orders/34/shipping-tracking status = %d, want 200, body=%s", rec.Code, rec.Body.String())
+	}
+	var trackingNo, shipStatus string
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`
+		SELECT COALESCE(o.ship_tracking_no,''), COALESCE(ss.name,'')
+		FROM %s.orders o
+		LEFT JOIN %s.ship_statuses ss ON ss.id=o.ship_status_id
+		WHERE o.id=34
+	`, schema, schema)).Scan(&trackingNo, &shipStatus); err != nil {
+		t.Fatalf("query order tracking: %v", err)
+	}
+	want := "SF-OLD-001\nSF-NEW-001\nSF-NEW-002"
+	if trackingNo != want || shipStatus != "已发货" {
+		t.Fatalf("order tracking=%q ship_status=%q, want %q/已发货", trackingNo, shipStatus, want)
+	}
+	var count int
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT count(*) FROM %s.order_shipping_trackings WHERE order_id=34`, schema)).Scan(&count); err != nil {
+		t.Fatalf("query normalized tracking rows: %v", err)
+	}
+	if count != 3 {
+		t.Fatalf("normalized tracking rows=%d want 3", count)
+	}
+}
+
 func TestOrdersListIncludesLatestShipmentSender(t *testing.T) {
 	pool, schema := newOrderAPITestDB(t)
 	ctx := context.Background()
@@ -2008,6 +2226,7 @@ CREATE TABLE %s.order_items (
 	price_tier_id BIGINT,
 	price_overridden BOOLEAN NOT NULL DEFAULT false,
 	item_name TEXT,
+	item_note TEXT NOT NULL DEFAULT '',
 	qty NUMERIC,
 	unit TEXT,
 	spec TEXT,

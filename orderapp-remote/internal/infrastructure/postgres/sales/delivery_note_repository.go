@@ -138,11 +138,11 @@ func (r Repository) loadDeliveryNoteBaseTx(ctx context.Context, tx pgx.Tx, order
 			COALESCE(c.name,''), COALESCE(NULLIF(c.company_name,''), c.name, ''),
 			COALESCE(NULLIF(c.company_address,''), c.address, ''), COALESCE(NULLIF(c.company_phone,''), c.phone, ''),
 			COALESCE(NULLIF(o.receiver_name,''), c.contact, ''), COALESCE(NULLIF(o.receiver_phone,''), c.phone, ''), COALESCE(NULLIF(o.receiver_address,''), c.address, ''),
-			COALESCE(o.ship_method,''), COALESCE(o.ship_tracking_no,''), COALESCE(o.source_warehouse,''), COALESCE(o.notes,''), COALESCE(ss.name,'')
+			COALESCE(o.ship_method,''), %s, COALESCE(o.source_warehouse,''), COALESCE(o.notes,''), COALESCE(ss.name,'')
 		FROM %s.orders o
 		LEFT JOIN %s.customers c ON c.id=o.customer_id
 		LEFT JOIN %s.ship_statuses ss ON ss.id=o.ship_status_id
-		WHERE o.id=$1`, r.schema, r.schema, r.schema)
+		WHERE o.id=$1`, orderTrackingSummaryExpr(r.schema, "o"), r.schema, r.schema, r.schema)
 	var out deliveryNoteBase
 	if err := tx.QueryRow(ctx, q, orderID).Scan(
 		&out.OrderID,
@@ -305,7 +305,7 @@ func (r Repository) buildDeliveryNoteSnapshotTx(ctx context.Context, tx pgx.Tx, 
 		return salesdomain.DeliveryNoteSnapshot{}, err
 	}
 	snapshot.Seal = seal
-	rows, err := tx.Query(ctx, fmt.Sprintf(`SELECT COALESCE(NULLIF(oi.item_name,''), p.name, ''), COALESCE(oi.spec,''), COALESCE(oi.qty,0)::float8, COALESCE(oi.unit,'')
+	rows, err := tx.Query(ctx, fmt.Sprintf(`SELECT COALESCE(NULLIF(oi.item_name,''), p.name, ''), COALESCE(oi.item_note,''), COALESCE(oi.spec,''), COALESCE(oi.qty,0)::float8, COALESCE(oi.unit,'')
 		FROM %s.order_items oi
 		LEFT JOIN %s.products p ON p.id=oi.product_id
 		WHERE oi.order_id=$1
@@ -317,7 +317,7 @@ func (r Repository) buildDeliveryNoteSnapshotTx(ctx context.Context, tx pgx.Tx, 
 	for rows.Next() {
 		var item salesdomain.DeliveryNoteSnapshotItem
 		var qty float64
-		if err := rows.Scan(&item.Name, &item.Spec, &qty, &item.Unit); err != nil {
+		if err := rows.Scan(&item.Name, &item.Note, &item.Spec, &qty, &item.Unit); err != nil {
 			return salesdomain.DeliveryNoteSnapshot{}, err
 		}
 		item.Qty = trimFloatZero(qty)

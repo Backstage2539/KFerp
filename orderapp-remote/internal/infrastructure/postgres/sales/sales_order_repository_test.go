@@ -293,6 +293,7 @@ func prepareSalesSchemaPrerequisites(t *testing.T, ctx context.Context, pool *pg
 			line_no INTEGER NOT NULL DEFAULT 0,
 			product_id BIGINT,
 			item_name TEXT NOT NULL DEFAULT '',
+			item_note TEXT NOT NULL DEFAULT '',
 			spec TEXT NOT NULL DEFAULT '',
 			qty NUMERIC(12,2) NOT NULL DEFAULT 0,
 			unit TEXT NOT NULL DEFAULT '',

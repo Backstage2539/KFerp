@@ -4,7 +4,7 @@
       <div class="panel-head">
         <div>
           <h2>产品设置</h2>
-          <p>合并商品基础信息、产品分类和价格试算。商用阶梯价由价格发布生成。</p>
+          <p>合并客户SKU列表、产品分类和价格试算。商用阶梯价由价格发布生成。</p>
         </div>
         <button class="secondary" type="button" @click="loadAll" :disabled="loading">刷新</button>
       </div>
@@ -13,6 +13,35 @@
     </section>
 
     <section class="settings-grid">
+      <div class="panel sku-context-panel">
+        <div class="sku-context-main">
+          <div>
+            <div class="context-eyebrow">SKU归属</div>
+            <h3>{{ selectedSkuContextLabel }}</h3>
+            <p class="muted">产品列表、商品分类、豆单和价格试算会按当前归属切换。</p>
+          </div>
+          <div class="sku-context-controls">
+            <button class="secondary compact-action" type="button" @click="selectedCustomerSkuCustomerID = 0" :disabled="!selectedCustomerSkuCustomerID">
+              公共SKU
+            </button>
+            <SearchableSelect
+              class="sku-customer-select"
+              v-model="selectedCustomerSkuCustomerID"
+              :options="customerSkuCustomers"
+              :option-label="customerOptionLabel"
+              :option-meta="customerOptionMeta"
+              :option-value="optionNumericValue"
+              placeholder="选择客户SKU"
+              empty-text="暂无自定义SKU客户" />
+          </div>
+        </div>
+        <div class="context-stats">
+          <span>公共SKU {{ publicSkuRows.length }}</span>
+          <span>当前SKU {{ displaySkuRows.length }}</span>
+          <span>商品分类 {{ categoryTreeForSkuContext.length }}</span>
+        </div>
+      </div>
+
       <div class="panel public-product-panel">
         <div class="panel-title">
           <span>新增公共产品</span>
@@ -110,59 +139,11 @@
             <button class="primary" type="submit" :disabled="customSaving">创建专属 SKU</button>
           </div>
         </form>
-        <div class="customer-sku-list">
-          <div class="sku-list-head">
-            <div>
-              <strong>客户专属 SKU 列表</strong>
-              <span class="muted">只展示客户维度的定制产品，可直接进入 BOM 维护。</span>
-            </div>
-            <div class="sku-filter">
-              <SearchableSelect
-                v-model="selectedCustomerSkuCustomerID"
-                :options="customers"
-                :option-label="customerOptionLabel"
-                :option-meta="customerOptionMeta"
-                :option-value="optionNumericValue"
-                placeholder="筛选客户"
-                empty-text="没有匹配客户" />
-              <button class="secondary" type="button" @click="selectedCustomerSkuCustomerID = 0">全部</button>
-            </div>
-          </div>
-          <div class="table-wrap compact-table">
-            <table>
-              <thead>
-                <tr>
-                  <th>客户</th>
-                  <th>客户 SKU</th>
-                  <th>基础产品</th>
-                  <th>类型</th>
-                  <th>烘焙度</th>
-                  <th>BOM物料</th>
-                  <th>BOM</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr v-for="row in customerSkuRows" :key="`customer-sku-${row.id}`">
-                  <td>{{ ownerLabel(row) }}</td>
-                  <td>{{ row.name }}</td>
-                  <td>{{ baseProductName(row.base_product_id) }}</td>
-                  <td>{{ customTypeLabel(row.custom_type) }}</td>
-                  <td>{{ row.roast_level || '-' }}</td>
-                  <td>{{ row.bom_item_count || 0 }}</td>
-                  <td><button class="text-button" type="button" @click="openProductBom(row)">维护 BOM</button></td>
-                </tr>
-                <tr v-if="!customerSkuRows.length">
-                  <td colspan="7" class="muted">暂无客户专属 SKU</td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
-        </div>
       </div>
 
       <div class="panel category-panel">
         <div class="panel-title">
-          <span>商品分类</span>
+          <span>商品分类 · {{ selectedSkuContextLabel }}</span>
           <button class="toggle-section" type="button" @click="categoryCollapsed = !categoryCollapsed">
             {{ categoryCollapsed ? '展开' : '收起' }}
           </button>
@@ -175,7 +156,7 @@
 
           <div class="category-tree">
             <div
-              v-for="primary in categories"
+              v-for="primary in categoryTreeForSkuContext"
               :key="primary.id"
               class="primary-category"
               :data-primary-id="primary.id"
@@ -266,16 +247,24 @@
       </div>
 
       <div class="panel product-panel">
-        <div class="panel-title">
-          <span>商品基础信息</span>
-          <button class="toggle-section" type="button" @click="productsCollapsed = !productsCollapsed">
-            {{ productsCollapsed ? '展开' : '收起' }}
-          </button>
+        <div class="panel-title sku-panel-title">
+          <span>客户SKU列表 · {{ selectedSkuContextLabel }}</span>
+          <div class="panel-actions sku-panel-actions">
+            <button class="secondary compact-action" type="button" @click="deactivateProducts(selectedProductIds)" :disabled="!selectedProductIds.length || loading">
+              失效选中产品
+            </button>
+            <button class="toggle-section" type="button" @click="productsCollapsed = !productsCollapsed">
+              {{ productsCollapsed ? '展开' : '收起' }}
+            </button>
+          </div>
         </div>
         <div v-show="!productsCollapsed" class="table-wrap">
           <table>
             <thead>
               <tr>
+                <th class="select-col">
+                  <input type="checkbox" :checked="allProductRowsSelected" :disabled="!displaySkuRows.length" @change="toggleAllProductRows($event.target.checked)" />
+                </th>
                 <th>一级分类</th>
                 <th>二级分类</th>
                 <th>商品编号</th>
@@ -284,11 +273,16 @@
                 <th>类型</th>
                 <th>烘焙度</th>
                 <th>BOM出品率</th>
+                <th>BOM状态</th>
                 <th>BOM</th>
+                <th>处理</th>
               </tr>
             </thead>
             <tbody>
-              <tr v-for="row in productRows" :key="row.id">
+              <tr v-for="row in displaySkuRows" :key="row.id">
+                <td class="select-col">
+                  <input type="checkbox" :checked="isProductSelected(row)" @change="toggleProductSelection(row, $event.target.checked)" />
+                </td>
                 <td>{{ categoryLabel(row, 1) }}</td>
                 <td>{{ categoryLabel(row, 2) }}</td>
                 <td>{{ row.number || '' }}</td>
@@ -313,10 +307,18 @@
                     <span>%</span>
                   </div>
                 </td>
-                <td><button class="text-button" type="button" @click="openProductBom(row)">维护 BOM</button></td>
+                <td>
+                  <span :class="['status-pill', row.bom_status === 'inactive' ? 'inactive' : '']">{{ bomStatusLabel(row.bom_status) }}</span>
+                </td>
+                <td>
+                  <button class="text-button" type="button" @click="openProductBom(row)">维护 BOM</button>
+                </td>
+                <td>
+                  <button class="text-button danger-text" type="button" @click="deactivateProducts([row.id])">失效</button>
+                </td>
               </tr>
-              <tr v-if="!productRows.length">
-                <td colspan="9" class="muted">暂无商品</td>
+              <tr v-if="!displaySkuRows.length">
+                <td colspan="12" class="muted">{{ selectedCustomerSkuCustomerID ? '暂无客户SKU' : '暂无公共SKU' }}</td>
               </tr>
             </tbody>
           </table>
@@ -325,13 +327,15 @@
     </section>
 
     <section class="panel costing-panel">
-      <CostingView />
+      <CostingView
+        :customer-context-id="selectedCustomerSkuCustomerID"
+        :customer-context-label="selectedSkuContextLabel" />
     </section>
   </div>
 </template>
 
 <script setup>
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { apiGet, apiSend } from '../api/client'
 import SearchableSelect from '../components/SearchableSelect.vue'
 import CostingView from './CostingView.vue'
@@ -355,13 +359,56 @@ const editingCategoryName = ref('')
 const categoryCollapsed = ref(false)
 const productsCollapsed = ref(false)
 const selectedCustomerSkuCustomerID = ref(0)
+const selectedProductIds = ref([])
 const roastLevels = ['浅烘', '中烘', '中深烘', '深烘']
 const productForm = ref(defaultProductForm())
 const customForm = ref(defaultCustomForm())
 
+const skuContextCustomerID = computed(() => Number(selectedCustomerSkuCustomerID.value || 0))
+const selectedSkuContextLabel = computed(() => {
+  const customerID = skuContextCustomerID.value
+  if (!customerID) return '公共SKU'
+  return `${customerName(customerID) || `客户 #${customerID}`} SKU`
+})
+const categoryTreeForSkuContext = computed(() => categories.value
+  .filter(categoryBelongsToSkuContext)
+  .map((primary, primaryIndex) => {
+    const primaryName = primary.name || ''
+    const primaryProducts = (primary.products || [])
+      .filter(skuContextProductFilter)
+      .map((product, index) => ({
+        ...product,
+        number: index + 1,
+        primary_name: primaryName,
+        secondary_name: '',
+      }))
+    const children = (primary.children || [])
+      .filter(categoryBelongsToSkuContext)
+      .map((secondary, secondaryIndex) => ({
+        ...secondary,
+        number: secondaryIndex + 1,
+        products: (secondary.products || [])
+          .filter(skuContextProductFilter)
+          .map((product, productIndex) => ({
+            ...product,
+            number: productIndex + 1,
+            primary_name: primaryName,
+            secondary_name: secondary.name || '',
+          })),
+      }))
+    return {
+      ...primary,
+      number: primaryIndex + 1,
+      products: primaryProducts,
+      children,
+    }
+  }))
 const productRows = computed(() => {
   const rows = []
-  for (const primary of categories.value) {
+  for (const primary of categoryTreeForSkuContext.value) {
+    for (const product of primary.products || []) {
+      rows.push(product)
+    }
     for (const secondary of primary.children || []) {
       for (const product of secondary.products || []) {
         rows.push({ ...product, primary_name: primary.name, secondary_name: secondary.name })
@@ -374,9 +421,10 @@ const productRows = computed(() => {
   return rows
 })
 
-const categorizedProductIDs = computed(() => {
+const contextCategorizedProductIDs = computed(() => {
   const ids = new Set()
-  for (const primary of categories.value) {
+  for (const primary of categoryTreeForSkuContext.value) {
+    for (const product of primary.products || []) ids.add(Number(product.id))
     for (const secondary of primary.children || []) {
       for (const product of secondary.products || []) ids.add(Number(product.id))
     }
@@ -384,12 +432,30 @@ const categorizedProductIDs = computed(() => {
   return ids
 })
 
-const uncategorizedProducts = computed(() => products.value.filter((product) => !categorizedProductIDs.value.has(Number(product.id))))
+const uncategorizedProducts = computed(() => products.value
+  .filter(skuContextProductFilter)
+  .filter((product) => !contextCategorizedProductIDs.value.has(Number(product.id)))
+  .slice()
+  .sort((a, b) => ownerLabel(a).localeCompare(ownerLabel(b)) || a.name.localeCompare(b.name)))
 const baseProducts = computed(() => products.value.filter((product) => Number(product.customer_id || 0) === 0 && productVisibility(product) === 'public'))
-const customerSkuRows = computed(() => products.value
+const publicSkuRows = computed(() => productRows.value.filter((product) => Number(product.customer_id || 0) === 0))
+const customProductCustomerIDs = computed(() => {
+  const ids = new Set()
+  for (const product of products.value) {
+    const customerID = Number(product.customer_id || 0)
+    if (customerID > 0) ids.add(customerID)
+  }
+  return ids
+})
+const customerSkuCustomers = computed(() => customers.value
+  .filter((customer) => customProductCustomerIDs.value.has(Number(customer.id || 0)))
+  .sort((a, b) => customerOptionLabel(a).localeCompare(customerOptionLabel(b))))
+const customerSkuRows = computed(() => productRows.value
   .filter((product) => Number(product.customer_id || 0) > 0)
   .filter((product) => !selectedCustomerSkuCustomerID.value || Number(product.customer_id || 0) === Number(selectedCustomerSkuCustomerID.value))
   .sort((a, b) => ownerLabel(a).localeCompare(ownerLabel(b)) || a.name.localeCompare(b.name)))
+const displaySkuRows = computed(() => selectedCustomerSkuCustomerID.value ? customerSkuRows.value : publicSkuRows.value)
+const allProductRowsSelected = computed(() => displaySkuRows.value.length > 0 && displaySkuRows.value.every((row) => selectedProductIds.value.includes(Number(row.id))))
 
 function defaultProductForm() {
   return {
@@ -428,12 +494,14 @@ function decorateProduct(product) {
     visibility: productVisibility(product),
     custom_type: product.custom_type || '',
     bom_item_count: Number(product.bom_item_count || 0),
+    bom_status: product.bom_status || (Number(product.bom_item_count || 0) > 0 ? 'active' : 'missing'),
   }
 }
 
 function decorateCategory(category) {
   return {
     ...category,
+    customer_id: Number(category.customer_id || 0),
     children: (category.children || []).map(decorateCategory),
     products: (category.products || []).map(decorateProduct),
   }
@@ -450,6 +518,8 @@ async function loadAll() {
     categories.value = (data.categories || []).map(decorateCategory)
     products.value = (data.products || []).map(decorateProduct)
     customers.value = (customerData.rows || []).filter((row) => row.active !== false)
+    syncSelectedCustomerSkuCustomer()
+    pruneSelectedProducts(displaySkuRows.value)
   } catch (err) {
     error.value = err.message || '加载失败'
   } finally {
@@ -460,6 +530,17 @@ async function loadAll() {
 function productVisibility(product) {
   const customerID = Number(product?.customer_id || 0)
   return product?.visibility || (customerID > 0 ? 'customer_only' : 'public')
+}
+
+function categoryBelongsToSkuContext(category) {
+  return Number(category?.customer_id || 0) === skuContextCustomerID.value
+}
+
+function skuContextProductFilter(product) {
+  const productCustomerID = Number(product?.customer_id || 0)
+  return skuContextCustomerID.value > 0
+    ? productCustomerID === skuContextCustomerID.value
+    : productCustomerID === 0
 }
 
 function customerName(id) {
@@ -503,6 +584,41 @@ function customTypeLabel(value) {
   if (value === 'custom_roast') return '定制烘焙'
   if (value === 'public_sku_alias') return '公共 SKU 改名'
   return '标准'
+}
+
+function bomStatusLabel(value) {
+  if (value === 'inactive') return '已失效'
+  if (value === 'missing') return '未维护'
+  return '有效'
+}
+
+function pruneSelectedProducts(sourceProducts) {
+  const validIDs = new Set((sourceProducts || []).map((product) => Number(product.id || 0)).filter(Boolean))
+  selectedProductIds.value = selectedProductIds.value.filter((id) => validIDs.has(Number(id)))
+}
+
+function syncSelectedCustomerSkuCustomer() {
+  if (!selectedCustomerSkuCustomerID.value) return
+  if (!customProductCustomerIDs.value.has(Number(selectedCustomerSkuCustomerID.value))) {
+    selectedCustomerSkuCustomerID.value = 0
+  }
+}
+
+function isProductSelected(row) {
+  return selectedProductIds.value.includes(Number(row.id))
+}
+
+function toggleProductSelection(row, checked) {
+  const id = Number(row.id || 0)
+  if (!id) return
+  const current = selectedProductIds.value
+  selectedProductIds.value = checked
+    ? Array.from(new Set([...current, id]))
+    : current.filter((item) => item !== id)
+}
+
+function toggleAllProductRows(checked) {
+  selectedProductIds.value = checked ? displaySkuRows.value.map((row) => Number(row.id)).filter(Boolean) : []
 }
 
 function selectedBaseProduct() {
@@ -593,7 +709,12 @@ async function createCustomProduct() {
 
 async function savePrimaryCategory() {
   if (!newPrimaryName.value) return
-  await saveCategory({ name: newPrimaryName.value, parent_id: 0, position: categories.value.length + 1 })
+  await saveCategory({
+    name: newPrimaryName.value,
+    parent_id: 0,
+    customer_id: selectedCustomerSkuCustomerID.value,
+    position: categoryTreeForSkuContext.value.length + 1,
+  })
   newPrimaryName.value = ''
 }
 
@@ -607,6 +728,7 @@ async function saveSecondaryCategory(primary) {
   await saveCategory({
     name: newSecondaryName.value,
     parent_id: Number(primary.id),
+    customer_id: selectedCustomerSkuCustomerID.value,
     position: Number(primary.children?.length || 0) + 1,
   })
   newSecondaryName.value = ''
@@ -644,6 +766,7 @@ async function saveCategoryName(category) {
       body: {
         name: editingCategoryName.value,
         parent_id: Number(category.parent_id || 0),
+        customer_id: Number(category.customer_id || selectedCustomerSkuCustomerID.value || 0),
         position: Number(category.position || category.number || 1),
       },
     })
@@ -734,7 +857,7 @@ async function handleCategoryPointerUp(event) {
     return
   }
   event.preventDefault()
-  const primary = categories.value.find((item) => Number(item.id) === Number(target?.parentID))
+  const primary = categoryTreeForSkuContext.value.find((item) => Number(item.id) === Number(target?.parentID))
   if (!primary || !target) {
     clearDrag()
     return
@@ -763,7 +886,7 @@ function resolveCategoryPointerTarget(clientX, clientY, fallbackPrimaryID) {
     || document.querySelector(`[data-primary-id="${fallbackPrimaryID}"]`)
   if (!primaryElement) return null
   const primaryID = Number(primaryElement.dataset.primaryId || fallbackPrimaryID)
-  const primary = categories.value.find((item) => Number(item.id) === primaryID)
+  const primary = categoryTreeForSkuContext.value.find((item) => Number(item.id) === primaryID)
   if (!primary) return null
   const secondaryElements = Array.from(primaryElement.querySelectorAll('.secondary-category'))
   if (!secondaryElements.length) return { primary, position: 1 }
@@ -876,9 +999,21 @@ async function dropCategoryOrProductOnSecondary(primary, visualPosition, seconda
 async function dropProductOnSecondary(secondary) {
   const drag = dragging.value
   if (drag?.type !== 'product') return
+  const product = products.value.find((item) => Number(item.id) === Number(drag.id))
+  if (!product || !skuContextProductFilter(product)) {
+    error.value = '只能调整当前 SKU 归属下的商品分类'
+    clearDrag()
+    return
+  }
+  const categoryID = Number(secondary.id || 0)
+  if (categoryID > 0 && Number(secondary.customer_id || 0) !== skuContextCustomerID.value) {
+    error.value = '只能移动到当前客户自己的商品分类'
+    clearDrag()
+    return
+  }
   try {
     await apiSend(`/api/product-settings/products/${drag.id}/category`, {
-      body: { category_id: Number(secondary.id || 0), position: Number(secondary.products?.length || 0) + 1 },
+      body: { category_id: categoryID, position: Number(secondary.products?.length || 0) + 1 },
     })
     ok.value = '商品分类已保存'
     await loadAll()
@@ -919,6 +1054,32 @@ async function saveProductBasics(row) {
   }
 }
 
+async function deactivateProducts(productIds) {
+  const ids = Array.from(new Set((productIds || []).map((id) => Number(id || 0)).filter((id) => id > 0)))
+  if (!ids.length) return
+  const message = ids.length > 1
+    ? `确认失效选中的 ${ids.length} 个产品？对应 BOM 会同步失效，历史配方明细会保留。`
+    : '确认失效该产品？对应 BOM 会同步失效，历史配方明细会保留。'
+  if (!window.confirm(message)) return
+  loading.value = true
+  error.value = ''
+  ok.value = ''
+  try {
+    await apiSend('/api/product-settings/products/deactivate', { body: { product_ids: ids } })
+    selectedProductIds.value = []
+    ok.value = ids.length > 1 ? '选中产品已失效，对应 BOM 已同步失效' : '产品已失效，对应 BOM 已同步失效'
+    await loadAll()
+  } catch (err) {
+    error.value = err.message || '产品失效失败'
+  } finally {
+    loading.value = false
+  }
+}
+
+watch(selectedCustomerSkuCustomerID, () => {
+  pruneSelectedProducts(displaySkuRows.value)
+})
+
 onMounted(loadAll)
 </script>
 
@@ -930,6 +1091,7 @@ onMounted(loadAll)
 .panel-head h2 { margin: 0 0 4px; font-size: 20px; }
 .panel-head p { margin: 0; color: #666; font-size: 13px; }
 .panel-title { display: flex; align-items: center; justify-content: space-between; gap: 10px; font-weight: 700; margin-bottom: 10px; }
+.panel-actions, .row-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
 .sub-title { width: 100%; font-weight: 700; font-size: 13px; }
 button, input, select { font: inherit; min-height: 36px; border-radius: 6px; }
 input, select { border: 1px solid #cfc8bf; padding: 7px 9px; background: #fff; width: 100%; }
@@ -938,17 +1100,24 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .primary { background: #111; color: #fff; }
 .secondary, .toggle-section { background: #fff; color: #111; }
 .toggle-section { min-height: 30px; padding: 0 10px; }
+.compact-action { min-height: 30px; padding: 0 10px; font-size: 12px; }
 .text-button { border: 0; background: transparent; color: #1f4f82; padding: 0; min-height: 28px; }
 .danger-text { color: #a33; }
-.settings-grid { display: grid; grid-template-columns: minmax(280px, 380px) minmax(0, 1fr); gap: 14px; align-items: start; }
-.public-product-panel, .custom-product-panel { grid-column: 1 / -1; }
-.product-create-form, .custom-product-form { display: grid; grid-template-columns: repeat(4, minmax(160px, 1fr)); gap: 10px; align-items: end; }
+.settings-grid { display: grid; grid-template-columns: minmax(300px, 420px) minmax(0, 1fr); gap: 14px; align-items: start; }
+.sku-context-panel { grid-column: 1 / -1; display: grid; gap: 10px; }
+.sku-context-main { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; }
+.sku-context-main h3 { margin: 2px 0 4px; font-size: 18px; }
+.context-eyebrow { color: #7a4d1a; font-size: 12px; font-weight: 700; }
+.sku-context-controls { display: flex; align-items: center; justify-content: flex-end; gap: 8px; flex-wrap: wrap; min-width: min(460px, 100%); }
+.context-stats { display: flex; flex-wrap: wrap; gap: 8px; }
+.context-stats span { border: 1px solid #e6e0d8; border-radius: 999px; padding: 4px 9px; background: #fbfaf8; color: #333; font-size: 12px; }
+.product-create-form { display: grid; grid-template-columns: repeat(2, minmax(140px, 1fr)); gap: 10px; align-items: end; }
+.custom-product-form { display: grid; grid-template-columns: repeat(3, minmax(150px, 1fr)); gap: 10px; align-items: end; }
 .product-create-form label, .custom-product-form label { display: grid; gap: 5px; font-size: 13px; }
 .product-create-form .wide-field, .custom-product-form .wide-field { grid-column: span 2; }
-.customer-sku-list { margin-top: 14px; border-top: 1px solid #eee8df; padding-top: 12px; }
-.sku-list-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 12px; margin-bottom: 10px; }
-.sku-list-head strong { display: block; margin-bottom: 4px; }
-.sku-filter { display: grid; grid-template-columns: minmax(220px, 320px) auto; gap: 8px; align-items: end; }
+.sku-panel-title { align-items: flex-start; }
+.sku-panel-actions { flex: 1; }
+.sku-customer-select { min-width: 220px; max-width: 320px; flex: 1 1 220px; font-weight: 400; }
 .checkline { display: flex !important; align-items: center; gap: 8px; min-height: 36px; }
 .checkline input { width: auto; min-height: 0; }
 .form-actions { display: flex; justify-content: flex-end; }
@@ -971,9 +1140,13 @@ table { width: 100%; min-width: 940px; border-collapse: collapse; }
 .compact-table table { min-width: 760px; }
 th, td { border-bottom: 1px solid #eee8df; padding: 8px; text-align: left; font-size: 13px; vertical-align: middle; }
 th { background: #fbfaf8; position: sticky; top: 0; }
+.select-col { width: 42px; text-align: center; }
+.select-col input { width: 16px; min-height: 16px; }
 .roast-select { min-width: 92px; }
 .yield-editor { display: flex; align-items: center; gap: 6px; max-width: 130px; }
 .yield-input { width: 90px; }
+.status-pill { display: inline-flex; align-items: center; min-height: 24px; border: 1px solid #cfd8cf; border-radius: 999px; padding: 2px 8px; color: #27602e; background: #f2fbf2; white-space: nowrap; }
+.status-pill.inactive { border-color: #e1b6b6; color: #8a1f1f; background: #fff0f0; }
 .costing-panel { padding: 0; overflow: hidden; }
 .error, .ok { border-radius: 6px; padding: 9px; margin-top: 12px; }
 .error { background: #fff0f0; border: 1px solid #e6b7b7; color: #8a1f1f; }
@@ -981,8 +1154,12 @@ th { background: #fbfaf8; position: sticky; top: 0; }
 .muted { color: #666; font-size: 12px; }
 @media (max-width: 900px) {
   .page { padding: 12px; }
-  .settings-grid, .inline-form, .product-create-form, .custom-product-form, .sku-filter { grid-template-columns: 1fr; }
-  .sku-list-head { align-items: stretch; flex-direction: column; }
+  .settings-grid, .inline-form, .product-create-form, .custom-product-form { grid-template-columns: 1fr; }
+  .sku-context-main { display: grid; }
+  .sku-context-controls { justify-content: flex-start; min-width: 0; }
+  .panel-actions { justify-content: flex-start; }
+  .sku-panel-actions { width: 100%; }
+  .sku-customer-select { max-width: none; }
   .product-create-form .wide-field, .custom-product-form .wide-field { grid-column: auto; }
   table { min-width: 900px; }
 }

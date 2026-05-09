@@ -534,7 +534,8 @@ func TestServiceOwnsShipmentClosureUseCases(t *testing.T) {
 		ShipmentID: 12,
 		Items: []ShipmentTrackingItemCommand{
 			{OrderID: 20, TrackingNo: " SF123 "},
-			{OrderID: 20, TrackingNo: "SF123"},
+			{OrderID: 20, TrackingNo: "SF124"},
+			{OrderID: 20, TrackingNo: "SF124"},
 			{OrderID: 21, TrackingNo: ""},
 		},
 	})
@@ -544,8 +545,24 @@ func TestServiceOwnsShipmentClosureUseCases(t *testing.T) {
 	if updated.Updated != 1 {
 		t.Fatalf("tracking result = %+v", updated)
 	}
-	if repo.trackingItems.Actor != "shipping" || repo.trackingItems.ShipmentID != 12 || len(repo.trackingItems.Items) != 1 || repo.trackingItems.Items[0].TrackingNo != "SF123" {
+	if repo.trackingItems.Actor != "shipping" || repo.trackingItems.ShipmentID != 12 || len(repo.trackingItems.Items) != 1 || repo.trackingItems.Items[0].TrackingNo != "SF123\nSF124" {
 		t.Fatalf("tracking command = %+v", repo.trackingItems)
+	}
+}
+
+func TestNormalizeTrackingNumbersKeepsMultipleUniqueNumbers(t *testing.T) {
+	got := NormalizeTrackingNumbers(" SF123, SF124\nSF123；SF125 ")
+	want := []string{"SF123", "SF124", "SF125"}
+	if len(got) != len(want) {
+		t.Fatalf("NormalizeTrackingNumbers len=%d want=%d: %#v", len(got), len(want), got)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("NormalizeTrackingNumbers[%d]=%q want %q: %#v", i, got[i], want[i], got)
+		}
+	}
+	if summary := TrackingNumbersSummary(got); summary != "SF123\nSF124\nSF125" {
+		t.Fatalf("TrackingNumbersSummary=%q", summary)
 	}
 }
 
@@ -572,7 +589,7 @@ func TestServiceNormalizesShipmentTrackingByOrderNo(t *testing.T) {
 		t.Fatalf("order-no tracking command = %+v", repo.orderNoTracking)
 	}
 	first := repo.orderNoTracking.Items[0]
-	if first.OrderNo != "SO-20260428-0001" || first.TrackingNo != "SF5199040648127" {
+	if first.OrderNo != "SO-20260428-0001" || first.TrackingNo != "SF5199040648127\nSF-DUP" {
 		t.Fatalf("first normalized item = %+v", first)
 	}
 }
@@ -584,7 +601,7 @@ func TestServiceNormalizesSingleOrderTracking(t *testing.T) {
 	updated, err := svc.FillOrderTracking(context.Background(), FillOrderTrackingCommand{
 		Actor:      "",
 		OrderID:    33,
-		TrackingNo: " SF-DRAWER-001 ",
+		TrackingNo: " SF-DRAWER-001，SF-DRAWER-002 ",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -592,7 +609,7 @@ func TestServiceNormalizesSingleOrderTracking(t *testing.T) {
 	if updated.Updated != 1 || updated.Total != 1 {
 		t.Fatalf("tracking result = %+v", updated)
 	}
-	if repo.orderTracking.Actor != "shipping" || repo.orderTracking.OrderID != 33 || repo.orderTracking.TrackingNo != "SF-DRAWER-001" {
+	if repo.orderTracking.Actor != "shipping" || repo.orderTracking.OrderID != 33 || repo.orderTracking.TrackingNo != "SF-DRAWER-001\nSF-DRAWER-002" {
 		t.Fatalf("single order tracking command = %+v", repo.orderTracking)
 	}
 }

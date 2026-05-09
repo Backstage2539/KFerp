@@ -6,16 +6,17 @@
         <div class="actions">
           <button class="secondary" type="button" :disabled="loading" @click="loadBeanList">刷新</button>
           <button class="secondary" type="button" @click="settingsOpen = true">参数设置</button>
-          <button class="primary" type="button" :disabled="saving || loading || !items.length" @click="createRun">保存试算</button>
+          <button class="primary" type="button" :disabled="saving || loading || !visibleCostingItems.length" @click="createRun">保存试算</button>
           <button class="danger" type="button" :disabled="publishing || !runId" @click="publishRun">发布价格</button>
         </div>
       </div>
       <div v-if="error" class="error">{{ error }}</div>
       <div v-if="message" class="ok">{{ message }}</div>
+      <div v-if="inactiveBomWarningCount" class="warning-banner">BOM已失效：{{ inactiveBomWarningCount }} 款产品依赖的 BOM 已失效，发布价格策略或豆单前请先重新启用 BOM。</div>
       <div class="metrics">
         <div>
           <span>商品数</span>
-          <strong>{{ items.length }}</strong>
+          <strong>{{ visibleCostingItems.length }}</strong>
         </div>
         <div>
           <span>烘焙率</span>
@@ -52,8 +53,13 @@
             </tr>
           </thead>
           <tbody>
-            <tr v-for="item in items" :key="item.product_id || item.name">
-              <td class="name">{{ item.name }}</td>
+            <tr v-for="item in visibleCostingItems" :key="item.product_id || item.name">
+              <td class="name">
+                <div>{{ item.name }}</div>
+                <div v-if="itemWarnings(item).length" class="item-warning-list">
+                  <span v-for="warning in itemWarnings(item)" :key="warning" class="warning-chip">{{ warning }}</span>
+                </div>
+              </td>
               <td>{{ costMoney(item.green_bean_cost_per_kg) }}</td>
               <td>{{ costMoney(item.small_batch_cost_per_kg) }}</td>
               <td class="tiers-cell">
@@ -72,7 +78,7 @@
               </td>
               <td>{{ price(first(item.wholesale_drip_bag_prices)) }}</td>
             </tr>
-            <tr v-if="!loading && !items.length">
+            <tr v-if="!loading && !visibleCostingItems.length">
               <td colspan="6" class="muted empty">暂无可试算商品</td>
             </tr>
           </tbody>
@@ -86,7 +92,7 @@
           <div class="section-title">商用批发豆单</div>
           <p class="muted">生成豆单前可选择产品、分级、样式、标签和标红内容。</p>
         </div>
-        <button class="primary" type="button" :disabled="loading || !items.length" @click="openBeanListDrawer('commercial')">生成豆单</button>
+        <button class="primary" type="button" :disabled="loading || !visibleCostingItems.length" @click="openBeanListDrawer('commercial')">生成豆单</button>
       </div>
       <div class="bean-groups">
         <section v-for="group in commercialGroups" :key="group.category" class="bean-group">
@@ -101,6 +107,9 @@
                     {{ beanMeta(item, 'commercial_bean_list').recommended_use }}
                   </div>
                 </div>
+              </div>
+              <div v-if="itemWarnings(item).length" class="bean-warning-list">
+                <span v-for="warning in itemWarnings(item)" :key="`commercial-warning-${item.product_id || item.name}-${warning}`" class="warning-chip">{{ warning }}</span>
               </div>
               <div v-if="beanFlavor(item, 'commercial_bean_list')" class="bean-note">{{ beanFlavor(item, 'commercial_bean_list') }}</div>
               <div v-if="beanDescription(item, 'commercial_bean_list')" class="bean-desc">{{ beanDescription(item, 'commercial_bean_list') }}</div>
@@ -129,6 +138,9 @@
                     {{ beanMeta(item, 'retail_bean_list').recommended_use }}
                   </div>
                 </div>
+              </div>
+              <div v-if="itemWarnings(item).length" class="bean-warning-list">
+                <span v-for="warning in itemWarnings(item)" :key="`retail-warning-${item.product_id || item.name}-${warning}`" class="warning-chip">{{ warning }}</span>
               </div>
               <div v-if="beanFlavor(item, 'retail_bean_list')" class="bean-note">{{ beanFlavor(item, 'retail_bean_list') }}</div>
               <div v-if="beanDescription(item, 'retail_bean_list')" class="bean-desc">{{ beanDescription(item, 'retail_bean_list') }}</div>
@@ -589,6 +601,11 @@ import {
   splitHighlightedText,
 } from '../lib/bean-list-pdf'
 
+const props = defineProps({
+  customerContextId: { type: [Number, String], default: 0 },
+  customerContextLabel: { type: String, default: '' },
+})
+
 const loading = ref(false)
 const saving = ref(false)
 const publishing = ref(false)
@@ -639,6 +656,9 @@ const pdfOptions = ref({
   changelog: '',
 })
 
+const normalizedCustomerContextID = computed(() => Number(props.customerContextId || 0))
+const activeCostingScope = computed(() => normalizedCustomerContextID.value > 0 ? 'customer' : 'official')
+const visibleCostingItems = computed(() => filterBeanListItemsForScope(items.value, activeCostingScope.value, normalizedCustomerContextID.value))
 const commercialGroups = computed(() => groupBeanItems('commercial_bean_list'))
 const retailGroups = computed(() => groupBeanItems('retail_bean_list'))
 const pdfTheme = computed(() => sanitizeBeanListPdfTheme(pdfOptions.value))
@@ -684,6 +704,7 @@ const publicBeanListURL = computed(() => {
   if (publicationScope.value !== 'official' || !currentBeanListPublication.value) return ''
   return `${window.location.origin}/public/bean-list/${pdfTheme.value.listType}`
 })
+const inactiveBomWarningCount = computed(() => visibleCostingItems.value.filter((item) => itemWarnings(item).length).length)
 const pdfPageStyle = computed(() => {
   const bg = pdfTheme.value.backgroundImage
   return {
@@ -720,7 +741,8 @@ watch(selectedBeanListCustomerID, () => {
     customer: { commercial: [], retail: [] },
   }
   selectedCopyPublicationID.value = ''
-  initializePdfDefaults()
+  resetPdfSelectionDefaults()
+  initializePdfDefaultsIfItemsLoaded()
   if (publicationScope.value === 'customer' && selectedBeanListCustomerID.value) {
     loadBeanListPublications(pdfTheme.value.listType, 'customer')
   }
@@ -729,8 +751,34 @@ watch(selectedBeanListCustomerID, () => {
 watch(isBeanListAdmin, (canPublish) => {
   if (actorLoaded.value && !canPublish && publicationScope.value !== 'mine') {
     publicationScope.value = 'mine'
+    return
   }
+  syncCustomerContext()
 })
+
+watch(() => props.customerContextId, syncCustomerContext, { immediate: true })
+
+function syncCustomerContext() {
+  const normalizedCustomerID = Number(props.customerContextId || 0)
+  if (normalizedCustomerID > 0) {
+    selectedBeanListCustomerID.value = normalizedCustomerID
+    if (isBeanListAdmin.value) {
+      publicationScope.value = 'customer'
+    }
+    resetPdfSelectionDefaults()
+    initializePdfDefaultsIfItemsLoaded()
+    if (publicationScope.value === 'customer') {
+      loadBeanListPublications(pdfTheme.value.listType, 'customer')
+    }
+    return
+  }
+  if (publicationScope.value === 'customer') {
+    publicationScope.value = isBeanListAdmin.value ? 'official' : 'mine'
+  }
+  selectedBeanListCustomerID.value = 0
+  resetPdfSelectionDefaults()
+  initializePdfDefaultsIfItemsLoaded()
+}
 
 function first(values) {
   return Array.isArray(values) && values.length ? Number(values[0] || 0) : 0
@@ -777,6 +825,14 @@ function beanFlavor(item, key) {
 
 function beanDescription(item, key) {
   return beanMeta(item, key).description || item?.bean_list_note || ''
+}
+
+function itemWarnings(item) {
+  const warnings = Array.isArray(item?.warnings) ? item.warnings.filter(Boolean) : []
+  if (item?.bom_status === 'inactive' && !warnings.some((warning) => String(warning).includes('BOM已失效'))) {
+    return ['BOM已失效：请重新启用 BOM 后再发布价格策略', ...warnings]
+  }
+  return warnings
 }
 
 function itemProductID(item) {
@@ -843,6 +899,18 @@ function publicationRows(scope, listType) {
 function initializePdfDefaults() {
   initializePdfDefaultsForType('commercial')
   initializePdfDefaultsForType('retail')
+}
+
+function initializePdfDefaultsIfItemsLoaded() {
+  if (!items.value.length) return
+  initializePdfDefaults()
+}
+
+function resetPdfSelectionDefaults() {
+  selectedProductIDsByType.value = { commercial: [], retail: [] }
+  visibleCategoryCodesByType.value = { commercial: [], retail: [] }
+  productSelectionInitialized.value = { commercial: false, retail: false }
+  categorySelectionInitialized.value = { commercial: false, retail: false }
 }
 
 function initializePdfDefaultsForType(listType) {
@@ -1026,7 +1094,7 @@ function badgeClass(badge) {
 
 function groupBeanItems(key) {
   const groups = new Map()
-  filterBeanListItemsForScope(items.value, 'official', 0)
+  visibleCostingItems.value
     .filter((item) => beanMeta(item, key).code)
     .slice()
     .sort((a, b) => compareBeanCodes(beanMeta(a, key).code, beanMeta(b, key).code))
@@ -1356,6 +1424,8 @@ th, td { border-bottom: 1px solid #f1f1f1; padding: 9px 10px; text-align: right;
 th:first-child, td:first-child { text-align: left; }
 th { color: #555; background: #fafafa; font-weight: 700; }
 .name { font-weight: 650; }
+.item-warning-list, .bean-warning-list { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 6px; }
+.warning-chip { display: inline-flex; align-items: center; max-width: 100%; border: 1px solid #e8c28f; border-radius: 999px; background: #fff8eb; color: #8a4b00; padding: 2px 7px; font-size: 12px; font-weight: 650; line-height: 1.35; white-space: normal; }
 .tiers-cell { min-width: 360px; text-align: left; white-space: normal; }
 .tier-list { display: flex; flex-wrap: wrap; gap: 6px; justify-content: flex-start; }
 .tier-chip { border: 1px solid #ddd; border-radius: 8px; background: #fff; padding: 5px 7px; color: #222; font-size: 12px; line-height: 1.2; }
@@ -1370,6 +1440,7 @@ button:disabled { opacity: .45; cursor: not-allowed; }
 .error, .ok { border-radius: 8px; padding: 10px; margin-bottom: 12px; }
 .error { background: #ffecec; border: 1px solid #ffb9b9; }
 .ok { background: #e9ffe9; border: 1px solid #b8f5b8; }
+.warning-banner { border: 1px solid #e8c28f; border-radius: 8px; background: #fff8eb; color: #8a4b00; padding: 10px; margin-bottom: 12px; }
 .drawer-backdrop { position: fixed; inset: 0; z-index: 80; background: rgba(0,0,0,.25); display: flex; justify-content: flex-end; }
 .settings-drawer { width: min(620px, 100vw); height: 100vh; overflow: auto; background: #f7f7f7; border-left: 1px solid #d9d9d9; padding: 14px; box-shadow: -18px 0 36px rgba(0,0,0,.18); }
 .drawer-head { position: sticky; top: 0; z-index: 2; background: #f7f7f7; display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; padding-bottom: 12px; margin-bottom: 4px; }

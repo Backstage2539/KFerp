@@ -20,7 +20,7 @@
             @select="selectProduct(optionNumericValue($event))" />
         </label>
         <button class="primary" type="button" @click="saveBom" :disabled="!selectedProductId || loading">同步出品率</button>
-        <button class="secondary danger-outline" type="button" @click="deleteBom" :disabled="!selectedProductId || loading">删除当前 BOM</button>
+        <button class="secondary danger-outline" type="button" @click="deleteBom" :disabled="!selectedProductId || loading">失效当前 BOM</button>
       </div>
     </section>
 
@@ -34,6 +34,7 @@
                 <th>商品</th>
                 <th>烘焙度</th>
                 <th>出品率</th>
+                <th>状态</th>
                 <th>物料数</th>
                 <th>更新时间</th>
               </tr>
@@ -47,11 +48,12 @@
                 <td>{{ row.product }}</td>
                 <td>{{ row.roast_level || '-' }}</td>
                 <td>{{ pct(row.yield_rate) }}</td>
+                <td><span :class="['status-pill', row.status === 'inactive' ? 'inactive' : '']">{{ bomStatusLabel(row.status) }}</span></td>
                 <td>{{ row.item_count }}</td>
                 <td>{{ row.updated_at }}</td>
               </tr>
               <tr v-if="!rows.length">
-                <td colspan="5" class="muted">暂无商品</td>
+                <td colspan="6" class="muted">暂无商品</td>
               </tr>
             </tbody>
           </table>
@@ -64,9 +66,11 @@
           <div><span>商品</span><strong>{{ detail.product_name }}</strong></div>
           <div><span>烘焙度</span><strong>{{ detail.roast_level || '-' }}</strong></div>
           <div><span>出品率</span><strong>{{ pct(detail.yield_rate) }}</strong></div>
+          <div><span>状态</span><strong :class="{ warn: detail.status === 'inactive' }">{{ bomStatusLabel(detail.status) }}</strong></div>
           <div><span>合计比例</span><strong :class="{ warn: detail.total_ratio > 100 }">{{ ratio(detail.total_ratio) }}</strong></div>
         </div>
-        <div v-else class="muted empty">请选择商品</div>
+        <div v-if="detail?.status === 'inactive'" class="warning-banner">当前 BOM 已失效，历史配方明细会保留；重新保存或启用版本后可恢复为有效 BOM。</div>
+        <div v-if="!detail" class="muted empty">请选择商品</div>
 
         <form class="inline-form" @submit.prevent="saveItem">
           <label>
@@ -303,15 +307,21 @@ async function saveBom() {
   })
 }
 
+function bomStatusLabel(status) {
+  if (status === 'inactive') return '已失效'
+  if (status === 'missing') return '未维护'
+  return '有效'
+}
+
 async function deleteBom() {
   if (!selectedProductId.value) return
-  const okToDelete = window.confirm('确认删除当前 BOM？历史版本会保留。')
-  if (!okToDelete) return
+  const okToDeactivate = window.confirm('确认失效当前 BOM？配方明细会保留，后续依赖该 BOM 的策略会提示 BOM 已失效。')
+  if (!okToDeactivate) return
   await mutate(async () => {
     await apiSend(`/api/bom/${selectedProductId.value}`, { method: 'DELETE' })
     itemForm.material_id = 0
     itemForm.ratio_pct = ''
-    ok.value = '当前 BOM 已删除'
+    ok.value = '当前 BOM 已失效'
     await loadAll()
   })
 }
@@ -426,6 +436,7 @@ tbody tr.active { background: #f3f7fb; }
 .summary { align-items: stretch; margin-bottom: 12px; }
 .summary div { min-width: 120px; border: 1px solid #eee8df; border-radius: 6px; padding: 9px; }
 .summary strong { font-size: 16px; }
+.warning-banner { border: 1px solid #e8c28f; border-radius: 6px; background: #fff8eb; color: #8a4b00; padding: 9px; margin-bottom: 12px; }
 .inline-form { margin: 12px 0; }
 .muted { color: #666; text-align: center; }
 .empty { padding: 22px; border: 1px dashed #d8d0c7; border-radius: 8px; }
@@ -433,6 +444,8 @@ tbody tr.active { background: #f3f7fb; }
 .error, .ok { border-radius: 6px; padding: 9px; margin-bottom: 12px; }
 .error { background: #fff0f0; border: 1px solid #e6b7b7; color: #8a1f1f; }
 .ok { background: #f0fff6; border: 1px solid #a9d8ba; color: #1f6a3f; }
+.status-pill { display: inline-flex; align-items: center; min-height: 24px; border: 1px solid #cfd8cf; border-radius: 999px; padding: 2px 8px; color: #27602e; background: #f2fbf2; white-space: nowrap; }
+.status-pill.inactive { border-color: #e1b6b6; color: #8a1f1f; background: #fff0f0; }
 @media (max-width: 1100px) { .grid { grid-template-columns: 1fr; } }
 @media (max-width: 900px) { .page { padding: 12px; } table { min-width: 620px; } }
 </style>
