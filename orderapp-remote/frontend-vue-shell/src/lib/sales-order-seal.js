@@ -5,8 +5,11 @@ const defaultSealWidthMM = 36
 export const salesOrderSealMinWidthMM = 20
 export const salesOrderSealMaxWidthMM = 120
 export const salesOrderPreviewDesignWidthPX = 1240
+export const salesOrderPreviewDesignHeightPX = 1754
 export const salesOrderPreviewPageWidthMM = 210
 export const salesOrderSealPreviewScale = salesOrderPreviewDesignWidthPX / salesOrderPreviewPageWidthMM
+export const salesOrderSealSettingsMinViewportHeightPX = 360
+export const salesOrderSealSettingsViewportPaddingPX = 48
 
 export function normalizeSalesOrderSeal(seal = {}) {
   const x = Number(seal.x_mm ?? seal.seal_x_mm ?? defaultSealXMM)
@@ -28,6 +31,17 @@ export function salesOrderSealStyle(seal = {}, scale = salesOrderSealPreviewScal
     width: `${width * scale}px`,
     height: `${width * 0.62 * scale}px`,
   }
+}
+
+export function salesOrderSealSettingsViewportHeight(seal = {}, scale = salesOrderSealPreviewScale) {
+  const pos = normalizeSalesOrderSeal(seal)
+  const effectiveScale = Number(scale) > 0 ? Number(scale) : salesOrderSealPreviewScale
+  const width = Math.max(salesOrderSealMinWidthMM, pos.width_mm)
+  const sealBottom = (Math.max(0, pos.y_mm) + width * 0.62) * effectiveScale
+  return Math.ceil(Math.min(
+    salesOrderPreviewDesignHeightPX,
+    Math.max(salesOrderSealSettingsMinViewportHeightPX, sealBottom + salesOrderSealSettingsViewportPaddingPX),
+  ))
 }
 
 export function beginSalesOrderSealDrag({ seal = {}, clientX = 0, clientY = 0, scale = salesOrderSealPreviewScale } = {}) {
