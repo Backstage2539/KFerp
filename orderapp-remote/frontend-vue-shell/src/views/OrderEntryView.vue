@@ -181,7 +181,7 @@
           </label>
 
           <label>
-            <span>单价</span>
+            <span>{{ retailOrder ? '单价' : '单价（元/磅）' }}</span>
             <div class="price-control">
               <input
                 v-model.trim="row.unit_price"
@@ -213,7 +213,7 @@
               @click="selectTier(row, tier)"
             >
               <span>{{ tier.specLabel }} {{ tier.rangeLabel }}</span>
-              <strong>{{ money(tier.unitPrice) }}/件</strong>
+              <strong>{{ money(tier.unitPrice) }}/磅</strong>
             </button>
           </div>
         </article>

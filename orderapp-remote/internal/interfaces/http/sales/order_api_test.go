@@ -467,6 +467,72 @@ func TestOrderAPISavesRetailCustomSpecPrice(t *testing.T) {
 	}
 }
 
+func TestOrderAPISavesWholesale1000gByBeanListWeightTier(t *testing.T) {
+	pool, schema := newOrderAPITestDB(t)
+	ctx := context.Background()
+	seedOrderAPITestData(t, ctx, pool, schema)
+	mustExecOrderAPITestSQL(t, ctx, pool, fmt.Sprintf(`
+		INSERT INTO %s.product_price_tiers(product_id,spec_g,min_qty_units,max_qty_units,price_per_unit,min_qty_lb,max_qty_lb,price_per_lb,active)
+		VALUES
+			(7,454,2,13,63,2,13,63,true),
+			(7,454,14,23,57,14,23,57,true),
+			(7,454,24,48,51,24,48,51,true),
+			(7,454,49,NULL,48,49,NULL,48,true);
+	`, schema))
+
+	e := newOrderAPITestEcho(pool, schema)
+	payload := map[string]any{
+		"order_date":     "2026-05-09",
+		"customer_id":    3,
+		"source_id":      1,
+		"order_type_id":  1,
+		"pay_status_id":  1,
+		"ship_status_id": 1,
+		"product_id":     []string{"7"},
+		"tier_id":        []string{"auto"},
+		"unit_price":     []string{""},
+		"item_name":      []string{"榛巧拼配"},
+		"qty":            []string{"30"},
+		"unit":           []string{"袋"},
+		"spec":           []string{"1000"},
+	}
+	body, _ := json.Marshal(payload)
+	req := httptest.NewRequest(http.MethodPost, "/api/order", bytes.NewReader(body))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("POST /api/order status = %d, want 200, body=%s", rec.Code, rec.Body.String())
+	}
+
+	var tierID int64
+	var spec string
+	var unitPrice, lineTotal float64
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`
+		SELECT COALESCE(price_tier_id,0), COALESCE(spec,''), COALESCE(unit_price,0)::float8, COALESCE(line_total,0)::float8
+		FROM %s.order_items
+		WHERE product_id=7
+		ORDER BY id DESC
+		LIMIT 1
+	`, schema)).Scan(&tierID, &spec, &unitPrice, &lineTotal); err != nil {
+		t.Fatalf("query order item: %v", err)
+	}
+	if tierID == 0 {
+		t.Fatalf("price_tier_id = 0, want matched bean-list tier")
+	}
+	if spec != "1000g" {
+		t.Fatalf("saved spec = %q, want 1000g", spec)
+	}
+	if unitPrice != 48 {
+		t.Fatalf("unit_price = %.2f, want 48.00", unitPrice)
+	}
+	wantLineTotal := 48 * (30000.0 / 454.0)
+	if diff := lineTotal - wantLineTotal; diff > 0.0001 || diff < -0.0001 {
+		t.Fatalf("line_total = %.6f, want %.6f", lineTotal, wantLineTotal)
+	}
+}
+
 func TestOrderAPIDefaultsNewOrderToPaidAndUnshipped(t *testing.T) {
 	pool, schema := newOrderAPITestDB(t)
 	ctx := context.Background()
