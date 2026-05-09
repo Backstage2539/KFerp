@@ -1094,6 +1094,7 @@ func productionFlowTestBaseDDL(schema string) string {
 			order_id BIGINT REFERENCES %s.orders(id) ON DELETE CASCADE,
 			line_no INTEGER,
 			item_name TEXT,
+			item_note TEXT NOT NULL DEFAULT '',
 			qty NUMERIC,
 			unit TEXT,
 			spec TEXT,

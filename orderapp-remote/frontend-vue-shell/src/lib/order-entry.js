@@ -273,6 +273,7 @@ export function buildOrderPayload({ form, rows }) {
     tier_id: [],
     unit_price: [],
     item_name: [],
+    item_note: [],
     qty: [],
     unit: [],
     spec: [],
@@ -287,6 +288,7 @@ export function buildOrderPayload({ form, rows }) {
     payload.tier_id.push(row.tier_id || 'auto')
     payload.unit_price.push(String(row.unit_price || ''))
     payload.item_name.push(row.product_name || row.item_name || '')
+    payload.item_note.push(String(row.item_note || '').trim())
     payload.qty.push(String(qty))
     payload.unit.push(row.unit || '件')
     payload.spec.push(String(specG))

@@ -122,8 +122,8 @@ func renderDeliveryNoteItemsTable(pdf *gofpdf.Fpdf, snapshot salesdomain.Deliver
 	left, _, right, _ := pdf.GetMargins()
 	pageW, _ := pdf.GetPageSize()
 	usableW := pageW - left - right
-	colWidths := []float64{usableW * 0.38, usableW * 0.18, usableW * 0.20, usableW * 0.24}
-	headers := []string{"商品", "规格", "出库数量", "出库仓"}
+	colWidths := []float64{usableW * 0.28, usableW * 0.15, usableW * 0.17, usableW * 0.20, usableW * 0.20}
+	headers := []string{"商品", "规格", "出库数量", "出库仓", "备注"}
 	pdf.SetFont("noto", "", 10)
 	for i, h := range headers {
 		pdf.CellFormat(colWidths[i], 8, h, "B", 0, "L", false, 0, "")
@@ -134,6 +134,7 @@ func renderDeliveryNoteItemsTable(pdf *gofpdf.Fpdf, snapshot salesdomain.Deliver
 		pdf.CellFormat(colWidths[1], 8, item.Spec, "B", 0, "L", false, 0, "")
 		pdf.CellFormat(colWidths[2], 8, strings.TrimSpace(item.Qty+item.Unit), "B", 0, "L", false, 0, "")
 		pdf.CellFormat(colWidths[3], 8, firstNonEmpty(item.WarehouseName, item.Warehouse), "B", 0, "L", false, 0, "")
+		pdf.CellFormat(colWidths[4], 8, item.Note, "B", 0, "L", false, 0, "")
 		pdf.Ln(-1)
 	}
 	pdf.Ln(4)

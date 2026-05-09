@@ -139,6 +139,7 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 		tierID        *int64
 		manualPrice   *float64
 		name          string
+		note          string
 		units         int64
 		specG         int64
 		unit          *string
@@ -158,6 +159,7 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 			tierID:      src.TierID,
 			manualPrice: src.ManualPrice,
 			name:        name,
+			note:        strings.TrimSpace(src.Note),
 			units:       src.Units,
 			specG:       src.SpecG,
 		}
@@ -406,8 +408,8 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 
 	editID := cmd.EditID
 
-	insertItemSQL := fmt.Sprintf(`INSERT INTO %s.order_items(order_id,line_no,product_id,price_tier_id,price_overridden,item_name,qty,unit,spec,unit_price,line_total)
-			VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`, r.schema)
+	insertItemSQL := fmt.Sprintf(`INSERT INTO %s.order_items(order_id,line_no,product_id,price_tier_id,price_overridden,item_name,item_note,qty,unit,spec,unit_price,line_total)
+			VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`, r.schema)
 
 	var orderID int64
 	if editID > 0 {
@@ -548,7 +550,7 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 		if it.units > 0 {
 			qtyAny = it.units
 		}
-		if _, err := tx.Exec(ctx, insertItemSQL, orderID, idx+1, it.productID, it.tierID, it.priceOverride, it.name, qtyAny, it.unit, it.spec, it.unitPrice, it.lineTotal); err != nil {
+		if _, err := tx.Exec(ctx, insertItemSQL, orderID, idx+1, it.productID, it.tierID, it.priceOverride, it.name, it.note, qtyAny, it.unit, it.spec, it.unitPrice, it.lineTotal); err != nil {
 			return salesapp.SaveOrderResult{}, err
 		}
 	}

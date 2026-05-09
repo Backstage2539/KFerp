@@ -71,7 +71,7 @@
         </div>
         <table>
           <thead>
-            <tr><th>商品</th><th>规格</th><th>数量</th><th>单价</th><th>小计</th></tr>
+            <tr><th>商品</th><th>规格</th><th>数量</th><th>单价</th><th>小计</th><th>备注</th></tr>
           </thead>
           <tbody>
             <tr v-for="(item, idx) in preview.snapshot.items" :key="`${item.name}-${idx}`">
@@ -80,6 +80,7 @@
               <td>{{ item.qty }}{{ item.unit }}</td>
               <td>{{ item.unit_price }}</td>
               <td>{{ item.line_total }}</td>
+              <td>{{ item.note || '-' }}</td>
             </tr>
           </tbody>
         </table>

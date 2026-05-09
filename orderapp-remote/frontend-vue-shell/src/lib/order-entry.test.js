@@ -87,6 +87,48 @@ test('buildOrderPayload saves real custom spec grams', () => {
   assert.equal(payload.item_name[0], '橘皮乌龙')
 })
 
+test('buildOrderPayload carries per-item notes with order detail rows', () => {
+  const payload = buildOrderPayload({
+    form: {
+      order_date: '2026-05-09',
+      customer_id: 3,
+      source_id: 1,
+      order_type_id: 1,
+      pay_status_id: 2,
+      ship_status_id: 1,
+      notes: '整单备注',
+      shipping_amount: 0,
+      discount_amount: 0,
+      round_to_int: false,
+    },
+    rows: [
+      {
+        product_id: 7,
+        product_name: '橘皮乌龙',
+        tier_id: 'manual',
+        spec_mode: '454',
+        qty: 2,
+        unit: '件',
+        unit_price: 88,
+        item_note: '贴标：A店',
+      },
+      {
+        product_id: 8,
+        product_name: '榛巧拼配',
+        tier_id: 'auto',
+        spec_mode: '1000',
+        qty: 1,
+        unit: '件',
+        unit_price: 106,
+        item_note: '',
+      },
+    ],
+  })
+
+  assert.deepEqual(payload.item_note, ['贴标：A店', ''])
+  assert.deepEqual(payload.item_name, ['橘皮乌龙', '榛巧拼配'])
+})
+
 test('normalizeSpecG rejects non-positive custom grams', () => {
   assert.equal(normalizeSpecG({ spec_mode: 'custom', custom_spec_g: 0 }), 0)
   assert.equal(normalizeSpecG({ spec_mode: 'custom', custom_spec_g: 300 }), 300)

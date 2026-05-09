@@ -117,8 +117,8 @@ func (c *salesOrderPNGCanvas) metaRow(y int, cols []string, colW int) int {
 }
 
 func (c *salesOrderPNGCanvas) itemsTable(left, right, y int, snapshot salesdomain.SalesOrderSnapshot) int {
-	widths := []int{330, 160, 210, 190, 210}
-	headers := []string{"商品", "规格", "数量", "单价", "小计"}
+	widths := []int{280, 130, 150, 160, 170, 210}
+	headers := []string{"商品", "规格", "数量", "单价", "小计", "备注"}
 	x := left
 	for i, header := range headers {
 		c.text(x+8, y, 21, color.RGBA{R: 20, G: 20, B: 20, A: 255}, header)
@@ -138,6 +138,8 @@ func (c *salesOrderPNGCanvas) itemsTable(left, right, y int, snapshot salesdomai
 		c.text(x+8, y, 20, color.RGBA{R: 28, G: 28, B: 28, A: 255}, item.UnitPrice)
 		x += widths[3]
 		c.text(x+8, y, 20, color.RGBA{R: 28, G: 28, B: 28, A: 255}, item.LineTotal)
+		x += widths[4]
+		c.text(x+8, y, 20, color.RGBA{R: 28, G: 28, B: 28, A: 255}, item.Note)
 		y += 48
 		c.line(left, y, right, y, color.RGBA{R: 222, G: 216, B: 207, A: 255})
 		y += 8

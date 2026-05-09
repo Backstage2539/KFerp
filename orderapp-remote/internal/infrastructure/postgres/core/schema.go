@@ -125,6 +125,7 @@ CREATE TABLE IF NOT EXISTS %[1]s.order_items (
 	price_tier_id BIGINT,
 	price_overridden BOOLEAN NOT NULL DEFAULT false,
 	item_name TEXT NOT NULL DEFAULT '',
+	item_note TEXT NOT NULL DEFAULT '',
 	qty NUMERIC NOT NULL DEFAULT 0,
 	unit TEXT NOT NULL DEFAULT '',
 	spec TEXT NOT NULL DEFAULT '',
@@ -185,6 +186,7 @@ func ensureCoreColumns(ctx context.Context, pool *pgxpool.Pool, schema string) e
 		`ALTER TABLE %[1]s.orders ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT now()`,
 		`ALTER TABLE %[1]s.order_items ADD COLUMN IF NOT EXISTS price_tier_id BIGINT`,
 		`ALTER TABLE %[1]s.order_items ADD COLUMN IF NOT EXISTS price_overridden BOOLEAN NOT NULL DEFAULT false`,
+		`ALTER TABLE %[1]s.order_items ADD COLUMN IF NOT EXISTS item_note TEXT NOT NULL DEFAULT ''`,
 	}
 	for _, stmt := range stmts {
 		if _, err := pool.Exec(ctx, fmt.Sprintf(stmt, schema)); err != nil {
