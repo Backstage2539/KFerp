@@ -300,6 +300,18 @@ func (a api) overview(c echo.Context) error {
 	return c.JSON(http.StatusOK, overview)
 }
 
+func (a api) options(c echo.Context) error {
+	customerID, err := parseID(c.Param("customer_id"), "customer")
+	if err != nil {
+		return customerFulfillmentError(c, http.StatusBadRequest, err)
+	}
+	options, err := a.svc.CustomerFulfillmentOptions(c.Request().Context(), customerID)
+	if err != nil {
+		return customerFulfillmentError(c, http.StatusBadRequest, err)
+	}
+	return c.JSON(http.StatusOK, options)
+}
+
 func (a api) listImports(c echo.Context) error {
 	customerID, err := parseID(c.Param("customer_id"), "customer")
 	if err != nil {
