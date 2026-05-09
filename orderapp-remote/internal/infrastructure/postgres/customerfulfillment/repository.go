@@ -1091,6 +1091,7 @@ func (r *Repository) applyDirectShipOrderTx(ctx context.Context, tx pgx.Tx, cust
 	if err != nil {
 		return 0, 0, err
 	}
+	waybillNo := trackingSummaryFromCustomerFulfillment(payloadString(row.Payload, "waybill_no"))
 	var importOrderID, orderID int64
 	if err := tx.QueryRow(ctx, fmt.Sprintf(`
 		INSERT INTO %s.customer_direct_ship_import_orders(
@@ -1133,7 +1134,7 @@ func (r *Repository) applyDirectShipOrderTx(ctx context.Context, tx pgx.Tx, cust
 			receiverName,
 			receiverPhone,
 			receiverAddress,
-			payloadString(row.Payload, "waybill_no"),
+			waybillNo,
 			warehouse,
 			payloadString(row.Payload, "remark"),
 		).Scan(&orderID); err != nil {
@@ -1145,11 +1146,16 @@ func (r *Repository) applyDirectShipOrderTx(ctx context.Context, tx pgx.Tx, cust
 			SET receiver_name=$2,
 				receiver_phone=$3,
 				receiver_address=$4,
-				ship_tracking_no=$5,
+				ship_tracking_no=CASE WHEN $5 <> '' THEN $5 ELSE ship_tracking_no END,
 				source_warehouse=$6,
 				portal_service_code='direct_ship'
 			WHERE id=$1
-		`, r.schema), orderID, receiverName, receiverPhone, receiverAddress, payloadString(row.Payload, "waybill_no"), warehouse); err != nil {
+		`, r.schema), orderID, receiverName, receiverPhone, receiverAddress, waybillNo, warehouse); err != nil {
+			return 0, 0, err
+		}
+	}
+	if waybillNo != "" {
+		if _, err := upsertCustomerFulfillmentOrderTrackingsTx(ctx, tx, r.schema, orderID, waybillNo, "customer_fulfillment_direct_ship"); err != nil {
 			return 0, 0, err
 		}
 	}
@@ -1222,11 +1228,76 @@ func (r *Repository) applyDirectShipItemTx(ctx context.Context, tx pgx.Tx, custo
 		return 0, err
 	}
 	if waybillNo := payloadString(row.Payload, "waybill_no"); waybillNo != "" {
-		if _, err := tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.orders SET ship_tracking_no=$2 WHERE id=$1`, r.schema), orderID, waybillNo); err != nil {
+		if _, err := upsertCustomerFulfillmentOrderTrackingsTx(ctx, tx, r.schema, orderID, waybillNo, "customer_fulfillment_direct_ship_item"); err != nil {
 			return 0, err
 		}
 	}
 	return importItemID, nil
+}
+
+func upsertCustomerFulfillmentOrderTrackingsTx(ctx context.Context, tx pgx.Tx, schema string, orderID int64, raw, source string) (string, error) {
+	numbers := normalizeCustomerFulfillmentTrackings(raw)
+	for _, no := range numbers {
+		if _, err := tx.Exec(ctx, fmt.Sprintf(`
+			INSERT INTO %s.order_shipping_trackings(order_id, tracking_no, source, created_by)
+			VALUES($1,$2,$3,'customer_fulfillment')
+			ON CONFLICT (order_id, tracking_no) DO NOTHING
+		`, schema), orderID, no, source); err != nil {
+			return "", err
+		}
+	}
+	rows, err := tx.Query(ctx, fmt.Sprintf(`
+		SELECT tracking_no
+		FROM %s.order_shipping_trackings
+		WHERE order_id=$1
+		ORDER BY id
+	`, schema), orderID)
+	if err != nil {
+		return "", err
+	}
+	defer rows.Close()
+	all := make([]string, 0)
+	for rows.Next() {
+		var no string
+		if err := rows.Scan(&no); err != nil {
+			return "", err
+		}
+		all = append(all, no)
+	}
+	if err := rows.Err(); err != nil {
+		return "", err
+	}
+	summary := strings.Join(all, "\n")
+	if _, err := tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.orders SET ship_tracking_no=$2 WHERE id=$1`, schema), orderID, summary); err != nil {
+		return "", err
+	}
+	return summary, nil
+}
+
+func trackingSummaryFromCustomerFulfillment(raw string) string {
+	return strings.Join(normalizeCustomerFulfillmentTrackings(raw), "\n")
+}
+
+func normalizeCustomerFulfillmentTrackings(raw string) []string {
+	parts := strings.FieldsFunc(strings.TrimSpace(raw), func(r rune) bool {
+		switch r {
+		case ',', ';', '，', '；', '、', '\n', '\r', '\t', ' ':
+			return true
+		default:
+			return false
+		}
+	})
+	seen := make(map[string]bool, len(parts))
+	out := make([]string, 0, len(parts))
+	for _, part := range parts {
+		no := strings.TrimSpace(part)
+		if no == "" || seen[no] {
+			continue
+		}
+		seen[no] = true
+		out = append(out, no)
+	}
+	return out
 }
 
 func (r *Repository) customerProcessingWarehouseTx(ctx context.Context, tx pgx.Tx, customerID int64) (string, error) {

@@ -45,8 +45,8 @@
           <input v-model.trim="form.delivery_method" />
         </label>
         <label>
-          <span>快递单号</span>
-          <input v-model.trim="form.tracking_no" />
+          <span>快递单号（可多个）</span>
+          <textarea v-model.trim="form.tracking_no" rows="2" placeholder="多个单号可用换行、逗号或分号分隔"></textarea>
         </label>
         <label class="wide">
           <span>备注</span>

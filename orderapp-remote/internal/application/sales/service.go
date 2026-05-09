@@ -802,6 +802,7 @@ func (s *Service) SaveOrder(ctx context.Context, cmd SaveOrderCommand) (SaveOrde
 	if decision := strings.TrimSpace(cmd.StockBatchDecision); decision != "" && decision != "use_batch" && decision != "produce" {
 		return SaveOrderResult{}, fmt.Errorf("invalid stock_batch_decision")
 	}
+	cmd.ShipTrackingNo = TrackingNumbersSummary(NormalizeTrackingNumbers(cmd.ShipTrackingNo))
 	return s.repo.SaveOrder(ctx, cmd)
 }
 
@@ -942,7 +943,7 @@ func (s *Service) FillTrackingPairs(ctx context.Context, cmd FillTrackingPairsCo
 	pairs := make([]TrackingPair, 0, len(cmd.Pairs))
 	for _, pair := range cmd.Pairs {
 		phone := digitsOnly(pair.Phone)
-		tracking := strings.TrimSpace(pair.Tracking)
+		tracking := TrackingNumbersSummary(NormalizeTrackingNumbers(pair.Tracking))
 		if phone == "" || tracking == "" {
 			continue
 		}
@@ -1016,15 +1017,24 @@ func (s *Service) FillShipmentTracking(ctx context.Context, cmd FillShipmentTrac
 	if cmd.ShipmentID <= 0 {
 		return FillShipmentTrackingResult{}, fmt.Errorf("shipment required")
 	}
-	seen := map[int64]bool{}
-	items := make([]ShipmentTrackingItemCommand, 0, len(cmd.Items))
+	byOrder := make(map[int64][]string, len(cmd.Items))
+	orderSeq := make([]int64, 0, len(cmd.Items))
 	for _, item := range cmd.Items {
-		item.TrackingNo = strings.TrimSpace(item.TrackingNo)
-		if item.OrderID <= 0 || item.TrackingNo == "" || seen[item.OrderID] {
+		numbers := NormalizeTrackingNumbers(item.TrackingNo)
+		if item.OrderID <= 0 || len(numbers) == 0 {
 			continue
 		}
-		seen[item.OrderID] = true
-		items = append(items, item)
+		if _, ok := byOrder[item.OrderID]; !ok {
+			orderSeq = append(orderSeq, item.OrderID)
+		}
+		byOrder[item.OrderID] = appendUniqueTrackingNumbers(byOrder[item.OrderID], numbers)
+	}
+	items := make([]ShipmentTrackingItemCommand, 0, len(orderSeq))
+	for _, orderID := range orderSeq {
+		items = append(items, ShipmentTrackingItemCommand{
+			OrderID:    orderID,
+			TrackingNo: TrackingNumbersSummary(byOrder[orderID]),
+		})
 	}
 	if len(items) == 0 {
 		return FillShipmentTrackingResult{}, nil
@@ -1038,16 +1048,25 @@ func (s *Service) FillShipmentTrackingByOrderNo(ctx context.Context, cmd FillShi
 	if cmd.Actor == "" {
 		cmd.Actor = "shipping"
 	}
-	seen := map[string]bool{}
-	items := make([]ShipmentTrackingByOrderNoItemCommand, 0, len(cmd.Items))
+	byOrderNo := make(map[string][]string, len(cmd.Items))
+	orderNoSeq := make([]string, 0, len(cmd.Items))
 	for _, item := range cmd.Items {
 		item.OrderNo = strings.TrimSpace(item.OrderNo)
-		item.TrackingNo = strings.TrimSpace(item.TrackingNo)
-		if item.OrderNo == "" || item.TrackingNo == "" || seen[item.OrderNo] {
+		numbers := NormalizeTrackingNumbers(item.TrackingNo)
+		if item.OrderNo == "" || len(numbers) == 0 {
 			continue
 		}
-		seen[item.OrderNo] = true
-		items = append(items, item)
+		if _, ok := byOrderNo[item.OrderNo]; !ok {
+			orderNoSeq = append(orderNoSeq, item.OrderNo)
+		}
+		byOrderNo[item.OrderNo] = appendUniqueTrackingNumbers(byOrderNo[item.OrderNo], numbers)
+	}
+	items := make([]ShipmentTrackingByOrderNoItemCommand, 0, len(orderNoSeq))
+	for _, orderNo := range orderNoSeq {
+		items = append(items, ShipmentTrackingByOrderNoItemCommand{
+			OrderNo:    orderNo,
+			TrackingNo: TrackingNumbersSummary(byOrderNo[orderNo]),
+		})
 	}
 	if len(items) == 0 {
 		return FillShipmentTrackingResult{}, nil
@@ -1064,11 +1083,31 @@ func (s *Service) FillOrderTracking(ctx context.Context, cmd FillOrderTrackingCo
 	if cmd.OrderID <= 0 {
 		return FillShipmentTrackingResult{}, fmt.Errorf("order required")
 	}
-	cmd.TrackingNo = strings.TrimSpace(cmd.TrackingNo)
+	cmd.TrackingNo = TrackingNumbersSummary(NormalizeTrackingNumbers(cmd.TrackingNo))
 	if cmd.TrackingNo == "" {
 		return FillShipmentTrackingResult{}, fmt.Errorf("tracking_no required")
 	}
 	return s.repo.FillOrderTracking(ctx, cmd)
+}
+
+func appendUniqueTrackingNumbers(existing []string, next []string) []string {
+	seen := make(map[string]bool, len(existing)+len(next))
+	out := make([]string, 0, len(existing)+len(next))
+	for _, no := range existing {
+		if no == "" || seen[no] {
+			continue
+		}
+		seen[no] = true
+		out = append(out, no)
+	}
+	for _, no := range next {
+		if no == "" || seen[no] {
+			continue
+		}
+		seen[no] = true
+		out = append(out, no)
+	}
+	return out
 }
 
 func (s *Service) LoadSenderProfile(ctx context.Context) (SenderProfile, error) {

@@ -3,6 +3,7 @@ package sales
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	salesapp "orderapp/internal/application/sales"
 	postgresinfra "orderapp/internal/infrastructure/postgres"
@@ -30,9 +31,10 @@ func (r Repository) FillTrackingPairs(ctx context.Context, cmd salesapp.FillTrac
 			JOIN %s.customers c ON c.id=o.customer_id
 			WHERE o.is_void=false
 			  AND COALESCE(o.ship_tracking_no,'')=''
+			  AND NOT EXISTS (SELECT 1 FROM %s.order_shipping_trackings ost WHERE ost.order_id=o.id)
 			  AND regexp_replace(COALESCE(c.phone,''),'\D','','g') = $1
 			ORDER BY o.order_date, o.id
-		`, r.schema, r.schema), phone)
+		`, r.schema, r.schema, r.schema), phone)
 		if err != nil {
 			return salesapp.FillTrackingResult{}, err
 		}
@@ -51,15 +53,27 @@ func (r Repository) FillTrackingPairs(ctx context.Context, cmd salesapp.FillTrac
 		}
 		rows.Close()
 
+		if len(ids) == 1 {
+			summary, err := appendOrderTrackingNumbersTx(ctx, tx, r.schema, ids[0], salesapp.TrackingNumbersSummary(salesapp.NormalizeTrackingNumbers(strings.Join(tracks, "\n"))), "phone_tracking_fill", cmd.Actor)
+			if err != nil {
+				return salesapp.FillTrackingResult{}, err
+			}
+			if err := r.insertShippingAuditTx(ctx, tx, cmd.Actor, ids[0], "ship_tracking_no", summary); err != nil {
+				return salesapp.FillTrackingResult{}, err
+			}
+			updated++
+			continue
+		}
 		n := len(ids)
 		if len(tracks) < n {
 			n = len(tracks)
 		}
 		for i := 0; i < n; i++ {
-			if _, err := tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.orders SET ship_tracking_no=$2 WHERE id=$1`, r.schema), ids[i], tracks[i]); err != nil {
+			summary, err := appendOrderTrackingNumbersTx(ctx, tx, r.schema, ids[i], tracks[i], "phone_tracking_fill", cmd.Actor)
+			if err != nil {
 				return salesapp.FillTrackingResult{}, err
 			}
-			if err := r.insertShippingAuditTx(ctx, tx, cmd.Actor, ids[i], "ship_tracking_no", tracks[i]); err != nil {
+			if err := r.insertShippingAuditTx(ctx, tx, cmd.Actor, ids[i], "ship_tracking_no", summary); err != nil {
 				return salesapp.FillTrackingResult{}, err
 			}
 			updated++

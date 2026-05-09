@@ -1549,6 +1549,54 @@ func TestOrdersSingleShippingTrackingAPIMarksOrderShipped(t *testing.T) {
 	}
 }
 
+func TestOrdersSingleShippingTrackingAPIPreservesMultipleNumbers(t *testing.T) {
+	pool, schema := newOrderAPITestDB(t)
+	ctx := context.Background()
+	seedOrderAPITestData(t, ctx, pool, schema)
+	if err := postgressales.EnsureSchema(ctx, pool, schema); err != nil {
+		t.Fatalf("EnsureSchema: %v", err)
+	}
+	mustExecOrderAPITestSQL(t, ctx, pool, fmt.Sprintf(`
+		INSERT INTO %s.orders(id, order_no, order_date, customer_id, order_type_id, pay_status_id, ship_status_id, process_status_id, grand_total, ship_tracking_no, is_void)
+		VALUES (34, 'SO-MULTI-TRACK', '2026-05-09', 3, 1, 2, 1, (SELECT id FROM %s.order_process_statuses WHERE name='生产完成' LIMIT 1), 88, 'SF-OLD-001', false);
+		INSERT INTO %s.order_shipments(id, shipment_no, created_by, sender_id, file_url, status)
+		VALUES (15, 'SHIP-20260509-0001', '测试员', 1, '/ship/order_exports/test.xlsx', 'excel_generated');
+		INSERT INTO %s.order_shipment_orders(shipment_id, order_id, sender_id, tracking_no)
+		VALUES (15, 34, 1, 'SF-OLD-001');
+	`, schema, schema, schema, schema))
+
+	e := newOrderAPITestEcho(pool, schema)
+	body, _ := json.Marshal(map[string]any{"tracking_no": "SF-NEW-001，SF-NEW-002"})
+	req := httptest.NewRequest(http.MethodPost, "/api/orders/34/shipping-tracking", bytes.NewReader(body))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("POST /api/orders/34/shipping-tracking status = %d, want 200, body=%s", rec.Code, rec.Body.String())
+	}
+	var trackingNo, shipStatus string
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`
+		SELECT COALESCE(o.ship_tracking_no,''), COALESCE(ss.name,'')
+		FROM %s.orders o
+		LEFT JOIN %s.ship_statuses ss ON ss.id=o.ship_status_id
+		WHERE o.id=34
+	`, schema, schema)).Scan(&trackingNo, &shipStatus); err != nil {
+		t.Fatalf("query order tracking: %v", err)
+	}
+	want := "SF-OLD-001\nSF-NEW-001\nSF-NEW-002"
+	if trackingNo != want || shipStatus != "已发货" {
+		t.Fatalf("order tracking=%q ship_status=%q, want %q/已发货", trackingNo, shipStatus, want)
+	}
+	var count int
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT count(*) FROM %s.order_shipping_trackings WHERE order_id=34`, schema)).Scan(&count); err != nil {
+		t.Fatalf("query normalized tracking rows: %v", err)
+	}
+	if count != 3 {
+		t.Fatalf("normalized tracking rows=%d want 3", count)
+	}
+}
+
 func TestOrdersListIncludesLatestShipmentSender(t *testing.T) {
 	pool, schema := newOrderAPITestDB(t)
 	ctx := context.Background()

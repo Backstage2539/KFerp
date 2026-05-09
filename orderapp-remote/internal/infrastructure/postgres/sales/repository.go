@@ -381,6 +381,7 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 			shipMethod = "sf_large"
 		}
 	}
+	shipTrackingNo := salesapp.TrackingNumbersSummary(salesapp.NormalizeTrackingNumbers(cmd.ShipTrackingNo))
 
 	responsibleType, responsibleID, responsibleName, err := resolveOrderResponsibleParty(ctx, tx, r.schema, cmd.ResponsibleType, cmd.ResponsibleID)
 	if err != nil {
@@ -436,7 +437,7 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 			nullInt(payStatusID),
 			nullInt(shipStatusID),
 			nullText(shipMethod),
-			nullText(cmd.ShipTrackingNo),
+			nullText(shipTrackingNo),
 			nullText(cmd.Notes),
 			totalAmt,
 			shippingAmt,
@@ -497,7 +498,7 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 			nullInt(payStatusID),
 			nullInt(shipStatusID),
 			nullText(shipMethod),
-			nullText(cmd.ShipTrackingNo),
+			nullText(shipTrackingNo),
 			nullText(cmd.Notes),
 			totalAmt,
 			shippingAmt,
@@ -521,6 +522,9 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 		if err != nil {
 			return salesapp.SaveOrderResult{}, err
 		}
+	}
+	if _, err := replaceOrderTrackingNumbersTx(ctx, tx, r.schema, orderID, shipTrackingNo, "order_form", cmd.Actor); err != nil {
+		return salesapp.SaveOrderResult{}, err
 	}
 
 	for idx, it := range items {

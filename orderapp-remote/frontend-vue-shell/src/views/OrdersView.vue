@@ -127,7 +127,7 @@
               <td>
                 <div class="shipping-summary">
                   <span>{{ senderDisplay(row) }}</span>
-                  <strong>{{ row.ship_tracking_no || '未回填' }}</strong>
+                  <strong :title="row.ship_tracking_no || ''">{{ formatTrackingSummary(row.ship_tracking_no) }}</strong>
                 </div>
               </td>
               <td>
@@ -187,10 +187,10 @@
                 </select>
               </label>
               <label class="tracking-fill">
-                <span>快递单号</span>
+                <span>快递单号（可多个）</span>
                 <div class="tracking-fill-row">
-                  <input v-model.trim="drawerTrackingNo" placeholder="输入单号后回填并标记已发货" @keyup.enter="fillOrderTracking" />
-                  <button class="primary" type="button" @click="fillOrderTracking" :disabled="drawerTrackingSaving || !drawerTrackingNo.trim()">
+                  <textarea v-model.trim="drawerTrackingNo" rows="3" placeholder="多个单号可用换行、逗号或分号分隔" />
+                  <button class="primary" type="button" @click="fillOrderTracking" :disabled="drawerTrackingSaving || !trackingInputSummary(drawerTrackingNo)">
                     {{ drawerTrackingSaving ? '回填中' : '回填' }}
                   </button>
                 </div>
@@ -258,6 +258,7 @@
 import { onMounted, reactive, ref } from 'vue'
 import { apiGet, apiSend } from '../api/client'
 import { invoiceStatusLabel, invoiceStatusTone } from '../lib/order-invoice'
+import { formatTrackingSummary, trackingInputSummary } from '../lib/order-shipping'
 import { replaceHistoryURL } from '../lib/url-state'
 import DeliveryNoteView from './DeliveryNoteView.vue'
 import OrderEntryView from './OrderEntryView.vue'
@@ -495,7 +496,7 @@ async function generateShippingExcel() {
 
 async function fillOrderTracking() {
   const orderID = Number(activeOrderDetail.value?.id || 0)
-  const trackingNo = String(drawerTrackingNo.value || '').trim()
+  const trackingNo = trackingInputSummary(drawerTrackingNo.value)
   if (!orderID || !trackingNo) return
   drawerTrackingSaving.value = true
   shippingError.value = ''
@@ -504,11 +505,11 @@ async function fillOrderTracking() {
     const data = await apiSend(`/api/orders/${activeOrderDetail.value.id}/shipping-tracking`, {
       body: { tracking_no: trackingNo },
     })
-    shippingMessage.value = `已回填 ${Number(data.updated || 0)} 个订单并标记已发货`
+    shippingMessage.value = `已回填 ${formatTrackingSummary(trackingNo)}，并标记 ${Number(data.updated || 0)} 个订单已发货`
     await load()
     const refreshed = rows.value.find((row) => Number(row.id) === orderID)
     activeOrderDetail.value = refreshed ? { ...refreshed } : { ...activeOrderDetail.value, ship_tracking_no: trackingNo, ship_status: '已发货' }
-    drawerTrackingNo.value = trackingNo
+    drawerTrackingNo.value = activeOrderDetail.value.ship_tracking_no || trackingNo
   } catch (err) {
     shippingError.value = err.message || '回填失败'
   } finally {
@@ -540,7 +541,7 @@ async function uploadTrackingExcel() {
     const body = new FormData()
     body.append('file', trackingExcelFile.value)
     const data = await apiSend('/api/orders/shipping-tracking-excel', { body })
-    shippingMessage.value = `已从 Excel 回填 ${Number(data.updated || 0)}/${Number(data.total || 0)} 个快递单号`
+    shippingMessage.value = `已从 Excel 回填 ${Number(data.updated || 0)}/${Number(data.total || 0)} 个订单的快递单号`
     trackingExcelFile.value = null
     await load()
   } catch (err) {
@@ -611,7 +612,9 @@ onMounted(() => {
 h2 { margin: 0; font-size: 20px; }
 .filters { display: grid; grid-template-columns: repeat(4, minmax(130px, 1fr)) 90px; gap: 10px; align-items: end; }
 label span { display: block; color: #666; font-size: 12px; margin-bottom: 5px; }
-input, select { width: 100%; height: 38px; border: 1px solid #cfc8bf; border-radius: 6px; padding: 7px 9px; font: inherit; background: #fff; }
+input, select, textarea { width: 100%; border: 1px solid #cfc8bf; border-radius: 6px; padding: 7px 9px; font: inherit; background: #fff; }
+input, select { height: 38px; }
+textarea { min-height: 38px; resize: vertical; }
 button { height: 38px; border-radius: 6px; border: 1px solid #1f1f1f; padding: 0 12px; font: inherit; cursor: pointer; }
 button:disabled { cursor: not-allowed; opacity: .55; }
 .primary { background: #1f1f1f; color: #fff; }
@@ -664,7 +667,7 @@ a, .text-link { color: #1f4f82; text-decoration: none; }
 .drawer-section h4 { margin: 0 0 10px; font-size: 15px; }
 .section-head h4 { margin-bottom: 0; }
 .drawer-grid { display: grid; gap: 10px; }
-.tracking-fill-row { display: grid; grid-template-columns: 1fr auto; gap: 8px; }
+.tracking-fill-row { display: grid; grid-template-columns: 1fr auto; gap: 8px; align-items: start; }
 .drawer-status-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; color: #333; font-size: 13px; }
 .drawer-actions { display: flex; flex-wrap: wrap; gap: 8px; justify-content: flex-end; }
 .sales-order-drawer-mask { position: fixed; inset: 0; z-index: 35; display: flex; justify-content: flex-end; background: rgba(0, 0, 0, .24); }
