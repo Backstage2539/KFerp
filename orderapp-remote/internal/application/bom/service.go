@@ -10,6 +10,7 @@ type ListItem struct {
 	Product    string  `json:"product"`
 	RoastLevel string  `json:"roast_level"`
 	YieldRate  float64 `json:"yield_rate"`
+	Status     string  `json:"status"`
 	ItemCount  int     `json:"item_count"`
 	UpdatedAt  string  `json:"updated_at"`
 }
@@ -26,6 +27,7 @@ type Detail struct {
 	ProductName string  `json:"product_name"`
 	RoastLevel  string  `json:"roast_level"`
 	YieldRate   float64 `json:"yield_rate"`
+	Status      string  `json:"status"`
 	Items       []Item  `json:"items"`
 	TotalRatio  float64 `json:"total_ratio"`
 	UpdatedAt   string  `json:"updated_at"`
@@ -81,7 +83,7 @@ type Repository interface {
 	Materials(ctx context.Context) ([]Option, error)
 	BagSpecMappings(ctx context.Context) ([]BagSpecMapping, error)
 	SyncProductYield(ctx context.Context, productID int64) error
-	DeleteBom(ctx context.Context, productID int64) error
+	DeactivateBom(ctx context.Context, productID int64) error
 	SaveItem(ctx context.Context, cmd SaveItemCommand) error
 	DeleteItem(ctx context.Context, cmd DeleteItemCommand) error
 	SaveBagSpecMapping(ctx context.Context, cmd SaveBagSpecMappingCommand) error
@@ -129,11 +131,11 @@ func (s *Service) SyncProductYield(ctx context.Context, productID int64) error {
 	return s.repo.SyncProductYield(ctx, productID)
 }
 
-func (s *Service) DeleteBom(ctx context.Context, productID int64) error {
+func (s *Service) DeactivateBom(ctx context.Context, productID int64) error {
 	if productID <= 0 {
 		return fmt.Errorf("product required")
 	}
-	return s.repo.DeleteBom(ctx, productID)
+	return s.repo.DeactivateBom(ctx, productID)
 }
 
 func (s *Service) SaveItem(ctx context.Context, cmd SaveItemCommand) error {

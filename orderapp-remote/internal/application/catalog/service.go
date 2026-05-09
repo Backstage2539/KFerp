@@ -33,6 +33,7 @@ type Product struct {
 	Visibility              string
 	CustomType              string
 	BomItemCount            int
+	BomStatus               string
 	Tiers                   []PriceTier
 }
 
@@ -62,6 +63,7 @@ type ProductSettingsProduct struct {
 	Visibility              string  `json:"visibility"`
 	CustomType              string  `json:"custom_type"`
 	BomItemCount            int     `json:"bom_item_count"`
+	BomStatus               string  `json:"bom_status"`
 	Number                  int     `json:"number"`
 }
 
@@ -110,6 +112,11 @@ type CreateProductCommand struct {
 	YieldRate       float64
 }
 
+type DeactivateProductsCommand struct {
+	Actor      string
+	ProductIDs []int64
+}
+
 type CreateCustomProductCommand struct {
 	Actor          string
 	CustomerID     int64
@@ -153,6 +160,7 @@ type Repository interface {
 	GetProduct(ctx context.Context, id int64) (*Product, error)
 	ReplacePriceTiers(ctx context.Context, cmd ReplacePriceTiersCommand) error
 	UpdateProductBasics(ctx context.Context, cmd UpdateProductBasicsCommand) error
+	DeactivateProducts(ctx context.Context, cmd DeactivateProductsCommand) error
 	CreateProduct(ctx context.Context, cmd CreateProductCommand) (Product, error)
 	ListProductCategories(ctx context.Context) ([]ProductCategory, error)
 	SaveProductCategory(ctx context.Context, cmd SaveProductCategoryCommand) (ProductCategory, error)
@@ -184,6 +192,24 @@ func (s *Service) ReplacePriceTiers(ctx context.Context, cmd ReplacePriceTiersCo
 
 func (s *Service) UpdateProductBasics(ctx context.Context, cmd UpdateProductBasicsCommand) error {
 	return s.repo.UpdateProductBasics(ctx, cmd)
+}
+
+func (s *Service) DeactivateProducts(ctx context.Context, cmd DeactivateProductsCommand) error {
+	ids := make([]int64, 0, len(cmd.ProductIDs))
+	seen := map[int64]bool{}
+	for _, id := range cmd.ProductIDs {
+		if id <= 0 || seen[id] {
+			continue
+		}
+		ids = append(ids, id)
+		seen[id] = true
+	}
+	if len(ids) == 0 {
+		return fmt.Errorf("product_ids required")
+	}
+	cmd.ProductIDs = ids
+	cmd.Actor = strings.TrimSpace(cmd.Actor)
+	return s.repo.DeactivateProducts(ctx, cmd)
 }
 
 func (s *Service) CreateProduct(ctx context.Context, cmd CreateProductCommand) (Product, error) {
@@ -336,7 +362,19 @@ func productSettingsProduct(p Product) ProductSettingsProduct {
 		Visibility:              productVisibility(p.Visibility, p.CustomerID),
 		CustomType:              p.CustomType,
 		BomItemCount:            p.BomItemCount,
+		BomStatus:               productBomStatus(p.BomStatus, p.BomItemCount),
 	}
+}
+
+func productBomStatus(status string, itemCount int) string {
+	status = strings.TrimSpace(status)
+	if status != "" {
+		return status
+	}
+	if itemCount > 0 {
+		return "active"
+	}
+	return "missing"
 }
 
 func productVisibility(visibility string, customerID int64) string {

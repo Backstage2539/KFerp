@@ -267,14 +267,22 @@
       <div class="panel product-panel">
         <div class="panel-title">
           <span>商品基础信息</span>
-          <button class="toggle-section" type="button" @click="productsCollapsed = !productsCollapsed">
-            {{ productsCollapsed ? '展开' : '收起' }}
-          </button>
+          <div class="panel-actions">
+            <button class="secondary compact-action" type="button" @click="deactivateProducts(selectedProductIds)" :disabled="!selectedProductIds.length || loading">
+              失效选中产品
+            </button>
+            <button class="toggle-section" type="button" @click="productsCollapsed = !productsCollapsed">
+              {{ productsCollapsed ? '展开' : '收起' }}
+            </button>
+          </div>
         </div>
         <div v-show="!productsCollapsed" class="table-wrap">
           <table>
             <thead>
               <tr>
+                <th class="select-col">
+                  <input type="checkbox" :checked="allProductRowsSelected" :disabled="!productRows.length" @change="toggleAllProductRows($event.target.checked)" />
+                </th>
                 <th>一级分类</th>
                 <th>二级分类</th>
                 <th>商品编号</th>
@@ -283,11 +291,15 @@
                 <th>类型</th>
                 <th>烘焙度</th>
                 <th>BOM出品率</th>
-                <th>BOM</th>
+                <th>BOM状态</th>
+                <th>处理</th>
               </tr>
             </thead>
             <tbody>
               <tr v-for="row in productRows" :key="row.id">
+                <td class="select-col">
+                  <input type="checkbox" :checked="isProductSelected(row)" @change="toggleProductSelection(row, $event.target.checked)" />
+                </td>
                 <td>{{ categoryLabel(row, 1) }}</td>
                 <td>{{ categoryLabel(row, 2) }}</td>
                 <td>{{ row.number || '' }}</td>
@@ -312,10 +324,18 @@
                     <span>%</span>
                   </div>
                 </td>
-                <td><button class="text-button" type="button" @click="openProductBom(row)">维护 BOM</button></td>
+                <td>
+                  <span :class="['status-pill', row.bom_status === 'inactive' ? 'inactive' : '']">{{ bomStatusLabel(row.bom_status) }}</span>
+                </td>
+                <td>
+                  <div class="row-actions">
+                    <button class="text-button" type="button" @click="openProductBom(row)">维护 BOM</button>
+                    <button class="text-button danger-text" type="button" @click="deactivateProducts([row.id])">失效</button>
+                  </div>
+                </td>
               </tr>
               <tr v-if="!productRows.length">
-                <td colspan="9" class="muted">暂无商品</td>
+                <td colspan="11" class="muted">暂无商品</td>
               </tr>
             </tbody>
           </table>
@@ -354,6 +374,7 @@ const editingCategoryName = ref('')
 const categoryCollapsed = ref(false)
 const productsCollapsed = ref(false)
 const selectedCustomerSkuCustomerID = ref(0)
+const selectedProductIds = ref([])
 const roastLevels = ['浅烘', '中烘', '中深烘', '深烘']
 const productForm = ref(defaultProductForm())
 const customForm = ref(defaultCustomForm())
@@ -389,6 +410,7 @@ const customerSkuRows = computed(() => products.value
   .filter((product) => Number(product.customer_id || 0) > 0)
   .filter((product) => !selectedCustomerSkuCustomerID.value || Number(product.customer_id || 0) === Number(selectedCustomerSkuCustomerID.value))
   .sort((a, b) => ownerLabel(a).localeCompare(ownerLabel(b)) || a.name.localeCompare(b.name)))
+const allProductRowsSelected = computed(() => productRows.value.length > 0 && productRows.value.every((row) => selectedProductIds.value.includes(Number(row.id))))
 
 function defaultProductForm() {
   return {
@@ -427,6 +449,7 @@ function decorateProduct(product) {
     visibility: productVisibility(product),
     custom_type: product.custom_type || '',
     bom_item_count: Number(product.bom_item_count || 0),
+    bom_status: product.bom_status || (Number(product.bom_item_count || 0) > 0 ? 'active' : 'missing'),
   }
 }
 
@@ -448,6 +471,7 @@ async function loadAll() {
     ])
     categories.value = (data.categories || []).map(decorateCategory)
     products.value = (data.products || []).map(decorateProduct)
+    pruneSelectedProducts(data.products || [])
     customers.value = (customerData.rows || []).filter((row) => row.active !== false)
   } catch (err) {
     error.value = err.message || '加载失败'
@@ -501,6 +525,34 @@ function customTypeLabel(value) {
   if (value === 'custom_blend') return '定制拼配'
   if (value === 'custom_roast') return '定制烘焙'
   return '标准'
+}
+
+function bomStatusLabel(value) {
+  if (value === 'inactive') return '已失效'
+  if (value === 'missing') return '未维护'
+  return '有效'
+}
+
+function pruneSelectedProducts(sourceProducts) {
+  const validIDs = new Set((sourceProducts || []).map((product) => Number(product.id || 0)).filter(Boolean))
+  selectedProductIds.value = selectedProductIds.value.filter((id) => validIDs.has(Number(id)))
+}
+
+function isProductSelected(row) {
+  return selectedProductIds.value.includes(Number(row.id))
+}
+
+function toggleProductSelection(row, checked) {
+  const id = Number(row.id || 0)
+  if (!id) return
+  const current = selectedProductIds.value
+  selectedProductIds.value = checked
+    ? Array.from(new Set([...current, id]))
+    : current.filter((item) => item !== id)
+}
+
+function toggleAllProductRows(checked) {
+  selectedProductIds.value = checked ? productRows.value.map((row) => Number(row.id)).filter(Boolean) : []
 }
 
 function selectedBaseProduct() {
@@ -917,6 +969,28 @@ async function saveProductBasics(row) {
   }
 }
 
+async function deactivateProducts(productIds) {
+  const ids = Array.from(new Set((productIds || []).map((id) => Number(id || 0)).filter((id) => id > 0)))
+  if (!ids.length) return
+  const message = ids.length > 1
+    ? `确认失效选中的 ${ids.length} 个产品？对应 BOM 会同步失效，历史配方明细会保留。`
+    : '确认失效该产品？对应 BOM 会同步失效，历史配方明细会保留。'
+  if (!window.confirm(message)) return
+  loading.value = true
+  error.value = ''
+  ok.value = ''
+  try {
+    await apiSend('/api/product-settings/products/deactivate', { body: { product_ids: ids } })
+    selectedProductIds.value = []
+    ok.value = ids.length > 1 ? '选中产品已失效，对应 BOM 已同步失效' : '产品已失效，对应 BOM 已同步失效'
+    await loadAll()
+  } catch (err) {
+    error.value = err.message || '产品失效失败'
+  } finally {
+    loading.value = false
+  }
+}
+
 onMounted(loadAll)
 </script>
 
@@ -928,6 +1002,7 @@ onMounted(loadAll)
 .panel-head h2 { margin: 0 0 4px; font-size: 20px; }
 .panel-head p { margin: 0; color: #666; font-size: 13px; }
 .panel-title { display: flex; align-items: center; justify-content: space-between; gap: 10px; font-weight: 700; margin-bottom: 10px; }
+.panel-actions, .row-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
 .sub-title { width: 100%; font-weight: 700; font-size: 13px; }
 button, input, select { font: inherit; min-height: 36px; border-radius: 6px; }
 input, select { border: 1px solid #cfc8bf; padding: 7px 9px; background: #fff; width: 100%; }
@@ -936,6 +1011,7 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .primary { background: #111; color: #fff; }
 .secondary, .toggle-section { background: #fff; color: #111; }
 .toggle-section { min-height: 30px; padding: 0 10px; }
+.compact-action { min-height: 30px; padding: 0 10px; font-size: 12px; }
 .text-button { border: 0; background: transparent; color: #1f4f82; padding: 0; min-height: 28px; }
 .danger-text { color: #a33; }
 .settings-grid { display: grid; grid-template-columns: minmax(280px, 380px) minmax(0, 1fr); gap: 14px; align-items: start; }
@@ -969,9 +1045,13 @@ table { width: 100%; min-width: 940px; border-collapse: collapse; }
 .compact-table table { min-width: 760px; }
 th, td { border-bottom: 1px solid #eee8df; padding: 8px; text-align: left; font-size: 13px; vertical-align: middle; }
 th { background: #fbfaf8; position: sticky; top: 0; }
+.select-col { width: 42px; text-align: center; }
+.select-col input { width: 16px; min-height: 16px; }
 .roast-select { min-width: 92px; }
 .yield-editor { display: flex; align-items: center; gap: 6px; max-width: 130px; }
 .yield-input { width: 90px; }
+.status-pill { display: inline-flex; align-items: center; min-height: 24px; border: 1px solid #cfd8cf; border-radius: 999px; padding: 2px 8px; color: #27602e; background: #f2fbf2; white-space: nowrap; }
+.status-pill.inactive { border-color: #e1b6b6; color: #8a1f1f; background: #fff0f0; }
 .costing-panel { padding: 0; overflow: hidden; }
 .error, .ok { border-radius: 6px; padding: 9px; margin-top: 12px; }
 .error { background: #fff0f0; border: 1px solid #e6b7b7; color: #8a1f1f; }
@@ -980,6 +1060,7 @@ th { background: #fbfaf8; position: sticky; top: 0; }
 @media (max-width: 900px) {
   .page { padding: 12px; }
   .settings-grid, .inline-form, .product-create-form, .custom-product-form, .sku-filter { grid-template-columns: 1fr; }
+  .panel-actions { justify-content: flex-start; }
   .sku-list-head { align-items: stretch; flex-direction: column; }
   .product-create-form .wide-field, .custom-product-form .wide-field { grid-column: auto; }
   table { min-width: 900px; }

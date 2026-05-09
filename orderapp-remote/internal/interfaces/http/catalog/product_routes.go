@@ -23,6 +23,7 @@ func registerProductRoutes(e *echo.Echo, catalogSvc *catalogapp.Service) {
 	e.GET("/api/product-settings", h.productSettingsAPI)
 	e.GET("/api/product-settings/categories", h.productCategoriesAPI)
 	e.POST("/api/product-settings/products", h.createProductAPI)
+	e.POST("/api/product-settings/products/deactivate", h.deactivateProductsAPI)
 	e.POST("/api/product-settings/categories", h.saveProductCategoryAPI)
 	e.POST("/api/product-settings/custom-products", h.createCustomProductAPI)
 	e.PUT("/api/product-settings/categories/:id", h.saveProductCategoryAPI)
@@ -55,6 +56,10 @@ type productCreateAPIRequest struct {
 	RetailPrice227G float64 `json:"retail_price_227g"`
 	RetailPrice250G float64 `json:"retail_price_250g"`
 	YieldRate       float64 `json:"yield_rate"`
+}
+
+type productDeactivateAPIRequest struct {
+	ProductIDs []int64 `json:"product_ids"`
 }
 
 type productTierAPIUpsertRow struct {
@@ -189,6 +194,20 @@ func (h productHandler) createProductAPI(c echo.Context) error {
 		return c.JSON(http.StatusBadRequest, map[string]any{"error": err.Error()})
 	}
 	return c.JSON(http.StatusOK, map[string]any{"product": productOptionFromCatalog(product)})
+}
+
+func (h productHandler) deactivateProductsAPI(c echo.Context) error {
+	var req productDeactivateAPIRequest
+	if err := c.Bind(&req); err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]any{"error": "bad request"})
+	}
+	if err := h.catalog.DeactivateProducts(c.Request().Context(), catalogapp.DeactivateProductsCommand{
+		Actor:      support.ActorOf(c),
+		ProductIDs: req.ProductIDs,
+	}); err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]any{"error": err.Error()})
+	}
+	return c.JSON(http.StatusOK, map[string]any{"ok": true})
 }
 
 func normalizeProductYieldRate(value float64) float64 {

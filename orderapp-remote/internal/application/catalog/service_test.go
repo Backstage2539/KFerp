@@ -6,9 +6,11 @@ import (
 )
 
 type fakeRepo struct {
-	replace ReplacePriceTiersCommand
-	update  UpdateProductBasicsCommand
-	create  CreateProductCommand
+	replace     ReplacePriceTiersCommand
+	update      UpdateProductBasicsCommand
+	create      CreateProductCommand
+	deactivate  DeactivateProductsCommand
+	deactivated bool
 }
 
 func (r *fakeRepo) ListProducts(ctx context.Context) ([]Product, error) {
@@ -26,6 +28,12 @@ func (r *fakeRepo) ReplacePriceTiers(ctx context.Context, cmd ReplacePriceTiersC
 
 func (r *fakeRepo) UpdateProductBasics(ctx context.Context, cmd UpdateProductBasicsCommand) error {
 	r.update = cmd
+	return nil
+}
+
+func (r *fakeRepo) DeactivateProducts(ctx context.Context, cmd DeactivateProductsCommand) error {
+	r.deactivate = cmd
+	r.deactivated = true
 	return nil
 }
 
@@ -81,6 +89,12 @@ func TestServiceDelegatesCatalogOperations(t *testing.T) {
 	}
 	if repo.update.ProductID != 9 {
 		t.Fatalf("update command = %+v", repo.update)
+	}
+	if err := svc.DeactivateProducts(context.Background(), DeactivateProductsCommand{Actor: "tester", ProductIDs: []int64{9, 10}}); err != nil {
+		t.Fatalf("DeactivateProducts() error = %v", err)
+	}
+	if !repo.deactivated || repo.deactivate.Actor != "tester" || len(repo.deactivate.ProductIDs) != 2 || repo.deactivate.ProductIDs[0] != 9 || repo.deactivate.ProductIDs[1] != 10 {
+		t.Fatalf("deactivate command = %+v deactivated=%v", repo.deactivate, repo.deactivated)
 	}
 	product, err := svc.CreateProduct(context.Background(), CreateProductCommand{Actor: "tester", Name: "新拼配", RoastLevel: "中烘", YieldRate: 0.81})
 	if err != nil || product.ID != 11 {

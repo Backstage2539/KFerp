@@ -12,7 +12,7 @@ import (
 )
 
 type apiFakeRepo struct {
-	deletedBomProductID int64
+	deactivatedBomProductID int64
 }
 
 func (r *apiFakeRepo) List(context.Context) ([]bomapp.ListItem, error) { return nil, nil }
@@ -25,8 +25,8 @@ func (r *apiFakeRepo) BagSpecMappings(context.Context) ([]bomapp.BagSpecMapping,
 	return nil, nil
 }
 func (r *apiFakeRepo) SyncProductYield(context.Context, int64) error { return nil }
-func (r *apiFakeRepo) DeleteBom(_ context.Context, productID int64) error {
-	r.deletedBomProductID = productID
+func (r *apiFakeRepo) DeactivateBom(_ context.Context, productID int64) error {
+	r.deactivatedBomProductID = productID
 	return nil
 }
 func (r *apiFakeRepo) SaveItem(context.Context, bomapp.SaveItemCommand) error {
@@ -47,7 +47,7 @@ func (r *apiFakeRepo) CreateVersion(context.Context, bomapp.CreateVersionCommand
 }
 func (r *apiFakeRepo) ActivateVersion(context.Context, int64) error { return nil }
 
-func TestBomDeleteAPIDeletesCurrentBom(t *testing.T) {
+func TestBomDeleteAPIInvalidatesCurrentBom(t *testing.T) {
 	repo := &apiFakeRepo{}
 	e := echo.New()
 	RegisterRoutes(e, Dependencies{Bom: bomapp.NewService(repo)})
@@ -59,7 +59,7 @@ func TestBomDeleteAPIDeletesCurrentBom(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body.String())
 	}
-	if repo.deletedBomProductID != 7 {
-		t.Fatalf("deleted product id = %d, want 7", repo.deletedBomProductID)
+	if repo.deactivatedBomProductID != 7 {
+		t.Fatalf("deactivated product id = %d, want 7", repo.deactivatedBomProductID)
 	}
 }

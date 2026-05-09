@@ -22,6 +22,7 @@ func ensureBomTables(ctx context.Context, pool *pgxpool.Pool, schema string) err
 		fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s.product_bom (
 			product_id BIGINT PRIMARY KEY,
 			yield_rate NUMERIC(10,4) NOT NULL DEFAULT 0.8000,
+			status TEXT NOT NULL DEFAULT 'active',
 			updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 		)`, schema),
 		fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s.product_bom_items (
@@ -37,6 +38,12 @@ func ensureBomTables(ctx context.Context, pool *pgxpool.Pool, schema string) err
 		if _, err := pool.Exec(ctx, q); err != nil {
 			return err
 		}
+	}
+	if _, err := pool.Exec(ctx, fmt.Sprintf(`ALTER TABLE %s.product_bom ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'active'`, schema)); err != nil {
+		return err
+	}
+	if _, err := pool.Exec(ctx, fmt.Sprintf(`UPDATE %s.product_bom SET status='active' WHERE COALESCE(NULLIF(status,''),'')=''`, schema)); err != nil {
+		return err
 	}
 	return nil
 }

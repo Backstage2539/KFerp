@@ -12,6 +12,7 @@
       </div>
       <div v-if="error" class="error">{{ error }}</div>
       <div v-if="message" class="ok">{{ message }}</div>
+      <div v-if="inactiveBomWarningCount" class="warning-banner">BOM已失效：{{ inactiveBomWarningCount }} 款产品依赖的 BOM 已失效，发布价格策略或豆单前请先重新启用 BOM。</div>
       <div class="metrics">
         <div>
           <span>商品数</span>
@@ -53,7 +54,12 @@
           </thead>
           <tbody>
             <tr v-for="item in items" :key="item.product_id || item.name">
-              <td class="name">{{ item.name }}</td>
+              <td class="name">
+                <div>{{ item.name }}</div>
+                <div v-if="itemWarnings(item).length" class="item-warning-list">
+                  <span v-for="warning in itemWarnings(item)" :key="warning" class="warning-chip">{{ warning }}</span>
+                </div>
+              </td>
               <td>{{ costMoney(item.green_bean_cost_per_kg) }}</td>
               <td>{{ costMoney(item.small_batch_cost_per_kg) }}</td>
               <td class="tiers-cell">
@@ -102,6 +108,9 @@
                   </div>
                 </div>
               </div>
+              <div v-if="itemWarnings(item).length" class="bean-warning-list">
+                <span v-for="warning in itemWarnings(item)" :key="`commercial-warning-${item.product_id || item.name}-${warning}`" class="warning-chip">{{ warning }}</span>
+              </div>
               <div v-if="beanFlavor(item, 'commercial_bean_list')" class="bean-note">{{ beanFlavor(item, 'commercial_bean_list') }}</div>
               <div v-if="beanDescription(item, 'commercial_bean_list')" class="bean-desc">{{ beanDescription(item, 'commercial_bean_list') }}</div>
               <div class="bean-row" v-for="tier in item.commercial_wholesale_tiers || []" :key="tier.label">
@@ -129,6 +138,9 @@
                     {{ beanMeta(item, 'retail_bean_list').recommended_use }}
                   </div>
                 </div>
+              </div>
+              <div v-if="itemWarnings(item).length" class="bean-warning-list">
+                <span v-for="warning in itemWarnings(item)" :key="`retail-warning-${item.product_id || item.name}-${warning}`" class="warning-chip">{{ warning }}</span>
               </div>
               <div v-if="beanFlavor(item, 'retail_bean_list')" class="bean-note">{{ beanFlavor(item, 'retail_bean_list') }}</div>
               <div v-if="beanDescription(item, 'retail_bean_list')" class="bean-desc">{{ beanDescription(item, 'retail_bean_list') }}</div>
@@ -684,6 +696,7 @@ const publicBeanListURL = computed(() => {
   if (publicationScope.value !== 'official' || !currentBeanListPublication.value) return ''
   return `${window.location.origin}/public/bean-list/${pdfTheme.value.listType}`
 })
+const inactiveBomWarningCount = computed(() => items.value.filter((item) => itemWarnings(item).length).length)
 const pdfPageStyle = computed(() => {
   const bg = pdfTheme.value.backgroundImage
   return {
@@ -777,6 +790,14 @@ function beanFlavor(item, key) {
 
 function beanDescription(item, key) {
   return beanMeta(item, key).description || item?.bean_list_note || ''
+}
+
+function itemWarnings(item) {
+  const warnings = Array.isArray(item?.warnings) ? item.warnings.filter(Boolean) : []
+  if (item?.bom_status === 'inactive' && !warnings.some((warning) => String(warning).includes('BOM已失效'))) {
+    return ['BOM已失效：请重新启用 BOM 后再发布价格策略', ...warnings]
+  }
+  return warnings
 }
 
 function itemProductID(item) {
@@ -1356,6 +1377,8 @@ th, td { border-bottom: 1px solid #f1f1f1; padding: 9px 10px; text-align: right;
 th:first-child, td:first-child { text-align: left; }
 th { color: #555; background: #fafafa; font-weight: 700; }
 .name { font-weight: 650; }
+.item-warning-list, .bean-warning-list { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 6px; }
+.warning-chip { display: inline-flex; align-items: center; max-width: 100%; border: 1px solid #e8c28f; border-radius: 999px; background: #fff8eb; color: #8a4b00; padding: 2px 7px; font-size: 12px; font-weight: 650; line-height: 1.35; white-space: normal; }
 .tiers-cell { min-width: 360px; text-align: left; white-space: normal; }
 .tier-list { display: flex; flex-wrap: wrap; gap: 6px; justify-content: flex-start; }
 .tier-chip { border: 1px solid #ddd; border-radius: 8px; background: #fff; padding: 5px 7px; color: #222; font-size: 12px; line-height: 1.2; }
@@ -1370,6 +1393,7 @@ button:disabled { opacity: .45; cursor: not-allowed; }
 .error, .ok { border-radius: 8px; padding: 10px; margin-bottom: 12px; }
 .error { background: #ffecec; border: 1px solid #ffb9b9; }
 .ok { background: #e9ffe9; border: 1px solid #b8f5b8; }
+.warning-banner { border: 1px solid #e8c28f; border-radius: 8px; background: #fff8eb; color: #8a4b00; padding: 10px; margin-bottom: 12px; }
 .drawer-backdrop { position: fixed; inset: 0; z-index: 80; background: rgba(0,0,0,.25); display: flex; justify-content: flex-end; }
 .settings-drawer { width: min(620px, 100vw); height: 100vh; overflow: auto; background: #f7f7f7; border-left: 1px solid #d9d9d9; padding: 14px; box-shadow: -18px 0 36px rgba(0,0,0,.18); }
 .drawer-head { position: sticky; top: 0; z-index: 2; background: #f7f7f7; display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; padding-bottom: 12px; margin-bottom: 4px; }

@@ -20,6 +20,7 @@ func productOptionFromCatalog(p catalogapp.Product) ProductOption {
 		Visibility:              p.Visibility,
 		CustomType:              p.CustomType,
 		BomItemCount:            p.BomItemCount,
+		BomStatus:               p.BomStatus,
 	}
 	out.Tiers = make([]ProductTierOption, 0, len(p.Tiers))
 	for _, t := range p.Tiers {

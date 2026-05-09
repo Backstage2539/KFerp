@@ -29,6 +29,7 @@ func (r Repository) List(ctx context.Context) ([]bomapp.ListItem, error) {
 			p.name,
 			COALESCE(p.roast_level, ''),
 			COALESCE(b.yield_rate, 0.8),
+			COALESCE(NULLIF(b.status,''), CASE WHEN b.product_id IS NULL THEN 'missing' ELSE 'active' END),
 			COALESCE((SELECT COUNT(*) FROM %s.product_bom_items bi WHERE bi.product_id = p.id), 0),
 			COALESCE(to_char(b.updated_at,'YYYY-MM-DD HH24:MI'), '-')
 		FROM %s.products p
@@ -46,7 +47,7 @@ func (r Repository) List(ctx context.Context) ([]bomapp.ListItem, error) {
 	for rows.Next() {
 		var item bomapp.ListItem
 		var fallback float64
-		if err := rows.Scan(&item.ProductID, &item.Product, &item.RoastLevel, &fallback, &item.ItemCount, &item.UpdatedAt); err != nil {
+		if err := rows.Scan(&item.ProductID, &item.Product, &item.RoastLevel, &fallback, &item.Status, &item.ItemCount, &item.UpdatedAt); err != nil {
 			return nil, err
 		}
 		item.YieldRate = catalogdomain.ResolveYieldRate(item.RoastLevel, fallback)
@@ -59,11 +60,12 @@ func (r Repository) Detail(ctx context.Context, productID int64) (bomapp.Detail,
 	var productName string
 	var roastLevel string
 	var yieldRate float64
+	var status string
 	var updatedAt string
 	err := r.pool.QueryRow(ctx,
-		"SELECT COALESCE(p.name,''), COALESCE(p.roast_level,''), COALESCE(b.yield_rate,0.8), COALESCE(to_char(b.updated_at,'YYYY-MM-DD HH24:MI'),'-') "+
+		"SELECT COALESCE(p.name,''), COALESCE(p.roast_level,''), COALESCE(b.yield_rate,0.8), COALESCE(NULLIF(b.status,''), CASE WHEN b.product_id IS NULL THEN 'missing' ELSE 'active' END), COALESCE(to_char(b.updated_at,'YYYY-MM-DD HH24:MI'),'-') "+
 			"FROM "+r.schema+".products p LEFT JOIN "+r.schema+".product_bom b ON b.product_id=p.id "+
-			"WHERE p.id=$1", productID).Scan(&productName, &roastLevel, &yieldRate, &updatedAt)
+			"WHERE p.id=$1", productID).Scan(&productName, &roastLevel, &yieldRate, &status, &updatedAt)
 	if err != nil {
 		return bomapp.Detail{}, err
 	}
@@ -77,6 +79,7 @@ func (r Repository) Detail(ctx context.Context, productID int64) (bomapp.Detail,
 		ProductName: productName,
 		RoastLevel:  roastLevel,
 		YieldRate:   catalogdomain.ResolveYieldRate(roastLevel, yieldRate),
+		Status:      status,
 		Items:       bomItemsToApp(items),
 		TotalRatio:  total,
 		UpdatedAt:   updatedAt,
@@ -113,21 +116,24 @@ func (r Repository) SyncProductYield(ctx context.Context, productID int64) error
 		return fmt.Errorf("product not found")
 	}
 	yieldRate := catalogdomain.ResolveYieldRate(roastLevel, 0.8)
-	q := "INSERT INTO " + r.schema + ".product_bom(product_id,yield_rate,updated_at) VALUES($1,$2,now()) ON CONFLICT (product_id) DO UPDATE SET yield_rate=excluded.yield_rate, updated_at=now()"
+	q := "INSERT INTO " + r.schema + ".product_bom(product_id,yield_rate,status,updated_at) VALUES($1,$2,'active',now()) ON CONFLICT (product_id) DO UPDATE SET yield_rate=excluded.yield_rate, status='active', updated_at=now()"
 	_, err := r.pool.Exec(ctx, q, productID, yieldRate)
 	return err
 }
 
-func (r Repository) DeleteBom(ctx context.Context, productID int64) error {
+func (r Repository) DeactivateBom(ctx context.Context, productID int64) error {
 	tx, err := r.pool.Begin(ctx)
 	if err != nil {
 		return err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
-	if _, err := tx.Exec(ctx, "DELETE FROM "+r.schema+".product_bom_items WHERE product_id=$1", productID); err != nil {
-		return err
+
+	var roastLevel string
+	if err := tx.QueryRow(ctx, "SELECT COALESCE(roast_level,'') FROM "+r.schema+".products WHERE id=$1", productID).Scan(&roastLevel); err != nil {
+		return fmt.Errorf("product not found")
 	}
-	if _, err := tx.Exec(ctx, "DELETE FROM "+r.schema+".product_bom WHERE product_id=$1", productID); err != nil {
+	yieldRate := catalogdomain.ResolveYieldRate(roastLevel, 0.8)
+	if _, err := tx.Exec(ctx, "INSERT INTO "+r.schema+".product_bom(product_id,yield_rate,status,updated_at) VALUES($1,$2,'inactive',now()) ON CONFLICT (product_id) DO UPDATE SET status='inactive', updated_at=now()", productID, yieldRate); err != nil {
 		return err
 	}
 	return tx.Commit(ctx)
@@ -259,9 +265,9 @@ func (r Repository) ActivateVersion(ctx context.Context, versionID int64) error 
 		return err
 	}
 	if _, err := tx.Exec(ctx, fmt.Sprintf(`
-		INSERT INTO %s.product_bom(product_id,yield_rate,updated_at)
-		VALUES($1,$2,now())
-		ON CONFLICT (product_id) DO UPDATE SET yield_rate=excluded.yield_rate, updated_at=now()
+		INSERT INTO %s.product_bom(product_id,yield_rate,status,updated_at)
+		VALUES($1,$2,'active',now())
+		ON CONFLICT (product_id) DO UPDATE SET yield_rate=excluded.yield_rate, status='active', updated_at=now()
 	`, r.schema), productID, yieldRate); err != nil {
 		return err
 	}
