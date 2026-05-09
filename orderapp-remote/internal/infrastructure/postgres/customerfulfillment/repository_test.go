@@ -9,6 +9,7 @@ import (
 	"time"
 
 	app "orderapp/internal/application/customerfulfillment"
+	postgresauthz "orderapp/internal/infrastructure/postgres/authz"
 	postgrescore "orderapp/internal/infrastructure/postgres/core"
 	postgrescustomerportal "orderapp/internal/infrastructure/postgres/customerportal"
 
@@ -444,6 +445,40 @@ func TestCreateSettlementAggregatesUnsettledFees(t *testing.T) {
 	assertCustomerFulfillmentCount(t, pool, schema, "customer_fee_items", "customer_id=$1 AND settlement_batch_id=0", customerID, 1)
 }
 
+func TestUpsertCustomerERPBindingGrantsAppliedTemplateRole(t *testing.T) {
+	ctx := context.Background()
+	pool, schema := newCustomerFulfillmentTestDB(t)
+	repo := NewRepository(pool, schema)
+
+	var customerID, employeeID int64
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`INSERT INTO %s.customers(name) VALUES('客户A') RETURNING id`, schema)).Scan(&customerID); err != nil {
+		t.Fatalf("insert customer: %v", err)
+	}
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`INSERT INTO %s.company_employees(name, active) VALUES('客户A账号', true) RETURNING id`, schema)).Scan(&employeeID); err != nil {
+		t.Fatalf("insert employee: %v", err)
+	}
+	if _, err := pool.Exec(ctx, fmt.Sprintf(`
+		INSERT INTO %s.customer_portal_profiles(customer_id, capability_template_key)
+		VALUES($1,'public_sku_direct_ship')
+	`, schema), customerID); err != nil {
+		t.Fatalf("insert portal profile: %v", err)
+	}
+	got, err := repo.UpsertCustomerERPBinding(ctx, app.UpsertCustomerERPBindingCommand{
+		CustomerID: customerID,
+		EmployeeID: employeeID,
+		Role:       "customer",
+		Status:     "active",
+		Actor:      "Codex",
+	})
+	if err != nil {
+		t.Fatalf("UpsertCustomerERPBinding: %v", err)
+	}
+	if got.CustomerID != customerID || got.EmployeeID != employeeID || got.EmployeeName != "客户A账号" {
+		t.Fatalf("binding=%+v", got)
+	}
+	assertCustomerFulfillmentCount(t, pool, schema, "employee_roles", "employee_id=$1 AND role_code='customer_direct_ship_customer'", employeeID, 1)
+}
+
 func assertCustomerFulfillmentCount(t *testing.T, pool *pgxpool.Pool, schema, table, where string, customerID int64, want int) {
 	t.Helper()
 	args := []any{}
@@ -484,6 +519,9 @@ func newCustomerFulfillmentTestDB(t *testing.T) (*pgxpool.Pool, string) {
 	})
 	if err := postgrescore.EnsureSchema(ctx, pool, schema); err != nil {
 		t.Fatalf("core.EnsureSchema: %v", err)
+	}
+	if err := postgresauthz.EnsureSchema(ctx, pool, schema); err != nil {
+		t.Fatalf("authz.EnsureSchema: %v", err)
 	}
 	if err := postgrescustomerportal.EnsureSchema(ctx, pool, schema); err != nil {
 		t.Fatalf("customerportal.EnsureSchema: %v", err)

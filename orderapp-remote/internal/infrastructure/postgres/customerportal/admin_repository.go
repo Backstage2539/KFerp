@@ -29,13 +29,14 @@ func (r Repository) ListPortalAdminCustomers(ctx context.Context, query customer
 		       COALESCE(p.status,'active'),
 		       COALESCE(NULLIF(p.theme_key,''),'coffee_factory'),
 		       COALESCE(NULLIF(p.miniapp_entry_mode,''),'services'),
+		       COALESCE(p.capability_template_key,''),
 		       COUNT(b.id) FILTER (WHERE b.status='approved')::int
 		FROM %s.customers c
 		LEFT JOIN %s.customer_portal_profiles p ON p.customer_id=c.id
 		LEFT JOIN %s.customer_portal_user_bindings b ON b.customer_id=c.id
 		WHERE c.active=true
 		  AND ($1='' OR c.name ILIKE '%%' || $1 || '%%' OR c.phone ILIKE '%%' || $1 || '%%' OR c.company_name ILIKE '%%' || $1 || '%%')
-		GROUP BY c.id, c.name, c.phone, c.company_name, p.display_name, p.processing_warehouse_code, p.default_sender_id, p.enabled, p.status, p.theme_key, p.miniapp_entry_mode
+		GROUP BY c.id, c.name, c.phone, c.company_name, p.display_name, p.processing_warehouse_code, p.default_sender_id, p.enabled, p.status, p.theme_key, p.miniapp_entry_mode, p.capability_template_key
 		ORDER BY c.name, c.id
 		LIMIT $2
 	`, r.schema, r.schema, r.schema), q, limit)
@@ -46,7 +47,7 @@ func (r Repository) ListPortalAdminCustomers(ctx context.Context, query customer
 	out := make([]customerportalapp.PortalAdminCustomer, 0)
 	for rows.Next() {
 		var row customerportalapp.PortalAdminCustomer
-		if err := rows.Scan(&row.ID, &row.Name, &row.Phone, &row.CompanyName, &row.DisplayName, &row.ProcessingWarehouseCode, &row.DefaultSenderID, &row.PortalEnabled, &row.PortalStatus, &row.ThemeKey, &row.MiniappEntryMode, &row.BindingCount); err != nil {
+		if err := rows.Scan(&row.ID, &row.Name, &row.Phone, &row.CompanyName, &row.DisplayName, &row.ProcessingWarehouseCode, &row.DefaultSenderID, &row.PortalEnabled, &row.PortalStatus, &row.ThemeKey, &row.MiniappEntryMode, &row.CapabilityTemplateKey, &row.BindingCount); err != nil {
 			return nil, err
 		}
 		row.ThemeKey = customerportalapp.NormalizePortalThemeKey(row.ThemeKey)
@@ -95,8 +96,8 @@ func (r Repository) UpdatePortalVisibility(ctx context.Context, cmd customerport
 		warehouseCode = defaultProcessingWarehouseCode(cmd.CustomerID)
 	}
 	if _, err := tx.Exec(ctx, fmt.Sprintf(`
-		INSERT INTO %s.customer_portal_profiles(customer_id, display_name, processing_warehouse_code, default_sender_id, enabled, status, theme_key, miniapp_entry_mode, updated_at, updated_by)
-		VALUES($1,$2,$3,$4,$5,'active',$6,$7,now(),$8)
+		INSERT INTO %s.customer_portal_profiles(customer_id, display_name, processing_warehouse_code, default_sender_id, enabled, status, theme_key, miniapp_entry_mode, capability_template_key, updated_at, updated_by)
+		VALUES($1,$2,$3,$4,$5,'active',$6,$7,$8,now(),$9)
 		ON CONFLICT(customer_id) DO UPDATE SET
 			display_name=excluded.display_name,
 			processing_warehouse_code=excluded.processing_warehouse_code,
@@ -105,9 +106,10 @@ func (r Repository) UpdatePortalVisibility(ctx context.Context, cmd customerport
 			status='active',
 			theme_key=excluded.theme_key,
 			miniapp_entry_mode=excluded.miniapp_entry_mode,
+			capability_template_key=excluded.capability_template_key,
 			updated_at=now(),
 			updated_by=excluded.updated_by
-	`, r.schema), cmd.CustomerID, strings.TrimSpace(cmd.DisplayName), warehouseCode, cmd.DefaultSenderID, cmd.Enabled, customerportalapp.NormalizePortalThemeKey(cmd.ThemeKey), customerportalapp.NormalizeMiniappEntryMode(cmd.MiniappEntryMode), strings.TrimSpace(cmd.UpdatedBy)); err != nil {
+	`, r.schema), cmd.CustomerID, strings.TrimSpace(cmd.DisplayName), warehouseCode, cmd.DefaultSenderID, cmd.Enabled, customerportalapp.NormalizePortalThemeKey(cmd.ThemeKey), customerportalapp.NormalizeMiniappEntryMode(cmd.MiniappEntryMode), customerportalapp.NormalizeCapabilityTemplateKey(cmd.CapabilityTemplateKey), strings.TrimSpace(cmd.UpdatedBy)); err != nil {
 		return customerportalapp.PortalAdminDetail{}, err
 	}
 	if warehouseCode != "" {
@@ -141,6 +143,127 @@ func (r Repository) UpdatePortalVisibility(ctx context.Context, cmd customerport
 		return customerportalapp.PortalAdminDetail{}, err
 	}
 	return r.PortalAdminDetail(ctx, cmd.CustomerID)
+}
+
+func (r Repository) ApplyCapabilityTemplate(ctx context.Context, cmd customerportalapp.ApplyCapabilityTemplateCommand) (customerportalapp.PortalAdminDetail, error) {
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return customerportalapp.PortalAdminDetail{}, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	var customerName, displayName, warehouseCode string
+	var defaultSenderID int64
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`
+		SELECT COALESCE(c.name,''),
+		       COALESCE(p.display_name,''),
+		       COALESCE(p.processing_warehouse_code,''),
+		       COALESCE(p.default_sender_id,0)
+		FROM %s.customers c
+		LEFT JOIN %s.customer_portal_profiles p ON p.customer_id=c.id
+		WHERE c.id=$1 AND c.active=true
+	`, r.schema, r.schema), cmd.CustomerID).Scan(&customerName, &displayName, &warehouseCode, &defaultSenderID); err != nil {
+		if err == pgx.ErrNoRows {
+			return customerportalapp.PortalAdminDetail{}, customerportalapp.ErrPortalCustomerNotFound
+		}
+		return customerportalapp.PortalAdminDetail{}, err
+	}
+
+	if warehouseCode == "" && capabilityEnabled(cmd.Template.Capabilities, customerportalapp.CapabilityProcessing) {
+		warehouseCode = defaultProcessingWarehouseCode(cmd.CustomerID)
+	}
+	displayName = firstNonEmpty(displayName, customerName)
+	if _, err := tx.Exec(ctx, fmt.Sprintf(`
+		INSERT INTO %s.customer_portal_profiles(customer_id, display_name, processing_warehouse_code, default_sender_id, enabled, status, theme_key, miniapp_entry_mode, capability_template_key, updated_at, updated_by)
+		VALUES($1,$2,$3,$4,true,'active',$5,$6,$7,now(),$8)
+		ON CONFLICT(customer_id) DO UPDATE SET
+			display_name=excluded.display_name,
+			processing_warehouse_code=excluded.processing_warehouse_code,
+			default_sender_id=excluded.default_sender_id,
+			enabled=true,
+			status='active',
+			theme_key=excluded.theme_key,
+			miniapp_entry_mode=excluded.miniapp_entry_mode,
+			capability_template_key=excluded.capability_template_key,
+			updated_at=now(),
+			updated_by=excluded.updated_by
+	`, r.schema), cmd.CustomerID, displayName, warehouseCode, defaultSenderID, customerportalapp.NormalizePortalThemeKey(cmd.Template.ThemeKey), customerportalapp.NormalizeMiniappEntryMode(cmd.Template.MiniappEntryMode), cmd.Template.Key, strings.TrimSpace(cmd.UpdatedBy)); err != nil {
+		return customerportalapp.PortalAdminDetail{}, err
+	}
+	if warehouseCode != "" && capabilityEnabled(cmd.Template.Capabilities, customerportalapp.CapabilityProcessing) {
+		if err := r.ensureProcessingWarehouseTx(ctx, tx, warehouseCode, displayName); err != nil {
+			return customerportalapp.PortalAdminDetail{}, err
+		}
+	}
+	for _, capability := range cmd.Template.Capabilities {
+		raw, err := json.Marshal(map[string]any{})
+		if err != nil {
+			return customerportalapp.PortalAdminDetail{}, err
+		}
+		if capability.Config != nil {
+			raw, err = json.Marshal(capability.Config)
+			if err != nil {
+				return customerportalapp.PortalAdminDetail{}, err
+			}
+		}
+		if _, err := tx.Exec(ctx, fmt.Sprintf(`
+			INSERT INTO %s.customer_service_capabilities(customer_id, capability_code, enabled, config_json, updated_at)
+			VALUES($1,$2,$3,$4::jsonb,now())
+			ON CONFLICT(customer_id, capability_code) DO UPDATE SET
+				enabled=excluded.enabled,
+				config_json=excluded.config_json,
+				updated_at=now()
+		`, r.schema), cmd.CustomerID, capability.Code, capability.Enabled, string(raw)); err != nil {
+			return customerportalapp.PortalAdminDetail{}, err
+		}
+	}
+	if err := r.grantTemplateERPRolesTx(ctx, tx, cmd.CustomerID, cmd.Template); err != nil {
+		return customerportalapp.PortalAdminDetail{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return customerportalapp.PortalAdminDetail{}, err
+	}
+	return r.PortalAdminDetail(ctx, cmd.CustomerID)
+}
+
+func (r Repository) grantTemplateERPRolesTx(ctx context.Context, tx pgx.Tx, customerID int64, template customerportalapp.CapabilityTemplate) error {
+	roleCodes := make([]string, 0, len(template.ERPRoleCodes))
+	seen := map[string]bool{}
+	for _, roleCode := range template.ERPRoleCodes {
+		roleCode = strings.TrimSpace(roleCode)
+		if roleCode == "" || seen[roleCode] {
+			continue
+		}
+		seen[roleCode] = true
+		roleCodes = append(roleCodes, roleCode)
+	}
+	if len(roleCodes) == 0 {
+		return nil
+	}
+	var hasAuthRoles, hasEmployeeRoles, hasBindings bool
+	if err := tx.QueryRow(ctx, `SELECT to_regclass($1) IS NOT NULL, to_regclass($2) IS NOT NULL, to_regclass($3) IS NOT NULL`,
+		fmt.Sprintf("%s.auth_roles", r.schema),
+		fmt.Sprintf("%s.employee_roles", r.schema),
+		fmt.Sprintf("%s.customer_erp_user_bindings", r.schema),
+	).Scan(&hasAuthRoles, &hasEmployeeRoles, &hasBindings); err != nil {
+		return err
+	}
+	if !hasAuthRoles || !hasEmployeeRoles || !hasBindings {
+		return nil
+	}
+	for _, roleCode := range roleCodes {
+		if _, err := tx.Exec(ctx, fmt.Sprintf(`
+			INSERT INTO %s.employee_roles(employee_id, role_code)
+			SELECT b.employee_id, r.code
+			FROM %s.customer_erp_user_bindings b
+			JOIN %s.auth_roles r ON r.code=$2
+			WHERE b.customer_id=$1 AND b.status='active'
+			ON CONFLICT DO NOTHING
+		`, r.schema, r.schema, r.schema), customerID, roleCode); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func capabilityEnabled(rows []customerportalapp.CapabilityOption, code string) bool {
@@ -206,11 +329,12 @@ func (r Repository) portalAdminCustomer(ctx context.Context, customerID int64) (
 		       COALESCE(p.status,'active'),
 		       COALESCE(NULLIF(p.theme_key,''),'coffee_factory'),
 		       COALESCE(NULLIF(p.miniapp_entry_mode,''),'services'),
+		       COALESCE(p.capability_template_key,''),
 		       COALESCE((SELECT COUNT(*)::int FROM %s.customer_portal_user_bindings b WHERE b.customer_id=c.id AND b.status='approved'),0)
 		FROM %s.customers c
 		LEFT JOIN %s.customer_portal_profiles p ON p.customer_id=c.id
 		WHERE c.id=$1
-	`, r.schema, r.schema, r.schema), customerID).Scan(&row.ID, &row.Name, &row.Phone, &row.CompanyName, &row.DisplayName, &row.ProcessingWarehouseCode, &row.DefaultSenderID, &row.PortalEnabled, &row.PortalStatus, &row.ThemeKey, &row.MiniappEntryMode, &row.BindingCount)
+	`, r.schema, r.schema, r.schema), customerID).Scan(&row.ID, &row.Name, &row.Phone, &row.CompanyName, &row.DisplayName, &row.ProcessingWarehouseCode, &row.DefaultSenderID, &row.PortalEnabled, &row.PortalStatus, &row.ThemeKey, &row.MiniappEntryMode, &row.CapabilityTemplateKey, &row.BindingCount)
 	if err == nil {
 		row.ThemeKey = customerportalapp.NormalizePortalThemeKey(row.ThemeKey)
 		row.MiniappEntryMode = customerportalapp.NormalizeMiniappEntryMode(row.MiniappEntryMode)

@@ -94,3 +94,22 @@ func TestServiceDelegatesCatalogOperations(t *testing.T) {
 		t.Fatalf("ProductSettings() = %+v, %v", settings, err)
 	}
 }
+
+func TestCreateCustomProductAcceptsPublicSKUAliasType(t *testing.T) {
+	svc := NewService(&fakeRepo{})
+	got, err := svc.CreateCustomProduct(context.Background(), CreateCustomProductCommand{
+		CustomerID:     3,
+		BaseProductID:  7,
+		Name:           "客户A-自定义货品名",
+		RoastLevel:     "中深烘",
+		CustomType:     "public_sku_alias",
+		CopyPriceTiers: true,
+		CopyBOM:        true,
+	})
+	if err != nil {
+		t.Fatalf("CreateCustomProduct() err=%v", err)
+	}
+	if got.CustomType != "public_sku_alias" || got.CustomerID != 3 || got.BaseProductID != 7 {
+		t.Fatalf("custom product=%+v", got)
+	}
+}

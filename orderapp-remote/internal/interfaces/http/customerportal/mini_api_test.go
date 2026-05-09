@@ -24,6 +24,7 @@ type fakeService struct {
 	customers    []customerportalapp.PortalAdminCustomer
 	detail       customerportalapp.PortalAdminDetail
 	saveCmd      *customerportalapp.UpdatePortalVisibilityCommand
+	templateCmd  *customerportalapp.ApplyCapabilityTemplateCommand
 	mallRows     []customerportalapp.MallProduct
 	mallOptions  []customerportalapp.MallProductOption
 	mallSaveCmd  *customerportalapp.SaveMallProductCommand
@@ -96,6 +97,23 @@ func (s fakeService) UpdatePortalVisibility(_ context.Context, cmd customerporta
 	}
 	if s.saveCmd != nil {
 		*s.saveCmd = cmd
+	}
+	return s.detail, nil
+}
+
+func (s fakeService) ListCapabilityTemplates(context.Context) ([]customerportalapp.CapabilityTemplate, error) {
+	if s.err != nil {
+		return nil, s.err
+	}
+	return customerportalapp.DefaultCapabilityTemplates(), nil
+}
+
+func (s fakeService) ApplyCapabilityTemplate(_ context.Context, cmd customerportalapp.ApplyCapabilityTemplateCommand) (customerportalapp.PortalAdminDetail, error) {
+	if s.err != nil {
+		return customerportalapp.PortalAdminDetail{}, s.err
+	}
+	if s.templateCmd != nil {
+		*s.templateCmd = cmd
 	}
 	return s.detail, nil
 }
@@ -513,6 +531,41 @@ func TestPortalAdminVisibilityAPIsExposeAndSaveCustomerCapabilities(t *testing.T
 	}
 	if saveCmd.MiniappEntryMode != customerportalapp.MiniappEntryModeMall {
 		t.Fatalf("save miniapp_entry_mode=%q, want mall", saveCmd.MiniappEntryMode)
+	}
+}
+
+func TestPortalAdminCapabilityTemplateAPIsExposeAndApply(t *testing.T) {
+	var templateCmd customerportalapp.ApplyCapabilityTemplateCommand
+	e := echo.New()
+	RegisterRoutes(e, Dependencies{CustomerPortal: fakeService{
+		templateCmd: &templateCmd,
+		detail: customerportalapp.PortalAdminDetail{
+			Customer: customerportalapp.PortalAdminCustomer{ID: 147, Name: "客户A", CapabilityTemplateKey: customerportalapp.CapabilityTemplatePublicSKUDirectShip},
+			Capabilities: []customerportalapp.CapabilityOption{
+				{Code: customerportalapp.CapabilityDirectShip, Enabled: true},
+			},
+		},
+	}})
+
+	listReq := httptest.NewRequest(http.MethodGet, "/api/customer-portal/admin/capability-templates", nil)
+	listRec := httptest.NewRecorder()
+	e.ServeHTTP(listRec, listReq)
+	if listRec.Code != http.StatusOK ||
+		!strings.Contains(listRec.Body.String(), `"key":"public_sku_direct_ship"`) ||
+		!strings.Contains(listRec.Body.String(), `"threshold_lb":14`) ||
+		!strings.Contains(listRec.Body.String(), `"erp_role_codes":["customer_direct_ship_customer"]`) {
+		t.Fatalf("template list status=%d body=%s", listRec.Code, listRec.Body.String())
+	}
+
+	applyReq := httptest.NewRequest(http.MethodPost, "/api/customer-portal/admin/customers/147/capability-template", strings.NewReader(`{"template_key":"public_sku_direct_ship"}`))
+	applyReq.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	applyRec := httptest.NewRecorder()
+	e.ServeHTTP(applyRec, applyReq)
+	if applyRec.Code != http.StatusOK || !strings.Contains(applyRec.Body.String(), `"capability_template_key":"public_sku_direct_ship"`) {
+		t.Fatalf("apply status=%d body=%s", applyRec.Code, applyRec.Body.String())
+	}
+	if templateCmd.CustomerID != 147 || templateCmd.TemplateKey != customerportalapp.CapabilityTemplatePublicSKUDirectShip {
+		t.Fatalf("template command=%+v", templateCmd)
 	}
 }
 

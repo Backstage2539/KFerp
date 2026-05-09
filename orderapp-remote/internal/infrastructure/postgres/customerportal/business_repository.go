@@ -1042,7 +1042,7 @@ func (r Repository) CreateFulfillmentOrder(ctx context.Context, cmd customerport
 		unitPrice = 0
 	}
 	if unitPrice == 0 {
-		unitPrice = defaultPrice
+		unitPrice = r.portalFulfillmentUnitPriceTx(ctx, tx, cmd.CustomerID, cmd.ProductID, cmd.SpecG, cmd.Qty, defaultPrice)
 	}
 	totalAmount := unitPrice * float64(cmd.Qty)
 	shippingAmount := cmd.ShippingAmount
@@ -1111,6 +1111,99 @@ func (r Repository) CreateFulfillmentOrder(ctx context.Context, cmd customerport
 		PortalServiceCode: serviceCode,
 		SourceWarehouse:   sourceWarehouse,
 	}, nil
+}
+
+type portalDirectShipCapabilityConfig struct {
+	SmallBatchPriceRule customerportalapp.SmallBatchPriceRule `json:"small_batch_price_rule"`
+}
+
+func (r Repository) portalFulfillmentUnitPriceTx(ctx context.Context, tx pgx.Tx, customerID, productID, specG int64, qty int64, defaultPrice float64) float64 {
+	if productID <= 0 || specG <= 0 || qty <= 0 {
+		return defaultPrice
+	}
+	rule := r.portalDirectShipSmallBatchPriceRuleTx(ctx, tx, customerID)
+	if !rule.Enabled {
+		return defaultPrice
+	}
+	tierQty := qty
+	qtyLb := float64(specG*qty) / 454.0
+	if adjustedQty, ok := portalSmallBatchTierQuantity(specG, qtyLb, rule); ok {
+		tierQty = adjustedQty
+	}
+	var price float64
+	q := fmt.Sprintf(`
+		SELECT COALESCE(price_per_unit, price_per_lb)
+		FROM %s.product_price_tiers
+		WHERE product_id=$1 AND active=true
+		  AND COALESCE(NULLIF(spec_g,0),454)=$2
+		  AND COALESCE(min_qty_units, min_qty_lb) <= $3
+		  AND (COALESCE(max_qty_units, max_qty_lb) IS NULL OR COALESCE(max_qty_units, max_qty_lb) >= $3)
+		ORDER BY COALESCE(min_qty_units, min_qty_lb) DESC
+		LIMIT 1
+	`, r.schema)
+	if err := tx.QueryRow(ctx, q, productID, specG, tierQty).Scan(&price); err == nil && price > 0 {
+		return price
+	}
+	q = fmt.Sprintf(`
+		SELECT COALESCE(price_per_unit, price_per_lb)
+		FROM %s.product_price_tiers
+		WHERE product_id=$1 AND active=true
+		  AND COALESCE(NULLIF(spec_g,0),454)=$2
+		ORDER BY COALESCE(min_qty_units, min_qty_lb) ASC
+		LIMIT 1
+	`, r.schema)
+	if err := tx.QueryRow(ctx, q, productID, specG).Scan(&price); err == nil && price > 0 {
+		return price
+	}
+	return defaultPrice
+}
+
+func (r Repository) portalDirectShipSmallBatchPriceRuleTx(ctx context.Context, tx pgx.Tx, customerID int64) customerportalapp.SmallBatchPriceRule {
+	if customerID <= 0 {
+		return customerportalapp.SmallBatchPriceRule{}
+	}
+	var raw []byte
+	err := tx.QueryRow(ctx, fmt.Sprintf(`
+		SELECT config_json
+		FROM %s.customer_service_capabilities
+		WHERE customer_id=$1 AND capability_code=$2 AND enabled=true
+	`, r.schema), customerID, customerportalapp.CapabilityDirectShip).Scan(&raw)
+	if err != nil {
+		return customerportalapp.SmallBatchPriceRule{}
+	}
+	var config portalDirectShipCapabilityConfig
+	if err := json.Unmarshal(raw, &config); err != nil {
+		return customerportalapp.SmallBatchPriceRule{}
+	}
+	return portalNormalizeSmallBatchPriceRule(config.SmallBatchPriceRule)
+}
+
+func portalNormalizeSmallBatchPriceRule(rule customerportalapp.SmallBatchPriceRule) customerportalapp.SmallBatchPriceRule {
+	if !rule.Enabled {
+		return customerportalapp.SmallBatchPriceRule{}
+	}
+	if rule.ThresholdLB <= 0 {
+		rule.ThresholdLB = 14
+	}
+	if rule.TierMinLB <= 0 {
+		rule.TierMinLB = 15
+	}
+	if rule.TierMaxLB <= 0 {
+		rule.TierMaxLB = 28
+	}
+	return rule
+}
+
+func portalSmallBatchTierQuantity(specG int64, qtyLb float64, rule customerportalapp.SmallBatchPriceRule) (int64, bool) {
+	rule = portalNormalizeSmallBatchPriceRule(rule)
+	if !rule.Enabled || specG <= 0 || qtyLb <= 0 || qtyLb >= rule.ThresholdLB {
+		return 0, false
+	}
+	targetUnits := int64(math.Ceil(rule.TierMinLB * 454.0 / float64(specG)))
+	if targetUnits < 1 {
+		targetUnits = 1
+	}
+	return targetUnits, true
 }
 
 func (r Repository) processingWarehouseForCustomerTx(ctx context.Context, tx pgx.Tx, customerID int64) (string, error) {
