@@ -6,7 +6,7 @@
         <div class="actions">
           <button class="secondary" type="button" :disabled="loading" @click="loadBeanList">刷新</button>
           <button class="secondary" type="button" @click="settingsOpen = true">参数设置</button>
-          <button class="primary" type="button" :disabled="saving || loading || !items.length" @click="createRun">保存试算</button>
+          <button class="primary" type="button" :disabled="saving || loading || !visibleCostingItems.length" @click="createRun">保存试算</button>
           <button class="danger" type="button" :disabled="publishing || !runId" @click="publishRun">发布价格</button>
         </div>
       </div>
@@ -16,7 +16,7 @@
       <div class="metrics">
         <div>
           <span>商品数</span>
-          <strong>{{ items.length }}</strong>
+          <strong>{{ visibleCostingItems.length }}</strong>
         </div>
         <div>
           <span>烘焙率</span>
@@ -53,7 +53,7 @@
             </tr>
           </thead>
           <tbody>
-            <tr v-for="item in items" :key="item.product_id || item.name">
+            <tr v-for="item in visibleCostingItems" :key="item.product_id || item.name">
               <td class="name">
                 <div>{{ item.name }}</div>
                 <div v-if="itemWarnings(item).length" class="item-warning-list">
@@ -78,7 +78,7 @@
               </td>
               <td>{{ price(first(item.wholesale_drip_bag_prices)) }}</td>
             </tr>
-            <tr v-if="!loading && !items.length">
+            <tr v-if="!loading && !visibleCostingItems.length">
               <td colspan="6" class="muted empty">暂无可试算商品</td>
             </tr>
           </tbody>
@@ -92,7 +92,7 @@
           <div class="section-title">商用批发豆单</div>
           <p class="muted">生成豆单前可选择产品、分级、样式、标签和标红内容。</p>
         </div>
-        <button class="primary" type="button" :disabled="loading || !items.length" @click="openBeanListDrawer('commercial')">生成豆单</button>
+        <button class="primary" type="button" :disabled="loading || !visibleCostingItems.length" @click="openBeanListDrawer('commercial')">生成豆单</button>
       </div>
       <div class="bean-groups">
         <section v-for="group in commercialGroups" :key="group.category" class="bean-group">
@@ -601,6 +601,11 @@ import {
   splitHighlightedText,
 } from '../lib/bean-list-pdf'
 
+const props = defineProps({
+  customerContextId: { type: [Number, String], default: 0 },
+  customerContextLabel: { type: String, default: '' },
+})
+
 const loading = ref(false)
 const saving = ref(false)
 const publishing = ref(false)
@@ -651,6 +656,9 @@ const pdfOptions = ref({
   changelog: '',
 })
 
+const normalizedCustomerContextID = computed(() => Number(props.customerContextId || 0))
+const activeCostingScope = computed(() => normalizedCustomerContextID.value > 0 ? 'customer' : 'official')
+const visibleCostingItems = computed(() => filterBeanListItemsForScope(items.value, activeCostingScope.value, normalizedCustomerContextID.value))
 const commercialGroups = computed(() => groupBeanItems('commercial_bean_list'))
 const retailGroups = computed(() => groupBeanItems('retail_bean_list'))
 const pdfTheme = computed(() => sanitizeBeanListPdfTheme(pdfOptions.value))
@@ -696,7 +704,7 @@ const publicBeanListURL = computed(() => {
   if (publicationScope.value !== 'official' || !currentBeanListPublication.value) return ''
   return `${window.location.origin}/public/bean-list/${pdfTheme.value.listType}`
 })
-const inactiveBomWarningCount = computed(() => items.value.filter((item) => itemWarnings(item).length).length)
+const inactiveBomWarningCount = computed(() => visibleCostingItems.value.filter((item) => itemWarnings(item).length).length)
 const pdfPageStyle = computed(() => {
   const bg = pdfTheme.value.backgroundImage
   return {
@@ -733,7 +741,8 @@ watch(selectedBeanListCustomerID, () => {
     customer: { commercial: [], retail: [] },
   }
   selectedCopyPublicationID.value = ''
-  initializePdfDefaults()
+  resetPdfSelectionDefaults()
+  initializePdfDefaultsIfItemsLoaded()
   if (publicationScope.value === 'customer' && selectedBeanListCustomerID.value) {
     loadBeanListPublications(pdfTheme.value.listType, 'customer')
   }
@@ -742,8 +751,34 @@ watch(selectedBeanListCustomerID, () => {
 watch(isBeanListAdmin, (canPublish) => {
   if (actorLoaded.value && !canPublish && publicationScope.value !== 'mine') {
     publicationScope.value = 'mine'
+    return
   }
+  syncCustomerContext()
 })
+
+watch(() => props.customerContextId, syncCustomerContext, { immediate: true })
+
+function syncCustomerContext() {
+  const normalizedCustomerID = Number(props.customerContextId || 0)
+  if (normalizedCustomerID > 0) {
+    selectedBeanListCustomerID.value = normalizedCustomerID
+    if (isBeanListAdmin.value) {
+      publicationScope.value = 'customer'
+    }
+    resetPdfSelectionDefaults()
+    initializePdfDefaultsIfItemsLoaded()
+    if (publicationScope.value === 'customer') {
+      loadBeanListPublications(pdfTheme.value.listType, 'customer')
+    }
+    return
+  }
+  if (publicationScope.value === 'customer') {
+    publicationScope.value = isBeanListAdmin.value ? 'official' : 'mine'
+  }
+  selectedBeanListCustomerID.value = 0
+  resetPdfSelectionDefaults()
+  initializePdfDefaultsIfItemsLoaded()
+}
 
 function first(values) {
   return Array.isArray(values) && values.length ? Number(values[0] || 0) : 0
@@ -864,6 +899,18 @@ function publicationRows(scope, listType) {
 function initializePdfDefaults() {
   initializePdfDefaultsForType('commercial')
   initializePdfDefaultsForType('retail')
+}
+
+function initializePdfDefaultsIfItemsLoaded() {
+  if (!items.value.length) return
+  initializePdfDefaults()
+}
+
+function resetPdfSelectionDefaults() {
+  selectedProductIDsByType.value = { commercial: [], retail: [] }
+  visibleCategoryCodesByType.value = { commercial: [], retail: [] }
+  productSelectionInitialized.value = { commercial: false, retail: false }
+  categorySelectionInitialized.value = { commercial: false, retail: false }
 }
 
 function initializePdfDefaultsForType(listType) {
@@ -1047,7 +1094,7 @@ function badgeClass(badge) {
 
 function groupBeanItems(key) {
   const groups = new Map()
-  filterBeanListItemsForScope(items.value, 'official', 0)
+  visibleCostingItems.value
     .filter((item) => beanMeta(item, key).code)
     .slice()
     .sort((a, b) => compareBeanCodes(beanMeta(a, key).code, beanMeta(b, key).code))

@@ -38,12 +38,13 @@ type Product struct {
 }
 
 type ProductCategory struct {
-	ID       int64  `json:"id"`
-	ParentID int64  `json:"parent_id"`
-	Name     string `json:"name"`
-	Level    int    `json:"level"`
-	Position int    `json:"position"`
-	Number   int    `json:"number"`
+	ID         int64  `json:"id"`
+	ParentID   int64  `json:"parent_id"`
+	CustomerID int64  `json:"customer_id"`
+	Name       string `json:"name"`
+	Level      int    `json:"level"`
+	Position   int    `json:"position"`
+	Number     int    `json:"number"`
 }
 
 type ProductSettingsProduct struct {
@@ -129,11 +130,12 @@ type CreateCustomProductCommand struct {
 }
 
 type SaveProductCategoryCommand struct {
-	Actor    string
-	ID       int64
-	ParentID int64
-	Name     string
-	Position int
+	Actor      string
+	ID         int64
+	ParentID   int64
+	CustomerID int64
+	Name       string
+	Position   int
 }
 
 type MoveProductCategoryCommand struct {

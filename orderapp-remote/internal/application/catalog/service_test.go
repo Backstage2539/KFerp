@@ -47,7 +47,7 @@ func (r *fakeRepo) ListProductCategories(ctx context.Context) ([]ProductCategory
 }
 
 func (r *fakeRepo) SaveProductCategory(ctx context.Context, cmd SaveProductCategoryCommand) (ProductCategory, error) {
-	return ProductCategory{ID: 2, Name: cmd.Name, ParentID: cmd.ParentID, Position: cmd.Position}, nil
+	return ProductCategory{ID: 2, Name: cmd.Name, ParentID: cmd.ParentID, CustomerID: cmd.CustomerID, Position: cmd.Position}, nil
 }
 
 func (r *fakeRepo) MoveProductCategory(ctx context.Context, cmd MoveProductCategoryCommand) error {

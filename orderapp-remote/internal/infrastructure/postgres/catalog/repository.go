@@ -236,10 +236,10 @@ func (r Repository) CreateProduct(ctx context.Context, cmd catalogapp.CreateProd
 }
 
 func (r Repository) ListProductCategories(ctx context.Context) ([]catalogapp.ProductCategory, error) {
-	rows, err := r.pool.Query(ctx, fmt.Sprintf(`SELECT id, COALESCE(parent_id,0), name, level, position
+	rows, err := r.pool.Query(ctx, fmt.Sprintf(`SELECT id, COALESCE(parent_id,0), COALESCE(customer_id,0), name, level, position
 		FROM %s.product_categories
 		WHERE active=true
-		ORDER BY COALESCE(parent_id,0), position, id`, r.schema))
+		ORDER BY COALESCE(customer_id,0), COALESCE(parent_id,0), position, id`, r.schema))
 	if err != nil {
 		return nil, err
 	}
@@ -247,7 +247,7 @@ func (r Repository) ListProductCategories(ctx context.Context) ([]catalogapp.Pro
 	out := make([]catalogapp.ProductCategory, 0)
 	for rows.Next() {
 		var row catalogapp.ProductCategory
-		if err := rows.Scan(&row.ID, &row.ParentID, &row.Name, &row.Level, &row.Position); err != nil {
+		if err := rows.Scan(&row.ID, &row.ParentID, &row.CustomerID, &row.Name, &row.Level, &row.Position); err != nil {
 			return nil, err
 		}
 		out = append(out, row)
@@ -272,6 +272,17 @@ func (r Repository) SaveProductCategory(ctx context.Context, cmd catalogapp.Save
 	if parentID > 0 {
 		level = 2
 	}
+	customerID := cmd.CustomerID
+	if customerID < 0 {
+		customerID = 0
+	}
+	if parentID > 0 {
+		if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT COALESCE(customer_id,0)
+			FROM %s.product_categories
+			WHERE id=$1 AND active=true`, r.schema), parentID).Scan(&customerID); err != nil {
+			return catalogapp.ProductCategory{}, err
+		}
+	}
 	position := cmd.Position
 	if position <= 0 {
 		position = 9999
@@ -279,28 +290,28 @@ func (r Repository) SaveProductCategory(ctx context.Context, cmd catalogapp.Save
 	var row catalogapp.ProductCategory
 	if cmd.ID > 0 {
 		if err := tx.QueryRow(ctx, fmt.Sprintf(`UPDATE %s.product_categories
-			SET parent_id=NULLIF($2,0), name=$3, level=$4, position=$5, updated_at=now()
+			SET parent_id=NULLIF($2,0), name=$3, level=$4, position=$5, customer_id=$6, updated_at=now()
 			WHERE id=$1 AND active=true
-			RETURNING id, COALESCE(parent_id,0), name, level, position`, r.schema), cmd.ID, parentID, cmd.Name, level, position).Scan(&row.ID, &row.ParentID, &row.Name, &row.Level, &row.Position); err != nil {
+			RETURNING id, COALESCE(parent_id,0), COALESCE(customer_id,0), name, level, position`, r.schema), cmd.ID, parentID, cmd.Name, level, position, customerID).Scan(&row.ID, &row.ParentID, &row.CustomerID, &row.Name, &row.Level, &row.Position); err != nil {
 			return catalogapp.ProductCategory{}, err
 		}
 	} else {
-		if err := tx.QueryRow(ctx, fmt.Sprintf(`INSERT INTO %s.product_categories(parent_id,name,level,position)
-			VALUES(NULLIF($1,0),$2,$3,$4)
-			RETURNING id, COALESCE(parent_id,0), name, level, position`, r.schema), parentID, cmd.Name, level, position).Scan(&row.ID, &row.ParentID, &row.Name, &row.Level, &row.Position); err != nil {
+		if err := tx.QueryRow(ctx, fmt.Sprintf(`INSERT INTO %s.product_categories(parent_id,customer_id,name,level,position)
+			VALUES(NULLIF($1,0),$2,$3,$4,$5)
+			RETURNING id, COALESCE(parent_id,0), COALESCE(customer_id,0), name, level, position`, r.schema), parentID, customerID, cmd.Name, level, position).Scan(&row.ID, &row.ParentID, &row.CustomerID, &row.Name, &row.Level, &row.Position); err != nil {
 			return catalogapp.ProductCategory{}, err
 		}
 	}
-	if err := normalizeCategoryPositions(ctx, tx, r.schema, parentID); err != nil {
+	if err := normalizeCategoryPositions(ctx, tx, r.schema, parentID, customerID); err != nil {
 		return catalogapp.ProductCategory{}, err
 	}
-	if err := placeCategoryPosition(ctx, tx, r.schema, parentID, row.ID, position); err != nil {
+	if err := placeCategoryPosition(ctx, tx, r.schema, parentID, customerID, row.ID, position); err != nil {
 		return catalogapp.ProductCategory{}, err
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return catalogapp.ProductCategory{}, err
 	}
-	postgresinfra.AuditInsert(ctx, r.pool, r.schema, cmd.Actor, "product_category", &row.ID, "update", postgresinfra.StrPtr("category"), nil, postgresinfra.StrPtr(row.Name), postgresinfra.AuditMeta{"parent_id": parentID, "position": position})
+	postgresinfra.AuditInsert(ctx, r.pool, r.schema, cmd.Actor, "product_category", &row.ID, "update", postgresinfra.StrPtr("category"), nil, postgresinfra.StrPtr(row.Name), postgresinfra.AuditMeta{"parent_id": parentID, "customer_id": customerID, "position": position})
 	return row, nil
 }
 
@@ -316,8 +327,17 @@ func (r Repository) MoveProductCategory(ctx context.Context, cmd catalogapp.Move
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 	var oldParent int64
-	if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT COALESCE(parent_id,0) FROM %s.product_categories WHERE id=$1`, r.schema), cmd.ID).Scan(&oldParent); err != nil {
+	var customerID int64
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT COALESCE(parent_id,0), COALESCE(customer_id,0) FROM %s.product_categories WHERE id=$1`, r.schema), cmd.ID).Scan(&oldParent, &customerID); err != nil {
 		return err
+	}
+	oldCustomerID := customerID
+	if cmd.ParentID > 0 {
+		if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT COALESCE(customer_id,0)
+			FROM %s.product_categories
+			WHERE id=$1 AND active=true`, r.schema), cmd.ParentID).Scan(&customerID); err != nil {
+			return err
+		}
 	}
 	level := 1
 	if cmd.ParentID > 0 {
@@ -328,22 +348,22 @@ func (r Repository) MoveProductCategory(ctx context.Context, cmd catalogapp.Move
 		position = 9999
 	}
 	if _, err := tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.product_categories
-		SET parent_id=NULLIF($2,0), level=$3, position=$4, updated_at=now()
-		WHERE id=$1 AND active=true`, r.schema), cmd.ID, cmd.ParentID, level, position); err != nil {
+		SET parent_id=NULLIF($2,0), level=$3, position=$4, customer_id=$5, updated_at=now()
+		WHERE id=$1 AND active=true`, r.schema), cmd.ID, cmd.ParentID, level, position, customerID); err != nil {
 		return err
 	}
-	if oldParent != cmd.ParentID {
-		if err := normalizeCategoryPositions(ctx, tx, r.schema, oldParent); err != nil {
+	if oldParent != cmd.ParentID || oldCustomerID != customerID {
+		if err := normalizeCategoryPositions(ctx, tx, r.schema, oldParent, oldCustomerID); err != nil {
 			return err
 		}
 	}
-	if err := placeCategoryPosition(ctx, tx, r.schema, cmd.ParentID, cmd.ID, position); err != nil {
+	if err := placeCategoryPosition(ctx, tx, r.schema, cmd.ParentID, customerID, cmd.ID, position); err != nil {
 		return err
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return err
 	}
-	postgresinfra.AuditInsert(ctx, r.pool, r.schema, cmd.Actor, "product_category", &cmd.ID, "move", postgresinfra.StrPtr("parent_position"), postgresinfra.StrPtr(fmt.Sprintf("%d", oldParent)), postgresinfra.StrPtr(fmt.Sprintf("%d:%d", cmd.ParentID, position)), nil)
+	postgresinfra.AuditInsert(ctx, r.pool, r.schema, cmd.Actor, "product_category", &cmd.ID, "move", postgresinfra.StrPtr("parent_position"), postgresinfra.StrPtr(fmt.Sprintf("%d", oldParent)), postgresinfra.StrPtr(fmt.Sprintf("%d:%d", cmd.ParentID, position)), postgresinfra.AuditMeta{"customer_id": customerID})
 	return nil
 }
 
@@ -360,9 +380,10 @@ func (r Repository) DeleteProductCategory(ctx context.Context, cmd catalogapp.De
 	defer func() { _ = tx.Rollback(ctx) }()
 
 	var parentID int64
-	if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT COALESCE(parent_id,0)
+	var customerID int64
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT COALESCE(parent_id,0), COALESCE(customer_id,0)
 		FROM %s.product_categories
-		WHERE id=$1 AND active=true`, r.schema), cmd.ID).Scan(&parentID); err != nil {
+		WHERE id=$1 AND active=true`, r.schema), cmd.ID).Scan(&parentID, &customerID); err != nil {
 		return err
 	}
 
@@ -402,19 +423,19 @@ func (r Repository) DeleteProductCategory(ctx context.Context, cmd catalogapp.De
 		return err
 	}
 	if parentID == 0 {
-		if err := normalizeCategoryPositions(ctx, tx, r.schema, 0); err != nil {
+		if err := normalizeCategoryPositions(ctx, tx, r.schema, 0, customerID); err != nil {
 			return err
 		}
-	} else if err := normalizeCategoryPositions(ctx, tx, r.schema, parentID); err != nil {
+	} else if err := normalizeCategoryPositions(ctx, tx, r.schema, parentID, customerID); err != nil {
 		return err
 	}
-	if err := normalizeProductPositions(ctx, tx, r.schema, 0); err != nil {
+	if err := normalizeProductPositions(ctx, tx, r.schema, 0, customerID); err != nil {
 		return err
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return err
 	}
-	postgresinfra.AuditInsert(ctx, r.pool, r.schema, cmd.Actor, "product_category", &cmd.ID, "delete", postgresinfra.StrPtr("category"), postgresinfra.StrPtr(fmt.Sprintf("%d", parentID)), nil, postgresinfra.AuditMeta{"deleted_category_ids": ids})
+	postgresinfra.AuditInsert(ctx, r.pool, r.schema, cmd.Actor, "product_category", &cmd.ID, "delete", postgresinfra.StrPtr("category"), postgresinfra.StrPtr(fmt.Sprintf("%d", parentID)), nil, postgresinfra.AuditMeta{"customer_id": customerID, "deleted_category_ids": ids})
 	return nil
 }
 
@@ -430,8 +451,20 @@ func (r Repository) AssignProductCategory(ctx context.Context, cmd catalogapp.As
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 	var oldCategory int64
-	if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT COALESCE(product_category_id,0) FROM %s.products WHERE id=$1`, r.schema), cmd.ProductID).Scan(&oldCategory); err != nil {
+	var productCustomerID int64
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT COALESCE(product_category_id,0), COALESCE(customer_id,0) FROM %s.products WHERE id=$1`, r.schema), cmd.ProductID).Scan(&oldCategory, &productCustomerID); err != nil {
 		return err
+	}
+	if cmd.CategoryID > 0 {
+		var categoryCustomerID int64
+		if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT COALESCE(customer_id,0)
+			FROM %s.product_categories
+			WHERE id=$1 AND active=true`, r.schema), cmd.CategoryID).Scan(&categoryCustomerID); err != nil {
+			return err
+		}
+		if categoryCustomerID != productCustomerID {
+			return fmt.Errorf("category customer mismatch")
+		}
 	}
 	position := cmd.Position
 	if position <= 0 {
@@ -442,11 +475,11 @@ func (r Repository) AssignProductCategory(ctx context.Context, cmd catalogapp.As
 		WHERE id=$1`, r.schema), cmd.ProductID, cmd.CategoryID, position); err != nil {
 		return err
 	}
-	if err := normalizeProductPositions(ctx, tx, r.schema, oldCategory); err != nil {
+	if err := normalizeProductPositions(ctx, tx, r.schema, oldCategory, productCustomerID); err != nil {
 		return err
 	}
 	if oldCategory != cmd.CategoryID {
-		if err := normalizeProductPositions(ctx, tx, r.schema, cmd.CategoryID); err != nil {
+		if err := normalizeProductPositions(ctx, tx, r.schema, cmd.CategoryID, productCustomerID); err != nil {
 			return err
 		}
 	}
@@ -478,14 +511,12 @@ func (r Repository) CreateCustomProduct(ctx context.Context, cmd catalogapp.Crea
 	}
 
 	var base struct {
-		Name                    string
-		DefaultPrice            float64
-		RetailPrice100G         float64
-		RetailPrice200G         float64
-		RetailPrice227G         float64
-		RetailPrice250G         float64
-		ProductCategoryID       int64
-		ProductCategoryPosition int
+		Name            string
+		DefaultPrice    float64
+		RetailPrice100G float64
+		RetailPrice200G float64
+		RetailPrice227G float64
+		RetailPrice250G float64
 	}
 	if err := tx.QueryRow(ctx, fmt.Sprintf(`
 		SELECT name,
@@ -493,12 +524,10 @@ func (r Repository) CreateCustomProduct(ctx context.Context, cmd catalogapp.Crea
 		       COALESCE(retail_price_100g,0),
 		       COALESCE(retail_price_200g,0),
 		       COALESCE(retail_price_227g,default_price,0),
-		       COALESCE(retail_price_250g,0),
-		       COALESCE(product_category_id,0),
-		       COALESCE(product_category_position,0)
+		       COALESCE(retail_price_250g,0)
 		FROM %s.products
 		WHERE id=$1 AND active=true
-	`, r.schema), cmd.BaseProductID).Scan(&base.Name, &base.DefaultPrice, &base.RetailPrice100G, &base.RetailPrice200G, &base.RetailPrice227G, &base.RetailPrice250G, &base.ProductCategoryID, &base.ProductCategoryPosition); err != nil {
+	`, r.schema), cmd.BaseProductID).Scan(&base.Name, &base.DefaultPrice, &base.RetailPrice100G, &base.RetailPrice200G, &base.RetailPrice227G, &base.RetailPrice250G); err != nil {
 		return catalogapp.Product{}, fmt.Errorf("base product not found")
 	}
 
@@ -515,7 +544,7 @@ func (r Repository) CreateCustomProduct(ctx context.Context, cmd catalogapp.Crea
 		)
 		VALUES($1,$2,$3,true,$4,$5,$6,$7,NULLIF($8,0),$9,$10,$11,'customer_only',$12,now())
 		RETURNING id
-	`, r.schema), name, roastLevel, base.DefaultPrice, base.RetailPrice100G, base.RetailPrice200G, base.RetailPrice227G, base.RetailPrice250G, base.ProductCategoryID, base.ProductCategoryPosition, cmd.CustomerID, cmd.BaseProductID, strings.TrimSpace(cmd.CustomType)).Scan(&productID); err != nil {
+	`, r.schema), name, roastLevel, base.DefaultPrice, base.RetailPrice100G, base.RetailPrice200G, base.RetailPrice227G, base.RetailPrice250G, 0, 0, cmd.CustomerID, cmd.BaseProductID, strings.TrimSpace(cmd.CustomType)).Scan(&productID); err != nil {
 		return catalogapp.Product{}, err
 	}
 
@@ -615,18 +644,18 @@ func catalogProductsFromOptions(products []postgresinfra.ProductOption) []catalo
 	return out
 }
 
-func normalizeCategoryPositions(ctx context.Context, tx pgx.Tx, schema string, parentID int64) error {
-	return writeCategoryPositions(ctx, tx, schema, parentID, 0, 0)
+func normalizeCategoryPositions(ctx context.Context, tx pgx.Tx, schema string, parentID, customerID int64) error {
+	return writeCategoryPositions(ctx, tx, schema, parentID, customerID, 0, 0)
 }
 
-func placeCategoryPosition(ctx context.Context, tx pgx.Tx, schema string, parentID, movedID int64, position int) error {
-	return writeCategoryPositions(ctx, tx, schema, parentID, movedID, position)
+func placeCategoryPosition(ctx context.Context, tx pgx.Tx, schema string, parentID, customerID, movedID int64, position int) error {
+	return writeCategoryPositions(ctx, tx, schema, parentID, customerID, movedID, position)
 }
 
-func writeCategoryPositions(ctx context.Context, tx pgx.Tx, schema string, parentID, movedID int64, position int) error {
+func writeCategoryPositions(ctx context.Context, tx pgx.Tx, schema string, parentID, customerID, movedID int64, position int) error {
 	rows, err := tx.Query(ctx, fmt.Sprintf(`SELECT id FROM %s.product_categories
-		WHERE active=true AND COALESCE(parent_id,0)=$1
-		ORDER BY position, id`, schema), parentID)
+		WHERE active=true AND COALESCE(parent_id,0)=$1 AND ($1<>0 OR COALESCE(customer_id,0)=$2)
+		ORDER BY position, id`, schema), parentID, customerID)
 	if err != nil {
 		return err
 	}
@@ -668,10 +697,10 @@ func insertIDAtPosition(ids []int64, movedID int64, position int) []int64 {
 	return out
 }
 
-func normalizeProductPositions(ctx context.Context, tx pgx.Tx, schema string, categoryID int64) error {
+func normalizeProductPositions(ctx context.Context, tx pgx.Tx, schema string, categoryID, customerID int64) error {
 	rows, err := tx.Query(ctx, fmt.Sprintf(`SELECT id FROM %s.products
-		WHERE active=true AND COALESCE(product_category_id,0)=$1
-		ORDER BY product_category_position, name, id`, schema), categoryID)
+		WHERE active=true AND COALESCE(product_category_id,0)=$1 AND ($1<>0 OR COALESCE(customer_id,0)=$2)
+		ORDER BY product_category_position, name, id`, schema), categoryID, customerID)
 	if err != nil {
 		return err
 	}

@@ -70,10 +70,11 @@ type productTierAPIUpsertRow struct {
 }
 
 type productCategoryAPIRequest struct {
-	ID       int64  `json:"id"`
-	Name     string `json:"name"`
-	ParentID int64  `json:"parent_id"`
-	Position int    `json:"position"`
+	ID         int64  `json:"id"`
+	Name       string `json:"name"`
+	ParentID   int64  `json:"parent_id"`
+	CustomerID int64  `json:"customer_id"`
+	Position   int    `json:"position"`
 }
 
 type productCategoryMoveAPIRequest struct {
@@ -255,11 +256,12 @@ func (h productHandler) saveProductCategoryAPI(c echo.Context) error {
 		return c.JSON(http.StatusBadRequest, map[string]any{"error": "name required"})
 	}
 	row, err := h.catalog.SaveProductCategory(c.Request().Context(), catalogapp.SaveProductCategoryCommand{
-		Actor:    support.ActorOf(c),
-		ID:       req.ID,
-		ParentID: req.ParentID,
-		Name:     req.Name,
-		Position: req.Position,
+		Actor:      support.ActorOf(c),
+		ID:         req.ID,
+		ParentID:   req.ParentID,
+		CustomerID: req.CustomerID,
+		Name:       req.Name,
+		Position:   req.Position,
 	})
 	if err != nil {
 		return c.JSON(http.StatusInternalServerError, map[string]any{"error": err.Error()})
