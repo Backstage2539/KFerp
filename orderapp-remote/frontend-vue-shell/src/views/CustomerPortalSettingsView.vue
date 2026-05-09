@@ -52,6 +52,20 @@
               </option>
             </select>
           </label>
+          <div class="template-picker">
+            <label>
+              <span>能力模板</span>
+              <select v-model="row.form.capability_template_key">
+                <option value="">不使用模板</option>
+                <option v-for="template in capabilityTemplates" :key="template.key" :value="template.key">
+                  {{ template.label }}
+                </option>
+              </select>
+            </label>
+            <button class="secondary" type="button" @click="applyCapabilityTemplate(row)" :disabled="row.saving || row.loading || !row.form.capability_template_key">
+              套用模板
+            </button>
+          </div>
           <label class="check">
             <input v-model="row.form.enabled" type="checkbox" />
             <span>{{ row.form.enabled ? '门户启用' : '门户停用' }}</span>
@@ -125,6 +139,7 @@ import { customerPortalThemeOptions, normalizeCustomerPortalThemeKey } from '../
 const q = ref('')
 const portalRows = ref([])
 const senderProfiles = ref([])
+const capabilityTemplates = ref([])
 const loading = ref(false)
 const error = ref('')
 const ok = ref('')
@@ -164,6 +179,15 @@ async function loadSenderProfiles() {
   }
 }
 
+async function loadCapabilityTemplates() {
+  try {
+    const data = await apiGet('/api/customer-portal/admin/capability-templates')
+    capabilityTemplates.value = data.templates || []
+  } catch (err) {
+    capabilityTemplates.value = []
+  }
+}
+
 function senderProfileLabel(profile) {
   return profile?.sender_label || profile?.sender_name || `寄件人${profile?.sender_id || ''}`
 }
@@ -178,6 +202,7 @@ function createPortalRow(customer) {
       enabled: customer.portal_enabled !== false,
       theme_key: normalizeCustomerPortalThemeKey(customer.theme_key),
       miniapp_entry_mode: normalizeEntryMode(customer.miniapp_entry_mode),
+      capability_template_key: normalizeTemplateKey(customer.capability_template_key),
     },
     capabilities: [],
     bindings: [],
@@ -204,6 +229,7 @@ function assignRowDetail(row, data) {
   row.form.enabled = row.customer.portal_enabled !== false
   row.form.theme_key = normalizeCustomerPortalThemeKey(row.customer.theme_key)
   row.form.miniapp_entry_mode = normalizeEntryMode(row.customer.miniapp_entry_mode)
+  row.form.capability_template_key = normalizeTemplateKey(row.customer.capability_template_key)
   row.bindings = data?.bindings || []
   row.capabilities = (data?.capabilities || []).map((item) => ({
     code: item.code,
@@ -212,6 +238,24 @@ function assignRowDetail(row, data) {
     enabled: !!item.enabled,
     config: item.config || {},
   }))
+}
+
+async function applyCapabilityTemplate(row) {
+  if (!row?.customer?.id || !row.form.capability_template_key) return
+  row.saving = true
+  error.value = ''
+  ok.value = ''
+  try {
+    const data = await apiSend(`/api/customer-portal/admin/customers/${row.customer.id}/capability-template`, {
+      body: { template_key: row.form.capability_template_key },
+    })
+    assignRowDetail(row, data)
+    ok.value = `已套用 ${templateLabel(row.form.capability_template_key)}`
+  } catch (err) {
+    error.value = err.message || '套用能力模板失败'
+  } finally {
+    row.saving = false
+  }
 }
 
 async function saveVisibility(row) {
@@ -229,6 +273,7 @@ async function saveVisibility(row) {
         enabled: !!row.form.enabled,
         theme_key: normalizeCustomerPortalThemeKey(row.form.theme_key),
         miniapp_entry_mode: normalizeEntryMode(row.form.miniapp_entry_mode),
+        capability_template_key: normalizeTemplateKey(row.form.capability_template_key),
         capabilities: row.capabilities.map((item) => ({
           code: item.code,
           enabled: !!item.enabled,
@@ -245,12 +290,23 @@ async function saveVisibility(row) {
   }
 }
 
+function templateLabel(key) {
+  const template = capabilityTemplates.value.find((item) => item.key === key)
+  return template?.label || key || '模板'
+}
+
 function normalizeEntryMode(value) {
   return value === 'mall' ? 'mall' : 'services'
 }
 
-onMounted(() => {
-  loadSenderProfiles()
+function normalizeTemplateKey(value) {
+  const key = String(value || '').trim()
+  if (key === 'processing_fulfillment' || key === 'public_sku_direct_ship') return key
+  return capabilityTemplates.value.some((template) => template.key === key) ? key : ''
+}
+
+onMounted(async () => {
+  await Promise.all([loadCapabilityTemplates(), loadSenderProfiles()])
   loadCustomers()
 })
 </script>
@@ -276,6 +332,8 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .customer-cell strong { font-size: 15px; }
 .customer-cell span, .binding-row span { color: #666; font-size: 13px; line-height: 1.4; }
 .config-cell input, .config-cell select { width: 100%; }
+.template-picker { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; align-items: end; }
+.template-picker .secondary { white-space: nowrap; }
 .check { display: inline-flex; align-items: center; gap: 8px; }
 .check input, .capability input { width: auto; height: auto; }
 .check span { margin: 0; color: #333; font-size: 13px; }
@@ -330,5 +388,6 @@ button:disabled { cursor: not-allowed; opacity: .55; }
   .list-head { display: none; }
   .portal-row { grid-template-columns: 1fr; }
   .capability-grid { grid-template-columns: 1fr; }
+  .template-picker { grid-template-columns: 1fr; }
 }
 </style>

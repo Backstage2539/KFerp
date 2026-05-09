@@ -5,13 +5,14 @@ import "testing"
 func TestDefaultRoleSeedsIncludeCoreInternalRoles(t *testing.T) {
 	roles := defaultRoles()
 	want := map[string]bool{
-		"admin":      false,
-		"sales":      false,
-		"production": false,
-		"warehouse":  false,
-		"finance":    false,
-		"product":    false,
-		"system":     false,
+		"admin":                         false,
+		"sales":                         false,
+		"production":                    false,
+		"warehouse":                     false,
+		"finance":                       false,
+		"product":                       false,
+		"system":                        false,
+		"customer_direct_ship_customer": false,
 	}
 	for _, role := range roles {
 		if _, ok := want[role.Code]; ok {

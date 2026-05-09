@@ -2,6 +2,7 @@ package sales
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"math"
 	pdfinfra "orderapp/internal/infrastructure/pdf"
@@ -75,6 +76,69 @@ func lookupDefaultStatusID(ctx context.Context, tx pgx.Tx, schema, table string,
 		}
 	}
 	return 0
+}
+
+type smallBatchPriceRule struct {
+	Enabled     bool    `json:"enabled"`
+	ThresholdLB float64 `json:"threshold_lb"`
+	TierMinLB   float64 `json:"tier_min_lb"`
+	TierMaxLB   float64 `json:"tier_max_lb"`
+}
+
+type directShipCapabilityConfig struct {
+	SmallBatchPriceRule smallBatchPriceRule `json:"small_batch_price_rule"`
+}
+
+func (r Repository) customerDirectShipSmallBatchPriceRuleTx(ctx context.Context, tx pgx.Tx, customerID int64) smallBatchPriceRule {
+	if customerID <= 0 {
+		return smallBatchPriceRule{}
+	}
+	var hasCapabilities bool
+	if err := tx.QueryRow(ctx, `SELECT to_regclass($1) IS NOT NULL`, fmt.Sprintf("%s.customer_service_capabilities", r.schema)).Scan(&hasCapabilities); err != nil || !hasCapabilities {
+		return smallBatchPriceRule{}
+	}
+	var raw []byte
+	err := tx.QueryRow(ctx, fmt.Sprintf(`
+		SELECT config_json
+		FROM %s.customer_service_capabilities
+		WHERE customer_id=$1 AND capability_code='direct_ship' AND enabled=true
+	`, r.schema), customerID).Scan(&raw)
+	if err != nil {
+		return smallBatchPriceRule{}
+	}
+	var config directShipCapabilityConfig
+	if err := json.Unmarshal(raw, &config); err != nil {
+		return smallBatchPriceRule{}
+	}
+	return normalizeSmallBatchPriceRule(config.SmallBatchPriceRule)
+}
+
+func normalizeSmallBatchPriceRule(rule smallBatchPriceRule) smallBatchPriceRule {
+	if !rule.Enabled {
+		return smallBatchPriceRule{}
+	}
+	if rule.ThresholdLB <= 0 {
+		rule.ThresholdLB = 14
+	}
+	if rule.TierMinLB <= 0 {
+		rule.TierMinLB = 15
+	}
+	if rule.TierMaxLB <= 0 {
+		rule.TierMaxLB = 28
+	}
+	return rule
+}
+
+func smallBatchTierQuantity(specG int64, qtyLb float64, rule smallBatchPriceRule) (int64, bool) {
+	rule = normalizeSmallBatchPriceRule(rule)
+	if !rule.Enabled || specG <= 0 || qtyLb <= 0 || qtyLb >= rule.ThresholdLB {
+		return 0, false
+	}
+	targetUnits := int64(math.Ceil(rule.TierMinLB * 454.0 / float64(specG)))
+	if targetUnits < 1 {
+		targetUnits = 1
+	}
+	return targetUnits, true
 }
 
 func resolveOrderResponsibleParty(ctx context.Context, tx pgx.Tx, schema, responsibleType string, responsibleID int64) (string, int64, string, error) {
@@ -210,6 +274,7 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 		_ = tx.QueryRow(ctx, fmt.Sprintf("SELECT COALESCE(name,'') FROM %s.order_types WHERE id=$1", r.schema), cmd.OrderTypeID).Scan(&orderTypeName)
 		retailOrder = isRetailOrderTypeName(orderTypeName)
 	}
+	smallBatchRule := r.customerDirectShipSmallBatchPriceRuleTx(ctx, tx, cmd.CustomerID)
 
 	// Pricing: wholesale tiers prefer exact package spec tiers, then fall back to
 	// bean-list weight tiers so non-454g packaging can still price by total lb.
@@ -269,6 +334,12 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 				// Auto-match tier by package count for the selected spec(g).
 				var tid *int64
 				var packagePrice, pricePerLb float64
+				tierQty := items[idx].units
+				tierQtyLb := qtyLb
+				if adjustedQty, ok := smallBatchTierQuantity(items[idx].specG, qtyLb, smallBatchRule); ok {
+					tierQty = adjustedQty
+					tierQtyLb = float64(items[idx].specG*adjustedQty) / 454.0
+				}
 				q := fmt.Sprintf(`
 							SELECT id,
 							       COALESCE(NULLIF(price_per_unit,0), NULLIF(price_per_lb,0) * COALESCE(NULLIF(spec_g,0),454) / 454.0, 0),
@@ -281,7 +352,7 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 							ORDER BY COALESCE(NULLIF(min_qty_units,0), min_qty_lb, 0) DESC
 							LIMIT 1
 						`, r.schema)
-				err := tx.QueryRow(ctx, q, *items[idx].productID, items[idx].specG, items[idx].units).Scan(&tid, &packagePrice, &pricePerLb)
+				err := tx.QueryRow(ctx, q, *items[idx].productID, items[idx].specG, tierQty).Scan(&tid, &packagePrice, &pricePerLb)
 				if err != nil {
 					// fallback: highest tier with min<=qty
 					q2 := fmt.Sprintf(`
@@ -295,7 +366,7 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 								ORDER BY COALESCE(NULLIF(min_qty_units,0), min_qty_lb, 0) DESC
 								LIMIT 1
 							`, r.schema)
-					if err2 := tx.QueryRow(ctx, q2, *items[idx].productID, items[idx].specG, items[idx].units).Scan(&tid, &packagePrice, &pricePerLb); err2 != nil {
+					if err2 := tx.QueryRow(ctx, q2, *items[idx].productID, items[idx].specG, tierQty).Scan(&tid, &packagePrice, &pricePerLb); err2 != nil {
 						// below minimum tier: use minimum tier price
 						q3 := fmt.Sprintf(`
 									SELECT id,
@@ -321,7 +392,7 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 										ORDER BY COALESCE(NULLIF(min_qty_lb,0), NULLIF(min_qty_units,0) * COALESCE(NULLIF(spec_g,0),454) / 454.0, 0) DESC
 										LIMIT 1
 									`, r.schema)
-							if err4 := tx.QueryRow(ctx, q4, *items[idx].productID, qtyLb).Scan(&tid, &pricePerLb); err4 != nil {
+							if err4 := tx.QueryRow(ctx, q4, *items[idx].productID, tierQtyLb).Scan(&tid, &pricePerLb); err4 != nil {
 								q5 := fmt.Sprintf(`
 											SELECT id,
 											       COALESCE(NULLIF(price_per_lb,0), NULLIF(price_per_unit,0) * 454.0 / COALESCE(NULLIF(spec_g,0),454), 0)
@@ -331,7 +402,7 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 											ORDER BY COALESCE(NULLIF(min_qty_lb,0), NULLIF(min_qty_units,0) * COALESCE(NULLIF(spec_g,0),454) / 454.0, 0) DESC
 											LIMIT 1
 										`, r.schema)
-								if err5 := tx.QueryRow(ctx, q5, *items[idx].productID, qtyLb).Scan(&tid, &pricePerLb); err5 != nil {
+								if err5 := tx.QueryRow(ctx, q5, *items[idx].productID, tierQtyLb).Scan(&tid, &pricePerLb); err5 != nil {
 									q6 := fmt.Sprintf(`
 												SELECT id,
 												       COALESCE(NULLIF(price_per_lb,0), NULLIF(price_per_unit,0) * 454.0 / COALESCE(NULLIF(spec_g,0),454), 0)

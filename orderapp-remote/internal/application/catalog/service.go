@@ -281,7 +281,7 @@ func (s *Service) CreateCustomProduct(ctx context.Context, cmd CreateCustomProdu
 		return Product{}, fmt.Errorf("invalid roast_level")
 	}
 	cmd.CustomType = strings.TrimSpace(cmd.CustomType)
-	if cmd.CustomType != "custom_blend" && cmd.CustomType != "custom_roast" {
+	if cmd.CustomType != "custom_blend" && cmd.CustomType != "custom_roast" && cmd.CustomType != "public_sku_alias" {
 		return Product{}, fmt.Errorf("invalid custom_type")
 	}
 	return s.repo.CreateCustomProduct(ctx, cmd)

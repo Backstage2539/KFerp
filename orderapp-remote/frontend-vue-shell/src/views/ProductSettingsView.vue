@@ -112,6 +112,7 @@
           <label>
             <span>定制类型</span>
             <select v-model="customForm.custom_type">
+              <option value="public_sku_alias">公共 SKU 改名</option>
               <option value="custom_roast">定制烘焙度</option>
               <option value="custom_blend">定制拼配 BOM</option>
             </select>
@@ -475,7 +476,7 @@ function defaultCustomForm() {
     base_product_id: 0,
     name: '',
     roast_level: '中烘',
-    custom_type: 'custom_roast',
+    custom_type: 'public_sku_alias',
     copy_bom: true,
     copy_price_tiers: true,
   }
@@ -581,6 +582,7 @@ function ownerLabel(row) {
 function customTypeLabel(value) {
   if (value === 'custom_blend') return '定制拼配'
   if (value === 'custom_roast') return '定制烘焙'
+  if (value === 'public_sku_alias') return '公共 SKU 改名'
   return '标准'
 }
 
