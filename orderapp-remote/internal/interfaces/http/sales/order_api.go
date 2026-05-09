@@ -84,6 +84,7 @@ type orderSaveAPIRequest struct {
 	TierID    []string `json:"tier_id"`
 	UnitPrice []string `json:"unit_price"`
 	ItemName  []string `json:"item_name"`
+	ItemNote  []string `json:"item_note"`
 	Qty       []string `json:"qty"`
 	Unit      []string `json:"unit"`
 	Spec      []string `json:"spec"`
@@ -317,6 +318,7 @@ func (r orderSaveAPIRequest) toCreateRequest() CreateOrderRequest {
 		TierID:                r.TierID,
 		UnitPrice:             r.UnitPrice,
 		ItemName:              r.ItemName,
+		ItemNote:              r.ItemNote,
 		Qty:                   r.Qty,
 		Unit:                  r.Unit,
 		Spec:                  r.Spec,
@@ -422,6 +424,7 @@ func editDataForAPI(ed *OrderEditData) map[string]any {
 	type editItem struct {
 		ProductID   int64  `json:"product_id"`
 		ProductName string `json:"product_name"`
+		Note        string `json:"note"`
 		TierID      string `json:"tier_id"`
 		UnitPrice   string `json:"unit_price"`
 		Qty         string `json:"qty"`
@@ -438,6 +441,7 @@ func editDataForAPI(ed *OrderEditData) map[string]any {
 		items = append(items, editItem{
 			ProductID:   it.ProductID,
 			ProductName: it.Product,
+			Note:        it.Note,
 			TierID:      tierID,
 			UnitPrice:   it.UnitPrice,
 			Qty:         it.Qty,

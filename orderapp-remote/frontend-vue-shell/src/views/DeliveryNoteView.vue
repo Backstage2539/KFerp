@@ -89,7 +89,7 @@
         </div>
         <table>
           <thead>
-            <tr><th>商品</th><th>规格</th><th>出库数量</th><th>出库仓</th></tr>
+            <tr><th>商品</th><th>规格</th><th>出库数量</th><th>出库仓</th><th>备注</th></tr>
           </thead>
           <tbody>
             <tr v-for="(item, idx) in preview.snapshot.items" :key="`${item.name}-${idx}`">
@@ -97,6 +97,7 @@
               <td>{{ item.spec }}</td>
               <td>{{ item.qty }}{{ item.unit }}</td>
               <td>{{ item.warehouse_name || item.warehouse }}</td>
+              <td>{{ item.note || '-' }}</td>
             </tr>
           </tbody>
         </table>

@@ -143,8 +143,8 @@ func (r SalesOrderRenderer) renderSalesOrderItemsTable(pdf *gofpdf.Fpdf, snapsho
 	left, _, right, _ := pdf.GetMargins()
 	pageW, _ := pdf.GetPageSize()
 	usableW := pageW - left - right
-	colWidths := []float64{usableW * 0.32, usableW * 0.15, usableW * 0.18, usableW * 0.17, usableW * 0.18}
-	headers := []string{"商品", "规格", "数量", "单价", "小计"}
+	colWidths := []float64{usableW * 0.27, usableW * 0.12, usableW * 0.13, usableW * 0.15, usableW * 0.15, usableW * 0.18}
+	headers := []string{"商品", "规格", "数量", "单价", "小计", "备注"}
 	pdf.SetFont("noto", "", 10)
 	for i, h := range headers {
 		pdf.CellFormat(colWidths[i], 8, h, "B", 0, "L", false, 0, "")
@@ -156,6 +156,7 @@ func (r SalesOrderRenderer) renderSalesOrderItemsTable(pdf *gofpdf.Fpdf, snapsho
 		pdf.CellFormat(colWidths[2], 8, strings.TrimSpace(item.Qty+item.Unit), "B", 0, "L", false, 0, "")
 		pdf.CellFormat(colWidths[3], 8, item.UnitPrice, "B", 0, "L", false, 0, "")
 		pdf.CellFormat(colWidths[4], 8, item.LineTotal, "B", 0, "L", false, 0, "")
+		pdf.CellFormat(colWidths[5], 8, item.Note, "B", 0, "L", false, 0, "")
 		pdf.Ln(-1)
 	}
 	pdf.Ln(4)

@@ -94,13 +94,13 @@ func parseCreateOrderAmount(raw, field string) (float64, error) {
 
 func orderItemCommandsFromCreateRequest(req CreateOrderRequest) []salesapp.OrderItemCommand {
 	items := make([]salesapp.OrderItemCommand, 0)
-	for i := 0; i < maxLen(req.ItemName, req.ProductID, req.TierID, req.UnitPrice, req.Qty, req.Unit, req.Spec); i++ {
+	for i := 0; i < maxLen(req.ItemName, req.ItemNote, req.ProductID, req.TierID, req.UnitPrice, req.Qty, req.Unit, req.Spec); i++ {
 		pidStr := strings.TrimSpace(getStr(req.ProductID, i))
 		name := strings.TrimSpace(getStr(req.ItemName, i))
 		if pidStr == "" && name == "" {
 			continue
 		}
-		it := salesapp.OrderItemCommand{Name: name}
+		it := salesapp.OrderItemCommand{Name: name, Note: strings.TrimSpace(getStr(req.ItemNote, i))}
 		if pidStr != "" {
 			if pid, err := strconv.ParseInt(pidStr, 10, 64); err == nil && pid > 0 {
 				it.ProductID = &pid

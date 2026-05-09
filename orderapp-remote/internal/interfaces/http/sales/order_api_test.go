@@ -417,6 +417,61 @@ func (r *capturingOrderListRepo) ListOrders(ctx context.Context, query salesapp.
 	}, nil
 }
 
+type capturingSaveOrderRepo struct {
+	salesapp.Repository
+	cmd salesapp.SaveOrderCommand
+}
+
+func (r *capturingSaveOrderRepo) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand) (salesapp.SaveOrderResult, error) {
+	r.cmd = cmd
+	return salesapp.SaveOrderResult{OrderID: 71, OrderNo: "SO-NOTE-001"}, nil
+}
+
+func TestOrderAPISaveCarriesItemNotes(t *testing.T) {
+	repo := &capturingSaveOrderRepo{}
+	e := echo.New()
+	e.Use(func(next echo.HandlerFunc) echo.HandlerFunc {
+		return func(c echo.Context) error {
+			c.Set("employee_id", int64(1))
+			c.Set("operator_employee", "测试员")
+			return next(c)
+		}
+	})
+	registerOrderAPI(e, salesapp.NewService(repo))
+
+	payload := map[string]any{
+		"order_date":     "2026-05-09",
+		"customer_id":    3,
+		"source_id":      1,
+		"order_type_id":  1,
+		"pay_status_id":  2,
+		"ship_status_id": 1,
+		"product_id":     []string{"7"},
+		"tier_id":        []string{"manual"},
+		"unit_price":     []string{"88"},
+		"item_name":      []string{"橘皮乌龙"},
+		"item_note":      []string{"贴标：A店"},
+		"qty":            []string{"2"},
+		"unit":           []string{"件"},
+		"spec":           []string{"454"},
+	}
+	body, _ := json.Marshal(payload)
+	req := httptest.NewRequest(http.MethodPost, "/api/order", bytes.NewReader(body))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("POST /api/order status = %d, want 200, body=%s", rec.Code, rec.Body.String())
+	}
+	if len(repo.cmd.Items) != 1 {
+		t.Fatalf("captured items len = %d, want 1", len(repo.cmd.Items))
+	}
+	if repo.cmd.Items[0].Note != "贴标：A店" {
+		t.Fatalf("captured item note = %q, want per-item note", repo.cmd.Items[0].Note)
+	}
+}
+
 func TestOrderAPISavesRetailCustomSpecPrice(t *testing.T) {
 	pool, schema := newOrderAPITestDB(t)
 	ctx := context.Background()
@@ -2108,6 +2163,7 @@ CREATE TABLE %s.order_items (
 	price_tier_id BIGINT,
 	price_overridden BOOLEAN NOT NULL DEFAULT false,
 	item_name TEXT,
+	item_note TEXT NOT NULL DEFAULT '',
 	qty NUMERIC,
 	unit TEXT,
 	spec TEXT,

@@ -41,6 +41,7 @@ type OrderItemCommand struct {
 	TierID      *int64
 	ManualPrice *float64
 	Name        string
+	Note        string
 	Units       int64
 	Unit        string
 	SpecG       int64
@@ -233,6 +234,7 @@ type OrderEditItem struct {
 	LineNo      int
 	ProductID   int64
 	Product     string
+	Note        string
 	Spec        string
 	Qty         string
 	Unit        string

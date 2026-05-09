@@ -305,7 +305,7 @@ func (r Repository) buildDeliveryNoteSnapshotTx(ctx context.Context, tx pgx.Tx, 
 		return salesdomain.DeliveryNoteSnapshot{}, err
 	}
 	snapshot.Seal = seal
-	rows, err := tx.Query(ctx, fmt.Sprintf(`SELECT COALESCE(NULLIF(oi.item_name,''), p.name, ''), COALESCE(oi.spec,''), COALESCE(oi.qty,0)::float8, COALESCE(oi.unit,'')
+	rows, err := tx.Query(ctx, fmt.Sprintf(`SELECT COALESCE(NULLIF(oi.item_name,''), p.name, ''), COALESCE(oi.item_note,''), COALESCE(oi.spec,''), COALESCE(oi.qty,0)::float8, COALESCE(oi.unit,'')
 		FROM %s.order_items oi
 		LEFT JOIN %s.products p ON p.id=oi.product_id
 		WHERE oi.order_id=$1
@@ -317,7 +317,7 @@ func (r Repository) buildDeliveryNoteSnapshotTx(ctx context.Context, tx pgx.Tx, 
 	for rows.Next() {
 		var item salesdomain.DeliveryNoteSnapshotItem
 		var qty float64
-		if err := rows.Scan(&item.Name, &item.Spec, &qty, &item.Unit); err != nil {
+		if err := rows.Scan(&item.Name, &item.Note, &item.Spec, &qty, &item.Unit); err != nil {
 			return salesdomain.DeliveryNoteSnapshot{}, err
 		}
 		item.Qty = trimFloatZero(qty)
