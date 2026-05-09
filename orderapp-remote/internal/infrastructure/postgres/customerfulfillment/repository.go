@@ -9,6 +9,7 @@ import (
 	"time"
 
 	app "orderapp/internal/application/customerfulfillment"
+	customerportalapp "orderapp/internal/application/customerportal"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -412,8 +413,14 @@ func (r *Repository) AdjustCustodyInventory(ctx context.Context, cmd app.AdjustC
 }
 
 func (r *Repository) UpsertCustomerERPBinding(ctx context.Context, cmd app.UpsertCustomerERPBindingCommand) (app.CustomerERPBinding, error) {
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return app.CustomerERPBinding{}, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
 	var row app.CustomerERPBinding
-	err := r.pool.QueryRow(ctx, fmt.Sprintf(`
+	err = tx.QueryRow(ctx, fmt.Sprintf(`
 		INSERT INTO %s.customer_erp_user_bindings(customer_id, employee_id, role, status, updated_by, updated_at)
 		SELECT $1, e.id, $3, $4, $5, now()
 		FROM %s.company_employees e
@@ -431,8 +438,60 @@ func (r *Repository) UpsertCustomerERPBinding(ctx context.Context, cmd app.Upser
 	if err != nil {
 		return app.CustomerERPBinding{}, err
 	}
-	_ = r.pool.QueryRow(ctx, fmt.Sprintf(`SELECT COALESCE(name,'') FROM %s.company_employees WHERE id=$1`, r.schema), row.EmployeeID).Scan(&row.EmployeeName)
+	_ = tx.QueryRow(ctx, fmt.Sprintf(`SELECT COALESCE(name,'') FROM %s.company_employees WHERE id=$1`, r.schema), row.EmployeeID).Scan(&row.EmployeeName)
+	if row.Status == "active" {
+		if err := r.grantCustomerTemplateRolesForEmployeeTx(ctx, tx, row.CustomerID, row.EmployeeID); err != nil {
+			return app.CustomerERPBinding{}, err
+		}
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return app.CustomerERPBinding{}, err
+	}
 	return row, nil
+}
+
+func (r *Repository) grantCustomerTemplateRolesForEmployeeTx(ctx context.Context, tx pgx.Tx, customerID, employeeID int64) error {
+	var templateKey string
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`
+		SELECT COALESCE(capability_template_key,'')
+		FROM %s.customer_portal_profiles
+		WHERE customer_id=$1
+	`, r.schema), customerID).Scan(&templateKey); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil
+		}
+		return err
+	}
+	template, ok := customerportalapp.CustomerCapabilityTemplateByKey(templateKey)
+	if !ok || len(template.ERPRoleCodes) == 0 {
+		return nil
+	}
+	var hasAuthRoles, hasEmployeeRoles bool
+	if err := tx.QueryRow(ctx, `SELECT to_regclass($1) IS NOT NULL, to_regclass($2) IS NOT NULL`,
+		fmt.Sprintf("%s.auth_roles", r.schema),
+		fmt.Sprintf("%s.employee_roles", r.schema),
+	).Scan(&hasAuthRoles, &hasEmployeeRoles); err != nil {
+		return err
+	}
+	if !hasAuthRoles || !hasEmployeeRoles {
+		return nil
+	}
+	for _, roleCode := range template.ERPRoleCodes {
+		roleCode = strings.TrimSpace(roleCode)
+		if roleCode == "" {
+			continue
+		}
+		if _, err := tx.Exec(ctx, fmt.Sprintf(`
+			INSERT INTO %s.employee_roles(employee_id, role_code)
+			SELECT $1, r.code
+			FROM %s.auth_roles r
+			WHERE r.code=$2
+			ON CONFLICT DO NOTHING
+		`, r.schema, r.schema), employeeID, roleCode); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (r *Repository) ListCustomerERPBindings(ctx context.Context, customerID int64) ([]app.CustomerERPBinding, error) {

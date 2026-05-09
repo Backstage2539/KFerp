@@ -140,6 +140,7 @@ func defaultRoles() []roleSeed {
 		{Code: "product", Name: "商品", Description: "商品、BOM 和成本维护", Permissions: []string{"products.read", "products.write", "bom.read", "bom.write", "costing.read", "costing.write"}},
 		{Code: "system", Name: "系统管理员", Description: "员工、设置、日志和需求维护", Permissions: []string{"auth.manage", "company.manage", "settings.write", "audit.read", "requirements.manage"}},
 		{Code: "customer_processing_customer", Name: "代加工客户", Description: "客户登录 ERP 后查看自己的代加工数据并提交工单和代发信息", Permissions: []string{"customer_processing.read", "customer_processing.submit"}},
+		{Code: "customer_direct_ship_customer", Name: "公共SKU代发客户", Description: "客户登录 ERP 后查看自己的代发订单并提交公共 SKU 一件代发信息", Permissions: []string{"customer_processing.read", "customer_processing.submit"}},
 	}
 }
 

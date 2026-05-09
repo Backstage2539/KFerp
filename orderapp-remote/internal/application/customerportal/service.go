@@ -20,6 +20,11 @@ const (
 )
 
 const (
+	CapabilityTemplateProcessingFulfillment = "processing_fulfillment"
+	CapabilityTemplatePublicSKUDirectShip   = "public_sku_direct_ship"
+)
+
+const (
 	ServiceKeyBeanList     = "beanList"
 	ServiceKeyOrders       = "orders"
 	ServiceKeyProductOrder = "productOrder"
@@ -438,6 +443,25 @@ type CapabilityOption struct {
 	Config      map[string]any `json:"config,omitempty"`
 }
 
+type SmallBatchPriceRule struct {
+	Enabled     bool    `json:"enabled"`
+	ThresholdLB float64 `json:"threshold_lb"`
+	TierMinLB   float64 `json:"tier_min_lb"`
+	TierMaxLB   float64 `json:"tier_max_lb"`
+}
+
+type CapabilityTemplate struct {
+	Key              string             `json:"key"`
+	Label            string             `json:"label"`
+	Description      string             `json:"description,omitempty"`
+	ThemeKey         string             `json:"theme_key"`
+	MiniappEntryMode string             `json:"miniapp_entry_mode"`
+	ERPRoleCodes     []string           `json:"erp_role_codes"`
+	ERPPermissions   []string           `json:"erp_permissions"`
+	ERPViewKeys      []string           `json:"erp_view_keys"`
+	Capabilities     []CapabilityOption `json:"capabilities"`
+}
+
 type PortalAdminCustomerQuery struct {
 	Query string
 	Limit int
@@ -455,6 +479,7 @@ type PortalAdminCustomer struct {
 	PortalStatus            string `json:"portal_status"`
 	ThemeKey                string `json:"theme_key"`
 	MiniappEntryMode        string `json:"miniapp_entry_mode"`
+	CapabilityTemplateKey   string `json:"capability_template_key"`
 	BindingCount            int    `json:"binding_count"`
 }
 
@@ -482,8 +507,16 @@ type UpdatePortalVisibilityCommand struct {
 	Enabled                 bool
 	ThemeKey                string
 	MiniappEntryMode        string
+	CapabilityTemplateKey   string
 	Capabilities            []CapabilityOption
 	UpdatedBy               string
+}
+
+type ApplyCapabilityTemplateCommand struct {
+	CustomerID  int64
+	TemplateKey string
+	Template    CapabilityTemplate
+	UpdatedBy   string
 }
 
 func (d PortalAdminDetail) HasCapabilityOption(code string) bool {
@@ -528,6 +561,7 @@ type Repository interface {
 	ListPortalAdminCustomers(ctx context.Context, query PortalAdminCustomerQuery) ([]PortalAdminCustomer, error)
 	PortalAdminDetail(ctx context.Context, customerID int64) (PortalAdminDetail, error)
 	UpdatePortalVisibility(ctx context.Context, cmd UpdatePortalVisibilityCommand) (PortalAdminDetail, error)
+	ApplyCapabilityTemplate(ctx context.Context, cmd ApplyCapabilityTemplateCommand) (PortalAdminDetail, error)
 	ListMallProducts(ctx context.Context) ([]MallProduct, []MallProductOption, error)
 	SaveMallProduct(ctx context.Context, cmd SaveMallProductCommand) (MallProduct, error)
 	UpdateMallProductImage(ctx context.Context, cmd UpdateMallProductImageCommand) (MallProduct, error)
@@ -715,8 +749,36 @@ func (s *Service) UpdatePortalVisibility(ctx context.Context, cmd UpdatePortalVi
 	cmd.UpdatedBy = strings.TrimSpace(cmd.UpdatedBy)
 	cmd.ThemeKey = NormalizePortalThemeKey(cmd.ThemeKey)
 	cmd.MiniappEntryMode = NormalizeMiniappEntryMode(cmd.MiniappEntryMode)
+	cmd.CapabilityTemplateKey = NormalizeCapabilityTemplateKey(cmd.CapabilityTemplateKey)
 	cmd.Capabilities = normalizeCapabilityOptions(cmd.Capabilities)
 	detail, err := s.repo.UpdatePortalVisibility(ctx, cmd)
+	if err != nil {
+		return PortalAdminDetail{}, err
+	}
+	detail.Customer = normalizePortalAdminCustomer(detail.Customer)
+	detail.Capabilities = completeCapabilityOptions(detail.Capabilities)
+	return detail, nil
+}
+
+func (s *Service) ListCapabilityTemplates(ctx context.Context) ([]CapabilityTemplate, error) {
+	return DefaultCapabilityTemplates(), nil
+}
+
+func (s *Service) ApplyCapabilityTemplate(ctx context.Context, cmd ApplyCapabilityTemplateCommand) (PortalAdminDetail, error) {
+	if cmd.CustomerID <= 0 {
+		return PortalAdminDetail{}, fmt.Errorf("customer required")
+	}
+	if s.repo == nil {
+		return PortalAdminDetail{}, fmt.Errorf("repository required")
+	}
+	template, ok := CustomerCapabilityTemplateByKey(cmd.TemplateKey)
+	if !ok {
+		return PortalAdminDetail{}, fmt.Errorf("capability template invalid")
+	}
+	cmd.TemplateKey = template.Key
+	cmd.Template = template
+	cmd.UpdatedBy = strings.TrimSpace(cmd.UpdatedBy)
+	detail, err := s.repo.ApplyCapabilityTemplate(ctx, cmd)
 	if err != nil {
 		return PortalAdminDetail{}, err
 	}
@@ -1010,6 +1072,7 @@ func normalizeCurrentContext(current CurrentContext) CurrentContext {
 func normalizePortalAdminCustomer(customer PortalAdminCustomer) PortalAdminCustomer {
 	customer.ThemeKey = NormalizePortalThemeKey(customer.ThemeKey)
 	customer.MiniappEntryMode = NormalizeMiniappEntryMode(customer.MiniappEntryMode)
+	customer.CapabilityTemplateKey = NormalizeCapabilityTemplateKey(customer.CapabilityTemplateKey)
 	return customer
 }
 
@@ -1127,6 +1190,163 @@ func DefaultCapabilityOptions() []CapabilityOption {
 		{Code: CapabilityProcessing, Label: "代加工", Description: "查看托管库存并提交加工申请"},
 		{Code: CapabilityInventoryCustody, Label: "我的库存", Description: "查看客户托管的生豆、成品和包材库存"},
 		{Code: CapabilitySettlement, Label: "结算中心", Description: "查看费用明细和结算单"},
+	}
+}
+
+func DefaultCapabilityTemplates() []CapabilityTemplate {
+	return []CapabilityTemplate{
+		{
+			Key:              CapabilityTemplateProcessingFulfillment,
+			Label:            "客户代加工履约",
+			Description:      "客户登录后查看原料库存、生产进度、成品库存、代发订单、费用和结算，并提交代加工和代发需求",
+			ThemeKey:         PortalThemeCoffeeFactory,
+			MiniappEntryMode: MiniappEntryModeServices,
+			ERPRoleCodes:     []string{"customer_processing_customer"},
+			ERPPermissions:   []string{"customer_processing.read", "customer_processing.submit"},
+			ERPViewKeys:      []string{"customerProcessingPortal"},
+			Capabilities: capabilityTemplateOptions(map[string]map[string]any{
+				CapabilityDirectShip:       {"customer_sender": true, "external_recipients": true},
+				CapabilityProcessing:       {},
+				CapabilityInventoryCustody: {},
+				CapabilitySettlement:       {},
+			}),
+		},
+		{
+			Key:              CapabilityTemplatePublicSKUDirectShip,
+			Label:            "公共 SKU 小批量代发",
+			Description:      "客户使用公共 SKU，可维护客户专属 SKU 名称，默认寄件人为客户自己，收件人为客户的终端客户",
+			ThemeKey:         PortalThemeCleanOps,
+			MiniappEntryMode: MiniappEntryModeServices,
+			ERPRoleCodes:     []string{"customer_direct_ship_customer"},
+			ERPPermissions:   []string{"customer_processing.read", "customer_processing.submit"},
+			ERPViewKeys:      []string{"customerProcessingPortal"},
+			Capabilities: capabilityTemplateOptions(map[string]map[string]any{
+				CapabilityProductOrder: {
+					"public_sku_aliases": true,
+				},
+				CapabilityDirectShip: {
+					"public_sku_aliases":  true,
+					"customer_sender":     true,
+					"external_recipients": true,
+					"small_batch_price_rule": map[string]any{
+						"enabled":      true,
+						"threshold_lb": 14,
+						"tier_min_lb":  15,
+						"tier_max_lb":  28,
+					},
+				},
+				CapabilitySettlement: {},
+			}),
+		},
+	}
+}
+
+func CustomerCapabilityTemplateByKey(key string) (CapabilityTemplate, bool) {
+	key = NormalizeCapabilityTemplateKey(key)
+	if key == "" {
+		return CapabilityTemplate{}, false
+	}
+	for _, template := range DefaultCapabilityTemplates() {
+		if template.Key == key {
+			return template, true
+		}
+	}
+	return CapabilityTemplate{}, false
+}
+
+func NormalizeCapabilityTemplateKey(value string) string {
+	switch strings.TrimSpace(value) {
+	case CapabilityTemplateProcessingFulfillment:
+		return CapabilityTemplateProcessingFulfillment
+	case CapabilityTemplatePublicSKUDirectShip:
+		return CapabilityTemplatePublicSKUDirectShip
+	default:
+		return ""
+	}
+}
+
+func capabilityTemplateOptions(enabled map[string]map[string]any) []CapabilityOption {
+	out := DefaultCapabilityOptions()
+	for i := range out {
+		if config, ok := enabled[out[i].Code]; ok {
+			out[i].Enabled = true
+			out[i].Config = copyCapabilityConfig(config)
+		} else {
+			out[i].Enabled = false
+			out[i].Config = map[string]any{}
+		}
+	}
+	return out
+}
+
+func copyCapabilityConfig(config map[string]any) map[string]any {
+	if config == nil {
+		return map[string]any{}
+	}
+	out := make(map[string]any, len(config))
+	for k, v := range config {
+		out[k] = v
+	}
+	return out
+}
+
+func (t CapabilityTemplate) HasCapability(code string) bool {
+	code = strings.TrimSpace(code)
+	for _, capability := range t.Capabilities {
+		if capability.Code == code && capability.Enabled {
+			return true
+		}
+	}
+	return false
+}
+
+func (t CapabilityTemplate) SmallBatchPriceRule() SmallBatchPriceRule {
+	for _, capability := range t.Capabilities {
+		if capability.Code != CapabilityDirectShip || !capability.Enabled {
+			continue
+		}
+		raw, _ := capability.Config["small_batch_price_rule"].(map[string]any)
+		return normalizeSmallBatchPriceRule(raw)
+	}
+	return SmallBatchPriceRule{}
+}
+
+func normalizeSmallBatchPriceRule(raw map[string]any) SmallBatchPriceRule {
+	rule := SmallBatchPriceRule{
+		Enabled:     boolFromAny(raw["enabled"]),
+		ThresholdLB: floatFromAny(raw["threshold_lb"]),
+		TierMinLB:   floatFromAny(raw["tier_min_lb"]),
+		TierMaxLB:   floatFromAny(raw["tier_max_lb"]),
+	}
+	if rule.ThresholdLB <= 0 {
+		rule.ThresholdLB = 14
+	}
+	if rule.TierMinLB <= 0 {
+		rule.TierMinLB = 15
+	}
+	if rule.TierMaxLB <= 0 {
+		rule.TierMaxLB = 28
+	}
+	return rule
+}
+
+func boolFromAny(value any) bool {
+	got, _ := value.(bool)
+	return got
+}
+
+func floatFromAny(value any) float64 {
+	switch got := value.(type) {
+	case int:
+		return float64(got)
+	case int64:
+		return float64(got)
+	case float64:
+		return got
+	case float32:
+		return float64(got)
+	default:
+		return 0
 	}
 }
 

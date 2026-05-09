@@ -141,6 +141,60 @@ func TestOrderAPIFormFiltersCustomerSpecificProducts(t *testing.T) {
 	}
 }
 
+func TestOrderAPISmallBatchDirectShipCustomerUsesDefaultPriceTier(t *testing.T) {
+	pool, schema := newOrderAPITestDB(t)
+	ctx := context.Background()
+	seedOrderAPITestData(t, ctx, pool, schema)
+	mustExecOrderAPITestSQL(t, ctx, pool, fmt.Sprintf(`
+		INSERT INTO %[1]s.product_price_tiers(id, product_id, spec_g, min_qty_units, max_qty_units, price_per_unit, min_qty_lb, max_qty_lb, price_per_lb, active)
+		VALUES
+			(101,7,454,1,14,120,1,14,120,true),
+			(102,7,454,15,28,90,15,28,90,true),
+			(103,7,454,29,NULL,80,29,NULL,80,true);
+		INSERT INTO %[1]s.customer_service_capabilities(customer_id, capability_code, enabled, config_json)
+		VALUES(3,'direct_ship',true,'{"small_batch_price_rule":{"enabled":true,"threshold_lb":14,"tier_min_lb":15,"tier_max_lb":28}}'::jsonb);
+	`, schema))
+
+	e := newOrderAPITestEcho(pool, schema)
+	payload := map[string]any{
+		"order_date":     "2026-05-06",
+		"customer_id":    3,
+		"source_id":      1,
+		"order_type_id":  1,
+		"pay_status_id":  2,
+		"ship_status_id": 1,
+		"product_id":     []string{"7"},
+		"tier_id":        []string{""},
+		"unit_price":     []string{""},
+		"item_name":      []string{"客户A自定义货品名"},
+		"qty":            []string{"10"},
+		"unit":           []string{"件"},
+		"spec":           []string{"454"},
+	}
+	body, _ := json.Marshal(payload)
+	req := httptest.NewRequest(http.MethodPost, "/api/order", bytes.NewReader(body))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("POST /api/order status = %d, want 200, body=%s", rec.Code, rec.Body.String())
+	}
+
+	var tierID int64
+	var lineTotal float64
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`
+		SELECT COALESCE(price_tier_id,0), COALESCE(line_total,0)::float8
+		FROM %s.order_items
+		ORDER BY id DESC
+		LIMIT 1
+	`, schema)).Scan(&tierID, &lineTotal); err != nil {
+		t.Fatalf("query order item: %v", err)
+	}
+	if tierID != 102 || lineTotal != 900 {
+		t.Fatalf("tier/line_total=%d/%.2f, want 102/900.00", tierID, lineTotal)
+	}
+}
+
 func TestOrderAPISavesAndListsEmployeeResponsiblePerson(t *testing.T) {
 	pool, schema := newOrderAPITestDB(t)
 	ctx := context.Background()
@@ -1895,6 +1949,15 @@ CREATE TABLE %s.product_price_tiers (
 	price_per_lb NUMERIC,
 	active BOOLEAN NOT NULL DEFAULT true
 );
+CREATE TABLE %s.customer_service_capabilities (
+	id BIGSERIAL PRIMARY KEY,
+	customer_id BIGINT NOT NULL,
+	capability_code TEXT NOT NULL,
+	enabled BOOLEAN NOT NULL DEFAULT true,
+	config_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+	updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+	UNIQUE(customer_id, capability_code)
+);
 CREATE TABLE %s.orders (
 	id BIGSERIAL PRIMARY KEY,
 	order_date DATE,
@@ -2041,7 +2104,7 @@ INSERT INTO %s.sender_settings(id, sender_label, is_default, active) VALUES(1, '
 	`, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema,
 		schema, schema, schema, schema, schema, schema, schema, schema, schema, schema,
 		schema, schema, schema, schema, schema, schema, schema, schema, schema, schema,
-		schema, schema, schema)
+		schema, schema, schema, schema)
 }
 
 func writeOrderShippingTemplateForTest(t *testing.T, path string) {

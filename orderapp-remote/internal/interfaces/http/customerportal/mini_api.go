@@ -344,7 +344,7 @@ func isMiniValidationError(err error) bool {
 		"service key invalid", "source_name required", "total_rows invalid", "input_material required",
 		"input_qty required", "target_product required", "target_spec required", "target_qty required",
 		"bean_list required", "recipient_name required", "recipient_phone required", "recipient_address required",
-		"items required", "mall_product required", "qty required":
+		"items required", "mall_product required", "qty required", "capability template invalid":
 		return true
 	default:
 		return false

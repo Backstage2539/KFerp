@@ -24,7 +24,12 @@ type portalVisibilityRequest struct {
 	Enabled                 *bool                                `json:"enabled"`
 	ThemeKey                string                               `json:"theme_key"`
 	MiniappEntryMode        string                               `json:"miniapp_entry_mode"`
+	CapabilityTemplateKey   string                               `json:"capability_template_key"`
 	Capabilities            []customerportalapp.CapabilityOption `json:"capabilities"`
+}
+
+type capabilityTemplateRequest struct {
+	TemplateKey string `json:"template_key"`
 }
 
 type mallProductRequest struct {
@@ -46,6 +51,17 @@ func registerAdminAPI(e *echo.Echo, svc Service, assetDirs ...string) {
 	if len(assetDirs) > 0 && strings.TrimSpace(assetDirs[0]) != "" {
 		assetDir = strings.TrimSpace(assetDirs[0])
 	}
+	e.GET("/api/customer-portal/admin/capability-templates", func(c echo.Context) error {
+		if svc == nil {
+			return c.JSON(http.StatusInternalServerError, map[string]string{"error": "internal error"})
+		}
+		rows, err := svc.ListCapabilityTemplates(c.Request().Context())
+		if err != nil {
+			return c.JSON(http.StatusInternalServerError, map[string]string{"error": "internal error"})
+		}
+		return c.JSON(http.StatusOK, map[string]any{"templates": rows})
+	})
+
 	e.GET("/api/customer-portal/admin/customers", func(c echo.Context) error {
 		if svc == nil {
 			return c.JSON(http.StatusInternalServerError, map[string]string{"error": "internal error"})
@@ -99,8 +115,32 @@ func registerAdminAPI(e *echo.Echo, svc Service, assetDirs ...string) {
 			Enabled:                 enabled,
 			ThemeKey:                req.ThemeKey,
 			MiniappEntryMode:        req.MiniappEntryMode,
+			CapabilityTemplateKey:   req.CapabilityTemplateKey,
 			Capabilities:            req.Capabilities,
 			UpdatedBy:               support.ActorOf(c),
+		})
+		if err != nil {
+			return portalAdminError(c, err)
+		}
+		return c.JSON(http.StatusOK, detail)
+	})
+
+	e.POST("/api/customer-portal/admin/customers/:id/capability-template", func(c echo.Context) error {
+		if svc == nil {
+			return c.JSON(http.StatusInternalServerError, map[string]string{"error": "internal error"})
+		}
+		id, err := strconv.ParseInt(c.Param("id"), 10, 64)
+		if err != nil || id <= 0 {
+			return c.JSON(http.StatusBadRequest, map[string]string{"error": "customer required"})
+		}
+		var req capabilityTemplateRequest
+		if err := c.Bind(&req); err != nil {
+			return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid request"})
+		}
+		detail, err := svc.ApplyCapabilityTemplate(c.Request().Context(), customerportalapp.ApplyCapabilityTemplateCommand{
+			CustomerID:  id,
+			TemplateKey: req.TemplateKey,
+			UpdatedBy:   support.ActorOf(c),
 		})
 		if err != nil {
 			return portalAdminError(c, err)

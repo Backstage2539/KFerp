@@ -29,6 +29,7 @@ type fakeRepository struct {
 	portalCustomers    []PortalAdminCustomer
 	portalDetail       PortalAdminDetail
 	visibilityCommand  UpdatePortalVisibilityCommand
+	templateCommand    ApplyCapabilityTemplateCommand
 	mallProducts       []MallProduct
 	mallProductOptions []MallProductOption
 	mallProductCommand SaveMallProductCommand
@@ -110,6 +111,17 @@ func (r *fakeRepository) UpdatePortalVisibility(ctx context.Context, cmd UpdateP
 	r.portalDetail.Customer.DisplayName = cmd.DisplayName
 	r.portalDetail.Customer.PortalEnabled = cmd.Enabled
 	r.portalDetail.Customer.MiniappEntryMode = cmd.MiniappEntryMode
+	return r.portalDetail, nil
+}
+
+func (r *fakeRepository) ApplyCapabilityTemplate(ctx context.Context, cmd ApplyCapabilityTemplateCommand) (PortalAdminDetail, error) {
+	r.templateCommand = cmd
+	if r.err != nil {
+		return PortalAdminDetail{}, r.err
+	}
+	r.portalDetail.Customer.ID = cmd.CustomerID
+	r.portalDetail.Customer.CapabilityTemplateKey = cmd.Template.Key
+	r.portalDetail.Capabilities = cmd.Template.Capabilities
 	return r.portalDetail, nil
 }
 
@@ -462,6 +474,48 @@ func TestPortalAdminDetailAlwaysReturnsCompleteCapabilityCatalog(t *testing.T) {
 	}
 }
 
+func TestDefaultCapabilityTemplatesIncludePublicSKUDirectShipRules(t *testing.T) {
+	templates := DefaultCapabilityTemplates()
+	template, ok := CustomerCapabilityTemplateByKey(CapabilityTemplatePublicSKUDirectShip)
+	if !ok {
+		t.Fatalf("public sku direct ship template missing from %+v", templates)
+	}
+	if template.MiniappEntryMode != MiniappEntryModeServices {
+		t.Fatalf("miniapp entry mode=%q, want services", template.MiniappEntryMode)
+	}
+	if len(template.ERPRoleCodes) == 0 || template.ERPRoleCodes[0] != "customer_direct_ship_customer" {
+		t.Fatalf("erp roles=%+v, want customer_direct_ship_customer", template.ERPRoleCodes)
+	}
+	if !template.HasCapability(CapabilityDirectShip) || !template.HasCapability(CapabilityProductOrder) || template.HasCapability(CapabilityProcessing) {
+		t.Fatalf("template capabilities not scoped to public sku direct ship: %+v", template.Capabilities)
+	}
+	rule := template.SmallBatchPriceRule()
+	if !rule.Enabled || rule.ThresholdLB != 14 || rule.TierMinLB != 15 || rule.TierMaxLB != 28 {
+		t.Fatalf("small batch rule=%+v, want <14lb uses 15-28lb tier", rule)
+	}
+}
+
+func TestApplyCapabilityTemplateNormalizesAndDelegates(t *testing.T) {
+	repo := &fakeRepository{portalDetail: PortalAdminDetail{
+		Customer: PortalAdminCustomer{Name: "客户A"},
+	}}
+	svc := NewService(repo, fakeIdentityProvider{})
+	got, err := svc.ApplyCapabilityTemplate(context.Background(), ApplyCapabilityTemplateCommand{
+		CustomerID:  147,
+		TemplateKey: " public_sku_direct_ship ",
+		UpdatedBy:   " admin ",
+	})
+	if err != nil {
+		t.Fatalf("ApplyCapabilityTemplate() err=%v", err)
+	}
+	if repo.templateCommand.CustomerID != 147 || repo.templateCommand.Template.Key != CapabilityTemplatePublicSKUDirectShip || repo.templateCommand.UpdatedBy != "admin" {
+		t.Fatalf("template command=%+v", repo.templateCommand)
+	}
+	if got.Customer.CapabilityTemplateKey != CapabilityTemplatePublicSKUDirectShip || !got.HasCapabilityOption(CapabilityDirectShip) {
+		t.Fatalf("detail=%+v", got)
+	}
+}
+
 func TestPortalAdminCustomerResponsesNormalizeThemeKey(t *testing.T) {
 	repo := &fakeRepository{
 		portalCustomers: []PortalAdminCustomer{
@@ -542,7 +596,7 @@ func TestUpdatePortalVisibilityTrimsAndNormalizesCapabilities(t *testing.T) {
 
 func TestMallAdminSavesProductsAndNormalizesListing(t *testing.T) {
 	repo := &fakeRepository{
-		mallProducts: []MallProduct{{ID: 1, ProductID: 7, Title: "  乌拉嘎  ", SpecG: 0, UnitPrice: 88, TemplateKey: "wide", Status: "published"}},
+		mallProducts:       []MallProduct{{ID: 1, ProductID: 7, Title: "  乌拉嘎  ", SpecG: 0, UnitPrice: 88, TemplateKey: "wide", Status: "published"}},
 		mallProductOptions: []MallProductOption{{ID: 7, Name: "乌拉嘎", DefaultPrice: 88}},
 	}
 	svc := NewService(repo, fakeIdentityProvider{})
@@ -559,17 +613,17 @@ func TestMallAdminSavesProductsAndNormalizesListing(t *testing.T) {
 	}
 
 	got, err := svc.SaveMallProduct(context.Background(), SaveMallProductCommand{
-		ProductID: 7,
-		Title: "  乌拉嘎  ",
-		Subtitle: "  柑橘莓果  ",
+		ProductID:   7,
+		Title:       "  乌拉嘎  ",
+		Subtitle:    "  柑橘莓果  ",
 		Description: "  适合手冲  ",
-		ImageURL: "  /assets/mall_products/ulagaa.png  ",
-		SpecG: 250,
-		UnitPrice: 68,
+		ImageURL:    "  /assets/mall_products/ulagaa.png  ",
+		SpecG:       250,
+		UnitPrice:   68,
 		TemplateKey: "compact",
-		Status: "draft",
-		SortOrder: 3,
-		Actor: "  测试员  ",
+		Status:      "draft",
+		SortOrder:   3,
+		Actor:       "  测试员  ",
 	})
 	if err != nil {
 		t.Fatalf("SaveMallProduct() err=%v", err)
@@ -607,10 +661,10 @@ func TestMallPageAndOrderRequireMallCapability(t *testing.T) {
 	}
 
 	order, err := svc.CreateMallOrder(context.Background(), "mini-token", CreateMallOrderCommand{
-		RecipientName: " 张三 ",
-		RecipientPhone: " 13800138000 ",
+		RecipientName:    " 张三 ",
+		RecipientPhone:   " 13800138000 ",
 		RecipientAddress: " 上海市 ",
-		Items: []MallOrderItemCommand{{MallProductID: 11, Qty: 2}},
+		Items:            []MallOrderItemCommand{{MallProductID: 11, Qty: 2}},
 	})
 	if err != nil {
 		t.Fatalf("CreateMallOrder() err=%v", err)
