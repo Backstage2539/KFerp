@@ -66,18 +66,20 @@
         <button class="secondary" type="button" @click="removeSealBackground" :disabled="removingSealBackground || !settings.seal">{{ removingSealBackground ? '处理中' : '去除背景' }}</button>
       </div>
       <div class="seal-position">
-        <div class="seal-position-stage">
-          <div class="company-line">公司：公司名称</div>
-          <img
-            v-if="settings.seal?.url"
-            class="seal-drag-image"
-            :src="settings.seal.url"
-            alt="公章"
-            :style="sealDragStyle"
-            title="拖动调整公章位置，松手自动保存"
-            @pointerdown.stop="startSealDrag"
-          />
-          <div v-else class="seal-placeholder" :style="sealDragStyle" title="拖动调整公章位置，松手自动保存" @pointerdown.stop="startSealDrag">公章</div>
+        <div class="seal-position-stage" :style="sealStageViewportStyle">
+          <div class="seal-stage-canvas" :style="sealStageCanvasStyle">
+            <div class="company-line">公司：公司名称</div>
+            <img
+              v-if="settings.seal?.url"
+              class="seal-drag-image"
+              :src="settings.seal.url"
+              alt="公章"
+              :style="sealDragStyle"
+              title="拖动调整公章位置，松手自动保存"
+              @pointerdown.stop="startSealDrag"
+            />
+            <div v-else class="seal-placeholder" :style="sealDragStyle" title="拖动调整公章位置，松手自动保存" @pointerdown.stop="startSealDrag">公章</div>
+          </div>
         </div>
         <div class="seal-position-fields">
           <label><span>X(mm)</span><input v-model.number="form.seal_x_mm" type="number" min="0" step="1" /></label>
@@ -101,9 +103,12 @@ import { apiGet, apiSend } from '../api/client'
 import {
   beginSalesOrderSealDrag,
   moveSalesOrderSealDrag,
+  salesOrderPreviewDesignHeightPX,
+  salesOrderPreviewDesignWidthPX,
   salesOrderSealMaxWidthMM,
   salesOrderSealMinWidthMM,
   salesOrderSealPreviewScale,
+  salesOrderSealSettingsViewportHeight,
   salesOrderSealStyle,
 } from '../lib/sales-order-seal'
 
@@ -148,6 +153,19 @@ function assignSettings(data) {
 
 const sealDragStyle = computed(() => {
   return salesOrderSealStyle(form, salesOrderSealPreviewScale)
+})
+
+const sealStageViewportStyle = computed(() => {
+  return {
+    height: `${salesOrderSealSettingsViewportHeight(form, salesOrderSealPreviewScale)}px`,
+  }
+})
+
+const sealStageCanvasStyle = computed(() => {
+  return {
+    width: `${salesOrderPreviewDesignWidthPX}px`,
+    minHeight: `${salesOrderPreviewDesignHeightPX}px`,
+  }
 })
 
 async function load() {
@@ -332,14 +350,15 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .upload-row { display: grid; grid-template-columns: 180px 1fr 100px minmax(220px, 1fr) 90px; gap: 10px; align-items: center; margin-bottom: 12px; }
 .seal-row { grid-template-columns: 1fr minmax(220px, 1fr) 110px 110px; }
 .current-seal { color: #555; }
-.seal-position { display: grid; grid-template-columns: minmax(320px, 462px) 1fr; gap: 12px; align-items: start; }
-.seal-position-stage { position: relative; width: 100%; aspect-ratio: 2.5 / 1; border: 1px dashed #d2c8bc; border-radius: 8px; background: #fffdf9; overflow: hidden; }
+.seal-position { display: grid; grid-template-columns: 1fr; gap: 12px; align-items: start; }
+.seal-position-stage { position: relative; width: 100%; border: 1px dashed #d2c8bc; border-radius: 8px; background: #f5f1ec; overflow: auto; }
+.seal-stage-canvas { position: relative; background: #fffdf9; border-radius: 6px; }
 .company-line { position: absolute; left: 35px; top: 48px; font-weight: 700; }
 .seal-drag-image, .seal-placeholder { position: absolute; user-select: none; object-fit: contain; opacity: .86; cursor: move; touch-action: none; }
 .seal-placeholder { border: 2px solid #b91c1c; border-radius: 999px; color: #b91c1c; display: grid; place-items: center; font-weight: 800; }
-.seal-position-fields { display: grid; grid-template-columns: repeat(3, minmax(80px, 1fr)); gap: 10px; }
+.seal-position-fields { order: -1; display: grid; grid-template-columns: repeat(2, minmax(120px, 180px)); gap: 10px; align-items: end; }
 .seal-size-control { grid-column: 1 / -1; }
-.seal-size-inputs { display: grid; grid-template-columns: minmax(180px, 1fr) 88px; gap: 10px; align-items: center; }
+.seal-size-inputs { display: grid; grid-template-columns: minmax(220px, 320px) 88px; gap: 10px; align-items: center; }
 .seal-size-inputs input[type="range"] { padding: 0; }
 table { width: 100%; border-collapse: collapse; }
 th, td { border-bottom: 1px solid #eee8df; padding: 9px 8px; text-align: left; }
