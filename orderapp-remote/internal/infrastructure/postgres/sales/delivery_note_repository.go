@@ -138,11 +138,11 @@ func (r Repository) loadDeliveryNoteBaseTx(ctx context.Context, tx pgx.Tx, order
 			COALESCE(c.name,''), COALESCE(NULLIF(c.company_name,''), c.name, ''),
 			COALESCE(NULLIF(c.company_address,''), c.address, ''), COALESCE(NULLIF(c.company_phone,''), c.phone, ''),
 			COALESCE(NULLIF(o.receiver_name,''), c.contact, ''), COALESCE(NULLIF(o.receiver_phone,''), c.phone, ''), COALESCE(NULLIF(o.receiver_address,''), c.address, ''),
-			COALESCE(o.ship_method,''), COALESCE(o.ship_tracking_no,''), COALESCE(o.source_warehouse,''), COALESCE(o.notes,''), COALESCE(ss.name,'')
+			COALESCE(o.ship_method,''), %s, COALESCE(o.source_warehouse,''), COALESCE(o.notes,''), COALESCE(ss.name,'')
 		FROM %s.orders o
 		LEFT JOIN %s.customers c ON c.id=o.customer_id
 		LEFT JOIN %s.ship_statuses ss ON ss.id=o.ship_status_id
-		WHERE o.id=$1`, r.schema, r.schema, r.schema)
+		WHERE o.id=$1`, orderTrackingSummaryExpr(r.schema, "o"), r.schema, r.schema, r.schema)
 	var out deliveryNoteBase
 	if err := tx.QueryRow(ctx, q, orderID).Scan(
 		&out.OrderID,

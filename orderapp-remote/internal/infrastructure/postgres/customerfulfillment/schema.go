@@ -227,6 +227,18 @@ CREATE TABLE IF NOT EXISTS %[1]s.customer_direct_ship_import_order_items (
 	created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+CREATE TABLE IF NOT EXISTS %[1]s.order_shipping_trackings (
+	id BIGSERIAL PRIMARY KEY,
+	order_id BIGINT NOT NULL REFERENCES %[1]s.orders(id) ON DELETE CASCADE,
+	tracking_no TEXT NOT NULL,
+	source TEXT NOT NULL DEFAULT '',
+	created_by TEXT NOT NULL DEFAULT '',
+	created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+	UNIQUE(order_id, tracking_no)
+);
+CREATE INDEX IF NOT EXISTS idx_%[1]s_order_shipping_trackings_order ON %[1]s.order_shipping_trackings(order_id, id);
+CREATE INDEX IF NOT EXISTS idx_%[1]s_order_shipping_trackings_no ON %[1]s.order_shipping_trackings(tracking_no);
+
 CREATE TABLE IF NOT EXISTS %[1]s.customer_billing_rules (
 	id BIGSERIAL PRIMARY KEY,
 	customer_id BIGINT NOT NULL REFERENCES %[1]s.customers(id) ON DELETE CASCADE,

@@ -182,7 +182,7 @@ func (r Repository) fetchOrderEdit(ctx context.Context, id int64) (*salesapp.Ord
 			COALESCE(o.pay_status_id,0) as pay_status_id,
 			COALESCE(o.ship_status_id,0) as ship_status_id,
 			COALESCE(o.ship_method,'') as ship_method,
-			COALESCE(o.ship_tracking_no,'') as ship_tracking_no,
+			%s as ship_tracking_no,
 			COALESCE(o.responsible_party_type,'') as responsible_party_type,
 			COALESCE(o.responsible_party_id,0) as responsible_party_id,
 			COALESCE(o.responsible_party_name,'') as responsible_party_name,
@@ -206,7 +206,7 @@ func (r Repository) fetchOrderEdit(ctx context.Context, id int64) (*salesapp.Ord
 			o.void_reason
 		FROM %s.orders o
 		WHERE o.id=$1
-	`, r.schema)
+	`, orderTrackingSummaryExpr(r.schema, "o"), r.schema)
 
 	var d salesapp.OrderEditData
 	var totalAmt, shipAmt, discAmt, roundAmt, grandAmt float64

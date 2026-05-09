@@ -14,6 +14,9 @@ func EnsureSchema(ctx context.Context, pool *pgxpool.Pool, schema string) error 
 	if err := ensureShippingClosureSchema(ctx, pool, schema); err != nil {
 		return err
 	}
+	if err := ensureOrderShippingTrackingTables(ctx, pool, schema); err != nil {
+		return err
+	}
 	if err := EnsureSenderSettingsTable(ctx, pool, schema); err != nil {
 		return err
 	}
@@ -182,6 +185,36 @@ func ensureShippingClosureSchema(ctx context.Context, pool *pgxpool.Pool, schema
 			UNIQUE(shipment_id, order_id)
 		)`, schema, schema, schema),
 		fmt.Sprintf(`CREATE INDEX IF NOT EXISTS idx_%s_order_shipment_orders_order_id ON %s.order_shipment_orders(order_id)`, schema, schema),
+	}
+	for _, stmt := range stmts {
+		if _, err := pool.Exec(ctx, stmt); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func ensureOrderShippingTrackingTables(ctx context.Context, pool *pgxpool.Pool, schema string) error {
+	stmts := []string{
+		fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s.order_shipping_trackings (
+			id BIGSERIAL PRIMARY KEY,
+			order_id BIGINT NOT NULL REFERENCES %s.orders(id) ON DELETE CASCADE,
+			tracking_no TEXT NOT NULL,
+			source TEXT NOT NULL DEFAULT '',
+			created_by TEXT NOT NULL DEFAULT '',
+			created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+			UNIQUE(order_id, tracking_no)
+		)`, schema, schema),
+		fmt.Sprintf(`CREATE INDEX IF NOT EXISTS idx_%s_order_shipping_trackings_order ON %s.order_shipping_trackings(order_id, id)`, schema, schema),
+		fmt.Sprintf(`CREATE INDEX IF NOT EXISTS idx_%s_order_shipping_trackings_no ON %s.order_shipping_trackings(tracking_no)`, schema, schema),
+		fmt.Sprintf(`
+			INSERT INTO %s.order_shipping_trackings(order_id, tracking_no, source, created_by)
+			SELECT o.id, trim(x.tracking_no), 'legacy_order_field', 'schema_migration'
+			FROM %s.orders o
+			CROSS JOIN LATERAL regexp_split_to_table(COALESCE(o.ship_tracking_no,''), '[[:space:],;，；、]+') AS x(tracking_no)
+			WHERE trim(x.tracking_no) <> ''
+			ON CONFLICT (order_id, tracking_no) DO NOTHING
+		`, schema, schema),
 	}
 	for _, stmt := range stmts {
 		if _, err := pool.Exec(ctx, stmt); err != nil {
