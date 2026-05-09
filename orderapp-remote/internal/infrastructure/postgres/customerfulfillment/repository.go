@@ -225,9 +225,13 @@ func (r *Repository) CustomerPortalOverview(ctx context.Context, employeeID int6
 }
 
 func (r *Repository) SubmitCustomerProcessingWorkOrder(ctx context.Context, cmd app.SubmitCustomerProcessingWorkOrderCommand) (app.ProcessingOrderSummary, error) {
-	current, err := r.CustomerPortalContext(ctx, cmd.EmployeeID)
-	if err != nil {
-		return app.ProcessingOrderSummary{}, err
+	customerID := cmd.CustomerID
+	if customerID <= 0 {
+		current, err := r.CustomerPortalContext(ctx, cmd.EmployeeID)
+		if err != nil {
+			return app.ProcessingOrderSummary{}, err
+		}
+		customerID = current.CustomerID
 	}
 	tx, err := r.pool.Begin(ctx)
 	if err != nil {
@@ -255,7 +259,7 @@ func (r *Repository) SubmitCustomerProcessingWorkOrder(ctx context.Context, cmd 
 		)
 		VALUES(0,$1,'','',now()::date,$2,$3,'submitted',$4,$5,$6::jsonb)
 		RETURNING id
-	`, r.schema), current.CustomerID, productID, productName, cmd.InputQuantityG, cmd.PlannedOutputUnits, mustPayloadJSON(payload)).Scan(&id); err != nil {
+	`, r.schema), customerID, productID, productName, cmd.InputQuantityG, cmd.PlannedOutputUnits, mustPayloadJSON(payload)).Scan(&id); err != nil {
 		return app.ProcessingOrderSummary{}, err
 	}
 	workOrderNo := fmt.Sprintf("CP-%s-%04d", time.Now().Format("20060102"), id)
@@ -271,7 +275,7 @@ func (r *Repository) SubmitCustomerProcessingWorkOrder(ctx context.Context, cmd 
 	if rawBeanName != "" || cmd.InputQuantityG > 0 {
 		rawItemID := cmd.RawBeanItemID
 		if rawItemID <= 0 && rawBeanName != "" {
-			rawItemID, err = r.upsertCustodyItemTx(ctx, tx, current.CustomerID, "raw_bean", rawBeanName, rawBeanName, "g", map[string]any{"raw_bean_name": rawBeanName})
+			rawItemID, err = r.upsertCustodyItemTx(ctx, tx, customerID, "raw_bean", rawBeanName, rawBeanName, "g", map[string]any{"raw_bean_name": rawBeanName})
 			if err != nil {
 				return app.ProcessingOrderSummary{}, err
 			}
@@ -296,9 +300,13 @@ func (r *Repository) SubmitCustomerProcessingWorkOrder(ctx context.Context, cmd 
 }
 
 func (r *Repository) SubmitCustomerDirectShipOrder(ctx context.Context, cmd app.SubmitCustomerDirectShipOrderCommand) (app.DirectShipOrderSummary, error) {
-	current, err := r.CustomerPortalContext(ctx, cmd.EmployeeID)
-	if err != nil {
-		return app.DirectShipOrderSummary{}, err
+	customerID := cmd.CustomerID
+	if customerID <= 0 {
+		current, err := r.CustomerPortalContext(ctx, cmd.EmployeeID)
+		if err != nil {
+			return app.DirectShipOrderSummary{}, err
+		}
+		customerID = current.CustomerID
 	}
 	tx, err := r.pool.Begin(ctx)
 	if err != nil {
@@ -322,7 +330,7 @@ func (r *Repository) SubmitCustomerDirectShipOrder(ctx context.Context, cmd app.
 		)
 		VALUES(0,$1,'','',now()::date,$2,'submitted',$3::jsonb)
 		RETURNING id
-	`, r.schema), current.CustomerID, receiverSnapshot, mustPayloadJSON(payload)).Scan(&importOrderID); err != nil {
+	`, r.schema), customerID, receiverSnapshot, mustPayloadJSON(payload)).Scan(&importOrderID); err != nil {
 		return app.DirectShipOrderSummary{}, err
 	}
 	orderNo := fmt.Sprintf("CDS-%s-%04d", time.Now().Format("20060102"), importOrderID)
@@ -346,7 +354,7 @@ func (r *Repository) SubmitCustomerDirectShipOrder(ctx context.Context, cmd app.
 			import_order_id, batch_id, customer_id, line_no, product_title, spec, quantity_units, payload
 		)
 		VALUES($1,0,$2,1,$3,$4,$5,$6::jsonb)
-	`, r.schema), importOrderID, current.CustomerID, cmd.ProductName, cmd.Spec, cmd.QuantityUnits, mustPayloadJSON(itemPayload)); err != nil {
+	`, r.schema), importOrderID, customerID, cmd.ProductName, cmd.Spec, cmd.QuantityUnits, mustPayloadJSON(itemPayload)); err != nil {
 		return app.DirectShipOrderSummary{}, err
 	}
 	if err := tx.Commit(ctx); err != nil {

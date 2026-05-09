@@ -66,6 +66,14 @@ export function upsertCustomerFulfillmentERPBinding(customerId, payload) {
   return apiSend(`/api/customer-fulfillment/${Number(customerId)}/erp-bindings`, { body: payload })
 }
 
+export function submitCustomerFulfillmentProcessingWorkOrder(customerId, payload) {
+  return apiSend(`/api/customer-fulfillment/${Number(customerId)}/work-orders`, { body: payload })
+}
+
+export function submitCustomerFulfillmentDirectShipOrder(customerId, payload) {
+  return apiSend(`/api/customer-fulfillment/${Number(customerId)}/direct-ship-orders`, { body: payload })
+}
+
 export function fetchCustomerProcessingPortalOverview() {
   return apiGet('/api/customer-processing/portal/overview')
 }

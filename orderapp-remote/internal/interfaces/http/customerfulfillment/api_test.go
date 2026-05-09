@@ -307,6 +307,39 @@ func TestCustomerPortalDirectShipSubmitAPIDerivesEmployee(t *testing.T) {
 	}
 }
 
+func TestInternalProcessingAndDirectShipSubmitAPIsUseExplicitCustomer(t *testing.T) {
+	svc := &fakeCustomerFulfillmentService{
+		customerProcessingResult: app.ProcessingOrderSummary{WorkOrderNo: "CP-20260509-0001", Status: "submitted", ProductName: "誉观山冷萃豆", QuantityG: 5000, Units: 50},
+		customerDirectShipResult: app.DirectShipOrderSummary{OrderNo: "CDS-20260509-0001", Status: "submitted", ItemCount: 1},
+	}
+	e := echo.New()
+	RegisterRoutes(e, Dependencies{CustomerFulfillment: svc})
+
+	processingBody := `{"product_name":"誉观山冷萃豆","raw_bean_name":"埃塞花魁","input_quantity_g":5000,"planned_output_units":50,"expected_date":"2026-05-20","note":"管理员提交"}`
+	req := httptest.NewRequest(http.MethodPost, "/api/customer-fulfillment/149/work-orders", strings.NewReader(processingBody))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("internal processing submit status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if svc.customerProcessingCmd.CustomerID != 149 || svc.customerProcessingCmd.EmployeeID != 0 || svc.customerProcessingCmd.ProductName != "誉观山冷萃豆" {
+		t.Fatalf("internal processing cmd = %+v", svc.customerProcessingCmd)
+	}
+
+	directShipBody := `{"receiver_name":"张三","receiver_phone":"13800000000","receiver_address":"浙江杭州","product_name":"誉观山冷萃豆","spec":"100g","quantity_units":2,"note":"管理员提交"}`
+	req = httptest.NewRequest(http.MethodPost, "/api/customer-fulfillment/149/direct-ship-orders", strings.NewReader(directShipBody))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec = httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("internal direct ship submit status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if svc.customerDirectShipCmd.CustomerID != 149 || svc.customerDirectShipCmd.EmployeeID != 0 || svc.customerDirectShipCmd.ReceiverName != "张三" {
+		t.Fatalf("internal direct ship cmd = %+v", svc.customerDirectShipCmd)
+	}
+}
+
 func TestInternalCustodyAdjustmentAPIUsesExplicitCustomer(t *testing.T) {
 	svc := &fakeCustomerFulfillmentService{
 		custodyAdjustmentResult: app.CustodyBalance{ItemType: "raw_bean", ItemName: "埃塞花魁", QuantityG: 12000},
