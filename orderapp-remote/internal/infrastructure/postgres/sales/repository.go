@@ -3,6 +3,7 @@ package sales
 import (
 	"context"
 	"fmt"
+	"math"
 	pdfinfra "orderapp/internal/infrastructure/pdf"
 	"strconv"
 	"strings"
@@ -104,6 +105,26 @@ func resolveOrderResponsibleParty(ctx context.Context, tx pgx.Tx, schema, respon
 	}
 }
 
+func wholesaleDisplayUnitG(specG int64) float64 {
+	if specG >= 1000 {
+		return 1000
+	}
+	return 454
+}
+
+func wholesaleDisplayUnitPriceFromLb(pricePerLb float64, specG int64) float64 {
+	unitG := wholesaleDisplayUnitG(specG)
+	price := pricePerLb * unitG / 454.0
+	if unitG == 1000 {
+		return math.Round(price)
+	}
+	return price
+}
+
+func wholesaleLineTotalFromDisplayUnit(unitPrice float64, specG int64, units int64) float64 {
+	return unitPrice * (float64(specG*units) / wholesaleDisplayUnitG(specG))
+}
+
 func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand) (salesapp.SaveOrderResult, error) {
 	od := cmd.OrderDate
 	if od.IsZero() {
@@ -199,7 +220,7 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 		qtyLb := totalG / 454.0
 
 		if items[idx].manualPrice != nil {
-			lineTotal := *items[idx].manualPrice * qtyLb
+			lineTotal := wholesaleLineTotalFromDisplayUnit(*items[idx].manualPrice, items[idx].specG, items[idx].units)
 			if retailOrder {
 				lineTotal = *items[idx].manualPrice * float64(items[idx].units)
 			}
@@ -238,12 +259,10 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 				if err := tx.QueryRow(ctx, q, *items[idx].tierID).Scan(&tierSpecG, &packagePrice, &pricePerLb); err != nil {
 					return salesapp.SaveOrderResult{}, fmt.Errorf("invalid tier")
 				}
-				if tierSpecG == items[idx].specG {
-					items[idx].lineTotal = packagePrice * float64(items[idx].units)
-				} else {
-					items[idx].lineTotal = pricePerLb * qtyLb
-				}
-				items[idx].unitPrice = pricePerLb
+				_ = tierSpecG
+				_ = packagePrice
+				items[idx].unitPrice = wholesaleDisplayUnitPriceFromLb(pricePerLb, items[idx].specG)
+				items[idx].lineTotal = wholesaleLineTotalFromDisplayUnit(items[idx].unitPrice, items[idx].specG, items[idx].units)
 			} else {
 				// Auto-match tier by package count for the selected spec(g).
 				var tid *int64
@@ -330,17 +349,14 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 					}
 				}
 				items[idx].tierID = tid
-				if packagePrice > 0 {
-					items[idx].lineTotal = packagePrice * float64(items[idx].units)
-				} else {
-					items[idx].lineTotal = pricePerLb * qtyLb
-				}
-				items[idx].unitPrice = pricePerLb
+				_ = packagePrice
+				items[idx].unitPrice = wholesaleDisplayUnitPriceFromLb(pricePerLb, items[idx].specG)
+				items[idx].lineTotal = wholesaleLineTotalFromDisplayUnit(items[idx].unitPrice, items[idx].specG, items[idx].units)
 			}
 		}
 
 		if items[idx].lineTotal == 0 {
-			items[idx].lineTotal = qtyLb * items[idx].unitPrice
+			items[idx].lineTotal = wholesaleLineTotalFromDisplayUnit(items[idx].unitPrice, items[idx].specG, items[idx].units)
 		}
 		totalAmt += items[idx].lineTotal
 	}

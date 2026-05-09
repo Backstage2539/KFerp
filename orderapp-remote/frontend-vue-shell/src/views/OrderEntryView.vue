@@ -181,7 +181,7 @@
           </label>
 
           <label>
-            <span>{{ retailOrder ? '单价' : '单价（元/磅）' }}</span>
+            <span>{{ retailOrder ? '单价' : `单价（${priceUnitLabel(row)}）` }}</span>
             <div class="price-control">
               <input
                 v-model.trim="row.unit_price"
@@ -213,7 +213,7 @@
               @click="selectTier(row, tier)"
             >
               <span>{{ tier.specLabel }} {{ tier.rangeLabel }}</span>
-              <strong>{{ money(tier.unitPrice) }}/磅</strong>
+              <strong>{{ unitPriceMoney(tier.unitPrice) }}{{ tier.priceUnit?.suffix || '/磅' }}</strong>
             </button>
           </div>
         </article>
@@ -329,6 +329,7 @@ import {
   syncWholesaleTierPrice,
   toInt,
   toNumber,
+  wholesalePriceUnit,
   wholesaleTierPriceRows,
   wholesaleSpecOptions,
 } from '../lib/order-entry'
@@ -625,7 +626,7 @@ function resetAutoPrice(row) {
 
 function tierRows(row) {
   if (retailOrder.value) return []
-  return wholesaleTierPriceRows(productByID(row.product_id))
+  return wholesaleTierPriceRows(productByID(row.product_id), row)
 }
 
 function selectTier(row, tier) {
@@ -641,12 +642,22 @@ function autoPriceLabel(row) {
   return '自动价'
 }
 
+function priceUnitLabel(row) {
+  return wholesalePriceUnit(row).label
+}
+
 function rowTotal(row) {
   return lineTotal(productByID(row.product_id), row, retailOrder.value)
 }
 
 function money(value) {
   return Number(value || 0).toFixed(2)
+}
+
+function unitPriceMoney(value) {
+  const n = Number(value || 0)
+  if (!Number.isFinite(n)) return '0'
+  return Number.isInteger(n) ? String(n) : n.toFixed(2)
 }
 
 function addRow() {

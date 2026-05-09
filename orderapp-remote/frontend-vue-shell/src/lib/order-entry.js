@@ -90,11 +90,29 @@ function rowQuantityLb(row) {
   return normalizeSpecG(row) * Math.max(1, toInt(row?.qty)) / 454
 }
 
+export function wholesalePriceUnit(rowOrSpec) {
+  const specG = typeof rowOrSpec === 'object' ? normalizeSpecG(rowOrSpec) : toInt(rowOrSpec)
+  if (specG >= 1000) return { label: '元/kg', suffix: '/kg', unitG: 1000 }
+  return { label: '元/磅', suffix: '/磅', unitG: 454 }
+}
+
+function rowQuantityForWholesalePriceUnit(row) {
+  const unit = wholesalePriceUnit(row)
+  return normalizeSpecG(row) * Math.max(1, toInt(row?.qty)) / unit.unitG
+}
+
 function wholesaleTierUnitPriceLb(tier) {
   const configuredPrice = toNumber(tier?.unit_price)
   const pricePerPackage = configuredPrice > 0 ? configuredPrice : toNumber(tier?.price)
   if (pricePerPackage <= 0) return 0
   return pricePerPackage * 454 / tierSpecG(tier)
+}
+
+function wholesaleDisplayUnitPrice(pricePerLb, rowOrSpec) {
+  const unit = wholesalePriceUnit(rowOrSpec)
+  const price = toNumber(pricePerLb) * unit.unitG / 454
+  if (unit.unitG === 1000) return Math.round(price)
+  return price
 }
 
 function matchTierByQuantity(tiers, quantity, minValue, maxValue) {
@@ -106,16 +124,20 @@ function matchTierByQuantity(tiers, quantity, minValue, maxValue) {
     || null
 }
 
-export function wholesaleTierPriceRows(product) {
+export function wholesaleTierPriceRows(product, row = null) {
   return (product?.tiers || [])
     .filter((tier) => toInt(tier.spec_g) > 0)
-    .map((tier) => ({
-      id: String(tier.id || ''),
-      specG: toInt(tier.spec_g),
-      specLabel: formatSpecLabel(tier.spec_g),
-      rangeLabel: formatTierRange(tier),
-      unitPrice: wholesaleTierUnitPriceLb(tier),
-    }))
+    .map((tier) => {
+      const priceUnitTarget = row || toInt(tier.spec_g)
+      return {
+        id: String(tier.id || ''),
+        specG: toInt(tier.spec_g),
+        specLabel: formatSpecLabel(tier.spec_g),
+        rangeLabel: formatTierRange(tier),
+        unitPrice: wholesaleDisplayUnitPrice(wholesaleTierUnitPriceLb(tier), priceUnitTarget),
+        priceUnit: wholesalePriceUnit(priceUnitTarget),
+      }
+    })
 }
 
 export function findWholesaleTier(product, row) {
@@ -133,7 +155,7 @@ export function findWholesaleTier(product, row) {
 export function syncWholesaleTierPrice(product, row) {
   const tier = findWholesaleTier(product, row)
   if (!tier) return { tierID: 'auto', unitPrice: '' }
-  return { tierID: String(tier.id), unitPrice: String(wholesaleTierUnitPriceLb(tier) || 0) }
+  return { tierID: String(tier.id), unitPrice: String(wholesaleDisplayUnitPrice(wholesaleTierUnitPriceLb(tier), row) || 0) }
 }
 
 export function filterOptions(options, query) {
@@ -216,11 +238,11 @@ export function lineTotal(product, row, retailOrder) {
   const specG = normalizeSpecG(row)
   if (units <= 0 || specG <= 0) return 0
   if (row?.tier_id === 'manual') {
-    return retailOrder ? toNumber(row?.unit_price) * units : toNumber(row?.unit_price) * (specG * units / 454)
+    return retailOrder ? toNumber(row?.unit_price) * units : toNumber(row?.unit_price) * rowQuantityForWholesalePriceUnit(row)
   }
   if (retailOrder) return retailPackagePrice(product, specG) * units
   const price = toNumber(row?.unit_price)
-  return price * (specG * units / 454)
+  return price * rowQuantityForWholesalePriceUnit(row)
 }
 
 export function buildOrderPayload({ form, rows }) {

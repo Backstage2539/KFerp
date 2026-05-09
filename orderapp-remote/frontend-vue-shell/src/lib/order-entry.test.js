@@ -14,6 +14,7 @@ import {
   responsibleOptions,
   retailPackagePrice,
   retailSpecOptions,
+  wholesalePriceUnit,
   wholesaleTierPriceRows,
   wholesaleSpecOptions,
 } from './order-entry.js'
@@ -124,9 +125,9 @@ test('wholesaleTierPriceRows exposes every configured gradient price', () => {
   })
 
   assert.deepEqual(got, [
-    { id: '1', specG: 227, specLabel: '227g', rangeLabel: '1-7件', unitPrice: 98 },
-    { id: '2', specG: 227, specLabel: '227g', rangeLabel: '8件+', unitPrice: 84 },
-    { id: '3', specG: 2500, specLabel: '2.5kg', rangeLabel: '1件+', unitPrice: 70.4608 },
+    { id: '1', specG: 227, specLabel: '227g', rangeLabel: '1-7件', unitPrice: 98, priceUnit: { label: '元/磅', suffix: '/磅', unitG: 454 } },
+    { id: '2', specG: 227, specLabel: '227g', rangeLabel: '8件+', unitPrice: 84, priceUnit: { label: '元/磅', suffix: '/磅', unitG: 454 } },
+    { id: '3', specG: 2500, specLabel: '2.5kg', rangeLabel: '1件+', unitPrice: 155, priceUnit: { label: '元/kg', suffix: '/kg', unitG: 1000 } },
   ])
 })
 
@@ -154,8 +155,9 @@ test('syncWholesaleTierPrice falls back to bean-list weight tiers when selected 
     ],
   }, row)
 
-  assert.deepEqual(got, { tierID: '4', unitPrice: '48' })
-  assert.equal(lineTotal({ tiers: [] }, { ...row, tier_id: got.tierID, unit_price: got.unitPrice }, false), 48 * (30000 / 454))
+  assert.deepEqual(got, { tierID: '4', unitPrice: '106' })
+  assert.deepEqual(wholesalePriceUnit(row), { label: '元/kg', suffix: '/kg', unitG: 1000 })
+  assert.equal(lineTotal({ tiers: [] }, { ...row, tier_id: got.tierID, unit_price: got.unitPrice }, false), 106 * 30)
 })
 
 test('buildOrderPayload preserves manual unit price override', () => {
@@ -239,13 +241,17 @@ test('lineTotal uses manual unit price even for retail rows', () => {
   }, true), 90)
 })
 
-test('lineTotal uses manual wholesale unit price as yuan per lb', () => {
+test('lineTotal uses manual wholesale unit price in the selected spec display unit', () => {
   assert.equal(lineTotal(product, {
     tier_id: 'manual',
     spec_mode: '1000',
     qty: 30,
-    unit_price: '48',
-  }, false), 48 * (30000 / 454))
+    unit_price: '106',
+  }, false), 106 * 30)
+})
+
+test('wholesalePriceUnit keeps 454g rows priced as yuan per lb', () => {
+  assert.deepEqual(wholesalePriceUnit({ spec_mode: '454' }), { label: '元/磅', suffix: '/磅', unitG: 454 })
 })
 
 test('filterOptions searches names, full pinyin, initials, and codes', () => {

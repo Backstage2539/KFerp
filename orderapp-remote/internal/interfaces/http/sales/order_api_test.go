@@ -524,12 +524,61 @@ func TestOrderAPISavesWholesale1000gByBeanListWeightTier(t *testing.T) {
 	if spec != "1000g" {
 		t.Fatalf("saved spec = %q, want 1000g", spec)
 	}
-	if unitPrice != 48 {
-		t.Fatalf("unit_price = %.2f, want 48.00", unitPrice)
+	if unitPrice != 106 {
+		t.Fatalf("unit_price = %.2f, want 106.00", unitPrice)
 	}
-	wantLineTotal := 48 * (30000.0 / 454.0)
+	wantLineTotal := 106 * 30.0
 	if diff := lineTotal - wantLineTotal; diff > 0.0001 || diff < -0.0001 {
 		t.Fatalf("line_total = %.6f, want %.6f", lineTotal, wantLineTotal)
+	}
+}
+
+func TestOrderAPISavesManualWholesale1000gPriceAsKgUnit(t *testing.T) {
+	pool, schema := newOrderAPITestDB(t)
+	ctx := context.Background()
+	seedOrderAPITestData(t, ctx, pool, schema)
+
+	e := newOrderAPITestEcho(pool, schema)
+	payload := map[string]any{
+		"order_date":     "2026-05-09",
+		"customer_id":    3,
+		"source_id":      1,
+		"order_type_id":  1,
+		"pay_status_id":  1,
+		"ship_status_id": 1,
+		"product_id":     []string{"7"},
+		"tier_id":        []string{"manual"},
+		"unit_price":     []string{"106"},
+		"item_name":      []string{"榛巧拼配"},
+		"qty":            []string{"30"},
+		"unit":           []string{"袋"},
+		"spec":           []string{"1000"},
+	}
+	body, _ := json.Marshal(payload)
+	req := httptest.NewRequest(http.MethodPost, "/api/order", bytes.NewReader(body))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("POST /api/order status = %d, want 200, body=%s", rec.Code, rec.Body.String())
+	}
+
+	var unitPrice, lineTotal float64
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`
+		SELECT COALESCE(unit_price,0)::float8, COALESCE(line_total,0)::float8
+		FROM %s.order_items
+		WHERE product_id=7
+		ORDER BY id DESC
+		LIMIT 1
+	`, schema)).Scan(&unitPrice, &lineTotal); err != nil {
+		t.Fatalf("query order item: %v", err)
+	}
+	if unitPrice != 106 {
+		t.Fatalf("unit_price = %.2f, want 106.00", unitPrice)
+	}
+	if lineTotal != 3180 {
+		t.Fatalf("line_total = %.2f, want 3180.00", lineTotal)
 	}
 }
 

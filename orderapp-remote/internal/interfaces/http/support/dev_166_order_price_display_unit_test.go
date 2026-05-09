@@ -7,62 +7,64 @@ import (
 	"testing"
 )
 
-func TestDev164OrderWeightTierPricingRequirementSeeds(t *testing.T) {
+func TestDev166OrderPriceDisplayUnitRequirementSeeds(t *testing.T) {
 	src := string(readOrderAppFileForTest(t, filepath.Join("internal", "interfaces", "http", "support", "req_store.go")))
 	for _, want := range []string{
-		"PR-164",
-		"DEV-164-01",
-		"DEV-164-02",
-		"UT-164-01",
-		"API-164-01",
-		"REV-164-01",
-		"1000g × 30 袋",
+		"PR-166",
+		"DEV-166-01",
+		"DEV-166-02",
+		"UT-166-01",
+		"API-166-01",
+		"REV-166-01",
+		"106 元/kg",
 	} {
 		if !strings.Contains(src, want) {
-			t.Fatalf("dev 164 order weight-tier pricing seed missing %q", want)
+			t.Fatalf("dev 166 order price display unit seed missing %q", want)
 		}
 	}
 }
 
-func TestDev164OrderEntryFallsBackToBeanListWeightTiers(t *testing.T) {
+func TestDev166OrderEntryUsesSpecDisplayPriceUnit(t *testing.T) {
 	orderEntry := string(readOrderAppFileForTest(t, filepath.Join("frontend-vue-shell", "src", "lib", "order-entry.js")))
 	for _, want := range []string{
-		"rowQuantityLb(row)",
-		"matchTierByQuantity(tiers, rowQuantityLb(row), tierMinLb, tierMaxLb)",
-		"wholesaleTierUnitPriceLb(tier)",
+		"export function wholesalePriceUnit",
+		"return { label: '元/kg', suffix: '/kg', unitG: 1000 }",
+		"Math.round(price)",
 		"rowQuantityForWholesalePriceUnit(row)",
 	} {
 		if !strings.Contains(orderEntry, want) {
-			t.Fatalf("order-entry.js missing weight-tier pricing marker %q", want)
+			t.Fatalf("order-entry.js missing display price unit marker %q", want)
 		}
 	}
 
 	view := string(readOrderAppFileForTest(t, filepath.Join("frontend-vue-shell", "src", "views", "OrderEntryView.vue")))
 	for _, want := range []string{
-		"priceUnitLabel(row)",
+		"`单价（${priceUnitLabel(row)}）`",
+		"wholesaleTierPriceRows(productByID(row.product_id), row)",
 		"unitPriceMoney(tier.unitPrice)",
 	} {
 		if !strings.Contains(view, want) {
-			t.Fatalf("OrderEntryView.vue missing wholesale lb price marker %q", want)
+			t.Fatalf("OrderEntryView.vue missing display price unit marker %q", want)
 		}
 	}
 }
 
-func TestDev164SaveOrderUsesBeanListWeightTierFallback(t *testing.T) {
+func TestDev166SaveOrderStoresDisplayUnitPrice(t *testing.T) {
 	repo := string(readOrderAppFileForTest(t, filepath.Join("internal", "infrastructure", "postgres", "sales", "repository.go")))
 	for _, want := range []string{
-		"bean-list weight tiers",
-		"COALESCE(NULLIF(min_qty_lb,0), NULLIF(min_qty_units,0) * COALESCE(NULLIF(spec_g,0),454) / 454.0, 0) <= $2",
-		"wholesaleLineTotalFromDisplayUnit",
-		"WHERE id=$1 AND active=true",
+		"func wholesaleDisplayUnitG",
+		"return math.Round(price)",
+		"wholesaleDisplayUnitPriceFromLb(pricePerLb, items[idx].specG)",
+		"wholesaleLineTotalFromDisplayUnit(items[idx].unitPrice, items[idx].specG, items[idx].units)",
+		"wholesaleLineTotalFromDisplayUnit(*items[idx].manualPrice, items[idx].specG, items[idx].units)",
 	} {
 		if !strings.Contains(repo, want) {
-			t.Fatalf("sales repository missing weight-tier fallback marker %q", want)
+			t.Fatalf("sales repository missing display unit price marker %q", want)
 		}
 	}
 }
 
-func TestDev164ManualDocumentsOrderWeightTierPricing(t *testing.T) {
+func TestDev166ManualDocumentsOrderPriceDisplayUnit(t *testing.T) {
 	rels := []string{
 		"docs/OP_MANUAL_ORDER_SALES.md",
 		"docs/REQUIREMENTS.md",
@@ -76,15 +78,9 @@ func TestDev164ManualDocumentsOrderWeightTierPricing(t *testing.T) {
 	}
 	for _, rel := range rels {
 		doc := string(readOrderAppFileForTest(t, rel))
-		wants := []string{"454"}
-		if strings.Contains(rel, "OP_MANUAL_ORDER_SALES") {
-			wants = append(wants, "规格没有专属梯度", "元/kg", "1000g × 30")
-		} else {
-			wants = append(wants, "1000g", "30")
-		}
-		for _, want := range wants {
+		for _, want := range []string{"元/kg", "106", "3180"} {
 			if !strings.Contains(doc, want) {
-				t.Fatalf("%s missing order weight-tier pricing manual marker %q", rel, want)
+				t.Fatalf("%s missing order price display unit manual marker %q", rel, want)
 			}
 		}
 	}
