@@ -68,11 +68,31 @@
           <div class="ops-form">
             <label>
               <span>成品名称</span>
-              <input v-model.trim="processingForm.product_name" placeholder="例如 誉观山冷萃豆" />
+              <SearchableSelect
+                v-model="processingProductValue"
+                :options="customerSKUOptions"
+                :option-label="productOptionLabel"
+                :option-meta="productOptionMeta"
+                :option-value="productOptionValue"
+                empty-value=""
+                placeholder="搜索该客户 SKU"
+                empty-text="没有匹配 SKU"
+                :disabled="loading || !normalizedCustomerId"
+                @select="selectProcessingProduct" />
             </label>
             <label>
               <span>原料名称</span>
-              <input v-model.trim="processingForm.raw_bean_name" placeholder="例如 埃塞花魁" />
+              <SearchableSelect
+                v-model="processingRawBeanValue"
+                :options="rawBeanOptions"
+                :option-label="custodyOptionLabel"
+                :option-meta="custodyOptionMeta"
+                :option-value="custodyOptionValue"
+                empty-value=""
+                placeholder="搜索托管原料"
+                empty-text="没有匹配原料"
+                :disabled="loading || !normalizedCustomerId"
+                @select="selectProcessingRawBean" />
             </label>
             <label>
               <span>投豆克重</span>
@@ -97,6 +117,25 @@
         <div class="ops-panel">
           <h3>提交代发信息</h3>
           <div class="ops-form">
+            <label class="wide-field">
+              <span>粘贴收件信息</span>
+              <textarea v-model="recipientPasteText" rows="2" placeholder="粘贴姓名、电话、地址" @paste.prevent="pasteRecipientInfo"></textarea>
+            </label>
+            <button class="secondary" type="button" @click="applyRecipientParse()" :disabled="loading">解析收件信息</button>
+            <label>
+              <span>历史收件信息</span>
+              <SearchableSelect
+                v-model="recipientHistoryValue"
+                :options="recipientOptions"
+                :option-label="recipientOptionLabel"
+                :option-meta="recipientOptionMeta"
+                :option-value="recipientOptionValue"
+                empty-value=""
+                placeholder="搜索姓名/电话/地址"
+                empty-text="没有历史收件信息"
+                :disabled="loading || !normalizedCustomerId"
+                @select="selectRecipientHistory" />
+            </label>
             <label>
               <span>收件人</span>
               <input v-model.trim="directShipForm.receiver_name" />
@@ -111,7 +150,17 @@
             </label>
             <label>
               <span>商品</span>
-              <input v-model.trim="directShipForm.product_name" />
+              <SearchableSelect
+                v-model="directShipProductValue"
+                :options="directShipProductOptions"
+                :option-label="productOptionLabel"
+                :option-meta="productOptionMeta"
+                :option-value="productOptionValue"
+                empty-value=""
+                placeholder="搜索客户 SKU/成品库存"
+                empty-text="没有匹配商品"
+                :disabled="loading || !normalizedCustomerId"
+                @select="selectDirectShipProduct" />
             </label>
             <label>
               <span>规格</span>
@@ -142,7 +191,17 @@
             </label>
             <label>
               <span>名称</span>
-              <input v-model.trim="adjustment.item_name" placeholder="库存名称" />
+              <SearchableSelect
+                v-model="adjustmentItemValue"
+                :options="adjustmentItemOptions"
+                :option-label="custodyOptionLabel"
+                :option-meta="custodyOptionMeta"
+                :option-value="custodyOptionValue"
+                empty-value=""
+                placeholder="搜索已有库存"
+                empty-text="没有匹配库存"
+                :disabled="loading || !normalizedCustomerId"
+                @select="selectAdjustmentItem" />
             </label>
             <label>
               <span>规格</span>
@@ -169,7 +228,17 @@
           <div class="ops-form binding-form">
             <label>
               <span>员工ID</span>
-              <input v-model.number="binding.employee_id" type="number" min="1" placeholder="客户登录账号的员工ID" />
+              <SearchableSelect
+                v-model="binding.employee_id"
+                :options="employeeOptions"
+                :option-label="employeeOptionLabel"
+                :option-meta="employeeOptionMeta"
+                :option-value="employeeOptionValue"
+                empty-value=""
+                placeholder="搜索员工姓名/电话/ID"
+                empty-text="没有匹配员工"
+                :disabled="loading || !normalizedCustomerId"
+                @select="selectERPEmployee" />
             </label>
             <label>
               <span>状态</span>
@@ -367,6 +436,7 @@ import {
   createCustomerFulfillmentSettlement,
   fetchCustomerFulfillmentCustomers,
   fetchCustomerFulfillmentERPBindings,
+  fetchCustomerFulfillmentOptions,
   fetchCustomerFulfillmentImportPreview,
   fetchCustomerFulfillmentImportRows,
   fetchCustomerFulfillmentImports,
@@ -387,6 +457,7 @@ import {
   latestParsedBatchForType,
   rowStatusLabel,
 } from '../lib/customer-fulfillment'
+import { parseRecipientText } from '../lib/customer-recipient'
 
 const customerId = ref(0)
 const customerOptions = ref([])
@@ -397,6 +468,7 @@ const latestBatch = ref(null)
 const applyPreview = ref(null)
 const imports = ref([])
 const overview = ref({})
+const fulfillmentOptions = ref({})
 const invalidRows = ref([])
 const erpBindings = ref([])
 const resultAnchor = ref(null)
@@ -407,23 +479,32 @@ const settlement = reactive({
   period_from: '',
   period_to: '',
 })
+const processingProductValue = ref('')
+const processingRawBeanValue = ref('')
 const processingForm = reactive({
+  product_id: 0,
   product_name: '',
+  raw_bean_item_id: 0,
   raw_bean_name: '',
   input_quantity_g: '',
   planned_output_units: '',
   expected_date: '',
   note: '',
 })
+const directShipProductValue = ref('')
+const recipientHistoryValue = ref('')
+const recipientPasteText = ref('')
 const directShipForm = reactive({
   receiver_name: '',
   receiver_phone: '',
   receiver_address: '',
+  product_id: 0,
   product_name: '',
   spec: '',
   quantity_units: 1,
   note: '',
 })
+const adjustmentItemValue = ref('')
 const adjustment = reactive({
   item_type: 'raw_bean',
   item_name: '',
@@ -452,6 +533,25 @@ const selectedParsedBatchLabel = computed(() => {
   if (!batch) return ''
   return `${batch.source_filename || '未命名文件'} / ${importTypeLabel(batch.import_type)}`
 })
+const customerSKUOptions = computed(() => fulfillmentOptions.value?.customer_skus || [])
+const custodyItemOptions = computed(() => fulfillmentOptions.value?.custody_items || [])
+const rawBeanOptions = computed(() => custodyItemOptions.value.filter((row) => row.item_type === 'raw_bean'))
+const adjustmentItemOptions = computed(() => custodyItemOptions.value.filter((row) => row.item_type === adjustment.item_type))
+const finishedGoodsProductOptions = computed(() => (overview.value?.finished_goods || []).map((row) => ({
+  product_id: row.product_id,
+  product_name: row.product_name,
+  spec: row.spec_g ? `${row.spec_g}g` : '',
+  warehouse: row.warehouse,
+  quantity_units: row.quantity_units,
+  quantity_g: row.quantity_g,
+  source: 'finished_goods',
+})))
+const directShipProductOptions = computed(() => uniqueProductOptions([
+  ...customerSKUOptions.value,
+  ...finishedGoodsProductOptions.value,
+]))
+const employeeOptions = computed(() => fulfillmentOptions.value?.employees || [])
+const recipientOptions = computed(() => fulfillmentOptions.value?.recipients || [])
 const applyPreviewEffects = computed(() => {
   if (Array.isArray(applyPreview.value?.effects) && applyPreview.value.effects.length) return applyPreview.value.effects
   return buildImportPreviewEffects(selectedParsedBatch.value?.summary || {})
@@ -497,12 +597,14 @@ async function loadAll() {
   error.value = ''
   ok.value = ''
   try {
-    const [overviewData, importData, bindingData] = await Promise.all([
+    const [overviewData, importData, bindingData, optionsData] = await Promise.all([
       fetchCustomerFulfillmentOverview(normalizedCustomerId.value),
       fetchCustomerFulfillmentImports(normalizedCustomerId.value),
       fetchCustomerFulfillmentERPBindings(normalizedCustomerId.value),
+      fetchCustomerFulfillmentOptions(normalizedCustomerId.value),
     ])
     overview.value = overviewData || {}
+    fulfillmentOptions.value = optionsData || {}
     rememberOverviewCustomer(overviewData)
     imports.value = importData?.imports || overviewData?.imports || []
     erpBindings.value = bindingData?.bindings || []
@@ -562,7 +664,9 @@ async function submitProcessingWorkOrder() {
   ok.value = ''
   try {
     const row = await submitCustomerFulfillmentProcessingWorkOrder(normalizedCustomerId.value, {
+      product_id: Number(processingForm.product_id || 0),
       product_name: processingForm.product_name,
+      raw_bean_item_id: Number(processingForm.raw_bean_item_id || 0),
       raw_bean_name: processingForm.raw_bean_name,
       input_quantity_g: Number(processingForm.input_quantity_g || 0),
       planned_output_units: Number(processingForm.planned_output_units || 0),
@@ -570,7 +674,11 @@ async function submitProcessingWorkOrder() {
       note: processingForm.note,
     })
     ok.value = `已提交工单 ${row.work_order_no || ''}`
+    processingProductValue.value = ''
+    processingRawBeanValue.value = ''
+    processingForm.product_id = 0
     processingForm.product_name = ''
+    processingForm.raw_bean_item_id = 0
     processingForm.raw_bean_name = ''
     processingForm.input_quantity_g = ''
     processingForm.planned_output_units = ''
@@ -594,15 +702,20 @@ async function submitDirectShipOrder() {
       receiver_name: directShipForm.receiver_name,
       receiver_phone: directShipForm.receiver_phone,
       receiver_address: directShipForm.receiver_address,
+      product_id: Number(directShipForm.product_id || 0),
       product_name: directShipForm.product_name,
       spec: directShipForm.spec,
       quantity_units: Number(directShipForm.quantity_units || 0),
       note: directShipForm.note,
     })
     ok.value = `已提交代发 ${row.order_no || ''}`
+    directShipProductValue.value = ''
+    recipientHistoryValue.value = ''
+    recipientPasteText.value = ''
     directShipForm.receiver_name = ''
     directShipForm.receiver_phone = ''
     directShipForm.receiver_address = ''
+    directShipForm.product_id = 0
     directShipForm.product_name = ''
     directShipForm.spec = ''
     directShipForm.quantity_units = 1
@@ -719,6 +832,139 @@ async function createSettlement() {
   } finally {
     loading.value = false
   }
+}
+
+function selectProcessingProduct(option) {
+  processingForm.product_id = Number(option?.product_id || 0)
+  processingForm.product_name = String(option?.product_name || '').trim()
+}
+
+function selectProcessingRawBean(option) {
+  processingForm.raw_bean_item_id = Number(option?.item_id || 0)
+  processingForm.raw_bean_name = String(option?.item_name || '').trim()
+}
+
+function selectDirectShipProduct(option) {
+  directShipForm.product_id = Number(option?.product_id || 0)
+  directShipForm.product_name = String(option?.product_name || '').trim()
+  if (option?.spec) directShipForm.spec = String(option.spec).trim()
+}
+
+function selectAdjustmentItem(option) {
+  adjustment.item_type = option?.item_type || adjustment.item_type
+  adjustment.item_name = String(option?.item_name || '').trim()
+  adjustment.spec = String(option?.spec || '').trim()
+}
+
+function selectERPEmployee(option) {
+  binding.employee_id = Number(option?.employee_id || 0) || ''
+}
+
+function pasteRecipientInfo(event) {
+  const text = event?.clipboardData?.getData('text') || ''
+  recipientPasteText.value = text
+  applyRecipientParse(text)
+}
+
+function applyRecipientParse(text = recipientPasteText.value) {
+  const parsed = parseRecipientText(text)
+  applyRecipientFields(parsed)
+}
+
+function selectRecipientHistory(option) {
+  const snapshot = [option?.receiver_name, option?.receiver_phone, option?.receiver_address].filter(Boolean).join(' ')
+  recipientPasteText.value = snapshot
+  const parsed = parseRecipientText(snapshot)
+  applyRecipientFields({
+    recipient_name: option?.receiver_name || parsed.recipient_name,
+    phone: option?.receiver_phone || parsed.phone,
+    address: option?.receiver_address || parsed.address,
+  })
+}
+
+function applyRecipientFields(parsed) {
+  if (parsed?.recipient_name) directShipForm.receiver_name = parsed.recipient_name
+  if (parsed?.phone) directShipForm.receiver_phone = parsed.phone
+  if (parsed?.address) directShipForm.receiver_address = parsed.address
+}
+
+function productOptionLabel(option) {
+  return option?.product_name || ''
+}
+
+function productOptionMeta(option) {
+  return [
+    option?.sku_code,
+    option?.spec,
+    option?.roast_degree,
+    option?.warehouse,
+    option?.quantity_units ? `${option.quantity_units}件` : '',
+  ].filter(Boolean).join(' / ')
+}
+
+function productOptionValue(option) {
+  if (Number(option?.product_id || 0) > 0) {
+    return `product:${option.product_id}:${option?.spec || ''}:${option?.warehouse || ''}`
+  }
+  return `product:${option?.product_name || ''}:${option?.spec || ''}`
+}
+
+function custodyOptionLabel(option) {
+  return option?.item_name || ''
+}
+
+function custodyOptionMeta(option) {
+  return [
+    custodyTypeLabel(option?.item_type),
+    option?.spec,
+    option?.quantity_g ? `${option.quantity_g}g` : '',
+    option?.quantity_units ? `${option.quantity_units}件` : '',
+  ].filter(Boolean).join(' / ')
+}
+
+function custodyOptionValue(option) {
+  return `custody:${option?.item_type || ''}:${option?.item_id || option?.item_name || ''}:${option?.spec || ''}`
+}
+
+function employeeOptionLabel(option) {
+  const id = Number(option?.employee_id || 0)
+  return `${id ? `#${id} ` : ''}${option?.name || '未命名员工'}`
+}
+
+function employeeOptionMeta(option) {
+  return [option?.phone, option?.department].filter(Boolean).join(' / ')
+}
+
+function employeeOptionValue(option) {
+  return Number(option?.employee_id || 0)
+}
+
+function recipientOptionLabel(option) {
+  const label = [option?.receiver_name, option?.receiver_phone].filter(Boolean).join(' ')
+  return label || option?.receiver_address || ''
+}
+
+function recipientOptionMeta(option) {
+  return [option?.receiver_address, option?.last_order_no, option?.last_used_at].filter(Boolean).join(' / ')
+}
+
+function recipientOptionValue(option) {
+  return [option?.receiver_phone, option?.receiver_address, option?.last_order_no].filter(Boolean).join('|')
+}
+
+function uniqueProductOptions(rows) {
+  const out = []
+  const seen = new Set()
+  for (const row of rows || []) {
+    const name = String(row?.product_name || '').trim()
+    if (!name) continue
+    const normalized = { ...row, product_name: name, spec: String(row?.spec || '').trim() }
+    const key = `${normalized.product_id || 0}|${normalized.product_name}|${normalized.spec}|${normalized.warehouse || ''}`
+    if (seen.has(key)) continue
+    seen.add(key)
+    out.push(normalized)
+  }
+  return out
 }
 
 function importTypeLabel(value) {
@@ -838,12 +1084,17 @@ label {
   font-size: 13px;
 }
 
-input {
+input,
+textarea {
   min-height: 34px;
   border: 1px solid #cbd5e1;
   border-radius: 6px;
   padding: 6px 8px;
   font: inherit;
+}
+
+textarea {
+  resize: vertical;
 }
 
 select {

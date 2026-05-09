@@ -458,6 +458,187 @@ func (r *Repository) ListCustomerERPBindings(ctx context.Context, customerID int
 	return out, rows.Err()
 }
 
+func (r *Repository) CustomerFulfillmentOptions(ctx context.Context, customerID int64) (app.CustomerFulfillmentOptions, error) {
+	var out app.CustomerFulfillmentOptions
+	var err error
+	if out.CustomerSKUs, err = r.listCustomerSKUOptions(ctx, customerID); err != nil {
+		return app.CustomerFulfillmentOptions{}, err
+	}
+	if out.CustodyItems, err = r.listCustodyItemOptions(ctx, customerID); err != nil {
+		return app.CustomerFulfillmentOptions{}, err
+	}
+	if out.Employees, err = r.listEmployeeOptions(ctx); err != nil {
+		return app.CustomerFulfillmentOptions{}, err
+	}
+	if out.Recipients, err = r.listRecipientOptions(ctx, customerID); err != nil {
+		return app.CustomerFulfillmentOptions{}, err
+	}
+	return out, nil
+}
+
+func (r *Repository) listCustomerSKUOptions(ctx context.Context, customerID int64) ([]app.CustomerSKUOption, error) {
+	out := make([]app.CustomerSKUOption, 0)
+	seen := map[string]struct{}{}
+	add := func(row app.CustomerSKUOption) {
+		row.SKUCode = strings.TrimSpace(row.SKUCode)
+		row.ProductName = strings.Join(strings.Fields(strings.TrimSpace(row.ProductName)), " ")
+		row.Spec = strings.TrimSpace(row.Spec)
+		row.RoastDegree = strings.TrimSpace(row.RoastDegree)
+		if row.ProductName == "" {
+			return
+		}
+		key := fmt.Sprintf("%d|%s|%s", row.ProductID, row.ProductName, row.Spec)
+		if _, ok := seen[key]; ok {
+			return
+		}
+		seen[key] = struct{}{}
+		out = append(out, row)
+	}
+
+	rows, err := r.pool.Query(ctx, fmt.Sprintf(`
+		SELECT COALESCE(NULLIF(r.target_id,0), p.id, 0),
+		       COALESCE(r.payload->>'sku_code', ''),
+		       COALESCE(NULLIF(r.payload->>'sku_name',''), NULLIF(r.payload->>'product_name',''), p.name, ''),
+		       COALESCE(NULLIF(r.payload->>'spec',''), ''),
+		       COALESCE(NULLIF(r.payload->>'roast_degree',''), p.roast_level, '')
+		FROM %s.customer_fulfillment_import_rows r
+		JOIN %s.customer_fulfillment_import_batches b ON b.id=r.batch_id
+		LEFT JOIN %s.products p ON p.id=r.target_id
+		WHERE b.customer_id=$1
+		  AND r.row_type='customer_sku'
+		  AND r.status='applied'
+		ORDER BY r.applied_at DESC NULLS LAST, r.id DESC
+		LIMIT 200
+	`, r.schema, r.schema, r.schema), customerID)
+	if err != nil {
+		return nil, err
+	}
+	for rows.Next() {
+		var row app.CustomerSKUOption
+		if err := rows.Scan(&row.ProductID, &row.SKUCode, &row.ProductName, &row.Spec, &row.RoastDegree); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		add(row)
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return nil, err
+	}
+	rows.Close()
+
+	rows, err = r.pool.Query(ctx, fmt.Sprintf(`
+		SELECT id, '', name, '', COALESCE(roast_level,'')
+		FROM %s.products
+		WHERE customer_id=$1
+		  AND visibility='customer_only'
+		  AND active=true
+		ORDER BY name, id
+		LIMIT 200
+	`, r.schema), customerID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var row app.CustomerSKUOption
+		if err := rows.Scan(&row.ProductID, &row.SKUCode, &row.ProductName, &row.Spec, &row.RoastDegree); err != nil {
+			return nil, err
+		}
+		add(row)
+	}
+	return out, rows.Err()
+}
+
+func (r *Repository) listCustodyItemOptions(ctx context.Context, customerID int64) ([]app.CustodyItemOption, error) {
+	rows, err := r.pool.Query(ctx, fmt.Sprintf(`
+		SELECT item_id, item_type, item_name, spec, quantity_g, quantity_units
+		FROM %s.customer_custody_balances
+		WHERE customer_id=$1
+		ORDER BY item_type, item_name, spec
+		LIMIT 300
+	`, r.schema), customerID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := make([]app.CustodyItemOption, 0)
+	for rows.Next() {
+		var row app.CustodyItemOption
+		if err := rows.Scan(&row.ItemID, &row.ItemType, &row.ItemName, &row.Spec, &row.QuantityG, &row.QuantityUnits); err != nil {
+			return nil, err
+		}
+		out = append(out, row)
+	}
+	return out, rows.Err()
+}
+
+func (r *Repository) listEmployeeOptions(ctx context.Context) ([]app.EmployeeOption, error) {
+	rows, err := r.pool.Query(ctx, fmt.Sprintf(`
+		SELECT e.id, COALESCE(e.name,''), COALESCE(e.phone,''), COALESCE(d.name,''), e.active
+		FROM %s.company_employees e
+		LEFT JOIN %s.company_departments d ON d.id=e.department_id
+		WHERE e.active=true
+		ORDER BY e.id DESC
+		LIMIT 500
+	`, r.schema, r.schema))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := make([]app.EmployeeOption, 0)
+	for rows.Next() {
+		var row app.EmployeeOption
+		if err := rows.Scan(&row.ID, &row.Name, &row.Phone, &row.Department, &row.Active); err != nil {
+			return nil, err
+		}
+		out = append(out, row)
+	}
+	return out, rows.Err()
+}
+
+func (r *Repository) listRecipientOptions(ctx context.Context, customerID int64) ([]app.RecipientOption, error) {
+	rows, err := r.pool.Query(ctx, fmt.Sprintf(`
+		SELECT COALESCE(payload->>'receiver_name',''),
+		       COALESCE(payload->>'receiver_phone',''),
+		       COALESCE(payload->>'receiver_company',''),
+		       receiver_address,
+		       external_order_no,
+		       to_char(created_at,'YYYY-MM-DD HH24:MI')
+		FROM %s.customer_direct_ship_import_orders
+		WHERE customer_id=$1
+		  AND receiver_address <> ''
+		ORDER BY created_at DESC, id DESC
+		LIMIT 200
+	`, r.schema), customerID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := make([]app.RecipientOption, 0)
+	seen := map[string]struct{}{}
+	for rows.Next() {
+		var row app.RecipientOption
+		if err := rows.Scan(&row.ReceiverName, &row.ReceiverPhone, &row.ReceiverCompany, &row.ReceiverAddress, &row.LastOrderNo, &row.LastUsedAt); err != nil {
+			return nil, err
+		}
+		row.ReceiverName = strings.TrimSpace(row.ReceiverName)
+		row.ReceiverPhone = strings.TrimSpace(row.ReceiverPhone)
+		row.ReceiverCompany = strings.TrimSpace(row.ReceiverCompany)
+		row.ReceiverAddress = strings.Join(strings.Fields(strings.TrimSpace(row.ReceiverAddress)), " ")
+		if row.ReceiverAddress == "" {
+			continue
+		}
+		key := row.ReceiverPhone + "|" + row.ReceiverAddress
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		out = append(out, row)
+	}
+	return out, rows.Err()
+}
+
 type importRowRecord struct {
 	ID          int64
 	RowType     string

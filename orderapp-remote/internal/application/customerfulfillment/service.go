@@ -159,6 +159,47 @@ type CustomerERPBinding struct {
 	UpdatedAt    string `json:"updated_at,omitempty"`
 }
 
+type CustomerFulfillmentOptions struct {
+	CustomerSKUs []CustomerSKUOption `json:"customer_skus,omitempty"`
+	CustodyItems []CustodyItemOption `json:"custody_items,omitempty"`
+	Employees    []EmployeeOption    `json:"employees,omitempty"`
+	Recipients   []RecipientOption   `json:"recipients,omitempty"`
+}
+
+type CustomerSKUOption struct {
+	ProductID   int64  `json:"product_id"`
+	SKUCode     string `json:"sku_code,omitempty"`
+	ProductName string `json:"product_name"`
+	Spec        string `json:"spec,omitempty"`
+	RoastDegree string `json:"roast_degree,omitempty"`
+}
+
+type CustodyItemOption struct {
+	ItemID        int64  `json:"item_id"`
+	ItemType      string `json:"item_type"`
+	ItemName      string `json:"item_name"`
+	Spec          string `json:"spec,omitempty"`
+	QuantityG     int64  `json:"quantity_g"`
+	QuantityUnits int64  `json:"quantity_units"`
+}
+
+type EmployeeOption struct {
+	ID         int64  `json:"employee_id"`
+	Name       string `json:"name"`
+	Phone      string `json:"phone,omitempty"`
+	Department string `json:"department,omitempty"`
+	Active     bool   `json:"active"`
+}
+
+type RecipientOption struct {
+	ReceiverName    string `json:"receiver_name,omitempty"`
+	ReceiverPhone   string `json:"receiver_phone,omitempty"`
+	ReceiverCompany string `json:"receiver_company,omitempty"`
+	ReceiverAddress string `json:"receiver_address"`
+	LastOrderNo     string `json:"last_order_no,omitempty"`
+	LastUsedAt      string `json:"last_used_at,omitempty"`
+}
+
 type OverviewQuery struct {
 	CustomerID int64
 }
@@ -306,6 +347,7 @@ type Repository interface {
 	AdjustCustodyInventory(context.Context, AdjustCustodyInventoryCommand) (CustodyBalance, error)
 	UpsertCustomerERPBinding(context.Context, UpsertCustomerERPBindingCommand) (CustomerERPBinding, error)
 	ListCustomerERPBindings(context.Context, int64) ([]CustomerERPBinding, error)
+	CustomerFulfillmentOptions(context.Context, int64) (CustomerFulfillmentOptions, error)
 	CreateSettlement(context.Context, CreateSettlementCommand) (SettlementResult, error)
 	Overview(context.Context, OverviewQuery) (Overview, error)
 	ListImports(context.Context, ListImportsQuery) ([]ImportBatch, error)
@@ -471,6 +513,13 @@ func (s *Service) ListCustomerERPBindings(ctx context.Context, customerID int64)
 		return nil, fmt.Errorf("customer required")
 	}
 	return s.repo.ListCustomerERPBindings(ctx, customerID)
+}
+
+func (s *Service) CustomerFulfillmentOptions(ctx context.Context, customerID int64) (CustomerFulfillmentOptions, error) {
+	if customerID <= 0 {
+		return CustomerFulfillmentOptions{}, fmt.Errorf("customer required")
+	}
+	return s.repo.CustomerFulfillmentOptions(ctx, customerID)
 }
 
 func (s *Service) ListImportRows(ctx context.Context, query ListImportRowsQuery) ([]ImportRow, error) {

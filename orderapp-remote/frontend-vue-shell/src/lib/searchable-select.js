@@ -32,6 +32,17 @@ export function optionSearchText(option, label = '') {
     option?.supplier,
     option?.Supplier,
     option?.batch_code,
+    option?.sku_code,
+    option?.product_name,
+    option?.item_name,
+    option?.item_type,
+    option?.employee_id,
+    option?.department,
+    option?.receiver_name,
+    option?.receiver_phone,
+    option?.receiver_address,
+    option?.spec,
+    option?.warehouse,
   ].filter(Boolean).join(' '))
 }
 
