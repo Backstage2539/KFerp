@@ -99,6 +99,26 @@ func TestParseDirectShipWorkbookCarriesForwardOrderHeaderRows(t *testing.T) {
 	}
 }
 
+func TestParseDirectShipWorkbookDefaultsBlankQuantityToOneForTemplateRows(t *testing.T) {
+	wb := excelize.NewFile()
+	mustSetRows(t, wb, "代发信息", [][]any{
+		{"时间", "序号", "订单编号", "收货地址", "商品标题", "属性", "商品规格", "数量 ", "磨粉服务", "备注", "运单号", "发货日期", "状态"},
+		{"46149", "40", "2515856269791535580", "陈园园 18416725572 河南省漯河市", "挂耳样品装5款", "", "", "", "", "早", "SF3161442936513", "", "发货未付款"},
+	})
+
+	parsed, err := ParseWorkbook(ImportTypeDirectShipWorkbook, bytes.NewReader(mustWorkbookBytes(t, wb)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if parsed.Summary.InvalidRows != 0 || parsed.Summary.DirectShipItems != 1 {
+		t.Fatalf("unexpected direct ship summary: %#v", parsed.Summary)
+	}
+	item := firstRowOfType(t, parsed.Rows, "direct_ship_item")
+	if got := item.Payload["quantity_units"]; got != int64(1) {
+		t.Fatalf("quantity_units = %#v, want default 1", got)
+	}
+}
+
 func TestParseSettlementWorkbookExtractsFeeLines(t *testing.T) {
 	wb := excelize.NewFile()
 	mustSetRows(t, wb, "结算单", [][]any{

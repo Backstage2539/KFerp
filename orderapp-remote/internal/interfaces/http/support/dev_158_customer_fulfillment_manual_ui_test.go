@@ -34,6 +34,10 @@ func TestCustomerFulfillmentManualVisibleInVueShell(t *testing.T) {
 		"客户履约手册",
 		"kferp:navigate-view",
 		"customerFulfillmentManual",
+		"提交加工工单",
+		"提交代发信息",
+		"submitCustomerFulfillmentProcessingWorkOrder",
+		"submitCustomerFulfillmentDirectShipOrder",
 	} {
 		if !strings.Contains(account, want) {
 			t.Fatalf("CustomerFulfillmentView.vue missing manual entry %q", want)

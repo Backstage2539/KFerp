@@ -404,7 +404,12 @@ func parseDirectShipWorkbook(wb *excelize.File, parsed *ParsedWorkbook) {
 		if productTitle == "" {
 			continue
 		}
-		units, ok := parseQtyUnits(valueByHeader(row, headers, "数量"))
+		quantityText := valueByHeader(row, headers, "数量")
+		units, ok := parseQtyUnits(quantityText)
+		if !ok && quantityText == "" && carried.OrderNo != "" {
+			units = 1
+			ok = true
+		}
 		errText := ""
 		if carried.OrderNo == "" || !ok {
 			errText = "订单编号或数量无效"

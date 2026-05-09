@@ -44,6 +44,8 @@ func RegisterRoutes(e *echo.Echo, deps Dependencies) {
 	e.POST("/api/customer-fulfillment/imports/:batch_id/apply", api.applyImport)
 	e.GET("/api/customer-fulfillment/:customer_id/imports", api.listImports)
 	e.POST("/api/customer-fulfillment/:customer_id/settlements", api.createSettlement)
+	e.POST("/api/customer-fulfillment/:customer_id/work-orders", api.submitInternalProcessingWorkOrder)
+	e.POST("/api/customer-fulfillment/:customer_id/direct-ship-orders", api.submitInternalDirectShipOrder)
 	e.POST("/api/customer-fulfillment/:customer_id/custody-adjustments", api.adjustCustodyInventory)
 	e.GET("/api/customer-fulfillment/:customer_id/erp-bindings", api.listERPBindings)
 	e.POST("/api/customer-fulfillment/:customer_id/erp-bindings", api.upsertERPBinding)

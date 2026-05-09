@@ -375,8 +375,11 @@ func (s *Service) CustomerPortalOverview(ctx context.Context, employeeID int64) 
 }
 
 func (s *Service) SubmitCustomerProcessingWorkOrder(ctx context.Context, cmd SubmitCustomerProcessingWorkOrderCommand) (ProcessingOrderSummary, error) {
-	if cmd.EmployeeID <= 0 {
-		return ProcessingOrderSummary{}, fmt.Errorf("employee required")
+	if cmd.EmployeeID <= 0 && cmd.CustomerID <= 0 {
+		return ProcessingOrderSummary{}, fmt.Errorf("employee or customer required")
+	}
+	if cmd.CustomerID < 0 {
+		return ProcessingOrderSummary{}, fmt.Errorf("customer invalid")
 	}
 	cmd.ProductName = strings.Join(strings.Fields(strings.TrimSpace(cmd.ProductName)), " ")
 	cmd.RawBeanName = strings.Join(strings.Fields(strings.TrimSpace(cmd.RawBeanName)), " ")
@@ -395,8 +398,11 @@ func (s *Service) SubmitCustomerProcessingWorkOrder(ctx context.Context, cmd Sub
 }
 
 func (s *Service) SubmitCustomerDirectShipOrder(ctx context.Context, cmd SubmitCustomerDirectShipOrderCommand) (DirectShipOrderSummary, error) {
-	if cmd.EmployeeID <= 0 {
-		return DirectShipOrderSummary{}, fmt.Errorf("employee required")
+	if cmd.EmployeeID <= 0 && cmd.CustomerID <= 0 {
+		return DirectShipOrderSummary{}, fmt.Errorf("employee or customer required")
+	}
+	if cmd.CustomerID < 0 {
+		return DirectShipOrderSummary{}, fmt.Errorf("customer invalid")
 	}
 	cmd.ReceiverName = strings.Join(strings.Fields(strings.TrimSpace(cmd.ReceiverName)), " ")
 	cmd.ReceiverPhone = strings.TrimSpace(cmd.ReceiverPhone)

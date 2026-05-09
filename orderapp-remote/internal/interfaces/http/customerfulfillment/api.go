@@ -178,6 +178,80 @@ func (a api) submitCustomerDirectShipOrder(c echo.Context) error {
 	return c.JSON(http.StatusOK, row)
 }
 
+func (a api) submitInternalProcessingWorkOrder(c echo.Context) error {
+	customerID, err := parseID(c.Param("customer_id"), "customer")
+	if err != nil {
+		return customerFulfillmentError(c, http.StatusBadRequest, err)
+	}
+	var req struct {
+		ProductID          int64  `json:"product_id"`
+		ProductName        string `json:"product_name"`
+		RawBeanItemID      int64  `json:"raw_bean_item_id"`
+		RawBeanName        string `json:"raw_bean_name"`
+		InputQuantityG     int64  `json:"input_quantity_g"`
+		PlannedOutputUnits int64  `json:"planned_output_units"`
+		ExpectedDate       string `json:"expected_date"`
+		Note               string `json:"note"`
+	}
+	if err := c.Bind(&req); err != nil {
+		return customerFulfillmentError(c, http.StatusBadRequest, fmt.Errorf("invalid request"))
+	}
+	row, err := a.svc.SubmitCustomerProcessingWorkOrder(c.Request().Context(), app.SubmitCustomerProcessingWorkOrderCommand{
+		EmployeeID:         support.CurrentEmployeeID(c),
+		CustomerID:         customerID,
+		ProductID:          req.ProductID,
+		ProductName:        req.ProductName,
+		RawBeanItemID:      req.RawBeanItemID,
+		RawBeanName:        req.RawBeanName,
+		InputQuantityG:     req.InputQuantityG,
+		PlannedOutputUnits: req.PlannedOutputUnits,
+		ExpectedDate:       req.ExpectedDate,
+		Note:               req.Note,
+	})
+	if err != nil {
+		return customerFulfillmentError(c, http.StatusBadRequest, err)
+	}
+	return c.JSON(http.StatusOK, row)
+}
+
+func (a api) submitInternalDirectShipOrder(c echo.Context) error {
+	customerID, err := parseID(c.Param("customer_id"), "customer")
+	if err != nil {
+		return customerFulfillmentError(c, http.StatusBadRequest, err)
+	}
+	var req struct {
+		ReceiverName    string `json:"receiver_name"`
+		ReceiverPhone   string `json:"receiver_phone"`
+		ReceiverAddress string `json:"receiver_address"`
+		ReceiverCompany string `json:"receiver_company"`
+		ProductID       int64  `json:"product_id"`
+		ProductName     string `json:"product_name"`
+		Spec            string `json:"spec"`
+		QuantityUnits   int64  `json:"quantity_units"`
+		Note            string `json:"note"`
+	}
+	if err := c.Bind(&req); err != nil {
+		return customerFulfillmentError(c, http.StatusBadRequest, fmt.Errorf("invalid request"))
+	}
+	row, err := a.svc.SubmitCustomerDirectShipOrder(c.Request().Context(), app.SubmitCustomerDirectShipOrderCommand{
+		EmployeeID:      support.CurrentEmployeeID(c),
+		CustomerID:      customerID,
+		ReceiverName:    req.ReceiverName,
+		ReceiverPhone:   req.ReceiverPhone,
+		ReceiverAddress: req.ReceiverAddress,
+		ReceiverCompany: req.ReceiverCompany,
+		ProductID:       req.ProductID,
+		ProductName:     req.ProductName,
+		Spec:            req.Spec,
+		QuantityUnits:   req.QuantityUnits,
+		Note:            req.Note,
+	})
+	if err != nil {
+		return customerFulfillmentError(c, http.StatusBadRequest, err)
+	}
+	return c.JSON(http.StatusOK, row)
+}
+
 func (a api) listImportRows(c echo.Context) error {
 	batchID, err := parseID(c.Param("batch_id"), "batch")
 	if err != nil {

@@ -64,6 +64,72 @@
 
       <div class="ops-grid">
         <div class="ops-panel">
+          <h3>提交加工工单</h3>
+          <div class="ops-form">
+            <label>
+              <span>成品名称</span>
+              <input v-model.trim="processingForm.product_name" placeholder="例如 誉观山冷萃豆" />
+            </label>
+            <label>
+              <span>原料名称</span>
+              <input v-model.trim="processingForm.raw_bean_name" placeholder="例如 埃塞花魁" />
+            </label>
+            <label>
+              <span>投豆克重</span>
+              <input v-model.number="processingForm.input_quantity_g" type="number" min="1" />
+            </label>
+            <label>
+              <span>计划产量</span>
+              <input v-model.number="processingForm.planned_output_units" type="number" min="1" />
+            </label>
+            <label>
+              <span>期望日期</span>
+              <input v-model="processingForm.expected_date" type="date" />
+            </label>
+            <label class="wide-field">
+              <span>备注</span>
+              <input v-model.trim="processingForm.note" placeholder="加工要求" />
+            </label>
+            <button class="primary" type="button" @click="submitProcessingWorkOrder" :disabled="loading || !normalizedCustomerId">提交工单</button>
+          </div>
+        </div>
+
+        <div class="ops-panel">
+          <h3>提交代发信息</h3>
+          <div class="ops-form">
+            <label>
+              <span>收件人</span>
+              <input v-model.trim="directShipForm.receiver_name" />
+            </label>
+            <label>
+              <span>电话</span>
+              <input v-model.trim="directShipForm.receiver_phone" />
+            </label>
+            <label class="wide-field">
+              <span>地址</span>
+              <input v-model.trim="directShipForm.receiver_address" />
+            </label>
+            <label>
+              <span>商品</span>
+              <input v-model.trim="directShipForm.product_name" />
+            </label>
+            <label>
+              <span>规格</span>
+              <input v-model.trim="directShipForm.spec" placeholder="100g" />
+            </label>
+            <label>
+              <span>数量</span>
+              <input v-model.number="directShipForm.quantity_units" type="number" min="1" />
+            </label>
+            <label class="wide-field">
+              <span>备注</span>
+              <input v-model.trim="directShipForm.note" placeholder="发货要求" />
+            </label>
+            <button class="primary" type="button" @click="submitDirectShipOrder" :disabled="loading || !normalizedCustomerId">提交代发</button>
+          </div>
+        </div>
+
+        <div class="ops-panel">
           <h3>库存手动调整</h3>
           <div class="ops-form">
             <label>
@@ -306,6 +372,8 @@ import {
   fetchCustomerFulfillmentImports,
   fetchCustomerFulfillmentOverview,
   parseCustomerFulfillmentImport,
+  submitCustomerFulfillmentDirectShipOrder,
+  submitCustomerFulfillmentProcessingWorkOrder,
   upsertCustomerFulfillmentERPBinding,
 } from '../api/customer-fulfillment'
 import {
@@ -338,6 +406,23 @@ const ok = ref('')
 const settlement = reactive({
   period_from: '',
   period_to: '',
+})
+const processingForm = reactive({
+  product_name: '',
+  raw_bean_name: '',
+  input_quantity_g: '',
+  planned_output_units: '',
+  expected_date: '',
+  note: '',
+})
+const directShipForm = reactive({
+  receiver_name: '',
+  receiver_phone: '',
+  receiver_address: '',
+  product_name: '',
+  spec: '',
+  quantity_units: 1,
+  note: '',
 })
 const adjustment = reactive({
   item_type: 'raw_bean',
@@ -465,6 +550,66 @@ async function applyLatest() {
     await loadAll()
   } catch (err) {
     error.value = err.message || '应用失败'
+  } finally {
+    loading.value = false
+  }
+}
+
+async function submitProcessingWorkOrder() {
+  if (!normalizedCustomerId.value) return
+  loading.value = true
+  error.value = ''
+  ok.value = ''
+  try {
+    const row = await submitCustomerFulfillmentProcessingWorkOrder(normalizedCustomerId.value, {
+      product_name: processingForm.product_name,
+      raw_bean_name: processingForm.raw_bean_name,
+      input_quantity_g: Number(processingForm.input_quantity_g || 0),
+      planned_output_units: Number(processingForm.planned_output_units || 0),
+      expected_date: processingForm.expected_date,
+      note: processingForm.note,
+    })
+    ok.value = `已提交工单 ${row.work_order_no || ''}`
+    processingForm.product_name = ''
+    processingForm.raw_bean_name = ''
+    processingForm.input_quantity_g = ''
+    processingForm.planned_output_units = ''
+    processingForm.expected_date = ''
+    processingForm.note = ''
+    await loadAll()
+  } catch (err) {
+    error.value = err.message || '提交工单失败'
+  } finally {
+    loading.value = false
+  }
+}
+
+async function submitDirectShipOrder() {
+  if (!normalizedCustomerId.value) return
+  loading.value = true
+  error.value = ''
+  ok.value = ''
+  try {
+    const row = await submitCustomerFulfillmentDirectShipOrder(normalizedCustomerId.value, {
+      receiver_name: directShipForm.receiver_name,
+      receiver_phone: directShipForm.receiver_phone,
+      receiver_address: directShipForm.receiver_address,
+      product_name: directShipForm.product_name,
+      spec: directShipForm.spec,
+      quantity_units: Number(directShipForm.quantity_units || 0),
+      note: directShipForm.note,
+    })
+    ok.value = `已提交代发 ${row.order_no || ''}`
+    directShipForm.receiver_name = ''
+    directShipForm.receiver_phone = ''
+    directShipForm.receiver_address = ''
+    directShipForm.product_name = ''
+    directShipForm.spec = ''
+    directShipForm.quantity_units = 1
+    directShipForm.note = ''
+    await loadAll()
+  } catch (err) {
+    error.value = err.message || '提交代发失败'
   } finally {
     loading.value = false
   }

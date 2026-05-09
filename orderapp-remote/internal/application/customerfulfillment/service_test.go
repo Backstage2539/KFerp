@@ -179,6 +179,41 @@ func TestServiceSubmitCustomerDirectShipOrderRequiresRecipientAndItem(t *testing
 	}
 }
 
+func TestServiceSubmitInternalCustomerWorkOrderAcceptsExplicitCustomerWithoutBinding(t *testing.T) {
+	repo := &fakeCustomerFulfillmentRepository{
+		customerProcessingResult: ProcessingOrderSummary{WorkOrderNo: "CP-20260509-0007", Status: "submitted", ProductName: "誉观山冷萃豆", QuantityG: 5000, Units: 50},
+		customerDirectShipResult: DirectShipOrderSummary{OrderNo: "CDS-20260509-0008", Status: "submitted", ItemCount: 1},
+	}
+	svc := NewService(repo)
+
+	if _, err := svc.SubmitCustomerProcessingWorkOrder(context.Background(), SubmitCustomerProcessingWorkOrderCommand{
+		CustomerID:         149,
+		ProductName:        "誉观山冷萃豆",
+		RawBeanName:        "埃塞花魁",
+		InputQuantityG:     5000,
+		PlannedOutputUnits: 50,
+	}); err != nil {
+		t.Fatalf("SubmitCustomerProcessingWorkOrder internal err = %v", err)
+	}
+	if repo.customerProcessingCmd.CustomerID != 149 || repo.customerProcessingCmd.EmployeeID != 0 {
+		t.Fatalf("processing cmd = %#v, want explicit customer without employee", repo.customerProcessingCmd)
+	}
+
+	if _, err := svc.SubmitCustomerDirectShipOrder(context.Background(), SubmitCustomerDirectShipOrderCommand{
+		CustomerID:      149,
+		ReceiverName:    "张三",
+		ReceiverPhone:   "13800000000",
+		ReceiverAddress: "浙江杭州",
+		ProductName:     "誉观山冷萃豆",
+		QuantityUnits:   1,
+	}); err != nil {
+		t.Fatalf("SubmitCustomerDirectShipOrder internal err = %v", err)
+	}
+	if repo.customerDirectShipCmd.CustomerID != 149 || repo.customerDirectShipCmd.EmployeeID != 0 {
+		t.Fatalf("direct ship cmd = %#v, want explicit customer without employee", repo.customerDirectShipCmd)
+	}
+}
+
 func TestServiceAdjustCustodyInventoryRequiresInternalCustomerAndDelta(t *testing.T) {
 	repo := &fakeCustomerFulfillmentRepository{
 		custodyAdjustmentResult: CustodyBalance{ItemType: "raw_bean", ItemName: "埃塞花魁", QuantityG: 12000},
