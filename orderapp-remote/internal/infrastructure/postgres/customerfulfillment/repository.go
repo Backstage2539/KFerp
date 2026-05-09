@@ -168,6 +168,288 @@ func (r *Repository) ApplyImport(ctx context.Context, cmd app.ApplyImportCommand
 	return result, nil
 }
 
+func (r *Repository) CustomerPortalContext(ctx context.Context, employeeID int64) (app.CustomerERPContext, error) {
+	var row app.CustomerERPContext
+	err := r.pool.QueryRow(ctx, fmt.Sprintf(`
+		SELECT b.employee_id,
+		       b.customer_id,
+		       COALESCE(NULLIF(p.display_name,''), c.name, ''),
+		       b.role,
+		       b.status
+		FROM %s.customer_erp_user_bindings b
+		JOIN %s.customers c ON c.id=b.customer_id
+		LEFT JOIN %s.customer_portal_profiles p ON p.customer_id=b.customer_id
+		WHERE b.employee_id=$1
+		  AND b.status='active'
+		  AND c.active=true
+		ORDER BY b.id
+		LIMIT 1
+	`, r.schema, r.schema, r.schema), employeeID).Scan(&row.EmployeeID, &row.CustomerID, &row.CustomerName, &row.BindingRole, &row.BindingStatus)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return app.CustomerERPContext{}, app.ErrCustomerERPBindingNotFound
+	}
+	if err != nil {
+		return app.CustomerERPContext{}, err
+	}
+	return row, nil
+}
+
+func (r *Repository) CustomerPortalOverview(ctx context.Context, employeeID int64) (app.CustomerPortalOverview, error) {
+	current, err := r.CustomerPortalContext(ctx, employeeID)
+	if err != nil {
+		return app.CustomerPortalOverview{}, err
+	}
+	overview := app.CustomerPortalOverview{
+		CustomerID:   current.CustomerID,
+		CustomerName: current.CustomerName,
+	}
+	if overview.CustodyBalances, err = r.listCustodyBalances(ctx, current.CustomerID); err != nil {
+		return app.CustomerPortalOverview{}, err
+	}
+	if overview.FinishedGoods, err = r.listFinishedGoods(ctx, current.CustomerID); err != nil {
+		return app.CustomerPortalOverview{}, err
+	}
+	if overview.ProcessingOrders, err = r.listProcessingOrders(ctx, current.CustomerID); err != nil {
+		return app.CustomerPortalOverview{}, err
+	}
+	if overview.DirectShipOrders, err = r.listDirectShipOrders(ctx, current.CustomerID); err != nil {
+		return app.CustomerPortalOverview{}, err
+	}
+	if overview.Fees, err = r.listFeeItems(ctx, current.CustomerID); err != nil {
+		return app.CustomerPortalOverview{}, err
+	}
+	if overview.Settlements, err = r.listSettlements(ctx, current.CustomerID); err != nil {
+		return app.CustomerPortalOverview{}, err
+	}
+	return overview, nil
+}
+
+func (r *Repository) SubmitCustomerProcessingWorkOrder(ctx context.Context, cmd app.SubmitCustomerProcessingWorkOrderCommand) (app.ProcessingOrderSummary, error) {
+	current, err := r.CustomerPortalContext(ctx, cmd.EmployeeID)
+	if err != nil {
+		return app.ProcessingOrderSummary{}, err
+	}
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return app.ProcessingOrderSummary{}, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	productName := strings.TrimSpace(cmd.ProductName)
+	productID := cmd.ProductID
+	if productID > 0 && productName == "" {
+		_ = tx.QueryRow(ctx, fmt.Sprintf(`SELECT COALESCE(name,'') FROM %s.products WHERE id=$1 AND active=true`, r.schema), productID).Scan(&productName)
+	}
+	payload := map[string]any{
+		"submitted_by_employee_id": cmd.EmployeeID,
+		"raw_bean_item_id":         cmd.RawBeanItemID,
+		"raw_bean_name":            cmd.RawBeanName,
+		"expected_date":            cmd.ExpectedDate,
+		"note":                     cmd.Note,
+	}
+	var id int64
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`
+		INSERT INTO %s.customer_processing_work_orders(
+			batch_id, customer_id, external_key, work_order_no, order_date,
+			product_id, product_name, status, input_quantity_g, planned_output_units, payload
+		)
+		VALUES(0,$1,'','',now()::date,$2,$3,'submitted',$4,$5,$6::jsonb)
+		RETURNING id
+	`, r.schema), current.CustomerID, productID, productName, cmd.InputQuantityG, cmd.PlannedOutputUnits, mustPayloadJSON(payload)).Scan(&id); err != nil {
+		return app.ProcessingOrderSummary{}, err
+	}
+	workOrderNo := fmt.Sprintf("CP-%s-%04d", time.Now().Format("20060102"), id)
+	externalKey := fmt.Sprintf("erp_customer_processing:%d", id)
+	if _, err := tx.Exec(ctx, fmt.Sprintf(`
+		UPDATE %s.customer_processing_work_orders
+		SET external_key=$2, work_order_no=$3, updated_at=now()
+		WHERE id=$1
+	`, r.schema), id, externalKey, workOrderNo); err != nil {
+		return app.ProcessingOrderSummary{}, err
+	}
+	rawBeanName := strings.TrimSpace(cmd.RawBeanName)
+	if rawBeanName != "" || cmd.InputQuantityG > 0 {
+		rawItemID := cmd.RawBeanItemID
+		if rawItemID <= 0 && rawBeanName != "" {
+			rawItemID, err = r.upsertCustodyItemTx(ctx, tx, current.CustomerID, "raw_bean", rawBeanName, rawBeanName, "g", map[string]any{"raw_bean_name": rawBeanName})
+			if err != nil {
+				return app.ProcessingOrderSummary{}, err
+			}
+		}
+		if _, err := tx.Exec(ctx, fmt.Sprintf(`
+			INSERT INTO %s.customer_processing_work_order_inputs(work_order_id, raw_bean_item_id, raw_bean_name, quantity_g, payload)
+			VALUES($1,$2,$3,$4,$5::jsonb)
+		`, r.schema), id, rawItemID, rawBeanName, cmd.InputQuantityG, mustPayloadJSON(payload)); err != nil {
+			return app.ProcessingOrderSummary{}, err
+		}
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return app.ProcessingOrderSummary{}, err
+	}
+	return app.ProcessingOrderSummary{
+		WorkOrderNo: workOrderNo,
+		ProductName: productName,
+		Status:      "submitted",
+		QuantityG:   cmd.InputQuantityG,
+		Units:       cmd.PlannedOutputUnits,
+	}, nil
+}
+
+func (r *Repository) SubmitCustomerDirectShipOrder(ctx context.Context, cmd app.SubmitCustomerDirectShipOrderCommand) (app.DirectShipOrderSummary, error) {
+	current, err := r.CustomerPortalContext(ctx, cmd.EmployeeID)
+	if err != nil {
+		return app.DirectShipOrderSummary{}, err
+	}
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return app.DirectShipOrderSummary{}, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	receiverSnapshot := strings.TrimSpace(strings.Join([]string{cmd.ReceiverName, cmd.ReceiverPhone, cmd.ReceiverAddress}, " "))
+	payload := map[string]any{
+		"submitted_by_employee_id": cmd.EmployeeID,
+		"receiver_name":            cmd.ReceiverName,
+		"receiver_phone":           cmd.ReceiverPhone,
+		"receiver_company":         cmd.ReceiverCompany,
+		"note":                     cmd.Note,
+	}
+	var importOrderID int64
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`
+		INSERT INTO %s.customer_direct_ship_import_orders(
+			batch_id, customer_id, external_order_no, external_seq, order_date,
+			receiver_address, status, payload
+		)
+		VALUES(0,$1,'','',now()::date,$2,'submitted',$3::jsonb)
+		RETURNING id
+	`, r.schema), current.CustomerID, receiverSnapshot, mustPayloadJSON(payload)).Scan(&importOrderID); err != nil {
+		return app.DirectShipOrderSummary{}, err
+	}
+	orderNo := fmt.Sprintf("CDS-%s-%04d", time.Now().Format("20060102"), importOrderID)
+	if _, err := tx.Exec(ctx, fmt.Sprintf(`
+		UPDATE %s.customer_direct_ship_import_orders
+		SET external_order_no=$2, external_seq='1'
+		WHERE id=$1
+	`, r.schema), importOrderID, orderNo); err != nil {
+		return app.DirectShipOrderSummary{}, err
+	}
+	itemPayload := map[string]any{
+		"submitted_by_employee_id": cmd.EmployeeID,
+		"product_id":               cmd.ProductID,
+		"product_name":             cmd.ProductName,
+		"spec":                     cmd.Spec,
+		"quantity_units":           cmd.QuantityUnits,
+		"note":                     cmd.Note,
+	}
+	if _, err := tx.Exec(ctx, fmt.Sprintf(`
+		INSERT INTO %s.customer_direct_ship_import_order_items(
+			import_order_id, batch_id, customer_id, line_no, product_title, spec, quantity_units, payload
+		)
+		VALUES($1,0,$2,1,$3,$4,$5,$6::jsonb)
+	`, r.schema), importOrderID, current.CustomerID, cmd.ProductName, cmd.Spec, cmd.QuantityUnits, mustPayloadJSON(itemPayload)); err != nil {
+		return app.DirectShipOrderSummary{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return app.DirectShipOrderSummary{}, err
+	}
+	return app.DirectShipOrderSummary{
+		OrderNo:         orderNo,
+		OrderDate:       time.Now().Format("2006-01-02"),
+		ReceiverAddress: receiverSnapshot,
+		Status:          "submitted",
+		ItemCount:       1,
+	}, nil
+}
+
+func (r *Repository) AdjustCustodyInventory(ctx context.Context, cmd app.AdjustCustodyInventoryCommand) (app.CustodyBalance, error) {
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return app.CustodyBalance{}, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	itemID, err := r.upsertCustodyItemTx(ctx, tx, cmd.CustomerID, cmd.ItemType, cmd.ItemName, cmd.ItemName, custodyUnitForItemType(cmd.ItemType), map[string]any{
+		"source": "manual_adjustment",
+		"note":   cmd.Note,
+		"actor":  cmd.Actor,
+	})
+	if err != nil {
+		return app.CustodyBalance{}, err
+	}
+	sourceExternalKey := fmt.Sprintf("manual_adjustment:%d:%d", cmd.CustomerID, time.Now().UnixNano())
+	if _, err := tx.Exec(ctx, fmt.Sprintf(`
+		INSERT INTO %s.customer_custody_ledger_entries(
+			customer_id, item_id, item_type, source_type, source_external_key, movement_type,
+			qty_g_delta, qty_units_delta, note, occurred_at
+		)
+		VALUES($1,$2,$3,'manual_adjustment',$4,'manual_adjustment',$5,$6,$7,now())
+	`, r.schema), cmd.CustomerID, itemID, cmd.ItemType, sourceExternalKey, cmd.QuantityGDelta, cmd.QuantityUnitsDelta, cmd.Note); err != nil {
+		return app.CustodyBalance{}, err
+	}
+	if _, err := r.addCustodyBalanceTx(ctx, tx, cmd.CustomerID, itemID, cmd.ItemType, cmd.ItemName, cmd.Spec, cmd.QuantityGDelta, cmd.QuantityUnitsDelta); err != nil {
+		return app.CustodyBalance{}, err
+	}
+	var row app.CustodyBalance
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`
+		SELECT item_type, item_name, spec, quantity_g, quantity_units
+		FROM %s.customer_custody_balances
+		WHERE customer_id=$1 AND item_type=$2 AND item_id=$3
+	`, r.schema), cmd.CustomerID, cmd.ItemType, itemID).Scan(&row.ItemType, &row.ItemName, &row.Spec, &row.QuantityG, &row.QuantityUnits); err != nil {
+		return app.CustodyBalance{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return app.CustodyBalance{}, err
+	}
+	return row, nil
+}
+
+func (r *Repository) UpsertCustomerERPBinding(ctx context.Context, cmd app.UpsertCustomerERPBindingCommand) (app.CustomerERPBinding, error) {
+	var row app.CustomerERPBinding
+	err := r.pool.QueryRow(ctx, fmt.Sprintf(`
+		INSERT INTO %s.customer_erp_user_bindings(customer_id, employee_id, role, status, updated_by, updated_at)
+		SELECT $1, e.id, $3, $4, $5, now()
+		FROM %s.company_employees e
+		WHERE e.id=$2 AND e.active=true
+		ON CONFLICT (employee_id, customer_id) DO UPDATE SET
+			role=excluded.role,
+			status=excluded.status,
+			updated_by=excluded.updated_by,
+			updated_at=now()
+		RETURNING customer_id, employee_id, role, status, updated_by, to_char(updated_at,'YYYY-MM-DD HH24:MI')
+	`, r.schema, r.schema), cmd.CustomerID, cmd.EmployeeID, cmd.Role, cmd.Status, cmd.Actor).Scan(&row.CustomerID, &row.EmployeeID, &row.Role, &row.Status, &row.UpdatedBy, &row.UpdatedAt)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return app.CustomerERPBinding{}, fmt.Errorf("employee not found")
+	}
+	if err != nil {
+		return app.CustomerERPBinding{}, err
+	}
+	_ = r.pool.QueryRow(ctx, fmt.Sprintf(`SELECT COALESCE(name,'') FROM %s.company_employees WHERE id=$1`, r.schema), row.EmployeeID).Scan(&row.EmployeeName)
+	return row, nil
+}
+
+func (r *Repository) ListCustomerERPBindings(ctx context.Context, customerID int64) ([]app.CustomerERPBinding, error) {
+	rows, err := r.pool.Query(ctx, fmt.Sprintf(`
+		SELECT b.customer_id, b.employee_id, COALESCE(e.name,''), b.role, b.status, b.updated_by, to_char(b.updated_at,'YYYY-MM-DD HH24:MI')
+		FROM %s.customer_erp_user_bindings b
+		JOIN %s.company_employees e ON e.id=b.employee_id
+		WHERE b.customer_id=$1
+		ORDER BY b.updated_at DESC, b.id DESC
+	`, r.schema, r.schema), customerID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := make([]app.CustomerERPBinding, 0)
+	for rows.Next() {
+		var row app.CustomerERPBinding
+		if err := rows.Scan(&row.CustomerID, &row.EmployeeID, &row.EmployeeName, &row.Role, &row.Status, &row.UpdatedBy, &row.UpdatedAt); err != nil {
+			return nil, err
+		}
+		out = append(out, row)
+	}
+	return out, rows.Err()
+}
+
 type importRowRecord struct {
 	ID          int64
 	RowType     string
@@ -717,7 +999,13 @@ func (r *Repository) applyDirectShipItemTx(ctx context.Context, tx pgx.Tx, custo
 	state.lineNoByOrder[orderNo]++
 	lineNo := state.lineNoByOrder[orderNo]
 	productTitle := payloadString(row.Payload, "product_title", "product_name")
-	productID, _ := r.findProductForDirectShipTx(ctx, tx, customerID, productTitle)
+	var productID any
+	matchedProductID, productErr := r.findProductForDirectShipTx(ctx, tx, customerID, productTitle)
+	if productErr == nil {
+		productID = matchedProductID
+	} else if !errors.Is(productErr, pgx.ErrNoRows) {
+		return 0, productErr
+	}
 	quantity := payloadInt64(row.Payload, "quantity_units")
 	var importItemID int64
 	if err := tx.QueryRow(ctx, fmt.Sprintf(`
@@ -957,6 +1245,9 @@ func (r *Repository) Overview(ctx context.Context, query app.OverviewQuery) (app
 	if overview.CustodyBalances, err = r.listCustodyBalances(ctx, query.CustomerID); err != nil {
 		return app.Overview{}, err
 	}
+	if overview.FinishedGoods, err = r.listFinishedGoods(ctx, query.CustomerID); err != nil {
+		return app.Overview{}, err
+	}
 	if overview.ProcessingOrders, err = r.listProcessingOrders(ctx, query.CustomerID); err != nil {
 		return app.Overview{}, err
 	}
@@ -988,6 +1279,29 @@ func (r *Repository) listCustodyBalances(ctx context.Context, customerID int64) 
 	for rows.Next() {
 		var row app.CustodyBalance
 		if err := rows.Scan(&row.ItemType, &row.ItemName, &row.Spec, &row.QuantityG, &row.QuantityUnits); err != nil {
+			return nil, err
+		}
+		out = append(out, row)
+	}
+	return out, rows.Err()
+}
+
+func (r *Repository) listFinishedGoods(ctx context.Context, customerID int64) ([]app.FinishedGoodsBalance, error) {
+	rows, err := r.pool.Query(ctx, fmt.Sprintf(`
+		SELECT item_id, item_name, spec_g, warehouse, qty_g, qty_units, status
+		FROM %s.customer_inventory_items
+		WHERE customer_id=$1 AND item_type IN ('product','finished_goods')
+		ORDER BY item_name, spec_g, warehouse, id
+		LIMIT 200
+	`, r.schema), customerID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := make([]app.FinishedGoodsBalance, 0)
+	for rows.Next() {
+		var row app.FinishedGoodsBalance
+		if err := rows.Scan(&row.ProductID, &row.ProductName, &row.SpecG, &row.Warehouse, &row.QuantityG, &row.QuantityUnits, &row.Status); err != nil {
 			return nil, err
 		}
 		out = append(out, row)
@@ -1349,4 +1663,13 @@ func mustPayloadJSON(payload map[string]any) string {
 		return "{}"
 	}
 	return string(b)
+}
+
+func custodyUnitForItemType(itemType string) string {
+	switch strings.TrimSpace(itemType) {
+	case "raw_bean":
+		return "g"
+	default:
+		return "unit"
+	}
 }

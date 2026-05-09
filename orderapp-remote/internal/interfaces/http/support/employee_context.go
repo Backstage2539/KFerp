@@ -80,6 +80,10 @@ func currentEmployeeID(c echo.Context) int64 {
 	return 0
 }
 
+func CurrentEmployeeID(c echo.Context) int64 {
+	return currentEmployeeID(c)
+}
+
 func resolveEmployeeBySessionToken(ctx echo.Context, pool *pgxpool.Pool, schema, token string) (int64, string, error) {
 	token = strings.TrimSpace(token)
 	if token == "" {

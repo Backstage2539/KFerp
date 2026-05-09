@@ -78,6 +78,147 @@ func TestServiceApplyImportDelegatesToRepository(t *testing.T) {
 	}
 }
 
+func TestServiceSubmitCustomerProcessingWorkOrderRequiresBoundEmployeeAndFields(t *testing.T) {
+	repo := &fakeCustomerFulfillmentRepository{
+		customerProcessingResult: ProcessingOrderSummary{WorkOrderNo: "CP-20260508-0001", ProductName: "誉观山冷萃豆", Status: "submitted", QuantityG: 5000, Units: 50},
+	}
+	svc := NewService(repo)
+	if _, err := svc.SubmitCustomerProcessingWorkOrder(context.Background(), SubmitCustomerProcessingWorkOrderCommand{
+		ProductName:        "誉观山冷萃豆",
+		InputQuantityG:     5000,
+		PlannedOutputUnits: 50,
+	}); err == nil || !strings.Contains(err.Error(), "employee") {
+		t.Fatalf("SubmitCustomerProcessingWorkOrder without employee error = %v, want employee validation", err)
+	}
+	if _, err := svc.SubmitCustomerProcessingWorkOrder(context.Background(), SubmitCustomerProcessingWorkOrderCommand{
+		EmployeeID:         23,
+		InputQuantityG:     5000,
+		PlannedOutputUnits: 50,
+	}); err == nil || !strings.Contains(err.Error(), "product") {
+		t.Fatalf("SubmitCustomerProcessingWorkOrder without product error = %v, want product validation", err)
+	}
+	if _, err := svc.SubmitCustomerProcessingWorkOrder(context.Background(), SubmitCustomerProcessingWorkOrderCommand{
+		EmployeeID:         23,
+		ProductName:        "誉观山冷萃豆",
+		PlannedOutputUnits: 50,
+	}); err == nil || !strings.Contains(err.Error(), "input") {
+		t.Fatalf("SubmitCustomerProcessingWorkOrder without input qty error = %v, want input validation", err)
+	}
+
+	got, err := svc.SubmitCustomerProcessingWorkOrder(context.Background(), SubmitCustomerProcessingWorkOrderCommand{
+		EmployeeID:         23,
+		ProductName:        "  誉观山冷萃豆  ",
+		RawBeanName:        "  埃塞花魁  ",
+		InputQuantityG:     5000,
+		PlannedOutputUnits: 50,
+		ExpectedDate:       "2026-05-20",
+		Note:               "  急单  ",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.WorkOrderNo != "CP-20260508-0001" {
+		t.Fatalf("work order = %#v", got)
+	}
+	if repo.customerProcessingCmd.EmployeeID != 23 || repo.customerProcessingCmd.ProductName != "誉观山冷萃豆" || repo.customerProcessingCmd.RawBeanName != "埃塞花魁" || repo.customerProcessingCmd.Note != "急单" {
+		t.Fatalf("processing cmd = %#v", repo.customerProcessingCmd)
+	}
+}
+
+func TestServiceSubmitCustomerDirectShipOrderRequiresRecipientAndItem(t *testing.T) {
+	repo := &fakeCustomerFulfillmentRepository{
+		customerDirectShipResult: DirectShipOrderSummary{OrderNo: "CDS-20260508-0001", Status: "submitted", ItemCount: 1},
+	}
+	svc := NewService(repo)
+	if _, err := svc.SubmitCustomerDirectShipOrder(context.Background(), SubmitCustomerDirectShipOrderCommand{
+		ReceiverName:    "张三",
+		ReceiverPhone:   "13800000000",
+		ReceiverAddress: "杭州",
+		ProductName:     "誉观山冷萃豆",
+		QuantityUnits:   1,
+	}); err == nil || !strings.Contains(err.Error(), "employee") {
+		t.Fatalf("SubmitCustomerDirectShipOrder without employee error = %v, want employee validation", err)
+	}
+	if _, err := svc.SubmitCustomerDirectShipOrder(context.Background(), SubmitCustomerDirectShipOrderCommand{
+		EmployeeID:      23,
+		ReceiverPhone:   "13800000000",
+		ReceiverAddress: "杭州",
+		ProductName:     "誉观山冷萃豆",
+		QuantityUnits:   1,
+	}); err == nil || !strings.Contains(err.Error(), "receiver_name") {
+		t.Fatalf("SubmitCustomerDirectShipOrder without receiver name error = %v, want receiver validation", err)
+	}
+	if _, err := svc.SubmitCustomerDirectShipOrder(context.Background(), SubmitCustomerDirectShipOrderCommand{
+		EmployeeID:      23,
+		ReceiverName:    "张三",
+		ReceiverPhone:   "13800000000",
+		ReceiverAddress: "杭州",
+		QuantityUnits:   1,
+	}); err == nil || !strings.Contains(err.Error(), "product") {
+		t.Fatalf("SubmitCustomerDirectShipOrder without product error = %v, want product validation", err)
+	}
+
+	got, err := svc.SubmitCustomerDirectShipOrder(context.Background(), SubmitCustomerDirectShipOrderCommand{
+		EmployeeID:      23,
+		ReceiverName:    " 张三 ",
+		ReceiverPhone:   " 13800000000 ",
+		ReceiverAddress: " 浙江杭州 ",
+		ProductName:     " 誉观山冷萃豆 ",
+		Spec:            "100g",
+		QuantityUnits:   2,
+		Note:            " 门卫代收 ",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.OrderNo != "CDS-20260508-0001" {
+		t.Fatalf("direct ship order = %#v", got)
+	}
+	if repo.customerDirectShipCmd.EmployeeID != 23 || repo.customerDirectShipCmd.ReceiverName != "张三" || repo.customerDirectShipCmd.ProductName != "誉观山冷萃豆" || repo.customerDirectShipCmd.Note != "门卫代收" {
+		t.Fatalf("direct ship cmd = %#v", repo.customerDirectShipCmd)
+	}
+}
+
+func TestServiceAdjustCustodyInventoryRequiresInternalCustomerAndDelta(t *testing.T) {
+	repo := &fakeCustomerFulfillmentRepository{
+		custodyAdjustmentResult: CustodyBalance{ItemType: "raw_bean", ItemName: "埃塞花魁", QuantityG: 12000},
+	}
+	svc := NewService(repo)
+	if _, err := svc.AdjustCustodyInventory(context.Background(), AdjustCustodyInventoryCommand{
+		ItemType:       "raw_bean",
+		ItemName:       "埃塞花魁",
+		QuantityGDelta: 1000,
+	}); err == nil || !strings.Contains(err.Error(), "customer") {
+		t.Fatalf("AdjustCustodyInventory without customer error = %v, want customer validation", err)
+	}
+	if _, err := svc.AdjustCustodyInventory(context.Background(), AdjustCustodyInventoryCommand{
+		CustomerID: 149,
+		ItemType:   "raw_bean",
+		ItemName:   "埃塞花魁",
+	}); err == nil || !strings.Contains(err.Error(), "quantity") {
+		t.Fatalf("AdjustCustodyInventory without quantity delta error = %v, want quantity validation", err)
+	}
+
+	got, err := svc.AdjustCustodyInventory(context.Background(), AdjustCustodyInventoryCommand{
+		CustomerID:         149,
+		ItemType:           " raw_bean ",
+		ItemName:           " 埃塞花魁 ",
+		QuantityGDelta:     1000,
+		QuantityUnitsDelta: 0,
+		Note:               " 手工补录 ",
+		Actor:              " Van ",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.QuantityG != 12000 {
+		t.Fatalf("adjustment result = %#v", got)
+	}
+	if repo.custodyAdjustmentCmd.CustomerID != 149 || repo.custodyAdjustmentCmd.ItemType != "raw_bean" || repo.custodyAdjustmentCmd.ItemName != "埃塞花魁" || repo.custodyAdjustmentCmd.Actor != "Van" {
+		t.Fatalf("adjustment cmd = %#v", repo.custodyAdjustmentCmd)
+	}
+}
+
 func TestServiceListImportRowsValidatesAndClampsQuery(t *testing.T) {
 	repo := &fakeCustomerFulfillmentRepository{
 		listImportRowsResult: []ImportRow{{BatchID: 7, SheetName: "生产工单", RowNo: 5, RowType: "processing_work_order", Status: "invalid", Error: "投豆量无效"}},
@@ -179,20 +320,34 @@ func directShipWorkbookForServiceTest(t *testing.T) *excelize.File {
 }
 
 type fakeCustomerFulfillmentRepository struct {
-	storeCmd             StoreParsedImportCommand
-	storeResult          ImportBatch
-	importBatchID        int64
-	importBatchResult    ImportBatch
-	applyCmd             ApplyImportCommand
-	applyResult          ApplyResult
-	settlementCmd        CreateSettlementCommand
-	settlementResult     SettlementResult
-	overviewQuery        OverviewQuery
-	overviewResult       Overview
-	listImportsQuery     ListImportsQuery
-	listImportsResult    []ImportBatch
-	listImportRowsQuery  ListImportRowsQuery
-	listImportRowsResult []ImportRow
+	storeCmd                   StoreParsedImportCommand
+	storeResult                ImportBatch
+	importBatchID              int64
+	importBatchResult          ImportBatch
+	applyCmd                   ApplyImportCommand
+	applyResult                ApplyResult
+	customerContextEmployeeID  int64
+	customerContextResult      CustomerERPContext
+	customerOverviewEmployeeID int64
+	customerOverviewResult     CustomerPortalOverview
+	customerProcessingCmd      SubmitCustomerProcessingWorkOrderCommand
+	customerProcessingResult   ProcessingOrderSummary
+	customerDirectShipCmd      SubmitCustomerDirectShipOrderCommand
+	customerDirectShipResult   DirectShipOrderSummary
+	custodyAdjustmentCmd       AdjustCustodyInventoryCommand
+	custodyAdjustmentResult    CustodyBalance
+	erpBindingCmd              UpsertCustomerERPBindingCommand
+	erpBindingResult           CustomerERPBinding
+	listERPBindingsCustomerID  int64
+	listERPBindingsResult      []CustomerERPBinding
+	settlementCmd              CreateSettlementCommand
+	settlementResult           SettlementResult
+	overviewQuery              OverviewQuery
+	overviewResult             Overview
+	listImportsQuery           ListImportsQuery
+	listImportsResult          []ImportBatch
+	listImportRowsQuery        ListImportRowsQuery
+	listImportRowsResult       []ImportRow
 }
 
 func (r *fakeCustomerFulfillmentRepository) StoreParsedImport(ctx context.Context, cmd StoreParsedImportCommand) (ImportBatch, error) {
@@ -203,6 +358,41 @@ func (r *fakeCustomerFulfillmentRepository) StoreParsedImport(ctx context.Contex
 func (r *fakeCustomerFulfillmentRepository) ApplyImport(ctx context.Context, cmd ApplyImportCommand) (ApplyResult, error) {
 	r.applyCmd = cmd
 	return r.applyResult, nil
+}
+
+func (r *fakeCustomerFulfillmentRepository) CustomerPortalContext(ctx context.Context, employeeID int64) (CustomerERPContext, error) {
+	r.customerContextEmployeeID = employeeID
+	return r.customerContextResult, nil
+}
+
+func (r *fakeCustomerFulfillmentRepository) CustomerPortalOverview(ctx context.Context, employeeID int64) (CustomerPortalOverview, error) {
+	r.customerOverviewEmployeeID = employeeID
+	return r.customerOverviewResult, nil
+}
+
+func (r *fakeCustomerFulfillmentRepository) SubmitCustomerProcessingWorkOrder(ctx context.Context, cmd SubmitCustomerProcessingWorkOrderCommand) (ProcessingOrderSummary, error) {
+	r.customerProcessingCmd = cmd
+	return r.customerProcessingResult, nil
+}
+
+func (r *fakeCustomerFulfillmentRepository) SubmitCustomerDirectShipOrder(ctx context.Context, cmd SubmitCustomerDirectShipOrderCommand) (DirectShipOrderSummary, error) {
+	r.customerDirectShipCmd = cmd
+	return r.customerDirectShipResult, nil
+}
+
+func (r *fakeCustomerFulfillmentRepository) AdjustCustodyInventory(ctx context.Context, cmd AdjustCustodyInventoryCommand) (CustodyBalance, error) {
+	r.custodyAdjustmentCmd = cmd
+	return r.custodyAdjustmentResult, nil
+}
+
+func (r *fakeCustomerFulfillmentRepository) UpsertCustomerERPBinding(ctx context.Context, cmd UpsertCustomerERPBindingCommand) (CustomerERPBinding, error) {
+	r.erpBindingCmd = cmd
+	return r.erpBindingResult, nil
+}
+
+func (r *fakeCustomerFulfillmentRepository) ListCustomerERPBindings(ctx context.Context, customerID int64) ([]CustomerERPBinding, error) {
+	r.listERPBindingsCustomerID = customerID
+	return r.listERPBindingsResult, nil
 }
 
 func (r *fakeCustomerFulfillmentRepository) ImportBatch(ctx context.Context, batchID int64) (ImportBatch, error) {

@@ -102,6 +102,8 @@ func defaultPermissions() []permissionSeed {
 		{Code: "production.run", Name: "执行生产"},
 		{Code: "stock.read", Name: "查看库存"},
 		{Code: "stock.write", Name: "调整库存"},
+		{Code: "customer_processing.read", Name: "客户查看代加工数据"},
+		{Code: "customer_processing.submit", Name: "客户提交代加工和代发"},
 		{Code: "purchase.read", Name: "查看采购"},
 		{Code: "purchase.write", Name: "维护采购"},
 		{Code: "materials.read", Name: "查看物料"},
@@ -137,6 +139,7 @@ func defaultRoles() []roleSeed {
 		{Code: "finance", Name: "财务", Description: "订单、库存、采购、报价、成本核算和财务月结", Permissions: []string{"orders.read", "stock.read", "purchase.read", "products.read", "costing.read", "finance.read", "finance.write", "finance.close"}},
 		{Code: "product", Name: "商品", Description: "商品、BOM 和成本维护", Permissions: []string{"products.read", "products.write", "bom.read", "bom.write", "costing.read", "costing.write"}},
 		{Code: "system", Name: "系统管理员", Description: "员工、设置、日志和需求维护", Permissions: []string{"auth.manage", "company.manage", "settings.write", "audit.read", "requirements.manage"}},
+		{Code: "customer_processing_customer", Name: "代加工客户", Description: "客户登录 ERP 后查看自己的代加工数据并提交工单和代发信息", Permissions: []string{"customer_processing.read", "customer_processing.submit"}},
 	}
 }
 
@@ -196,6 +199,7 @@ func defaultViewPermissions() map[string]string {
 		"customerPortalManual":      "customers.read",
 		"customerFulfillment":       "stock.write",
 		"customerFulfillmentManual": "stock.read",
+		"customerProcessingPortal":  "customer_processing.read",
 		"settingsAuditManual":       "audit.read",
 		"departments":               "company.manage",
 		"employees":                 "company.manage",
