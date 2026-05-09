@@ -13,13 +13,15 @@ import (
 
 type apiFakeRepo struct {
 	deactivatedBomProductID int64
+	listRows                []bomapp.ListItem
+	productRows             []bomapp.Option
 }
 
-func (r *apiFakeRepo) List(context.Context) ([]bomapp.ListItem, error) { return nil, nil }
+func (r *apiFakeRepo) List(context.Context) ([]bomapp.ListItem, error) { return r.listRows, nil }
 func (r *apiFakeRepo) Detail(context.Context, int64) (bomapp.Detail, error) {
 	return bomapp.Detail{}, nil
 }
-func (r *apiFakeRepo) Products(context.Context) ([]bomapp.Option, error)  { return nil, nil }
+func (r *apiFakeRepo) Products(context.Context) ([]bomapp.Option, error)  { return r.productRows, nil }
 func (r *apiFakeRepo) Materials(context.Context) ([]bomapp.Option, error) { return nil, nil }
 func (r *apiFakeRepo) BagSpecMappings(context.Context) ([]bomapp.BagSpecMapping, error) {
 	return nil, nil

@@ -7,6 +7,7 @@ import (
 
 type ListItem struct {
 	ProductID  int64   `json:"product_id"`
+	CustomerID int64   `json:"customer_id"`
 	Product    string  `json:"product"`
 	RoastLevel string  `json:"roast_level"`
 	YieldRate  float64 `json:"yield_rate"`
@@ -34,8 +35,9 @@ type Detail struct {
 }
 
 type Option struct {
-	ID   int64  `json:"id"`
-	Name string `json:"name"`
+	ID         int64  `json:"id"`
+	Name       string `json:"name"`
+	CustomerID int64  `json:"customer_id"`
 }
 
 type BagSpecMapping struct {

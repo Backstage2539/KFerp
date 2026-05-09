@@ -7,16 +7,42 @@
       </div>
       <div v-if="error" class="error">{{ error }}</div>
       <div v-if="ok" class="ok">{{ ok }}</div>
+      <div class="bom-sku-context-panel">
+        <div>
+          <div class="context-eyebrow">SKU归属</div>
+          <h3>{{ bomSkuContextLabel }}</h3>
+          <p class="muted left">BOM 商品列表和商品选择会按当前归属过滤，默认公共SKU。</p>
+        </div>
+        <div class="bom-sku-context-controls">
+          <button class="secondary compact-action" type="button" @click="selectedBomCustomerSkuCustomerID = 0" :disabled="!selectedBomCustomerSkuCustomerID">
+            公共SKU
+          </button>
+          <SearchableSelect
+            class="bom-customer-select"
+            v-model="selectedBomCustomerSkuCustomerID"
+            :options="bomSkuCustomers"
+            :option-label="customerOptionLabel"
+            :option-meta="customerOptionMeta"
+            :option-value="optionNumericValue"
+            placeholder="选择客户SKU"
+            empty-text="暂无自定义SKU客户" />
+        </div>
+        <div class="context-stats">
+          <span>公共SKU BOM {{ publicBomRows.length }}</span>
+          <span>当前SKU BOM {{ bomContextRows.length }}</span>
+        </div>
+      </div>
       <div class="filters">
         <label>
           <span>商品</span>
           <SearchableSelect
             v-model="selectedProductId"
-            :options="products"
+            :options="bomContextProducts"
             :option-label="optionLabel"
+            :option-meta="optionMeta"
             :option-value="optionNumericValue"
             placeholder="选择商品"
-            empty-text="没有匹配商品"
+            :empty-text="selectedBomCustomerSkuCustomerID ? '没有匹配客户SKU' : '没有匹配公共SKU'"
             @select="selectProduct(optionNumericValue($event))" />
         </label>
         <button class="primary" type="button" @click="saveBom" :disabled="!selectedProductId || loading">同步出品率</button>
@@ -41,7 +67,7 @@
             </thead>
             <tbody>
               <tr
-                v-for="row in rows"
+                v-for="row in bomContextRows"
                 :key="row.product_id"
                 :class="{ active: row.product_id === selectedProductId }"
                 @click="selectProduct(row.product_id)">
@@ -52,8 +78,8 @@
                 <td>{{ row.item_count }}</td>
                 <td>{{ row.updated_at }}</td>
               </tr>
-              <tr v-if="!rows.length">
-                <td colspan="6" class="muted">暂无商品</td>
+              <tr v-if="!bomContextRows.length">
+                <td colspan="6" class="muted">{{ selectedBomCustomerSkuCustomerID ? '暂无客户SKU BOM' : '暂无公共SKU BOM' }}</td>
               </tr>
             </tbody>
           </table>
@@ -197,18 +223,21 @@
 </template>
 
 <script setup>
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { apiGet, apiSend } from '../api/client'
 import SearchableSelect from '../components/SearchableSelect.vue'
 import { replaceHistoryURL } from '../lib/url-state'
 
 const rows = ref([])
 const products = ref([])
+const customers = ref([])
 const materials = ref([])
 const mappings = ref([])
 const versions = ref([])
 const detail = ref(null)
 const selectedProductId = ref(0)
+const selectedBomCustomerSkuCustomerID = ref(0)
+const pendingUrlProductId = ref(0)
 const loading = ref(false)
 const error = ref('')
 const ok = ref('')
@@ -217,6 +246,30 @@ const mappingForm = reactive({ spec_g: 227, material_id: 0 })
 const versionNote = ref('')
 
 const detailItems = computed(() => detail.value?.items || [])
+const bomContextCustomerID = computed(() => Number(selectedBomCustomerSkuCustomerID.value || 0))
+const bomSkuContextLabel = computed(() => {
+  const customerID = bomContextCustomerID.value
+  if (!customerID) return '公共SKU'
+  return `${customerName(customerID) || `客户 #${customerID}`} SKU`
+})
+const publicBomRows = computed(() => rows.value.filter((product) => Number(product.customer_id || 0) === 0))
+const customBomProductCustomerIDs = computed(() => {
+  const ids = new Set()
+  for (const product of products.value) {
+    const customerID = Number(product.customer_id || 0)
+    if (customerID > 0) ids.add(customerID)
+  }
+  for (const row of rows.value) {
+    const customerID = Number(row.customer_id || 0)
+    if (customerID > 0) ids.add(customerID)
+  }
+  return ids
+})
+const bomSkuCustomers = computed(() => customers.value
+  .filter((customer) => customBomProductCustomerIDs.value.has(Number(customer.id || 0)))
+  .sort((a, b) => customerOptionLabel(a).localeCompare(customerOptionLabel(b))))
+const bomContextProducts = computed(() => products.value.filter(bomContextProductFilter))
+const bomContextRows = computed(() => rows.value.filter(bomContextProductFilter))
 
 function pct(value) {
   const n = Number(value || 0) * 100
@@ -232,8 +285,98 @@ function optionLabel(option) {
   return option?.name || ''
 }
 
+function optionMeta(option) {
+  const parts = []
+  if (Number(option?.customer_id || 0) > 0) parts.push(customerName(option.customer_id) || `客户 #${option.customer_id}`)
+  else parts.push('公共SKU')
+  if (option?.roast_level) parts.push(option.roast_level)
+  return parts.join(' / ')
+}
+
 function optionNumericValue(option) {
   return Number(option?.id || 0)
+}
+
+function customerName(id) {
+  return customers.value.find((customer) => Number(customer.id) === Number(id))?.name || ''
+}
+
+function customerOptionLabel(customer) {
+  return customer?.name || ''
+}
+
+function customerOptionMeta(customer) {
+  const parts = []
+  if (customer?.company_name && customer.company_name !== customer?.name) parts.push(customer.company_name)
+  if (customer?.contact) parts.push(customer.contact)
+  if (customer?.phone || customer?.company_phone) parts.push(customer.phone || customer.company_phone)
+  return parts.join(' / ')
+}
+
+function normalizeBomProduct(product) {
+  return {
+    ...product,
+    id: Number(product.id || 0),
+    customer_id: Number(product.customer_id || 0),
+  }
+}
+
+function normalizeBomRow(row) {
+  return {
+    ...row,
+    product_id: Number(row.product_id || 0),
+    customer_id: Number(row.customer_id || 0),
+  }
+}
+
+function bomContextProductFilter(product) {
+  const productCustomerID = Number(product?.customer_id || 0)
+  return bomContextCustomerID.value > 0
+    ? productCustomerID === bomContextCustomerID.value
+    : productCustomerID === 0
+}
+
+function productByID(productId) {
+  const id = Number(productId || 0)
+  return products.value.find((product) => Number(product.id || 0) === id) || null
+}
+
+function syncBomContextFromUrlProduct() {
+  const productID = Number(pendingUrlProductId.value || 0)
+  if (!productID) return
+  const product = productByID(productID)
+  pendingUrlProductId.value = 0
+  if (!product) return
+  selectedBomCustomerSkuCustomerID.value = Number(product.customer_id || 0)
+}
+
+function syncSelectedBomCustomerSkuCustomer() {
+  if (!selectedBomCustomerSkuCustomerID.value) return
+  if (!customBomProductCustomerIDs.value.has(Number(selectedBomCustomerSkuCustomerID.value))) {
+    selectedBomCustomerSkuCustomerID.value = 0
+  }
+}
+
+function clearSelectedProduct() {
+  selectedProductId.value = 0
+  detail.value = null
+  versions.value = []
+  updateUrl()
+}
+
+function syncSelectedProductToBomContext() {
+  if (!selectedProductId.value) {
+    detail.value = null
+    versions.value = []
+    updateUrl()
+    return false
+  }
+  const product = productByID(selectedProductId.value)
+  if (!product || !bomContextProductFilter(product)) {
+    clearSelectedProduct()
+    return false
+  }
+  return true
 }
 
 function updateUrl() {
@@ -249,17 +392,21 @@ async function loadAll() {
   error.value = ''
   ok.value = ''
   try {
-    const [listData, productData, materialData, mappingData] = await Promise.all([
+    const [listData, productData, materialData, mappingData, customerData] = await Promise.all([
       apiGet('/api/bom/list'),
       apiGet('/api/bom/products'),
       apiGet('/api/bom/materials'),
       apiGet('/api/bom/bag-spec-mappings'),
+      apiGet('/api/customers?limit=200'),
     ])
-    rows.value = listData || []
-    products.value = productData || []
+    rows.value = (listData || []).map(normalizeBomRow)
+    products.value = (productData || []).map(normalizeBomProduct)
     materials.value = materialData || []
     mappings.value = mappingData || []
-    if (selectedProductId.value) await loadDetail(selectedProductId.value)
+    customers.value = (customerData.rows || []).filter((row) => row.active !== false)
+    syncBomContextFromUrlProduct()
+    syncSelectedBomCustomerSkuCustomer()
+    if (syncSelectedProductToBomContext()) await loadDetail(selectedProductId.value)
   } catch (err) {
     error.value = err.message || '加载失败'
   } finally {
@@ -288,7 +435,13 @@ async function loadVersions(productId) {
 }
 
 async function selectProduct(productId) {
-  selectedProductId.value = Number(productId || 0)
+  const nextProductId = Number(productId || 0)
+  const nextProduct = productByID(nextProductId)
+  if (nextProductId && (!nextProduct || !bomContextProductFilter(nextProduct))) {
+    clearSelectedProduct()
+    return
+  }
+  selectedProductId.value = nextProductId
   error.value = ''
   ok.value = ''
   try {
@@ -405,7 +558,12 @@ async function mutate(action) {
 onMounted(() => {
   const params = new URL(window.location.href).searchParams
   selectedProductId.value = Number(params.get('product_id') || 0)
+  pendingUrlProductId.value = selectedProductId.value
   loadAll()
+})
+
+watch(selectedBomCustomerSkuCustomerID, () => {
+  syncSelectedProductToBomContext()
 })
 </script>
 
@@ -417,6 +575,7 @@ onMounted(() => {
 .panel-head { justify-content: space-between; align-items: center; margin-bottom: 12px; }
 .panel-title { font-size: 16px; font-weight: 700; margin-bottom: 10px; }
 h2 { margin: 0; font-size: 20px; }
+h3 { margin: 2px 0 4px; font-size: 18px; }
 .grid { display: grid; grid-template-columns: minmax(360px, 0.9fr) minmax(420px, 1.1fr); gap: 14px; align-items: start; }
 label span, .summary span { display: block; color: #666; font-size: 12px; margin-bottom: 5px; }
 input, select { height: 38px; border: 1px solid #cfc8bf; border-radius: 6px; padding: 7px 9px; font: inherit; background: #fff; min-width: 180px; }
@@ -424,8 +583,15 @@ button { height: 38px; border-radius: 6px; border: 1px solid #1f1f1f; padding: 0
 button:disabled { cursor: not-allowed; opacity: .55; }
 .primary { background: #1f1f1f; color: #fff; }
 .secondary { background: #fff; color: #1f1f1f; }
+.compact-action { height: 32px; padding: 0 10px; font-size: 12px; }
 .danger-outline { border-color: #9d2626; color: #9d2626; }
 .text-button { height: 30px; border: 0; background: transparent; color: #1f4f82; padding: 0; }
+.bom-sku-context-panel { border: 1px solid #eee8df; border-radius: 8px; padding: 12px; margin-bottom: 12px; display: grid; grid-template-columns: minmax(240px, 1fr) minmax(260px, auto); gap: 10px 14px; align-items: center; background: #fbfaf8; }
+.context-eyebrow { color: #7a4d1a; font-size: 12px; font-weight: 700; }
+.bom-sku-context-controls { display: flex; align-items: center; justify-content: flex-end; gap: 8px; flex-wrap: wrap; }
+.bom-customer-select { min-width: min(320px, 100%); }
+.context-stats { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 8px; }
+.context-stats span { border: 1px solid #e0d7cc; border-radius: 999px; padding: 4px 9px; background: #fff; color: #333; font-size: 12px; }
 .table-wrap { overflow: auto; }
 table { width: 100%; min-width: 640px; border-collapse: collapse; }
 .compact table { min-width: 520px; }
@@ -439,6 +605,7 @@ tbody tr.active { background: #f3f7fb; }
 .warning-banner { border: 1px solid #e8c28f; border-radius: 6px; background: #fff8eb; color: #8a4b00; padding: 9px; margin-bottom: 12px; }
 .inline-form { margin: 12px 0; }
 .muted { color: #666; text-align: center; }
+.muted.left { text-align: left; margin: 0; font-size: 13px; }
 .empty { padding: 22px; border: 1px dashed #d8d0c7; border-radius: 8px; }
 .warn { color: #a13b00; }
 .error, .ok { border-radius: 6px; padding: 9px; margin-bottom: 12px; }
@@ -447,5 +614,10 @@ tbody tr.active { background: #f3f7fb; }
 .status-pill { display: inline-flex; align-items: center; min-height: 24px; border: 1px solid #cfd8cf; border-radius: 999px; padding: 2px 8px; color: #27602e; background: #f2fbf2; white-space: nowrap; }
 .status-pill.inactive { border-color: #e1b6b6; color: #8a1f1f; background: #fff0f0; }
 @media (max-width: 1100px) { .grid { grid-template-columns: 1fr; } }
-@media (max-width: 900px) { .page { padding: 12px; } table { min-width: 620px; } }
+@media (max-width: 900px) {
+  .page { padding: 12px; }
+  .bom-sku-context-panel { grid-template-columns: 1fr; }
+  .bom-sku-context-controls { justify-content: flex-start; }
+  table { min-width: 620px; }
+}
 </style>

@@ -26,6 +26,7 @@ func (r Repository) List(ctx context.Context) ([]bomapp.ListItem, error) {
 	q := fmt.Sprintf(`
 		SELECT
 			p.id,
+			COALESCE(p.customer_id,0),
 			p.name,
 			COALESCE(p.roast_level, ''),
 			COALESCE(b.yield_rate, 0.8),
@@ -47,7 +48,7 @@ func (r Repository) List(ctx context.Context) ([]bomapp.ListItem, error) {
 	for rows.Next() {
 		var item bomapp.ListItem
 		var fallback float64
-		if err := rows.Scan(&item.ProductID, &item.Product, &item.RoastLevel, &fallback, &item.Status, &item.ItemCount, &item.UpdatedAt); err != nil {
+		if err := rows.Scan(&item.ProductID, &item.CustomerID, &item.Product, &item.RoastLevel, &fallback, &item.Status, &item.ItemCount, &item.UpdatedAt); err != nil {
 			return nil, err
 		}
 		item.YieldRate = catalogdomain.ResolveYieldRate(item.RoastLevel, fallback)
@@ -87,11 +88,21 @@ func (r Repository) Detail(ctx context.Context, productID int64) (bomapp.Detail,
 }
 
 func (r Repository) Products(ctx context.Context) ([]bomapp.Option, error) {
-	opts, err := postgresinfra.FetchOptions(ctx, r.pool, "SELECT id, name FROM "+r.schema+".products WHERE active=true ORDER BY name")
+	rows, err := r.pool.Query(ctx, "SELECT id, name, COALESCE(customer_id,0) FROM "+r.schema+".products WHERE active=true ORDER BY name")
 	if err != nil {
 		return nil, err
 	}
-	return bomOptionsToApp(opts), nil
+	defer rows.Close()
+
+	out := make([]bomapp.Option, 0)
+	for rows.Next() {
+		var opt bomapp.Option
+		if err := rows.Scan(&opt.ID, &opt.Name, &opt.CustomerID); err != nil {
+			return nil, err
+		}
+		out = append(out, opt)
+	}
+	return out, rows.Err()
 }
 
 func (r Repository) Materials(ctx context.Context) ([]bomapp.Option, error) {
