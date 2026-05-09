@@ -4,7 +4,7 @@
       <div class="panel-head">
         <div>
           <h2>产品设置</h2>
-          <p>合并商品基础信息、产品分类和价格试算。商用阶梯价由价格发布生成。</p>
+          <p>合并客户SKU列表、产品分类和价格试算。商用阶梯价由价格发布生成。</p>
         </div>
         <button class="secondary" type="button" @click="loadAll" :disabled="loading">刷新</button>
       </div>
@@ -109,54 +109,6 @@
             <button class="primary" type="submit" :disabled="customSaving">创建专属 SKU</button>
           </div>
         </form>
-        <div class="customer-sku-list">
-          <div class="sku-list-head">
-            <div>
-              <strong>客户专属 SKU 列表</strong>
-              <span class="muted">只展示客户维度的定制产品，可直接进入 BOM 维护。</span>
-            </div>
-            <div class="sku-filter">
-              <SearchableSelect
-                v-model="selectedCustomerSkuCustomerID"
-                :options="customers"
-                :option-label="customerOptionLabel"
-                :option-meta="customerOptionMeta"
-                :option-value="optionNumericValue"
-                placeholder="筛选客户"
-                empty-text="没有匹配客户" />
-              <button class="secondary" type="button" @click="selectedCustomerSkuCustomerID = 0">全部</button>
-            </div>
-          </div>
-          <div class="table-wrap compact-table">
-            <table>
-              <thead>
-                <tr>
-                  <th>客户</th>
-                  <th>客户 SKU</th>
-                  <th>基础产品</th>
-                  <th>类型</th>
-                  <th>烘焙度</th>
-                  <th>BOM物料</th>
-                  <th>BOM</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr v-for="row in customerSkuRows" :key="`customer-sku-${row.id}`">
-                  <td>{{ ownerLabel(row) }}</td>
-                  <td>{{ row.name }}</td>
-                  <td>{{ baseProductName(row.base_product_id) }}</td>
-                  <td>{{ customTypeLabel(row.custom_type) }}</td>
-                  <td>{{ row.roast_level || '-' }}</td>
-                  <td>{{ row.bom_item_count || 0 }}</td>
-                  <td><button class="text-button" type="button" @click="openProductBom(row)">维护 BOM</button></td>
-                </tr>
-                <tr v-if="!customerSkuRows.length">
-                  <td colspan="7" class="muted">暂无客户专属 SKU</td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
-        </div>
       </div>
 
       <div class="panel category-panel">
@@ -265,9 +217,21 @@
       </div>
 
       <div class="panel product-panel">
-        <div class="panel-title">
-          <span>商品基础信息</span>
-          <div class="panel-actions">
+        <div class="panel-title sku-panel-title">
+          <span>客户SKU列表</span>
+          <div class="panel-actions sku-panel-actions">
+            <button class="secondary compact-action" type="button" @click="selectedCustomerSkuCustomerID = 0" :disabled="!selectedCustomerSkuCustomerID">
+              公共SKU
+            </button>
+            <SearchableSelect
+              class="sku-customer-select"
+              v-model="selectedCustomerSkuCustomerID"
+              :options="customerSkuCustomers"
+              :option-label="customerOptionLabel"
+              :option-meta="customerOptionMeta"
+              :option-value="optionNumericValue"
+              placeholder="选择客户SKU"
+              empty-text="暂无自定义SKU客户" />
             <button class="secondary compact-action" type="button" @click="deactivateProducts(selectedProductIds)" :disabled="!selectedProductIds.length || loading">
               失效选中产品
             </button>
@@ -281,7 +245,7 @@
             <thead>
               <tr>
                 <th class="select-col">
-                  <input type="checkbox" :checked="allProductRowsSelected" :disabled="!productRows.length" @change="toggleAllProductRows($event.target.checked)" />
+                  <input type="checkbox" :checked="allProductRowsSelected" :disabled="!displaySkuRows.length" @change="toggleAllProductRows($event.target.checked)" />
                 </th>
                 <th>一级分类</th>
                 <th>二级分类</th>
@@ -292,11 +256,12 @@
                 <th>烘焙度</th>
                 <th>BOM出品率</th>
                 <th>BOM状态</th>
+                <th>BOM</th>
                 <th>处理</th>
               </tr>
             </thead>
             <tbody>
-              <tr v-for="row in productRows" :key="row.id">
+              <tr v-for="row in displaySkuRows" :key="row.id">
                 <td class="select-col">
                   <input type="checkbox" :checked="isProductSelected(row)" @change="toggleProductSelection(row, $event.target.checked)" />
                 </td>
@@ -328,14 +293,14 @@
                   <span :class="['status-pill', row.bom_status === 'inactive' ? 'inactive' : '']">{{ bomStatusLabel(row.bom_status) }}</span>
                 </td>
                 <td>
-                  <div class="row-actions">
-                    <button class="text-button" type="button" @click="openProductBom(row)">维护 BOM</button>
-                    <button class="text-button danger-text" type="button" @click="deactivateProducts([row.id])">失效</button>
-                  </div>
+                  <button class="text-button" type="button" @click="openProductBom(row)">维护 BOM</button>
+                </td>
+                <td>
+                  <button class="text-button danger-text" type="button" @click="deactivateProducts([row.id])">失效</button>
                 </td>
               </tr>
-              <tr v-if="!productRows.length">
-                <td colspan="11" class="muted">暂无商品</td>
+              <tr v-if="!displaySkuRows.length">
+                <td colspan="12" class="muted">{{ selectedCustomerSkuCustomerID ? '暂无客户SKU' : '暂无公共SKU' }}</td>
               </tr>
             </tbody>
           </table>
@@ -350,7 +315,7 @@
 </template>
 
 <script setup>
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { apiGet, apiSend } from '../api/client'
 import SearchableSelect from '../components/SearchableSelect.vue'
 import CostingView from './CostingView.vue'
@@ -406,11 +371,24 @@ const categorizedProductIDs = computed(() => {
 
 const uncategorizedProducts = computed(() => products.value.filter((product) => !categorizedProductIDs.value.has(Number(product.id))))
 const baseProducts = computed(() => products.value.filter((product) => Number(product.customer_id || 0) === 0 && productVisibility(product) === 'public'))
+const publicSkuRows = computed(() => productRows.value.filter((product) => Number(product.customer_id || 0) === 0))
+const customProductCustomerIDs = computed(() => {
+  const ids = new Set()
+  for (const product of products.value) {
+    const customerID = Number(product.customer_id || 0)
+    if (customerID > 0) ids.add(customerID)
+  }
+  return ids
+})
+const customerSkuCustomers = computed(() => customers.value
+  .filter((customer) => customProductCustomerIDs.value.has(Number(customer.id || 0)))
+  .sort((a, b) => customerOptionLabel(a).localeCompare(customerOptionLabel(b))))
 const customerSkuRows = computed(() => products.value
   .filter((product) => Number(product.customer_id || 0) > 0)
   .filter((product) => !selectedCustomerSkuCustomerID.value || Number(product.customer_id || 0) === Number(selectedCustomerSkuCustomerID.value))
   .sort((a, b) => ownerLabel(a).localeCompare(ownerLabel(b)) || a.name.localeCompare(b.name)))
-const allProductRowsSelected = computed(() => productRows.value.length > 0 && productRows.value.every((row) => selectedProductIds.value.includes(Number(row.id))))
+const displaySkuRows = computed(() => selectedCustomerSkuCustomerID.value ? customerSkuRows.value : publicSkuRows.value)
+const allProductRowsSelected = computed(() => displaySkuRows.value.length > 0 && displaySkuRows.value.every((row) => selectedProductIds.value.includes(Number(row.id))))
 
 function defaultProductForm() {
   return {
@@ -471,8 +449,9 @@ async function loadAll() {
     ])
     categories.value = (data.categories || []).map(decorateCategory)
     products.value = (data.products || []).map(decorateProduct)
-    pruneSelectedProducts(data.products || [])
     customers.value = (customerData.rows || []).filter((row) => row.active !== false)
+    syncSelectedCustomerSkuCustomer()
+    pruneSelectedProducts(displaySkuRows.value)
   } catch (err) {
     error.value = err.message || '加载失败'
   } finally {
@@ -538,6 +517,13 @@ function pruneSelectedProducts(sourceProducts) {
   selectedProductIds.value = selectedProductIds.value.filter((id) => validIDs.has(Number(id)))
 }
 
+function syncSelectedCustomerSkuCustomer() {
+  if (!selectedCustomerSkuCustomerID.value) return
+  if (!customProductCustomerIDs.value.has(Number(selectedCustomerSkuCustomerID.value))) {
+    selectedCustomerSkuCustomerID.value = 0
+  }
+}
+
 function isProductSelected(row) {
   return selectedProductIds.value.includes(Number(row.id))
 }
@@ -552,7 +538,7 @@ function toggleProductSelection(row, checked) {
 }
 
 function toggleAllProductRows(checked) {
-  selectedProductIds.value = checked ? productRows.value.map((row) => Number(row.id)).filter(Boolean) : []
+  selectedProductIds.value = checked ? displaySkuRows.value.map((row) => Number(row.id)).filter(Boolean) : []
 }
 
 function selectedBaseProduct() {
@@ -991,6 +977,10 @@ async function deactivateProducts(productIds) {
   }
 }
 
+watch(selectedCustomerSkuCustomerID, () => {
+  pruneSelectedProducts(displaySkuRows.value)
+})
+
 onMounted(loadAll)
 </script>
 
@@ -1019,10 +1009,9 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .product-create-form, .custom-product-form { display: grid; grid-template-columns: repeat(4, minmax(160px, 1fr)); gap: 10px; align-items: end; }
 .product-create-form label, .custom-product-form label { display: grid; gap: 5px; font-size: 13px; }
 .product-create-form .wide-field, .custom-product-form .wide-field { grid-column: span 2; }
-.customer-sku-list { margin-top: 14px; border-top: 1px solid #eee8df; padding-top: 12px; }
-.sku-list-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 12px; margin-bottom: 10px; }
-.sku-list-head strong { display: block; margin-bottom: 4px; }
-.sku-filter { display: grid; grid-template-columns: minmax(220px, 320px) auto; gap: 8px; align-items: end; }
+.sku-panel-title { align-items: flex-start; }
+.sku-panel-actions { flex: 1; }
+.sku-customer-select { min-width: 220px; max-width: 320px; flex: 1 1 220px; font-weight: 400; }
 .checkline { display: flex !important; align-items: center; gap: 8px; min-height: 36px; }
 .checkline input { width: auto; min-height: 0; }
 .form-actions { display: flex; justify-content: flex-end; }
@@ -1059,9 +1048,10 @@ th { background: #fbfaf8; position: sticky; top: 0; }
 .muted { color: #666; font-size: 12px; }
 @media (max-width: 900px) {
   .page { padding: 12px; }
-  .settings-grid, .inline-form, .product-create-form, .custom-product-form, .sku-filter { grid-template-columns: 1fr; }
+  .settings-grid, .inline-form, .product-create-form, .custom-product-form { grid-template-columns: 1fr; }
   .panel-actions { justify-content: flex-start; }
-  .sku-list-head { align-items: stretch; flex-direction: column; }
+  .sku-panel-actions { width: 100%; }
+  .sku-customer-select { max-width: none; }
   .product-create-form .wide-field, .custom-product-form .wide-field { grid-column: auto; }
   table { min-width: 900px; }
 }
