@@ -95,6 +95,7 @@ type CustomerERPContext struct {
 type CustomerPortalOverview struct {
 	CustomerID       int64                    `json:"customer_id"`
 	CustomerName     string                   `json:"customer_name"`
+	Capabilities     []string                 `json:"capabilities,omitempty"`
 	CustodyBalances  []CustodyBalance         `json:"custody_balances,omitempty"`
 	FinishedGoods    []FinishedGoodsBalance   `json:"finished_goods,omitempty"`
 	ProcessingOrders []ProcessingOrderSummary `json:"processing_orders,omitempty"`
@@ -167,11 +168,13 @@ type CustomerFulfillmentOptions struct {
 }
 
 type CustomerSKUOption struct {
-	ProductID   int64  `json:"product_id"`
-	SKUCode     string `json:"sku_code,omitempty"`
-	ProductName string `json:"product_name"`
-	Spec        string `json:"spec,omitempty"`
-	RoastDegree string `json:"roast_degree,omitempty"`
+	ProductID     int64  `json:"product_id"`
+	BaseProductID int64  `json:"base_product_id,omitempty"`
+	SKUCode       string `json:"sku_code,omitempty"`
+	ProductName   string `json:"product_name"`
+	Spec          string `json:"spec,omitempty"`
+	RoastDegree   string `json:"roast_degree,omitempty"`
+	Source        string `json:"source,omitempty"`
 }
 
 type CustodyItemOption struct {
@@ -414,6 +417,17 @@ func (s *Service) CustomerPortalOverview(ctx context.Context, employeeID int64) 
 		return CustomerPortalOverview{}, fmt.Errorf("employee required")
 	}
 	return s.repo.CustomerPortalOverview(ctx, employeeID)
+}
+
+func (s *Service) CustomerPortalOptions(ctx context.Context, employeeID int64) (CustomerFulfillmentOptions, error) {
+	if employeeID <= 0 {
+		return CustomerFulfillmentOptions{}, fmt.Errorf("employee required")
+	}
+	current, err := s.repo.CustomerPortalContext(ctx, employeeID)
+	if err != nil {
+		return CustomerFulfillmentOptions{}, err
+	}
+	return s.repo.CustomerFulfillmentOptions(ctx, current.CustomerID)
 }
 
 func (s *Service) SubmitCustomerProcessingWorkOrder(ctx context.Context, cmd SubmitCustomerProcessingWorkOrderCommand) (ProcessingOrderSummary, error) {

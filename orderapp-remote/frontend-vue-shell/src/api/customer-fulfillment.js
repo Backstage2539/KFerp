@@ -82,6 +82,10 @@ export function fetchCustomerProcessingPortalOverview() {
   return apiGet('/api/customer-processing/portal/overview')
 }
 
+export function fetchCustomerProcessingPortalOptions() {
+  return apiGet('/api/customer-processing/portal/options')
+}
+
 export function submitCustomerProcessingWorkOrder(payload) {
   return apiSend('/api/customer-processing/portal/work-orders', { body: payload })
 }

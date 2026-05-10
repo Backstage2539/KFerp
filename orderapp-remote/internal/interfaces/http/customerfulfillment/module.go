@@ -13,6 +13,7 @@ type Service interface {
 	ParseImport(context.Context, app.ParseImportCommand) (app.ImportBatch, error)
 	ApplyImport(context.Context, app.ApplyImportCommand) (app.ApplyResult, error)
 	CustomerPortalOverview(context.Context, int64) (app.CustomerPortalOverview, error)
+	CustomerPortalOptions(context.Context, int64) (app.CustomerFulfillmentOptions, error)
 	SubmitCustomerProcessingWorkOrder(context.Context, app.SubmitCustomerProcessingWorkOrderCommand) (app.ProcessingOrderSummary, error)
 	SubmitCustomerDirectShipOrder(context.Context, app.SubmitCustomerDirectShipOrderCommand) (app.DirectShipOrderSummary, error)
 	AdjustCustodyInventory(context.Context, app.AdjustCustodyInventoryCommand) (app.CustodyBalance, error)
@@ -52,6 +53,7 @@ func RegisterRoutes(e *echo.Echo, deps Dependencies) {
 	e.GET("/api/customer-fulfillment/:customer_id/erp-bindings", api.listERPBindings)
 	e.POST("/api/customer-fulfillment/:customer_id/erp-bindings", api.upsertERPBinding)
 	e.GET("/api/customer-processing/portal/overview", api.customerPortalOverview)
+	e.GET("/api/customer-processing/portal/options", api.customerPortalOptions)
 	e.POST("/api/customer-processing/portal/work-orders", api.submitCustomerProcessingWorkOrder)
 	e.POST("/api/customer-processing/portal/direct-ship-orders", api.submitCustomerDirectShipOrder)
 }
