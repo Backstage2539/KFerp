@@ -17,26 +17,28 @@ import (
 )
 
 type fakeService struct {
-	login        customerportalapp.LoginResult
-	me           customerportalapp.CurrentContext
-	service      customerportalapp.ServicePage
-	filter       *customerportalapp.ServicePageFilter
-	customers    []customerportalapp.PortalAdminCustomer
-	detail       customerportalapp.PortalAdminDetail
-	saveCmd      *customerportalapp.UpdatePortalVisibilityCommand
-	templateCmd  *customerportalapp.ApplyCapabilityTemplateCommand
-	mallRows     []customerportalapp.MallProduct
-	mallOptions  []customerportalapp.MallProductOption
-	mallSaveCmd  *customerportalapp.SaveMallProductCommand
-	mallImageCmd *customerportalapp.UpdateMallProductImageCommand
-	mallPage     customerportalapp.MallPage
-	mallOrder    customerportalapp.FulfillmentOrder
-	mallOrderCmd *customerportalapp.CreateMallOrderCommand
-	directShip   customerportalapp.DirectShipBatch
-	processing   customerportalapp.ProcessingRequest
-	fulfillment  customerportalapp.FulfillmentOrder
-	beanList     customerportalapp.BeanListSummary
-	err          error
+	login           customerportalapp.LoginResult
+	me              customerportalapp.CurrentContext
+	service         customerportalapp.ServicePage
+	filter          *customerportalapp.ServicePageFilter
+	customers       []customerportalapp.PortalAdminCustomer
+	detail          customerportalapp.PortalAdminDetail
+	saveCmd         *customerportalapp.UpdatePortalVisibilityCommand
+	templates       []customerportalapp.CapabilityTemplate
+	templateSaveCmd *customerportalapp.SaveCapabilityTemplateCommand
+	templateCmd     *customerportalapp.ApplyCapabilityTemplateCommand
+	mallRows        []customerportalapp.MallProduct
+	mallOptions     []customerportalapp.MallProductOption
+	mallSaveCmd     *customerportalapp.SaveMallProductCommand
+	mallImageCmd    *customerportalapp.UpdateMallProductImageCommand
+	mallPage        customerportalapp.MallPage
+	mallOrder       customerportalapp.FulfillmentOrder
+	mallOrderCmd    *customerportalapp.CreateMallOrderCommand
+	directShip      customerportalapp.DirectShipBatch
+	processing      customerportalapp.ProcessingRequest
+	fulfillment     customerportalapp.FulfillmentOrder
+	beanList        customerportalapp.BeanListSummary
+	err             error
 }
 
 func (s fakeService) Login(context.Context, customerportalapp.LoginCommand) (customerportalapp.LoginResult, error) {
@@ -105,7 +107,20 @@ func (s fakeService) ListCapabilityTemplates(context.Context) ([]customerportala
 	if s.err != nil {
 		return nil, s.err
 	}
+	if s.templates != nil {
+		return s.templates, nil
+	}
 	return customerportalapp.DefaultCapabilityTemplates(), nil
+}
+
+func (s fakeService) SaveCapabilityTemplate(_ context.Context, cmd customerportalapp.SaveCapabilityTemplateCommand) (customerportalapp.CapabilityTemplate, error) {
+	if s.err != nil {
+		return customerportalapp.CapabilityTemplate{}, s.err
+	}
+	if s.templateSaveCmd != nil {
+		*s.templateSaveCmd = cmd
+	}
+	return cmd.Template, nil
 }
 
 func (s fakeService) ApplyCapabilityTemplate(_ context.Context, cmd customerportalapp.ApplyCapabilityTemplateCommand) (customerportalapp.PortalAdminDetail, error) {
@@ -536,9 +551,11 @@ func TestPortalAdminVisibilityAPIsExposeAndSaveCustomerCapabilities(t *testing.T
 
 func TestPortalAdminCapabilityTemplateAPIsExposeAndApply(t *testing.T) {
 	var templateCmd customerportalapp.ApplyCapabilityTemplateCommand
+	var templateSaveCmd customerportalapp.SaveCapabilityTemplateCommand
 	e := echo.New()
 	RegisterRoutes(e, Dependencies{CustomerPortal: fakeService{
-		templateCmd: &templateCmd,
+		templateCmd:     &templateCmd,
+		templateSaveCmd: &templateSaveCmd,
 		detail: customerportalapp.PortalAdminDetail{
 			Customer: customerportalapp.PortalAdminCustomer{ID: 147, Name: "客户A", CapabilityTemplateKey: customerportalapp.CapabilityTemplatePublicSKUDirectShip},
 			Capabilities: []customerportalapp.CapabilityOption{
@@ -555,6 +572,18 @@ func TestPortalAdminCapabilityTemplateAPIsExposeAndApply(t *testing.T) {
 		!strings.Contains(listRec.Body.String(), `"threshold_lb":14`) ||
 		!strings.Contains(listRec.Body.String(), `"erp_role_codes":["customer_direct_ship_customer"]`) {
 		t.Fatalf("template list status=%d body=%s", listRec.Code, listRec.Body.String())
+	}
+
+	saveBody := strings.NewReader(`{"label":"公共 SKU 小批量代发","theme_key":"clean_ops","miniapp_entry_mode":"services","erp_role_codes":["customer_direct_ship_customer"],"erp_permissions":["customer_processing.read"],"erp_view_keys":["customerProcessingPortal"],"capabilities":[{"code":"direct_ship","enabled":true,"config":{"public_sku_aliases":true,"small_batch_price_rule":{"enabled":true,"threshold_lb":14,"tier_min_lb":15,"tier_max_lb":28}}}]}`)
+	saveReq := httptest.NewRequest(http.MethodPut, "/api/customer-portal/admin/capability-templates/public_sku_direct_ship", saveBody)
+	saveReq.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	saveRec := httptest.NewRecorder()
+	e.ServeHTTP(saveRec, saveReq)
+	if saveRec.Code != http.StatusOK || !strings.Contains(saveRec.Body.String(), `"key":"public_sku_direct_ship"`) {
+		t.Fatalf("save template status=%d body=%s", saveRec.Code, saveRec.Body.String())
+	}
+	if templateSaveCmd.Template.Key != customerportalapp.CapabilityTemplatePublicSKUDirectShip || templateSaveCmd.Template.ThemeKey != customerportalapp.PortalThemeCleanOps {
+		t.Fatalf("template save command=%+v", templateSaveCmd)
 	}
 
 	applyReq := httptest.NewRequest(http.MethodPost, "/api/customer-portal/admin/customers/147/capability-template", strings.NewReader(`{"template_key":"public_sku_direct_ship"}`))

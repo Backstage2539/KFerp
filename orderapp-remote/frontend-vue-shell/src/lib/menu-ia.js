@@ -3,7 +3,7 @@ export const menuGroups = [
     id: 'customerProcessing',
     name: '客户代加工',
     items: [
-      { key: 'customerProcessingPortal', label: '代加工工作台', title: '代加工工作台' },
+      { key: 'customerProcessingPortal', label: '客户代加工工作台', title: '客户代加工工作台' },
     ],
   },
   {
@@ -79,8 +79,9 @@ export const menuGroups = [
       { key: 'senderSettings', label: '发货人设置', title: '发货人设置' },
       { key: 'outsourceSettings', label: '代加工模板设置', title: '代加工模板设置' },
       { key: 'customerPortalSettings', label: '客户门户配置', title: '客户门户配置' },
+      { key: 'customerCapabilityTemplates', label: '客户能力模板', title: '客户能力模板设置' },
       { key: 'customerPortalManual', label: '客户门户手册', title: '客户门户手册' },
-      { key: 'customerFulfillment', label: '客户履约账户', title: '客户履约账户' },
+      { key: 'customerFulfillment', label: '客户履约运营台', title: '客户履约运营台' },
       { key: 'customerFulfillmentManual', label: '客户履约手册', title: '客户履约手册' },
       { key: 'settingsAuditManual', label: '设置审计手册', title: '设置审计手册' },
     ],

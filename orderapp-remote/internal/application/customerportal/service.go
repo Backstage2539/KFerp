@@ -460,6 +460,8 @@ type CapabilityTemplate struct {
 	ERPPermissions   []string           `json:"erp_permissions"`
 	ERPViewKeys      []string           `json:"erp_view_keys"`
 	Capabilities     []CapabilityOption `json:"capabilities"`
+	UpdatedAt        string             `json:"updated_at,omitempty"`
+	UpdatedBy        string             `json:"updated_by,omitempty"`
 }
 
 type PortalAdminCustomerQuery struct {
@@ -519,6 +521,11 @@ type ApplyCapabilityTemplateCommand struct {
 	UpdatedBy   string
 }
 
+type SaveCapabilityTemplateCommand struct {
+	Template  CapabilityTemplate
+	UpdatedBy string
+}
+
 func (d PortalAdminDetail) HasCapabilityOption(code string) bool {
 	code = strings.TrimSpace(code)
 	for _, capability := range d.Capabilities {
@@ -561,6 +568,8 @@ type Repository interface {
 	ListPortalAdminCustomers(ctx context.Context, query PortalAdminCustomerQuery) ([]PortalAdminCustomer, error)
 	PortalAdminDetail(ctx context.Context, customerID int64) (PortalAdminDetail, error)
 	UpdatePortalVisibility(ctx context.Context, cmd UpdatePortalVisibilityCommand) (PortalAdminDetail, error)
+	ListCapabilityTemplates(ctx context.Context) ([]CapabilityTemplate, error)
+	SaveCapabilityTemplate(ctx context.Context, cmd SaveCapabilityTemplateCommand) (CapabilityTemplate, error)
 	ApplyCapabilityTemplate(ctx context.Context, cmd ApplyCapabilityTemplateCommand) (PortalAdminDetail, error)
 	ListMallProducts(ctx context.Context) ([]MallProduct, []MallProductOption, error)
 	SaveMallProduct(ctx context.Context, cmd SaveMallProductCommand) (MallProduct, error)
@@ -761,7 +770,35 @@ func (s *Service) UpdatePortalVisibility(ctx context.Context, cmd UpdatePortalVi
 }
 
 func (s *Service) ListCapabilityTemplates(ctx context.Context) ([]CapabilityTemplate, error) {
-	return DefaultCapabilityTemplates(), nil
+	if s.repo == nil {
+		return DefaultCapabilityTemplates(), nil
+	}
+	rows, err := s.repo.ListCapabilityTemplates(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return mergeCapabilityTemplates(rows), nil
+}
+
+func (s *Service) SaveCapabilityTemplate(ctx context.Context, cmd SaveCapabilityTemplateCommand) (CapabilityTemplate, error) {
+	if s.repo == nil {
+		return CapabilityTemplate{}, fmt.Errorf("repository required")
+	}
+	template, ok := normalizeCapabilityTemplate(cmd.Template)
+	if !ok {
+		return CapabilityTemplate{}, fmt.Errorf("capability template invalid")
+	}
+	cmd.Template = template
+	cmd.UpdatedBy = strings.TrimSpace(cmd.UpdatedBy)
+	row, err := s.repo.SaveCapabilityTemplate(ctx, cmd)
+	if err != nil {
+		return CapabilityTemplate{}, err
+	}
+	normalized, ok := normalizeCapabilityTemplate(row)
+	if !ok {
+		return CapabilityTemplate{}, fmt.Errorf("capability template invalid")
+	}
+	return normalized, nil
 }
 
 func (s *Service) ApplyCapabilityTemplate(ctx context.Context, cmd ApplyCapabilityTemplateCommand) (PortalAdminDetail, error) {
@@ -771,7 +808,7 @@ func (s *Service) ApplyCapabilityTemplate(ctx context.Context, cmd ApplyCapabili
 	if s.repo == nil {
 		return PortalAdminDetail{}, fmt.Errorf("repository required")
 	}
-	template, ok := CustomerCapabilityTemplateByKey(cmd.TemplateKey)
+	template, ok := s.capabilityTemplateByKey(ctx, cmd.TemplateKey)
 	if !ok {
 		return PortalAdminDetail{}, fmt.Errorf("capability template invalid")
 	}
@@ -785,6 +822,23 @@ func (s *Service) ApplyCapabilityTemplate(ctx context.Context, cmd ApplyCapabili
 	detail.Customer = normalizePortalAdminCustomer(detail.Customer)
 	detail.Capabilities = completeCapabilityOptions(detail.Capabilities)
 	return detail, nil
+}
+
+func (s *Service) capabilityTemplateByKey(ctx context.Context, key string) (CapabilityTemplate, bool) {
+	key = NormalizeCapabilityTemplateKey(key)
+	if key == "" {
+		return CapabilityTemplate{}, false
+	}
+	rows, err := s.ListCapabilityTemplates(ctx)
+	if err != nil {
+		return CapabilityTemplate{}, false
+	}
+	for _, template := range rows {
+		if template.Key == key {
+			return template, true
+		}
+	}
+	return CapabilityTemplate{}, false
 }
 
 func (s *Service) ListMallProducts(ctx context.Context) ([]MallProduct, []MallProductOption, error) {
@@ -1254,6 +1308,88 @@ func CustomerCapabilityTemplateByKey(key string) (CapabilityTemplate, bool) {
 	return CapabilityTemplate{}, false
 }
 
+func mergeCapabilityTemplates(rows []CapabilityTemplate) []CapabilityTemplate {
+	out := DefaultCapabilityTemplates()
+	positions := make(map[string]int, len(out))
+	for i := range out {
+		positions[out[i].Key] = i
+	}
+	for _, row := range rows {
+		template, ok := normalizeCapabilityTemplate(row)
+		if !ok {
+			continue
+		}
+		if idx, ok := positions[template.Key]; ok {
+			out[idx] = template
+		}
+	}
+	return out
+}
+
+func normalizeCapabilityTemplate(input CapabilityTemplate) (CapabilityTemplate, bool) {
+	key := NormalizeCapabilityTemplateKey(input.Key)
+	if key == "" {
+		return CapabilityTemplate{}, false
+	}
+	defaultTemplate, ok := CustomerCapabilityTemplateByKey(key)
+	if !ok {
+		return CapabilityTemplate{}, false
+	}
+	input.Key = key
+	input.Label = firstNonEmpty(input.Label, defaultTemplate.Label)
+	input.Description = firstNonEmpty(input.Description, defaultTemplate.Description)
+	input.ThemeKey = NormalizePortalThemeKey(firstNonEmpty(input.ThemeKey, defaultTemplate.ThemeKey))
+	input.MiniappEntryMode = NormalizeMiniappEntryMode(firstNonEmpty(input.MiniappEntryMode, defaultTemplate.MiniappEntryMode))
+	input.ERPRoleCodes = normalizedStringListOrDefault(input.ERPRoleCodes, defaultTemplate.ERPRoleCodes)
+	input.ERPPermissions = normalizedStringListOrDefault(input.ERPPermissions, defaultTemplate.ERPPermissions)
+	input.ERPViewKeys = normalizedStringListOrDefault(input.ERPViewKeys, defaultTemplate.ERPViewKeys)
+	if len(input.Capabilities) == 0 {
+		input.Capabilities = cloneCapabilityOptions(defaultTemplate.Capabilities)
+	} else {
+		input.Capabilities = normalizeTemplateCapabilityOptions(input.Capabilities)
+	}
+	input.UpdatedAt = strings.TrimSpace(input.UpdatedAt)
+	input.UpdatedBy = strings.TrimSpace(input.UpdatedBy)
+	return input, true
+}
+
+func normalizedStringListOrDefault(values, fallback []string) []string {
+	out := make([]string, 0, len(values))
+	seen := map[string]bool{}
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value == "" || seen[value] {
+			continue
+		}
+		seen[value] = true
+		out = append(out, value)
+	}
+	if len(out) > 0 {
+		return out
+	}
+	return cloneStringList(fallback)
+}
+
+func cloneStringList(values []string) []string {
+	out := make([]string, 0, len(values))
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value != "" {
+			out = append(out, value)
+		}
+	}
+	return out
+}
+
+func cloneCapabilityOptions(values []CapabilityOption) []CapabilityOption {
+	out := make([]CapabilityOption, 0, len(values))
+	for _, value := range values {
+		value.Config = copyCapabilityConfig(value.Config)
+		out = append(out, value)
+	}
+	return out
+}
+
 func NormalizeCapabilityTemplateKey(value string) string {
 	switch strings.TrimSpace(value) {
 	case CapabilityTemplateProcessingFulfillment:
@@ -1262,6 +1398,47 @@ func NormalizeCapabilityTemplateKey(value string) string {
 		return CapabilityTemplatePublicSKUDirectShip
 	default:
 		return ""
+	}
+}
+
+func normalizeTemplateCapabilityOptions(input []CapabilityOption) []CapabilityOption {
+	out := completeCapabilityOptions(normalizeCapabilityOptions(input))
+	for i := range out {
+		out[i].Config = normalizeTemplateCapabilityConfig(out[i].Code, out[i].Config)
+	}
+	return out
+}
+
+func normalizeTemplateCapabilityConfig(code string, config map[string]any) map[string]any {
+	out := copyCapabilityConfig(config)
+	switch code {
+	case CapabilityProductOrder:
+		out["public_sku_aliases"] = boolFromAny(out["public_sku_aliases"])
+	case CapabilityDirectShip:
+		out["public_sku_aliases"] = boolFromAny(out["public_sku_aliases"])
+		out["customer_sender"] = boolFromAny(out["customer_sender"])
+		out["external_recipients"] = boolFromAny(out["external_recipients"])
+		out["small_batch_price_rule"] = smallBatchPriceRuleConfig(out["small_batch_price_rule"])
+	}
+	return out
+}
+
+func smallBatchPriceRuleConfig(value any) map[string]any {
+	rule := normalizeSmallBatchPriceRule(mapFromAny(value))
+	return map[string]any{
+		"enabled":      rule.Enabled,
+		"threshold_lb": rule.ThresholdLB,
+		"tier_min_lb":  rule.TierMinLB,
+		"tier_max_lb":  rule.TierMaxLB,
+	}
+}
+
+func mapFromAny(value any) map[string]any {
+	switch got := value.(type) {
+	case map[string]any:
+		return got
+	default:
+		return map[string]any{}
 	}
 }
 

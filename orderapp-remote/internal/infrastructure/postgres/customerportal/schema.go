@@ -86,7 +86,34 @@ ALTER TABLE %s.customer_portal_profiles
 	if err := ensurePortalProfileColumns(ctx, pool, schema); err != nil {
 		return err
 	}
+	if err := ensureCapabilityTemplateSchema(ctx, pool, schema); err != nil {
+		return err
+	}
 	return ensureCapabilityConfigConstraint(ctx, pool, schema)
+}
+
+func ensureCapabilityTemplateSchema(ctx context.Context, pool *pgxpool.Pool, schema string) error {
+	q := fmt.Sprintf(`
+CREATE TABLE IF NOT EXISTS %s.customer_capability_templates (
+	template_key TEXT PRIMARY KEY,
+	label TEXT NOT NULL DEFAULT '',
+	description TEXT NOT NULL DEFAULT '',
+	theme_key TEXT NOT NULL DEFAULT 'coffee_factory',
+	miniapp_entry_mode TEXT NOT NULL DEFAULT 'services',
+	erp_role_codes JSONB NOT NULL DEFAULT '[]'::jsonb,
+	erp_permissions JSONB NOT NULL DEFAULT '[]'::jsonb,
+	erp_view_keys JSONB NOT NULL DEFAULT '[]'::jsonb,
+	capabilities_json JSONB NOT NULL DEFAULT '[]'::jsonb,
+	updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+	updated_by TEXT NOT NULL DEFAULT '',
+	CONSTRAINT customer_capability_templates_roles_array_chk CHECK (jsonb_typeof(erp_role_codes) = 'array'),
+	CONSTRAINT customer_capability_templates_permissions_array_chk CHECK (jsonb_typeof(erp_permissions) = 'array'),
+	CONSTRAINT customer_capability_templates_views_array_chk CHECK (jsonb_typeof(erp_view_keys) = 'array'),
+	CONSTRAINT customer_capability_templates_capabilities_array_chk CHECK (jsonb_typeof(capabilities_json) = 'array')
+);
+`, schema)
+	_, err := pool.Exec(ctx, q)
+	return err
 }
 
 func ensurePortalProfileColumns(ctx context.Context, pool *pgxpool.Pool, schema string) error {

@@ -53,7 +53,7 @@ func TestCustomerFulfillmentExcelImportArchitectureWiring(t *testing.T) {
 			path: filepath.Join("frontend-vue-shell", "src", "lib", "menu-ia.js"),
 			want: []string{
 				"customerFulfillment",
-				"客户履约账户",
+				"客户履约运营台",
 			},
 		},
 		{

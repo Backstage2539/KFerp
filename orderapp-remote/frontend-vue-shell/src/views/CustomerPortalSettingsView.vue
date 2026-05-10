@@ -3,7 +3,10 @@
     <section class="panel">
       <div class="panel-head">
         <h2>客户门户配置</h2>
-        <button class="secondary" type="button" @click="loadCustomers" :disabled="loading">刷新</button>
+        <div class="panel-actions">
+          <button class="secondary" type="button" @click="openTemplateSettings">客户能力模板</button>
+          <button class="secondary" type="button" @click="loadCustomers" :disabled="loading">刷新</button>
+        </div>
       </div>
       <div class="filters">
         <label>
@@ -305,6 +308,12 @@ function normalizeTemplateKey(value) {
   return capabilityTemplates.value.some((template) => template.key === key) ? key : ''
 }
 
+function openTemplateSettings() {
+  const url = new URL(window.location.href)
+  url.searchParams.set('view', 'customerCapabilityTemplates')
+  window.location.assign(url.toString())
+}
+
 onMounted(async () => {
   await Promise.all([loadCapabilityTemplates(), loadSenderProfiles()])
   loadCustomers()
@@ -316,6 +325,7 @@ onMounted(async () => {
 .page { padding: 18px; color: #171717; }
 .panel { border: 1px solid #e1e5ea; border-radius: 8px; background: #fff; padding: 14px; margin-bottom: 14px; }
 .panel-head, .filters { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+.panel-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .filters { justify-content: flex-start; margin-top: 12px; }
 h2 { margin: 0; font-size: 20px; }
 label span { display: block; color: #666; font-size: 12px; margin-bottom: 5px; }

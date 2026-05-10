@@ -19,32 +19,34 @@ func (p fakeIdentityProvider) Resolve(ctx context.Context, code string) (MiniIde
 }
 
 type fakeRepository struct {
-	loginResult        LoginResult
-	loginCommand       CreateLoginSessionCommand
-	context            CurrentContext
-	session            string
-	serviceQuery       ServicePageQuery
-	servicePage        ServicePage
-	beanList           BeanListSummary
-	portalCustomers    []PortalAdminCustomer
-	portalDetail       PortalAdminDetail
-	visibilityCommand  UpdatePortalVisibilityCommand
-	templateCommand    ApplyCapabilityTemplateCommand
-	mallProducts       []MallProduct
-	mallProductOptions []MallProductOption
-	mallProductCommand SaveMallProductCommand
-	mallImageCommand   UpdateMallProductImageCommand
-	mallPage           MallPage
-	mallOrderCommand   CreateMallOrderCommand
-	mallOrder          FulfillmentOrder
-	directShipCommand  CreateDirectShipBatchCommand
-	directShipBatch    DirectShipBatch
-	processingCommand  CreateProcessingRequestCommand
-	processingRequest  ProcessingRequest
-	fulfillmentCommand CreateFulfillmentOrderCommand
-	fulfillmentOrder   FulfillmentOrder
-	err                error
-	switchErr          error
+	loginResult         LoginResult
+	loginCommand        CreateLoginSessionCommand
+	context             CurrentContext
+	session             string
+	serviceQuery        ServicePageQuery
+	servicePage         ServicePage
+	beanList            BeanListSummary
+	portalCustomers     []PortalAdminCustomer
+	portalDetail        PortalAdminDetail
+	visibilityCommand   UpdatePortalVisibilityCommand
+	templates           []CapabilityTemplate
+	templateSaveCommand SaveCapabilityTemplateCommand
+	templateCommand     ApplyCapabilityTemplateCommand
+	mallProducts        []MallProduct
+	mallProductOptions  []MallProductOption
+	mallProductCommand  SaveMallProductCommand
+	mallImageCommand    UpdateMallProductImageCommand
+	mallPage            MallPage
+	mallOrderCommand    CreateMallOrderCommand
+	mallOrder           FulfillmentOrder
+	directShipCommand   CreateDirectShipBatchCommand
+	directShipBatch     DirectShipBatch
+	processingCommand   CreateProcessingRequestCommand
+	processingRequest   ProcessingRequest
+	fulfillmentCommand  CreateFulfillmentOrderCommand
+	fulfillmentOrder    FulfillmentOrder
+	err                 error
+	switchErr           error
 }
 
 func (r *fakeRepository) CreateLoginSession(ctx context.Context, cmd CreateLoginSessionCommand) (LoginResult, error) {
@@ -112,6 +114,21 @@ func (r *fakeRepository) UpdatePortalVisibility(ctx context.Context, cmd UpdateP
 	r.portalDetail.Customer.PortalEnabled = cmd.Enabled
 	r.portalDetail.Customer.MiniappEntryMode = cmd.MiniappEntryMode
 	return r.portalDetail, nil
+}
+
+func (r *fakeRepository) ListCapabilityTemplates(ctx context.Context) ([]CapabilityTemplate, error) {
+	if r.err != nil {
+		return nil, r.err
+	}
+	return r.templates, nil
+}
+
+func (r *fakeRepository) SaveCapabilityTemplate(ctx context.Context, cmd SaveCapabilityTemplateCommand) (CapabilityTemplate, error) {
+	r.templateSaveCommand = cmd
+	if r.err != nil {
+		return CapabilityTemplate{}, r.err
+	}
+	return cmd.Template, nil
 }
 
 func (r *fakeRepository) ApplyCapabilityTemplate(ctx context.Context, cmd ApplyCapabilityTemplateCommand) (PortalAdminDetail, error) {
@@ -492,6 +509,75 @@ func TestDefaultCapabilityTemplatesIncludePublicSKUDirectShipRules(t *testing.T)
 	rule := template.SmallBatchPriceRule()
 	if !rule.Enabled || rule.ThresholdLB != 14 || rule.TierMinLB != 15 || rule.TierMaxLB != 28 {
 		t.Fatalf("small batch rule=%+v, want <14lb uses 15-28lb tier", rule)
+	}
+}
+
+func TestSaveCapabilityTemplateNormalizesRulesAndDefaults(t *testing.T) {
+	repo := &fakeRepository{}
+	svc := NewService(repo, fakeIdentityProvider{})
+	got, err := svc.SaveCapabilityTemplate(context.Background(), SaveCapabilityTemplateCommand{
+		Template: CapabilityTemplate{
+			Key: CapabilityTemplatePublicSKUDirectShip,
+			Capabilities: []CapabilityOption{
+				{
+					Code:    CapabilityDirectShip,
+					Enabled: true,
+					Config: map[string]any{
+						"public_sku_aliases": true,
+						"small_batch_price_rule": map[string]any{
+							"enabled":      true,
+							"threshold_lb": 0,
+						},
+					},
+				},
+			},
+		},
+		UpdatedBy: " admin ",
+	})
+	if err != nil {
+		t.Fatalf("SaveCapabilityTemplate() err=%v", err)
+	}
+	if repo.templateSaveCommand.UpdatedBy != "admin" || repo.templateSaveCommand.Template.Key != CapabilityTemplatePublicSKUDirectShip {
+		t.Fatalf("save command=%+v", repo.templateSaveCommand)
+	}
+	if got.Label != "公共 SKU 小批量代发" || len(got.ERPRoleCodes) == 0 {
+		t.Fatalf("template defaults not filled: %+v", got)
+	}
+	if got.ThemeKey != PortalThemeCleanOps {
+		t.Fatalf("theme_key=%q, want public SKU default clean_ops", got.ThemeKey)
+	}
+	rule := got.SmallBatchPriceRule()
+	if !rule.Enabled || rule.ThresholdLB != 14 || rule.TierMinLB != 15 || rule.TierMaxLB != 28 {
+		t.Fatalf("small batch rule=%+v, want normalized defaults", rule)
+	}
+	if got.HasCapability(CapabilityProcessing) {
+		t.Fatalf("template should not enable processing from omitted capabilities: %+v", got.Capabilities)
+	}
+}
+
+func TestApplyCapabilityTemplateUsesSavedTemplateSettings(t *testing.T) {
+	template, _ := CustomerCapabilityTemplateByKey(CapabilityTemplatePublicSKUDirectShip)
+	for i := range template.Capabilities {
+		if template.Capabilities[i].Code == CapabilityDirectShip {
+			template.Capabilities[i].Enabled = false
+		}
+	}
+	repo := &fakeRepository{
+		templates: []CapabilityTemplate{template},
+		portalDetail: PortalAdminDetail{
+			Customer: PortalAdminCustomer{Name: "客户A"},
+		},
+	}
+	svc := NewService(repo, fakeIdentityProvider{})
+	_, err := svc.ApplyCapabilityTemplate(context.Background(), ApplyCapabilityTemplateCommand{
+		CustomerID:  147,
+		TemplateKey: CapabilityTemplatePublicSKUDirectShip,
+	})
+	if err != nil {
+		t.Fatalf("ApplyCapabilityTemplate() err=%v", err)
+	}
+	if repo.templateCommand.Template.HasCapability(CapabilityDirectShip) {
+		t.Fatalf("apply command used default template instead of saved row: %+v", repo.templateCommand.Template.Capabilities)
 	}
 }
 

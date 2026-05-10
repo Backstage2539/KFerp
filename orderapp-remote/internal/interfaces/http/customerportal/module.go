@@ -25,6 +25,7 @@ type Service interface {
 	PortalAdminDetail(context.Context, int64) (customerportalapp.PortalAdminDetail, error)
 	UpdatePortalVisibility(context.Context, customerportalapp.UpdatePortalVisibilityCommand) (customerportalapp.PortalAdminDetail, error)
 	ListCapabilityTemplates(context.Context) ([]customerportalapp.CapabilityTemplate, error)
+	SaveCapabilityTemplate(context.Context, customerportalapp.SaveCapabilityTemplateCommand) (customerportalapp.CapabilityTemplate, error)
 	ApplyCapabilityTemplate(context.Context, customerportalapp.ApplyCapabilityTemplateCommand) (customerportalapp.PortalAdminDetail, error)
 	ListMallProducts(context.Context) ([]customerportalapp.MallProduct, []customerportalapp.MallProductOption, error)
 	SaveMallProduct(context.Context, customerportalapp.SaveMallProductCommand) (customerportalapp.MallProduct, error)
