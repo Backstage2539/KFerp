@@ -243,6 +243,31 @@ func TestServiceCustomerFulfillmentOptionsRequiresCustomerAndDelegates(t *testin
 	}
 }
 
+func TestServiceCustomerPortalOptionsDerivesCustomerFromBoundEmployee(t *testing.T) {
+	repo := &fakeCustomerFulfillmentRepository{
+		customerContextResult: CustomerERPContext{EmployeeID: 23, CustomerID: 149, CustomerName: "客户A", BindingStatus: "active"},
+		optionsResult: CustomerFulfillmentOptions{
+			CustomerSKUs: []CustomerSKUOption{{ProductID: 7, ProductName: "客户A专属名", Source: "public_sku_alias"}},
+			Recipients:   []RecipientOption{{ReceiverName: "张三", ReceiverPhone: "13800000000", ReceiverAddress: "浙江杭州"}},
+		},
+	}
+	svc := NewService(repo)
+	if _, err := svc.CustomerPortalOptions(context.Background(), 0); err == nil || !strings.Contains(err.Error(), "employee") {
+		t.Fatalf("CustomerPortalOptions without employee error = %v, want employee validation", err)
+	}
+
+	got, err := svc.CustomerPortalOptions(context.Background(), 23)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if repo.customerContextEmployeeID != 23 || repo.optionsCustomerID != 149 {
+		t.Fatalf("context/options ids = %d/%d, want employee 23 customer 149", repo.customerContextEmployeeID, repo.optionsCustomerID)
+	}
+	if len(got.CustomerSKUs) != 1 || got.CustomerSKUs[0].ProductName != "客户A专属名" {
+		t.Fatalf("portal options = %#v", got)
+	}
+}
+
 func TestServiceAdjustCustodyInventoryRequiresInternalCustomerAndDelta(t *testing.T) {
 	repo := &fakeCustomerFulfillmentRepository{
 		custodyAdjustmentResult: CustodyBalance{ItemType: "raw_bean", ItemName: "埃塞花魁", QuantityG: 12000},

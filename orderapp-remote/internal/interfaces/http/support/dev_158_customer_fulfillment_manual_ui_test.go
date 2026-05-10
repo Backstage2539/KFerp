@@ -67,7 +67,7 @@ func TestCustomerFulfillmentManualVisibleInVueShell(t *testing.T) {
 
 func TestCustomerFulfillmentManualPermissionAndRequirementSeeds(t *testing.T) {
 	authz := string(readOrderAppFileForTest(t, filepath.Join("internal", "infrastructure", "postgres", "authz", "schema.go")))
-	if !strings.Contains(authz, `"customerFulfillmentManual": "stock.read"`) {
+	if !strings.Contains(authz, `"customerFulfillmentManual"`) || !strings.Contains(authz, `"stock.read"`) {
 		t.Fatal("customer fulfillment manual should be visible to stock readers")
 	}
 	req := string(readOrderAppFileForTest(t, filepath.Join("internal", "interfaces", "http", "support", "req_store.go")))

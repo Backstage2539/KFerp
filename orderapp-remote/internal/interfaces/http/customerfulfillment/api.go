@@ -106,6 +106,18 @@ func (a api) customerPortalOverview(c echo.Context) error {
 	return c.JSON(http.StatusOK, overview)
 }
 
+func (a api) customerPortalOptions(c echo.Context) error {
+	employeeID := support.CurrentEmployeeID(c)
+	if employeeID <= 0 {
+		return customerFulfillmentError(c, http.StatusUnauthorized, fmt.Errorf("employee required"))
+	}
+	options, err := a.svc.CustomerPortalOptions(c.Request().Context(), employeeID)
+	if err != nil {
+		return customerPortalError(c, err)
+	}
+	return c.JSON(http.StatusOK, options)
+}
+
 func (a api) submitCustomerProcessingWorkOrder(c echo.Context) error {
 	employeeID := support.CurrentEmployeeID(c)
 	if employeeID <= 0 {

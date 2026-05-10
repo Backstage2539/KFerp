@@ -204,6 +204,9 @@ func (r *Repository) CustomerPortalOverview(ctx context.Context, employeeID int6
 		CustomerID:   current.CustomerID,
 		CustomerName: current.CustomerName,
 	}
+	if overview.Capabilities, err = r.listCustomerCapabilityCodes(ctx, current.CustomerID); err != nil {
+		return app.CustomerPortalOverview{}, err
+	}
 	if overview.CustodyBalances, err = r.listCustodyBalances(ctx, current.CustomerID); err != nil {
 		return app.CustomerPortalOverview{}, err
 	}
@@ -543,6 +546,7 @@ func (r *Repository) listCustomerSKUOptions(ctx context.Context, customerID int6
 		row.ProductName = strings.Join(strings.Fields(strings.TrimSpace(row.ProductName)), " ")
 		row.Spec = strings.TrimSpace(row.Spec)
 		row.RoastDegree = strings.TrimSpace(row.RoastDegree)
+		row.Source = strings.TrimSpace(row.Source)
 		if row.ProductName == "" {
 			return
 		}
@@ -556,10 +560,12 @@ func (r *Repository) listCustomerSKUOptions(ctx context.Context, customerID int6
 
 	rows, err := r.pool.Query(ctx, fmt.Sprintf(`
 		SELECT COALESCE(NULLIF(r.target_id,0), p.id, 0),
+		       COALESCE(p.base_product_id,0),
 		       COALESCE(r.payload->>'sku_code', ''),
 		       COALESCE(NULLIF(r.payload->>'sku_name',''), NULLIF(r.payload->>'product_name',''), p.name, ''),
 		       COALESCE(NULLIF(r.payload->>'spec',''), ''),
-		       COALESCE(NULLIF(r.payload->>'roast_degree',''), p.roast_level, '')
+		       COALESCE(NULLIF(r.payload->>'roast_degree',''), p.roast_level, ''),
+		       'customer_sku_import'
 		FROM %s.customer_fulfillment_import_rows r
 		JOIN %s.customer_fulfillment_import_batches b ON b.id=r.batch_id
 		LEFT JOIN %s.products p ON p.id=r.target_id
@@ -574,7 +580,7 @@ func (r *Repository) listCustomerSKUOptions(ctx context.Context, customerID int6
 	}
 	for rows.Next() {
 		var row app.CustomerSKUOption
-		if err := rows.Scan(&row.ProductID, &row.SKUCode, &row.ProductName, &row.Spec, &row.RoastDegree); err != nil {
+		if err := rows.Scan(&row.ProductID, &row.BaseProductID, &row.SKUCode, &row.ProductName, &row.Spec, &row.RoastDegree, &row.Source); err != nil {
 			rows.Close()
 			return nil, err
 		}
@@ -587,7 +593,7 @@ func (r *Repository) listCustomerSKUOptions(ctx context.Context, customerID int6
 	rows.Close()
 
 	rows, err = r.pool.Query(ctx, fmt.Sprintf(`
-		SELECT id, '', name, '', COALESCE(roast_level,'')
+		SELECT id, COALESCE(base_product_id,0), '', name, '', COALESCE(roast_level,''), COALESCE(NULLIF(custom_type,''),'customer_product')
 		FROM %s.products
 		WHERE customer_id=$1
 		  AND visibility='customer_only'
@@ -601,12 +607,101 @@ func (r *Repository) listCustomerSKUOptions(ctx context.Context, customerID int6
 	defer rows.Close()
 	for rows.Next() {
 		var row app.CustomerSKUOption
-		if err := rows.Scan(&row.ProductID, &row.SKUCode, &row.ProductName, &row.Spec, &row.RoastDegree); err != nil {
+		if err := rows.Scan(&row.ProductID, &row.BaseProductID, &row.SKUCode, &row.ProductName, &row.Spec, &row.RoastDegree, &row.Source); err != nil {
 			return nil, err
 		}
 		add(row)
 	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	if allowed, err := r.customerAllowsPublicSKUOptions(ctx, customerID); err != nil {
+		return nil, err
+	} else if allowed {
+		rows.Close()
+		rows, err = r.pool.Query(ctx, fmt.Sprintf(`
+			SELECT id, 0, '公共SKU', name, '', COALESCE(roast_level,''), 'public_sku'
+			FROM %s.products
+			WHERE active=true
+			  AND COALESCE(customer_id,0)=0
+			  AND COALESCE(NULLIF(visibility,''),'public')='public'
+			ORDER BY name, id
+			LIMIT 300
+		`, r.schema))
+		if err != nil {
+			return nil, err
+		}
+		defer rows.Close()
+		for rows.Next() {
+			var row app.CustomerSKUOption
+			if err := rows.Scan(&row.ProductID, &row.BaseProductID, &row.SKUCode, &row.ProductName, &row.Spec, &row.RoastDegree, &row.Source); err != nil {
+				return nil, err
+			}
+			add(row)
+		}
+		return out, rows.Err()
+	}
+	return out, nil
+}
+
+func (r *Repository) listCustomerCapabilityCodes(ctx context.Context, customerID int64) ([]string, error) {
+	if customerID <= 0 {
+		return []string{}, nil
+	}
+	var hasTable bool
+	if err := r.pool.QueryRow(ctx, `SELECT to_regclass($1) IS NOT NULL`, fmt.Sprintf("%s.customer_service_capabilities", r.schema)).Scan(&hasTable); err != nil {
+		return nil, err
+	}
+	if !hasTable {
+		return []string{}, nil
+	}
+	rows, err := r.pool.Query(ctx, fmt.Sprintf(`
+		SELECT capability_code
+		FROM %s.customer_service_capabilities
+		WHERE customer_id=$1 AND enabled=true
+		ORDER BY capability_code
+	`, r.schema), customerID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := make([]string, 0)
+	for rows.Next() {
+		var code string
+		if err := rows.Scan(&code); err != nil {
+			return nil, err
+		}
+		code = strings.TrimSpace(code)
+		if code != "" {
+			out = append(out, code)
+		}
+	}
 	return out, rows.Err()
+}
+
+func (r *Repository) customerAllowsPublicSKUOptions(ctx context.Context, customerID int64) (bool, error) {
+	if customerID <= 0 {
+		return false, nil
+	}
+	var hasTable bool
+	if err := r.pool.QueryRow(ctx, `SELECT to_regclass($1) IS NOT NULL`, fmt.Sprintf("%s.customer_service_capabilities", r.schema)).Scan(&hasTable); err != nil {
+		return false, err
+	}
+	if !hasTable {
+		return false, nil
+	}
+	var allowed bool
+	err := r.pool.QueryRow(ctx, fmt.Sprintf(`
+		SELECT EXISTS (
+			SELECT 1
+			FROM %s.customer_service_capabilities
+			WHERE customer_id=$1
+			  AND enabled=true
+			  AND capability_code IN ('direct_ship','product_order')
+			  AND lower(COALESCE(config_json->>'public_sku_aliases','false'))='true'
+		)
+	`, r.schema), customerID).Scan(&allowed)
+	return allowed, err
 }
 
 func (r *Repository) listCustodyItemOptions(ctx context.Context, customerID int64) ([]app.CustodyItemOption, error) {

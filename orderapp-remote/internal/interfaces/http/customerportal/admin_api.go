@@ -32,6 +32,18 @@ type capabilityTemplateRequest struct {
 	TemplateKey string `json:"template_key"`
 }
 
+type saveCapabilityTemplateRequest struct {
+	Key              string                               `json:"key"`
+	Label            string                               `json:"label"`
+	Description      string                               `json:"description"`
+	ThemeKey         string                               `json:"theme_key"`
+	MiniappEntryMode string                               `json:"miniapp_entry_mode"`
+	ERPRoleCodes     []string                             `json:"erp_role_codes"`
+	ERPPermissions   []string                             `json:"erp_permissions"`
+	ERPViewKeys      []string                             `json:"erp_view_keys"`
+	Capabilities     []customerportalapp.CapabilityOption `json:"capabilities"`
+}
+
 type mallProductRequest struct {
 	ID          int64   `json:"id"`
 	ProductID   int64   `json:"product_id"`
@@ -60,6 +72,35 @@ func registerAdminAPI(e *echo.Echo, svc Service, assetDirs ...string) {
 			return c.JSON(http.StatusInternalServerError, map[string]string{"error": "internal error"})
 		}
 		return c.JSON(http.StatusOK, map[string]any{"templates": rows})
+	})
+
+	e.PUT("/api/customer-portal/admin/capability-templates/:key", func(c echo.Context) error {
+		if svc == nil {
+			return c.JSON(http.StatusInternalServerError, map[string]string{"error": "internal error"})
+		}
+		key := strings.TrimSpace(c.Param("key"))
+		var req saveCapabilityTemplateRequest
+		if err := c.Bind(&req); err != nil {
+			return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid request"})
+		}
+		row, err := svc.SaveCapabilityTemplate(c.Request().Context(), customerportalapp.SaveCapabilityTemplateCommand{
+			Template: customerportalapp.CapabilityTemplate{
+				Key:              key,
+				Label:            req.Label,
+				Description:      req.Description,
+				ThemeKey:         req.ThemeKey,
+				MiniappEntryMode: req.MiniappEntryMode,
+				ERPRoleCodes:     req.ERPRoleCodes,
+				ERPPermissions:   req.ERPPermissions,
+				ERPViewKeys:      req.ERPViewKeys,
+				Capabilities:     req.Capabilities,
+			},
+			UpdatedBy: support.ActorOf(c),
+		})
+		if err != nil {
+			return portalAdminError(c, err)
+		}
+		return c.JSON(http.StatusOK, row)
 	})
 
 	e.GET("/api/customer-portal/admin/customers", func(c echo.Context) error {

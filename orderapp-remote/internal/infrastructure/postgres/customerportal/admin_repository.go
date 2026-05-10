@@ -57,6 +57,160 @@ func (r Repository) ListPortalAdminCustomers(ctx context.Context, query customer
 	return out, rows.Err()
 }
 
+func (r Repository) ListCapabilityTemplates(ctx context.Context) ([]customerportalapp.CapabilityTemplate, error) {
+	rows, err := r.pool.Query(ctx, fmt.Sprintf(`
+		SELECT template_key,
+		       label,
+		       description,
+		       theme_key,
+		       miniapp_entry_mode,
+		       erp_role_codes,
+		       erp_permissions,
+		       erp_view_keys,
+		       capabilities_json,
+		       to_char(updated_at,'YYYY-MM-DD HH24:MI'),
+		       updated_by
+		FROM %s.customer_capability_templates
+		ORDER BY template_key
+	`, r.schema))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := make([]customerportalapp.CapabilityTemplate, 0)
+	for rows.Next() {
+		template, err := scanCapabilityTemplate(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, template)
+	}
+	return out, rows.Err()
+}
+
+func (r Repository) SaveCapabilityTemplate(ctx context.Context, cmd customerportalapp.SaveCapabilityTemplateCommand) (customerportalapp.CapabilityTemplate, error) {
+	roleCodes, err := json.Marshal(cmd.Template.ERPRoleCodes)
+	if err != nil {
+		return customerportalapp.CapabilityTemplate{}, err
+	}
+	permissions, err := json.Marshal(cmd.Template.ERPPermissions)
+	if err != nil {
+		return customerportalapp.CapabilityTemplate{}, err
+	}
+	viewKeys, err := json.Marshal(cmd.Template.ERPViewKeys)
+	if err != nil {
+		return customerportalapp.CapabilityTemplate{}, err
+	}
+	capabilities, err := json.Marshal(cmd.Template.Capabilities)
+	if err != nil {
+		return customerportalapp.CapabilityTemplate{}, err
+	}
+	if _, err := r.pool.Exec(ctx, fmt.Sprintf(`
+		INSERT INTO %s.customer_capability_templates(
+			template_key, label, description, theme_key, miniapp_entry_mode,
+			erp_role_codes, erp_permissions, erp_view_keys, capabilities_json,
+			updated_at, updated_by
+		)
+		VALUES($1,$2,$3,$4,$5,$6::jsonb,$7::jsonb,$8::jsonb,$9::jsonb,now(),$10)
+		ON CONFLICT(template_key) DO UPDATE SET
+			label=excluded.label,
+			description=excluded.description,
+			theme_key=excluded.theme_key,
+			miniapp_entry_mode=excluded.miniapp_entry_mode,
+			erp_role_codes=excluded.erp_role_codes,
+			erp_permissions=excluded.erp_permissions,
+			erp_view_keys=excluded.erp_view_keys,
+			capabilities_json=excluded.capabilities_json,
+			updated_at=now(),
+			updated_by=excluded.updated_by
+	`, r.schema),
+		cmd.Template.Key,
+		strings.TrimSpace(cmd.Template.Label),
+		strings.TrimSpace(cmd.Template.Description),
+		customerportalapp.NormalizePortalThemeKey(cmd.Template.ThemeKey),
+		customerportalapp.NormalizeMiniappEntryMode(cmd.Template.MiniappEntryMode),
+		string(roleCodes),
+		string(permissions),
+		string(viewKeys),
+		string(capabilities),
+		strings.TrimSpace(cmd.UpdatedBy),
+	); err != nil {
+		return customerportalapp.CapabilityTemplate{}, err
+	}
+	return r.capabilityTemplateByKey(ctx, cmd.Template.Key)
+}
+
+func (r Repository) capabilityTemplateByKey(ctx context.Context, key string) (customerportalapp.CapabilityTemplate, error) {
+	row := r.pool.QueryRow(ctx, fmt.Sprintf(`
+		SELECT template_key,
+		       label,
+		       description,
+		       theme_key,
+		       miniapp_entry_mode,
+		       erp_role_codes,
+		       erp_permissions,
+		       erp_view_keys,
+		       capabilities_json,
+		       to_char(updated_at,'YYYY-MM-DD HH24:MI'),
+		       updated_by
+		FROM %s.customer_capability_templates
+		WHERE template_key=$1
+	`, r.schema), customerportalapp.NormalizeCapabilityTemplateKey(key))
+	return scanCapabilityTemplate(row)
+}
+
+type capabilityTemplateScanner interface {
+	Scan(dest ...any) error
+}
+
+func scanCapabilityTemplate(row capabilityTemplateScanner) (customerportalapp.CapabilityTemplate, error) {
+	var template customerportalapp.CapabilityTemplate
+	var roleCodesRaw, permissionsRaw, viewKeysRaw, capabilitiesRaw []byte
+	if err := row.Scan(
+		&template.Key,
+		&template.Label,
+		&template.Description,
+		&template.ThemeKey,
+		&template.MiniappEntryMode,
+		&roleCodesRaw,
+		&permissionsRaw,
+		&viewKeysRaw,
+		&capabilitiesRaw,
+		&template.UpdatedAt,
+		&template.UpdatedBy,
+	); err != nil {
+		return customerportalapp.CapabilityTemplate{}, err
+	}
+	template.ERPRoleCodes = decodeStringSlice(roleCodesRaw)
+	template.ERPPermissions = decodeStringSlice(permissionsRaw)
+	template.ERPViewKeys = decodeStringSlice(viewKeysRaw)
+	if len(capabilitiesRaw) > 0 {
+		_ = json.Unmarshal(capabilitiesRaw, &template.Capabilities)
+	}
+	if template.Capabilities == nil {
+		template.Capabilities = []customerportalapp.CapabilityOption{}
+	}
+	return template, nil
+}
+
+func decodeStringSlice(raw []byte) []string {
+	if len(raw) == 0 {
+		return []string{}
+	}
+	var values []string
+	if err := json.Unmarshal(raw, &values); err != nil {
+		return []string{}
+	}
+	out := make([]string, 0, len(values))
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value != "" {
+			out = append(out, value)
+		}
+	}
+	return out
+}
+
 func (r Repository) PortalAdminDetail(ctx context.Context, customerID int64) (customerportalapp.PortalAdminDetail, error) {
 	customer, err := r.portalAdminCustomer(ctx, customerID)
 	if err != nil {

@@ -241,6 +241,7 @@ func TestCustomerPortalOverviewAPIDerivesCustomerFromEmployeeBinding(t *testing.
 		customerOverviewResult: app.CustomerPortalOverview{
 			CustomerID:   149,
 			CustomerName: "誉观山咖啡",
+			Capabilities: []string{"direct_ship", "settlement"},
 			CustodyBalances: []app.CustodyBalance{{
 				ItemType:  "raw_bean",
 				ItemName:  "埃塞花魁",
@@ -264,13 +265,46 @@ func TestCustomerPortalOverviewAPIDerivesCustomerFromEmployeeBinding(t *testing.
 	if rec.Code != http.StatusOK {
 		t.Fatalf("customer portal overview status=%d body=%s", rec.Code, rec.Body.String())
 	}
-	for _, want := range []string{`"customer_id":149`, `"customer_name":"誉观山咖啡"`, `"item_name":"埃塞花魁"`} {
+	for _, want := range []string{`"customer_id":149`, `"customer_name":"誉观山咖啡"`, `"capabilities":["direct_ship","settlement"]`, `"item_name":"埃塞花魁"`} {
 		if !strings.Contains(rec.Body.String(), want) {
 			t.Fatalf("portal overview response missing %s: %s", want, rec.Body.String())
 		}
 	}
 	if svc.customerOverviewEmployeeID != 23 {
 		t.Fatalf("portal overview employee id = %d, want 23", svc.customerOverviewEmployeeID)
+	}
+}
+
+func TestCustomerPortalOptionsAPIDerivesCustomerFromEmployeeBinding(t *testing.T) {
+	svc := &fakeCustomerFulfillmentService{
+		portalOptionsResult: app.CustomerFulfillmentOptions{
+			CustomerSKUs: []app.CustomerSKUOption{{ProductID: 7, ProductName: "客户A专属名", Source: "public_sku_alias"}},
+			Recipients:   []app.RecipientOption{{ReceiverName: "张三", ReceiverPhone: "13800000000", ReceiverAddress: "浙江杭州"}},
+		},
+	}
+	e := echo.New()
+	e.Use(func(next echo.HandlerFunc) echo.HandlerFunc {
+		return func(c echo.Context) error {
+			c.Set("employee_id", int64(23))
+			return next(c)
+		}
+	})
+	RegisterRoutes(e, Dependencies{CustomerFulfillment: svc})
+
+	req := httptest.NewRequest(http.MethodGet, "/api/customer-processing/portal/options", nil)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("customer portal options status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	for _, want := range []string{`"customer_skus"`, `"product_name":"客户A专属名"`, `"recipients"`, `"receiver_name":"张三"`} {
+		if !strings.Contains(rec.Body.String(), want) {
+			t.Fatalf("portal options response missing %s: %s", want, rec.Body.String())
+		}
+	}
+	if svc.portalOptionsEmployeeID != 23 {
+		t.Fatalf("portal options employee id = %d, want 23", svc.portalOptionsEmployeeID)
 	}
 }
 
@@ -458,6 +492,8 @@ type fakeCustomerFulfillmentService struct {
 	applyResult                app.ApplyResult
 	customerOverviewEmployeeID int64
 	customerOverviewResult     app.CustomerPortalOverview
+	portalOptionsEmployeeID    int64
+	portalOptionsResult        app.CustomerFulfillmentOptions
 	customerProcessingCmd      app.SubmitCustomerProcessingWorkOrderCommand
 	customerProcessingResult   app.ProcessingOrderSummary
 	customerDirectShipCmd      app.SubmitCustomerDirectShipOrderCommand
@@ -499,6 +535,11 @@ func (s *fakeCustomerFulfillmentService) ApplyImport(ctx context.Context, cmd ap
 func (s *fakeCustomerFulfillmentService) CustomerPortalOverview(ctx context.Context, employeeID int64) (app.CustomerPortalOverview, error) {
 	s.customerOverviewEmployeeID = employeeID
 	return s.customerOverviewResult, nil
+}
+
+func (s *fakeCustomerFulfillmentService) CustomerPortalOptions(ctx context.Context, employeeID int64) (app.CustomerFulfillmentOptions, error) {
+	s.portalOptionsEmployeeID = employeeID
+	return s.portalOptionsResult, nil
 }
 
 func (s *fakeCustomerFulfillmentService) SubmitCustomerProcessingWorkOrder(ctx context.Context, cmd app.SubmitCustomerProcessingWorkOrderCommand) (app.ProcessingOrderSummary, error) {

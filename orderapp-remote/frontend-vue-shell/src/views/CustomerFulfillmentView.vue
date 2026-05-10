@@ -3,8 +3,8 @@
     <section class="panel control-panel">
       <div class="panel-head">
         <div>
-          <h2>客户履约账户</h2>
-          <p>{{ overview.customer_name || selectedCustomerLabel || '未选择客户' }}</p>
+          <h2>客户履约运营台</h2>
+          <p>内部运营 · {{ overview.customer_name || selectedCustomerLabel || '未选择客户' }}</p>
         </div>
         <div class="head-actions">
           <button class="secondary" type="button" @click="openManual">客户履约手册</button>
