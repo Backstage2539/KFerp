@@ -1087,7 +1087,8 @@ func productionFlowTestBaseDDL(schema string) string {
 			order_date DATE,
 			is_void BOOLEAN NOT NULL DEFAULT false,
 			process_status_id INTEGER REFERENCES %s.order_process_statuses(id),
-			ship_status_id BIGINT REFERENCES %s.ship_statuses(id)
+			ship_status_id BIGINT REFERENCES %s.ship_statuses(id),
+			ship_tracking_no TEXT NOT NULL DEFAULT ''
 		);
 		CREATE TABLE %s.order_items (
 			id BIGSERIAL PRIMARY KEY,
@@ -1103,5 +1104,16 @@ func productionFlowTestBaseDDL(schema string) string {
 			line_total NUMERIC,
 			price_overridden BOOLEAN NOT NULL DEFAULT false
 		);
-	`, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema)
+		CREATE TABLE %s.customer_processing_production_demands (
+			id BIGSERIAL PRIMARY KEY,
+			request_no TEXT NOT NULL DEFAULT '',
+			customer_id BIGINT NOT NULL DEFAULT 0,
+			product_id BIGINT NOT NULL DEFAULT 0,
+			product_name TEXT NOT NULL DEFAULT '',
+			spec_g BIGINT NOT NULL DEFAULT 0,
+			target_qty BIGINT NOT NULL DEFAULT 0,
+			status TEXT NOT NULL DEFAULT 'planned',
+			created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+		);
+	`, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema)
 }
