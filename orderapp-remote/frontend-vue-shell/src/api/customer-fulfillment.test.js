@@ -14,6 +14,7 @@ import {
   fetchCustomerFulfillmentImports,
   fetchCustomerFulfillmentOverview,
   fetchCustomerProcessingPortalOverview,
+  fetchCustomerProcessingPortalOptions,
   submitCustomerFulfillmentDirectShipOrder,
   submitCustomerFulfillmentProcessingWorkOrder,
   parseCustomerFulfillmentImport,
@@ -69,6 +70,7 @@ test('customer fulfillment API wrappers call the expected endpoints', async () =
     await submitCustomerFulfillmentProcessingWorkOrder(147, { product_name: '誉观山冷萃豆', input_quantity_g: 5000, planned_output_units: 50 })
     await submitCustomerFulfillmentDirectShipOrder(147, { receiver_name: '张三', receiver_phone: '13800000000', receiver_address: '杭州', product_name: '誉观山冷萃豆', quantity_units: 1 })
     await fetchCustomerProcessingPortalOverview()
+    await fetchCustomerProcessingPortalOptions()
     await submitCustomerProcessingWorkOrder({ product_name: '誉观山冷萃豆', input_quantity_g: 5000, planned_output_units: 50 })
     await submitCustomerDirectShipOrder({ receiver_name: '张三', receiver_phone: '13800000000', receiver_address: '杭州', product_name: '誉观山冷萃豆', quantity_units: 1 })
 
@@ -88,6 +90,7 @@ test('customer fulfillment API wrappers call the expected endpoints', async () =
       ['/api/customer-fulfillment/147/work-orders', 'POST'],
       ['/api/customer-fulfillment/147/direct-ship-orders', 'POST'],
       ['/api/customer-processing/portal/overview', 'GET'],
+      ['/api/customer-processing/portal/options', 'GET'],
       ['/api/customer-processing/portal/work-orders', 'POST'],
       ['/api/customer-processing/portal/direct-ship-orders', 'POST'],
     ])
@@ -102,7 +105,7 @@ test('customer fulfillment API wrappers call the expected endpoints', async () =
     assert.equal(JSON.parse(requests[11].init.body).employee_id, 23)
     assert.equal(JSON.parse(requests[12].init.body).product_name, '誉观山冷萃豆')
     assert.equal(JSON.parse(requests[13].init.body).receiver_name, '张三')
-    assert.equal(JSON.parse(requests[15].init.body).product_name, '誉观山冷萃豆')
-    assert.equal(JSON.parse(requests[16].init.body).receiver_name, '张三')
+    assert.equal(JSON.parse(requests[16].init.body).product_name, '誉观山冷萃豆')
+    assert.equal(JSON.parse(requests[17].init.body).receiver_name, '张三')
   })
 })
