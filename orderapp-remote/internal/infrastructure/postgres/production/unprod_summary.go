@@ -30,12 +30,13 @@ func fetchUnproducedNeeds(ctx context.Context, pool *pgxpool.Pool, schema, from,
 			  AND ops.name IN ('待处理','待生产')
 		)
 	)
+	AND COALESCE(oi.product_id,0) > 0
 	AND NOT EXISTS (
 		SELECT 1 FROM %s.ship_statuses ss
 		WHERE ss.id=o.ship_status_id
 		  AND ss.name='已发货'
 	)`, schema, schema)
-	demandWhere := []string{"d.status='planned'"}
+	demandWhere := []string{"d.status='planned'", "COALESCE(d.product_id,0) > 0"}
 	args := []any{}
 	argn := 1
 	if customerID > 0 {
