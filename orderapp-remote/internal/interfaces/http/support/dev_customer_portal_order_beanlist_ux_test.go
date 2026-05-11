@@ -38,7 +38,8 @@ func TestCustomerPortalSettingsInlineListAndMiniappBeanListSource(t *testing.T) 
 	for _, want := range []string{
 		"portalRows",
 		"saveVisibility(row)",
-		"capability-grid",
+		"template-summary",
+		"selectedTemplate(row)",
 		"binding-list",
 	} {
 		if !strings.Contains(settingsSrc, want) {

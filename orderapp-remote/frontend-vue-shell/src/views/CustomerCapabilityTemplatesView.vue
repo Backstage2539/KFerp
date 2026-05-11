@@ -324,7 +324,7 @@ async function saveTemplate(editor) {
 }
 
 function viewLabel(key) {
-  if (key === 'customerProcessingPortal') return '客户代加工工作台'
+  if (key === 'customerProcessingPortal') return '客户履约工作台（客户侧）'
   return key
 }
 

@@ -533,7 +533,7 @@ func TestPortalAdminVisibilityAPIsExposeAndSaveCustomerCapabilities(t *testing.T
 		t.Fatalf("detail status=%d body=%s", detailRec.Code, detailRec.Body.String())
 	}
 
-	body := strings.NewReader(`{"display_name":"测试客户","enabled":true,"theme_key":"premium_partner","miniapp_entry_mode":"mall","capabilities":[{"code":"bean_list","enabled":true},{"code":"mall","enabled":true},{"code":"direct_ship","enabled":false}]}`)
+	body := strings.NewReader(`{"display_name":"测试客户","enabled":true,"capability_template_key":"public_sku_direct_ship"}`)
 	saveReq := httptest.NewRequest(http.MethodPut, "/api/customer-portal/admin/customers/147/visibility", body)
 	saveReq.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
 	saveRec := httptest.NewRecorder()
@@ -541,11 +541,11 @@ func TestPortalAdminVisibilityAPIsExposeAndSaveCustomerCapabilities(t *testing.T
 	if saveRec.Code != http.StatusOK || !strings.Contains(saveRec.Body.String(), `"display_name":"测试客户"`) {
 		t.Fatalf("save status=%d body=%s", saveRec.Code, saveRec.Body.String())
 	}
-	if saveCmd.ThemeKey != customerportalapp.PortalThemePremiumPartner {
-		t.Fatalf("save theme_key=%q, want premium_partner", saveCmd.ThemeKey)
+	if saveCmd.CapabilityTemplateKey != customerportalapp.CapabilityTemplatePublicSKUDirectShip {
+		t.Fatalf("save capability_template_key=%q, want public_sku_direct_ship", saveCmd.CapabilityTemplateKey)
 	}
-	if saveCmd.MiniappEntryMode != customerportalapp.MiniappEntryModeMall {
-		t.Fatalf("save miniapp_entry_mode=%q, want mall", saveCmd.MiniappEntryMode)
+	if len(saveCmd.Capabilities) != 0 || saveCmd.ThemeKey != "" || saveCmd.MiniappEntryMode != "" {
+		t.Fatalf("customer portal config should reference templates without inline capability/theme payload: %+v", saveCmd)
 	}
 }
 

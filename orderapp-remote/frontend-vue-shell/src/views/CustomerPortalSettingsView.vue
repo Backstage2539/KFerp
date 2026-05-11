@@ -4,7 +4,6 @@
       <div class="panel-head">
         <h2>客户门户配置</h2>
         <div class="panel-actions">
-          <button class="secondary" type="button" @click="openTemplateSettings">客户能力模板</button>
           <button class="secondary" type="button" @click="loadCustomers" :disabled="loading">刷新</button>
         </div>
       </div>
@@ -22,8 +21,8 @@
     <section class="panel">
       <div class="list-head">
         <span>客户</span>
-        <span>门户配置</span>
-        <span>能力</span>
+        <span>客户配置</span>
+        <span>引用模板</span>
         <span>绑定用户</span>
       </div>
 
@@ -59,67 +58,53 @@
             <label>
               <span>能力模板</span>
               <select v-model="row.form.capability_template_key">
-                <option value="">不使用模板</option>
+                <option value="">请选择模板</option>
                 <option v-for="template in capabilityTemplates" :key="template.key" :value="template.key">
                   {{ template.label }}
                 </option>
               </select>
             </label>
-            <button class="secondary" type="button" @click="applyCapabilityTemplate(row)" :disabled="row.saving || row.loading || !row.form.capability_template_key">
-              套用模板
-            </button>
           </div>
           <label class="check">
             <input v-model="row.form.enabled" type="checkbox" />
             <span>{{ row.form.enabled ? '门户启用' : '门户停用' }}</span>
           </label>
-          <div class="entry-picker">
-            <span>小程序首页</span>
-            <div class="entry-options">
-              <button
-                type="button"
-                class="entry-option"
-                :class="{ selected: row.form.miniapp_entry_mode === 'services' }"
-                @click="row.form.miniapp_entry_mode = 'services'">
-                订单处理
-              </button>
-              <button
-                type="button"
-                class="entry-option"
-                :class="{ selected: row.form.miniapp_entry_mode === 'mall' }"
-                @click="row.form.miniapp_entry_mode = 'mall'">
-                商城
-              </button>
-            </div>
-          </div>
-          <div class="theme-picker">
-            <span>小程序主题</span>
-            <div class="theme-options">
-              <button
-                v-for="theme in customerPortalThemeOptions"
-                :key="`${row.customer.id}-${theme.key}`"
-                type="button"
-                class="theme-option"
-                :class="{ selected: row.form.theme_key === theme.key }"
-                :title="theme.description"
-                @click="row.form.theme_key = theme.key">
-                <i :class="['theme-swatch', theme.swatchClass]"></i>
-                <span>{{ theme.label }}</span>
-              </button>
-            </div>
-          </div>
-          <button class="primary" type="button" @click="saveVisibility(row)" :disabled="row.saving || row.loading">
-            {{ row.saving ? '保存中' : '保存配置' }}
+          <button class="primary" type="button" @click="saveVisibility(row)" :disabled="!canSaveRow(row)">
+            {{ row.saving ? '保存中' : '保存并应用模板' }}
           </button>
         </div>
 
-        <div class="capability-grid">
-          <label v-for="capability in row.capabilities" :key="`${row.customer.id}-${capability.code}`" class="capability">
-            <input v-model="capability.enabled" type="checkbox" />
-            <strong>{{ capability.label }}</strong>
-            <span>{{ capability.description }}</span>
-          </label>
-          <span v-if="row.loading" class="muted">加载能力中...</span>
+        <div class="template-summary">
+          <template v-if="selectedTemplate(row)">
+            <strong>{{ selectedTemplate(row).label }}</strong>
+            <span>{{ selectedTemplate(row).description || '未填写模板说明' }}</span>
+            <div class="summary-meta">
+              <i>{{ entryModeLabel(selectedTemplate(row).miniapp_entry_mode) }}</i>
+              <i>{{ themeLabel(selectedTemplate(row).theme_key) }}</i>
+            </div>
+            <div class="summary-block">
+              <b>能力</b>
+              <div class="chips">
+                <i v-for="capability in enabledTemplateCapabilities(row)" :key="`${row.customer.id}-${capability.code}`">{{ capability.label || capabilityLabels[capability.code] || capability.code }}</i>
+                <span v-if="!enabledTemplateCapabilities(row).length" class="muted">未开启能力</span>
+              </div>
+            </div>
+            <div class="summary-block">
+              <b>规则</b>
+              <div class="chips">
+                <i v-for="rule in templateRuleLabels(row)" :key="`${row.customer.id}-${rule}`">{{ rule }}</i>
+                <span v-if="!templateRuleLabels(row).length" class="muted">无特殊规则</span>
+              </div>
+            </div>
+            <div class="summary-block">
+              <b>ERP 客户页面</b>
+              <div class="chips">
+                <i v-for="key in selectedTemplate(row).erp_view_keys || []" :key="`${row.customer.id}-${key}`">{{ viewLabel(key) }}</i>
+              </div>
+            </div>
+          </template>
+          <span v-else class="muted">请选择能力模板；客户的门户能力、规则和客户侧 ERP 页面都从模板继承。</span>
+          <span v-if="row.loading" class="muted">加载模板中...</span>
         </div>
 
         <div class="binding-list">
@@ -137,7 +122,6 @@
 <script setup>
 import { onMounted, ref } from 'vue'
 import { apiGet, apiSend } from '../api/client'
-import { customerPortalThemeOptions, normalizeCustomerPortalThemeKey } from '../lib/customer-portal-theme'
 
 const q = ref('')
 const portalRows = ref([])
@@ -154,6 +138,11 @@ const capabilityLabels = {
   processing: '代加工',
   inventory_custody: '我的库存',
   settlement: '结算中心',
+}
+const themeLabels = {
+  coffee_factory: '咖啡工厂专业风',
+  clean_ops: '清爽业务工具风',
+  premium_partner: '品牌会员高级风',
 }
 
 async function loadCustomers() {
@@ -203,8 +192,6 @@ function createPortalRow(customer) {
       processing_warehouse_code: customer.processing_warehouse_code || '',
       default_sender_id: Number(customer.default_sender_id || 0),
       enabled: customer.portal_enabled !== false,
-      theme_key: normalizeCustomerPortalThemeKey(customer.theme_key),
-      miniapp_entry_mode: normalizeEntryMode(customer.miniapp_entry_mode),
       capability_template_key: normalizeTemplateKey(customer.capability_template_key),
     },
     capabilities: [],
@@ -230,8 +217,6 @@ function assignRowDetail(row, data) {
   row.form.processing_warehouse_code = row.customer.processing_warehouse_code || ''
   row.form.default_sender_id = Number(row.customer.default_sender_id || 0)
   row.form.enabled = row.customer.portal_enabled !== false
-  row.form.theme_key = normalizeCustomerPortalThemeKey(row.customer.theme_key)
-  row.form.miniapp_entry_mode = normalizeEntryMode(row.customer.miniapp_entry_mode)
   row.form.capability_template_key = normalizeTemplateKey(row.customer.capability_template_key)
   row.bindings = data?.bindings || []
   row.capabilities = (data?.capabilities || []).map((item) => ({
@@ -241,24 +226,6 @@ function assignRowDetail(row, data) {
     enabled: !!item.enabled,
     config: item.config || {},
   }))
-}
-
-async function applyCapabilityTemplate(row) {
-  if (!row?.customer?.id || !row.form.capability_template_key) return
-  row.saving = true
-  error.value = ''
-  ok.value = ''
-  try {
-    const data = await apiSend(`/api/customer-portal/admin/customers/${row.customer.id}/capability-template`, {
-      body: { template_key: row.form.capability_template_key },
-    })
-    assignRowDetail(row, data)
-    ok.value = `已套用 ${templateLabel(row.form.capability_template_key)}`
-  } catch (err) {
-    error.value = err.message || '套用能力模板失败'
-  } finally {
-    row.saving = false
-  }
 }
 
 async function saveVisibility(row) {
@@ -274,14 +241,7 @@ async function saveVisibility(row) {
         processing_warehouse_code: row.form.processing_warehouse_code,
         default_sender_id: Number(row.form.default_sender_id || 0),
         enabled: !!row.form.enabled,
-        theme_key: normalizeCustomerPortalThemeKey(row.form.theme_key),
-        miniapp_entry_mode: normalizeEntryMode(row.form.miniapp_entry_mode),
         capability_template_key: normalizeTemplateKey(row.form.capability_template_key),
-        capabilities: row.capabilities.map((item) => ({
-          code: item.code,
-          enabled: !!item.enabled,
-          config: item.config || {},
-        })),
       },
     })
     assignRowDetail(row, data)
@@ -293,25 +253,57 @@ async function saveVisibility(row) {
   }
 }
 
-function templateLabel(key) {
-  const template = capabilityTemplates.value.find((item) => item.key === key)
-  return template?.label || key || '模板'
-}
-
-function normalizeEntryMode(value) {
-  return value === 'mall' ? 'mall' : 'services'
-}
-
 function normalizeTemplateKey(value) {
   const key = String(value || '').trim()
   if (key === 'processing_fulfillment' || key === 'public_sku_direct_ship') return key
   return capabilityTemplates.value.some((template) => template.key === key) ? key : ''
 }
 
-function openTemplateSettings() {
-  const url = new URL(window.location.href)
-  url.searchParams.set('view', 'customerCapabilityTemplates')
-  window.location.assign(url.toString())
+function selectedTemplate(row) {
+  const key = normalizeTemplateKey(row?.form?.capability_template_key)
+  return capabilityTemplates.value.find((template) => template.key === key) || null
+}
+
+function enabledTemplateCapabilities(row) {
+  return (selectedTemplate(row)?.capabilities || []).filter((capability) => capability.enabled)
+}
+
+function templateRuleLabels(row) {
+  const rules = []
+  const capabilities = selectedTemplate(row)?.capabilities || []
+  const productOrder = capabilities.find((capability) => capability.code === 'product_order')
+  const directShip = capabilities.find((capability) => capability.code === 'direct_ship')
+  if (productOrder?.config?.public_sku_aliases || directShip?.config?.public_sku_aliases) {
+    rules.push('公共 SKU 可使用客户自定义名称')
+  }
+  if (directShip?.config?.customer_sender) {
+    rules.push('代发默认使用客户寄件人')
+  }
+  if (directShip?.config?.external_recipients) {
+    rules.push('代发收件人不进入系统客户列表')
+  }
+  const smallBatch = directShip?.config?.small_batch_price_rule
+  if (smallBatch?.enabled) {
+    rules.push(`小于 ${smallBatch.threshold_lb || 14} 磅按 ${smallBatch.tier_min_lb || 15}-${smallBatch.tier_max_lb || 28} 磅梯度`)
+  }
+  return rules
+}
+
+function entryModeLabel(value) {
+  return value === 'mall' ? '小程序首页：商城' : '小程序首页：订单处理'
+}
+
+function themeLabel(value) {
+  return `小程序主题：${themeLabels[value] || themeLabels.coffee_factory}`
+}
+
+function viewLabel(key) {
+  if (key === 'customerProcessingPortal') return '客户履约工作台'
+  return key
+}
+
+function canSaveRow(row) {
+  return !row.saving && !row.loading && (!row.form.enabled || !!normalizeTemplateKey(row.form.capability_template_key))
 }
 
 onMounted(async () => {
@@ -334,7 +326,7 @@ button { height: 38px; border-radius: 6px; border: 1px solid #1f1f1f; padding: 0
 button:disabled { cursor: not-allowed; opacity: .55; }
 .primary { background: #1f1f1f; color: #fff; }
 .secondary { background: #fff; color: #1f1f1f; }
-.list-head, .portal-row { display: grid; grid-template-columns: 210px 300px minmax(320px, 1fr) 220px; gap: 14px; align-items: start; }
+.list-head, .portal-row { display: grid; grid-template-columns: 210px 300px minmax(340px, 1fr) 220px; gap: 14px; align-items: start; }
 .list-head { padding: 8px 10px; background: #f8fafc; border-bottom: 1px solid #eef1f4; color: #666; font-size: 13px; font-weight: 700; }
 .portal-row { padding: 14px 10px; border-bottom: 1px solid #eef1f4; }
 .portal-row:last-child { border-bottom: 0; }
@@ -342,51 +334,17 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .customer-cell strong { font-size: 15px; }
 .customer-cell span, .binding-row span { color: #666; font-size: 13px; line-height: 1.4; }
 .config-cell input, .config-cell select { width: 100%; }
-.template-picker { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; align-items: end; }
-.template-picker .secondary { white-space: nowrap; }
+.template-picker { display: grid; gap: 8px; align-items: end; }
 .check { display: inline-flex; align-items: center; gap: 8px; }
-.check input, .capability input { width: auto; height: auto; }
+.check input { width: auto; height: auto; }
 .check span { margin: 0; color: #333; font-size: 13px; }
-.entry-picker { display: flex; flex-direction: column; gap: 5px; }
-.entry-picker > span { color: #666; font-size: 12px; }
-.entry-options { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4px; }
-.entry-option {
-  min-height: 38px;
-  height: auto;
-  padding: 6px 8px;
-  border-color: #e4e7ec;
-  background: #fff;
-  color: #171717;
-}
-.entry-option.selected { border-color: #1f1f1f; background: #f7f8f9; box-shadow: 0 0 0 2px rgba(31,31,31,.07); }
-.theme-picker { display: flex; flex-direction: column; gap: 5px; }
-.theme-picker > span { color: #666; font-size: 12px; }
-.theme-options { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 4px; }
-.theme-option {
-  min-height: 44px;
-  display: grid;
-  grid-template-columns: 14px minmax(0, 1fr);
-  column-gap: 5px;
-  align-items: center;
-  width: 100%;
-  height: auto;
-  padding: 5px 6px;
-  border: 1px solid #e4e7ec;
-  border-radius: 6px;
-  background: #fff;
-  color: #171717;
-  text-align: left;
-}
-.theme-option.selected { border-color: #1f1f1f; box-shadow: 0 0 0 2px rgba(31,31,31,.08); }
-.theme-option span { min-width: 0; color: #333; font-size: 12px; line-height: 1.2; overflow-wrap: anywhere; }
-.theme-swatch { width: 14px; height: 14px; border-radius: 999px; }
-.theme-swatch-coffee { background: linear-gradient(135deg, #2b2118, #9b7141); }
-.theme-swatch-clean { background: linear-gradient(135deg, #e7f0eb, #28624a); }
-.theme-swatch-premium { background: linear-gradient(135deg, #111, #b88a46); }
-.capability-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 8px; }
-.capability { min-height: 74px; border: 1px solid #e4e7ec; border-radius: 8px; padding: 9px; display: grid; grid-template-columns: auto 1fr; column-gap: 8px; row-gap: 4px; align-items: start; }
-.capability strong { font-size: 14px; line-height: 1.3; }
-.capability span { grid-column: 2; font-size: 12px; color: #666; line-height: 1.45; margin: 0; }
+.template-summary { min-height: 132px; border: 1px solid #e4e7ec; border-radius: 8px; padding: 10px; display: grid; gap: 8px; align-content: start; }
+.template-summary strong { font-size: 15px; line-height: 1.3; }
+.template-summary > span { color: #666; font-size: 13px; line-height: 1.45; }
+.summary-meta, .chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.summary-meta i, .chips i { font-style: normal; border: 1px solid #dde3ea; border-radius: 999px; background: #f8fafc; padding: 4px 8px; color: #333; font-size: 12px; line-height: 1.3; max-width: 100%; overflow-wrap: anywhere; }
+.summary-block { display: grid; gap: 5px; }
+.summary-block b { font-size: 12px; color: #555; }
 .binding-row { border: 1px solid #e4e7ec; border-radius: 8px; padding: 8px; }
 .binding-row strong { font-size: 13px; }
 .muted { color: #666; }
@@ -397,7 +355,6 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 @media (max-width: 1100px) {
   .list-head { display: none; }
   .portal-row { grid-template-columns: 1fr; }
-  .capability-grid { grid-template-columns: 1fr; }
   .template-picker { grid-template-columns: 1fr; }
 }
 </style>

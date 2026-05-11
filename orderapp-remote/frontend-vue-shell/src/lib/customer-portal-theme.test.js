@@ -24,13 +24,12 @@ test('customer portal theme normalization falls back to coffee factory', () => {
   assert.equal(normalizeCustomerPortalThemeKey('unknown'), 'coffee_factory')
 })
 
-test('customer portal settings view saves selected miniapp theme', () => {
-  const source = fs.readFileSync(path.join(currentDir, '..', 'views', 'CustomerPortalSettingsView.vue'), 'utf8')
+test('customer capability template view configures the miniapp theme', () => {
+  const source = fs.readFileSync(path.join(currentDir, '..', 'views', 'CustomerCapabilityTemplatesView.vue'), 'utf8')
   assert.match(source, /import\s+\{\s*customerPortalThemeOptions,\s*normalizeCustomerPortalThemeKey\s*\}\s+from\s+'\.\.\/lib\/customer-portal-theme'/)
-  assert.match(source, /theme_key:\s*normalizeCustomerPortalThemeKey\(customer\.theme_key\)/)
-  assert.match(source, /row\.form\.theme_key\s*=\s*normalizeCustomerPortalThemeKey\(row\.customer\.theme_key\)/)
-  assert.match(source, /theme_key:\s*normalizeCustomerPortalThemeKey\(row\.form\.theme_key\)/)
-  assert.match(source, /@click="row\.form\.theme_key = theme\.key"/)
+  assert.match(source, /theme_key:\s*normalizeCustomerPortalThemeKey\(template\?\.theme_key\)/)
+  assert.match(source, /theme_key:\s*normalizeCustomerPortalThemeKey\(editor\.form\.theme_key\)/)
+  assert.match(source, /@click="editor\.form\.theme_key = theme\.key"/)
   assert.match(source, /<span>小程序主题<\/span>/)
   assert.match(source, /:title="theme\.description"/)
   assert.match(source, /grid-template-columns:\s*repeat\(3,\s*minmax\(0,\s*1fr\)\)/)
@@ -43,4 +42,14 @@ test('customer portal settings view saves selected miniapp theme', () => {
   ]) {
     assert.ok(source.includes(want), `missing ${want}`)
   }
+})
+
+test('customer portal settings view only references capability templates', () => {
+  const source = fs.readFileSync(path.join(currentDir, '..', 'views', 'CustomerPortalSettingsView.vue'), 'utf8')
+  assert.match(source, /<span>能力模板<\/span>/)
+  assert.match(source, /保存并应用模板/)
+  assert.match(source, /selectedTemplate\(row\)/)
+  assert.doesNotMatch(source, /customerPortalThemeOptions/)
+  assert.doesNotMatch(source, /@click="row\.form\.theme_key = theme\.key"/)
+  assert.doesNotMatch(source, /v-model="capability\.enabled"/)
 })

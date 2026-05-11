@@ -680,6 +680,47 @@ func TestUpdatePortalVisibilityTrimsAndNormalizesCapabilities(t *testing.T) {
 	}
 }
 
+func TestUpdatePortalVisibilityAppliesReferencedCapabilityTemplate(t *testing.T) {
+	repo := &fakeRepository{portalDetail: PortalAdminDetail{
+		Customer: PortalAdminCustomer{Name: "客户A"},
+	}}
+	svc := NewService(repo, fakeIdentityProvider{})
+	_, err := svc.UpdatePortalVisibility(context.Background(), UpdatePortalVisibilityCommand{
+		CustomerID:            147,
+		DisplayName:           " 客户A ",
+		Enabled:               true,
+		CapabilityTemplateKey: " public_sku_direct_ship ",
+		Capabilities:          []CapabilityOption{{Code: CapabilityBeanList, Enabled: true}},
+		ThemeKey:              PortalThemePremiumPartner,
+		MiniappEntryMode:      MiniappEntryModeMall,
+	})
+	if err != nil {
+		t.Fatalf("UpdatePortalVisibility() err=%v", err)
+	}
+	got := repo.visibilityCommand
+	if got.CapabilityTemplateKey != CapabilityTemplatePublicSKUDirectShip || got.Template.Key != CapabilityTemplatePublicSKUDirectShip {
+		t.Fatalf("template reference not applied: %+v", got)
+	}
+	if got.ThemeKey != PortalThemeCleanOps || got.MiniappEntryMode != MiniappEntryModeServices {
+		t.Fatalf("template theme/entry not inherited: %+v", got)
+	}
+	if len(got.Capabilities) == 0 || !got.Template.HasCapability(CapabilityDirectShip) || !capabilityOptionEnabled(got.Capabilities, CapabilityDirectShip) {
+		t.Fatalf("template capabilities not inherited: %+v", got.Capabilities)
+	}
+	if capabilityOptionEnabled(got.Capabilities, CapabilityBeanList) {
+		t.Fatalf("inline capability payload should not override selected template: %+v", got.Capabilities)
+	}
+}
+
+func capabilityOptionEnabled(options []CapabilityOption, code string) bool {
+	for _, option := range options {
+		if option.Code == code {
+			return option.Enabled
+		}
+	}
+	return false
+}
+
 func TestMallAdminSavesProductsAndNormalizesListing(t *testing.T) {
 	repo := &fakeRepository{
 		mallProducts:       []MallProduct{{ID: 1, ProductID: 7, Title: "  乌拉嘎  ", SpecG: 0, UnitPrice: 88, TemplateKey: "wide", Status: "published"}},

@@ -1,9 +1,13 @@
 export const menuGroups = [
   {
-    id: 'customerProcessing',
-    name: '客户代加工',
+    id: 'customerFulfillment',
+    name: '客户履约',
     items: [
-      { key: 'customerProcessingPortal', label: '客户代加工工作台', title: '客户代加工工作台' },
+      { key: 'customerFulfillment', label: '履约运营台', title: '客户履约运营台' },
+      { key: 'customerPortalSettings', label: '门户客户配置', title: '门户客户配置' },
+      { key: 'customerCapabilityTemplates', label: '能力模板', title: '客户能力模板设置' },
+      { key: 'customerFulfillmentManual', label: '履约操作手册', title: '客户履约手册' },
+      { key: 'customerPortalManual', label: '客户门户手册', title: '客户门户手册' },
     ],
   },
   {
@@ -78,11 +82,6 @@ export const menuGroups = [
       { key: 'salesOrderSettings', label: '销售单设置', title: '销售单设置' },
       { key: 'senderSettings', label: '发货人设置', title: '发货人设置' },
       { key: 'outsourceSettings', label: '代加工模板设置', title: '代加工模板设置' },
-      { key: 'customerPortalSettings', label: '客户门户配置', title: '客户门户配置' },
-      { key: 'customerCapabilityTemplates', label: '客户能力模板', title: '客户能力模板设置' },
-      { key: 'customerPortalManual', label: '客户门户手册', title: '客户门户手册' },
-      { key: 'customerFulfillment', label: '客户履约运营台', title: '客户履约运营台' },
-      { key: 'customerFulfillmentManual', label: '客户履约手册', title: '客户履约手册' },
       { key: 'settingsAuditManual', label: '设置审计手册', title: '设置审计手册' },
     ],
   },
@@ -124,6 +123,7 @@ export const hiddenViewTitles = {
   allocationLogs: '分配批次查看',
   products: '产品设置',
   salesOrder: '销售单',
+  customerProcessingPortal: '客户履约工作台',
 }
 
 export const menuMap = Object.fromEntries([

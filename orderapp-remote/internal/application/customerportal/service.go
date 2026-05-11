@@ -510,6 +510,7 @@ type UpdatePortalVisibilityCommand struct {
 	ThemeKey                string
 	MiniappEntryMode        string
 	CapabilityTemplateKey   string
+	Template                CapabilityTemplate
 	Capabilities            []CapabilityOption
 	UpdatedBy               string
 }
@@ -756,10 +757,21 @@ func (s *Service) UpdatePortalVisibility(ctx context.Context, cmd UpdatePortalVi
 	cmd.DisplayName = strings.TrimSpace(cmd.DisplayName)
 	cmd.ProcessingWarehouseCode = strings.TrimSpace(cmd.ProcessingWarehouseCode)
 	cmd.UpdatedBy = strings.TrimSpace(cmd.UpdatedBy)
-	cmd.ThemeKey = NormalizePortalThemeKey(cmd.ThemeKey)
-	cmd.MiniappEntryMode = NormalizeMiniappEntryMode(cmd.MiniappEntryMode)
 	cmd.CapabilityTemplateKey = NormalizeCapabilityTemplateKey(cmd.CapabilityTemplateKey)
-	cmd.Capabilities = normalizeCapabilityOptions(cmd.Capabilities)
+	if cmd.CapabilityTemplateKey != "" {
+		template, ok := s.capabilityTemplateByKey(ctx, cmd.CapabilityTemplateKey)
+		if !ok {
+			return PortalAdminDetail{}, fmt.Errorf("capability template invalid")
+		}
+		cmd.Template = template
+		cmd.ThemeKey = template.ThemeKey
+		cmd.MiniappEntryMode = template.MiniappEntryMode
+		cmd.Capabilities = cloneCapabilityOptions(template.Capabilities)
+	} else {
+		cmd.ThemeKey = NormalizePortalThemeKey(cmd.ThemeKey)
+		cmd.MiniappEntryMode = NormalizeMiniappEntryMode(cmd.MiniappEntryMode)
+		cmd.Capabilities = normalizeCapabilityOptions(cmd.Capabilities)
+	}
 	detail, err := s.repo.UpdatePortalVisibility(ctx, cmd)
 	if err != nil {
 		return PortalAdminDetail{}, err

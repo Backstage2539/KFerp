@@ -2,7 +2,7 @@
   <div class="page customer-processing-portal">
     <section class="portal-head">
       <div>
-        <h2>{{ overview.customer_name || '客户代加工工作台' }}</h2>
+        <h2>{{ overview.customer_name || '客户履约工作台' }}</h2>
         <p>客户登录 · 查看数据、提交工单和代发信息</p>
       </div>
       <button class="secondary" type="button" @click="loadOverview" :disabled="loading">刷新</button>

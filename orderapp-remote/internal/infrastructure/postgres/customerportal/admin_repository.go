@@ -293,6 +293,11 @@ func (r Repository) UpdatePortalVisibility(ctx context.Context, cmd customerport
 			return customerportalapp.PortalAdminDetail{}, err
 		}
 	}
+	if cmd.Template.Key != "" {
+		if err := r.grantTemplateERPRolesTx(ctx, tx, cmd.CustomerID, cmd.Template); err != nil {
+			return customerportalapp.PortalAdminDetail{}, err
+		}
+	}
 	if err := tx.Commit(ctx); err != nil {
 		return customerportalapp.PortalAdminDetail{}, err
 	}

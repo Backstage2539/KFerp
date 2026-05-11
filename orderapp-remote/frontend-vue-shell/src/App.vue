@@ -285,7 +285,10 @@ function handleNavigateView(event) {
 }
 
 function firstAllowedMenuKey() {
-  return availableMenuGroups.value[0]?.items?.[0]?.key || ''
+  const primary = availableMenuGroups.value[0]?.items?.[0]?.key
+  if (primary) return primary
+  if (isViewAllowed('customerProcessingPortal', allowedViewKeys.value)) return 'customerProcessingPortal'
+  return ''
 }
 
 function clearFreshLoginFlag() {

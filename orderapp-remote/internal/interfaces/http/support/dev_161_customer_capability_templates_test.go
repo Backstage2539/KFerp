@@ -24,12 +24,16 @@ func TestCustomerCapabilityTemplatesPageWired(t *testing.T) {
 	for _, want := range []string{
 		"customerCapabilityTemplates",
 		"客户能力模板",
-		"客户履约运营台",
-		"客户代加工工作台",
+		"客户履约",
+		"门户客户配置",
+		"履约运营台",
 	} {
 		if !strings.Contains(menu, want) {
 			t.Fatalf("menu-ia.js missing %q", want)
 		}
+	}
+	if strings.Contains(menu, "客户代加工工作台") {
+		t.Fatal("customer processing portal should not be a primary admin menu item")
 	}
 	for _, want := range []string{
 		"/api/customer-portal/admin/capability-templates",
