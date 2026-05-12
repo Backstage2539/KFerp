@@ -37,6 +37,30 @@ CREATE TABLE IF NOT EXISTS %[1]s.customer_erp_user_bindings (
 	updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
 	updated_by TEXT NOT NULL DEFAULT ''
 );
+WITH active_customer_bindings AS (
+	SELECT id,
+	       ROW_NUMBER() OVER (PARTITION BY customer_id ORDER BY updated_at DESC, id DESC) AS rn
+	FROM %[1]s.customer_erp_user_bindings
+	WHERE status='active'
+)
+UPDATE %[1]s.customer_erp_user_bindings b
+SET status='inactive',
+    updated_at=now(),
+    updated_by=COALESCE(NULLIF(b.updated_by,''),'system:migration')
+FROM active_customer_bindings r
+WHERE b.id=r.id AND r.rn > 1;
+WITH active_employee_bindings AS (
+	SELECT id,
+	       ROW_NUMBER() OVER (PARTITION BY employee_id ORDER BY updated_at DESC, id DESC) AS rn
+	FROM %[1]s.customer_erp_user_bindings
+	WHERE status='active'
+)
+UPDATE %[1]s.customer_erp_user_bindings b
+SET status='inactive',
+    updated_at=now(),
+    updated_by=COALESCE(NULLIF(b.updated_by,''),'system:migration')
+FROM active_employee_bindings r
+WHERE b.id=r.id AND r.rn > 1;
 CREATE UNIQUE INDEX IF NOT EXISTS customer_erp_user_bindings_employee_customer_uq
 	ON %[1]s.customer_erp_user_bindings(employee_id, customer_id);
 CREATE UNIQUE INDEX IF NOT EXISTS customer_erp_user_bindings_customer_active_uq

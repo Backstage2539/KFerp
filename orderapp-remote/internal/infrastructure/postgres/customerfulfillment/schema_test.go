@@ -26,6 +26,8 @@ func TestCustomerFulfillmentSchemaDefinesRequiredTables(t *testing.T) {
 		"customer_fulfillment_import_rows_batch_type_status_idx",
 		"customer_custody_items_customer_type_external_code_idx",
 		"customer_direct_ship_import_orders_customer_external_idx",
+		"active_customer_bindings",
+		"active_employee_bindings",
 	} {
 		if !strings.Contains(src, want) {
 			t.Fatalf("schema.go missing %q", want)
