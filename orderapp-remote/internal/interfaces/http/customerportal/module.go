@@ -27,6 +27,7 @@ type Service interface {
 	ListCapabilityTemplates(context.Context) ([]customerportalapp.CapabilityTemplate, error)
 	SaveCapabilityTemplate(context.Context, customerportalapp.SaveCapabilityTemplateCommand) (customerportalapp.CapabilityTemplate, error)
 	ApplyCapabilityTemplate(context.Context, customerportalapp.ApplyCapabilityTemplateCommand) (customerportalapp.PortalAdminDetail, error)
+	UpsertPortalERPBinding(context.Context, customerportalapp.UpsertPortalERPBindingCommand) (customerportalapp.PortalAdminDetail, error)
 	ListMallProducts(context.Context) ([]customerportalapp.MallProduct, []customerportalapp.MallProductOption, error)
 	SaveMallProduct(context.Context, customerportalapp.SaveMallProductCommand) (customerportalapp.MallProduct, error)
 	UpdateMallProductImage(context.Context, customerportalapp.UpdateMallProductImageCommand) (customerportalapp.MallProduct, error)

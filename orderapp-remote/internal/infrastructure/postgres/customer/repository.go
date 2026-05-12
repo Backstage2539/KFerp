@@ -29,6 +29,7 @@ type Repository struct {
 type upsertRequest struct {
 	Name               string
 	RawName            string
+	CustomerType       string
 	CompanyName        string
 	CompanyAddress     string
 	CompanyPhone       string
@@ -59,6 +60,7 @@ func (r Repository) Upsert(ctx context.Context, actor string, id *int64, cmd cus
 	req := upsertRequest{
 		Name:               cmd.Name,
 		RawName:            cmd.RawName,
+		CustomerType:       cmd.CustomerType,
 		CompanyName:        cmd.CompanyName,
 		CompanyAddress:     cmd.CompanyAddress,
 		CompanyPhone:       cmd.CompanyPhone,
@@ -112,6 +114,7 @@ func (r Repository) DeleteAsset(ctx context.Context, actor string, assetID int64
 func (r Repository) InlineUpdate(ctx context.Context, actor string, id int64, cmd customerapp.InlineUpdateCommand) error {
 	req := inlineRequest{
 		Name:               cmd.Name,
+		CustomerType:       cmd.CustomerType,
 		CompanyName:        cmd.CompanyName,
 		CompanyAddress:     cmd.CompanyAddress,
 		CompanyPhone:       cmd.CompanyPhone,
@@ -208,7 +211,7 @@ func fetchCustomers(ctx context.Context, pool *pgxpool.Pool, schema, q string, l
 	offsetArg := len(args)
 
 	sql := fmt.Sprintf(`
-		SELECT id, name, COALESCE(company_name,''), COALESCE(company_address,''), COALESCE(company_phone,''), contact, phone, address, active, default_source_id, default_order_type_id,
+		SELECT id, name, COALESCE(NULLIF(customer_type,''),'retail'), COALESCE(company_name,''), COALESCE(company_address,''), COALESCE(company_phone,''), contact, phone, address, active, default_source_id, default_order_type_id,
 			to_char(updated_at,'YYYY-MM-DD HH24:MI') AS updated
 		FROM %s.customers
 		%s
@@ -225,9 +228,10 @@ func fetchCustomers(ctx context.Context, pool *pgxpool.Pool, schema, q string, l
 	out := make([]customerapp.CustomerRow, 0)
 	for dbRows.Next() {
 		var r customerapp.CustomerRow
-		if err := dbRows.Scan(&r.ID, &r.Name, &r.CompanyName, &r.CompanyAddress, &r.CompanyPhone, &r.Contact, &r.Phone, &r.Address, &r.Active, &r.DefaultSourceID, &r.DefaultOrderTypeID, &r.Updated); err != nil {
+		if err := dbRows.Scan(&r.ID, &r.Name, &r.CustomerType, &r.CompanyName, &r.CompanyAddress, &r.CompanyPhone, &r.Contact, &r.Phone, &r.Address, &r.Active, &r.DefaultSourceID, &r.DefaultOrderTypeID, &r.Updated); err != nil {
 			return nil, false, err
 		}
+		r.CustomerType = customerapp.NormalizeCustomerType(r.CustomerType)
 		out = append(out, r)
 	}
 	if err := dbRows.Err(); err != nil {
@@ -242,17 +246,18 @@ func fetchCustomers(ctx context.Context, pool *pgxpool.Pool, schema, q string, l
 }
 
 func fetchCustomerByID(ctx context.Context, pool *pgxpool.Pool, schema string, id int64) (*customerapp.CustomerEditData, error) {
-	q := fmt.Sprintf(`SELECT id, name, COALESCE(raw_name,''), COALESCE(company_name,''), COALESCE(company_address,''), COALESCE(company_phone,''), COALESCE(contact,''), COALESCE(phone,''), COALESCE(address,''),
+	q := fmt.Sprintf(`SELECT id, name, COALESCE(raw_name,''), COALESCE(NULLIF(customer_type,''),'retail'), COALESCE(company_name,''), COALESCE(company_address,''), COALESCE(company_phone,''), COALESCE(contact,''), COALESCE(phone,''), COALESCE(address,''),
 		COALESCE(default_source_id::text,''), COALESCE(default_order_type_id::text,''), active
 		FROM %s.customers WHERE id=$1`, schema)
 	var d customerapp.CustomerEditData
-	err := pool.QueryRow(ctx, q, id).Scan(&d.ID, &d.Name, &d.RawName, &d.CompanyName, &d.CompanyAddress, &d.CompanyPhone, &d.Contact, &d.Phone, &d.Address, &d.DefaultSourceID, &d.DefaultOrderTypeID, &d.Active)
+	err := pool.QueryRow(ctx, q, id).Scan(&d.ID, &d.Name, &d.RawName, &d.CustomerType, &d.CompanyName, &d.CompanyAddress, &d.CompanyPhone, &d.Contact, &d.Phone, &d.Address, &d.DefaultSourceID, &d.DefaultOrderTypeID, &d.Active)
 	if err != nil {
 		if err == pgx.ErrNoRows {
 			return nil, nil
 		}
 		return nil, err
 	}
+	d.CustomerType = customerapp.NormalizeCustomerType(d.CustomerType)
 	return &d, nil
 }
 
@@ -337,6 +342,7 @@ func upsertCustomer(ctx context.Context, pool *pgxpool.Pool, schema string, acto
 		return 0, fmt.Errorf("name required")
 	}
 	raw := strings.TrimSpace(req.RawName)
+	customerType := customerapp.NormalizeCustomerType(req.CustomerType)
 	companyName := strings.TrimSpace(req.CompanyName)
 	companyAddress := strings.TrimSpace(req.CompanyAddress)
 	companyPhone := strings.TrimSpace(req.CompanyPhone)
@@ -363,9 +369,9 @@ func upsertCustomer(ctx context.Context, pool *pgxpool.Pool, schema string, acto
 
 	var newID int64
 	if id == nil {
-		q := fmt.Sprintf(`INSERT INTO %s.customers(name, raw_name, company_name, company_address, company_phone, contact, phone, address, active, default_source_id, default_order_type_id, created_at, updated_at)
-			VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11, now(), now()) RETURNING id`, schema)
-		if err := tx.QueryRow(ctx, q, name, raw, companyName, companyAddress, companyPhone, nullText(contact), nullText(phone), nullText(address), active, ds, dt).Scan(&newID); err != nil {
+		q := fmt.Sprintf(`INSERT INTO %s.customers(name, raw_name, customer_type, company_name, company_address, company_phone, contact, phone, address, active, default_source_id, default_order_type_id, created_at, updated_at)
+			VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12, now(), now()) RETURNING id`, schema)
+		if err := tx.QueryRow(ctx, q, name, raw, customerType, companyName, companyAddress, companyPhone, nullText(contact), nullText(phone), nullText(address), active, ds, dt).Scan(&newID); err != nil {
 			return 0, err
 		}
 		if err := postgresinfra.AuditInsertTx(ctx, tx, schema, actor, "customer", &newID, "create", nil, nil, nil, postgresinfra.AuditMeta{"name": name}); err != nil {
@@ -373,21 +379,24 @@ func upsertCustomer(ctx context.Context, pool *pgxpool.Pool, schema string, acto
 		}
 	} else {
 		newID = *id
-		var oldName, oldRaw, oldCompanyName, oldCompanyAddress, oldCompanyPhone, oldContact, oldPhone, oldAddr string
+		var oldName, oldRaw, oldCustomerType, oldCompanyName, oldCompanyAddress, oldCompanyPhone, oldContact, oldPhone, oldAddr string
 		var oldActive bool
 		var oldDS, oldDT *int
-		q0 := fmt.Sprintf(`SELECT name, COALESCE(raw_name,''), COALESCE(company_name,''), COALESCE(company_address,''), COALESCE(company_phone,''), COALESCE(contact,''), COALESCE(phone,''), COALESCE(address,''), active, default_source_id, default_order_type_id FROM %s.customers WHERE id=$1`, schema)
-		if err := tx.QueryRow(ctx, q0, newID).Scan(&oldName, &oldRaw, &oldCompanyName, &oldCompanyAddress, &oldCompanyPhone, &oldContact, &oldPhone, &oldAddr, &oldActive, &oldDS, &oldDT); err != nil {
+		q0 := fmt.Sprintf(`SELECT name, COALESCE(raw_name,''), COALESCE(NULLIF(customer_type,''),'retail'), COALESCE(company_name,''), COALESCE(company_address,''), COALESCE(company_phone,''), COALESCE(contact,''), COALESCE(phone,''), COALESCE(address,''), active, default_source_id, default_order_type_id FROM %s.customers WHERE id=$1`, schema)
+		if err := tx.QueryRow(ctx, q0, newID).Scan(&oldName, &oldRaw, &oldCustomerType, &oldCompanyName, &oldCompanyAddress, &oldCompanyPhone, &oldContact, &oldPhone, &oldAddr, &oldActive, &oldDS, &oldDT); err != nil {
 			return 0, err
 		}
-		q := fmt.Sprintf(`UPDATE %s.customers SET name=$2, raw_name=$3, company_name=$4, company_address=$5, company_phone=$6, contact=$7, phone=$8, address=$9, active=$10,
-			default_source_id=$11, default_order_type_id=$12, updated_at=$13 WHERE id=$1`, schema)
-		if _, err := tx.Exec(ctx, q, newID, name, raw, companyName, companyAddress, companyPhone, nullText(contact), nullText(phone), nullText(address), active, ds, dt, time.Now()); err != nil {
+		q := fmt.Sprintf(`UPDATE %s.customers SET name=$2, raw_name=$3, customer_type=$4, company_name=$5, company_address=$6, company_phone=$7, contact=$8, phone=$9, address=$10, active=$11,
+			default_source_id=$12, default_order_type_id=$13, updated_at=$14 WHERE id=$1`, schema)
+		if _, err := tx.Exec(ctx, q, newID, name, raw, customerType, companyName, companyAddress, companyPhone, nullText(contact), nullText(phone), nullText(address), active, ds, dt, time.Now()); err != nil {
 			return 0, err
 		}
-		if err := auditCustomerDiffs(ctx, tx, schema, actor, newID, customerSnapshot{oldName, oldCompanyName, oldCompanyAddress, oldCompanyPhone, oldContact, oldPhone, oldAddr, oldActive, oldDS, oldDT}, customerSnapshot{name, companyName, companyAddress, companyPhone, contact, phone, address, active, ds, dt}); err != nil {
+		if err := auditCustomerDiffs(ctx, tx, schema, actor, newID, customerSnapshot{oldName, customerapp.NormalizeCustomerType(oldCustomerType), oldCompanyName, oldCompanyAddress, oldCompanyPhone, oldContact, oldPhone, oldAddr, oldActive, oldDS, oldDT}, customerSnapshot{name, customerType, companyName, companyAddress, companyPhone, contact, phone, address, active, ds, dt}); err != nil {
 			return 0, err
 		}
+	}
+	if err := ensureDefaultRetailPortalTx(ctx, tx, schema, newID, name, actor, customerType, active); err != nil {
+		return 0, err
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return 0, err
@@ -402,6 +411,7 @@ func inlineUpdateCustomer(ctx context.Context, pool *pgxpool.Pool, schema, actor
 	}
 	next := customerSnapshot{
 		name:           name,
+		customerType:   customerapp.NormalizeCustomerType(req.CustomerType),
 		companyName:    strings.TrimSpace(req.CompanyName),
 		companyAddress: strings.TrimSpace(req.CompanyAddress),
 		companyPhone:   strings.TrimSpace(req.CompanyPhone),
@@ -425,23 +435,86 @@ func inlineUpdateCustomer(ctx context.Context, pool *pgxpool.Pool, schema, actor
 	defer func() { _ = tx.Rollback(ctx) }()
 
 	var old customerSnapshot
-	q0 := fmt.Sprintf(`SELECT name, COALESCE(company_name,''), COALESCE(company_address,''), COALESCE(company_phone,''), COALESCE(contact,''), COALESCE(phone,''), COALESCE(address,''), active, default_source_id, default_order_type_id
+	q0 := fmt.Sprintf(`SELECT name, COALESCE(NULLIF(customer_type,''),'retail'), COALESCE(company_name,''), COALESCE(company_address,''), COALESCE(company_phone,''), COALESCE(contact,''), COALESCE(phone,''), COALESCE(address,''), active, default_source_id, default_order_type_id
 		FROM %s.customers WHERE id=$1`, schema)
-	if err := tx.QueryRow(ctx, q0, id).Scan(&old.name, &old.companyName, &old.companyAddress, &old.companyPhone, &old.contact, &old.phone, &old.address, &old.active, &old.sourceID, &old.typeID); err != nil {
+	if err := tx.QueryRow(ctx, q0, id).Scan(&old.name, &old.customerType, &old.companyName, &old.companyAddress, &old.companyPhone, &old.contact, &old.phone, &old.address, &old.active, &old.sourceID, &old.typeID); err != nil {
 		if err == pgx.ErrNoRows {
 			return fmt.Errorf("not found")
 		}
 		return err
 	}
-	q := fmt.Sprintf(`UPDATE %s.customers SET name=$2, company_name=$3, company_address=$4, company_phone=$5, contact=$6, phone=$7, address=$8, active=$9,
-		default_source_id=$10, default_order_type_id=$11, updated_at=$12 WHERE id=$1`, schema)
-	if _, err := tx.Exec(ctx, q, id, next.name, next.companyName, next.companyAddress, next.companyPhone, nullText(next.contact), nullText(next.phone), nullText(next.address), next.active, next.sourceID, next.typeID, time.Now()); err != nil {
+	old.customerType = customerapp.NormalizeCustomerType(old.customerType)
+	q := fmt.Sprintf(`UPDATE %s.customers SET name=$2, customer_type=$3, company_name=$4, company_address=$5, company_phone=$6, contact=$7, phone=$8, address=$9, active=$10,
+		default_source_id=$11, default_order_type_id=$12, updated_at=$13 WHERE id=$1`, schema)
+	if _, err := tx.Exec(ctx, q, id, next.name, next.customerType, next.companyName, next.companyAddress, next.companyPhone, nullText(next.contact), nullText(next.phone), nullText(next.address), next.active, next.sourceID, next.typeID, time.Now()); err != nil {
 		return err
 	}
 	if err := auditCustomerDiffs(ctx, tx, schema, actor, id, old, next); err != nil {
 		return err
 	}
+	if err := ensureDefaultRetailPortalTx(ctx, tx, schema, id, next.name, actor, next.customerType, next.active); err != nil {
+		return err
+	}
 	return tx.Commit(ctx)
+}
+
+func ensureDefaultRetailPortalTx(ctx context.Context, tx pgx.Tx, schema string, customerID int64, customerName, actor, customerType string, active bool) error {
+	if !active {
+		return nil
+	}
+	customerType = customerapp.NormalizeCustomerType(customerType)
+	if customerType != customerapp.CustomerTypeRetail && customerType != customerapp.CustomerTypeEcommerce {
+		return nil
+	}
+	var hasProfiles, hasCapabilities bool
+	if err := tx.QueryRow(ctx, `SELECT to_regclass($1) IS NOT NULL, to_regclass($2) IS NOT NULL`,
+		fmt.Sprintf("%s.customer_portal_profiles", schema),
+		fmt.Sprintf("%s.customer_service_capabilities", schema),
+	).Scan(&hasProfiles, &hasCapabilities); err != nil {
+		return err
+	}
+	if !hasProfiles || !hasCapabilities {
+		return nil
+	}
+	displayName := strings.TrimSpace(customerName)
+	if _, err := tx.Exec(ctx, fmt.Sprintf(`
+		INSERT INTO %s.customer_portal_profiles(customer_id, display_name, enabled, status, theme_key, miniapp_entry_mode, capability_template_key, updated_at, updated_by)
+		VALUES($1,$2,true,'active','clean_ops','mall','retail_mall',now(),$3)
+		ON CONFLICT(customer_id) DO UPDATE SET
+			display_name=COALESCE(NULLIF(%s.customer_portal_profiles.display_name,''), excluded.display_name),
+			enabled=true,
+			status='active',
+			theme_key=excluded.theme_key,
+			miniapp_entry_mode='mall',
+			capability_template_key='retail_mall',
+			updated_at=now(),
+			updated_by=excluded.updated_by
+	`, schema, schema), customerID, displayName, strings.TrimSpace(actor)); err != nil {
+		return err
+	}
+	for _, capability := range []string{
+		"bean_list",
+		"mall",
+		"product_order",
+		"direct_ship",
+		"processing",
+		"inventory_custody",
+		"settlement",
+		"shipping_query",
+	} {
+		enabled := capability == "mall"
+		if _, err := tx.Exec(ctx, fmt.Sprintf(`
+			INSERT INTO %s.customer_service_capabilities(customer_id, capability_code, enabled, config_json, updated_at)
+			VALUES($1,$2,$3,'{}'::jsonb,now())
+			ON CONFLICT(customer_id, capability_code) DO UPDATE SET
+				enabled=excluded.enabled,
+				config_json=excluded.config_json,
+				updated_at=now()
+		`, schema), customerID, capability, enabled); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func fetchCustomerPrefs(ctx context.Context, pool *pgxpool.Pool, schema string, id int64) (*prefs, error) {
@@ -557,6 +630,7 @@ func extByContentType(ct string) string {
 
 type customerSnapshot struct {
 	name           string
+	customerType   string
 	companyName    string
 	companyAddress string
 	companyPhone   string
@@ -576,6 +650,9 @@ func auditCustomerDiffs(ctx context.Context, tx pgx.Tx, schema, actor string, id
 		return postgresinfra.AuditInsertTx(ctx, tx, schema, actor, "customer", &id, "update", postgresinfra.StrPtr(field), postgresinfra.StrPtr(oldValue), postgresinfra.StrPtr(newValue), nil)
 	}
 	if err := log("name", old.name, next.name); err != nil {
+		return err
+	}
+	if err := log("customer_type", customerapp.NormalizeCustomerType(old.customerType), customerapp.NormalizeCustomerType(next.customerType)); err != nil {
 		return err
 	}
 	if err := log("company_name", old.companyName, next.companyName); err != nil {

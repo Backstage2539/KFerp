@@ -223,39 +223,6 @@
           </div>
         </div>
 
-        <div class="ops-panel">
-          <h3>客户 ERP 账号绑定</h3>
-          <div class="ops-form binding-form">
-            <label>
-              <span>员工ID</span>
-              <SearchableSelect
-                v-model="binding.employee_id"
-                :options="employeeOptions"
-                :option-label="employeeOptionLabel"
-                :option-meta="employeeOptionMeta"
-                :option-value="employeeOptionValue"
-                empty-value=""
-                placeholder="搜索员工姓名/电话/ID"
-                empty-text="没有匹配员工"
-                :disabled="loading || !normalizedCustomerId"
-                @select="selectERPEmployee" />
-            </label>
-            <label>
-              <span>状态</span>
-              <select v-model="binding.status">
-                <option value="active">启用</option>
-                <option value="inactive">停用</option>
-              </select>
-            </label>
-            <button class="secondary" type="button" @click="saveERPBinding" :disabled="loading || !normalizedCustomerId">绑定账号</button>
-          </div>
-          <div v-if="erpBindings.length" class="binding-list">
-            <span v-for="row in erpBindings" :key="`${row.customer_id}-${row.employee_id}`">
-              #{{ row.employee_id }} {{ row.employee_name || '未命名员工' }} / {{ bindingStatusLabel(row.status) }}
-            </span>
-          </div>
-          <div v-else class="muted">暂无绑定账号</div>
-        </div>
       </div>
 
       <div v-if="error" class="error">{{ error }}</div>
@@ -435,7 +402,6 @@ import {
   adjustCustomerFulfillmentCustodyInventory,
   createCustomerFulfillmentSettlement,
   fetchCustomerFulfillmentCustomers,
-  fetchCustomerFulfillmentERPBindings,
   fetchCustomerFulfillmentOptions,
   fetchCustomerFulfillmentImportPreview,
   fetchCustomerFulfillmentImportRows,
@@ -444,7 +410,6 @@ import {
   parseCustomerFulfillmentImport,
   submitCustomerFulfillmentDirectShipOrder,
   submitCustomerFulfillmentProcessingWorkOrder,
-  upsertCustomerFulfillmentERPBinding,
 } from '../api/customer-fulfillment'
 import {
   activeCustomerFulfillmentCustomers,
@@ -470,7 +435,6 @@ const imports = ref([])
 const overview = ref({})
 const fulfillmentOptions = ref({})
 const invalidRows = ref([])
-const erpBindings = ref([])
 const resultAnchor = ref(null)
 const loading = ref(false)
 const error = ref('')
@@ -513,11 +477,6 @@ const adjustment = reactive({
   quantity_units_delta: 0,
   note: '',
 })
-const binding = reactive({
-  employee_id: '',
-  status: 'active',
-})
-
 const importTypes = importTypeOptions()
 const normalizedCustomerId = computed(() => Number(customerId.value || 0))
 const selectedCustomer = computed(() => customerOptions.value.find((row) => Number(row.id) === normalizedCustomerId.value) || null)
@@ -550,7 +509,6 @@ const directShipProductOptions = computed(() => uniqueProductOptions([
   ...customerSKUOptions.value,
   ...finishedGoodsProductOptions.value,
 ]))
-const employeeOptions = computed(() => fulfillmentOptions.value?.employees || [])
 const recipientOptions = computed(() => fulfillmentOptions.value?.recipients || [])
 const applyPreviewEffects = computed(() => {
   if (Array.isArray(applyPreview.value?.effects) && applyPreview.value.effects.length) return applyPreview.value.effects
@@ -597,17 +555,15 @@ async function loadAll() {
   error.value = ''
   ok.value = ''
   try {
-    const [overviewData, importData, bindingData, optionsData] = await Promise.all([
+    const [overviewData, importData, optionsData] = await Promise.all([
       fetchCustomerFulfillmentOverview(normalizedCustomerId.value),
       fetchCustomerFulfillmentImports(normalizedCustomerId.value),
-      fetchCustomerFulfillmentERPBindings(normalizedCustomerId.value),
       fetchCustomerFulfillmentOptions(normalizedCustomerId.value),
     ])
     overview.value = overviewData || {}
     fulfillmentOptions.value = optionsData || {}
     rememberOverviewCustomer(overviewData)
     imports.value = importData?.imports || overviewData?.imports || []
-    erpBindings.value = bindingData?.bindings || []
   } catch (err) {
     error.value = err.message || '加载客户履约账户失败'
   } finally {
@@ -754,32 +710,6 @@ async function adjustCustody() {
   }
 }
 
-async function saveERPBinding() {
-  if (!normalizedCustomerId.value) return
-  loading.value = true
-  error.value = ''
-  ok.value = ''
-  try {
-    const row = await upsertCustomerFulfillmentERPBinding(normalizedCustomerId.value, {
-      employee_id: Number(binding.employee_id || 0),
-      status: binding.status,
-    })
-    ok.value = `已绑定账号 #${row.employee_id}`
-    binding.employee_id = ''
-    await loadERPBindings()
-  } catch (err) {
-    error.value = err.message || '绑定账号失败'
-  } finally {
-    loading.value = false
-  }
-}
-
-async function loadERPBindings() {
-  if (!normalizedCustomerId.value) return
-  const data = await fetchCustomerFulfillmentERPBindings(normalizedCustomerId.value)
-  erpBindings.value = data?.bindings || []
-}
-
 async function loadInvalidRows(batch) {
   const batchId = Number(batch?.id || 0)
   if (!batchId) return
@@ -856,10 +786,6 @@ function selectAdjustmentItem(option) {
   adjustment.spec = String(option?.spec || '').trim()
 }
 
-function selectERPEmployee(option) {
-  binding.employee_id = Number(option?.employee_id || 0) || ''
-}
-
 function pasteRecipientInfo(event) {
   const text = event?.clipboardData?.getData('text') || ''
   recipientPasteText.value = text
@@ -926,19 +852,6 @@ function custodyOptionValue(option) {
   return `custody:${option?.item_type || ''}:${option?.item_id || option?.item_name || ''}:${option?.spec || ''}`
 }
 
-function employeeOptionLabel(option) {
-  const id = Number(option?.employee_id || 0)
-  return `${id ? `#${id} ` : ''}${option?.name || '未命名员工'}`
-}
-
-function employeeOptionMeta(option) {
-  return [option?.phone, option?.department].filter(Boolean).join(' / ')
-}
-
-function employeeOptionValue(option) {
-  return Number(option?.employee_id || 0)
-}
-
 function recipientOptionLabel(option) {
   const label = [option?.receiver_name, option?.receiver_phone].filter(Boolean).join(' ')
   return label || option?.receiver_address || ''
@@ -973,10 +886,6 @@ function importTypeLabel(value) {
 
 function custodyTypeLabel(value) {
   return { raw_bean: '生豆', packaging: '包材', product: '产品' }[value] || value
-}
-
-function bindingStatusLabel(value) {
-  return value === 'active' ? '启用' : '停用'
 }
 
 function moneyFromCents(value) {
@@ -1186,28 +1095,8 @@ button:disabled {
   align-items: end;
 }
 
-.binding-form {
-  grid-template-columns: minmax(160px, 1fr) 120px 100px;
-}
-
 .wide-field {
   grid-column: span 2;
-}
-
-.binding-list {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  margin-top: 10px;
-}
-
-.binding-list span {
-  border: 1px solid #cbd5e1;
-  border-radius: 999px;
-  padding: 5px 8px;
-  background: #fff;
-  color: #334155;
-  font-size: 12px;
 }
 
 .metric-grid {

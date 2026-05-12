@@ -6,6 +6,7 @@ func customerUpsertCommandFromRequest(req CustomerUpsertRequest) customerapp.Ups
 	return customerapp.UpsertCommand{
 		Name:               req.Name,
 		RawName:            req.RawName,
+		CustomerType:       req.CustomerType,
 		CompanyName:        req.CompanyName,
 		CompanyAddress:     req.CompanyAddress,
 		CompanyPhone:       req.CompanyPhone,
@@ -21,6 +22,7 @@ func customerUpsertCommandFromRequest(req CustomerUpsertRequest) customerapp.Ups
 func customerInlineCommandFromRequest(req CustomerInlineReq) customerapp.InlineUpdateCommand {
 	return customerapp.InlineUpdateCommand{
 		Name:               req.Name,
+		CustomerType:       req.CustomerType,
 		CompanyName:        req.CompanyName,
 		CompanyAddress:     req.CompanyAddress,
 		CompanyPhone:       req.CompanyPhone,

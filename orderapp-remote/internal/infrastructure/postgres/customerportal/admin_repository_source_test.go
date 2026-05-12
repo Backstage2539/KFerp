@@ -35,6 +35,27 @@ func TestCustomerPortalAdminRepositoryPersistsProfilesCapabilitiesAndBindings(t 
 	}
 }
 
+func TestCustomerPortalAdminRepositoryShowsOnlyWholesaleCustomersAndERPBinding(t *testing.T) {
+	body, err := os.ReadFile("admin_repository.go")
+	if err != nil {
+		t.Fatalf("read admin_repository.go: %v", err)
+	}
+	text := string(body)
+	for _, want := range []string{
+		"customer_type",
+		"'wholesale'",
+		"customer_erp_user_bindings",
+		"company_employees",
+		"account_type='channel_customer'",
+		"UpsertPortalERPBinding",
+		"ERPBinding",
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("admin repository missing wholesale/ERP binding guard %q", want)
+		}
+	}
+}
+
 func TestCustomerPortalAdminRepositoryPersistsMallProducts(t *testing.T) {
 	body, err := os.ReadFile("admin_repository.go")
 	if err != nil {

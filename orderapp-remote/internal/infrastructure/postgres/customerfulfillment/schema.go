@@ -39,6 +39,12 @@ CREATE TABLE IF NOT EXISTS %[1]s.customer_erp_user_bindings (
 );
 CREATE UNIQUE INDEX IF NOT EXISTS customer_erp_user_bindings_employee_customer_uq
 	ON %[1]s.customer_erp_user_bindings(employee_id, customer_id);
+CREATE UNIQUE INDEX IF NOT EXISTS customer_erp_user_bindings_customer_active_uq
+	ON %[1]s.customer_erp_user_bindings(customer_id)
+	WHERE status='active';
+CREATE UNIQUE INDEX IF NOT EXISTS customer_erp_user_bindings_employee_active_uq
+	ON %[1]s.customer_erp_user_bindings(employee_id)
+	WHERE status='active';
 CREATE INDEX IF NOT EXISTS customer_erp_user_bindings_employee_status_idx
 	ON %[1]s.customer_erp_user_bindings(employee_id, status, customer_id);
 CREATE INDEX IF NOT EXISTS customer_erp_user_bindings_customer_idx

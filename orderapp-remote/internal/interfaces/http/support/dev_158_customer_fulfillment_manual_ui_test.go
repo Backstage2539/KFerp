@@ -41,7 +41,6 @@ func TestCustomerFulfillmentManualVisibleInVueShell(t *testing.T) {
 		"selectProcessingProduct",
 		"selectDirectShipProduct",
 		"selectAdjustmentItem",
-		"selectERPEmployee",
 		"历史收件信息",
 		"解析收件信息",
 		"submitCustomerFulfillmentProcessingWorkOrder",

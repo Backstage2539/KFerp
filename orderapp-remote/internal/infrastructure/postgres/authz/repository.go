@@ -21,10 +21,11 @@ func NewRepository(pool *pgxpool.Pool, schema string) Repository {
 
 func (r Repository) ActorByEmployeeID(ctx context.Context, employeeID int64) (authzapp.Actor, error) {
 	var actor authzapp.Actor
+	var accountType string
 	err := r.pool.QueryRow(ctx,
-		"SELECT id,COALESCE(name,'') FROM "+r.schema+".company_employees WHERE id=$1 AND active=true LIMIT 1",
+		"SELECT id,COALESCE(name,''),COALESCE(NULLIF(account_type,''),'internal_employee') FROM "+r.schema+".company_employees WHERE id=$1 AND active=true LIMIT 1",
 		employeeID,
-	).Scan(&actor.EmployeeID, &actor.Name)
+	).Scan(&actor.EmployeeID, &actor.Name, &accountType)
 	if err != nil {
 		if err == pgx.ErrNoRows {
 			return authzapp.Actor{}, fmt.Errorf("employee not found")
@@ -39,6 +40,10 @@ func (r Repository) ActorByEmployeeID(ctx context.Context, employeeID int64) (au
 	if err != nil {
 		return authzapp.Actor{}, err
 	}
+	if accountType == "channel_customer" {
+		roles = nil
+		actor.Permissions = []string{"customer_processing.read", "customer_processing.submit"}
+	}
 	actor.Roles = roles
 	actor.ViewPermissions = views
 	return actor, nil
@@ -50,6 +55,7 @@ SELECT r.code,r.name,COALESCE(p.code,'')
 FROM `+r.schema+`.auth_roles r
 LEFT JOIN `+r.schema+`.auth_role_permissions rp ON rp.role_code=r.code
 LEFT JOIN `+r.schema+`.auth_permissions p ON p.code=rp.permission_code
+WHERE r.code NOT IN ('customer_processing_customer','customer_direct_ship_customer')
 ORDER BY r.code,p.code`)
 	if err != nil {
 		return nil, err
@@ -66,12 +72,16 @@ func (r Repository) AssignEmployeeRoles(ctx context.Context, cmd authzapp.Assign
 	defer tx.Rollback(ctx)
 
 	var employeeID int64
-	err = tx.QueryRow(ctx, "SELECT id FROM "+r.schema+".company_employees WHERE id=$1 AND active=true LIMIT 1", cmd.EmployeeID).Scan(&employeeID)
+	var accountType string
+	err = tx.QueryRow(ctx, "SELECT id,COALESCE(NULLIF(account_type,''),'internal_employee') FROM "+r.schema+".company_employees WHERE id=$1 AND active=true LIMIT 1", cmd.EmployeeID).Scan(&employeeID, &accountType)
 	if err != nil {
 		if err == pgx.ErrNoRows {
 			return fmt.Errorf("employee not found")
 		}
 		return err
+	}
+	if accountType == "channel_customer" && len(cmd.RoleCodes) > 0 {
+		return fmt.Errorf("channel customer accounts cannot assign roles")
 	}
 	if _, err := tx.Exec(ctx, "DELETE FROM "+r.schema+".employee_roles WHERE employee_id=$1", cmd.EmployeeID); err != nil {
 		return err

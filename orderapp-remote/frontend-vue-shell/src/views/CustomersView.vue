@@ -34,6 +34,14 @@
           <input v-model.trim="form.raw_name" />
         </label>
         <label>
+          <span>客户类型</span>
+          <select v-model="form.customer_type">
+            <option value="retail">零售客户</option>
+            <option value="ecommerce">电商客户</option>
+            <option value="wholesale">批发客户</option>
+          </select>
+        </label>
+        <label>
           <span>公司名称</span>
           <input v-model.trim="form.company_name" placeholder="不填则销售单默认使用客户名" />
         </label>
@@ -126,6 +134,7 @@
           <thead>
             <tr>
               <th>客户</th>
+              <th>类型</th>
               <th>公司</th>
               <th>联系电话</th>
               <th>联系人</th>
@@ -141,6 +150,7 @@
           <tbody>
             <tr v-for="row in rows" :key="row.id" :class="{ active: row.id === editingId }">
               <td>{{ row.name }}</td>
+              <td>{{ customerTypeLabel(row.customer_type) }}</td>
               <td>{{ row.company_name || row.name }}</td>
               <td>{{ row.company_phone || '' }}</td>
               <td>{{ row.contact || '' }}</td>
@@ -153,7 +163,7 @@
               <td><button class="text-button" type="button" @click="editCustomer(row.id)">编辑</button></td>
             </tr>
             <tr v-if="!rows.length">
-              <td colspan="11" class="muted">暂无客户</td>
+              <td colspan="12" class="muted">暂无客户</td>
             </tr>
           </tbody>
         </table>
@@ -201,6 +211,7 @@ function emptyForm() {
   return {
     name: '',
     raw_name: '',
+    customer_type: 'retail',
     company_name: '',
     company_address: '',
     company_phone: '',
@@ -217,6 +228,7 @@ function assignForm(data) {
   Object.assign(form, {
     name: data?.name || '',
     raw_name: data?.raw_name || '',
+    customer_type: normalizeCustomerType(data?.customer_type),
     company_name: data?.company_name || '',
     company_address: data?.company_address || '',
     company_phone: data?.company_phone || '',
@@ -243,6 +255,18 @@ function assignDashboard(data = {}) {
 function optionName(options, id) {
   const item = options.find((x) => Number(x.id) === Number(id))
   return item?.name || ''
+}
+
+function normalizeCustomerType(value) {
+  return ['retail', 'ecommerce', 'wholesale'].includes(value) ? value : 'retail'
+}
+
+function customerTypeLabel(value) {
+  return {
+    retail: '零售客户',
+    ecommerce: '电商客户',
+    wholesale: '批发客户',
+  }[normalizeCustomerType(value)]
 }
 
 function assetKindLabel(kind) {
@@ -349,6 +373,7 @@ async function saveCustomer() {
     const body = {
       name: form.name,
       raw_name: form.raw_name,
+      customer_type: normalizeCustomerType(form.customer_type),
       company_name: form.company_name,
       company_address: form.company_address,
       company_phone: form.company_phone,

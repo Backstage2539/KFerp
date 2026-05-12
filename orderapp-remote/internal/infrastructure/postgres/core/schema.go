@@ -35,6 +35,7 @@ CREATE TABLE IF NOT EXISTS %[1]s.customers (
 	id BIGSERIAL PRIMARY KEY,
 	name TEXT NOT NULL DEFAULT '',
 	raw_name TEXT NOT NULL DEFAULT '',
+	customer_type TEXT NOT NULL DEFAULT 'retail',
 	company_name TEXT NOT NULL DEFAULT '',
 	company_address TEXT NOT NULL DEFAULT '',
 	company_phone TEXT NOT NULL DEFAULT '',
@@ -145,6 +146,8 @@ CREATE TABLE IF NOT EXISTS %[1]s.order_items (
 func ensureCoreColumns(ctx context.Context, pool *pgxpool.Pool, schema string) error {
 	stmts := []string{
 		`ALTER TABLE %[1]s.customers ADD COLUMN IF NOT EXISTS raw_name TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE %[1]s.customers ADD COLUMN IF NOT EXISTS customer_type TEXT NOT NULL DEFAULT 'retail'`,
+		`UPDATE %[1]s.customers SET customer_type='retail' WHERE COALESCE(customer_type,'')=''`,
 		`ALTER TABLE %[1]s.customers ADD COLUMN IF NOT EXISTS company_name TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE %[1]s.customers ADD COLUMN IF NOT EXISTS company_address TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE %[1]s.customers ADD COLUMN IF NOT EXISTS company_phone TEXT NOT NULL DEFAULT ''`,

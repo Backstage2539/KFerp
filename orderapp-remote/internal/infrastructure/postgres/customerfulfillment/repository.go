@@ -422,12 +422,35 @@ func (r *Repository) UpsertCustomerERPBinding(ctx context.Context, cmd app.Upser
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
+	if cmd.Status == "active" {
+		var otherCustomerID int64
+		err := tx.QueryRow(ctx, fmt.Sprintf(`
+			SELECT customer_id
+			FROM %s.customer_erp_user_bindings
+			WHERE employee_id=$1 AND status='active' AND customer_id<>$2
+			LIMIT 1
+		`, r.schema), cmd.EmployeeID, cmd.CustomerID).Scan(&otherCustomerID)
+		if err == nil && otherCustomerID > 0 {
+			return app.CustomerERPBinding{}, fmt.Errorf("erp account already bound to another customer")
+		}
+		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+			return app.CustomerERPBinding{}, err
+		}
+		if _, err := tx.Exec(ctx, fmt.Sprintf(`
+			UPDATE %s.customer_erp_user_bindings
+			SET status='inactive', updated_by=$3, updated_at=now()
+			WHERE customer_id=$1 AND status='active' AND employee_id<>$2
+		`, r.schema), cmd.CustomerID, cmd.EmployeeID, cmd.Actor); err != nil {
+			return app.CustomerERPBinding{}, err
+		}
+	}
+
 	var row app.CustomerERPBinding
 	err = tx.QueryRow(ctx, fmt.Sprintf(`
 		INSERT INTO %s.customer_erp_user_bindings(customer_id, employee_id, role, status, updated_by, updated_at)
 		SELECT $1, e.id, $3, $4, $5, now()
 		FROM %s.company_employees e
-		WHERE e.id=$2 AND e.active=true
+		WHERE e.id=$2 AND e.active=true AND e.account_type='channel_customer'
 		ON CONFLICT (employee_id, customer_id) DO UPDATE SET
 			role=excluded.role,
 			status=excluded.status,
@@ -436,17 +459,12 @@ func (r *Repository) UpsertCustomerERPBinding(ctx context.Context, cmd app.Upser
 		RETURNING customer_id, employee_id, role, status, updated_by, to_char(updated_at,'YYYY-MM-DD HH24:MI')
 	`, r.schema, r.schema), cmd.CustomerID, cmd.EmployeeID, cmd.Role, cmd.Status, cmd.Actor).Scan(&row.CustomerID, &row.EmployeeID, &row.Role, &row.Status, &row.UpdatedBy, &row.UpdatedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return app.CustomerERPBinding{}, fmt.Errorf("employee not found")
+		return app.CustomerERPBinding{}, fmt.Errorf("channel customer account required")
 	}
 	if err != nil {
 		return app.CustomerERPBinding{}, err
 	}
 	_ = tx.QueryRow(ctx, fmt.Sprintf(`SELECT COALESCE(name,'') FROM %s.company_employees WHERE id=$1`, r.schema), row.EmployeeID).Scan(&row.EmployeeName)
-	if row.Status == "active" {
-		if err := r.grantCustomerTemplateRolesForEmployeeTx(ctx, tx, row.CustomerID, row.EmployeeID); err != nil {
-			return app.CustomerERPBinding{}, err
-		}
-	}
 	if err := tx.Commit(ctx); err != nil {
 		return app.CustomerERPBinding{}, err
 	}
