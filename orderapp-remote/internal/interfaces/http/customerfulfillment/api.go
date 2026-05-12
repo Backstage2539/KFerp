@@ -39,8 +39,14 @@ func (a api) listCustomers(c echo.Context) error {
 	}
 	rows := make([]customerapp.CustomerRow, 0, len(result.Rows))
 	for _, row := range result.Rows {
-		if row.Active {
-			rows = append(rows, row)
+		if row.Active && row.CustomerType == "wholesale" {
+			bound, err := a.hasActiveERPBinding(c, row.ID)
+			if err != nil {
+				return customerFulfillmentError(c, http.StatusInternalServerError, err)
+			}
+			if bound {
+				rows = append(rows, row)
+			}
 		}
 	}
 	return c.JSON(http.StatusOK, map[string]any{
@@ -49,6 +55,22 @@ func (a api) listCustomers(c echo.Context) error {
 		"offset":    offset,
 		"has_next":  result.HasNext,
 	})
+}
+
+func (a api) hasActiveERPBinding(c echo.Context, customerID int64) (bool, error) {
+	if a.svc == nil || customerID <= 0 {
+		return false, nil
+	}
+	bindings, err := a.svc.ListCustomerERPBindings(c.Request().Context(), customerID)
+	if err != nil {
+		return false, err
+	}
+	for _, binding := range bindings {
+		if binding.Status == "active" {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 func (a api) parseImport(c echo.Context) error {

@@ -1766,18 +1766,46 @@ func (r *Repository) listProcessingOrders(ctx context.Context, customerID int64)
 
 func (r *Repository) listDirectShipOrders(ctx context.Context, customerID int64) ([]app.DirectShipOrderSummary, error) {
 	rows, err := r.pool.Query(ctx, fmt.Sprintf(`
-		SELECT o.external_order_no,
-			COALESCE(to_char(o.order_date, 'YYYY-MM-DD'), ''),
-			o.receiver_address,
-			o.status,
-			COUNT(i.id)::int
-		FROM %s.customer_direct_ship_import_orders o
-		LEFT JOIN %s.customer_direct_ship_import_order_items i ON i.import_order_id=o.id
-		WHERE o.customer_id=$1
-		GROUP BY o.id
-		ORDER BY o.created_at DESC, o.id DESC
+		WITH direct_ship_rows AS (
+			SELECT o.external_order_no AS order_no,
+				COALESCE(to_char(o.order_date, 'YYYY-MM-DD'), '') AS order_date,
+				o.receiver_address AS receiver_address,
+				o.status AS status,
+				COUNT(i.id)::int AS item_count,
+				o.created_at AS sort_at,
+				o.id AS sort_id
+			FROM %[1]s.customer_direct_ship_import_orders o
+			LEFT JOIN %[1]s.customer_direct_ship_import_order_items i ON i.import_order_id=o.id
+			WHERE o.customer_id=$1
+			GROUP BY o.id
+
+			UNION ALL
+
+			SELECT o.order_no,
+				COALESCE(to_char(o.order_date, 'YYYY-MM-DD'), ''),
+				concat_ws(' ', NULLIF(o.receiver_name,''), NULLIF(o.receiver_phone,''), NULLIF(o.receiver_address,'')),
+				COALESCE(NULLIF(ss.name,''), NULLIF(ops.name,''), CASE WHEN o.is_void THEN '已作废' ELSE '' END),
+				COUNT(i.id)::int,
+				o.created_at,
+				o.id
+			FROM %[1]s.orders o
+			LEFT JOIN %[1]s.order_items i ON i.order_id=o.id
+			LEFT JOIN %[1]s.ship_statuses ss ON ss.id=o.ship_status_id
+			LEFT JOIN %[1]s.order_process_statuses ops ON ops.id=o.process_status_id
+			WHERE o.customer_id=$1
+			  AND o.portal_service_code IN ('direct_ship','processing_ship')
+			  AND NOT EXISTS (
+			      SELECT 1
+			      FROM %[1]s.customer_direct_ship_import_orders imported
+			      WHERE imported.order_id=o.id
+			  )
+			GROUP BY o.id, ss.name, ops.name
+		)
+		SELECT order_no, order_date, receiver_address, status, item_count
+		FROM direct_ship_rows
+		ORDER BY sort_at DESC, sort_id DESC
 		LIMIT 100
-	`, r.schema, r.schema), customerID)
+	`, r.schema), customerID)
 	if err != nil {
 		return nil, err
 	}

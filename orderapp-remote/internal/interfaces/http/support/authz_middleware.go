@@ -87,6 +87,9 @@ func requiredPermissionForRequest(method, path string) string {
 		}
 		return "stock.write"
 	}
+	if strings.HasPrefix(path, "/api/message-center") {
+		return "orders.read"
+	}
 	if strings.HasPrefix(path, "/api/order/form") {
 		return "orders.write"
 	}

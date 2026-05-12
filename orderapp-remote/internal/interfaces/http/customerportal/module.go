@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	customerportalapp "orderapp/internal/application/customerportal"
+	messagecenterapp "orderapp/internal/application/messagecenter"
 	pdfinfra "orderapp/internal/infrastructure/pdf"
 
 	"github.com/labstack/echo/v4"
@@ -40,8 +41,13 @@ type Service interface {
 
 type Dependencies struct {
 	CustomerPortal      Service
+	MessageCenter       MessagePublisher
 	BeanListPDFRenderer BeanListPDFRenderer
 	AssetDir            string
+}
+
+type MessagePublisher interface {
+	Publish(context.Context, messagecenterapp.PublishCommand) (int64, error)
 }
 
 type BeanListPDFRenderer interface {
@@ -53,7 +59,7 @@ func RegisterRoutes(e *echo.Echo, deps Dependencies) {
 	if renderer == nil {
 		renderer = pdfinfra.BeanListRenderer{}
 	}
-	registerMiniAPI(e, deps.CustomerPortal, renderer)
+	registerMiniAPI(e, deps.CustomerPortal, deps.MessageCenter, renderer)
 	registerAdminAPI(e, deps.CustomerPortal, deps.AssetDir)
 }
 

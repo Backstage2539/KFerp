@@ -61,15 +61,19 @@ func TestParseImportAPIAcceptsMultipartFile(t *testing.T) {
 	}
 }
 
-func TestCustomerOptionsAPIReturnsActiveCustomersForPicker(t *testing.T) {
+func TestCustomerOptionsAPIReturnsBoundWholesaleCustomersForPicker(t *testing.T) {
 	customers := &fakeCustomerDirectory{
 		result: customerapp.ListResult{Rows: []customerapp.CustomerRow{
-			{ID: 147, Name: "誉观山", CompanyName: "誉观山咖啡", Active: true},
-			{ID: 148, Name: "停用客户", Active: false},
+			{ID: 147, Name: "誉观山", CustomerType: "wholesale", CompanyName: "誉观山咖啡", Active: true},
+			{ID: 148, Name: "停用客户", CustomerType: "wholesale", Active: false},
+			{ID: 149, Name: "零售客户", CustomerType: "retail", Active: true},
 		}},
 	}
+	svc := &fakeCustomerFulfillmentService{
+		listERPBindingsResult: []app.CustomerERPBinding{{CustomerID: 147, EmployeeID: 8, Status: "active"}},
+	}
 	e := echo.New()
-	RegisterRoutes(e, Dependencies{CustomerFulfillment: &fakeCustomerFulfillmentService{}, Customers: customers})
+	RegisterRoutes(e, Dependencies{CustomerFulfillment: svc, Customers: customers})
 
 	req := httptest.NewRequest(http.MethodGet, "/api/customer-fulfillment/customers?q=誉观山&limit=60", nil)
 	rec := httptest.NewRecorder()
@@ -83,8 +87,10 @@ func TestCustomerOptionsAPIReturnsActiveCustomersForPicker(t *testing.T) {
 			t.Fatalf("customer options response missing %s: %s", want, rec.Body.String())
 		}
 	}
-	if strings.Contains(rec.Body.String(), "停用客户") {
-		t.Fatalf("customer options must hide inactive customers: %s", rec.Body.String())
+	for _, unwanted := range []string{"停用客户", "零售客户"} {
+		if strings.Contains(rec.Body.String(), unwanted) {
+			t.Fatalf("customer options must hide %s: %s", unwanted, rec.Body.String())
+		}
 	}
 	if customers.query.Query != "誉观山" || customers.query.Limit != 60 {
 		t.Fatalf("customer query = %+v, want q 誉观山 limit 60", customers.query)

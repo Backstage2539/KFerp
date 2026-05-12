@@ -258,6 +258,23 @@ func orderListWhere(schema string, query salesapp.OrderListQuery) ([]string, []a
 		args = append(args, query.CustomerID)
 		argn++
 	}
+	switch strings.TrimSpace(query.Scope) {
+	case "mine":
+		if query.EmployeeID > 0 {
+			where = append(where, fmt.Sprintf("o.responsible_party_type='employee' AND o.responsible_party_id=$%d", argn))
+			args = append(args, query.EmployeeID)
+			argn++
+		} else {
+			where = append(where, "1=0")
+		}
+	case "fulfillment":
+		where = append(where, fmt.Sprintf(`COALESCE(NULLIF(c.customer_type,''),'retail')='wholesale'
+			AND o.portal_service_code IN ('direct_ship','processing_ship')
+			AND EXISTS (
+				SELECT 1 FROM %s.customer_erp_user_bindings b
+				WHERE b.customer_id=o.customer_id AND b.status='active'
+			)`, schema))
+	}
 	if query.PayStatusID > 0 {
 		where = append(where, fmt.Sprintf("COALESCE(o.pay_status_id,0) = $%d", argn))
 		args = append(args, query.PayStatusID)

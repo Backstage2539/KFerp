@@ -12,6 +12,7 @@ import (
 	financeapp "orderapp/internal/application/finance"
 	inventoryapp "orderapp/internal/application/inventory"
 	materialsapp "orderapp/internal/application/materials"
+	messagecenterapp "orderapp/internal/application/messagecenter"
 	productionapp "orderapp/internal/application/production"
 	purchaseapp "orderapp/internal/application/purchase"
 	salesapp "orderapp/internal/application/sales"
@@ -27,6 +28,7 @@ import (
 	postgresfinance "orderapp/internal/infrastructure/postgres/finance"
 	postgresinventory "orderapp/internal/infrastructure/postgres/inventory"
 	postgresmaterials "orderapp/internal/infrastructure/postgres/materials"
+	postgresmessagecenter "orderapp/internal/infrastructure/postgres/messagecenter"
 	postgresproduction "orderapp/internal/infrastructure/postgres/production"
 	postgrespurchase "orderapp/internal/infrastructure/postgres/purchase"
 	postgressales "orderapp/internal/infrastructure/postgres/sales"
@@ -41,6 +43,7 @@ import (
 	financehttp "orderapp/internal/interfaces/http/finance"
 	inventoryhttp "orderapp/internal/interfaces/http/inventory"
 	materialshttp "orderapp/internal/interfaces/http/materials"
+	messagecenterhttp "orderapp/internal/interfaces/http/messagecenter"
 	productionhttp "orderapp/internal/interfaces/http/production"
 	purchasehttp "orderapp/internal/interfaces/http/purchase"
 	saleshttp "orderapp/internal/interfaces/http/sales"
@@ -66,6 +69,7 @@ func registerAppRoutes(e *echo.Echo, pool *pgxpool.Pool, cfg appConfig) {
 	financeSvc := financeapp.NewService(postgresfinance.NewRepository(pool, schema))
 	inventorySvc := inventoryapp.NewService(postgresinventory.NewRepository(pool, schema))
 	materialsSvc := materialsapp.NewService(postgresmaterials.NewRepository(pool, schema))
+	messageCenterSvc := messagecenterapp.NewService(postgresmessagecenter.NewRepository(pool, schema))
 	productionSvc := productionapp.NewService(postgresproduction.NewRepository(pool, schema))
 	stockSvc := stockapp.NewService(postgresstock.NewRepository(pool, schema))
 	purchaseSvc := purchaseapp.NewService(postgrespurchase.NewRepository(pool, schema), stockSvc)
@@ -74,7 +78,8 @@ func registerAppRoutes(e *echo.Echo, pool *pgxpool.Pool, cfg appConfig) {
 	e.Use(supporthttp.AuthorizationMiddleware(authzSvc))
 
 	supporthttp.RegisterRoutes(e, pool, schema, supporthttp.Dependencies{Authz: authzSvc})
-	customerportalhttp.RegisterRoutes(e, customerportalhttp.Dependencies{CustomerPortal: customerPortalSvc, AssetDir: assetDir})
+	messagecenterhttp.RegisterRoutes(e, messagecenterhttp.Dependencies{MessageCenter: messageCenterSvc})
+	customerportalhttp.RegisterRoutes(e, customerportalhttp.Dependencies{CustomerPortal: customerPortalSvc, MessageCenter: messageCenterSvc, AssetDir: assetDir})
 	customerfulfillmenthttp.RegisterRoutes(e, customerfulfillmenthttp.Dependencies{CustomerFulfillment: customerFulfillmentSvc, Customers: customerSvc})
 	cataloghttp.RegisterRoutes(e, cataloghttp.Dependencies{Catalog: catalogSvc})
 	materialshttp.RegisterRoutes(e, materialshttp.Dependencies{Materials: materialsSvc})
@@ -86,7 +91,7 @@ func registerAppRoutes(e *echo.Echo, pool *pgxpool.Pool, cfg appConfig) {
 	productionhttp.RegisterRoutes(e, productionhttp.Dependencies{Production: productionSvc})
 	companyhttp.RegisterRoutes(e, companyhttp.Dependencies{Company: companySvc})
 	customerhttp.RegisterRoutes(e, customerhttp.Dependencies{Customer: customerSvc, AssetDir: assetDir})
-	saleshttp.RegisterRoutes(e, saleshttp.Dependencies{Sales: salesSvc, AssetDir: assetDir})
+	saleshttp.RegisterRoutes(e, saleshttp.Dependencies{Sales: salesSvc, MessageCenter: messageCenterSvc, AssetDir: assetDir})
 	financehttp.RegisterRoutes(e, financehttp.Dependencies{Finance: financeSvc})
 }
 

@@ -6,13 +6,15 @@ import (
 	"strconv"
 	"strings"
 
+	messagecenterapp "orderapp/internal/application/messagecenter"
 	salesapp "orderapp/internal/application/sales"
 
 	"github.com/labstack/echo/v4"
 )
 
 type orderAPIHandler struct {
-	sales *salesapp.Service
+	sales    *salesapp.Service
+	messages MessagePublisher
 }
 
 type apiOption struct {
@@ -90,9 +92,10 @@ type orderSaveAPIRequest struct {
 	Spec      []string `json:"spec"`
 }
 
-func registerOrderAPI(e *echo.Echo, salesSvc *salesapp.Service) {
+func registerOrderAPI(e *echo.Echo, salesSvc *salesapp.Service, messages MessagePublisher) {
 	h := orderAPIHandler{
-		sales: salesSvc,
+		sales:    salesSvc,
+		messages: messages,
 	}
 	e.GET("/api/orders", h.list)
 	e.GET("/api/order/form", h.form)
@@ -107,6 +110,8 @@ func (h orderAPIHandler) list(c echo.Context) error {
 		From:            query.From,
 		To:              query.To,
 		Void:            query.Void,
+		Scope:           query.Scope,
+		EmployeeID:      query.EmployeeID,
 		CustomerID:      query.CustomerID,
 		PayStatusID:     query.PayStatusID,
 		ShipStatusID:    query.ShipStatusID,
@@ -193,6 +198,8 @@ type ordersAPIQuery struct {
 	From            string
 	To              string
 	Void            string
+	Scope           string
+	EmployeeID      int64
 	CustomerID      int64
 	PayStatusID     int64
 	ShipStatusID    int64
@@ -211,6 +218,7 @@ func ordersQueryFromContext(c echo.Context) ordersAPIQuery {
 		From:  strings.TrimSpace(c.QueryParam("from")),
 		To:    strings.TrimSpace(c.QueryParam("to")),
 		Void:  strings.TrimSpace(c.QueryParam("void")),
+		Scope: strings.TrimSpace(c.QueryParam("scope")),
 		Limit: support.IntParam(c, "limit", 10),
 	}
 	if q.Limit <= 0 {
@@ -232,6 +240,7 @@ func ordersQueryFromContext(c echo.Context) ordersAPIQuery {
 		q.Page = 1
 	}
 	q.CustomerID = int64(support.IntParam(c, "customer_id", 0))
+	q.EmployeeID = support.CurrentEmployeeID(c)
 	q.PayStatusID = int64(support.IntParam(c, "pay_status_id", 0))
 	q.ShipStatusID = int64(support.IntParam(c, "ship_status_id", 0))
 	q.ProcessStatusID = int64(support.IntParam(c, "process_status_id", 0))
@@ -260,6 +269,9 @@ func (h orderAPIHandler) save(c echo.Context) error {
 	if err != nil {
 		return c.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
 	}
+	if !res.Edited {
+		h.publishOrderCreated(c, res)
+	}
 	redirectURL := "/order?ok=1&order_no=" + res.OrderNo
 	if res.Edited {
 		redirectURL = "/orders/" + strconv.FormatInt(res.OrderID, 10)
@@ -271,6 +283,34 @@ func (h orderAPIHandler) save(c echo.Context) error {
 		"edited":           res.Edited,
 		"redirect_url":     redirectURL,
 		"stock_batch_used": res.StockBatchUsed,
+	})
+}
+
+func (h orderAPIHandler) publishOrderCreated(c echo.Context, res salesapp.SaveOrderResult) {
+	if h.messages == nil || res.OrderID <= 0 {
+		return
+	}
+	_, _ = h.messages.Publish(c.Request().Context(), messagecenterapp.PublishCommand{
+		EventKey:   "order.created." + strconv.FormatInt(res.OrderID, 10),
+		Topic:      "orders",
+		EventType:  "order.created",
+		SourceType: "order",
+		SourceID:   res.OrderID,
+		Actor:      support.ActorOf(c),
+		Title:      "新订单 " + strings.TrimSpace(res.OrderNo),
+		Body:       "ERP 订单已创建",
+		Tone:       "success",
+		Payload: map[string]any{
+			"order_id":           res.OrderID,
+			"order_no":           res.OrderNo,
+			"orders_scope":       "all",
+			"highlight_order_id": res.OrderID,
+		},
+		Deliveries: []messagecenterapp.DeliveryCommand{{
+			Channel:    messagecenterapp.ChannelERPPlatform,
+			TargetType: "permission",
+			TargetKey:  "orders.read",
+		}},
 	})
 }
 

@@ -149,6 +149,8 @@ type OrderListQuery struct {
 	From            string
 	To              string
 	Void            string
+	Scope           string
+	EmployeeID      int64
 	CustomerID      int64
 	PayStatusID     int64
 	ShipStatusID    int64

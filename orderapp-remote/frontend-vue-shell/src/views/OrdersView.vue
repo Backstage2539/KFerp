@@ -6,6 +6,11 @@
         <button class="secondary" type="button" @click="load" :disabled="loading">刷新</button>
       </div>
       <div v-if="error" class="error">{{ error }}</div>
+      <div class="scope-tabs" role="tablist" aria-label="订单范围">
+        <button type="button" :class="{ active: filters.scope === 'all' }" @click="setScope('all')">全部订单</button>
+        <button type="button" :class="{ active: filters.scope === 'mine' }" @click="setScope('mine')">我的订单</button>
+        <button type="button" :class="{ active: filters.scope === 'fulfillment' }" @click="setScope('fulfillment')">履约客户订单</button>
+      </div>
       <div class="filters">
         <label>
           <span>搜索</span>
@@ -108,7 +113,7 @@
             </tr>
           </thead>
           <tbody>
-            <tr v-for="row in rows" :key="row.id" :class="{ voided: row.is_void }">
+            <tr v-for="row in rows" :key="row.id" :class="orderRowClass(row)">
               <td class="select-col">
                 <input
                   type="checkbox"
@@ -255,7 +260,7 @@
 </template>
 
 <script setup>
-import { onMounted, reactive, ref } from 'vue'
+import { onMounted, reactive, ref, watch } from 'vue'
 import { apiGet, apiSend } from '../api/client'
 import { invoiceStatusLabel, invoiceStatusTone } from '../lib/order-invoice'
 import { formatTrackingSummary, trackingInputSummary } from '../lib/order-shipping'
@@ -264,6 +269,10 @@ import DeliveryNoteView from './DeliveryNoteView.vue'
 import OrderEntryView from './OrderEntryView.vue'
 import OrderInvoiceView from './OrderInvoiceView.vue'
 import SalesOrderView from './SalesOrderView.vue'
+
+const props = defineProps({
+  viewParams: { type: Object, default: () => ({}) },
+})
 
 const loading = ref(false)
 const error = ref('')
@@ -297,6 +306,8 @@ const invoiceDrawerOpen = ref(false)
 const activeInvoiceID = ref(0)
 
 const filters = reactive({
+  scope: 'all',
+  highlight_order_id: 0,
   q: '',
   from: '',
   to: '',
@@ -310,6 +321,8 @@ const filters = reactive({
 
 function applyUrlFilters() {
   const params = new URL(window.location.href).searchParams
+  filters.scope = normalizeScope(props.viewParams?.scope || params.get('scope') || 'all')
+  filters.highlight_order_id = Number(props.viewParams?.highlight_order_id || params.get('highlight_order_id') || 0)
   filters.q = params.get('q') || ''
   filters.from = params.get('from') || ''
   filters.to = params.get('to') || ''
@@ -330,6 +343,7 @@ function buildUrl(nextPage) {
     if (filters[key]) url.searchParams.set(key, String(filters[key]))
   }
   if (filters.ship_ready) url.searchParams.set('ship_ready', '1')
+  if (filters.scope && filters.scope !== 'all') url.searchParams.set('scope', filters.scope)
   url.searchParams.set('page', String(nextPage))
   url.searchParams.set('limit', String(filters.limit))
   return url
@@ -348,8 +362,23 @@ function updateBrowserUrl(nextPage) {
   }
   if (filters.ship_ready) url.searchParams.set('ship_ready', '1')
   else url.searchParams.delete('ship_ready')
+  if (filters.scope && filters.scope !== 'all') url.searchParams.set('scope', filters.scope)
+  else url.searchParams.delete('scope')
+  if (filters.highlight_order_id) url.searchParams.set('highlight_order_id', String(filters.highlight_order_id))
+  else url.searchParams.delete('highlight_order_id')
   url.searchParams.set('page', String(nextPage))
   replaceHistoryURL(url)
+}
+
+function normalizeScope(scope) {
+  scope = String(scope || '').trim()
+  return ['all', 'mine', 'fulfillment'].includes(scope) ? scope : 'all'
+}
+
+async function setScope(scope) {
+  filters.scope = normalizeScope(scope)
+  filters.highlight_order_id = 0
+  await loadPage(1)
 }
 
 function openSalesOrderDrawer(row) {
@@ -415,6 +444,31 @@ function isShipReady(row) {
 
 function isShipped(row) {
   return String(row?.ship_status || '').includes('已发货')
+}
+
+function isUnpaid(row) {
+  const status = String(row?.pay_status || '').trim()
+  return status === '' || status.includes('未')
+}
+
+function isUnproduced(row) {
+  const status = String(row?.process_status || '').trim()
+  if (!status) return true
+  return !(status.includes('生产完成') || status === '无需生产' || status === '库存待发货')
+}
+
+function isHighlightedOrder(row) {
+  return Number(row?.id || 0) > 0 && Number(row.id) === Number(filters.highlight_order_id || 0)
+}
+
+function orderRowClass(row) {
+  return {
+    voided: row?.is_void,
+    'highlight-new': isHighlightedOrder(row),
+    'state-unpaid': !isHighlightedOrder(row) && isUnpaid(row),
+    'state-unshipped': !isHighlightedOrder(row) && !isUnpaid(row) && !isShipped(row),
+    'state-unproduced': !isHighlightedOrder(row) && !isUnpaid(row) && isShipped(row) && isUnproduced(row),
+  }
 }
 
 function profileLabel(profile = {}) {
@@ -602,6 +656,15 @@ onMounted(() => {
   loadSenderProfiles()
   load()
 })
+
+watch(() => props.viewParams, async () => {
+  const nextScope = normalizeScope(props.viewParams?.scope || 'all')
+  const nextHighlightID = Number(props.viewParams?.highlight_order_id || 0)
+  if (filters.scope === nextScope && Number(filters.highlight_order_id || 0) === nextHighlightID) return
+  filters.scope = nextScope
+  filters.highlight_order_id = nextHighlightID
+  await loadPage(1)
+}, { deep: true })
 </script>
 
 <style scoped>
@@ -610,6 +673,10 @@ onMounted(() => {
 .panel { border: 1px solid #e6e0d8; border-radius: 8px; background: #fff; padding: 14px; margin-bottom: 14px; }
 .panel-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
 h2 { margin: 0; font-size: 20px; }
+.scope-tabs { display: inline-flex; border: 1px solid #d8d1c8; border-radius: 8px; overflow: hidden; margin-bottom: 12px; }
+.scope-tabs button { height: 36px; border: 0; border-right: 1px solid #d8d1c8; border-radius: 0; background: #fff; color: #333; }
+.scope-tabs button:last-child { border-right: 0; }
+.scope-tabs button.active { background: #1f1f1f; color: #fff; }
 .filters { display: grid; grid-template-columns: repeat(4, minmax(130px, 1fr)) 90px; gap: 10px; align-items: end; }
 label span { display: block; color: #666; font-size: 12px; margin-bottom: 5px; }
 input, select, textarea { width: 100%; border: 1px solid #cfc8bf; border-radius: 6px; padding: 7px 9px; font: inherit; background: #fff; }
@@ -634,6 +701,11 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 table { width: 100%; min-width: 960px; border-collapse: collapse; }
 th, td { border-bottom: 1px solid #eee8df; padding: 9px 8px; text-align: left; font-size: 14px; vertical-align: top; }
 th { background: #fbfaf8; position: sticky; top: 0; }
+tr.highlight-new { background: #ecfdf3; box-shadow: inset 4px 0 0 #22c55e; }
+tr.state-unproduced { background: #fff9e6; box-shadow: inset 4px 0 0 #eab308; }
+tr.state-unshipped { background: #eef6ff; box-shadow: inset 4px 0 0 #3b82f6; }
+tr.state-unpaid { background: #fff1f2; box-shadow: inset 4px 0 0 #ef4444; }
+tr.voided { opacity: .55; }
 .select-col { width: 54px; text-align: center; }
 .select-col input { width: 18px; height: 18px; padding: 0; }
 a, .text-link { color: #1f4f82; text-decoration: none; }

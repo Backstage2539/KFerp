@@ -36,6 +36,13 @@
         <div v-if="actorName" class="actor">{{ actorName }}</div>
         <button v-if="currentActor" class="logout" type="button" @click="logout">退出</button>
       </header>
+      <div v-if="activeNotification" class="global-notification" :class="notificationToneClass(activeNotification)">
+        <button class="notification-main" type="button" @click="openNotification(activeNotification)">
+          <strong>{{ activeNotification.title }}</strong>
+          <span>{{ activeNotification.body || '点击查看订单' }}</span>
+        </button>
+        <button class="notification-close" type="button" aria-label="关闭通知" @click="dismissNotification(activeNotification)">x</button>
+      </div>
       <div v-if="authLoading" class="status">加载中</div>
       <div v-else-if="authError" class="status">{{ authError }}</div>
       <div v-else-if="!isCurrentAllowed" class="status">无权访问</div>
@@ -101,6 +108,7 @@ import WarehouseInventoryView from './views/WarehouseInventoryView.vue'
 import WorkOrdersView from './views/WorkOrdersView.vue'
 import { clearStoredAuthToken, fetchCurrentActor, hasStoredAuthToken, logoutCurrentSession } from './api/auth.js'
 import { appURL } from './api/client.js'
+import { fetchERPNotifications, markNotificationRead } from './api/message-center.js'
 import { replaceHistoryURL } from './lib/url-state.js'
 import {
   defaultExpandedGroups,
@@ -125,6 +133,8 @@ const menuStorageKey = 'kferp.menu.expandedGroups'
 const authLoading = ref(true)
 const authError = ref('')
 const currentActor = ref(null)
+const notifications = ref([])
+let notificationTimer = 0
 
 const internalViews = {
   order: OrderEntryView,
@@ -199,7 +209,7 @@ const internalViews = {
 function readViewParams() {
   const params = new URL(window.location.href).searchParams
   const out = {}
-  for (const key of ['warehouse', 'item_type', 'batch', 'ship_ready']) {
+  for (const key of ['warehouse', 'item_type', 'batch', 'ship_ready', 'scope', 'highlight_order_id']) {
     const value = params.get(key)
     if (value) out[key] = value
   }
@@ -209,7 +219,7 @@ function readViewParams() {
 function applyKeyToUrl(key, params = {}) {
   const url = new URL(window.location.href)
   url.searchParams.set('view', key)
-  for (const name of ['warehouse', 'item_type', 'batch', 'ship_ready']) {
+  for (const name of ['warehouse', 'item_type', 'batch', 'ship_ready', 'scope', 'highlight_order_id']) {
     url.searchParams.delete(name)
   }
   Object.entries(params || {}).forEach(([name, value]) => {
@@ -284,6 +294,53 @@ function handleNavigateView(event) {
   }
 }
 
+async function loadNotifications() {
+  if (!currentActor.value || !isViewAllowed('orders', allowedViewKeys.value)) return
+  try {
+    const data = await fetchERPNotifications(5)
+    notifications.value = data.notifications || []
+  } catch {
+    // Notification polling must not block the main ERP workspace.
+  }
+}
+
+function startNotificationPolling() {
+  stopNotificationPolling()
+  loadNotifications()
+  notificationTimer = window.setInterval(loadNotifications, 15000)
+}
+
+function stopNotificationPolling() {
+  if (!notificationTimer) return
+  window.clearInterval(notificationTimer)
+  notificationTimer = 0
+}
+
+async function dismissNotification(item) {
+  notifications.value = notifications.value.filter((row) => Number(row.id) !== Number(item?.id))
+  if (item?.id) {
+    try {
+      await markNotificationRead(item.id)
+    } catch {
+      // The next poll will reconcile read state.
+    }
+  }
+}
+
+async function openNotification(item) {
+  const payload = item?.payload || {}
+  const orderID = Number(payload.highlight_order_id || payload.order_id || item?.source_id || 0)
+  await dismissNotification(item)
+  open('orders', {
+    scope: payload.orders_scope || 'fulfillment',
+    highlight_order_id: orderID || undefined,
+  })
+}
+
+function notificationToneClass(item) {
+  return `tone-${item?.tone || 'info'}`
+}
+
 function firstAllowedMenuKey() {
   const primary = availableMenuGroups.value[0]?.items?.[0]?.key
   if (primary) return primary
@@ -319,6 +376,7 @@ async function loadActor() {
       const first = firstAllowedMenuKey()
       if (first) open(first)
     }
+    startNotificationPolling()
   } catch (err) {
     if (err.status === 401) {
       clearStoredAuthToken()
@@ -336,6 +394,7 @@ function redirectToLogin() {
 }
 
 async function logout() {
+  stopNotificationPolling()
   try {
     await logoutCurrentSession()
   } catch {
@@ -360,6 +419,7 @@ onMounted(async () => {
 onBeforeUnmount(() => {
   window.removeEventListener('resize', handleResize)
   window.removeEventListener('kferp:navigate-view', handleNavigateView)
+  stopNotificationPolling()
 })
 
 const sidebarClass = computed(() => ({
@@ -384,6 +444,7 @@ const title = computed(() => menuMap[currentKey.value]?.title || '')
 const actorName = computed(() => currentActor.value?.name || '')
 const isCurrentAllowed = computed(() => menuMap[currentKey.value] && isViewAllowed(currentKey.value, allowedViewKeys.value))
 const currentInternalView = computed(() => internalViews[currentKey.value] || OrdersView)
+const activeNotification = computed(() => notifications.value[0] || null)
 </script>
 
 <style scoped>
@@ -431,6 +492,41 @@ const currentInternalView = computed(() => internalViews[currentKey.value] || Or
 .status { padding: 28px; color: #666; }
 .internal-view { min-height: calc(100vh - 56px); background: #fff; }
 .overlay { position: fixed; inset: 0; background: rgba(0,0,0,.25); z-index: 25; }
+.global-notification {
+  display: flex;
+  align-items: stretch;
+  gap: 8px;
+  padding: 8px 12px;
+  border-bottom: 1px solid #d7eadf;
+  background: #edf9f1;
+  color: #11442b;
+}
+.global-notification.tone-warning { background: #fff7df; border-bottom-color: #ead99a; color: #684800; }
+.global-notification.tone-danger { background: #fff0f0; border-bottom-color: #efb9b9; color: #8a1f1f; }
+.global-notification.tone-info { background: #eef6ff; border-bottom-color: #cfe0f5; color: #143b68; }
+.notification-main {
+  flex: 1;
+  min-height: 38px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  padding: 0;
+}
+.notification-main strong { font-size: 14px; }
+.notification-main span { font-size: 13px; }
+.notification-close {
+  width: 32px;
+  border: 1px solid currentColor;
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
 
 @media (max-width: 900px) {
   .sidebar.mobile {

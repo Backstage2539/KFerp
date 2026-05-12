@@ -337,6 +337,54 @@ func TestApplyDirectShipImportCreatesOrdersAndSnapshotsIdempotently(t *testing.T
 	}
 }
 
+func TestOverviewIncludesCustomerPortalDirectShipOrders(t *testing.T) {
+	ctx := context.Background()
+	pool, schema := newCustomerFulfillmentTestDB(t)
+	repo := NewRepository(pool, schema)
+
+	var customerID, shipStatusID, orderID int64
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`
+		INSERT INTO %s.customers(name) VALUES('岩师傅') RETURNING id
+	`, schema)).Scan(&customerID); err != nil {
+		t.Fatalf("insert customer: %v", err)
+	}
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`
+		SELECT id FROM %s.ship_statuses WHERE name='未发货' ORDER BY id LIMIT 1
+	`, schema)).Scan(&shipStatusID); err != nil {
+		t.Fatalf("load ship status: %v", err)
+	}
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`
+		INSERT INTO %s.orders(
+			order_no, order_date, customer_id, portal_service_code,
+			receiver_name, receiver_phone, receiver_address, ship_status_id
+		) VALUES ('CP-DS-20260512-0001','2026-05-12',$1,'direct_ship','张三','13800000000','浙江杭州西湖区',$2)
+		RETURNING id
+	`, schema), customerID, shipStatusID).Scan(&orderID); err != nil {
+		t.Fatalf("insert portal direct ship order: %v", err)
+	}
+	if _, err := pool.Exec(ctx, fmt.Sprintf(`
+		INSERT INTO %s.order_items(order_id,line_no,item_name,qty,unit)
+		VALUES ($1,1,'誉观山冷萃豆',1,'件'), ($1,2,'誉观山花魁',2,'件')
+	`, schema), orderID); err != nil {
+		t.Fatalf("insert order items: %v", err)
+	}
+
+	got, err := repo.Overview(ctx, app.OverviewQuery{CustomerID: customerID})
+	if err != nil {
+		t.Fatalf("Overview: %v", err)
+	}
+	if len(got.DirectShipOrders) != 1 {
+		t.Fatalf("direct ship orders = %#v, want one customer portal order", got.DirectShipOrders)
+	}
+	order := got.DirectShipOrders[0]
+	if order.OrderNo != "CP-DS-20260512-0001" || order.ItemCount != 2 || order.Status != "未发货" {
+		t.Fatalf("direct ship summary = %#v", order)
+	}
+	if !strings.Contains(order.ReceiverAddress, "张三") || !strings.Contains(order.ReceiverAddress, "浙江杭州西湖区") {
+		t.Fatalf("receiver summary = %q", order.ReceiverAddress)
+	}
+}
+
 func TestApplySettlementImportRepositoryWiring(t *testing.T) {
 	src := string(readCustomerFulfillmentRepoFile(t, "internal/infrastructure/postgres/customerfulfillment/repository.go"))
 	for _, want := range []string{

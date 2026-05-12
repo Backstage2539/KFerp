@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	customerportalapp "orderapp/internal/application/customerportal"
+	messagecenterapp "orderapp/internal/application/messagecenter"
 
 	"github.com/labstack/echo/v4"
 )
@@ -62,7 +63,7 @@ type mallOrderRequest struct {
 	Items            []customerportalapp.MallOrderItemCommand `json:"items"`
 }
 
-func registerMiniAPI(e *echo.Echo, svc Service, beanListPDFRenderer BeanListPDFRenderer) {
+func registerMiniAPI(e *echo.Echo, svc Service, messages MessagePublisher, beanListPDFRenderer BeanListPDFRenderer) {
 	e.POST("/api/mini/login", func(c echo.Context) error {
 		if svc == nil {
 			return miniInternalError(c)
@@ -173,6 +174,7 @@ func registerMiniAPI(e *echo.Echo, svc Service, beanListPDFRenderer BeanListPDFR
 		if err != nil {
 			return miniBusinessError(c, err)
 		}
+		publishMiniOrderCreated(c, messages, result, "mall")
 		return c.JSON(http.StatusOK, result)
 	})
 
@@ -278,7 +280,49 @@ func registerMiniAPI(e *echo.Echo, svc Service, beanListPDFRenderer BeanListPDFR
 		if err != nil {
 			return miniBusinessError(c, err)
 		}
+		publishMiniOrderCreated(c, messages, result, req.ServiceCode)
 		return c.JSON(http.StatusOK, result)
+	})
+}
+
+func publishMiniOrderCreated(c echo.Context, messages MessagePublisher, result customerportalapp.FulfillmentOrder, serviceCode string) {
+	if messages == nil || result.OrderID <= 0 {
+		return
+	}
+	serviceCode = strings.TrimSpace(serviceCode)
+	if serviceCode == "" {
+		serviceCode = strings.TrimSpace(result.PortalServiceCode)
+	}
+	title := "新订单 " + strings.TrimSpace(result.OrderNo)
+	body := "客户门户订单已提交"
+	scope := "fulfillment"
+	if serviceCode == "mall" {
+		body = "商城订单已提交"
+		scope = "all"
+	}
+	_, _ = messages.Publish(c.Request().Context(), messagecenterapp.PublishCommand{
+		EventKey:   fmt.Sprintf("order.created.%d", result.OrderID),
+		Topic:      "orders",
+		EventType:  "order.created",
+		SourceType: "order",
+		SourceID:   result.OrderID,
+		Actor:      "customer_portal",
+		Title:      title,
+		Body:       body,
+		Tone:       "success",
+		Payload: map[string]any{
+			"order_id":            result.OrderID,
+			"order_no":            result.OrderNo,
+			"portal_service_code": serviceCode,
+			"source_warehouse":    result.SourceWarehouse,
+			"orders_scope":        scope,
+			"highlight_order_id":  result.OrderID,
+		},
+		Deliveries: []messagecenterapp.DeliveryCommand{{
+			Channel:    messagecenterapp.ChannelERPPlatform,
+			TargetType: "permission",
+			TargetKey:  "orders.read",
+		}},
 	})
 }
 
