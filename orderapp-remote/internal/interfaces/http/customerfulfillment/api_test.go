@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	customerapp "orderapp/internal/application/customer"
 	app "orderapp/internal/application/customerfulfillment"
+	messagecenterapp "orderapp/internal/application/messagecenter"
 	"strings"
 	"testing"
 
@@ -348,8 +349,9 @@ func TestCustomerPortalProcessingSubmitAPIDerivesEmployeeAndIgnoresCustomerID(t 
 
 func TestCustomerPortalDirectShipSubmitAPIDerivesEmployee(t *testing.T) {
 	svc := &fakeCustomerFulfillmentService{
-		customerDirectShipResult: app.DirectShipOrderSummary{OrderNo: "CDS-20260508-0001", Status: "submitted", ItemCount: 1},
+		customerDirectShipResult: app.DirectShipOrderSummary{OrderID: 98, OrderNo: "CDS-20260508-0001", Status: "submitted", ItemCount: 1},
 	}
+	messages := &fakeCustomerFulfillmentMessagePublisher{}
 	e := echo.New()
 	e.Use(func(next echo.HandlerFunc) echo.HandlerFunc {
 		return func(c echo.Context) error {
@@ -357,7 +359,7 @@ func TestCustomerPortalDirectShipSubmitAPIDerivesEmployee(t *testing.T) {
 			return next(c)
 		}
 	})
-	RegisterRoutes(e, Dependencies{CustomerFulfillment: svc})
+	RegisterRoutes(e, Dependencies{CustomerFulfillment: svc, MessageCenter: messages})
 
 	body := `{"receiver_name":"张三","receiver_phone":"13800000000","receiver_address":"浙江杭州","product_name":"誉观山冷萃豆","spec":"100g","quantity_units":2,"note":"门卫代收"}`
 	req := httptest.NewRequest(http.MethodPost, "/api/customer-processing/portal/direct-ship-orders", strings.NewReader(body))
@@ -373,6 +375,9 @@ func TestCustomerPortalDirectShipSubmitAPIDerivesEmployee(t *testing.T) {
 	}
 	if svc.customerDirectShipCmd.EmployeeID != 23 || svc.customerDirectShipCmd.ReceiverName != "张三" || svc.customerDirectShipCmd.ProductName != "誉观山冷萃豆" {
 		t.Fatalf("direct ship submit cmd = %+v", svc.customerDirectShipCmd)
+	}
+	if messages.cmd.EventType != "order.created" || messages.cmd.SourceID != 98 || messages.cmd.Payload["orders_scope"] != "fulfillment" {
+		t.Fatalf("message publish cmd = %#v", messages.cmd)
 	}
 }
 
@@ -601,6 +606,15 @@ func (s *fakeCustomerFulfillmentService) Overview(ctx context.Context, query app
 func (s *fakeCustomerFulfillmentService) ListImports(ctx context.Context, query app.ListImportsQuery) ([]app.ImportBatch, error) {
 	s.listImportsQuery = query
 	return s.listImportsResult, nil
+}
+
+type fakeCustomerFulfillmentMessagePublisher struct {
+	cmd messagecenterapp.PublishCommand
+}
+
+func (p *fakeCustomerFulfillmentMessagePublisher) Publish(ctx context.Context, cmd messagecenterapp.PublishCommand) (int64, error) {
+	p.cmd = cmd
+	return 1, nil
 }
 
 type fakeCustomerDirectory struct {

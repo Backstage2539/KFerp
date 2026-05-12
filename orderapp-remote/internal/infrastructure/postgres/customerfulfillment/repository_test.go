@@ -385,6 +385,85 @@ func TestOverviewIncludesCustomerPortalDirectShipOrders(t *testing.T) {
 	}
 }
 
+func TestSubmitCustomerDirectShipOrderCreatesERPOrder(t *testing.T) {
+	ctx := context.Background()
+	pool, schema := newCustomerFulfillmentTestDB(t)
+	repo := NewRepository(pool, schema)
+
+	var customerID, employeeID int64
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`
+		INSERT INTO %s.customers(name, customer_type) VALUES('岩师傅','wholesale') RETURNING id
+	`, schema)).Scan(&customerID); err != nil {
+		t.Fatalf("insert customer: %v", err)
+	}
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`
+		INSERT INTO %s.company_employees(name, phone, active) VALUES('13800138065','13800138065',true) RETURNING id
+	`, schema)).Scan(&employeeID); err != nil {
+		t.Fatalf("insert employee: %v", err)
+	}
+	if _, err := pool.Exec(ctx, fmt.Sprintf(`
+		INSERT INTO %s.customer_erp_user_bindings(customer_id, employee_id, status)
+		VALUES($1,$2,'active')
+	`, schema), customerID, employeeID); err != nil {
+		t.Fatalf("insert binding: %v", err)
+	}
+
+	got, err := repo.SubmitCustomerDirectShipOrder(ctx, app.SubmitCustomerDirectShipOrderCommand{
+		EmployeeID:      employeeID,
+		ReceiverName:    "刘祎泊",
+		ReceiverPhone:   "15302787466",
+		ReceiverAddress: "云南省昆明市西山区西坝新村30号C区",
+		ProductID:       12,
+		ProductName:     "岩师傅冷萃豆",
+		Spec:            "100g",
+		QuantityUnits:   2,
+		Note:            "客户门户代发",
+	})
+	if err != nil {
+		t.Fatalf("SubmitCustomerDirectShipOrder: %v", err)
+	}
+	if got.OrderNo == "" {
+		t.Fatal("OrderNo is empty")
+	}
+
+	var orderID, linkedOrderID int64
+	var orderNo, portalServiceCode, receiverName, receiverPhone, receiverAddress string
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`
+		SELECT id, order_no, portal_service_code, receiver_name, receiver_phone, receiver_address
+		FROM %s.orders
+		WHERE customer_id=$1 AND order_no=$2
+	`, schema), customerID, got.OrderNo).Scan(&orderID, &orderNo, &portalServiceCode, &receiverName, &receiverPhone, &receiverAddress); err != nil {
+		t.Fatalf("load created order: %v", err)
+	}
+	if orderNo != got.OrderNo || portalServiceCode != "direct_ship" || receiverName != "刘祎泊" || receiverPhone != "15302787466" || receiverAddress != "云南省昆明市西山区西坝新村30号C区" {
+		t.Fatalf("created order = %d/%q/%q/%q/%q/%q", orderID, orderNo, portalServiceCode, receiverName, receiverPhone, receiverAddress)
+	}
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`
+		SELECT order_id
+		FROM %s.customer_direct_ship_import_orders
+		WHERE customer_id=$1 AND external_order_no=$2
+	`, schema), customerID, got.OrderNo).Scan(&linkedOrderID); err != nil {
+		t.Fatalf("load direct ship link: %v", err)
+	}
+	if linkedOrderID != orderID {
+		t.Fatalf("direct ship linked order_id = %d, want %d", linkedOrderID, orderID)
+	}
+	assertCustomerFulfillmentCount(t, pool, schema, "order_items", "order_id=$1 AND item_name='岩师傅冷萃豆' AND qty=2", orderID, 1)
+}
+
+func TestCustomerPortalDirectShipSubmitRepositoryWiresERPOrderCreation(t *testing.T) {
+	src := string(readCustomerFulfillmentRepoFile(t, "internal/infrastructure/postgres/customerfulfillment/repository.go"))
+	for _, want := range []string{
+		"createSubmittedDirectShipERPOrderTx",
+		"backfillSubmittedDirectShipERPOrders",
+		"UPDATE %s.customer_direct_ship_import_orders\n\t\tSET order_id=$2",
+	} {
+		if !strings.Contains(src, want) {
+			t.Fatalf("repository.go missing customer portal direct ship ERP order marker %q", want)
+		}
+	}
+}
+
 func TestApplySettlementImportRepositoryWiring(t *testing.T) {
 	src := string(readCustomerFulfillmentRepoFile(t, "internal/infrastructure/postgres/customerfulfillment/repository.go"))
 	for _, want := range []string{

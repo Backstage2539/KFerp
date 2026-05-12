@@ -5,6 +5,7 @@ import (
 	"net/http"
 	customerapp "orderapp/internal/application/customer"
 	app "orderapp/internal/application/customerfulfillment"
+	messagecenterapp "orderapp/internal/application/messagecenter"
 	"orderapp/internal/interfaces/http/support"
 	"strconv"
 	"strings"
@@ -15,6 +16,7 @@ import (
 type api struct {
 	svc       Service
 	customers CustomerDirectory
+	messages  MessagePublisher
 }
 
 func (a api) listCustomers(c echo.Context) error {
@@ -209,7 +211,37 @@ func (a api) submitCustomerDirectShipOrder(c echo.Context) error {
 	if err != nil {
 		return customerPortalError(c, err)
 	}
+	a.publishCustomerFulfillmentDirectShipOrderCreated(c, row)
 	return c.JSON(http.StatusOK, row)
+}
+
+func (a api) publishCustomerFulfillmentDirectShipOrderCreated(c echo.Context, row app.DirectShipOrderSummary) {
+	if a.messages == nil || row.OrderID <= 0 {
+		return
+	}
+	_, _ = a.messages.Publish(c.Request().Context(), messagecenterapp.PublishCommand{
+		EventKey:   "order.created." + strconv.FormatInt(row.OrderID, 10),
+		Topic:      "orders",
+		EventType:  "order.created",
+		SourceType: "order",
+		SourceID:   row.OrderID,
+		Actor:      support.ActorOf(c),
+		Title:      "新订单 " + strings.TrimSpace(row.OrderNo),
+		Body:       "客户履约代发订单已提交",
+		Tone:       "success",
+		Payload: map[string]any{
+			"order_id":            row.OrderID,
+			"order_no":            row.OrderNo,
+			"portal_service_code": "direct_ship",
+			"orders_scope":        "fulfillment",
+			"highlight_order_id":  row.OrderID,
+		},
+		Deliveries: []messagecenterapp.DeliveryCommand{{
+			Channel:    messagecenterapp.ChannelERPPlatform,
+			TargetType: "permission",
+			TargetKey:  "orders.read",
+		}},
+	})
 }
 
 func (a api) submitInternalProcessingWorkOrder(c echo.Context) error {

@@ -316,6 +316,7 @@ type ProcessingOrderSummary struct {
 }
 
 type DirectShipOrderSummary struct {
+	OrderID         int64  `json:"order_id,omitempty"`
 	OrderNo         string `json:"order_no"`
 	OrderDate       string `json:"order_date"`
 	ReceiverAddress string `json:"receiver_address"`

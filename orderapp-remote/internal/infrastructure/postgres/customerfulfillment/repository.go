@@ -323,6 +323,7 @@ func (r *Repository) SubmitCustomerDirectShipOrder(ctx context.Context, cmd app.
 		"submitted_by_employee_id": cmd.EmployeeID,
 		"receiver_name":            cmd.ReceiverName,
 		"receiver_phone":           cmd.ReceiverPhone,
+		"receiver_address":         cmd.ReceiverAddress,
 		"receiver_company":         cmd.ReceiverCompany,
 		"note":                     cmd.Note,
 	}
@@ -361,16 +362,232 @@ func (r *Repository) SubmitCustomerDirectShipOrder(ctx context.Context, cmd app.
 	`, r.schema), importOrderID, customerID, cmd.ProductName, cmd.Spec, cmd.QuantityUnits, mustPayloadJSON(itemPayload)); err != nil {
 		return app.DirectShipOrderSummary{}, err
 	}
+	orderID, err := r.createSubmittedDirectShipERPOrderTx(ctx, tx, importOrderID)
+	if err != nil {
+		return app.DirectShipOrderSummary{}, err
+	}
 	if err := tx.Commit(ctx); err != nil {
 		return app.DirectShipOrderSummary{}, err
 	}
 	return app.DirectShipOrderSummary{
+		OrderID:         orderID,
 		OrderNo:         orderNo,
 		OrderDate:       time.Now().Format("2006-01-02"),
 		ReceiverAddress: receiverSnapshot,
 		Status:          "submitted",
 		ItemCount:       1,
 	}, nil
+}
+
+func backfillSubmittedDirectShipERPOrders(ctx context.Context, pool *pgxpool.Pool, schema string) error {
+	repo := &Repository{pool: pool, schema: schema}
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	rows, err := tx.Query(ctx, fmt.Sprintf(`
+		SELECT id
+		FROM %s.customer_direct_ship_import_orders
+		WHERE batch_id=0
+		  AND status='submitted'
+		  AND COALESCE(order_id,0)=0
+		ORDER BY id
+	`, schema))
+	if err != nil {
+		return err
+	}
+	ids := make([]int64, 0)
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			rows.Close()
+			return err
+		}
+		ids = append(ids, id)
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return err
+	}
+	rows.Close()
+
+	for _, id := range ids {
+		if _, err := repo.createSubmittedDirectShipERPOrderTx(ctx, tx, id); err != nil {
+			return err
+		}
+	}
+	return tx.Commit(ctx)
+}
+
+func (r *Repository) createSubmittedDirectShipERPOrderTx(ctx context.Context, tx pgx.Tx, importOrderID int64) (int64, error) {
+	var customerID, existingOrderID int64
+	var orderNo, orderDate, receiverSnapshot string
+	var payloadJSON []byte
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`
+		SELECT customer_id,
+		       COALESCE(NULLIF(external_order_no,''), 'CDS-' || to_char(created_at,'YYYYMMDD') || '-' || id::text),
+		       COALESCE(to_char(order_date, 'YYYY-MM-DD'), ''),
+		       receiver_address,
+		       payload,
+		       COALESCE(order_id,0)
+		FROM %s.customer_direct_ship_import_orders
+		WHERE id=$1
+		FOR UPDATE
+	`, r.schema), importOrderID).Scan(&customerID, &orderNo, &orderDate, &receiverSnapshot, &payloadJSON, &existingOrderID); err != nil {
+		return 0, err
+	}
+	if existingOrderID > 0 {
+		return existingOrderID, nil
+	}
+	payload := map[string]any{}
+	if len(payloadJSON) > 0 {
+		_ = json.Unmarshal(payloadJSON, &payload)
+	}
+	receiverName, receiverPhone, receiverAddress, receiverCompany := submittedDirectShipReceiver(payload, receiverSnapshot)
+	payStatusID := customerFulfillmentStatusID(ctx, tx, r.schema, "pay_statuses", "未付款", "未收款")
+	shipStatusID := customerFulfillmentStatusID(ctx, tx, r.schema, "ship_statuses", "未发货")
+	processStatusID := customerFulfillmentStatusID(ctx, tx, r.schema, "order_process_statuses", "待处理", "待生产")
+
+	var orderID int64
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`
+		INSERT INTO %s.orders(
+			order_no, order_date, customer_id, pay_status_id, ship_status_id, process_status_id,
+			portal_service_code, source_warehouse,
+			receiver_name, receiver_phone, receiver_address, receiver_company,
+			notes, created_at
+		)
+		VALUES($1,$2,$3,$4,$5,$6,'direct_ship','finished_goods',$7,$8,$9,$10,$11,now())
+		RETURNING id
+	`, r.schema),
+		orderNo,
+		parseDateValue(orderDate),
+		customerID,
+		nullableCustomerFulfillmentID(payStatusID),
+		nullableCustomerFulfillmentID(shipStatusID),
+		nullableCustomerFulfillmentID(processStatusID),
+		receiverName,
+		receiverPhone,
+		receiverAddress,
+		receiverCompany,
+		payloadString(payload, "note"),
+	).Scan(&orderID); err != nil {
+		return 0, err
+	}
+	if err := r.createSubmittedDirectShipERPOrderItemsTx(ctx, tx, importOrderID, orderID); err != nil {
+		return 0, err
+	}
+	if _, err := tx.Exec(ctx, fmt.Sprintf(`
+		UPDATE %s.customer_direct_ship_import_orders
+		SET order_id=$2
+		WHERE id=$1
+	`, r.schema), importOrderID, orderID); err != nil {
+		return 0, err
+	}
+	return orderID, nil
+}
+
+func (r *Repository) createSubmittedDirectShipERPOrderItemsTx(ctx context.Context, tx pgx.Tx, importOrderID, orderID int64) error {
+	rows, err := tx.Query(ctx, fmt.Sprintf(`
+		SELECT line_no, product_title, spec, quantity_units, payload
+		FROM %s.customer_direct_ship_import_order_items
+		WHERE import_order_id=$1
+		ORDER BY line_no, id
+	`, r.schema), importOrderID)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	lineNo := 0
+	for rows.Next() {
+		lineNo++
+		var rowLineNo int
+		var productTitle, spec string
+		var quantity int64
+		var payloadJSON []byte
+		if err := rows.Scan(&rowLineNo, &productTitle, &spec, &quantity, &payloadJSON); err != nil {
+			return err
+		}
+		payload := map[string]any{}
+		if len(payloadJSON) > 0 {
+			_ = json.Unmarshal(payloadJSON, &payload)
+		}
+		productID := payloadInt64(payload, "product_id")
+		if productTitle == "" {
+			productTitle = payloadString(payload, "product_name", "product_title")
+		}
+		if spec == "" {
+			spec = payloadString(payload, "spec")
+		}
+		if quantity <= 0 {
+			quantity = payloadInt64(payload, "quantity_units")
+		}
+		if quantity <= 0 {
+			quantity = 1
+		}
+		if rowLineNo <= 0 {
+			rowLineNo = lineNo
+		}
+		if _, err := tx.Exec(ctx, fmt.Sprintf(`
+			INSERT INTO %s.order_items(order_id,line_no,product_id,item_name,qty,unit,spec)
+			VALUES($1,$2,$3,$4,$5,'件',$6)
+		`, r.schema), orderID, rowLineNo, nullableCustomerFulfillmentID(productID), productTitle, quantity, spec); err != nil {
+			return err
+		}
+	}
+	return rows.Err()
+}
+
+func submittedDirectShipReceiver(payload map[string]any, snapshot string) (string, string, string, string) {
+	receiverName := payloadString(payload, "receiver_name")
+	receiverPhone := payloadString(payload, "receiver_phone")
+	receiverAddress := payloadString(payload, "receiver_address")
+	receiverCompany := payloadString(payload, "receiver_company")
+	if receiverAddress == "" && snapshot != "" {
+		receiverAddress = strings.TrimSpace(snapshot)
+		if receiverPhone != "" {
+			receiverAddress = strings.TrimSpace(strings.Replace(receiverAddress, receiverPhone, "", 1))
+		}
+		if receiverName != "" {
+			receiverAddress = strings.TrimSpace(strings.Replace(receiverAddress, receiverName, "", 1))
+		}
+	}
+	if receiverName == "" || receiverPhone == "" || receiverAddress == "" {
+		name, phone, address := parseReceiverSnapshot(snapshot)
+		if receiverName == "" {
+			receiverName = name
+		}
+		if receiverPhone == "" {
+			receiverPhone = phone
+		}
+		if receiverAddress == "" {
+			receiverAddress = address
+		}
+	}
+	return receiverName, receiverPhone, receiverAddress, receiverCompany
+}
+
+func customerFulfillmentStatusID(ctx context.Context, tx pgx.Tx, schema, table string, names ...string) int64 {
+	for _, name := range names {
+		name = strings.TrimSpace(name)
+		if name == "" {
+			continue
+		}
+		var id int64
+		q := fmt.Sprintf("SELECT id FROM %s.%s WHERE name=$1 ORDER BY id LIMIT 1", schema, table)
+		if err := tx.QueryRow(ctx, q, name).Scan(&id); err == nil && id > 0 {
+			return id
+		}
+	}
+	return 0
+}
+
+func nullableCustomerFulfillmentID(id int64) any {
+	if id <= 0 {
+		return nil
+	}
+	return id
 }
 
 func (r *Repository) AdjustCustodyInventory(ctx context.Context, cmd app.AdjustCustodyInventoryCommand) (app.CustodyBalance, error) {

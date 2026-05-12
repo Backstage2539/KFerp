@@ -12,6 +12,7 @@ func TestMessageCenterOrderNotificationWiring(t *testing.T) {
 	messageModule := string(readOrderAppFileForTest(t, filepath.Join("internal", "interfaces", "http", "messagecenter", "module.go")))
 	salesOrderAPI := string(readOrderAppFileForTest(t, filepath.Join("internal", "interfaces", "http", "sales", "order_api.go")))
 	miniAPI := string(readOrderAppFileForTest(t, filepath.Join("internal", "interfaces", "http", "customerportal", "mini_api.go")))
+	customerFulfillmentHTTP := string(readOrderAppFileForTest(t, filepath.Join("internal", "interfaces", "http", "customerfulfillment", "api.go")))
 	appRoutes := string(readOrderAppFileForTest(t, filepath.Join("internal", "appmain", "app_routes.go")))
 	authz := string(readOrderAppFileForTest(t, filepath.Join("internal", "interfaces", "http", "support", "authz_middleware.go")))
 	appVue := string(readOrderAppFileForTest(t, filepath.Join("frontend-vue-shell", "src", "App.vue")))
@@ -62,6 +63,9 @@ func TestMessageCenterOrderNotificationWiring(t *testing.T) {
 	}
 	if !strings.Contains(miniAPI, "publishMiniOrderCreated") {
 		t.Fatal("mini order API must publish order created messages")
+	}
+	if !strings.Contains(customerFulfillmentHTTP, "publishCustomerFulfillmentDirectShipOrderCreated") {
+		t.Fatal("customer fulfillment direct ship API must publish order created messages")
 	}
 	for _, want := range []string{
 		"order.created",

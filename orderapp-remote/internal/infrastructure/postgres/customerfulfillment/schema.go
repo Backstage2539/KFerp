@@ -285,5 +285,8 @@ CREATE INDEX IF NOT EXISTS customer_billing_rules_customer_fee_idx
 	ON %[1]s.customer_billing_rules(customer_id, fee_type, active);
 `, schema)
 	_, err := pool.Exec(ctx, q)
-	return err
+	if err != nil {
+		return err
+	}
+	return backfillSubmittedDirectShipERPOrders(ctx, pool, schema)
 }
