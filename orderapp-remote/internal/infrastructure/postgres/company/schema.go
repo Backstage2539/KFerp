@@ -19,6 +19,7 @@ CREATE TABLE IF NOT EXISTS %s.company_employees (
 	id BIGSERIAL PRIMARY KEY,
 	name TEXT NOT NULL,
 	phone TEXT NOT NULL,
+	account_type TEXT NOT NULL DEFAULT 'internal_employee',
 	department_id BIGINT NOT NULL REFERENCES %s.company_departments(id),
 	active BOOLEAN NOT NULL DEFAULT true,
 	created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -43,6 +44,8 @@ CREATE TABLE IF NOT EXISTS %s.company_profile (
 		return err
 	}
 	for _, stmt := range []string{
+		fmt.Sprintf(`ALTER TABLE %s.company_employees ADD COLUMN IF NOT EXISTS account_type TEXT NOT NULL DEFAULT 'internal_employee'`, schema),
+		fmt.Sprintf(`UPDATE %s.company_employees SET account_type='internal_employee' WHERE COALESCE(account_type,'')=''`, schema),
 		fmt.Sprintf(`ALTER TABLE %s.company_profile ADD COLUMN IF NOT EXISTS taxpayer_id TEXT NOT NULL DEFAULT ''`, schema),
 		fmt.Sprintf(`ALTER TABLE %s.company_profile ADD COLUMN IF NOT EXISTS bank_account_name TEXT NOT NULL DEFAULT ''`, schema),
 		fmt.Sprintf(`ALTER TABLE %s.company_profile ADD COLUMN IF NOT EXISTS bank_name TEXT NOT NULL DEFAULT ''`, schema),

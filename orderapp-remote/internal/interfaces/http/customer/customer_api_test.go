@@ -29,6 +29,7 @@ func (r *fakeCustomerRepo) Editor(ctx context.Context, id int64) (*customerapp.E
 		Customer: customerapp.CustomerEditData{
 			ID:             id,
 			Name:           r.upsert.Name,
+			CustomerType:   r.upsert.CustomerType,
 			CompanyName:    r.upsert.CompanyName,
 			CompanyAddress: r.upsert.CompanyAddress,
 			CompanyPhone:   r.upsert.CompanyPhone,
@@ -87,5 +88,51 @@ func TestCustomerAPIStoresCompanyContactFields(t *testing.T) {
 	}
 	if repo.upsert.CompanyName != "张三咖啡公司" || repo.upsert.CompanyAddress != "上海市徐汇区" || repo.upsert.CompanyPhone != "021-12345678" {
 		t.Fatalf("upsert company fields = %+v", repo.upsert)
+	}
+}
+
+func TestCustomerAPIRoundTripsCustomerType(t *testing.T) {
+	repo := &fakeCustomerRepo{}
+	e := echo.New()
+	RegisterRoutes(e, Dependencies{Customer: customerapp.NewService(repo)})
+
+	body := strings.NewReader(`{"name":"岩师傅","customer_type":"wholesale","active":true}`)
+	req := httptest.NewRequest(http.MethodPost, "/api/customers", body)
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+
+	e.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("POST /api/customers status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if repo.upsert.CustomerType != customerapp.CustomerTypeWholesale {
+		t.Fatalf("upsert customer_type=%q, want wholesale", repo.upsert.CustomerType)
+	}
+	if !strings.Contains(rec.Body.String(), `"customer_type":"wholesale"`) {
+		t.Fatalf("response missing customer_type: %s", rec.Body.String())
+	}
+}
+
+func TestCustomerAPIDefaultsHistoricalCustomersToRetail(t *testing.T) {
+	repo := &fakeCustomerRepo{}
+	e := echo.New()
+	RegisterRoutes(e, Dependencies{Customer: customerapp.NewService(repo)})
+
+	body := strings.NewReader(`{"name":"历史客户","active":true}`)
+	req := httptest.NewRequest(http.MethodPost, "/api/customers", body)
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+
+	e.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("POST /api/customers status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if repo.upsert.CustomerType != customerapp.CustomerTypeRetail {
+		t.Fatalf("default customer_type=%q, want retail", repo.upsert.CustomerType)
+	}
+	if !strings.Contains(rec.Body.String(), `"customer_type":"retail"`) {
+		t.Fatalf("response missing retail customer_type: %s", rec.Body.String())
 	}
 }

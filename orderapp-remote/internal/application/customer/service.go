@@ -3,11 +3,19 @@ package customer
 import (
 	"context"
 	"io"
+	"strings"
+)
+
+const (
+	CustomerTypeRetail    = "retail"
+	CustomerTypeEcommerce = "ecommerce"
+	CustomerTypeWholesale = "wholesale"
 )
 
 type UpsertCommand struct {
 	Name               string
 	RawName            string
+	CustomerType       string
 	CompanyName        string
 	CompanyAddress     string
 	CompanyPhone       string
@@ -21,6 +29,7 @@ type UpsertCommand struct {
 
 type InlineUpdateCommand struct {
 	Name               string
+	CustomerType       string
 	CompanyName        string
 	CompanyAddress     string
 	CompanyPhone       string
@@ -79,6 +88,7 @@ type ListResult struct {
 type CustomerRow struct {
 	ID                 int64   `json:"id"`
 	Name               string  `json:"name"`
+	CustomerType       string  `json:"customer_type"`
 	CompanyName        string  `json:"company_name"`
 	CompanyAddress     string  `json:"company_address"`
 	CompanyPhone       string  `json:"company_phone"`
@@ -95,6 +105,7 @@ type CustomerEditData struct {
 	ID                 int64
 	Name               string
 	RawName            string
+	CustomerType       string
 	CompanyName        string
 	CompanyAddress     string
 	CompanyPhone       string
@@ -165,6 +176,7 @@ func NewService(repo Repository) *Service {
 }
 
 func (s *Service) Upsert(ctx context.Context, actor string, id *int64, cmd UpsertCommand) (int64, error) {
+	cmd.CustomerType = NormalizeCustomerType(cmd.CustomerType)
 	return s.repo.Upsert(ctx, actor, id, cmd)
 }
 
@@ -202,9 +214,21 @@ func (s *Service) DeleteAsset(ctx context.Context, actor string, assetID int64) 
 }
 
 func (s *Service) InlineUpdate(ctx context.Context, actor string, id int64, cmd InlineUpdateCommand) error {
+	cmd.CustomerType = NormalizeCustomerType(cmd.CustomerType)
 	return s.repo.InlineUpdate(ctx, actor, id, cmd)
 }
 
 func (s *Service) Delete(ctx context.Context, actor string, id int64) error {
 	return s.repo.Delete(ctx, actor, id)
+}
+
+func NormalizeCustomerType(value string) string {
+	switch strings.TrimSpace(value) {
+	case CustomerTypeWholesale:
+		return CustomerTypeWholesale
+	case CustomerTypeEcommerce:
+		return CustomerTypeEcommerce
+	default:
+		return CustomerTypeRetail
+	}
 }

@@ -22,6 +22,7 @@ const (
 const (
 	CapabilityTemplateProcessingFulfillment = "processing_fulfillment"
 	CapabilityTemplatePublicSKUDirectShip   = "public_sku_direct_ship"
+	CapabilityTemplateRetailMall            = "retail_mall"
 )
 
 const (
@@ -470,19 +471,32 @@ type PortalAdminCustomerQuery struct {
 }
 
 type PortalAdminCustomer struct {
-	ID                      int64  `json:"id"`
-	Name                    string `json:"name"`
-	Phone                   string `json:"phone"`
-	CompanyName             string `json:"company_name"`
-	DisplayName             string `json:"display_name"`
-	ProcessingWarehouseCode string `json:"processing_warehouse_code"`
-	DefaultSenderID         int64  `json:"default_sender_id"`
-	PortalEnabled           bool   `json:"portal_enabled"`
-	PortalStatus            string `json:"portal_status"`
-	ThemeKey                string `json:"theme_key"`
-	MiniappEntryMode        string `json:"miniapp_entry_mode"`
-	CapabilityTemplateKey   string `json:"capability_template_key"`
-	BindingCount            int    `json:"binding_count"`
+	ID                      int64             `json:"id"`
+	Name                    string            `json:"name"`
+	CustomerType            string            `json:"customer_type"`
+	Phone                   string            `json:"phone"`
+	CompanyName             string            `json:"company_name"`
+	DisplayName             string            `json:"display_name"`
+	ProcessingWarehouseCode string            `json:"processing_warehouse_code"`
+	DefaultSenderID         int64             `json:"default_sender_id"`
+	PortalEnabled           bool              `json:"portal_enabled"`
+	PortalStatus            string            `json:"portal_status"`
+	ThemeKey                string            `json:"theme_key"`
+	MiniappEntryMode        string            `json:"miniapp_entry_mode"`
+	CapabilityTemplateKey   string            `json:"capability_template_key"`
+	BindingCount            int               `json:"binding_count"`
+	ERPBinding              *PortalERPBinding `json:"erp_binding,omitempty"`
+}
+
+type PortalERPBinding struct {
+	CustomerID   int64  `json:"customer_id"`
+	EmployeeID   int64  `json:"employee_id"`
+	EmployeeName string `json:"employee_name"`
+	Phone        string `json:"phone"`
+	Role         string `json:"role"`
+	Status       string `json:"status"`
+	UpdatedBy    string `json:"updated_by,omitempty"`
+	UpdatedAt    string `json:"updated_at,omitempty"`
 }
 
 type PortalUserBinding struct {
@@ -525,6 +539,13 @@ type ApplyCapabilityTemplateCommand struct {
 type SaveCapabilityTemplateCommand struct {
 	Template  CapabilityTemplate
 	UpdatedBy string
+}
+
+type UpsertPortalERPBindingCommand struct {
+	CustomerID int64
+	EmployeeID int64
+	Status     string
+	UpdatedBy  string
 }
 
 func (d PortalAdminDetail) HasCapabilityOption(code string) bool {
@@ -572,6 +593,7 @@ type Repository interface {
 	ListCapabilityTemplates(ctx context.Context) ([]CapabilityTemplate, error)
 	SaveCapabilityTemplate(ctx context.Context, cmd SaveCapabilityTemplateCommand) (CapabilityTemplate, error)
 	ApplyCapabilityTemplate(ctx context.Context, cmd ApplyCapabilityTemplateCommand) (PortalAdminDetail, error)
+	UpsertPortalERPBinding(ctx context.Context, cmd UpsertPortalERPBindingCommand) (PortalAdminDetail, error)
 	ListMallProducts(ctx context.Context) ([]MallProduct, []MallProductOption, error)
 	SaveMallProduct(ctx context.Context, cmd SaveMallProductCommand) (MallProduct, error)
 	UpdateMallProductImage(ctx context.Context, cmd UpdateMallProductImageCommand) (MallProduct, error)
@@ -828,6 +850,27 @@ func (s *Service) ApplyCapabilityTemplate(ctx context.Context, cmd ApplyCapabili
 	cmd.Template = template
 	cmd.UpdatedBy = strings.TrimSpace(cmd.UpdatedBy)
 	detail, err := s.repo.ApplyCapabilityTemplate(ctx, cmd)
+	if err != nil {
+		return PortalAdminDetail{}, err
+	}
+	detail.Customer = normalizePortalAdminCustomer(detail.Customer)
+	detail.Capabilities = completeCapabilityOptions(detail.Capabilities)
+	return detail, nil
+}
+
+func (s *Service) UpsertPortalERPBinding(ctx context.Context, cmd UpsertPortalERPBindingCommand) (PortalAdminDetail, error) {
+	if cmd.CustomerID <= 0 {
+		return PortalAdminDetail{}, fmt.Errorf("customer required")
+	}
+	if cmd.EmployeeID <= 0 {
+		return PortalAdminDetail{}, fmt.Errorf("employee required")
+	}
+	if s.repo == nil {
+		return PortalAdminDetail{}, fmt.Errorf("repository required")
+	}
+	cmd.Status = normalizePortalERPBindingStatus(cmd.Status)
+	cmd.UpdatedBy = strings.TrimSpace(cmd.UpdatedBy)
+	detail, err := s.repo.UpsertPortalERPBinding(ctx, cmd)
 	if err != nil {
 		return PortalAdminDetail{}, err
 	}
@@ -1096,7 +1139,7 @@ func serviceDefinition(key string) (serviceDef, error) {
 			key:          ServiceKeyOrders,
 			title:        "我的订单",
 			capability:   CapabilityProductOrder,
-			capabilities: []string{CapabilityProductOrder, CapabilityDirectShip, CapabilityShippingQuery},
+			capabilities: []string{CapabilityProductOrder, CapabilityDirectShip, CapabilityShippingQuery, CapabilityMall},
 		}, nil
 	case "productorder", "product_order":
 		return singleCapabilityServiceDef(ServiceKeyProductOrder, "现货下单", CapabilityProductOrder), nil
@@ -1136,10 +1179,26 @@ func normalizeCurrentContext(current CurrentContext) CurrentContext {
 }
 
 func normalizePortalAdminCustomer(customer PortalAdminCustomer) PortalAdminCustomer {
+	if strings.TrimSpace(customer.CustomerType) == "" {
+		customer.CustomerType = "retail"
+	}
 	customer.ThemeKey = NormalizePortalThemeKey(customer.ThemeKey)
 	customer.MiniappEntryMode = NormalizeMiniappEntryMode(customer.MiniappEntryMode)
 	customer.CapabilityTemplateKey = NormalizeCapabilityTemplateKey(customer.CapabilityTemplateKey)
+	if customer.ERPBinding != nil {
+		customer.ERPBinding.Role = firstNonEmpty(customer.ERPBinding.Role, "customer")
+		customer.ERPBinding.Status = normalizePortalERPBindingStatus(customer.ERPBinding.Status)
+	}
 	return customer
+}
+
+func normalizePortalERPBindingStatus(value string) string {
+	switch strings.TrimSpace(value) {
+	case "inactive":
+		return "inactive"
+	default:
+		return "active"
+	}
 }
 
 func NormalizePortalThemeKey(value string) string {
@@ -1267,7 +1326,7 @@ func DefaultCapabilityTemplates() []CapabilityTemplate {
 			Description:      "客户登录后查看原料库存、生产进度、成品库存、代发订单、费用和结算，并提交代加工和代发需求",
 			ThemeKey:         PortalThemeCoffeeFactory,
 			MiniappEntryMode: MiniappEntryModeServices,
-			ERPRoleCodes:     []string{"customer_processing_customer"},
+			ERPRoleCodes:     []string{},
 			ERPPermissions:   []string{"customer_processing.read", "customer_processing.submit"},
 			ERPViewKeys:      []string{"customerProcessingPortal"},
 			Capabilities: capabilityTemplateOptions(map[string]map[string]any{
@@ -1283,7 +1342,7 @@ func DefaultCapabilityTemplates() []CapabilityTemplate {
 			Description:      "客户使用公共 SKU，可维护客户专属 SKU 名称，默认寄件人为客户自己，收件人为客户的终端客户",
 			ThemeKey:         PortalThemeCleanOps,
 			MiniappEntryMode: MiniappEntryModeServices,
-			ERPRoleCodes:     []string{"customer_direct_ship_customer"},
+			ERPRoleCodes:     []string{},
 			ERPPermissions:   []string{"customer_processing.read", "customer_processing.submit"},
 			ERPViewKeys:      []string{"customerProcessingPortal"},
 			Capabilities: capabilityTemplateOptions(map[string]map[string]any{
@@ -1302,6 +1361,19 @@ func DefaultCapabilityTemplates() []CapabilityTemplate {
 					},
 				},
 				CapabilitySettlement: {},
+			}),
+		},
+		{
+			Key:              CapabilityTemplateRetailMall,
+			Label:            "零售商城客户",
+			Description:      "零售和电商客户默认进入商城，可在商城下单并查看商城订单记录",
+			ThemeKey:         PortalThemeCleanOps,
+			MiniappEntryMode: MiniappEntryModeMall,
+			ERPRoleCodes:     []string{},
+			ERPPermissions:   []string{},
+			ERPViewKeys:      []string{},
+			Capabilities: capabilityTemplateOptions(map[string]map[string]any{
+				CapabilityMall: {},
 			}),
 		},
 	}
@@ -1352,7 +1424,7 @@ func normalizeCapabilityTemplate(input CapabilityTemplate) (CapabilityTemplate, 
 	input.Description = firstNonEmpty(input.Description, defaultTemplate.Description)
 	input.ThemeKey = NormalizePortalThemeKey(firstNonEmpty(input.ThemeKey, defaultTemplate.ThemeKey))
 	input.MiniappEntryMode = NormalizeMiniappEntryMode(firstNonEmpty(input.MiniappEntryMode, defaultTemplate.MiniappEntryMode))
-	input.ERPRoleCodes = normalizedStringListOrDefault(input.ERPRoleCodes, defaultTemplate.ERPRoleCodes)
+	input.ERPRoleCodes = []string{}
 	input.ERPPermissions = normalizedStringListOrDefault(input.ERPPermissions, defaultTemplate.ERPPermissions)
 	input.ERPViewKeys = normalizedStringListOrDefault(input.ERPViewKeys, defaultTemplate.ERPViewKeys)
 	if len(input.Capabilities) == 0 {
@@ -1408,6 +1480,8 @@ func NormalizeCapabilityTemplateKey(value string) string {
 		return CapabilityTemplateProcessingFulfillment
 	case CapabilityTemplatePublicSKUDirectShip:
 		return CapabilityTemplatePublicSKUDirectShip
+	case CapabilityTemplateRetailMall:
+		return CapabilityTemplateRetailMall
 	default:
 		return ""
 	}

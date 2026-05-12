@@ -32,6 +32,7 @@ type fakeRepository struct {
 	templates           []CapabilityTemplate
 	templateSaveCommand SaveCapabilityTemplateCommand
 	templateCommand     ApplyCapabilityTemplateCommand
+	erpBindingCommand   UpsertPortalERPBindingCommand
 	mallProducts        []MallProduct
 	mallProductOptions  []MallProductOption
 	mallProductCommand  SaveMallProductCommand
@@ -139,6 +140,16 @@ func (r *fakeRepository) ApplyCapabilityTemplate(ctx context.Context, cmd ApplyC
 	r.portalDetail.Customer.ID = cmd.CustomerID
 	r.portalDetail.Customer.CapabilityTemplateKey = cmd.Template.Key
 	r.portalDetail.Capabilities = cmd.Template.Capabilities
+	return r.portalDetail, nil
+}
+
+func (r *fakeRepository) UpsertPortalERPBinding(ctx context.Context, cmd UpsertPortalERPBindingCommand) (PortalAdminDetail, error) {
+	r.erpBindingCommand = cmd
+	if r.err != nil {
+		return PortalAdminDetail{}, r.err
+	}
+	r.portalDetail.Customer.ID = cmd.CustomerID
+	r.portalDetail.Customer.ERPBinding = &PortalERPBinding{CustomerID: cmd.CustomerID, EmployeeID: cmd.EmployeeID, Status: cmd.Status}
 	return r.portalDetail, nil
 }
 
@@ -500,8 +511,8 @@ func TestDefaultCapabilityTemplatesIncludePublicSKUDirectShipRules(t *testing.T)
 	if template.MiniappEntryMode != MiniappEntryModeServices {
 		t.Fatalf("miniapp entry mode=%q, want services", template.MiniappEntryMode)
 	}
-	if len(template.ERPRoleCodes) == 0 || template.ERPRoleCodes[0] != "customer_direct_ship_customer" {
-		t.Fatalf("erp roles=%+v, want customer_direct_ship_customer", template.ERPRoleCodes)
+	if len(template.ERPRoleCodes) != 0 {
+		t.Fatalf("erp roles=%+v, want no customer business roles in permission templates", template.ERPRoleCodes)
 	}
 	if !template.HasCapability(CapabilityDirectShip) || !template.HasCapability(CapabilityProductOrder) || template.HasCapability(CapabilityProcessing) {
 		t.Fatalf("template capabilities not scoped to public sku direct ship: %+v", template.Capabilities)
@@ -509,6 +520,45 @@ func TestDefaultCapabilityTemplatesIncludePublicSKUDirectShipRules(t *testing.T)
 	rule := template.SmallBatchPriceRule()
 	if !rule.Enabled || rule.ThresholdLB != 14 || rule.TierMinLB != 15 || rule.TierMaxLB != 28 {
 		t.Fatalf("small batch rule=%+v, want <14lb uses 15-28lb tier", rule)
+	}
+}
+
+func TestDefaultCapabilityTemplatesIncludeRetailMallTemplate(t *testing.T) {
+	template, ok := CustomerCapabilityTemplateByKey(CapabilityTemplateRetailMall)
+	if !ok {
+		t.Fatal("missing retail mall capability template")
+	}
+	if template.Label != "零售商城客户" {
+		t.Fatalf("retail template label=%q", template.Label)
+	}
+	if template.MiniappEntryMode != MiniappEntryModeMall {
+		t.Fatalf("retail template miniapp_entry_mode=%q, want mall", template.MiniappEntryMode)
+	}
+	if !template.HasCapability(CapabilityMall) {
+		t.Fatalf("retail template capabilities=%+v, want mall enabled", template.Capabilities)
+	}
+	if template.HasCapability(CapabilityDirectShip) || template.HasCapability(CapabilityProcessing) {
+		t.Fatalf("retail template should not enable wholesale fulfillment capabilities: %+v", template.Capabilities)
+	}
+	if got := NormalizeCapabilityTemplateKey(" retail_mall "); got != CapabilityTemplateRetailMall {
+		t.Fatalf("NormalizeCapabilityTemplateKey(retail_mall)=%q", got)
+	}
+}
+
+func TestOrdersServiceAllowsMallCapabilityForRetailOrderHistory(t *testing.T) {
+	def, err := serviceDefinition(ServiceKeyOrders)
+	if err != nil {
+		t.Fatalf("serviceDefinition(orders): %v", err)
+	}
+	found := false
+	for _, capability := range def.capabilities {
+		if capability == CapabilityMall {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("orders service capabilities=%+v, want mall for retail order history", def.capabilities)
 	}
 }
 
@@ -540,7 +590,7 @@ func TestSaveCapabilityTemplateNormalizesRulesAndDefaults(t *testing.T) {
 	if repo.templateSaveCommand.UpdatedBy != "admin" || repo.templateSaveCommand.Template.Key != CapabilityTemplatePublicSKUDirectShip {
 		t.Fatalf("save command=%+v", repo.templateSaveCommand)
 	}
-	if got.Label != "公共 SKU 小批量代发" || len(got.ERPRoleCodes) == 0 {
+	if got.Label != "公共 SKU 小批量代发" || len(got.ERPRoleCodes) != 0 {
 		t.Fatalf("template defaults not filled: %+v", got)
 	}
 	if got.ThemeKey != PortalThemeCleanOps {

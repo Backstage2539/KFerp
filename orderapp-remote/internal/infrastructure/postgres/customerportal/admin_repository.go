@@ -2,6 +2,7 @@ package customerportal
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"strings"
@@ -20,6 +21,7 @@ func (r Repository) ListPortalAdminCustomers(ctx context.Context, query customer
 	rows, err := r.pool.Query(ctx, fmt.Sprintf(`
 		SELECT c.id,
 		       COALESCE(c.name,''),
+		       COALESCE(NULLIF(c.customer_type,''),'retail'),
 		       COALESCE(c.phone,''),
 		       COALESCE(c.company_name,''),
 		       COALESCE(p.display_name,''),
@@ -30,16 +32,36 @@ func (r Repository) ListPortalAdminCustomers(ctx context.Context, query customer
 		       COALESCE(NULLIF(p.theme_key,''),'coffee_factory'),
 		       COALESCE(NULLIF(p.miniapp_entry_mode,''),'services'),
 		       COALESCE(p.capability_template_key,''),
-		       COUNT(b.id) FILTER (WHERE b.status='approved')::int
+		       COALESCE((SELECT COUNT(*)::int FROM %s.customer_portal_user_bindings b WHERE b.customer_id=c.id AND b.status='approved'),0),
+		       eb.employee_id,
+		       eb.employee_name,
+		       eb.employee_phone,
+		       eb.role,
+		       eb.status,
+		       eb.updated_by,
+		       eb.updated_at
 		FROM %s.customers c
 		LEFT JOIN %s.customer_portal_profiles p ON p.customer_id=c.id
-		LEFT JOIN %s.customer_portal_user_bindings b ON b.customer_id=c.id
+		LEFT JOIN LATERAL (
+			SELECT b.employee_id,
+			       COALESCE(e.name,'') AS employee_name,
+			       COALESCE(e.phone,'') AS employee_phone,
+			       b.role,
+			       b.status,
+			       b.updated_by,
+			       to_char(b.updated_at,'YYYY-MM-DD HH24:MI') AS updated_at
+			FROM %s.customer_erp_user_bindings b
+			JOIN %s.company_employees e ON e.id=b.employee_id
+			WHERE b.customer_id=c.id AND b.status='active'
+			ORDER BY b.updated_at DESC, b.id DESC
+			LIMIT 1
+		) eb ON true
 		WHERE c.active=true
+		  AND COALESCE(NULLIF(c.customer_type,''),'retail')='wholesale'
 		  AND ($1='' OR c.name ILIKE '%%' || $1 || '%%' OR c.phone ILIKE '%%' || $1 || '%%' OR c.company_name ILIKE '%%' || $1 || '%%')
-		GROUP BY c.id, c.name, c.phone, c.company_name, p.display_name, p.processing_warehouse_code, p.default_sender_id, p.enabled, p.status, p.theme_key, p.miniapp_entry_mode, p.capability_template_key
 		ORDER BY c.name, c.id
 		LIMIT $2
-	`, r.schema, r.schema, r.schema), q, limit)
+	`, r.schema, r.schema, r.schema, r.schema, r.schema), q, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -47,9 +69,12 @@ func (r Repository) ListPortalAdminCustomers(ctx context.Context, query customer
 	out := make([]customerportalapp.PortalAdminCustomer, 0)
 	for rows.Next() {
 		var row customerportalapp.PortalAdminCustomer
-		if err := rows.Scan(&row.ID, &row.Name, &row.Phone, &row.CompanyName, &row.DisplayName, &row.ProcessingWarehouseCode, &row.DefaultSenderID, &row.PortalEnabled, &row.PortalStatus, &row.ThemeKey, &row.MiniappEntryMode, &row.CapabilityTemplateKey, &row.BindingCount); err != nil {
+		var employeeID sql.NullInt64
+		var employeeName, employeePhone, role, status, updatedBy, updatedAt sql.NullString
+		if err := rows.Scan(&row.ID, &row.Name, &row.CustomerType, &row.Phone, &row.CompanyName, &row.DisplayName, &row.ProcessingWarehouseCode, &row.DefaultSenderID, &row.PortalEnabled, &row.PortalStatus, &row.ThemeKey, &row.MiniappEntryMode, &row.CapabilityTemplateKey, &row.BindingCount, &employeeID, &employeeName, &employeePhone, &role, &status, &updatedBy, &updatedAt); err != nil {
 			return nil, err
 		}
+		row.ERPBinding = nullableERPBinding(row.ID, employeeID, employeeName, employeePhone, role, status, updatedBy, updatedAt)
 		row.ThemeKey = customerportalapp.NormalizePortalThemeKey(row.ThemeKey)
 		row.MiniappEntryMode = customerportalapp.NormalizeMiniappEntryMode(row.MiniappEntryMode)
 		out = append(out, row)
@@ -385,6 +410,81 @@ func (r Repository) ApplyCapabilityTemplate(ctx context.Context, cmd customerpor
 	return r.PortalAdminDetail(ctx, cmd.CustomerID)
 }
 
+func (r Repository) UpsertPortalERPBinding(ctx context.Context, cmd customerportalapp.UpsertPortalERPBindingCommand) (customerportalapp.PortalAdminDetail, error) {
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return customerportalapp.PortalAdminDetail{}, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	var customerID int64
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`
+		SELECT id
+		FROM %s.customers
+		WHERE id=$1 AND active=true AND COALESCE(NULLIF(customer_type,''),'retail')='wholesale'
+	`, r.schema), cmd.CustomerID).Scan(&customerID); err != nil {
+		if err == pgx.ErrNoRows {
+			return customerportalapp.PortalAdminDetail{}, customerportalapp.ErrPortalCustomerNotFound
+		}
+		return customerportalapp.PortalAdminDetail{}, err
+	}
+
+	var employeeID int64
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`
+		SELECT e.id
+		FROM %s.company_employees e
+		WHERE e.id=$1 AND e.active=true AND e.account_type='channel_customer'
+	`, r.schema), cmd.EmployeeID).Scan(&employeeID); err != nil {
+		if err == pgx.ErrNoRows {
+			return customerportalapp.PortalAdminDetail{}, fmt.Errorf("channel customer account required")
+		}
+		return customerportalapp.PortalAdminDetail{}, err
+	}
+
+	status := "active"
+	if strings.TrimSpace(cmd.Status) == "inactive" {
+		status = "inactive"
+	}
+	if status == "active" {
+		var otherCustomerID int64
+		err := tx.QueryRow(ctx, fmt.Sprintf(`
+			SELECT customer_id
+			FROM %s.customer_erp_user_bindings
+			WHERE employee_id=$1 AND status='active' AND customer_id<>$2
+			LIMIT 1
+		`, r.schema), cmd.EmployeeID, customerID).Scan(&otherCustomerID)
+		if err == nil && otherCustomerID > 0 {
+			return customerportalapp.PortalAdminDetail{}, fmt.Errorf("erp account already bound to another customer")
+		}
+		if err != nil && err != pgx.ErrNoRows {
+			return customerportalapp.PortalAdminDetail{}, err
+		}
+		if _, err := tx.Exec(ctx, fmt.Sprintf(`
+			UPDATE %s.customer_erp_user_bindings
+			SET status='inactive', updated_at=now(), updated_by=$3
+			WHERE customer_id=$1 AND status='active' AND employee_id<>$2
+		`, r.schema), customerID, cmd.EmployeeID, strings.TrimSpace(cmd.UpdatedBy)); err != nil {
+			return customerportalapp.PortalAdminDetail{}, err
+		}
+	}
+
+	if _, err := tx.Exec(ctx, fmt.Sprintf(`
+		INSERT INTO %s.customer_erp_user_bindings(customer_id, employee_id, role, status, updated_by, updated_at)
+		VALUES($1,$2,'customer',$3,$4,now())
+		ON CONFLICT(employee_id, customer_id) DO UPDATE SET
+			role='customer',
+			status=excluded.status,
+			updated_by=excluded.updated_by,
+			updated_at=now()
+	`, r.schema), customerID, cmd.EmployeeID, status, strings.TrimSpace(cmd.UpdatedBy)); err != nil {
+		return customerportalapp.PortalAdminDetail{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return customerportalapp.PortalAdminDetail{}, err
+	}
+	return r.PortalAdminDetail(ctx, customerID)
+}
+
 func (r Repository) grantTemplateERPRolesTx(ctx context.Context, tx pgx.Tx, customerID int64, template customerportalapp.CapabilityTemplate) error {
 	roleCodes := make([]string, 0, len(template.ERPRoleCodes))
 	seen := map[string]bool{}
@@ -476,9 +576,12 @@ func firstNonEmpty(values ...string) string {
 
 func (r Repository) portalAdminCustomer(ctx context.Context, customerID int64) (customerportalapp.PortalAdminCustomer, error) {
 	var row customerportalapp.PortalAdminCustomer
+	var employeeID sql.NullInt64
+	var employeeName, employeePhone, role, status, updatedBy, updatedAt sql.NullString
 	err := r.pool.QueryRow(ctx, fmt.Sprintf(`
 		SELECT c.id,
 		       COALESCE(c.name,''),
+		       COALESCE(NULLIF(c.customer_type,''),'retail'),
 		       COALESCE(c.phone,''),
 		       COALESCE(c.company_name,''),
 		       COALESCE(p.display_name,''),
@@ -489,19 +592,57 @@ func (r Repository) portalAdminCustomer(ctx context.Context, customerID int64) (
 		       COALESCE(NULLIF(p.theme_key,''),'coffee_factory'),
 		       COALESCE(NULLIF(p.miniapp_entry_mode,''),'services'),
 		       COALESCE(p.capability_template_key,''),
-		       COALESCE((SELECT COUNT(*)::int FROM %s.customer_portal_user_bindings b WHERE b.customer_id=c.id AND b.status='approved'),0)
+		       COALESCE((SELECT COUNT(*)::int FROM %s.customer_portal_user_bindings b WHERE b.customer_id=c.id AND b.status='approved'),0),
+		       eb.employee_id,
+		       eb.employee_name,
+		       eb.employee_phone,
+		       eb.role,
+		       eb.status,
+		       eb.updated_by,
+		       eb.updated_at
 		FROM %s.customers c
 		LEFT JOIN %s.customer_portal_profiles p ON p.customer_id=c.id
+		LEFT JOIN LATERAL (
+			SELECT b.employee_id,
+			       COALESCE(e.name,'') AS employee_name,
+			       COALESCE(e.phone,'') AS employee_phone,
+			       b.role,
+			       b.status,
+			       b.updated_by,
+			       to_char(b.updated_at,'YYYY-MM-DD HH24:MI') AS updated_at
+			FROM %s.customer_erp_user_bindings b
+			JOIN %s.company_employees e ON e.id=b.employee_id
+			WHERE b.customer_id=c.id AND b.status='active'
+			ORDER BY b.updated_at DESC, b.id DESC
+			LIMIT 1
+		) eb ON true
 		WHERE c.id=$1
-	`, r.schema, r.schema, r.schema), customerID).Scan(&row.ID, &row.Name, &row.Phone, &row.CompanyName, &row.DisplayName, &row.ProcessingWarehouseCode, &row.DefaultSenderID, &row.PortalEnabled, &row.PortalStatus, &row.ThemeKey, &row.MiniappEntryMode, &row.CapabilityTemplateKey, &row.BindingCount)
+		`, r.schema, r.schema, r.schema, r.schema, r.schema), customerID).Scan(&row.ID, &row.Name, &row.CustomerType, &row.Phone, &row.CompanyName, &row.DisplayName, &row.ProcessingWarehouseCode, &row.DefaultSenderID, &row.PortalEnabled, &row.PortalStatus, &row.ThemeKey, &row.MiniappEntryMode, &row.CapabilityTemplateKey, &row.BindingCount, &employeeID, &employeeName, &employeePhone, &role, &status, &updatedBy, &updatedAt)
 	if err == nil {
 		row.ThemeKey = customerportalapp.NormalizePortalThemeKey(row.ThemeKey)
 		row.MiniappEntryMode = customerportalapp.NormalizeMiniappEntryMode(row.MiniappEntryMode)
+		row.ERPBinding = nullableERPBinding(row.ID, employeeID, employeeName, employeePhone, role, status, updatedBy, updatedAt)
 	}
 	if err == pgx.ErrNoRows {
 		return customerportalapp.PortalAdminCustomer{}, customerportalapp.ErrPortalCustomerNotFound
 	}
 	return row, err
+}
+
+func nullableERPBinding(customerID int64, employeeID sql.NullInt64, employeeName, employeePhone, role, status, updatedBy, updatedAt sql.NullString) *customerportalapp.PortalERPBinding {
+	if !employeeID.Valid || employeeID.Int64 <= 0 {
+		return nil
+	}
+	return &customerportalapp.PortalERPBinding{
+		CustomerID:   customerID,
+		EmployeeID:   employeeID.Int64,
+		EmployeeName: strings.TrimSpace(employeeName.String),
+		Phone:        strings.TrimSpace(employeePhone.String),
+		Role:         firstNonEmpty(role.String, "customer"),
+		Status:       firstNonEmpty(status.String, "active"),
+		UpdatedBy:    strings.TrimSpace(updatedBy.String),
+		UpdatedAt:    strings.TrimSpace(updatedAt.String),
+	}
 }
 
 func (r Repository) ListMallProducts(ctx context.Context) ([]customerportalapp.MallProduct, []customerportalapp.MallProductOption, error) {

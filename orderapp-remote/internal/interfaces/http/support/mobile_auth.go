@@ -15,6 +15,11 @@ import (
 
 var cnPhoneRe = regexp.MustCompile(`^1\d{10}$`)
 
+const (
+	AccountTypeInternalEmployee = "internal_employee"
+	AccountTypeChannelCustomer  = "channel_customer"
+)
+
 type loginReq struct {
 	Mode     string `json:"mode"`
 	Login    string `json:"login"`
@@ -38,9 +43,23 @@ type accountStateReq struct {
 	LoginEnabled bool  `json:"login_enabled"`
 }
 
+type accountTypeReq struct {
+	EmployeeID  int64  `json:"employee_id"`
+	AccountType string `json:"account_type"`
+}
+
 type passwordResetReq struct {
 	EmployeeID int64  `json:"employee_id"`
 	Password   string `json:"password"`
+}
+
+func normalizeAccountType(value string) string {
+	switch strings.TrimSpace(value) {
+	case AccountTypeChannelCustomer:
+		return AccountTypeChannelCustomer
+	default:
+		return AccountTypeInternalEmployee
+	}
 }
 
 func ensureEmployeeByPhone(ctx context.Context, pool *pgxpool.Pool, schema, phone string) (int64, string, error) {
@@ -335,7 +354,7 @@ func registerMobileAuthAPI(e *echo.Echo, pool *pgxpool.Pool, schema string, auth
 			return err
 		}
 		rows, err := pool.Query(c.Request().Context(), fmt.Sprintf(`
-			SELECT e.id,COALESCE(e.name,''),COALESCE(e.phone,''),COALESCE(d.name,''),
+			SELECT e.id,COALESCE(e.name,''),COALESCE(e.phone,''),COALESCE(NULLIF(e.account_type,''),'internal_employee'),COALESCE(d.name,''),
 			       COALESCE(p.password_hash,'') <> '' AS has_password,
 			       COALESCE(p.login_disabled,false) AS login_disabled,
 			       COALESCE(p.must_reset_password,false) AS must_reset_password
@@ -352,15 +371,16 @@ func registerMobileAuthAPI(e *echo.Echo, pool *pgxpool.Pool, schema string, auth
 		out := make([]map[string]any, 0)
 		for rows.Next() {
 			var id int64
-			var name, phone, department string
+			var name, phone, accountType, department string
 			var hasPassword, loginDisabled, mustReset bool
-			if err := rows.Scan(&id, &name, &phone, &department, &hasPassword, &loginDisabled, &mustReset); err != nil {
+			if err := rows.Scan(&id, &name, &phone, &accountType, &department, &hasPassword, &loginDisabled, &mustReset); err != nil {
 				return c.JSON(500, map[string]string{"error": err.Error()})
 			}
 			out = append(out, map[string]any{
 				"employee_id":         id,
 				"name":                name,
 				"phone":               phone,
+				"account_type":        normalizeAccountType(accountType),
 				"department":          department,
 				"has_password":        hasPassword,
 				"login_disabled":      loginDisabled,
@@ -371,6 +391,35 @@ func registerMobileAuthAPI(e *echo.Echo, pool *pgxpool.Pool, schema string, auth
 			return c.JSON(500, map[string]string{"error": err.Error()})
 		}
 		return c.JSON(200, map[string]any{"rows": out})
+	})
+
+	e.POST("/api/auth/account-type", func(c echo.Context) error {
+		if err := requireCurrentPermission(c, authz, "auth.manage"); err != nil {
+			return err
+		}
+		var req accountTypeReq
+		if err := c.Bind(&req); err != nil || req.EmployeeID <= 0 {
+			return c.JSON(400, map[string]string{"error": "invalid request"})
+		}
+		accountType := normalizeAccountType(req.AccountType)
+		tag, err := pool.Exec(c.Request().Context(), fmt.Sprintf(`
+			UPDATE %s.company_employees
+			SET account_type=$2, updated_at=now()
+			WHERE id=$1 AND active=true
+		`, schema), req.EmployeeID, accountType)
+		if err != nil {
+			return c.JSON(500, map[string]string{"error": err.Error()})
+		}
+		if tag.RowsAffected() == 0 {
+			return c.JSON(404, map[string]string{"error": "employee not found"})
+		}
+		if accountType == AccountTypeChannelCustomer {
+			if _, err := pool.Exec(c.Request().Context(), fmt.Sprintf(`DELETE FROM %s.employee_roles WHERE employee_id=$1`, schema), req.EmployeeID); err != nil {
+				return c.JSON(500, map[string]string{"error": err.Error()})
+			}
+		}
+		AuditInsert(c.Request().Context(), pool, schema, ActorOf(c), "auth_account", &req.EmployeeID, "set_account_type", nil, nil, nil, AuditMeta{"account_type": accountType})
+		return c.JSON(200, map[string]any{"ok": true, "account_type": accountType})
 	})
 
 	e.POST("/api/auth/account-state", func(c echo.Context) error {

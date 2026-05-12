@@ -48,6 +48,13 @@ export function setAccountState(employeeId, loginEnabled) {
   })
 }
 
+export function setAccountType(employeeId, accountType) {
+  return apiSend('/api/auth/account-type', {
+    method: 'POST',
+    body: { employee_id: employeeId, account_type: accountType },
+  })
+}
+
 export function resetEmployeePassword(employeeId, password) {
   return apiSend('/api/auth/password/reset', {
     method: 'POST',

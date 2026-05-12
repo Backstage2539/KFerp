@@ -32,6 +32,11 @@ type capabilityTemplateRequest struct {
 	TemplateKey string `json:"template_key"`
 }
 
+type portalERPBindingRequest struct {
+	EmployeeID int64  `json:"employee_id"`
+	Status     string `json:"status"`
+}
+
 type saveCapabilityTemplateRequest struct {
 	Key              string                               `json:"key"`
 	Label            string                               `json:"label"`
@@ -159,6 +164,30 @@ func registerAdminAPI(e *echo.Echo, svc Service, assetDirs ...string) {
 			CapabilityTemplateKey:   req.CapabilityTemplateKey,
 			Capabilities:            req.Capabilities,
 			UpdatedBy:               support.ActorOf(c),
+		})
+		if err != nil {
+			return portalAdminError(c, err)
+		}
+		return c.JSON(http.StatusOK, detail)
+	})
+
+	e.PUT("/api/customer-portal/admin/customers/:id/erp-binding", func(c echo.Context) error {
+		if svc == nil {
+			return c.JSON(http.StatusInternalServerError, map[string]string{"error": "internal error"})
+		}
+		id, err := strconv.ParseInt(c.Param("id"), 10, 64)
+		if err != nil || id <= 0 {
+			return c.JSON(http.StatusBadRequest, map[string]string{"error": "customer required"})
+		}
+		var req portalERPBindingRequest
+		if err := c.Bind(&req); err != nil || req.EmployeeID <= 0 {
+			return c.JSON(http.StatusBadRequest, map[string]string{"error": "employee required"})
+		}
+		detail, err := svc.UpsertPortalERPBinding(c.Request().Context(), customerportalapp.UpsertPortalERPBindingCommand{
+			CustomerID: id,
+			EmployeeID: req.EmployeeID,
+			Status:     req.Status,
+			UpdatedBy:  support.ActorOf(c),
 		})
 		if err != nil {
 			return portalAdminError(c, err)

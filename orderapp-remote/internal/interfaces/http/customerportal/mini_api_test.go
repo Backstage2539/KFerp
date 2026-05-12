@@ -27,6 +27,7 @@ type fakeService struct {
 	templates       []customerportalapp.CapabilityTemplate
 	templateSaveCmd *customerportalapp.SaveCapabilityTemplateCommand
 	templateCmd     *customerportalapp.ApplyCapabilityTemplateCommand
+	erpBindingCmd   *customerportalapp.UpsertPortalERPBindingCommand
 	mallRows        []customerportalapp.MallProduct
 	mallOptions     []customerportalapp.MallProductOption
 	mallSaveCmd     *customerportalapp.SaveMallProductCommand
@@ -129,6 +130,16 @@ func (s fakeService) ApplyCapabilityTemplate(_ context.Context, cmd customerport
 	}
 	if s.templateCmd != nil {
 		*s.templateCmd = cmd
+	}
+	return s.detail, nil
+}
+
+func (s fakeService) UpsertPortalERPBinding(_ context.Context, cmd customerportalapp.UpsertPortalERPBindingCommand) (customerportalapp.PortalAdminDetail, error) {
+	if s.err != nil {
+		return customerportalapp.PortalAdminDetail{}, s.err
+	}
+	if s.erpBindingCmd != nil {
+		*s.erpBindingCmd = cmd
 	}
 	return s.detail, nil
 }
@@ -569,12 +580,14 @@ func TestPortalAdminCapabilityTemplateAPIsExposeAndApply(t *testing.T) {
 	e.ServeHTTP(listRec, listReq)
 	if listRec.Code != http.StatusOK ||
 		!strings.Contains(listRec.Body.String(), `"key":"public_sku_direct_ship"`) ||
+		!strings.Contains(listRec.Body.String(), `"key":"retail_mall"`) ||
 		!strings.Contains(listRec.Body.String(), `"threshold_lb":14`) ||
-		!strings.Contains(listRec.Body.String(), `"erp_role_codes":["customer_direct_ship_customer"]`) {
+		!strings.Contains(listRec.Body.String(), `"miniapp_entry_mode":"mall"`) ||
+		!strings.Contains(listRec.Body.String(), `"erp_role_codes":[]`) {
 		t.Fatalf("template list status=%d body=%s", listRec.Code, listRec.Body.String())
 	}
 
-	saveBody := strings.NewReader(`{"label":"公共 SKU 小批量代发","theme_key":"clean_ops","miniapp_entry_mode":"services","erp_role_codes":["customer_direct_ship_customer"],"erp_permissions":["customer_processing.read"],"erp_view_keys":["customerProcessingPortal"],"capabilities":[{"code":"direct_ship","enabled":true,"config":{"public_sku_aliases":true,"small_batch_price_rule":{"enabled":true,"threshold_lb":14,"tier_min_lb":15,"tier_max_lb":28}}}]}`)
+	saveBody := strings.NewReader(`{"label":"公共 SKU 小批量代发","theme_key":"clean_ops","miniapp_entry_mode":"services","erp_role_codes":[],"erp_permissions":["customer_processing.read"],"erp_view_keys":["customerProcessingPortal"],"capabilities":[{"code":"direct_ship","enabled":true,"config":{"public_sku_aliases":true,"small_batch_price_rule":{"enabled":true,"threshold_lb":14,"tier_min_lb":15,"tier_max_lb":28}}}]}`)
 	saveReq := httptest.NewRequest(http.MethodPut, "/api/customer-portal/admin/capability-templates/public_sku_direct_ship", saveBody)
 	saveReq.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
 	saveRec := httptest.NewRecorder()

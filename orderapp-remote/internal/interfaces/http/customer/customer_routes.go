@@ -55,6 +55,7 @@ type customerHandler struct {
 type customerUpsertAPIRequest struct {
 	Name               string `json:"name"`
 	RawName            string `json:"raw_name"`
+	CustomerType       string `json:"customer_type"`
 	CompanyName        string `json:"company_name"`
 	CompanyAddress     string `json:"company_address"`
 	CompanyPhone       string `json:"company_phone"`
@@ -70,6 +71,7 @@ type customerAPIModel struct {
 	ID                 int64  `json:"id"`
 	Name               string `json:"name"`
 	RawName            string `json:"raw_name"`
+	CustomerType       string `json:"customer_type"`
 	CompanyName        string `json:"company_name"`
 	CompanyAddress     string `json:"company_address"`
 	CompanyPhone       string `json:"company_phone"`
@@ -222,6 +224,7 @@ func (req customerUpsertAPIRequest) toFormRequest() CustomerUpsertRequest {
 	return CustomerUpsertRequest{
 		Name:               req.Name,
 		RawName:            req.RawName,
+		CustomerType:       req.CustomerType,
 		CompanyName:        req.CompanyName,
 		CompanyAddress:     req.CompanyAddress,
 		CompanyPhone:       req.CompanyPhone,
@@ -254,6 +257,7 @@ func customerAPIModelFromEdit(data *CustomerEditData) customerAPIModel {
 		ID:                 data.ID,
 		Name:               data.Name,
 		RawName:            data.RawName,
+		CustomerType:       customerapp.NormalizeCustomerType(data.CustomerType),
 		CompanyName:        data.CompanyName,
 		CompanyAddress:     data.CompanyAddress,
 		CompanyPhone:       data.CompanyPhone,
