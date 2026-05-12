@@ -498,7 +498,14 @@ func (r *Repository) createSubmittedDirectShipERPOrderItemsTx(ctx context.Contex
 	if err != nil {
 		return err
 	}
-	defer rows.Close()
+	type itemSeed struct {
+		lineNo       int
+		productID    int64
+		productTitle string
+		spec         string
+		quantity     int64
+	}
+	items := make([]itemSeed, 0)
 	lineNo := 0
 	for rows.Next() {
 		lineNo++
@@ -529,14 +536,29 @@ func (r *Repository) createSubmittedDirectShipERPOrderItemsTx(ctx context.Contex
 		if rowLineNo <= 0 {
 			rowLineNo = lineNo
 		}
+		items = append(items, itemSeed{
+			lineNo:       rowLineNo,
+			productID:    productID,
+			productTitle: productTitle,
+			spec:         spec,
+			quantity:     quantity,
+		})
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return err
+	}
+	rows.Close()
+
+	for _, item := range items {
 		if _, err := tx.Exec(ctx, fmt.Sprintf(`
 			INSERT INTO %s.order_items(order_id,line_no,product_id,item_name,qty,unit,spec)
 			VALUES($1,$2,$3,$4,$5,'件',$6)
-		`, r.schema), orderID, rowLineNo, nullableCustomerFulfillmentID(productID), productTitle, quantity, spec); err != nil {
+		`, r.schema), orderID, item.lineNo, nullableCustomerFulfillmentID(item.productID), item.productTitle, item.quantity, item.spec); err != nil {
 			return err
 		}
 	}
-	return rows.Err()
+	return nil
 }
 
 func submittedDirectShipReceiver(payload map[string]any, snapshot string) (string, string, string, string) {
