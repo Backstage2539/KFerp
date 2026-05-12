@@ -146,7 +146,7 @@ func TestDecorateAuditLogRowScannedEntitiesUseReadableLabels(t *testing.T) {
 			action:      "create",
 			field:       "version_no",
 			meta:        `{"order_no":"SO-001","version_no":2}`,
-			wantMenu:    "订单销售 / 报价导出",
+			wantMenu:    "订单销售 / 销售单",
 			wantFeature: "生成销售单PDF",
 			wantEntity:  "销售单文件",
 			wantAction:  "新增",

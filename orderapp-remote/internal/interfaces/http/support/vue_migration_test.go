@@ -72,7 +72,6 @@ func TestVueShellMigratesCatalogAndSettingsPages(t *testing.T) {
 	content := string(body)
 	for _, want := range []string{
 		"import CustomersView from './views/CustomersView.vue'",
-		"import ProductsView from './views/ProductsView.vue'",
 		"import ProductSettingsView from './views/ProductSettingsView.vue'",
 		"import BomView from './views/BomView.vue'",
 		"import CompanyStaffView from './views/CompanyStaffView.vue'",
@@ -88,7 +87,6 @@ func TestVueShellMigratesCatalogAndSettingsPages(t *testing.T) {
 		"departments: CompanyStaffView",
 		"employees: CompanyStaffView",
 		"inventory: InventoryView",
-		"quotePrint: ProductsView",
 		"machines: MachinesView",
 		"allocationLogs: AllocationLogsView",
 		"senderSettings: SenderSettingsView",
@@ -100,6 +98,14 @@ func TestVueShellMigratesCatalogAndSettingsPages(t *testing.T) {
 	}
 	if strings.Contains(content, "BOM_REACT_URL") {
 		t.Fatal("App.vue should not route BOM through the React fallback")
+	}
+	for _, removed := range []string{
+		"import ProductsView from './views/ProductsView.vue'",
+		"quotePrint: ProductsView",
+	} {
+		if strings.Contains(content, removed) {
+			t.Fatalf("App.vue should remove quote export page wiring %q", removed)
+		}
 	}
 }
 
@@ -123,7 +129,6 @@ func TestCatalogAndSettingsRoutesRedirectToVueShell(t *testing.T) {
 		{path: "/customers/7", want: "/vue-shell?view=customers&edit_id=7"},
 		{path: "/products", want: "/vue-shell?view=productSettings"},
 		{path: "/products/7", want: "/vue-shell?view=productSettings&edit_id=7"},
-		{path: "/products/print", want: "/vue-shell?view=quotePrint"},
 		{path: "/bom?product_id=7", want: "/vue-shell?view=bom&product_id=7"},
 		{path: "/company/departments", want: "/vue-shell?view=departments"},
 		{path: "/company/employees?department_id=1", want: "/vue-shell?view=employees&department_id=1"},
@@ -134,6 +139,18 @@ func TestCatalogAndSettingsRoutesRedirectToVueShell(t *testing.T) {
 		{path: "/settings/outsource", want: "/vue-shell?view=outsourceSettings"},
 	}
 	assertRedirects(t, e, cases)
+}
+
+func TestRemovedQuotePrintRouteIsGone(t *testing.T) {
+	e := echo.New()
+	cataloghttp.RegisterRoutes(e, cataloghttp.Dependencies{})
+
+	req := httptest.NewRequest(http.MethodGet, "/products/print", nil)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("GET /products/print status = %d, want %d; body=%s", rec.Code, http.StatusNotFound, rec.Body.String())
+	}
 }
 
 func assertRedirects(t *testing.T, e *echo.Echo, cases []struct {

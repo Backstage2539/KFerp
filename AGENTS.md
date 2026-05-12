@@ -241,6 +241,8 @@ Canonical reference doc: `HOW_TO_WORKFLOW.md`
 
 There may be multiple agents or worktrees writing code at the same time.
 
+- Current default: every development task must end by merging the verified feature branch into `develop` and deploying it to the agreed environment. Do not stop at a local branch, pushed branch, or PR-only state unless Van explicitly says not to merge/deploy.
+- For normal feature work, the target environment is the development stack from `develop` unless Van explicitly names production or another target.
 - Do not push commits directly to `develop`.
 - Always do implementation work on your own feature branch, normally `codex/<task-name>`.
 - Before integration, run tests and push your own branch to GitHub first.

@@ -18,7 +18,6 @@ export const menuGroups = [
       { key: 'orders', label: '订单列表', title: '订单列表' },
       { key: 'orderSalesManual', label: '订单销售手册', title: '订单销售手册' },
       { key: 'customers', label: '客户档案', title: '客户档案' },
-      { key: 'quotePrint', label: '报价导出', title: '报价导出' },
     ],
   },
   {

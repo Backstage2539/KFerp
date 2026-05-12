@@ -16,7 +16,6 @@ func registerProductRoutes(e *echo.Echo, catalogSvc *catalogapp.Service) {
 	}
 
 	e.GET("/products", h.index)
-	e.GET("/products/print", h.print)
 	e.GET("/api/products", h.listAPI)
 	e.GET("/api/products/:id", h.detailAPI)
 	e.PUT("/api/products/:id", h.updateAPI)
@@ -99,10 +98,6 @@ type customProductAPIRequest struct {
 
 func (h productHandler) index(c echo.Context) error {
 	return support.VueShellRedirect(c, "productSettings")
-}
-
-func (h productHandler) print(c echo.Context) error {
-	return support.VueShellRedirect(c, "quotePrint")
 }
 
 func (h productHandler) listAPI(c echo.Context) error {
@@ -347,7 +342,7 @@ func (h productHandler) assignProductCategoryAPI(c echo.Context) error {
 func (h productHandler) edit(c echo.Context) error {
 	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	if err != nil || id <= 0 {
-		return c.String(http.StatusBadRequest, "invalid id")
+		return echo.ErrNotFound
 	}
 	return support.VueShellRedirectWith(c, "productSettings", map[string]string{"edit_id": strconv.FormatInt(id, 10)})
 }
