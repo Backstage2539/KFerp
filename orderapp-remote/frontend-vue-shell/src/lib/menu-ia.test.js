@@ -3,6 +3,7 @@ import { test } from 'node:test'
 import {
   defaultExpandedGroups,
   groupForView,
+  menuMap,
   menuGroups,
   primaryMenuKeys,
   restoreExpandedGroups,
@@ -81,6 +82,14 @@ test('settings menu exposes sales order settings and keeps sales order detail hi
   assert.equal(keys.includes('salesOrder'), false)
   assert.equal(groupForView(menuGroups, 'companyProfile')?.id, 'settings')
   assert.equal(groupForView(menuGroups, 'salesOrderSettings')?.id, 'settings')
+})
+
+test('sales menu no longer exposes the removed quote export page', () => {
+  const keys = primaryMenuKeys(menuGroups)
+  assert.equal(keys.includes('quotePrint'), false)
+  assert.equal(groupForView(menuGroups, 'quotePrint'), null)
+  assert.equal(menuMap.quotePrint, undefined)
+  assert.equal(JSON.stringify(menuGroups).includes('报价导出'), false)
 })
 
 test('customer fulfillment menu consolidates operator, portal and template pages', () => {

@@ -88,7 +88,6 @@ func TestVueShellUsesSharedAPIClient(t *testing.T) {
 		"frontend-vue-shell/src/api/production.js",
 		"frontend-vue-shell/src/views/BomView.vue",
 		"frontend-vue-shell/src/views/CustomersView.vue",
-		"frontend-vue-shell/src/views/ProductsView.vue",
 	} {
 		body, err := os.ReadFile(path)
 		if err != nil {

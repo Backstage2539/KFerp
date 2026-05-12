@@ -23,6 +23,7 @@
 - 公网入口切换规则（2026-05-03）：`erp.qacoohee.com` 由当前绑定 443 的 Caddy 决定。正式环境 Caddy 在 `/opt/stacks/erp-production`（`erp_prod_caddy`），开发环境 Caddy 在 `/opt/stacks/erp`（`erp_caddy`）。切公网只停非目标环境 `caddy` 并启动目标环境 `caddy`，不要为了切换停止两边的 `orderapp/postgres`。已把脚本固化为 `./deploy_orderapp.sh --switch-public production|development`；手动兜底为 production: 停 `/opt/stacks/erp` caddy、起 `/opt/stacks/erp-production` caddy；development 反向操作。
 - 现网：1.12.242.58（SSH 22，root），已为 JJ 加入公钥，允许直接登录做验收与排查。
 - 现网运行形态：Docker（erp_orderapp + erp_caddy + erp_postgres）。Postgres 用户/库：nocodb/nocodb；业务 schema：p2rms15pepb5ciz。
+- 开发集成新规则（Van 2026-05-12）：当前所有开发默认必须在验证后合并到 `develop` 并部署到约定环境；不要停在本地分支、已推送分支或仅 PR 状态，除非 Van 明确要求暂不合并/暂不部署。普通功能开发默认部署目标是 development stack。
 - 交付流程约束（Van 要求，后续每个需求点都必须执行）：
   1) 单元测试（unit tests）
   2) API 层测试（接口级验证，尽量不走 UI）

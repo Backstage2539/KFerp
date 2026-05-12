@@ -83,7 +83,6 @@ import ProductionAcceptanceView from './views/ProductionAcceptanceView.vue'
 import ProductionCostsView from './views/ProductionCostsView.vue'
 import ProductionLogsView from './views/ProductionLogsView.vue'
 import ProductSettingsView from './views/ProductSettingsView.vue'
-import ProductsView from './views/ProductsView.vue'
 import PurchaseView from './views/PurchaseView.vue'
 import QualityInspectionsView from './views/QualityInspectionsView.vue'
 import RequirementsView from './views/RequirementsView.vue'
@@ -173,7 +172,6 @@ const internalViews = {
   departments: CompanyStaffView,
   employees: CompanyStaffView,
   inventory: InventoryView,
-  quotePrint: ProductsView,
   machines: MachinesView,
   companyProfile: CompanyProfileView,
   salesOrderSettings: SalesOrderSettingsView,

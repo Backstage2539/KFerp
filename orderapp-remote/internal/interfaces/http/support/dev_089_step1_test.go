@@ -333,10 +333,6 @@ func TestProductSettingsVueWiringAndLegacyTierEditorRemoval(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	products, err := os.ReadFile(filepath.Join("frontend-vue-shell", "src", "views", "ProductsView.vue"))
-	if err != nil {
-		t.Fatal(err)
-	}
 	combined := string(app) + "\n" + string(menu) + "\n" + string(settings)
 	for _, want := range []string{
 		"ProductSettingsView",
@@ -356,16 +352,8 @@ func TestProductSettingsVueWiringAndLegacyTierEditorRemoval(t *testing.T) {
 			t.Fatalf("product settings Vue source missing %q", want)
 		}
 	}
-	for _, forbidden := range []string{
-		"添加阶梯",
-		"function addTier",
-		"function removeTier",
-		"v-model.number=\"tier.spec_g\"",
-		"v-model.number=\"tier.unit_price\"",
-	} {
-		if strings.Contains(string(products), forbidden) {
-			t.Fatalf("legacy product archive should remove tier editor concern %q", forbidden)
-		}
+	if _, err := os.Stat(filepath.Join("frontend-vue-shell", "src", "views", "ProductsView.vue")); !os.IsNotExist(err) {
+		t.Fatalf("legacy product archive page should be removed, stat err=%v", err)
 	}
 	if strings.Contains(string(menu), "label: '商品档案'") || strings.Contains(string(menu), "label: '成本核算'") {
 		t.Fatalf("primary product menu should expose 产品设置 instead of 商品档案/成本核算")

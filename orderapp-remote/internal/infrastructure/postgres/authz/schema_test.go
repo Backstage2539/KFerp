@@ -29,7 +29,7 @@ func TestDefaultRoleSeedsIncludeCoreInternalRoles(t *testing.T) {
 func TestDefaultViewPermissionsCoverVueShellMenuKeys(t *testing.T) {
 	views := defaultViewPermissions()
 	for _, key := range []string{
-		"order", "orders", "orderSalesManual", "orderInvoice", "salesOrder", "deliveryNote", "customers", "quotePrint",
+		"order", "orders", "orderSalesManual", "orderInvoice", "salesOrder", "deliveryNote", "customers",
 		"producePlan", "productionAcceptance", "produceRunning", "workOrders", "jobCards", "qualityInspections", "produceLogs", "productionCosts", "productionManual",
 		"warehouseInventory", "stockOperations", "stockOutboundLogs", "inventoryMaterialsManual", "materials", "materialReceipts", "materialBatches", "wipMaterials", "stockLedger", "stockBatches", "stockAdjustments", "inventory", "allocationLogs",
 		"productSettings", "mallSettings", "bom", "products", "costing", "costingManual",
@@ -40,5 +40,8 @@ func TestDefaultViewPermissionsCoverVueShellMenuKeys(t *testing.T) {
 		if views[key] == "" {
 			t.Fatalf("missing permission for view %s", key)
 		}
+	}
+	if views["quotePrint"] != "" {
+		t.Fatal("removed quote export page should not keep a view permission")
 	}
 }

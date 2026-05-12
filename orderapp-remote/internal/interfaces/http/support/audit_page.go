@@ -195,9 +195,9 @@ func auditMenuFeature(entityType, action, field string, meta *string) (string, s
 		}
 		return "设置 / 销售单设置", "维护收款二维码"
 	case "sales_order_document":
-		return "订单销售 / 报价导出", "生成销售单PDF"
+		return "订单销售 / 销售单", "生成销售单PDF"
 	case "sales_order_image":
-		return "订单销售 / 报价导出", "生成销售单图片"
+		return "订单销售 / 销售单", "生成销售单图片"
 	case "material_receipt":
 		return "库存管理 / 采购入库", "提交原料入库"
 	case "material_transfer":
@@ -358,9 +358,9 @@ func operationMenuFeature(meta *string, field string) (string, string) {
 	case strings.HasPrefix(target, "/api/outsource/templates") || strings.HasPrefix(target, "/settings/outsource"):
 		return "设置 / 代加工模板设置", "维护代加工模板"
 	case strings.Contains(target, "/sales-order-images"):
-		return "订单销售 / 报价导出", "生成销售单图片"
+		return "订单销售 / 销售单", "生成销售单图片"
 	case strings.Contains(target, "/sales-order-preview") || strings.Contains(target, "/sales-orders"):
-		return "订单销售 / 报价导出", "生成销售单PDF"
+		return "订单销售 / 销售单", "生成销售单PDF"
 	case strings.Contains(target, "/orders"):
 		return "订单销售 / 订单列表", "查看订单"
 	case strings.Contains(target, "/order"):
