@@ -421,6 +421,66 @@ func backfillSubmittedDirectShipERPOrders(ctx context.Context, pool *pgxpool.Poo
 	return tx.Commit(ctx)
 }
 
+func repairSubmittedDirectShipERPOrderReceivers(ctx context.Context, pool *pgxpool.Pool, schema string) error {
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	rows, err := tx.Query(ctx, fmt.Sprintf(`
+		SELECT order_id, receiver_address, payload
+		FROM %s.customer_direct_ship_import_orders
+		WHERE batch_id=0
+		  AND status='submitted'
+		  AND COALESCE(order_id,0)>0
+		ORDER BY id
+	`, schema))
+	if err != nil {
+		return err
+	}
+	type receiverSeed struct {
+		orderID  int64
+		snapshot string
+		payload  map[string]any
+	}
+	seeds := make([]receiverSeed, 0)
+	for rows.Next() {
+		var seed receiverSeed
+		var payloadJSON []byte
+		if err := rows.Scan(&seed.orderID, &seed.snapshot, &payloadJSON); err != nil {
+			rows.Close()
+			return err
+		}
+		seed.payload = map[string]any{}
+		if len(payloadJSON) > 0 {
+			_ = json.Unmarshal(payloadJSON, &seed.payload)
+		}
+		seeds = append(seeds, seed)
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return err
+	}
+	rows.Close()
+
+	for _, seed := range seeds {
+		receiverName, receiverPhone, receiverAddress, receiverCompany := submittedDirectShipReceiver(seed.payload, seed.snapshot)
+		if _, err := tx.Exec(ctx, fmt.Sprintf(`
+			UPDATE %s.orders
+			SET receiver_name=$2,
+			    receiver_phone=$3,
+			    receiver_address=$4,
+			    receiver_company=$5
+			WHERE id=$1
+			  AND portal_service_code='direct_ship'
+		`, schema), seed.orderID, receiverName, receiverPhone, receiverAddress, receiverCompany); err != nil {
+			return err
+		}
+	}
+	return tx.Commit(ctx)
+}
+
 func (r *Repository) createSubmittedDirectShipERPOrderTx(ctx context.Context, tx pgx.Tx, importOrderID int64) (int64, error) {
 	var customerID, existingOrderID int64
 	var orderNo, orderDate, receiverSnapshot string
@@ -575,6 +635,9 @@ func submittedDirectShipReceiver(payload map[string]any, snapshot string) (strin
 			receiverAddress = strings.TrimSpace(strings.Replace(receiverAddress, receiverName, "", 1))
 		}
 	}
+	if looksLikeCustomerFulfillmentAddress(receiverName) && receiverAddress != "" && !looksLikeCustomerFulfillmentAddress(receiverAddress) {
+		receiverName, receiverAddress = receiverAddress, receiverName
+	}
 	if receiverName == "" || receiverPhone == "" || receiverAddress == "" {
 		name, phone, address := parseReceiverSnapshot(snapshot)
 		if receiverName == "" {
@@ -588,6 +651,19 @@ func submittedDirectShipReceiver(payload map[string]any, snapshot string) (strin
 		}
 	}
 	return receiverName, receiverPhone, receiverAddress, receiverCompany
+}
+
+func looksLikeCustomerFulfillmentAddress(value string) bool {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return false
+	}
+	for _, marker := range []string{"省", "市", "区", "县", "镇", "街道", "路", "号", "室", "村", "组"} {
+		if strings.Contains(value, marker) {
+			return true
+		}
+	}
+	return false
 }
 
 func customerFulfillmentStatusID(ctx context.Context, tx pgx.Tx, schema, table string, names ...string) int64 {

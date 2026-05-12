@@ -1,4 +1,5 @@
 const phonePattern = /(?:\+?86[-\s]?)?(1[3-9]\d{9})|(\d{3,4}[-\s]?\d{7,8})/
+const addressPattern = /(省|市|区|县|镇|街道|路|号|室|村|组)/
 
 function cleanLine(line) {
   return String(line || '')
@@ -34,17 +35,26 @@ export function parseRecipientText(input) {
     .filter(Boolean)
 
   let recipientName = labeledName
+  const beforePhone = phoneMatch ? cleanLine(normalized.slice(0, phoneMatch.index)) : ''
+  const afterPhone = phoneMatch ? cleanLine(normalized.slice((phoneMatch.index || 0) + phoneMatch[0].length)) : ''
   if (!recipientName && phoneMatch) {
-    recipientName = cleanLine(normalized.slice(0, phoneMatch.index)).replace(/^(收件人|姓名|联系人|客户)[：:\s]*/i, '').split(' ')[0] || ''
+    if (addressPattern.test(beforePhone) && afterPhone && !addressPattern.test(afterPhone)) {
+      recipientName = afterPhone.split(' ')[0] || ''
+    } else {
+      recipientName = beforePhone.replace(/^(收件人|姓名|联系人|客户)[：:\s]*/i, '').split(' ')[0] || ''
+    }
   }
   if (!recipientName) {
-    const first = compact.find((line) => !/(省|市|区|县|镇|街道|路|号|室|地址)/.test(line))
+    const first = compact.find((line) => !addressPattern.test(line) && !/地址/.test(line))
     recipientName = cleanLine(first || '').split(' ')[0] || ''
   }
 
   let address = labeledAddress
+  if (!address && phoneMatch && addressPattern.test(beforePhone) && afterPhone && recipientName === afterPhone.split(' ')[0]) {
+    address = beforePhone
+  }
   if (!address) {
-    const addressLine = compact.find((line) => /(省|市|区|县|镇|街道|路|号|室|村|组)/.test(line))
+    const addressLine = compact.find((line) => addressPattern.test(line))
     address = addressLine || compact.filter((line) => line !== recipientName).join(' ')
   }
   if (recipientName && address.startsWith(recipientName)) {

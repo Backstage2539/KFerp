@@ -456,11 +456,22 @@ func TestCustomerPortalDirectShipSubmitRepositoryWiresERPOrderCreation(t *testin
 	for _, want := range []string{
 		"createSubmittedDirectShipERPOrderTx",
 		"backfillSubmittedDirectShipERPOrders",
+		"repairSubmittedDirectShipERPOrderReceivers",
 		"UPDATE %s.customer_direct_ship_import_orders\n\t\tSET order_id=$2",
 	} {
 		if !strings.Contains(src, want) {
 			t.Fatalf("repository.go missing customer portal direct ship ERP order marker %q", want)
 		}
+	}
+}
+
+func TestSubmittedDirectShipReceiverCorrectsAddressPhoneNameSnapshot(t *testing.T) {
+	name, phone, address, company := submittedDirectShipReceiver(map[string]any{
+		"receiver_name":  "云南省昆明市西山区西坝新村30号C区",
+		"receiver_phone": "15302787466",
+	}, "云南省昆明市西山区西坝新村30号C区 15302787466 刘祎泊")
+	if name != "刘祎泊" || phone != "15302787466" || address != "云南省昆明市西山区西坝新村30号C区" || company != "" {
+		t.Fatalf("receiver = %q/%q/%q/%q", name, phone, address, company)
 	}
 }
 
