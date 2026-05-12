@@ -100,7 +100,7 @@ import WarehouseInventoryView from './views/WarehouseInventoryView.vue'
 import WorkOrdersView from './views/WorkOrdersView.vue'
 import { clearStoredAuthToken, fetchCurrentActor, hasStoredAuthToken, logoutCurrentSession } from './api/auth.js'
 import { appURL } from './api/client.js'
-import { replaceHistoryURL } from './lib/url-state.js'
+import { replaceHistoryURL, viewNavigationURL } from './lib/url-state.js'
 import {
   defaultExpandedGroups,
   groupForView,
@@ -206,16 +206,7 @@ function readViewParams() {
 
 function applyKeyToUrl(key, params = {}) {
   const url = new URL(window.location.href)
-  url.searchParams.set('view', key)
-  for (const name of ['warehouse', 'item_type', 'batch', 'ship_ready']) {
-    url.searchParams.delete(name)
-  }
-  Object.entries(params || {}).forEach(([name, value]) => {
-    if (value !== undefined && value !== null && String(value) !== '') {
-      url.searchParams.set(name, String(value))
-    }
-  })
-  replaceHistoryURL(url)
+  replaceHistoryURL(viewNavigationURL(url, key, params))
 }
 
 function open(key, params = {}) {

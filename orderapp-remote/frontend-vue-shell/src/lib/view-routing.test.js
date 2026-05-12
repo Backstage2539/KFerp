@@ -13,3 +13,9 @@ test('delivery note date field keeps ISO date text visible to Chinese operators'
   assert.doesNotMatch(source, /v-model\.trim="form\.posting_date"\s+type="date"/)
   assert.match(source, /v-model\.trim="form\.posting_date"[^>]+placeholder="YYYY-MM-DD"/)
 })
+
+test('sidebar navigation sanitizes stale edit identifiers before switching views', () => {
+  const source = readFileSync(new URL('../App.vue', import.meta.url), 'utf8')
+  assert.match(source, /viewNavigationURL/)
+  assert.match(source, /replaceHistoryURL\(viewNavigationURL\(url,\s*key,\s*params\)\)/)
+})
