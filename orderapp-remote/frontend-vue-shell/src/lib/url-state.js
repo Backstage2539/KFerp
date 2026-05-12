@@ -25,6 +25,8 @@ const viewScopedParams = [
   'item_type',
   'batch',
   'ship_ready',
+  'scope',
+  'highlight_order_id',
 ]
 
 export function viewNavigationURL(currentURL, key, params = {}) {

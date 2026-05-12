@@ -15,6 +15,7 @@ import (
 	postgresfinance "orderapp/internal/infrastructure/postgres/finance"
 	postgresinventory "orderapp/internal/infrastructure/postgres/inventory"
 	postgresmaterials "orderapp/internal/infrastructure/postgres/materials"
+	postgresmessagecenter "orderapp/internal/infrastructure/postgres/messagecenter"
 	postgresproduction "orderapp/internal/infrastructure/postgres/production"
 	postgrespurchase "orderapp/internal/infrastructure/postgres/purchase"
 	postgressales "orderapp/internal/infrastructure/postgres/sales"
@@ -30,6 +31,7 @@ func ensureAppSchema(ctx context.Context, pool *pgxpool.Pool, schema string) err
 		{Name: "core", Run: func(ctx context.Context) error { return postgrescore.EnsureSchema(ctx, pool, schema) }},
 		{Name: "customerportal", Run: func(ctx context.Context) error { return postgrescustomerportal.EnsureSchema(ctx, pool, schema) }},
 		{Name: "customerfulfillment", Run: func(ctx context.Context) error { return postgrescustomerfulfillment.EnsureSchema(ctx, pool, schema) }},
+		{Name: "messagecenter", Run: func(ctx context.Context) error { return postgresmessagecenter.EnsureSchema(ctx, pool, schema) }},
 		{Name: "support", Run: func(ctx context.Context) error { return supporthttp.EnsureSchema(ctx, pool, schema) }},
 		{Name: "authz", Run: func(ctx context.Context) error { return postgresauthz.EnsureSchema(ctx, pool, schema) }},
 		{Name: "bom", Run: func(ctx context.Context) error { return postgresbom.EnsureSchema(ctx, pool, schema) }},

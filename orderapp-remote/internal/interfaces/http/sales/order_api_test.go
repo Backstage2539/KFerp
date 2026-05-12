@@ -15,6 +15,7 @@ import (
 	"testing"
 	"time"
 
+	messagecenterapp "orderapp/internal/application/messagecenter"
 	salesapp "orderapp/internal/application/sales"
 	postgressales "orderapp/internal/infrastructure/postgres/sales"
 	support "orderapp/internal/interfaces/http/support"
@@ -437,7 +438,7 @@ func TestOrderAPIListUsesOrderRecipientSnapshot(t *testing.T) {
 func TestOrderAPIListKeepsSearchKeywordForResponsibleLookup(t *testing.T) {
 	repo := &capturingOrderListRepo{}
 	e := echo.New()
-	registerOrderAPI(e, salesapp.NewService(repo))
+	registerOrderAPI(e, salesapp.NewService(repo), nil)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/orders?q="+url.QueryEscape("销售小王")+"&limit=20", nil)
 	rec := httptest.NewRecorder()
@@ -451,6 +452,32 @@ func TestOrderAPIListKeepsSearchKeywordForResponsibleLookup(t *testing.T) {
 	}
 	if repo.query.Limit != 20 {
 		t.Fatalf("orders API limit = %d, want 20", repo.query.Limit)
+	}
+}
+
+func TestOrderAPIListCarriesOrderScopeAndCurrentEmployee(t *testing.T) {
+	repo := &capturingOrderListRepo{}
+	e := echo.New()
+	e.Use(func(next echo.HandlerFunc) echo.HandlerFunc {
+		return func(c echo.Context) error {
+			c.Set("employee_id", int64(7))
+			return next(c)
+		}
+	})
+	registerOrderAPI(e, salesapp.NewService(repo), nil)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/orders?scope=mine&limit=20", nil)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET /api/orders status = %d, want 200, body=%s", rec.Code, rec.Body.String())
+	}
+	if repo.query.Scope != "mine" {
+		t.Fatalf("orders API scope = %q, want mine", repo.query.Scope)
+	}
+	if repo.query.EmployeeID != 7 {
+		t.Fatalf("orders API employee id = %d, want 7", repo.query.EmployeeID)
 	}
 }
 
@@ -481,6 +508,60 @@ func (r *capturingSaveOrderRepo) SaveOrder(ctx context.Context, cmd salesapp.Sav
 	return salesapp.SaveOrderResult{OrderID: 71, OrderNo: "SO-NOTE-001"}, nil
 }
 
+type capturingMessagePublisher struct {
+	cmd messagecenterapp.PublishCommand
+}
+
+func (p *capturingMessagePublisher) Publish(ctx context.Context, cmd messagecenterapp.PublishCommand) (int64, error) {
+	p.cmd = cmd
+	return 99, nil
+}
+
+func TestOrderAPISavePublishesNewOrderNotification(t *testing.T) {
+	repo := &capturingSaveOrderRepo{}
+	messages := &capturingMessagePublisher{}
+	e := echo.New()
+	e.Use(func(next echo.HandlerFunc) echo.HandlerFunc {
+		return func(c echo.Context) error {
+			c.Set("employee_id", int64(1))
+			c.Set("operator_employee", "测试员")
+			return next(c)
+		}
+	})
+	registerOrderAPI(e, salesapp.NewService(repo), messages)
+
+	payload := map[string]any{
+		"order_date":     "2026-05-09",
+		"customer_id":    3,
+		"source_id":      1,
+		"order_type_id":  1,
+		"pay_status_id":  2,
+		"ship_status_id": 1,
+		"product_id":     []string{"7"},
+		"tier_id":        []string{"manual"},
+		"unit_price":     []string{"88"},
+		"item_name":      []string{"花魁"},
+		"qty":            []string{"1"},
+		"unit":           []string{"件"},
+		"spec":           []string{"100"},
+	}
+	body, _ := json.Marshal(payload)
+	req := httptest.NewRequest(http.MethodPost, "/api/order", bytes.NewReader(body))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("POST /api/order status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if messages.cmd.EventType != "order.created" || messages.cmd.SourceID != 71 {
+		t.Fatalf("publish command = %#v", messages.cmd)
+	}
+	if got := messages.cmd.Payload["highlight_order_id"]; got != int64(71) {
+		t.Fatalf("highlight payload = %#v, want order id 71", got)
+	}
+}
+
 func TestOrderAPISaveCarriesItemNotes(t *testing.T) {
 	repo := &capturingSaveOrderRepo{}
 	e := echo.New()
@@ -491,7 +572,7 @@ func TestOrderAPISaveCarriesItemNotes(t *testing.T) {
 			return next(c)
 		}
 	})
-	registerOrderAPI(e, salesapp.NewService(repo))
+	registerOrderAPI(e, salesapp.NewService(repo), nil)
 
 	payload := map[string]any{
 		"order_date":     "2026-05-09",
@@ -1967,7 +2048,7 @@ func newOrderAPITestEcho(pool *pgxpool.Pool, schema string) *echo.Echo {
 		}
 	})
 	svc := salesapp.NewService(postgressales.NewRepository(pool, schema))
-	registerOrderAPI(e, svc)
+	registerOrderAPI(e, svc, nil)
 	registerOrderShippingExcelRoutes(e, svc)
 	registerSenderSettingsPage(e, svc)
 	return e

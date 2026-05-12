@@ -140,6 +140,15 @@ func TestCustomerPortalAdminAPIRequiresCustomerPermissions(t *testing.T) {
 	}
 }
 
+func TestMessageCenterAPIRequiresOrderReadPermission(t *testing.T) {
+	if got := requiredPermissionForRequest(http.MethodGet, "/api/message-center/notifications"); got != "orders.read" {
+		t.Fatalf("message center GET permission = %q, want orders.read", got)
+	}
+	if got := requiredPermissionForRequest(http.MethodPost, "/api/message-center/notifications/11/read"); got != "orders.read" {
+		t.Fatalf("message center read permission = %q, want orders.read", got)
+	}
+}
+
 func TestBeanListPublicationPermissionsSeparatePublishAndDraft(t *testing.T) {
 	cases := []struct {
 		method string
