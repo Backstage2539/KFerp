@@ -78,6 +78,23 @@ export function submitCustomerFulfillmentDirectShipOrder(customerId, payload) {
   return apiSend(`/api/customer-fulfillment/${Number(customerId)}/direct-ship-orders`, { body: payload })
 }
 
+export function fetchCustomerFulfillmentOrders(customerId, options = {}) {
+  const params = new URLSearchParams()
+  params.set('scope', 'fulfillment')
+  params.set('customer_id', String(Number(customerId) || 0))
+  const page = Number(options.page || 0)
+  if (page > 0) params.set('page', String(page))
+  const limit = Number(options.limit || 0)
+  if (limit > 0) params.set('limit', String(limit))
+  const query = String(options.q || '').trim()
+  if (query) params.set('q', query)
+  return apiGet(`/api/orders?${params.toString()}`)
+}
+
+export function fetchCustomerFulfillmentOrderDetail(orderId) {
+  return apiGet(`/api/order/form?edit_id=${Number(orderId)}`)
+}
+
 export function fetchCustomerProcessingPortalOverview() {
   return apiGet('/api/customer-processing/portal/overview')
 }

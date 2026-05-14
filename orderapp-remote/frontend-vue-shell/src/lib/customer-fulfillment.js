@@ -22,12 +22,17 @@ export function customerFulfillmentWorkbenchSections(capabilities = []) {
   const directShip = hasCustomerCapability(capabilities, 'direct_ship')
   const inventory = hasCustomerCapability(capabilities, 'inventory_custody')
   const settlement = hasCustomerCapability(capabilities, 'settlement')
+  const orders = processing
+    || directShip
+    || hasCustomerCapability(capabilities, 'product_order')
+    || hasCustomerCapability(capabilities, 'mall')
   return {
     processing,
     directShip,
     inventory,
     settlement,
     imports: processing || directShip || settlement,
+    orders,
   }
 }
 
@@ -113,6 +118,15 @@ export function customerFulfillmentCustomerOptionMeta(customer) {
   return parts.join(' / ')
 }
 
+export function customerFulfillmentOrderFees(row = {}) {
+  return [
+    { label: '商品', value: orderMoneyValue(row?.total_amount) },
+    { label: '运费', value: orderMoneyValue(row?.shipping_amount) },
+    { label: '优惠', value: orderMoneyValue(row?.discount_amount) },
+    { label: '应收', value: orderMoneyValue(row?.grand_total), emphasized: true },
+  ]
+}
+
 function isParsedBatchForType(batch, importType) {
   return Boolean(batch && batch.status === 'parsed' && batch.import_type === importType)
 }
@@ -125,4 +139,9 @@ function addPositiveCard(cards, label, value) {
 function addPositiveEffect(effects, label, value) {
   const n = Number(value || 0)
   if (n > 0) effects.push({ label, value: n })
+}
+
+function orderMoneyValue(value) {
+  const text = String(value ?? '').trim()
+  return text || '0.00'
 }

@@ -298,6 +298,9 @@ type OrderRow struct {
 	ResponsibleType   string `json:"responsible_type"`
 	ResponsibleID     int64  `json:"responsible_id"`
 	ResponsibleName   string `json:"responsible_name"`
+	TotalAmount       string `json:"total_amount"`
+	ShippingAmount    string `json:"shipping_amount"`
+	DiscountAmount    string `json:"discount_amount"`
 	GrandTotal        string `json:"grand_total"`
 	OrderType         string `json:"order_type"`
 	PayStatus         string `json:"pay_status"`

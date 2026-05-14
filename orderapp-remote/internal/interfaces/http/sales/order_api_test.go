@@ -435,6 +435,45 @@ func TestOrderAPIListUsesOrderRecipientSnapshot(t *testing.T) {
 	}
 }
 
+func TestOrderAPIListSupportsCustomerFilterAndFeeBreakdown(t *testing.T) {
+	pool, schema := newOrderAPITestDB(t)
+	ctx := context.Background()
+	seedOrderAPITestData(t, ctx, pool, schema)
+	mustExecOrderAPITestSQL(t, ctx, pool, fmt.Sprintf(`
+		INSERT INTO %s.orders(
+			id, order_no, order_date, customer_id, source_id, order_type_id, pay_status_id,
+			ship_status_id, process_status_id, total_amount, shipping_amount, discount_amount, grand_total, is_void
+		)
+		VALUES
+			(43, 'SO-FEE-CUSTOMER-3', '2026-05-07', 3, 1, 1, 2, 1, 1, 128.00, 12.00, 5.00, 135.00, false),
+			(44, 'SO-FEE-CUSTOMER-4', '2026-05-07', 4, 1, 1, 2, 1, 1, 200.00, 18.00, 10.00, 208.00, false);
+	`, schema))
+
+	e := newOrderAPITestEcho(pool, schema)
+	req := httptest.NewRequest(http.MethodGet, "/api/orders?customer_id=3&limit=20", nil)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET /api/orders customer filter status = %d, want 200, body=%s", rec.Code, rec.Body.String())
+	}
+	body := rec.Body.String()
+	for _, needle := range []string{
+		`"order_no":"SO-FEE-CUSTOMER-3"`,
+		`"total_amount":"128.00"`,
+		`"shipping_amount":"12.00"`,
+		`"discount_amount":"5.00"`,
+		`"grand_total":"135.00"`,
+	} {
+		if !strings.Contains(body, needle) {
+			t.Fatalf("GET /api/orders customer filter missing %s: %s", needle, body)
+		}
+	}
+	if strings.Contains(body, "SO-FEE-CUSTOMER-4") {
+		t.Fatalf("GET /api/orders customer filter leaked other customer order: %s", body)
+	}
+}
+
 func TestOrderAPIListKeepsSearchKeywordForResponsibleLookup(t *testing.T) {
 	repo := &capturingOrderListRepo{}
 	e := echo.New()
