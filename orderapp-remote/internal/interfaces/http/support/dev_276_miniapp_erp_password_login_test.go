@@ -9,11 +9,11 @@ import (
 func TestMiniappERPPasswordLoginRequirementRecords(t *testing.T) {
 	store := string(readOrderAppFileForTest(t, filepath.Join("internal", "interfaces", "http", "support", "req_store.go")))
 	for _, want := range []string{
-		"PR-274-MINIAPP-ERP-PASSWORD-LOGIN",
-		"DEV-274-MINIAPP-ERP-PASSWORD-LOGIN",
-		"UT-274-MINIAPP-ERP-PASSWORD-LOGIN",
-		"API-274-MINIAPP-ERP-PASSWORD-LOGIN",
-		"REV-274-MINIAPP-ERP-PASSWORD-LOGIN",
+		"PR-276-MINIAPP-ERP-PASSWORD-LOGIN",
+		"DEV-276-MINIAPP-ERP-PASSWORD-LOGIN",
+		"UT-276-MINIAPP-ERP-PASSWORD-LOGIN",
+		"API-276-MINIAPP-ERP-PASSWORD-LOGIN",
+		"REV-276-MINIAPP-ERP-PASSWORD-LOGIN",
 	} {
 		if !strings.Contains(store, want) {
 			t.Fatalf("req_store.go missing %s", want)
@@ -35,11 +35,11 @@ func TestMiniappERPPasswordLoginRequirementRecords(t *testing.T) {
 	}
 
 	requirements := string(readOrderAppFileForTest(t, filepath.Join("docs", "REQUIREMENTS.md")))
-	if !strings.Contains(requirements, "PR-274-MINIAPP-ERP-PASSWORD-LOGIN") || !strings.Contains(requirements, "ERP账号密码登录") {
+	if !strings.Contains(requirements, "PR-276-MINIAPP-ERP-PASSWORD-LOGIN") || !strings.Contains(requirements, "ERP账号密码登录") {
 		t.Fatalf("REQUIREMENTS.md missing PR-274 miniapp ERP password login requirement")
 	}
 	acceptance := string(readOrderAppFileForTest(t, filepath.Join("docs", "ACCEPTANCE_TESTS.md")))
-	if !strings.Contains(acceptance, "PR-274-MINIAPP-ERP-PASSWORD-LOGIN") || !strings.Contains(acceptance, "/api/mini/login/password") {
+	if !strings.Contains(acceptance, "PR-276-MINIAPP-ERP-PASSWORD-LOGIN") || !strings.Contains(acceptance, "/api/mini/login/password") {
 		t.Fatalf("ACCEPTANCE_TESTS.md missing PR-274 miniapp ERP password login acceptance")
 	}
 }
