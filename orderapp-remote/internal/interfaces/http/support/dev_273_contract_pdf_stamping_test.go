@@ -1,6 +1,7 @@
 package support
 
 import (
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -87,7 +88,15 @@ func TestDev273ContractPDFStampingRuntimeUsesDocconvertService(t *testing.T) {
 	if strings.Contains(dockerfile, "apk add --no-cache") || strings.Contains(dockerfile, "libreoffice") {
 		t.Fatal("Dockerfile should not install LibreOffice in the orderapp runtime image")
 	}
-	deployScript := string(readOrderAppFileForTest(t, filepath.Join("..", "deploy_orderapp.sh")))
+	root := findAncestorForTest(t, "go.mod")
+	deployScriptBytes, err := os.ReadFile(filepath.Join(root, "..", "deploy_orderapp.sh"))
+	if err != nil {
+		if os.IsNotExist(err) {
+			t.Skip("deploy_orderapp.sh is outside the orderapp Docker build context")
+		}
+		t.Fatal(err)
+	}
+	deployScript := string(deployScriptBytes)
 	for _, want := range []string{
 		"docker-compose.docconvert.yml",
 		"gotenberg/gotenberg:8-libreoffice",
