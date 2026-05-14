@@ -39,6 +39,9 @@ func requiredPermissionForRequest(method, path string) string {
 	if path == "/api/company/profile" {
 		return "settings.write"
 	}
+	if path == "/api/settings/sales-order/seals" && method == http.MethodGet {
+		return "orders.write"
+	}
 	if strings.HasPrefix(path, "/api/company/") {
 		return "company.manage"
 	}
@@ -94,6 +97,12 @@ func requiredPermissionForRequest(method, path string) string {
 		return "orders.write"
 	}
 	if path == "/api/share-resources" {
+		return "orders.write"
+	}
+	if strings.HasPrefix(path, "/api/contracts") {
+		if method == http.MethodGet {
+			return "orders.read"
+		}
 		return "orders.write"
 	}
 	if strings.HasPrefix(path, "/api/order") {

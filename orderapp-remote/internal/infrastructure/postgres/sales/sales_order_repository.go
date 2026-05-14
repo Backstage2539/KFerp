@@ -87,6 +87,28 @@ func (r Repository) DeleteSalesOrderAsset(ctx context.Context, id int64, actor s
 	return err
 }
 
+func (r Repository) ListSalesOrderSealAssets(ctx context.Context) ([]salesapp.SalesOrderAsset, error) {
+	q := fmt.Sprintf(`SELECT id, kind, filename, content_type, bytes, sha256, object_key, to_char(created_at,'YYYY-MM-DD HH24:MI:SS'), created_by
+		FROM %s.sales_order_assets
+		WHERE kind='seal'
+		ORDER BY id DESC`, r.schema)
+	rows, err := r.pool.Query(ctx, q)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := make([]salesapp.SalesOrderAsset, 0)
+	for rows.Next() {
+		var asset salesapp.SalesOrderAsset
+		if err := rows.Scan(&asset.ID, &asset.Kind, &asset.Filename, &asset.ContentType, &asset.Bytes, &asset.SHA256, &asset.ObjectKey, &asset.CreatedAt, &asset.CreatedBy); err != nil {
+			return nil, err
+		}
+		asset.URL = salesOrderAssetURL(asset.ObjectKey)
+		out = append(out, asset)
+	}
+	return out, rows.Err()
+}
+
 func (r Repository) SaveSalesOrderPaymentCode(ctx context.Context, cmd salesapp.SaveSalesOrderPaymentCodeCommand) (salesapp.SalesOrderPaymentCode, error) {
 	var code salesapp.SalesOrderPaymentCode
 	if cmd.ID > 0 {

@@ -13,7 +13,7 @@
 ## 当前手册
 - 手册入口必须直接放在对应大功能菜单内，不单独建立“手册”或“文档”菜单。
 - `OP_MANUAL_REQUIREMENTS.md`：需求管理 5 张表和证据闭环。
-- `OP_MANUAL_ORDER_SALES.md`：录单、订单列表、客户档案、销售单和出库单。
+- `OP_MANUAL_ORDER_SALES.md`：录单、订单列表、客户档案、销售单、合同盖章和出库单。
 - `OP_MANUAL_PRODUCTION.md`：生产计划、生产中、工单、工序卡、生产成本、生产日志、分配批次。
 - `OP_MANUAL_INVENTORY_MATERIALS.md`：物料、原料入库、批次、库存流水、库存调整、BOM。
 - `OP_MANUAL_COSTING.md`：成本参数、成本试算、豆单预览、价格发布。

@@ -5,6 +5,7 @@ import (
 	bomapp "orderapp/internal/application/bom"
 	catalogapp "orderapp/internal/application/catalog"
 	companyapp "orderapp/internal/application/company"
+	contractsapp "orderapp/internal/application/contracts"
 	costingapp "orderapp/internal/application/costing"
 	customerapp "orderapp/internal/application/customer"
 	customerfulfillmentapp "orderapp/internal/application/customerfulfillment"
@@ -17,10 +18,12 @@ import (
 	purchaseapp "orderapp/internal/application/purchase"
 	salesapp "orderapp/internal/application/sales"
 	stockapp "orderapp/internal/application/stock"
+	docconvert "orderapp/internal/infrastructure/docconvert"
 	postgresauthz "orderapp/internal/infrastructure/postgres/authz"
 	postgresbom "orderapp/internal/infrastructure/postgres/bom"
 	postgrescatalog "orderapp/internal/infrastructure/postgres/catalog"
 	postgrescompany "orderapp/internal/infrastructure/postgres/company"
+	postgrescontracts "orderapp/internal/infrastructure/postgres/contracts"
 	postgrescosting "orderapp/internal/infrastructure/postgres/costing"
 	postgrescustomer "orderapp/internal/infrastructure/postgres/customer"
 	postgrescustomerfulfillment "orderapp/internal/infrastructure/postgres/customerfulfillment"
@@ -36,6 +39,7 @@ import (
 	bomhttp "orderapp/internal/interfaces/http/bom"
 	cataloghttp "orderapp/internal/interfaces/http/catalog"
 	companyhttp "orderapp/internal/interfaces/http/company"
+	contractshttp "orderapp/internal/interfaces/http/contracts"
 	costinghttp "orderapp/internal/interfaces/http/costing"
 	customerhttp "orderapp/internal/interfaces/http/customer"
 	customerfulfillmenthttp "orderapp/internal/interfaces/http/customerfulfillment"
@@ -61,6 +65,7 @@ func registerAppRoutes(e *echo.Echo, pool *pgxpool.Pool, cfg appConfig) {
 	bomSvc := bomapp.NewService(postgresbom.NewRepository(pool, schema))
 	catalogSvc := catalogapp.NewService(postgrescatalog.NewRepository(pool, schema))
 	companySvc := companyapp.NewService(postgrescompany.NewRepository(pool, schema))
+	contractsSvc := contractsapp.NewService(postgrescontracts.NewRepository(pool, schema, postgrescontracts.WithAssetDir(assetDir)), docconvert.NewLibreOfficeConverter(cfg.DocxConverterCommand), contractsapp.WithAssetDir(assetDir))
 	costingSvc := costingapp.NewService(postgrescosting.NewRepository(pool, schema))
 	customerSvc := customerapp.NewService(postgrescustomer.NewRepository(pool, schema, assetDir))
 	customerFulfillmentSvc := customerfulfillmentapp.NewService(postgrescustomerfulfillment.NewRepository(pool, schema))
@@ -90,6 +95,7 @@ func registerAppRoutes(e *echo.Echo, pool *pgxpool.Pool, cfg appConfig) {
 	purchasehttp.RegisterRoutes(e, purchasehttp.Dependencies{Purchase: purchaseSvc})
 	productionhttp.RegisterRoutes(e, productionhttp.Dependencies{Production: productionSvc})
 	companyhttp.RegisterRoutes(e, companyhttp.Dependencies{Company: companySvc})
+	contractshttp.RegisterRoutes(e, contractshttp.Dependencies{Contracts: contractsSvc})
 	customerhttp.RegisterRoutes(e, customerhttp.Dependencies{Customer: customerSvc, AssetDir: assetDir})
 	saleshttp.RegisterRoutes(e, saleshttp.Dependencies{Sales: salesSvc, MessageCenter: messageCenterSvc, AssetDir: assetDir})
 	financehttp.RegisterRoutes(e, financehttp.Dependencies{Finance: financeSvc})

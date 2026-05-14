@@ -58,6 +58,7 @@ import AuditView from './views/AuditView.vue'
 import BomView from './views/BomView.vue'
 import CompanyProfileView from './views/CompanyProfileView.vue'
 import CompanyStaffView from './views/CompanyStaffView.vue'
+import ContractsView from './views/ContractsView.vue'
 import CostingView from './views/CostingView.vue'
 import CostingSettingsView from './views/CostingSettingsView.vue'
 import CustomerCapabilityTemplatesView from './views/CustomerCapabilityTemplatesView.vue'
@@ -138,6 +139,7 @@ let notificationTimer = 0
 const internalViews = {
   order: OrderEntryView,
   orders: OrdersView,
+  contracts: ContractsView,
   orderSalesManual: OperationManualView,
   orderInvoice: OrderInvoiceView,
   salesOrder: SalesOrderView,

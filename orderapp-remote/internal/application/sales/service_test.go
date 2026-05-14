@@ -28,6 +28,7 @@ type fakeRepo struct {
 	shareCmd               CreateExternalShareResourceCommand
 	invoiceRequestCmd      RequestOrderInvoiceCommand
 	invoiceFileCmd         SaveOrderInvoiceFileCommand
+	sealAssets             []SalesOrderAsset
 }
 
 func (r *fakeRepo) SaveOrder(ctx context.Context, cmd SaveOrderCommand) (SaveOrderResult, error) {
@@ -160,6 +161,10 @@ func (r *fakeRepo) DeleteSalesOrderPaymentCode(ctx context.Context, id int64, ac
 
 func (r *fakeRepo) SetSalesOrderSealAsset(ctx context.Context, assetID int64, actor string) error {
 	return nil
+}
+
+func (r *fakeRepo) ListSalesOrderSealAssets(ctx context.Context) ([]SalesOrderAsset, error) {
+	return append([]SalesOrderAsset(nil), r.sealAssets...), nil
 }
 
 func (r *fakeRepo) ListSalesOrderDocuments(ctx context.Context, orderID int64) ([]SalesOrderDocument, error) {
@@ -716,6 +721,21 @@ func TestServiceOwnsSalesOrderImageUseCases(t *testing.T) {
 	}
 	if _, err := svc.LoadSalesOrderImageFile(context.Background(), 18, 0, true); err != nil {
 		t.Fatalf("LoadSalesOrderImageFile latest error = %v", err)
+	}
+}
+
+func TestServiceListsSalesOrderSealAssets(t *testing.T) {
+	repo := &fakeRepo{sealAssets: []SalesOrderAsset{
+		{ID: 3, Kind: "seal", Filename: "公章A.png", ObjectKey: "sales_order_assets/seal/a.png"},
+		{ID: 4, Kind: "seal", Filename: "公章B.png", ObjectKey: "sales_order_assets/seal/b.png"},
+	}}
+	svc := NewService(repo)
+	got, err := svc.ListSalesOrderSealAssets(context.Background())
+	if err != nil {
+		t.Fatalf("ListSalesOrderSealAssets: %v", err)
+	}
+	if len(got) != 2 || got[0].URL == "" || got[1].Filename != "公章B.png" {
+		t.Fatalf("seal assets = %+v", got)
 	}
 }
 
