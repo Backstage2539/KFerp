@@ -63,6 +63,7 @@ func registerSalesOrderSettingsRoutes(e *echo.Echo, salesSvc *salesapp.Service, 
 	e.GET("/api/settings/sales-order", h.get)
 	e.POST("/api/settings/sales-order", h.save)
 	e.POST("/api/settings/sales-order/seal-position", h.saveSealPosition)
+	e.GET("/api/settings/sales-order/seals", h.listSeals)
 	e.POST("/api/settings/sales-order/payment-codes", h.uploadPaymentCode)
 	e.PUT("/api/settings/sales-order/payment-codes/:id", h.updatePaymentCode)
 	e.DELETE("/api/settings/sales-order/payment-codes/:id", h.deletePaymentCode)
@@ -137,6 +138,22 @@ func (h salesOrderSettingsHandler) saveSealPosition(c echo.Context) error {
 		return c.JSON(http.StatusInternalServerError, map[string]any{"error": err.Error()})
 	}
 	return c.JSON(http.StatusOK, settings)
+}
+
+func (h salesOrderSettingsHandler) listSeals(c echo.Context) error {
+	settings, err := h.sales.LoadSalesOrderSettings(c.Request().Context())
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]any{"error": err.Error()})
+	}
+	rows, err := h.sales.ListSalesOrderSealAssets(c.Request().Context())
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]any{"error": err.Error()})
+	}
+	var currentID int64
+	if settings.Seal != nil {
+		currentID = settings.Seal.ID
+	}
+	return c.JSON(http.StatusOK, map[string]any{"current_id": currentID, "rows": rows})
 }
 
 func (h salesOrderSettingsHandler) uploadPaymentCode(c echo.Context) error {

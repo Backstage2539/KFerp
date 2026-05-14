@@ -20,6 +20,7 @@ type Runtime struct {
 	CustomerPortalDevUnionID string
 	WechatMiniAppID          string
 	WechatMiniAppSecret      string
+	DocxConverterCommand     string
 }
 
 // LoadRuntime reads runtime configuration from the provided lookup function.
@@ -42,6 +43,7 @@ func LoadRuntime(lookup func(string) string) (Runtime, error) {
 		CustomerPortalDevUnionID: env(lookup, "CUSTOMER_PORTAL_DEV_UNIONID", ""),
 		WechatMiniAppID:          env(lookup, "WECHAT_MINI_APP_ID", ""),
 		WechatMiniAppSecret:      env(lookup, "WECHAT_MINI_APP_SECRET", ""),
+		DocxConverterCommand:     env(lookup, "DOCX_CONVERTER_CMD", "soffice"),
 	}
 	if cfg.DatabaseURL == "" {
 		return cfg, fmt.Errorf("DATABASE_URL is required")

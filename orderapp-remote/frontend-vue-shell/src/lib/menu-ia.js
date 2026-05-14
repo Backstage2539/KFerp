@@ -16,6 +16,7 @@ export const menuGroups = [
     items: [
       { key: 'order', label: '录单', title: '录单' },
       { key: 'orders', label: '订单列表', title: '订单列表' },
+      { key: 'contracts', label: '合同盖章', title: '合同盖章' },
       { key: 'orderSalesManual', label: '订单销售手册', title: '订单销售手册' },
       { key: 'customers', label: '客户档案', title: '客户档案' },
     ],
@@ -122,6 +123,7 @@ export const hiddenViewTitles = {
   allocationLogs: '分配批次查看',
   products: '产品设置',
   salesOrder: '销售单',
+  contractPDF: '合同PDF',
   customerProcessingPortal: '客户履约工作台',
 }
 

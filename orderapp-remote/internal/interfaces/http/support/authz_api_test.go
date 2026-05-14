@@ -167,6 +167,24 @@ func TestBeanListPublicationPermissionsSeparatePublishAndDraft(t *testing.T) {
 	}
 }
 
+func TestContractStampingAPIRequiresOrderPermissions(t *testing.T) {
+	cases := []struct {
+		method string
+		path   string
+		want   string
+	}{
+		{http.MethodGet, "/api/contracts", "orders.read"},
+		{http.MethodPost, "/api/contracts", "orders.write"},
+		{http.MethodPost, "/api/contracts/7/stamped", "orders.write"},
+		{http.MethodGet, "/api/settings/sales-order/seals", "orders.write"},
+	}
+	for _, tc := range cases {
+		if got := requiredPermissionForRequest(tc.method, tc.path); got != tc.want {
+			t.Fatalf("%s %s permission = %q, want %q", tc.method, tc.path, got, tc.want)
+		}
+	}
+}
+
 func TestMiniAPIHasNoEmployeePermissionBoundary(t *testing.T) {
 	if got := requiredPermissionForRequest(http.MethodGet, "/api/mini/me"); got != "" {
 		t.Fatalf("GET /api/mini/me permission = %q, want empty", got)

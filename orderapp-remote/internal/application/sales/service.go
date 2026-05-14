@@ -767,6 +767,7 @@ type Repository interface {
 	SaveSalesOrderSettings(ctx context.Context, cmd SaveSalesOrderSettingsCommand) error
 	SaveSalesOrderAsset(ctx context.Context, cmd SaveSalesOrderAssetCommand) (SalesOrderAsset, error)
 	DeleteSalesOrderAsset(ctx context.Context, id int64, actor string) error
+	ListSalesOrderSealAssets(ctx context.Context) ([]SalesOrderAsset, error)
 	SaveSalesOrderPaymentCode(ctx context.Context, cmd SaveSalesOrderPaymentCodeCommand) (SalesOrderPaymentCode, error)
 	DeleteSalesOrderPaymentCode(ctx context.Context, id int64, actor string) error
 	SetSalesOrderSealAsset(ctx context.Context, assetID int64, actor string) error
@@ -1260,6 +1261,19 @@ func (s *Service) DeleteSalesOrderAsset(ctx context.Context, id int64, actor str
 		actor = "sales"
 	}
 	return s.repo.DeleteSalesOrderAsset(ctx, id, actor)
+}
+
+func (s *Service) ListSalesOrderSealAssets(ctx context.Context) ([]SalesOrderAsset, error) {
+	assets, err := s.repo.ListSalesOrderSealAssets(ctx)
+	if err != nil {
+		return nil, err
+	}
+	for i := range assets {
+		if strings.TrimSpace(assets[i].URL) == "" && strings.TrimSpace(assets[i].ObjectKey) != "" {
+			assets[i].URL = "/assets/" + strings.TrimSpace(assets[i].ObjectKey)
+		}
+	}
+	return assets, nil
 }
 
 func (s *Service) SaveSalesOrderPaymentCode(ctx context.Context, cmd SaveSalesOrderPaymentCodeCommand) (SalesOrderPaymentCode, error) {

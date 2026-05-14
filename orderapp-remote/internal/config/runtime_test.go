@@ -34,6 +34,9 @@ func TestLoadRuntimeDefaults(t *testing.T) {
 	if cfg.CustomerPortalDevLogin {
 		t.Fatal("CustomerPortalDevLogin = true, want default false")
 	}
+	if cfg.DocxConverterCommand != "soffice" {
+		t.Fatalf("DocxConverterCommand = %q", cfg.DocxConverterCommand)
+	}
 }
 
 func TestLoadRuntimeCustomerPortalDevLogin(t *testing.T) {
@@ -116,6 +119,8 @@ func TestLoadRuntimeTrimsValues(t *testing.T) {
 			return " templates "
 		case "LISTEN":
 			return " :9090 "
+		case "DOCX_CONVERTER_CMD":
+			return " /usr/local/bin/soffice "
 		default:
 			return ""
 		}
@@ -137,5 +142,8 @@ func TestLoadRuntimeTrimsValues(t *testing.T) {
 	}
 	if cfg.ListenAddr != ":9090" {
 		t.Fatalf("ListenAddr = %q", cfg.ListenAddr)
+	}
+	if cfg.DocxConverterCommand != "/usr/local/bin/soffice" {
+		t.Fatalf("DocxConverterCommand = %q", cfg.DocxConverterCommand)
 	}
 }
