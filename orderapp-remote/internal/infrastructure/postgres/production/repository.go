@@ -2,6 +2,7 @@ package production
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -252,6 +253,14 @@ func (r Repository) Start(ctx context.Context, cmd productionapp.StartExecutionC
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
+	refs := startNeedRefs(cmd.Needs)
+	if err := lockStartRefsTx(ctx, tx, r.schema, refs); err != nil {
+		return productionapp.StartResult{}, err
+	}
+	if err := ensureStartRefsNotRunningTx(ctx, tx, r.schema, refs); err != nil {
+		return productionapp.StartResult{}, err
+	}
+
 	yieldByProductID, err := loadProductYieldRateMapTx(ctx, tx, r.schema)
 	if err != nil {
 		return productionapp.StartResult{}, err
@@ -361,6 +370,66 @@ func (r Repository) Start(ctx context.Context, cmd productionapp.StartExecutionC
 		return productionapp.StartResult{}, err
 	}
 	return productionapp.StartResult{BatchID: batchID}, nil
+}
+
+func startNeedRefs(needs []productionapp.StartNeed) []string {
+	out := make([]string, 0)
+	seen := map[string]bool{}
+	for _, need := range needs {
+		for _, ref := range splitOrderNos(need.OrderNos) {
+			if seen[ref] {
+				continue
+			}
+			seen[ref] = true
+			out = append(out, ref)
+		}
+	}
+	return out
+}
+
+func lockStartRefsTx(ctx context.Context, tx pgx.Tx, schema string, refs []string) error {
+	if len(refs) == 0 {
+		return nil
+	}
+	for _, query := range []string{
+		fmt.Sprintf(`SELECT id FROM %s.orders WHERE order_no = ANY($1) FOR UPDATE`, schema),
+		fmt.Sprintf(`SELECT id FROM %s.customer_processing_production_demands WHERE request_no = ANY($1) FOR UPDATE`, schema),
+	} {
+		rows, err := tx.Query(ctx, query, refs)
+		if err != nil {
+			return err
+		}
+		rows.Close()
+		if err := rows.Err(); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func ensureStartRefsNotRunningTx(ctx context.Context, tx pgx.Tx, schema string, refs []string) error {
+	if len(refs) == 0 {
+		return nil
+	}
+	var startedRef string
+	err := tx.QueryRow(ctx, fmt.Sprintf(`
+		SELECT ref
+		FROM unnest($1::text[]) AS ref
+		WHERE EXISTS (
+			SELECT 1
+			FROM %s.produce_running_items ri
+			WHERE ri.status='running'
+			  AND ref = ANY(string_to_array(replace(COALESCE(ri.order_nos,''),' ',''), ','))
+		)
+		LIMIT 1
+	`, schema), refs).Scan(&startedRef)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	return fmt.Errorf("production already started for %s", startedRef)
 }
 
 func markProcessingDemandsRunningTx(ctx context.Context, tx pgx.Tx, schema, refs, batchID string, runningItemID, workOrderID int64) error {

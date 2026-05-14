@@ -198,6 +198,64 @@ func TestGenerateSalesOrderImageCreatesIndependentImageVersions(t *testing.T) {
 	}
 }
 
+func TestGenerateSalesOrderDocumentCleansFileWhenDocumentInsertFails(t *testing.T) {
+	pool, schema := newSalesPostgresTestDB(t)
+	ctx := context.Background()
+	defer func() {
+		_, _ = pool.Exec(ctx, "DROP SCHEMA IF EXISTS "+schema+" CASCADE")
+		pool.Close()
+	}()
+	prepareSalesSchemaPrerequisites(t, ctx, pool, schema)
+	assetDir := t.TempDir()
+	repo := NewRepository(pool, schema, WithSalesOrderAssetDir(assetDir), WithSalesOrderRenderer(fakeSalesOrderRenderer{}))
+	if err := EnsureSchema(ctx, pool, schema); err != nil {
+		t.Fatalf("EnsureSchema: %v", err)
+	}
+	seedSalesOrderDocumentOrder(t, ctx, pool, schema)
+	if err := repo.SaveSalesOrderSettings(ctx, salesapp.SaveSalesOrderSettingsCommand{
+		Actor: "测试员", CompanyName: "浅焙作坊咖啡", Note: "请密封保存",
+	}); err != nil {
+		t.Fatalf("SaveSalesOrderSettings: %v", err)
+	}
+	if _, err := pool.Exec(ctx, fmt.Sprintf(`ALTER TABLE %s.sales_order_documents ADD CONSTRAINT sales_order_document_test_reject_latest CHECK (is_latest = false)`, schema)); err != nil {
+		t.Fatalf("add reject latest constraint: %v", err)
+	}
+
+	if _, err := repo.GenerateSalesOrderDocument(ctx, salesapp.GenerateSalesOrderDocumentCommand{Actor: "测试员", OrderID: 1}); err == nil {
+		t.Fatalf("GenerateSalesOrderDocument should fail when document insert is rejected")
+	}
+	assertSalesPostgresAssetDirEmpty(t, assetDir)
+}
+
+func TestGenerateSalesOrderImageCleansFileWhenImageInsertFails(t *testing.T) {
+	pool, schema := newSalesPostgresTestDB(t)
+	ctx := context.Background()
+	defer func() {
+		_, _ = pool.Exec(ctx, "DROP SCHEMA IF EXISTS "+schema+" CASCADE")
+		pool.Close()
+	}()
+	prepareSalesSchemaPrerequisites(t, ctx, pool, schema)
+	assetDir := t.TempDir()
+	repo := NewRepository(pool, schema, WithSalesOrderAssetDir(assetDir), WithSalesOrderRenderer(fakeSalesOrderRenderer{}))
+	if err := EnsureSchema(ctx, pool, schema); err != nil {
+		t.Fatalf("EnsureSchema: %v", err)
+	}
+	seedSalesOrderDocumentOrder(t, ctx, pool, schema)
+	if err := repo.SaveSalesOrderSettings(ctx, salesapp.SaveSalesOrderSettingsCommand{
+		Actor: "测试员", CompanyName: "浅焙作坊咖啡", Note: "请密封保存",
+	}); err != nil {
+		t.Fatalf("SaveSalesOrderSettings: %v", err)
+	}
+	if _, err := pool.Exec(ctx, fmt.Sprintf(`ALTER TABLE %s.sales_order_images ADD CONSTRAINT sales_order_image_test_reject_latest CHECK (is_latest = false)`, schema)); err != nil {
+		t.Fatalf("add reject latest constraint: %v", err)
+	}
+
+	if _, err := repo.GenerateSalesOrderImage(ctx, salesapp.GenerateSalesOrderImageCommand{Actor: "测试员", OrderID: 1}); err == nil {
+		t.Fatalf("GenerateSalesOrderImage should fail when image insert is rejected")
+	}
+	assertSalesPostgresAssetDirEmpty(t, assetDir)
+}
+
 func TestNewRepositoryPassesAssetDirToDefaultSalesOrderRenderer(t *testing.T) {
 	dir := t.TempDir()
 	repo := NewRepository(nil, "public", WithSalesOrderAssetDir(dir))
@@ -317,6 +375,17 @@ func prepareSalesSchemaPrerequisites(t *testing.T, ctx context.Context, pool *pg
 		if _, err := pool.Exec(ctx, stmt); err != nil {
 			t.Fatalf("prepare schema: %v", err)
 		}
+	}
+}
+
+func assertSalesPostgresAssetDirEmpty(t *testing.T, assetDir string) {
+	t.Helper()
+	entries, err := os.ReadDir(assetDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 0 {
+		t.Fatalf("asset dir should be empty after failed sales order generation, entries=%+v", entries)
 	}
 }
 

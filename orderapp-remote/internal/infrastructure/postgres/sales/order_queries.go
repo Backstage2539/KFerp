@@ -272,8 +272,15 @@ func orderListWhere(schema string, query salesapp.OrderListQuery) ([]string, []a
 			AND o.portal_service_code IN ('direct_ship','processing_ship')
 			AND EXISTS (
 				SELECT 1 FROM %s.customer_erp_user_bindings b
+				JOIN %s.company_employees e ON e.id=b.employee_id
+				LEFT JOIN %s.employee_login_passwords lp ON lp.employee_id=e.id
+				LEFT JOIN %s.customer_portal_profiles p ON p.customer_id=b.customer_id
 				WHERE b.customer_id=o.customer_id AND b.status='active'
-			)`, schema))
+				  AND e.active=true
+				  AND e.account_type='channel_customer'
+				  AND COALESCE(lp.login_disabled,false)=false
+				  AND COALESCE(NULLIF(p.capability_template_key,''),'processing_fulfillment') IN ('processing_fulfillment','public_sku_direct_ship')
+			)`, schema, schema, schema, schema))
 	}
 	if query.PayStatusID > 0 {
 		where = append(where, fmt.Sprintf("COALESCE(o.pay_status_id,0) = $%d", argn))

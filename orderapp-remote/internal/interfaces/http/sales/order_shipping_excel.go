@@ -1,6 +1,7 @@
 package sales
 
 import (
+	"bytes"
 	"fmt"
 	"io"
 	"net/http"
@@ -56,6 +57,8 @@ type orderShippingExcelRow struct {
 	Data   salesapp.OrderShippingExportData
 	Sender salesapp.SenderProfile
 }
+
+const maxShippingTrackingExcelUploadBytes = 20 << 20
 
 func registerOrderShippingExcelRoutes(e *echo.Echo, salesSvc *salesapp.Service) {
 	e.GET("/ship/order_exports/:filename", func(c echo.Context) error {
@@ -163,7 +166,11 @@ func registerOrderShippingExcelRoutes(e *echo.Echo, salesSvc *salesapp.Service) 
 			return c.JSON(http.StatusBadRequest, map[string]string{"error": "Excel 文件读取失败"})
 		}
 		defer src.Close()
-		items, err := parseShipmentTrackingExcel(src)
+		data, err := readShipmentTrackingExcelUpload(src)
+		if err != nil {
+			return c.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
+		}
+		items, err := parseShipmentTrackingExcel(bytes.NewReader(data))
 		if err != nil {
 			return c.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
 		}
@@ -176,6 +183,20 @@ func registerOrderShippingExcelRoutes(e *echo.Echo, salesSvc *salesapp.Service) 
 		}
 		return c.JSON(http.StatusOK, res)
 	})
+}
+
+func readShipmentTrackingExcelUpload(r io.Reader) ([]byte, error) {
+	data, err := io.ReadAll(io.LimitReader(r, maxShippingTrackingExcelUploadBytes+1))
+	if err != nil {
+		return nil, err
+	}
+	if len(data) == 0 {
+		return nil, fmt.Errorf("file required")
+	}
+	if len(data) > maxShippingTrackingExcelUploadBytes {
+		return nil, fmt.Errorf("file too large")
+	}
+	return data, nil
 }
 
 func generateOrderShippingExcel(salesSvc *salesapp.Service, c echo.Context, orderID int64) (orderShippingExcelFile, error) {
@@ -317,6 +338,7 @@ func generateOrdersShippingExcel(salesSvc *salesapp.Service, c echo.Context, ord
 		Orders:   shipmentOrders,
 	})
 	if err != nil {
+		cleanupOrderShippingExportFile(path)
 		return orderShippingExcelFile{}, err
 	}
 	return orderShippingExcelFile{
@@ -326,6 +348,14 @@ func generateOrdersShippingExcel(salesSvc *salesapp.Service, c echo.Context, ord
 		ShipmentID: shipment.ShipmentID,
 		ShipmentNo: shipment.ShipmentNo,
 	}, nil
+}
+
+func cleanupOrderShippingExportFile(path string) {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return
+	}
+	_ = os.Remove(path)
 }
 
 func buildOrderShippingWorkbook(templatePath string, sender salesapp.SenderProfile, data salesapp.OrderShippingExportData) (*excelize.File, error) {

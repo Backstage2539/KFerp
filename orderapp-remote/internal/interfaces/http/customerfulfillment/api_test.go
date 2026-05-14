@@ -3,6 +3,7 @@ package customerfulfillment
 import (
 	"bytes"
 	"context"
+	"errors"
 	"io"
 	"mime/multipart"
 	"net/http"
@@ -98,6 +99,41 @@ func TestCustomerOptionsAPIReturnsBoundWholesaleCustomersForPicker(t *testing.T)
 	}
 }
 
+func TestCustomerOptionsAPISkipsLegacyNonWorkbenchBinding(t *testing.T) {
+	customers := &fakeCustomerDirectory{
+		result: customerapp.ListResult{Rows: []customerapp.CustomerRow{
+			{ID: 201, Name: "零售商城历史绑定客户", CustomerType: "wholesale", Active: true},
+			{ID: 202, Name: "代加工工作台客户", CustomerType: "wholesale", Active: true},
+		}},
+	}
+	svc := &fakeCustomerFulfillmentService{
+		listERPBindingsByCustomer: map[int64][]app.CustomerERPBinding{
+			201: {{CustomerID: 201, EmployeeID: 31, Status: "active"}},
+			202: {{CustomerID: 202, EmployeeID: 32, Status: "active"}},
+		},
+		erpWorkbenchAvailableByCustomer: map[int64]bool{
+			201: false,
+			202: true,
+		},
+	}
+	e := echo.New()
+	RegisterRoutes(e, Dependencies{CustomerFulfillment: svc, Customers: customers})
+
+	req := httptest.NewRequest(http.MethodGet, "/api/customer-fulfillment/customers?limit=80", nil)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("customer options status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if strings.Contains(rec.Body.String(), "零售商城历史绑定客户") {
+		t.Fatalf("customer options leaked legacy non-workbench binding customer: %s", rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "代加工工作台客户") {
+		t.Fatalf("customer options must keep workbench customer: %s", rec.Body.String())
+	}
+}
+
 func TestApplyImportAPIReturnsApplySummary(t *testing.T) {
 	svc := &fakeCustomerFulfillmentService{applyResult: app.ApplyResult{BatchID: 55, AppliedRows: 8, DirectShipOrders: 1}}
 	e := echo.New()
@@ -114,6 +150,26 @@ func TestApplyImportAPIReturnsApplySummary(t *testing.T) {
 		if !strings.Contains(rec.Body.String(), want) {
 			t.Fatalf("apply response missing %s: %s", want, rec.Body.String())
 		}
+	}
+	if svc.applyCmd.BatchID != 55 {
+		t.Fatalf("apply batch id = %d, want 55", svc.applyCmd.BatchID)
+	}
+}
+
+func TestApplyImportAPICapabilityUnavailableMapsToBadRequest(t *testing.T) {
+	svc := &fakeCustomerFulfillmentService{applyErr: errors.New("customer capability direct_ship unavailable")}
+	e := echo.New()
+	RegisterRoutes(e, Dependencies{CustomerFulfillment: svc})
+
+	req := httptest.NewRequest(http.MethodPost, "/api/customer-fulfillment/imports/55/apply", nil)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("capability unavailable status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "customer capability direct_ship unavailable") {
+		t.Fatalf("capability unavailable response = %s", rec.Body.String())
 	}
 	if svc.applyCmd.BatchID != 55 {
 		t.Fatalf("apply batch id = %d, want 55", svc.applyCmd.BatchID)
@@ -282,6 +338,34 @@ func TestCustomerPortalOverviewAPIDerivesCustomerFromEmployeeBinding(t *testing.
 	}
 }
 
+func TestCustomerPortalOverviewAPILegacyWorkbenchBindingMapsToForbidden(t *testing.T) {
+	svc := &fakeCustomerFulfillmentService{
+		customerOverviewErr: app.ErrCustomerERPBindingNotFound,
+	}
+	e := echo.New()
+	e.Use(func(next echo.HandlerFunc) echo.HandlerFunc {
+		return func(c echo.Context) error {
+			c.Set("employee_id", int64(23))
+			return next(c)
+		}
+	})
+	RegisterRoutes(e, Dependencies{CustomerFulfillment: svc})
+
+	req := httptest.NewRequest(http.MethodGet, "/api/customer-processing/portal/overview", nil)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("legacy workbench binding status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), app.ErrCustomerERPBindingNotFound.Error()) {
+		t.Fatalf("legacy workbench binding response = %s", rec.Body.String())
+	}
+	if svc.customerOverviewEmployeeID != 23 {
+		t.Fatalf("portal overview employee id = %d, want 23", svc.customerOverviewEmployeeID)
+	}
+}
+
 func TestCustomerPortalOptionsAPIDerivesCustomerFromEmployeeBinding(t *testing.T) {
 	svc := &fakeCustomerFulfillmentService{
 		portalOptionsResult: app.CustomerFulfillmentOptions{
@@ -414,6 +498,39 @@ func TestInternalProcessingAndDirectShipSubmitAPIsUseExplicitCustomer(t *testing
 	}
 }
 
+func TestInternalSubmitAPICapabilityUnavailableMapsToBadRequest(t *testing.T) {
+	svc := &fakeCustomerFulfillmentService{
+		customerProcessingErr: errors.New("customer capability processing unavailable"),
+		customerDirectShipErr: errors.New("customer capability direct_ship unavailable"),
+	}
+	e := echo.New()
+	RegisterRoutes(e, Dependencies{CustomerFulfillment: svc})
+
+	processingBody := `{"product_name":"越权加工","input_quantity_g":5000,"planned_output_units":50}`
+	req := httptest.NewRequest(http.MethodPost, "/api/customer-fulfillment/149/work-orders", strings.NewReader(processingBody))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "customer capability processing unavailable") {
+		t.Fatalf("internal processing capability status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if svc.customerProcessingCmd.CustomerID != 149 {
+		t.Fatalf("internal processing cmd = %+v", svc.customerProcessingCmd)
+	}
+
+	directShipBody := `{"receiver_name":"张三","receiver_phone":"13800000000","receiver_address":"浙江杭州","product_name":"越权代发","quantity_units":1}`
+	req = httptest.NewRequest(http.MethodPost, "/api/customer-fulfillment/149/direct-ship-orders", strings.NewReader(directShipBody))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec = httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "customer capability direct_ship unavailable") {
+		t.Fatalf("internal direct ship capability status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if svc.customerDirectShipCmd.CustomerID != 149 {
+		t.Fatalf("internal direct ship cmd = %+v", svc.customerDirectShipCmd)
+	}
+}
+
 func TestInternalCustodyAdjustmentAPIUsesExplicitCustomer(t *testing.T) {
 	svc := &fakeCustomerFulfillmentService{
 		custodyAdjustmentResult: app.CustodyBalance{ItemType: "raw_bean", ItemName: "埃塞花魁", QuantityG: 12000},
@@ -435,6 +552,30 @@ func TestInternalCustodyAdjustmentAPIUsesExplicitCustomer(t *testing.T) {
 	}
 	if svc.custodyAdjustmentCmd.CustomerID != 149 || svc.custodyAdjustmentCmd.ItemName != "埃塞花魁" {
 		t.Fatalf("custody adjustment cmd = %+v", svc.custodyAdjustmentCmd)
+	}
+}
+
+func TestCustodyAdjustmentAPICapabilityUnavailableMapsToBadRequest(t *testing.T) {
+	svc := &fakeCustomerFulfillmentService{
+		custodyAdjustmentErr: errors.New("customer capability inventory_custody unavailable"),
+	}
+	e := echo.New()
+	RegisterRoutes(e, Dependencies{CustomerFulfillment: svc})
+
+	body := `{"item_type":"raw_bean","item_name":"越权生豆","quantity_g_delta":1000,"note":"越权补录"}`
+	req := httptest.NewRequest(http.MethodPost, "/api/customer-fulfillment/149/custody-adjustments", strings.NewReader(body))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("capability unavailable status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "customer capability inventory_custody unavailable") {
+		t.Fatalf("capability unavailable response = %s", rec.Body.String())
+	}
+	if svc.custodyAdjustmentCmd.CustomerID != 149 {
+		t.Fatalf("custody adjustment command = %+v, want customer 149", svc.custodyAdjustmentCmd)
 	}
 }
 
@@ -460,6 +601,29 @@ func TestInternalERPBindingAPIUpsertsCustomerEmployeeBinding(t *testing.T) {
 	}
 	if svc.erpBindingCmd.CustomerID != 149 || svc.erpBindingCmd.EmployeeID != 23 || svc.erpBindingCmd.Status != "active" {
 		t.Fatalf("erp binding cmd = %+v", svc.erpBindingCmd)
+	}
+}
+
+func TestInternalERPBindingAPIWorkbenchUnavailableMapsToBadRequest(t *testing.T) {
+	svc := &fakeCustomerFulfillmentService{
+		erpBindingErr: errors.New("ERP workbench unavailable for capability template"),
+	}
+	e := echo.New()
+	RegisterRoutes(e, Dependencies{CustomerFulfillment: svc})
+
+	req := httptest.NewRequest(http.MethodPost, "/api/customer-fulfillment/149/erp-bindings", strings.NewReader(`{"employee_id":23,"status":"active"}`))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("ERP binding workbench status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "ERP workbench unavailable for capability template") {
+		t.Fatalf("ERP binding workbench response = %s", rec.Body.String())
+	}
+	if svc.erpBindingCmd.CustomerID != 149 || svc.erpBindingCmd.EmployeeID != 23 || svc.erpBindingCmd.Status != "active" {
+		t.Fatalf("ERP binding command = %+v", svc.erpBindingCmd)
 	}
 }
 
@@ -495,38 +659,72 @@ func TestCreateSettlementAPIRequiresPeriod(t *testing.T) {
 	}
 }
 
+func TestCreateSettlementAPICapabilityUnavailableMapsToBadRequest(t *testing.T) {
+	svc := &fakeCustomerFulfillmentService{
+		settlementErr: errors.New("customer capability settlement unavailable"),
+	}
+	e := echo.New()
+	RegisterRoutes(e, Dependencies{CustomerFulfillment: svc})
+
+	req := httptest.NewRequest(http.MethodPost, "/api/customer-fulfillment/149/settlements", bytes.NewBufferString(`{"period_from":"2026-03-01","period_to":"2026-03-31"}`))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("capability unavailable status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "customer capability settlement unavailable") {
+		t.Fatalf("capability unavailable response = %s", rec.Body.String())
+	}
+	if svc.settlementCmd.CustomerID != 149 {
+		t.Fatalf("settlement command = %+v, want customer 149", svc.settlementCmd)
+	}
+}
+
 type fakeCustomerFulfillmentService struct {
-	parseCmd                   app.ParseImportCommand
-	parseFile                  string
-	parseResult                app.ImportBatch
-	applyCmd                   app.ApplyImportCommand
-	applyResult                app.ApplyResult
-	customerOverviewEmployeeID int64
-	customerOverviewResult     app.CustomerPortalOverview
-	portalOptionsEmployeeID    int64
-	portalOptionsResult        app.CustomerFulfillmentOptions
-	customerProcessingCmd      app.SubmitCustomerProcessingWorkOrderCommand
-	customerProcessingResult   app.ProcessingOrderSummary
-	customerDirectShipCmd      app.SubmitCustomerDirectShipOrderCommand
-	customerDirectShipResult   app.DirectShipOrderSummary
-	custodyAdjustmentCmd       app.AdjustCustodyInventoryCommand
-	custodyAdjustmentResult    app.CustodyBalance
-	erpBindingCmd              app.UpsertCustomerERPBindingCommand
-	erpBindingResult           app.CustomerERPBinding
-	listERPBindingsCustomerID  int64
-	listERPBindingsResult      []app.CustomerERPBinding
-	optionsCustomerID          int64
-	optionsResult              app.CustomerFulfillmentOptions
-	importPreviewQuery         app.ImportPreviewQuery
-	importPreviewResult        app.ImportPreview
-	listImportRowsQuery        app.ListImportRowsQuery
-	listImportRowsResult       []app.ImportRow
-	settlementCmd              app.CreateSettlementCommand
-	settlementResult           app.SettlementResult
-	overviewQuery              app.OverviewQuery
-	overviewResult             app.Overview
-	listImportsQuery           app.ListImportsQuery
-	listImportsResult          []app.ImportBatch
+	parseCmd                        app.ParseImportCommand
+	parseFile                       string
+	parseResult                     app.ImportBatch
+	applyCmd                        app.ApplyImportCommand
+	applyResult                     app.ApplyResult
+	applyErr                        error
+	customerOverviewEmployeeID      int64
+	customerOverviewResult          app.CustomerPortalOverview
+	customerOverviewErr             error
+	portalOptionsEmployeeID         int64
+	portalOptionsResult             app.CustomerFulfillmentOptions
+	customerProcessingCmd           app.SubmitCustomerProcessingWorkOrderCommand
+	customerProcessingResult        app.ProcessingOrderSummary
+	customerProcessingErr           error
+	customerDirectShipCmd           app.SubmitCustomerDirectShipOrderCommand
+	customerDirectShipResult        app.DirectShipOrderSummary
+	customerDirectShipErr           error
+	custodyAdjustmentCmd            app.AdjustCustodyInventoryCommand
+	custodyAdjustmentResult         app.CustodyBalance
+	custodyAdjustmentErr            error
+	erpBindingCmd                   app.UpsertCustomerERPBindingCommand
+	erpBindingResult                app.CustomerERPBinding
+	erpBindingErr                   error
+	listERPBindingsCustomerID       int64
+	listERPBindingsResult           []app.CustomerERPBinding
+	listERPBindingsByCustomer       map[int64][]app.CustomerERPBinding
+	erpWorkbenchAvailableByCustomer map[int64]bool
+	erpWorkbenchAvailableCustomerID int64
+	erpWorkbenchAvailableErr        error
+	optionsCustomerID               int64
+	optionsResult                   app.CustomerFulfillmentOptions
+	importPreviewQuery              app.ImportPreviewQuery
+	importPreviewResult             app.ImportPreview
+	listImportRowsQuery             app.ListImportRowsQuery
+	listImportRowsResult            []app.ImportRow
+	settlementCmd                   app.CreateSettlementCommand
+	settlementResult                app.SettlementResult
+	settlementErr                   error
+	overviewQuery                   app.OverviewQuery
+	overviewResult                  app.Overview
+	listImportsQuery                app.ListImportsQuery
+	listImportsResult               []app.ImportBatch
 }
 
 func (s *fakeCustomerFulfillmentService) ParseImport(ctx context.Context, cmd app.ParseImportCommand) (app.ImportBatch, error) {
@@ -540,11 +738,17 @@ func (s *fakeCustomerFulfillmentService) ParseImport(ctx context.Context, cmd ap
 
 func (s *fakeCustomerFulfillmentService) ApplyImport(ctx context.Context, cmd app.ApplyImportCommand) (app.ApplyResult, error) {
 	s.applyCmd = cmd
+	if s.applyErr != nil {
+		return app.ApplyResult{}, s.applyErr
+	}
 	return s.applyResult, nil
 }
 
 func (s *fakeCustomerFulfillmentService) CustomerPortalOverview(ctx context.Context, employeeID int64) (app.CustomerPortalOverview, error) {
 	s.customerOverviewEmployeeID = employeeID
+	if s.customerOverviewErr != nil {
+		return app.CustomerPortalOverview{}, s.customerOverviewErr
+	}
 	return s.customerOverviewResult, nil
 }
 
@@ -555,27 +759,53 @@ func (s *fakeCustomerFulfillmentService) CustomerPortalOptions(ctx context.Conte
 
 func (s *fakeCustomerFulfillmentService) SubmitCustomerProcessingWorkOrder(ctx context.Context, cmd app.SubmitCustomerProcessingWorkOrderCommand) (app.ProcessingOrderSummary, error) {
 	s.customerProcessingCmd = cmd
+	if s.customerProcessingErr != nil {
+		return app.ProcessingOrderSummary{}, s.customerProcessingErr
+	}
 	return s.customerProcessingResult, nil
 }
 
 func (s *fakeCustomerFulfillmentService) SubmitCustomerDirectShipOrder(ctx context.Context, cmd app.SubmitCustomerDirectShipOrderCommand) (app.DirectShipOrderSummary, error) {
 	s.customerDirectShipCmd = cmd
+	if s.customerDirectShipErr != nil {
+		return app.DirectShipOrderSummary{}, s.customerDirectShipErr
+	}
 	return s.customerDirectShipResult, nil
 }
 
 func (s *fakeCustomerFulfillmentService) AdjustCustodyInventory(ctx context.Context, cmd app.AdjustCustodyInventoryCommand) (app.CustodyBalance, error) {
 	s.custodyAdjustmentCmd = cmd
+	if s.custodyAdjustmentErr != nil {
+		return app.CustodyBalance{}, s.custodyAdjustmentErr
+	}
 	return s.custodyAdjustmentResult, nil
 }
 
 func (s *fakeCustomerFulfillmentService) UpsertCustomerERPBinding(ctx context.Context, cmd app.UpsertCustomerERPBindingCommand) (app.CustomerERPBinding, error) {
 	s.erpBindingCmd = cmd
+	if s.erpBindingErr != nil {
+		return app.CustomerERPBinding{}, s.erpBindingErr
+	}
 	return s.erpBindingResult, nil
 }
 
 func (s *fakeCustomerFulfillmentService) ListCustomerERPBindings(ctx context.Context, customerID int64) ([]app.CustomerERPBinding, error) {
 	s.listERPBindingsCustomerID = customerID
+	if s.listERPBindingsByCustomer != nil {
+		return s.listERPBindingsByCustomer[customerID], nil
+	}
 	return s.listERPBindingsResult, nil
+}
+
+func (s *fakeCustomerFulfillmentService) CustomerERPWorkbenchAvailable(ctx context.Context, customerID int64) (bool, error) {
+	s.erpWorkbenchAvailableCustomerID = customerID
+	if s.erpWorkbenchAvailableErr != nil {
+		return false, s.erpWorkbenchAvailableErr
+	}
+	if s.erpWorkbenchAvailableByCustomer != nil {
+		return s.erpWorkbenchAvailableByCustomer[customerID], nil
+	}
+	return true, nil
 }
 
 func (s *fakeCustomerFulfillmentService) CustomerFulfillmentOptions(ctx context.Context, customerID int64) (app.CustomerFulfillmentOptions, error) {
@@ -595,6 +825,9 @@ func (s *fakeCustomerFulfillmentService) ListImportRows(ctx context.Context, que
 
 func (s *fakeCustomerFulfillmentService) CreateSettlement(ctx context.Context, cmd app.CreateSettlementCommand) (app.SettlementResult, error) {
 	s.settlementCmd = cmd
+	if s.settlementErr != nil {
+		return app.SettlementResult{}, s.settlementErr
+	}
 	return s.settlementResult, nil
 }
 

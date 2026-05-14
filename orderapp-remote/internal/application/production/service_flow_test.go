@@ -190,6 +190,38 @@ func TestServiceOwnsRunningProductionUseCases(t *testing.T) {
 	}
 }
 
+func TestStartRejectsEmptySelectionWithoutOpeningWork(t *testing.T) {
+	repo := &fakeFlowRepo{
+		startNeeds: []StartNeed{{ProductID: 1, ProductName: "橘皮乌龙", SpecG: 227, GapG: 454, OrderNos: "SO-1"}},
+	}
+	svc := NewService(repo)
+
+	if _, err := svc.Start(context.Background(), StartCommand{Selected: map[string]bool{}, InputByKey: map[string]int64{}, Operator: "测试员"}); err == nil {
+		t.Fatal("empty production selection should fail")
+	}
+	if len(repo.startExecution.Needs) != 0 || repo.startExecution.Operator != "" {
+		t.Fatalf("repo.Start should not be called on empty selection: %+v", repo.startExecution)
+	}
+}
+
+func TestStartRejectsSelectedNeedWithoutPositiveInput(t *testing.T) {
+	repo := &fakeFlowRepo{
+		startNeeds: []StartNeed{{ProductID: 1, ProductName: "橘皮乌龙", SpecG: 227, GapG: 454, OrderNos: "SO-1"}},
+	}
+	svc := NewService(repo)
+
+	if _, err := svc.Start(context.Background(), StartCommand{
+		Selected:   map[string]bool{"1-227": true},
+		InputByKey: map[string]int64{},
+		Operator:   "测试员",
+	}); err == nil {
+		t.Fatal("selected production need without positive input should fail")
+	}
+	if len(repo.startExecution.Needs) != 0 || repo.startExecution.Operator != "" {
+		t.Fatalf("repo.Start should not be called when input is not positive: %+v", repo.startExecution)
+	}
+}
+
 func TestServiceOwnsManufacturingGapUseCases(t *testing.T) {
 	repo := &fakeFlowRepo{
 		materialPlanResult: MaterialPlanResult{Rows: []MaterialPlanRow{{

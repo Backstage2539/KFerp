@@ -66,13 +66,14 @@ const (
 )
 
 var (
-	ErrCustomerBindingNotFound     = errors.New("customer binding not found")
-	ErrMiniSessionNotFound         = errors.New("mini session not found")
-	ErrMiniLoginDisabled           = errors.New("mini login disabled")
-	ErrMiniUserDisabled            = errors.New("mini user disabled")
-	ErrCapabilityNotEnabled        = errors.New("capability not enabled")
-	ErrPortalCustomerNotFound      = errors.New("portal customer not found")
-	ErrBeanListPublicationNotFound = errors.New("bean list publication not found")
+	ErrCustomerBindingNotFound                   = errors.New("customer binding not found")
+	ErrMiniSessionNotFound                       = errors.New("mini session not found")
+	ErrMiniLoginDisabled                         = errors.New("mini login disabled")
+	ErrMiniUserDisabled                          = errors.New("mini user disabled")
+	ErrCapabilityNotEnabled                      = errors.New("capability not enabled")
+	ErrPortalCustomerNotFound                    = errors.New("portal customer not found")
+	ErrBeanListPublicationNotFound               = errors.New("bean list publication not found")
+	ErrCapabilityTemplateERPWorkbenchUnavailable = errors.New("ERP workbench unavailable for capability template")
 )
 
 type LoginCommand struct {
@@ -366,6 +367,7 @@ type ServicePage struct {
 	Title               string                 `json:"title"`
 	Capability          string                 `json:"capability"`
 	ThemeKey            string                 `json:"theme_key"`
+	MiniappEntryMode    string                 `json:"miniapp_entry_mode"`
 	CurrentCustomerID   int64                  `json:"current_customer_id"`
 	CurrentCustomerName string                 `json:"current_customer_name"`
 	Summary             []ServiceMetric        `json:"summary"`
@@ -715,6 +717,7 @@ func (s *Service) GetServicePage(ctx context.Context, token, key string, filter 
 	page.Title = def.title
 	page.Capability = def.capability
 	page.ThemeKey = NormalizePortalThemeKey(current.ThemeKey)
+	page.MiniappEntryMode = NormalizeMiniappEntryMode(current.MiniappEntryMode)
 	page.CurrentCustomerID = current.CurrentCustomerID
 	page.CurrentCustomerName = current.CurrentCustomerName
 	page.Summary = serviceSummary(page)
@@ -779,7 +782,11 @@ func (s *Service) UpdatePortalVisibility(ctx context.Context, cmd UpdatePortalVi
 	cmd.DisplayName = strings.TrimSpace(cmd.DisplayName)
 	cmd.ProcessingWarehouseCode = strings.TrimSpace(cmd.ProcessingWarehouseCode)
 	cmd.UpdatedBy = strings.TrimSpace(cmd.UpdatedBy)
+	rawTemplateKey := strings.TrimSpace(cmd.CapabilityTemplateKey)
 	cmd.CapabilityTemplateKey = NormalizeCapabilityTemplateKey(cmd.CapabilityTemplateKey)
+	if rawTemplateKey != "" && cmd.CapabilityTemplateKey == "" {
+		return PortalAdminDetail{}, fmt.Errorf("capability template invalid")
+	}
 	if cmd.CapabilityTemplateKey != "" {
 		template, ok := s.capabilityTemplateByKey(ctx, cmd.CapabilityTemplateKey)
 		if !ok {
@@ -817,6 +824,9 @@ func (s *Service) ListCapabilityTemplates(ctx context.Context) ([]CapabilityTemp
 func (s *Service) SaveCapabilityTemplate(ctx context.Context, cmd SaveCapabilityTemplateCommand) (CapabilityTemplate, error) {
 	if s.repo == nil {
 		return CapabilityTemplate{}, fmt.Errorf("repository required")
+	}
+	if templateERPWorkbenchDisallowed(cmd.Template) && (hasNonEmptyString(cmd.Template.ERPPermissions) || hasNonEmptyString(cmd.Template.ERPViewKeys)) {
+		return CapabilityTemplate{}, ErrCapabilityTemplateERPWorkbenchUnavailable
 	}
 	template, ok := normalizeCapabilityTemplate(cmd.Template)
 	if !ok {
@@ -869,6 +879,22 @@ func (s *Service) UpsertPortalERPBinding(ctx context.Context, cmd UpsertPortalER
 		return PortalAdminDetail{}, fmt.Errorf("repository required")
 	}
 	cmd.Status = normalizePortalERPBindingStatus(cmd.Status)
+	if cmd.Status == "active" {
+		detail, err := s.repo.PortalAdminDetail(ctx, cmd.CustomerID)
+		if err != nil {
+			return PortalAdminDetail{}, err
+		}
+		template, ok, err := s.capabilityTemplateByKeyStrict(ctx, detail.Customer.CapabilityTemplateKey)
+		if err != nil {
+			return PortalAdminDetail{}, err
+		}
+		if strings.TrimSpace(detail.Customer.CapabilityTemplateKey) != "" && !ok {
+			return PortalAdminDetail{}, ErrCapabilityTemplateERPWorkbenchUnavailable
+		}
+		if ok && !template.ExposesERPWorkbench() {
+			return PortalAdminDetail{}, ErrCapabilityTemplateERPWorkbenchUnavailable
+		}
+	}
 	cmd.UpdatedBy = strings.TrimSpace(cmd.UpdatedBy)
 	detail, err := s.repo.UpsertPortalERPBinding(ctx, cmd)
 	if err != nil {
@@ -894,6 +920,23 @@ func (s *Service) capabilityTemplateByKey(ctx context.Context, key string) (Capa
 		}
 	}
 	return CapabilityTemplate{}, false
+}
+
+func (s *Service) capabilityTemplateByKeyStrict(ctx context.Context, key string) (CapabilityTemplate, bool, error) {
+	key = NormalizeCapabilityTemplateKey(key)
+	if key == "" {
+		return CapabilityTemplate{}, false, nil
+	}
+	rows, err := s.ListCapabilityTemplates(ctx)
+	if err != nil {
+		return CapabilityTemplate{}, false, err
+	}
+	for _, template := range rows {
+		if template.Key == key {
+			return template, true, nil
+		}
+	}
+	return CapabilityTemplate{}, false, nil
 }
 
 func (s *Service) ListMallProducts(ctx context.Context) ([]MallProduct, []MallProductOption, error) {
@@ -1025,7 +1068,7 @@ func (s *Service) CreateDirectShipBatch(ctx context.Context, token string, cmd C
 	if cmd.SourceName == "" {
 		return DirectShipBatch{}, fmt.Errorf("source_name required")
 	}
-	if cmd.TotalRows < 0 {
+	if cmd.TotalRows <= 0 {
 		return DirectShipBatch{}, fmt.Errorf("total_rows invalid")
 	}
 	return s.repo.CreateDirectShipBatch(ctx, cmd)
@@ -1074,6 +1117,7 @@ func (s *Service) CreateFulfillmentOrder(ctx context.Context, token string, cmd 
 	cmd.RecipientAddress = strings.TrimSpace(cmd.RecipientAddress)
 	cmd.RecipientCompany = strings.TrimSpace(cmd.RecipientCompany)
 	cmd.ProductName = strings.TrimSpace(cmd.ProductName)
+	cmd.UnitPrice = 0
 	cmd.Note = strings.TrimSpace(cmd.Note)
 	if cmd.RecipientName == "" {
 		return FulfillmentOrder{}, fmt.Errorf("recipient_name required")
@@ -1184,12 +1228,23 @@ func normalizePortalAdminCustomer(customer PortalAdminCustomer) PortalAdminCusto
 	}
 	customer.ThemeKey = NormalizePortalThemeKey(customer.ThemeKey)
 	customer.MiniappEntryMode = NormalizeMiniappEntryMode(customer.MiniappEntryMode)
-	customer.CapabilityTemplateKey = NormalizeCapabilityTemplateKey(customer.CapabilityTemplateKey)
+	customer.CapabilityTemplateKey = normalizePortalAdminCapabilityTemplateKey(customer.CapabilityTemplateKey)
 	if customer.ERPBinding != nil {
 		customer.ERPBinding.Role = firstNonEmpty(customer.ERPBinding.Role, "customer")
 		customer.ERPBinding.Status = normalizePortalERPBindingStatus(customer.ERPBinding.Status)
 	}
 	return customer
+}
+
+func normalizePortalAdminCapabilityTemplateKey(value string) string {
+	raw := strings.TrimSpace(value)
+	if raw == "" {
+		return ""
+	}
+	if normalized := NormalizeCapabilityTemplateKey(raw); normalized != "" {
+		return normalized
+	}
+	return raw
 }
 
 func normalizePortalERPBindingStatus(value string) string {
@@ -1425,8 +1480,13 @@ func normalizeCapabilityTemplate(input CapabilityTemplate) (CapabilityTemplate, 
 	input.ThemeKey = NormalizePortalThemeKey(firstNonEmpty(input.ThemeKey, defaultTemplate.ThemeKey))
 	input.MiniappEntryMode = NormalizeMiniappEntryMode(firstNonEmpty(input.MiniappEntryMode, defaultTemplate.MiniappEntryMode))
 	input.ERPRoleCodes = []string{}
-	input.ERPPermissions = normalizedStringListOrDefault(input.ERPPermissions, defaultTemplate.ERPPermissions)
-	input.ERPViewKeys = normalizedStringListOrDefault(input.ERPViewKeys, defaultTemplate.ERPViewKeys)
+	if defaultTemplate.ExposesERPWorkbench() {
+		input.ERPPermissions = normalizedStringListOrDefault(input.ERPPermissions, defaultTemplate.ERPPermissions)
+		input.ERPViewKeys = normalizedStringListOrDefault(input.ERPViewKeys, defaultTemplate.ERPViewKeys)
+	} else {
+		input.ERPPermissions = []string{}
+		input.ERPViewKeys = []string{}
+	}
 	if len(input.Capabilities) == 0 {
 		input.Capabilities = cloneCapabilityOptions(defaultTemplate.Capabilities)
 	} else {
@@ -1435,6 +1495,15 @@ func normalizeCapabilityTemplate(input CapabilityTemplate) (CapabilityTemplate, 
 	input.UpdatedAt = strings.TrimSpace(input.UpdatedAt)
 	input.UpdatedBy = strings.TrimSpace(input.UpdatedBy)
 	return input, true
+}
+
+func templateERPWorkbenchDisallowed(template CapabilityTemplate) bool {
+	key := NormalizeCapabilityTemplateKey(template.Key)
+	if key == "" {
+		return false
+	}
+	defaultTemplate, ok := CustomerCapabilityTemplateByKey(key)
+	return ok && !defaultTemplate.ExposesERPWorkbench()
 }
 
 func normalizedStringListOrDefault(values, fallback []string) []string {
@@ -1557,6 +1626,19 @@ func (t CapabilityTemplate) HasCapability(code string) bool {
 	code = strings.TrimSpace(code)
 	for _, capability := range t.Capabilities {
 		if capability.Code == code && capability.Enabled {
+			return true
+		}
+	}
+	return false
+}
+
+func (t CapabilityTemplate) ExposesERPWorkbench() bool {
+	return hasNonEmptyString(t.ERPPermissions) || hasNonEmptyString(t.ERPViewKeys)
+}
+
+func hasNonEmptyString(values []string) bool {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
 			return true
 		}
 	}

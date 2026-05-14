@@ -1,7 +1,9 @@
 package customer
 
 import (
+	"bytes"
 	"context"
+	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
 	customerapp "orderapp/internal/application/customer"
@@ -12,7 +14,8 @@ import (
 )
 
 type fakeCustomerRepo struct {
-	upsert customerapp.UpsertCommand
+	upsert   customerapp.UpsertCommand
+	assetCmd customerapp.SaveAssetCommand
 }
 
 func (r *fakeCustomerRepo) Upsert(ctx context.Context, actor string, id *int64, cmd customerapp.UpsertCommand) (int64, error) {
@@ -47,7 +50,8 @@ func (r *fakeCustomerRepo) AssetObject(ctx context.Context, assetID int64) (cust
 }
 
 func (r *fakeCustomerRepo) SaveAsset(ctx context.Context, cmd customerapp.SaveAssetCommand) (customerapp.SaveAssetResult, error) {
-	return customerapp.SaveAssetResult{}, nil
+	r.assetCmd = cmd
+	return customerapp.SaveAssetResult{CustomerID: cmd.CustomerID, ObjectKey: "customers/9/logo.png", Bytes: 68, SHA256: "sha"}, nil
 }
 
 func (r *fakeCustomerRepo) DeleteAsset(ctx context.Context, actor string, assetID int64) (customerapp.DeleteAssetResult, error) {
@@ -134,5 +138,43 @@ func TestCustomerAPIDefaultsHistoricalCustomersToRetail(t *testing.T) {
 	}
 	if !strings.Contains(rec.Body.String(), `"customer_type":"retail"`) {
 		t.Fatalf("response missing retail customer_type: %s", rec.Body.String())
+	}
+}
+
+func TestCustomerAssetUploadUsesImageSizeLimit(t *testing.T) {
+	repo := &fakeCustomerRepo{}
+	e := echo.New()
+	RegisterRoutes(e, Dependencies{Customer: customerapp.NewService(repo)})
+
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
+	if err := writer.WriteField("kind", "logo"); err != nil {
+		t.Fatal(err)
+	}
+	part, err := writer.CreateFormFile("file", "logo.png")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := part.Write([]byte("\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR")); err != nil {
+		t.Fatal(err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/customers/9/assets/upload", &body)
+	req.Header.Set(echo.HeaderContentType, writer.FormDataContentType())
+	req.Header.Set(echo.HeaderAccept, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("asset upload status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if repo.assetCmd.MaxBytes != 8<<20 {
+		t.Fatalf("asset upload max bytes=%d, want 8MB image limit", repo.assetCmd.MaxBytes)
+	}
+	if repo.assetCmd.ContentType != "image/png" {
+		t.Fatalf("asset upload content type=%q, want image/png", repo.assetCmd.ContentType)
 	}
 }

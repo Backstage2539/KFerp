@@ -2,6 +2,7 @@ package finance
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	domain "orderapp/internal/domain/finance"
@@ -36,6 +37,7 @@ func TestDashboardBuildsMonthlyReportFromSettingsSourcesAndAdjustments(t *testin
 func TestCreateExpenseValidatesAndNormalizesPeriodExpense(t *testing.T) {
 	repo := newFakeRepo()
 	repo.reportStatus = domain.MonthStatusDraft
+	repo.expenseEmployees = []ExpenseEmployee{{ID: 7, Name: "小王", Active: true}}
 	svc := NewService(repo)
 
 	expense, err := svc.CreateExpense(context.Background(), CreateExpenseCommand{
@@ -66,6 +68,43 @@ func TestCreateExpenseValidatesAndNormalizesPeriodExpense(t *testing.T) {
 	}
 	if _, err := svc.CreateExpense(context.Background(), CreateExpenseCommand{Date: "2026-05-02", Category: "房租", Amount: 1, EmployeeID: -1}); err == nil {
 		t.Fatal("negative employee_id should fail")
+	}
+}
+
+func TestCreateExpenseRejectsInactiveEmployee(t *testing.T) {
+	repo := newFakeRepo()
+	repo.reportStatus = domain.MonthStatusDraft
+	repo.expenseEmployees = []ExpenseEmployee{
+		{ID: 7, Name: "离职员工", Active: false},
+		{ID: 8, Name: "在职员工", Active: true},
+	}
+	svc := NewService(repo)
+
+	_, err := svc.CreateExpense(context.Background(), CreateExpenseCommand{
+		Date:       "2026-05-02",
+		Category:   "样品费",
+		Amount:     120,
+		Allocation: AllocationPeriodExpense,
+		EmployeeID: 7,
+		Actor:      "Van",
+	})
+	if err == nil || !strings.Contains(err.Error(), "employee inactive") {
+		t.Fatalf("inactive employee err=%v, want employee inactive", err)
+	}
+	if len(repo.expenses) != 0 {
+		t.Fatalf("inactive employee wrote expenses: %#v", repo.expenses)
+	}
+
+	_, err = svc.CreateExpense(context.Background(), CreateExpenseCommand{
+		Date:       "2026-05-02",
+		Category:   "样品费",
+		Amount:     120,
+		Allocation: AllocationPeriodExpense,
+		EmployeeID: 8,
+		Actor:      "Van",
+	})
+	if err != nil {
+		t.Fatalf("active employee should be accepted: %v", err)
 	}
 }
 
@@ -210,6 +249,26 @@ func TestCloseMonthUsesStrongLockSnapshot(t *testing.T) {
 	}
 }
 
+func TestCloseMonthPreservesAdjustedStatus(t *testing.T) {
+	repo := newFakeRepo()
+	repo.settings = domain.DefaultSettings()
+	repo.reportStatus = domain.MonthStatusAdjusted
+	repo.totals = domain.MonthlySourceTotals{Month: "2026-05", RevenueTaxInclusive: 103000}
+	repo.adjustments = []AdjustmentRecord{{Type: domain.AdjustmentExpense, Amount: 100, Reason: "补记费用"}}
+	svc := NewService(repo)
+
+	report, err := svc.CloseMonth(context.Background(), CloseMonthCommand{Month: "2026-05", Actor: "Van"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if report.Status != domain.MonthStatusAdjusted {
+		t.Fatalf("status = %q, want adjusted so repeat close does not downgrade post-close adjustments", report.Status)
+	}
+	if repo.reportStatus != domain.MonthStatusAdjusted {
+		t.Fatalf("saved status = %q, want adjusted", repo.reportStatus)
+	}
+}
+
 func TestDraftReportKeepsSavedClosedOrAdjustedStatus(t *testing.T) {
 	repo := newFakeRepo()
 	repo.reportStatus = domain.MonthStatusAdjusted
@@ -254,6 +313,45 @@ func TestCreateExpenseRespectsStrongLockForClosedMonth(t *testing.T) {
 	})
 	if err != nil {
 		t.Fatalf("light confirmation should allow expense with warning path: %v", err)
+	}
+}
+
+func TestCreateTaxLedgerRespectsStrongLockForClosedMonth(t *testing.T) {
+	repo := newFakeRepo()
+	repo.settings = domain.DefaultSettings()
+	repo.reportStatus = domain.MonthStatusClosed
+	svc := NewService(repo)
+
+	_, err := svc.CreateTaxLedgerEntry(context.Background(), CreateTaxLedgerCommand{
+		Month:        "2026-05",
+		Kind:         "sales_invoice",
+		InvoiceNo:    "INV-CLOSED",
+		Counterparty: "客户A",
+		TotalAmount:  1000,
+		TaxAmount:    30,
+		Status:       "confirmed",
+		Actor:        "Van",
+	})
+	if err == nil {
+		t.Fatal("closed strong-lock month should reject new tax ledger source document")
+	}
+
+	repo.settings.ClosingMode = domain.ClosingModeLightConfirmation
+	row, err := svc.CreateTaxLedgerEntry(context.Background(), CreateTaxLedgerCommand{
+		Month:        "2026-05",
+		Kind:         "sales_invoice",
+		InvoiceNo:    "INV-LIGHT",
+		Counterparty: "客户A",
+		TotalAmount:  1000,
+		TaxAmount:    30,
+		Status:       "confirmed",
+		Actor:        "Van",
+	})
+	if err != nil {
+		t.Fatalf("light confirmation should allow tax ledger entry with warning path: %v", err)
+	}
+	if row.InvoiceNo != "INV-LIGHT" {
+		t.Fatalf("unexpected tax ledger row: %#v", row)
 	}
 }
 

@@ -87,6 +87,10 @@ func (r Repository) CreateLoginSession(ctx context.Context, cmd customerportalap
 	if err != nil {
 		return customerportalapp.LoginResult{}, err
 	}
+	entryMode, err := r.miniappEntryModeForCustomerTx(ctx, tx, currentCustomerID)
+	if err != nil {
+		return customerportalapp.LoginResult{}, err
+	}
 	if err := tx.Commit(ctx); err != nil {
 		return customerportalapp.LoginResult{}, err
 	}
@@ -97,6 +101,7 @@ func (r Repository) CreateLoginSession(ctx context.Context, cmd customerportalap
 		Bindings:          bindings,
 		Capabilities:      capabilities,
 		ThemeKey:          themeKey,
+		MiniappEntryMode:  entryMode,
 	}, nil
 }
 
@@ -158,6 +163,10 @@ func (r Repository) CurrentContextByToken(ctx context.Context, token string) (cu
 	if err != nil {
 		return customerportalapp.CurrentContext{}, err
 	}
+	entryMode, err := r.miniappEntryModeForCustomerTx(ctx, tx, currentCustomerID)
+	if err != nil {
+		return customerportalapp.CurrentContext{}, err
+	}
 	if err := tx.Commit(ctx); err != nil {
 		return customerportalapp.CurrentContext{}, err
 	}
@@ -168,6 +177,7 @@ func (r Repository) CurrentContextByToken(ctx context.Context, token string) (cu
 		Bindings:            bindings,
 		Capabilities:        capabilities,
 		ThemeKey:            themeKey,
+		MiniappEntryMode:    entryMode,
 	}, nil
 }
 
@@ -198,9 +208,10 @@ func (r Repository) SwitchCurrentCustomer(ctx context.Context, token string, cus
 	var bound int
 	if err := tx.QueryRow(ctx, fmt.Sprintf(`
 		SELECT 1
-		FROM %s.customer_portal_user_bindings
-		WHERE mini_user_id=$1 AND customer_id=$2 AND status='approved'
-	`, r.schema), miniUserID, customerID).Scan(&bound); err != nil {
+		FROM %s.customer_portal_user_bindings b
+		JOIN %s.customers c ON c.id=b.customer_id AND c.active=true
+		WHERE b.mini_user_id=$1 AND b.customer_id=$2 AND b.status='approved'
+	`, r.schema, r.schema), miniUserID, customerID).Scan(&bound); err != nil {
 		if err == pgx.ErrNoRows {
 			return customerportalapp.CurrentContext{}, customerportalapp.ErrCustomerBindingNotFound
 		}
@@ -233,7 +244,7 @@ func (r Repository) listBindingsTx(ctx context.Context, q txQuerier, miniUserID 
 		FROM %s.customer_portal_user_bindings b
 		JOIN %s.customers c ON c.id=b.customer_id
 		LEFT JOIN %s.customer_portal_profiles p ON p.customer_id=b.customer_id
-		WHERE b.mini_user_id=$1 AND b.status='approved'
+		WHERE b.mini_user_id=$1 AND b.status='approved' AND c.active=true
 		ORDER BY b.id
 	`, r.schema, r.schema, r.schema), miniUserID)
 	if err != nil {
@@ -301,6 +312,25 @@ func (r Repository) themeForCustomerTx(ctx context.Context, q txQuerier, custome
 		return "", err
 	}
 	return customerportalapp.NormalizePortalThemeKey(raw), nil
+}
+
+func (r Repository) miniappEntryModeForCustomerTx(ctx context.Context, q txQuerier, customerID int64) (string, error) {
+	if customerID <= 0 {
+		return customerportalapp.MiniappEntryModeServices, nil
+	}
+	var raw string
+	err := q.QueryRow(ctx, fmt.Sprintf(`
+		SELECT COALESCE(NULLIF(miniapp_entry_mode,''),'services')
+		FROM %s.customer_portal_profiles
+		WHERE customer_id=$1
+	`, r.schema), customerID).Scan(&raw)
+	if err == pgx.ErrNoRows {
+		return customerportalapp.MiniappEntryModeServices, nil
+	}
+	if err != nil {
+		return "", err
+	}
+	return customerportalapp.NormalizeMiniappEntryMode(raw), nil
 }
 
 func randomToken(n int) (string, error) {

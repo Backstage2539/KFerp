@@ -40,7 +40,7 @@ describe('visibleHomeEntries', () => {
   })
 
   it('shows a direct order entrance for any order-related customer capability', () => {
-    for (const code of ['product_order', 'direct_ship', 'shipping_query']) {
+    for (const code of ['product_order', 'direct_ship', 'shipping_query', 'mall']) {
       const entries = visibleHomeEntries([{ code, enabled: true }])
       const orders = entries.find((entry) => entry.key === 'orders')
       expect(orders?.label).toBe('我的订单')

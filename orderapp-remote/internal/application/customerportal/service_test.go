@@ -3,6 +3,7 @@ package customerportal
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 )
 
@@ -344,6 +345,8 @@ func TestGetServicePageLoadsCustomerScopedData(t *testing.T) {
 		context: CurrentContext{
 			CurrentCustomerID:   7,
 			CurrentCustomerName: "客户A",
+			ThemeKey:            PortalThemePremiumPartner,
+			MiniappEntryMode:    MiniappEntryModeMall,
 			Capabilities:        []Capability{{Code: CapabilityShippingQuery, Enabled: true}},
 		},
 		servicePage: ServicePage{
@@ -360,7 +363,8 @@ func TestGetServicePageLoadsCustomerScopedData(t *testing.T) {
 	if repo.session != "mini-token" || repo.serviceQuery.CustomerID != 7 || repo.serviceQuery.Key != ServiceKeyShipping || repo.serviceQuery.Limit != 20 {
 		t.Fatalf("service query=%+v session=%q", repo.serviceQuery, repo.session)
 	}
-	if got.CurrentCustomerID != 7 || len(got.Orders) != 1 || got.Orders[0].ShipTrackingNo != "SF123" {
+	if got.CurrentCustomerID != 7 || got.ThemeKey != PortalThemePremiumPartner || got.MiniappEntryMode != MiniappEntryModeMall ||
+		len(got.Orders) != 1 || got.Orders[0].ShipTrackingNo != "SF123" {
 		t.Fatalf("GetServicePage()=%+v", got)
 	}
 }
@@ -403,7 +407,7 @@ func TestGetServicePageNormalizesOrderSearchFilters(t *testing.T) {
 }
 
 func TestGetOrdersServicePageAllowsAnyOrderRelatedCapability(t *testing.T) {
-	for _, capability := range []string{CapabilityProductOrder, CapabilityDirectShip, CapabilityShippingQuery} {
+	for _, capability := range []string{CapabilityProductOrder, CapabilityDirectShip, CapabilityShippingQuery, CapabilityMall} {
 		repo := &fakeRepository{
 			context: CurrentContext{
 				CurrentCustomerID:   7,
@@ -445,6 +449,26 @@ func TestCreateDirectShipBatchRequiresCapabilityAndTrimsInput(t *testing.T) {
 	}
 	if got.BatchNo != "DS-20260503-0003" || repo.directShipCommand.CustomerID != 7 || repo.directShipCommand.SourceName != "5月直播订单" || repo.directShipCommand.Note != "客户一次发来100单" {
 		t.Fatalf("batch=%+v command=%+v", got, repo.directShipCommand)
+	}
+}
+
+func TestCreateDirectShipBatchRejectsEmptyRows(t *testing.T) {
+	repo := &fakeRepository{
+		context: CurrentContext{
+			CurrentCustomerID: 7,
+			Capabilities:      []Capability{{Code: CapabilityDirectShip, Enabled: true}},
+		},
+	}
+	svc := NewService(repo, fakeIdentityProvider{})
+	_, err := svc.CreateDirectShipBatch(context.Background(), "mini-token", CreateDirectShipBatchCommand{
+		SourceName: "空批次",
+		TotalRows:  0,
+	})
+	if err == nil || err.Error() != "total_rows invalid" {
+		t.Fatalf("CreateDirectShipBatch empty rows err=%v, want total_rows invalid", err)
+	}
+	if repo.directShipCommand.CustomerID != 0 {
+		t.Fatalf("empty direct ship batch should not reach repository: %+v", repo.directShipCommand)
 	}
 }
 
@@ -562,6 +586,122 @@ func TestOrdersServiceAllowsMallCapabilityForRetailOrderHistory(t *testing.T) {
 	}
 }
 
+func TestDefaultCapabilityTemplatesRuntimeBusinessContract(t *testing.T) {
+	tests := []struct {
+		templateKey       string
+		entryMode         string
+		themeKey          string
+		erpPermissions    []string
+		erpViewKeys       []string
+		servicePages      map[string]bool
+		mall              bool
+		directShipBatch   bool
+		directShipOrder   bool
+		processingRequest bool
+		processingOrder   bool
+		productOrder      bool
+	}{
+		{
+			templateKey:    CapabilityTemplateProcessingFulfillment,
+			entryMode:      MiniappEntryModeServices,
+			themeKey:       PortalThemeCoffeeFactory,
+			erpPermissions: []string{"customer_processing.read", "customer_processing.submit"},
+			erpViewKeys:    []string{"customerProcessingPortal"},
+			servicePages: map[string]bool{
+				ServiceKeyOrders:       true,
+				ServiceKeyDirectShip:   true,
+				ServiceKeyProcessing:   true,
+				ServiceKeyInventory:    true,
+				ServiceKeySettlement:   true,
+				ServiceKeyProductOrder: false,
+			},
+			directShipBatch:   true,
+			directShipOrder:   true,
+			processingRequest: true,
+			processingOrder:   true,
+		},
+		{
+			templateKey:    CapabilityTemplatePublicSKUDirectShip,
+			entryMode:      MiniappEntryModeServices,
+			themeKey:       PortalThemeCleanOps,
+			erpPermissions: []string{"customer_processing.read", "customer_processing.submit"},
+			erpViewKeys:    []string{"customerProcessingPortal"},
+			servicePages: map[string]bool{
+				ServiceKeyOrders:       true,
+				ServiceKeyDirectShip:   true,
+				ServiceKeyProductOrder: true,
+				ServiceKeySettlement:   true,
+				ServiceKeyProcessing:   false,
+				ServiceKeyInventory:    false,
+			},
+			directShipBatch: true,
+			directShipOrder: true,
+			productOrder:    true,
+		},
+		{
+			templateKey: CapabilityTemplateRetailMall,
+			entryMode:   MiniappEntryModeMall,
+			themeKey:    PortalThemeCleanOps,
+			servicePages: map[string]bool{
+				ServiceKeyOrders:       true,
+				ServiceKeyProductOrder: false,
+				ServiceKeyDirectShip:   false,
+				ServiceKeyProcessing:   false,
+				ServiceKeyInventory:    false,
+				ServiceKeySettlement:   false,
+			},
+			mall: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.templateKey, func(t *testing.T) {
+			template, ok := CustomerCapabilityTemplateByKey(tt.templateKey)
+			if !ok {
+				t.Fatalf("template %s missing", tt.templateKey)
+			}
+			if template.MiniappEntryMode != tt.entryMode || template.ThemeKey != tt.themeKey {
+				t.Fatalf("template entry/theme=%q/%q, want %q/%q", template.MiniappEntryMode, template.ThemeKey, tt.entryMode, tt.themeKey)
+			}
+			assertStringSet(t, template.ERPPermissions, tt.erpPermissions, "erp permissions")
+			assertStringSet(t, template.ERPViewKeys, tt.erpViewKeys, "erp view keys")
+			if len(template.ERPRoleCodes) != 0 {
+				t.Fatalf("template %s erp roles=%+v, want no customer business roles", tt.templateKey, template.ERPRoleCodes)
+			}
+
+			repo := &fakeRepository{
+				context:           currentContextForTemplate(t, template),
+				mallOrder:         FulfillmentOrder{OrderID: 101, OrderNo: "SO-MALL", PortalServiceCode: PortalServiceMall},
+				directShipBatch:   DirectShipBatch{ID: 201, BatchNo: "DS-201", Status: "submitted"},
+				processingRequest: ProcessingRequest{ID: 301, RequestNo: "PJ-301", Status: "submitted"},
+				fulfillmentOrder:  FulfillmentOrder{OrderID: 401, OrderNo: "SO-FULFILLMENT"},
+				servicePage:       ServicePage{Orders: []CustomerOrderSummary{{OrderNo: "SO-HISTORY"}}},
+			}
+			svc := NewService(repo, fakeIdentityProvider{})
+
+			for serviceKey, allowed := range tt.servicePages {
+				_, err := svc.GetServicePage(context.Background(), "mini-token", serviceKey, ServicePageFilter{})
+				assertCapabilityAccess(t, tt.templateKey+" "+serviceKey, allowed, err)
+			}
+
+			_, err := svc.GetMallPage(context.Background(), "mini-token")
+			assertCapabilityAccess(t, tt.templateKey+" mall page", tt.mall, err)
+			_, err = svc.CreateMallOrder(context.Background(), "mini-token", validMallOrderCommand())
+			assertCapabilityAccess(t, tt.templateKey+" mall order", tt.mall, err)
+			_, err = svc.CreateDirectShipBatch(context.Background(), "mini-token", validDirectShipBatchCommand())
+			assertCapabilityAccess(t, tt.templateKey+" direct ship batch", tt.directShipBatch, err)
+			_, err = svc.CreateFulfillmentOrder(context.Background(), "mini-token", validFulfillmentOrderCommand(PortalServiceDirectShip))
+			assertCapabilityAccess(t, tt.templateKey+" direct ship order", tt.directShipOrder, err)
+			_, err = svc.CreateProcessingRequest(context.Background(), "mini-token", validProcessingRequestCommand())
+			assertCapabilityAccess(t, tt.templateKey+" processing request", tt.processingRequest, err)
+			_, err = svc.CreateFulfillmentOrder(context.Background(), "mini-token", validFulfillmentOrderCommand(PortalServiceProcessingShipment))
+			assertCapabilityAccess(t, tt.templateKey+" processing order", tt.processingOrder, err)
+			_, err = svc.CreateFulfillmentOrder(context.Background(), "mini-token", validFulfillmentOrderCommand(PortalServiceProductOrder))
+			assertCapabilityAccess(t, tt.templateKey+" product order", tt.productOrder, err)
+		})
+	}
+}
+
 func TestSaveCapabilityTemplateNormalizesRulesAndDefaults(t *testing.T) {
 	repo := &fakeRepository{}
 	svc := NewService(repo, fakeIdentityProvider{})
@@ -602,6 +742,25 @@ func TestSaveCapabilityTemplateNormalizesRulesAndDefaults(t *testing.T) {
 	}
 	if got.HasCapability(CapabilityProcessing) {
 		t.Fatalf("template should not enable processing from omitted capabilities: %+v", got.Capabilities)
+	}
+}
+
+func TestSaveCapabilityTemplateRejectsRetailMallERPWorkbenchFields(t *testing.T) {
+	repo := &fakeRepository{}
+	svc := NewService(repo, fakeIdentityProvider{})
+	_, err := svc.SaveCapabilityTemplate(context.Background(), SaveCapabilityTemplateCommand{
+		Template: CapabilityTemplate{
+			Key:            CapabilityTemplateRetailMall,
+			ERPPermissions: []string{"customer_processing.read"},
+			ERPViewKeys:    []string{"customerProcessingPortal"},
+		},
+		UpdatedBy: "admin",
+	})
+	if !errors.Is(err, ErrCapabilityTemplateERPWorkbenchUnavailable) {
+		t.Fatalf("SaveCapabilityTemplate retail ERP workbench err=%v, want ErrCapabilityTemplateERPWorkbenchUnavailable", err)
+	}
+	if repo.templateSaveCommand.Template.Key != "" {
+		t.Fatalf("retail ERP workbench template should not be saved: %+v", repo.templateSaveCommand)
 	}
 }
 
@@ -652,6 +811,74 @@ func TestApplyCapabilityTemplateNormalizesAndDelegates(t *testing.T) {
 	}
 }
 
+func TestUpsertPortalERPBindingRejectsRetailMallTemplate(t *testing.T) {
+	repo := &fakeRepository{portalDetail: PortalAdminDetail{
+		Customer: PortalAdminCustomer{Name: "零售客户", CapabilityTemplateKey: CapabilityTemplateRetailMall},
+	}}
+	svc := NewService(repo, fakeIdentityProvider{})
+
+	_, err := svc.UpsertPortalERPBinding(context.Background(), UpsertPortalERPBindingCommand{
+		CustomerID: 147,
+		EmployeeID: 23,
+		Status:     "active",
+		UpdatedBy:  "admin",
+	})
+	if err == nil || !strings.Contains(err.Error(), "ERP workbench") {
+		t.Fatalf("UpsertPortalERPBinding() err=%v, want ERP workbench template rejection", err)
+	}
+	if repo.erpBindingCommand.CustomerID != 0 {
+		t.Fatalf("retail mall ERP binding should not delegate to repository: %+v", repo.erpBindingCommand)
+	}
+}
+
+func TestUpsertPortalERPBindingRejectsUnknownTemplateKey(t *testing.T) {
+	repo := &fakeRepository{portalDetail: PortalAdminDetail{
+		Customer: PortalAdminCustomer{Name: "未知模板客户", CapabilityTemplateKey: "legacy_unknown_template"},
+	}}
+	svc := NewService(repo, fakeIdentityProvider{})
+
+	_, err := svc.UpsertPortalERPBinding(context.Background(), UpsertPortalERPBindingCommand{
+		CustomerID: 147,
+		EmployeeID: 23,
+		Status:     "active",
+		UpdatedBy:  "admin",
+	})
+	if !errors.Is(err, ErrCapabilityTemplateERPWorkbenchUnavailable) {
+		t.Fatalf("UpsertPortalERPBinding() err=%v, want ErrCapabilityTemplateERPWorkbenchUnavailable for unknown template", err)
+	}
+	if repo.erpBindingCommand.CustomerID != 0 {
+		t.Fatalf("unknown template ERP binding should not delegate to repository: %+v", repo.erpBindingCommand)
+	}
+}
+
+func TestUpsertPortalERPBindingRejectsSavedRetailMallTemplateWithERPWorkbench(t *testing.T) {
+	repo := &fakeRepository{
+		templates: []CapabilityTemplate{{
+			Key:            CapabilityTemplateRetailMall,
+			ERPPermissions: []string{"customer_processing.read"},
+			ERPViewKeys:    []string{"customerProcessingPortal"},
+			Capabilities:   []CapabilityOption{{Code: CapabilityMall, Enabled: true}},
+		}},
+		portalDetail: PortalAdminDetail{
+			Customer: PortalAdminCustomer{Name: "零售客户", CapabilityTemplateKey: CapabilityTemplateRetailMall},
+		},
+	}
+	svc := NewService(repo, fakeIdentityProvider{})
+
+	_, err := svc.UpsertPortalERPBinding(context.Background(), UpsertPortalERPBindingCommand{
+		CustomerID: 147,
+		EmployeeID: 23,
+		Status:     "active",
+		UpdatedBy:  "admin",
+	})
+	if !errors.Is(err, ErrCapabilityTemplateERPWorkbenchUnavailable) {
+		t.Fatalf("UpsertPortalERPBinding() err=%v, want ErrCapabilityTemplateERPWorkbenchUnavailable", err)
+	}
+	if repo.erpBindingCommand.CustomerID != 0 {
+		t.Fatalf("saved retail mall ERP binding should not delegate to repository: %+v", repo.erpBindingCommand)
+	}
+}
+
 func TestPortalAdminCustomerResponsesNormalizeThemeKey(t *testing.T) {
 	repo := &fakeRepository{
 		portalCustomers: []PortalAdminCustomer{
@@ -689,6 +916,38 @@ func TestPortalAdminCustomerResponsesNormalizeThemeKey(t *testing.T) {
 	}
 	if detail.Customer.MiniappEntryMode != MiniappEntryModeMall {
 		t.Fatalf("PortalAdminDetail() miniapp_entry_mode=%q, want mall", detail.Customer.MiniappEntryMode)
+	}
+}
+
+func TestPortalAdminCustomerResponsesPreserveUnknownTemplateKeyForCorrection(t *testing.T) {
+	repo := &fakeRepository{
+		portalCustomers: []PortalAdminCustomer{
+			{ID: 1, Name: "known", CapabilityTemplateKey: " public_sku_direct_ship "},
+			{ID: 2, Name: "unknown", CapabilityTemplateKey: " legacy_unknown_template "},
+		},
+		portalDetail: PortalAdminDetail{
+			Customer: PortalAdminCustomer{Name: "detail", CapabilityTemplateKey: " legacy_unknown_template "},
+		},
+	}
+	svc := NewService(repo, fakeIdentityProvider{})
+
+	rows, err := svc.ListPortalAdminCustomers(context.Background(), PortalAdminCustomerQuery{})
+	if err != nil {
+		t.Fatalf("ListPortalAdminCustomers() err=%v", err)
+	}
+	if rows[0].CapabilityTemplateKey != CapabilityTemplatePublicSKUDirectShip {
+		t.Fatalf("known list capability_template_key=%q, want public_sku_direct_ship", rows[0].CapabilityTemplateKey)
+	}
+	if rows[1].CapabilityTemplateKey != "legacy_unknown_template" {
+		t.Fatalf("unknown list capability_template_key=%q, want preserved dirty key", rows[1].CapabilityTemplateKey)
+	}
+
+	detail, err := svc.PortalAdminDetail(context.Background(), 147)
+	if err != nil {
+		t.Fatalf("PortalAdminDetail() err=%v", err)
+	}
+	if detail.Customer.CapabilityTemplateKey != "legacy_unknown_template" {
+		t.Fatalf("detail capability_template_key=%q, want preserved dirty key", detail.Customer.CapabilityTemplateKey)
 	}
 }
 
@@ -762,6 +1021,29 @@ func TestUpdatePortalVisibilityAppliesReferencedCapabilityTemplate(t *testing.T)
 	}
 }
 
+func TestUpdatePortalVisibilityRejectsUnknownTemplateKey(t *testing.T) {
+	repo := &fakeRepository{portalDetail: PortalAdminDetail{
+		Customer: PortalAdminCustomer{Name: "客户A"},
+	}}
+	svc := NewService(repo, fakeIdentityProvider{})
+
+	_, err := svc.UpdatePortalVisibility(context.Background(), UpdatePortalVisibilityCommand{
+		CustomerID:            147,
+		DisplayName:           "客户A",
+		Enabled:               true,
+		CapabilityTemplateKey: " legacy_unknown_template ",
+		Capabilities:          []CapabilityOption{{Code: CapabilityMall, Enabled: true}},
+		ThemeKey:              PortalThemePremiumPartner,
+		MiniappEntryMode:      MiniappEntryModeMall,
+	})
+	if err == nil || err.Error() != "capability template invalid" {
+		t.Fatalf("UpdatePortalVisibility() err=%v, want capability template invalid", err)
+	}
+	if repo.visibilityCommand.CustomerID != 0 {
+		t.Fatalf("unknown template should not save visibility command: %+v", repo.visibilityCommand)
+	}
+}
+
 func capabilityOptionEnabled(options []CapabilityOption, code string) bool {
 	for _, option := range options {
 		if option.Code == code {
@@ -769,6 +1051,94 @@ func capabilityOptionEnabled(options []CapabilityOption, code string) bool {
 		}
 	}
 	return false
+}
+
+func currentContextForTemplate(t *testing.T, template CapabilityTemplate) CurrentContext {
+	t.Helper()
+	capabilities := make([]Capability, 0, len(template.Capabilities))
+	for _, capability := range template.Capabilities {
+		capabilities = append(capabilities, Capability{
+			Code:    capability.Code,
+			Enabled: capability.Enabled,
+			Config:  capability.Config,
+		})
+	}
+	return CurrentContext{
+		MiniUserID:          3,
+		CurrentCustomerID:   7,
+		CurrentCustomerName: template.Label,
+		ThemeKey:            template.ThemeKey,
+		MiniappEntryMode:    template.MiniappEntryMode,
+		Capabilities:        capabilities,
+	}
+}
+
+func assertCapabilityAccess(t *testing.T, name string, allowed bool, err error) {
+	t.Helper()
+	if allowed {
+		if err != nil {
+			t.Fatalf("%s err=%v, want allowed", name, err)
+		}
+		return
+	}
+	if !errors.Is(err, ErrCapabilityNotEnabled) {
+		t.Fatalf("%s err=%v, want ErrCapabilityNotEnabled", name, err)
+	}
+}
+
+func assertStringSet(t *testing.T, got, want []string, label string) {
+	t.Helper()
+	if len(got) != len(want) {
+		t.Fatalf("%s=%+v, want %+v", label, got, want)
+	}
+	seen := map[string]bool{}
+	for _, value := range got {
+		seen[value] = true
+	}
+	for _, value := range want {
+		if !seen[value] {
+			t.Fatalf("%s=%+v, want %+v", label, got, want)
+		}
+	}
+}
+
+func validMallOrderCommand() CreateMallOrderCommand {
+	return CreateMallOrderCommand{
+		RecipientName:    "张三",
+		RecipientPhone:   "13800138000",
+		RecipientAddress: "上海市",
+		Items:            []MallOrderItemCommand{{MallProductID: 11, Qty: 2}},
+	}
+}
+
+func validDirectShipBatchCommand() CreateDirectShipBatchCommand {
+	return CreateDirectShipBatchCommand{
+		SourceName: "客户批量代发",
+		TotalRows:  12,
+	}
+}
+
+func validProcessingRequestCommand() CreateProcessingRequestCommand {
+	return CreateProcessingRequestCommand{
+		InputMaterialID: 4,
+		InputQtyG:       30000,
+		TargetProductID: 5,
+		TargetSpecG:     454,
+		TargetQty:       50,
+	}
+}
+
+func validFulfillmentOrderCommand(serviceCode string) CreateFulfillmentOrderCommand {
+	return CreateFulfillmentOrderCommand{
+		PortalServiceCode: serviceCode,
+		RecipientName:     "张三",
+		RecipientPhone:    "13800138000",
+		RecipientAddress:  "上海市",
+		ProductID:         8,
+		ProductName:       "乌拉嘎",
+		SpecG:             250,
+		Qty:               2,
+	}
 }
 
 func TestMallAdminSavesProductsAndNormalizesListing(t *testing.T) {

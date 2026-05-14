@@ -110,3 +110,41 @@ test('finance menu exposes monthly finance workflows as primary pages', () => {
     assert.equal(groupForView(menuGroups, key)?.id, 'finance')
   }
 })
+
+test('remaining ERP click-matrix targets reference real Vue shell views', () => {
+  const remainingTargets = [
+    'workOrders',
+    'jobCards',
+    'qualityInspections',
+    'produceLogs',
+    'productionCosts',
+    'stockOperations',
+    'stockOutboundLogs',
+    'purchase',
+    'materials',
+    'productSettings',
+    'mallSettings',
+    'costing',
+    'bom',
+    'order',
+    'customers',
+    'salesOrderSettings',
+    'senderSettings',
+    'orderInvoice',
+    'salesOrder',
+    'deliveryNote',
+    'financeSettings',
+    'customerPortalSettings',
+    'customerCapabilityTemplates',
+    'companyProfile',
+    'machines',
+    'userPermissions',
+    'employees',
+    'departments',
+    'audit',
+  ]
+
+  for (const key of remainingTargets) {
+    assert.ok(menuMap[key], `${key} should resolve to a Vue shell view`)
+  }
+})

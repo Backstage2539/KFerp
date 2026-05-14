@@ -232,6 +232,7 @@ func (r Repository) deductOrderSourceWarehouseItemsTx(ctx context.Context, tx pg
 	}
 	defer rows.Close()
 
+	allocations := make([]orderStockDeductionAllocation, 0)
 	for rows.Next() {
 		var alloc orderStockDeductionAllocation
 		var units int64
@@ -243,11 +244,19 @@ func (r Repository) deductOrderSourceWarehouseItemsTx(ctx context.Context, tx pg
 		}
 		alloc.AllocatedG = alloc.SpecG * units
 		alloc.BatchCode = "SOURCE-WH:" + warehouse
+		allocations = append(allocations, alloc)
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	rows.Close()
+
+	for _, alloc := range allocations {
 		if err := r.deductLegacyFinishedInventoryAllocationTx(ctx, tx, orderID, alloc, warehouse, actor); err != nil {
 			return err
 		}
 	}
-	return rows.Err()
+	return nil
 }
 
 func (r Repository) recordOrderStockDeductionTx(ctx context.Context, tx pgx.Tx, orderID int64, alloc orderStockDeductionAllocation, itemName, warehouse string, beforeG, changeG, afterG, beforeUnits, changeUnits, afterUnits int64, actor string) error {

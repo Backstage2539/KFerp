@@ -26,6 +26,13 @@ CREATE TABLE IF NOT EXISTS %s.company_employees (
 	updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE UNIQUE INDEX IF NOT EXISTS company_employees_phone_uq ON %s.company_employees(phone);
+CREATE TABLE IF NOT EXISTS %s.employee_login_passwords (
+	employee_id BIGINT PRIMARY KEY REFERENCES %s.company_employees(id) ON DELETE CASCADE,
+	password_hash TEXT NOT NULL,
+	login_disabled BOOLEAN NOT NULL DEFAULT false,
+	must_reset_password BOOLEAN NOT NULL DEFAULT false,
+	updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
 CREATE TABLE IF NOT EXISTS %s.company_profile (
 	id INTEGER PRIMARY KEY DEFAULT 1,
 	company_name TEXT NOT NULL DEFAULT '',
@@ -39,13 +46,15 @@ CREATE TABLE IF NOT EXISTS %s.company_profile (
 	updated_by TEXT NOT NULL DEFAULT '',
 	CONSTRAINT company_profile_singleton CHECK (id = 1)
 );
-`, schema, schema, schema, schema, schema)
+`, schema, schema, schema, schema, schema, schema, schema)
 	if _, err := pool.Exec(ctx, q); err != nil {
 		return err
 	}
 	for _, stmt := range []string{
 		fmt.Sprintf(`ALTER TABLE %s.company_employees ADD COLUMN IF NOT EXISTS account_type TEXT NOT NULL DEFAULT 'internal_employee'`, schema),
 		fmt.Sprintf(`UPDATE %s.company_employees SET account_type='internal_employee' WHERE COALESCE(account_type,'')=''`, schema),
+		fmt.Sprintf(`ALTER TABLE %s.employee_login_passwords ADD COLUMN IF NOT EXISTS login_disabled BOOLEAN NOT NULL DEFAULT false`, schema),
+		fmt.Sprintf(`ALTER TABLE %s.employee_login_passwords ADD COLUMN IF NOT EXISTS must_reset_password BOOLEAN NOT NULL DEFAULT false`, schema),
 		fmt.Sprintf(`ALTER TABLE %s.company_profile ADD COLUMN IF NOT EXISTS taxpayer_id TEXT NOT NULL DEFAULT ''`, schema),
 		fmt.Sprintf(`ALTER TABLE %s.company_profile ADD COLUMN IF NOT EXISTS bank_account_name TEXT NOT NULL DEFAULT ''`, schema),
 		fmt.Sprintf(`ALTER TABLE %s.company_profile ADD COLUMN IF NOT EXISTS bank_name TEXT NOT NULL DEFAULT ''`, schema),

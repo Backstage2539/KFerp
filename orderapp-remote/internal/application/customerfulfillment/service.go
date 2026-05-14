@@ -351,6 +351,7 @@ type Repository interface {
 	AdjustCustodyInventory(context.Context, AdjustCustodyInventoryCommand) (CustodyBalance, error)
 	UpsertCustomerERPBinding(context.Context, UpsertCustomerERPBindingCommand) (CustomerERPBinding, error)
 	ListCustomerERPBindings(context.Context, int64) ([]CustomerERPBinding, error)
+	CustomerERPWorkbenchAvailable(context.Context, int64) (bool, error)
 	CustomerFulfillmentOptions(context.Context, int64) (CustomerFulfillmentOptions, error)
 	CreateSettlement(context.Context, CreateSettlementCommand) (SettlementResult, error)
 	Overview(context.Context, OverviewQuery) (Overview, error)
@@ -528,6 +529,13 @@ func (s *Service) ListCustomerERPBindings(ctx context.Context, customerID int64)
 		return nil, fmt.Errorf("customer required")
 	}
 	return s.repo.ListCustomerERPBindings(ctx, customerID)
+}
+
+func (s *Service) CustomerERPWorkbenchAvailable(ctx context.Context, customerID int64) (bool, error) {
+	if customerID <= 0 {
+		return false, fmt.Errorf("customer required")
+	}
+	return s.repo.CustomerERPWorkbenchAvailable(ctx, customerID)
 }
 
 func (s *Service) CustomerFulfillmentOptions(ctx context.Context, customerID int64) (CustomerFulfillmentOptions, error) {

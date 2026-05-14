@@ -47,6 +47,8 @@ func TestCustomerPortalAdminRepositoryShowsOnlyWholesaleCustomersAndERPBinding(t
 		"customer_erp_user_bindings",
 		"company_employees",
 		"account_type='channel_customer'",
+		"employee_login_passwords",
+		"login_disabled",
 		"UpsertPortalERPBinding",
 		"ERPBinding",
 	} {

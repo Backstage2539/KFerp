@@ -3,14 +3,20 @@ package finance
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
+	"time"
 
 	appfinance "orderapp/internal/application/finance"
 	domain "orderapp/internal/domain/finance"
+	postgresfinance "orderapp/internal/infrastructure/postgres/finance"
 
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/labstack/echo/v4"
 )
 
@@ -138,6 +144,254 @@ func TestFinanceImprovementAPIs(t *testing.T) {
 	}
 }
 
+func TestFinanceTaxLedgerAPIReturnsBadRequestWhenServiceRejectsClosedMonth(t *testing.T) {
+	e, svc := newFinanceTestEcho()
+	svc.taxLedgerErr = errors.New("month is closed by strong lock")
+
+	body := strings.NewReader(`{"month":"2026-05","kind":"sales_invoice","invoice_no":"INV-CLOSED","counterparty":"客户A","total_amount":1000,"tax_amount":30,"status":"confirmed"}`)
+	req := httptest.NewRequest(http.MethodPost, "/api/finance/tax-ledger", body)
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "month is closed by strong lock") {
+		t.Fatalf("tax ledger closed month status=%d body=%s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestFinanceTaxLedgerAPIRejectsDuplicateInvoiceNoWithoutWritingLedger(t *testing.T) {
+	pool, schema := newFinanceAPIPostgresTestDB(t)
+	ctx := context.Background()
+	e := echo.New()
+	RegisterRoutes(e, Dependencies{Finance: appfinance.NewService(postgresfinance.NewRepository(pool, schema))})
+
+	first := strings.NewReader(`{"month":"2026-05","kind":"purchase_invoice","invoice_no":"PINV-DUP-001","counterparty":"生豆供应商A","total_amount":1000,"tax_amount":30,"status":"confirmed"}`)
+	req := httptest.NewRequest(http.MethodPost, "/api/finance/tax-ledger", first)
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"invoice_no":"PINV-DUP-001"`) {
+		t.Fatalf("first tax ledger status=%d body=%s", rec.Code, rec.Body.String())
+	}
+
+	duplicate := strings.NewReader(`{"month":"2026-06","kind":"purchase_invoice","invoice_no":"PINV-DUP-001","counterparty":"生豆供应商B","total_amount":1200,"tax_amount":36,"status":"confirmed"}`)
+	req = httptest.NewRequest(http.MethodPost, "/api/finance/tax-ledger", duplicate)
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec = httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "tax ledger invoice already exists") {
+		t.Fatalf("duplicate tax ledger status=%d body=%s, want 400 duplicate invoice", rec.Code, rec.Body.String())
+	}
+
+	var ledgerCount int
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT COUNT(*)::int FROM %s.finance_tax_ledger WHERE kind='purchase_invoice' AND invoice_no='PINV-DUP-001'`, schema)).Scan(&ledgerCount); err != nil {
+		t.Fatalf("query duplicate tax ledger count: %v", err)
+	}
+	if ledgerCount != 1 {
+		t.Fatalf("duplicate invoice ledger rows = %d, want 1", ledgerCount)
+	}
+}
+
+func TestFinanceAdjustmentAPIRejectsDraftMonthWithoutWritingAdjustment(t *testing.T) {
+	pool, schema := newFinanceAPIPostgresTestDB(t)
+	ctx := context.Background()
+	e := echo.New()
+	RegisterRoutes(e, Dependencies{Finance: appfinance.NewService(postgresfinance.NewRepository(pool, schema))})
+
+	body := strings.NewReader(`{"month":"2026-06","type":"expense","amount":100,"reason":"未结账月误调"}`)
+	req := httptest.NewRequest(http.MethodPost, "/api/finance/adjustments", body)
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "month must be closed before adjustment") {
+		t.Fatalf("draft month adjustment status=%d body=%s, want 400 month must be closed", rec.Code, rec.Body.String())
+	}
+
+	var adjustmentCount int
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT COUNT(*)::int FROM %s.finance_adjustments WHERE month='2026-06'`, schema)).Scan(&adjustmentCount); err != nil {
+		t.Fatalf("query adjustment count: %v", err)
+	}
+	if adjustmentCount != 0 {
+		t.Fatalf("draft month adjustment rows = %d, want 0", adjustmentCount)
+	}
+}
+
+func TestFinanceExpenseAPIRejectsInactiveEmployeeWithoutWritingExpense(t *testing.T) {
+	pool, schema := newFinanceAPIPostgresTestDB(t)
+	ctx := context.Background()
+	mustExecFinanceAPISQL(t, ctx, pool, fmt.Sprintf(`
+		INSERT INTO %s.company_employees(id, name, active) VALUES (7, '离职员工', false), (8, '在职员工', true);
+	`, schema))
+	e := echo.New()
+	RegisterRoutes(e, Dependencies{Finance: appfinance.NewService(postgresfinance.NewRepository(pool, schema))})
+
+	body := strings.NewReader(`{"date":"2026-05-02","category":"样品费","amount":120,"allocation":"period_expense","employee_id":7}`)
+	req := httptest.NewRequest(http.MethodPost, "/api/finance/expenses", body)
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "employee inactive") {
+		t.Fatalf("inactive employee expense status=%d body=%s, want 400 employee inactive", rec.Code, rec.Body.String())
+	}
+	var expenseCount int
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT COUNT(*)::int FROM %s.finance_expenses WHERE employee_id=7`, schema)).Scan(&expenseCount); err != nil {
+		t.Fatalf("query inactive employee expenses: %v", err)
+	}
+	if expenseCount != 0 {
+		t.Fatalf("inactive employee expense rows = %d, want 0", expenseCount)
+	}
+
+	body = strings.NewReader(`{"date":"2026-05-02","category":"样品费","amount":120,"allocation":"period_expense","employee_id":8}`)
+	req = httptest.NewRequest(http.MethodPost, "/api/finance/expenses", body)
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec = httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"employee_id":8`) {
+		t.Fatalf("active employee expense status=%d body=%s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestFinanceExpenseAPIRejectsMissingDimensionReferencesWithoutWritingExpense(t *testing.T) {
+	pool, schema := newFinanceAPIPostgresTestDB(t)
+	ctx := context.Background()
+	mustExecFinanceAPISQL(t, ctx, pool, fmt.Sprintf(`
+		INSERT INTO %s.customers(id, name, company_name) VALUES (18, '维度客户', '维度客户公司');
+		INSERT INTO %s.orders(id, order_no, order_date, customer_id, total_amount, grand_total, is_void) VALUES (256, 'SO-DIM-OK', '2026-05-02', 18, 120, 120, false);
+		INSERT INTO %s.products(id, name, active) VALUES (9, '维度商品', true);
+		INSERT INTO %s.order_items(order_id, line_no, product_id, item_name, qty, unit, spec, unit_price, line_total) VALUES (256, 1, 9, '维度商品', 1, '件', '454g', 120, 120);
+	`, schema, schema, schema, schema))
+	e := echo.New()
+	RegisterRoutes(e, Dependencies{Finance: appfinance.NewService(postgresfinance.NewRepository(pool, schema))})
+
+	cases := []struct {
+		name string
+		body string
+		want string
+	}{
+		{
+			name: "missing order",
+			body: `{"date":"2026-05-02","category":"样品费","amount":120,"allocation":"period_expense","order_id":999,"customer_id":18,"product_id":9}`,
+			want: "finance dimension order not found",
+		},
+		{
+			name: "missing customer",
+			body: `{"date":"2026-05-02","category":"样品费","amount":120,"allocation":"period_expense","order_id":256,"customer_id":999,"product_id":9}`,
+			want: "finance dimension customer not found",
+		},
+		{
+			name: "missing product",
+			body: `{"date":"2026-05-02","category":"样品费","amount":120,"allocation":"period_expense","order_id":256,"customer_id":18,"product_id":999}`,
+			want: "finance dimension product not found",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodPost, "/api/finance/expenses", strings.NewReader(tc.body))
+			req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+			rec := httptest.NewRecorder()
+			e.ServeHTTP(rec, req)
+			if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), tc.want) {
+				t.Fatalf("%s status=%d body=%s, want 400 %s", tc.name, rec.Code, rec.Body.String(), tc.want)
+			}
+		})
+	}
+
+	var expenseCount int
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT COUNT(*)::int FROM %s.finance_expenses`, schema)).Scan(&expenseCount); err != nil {
+		t.Fatalf("query dimension expense count: %v", err)
+	}
+	if expenseCount != 0 {
+		t.Fatalf("missing dimension expense rows = %d, want 0", expenseCount)
+	}
+
+	body := strings.NewReader(`{"date":"2026-05-02","category":"样品费","amount":120,"allocation":"period_expense","order_id":256,"customer_id":18,"product_id":9}`)
+	req := httptest.NewRequest(http.MethodPost, "/api/finance/expenses", body)
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"order_id":256`) || !strings.Contains(rec.Body.String(), `"customer_id":18`) || !strings.Contains(rec.Body.String(), `"product_id":9`) {
+		t.Fatalf("valid dimension expense status=%d body=%s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestFinanceExpenseAPIRejectsOrderCustomerMismatchWithoutWritingExpense(t *testing.T) {
+	pool, schema := newFinanceAPIPostgresTestDB(t)
+	ctx := context.Background()
+	mustExecFinanceAPISQL(t, ctx, pool, fmt.Sprintf(`
+		INSERT INTO %s.customers(id, name, company_name) VALUES (18, '订单归属客户', '订单归属客户公司'), (19, '错误归集客户', '错误归集客户公司');
+		INSERT INTO %s.orders(id, order_no, order_date, customer_id, total_amount, grand_total, is_void) VALUES (256, 'SO-CUSTOMER-MATCH', '2026-05-02', 18, 120, 120, false);
+	`, schema, schema))
+	e := echo.New()
+	RegisterRoutes(e, Dependencies{Finance: appfinance.NewService(postgresfinance.NewRepository(pool, schema))})
+
+	body := strings.NewReader(`{"date":"2026-05-02","category":"样品费","amount":120,"allocation":"period_expense","order_id":256,"customer_id":19}`)
+	req := httptest.NewRequest(http.MethodPost, "/api/finance/expenses", body)
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "finance dimension customer does not match order") {
+		t.Fatalf("mismatched order/customer status=%d body=%s, want 400 mismatch", rec.Code, rec.Body.String())
+	}
+
+	var expenseCount int
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT COUNT(*)::int FROM %s.finance_expenses`, schema)).Scan(&expenseCount); err != nil {
+		t.Fatalf("query mismatched dimension expense count: %v", err)
+	}
+	if expenseCount != 0 {
+		t.Fatalf("mismatched dimension expense rows = %d, want 0", expenseCount)
+	}
+
+	body = strings.NewReader(`{"date":"2026-05-02","category":"样品费","amount":120,"allocation":"period_expense","order_id":256,"customer_id":18}`)
+	req = httptest.NewRequest(http.MethodPost, "/api/finance/expenses", body)
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec = httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"order_id":256`) || !strings.Contains(rec.Body.String(), `"customer_id":18`) {
+		t.Fatalf("matching order/customer expense status=%d body=%s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestFinanceExpenseAPIRejectsOrderProductMismatchWithoutWritingExpense(t *testing.T) {
+	pool, schema := newFinanceAPIPostgresTestDB(t)
+	ctx := context.Background()
+	mustExecFinanceAPISQL(t, ctx, pool, fmt.Sprintf(`
+		INSERT INTO %s.customers(id, name, company_name) VALUES (18, '订单归属客户', '订单归属客户公司');
+		INSERT INTO %s.orders(id, order_no, order_date, customer_id, total_amount, grand_total, is_void) VALUES (256, 'SO-PRODUCT-MATCH', '2026-05-02', 18, 120, 120, false);
+		INSERT INTO %s.products(id, name, active) VALUES (9, '订单商品', true), (10, '非订单商品', true);
+		INSERT INTO %s.order_items(order_id, line_no, product_id, item_name, qty, unit, spec, unit_price, line_total) VALUES (256, 1, 9, '订单商品', 1, '件', '454g', 120, 120);
+	`, schema, schema, schema, schema))
+	e := echo.New()
+	RegisterRoutes(e, Dependencies{Finance: appfinance.NewService(postgresfinance.NewRepository(pool, schema))})
+
+	body := strings.NewReader(`{"date":"2026-05-02","category":"样品费","amount":120,"allocation":"period_expense","order_id":256,"product_id":10}`)
+	req := httptest.NewRequest(http.MethodPost, "/api/finance/expenses", body)
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "finance dimension product does not match order") {
+		t.Fatalf("mismatched order/product status=%d body=%s, want 400 mismatch", rec.Code, rec.Body.String())
+	}
+
+	var expenseCount int
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT COUNT(*)::int FROM %s.finance_expenses`, schema)).Scan(&expenseCount); err != nil {
+		t.Fatalf("query mismatched product dimension expense count: %v", err)
+	}
+	if expenseCount != 0 {
+		t.Fatalf("mismatched product dimension expense rows = %d, want 0", expenseCount)
+	}
+
+	body = strings.NewReader(`{"date":"2026-05-02","category":"样品费","amount":120,"allocation":"period_expense","order_id":256,"product_id":9}`)
+	req = httptest.NewRequest(http.MethodPost, "/api/finance/expenses", body)
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec = httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"order_id":256`) || !strings.Contains(rec.Body.String(), `"product_id":9`) {
+		t.Fatalf("matching order/product expense status=%d body=%s", rec.Code, rec.Body.String())
+	}
+}
+
 func TestFinanceReportExports(t *testing.T) {
 	e, _ := newFinanceTestEcho()
 	req := httptest.NewRequest(http.MethodGet, "/api/finance/reports/2026-05/pdf", nil)
@@ -165,6 +419,7 @@ func newFinanceTestEcho() (*echo.Echo, *fakeFinanceService) {
 type fakeFinanceService struct {
 	mode           string
 	lastListFilter appfinance.ExpenseFilter
+	taxLedgerErr   error
 }
 
 func (s *fakeFinanceService) Settings(context.Context, string) (appfinance.SettingsSnapshot, error) {
@@ -230,6 +485,9 @@ func (s *fakeFinanceService) ListTaxLedger(context.Context, string) ([]appfinanc
 }
 
 func (s *fakeFinanceService) CreateTaxLedgerEntry(_ context.Context, cmd appfinance.CreateTaxLedgerCommand) (appfinance.TaxLedgerEntry, error) {
+	if s.taxLedgerErr != nil {
+		return appfinance.TaxLedgerEntry{}, s.taxLedgerErr
+	}
 	return appfinance.TaxLedgerEntry{ID: 2, Month: cmd.Month, Kind: cmd.Kind, InvoiceNo: cmd.InvoiceNo, Counterparty: cmd.Counterparty, TotalAmount: cmd.TotalAmount, TaxAmount: cmd.TaxAmount, Status: cmd.Status}, nil
 }
 
@@ -241,5 +499,102 @@ func decodeJSON(t *testing.T, body string, out any) {
 	t.Helper()
 	if err := json.Unmarshal([]byte(body), out); err != nil {
 		t.Fatalf("invalid json: %v body=%s", err, body)
+	}
+}
+
+func newFinanceAPIPostgresTestDB(t *testing.T) (*pgxpool.Pool, string) {
+	t.Helper()
+	dsn := strings.TrimSpace(os.Getenv("ORDERAPP_TEST_DATABASE_URL"))
+	if dsn == "" {
+		dsn = strings.TrimSpace(os.Getenv("DATABASE_URL"))
+	}
+	if dsn == "" {
+		t.Skip("ORDERAPP_TEST_DATABASE_URL or DATABASE_URL is required for finance API postgres tests")
+	}
+	ctx := context.Background()
+	pool, err := pgxpool.New(ctx, dsn)
+	if err != nil {
+		t.Fatalf("pgxpool.New: %v", err)
+	}
+	t.Cleanup(pool.Close)
+	schema := fmt.Sprintf("test_finance_api_%d", time.Now().UnixNano())
+	if _, err := pool.Exec(ctx, "CREATE SCHEMA "+schema); err != nil {
+		t.Fatalf("create schema: %v", err)
+	}
+	t.Cleanup(func() {
+		_, _ = pool.Exec(context.Background(), "DROP SCHEMA "+schema+" CASCADE")
+	})
+	mustExecFinanceAPISQL(t, ctx, pool, financeAPITestDDL(schema))
+	if err := postgresfinance.EnsureSchema(ctx, pool, schema); err != nil {
+		t.Fatalf("finance EnsureSchema: %v", err)
+	}
+	return pool, schema
+}
+
+func financeAPITestDDL(schema string) string {
+	return fmt.Sprintf(`
+CREATE TABLE %s.customers (
+	id BIGINT PRIMARY KEY,
+	name TEXT NOT NULL DEFAULT '',
+	company_name TEXT NOT NULL DEFAULT ''
+);
+CREATE TABLE %s.orders (
+	id BIGINT PRIMARY KEY,
+	order_no TEXT NOT NULL DEFAULT '',
+	order_date DATE NOT NULL,
+	customer_id BIGINT NOT NULL DEFAULT 0,
+	total_amount NUMERIC(12,2) NOT NULL DEFAULT 0,
+	shipping_amount NUMERIC(12,2) NOT NULL DEFAULT 0,
+	discount_amount NUMERIC(12,2) NOT NULL DEFAULT 0,
+	grand_total NUMERIC(12,2) NOT NULL DEFAULT 0,
+	is_void BOOLEAN NOT NULL DEFAULT false
+);
+CREATE TABLE %s.order_items (
+	id BIGSERIAL PRIMARY KEY,
+	order_id BIGINT REFERENCES %s.orders(id) ON DELETE CASCADE,
+	line_no INTEGER NOT NULL DEFAULT 0,
+	product_id BIGINT,
+	item_name TEXT NOT NULL DEFAULT '',
+	qty NUMERIC NOT NULL DEFAULT 0,
+	unit TEXT NOT NULL DEFAULT '',
+	spec TEXT NOT NULL DEFAULT '',
+	unit_price NUMERIC NOT NULL DEFAULT 0,
+	line_total NUMERIC NOT NULL DEFAULT 0
+);
+CREATE TABLE %s.production_batch_costs (
+	id BIGSERIAL PRIMARY KEY,
+	product_name TEXT NOT NULL DEFAULT '',
+	total_cost NUMERIC(12,2) NOT NULL DEFAULT 0,
+	created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE TABLE %s.products (
+	id BIGINT PRIMARY KEY,
+	name TEXT NOT NULL DEFAULT '',
+	active BOOLEAN NOT NULL DEFAULT true
+);
+CREATE TABLE %s.company_employees (
+	id BIGINT PRIMARY KEY,
+	name TEXT NOT NULL DEFAULT '',
+	active BOOLEAN NOT NULL DEFAULT true
+);
+CREATE TABLE %s.audit_logs (
+	id BIGSERIAL PRIMARY KEY,
+	actor TEXT NOT NULL DEFAULT '',
+	entity_type TEXT NOT NULL DEFAULT '',
+	entity_id BIGINT NULL,
+	action TEXT NOT NULL DEFAULT '',
+	field TEXT NULL,
+	old_value TEXT NULL,
+	new_value TEXT NULL,
+	meta JSONB NULL,
+	created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+`, schema, schema, schema, schema, schema, schema, schema, schema)
+}
+
+func mustExecFinanceAPISQL(t *testing.T, ctx context.Context, pool *pgxpool.Pool, sql string) {
+	t.Helper()
+	if _, err := pool.Exec(ctx, sql); err != nil {
+		t.Fatalf("exec sql: %v\n%s", err, sql)
 	}
 }

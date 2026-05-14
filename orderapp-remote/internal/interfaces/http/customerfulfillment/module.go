@@ -20,6 +20,7 @@ type Service interface {
 	AdjustCustodyInventory(context.Context, app.AdjustCustodyInventoryCommand) (app.CustodyBalance, error)
 	UpsertCustomerERPBinding(context.Context, app.UpsertCustomerERPBindingCommand) (app.CustomerERPBinding, error)
 	ListCustomerERPBindings(context.Context, int64) ([]app.CustomerERPBinding, error)
+	CustomerERPWorkbenchAvailable(context.Context, int64) (bool, error)
 	CustomerFulfillmentOptions(context.Context, int64) (app.CustomerFulfillmentOptions, error)
 	ImportPreview(context.Context, app.ImportPreviewQuery) (app.ImportPreview, error)
 	ListImportRows(context.Context, app.ListImportRowsQuery) ([]app.ImportRow, error)

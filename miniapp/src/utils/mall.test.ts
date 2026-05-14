@@ -62,4 +62,48 @@ describe('mini mall helpers', () => {
     expect(home).toContain("session.entryMode === 'mall'")
     expect(home).toContain("uni.redirectTo({ url: '/pages/mall/mall' })")
   })
+
+  it('keeps order history reachable from mall-first customers', () => {
+    const mallPage = fs.readFileSync(path.join(currentDir, '..', 'pages', 'mall', 'mall.vue'), 'utf8')
+    expect(mallPage).toContain("openOrders")
+    expect(mallPage).toContain("uni.navigateTo({ url: '/pages/service/service?key=orders' })")
+    expect(mallPage).toContain('我的订单')
+  })
+
+  it('preserves mall entry mode when mall customers open service pages', () => {
+    const servicePage = fs.readFileSync(path.join(currentDir, '..', 'pages', 'service', 'service.vue'), 'utf8')
+    const api = fs.readFileSync(path.join(currentDir, '..', 'api', 'customerPortal.ts'), 'utf8')
+    expect(api).toContain('miniapp_entry_mode?: MiniappEntryMode | string')
+    expect(servicePage).toContain('miniapp_entry_mode: page.value.miniapp_entry_mode || session.entryMode')
+  })
+
+  it('validates direct ship batch row count before submitting', () => {
+    const servicePage = fs.readFileSync(path.join(currentDir, '..', 'pages', 'service', 'service.vue'), 'utf8')
+    expect(servicePage).toContain('const totalRows = Number(directShipForm.value.total_rows) || 0')
+    expect(servicePage).toContain('if (totalRows <= 0)')
+    expect(servicePage).toContain('订单行数必须大于 0')
+  })
+
+  it('uses customer-facing pickers instead of raw system ID fields for service order forms', () => {
+    const servicePage = fs.readFileSync(path.join(currentDir, '..', 'pages', 'service', 'service.vue'), 'utf8')
+    expect(servicePage).toContain('processingInputOptions')
+    expect(servicePage).toContain('processingTargetProductOptions')
+    expect(servicePage).toContain('fulfillmentProductOptions')
+    expect(servicePage).toContain('setProcessingInputMaterial')
+    expect(servicePage).toContain('setProcessingTargetProduct')
+    expect(servicePage).toContain('setFulfillmentProduct')
+    expect(servicePage).toContain('<picker mode="selector" :range="processingInputLabels"')
+    expect(servicePage).toContain('<picker mode="selector" :range="fulfillmentProductLabels"')
+    expect(servicePage).not.toContain('placeholder="生豆物料ID"')
+    expect(servicePage).not.toContain('placeholder="目标产品ID"')
+    expect(servicePage).not.toContain('placeholder="产品ID"')
+  })
+
+  it('keeps fulfillment order prices server-authoritative', () => {
+    const servicePage = fs.readFileSync(path.join(currentDir, '..', 'pages', 'service', 'service.vue'), 'utf8')
+    const api = fs.readFileSync(path.join(currentDir, '..', 'api', 'customerPortal.ts'), 'utf8')
+    expect(servicePage).not.toContain('placeholder="单价，可不填"')
+    expect(servicePage).not.toContain('unit_price: Number(fulfillmentForm.value.unit_price)')
+    expect(api).not.toContain('unit_price?: number')
+  })
 })

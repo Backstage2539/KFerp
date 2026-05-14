@@ -29,6 +29,8 @@ type salesOrderSettingsHandler struct {
 	assetDir string
 }
 
+const maxSalesOrderSettingsAssetUploadBytes = 8 << 20
+
 type salesOrderSettingsRequest struct {
 	CompanyName     string  `json:"company_name"`
 	Note            string  `json:"note"`
@@ -138,6 +140,10 @@ func (h salesOrderSettingsHandler) saveSealPosition(c echo.Context) error {
 }
 
 func (h salesOrderSettingsHandler) uploadPaymentCode(c echo.Context) error {
+	label := strings.TrimSpace(c.FormValue("label"))
+	if label == "" {
+		return c.JSON(http.StatusBadRequest, map[string]any{"error": "label required"})
+	}
 	asset, err := h.saveUploadedSalesOrderAsset(c, "payment_code")
 	if err != nil {
 		return c.JSON(http.StatusBadRequest, map[string]any{"error": err.Error()})
@@ -145,13 +151,14 @@ func (h salesOrderSettingsHandler) uploadPaymentCode(c echo.Context) error {
 	sort, _ := strconv.Atoi(strings.TrimSpace(c.FormValue("sort")))
 	code, err := h.sales.SaveSalesOrderPaymentCode(c.Request().Context(), salesapp.SaveSalesOrderPaymentCodeCommand{
 		Actor:       support.ActorOf(c),
-		Label:       c.FormValue("label"),
+		Label:       label,
 		Description: c.FormValue("description"),
 		AssetID:     asset.ID,
 		Sort:        sort,
 		Active:      true,
 	})
 	if err != nil {
+		h.cleanupSavedSalesOrderAsset(c, asset)
 		return c.JSON(http.StatusBadRequest, map[string]any{"error": err.Error()})
 	}
 	return c.JSON(http.StatusOK, map[string]any{"asset": asset, "payment_code": code})
@@ -192,6 +199,7 @@ func (h salesOrderSettingsHandler) uploadSeal(c echo.Context) error {
 		return c.JSON(http.StatusBadRequest, map[string]any{"error": err.Error()})
 	}
 	if err := h.sales.SetSalesOrderSealAsset(c.Request().Context(), asset.ID, support.ActorOf(c)); err != nil {
+		h.cleanupSavedSalesOrderAsset(c, asset)
 		return c.JSON(http.StatusBadRequest, map[string]any{"error": err.Error()})
 	}
 	return c.JSON(http.StatusOK, map[string]any{"asset": asset})
@@ -236,9 +244,11 @@ func (h salesOrderSettingsHandler) removeSealBackground(c echo.Context) error {
 		ObjectKey:   objectKey,
 	})
 	if err != nil {
+		h.cleanupSalesOrderAssetFile(objectKey)
 		return c.JSON(http.StatusBadRequest, map[string]any{"error": err.Error()})
 	}
 	if err := h.sales.SetSalesOrderSealAsset(c.Request().Context(), asset.ID, support.ActorOf(c)); err != nil {
+		h.cleanupSavedSalesOrderAsset(c, asset)
 		return c.JSON(http.StatusBadRequest, map[string]any{"error": err.Error()})
 	}
 	return c.JSON(http.StatusOK, map[string]any{"asset": asset})
@@ -289,15 +299,21 @@ func (h salesOrderSettingsHandler) saveUploadedSalesOrderAsset(c echo.Context, k
 		return salesapp.SalesOrderAsset{}, err
 	}
 	defer src.Close()
-	data, err := io.ReadAll(io.LimitReader(src, 8<<20))
+	data, err := io.ReadAll(io.LimitReader(src, maxSalesOrderSettingsAssetUploadBytes+1))
 	if err != nil {
 		return salesapp.SalesOrderAsset{}, err
 	}
 	if len(data) == 0 {
 		return salesapp.SalesOrderAsset{}, fmt.Errorf("empty file")
 	}
+	if len(data) > maxSalesOrderSettingsAssetUploadBytes {
+		return salesapp.SalesOrderAsset{}, fmt.Errorf("image file too large")
+	}
 	filename := filepath.Base(file.Filename)
-	contentType := file.Header.Get("Content-Type")
+	contentType := http.DetectContentType(data)
+	if kind == "payment_code" && !isAllowedSalesOrderSettingsImage(data) {
+		return salesapp.SalesOrderAsset{}, fmt.Errorf("image file required")
+	}
 	if kind == "seal" {
 		normalized, err := removeSealImageBackground(data)
 		if err != nil {
@@ -315,7 +331,7 @@ func (h salesOrderSettingsHandler) saveUploadedSalesOrderAsset(c echo.Context, k
 	if err := os.WriteFile(filepath.Join(h.assetDir, objectKey), data, 0644); err != nil {
 		return salesapp.SalesOrderAsset{}, err
 	}
-	return h.sales.SaveSalesOrderAsset(c.Request().Context(), salesapp.SaveSalesOrderAssetCommand{
+	asset, err := h.sales.SaveSalesOrderAsset(c.Request().Context(), salesapp.SaveSalesOrderAssetCommand{
 		Actor:       support.ActorOf(c),
 		Kind:        kind,
 		Filename:    filename,
@@ -324,6 +340,21 @@ func (h salesOrderSettingsHandler) saveUploadedSalesOrderAsset(c echo.Context, k
 		SHA256:      hex.EncodeToString(sum[:]),
 		ObjectKey:   objectKey,
 	})
+	if err != nil {
+		h.cleanupSalesOrderAssetFile(objectKey)
+		return salesapp.SalesOrderAsset{}, err
+	}
+	return asset, nil
+}
+
+func isAllowedSalesOrderSettingsImage(data []byte) bool {
+	contentType := http.DetectContentType(data)
+	switch contentType {
+	case "image/png", "image/jpeg", "image/gif", "image/webp":
+		return true
+	default:
+		return false
+	}
 }
 
 func (h salesOrderSettingsHandler) storedSalesOrderAssetPath(objectKey string) (string, bool) {
@@ -332,6 +363,32 @@ func (h salesOrderSettingsHandler) storedSalesOrderAssetPath(objectKey string) (
 		return "", false
 	}
 	return filepath.Join(h.assetDir, clean), true
+}
+
+func (h salesOrderSettingsHandler) cleanupSavedSalesOrderAsset(c echo.Context, asset salesapp.SalesOrderAsset) {
+	if asset.ID > 0 {
+		if err := h.sales.DeleteSalesOrderAsset(c.Request().Context(), asset.ID, support.ActorOf(c)); err != nil {
+			return
+		}
+	}
+	h.cleanupSalesOrderAssetFile(asset.ObjectKey)
+}
+
+func (h salesOrderSettingsHandler) cleanupSalesOrderAssetFile(objectKey string) {
+	path, ok := h.storedSalesOrderAssetPath(objectKey)
+	if !ok {
+		return
+	}
+	assetDir := filepath.Clean(h.assetDir)
+	path = filepath.Clean(path)
+	if err := os.Remove(path); err != nil {
+		return
+	}
+	for dir := filepath.Dir(path); dir != "." && dir != assetDir; dir = filepath.Dir(dir) {
+		if err := os.Remove(dir); err != nil {
+			return
+		}
+	}
 }
 
 func transparentSealFilename(filename string) string {

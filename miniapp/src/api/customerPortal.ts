@@ -213,6 +213,7 @@ export type ServicePageResponse = {
   title: string
   capability: string
   theme_key?: MiniappThemeKey | string
+  miniapp_entry_mode?: MiniappEntryMode | string
   current_customer_id: number
   current_customer_name: string
   summary: ServiceMetric[]
@@ -251,7 +252,6 @@ export type CreateFulfillmentOrderPayload = {
   product_name?: string
   spec_g: number
   qty: number
-  unit_price?: number
   shipping_amount?: number
   note?: string
 }

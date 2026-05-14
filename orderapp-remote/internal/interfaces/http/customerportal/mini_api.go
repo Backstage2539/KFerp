@@ -273,7 +273,6 @@ func registerMiniAPI(e *echo.Echo, svc Service, messages MessagePublisher, beanL
 			ProductName:       req.ProductName,
 			SpecG:             req.SpecG,
 			Qty:               req.Qty,
-			UnitPrice:         req.UnitPrice,
 			ShippingAmount:    req.ShippingAmount,
 			Note:              req.Note,
 		})
@@ -387,8 +386,10 @@ func isMiniValidationError(err error) bool {
 	case "code required", "openid required", "customer required", "mini token required",
 		"service key invalid", "source_name required", "total_rows invalid", "input_material required",
 		"input_qty required", "target_product required", "target_spec required", "target_qty required",
+		"input material unavailable", "target product unavailable",
 		"bean_list required", "recipient_name required", "recipient_phone required", "recipient_address required",
-		"items required", "mall_product required", "qty required", "capability template invalid":
+		"items required", "mall_product required", "qty required", "product unavailable", "mall product unavailable",
+		"capability template invalid":
 		return true
 	default:
 		return false

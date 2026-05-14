@@ -486,6 +486,10 @@ func (r *fakeCustomerFulfillmentRepository) ListCustomerERPBindings(ctx context.
 	return r.listERPBindingsResult, nil
 }
 
+func (r *fakeCustomerFulfillmentRepository) CustomerERPWorkbenchAvailable(ctx context.Context, customerID int64) (bool, error) {
+	return true, nil
+}
+
 func (r *fakeCustomerFulfillmentRepository) CustomerFulfillmentOptions(ctx context.Context, customerID int64) (CustomerFulfillmentOptions, error) {
 	r.optionsCustomerID = customerID
 	return r.optionsResult, nil

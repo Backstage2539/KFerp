@@ -53,3 +53,26 @@ test('customer portal settings view only references capability templates', () =>
   assert.doesNotMatch(source, /@click="row\.form\.theme_key = theme\.key"/)
   assert.doesNotMatch(source, /v-model="capability\.enabled"/)
 })
+
+test('customer portal settings disables ERP binding for templates without workbench views', () => {
+  const source = fs.readFileSync(path.join(currentDir, '..', 'views', 'CustomerPortalSettingsView.vue'), 'utf8')
+  assert.match(source, /function\s+templateSupportsERPWorkbench\(row\)/)
+  assert.match(source, /:disabled="!templateSupportsERPWorkbench\(row\)"/)
+  assert.match(source, /!templateSupportsERPWorkbench\(row\)/)
+  assert.match(source, /该模板不开放 ERP 工作台/)
+})
+
+test('customer portal settings excludes disabled channel accounts from ERP binding selector', () => {
+  const source = fs.readFileSync(path.join(currentDir, '..', 'views', 'CustomerPortalSettingsView.vue'), 'utf8')
+  assert.match(source, /account_type\s*===\s*'channel_customer'/)
+  assert.match(source, /login_disabled\s*!==\s*true/)
+})
+
+test('customer portal settings preserves unknown template keys for correction', () => {
+  const source = fs.readFileSync(path.join(currentDir, '..', 'views', 'CustomerPortalSettingsView.vue'), 'utf8')
+  assert.match(source, /function\s+unknownTemplateKey\(row\)/)
+  assert.match(source, /未知能力模板/)
+  assert.match(source, /capability_template_key:\s*trimTemplateKey\(row\.form\.capability_template_key\)/)
+  assert.doesNotMatch(source, /capability_template_key:\s*normalizeTemplateKey\(row\.form\.capability_template_key\)/)
+  assert.match(source, /!unknownTemplateKey\(row\)/)
+})

@@ -146,6 +146,10 @@ func (r *fakeRepo) SaveSalesOrderAsset(ctx context.Context, cmd SaveSalesOrderAs
 	return SalesOrderAsset{ID: 3, Kind: cmd.Kind, Filename: cmd.Filename, ContentType: cmd.ContentType, ObjectKey: cmd.ObjectKey}, nil
 }
 
+func (r *fakeRepo) DeleteSalesOrderAsset(ctx context.Context, id int64, actor string) error {
+	return nil
+}
+
 func (r *fakeRepo) SaveSalesOrderPaymentCode(ctx context.Context, cmd SaveSalesOrderPaymentCodeCommand) (SalesOrderPaymentCode, error) {
 	return SalesOrderPaymentCode{ID: 4, Label: cmd.Label, Description: cmd.Description, AssetID: cmd.AssetID, Sort: cmd.Sort, Active: cmd.Active}, nil
 }

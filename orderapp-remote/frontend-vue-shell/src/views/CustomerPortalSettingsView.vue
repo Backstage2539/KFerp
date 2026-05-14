@@ -61,6 +61,9 @@
               <span>能力模板</span>
               <select v-model="row.form.capability_template_key">
                 <option value="">请选择模板</option>
+                <option v-if="unknownTemplateKey(row)" :value="unknownTemplateKey(row)">
+                  未知模板：{{ unknownTemplateKey(row) }}
+                </option>
                 <option v-for="template in capabilityTemplates" :key="template.key" :value="template.key">
                   {{ template.label }}
                 </option>
@@ -77,7 +80,11 @@
         </div>
 
         <div class="template-summary">
-          <template v-if="selectedTemplate(row)">
+          <template v-if="unknownTemplateKey(row)">
+            <strong>未知能力模板</strong>
+            <span>当前模板 key 无法识别，请重新选择系统模板；如果要停用门户并清空模板，请先选择“请选择模板”。</span>
+          </template>
+          <template v-else-if="selectedTemplate(row)">
             <strong>{{ selectedTemplate(row).label }}</strong>
             <span>{{ selectedTemplate(row).description || '未填写模板说明' }}</span>
             <div class="summary-meta">
@@ -115,13 +122,14 @@
             <span>{{ row.customer.erp_binding.phone || '未填手机号' }}</span>
           </div>
           <span v-else class="muted">未绑定ERP账号</span>
-          <select v-model.number="row.form.erp_employee_id">
+          <p v-if="erpBindingHint(row)" class="binding-hint">{{ erpBindingHint(row) }}</p>
+          <select v-model.number="row.form.erp_employee_id" :disabled="!templateSupportsERPWorkbench(row)">
             <option :value="0">选择渠道客户账号</option>
             <option v-for="account in channelAccounts" :key="account.employee_id" :value="account.employee_id">
               {{ accountLabel(account) }}
             </option>
           </select>
-          <button class="secondary" type="button" @click="saveERPBinding(row)" :disabled="row.saving || !row.form.erp_employee_id">绑定ERP账号</button>
+          <button class="secondary" type="button" @click="saveERPBinding(row)" :disabled="row.saving || !row.form.erp_employee_id || !templateSupportsERPWorkbench(row)">绑定ERP账号</button>
         </div>
 
         <div class="binding-list">
@@ -163,7 +171,7 @@ const themeLabels = {
   premium_partner: '品牌会员高级风',
 }
 
-const channelAccounts = computed(() => (authAccounts.value || []).filter((row) => row.account_type === 'channel_customer'))
+const channelAccounts = computed(() => (authAccounts.value || []).filter((row) => row.account_type === 'channel_customer' && row.login_disabled !== true))
 
 async function loadCustomers() {
   loading.value = true
@@ -235,7 +243,7 @@ function createPortalRow(customer) {
       processing_warehouse_code: customer.processing_warehouse_code || '',
       default_sender_id: Number(customer.default_sender_id || 0),
       enabled: customer.portal_enabled !== false,
-      capability_template_key: normalizeTemplateKey(customer.capability_template_key),
+      capability_template_key: trimTemplateKey(customer.capability_template_key),
       erp_employee_id: Number(customer.erp_binding?.employee_id || 0),
     },
     capabilities: [],
@@ -261,7 +269,7 @@ function assignRowDetail(row, data) {
   row.form.processing_warehouse_code = row.customer.processing_warehouse_code || ''
   row.form.default_sender_id = Number(row.customer.default_sender_id || 0)
   row.form.enabled = row.customer.portal_enabled !== false
-  row.form.capability_template_key = normalizeTemplateKey(row.customer.capability_template_key)
+  row.form.capability_template_key = trimTemplateKey(row.customer.capability_template_key)
   row.form.erp_employee_id = Number(row.customer.erp_binding?.employee_id || 0)
   row.bindings = data?.bindings || []
   row.capabilities = (data?.capabilities || []).map((item) => ({
@@ -286,7 +294,7 @@ async function saveVisibility(row) {
         processing_warehouse_code: row.form.processing_warehouse_code,
         default_sender_id: Number(row.form.default_sender_id || 0),
         enabled: !!row.form.enabled,
-        capability_template_key: normalizeTemplateKey(row.form.capability_template_key),
+        capability_template_key: trimTemplateKey(row.form.capability_template_key),
       },
     })
     assignRowDetail(row, data)
@@ -300,6 +308,10 @@ async function saveVisibility(row) {
 
 async function saveERPBinding(row) {
   if (!row?.customer?.id || !row.form.erp_employee_id) return
+  if (!templateSupportsERPWorkbench(row)) {
+    error.value = erpBindingHint(row)
+    return
+  }
   row.saving = true
   error.value = ''
   ok.value = ''
@@ -321,7 +333,7 @@ async function saveERPBinding(row) {
 }
 
 function normalizeTemplateKey(value) {
-  const key = String(value || '').trim()
+  const key = trimTemplateKey(value)
   if (key === 'processing_fulfillment' || key === 'public_sku_direct_ship' || key === 'retail_mall') return key
   return capabilityTemplates.value.some((template) => template.key === key) ? key : ''
 }
@@ -329,6 +341,32 @@ function normalizeTemplateKey(value) {
 function selectedTemplate(row) {
   const key = normalizeTemplateKey(row?.form?.capability_template_key)
   return capabilityTemplates.value.find((template) => template.key === key) || null
+}
+
+function trimTemplateKey(value) {
+  return String(value || '').trim()
+}
+
+function unknownTemplateKey(row) {
+  const key = trimTemplateKey(row?.form?.capability_template_key)
+  return key && !normalizeTemplateKey(key) ? key : ''
+}
+
+function templateSupportsERPWorkbench(row) {
+  if (unknownTemplateKey(row)) return false
+  const template = selectedTemplate(row)
+  return hasStringValues(template?.erp_permissions) || hasStringValues(template?.erp_view_keys)
+}
+
+function erpBindingHint(row) {
+  if (unknownTemplateKey(row)) return '当前能力模板无法识别，请先重新选择系统模板'
+  if (!selectedTemplate(row)) return '请选择支持 ERP 工作台的能力模板后再绑定账号'
+  if (!templateSupportsERPWorkbench(row)) return '该模板不开放 ERP 工作台，零售商城客户不需要绑定 ERP 账号'
+  return ''
+}
+
+function hasStringValues(values) {
+  return (values || []).some((value) => String(value || '').trim())
 }
 
 function enabledTemplateCapabilities(row) {
@@ -370,7 +408,7 @@ function viewLabel(key) {
 }
 
 function canSaveRow(row) {
-  return !row.saving && !row.loading && (!row.form.enabled || !!normalizeTemplateKey(row.form.capability_template_key))
+  return !row.saving && !row.loading && !unknownTemplateKey(row) && (!row.form.enabled || !!selectedTemplate(row))
 }
 
 onMounted(async () => {
@@ -415,6 +453,7 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .binding-row { border: 1px solid #e4e7ec; border-radius: 8px; padding: 8px; }
 .binding-row strong { font-size: 13px; }
 .erp-binding select { width: 100%; }
+.binding-hint { margin: 0; color: #8a5a16; background: #fff7e6; border: 1px solid #f0d7a0; border-radius: 6px; padding: 7px 8px; font-size: 12px; line-height: 1.45; }
 .active-binding { border-color: #b7d9c2; background: #f7fff9; }
 .muted { color: #666; }
 .empty { min-height: 80px; display: flex; align-items: center; justify-content: center; }

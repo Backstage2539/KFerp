@@ -196,6 +196,7 @@ func ensureShippingClosureSchema(ctx context.Context, pool *pgxpool.Pool, schema
 
 func ensureOrderShippingTrackingTables(ctx context.Context, pool *pgxpool.Pool, schema string) error {
 	stmts := []string{
+		fmt.Sprintf(`ALTER TABLE %s.orders ADD COLUMN IF NOT EXISTS ship_tracking_no TEXT NOT NULL DEFAULT ''`, schema),
 		fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s.order_shipping_trackings (
 			id BIGSERIAL PRIMARY KEY,
 			order_id BIGINT NOT NULL REFERENCES %s.orders(id) ON DELETE CASCADE,

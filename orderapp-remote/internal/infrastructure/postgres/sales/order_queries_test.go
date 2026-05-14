@@ -44,7 +44,15 @@ func TestOrderListWhereSupportsMineAndFulfillmentScopes(t *testing.T) {
 		"customer_type",
 		"portal_service_code IN ('direct_ship','processing_ship')",
 		"test_schema.customer_erp_user_bindings",
+		"test_schema.customer_portal_profiles",
+		"test_schema.company_employees",
+		"test_schema.employee_login_passwords",
 		"b.status='active'",
+		"e.account_type='channel_customer'",
+		"COALESCE(lp.login_disabled,false)=false",
+		"capability_template_key",
+		"processing_fulfillment",
+		"public_sku_direct_ship",
 	} {
 		if !strings.Contains(joined, want) {
 			t.Fatalf("fulfillment scope missing %q in %q", want, joined)

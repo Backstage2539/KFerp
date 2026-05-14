@@ -46,6 +46,9 @@ func (r Repository) ListWIPReservations(ctx context.Context, query productionapp
 			JOIN %s.material_batches b ON b.id=l.material_batch_id
 			WHERE l.material_id=res.material_id
 			  AND l.warehouse='wip'
+			  AND l.qty_g > 0
+			  AND b.status='active'
+			  AND b.remaining_g > 0
 			  AND COALESCE(b.quality_status,'unchecked') NOT IN ('hold','reject')
 		) wip ON true
 		LEFT JOIN LATERAL (
@@ -164,25 +167,25 @@ func (r Repository) ReleaseWIPReservations(ctx context.Context, cmd productionap
 	}
 	defer tx.Rollback(ctx)
 
-	where := "res.status='reserved'"
+	where := []string{"res.status='reserved'"}
 	args := []any{}
 	if cmd.RunningItemID > 0 {
 		args = append(args, cmd.RunningItemID)
-		where += fmt.Sprintf(" AND res.running_item_id=$%d", len(args))
+		where = append(where, fmt.Sprintf("res.running_item_id=$%d", len(args)))
 	}
 	if cmd.WorkOrderNo != "" {
 		args = append(args, cmd.WorkOrderNo)
-		where += fmt.Sprintf(" AND wo.work_order_no=$%d", len(args))
+		where = append(where, fmt.Sprintf("EXISTS (SELECT 1 FROM %s.work_orders wo WHERE wo.id=res.work_order_id AND wo.work_order_no=$%d)", r.schema, len(args)))
 	}
+	whereSQL := strings.Join(where, " AND ")
 	var result productionapp.WIPReservationReleaseResult
 	if err := tx.QueryRow(ctx, fmt.Sprintf(`
 		SELECT COUNT(*)::bigint,
 		       COALESCE(SUM(GREATEST(0,res.reserved_g-res.consumed_g-res.returned_g)),0)::bigint,
 		       COALESCE(SUM(GREATEST(0,res.reserved_units-res.consumed_units-res.returned_units)),0)::bigint
 		FROM %s.work_order_material_reservations res
-		LEFT JOIN %s.work_orders wo ON wo.id=res.work_order_id
 		WHERE %s
-	`, r.schema, r.schema, where), args...).Scan(&result.ReleasedCount, &result.ReleasedG, &result.ReleasedUnits); err != nil {
+	`, r.schema, whereSQL), args...).Scan(&result.ReleasedCount, &result.ReleasedG, &result.ReleasedUnits); err != nil {
 		return productionapp.WIPReservationReleaseResult{}, err
 	}
 	if _, err := tx.Exec(ctx, fmt.Sprintf(`
@@ -191,9 +194,8 @@ func (r Repository) ReleaseWIPReservations(ctx context.Context, cmd productionap
 		    returned_g=GREATEST(0,reserved_g-consumed_g),
 		    returned_units=GREATEST(0,reserved_units-consumed_units),
 		    updated_at=now()
-		FROM %s.work_orders wo
-		WHERE wo.id=res.work_order_id AND %s
-	`, r.schema, r.schema, where), args...); err != nil {
+		WHERE %s
+	`, r.schema, whereSQL), args...); err != nil {
 		return productionapp.WIPReservationReleaseResult{}, err
 	}
 	var entityID *int64
@@ -235,7 +237,13 @@ func (r Repository) getWIPReservationRowTx(ctx context.Context, tx pgx.Tx, id in
 		LEFT JOIN LATERAL (
 			SELECT SUM(l.qty_g)::bigint AS wip_g
 			FROM %s.material_batch_locations l
-			WHERE l.material_id=res.material_id AND l.warehouse='wip'
+			JOIN %s.material_batches b ON b.id=l.material_batch_id
+			WHERE l.material_id=res.material_id
+			  AND l.warehouse='wip'
+			  AND l.qty_g > 0
+			  AND b.status='active'
+			  AND b.remaining_g > 0
+			  AND COALESCE(b.quality_status,'unchecked') NOT IN ('hold','reject')
 		) wip ON true
 		LEFT JOIN LATERAL (
 			SELECT SUM(GREATEST(0,r2.reserved_g-r2.consumed_g-r2.returned_g))::bigint AS open_reserved_g
@@ -243,7 +251,7 @@ func (r Repository) getWIPReservationRowTx(ctx context.Context, tx pgx.Tx, id in
 			WHERE r2.material_id=res.material_id AND r2.status='reserved'
 		) open_res ON true
 		WHERE res.id=$1
-	`, r.schema, r.schema, r.schema, r.schema), id)
+	`, r.schema, r.schema, r.schema, r.schema, r.schema), id)
 	if err != nil {
 		return productionapp.WIPReservationRow{}, err
 	}

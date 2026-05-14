@@ -264,6 +264,7 @@ import { onMounted, reactive, ref, watch } from 'vue'
 import { apiGet, apiSend } from '../api/client'
 import { invoiceStatusLabel, invoiceStatusTone } from '../lib/order-invoice'
 import { formatTrackingSummary, trackingInputSummary } from '../lib/order-shipping'
+import { orderListScopeForRequest } from '../lib/order-scope'
 import { replaceHistoryURL } from '../lib/url-state'
 import DeliveryNoteView from './DeliveryNoteView.vue'
 import OrderEntryView from './OrderEntryView.vue'
@@ -321,7 +322,7 @@ const filters = reactive({
 
 function applyUrlFilters() {
   const params = new URL(window.location.href).searchParams
-  filters.scope = normalizeScope(props.viewParams?.scope || params.get('scope') || 'all')
+  filters.scope = orderListScopeForRequest(props.viewParams?.scope || params.get('scope') || 'all')
   filters.highlight_order_id = Number(props.viewParams?.highlight_order_id || params.get('highlight_order_id') || 0)
   filters.q = params.get('q') || ''
   filters.from = params.get('from') || ''
@@ -370,13 +371,8 @@ function updateBrowserUrl(nextPage) {
   replaceHistoryURL(url)
 }
 
-function normalizeScope(scope) {
-  scope = String(scope || '').trim()
-  return ['all', 'mine', 'fulfillment'].includes(scope) ? scope : 'all'
-}
-
 async function setScope(scope) {
-  filters.scope = normalizeScope(scope)
+  filters.scope = orderListScopeForRequest(scope)
   filters.highlight_order_id = 0
   await loadPage(1)
 }
@@ -658,7 +654,7 @@ onMounted(() => {
 })
 
 watch(() => props.viewParams, async () => {
-  const nextScope = normalizeScope(props.viewParams?.scope || 'all')
+  const nextScope = orderListScopeForRequest(props.viewParams?.scope || 'all')
   const nextHighlightID = Number(props.viewParams?.highlight_order_id || 0)
   if (filters.scope === nextScope && Number(filters.highlight_order_id || 0) === nextHighlightID) return
   filters.scope = nextScope

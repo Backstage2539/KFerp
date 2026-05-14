@@ -115,6 +115,9 @@ func (repo Repository) Finish(ctx context.Context, cmd productionapp.FinishComma
 	if err != nil {
 		return err
 	}
+	if err := validateFinishedOutputWithinConsumedInput(finishedTotal, consumedInputG); err != nil {
+		return err
+	}
 	actualYield, err := actualYieldRate(r.SpecG, add.Units, add.LooseG, consumedInputG)
 	if err != nil {
 		return err
@@ -245,6 +248,9 @@ func (repo Repository) finishRunningOutputs(ctx context.Context, tx pgx.Tx, r Pr
 	}
 	if consumedInputG <= 0 {
 		return fmt.Errorf("本次消耗投料必须大于0")
+	}
+	if err := validateFinishedOutputWithinConsumedInput(totalFinishedG, consumedInputG); err != nil {
+		return err
 	}
 	actualYield := math.Round((float64(totalFinishedG)/float64(consumedInputG))*10000) / 10000
 	finishedAt := time.Now()
@@ -393,6 +399,13 @@ func normalizeFinishedOutputs(outputs []ProduceRunOutputRow, commands []producti
 		return nil, 0, fmt.Errorf("请填写完成件数或散装余量")
 	}
 	return out, total, nil
+}
+
+func validateFinishedOutputWithinConsumedInput(finishedTotalG, consumedInputG int64) error {
+	if finishedTotalG > consumedInputG {
+		return fmt.Errorf("finished output cannot exceed consumed input")
+	}
+	return nil
 }
 
 func resolveFinishConsumedInput(r ProduceRunRow, cmd productionapp.FinishCommand, finishedTotal int64) (int64, bool, error) {
@@ -657,6 +670,13 @@ func completeOrderIfAllRunningDone(ctx context.Context, tx pgx.Tx, schema, order
 	if hasRunning {
 		return nil
 	}
+	hasGap, err := orderHasRemainingProductionGapTx(ctx, tx, schema, orderNo)
+	if err != nil {
+		return err
+	}
+	if hasGap {
+		return nil
+	}
 	statusID, err := lookupProcessStatusIDTx(ctx, tx, schema, "生产完成", "已生产完成")
 	if err != nil {
 		return err
@@ -666,6 +686,82 @@ func completeOrderIfAllRunningDone(ctx context.Context, tx pgx.Tx, schema, order
 	}
 	_, err = tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.orders SET process_status_id=$2 WHERE order_no=$1`, schema), orderNo, statusID)
 	return err
+}
+
+func orderHasRemainingProductionGapTx(ctx context.Context, tx pgx.Tx, schema, orderNo string) (bool, error) {
+	q := fmt.Sprintf(`
+		WITH target_order AS (
+			SELECT id
+			FROM %[1]s.orders
+			WHERE order_no=$1
+			  AND is_void=false
+			LIMIT 1
+		),
+		need AS (
+			SELECT
+				oi.product_id,
+				spec.spec_g,
+				(SUM(COALESCE(oi.qty,0))::bigint * spec.spec_g)::bigint AS need_g,
+				BOOL_OR(COALESCE(osd.decision,'') = 'produce') AS force_produce
+			FROM %[1]s.order_items oi
+			JOIN target_order o ON o.id=oi.order_id
+			LEFT JOIN %[1]s.order_stock_decisions osd ON osd.order_id=o.id
+			CROSS JOIN LATERAL (
+				SELECT COALESCE(NULLIF(regexp_replace(COALESCE(oi.spec,''), '[^0-9]', '', 'g'), ''), '0')::bigint AS spec_g
+			) spec
+			WHERE COALESCE(oi.product_id,0) > 0
+			  AND spec.spec_g > 0
+			  AND COALESCE(oi.qty,0) > 0
+			GROUP BY oi.product_id, spec.spec_g
+		),
+		produced AS (
+			SELECT
+				pl.product_id,
+				pl.spec_g,
+				SUM(COALESCE(pl.finished_total_g,0))::bigint AS produced_g
+			FROM %[1]s.production_logs pl
+			WHERE $1 = ANY(string_to_array(replace(COALESCE(pl.order_nos,''),' ',''), ','))
+			GROUP BY pl.product_id, pl.spec_g
+		),
+		reserved AS (
+			SELECT
+				a.product_id,
+				a.spec_g,
+				SUM(COALESCE(a.allocated_g,0))::bigint AS reserved_g
+			FROM %[1]s.order_stock_batch_allocations a
+			WHERE NOT EXISTS (
+				SELECT 1
+				FROM %[1]s.order_stock_deductions d
+				WHERE d.order_id=a.order_id
+				  AND d.product_id=a.product_id
+				  AND d.spec_g=a.spec_g
+				  AND d.batch_code=a.batch_code
+			)
+			GROUP BY a.product_id, a.spec_g
+		)
+		SELECT EXISTS (
+			SELECT 1
+			FROM need n
+			LEFT JOIN produced p ON p.product_id=n.product_id AND p.spec_g=n.spec_g
+			LEFT JOIN %[1]s.finished_inventory fi ON fi.product_id=n.product_id AND fi.spec_g=n.spec_g AND fi.warehouse='finished_goods'
+			LEFT JOIN reserved r ON r.product_id=n.product_id AND r.spec_g=n.spec_g
+			WHERE CASE
+				WHEN n.force_produce THEN COALESCE(p.produced_g,0) < n.need_g
+				ELSE GREATEST(
+					COALESCE(p.produced_g,0),
+					GREATEST(
+						0,
+						(COALESCE(fi.onhand_units,0) * n.spec_g + COALESCE(fi.onhand_loose_g,0)) - COALESCE(r.reserved_g,0)
+					)
+				) < n.need_g
+			END
+		)
+	`, schema)
+	var hasGap bool
+	if err := tx.QueryRow(ctx, q, strings.TrimSpace(orderNo)).Scan(&hasGap); err != nil {
+		return false, err
+	}
+	return hasGap, nil
 }
 
 func resetOrderIfNoRunningItemsTx(ctx context.Context, tx pgx.Tx, schema, orderNo string) error {

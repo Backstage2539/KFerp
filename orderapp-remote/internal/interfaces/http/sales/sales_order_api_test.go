@@ -314,6 +314,155 @@ func TestSalesOrderSealUploadNormalizesWhitePadding(t *testing.T) {
 	}
 }
 
+func TestSalesOrderSealUploadCleansFileWhenAssetMetadataFails(t *testing.T) {
+	pool, schema := newOrderAPITestDB(t)
+	assetDir := t.TempDir()
+	body, contentType := multipartSalesOrderAssetBody(t, "seal.png", "image/png", paddedSealPNG(t))
+	e := newSalesOrderAPITestEcho(pool, schema, assetDir)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/settings/sales-order/seal", body)
+	req.Header.Set(echo.HeaderContentType, contentType)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("upload seal status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	assertAssetDirEmpty(t, assetDir)
+}
+
+func TestSalesOrderSealUploadCleansAssetWhenSettingsUpdateFails(t *testing.T) {
+	pool, schema := newOrderAPITestDB(t)
+	ctx := context.Background()
+	seedOrderAPITestData(t, ctx, pool, schema)
+	if err := postgressales.EnsureSchema(ctx, pool, schema); err != nil {
+		t.Fatalf("EnsureSchema: %v", err)
+	}
+	mustExecOrderAPITestSQL(t, ctx, pool, fmt.Sprintf(`DROP TABLE %s.sales_order_settings`, schema))
+	assetDir := t.TempDir()
+	body, contentType := multipartSalesOrderAssetBody(t, "seal.png", "image/png", paddedSealPNG(t))
+	e := newSalesOrderAPITestEcho(pool, schema, assetDir)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/settings/sales-order/seal", body)
+	req.Header.Set(echo.HeaderContentType, contentType)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("upload seal status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	assertNoSalesOrderAssetRows(t, ctx, pool, schema, "seal")
+	assertAssetDirEmpty(t, assetDir)
+}
+
+func TestSalesOrderPaymentCodeUploadStoresImageAsset(t *testing.T) {
+	pool, schema := newOrderAPITestDB(t)
+	ctx := context.Background()
+	seedOrderAPITestData(t, ctx, pool, schema)
+	if err := postgressales.EnsureSchema(ctx, pool, schema); err != nil {
+		t.Fatalf("EnsureSchema: %v", err)
+	}
+	assetDir := t.TempDir()
+	body, contentType := multipartSalesOrderAssetBodyWithFields(t, "pay.jpg", "image/jpeg", jpegSalesOrderAssetBytesForTest(), map[string]string{"label": "微信收款码"})
+	e := newSalesOrderAPITestEcho(pool, schema, assetDir)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/settings/sales-order/payment-codes", body)
+	req.Header.Set(echo.HeaderContentType, contentType)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"content_type":"image/jpeg"`) {
+		t.Fatalf("payment code upload status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	var payload struct {
+		Asset salesapp.SalesOrderAsset `json:"asset"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("decode payment code upload response: %v", err)
+	}
+	data, err := os.ReadFile(filepath.Join(assetDir, payload.Asset.ObjectKey))
+	if err != nil {
+		t.Fatalf("read payment code asset: %v", err)
+	}
+	if !bytes.HasPrefix(data, []byte{0xff, 0xd8}) {
+		t.Fatalf("payment code asset prefix=%x, want jpeg", data)
+	}
+}
+
+func TestSalesOrderPaymentCodeUploadRejectsNonImageAsset(t *testing.T) {
+	pool, schema := newOrderAPITestDB(t)
+	ctx := context.Background()
+	seedOrderAPITestData(t, ctx, pool, schema)
+	if err := postgressales.EnsureSchema(ctx, pool, schema); err != nil {
+		t.Fatalf("EnsureSchema: %v", err)
+	}
+	assetDir := t.TempDir()
+	body, contentType := multipartSalesOrderAssetBodyWithFields(t, "pay.html", "text/html", []byte(`<script>alert("xss")</script>`), map[string]string{"label": "危险收款码"})
+	e := newSalesOrderAPITestEcho(pool, schema, assetDir)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/settings/sales-order/payment-codes", body)
+	req.Header.Set(echo.HeaderContentType, contentType)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "image file required") {
+		t.Fatalf("payment code upload status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	assertNoSalesOrderAssetRows(t, ctx, pool, schema, "payment_code")
+}
+
+func TestSalesOrderPaymentCodeUploadRejectsOversizedAsset(t *testing.T) {
+	pool, schema := newOrderAPITestDB(t)
+	ctx := context.Background()
+	seedOrderAPITestData(t, ctx, pool, schema)
+	if err := postgressales.EnsureSchema(ctx, pool, schema); err != nil {
+		t.Fatalf("EnsureSchema: %v", err)
+	}
+	assetDir := t.TempDir()
+	oversized := append(jpegSalesOrderAssetBytesForTest(), bytes.Repeat([]byte{0}, 8<<20)...)
+	body, contentType := multipartSalesOrderAssetBodyWithFields(t, "huge.jpg", "image/jpeg", oversized, map[string]string{"label": "大图收款码"})
+	e := newSalesOrderAPITestEcho(pool, schema, assetDir)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/settings/sales-order/payment-codes", body)
+	req.Header.Set(echo.HeaderContentType, contentType)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "image file too large") {
+		t.Fatalf("payment code upload status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	assertNoSalesOrderAssetRows(t, ctx, pool, schema, "payment_code")
+}
+
+func TestSalesOrderPaymentCodeUploadRequiresLabelBeforeWritingAsset(t *testing.T) {
+	pool, schema := newOrderAPITestDB(t)
+	ctx := context.Background()
+	seedOrderAPITestData(t, ctx, pool, schema)
+	if err := postgressales.EnsureSchema(ctx, pool, schema); err != nil {
+		t.Fatalf("EnsureSchema: %v", err)
+	}
+	assetDir := t.TempDir()
+	body, contentType := multipartSalesOrderAssetBodyWithFields(t, "pay.jpg", "image/jpeg", jpegSalesOrderAssetBytesForTest(), map[string]string{"label": "   "})
+	e := newSalesOrderAPITestEcho(pool, schema, assetDir)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/settings/sales-order/payment-codes", body)
+	req.Header.Set(echo.HeaderContentType, contentType)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "label required") {
+		t.Fatalf("payment code upload status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	assertNoSalesOrderAssetRows(t, ctx, pool, schema, "payment_code")
+	entries, err := os.ReadDir(assetDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 0 {
+		t.Fatalf("blank label payment code upload wrote orphan asset entries: %+v", entries)
+	}
+}
+
 func TestSalesOrderSettingsServesSalesOrderAssets(t *testing.T) {
 	assetDir := t.TempDir()
 	assetPath := filepath.Join(assetDir, "sales_order_assets", "payment_code", "qr.pic")
@@ -704,10 +853,45 @@ func paddedSealPNG(t *testing.T) []byte {
 	return buf.Bytes()
 }
 
+func jpegSalesOrderAssetBytesForTest() []byte {
+	return []byte{0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, 'J', 'F', 'I', 'F', 0x00, 0xff, 0xd9}
+}
+
+func assertNoSalesOrderAssetRows(t *testing.T, ctx context.Context, pool *pgxpool.Pool, schema, kind string) {
+	t.Helper()
+	var count int
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT count(*) FROM %s.sales_order_assets WHERE kind=$1`, schema), kind).Scan(&count); err != nil {
+		t.Fatalf("count sales order assets: %v", err)
+	}
+	if count != 0 {
+		t.Fatalf("sales_order_assets kind %q rows=%d, want 0", kind, count)
+	}
+}
+
+func assertAssetDirEmpty(t *testing.T, assetDir string) {
+	t.Helper()
+	entries, err := os.ReadDir(assetDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 0 {
+		t.Fatalf("asset dir should be empty after failed upload, entries=%+v", entries)
+	}
+}
+
 func multipartSalesOrderAssetBody(t *testing.T, filename, contentType string, data []byte) (*bytes.Buffer, string) {
+	return multipartSalesOrderAssetBodyWithFields(t, filename, contentType, data, nil)
+}
+
+func multipartSalesOrderAssetBodyWithFields(t *testing.T, filename, contentType string, data []byte, fields map[string]string) (*bytes.Buffer, string) {
 	t.Helper()
 	var body bytes.Buffer
 	writer := multipart.NewWriter(&body)
+	for key, value := range fields {
+		if err := writer.WriteField(key, value); err != nil {
+			t.Fatal(err)
+		}
+	}
 	part, err := writer.CreatePart(map[string][]string{
 		"Content-Disposition": {fmt.Sprintf(`form-data; name="file"; filename="%s"`, filename)},
 		"Content-Type":        {contentType},

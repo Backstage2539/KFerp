@@ -8,6 +8,7 @@ import (
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
 
@@ -32,12 +33,14 @@ type fakeService struct {
 	mallOptions     []customerportalapp.MallProductOption
 	mallSaveCmd     *customerportalapp.SaveMallProductCommand
 	mallImageCmd    *customerportalapp.UpdateMallProductImageCommand
+	mallImageErr    error
 	mallPage        customerportalapp.MallPage
 	mallOrder       customerportalapp.FulfillmentOrder
 	mallOrderCmd    *customerportalapp.CreateMallOrderCommand
 	directShip      customerportalapp.DirectShipBatch
 	processing      customerportalapp.ProcessingRequest
 	fulfillment     customerportalapp.FulfillmentOrder
+	fulfillmentCmd  *customerportalapp.CreateFulfillmentOrderCommand
 	beanList        customerportalapp.BeanListSummary
 	err             error
 }
@@ -165,6 +168,9 @@ func (s fakeService) UpdateMallProductImage(_ context.Context, cmd customerporta
 	if s.err != nil {
 		return customerportalapp.MallProduct{}, s.err
 	}
+	if s.mallImageErr != nil {
+		return customerportalapp.MallProduct{}, s.mallImageErr
+	}
 	if s.mallImageCmd != nil {
 		*s.mallImageCmd = cmd
 	}
@@ -202,9 +208,12 @@ func (s fakeService) CreateProcessingRequest(context.Context, string, customerpo
 	return s.processing, nil
 }
 
-func (s fakeService) CreateFulfillmentOrder(context.Context, string, customerportalapp.CreateFulfillmentOrderCommand) (customerportalapp.FulfillmentOrder, error) {
+func (s fakeService) CreateFulfillmentOrder(_ context.Context, _ string, cmd customerportalapp.CreateFulfillmentOrderCommand) (customerportalapp.FulfillmentOrder, error) {
 	if s.err != nil {
 		return customerportalapp.FulfillmentOrder{}, s.err
+	}
+	if s.fulfillmentCmd != nil {
+		*s.fulfillmentCmd = cmd
 	}
 	return s.fulfillment, nil
 }
@@ -216,12 +225,14 @@ func TestMiniLoginAndMeAPI(t *testing.T) {
 			Token:             "mini-token",
 			MiniUserID:        3,
 			ThemeKey:          customerportalapp.PortalThemePremiumPartner,
+			MiniappEntryMode:  customerportalapp.MiniappEntryModeMall,
 			CurrentCustomerID: 8,
 		},
 		me: customerportalapp.CurrentContext{
 			MiniUserID: 3, CurrentCustomerID: 8, CurrentCustomerName: "客户A",
-			ThemeKey:     customerportalapp.PortalThemePremiumPartner,
-			Capabilities: []customerportalapp.Capability{{Code: customerportalapp.CapabilityDirectShip, Enabled: true}},
+			ThemeKey:         customerportalapp.PortalThemePremiumPartner,
+			MiniappEntryMode: customerportalapp.MiniappEntryModeMall,
+			Capabilities:     []customerportalapp.Capability{{Code: customerportalapp.CapabilityDirectShip, Enabled: true}},
 		},
 	}})
 
@@ -231,7 +242,8 @@ func TestMiniLoginAndMeAPI(t *testing.T) {
 	e.ServeHTTP(loginRec, loginReq)
 	if loginRec.Code != http.StatusOK ||
 		!strings.Contains(loginRec.Body.String(), `"token":"mini-token"`) ||
-		!strings.Contains(loginRec.Body.String(), `"theme_key":"premium_partner"`) {
+		!strings.Contains(loginRec.Body.String(), `"theme_key":"premium_partner"`) ||
+		!strings.Contains(loginRec.Body.String(), `"miniapp_entry_mode":"mall"`) {
 		t.Fatalf("login status=%d body=%s", loginRec.Code, loginRec.Body.String())
 	}
 
@@ -242,6 +254,7 @@ func TestMiniLoginAndMeAPI(t *testing.T) {
 	if meRec.Code != http.StatusOK ||
 		!strings.Contains(meRec.Body.String(), `"current_customer_name":"客户A"`) ||
 		!strings.Contains(meRec.Body.String(), `"theme_key":"premium_partner"`) ||
+		!strings.Contains(meRec.Body.String(), `"miniapp_entry_mode":"mall"`) ||
 		!strings.Contains(meRec.Body.String(), customerportalapp.CapabilityDirectShip) {
 		t.Fatalf("me status=%d body=%s", meRec.Code, meRec.Body.String())
 	}
@@ -321,6 +334,19 @@ func TestMiniCurrentCustomerUnauthorizedBindingMapsToForbidden(t *testing.T) {
 	}
 }
 
+func TestMiniCurrentCustomerInactiveBindingMapsToForbidden(t *testing.T) {
+	e := echo.New()
+	RegisterRoutes(e, Dependencies{CustomerPortal: fakeService{err: customerportalapp.ErrCustomerBindingNotFound}})
+	req := httptest.NewRequest(http.MethodPost, "/api/mini/current-customer", strings.NewReader(`{"customer_id":9}`))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	req.Header.Set(echo.HeaderAuthorization, "Bearer mini-token")
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusForbidden || !strings.Contains(rec.Body.String(), `"error":"customer binding not found"`) {
+		t.Fatalf("inactive binding switch status=%d body=%s", rec.Code, rec.Body.String())
+	}
+}
+
 func TestMiniCurrentCustomerInvalidPayloadMapsToBadRequest(t *testing.T) {
 	e := echo.New()
 	RegisterRoutes(e, Dependencies{CustomerPortal: fakeService{}})
@@ -340,6 +366,7 @@ func TestMiniServicePageAPIRequiresTokenAndReturnsScopedData(t *testing.T) {
 		Key:                 customerportalapp.ServiceKeyShipping,
 		Title:               "物流查询",
 		ThemeKey:            customerportalapp.PortalThemeCleanOps,
+		MiniappEntryMode:    customerportalapp.MiniappEntryModeMall,
 		CurrentCustomerID:   8,
 		CurrentCustomerName: "客户A",
 		Orders: []customerportalapp.CustomerOrderSummary{{
@@ -357,6 +384,7 @@ func TestMiniServicePageAPIRequiresTokenAndReturnsScopedData(t *testing.T) {
 		!strings.Contains(rec.Body.String(), `"grand_total":"137.00"`) ||
 		!strings.Contains(rec.Body.String(), `"items":[`) ||
 		!strings.Contains(rec.Body.String(), `"theme_key":"clean_ops"`) ||
+		!strings.Contains(rec.Body.String(), `"miniapp_entry_mode":"mall"`) ||
 		!strings.Contains(rec.Body.String(), `"current_customer_id":8`) {
 		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
 	}
@@ -391,6 +419,38 @@ func TestMiniOrdersServicePageAPIReturnsDirectOrderPayload(t *testing.T) {
 		!strings.Contains(rec.Body.String(), `"title":"我的订单"`) ||
 		!strings.Contains(rec.Body.String(), `"order_no":"SO-DIRECT"`) ||
 		!strings.Contains(rec.Body.String(), `"grand_total":"258.00"`) {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestMiniSettlementServicePageAPIReturnsFinancePayload(t *testing.T) {
+	e := echo.New()
+	RegisterRoutes(e, Dependencies{CustomerPortal: fakeService{service: customerportalapp.ServicePage{
+		Key:                 customerportalapp.ServiceKeySettlement,
+		Title:               "结算中心",
+		CurrentCustomerID:   8,
+		CurrentCustomerName: "客户A",
+		FeeItems: []customerportalapp.FeeItem{{
+			ID: 1, SourceType: "manual_adjustment", SourceID: 101, FeeType: "shipping",
+			Amount: "12.34", Currency: "CNY", OccurredAt: "2026-05-13 09:00",
+			Status: "unsettled", Note: "客户A费用",
+		}},
+		SettlementBatches: []customerportalapp.SettlementBatch{{
+			ID: 2, SettlementNo: "客户A结算单", PeriodFrom: "2026-05-01", PeriodTo: "2026-05-31",
+			Status: "confirmed", TotalAmount: "12.34", ConfirmedAt: "2026-05-31 10:00",
+		}},
+	}}})
+
+	req := httptest.NewRequest(http.MethodGet, "/api/mini/services/settlement", nil)
+	req.Header.Set(echo.HeaderAuthorization, "Bearer mini-token")
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK ||
+		!strings.Contains(rec.Body.String(), `"fee_items":[`) ||
+		!strings.Contains(rec.Body.String(), `"settlement_batches":[`) ||
+		!strings.Contains(rec.Body.String(), `"note":"客户A费用"`) ||
+		!strings.Contains(rec.Body.String(), `"settlement_no":"客户A结算单"`) ||
+		strings.Contains(rec.Body.String(), "客户B不应泄露") {
 		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
 	}
 }
@@ -505,6 +565,19 @@ func TestMiniBeanListPDFAPIReturnsPDFDownload(t *testing.T) {
 	}
 }
 
+func TestMiniBeanListPDFPublicationNotFoundMapsToNotFound(t *testing.T) {
+	e := echo.New()
+	RegisterRoutes(e, Dependencies{CustomerPortal: fakeService{err: customerportalapp.ErrBeanListPublicationNotFound}})
+
+	req := httptest.NewRequest(http.MethodGet, "/api/mini/bean-lists/404.pdf", nil)
+	req.Header.Set(echo.HeaderAuthorization, "Bearer mini-token")
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusNotFound || !strings.Contains(rec.Body.String(), `"error":"bean list publication not found"`) {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+}
+
 func TestPortalAdminVisibilityAPIsExposeAndSaveCustomerCapabilities(t *testing.T) {
 	var saveCmd customerportalapp.UpdatePortalVisibilityCommand
 	e := echo.New()
@@ -560,6 +633,47 @@ func TestPortalAdminVisibilityAPIsExposeAndSaveCustomerCapabilities(t *testing.T
 	}
 }
 
+func TestPortalAdminVisibilityTemplateInvalidMapsToBadRequest(t *testing.T) {
+	e := echo.New()
+	RegisterRoutes(e, Dependencies{CustomerPortal: fakeService{err: errors.New("capability template invalid")}})
+
+	body := strings.NewReader(`{"display_name":"测试客户","enabled":true,"capability_template_key":"legacy_unknown_template"}`)
+	req := httptest.NewRequest(http.MethodPut, "/api/customer-portal/admin/customers/147/visibility", body)
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), `"error":"invalid request"`) {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestPortalAdminAPIPreservesUnknownTemplateKeyForCorrection(t *testing.T) {
+	repo := &templateContractRepository{
+		adminCustomers: []customerportalapp.PortalAdminCustomer{
+			{ID: 147, Name: "未知模板客户", CapabilityTemplateKey: " legacy_unknown_template "},
+		},
+		adminDetail: customerportalapp.PortalAdminDetail{
+			Customer: customerportalapp.PortalAdminCustomer{ID: 147, Name: "未知模板客户", CapabilityTemplateKey: " legacy_unknown_template "},
+		},
+	}
+	e := echo.New()
+	RegisterRoutes(e, Dependencies{CustomerPortal: customerportalapp.NewService(repo, staticMiniIdentityProvider{})})
+
+	listReq := httptest.NewRequest(http.MethodGet, "/api/customer-portal/admin/customers", nil)
+	listRec := httptest.NewRecorder()
+	e.ServeHTTP(listRec, listReq)
+	if listRec.Code != http.StatusOK || !strings.Contains(listRec.Body.String(), `"capability_template_key":"legacy_unknown_template"`) {
+		t.Fatalf("list status=%d body=%s", listRec.Code, listRec.Body.String())
+	}
+
+	detailReq := httptest.NewRequest(http.MethodGet, "/api/customer-portal/admin/customers/147", nil)
+	detailRec := httptest.NewRecorder()
+	e.ServeHTTP(detailRec, detailReq)
+	if detailRec.Code != http.StatusOK || !strings.Contains(detailRec.Body.String(), `"capability_template_key":"legacy_unknown_template"`) {
+		t.Fatalf("detail status=%d body=%s", detailRec.Code, detailRec.Body.String())
+	}
+}
+
 func TestPortalAdminCapabilityTemplateAPIsExposeAndApply(t *testing.T) {
 	var templateCmd customerportalapp.ApplyCapabilityTemplateCommand
 	var templateSaveCmd customerportalapp.SaveCapabilityTemplateCommand
@@ -608,6 +722,50 @@ func TestPortalAdminCapabilityTemplateAPIsExposeAndApply(t *testing.T) {
 	}
 	if templateCmd.CustomerID != 147 || templateCmd.TemplateKey != customerportalapp.CapabilityTemplatePublicSKUDirectShip {
 		t.Fatalf("template command=%+v", templateCmd)
+	}
+}
+
+func TestPortalAdminCapabilityTemplateERPWorkbenchUnavailableMapsToBadRequest(t *testing.T) {
+	e := echo.New()
+	RegisterRoutes(e, Dependencies{CustomerPortal: fakeService{err: customerportalapp.ErrCapabilityTemplateERPWorkbenchUnavailable}})
+
+	req := httptest.NewRequest(http.MethodPut, "/api/customer-portal/admin/capability-templates/retail_mall", strings.NewReader(`{"erp_permissions":["customer_processing.read"],"erp_view_keys":["customerProcessingPortal"]}`))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), customerportalapp.ErrCapabilityTemplateERPWorkbenchUnavailable.Error()) {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestPortalAdminERPBindingRejectsTemplatesWithoutWorkbench(t *testing.T) {
+	e := echo.New()
+	RegisterRoutes(e, Dependencies{CustomerPortal: fakeService{
+		err: errors.New("ERP workbench unavailable for capability template"),
+	}})
+
+	req := httptest.NewRequest(http.MethodPut, "/api/customer-portal/admin/customers/147/erp-binding", strings.NewReader(`{"employee_id":23,"status":"active"}`))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "ERP workbench") {
+		t.Fatalf("erp binding status=%d body=%s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestPortalAdminMallProductUnavailableMapsToBadRequest(t *testing.T) {
+	e := echo.New()
+	RegisterRoutes(e, Dependencies{CustomerPortal: fakeService{err: errors.New("mall product unavailable")}})
+
+	req := httptest.NewRequest(http.MethodPost, "/api/customer-portal/admin/mall-products", strings.NewReader(`{"product_id":7,"title":"客户专属商品","spec_g":250,"unit_price":88,"status":"published"}`))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), `"error":"invalid request"`) {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
 	}
 }
 
@@ -688,8 +846,11 @@ func TestMallAdminImageUploadStoresAndServesPublicAsset(t *testing.T) {
 	var imageCmd customerportalapp.UpdateMallProductImageCommand
 	e := echo.New()
 	RegisterRoutes(e, Dependencies{
-		CustomerPortal: fakeService{mallImageCmd: &imageCmd},
-		AssetDir:       t.TempDir(),
+		CustomerPortal: fakeService{
+			mallRows:     []customerportalapp.MallProduct{{ID: 12}},
+			mallImageCmd: &imageCmd,
+		},
+		AssetDir: t.TempDir(),
 	})
 
 	var body bytes.Buffer
@@ -698,7 +859,7 @@ func TestMallAdminImageUploadStoresAndServesPublicAsset(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := part.Write([]byte("fake-image")); err != nil {
+	if _, err := part.Write(tinyPNGForMallProductUploadTest()); err != nil {
 		t.Fatal(err)
 	}
 	if err := writer.Close(); err != nil {
@@ -719,8 +880,173 @@ func TestMallAdminImageUploadStoresAndServesPublicAsset(t *testing.T) {
 	assetReq := httptest.NewRequest(http.MethodGet, imageCmd.ImageURL, nil)
 	assetRec := httptest.NewRecorder()
 	e.ServeHTTP(assetRec, assetReq)
-	if assetRec.Code != http.StatusOK || assetRec.Body.String() != "fake-image" {
-		t.Fatalf("asset status=%d body=%q", assetRec.Code, assetRec.Body.String())
+	if assetRec.Code != http.StatusOK || !strings.HasPrefix(assetRec.Header().Get(echo.HeaderContentType), "image/png") || !bytes.HasPrefix(assetRec.Body.Bytes(), []byte{0x89, 'P', 'N', 'G'}) {
+		t.Fatalf("asset status=%d content-type=%q body-prefix=%x", assetRec.Code, assetRec.Header().Get(echo.HeaderContentType), assetRec.Body.Bytes())
+	}
+}
+
+func TestMallAdminImageUploadRejectsNonImageAsset(t *testing.T) {
+	var imageCmd customerportalapp.UpdateMallProductImageCommand
+	assetDir := t.TempDir()
+	e := echo.New()
+	RegisterRoutes(e, Dependencies{
+		CustomerPortal: fakeService{mallImageCmd: &imageCmd},
+		AssetDir:       assetDir,
+	})
+
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
+	part, err := writer.CreateFormFile("file", "promo.html")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := part.Write([]byte(`<script>alert("xss")</script>`)); err != nil {
+		t.Fatal(err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/api/customer-portal/admin/mall-products/12/image", &body)
+	req.Header.Set(echo.HeaderContentType, writer.FormDataContentType())
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "image file required") {
+		t.Fatalf("status=%d cmd=%+v body=%s", rec.Code, imageCmd, rec.Body.String())
+	}
+	if imageCmd.ID != 0 || imageCmd.ImageURL != "" {
+		t.Fatalf("image command should not be called for non-image upload: %+v", imageCmd)
+	}
+}
+
+func TestMallAdminImageUploadRejectsOversizedAsset(t *testing.T) {
+	var imageCmd customerportalapp.UpdateMallProductImageCommand
+	e := echo.New()
+	RegisterRoutes(e, Dependencies{
+		CustomerPortal: fakeService{mallImageCmd: &imageCmd},
+		AssetDir:       t.TempDir(),
+	})
+
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
+	part, err := writer.CreateFormFile("file", "huge.png")
+	if err != nil {
+		t.Fatal(err)
+	}
+	oversized := append(tinyPNGForMallProductUploadTest(), bytes.Repeat([]byte{0}, 8<<20)...)
+	if _, err := part.Write(oversized); err != nil {
+		t.Fatal(err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/api/customer-portal/admin/mall-products/12/image", &body)
+	req.Header.Set(echo.HeaderContentType, writer.FormDataContentType())
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "image file too large") {
+		t.Fatalf("status=%d cmd=%+v body=%s", rec.Code, imageCmd, rec.Body.String())
+	}
+	if imageCmd.ID != 0 || imageCmd.ImageURL != "" {
+		t.Fatalf("image command should not be called for oversized upload: %+v", imageCmd)
+	}
+}
+
+func TestMallAdminImageUploadRejectsMissingMallProductWithoutWritingAsset(t *testing.T) {
+	var imageCmd customerportalapp.UpdateMallProductImageCommand
+	assetDir := t.TempDir()
+	e := echo.New()
+	RegisterRoutes(e, Dependencies{
+		CustomerPortal: fakeService{
+			mallImageCmd: &imageCmd,
+			mallImageErr: errors.New("mall product unavailable"),
+		},
+		AssetDir: assetDir,
+	})
+
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
+	part, err := writer.CreateFormFile("file", "hero.png")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := part.Write(tinyPNGForMallProductUploadTest()); err != nil {
+		t.Fatal(err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/api/customer-portal/admin/mall-products/12/image", &body)
+	req.Header.Set(echo.HeaderContentType, writer.FormDataContentType())
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), `"error":"invalid request"`) {
+		t.Fatalf("status=%d cmd=%+v body=%s", rec.Code, imageCmd, rec.Body.String())
+	}
+	entries, err := os.ReadDir(assetDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 0 {
+		t.Fatalf("missing mall product image upload wrote orphan asset entries: %+v", entries)
+	}
+}
+
+func TestMallAdminImageUploadCleansAssetWhenImageUpdateFails(t *testing.T) {
+	assetDir := t.TempDir()
+	e := echo.New()
+	RegisterRoutes(e, Dependencies{
+		CustomerPortal: fakeService{
+			mallRows:     []customerportalapp.MallProduct{{ID: 12}},
+			mallImageErr: errors.New("mall product unavailable"),
+		},
+		AssetDir: assetDir,
+	})
+
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
+	part, err := writer.CreateFormFile("file", "hero.png")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := part.Write(tinyPNGForMallProductUploadTest()); err != nil {
+		t.Fatal(err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/api/customer-portal/admin/mall-products/12/image", &body)
+	req.Header.Set(echo.HeaderContentType, writer.FormDataContentType())
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), `"error":"invalid request"`) {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	entries, err := os.ReadDir(assetDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 0 {
+		t.Fatalf("failed mall product image update left orphan asset entries: %+v", entries)
+	}
+}
+
+func tinyPNGForMallProductUploadTest() []byte {
+	return []byte{
+		0x89, 'P', 'N', 'G', '\r', '\n', 0x1a, '\n',
+		0x00, 0x00, 0x00, 0x0d, 'I', 'H', 'D', 'R',
+		0x00, 0x00, 0x00, 0x01,
+		0x00, 0x00, 0x00, 0x01,
+		0x08, 0x02, 0x00, 0x00, 0x00,
+		0x90, 0x77, 0x53, 0xde,
+		0x00, 0x00, 0x00, 0x0c, 'I', 'D', 'A', 'T',
+		0x08, 0xd7, 0x63, 0xf8, 0xcf, 0xc0, 0x00, 0x00, 0x03, 0x01, 0x01, 0x00,
+		0x18, 0xdd, 0x8d, 0xb0,
+		0x00, 0x00, 0x00, 0x00, 'I', 'E', 'N', 'D',
+		0xae, 0x42, 0x60, 0x82,
 	}
 }
 
@@ -772,6 +1098,188 @@ func TestMiniDirectShipAndProcessingSubmitAPIs(t *testing.T) {
 	}
 }
 
+func TestMiniFulfillmentOrderAPIIgnoresClientUnitPrice(t *testing.T) {
+	var cmd customerportalapp.CreateFulfillmentOrderCommand
+	e := echo.New()
+	RegisterRoutes(e, Dependencies{CustomerPortal: fakeService{
+		fulfillment:    customerportalapp.FulfillmentOrder{OrderID: 9, OrderNo: "SO-20260504-0009", PortalServiceCode: customerportalapp.PortalServiceProductOrder, SourceWarehouse: "finished_goods"},
+		fulfillmentCmd: &cmd,
+	}})
+
+	req := httptest.NewRequest(http.MethodPost, "/api/mini/fulfillment-orders", strings.NewReader(`{"service_code":"product_order","recipient_name":"张三","recipient_phone":"13800138000","recipient_address":"上海市","product_id":5,"spec_g":454,"qty":2,"unit_price":0.01,"shipping_amount":12}`))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	req.Header.Set(echo.HeaderAuthorization, "Bearer mini-token")
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if cmd.UnitPrice != 0 {
+		t.Fatalf("service command UnitPrice=%.2f, want 0 so backend pricing stays authoritative", cmd.UnitPrice)
+	}
+}
+
+func TestMiniMallOrderUnavailableMapsToBadRequest(t *testing.T) {
+	e := echo.New()
+	RegisterRoutes(e, Dependencies{CustomerPortal: fakeService{err: errors.New("mall product unavailable")}})
+
+	req := httptest.NewRequest(http.MethodPost, "/api/mini/mall/orders", strings.NewReader(validMiniMallOrderJSON()))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	req.Header.Set(echo.HeaderAuthorization, "Bearer mini-token")
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), `"error":"invalid request"`) {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestMiniDirectShipBatchEmptyRowsMapsToBadRequest(t *testing.T) {
+	e := echo.New()
+	RegisterRoutes(e, Dependencies{CustomerPortal: fakeService{err: errors.New("total_rows invalid")}})
+
+	req := httptest.NewRequest(http.MethodPost, "/api/mini/direct-ship/batches", strings.NewReader(`{"source_name":"空代发批次","total_rows":0}`))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	req.Header.Set(echo.HeaderAuthorization, "Bearer mini-token")
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), `"error":"invalid request"`) {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestMiniProcessingRequestUnavailableInputsMapToBadRequest(t *testing.T) {
+	for _, errText := range []string{"input material unavailable", "target product unavailable"} {
+		t.Run(errText, func(t *testing.T) {
+			e := echo.New()
+			RegisterRoutes(e, Dependencies{CustomerPortal: fakeService{err: errors.New(errText)}})
+
+			req := httptest.NewRequest(http.MethodPost, "/api/mini/processing-requests", strings.NewReader(validMiniProcessingRequestJSON()))
+			req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+			req.Header.Set(echo.HeaderAuthorization, "Bearer mini-token")
+			rec := httptest.NewRecorder()
+			e.ServeHTTP(rec, req)
+
+			if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), `"error":"invalid request"`) {
+				t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+			}
+		})
+	}
+}
+
+func TestMiniFulfillmentOrderProductUnavailableMapsToBadRequest(t *testing.T) {
+	e := echo.New()
+	RegisterRoutes(e, Dependencies{CustomerPortal: fakeService{err: errors.New("product unavailable")}})
+
+	req := httptest.NewRequest(http.MethodPost, "/api/mini/fulfillment-orders", strings.NewReader(validMiniFulfillmentOrderJSON(customerportalapp.PortalServiceProductOrder)))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	req.Header.Set(echo.HeaderAuthorization, "Bearer mini-token")
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), `"error":"invalid request"`) {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestMiniAPITemplateBusinessContract(t *testing.T) {
+	type routeAccess struct {
+		name    string
+		method  string
+		path    string
+		body    string
+		allowed bool
+	}
+	tests := []struct {
+		templateKey string
+		routes      []routeAccess
+	}{
+		{
+			templateKey: customerportalapp.CapabilityTemplateProcessingFulfillment,
+			routes: []routeAccess{
+				{name: "orders", method: http.MethodGet, path: "/api/mini/services/orders", allowed: true},
+				{name: "direct ship service", method: http.MethodGet, path: "/api/mini/services/directShip", allowed: true},
+				{name: "processing service", method: http.MethodGet, path: "/api/mini/services/processing", allowed: true},
+				{name: "inventory service", method: http.MethodGet, path: "/api/mini/services/inventory", allowed: true},
+				{name: "settlement service", method: http.MethodGet, path: "/api/mini/services/settlement", allowed: true},
+				{name: "product order service", method: http.MethodGet, path: "/api/mini/services/productOrder"},
+				{name: "mall page", method: http.MethodGet, path: "/api/mini/mall"},
+				{name: "mall order", method: http.MethodPost, path: "/api/mini/mall/orders", body: validMiniMallOrderJSON()},
+				{name: "direct ship batch", method: http.MethodPost, path: "/api/mini/direct-ship/batches", body: validMiniDirectShipBatchJSON(), allowed: true},
+				{name: "direct ship order", method: http.MethodPost, path: "/api/mini/fulfillment-orders", body: validMiniFulfillmentOrderJSON(customerportalapp.PortalServiceDirectShip), allowed: true},
+				{name: "processing request", method: http.MethodPost, path: "/api/mini/processing-requests", body: validMiniProcessingRequestJSON(), allowed: true},
+				{name: "processing order", method: http.MethodPost, path: "/api/mini/fulfillment-orders", body: validMiniFulfillmentOrderJSON(customerportalapp.PortalServiceProcessingShipment), allowed: true},
+				{name: "product order", method: http.MethodPost, path: "/api/mini/fulfillment-orders", body: validMiniFulfillmentOrderJSON(customerportalapp.PortalServiceProductOrder)},
+			},
+		},
+		{
+			templateKey: customerportalapp.CapabilityTemplatePublicSKUDirectShip,
+			routes: []routeAccess{
+				{name: "orders", method: http.MethodGet, path: "/api/mini/services/orders", allowed: true},
+				{name: "direct ship service", method: http.MethodGet, path: "/api/mini/services/directShip", allowed: true},
+				{name: "product order service", method: http.MethodGet, path: "/api/mini/services/productOrder", allowed: true},
+				{name: "settlement service", method: http.MethodGet, path: "/api/mini/services/settlement", allowed: true},
+				{name: "processing service", method: http.MethodGet, path: "/api/mini/services/processing"},
+				{name: "inventory service", method: http.MethodGet, path: "/api/mini/services/inventory"},
+				{name: "mall page", method: http.MethodGet, path: "/api/mini/mall"},
+				{name: "mall order", method: http.MethodPost, path: "/api/mini/mall/orders", body: validMiniMallOrderJSON()},
+				{name: "direct ship batch", method: http.MethodPost, path: "/api/mini/direct-ship/batches", body: validMiniDirectShipBatchJSON(), allowed: true},
+				{name: "direct ship order", method: http.MethodPost, path: "/api/mini/fulfillment-orders", body: validMiniFulfillmentOrderJSON(customerportalapp.PortalServiceDirectShip), allowed: true},
+				{name: "product order", method: http.MethodPost, path: "/api/mini/fulfillment-orders", body: validMiniFulfillmentOrderJSON(customerportalapp.PortalServiceProductOrder), allowed: true},
+				{name: "processing request", method: http.MethodPost, path: "/api/mini/processing-requests", body: validMiniProcessingRequestJSON()},
+				{name: "processing order", method: http.MethodPost, path: "/api/mini/fulfillment-orders", body: validMiniFulfillmentOrderJSON(customerportalapp.PortalServiceProcessingShipment)},
+			},
+		},
+		{
+			templateKey: customerportalapp.CapabilityTemplateRetailMall,
+			routes: []routeAccess{
+				{name: "orders", method: http.MethodGet, path: "/api/mini/services/orders", allowed: true},
+				{name: "mall page", method: http.MethodGet, path: "/api/mini/mall", allowed: true},
+				{name: "mall order", method: http.MethodPost, path: "/api/mini/mall/orders", body: validMiniMallOrderJSON(), allowed: true},
+				{name: "product order service", method: http.MethodGet, path: "/api/mini/services/productOrder"},
+				{name: "direct ship service", method: http.MethodGet, path: "/api/mini/services/directShip"},
+				{name: "processing service", method: http.MethodGet, path: "/api/mini/services/processing"},
+				{name: "inventory service", method: http.MethodGet, path: "/api/mini/services/inventory"},
+				{name: "settlement service", method: http.MethodGet, path: "/api/mini/services/settlement"},
+				{name: "direct ship batch", method: http.MethodPost, path: "/api/mini/direct-ship/batches", body: validMiniDirectShipBatchJSON()},
+				{name: "direct ship order", method: http.MethodPost, path: "/api/mini/fulfillment-orders", body: validMiniFulfillmentOrderJSON(customerportalapp.PortalServiceDirectShip)},
+				{name: "product order", method: http.MethodPost, path: "/api/mini/fulfillment-orders", body: validMiniFulfillmentOrderJSON(customerportalapp.PortalServiceProductOrder)},
+				{name: "processing request", method: http.MethodPost, path: "/api/mini/processing-requests", body: validMiniProcessingRequestJSON()},
+				{name: "processing order", method: http.MethodPost, path: "/api/mini/fulfillment-orders", body: validMiniFulfillmentOrderJSON(customerportalapp.PortalServiceProcessingShipment)},
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.templateKey, func(t *testing.T) {
+			repo := &templateContractRepository{current: currentMiniContextForTemplate(t, tt.templateKey)}
+			e := echo.New()
+			RegisterRoutes(e, Dependencies{CustomerPortal: customerportalapp.NewService(repo, staticMiniIdentityProvider{})})
+
+			for _, route := range tt.routes {
+				t.Run(route.name, func(t *testing.T) {
+					req := httptest.NewRequest(route.method, route.path, strings.NewReader(route.body))
+					req.Header.Set(echo.HeaderAuthorization, "Bearer mini-token")
+					if route.body != "" {
+						req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+					}
+					rec := httptest.NewRecorder()
+					e.ServeHTTP(rec, req)
+					wantStatus := http.StatusForbidden
+					if route.allowed {
+						wantStatus = http.StatusOK
+					}
+					if rec.Code != wantStatus {
+						t.Fatalf("%s %s status=%d body=%s, want %d", route.method, route.path, rec.Code, rec.Body.String(), wantStatus)
+					}
+				})
+			}
+		})
+	}
+}
+
 func TestDisabledIdentityProviderReturnsLoginDisabled(t *testing.T) {
 	_, err := (DisabledIdentityProvider{}).Resolve(context.Background(), "wx-code")
 	if !errors.Is(err, customerportalapp.ErrMiniLoginDisabled) {
@@ -801,4 +1309,145 @@ func TestMiniLoginDisabledUserMapsToForbidden(t *testing.T) {
 	if rec.Code != http.StatusForbidden || !strings.Contains(rec.Body.String(), `"error":"mini user disabled"`) {
 		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
 	}
+}
+
+type staticMiniIdentityProvider struct{}
+
+func (staticMiniIdentityProvider) Resolve(context.Context, string) (customerportalapp.MiniIdentity, error) {
+	return customerportalapp.MiniIdentity{OpenID: "openid"}, nil
+}
+
+type templateContractRepository struct {
+	current        customerportalapp.CurrentContext
+	adminCustomers []customerportalapp.PortalAdminCustomer
+	adminDetail    customerportalapp.PortalAdminDetail
+}
+
+func (r *templateContractRepository) CreateLoginSession(context.Context, customerportalapp.CreateLoginSessionCommand) (customerportalapp.LoginResult, error) {
+	return customerportalapp.LoginResult{Token: "mini-token", MiniUserID: r.current.MiniUserID, CurrentCustomerID: r.current.CurrentCustomerID, ThemeKey: r.current.ThemeKey, MiniappEntryMode: r.current.MiniappEntryMode, Capabilities: r.current.Capabilities}, nil
+}
+
+func (r *templateContractRepository) CurrentContextByToken(context.Context, string) (customerportalapp.CurrentContext, error) {
+	return r.current, nil
+}
+
+func (r *templateContractRepository) SwitchCurrentCustomer(context.Context, string, int64) (customerportalapp.CurrentContext, error) {
+	return r.current, nil
+}
+
+func (r *templateContractRepository) LoadServicePage(_ context.Context, query customerportalapp.ServicePageQuery) (customerportalapp.ServicePage, error) {
+	return customerportalapp.ServicePage{
+		Key:    query.Key,
+		Orders: []customerportalapp.CustomerOrderSummary{{OrderNo: "SO-HISTORY", GrandTotal: "128.00"}},
+	}, nil
+}
+
+func (r *templateContractRepository) LoadBeanListPublication(context.Context, int64, int64) (customerportalapp.BeanListSummary, error) {
+	return customerportalapp.BeanListSummary{}, nil
+}
+
+func (r *templateContractRepository) ListPortalAdminCustomers(context.Context, customerportalapp.PortalAdminCustomerQuery) ([]customerportalapp.PortalAdminCustomer, error) {
+	return r.adminCustomers, nil
+}
+
+func (r *templateContractRepository) PortalAdminDetail(context.Context, int64) (customerportalapp.PortalAdminDetail, error) {
+	return r.adminDetail, nil
+}
+
+func (r *templateContractRepository) UpdatePortalVisibility(context.Context, customerportalapp.UpdatePortalVisibilityCommand) (customerportalapp.PortalAdminDetail, error) {
+	return customerportalapp.PortalAdminDetail{}, nil
+}
+
+func (r *templateContractRepository) ListCapabilityTemplates(context.Context) ([]customerportalapp.CapabilityTemplate, error) {
+	return customerportalapp.DefaultCapabilityTemplates(), nil
+}
+
+func (r *templateContractRepository) SaveCapabilityTemplate(context.Context, customerportalapp.SaveCapabilityTemplateCommand) (customerportalapp.CapabilityTemplate, error) {
+	return customerportalapp.CapabilityTemplate{}, nil
+}
+
+func (r *templateContractRepository) ApplyCapabilityTemplate(context.Context, customerportalapp.ApplyCapabilityTemplateCommand) (customerportalapp.PortalAdminDetail, error) {
+	return customerportalapp.PortalAdminDetail{}, nil
+}
+
+func (r *templateContractRepository) UpsertPortalERPBinding(context.Context, customerportalapp.UpsertPortalERPBindingCommand) (customerportalapp.PortalAdminDetail, error) {
+	return customerportalapp.PortalAdminDetail{}, nil
+}
+
+func (r *templateContractRepository) ListMallProducts(context.Context) ([]customerportalapp.MallProduct, []customerportalapp.MallProductOption, error) {
+	return nil, nil, nil
+}
+
+func (r *templateContractRepository) SaveMallProduct(context.Context, customerportalapp.SaveMallProductCommand) (customerportalapp.MallProduct, error) {
+	return customerportalapp.MallProduct{}, nil
+}
+
+func (r *templateContractRepository) UpdateMallProductImage(context.Context, customerportalapp.UpdateMallProductImageCommand) (customerportalapp.MallProduct, error) {
+	return customerportalapp.MallProduct{}, nil
+}
+
+func (r *templateContractRepository) LoadMallPage(context.Context, int64) (customerportalapp.MallPage, error) {
+	return customerportalapp.MallPage{
+		ThemeKey:         r.current.ThemeKey,
+		MiniappEntryMode: r.current.MiniappEntryMode,
+		Products: []customerportalapp.MallProduct{{
+			ID: 11, ProductID: 8, Title: "乌拉嘎", SpecG: 250, UnitPrice: 68, Status: customerportalapp.MallProductStatusPublished,
+		}},
+	}, nil
+}
+
+func (r *templateContractRepository) CreateMallOrder(context.Context, customerportalapp.CreateMallOrderCommand) (customerportalapp.FulfillmentOrder, error) {
+	return customerportalapp.FulfillmentOrder{OrderID: 101, OrderNo: "SO-MALL", PortalServiceCode: customerportalapp.PortalServiceMall}, nil
+}
+
+func (r *templateContractRepository) CreateDirectShipBatch(context.Context, customerportalapp.CreateDirectShipBatchCommand) (customerportalapp.DirectShipBatch, error) {
+	return customerportalapp.DirectShipBatch{ID: 201, BatchNo: "DS-201", Status: "submitted"}, nil
+}
+
+func (r *templateContractRepository) CreateProcessingRequest(context.Context, customerportalapp.CreateProcessingRequestCommand) (customerportalapp.ProcessingRequest, error) {
+	return customerportalapp.ProcessingRequest{ID: 301, RequestNo: "PJ-301", Status: "submitted"}, nil
+}
+
+func (r *templateContractRepository) CreateFulfillmentOrder(_ context.Context, cmd customerportalapp.CreateFulfillmentOrderCommand) (customerportalapp.FulfillmentOrder, error) {
+	return customerportalapp.FulfillmentOrder{OrderID: 401, OrderNo: "SO-FULFILLMENT", PortalServiceCode: cmd.PortalServiceCode}, nil
+}
+
+func currentMiniContextForTemplate(t *testing.T, templateKey string) customerportalapp.CurrentContext {
+	t.Helper()
+	template, ok := customerportalapp.CustomerCapabilityTemplateByKey(templateKey)
+	if !ok {
+		t.Fatalf("template %s missing", templateKey)
+	}
+	capabilities := make([]customerportalapp.Capability, 0, len(template.Capabilities))
+	for _, capability := range template.Capabilities {
+		capabilities = append(capabilities, customerportalapp.Capability{
+			Code:    capability.Code,
+			Enabled: capability.Enabled,
+			Config:  capability.Config,
+		})
+	}
+	return customerportalapp.CurrentContext{
+		MiniUserID:          3,
+		CurrentCustomerID:   7,
+		CurrentCustomerName: template.Label,
+		ThemeKey:            template.ThemeKey,
+		MiniappEntryMode:    template.MiniappEntryMode,
+		Capabilities:        capabilities,
+	}
+}
+
+func validMiniMallOrderJSON() string {
+	return `{"recipient_name":"张三","recipient_phone":"13800138000","recipient_address":"上海市","items":[{"mall_product_id":11,"qty":2}]}`
+}
+
+func validMiniDirectShipBatchJSON() string {
+	return `{"source_name":"客户批量代发","total_rows":12}`
+}
+
+func validMiniProcessingRequestJSON() string {
+	return `{"input_material_id":4,"input_qty_g":30000,"target_product_id":5,"target_spec_g":454,"target_qty":50}`
+}
+
+func validMiniFulfillmentOrderJSON(serviceCode string) string {
+	return `{"service_code":"` + serviceCode + `","recipient_name":"张三","recipient_phone":"13800138000","recipient_address":"上海市","product_id":8,"product_name":"乌拉嘎","spec_g":250,"qty":2}`
 }

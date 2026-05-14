@@ -324,7 +324,9 @@ func (s *Service) CloseMonth(ctx context.Context, cmd CloseMonthCommand) (domain
 	if err != nil {
 		return domain.MonthlyReport{}, err
 	}
-	report.Status = domain.MonthStatusClosed
+	if report.Status != domain.MonthStatusAdjusted {
+		report.Status = domain.MonthStatusClosed
+	}
 	if s.repo == nil {
 		return report, nil
 	}
@@ -350,7 +352,30 @@ func (s *Service) CreateExpense(ctx context.Context, cmd CreateExpenseCommand) (
 	if !domain.CanEditSourceDocument(settings.Settings, status) {
 		return Expense{}, fmt.Errorf("month is closed by strong lock")
 	}
+	if err := s.ensureActiveExpenseEmployee(ctx, normalized.EmployeeID); err != nil {
+		return Expense{}, err
+	}
 	return s.repo.CreateExpense(ctx, normalized)
+}
+
+func (s *Service) ensureActiveExpenseEmployee(ctx context.Context, employeeID int64) error {
+	if employeeID <= 0 {
+		return nil
+	}
+	rows, err := s.repo.ListExpenseEmployees(ctx)
+	if err != nil {
+		return err
+	}
+	for _, row := range rows {
+		if row.ID != employeeID {
+			continue
+		}
+		if !row.Active {
+			return fmt.Errorf("employee inactive")
+		}
+		return nil
+	}
+	return fmt.Errorf("employee not found")
 }
 
 func (s *Service) ListExpenses(ctx context.Context, filter ExpenseFilter) ([]Expense, error) {
@@ -461,6 +486,17 @@ func (s *Service) CreateTaxLedgerEntry(ctx context.Context, cmd CreateTaxLedgerC
 	normalized, err := normalizeTaxLedgerCommand(cmd)
 	if err != nil {
 		return TaxLedgerEntry{}, err
+	}
+	settings, err := s.loadSettings(ctx)
+	if err != nil {
+		return TaxLedgerEntry{}, err
+	}
+	status, err := s.repo.MonthlyReportStatus(ctx, normalized.Month)
+	if err != nil {
+		return TaxLedgerEntry{}, err
+	}
+	if !domain.CanEditSourceDocument(settings.Settings, status) {
+		return TaxLedgerEntry{}, fmt.Errorf("month is closed by strong lock")
 	}
 	return s.repo.CreateTaxLedgerEntry(ctx, normalized)
 }

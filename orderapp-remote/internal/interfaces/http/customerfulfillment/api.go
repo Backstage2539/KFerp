@@ -69,7 +69,7 @@ func (a api) hasActiveERPBinding(c echo.Context, customerID int64) (bool, error)
 	}
 	for _, binding := range bindings {
 		if binding.Status == "active" {
-			return true, nil
+			return a.svc.CustomerERPWorkbenchAvailable(c.Request().Context(), customerID)
 		}
 	}
 	return false, nil

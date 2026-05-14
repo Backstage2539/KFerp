@@ -216,7 +216,7 @@ For every requirement, follow the fixed pipeline:
 - Acceptance review against REQUIREMENTS / ACCEPTANCE_TESTS with evidence
 
 Any new feature development or functional change that changes how users operate the system must update the relevant operation/user manual in the Vue/Vite frontend and any source Markdown/manual docs. Treat the manual update as part of the same requirement, not as optional follow-up work.
-For every single major feature, keep one standalone operation manual. Smaller changes update the existing feature manual. During development, audit existing manuals for missing entry points, changed fields, changed workflow order, permissions, export/import behavior, and common failure handling; patch gaps before marking DEV/UT/API/REV complete.
+For every single major feature, keep one standalone operation manual. Smaller changes update the existing feature manual. During development, audit existing manuals for missing entry points, changed fields, changed workflow order, permissions, export/import behavior, and common failure handling; patch gaps before marking DEV complete.
 
 ## Frontend Architecture Rule
 
@@ -228,12 +228,11 @@ For every single major feature, keep one standalone operation manual. Smaller ch
 - HTML templates may remain only as transitional legacy code until replaced, but they are not the target architecture for new page work.
 - This rule exists because mixed template/Vue development has already caused repeated rework and inconsistent behavior.
 
-And maintain 5 UI tables at all times:
+Maintain PR/DEV UI tables at all times so Van can see progress:
 - 产品需求表 (PR)
 - 开发需求表 (DEV)
-- 单元测试表 (UT)
-- API 测试表 (API)
-- 需求审核表 (REV)
+
+UT/API/REV are no longer required to be entered through the old UI-table workflow. Run tests and keep verification evidence through the Superpower/TDD workflow instead.
 
 Canonical reference doc: `HOW_TO_WORKFLOW.md`
 

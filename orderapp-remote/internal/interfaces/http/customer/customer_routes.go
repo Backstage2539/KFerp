@@ -52,6 +52,8 @@ type customerHandler struct {
 	customer *customerapp.Service
 }
 
+const maxCustomerAssetUploadBytes = 8 << 20
+
 type customerUpsertAPIRequest struct {
 	Name               string `json:"name"`
 	RawName            string `json:"raw_name"`
@@ -373,7 +375,7 @@ func (h customerHandler) uploadAsset(c echo.Context) error {
 		Reader:      r,
 		ContentType: ct,
 		Filename:    fh.Filename,
-		MaxBytes:    100 * 1024 * 1024,
+		MaxBytes:    maxCustomerAssetUploadBytes,
 		Actor:       support.ActorOf(c),
 	})
 	if err != nil {

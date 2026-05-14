@@ -228,12 +228,20 @@ func (r Repository) GenerateDeliveryNoteDocument(ctx context.Context, cmd salesa
 		return salesapp.GenerateDeliveryNoteDocumentResult{}, err
 	}
 	objectKey := filepath.ToSlash(filepath.Join("delivery_note_documents", safeDeliveryNotePathPart(snapshot.OrderNo), fmt.Sprintf("V%d.pdf", versionNo)))
+	fileWritten := false
+	committed := false
+	defer func() {
+		if fileWritten && !committed {
+			cleanupGeneratedDeliveryNoteAssetFile(r.assetDir, objectKey)
+		}
+	}()
 	if err := os.MkdirAll(filepath.Dir(filepath.Join(r.assetDir, objectKey)), 0755); err != nil {
 		return salesapp.GenerateDeliveryNoteDocumentResult{}, err
 	}
 	if err := os.WriteFile(filepath.Join(r.assetDir, objectKey), pdfBytes, 0644); err != nil {
 		return salesapp.GenerateDeliveryNoteDocumentResult{}, err
 	}
+	fileWritten = true
 	sum := sha256.Sum256(pdfBytes)
 	var assetID int64
 	assetQ := fmt.Sprintf(`INSERT INTO %s.delivery_note_assets(kind, filename, content_type, bytes, sha256, object_key, created_by)
@@ -265,6 +273,7 @@ func (r Repository) GenerateDeliveryNoteDocument(ctx context.Context, cmd salesa
 	if err := tx.Commit(ctx); err != nil {
 		return salesapp.GenerateDeliveryNoteDocumentResult{}, err
 	}
+	committed = true
 	return salesapp.GenerateDeliveryNoteDocumentResult{Document: doc, Snapshot: snapshot}, nil
 }
 
@@ -477,4 +486,8 @@ func deliveryNoteDocumentDownloadURL(orderID, documentID int64) string {
 
 func safeDeliveryNotePathPart(s string) string {
 	return safeSalesOrderPathPart(s)
+}
+
+func cleanupGeneratedDeliveryNoteAssetFile(assetDir string, objectKey string) {
+	cleanupGeneratedSalesOrderAssetFile(assetDir, objectKey)
 }

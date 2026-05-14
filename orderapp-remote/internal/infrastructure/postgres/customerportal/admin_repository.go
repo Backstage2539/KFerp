@@ -52,7 +52,12 @@ func (r Repository) ListPortalAdminCustomers(ctx context.Context, query customer
 			       to_char(b.updated_at,'YYYY-MM-DD HH24:MI') AS updated_at
 			FROM %s.customer_erp_user_bindings b
 			JOIN %s.company_employees e ON e.id=b.employee_id
-			WHERE b.customer_id=c.id AND b.status='active'
+			LEFT JOIN %s.employee_login_passwords p ON p.employee_id=e.id
+			WHERE b.customer_id=c.id
+			  AND b.status='active'
+			  AND e.active=true
+			  AND e.account_type='channel_customer'
+			  AND COALESCE(p.login_disabled,false)=false
 			ORDER BY b.updated_at DESC, b.id DESC
 			LIMIT 1
 		) eb ON true
@@ -61,7 +66,7 @@ func (r Repository) ListPortalAdminCustomers(ctx context.Context, query customer
 		  AND ($1='' OR c.name ILIKE '%%' || $1 || '%%' OR c.phone ILIKE '%%' || $1 || '%%' OR c.company_name ILIKE '%%' || $1 || '%%')
 		ORDER BY c.name, c.id
 		LIMIT $2
-	`, r.schema, r.schema, r.schema, r.schema, r.schema), q, limit)
+	`, r.schema, r.schema, r.schema, r.schema, r.schema, r.schema), q, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -433,10 +438,11 @@ func (r Repository) UpsertPortalERPBinding(ctx context.Context, cmd customerport
 	if err := tx.QueryRow(ctx, fmt.Sprintf(`
 		SELECT e.id
 		FROM %s.company_employees e
-		WHERE e.id=$1 AND e.active=true AND e.account_type='channel_customer'
-	`, r.schema), cmd.EmployeeID).Scan(&employeeID); err != nil {
+		LEFT JOIN %s.employee_login_passwords p ON p.employee_id=e.id
+		WHERE e.id=$1 AND e.active=true AND e.account_type='channel_customer' AND COALESCE(p.login_disabled,false)=false
+	`, r.schema, r.schema), cmd.EmployeeID).Scan(&employeeID); err != nil {
 		if err == pgx.ErrNoRows {
-			return customerportalapp.PortalAdminDetail{}, fmt.Errorf("channel customer account required")
+			return customerportalapp.PortalAdminDetail{}, fmt.Errorf("login-enabled channel customer account required")
 		}
 		return customerportalapp.PortalAdminDetail{}, err
 	}
@@ -612,12 +618,17 @@ func (r Repository) portalAdminCustomer(ctx context.Context, customerID int64) (
 			       to_char(b.updated_at,'YYYY-MM-DD HH24:MI') AS updated_at
 			FROM %s.customer_erp_user_bindings b
 			JOIN %s.company_employees e ON e.id=b.employee_id
-			WHERE b.customer_id=c.id AND b.status='active'
+			LEFT JOIN %s.employee_login_passwords p ON p.employee_id=e.id
+			WHERE b.customer_id=c.id
+			  AND b.status='active'
+			  AND e.active=true
+			  AND e.account_type='channel_customer'
+			  AND COALESCE(p.login_disabled,false)=false
 			ORDER BY b.updated_at DESC, b.id DESC
 			LIMIT 1
 		) eb ON true
 		WHERE c.id=$1
-		`, r.schema, r.schema, r.schema, r.schema, r.schema), customerID).Scan(&row.ID, &row.Name, &row.CustomerType, &row.Phone, &row.CompanyName, &row.DisplayName, &row.ProcessingWarehouseCode, &row.DefaultSenderID, &row.PortalEnabled, &row.PortalStatus, &row.ThemeKey, &row.MiniappEntryMode, &row.CapabilityTemplateKey, &row.BindingCount, &employeeID, &employeeName, &employeePhone, &role, &status, &updatedBy, &updatedAt)
+		`, r.schema, r.schema, r.schema, r.schema, r.schema, r.schema), customerID).Scan(&row.ID, &row.Name, &row.CustomerType, &row.Phone, &row.CompanyName, &row.DisplayName, &row.ProcessingWarehouseCode, &row.DefaultSenderID, &row.PortalEnabled, &row.PortalStatus, &row.ThemeKey, &row.MiniappEntryMode, &row.CapabilityTemplateKey, &row.BindingCount, &employeeID, &employeeName, &employeePhone, &role, &status, &updatedBy, &updatedAt)
 	if err == nil {
 		row.ThemeKey = customerportalapp.NormalizePortalThemeKey(row.ThemeKey)
 		row.MiniappEntryMode = customerportalapp.NormalizeMiniappEntryMode(row.MiniappEntryMode)
@@ -677,8 +688,9 @@ func (r Repository) ListMallProducts(ctx context.Context) ([]customerportalapp.M
 		SELECT id, COALESCE(name,''), COALESCE(default_price,0)
 		FROM %s.products
 		WHERE active=true
+		  AND %s
 		ORDER BY name, id
-	`, r.schema))
+	`, r.schema, mallProductPublicCatalogSQL("")))
 	if err != nil {
 		return nil, nil, err
 	}
@@ -696,6 +708,9 @@ func (r Repository) ListMallProducts(ctx context.Context) ([]customerportalapp.M
 }
 
 func (r Repository) SaveMallProduct(ctx context.Context, cmd customerportalapp.SaveMallProductCommand) (customerportalapp.MallProduct, error) {
+	if err := r.ensureMallProductPublicCatalog(ctx, cmd.ProductID); err != nil {
+		return customerportalapp.MallProduct{}, err
+	}
 	if cmd.ID > 0 {
 		if _, err := r.pool.Exec(ctx, fmt.Sprintf(`
 			INSERT INTO %s.mall_products(id, product_id, title, subtitle, description, image_url, spec_g, unit_price, template_key, status, sort_order, updated_at, updated_by)
@@ -728,6 +743,24 @@ func (r Repository) SaveMallProduct(ctx context.Context, cmd customerportalapp.S
 		return customerportalapp.MallProduct{}, err
 	}
 	return r.mallProductByID(ctx, id)
+}
+
+func (r Repository) ensureMallProductPublicCatalog(ctx context.Context, productID int64) error {
+	var exists bool
+	if err := r.pool.QueryRow(ctx, fmt.Sprintf(`
+		SELECT EXISTS(
+			SELECT 1
+			FROM %s.products
+			WHERE id=$1 AND active=true
+			  AND %s
+		)
+	`, r.schema, mallProductPublicCatalogSQL("")), productID).Scan(&exists); err != nil {
+		return err
+	}
+	if !exists {
+		return fmt.Errorf("mall product unavailable")
+	}
+	return nil
 }
 
 func (r Repository) UpdateMallProductImage(ctx context.Context, cmd customerportalapp.UpdateMallProductImageCommand) (customerportalapp.MallProduct, error) {

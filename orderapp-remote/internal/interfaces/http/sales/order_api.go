@@ -104,7 +104,10 @@ func registerOrderAPI(e *echo.Echo, salesSvc *salesapp.Service, messages Message
 }
 
 func (h orderAPIHandler) list(c echo.Context) error {
-	query := ordersQueryFromContext(c)
+	query, ok := ordersQueryFromContext(c)
+	if !ok {
+		return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid scope"})
+	}
 	result, err := h.sales.ListOrders(c.Request().Context(), salesapp.OrderListQuery{
 		Q:               query.Q,
 		From:            query.From,
@@ -212,7 +215,7 @@ type ordersAPIQuery struct {
 	Page            int
 }
 
-func ordersQueryFromContext(c echo.Context) ordersAPIQuery {
+func ordersQueryFromContext(c echo.Context) (ordersAPIQuery, bool) {
 	q := ordersAPIQuery{
 		Q:     strings.TrimSpace(c.QueryParam("q")),
 		From:  strings.TrimSpace(c.QueryParam("from")),
@@ -220,6 +223,9 @@ func ordersQueryFromContext(c echo.Context) ordersAPIQuery {
 		Void:  strings.TrimSpace(c.QueryParam("void")),
 		Scope: strings.TrimSpace(c.QueryParam("scope")),
 		Limit: support.IntParam(c, "limit", 10),
+	}
+	if !validOrderListScope(q.Scope) {
+		return q, false
 	}
 	if q.Limit <= 0 {
 		q.Limit = 10
@@ -250,7 +256,16 @@ func ordersQueryFromContext(c echo.Context) ordersAPIQuery {
 	if q.Void == "" {
 		q.Void = "normal"
 	}
-	return q
+	return q, true
+}
+
+func validOrderListScope(scope string) bool {
+	switch strings.TrimSpace(scope) {
+	case "", "all", "mine", "fulfillment":
+		return true
+	default:
+		return false
+	}
 }
 
 func (h orderAPIHandler) save(c echo.Context) error {

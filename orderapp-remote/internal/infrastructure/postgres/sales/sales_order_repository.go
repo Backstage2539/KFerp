@@ -78,6 +78,15 @@ func (r Repository) SaveSalesOrderAsset(ctx context.Context, cmd salesapp.SaveSa
 	return asset, nil
 }
 
+func (r Repository) DeleteSalesOrderAsset(ctx context.Context, id int64, actor string) error {
+	q := fmt.Sprintf(`DELETE FROM %s.sales_order_assets WHERE id=$1`, r.schema)
+	tag, err := r.pool.Exec(ctx, q, id)
+	if err == nil && tag.RowsAffected() > 0 {
+		postgresinfra.AuditInsert(ctx, r.pool, r.schema, actor, "sales_order_asset", &id, "delete", postgresinfra.StrPtr("id"), postgresinfra.StrPtr(fmt.Sprintf("%d", id)), nil, nil)
+	}
+	return err
+}
+
 func (r Repository) SaveSalesOrderPaymentCode(ctx context.Context, cmd salesapp.SaveSalesOrderPaymentCodeCommand) (salesapp.SalesOrderPaymentCode, error) {
 	var code salesapp.SalesOrderPaymentCode
 	if cmd.ID > 0 {
@@ -202,12 +211,20 @@ func (r Repository) GenerateSalesOrderDocument(ctx context.Context, cmd salesapp
 		return salesapp.GenerateSalesOrderDocumentResult{}, err
 	}
 	objectKey := filepath.ToSlash(filepath.Join("sales_order_documents", safeSalesOrderPathPart(snapshot.OrderNo), fmt.Sprintf("V%d.pdf", versionNo)))
+	fileWritten := false
+	committed := false
+	defer func() {
+		if fileWritten && !committed {
+			cleanupGeneratedSalesOrderAssetFile(r.assetDir, objectKey)
+		}
+	}()
 	if err := os.MkdirAll(filepath.Dir(filepath.Join(r.assetDir, objectKey)), 0755); err != nil {
 		return salesapp.GenerateSalesOrderDocumentResult{}, err
 	}
 	if err := os.WriteFile(filepath.Join(r.assetDir, objectKey), pdfBytes, 0644); err != nil {
 		return salesapp.GenerateSalesOrderDocumentResult{}, err
 	}
+	fileWritten = true
 	sum := sha256.Sum256(pdfBytes)
 	var assetID int64
 	assetQ := fmt.Sprintf(`INSERT INTO %s.sales_order_assets(kind, filename, content_type, bytes, sha256, object_key, created_by)
@@ -239,6 +256,7 @@ func (r Repository) GenerateSalesOrderDocument(ctx context.Context, cmd salesapp
 	if err := tx.Commit(ctx); err != nil {
 		return salesapp.GenerateSalesOrderDocumentResult{}, err
 	}
+	committed = true
 	return salesapp.GenerateSalesOrderDocumentResult{Document: doc, Snapshot: snapshot}, nil
 }
 
@@ -268,12 +286,20 @@ func (r Repository) GenerateSalesOrderImage(ctx context.Context, cmd salesapp.Ge
 		return salesapp.GenerateSalesOrderImageResult{}, err
 	}
 	objectKey := filepath.ToSlash(filepath.Join("sales_order_images", safeSalesOrderPathPart(snapshot.OrderNo), fmt.Sprintf("V%d.png", versionNo)))
+	fileWritten := false
+	committed := false
+	defer func() {
+		if fileWritten && !committed {
+			cleanupGeneratedSalesOrderAssetFile(r.assetDir, objectKey)
+		}
+	}()
 	if err := os.MkdirAll(filepath.Dir(filepath.Join(r.assetDir, objectKey)), 0755); err != nil {
 		return salesapp.GenerateSalesOrderImageResult{}, err
 	}
 	if err := os.WriteFile(filepath.Join(r.assetDir, objectKey), imageBytes, 0644); err != nil {
 		return salesapp.GenerateSalesOrderImageResult{}, err
 	}
+	fileWritten = true
 	sum := sha256.Sum256(imageBytes)
 	var assetID int64
 	assetQ := fmt.Sprintf(`INSERT INTO %s.sales_order_assets(kind, filename, content_type, bytes, sha256, object_key, created_by)
@@ -305,6 +331,7 @@ func (r Repository) GenerateSalesOrderImage(ctx context.Context, cmd salesapp.Ge
 	if err := tx.Commit(ctx); err != nil {
 		return salesapp.GenerateSalesOrderImageResult{}, err
 	}
+	committed = true
 	return salesapp.GenerateSalesOrderImageResult{Document: doc, Snapshot: snapshot}, nil
 }
 
@@ -605,4 +632,21 @@ func safeSalesOrderPathPart(s string) string {
 	}
 	replacer := strings.NewReplacer("/", "-", "\\", "-", ":", "-", "..", ".")
 	return replacer.Replace(s)
+}
+
+func cleanupGeneratedSalesOrderAssetFile(assetDir string, objectKey string) {
+	clean := filepath.Clean(filepath.FromSlash(strings.TrimSpace(objectKey)))
+	if clean == "." || filepath.IsAbs(clean) || clean == ".." || strings.HasPrefix(clean, ".."+string(os.PathSeparator)) {
+		return
+	}
+	assetDir = filepath.Clean(assetDir)
+	path := filepath.Clean(filepath.Join(assetDir, clean))
+	if err := os.Remove(path); err != nil {
+		return
+	}
+	for dir := filepath.Dir(path); dir != "." && dir != assetDir; dir = filepath.Dir(dir) {
+		if err := os.Remove(dir); err != nil {
+			return
+		}
+	}
 }

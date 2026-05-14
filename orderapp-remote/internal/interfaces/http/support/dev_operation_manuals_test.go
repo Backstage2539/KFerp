@@ -62,7 +62,7 @@ func TestOperationManualWorkflowGuard(t *testing.T) {
 		"操作手册更新",
 		"单个大功能必须有一个独立操作手册",
 		"现有操作手册要持续查缺补漏",
-		"REV 证据必须包含手册文件路径",
+		"验收证据必须包含手册文件路径",
 		"OP_MANUAL_<FEATURE>.md",
 	} {
 		if !strings.Contains(text, want) {
@@ -75,7 +75,7 @@ func TestOperationManualWorkflowGuard(t *testing.T) {
 		t.Fatal("workflow missing manual or review step")
 	}
 	if manualStep > reviewStep {
-		t.Fatal("workflow must update operation manuals before REV")
+		t.Fatal("workflow must update operation manuals before acceptance review")
 	}
 }
 

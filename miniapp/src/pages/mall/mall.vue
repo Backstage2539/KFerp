@@ -74,6 +74,10 @@ function changeQty(item: MallCartItem, delta: number) {
   cart.value = updateMallCartQty(cart.value, item.mall_product_id, item.qty + delta)
 }
 
+function openOrders() {
+  uni.navigateTo({ url: '/pages/service/service?key=orders' })
+}
+
 async function submitOrder() {
   const payload = buildMallOrderPayload(recipient.value, cart.value)
   if (!payload.recipient_name || !payload.recipient_phone || !payload.recipient_address) {
@@ -109,6 +113,7 @@ onShow(() => {
       <text class="eyebrow">{{ themeMeta.eyebrow }}</text>
       <text class="title">{{ customerName }}</text>
       <text class="subtitle">{{ themeMeta.subtitle }}</text>
+      <button class="orders-link" size="mini" @tap="openOrders">我的订单</button>
     </view>
 
     <view v-if="loading" class="state">
@@ -230,6 +235,31 @@ onShow(() => {
 }
 
 .theme-clean-ops .subtitle { color: #66756c; }
+
+.orders-link {
+  align-self: flex-start;
+  min-height: 58rpx;
+  margin: 8rpx 0 0;
+  padding: 0 24rpx;
+  border: 1rpx solid rgba(255, 248, 235, .58);
+  border-radius: 999rpx;
+  background: rgba(255, 255, 255, .12);
+  color: #fff8eb;
+  font-size: 24rpx;
+  font-weight: 900;
+  line-height: 58rpx;
+}
+
+.theme-clean-ops .orders-link {
+  border-color: #cddbd4;
+  background: #eef6f2;
+  color: #28624a;
+}
+
+.theme-premium-partner .orders-link {
+  border-color: rgba(255, 248, 235, .5);
+  background: rgba(255, 248, 235, .14);
+}
 
 .products {
   display: grid;

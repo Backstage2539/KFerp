@@ -1,6 +1,7 @@
 package customerportal
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -61,6 +62,13 @@ type mallProductRequest struct {
 	TemplateKey string  `json:"template_key"`
 	Status      string  `json:"status"`
 	SortOrder   int     `json:"sort_order"`
+}
+
+const maxMallProductImageUploadBytes = 8 << 20
+
+type mallProductImageUpload struct {
+	data     []byte
+	filename string
 }
 
 func registerAdminAPI(e *echo.Echo, svc Service, assetDirs ...string) {
@@ -249,7 +257,14 @@ func registerAdminAPI(e *echo.Echo, svc Service, assetDirs ...string) {
 		if err != nil || id <= 0 {
 			return c.JSON(http.StatusBadRequest, map[string]string{"error": "mall product required"})
 		}
-		imageURL, err := saveUploadedMallProductAsset(c, assetDir, id)
+		upload, err := readUploadedMallProductImage(c)
+		if err != nil {
+			return c.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
+		}
+		if err := ensureMallProductImageUploadTarget(c.Request().Context(), svc, id); err != nil {
+			return portalAdminError(c, err)
+		}
+		imageURL, assetPath, err := saveMallProductImageData(assetDir, id, upload.filename, upload.data)
 		if err != nil {
 			return c.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
 		}
@@ -259,6 +274,7 @@ func registerAdminAPI(e *echo.Echo, svc Service, assetDirs ...string) {
 			Actor:    support.ActorOf(c),
 		})
 		if err != nil {
+			cleanupMallProductImageAsset(assetPath, assetDir)
 			return portalAdminError(c, err)
 		}
 		return c.JSON(http.StatusOK, row)
@@ -307,39 +323,88 @@ func portalAdminError(c echo.Context, err error) error {
 	if errors.Is(err, customerportalapp.ErrPortalCustomerNotFound) {
 		return c.JSON(http.StatusNotFound, map[string]string{"error": "customer not found"})
 	}
+	if errors.Is(err, customerportalapp.ErrCapabilityTemplateERPWorkbenchUnavailable) ||
+		err.Error() == customerportalapp.ErrCapabilityTemplateERPWorkbenchUnavailable.Error() {
+		return c.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
+	}
 	if isMiniValidationError(err) {
 		return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid request"})
 	}
 	return c.JSON(http.StatusInternalServerError, map[string]string{"error": "internal error"})
 }
 
-func saveUploadedMallProductAsset(c echo.Context, assetDir string, mallProductID int64) (string, error) {
+func readUploadedMallProductImage(c echo.Context) (mallProductImageUpload, error) {
 	file, err := c.FormFile("file")
 	if err != nil {
-		return "", fmt.Errorf("file required")
+		return mallProductImageUpload{}, fmt.Errorf("file required")
 	}
 	src, err := file.Open()
 	if err != nil {
-		return "", err
+		return mallProductImageUpload{}, err
 	}
 	defer src.Close()
-	data, err := io.ReadAll(io.LimitReader(src, 8<<20))
+	data, err := io.ReadAll(io.LimitReader(src, maxMallProductImageUploadBytes+1))
 	if err != nil {
-		return "", err
+		return mallProductImageUpload{}, err
 	}
 	if len(data) == 0 {
-		return "", fmt.Errorf("empty file")
+		return mallProductImageUpload{}, fmt.Errorf("empty file")
 	}
-	filename := mallAssetFilename(file.Filename)
+	if len(data) > maxMallProductImageUploadBytes {
+		return mallProductImageUpload{}, fmt.Errorf("image file too large")
+	}
+	if !isAllowedMallProductImage(data) {
+		return mallProductImageUpload{}, fmt.Errorf("image file required")
+	}
+	return mallProductImageUpload{data: data, filename: mallAssetFilename(file.Filename)}, nil
+}
+
+func ensureMallProductImageUploadTarget(ctx context.Context, svc Service, mallProductID int64) error {
+	rows, _, err := svc.ListMallProducts(ctx)
+	if err != nil {
+		return err
+	}
+	for _, row := range rows {
+		if row.ID == mallProductID {
+			return nil
+		}
+	}
+	return fmt.Errorf("mall product unavailable")
+}
+
+func saveMallProductImageData(assetDir string, mallProductID int64, filename string, data []byte) (string, string, error) {
 	objectKey := filepath.ToSlash(filepath.Join("mall_products", strconv.FormatInt(mallProductID, 10), fmt.Sprintf("%d-%s", time.Now().UnixNano(), filename)))
 	path := filepath.Join(assetDir, objectKey)
 	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
-		return "", err
+		return "", "", err
 	}
 	if err := os.WriteFile(path, data, 0644); err != nil {
-		return "", err
+		return "", "", err
 	}
-	return "/" + filepath.ToSlash(filepath.Join("assets", objectKey)), nil
+	return "/" + filepath.ToSlash(filepath.Join("assets", objectKey)), path, nil
+}
+
+func cleanupMallProductImageAsset(path string, assetDir string) {
+	if strings.TrimSpace(path) == "" {
+		return
+	}
+	if err := os.Remove(path); err != nil {
+		return
+	}
+	productDir := filepath.Dir(path)
+	_ = os.Remove(productDir)
+	mallProductsDir := filepath.Join(assetDir, "mall_products")
+	_ = os.Remove(mallProductsDir)
+}
+
+func isAllowedMallProductImage(data []byte) bool {
+	contentType := http.DetectContentType(data)
+	switch contentType {
+	case "image/png", "image/jpeg", "image/gif", "image/webp":
+		return true
+	default:
+		return false
+	}
 }
 
 func mallAssetFilename(filename string) string {

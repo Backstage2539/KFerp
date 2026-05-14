@@ -7,6 +7,8 @@ import {
   createFulfillmentOrder,
   createProcessingRequest,
   fetchServicePage,
+  type InventoryItem,
+  type ProductSummary,
   type ServicePageResponse,
 } from '../../api/customerPortal'
 import { useSessionStore } from '../../stores/session'
@@ -31,6 +33,12 @@ type OrderSearchForm = {
 }
 
 type OrderStatusField = 'process_status' | 'pay_status' | 'ship_status'
+
+type PickerOption<T = unknown> = {
+  label: string
+  value: number
+  data: T
+}
 
 const session = useSessionStore()
 const serviceKey = ref<ServiceKey>('beanList')
@@ -64,7 +72,6 @@ const fulfillmentForm = ref({
   product_name: '',
   spec_g: 454,
   qty: 1,
-  unit_price: 0,
   shipping_amount: 0,
   note: '',
 })
@@ -84,6 +91,15 @@ const hasDisplayData = computed(() => sections.value.length > 0 || (serviceKey.v
 const processStatusPickerOptions = computed(() => orderStatusOptions('process_status', defaultProcessStatusOptions, '全部生产状态'))
 const payStatusPickerOptions = computed(() => orderStatusOptions('pay_status', defaultPayStatusOptions, '全部收款状态'))
 const shipStatusPickerOptions = computed(() => orderStatusOptions('ship_status', defaultShipStatusOptions, '全部发货状态'))
+const processingInputOptions = computed(() => inventoryInputOptions(page.value?.inventory || []))
+const processingInputLabels = computed(() => pickerLabels(processingInputOptions.value, '暂无可用投入物料'))
+const processingTargetProductOptions = computed(() => productPickerOptions(page.value?.products || []))
+const processingTargetProductLabels = computed(() => pickerLabels(processingTargetProductOptions.value, '暂无可选目标产品'))
+const fulfillmentProductOptions = computed(() => productPickerOptions(page.value?.products || []))
+const fulfillmentProductLabels = computed(() => pickerLabels(fulfillmentProductOptions.value, '暂无可选商品'))
+const selectedProcessingInputLabel = computed(() => selectedPickerLabel(processingInputOptions.value, processingForm.value.input_material_id, '选择投入物料'))
+const selectedProcessingTargetProductLabel = computed(() => selectedPickerLabel(processingTargetProductOptions.value, processingForm.value.target_product_id, '选择目标产品'))
+const selectedFulfillmentProductLabel = computed(() => selectedPickerLabel(fulfillmentProductOptions.value, fulfillmentForm.value.product_id, '选择发货商品'))
 
 async function loadPage() {
   if (!session.token) {
@@ -104,6 +120,7 @@ async function loadPage() {
         current_customer_id: page.value.current_customer_id || session.currentCustomerID,
         current_customer_name: page.value.current_customer_name || session.currentCustomerName,
         theme_key: page.value.theme_key,
+        miniapp_entry_mode: page.value.miniapp_entry_mode || session.entryMode,
         bindings: session.bindings,
         capabilities: session.capabilities,
       })
@@ -232,9 +249,64 @@ function emptyOrderSearch(): OrderSearchForm {
   return { keyword: '', date_from: '', date_to: '', process_status: '', pay_status: '', ship_status: '' }
 }
 
+function pickerLabels(options: PickerOption[], emptyLabel: string): string[] {
+  return options.length ? options.map((item) => item.label) : [emptyLabel]
+}
+
+function selectedPickerLabel(options: PickerOption[], value: number, emptyLabel: string): string {
+  return options.find((item) => item.value === value)?.label || emptyLabel
+}
+
+function pickerOptionAt<T>(options: PickerOption<T>[], event: { detail?: { value?: number | string } }): PickerOption<T> | null {
+  return options[Number(event.detail?.value ?? -1)] || null
+}
+
+function inventoryInputOptions(items: InventoryItem[]): PickerOption<InventoryItem>[] {
+  const inputTypes = new Set(['raw_bean', 'material', 'green_bean'])
+  return items
+    .filter((item) => inputTypes.has(item.item_type) && item.status === 'available' && Number(item.qty_g) > 0)
+    .map((item) => ({
+      label: `${item.item_name} / ${item.qty_g}g 可用`,
+      value: item.item_id,
+      data: item,
+    }))
+}
+
+function productPickerOptions(products: ProductSummary[]): PickerOption<ProductSummary>[] {
+  return products.map((item) => ({
+    label: `${item.name} / 默认 ¥${item.default_price || '0.00'}`,
+    value: item.id,
+    data: item,
+  }))
+}
+
+function setProcessingInputMaterial(event: { detail?: { value?: number | string } }) {
+  const option = pickerOptionAt(processingInputOptions.value, event)
+  if (!option) return
+  processingForm.value.input_material_id = option.value
+}
+
+function setProcessingTargetProduct(event: { detail?: { value?: number | string } }) {
+  const option = pickerOptionAt(processingTargetProductOptions.value, event)
+  if (!option) return
+  processingForm.value.target_product_id = option.value
+}
+
+function setFulfillmentProduct(event: { detail?: { value?: number | string } }) {
+  const option = pickerOptionAt(fulfillmentProductOptions.value, event)
+  if (!option) return
+  fulfillmentForm.value.product_id = option.value
+  fulfillmentForm.value.product_name = option.data.name
+}
+
 async function submitDirectShipBatch() {
   if (!directShipForm.value.source_name.trim()) {
     errorMessage.value = '请填写批次名称'
+    return
+  }
+  const totalRows = Number(directShipForm.value.total_rows) || 0
+  if (totalRows <= 0) {
+    errorMessage.value = '订单行数必须大于 0'
     return
   }
   submitting.value = true
@@ -242,7 +314,7 @@ async function submitDirectShipBatch() {
   try {
     await createDirectShipBatch(session.token, {
       source_name: directShipForm.value.source_name,
-      total_rows: Number(directShipForm.value.total_rows) || 0,
+      total_rows: totalRows,
       note: directShipForm.value.note,
     })
     directShipForm.value = { source_name: '', total_rows: 0, note: '' }
@@ -306,7 +378,6 @@ async function submitFulfillmentOrder() {
     product_name: fulfillmentForm.value.product_name.trim(),
     spec_g: Number(fulfillmentForm.value.spec_g) || 0,
     qty: Number(fulfillmentForm.value.qty) || 0,
-    unit_price: Number(fulfillmentForm.value.unit_price) || 0,
     shipping_amount: Number(fulfillmentForm.value.shipping_amount) || 0,
     note: fulfillmentForm.value.note,
   }
@@ -327,7 +398,6 @@ async function submitFulfillmentOrder() {
       product_name: '',
       spec_g: 454,
       qty: 1,
-      unit_price: 0,
       shipping_amount: 0,
       note: '',
     }
@@ -383,9 +453,13 @@ onShow(() => {
 
       <view v-if="serviceKey === 'processing'" class="panel">
         <text class="panel-title">提交加工申请</text>
-        <input v-model.number="processingForm.input_material_id" class="input" type="number" placeholder="生豆物料ID" />
+        <picker mode="selector" :range="processingInputLabels" @change="setProcessingInputMaterial">
+          <view class="picker-field">{{ selectedProcessingInputLabel }}</view>
+        </picker>
         <input v-model.number="processingForm.input_qty_g" class="input" type="number" placeholder="投入生豆克重" />
-        <input v-model.number="processingForm.target_product_id" class="input" type="number" placeholder="目标产品ID" />
+        <picker mode="selector" :range="processingTargetProductLabels" @change="setProcessingTargetProduct">
+          <view class="picker-field">{{ selectedProcessingTargetProductLabel }}</view>
+        </picker>
         <input v-model.number="processingForm.target_spec_g" class="input" type="number" placeholder="规格克重" />
         <input v-model.number="processingForm.target_qty" class="input" type="number" placeholder="目标件数" />
         <textarea v-model="processingForm.note" class="textarea" placeholder="加工要求" />
@@ -398,11 +472,11 @@ onShow(() => {
         <input v-model="fulfillmentForm.recipient_phone" class="input" placeholder="手机号" />
         <input v-model="fulfillmentForm.recipient_address" class="input" placeholder="收件地址" />
         <input v-model="fulfillmentForm.recipient_company" class="input" placeholder="公司/门店，可选" />
-        <input v-model.number="fulfillmentForm.product_id" class="input" type="number" placeholder="产品ID" />
-        <input v-model="fulfillmentForm.product_name" class="input" placeholder="产品名称，可选" />
+        <picker mode="selector" :range="fulfillmentProductLabels" @change="setFulfillmentProduct">
+          <view class="picker-field">{{ selectedFulfillmentProductLabel }}</view>
+        </picker>
         <input v-model.number="fulfillmentForm.spec_g" class="input" type="number" placeholder="规格克重" />
         <input v-model.number="fulfillmentForm.qty" class="input" type="number" placeholder="件数" />
-        <input v-model.number="fulfillmentForm.unit_price" class="input" type="digit" placeholder="单价，可不填" />
         <input v-model.number="fulfillmentForm.shipping_amount" class="input" type="digit" placeholder="运费，可不填" />
         <textarea v-model="fulfillmentForm.note" class="textarea" placeholder="订单备注" />
         <button class="primary" :disabled="submitting" @tap="submitFulfillmentOrder">提交订单</button>

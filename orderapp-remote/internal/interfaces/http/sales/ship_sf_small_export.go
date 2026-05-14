@@ -1,6 +1,7 @@
 package sales
 
 import (
+	"bytes"
 	"fmt"
 	"math"
 	"net/http"
@@ -225,10 +226,15 @@ func registerShipExportRoutes(e *echo.Echo, salesSvc *salesapp.Service) {
 				return c.JSON(http.StatusBadRequest, map[string]any{"ok": false, "error": err.Error()})
 			}
 			defer f.Close()
-			x, err := excelize.OpenReader(f)
+			data, err := readShipmentTrackingExcelUpload(f)
+			if err != nil {
+				return c.JSON(http.StatusBadRequest, map[string]any{"ok": false, "error": err.Error()})
+			}
+			x, err := excelize.OpenReader(bytes.NewReader(data))
 			if err != nil {
 				return c.JSON(http.StatusBadRequest, map[string]any{"ok": false, "error": "excel解析失败"})
 			}
+			defer x.Close()
 			pairs := parseTrackingPairsExcel(x)
 			res, err := salesSvc.FillTrackingPairs(ctx, salesapp.FillTrackingPairsCommand{
 				Actor: support.ActorOf(c),

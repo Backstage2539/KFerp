@@ -28,16 +28,22 @@ func (r Repository) LoadServicePage(ctx context.Context, query customerportalapp
 	case customerportalapp.ServiceKeyOrders:
 		page.Orders, err = r.listCustomerOrders(ctx, query, limit)
 	case customerportalapp.ServiceKeyProductOrder:
-		if page.Products, err = r.listProducts(ctx, limit); err != nil {
+		if page.Products, err = r.listProducts(ctx, query.CustomerID, limit); err != nil {
 			return customerportalapp.ServicePage{}, err
 		}
 		page.Orders, err = r.listCustomerOrders(ctx, query, limit)
 	case customerportalapp.ServiceKeyDirectShip:
+		if page.Products, err = r.listProducts(ctx, query.CustomerID, limit); err != nil {
+			return customerportalapp.ServicePage{}, err
+		}
 		if page.DirectShipBatches, err = r.listDirectShipBatches(ctx, query.CustomerID, limit); err != nil {
 			return customerportalapp.ServicePage{}, err
 		}
 		page.Orders, err = r.listCustomerOrders(ctx, query, limit)
 	case customerportalapp.ServiceKeyProcessing:
+		if page.Products, err = r.listProducts(ctx, query.CustomerID, limit); err != nil {
+			return customerportalapp.ServicePage{}, err
+		}
 		if page.Inventory, err = r.listInventory(ctx, query.CustomerID, limit); err != nil {
 			return customerportalapp.ServicePage{}, err
 		}
@@ -85,8 +91,9 @@ func (r Repository) LoadMallPage(ctx context.Context, customerID int64) (custome
 		FROM %s.mall_products m
 		JOIN %s.products p ON p.id=m.product_id
 		WHERE p.active=true AND m.status='published'
+		  AND %s
 		ORDER BY m.sort_order, m.id
-	`, r.schema, r.schema))
+	`, r.schema, r.schema, mallProductPublicCatalogSQL("p")))
 	if err != nil {
 		return customerportalapp.MallPage{}, err
 	}
@@ -508,7 +515,7 @@ func formatBeanListPrice(price float64, unit string) string {
 	return out
 }
 
-func (r Repository) listProducts(ctx context.Context, limit int) ([]customerportalapp.ProductSummary, error) {
+func (r Repository) listProducts(ctx context.Context, customerID int64, limit int) ([]customerportalapp.ProductSummary, error) {
 	rows, err := r.pool.Query(ctx, fmt.Sprintf(`
 		SELECT id, name, roast_level,
 		       to_char(COALESCE(default_price,0), 'FM999999990.00'),
@@ -518,9 +525,10 @@ func (r Repository) listProducts(ctx context.Context, limit int) ([]customerport
 		       to_char(COALESCE(retail_price_250g,0), 'FM999999990.00')
 		FROM %s.products
 		WHERE active=true
+		  AND %s
 		ORDER BY name, id
 		LIMIT $1
-	`, r.schema), limit)
+	`, r.schema, portalProductVisibleToCustomerSQL("$2")), limit, customerID)
 	if err != nil {
 		return nil, err
 	}
@@ -534,6 +542,32 @@ func (r Repository) listProducts(ctx context.Context, limit int) ([]customerport
 		out = append(out, row)
 	}
 	return out, rows.Err()
+}
+
+func portalProductVisibleToCustomerSQL(customerPlaceholder string) string {
+	return portalProductVisibleToCustomerAliasSQL("", customerPlaceholder)
+}
+
+func portalProductVisibleToCustomerAliasSQL(productAlias, customerPlaceholder string) string {
+	productAlias = strings.TrimSpace(productAlias)
+	if productAlias != "" {
+		productAlias += "."
+	}
+	return fmt.Sprintf(`(
+		CASE
+			WHEN COALESCE(%scustomer_id,0)>0 THEN COALESCE(NULLIF(%svisibility,''),'customer_only')
+			ELSE COALESCE(NULLIF(%svisibility,''),'public')
+		END <> 'customer_only'
+		OR COALESCE(%scustomer_id,0)=%s
+	)`, productAlias, productAlias, productAlias, productAlias, customerPlaceholder)
+}
+
+func mallProductPublicCatalogSQL(productAlias string) string {
+	productAlias = strings.TrimSpace(productAlias)
+	if productAlias != "" {
+		productAlias += "."
+	}
+	return fmt.Sprintf(`(COALESCE(%scustomer_id,0)=0 AND COALESCE(NULLIF(%svisibility,''),'public')='public')`, productAlias, productAlias)
 }
 
 func (r Repository) listCustomerOrders(ctx context.Context, query customerportalapp.ServicePageQuery, limit int) ([]customerportalapp.CustomerOrderSummary, error) {
@@ -791,6 +825,9 @@ func (r Repository) CreateDirectShipBatch(ctx context.Context, cmd customerporta
 	if sourceName == "" {
 		return customerportalapp.DirectShipBatch{}, fmt.Errorf("source_name required")
 	}
+	if cmd.TotalRows <= 0 {
+		return customerportalapp.DirectShipBatch{}, fmt.Errorf("total_rows invalid")
+	}
 	note := strings.TrimSpace(cmd.Note)
 	var id int64
 	if err := r.pool.QueryRow(ctx, fmt.Sprintf(`
@@ -820,6 +857,13 @@ func (r Repository) CreateProcessingRequest(ctx context.Context, cmd customerpor
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
+	if err := r.ensureProcessingInputInventoryTx(ctx, tx, cmd.CustomerID, cmd.InputMaterialID, cmd.InputQtyG); err != nil {
+		return customerportalapp.ProcessingRequest{}, err
+	}
+	if err := r.ensureProcessingTargetProductTx(ctx, tx, cmd.CustomerID, cmd.TargetProductID); err != nil {
+		return customerportalapp.ProcessingRequest{}, err
+	}
+
 	var id int64
 	if err := tx.QueryRow(ctx, fmt.Sprintf(`
 		INSERT INTO %s.processing_job_requests(customer_id, input_material_id, input_qty_g, target_product_id, target_spec_g, target_qty, status, note, created_by_mini_user_id)
@@ -844,13 +888,15 @@ func (r Repository) CreateProcessingRequest(ctx context.Context, cmd customerpor
 	if err := r.ensureProcessingWarehouseTx(ctx, tx, warehouseCode, ""); err != nil {
 		return customerportalapp.ProcessingRequest{}, err
 	}
-	if _, err := tx.Exec(ctx, fmt.Sprintf(`
+	ct, err := tx.Exec(ctx, fmt.Sprintf(`
 		INSERT INTO %s.customer_processing_production_demands(
 			request_id,request_no,customer_id,product_id,product_name,spec_g,target_qty,need_g,target_warehouse,status,created_at,updated_at
 		)
 		SELECT $1,$2,$3,$4,COALESCE(p.name,''),$5,$6,$7,$8,'planned',now(),now()
 		FROM %s.products p
 		WHERE p.id=$4
+		  AND p.active=true
+		  AND %s
 		ON CONFLICT(request_id) DO UPDATE SET
 			request_no=excluded.request_no,
 			product_id=excluded.product_id,
@@ -860,13 +906,53 @@ func (r Repository) CreateProcessingRequest(ctx context.Context, cmd customerpor
 			need_g=excluded.need_g,
 			target_warehouse=excluded.target_warehouse,
 			updated_at=now()
-	`, r.schema, r.schema), row.ID, row.RequestNo, cmd.CustomerID, cmd.TargetProductID, cmd.TargetSpecG, int64(cmd.TargetQty), int64(cmd.TargetQty)*cmd.TargetSpecG, warehouseCode); err != nil {
+	`, r.schema, r.schema, portalProductVisibleToCustomerAliasSQL("p", "$3")), row.ID, row.RequestNo, cmd.CustomerID, cmd.TargetProductID, cmd.TargetSpecG, int64(cmd.TargetQty), int64(cmd.TargetQty)*cmd.TargetSpecG, warehouseCode)
+	if err != nil {
 		return customerportalapp.ProcessingRequest{}, err
+	}
+	if ct.RowsAffected() == 0 {
+		return customerportalapp.ProcessingRequest{}, fmt.Errorf("target product unavailable")
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return customerportalapp.ProcessingRequest{}, err
 	}
 	return row, nil
+}
+
+func (r Repository) ensureProcessingInputInventoryTx(ctx context.Context, tx pgx.Tx, customerID, inputMaterialID, inputQtyG int64) error {
+	var availableG int64
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`
+		SELECT COALESCE(SUM(qty_g),0)
+		FROM %s.customer_inventory_items
+		WHERE customer_id=$1
+		  AND item_id=$2
+		  AND item_type IN ('raw_bean','material','green_bean')
+		  AND COALESCE(NULLIF(status,''),'available')='available'
+	`, r.schema), customerID, inputMaterialID).Scan(&availableG); err != nil {
+		return err
+	}
+	if availableG < inputQtyG {
+		return fmt.Errorf("input material unavailable")
+	}
+	return nil
+}
+
+func (r Repository) ensureProcessingTargetProductTx(ctx context.Context, tx pgx.Tx, customerID, targetProductID int64) error {
+	var exists bool
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`
+		SELECT EXISTS(
+			SELECT 1
+			FROM %s.products
+			WHERE id=$1 AND active=true
+			  AND %s
+		)
+	`, r.schema, portalProductVisibleToCustomerSQL("$2")), targetProductID, customerID).Scan(&exists); err != nil {
+		return err
+	}
+	if !exists {
+		return fmt.Errorf("target product unavailable")
+	}
+	return nil
 }
 
 type mallOrderLine struct {
@@ -897,7 +983,8 @@ func (r Repository) CreateMallOrder(ctx context.Context, cmd customerportalapp.C
 		FROM %s.mall_products m
 		JOIN %s.products p ON p.id=m.product_id
 		WHERE m.id = ANY($1) AND m.status='published' AND p.active=true
-	`, r.schema, r.schema), ids)
+		  AND %s
+	`, r.schema, r.schema, mallProductPublicCatalogSQL("p")), ids)
 	if err != nil {
 		return customerportalapp.FulfillmentOrder{}, err
 	}
@@ -920,7 +1007,7 @@ func (r Repository) CreateMallOrder(ctx context.Context, cmd customerportalapp.C
 	for _, item := range cmd.Items {
 		line, ok := linesByMallProduct[item.MallProductID]
 		if !ok {
-			return customerportalapp.FulfillmentOrder{}, fmt.Errorf("mall product not found")
+			return customerportalapp.FulfillmentOrder{}, fmt.Errorf("mall product unavailable")
 		}
 		totalAmount += line.UnitPrice * float64(item.Qty)
 	}
@@ -1030,20 +1117,15 @@ func (r Repository) CreateFulfillmentOrder(ctx context.Context, cmd customerport
 		SELECT COALESCE(name,''), COALESCE(default_price,0)
 		FROM %s.products
 		WHERE id=$1 AND active=true
-	`, r.schema), cmd.ProductID).Scan(&productName, &defaultPrice); err != nil {
+		  AND %s
+	`, r.schema, portalProductVisibleToCustomerSQL("$2")), cmd.ProductID, cmd.CustomerID).Scan(&productName, &defaultPrice); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return customerportalapp.FulfillmentOrder{}, fmt.Errorf("product not found")
+			return customerportalapp.FulfillmentOrder{}, fmt.Errorf("product unavailable")
 		}
 		return customerportalapp.FulfillmentOrder{}, err
 	}
 	productName = firstNonEmpty(strings.TrimSpace(cmd.ProductName), productName)
-	unitPrice := cmd.UnitPrice
-	if unitPrice < 0 {
-		unitPrice = 0
-	}
-	if unitPrice == 0 {
-		unitPrice = r.portalFulfillmentUnitPriceTx(ctx, tx, cmd.CustomerID, cmd.ProductID, cmd.SpecG, cmd.Qty, defaultPrice)
-	}
+	unitPrice := r.portalFulfillmentUnitPriceTx(ctx, tx, cmd.CustomerID, cmd.ProductID, cmd.SpecG, cmd.Qty, defaultPrice)
 	totalAmount := unitPrice * float64(cmd.Qty)
 	shippingAmount := cmd.ShippingAmount
 	if shippingAmount < 0 {
@@ -1127,35 +1209,92 @@ func (r Repository) portalFulfillmentUnitPriceTx(ctx context.Context, tx pgx.Tx,
 	}
 	tierQty := qty
 	qtyLb := float64(specG*qty) / 454.0
+	tierQtyLb := qtyLb
 	if adjustedQty, ok := portalSmallBatchTierQuantity(specG, qtyLb, rule); ok {
 		tierQty = adjustedQty
+		tierQtyLb = float64(specG*adjustedQty) / 454.0
 	}
-	var price float64
+	var packagePrice, pricePerLb float64
 	q := fmt.Sprintf(`
-		SELECT COALESCE(price_per_unit, price_per_lb)
+		SELECT
+			COALESCE(NULLIF(price_per_unit,0), NULLIF(price_per_lb,0) * COALESCE(NULLIF(spec_g,0),454) / 454.0, 0),
+			COALESCE(NULLIF(price_per_lb,0), NULLIF(price_per_unit,0) * 454.0 / COALESCE(NULLIF(spec_g,0),454), 0)
 		FROM %s.product_price_tiers
 		WHERE product_id=$1 AND active=true
 		  AND COALESCE(NULLIF(spec_g,0),454)=$2
-		  AND COALESCE(min_qty_units, min_qty_lb) <= $3
-		  AND (COALESCE(max_qty_units, max_qty_lb) IS NULL OR COALESCE(max_qty_units, max_qty_lb) >= $3)
-		ORDER BY COALESCE(min_qty_units, min_qty_lb) DESC
+		  AND COALESCE(NULLIF(min_qty_units,0), min_qty_lb, 0) <= $3
+		  AND (COALESCE(NULLIF(max_qty_units,0), max_qty_lb) IS NULL OR COALESCE(NULLIF(max_qty_units,0), max_qty_lb) >= $3)
+		ORDER BY COALESCE(NULLIF(min_qty_units,0), min_qty_lb, 0) DESC
 		LIMIT 1
 	`, r.schema)
-	if err := tx.QueryRow(ctx, q, productID, specG, tierQty).Scan(&price); err == nil && price > 0 {
-		return price
+	if err := tx.QueryRow(ctx, q, productID, specG, tierQty).Scan(&packagePrice, &pricePerLb); err == nil && packagePrice > 0 {
+		return packagePrice
 	}
 	q = fmt.Sprintf(`
-		SELECT COALESCE(price_per_unit, price_per_lb)
+		SELECT
+			COALESCE(NULLIF(price_per_unit,0), NULLIF(price_per_lb,0) * COALESCE(NULLIF(spec_g,0),454) / 454.0, 0),
+			COALESCE(NULLIF(price_per_lb,0), NULLIF(price_per_unit,0) * 454.0 / COALESCE(NULLIF(spec_g,0),454), 0)
 		FROM %s.product_price_tiers
 		WHERE product_id=$1 AND active=true
 		  AND COALESCE(NULLIF(spec_g,0),454)=$2
-		ORDER BY COALESCE(min_qty_units, min_qty_lb) ASC
+		ORDER BY COALESCE(NULLIF(min_qty_units,0), min_qty_lb, 0) ASC
 		LIMIT 1
 	`, r.schema)
-	if err := tx.QueryRow(ctx, q, productID, specG).Scan(&price); err == nil && price > 0 {
-		return price
+	if err := tx.QueryRow(ctx, q, productID, specG).Scan(&packagePrice, &pricePerLb); err == nil && packagePrice > 0 {
+		return packagePrice
+	}
+	q = fmt.Sprintf(`
+		SELECT COALESCE(NULLIF(price_per_lb,0), NULLIF(price_per_unit,0) * 454.0 / COALESCE(NULLIF(spec_g,0),454), 0)
+		FROM %s.product_price_tiers
+		WHERE product_id=$1 AND active=true
+		  AND COALESCE(NULLIF(min_qty_lb,0), NULLIF(min_qty_units,0) * COALESCE(NULLIF(spec_g,0),454) / 454.0, 0) <= $2
+		  AND (
+		    COALESCE(NULLIF(max_qty_lb,0), NULLIF(max_qty_units,0) * COALESCE(NULLIF(spec_g,0),454) / 454.0) IS NULL
+		    OR COALESCE(NULLIF(max_qty_lb,0), NULLIF(max_qty_units,0) * COALESCE(NULLIF(spec_g,0),454) / 454.0) >= $2
+		  )
+		ORDER BY COALESCE(NULLIF(min_qty_lb,0), NULLIF(min_qty_units,0) * COALESCE(NULLIF(spec_g,0),454) / 454.0, 0) DESC
+		LIMIT 1
+	`, r.schema)
+	if err := tx.QueryRow(ctx, q, productID, tierQtyLb).Scan(&pricePerLb); err == nil && pricePerLb > 0 {
+		return portalPackageUnitPriceFromLb(pricePerLb, specG)
+	}
+	q = fmt.Sprintf(`
+		SELECT COALESCE(NULLIF(price_per_lb,0), NULLIF(price_per_unit,0) * 454.0 / COALESCE(NULLIF(spec_g,0),454), 0)
+		FROM %s.product_price_tiers
+		WHERE product_id=$1 AND active=true
+		  AND COALESCE(NULLIF(min_qty_lb,0), NULLIF(min_qty_units,0) * COALESCE(NULLIF(spec_g,0),454) / 454.0, 0) <= $2
+		ORDER BY COALESCE(NULLIF(min_qty_lb,0), NULLIF(min_qty_units,0) * COALESCE(NULLIF(spec_g,0),454) / 454.0, 0) DESC
+		LIMIT 1
+	`, r.schema)
+	if err := tx.QueryRow(ctx, q, productID, tierQtyLb).Scan(&pricePerLb); err == nil && pricePerLb > 0 {
+		return portalPackageUnitPriceFromLb(pricePerLb, specG)
+	}
+	q = fmt.Sprintf(`
+		SELECT COALESCE(NULLIF(price_per_lb,0), NULLIF(price_per_unit,0) * 454.0 / COALESCE(NULLIF(spec_g,0),454), 0)
+		FROM %s.product_price_tiers
+		WHERE product_id=$1 AND active=true
+		ORDER BY COALESCE(NULLIF(min_qty_lb,0), NULLIF(min_qty_units,0) * COALESCE(NULLIF(spec_g,0),454) / 454.0, 0) ASC
+		LIMIT 1
+	`, r.schema)
+	if err := tx.QueryRow(ctx, q, productID).Scan(&pricePerLb); err == nil && pricePerLb > 0 {
+		return portalPackageUnitPriceFromLb(pricePerLb, specG)
 	}
 	return defaultPrice
+}
+
+func portalPackageUnitPriceFromLb(pricePerLb float64, specG int64) float64 {
+	if pricePerLb <= 0 || specG <= 0 {
+		return 0
+	}
+	unitG := float64(454)
+	if specG >= 1000 {
+		unitG = 1000
+	}
+	displayUnitPrice := pricePerLb * unitG / 454.0
+	if unitG == 1000 {
+		displayUnitPrice = math.Round(displayUnitPrice)
+	}
+	return displayUnitPrice * float64(specG) / unitG
 }
 
 func (r Repository) portalDirectShipSmallBatchPriceRuleTx(ctx context.Context, tx pgx.Tx, customerID int64) customerportalapp.SmallBatchPriceRule {
@@ -1244,6 +1383,7 @@ func nextCustomerPortalOrderNo(ctx context.Context, tx pgx.Tx, schema string, od
 		SELECT COALESCE(MAX(CAST(right(order_no,4) AS INT)), 0)
 		FROM %s.orders
 		WHERE order_no LIKE $1
+		  AND right(order_no,4) ~ '^[0-9]{4}$'
 	`, schema)
 	if err := tx.QueryRow(ctx, q, prefix+"%").Scan(&maxNo); err != nil {
 		return "", err

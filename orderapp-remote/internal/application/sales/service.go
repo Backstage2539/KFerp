@@ -766,6 +766,7 @@ type Repository interface {
 	LoadSalesOrderSettings(ctx context.Context) (SalesOrderSettings, error)
 	SaveSalesOrderSettings(ctx context.Context, cmd SaveSalesOrderSettingsCommand) error
 	SaveSalesOrderAsset(ctx context.Context, cmd SaveSalesOrderAssetCommand) (SalesOrderAsset, error)
+	DeleteSalesOrderAsset(ctx context.Context, id int64, actor string) error
 	SaveSalesOrderPaymentCode(ctx context.Context, cmd SaveSalesOrderPaymentCodeCommand) (SalesOrderPaymentCode, error)
 	DeleteSalesOrderPaymentCode(ctx context.Context, id int64, actor string) error
 	SetSalesOrderSealAsset(ctx context.Context, assetID int64, actor string) error
@@ -1248,6 +1249,17 @@ func (s *Service) SaveSalesOrderAsset(ctx context.Context, cmd SaveSalesOrderAss
 		return SalesOrderAsset{}, fmt.Errorf("object_key required")
 	}
 	return s.repo.SaveSalesOrderAsset(ctx, cmd)
+}
+
+func (s *Service) DeleteSalesOrderAsset(ctx context.Context, id int64, actor string) error {
+	if id <= 0 {
+		return fmt.Errorf("asset required")
+	}
+	actor = strings.TrimSpace(actor)
+	if actor == "" {
+		actor = "sales"
+	}
+	return s.repo.DeleteSalesOrderAsset(ctx, id, actor)
 }
 
 func (s *Service) SaveSalesOrderPaymentCode(ctx context.Context, cmd SaveSalesOrderPaymentCodeCommand) (SalesOrderPaymentCode, error) {

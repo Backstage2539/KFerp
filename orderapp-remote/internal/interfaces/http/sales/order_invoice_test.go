@@ -148,6 +148,80 @@ func TestOrderInvoiceAPIRejectsTextUpload(t *testing.T) {
 	}
 }
 
+func TestOrderInvoiceAPIRejectsMissingOrderWithoutWritingAsset(t *testing.T) {
+	pool, schema := newOrderAPITestDB(t)
+	ctx := context.Background()
+	seedOrderAPITestData(t, ctx, pool, schema)
+	if err := postgressales.EnsureSchema(ctx, pool, schema); err != nil {
+		t.Fatalf("EnsureSchema: %v", err)
+	}
+
+	assetDir := t.TempDir()
+	e := newOrderInvoiceAPITestEcho(pool, schema, assetDir)
+	body, contentType := multipartInvoiceFileBody(t, "missing-order.pdf", "application/pdf", []byte("%PDF-1.7\ninvoice"))
+	req := httptest.NewRequest(http.MethodPost, "/api/orders/999999/invoice-file", body)
+	req.Header.Set(echo.HeaderContentType, contentType)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "order not found") {
+		t.Fatalf("missing order invoice upload status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	entries, err := os.ReadDir(assetDir)
+	if err != nil {
+		t.Fatalf("read asset dir: %v", err)
+	}
+	if len(entries) != 0 {
+		t.Fatalf("missing order invoice upload wrote orphan asset entries: %v", entries)
+	}
+}
+
+func TestOrderInvoiceAPIRejectsMissingOrderBeforeReadingFile(t *testing.T) {
+	pool, schema := newOrderAPITestDB(t)
+	ctx := context.Background()
+	seedOrderAPITestData(t, ctx, pool, schema)
+	if err := postgressales.EnsureSchema(ctx, pool, schema); err != nil {
+		t.Fatalf("EnsureSchema: %v", err)
+	}
+
+	e := newOrderInvoiceAPITestEcho(pool, schema, t.TempDir())
+	req := httptest.NewRequest(http.MethodPost, "/api/orders/999999/invoice-file", strings.NewReader(""))
+	req.Header.Set(echo.HeaderContentType, "multipart/form-data; boundary=missing")
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "order not found") {
+		t.Fatalf("missing order invoice upload status=%d body=%s, want order not found before file parsing", rec.Code, rec.Body.String())
+	}
+}
+
+func TestOrderInvoiceAPIUploadCleansFileWhenInvoiceSaveFails(t *testing.T) {
+	pool, schema := newOrderAPITestDB(t)
+	ctx := context.Background()
+	seedOrderAPITestData(t, ctx, pool, schema)
+	if err := postgressales.EnsureSchema(ctx, pool, schema); err != nil {
+		t.Fatalf("EnsureSchema: %v", err)
+	}
+	mustExecOrderAPITestSQL(t, ctx, pool, fmt.Sprintf(`
+		INSERT INTO %s.orders(id, order_no, order_date, customer_id, order_type_id, pay_status_id, ship_status_id, process_status_id, grand_total, is_void)
+		VALUES (37, 'SO-INVOICE-0003', '2026-05-02', 3, 1, 2, 1, 1, 88, false);
+		ALTER TABLE %s.order_invoices ADD CONSTRAINT order_invoice_test_reject_uploaded CHECK (status <> 'uploaded');
+	`, schema, schema))
+
+	assetDir := t.TempDir()
+	e := newOrderInvoiceAPITestEcho(pool, schema, assetDir)
+	body, contentType := multipartInvoiceFileBody(t, "invoice.pdf", "application/pdf", []byte("%PDF-1.7\ninvoice"))
+	req := httptest.NewRequest(http.MethodPost, "/api/orders/37/invoice-file", body)
+	req.Header.Set(echo.HeaderContentType, contentType)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("invoice upload status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	assertAssetDirEmpty(t, assetDir)
+}
+
 func newOrderInvoiceAPITestEcho(pool *pgxpool.Pool, schema string, assetDir string) *echo.Echo {
 	e := echo.New()
 	e.Use(func(next echo.HandlerFunc) echo.HandlerFunc {

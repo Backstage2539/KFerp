@@ -95,6 +95,7 @@ func (r Repository) SaveAsset(ctx context.Context, cmd customerapp.SaveAssetComm
 		return customerapp.SaveAssetResult{}, err
 	}
 	if _, err := insertCustomerAsset(ctx, r.pool, r.schema, cmd.Actor, cmd.CustomerID, cmd.Kind, obj, cmd.ContentType, size, sha); err != nil {
+		cleanupCustomerAssetFile(r.assetDir, obj)
 		return customerapp.SaveAssetResult{}, err
 	}
 	return customerapp.SaveAssetResult{CustomerID: cmd.CustomerID, ObjectKey: obj, Bytes: size, SHA256: sha}, nil
@@ -466,6 +467,9 @@ func ensureDefaultRetailPortalTx(ctx context.Context, tx pgx.Tx, schema string, 
 	if customerType != customerapp.CustomerTypeRetail && customerType != customerapp.CustomerTypeEcommerce {
 		return nil
 	}
+	if err := deactivateRetailERPWorkbenchBindingsTx(ctx, tx, schema, customerID, actor); err != nil {
+		return err
+	}
 	var hasProfiles, hasCapabilities bool
 	if err := tx.QueryRow(ctx, `SELECT to_regclass($1) IS NOT NULL, to_regclass($2) IS NOT NULL`,
 		fmt.Sprintf("%s.customer_portal_profiles", schema),
@@ -515,6 +519,30 @@ func ensureDefaultRetailPortalTx(ctx context.Context, tx pgx.Tx, schema string, 
 		}
 	}
 	return nil
+}
+
+func deactivateRetailERPWorkbenchBindingsTx(ctx context.Context, tx pgx.Tx, schema string, customerID int64, actor string) error {
+	var hasBindings bool
+	if err := tx.QueryRow(ctx, `SELECT to_regclass($1) IS NOT NULL`,
+		fmt.Sprintf("%s.customer_erp_user_bindings", schema),
+	).Scan(&hasBindings); err != nil {
+		return err
+	}
+	if !hasBindings {
+		return nil
+	}
+	updatedBy := strings.TrimSpace(actor)
+	if updatedBy == "" {
+		updatedBy = "system:retail-template"
+	}
+	_, err := tx.Exec(ctx, fmt.Sprintf(`
+		UPDATE %s.customer_erp_user_bindings
+		SET status='inactive',
+			updated_at=now(),
+			updated_by=$2
+		WHERE customer_id=$1 AND status='active'
+	`, schema), customerID, updatedBy)
+	return err
 }
 
 func fetchCustomerPrefs(ctx context.Context, pool *pgxpool.Pool, schema string, id int64) (*prefs, error) {
@@ -601,6 +629,23 @@ func saveAssetFile(assetDir string, customerID int64, kind string, r io.Reader, 
 		return "", 0, "", fmt.Errorf("file too large")
 	}
 	return base, n, hex.EncodeToString(h.Sum(nil)), nil
+}
+
+func cleanupCustomerAssetFile(assetDir string, objectKey string) {
+	objectKey = strings.TrimSpace(objectKey)
+	if objectKey == "" {
+		return
+	}
+	assetDir = filepath.Clean(assetDir)
+	path := filepath.Join(assetDir, objectKey)
+	if err := os.Remove(path); err != nil {
+		return
+	}
+	for dir := filepath.Dir(path); dir != "." && dir != assetDir; dir = filepath.Dir(dir) {
+		if err := os.Remove(dir); err != nil {
+			return
+		}
+	}
 }
 
 var allowedImageTypes = map[string]bool{

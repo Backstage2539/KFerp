@@ -481,12 +481,153 @@ func TestOrderAPIListCarriesOrderScopeAndCurrentEmployee(t *testing.T) {
 	}
 }
 
+func TestOrderAPIListFulfillmentScopeSkipsLegacyNonWorkbenchBinding(t *testing.T) {
+	pool, schema := newOrderAPITestDB(t)
+	ctx := context.Background()
+	seedOrderAPITestData(t, ctx, pool, schema)
+	mustExecOrderAPITestSQL(t, ctx, pool, fmt.Sprintf(`
+		ALTER TABLE %[1]s.customers ADD COLUMN IF NOT EXISTS customer_type TEXT NOT NULL DEFAULT 'retail';
+		CREATE TABLE %[1]s.customer_portal_profiles (
+			customer_id BIGINT PRIMARY KEY,
+			capability_template_key TEXT NOT NULL DEFAULT ''
+		);
+		CREATE TABLE %[1]s.customer_erp_user_bindings (
+			id BIGSERIAL PRIMARY KEY,
+			customer_id BIGINT NOT NULL,
+			employee_id BIGINT NOT NULL,
+			status TEXT NOT NULL DEFAULT 'active'
+		);
+		ALTER TABLE %[1]s.company_employees ADD COLUMN IF NOT EXISTS account_type TEXT NOT NULL DEFAULT 'channel_customer';
+		CREATE TABLE IF NOT EXISTS %[1]s.employee_login_passwords (
+			employee_id BIGINT PRIMARY KEY,
+			password_hash TEXT NOT NULL DEFAULT '',
+			login_disabled BOOLEAN NOT NULL DEFAULT false
+		);
+		INSERT INTO %[1]s.customers(id,name,customer_type,active) VALUES
+			(31,'历史零售模板批发客户','wholesale',true),
+			(32,'有效代加工履约客户','wholesale',true);
+		INSERT INTO %[1]s.company_departments(id,name,active) VALUES (1,'渠道部',true);
+		INSERT INTO %[1]s.company_employees(id,name,phone,department_id,account_type,active) VALUES
+			(501,'历史零售模板账号','13900000501',1,'channel_customer',true),
+			(502,'有效代加工账号','13900000502',1,'channel_customer',true);
+		INSERT INTO %[1]s.customer_portal_profiles(customer_id, capability_template_key) VALUES
+			(31,'retail_mall'),
+			(32,'processing_fulfillment');
+		INSERT INTO %[1]s.customer_erp_user_bindings(customer_id, employee_id, status) VALUES
+			(31,501,'active'),
+			(32,502,'active');
+		INSERT INTO %[1]s.orders(order_no, order_date, customer_id, source_id, order_type_id, pay_status_id, ship_status_id, process_status_id, portal_service_code, grand_total)
+		VALUES
+			('SO-LEGACY-RETAIL-WORKBENCH', '2026-05-13', 31, 1, 1, 1, 1, 1, 'direct_ship', 11),
+			('SO-VALID-PROCESSING-WORKBENCH', '2026-05-13', 32, 1, 1, 1, 1, 1, 'direct_ship', 22);
+	`, schema))
+
+	e := newOrderAPITestEcho(pool, schema)
+	req := httptest.NewRequest(http.MethodGet, "/api/orders?scope=fulfillment&limit=20", nil)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET /api/orders fulfillment status = %d, want 200, body=%s", rec.Code, rec.Body.String())
+	}
+	body := rec.Body.String()
+	if !strings.Contains(body, "SO-VALID-PROCESSING-WORKBENCH") {
+		t.Fatalf("fulfillment scope should include valid workbench binding order: %s", body)
+	}
+	if strings.Contains(body, "SO-LEGACY-RETAIL-WORKBENCH") {
+		t.Fatalf("fulfillment scope leaked legacy non-workbench binding order: %s", body)
+	}
+}
+
+func TestOrderAPIListFulfillmentScopeSkipsDisabledLoginBinding(t *testing.T) {
+	pool, schema := newOrderAPITestDB(t)
+	ctx := context.Background()
+	seedOrderAPITestData(t, ctx, pool, schema)
+	mustExecOrderAPITestSQL(t, ctx, pool, fmt.Sprintf(`
+		ALTER TABLE %[1]s.customers ADD COLUMN IF NOT EXISTS customer_type TEXT NOT NULL DEFAULT 'retail';
+		CREATE TABLE %[1]s.customer_portal_profiles (
+			customer_id BIGINT PRIMARY KEY,
+			capability_template_key TEXT NOT NULL DEFAULT ''
+		);
+		CREATE TABLE %[1]s.customer_erp_user_bindings (
+			id BIGSERIAL PRIMARY KEY,
+			customer_id BIGINT NOT NULL,
+			employee_id BIGINT NOT NULL,
+			status TEXT NOT NULL DEFAULT 'active'
+		);
+		ALTER TABLE %[1]s.company_employees ADD COLUMN IF NOT EXISTS account_type TEXT NOT NULL DEFAULT 'channel_customer';
+		CREATE TABLE IF NOT EXISTS %[1]s.employee_login_passwords (
+			employee_id BIGINT PRIMARY KEY,
+			password_hash TEXT NOT NULL DEFAULT '',
+			login_disabled BOOLEAN NOT NULL DEFAULT false
+		);
+		INSERT INTO %[1]s.customers(id,name,customer_type,active) VALUES
+			(33,'禁用账号履约客户','wholesale',true),
+			(34,'启用账号履约客户','wholesale',true);
+		INSERT INTO %[1]s.company_departments(id,name,active) VALUES (1,'渠道部',true);
+		INSERT INTO %[1]s.company_employees(id,name,phone,department_id,account_type,active) VALUES
+			(503,'禁用渠道账号','13900000503',1,'channel_customer',true),
+			(504,'启用渠道账号','13900000504',1,'channel_customer',true);
+		INSERT INTO %[1]s.employee_login_passwords(employee_id, password_hash, login_disabled) VALUES
+			(503,'disabled-hash',true),
+			(504,'enabled-hash',false);
+		INSERT INTO %[1]s.customer_portal_profiles(customer_id, capability_template_key) VALUES
+			(33,'processing_fulfillment'),
+			(34,'processing_fulfillment');
+		INSERT INTO %[1]s.customer_erp_user_bindings(customer_id, employee_id, status) VALUES
+			(33,503,'active'),
+			(34,504,'active');
+		INSERT INTO %[1]s.orders(order_no, order_date, customer_id, source_id, order_type_id, pay_status_id, ship_status_id, process_status_id, portal_service_code, grand_total)
+		VALUES
+			('SO-DISABLED-LOGIN-BINDING', '2026-05-13', 33, 1, 1, 1, 1, 1, 'direct_ship', 33),
+			('SO-ENABLED-LOGIN-BINDING', '2026-05-13', 34, 1, 1, 1, 1, 1, 'direct_ship', 44);
+	`, schema))
+
+	e := newOrderAPITestEcho(pool, schema)
+	req := httptest.NewRequest(http.MethodGet, "/api/orders?scope=fulfillment&limit=20", nil)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET /api/orders fulfillment status = %d, want 200, body=%s", rec.Code, rec.Body.String())
+	}
+	body := rec.Body.String()
+	if !strings.Contains(body, "SO-ENABLED-LOGIN-BINDING") {
+		t.Fatalf("fulfillment scope should include enabled login binding order: %s", body)
+	}
+	if strings.Contains(body, "SO-DISABLED-LOGIN-BINDING") {
+		t.Fatalf("fulfillment scope leaked disabled login binding order: %s", body)
+	}
+}
+
+func TestOrderAPIListRejectsInvalidScope(t *testing.T) {
+	repo := &capturingOrderListRepo{}
+	e := echo.New()
+	registerOrderAPI(e, salesapp.NewService(repo), nil)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/orders?scope=fulfillment_typo&limit=20", nil)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("GET /api/orders invalid scope status = %d, want 400, body=%s", rec.Code, rec.Body.String())
+	}
+	if repo.called {
+		t.Fatal("orders API must reject invalid scope before querying repository")
+	}
+	if !strings.Contains(rec.Body.String(), "invalid scope") {
+		t.Fatalf("GET /api/orders invalid scope body should explain invalid scope, got %s", rec.Body.String())
+	}
+}
+
 type capturingOrderListRepo struct {
 	salesapp.Repository
-	query salesapp.OrderListQuery
+	called bool
+	query  salesapp.OrderListQuery
 }
 
 func (r *capturingOrderListRepo) ListOrders(ctx context.Context, query salesapp.OrderListQuery) (salesapp.OrderListResult, error) {
+	r.called = true
 	r.query = query
 	return salesapp.OrderListResult{
 		Rows: []salesapp.OrderRow{{
@@ -1180,6 +1321,49 @@ func TestOrdersShippingExcelAPIGeneratesFromSelectedOrders(t *testing.T) {
 	}
 	if strings.Contains(cell("N2"), "单价") || strings.Contains(cell("N2"), "小计") || strings.Contains(cell("N2"), "88") || strings.Contains(cell("N2"), "176") {
 		t.Fatalf("shipping excel remark should not include price or subtotal N2=%q", cell("N2"))
+	}
+}
+
+func TestOrdersShippingExcelAPICleansFileWhenShipmentSaveFails(t *testing.T) {
+	pool, schema := newOrderAPITestDB(t)
+	ctx := context.Background()
+	seedOrderAPITestData(t, ctx, pool, schema)
+
+	dir := t.TempDir()
+	templatePath := filepath.Join(dir, "ship_temp.xlsx")
+	exportDir := filepath.Join(dir, "exports")
+	writeOrderShippingTemplateForTest(t, templatePath)
+	t.Setenv("ORDER_SHIP_TEMPLATE", templatePath)
+	t.Setenv("ORDER_SHIP_EXPORT_DIR", exportDir)
+	mustExecOrderAPITestSQL(t, ctx, pool, fmt.Sprintf(`
+		UPDATE %s.sender_settings
+		SET sender_name='寄件人', sender_phone='13900000000', sender_addr='上海市测试路', sender_company='寄件公司', sender_goods='', sf_biz_type='标快'
+		WHERE id=1;
+		INSERT INTO %s.order_process_statuses(name,sort,active) VALUES ('生产完成',20,true)
+		ON CONFLICT(name) DO UPDATE SET sort=excluded.sort, active=excluded.active;
+		INSERT INTO %s.orders(id, order_no, order_date, customer_id, order_type_id, pay_status_id, ship_status_id, process_status_id, grand_total, is_void)
+		VALUES (22, 'SO-SHIP-SAVE-FAIL', '2026-04-27', 3, 1, 2, 1, (SELECT id FROM %s.order_process_statuses WHERE name='生产完成' LIMIT 1), 176, false);
+		INSERT INTO %s.order_items(order_id,line_no,product_id,item_name,qty,unit,spec,unit_price,line_total)
+		VALUES (22, 1, 7, '橘皮乌龙', 2, '件', '454g', 88, 176);
+		ALTER TABLE %s.order_shipments ADD CONSTRAINT order_shipment_test_reject_generated CHECK (status <> 'excel_generated');
+	`, schema, schema, schema, schema, schema, schema))
+
+	e := newOrderAPITestEcho(pool, schema)
+	body, _ := json.Marshal(map[string]any{"order_ids": []int64{22}})
+	req := httptest.NewRequest(http.MethodPost, "/api/orders/shipping-excel", bytes.NewReader(body))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("POST /api/orders/shipping-excel status = %d, want 500, body=%s", rec.Code, rec.Body.String())
+	}
+	files, err := os.ReadDir(exportDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(files) != 0 {
+		t.Fatalf("failed shipment save left shipping export files=%v", files)
 	}
 }
 
@@ -1947,6 +2131,76 @@ func TestOrdersShippingTrackingExcelAPIMarksOrdersByRemarkOrderNo(t *testing.T) 
 	}
 }
 
+func TestOrdersShippingTrackingExcelAPIRejectsOversizedUpload(t *testing.T) {
+	e := echo.New()
+	e.Use(func(next echo.HandlerFunc) echo.HandlerFunc {
+		return func(c echo.Context) error {
+			c.Set("employee_id", int64(1))
+			c.Set("operator_employee", "测试员")
+			c.Set("actor", "测试员")
+			return next(c)
+		}
+	})
+	registerOrderShippingExcelRoutes(e, salesapp.NewService(nil))
+
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
+	part, err := writer.CreateFormFile("file", "tracking.xlsx")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := part.Write(bytes.Repeat([]byte("x"), (20<<20)+1)); err != nil {
+		t.Fatal(err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/api/orders/shipping-tracking-excel", &body)
+	req.Header.Set(echo.HeaderContentType, writer.FormDataContentType())
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "file too large") {
+		t.Fatalf("oversized tracking excel status=%d body=%s, want file too large", rec.Code, rec.Body.String())
+	}
+}
+
+func TestLegacyShippingTrackingFillRejectsOversizedUpload(t *testing.T) {
+	e := echo.New()
+	e.Use(func(next echo.HandlerFunc) echo.HandlerFunc {
+		return func(c echo.Context) error {
+			c.Set("employee_id", int64(1))
+			c.Set("operator_employee", "测试员")
+			c.Set("actor", "测试员")
+			return next(c)
+		}
+	})
+	registerShipExportRoutes(e, salesapp.NewService(nil))
+
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
+	part, err := writer.CreateFormFile("file", "tracking.xlsx")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := part.Write(bytes.Repeat([]byte("x"), (20<<20)+1)); err != nil {
+		t.Fatal(err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/ship/tracking_fill", &body)
+	req.Header.Set(echo.HeaderContentType, writer.FormDataContentType())
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "file too large") {
+		t.Fatalf("legacy oversized tracking upload status=%d body=%s, want file too large", rec.Code, rec.Body.String())
+	}
+}
+
 func TestOrdersShippingExcelAPIRejectsUnfinishedOrders(t *testing.T) {
 	pool, schema := newOrderAPITestDB(t)
 	ctx := context.Background()
@@ -2027,6 +2281,7 @@ func newOrderAPITestDB(t *testing.T) (*pgxpool.Pool, string) {
 	schema := fmt.Sprintf("test_order_api_%d", time.Now().UnixNano())
 	mustExecOrderAPITestSQL(t, ctx, pool, "CREATE SCHEMA "+schema)
 	mustExecOrderAPITestSQL(t, ctx, pool, orderAPITestDDL(schema))
+	mustExecOrderAPITestSQL(t, ctx, pool, orderAPITrackingDDL(schema))
 	if err := support.EnsureAuditTables(ctx, pool, schema); err != nil {
 		t.Fatalf("ensureAuditTables: %v", err)
 	}
@@ -2405,6 +2660,22 @@ INSERT INTO %s.sender_settings(id, sender_label, is_default, active) VALUES(1, '
 		schema, schema, schema, schema, schema, schema, schema, schema, schema, schema,
 		schema, schema, schema, schema, schema, schema, schema, schema, schema, schema,
 		schema, schema, schema, schema)
+}
+
+func orderAPITrackingDDL(schema string) string {
+	return fmt.Sprintf(`
+CREATE TABLE %s.order_shipping_trackings (
+	id BIGSERIAL PRIMARY KEY,
+	order_id BIGINT NOT NULL REFERENCES %s.orders(id) ON DELETE CASCADE,
+	tracking_no TEXT NOT NULL,
+	source TEXT NOT NULL DEFAULT '',
+	created_by TEXT NOT NULL DEFAULT '',
+	created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+	UNIQUE(order_id, tracking_no)
+);
+CREATE INDEX order_shipping_trackings_order_idx ON %s.order_shipping_trackings(order_id, id);
+CREATE INDEX order_shipping_trackings_no_idx ON %s.order_shipping_trackings(tracking_no);
+	`, schema, schema, schema, schema)
 }
 
 func writeOrderShippingTemplateForTest(t *testing.T, path string) {

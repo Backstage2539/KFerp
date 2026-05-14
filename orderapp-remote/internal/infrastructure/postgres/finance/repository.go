@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 
 	appfinance "orderapp/internal/application/finance"
 	domain "orderapp/internal/domain/finance"
@@ -20,6 +21,20 @@ type Repository struct {
 
 func NewRepository(pool *pgxpool.Pool, schema string) Repository {
 	return Repository{pool: pool, schema: schema}
+}
+
+func financeOrderRevenueSQL(alias string) string {
+	prefix := ""
+	if alias != "" {
+		prefix = alias + "."
+	}
+	return fmt.Sprintf(`CASE
+			WHEN COALESCE(%[1]sgrand_total,0) <> 0
+			  OR COALESCE(%[1]sdiscount_amount,0) <> 0
+			  OR COALESCE(%[1]sshipping_amount,0) <> 0
+			THEN COALESCE(%[1]sgrand_total,0)
+			ELSE COALESCE(%[1]stotal_amount,0)
+		END`, prefix)
 }
 
 func (r Repository) LoadSettings(ctx context.Context) (appfinance.SettingsSnapshot, error) {
@@ -120,12 +135,12 @@ func (r Repository) MonthlySourceTotals(ctx context.Context, month string) (doma
 	}
 	start := month + "-01"
 	if err := r.pool.QueryRow(ctx, fmt.Sprintf(`
-		SELECT COALESCE(SUM(COALESCE(grand_total,total_amount,0)),0)::float8
+		SELECT COALESCE(SUM(%s),0)::float8
 		FROM %s.orders
 		WHERE COALESCE(is_void,false)=false
 		  AND order_date >= $1::date
 		  AND order_date < ($1::date + INTERVAL '1 month')
-	`, r.schema), start).Scan(&out.RevenueTaxInclusive); err != nil {
+	`, financeOrderRevenueSQL(""), r.schema), start).Scan(&out.RevenueTaxInclusive); err != nil {
 		return out, nil, err
 	}
 	var productionCost, mainCostExpense, periodExpense, inputVAT, nonDeductibleVAT domain.Money
@@ -161,6 +176,9 @@ func (r Repository) MonthlySourceTotals(ctx context.Context, month string) (doma
 
 func (r Repository) CreateExpense(ctx context.Context, cmd appfinance.CreateExpenseCommand) (appfinance.Expense, error) {
 	var row appfinance.Expense
+	if err := r.validateExpenseDimensionRefs(ctx, cmd); err != nil {
+		return row, err
+	}
 	err := r.pool.QueryRow(ctx, fmt.Sprintf(`
 		WITH inserted AS (
 			INSERT INTO %s.finance_expenses(
@@ -184,6 +202,67 @@ func (r Repository) CreateExpense(ctx context.Context, cmd appfinance.CreateExpe
 		Scan(&row.ID, &row.Date, &row.Month, &row.Category, &row.Amount, &row.Allocation, &row.EmployeeID, &row.EmployeeName,
 			&row.OrderID, &row.CustomerID, &row.ProductID, &row.BatchNo, &row.DimensionNote, &row.Payment, &row.Note, &row.Actor, &row.CreatedAt)
 	return row, err
+}
+
+func (r Repository) validateExpenseDimensionRefs(ctx context.Context, cmd appfinance.CreateExpenseCommand) error {
+	if err := r.ensureExpenseDimensionRefExists(ctx, "orders", cmd.OrderID, "order"); err != nil {
+		return err
+	}
+	if err := r.ensureExpenseDimensionRefExists(ctx, "customers", cmd.CustomerID, "customer"); err != nil {
+		return err
+	}
+	if err := r.ensureExpenseDimensionRefExists(ctx, "products", cmd.ProductID, "product"); err != nil {
+		return err
+	}
+	if err := r.ensureExpenseOrderCustomerMatch(ctx, cmd.OrderID, cmd.CustomerID); err != nil {
+		return err
+	}
+	if err := r.ensureExpenseOrderProductMatch(ctx, cmd.OrderID, cmd.ProductID); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (r Repository) ensureExpenseOrderCustomerMatch(ctx context.Context, orderID, customerID int64) error {
+	if orderID <= 0 || customerID <= 0 {
+		return nil
+	}
+	var orderCustomerID int64
+	if err := r.pool.QueryRow(ctx, fmt.Sprintf(`SELECT customer_id FROM %s.orders WHERE id=$1`, r.schema), orderID).Scan(&orderCustomerID); err != nil {
+		return err
+	}
+	if orderCustomerID != customerID {
+		return fmt.Errorf("finance dimension customer does not match order")
+	}
+	return nil
+}
+
+func (r Repository) ensureExpenseOrderProductMatch(ctx context.Context, orderID, productID int64) error {
+	if orderID <= 0 || productID <= 0 {
+		return nil
+	}
+	var exists bool
+	if err := r.pool.QueryRow(ctx, fmt.Sprintf(`SELECT EXISTS(SELECT 1 FROM %s.order_items WHERE order_id=$1 AND product_id=$2)`, r.schema), orderID, productID).Scan(&exists); err != nil {
+		return err
+	}
+	if !exists {
+		return fmt.Errorf("finance dimension product does not match order")
+	}
+	return nil
+}
+
+func (r Repository) ensureExpenseDimensionRefExists(ctx context.Context, table string, id int64, label string) error {
+	if id <= 0 {
+		return nil
+	}
+	var exists bool
+	if err := r.pool.QueryRow(ctx, fmt.Sprintf(`SELECT EXISTS(SELECT 1 FROM %s.%s WHERE id=$1)`, r.schema, table), id).Scan(&exists); err != nil {
+		return err
+	}
+	if !exists {
+		return fmt.Errorf("finance dimension %s not found", label)
+	}
+	return nil
 }
 
 func (r Repository) ListExpenses(ctx context.Context, filter appfinance.ExpenseFilter) ([]appfinance.Expense, error) {
@@ -235,7 +314,7 @@ func (r Repository) FinanceSourceDetails(ctx context.Context, month string) ([]a
 				       COALESCE(to_char(o.order_date,'YYYY-MM-DD'),'') AS source_date,
 				       COALESCE(NULLIF(o.order_no,''), '订单#' || o.id::text) AS name,
 				       '' AS category,COALESCE(NULLIF(c.name,''),NULLIF(c.company_name,''),'') AS counterparty,
-				       COALESCE(o.grand_total,o.total_amount,0)::float8 AS amount,
+				       %s::float8 AS amount,
 				       '/app/vue-shell?view=orders' AS link
 				FROM %s.orders o
 				LEFT JOIN %s.customers c ON c.id=o.customer_id
@@ -243,7 +322,7 @@ func (r Repository) FinanceSourceDetails(ctx context.Context, month string) ([]a
 				  AND o.order_date >= $1::date
 				  AND o.order_date < ($1::date + INTERVAL '1 month')
 				ORDER BY o.order_date,o.id
-			`, r.schema, r.schema),
+			`, financeOrderRevenueSQL("o"), r.schema, r.schema),
 			args: []any{start},
 		},
 		{
@@ -361,6 +440,10 @@ func (r Repository) CreateTaxLedgerEntry(ctx context.Context, cmd appfinance.Cre
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
+	if err := r.ensureTaxLedgerInvoiceUniqueTx(ctx, tx, cmd); err != nil {
+		return appfinance.TaxLedgerEntry{}, err
+	}
+
 	var row appfinance.TaxLedgerEntry
 	if err := tx.QueryRow(ctx, fmt.Sprintf(`
 		INSERT INTO %s.finance_tax_ledger(month,kind,invoice_no,counterparty,total_amount,tax_amount,status,note,created_by)
@@ -383,6 +466,34 @@ func (r Repository) CreateTaxLedgerEntry(ctx context.Context, cmd appfinance.Cre
 		return appfinance.TaxLedgerEntry{}, err
 	}
 	return row, nil
+}
+
+func (r Repository) ensureTaxLedgerInvoiceUniqueTx(ctx context.Context, tx pgx.Tx, cmd appfinance.CreateTaxLedgerCommand) error {
+	invoiceNo := strings.TrimSpace(cmd.InvoiceNo)
+	if invoiceNo == "" {
+		return nil
+	}
+	kind := strings.TrimSpace(cmd.Kind)
+	lockKey := r.schema + ":finance_tax_ledger:" + strings.ToLower(kind) + ":" + strings.ToLower(invoiceNo)
+	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtext($1)::bigint)`, lockKey); err != nil {
+		return err
+	}
+
+	var existingID int64
+	err := tx.QueryRow(ctx, fmt.Sprintf(`
+		SELECT id
+		FROM %s.finance_tax_ledger
+		WHERE kind=$1 AND lower(invoice_no)=lower($2)
+		ORDER BY id
+		LIMIT 1
+	`, r.schema), kind, invoiceNo).Scan(&existingID)
+	if err == nil {
+		return fmt.Errorf("tax ledger invoice already exists")
+	}
+	if err == pgx.ErrNoRows {
+		return nil
+	}
+	return err
 }
 
 func (r Repository) SaveMonthlyReport(ctx context.Context, report domain.MonthlyReport, actor string) (domain.MonthlyReport, error) {

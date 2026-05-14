@@ -69,12 +69,16 @@ func (h orderInvoiceHandler) uploadFile(c echo.Context) error {
 	if err != nil {
 		return c.JSON(http.StatusBadRequest, map[string]any{"error": err.Error()})
 	}
+	if _, err := h.sales.LoadOrderInvoice(c.Request().Context(), orderID); err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]any{"error": "order not found"})
+	}
 	cmd, err := h.saveUploadedOrderInvoiceFile(c, orderID)
 	if err != nil {
 		return c.JSON(http.StatusBadRequest, map[string]any{"error": err.Error()})
 	}
 	invoice, err := h.sales.SaveOrderInvoiceFile(c.Request().Context(), cmd)
 	if err != nil {
+		h.cleanupUploadedOrderInvoiceFile(cmd.ObjectKey)
 		return c.JSON(http.StatusBadRequest, map[string]any{"error": err.Error()})
 	}
 	return c.JSON(http.StatusOK, invoice)
@@ -143,6 +147,23 @@ func cleanOrderInvoiceFilename(raw string) string {
 		return "invoice"
 	}
 	return filename
+}
+
+func (h orderInvoiceHandler) cleanupUploadedOrderInvoiceFile(objectKey string) {
+	clean := filepath.Clean(filepath.FromSlash(strings.TrimSpace(objectKey)))
+	if clean == "." || filepath.IsAbs(clean) || clean == ".." || strings.HasPrefix(clean, ".."+string(os.PathSeparator)) {
+		return
+	}
+	assetDir := filepath.Clean(h.assetDir)
+	path := filepath.Join(assetDir, clean)
+	if err := os.Remove(path); err != nil {
+		return
+	}
+	for dir := filepath.Dir(path); dir != "." && dir != assetDir; dir = filepath.Dir(dir) {
+		if err := os.Remove(dir); err != nil {
+			return
+		}
+	}
 }
 
 func parseOrderInvoiceID(c echo.Context) (int64, error) {
