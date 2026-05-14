@@ -941,6 +941,56 @@ func TestLoadProductOrderServicePageFiltersCustomerOnlyProducts(t *testing.T) {
 	}
 }
 
+func TestLoadProductServicePageReplacesBaseProductWithCustomerAlias(t *testing.T) {
+	ctx := context.Background()
+	pool, schema := newCustomerPortalTestDB(t)
+	repo := NewRepository(pool, schema)
+
+	var customerID int64
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`
+		INSERT INTO %s.customers(name) VALUES('岩师傅') RETURNING id
+	`, schema)).Scan(&customerID); err != nil {
+		t.Fatalf("insert customer: %v", err)
+	}
+
+	var baseProductID int64
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`
+		INSERT INTO %s.products(name, default_price, active, customer_id, base_product_id, visibility, custom_type)
+		VALUES('基础款曲奇', 48, true, 0, 0, 'public', '')
+		RETURNING id
+	`, schema)).Scan(&baseProductID); err != nil {
+		t.Fatalf("insert base product: %v", err)
+	}
+	if _, err := pool.Exec(ctx, fmt.Sprintf(`
+		INSERT INTO %s.products(name, default_price, active, customer_id, base_product_id, visibility, custom_type)
+		VALUES
+			('公共保留款', 52, true, 0, 0, 'public', ''),
+			('岩师傅兰卡', 58, true, $1, $2, 'customer_only', 'public_sku_alias')
+	`, schema), customerID, baseProductID); err != nil {
+		t.Fatalf("insert products: %v", err)
+	}
+
+	page, err := repo.LoadServicePage(ctx, customerportalapp.ServicePageQuery{
+		CustomerID: customerID,
+		Key:        customerportalapp.ServiceKeyProductOrder,
+		Limit:      20,
+	})
+	if err != nil {
+		t.Fatalf("LoadServicePage: %v", err)
+	}
+	names := make([]string, 0, len(page.Products))
+	for _, product := range page.Products {
+		names = append(names, product.Name)
+	}
+	got := strings.Join(names, ",")
+	if strings.Contains(got, "基础款曲奇") {
+		t.Fatalf("alias base product should be replaced for customer: %q", got)
+	}
+	if !strings.Contains(got, "岩师傅兰卡") || !strings.Contains(got, "公共保留款") {
+		t.Fatalf("products=%q missing alias or unrelated public product", got)
+	}
+}
+
 func TestLoadDirectShipAndProcessingServicePagesReturnSelectableProducts(t *testing.T) {
 	ctx := context.Background()
 	pool, schema := newCustomerPortalTestDB(t)

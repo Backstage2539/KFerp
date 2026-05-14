@@ -48,7 +48,7 @@ async function handleLogin() {
 
     <view class="panel">
       <input v-model="loginForm.login" class="input" placeholder="用户名或手机号" />
-      <input v-model="loginForm.password" class="input" type="password" placeholder="密码" />
+      <input v-model="loginForm.password" class="input" password placeholder="密码" />
       <button class="login-button" :loading="loading" :disabled="loading" @tap="handleLogin">
         登录
       </button>

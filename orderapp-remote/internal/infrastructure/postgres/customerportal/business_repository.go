@@ -528,7 +528,7 @@ func (r Repository) listProducts(ctx context.Context, customerID int64, limit in
 		  AND %s
 		ORDER BY name, id
 		LIMIT $1
-	`, r.schema, portalProductVisibleToCustomerSQL("$2")), limit, customerID)
+	`, r.schema, portalProductVisibleToCustomerSQL(r.schema+".products", "$2")), limit, customerID)
 	if err != nil {
 		return nil, err
 	}
@@ -544,22 +544,38 @@ func (r Repository) listProducts(ctx context.Context, customerID int64, limit in
 	return out, rows.Err()
 }
 
-func portalProductVisibleToCustomerSQL(customerPlaceholder string) string {
-	return portalProductVisibleToCustomerAliasSQL("", customerPlaceholder)
+func portalProductVisibleToCustomerSQL(productTable, customerPlaceholder string) string {
+	return portalProductVisibleToCustomerAliasSQL(productTable, "", customerPlaceholder)
 }
 
-func portalProductVisibleToCustomerAliasSQL(productAlias, customerPlaceholder string) string {
+func portalProductVisibleToCustomerAliasSQL(productTable, productAlias, customerPlaceholder string) string {
+	productTable = strings.TrimSpace(productTable)
+	if productTable == "" {
+		productTable = "products"
+	}
 	productAlias = strings.TrimSpace(productAlias)
 	if productAlias != "" {
 		productAlias += "."
 	}
 	return fmt.Sprintf(`(
-		CASE
-			WHEN COALESCE(%scustomer_id,0)>0 THEN COALESCE(NULLIF(%svisibility,''),'customer_only')
-			ELSE COALESCE(NULLIF(%svisibility,''),'public')
-		END <> 'customer_only'
-		OR COALESCE(%scustomer_id,0)=%s
-	)`, productAlias, productAlias, productAlias, productAlias, customerPlaceholder)
+		(
+			CASE
+				WHEN COALESCE(%[1]scustomer_id,0)>0 THEN COALESCE(NULLIF(%[1]svisibility,''),'customer_only')
+				ELSE COALESCE(NULLIF(%[1]svisibility,''),'public')
+			END <> 'customer_only'
+			OR COALESCE(%[1]scustomer_id,0)=%[2]s
+		)
+		AND NOT (
+			COALESCE(%[1]scustomer_id,0)=0
+			AND EXISTS (
+				SELECT 1 FROM %[3]s alias_products
+				WHERE alias_products.active=true
+				  AND COALESCE(alias_products.customer_id,0)=%[2]s
+				  AND COALESCE(alias_products.base_product_id,0)=%[1]sid
+				  AND COALESCE(NULLIF(alias_products.visibility,''),'customer_only')='customer_only'
+			)
+		)
+	)`, productAlias, customerPlaceholder, productTable)
 }
 
 func mallProductPublicCatalogSQL(productAlias string) string {
@@ -906,7 +922,7 @@ func (r Repository) CreateProcessingRequest(ctx context.Context, cmd customerpor
 			need_g=excluded.need_g,
 			target_warehouse=excluded.target_warehouse,
 			updated_at=now()
-	`, r.schema, r.schema, portalProductVisibleToCustomerAliasSQL("p", "$3")), row.ID, row.RequestNo, cmd.CustomerID, cmd.TargetProductID, cmd.TargetSpecG, int64(cmd.TargetQty), int64(cmd.TargetQty)*cmd.TargetSpecG, warehouseCode)
+	`, r.schema, r.schema, portalProductVisibleToCustomerAliasSQL(r.schema+".products", "p", "$3")), row.ID, row.RequestNo, cmd.CustomerID, cmd.TargetProductID, cmd.TargetSpecG, int64(cmd.TargetQty), int64(cmd.TargetQty)*cmd.TargetSpecG, warehouseCode)
 	if err != nil {
 		return customerportalapp.ProcessingRequest{}, err
 	}
@@ -946,7 +962,7 @@ func (r Repository) ensureProcessingTargetProductTx(ctx context.Context, tx pgx.
 			WHERE id=$1 AND active=true
 			  AND %s
 		)
-	`, r.schema, portalProductVisibleToCustomerSQL("$2")), targetProductID, customerID).Scan(&exists); err != nil {
+	`, r.schema, portalProductVisibleToCustomerSQL(r.schema+".products", "$2")), targetProductID, customerID).Scan(&exists); err != nil {
 		return err
 	}
 	if !exists {
@@ -1118,7 +1134,7 @@ func (r Repository) CreateFulfillmentOrder(ctx context.Context, cmd customerport
 		FROM %s.products
 		WHERE id=$1 AND active=true
 		  AND %s
-	`, r.schema, portalProductVisibleToCustomerSQL("$2")), cmd.ProductID, cmd.CustomerID).Scan(&productName, &defaultPrice); err != nil {
+	`, r.schema, portalProductVisibleToCustomerSQL(r.schema+".products", "$2")), cmd.ProductID, cmd.CustomerID).Scan(&productName, &defaultPrice); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return customerportalapp.FulfillmentOrder{}, fmt.Errorf("product unavailable")
 		}

@@ -40,7 +40,8 @@ describe('miniapp customer switching', () => {
     expect(pages.pages.map((page) => page.path)).toContain('pages/profile/profile')
     expect(login).toContain('loginWithPassword')
     expect(login).toContain('用户名或手机号')
-    expect(login).toContain('type="password"')
+    expect(login).toContain('password placeholder="密码"')
+    expect(login).not.toContain('type="text" placeholder="密码"')
     expect(login).not.toContain('微信一键登录')
     expect(login).not.toContain('uni.login')
 
