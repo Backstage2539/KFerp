@@ -69,9 +69,9 @@ func TestSalesOrderLayoutWrapsCustomerAddressAndAdaptsPaymentCodes(t *testing.T)
 
 	vueSrc := string(readOrderAppFileForTest(t, filepath.Join("frontend-vue-shell", "src", "views", "SalesOrderView.vue")))
 	for _, want := range []string{
-		"single-payment-code",
-		"payment-code-stack",
-		"taxpayer_id",
+		"PDFStampPreview",
+		"salesOrderPreviewPDFUrl",
+		"PREVIEW 预览版",
 		"company_address",
 	} {
 		if !strings.Contains(vueSrc, want) {

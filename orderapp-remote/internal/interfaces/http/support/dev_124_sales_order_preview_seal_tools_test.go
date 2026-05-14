@@ -26,17 +26,16 @@ func TestSalesOrderPreviewSealToolsRequirementSeeds(t *testing.T) {
 	}
 }
 
-func TestSalesOrderPreviewSupportsDraggingSealAndInlinePaymentCodes(t *testing.T) {
+func TestSalesOrderPreviewSupportsDraggingSealOnPDFPreview(t *testing.T) {
 	src := string(readOrderAppFileForTest(t, filepath.Join("frontend-vue-shell", "src", "views", "SalesOrderView.vue")))
 	for _, want := range []string{
-		`ref="previewSealStage"`,
-		`@pointerdown.stop="startPreviewSealDrag"`,
-		"savePreviewSealPosition",
+		"PDFStampPreview",
+		"@placement-commit=\"savePDFPreviewSealPosition\"",
+		"savePDFPreviewSealPosition",
 		"/api/settings/sales-order/seal-position",
-		"payment-code-preview-list",
-		"single-payment-code",
-		"payment-code-stack",
-		"payment-code-preview-card",
+		"salesOrderPreviewPlacements",
+		"pdfPlacementToSalesSealMM",
+		"salesSealMMToPDFPlacement",
 	} {
 		if !strings.Contains(src, want) {
 			t.Fatalf("SalesOrderView missing preview seal/payment-code marker %q", want)

@@ -84,15 +84,15 @@ func TestDev168OrderItemNotesFlowThroughAPISnapshotsAndViews(t *testing.T) {
 		{
 			rel: filepath.Join("frontend-vue-shell", "src", "views", "SalesOrderView.vue"),
 			wants: []string{
-				"<th>备注</th>",
-				"item.note || '-'",
+				"PDFStampPreview",
+				"salesOrderPreviewPDFUrl",
 			},
 		},
 		{
 			rel: filepath.Join("frontend-vue-shell", "src", "views", "DeliveryNoteView.vue"),
 			wants: []string{
-				"<th>备注</th>",
-				"item.note || '-'",
+				"PDFStampPreview",
+				"deliveryNotePreviewPDFUrl",
 			},
 		},
 	}

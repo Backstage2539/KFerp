@@ -64,16 +64,14 @@ func TestDev161SalesOrderSealSizeManualDocumentsWhitePaddingAndAutosave(t *testi
 func TestDev161SalesOrderPreviewUsesPageLevelSealCoordinates(t *testing.T) {
 	view := string(readOrderAppFileForTest(t, filepath.Join("frontend-vue-shell", "src", "views", "SalesOrderView.vue")))
 	for _, want := range []string{
-		`ref="previewSealStage" class="preview-box"`,
-		"preview-title",
-		"seal-stamp-preview",
+		"PDFStampPreview",
+		"salesOrderPreviewPlacements",
+		"salesSealMMToPDFPlacement",
+		"pdfPlacementToSalesSealMM",
 	} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("SalesOrderView missing page-level seal preview marker %q", want)
 		}
-	}
-	if strings.Contains(view, `ref="previewSealStage" class="preview-title"`) {
-		t.Fatal("preview seal stage must be the whole A4 preview box, not the title row")
 	}
 
 	helper := string(readOrderAppFileForTest(t, filepath.Join("frontend-vue-shell", "src", "lib", "sales-order-seal.js")))

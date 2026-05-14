@@ -473,7 +473,7 @@ git commit -m "Improve contract stamping workspace"
 - Add: `docs/acceptance/2026-05-15-document-pdf-preview-and-contract-workspace.md`
 - Add/Modify: support guard tests.
 
-- [ ] **Step 1: Update requirements and acceptance**
+- [x] **Step 1: Update requirements and acceptance**
 
 Add PR/DEV rows for:
 
@@ -487,7 +487,7 @@ DEV-278-01 contract metadata save/delete API
 DEV-278-02 contract workspace UI
 ```
 
-- [ ] **Step 2: Update manual**
+- [x] **Step 2: Update manual**
 
 Document:
 
@@ -496,7 +496,7 @@ Document:
 合同标题和备注可保存；删除合同会从列表隐藏，但历史审计和文件保留。
 ```
 
-- [ ] **Step 3: Add acceptance evidence skeleton**
+- [x] **Step 3: Add acceptance evidence skeleton**
 
 Record commands and expected markers:
 
@@ -507,7 +507,7 @@ CONTRACT_METADATA_SAVE_DELETE_OK
 CONTRACT_WORKSPACE_UI_OK
 ```
 
-- [ ] **Step 4: Run docs/support checks**
+- [x] **Step 4: Run docs/support checks**
 
 Run:
 
@@ -519,7 +519,7 @@ git diff --check
 
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add REQUIREMENTS.md ACCEPTANCE_TESTS.md OP_MANUAL_ORDER_SALES.md docs/acceptance/2026-05-15-document-pdf-preview-and-contract-workspace.md orderapp-remote/internal/interfaces/http/support
