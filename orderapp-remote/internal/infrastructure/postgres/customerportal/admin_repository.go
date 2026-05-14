@@ -90,6 +90,7 @@ func (r Repository) ListPortalAdminCustomers(ctx context.Context, query customer
 func (r Repository) ListCapabilityTemplates(ctx context.Context) ([]customerportalapp.CapabilityTemplate, error) {
 	rows, err := r.pool.Query(ctx, fmt.Sprintf(`
 		SELECT template_key,
+		       parent_template_key,
 		       label,
 		       description,
 		       theme_key,
@@ -98,10 +99,12 @@ func (r Repository) ListCapabilityTemplates(ctx context.Context) ([]customerport
 		       erp_permissions,
 		       erp_view_keys,
 		       capabilities_json,
+		       active,
+		       sort_order,
 		       to_char(updated_at,'YYYY-MM-DD HH24:MI'),
 		       updated_by
 		FROM %s.customer_capability_templates
-		ORDER BY template_key
+		ORDER BY sort_order, parent_template_key, template_key
 	`, r.schema))
 	if err != nil {
 		return nil, err
@@ -137,12 +140,13 @@ func (r Repository) SaveCapabilityTemplate(ctx context.Context, cmd customerport
 	}
 	if _, err := r.pool.Exec(ctx, fmt.Sprintf(`
 		INSERT INTO %s.customer_capability_templates(
-			template_key, label, description, theme_key, miniapp_entry_mode,
+			template_key, parent_template_key, label, description, theme_key, miniapp_entry_mode,
 			erp_role_codes, erp_permissions, erp_view_keys, capabilities_json,
-			updated_at, updated_by
+			active, sort_order, updated_at, updated_by
 		)
-		VALUES($1,$2,$3,$4,$5,$6::jsonb,$7::jsonb,$8::jsonb,$9::jsonb,now(),$10)
+		VALUES($1,$2,$3,$4,$5,$6,$7::jsonb,$8::jsonb,$9::jsonb,$10::jsonb,$11,$12,now(),$13)
 		ON CONFLICT(template_key) DO UPDATE SET
+			parent_template_key=excluded.parent_template_key,
 			label=excluded.label,
 			description=excluded.description,
 			theme_key=excluded.theme_key,
@@ -151,10 +155,13 @@ func (r Repository) SaveCapabilityTemplate(ctx context.Context, cmd customerport
 			erp_permissions=excluded.erp_permissions,
 			erp_view_keys=excluded.erp_view_keys,
 			capabilities_json=excluded.capabilities_json,
+			active=excluded.active,
+			sort_order=excluded.sort_order,
 			updated_at=now(),
 			updated_by=excluded.updated_by
 	`, r.schema),
 		cmd.Template.Key,
+		strings.TrimSpace(cmd.Template.ParentTemplateKey),
 		strings.TrimSpace(cmd.Template.Label),
 		strings.TrimSpace(cmd.Template.Description),
 		customerportalapp.NormalizePortalThemeKey(cmd.Template.ThemeKey),
@@ -163,6 +170,8 @@ func (r Repository) SaveCapabilityTemplate(ctx context.Context, cmd customerport
 		string(permissions),
 		string(viewKeys),
 		string(capabilities),
+		cmd.Template.Active,
+		cmd.Template.SortOrder,
 		strings.TrimSpace(cmd.UpdatedBy),
 	); err != nil {
 		return customerportalapp.CapabilityTemplate{}, err
@@ -173,6 +182,7 @@ func (r Repository) SaveCapabilityTemplate(ctx context.Context, cmd customerport
 func (r Repository) capabilityTemplateByKey(ctx context.Context, key string) (customerportalapp.CapabilityTemplate, error) {
 	row := r.pool.QueryRow(ctx, fmt.Sprintf(`
 		SELECT template_key,
+		       parent_template_key,
 		       label,
 		       description,
 		       theme_key,
@@ -181,6 +191,8 @@ func (r Repository) capabilityTemplateByKey(ctx context.Context, key string) (cu
 		       erp_permissions,
 		       erp_view_keys,
 		       capabilities_json,
+		       active,
+		       sort_order,
 		       to_char(updated_at,'YYYY-MM-DD HH24:MI'),
 		       updated_by
 		FROM %s.customer_capability_templates
@@ -198,6 +210,7 @@ func scanCapabilityTemplate(row capabilityTemplateScanner) (customerportalapp.Ca
 	var roleCodesRaw, permissionsRaw, viewKeysRaw, capabilitiesRaw []byte
 	if err := row.Scan(
 		&template.Key,
+		&template.ParentTemplateKey,
 		&template.Label,
 		&template.Description,
 		&template.ThemeKey,
@@ -206,6 +219,8 @@ func scanCapabilityTemplate(row capabilityTemplateScanner) (customerportalapp.Ca
 		&permissionsRaw,
 		&viewKeysRaw,
 		&capabilitiesRaw,
+		&template.Active,
+		&template.SortOrder,
 		&template.UpdatedAt,
 		&template.UpdatedBy,
 	); err != nil {

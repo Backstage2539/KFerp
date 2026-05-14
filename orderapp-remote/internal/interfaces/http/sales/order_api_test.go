@@ -530,6 +530,12 @@ func TestOrderAPIListFulfillmentScopeSkipsLegacyNonWorkbenchBinding(t *testing.T
 			customer_id BIGINT PRIMARY KEY,
 			capability_template_key TEXT NOT NULL DEFAULT ''
 		);
+		CREATE TABLE %[1]s.customer_capability_templates (
+			template_key TEXT PRIMARY KEY,
+			active BOOLEAN NOT NULL DEFAULT true,
+			erp_permissions JSONB NOT NULL DEFAULT '[]'::jsonb,
+			erp_view_keys JSONB NOT NULL DEFAULT '[]'::jsonb
+		);
 		CREATE TABLE %[1]s.customer_erp_user_bindings (
 			id BIGSERIAL PRIMARY KEY,
 			customer_id BIGINT NOT NULL,
@@ -587,6 +593,12 @@ func TestOrderAPIListFulfillmentScopeSkipsDisabledLoginBinding(t *testing.T) {
 		CREATE TABLE %[1]s.customer_portal_profiles (
 			customer_id BIGINT PRIMARY KEY,
 			capability_template_key TEXT NOT NULL DEFAULT ''
+		);
+		CREATE TABLE %[1]s.customer_capability_templates (
+			template_key TEXT PRIMARY KEY,
+			active BOOLEAN NOT NULL DEFAULT true,
+			erp_permissions JSONB NOT NULL DEFAULT '[]'::jsonb,
+			erp_view_keys JSONB NOT NULL DEFAULT '[]'::jsonb
 		);
 		CREATE TABLE %[1]s.customer_erp_user_bindings (
 			id BIGSERIAL PRIMARY KEY,

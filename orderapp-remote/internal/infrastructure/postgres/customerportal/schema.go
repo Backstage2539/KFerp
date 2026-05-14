@@ -96,6 +96,7 @@ func ensureCapabilityTemplateSchema(ctx context.Context, pool *pgxpool.Pool, sch
 	q := fmt.Sprintf(`
 CREATE TABLE IF NOT EXISTS %s.customer_capability_templates (
 	template_key TEXT PRIMARY KEY,
+	parent_template_key TEXT NOT NULL DEFAULT '',
 	label TEXT NOT NULL DEFAULT '',
 	description TEXT NOT NULL DEFAULT '',
 	theme_key TEXT NOT NULL DEFAULT 'coffee_factory',
@@ -104,6 +105,8 @@ CREATE TABLE IF NOT EXISTS %s.customer_capability_templates (
 	erp_permissions JSONB NOT NULL DEFAULT '[]'::jsonb,
 	erp_view_keys JSONB NOT NULL DEFAULT '[]'::jsonb,
 	capabilities_json JSONB NOT NULL DEFAULT '[]'::jsonb,
+	active BOOLEAN NOT NULL DEFAULT true,
+	sort_order INTEGER NOT NULL DEFAULT 0,
 	updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
 	updated_by TEXT NOT NULL DEFAULT '',
 	CONSTRAINT customer_capability_templates_roles_array_chk CHECK (jsonb_typeof(erp_role_codes) = 'array'),
@@ -112,8 +115,20 @@ CREATE TABLE IF NOT EXISTS %s.customer_capability_templates (
 	CONSTRAINT customer_capability_templates_capabilities_array_chk CHECK (jsonb_typeof(capabilities_json) = 'array')
 );
 `, schema)
-	_, err := pool.Exec(ctx, q)
-	return err
+	if _, err := pool.Exec(ctx, q); err != nil {
+		return err
+	}
+	stmts := []string{
+		`ALTER TABLE %[1]s.customer_capability_templates ADD COLUMN IF NOT EXISTS parent_template_key TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE %[1]s.customer_capability_templates ADD COLUMN IF NOT EXISTS active BOOLEAN NOT NULL DEFAULT true`,
+		`ALTER TABLE %[1]s.customer_capability_templates ADD COLUMN IF NOT EXISTS sort_order INTEGER NOT NULL DEFAULT 0`,
+	}
+	for _, stmt := range stmts {
+		if _, err := pool.Exec(ctx, fmt.Sprintf(stmt, schema)); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func ensurePortalProfileColumns(ctx context.Context, pool *pgxpool.Pool, schema string) error {

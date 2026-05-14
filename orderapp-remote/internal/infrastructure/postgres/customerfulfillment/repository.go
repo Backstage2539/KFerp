@@ -220,7 +220,11 @@ func (r *Repository) CustomerPortalContext(ctx context.Context, employeeID int64
 		if err := rows.Scan(&row.EmployeeID, &row.CustomerID, &row.CustomerName, &row.BindingRole, &row.BindingStatus, &templateKey); err != nil {
 			return app.CustomerERPContext{}, err
 		}
-		if !customerERPWorkbenchAvailableForTemplateKey(templateKey) {
+		available, err := r.customerERPWorkbenchAvailableForTemplateKey(ctx, r.pool, templateKey)
+		if err != nil {
+			return app.CustomerERPContext{}, err
+		}
+		if !available {
 			continue
 		}
 		return row, nil
@@ -255,7 +259,11 @@ func (r *Repository) requireActiveCustomerERPWorkbenchBinding(ctx context.Contex
 	if err != nil {
 		return err
 	}
-	if !customerERPWorkbenchAvailableForTemplateKey(templateKey) {
+	available, err := r.customerERPWorkbenchAvailableForTemplateKey(ctx, r.pool, templateKey)
+	if err != nil {
+		return err
+	}
+	if !available {
 		return app.ErrCustomerERPBindingNotFound
 	}
 	return nil
@@ -908,7 +916,11 @@ func (r *Repository) requireCustomerERPWorkbenchTemplateTx(ctx context.Context, 
 		}
 		return err
 	}
-	if !customerERPWorkbenchAvailableForTemplateKey(templateKey) {
+	available, err := r.customerERPWorkbenchAvailableForTemplateKey(ctx, tx, templateKey)
+	if err != nil {
+		return err
+	}
+	if !available {
 		return customerportalapp.ErrCapabilityTemplateERPWorkbenchUnavailable
 	}
 	return nil
@@ -926,7 +938,10 @@ func (r *Repository) grantCustomerTemplateRolesForEmployeeTx(ctx context.Context
 		}
 		return err
 	}
-	template, ok := customerportalapp.CustomerCapabilityTemplateByKey(templateKey)
+	template, ok, err := r.customerCapabilityTemplateForKey(ctx, tx, templateKey)
+	if err != nil {
+		return err
+	}
 	if !ok || len(template.ERPRoleCodes) == 0 {
 		return nil
 	}
@@ -995,15 +1010,7 @@ func (r *Repository) CustomerERPWorkbenchAvailable(ctx context.Context, customer
 		}
 		return false, err
 	}
-	return customerERPWorkbenchAvailableForTemplateKey(templateKey), nil
-}
-
-func customerERPWorkbenchAvailableForTemplateKey(templateKey string) bool {
-	if strings.TrimSpace(templateKey) == "" {
-		return true
-	}
-	template, ok := customerportalapp.CustomerCapabilityTemplateByKey(templateKey)
-	return ok && template.ExposesERPWorkbench()
+	return r.customerERPWorkbenchAvailableForTemplateKey(ctx, r.pool, templateKey)
 }
 
 func (r *Repository) CustomerFulfillmentOptions(ctx context.Context, customerID int64) (app.CustomerFulfillmentOptions, error) {
@@ -1135,9 +1142,161 @@ func (r *Repository) listCustomerSKUOptions(ctx context.Context, customerID int6
 	return out, nil
 }
 
+type queryRower interface {
+	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
+}
+
+func (r *Repository) customerCapabilityTemplateForCustomer(ctx context.Context, q queryRower, customerID int64) (customerportalapp.CapabilityTemplate, bool, error) {
+	var raw string
+	err := q.QueryRow(ctx, fmt.Sprintf(`
+		SELECT COALESCE(capability_template_key,'')
+		FROM %s.customer_portal_profiles
+		WHERE customer_id=$1
+	`, r.schema), customerID).Scan(&raw)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return customerportalapp.CapabilityTemplate{}, false, nil
+	}
+	if err != nil {
+		return customerportalapp.CapabilityTemplate{}, false, err
+	}
+	key := customerportalapp.NormalizeCapabilityTemplateKey(raw)
+	if strings.TrimSpace(raw) != "" && key == "" {
+		return customerportalapp.CapabilityTemplate{}, false, customerportalapp.ErrCapabilityTemplateInvalid
+	}
+	if key == "" {
+		return customerportalapp.CapabilityTemplate{}, false, nil
+	}
+	return r.customerCapabilityTemplateForKey(ctx, q, key)
+}
+
+func (r *Repository) customerCapabilityTemplateForKey(ctx context.Context, q queryRower, key string) (customerportalapp.CapabilityTemplate, bool, error) {
+	key = customerportalapp.NormalizeCapabilityTemplateKey(key)
+	if key == "" {
+		return customerportalapp.CapabilityTemplate{}, false, customerportalapp.ErrCapabilityTemplateInvalid
+	}
+	var hasTable bool
+	if err := q.QueryRow(ctx, `SELECT to_regclass($1) IS NOT NULL`, fmt.Sprintf("%s.customer_capability_templates", r.schema)).Scan(&hasTable); err != nil {
+		return customerportalapp.CapabilityTemplate{}, false, err
+	}
+	if hasTable {
+		row := q.QueryRow(ctx, fmt.Sprintf(`
+			SELECT template_key,
+			       parent_template_key,
+			       label,
+			       description,
+			       theme_key,
+			       miniapp_entry_mode,
+			       erp_role_codes,
+			       erp_permissions,
+			       erp_view_keys,
+			       capabilities_json,
+			       active,
+			       sort_order,
+			       to_char(updated_at,'YYYY-MM-DD HH24:MI'),
+			       updated_by
+			FROM %s.customer_capability_templates
+			WHERE template_key=$1
+		`, r.schema), key)
+		template, err := scanCustomerCapabilityTemplate(row)
+		if err == nil {
+			if !template.Active {
+				return customerportalapp.CapabilityTemplate{}, false, customerportalapp.ErrCapabilityTemplateInvalid
+			}
+			return template, true, nil
+		}
+		if !errors.Is(err, pgx.ErrNoRows) {
+			return customerportalapp.CapabilityTemplate{}, false, err
+		}
+	}
+	if template, ok := customerportalapp.CustomerCapabilityTemplateByKey(key); ok && template.Active {
+		return template, true, nil
+	}
+	return customerportalapp.CapabilityTemplate{}, false, customerportalapp.ErrCapabilityTemplateInvalid
+}
+
+func (r *Repository) customerERPWorkbenchAvailableForTemplateKey(ctx context.Context, q queryRower, templateKey string) (bool, error) {
+	if strings.TrimSpace(templateKey) == "" {
+		return true, nil
+	}
+	template, ok, err := r.customerCapabilityTemplateForKey(ctx, q, templateKey)
+	if err != nil {
+		if errors.Is(err, customerportalapp.ErrCapabilityTemplateInvalid) {
+			return false, nil
+		}
+		return false, err
+	}
+	return ok && template.ExposesERPWorkbench(), nil
+}
+
+type capabilityTemplateScanner interface {
+	Scan(dest ...any) error
+}
+
+func scanCustomerCapabilityTemplate(row capabilityTemplateScanner) (customerportalapp.CapabilityTemplate, error) {
+	var template customerportalapp.CapabilityTemplate
+	var roleCodesRaw, permissionsRaw, viewKeysRaw, capabilitiesRaw []byte
+	if err := row.Scan(
+		&template.Key,
+		&template.ParentTemplateKey,
+		&template.Label,
+		&template.Description,
+		&template.ThemeKey,
+		&template.MiniappEntryMode,
+		&roleCodesRaw,
+		&permissionsRaw,
+		&viewKeysRaw,
+		&capabilitiesRaw,
+		&template.Active,
+		&template.SortOrder,
+		&template.UpdatedAt,
+		&template.UpdatedBy,
+	); err != nil {
+		return customerportalapp.CapabilityTemplate{}, err
+	}
+	template.ERPRoleCodes = decodeCustomerTemplateStringSlice(roleCodesRaw)
+	template.ERPPermissions = decodeCustomerTemplateStringSlice(permissionsRaw)
+	template.ERPViewKeys = decodeCustomerTemplateStringSlice(viewKeysRaw)
+	if len(capabilitiesRaw) > 0 {
+		_ = json.Unmarshal(capabilitiesRaw, &template.Capabilities)
+	}
+	if template.Capabilities == nil {
+		template.Capabilities = []customerportalapp.CapabilityOption{}
+	}
+	return template, nil
+}
+
+func decodeCustomerTemplateStringSlice(raw []byte) []string {
+	if len(raw) == 0 {
+		return []string{}
+	}
+	var values []string
+	if err := json.Unmarshal(raw, &values); err != nil {
+		return []string{}
+	}
+	out := make([]string, 0, len(values))
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value != "" {
+			out = append(out, value)
+		}
+	}
+	return out
+}
+
 func (r *Repository) listCustomerCapabilityCodes(ctx context.Context, customerID int64) ([]string, error) {
 	if customerID <= 0 {
 		return []string{}, nil
+	}
+	if template, ok, err := r.customerCapabilityTemplateForCustomer(ctx, r.pool, customerID); err != nil {
+		return nil, err
+	} else if ok {
+		out := make([]string, 0, len(template.Capabilities))
+		for _, capability := range template.Capabilities {
+			if capability.Enabled && strings.TrimSpace(capability.Code) != "" {
+				out = append(out, strings.TrimSpace(capability.Code))
+			}
+		}
+		return out, nil
 	}
 	var hasTable bool
 	if err := r.pool.QueryRow(ctx, `SELECT to_regclass($1) IS NOT NULL`, fmt.Sprintf("%s.customer_service_capabilities", r.schema)).Scan(&hasTable); err != nil {
@@ -1172,6 +1331,22 @@ func (r *Repository) listCustomerCapabilityCodes(ctx context.Context, customerID
 
 func (r *Repository) customerAllowsPublicSKUOptions(ctx context.Context, customerID int64) (bool, error) {
 	if customerID <= 0 {
+		return false, nil
+	}
+	if template, ok, err := r.customerCapabilityTemplateForCustomer(ctx, r.pool, customerID); err != nil {
+		return false, err
+	} else if ok {
+		for _, capability := range template.Capabilities {
+			if !capability.Enabled {
+				continue
+			}
+			if capability.Code != "direct_ship" && capability.Code != "product_order" {
+				continue
+			}
+			if strings.EqualFold(fmt.Sprint(capability.Config["public_sku_aliases"]), "true") {
+				return true, nil
+			}
+		}
 		return false, nil
 	}
 	var hasTable bool

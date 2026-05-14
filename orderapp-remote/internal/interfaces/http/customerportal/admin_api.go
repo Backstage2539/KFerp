@@ -39,15 +39,23 @@ type portalERPBindingRequest struct {
 }
 
 type saveCapabilityTemplateRequest struct {
-	Key              string                               `json:"key"`
-	Label            string                               `json:"label"`
-	Description      string                               `json:"description"`
-	ThemeKey         string                               `json:"theme_key"`
-	MiniappEntryMode string                               `json:"miniapp_entry_mode"`
-	ERPRoleCodes     []string                             `json:"erp_role_codes"`
-	ERPPermissions   []string                             `json:"erp_permissions"`
-	ERPViewKeys      []string                             `json:"erp_view_keys"`
-	Capabilities     []customerportalapp.CapabilityOption `json:"capabilities"`
+	Key               string                               `json:"key"`
+	ParentTemplateKey string                               `json:"parent_template_key"`
+	Label             string                               `json:"label"`
+	Description       string                               `json:"description"`
+	ThemeKey          string                               `json:"theme_key"`
+	MiniappEntryMode  string                               `json:"miniapp_entry_mode"`
+	ERPRoleCodes      []string                             `json:"erp_role_codes"`
+	ERPPermissions    []string                             `json:"erp_permissions"`
+	ERPViewKeys       []string                             `json:"erp_view_keys"`
+	Capabilities      []customerportalapp.CapabilityOption `json:"capabilities"`
+	Active            *bool                                `json:"active"`
+	SortOrder         int                                  `json:"sort_order"`
+}
+
+type copyCapabilityTemplateRequest struct {
+	NewKey string `json:"new_key"`
+	Label  string `json:"label"`
 }
 
 type mallProductRequest struct {
@@ -96,18 +104,48 @@ func registerAdminAPI(e *echo.Echo, svc Service, assetDirs ...string) {
 		if err := c.Bind(&req); err != nil {
 			return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid request"})
 		}
+		active := true
+		activeSet := false
+		if req.Active != nil {
+			active = *req.Active
+			activeSet = true
+		}
 		row, err := svc.SaveCapabilityTemplate(c.Request().Context(), customerportalapp.SaveCapabilityTemplateCommand{
 			Template: customerportalapp.CapabilityTemplate{
-				Key:              key,
-				Label:            req.Label,
-				Description:      req.Description,
-				ThemeKey:         req.ThemeKey,
-				MiniappEntryMode: req.MiniappEntryMode,
-				ERPRoleCodes:     req.ERPRoleCodes,
-				ERPPermissions:   req.ERPPermissions,
-				ERPViewKeys:      req.ERPViewKeys,
-				Capabilities:     req.Capabilities,
+				Key:               key,
+				ParentTemplateKey: req.ParentTemplateKey,
+				Label:             req.Label,
+				Description:       req.Description,
+				ThemeKey:          req.ThemeKey,
+				MiniappEntryMode:  req.MiniappEntryMode,
+				ERPRoleCodes:      req.ERPRoleCodes,
+				ERPPermissions:    req.ERPPermissions,
+				ERPViewKeys:       req.ERPViewKeys,
+				Capabilities:      req.Capabilities,
+				Active:            active,
+				SortOrder:         req.SortOrder,
 			},
+			UpdatedBy: support.ActorOf(c),
+			ActiveSet: activeSet,
+		})
+		if err != nil {
+			return portalAdminError(c, err)
+		}
+		return c.JSON(http.StatusOK, row)
+	})
+
+	e.POST("/api/customer-portal/admin/capability-templates/:key/copy", func(c echo.Context) error {
+		if svc == nil {
+			return c.JSON(http.StatusInternalServerError, map[string]string{"error": "internal error"})
+		}
+		var req copyCapabilityTemplateRequest
+		if err := c.Bind(&req); err != nil {
+			return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid request"})
+		}
+		row, err := svc.CopyCapabilityTemplate(c.Request().Context(), customerportalapp.CopyCapabilityTemplateCommand{
+			SourceKey: strings.TrimSpace(c.Param("key")),
+			NewKey:    req.NewKey,
+			Label:     req.Label,
 			UpdatedBy: support.ActorOf(c),
 		})
 		if err != nil {
@@ -325,6 +363,10 @@ func portalAdminError(c echo.Context, err error) error {
 	}
 	if errors.Is(err, customerportalapp.ErrCapabilityTemplateERPWorkbenchUnavailable) ||
 		err.Error() == customerportalapp.ErrCapabilityTemplateERPWorkbenchUnavailable.Error() {
+		return c.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
+	}
+	if errors.Is(err, customerportalapp.ErrCapabilityTemplateInvalid) ||
+		err.Error() == customerportalapp.ErrCapabilityTemplateInvalid.Error() {
 		return c.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
 	}
 	if isMiniValidationError(err) {
