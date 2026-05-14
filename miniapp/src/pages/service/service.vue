@@ -7,6 +7,7 @@ import {
   createFulfillmentOrder,
   createProcessingRequest,
   fetchServicePage,
+  switchCurrentCustomer,
   type InventoryItem,
   type ProductSummary,
   type ServicePageResponse,
@@ -21,6 +22,13 @@ import {
 } from '../../utils/beanListPageCache'
 import { buildOrderServiceFilters, datePresetRange, normalizeDateRange, type OrderDatePreset } from '../../utils/orderFilters'
 import { normalizeServiceKey, serviceTitle, visibleServiceSections, type ServiceKey } from '../../utils/servicePage'
+import {
+  customerEntryRoute,
+  customerPickerIndex as selectedCustomerPickerIndex,
+  customerPickerLabels as buildCustomerPickerLabels,
+  selectedCustomerID,
+  shouldShowCustomerSwitcher,
+} from '../../utils/customerSwitch'
 import { miniappThemeClass, miniappThemeMeta } from '../../utils/themes'
 
 type OrderSearchForm = {
@@ -49,6 +57,7 @@ const errorMessage = ref('')
 const cachedBeanList = ref<BeanListSummary | null>(null)
 const beanListCacheStatus = ref('')
 const orderSearch = ref<OrderSearchForm>(emptyOrderSearch())
+const switching = ref(false)
 
 const defaultProcessStatusOptions = ['待处理', '生产中', '生产完成', '库存待发货', '无需生产']
 const defaultPayStatusOptions = ['未付款', '已付款', '未收款', '已收款']
@@ -100,6 +109,9 @@ const fulfillmentProductLabels = computed(() => pickerLabels(fulfillmentProductO
 const selectedProcessingInputLabel = computed(() => selectedPickerLabel(processingInputOptions.value, processingForm.value.input_material_id, '选择投入物料'))
 const selectedProcessingTargetProductLabel = computed(() => selectedPickerLabel(processingTargetProductOptions.value, processingForm.value.target_product_id, '选择目标产品'))
 const selectedFulfillmentProductLabel = computed(() => selectedPickerLabel(fulfillmentProductOptions.value, fulfillmentForm.value.product_id, '选择发货商品'))
+const canSwitchCustomer = computed(() => shouldShowCustomerSwitcher(session.bindings))
+const customerPickerLabels = computed(() => buildCustomerPickerLabels(session.bindings, session.currentCustomerID))
+const customerPickerIndex = computed(() => selectedCustomerPickerIndex(session.bindings, session.currentCustomerID))
 
 async function loadPage() {
   if (!session.token) {
@@ -178,6 +190,57 @@ function cacheBeanListPage(item: BeanListSummary): boolean {
 
 function showBeanListCategory(item: BeanListSummary, group: { show_category?: boolean; category?: string }): boolean {
   return item.show_category_numbers !== false && group.show_category !== false && Boolean(group.category)
+}
+
+function resetLocalForms() {
+  directShipForm.value = { source_name: '', total_rows: 0, note: '' }
+  processingForm.value = {
+    input_material_id: 0,
+    input_qty_g: 0,
+    target_product_id: 0,
+    target_spec_g: 454,
+    target_qty: 1,
+    note: '',
+  }
+  fulfillmentForm.value = {
+    recipient_name: '',
+    recipient_phone: '',
+    recipient_address: '',
+    recipient_company: '',
+    product_id: 0,
+    product_name: '',
+    spec_g: 454,
+    qty: 1,
+    shipping_amount: 0,
+    note: '',
+  }
+  orderSearch.value = emptyOrderSearch()
+  page.value = null
+}
+
+function logout() {
+  resetLocalForms()
+  session.clearSession()
+  uni.redirectTo({ url: '/pages/login/login' })
+}
+
+async function handleCustomerSwitch(event: { detail?: { value?: number | string } }) {
+  if (switching.value || !session.token) return
+  const customerID = selectedCustomerID(session.bindings, Number(event.detail?.value ?? -1))
+  if (!customerID || customerID === session.currentCustomerID) return
+
+  switching.value = true
+  errorMessage.value = ''
+  try {
+    const response = await switchCurrentCustomer(session.token, customerID)
+    resetLocalForms()
+    session.applyContext(response)
+    uni.redirectTo({ url: customerEntryRoute(response) })
+  } catch (error) {
+    errorMessage.value = error instanceof Error ? error.message : '切换客户失败'
+  } finally {
+    switching.value = false
+  }
 }
 
 async function applyOrderFilters() {
@@ -425,6 +488,12 @@ onShow(() => {
       <text class="eyebrow">{{ themeMeta.eyebrow }}</text>
       <text class="title">{{ title }}</text>
       <text class="subtitle">{{ page?.current_customer_name || session.currentCustomerName || '客户中心' }}</text>
+      <view class="account-actions">
+        <picker v-if="canSwitchCustomer" mode="selector" :range="customerPickerLabels" :value="customerPickerIndex" @change="handleCustomerSwitch">
+          <view class="customer-switch">{{ switching ? '切换中...' : customerPickerLabels[customerPickerIndex] || '切换客户' }}</view>
+        </picker>
+        <button class="logout-link" size="mini" @tap="logout">退出登录</button>
+      </view>
     </view>
 
     <view v-if="loading" class="state">
@@ -760,6 +829,41 @@ onShow(() => {
 
 .theme-clean-ops .title {
   color: #14201a;
+}
+
+.account-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 14rpx;
+  margin-top: 8rpx;
+}
+
+.customer-switch,
+.logout-link {
+  min-height: 56rpx;
+  margin: 0;
+  padding: 0 22rpx;
+  border: 1rpx solid rgba(255, 248, 235, .56);
+  border-radius: 8rpx;
+  background: rgba(255, 255, 255, .12);
+  color: #fff8eb;
+  font-size: 24rpx;
+  font-weight: 900;
+  line-height: 56rpx;
+}
+
+.theme-clean-ops .customer-switch,
+.theme-clean-ops .logout-link {
+  border-color: #cddbd4;
+  background: #eef6f2;
+  color: #28624a;
+}
+
+.theme-premium-partner .customer-switch,
+.theme-premium-partner .logout-link {
+  border-color: rgba(255, 248, 235, .5);
+  background: rgba(255, 248, 235, .14);
 }
 
 .subtitle {

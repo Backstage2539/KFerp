@@ -296,6 +296,10 @@ export function buildMallOrderPath(): string {
   return '/api/mini/mall/orders'
 }
 
+export function buildSwitchCustomerPath(): string {
+  return '/api/mini/current-customer'
+}
+
 export function fetchServicePage(token: string, key: ServiceKey, filters: ServicePageFilters = {}): Promise<ServicePageResponse> {
   return miniRequest<ServicePageResponse>(buildServicePagePath(key, filters), { token })
 }
@@ -309,6 +313,14 @@ export function createMallOrder(token: string, payload: MallOrderPayload): Promi
     method: 'POST',
     token,
     data: payload,
+  })
+}
+
+export function switchCurrentCustomer(token: string, customerID: number): Promise<MeResponse> {
+  return miniRequest<MeResponse>(buildSwitchCustomerPath(), {
+    method: 'POST',
+    token,
+    data: { customer_id: customerID },
   })
 }
 
