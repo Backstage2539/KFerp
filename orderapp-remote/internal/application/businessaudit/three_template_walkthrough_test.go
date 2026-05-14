@@ -650,6 +650,15 @@ func (s *threeTemplateWalkthroughStore) LoadMallPage(_ context.Context, customer
 	}, nil
 }
 
+func (s *threeTemplateWalkthroughStore) CustomerOwnsOrder(_ context.Context, customerID, orderID int64) (bool, error) {
+	for _, order := range s.orders {
+		if order.ID == orderID && order.CustomerID == customerID {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
 func (s *threeTemplateWalkthroughStore) CreateMallOrder(_ context.Context, cmd customerportalapp.CreateMallOrderCommand) (customerportalapp.FulfillmentOrder, error) {
 	order := s.addOrder(cmd.CustomerID, customerportalapp.PortalServiceMall, "审计冷萃豆", 8, 250, cmd.Items[0].Qty, financedomain.Money(cmd.Items[0].Qty)*68, "finished_goods")
 	return customerportalapp.FulfillmentOrder{OrderID: order.ID, OrderNo: order.OrderNo, PortalServiceCode: customerportalapp.PortalServiceMall, SourceWarehouse: order.SourceWarehouse}, nil

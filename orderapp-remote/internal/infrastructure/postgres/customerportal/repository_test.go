@@ -458,6 +458,51 @@ func TestMiniappCurrentCustomerSwitchScopesOrderServicePage(t *testing.T) {
 	}
 }
 
+func TestCustomerOwnsOrderChecksActiveCustomerOrder(t *testing.T) {
+	ctx := context.Background()
+	pool, schema := newCustomerPortalTestDB(t)
+	repo := NewRepository(pool, schema)
+
+	var customerAID, customerBID, orderAID, orderBID int64
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`
+		INSERT INTO %s.customers(name, active) VALUES('文档客户A',true) RETURNING id
+	`, schema)).Scan(&customerAID); err != nil {
+		t.Fatalf("insert customer A: %v", err)
+	}
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`
+		INSERT INTO %s.customers(name, active) VALUES('文档客户B',true) RETURNING id
+	`, schema)).Scan(&customerBID); err != nil {
+		t.Fatalf("insert customer B: %v", err)
+	}
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`
+		INSERT INTO %[1]s.orders(order_no, order_date, customer_id, is_void)
+		VALUES('SO-DOC-A','2026-05-15',$1,false)
+		RETURNING id
+	`, schema), customerAID).Scan(&orderAID); err != nil {
+		t.Fatalf("insert order A: %v", err)
+	}
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`
+		INSERT INTO %[1]s.orders(order_no, order_date, customer_id, is_void)
+		VALUES('SO-DOC-B','2026-05-15',$1,true)
+		RETURNING id
+	`, schema), customerBID).Scan(&orderBID); err != nil {
+		t.Fatalf("insert order B: %v", err)
+	}
+
+	ok, err := repo.CustomerOwnsOrder(ctx, customerAID, orderAID)
+	if err != nil || !ok {
+		t.Fatalf("CustomerOwnsOrder(customer A, order A) ok=%v err=%v", ok, err)
+	}
+	ok, err = repo.CustomerOwnsOrder(ctx, customerAID, orderBID)
+	if err != nil || ok {
+		t.Fatalf("CustomerOwnsOrder(customer A, void customer B order) ok=%v err=%v", ok, err)
+	}
+	ok, err = repo.CustomerOwnsOrder(ctx, customerBID, orderAID)
+	if err != nil || ok {
+		t.Fatalf("CustomerOwnsOrder(customer B, order A) ok=%v err=%v", ok, err)
+	}
+}
+
 func TestMiniappCurrentCustomerSwitchRejectsUnapprovedCustomerWithoutChangingSession(t *testing.T) {
 	ctx := context.Background()
 	pool, schema := newCustomerPortalTestDB(t)

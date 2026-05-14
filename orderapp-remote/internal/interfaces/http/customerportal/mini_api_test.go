@@ -13,6 +13,7 @@ import (
 	"testing"
 
 	customerportalapp "orderapp/internal/application/customerportal"
+	salesapp "orderapp/internal/application/sales"
 
 	"github.com/labstack/echo/v4"
 )
@@ -44,6 +45,8 @@ type fakeService struct {
 	fulfillment      customerportalapp.FulfillmentOrder
 	fulfillmentCmd   *customerportalapp.CreateFulfillmentOrderCommand
 	beanList         customerportalapp.BeanListSummary
+	orderAccessToken *string
+	orderAccessID    *int64
 	err              error
 }
 
@@ -246,6 +249,48 @@ func (s fakeService) CreateFulfillmentOrder(_ context.Context, _ string, cmd cus
 		*s.fulfillmentCmd = cmd
 	}
 	return s.fulfillment, nil
+}
+
+func (s fakeService) EnsureOrderAccess(_ context.Context, token string, orderID int64) error {
+	if s.err != nil {
+		return s.err
+	}
+	if s.orderAccessToken != nil {
+		*s.orderAccessToken = token
+	}
+	if s.orderAccessID != nil {
+		*s.orderAccessID = orderID
+	}
+	return nil
+}
+
+type fakeMiniSalesDocuments struct {
+	salesPath       string
+	deliveryPath    string
+	salesOrderID    int64
+	deliveryOrderID int64
+	salesLatest     bool
+	deliveryLatest  bool
+}
+
+func (f *fakeMiniSalesDocuments) LoadSalesOrderDocumentFile(_ context.Context, orderID, documentID int64, latest bool) (salesapp.SalesOrderDocumentFile, error) {
+	f.salesOrderID = orderID
+	f.salesLatest = latest
+	return salesapp.SalesOrderDocumentFile{
+		Document: salesapp.SalesOrderDocument{ID: documentID, OrderID: orderID, OrderNo: "SO-MINI", VersionNo: 1},
+		Path:     f.salesPath,
+		Filename: "SO-MINI-sales-order.pdf",
+	}, nil
+}
+
+func (f *fakeMiniSalesDocuments) LoadDeliveryNoteDocumentFile(_ context.Context, orderID, documentID int64, latest bool) (salesapp.DeliveryNoteDocumentFile, error) {
+	f.deliveryOrderID = orderID
+	f.deliveryLatest = latest
+	return salesapp.DeliveryNoteDocumentFile{
+		Document: salesapp.DeliveryNoteDocument{ID: documentID, OrderID: orderID, OrderNo: "SO-MINI", VersionNo: 1},
+		Path:     f.deliveryPath,
+		Filename: "SO-MINI-delivery-note.pdf",
+	}, nil
 }
 
 func TestMiniLoginAndMeAPI(t *testing.T) {
@@ -518,6 +563,82 @@ func TestMiniOrdersServicePageAPIReturnsDirectOrderPayload(t *testing.T) {
 		!strings.Contains(rec.Body.String(), `"order_no":"SO-DIRECT"`) ||
 		!strings.Contains(rec.Body.String(), `"grand_total":"258.00"`) {
 		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestMiniOrdersServicePageAPIReturnsDocumentURLs(t *testing.T) {
+	e := echo.New()
+	RegisterRoutes(e, Dependencies{CustomerPortal: fakeService{service: customerportalapp.ServicePage{
+		Key:                 customerportalapp.ServiceKeyOrders,
+		Title:               "我的订单",
+		CurrentCustomerID:   8,
+		CurrentCustomerName: "客户A",
+		Orders: []customerportalapp.CustomerOrderSummary{{
+			ID: 88, OrderNo: "SO-DOC", SalesOrderURL: "/api/mini/orders/88/sales-order-latest.pdf", DeliveryNoteURL: "/api/mini/orders/88/delivery-note-latest.pdf",
+		}},
+	}}})
+
+	req := httptest.NewRequest(http.MethodGet, "/api/mini/services/orders", nil)
+	req.Header.Set(echo.HeaderAuthorization, "Bearer mini-token")
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK ||
+		!strings.Contains(rec.Body.String(), `"sales_order_url":"/api/mini/orders/88/sales-order-latest.pdf"`) ||
+		!strings.Contains(rec.Body.String(), `"delivery_note_url":"/api/mini/orders/88/delivery-note-latest.pdf"`) {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestMiniOrderDocumentsRequireTokenAndCheckOrderAccess(t *testing.T) {
+	tmp := t.TempDir()
+	salesPath := tmp + "/sales.pdf"
+	deliveryPath := tmp + "/delivery.pdf"
+	if err := os.WriteFile(salesPath, []byte("%PDF-sales"), 0o600); err != nil {
+		t.Fatalf("write sales pdf: %v", err)
+	}
+	if err := os.WriteFile(deliveryPath, []byte("%PDF-delivery"), 0o600); err != nil {
+		t.Fatalf("write delivery pdf: %v", err)
+	}
+	var accessToken string
+	var accessOrderID int64
+	docs := &fakeMiniSalesDocuments{salesPath: salesPath, deliveryPath: deliveryPath}
+	e := echo.New()
+	RegisterRoutes(e, Dependencies{
+		CustomerPortal: fakeService{orderAccessToken: &accessToken, orderAccessID: &accessOrderID},
+		SalesDocuments: docs,
+	})
+
+	noToken := httptest.NewRequest(http.MethodGet, "/api/mini/orders/88/sales-order-latest.pdf", nil)
+	noTokenRec := httptest.NewRecorder()
+	e.ServeHTTP(noTokenRec, noToken)
+	if noTokenRec.Code != http.StatusUnauthorized {
+		t.Fatalf("no token status=%d body=%s", noTokenRec.Code, noTokenRec.Body.String())
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/mini/orders/88/sales-order-latest.pdf", nil)
+	req.Header.Set(echo.HeaderAuthorization, "Bearer mini-token")
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK ||
+		rec.Header().Get(echo.HeaderContentType) != "application/pdf" ||
+		!strings.Contains(rec.Body.String(), "%PDF-sales") {
+		t.Fatalf("sales status=%d content-type=%s body=%s", rec.Code, rec.Header().Get(echo.HeaderContentType), rec.Body.String())
+	}
+	if accessToken != "mini-token" || accessOrderID != 88 || docs.salesOrderID != 88 || !docs.salesLatest {
+		t.Fatalf("sales access token=%q accessOrderID=%d docs=%+v", accessToken, accessOrderID, docs)
+	}
+
+	deliveryReq := httptest.NewRequest(http.MethodGet, "/api/mini/orders/88/delivery-note-latest.pdf", nil)
+	deliveryReq.Header.Set(echo.HeaderAuthorization, "Bearer mini-token")
+	deliveryRec := httptest.NewRecorder()
+	e.ServeHTTP(deliveryRec, deliveryReq)
+	if deliveryRec.Code != http.StatusOK ||
+		deliveryRec.Header().Get(echo.HeaderContentType) != "application/pdf" ||
+		!strings.Contains(deliveryRec.Body.String(), "%PDF-delivery") {
+		t.Fatalf("delivery status=%d content-type=%s body=%s", deliveryRec.Code, deliveryRec.Header().Get(echo.HeaderContentType), deliveryRec.Body.String())
+	}
+	if docs.deliveryOrderID != 88 || !docs.deliveryLatest {
+		t.Fatalf("delivery docs=%+v", docs)
 	}
 }
 
@@ -1549,6 +1670,10 @@ func (r *templateContractRepository) LoadMallPage(context.Context, int64) (custo
 			ID: 11, ProductID: 8, Title: "乌拉嘎", SpecG: 250, UnitPrice: 68, Status: customerportalapp.MallProductStatusPublished,
 		}},
 	}, nil
+}
+
+func (r *templateContractRepository) CustomerOwnsOrder(context.Context, int64, int64) (bool, error) {
+	return true, nil
 }
 
 func (r *templateContractRepository) CreateMallOrder(context.Context, customerportalapp.CreateMallOrderCommand) (customerportalapp.FulfillmentOrder, error) {

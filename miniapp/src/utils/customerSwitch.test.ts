@@ -24,7 +24,7 @@ describe('miniapp customer switching', () => {
   })
 
   it('routes a switched customer to the correct miniapp entry page', () => {
-    expect(customerEntryRoute({ miniapp_entry_mode: 'mall', capabilities: [{ code: 'mall', enabled: true }] })).toBe('/pages/mall/mall')
+    expect(customerEntryRoute({ miniapp_entry_mode: 'mall', capabilities: [{ code: 'mall', enabled: true }] })).toBe('/pages/home/home')
     expect(customerEntryRoute({ miniapp_entry_mode: 'mall', capabilities: [{ code: 'mall', enabled: false }] })).toBe('/pages/home/home')
     expect(customerEntryRoute({ miniapp_entry_mode: 'services', capabilities: [{ code: 'direct_ship', enabled: true }] })).toBe('/pages/home/home')
   })
@@ -52,7 +52,8 @@ describe('miniapp customer switching', () => {
     expect(profile).toContain('退出登录')
 
     for (const source of [home, mall, service]) {
-      expect(source).toContain('个人中心')
+      expect(source).toContain('MainTabBar')
+      expect(source).not.toContain('个人中心')
       expect(source).not.toContain('handleCustomerSwitch')
       expect(source).not.toContain('退出登录')
     }

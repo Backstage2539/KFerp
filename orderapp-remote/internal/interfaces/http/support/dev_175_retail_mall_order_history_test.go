@@ -8,33 +8,33 @@ import (
 
 func TestRetailMallCustomersCanReachOrderHistoryFromMiniapp(t *testing.T) {
 	capabilities := string(readOrderAppFileForTest(t, filepath.Join("..", "miniapp", "src", "utils", "capabilities.ts")))
-	mallPage := string(readOrderAppFileForTest(t, filepath.Join("..", "miniapp", "src", "pages", "mall", "mall.vue")))
+	tabBar := string(readOrderAppFileForTest(t, filepath.Join("..", "miniapp", "src", "components", "MainTabBar.vue")))
 	service := string(readOrderAppFileForTest(t, filepath.Join("internal", "application", "customerportal", "service.go")))
 	manual := string(readOrderAppFileForTest(t, filepath.Join("docs", "OP_MANUAL_CUSTOMER_PORTAL.md")))
 
 	for _, want := range []string{
-		"capabilities: ['product_order', 'direct_ship', 'shipping_query', 'mall']",
-		"/pages/service/service?key=orders",
+		"key: 'mall'",
+		"url: '/pages/mall/mall'",
 	} {
 		if !strings.Contains(capabilities, want) {
 			t.Fatalf("miniapp capabilities missing retail mall order history marker %q", want)
 		}
 	}
 	for _, want := range []string{
-		"function openOrders()",
-		"uni.navigateTo({ url: '/pages/service/service?key=orders' })",
-		"我的订单",
+		"订单",
+		"/pages/service/service?key=orders",
+		"uni.reLaunch",
 	} {
-		if !strings.Contains(mallPage, want) {
-			t.Fatalf("miniapp mall page missing order-history marker %q", want)
+		if !strings.Contains(tabBar, want) {
+			t.Fatalf("miniapp main tab bar missing order-history marker %q", want)
 		}
 	}
 	if !strings.Contains(service, "CapabilityMall") || !strings.Contains(service, "ServiceKeyOrders") {
 		t.Fatal("customer portal service must allow mall customers to query order history")
 	}
 	for _, want := range []string{
-		"商城页顶部保留“我的订单”",
-		"查看商城订单记录",
+		"底部“订单”",
+		"查看已提交商城订单记录",
 	} {
 		if !strings.Contains(manual, want) {
 			t.Fatalf("customer portal manual missing retail mall order-history instruction %q", want)

@@ -288,6 +288,8 @@ type CustomerOrderSummary struct {
 	ShipTrackingNo  string                     `json:"ship_tracking_no"`
 	GrandTotal      string                     `json:"grand_total"`
 	ShippingAmount  string                     `json:"shipping_amount"`
+	SalesOrderURL   string                     `json:"sales_order_url,omitempty"`
+	DeliveryNoteURL string                     `json:"delivery_note_url,omitempty"`
 	Items           []CustomerOrderItemSummary `json:"items,omitempty"`
 }
 
@@ -626,6 +628,7 @@ type Repository interface {
 	SaveMallProduct(ctx context.Context, cmd SaveMallProductCommand) (MallProduct, error)
 	UpdateMallProductImage(ctx context.Context, cmd UpdateMallProductImageCommand) (MallProduct, error)
 	LoadMallPage(ctx context.Context, customerID int64) (MallPage, error)
+	CustomerOwnsOrder(ctx context.Context, customerID, orderID int64) (bool, error)
 	CreateMallOrder(ctx context.Context, cmd CreateMallOrderCommand) (FulfillmentOrder, error)
 	CreateDirectShipBatch(ctx context.Context, cmd CreateDirectShipBatchCommand) (DirectShipBatch, error)
 	CreateProcessingRequest(ctx context.Context, cmd CreateProcessingRequestCommand) (ProcessingRequest, error)
@@ -725,6 +728,34 @@ func (s *Service) SwitchCurrentCustomer(ctx context.Context, token string, custo
 		return CurrentContext{}, err
 	}
 	return normalizeCurrentContext(current), nil
+}
+
+func (s *Service) EnsureOrderAccess(ctx context.Context, token string, orderID int64) error {
+	token = strings.TrimSpace(token)
+	if token == "" {
+		return fmt.Errorf("mini token required")
+	}
+	if orderID <= 0 {
+		return fmt.Errorf("order required")
+	}
+	if s.repo == nil {
+		return fmt.Errorf("repository required")
+	}
+	current, err := s.Me(ctx, token)
+	if err != nil {
+		return err
+	}
+	if current.CurrentCustomerID <= 0 {
+		return ErrCustomerBindingNotFound
+	}
+	ok, err := s.repo.CustomerOwnsOrder(ctx, current.CurrentCustomerID, orderID)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return ErrCustomerBindingNotFound
+	}
+	return nil
 }
 
 func (s *Service) GetServicePage(ctx context.Context, token, key string, filter ServicePageFilter) (ServicePage, error) {

@@ -11,6 +11,7 @@ import (
 
 	customerportalapp "orderapp/internal/application/customerportal"
 	messagecenterapp "orderapp/internal/application/messagecenter"
+	salesapp "orderapp/internal/application/sales"
 	pdfinfra "orderapp/internal/infrastructure/pdf"
 
 	"github.com/labstack/echo/v4"
@@ -39,12 +40,14 @@ type Service interface {
 	CreateDirectShipBatch(context.Context, string, customerportalapp.CreateDirectShipBatchCommand) (customerportalapp.DirectShipBatch, error)
 	CreateProcessingRequest(context.Context, string, customerportalapp.CreateProcessingRequestCommand) (customerportalapp.ProcessingRequest, error)
 	CreateFulfillmentOrder(context.Context, string, customerportalapp.CreateFulfillmentOrderCommand) (customerportalapp.FulfillmentOrder, error)
+	EnsureOrderAccess(context.Context, string, int64) error
 }
 
 type Dependencies struct {
 	CustomerPortal      Service
 	MessageCenter       MessagePublisher
 	BeanListPDFRenderer BeanListPDFRenderer
+	SalesDocuments      SalesDocuments
 	AssetDir            string
 }
 
@@ -56,12 +59,17 @@ type BeanListPDFRenderer interface {
 	Render(pdfinfra.BeanListDocument) ([]byte, error)
 }
 
+type SalesDocuments interface {
+	LoadSalesOrderDocumentFile(context.Context, int64, int64, bool) (salesapp.SalesOrderDocumentFile, error)
+	LoadDeliveryNoteDocumentFile(context.Context, int64, int64, bool) (salesapp.DeliveryNoteDocumentFile, error)
+}
+
 func RegisterRoutes(e *echo.Echo, deps Dependencies) {
 	renderer := deps.BeanListPDFRenderer
 	if renderer == nil {
 		renderer = pdfinfra.BeanListRenderer{}
 	}
-	registerMiniAPI(e, deps.CustomerPortal, deps.MessageCenter, renderer)
+	registerMiniAPI(e, deps.CustomerPortal, deps.MessageCenter, renderer, deps.SalesDocuments)
 	registerAdminAPI(e, deps.CustomerPortal, deps.AssetDir)
 }
 
