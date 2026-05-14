@@ -70,6 +70,25 @@ func TestSalesOrderSettingsRegistersSealToolRoutes(t *testing.T) {
 	}
 }
 
+func TestSalesOrderDocumentRoutesRegisterPreviewPDF(t *testing.T) {
+	e := echo.New()
+	registerSalesOrderDocumentRoutes(e, salesapp.NewService(nil))
+	routes := map[string]bool{}
+	for _, route := range e.Routes() {
+		routes[route.Method+" "+route.Path] = true
+	}
+	for _, want := range []string{
+		"GET /api/orders/:id/sales-order-preview",
+		"GET /api/orders/:id/sales-order-preview.pdf",
+		"POST /api/orders/:id/sales-orders",
+		"GET /orders/:id/sales-order-latest.pdf",
+	} {
+		if !routes[want] {
+			t.Fatalf("missing route %s", want)
+		}
+	}
+}
+
 func TestSalesOrderSealListAPIReturnsReusableSealAssets(t *testing.T) {
 	pool, schema := newOrderAPITestDB(t)
 	ctx := context.Background()
@@ -711,6 +730,19 @@ func TestSalesOrderPreviewAPIDoesNotCreateDocumentVersion(t *testing.T) {
 		if !strings.Contains(previewRec.Body.String(), want) {
 			t.Fatalf("preview response missing %s: %s", want, previewRec.Body.String())
 		}
+	}
+
+	previewPDFReq := httptest.NewRequest(http.MethodGet, "/api/orders/1/sales-order-preview.pdf", nil)
+	previewPDFRec := httptest.NewRecorder()
+	e.ServeHTTP(previewPDFRec, previewPDFReq)
+	if previewPDFRec.Code != http.StatusOK || previewPDFRec.Header().Get(echo.HeaderContentType) != "application/pdf" {
+		t.Fatalf("preview pdf status=%d content-type=%q body=%s", previewPDFRec.Code, previewPDFRec.Header().Get(echo.HeaderContentType), previewPDFRec.Body.String())
+	}
+	if !bytes.HasPrefix(previewPDFRec.Body.Bytes(), []byte("%PDF-")) {
+		t.Fatalf("preview pdf prefix=%q", previewPDFRec.Body.Bytes()[:min(len(previewPDFRec.Body.Bytes()), 8)])
+	}
+	if disposition := previewPDFRec.Header().Get(echo.HeaderContentDisposition); !strings.HasPrefix(disposition, "inline;") || !strings.Contains(disposition, "preview") {
+		t.Fatalf("preview pdf disposition=%q", disposition)
 	}
 
 	listReq := httptest.NewRequest(http.MethodGet, "/api/orders/1/sales-orders", nil)

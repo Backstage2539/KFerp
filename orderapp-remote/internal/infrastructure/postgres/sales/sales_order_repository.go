@@ -384,6 +384,22 @@ func (r Repository) PreviewSalesOrderDocument(ctx context.Context, orderID int64
 	}, nil
 }
 
+func (r Repository) PreviewSalesOrderPDF(ctx context.Context, orderID int64) (salesapp.SalesOrderPreviewPDF, error) {
+	preview, err := r.PreviewSalesOrderDocument(ctx, orderID)
+	if err != nil {
+		return salesapp.SalesOrderPreviewPDF{}, err
+	}
+	pdfBytes, err := r.renderer.RenderPreview(preview.Snapshot)
+	if err != nil {
+		return salesapp.SalesOrderPreviewPDF{}, err
+	}
+	return salesapp.SalesOrderPreviewPDF{
+		Preview:  preview,
+		Data:     pdfBytes,
+		Filename: fmt.Sprintf("%s-preview.pdf", safeSalesOrderPathPart(preview.OrderNo)),
+	}, nil
+}
+
 func (r Repository) loadSalesOrderVersionsTx(ctx context.Context, tx pgx.Tx, orderID int64, lock bool) ([]int, error) {
 	q := fmt.Sprintf(`SELECT version_no FROM %s.sales_order_documents WHERE order_id=$1`, r.schema)
 	if lock {

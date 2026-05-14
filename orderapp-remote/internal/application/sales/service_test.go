@@ -194,6 +194,15 @@ func (r *fakeRepo) PreviewSalesOrderDocument(ctx context.Context, orderID int64)
 	return SalesOrderPreview{OrderID: orderID, OrderNo: "SO-TEST", NextVersionNo: 3}, nil
 }
 
+func (r *fakeRepo) PreviewSalesOrderPDF(ctx context.Context, orderID int64) (SalesOrderPreviewPDF, error) {
+	r.previewOrderID = orderID
+	return SalesOrderPreviewPDF{
+		Preview:  SalesOrderPreview{OrderID: orderID, OrderNo: "SO-TEST", NextVersionNo: 3},
+		Data:     []byte("%PDF-preview"),
+		Filename: "SO-TEST-preview.pdf",
+	}, nil
+}
+
 func (r *fakeRepo) LoadSalesOrderDocumentFile(ctx context.Context, orderID, documentID int64, latest bool) (SalesOrderDocumentFile, error) {
 	return SalesOrderDocumentFile{Document: SalesOrderDocument{ID: documentID, OrderID: orderID, OrderNo: "SO-TEST", VersionNo: 1}, Path: "/tmp/test.pdf", Filename: "SO-TEST-V1.pdf"}, nil
 }
@@ -222,6 +231,15 @@ func (r *fakeRepo) ListDeliveryNoteDocuments(ctx context.Context, orderID int64)
 func (r *fakeRepo) PreviewDeliveryNoteDocument(ctx context.Context, orderID int64) (DeliveryNotePreview, error) {
 	r.previewDeliveryOrderID = orderID
 	return DeliveryNotePreview{OrderID: orderID, OrderNo: "SO-TEST", NextVersionNo: 2}, nil
+}
+
+func (r *fakeRepo) PreviewDeliveryNotePDF(ctx context.Context, orderID int64) (DeliveryNotePreviewPDF, error) {
+	r.previewDeliveryOrderID = orderID
+	return DeliveryNotePreviewPDF{
+		Preview:  DeliveryNotePreview{OrderID: orderID, OrderNo: "SO-TEST", NextVersionNo: 2},
+		Data:     []byte("%PDF-delivery-preview"),
+		Filename: "SO-TEST-delivery-note-preview.pdf",
+	}, nil
 }
 
 func (r *fakeRepo) GenerateDeliveryNoteDocument(ctx context.Context, cmd GenerateDeliveryNoteDocumentCommand) (GenerateDeliveryNoteDocumentResult, error) {

@@ -200,6 +200,22 @@ func (r Repository) PreviewDeliveryNoteDocument(ctx context.Context, orderID int
 	}, nil
 }
 
+func (r Repository) PreviewDeliveryNotePDF(ctx context.Context, orderID int64) (salesapp.DeliveryNotePreviewPDF, error) {
+	preview, err := r.PreviewDeliveryNoteDocument(ctx, orderID)
+	if err != nil {
+		return salesapp.DeliveryNotePreviewPDF{}, err
+	}
+	pdfBytes, err := r.deliveryNoteRenderer.RenderPreview(preview.Snapshot)
+	if err != nil {
+		return salesapp.DeliveryNotePreviewPDF{}, err
+	}
+	return salesapp.DeliveryNotePreviewPDF{
+		Preview:  preview,
+		Data:     pdfBytes,
+		Filename: fmt.Sprintf("%s-delivery-note-preview.pdf", safeDeliveryNotePathPart(preview.OrderNo)),
+	}, nil
+}
+
 func (r Repository) GenerateDeliveryNoteDocument(ctx context.Context, cmd salesapp.GenerateDeliveryNoteDocumentCommand) (salesapp.GenerateDeliveryNoteDocumentResult, error) {
 	tx, err := r.pool.Begin(ctx)
 	if err != nil {

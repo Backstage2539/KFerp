@@ -18,6 +18,14 @@ type DeliveryNoteRenderer struct {
 }
 
 func (r DeliveryNoteRenderer) Render(snapshot salesdomain.DeliveryNoteSnapshot) ([]byte, error) {
+	return r.render(snapshot, false)
+}
+
+func (r DeliveryNoteRenderer) RenderPreview(snapshot salesdomain.DeliveryNoteSnapshot) ([]byte, error) {
+	return r.render(snapshot, true)
+}
+
+func (r DeliveryNoteRenderer) render(snapshot salesdomain.DeliveryNoteSnapshot, preview bool) ([]byte, error) {
 	if err := snapshot.Validate(); err != nil {
 		return nil, err
 	}
@@ -40,6 +48,9 @@ func (r DeliveryNoteRenderer) Render(snapshot salesdomain.DeliveryNoteSnapshot) 
 	r.renderDeliveryNoteHeader(pdf, snapshot)
 	renderDeliveryNoteItemsTable(pdf, snapshot)
 	renderDeliveryNoteNote(pdf, snapshot)
+	if preview {
+		renderDocumentPreviewLabel(pdf)
+	}
 
 	if pdf.Error() != nil {
 		return nil, pdf.Error()

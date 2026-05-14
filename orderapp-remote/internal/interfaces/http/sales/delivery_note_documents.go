@@ -31,6 +31,7 @@ func registerDeliveryNoteDocumentRoutes(e *echo.Echo, salesSvc *salesapp.Service
 	})
 	e.GET("/api/orders/:id/delivery-notes", h.list)
 	e.GET("/api/orders/:id/delivery-note-preview", h.preview)
+	e.GET("/api/orders/:id/delivery-note-preview.pdf", h.previewPDF)
 	e.POST("/api/orders/:id/delivery-note", h.saveForm)
 	e.POST("/api/orders/:id/delivery-notes", h.generate)
 	e.GET("/orders/:id/delivery-notes/:doc_id.pdf", h.download)
@@ -94,6 +95,19 @@ func (h deliveryNoteDocumentHandler) preview(c echo.Context) error {
 		return c.JSON(http.StatusBadRequest, map[string]any{"error": err.Error()})
 	}
 	return c.JSON(http.StatusOK, preview)
+}
+
+func (h deliveryNoteDocumentHandler) previewPDF(c echo.Context) error {
+	orderID, err := parseDeliveryNoteOrderID(c)
+	if err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]any{"error": err.Error()})
+	}
+	preview, err := h.sales.PreviewDeliveryNotePDF(c.Request().Context(), orderID)
+	if err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]any{"error": err.Error()})
+	}
+	c.Response().Header().Set(echo.HeaderContentDisposition, fmt.Sprintf(`inline; filename="%s"`, preview.Filename))
+	return c.Blob(http.StatusOK, "application/pdf", preview.Data)
 }
 
 func (h deliveryNoteDocumentHandler) generate(c echo.Context) error {

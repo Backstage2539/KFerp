@@ -49,7 +49,7 @@
 - Test: `orderapp-remote/internal/infrastructure/postgres/sales/sales_order_repository_test.go`
 - Test: `orderapp-remote/internal/infrastructure/postgres/sales/delivery_note_repository_test.go`
 
-- [ ] **Step 1: Write failing API tests for preview PDF endpoints**
+- [x] **Step 1: Write failing API tests for preview PDF endpoints**
 
 Add sales-order assertions:
 
@@ -67,7 +67,7 @@ if !bytes.HasPrefix(previewPDFRec.Body.Bytes(), []byte("%PDF-")) {
 
 Add delivery-note assertions with `/api/orders/1/delivery-note-preview.pdf`.
 
-- [ ] **Step 2: Run tests and verify RED**
+- [x] **Step 2: Run tests and verify RED**
 
 Run:
 
@@ -78,7 +78,7 @@ go test ./internal/interfaces/http/sales -run 'TestSalesOrderPreviewAPIDoesNotCr
 
 Expected: FAIL because preview PDF routes are missing.
 
-- [ ] **Step 3: Add service/repository preview PDF contracts**
+- [x] **Step 3: Add service/repository preview PDF contracts**
 
 Add structs:
 
@@ -105,7 +105,7 @@ PreviewDeliveryNotePDF(ctx context.Context, orderID int64) (DeliveryNotePreviewP
 
 Add service validation methods mirroring the JSON preview validation.
 
-- [ ] **Step 4: Add preview render methods and marker**
+- [x] **Step 4: Add preview render methods and marker**
 
 Refactor sales renderer:
 
@@ -121,7 +121,7 @@ func (r SalesOrderRenderer) RenderPreview(snapshot salesdomain.SalesOrderSnapsho
 
 At the end of `render`, call `renderPreviewLabel(pdf, "PREVIEW 预览版")` when preview is true. Implement the delivery-note renderer the same way.
 
-- [ ] **Step 5: Add HTTP routes**
+- [x] **Step 5: Add HTTP routes**
 
 Register:
 
@@ -132,7 +132,7 @@ e.GET("/api/orders/:id/delivery-note-preview.pdf", h.previewPDF)
 
 Handlers return `application/pdf` and `inline; filename="<order>-preview.pdf"`.
 
-- [ ] **Step 6: Run focused backend tests**
+- [x] **Step 6: Run focused backend tests**
 
 Run:
 
@@ -143,7 +143,7 @@ go test ./internal/interfaces/http/sales ./internal/infrastructure/postgres/sale
 
 Expected: PASS.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add orderapp-remote/internal/application/sales orderapp-remote/internal/infrastructure/pdf orderapp-remote/internal/infrastructure/postgres/sales orderapp-remote/internal/interfaces/http/sales
@@ -577,4 +577,3 @@ git status --short --branch
 ```
 
 Expected: branch is ahead of latest `origin/develop`, clean worktree, ready to push and merge after verification.
-

@@ -560,6 +560,12 @@ type SalesOrderPreview struct {
 	Snapshot      salesdomain.SalesOrderSnapshot `json:"snapshot"`
 }
 
+type SalesOrderPreviewPDF struct {
+	Preview  SalesOrderPreview `json:"preview"`
+	Data     []byte            `json:"-"`
+	Filename string            `json:"filename"`
+}
+
 type SalesOrderDocument struct {
 	ID          int64                          `json:"id"`
 	OrderID     int64                          `json:"order_id"`
@@ -648,6 +654,12 @@ type DeliveryNotePreview struct {
 	NextVersionNo int                              `json:"next_version_no"`
 	Form          DeliveryNoteForm                 `json:"form"`
 	Snapshot      salesdomain.DeliveryNoteSnapshot `json:"snapshot"`
+}
+
+type DeliveryNotePreviewPDF struct {
+	Preview  DeliveryNotePreview `json:"preview"`
+	Data     []byte              `json:"-"`
+	Filename string              `json:"filename"`
 }
 
 type DeliveryNoteDocument struct {
@@ -778,6 +790,7 @@ type Repository interface {
 	ListSalesOrderDocuments(ctx context.Context, orderID int64) ([]SalesOrderDocument, error)
 	ListSalesOrderImageDocuments(ctx context.Context, orderID int64) ([]SalesOrderImageDocument, error)
 	PreviewSalesOrderDocument(ctx context.Context, orderID int64) (SalesOrderPreview, error)
+	PreviewSalesOrderPDF(ctx context.Context, orderID int64) (SalesOrderPreviewPDF, error)
 	GenerateSalesOrderDocument(ctx context.Context, cmd GenerateSalesOrderDocumentCommand) (GenerateSalesOrderDocumentResult, error)
 	GenerateSalesOrderImage(ctx context.Context, cmd GenerateSalesOrderImageCommand) (GenerateSalesOrderImageResult, error)
 	LoadSalesOrderDocumentFile(ctx context.Context, orderID, documentID int64, latest bool) (SalesOrderDocumentFile, error)
@@ -787,6 +800,7 @@ type Repository interface {
 	SaveDeliveryNoteForm(ctx context.Context, cmd SaveDeliveryNoteFormCommand) (DeliveryNoteForm, error)
 	ListDeliveryNoteDocuments(ctx context.Context, orderID int64) ([]DeliveryNoteDocument, error)
 	PreviewDeliveryNoteDocument(ctx context.Context, orderID int64) (DeliveryNotePreview, error)
+	PreviewDeliveryNotePDF(ctx context.Context, orderID int64) (DeliveryNotePreviewPDF, error)
 	GenerateDeliveryNoteDocument(ctx context.Context, cmd GenerateDeliveryNoteDocumentCommand) (GenerateDeliveryNoteDocumentResult, error)
 	LoadDeliveryNoteDocumentFile(ctx context.Context, orderID, documentID int64, latest bool) (DeliveryNoteDocumentFile, error)
 	CreateExternalShareResource(ctx context.Context, cmd CreateExternalShareResourceCommand) (ExternalShareResource, error)
@@ -1367,6 +1381,13 @@ func (s *Service) PreviewSalesOrderDocument(ctx context.Context, orderID int64) 
 	return s.repo.PreviewSalesOrderDocument(ctx, orderID)
 }
 
+func (s *Service) PreviewSalesOrderPDF(ctx context.Context, orderID int64) (SalesOrderPreviewPDF, error) {
+	if orderID <= 0 {
+		return SalesOrderPreviewPDF{}, fmt.Errorf("invalid order id")
+	}
+	return s.repo.PreviewSalesOrderPDF(ctx, orderID)
+}
+
 func (s *Service) LoadSalesOrderDocumentFile(ctx context.Context, orderID, documentID int64, latest bool) (SalesOrderDocumentFile, error) {
 	if orderID <= 0 {
 		return SalesOrderDocumentFile{}, fmt.Errorf("invalid order id")
@@ -1433,6 +1454,13 @@ func (s *Service) PreviewDeliveryNoteDocument(ctx context.Context, orderID int64
 		return DeliveryNotePreview{}, fmt.Errorf("invalid order id")
 	}
 	return s.repo.PreviewDeliveryNoteDocument(ctx, orderID)
+}
+
+func (s *Service) PreviewDeliveryNotePDF(ctx context.Context, orderID int64) (DeliveryNotePreviewPDF, error) {
+	if orderID <= 0 {
+		return DeliveryNotePreviewPDF{}, fmt.Errorf("invalid order id")
+	}
+	return s.repo.PreviewDeliveryNotePDF(ctx, orderID)
 }
 
 func (s *Service) GenerateDeliveryNoteDocument(ctx context.Context, cmd GenerateDeliveryNoteDocumentCommand) (GenerateDeliveryNoteDocumentResult, error) {

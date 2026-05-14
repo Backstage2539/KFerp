@@ -28,11 +28,13 @@ type Repository struct {
 
 type SalesOrderPDFRenderer interface {
 	Render(snapshot salesdomain.SalesOrderSnapshot) ([]byte, error)
+	RenderPreview(snapshot salesdomain.SalesOrderSnapshot) ([]byte, error)
 	RenderPNG(snapshot salesdomain.SalesOrderSnapshot) ([]byte, error)
 }
 
 type DeliveryNotePDFRenderer interface {
 	Render(snapshot salesdomain.DeliveryNoteSnapshot) ([]byte, error)
+	RenderPreview(snapshot salesdomain.DeliveryNoteSnapshot) ([]byte, error)
 }
 
 type RepositoryOption func(*Repository)
