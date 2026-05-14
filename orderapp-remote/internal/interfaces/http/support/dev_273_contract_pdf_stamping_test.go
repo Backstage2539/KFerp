@@ -82,14 +82,19 @@ func TestDev273ContractPDFStampingAcceptanceEvidence(t *testing.T) {
 	}
 }
 
-func TestDev273ContractPDFStampingRuntimeIncludesDocxConverter(t *testing.T) {
+func TestDev273ContractPDFStampingRuntimeUsesDocconvertService(t *testing.T) {
 	dockerfile := string(readOrderAppFileForTest(t, filepath.Join("Dockerfile")))
+	if strings.Contains(dockerfile, "apk add --no-cache") || strings.Contains(dockerfile, "libreoffice") {
+		t.Fatal("Dockerfile should not install LibreOffice in the orderapp runtime image")
+	}
+	deployScript := string(readOrderAppFileForTest(t, filepath.Join("..", "deploy_orderapp.sh")))
 	for _, want := range []string{
-		"libreoffice",
-		"DOCX_CONVERTER_CMD=soffice",
+		"docker-compose.docconvert.yml",
+		"gotenberg/gotenberg:8",
+		"DOCX_CONVERTER_URL: http://docconvert:3000/forms/libreoffice/convert",
 	} {
-		if !strings.Contains(dockerfile, want) {
-			t.Fatalf("Dockerfile missing DOCX converter marker %q", want)
+		if !strings.Contains(deployScript, want) {
+			t.Fatalf("deploy_orderapp.sh missing docconvert marker %q", want)
 		}
 	}
 }

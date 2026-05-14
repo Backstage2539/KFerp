@@ -37,6 +37,9 @@ func TestLoadRuntimeDefaults(t *testing.T) {
 	if cfg.DocxConverterCommand != "soffice" {
 		t.Fatalf("DocxConverterCommand = %q", cfg.DocxConverterCommand)
 	}
+	if cfg.DocxConverterURL != "" {
+		t.Fatalf("DocxConverterURL = %q", cfg.DocxConverterURL)
+	}
 }
 
 func TestLoadRuntimeCustomerPortalDevLogin(t *testing.T) {
@@ -121,6 +124,8 @@ func TestLoadRuntimeTrimsValues(t *testing.T) {
 			return " :9090 "
 		case "DOCX_CONVERTER_CMD":
 			return " /usr/local/bin/soffice "
+		case "DOCX_CONVERTER_URL":
+			return " http://docconvert:3000/forms/libreoffice/convert "
 		default:
 			return ""
 		}
@@ -145,5 +150,8 @@ func TestLoadRuntimeTrimsValues(t *testing.T) {
 	}
 	if cfg.DocxConverterCommand != "/usr/local/bin/soffice" {
 		t.Fatalf("DocxConverterCommand = %q", cfg.DocxConverterCommand)
+	}
+	if cfg.DocxConverterURL != "http://docconvert:3000/forms/libreoffice/convert" {
+		t.Fatalf("DocxConverterURL = %q", cfg.DocxConverterURL)
 	}
 }

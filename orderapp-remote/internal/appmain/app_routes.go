@@ -65,7 +65,11 @@ func registerAppRoutes(e *echo.Echo, pool *pgxpool.Pool, cfg appConfig) {
 	bomSvc := bomapp.NewService(postgresbom.NewRepository(pool, schema))
 	catalogSvc := catalogapp.NewService(postgrescatalog.NewRepository(pool, schema))
 	companySvc := companyapp.NewService(postgrescompany.NewRepository(pool, schema))
-	contractsSvc := contractsapp.NewService(postgrescontracts.NewRepository(pool, schema, postgrescontracts.WithAssetDir(assetDir)), docconvert.NewLibreOfficeConverter(cfg.DocxConverterCommand), contractsapp.WithAssetDir(assetDir))
+	contractConverter := contractsapp.PDFConverter(docconvert.NewLibreOfficeConverter(cfg.DocxConverterCommand))
+	if cfg.DocxConverterURL != "" {
+		contractConverter = docconvert.NewGotenbergConverter(cfg.DocxConverterURL)
+	}
+	contractsSvc := contractsapp.NewService(postgrescontracts.NewRepository(pool, schema, postgrescontracts.WithAssetDir(assetDir)), contractConverter, contractsapp.WithAssetDir(assetDir))
 	costingSvc := costingapp.NewService(postgrescosting.NewRepository(pool, schema))
 	customerSvc := customerapp.NewService(postgrescustomer.NewRepository(pool, schema, assetDir))
 	customerFulfillmentSvc := customerfulfillmentapp.NewService(postgrescustomerfulfillment.NewRepository(pool, schema))
