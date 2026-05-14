@@ -47,87 +47,16 @@
         <button class="secondary" type="button" @click="loadPreview" :disabled="previewLoading || !orderID">{{ previewLoading ? '预览中' : '刷新预览' }}</button>
       </div>
       <div v-if="!preview" class="muted preview-empty">暂无预览</div>
-      <div v-else ref="previewSealStage" class="preview-box">
-        <img
-          v-if="preview.snapshot.seal"
-          class="seal-stamp-preview"
-          :src="assetURL(preview.snapshot.seal)"
-          alt="公章"
-          :style="sealPositionStyle(preview.snapshot.seal)"
-          title="拖动调整公章位置"
-          @pointerdown.stop="startPreviewSealDrag"
-        />
-        <div class="preview-title">
-          <strong>{{ preview.snapshot.company_name }}</strong>
-          <span>销售单 SALES ORDER</span>
-        </div>
-        <div class="preview-meta">
-          <span>订单号：{{ preview.snapshot.order_no }}</span>
-          <span>订单日期：{{ preview.snapshot.order_date || '-' }}</span>
-          <span>客户：{{ preview.snapshot.customer_name || '-' }}</span>
-          <span>客户公司：{{ preview.snapshot.customer_company_name || preview.snapshot.customer_name || '-' }}</span>
-          <span>联系电话：{{ preview.snapshot.customer_company_phone || '-' }}</span>
-          <span>公司地址：{{ preview.snapshot.customer_company_address || '-' }}</span>
-        </div>
-        <table>
-          <thead>
-            <tr><th>商品</th><th>规格</th><th>数量</th><th>单价</th><th>小计</th><th>备注</th></tr>
-          </thead>
-          <tbody>
-            <tr v-for="(item, idx) in preview.snapshot.items" :key="`${item.name}-${idx}`">
-              <td>{{ item.name }}</td>
-              <td>{{ item.spec }}</td>
-              <td>{{ item.qty }}{{ item.unit }}</td>
-              <td>{{ item.unit_price }}</td>
-              <td>{{ item.line_total }}</td>
-              <td>{{ item.note || '-' }}</td>
-            </tr>
-          </tbody>
-        </table>
-        <div class="preview-total">
-          <span>商品合计：{{ preview.snapshot.total_amount }}</span>
-          <span>运费：{{ preview.snapshot.shipping }}</span>
-          <span>优惠：{{ preview.snapshot.discount }}</span>
-          <strong>应收：{{ preview.snapshot.grand_total }}</strong>
-        </div>
-        <div v-if="hasPaymentInfo(preview.snapshot)" class="payment-info-grid">
-          <div class="payment-text-panel">
-            <div v-if="preview.snapshot.payment_text" class="preview-notes compact-notes">
-              <strong>收款方式</strong>
-              <p>{{ preview.snapshot.payment_text }}</p>
-            </div>
-            <div v-if="hasBankAccount(preview.snapshot)" class="preview-notes compact-notes account-payment-preview">
-              <strong>公账收款</strong>
-              <p v-if="preview.snapshot.bank_account_name">户名：{{ preview.snapshot.bank_account_name }}</p>
-              <p v-if="preview.snapshot.taxpayer_id">纳税人识别号：{{ preview.snapshot.taxpayer_id }}</p>
-              <p v-if="preview.snapshot.company_address">地址：{{ preview.snapshot.company_address }}</p>
-              <p v-if="preview.snapshot.bank_name">开户行：{{ preview.snapshot.bank_name }}</p>
-              <p v-if="preview.snapshot.bank_account_no">账号：{{ preview.snapshot.bank_account_no }}</p>
-            </div>
-            <div v-if="preview.snapshot.note" class="preview-notes compact-notes">
-              <strong>说明</strong>
-              <p>{{ preview.snapshot.note }}</p>
-            </div>
-          </div>
-          <div v-if="(preview.snapshot.payment_codes || []).length" class="payment-code-panel">
-            <div
-              class="payment-code-preview-list"
-              :class="{
-                'single-payment-code': (preview.snapshot.payment_codes || []).length === 1,
-                'payment-code-stack': (preview.snapshot.payment_codes || []).length > 1,
-              }"
-            >
-              <div v-for="code in preview.snapshot.payment_codes" :key="`${code.id}-${code.label}`" class="payment-code-preview payment-code-preview-card">
-                <img :src="assetURL(code)" :alt="code.label || '收款码'" />
-                <div>
-                  <strong>{{ code.label || '收款码' }}</strong>
-                  <span v-if="code.description">{{ code.description }}</span>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
+      <PDFStampPreview
+        v-else
+        :pdf-url="salesOrderPreviewPDFUrl"
+        :placements="salesOrderPreviewPlacements"
+        :seal-url="previewSealUrl"
+        seal-label="公章"
+        preview-label="PREVIEW 预览版"
+        @loaded="onPreviewPDFLoaded"
+        @placement-commit="savePDFPreviewSealPosition"
+      />
     </section>
 
     <section class="panel">
@@ -234,8 +163,9 @@
 import { computed, onMounted, reactive, ref } from 'vue'
 import { apiGet, apiSend, appURL } from '../api/client'
 import { salesOrderDownloadUrl, salesOrderImageDownloadUrl } from '../lib/sales-order'
-import { beginSalesOrderSealDrag, moveSalesOrderSealDrag, salesOrderSealPreviewScale, salesOrderSealStyle } from '../lib/sales-order-seal'
+import { pdfPlacementToSalesSealMM, salesSealMMToPDFPlacement } from '../lib/document-pdf-stamp'
 import { buildShareResourcePayload, shareResourceToWechat } from '../lib/external-share'
+import PDFStampPreview from '../components/PDFStampPreview.vue'
 import SalesOrderSettingsView from './SalesOrderSettingsView.vue'
 
 const props = defineProps({
@@ -259,11 +189,21 @@ const settingsDrawerOpen = ref(false)
 const savingCustomer = ref(false)
 const sealDragSaving = ref(false)
 const shareLoading = ref('')
-const previewSealStage = ref(null)
+const previewPDFPages = ref([])
+const previewPDFRefreshKey = ref(0)
 const customerSummary = reactive(emptyCustomer())
 const customerForm = reactive(emptyCustomer())
 
 const orderID = computed(() => Number(props.orderId || new URL(window.location.href).searchParams.get('order_id') || 0))
+const salesOrderPreviewBasePDFUrl = computed(() => orderID.value ? `/api/orders/${orderID.value}/sales-order-preview.pdf` : '')
+const salesOrderPreviewPDFUrl = computed(() => salesOrderPreviewBasePDFUrl.value ? `${salesOrderPreviewBasePDFUrl.value}?v=${previewPDFRefreshKey.value}` : '')
+const previewSealUrl = computed(() => assetURL(preview.value?.snapshot?.seal || {}))
+const salesOrderPreviewPlacements = computed(() => {
+  const seal = preview.value?.snapshot?.seal
+  const page = previewPDFPages.value[0]
+  if (!seal || !page) return []
+  return [salesSealMMToPDFPlacement(seal, page)]
+})
 
 async function load() {
   if (!orderID.value) return
@@ -292,6 +232,7 @@ async function loadPreview() {
   error.value = ''
   try {
     preview.value = await apiGet(`/api/orders/${orderID.value}/sales-order-preview`)
+    previewPDFRefreshKey.value += 1
   } catch (err) {
     preview.value = null
     error.value = err.message || '加载销售单预览失败'
@@ -398,62 +339,24 @@ function assetURL(ref = {}) {
   return ref.object_key ? `/assets/${ref.object_key}` : ''
 }
 
-function sealPositionStyle(seal = {}) {
-  return salesOrderSealStyle(seal, previewSealScale())
+function onPreviewPDFLoaded(pages) {
+  previewPDFPages.value = pages || []
 }
 
-function hasBankAccount(snapshot = {}) {
-  return Boolean(snapshot.bank_account_name || snapshot.taxpayer_id || snapshot.company_address || snapshot.bank_name || snapshot.bank_account_no)
-}
-
-function hasPaymentInfo(snapshot = {}) {
-  return Boolean(snapshot.payment_text || snapshot.note || hasBankAccount(snapshot) || (snapshot.payment_codes || []).length)
-}
-
-function previewSealScale() {
-  return salesOrderSealPreviewScale
-}
-
-function startPreviewSealDrag(event) {
+async function savePDFPreviewSealPosition(placement) {
   const seal = preview.value?.snapshot?.seal
-  if (!seal || !previewSealStage.value || sealDragSaving.value) return
-  event.preventDefault()
-  const drag = beginSalesOrderSealDrag({
-    seal,
-    clientX: event.clientX,
-    clientY: event.clientY,
-    scale: previewSealScale(),
-  })
-  const update = (clientX, clientY) => {
-    const next = moveSalesOrderSealDrag(drag, { clientX, clientY })
-    seal.x_mm = next.x_mm
-    seal.y_mm = next.y_mm
-    seal.width_mm = next.width_mm
-  }
-  const move = (moveEvent) => update(moveEvent.clientX, moveEvent.clientY)
-  const up = async () => {
-    window.removeEventListener('pointermove', move)
-    window.removeEventListener('pointerup', up)
-    await savePreviewSealPosition()
-  }
-  event.currentTarget?.setPointerCapture?.(event.pointerId)
-  window.addEventListener('pointermove', move)
-  window.addEventListener('pointerup', up, { once: true })
-}
-
-async function savePreviewSealPosition() {
-  const seal = preview.value?.snapshot?.seal
-  if (!seal) return
+  const page = previewPDFPages.value.find((item) => Number(item.pageNumber) === Number(placement?.page_number || 1))
+  if (!seal || !page || sealDragSaving.value) return
+  const next = pdfPlacementToSalesSealMM(placement, page)
   sealDragSaving.value = true
   error.value = ''
   try {
     await apiSend('/api/settings/sales-order/seal-position', {
-      body: {
-        seal_x_mm: Number(seal.x_mm || 32),
-        seal_y_mm: Number(seal.y_mm || 5),
-        seal_width_mm: Number(seal.width_mm || 36),
-      },
+      body: next,
     })
+    seal.x_mm = next.seal_x_mm
+    seal.y_mm = next.seal_y_mm
+    seal.width_mm = next.seal_width_mm
     message.value = '公章位置已保存，请重新生成图片或 PDF 后下载'
   } catch (err) {
     error.value = err.message || '保存公章位置失败'

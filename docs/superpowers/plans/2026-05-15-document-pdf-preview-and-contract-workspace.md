@@ -342,7 +342,7 @@ git commit -m "Add shared PDF stamp preview component"
 - Modify: `orderapp-remote/frontend-vue-shell/src/views/DeliveryNoteView.vue`
 - Modify: support guard tests for sales/delivery document views.
 
-- [ ] **Step 1: Write source guard tests**
+- [x] **Step 1: Write source guard tests**
 
 Update support tests to require:
 
@@ -355,7 +355,7 @@ Update support tests to require:
 
 Delivery-note guard uses `/api/orders/${orderID.value}/delivery-note-preview.pdf`.
 
-- [ ] **Step 2: Run tests and verify RED**
+- [x] **Step 2: Run tests and verify RED**
 
 Run:
 
@@ -366,7 +366,7 @@ go test ./internal/interfaces/http/support -run 'SalesOrder|DeliveryNote|PDF' -c
 
 Expected: FAIL until Vue files use the shared component.
 
-- [ ] **Step 3: Replace HTML previews with `PDFStampPreview`**
+- [x] **Step 3: Replace HTML previews with `PDFStampPreview`**
 
 Sales order computes:
 
@@ -378,7 +378,7 @@ On `placement-commit`, convert placement to mm and call `/api/settings/sales-ord
 
 Delivery note mirrors the same flow with `delivery-note-preview.pdf`.
 
-- [ ] **Step 4: Run frontend and guard tests**
+- [x] **Step 4: Run frontend and guard tests**
 
 Run:
 
@@ -392,7 +392,7 @@ go test ./internal/interfaces/http/support -run 'SalesOrder|DeliveryNote|PDF' -c
 
 Expected: PASS. Vite chunk warning is acceptable if unchanged.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add orderapp-remote/frontend-vue-shell/src/views/SalesOrderView.vue orderapp-remote/frontend-vue-shell/src/views/DeliveryNoteView.vue orderapp-remote/internal/interfaces/http/support

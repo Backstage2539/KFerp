@@ -61,51 +61,16 @@
         <button class="secondary" type="button" @click="loadPreview" :disabled="previewLoading || !orderID">{{ previewLoading ? '预览中' : '刷新预览' }}</button>
       </div>
       <div v-if="!preview" class="muted preview-empty">暂无预览</div>
-      <div v-else class="preview-box">
-        <div ref="previewSealStage" class="preview-title">
-          <strong>{{ preview.snapshot.company_name }}</strong>
-          <span>出库单 DELIVERY NOTE</span>
-          <img
-            v-if="preview.snapshot.seal?.url"
-            class="seal-stamp-preview"
-            :src="preview.snapshot.seal.url"
-            alt="公章"
-            :style="sealPreviewStyle"
-            title="拖动调整公章位置，松手自动保存"
-            @pointerdown.stop="startPreviewSealDrag"
-          />
-        </div>
-        <div class="preview-meta">
-          <span>出库单号：{{ preview.snapshot.delivery_note_no }}</span>
-          <span>订单号：{{ preview.snapshot.order_no }}</span>
-          <span>出库日期：{{ preview.snapshot.posting_date || '-' }}</span>
-          <span>客户：{{ preview.snapshot.customer_name || '-' }}</span>
-          <span>客户公司：{{ preview.snapshot.customer_company_name || preview.snapshot.customer_name || '-' }}</span>
-          <span>联系电话：{{ preview.snapshot.customer_company_phone || preview.snapshot.receiver_phone || '-' }}</span>
-          <span>出库仓：{{ preview.snapshot.source_warehouse_name || preview.snapshot.source_warehouse }}</span>
-          <span>发货方式：{{ preview.snapshot.delivery_method || '-' }}</span>
-          <span>快递单号：{{ preview.snapshot.tracking_no || '-' }}</span>
-          <span class="wide">收货地址：{{ preview.snapshot.receiver_address || preview.snapshot.customer_company_address || '-' }}</span>
-        </div>
-        <table>
-          <thead>
-            <tr><th>商品</th><th>规格</th><th>出库数量</th><th>出库仓</th><th>备注</th></tr>
-          </thead>
-          <tbody>
-            <tr v-for="(item, idx) in preview.snapshot.items" :key="`${item.name}-${idx}`">
-              <td>{{ item.name }}</td>
-              <td>{{ item.spec }}</td>
-              <td>{{ item.qty }}{{ item.unit }}</td>
-              <td>{{ item.warehouse_name || item.warehouse }}</td>
-              <td>{{ item.note || '-' }}</td>
-            </tr>
-          </tbody>
-        </table>
-        <div v-if="preview.snapshot.note" class="preview-note">
-          <strong>备注</strong>
-          <p>{{ preview.snapshot.note }}</p>
-        </div>
-      </div>
+      <PDFStampPreview
+        v-else
+        :pdf-url="deliveryNotePreviewPDFUrl"
+        :placements="deliveryNotePreviewPlacements"
+        :seal-url="previewSealUrl"
+        seal-label="公章"
+        preview-label="PREVIEW 预览版"
+        @loaded="onPreviewPDFLoaded"
+        @placement-commit="savePDFPreviewSealPosition"
+      />
     </section>
 
     <section class="panel">
@@ -144,7 +109,8 @@ import { computed, onMounted, reactive, ref } from 'vue'
 import { apiGet, apiSend, appURL } from '../api/client'
 import { deliveryNoteDownloadUrl } from '../lib/delivery-note'
 import { buildShareResourcePayload, shareResourceToWechat } from '../lib/external-share'
-import { beginSalesOrderSealDrag, moveSalesOrderSealDrag, salesOrderSealPreviewScale, salesOrderSealStyle } from '../lib/sales-order-seal'
+import { pdfPlacementToSalesSealMM, salesSealMMToPDFPlacement } from '../lib/document-pdf-stamp'
+import PDFStampPreview from '../components/PDFStampPreview.vue'
 import CompanySealSettingsView from './CompanySealSettingsView.vue'
 
 const props = defineProps({
@@ -164,8 +130,9 @@ const documents = ref([])
 const preview = ref(null)
 const shareLoading = ref(false)
 const settingsDrawerOpen = ref(false)
-const previewSealStage = ref(null)
 const sealDragSaving = ref(false)
+const previewPDFPages = ref([])
+const previewPDFRefreshKey = ref(0)
 const orderSummary = reactive({ order_id: 0, order_no: '', ship_status: '', customer: {} })
 const form = reactive(emptyForm())
 
@@ -175,7 +142,15 @@ const warehouseOptions = [
 ]
 
 const orderID = computed(() => Number(props.orderId || new URL(window.location.href).searchParams.get('order_id') || 0))
-const sealPreviewStyle = computed(() => salesOrderSealStyle(preview.value?.snapshot?.seal || {}, salesOrderSealPreviewScale))
+const deliveryNotePreviewBasePDFUrl = computed(() => orderID.value ? `/api/orders/${orderID.value}/delivery-note-preview.pdf` : '')
+const deliveryNotePreviewPDFUrl = computed(() => deliveryNotePreviewBasePDFUrl.value ? `${deliveryNotePreviewBasePDFUrl.value}?v=${previewPDFRefreshKey.value}` : '')
+const previewSealUrl = computed(() => preview.value?.snapshot?.seal?.url || '')
+const deliveryNotePreviewPlacements = computed(() => {
+  const seal = preview.value?.snapshot?.seal
+  const page = previewPDFPages.value[0]
+  if (!seal || !page) return []
+  return [salesSealMMToPDFPlacement(seal, page)]
+})
 
 function emptyForm() {
   return {
@@ -258,6 +233,7 @@ async function loadPreview() {
   error.value = ''
   try {
     preview.value = await apiGet(`/api/orders/${orderID.value}/delivery-note-preview`)
+    previewPDFRefreshKey.value += 1
   } catch (err) {
     preview.value = null
     error.value = err.message || '加载出库单预览失败'
@@ -317,46 +293,24 @@ async function closeSettingsDrawer() {
   await loadPreview()
 }
 
-function startPreviewSealDrag(event) {
-  const seal = preview.value?.snapshot?.seal
-  if (!seal || !previewSealStage.value || sealDragSaving.value) return
-  event.preventDefault()
-  const drag = beginSalesOrderSealDrag({
-    seal,
-    clientX: event.clientX,
-    clientY: event.clientY,
-    scale: salesOrderSealPreviewScale,
-  })
-  const update = (clientX, clientY) => {
-    const next = moveSalesOrderSealDrag(drag, { clientX, clientY })
-    seal.x_mm = next.x_mm
-    seal.y_mm = next.y_mm
-    seal.width_mm = next.width_mm
-  }
-  const move = (moveEvent) => update(moveEvent.clientX, moveEvent.clientY)
-  const up = async () => {
-    window.removeEventListener('pointermove', move)
-    window.removeEventListener('pointerup', up)
-    await savePreviewSealPosition()
-  }
-  event.currentTarget?.setPointerCapture?.(event.pointerId)
-  window.addEventListener('pointermove', move)
-  window.addEventListener('pointerup', up, { once: true })
+function onPreviewPDFLoaded(pages) {
+  previewPDFPages.value = pages || []
 }
 
-async function savePreviewSealPosition() {
+async function savePDFPreviewSealPosition(placement) {
   const seal = preview.value?.snapshot?.seal
-  if (!seal) return
+  const page = previewPDFPages.value.find((item) => Number(item.pageNumber) === Number(placement?.page_number || 1))
+  if (!seal || !page || sealDragSaving.value) return
+  const next = pdfPlacementToSalesSealMM(placement, page)
   sealDragSaving.value = true
   error.value = ''
   try {
     await apiSend('/api/settings/sales-order/seal-position', {
-      body: {
-        seal_x_mm: Number(seal.x_mm || 32),
-        seal_y_mm: Number(seal.y_mm || 5),
-        seal_width_mm: Number(seal.width_mm || 36),
-      },
+      body: next,
     })
+    seal.x_mm = next.seal_x_mm
+    seal.y_mm = next.seal_y_mm
+    seal.width_mm = next.seal_width_mm
     message.value = '公章位置已保存，请重新生成出库单 PDF 后下载'
   } catch (err) {
     error.value = err.message || '保存公章位置失败'
