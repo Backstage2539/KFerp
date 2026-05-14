@@ -44,8 +44,8 @@ func (r Repository) CreateContract(ctx context.Context, record contractsapp.Crea
 			pdf_object_key, pdf_bytes, pdf_sha256, created_by
 		)
 		VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
-		RETURNING id, title, source_filename, source_content_type, source_kind, source_object_key, pdf_object_key, pdf_bytes,
-			to_char(created_at,'YYYY-MM-DD HH24:MI:SS'), created_by`, r.schema)
+		RETURNING id, title, note, source_filename, source_content_type, source_kind, source_object_key, pdf_object_key, pdf_bytes,
+			to_char(created_at,'YYYY-MM-DD HH24:MI:SS'), created_by, COALESCE(to_char(deleted_at,'YYYY-MM-DD HH24:MI:SS'), ''), deleted_by`, r.schema)
 	if err := r.pool.QueryRow(ctx, q,
 		record.Title,
 		record.SourceFilename,
@@ -58,12 +58,47 @@ func (r Repository) CreateContract(ctx context.Context, record contractsapp.Crea
 		record.PDFBytes,
 		record.PDFSHA256,
 		record.Actor,
-	).Scan(&doc.ID, &doc.Title, &doc.SourceFilename, &doc.SourceContentType, &doc.SourceKind, &doc.SourceObjectKey, &doc.PDFObjectKey, &doc.PDFBytes, &doc.CreatedAt, &doc.CreatedBy); err != nil {
+	).Scan(&doc.ID, &doc.Title, &doc.Note, &doc.SourceFilename, &doc.SourceContentType, &doc.SourceKind, &doc.SourceObjectKey, &doc.PDFObjectKey, &doc.PDFBytes, &doc.CreatedAt, &doc.CreatedBy, &doc.DeletedAt, &doc.DeletedBy); err != nil {
 		return contractsapp.ContractDocument{}, err
 	}
 	doc.PDFURL = contractPDFDownloadURL(doc.ID)
 	postgresinfra.AuditInsert(ctx, r.pool, r.schema, record.Actor, "contract_document", &doc.ID, "create", postgresinfra.StrPtr("source_kind"), nil, postgresinfra.StrPtr(record.SourceKind), postgresinfra.AuditMeta{"title": doc.Title, "pdf_bytes": doc.PDFBytes})
 	return doc, nil
+}
+
+func (r Repository) UpdateContract(ctx context.Context, record contractsapp.UpdateContractRecord) (contractsapp.ContractDocument, error) {
+	q := fmt.Sprintf(`UPDATE %s.contract_documents
+		SET title=$2, note=$3
+		WHERE id=$1 AND deleted_at IS NULL
+		RETURNING id, title, note, source_filename, source_content_type, source_kind, source_object_key, pdf_object_key, pdf_bytes,
+			to_char(created_at,'YYYY-MM-DD HH24:MI:SS'), created_by, COALESCE(to_char(deleted_at,'YYYY-MM-DD HH24:MI:SS'), ''), deleted_by`, r.schema)
+	var doc contractsapp.ContractDocument
+	if err := r.pool.QueryRow(ctx, q, record.ContractID, record.Title, record.Note).
+		Scan(&doc.ID, &doc.Title, &doc.Note, &doc.SourceFilename, &doc.SourceContentType, &doc.SourceKind, &doc.SourceObjectKey, &doc.PDFObjectKey, &doc.PDFBytes, &doc.CreatedAt, &doc.CreatedBy, &doc.DeletedAt, &doc.DeletedBy); err != nil {
+		return contractsapp.ContractDocument{}, err
+	}
+	doc.PDFURL = contractPDFDownloadURL(doc.ID)
+	latest, err := r.loadLatestStampedVersion(ctx, doc.ID)
+	if err != nil {
+		return contractsapp.ContractDocument{}, err
+	}
+	if latest.ID > 0 {
+		doc.LatestStamped = &latest
+	}
+	postgresinfra.AuditInsert(ctx, r.pool, r.schema, record.Actor, "contract_document", &doc.ID, "update", postgresinfra.StrPtr("title"), nil, postgresinfra.StrPtr(record.Title), postgresinfra.AuditMeta{"note": record.Note})
+	return doc, nil
+}
+
+func (r Repository) DeleteContract(ctx context.Context, record contractsapp.DeleteContractRecord) error {
+	tag, err := r.pool.Exec(ctx, fmt.Sprintf(`UPDATE %s.contract_documents SET deleted_at=now(), deleted_by=$2 WHERE id=$1 AND deleted_at IS NULL`, r.schema), record.ContractID, record.Actor)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return pgx.ErrNoRows
+	}
+	postgresinfra.AuditInsert(ctx, r.pool, r.schema, record.Actor, "contract_document", &record.ContractID, "delete", postgresinfra.StrPtr("deleted_at"), nil, postgresinfra.StrPtr("now"), postgresinfra.AuditMeta{})
+	return nil
 }
 
 func (r Repository) SaveStampedVersion(ctx context.Context, record contractsapp.SaveStampedVersionRecord) (contractsapp.ContractStampedVersion, error) {
@@ -109,9 +144,10 @@ func (r Repository) SaveStampedVersion(ctx context.Context, record contractsapp.
 }
 
 func (r Repository) ListContracts(ctx context.Context) ([]contractsapp.ContractDocument, error) {
-	q := fmt.Sprintf(`SELECT id, title, source_filename, source_content_type, source_kind, source_object_key,
-			pdf_object_key, pdf_bytes, to_char(created_at,'YYYY-MM-DD HH24:MI:SS'), created_by
+	q := fmt.Sprintf(`SELECT id, title, note, source_filename, source_content_type, source_kind, source_object_key,
+			pdf_object_key, pdf_bytes, to_char(created_at,'YYYY-MM-DD HH24:MI:SS'), created_by, COALESCE(to_char(deleted_at,'YYYY-MM-DD HH24:MI:SS'), ''), deleted_by
 		FROM %s.contract_documents
+		WHERE deleted_at IS NULL
 		ORDER BY id DESC`, r.schema)
 	rows, err := r.pool.Query(ctx, q)
 	if err != nil {
@@ -121,7 +157,7 @@ func (r Repository) ListContracts(ctx context.Context) ([]contractsapp.ContractD
 	out := make([]contractsapp.ContractDocument, 0)
 	for rows.Next() {
 		var doc contractsapp.ContractDocument
-		if err := rows.Scan(&doc.ID, &doc.Title, &doc.SourceFilename, &doc.SourceContentType, &doc.SourceKind, &doc.SourceObjectKey, &doc.PDFObjectKey, &doc.PDFBytes, &doc.CreatedAt, &doc.CreatedBy); err != nil {
+		if err := rows.Scan(&doc.ID, &doc.Title, &doc.Note, &doc.SourceFilename, &doc.SourceContentType, &doc.SourceKind, &doc.SourceObjectKey, &doc.PDFObjectKey, &doc.PDFBytes, &doc.CreatedAt, &doc.CreatedBy, &doc.DeletedAt, &doc.DeletedBy); err != nil {
 			return nil, err
 		}
 		doc.PDFURL = contractPDFDownloadURL(doc.ID)
@@ -139,7 +175,7 @@ func (r Repository) ListContracts(ctx context.Context) ([]contractsapp.ContractD
 
 func (r Repository) LoadContractPDFFile(ctx context.Context, contractID int64) (contractsapp.ContractFile, error) {
 	var title, sourceFilename, objectKey string
-	q := fmt.Sprintf(`SELECT title, source_filename, pdf_object_key FROM %s.contract_documents WHERE id=$1`, r.schema)
+	q := fmt.Sprintf(`SELECT title, source_filename, pdf_object_key FROM %s.contract_documents WHERE id=$1 AND deleted_at IS NULL`, r.schema)
 	if err := r.pool.QueryRow(ctx, q, contractID).Scan(&title, &sourceFilename, &objectKey); err != nil {
 		return contractsapp.ContractFile{}, err
 	}
@@ -164,7 +200,7 @@ func (r Repository) LoadStampedPDFFile(ctx context.Context, contractID, versionI
 	q := fmt.Sprintf(`SELECT d.title, v.version_no, v.object_key
 		FROM %s.contract_stamped_versions v
 		JOIN %s.contract_documents d ON d.id=v.contract_id
-		WHERE %s
+		WHERE d.deleted_at IS NULL AND %s
 		ORDER BY v.version_no DESC
 		LIMIT 1`, r.schema, r.schema, where)
 	var title, objectKey string

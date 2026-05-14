@@ -99,6 +99,32 @@ func TestContractRepositoryCreatesListsAndLoadsStampedVersions(t *testing.T) {
 	if history.Filename != "合作合同-stamped-V1.pdf" {
 		t.Fatalf("history stamped file = %+v", history)
 	}
+
+	updated, err := repo.UpdateContract(ctx, contractsapp.UpdateContractRecord{
+		Actor:      "维护员",
+		ContractID: doc.ID,
+		Title:      "合作合同-已确认",
+		Note:       "客户确认后保存",
+	})
+	if err != nil {
+		t.Fatalf("UpdateContract: %v", err)
+	}
+	if updated.Title != "合作合同-已确认" || updated.Note != "客户确认后保存" || updated.PDFURL == "" {
+		t.Fatalf("updated contract = %+v", updated)
+	}
+	if err := repo.DeleteContract(ctx, contractsapp.DeleteContractRecord{Actor: "维护员", ContractID: doc.ID}); err != nil {
+		t.Fatalf("DeleteContract: %v", err)
+	}
+	rows, err = repo.ListContracts(ctx)
+	if err != nil {
+		t.Fatalf("ListContracts after delete: %v", err)
+	}
+	if len(rows) != 0 {
+		t.Fatalf("deleted contract should be hidden from active list: %+v", rows)
+	}
+	if _, err := repo.LoadContractPDFFile(ctx, doc.ID); err == nil {
+		t.Fatalf("deleted contract source PDF should not be downloadable")
+	}
 }
 
 func newContractsPostgresTestDB(t *testing.T) (*pgxpool.Pool, string) {

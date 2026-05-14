@@ -24,6 +24,8 @@ type PDFConverter interface {
 
 type Repository interface {
 	CreateContract(ctx context.Context, record CreateContractRecord) (ContractDocument, error)
+	UpdateContract(ctx context.Context, record UpdateContractRecord) (ContractDocument, error)
+	DeleteContract(ctx context.Context, record DeleteContractRecord) error
 	SaveStampedVersion(ctx context.Context, record SaveStampedVersionRecord) (ContractStampedVersion, error)
 	ListContracts(ctx context.Context) ([]ContractDocument, error)
 	LoadContractPDFFile(ctx context.Context, contractID int64) (ContractFile, error)
@@ -89,9 +91,34 @@ type CreateContractRecord struct {
 	PDFSHA256         string
 }
 
+type UpdateContractCommand struct {
+	Actor      string
+	ContractID int64
+	Title      string
+	Note       string
+}
+
+type DeleteContractCommand struct {
+	Actor      string
+	ContractID int64
+}
+
+type UpdateContractRecord struct {
+	Actor      string
+	ContractID int64
+	Title      string
+	Note       string
+}
+
+type DeleteContractRecord struct {
+	Actor      string
+	ContractID int64
+}
+
 type ContractDocument struct {
 	ID                int64                   `json:"id"`
 	Title             string                  `json:"title"`
+	Note              string                  `json:"note"`
 	SourceFilename    string                  `json:"source_filename"`
 	SourceContentType string                  `json:"source_content_type"`
 	SourceKind        string                  `json:"source_kind"`
@@ -102,6 +129,8 @@ type ContractDocument struct {
 	LatestStamped     *ContractStampedVersion `json:"latest_stamped,omitempty"`
 	CreatedAt         string                  `json:"created_at"`
 	CreatedBy         string                  `json:"created_by"`
+	DeletedAt         string                  `json:"deleted_at,omitempty"`
+	DeletedBy         string                  `json:"deleted_by,omitempty"`
 }
 
 type SaveStampedPDFCommand struct {
@@ -152,6 +181,31 @@ type ContractFile struct {
 
 func (s *Service) ListContracts(ctx context.Context) ([]ContractDocument, error) {
 	return s.repo.ListContracts(ctx)
+}
+
+func (s *Service) UpdateContract(ctx context.Context, cmd UpdateContractCommand) (ContractDocument, error) {
+	actor := strings.TrimSpace(cmd.Actor)
+	title := strings.TrimSpace(cmd.Title)
+	if cmd.ContractID <= 0 {
+		return ContractDocument{}, fmt.Errorf("invalid contract id")
+	}
+	if title == "" {
+		return ContractDocument{}, fmt.Errorf("contract title required")
+	}
+	return s.repo.UpdateContract(ctx, UpdateContractRecord{
+		Actor:      actor,
+		ContractID: cmd.ContractID,
+		Title:      title,
+		Note:       strings.TrimSpace(cmd.Note),
+	})
+}
+
+func (s *Service) DeleteContract(ctx context.Context, cmd DeleteContractCommand) error {
+	actor := strings.TrimSpace(cmd.Actor)
+	if cmd.ContractID <= 0 {
+		return fmt.Errorf("invalid contract id")
+	}
+	return s.repo.DeleteContract(ctx, DeleteContractRecord{Actor: actor, ContractID: cmd.ContractID})
 }
 
 func (s *Service) LoadContractPDFFile(ctx context.Context, contractID int64) (ContractFile, error) {

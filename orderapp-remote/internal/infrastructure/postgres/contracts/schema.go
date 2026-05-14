@@ -12,6 +12,7 @@ func EnsureSchema(ctx context.Context, pool *pgxpool.Pool, schema string) error 
 		fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s.contract_documents (
 			id BIGSERIAL PRIMARY KEY,
 			title TEXT NOT NULL DEFAULT '',
+			note TEXT NOT NULL DEFAULT '',
 			source_filename TEXT NOT NULL DEFAULT '',
 			source_content_type TEXT NOT NULL DEFAULT '',
 			source_kind TEXT NOT NULL DEFAULT '',
@@ -22,8 +23,13 @@ func EnsureSchema(ctx context.Context, pool *pgxpool.Pool, schema string) error 
 			pdf_bytes BIGINT NOT NULL DEFAULT 0,
 			pdf_sha256 TEXT NOT NULL DEFAULT '',
 			created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-			created_by TEXT NOT NULL DEFAULT ''
+			created_by TEXT NOT NULL DEFAULT '',
+			deleted_at TIMESTAMPTZ,
+			deleted_by TEXT NOT NULL DEFAULT ''
 		)`, schema),
+		fmt.Sprintf(`ALTER TABLE %s.contract_documents ADD COLUMN IF NOT EXISTS note TEXT NOT NULL DEFAULT ''`, schema),
+		fmt.Sprintf(`ALTER TABLE %s.contract_documents ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ`, schema),
+		fmt.Sprintf(`ALTER TABLE %s.contract_documents ADD COLUMN IF NOT EXISTS deleted_by TEXT NOT NULL DEFAULT ''`, schema),
 		fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s.contract_stamped_versions (
 			id BIGSERIAL PRIMARY KEY,
 			contract_id BIGINT NOT NULL REFERENCES %s.contract_documents(id) ON DELETE CASCADE,

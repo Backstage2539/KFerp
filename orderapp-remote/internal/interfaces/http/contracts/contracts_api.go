@@ -20,6 +20,11 @@ type contractHandler struct {
 	contracts ContractService
 }
 
+type contractUpdateRequest struct {
+	Title string `json:"title"`
+	Note  string `json:"note"`
+}
+
 func registerContractRoutes(e *echo.Echo, contracts ContractService) {
 	h := contractHandler{contracts: contracts}
 	e.GET("/contracts", func(c echo.Context) error {
@@ -27,6 +32,8 @@ func registerContractRoutes(e *echo.Echo, contracts ContractService) {
 	})
 	e.GET("/api/contracts", h.list)
 	e.POST("/api/contracts", h.upload)
+	e.PUT("/api/contracts/:id", h.update)
+	e.DELETE("/api/contracts/:id", h.delete)
 	e.GET("/contracts/:id/pdf", h.downloadPDF)
 	e.POST("/api/contracts/:id/stamped", h.saveStamped)
 	e.GET("/contracts/:id/stamped/:version_id", h.downloadStamped)
@@ -65,6 +72,41 @@ func (h contractHandler) upload(c echo.Context) error {
 		return c.JSON(http.StatusBadRequest, map[string]any{"error": err.Error()})
 	}
 	return c.JSON(http.StatusOK, doc)
+}
+
+func (h contractHandler) update(c echo.Context) error {
+	contractID, err := parseContractID(c)
+	if err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]any{"error": err.Error()})
+	}
+	var req contractUpdateRequest
+	if err := c.Bind(&req); err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]any{"error": "invalid json"})
+	}
+	doc, err := h.contracts.UpdateContract(c.Request().Context(), contractsapp.UpdateContractCommand{
+		Actor:      support.ActorOf(c),
+		ContractID: contractID,
+		Title:      req.Title,
+		Note:       req.Note,
+	})
+	if err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]any{"error": err.Error()})
+	}
+	return c.JSON(http.StatusOK, doc)
+}
+
+func (h contractHandler) delete(c echo.Context) error {
+	contractID, err := parseContractID(c)
+	if err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]any{"error": err.Error()})
+	}
+	if err := h.contracts.DeleteContract(c.Request().Context(), contractsapp.DeleteContractCommand{
+		Actor:      support.ActorOf(c),
+		ContractID: contractID,
+	}); err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]any{"error": err.Error()})
+	}
+	return c.JSON(http.StatusOK, map[string]any{"ok": true})
 }
 
 func (h contractHandler) saveStamped(c echo.Context) error {

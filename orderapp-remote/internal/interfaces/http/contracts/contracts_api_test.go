@@ -20,6 +20,8 @@ import (
 type fakeContractService struct {
 	uploadCmd     contractsapp.UploadContractCommand
 	uploadErr     error
+	updateCmd     contractsapp.UpdateContractCommand
+	deleteCmd     contractsapp.DeleteContractCommand
 	stampCmd      contractsapp.SaveStampedPDFCommand
 	stampErr      error
 	pdfFile       contractsapp.ContractFile
@@ -40,6 +42,16 @@ func (s *fakeContractService) UploadContract(ctx context.Context, cmd contractsa
 	return contractsapp.ContractDocument{ID: 7, Title: "合作合同", SourceFilename: cmd.Filename, SourceKind: contractsapp.ContractSourcePDF, PDFURL: "/contracts/7/pdf"}, nil
 }
 
+func (s *fakeContractService) UpdateContract(ctx context.Context, cmd contractsapp.UpdateContractCommand) (contractsapp.ContractDocument, error) {
+	s.updateCmd = cmd
+	return contractsapp.ContractDocument{ID: cmd.ContractID, Title: strings.TrimSpace(cmd.Title), Note: strings.TrimSpace(cmd.Note), PDFURL: fmt.Sprintf("/contracts/%d/pdf", cmd.ContractID)}, nil
+}
+
+func (s *fakeContractService) DeleteContract(ctx context.Context, cmd contractsapp.DeleteContractCommand) error {
+	s.deleteCmd = cmd
+	return nil
+}
+
 func (s *fakeContractService) SaveStampedPDF(ctx context.Context, cmd contractsapp.SaveStampedPDFCommand) (contractsapp.ContractStampedVersion, error) {
 	s.stampCmd = cmd
 	if s.stampErr != nil {
@@ -56,6 +68,35 @@ func (s *fakeContractService) LoadStampedPDFFile(ctx context.Context, contractID
 	s.loadVersionID = versionID
 	s.loadLatest = latest
 	return s.latestFile, nil
+}
+
+func TestContractAPIUpdatesAndDeletesMetadata(t *testing.T) {
+	e := echo.New()
+	svc := &fakeContractService{}
+	RegisterRoutes(e, Dependencies{Contracts: svc})
+
+	updateReq := httptest.NewRequest(http.MethodPut, "/api/contracts/7", strings.NewReader(`{"title":"新版合同","note":"客户已确认"}`))
+	updateReq.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	updateReq.Header.Set("X-Actor", "维护员")
+	updateRec := httptest.NewRecorder()
+	e.ServeHTTP(updateRec, updateReq)
+	if updateRec.Code != http.StatusOK || !strings.Contains(updateRec.Body.String(), `"note":"客户已确认"`) {
+		t.Fatalf("update status=%d body=%s", updateRec.Code, updateRec.Body.String())
+	}
+	if svc.updateCmd.ContractID != 7 || svc.updateCmd.Title != "新版合同" || svc.updateCmd.Note != "客户已确认" {
+		t.Fatalf("update cmd = %+v", svc.updateCmd)
+	}
+
+	deleteReq := httptest.NewRequest(http.MethodDelete, "/api/contracts/7", nil)
+	deleteReq.Header.Set("X-Actor", "维护员")
+	deleteRec := httptest.NewRecorder()
+	e.ServeHTTP(deleteRec, deleteReq)
+	if deleteRec.Code != http.StatusOK || !strings.Contains(deleteRec.Body.String(), `"ok":true`) {
+		t.Fatalf("delete status=%d body=%s", deleteRec.Code, deleteRec.Body.String())
+	}
+	if svc.deleteCmd.ContractID != 7 {
+		t.Fatalf("delete cmd = %+v", svc.deleteCmd)
+	}
 }
 
 func TestContractAPIUploadAndSaveStampedPDF(t *testing.T) {
@@ -171,6 +212,8 @@ func TestContractAPIRoutesRegistered(t *testing.T) {
 		"GET /contracts",
 		"GET /api/contracts",
 		"POST /api/contracts",
+		"PUT /api/contracts/:id",
+		"DELETE /api/contracts/:id",
 		"GET /contracts/:id/pdf",
 		"POST /api/contracts/:id/stamped",
 		"GET /contracts/:id/stamped/:version_id",

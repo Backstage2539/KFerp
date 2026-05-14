@@ -14,6 +14,10 @@ type fakeRepository struct {
 	createCalls    int
 	stamped        SaveStampedVersionRecord
 	stampedCalls   int
+	updated        UpdateContractRecord
+	updateCalls    int
+	deleted        DeleteContractRecord
+	deleteCalls    int
 	createErr      error
 	saveStampedErr error
 	nextContractID int64
@@ -63,6 +67,51 @@ func (r *fakeRepository) SaveStampedVersion(ctx context.Context, record SaveStam
 		IsLatest:    true,
 		CreatedBy:   record.Actor,
 	}, nil
+}
+
+func (r *fakeRepository) UpdateContract(ctx context.Context, record UpdateContractRecord) (ContractDocument, error) {
+	r.updateCalls++
+	r.updated = record
+	return ContractDocument{ID: record.ContractID, Title: record.Title, Note: record.Note, CreatedBy: record.Actor}, nil
+}
+
+func (r *fakeRepository) DeleteContract(ctx context.Context, record DeleteContractRecord) error {
+	r.deleteCalls++
+	r.deleted = record
+	return nil
+}
+
+func TestUpdateContractSavesTitleAndNote(t *testing.T) {
+	repo := &fakeRepository{}
+	svc := NewService(repo, &fakeConverter{}, WithAssetDir(t.TempDir()))
+
+	doc, err := svc.UpdateContract(context.Background(), UpdateContractCommand{
+		Actor:      " 测试员 ",
+		ContractID: 77,
+		Title:      "新版合同",
+		Note:       "客户已确认",
+	})
+	if err != nil {
+		t.Fatalf("UpdateContract: %v", err)
+	}
+	if repo.updateCalls != 1 || repo.updated.Actor != "测试员" || repo.updated.ContractID != 77 || repo.updated.Title != "新版合同" || repo.updated.Note != "客户已确认" {
+		t.Fatalf("updated record = %+v calls=%d", repo.updated, repo.updateCalls)
+	}
+	if doc.Title != "新版合同" || doc.Note != "客户已确认" {
+		t.Fatalf("updated doc = %+v", doc)
+	}
+}
+
+func TestDeleteContractDelegatesSoftDelete(t *testing.T) {
+	repo := &fakeRepository{}
+	svc := NewService(repo, &fakeConverter{}, WithAssetDir(t.TempDir()))
+
+	if err := svc.DeleteContract(context.Background(), DeleteContractCommand{Actor: " 测试员 ", ContractID: 77}); err != nil {
+		t.Fatalf("DeleteContract: %v", err)
+	}
+	if repo.deleteCalls != 1 || repo.deleted.Actor != "测试员" || repo.deleted.ContractID != 77 {
+		t.Fatalf("deleted record = %+v calls=%d", repo.deleted, repo.deleteCalls)
+	}
 }
 
 func (r *fakeRepository) ListContracts(ctx context.Context) ([]ContractDocument, error) {

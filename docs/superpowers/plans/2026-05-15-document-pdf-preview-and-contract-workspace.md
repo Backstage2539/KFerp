@@ -162,7 +162,7 @@ git commit -m "Add preview PDF endpoints for sales documents"
 - Modify: `orderapp-remote/internal/interfaces/http/contracts/contracts_api.go`
 - Modify: `orderapp-remote/internal/interfaces/http/contracts/contracts_api_test.go`
 
-- [ ] **Step 1: Write failing service and API tests**
+- [x] **Step 1: Write failing service and API tests**
 
 Service test:
 
@@ -186,7 +186,7 @@ if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"note":"хо
 
 Delete test checks `DELETE /api/contracts/7` returns 200 and repository receives actor/id.
 
-- [ ] **Step 2: Run tests and verify RED**
+- [x] **Step 2: Run tests and verify RED**
 
 Run:
 
@@ -197,7 +197,7 @@ go test ./internal/application/contracts ./internal/interfaces/http/contracts ./
 
 Expected: FAIL because methods/routes/columns do not exist.
 
-- [ ] **Step 3: Add application contract methods**
+- [x] **Step 3: Add application contract methods**
 
 Add commands:
 
@@ -217,7 +217,7 @@ type DeleteContractCommand struct {
 
 Validate positive id and non-empty title. Extend `ContractDocument` with `Note`, `DeletedAt`, and `DeletedBy`.
 
-- [ ] **Step 4: Add PostgreSQL columns and queries**
+- [x] **Step 4: Add PostgreSQL columns and queries**
 
 Schema statements:
 
@@ -229,7 +229,7 @@ ALTER TABLE <schema>.contract_documents ADD COLUMN IF NOT EXISTS deleted_by TEXT
 
 `ListContracts` adds `WHERE deleted_at IS NULL`. Download queries also require `deleted_at IS NULL`. `DeleteContract` sets `deleted_at=now(), deleted_by=$actor`.
 
-- [ ] **Step 5: Add HTTP handlers**
+- [x] **Step 5: Add HTTP handlers**
 
 Add request body:
 
@@ -247,7 +247,7 @@ e.PUT("/api/contracts/:id", h.update)
 e.DELETE("/api/contracts/:id", h.delete)
 ```
 
-- [ ] **Step 6: Run focused contract tests**
+- [x] **Step 6: Run focused contract tests**
 
 Run:
 
@@ -258,7 +258,7 @@ go test ./internal/application/contracts ./internal/interfaces/http/contracts ./
 
 Expected: PASS.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add orderapp-remote/internal/application/contracts orderapp-remote/internal/infrastructure/postgres/contracts orderapp-remote/internal/interfaces/http/contracts
