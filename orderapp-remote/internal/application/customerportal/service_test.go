@@ -933,6 +933,32 @@ func TestCopyCapabilityTemplateCreatesManualChildFromSource(t *testing.T) {
 	}
 }
 
+func TestCopyCapabilityTemplateGeneratesSafeKeyWhenOnlyLabelProvided(t *testing.T) {
+	parent, _ := CustomerCapabilityTemplateByKey(CapabilityTemplatePublicSKUDirectShip)
+	parent.Active = true
+	existing := parent
+	existing.Key = "public_sku_direct_ship_copy"
+	existing.ParentTemplateKey = CapabilityTemplatePublicSKUDirectShip
+	existing.Label = "已有副本"
+	repo := &fakeRepository{templates: []CapabilityTemplate{parent, existing}}
+	svc := NewService(repo, fakeIdentityProvider{})
+
+	got, err := svc.CopyCapabilityTemplate(context.Background(), CopyCapabilityTemplateCommand{
+		SourceKey: CapabilityTemplatePublicSKUDirectShip,
+		Label:     "岩师傅模板",
+		UpdatedBy: " admin ",
+	})
+	if err != nil {
+		t.Fatalf("CopyCapabilityTemplate() err=%v", err)
+	}
+	if got.Key != "public_sku_direct_ship_copy_2" || got.Label != "岩师傅模板" || got.ParentTemplateKey != CapabilityTemplatePublicSKUDirectShip {
+		t.Fatalf("copy template result=%+v", got)
+	}
+	if repo.templateSaveCommand.Template.Key != "public_sku_direct_ship_copy_2" || repo.templateSaveCommand.UpdatedBy != "admin" {
+		t.Fatalf("copy should save generated safe key: %+v", repo.templateSaveCommand)
+	}
+}
+
 func TestUpdatePortalVisibilityRejectsInactiveTemplateKey(t *testing.T) {
 	inactive, _ := CustomerCapabilityTemplateByKey(CapabilityTemplatePublicSKUDirectShip)
 	inactive.Key = "public_sku_direct_ship_b"

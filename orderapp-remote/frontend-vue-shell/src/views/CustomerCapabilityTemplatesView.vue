@@ -21,20 +21,18 @@
       <div class="template-head">
         <div class="template-title">
           <button
-            v-if="hasChildren(editor)"
             class="icon-button"
             type="button"
-            @click="toggleTemplateCollapsed(editor)"
-            :aria-label="collapsedTemplateKeys.has(editor.form.key) ? '展开子模板' : '折叠子模板'">
-            {{ collapsedTemplateKeys.has(editor.form.key) ? '▸' : '▾' }}
+            @click="toggleTemplateExpanded(editor)"
+            :aria-label="isTemplateExpanded(editor) ? '当前模板详情已展开' : '展开模板详情'">
+            {{ isTemplateExpanded(editor) ? '▾' : '▸' }}
           </button>
-          <span v-else class="tree-spacer"></span>
           <div>
             <h3>{{ editor.form.label }}</h3>
-            <span>{{ editor.form.key }}</span>
+            <p class="template-summary">{{ templateSummary(editor) }}</p>
           </div>
         </div>
-        <div class="template-actions">
+        <div v-if="isTemplateExpanded(editor)" class="template-actions">
           <label class="status-toggle">
             <input v-model="editor.form.active" type="checkbox" />
             <span>{{ editor.form.active ? '模板启用' : '模板失效' }}</span>
@@ -46,7 +44,7 @@
         </div>
       </div>
 
-      <div class="template-layout">
+      <div v-if="isTemplateExpanded(editor)" class="template-layout">
         <div class="rule-group identity-group">
           <div class="group-title">模板定位</div>
           <label>
@@ -179,28 +177,22 @@ const capabilityDefinitions = [
 
 const defaultCapabilityLabels = Object.fromEntries(capabilityDefinitions.map((item) => [item.code, item.label]))
 const editors = ref([])
-const collapsedTemplateKeys = ref(new Set())
+const expandedTemplateKey = ref('')
 const loading = ref(false)
 const error = ref('')
 const ok = ref('')
 
 const editorsByKey = computed(() => new Map(editors.value.map((editor) => [editor.form.key, editor])))
-const visibleTemplateEditors = computed(() => {
-  const out = []
-  for (const editor of editors.value) {
-    if (isHiddenByCollapsedParent(editor)) continue
-    out.push(editor)
-  }
-  return out
-})
+const visibleTemplateEditors = computed(() => flattenTemplateEditorsForTree(editors.value))
 
-async function loadTemplates() {
+async function loadTemplates(preferredExpandedKey = '') {
   loading.value = true
   error.value = ''
   ok.value = ''
   try {
     const data = await apiGet('/api/customer-portal/admin/capability-templates')
     editors.value = (data.templates || []).map(createEditor)
+    ensureExpandedTemplate(preferredExpandedKey)
   } catch (err) {
     error.value = err.message || '加载模板失败'
   } finally {
@@ -345,28 +337,6 @@ function payloadFor(editor) {
   }
 }
 
-function hasChildren(editor) {
-  return editors.value.some((item) => item.form.parent_template_key === editor.form.key)
-}
-
-function toggleTemplateCollapsed(editor) {
-  const next = new Set(collapsedTemplateKeys.value)
-  if (next.has(editor.form.key)) next.delete(editor.form.key)
-  else next.add(editor.form.key)
-  collapsedTemplateKeys.value = next
-}
-
-function isHiddenByCollapsedParent(editor) {
-  let parentKey = editor.form.parent_template_key
-  const seen = new Set()
-  while (parentKey && !seen.has(parentKey)) {
-    if (collapsedTemplateKeys.value.has(parentKey)) return true
-    seen.add(parentKey)
-    parentKey = editorsByKey.value.get(parentKey)?.form?.parent_template_key || ''
-  }
-  return false
-}
-
 function templateDepth(editor) {
   let depth = 0
   let parentKey = editor.form.parent_template_key
@@ -379,10 +349,68 @@ function templateDepth(editor) {
   return depth
 }
 
+function flattenTemplateEditorsForTree(items) {
+  const byKey = new Map(items.map((editor) => [editor.form.key, editor]))
+  const childrenByParent = new Map()
+  const roots = []
+  for (const editor of items) {
+    const parentKey = editor.form.parent_template_key
+    if (parentKey && parentKey !== editor.form.key && byKey.has(parentKey)) {
+      const children = childrenByParent.get(parentKey) || []
+      children.push(editor)
+      childrenByParent.set(parentKey, children)
+    } else {
+      roots.push(editor)
+    }
+  }
+  const out = []
+  const walk = (siblings, seen = new Set()) => {
+    for (const editor of sortTemplateSiblings(siblings)) {
+      if (!editor?.form?.key || seen.has(editor.form.key)) continue
+      out.push(editor)
+      const nextSeen = new Set(seen)
+      nextSeen.add(editor.form.key)
+      walk(childrenByParent.get(editor.form.key) || [], nextSeen)
+    }
+  }
+  walk(roots)
+  return out
+}
+
+function sortTemplateSiblings(items) {
+  return [...items].sort((left, right) => {
+    const leftOrder = Number(left.form.sort_order || 0)
+    const rightOrder = Number(right.form.sort_order || 0)
+    if (leftOrder !== rightOrder) return leftOrder - rightOrder
+    return String(left.form.key || '').localeCompare(String(right.form.key || ''))
+  })
+}
+
+function templateSummary(editor) {
+  return editor.form.description || '暂无说明'
+}
+
+function isTemplateExpanded(editor) {
+  return !!editor?.form?.key && expandedTemplateKey.value === editor.form.key
+}
+
+function toggleTemplateExpanded(editor) {
+  if (!editor?.form?.key) return
+  expandedTemplateKey.value = editor.form.key
+}
+
+function ensureExpandedTemplate(preferredKey = '') {
+  const keys = new Set(editors.value.map((editor) => editor.form.key))
+  if (preferredKey && keys.has(preferredKey)) {
+    expandedTemplateKey.value = preferredKey
+    return
+  }
+  if (expandedTemplateKey.value && keys.has(expandedTemplateKey.value)) return
+  expandedTemplateKey.value = visibleTemplateEditors.value[0]?.form?.key || ''
+}
+
 async function copyTemplate(editor) {
   if (!editor?.form?.key) return
-  const newKey = window.prompt('请输入新模板 key，只能使用小写字母、数字和下划线', `${editor.form.key}_copy`)
-  if (!newKey) return
   const label = window.prompt('请输入新模板名称', `${editor.form.label} 副本`)
   if (!label) return
   loading.value = true
@@ -391,9 +419,9 @@ async function copyTemplate(editor) {
   try {
     const data = await apiSend(`/api/customer-portal/admin/capability-templates/${editor.form.key}/copy`, {
       method: 'POST',
-      body: { new_key: newKey, label },
+      body: { label },
     })
-    await loadTemplates()
+    await loadTemplates(data.key)
     ok.value = `已复制模板 ${data.label || label}`
   } catch (err) {
     error.value = err.message || '复制模板失败'
@@ -444,12 +472,12 @@ h2, h3, p { margin: 0; }
 h2 { font-size: 20px; }
 h3 { font-size: 18px; }
 p, .template-head span { color: #666; font-size: 13px; margin-top: 5px; }
+.template-summary { max-width: 720px; line-height: 1.35; overflow-wrap: anywhere; }
 button { min-height: 38px; border-radius: 6px; border: 1px solid #1f1f1f; padding: 0 12px; font: inherit; cursor: pointer; }
 button:disabled { cursor: not-allowed; opacity: .55; }
 .primary { background: #1f1f1f; color: #fff; }
 .secondary { background: #fff; color: #1f1f1f; }
 .icon-button { width: 30px; min-height: 30px; padding: 0; border-color: #d5dce3; background: #f8fafc; }
-.tree-spacer { display: inline-block; width: 30px; height: 30px; }
 .status-toggle { display: inline-flex; align-items: center; gap: 6px; min-height: 38px; border: 1px solid #e4e7ec; border-radius: 6px; padding: 0 10px; }
 .status-toggle input { width: auto; height: auto; }
 .status-toggle span { margin: 0; color: #333; }

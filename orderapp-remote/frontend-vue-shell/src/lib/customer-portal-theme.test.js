@@ -102,13 +102,20 @@ test('customer capability templates view supports manual child templates and fol
     'parent_template_key',
     'active',
     'sort_order',
-    'collapsedTemplateKeys',
+    'expandedTemplateKey',
+    'templateSummary',
     'visibleTemplateEditors',
+    'flattenTemplateEditorsForTree',
+    'isTemplateExpanded',
+    'toggleTemplateExpanded',
     'copyTemplate',
-    'toggleTemplateCollapsed',
   ]) {
     assert.ok(source.includes(want), `missing ${want}`)
   }
+  assert.match(source, /window\.prompt\('请输入新模板名称'/)
+  assert.doesNotMatch(source, /请输入新模板 key/)
+  assert.doesNotMatch(source, /body:\s*\{\s*new_key:/)
+  assert.match(source, /body:\s*\{\s*label\s*\}/)
 })
 
 test('customer portal settings only lets customers bind active templates', () => {
