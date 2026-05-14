@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { buildMallOrderPath, buildMallPagePath, buildServicePagePath, buildSwitchCustomerPath } from './customerPortal'
+import { buildMallOrderPath, buildMallPagePath, buildPasswordLoginPath, buildServicePagePath, buildSwitchCustomerPath } from './customerPortal'
 
 describe('customer portal API helpers', () => {
   it('encodes service page filters into the mini service path', () => {
@@ -26,5 +26,9 @@ describe('customer portal API helpers', () => {
 
   it('exposes the current-customer switch API path', () => {
     expect(buildSwitchCustomerPath()).toBe('/api/mini/current-customer')
+  })
+
+  it('exposes the ERP password login API path', () => {
+    expect(buildPasswordLoginPath()).toBe('/api/mini/login/password')
   })
 })

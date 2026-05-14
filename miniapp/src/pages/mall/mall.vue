@@ -2,7 +2,7 @@
 import { computed, ref } from 'vue'
 import { onShow } from '@dcloudio/uni-app'
 import { buildAPIURL } from '../../api/client'
-import { createMallOrder, fetchMallPage, switchCurrentCustomer, type MallPageResponse } from '../../api/customerPortal'
+import { createMallOrder, fetchMallPage, type MallPageResponse } from '../../api/customerPortal'
 import { useSessionStore } from '../../stores/session'
 import {
   addMallCartItem,
@@ -15,20 +15,12 @@ import {
   type MallCartItem,
   type MallProduct,
 } from '../../utils/mall'
-import {
-  customerEntryRoute,
-  customerPickerIndex as selectedCustomerPickerIndex,
-  customerPickerLabels as buildCustomerPickerLabels,
-  selectedCustomerID,
-  shouldShowCustomerSwitcher,
-} from '../../utils/customerSwitch'
 import { miniappThemeClass, miniappThemeMeta } from '../../utils/themes'
 
 const session = useSessionStore()
 const page = ref<MallPageResponse | null>(null)
 const cart = ref<MallCartItem[]>([])
 const loading = ref(false)
-const switching = ref(false)
 const submitting = ref(false)
 const errorMessage = ref('')
 const recipient = ref({ name: '', phone: '', address: '', note: '' })
@@ -40,9 +32,6 @@ const themeMeta = computed(() => miniappThemeMeta(activeThemeKey.value))
 const customerName = computed(() => page.value?.current_customer_name || session.currentCustomerName || '商城')
 const cartCount = computed(() => mallCartCount(cart.value))
 const cartTotal = computed(() => mallCartTotal(cart.value))
-const canSwitchCustomer = computed(() => shouldShowCustomerSwitcher(session.bindings))
-const customerPickerLabels = computed(() => buildCustomerPickerLabels(session.bindings, session.currentCustomerID))
-const customerPickerIndex = computed(() => selectedCustomerPickerIndex(session.bindings, session.currentCustomerID))
 
 async function loadMall() {
   if (!session.token) {
@@ -89,34 +78,8 @@ function openOrders() {
   uni.navigateTo({ url: '/pages/service/service?key=orders' })
 }
 
-function resetLocalOrderState() {
-  cart.value = []
-  recipient.value = { name: '', phone: '', address: '', note: '' }
-}
-
-function logout() {
-  resetLocalOrderState()
-  session.clearSession()
-  uni.redirectTo({ url: '/pages/login/login' })
-}
-
-async function handleCustomerSwitch(event: { detail?: { value?: number | string } }) {
-  if (switching.value || !session.token) return
-  const customerID = selectedCustomerID(session.bindings, Number(event.detail?.value ?? -1))
-  if (!customerID || customerID === session.currentCustomerID) return
-
-  switching.value = true
-  errorMessage.value = ''
-  try {
-    const response = await switchCurrentCustomer(session.token, customerID)
-    resetLocalOrderState()
-    session.applyContext(response)
-    uni.redirectTo({ url: customerEntryRoute(response) })
-  } catch (error) {
-    errorMessage.value = error instanceof Error ? error.message : '切换客户失败'
-  } finally {
-    switching.value = false
-  }
+function openProfile() {
+  uni.navigateTo({ url: '/pages/profile/profile' })
 }
 
 async function submitOrder() {
@@ -155,11 +118,8 @@ onShow(() => {
       <text class="title">{{ customerName }}</text>
       <text class="subtitle">{{ themeMeta.subtitle }}</text>
       <view class="account-actions">
-        <picker v-if="canSwitchCustomer" mode="selector" :range="customerPickerLabels" :value="customerPickerIndex" @change="handleCustomerSwitch">
-          <view class="customer-switch">{{ switching ? '切换中...' : customerPickerLabels[customerPickerIndex] || '切换客户' }}</view>
-        </picker>
+        <button class="profile-link" size="mini" @tap="openProfile">个人中心</button>
         <button class="orders-link" size="mini" @tap="openOrders">我的订单</button>
-        <button class="logout-link" size="mini" @tap="logout">退出登录</button>
       </view>
     </view>
 
@@ -291,9 +251,8 @@ onShow(() => {
   margin-top: 8rpx;
 }
 
-.customer-switch,
-.orders-link,
-.logout-link {
+.profile-link,
+.orders-link {
   align-self: flex-start;
   min-height: 58rpx;
   margin: 0;
@@ -307,17 +266,15 @@ onShow(() => {
   line-height: 58rpx;
 }
 
-.theme-clean-ops .customer-switch,
-.theme-clean-ops .orders-link,
-.theme-clean-ops .logout-link {
+.theme-clean-ops .profile-link,
+.theme-clean-ops .orders-link {
   border-color: #cddbd4;
   background: #eef6f2;
   color: #28624a;
 }
 
-.theme-premium-partner .customer-switch,
-.theme-premium-partner .orders-link,
-.theme-premium-partner .logout-link {
+.theme-premium-partner .profile-link,
+.theme-premium-partner .orders-link {
   border-color: rgba(255, 248, 235, .5);
   background: rgba(255, 248, 235, .14);
 }

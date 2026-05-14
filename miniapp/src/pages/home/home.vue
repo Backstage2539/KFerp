@@ -1,56 +1,26 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import { onShow } from '@dcloudio/uni-app'
-import { fetchMe, switchCurrentCustomer } from '../../api/customerPortal'
+import { fetchMe } from '../../api/customerPortal'
 import { useSessionStore } from '../../stores/session'
 import { visibleHomeEntries } from '../../utils/capabilities'
-import {
-  customerEntryRoute,
-  customerPickerIndex as selectedCustomerPickerIndex,
-  customerPickerLabels as buildCustomerPickerLabels,
-  selectedCustomerID,
-  shouldShowCustomerSwitcher,
-} from '../../utils/customerSwitch'
 import { miniappThemeClass, miniappThemeMeta } from '../../utils/themes'
 
 const session = useSessionStore()
 const loading = ref(false)
-const switching = ref(false)
 const errorMessage = ref('')
 
 const entries = computed(() => visibleHomeEntries(session.capabilities))
 const customerName = computed(() => session.currentCustomerName || '客户中心')
 const themeClass = computed(() => miniappThemeClass(session.themeKey))
 const themeMeta = computed(() => miniappThemeMeta(session.themeKey))
-const canSwitchCustomer = computed(() => shouldShowCustomerSwitcher(session.bindings))
-const customerPickerLabels = computed(() => buildCustomerPickerLabels(session.bindings, session.currentCustomerID))
-const customerPickerIndex = computed(() => selectedCustomerPickerIndex(session.bindings, session.currentCustomerID))
 
 function openEntry(url: string) {
   uni.navigateTo({ url })
 }
 
-function logout() {
-  session.clearSession()
-  uni.redirectTo({ url: '/pages/login/login' })
-}
-
-async function handleCustomerSwitch(event: { detail?: { value?: number | string } }) {
-  if (switching.value || !session.token) return
-  const customerID = selectedCustomerID(session.bindings, Number(event.detail?.value ?? -1))
-  if (!customerID || customerID === session.currentCustomerID) return
-
-  switching.value = true
-  errorMessage.value = ''
-  try {
-    const response = await switchCurrentCustomer(session.token, customerID)
-    session.applyContext(response)
-    uni.redirectTo({ url: customerEntryRoute(response) })
-  } catch (error) {
-    errorMessage.value = error instanceof Error ? error.message : '切换客户失败'
-  } finally {
-    switching.value = false
-  }
+function openProfile() {
+  uni.navigateTo({ url: '/pages/profile/profile' })
 }
 
 async function loadContext() {
@@ -90,10 +60,7 @@ onShow(() => {
       <text class="title">{{ customerName }}</text>
       <text class="subtitle">{{ themeMeta.subtitle }}</text>
       <view class="account-actions">
-        <picker v-if="canSwitchCustomer" mode="selector" :range="customerPickerLabels" :value="customerPickerIndex" @change="handleCustomerSwitch">
-          <view class="customer-switch">{{ switching ? '切换中...' : customerPickerLabels[customerPickerIndex] || '切换客户' }}</view>
-        </picker>
-        <button class="logout-link" size="mini" @tap="logout">退出登录</button>
+        <button class="profile-link" size="mini" @tap="openProfile">个人中心</button>
       </view>
     </view>
 
@@ -195,8 +162,7 @@ onShow(() => {
   margin-top: 8rpx;
 }
 
-.customer-switch,
-.logout-link {
+.profile-link {
   min-height: 56rpx;
   padding: 0 22rpx;
   border: 1rpx solid rgba(255, 248, 235, .56);
@@ -206,21 +172,16 @@ onShow(() => {
   font-size: 24rpx;
   font-weight: 900;
   line-height: 56rpx;
-}
-
-.logout-link {
   margin: 0;
 }
 
-.theme-clean-ops .customer-switch,
-.theme-clean-ops .logout-link {
+.theme-clean-ops .profile-link {
   border-color: #cddbd4;
   background: #eef6f2;
   color: #28624a;
 }
 
-.theme-premium-partner .customer-switch,
-.theme-premium-partner .logout-link {
+.theme-premium-partner .profile-link {
   border-color: rgba(255, 248, 235, .5);
   background: rgba(255, 248, 235, .14);
 }

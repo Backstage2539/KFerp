@@ -18,36 +18,47 @@ import (
 )
 
 type fakeService struct {
-	login           customerportalapp.LoginResult
-	me              customerportalapp.CurrentContext
-	service         customerportalapp.ServicePage
-	filter          *customerportalapp.ServicePageFilter
-	customers       []customerportalapp.PortalAdminCustomer
-	detail          customerportalapp.PortalAdminDetail
-	saveCmd         *customerportalapp.UpdatePortalVisibilityCommand
-	templates       []customerportalapp.CapabilityTemplate
-	templateSaveCmd *customerportalapp.SaveCapabilityTemplateCommand
-	templateCmd     *customerportalapp.ApplyCapabilityTemplateCommand
-	erpBindingCmd   *customerportalapp.UpsertPortalERPBindingCommand
-	mallRows        []customerportalapp.MallProduct
-	mallOptions     []customerportalapp.MallProductOption
-	mallSaveCmd     *customerportalapp.SaveMallProductCommand
-	mallImageCmd    *customerportalapp.UpdateMallProductImageCommand
-	mallImageErr    error
-	mallPage        customerportalapp.MallPage
-	mallOrder       customerportalapp.FulfillmentOrder
-	mallOrderCmd    *customerportalapp.CreateMallOrderCommand
-	directShip      customerportalapp.DirectShipBatch
-	processing      customerportalapp.ProcessingRequest
-	fulfillment     customerportalapp.FulfillmentOrder
-	fulfillmentCmd  *customerportalapp.CreateFulfillmentOrderCommand
-	beanList        customerportalapp.BeanListSummary
-	err             error
+	login            customerportalapp.LoginResult
+	passwordLoginCmd *customerportalapp.PasswordLoginCommand
+	me               customerportalapp.CurrentContext
+	service          customerportalapp.ServicePage
+	filter           *customerportalapp.ServicePageFilter
+	customers        []customerportalapp.PortalAdminCustomer
+	detail           customerportalapp.PortalAdminDetail
+	saveCmd          *customerportalapp.UpdatePortalVisibilityCommand
+	templates        []customerportalapp.CapabilityTemplate
+	templateSaveCmd  *customerportalapp.SaveCapabilityTemplateCommand
+	templateCmd      *customerportalapp.ApplyCapabilityTemplateCommand
+	erpBindingCmd    *customerportalapp.UpsertPortalERPBindingCommand
+	mallRows         []customerportalapp.MallProduct
+	mallOptions      []customerportalapp.MallProductOption
+	mallSaveCmd      *customerportalapp.SaveMallProductCommand
+	mallImageCmd     *customerportalapp.UpdateMallProductImageCommand
+	mallImageErr     error
+	mallPage         customerportalapp.MallPage
+	mallOrder        customerportalapp.FulfillmentOrder
+	mallOrderCmd     *customerportalapp.CreateMallOrderCommand
+	directShip       customerportalapp.DirectShipBatch
+	processing       customerportalapp.ProcessingRequest
+	fulfillment      customerportalapp.FulfillmentOrder
+	fulfillmentCmd   *customerportalapp.CreateFulfillmentOrderCommand
+	beanList         customerportalapp.BeanListSummary
+	err              error
 }
 
 func (s fakeService) Login(context.Context, customerportalapp.LoginCommand) (customerportalapp.LoginResult, error) {
 	if s.err != nil {
 		return customerportalapp.LoginResult{}, s.err
+	}
+	return s.login, nil
+}
+
+func (s fakeService) LoginWithPassword(_ context.Context, cmd customerportalapp.PasswordLoginCommand) (customerportalapp.LoginResult, error) {
+	if s.err != nil {
+		return customerportalapp.LoginResult{}, s.err
+	}
+	if s.passwordLoginCmd != nil {
+		*s.passwordLoginCmd = cmd
 	}
 	return s.login, nil
 }
@@ -257,6 +268,74 @@ func TestMiniLoginAndMeAPI(t *testing.T) {
 		!strings.Contains(meRec.Body.String(), `"miniapp_entry_mode":"mall"`) ||
 		!strings.Contains(meRec.Body.String(), customerportalapp.CapabilityDirectShip) {
 		t.Fatalf("me status=%d body=%s", meRec.Code, meRec.Body.String())
+	}
+}
+
+func TestMiniPasswordLoginAPI(t *testing.T) {
+	var cmd customerportalapp.PasswordLoginCommand
+	e := echo.New()
+	RegisterRoutes(e, Dependencies{CustomerPortal: fakeService{
+		login: customerportalapp.LoginResult{
+			Token:             "mini-token",
+			MiniUserID:        3,
+			ThemeKey:          customerportalapp.PortalThemePremiumPartner,
+			MiniappEntryMode:  customerportalapp.MiniappEntryModeMall,
+			CurrentCustomerID: 8,
+		},
+		passwordLoginCmd: &cmd,
+	}})
+
+	req := httptest.NewRequest(http.MethodPost, "/api/mini/login/password", strings.NewReader(`{"login":"13800138075","password":"secret"}`))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK ||
+		!strings.Contains(rec.Body.String(), `"token":"mini-token"`) ||
+		!strings.Contains(rec.Body.String(), `"theme_key":"premium_partner"`) ||
+		!strings.Contains(rec.Body.String(), `"miniapp_entry_mode":"mall"`) {
+		t.Fatalf("password login status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if cmd.Login != "13800138075" || cmd.Password != "secret" {
+		t.Fatalf("LoginWithPassword cmd=%+v", cmd)
+	}
+}
+
+func TestMiniPasswordLoginRejectsMissingCredentials(t *testing.T) {
+	e := echo.New()
+	RegisterRoutes(e, Dependencies{CustomerPortal: fakeService{}})
+
+	req := httptest.NewRequest(http.MethodPost, "/api/mini/login/password", strings.NewReader(`{"login":"13800138075"}`))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("missing password status=%d body=%s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestMiniPasswordLoginErrorMapping(t *testing.T) {
+	cases := []struct {
+		name string
+		err  error
+		want int
+		body string
+	}{
+		{name: "invalid login", err: customerportalapp.ErrMiniInvalidLogin, want: http.StatusUnauthorized, body: "invalid login"},
+		{name: "disabled", err: customerportalapp.ErrMiniAccountLoginDisabled, want: http.StatusForbidden, body: "login disabled"},
+		{name: "binding", err: customerportalapp.ErrCustomerBindingNotFound, want: http.StatusForbidden, body: "customer binding not found"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			e := echo.New()
+			RegisterRoutes(e, Dependencies{CustomerPortal: fakeService{err: tc.err}})
+			req := httptest.NewRequest(http.MethodPost, "/api/mini/login/password", strings.NewReader(`{"login":"13800138075","password":"secret"}`))
+			req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+			rec := httptest.NewRecorder()
+			e.ServeHTTP(rec, req)
+			if rec.Code != tc.want || !strings.Contains(rec.Body.String(), tc.body) {
+				t.Fatalf("%s status=%d body=%s, want %d containing %q", tc.name, rec.Code, rec.Body.String(), tc.want, tc.body)
+			}
+		})
 	}
 }
 
@@ -1324,6 +1403,10 @@ type templateContractRepository struct {
 }
 
 func (r *templateContractRepository) CreateLoginSession(context.Context, customerportalapp.CreateLoginSessionCommand) (customerportalapp.LoginResult, error) {
+	return customerportalapp.LoginResult{Token: "mini-token", MiniUserID: r.current.MiniUserID, CurrentCustomerID: r.current.CurrentCustomerID, ThemeKey: r.current.ThemeKey, MiniappEntryMode: r.current.MiniappEntryMode, Capabilities: r.current.Capabilities}, nil
+}
+
+func (r *templateContractRepository) CreatePasswordLoginSession(context.Context, customerportalapp.CreatePasswordLoginSessionCommand) (customerportalapp.LoginResult, error) {
 	return customerportalapp.LoginResult{Token: "mini-token", MiniUserID: r.current.MiniUserID, CurrentCustomerID: r.current.CurrentCustomerID, ThemeKey: r.current.ThemeKey, MiniappEntryMode: r.current.MiniappEntryMode, Capabilities: r.current.Capabilities}, nil
 }
 

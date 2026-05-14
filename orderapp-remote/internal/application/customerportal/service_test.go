@@ -22,6 +22,7 @@ func (p fakeIdentityProvider) Resolve(ctx context.Context, code string) (MiniIde
 type fakeRepository struct {
 	loginResult         LoginResult
 	loginCommand        CreateLoginSessionCommand
+	passwordCommand     CreatePasswordLoginSessionCommand
 	context             CurrentContext
 	session             string
 	serviceQuery        ServicePageQuery
@@ -53,6 +54,14 @@ type fakeRepository struct {
 
 func (r *fakeRepository) CreateLoginSession(ctx context.Context, cmd CreateLoginSessionCommand) (LoginResult, error) {
 	r.loginCommand = cmd
+	if r.err != nil {
+		return LoginResult{}, r.err
+	}
+	return r.loginResult, nil
+}
+
+func (r *fakeRepository) CreatePasswordLoginSession(ctx context.Context, cmd CreatePasswordLoginSessionCommand) (LoginResult, error) {
+	r.passwordCommand = cmd
 	if r.err != nil {
 		return LoginResult{}, r.err
 	}
@@ -248,6 +257,51 @@ func TestLoginCreatesSessionFromResolvedIdentity(t *testing.T) {
 	}
 	if repo.loginCommand.OpenID != "openid-1" || repo.loginCommand.UnionID != "union-1" || repo.loginCommand.Phone != "13800138000" || repo.loginCommand.Nickname != "客户" {
 		t.Fatalf("CreateLoginSession() cmd=%+v", repo.loginCommand)
+	}
+}
+
+func TestLoginWithPasswordCreatesSessionForERPChannelAccount(t *testing.T) {
+	repo := &fakeRepository{loginResult: LoginResult{
+		Token:             "mini-token",
+		MiniUserID:        11,
+		CurrentCustomerID: 7,
+		ThemeKey:          " premium_partner ",
+		MiniappEntryMode:  " mall ",
+	}}
+	svc := NewService(repo, fakeIdentityProvider{})
+
+	got, err := svc.LoginWithPassword(context.Background(), PasswordLoginCommand{Login: " 13800138075 ", Password: " secret "})
+	if err != nil {
+		t.Fatalf("LoginWithPassword() err=%v", err)
+	}
+	if got.Token != "mini-token" || got.MiniUserID != 11 || got.CurrentCustomerID != 7 {
+		t.Fatalf("LoginWithPassword()=%+v", got)
+	}
+	if got.ThemeKey != PortalThemePremiumPartner || got.MiniappEntryMode != MiniappEntryModeMall {
+		t.Fatalf("LoginWithPassword() theme=%q entry=%q, want normalized premium_partner/mall", got.ThemeKey, got.MiniappEntryMode)
+	}
+	if repo.passwordCommand.Login != "13800138075" || repo.passwordCommand.Password != "secret" {
+		t.Fatalf("CreatePasswordLoginSession() cmd=%+v", repo.passwordCommand)
+	}
+}
+
+func TestLoginWithPasswordRejectsMissingCredentials(t *testing.T) {
+	svc := NewService(&fakeRepository{}, fakeIdentityProvider{})
+	cases := []struct {
+		name string
+		cmd  PasswordLoginCommand
+		want string
+	}{
+		{name: "login", cmd: PasswordLoginCommand{Password: "secret"}, want: "login required"},
+		{name: "password", cmd: PasswordLoginCommand{Login: "13800138075"}, want: "password required"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := svc.LoginWithPassword(context.Background(), tc.cmd)
+			if err == nil || err.Error() != tc.want {
+				t.Fatalf("LoginWithPassword() err=%v, want %s", err, tc.want)
+			}
+		})
 	}
 }
 

@@ -18,6 +18,7 @@ import (
 
 type Service interface {
 	Login(context.Context, customerportalapp.LoginCommand) (customerportalapp.LoginResult, error)
+	LoginWithPassword(context.Context, customerportalapp.PasswordLoginCommand) (customerportalapp.LoginResult, error)
 	Me(context.Context, string) (customerportalapp.CurrentContext, error)
 	SwitchCurrentCustomer(context.Context, string, int64) (customerportalapp.CurrentContext, error)
 	GetServicePage(context.Context, string, string, customerportalapp.ServicePageFilter) (customerportalapp.ServicePage, error)
