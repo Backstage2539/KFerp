@@ -14,7 +14,8 @@ RUN CGO_ENABLED=0 /usr/local/go/bin/go build -o /out/orderapp ./
 
 FROM docker.m.daocloud.io/library/alpine:3.20
 WORKDIR /app
-RUN apk add --no-cache font-noto-cjk libreoffice ttf-dejavu
+RUN sed -i 's|https://dl-cdn.alpinelinux.org/alpine|https://mirrors.aliyun.com/alpine|g' /etc/apk/repositories \
+    && apk add --no-cache font-noto-cjk libreoffice ttf-dejavu
 
 COPY --from=build /out/orderapp /app/orderapp
 COPY templates /app/templates
