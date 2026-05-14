@@ -29,7 +29,7 @@ func registerContractRoutes(e *echo.Echo, contracts ContractService) {
 	e.POST("/api/contracts", h.upload)
 	e.GET("/contracts/:id/pdf", h.downloadPDF)
 	e.POST("/api/contracts/:id/stamped", h.saveStamped)
-	e.GET("/contracts/:id/stamped/:version_id.pdf", h.downloadStamped)
+	e.GET("/contracts/:id/stamped/:version_id", h.downloadStamped)
 	e.GET("/contracts/:id/stamped-latest.pdf", h.downloadLatestStamped)
 }
 

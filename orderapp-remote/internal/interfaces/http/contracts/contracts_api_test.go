@@ -18,12 +18,14 @@ import (
 )
 
 type fakeContractService struct {
-	uploadCmd  contractsapp.UploadContractCommand
-	uploadErr  error
-	stampCmd   contractsapp.SaveStampedPDFCommand
-	stampErr   error
-	pdfFile    contractsapp.ContractFile
-	latestFile contractsapp.ContractFile
+	uploadCmd     contractsapp.UploadContractCommand
+	uploadErr     error
+	stampCmd      contractsapp.SaveStampedPDFCommand
+	stampErr      error
+	pdfFile       contractsapp.ContractFile
+	latestFile    contractsapp.ContractFile
+	loadVersionID int64
+	loadLatest    bool
 }
 
 func (s *fakeContractService) ListContracts(ctx context.Context) ([]contractsapp.ContractDocument, error) {
@@ -51,6 +53,8 @@ func (s *fakeContractService) LoadContractPDFFile(ctx context.Context, contractI
 }
 
 func (s *fakeContractService) LoadStampedPDFFile(ctx context.Context, contractID, versionID int64, latest bool) (contractsapp.ContractFile, error) {
+	s.loadVersionID = versionID
+	s.loadLatest = latest
 	return s.latestFile, nil
 }
 
@@ -124,18 +128,22 @@ func TestContractAPIDownloadsSourceAndStampedPDF(t *testing.T) {
 		t.Fatal(err)
 	}
 	e := echo.New()
-	RegisterRoutes(e, Dependencies{Contracts: &fakeContractService{
+	svc := &fakeContractService{
 		pdfFile:    contractsapp.ContractFile{Path: source, Filename: "合作合同.pdf", ContentType: "application/pdf"},
 		latestFile: contractsapp.ContractFile{Path: stamped, Filename: "合作合同-stamped-V1.pdf", ContentType: "application/pdf"},
-	}})
+	}
+	RegisterRoutes(e, Dependencies{Contracts: svc})
 
 	for _, item := range []struct {
-		path     string
-		filename string
-		body     string
+		path          string
+		filename      string
+		body          string
+		wantVersionID int64
+		wantLatest    bool
 	}{
 		{path: "/contracts/7/pdf", filename: "合作合同.pdf", body: "source"},
-		{path: "/contracts/7/stamped-latest.pdf", filename: "合作合同-stamped-V1.pdf", body: "stamped"},
+		{path: "/contracts/7/stamped/11.pdf", filename: "合作合同-stamped-V1.pdf", body: "stamped", wantVersionID: 11},
+		{path: "/contracts/7/stamped-latest.pdf", filename: "合作合同-stamped-V1.pdf", body: "stamped", wantLatest: true},
 	} {
 		req := httptest.NewRequest(http.MethodGet, item.path, nil)
 		rec := httptest.NewRecorder()
@@ -145,6 +153,9 @@ func TestContractAPIDownloadsSourceAndStampedPDF(t *testing.T) {
 		}
 		if !strings.Contains(rec.Header().Get(echo.HeaderContentDisposition), item.filename) {
 			t.Fatalf("%s disposition=%q", item.path, rec.Header().Get(echo.HeaderContentDisposition))
+		}
+		if strings.Contains(item.path, "/stamped/") && (svc.loadVersionID != item.wantVersionID || svc.loadLatest != item.wantLatest) {
+			t.Fatalf("%s LoadStampedPDFFile version/latest = %d/%v, want %d/%v", item.path, svc.loadVersionID, svc.loadLatest, item.wantVersionID, item.wantLatest)
 		}
 	}
 }
@@ -162,7 +173,7 @@ func TestContractAPIRoutesRegistered(t *testing.T) {
 		"POST /api/contracts",
 		"GET /contracts/:id/pdf",
 		"POST /api/contracts/:id/stamped",
-		"GET /contracts/:id/stamped/:version_id.pdf",
+		"GET /contracts/:id/stamped/:version_id",
 		"GET /contracts/:id/stamped-latest.pdf",
 	} {
 		if !routes[want] {
