@@ -269,6 +269,17 @@ export function loginWithCode(code: string): Promise<LoginResponse> {
   return miniRequest<LoginResponse>('/api/mini/login', { method: 'POST', data: { code } })
 }
 
+export function buildPasswordLoginPath(): string {
+  return '/api/mini/login/password'
+}
+
+export function loginWithPassword(login: string, password: string): Promise<LoginResponse> {
+  return miniRequest<LoginResponse>(buildPasswordLoginPath(), {
+    method: 'POST',
+    data: { login, password },
+  })
+}
+
 export function fetchMe(token: string): Promise<MeResponse> {
   return miniRequest<MeResponse>('/api/mini/me', { token })
 }

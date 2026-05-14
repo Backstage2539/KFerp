@@ -19,6 +19,11 @@ type miniLoginRequest struct {
 	Nickname string `json:"nickname"`
 }
 
+type miniPasswordLoginRequest struct {
+	Login    string `json:"login"`
+	Password string `json:"password"`
+}
+
 type switchCustomerRequest struct {
 	CustomerID int64 `json:"customer_id"`
 }
@@ -75,6 +80,26 @@ func registerMiniAPI(e *echo.Echo, svc Service, messages MessagePublisher, beanL
 		result, err := svc.Login(c.Request().Context(), customerportalapp.LoginCommand{Code: req.Code, Phone: req.Phone, Nickname: req.Nickname})
 		if err != nil {
 			return miniLoginError(c, err)
+		}
+		return c.JSON(http.StatusOK, result)
+	})
+
+	e.POST("/api/mini/login/password", func(c echo.Context) error {
+		if svc == nil {
+			return miniInternalError(c)
+		}
+		var req miniPasswordLoginRequest
+		if err := c.Bind(&req); err != nil {
+			return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid request"})
+		}
+		login := strings.TrimSpace(req.Login)
+		password := strings.TrimSpace(req.Password)
+		if login == "" || password == "" {
+			return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid request"})
+		}
+		result, err := svc.LoginWithPassword(c.Request().Context(), customerportalapp.PasswordLoginCommand{Login: login, Password: password})
+		if err != nil {
+			return miniPasswordLoginError(c, err)
 		}
 		return c.JSON(http.StatusOK, result)
 	})
@@ -328,6 +353,25 @@ func publishMiniOrderCreated(c echo.Context, messages MessagePublisher, result c
 func miniLoginError(c echo.Context, err error) error {
 	if errors.Is(err, customerportalapp.ErrMiniLoginDisabled) {
 		return c.JSON(http.StatusServiceUnavailable, map[string]string{"error": "mini login disabled"})
+	}
+	if errors.Is(err, customerportalapp.ErrMiniUserDisabled) {
+		return c.JSON(http.StatusForbidden, map[string]string{"error": "mini user disabled"})
+	}
+	if isMiniValidationError(err) {
+		return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid request"})
+	}
+	return miniInternalError(c)
+}
+
+func miniPasswordLoginError(c echo.Context, err error) error {
+	if errors.Is(err, customerportalapp.ErrMiniInvalidLogin) {
+		return c.JSON(http.StatusUnauthorized, map[string]string{"error": "invalid login"})
+	}
+	if errors.Is(err, customerportalapp.ErrMiniAccountLoginDisabled) {
+		return c.JSON(http.StatusForbidden, map[string]string{"error": "login disabled"})
+	}
+	if errors.Is(err, customerportalapp.ErrCustomerBindingNotFound) {
+		return c.JSON(http.StatusForbidden, map[string]string{"error": "customer binding not found"})
 	}
 	if errors.Is(err, customerportalapp.ErrMiniUserDisabled) {
 		return c.JSON(http.StatusForbidden, map[string]string{"error": "mini user disabled"})

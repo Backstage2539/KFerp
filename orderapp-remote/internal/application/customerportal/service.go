@@ -70,6 +70,8 @@ var (
 	ErrMiniSessionNotFound                       = errors.New("mini session not found")
 	ErrMiniLoginDisabled                         = errors.New("mini login disabled")
 	ErrMiniUserDisabled                          = errors.New("mini user disabled")
+	ErrMiniInvalidLogin                          = errors.New("mini invalid login")
+	ErrMiniAccountLoginDisabled                  = errors.New("mini account login disabled")
 	ErrCapabilityNotEnabled                      = errors.New("capability not enabled")
 	ErrPortalCustomerNotFound                    = errors.New("portal customer not found")
 	ErrBeanListPublicationNotFound               = errors.New("bean list publication not found")
@@ -82,6 +84,11 @@ type LoginCommand struct {
 	Nickname string
 }
 
+type PasswordLoginCommand struct {
+	Login    string
+	Password string
+}
+
 type MiniIdentity struct {
 	OpenID  string
 	UnionID string
@@ -92,6 +99,11 @@ type CreateLoginSessionCommand struct {
 	UnionID  string
 	Phone    string
 	Nickname string
+}
+
+type CreatePasswordLoginSessionCommand struct {
+	Login    string
+	Password string
 }
 
 type LoginResult struct {
@@ -585,6 +597,7 @@ type IdentityProvider interface {
 
 type Repository interface {
 	CreateLoginSession(ctx context.Context, cmd CreateLoginSessionCommand) (LoginResult, error)
+	CreatePasswordLoginSession(ctx context.Context, cmd CreatePasswordLoginSessionCommand) (LoginResult, error)
 	CurrentContextByToken(ctx context.Context, token string) (CurrentContext, error)
 	SwitchCurrentCustomer(ctx context.Context, token string, customerID int64) (CurrentContext, error)
 	LoadServicePage(ctx context.Context, query ServicePageQuery) (ServicePage, error)
@@ -639,6 +652,28 @@ func (s *Service) Login(ctx context.Context, cmd LoginCommand) (LoginResult, err
 		UnionID:  strings.TrimSpace(identity.UnionID),
 		Phone:    strings.TrimSpace(cmd.Phone),
 		Nickname: strings.TrimSpace(cmd.Nickname),
+	})
+	if err != nil {
+		return LoginResult{}, err
+	}
+	return normalizeLoginResult(result), nil
+}
+
+func (s *Service) LoginWithPassword(ctx context.Context, cmd PasswordLoginCommand) (LoginResult, error) {
+	login := strings.TrimSpace(cmd.Login)
+	if login == "" {
+		return LoginResult{}, fmt.Errorf("login required")
+	}
+	password := strings.TrimSpace(cmd.Password)
+	if password == "" {
+		return LoginResult{}, fmt.Errorf("password required")
+	}
+	if s.repo == nil {
+		return LoginResult{}, fmt.Errorf("repository required")
+	}
+	result, err := s.repo.CreatePasswordLoginSession(ctx, CreatePasswordLoginSessionCommand{
+		Login:    login,
+		Password: password,
 	})
 	if err != nil {
 		return LoginResult{}, err
