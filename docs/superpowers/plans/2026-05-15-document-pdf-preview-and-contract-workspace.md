@@ -531,7 +531,7 @@ git commit -m "Document PDF preview and contract workspace workflow"
 **Files:**
 - All changed files.
 
-- [ ] **Step 1: Run backend full tests**
+- [x] **Step 1: Run backend full tests**
 
 ```bash
 cd orderapp-remote
@@ -540,7 +540,7 @@ go test ./...
 
 Expected: PASS.
 
-- [ ] **Step 2: Run frontend tests and build**
+- [x] **Step 2: Run frontend tests and build**
 
 ```bash
 cd orderapp-remote/frontend-vue-shell
@@ -550,7 +550,7 @@ npm run build
 
 Expected: PASS, with only existing chunk-size warning if present.
 
-- [ ] **Step 3: Run whitespace check**
+- [x] **Step 3: Run whitespace check**
 
 ```bash
 git diff --check
@@ -558,7 +558,7 @@ git diff --check
 
 Expected: no output.
 
-- [ ] **Step 4: Commit or amend final fixes**
+- [x] **Step 4: Commit or amend final fixes**
 
 If any small fixes were needed:
 
