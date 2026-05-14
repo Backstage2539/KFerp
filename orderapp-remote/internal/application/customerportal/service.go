@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 )
@@ -75,6 +76,7 @@ var (
 	ErrCapabilityNotEnabled                      = errors.New("capability not enabled")
 	ErrPortalCustomerNotFound                    = errors.New("portal customer not found")
 	ErrBeanListPublicationNotFound               = errors.New("bean list publication not found")
+	ErrCapabilityTemplateInvalid                 = errors.New("capability template invalid")
 	ErrCapabilityTemplateERPWorkbenchUnavailable = errors.New("ERP workbench unavailable for capability template")
 )
 
@@ -286,6 +288,8 @@ type CustomerOrderSummary struct {
 	ShipTrackingNo  string                     `json:"ship_tracking_no"`
 	GrandTotal      string                     `json:"grand_total"`
 	ShippingAmount  string                     `json:"shipping_amount"`
+	SalesOrderURL   string                     `json:"sales_order_url,omitempty"`
+	DeliveryNoteURL string                     `json:"delivery_note_url,omitempty"`
 	Items           []CustomerOrderItemSummary `json:"items,omitempty"`
 }
 
@@ -466,17 +470,20 @@ type SmallBatchPriceRule struct {
 }
 
 type CapabilityTemplate struct {
-	Key              string             `json:"key"`
-	Label            string             `json:"label"`
-	Description      string             `json:"description,omitempty"`
-	ThemeKey         string             `json:"theme_key"`
-	MiniappEntryMode string             `json:"miniapp_entry_mode"`
-	ERPRoleCodes     []string           `json:"erp_role_codes"`
-	ERPPermissions   []string           `json:"erp_permissions"`
-	ERPViewKeys      []string           `json:"erp_view_keys"`
-	Capabilities     []CapabilityOption `json:"capabilities"`
-	UpdatedAt        string             `json:"updated_at,omitempty"`
-	UpdatedBy        string             `json:"updated_by,omitempty"`
+	Key               string             `json:"key"`
+	ParentTemplateKey string             `json:"parent_template_key,omitempty"`
+	Label             string             `json:"label"`
+	Description       string             `json:"description,omitempty"`
+	ThemeKey          string             `json:"theme_key"`
+	MiniappEntryMode  string             `json:"miniapp_entry_mode"`
+	ERPRoleCodes      []string           `json:"erp_role_codes"`
+	ERPPermissions    []string           `json:"erp_permissions"`
+	ERPViewKeys       []string           `json:"erp_view_keys"`
+	Capabilities      []CapabilityOption `json:"capabilities"`
+	Active            bool               `json:"active"`
+	SortOrder         int                `json:"sort_order,omitempty"`
+	UpdatedAt         string             `json:"updated_at,omitempty"`
+	UpdatedBy         string             `json:"updated_by,omitempty"`
 }
 
 type PortalAdminCustomerQuery struct {
@@ -553,6 +560,14 @@ type ApplyCapabilityTemplateCommand struct {
 type SaveCapabilityTemplateCommand struct {
 	Template  CapabilityTemplate
 	UpdatedBy string
+	ActiveSet bool
+}
+
+type CopyCapabilityTemplateCommand struct {
+	SourceKey string
+	NewKey    string
+	Label     string
+	UpdatedBy string
 }
 
 type UpsertPortalERPBindingCommand struct {
@@ -613,6 +628,7 @@ type Repository interface {
 	SaveMallProduct(ctx context.Context, cmd SaveMallProductCommand) (MallProduct, error)
 	UpdateMallProductImage(ctx context.Context, cmd UpdateMallProductImageCommand) (MallProduct, error)
 	LoadMallPage(ctx context.Context, customerID int64) (MallPage, error)
+	CustomerOwnsOrder(ctx context.Context, customerID, orderID int64) (bool, error)
 	CreateMallOrder(ctx context.Context, cmd CreateMallOrderCommand) (FulfillmentOrder, error)
 	CreateDirectShipBatch(ctx context.Context, cmd CreateDirectShipBatchCommand) (DirectShipBatch, error)
 	CreateProcessingRequest(ctx context.Context, cmd CreateProcessingRequestCommand) (ProcessingRequest, error)
@@ -714,6 +730,34 @@ func (s *Service) SwitchCurrentCustomer(ctx context.Context, token string, custo
 	return normalizeCurrentContext(current), nil
 }
 
+func (s *Service) EnsureOrderAccess(ctx context.Context, token string, orderID int64) error {
+	token = strings.TrimSpace(token)
+	if token == "" {
+		return fmt.Errorf("mini token required")
+	}
+	if orderID <= 0 {
+		return fmt.Errorf("order required")
+	}
+	if s.repo == nil {
+		return fmt.Errorf("repository required")
+	}
+	current, err := s.Me(ctx, token)
+	if err != nil {
+		return err
+	}
+	if current.CurrentCustomerID <= 0 {
+		return ErrCustomerBindingNotFound
+	}
+	ok, err := s.repo.CustomerOwnsOrder(ctx, current.CurrentCustomerID, orderID)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return ErrCustomerBindingNotFound
+	}
+	return nil
+}
+
 func (s *Service) GetServicePage(ctx context.Context, token, key string, filter ServicePageFilter) (ServicePage, error) {
 	def, err := serviceDefinition(key)
 	if err != nil {
@@ -803,6 +847,12 @@ func (s *Service) PortalAdminDetail(ctx context.Context, customerID int64) (Port
 		return PortalAdminDetail{}, err
 	}
 	detail.Customer = normalizePortalAdminCustomer(detail.Customer)
+	if template, ok := s.capabilityTemplateByKey(ctx, detail.Customer.CapabilityTemplateKey); ok {
+		detail.Customer.CapabilityTemplateKey = template.Key
+		detail.Customer.ThemeKey = template.ThemeKey
+		detail.Customer.MiniappEntryMode = template.MiniappEntryMode
+		detail.Capabilities = cloneCapabilityOptions(template.Capabilities)
+	}
 	detail.Capabilities = completeCapabilityOptions(detail.Capabilities)
 	return detail, nil
 }
@@ -820,12 +870,12 @@ func (s *Service) UpdatePortalVisibility(ctx context.Context, cmd UpdatePortalVi
 	rawTemplateKey := strings.TrimSpace(cmd.CapabilityTemplateKey)
 	cmd.CapabilityTemplateKey = NormalizeCapabilityTemplateKey(cmd.CapabilityTemplateKey)
 	if rawTemplateKey != "" && cmd.CapabilityTemplateKey == "" {
-		return PortalAdminDetail{}, fmt.Errorf("capability template invalid")
+		return PortalAdminDetail{}, ErrCapabilityTemplateInvalid
 	}
 	if cmd.CapabilityTemplateKey != "" {
 		template, ok := s.capabilityTemplateByKey(ctx, cmd.CapabilityTemplateKey)
 		if !ok {
-			return PortalAdminDetail{}, fmt.Errorf("capability template invalid")
+			return PortalAdminDetail{}, ErrCapabilityTemplateInvalid
 		}
 		cmd.Template = template
 		cmd.ThemeKey = template.ThemeKey
@@ -860,12 +910,18 @@ func (s *Service) SaveCapabilityTemplate(ctx context.Context, cmd SaveCapability
 	if s.repo == nil {
 		return CapabilityTemplate{}, fmt.Errorf("repository required")
 	}
+	if !cmd.ActiveSet && !cmd.Template.Active {
+		cmd.Template.Active = true
+	}
+	if err := s.validateCapabilityTemplateParent(ctx, cmd.Template); err != nil {
+		return CapabilityTemplate{}, err
+	}
 	if templateERPWorkbenchDisallowed(cmd.Template) && (hasNonEmptyString(cmd.Template.ERPPermissions) || hasNonEmptyString(cmd.Template.ERPViewKeys)) {
 		return CapabilityTemplate{}, ErrCapabilityTemplateERPWorkbenchUnavailable
 	}
 	template, ok := normalizeCapabilityTemplate(cmd.Template)
 	if !ok {
-		return CapabilityTemplate{}, fmt.Errorf("capability template invalid")
+		return CapabilityTemplate{}, ErrCapabilityTemplateInvalid
 	}
 	cmd.Template = template
 	cmd.UpdatedBy = strings.TrimSpace(cmd.UpdatedBy)
@@ -875,9 +931,36 @@ func (s *Service) SaveCapabilityTemplate(ctx context.Context, cmd SaveCapability
 	}
 	normalized, ok := normalizeCapabilityTemplate(row)
 	if !ok {
-		return CapabilityTemplate{}, fmt.Errorf("capability template invalid")
+		return CapabilityTemplate{}, ErrCapabilityTemplateInvalid
 	}
 	return normalized, nil
+}
+
+func (s *Service) CopyCapabilityTemplate(ctx context.Context, cmd CopyCapabilityTemplateCommand) (CapabilityTemplate, error) {
+	if s.repo == nil {
+		return CapabilityTemplate{}, fmt.Errorf("repository required")
+	}
+	source, ok := s.capabilityTemplateByKey(ctx, cmd.SourceKey)
+	if !ok {
+		return CapabilityTemplate{}, ErrCapabilityTemplateInvalid
+	}
+	newKey := NormalizeCapabilityTemplateKey(cmd.NewKey)
+	if newKey == "" || newKey == source.Key {
+		return CapabilityTemplate{}, ErrCapabilityTemplateInvalid
+	}
+	sourceKey := source.Key
+	source.Key = newKey
+	source.ParentTemplateKey = sourceKey
+	source.Label = firstNonEmpty(strings.TrimSpace(cmd.Label), source.Label+" 副本")
+	source.Active = true
+	source.SortOrder = source.SortOrder + 1
+	source.UpdatedAt = ""
+	source.UpdatedBy = ""
+	return s.SaveCapabilityTemplate(ctx, SaveCapabilityTemplateCommand{
+		Template:  source,
+		UpdatedBy: cmd.UpdatedBy,
+		ActiveSet: true,
+	})
 }
 
 func (s *Service) ApplyCapabilityTemplate(ctx context.Context, cmd ApplyCapabilityTemplateCommand) (PortalAdminDetail, error) {
@@ -889,7 +972,7 @@ func (s *Service) ApplyCapabilityTemplate(ctx context.Context, cmd ApplyCapabili
 	}
 	template, ok := s.capabilityTemplateByKey(ctx, cmd.TemplateKey)
 	if !ok {
-		return PortalAdminDetail{}, fmt.Errorf("capability template invalid")
+		return PortalAdminDetail{}, ErrCapabilityTemplateInvalid
 	}
 	cmd.TemplateKey = template.Key
 	cmd.Template = template
@@ -950,7 +1033,7 @@ func (s *Service) capabilityTemplateByKey(ctx context.Context, key string) (Capa
 		return CapabilityTemplate{}, false
 	}
 	for _, template := range rows {
-		if template.Key == key {
+		if template.Key == key && template.Active {
 			return template, true
 		}
 	}
@@ -967,11 +1050,49 @@ func (s *Service) capabilityTemplateByKeyStrict(ctx context.Context, key string)
 		return CapabilityTemplate{}, false, err
 	}
 	for _, template := range rows {
-		if template.Key == key {
+		if template.Key == key && template.Active {
 			return template, true, nil
 		}
 	}
 	return CapabilityTemplate{}, false, nil
+}
+
+func (s *Service) capabilityTemplateExists(ctx context.Context, key string) bool {
+	key = NormalizeCapabilityTemplateKey(key)
+	if key == "" {
+		return false
+	}
+	rows, err := s.ListCapabilityTemplates(ctx)
+	if err != nil {
+		return false
+	}
+	for _, template := range rows {
+		if template.Key == key {
+			return true
+		}
+	}
+	return false
+}
+
+func (s *Service) validateCapabilityTemplateParent(ctx context.Context, template CapabilityTemplate) error {
+	key := NormalizeCapabilityTemplateKey(template.Key)
+	if key == "" {
+		return ErrCapabilityTemplateInvalid
+	}
+	parentKey := NormalizeCapabilityTemplateKey(template.ParentTemplateKey)
+	if strings.TrimSpace(template.ParentTemplateKey) != "" && parentKey == "" {
+		return ErrCapabilityTemplateInvalid
+	}
+	if parentKey == "" {
+		return nil
+	}
+	if parentKey == key {
+		return ErrCapabilityTemplateInvalid
+	}
+	if !s.capabilityTemplateExists(ctx, parentKey) {
+		return ErrCapabilityTemplateInvalid
+	}
+	return nil
 }
 
 func (s *Service) ListMallProducts(ctx context.Context) ([]MallProduct, []MallProductOption, error) {
@@ -1412,6 +1533,8 @@ func DefaultCapabilityTemplates() []CapabilityTemplate {
 	return []CapabilityTemplate{
 		{
 			Key:              CapabilityTemplateProcessingFulfillment,
+			Active:           true,
+			SortOrder:        10,
 			Label:            "客户代加工履约",
 			Description:      "客户登录后查看原料库存、生产进度、成品库存、代发订单、费用和结算，并提交代加工和代发需求",
 			ThemeKey:         PortalThemeCoffeeFactory,
@@ -1428,6 +1551,8 @@ func DefaultCapabilityTemplates() []CapabilityTemplate {
 		},
 		{
 			Key:              CapabilityTemplatePublicSKUDirectShip,
+			Active:           true,
+			SortOrder:        20,
 			Label:            "公共 SKU 小批量代发",
 			Description:      "客户使用公共 SKU，可维护客户专属 SKU 名称，默认寄件人为客户自己，收件人为客户的终端客户",
 			ThemeKey:         PortalThemeCleanOps,
@@ -1455,6 +1580,8 @@ func DefaultCapabilityTemplates() []CapabilityTemplate {
 		},
 		{
 			Key:              CapabilityTemplateRetailMall,
+			Active:           true,
+			SortOrder:        30,
 			Label:            "零售商城客户",
 			Description:      "零售和电商客户默认进入商城，可在商城下单并查看商城订单记录",
 			ThemeKey:         PortalThemeCleanOps,
@@ -1495,9 +1622,63 @@ func mergeCapabilityTemplates(rows []CapabilityTemplate) []CapabilityTemplate {
 		}
 		if idx, ok := positions[template.Key]; ok {
 			out[idx] = template
+			continue
 		}
+		positions[template.Key] = len(out)
+		out = append(out, template)
 	}
+	sortCapabilityTemplatesForTree(out)
 	return out
+}
+
+func sortCapabilityTemplatesForTree(rows []CapabilityTemplate) {
+	indexByKey := make(map[string]int, len(rows))
+	for i, row := range rows {
+		indexByKey[row.Key] = i
+	}
+	sort.SliceStable(rows, func(i, j int) bool {
+		left := rows[i]
+		right := rows[j]
+		leftRoot := templateTreeRoot(left, rows, indexByKey)
+		rightRoot := templateTreeRoot(right, rows, indexByKey)
+		if leftRoot != rightRoot {
+			return templateSortValue(leftRoot, rows, indexByKey) < templateSortValue(rightRoot, rows, indexByKey)
+		}
+		if left.ParentTemplateKey != right.ParentTemplateKey {
+			if left.Key == right.ParentTemplateKey {
+				return true
+			}
+			if right.Key == left.ParentTemplateKey {
+				return false
+			}
+			return left.ParentTemplateKey < right.ParentTemplateKey
+		}
+		if left.SortOrder != right.SortOrder {
+			return left.SortOrder < right.SortOrder
+		}
+		return left.Key < right.Key
+	})
+}
+
+func templateTreeRoot(row CapabilityTemplate, rows []CapabilityTemplate, indexByKey map[string]int) string {
+	seen := map[string]bool{}
+	current := row
+	for current.ParentTemplateKey != "" && !seen[current.Key] {
+		seen[current.Key] = true
+		idx, ok := indexByKey[current.ParentTemplateKey]
+		if !ok {
+			break
+		}
+		current = rows[idx]
+	}
+	return current.Key
+}
+
+func templateSortValue(key string, rows []CapabilityTemplate, indexByKey map[string]int) int {
+	if idx, ok := indexByKey[key]; ok {
+		return rows[idx].SortOrder
+	}
+	return 0
 }
 
 func normalizeCapabilityTemplate(input CapabilityTemplate) (CapabilityTemplate, bool) {
@@ -1505,17 +1686,35 @@ func normalizeCapabilityTemplate(input CapabilityTemplate) (CapabilityTemplate, 
 	if key == "" {
 		return CapabilityTemplate{}, false
 	}
-	defaultTemplate, ok := CustomerCapabilityTemplateByKey(key)
-	if !ok {
+	parentKey := NormalizeCapabilityTemplateKey(input.ParentTemplateKey)
+	if parentKey == key {
 		return CapabilityTemplate{}, false
 	}
+	defaultTemplate, ok := CustomerCapabilityTemplateByKey(key)
+	if !ok && parentKey != "" {
+		defaultTemplate, ok = CustomerCapabilityTemplateByKey(parentKey)
+	}
+	if !ok {
+		defaultTemplate = CapabilityTemplate{
+			Key:              key,
+			Label:            key,
+			ThemeKey:         PortalThemeCoffeeFactory,
+			MiniappEntryMode: MiniappEntryModeServices,
+			ERPRoleCodes:     []string{},
+			ERPPermissions:   []string{},
+			ERPViewKeys:      []string{},
+			Capabilities:     capabilityTemplateOptions(map[string]map[string]any{}),
+			Active:           true,
+		}
+	}
 	input.Key = key
+	input.ParentTemplateKey = parentKey
 	input.Label = firstNonEmpty(input.Label, defaultTemplate.Label)
 	input.Description = firstNonEmpty(input.Description, defaultTemplate.Description)
 	input.ThemeKey = NormalizePortalThemeKey(firstNonEmpty(input.ThemeKey, defaultTemplate.ThemeKey))
 	input.MiniappEntryMode = NormalizeMiniappEntryMode(firstNonEmpty(input.MiniappEntryMode, defaultTemplate.MiniappEntryMode))
 	input.ERPRoleCodes = []string{}
-	if defaultTemplate.ExposesERPWorkbench() {
+	if !templateERPWorkbenchDisallowed(input) {
 		input.ERPPermissions = normalizedStringListOrDefault(input.ERPPermissions, defaultTemplate.ERPPermissions)
 		input.ERPViewKeys = normalizedStringListOrDefault(input.ERPViewKeys, defaultTemplate.ERPViewKeys)
 	} else {
@@ -1538,7 +1737,15 @@ func templateERPWorkbenchDisallowed(template CapabilityTemplate) bool {
 		return false
 	}
 	defaultTemplate, ok := CustomerCapabilityTemplateByKey(key)
-	return ok && !defaultTemplate.ExposesERPWorkbench()
+	if ok {
+		return !defaultTemplate.ExposesERPWorkbench()
+	}
+	parentKey := NormalizeCapabilityTemplateKey(template.ParentTemplateKey)
+	if parentKey == "" {
+		return false
+	}
+	parentTemplate, ok := CustomerCapabilityTemplateByKey(parentKey)
+	return ok && !parentTemplate.ExposesERPWorkbench()
 }
 
 func normalizedStringListOrDefault(values, fallback []string) []string {
@@ -1579,16 +1786,25 @@ func cloneCapabilityOptions(values []CapabilityOption) []CapabilityOption {
 }
 
 func NormalizeCapabilityTemplateKey(value string) string {
-	switch strings.TrimSpace(value) {
+	key := strings.TrimSpace(value)
+	switch key {
 	case CapabilityTemplateProcessingFulfillment:
 		return CapabilityTemplateProcessingFulfillment
 	case CapabilityTemplatePublicSKUDirectShip:
 		return CapabilityTemplatePublicSKUDirectShip
 	case CapabilityTemplateRetailMall:
 		return CapabilityTemplateRetailMall
-	default:
+	}
+	if len(key) < 2 || len(key) > 64 {
 		return ""
 	}
+	for _, ch := range key {
+		if (ch >= 'a' && ch <= 'z') || (ch >= '0' && ch <= '9') || ch == '_' {
+			continue
+		}
+		return ""
+	}
+	return key
 }
 
 func normalizeTemplateCapabilityOptions(input []CapabilityOption) []CapabilityOption {

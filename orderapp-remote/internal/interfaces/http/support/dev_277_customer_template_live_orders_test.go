@@ -1,0 +1,98 @@
+package support
+
+import (
+	"path/filepath"
+	"strings"
+	"testing"
+)
+
+func TestDev277CustomerTemplateLiveOrdersEvidenceExists(t *testing.T) {
+	processingPortal := string(readOrderAppFileForTest(t, filepath.Join("frontend-vue-shell", "src", "views", "CustomerProcessingPortalView.vue")))
+	templateView := string(readOrderAppFileForTest(t, filepath.Join("frontend-vue-shell", "src", "views", "CustomerCapabilityTemplatesView.vue")))
+	settingsView := string(readOrderAppFileForTest(t, filepath.Join("frontend-vue-shell", "src", "views", "CustomerPortalSettingsView.vue")))
+	customerPortalService := string(readOrderAppFileForTest(t, filepath.Join("internal", "application", "customerportal", "service.go")))
+	customerPortalManual := string(readOrderAppFileForTest(t, filepath.Join("docs", "OP_MANUAL_CUSTOMER_PORTAL.md")))
+	customerFulfillmentManual := string(readOrderAppFileForTest(t, filepath.Join("docs", "OP_MANUAL_CUSTOMER_FULFILLMENT.md")))
+	reqStore := string(readOrderAppFileForTest(t, filepath.Join("internal", "interfaces", "http", "support", "req_store.go")))
+
+	for _, want := range []string{
+		"履约客户订单",
+		"fetchCustomerFulfillmentOrders",
+		"fetchCustomerFulfillmentOrderDetail",
+		"customerFulfillmentOrderFees",
+		"SalesOrderView",
+		"DeliveryNoteView",
+	} {
+		if !strings.Contains(processingPortal, want) {
+			t.Fatalf("CustomerProcessingPortalView.vue missing %q", want)
+		}
+	}
+	if strings.Contains(processingPortal, "overview.direct_ship_orders") {
+		t.Fatal("customer-side processing portal should not use the old direct_ship_orders table")
+	}
+
+	for _, want := range []string{
+		"复制模板",
+		"模板失效",
+		"parent_template_key",
+		"collapsedTemplateKeys",
+		"visibleTemplateEditors",
+	} {
+		if !strings.Contains(templateView, want) {
+			t.Fatalf("CustomerCapabilityTemplatesView.vue missing %q", want)
+		}
+	}
+
+	for _, want := range []string{
+		"activeTemplates",
+		"模板已失效",
+		"inactiveTemplateKey",
+		"template.active !== false",
+	} {
+		if !strings.Contains(settingsView, want) {
+			t.Fatalf("CustomerPortalSettingsView.vue missing %q", want)
+		}
+	}
+
+	for _, want := range []string{
+		"ErrCapabilityTemplateInvalid",
+		"ParentTemplateKey",
+		"SortOrder",
+		"CopyCapabilityTemplate",
+	} {
+		if !strings.Contains(customerPortalService, want) {
+			t.Fatalf("customerportal service missing %q", want)
+		}
+	}
+
+	for _, want := range []string{
+		"能力模板是实时引用",
+		"手动点击“复制模板”",
+		"模板已失效",
+		"capability template invalid",
+	} {
+		if !strings.Contains(customerPortalManual, want) {
+			t.Fatalf("customer portal manual missing %q", want)
+		}
+	}
+	for _, want := range []string{
+		"底部也使用同一套“履约客户订单”列表",
+		"旧的“代发订单”小表",
+		"同一套订单数据源",
+	} {
+		if !strings.Contains(customerFulfillmentManual, want) {
+			t.Fatalf("customer fulfillment manual missing %q", want)
+		}
+	}
+	for _, want := range []string{
+		"PR-277-CUSTOMER-TEMPLATE-LIVE-ORDERS",
+		"DEV-277-01",
+		"UT-277-01",
+		"API-277-01",
+		"REV-277-01",
+	} {
+		if !strings.Contains(reqStore, want) {
+			t.Fatalf("req_store missing %q", want)
+		}
+	}
+}

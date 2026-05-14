@@ -13,6 +13,7 @@ import (
 	"testing"
 
 	customerportalapp "orderapp/internal/application/customerportal"
+	salesapp "orderapp/internal/application/sales"
 
 	"github.com/labstack/echo/v4"
 )
@@ -28,6 +29,7 @@ type fakeService struct {
 	saveCmd          *customerportalapp.UpdatePortalVisibilityCommand
 	templates        []customerportalapp.CapabilityTemplate
 	templateSaveCmd  *customerportalapp.SaveCapabilityTemplateCommand
+	templateCopyCmd  *customerportalapp.CopyCapabilityTemplateCommand
 	templateCmd      *customerportalapp.ApplyCapabilityTemplateCommand
 	erpBindingCmd    *customerportalapp.UpsertPortalERPBindingCommand
 	mallRows         []customerportalapp.MallProduct
@@ -43,6 +45,8 @@ type fakeService struct {
 	fulfillment      customerportalapp.FulfillmentOrder
 	fulfillmentCmd   *customerportalapp.CreateFulfillmentOrderCommand
 	beanList         customerportalapp.BeanListSummary
+	orderAccessToken *string
+	orderAccessID    *int64
 	err              error
 }
 
@@ -138,6 +142,24 @@ func (s fakeService) SaveCapabilityTemplate(_ context.Context, cmd customerporta
 	return cmd.Template, nil
 }
 
+func (s fakeService) CopyCapabilityTemplate(_ context.Context, cmd customerportalapp.CopyCapabilityTemplateCommand) (customerportalapp.CapabilityTemplate, error) {
+	if s.err != nil {
+		return customerportalapp.CapabilityTemplate{}, s.err
+	}
+	if s.templateCopyCmd != nil {
+		*s.templateCopyCmd = cmd
+	}
+	source, ok := customerportalapp.CustomerCapabilityTemplateByKey(cmd.SourceKey)
+	if !ok {
+		source, _ = customerportalapp.CustomerCapabilityTemplateByKey(customerportalapp.CapabilityTemplatePublicSKUDirectShip)
+	}
+	source.Key = strings.TrimSpace(cmd.NewKey)
+	source.ParentTemplateKey = strings.TrimSpace(cmd.SourceKey)
+	source.Label = strings.TrimSpace(cmd.Label)
+	source.Active = true
+	return source, nil
+}
+
 func (s fakeService) ApplyCapabilityTemplate(_ context.Context, cmd customerportalapp.ApplyCapabilityTemplateCommand) (customerportalapp.PortalAdminDetail, error) {
 	if s.err != nil {
 		return customerportalapp.PortalAdminDetail{}, s.err
@@ -227,6 +249,48 @@ func (s fakeService) CreateFulfillmentOrder(_ context.Context, _ string, cmd cus
 		*s.fulfillmentCmd = cmd
 	}
 	return s.fulfillment, nil
+}
+
+func (s fakeService) EnsureOrderAccess(_ context.Context, token string, orderID int64) error {
+	if s.err != nil {
+		return s.err
+	}
+	if s.orderAccessToken != nil {
+		*s.orderAccessToken = token
+	}
+	if s.orderAccessID != nil {
+		*s.orderAccessID = orderID
+	}
+	return nil
+}
+
+type fakeMiniSalesDocuments struct {
+	salesPath       string
+	deliveryPath    string
+	salesOrderID    int64
+	deliveryOrderID int64
+	salesLatest     bool
+	deliveryLatest  bool
+}
+
+func (f *fakeMiniSalesDocuments) LoadSalesOrderDocumentFile(_ context.Context, orderID, documentID int64, latest bool) (salesapp.SalesOrderDocumentFile, error) {
+	f.salesOrderID = orderID
+	f.salesLatest = latest
+	return salesapp.SalesOrderDocumentFile{
+		Document: salesapp.SalesOrderDocument{ID: documentID, OrderID: orderID, OrderNo: "SO-MINI", VersionNo: 1},
+		Path:     f.salesPath,
+		Filename: "SO-MINI-sales-order.pdf",
+	}, nil
+}
+
+func (f *fakeMiniSalesDocuments) LoadDeliveryNoteDocumentFile(_ context.Context, orderID, documentID int64, latest bool) (salesapp.DeliveryNoteDocumentFile, error) {
+	f.deliveryOrderID = orderID
+	f.deliveryLatest = latest
+	return salesapp.DeliveryNoteDocumentFile{
+		Document: salesapp.DeliveryNoteDocument{ID: documentID, OrderID: orderID, OrderNo: "SO-MINI", VersionNo: 1},
+		Path:     f.deliveryPath,
+		Filename: "SO-MINI-delivery-note.pdf",
+	}, nil
 }
 
 func TestMiniLoginAndMeAPI(t *testing.T) {
@@ -502,6 +566,82 @@ func TestMiniOrdersServicePageAPIReturnsDirectOrderPayload(t *testing.T) {
 	}
 }
 
+func TestMiniOrdersServicePageAPIReturnsDocumentURLs(t *testing.T) {
+	e := echo.New()
+	RegisterRoutes(e, Dependencies{CustomerPortal: fakeService{service: customerportalapp.ServicePage{
+		Key:                 customerportalapp.ServiceKeyOrders,
+		Title:               "我的订单",
+		CurrentCustomerID:   8,
+		CurrentCustomerName: "客户A",
+		Orders: []customerportalapp.CustomerOrderSummary{{
+			ID: 88, OrderNo: "SO-DOC", SalesOrderURL: "/api/mini/orders/88/sales-order-latest.pdf", DeliveryNoteURL: "/api/mini/orders/88/delivery-note-latest.pdf",
+		}},
+	}}})
+
+	req := httptest.NewRequest(http.MethodGet, "/api/mini/services/orders", nil)
+	req.Header.Set(echo.HeaderAuthorization, "Bearer mini-token")
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK ||
+		!strings.Contains(rec.Body.String(), `"sales_order_url":"/api/mini/orders/88/sales-order-latest.pdf"`) ||
+		!strings.Contains(rec.Body.String(), `"delivery_note_url":"/api/mini/orders/88/delivery-note-latest.pdf"`) {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestMiniOrderDocumentsRequireTokenAndCheckOrderAccess(t *testing.T) {
+	tmp := t.TempDir()
+	salesPath := tmp + "/sales.pdf"
+	deliveryPath := tmp + "/delivery.pdf"
+	if err := os.WriteFile(salesPath, []byte("%PDF-sales"), 0o600); err != nil {
+		t.Fatalf("write sales pdf: %v", err)
+	}
+	if err := os.WriteFile(deliveryPath, []byte("%PDF-delivery"), 0o600); err != nil {
+		t.Fatalf("write delivery pdf: %v", err)
+	}
+	var accessToken string
+	var accessOrderID int64
+	docs := &fakeMiniSalesDocuments{salesPath: salesPath, deliveryPath: deliveryPath}
+	e := echo.New()
+	RegisterRoutes(e, Dependencies{
+		CustomerPortal: fakeService{orderAccessToken: &accessToken, orderAccessID: &accessOrderID},
+		SalesDocuments: docs,
+	})
+
+	noToken := httptest.NewRequest(http.MethodGet, "/api/mini/orders/88/sales-order-latest.pdf", nil)
+	noTokenRec := httptest.NewRecorder()
+	e.ServeHTTP(noTokenRec, noToken)
+	if noTokenRec.Code != http.StatusUnauthorized {
+		t.Fatalf("no token status=%d body=%s", noTokenRec.Code, noTokenRec.Body.String())
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/mini/orders/88/sales-order-latest.pdf", nil)
+	req.Header.Set(echo.HeaderAuthorization, "Bearer mini-token")
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK ||
+		rec.Header().Get(echo.HeaderContentType) != "application/pdf" ||
+		!strings.Contains(rec.Body.String(), "%PDF-sales") {
+		t.Fatalf("sales status=%d content-type=%s body=%s", rec.Code, rec.Header().Get(echo.HeaderContentType), rec.Body.String())
+	}
+	if accessToken != "mini-token" || accessOrderID != 88 || docs.salesOrderID != 88 || !docs.salesLatest {
+		t.Fatalf("sales access token=%q accessOrderID=%d docs=%+v", accessToken, accessOrderID, docs)
+	}
+
+	deliveryReq := httptest.NewRequest(http.MethodGet, "/api/mini/orders/88/delivery-note-latest.pdf", nil)
+	deliveryReq.Header.Set(echo.HeaderAuthorization, "Bearer mini-token")
+	deliveryRec := httptest.NewRecorder()
+	e.ServeHTTP(deliveryRec, deliveryReq)
+	if deliveryRec.Code != http.StatusOK ||
+		deliveryRec.Header().Get(echo.HeaderContentType) != "application/pdf" ||
+		!strings.Contains(deliveryRec.Body.String(), "%PDF-delivery") {
+		t.Fatalf("delivery status=%d content-type=%s body=%s", deliveryRec.Code, deliveryRec.Header().Get(echo.HeaderContentType), deliveryRec.Body.String())
+	}
+	if docs.deliveryOrderID != 88 || !docs.deliveryLatest {
+		t.Fatalf("delivery docs=%+v", docs)
+	}
+}
+
 func TestMiniSettlementServicePageAPIReturnsFinancePayload(t *testing.T) {
 	e := echo.New()
 	RegisterRoutes(e, Dependencies{CustomerPortal: fakeService{service: customerportalapp.ServicePage{
@@ -721,7 +861,7 @@ func TestPortalAdminVisibilityTemplateInvalidMapsToBadRequest(t *testing.T) {
 	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
 	rec := httptest.NewRecorder()
 	e.ServeHTTP(rec, req)
-	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), `"error":"invalid request"`) {
+	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), `"error":"capability template invalid"`) {
 		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
 	}
 }
@@ -801,6 +941,59 @@ func TestPortalAdminCapabilityTemplateAPIsExposeAndApply(t *testing.T) {
 	}
 	if templateCmd.CustomerID != 147 || templateCmd.TemplateKey != customerportalapp.CapabilityTemplatePublicSKUDirectShip {
 		t.Fatalf("template command=%+v", templateCmd)
+	}
+}
+
+func TestPortalAdminCapabilityTemplateAPIsExposeTreeCopyAndInactiveState(t *testing.T) {
+	child, _ := customerportalapp.CustomerCapabilityTemplateByKey(customerportalapp.CapabilityTemplatePublicSKUDirectShip)
+	child.Key = "public_sku_direct_ship_b"
+	child.ParentTemplateKey = customerportalapp.CapabilityTemplatePublicSKUDirectShip
+	child.Label = "模板 B"
+	child.Active = false
+	child.SortOrder = 20
+	var templateSaveCmd customerportalapp.SaveCapabilityTemplateCommand
+	var templateCopyCmd customerportalapp.CopyCapabilityTemplateCommand
+	e := echo.New()
+	RegisterRoutes(e, Dependencies{CustomerPortal: fakeService{
+		templates:       []customerportalapp.CapabilityTemplate{child},
+		templateSaveCmd: &templateSaveCmd,
+		templateCopyCmd: &templateCopyCmd,
+	}})
+
+	listReq := httptest.NewRequest(http.MethodGet, "/api/customer-portal/admin/capability-templates", nil)
+	listRec := httptest.NewRecorder()
+	e.ServeHTTP(listRec, listReq)
+	for _, want := range []string{
+		`"key":"public_sku_direct_ship_b"`,
+		`"parent_template_key":"public_sku_direct_ship"`,
+		`"active":false`,
+		`"sort_order":20`,
+	} {
+		if listRec.Code != http.StatusOK || !strings.Contains(listRec.Body.String(), want) {
+			t.Fatalf("template list missing %s: status=%d body=%s", want, listRec.Code, listRec.Body.String())
+		}
+	}
+
+	saveReq := httptest.NewRequest(http.MethodPut, "/api/customer-portal/admin/capability-templates/public_sku_direct_ship_b", strings.NewReader(`{"label":"模板 B 已停用","parent_template_key":"public_sku_direct_ship","active":false,"sort_order":21,"theme_key":"clean_ops","miniapp_entry_mode":"services","erp_permissions":["customer_processing.read"],"erp_view_keys":["customerProcessingPortal"],"capabilities":[{"code":"direct_ship","enabled":true}]}`))
+	saveReq.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	saveRec := httptest.NewRecorder()
+	e.ServeHTTP(saveRec, saveReq)
+	if saveRec.Code != http.StatusOK {
+		t.Fatalf("save inactive status=%d body=%s", saveRec.Code, saveRec.Body.String())
+	}
+	if templateSaveCmd.Template.ParentTemplateKey != customerportalapp.CapabilityTemplatePublicSKUDirectShip || templateSaveCmd.Template.Active || templateSaveCmd.Template.SortOrder != 21 {
+		t.Fatalf("template save command missing tree/inactive fields=%+v", templateSaveCmd)
+	}
+
+	copyReq := httptest.NewRequest(http.MethodPost, "/api/customer-portal/admin/capability-templates/public_sku_direct_ship/copy", strings.NewReader(`{"new_key":"public_sku_direct_ship_c","label":"模板 C"}`))
+	copyReq.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	copyRec := httptest.NewRecorder()
+	e.ServeHTTP(copyRec, copyReq)
+	if copyRec.Code != http.StatusOK || !strings.Contains(copyRec.Body.String(), `"parent_template_key":"public_sku_direct_ship"`) {
+		t.Fatalf("copy status=%d body=%s", copyRec.Code, copyRec.Body.String())
+	}
+	if templateCopyCmd.SourceKey != customerportalapp.CapabilityTemplatePublicSKUDirectShip || templateCopyCmd.NewKey != "public_sku_direct_ship_c" || templateCopyCmd.Label != "模板 C" {
+		t.Fatalf("template copy command=%+v", templateCopyCmd)
 	}
 }
 
@@ -1477,6 +1670,10 @@ func (r *templateContractRepository) LoadMallPage(context.Context, int64) (custo
 			ID: 11, ProductID: 8, Title: "乌拉嘎", SpecG: 250, UnitPrice: 68, Status: customerportalapp.MallProductStatusPublished,
 		}},
 	}, nil
+}
+
+func (r *templateContractRepository) CustomerOwnsOrder(context.Context, int64, int64) (bool, error) {
+	return true, nil
 }
 
 func (r *templateContractRepository) CreateMallOrder(context.Context, customerportalapp.CreateMallOrderCommand) (customerportalapp.FulfillmentOrder, error) {

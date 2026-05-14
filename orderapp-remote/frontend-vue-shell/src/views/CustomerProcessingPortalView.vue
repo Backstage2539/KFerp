@@ -191,23 +191,6 @@
         </table>
       </div>
 
-      <div v-if="canDirectShip" class="panel">
-        <div class="panel-head"><h3>代发订单</h3></div>
-        <table>
-          <thead><tr><th>订单号</th><th>日期</th><th>地址</th><th>状态</th><th>明细</th></tr></thead>
-          <tbody>
-            <tr v-for="row in overview.direct_ship_orders || []" :key="row.order_no">
-              <td>{{ row.order_no }}</td>
-              <td>{{ row.order_date || '-' }}</td>
-              <td>{{ row.receiver_address }}</td>
-              <td>{{ statusLabel(row.status) }}</td>
-              <td>{{ row.item_count || 0 }}</td>
-            </tr>
-            <tr v-if="!(overview.direct_ship_orders || []).length"><td colspan="5" class="muted">暂无代发</td></tr>
-          </tbody>
-        </table>
-      </div>
-
       <div v-if="canViewSettlement" class="panel">
         <div class="panel-head"><h3>费用明细</h3></div>
         <table>
@@ -240,18 +223,205 @@
         </table>
       </div>
     </section>
+
+    <section class="panel fulfillment-orders-panel">
+      <div class="panel-head">
+        <div>
+          <h3>履约客户订单</h3>
+          <p>按当前履约账户同步 ERP 后台订单列表，销售单和出库单在订单明细中处理。</p>
+        </div>
+        <div class="head-actions">
+          <span class="muted">共 {{ fulfillmentOrdersSummary.orders || 0 }} 单</span>
+          <button class="secondary" type="button" @click="loadFulfillmentOrders(fulfillmentOrdersPage)" :disabled="fulfillmentOrdersLoading || !overviewCustomerId">
+            刷新订单
+          </button>
+        </div>
+      </div>
+
+      <div class="table-wrap">
+        <table class="fulfillment-orders-table">
+          <thead>
+            <tr>
+              <th>订单号</th>
+              <th>日期</th>
+              <th>客户 / 类型</th>
+              <th>收件信息</th>
+              <th>订单费用</th>
+              <th>快递信息</th>
+              <th>订单状态</th>
+              <th>操作</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="row in fulfillmentOrders" :key="row.id">
+              <td>
+                <button class="order-link" type="button" @click="openFulfillmentOrderDetail(row)">{{ row.order_no }}</button>
+                <div class="cell-meta">{{ row.portal_service_code || row.order_type || '-' }}</div>
+              </td>
+              <td>{{ row.order_date || '-' }}</td>
+              <td>
+                <div class="stacked-text">
+                  <strong>{{ row.customer || overview.customer_name || '-' }}</strong>
+                  <span>{{ row.order_type || '-' }}</span>
+                </div>
+              </td>
+              <td>
+                <div class="stacked-text receiver-cell">
+                  <strong>{{ row.receiver_name || '-' }} {{ row.receiver_phone || '' }}</strong>
+                  <span>{{ row.receiver_address || '-' }}</span>
+                </div>
+              </td>
+              <td>
+                <div class="fee-stack">
+                  <div v-for="fee in orderFeeLines(row)" :key="`${row.id}-${fee.label}`" class="fee-line" :class="{ emphasized: fee.emphasized }">
+                    <span>{{ fee.label }}</span>
+                    <strong>{{ fee.value }}</strong>
+                  </div>
+                </div>
+              </td>
+              <td>
+                <div class="stacked-text">
+                  <strong>{{ row.sender_label || row.sender_name || '-' }}</strong>
+                  <span>{{ row.ship_tracking_no || '-' }}</span>
+                </div>
+              </td>
+              <td>
+                <div class="status-stack">
+                  <span>收款：{{ row.pay_status || '-' }}</span>
+                  <span>发货：{{ row.ship_status || '-' }}</span>
+                  <span>生产：{{ row.process_status || '-' }}</span>
+                  <span>发票：{{ row.invoice_status || '-' }}</span>
+                </div>
+              </td>
+              <td>
+                <div class="actions-inline">
+                  <button class="link-button" type="button" @click="openSalesOrderDrawer(row)">销售单</button>
+                  <button class="link-button" type="button" @click="openDeliveryNoteDrawer(row)" :disabled="!isShipped(row)">出库单</button>
+                </div>
+              </td>
+            </tr>
+            <tr v-if="!fulfillmentOrders.length">
+              <td colspan="8" class="muted empty-row">{{ fulfillmentOrdersLoading ? '加载中...' : '暂无履约订单' }}</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="pager">
+        <button class="secondary" type="button" @click="loadFulfillmentOrders(fulfillmentOrdersPage - 1)" :disabled="!fulfillmentOrdersHasPrev || fulfillmentOrdersLoading">上一页</button>
+        <span>第 {{ fulfillmentOrdersPage }} 页</span>
+        <button class="secondary" type="button" @click="loadFulfillmentOrders(fulfillmentOrdersPage + 1)" :disabled="!fulfillmentOrdersHasNext || fulfillmentOrdersLoading">下一页</button>
+      </div>
+    </section>
+
+    <div v-if="orderDetailDrawerOpen" class="order-detail-drawer-mask" @click.self="closeOrderDetailDrawer">
+      <aside class="order-detail-drawer" aria-label="履约订单详情">
+        <div class="drawer-head">
+          <div>
+            <h3>{{ activeOrderSummary?.order_no || '订单详情' }}</h3>
+            <p>{{ activeOrderSummary?.customer || overview.customer_name || '-' }} · {{ activeOrderSummary?.order_date || '-' }}</p>
+          </div>
+          <button class="secondary" type="button" @click="closeOrderDetailDrawer">关闭</button>
+        </div>
+
+        <div v-if="orderDetailError" class="error">{{ orderDetailError }}</div>
+
+        <div v-if="activeOrderSummary" class="drawer-body">
+          <section class="drawer-section">
+            <h4>收件与快递</h4>
+            <div class="detail-grid">
+              <span>收件人：{{ activeOrderSummary.receiver_name || '-' }}</span>
+              <span>电话：{{ activeOrderSummary.receiver_phone || '-' }}</span>
+              <span class="wide-item">地址：{{ activeOrderSummary.receiver_address || '-' }}</span>
+              <span>寄件人：{{ activeOrderSummary.sender_label || activeOrderSummary.sender_name || '-' }}</span>
+              <span>运单号：{{ activeOrderSummary.ship_tracking_no || '-' }}</span>
+            </div>
+          </section>
+
+          <section class="drawer-section">
+            <h4>订单费用</h4>
+            <div class="detail-grid">
+              <span>商品金额：{{ activeOrderDetail?.total_amount || activeOrderSummary.total_amount || '0.00' }}</span>
+              <span>运费：{{ activeOrderDetail?.shipping_amount || activeOrderSummary.shipping_amount || '0.00' }}</span>
+              <span>优惠：{{ activeOrderDetail?.discount_amount || activeOrderSummary.discount_amount || '0.00' }}</span>
+              <span>应收：{{ activeOrderDetail?.grand_total || activeOrderSummary.grand_total || '0.00' }}</span>
+            </div>
+          </section>
+
+          <section class="drawer-section">
+            <h4>订单信息</h4>
+            <div class="detail-grid">
+              <span>类型：{{ activeOrderSummary.order_type || '-' }}</span>
+              <span>来源：{{ activeOrderSummary.portal_service_code || '-' }}</span>
+              <span>收款：{{ activeOrderSummary.pay_status || '-' }}</span>
+              <span>发货：{{ activeOrderSummary.ship_status || '-' }}</span>
+              <span>生产：{{ activeOrderSummary.process_status || '-' }}</span>
+              <span>发票：{{ activeOrderSummary.invoice_status || '-' }}</span>
+              <span class="wide-item">备注：{{ activeOrderDetail?.notes || activeOrderSummary.notes || '-' }}</span>
+            </div>
+          </section>
+
+          <section class="drawer-section">
+            <div class="drawer-actions">
+              <button class="secondary" type="button" @click="openSalesOrderDrawer(activeOrderSummary)">销售单</button>
+              <button class="secondary" type="button" @click="openDeliveryNoteDrawer(activeOrderSummary)" :disabled="!isShipped(activeOrderSummary)">出库单</button>
+            </div>
+          </section>
+
+          <section class="drawer-section">
+            <h4>商品明细</h4>
+            <div v-if="orderDetailLoading" class="muted">订单明细加载中...</div>
+            <div v-else-if="!activeOrderDetail?.items?.length" class="muted">暂无商品明细</div>
+            <div v-else class="table-wrap drawer-table-wrap">
+              <table class="drawer-table">
+                <thead>
+                  <tr><th>商品</th><th>规格</th><th>数量</th><th>单价</th><th>小计</th><th>备注</th></tr>
+                </thead>
+                <tbody>
+                  <tr v-for="(item, idx) in activeOrderDetail?.items || []" :key="`${activeOrderSummary.id}-${idx}`">
+                    <td>{{ item.product_name || '-' }}</td>
+                    <td>{{ item.spec || '-' }}</td>
+                    <td>{{ item.qty || '-' }}{{ item.unit || '' }}</td>
+                    <td>{{ item.unit_price || '-' }}</td>
+                    <td>{{ item.line_total || '-' }}</td>
+                    <td>{{ item.note || '-' }}</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </section>
+        </div>
+      </aside>
+    </div>
+
+    <div v-if="salesOrderDrawerOpen" class="sales-order-drawer-mask" @click.self="closeSalesOrderDrawer">
+      <aside class="sales-order-drawer" aria-label="销售单">
+        <SalesOrderView :order-id="activeSalesOrderID" embedded @close="closeSalesOrderDrawer" />
+      </aside>
+    </div>
+
+    <div v-if="deliveryNoteDrawerOpen" class="delivery-note-drawer-mask" @click.self="closeDeliveryNoteDrawer">
+      <aside class="delivery-note-drawer" aria-label="出库单">
+        <DeliveryNoteView :order-id="activeDeliveryNoteID" embedded @close="closeDeliveryNoteDrawer" />
+      </aside>
+    </div>
   </div>
 </template>
 
 <script setup>
 import { computed, onMounted, reactive, ref } from 'vue'
 import SearchableSelect from '../components/SearchableSelect.vue'
+import DeliveryNoteView from './DeliveryNoteView.vue'
+import SalesOrderView from './SalesOrderView.vue'
 import {
+  fetchCustomerFulfillmentOrderDetail,
+  fetchCustomerFulfillmentOrders,
   fetchCustomerProcessingPortalOverview,
   fetchCustomerProcessingPortalOptions,
   submitCustomerDirectShipOrder,
   submitCustomerProcessingWorkOrder,
 } from '../api/customer-fulfillment'
+import { customerFulfillmentOrderFees } from '../lib/customer-fulfillment'
 import { parseRecipientText } from '../lib/customer-recipient'
 
 const loading = ref(false)
@@ -259,6 +429,21 @@ const error = ref('')
 const ok = ref('')
 const overview = ref({})
 const fulfillmentOptions = ref({})
+const fulfillmentOrders = ref([])
+const fulfillmentOrdersSummary = ref({})
+const fulfillmentOrdersPage = ref(1)
+const fulfillmentOrdersHasPrev = ref(false)
+const fulfillmentOrdersHasNext = ref(false)
+const fulfillmentOrdersLoading = ref(false)
+const orderDetailDrawerOpen = ref(false)
+const activeOrderSummary = ref(null)
+const activeOrderDetail = ref(null)
+const orderDetailLoading = ref(false)
+const orderDetailError = ref('')
+const salesOrderDrawerOpen = ref(false)
+const activeSalesOrderID = ref(0)
+const deliveryNoteDrawerOpen = ref(false)
+const activeDeliveryNoteID = ref(0)
 const processingProductValue = ref('')
 const processingRawBeanValue = ref('')
 const directShipProductValue = ref('')
@@ -287,6 +472,7 @@ const directShipForm = reactive({
 
 const capabilities = computed(() => overview.value.capabilities || [])
 const hasScopedCapabilities = computed(() => capabilities.value.length > 0)
+const overviewCustomerId = computed(() => Number(overview.value?.customer_id || 0))
 const canSubmitProcessing = computed(() => hasCapability('processing'))
 const canDirectShip = computed(() => hasCapability('direct_ship') || hasCapability('product_order'))
 const canViewInventory = computed(() => hasCapability('inventory_custody') || hasCapability('processing'))
@@ -312,7 +498,7 @@ const metrics = computed(() => [
   canViewInventory.value ? { label: '原料库存', value: (overview.value.custody_balances || []).length } : null,
   canSubmitProcessing.value ? { label: '加工工单', value: (overview.value.processing_orders || []).length } : null,
   canViewInventory.value ? { label: '成品库存', value: (overview.value.finished_goods || []).length } : null,
-  canDirectShip.value ? { label: '代发订单', value: (overview.value.direct_ship_orders || []).length } : null,
+  canDirectShip.value ? { label: '履约订单', value: fulfillmentOrdersSummary.value.orders || fulfillmentOrders.value.length } : null,
   canViewSettlement.value ? { label: '未结费用', value: (overview.value.fees || []).length } : null,
   canViewSettlement.value ? { label: '结算单', value: (overview.value.settlements || []).length } : null,
 ].filter(Boolean))
@@ -321,6 +507,7 @@ onMounted(loadOverview)
 
 async function loadOverview() {
   loading.value = true
+  fulfillmentOrdersLoading.value = true
   error.value = ''
   try {
     const [overviewData, optionsData] = await Promise.all([
@@ -329,10 +516,17 @@ async function loadOverview() {
     ])
     overview.value = overviewData || {}
     fulfillmentOptions.value = optionsData || {}
+    fulfillmentOrdersPage.value = 1
+    if (overviewCustomerId.value) {
+      assignFulfillmentOrders(await loadFulfillmentOrdersData(overviewCustomerId.value, fulfillmentOrdersPage.value))
+    } else {
+      assignFulfillmentOrders({})
+    }
   } catch (err) {
     error.value = err.message || '加载代加工数据失败'
   } finally {
     loading.value = false
+    fulfillmentOrdersLoading.value = false
   }
 }
 
@@ -397,12 +591,93 @@ async function submitDirectShip() {
     directShipForm.spec = ''
     directShipForm.quantity_units = 1
     directShipForm.note = ''
+    fulfillmentOrdersPage.value = 1
     await loadOverview()
   } catch (err) {
     error.value = err.message || '提交代发失败'
   } finally {
     loading.value = false
   }
+}
+
+async function loadFulfillmentOrders(page = fulfillmentOrdersPage.value) {
+  if (!overviewCustomerId.value) return
+  fulfillmentOrdersLoading.value = true
+  try {
+    const data = await loadFulfillmentOrdersData(overviewCustomerId.value, page)
+    assignFulfillmentOrders(data)
+  } catch (err) {
+    error.value = err.message || '加载履约客户订单失败'
+  } finally {
+    fulfillmentOrdersLoading.value = false
+  }
+}
+
+function loadFulfillmentOrdersData(customerId, page = 1) {
+  return fetchCustomerFulfillmentOrders(customerId, { page, limit: 10 })
+}
+
+function assignFulfillmentOrders(data = {}) {
+  fulfillmentOrders.value = Array.isArray(data?.rows) ? data.rows : []
+  fulfillmentOrdersSummary.value = data?.summary || {}
+  fulfillmentOrdersPage.value = Number(data?.page || fulfillmentOrdersPage.value || 1)
+  fulfillmentOrdersHasPrev.value = Boolean(data?.has_prev)
+  fulfillmentOrdersHasNext.value = Boolean(data?.has_next)
+  const currentID = Number(activeOrderSummary.value?.id || 0)
+  if (currentID > 0) {
+    const refreshed = fulfillmentOrders.value.find((row) => Number(row.id) === currentID)
+    if (refreshed) activeOrderSummary.value = { ...refreshed }
+  }
+}
+
+async function openFulfillmentOrderDetail(row) {
+  const orderId = Number(row?.id || 0)
+  if (!orderId) return
+  activeOrderSummary.value = { ...row }
+  activeOrderDetail.value = null
+  orderDetailError.value = ''
+  orderDetailDrawerOpen.value = true
+  orderDetailLoading.value = true
+  try {
+    const data = await fetchCustomerFulfillmentOrderDetail(orderId)
+    activeOrderDetail.value = data?.edit_data || null
+  } catch (err) {
+    orderDetailError.value = err.message || '加载订单明细失败'
+  } finally {
+    orderDetailLoading.value = false
+  }
+}
+
+function closeOrderDetailDrawer() {
+  orderDetailDrawerOpen.value = false
+  activeOrderSummary.value = null
+  activeOrderDetail.value = null
+  orderDetailError.value = ''
+  orderDetailLoading.value = false
+}
+
+function openSalesOrderDrawer(row) {
+  const id = Number(row?.id || 0)
+  if (!id) return
+  activeSalesOrderID.value = id
+  salesOrderDrawerOpen.value = true
+}
+
+function closeSalesOrderDrawer() {
+  salesOrderDrawerOpen.value = false
+  activeSalesOrderID.value = 0
+}
+
+function openDeliveryNoteDrawer(row) {
+  const id = Number(row?.id || 0)
+  if (!id) return
+  activeDeliveryNoteID.value = id
+  deliveryNoteDrawerOpen.value = true
+}
+
+function closeDeliveryNoteDrawer() {
+  deliveryNoteDrawerOpen.value = false
+  activeDeliveryNoteID.value = 0
 }
 
 function hasCapability(code) {
@@ -543,6 +818,14 @@ function statusLabel(value) {
     settled: '已结算',
     draft: '草稿',
   }[value] || value || '-'
+}
+
+function orderFeeLines(row) {
+  return customerFulfillmentOrderFees(row)
+}
+
+function isShipped(row) {
+  return String(row?.ship_status || '').includes('已发货')
 }
 
 function formatG(value) {
@@ -729,6 +1012,185 @@ th {
   color: #047857;
 }
 
+.head-actions,
+.actions-inline,
+.pager,
+.drawer-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.table-wrap {
+  width: 100%;
+  overflow-x: auto;
+}
+
+.fulfillment-orders-panel {
+  padding: 0;
+  overflow: hidden;
+}
+
+.fulfillment-orders-panel .panel-head {
+  margin: 0;
+  padding: 14px;
+  border-bottom: 1px solid #e2e8f0;
+}
+
+.fulfillment-orders-panel .panel-head p {
+  margin: 4px 0 0;
+  color: #64748b;
+  font-size: 13px;
+}
+
+.fulfillment-orders-table {
+  min-width: 1080px;
+  table-layout: fixed;
+}
+
+.fulfillment-orders-table th:nth-child(1) { width: 150px; }
+.fulfillment-orders-table th:nth-child(2) { width: 96px; }
+.fulfillment-orders-table th:nth-child(3) { width: 150px; }
+.fulfillment-orders-table th:nth-child(4) { width: 250px; }
+.fulfillment-orders-table th:nth-child(5) { width: 150px; }
+.fulfillment-orders-table th:nth-child(6) { width: 140px; }
+.fulfillment-orders-table th:nth-child(7) { width: 150px; }
+.fulfillment-orders-table th:nth-child(8) { width: 110px; }
+
+.stacked-text,
+.status-stack,
+.fee-stack {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.stacked-text strong,
+.stacked-text span,
+.status-stack span,
+.receiver-cell span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.cell-meta {
+  margin-top: 4px;
+  color: #64748b;
+  font-size: 12px;
+}
+
+.order-link,
+.link-button {
+  min-height: auto;
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: #0f766e;
+  font: inherit;
+  text-align: left;
+}
+
+.fee-line {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.fee-line span {
+  color: #64748b;
+}
+
+.fee-line.emphasized strong {
+  color: #0f766e;
+}
+
+.pager {
+  justify-content: flex-end;
+  padding: 10px 14px 14px;
+}
+
+.empty-row {
+  text-align: center;
+}
+
+.order-detail-drawer-mask,
+.sales-order-drawer-mask,
+.delivery-note-drawer-mask {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  justify-content: flex-end;
+  background: rgba(15, 23, 42, .36);
+}
+
+.order-detail-drawer,
+.sales-order-drawer,
+.delivery-note-drawer {
+  width: min(920px, 96vw);
+  height: 100%;
+  overflow: auto;
+  background: #fff;
+  box-shadow: -16px 0 32px rgba(15, 23, 42, .18);
+}
+
+.drawer-head {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px;
+  border-bottom: 1px solid #e2e8f0;
+  background: #fff;
+}
+
+.drawer-head h3,
+.drawer-head p,
+.drawer-section h4 {
+  margin: 0;
+}
+
+.drawer-head p {
+  margin-top: 4px;
+  color: #64748b;
+}
+
+.drawer-body {
+  display: grid;
+  gap: 14px;
+  padding: 14px;
+}
+
+.drawer-section {
+  display: grid;
+  gap: 10px;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 12px;
+}
+
+.detail-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px 12px;
+  color: #334155;
+}
+
+.detail-grid span {
+  overflow-wrap: anywhere;
+}
+
+.wide-item {
+  grid-column: 1 / -1;
+}
+
+.drawer-table {
+  min-width: 720px;
+}
+
 @media (max-width: 720px) {
   .portal-head {
     align-items: stretch;
@@ -742,6 +1204,10 @@ th {
 
   .wide {
     grid-column: auto;
+  }
+
+  .detail-grid {
+    grid-template-columns: 1fr;
   }
 }
 </style>

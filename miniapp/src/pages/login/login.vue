@@ -29,7 +29,7 @@ async function handleLogin() {
     const response = await loginWithPassword(login, password)
     session.setToken(response.token)
     session.applyContext(response)
-    uni.redirectTo({ url: customerEntryRoute(response) })
+    uni.reLaunch({ url: customerEntryRoute(response) })
   } catch (error) {
     errorMessage.value = error instanceof Error ? error.message : '账号或密码不正确'
   } finally {
@@ -48,7 +48,7 @@ async function handleLogin() {
 
     <view class="panel">
       <input v-model="loginForm.login" class="input" placeholder="用户名或手机号" />
-      <input v-model="loginForm.password" class="input" type="password" placeholder="密码" />
+      <input v-model="loginForm.password" class="input" password placeholder="密码" />
       <button class="login-button" :loading="loading" :disabled="loading" @tap="handleLogin">
         登录
       </button>

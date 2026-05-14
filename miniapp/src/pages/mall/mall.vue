@@ -3,6 +3,7 @@ import { computed, ref } from 'vue'
 import { onShow } from '@dcloudio/uni-app'
 import { buildAPIURL } from '../../api/client'
 import { createMallOrder, fetchMallPage, type MallPageResponse } from '../../api/customerPortal'
+import MainTabBar from '../../components/MainTabBar.vue'
 import { useSessionStore } from '../../stores/session'
 import {
   addMallCartItem,
@@ -35,7 +36,7 @@ const cartTotal = computed(() => mallCartTotal(cart.value))
 
 async function loadMall() {
   if (!session.token) {
-    uni.redirectTo({ url: '/pages/login/login' })
+    uni.reLaunch({ url: '/pages/login/login' })
     return
   }
   loading.value = true
@@ -74,14 +75,6 @@ function changeQty(item: MallCartItem, delta: number) {
   cart.value = updateMallCartQty(cart.value, item.mall_product_id, item.qty + delta)
 }
 
-function openOrders() {
-  uni.navigateTo({ url: '/pages/service/service?key=orders' })
-}
-
-function openProfile() {
-  uni.navigateTo({ url: '/pages/profile/profile' })
-}
-
 async function submitOrder() {
   const payload = buildMallOrderPayload(recipient.value, cart.value)
   if (!payload.recipient_name || !payload.recipient_phone || !payload.recipient_address) {
@@ -117,10 +110,6 @@ onShow(() => {
       <text class="eyebrow">{{ themeMeta.eyebrow }}</text>
       <text class="title">{{ customerName }}</text>
       <text class="subtitle">{{ themeMeta.subtitle }}</text>
-      <view class="account-actions">
-        <button class="profile-link" size="mini" @tap="openProfile">个人中心</button>
-        <button class="orders-link" size="mini" @tap="openOrders">我的订单</button>
-      </view>
     </view>
 
     <view v-if="loading" class="state">
@@ -184,13 +173,15 @@ onShow(() => {
         </view>
       </view>
     </view>
+
+    <MainTabBar current="home" />
   </view>
 </template>
 
 <style scoped>
 .page {
   min-height: 100vh;
-  padding: 32rpx;
+  padding: 32rpx 32rpx 160rpx;
   background: #f7f2ea;
   box-sizing: border-box;
 }
@@ -242,42 +233,6 @@ onShow(() => {
 }
 
 .theme-clean-ops .subtitle { color: #66756c; }
-
-.account-actions {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 14rpx;
-  margin-top: 8rpx;
-}
-
-.profile-link,
-.orders-link {
-  align-self: flex-start;
-  min-height: 58rpx;
-  margin: 0;
-  padding: 0 24rpx;
-  border: 1rpx solid rgba(255, 248, 235, .58);
-  border-radius: 8rpx;
-  background: rgba(255, 255, 255, .12);
-  color: #fff8eb;
-  font-size: 24rpx;
-  font-weight: 900;
-  line-height: 58rpx;
-}
-
-.theme-clean-ops .profile-link,
-.theme-clean-ops .orders-link {
-  border-color: #cddbd4;
-  background: #eef6f2;
-  color: #28624a;
-}
-
-.theme-premium-partner .profile-link,
-.theme-premium-partner .orders-link {
-  border-color: rgba(255, 248, 235, .5);
-  background: rgba(255, 248, 235, .14);
-}
 
 .products {
   display: grid;

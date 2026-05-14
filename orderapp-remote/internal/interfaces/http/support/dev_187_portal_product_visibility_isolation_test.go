@@ -15,9 +15,9 @@ func TestPortalProductVisibilityIsolationEvidenceExists(t *testing.T) {
 		"listProducts(ctx context.Context, customerID int64",
 		"portalProductVisibleToCustomerSQL",
 		"portalProductVisibleToCustomerAliasSQL",
-		"WHEN COALESCE(%scustomer_id,0)>0 THEN COALESCE(NULLIF(%svisibility,''),'customer_only')",
-		"ELSE COALESCE(NULLIF(%svisibility,''),'public')",
-		"OR COALESCE(%scustomer_id,0)=%s",
+		"WHEN COALESCE(%[1]scustomer_id,0)>0 THEN COALESCE(NULLIF(%[1]svisibility,''),'customer_only')",
+		"ELSE COALESCE(NULLIF(%[1]svisibility,''),'public')",
+		"OR COALESCE(%[1]scustomer_id,0)=%[2]s",
 		"product unavailable",
 	} {
 		if !strings.Contains(repo, want) {

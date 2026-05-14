@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"regexp"
 	"strings"
@@ -442,6 +443,11 @@ func (r Repository) capabilitiesForCustomerTx(ctx context.Context, q txQuerier, 
 	if customerID <= 0 {
 		return []customerportalapp.Capability{}, nil
 	}
+	if template, ok, err := r.capabilityTemplateForCustomerTx(ctx, q, customerID); err != nil {
+		return nil, err
+	} else if ok {
+		return capabilityOptionsToCapabilities(template.Capabilities), nil
+	}
 	rows, err := q.Query(ctx, fmt.Sprintf(`
 		SELECT capability_code, enabled, config_json
 		FROM %s.customer_service_capabilities
@@ -475,6 +481,11 @@ func (r Repository) themeForCustomerTx(ctx context.Context, q txQuerier, custome
 	if customerID <= 0 {
 		return customerportalapp.PortalThemeCoffeeFactory, nil
 	}
+	if template, ok, err := r.capabilityTemplateForCustomerTx(ctx, q, customerID); err != nil {
+		return "", err
+	} else if ok {
+		return customerportalapp.NormalizePortalThemeKey(template.ThemeKey), nil
+	}
 	var raw string
 	err := q.QueryRow(ctx, fmt.Sprintf(`
 		SELECT COALESCE(NULLIF(theme_key,''),'coffee_factory')
@@ -494,6 +505,11 @@ func (r Repository) miniappEntryModeForCustomerTx(ctx context.Context, q txQueri
 	if customerID <= 0 {
 		return customerportalapp.MiniappEntryModeServices, nil
 	}
+	if template, ok, err := r.capabilityTemplateForCustomerTx(ctx, q, customerID); err != nil {
+		return "", err
+	} else if ok {
+		return customerportalapp.NormalizeMiniappEntryMode(template.MiniappEntryMode), nil
+	}
 	var raw string
 	err := q.QueryRow(ctx, fmt.Sprintf(`
 		SELECT COALESCE(NULLIF(miniapp_entry_mode,''),'services')
@@ -507,6 +523,84 @@ func (r Repository) miniappEntryModeForCustomerTx(ctx context.Context, q txQueri
 		return "", err
 	}
 	return customerportalapp.NormalizeMiniappEntryMode(raw), nil
+}
+
+func (r Repository) capabilityTemplateForCustomerTx(ctx context.Context, q txQuerier, customerID int64) (customerportalapp.CapabilityTemplate, bool, error) {
+	var raw string
+	err := q.QueryRow(ctx, fmt.Sprintf(`
+		SELECT COALESCE(capability_template_key,'')
+		FROM %s.customer_portal_profiles
+		WHERE customer_id=$1
+	`, r.schema), customerID).Scan(&raw)
+	if err == pgx.ErrNoRows {
+		return customerportalapp.CapabilityTemplate{}, false, nil
+	}
+	if err != nil {
+		return customerportalapp.CapabilityTemplate{}, false, err
+	}
+	key := customerportalapp.NormalizeCapabilityTemplateKey(raw)
+	if strings.TrimSpace(raw) != "" && key == "" {
+		return customerportalapp.CapabilityTemplate{}, false, customerportalapp.ErrCapabilityTemplateInvalid
+	}
+	if key == "" {
+		return customerportalapp.CapabilityTemplate{}, false, nil
+	}
+	return r.capabilityTemplateForKeyTx(ctx, q, key)
+}
+
+func (r Repository) capabilityTemplateForKeyTx(ctx context.Context, q txQuerier, key string) (customerportalapp.CapabilityTemplate, bool, error) {
+	key = customerportalapp.NormalizeCapabilityTemplateKey(key)
+	if key == "" {
+		return customerportalapp.CapabilityTemplate{}, false, customerportalapp.ErrCapabilityTemplateInvalid
+	}
+	row := q.QueryRow(ctx, fmt.Sprintf(`
+		SELECT template_key,
+		       parent_template_key,
+		       label,
+		       description,
+		       theme_key,
+		       miniapp_entry_mode,
+		       erp_role_codes,
+		       erp_permissions,
+		       erp_view_keys,
+		       capabilities_json,
+		       active,
+		       sort_order,
+		       to_char(updated_at,'YYYY-MM-DD HH24:MI'),
+		       updated_by
+		FROM %s.customer_capability_templates
+		WHERE template_key=$1
+	`, r.schema), key)
+	template, err := scanCapabilityTemplate(row)
+	if err == nil {
+		if !template.Active {
+			return customerportalapp.CapabilityTemplate{}, false, customerportalapp.ErrCapabilityTemplateInvalid
+		}
+		return template, true, nil
+	}
+	if !errors.Is(err, pgx.ErrNoRows) {
+		return customerportalapp.CapabilityTemplate{}, false, err
+	}
+	if template, ok := customerportalapp.CustomerCapabilityTemplateByKey(key); ok && template.Active {
+		return template, true, nil
+	}
+	return customerportalapp.CapabilityTemplate{}, false, customerportalapp.ErrCapabilityTemplateInvalid
+}
+
+func capabilityOptionsToCapabilities(options []customerportalapp.CapabilityOption) []customerportalapp.Capability {
+	out := make([]customerportalapp.Capability, 0, len(options))
+	for _, option := range options {
+		config := map[string]any{}
+		for key, value := range option.Config {
+			config[key] = value
+		}
+		out = append(out, customerportalapp.Capability{
+			Code:    strings.TrimSpace(option.Code),
+			Enabled: option.Enabled,
+			Config:  config,
+		})
+	}
+	return out
 }
 
 func randomToken(n int) (string, error) {

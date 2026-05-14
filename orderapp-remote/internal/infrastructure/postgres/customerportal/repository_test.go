@@ -458,6 +458,51 @@ func TestMiniappCurrentCustomerSwitchScopesOrderServicePage(t *testing.T) {
 	}
 }
 
+func TestCustomerOwnsOrderChecksActiveCustomerOrder(t *testing.T) {
+	ctx := context.Background()
+	pool, schema := newCustomerPortalTestDB(t)
+	repo := NewRepository(pool, schema)
+
+	var customerAID, customerBID, orderAID, orderBID int64
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`
+		INSERT INTO %s.customers(name, active) VALUES('文档客户A',true) RETURNING id
+	`, schema)).Scan(&customerAID); err != nil {
+		t.Fatalf("insert customer A: %v", err)
+	}
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`
+		INSERT INTO %s.customers(name, active) VALUES('文档客户B',true) RETURNING id
+	`, schema)).Scan(&customerBID); err != nil {
+		t.Fatalf("insert customer B: %v", err)
+	}
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`
+		INSERT INTO %[1]s.orders(order_no, order_date, customer_id, is_void)
+		VALUES('SO-DOC-A','2026-05-15',$1,false)
+		RETURNING id
+	`, schema), customerAID).Scan(&orderAID); err != nil {
+		t.Fatalf("insert order A: %v", err)
+	}
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`
+		INSERT INTO %[1]s.orders(order_no, order_date, customer_id, is_void)
+		VALUES('SO-DOC-B','2026-05-15',$1,true)
+		RETURNING id
+	`, schema), customerBID).Scan(&orderBID); err != nil {
+		t.Fatalf("insert order B: %v", err)
+	}
+
+	ok, err := repo.CustomerOwnsOrder(ctx, customerAID, orderAID)
+	if err != nil || !ok {
+		t.Fatalf("CustomerOwnsOrder(customer A, order A) ok=%v err=%v", ok, err)
+	}
+	ok, err = repo.CustomerOwnsOrder(ctx, customerAID, orderBID)
+	if err != nil || ok {
+		t.Fatalf("CustomerOwnsOrder(customer A, void customer B order) ok=%v err=%v", ok, err)
+	}
+	ok, err = repo.CustomerOwnsOrder(ctx, customerBID, orderAID)
+	if err != nil || ok {
+		t.Fatalf("CustomerOwnsOrder(customer B, order A) ok=%v err=%v", ok, err)
+	}
+}
+
 func TestMiniappCurrentCustomerSwitchRejectsUnapprovedCustomerWithoutChangingSession(t *testing.T) {
 	ctx := context.Background()
 	pool, schema := newCustomerPortalTestDB(t)
@@ -938,6 +983,56 @@ func TestLoadProductOrderServicePageFiltersCustomerOnlyProducts(t *testing.T) {
 	}
 	if strings.Contains(got, "客户B不应显示专属深烘") {
 		t.Fatalf("productOrder products leaked another customer product: %q", got)
+	}
+}
+
+func TestLoadProductServicePageReplacesBaseProductWithCustomerAlias(t *testing.T) {
+	ctx := context.Background()
+	pool, schema := newCustomerPortalTestDB(t)
+	repo := NewRepository(pool, schema)
+
+	var customerID int64
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`
+		INSERT INTO %s.customers(name) VALUES('岩师傅') RETURNING id
+	`, schema)).Scan(&customerID); err != nil {
+		t.Fatalf("insert customer: %v", err)
+	}
+
+	var baseProductID int64
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`
+		INSERT INTO %s.products(name, default_price, active, customer_id, base_product_id, visibility, custom_type)
+		VALUES('基础款曲奇', 48, true, 0, 0, 'public', '')
+		RETURNING id
+	`, schema)).Scan(&baseProductID); err != nil {
+		t.Fatalf("insert base product: %v", err)
+	}
+	if _, err := pool.Exec(ctx, fmt.Sprintf(`
+		INSERT INTO %s.products(name, default_price, active, customer_id, base_product_id, visibility, custom_type)
+		VALUES
+			('公共保留款', 52, true, 0, 0, 'public', ''),
+			('岩师傅兰卡', 58, true, $1, $2, 'customer_only', 'public_sku_alias')
+	`, schema), customerID, baseProductID); err != nil {
+		t.Fatalf("insert products: %v", err)
+	}
+
+	page, err := repo.LoadServicePage(ctx, customerportalapp.ServicePageQuery{
+		CustomerID: customerID,
+		Key:        customerportalapp.ServiceKeyProductOrder,
+		Limit:      20,
+	})
+	if err != nil {
+		t.Fatalf("LoadServicePage: %v", err)
+	}
+	names := make([]string, 0, len(page.Products))
+	for _, product := range page.Products {
+		names = append(names, product.Name)
+	}
+	got := strings.Join(names, ",")
+	if strings.Contains(got, "基础款曲奇") {
+		t.Fatalf("alias base product should be replaced for customer: %q", got)
+	}
+	if !strings.Contains(got, "岩师傅兰卡") || !strings.Contains(got, "公共保留款") {
+		t.Fatalf("products=%q missing alias or unrelated public product", got)
 	}
 }
 

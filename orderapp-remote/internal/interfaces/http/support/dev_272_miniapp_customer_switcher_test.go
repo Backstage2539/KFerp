@@ -41,9 +41,14 @@ func TestMiniappCustomerSwitcherSourceWiring(t *testing.T) {
 			t.Fatalf("read %s: %v", path, err)
 		}
 		text := string(body)
-		for _, want := range []string{"个人中心", "openProfile"} {
+		for _, want := range []string{"MainTabBar"} {
 			if !strings.Contains(text, want) {
-				t.Fatalf("%s missing profile account action marker %q", path, want)
+				t.Fatalf("%s missing bottom account entry marker %q", path, want)
+			}
+		}
+		for _, gone := range []string{"openProfile"} {
+			if strings.Contains(text, gone) {
+				t.Fatalf("%s still contains old top profile action marker %q", path, gone)
 			}
 		}
 	}
@@ -78,7 +83,7 @@ func TestMiniappCustomerSwitcherDocsExist(t *testing.T) {
 			t.Fatalf("read %s: %v", path, err)
 		}
 		text := string(body)
-		for _, want := range []string{"个人中心", "切换用户", "13800138075"} {
+		for _, want := range []string{"我的", "切换用户", "13800138075"} {
 			if !strings.Contains(text, want) {
 				t.Fatalf("%s missing customer switcher manual marker %q", path, want)
 			}
@@ -95,7 +100,7 @@ func TestMiniappCustomerSwitcherDocsExist(t *testing.T) {
 			t.Fatalf("read %s: %v", path, err)
 		}
 		text := string(body)
-		for _, want := range []string{"个人中心", "商城首页", "/api/mini/current-customer"} {
+		for _, want := range []string{"我的", "/api/mini/current-customer"} {
 			if !strings.Contains(text, want) {
 				t.Fatalf("%s missing customer switcher doc marker %q", path, want)
 			}

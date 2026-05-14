@@ -68,7 +68,7 @@ type mallOrderRequest struct {
 	Items            []customerportalapp.MallOrderItemCommand `json:"items"`
 }
 
-func registerMiniAPI(e *echo.Echo, svc Service, messages MessagePublisher, beanListPDFRenderer BeanListPDFRenderer) {
+func registerMiniAPI(e *echo.Echo, svc Service, messages MessagePublisher, beanListPDFRenderer BeanListPDFRenderer, salesDocs SalesDocuments) {
 	e.POST("/api/mini/login", func(c echo.Context) error {
 		if svc == nil {
 			return miniInternalError(c)
@@ -227,6 +227,14 @@ func registerMiniAPI(e *echo.Echo, svc Service, messages MessagePublisher, beanL
 		return c.Blob(http.StatusOK, "application/pdf", body)
 	})
 
+	e.GET("/api/mini/orders/:id/sales-order-latest.pdf", func(c echo.Context) error {
+		return miniOrderDocument(c, svc, salesDocs, "sales_order")
+	})
+
+	e.GET("/api/mini/orders/:id/delivery-note-latest.pdf", func(c echo.Context) error {
+		return miniOrderDocument(c, svc, salesDocs, "delivery_note")
+	})
+
 	e.POST("/api/mini/direct-ship/batches", func(c echo.Context) error {
 		if svc == nil {
 			return miniInternalError(c)
@@ -307,6 +315,47 @@ func registerMiniAPI(e *echo.Echo, svc Service, messages MessagePublisher, beanL
 		publishMiniOrderCreated(c, messages, result, req.ServiceCode)
 		return c.JSON(http.StatusOK, result)
 	})
+}
+
+func miniOrderDocument(c echo.Context, svc Service, salesDocs SalesDocuments, kind string) error {
+	if svc == nil || salesDocs == nil {
+		return miniInternalError(c)
+	}
+	token := miniTokenFromHeader(c.Request().Header.Get(echo.HeaderAuthorization))
+	if token == "" {
+		return c.JSON(http.StatusUnauthorized, map[string]string{"error": "mini token required"})
+	}
+	orderID, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil || orderID <= 0 {
+		return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid request"})
+	}
+	if err := svc.EnsureOrderAccess(c.Request().Context(), token, orderID); err != nil {
+		return miniBusinessError(c, err)
+	}
+
+	var path string
+	var filename string
+	switch kind {
+	case "sales_order":
+		file, err := salesDocs.LoadSalesOrderDocumentFile(c.Request().Context(), orderID, 0, true)
+		if err != nil {
+			return c.JSON(http.StatusNotFound, map[string]string{"error": "order document not found"})
+		}
+		path = file.Path
+		filename = file.Filename
+	case "delivery_note":
+		file, err := salesDocs.LoadDeliveryNoteDocumentFile(c.Request().Context(), orderID, 0, true)
+		if err != nil {
+			return c.JSON(http.StatusNotFound, map[string]string{"error": "order document not found"})
+		}
+		path = file.Path
+		filename = file.Filename
+	default:
+		return miniInternalError(c)
+	}
+	c.Response().Header().Set(echo.HeaderContentType, "application/pdf")
+	c.Response().Header().Set(echo.HeaderContentDisposition, fmt.Sprintf(`attachment; filename="%s"`, filename))
+	return c.File(path)
 }
 
 func publishMiniOrderCreated(c echo.Context, messages MessagePublisher, result customerportalapp.FulfillmentOrder, serviceCode string) {

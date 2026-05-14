@@ -64,7 +64,10 @@
                 <option v-if="unknownTemplateKey(row)" :value="unknownTemplateKey(row)">
                   未知模板：{{ unknownTemplateKey(row) }}
                 </option>
-                <option v-for="template in capabilityTemplates" :key="template.key" :value="template.key">
+                <option v-if="inactiveTemplateKey(row)" :value="inactiveTemplateKey(row)">
+                  模板已失效：{{ selectedTemplate(row)?.label || inactiveTemplateKey(row) }}
+                </option>
+                <option v-for="template in activeTemplates" :key="template.key" :value="template.key">
                   {{ template.label }}
                 </option>
               </select>
@@ -83,6 +86,10 @@
           <template v-if="unknownTemplateKey(row)">
             <strong>未知能力模板</strong>
             <span>当前模板 key 无法识别，请重新选择系统模板；如果要停用门户并清空模板，请先选择“请选择模板”。</span>
+          </template>
+          <template v-else-if="inactiveTemplateKey(row)">
+            <strong>模板已失效</strong>
+            <span>当前客户引用的能力模板已经失效，请重新选择一个启用中的模板后保存。</span>
           </template>
           <template v-else-if="selectedTemplate(row)">
             <strong>{{ selectedTemplate(row).label }}</strong>
@@ -172,6 +179,7 @@ const themeLabels = {
 }
 
 const channelAccounts = computed(() => (authAccounts.value || []).filter((row) => row.account_type === 'channel_customer' && row.login_disabled !== true))
+const activeTemplates = computed(() => (capabilityTemplates.value || []).filter((template) => template.active !== false))
 
 async function loadCustomers() {
   loading.value = true
@@ -334,7 +342,6 @@ async function saveERPBinding(row) {
 
 function normalizeTemplateKey(value) {
   const key = trimTemplateKey(value)
-  if (key === 'processing_fulfillment' || key === 'public_sku_direct_ship' || key === 'retail_mall') return key
   return capabilityTemplates.value.some((template) => template.key === key) ? key : ''
 }
 
@@ -352,14 +359,22 @@ function unknownTemplateKey(row) {
   return key && !normalizeTemplateKey(key) ? key : ''
 }
 
+function inactiveTemplateKey(row) {
+  const key = trimTemplateKey(row?.form?.capability_template_key)
+  const template = capabilityTemplates.value.find((item) => item.key === key)
+  return template && template.active === false ? key : ''
+}
+
 function templateSupportsERPWorkbench(row) {
   if (unknownTemplateKey(row)) return false
+  if (inactiveTemplateKey(row)) return false
   const template = selectedTemplate(row)
   return hasStringValues(template?.erp_permissions) || hasStringValues(template?.erp_view_keys)
 }
 
 function erpBindingHint(row) {
   if (unknownTemplateKey(row)) return '当前能力模板无法识别，请先重新选择系统模板'
+  if (inactiveTemplateKey(row)) return '当前能力模板已失效，请先重新选择启用中的模板'
   if (!selectedTemplate(row)) return '请选择支持 ERP 工作台的能力模板后再绑定账号'
   if (!templateSupportsERPWorkbench(row)) return '该模板不开放 ERP 工作台，零售商城客户不需要绑定 ERP 账号'
   return ''
@@ -408,7 +423,7 @@ function viewLabel(key) {
 }
 
 function canSaveRow(row) {
-  return !row.saving && !row.loading && !unknownTemplateKey(row) && (!row.form.enabled || !!selectedTemplate(row))
+  return !row.saving && !row.loading && !unknownTemplateKey(row) && !inactiveTemplateKey(row) && (!row.form.enabled || !!selectedTemplate(row))
 }
 
 onMounted(async () => {

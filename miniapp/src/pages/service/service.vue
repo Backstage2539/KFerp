@@ -11,6 +11,8 @@ import {
   type ProductSummary,
   type ServicePageResponse,
 } from '../../api/customerPortal'
+import { buildAPIURL } from '../../api/client'
+import MainTabBar from '../../components/MainTabBar.vue'
 import { useSessionStore } from '../../stores/session'
 import { beanListCardRows, beanListDisplayStyle, splitBeanListHighlight } from '../../utils/beanListDisplay'
 import {
@@ -77,6 +79,11 @@ const fulfillmentForm = ref({
 })
 
 const title = computed(() => page.value?.title || serviceTitle(serviceKey.value))
+const mainTab = computed(() => {
+  if (serviceKey.value === 'orders') return 'orders'
+  if (serviceKey.value === 'settlement') return 'billing'
+  return 'home'
+})
 const activeThemeKey = computed(() => page.value?.theme_key || session.themeKey)
 const themeClass = computed(() => miniappThemeClass(activeThemeKey.value))
 const themeMeta = computed(() => miniappThemeMeta(activeThemeKey.value))
@@ -103,7 +110,7 @@ const selectedFulfillmentProductLabel = computed(() => selectedPickerLabel(fulfi
 
 async function loadPage() {
   if (!session.token) {
-    uni.redirectTo({ url: '/pages/login/login' })
+    uni.reLaunch({ url: '/pages/login/login' })
     return
   }
   loading.value = true
@@ -206,10 +213,6 @@ function resetLocalForms() {
   page.value = null
 }
 
-function openProfile() {
-  uni.navigateTo({ url: '/pages/profile/profile' })
-}
-
 async function applyOrderFilters() {
   const normalized = normalizeDateRange(orderSearch.value.date_from, orderSearch.value.date_to)
   orderSearch.value.date_from = normalized.date_from || ''
@@ -227,6 +230,44 @@ async function applyDatePreset(preset: OrderDatePreset) {
 async function clearOrderFilters() {
   orderSearch.value = emptyOrderSearch()
   await loadPage()
+}
+
+function openOrderDocument(path?: string) {
+  if (!path) {
+    uni.showToast({ title: '单据暂不可用', icon: 'none' })
+    return
+  }
+  if (!session.token) {
+    uni.reLaunch({ url: '/pages/login/login' })
+    return
+  }
+  uni.showLoading({ title: '打开中' })
+  uni.downloadFile({
+    url: buildAPIURL(path),
+    header: {
+      Authorization: `Bearer ${session.token}`,
+    },
+    success: (res) => {
+      if (res.statusCode !== 200 || !res.tempFilePath) {
+        uni.showToast({ title: '单据暂不可用', icon: 'none' })
+        return
+      }
+      uni.openDocument({
+        filePath: res.tempFilePath,
+        fileType: 'pdf',
+        showMenu: true,
+        fail: () => {
+          uni.showToast({ title: '单据打开失败', icon: 'none' })
+        },
+      })
+    },
+    fail: () => {
+      uni.showToast({ title: '单据下载失败', icon: 'none' })
+    },
+    complete: () => {
+      uni.hideLoading()
+    },
+  })
 }
 
 function setOrderDateFrom(event: { detail?: { value?: string } }) {
@@ -455,9 +496,6 @@ onShow(() => {
       <text class="eyebrow">{{ themeMeta.eyebrow }}</text>
       <text class="title">{{ title }}</text>
       <text class="subtitle">{{ page?.current_customer_name || session.currentCustomerName || '客户中心' }}</text>
-      <view class="account-actions">
-        <button class="profile-link" size="mini" @tap="openProfile">个人中心</button>
-      </view>
     </view>
 
     <view v-if="loading" class="state">
@@ -685,6 +723,10 @@ onShow(() => {
           </view>
           <text class="row-sub">运费：¥{{ item.shipping_amount || '0.00' }}</text>
           <text class="row-sub">物流：{{ item.ship_tracking_no || '暂无单号' }}</text>
+          <view class="document-actions">
+            <button class="secondary compact" @tap="openOrderDocument(item.sales_order_url)">销售单</button>
+            <button class="secondary compact" @tap="openOrderDocument(item.delivery_note_url)">出库单</button>
+          </view>
         </view>
       </view>
 
@@ -732,13 +774,15 @@ onShow(() => {
         <text>暂无数据</text>
       </view>
     </view>
+
+    <MainTabBar :current="mainTab" />
   </view>
 </template>
 
 <style scoped>
 .page {
   min-height: 100vh;
-  padding: 32rpx;
+  padding: 32rpx 32rpx 160rpx;
   background: #f7f2ea;
   box-sizing: border-box;
 }
@@ -793,38 +837,6 @@ onShow(() => {
 
 .theme-clean-ops .title {
   color: #14201a;
-}
-
-.account-actions {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 14rpx;
-  margin-top: 8rpx;
-}
-
-.profile-link {
-  min-height: 56rpx;
-  margin: 0;
-  padding: 0 22rpx;
-  border: 1rpx solid rgba(255, 248, 235, .56);
-  border-radius: 8rpx;
-  background: rgba(255, 255, 255, .12);
-  color: #fff8eb;
-  font-size: 24rpx;
-  font-weight: 900;
-  line-height: 56rpx;
-}
-
-.theme-clean-ops .profile-link {
-  border-color: #cddbd4;
-  background: #eef6f2;
-  color: #28624a;
-}
-
-.theme-premium-partner .profile-link {
-  border-color: rgba(255, 248, 235, .5);
-  background: rgba(255, 248, 235, .14);
 }
 
 .subtitle {
@@ -1097,6 +1109,12 @@ onShow(() => {
   padding: 12rpx;
   background: #f8f8f8;
   border-radius: 8rpx;
+}
+
+.document-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12rpx;
 }
 
 .bean-list-native {

@@ -22,6 +22,6 @@ export function selectedCustomerID(bindings: CustomerBinding[] = [], index: numb
 }
 
 export function customerEntryRoute(context: { miniapp_entry_mode?: string; capabilities?: Capability[] }): string {
-  const canOpenMall = context.miniapp_entry_mode === 'mall' && (context.capabilities || []).some((item) => item.code === 'mall' && item.enabled)
-  return canOpenMall ? '/pages/mall/mall' : '/pages/home/home'
+  void context
+  return '/pages/home/home'
 }
