@@ -29,10 +29,10 @@
         <button class="primary" type="button" @click="loadAll" :disabled="loading || !normalizedCustomerId">载入账户</button>
       </div>
 
-      <div class="import-row">
+      <div v-if="workbenchSections.imports" class="import-row">
         <div class="segmented">
           <button
-            v-for="option in importTypes"
+            v-for="option in visibleImportTypes"
             :key="option.value"
             type="button"
             :class="{ active: selectedImportType === option.value }"
@@ -50,7 +50,7 @@
         <span v-if="!normalizedCustomerId" class="muted import-hint">先选择客户再上传 Excel</span>
       </div>
 
-      <div class="settlement-row">
+      <div v-if="workbenchSections.settlement" class="settlement-row">
         <label>
           <span>结算开始</span>
           <input v-model="settlement.period_from" type="date" />
@@ -63,7 +63,7 @@
       </div>
 
       <div class="ops-grid">
-        <div class="ops-panel">
+        <div v-if="workbenchSections.processing" class="ops-panel">
           <h3>提交加工工单</h3>
           <div class="ops-form">
             <label>
@@ -114,7 +114,7 @@
           </div>
         </div>
 
-        <div class="ops-panel">
+        <div v-if="workbenchSections.directShip" class="ops-panel">
           <h3>提交代发信息</h3>
           <div class="ops-form">
             <label class="wide-field">
@@ -178,7 +178,7 @@
           </div>
         </div>
 
-        <div class="ops-panel">
+        <div v-if="workbenchSections.inventory" class="ops-panel">
           <h3>库存手动调整</h3>
           <div class="ops-form">
             <label>
@@ -287,13 +287,13 @@
     </section>
 
     <section class="grid-2">
-      <DataPanel title="导入批次" :rows="imports" empty="暂无导入批次">
+      <DataPanel v-if="workbenchSections.imports" title="导入批次" :rows="visibleImports" empty="暂无导入批次">
         <table>
           <thead>
             <tr><th>ID</th><th>类型</th><th>文件</th><th>状态</th><th>有效/错误</th><th>操作</th></tr>
           </thead>
           <tbody>
-            <tr v-for="row in imports" :key="row.id">
+            <tr v-for="row in visibleImports" :key="row.id">
               <td>{{ row.id }}</td>
               <td>{{ importTypeLabel(row.import_type) }}</td>
               <td>{{ row.source_filename }}</td>
@@ -307,7 +307,7 @@
         </table>
       </DataPanel>
 
-      <DataPanel title="托管库存" :rows="overview.custody_balances" empty="暂无托管库存">
+      <DataPanel v-if="workbenchSections.inventory" title="托管库存" :rows="overview.custody_balances" empty="暂无托管库存">
         <table>
           <thead>
             <tr><th>类型</th><th>名称</th><th>规格</th><th>克重</th><th>件数</th></tr>
@@ -324,7 +324,7 @@
         </table>
       </DataPanel>
 
-      <DataPanel title="加工工单" :rows="overview.processing_orders" empty="暂无加工工单">
+      <DataPanel v-if="workbenchSections.processing" title="加工工单" :rows="overview.processing_orders" empty="暂无加工工单">
         <table>
           <thead>
             <tr><th>工单号</th><th>产品</th><th>状态</th><th>投豆</th><th>产量</th></tr>
@@ -341,7 +341,7 @@
         </table>
       </DataPanel>
 
-      <DataPanel title="代发订单" :rows="overview.direct_ship_orders" empty="暂无代发订单">
+      <DataPanel v-if="workbenchSections.directShip" title="代发订单" :rows="overview.direct_ship_orders" empty="暂无代发订单">
         <table>
           <thead>
             <tr><th>订单号</th><th>日期</th><th>收件地址</th><th>状态</th><th>明细</th></tr>
@@ -358,7 +358,7 @@
         </table>
       </DataPanel>
 
-      <DataPanel title="费用明细" :rows="overview.fees" empty="暂无费用">
+      <DataPanel v-if="workbenchSections.settlement" title="费用明细" :rows="overview.fees" empty="暂无费用">
         <table>
           <thead>
             <tr><th>类型</th><th>名称</th><th>金额</th><th>来源</th></tr>
@@ -374,7 +374,7 @@
         </table>
       </DataPanel>
 
-      <DataPanel title="结算批次" :rows="overview.settlements" empty="暂无结算">
+      <DataPanel v-if="workbenchSections.settlement" title="结算批次" :rows="overview.settlements" empty="暂无结算">
         <table>
           <thead>
             <tr><th>ID</th><th>期间</th><th>状态</th><th>金额</th></tr>
@@ -416,11 +416,13 @@ import {
   buildImportPreviewEffects,
   customerFulfillmentCustomerOptionLabel,
   customerFulfillmentCustomerOptionMeta,
+  customerFulfillmentWorkbenchSections,
   groupInvalidImportRows,
   importSummaryCards,
   importTypeOptions,
   latestParsedBatchForType,
   rowStatusLabel,
+  visibleCustomerFulfillmentImports,
 } from '../lib/customer-fulfillment'
 import { parseRecipientText } from '../lib/customer-recipient'
 
@@ -477,7 +479,6 @@ const adjustment = reactive({
   quantity_units_delta: 0,
   note: '',
 })
-const importTypes = importTypeOptions()
 const normalizedCustomerId = computed(() => Number(customerId.value || 0))
 const selectedCustomer = computed(() => customerOptions.value.find((row) => Number(row.id) === normalizedCustomerId.value) || null)
 const selectedCustomerLabel = computed(() => selectedCustomer.value ? customerFulfillmentCustomerOptionLabel(selectedCustomer.value) : '')
@@ -485,7 +486,11 @@ const selectedFileName = computed(() => selectedFile.value?.name || '')
 const summaryCards = computed(() => importSummaryCards(latestSummary.value || latestBatch.value?.summary || {}))
 const latestInvalidCount = computed(() => Number((latestSummary.value || latestBatch.value?.summary || {}).invalid_rows || 0))
 const invalidRowGroups = computed(() => groupInvalidImportRows(invalidRows.value))
-const selectedParsedBatch = computed(() => latestParsedBatchForType(imports.value, latestBatch.value, selectedImportType.value))
+const enabledCapabilities = computed(() => Array.isArray(overview.value?.capabilities) ? overview.value.capabilities : [])
+const workbenchSections = computed(() => customerFulfillmentWorkbenchSections(enabledCapabilities.value))
+const visibleImportTypes = computed(() => importTypeOptions(enabledCapabilities.value))
+const visibleImports = computed(() => visibleCustomerFulfillmentImports(imports.value, enabledCapabilities.value))
+const selectedParsedBatch = computed(() => latestParsedBatchForType(visibleImports.value, latestBatch.value, selectedImportType.value))
 const selectedParsedBatchId = computed(() => Number(selectedParsedBatch.value?.id || selectedParsedBatch.value?.batch_id || 0))
 const selectedParsedBatchLabel = computed(() => {
   const batch = selectedParsedBatch.value
@@ -519,6 +524,11 @@ watch(selectedImportType, async () => {
   invalidRows.value = []
   await loadApplyPreview()
 })
+
+watch(visibleImportTypes, (options) => {
+  if (options.some((option) => option.value === selectedImportType.value)) return
+  selectedImportType.value = options[0]?.value || ''
+}, { immediate: true })
 
 watch(selectedParsedBatchId, async () => {
   await loadApplyPreview()
@@ -881,7 +891,7 @@ function uniqueProductOptions(rows) {
 }
 
 function importTypeLabel(value) {
-  return importTypes.find((option) => option.value === value)?.label || value
+  return importTypeOptions().find((option) => option.value === value)?.label || value
 }
 
 function custodyTypeLabel(value) {
@@ -1192,27 +1202,44 @@ button:disabled {
 
 .grid-2 {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(360px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(420px, 1fr));
+  align-items: start;
   gap: 14px;
+}
+
+.grid-2 :deep(.data-panel) {
+  min-width: 0;
+  overflow-x: auto;
 }
 
 table {
   width: 100%;
+  min-width: 560px;
   border-collapse: collapse;
+  table-layout: fixed;
   font-size: 13px;
 }
 
 th,
 td {
   border-bottom: 1px solid #e2e8f0;
-  padding: 8px;
+  height: 40px;
+  padding: 8px 10px;
   text-align: left;
   vertical-align: top;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 th {
   color: #475569;
   background: #f8fafc;
+  font-weight: 600;
+}
+
+td {
+  color: #1f2937;
 }
 
 .muted {
@@ -1238,5 +1265,15 @@ th {
 .ok {
   background: #ecfdf5;
   color: #047857;
+}
+
+@media (max-width: 520px) {
+  .grid-2 {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .wide-field {
+    grid-column: span 1;
+  }
 }
 </style>

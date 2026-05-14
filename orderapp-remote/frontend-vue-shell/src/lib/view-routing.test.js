@@ -19,3 +19,13 @@ test('sidebar navigation sanitizes stale edit identifiers before switching views
   assert.match(source, /viewNavigationURL/)
   assert.match(source, /replaceHistoryURL\(viewNavigationURL\(url,\s*key,\s*params\)\)/)
 })
+
+test('customer fulfillment workbench renders sections from capability helpers', () => {
+  const source = readFileSync(new URL('../views/CustomerFulfillmentView.vue', import.meta.url), 'utf8')
+  assert.match(source, /visibleImportTypes/)
+  assert.match(source, /visibleImports/)
+  assert.match(source, /workbenchSections\.processing/)
+  assert.match(source, /workbenchSections\.directShip/)
+  assert.match(source, /workbenchSections\.inventory/)
+  assert.match(source, /workbenchSections\.settlement/)
+})

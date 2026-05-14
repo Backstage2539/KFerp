@@ -280,6 +280,7 @@ type SettlementResult struct {
 type Overview struct {
 	CustomerID       int64                    `json:"customer_id"`
 	CustomerName     string                   `json:"customer_name"`
+	Capabilities     []string                 `json:"capabilities,omitempty"`
 	Imports          []ImportBatch            `json:"imports,omitempty"`
 	CustodyBalances  []CustodyBalance         `json:"custody_balances,omitempty"`
 	FinishedGoods    []FinishedGoodsBalance   `json:"finished_goods,omitempty"`

@@ -2926,6 +2926,10 @@ func (r *Repository) Overview(ctx context.Context, query app.OverviewQuery) (app
 	var overview app.Overview
 	overview.CustomerID = query.CustomerID
 	_ = r.pool.QueryRow(ctx, fmt.Sprintf(`SELECT name FROM %s.customers WHERE id=$1`, r.schema), query.CustomerID).Scan(&overview.CustomerName)
+	var err error
+	if overview.Capabilities, err = r.listCustomerCapabilityCodes(ctx, query.CustomerID); err != nil {
+		return app.Overview{}, err
+	}
 	imports, err := r.ListImports(ctx, app.ListImportsQuery{CustomerID: query.CustomerID, Limit: 20})
 	if err != nil {
 		return app.Overview{}, err

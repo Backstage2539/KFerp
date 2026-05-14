@@ -4,6 +4,7 @@ import assert from 'node:assert/strict'
 import {
   activeCustomerFulfillmentCustomers,
   buildImportPreviewEffects,
+  customerFulfillmentWorkbenchSections,
   customerFulfillmentCustomerOptionLabel,
   customerFulfillmentCustomerOptionMeta,
   groupInvalidImportRows,
@@ -11,6 +12,7 @@ import {
   importTypeOptions,
   latestParsedBatchForType,
   rowStatusLabel,
+  visibleCustomerFulfillmentImports,
 } from './customer-fulfillment.js'
 
 test('importTypeOptions returns the three customer fulfillment workbook types', () => {
@@ -19,6 +21,27 @@ test('importTypeOptions returns the three customer fulfillment workbook types', 
     { value: 'direct_ship_workbook', label: '代发清单' },
     { value: 'settlement_workbook', label: '结算单' },
   ])
+})
+
+test('customer fulfillment workbench follows enabled customer capabilities', () => {
+  const publicSkuCapabilities = ['product_order', 'direct_ship', 'settlement']
+
+  assert.deepEqual(importTypeOptions(publicSkuCapabilities), [
+    { value: 'direct_ship_workbook', label: '代发清单' },
+    { value: 'settlement_workbook', label: '结算单' },
+  ])
+  assert.deepEqual(customerFulfillmentWorkbenchSections(publicSkuCapabilities), {
+    processing: false,
+    directShip: true,
+    inventory: false,
+    settlement: true,
+    imports: true,
+  })
+  assert.deepEqual(visibleCustomerFulfillmentImports([
+    { id: 1, import_type: 'processing_workbook' },
+    { id: 2, import_type: 'direct_ship_workbook' },
+    { id: 3, import_type: 'settlement_workbook' },
+  ], publicSkuCapabilities).map((row) => row.id), [2, 3])
 })
 
 test('importSummaryCards includes only relevant import counters', () => {

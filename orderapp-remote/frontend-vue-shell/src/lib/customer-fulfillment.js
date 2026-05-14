@@ -1,9 +1,39 @@
-export function importTypeOptions() {
-  return [
-    { value: 'processing_workbook', label: '代加工工单' },
-    { value: 'direct_ship_workbook', label: '代发清单' },
-    { value: 'settlement_workbook', label: '结算单' },
-  ]
+const importTypeCatalog = [
+  { value: 'processing_workbook', label: '代加工工单', capability: 'processing' },
+  { value: 'direct_ship_workbook', label: '代发清单', capability: 'direct_ship' },
+  { value: 'settlement_workbook', label: '结算单', capability: 'settlement' },
+]
+
+export function importTypeOptions(capabilities = null) {
+  const rows = Array.isArray(capabilities)
+    ? importTypeCatalog.filter((option) => hasCustomerCapability(capabilities, option.capability))
+    : importTypeCatalog
+  return rows.map(({ value, label }) => ({ value, label }))
+}
+
+export function hasCustomerCapability(capabilities = [], code) {
+  if (!code) return false
+  const allowed = new Set((Array.isArray(capabilities) ? capabilities : []).map((item) => String(item || '').trim()).filter(Boolean))
+  return allowed.has(code)
+}
+
+export function customerFulfillmentWorkbenchSections(capabilities = []) {
+  const processing = hasCustomerCapability(capabilities, 'processing')
+  const directShip = hasCustomerCapability(capabilities, 'direct_ship')
+  const inventory = hasCustomerCapability(capabilities, 'inventory_custody')
+  const settlement = hasCustomerCapability(capabilities, 'settlement')
+  return {
+    processing,
+    directShip,
+    inventory,
+    settlement,
+    imports: processing || directShip || settlement,
+  }
+}
+
+export function visibleCustomerFulfillmentImports(imports = [], capabilities = []) {
+  const allowedTypes = new Set(importTypeOptions(capabilities).map((option) => option.value))
+  return (Array.isArray(imports) ? imports : []).filter((row) => allowedTypes.has(row?.import_type))
 }
 
 export function importSummaryCards(summary = {}) {
