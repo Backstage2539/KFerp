@@ -144,7 +144,7 @@ test('sales order seal size control supports a visibly larger configured seal', 
     left: '32px',
     top: '5px',
     width: '120px',
-    height: '74.4px',
+    height: '120px',
   })
 })
 
@@ -156,14 +156,14 @@ test('sales order seal preview uses the same A4 page scale as downloaded images'
     left: `${32 * salesOrderSealPreviewScale}px`,
     top: `${5 * salesOrderSealPreviewScale}px`,
     width: `${120 * salesOrderSealPreviewScale}px`,
-    height: `${120 * 0.62 * salesOrderSealPreviewScale}px`,
+    height: `${120 * salesOrderSealPreviewScale}px`,
   })
 })
 
 test('sales order settings seal viewport grows to keep a lowered seal visible', () => {
   assert.equal(salesOrderPreviewDesignHeightPX, 1754)
   const seal = { x_mm: 76, y_mm: 76, width_mm: 70 }
-  const sealBottom = (seal.y_mm + seal.width_mm * 0.62) * salesOrderSealPreviewScale
+  const sealBottom = (seal.y_mm + seal.width_mm) * salesOrderSealPreviewScale
   const viewportHeight = salesOrderSealSettingsViewportHeight(seal)
 
   assert.ok(viewportHeight > sealBottom, `expected ${viewportHeight} to exceed seal bottom ${sealBottom}`)

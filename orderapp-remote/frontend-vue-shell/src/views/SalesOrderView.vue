@@ -46,6 +46,13 @@
         <h3>销售单预览 <span v-if="preview" class="version-tag">V{{ preview.next_version_no }}</span></h3>
         <button class="secondary" type="button" @click="loadPreview" :disabled="previewLoading || !orderID">{{ previewLoading ? '预览中' : '刷新预览' }}</button>
       </div>
+      <div v-if="preview?.snapshot?.seal" class="preview-tools">
+        <label class="seal-size-slider">
+          <span>公章大小</span>
+          <input v-model.number="previewSealWidthMM" type="range" :min="salesOrderSealMinWidthMM" :max="salesOrderSealMaxWidthMM" step="1" :disabled="sealDragSaving" @change="savePreviewSealSize" />
+          <output>{{ previewSealWidthMM }}mm</output>
+        </label>
+      </div>
       <div v-if="!preview" class="muted preview-empty">暂无预览</div>
       <PDFStampPreview
         v-else
@@ -160,10 +167,11 @@
 </template>
 
 <script setup>
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { apiGet, apiSend, appURL } from '../api/client'
 import { salesOrderDownloadUrl, salesOrderImageDownloadUrl } from '../lib/sales-order'
 import { pdfPlacementToSalesSealMM, salesSealMMToPDFPlacement } from '../lib/document-pdf-stamp'
+import { salesOrderSealMaxWidthMM, salesOrderSealMinWidthMM } from '../lib/sales-order-seal'
 import { buildShareResourcePayload, shareResourceToWechat } from '../lib/external-share'
 import PDFStampPreview from '../components/PDFStampPreview.vue'
 import SalesOrderSettingsView from './SalesOrderSettingsView.vue'
@@ -191,6 +199,7 @@ const sealDragSaving = ref(false)
 const shareLoading = ref('')
 const previewPDFPages = ref([])
 const previewPDFRefreshKey = ref(0)
+const previewSealAspectRatio = ref(1)
 const customerSummary = reactive(emptyCustomer())
 const customerForm = reactive(emptyCustomer())
 
@@ -198,12 +207,27 @@ const orderID = computed(() => Number(props.orderId || new URL(window.location.h
 const salesOrderPreviewBasePDFUrl = computed(() => orderID.value ? `/api/orders/${orderID.value}/sales-order-preview.pdf` : '')
 const salesOrderPreviewPDFUrl = computed(() => salesOrderPreviewBasePDFUrl.value ? `${salesOrderPreviewBasePDFUrl.value}?v=${previewPDFRefreshKey.value}` : '')
 const previewSealUrl = computed(() => assetURL(preview.value?.snapshot?.seal || {}))
+const previewSealWidthMM = computed({
+  get() {
+    return clampSealWidthMM(preview.value?.snapshot?.seal?.width_mm ?? preview.value?.snapshot?.seal?.seal_width_mm ?? 36)
+  },
+  set(value) {
+    const seal = preview.value?.snapshot?.seal
+    if (!seal) return
+    const width = clampSealWidthMM(value)
+    seal.width_mm = width
+    seal.seal_width_mm = width
+  },
+})
 const salesOrderPreviewPlacements = computed(() => {
   const seal = preview.value?.snapshot?.seal
   const page = previewPDFPages.value[0]
   if (!seal || !page) return []
-  return [salesSealMMToPDFPlacement(seal, page)]
+  return [salesSealMMToPDFPlacement(seal, page, { sealAspectRatio: previewSealAspectRatio.value })]
 })
+
+let previewSealAspectToken = 0
+watch(previewSealUrl, loadPreviewSealAspectRatio, { immediate: true })
 
 async function load() {
   if (!orderID.value) return
@@ -343,6 +367,38 @@ function onPreviewPDFLoaded(pages) {
   previewPDFPages.value = pages || []
 }
 
+function loadPreviewSealAspectRatio(url) {
+  previewSealAspectRatio.value = 1
+  const token = ++previewSealAspectToken
+  if (!url || typeof Image === 'undefined') return
+  const img = new Image()
+  img.onload = () => {
+    if (token !== previewSealAspectToken) return
+    if (img.naturalWidth > 0 && img.naturalHeight > 0) {
+      previewSealAspectRatio.value = img.naturalHeight / img.naturalWidth
+    }
+  }
+  img.onerror = () => {
+    if (token === previewSealAspectToken) previewSealAspectRatio.value = 1
+  }
+  img.src = url
+}
+
+function clampSealWidthMM(value) {
+  const n = Number(value)
+  const width = Number.isFinite(n) && n > 0 ? Math.round(n) : 36
+  return Math.min(salesOrderSealMaxWidthMM, Math.max(salesOrderSealMinWidthMM, width))
+}
+
+function currentSealPositionPayload() {
+  const seal = preview.value?.snapshot?.seal || {}
+  return {
+    seal_x_mm: Math.round(Number(seal.x_mm ?? seal.seal_x_mm ?? 32)),
+    seal_y_mm: Math.round(Number(seal.y_mm ?? seal.seal_y_mm ?? 5)),
+    seal_width_mm: clampSealWidthMM(seal.width_mm ?? seal.seal_width_mm ?? 36),
+  }
+}
+
 async function savePDFPreviewSealPosition(placement) {
   const seal = preview.value?.snapshot?.seal
   const page = previewPDFPages.value.find((item) => Number(item.pageNumber) === Number(placement?.page_number || 1))
@@ -355,11 +411,38 @@ async function savePDFPreviewSealPosition(placement) {
       body: next,
     })
     seal.x_mm = next.seal_x_mm
+    seal.seal_x_mm = next.seal_x_mm
     seal.y_mm = next.seal_y_mm
+    seal.seal_y_mm = next.seal_y_mm
     seal.width_mm = next.seal_width_mm
+    seal.seal_width_mm = next.seal_width_mm
     message.value = '公章位置已保存，请重新生成图片或 PDF 后下载'
   } catch (err) {
     error.value = err.message || '保存公章位置失败'
+  } finally {
+    sealDragSaving.value = false
+  }
+}
+
+async function savePreviewSealSize() {
+  const seal = preview.value?.snapshot?.seal
+  if (!seal || sealDragSaving.value) return
+  const next = currentSealPositionPayload()
+  sealDragSaving.value = true
+  error.value = ''
+  try {
+    await apiSend('/api/settings/sales-order/seal-position', {
+      body: next,
+    })
+    seal.x_mm = next.seal_x_mm
+    seal.seal_x_mm = next.seal_x_mm
+    seal.y_mm = next.seal_y_mm
+    seal.seal_y_mm = next.seal_y_mm
+    seal.width_mm = next.seal_width_mm
+    seal.seal_width_mm = next.seal_width_mm
+    message.value = '公章大小已保存，请重新生成图片或 PDF 后下载'
+  } catch (err) {
+    error.value = err.message || '保存公章大小失败'
   } finally {
     sealDragSaving.value = false
   }
@@ -439,6 +522,10 @@ onMounted(loadPage)
 .panel-head, .actions, .summary { display: flex; align-items: center; gap: 12px; }
 .panel-head { justify-content: space-between; margin-bottom: 12px; }
 .actions { flex-wrap: wrap; justify-content: flex-end; }
+.preview-tools { display: flex; justify-content: flex-end; margin: -4px 0 12px; }
+.seal-size-slider { min-width: min(340px, 100%); display: grid; grid-template-columns: auto minmax(160px, 1fr) auto; gap: 10px; align-items: center; color: #4b5563; font-size: 13px; }
+.seal-size-slider input { width: 100%; accent-color: #1f1f1f; }
+.seal-size-slider output { min-width: 46px; text-align: right; color: #171717; font-variant-numeric: tabular-nums; }
 h2, h3 { margin: 0; }
 h2 { font-size: 20px; }
 h3 { font-size: 16px; }
@@ -501,6 +588,8 @@ th { background: #fbfaf8; }
   .page { padding: 12px; }
   .panel-head { align-items: stretch; flex-direction: column; }
   .actions { justify-content: flex-start; }
+  .preview-tools { justify-content: flex-start; }
+  .seal-size-slider { grid-template-columns: 1fr; }
   table { min-width: 760px; }
   .panel { overflow: auto; }
   .preview-meta { grid-template-columns: 1fr; }

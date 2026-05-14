@@ -70,6 +70,13 @@
               <option v-for="seal in seals" :key="seal.id" :value="seal.id">{{ seal.filename || `公章 ${seal.id}` }}</option>
             </select>
           </label>
+          <label class="seal-size-control">
+            <span>公章大小</span>
+            <div class="seal-size-slider">
+              <input v-model.number="contractSealWidth" type="range" :min="contractSealMinWidth" :max="contractSealMaxWidth" step="2" :disabled="!selectedContract || !selectedSeal" @input="resizeContractStamps" />
+              <output>{{ Math.round(contractSealWidth) }}pt</output>
+            </div>
+          </label>
           <button class="secondary" type="button" :disabled="!selectedContract || !selectedSeal || !pages.length" @click="stampAllPages">全部页加盖</button>
           <button class="primary" type="button" :disabled="saving || !canSave" @click="saveStampedPDF">{{ saving ? '保存中' : '保存盖章PDF' }}</button>
           <a v-if="latestStampedURL" class="secondary button-link" :href="appURL(latestStampedURL)">下载已盖章PDF</a>
@@ -100,7 +107,7 @@
 </template>
 
 <script setup>
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import PDFStampPreview from '../components/PDFStampPreview.vue'
 import { apiFetch, apiGet, apiSend, appURL } from '../api/client'
 import {
@@ -128,6 +135,10 @@ const savingMetadata = ref(false)
 const deleting = ref(false)
 const error = ref('')
 const message = ref('')
+const contractSealMinWidth = 60
+const contractSealMaxWidth = 180
+const contractSealWidth = ref(120)
+const sealAspectRatio = ref(1)
 
 const selectedContract = computed(() => contracts.value.find((item) => item.id === selectedContractID.value) || null)
 const selectedSeal = computed(() => seals.value.find((item) => item.id === selectedSealID.value) || null)
@@ -136,6 +147,9 @@ const latestStampedURL = computed(() => selectedContract.value?.latest_stamped?.
 const canSave = computed(() => selectedContract.value && selectedSeal.value && placements.value.length > 0 && currentPDFBytes.value)
 
 onMounted(loadAll)
+
+let contractSealAspectToken = 0
+watch(selectedSealURL, loadContractSealAspectRatio, { immediate: true })
 
 function onFileChange(event) {
   const file = event.target.files?.[0] || null
@@ -245,7 +259,13 @@ function addStamp(page) {
   if (!page || !selectedSeal.value) return
   placements.value = [
     ...placements.value.filter((item) => Number(item.page_number) !== Number(page.pageNumber)),
-    defaultContractStampPlacement({ pageNumber: page.pageNumber, pageWidth: page.width, pageHeight: page.height }),
+    defaultContractStampPlacement({
+      pageNumber: page.pageNumber,
+      pageWidth: page.width,
+      pageHeight: page.height,
+      sealWidth: contractSealWidth.value,
+      sealAspectRatio: sealAspectRatio.value,
+    }),
   ].sort((a, b) => a.page_number - b.page_number)
 }
 
@@ -255,6 +275,8 @@ function stampAllPages() {
     pageNumber: page.pageNumber,
     pageWidth: page.width,
     pageHeight: page.height,
+    sealWidth: contractSealWidth.value,
+    sealAspectRatio: sealAspectRatio.value,
   }))
 }
 
@@ -262,12 +284,60 @@ function updatePlacement(next) {
   if (!next) return
   const pageNumber = Number(next.page_number || 1)
   const existing = placements.value.findIndex((item) => Number(item.page_number || 1) === pageNumber)
-  const updated = { ...next, page_number: pageNumber }
+  const updated = normalizeContractPlacementSize({ ...next, page_number: pageNumber })
   if (existing >= 0) {
     placements.value = placements.value.map((item, index) => index === existing ? updated : item)
   } else {
     placements.value = [...placements.value, updated].sort((a, b) => a.page_number - b.page_number)
   }
+}
+
+function loadContractSealAspectRatio(url) {
+  sealAspectRatio.value = 1
+  const token = ++contractSealAspectToken
+  if (!url || typeof Image === 'undefined') {
+    resizeContractStamps()
+    return
+  }
+  const img = new Image()
+  img.onload = () => {
+    if (token !== contractSealAspectToken) return
+    if (img.naturalWidth > 0 && img.naturalHeight > 0) {
+      sealAspectRatio.value = img.naturalHeight / img.naturalWidth
+    }
+    resizeContractStamps()
+  }
+  img.onerror = () => {
+    if (token !== contractSealAspectToken) return
+    sealAspectRatio.value = 1
+    resizeContractStamps()
+  }
+  img.src = url
+}
+
+function resizeContractStamps() {
+  contractSealWidth.value = clampContractSealWidth(contractSealWidth.value)
+  placements.value = placements.value.map((placement) => normalizeContractPlacementSize(placement))
+}
+
+function normalizeContractPlacementSize(placement = {}) {
+  const width = clampContractSealWidth(contractSealWidth.value)
+  return {
+    ...placement,
+    width: round2(width),
+    height: round2(width * normalizeSealAspectRatio(sealAspectRatio.value)),
+  }
+}
+
+function clampContractSealWidth(value) {
+  const n = Number(value)
+  const width = Number.isFinite(n) && n > 0 ? n : 120
+  return Math.min(contractSealMaxWidth, Math.max(contractSealMinWidth, Math.round(width)))
+}
+
+function normalizeSealAspectRatio(value) {
+  const n = Number(value)
+  return Number.isFinite(n) && n > 0 ? n : 1
 }
 
 async function saveContractMetadata() {
@@ -356,6 +426,11 @@ function formatBytes(bytes) {
   if (n >= 1024) return `${(n / 1024).toFixed(1)} KB`
   return `${n} B`
 }
+
+function round2(value) {
+  const n = Number(value || 0)
+  return Math.round(n * 100) / 100
+}
 </script>
 
 <style scoped>
@@ -382,6 +457,10 @@ function formatBytes(bytes) {
 .contract-form textarea { resize: vertical; min-height: 78px; }
 .stamp-toolbar { display: flex; gap: 8px; align-items: end; flex-wrap: wrap; border-bottom: 1px solid #e5e7eb; padding-bottom: 12px; }
 .stamp-toolbar label { min-width: 190px; }
+.seal-size-control { min-width: 260px; }
+.seal-size-slider { display: grid; grid-template-columns: minmax(140px, 1fr) 52px; gap: 8px; align-items: center; }
+.seal-size-slider input { width: 100%; accent-color: #2563eb; }
+.seal-size-slider output { text-align: right; font-variant-numeric: tabular-nums; color: #111827; }
 .button-link { text-decoration: none; display: inline-flex; align-items: center; justify-content: center; }
 .danger { border: 1px solid #fecaca; background: #fff1f2; color: #b91c1c; }
 .danger:disabled { color: #9ca3af; background: #f9fafb; border-color: #e5e7eb; }
