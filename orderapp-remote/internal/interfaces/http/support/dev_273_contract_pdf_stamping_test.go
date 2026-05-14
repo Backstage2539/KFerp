@@ -90,7 +90,7 @@ func TestDev273ContractPDFStampingRuntimeUsesDocconvertService(t *testing.T) {
 	deployScript := string(readOrderAppFileForTest(t, filepath.Join("..", "deploy_orderapp.sh")))
 	for _, want := range []string{
 		"docker-compose.docconvert.yml",
-		"gotenberg/gotenberg:8",
+		"gotenberg/gotenberg:8-libreoffice",
 		"DOCX_CONVERTER_URL: http://docconvert:3000/forms/libreoffice/convert",
 	} {
 		if !strings.Contains(deployScript, want) {

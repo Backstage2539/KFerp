@@ -79,7 +79,7 @@ services:
       DOCX_CONVERTER_URL: http://docconvert:3000/forms/libreoffice/convert
 
   docconvert:
-    image: \${DOCX_CONVERTER_IMAGE:-docker.m.daocloud.io/gotenberg/gotenberg:8}
+    image: \${DOCX_CONVERTER_IMAGE:-docker.m.daocloud.io/gotenberg/gotenberg:8-libreoffice}
     container_name: erp_docconvert
     restart: unless-stopped
 YAML"
