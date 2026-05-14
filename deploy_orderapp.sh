@@ -55,6 +55,13 @@ ssh -i "$KEY" "$SERVER" "mkdir -p $DOCS_DIR"
 shopt -s nullglob
 DOC_FILES=(REQUIREMENTS.md ACCEPTANCE_TESTS.md HOW_TO_WORKFLOW.md OPERATION_MANUALS.md OP_MANUAL_*.md DEPLOYMENT.md)
 scp -i "$KEY" "${DOC_FILES[@]}" "$SERVER:$DOCS_DIR/"
+if [ -d docs/acceptance ]; then
+  COPYFILE_DISABLE=1 tar --no-xattrs --no-mac-metadata --exclude='._*' --exclude='*/._*' -C docs -cf - acceptance | ssh -i "$KEY" "$SERVER" "tar -C $DOCS_DIR -xf -"
+fi
+if [ -d miniapp ]; then
+  ssh -i "$KEY" "$SERVER" "rm -rf $APP_DIR/miniapp && mkdir -p $APP_DIR/miniapp"
+  COPYFILE_DISABLE=1 tar --no-xattrs --no-mac-metadata --exclude='._*' --exclude='*/._*' --exclude='./node_modules' --exclude='./dist' -C miniapp -cf - . | ssh -i "$KEY" "$SERVER" "tar -C $APP_DIR/miniapp -xf -"
+fi
 ssh -i "$KEY" "$SERVER" "set -e; mkdir -p /opt/stacks/erp/orderapp_data/shipping_exports; if [ -f /data/ship_temp.xlsx ]; then cp /data/ship_temp.xlsx /opt/stacks/erp/orderapp_data/ship_temp.xlsx; fi"
 
 # 4) Build & restart
