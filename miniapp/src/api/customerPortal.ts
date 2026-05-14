@@ -112,6 +112,8 @@ export type CustomerOrderSummary = {
   ship_tracking_no: string
   grand_total: string
   shipping_amount: string
+  sales_order_url?: string
+  delivery_note_url?: string
   items?: CustomerOrderItemSummary[]
 }
 

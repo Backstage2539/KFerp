@@ -29,7 +29,7 @@ async function handleLogin() {
     const response = await loginWithPassword(login, password)
     session.setToken(response.token)
     session.applyContext(response)
-    uni.redirectTo({ url: customerEntryRoute(response) })
+    uni.reLaunch({ url: customerEntryRoute(response) })
   } catch (error) {
     errorMessage.value = error instanceof Error ? error.message : '账号或密码不正确'
   } finally {

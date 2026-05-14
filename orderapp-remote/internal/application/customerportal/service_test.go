@@ -48,6 +48,9 @@ type fakeRepository struct {
 	processingRequest   ProcessingRequest
 	fulfillmentCommand  CreateFulfillmentOrderCommand
 	fulfillmentOrder    FulfillmentOrder
+	orderAccessCustomer int64
+	orderAccessOrder    int64
+	orderAccessOK       bool
 	err                 error
 	switchErr           error
 }
@@ -237,11 +240,41 @@ func (r *fakeRepository) CreateFulfillmentOrder(ctx context.Context, cmd CreateF
 	return r.fulfillmentOrder, nil
 }
 
+func (r *fakeRepository) CustomerOwnsOrder(ctx context.Context, customerID, orderID int64) (bool, error) {
+	r.orderAccessCustomer = customerID
+	r.orderAccessOrder = orderID
+	if r.err != nil {
+		return false, r.err
+	}
+	return r.orderAccessOK, nil
+}
+
 func TestLoginRejectsEmptyCode(t *testing.T) {
 	svc := NewService(&fakeRepository{}, fakeIdentityProvider{})
 	_, err := svc.Login(context.Background(), LoginCommand{})
 	if err == nil || err.Error() != "code required" {
 		t.Fatalf("Login() err=%v, want code required", err)
+	}
+}
+
+func TestEnsureOrderAccessChecksCurrentCustomerOwnership(t *testing.T) {
+	repo := &fakeRepository{
+		context:       CurrentContext{MiniUserID: 9, CurrentCustomerID: 7},
+		orderAccessOK: true,
+	}
+	svc := NewService(repo, fakeIdentityProvider{})
+
+	if err := svc.EnsureOrderAccess(context.Background(), " mini-token ", 88); err != nil {
+		t.Fatalf("EnsureOrderAccess() err=%v", err)
+	}
+	if repo.session != "mini-token" || repo.orderAccessCustomer != 7 || repo.orderAccessOrder != 88 {
+		t.Fatalf("access session=%q customer=%d order=%d", repo.session, repo.orderAccessCustomer, repo.orderAccessOrder)
+	}
+
+	repo.orderAccessOK = false
+	err := svc.EnsureOrderAccess(context.Background(), "mini-token", 99)
+	if !errors.Is(err, ErrCustomerBindingNotFound) {
+		t.Fatalf("EnsureOrderAccess() err=%v, want ErrCustomerBindingNotFound", err)
 	}
 }
 

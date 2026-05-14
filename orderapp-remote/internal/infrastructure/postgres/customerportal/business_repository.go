@@ -670,8 +670,25 @@ func (r Repository) listCustomerOrders(ctx context.Context, query customerportal
 	}
 	for i := range out {
 		out[i].Items = items[out[i].ID]
+		out[i].SalesOrderURL = fmt.Sprintf("/api/mini/orders/%d/sales-order-latest.pdf", out[i].ID)
+		out[i].DeliveryNoteURL = fmt.Sprintf("/api/mini/orders/%d/delivery-note-latest.pdf", out[i].ID)
 	}
 	return out, nil
+}
+
+func (r Repository) CustomerOwnsOrder(ctx context.Context, customerID, orderID int64) (bool, error) {
+	if customerID <= 0 || orderID <= 0 {
+		return false, nil
+	}
+	var ok bool
+	err := r.pool.QueryRow(ctx, fmt.Sprintf(`
+		SELECT EXISTS(
+			SELECT 1
+			FROM %s.orders
+			WHERE id=$1 AND customer_id=$2 AND is_void=false
+		)
+	`, r.schema), orderID, customerID).Scan(&ok)
+	return ok, err
 }
 
 func (r Repository) listCustomerOrderItems(ctx context.Context, orderIDs []int64) (map[int64][]customerportalapp.CustomerOrderItemSummary, error) {

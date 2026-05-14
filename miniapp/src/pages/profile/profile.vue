@@ -2,6 +2,7 @@
 import { computed, ref } from 'vue'
 import { onShow } from '@dcloudio/uni-app'
 import { fetchMe, switchCurrentCustomer } from '../../api/customerPortal'
+import MainTabBar from '../../components/MainTabBar.vue'
 import { useSessionStore } from '../../stores/session'
 import {
   customerEntryRoute,
@@ -26,11 +27,7 @@ const customerPickerIndex = computed(() => selectedCustomerPickerIndex(session.b
 
 function clearAndLogin() {
   session.clearSession()
-  uni.redirectTo({ url: '/pages/login/login' })
-}
-
-function goBackHome() {
-  uni.redirectTo({ url: customerEntryRoute({ miniapp_entry_mode: session.entryMode, capabilities: session.capabilities }) })
+  uni.reLaunch({ url: '/pages/login/login' })
 }
 
 async function handleCustomerSwitch(event: { detail?: { value?: number | string } }) {
@@ -43,7 +40,7 @@ async function handleCustomerSwitch(event: { detail?: { value?: number | string 
   try {
     const response = await switchCurrentCustomer(session.token, customerID)
     session.applyContext(response)
-    uni.redirectTo({ url: customerEntryRoute(response) })
+    uni.reLaunch({ url: customerEntryRoute(response) })
   } catch (error) {
     errorMessage.value = error instanceof Error ? error.message : '切换客户失败'
   } finally {
@@ -53,7 +50,7 @@ async function handleCustomerSwitch(event: { detail?: { value?: number | string 
 
 async function loadContext() {
   if (!session.token) {
-    uni.redirectTo({ url: '/pages/login/login' })
+    uni.reLaunch({ url: '/pages/login/login' })
     return
   }
 
@@ -65,7 +62,7 @@ async function loadContext() {
   } catch (error) {
     errorMessage.value = error instanceof Error ? error.message : '客户信息加载失败'
     session.clearSession()
-    uni.redirectTo({ url: '/pages/login/login' })
+    uni.reLaunch({ url: '/pages/login/login' })
   } finally {
     loading.value = false
   }
@@ -100,17 +97,18 @@ onShow(() => {
 
       <text v-if="errorMessage" class="error">{{ errorMessage }}</text>
 
-      <button class="primary-button" @tap="goBackHome">返回客户首页</button>
       <button class="secondary-button" @tap="clearAndLogin">切换用户</button>
       <button class="danger-button" @tap="clearAndLogin">退出登录</button>
     </view>
+
+    <MainTabBar current="mine" />
   </view>
 </template>
 
 <style scoped>
 .page {
   min-height: 100vh;
-  padding: 32rpx;
+  padding: 32rpx 32rpx 160rpx;
   background: #f7f2ea;
   box-sizing: border-box;
 }

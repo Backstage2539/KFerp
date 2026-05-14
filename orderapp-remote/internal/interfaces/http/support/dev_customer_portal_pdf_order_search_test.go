@@ -64,7 +64,7 @@ func TestMiniappServicePageSupportsNativeBeanListCacheAndOrderSearch(t *testing.
 			t.Fatalf("miniapp native bean list cache/order search source missing %q", want)
 		}
 	}
-	for _, unwanted := range []string{"打开 PDF", "豆单 PDF", "openBeanListPDF", "uni.openDocument", "uni.downloadFile", "uni.saveFile"} {
+	for _, unwanted := range []string{"打开 PDF", "豆单 PDF", "openBeanListPDF", "openBeanListDocument", "saveBeanListPDF"} {
 		if strings.Contains(serviceSrc, unwanted) {
 			t.Fatalf("miniapp bean list page must render native content instead of PDF flow %q", unwanted)
 		}
