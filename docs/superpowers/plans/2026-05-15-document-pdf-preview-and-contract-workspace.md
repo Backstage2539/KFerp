@@ -273,7 +273,7 @@ git commit -m "Add contract metadata save and soft delete"
 - Create: `orderapp-remote/frontend-vue-shell/src/lib/document-pdf-stamp.test.js`
 - Modify: `orderapp-remote/frontend-vue-shell/src/lib/contract-stamp.js`
 
-- [ ] **Step 1: Write helper tests**
+- [x] **Step 1: Write helper tests**
 
 Test mm-to-PDF placement and drag:
 
@@ -286,7 +286,7 @@ test('converts A4 millimeter seal position to PDF point placement', () => {
 })
 ```
 
-- [ ] **Step 2: Run helper tests and verify RED**
+- [x] **Step 2: Run helper tests and verify RED**
 
 Run:
 
@@ -297,7 +297,7 @@ node --test src/lib/document-pdf-stamp.test.js
 
 Expected: FAIL because helper file does not exist.
 
-- [ ] **Step 3: Implement `document-pdf-stamp.js`**
+- [x] **Step 3: Implement `document-pdf-stamp.js`**
 
 Export:
 
@@ -307,7 +307,7 @@ export function pdfPlacementToSalesSealMM(placement, page) { /* x_mm/y_mm/width_
 export function movePDFStampPlacement(placement, delta, displayScale) { /* same math as contract */ }
 ```
 
-- [ ] **Step 4: Create `PDFStampPreview.vue`**
+- [x] **Step 4: Create `PDFStampPreview.vue`**
 
 The component loads `pdfUrl` through `apiFetch`, renders pages through PDF.js, displays `previewLabel`, shows seal overlays, and emits:
 
@@ -317,7 +317,7 @@ emit('placement-change', nextPlacement)
 emit('placement-commit', nextPlacement)
 ```
 
-- [ ] **Step 5: Run helper tests**
+- [x] **Step 5: Run helper tests**
 
 Run:
 
@@ -328,7 +328,7 @@ node --test src/lib/document-pdf-stamp.test.js src/lib/contract-stamp.test.js
 
 Expected: PASS.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add orderapp-remote/frontend-vue-shell/src/components/PDFStampPreview.vue orderapp-remote/frontend-vue-shell/src/lib/document-pdf-stamp.js orderapp-remote/frontend-vue-shell/src/lib/document-pdf-stamp.test.js orderapp-remote/frontend-vue-shell/src/lib/contract-stamp.js
