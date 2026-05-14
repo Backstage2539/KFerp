@@ -23,6 +23,12 @@
       "style": {
         "navigationBarTitleText": "服务入口"
       }
+    },
+    {
+      "path": "pages/profile/profile",
+      "style": {
+        "navigationBarTitleText": "个人中心"
+      }
     }
   ],
   "globalStyle": {

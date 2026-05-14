@@ -41,10 +41,19 @@ func TestMiniappCustomerSwitcherSourceWiring(t *testing.T) {
 			t.Fatalf("read %s: %v", path, err)
 		}
 		text := string(body)
-		for _, want := range []string{"switchCurrentCustomer", "customerPickerLabels", "handleCustomerSwitch", "退出登录"} {
+		for _, want := range []string{"个人中心", "openProfile"} {
 			if !strings.Contains(text, want) {
-				t.Fatalf("%s missing customer switcher marker %q", path, want)
+				t.Fatalf("%s missing profile account action marker %q", path, want)
 			}
+		}
+	}
+	profile, err := os.ReadFile(filepath.Join(miniRoot, "pages", "profile", "profile.vue"))
+	if err != nil {
+		t.Fatalf("read profile.vue: %v", err)
+	}
+	for _, want := range []string{"switchCurrentCustomer", "customerPickerLabels", "handleCustomerSwitch", "切换用户", "退出登录"} {
+		if !strings.Contains(string(profile), want) {
+			t.Fatalf("profile.vue missing customer switcher marker %q", want)
 		}
 	}
 	api, err := os.ReadFile(filepath.Join(miniRoot, "api", "customerPortal.ts"))
@@ -69,7 +78,7 @@ func TestMiniappCustomerSwitcherDocsExist(t *testing.T) {
 			t.Fatalf("read %s: %v", path, err)
 		}
 		text := string(body)
-		for _, want := range []string{"当前客户切换", "退出登录", "13800138075"} {
+		for _, want := range []string{"个人中心", "切换用户", "13800138075"} {
 			if !strings.Contains(text, want) {
 				t.Fatalf("%s missing customer switcher manual marker %q", path, want)
 			}
@@ -86,7 +95,7 @@ func TestMiniappCustomerSwitcherDocsExist(t *testing.T) {
 			t.Fatalf("read %s: %v", path, err)
 		}
 		text := string(body)
-		for _, want := range []string{"当前客户切换", "商城首页", "/api/mini/current-customer"} {
+		for _, want := range []string{"个人中心", "商城首页", "/api/mini/current-customer"} {
 			if !strings.Contains(text, want) {
 				t.Fatalf("%s missing customer switcher doc marker %q", path, want)
 			}

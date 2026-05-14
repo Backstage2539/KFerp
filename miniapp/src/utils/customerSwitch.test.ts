@@ -29,16 +29,31 @@ describe('miniapp customer switching', () => {
     expect(customerEntryRoute({ miniapp_entry_mode: 'services', capabilities: [{ code: 'direct_ship', enabled: true }] })).toBe('/pages/home/home')
   })
 
-  it('wires customer switch and logout controls into all authenticated pages', () => {
+  it('moves account actions into profile and removes the WeChat login entry', () => {
+    const pages = JSON.parse(readFileSync(resolve('src/pages.json'), 'utf8')) as { pages: { path: string }[] }
+    const login = readFileSync(resolve('src/pages/login/login.vue'), 'utf8')
     const home = readFileSync(resolve('src/pages/home/home.vue'), 'utf8')
     const mall = readFileSync(resolve('src/pages/mall/mall.vue'), 'utf8')
     const service = readFileSync(resolve('src/pages/service/service.vue'), 'utf8')
+    const profile = readFileSync(resolve('src/pages/profile/profile.vue'), 'utf8')
+
+    expect(pages.pages.map((page) => page.path)).toContain('pages/profile/profile')
+    expect(login).toContain('loginWithPassword')
+    expect(login).toContain('用户名或手机号')
+    expect(login).toContain('type="password"')
+    expect(login).not.toContain('微信一键登录')
+    expect(login).not.toContain('uni.login')
+
+    expect(profile).toContain('switchCurrentCustomer')
+    expect(profile).toContain('customerPickerLabels')
+    expect(profile).toContain('handleCustomerSwitch')
+    expect(profile).toContain('切换用户')
+    expect(profile).toContain('退出登录')
 
     for (const source of [home, mall, service]) {
-      expect(source).toContain('switchCurrentCustomer')
-      expect(source).toContain('customerPickerLabels')
-      expect(source).toContain('handleCustomerSwitch')
-      expect(source).toContain('退出登录')
+      expect(source).toContain('个人中心')
+      expect(source).not.toContain('handleCustomerSwitch')
+      expect(source).not.toContain('退出登录')
     }
   })
 })
