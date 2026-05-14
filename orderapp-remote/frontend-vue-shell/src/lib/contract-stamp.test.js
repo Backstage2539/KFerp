@@ -3,6 +3,7 @@ import test from 'node:test'
 import {
   contractPDFDrawPlacement,
   contractStampPayload,
+  defaultContractStampPlacement,
   moveContractStampPlacement,
   normalizeContractUploadKind,
 } from './contract-stamp.js'
@@ -26,8 +27,16 @@ test('converts top-left preview placement into pdf-lib bottom-left placement', (
     contractPDFDrawPlacement({
       pageHeight: 842,
       placement: { page_number: 2, x: 42, y: 84, width: 120, height: 74 },
+      sealAspectRatio: 1,
     }),
-    { x: 42, y: 684, width: 120, height: 74 },
+    { x: 42, y: 638, width: 120, height: 120 },
+  )
+})
+
+test('creates default contract stamp placement using requested width and seal ratio', () => {
+  assert.deepEqual(
+    defaultContractStampPlacement({ pageNumber: 1, pageWidth: 595, pageHeight: 842, sealWidth: 140, sealAspectRatio: 1 }),
+    { page_number: 1, x: 407, y: 151.56, width: 140, height: 140 },
   )
 })
 
@@ -51,4 +60,3 @@ test('serializes stable stamped contract placement payload', () => {
     placements: [{ page_number: 1, x: 12.35, y: 67.89, width: 88.8, height: 55.5 }],
   })
 })
-

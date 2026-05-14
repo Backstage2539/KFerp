@@ -8,11 +8,11 @@ export function normalizeContractUploadKind({ filename = '', contentType = '' } 
   return ''
 }
 
-export function contractPDFDrawPlacement({ pageHeight = 0, placement = {} } = {}) {
+export function contractPDFDrawPlacement({ pageHeight = 0, placement = {}, sealAspectRatio } = {}) {
   const x = Number(placement.x || 0)
   const y = Number(placement.y || 0)
   const width = Number(placement.width || 0)
-  const height = Number(placement.height || 0)
+  const height = round2(width * normalizeContractSealAspectRatio(sealAspectRatio, placement, 1))
   return {
     x,
     y: Math.max(0, Number(pageHeight || 0) - y - height),
@@ -56,9 +56,10 @@ export function contractStampOverlayStyle(placement = {}, displayScale = 1) {
   }
 }
 
-export function defaultContractStampPlacement({ pageNumber = 1, pageWidth = 595, pageHeight = 842, sealAspectRatio = 0.62 } = {}) {
-  const width = Math.min(120, Number(pageWidth || 595) * 0.22)
-  const height = width * (Number(sealAspectRatio) > 0 ? Number(sealAspectRatio) : 0.62)
+export function defaultContractStampPlacement({ pageNumber = 1, pageWidth = 595, pageHeight = 842, sealWidth, sealAspectRatio = 1 } = {}) {
+  const defaultWidth = Math.min(120, Number(pageWidth || 595) * 0.22)
+  const width = positiveNumber(sealWidth, defaultWidth)
+  const height = width * normalizeContractSealAspectRatio(sealAspectRatio, { width, height: width }, 1)
   return {
     page_number: Number(pageNumber || 1),
     x: round2(Math.max(24, Number(pageWidth || 595) - width - 48)),
@@ -72,12 +73,13 @@ export async function createStampedContractPDF({ pdfBytes, sealBytes, sealConten
   if (!pdfBytes || !sealBytes) throw new Error('pdf and seal required')
   const pdfDoc = await PDFDocument.load(pdfBytes)
   const sealImage = await embedSealImage(pdfDoc, sealBytes, sealContentType)
+  const sealAspectRatio = positiveNumber(sealImage.height, 1) / positiveNumber(sealImage.width, 1)
   const pages = pdfDoc.getPages()
   for (const placement of placements || []) {
     const page = pages[Number(placement.page_number || 1) - 1]
     if (!page) continue
     const { height } = page.getSize()
-    page.drawImage(sealImage, contractPDFDrawPlacement({ pageHeight: height, placement }))
+    page.drawImage(sealImage, contractPDFDrawPlacement({ pageHeight: height, placement, sealAspectRatio }))
   }
   return pdfDoc.save()
 }
@@ -95,3 +97,16 @@ function round2(value) {
   return Math.round(n * 100) / 100
 }
 
+function positiveNumber(value, fallback) {
+  const n = Number(value)
+  return Number.isFinite(n) && n > 0 ? n : fallback
+}
+
+function normalizeContractSealAspectRatio(value, placement = {}, fallback = 1) {
+  const explicit = Number(value)
+  if (Number.isFinite(explicit) && explicit > 0) return explicit
+  const placementWidth = Number(placement.width || 0)
+  const placementHeight = Number(placement.height || 0)
+  if (placementWidth > 0 && placementHeight > 0) return placementHeight / placementWidth
+  return positiveNumber(fallback, 1)
+}

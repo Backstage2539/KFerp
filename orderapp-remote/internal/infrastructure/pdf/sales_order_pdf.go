@@ -39,7 +39,7 @@ const (
 	salesOrderSealLegacyXMM      = 32
 	salesOrderSealLegacyYMM      = 22
 	salesOrderSealLegacyWidthMM  = 42
-	salesOrderSealHeightRatio    = 0.62
+	salesOrderSealHeightRatio    = 1
 	salesOrderPaymentLineMM      = 6.2
 	salesOrderPaymentBlockGapMM  = 3.5
 )

@@ -170,6 +170,5 @@ function stopDrag() {
 .pdf-stamp-preview-label { position: absolute; top: 10px; right: 12px; border: 1px solid rgba(220, 38, 38, .55); color: #b91c1c; background: rgba(255, 255, 255, .82); padding: 4px 8px; font-size: 12px; font-weight: 700; z-index: 2; }
 .pdf-stamp-overlay { position: absolute; border: 1px dashed rgba(220, 38, 38, 0.75); display: flex; align-items: center; justify-content: center; color: #dc2626; font-weight: 700; background: rgba(254, 242, 242, 0.2); z-index: 3; }
 .pdf-stamp-overlay.editable { cursor: move; touch-action: none; }
-.pdf-stamp-overlay img { width: 100%; height: 100%; object-fit: contain; pointer-events: none; user-select: none; }
+.pdf-stamp-overlay img { max-width: 100%; max-height: 100%; width: auto; height: auto; object-fit: contain; pointer-events: none; user-select: none; }
 </style>
-

@@ -10,6 +10,7 @@ export const salesOrderPreviewPageWidthMM = 210
 export const salesOrderSealPreviewScale = salesOrderPreviewDesignWidthPX / salesOrderPreviewPageWidthMM
 export const salesOrderSealSettingsMinViewportHeightPX = 360
 export const salesOrderSealSettingsViewportPaddingPX = 48
+export const salesOrderSealAspectRatio = 1
 
 export function normalizeSalesOrderSeal(seal = {}) {
   const x = Number(seal.x_mm ?? seal.seal_x_mm ?? defaultSealXMM)
@@ -29,7 +30,7 @@ export function salesOrderSealStyle(seal = {}, scale = salesOrderSealPreviewScal
     left: `${Math.max(0, pos.x_mm) * scale}px`,
     top: `${Math.max(0, pos.y_mm) * scale}px`,
     width: `${width * scale}px`,
-    height: `${width * 0.62 * scale}px`,
+    height: `${width * salesOrderSealAspectRatio * scale}px`,
   }
 }
 
@@ -37,7 +38,7 @@ export function salesOrderSealSettingsViewportHeight(seal = {}, scale = salesOrd
   const pos = normalizeSalesOrderSeal(seal)
   const effectiveScale = Number(scale) > 0 ? Number(scale) : salesOrderSealPreviewScale
   const width = Math.max(salesOrderSealMinWidthMM, pos.width_mm)
-  const sealBottom = (Math.max(0, pos.y_mm) + width * 0.62) * effectiveScale
+  const sealBottom = (Math.max(0, pos.y_mm) + width * salesOrderSealAspectRatio) * effectiveScale
   return Math.ceil(Math.min(
     salesOrderPreviewDesignHeightPX,
     Math.max(salesOrderSealSettingsMinViewportHeightPX, sealBottom + salesOrderSealSettingsViewportPaddingPX),
