@@ -945,7 +945,13 @@ func (s *Service) CopyCapabilityTemplate(ctx context.Context, cmd CopyCapability
 		return CapabilityTemplate{}, ErrCapabilityTemplateInvalid
 	}
 	newKey := NormalizeCapabilityTemplateKey(cmd.NewKey)
-	if newKey == "" || newKey == source.Key {
+	if strings.TrimSpace(cmd.NewKey) != "" && newKey == "" {
+		return CapabilityTemplate{}, ErrCapabilityTemplateInvalid
+	}
+	if newKey == "" {
+		newKey = s.nextCapabilityTemplateCopyKey(ctx, source.Key)
+	}
+	if newKey == "" || newKey == source.Key || s.capabilityTemplateExists(ctx, newKey) {
 		return CapabilityTemplate{}, ErrCapabilityTemplateInvalid
 	}
 	sourceKey := source.Key
@@ -961,6 +967,38 @@ func (s *Service) CopyCapabilityTemplate(ctx context.Context, cmd CopyCapability
 		UpdatedBy: cmd.UpdatedBy,
 		ActiveSet: true,
 	})
+}
+
+func (s *Service) nextCapabilityTemplateCopyKey(ctx context.Context, sourceKey string) string {
+	sourceKey = NormalizeCapabilityTemplateKey(sourceKey)
+	if sourceKey == "" {
+		return ""
+	}
+	rows, err := s.ListCapabilityTemplates(ctx)
+	if err != nil {
+		return ""
+	}
+	exists := make(map[string]bool, len(rows))
+	for _, row := range rows {
+		if key := NormalizeCapabilityTemplateKey(row.Key); key != "" {
+			exists[key] = true
+		}
+	}
+	for index := 1; index <= 999; index++ {
+		suffix := "_copy"
+		if index > 1 {
+			suffix = fmt.Sprintf("_copy_%d", index)
+		}
+		base := sourceKey
+		if maxBaseLength := 64 - len(suffix); len(base) > maxBaseLength {
+			base = strings.TrimRight(base[:maxBaseLength], "_")
+		}
+		candidate := NormalizeCapabilityTemplateKey(base + suffix)
+		if candidate != "" && !exists[candidate] {
+			return candidate
+		}
+	}
+	return ""
 }
 
 func (s *Service) ApplyCapabilityTemplate(ctx context.Context, cmd ApplyCapabilityTemplateCommand) (PortalAdminDetail, error) {

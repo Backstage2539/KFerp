@@ -35,12 +35,17 @@ func TestDev277CustomerTemplateLiveOrdersEvidenceExists(t *testing.T) {
 		"复制模板",
 		"模板失效",
 		"parent_template_key",
-		"collapsedTemplateKeys",
+		"expandedTemplateKey",
 		"visibleTemplateEditors",
+		"flattenTemplateEditorsForTree",
+		"请输入新模板名称",
 	} {
 		if !strings.Contains(templateView, want) {
 			t.Fatalf("CustomerCapabilityTemplatesView.vue missing %q", want)
 		}
+	}
+	if strings.Contains(templateView, "请输入新模板 key") {
+		t.Fatal("template copy should not ask operators to type a technical template key")
 	}
 
 	for _, want := range []string{
@@ -59,6 +64,7 @@ func TestDev277CustomerTemplateLiveOrdersEvidenceExists(t *testing.T) {
 		"ParentTemplateKey",
 		"SortOrder",
 		"CopyCapabilityTemplate",
+		"nextCapabilityTemplateCopyKey",
 	} {
 		if !strings.Contains(customerPortalService, want) {
 			t.Fatalf("customerportal service missing %q", want)
@@ -90,6 +96,11 @@ func TestDev277CustomerTemplateLiveOrdersEvidenceExists(t *testing.T) {
 		"UT-277-01",
 		"API-277-01",
 		"REV-277-01",
+		"PR-279-CUSTOMER-TEMPLATE-COPY-ACCORDION",
+		"DEV-279-01",
+		"UT-279-01",
+		"API-279-01",
+		"REV-279-01",
 	} {
 		if !strings.Contains(reqStore, want) {
 			t.Fatalf("req_store missing %q", want)

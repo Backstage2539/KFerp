@@ -995,6 +995,17 @@ func TestPortalAdminCapabilityTemplateAPIsExposeTreeCopyAndInactiveState(t *test
 	if templateCopyCmd.SourceKey != customerportalapp.CapabilityTemplatePublicSKUDirectShip || templateCopyCmd.NewKey != "public_sku_direct_ship_c" || templateCopyCmd.Label != "模板 C" {
 		t.Fatalf("template copy command=%+v", templateCopyCmd)
 	}
+
+	copyNameReq := httptest.NewRequest(http.MethodPost, "/api/customer-portal/admin/capability-templates/public_sku_direct_ship/copy", strings.NewReader(`{"label":"岩师傅模板"}`))
+	copyNameReq.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	copyNameRec := httptest.NewRecorder()
+	e.ServeHTTP(copyNameRec, copyNameReq)
+	if copyNameRec.Code != http.StatusOK {
+		t.Fatalf("copy with label-only status=%d body=%s", copyNameRec.Code, copyNameRec.Body.String())
+	}
+	if templateCopyCmd.SourceKey != customerportalapp.CapabilityTemplatePublicSKUDirectShip || templateCopyCmd.NewKey != "" || templateCopyCmd.Label != "岩师傅模板" {
+		t.Fatalf("template copy label-only command=%+v", templateCopyCmd)
+	}
 }
 
 func TestPortalAdminCapabilityTemplateERPWorkbenchUnavailableMapsToBadRequest(t *testing.T) {
