@@ -405,7 +405,7 @@ git commit -m "Use PDF preview stamping for sales documents"
 - Modify: `orderapp-remote/frontend-vue-shell/src/views/ContractsView.vue`
 - Modify: `orderapp-remote/internal/interfaces/http/support/dev_273_contract_pdf_stamping_test.go`
 
-- [ ] **Step 1: Write source guard tests**
+- [x] **Step 1: Write source guard tests**
 
 Require markers:
 
@@ -417,7 +417,7 @@ Require markers:
 "合同备注"
 ```
 
-- [ ] **Step 2: Run tests and verify RED**
+- [x] **Step 2: Run tests and verify RED**
 
 Run:
 
@@ -428,7 +428,7 @@ go test ./internal/interfaces/http/support -run TestDev273ContractPDFStamping -c
 
 Expected: FAIL until UI is updated.
 
-- [ ] **Step 3: Rework `ContractsView.vue`**
+- [x] **Step 3: Rework `ContractsView.vue`**
 
 Use a register/workspace layout with metadata fields:
 
@@ -442,7 +442,7 @@ Use a register/workspace layout with metadata fields:
 
 Keep `createStampedContractPDF` for final stamped PDF creation.
 
-- [ ] **Step 4: Run frontend build and guard tests**
+- [x] **Step 4: Run frontend build and guard tests**
 
 Run:
 
@@ -456,7 +456,7 @@ go test ./internal/interfaces/http/support -run TestDev273ContractPDFStamping -c
 
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add orderapp-remote/frontend-vue-shell/src/views/ContractsView.vue orderapp-remote/internal/interfaces/http/support/dev_273_contract_pdf_stamping_test.go

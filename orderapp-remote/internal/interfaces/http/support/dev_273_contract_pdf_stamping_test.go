@@ -48,6 +48,17 @@ func TestDev273ContractPDFStampingVueShellWiring(t *testing.T) {
 	if !strings.Contains(view, "下载已盖章PDF") {
 		t.Fatal("ContractsView.vue missing stamped PDF download action")
 	}
+	for _, want := range []string{
+		"PDFStampPreview",
+		"saveContractMetadata",
+		"deleteContract",
+		"/api/contracts/${selectedContractID.value}",
+		"合同备注",
+	} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("ContractsView.vue missing workspace marker %q", want)
+		}
+	}
 }
 
 func TestDev273ContractPDFStampingManualsDocumentWorkflow(t *testing.T) {

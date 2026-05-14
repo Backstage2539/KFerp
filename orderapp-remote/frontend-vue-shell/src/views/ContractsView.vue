@@ -3,7 +3,7 @@
     <section class="panel contract-toolbar">
       <div>
         <h2>合同盖章</h2>
-        <p>上传 PDF 或 DOCX 合同，选择公章后在多页拖动位置并保存盖章 PDF。</p>
+        <p>上传 PDF 或 DOCX 合同，保存合同信息后在 PDF 预览中加盖公章。</p>
       </div>
       <div class="upload-row">
         <input ref="fileInput" type="file" accept=".pdf,.docx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document" @change="onFileChange" />
@@ -18,8 +18,8 @@
       <aside class="panel contract-list">
         <div class="panel-head compact">
           <div>
-            <h3>合同</h3>
-            <p>{{ contracts.length }} 份</p>
+            <h3>合同库</h3>
+            <p>{{ contracts.length }} 份有效合同</p>
           </div>
           <button class="secondary" type="button" :disabled="loading" @click="loadAll">刷新</button>
         </div>
@@ -32,6 +32,7 @@
           @click="selectContract(item)">
           <strong>{{ item.title || item.source_filename }}</strong>
           <span>{{ item.source_kind?.toUpperCase() }} · {{ item.created_at || '-' }}</span>
+          <small v-if="item.note">{{ item.note }}</small>
           <em v-if="item.latest_stamped">已盖章 V{{ item.latest_stamped.version_no }}</em>
         </button>
         <div v-if="!contracts.length" class="muted empty">暂无合同</div>
@@ -42,68 +43,72 @@
           <div>
             <h3>{{ selectedContract?.title || '选择合同' }}</h3>
             <p v-if="selectedContract">源文件：{{ selectedContract.source_filename }} · PDF {{ formatBytes(selectedContract.pdf_bytes) }}</p>
+            <p v-else>从左侧合同库选择，或先上传一个 PDF/DOCX 合同。</p>
           </div>
-          <div class="seal-tools">
-            <label>
-              <span>公章</span>
-              <select v-model.number="selectedSealID">
-                <option :value="0">请选择公章</option>
-                <option v-for="seal in seals" :key="seal.id" :value="seal.id">{{ seal.filename || `公章 ${seal.id}` }}</option>
-              </select>
-            </label>
-            <button class="secondary" type="button" :disabled="!selectedContract || !selectedSeal" @click="stampAllPages">全部页加盖</button>
-            <button class="primary" type="button" :disabled="saving || !canSave" @click="saveStampedPDF">{{ saving ? '保存中' : '保存盖章PDF' }}</button>
-            <a v-if="latestStampedURL" class="secondary button-link" :href="appURL(latestStampedURL)">下载已盖章PDF</a>
+          <div class="workspace-actions">
+            <button class="secondary" type="button" :disabled="!selectedContract || savingMetadata" @click="saveContractMetadata">{{ savingMetadata ? '保存中' : '保存合同' }}</button>
+            <button class="danger" type="button" :disabled="!selectedContract || deleting" @click="deleteContract">{{ deleting ? '删除中' : '删除合同' }}</button>
           </div>
         </div>
 
-        <div v-if="selectedContract && !selectedSeal" class="notice">请先在销售单设置中上传公章，或从已有公章中选择一个。</div>
-        <div v-if="rendering" class="status">PDF 加载中</div>
-        <div v-else-if="selectedContract && !pages.length" class="status">未加载到 PDF 页面</div>
-        <div v-else class="pdf-pages">
-          <div
-            v-for="page in pages"
-            :key="page.pageNumber"
-            class="pdf-page-shell">
-            <div class="page-title">
-              <span>第 {{ page.pageNumber }} 页</span>
-              <button class="secondary small" type="button" :disabled="!selectedSeal" @click="addStamp(page)">本页加盖</button>
-            </div>
-            <div class="pdf-page" :style="{ width: `${page.displayWidth}px`, height: `${page.displayHeight}px` }">
-              <img :src="page.dataUrl" alt="合同PDF页面" draggable="false" />
-              <div
-                v-for="(placement, index) in placementsForPage(page.pageNumber)"
-                :key="`${page.pageNumber}-${index}`"
-                class="stamp-overlay"
-                :style="contractStampOverlayStyle(placement, page.displayScale)"
-                title="拖动调整公章位置"
-                @pointerdown.prevent="startDrag($event, placement)">
-                <img v-if="selectedSeal?.url" :src="assetURL(selectedSeal.url)" alt="公章" draggable="false" />
-                <span v-else>公章</span>
-              </div>
-            </div>
-          </div>
+        <div v-if="selectedContract" class="contract-form">
+          <label>
+            <span>合同标题</span>
+            <input v-model.trim="contractForm.title" type="text" placeholder="合同标题" />
+          </label>
+          <label>
+            <span>合同备注</span>
+            <textarea v-model.trim="contractForm.note" rows="3" placeholder="记录客户、用途或版本说明"></textarea>
+          </label>
         </div>
+
+        <div class="stamp-toolbar">
+          <label>
+            <span>公章</span>
+            <select v-model.number="selectedSealID" :disabled="!selectedContract">
+              <option :value="0">请选择公章</option>
+              <option v-for="seal in seals" :key="seal.id" :value="seal.id">{{ seal.filename || `公章 ${seal.id}` }}</option>
+            </select>
+          </label>
+          <button class="secondary" type="button" :disabled="!selectedContract || !selectedSeal || !pages.length" @click="stampAllPages">全部页加盖</button>
+          <button class="primary" type="button" :disabled="saving || !canSave" @click="saveStampedPDF">{{ saving ? '保存中' : '保存盖章PDF' }}</button>
+          <a v-if="latestStampedURL" class="secondary button-link" :href="appURL(latestStampedURL)">下载已盖章PDF</a>
+        </div>
+
+        <div v-if="selectedContract && !selectedSeal" class="notice">请先在销售单设置中上传公章，或从已有公章中选择一个。</div>
+        <div v-if="rendering" class="status">PDF 文件准备中</div>
+        <div v-else-if="selectedContract && currentPDFBytes" class="pdf-preview-wrap">
+          <PDFStampPreview
+            :pdf-bytes="currentPDFBytes"
+            :placements="placements"
+            :seal-url="selectedSealURL"
+            seal-label="公章"
+            :editable="Boolean(selectedSeal)"
+            :max-display-width="820"
+            @loaded="onPDFPreviewLoaded"
+            @placement-change="updatePlacement"
+            @placement-commit="updatePlacement">
+            <template #page-actions="{ page }">
+              <button class="secondary small" type="button" :disabled="!selectedSeal" @click="addStamp(page)">本页加盖</button>
+            </template>
+          </PDFStampPreview>
+        </div>
+        <div v-else class="status">请选择合同后预览 PDF</div>
       </main>
     </section>
   </div>
 </template>
 
 <script setup>
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
-import * as pdfjsLib from 'pdfjs-dist'
-import pdfWorker from 'pdfjs-dist/build/pdf.worker.mjs?url'
+import { computed, onMounted, ref } from 'vue'
+import PDFStampPreview from '../components/PDFStampPreview.vue'
 import { apiFetch, apiGet, apiSend, appURL } from '../api/client'
 import {
-  contractStampOverlayStyle,
   contractStampPayload,
   createStampedContractPDF,
   defaultContractStampPlacement,
-  moveContractStampPlacement,
   normalizeContractUploadKind,
 } from '../lib/contract-stamp'
-
-pdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorker
 
 const fileInput = ref(null)
 const contracts = ref([])
@@ -114,25 +119,23 @@ const selectedSealID = ref(0)
 const pages = ref([])
 const placements = ref([])
 const currentPDFBytes = ref(null)
+const contractForm = ref({ title: '', note: '' })
 const loading = ref(false)
 const uploading = ref(false)
 const rendering = ref(false)
 const saving = ref(false)
+const savingMetadata = ref(false)
+const deleting = ref(false)
 const error = ref('')
 const message = ref('')
-const dragState = ref(null)
 
 const selectedContract = computed(() => contracts.value.find((item) => item.id === selectedContractID.value) || null)
 const selectedSeal = computed(() => seals.value.find((item) => item.id === selectedSealID.value) || null)
+const selectedSealURL = computed(() => selectedSeal.value?.url ? appURL(selectedSeal.value.url) : '')
 const latestStampedURL = computed(() => selectedContract.value?.latest_stamped?.download_url || '')
 const canSave = computed(() => selectedContract.value && selectedSeal.value && placements.value.length > 0 && currentPDFBytes.value)
 
 onMounted(loadAll)
-onBeforeUnmount(stopDrag)
-
-function assetURL(url) {
-  return appURL(url || '')
-}
 
 function onFileChange(event) {
   const file = event.target.files?.[0] || null
@@ -155,8 +158,16 @@ async function loadAll() {
     contracts.value = contractData.rows || []
     seals.value = sealData.rows || []
     if (!selectedSealID.value && sealData.current_id) selectedSealID.value = Number(sealData.current_id)
-    if (!selectedContractID.value && contracts.value.length) {
+
+    const current = selectedContractID.value
+      ? contracts.value.find((item) => Number(item.id) === Number(selectedContractID.value))
+      : null
+    if (current) {
+      syncContractForm(current)
+    } else if (contracts.value.length) {
       await selectContract(contracts.value[0])
+    } else {
+      clearSelectedContract()
     }
   } catch (err) {
     error.value = err.message || '加载合同失败'
@@ -190,9 +201,26 @@ async function selectContract(item) {
   selectedContractID.value = Number(item.id || 0)
   placements.value = []
   pages.value = []
+  currentPDFBytes.value = null
   message.value = ''
+  syncContractForm(item)
   if (!item?.pdf_url) return
   await loadPDF(item.pdf_url)
+}
+
+function syncContractForm(item) {
+  contractForm.value = {
+    title: item?.title || item?.source_filename || '',
+    note: item?.note || '',
+  }
+}
+
+function clearSelectedContract() {
+  selectedContractID.value = 0
+  placements.value = []
+  pages.value = []
+  currentPDFBytes.value = null
+  contractForm.value = { title: '', note: '' }
 }
 
 async function loadPDF(url) {
@@ -201,9 +229,7 @@ async function loadPDF(url) {
   try {
     const res = await apiFetch(url)
     if (!res.ok) throw new Error('PDF 下载失败')
-    const buffer = await res.arrayBuffer()
-    currentPDFBytes.value = buffer
-    await renderPDF(buffer)
+    currentPDFBytes.value = await res.arrayBuffer()
   } catch (err) {
     error.value = err.message || 'PDF 加载失败'
   } finally {
@@ -211,36 +237,14 @@ async function loadPDF(url) {
   }
 }
 
-async function renderPDF(buffer) {
-  const pdf = await pdfjsLib.getDocument({ data: buffer.slice(0) }).promise
-  const out = []
-  for (let i = 1; i <= pdf.numPages; i += 1) {
-    const page = await pdf.getPage(i)
-    const base = page.getViewport({ scale: 1 })
-    const displayScale = Math.min(1.25, 760 / base.width)
-    const viewport = page.getViewport({ scale: displayScale })
-    const canvas = document.createElement('canvas')
-    canvas.width = Math.ceil(viewport.width)
-    canvas.height = Math.ceil(viewport.height)
-    const context = canvas.getContext('2d')
-    await page.render({ canvasContext: context, viewport }).promise
-    out.push({
-      pageNumber: i,
-      width: base.width,
-      height: base.height,
-      displayWidth: canvas.width,
-      displayHeight: canvas.height,
-      displayScale,
-      dataUrl: canvas.toDataURL('image/png'),
-    })
-  }
-  pages.value = out
+function onPDFPreviewLoaded(items) {
+  pages.value = items || []
 }
 
 function addStamp(page) {
   if (!page || !selectedSeal.value) return
   placements.value = [
-    ...placements.value.filter((item) => item.page_number !== page.pageNumber),
+    ...placements.value.filter((item) => Number(item.page_number) !== Number(page.pageNumber)),
     defaultContractStampPlacement({ pageNumber: page.pageNumber, pageWidth: page.width, pageHeight: page.height }),
   ].sort((a, b) => a.page_number - b.page_number)
 }
@@ -254,40 +258,61 @@ function stampAllPages() {
   }))
 }
 
-function placementsForPage(pageNumber) {
-  return placements.value.filter((placement) => placement.page_number === pageNumber)
-}
-
-function startDrag(event, placement) {
-  const index = placements.value.indexOf(placement)
-  const page = pages.value.find((item) => item.pageNumber === placement.page_number)
-  if (index < 0 || !page) return
-  dragState.value = {
-    index,
-    startX: event.clientX,
-    startY: event.clientY,
-    original: { ...placement },
-    displayScale: page.displayScale,
+function updatePlacement(next) {
+  if (!next) return
+  const pageNumber = Number(next.page_number || 1)
+  const existing = placements.value.findIndex((item) => Number(item.page_number || 1) === pageNumber)
+  const updated = { ...next, page_number: pageNumber }
+  if (existing >= 0) {
+    placements.value = placements.value.map((item, index) => index === existing ? updated : item)
+  } else {
+    placements.value = [...placements.value, updated].sort((a, b) => a.page_number - b.page_number)
   }
-  window.addEventListener('pointermove', moveDrag)
-  window.addEventListener('pointerup', stopDrag)
 }
 
-function moveDrag(event) {
-  const state = dragState.value
-  if (!state) return
-  placements.value[state.index] = moveContractStampPlacement(state.original, {
-    deltaX: event.clientX - state.startX,
-    deltaY: event.clientY - state.startY,
-    displayScale: state.displayScale,
-  })
+async function saveContractMetadata() {
+  if (!selectedContract.value) return
+  const title = contractForm.value.title.trim()
+  if (!title) {
+    error.value = '合同标题不能为空'
+    return
+  }
+  savingMetadata.value = true
+  error.value = ''
+  message.value = ''
+  try {
+    const doc = await apiSend(`/api/contracts/${selectedContractID.value}`, {
+      method: 'PUT',
+      body: { title, note: contractForm.value.note.trim() },
+    })
+    contracts.value = contracts.value.map((item) => Number(item.id) === Number(doc.id) ? doc : item)
+    selectedContractID.value = Number(doc.id)
+    syncContractForm(doc)
+    message.value = '合同已保存'
+  } catch (err) {
+    error.value = err.message || '保存合同失败'
+  } finally {
+    savingMetadata.value = false
+  }
 }
 
-function stopDrag() {
-  if (!dragState.value) return
-  dragState.value = null
-  window.removeEventListener('pointermove', moveDrag)
-  window.removeEventListener('pointerup', stopDrag)
+async function deleteContract() {
+  if (!selectedContract.value) return
+  const title = selectedContract.value.title || selectedContract.value.source_filename || '当前合同'
+  if (!window.confirm(`确认删除“${title}”？删除后将从合同库隐藏。`)) return
+  deleting.value = true
+  error.value = ''
+  message.value = ''
+  try {
+    await apiSend(`/api/contracts/${selectedContractID.value}`, { method: 'DELETE' })
+    clearSelectedContract()
+    message.value = '合同已删除'
+    await loadAll()
+  } catch (err) {
+    error.value = err.message || '删除合同失败'
+  } finally {
+    deleting.value = false
+  }
 }
 
 async function saveStampedPDF() {
@@ -339,31 +364,33 @@ function formatBytes(bytes) {
 .contract-toolbar h2, .workspace-head h3, .contract-list h3 { margin: 0; }
 .contract-toolbar p, .workspace-head p, .contract-list p { margin: 4px 0 0; color: #6b7280; }
 .upload-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
-.contract-layout { display: grid; grid-template-columns: minmax(240px, 300px) minmax(0, 1fr); gap: 14px; align-items: start; }
-.contract-list { display: grid; gap: 8px; align-content: start; }
+.contract-layout { display: grid; grid-template-columns: minmax(260px, 320px) minmax(0, 1fr); gap: 14px; align-items: start; }
+.contract-list { display: grid; gap: 8px; align-content: start; max-height: calc(100vh - 190px); overflow: auto; }
 .panel-head.compact { display: flex; justify-content: space-between; gap: 12px; align-items: center; }
 .contract-item { text-align: left; border: 1px solid #e5e7eb; background: #fff; border-radius: 8px; padding: 10px; display: grid; gap: 4px; cursor: pointer; }
 .contract-item.active { border-color: #2563eb; box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.12); }
 .contract-item span { color: #6b7280; font-size: 12px; }
+.contract-item small { color: #4b5563; line-height: 1.4; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .contract-item em { color: #047857; font-style: normal; font-size: 12px; }
 .empty { padding: 12px; }
 .contract-workspace { min-width: 0; display: grid; gap: 12px; }
-.workspace-head { display: flex; justify-content: space-between; gap: 12px; align-items: end; }
-.seal-tools { display: flex; gap: 8px; align-items: end; flex-wrap: wrap; justify-content: flex-end; }
-.seal-tools label { display: grid; gap: 4px; min-width: 180px; }
+.workspace-head { display: flex; justify-content: space-between; gap: 12px; align-items: flex-start; border-bottom: 1px solid #e5e7eb; padding-bottom: 12px; }
+.workspace-actions { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
+.contract-form { display: grid; grid-template-columns: minmax(220px, 1fr) minmax(260px, 2fr); gap: 10px; align-items: start; }
+.contract-form label, .stamp-toolbar label { display: grid; gap: 5px; }
+.contract-form span, .stamp-toolbar span { color: #4b5563; font-size: 12px; }
+.contract-form textarea { resize: vertical; min-height: 78px; }
+.stamp-toolbar { display: flex; gap: 8px; align-items: end; flex-wrap: wrap; border-bottom: 1px solid #e5e7eb; padding-bottom: 12px; }
+.stamp-toolbar label { min-width: 190px; }
 .button-link { text-decoration: none; display: inline-flex; align-items: center; justify-content: center; }
+.danger { border: 1px solid #fecaca; background: #fff1f2; color: #b91c1c; }
+.danger:disabled { color: #9ca3af; background: #f9fafb; border-color: #e5e7eb; }
 .notice { border: 1px solid #facc15; background: #fefce8; color: #854d0e; border-radius: 8px; padding: 10px; }
-.pdf-pages { display: grid; gap: 18px; justify-items: center; overflow-x: auto; padding-bottom: 6px; }
-.pdf-page-shell { display: grid; gap: 8px; }
-.page-title { display: flex; justify-content: space-between; align-items: center; gap: 8px; color: #374151; font-size: 13px; }
-.pdf-page { position: relative; background: white; border: 1px solid #d1d5db; box-shadow: 0 8px 20px rgba(15, 23, 42, 0.12); overflow: hidden; }
-.pdf-page > img { display: block; width: 100%; height: 100%; user-select: none; pointer-events: none; }
-.stamp-overlay { position: absolute; border: 1px dashed rgba(220, 38, 38, 0.75); cursor: move; touch-action: none; display: flex; align-items: center; justify-content: center; color: #dc2626; font-weight: 700; background: rgba(254, 242, 242, 0.2); }
-.stamp-overlay img { width: 100%; height: 100%; object-fit: contain; pointer-events: none; user-select: none; }
+.pdf-preview-wrap { min-width: 0; }
 .small { padding: 5px 8px; font-size: 12px; }
 @media (max-width: 920px) {
   .contract-toolbar, .workspace-head { align-items: stretch; flex-direction: column; }
-  .contract-layout { grid-template-columns: 1fr; }
-  .seal-tools { justify-content: flex-start; }
+  .contract-layout, .contract-form { grid-template-columns: 1fr; }
+  .workspace-actions, .stamp-toolbar { justify-content: flex-start; }
 }
 </style>
