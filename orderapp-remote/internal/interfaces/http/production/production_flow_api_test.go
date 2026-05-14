@@ -185,6 +185,62 @@ func TestProduceStartAPIMergesSameProductSpecsAndKeepsAllOrderNos(t *testing.T) 
 	}
 }
 
+func TestProduceStartAPIReturnsAggregatedWIPShortagesAcrossSelectedProducts(t *testing.T) {
+	pool, schema := newProductionFlowTestDB(t)
+	ctx := context.Background()
+
+	mustExecProductionFlowTestSQL(t, ctx, pool, fmt.Sprintf(`
+		INSERT INTO %s.products(id,name,default_price,active) VALUES
+			(1,'拼配A',50,true),
+			(2,'拼配B',60,true);
+		INSERT INTO %s.order_process_statuses(name,sort,active) VALUES
+			('待处理',10,true),
+			('生产中',20,true)
+		ON CONFLICT (name) DO NOTHING;
+		INSERT INTO %s.orders(id,order_no,order_date,is_void,process_status_id) VALUES
+			(1,'SO-WIP-A','2026-05-14',false,(SELECT id FROM %s.order_process_statuses WHERE name='待处理' LIMIT 1)),
+			(2,'SO-WIP-B','2026-05-14',false,(SELECT id FROM %s.order_process_statuses WHERE name='待处理' LIMIT 1));
+		INSERT INTO %s.order_items(order_id,line_no,item_name,qty,unit,spec,product_id,unit_price,line_total)
+		VALUES
+			(1,1,'拼配A',3,'袋','227g',1,50,150),
+			(2,1,'拼配B',3,'袋','227g',2,60,180);
+		INSERT INTO %s.product_bom(product_id,yield_rate) VALUES (1,0.8200),(2,0.8200);
+		INSERT INTO %s.materials(id,code,name,kind,unit,onhand_g,onhand_units,purchase_price,sale_price)
+			VALUES
+			(10,'RAW-WIP-A','不足生豆A','bean','g',1000,0,54,0),
+			(11,'RAW-WIP-B','不足生豆B','bean','g',1000,0,55,0);
+		INSERT INTO %s.product_bom_items(product_id,material_id,ratio_pct) VALUES
+			(1,10,100.0000),
+			(2,11,100.0000);
+		`, schema, schema, schema, schema, schema, schema, schema, schema, schema))
+	seedProductionFlowWIPBatch(t, ctx, pool, schema, 10, 10, "MB-WIP-A", "不足生豆A", 200)
+	seedProductionFlowWIPBatch(t, ctx, pool, schema, 11, 11, "MB-WIP-B", "不足生豆B", 120)
+
+	app := newProductionFlowTestEcho(pool, schema)
+	body := bytes.NewBufferString(`{"selected":["1-227","2-227"],"input_by_key":{"1-227":900,"2-227":700}}`)
+	req := httptest.NewRequest(http.MethodPost, "/api/produce/start", body)
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+	app.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("POST /api/produce/start status = %d, want 400, body=%s", rec.Code, rec.Body.String())
+	}
+	for _, want := range []string{
+		"WIP stock insufficient:",
+		"不足生豆A need 900g, available 200g, reserved 0g",
+		"不足生豆B need 700g, available 120g, reserved 0g",
+		"transfer raw material to WIP before starting production",
+	} {
+		if !strings.Contains(rec.Body.String(), want) {
+			t.Fatalf("POST /api/produce/start body=%s missing %q", rec.Body.String(), want)
+		}
+	}
+
+	assertProductionFlowCount(t, pool, schema, "produce_running_items", "status='running'", 0)
+	assertProductionFlowCount(t, pool, schema, "work_orders", "status='running'", 0)
+}
+
 func TestProduceFinishAPIMultiSpecRunCompletesAllLinkedOrders(t *testing.T) {
 	pool, schema := newProductionFlowTestDB(t)
 	ctx := context.Background()

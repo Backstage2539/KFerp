@@ -266,6 +266,9 @@ func (r Repository) Start(ctx context.Context, cmd productionapp.StartExecutionC
 		return productionapp.StartResult{}, err
 	}
 	groups := groupStartNeedsForRuns(cmd.Needs, cmd.InputByKey, yieldByProductID)
+	if err := ensureWIPStockForStartGroupsTx(ctx, tx, r.schema, groups, yieldByProductID); err != nil {
+		return productionapp.StartResult{}, err
+	}
 	for _, group := range groups {
 		if group.NeedG <= 0 {
 			continue
@@ -370,6 +373,54 @@ func (r Repository) Start(ctx context.Context, cmd productionapp.StartExecutionC
 		return productionapp.StartResult{}, err
 	}
 	return productionapp.StartResult{BatchID: batchID}, nil
+}
+
+func ensureWIPStockForStartGroupsTx(ctx context.Context, tx pgx.Tx, schema string, groups []startRunGroup, yieldByProductID map[int64]float64) error {
+	allNeeds := make([]materialConsumptionNeed, 0)
+	for _, group := range groups {
+		if group.NeedG <= 0 {
+			continue
+		}
+		yieldRate := normalizeYieldRate(yieldByProductID[group.ProductID])
+		inputG := group.InputG
+		plan := runningInventoryPlan(group.SpecG, group.NeedG, inputG, yieldRate)
+		run := ProduceRunRow{
+			Product:      group.ProductName,
+			ProductID:    group.ProductID,
+			SpecG:        group.SpecG,
+			NeedG:        group.NeedG,
+			InputG:       inputG,
+			BomYieldRate: yieldRate,
+			PlanUnits:    plan.Units,
+			PlanLooseG:   plan.LooseG,
+			Outputs:      group.Outputs,
+		}
+		if group.SpecG > 0 {
+			materialSnapshot, err := buildMaterialSnapshotForRunningItemTx(ctx, tx, schema, run)
+			if err != nil {
+				return err
+			}
+			run.MaterialSnapshot = strings.TrimSpace(string(materialSnapshot))
+			needs, ok, err := materialSnapshotNeedsTx(run, InvQty{Units: plan.Units, LooseG: plan.LooseG})
+			if err != nil {
+				return err
+			}
+			if !ok {
+				needs, err = currentMaterialNeedsTx(ctx, tx, schema, run, InvQty{Units: plan.Units, LooseG: plan.LooseG})
+				if err != nil {
+					return err
+				}
+			}
+			allNeeds = append(allNeeds, needs...)
+			continue
+		}
+		needs, err := materialNeedsForRunOutputsTx(ctx, tx, schema, run, group.Outputs)
+		if err != nil {
+			return err
+		}
+		allNeeds = append(allNeeds, needs...)
+	}
+	return ensureWIPStockForNeedsTx(ctx, tx, schema, allNeeds)
 }
 
 func startNeedRefs(needs []productionapp.StartNeed) []string {
