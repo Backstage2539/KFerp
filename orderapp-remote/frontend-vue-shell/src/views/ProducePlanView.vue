@@ -204,9 +204,14 @@
           <tbody>
             <tr v-for="row in roastPlans" :key="row.key">
               <td>{{ row.product_name }}</td>
-              <td>{{ row.machine || '未匹配设备' }}</td>
+              <td>
+                <select v-model="row.machine" @change="syncRoastPlan(row)">
+                  <option value="">未匹配设备</option>
+                  <option v-for="name in machineOptionsForRow(row)" :key="name" :value="name">{{ name }}</option>
+                </select>
+              </td>
               <td><input type="number" min="1" step="1" v-model.number="row.batch_g" @input="syncRoastPlan(row)" /></td>
-              <td>{{ row.batch_count }}</td>
+              <td><input type="number" min="1" step="1" v-model.number="row.batch_count" @input="syncRoastPlan(row)" /></td>
               <td><strong>{{ row.final_input_g }}</strong></td>
               <td>{{ row.finished_kg_str }}</td>
               <td>{{ row.yield_pct_str }}</td>
@@ -224,10 +229,12 @@ import { apiGet, apiSend, appURL } from '../api/client'
 import {
   buildInsufficientSelection,
   buildMaterialSummary,
+  normalizeRoastPlans,
   buildStartPayload,
   insufficientSelectionState,
   rebuildPlanRows,
   producePlanKey,
+  syncRoastPlanRow,
 } from '../lib/produce-plan'
 import { replaceHistoryURL } from '../lib/url-state'
 
@@ -238,6 +245,7 @@ const stockTip = ref('')
 const rows = ref([])
 const planRows = ref([])
 const roastPlans = ref([])
+const machineRows = ref([])
 const materialRatios = ref([])
 const initialMaterials = ref([])
 const insufficientHeaderCheckbox = ref(null)
@@ -266,6 +274,17 @@ const stockInsufficientRows = computed(() => rows.value.filter((row) => Number(r
 const stockSufficientRows = computed(() => rows.value.filter((row) => Number(row.gap_g || 0) <= 0))
 const insufficientSelection = computed(() => insufficientSelectionState(stockInsufficientRows.value, selected))
 const allInsufficientSelected = computed(() => insufficientSelection.value.checked)
+const machineNameOptions = computed(() => {
+  const out = []
+  const seen = new Set()
+  for (const row of machineRows.value) {
+    const name = String(row?.name || '').trim()
+    if (!name || seen.has(name)) continue
+    seen.add(name)
+    out.push(name)
+  }
+  return out
+})
 
 watchEffect(() => {
   if (insufficientHeaderCheckbox.value) {
@@ -315,17 +334,16 @@ async function load(plan) {
       url.searchParams.set('plan', '1')
       url.searchParams.set('selected', keys.join(','))
     }
-    const data = await apiGet(url)
+    const [data, machinesData] = await Promise.all([
+      apiGet(url),
+      apiGet('/api/produce/machines').catch(() => ({ rows: machineRows.value })),
+    ])
 
     rows.value = data.rows || []
     stockTip.value = data.stock_tip || ''
     planRows.value = data.plan_rows || []
-    roastPlans.value = (data.roast_plans || []).map((row) => ({
-      ...row,
-      batch_g: Number(row.batch_g || 0),
-      batch_count: Number(row.batch_count || 0),
-      final_input_g: Number(row.final_input_g || 0),
-    }))
+    roastPlans.value = normalizeRoastPlans(data.roast_plans || [])
+    machineRows.value = (machinesData.rows || []).filter((row) => row && row.active !== false)
     materialRatios.value = data.material_ratios || []
     initialMaterials.value = data.materials || []
     if (data.selected) {
@@ -369,8 +387,14 @@ async function buildPlan() {
 }
 
 function syncRoastPlan(row) {
-  row.batch_g = Math.max(1, Number(row.batch_g || 0))
-  row.final_input_g = row.batch_g * Number(row.batch_count || 0)
+  syncRoastPlanRow(row)
+}
+
+function machineOptionsForRow(row) {
+  const out = [...machineNameOptions.value]
+  const current = String(row?.machine || '').trim()
+  if (current && !out.includes(current)) out.unshift(current)
+  return out
 }
 
 async function startProduction() {
@@ -386,6 +410,9 @@ async function startProduction() {
   saving.value = true
   error.value = ''
   try {
+    for (const row of roastPlans.value) {
+      syncRoastPlan(row)
+    }
     const payload = buildStartPayload(filters, keys, roastPlans.value, computedPlanRows.value)
     await apiSend('/api/produce/start', { body: payload })
     window.location.href = appURL('/produce/running?ok=1')
@@ -429,8 +456,9 @@ onMounted(async () => {
 .actions { margin-top: 12px; flex-wrap: wrap; }
 .section-title-with-checkbox { display: inline-flex; align-items: center; gap: 8px; }
 .section-hint { margin: 6px 0 10px; }
-input, button { font: inherit; }
+input, select, button { font: inherit; }
 input { width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 8px; }
+select { width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 8px; background: #fff; }
 button { border-radius: 8px; padding: 10px 12px; cursor: pointer; }
 input.bulk-checkbox { width: 18px; min-width: 18px; height: 18px; padding: 0; cursor: pointer; }
 .primary { border: 1px solid #111; background: #111; color: #fff; }

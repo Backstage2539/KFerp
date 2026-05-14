@@ -4,6 +4,8 @@ import assert from 'node:assert/strict'
 import {
   buildInsufficientSelection,
   insufficientSelectionState,
+  normalizeRoastPlans,
+  syncRoastPlanRow,
 } from './produce-plan.js'
 
 const rows = [
@@ -42,4 +44,27 @@ test('buildInsufficientSelection selects all insufficient rows or clears them', 
     '3-100': true,
   })
   assert.deepEqual(buildInsufficientSelection(rows, false), {})
+})
+
+test('normalizeRoastPlans normalizes batch fields and recomputes final input', () => {
+  const plans = normalizeRoastPlans([
+    { key: '1-454', machine: '  A机  ', batch_g: 0, batch_count: 0, final_input_g: 999 },
+    { key: '2-227', machine: '', batch_g: 1200.2, batch_count: 2.4, final_input_g: 0 },
+  ])
+
+  assert.deepEqual(plans, [
+    { key: '1-454', machine: 'A机', batch_g: 1, batch_count: 1, final_input_g: 1 },
+    { key: '2-227', machine: '', batch_g: 1200, batch_count: 2, final_input_g: 2400 },
+  ])
+})
+
+test('syncRoastPlanRow allows changing machine and batch count in place', () => {
+  const row = { machine: '旧机器', batch_g: 1500, batch_count: 1, final_input_g: 1500 }
+
+  syncRoastPlanRow(row, { machine: '新机器', batch_count: 3 })
+
+  assert.equal(row.machine, '新机器')
+  assert.equal(row.batch_g, 1500)
+  assert.equal(row.batch_count, 3)
+  assert.equal(row.final_input_g, 4500)
 })

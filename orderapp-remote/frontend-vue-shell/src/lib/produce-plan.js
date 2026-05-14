@@ -31,6 +31,43 @@ export function buildInsufficientSelection(rows, checked, keyForRow = defaultSel
   return Object.fromEntries((rows || []).map((row) => [keyForRow(row), true]))
 }
 
+function toPositiveInteger(value, fallback = 1) {
+  const n = Number(value)
+  if (!Number.isFinite(n) || n < 1) return fallback
+  return Math.round(n)
+}
+
+export function syncRoastPlanRow(row, patch = {}) {
+  if (!row || typeof row !== 'object') return row
+
+  if (Object.prototype.hasOwnProperty.call(patch, 'machine')) {
+    row.machine = String(patch.machine || '').trim()
+  }
+  if (Object.prototype.hasOwnProperty.call(patch, 'batch_g')) {
+    row.batch_g = patch.batch_g
+  }
+  if (Object.prototype.hasOwnProperty.call(patch, 'batch_count')) {
+    row.batch_count = patch.batch_count
+  }
+
+  row.batch_g = toPositiveInteger(row.batch_g, 1)
+  row.batch_count = toPositiveInteger(row.batch_count, 1)
+  row.final_input_g = row.batch_g * row.batch_count
+  return row
+}
+
+export function normalizeRoastPlans(roastPlans) {
+  return (roastPlans || []).map((row) =>
+    syncRoastPlanRow({
+      ...row,
+      machine: String(row?.machine || '').trim(),
+      batch_g: Number(row?.batch_g || 0),
+      batch_count: Number(row?.batch_count || 0),
+      final_input_g: Number(row?.final_input_g || 0),
+    }),
+  )
+}
+
 export function buildFinalInputMap(roastPlans) {
   const out = {}
   for (const row of roastPlans || []) {

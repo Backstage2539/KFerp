@@ -424,6 +424,7 @@ func ensureWIPStockForRunningItemTx(ctx context.Context, tx pgx.Tx, schema strin
 }
 
 func ensureWIPStockForNeedsTx(ctx context.Context, tx pgx.Tx, schema string, needs []materialConsumptionNeed) error {
+	shortages := make([]string, 0)
 	for _, need := range aggregateMaterialConsumptionNeeds(needs) {
 		if need.MaterialID <= 0 || need.DeductG <= 0 {
 			continue
@@ -456,8 +457,11 @@ func ensureWIPStockForNeedsTx(ctx context.Context, tx pgx.Tx, schema string, nee
 			if name == "" {
 				name = fmt.Sprintf("material %d", need.MaterialID)
 			}
-			return fmt.Errorf("WIP stock insufficient for %s: need %dg, available %dg, reserved %dg; transfer raw material to WIP before starting production", name, need.DeductG, availableG, reservedG)
+			shortages = append(shortages, fmt.Sprintf("%s need %dg, available %dg, reserved %dg", name, need.DeductG, availableG, reservedG))
 		}
+	}
+	if len(shortages) > 0 {
+		return fmt.Errorf("WIP stock insufficient: %s; transfer raw material to WIP before starting production", strings.Join(shortages, "; "))
 	}
 	return nil
 }
