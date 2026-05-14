@@ -197,7 +197,7 @@
               <th>每锅数量(g)</th>
               <th>锅数</th>
               <th>最终投料数(g)</th>
-              <th>熟豆总需求(kg)</th>
+              <th>预计成品(kg)</th>
               <th>损耗比</th>
             </tr>
           </thead>
@@ -213,8 +213,8 @@
               <td><input type="number" min="1" step="1" v-model.number="row.batch_g" @input="syncRoastPlan(row)" /></td>
               <td><input type="number" min="1" step="1" v-model.number="row.batch_count" @input="syncRoastPlan(row)" /></td>
               <td><strong>{{ row.final_input_g }}</strong></td>
-              <td>{{ row.finished_kg_str }}</td>
-              <td>{{ row.yield_pct_str }}</td>
+              <td>{{ roastExpectedFinishedKg(row) }}</td>
+              <td>{{ percent(row.yield_rate) }}</td>
             </tr>
           </tbody>
         </table>
@@ -229,11 +229,13 @@ import { apiGet, apiSend, appURL } from '../api/client'
 import {
   buildInsufficientSelection,
   buildMaterialSummary,
+  gramsToKgString,
   normalizeRoastPlans,
   buildStartPayload,
   insufficientSelectionState,
   rebuildPlanRows,
   producePlanKey,
+  roastExpectedFinishedG,
   syncRoastPlanRow,
 } from '../lib/produce-plan'
 import { replaceHistoryURL } from '../lib/url-state'
@@ -388,6 +390,10 @@ async function buildPlan() {
 
 function syncRoastPlan(row) {
   syncRoastPlanRow(row)
+}
+
+function roastExpectedFinishedKg(row) {
+  return gramsToKgString(roastExpectedFinishedG(row))
 }
 
 function machineOptionsForRow(row) {

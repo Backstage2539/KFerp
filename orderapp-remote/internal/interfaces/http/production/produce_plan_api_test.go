@@ -2,6 +2,7 @@ package production
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -51,6 +52,46 @@ func TestProducePlanSummaryAPIIncludesRoastRowsAndMaterials(t *testing.T) {
 		if !strings.Contains(body, needle) {
 			t.Fatalf("response missing %s: %s", needle, body)
 		}
+	}
+}
+
+func TestProducePlanSummaryAPIReturnsExactYieldRateForRoastPlans(t *testing.T) {
+	pool, schema := newProductionFlowTestDB(t)
+	ctx := context.Background()
+
+	mustExecProductionFlowTestSQL(t, ctx, pool, fmt.Sprintf(`
+		INSERT INTO %s.products(id,name,default_price,active) VALUES (1,'曲奇拼配',50,true);
+		INSERT INTO %s.order_process_statuses(name,sort,active) VALUES ('待处理',10,true)
+		ON CONFLICT (name) DO NOTHING;
+		INSERT INTO %s.orders(id,order_no,order_date,is_void,process_status_id) VALUES (1,'SO-PLAN-002','2026-04-25',false,(SELECT id FROM %s.order_process_statuses WHERE name='待处理' LIMIT 1));
+		INSERT INTO %s.order_items(order_id,line_no,item_name,qty,unit,spec,product_id,unit_price,line_total)
+		VALUES (1,1,'曲奇拼配',1,'袋','1000g',1,50,50);
+		INSERT INTO %s.product_bom(product_id,yield_rate) VALUES (1,0.8150);
+		INSERT INTO %s.roast_machines(name,capacity_g,allowed_specs,min_roast_g,active)
+		VALUES ('样机',2000,'2000',1000,true);
+	`, schema, schema, schema, schema, schema, schema, schema))
+
+	e := newProducePlanTestEcho(pool, schema)
+	req := httptest.NewRequest(http.MethodGet, "/api/produce/unproduced?selected=1-1000&plan=1", nil)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET /api/produce/unproduced status = %d, want 200, body=%s", rec.Code, rec.Body.String())
+	}
+
+	var payload struct {
+		RoastPlans []struct {
+			YieldRate float64 `json:"yield_rate"`
+		} `json:"roast_plans"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+	if len(payload.RoastPlans) == 0 {
+		t.Fatalf("roast_plans empty: %s", rec.Body.String())
+	}
+	if payload.RoastPlans[0].YieldRate != 0.815 {
+		t.Fatalf("roast plan yield_rate = %.4f, want 0.8150", payload.RoastPlans[0].YieldRate)
 	}
 }
 

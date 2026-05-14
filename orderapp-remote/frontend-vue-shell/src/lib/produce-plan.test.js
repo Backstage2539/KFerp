@@ -3,8 +3,11 @@ import assert from 'node:assert/strict'
 
 import {
   buildInsufficientSelection,
+  gramsToKgString,
   insufficientSelectionState,
   normalizeRoastPlans,
+  normalizedYieldRate,
+  roastExpectedFinishedG,
   syncRoastPlanRow,
 } from './produce-plan.js'
 
@@ -67,4 +70,22 @@ test('syncRoastPlanRow allows changing machine and batch count in place', () => 
   assert.equal(row.batch_g, 1500)
   assert.equal(row.batch_count, 3)
   assert.equal(row.final_input_g, 4500)
+})
+
+test('normalizedYieldRate supports ratio and percent style inputs', () => {
+  assert.equal(normalizedYieldRate(0.815), 0.815)
+  assert.equal(normalizedYieldRate(81.5), 0.815)
+  assert.equal(normalizedYieldRate(0), 0)
+})
+
+test('roastExpectedFinishedG follows editable final_input_g and yield_rate', () => {
+  assert.equal(roastExpectedFinishedG({ final_input_g: 13370, yield_rate: 0.815 }), 10897)
+  assert.equal(roastExpectedFinishedG({ final_input_g: 4000, yield_rate: 82 }), 3280)
+  assert.equal(roastExpectedFinishedG({ final_input_g: 0, yield_rate: 0.815 }), 0)
+})
+
+test('gramsToKgString keeps roast output display stable', () => {
+  assert.equal(gramsToKgString(10897), '10.90')
+  assert.equal(gramsToKgString(571), '0.57')
+  assert.equal(gramsToKgString(0), '0')
 })

@@ -6,6 +6,26 @@ function normalizeRatioPct(value) {
   return ratio
 }
 
+export function normalizedYieldRate(value) {
+  const rate = Number(value || 0)
+  if (rate <= 0) return 0
+  if (rate > 1) return rate / 100
+  return rate
+}
+
+export function roastExpectedFinishedG(row) {
+  const finalInputG = Number(row?.final_input_g || 0)
+  const yieldRate = normalizedYieldRate(row?.yield_rate)
+  if (finalInputG <= 0 || yieldRate <= 0) return 0
+  return Math.round(finalInputG * yieldRate)
+}
+
+export function gramsToKgString(value, digits = 2) {
+  const grams = Number(value || 0)
+  if (grams <= 0) return '0'
+  return (grams / 1000).toFixed(digits)
+}
+
 export function producePlanKey(productId, specG) {
   return `${productId}-${specG}`
 }
