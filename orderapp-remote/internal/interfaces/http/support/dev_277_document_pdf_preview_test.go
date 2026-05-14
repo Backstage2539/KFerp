@@ -71,27 +71,37 @@ func TestDev277DocumentPreviewAndContractWorkspaceDocumentation(t *testing.T) {
 		}
 	}
 
-	requirements := string(readOrderAppFileForTest(t, filepath.Join("..", "REQUIREMENTS.md")))
-	for _, want := range []string{
-		"PR-277-DOCUMENT-PDF-PREVIEW-STAMPING",
-		"PREVIEW 预览版",
-		"PR-278-CONTRACT-WORKSPACE-SAVE-DELETE",
-		"合同标题和备注可保存",
+	for _, path := range []string{
+		filepath.Join("..", "REQUIREMENTS.md"),
+		filepath.Join("docs", "REQUIREMENTS.md"),
 	} {
-		if !strings.Contains(requirements, want) {
-			t.Fatalf("REQUIREMENTS.md missing %q", want)
+		requirements := string(readOrderAppFileForTest(t, path))
+		for _, want := range []string{
+			"PR-277-DOCUMENT-PDF-PREVIEW-STAMPING",
+			"PREVIEW 预览版",
+			"PR-278-CONTRACT-WORKSPACE-SAVE-DELETE",
+			"合同标题和备注可保存",
+		} {
+			if !strings.Contains(requirements, want) {
+				t.Fatalf("%s missing %q", path, want)
+			}
 		}
 	}
 
-	checklist := string(readOrderAppFileForTest(t, filepath.Join("..", "ACCEPTANCE_TESTS.md")))
-	for _, want := range []string{
-		"PREVIEW 预览版",
-		"确认生成 PDF",
-		"保存合同",
-		"删除合同",
+	for _, path := range []string{
+		filepath.Join("..", "ACCEPTANCE_TESTS.md"),
+		filepath.Join("docs", "ACCEPTANCE_TESTS.md"),
 	} {
-		if !strings.Contains(checklist, want) {
-			t.Fatalf("ACCEPTANCE_TESTS.md missing %q", want)
+		checklist := string(readOrderAppFileForTest(t, path))
+		for _, want := range []string{
+			"PREVIEW 预览版",
+			"确认生成 PDF",
+			"保存合同",
+			"删除合同",
+		} {
+			if !strings.Contains(checklist, want) {
+				t.Fatalf("%s missing %q", path, want)
+			}
 		}
 	}
 
