@@ -4,6 +4,7 @@ import assert from 'node:assert/strict'
 import {
   activeCustomerFulfillmentCustomers,
   buildImportPreviewEffects,
+  customerFulfillmentOrderFees,
   customerFulfillmentWorkbenchSections,
   customerFulfillmentCustomerOptionLabel,
   customerFulfillmentCustomerOptionMeta,
@@ -36,6 +37,7 @@ test('customer fulfillment workbench follows enabled customer capabilities', () 
     inventory: false,
     settlement: true,
     imports: true,
+    orders: true,
   })
   assert.deepEqual(visibleCustomerFulfillmentImports([
     { id: 1, import_type: 'processing_workbook' },
@@ -121,5 +123,19 @@ test('buildImportPreviewEffects converts batch summary into apply preview counte
     { label: '需先处理错误行', value: 194 },
     { label: '加工工单', value: 136 },
     { label: '费用明细', value: 2 },
+  ])
+})
+
+test('customer fulfillment order fees keep ERP-style fee breakdown for the bottom order list', () => {
+  assert.deepEqual(customerFulfillmentOrderFees({
+    total_amount: '128.00',
+    shipping_amount: '12.00',
+    discount_amount: '5.00',
+    grand_total: '135.00',
+  }), [
+    { label: '商品', value: '128.00' },
+    { label: '运费', value: '12.00' },
+    { label: '优惠', value: '5.00' },
+    { label: '应收', value: '135.00', emphasized: true },
   ])
 })
