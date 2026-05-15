@@ -30,3 +30,11 @@ test('parseRecipientText handles address phone name order', () => {
 		address: '云南省昆明市西山区西坝新村30号C区',
 	})
 })
+
+test('parseRecipientText handles address name 收 phone order', () => {
+	assert.deepEqual(parseRecipientText('四川省攀枝花市东区炳草岗湖滨路30号4栋 郑莉 收 18608120905'), {
+		recipient_name: '郑莉',
+		phone: '18608120905',
+		address: '四川省攀枝花市东区炳草岗湖滨路30号4栋',
+	})
+})

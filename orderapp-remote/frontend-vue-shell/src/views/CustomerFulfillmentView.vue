@@ -118,102 +118,116 @@
 
         <div v-if="workbenchSections.directShip" class="ops-panel">
           <h3>{{ submitCopy.formTitle }}</h3>
-          <div class="ops-form">
-            <label class="wide-field">
-              <span>粘贴收件信息</span>
-              <textarea v-model="recipientPasteText" rows="2" placeholder="粘贴姓名、电话、地址" @paste.prevent="pasteRecipientInfo"></textarea>
-            </label>
-            <button class="secondary" type="button" @click="applyRecipientParse()" :disabled="loading">解析收件信息</button>
-            <label>
-              <span>历史收件信息</span>
-              <SearchableSelect
-                v-model="recipientHistoryValue"
-                :options="recipientOptions"
-                :option-label="recipientOptionLabel"
-                :option-meta="recipientOptionMeta"
-                :option-value="recipientOptionValue"
-                empty-value=""
-                placeholder="搜索姓名/电话/地址"
-                empty-text="没有历史收件信息"
-                :disabled="loading || !normalizedCustomerId"
-                @select="selectRecipientHistory" />
-            </label>
-            <label>
-              <span>收件人</span>
-              <input v-model.trim="directShipForm.receiver_name" />
-            </label>
-            <label>
-              <span>电话</span>
-              <input v-model.trim="directShipForm.receiver_phone" />
-            </label>
-            <label class="wide-field">
-              <span>地址</span>
-              <input v-model.trim="directShipForm.receiver_address" />
-            </label>
-            <label>
-              <span>商品</span>
-              <span class="muted">一个收件信息可添加多行商品</span>
-            </label>
-            <div class="wide-field line-list">
-              <article v-for="(row, idx) in directShipItems" :key="row.key" class="line-item">
-                <label>
-                  <span>商品</span>
-                  <SearchableSelect
-                    v-model="row.product_value"
-                    :options="directShipProductOptions"
-                    :option-label="productOptionLabel"
-                    :option-meta="productOptionMeta"
-                    :option-value="productOptionValue"
-                    empty-value=""
-                    placeholder="搜索客户 SKU/公共 SKU"
-                    empty-text="没有匹配商品"
-                    :disabled="loading || !normalizedCustomerId"
-                    @select="(option) => selectDirectShipItemProduct(row, option)" />
-                </label>
-                <label>
-                  <span>规格(g)</span>
-                  <input v-model.number="row.spec_g" type="number" min="1" step="1" @input="syncDirectShipItemPrice(row)" />
-                </label>
-                <label>
-                  <span>数量</span>
-                  <input v-model.number="row.qty" type="number" min="1" step="1" @input="syncDirectShipItemPrice(row)" />
-                </label>
-                <label>
-                  <span>单价（{{ priceUnitLabel(row) }}）</span>
-                  <input :value="row.unit_price || ''" type="text" disabled />
-                </label>
-                <div class="line-total">
-                  <span>小计</span>
-                  <strong>{{ money(rowLineTotal(row)) }}</strong>
-                </div>
-                <div v-if="rowTierRows(row).length" class="line-tier">
-                  <span>阶梯价</span>
-                  <div class="tier-chips">
-                    <span
-                      v-for="tier in rowTierRows(row)"
-                      :key="`${row.key}-${tier.id}-${tier.rangeLabel}`"
-                      class="tier-chip"
-                      :class="{ active: rowTierActive(row, tier) }">
-                      {{ tier.rangeLabel }} {{ money(tier.unitPrice) }}{{ tier.priceUnit.suffix }}
-                    </span>
-                  </div>
-                </div>
-                <button class="secondary danger" type="button" :disabled="directShipItems.length <= 1" @click="removeDirectShipItem(idx)">删除</button>
-              </article>
-              <button class="secondary" type="button" @click="addDirectShipItem">新增商品行</button>
+          <div class="direct-ship-form">
+            <div class="direct-ship-recipient">
+              <label class="recipient-paste">
+                <span>粘贴收件信息</span>
+                <textarea v-model="recipientPasteText" rows="2" placeholder="粘贴姓名、电话、地址" @paste.prevent="pasteRecipientInfo"></textarea>
+              </label>
+              <button class="secondary parse-button" type="button" @click="applyRecipientParse()" :disabled="loading">解析收件信息</button>
+              <label>
+                <span>历史收件信息</span>
+                <SearchableSelect
+                  v-model="recipientHistoryValue"
+                  :options="recipientOptions"
+                  :option-label="recipientOptionLabel"
+                  :option-meta="recipientOptionMeta"
+                  :option-value="recipientOptionValue"
+                  empty-value=""
+                  placeholder="搜索姓名/电话/地址"
+                  empty-text="没有历史收件信息"
+                  :disabled="loading || !normalizedCustomerId"
+                  @select="selectRecipientHistory" />
+              </label>
+              <label>
+                <span>收件人</span>
+                <input v-model.trim="directShipForm.receiver_name" />
+              </label>
+              <label>
+                <span>电话</span>
+                <input v-model.trim="directShipForm.receiver_phone" />
+              </label>
+              <label class="recipient-address">
+                <span>地址</span>
+                <input v-model.trim="directShipForm.receiver_address" />
+              </label>
             </div>
-            <label>
-              <span>运费</span>
-              <input v-model.number="directShipForm.shipping_amount" type="number" min="0" step="0.01" />
-            </label>
-            <div class="line-total">
-              <span>订单合计</span>
-              <strong>{{ money(directShipGrandTotal) }}</strong>
+
+            <section class="direct-ship-items">
+              <div class="direct-ship-items-head">
+                <span class="muted">一个收件信息可添加多行商品</span>
+                <button class="secondary" type="button" @click="addDirectShipItem">新增商品行</button>
+              </div>
+              <div class="table-wrap">
+                <table class="order-lines-table">
+                  <thead>
+                    <tr>
+                      <th>商品</th>
+                      <th>规格(g)</th>
+                      <th>数量</th>
+                      <th>单价</th>
+                      <th>小计</th>
+                      <th>阶梯价</th>
+                      <th>操作</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr v-for="(row, idx) in directShipItems" :key="row.key">
+                      <td class="product-cell">
+                        <SearchableSelect
+                          v-model="row.product_value"
+                          :options="directShipProductOptions"
+                          :option-label="productOptionLabel"
+                          :option-meta="productOptionMeta"
+                          :option-value="productOptionValue"
+                          empty-value=""
+                          placeholder="搜索客户 SKU/公共 SKU"
+                          empty-text="没有匹配商品"
+                          :disabled="loading || !normalizedCustomerId"
+                          @select="(option) => selectDirectShipItemProduct(row, option)" />
+                      </td>
+                      <td><input v-model.number="row.spec_g" type="number" min="1" step="1" @input="syncDirectShipItemPrice(row)" /></td>
+                      <td><input v-model.number="row.qty" type="number" min="1" step="1" @input="syncDirectShipItemPrice(row)" /></td>
+                      <td class="price-cell">
+                        <input :value="row.unit_price || ''" type="text" disabled />
+                        <small>{{ priceUnitLabel(row) }}</small>
+                      </td>
+                      <td class="subtotal-cell">{{ money(rowLineTotal(row)) }}</td>
+                      <td>
+                        <div v-if="rowTierRows(row).length" class="tier-chips">
+                          <span
+                            v-for="tier in rowTierRows(row)"
+                            :key="`${row.key}-${tier.id}-${tier.rangeLabel}`"
+                            class="tier-chip"
+                            :class="{ active: rowTierActive(row, tier) }">
+                            {{ tier.rangeLabel }} {{ money(tier.unitPrice) }}{{ tier.priceUnit.suffix }}
+                          </span>
+                        </div>
+                        <span v-else class="muted">-</span>
+                      </td>
+                      <td>
+                        <button class="secondary danger" type="button" :disabled="directShipItems.length <= 1" @click="removeDirectShipItem(idx)">删除</button>
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </section>
+
+            <div class="direct-ship-footer">
+              <label>
+                <span>运费</span>
+                <input v-model.number="directShipForm.shipping_amount" type="number" min="0" step="0.01" />
+              </label>
+              <div class="line-total grand-total">
+                <span>订单合计</span>
+                <strong>{{ money(directShipGrandTotal) }}</strong>
+              </div>
+              <label class="note-field">
+                <span>备注</span>
+                <textarea v-model.trim="directShipForm.note" rows="2" :placeholder="submitCopy.notePlaceholder" />
+              </label>
             </div>
-            <label class="wide-field">
-              <span>备注</span>
-              <input v-model.trim="directShipForm.note" :placeholder="submitCopy.notePlaceholder" />
-            </label>
             <button class="primary" type="button" @click="submitDirectShipOrder" :disabled="loading || !normalizedCustomerId">{{ submitCopy.submitButton }}</button>
           </div>
         </div>
@@ -1463,20 +1477,75 @@ button:disabled {
   background: #f8fafc;
 }
 
-.line-list {
+.direct-ship-form {
   display: grid;
+  gap: 12px;
+}
+
+.direct-ship-recipient {
+  display: grid;
+  grid-template-columns: minmax(220px, 1.4fr) auto repeat(3, minmax(130px, 1fr));
+  gap: 10px;
+  align-items: end;
+}
+
+.recipient-paste {
+  grid-column: 1 / span 1;
+}
+
+.recipient-address {
+  grid-column: 1 / -1;
+}
+
+.parse-button {
+  min-width: 120px;
+}
+
+.direct-ship-items {
+  display: grid;
+  gap: 8px;
+}
+
+.direct-ship-items-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
   gap: 10px;
 }
 
-.line-item {
+.order-lines-table {
+  min-width: 1080px;
+  table-layout: fixed;
+}
+
+.order-lines-table th:nth-child(1) { width: 260px; }
+.order-lines-table th:nth-child(2) { width: 100px; }
+.order-lines-table th:nth-child(3) { width: 90px; }
+.order-lines-table th:nth-child(4) { width: 130px; }
+.order-lines-table th:nth-child(5) { width: 100px; }
+.order-lines-table th:nth-child(6) { width: 280px; }
+.order-lines-table th:nth-child(7) { width: 80px; }
+
+.order-lines-table td {
+  vertical-align: middle;
+}
+
+.order-lines-table td :deep(.searchable-select) {
+  width: 100%;
+}
+
+.order-lines-table td input {
+  width: 100%;
+}
+
+.price-cell {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
-  gap: 8px;
-  align-items: end;
-  padding: 10px;
-  border: 1px solid #e2e8f0;
-  border-radius: 6px;
-  background: #fff;
+  gap: 4px;
+}
+
+.price-cell small {
+  color: #64748b;
+  font-size: 12px;
 }
 
 .line-total {
@@ -1491,9 +1560,9 @@ button:disabled {
   font-size: 14px;
 }
 
-.line-tier {
-  display: grid;
-  gap: 4px;
+.subtotal-cell {
+  font-weight: 700;
+  color: #0f172a;
 }
 
 .tier-chips {
@@ -1515,6 +1584,21 @@ button:disabled {
   border-color: #0f766e;
   color: #0f766e;
   font-weight: 600;
+}
+
+.direct-ship-footer {
+  display: grid;
+  grid-template-columns: minmax(140px, 220px) minmax(120px, 180px) minmax(280px, 1fr);
+  gap: 12px;
+  align-items: end;
+}
+
+.grand-total {
+  align-self: center;
+}
+
+.note-field {
+  min-width: 0;
 }
 
 .danger {
@@ -1946,6 +2030,21 @@ td {
 
   .detail-grid {
     grid-template-columns: minmax(0, 1fr);
+  }
+
+  .direct-ship-recipient,
+  .direct-ship-footer {
+    grid-template-columns: 1fr;
+  }
+
+  .recipient-paste,
+  .recipient-address {
+    grid-column: auto;
+  }
+
+  .direct-ship-items-head {
+    flex-direction: column;
+    align-items: stretch;
   }
 }
 </style>
