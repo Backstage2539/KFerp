@@ -189,24 +189,26 @@ func (a api) submitCustomerDirectShipOrder(c echo.Context) error {
 		return customerFulfillmentError(c, http.StatusUnauthorized, fmt.Errorf("employee required"))
 	}
 	var req struct {
-		ReceiverName    string `json:"receiver_name"`
-		ReceiverPhone   string `json:"receiver_phone"`
-		ReceiverAddress string `json:"receiver_address"`
-		ReceiverCompany string `json:"receiver_company"`
+		ReceiverName    string  `json:"receiver_name"`
+		ReceiverPhone   string  `json:"receiver_phone"`
+		ReceiverAddress string  `json:"receiver_address"`
+		ReceiverCompany string  `json:"receiver_company"`
 		ShippingAmount  float64 `json:"shipping_amount"`
-		ProductID       int64  `json:"product_id"`
-		ProductName     string `json:"product_name"`
-		Spec            string `json:"spec"`
-		QuantityUnits   int64  `json:"quantity_units"`
+		ProductID       int64   `json:"product_id"`
+		ProductName     string  `json:"product_name"`
+		Spec            string  `json:"spec"`
+		QuantityUnits   int64   `json:"quantity_units"`
 		Items           []struct {
-			ProductID     int64  `json:"product_id"`
-			ProductName   string `json:"product_name"`
-			Spec          string `json:"spec"`
-			SpecG         int64  `json:"spec_g"`
-			QuantityUnits int64  `json:"quantity_units"`
-			Note          string `json:"note"`
+			ProductID     int64   `json:"product_id"`
+			ProductName   string  `json:"product_name"`
+			Spec          string  `json:"spec"`
+			SpecG         int64   `json:"spec_g"`
+			QuantityUnits int64   `json:"quantity_units"`
+			DiscountType  string  `json:"discount_type"`
+			DiscountValue float64 `json:"discount_value"`
+			Note          string  `json:"note"`
 		} `json:"items"`
-		Note            string `json:"note"`
+		Note string `json:"note"`
 	}
 	if err := c.Bind(&req); err != nil {
 		return customerFulfillmentError(c, http.StatusBadRequest, fmt.Errorf("invalid request"))
@@ -219,6 +221,8 @@ func (a api) submitCustomerDirectShipOrder(c echo.Context) error {
 			Spec:          item.Spec,
 			SpecG:         item.SpecG,
 			QuantityUnits: item.QuantityUnits,
+			DiscountType:  item.DiscountType,
+			DiscountValue: item.DiscountValue,
 			Note:          item.Note,
 		})
 	}
@@ -314,24 +318,26 @@ func (a api) submitInternalDirectShipOrder(c echo.Context) error {
 		return customerFulfillmentError(c, http.StatusBadRequest, err)
 	}
 	var req struct {
-		ReceiverName    string `json:"receiver_name"`
-		ReceiverPhone   string `json:"receiver_phone"`
-		ReceiverAddress string `json:"receiver_address"`
-		ReceiverCompany string `json:"receiver_company"`
+		ReceiverName    string  `json:"receiver_name"`
+		ReceiverPhone   string  `json:"receiver_phone"`
+		ReceiverAddress string  `json:"receiver_address"`
+		ReceiverCompany string  `json:"receiver_company"`
 		ShippingAmount  float64 `json:"shipping_amount"`
-		ProductID       int64  `json:"product_id"`
-		ProductName     string `json:"product_name"`
-		Spec            string `json:"spec"`
-		QuantityUnits   int64  `json:"quantity_units"`
+		ProductID       int64   `json:"product_id"`
+		ProductName     string  `json:"product_name"`
+		Spec            string  `json:"spec"`
+		QuantityUnits   int64   `json:"quantity_units"`
 		Items           []struct {
-			ProductID     int64  `json:"product_id"`
-			ProductName   string `json:"product_name"`
-			Spec          string `json:"spec"`
-			SpecG         int64  `json:"spec_g"`
-			QuantityUnits int64  `json:"quantity_units"`
-			Note          string `json:"note"`
+			ProductID     int64   `json:"product_id"`
+			ProductName   string  `json:"product_name"`
+			Spec          string  `json:"spec"`
+			SpecG         int64   `json:"spec_g"`
+			QuantityUnits int64   `json:"quantity_units"`
+			DiscountType  string  `json:"discount_type"`
+			DiscountValue float64 `json:"discount_value"`
+			Note          string  `json:"note"`
 		} `json:"items"`
-		Note            string `json:"note"`
+		Note string `json:"note"`
 	}
 	if err := c.Bind(&req); err != nil {
 		return customerFulfillmentError(c, http.StatusBadRequest, fmt.Errorf("invalid request"))
@@ -344,6 +350,8 @@ func (a api) submitInternalDirectShipOrder(c echo.Context) error {
 			Spec:          item.Spec,
 			SpecG:         item.SpecG,
 			QuantityUnits: item.QuantityUnits,
+			DiscountType:  item.DiscountType,
+			DiscountValue: item.DiscountValue,
 			Note:          item.Note,
 		})
 	}

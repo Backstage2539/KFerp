@@ -114,7 +114,6 @@
           <section class="direct-ship-items">
             <div class="direct-ship-items-head">
               <span class="muted">一个收件信息可添加多行商品</span>
-              <button class="secondary" type="button" @click="addDirectShipItem">新增商品行</button>
             </div>
             <div class="table-wrap">
               <table class="order-lines-table">
@@ -124,6 +123,7 @@
                     <th>规格(g)</th>
                     <th>数量</th>
                     <th>单价</th>
+                    <th>优惠</th>
                     <th>小计</th>
                     <th>阶梯价</th>
                     <th>操作</th>
@@ -149,6 +149,21 @@
                     <td class="price-cell">
                       <input :value="row.unit_price || ''" type="text" disabled />
                       <small>{{ priceUnitLabel(row) }}</small>
+                    </td>
+                    <td class="discount-cell">
+                      <select v-model="row.discount_type" @change="onDiscountTypeChange(row)">
+                        <option value="">无优惠</option>
+                        <option value="amount">减免数额</option>
+                        <option value="percent">折扣</option>
+                        <option value="free">免费</option>
+                      </select>
+                      <input
+                        v-if="row.discount_type === 'amount' || row.discount_type === 'percent'"
+                        v-model.number="row.discount_value"
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        :placeholder="row.discount_type === 'percent' ? '90=9折' : '减免金额'" />
                     </td>
                     <td class="subtotal-cell">{{ money(rowLineTotal(row)) }}</td>
                     <td>
@@ -628,6 +643,8 @@ async function submitDirectShip() {
         product_name: String(row.product_name || '').trim(),
         spec_g: Number(row.spec_g || 0),
         quantity_units: Number(row.qty || 0),
+        discount_type: String(row.discount_type || '').trim(),
+        discount_value: Number(row.discount_value || 0),
       }))
       .filter((row) => row.product_id > 0 && row.spec_g > 0 && row.quantity_units > 0)
     const row = await submitCustomerDirectShipOrder({
@@ -758,6 +775,7 @@ function selectDirectShipItemProduct(row, option) {
   row.spec_g = parseSpecG(option?.spec) || firstTierSpecG(option) || 454
   if (!toInt(row.qty)) row.qty = 1
   syncDirectShipItemPrice(row)
+  ensureSingleTrailingEmptyRow()
 }
 
 function pasteRecipientInfo(event) {
@@ -863,16 +881,15 @@ function newDirectShipItem() {
     qty: 1,
     tier_id: 'auto',
     unit_price: '',
+    discount_type: '',
+    discount_value: '',
   }
-}
-
-function addDirectShipItem() {
-  directShipItems.value.push(newDirectShipItem())
 }
 
 function removeDirectShipItem(idx) {
   if (directShipItems.value.length <= 1) return
   directShipItems.value.splice(idx, 1)
+  ensureSingleTrailingEmptyRow()
 }
 
 function productByID(id) {
@@ -892,7 +909,17 @@ function syncDirectShipItemPrice(row) {
 }
 
 function rowLineTotal(row) {
-  return lineTotal(productByID(row.product_id), row, false)
+  const base = lineTotal(productByID(row.product_id), row, false)
+  if (base <= 0) return 0
+  const discountType = String(row?.discount_type || '')
+  const discountValue = Math.max(0, toNumber(row?.discount_value))
+  if (discountType === 'free') return 0
+  if (discountType === 'amount') return Math.max(base - Math.min(discountValue, base), 0)
+  if (discountType === 'percent') {
+    const rate = Math.max(0, Math.min(discountValue, 100))
+    return Math.max(base*rate/100, 0)
+  }
+  return base
 }
 
 function priceUnitLabel(row) {
@@ -905,6 +932,22 @@ function rowTierRows(row) {
 
 function rowTierActive(row, tier) {
   return String(row?.tier_id || '') === String(tier?.id || '')
+}
+
+function isDirectShipItemFilled(row) {
+  return Number(row?.product_id || 0) > 0
+}
+
+function ensureSingleTrailingEmptyRow() {
+  const filled = directShipItems.value.filter((row) => isDirectShipItemFilled(row))
+  const firstEmpty = directShipItems.value.find((row) => !isDirectShipItemFilled(row))
+  directShipItems.value = [...filled, firstEmpty || newDirectShipItem()]
+}
+
+function onDiscountTypeChange(row) {
+  if (row?.discount_type === 'free' || row?.discount_type === '') {
+    row.discount_value = ''
+  }
 }
 
 function parseSpecG(spec) {
@@ -1146,9 +1189,10 @@ button:disabled {
 .order-lines-table th:nth-child(2) { width: 100px; }
 .order-lines-table th:nth-child(3) { width: 90px; }
 .order-lines-table th:nth-child(4) { width: 130px; }
-.order-lines-table th:nth-child(5) { width: 100px; }
-.order-lines-table th:nth-child(6) { width: 280px; }
-.order-lines-table th:nth-child(7) { width: 80px; }
+.order-lines-table th:nth-child(5) { width: 170px; }
+.order-lines-table th:nth-child(6) { width: 100px; }
+.order-lines-table th:nth-child(7) { width: 240px; }
+.order-lines-table th:nth-child(8) { width: 80px; }
 
 .order-lines-table td {
   vertical-align: middle;
@@ -1170,6 +1214,11 @@ button:disabled {
 .price-cell small {
   color: #64748b;
   font-size: 12px;
+}
+
+.discount-cell {
+  display: grid;
+  gap: 6px;
 }
 
 .line-total {

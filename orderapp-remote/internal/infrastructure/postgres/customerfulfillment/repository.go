@@ -442,15 +442,19 @@ func (r *Repository) SubmitCustomerDirectShipOrder(ctx context.Context, cmd app.
 	}
 	for idx, item := range quotedItems {
 		itemPayload := map[string]any{
-			"submitted_by_employee_id": cmd.EmployeeID,
-			"product_id":               item.ProductID,
-			"product_name":             item.ProductName,
-			"spec":                     item.Spec,
-			"spec_g":                   item.SpecG,
-			"quantity_units":           item.QuantityUnits,
-			"unit_price":               item.UnitPrice,
-			"line_total":               item.LineTotal,
-			"note":                     item.Note,
+			"submitted_by_employee_id":   cmd.EmployeeID,
+			"product_id":                 item.ProductID,
+			"product_name":               item.ProductName,
+			"spec":                       item.Spec,
+			"spec_g":                     item.SpecG,
+			"quantity_units":             item.QuantityUnits,
+			"unit_price":                 item.UnitPrice,
+			"line_total_before_discount": item.BaseLineTotal,
+			"discount_type":              item.DiscountType,
+			"discount_value":             item.DiscountValue,
+			"discount_amount":            item.DiscountAmount,
+			"line_total":                 item.LineTotal,
+			"note":                       item.Note,
 		}
 		if _, err := tx.Exec(ctx, fmt.Sprintf(`
 			INSERT INTO %s.customer_direct_ship_import_order_items(
@@ -484,18 +488,24 @@ type submittedDirectShipItem struct {
 	Spec          string
 	SpecG         int64
 	QuantityUnits int64
+	DiscountType  string
+	DiscountValue float64
 	Note          string
 }
 
 type submittedDirectShipQuotedItem struct {
-	ProductID     int64
-	ProductName   string
-	Spec          string
-	SpecG         int64
-	QuantityUnits int64
-	UnitPrice     float64
-	LineTotal     float64
-	Note          string
+	ProductID      int64
+	ProductName    string
+	Spec           string
+	SpecG          int64
+	QuantityUnits  int64
+	UnitPrice      float64
+	DiscountType   string
+	DiscountValue  float64
+	DiscountAmount float64
+	BaseLineTotal  float64
+	LineTotal      float64
+	Note           string
 }
 
 func normalizeSubmittedDirectShipItems(cmd app.SubmitCustomerDirectShipOrderCommand) []submittedDirectShipItem {
@@ -507,6 +517,8 @@ func normalizeSubmittedDirectShipItems(cmd app.SubmitCustomerDirectShipOrderComm
 			Spec:          strings.TrimSpace(item.Spec),
 			SpecG:         item.SpecG,
 			QuantityUnits: item.QuantityUnits,
+			DiscountType:  strings.TrimSpace(strings.ToLower(item.DiscountType)),
+			DiscountValue: item.DiscountValue,
 			Note:          strings.TrimSpace(item.Note),
 		})
 	}
@@ -519,6 +531,8 @@ func normalizeSubmittedDirectShipItems(cmd app.SubmitCustomerDirectShipOrderComm
 		Spec:          strings.TrimSpace(cmd.Spec),
 		SpecG:         parseSubmittedDirectShipSpecG(cmd.Spec),
 		QuantityUnits: cmd.QuantityUnits,
+		DiscountType:  "",
+		DiscountValue: 0,
 		Note:          strings.TrimSpace(cmd.Note),
 	}}
 }
@@ -556,17 +570,62 @@ func (r *Repository) quoteSubmittedDirectShipItemTx(ctx context.Context, tx pgx.
 		specText = fmt.Sprintf("%dg", specG)
 	}
 	unitPrice := r.customerFulfillmentSubmittedUnitPriceTx(ctx, tx, customerID, item.ProductID, specG, item.QuantityUnits, defaultPrice)
-	lineTotal := unitPrice * float64(item.QuantityUnits)
+	baseLineTotal := unitPrice * float64(item.QuantityUnits)
+	discountType := normalizeSubmittedDirectShipDiscountType(item.DiscountType)
+	discountValue := item.DiscountValue
+	if discountValue < 0 {
+		discountValue = 0
+	}
+	discountAmount, lineTotal := submittedDirectShipLineDiscount(baseLineTotal, discountType, discountValue)
 	return submittedDirectShipQuotedItem{
-		ProductID:     item.ProductID,
-		ProductName:   productName,
-		Spec:          specText,
-		SpecG:         specG,
-		QuantityUnits: item.QuantityUnits,
-		UnitPrice:     unitPrice,
-		LineTotal:     lineTotal,
-		Note:          item.Note,
+		ProductID:      item.ProductID,
+		ProductName:    productName,
+		Spec:           specText,
+		SpecG:          specG,
+		QuantityUnits:  item.QuantityUnits,
+		UnitPrice:      unitPrice,
+		DiscountType:   discountType,
+		DiscountValue:  discountValue,
+		DiscountAmount: discountAmount,
+		BaseLineTotal:  baseLineTotal,
+		LineTotal:      lineTotal,
+		Note:           item.Note,
 	}, nil
+}
+
+func normalizeSubmittedDirectShipDiscountType(value string) string {
+	switch strings.TrimSpace(strings.ToLower(value)) {
+	case "amount", "fixed", "minus":
+		return "amount"
+	case "percent", "discount":
+		return "percent"
+	case "free":
+		return "free"
+	default:
+		return ""
+	}
+}
+
+func submittedDirectShipLineDiscount(baseLineTotal float64, discountType string, discountValue float64) (float64, float64) {
+	if baseLineTotal <= 0 {
+		return 0, 0
+	}
+	if discountValue < 0 {
+		discountValue = 0
+	}
+	switch discountType {
+	case "free":
+		return baseLineTotal, 0
+	case "amount":
+		discountAmount := math.Min(baseLineTotal, discountValue)
+		return discountAmount, math.Max(baseLineTotal-discountAmount, 0)
+	case "percent":
+		rate := math.Max(0, math.Min(discountValue, 100))
+		lineTotal := baseLineTotal * rate / 100
+		return math.Max(baseLineTotal-lineTotal, 0), math.Max(lineTotal, 0)
+	default:
+		return 0, baseLineTotal
+	}
 }
 
 func parseSubmittedDirectShipSpecG(spec string) int64 {
