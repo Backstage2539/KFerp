@@ -152,26 +152,64 @@
             </label>
             <label>
               <span>商品</span>
-              <SearchableSelect
-                v-model="directShipProductValue"
-                :options="directShipProductOptions"
-                :option-label="productOptionLabel"
-                :option-meta="productOptionMeta"
-                :option-value="productOptionValue"
-                empty-value=""
-                placeholder="搜索客户 SKU/成品库存"
-                empty-text="没有匹配商品"
-                :disabled="loading || !normalizedCustomerId"
-                @select="selectDirectShipProduct" />
+              <span class="muted">一个收件信息可添加多行商品</span>
             </label>
+            <div class="wide-field line-list">
+              <article v-for="(row, idx) in directShipItems" :key="row.key" class="line-item">
+                <label>
+                  <span>商品</span>
+                  <SearchableSelect
+                    v-model="row.product_value"
+                    :options="directShipProductOptions"
+                    :option-label="productOptionLabel"
+                    :option-meta="productOptionMeta"
+                    :option-value="productOptionValue"
+                    empty-value=""
+                    placeholder="搜索客户 SKU/公共 SKU"
+                    empty-text="没有匹配商品"
+                    :disabled="loading || !normalizedCustomerId"
+                    @select="(option) => selectDirectShipItemProduct(row, option)" />
+                </label>
+                <label>
+                  <span>规格(g)</span>
+                  <input v-model.number="row.spec_g" type="number" min="1" step="1" @input="syncDirectShipItemPrice(row)" />
+                </label>
+                <label>
+                  <span>数量</span>
+                  <input v-model.number="row.qty" type="number" min="1" step="1" @input="syncDirectShipItemPrice(row)" />
+                </label>
+                <label>
+                  <span>单价（{{ priceUnitLabel(row) }}）</span>
+                  <input :value="row.unit_price || ''" type="text" disabled />
+                </label>
+                <div class="line-total">
+                  <span>小计</span>
+                  <strong>{{ money(rowLineTotal(row)) }}</strong>
+                </div>
+                <div v-if="rowTierRows(row).length" class="line-tier">
+                  <span>阶梯价</span>
+                  <div class="tier-chips">
+                    <span
+                      v-for="tier in rowTierRows(row)"
+                      :key="`${row.key}-${tier.id}-${tier.rangeLabel}`"
+                      class="tier-chip"
+                      :class="{ active: rowTierActive(row, tier) }">
+                      {{ tier.rangeLabel }} {{ money(tier.unitPrice) }}{{ tier.priceUnit.suffix }}
+                    </span>
+                  </div>
+                </div>
+                <button class="secondary danger" type="button" :disabled="directShipItems.length <= 1" @click="removeDirectShipItem(idx)">删除</button>
+              </article>
+              <button class="secondary" type="button" @click="addDirectShipItem">新增商品行</button>
+            </div>
             <label>
-              <span>规格</span>
-              <input v-model.trim="directShipForm.spec" placeholder="100g" />
+              <span>运费</span>
+              <input v-model.number="directShipForm.shipping_amount" type="number" min="0" step="0.01" />
             </label>
-            <label>
-              <span>数量</span>
-              <input v-model.number="directShipForm.quantity_units" type="number" min="1" />
-            </label>
+            <div class="line-total">
+              <span>订单合计</span>
+              <strong>{{ money(directShipGrandTotal) }}</strong>
+            </div>
             <label class="wide-field">
               <span>备注</span>
               <input v-model.trim="directShipForm.note" :placeholder="submitCopy.notePlaceholder" />
@@ -606,6 +644,7 @@ import {
   visibleCustomerFulfillmentImports,
 } from '../lib/customer-fulfillment'
 import { parseRecipientText } from '../lib/customer-recipient'
+import { lineTotal, syncWholesaleTierPrice, toInt, toNumber, wholesalePriceUnit, wholesaleTierPriceRows } from '../lib/order-entry'
 
 const customerId = ref(0)
 const customerOptions = ref([])
@@ -653,17 +692,14 @@ const processingForm = reactive({
   expected_date: '',
   note: '',
 })
-const directShipProductValue = ref('')
 const recipientHistoryValue = ref('')
 const recipientPasteText = ref('')
+const directShipItems = ref([newDirectShipItem()])
 const directShipForm = reactive({
   receiver_name: '',
   receiver_phone: '',
   receiver_address: '',
-  product_id: 0,
-  product_name: '',
-  spec: '',
-  quantity_units: 1,
+  shipping_amount: '',
   note: '',
 })
 const adjustmentItemValue = ref('')
@@ -712,6 +748,8 @@ const directShipProductOptions = computed(() => uniqueProductOptions([
   ...finishedGoodsProductOptions.value,
 ]))
 const recipientOptions = computed(() => fulfillmentOptions.value?.recipients || [])
+const directShipItemsTotal = computed(() => directShipItems.value.reduce((sum, row) => sum + rowLineTotal(row), 0))
+const directShipGrandTotal = computed(() => directShipItemsTotal.value + Math.max(0, toNumber(directShipForm.shipping_amount)))
 const applyPreviewEffects = computed(() => {
   if (Array.isArray(applyPreview.value?.effects) && applyPreview.value.effects.length) return applyPreview.value.effects
   return buildImportPreviewEffects(selectedParsedBatch.value?.summary || {})
@@ -867,28 +905,31 @@ async function submitDirectShipOrder() {
   error.value = ''
   ok.value = ''
   try {
+    const items = directShipItems.value
+      .map((item) => ({
+        product_id: Number(item.product_id || 0),
+        product_name: String(item.product_name || '').trim(),
+        spec_g: Number(item.spec_g || 0),
+        quantity_units: Number(item.qty || 0),
+      }))
+      .filter((item) => item.product_id > 0 && item.spec_g > 0 && item.quantity_units > 0)
     const row = await submitCustomerFulfillmentDirectShipOrder(normalizedCustomerId.value, {
       receiver_name: directShipForm.receiver_name,
       receiver_phone: directShipForm.receiver_phone,
       receiver_address: directShipForm.receiver_address,
-      product_id: Number(directShipForm.product_id || 0),
-      product_name: directShipForm.product_name,
-      spec: directShipForm.spec,
-      quantity_units: Number(directShipForm.quantity_units || 0),
+      shipping_amount: Number(directShipForm.shipping_amount || 0),
+      items,
       note: directShipForm.note,
     })
     ok.value = `${submitCopy.value.successPrefix} ${row.order_no || ''}`
-    directShipProductValue.value = ''
     recipientHistoryValue.value = ''
     recipientPasteText.value = ''
     directShipForm.receiver_name = ''
     directShipForm.receiver_phone = ''
     directShipForm.receiver_address = ''
-    directShipForm.product_id = 0
-    directShipForm.product_name = ''
-    directShipForm.spec = ''
-    directShipForm.quantity_units = 1
+    directShipForm.shipping_amount = ''
     directShipForm.note = ''
+    directShipItems.value = [newDirectShipItem()]
     fulfillmentOrdersPage.value = 1
     await loadAll()
   } catch (err) {
@@ -1068,10 +1109,13 @@ function selectProcessingRawBean(option) {
   processingForm.raw_bean_name = String(option?.item_name || '').trim()
 }
 
-function selectDirectShipProduct(option) {
-  directShipForm.product_id = Number(option?.product_id || 0)
-  directShipForm.product_name = String(option?.product_name || '').trim()
-  if (option?.spec) directShipForm.spec = String(option.spec).trim()
+function selectDirectShipItemProduct(row, option) {
+  row.product_id = Number(option?.product_id || 0)
+  row.product_name = String(option?.product_name || '').trim()
+  row.product_value = productOptionValue(option)
+  row.spec_g = parseSpecG(option?.spec) || firstTierSpecG(option) || 454
+  if (!toInt(row.qty)) row.qty = 1
+  syncDirectShipItemPrice(row)
 }
 
 function selectAdjustmentItem(option) {
@@ -1174,6 +1218,71 @@ function uniqueProductOptions(rows) {
   return out
 }
 
+function newDirectShipItem() {
+  return {
+    key: `${Date.now()}-${Math.random()}`,
+    product_id: 0,
+    product_name: '',
+    product_value: '',
+    spec_g: 454,
+    qty: 1,
+    tier_id: 'auto',
+    unit_price: '',
+  }
+}
+
+function addDirectShipItem() {
+  directShipItems.value.push(newDirectShipItem())
+}
+
+function removeDirectShipItem(idx) {
+  if (directShipItems.value.length <= 1) return
+  directShipItems.value.splice(idx, 1)
+}
+
+function productByID(id) {
+  return directShipProductOptions.value.find((item) => Number(item.product_id || 0) === Number(id)) || null
+}
+
+function syncDirectShipItemPrice(row) {
+  const product = productByID(row.product_id)
+  if (!product) {
+    row.tier_id = 'auto'
+    row.unit_price = ''
+    return
+  }
+  const price = syncWholesaleTierPrice(product, row)
+  row.tier_id = price.tierID
+  row.unit_price = price.unitPrice
+}
+
+function rowLineTotal(row) {
+  return lineTotal(productByID(row.product_id), row, false)
+}
+
+function rowTierRows(row) {
+  return wholesaleTierPriceRows(productByID(row.product_id), row)
+}
+
+function rowTierActive(row, tier) {
+  return String(row?.tier_id || '') === String(tier?.id || '')
+}
+
+function priceUnitLabel(row) {
+  return wholesalePriceUnit(row).label
+}
+
+function parseSpecG(spec) {
+  const text = String(spec || '').trim().toLowerCase().replace(/g$/, '')
+  const n = Number.parseInt(text, 10)
+  return Number.isFinite(n) && n > 0 ? n : 0
+}
+
+function firstTierSpecG(option) {
+  const first = Array.isArray(option?.tiers) ? option.tiers.find((tier) => Number(tier?.spec_g || 0) > 0) : null
+  return Number(first?.spec_g || 0)
+}
+
 function importTypeLabel(value) {
   return importTypeOptions(enabledCapabilities.value).find((option) => option.value === value)?.label || value
 }
@@ -1192,6 +1301,10 @@ function custodyTypeLabel(value) {
 
 function moneyFromCents(value) {
   return (Number(value || 0) / 100).toFixed(2)
+}
+
+function money(value) {
+  return Number(value || 0).toFixed(2)
 }
 
 function optionNumericValue(option) {
@@ -1343,6 +1456,65 @@ button:disabled {
 
 .secondary {
   background: #f8fafc;
+}
+
+.line-list {
+  display: grid;
+  gap: 10px;
+}
+
+.line-item {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+  gap: 8px;
+  align-items: end;
+  padding: 10px;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  background: #fff;
+}
+
+.line-total {
+  display: grid;
+  gap: 2px;
+  color: #475569;
+  font-size: 12px;
+}
+
+.line-total strong {
+  color: #0f172a;
+  font-size: 14px;
+}
+
+.line-tier {
+  display: grid;
+  gap: 4px;
+}
+
+.tier-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.tier-chip {
+  border: 1px solid #cbd5e1;
+  border-radius: 999px;
+  padding: 2px 8px;
+  font-size: 12px;
+  color: #475569;
+  background: #fff;
+}
+
+.tier-chip.active {
+  border-color: #0f766e;
+  color: #0f766e;
+  font-weight: 600;
+}
+
+.danger {
+  border-color: #fecaca;
+  color: #b91c1c;
 }
 
 .link-button {

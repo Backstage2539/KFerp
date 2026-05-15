@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -127,11 +128,22 @@ type SubmitCustomerDirectShipOrderCommand struct {
 	ReceiverPhone   string
 	ReceiverAddress string
 	ReceiverCompany string
+	ShippingAmount  float64
 	ProductID       int64
 	ProductName     string
 	Spec            string
 	QuantityUnits   int64
+	Items           []SubmitCustomerDirectShipOrderItem
 	Note            string
+}
+
+type SubmitCustomerDirectShipOrderItem struct {
+	ProductID     int64  `json:"product_id"`
+	ProductName   string `json:"product_name,omitempty"`
+	Spec          string `json:"spec,omitempty"`
+	SpecG         int64  `json:"spec_g,omitempty"`
+	QuantityUnits int64  `json:"quantity_units"`
+	Note          string `json:"note,omitempty"`
 }
 
 type AdjustCustodyInventoryCommand struct {
@@ -210,7 +222,17 @@ type CustomerSKUOption struct {
 	ProductName   string `json:"product_name"`
 	Spec          string `json:"spec,omitempty"`
 	RoastDegree   string `json:"roast_degree,omitempty"`
+	DefaultPrice  float64 `json:"default_price,omitempty"`
+	Tiers         []CustomerSKUPriceTier `json:"tiers,omitempty"`
 	Source        string `json:"source,omitempty"`
+}
+
+type CustomerSKUPriceTier struct {
+	ID        int64    `json:"id"`
+	SpecG     int64    `json:"spec_g"`
+	Min       float64  `json:"min"`
+	Max       *float64 `json:"max,omitempty"`
+	UnitPrice float64  `json:"unit_price"`
 }
 
 type CustodyItemOption struct {
@@ -509,6 +531,14 @@ func (s *Service) SubmitCustomerDirectShipOrder(ctx context.Context, cmd SubmitC
 	cmd.ReceiverCompany = strings.Join(strings.Fields(strings.TrimSpace(cmd.ReceiverCompany)), " ")
 	cmd.ProductName = strings.Join(strings.Fields(strings.TrimSpace(cmd.ProductName)), " ")
 	cmd.Spec = strings.Join(strings.Fields(strings.TrimSpace(cmd.Spec)), " ")
+	if cmd.ShippingAmount < 0 {
+		cmd.ShippingAmount = 0
+	}
+	for i := range cmd.Items {
+		cmd.Items[i].ProductName = strings.Join(strings.Fields(strings.TrimSpace(cmd.Items[i].ProductName)), " ")
+		cmd.Items[i].Spec = strings.Join(strings.Fields(strings.TrimSpace(cmd.Items[i].Spec)), " ")
+		cmd.Items[i].Note = strings.TrimSpace(cmd.Items[i].Note)
+	}
 	cmd.Note = strings.TrimSpace(cmd.Note)
 	if cmd.ReceiverName == "" {
 		return DirectShipOrderSummary{}, fmt.Errorf("receiver_name required")
@@ -519,13 +549,43 @@ func (s *Service) SubmitCustomerDirectShipOrder(ctx context.Context, cmd SubmitC
 	if cmd.ReceiverAddress == "" {
 		return DirectShipOrderSummary{}, fmt.Errorf("receiver_address required")
 	}
-	if cmd.ProductName == "" && cmd.ProductID <= 0 {
-		return DirectShipOrderSummary{}, fmt.Errorf("product required")
+	if len(cmd.Items) == 0 {
+		cmd.Items = []SubmitCustomerDirectShipOrderItem{{
+			ProductID:     cmd.ProductID,
+			ProductName:   cmd.ProductName,
+			Spec:          cmd.Spec,
+			QuantityUnits: cmd.QuantityUnits,
+			Note:          cmd.Note,
+		}}
 	}
-	if cmd.QuantityUnits <= 0 {
-		return DirectShipOrderSummary{}, fmt.Errorf("quantity required")
+	for _, item := range cmd.Items {
+		if item.ProductID <= 0 && item.ProductName == "" {
+			return DirectShipOrderSummary{}, fmt.Errorf("product required")
+		}
+		specG := item.SpecG
+		if specG <= 0 {
+			specG = parseCustomerFulfillmentSpecG(item.Spec)
+		}
+		if specG <= 0 {
+			return DirectShipOrderSummary{}, fmt.Errorf("spec required")
+		}
+		if item.QuantityUnits <= 0 {
+			return DirectShipOrderSummary{}, fmt.Errorf("quantity required")
+		}
 	}
 	return s.repo.SubmitCustomerDirectShipOrder(ctx, cmd)
+}
+
+func parseCustomerFulfillmentSpecG(spec string) int64 {
+	spec = strings.TrimSpace(strings.TrimSuffix(strings.ToLower(spec), "g"))
+	if spec == "" {
+		return 0
+	}
+	n, err := strconv.ParseInt(spec, 10, 64)
+	if err != nil || n <= 0 {
+		return 0
+	}
+	return n
 }
 
 func (s *Service) AdjustCustodyInventory(ctx context.Context, cmd AdjustCustodyInventoryCommand) (CustodyBalance, error) {

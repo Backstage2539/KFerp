@@ -1820,10 +1820,11 @@ func TestSubmitCustomerDirectShipOrderCreatesERPOrder(t *testing.T) {
 		ReceiverName:    "刘祎泊",
 		ReceiverPhone:   "15302787466",
 		ReceiverAddress: "云南省昆明市西山区西坝新村30号C区",
-		ProductID:       12,
-		ProductName:     "岩师傅冷萃豆",
-		Spec:            "100g",
-		QuantityUnits:   2,
+		ShippingAmount:  12,
+		Items: []app.SubmitCustomerDirectShipOrderItem{
+			{ProductID: 12, ProductName: "岩师傅冷萃豆", Spec: "100g", QuantityUnits: 2},
+			{ProductID: 12, ProductName: "岩师傅冷萃豆", Spec: "227g", QuantityUnits: 1},
+		},
 		Note:            "客户门户代发",
 	})
 	if err != nil {
@@ -1855,7 +1856,18 @@ func TestSubmitCustomerDirectShipOrderCreatesERPOrder(t *testing.T) {
 	if linkedOrderID != orderID {
 		t.Fatalf("direct ship linked order_id = %d, want %d", linkedOrderID, orderID)
 	}
-	assertCustomerFulfillmentCount(t, pool, schema, "order_items", "order_id=$1 AND item_name='岩师傅冷萃豆' AND qty=2", orderID, 1)
+	assertCustomerFulfillmentCount(t, pool, schema, "order_items", "order_id=$1", orderID, 2)
+	var totalAmount, shippingAmount, grandTotal float64
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`
+		SELECT COALESCE(total_amount,0)::float8, COALESCE(shipping_amount,0)::float8, COALESCE(grand_total,0)::float8
+		FROM %s.orders
+		WHERE id=$1
+	`, schema), orderID).Scan(&totalAmount, &shippingAmount, &grandTotal); err != nil {
+		t.Fatalf("load order amounts: %v", err)
+	}
+	if totalAmount <= 0 || shippingAmount != 12 || grandTotal <= totalAmount {
+		t.Fatalf("order amounts total/shipping/grand = %.2f/%.2f/%.2f", totalAmount, shippingAmount, grandTotal)
+	}
 }
 
 func TestInternalCustomerFulfillmentSubmitRequiresCustomerCapability(t *testing.T) {

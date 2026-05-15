@@ -177,6 +177,28 @@ func TestServiceSubmitCustomerDirectShipOrderRequiresRecipientAndItem(t *testing
 	if repo.customerDirectShipCmd.EmployeeID != 23 || repo.customerDirectShipCmd.ReceiverName != "张三" || repo.customerDirectShipCmd.ProductName != "誉观山冷萃豆" || repo.customerDirectShipCmd.Note != "门卫代收" {
 		t.Fatalf("direct ship cmd = %#v", repo.customerDirectShipCmd)
 	}
+
+	got, err = svc.SubmitCustomerDirectShipOrder(context.Background(), SubmitCustomerDirectShipOrderCommand{
+		EmployeeID:      23,
+		ReceiverName:    " 张三 ",
+		ReceiverPhone:   " 13800000000 ",
+		ReceiverAddress: " 浙江杭州 ",
+		ShippingAmount:  12.5,
+		Items: []SubmitCustomerDirectShipOrderItem{
+			{ProductID: 101, ProductName: " 冷萃拼配 ", SpecG: 454, QuantityUnits: 2, Note: " 多带两个阀 "},
+			{ProductID: 102, ProductName: " 手冲拼配 ", Spec: "227g", QuantityUnits: 1},
+		},
+		Note: " 门卫代收 ",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.OrderNo != "CDS-20260508-0001" {
+		t.Fatalf("multi line direct ship order = %#v", got)
+	}
+	if len(repo.customerDirectShipCmd.Items) != 2 || repo.customerDirectShipCmd.Items[0].SpecG != 454 || repo.customerDirectShipCmd.Items[1].Spec != "227g" {
+		t.Fatalf("direct ship multi-line cmd = %#v", repo.customerDirectShipCmd)
+	}
 }
 
 func TestServiceSubmitInternalCustomerWorkOrderAcceptsExplicitCustomerWithoutBinding(t *testing.T) {
@@ -205,6 +227,7 @@ func TestServiceSubmitInternalCustomerWorkOrderAcceptsExplicitCustomerWithoutBin
 		ReceiverPhone:   "13800000000",
 		ReceiverAddress: "浙江杭州",
 		ProductName:     "誉观山冷萃豆",
+		Spec:            "454g",
 		QuantityUnits:   1,
 	}); err != nil {
 		t.Fatalf("SubmitCustomerDirectShipOrder internal err = %v", err)
