@@ -208,6 +208,25 @@
             </div>
           </label>
 
+          <label class="discount-control">
+            <span>优惠</span>
+            <div class="discount-inputs">
+              <select v-model="row.discount_type" @change="onRowDiscountTypeChange(row)">
+                <option value="">无优惠</option>
+                <option value="amount">减免数额</option>
+                <option value="percent">折扣</option>
+                <option value="free">免费</option>
+              </select>
+              <input
+                v-if="row.discount_type === 'amount' || row.discount_type === 'percent'"
+                v-model.number="row.discount_value"
+                type="number"
+                min="0"
+                step="0.01"
+                :placeholder="row.discount_type === 'percent' ? '90=9折' : '减免金额'" />
+            </div>
+          </label>
+
           <div class="line-total">
             <span>小计</span>
             <strong>{{ money(rowTotal(row)) }}</strong>
@@ -274,6 +293,7 @@
           <li>常用规格：36g、80g、100g、227g、454g、500g、1000g、2.5kg。</li>
           <li>新订单默认已付款、未发货；商品单价会随规格和数量匹配价格梯度。</li>
           <li>需要临时改价时直接修改单价，点击 ↺ 恢复自动梯度价。</li>
+          <li>每条商品明细可选择减免数额、折扣或免费，保存后会计入订单优惠。</li>
           <li>每条商品明细可填写“条目备注”，会随该商品带入销售单和出库单。</li>
           <li>库存充足时保存前会提示成品批次；历史库存没有 FP 批次时会提示库存余额，确认使用后进入库存待发货。</li>
         </ul>
@@ -427,6 +447,8 @@ function newRow() {
     qty: 1,
     unit: '件',
     item_note: '',
+    discount_type: '',
+    discount_value: '',
   }
 }
 
@@ -674,6 +696,12 @@ function rowTotal(row) {
   return lineTotal(productByID(row.product_id), row, retailOrder.value)
 }
 
+function onRowDiscountTypeChange(row) {
+  if (row?.discount_type === 'free' || row?.discount_type === '') {
+    row.discount_value = ''
+  }
+}
+
 function money(value) {
   return Number(value || 0).toFixed(2)
 }
@@ -753,6 +781,8 @@ function applyEditData(data) {
       qty: Number(item.qty || 1),
       unit: item.unit || '件',
       item_note: item.note || '',
+      discount_type: item.discount_type || '',
+      discount_value: item.discount_value || '',
     }
   })
   if (!rows.value.length) rows.value = [newRow()]
@@ -897,9 +927,10 @@ button:disabled { cursor: not-allowed; opacity: 0.5; }
 .combo-option:hover { background: #f3f6fb; }
 .combo-empty { padding: 12px; color: #667085; font-size: 13px; }
 .line-list { display: grid; gap: 10px; margin-top: 12px; }
-.line-item { display: grid; grid-template-columns: minmax(260px, 1.5fr) minmax(180px, 0.9fr) minmax(110px, 0.55fr) minmax(150px, 0.75fr) minmax(110px, 0.6fr) auto; align-items: end; gap: 12px; padding: 12px; border: 1px solid #edf0f5; border-radius: 8px; background: #fcfcfd; }
+.line-item { display: grid; grid-template-columns: minmax(240px, 1.35fr) minmax(160px, 0.85fr) minmax(90px, 0.45fr) minmax(145px, 0.7fr) minmax(150px, 0.75fr) minmax(100px, 0.5fr) auto; align-items: end; gap: 12px; padding: 12px; border: 1px solid #edf0f5; border-radius: 8px; background: #fcfcfd; }
 .product-cell { z-index: 3; }
 .spec-control, .price-control { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; align-items: center; }
+.discount-inputs { display: grid; gap: 6px; }
 .spec-control input { min-width: 86px; }
 .icon-button { width: 38px; height: 38px; padding: 0; display: inline-grid; place-items: center; border: 1px solid #c9ced8; background: #fff; }
 .line-total { display: grid; gap: 3px; padding-bottom: 2px; }

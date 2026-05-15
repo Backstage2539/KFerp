@@ -251,6 +251,11 @@ function trimNumber(value) {
 }
 
 export function lineTotal(product, row, retailOrder) {
+  const base = lineTotalBeforeDiscount(product, row, retailOrder)
+  return Math.max(base - lineDiscountAmount(base, row), 0)
+}
+
+export function lineTotalBeforeDiscount(product, row, retailOrder) {
   const units = Math.max(0, toInt(row?.qty))
   const specG = normalizeSpecG(row)
   if (units <= 0 || specG <= 0) return 0
@@ -260,6 +265,20 @@ export function lineTotal(product, row, retailOrder) {
   if (retailOrder) return retailPackagePrice(product, specG) * units
   const price = toNumber(row?.unit_price)
   return price * rowQuantityForWholesalePriceUnit(row)
+}
+
+export function lineDiscountAmount(baseLineTotal, row) {
+  const base = Math.max(0, toNumber(baseLineTotal))
+  if (base <= 0) return 0
+  const type = String(row?.discount_type || '').trim()
+  const value = Math.max(0, toNumber(row?.discount_value))
+  if (type === 'free') return base
+  if (type === 'amount') return Math.min(value, base)
+  if (type === 'percent') {
+    const rate = Math.max(0, Math.min(value, 100))
+    return Math.max(base - (base * rate / 100), 0)
+  }
+  return 0
 }
 
 export function buildOrderPayload({ form, rows }) {
@@ -295,6 +314,8 @@ export function buildOrderPayload({ form, rows }) {
     qty: [],
     unit: [],
     spec: [],
+    discount_type: [],
+    discount_value: [],
   }
 
   for (const row of rows || []) {
@@ -310,6 +331,8 @@ export function buildOrderPayload({ form, rows }) {
     payload.qty.push(String(qty))
     payload.unit.push(row.unit || '件')
     payload.spec.push(String(specG))
+    payload.discount_type.push(String(row.discount_type || '').trim())
+    payload.discount_value.push(row.discount_type === 'amount' || row.discount_type === 'percent' ? String(row.discount_value || '') : '')
   }
 
   return payload

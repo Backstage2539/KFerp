@@ -853,22 +853,20 @@ func (r *Repository) refreshSubmittedDirectShipOrderAmountsTx(ctx context.Contex
 	if shippingAmount < 0 {
 		shippingAmount = 0
 	}
-	var totalAmount float64
-	if err := tx.QueryRow(ctx, fmt.Sprintf(`
-		SELECT COALESCE(SUM(COALESCE(line_total,0)),0)::float8
-		FROM %s.order_items
-		WHERE order_id=$1
-	`, r.schema), orderID).Scan(&totalAmount); err != nil {
+	items, err := r.submittedDirectShipERPItemSeedsTx(ctx, tx, importOrderID)
+	if err != nil {
 		return err
 	}
-	grandTotal := totalAmount + shippingAmount
-	_, err := tx.Exec(ctx, fmt.Sprintf(`
+	totalAmount, discountAmount := submittedDirectShipERPOrderAmounts(items)
+	grandTotal := totalAmount + shippingAmount - discountAmount
+	_, err = tx.Exec(ctx, fmt.Sprintf(`
 		UPDATE %s.orders
 		SET total_amount=$2,
 		    shipping_amount=$3,
-		    grand_total=$4
+		    discount_amount=$4,
+		    grand_total=$5
 		WHERE id=$1
-	`, r.schema), orderID, totalAmount, shippingAmount, grandTotal)
+	`, r.schema), orderID, totalAmount, shippingAmount, discountAmount, grandTotal)
 	return err
 }
 
@@ -1038,6 +1036,60 @@ func repairSubmittedDirectShipERPOrderReceivers(ctx context.Context, pool *pgxpo
 	return tx.Commit(ctx)
 }
 
+func repairSubmittedDirectShipERPOrderDiscounts(ctx context.Context, pool *pgxpool.Pool, schema string) error {
+	repo := NewRepository(pool, schema)
+	rows, err := pool.Query(ctx, fmt.Sprintf(`
+		SELECT id, COALESCE(order_id,0)
+		FROM %s.customer_direct_ship_import_orders
+		WHERE COALESCE(order_id,0)>0
+		ORDER BY id
+	`, schema))
+	if err != nil {
+		return err
+	}
+	type seed struct {
+		importOrderID int64
+		orderID       int64
+	}
+	seeds := make([]seed, 0)
+	for rows.Next() {
+		var s seed
+		if err := rows.Scan(&s.importOrderID, &s.orderID); err != nil {
+			rows.Close()
+			return err
+		}
+		seeds = append(seeds, s)
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return err
+	}
+	rows.Close()
+
+	for _, s := range seeds {
+		tx, err := pool.Begin(ctx)
+		if err != nil {
+			return err
+		}
+		if _, err := tx.Exec(ctx, fmt.Sprintf(`DELETE FROM %s.order_items WHERE order_id=$1`, schema), s.orderID); err != nil {
+			_ = tx.Rollback(ctx)
+			return err
+		}
+		if err := repo.createSubmittedDirectShipERPOrderItemsTx(ctx, tx, s.importOrderID, s.orderID); err != nil {
+			_ = tx.Rollback(ctx)
+			return err
+		}
+		if err := repo.refreshSubmittedDirectShipOrderAmountsTx(ctx, tx, s.importOrderID, s.orderID); err != nil {
+			_ = tx.Rollback(ctx)
+			return err
+		}
+		if err := tx.Commit(ctx); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func (r *Repository) createSubmittedDirectShipERPOrderTx(ctx context.Context, tx pgx.Tx, importOrderID int64) (int64, error) {
 	var customerID, existingOrderID int64
 	var orderNo, orderDate, receiverSnapshot string
@@ -1109,6 +1161,40 @@ func (r *Repository) createSubmittedDirectShipERPOrderTx(ctx context.Context, tx
 }
 
 func (r *Repository) createSubmittedDirectShipERPOrderItemsTx(ctx context.Context, tx pgx.Tx, importOrderID, orderID int64) error {
+	items, err := r.submittedDirectShipERPItemSeedsTx(ctx, tx, importOrderID)
+	if err != nil {
+		return err
+	}
+
+	for _, item := range items {
+		if _, err := tx.Exec(ctx, fmt.Sprintf(`
+			INSERT INTO %s.order_items(
+				order_id,line_no,product_id,item_name,qty,unit,spec,unit_price,
+				line_total_before_discount,discount_type,discount_value,discount_amount,line_total
+			)
+			VALUES($1,$2,$3,$4,$5,'件',$6,$7,$8,$9,$10,$11,$12)
+		`, r.schema), orderID, item.lineNo, nullableCustomerFulfillmentID(item.productID), item.productTitle, item.quantity, item.spec, item.unitPrice, item.baseLineTotal, item.discountType, item.discountValue, item.discountAmount, item.lineTotal); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+type submittedDirectShipERPItemSeed struct {
+	lineNo         int
+	productID      int64
+	productTitle   string
+	spec           string
+	quantity       int64
+	unitPrice      float64
+	baseLineTotal  float64
+	discountType   string
+	discountValue  float64
+	discountAmount float64
+	lineTotal      float64
+}
+
+func (r *Repository) submittedDirectShipERPItemSeedsTx(ctx context.Context, tx pgx.Tx, importOrderID int64) ([]submittedDirectShipERPItemSeed, error) {
 	rows, err := tx.Query(ctx, fmt.Sprintf(`
 		SELECT line_no, product_title, spec, quantity_units, payload
 		FROM %s.customer_direct_ship_import_order_items
@@ -1116,18 +1202,9 @@ func (r *Repository) createSubmittedDirectShipERPOrderItemsTx(ctx context.Contex
 		ORDER BY line_no, id
 	`, r.schema), importOrderID)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	type itemSeed struct {
-		lineNo       int
-		productID    int64
-		productTitle string
-		spec         string
-		quantity     int64
-		unitPrice    float64
-		lineTotal    float64
-	}
-	items := make([]itemSeed, 0)
+	items := make([]submittedDirectShipERPItemSeed, 0)
 	lineNo := 0
 	for rows.Next() {
 		lineNo++
@@ -1136,7 +1213,8 @@ func (r *Repository) createSubmittedDirectShipERPOrderItemsTx(ctx context.Contex
 		var quantity int64
 		var payloadJSON []byte
 		if err := rows.Scan(&rowLineNo, &productTitle, &spec, &quantity, &payloadJSON); err != nil {
-			return err
+			rows.Close()
+			return nil, err
 		}
 		payload := map[string]any{}
 		if len(payloadJSON) > 0 {
@@ -1156,38 +1234,57 @@ func (r *Repository) createSubmittedDirectShipERPOrderItemsTx(ctx context.Contex
 			quantity = 1
 		}
 		unitPrice := payloadFloat(payload, "unit_price")
+		baseLineTotal := payloadFloat(payload, "line_total_before_discount")
 		lineTotal := payloadFloat(payload, "line_total")
-		if lineTotal <= 0 && unitPrice > 0 {
+		if baseLineTotal <= 0 && unitPrice > 0 {
+			baseLineTotal = unitPrice * float64(quantity)
+		}
+		discountType := normalizeSubmittedDirectShipDiscountType(payloadString(payload, "discount_type"))
+		discountValue := payloadFloat(payload, "discount_value")
+		discountAmount := payloadFloat(payload, "discount_amount")
+		if lineTotal <= 0 && discountType == "" && discountAmount <= 0 && unitPrice > 0 {
 			lineTotal = unitPrice * float64(quantity)
+		}
+		if discountAmount <= 0 && baseLineTotal > 0 {
+			discountAmount, lineTotal = submittedDirectShipLineDiscount(baseLineTotal, discountType, discountValue)
 		}
 		if rowLineNo <= 0 {
 			rowLineNo = lineNo
 		}
-		items = append(items, itemSeed{
-			lineNo:       rowLineNo,
-			productID:    productID,
-			productTitle: productTitle,
-			spec:         spec,
-			quantity:     quantity,
-			unitPrice:    unitPrice,
-			lineTotal:    lineTotal,
+		items = append(items, submittedDirectShipERPItemSeed{
+			lineNo:         rowLineNo,
+			productID:      productID,
+			productTitle:   productTitle,
+			spec:           spec,
+			quantity:       quantity,
+			unitPrice:      unitPrice,
+			baseLineTotal:  baseLineTotal,
+			discountType:   discountType,
+			discountValue:  discountValue,
+			discountAmount: discountAmount,
+			lineTotal:      lineTotal,
 		})
 	}
 	if err := rows.Err(); err != nil {
 		rows.Close()
-		return err
+		return nil, err
 	}
 	rows.Close()
+	return items, nil
+}
 
+func submittedDirectShipERPOrderAmounts(items []submittedDirectShipERPItemSeed) (float64, float64) {
+	totalAmount := 0.0
+	discountAmount := 0.0
 	for _, item := range items {
-		if _, err := tx.Exec(ctx, fmt.Sprintf(`
-			INSERT INTO %s.order_items(order_id,line_no,product_id,item_name,qty,unit,spec,unit_price,line_total)
-			VALUES($1,$2,$3,$4,$5,'件',$6,$7,$8)
-		`, r.schema), orderID, item.lineNo, nullableCustomerFulfillmentID(item.productID), item.productTitle, item.quantity, item.spec, item.unitPrice, item.lineTotal); err != nil {
-			return err
+		base := item.baseLineTotal
+		if base <= 0 {
+			base = item.lineTotal + item.discountAmount
 		}
+		totalAmount += base
+		discountAmount += item.discountAmount
 	}
-	return nil
+	return totalAmount, discountAmount
 }
 
 func submittedDirectShipReceiver(payload map[string]any, snapshot string) (string, string, string, string) {

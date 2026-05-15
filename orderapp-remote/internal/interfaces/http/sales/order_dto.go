@@ -34,14 +34,16 @@ type CreateOrderRequest struct {
 	OutsourceOtherFee     string `form:"outsource_other_fee"`
 	StockBatchDecision    string `form:"stock_batch_decision"`
 
-	ProductID []string `form:"product_id[]"`
-	TierID    []string `form:"tier_id[]"`
-	UnitPrice []string `form:"unit_price[]"`
-	ItemName  []string `form:"item_name[]"`
-	ItemNote  []string `form:"item_note[]"`
-	Qty       []string `form:"qty[]"`
-	Unit      []string `form:"unit[]"`
-	Spec      []string `form:"spec[]"`
+	ProductID     []string `form:"product_id[]"`
+	TierID        []string `form:"tier_id[]"`
+	UnitPrice     []string `form:"unit_price[]"`
+	ItemName      []string `form:"item_name[]"`
+	ItemNote      []string `form:"item_note[]"`
+	Qty           []string `form:"qty[]"`
+	Unit          []string `form:"unit[]"`
+	Spec          []string `form:"spec[]"`
+	DiscountType  []string `form:"discount_type[]"`
+	DiscountValue []string `form:"discount_value[]"`
 }
 
 type UpdateOrderRequest struct {

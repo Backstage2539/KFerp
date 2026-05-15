@@ -95,7 +95,7 @@ func parseCreateOrderAmount(raw, field string) (float64, error) {
 
 func orderItemCommandsFromCreateRequest(req CreateOrderRequest) []salesapp.OrderItemCommand {
 	items := make([]salesapp.OrderItemCommand, 0)
-	for i := 0; i < maxLen(req.ItemName, req.ItemNote, req.ProductID, req.TierID, req.UnitPrice, req.Qty, req.Unit, req.Spec); i++ {
+	for i := 0; i < maxLen(req.ItemName, req.ItemNote, req.ProductID, req.TierID, req.UnitPrice, req.Qty, req.Unit, req.Spec, req.DiscountType, req.DiscountValue); i++ {
 		pidStr := strings.TrimSpace(getStr(req.ProductID, i))
 		name := strings.TrimSpace(getStr(req.ItemName, i))
 		if pidStr == "" && name == "" {
@@ -116,6 +116,12 @@ func orderItemCommandsFromCreateRequest(req CreateOrderRequest) []salesapp.Order
 				}
 			} else if tid, err := strconv.ParseInt(tidStr, 10, 64); err == nil && tid > 0 {
 				it.TierID = &tid
+			}
+		}
+		it.DiscountType = strings.TrimSpace(strings.ToLower(getStr(req.DiscountType, i)))
+		if v := strings.TrimSpace(getStr(req.DiscountValue, i)); v != "" {
+			if f, err := strconv.ParseFloat(v, 64); err == nil && f > 0 {
+				it.DiscountValue = f
 			}
 		}
 		if q := strings.TrimSpace(getStr(req.Qty, i)); q != "" {

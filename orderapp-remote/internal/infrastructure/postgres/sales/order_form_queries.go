@@ -273,9 +273,12 @@ func (r Repository) fetchOrderEdit(ctx context.Context, id int64) (*salesapp.Ord
 			COALESCE(oi.spec,''),
 			COALESCE(oi.qty,0),
 			COALESCE(oi.unit,''),
-			COALESCE(oi.unit_price,0),
-			COALESCE(oi.line_total,0),
-			COALESCE(oi.price_tier_id,0)
+				COALESCE(oi.unit_price,0),
+				COALESCE(oi.line_total,0),
+				COALESCE(oi.price_tier_id,0),
+				COALESCE(oi.discount_type,''),
+				COALESCE(oi.discount_value,0),
+				COALESCE(oi.discount_amount,0)
 		FROM %s.order_items oi
 		LEFT JOIN %s.products p ON p.id=oi.product_id
 		WHERE oi.order_id=$1
@@ -290,13 +293,15 @@ func (r Repository) fetchOrderEdit(ctx context.Context, id int64) (*salesapp.Ord
 	d.Items = make([]salesapp.OrderEditItem, 0)
 	for rows.Next() {
 		var it salesapp.OrderEditItem
-		var qty, unitPrice, lineTotal float64
-		if err := rows.Scan(&it.ItemID, &it.LineNo, &it.ProductID, &it.Product, &it.Note, &it.Spec, &qty, &it.Unit, &unitPrice, &lineTotal, &it.PriceTierID); err != nil {
+		var qty, unitPrice, lineTotal, discountValue, discountAmount float64
+		if err := rows.Scan(&it.ItemID, &it.LineNo, &it.ProductID, &it.Product, &it.Note, &it.Spec, &qty, &it.Unit, &unitPrice, &lineTotal, &it.PriceTierID, &it.DiscountType, &discountValue, &discountAmount); err != nil {
 			return nil, err
 		}
 		it.Qty = trimFloatZero(qty)
 		it.UnitPrice = fmt.Sprintf("%.2f", unitPrice)
 		it.LineTotal = fmt.Sprintf("%.2f", lineTotal)
+		it.DiscountValue = trimFloatZero(discountValue)
+		it.DiscountAmount = fmt.Sprintf("%.2f", discountAmount)
 		d.Items = append(d.Items, it)
 	}
 	if err := rows.Err(); err != nil {
