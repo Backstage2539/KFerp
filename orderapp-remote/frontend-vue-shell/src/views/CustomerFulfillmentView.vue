@@ -1118,6 +1118,11 @@ function selectDirectShipItemProduct(row, option) {
   syncDirectShipItemPrice(row)
 }
 
+function selectDirectShipProduct(option) {
+  if (!directShipItems.value.length) directShipItems.value = [newDirectShipItem()]
+  selectDirectShipItemProduct(directShipItems.value[0], option)
+}
+
 function selectAdjustmentItem(option) {
   adjustment.item_type = option?.item_type || adjustment.item_type
   adjustment.item_name = String(option?.item_name || '').trim()
