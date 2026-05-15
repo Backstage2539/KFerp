@@ -120,6 +120,8 @@ func (h customerHandler) index(c echo.Context) error {
 
 func (h customerHandler) indexAPI(c echo.Context) error {
 	q := strings.TrimSpace(c.QueryParam("q"))
+	customerType := strings.TrimSpace(c.QueryParam("customer_type"))
+	active := parseTriStateBool(c.QueryParam("active"))
 	limit := support.IntParam(c, "limit", 10)
 	if limit <= 0 {
 		limit = 10
@@ -134,20 +136,56 @@ func (h customerHandler) indexAPI(c echo.Context) error {
 	if page := support.IntParam(c, "page", 0); page > 0 {
 		offset = (page - 1) * limit
 	}
-	result, err := h.customer.List(c.Request().Context(), customerapp.ListQuery{Query: q, Limit: limit, Offset: offset})
+	result, err := h.customer.List(c.Request().Context(), customerapp.ListQuery{
+		Query:         q,
+		CustomerType:  customerType,
+		Active:        active,
+		SortBy:        c.QueryParam("sort_by"),
+		SortDirection: c.QueryParam("sort_direction"),
+		Limit:         limit,
+		Offset:        offset,
+	})
 	if err != nil {
 		return c.JSON(http.StatusInternalServerError, map[string]any{"error": err.Error()})
 	}
 	return c.JSON(http.StatusOK, map[string]any{
-		"rows":        result.Rows,
-		"sources":     apiOptions(result.Sources),
-		"order_types": apiOptions(result.OrderTypes),
-		"page":        (offset / limit) + 1,
-		"limit":       limit,
-		"offset":      offset,
-		"has_prev":    offset > 0,
-		"has_next":    result.HasNext,
+		"rows":           result.Rows,
+		"sources":        apiOptions(result.Sources),
+		"order_types":    apiOptions(result.OrderTypes),
+		"page":           (offset / limit) + 1,
+		"limit":          limit,
+		"offset":         offset,
+		"customer_type":  customerType,
+		"active":         formatActiveFilter(active),
+		"sort_by":        c.QueryParam("sort_by"),
+		"sort_direction": c.QueryParam("sort_direction"),
+		"has_prev":       offset > 0,
+		"has_next":       result.HasNext,
 	})
+}
+
+func parseTriStateBool(value string) *bool {
+	v := strings.TrimSpace(strings.ToLower(value))
+	switch v {
+	case "1", "true", "yes", "on", "enabled", "active", "y":
+		b := true
+		return &b
+	case "0", "false", "no", "off", "disabled", "inactive", "n":
+		b := false
+		return &b
+	default:
+		return nil
+	}
+}
+
+func formatActiveFilter(active *bool) string {
+	if active == nil {
+		return ""
+	}
+	if *active {
+		return "true"
+	}
+	return "false"
 }
 
 func (h customerHandler) detailAPI(c echo.Context) error {

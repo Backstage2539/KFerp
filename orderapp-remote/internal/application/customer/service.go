@@ -73,9 +73,13 @@ type DeleteAssetResult struct {
 }
 
 type ListQuery struct {
-	Query  string
-	Limit  int
-	Offset int
+	Query         string
+	Limit         int
+	Offset        int
+	CustomerType  string
+	Active        *bool
+	SortBy        string
+	SortDirection string
 }
 
 type ListResult struct {
@@ -181,6 +185,9 @@ func (s *Service) Upsert(ctx context.Context, actor string, id *int64, cmd Upser
 }
 
 func (s *Service) List(ctx context.Context, query ListQuery) (ListResult, error) {
+	query.CustomerType = NormalizeCustomerTypeFilter(query.CustomerType)
+	query.SortBy = NormalizeCustomerSortBy(query.SortBy)
+	query.SortDirection = NormalizeCustomerSortDirection(query.SortDirection)
 	if query.Limit <= 0 {
 		query.Limit = 10
 	}
@@ -230,5 +237,32 @@ func NormalizeCustomerType(value string) string {
 		return CustomerTypeEcommerce
 	default:
 		return CustomerTypeRetail
+	}
+}
+
+func NormalizeCustomerTypeFilter(value string) string {
+	switch strings.TrimSpace(value) {
+	case CustomerTypeWholesale, CustomerTypeEcommerce, CustomerTypeRetail:
+		return strings.TrimSpace(value)
+	default:
+		return ""
+	}
+}
+
+func NormalizeCustomerSortBy(value string) string {
+	switch strings.TrimSpace(strings.ToLower(value)) {
+	case "name", "updated":
+		return strings.TrimSpace(strings.ToLower(value))
+	default:
+		return "name"
+	}
+}
+
+func NormalizeCustomerSortDirection(value string) string {
+	switch strings.TrimSpace(strings.ToLower(value)) {
+	case "desc", "descending":
+		return "desc"
+	default:
+		return "asc"
 	}
 }

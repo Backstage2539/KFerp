@@ -115,7 +115,17 @@
             <div class="summary-block">
               <b>ERP 客户页面</b>
               <div class="chips">
-                <i v-for="key in selectedTemplate(row).erp_view_keys || []" :key="`${row.customer.id}-${key}`">{{ viewLabel(key) }}</i>
+                <template v-for="key in selectedTemplate(row).erp_view_keys || []" :key="`${row.customer.id}-${key}`">
+                  <button
+                    v-if="key === 'customerProcessingPortal'"
+                    type="button"
+                    class="chip-link"
+                    @click="openCustomerProcessingPortal"
+                  >
+                    {{ viewLabel(key) }}
+                  </button>
+                  <i v-else>{{ viewLabel(key) }}</i>
+                </template>
               </div>
             </div>
           </template>
@@ -410,6 +420,12 @@ function themeLabel(value) {
   return `小程序主题：${themeLabels[value] || themeLabels.coffee_factory}`
 }
 
+function openCustomerProcessingPortal() {
+  window.dispatchEvent(new CustomEvent('kferp:navigate-view', {
+    detail: { key: 'customerProcessingPortal' },
+  }))
+}
+
 function viewLabel(key) {
   if (key === 'customerProcessingPortal') return '客户履约工作台'
   return key
@@ -517,6 +533,20 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .summary-meta i, .chips i { font-style: normal; border: 1px solid #dde3ea; border-radius: 999px; background: #f8fafc; padding: 4px 8px; color: #333; font-size: 12px; line-height: 1.3; max-width: 100%; overflow-wrap: anywhere; }
 .summary-block { display: grid; gap: 5px; }
 .summary-block b { font-size: 12px; color: #555; }
+.chip-link {
+  font-style: normal;
+  font-size: 12px;
+  line-height: 1.3;
+  border: 1px solid #dde3ea;
+  border-radius: 999px;
+  background: #f8fafc;
+  color: #1f4f82;
+  padding: 4px 8px;
+  display: inline-flex;
+  align-items: center;
+  cursor: pointer;
+  font-family: inherit;
+}
 .binding-row { border: 1px solid #e4e7ec; border-radius: 8px; padding: 8px; }
 .binding-row strong { font-size: 13px; }
 .external-user-form, .external-user-list { display: grid; gap: 8px; }

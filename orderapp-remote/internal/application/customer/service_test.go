@@ -7,8 +7,9 @@ import (
 )
 
 type fakeRepo struct {
-	upsert UpsertCommand
-	asset  SaveAssetCommand
+	upsert    UpsertCommand
+	asset     SaveAssetCommand
+	listQuery ListQuery
 }
 
 func (r *fakeRepo) Upsert(ctx context.Context, actor string, id *int64, cmd UpsertCommand) (int64, error) {
@@ -38,6 +39,7 @@ func (r *fakeRepo) Delete(ctx context.Context, actor string, id int64) error {
 }
 
 func (r *fakeRepo) List(ctx context.Context, query ListQuery) (ListResult, error) {
+	r.listQuery = query
 	return ListResult{}, nil
 }
 
@@ -76,5 +78,66 @@ func TestServiceDelegatesAssetSave(t *testing.T) {
 	}
 	if res.CustomerID != 4 || repo.asset.Kind != "logo" {
 		t.Fatalf("SaveAsset result = %+v command = %+v", res, repo.asset)
+	}
+}
+
+func TestServiceListNormalizesQuery(t *testing.T) {
+	repo := &fakeRepo{}
+	svc := NewService(repo)
+	active := true
+	_, err := svc.List(context.Background(), ListQuery{
+		Query:         "rock",
+		CustomerType:  "bad-type",
+		SortBy:        "weird",
+		SortDirection: "weird",
+		Limit:         0,
+		Offset:        -7,
+		Active:        &active,
+	})
+	if err != nil {
+		t.Fatalf("List() error = %v", err)
+	}
+	if repo.listQuery.Query != "rock" {
+		t.Fatalf("list query = %q, want rock", repo.listQuery.Query)
+	}
+	if repo.listQuery.CustomerType != "" {
+		t.Fatalf("normalized customer_type = %q, want empty", repo.listQuery.CustomerType)
+	}
+	if repo.listQuery.SortBy != "name" {
+		t.Fatalf("normalized sort_by = %q, want name", repo.listQuery.SortBy)
+	}
+	if repo.listQuery.SortDirection != "asc" {
+		t.Fatalf("normalized sort_direction = %q, want asc", repo.listQuery.SortDirection)
+	}
+	if repo.listQuery.Limit != 10 {
+		t.Fatalf("normalized limit = %d, want 10", repo.listQuery.Limit)
+	}
+	if repo.listQuery.Offset != 0 {
+		t.Fatalf("normalized offset = %d, want 0", repo.listQuery.Offset)
+	}
+	if repo.listQuery.Active == nil || *repo.listQuery.Active != true {
+		t.Fatalf("normalized active = %+v, want true", repo.listQuery.Active)
+	}
+}
+
+func TestServiceListRespectsExplicitSort(t *testing.T) {
+	repo := &fakeRepo{}
+	svc := NewService(repo)
+	_, err := svc.List(context.Background(), ListQuery{
+		SortBy:        "updated",
+		SortDirection: "desc",
+		Limit:         15,
+	})
+	if err != nil {
+		t.Fatalf("List() error = %v", err)
+	}
+	if repo.listQuery.SortBy != "updated" {
+		t.Fatalf("sort_by = %q, want updated", repo.listQuery.SortBy)
+	}
+	if repo.listQuery.SortDirection != "desc" {
+		t.Fatalf("sort_direction = %q, want desc", repo.listQuery.SortDirection)
+	}
+	if repo.listQuery.Limit != 15 {
+		t.Fatalf("limit = %d, want 15", repo.listQuery.Limit)
 	}
 }

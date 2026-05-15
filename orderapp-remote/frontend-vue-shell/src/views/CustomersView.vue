@@ -15,6 +15,23 @@
           <span>搜索</span>
           <input v-model.trim="q" placeholder="客户/公司/联系人/联系电话/地址" @keyup.enter="loadPage(1)" />
         </label>
+        <label>
+          <span>客户类型</span>
+          <select v-model="customerTypeFilter">
+            <option value="">全部类型</option>
+            <option value="retail">零售客户</option>
+            <option value="ecommerce">电商客户</option>
+            <option value="wholesale">批发客户</option>
+          </select>
+        </label>
+        <label>
+          <span>启用状态</span>
+          <select v-model="activeFilter">
+            <option value="">全部</option>
+            <option value="true">启用</option>
+            <option value="false">停用</option>
+          </select>
+        </label>
         <button class="primary" type="button" @click="loadPage(1)" :disabled="loading">查询</button>
       </div>
     </section>
@@ -128,7 +145,13 @@
         <table>
           <thead>
             <tr>
-              <th>客户</th>
+              <th class="sortable" @click="setSort('name')">
+                客户
+                <span class="sort-icons">
+                  <span :class="{ active: sortBy === 'name' && sortDirection === 'asc' }">▲</span>
+                  <span :class="{ active: sortBy === 'name' && sortDirection === 'desc' }">▼</span>
+                </span>
+              </th>
               <th>类型</th>
               <th>公司</th>
               <th>联系电话</th>
@@ -137,7 +160,13 @@
               <th>来源</th>
               <th>订单类型</th>
               <th>状态</th>
-              <th>更新时间</th>
+              <th class="sortable" @click="setSort('updated')">
+                更新时间
+                <span class="sort-icons">
+                  <span :class="{ active: sortBy === 'updated' && sortDirection === 'asc' }">▲</span>
+                  <span :class="{ active: sortBy === 'updated' && sortDirection === 'desc' }">▼</span>
+                </span>
+              </th>
             </tr>
           </thead>
           <tbody>
@@ -183,6 +212,10 @@ const q = ref('')
 const page = ref(1)
 const hasPrev = ref(false)
 const hasNext = ref(false)
+const customerTypeFilter = ref('')
+const activeFilter = ref('')
+const sortBy = ref('name')
+const sortDirection = ref('asc')
 const loading = ref(false)
 const error = ref('')
 const ok = ref('')
@@ -290,7 +323,37 @@ function bytes(value) {
 function applyUrl() {
   const params = new URL(window.location.href).searchParams
   q.value = params.get('q') || ''
-  page.value = Math.max(1, Number(params.get('page') || 1))
+  const parsedPage = Number(params.get('page') || 1)
+  page.value = Number.isFinite(parsedPage) && parsedPage > 0 ? parsedPage : 1
+  customerTypeFilter.value = normalizeListCustomerType(params.get('customer_type'))
+  activeFilter.value = normalizeActiveFilter(params.get('active'))
+  sortBy.value = normalizeCustomerSortBy(params.get('sort_by'))
+  sortDirection.value = normalizeCustomerSortDirection(params.get('sort_direction'))
+}
+
+function normalizeListCustomerType(value) {
+  const v = String(value || '').trim().toLowerCase()
+  if (v === 'retail' || v === 'ecommerce' || v === 'wholesale') return v
+  return ''
+}
+
+function normalizeActiveFilter(value) {
+  const v = String(value || '').trim().toLowerCase()
+  if (v === 'true' || v === '1' || v === 'on' || v === 'yes' || v === 'enabled' || v === 'active' || v === 'y') return 'true'
+  if (v === 'false' || v === '0' || v === 'off' || v === 'no' || v === 'disabled' || v === 'inactive' || v === 'n') return 'false'
+  return ''
+}
+
+function normalizeCustomerSortBy(value) {
+  const v = String(value || '').trim().toLowerCase()
+  if (v === 'name' || v === 'updated') return v
+  return 'name'
+}
+
+function normalizeCustomerSortDirection(value) {
+  const v = String(value || '').trim().toLowerCase()
+  if (v === 'desc') return 'desc'
+  return 'asc'
 }
 
 function updateUrl(extra = {}) {
@@ -298,6 +361,12 @@ function updateUrl(extra = {}) {
   url.searchParams.set('view', 'customers')
   if (q.value) url.searchParams.set('q', q.value)
   else url.searchParams.delete('q')
+  if (customerTypeFilter.value) url.searchParams.set('customer_type', customerTypeFilter.value)
+  else url.searchParams.delete('customer_type')
+  if (activeFilter.value) url.searchParams.set('active', activeFilter.value)
+  else url.searchParams.delete('active')
+  url.searchParams.set('sort_by', sortBy.value)
+  url.searchParams.set('sort_direction', sortDirection.value)
   url.searchParams.set('page', String(page.value))
   url.searchParams.delete('mode')
   url.searchParams.delete('edit_id')
@@ -317,6 +386,10 @@ async function load() {
   try {
     const url = new URL('/api/customers', window.location.origin)
     if (q.value) url.searchParams.set('q', q.value)
+    if (customerTypeFilter.value) url.searchParams.set('customer_type', customerTypeFilter.value)
+    if (activeFilter.value) url.searchParams.set('active', activeFilter.value)
+    url.searchParams.set('sort_by', sortBy.value)
+    url.searchParams.set('sort_direction', sortDirection.value)
     url.searchParams.set('page', String(page.value))
     const data = await apiGet(url)
     rows.value = data.rows || []
@@ -332,6 +405,18 @@ async function load() {
   } finally {
     loading.value = false
   }
+}
+
+async function setSort(field) {
+  if (sortBy.value !== field) {
+    sortBy.value = field
+    sortDirection.value = 'asc'
+  } else if (sortDirection.value === 'asc') {
+    sortDirection.value = 'desc'
+  } else {
+    sortDirection.value = 'asc'
+  }
+  await loadPage(1)
 }
 
 function startNew() {
@@ -486,6 +571,11 @@ onMounted(async () => {
 .page { padding: 18px; color: #171717; }
 .panel { border: 1px solid #e6e0d8; border-radius: 8px; background: #fff; padding: 14px; margin-bottom: 14px; }
 .panel-head, .drawer-head, .filters, .pager, .actions, .asset-form { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.sortable { cursor: pointer; white-space: nowrap; user-select: none; }
+.sort-icons { display: inline-flex; flex-direction: column; font-size: 10px; margin-left: 6px; vertical-align: middle; color: #bdb1a5; line-height: 1; }
+.sort-icons span { opacity: 0.35; }
+.sort-icons span.active { color: #1f4f82; opacity: 1; font-weight: 700; }
+.sort-icons span + span { margin-top: 2px; }
 .panel-head { justify-content: space-between; margin-bottom: 12px; }
 .drawer-mask { position: fixed; inset: 0; z-index: 40; display: flex; justify-content: flex-end; background: rgba(20, 20, 20, .32); }
 .customer-drawer { width: min(760px, 100vw); height: 100vh; overflow: auto; background: #fff; padding: 18px; box-shadow: -18px 0 38px rgba(20, 20, 20, .18); }

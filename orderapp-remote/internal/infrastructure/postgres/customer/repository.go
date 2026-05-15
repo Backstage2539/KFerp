@@ -139,7 +139,7 @@ func (r Repository) Delete(ctx context.Context, actor string, id int64) error {
 }
 
 func (r Repository) List(ctx context.Context, query customerapp.ListQuery) (customerapp.ListResult, error) {
-	rows, hasNext, err := fetchCustomers(ctx, r.pool, r.schema, query.Query, query.Limit, query.Offset)
+	rows, hasNext, err := fetchCustomers(ctx, r.pool, r.schema, query)
 	if err != nil {
 		return customerapp.ListResult{}, err
 	}
@@ -194,7 +194,10 @@ func (r Repository) AssetObject(ctx context.Context, assetID int64) (customerapp
 	return customerapp.AssetObject{ObjectKey: obj, ContentType: contentType}, nil
 }
 
-func fetchCustomers(ctx context.Context, pool *pgxpool.Pool, schema, q string, limit, offset int) (rows []customerapp.CustomerRow, hasNext bool, err error) {
+func fetchCustomers(ctx context.Context, pool *pgxpool.Pool, schema string, query customerapp.ListQuery) (rows []customerapp.CustomerRow, hasNext bool, err error) {
+	q := strings.TrimSpace(query.Query)
+	limit := query.Limit
+	offset := query.Offset
 	if limit <= 0 {
 		limit = 100
 	}
@@ -203,22 +206,46 @@ func fetchCustomers(ctx context.Context, pool *pgxpool.Pool, schema, q string, l
 	}
 	args := make([]any, 0)
 	where := ""
-	if strings.TrimSpace(q) != "" {
+	if q != "" {
 		where = "WHERE name ILIKE $1 OR COALESCE(company_name,'') ILIKE $1 OR COALESCE(company_phone,'') ILIKE $1 OR COALESCE(company_address,'') ILIKE $1 OR COALESCE(contact,'') ILIKE $1 OR COALESCE(phone,'') ILIKE $1 OR COALESCE(address,'') ILIKE $1"
 		args = append(args, "%"+strings.TrimSpace(q)+"%")
+	}
+	if t := strings.TrimSpace(query.CustomerType); t != "" {
+		if len(args) > 0 {
+			where += " AND customer_type = $" + strconv.Itoa(len(args)+1)
+		} else {
+			where = "WHERE customer_type = $1"
+		}
+		args = append(args, t)
+	}
+	if query.Active != nil {
+		if len(args) > 0 {
+			where += " AND active = $" + strconv.Itoa(len(args)+1)
+		} else {
+			where = "WHERE active = $1"
+		}
+		args = append(args, *query.Active)
 	}
 	args = append(args, limit+1, offset)
 	limitArg := len(args) - 1
 	offsetArg := len(args)
+	orderBy := "name"
+	if query.SortBy == "updated" {
+		orderBy = "updated"
+	}
+	orderDir := "ASC"
+	if strings.EqualFold(query.SortDirection, "desc") {
+		orderDir = "DESC"
+	}
 
 	sql := fmt.Sprintf(`
 		SELECT id, name, COALESCE(NULLIF(customer_type,''),'retail'), COALESCE(company_name,''), COALESCE(company_address,''), COALESCE(company_phone,''), contact, phone, address, active, default_source_id, default_order_type_id,
-			to_char(updated_at,'YYYY-MM-DD HH24:MI') AS updated
+			to_char(updated_at,'YYYY-MM-DD HH24:%%M') AS updated
 		FROM %s.customers
 		%s
-		ORDER BY active DESC, name ASC
-		LIMIT $%d OFFSET $%d
-	`, schema, where, limitArg, offsetArg)
+            ORDER BY %s %s, id %s
+            LIMIT $%d OFFSET $%d
+        `, schema, where, orderBy, orderDir, orderDir, limitArg, offsetArg)
 
 	dbRows, err := pool.Query(ctx, sql, args...)
 	if err != nil {

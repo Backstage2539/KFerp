@@ -14,8 +14,9 @@ import (
 )
 
 type fakeCustomerRepo struct {
-	upsert   customerapp.UpsertCommand
-	assetCmd customerapp.SaveAssetCommand
+	upsert    customerapp.UpsertCommand
+	listQuery customerapp.ListQuery
+	assetCmd  customerapp.SaveAssetCommand
 }
 
 func (r *fakeCustomerRepo) Upsert(ctx context.Context, actor string, id *int64, cmd customerapp.UpsertCommand) (int64, error) {
@@ -24,6 +25,7 @@ func (r *fakeCustomerRepo) Upsert(ctx context.Context, actor string, id *int64, 
 }
 
 func (r *fakeCustomerRepo) List(ctx context.Context, query customerapp.ListQuery) (customerapp.ListResult, error) {
+	r.listQuery = query
 	return customerapp.ListResult{}, nil
 }
 
@@ -138,6 +140,42 @@ func TestCustomerAPIDefaultsHistoricalCustomersToRetail(t *testing.T) {
 	}
 	if !strings.Contains(rec.Body.String(), `"customer_type":"retail"`) {
 		t.Fatalf("response missing retail customer_type: %s", rec.Body.String())
+	}
+}
+
+func TestCustomerAPIIndexSupportsFiltersAndSortParams(t *testing.T) {
+	repo := &fakeCustomerRepo{}
+	e := echo.New()
+	RegisterRoutes(e, Dependencies{Customer: customerapp.NewService(repo)})
+
+	req := httptest.NewRequest(http.MethodGet, "/api/customers?customer_type=wholesale&active=false&sort_by=updated&sort_direction=desc&page=3&q=王", nil)
+	rec := httptest.NewRecorder()
+
+	e.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET /api/customers status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if repo.listQuery.CustomerType != customerapp.CustomerTypeWholesale {
+		t.Fatalf("list customer_type=%q, want wholesale", repo.listQuery.CustomerType)
+	}
+	if repo.listQuery.Active == nil || *repo.listQuery.Active != false {
+		t.Fatalf("list active=%v, want false pointer", repo.listQuery.Active)
+	}
+	if repo.listQuery.SortBy != "updated" {
+		t.Fatalf("list sort_by=%q, want updated", repo.listQuery.SortBy)
+	}
+	if repo.listQuery.SortDirection != "desc" {
+		t.Fatalf("list sort_direction=%q, want desc", repo.listQuery.SortDirection)
+	}
+	if repo.listQuery.Limit != 10 {
+		t.Fatalf("list limit=%d, want 10", repo.listQuery.Limit)
+	}
+	if repo.listQuery.Offset != 20 {
+		t.Fatalf("list offset=%d, want 20", repo.listQuery.Offset)
+	}
+	if repo.listQuery.Query != "王" {
+		t.Fatalf("list query=%q, want 王", repo.listQuery.Query)
 	}
 }
 
