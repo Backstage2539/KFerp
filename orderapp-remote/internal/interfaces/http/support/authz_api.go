@@ -86,15 +86,22 @@ func CurrentActor(c echo.Context, authz AuthzService) (authzapp.Actor, bool, err
 func requireCurrentPermission(c echo.Context, authz AuthzService, permission string) error {
 	actor, ok, err := CurrentActor(c, authz)
 	if err != nil {
-		return c.JSON(http.StatusForbidden, map[string]string{"error": err.Error()})
+		return permissionJSONError(c, http.StatusForbidden, map[string]string{"error": err.Error()})
 	}
 	if !ok {
-		return c.JSON(http.StatusUnauthorized, map[string]string{"error": "auth required"})
+		return permissionJSONError(c, http.StatusUnauthorized, map[string]string{"error": "auth required"})
 	}
 	if !actor.Can(permission) {
-		return c.JSON(http.StatusForbidden, map[string]string{"error": "permission denied", "permission": permission})
+		return permissionJSONError(c, http.StatusForbidden, map[string]string{"error": "permission denied", "permission": permission})
 	}
 	return nil
+}
+
+func permissionJSONError(c echo.Context, status int, body map[string]string) error {
+	if err := c.JSON(status, body); err != nil {
+		return err
+	}
+	return echo.NewHTTPError(status)
 }
 
 func isBasicAuthAdmin(c echo.Context) bool {

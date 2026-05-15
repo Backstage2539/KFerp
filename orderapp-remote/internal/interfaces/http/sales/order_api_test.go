@@ -15,6 +15,7 @@ import (
 	"testing"
 	"time"
 
+	authzapp "orderapp/internal/application/authz"
 	messagecenterapp "orderapp/internal/application/messagecenter"
 	salesapp "orderapp/internal/application/sales"
 	postgressales "orderapp/internal/infrastructure/postgres/sales"
@@ -579,6 +580,48 @@ func TestOrderAPIListCarriesOrderScopeAndCurrentEmployee(t *testing.T) {
 	}
 }
 
+func TestOrderAPIListFulfillmentScopeAllowsCustomerWorkbenchPermission(t *testing.T) {
+	repo := &capturingOrderListRepo{}
+	e := echo.New()
+	e.Use(func(next echo.HandlerFunc) echo.HandlerFunc {
+		return func(c echo.Context) error {
+			c.Set("employee_id", int64(7))
+			return next(c)
+		}
+	})
+	e.Use(support.AuthorizationMiddleware(&orderAPIAuthzService{actor: authzapp.Actor{
+		Permissions: []string{"customer_processing.read"},
+	}}))
+	registerOrderAPI(e, salesapp.NewService(repo), nil)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/orders?scope=fulfillment&customer_id=152&limit=20", nil)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET /api/orders fulfillment customer workbench status = %d, want 200, body=%s", rec.Code, rec.Body.String())
+	}
+	var body map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("GET /api/orders fulfillment customer workbench response must be valid JSON, got %q: %v", rec.Body.String(), err)
+	}
+	if !repo.called {
+		t.Fatal("orders API was not called for customer workbench fulfillment scope")
+	}
+	if repo.query.Scope != "fulfillment" {
+		t.Fatalf("orders API scope = %q, want fulfillment", repo.query.Scope)
+	}
+	if repo.query.CustomerID != 152 {
+		t.Fatalf("orders API customer id = %d, want 152", repo.query.CustomerID)
+	}
+	if repo.query.EmployeeID != 7 {
+		t.Fatalf("orders API employee id = %d, want 7", repo.query.EmployeeID)
+	}
+	if repo.query.FulfillmentEmployeeID != 7 {
+		t.Fatalf("orders API fulfillment employee id = %d, want 7", repo.query.FulfillmentEmployeeID)
+	}
+}
+
 func TestOrderAPIListFulfillmentScopeSkipsLegacyNonWorkbenchBinding(t *testing.T) {
 	pool, schema := newOrderAPITestDB(t)
 	ctx := context.Background()
@@ -734,6 +777,28 @@ type capturingOrderListRepo struct {
 	salesapp.Repository
 	called bool
 	query  salesapp.OrderListQuery
+}
+
+type orderAPIAuthzService struct {
+	actor authzapp.Actor
+}
+
+func (s *orderAPIAuthzService) ActorByEmployeeID(ctx context.Context, employeeID int64) (authzapp.Actor, error) {
+	actor := s.actor
+	actor.EmployeeID = employeeID
+	return actor, nil
+}
+
+func (s *orderAPIAuthzService) ListRoles(ctx context.Context) ([]authzapp.Role, error) {
+	return nil, nil
+}
+
+func (s *orderAPIAuthzService) ListEmployeeRoles(ctx context.Context) (map[int64][]string, error) {
+	return nil, nil
+}
+
+func (s *orderAPIAuthzService) AssignEmployeeRoles(ctx context.Context, cmd authzapp.AssignmentCommand) error {
+	return nil
 }
 
 func (r *capturingOrderListRepo) ListOrders(ctx context.Context, query salesapp.OrderListQuery) (salesapp.OrderListResult, error) {

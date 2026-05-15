@@ -6,7 +6,7 @@ import (
 	"testing"
 )
 
-func TestDev281OrderPaymentMethodFinanceEvidenceExists(t *testing.T) {
+func TestDev282OrderPaymentMethodFinanceEvidenceExists(t *testing.T) {
 	orderEntry := string(readOrderAppFileForTest(t, filepath.Join("frontend-vue-shell", "src", "views", "OrderEntryView.vue")))
 	ordersView := string(readOrderAppFileForTest(t, filepath.Join("frontend-vue-shell", "src", "views", "OrdersView.vue")))
 	financeReport := string(readOrderAppFileForTest(t, filepath.Join("frontend-vue-shell", "src", "views", "FinanceReportView.vue")))
@@ -74,10 +74,10 @@ func TestDev281OrderPaymentMethodFinanceEvidenceExists(t *testing.T) {
 		}
 	}
 	for _, want := range []string{
-		"PR-281-ORDER-PAYMENT-METHOD-FINANCE",
-		"DEV-281-01",
-		"DEV-281-02",
-		"DEV-281-03",
+		"PR-282-ORDER-PAYMENT-METHOD-FINANCE",
+		"DEV-282-01",
+		"DEV-282-02",
+		"DEV-282-03",
 	} {
 		if !strings.Contains(reqStore, want) {
 			t.Fatalf("req_store missing %q", want)

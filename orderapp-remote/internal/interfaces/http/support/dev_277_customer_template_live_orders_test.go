@@ -12,6 +12,9 @@ func TestDev277CustomerTemplateLiveOrdersEvidenceExists(t *testing.T) {
 	settingsView := string(readOrderAppFileForTest(t, filepath.Join("frontend-vue-shell", "src", "views", "CustomerPortalSettingsView.vue")))
 	customerPortalService := string(readOrderAppFileForTest(t, filepath.Join("internal", "application", "customerportal", "service.go")))
 	miniAPI := string(readOrderAppFileForTest(t, filepath.Join("internal", "interfaces", "http", "customerportal", "mini_api.go")))
+	authzMiddleware := string(readOrderAppFileForTest(t, filepath.Join("internal", "interfaces", "http", "support", "authz_middleware.go")))
+	orderAPI := string(readOrderAppFileForTest(t, filepath.Join("internal", "interfaces", "http", "sales", "order_api.go")))
+	orderQueries := string(readOrderAppFileForTest(t, filepath.Join("internal", "infrastructure", "postgres", "sales", "order_queries.go")))
 	customerPortalManual := string(readOrderAppFileForTest(t, filepath.Join("docs", "OP_MANUAL_CUSTOMER_PORTAL.md")))
 	customerFulfillmentManual := string(readOrderAppFileForTest(t, filepath.Join("docs", "OP_MANUAL_CUSTOMER_FULFILLMENT.md")))
 	reqStore := string(readOrderAppFileForTest(t, filepath.Join("internal", "interfaces", "http", "support", "req_store.go")))
@@ -84,6 +87,33 @@ func TestDev277CustomerTemplateLiveOrdersEvidenceExists(t *testing.T) {
 			t.Fatalf("mini api missing %q", want)
 		}
 	}
+	for _, check := range []struct {
+		name string
+		src  string
+		want []string
+	}{
+		{
+			name: "authz middleware",
+			src:  authzMiddleware,
+			want: []string{"authorizeFulfillmentOrderList", "customer_processing.read", "CustomerFulfillmentOrderScopeLimited"},
+		},
+		{
+			name: "order api",
+			src:  orderAPI,
+			want: []string{"FulfillmentEmployeeID", "CustomerFulfillmentOrderScopeLimited"},
+		},
+		{
+			name: "order queries",
+			src:  orderQueries,
+			want: []string{"FulfillmentEmployeeID", "b.employee_id=$%d"},
+		},
+	} {
+		for _, want := range check.want {
+			if !strings.Contains(check.src, want) {
+				t.Fatalf("%s missing %q", check.name, want)
+			}
+		}
+	}
 
 	for _, want := range []string{
 		"能力模板是实时引用",
@@ -91,6 +121,7 @@ func TestDev277CustomerTemplateLiveOrdersEvidenceExists(t *testing.T) {
 		"模板已失效",
 		"capability template invalid",
 		"客户配置已更新，请联系管理员处理",
+		"customer_processing.read",
 	} {
 		if !strings.Contains(customerPortalManual, want) {
 			t.Fatalf("customer portal manual missing %q", want)
@@ -121,6 +152,11 @@ func TestDev277CustomerTemplateLiveOrdersEvidenceExists(t *testing.T) {
 		"UT-280-01",
 		"API-280-01",
 		"REV-280-01",
+		"PR-281-CUSTOMER-WEB-WORKBENCH-FULFILLMENT-ORDERS-AUTH",
+		"DEV-281-01",
+		"UT-281-01",
+		"API-281-01",
+		"REV-281-01",
 	} {
 		if !strings.Contains(reqStore, want) {
 			t.Fatalf("req_store missing %q", want)

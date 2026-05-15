@@ -148,21 +148,22 @@ type InlineUpdateCommand struct {
 }
 
 type OrderListQuery struct {
-	Q               string
-	From            string
-	To              string
-	Void            string
-	Scope           string
-	EmployeeID      int64
-	CustomerID      int64
-	PayStatusID     int64
-	ShipStatusID    int64
-	ProcessStatusID int64
-	UnproducedOnly  bool
-	CompletedOnly   bool
-	ShipReadyOnly   bool
-	Limit           int
-	Offset          int
+	Q                     string
+	From                  string
+	To                    string
+	Void                  string
+	Scope                 string
+	EmployeeID            int64
+	FulfillmentEmployeeID int64
+	CustomerID            int64
+	PayStatusID           int64
+	ShipStatusID          int64
+	ProcessStatusID       int64
+	UnproducedOnly        bool
+	CompletedOnly         bool
+	ShipReadyOnly         bool
+	Limit                 int
+	Offset                int
 }
 
 type OrderListResult struct {

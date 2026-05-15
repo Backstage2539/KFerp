@@ -104,6 +104,63 @@ func TestAuthorizationMiddlewareDeniesMissingPermission(t *testing.T) {
 	}
 }
 
+func TestAuthorizationMiddlewareStopsDeniedRequestBeforeHandler(t *testing.T) {
+	e := echo.New()
+	authz := &fakeAuthzService{actor: authzapp.Actor{Permissions: []string{"orders.read"}}}
+	e.Use(func(next echo.HandlerFunc) echo.HandlerFunc {
+		return func(c echo.Context) error {
+			c.Set("employee_id", int64(3))
+			return next(c)
+		}
+	})
+	e.Use(AuthorizationMiddleware(authz))
+	called := false
+	e.GET("/api/settings/sender", func(c echo.Context) error {
+		called = true
+		return c.JSON(http.StatusOK, map[string]any{"ok": true})
+	})
+
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/settings/sender", nil))
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("status=%d, want 403, body=%s", rec.Code, rec.Body.String())
+	}
+	if called {
+		t.Fatal("authorization middleware called the protected handler after denying permission")
+	}
+	var body map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("denied response must be one valid JSON object, got %q: %v", rec.Body.String(), err)
+	}
+	if body["error"] != "permission denied" {
+		t.Fatalf("denied response body = %#v", body)
+	}
+}
+
+func TestAuthorizationMiddlewareAllowsFulfillmentOrderListForCustomerWorkbench(t *testing.T) {
+	e := echo.New()
+	authz := &fakeAuthzService{actor: authzapp.Actor{Permissions: []string{"customer_processing.read"}}}
+	e.Use(func(next echo.HandlerFunc) echo.HandlerFunc {
+		return func(c echo.Context) error {
+			c.Set("employee_id", int64(7))
+			return next(c)
+		}
+	})
+	e.Use(AuthorizationMiddleware(authz))
+	e.GET("/api/orders", func(c echo.Context) error {
+		if !CustomerFulfillmentOrderScopeLimited(c) {
+			return c.JSON(http.StatusInternalServerError, map[string]any{"error": "scope marker missing"})
+		}
+		return c.JSON(http.StatusOK, map[string]any{"ok": true})
+	})
+
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/orders?scope=fulfillment&customer_id=152", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status=%d, want 200, body=%s", rec.Code, rec.Body.String())
+	}
+}
+
 func TestAuthorizationMiddlewareAllowsMatchingPermission(t *testing.T) {
 	e := echo.New()
 	authz := &fakeAuthzService{actor: authzapp.Actor{Permissions: []string{"settings.write"}}}

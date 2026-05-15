@@ -64,4 +64,13 @@ func TestOrderListWhereSupportsMineAndFulfillmentScopes(t *testing.T) {
 	if len(args) != 0 {
 		t.Fatalf("fulfillment scope args = %#v, want none", args)
 	}
+
+	where, args, _ = orderListWhere("test_schema", salesapp.OrderListQuery{Scope: "fulfillment", FulfillmentEmployeeID: 7})
+	joined = strings.Join(where, " AND ")
+	if !strings.Contains(joined, "b.employee_id=$1") {
+		t.Fatalf("customer workbench fulfillment scope must be limited to the bound employee, got %q", joined)
+	}
+	if len(args) != 1 || args[0] != int64(7) {
+		t.Fatalf("customer workbench fulfillment scope args = %#v, want employee id 7", args)
+	}
 }
