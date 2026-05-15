@@ -55,3 +55,29 @@ func (a api) markRead(c echo.Context) error {
 	}
 	return c.JSON(http.StatusOK, map[string]any{"ok": true})
 }
+
+func (a api) listRules(c echo.Context) error {
+	if a.svc == nil {
+		return c.JSON(http.StatusOK, map[string]any{"rules": []app.Rule{}})
+	}
+	rows, err := a.svc.ListRules(c.Request().Context())
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
+	}
+	return c.JSON(http.StatusOK, map[string]any{"rules": rows})
+}
+
+func (a api) saveRule(c echo.Context) error {
+	if a.svc == nil {
+		return c.JSON(http.StatusOK, map[string]any{"ok": true})
+	}
+	var cmd app.SaveRuleCommand
+	if err := c.Bind(&cmd); err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid request"})
+	}
+	rule, err := a.svc.SaveRule(c.Request().Context(), cmd)
+	if err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
+	}
+	return c.JSON(http.StatusOK, map[string]any{"rule": rule})
+}

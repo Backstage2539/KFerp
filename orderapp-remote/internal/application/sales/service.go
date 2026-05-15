@@ -421,8 +421,10 @@ type FillOrderTrackingCommand struct {
 }
 
 type FillShipmentTrackingResult struct {
-	Updated int `json:"updated"`
-	Total   int `json:"total"`
+	Updated  int      `json:"updated"`
+	Total    int      `json:"total"`
+	OrderIDs []int64  `json:"order_ids,omitempty"`
+	OrderNos []string `json:"order_nos,omitempty"`
 }
 
 type SenderProfile struct {

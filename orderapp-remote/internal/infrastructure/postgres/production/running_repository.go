@@ -63,19 +63,19 @@ func listRunningItems(ctx context.Context, pool *pgxpool.Pool, schema string) ([
 	return out, nil
 }
 
-func (repo Repository) Finish(ctx context.Context, cmd productionapp.FinishCommand) error {
+func (repo Repository) Finish(ctx context.Context, cmd productionapp.FinishCommand) (productionapp.FinishResult, error) {
 	id := cmd.ID
 	schema := repo.schema
 	operator := cmd.Operator
 	tx, err := repo.pool.Begin(ctx)
 	if err != nil {
-		return err
+		return productionapp.FinishResult{}, err
 	}
 	defer tx.Rollback(ctx)
 
 	var r ProduceRunRow
 	if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT id,batch_id,product_name,product_id,spec_g,need_g,COALESCE(input_g,0),COALESCE(bom_yield_rate,0.8),COALESCE(planned_units,0),COALESCE(planned_loose_g,0),order_nos,COALESCE(started_by,''),started_at,to_char(started_at,'YYYY-MM-DD HH24:MI'),COALESCE(material_snapshot,'[]'::jsonb)::text FROM %s.produce_running_items WHERE id=$1 AND status='running' FOR UPDATE`, schema), id).Scan(&r.ID, &r.BatchID, &r.Product, &r.ProductID, &r.SpecG, &r.NeedG, &r.InputG, &r.BomYieldRate, &r.PlanUnits, &r.PlanLooseG, &r.OrderNos, &r.StartedBy, &r.StartedAtTime, &r.StartedAt, &r.MaterialSnapshot); err != nil {
-		return err
+		return productionapp.FinishResult{}, err
 	}
 	r.BomYieldRate = normalizeYieldRate(r.BomYieldRate)
 	if r.InputG <= 0 {
@@ -83,7 +83,7 @@ func (repo Repository) Finish(ctx context.Context, cmd productionapp.FinishComma
 	}
 	outputs, err := loadRunningOutputsForUpdateTx(ctx, tx, schema, r.ID)
 	if err != nil {
-		return err
+		return productionapp.FinishResult{}, err
 	}
 	if len(outputs) > 0 {
 		return repo.finishRunningOutputs(ctx, tx, r, outputs, cmd)
@@ -92,7 +92,7 @@ func (repo Repository) Finish(ctx context.Context, cmd productionapp.FinishComma
 	var unitsBefore, looseBefore int64
 	warehouse, err := finishWarehouseForRunningItemTx(ctx, tx, schema, r.ID, cmd.Warehouse)
 	if err != nil {
-		return err
+		return productionapp.FinishResult{}, err
 	}
 	_ = tx.QueryRow(ctx, fmt.Sprintf(`SELECT onhand_units,onhand_loose_g FROM %s.finished_inventory WHERE product_id=$1 AND spec_g=$2 AND warehouse=$3 FOR UPDATE`, schema), r.ProductID, r.SpecG, warehouse).Scan(&unitsBefore, &looseBefore)
 	cur := InvQty{Units: unitsBefore, LooseG: looseBefore}
@@ -100,38 +100,38 @@ func (repo Repository) Finish(ctx context.Context, cmd productionapp.FinishComma
 	if cmd.HasFinishedInput {
 		add, err = normalizeFinishedInventoryAddition(r.SpecG, cmd.FinishedUnits, cmd.FinishedLooseG)
 		if err != nil {
-			return err
+			return productionapp.FinishResult{}, err
 		}
 	}
 	if add.Units <= 0 && add.LooseG <= 0 {
-		return fmt.Errorf("请填写完成件数或散装余量")
+		return productionapp.FinishResult{}, fmt.Errorf("请填写完成件数或散装余量")
 	}
 	finishedTotal := finishedTotalG(r.SpecG, add.Units, add.LooseG)
 	completionNo, err := nextCompletionNoForRunningItemTx(ctx, tx, schema, r.ID)
 	if err != nil {
-		return err
+		return productionapp.FinishResult{}, err
 	}
 	consumedInputG, partial, err := resolveFinishConsumedInput(r, cmd, finishedTotal)
 	if err != nil {
-		return err
+		return productionapp.FinishResult{}, err
 	}
 	if err := validateFinishedOutputWithinConsumedInput(finishedTotal, consumedInputG); err != nil {
-		return err
+		return productionapp.FinishResult{}, err
 	}
 	actualYield, err := actualYieldRate(r.SpecG, add.Units, add.LooseG, consumedInputG)
 	if err != nil {
-		return err
+		return productionapp.FinishResult{}, err
 	}
 	nowQty := InvQty{Units: cur.Units + add.Units, LooseG: cur.LooseG + add.LooseG}
 	norm, err := invNormalize(r.SpecG, nowQty)
 	if err != nil {
-		return err
+		return productionapp.FinishResult{}, err
 	}
 	if _, err := tx.Exec(ctx, fmt.Sprintf(`INSERT INTO %s.finished_inventory(product_id,spec_g,warehouse,onhand_units,onhand_loose_g,updated_at) VALUES($1,$2,$3,$4,$5,now()) ON CONFLICT (product_id,spec_g,warehouse) DO UPDATE SET onhand_units=excluded.onhand_units,onhand_loose_g=excluded.onhand_loose_g,updated_at=now()`, schema), r.ProductID, r.SpecG, warehouse, norm.Units, norm.LooseG); err != nil {
-		return err
+		return productionapp.FinishResult{}, err
 	}
 	if err := recordFinishedProductStockMovementTx(ctx, tx, schema, r, cur, add, norm, finishedTotal, warehouse, operator); err != nil {
-		return err
+		return productionapp.FinishResult{}, err
 	}
 	consumeRun := r
 	consumeRun.InputG = consumedInputG
@@ -141,15 +141,15 @@ func (repo Repository) Finish(ctx context.Context, cmd productionapp.FinishComma
 		consumeRun.PlanLooseG = add.LooseG
 	}
 	if err := deductMaterialsForRunningItemTx(ctx, tx, schema, consumeRun, add, operator); err != nil {
-		return err
+		return productionapp.FinishResult{}, err
 	}
 	materialSummary, err := listMaterialConsumptionSummaryTx(ctx, tx, schema, r.ID)
 	if err != nil {
-		return err
+		return productionapp.FinishResult{}, err
 	}
 	materialSummaryJSON, err := marshalMaterialConsumptionSummary(materialSummary)
 	if err != nil {
-		return err
+		return productionapp.FinishResult{}, err
 	}
 	finishedAt := time.Now()
 	if _, err := tx.Exec(ctx, fmt.Sprintf(`
@@ -170,7 +170,7 @@ func (repo Repository) Finish(ctx context.Context, cmd productionapp.FinishComma
 		unitsBefore, looseBefore, norm.Units, norm.LooseG,
 		materialSummaryJSON,
 	); err != nil {
-		return err
+		return productionapp.FinishResult{}, err
 	}
 	if partial {
 		remainingNeedG := r.NeedG - finishedTotal
@@ -184,79 +184,84 @@ func (repo Repository) Finish(ctx context.Context, cmd productionapp.FinishComma
 				SET need_g=$2,input_g=$3,planned_units=$4,planned_loose_g=$5
 				WHERE id=$1
 			`, schema), id, remainingNeedG, remainingInputG, remainingPlan.Units, remainingPlan.LooseG); err != nil {
-				return err
+				return productionapp.FinishResult{}, err
 			}
 			if _, err := tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.work_orders SET planned_g=$2 WHERE running_item_id=$1`, schema), id, remainingInputG); err != nil {
-				return err
+				return productionapp.FinishResult{}, err
 			}
 			if err := tx.Commit(ctx); err != nil {
-				return err
+				return productionapp.FinishResult{}, err
 			}
 			postgresinfra.AuditInsert(ctx, repo.pool, schema, operator, "produce_running", &id, "partial_finish", postgresinfra.StrPtr("material_consumption"), nil, postgresinfra.StrPtr("deducted"), postgresinfra.AuditMeta{"running_item_id": id, "product_id": r.ProductID, "spec_g": r.SpecG, "need_g": r.NeedG, "input_g": consumedInputG, "remaining_need_g": remainingNeedG, "remaining_input_g": remainingInputG, "bom_yield_rate": r.BomYieldRate, "finished_units": add.Units, "finished_loose_g": add.LooseG, "finished_total_g": finishedTotal, "actual_yield_rate": actualYield})
-			return nil
+			return productionapp.FinishResult{RunningItemID: id}, nil
 		}
 	}
 	totalFinishedG, err := cumulativeFinishedTotalGForRunningItemTx(ctx, tx, schema, r.ID)
 	if err != nil {
-		return err
+		return productionapp.FinishResult{}, err
 	}
 	actualCost, err := recordBatchCostForRunningItemTx(ctx, tx, schema, r, totalFinishedG)
 	if err != nil {
-		return err
+		return productionapp.FinishResult{}, err
 	}
 	if err := completeMaterialReservationsForRunningItemTx(ctx, tx, schema, r.ID); err != nil {
-		return err
+		return productionapp.FinishResult{}, err
 	}
 	if err := completeWorkOrderForRunningItemTx(ctx, tx, schema, r.ID, actualCost, operator); err != nil {
-		return err
+		return productionapp.FinishResult{}, err
 	}
 	if _, err := tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.produce_running_items SET status='done',finished_by=$2,finished_at=$3 WHERE id=$1`, schema), id, operator, finishedAt); err != nil {
-		return err
+		return productionapp.FinishResult{}, err
 	}
 	if err := markProcessingDemandsDoneTx(ctx, tx, schema, r.ID); err != nil {
-		return err
+		return productionapp.FinishResult{}, err
 	}
+	finishedOrders := make([]productionapp.FinishedOrder, 0)
 	for _, no := range splitOrderNos(r.OrderNos) {
-		if err := completeOrderIfAllRunningDone(ctx, tx, schema, no); err != nil {
-			return err
+		order, changed, err := completeOrderIfAllRunningDone(ctx, tx, schema, no)
+		if err != nil {
+			return productionapp.FinishResult{}, err
+		}
+		if changed {
+			finishedOrders = append(finishedOrders, order)
 		}
 	}
 	if err := tx.Commit(ctx); err != nil {
-		return err
+		return productionapp.FinishResult{}, err
 	}
 	postgresinfra.AuditInsert(ctx, repo.pool, schema, operator, "produce_running", &id, "finish", postgresinfra.StrPtr("material_consumption"), nil, postgresinfra.StrPtr("deducted"), postgresinfra.AuditMeta{"running_item_id": id, "product_id": r.ProductID, "spec_g": r.SpecG, "need_g": r.NeedG, "input_g": consumedInputG, "bom_yield_rate": r.BomYieldRate, "finished_units": add.Units, "finished_loose_g": add.LooseG, "finished_total_g": finishedTotal, "actual_yield_rate": actualYield})
-	return nil
+	return productionapp.FinishResult{RunningItemID: id, Completed: true, FinishedOrders: finishedOrders}, nil
 }
 
-func (repo Repository) finishRunningOutputs(ctx context.Context, tx pgx.Tx, r ProduceRunRow, outputs []ProduceRunOutputRow, cmd productionapp.FinishCommand) error {
+func (repo Repository) finishRunningOutputs(ctx context.Context, tx pgx.Tx, r ProduceRunRow, outputs []ProduceRunOutputRow, cmd productionapp.FinishCommand) (productionapp.FinishResult, error) {
 	if cmd.Partial {
-		return fmt.Errorf("合并多规格生产暂不支持部分完工")
+		return productionapp.FinishResult{}, fmt.Errorf("合并多规格生产暂不支持部分完工")
 	}
 	schema := repo.schema
 	operator := cmd.Operator
 	warehouse, err := finishWarehouseForRunningItemTx(ctx, tx, schema, r.ID, cmd.Warehouse)
 	if err != nil {
-		return err
+		return productionapp.FinishResult{}, err
 	}
 	finishedOutputs, totalFinishedG, err := normalizeFinishedOutputs(outputs, cmd.Outputs)
 	if err != nil {
-		return err
+		return productionapp.FinishResult{}, err
 	}
 	consumedInputG := cmd.ConsumedInputG
 	if consumedInputG <= 0 {
 		consumedInputG = r.InputG
 	}
 	if consumedInputG <= 0 {
-		return fmt.Errorf("本次消耗投料必须大于0")
+		return productionapp.FinishResult{}, fmt.Errorf("本次消耗投料必须大于0")
 	}
 	if err := validateFinishedOutputWithinConsumedInput(totalFinishedG, consumedInputG); err != nil {
-		return err
+		return productionapp.FinishResult{}, err
 	}
 	actualYield := math.Round((float64(totalFinishedG)/float64(consumedInputG))*10000) / 10000
 	finishedAt := time.Now()
 	completionNo, err := nextCompletionNoForRunningItemTx(ctx, tx, schema, r.ID)
 	if err != nil {
-		return err
+		return productionapp.FinishResult{}, err
 	}
 	type outputInventoryLog struct {
 		unitsBefore int64
@@ -273,11 +278,11 @@ func (repo Repository) finishRunningOutputs(ctx context.Context, tx pgx.Tx, r Pr
 		add := InvQty{Units: output.FinishedUnits, LooseG: output.FinishedLooseG}
 		norm, err := invNormalize(output.SpecG, InvQty{Units: cur.Units + add.Units, LooseG: cur.LooseG + add.LooseG})
 		if err != nil {
-			return err
+			return productionapp.FinishResult{}, err
 		}
 		finishedTotal := finishedTotalG(output.SpecG, add.Units, add.LooseG)
 		if _, err := tx.Exec(ctx, fmt.Sprintf(`INSERT INTO %s.finished_inventory(product_id,spec_g,warehouse,onhand_units,onhand_loose_g,updated_at) VALUES($1,$2,$3,$4,$5,now()) ON CONFLICT (product_id,spec_g,warehouse) DO UPDATE SET onhand_units=excluded.onhand_units,onhand_loose_g=excluded.onhand_loose_g,updated_at=now()`, schema), output.ProductID, output.SpecG, warehouse, norm.Units, norm.LooseG); err != nil {
-			return err
+			return productionapp.FinishResult{}, err
 		}
 		outputRun := r
 		outputRun.ProductID = output.ProductID
@@ -286,7 +291,7 @@ func (repo Repository) finishRunningOutputs(ctx context.Context, tx pgx.Tx, r Pr
 		outputRun.NeedG = output.NeedG
 		outputRun.OrderNos = output.OrderNos
 		if err := recordFinishedProductStockMovementWithBatchCodeTx(ctx, tx, schema, finishedProductionBatchCodeForSpec(r.ID, output.SpecG), outputRun, cur, add, norm, finishedTotal, warehouse, operator); err != nil {
-			return err
+			return productionapp.FinishResult{}, err
 		}
 		inventoryBySpec[output.SpecG] = outputInventoryLog{
 			unitsBefore: unitsBefore,
@@ -295,21 +300,21 @@ func (repo Repository) finishRunningOutputs(ctx context.Context, tx pgx.Tx, r Pr
 			looseAfter:  norm.LooseG,
 		}
 		if _, err := tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.produce_running_outputs SET finished_units=$2,finished_loose_g=$3 WHERE id=$1`, schema), output.ID, output.FinishedUnits, output.FinishedLooseG); err != nil {
-			return err
+			return productionapp.FinishResult{}, err
 		}
 	}
 
 	r.Outputs = finishedOutputs
 	if err := deductMaterialsForRunOutputsTx(ctx, tx, schema, r, finishedOutputs, operator); err != nil {
-		return err
+		return productionapp.FinishResult{}, err
 	}
 	materialSummary, err := listMaterialConsumptionSummaryTx(ctx, tx, schema, r.ID)
 	if err != nil {
-		return err
+		return productionapp.FinishResult{}, err
 	}
 	materialSummaryJSON, err := marshalMaterialConsumptionSummary(materialSummary)
 	if err != nil {
-		return err
+		return productionapp.FinishResult{}, err
 	}
 	for _, output := range finishedOutputs {
 		finishedTotal := finishedTotalG(output.SpecG, output.FinishedUnits, output.FinishedLooseG)
@@ -332,35 +337,40 @@ func (repo Repository) finishRunningOutputs(ctx context.Context, tx pgx.Tx, r Pr
 			inventoryLog.unitsBefore, inventoryLog.looseBefore, inventoryLog.unitsAfter, inventoryLog.looseAfter,
 			materialSummaryJSON,
 		); err != nil {
-			return err
+			return productionapp.FinishResult{}, err
 		}
 	}
 	actualCost, err := recordBatchCostForRunningItemTx(ctx, tx, schema, r, totalFinishedG)
 	if err != nil {
-		return err
+		return productionapp.FinishResult{}, err
 	}
 	if err := completeMaterialReservationsForRunningItemTx(ctx, tx, schema, r.ID); err != nil {
-		return err
+		return productionapp.FinishResult{}, err
 	}
 	if err := completeWorkOrderForRunningItemTx(ctx, tx, schema, r.ID, actualCost, operator); err != nil {
-		return err
+		return productionapp.FinishResult{}, err
 	}
 	if _, err := tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.produce_running_items SET status='done',finished_by=$2,finished_at=$3 WHERE id=$1`, schema), r.ID, operator, finishedAt); err != nil {
-		return err
+		return productionapp.FinishResult{}, err
 	}
 	if err := markProcessingDemandsDoneTx(ctx, tx, schema, r.ID); err != nil {
-		return err
+		return productionapp.FinishResult{}, err
 	}
+	finishedOrders := make([]productionapp.FinishedOrder, 0)
 	for _, no := range splitOrderNos(r.OrderNos) {
-		if err := completeOrderIfAllRunningDone(ctx, tx, schema, no); err != nil {
-			return err
+		order, changed, err := completeOrderIfAllRunningDone(ctx, tx, schema, no)
+		if err != nil {
+			return productionapp.FinishResult{}, err
+		}
+		if changed {
+			finishedOrders = append(finishedOrders, order)
 		}
 	}
 	if err := tx.Commit(ctx); err != nil {
-		return err
+		return productionapp.FinishResult{}, err
 	}
 	postgresinfra.AuditInsert(ctx, repo.pool, schema, operator, "produce_running", &r.ID, "finish", postgresinfra.StrPtr("material_consumption"), nil, postgresinfra.StrPtr("deducted"), postgresinfra.AuditMeta{"running_item_id": r.ID, "product_id": r.ProductID, "spec_g": 0, "need_g": r.NeedG, "input_g": consumedInputG, "bom_yield_rate": r.BomYieldRate, "finished_total_g": totalFinishedG, "actual_yield_rate": actualYield})
-	return nil
+	return productionapp.FinishResult{RunningItemID: r.ID, Completed: true, FinishedOrders: finishedOrders}, nil
 }
 
 func normalizeFinishedOutputs(outputs []ProduceRunOutputRow, commands []productionapp.FinishOutputCommand) ([]ProduceRunOutputRow, int64, error) {
@@ -659,33 +669,40 @@ func splitOrderNos(v string) []string {
 	return out
 }
 
-func completeOrderIfAllRunningDone(ctx context.Context, tx pgx.Tx, schema, orderNo string) error {
+func completeOrderIfAllRunningDone(ctx context.Context, tx pgx.Tx, schema, orderNo string) (productionapp.FinishedOrder, bool, error) {
 	if strings.TrimSpace(orderNo) == "" {
-		return nil
+		return productionapp.FinishedOrder{}, false, nil
 	}
 	var hasRunning bool
 	if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT EXISTS(SELECT 1 FROM %s.produce_running_items WHERE status='running' AND $1 = ANY(string_to_array(replace(order_nos,' ',''),',')))`, schema), orderNo).Scan(&hasRunning); err != nil {
-		return err
+		return productionapp.FinishedOrder{}, false, err
 	}
 	if hasRunning {
-		return nil
+		return productionapp.FinishedOrder{}, false, nil
 	}
 	hasGap, err := orderHasRemainingProductionGapTx(ctx, tx, schema, orderNo)
 	if err != nil {
-		return err
+		return productionapp.FinishedOrder{}, false, err
 	}
 	if hasGap {
-		return nil
+		return productionapp.FinishedOrder{}, false, nil
 	}
 	statusID, err := lookupProcessStatusIDTx(ctx, tx, schema, "生产完成", "已生产完成")
 	if err != nil {
-		return err
+		return productionapp.FinishedOrder{}, false, err
 	}
 	if statusID <= 0 {
-		return nil
+		return productionapp.FinishedOrder{}, false, nil
 	}
-	_, err = tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.orders SET process_status_id=$2 WHERE order_no=$1`, schema), orderNo, statusID)
-	return err
+	var order productionapp.FinishedOrder
+	err = tx.QueryRow(ctx, fmt.Sprintf(`UPDATE %s.orders SET process_status_id=$2 WHERE order_no=$1 RETURNING id, order_no`, schema), orderNo, statusID).Scan(&order.OrderID, &order.OrderNo)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return productionapp.FinishedOrder{}, false, nil
+	}
+	if err != nil {
+		return productionapp.FinishedOrder{}, false, err
+	}
+	return order, true, nil
 }
 
 func orderHasRemainingProductionGapTx(ctx context.Context, tx pgx.Tx, schema, orderNo string) (bool, error) {

@@ -85,6 +85,7 @@ import OrderInvoiceView from './views/OrderInvoiceView.vue'
 import OrdersView from './views/OrdersView.vue'
 import OperationManualView from './views/OperationManualView.vue'
 import OutsourceSettingsView from './views/OutsourceSettingsView.vue'
+import NotificationSettingsView from './views/NotificationSettingsView.vue'
 import ProducePlanView from './views/ProducePlanView.vue'
 import ProduceRunningView from './views/ProduceRunningView.vue'
 import ProductionAcceptanceView from './views/ProductionAcceptanceView.vue'
@@ -189,6 +190,8 @@ const internalViews = {
   salesOrderSettings: SalesOrderSettingsView,
   senderSettings: SenderSettingsView,
   outsourceSettings: OutsourceSettingsView,
+  notificationSettings: NotificationSettingsView,
+  notificationManual: OperationManualView,
   customerCapabilityTemplates: CustomerCapabilityTemplatesView,
   customerPortalSettings: CustomerPortalSettingsView,
   customerPortalManual: OperationManualView,

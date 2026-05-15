@@ -227,6 +227,6 @@ func newProducePlanTestEcho(pool *pgxpool.Pool, schema string) *echo.Echo {
 	productionSvc := productionapp.NewService(postgresproduction.NewRepository(pool, schema))
 	registerUnprodSummaryPages(e)
 	registerUnprodSummaryAPI(e, productionSvc)
-	registerProductionFlowPages(e, productionSvc)
+	registerProductionFlowPages(e, productionSvc, nil)
 	return e
 }

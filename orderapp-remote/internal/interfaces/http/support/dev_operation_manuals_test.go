@@ -101,6 +101,7 @@ func TestOperationManualDocsAreMirrored(t *testing.T) {
 		"OP_MANUAL_COSTING.md",
 		"OP_MANUAL_FINANCE.md",
 		"OP_MANUAL_SETTINGS_AUDIT.md",
+		"OP_MANUAL_NOTIFICATIONS.md",
 		"OP_MANUAL_CUSTOMER_PORTAL.md",
 		"OP_MANUAL_CUSTOMER_FULFILLMENT.md",
 	}
@@ -136,6 +137,7 @@ func TestOperationManualDocsHaveFlowcharts(t *testing.T) {
 		"OP_MANUAL_COSTING.md",
 		"OP_MANUAL_FINANCE.md",
 		"OP_MANUAL_SETTINGS_AUDIT.md",
+		"OP_MANUAL_NOTIFICATIONS.md",
 		"OP_MANUAL_CUSTOMER_PORTAL.md",
 		"OP_MANUAL_CUSTOMER_FULFILLMENT.md",
 	}

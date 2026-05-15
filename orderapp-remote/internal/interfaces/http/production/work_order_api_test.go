@@ -39,8 +39,8 @@ func (r *workOrderAPIRepo) ListStartNeeds(ctx context.Context, cmd productionapp
 func (r *workOrderAPIRepo) Start(ctx context.Context, cmd productionapp.StartExecutionCommand) (productionapp.StartResult, error) {
 	return productionapp.StartResult{}, nil
 }
-func (r *workOrderAPIRepo) Finish(ctx context.Context, cmd productionapp.FinishCommand) error {
-	return nil
+func (r *workOrderAPIRepo) Finish(ctx context.Context, cmd productionapp.FinishCommand) (productionapp.FinishResult, error) {
+	return productionapp.FinishResult{RunningItemID: cmd.ID}, nil
 }
 func (r *workOrderAPIRepo) Cancel(ctx context.Context, cmd productionapp.CancelCommand) error {
 	return nil

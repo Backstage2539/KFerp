@@ -19,6 +19,7 @@
 - `OP_MANUAL_COSTING.md`：成本参数、成本试算、豆单预览、价格发布。
 - `OP_MANUAL_FINANCE.md`：财务首页、费用管理、月度结账、经营报告、票税台账、财务设置。
 - `OP_MANUAL_SETTINGS_AUDIT.md`：设备产能、发货人、代加工模板、部门员工、操作日志。
+- `OP_MANUAL_NOTIFICATIONS.md`：通知规则、ERP 站内通知和外部 IM 扩展框架。
 - `OP_MANUAL_CUSTOMER_PORTAL.md`：客户门户配置、小程序主题、商城商品、小程序商城下单。
 - `OP_MANUAL_CUSTOMER_FULFILLMENT.md`：客户履约账户、Excel 导入、客户托管库存、代发订单、费用和月结。
 

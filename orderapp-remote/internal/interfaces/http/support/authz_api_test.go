@@ -147,6 +147,9 @@ func TestMessageCenterAPIRequiresOrderReadPermission(t *testing.T) {
 	if got := requiredPermissionForRequest(http.MethodPost, "/api/message-center/notifications/11/read"); got != "orders.read" {
 		t.Fatalf("message center read permission = %q, want orders.read", got)
 	}
+	if got := requiredPermissionForRequest(http.MethodGet, "/api/message-center/rules"); got != "settings.write" {
+		t.Fatalf("message center rules permission = %q, want settings.write", got)
+	}
 }
 
 func TestBeanListPublicationPermissionsSeparatePublishAndDraft(t *testing.T) {

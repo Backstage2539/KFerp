@@ -62,9 +62,9 @@ func (r *fakeFlowRepo) Start(ctx context.Context, cmd StartExecutionCommand) (St
 	return StartResult{BatchID: "PB-9"}, nil
 }
 
-func (r *fakeFlowRepo) Finish(ctx context.Context, cmd FinishCommand) error {
+func (r *fakeFlowRepo) Finish(ctx context.Context, cmd FinishCommand) (FinishResult, error) {
 	r.finish = cmd
-	return nil
+	return FinishResult{RunningItemID: cmd.ID}, nil
 }
 
 func (r *fakeFlowRepo) Cancel(ctx context.Context, cmd CancelCommand) error {
@@ -175,7 +175,7 @@ func TestServiceOwnsRunningProductionUseCases(t *testing.T) {
 		t.Fatalf("start execution = %+v", repo.startExecution)
 	}
 
-	if err := svc.Finish(ctx, FinishCommand{ID: 7, FinishedUnits: 2, HasFinishedInput: true, Operator: "测试员"}); err != nil {
+	if _, err := svc.Finish(ctx, FinishCommand{ID: 7, FinishedUnits: 2, HasFinishedInput: true, Operator: "测试员"}); err != nil {
 		t.Fatal(err)
 	}
 	if repo.finish.ID != 7 || repo.finish.FinishedUnits != 2 || !repo.finish.HasFinishedInput {
@@ -259,7 +259,7 @@ func TestServiceOwnsManufacturingGapUseCases(t *testing.T) {
 		t.Fatalf("MaterialPlan query maps must be initialized: %+v", repo.materialPlanQuery)
 	}
 
-	if err := svc.Finish(ctx, FinishCommand{
+	if _, err := svc.Finish(ctx, FinishCommand{
 		ID:               7,
 		FinishedUnits:    1,
 		HasFinishedInput: true,
