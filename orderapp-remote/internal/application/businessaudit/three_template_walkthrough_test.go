@@ -782,6 +782,22 @@ func (s *threeTemplateWalkthroughStore) CustomerERPWorkbenchAvailable(_ context.
 	return customer != nil && customer.WorkbenchEnabled, nil
 }
 
+func (s *threeTemplateWalkthroughStore) CreateExternalUser(_ context.Context, cmd customerfulfillmentapp.CreateExternalUserCommand) (customerfulfillmentapp.CustomerExternalUser, error) {
+	return customerfulfillmentapp.CustomerExternalUser{CustomerID: cmd.CustomerID, Name: cmd.Name, Phone: cmd.Phone, LoginEnabled: true, HasPassword: cmd.Password != "", BindingStatus: "active"}, nil
+}
+
+func (s *threeTemplateWalkthroughStore) ListExternalUsers(context.Context, int64) ([]customerfulfillmentapp.CustomerExternalUser, error) {
+	return nil, nil
+}
+
+func (s *threeTemplateWalkthroughStore) ResetExternalUserPassword(_ context.Context, cmd customerfulfillmentapp.ResetExternalUserPasswordCommand) (customerfulfillmentapp.CustomerExternalUser, error) {
+	return customerfulfillmentapp.CustomerExternalUser{CustomerID: cmd.CustomerID, EmployeeID: cmd.EmployeeID, LoginEnabled: true, HasPassword: cmd.Password != "", BindingStatus: "active"}, nil
+}
+
+func (s *threeTemplateWalkthroughStore) SetExternalUserLoginEnabled(_ context.Context, cmd customerfulfillmentapp.SetExternalUserLoginEnabledCommand) (customerfulfillmentapp.CustomerExternalUser, error) {
+	return customerfulfillmentapp.CustomerExternalUser{CustomerID: cmd.CustomerID, EmployeeID: cmd.EmployeeID, LoginEnabled: cmd.LoginEnabled, HasPassword: true, BindingStatus: "active"}, nil
+}
+
 func (s *threeTemplateWalkthroughStore) CustomerFulfillmentOptions(context.Context, int64) (customerfulfillmentapp.CustomerFulfillmentOptions, error) {
 	return customerfulfillmentapp.CustomerFulfillmentOptions{}, nil
 }
