@@ -163,6 +163,7 @@ func TestOrderAPISmallBatchDirectShipCustomerUsesDefaultPriceTier(t *testing.T) 
 		"source_id":      1,
 		"order_type_id":  1,
 		"pay_status_id":  2,
+		"payment_method": "微信支付",
 		"ship_status_id": 1,
 		"product_id":     []string{"7"},
 		"tier_id":        []string{""},
@@ -209,6 +210,7 @@ func TestOrderAPISavesAndListsEmployeeResponsiblePerson(t *testing.T) {
 		"source_id":        1,
 		"order_type_id":    1,
 		"pay_status_id":    2,
+		"payment_method":   "微信支付",
 		"ship_status_id":   1,
 		"responsible_type": "employee",
 		"responsible_id":   5,
@@ -270,6 +272,62 @@ func TestOrderAPISavesAndListsEmployeeResponsiblePerson(t *testing.T) {
 	}
 }
 
+func TestOrderAPIEditsPaidOrderRequirePaymentMethodAndExposeToList(t *testing.T) {
+	pool, schema := newOrderAPITestDB(t)
+	ctx := context.Background()
+	seedOrderAPITestData(t, ctx, pool, schema)
+	mustExecOrderAPITestSQL(t, ctx, pool, fmt.Sprintf(`
+		INSERT INTO %s.orders(id, order_no, order_date, customer_id, source_id, order_type_id, pay_status_id, ship_status_id, total_amount, grand_total)
+		VALUES(91, 'SO-PAYMENT-METHOD', '2026-05-15', 3, 1, 1, 1, 1, 88, 88);
+		INSERT INTO %s.order_items(order_id,line_no,product_id,item_name,qty,unit,spec,unit_price,line_total)
+		VALUES(91, 1, 7, '橘皮乌龙', 1, '件', '454g', 88, 88);
+	`, schema, schema))
+
+	e := newOrderAPITestEcho(pool, schema)
+	payload := map[string]any{
+		"edit_id":        91,
+		"order_date":     "2026-05-15",
+		"customer_id":    3,
+		"source_id":      1,
+		"order_type_id":  1,
+		"pay_status_id":  2,
+		"ship_status_id": 1,
+		"product_id":     []string{"7"},
+		"tier_id":        []string{"manual"},
+		"unit_price":     []string{"88"},
+		"item_name":      []string{"橘皮乌龙"},
+		"qty":            []string{"1"},
+		"unit":           []string{"件"},
+		"spec":           []string{"454"},
+	}
+	body, _ := json.Marshal(payload)
+	req := httptest.NewRequest(http.MethodPost, "/api/order", bytes.NewReader(body))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "payment_method required") {
+		t.Fatalf("paid edit without payment_method status=%d body=%s", rec.Code, rec.Body.String())
+	}
+
+	payload["payment_method"] = "银行转账"
+	body, _ = json.Marshal(payload)
+	req = httptest.NewRequest(http.MethodPost, "/api/order", bytes.NewReader(body))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec = httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("paid edit with payment_method status=%d body=%s", rec.Code, rec.Body.String())
+	}
+
+	req = httptest.NewRequest(http.MethodGet, "/api/orders?q=SO-PAYMENT-METHOD", nil)
+	rec = httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"payment_method":"银行转账"`) {
+		t.Fatalf("GET /api/orders payment_method status=%d body=%s", rec.Code, rec.Body.String())
+	}
+}
+
 func TestOrderAPISavesCustomerResponsiblePersonForPartnerCommission(t *testing.T) {
 	pool, schema := newOrderAPITestDB(t)
 	ctx := context.Background()
@@ -283,6 +341,7 @@ func TestOrderAPISavesCustomerResponsiblePersonForPartnerCommission(t *testing.T
 		"source_id":        1,
 		"order_type_id":    1,
 		"pay_status_id":    2,
+		"payment_method":   "微信支付",
 		"ship_status_id":   1,
 		"responsible_type": "customer",
 		"responsible_id":   4,
@@ -728,6 +787,7 @@ func TestOrderAPISavePublishesNewOrderNotification(t *testing.T) {
 		"source_id":      1,
 		"order_type_id":  1,
 		"pay_status_id":  2,
+		"payment_method": "微信支付",
 		"ship_status_id": 1,
 		"product_id":     []string{"7"},
 		"tier_id":        []string{"manual"},
@@ -772,6 +832,7 @@ func TestOrderAPISaveCarriesItemNotes(t *testing.T) {
 		"source_id":      1,
 		"order_type_id":  1,
 		"pay_status_id":  2,
+		"payment_method": "微信支付",
 		"ship_status_id": 1,
 		"product_id":     []string{"7"},
 		"tier_id":        []string{"manual"},
@@ -976,6 +1037,7 @@ func TestOrderAPIDefaultsNewOrderToPaidAndUnshipped(t *testing.T) {
 		"source_id":      1,
 		"order_type_id":  1,
 		"pay_status_id":  0,
+		"payment_method": "微信支付",
 		"ship_status_id": 0,
 		"product_id":     []string{"7"},
 		"tier_id":        []string{"manual"},
@@ -1084,6 +1146,7 @@ func TestOrderAPISaveWithStockBatchDecisionMarksInventoryReadyAndStoresBatchChoi
 		"source_id":            1,
 		"order_type_id":        1,
 		"pay_status_id":        2,
+		"payment_method":       "微信支付",
 		"ship_status_id":       1,
 		"stock_batch_decision": "use_batch",
 		"product_id":           []string{"7"},
@@ -1141,6 +1204,7 @@ func TestOrderAPISaveWithLegacyFinishedInventoryDecisionMarksReadyAndShipReady(t
 		"source_id":            1,
 		"order_type_id":        1,
 		"pay_status_id":        2,
+		"payment_method":       "微信支付",
 		"ship_status_id":       1,
 		"stock_batch_decision": "use_batch",
 		"product_id":           []string{"7"},
@@ -1205,6 +1269,7 @@ func TestOrderAPISaveWithProduceDecisionKeepsOrderInProductionGap(t *testing.T) 
 		"source_id":            1,
 		"order_type_id":        1,
 		"pay_status_id":        2,
+		"payment_method":       "微信支付",
 		"ship_status_id":       1,
 		"stock_batch_decision": "produce",
 		"product_id":           []string{"7"},
@@ -1266,6 +1331,7 @@ func TestOrderAPISaveDoesNotGenerateShippingExcel(t *testing.T) {
 		"source_id":      1,
 		"order_type_id":  1,
 		"pay_status_id":  2,
+		"payment_method": "微信支付",
 		"ship_status_id": 1,
 		"product_id":     []string{"7"},
 		"tier_id":        []string{"manual"},
@@ -2570,6 +2636,7 @@ CREATE TABLE %s.orders (
 	source_id BIGINT,
 	order_type_id BIGINT,
 	pay_status_id BIGINT,
+	payment_method TEXT NOT NULL DEFAULT '',
 	ship_status_id BIGINT,
 	ship_method TEXT,
 	ship_tracking_no TEXT,

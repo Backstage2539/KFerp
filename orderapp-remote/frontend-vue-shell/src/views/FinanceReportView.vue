@@ -91,6 +91,7 @@
               <th>来源</th>
               <th>名称</th>
               <th>对象</th>
+              <th>收款方式</th>
               <th>金额</th>
             </tr>
           </thead>
@@ -100,6 +101,7 @@
               <td>{{ sourceTypeLabel(row.source_type) }}</td>
               <td>{{ row.name || row.category }}</td>
               <td>{{ row.counterparty }}</td>
+              <td>{{ row.payment_method || '-' }}</td>
               <td>{{ money(row.amount) }}</td>
             </tr>
           </tbody>

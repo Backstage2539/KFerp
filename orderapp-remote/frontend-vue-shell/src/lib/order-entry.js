@@ -1,5 +1,14 @@
 export const CUSTOM_SPEC_VALUE = 'custom'
 export const COMMON_SPEC_GRAMS = [36, 80, 100, 227, 454, 500, 1000, 2500]
+export const orderReceiptMethodOptions = [
+  '微信支付',
+  '支付宝',
+  '银行转账',
+  '对公银行',
+  '现金',
+  'POS刷卡',
+  '其他',
+]
 
 export function toNumber(value) {
   const n = Number.parseFloat(String(value ?? '').trim())
@@ -222,6 +231,14 @@ export function defaultStatusID(options, names) {
   return 0
 }
 
+export function requiresOrderPaymentMethod(form, payStatuses) {
+  const statusID = toInt(form?.pay_status_id)
+  if (statusID <= 0) return false
+  const status = (payStatuses || []).find((item) => toInt(item.id) === statusID)
+  const name = String(status?.name || '').trim()
+  return name.includes('已付款') || name.includes('已收款') || name.includes('已支付')
+}
+
 export function normalizeSpecG(row) {
   if (row?.spec_mode === CUSTOM_SPEC_VALUE) {
     return Math.max(0, toInt(row.custom_spec_g))
@@ -253,6 +270,7 @@ export function buildOrderPayload({ form, rows }) {
     source_id: Number(form.source_id || 0),
     order_type_id: Number(form.order_type_id || 0),
     pay_status_id: Number(form.pay_status_id || 0),
+    payment_method: String(form.payment_method || '').trim(),
     ship_status_id: Number(form.ship_status_id || 0),
     ship_method: form.ship_method || '',
     ship_tracking_no: form.ship_tracking_no || '',

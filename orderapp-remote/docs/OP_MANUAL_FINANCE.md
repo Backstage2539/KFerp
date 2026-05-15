@@ -32,11 +32,12 @@ flowchart TD
 7. 确认月度快照后执行结账；默认强锁账，结账后来源单据不得继续直接改写。
 8. 结账后如需修正，新增金额调整，类型可选收入、主营成本、期间费用、税费或其他，并填写原因；未结账月份不能新增结账后调整，接口会返回 `month must be closed before adjustment`。
 9. 已有结账后金额调整的月份会显示已调整；如再次执行重复结账，系统会重算快照但保持已调整状态，不会降回已结账。
-10. 在经营报告查看老板简报、利润明细、税费明细和来源明细，并导出 PDF、Excel 或会计交接 Excel。
+10. 在经营报告查看老板简报、利润明细、税费明细和来源明细，并导出 PDF、Excel 或会计交接/代账交接 Excel。订单收入来源明细会显示订单收款方式，交接 Excel 的 Drilldown 工作表也带出该字段。
 
 ## 结果校验
 - 财务首页、月度结账和经营报告同一月份的收入、成本、费用、毛利、净利口径一致。
 - 历史订单只有 `total_amount` 且 `grand_total` 为默认 0 时，财务收入和来源明细按 `total_amount` 计入；全额折扣等明确产生 0 `grand_total` 的订单仍按 0 计入，作废订单不计入收入。
+- 已付款、已收款或已支付订单的收款方式会同步进入财务来源明细；经营报告“来源明细”和会计交接/代账交接 Excel 可按该字段核对微信、支付宝、银行转账、现金等实际收款渠道。
 - 费用关联员工后，列表显示员工名，点击员工名可过滤该员工费用；停用员工不能被新增费用选择或通过接口写入，接口会返回 `employee inactive` 且不写入 `finance_expenses`。
 - 费用关联订单、客户或商品维度时，对应 ID 必须存在；缺失时接口返回 `finance dimension order not found`、`finance dimension customer not found` 或 `finance dimension product not found`，且不写入 `finance_expenses`。
 - 同一笔费用同时填写订单和客户维度时，客户维度必须与订单归属客户一致；不一致时接口返回 `finance dimension customer does not match order`，且不写入 `finance_expenses`。
@@ -47,6 +48,7 @@ flowchart TD
 - 未结账月份提交金额调整会被拒绝，且不会写入 `finance_adjustments`。
 - 结账后金额调整进入报表，并让报表状态显示已调整；重复结账不会降回已结账。
 - PDF、Excel 和会计交接 Excel 下载入口可用。
+- 会计交接 Excel 的 Drilldown 工作表包含 Payment method 列；订单收入行显示订单收款方式，费用、成本和票税行为空。
 
 ## 常见问题
 - 税费估算不等于正式纳税申报结果，只用于经营管理复盘。
@@ -59,4 +61,5 @@ flowchart TD
 - 新增费用提示 `finance dimension product does not match order`：说明商品不在该订单明细中，先从订单详情确认商品后再保存费用。
 - 票税台账提示 `tax ledger invoice already exists`：说明同类型非空发票号或凭证号已在台账中存在，先按发票号搜索或切换月份确认原记录；确实不是同一张票时先补充正确发票号或在备注中说明未取票事项。
 - 金额调整提示 `month must be closed before adjustment`：先完成该月份月度结账，再新增结账后调整；未结账月份的来源修正应回到原费用、票税台账或订单来源处理。
+- 来源明细缺少收款方式：回到订单销售中打开对应订单，确认收款状态是否已付款/已收款/已支付，并补齐收款方式后重新查看财务报表。
 - 已调整月份重复结账后仍显示已调整，这是系统保留结账后调整痕迹的正常结果；如需解释差异，查看结账后调整列表和原因。

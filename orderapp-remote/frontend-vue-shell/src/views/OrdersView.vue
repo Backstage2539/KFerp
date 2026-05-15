@@ -137,7 +137,7 @@
               </td>
               <td>
                 <div class="status-stack">
-                  <span>收款：{{ row.pay_status || '-' }}</span>
+                  <span>收款：{{ row.pay_status || '-' }}{{ row.payment_method ? ' / ' + row.payment_method : '' }}</span>
                   <span>发货：{{ row.ship_status || '-' }}</span>
                   <span>生产：{{ row.process_status || '-' }}</span>
                   <span>发票：{{ invoiceStatusLabel(row.invoice_status) }}</span>
@@ -205,7 +205,7 @@
           <section class="drawer-section">
             <h4>订单状态</h4>
             <div class="drawer-status-grid">
-              <span>收款：{{ activeOrderDetail.pay_status || '-' }}</span>
+              <span>收款：{{ activeOrderDetail.pay_status || '-' }}{{ activeOrderDetail.payment_method ? ' / ' + activeOrderDetail.payment_method : '' }}</span>
               <span>发货：{{ activeOrderDetail.ship_status || '-' }}</span>
               <span>生产：{{ activeOrderDetail.process_status || '-' }}</span>
               <span>发票：{{ invoiceStatusLabel(activeOrderDetail.invoice_status) }}</span>
