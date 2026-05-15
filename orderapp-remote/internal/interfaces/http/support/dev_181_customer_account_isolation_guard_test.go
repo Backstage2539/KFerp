@@ -73,7 +73,7 @@ func TestCustomerAccountIsolationGuardManualDocumentsFailureHandling(t *testing.
 		manual := string(readOrderAppFileForTest(t, path))
 		for _, want := range []string{
 			"代加工模板账号才会显示和提交加工工单",
-			"公共 SKU 代发模板账号只处理代发信息",
+			"公共 SKU 小批量模板账号在工作台显示“提交订单信息”",
 			"customer capability processing unavailable",
 		} {
 			if !strings.Contains(manual, want) {
