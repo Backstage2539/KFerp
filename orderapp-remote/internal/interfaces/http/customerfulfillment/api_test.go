@@ -524,6 +524,33 @@ func TestCustomerPortalDirectShipSubmitAPIDerivesEmployee(t *testing.T) {
 	}
 }
 
+func TestCustomerPortalDirectShipSubmitAPIAcceptsMultiLineItems(t *testing.T) {
+	svc := &fakeCustomerFulfillmentService{
+		customerDirectShipResult: app.DirectShipOrderSummary{OrderID: 108, OrderNo: "CDS-20260508-0108", Status: "submitted", ItemCount: 2},
+	}
+	e := echo.New()
+	e.Use(func(next echo.HandlerFunc) echo.HandlerFunc {
+		return func(c echo.Context) error {
+			c.Set("employee_id", int64(23))
+			return next(c)
+		}
+	})
+	RegisterRoutes(e, Dependencies{CustomerFulfillment: svc})
+
+	body := `{"receiver_name":"张三","receiver_phone":"13800000000","receiver_address":"浙江杭州","shipping_amount":12,"items":[{"product_id":12,"product_name":"岩师傅冷萃豆","spec":"100g","quantity_units":2},{"product_id":12,"product_name":"岩师傅冷萃豆","spec_g":227,"quantity_units":1}],"note":"门卫代收"}`
+	req := httptest.NewRequest(http.MethodPost, "/api/customer-processing/portal/direct-ship-orders", strings.NewReader(body))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("customer direct ship submit status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if len(svc.customerDirectShipCmd.Items) != 2 || svc.customerDirectShipCmd.Items[1].SpecG != 227 || svc.customerDirectShipCmd.ShippingAmount != 12 {
+		t.Fatalf("direct ship multi-line cmd = %+v", svc.customerDirectShipCmd)
+	}
+}
+
 func TestInternalProcessingAndDirectShipSubmitAPIsUseExplicitCustomer(t *testing.T) {
 	svc := &fakeCustomerFulfillmentService{
 		customerProcessingResult: app.ProcessingOrderSummary{WorkOrderNo: "CP-20260509-0001", Status: "submitted", ProductName: "誉观山冷萃豆", QuantityG: 5000, Units: 50},

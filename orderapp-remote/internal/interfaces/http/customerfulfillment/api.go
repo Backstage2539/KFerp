@@ -193,14 +193,34 @@ func (a api) submitCustomerDirectShipOrder(c echo.Context) error {
 		ReceiverPhone   string `json:"receiver_phone"`
 		ReceiverAddress string `json:"receiver_address"`
 		ReceiverCompany string `json:"receiver_company"`
+		ShippingAmount  float64 `json:"shipping_amount"`
 		ProductID       int64  `json:"product_id"`
 		ProductName     string `json:"product_name"`
 		Spec            string `json:"spec"`
 		QuantityUnits   int64  `json:"quantity_units"`
+		Items           []struct {
+			ProductID     int64  `json:"product_id"`
+			ProductName   string `json:"product_name"`
+			Spec          string `json:"spec"`
+			SpecG         int64  `json:"spec_g"`
+			QuantityUnits int64  `json:"quantity_units"`
+			Note          string `json:"note"`
+		} `json:"items"`
 		Note            string `json:"note"`
 	}
 	if err := c.Bind(&req); err != nil {
 		return customerFulfillmentError(c, http.StatusBadRequest, fmt.Errorf("invalid request"))
+	}
+	items := make([]app.SubmitCustomerDirectShipOrderItem, 0, len(req.Items))
+	for _, item := range req.Items {
+		items = append(items, app.SubmitCustomerDirectShipOrderItem{
+			ProductID:     item.ProductID,
+			ProductName:   item.ProductName,
+			Spec:          item.Spec,
+			SpecG:         item.SpecG,
+			QuantityUnits: item.QuantityUnits,
+			Note:          item.Note,
+		})
 	}
 	row, err := a.svc.SubmitCustomerDirectShipOrder(c.Request().Context(), app.SubmitCustomerDirectShipOrderCommand{
 		EmployeeID:      employeeID,
@@ -208,10 +228,12 @@ func (a api) submitCustomerDirectShipOrder(c echo.Context) error {
 		ReceiverPhone:   req.ReceiverPhone,
 		ReceiverAddress: req.ReceiverAddress,
 		ReceiverCompany: req.ReceiverCompany,
+		ShippingAmount:  req.ShippingAmount,
 		ProductID:       req.ProductID,
 		ProductName:     req.ProductName,
 		Spec:            req.Spec,
 		QuantityUnits:   req.QuantityUnits,
+		Items:           items,
 		Note:            req.Note,
 	})
 	if err != nil {
@@ -296,14 +318,34 @@ func (a api) submitInternalDirectShipOrder(c echo.Context) error {
 		ReceiverPhone   string `json:"receiver_phone"`
 		ReceiverAddress string `json:"receiver_address"`
 		ReceiverCompany string `json:"receiver_company"`
+		ShippingAmount  float64 `json:"shipping_amount"`
 		ProductID       int64  `json:"product_id"`
 		ProductName     string `json:"product_name"`
 		Spec            string `json:"spec"`
 		QuantityUnits   int64  `json:"quantity_units"`
+		Items           []struct {
+			ProductID     int64  `json:"product_id"`
+			ProductName   string `json:"product_name"`
+			Spec          string `json:"spec"`
+			SpecG         int64  `json:"spec_g"`
+			QuantityUnits int64  `json:"quantity_units"`
+			Note          string `json:"note"`
+		} `json:"items"`
 		Note            string `json:"note"`
 	}
 	if err := c.Bind(&req); err != nil {
 		return customerFulfillmentError(c, http.StatusBadRequest, fmt.Errorf("invalid request"))
+	}
+	items := make([]app.SubmitCustomerDirectShipOrderItem, 0, len(req.Items))
+	for _, item := range req.Items {
+		items = append(items, app.SubmitCustomerDirectShipOrderItem{
+			ProductID:     item.ProductID,
+			ProductName:   item.ProductName,
+			Spec:          item.Spec,
+			SpecG:         item.SpecG,
+			QuantityUnits: item.QuantityUnits,
+			Note:          item.Note,
+		})
 	}
 	row, err := a.svc.SubmitCustomerDirectShipOrder(c.Request().Context(), app.SubmitCustomerDirectShipOrderCommand{
 		EmployeeID:      support.CurrentEmployeeID(c),
@@ -312,10 +354,12 @@ func (a api) submitInternalDirectShipOrder(c echo.Context) error {
 		ReceiverPhone:   req.ReceiverPhone,
 		ReceiverAddress: req.ReceiverAddress,
 		ReceiverCompany: req.ReceiverCompany,
+		ShippingAmount:  req.ShippingAmount,
 		ProductID:       req.ProductID,
 		ProductName:     req.ProductName,
 		Spec:            req.Spec,
 		QuantityUnits:   req.QuantityUnits,
+		Items:           items,
 		Note:            req.Note,
 	})
 	if err != nil {

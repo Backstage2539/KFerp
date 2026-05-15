@@ -7,6 +7,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
+	"strconv"
 	"strings"
 	"time"
 
@@ -394,11 +396,20 @@ func (r *Repository) SubmitCustomerDirectShipOrder(ctx context.Context, cmd app.
 	if err := r.requireCustomerCapability(ctx, customerID, "direct_ship"); err != nil {
 		return app.DirectShipOrderSummary{}, err
 	}
+	items := normalizeSubmittedDirectShipItems(cmd)
 	tx, err := r.pool.Begin(ctx)
 	if err != nil {
 		return app.DirectShipOrderSummary{}, err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
+	quotedItems := make([]submittedDirectShipQuotedItem, 0, len(items))
+	for _, item := range items {
+		quoted, err := r.quoteSubmittedDirectShipItemTx(ctx, tx, customerID, item)
+		if err != nil {
+			return app.DirectShipOrderSummary{}, err
+		}
+		quotedItems = append(quotedItems, quoted)
+	}
 
 	receiverSnapshot := strings.TrimSpace(strings.Join([]string{cmd.ReceiverName, cmd.ReceiverPhone, cmd.ReceiverAddress}, " "))
 	payload := map[string]any{
@@ -407,6 +418,7 @@ func (r *Repository) SubmitCustomerDirectShipOrder(ctx context.Context, cmd app.
 		"receiver_phone":           cmd.ReceiverPhone,
 		"receiver_address":         cmd.ReceiverAddress,
 		"receiver_company":         cmd.ReceiverCompany,
+		"shipping_amount":          cmd.ShippingAmount,
 		"note":                     cmd.Note,
 	}
 	var importOrderID int64
@@ -428,21 +440,26 @@ func (r *Repository) SubmitCustomerDirectShipOrder(ctx context.Context, cmd app.
 	`, r.schema), importOrderID, orderNo); err != nil {
 		return app.DirectShipOrderSummary{}, err
 	}
-	itemPayload := map[string]any{
-		"submitted_by_employee_id": cmd.EmployeeID,
-		"product_id":               cmd.ProductID,
-		"product_name":             cmd.ProductName,
-		"spec":                     cmd.Spec,
-		"quantity_units":           cmd.QuantityUnits,
-		"note":                     cmd.Note,
-	}
-	if _, err := tx.Exec(ctx, fmt.Sprintf(`
-		INSERT INTO %s.customer_direct_ship_import_order_items(
-			import_order_id, batch_id, customer_id, line_no, product_title, spec, quantity_units, payload
-		)
-		VALUES($1,0,$2,1,$3,$4,$5,$6::jsonb)
-	`, r.schema), importOrderID, customerID, cmd.ProductName, cmd.Spec, cmd.QuantityUnits, mustPayloadJSON(itemPayload)); err != nil {
-		return app.DirectShipOrderSummary{}, err
+	for idx, item := range quotedItems {
+		itemPayload := map[string]any{
+			"submitted_by_employee_id": cmd.EmployeeID,
+			"product_id":               item.ProductID,
+			"product_name":             item.ProductName,
+			"spec":                     item.Spec,
+			"spec_g":                   item.SpecG,
+			"quantity_units":           item.QuantityUnits,
+			"unit_price":               item.UnitPrice,
+			"line_total":               item.LineTotal,
+			"note":                     item.Note,
+		}
+		if _, err := tx.Exec(ctx, fmt.Sprintf(`
+			INSERT INTO %s.customer_direct_ship_import_order_items(
+				import_order_id, batch_id, customer_id, line_no, product_title, spec, quantity_units, payload
+			)
+			VALUES($1,0,$2,$3,$4,$5,$6,$7::jsonb)
+		`, r.schema), importOrderID, customerID, idx+1, item.ProductName, item.Spec, item.QuantityUnits, mustPayloadJSON(itemPayload)); err != nil {
+			return app.DirectShipOrderSummary{}, err
+		}
 	}
 	orderID, err := r.createSubmittedDirectShipERPOrderTx(ctx, tx, importOrderID)
 	if err != nil {
@@ -457,8 +474,375 @@ func (r *Repository) SubmitCustomerDirectShipOrder(ctx context.Context, cmd app.
 		OrderDate:       time.Now().Format("2006-01-02"),
 		ReceiverAddress: receiverSnapshot,
 		Status:          "submitted",
-		ItemCount:       1,
+		ItemCount:       len(quotedItems),
 	}, nil
+}
+
+type submittedDirectShipItem struct {
+	ProductID     int64
+	ProductName   string
+	Spec          string
+	SpecG         int64
+	QuantityUnits int64
+	Note          string
+}
+
+type submittedDirectShipQuotedItem struct {
+	ProductID     int64
+	ProductName   string
+	Spec          string
+	SpecG         int64
+	QuantityUnits int64
+	UnitPrice     float64
+	LineTotal     float64
+	Note          string
+}
+
+func normalizeSubmittedDirectShipItems(cmd app.SubmitCustomerDirectShipOrderCommand) []submittedDirectShipItem {
+	out := make([]submittedDirectShipItem, 0, len(cmd.Items))
+	for _, item := range cmd.Items {
+		out = append(out, submittedDirectShipItem{
+			ProductID:     item.ProductID,
+			ProductName:   strings.TrimSpace(item.ProductName),
+			Spec:          strings.TrimSpace(item.Spec),
+			SpecG:         item.SpecG,
+			QuantityUnits: item.QuantityUnits,
+			Note:          strings.TrimSpace(item.Note),
+		})
+	}
+	if len(out) > 0 {
+		return out
+	}
+	return []submittedDirectShipItem{{
+		ProductID:     cmd.ProductID,
+		ProductName:   strings.TrimSpace(cmd.ProductName),
+		Spec:          strings.TrimSpace(cmd.Spec),
+		SpecG:         parseSubmittedDirectShipSpecG(cmd.Spec),
+		QuantityUnits: cmd.QuantityUnits,
+		Note:          strings.TrimSpace(cmd.Note),
+	}}
+}
+
+func (r *Repository) quoteSubmittedDirectShipItemTx(ctx context.Context, tx pgx.Tx, customerID int64, item submittedDirectShipItem) (submittedDirectShipQuotedItem, error) {
+	specG := item.SpecG
+	if specG <= 0 {
+		specG = parseSubmittedDirectShipSpecG(item.Spec)
+	}
+	if specG <= 0 {
+		specG = 454
+	}
+	if item.QuantityUnits <= 0 {
+		item.QuantityUnits = 1
+	}
+	var dbProductName string
+	var defaultPrice float64
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`
+		SELECT COALESCE(name,''), COALESCE(default_price,0)
+		FROM %s.products
+		WHERE id=$1 AND active=true
+		  AND %s
+	`, r.schema, customerFulfillmentProductVisibleToCustomerSQL(r.schema+".products", "$2")), item.ProductID, customerID).Scan(&dbProductName, &defaultPrice); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return submittedDirectShipQuotedItem{}, fmt.Errorf("product unavailable")
+		}
+		return submittedDirectShipQuotedItem{}, err
+	}
+	productName := item.ProductName
+	if productName == "" {
+		productName = strings.TrimSpace(dbProductName)
+	}
+	specText := item.Spec
+	if specText == "" {
+		specText = fmt.Sprintf("%dg", specG)
+	}
+	unitPrice := r.customerFulfillmentSubmittedUnitPriceTx(ctx, tx, customerID, item.ProductID, specG, item.QuantityUnits, defaultPrice)
+	lineTotal := unitPrice * float64(item.QuantityUnits)
+	return submittedDirectShipQuotedItem{
+		ProductID:     item.ProductID,
+		ProductName:   productName,
+		Spec:          specText,
+		SpecG:         specG,
+		QuantityUnits: item.QuantityUnits,
+		UnitPrice:     unitPrice,
+		LineTotal:     lineTotal,
+		Note:          item.Note,
+	}, nil
+}
+
+func parseSubmittedDirectShipSpecG(spec string) int64 {
+	spec = strings.TrimSpace(strings.TrimSuffix(strings.ToLower(spec), "g"))
+	if spec == "" {
+		return 0
+	}
+	n, err := strconv.ParseInt(spec, 10, 64)
+	if err != nil || n <= 0 {
+		return 0
+	}
+	return n
+}
+
+func customerFulfillmentProductVisibleToCustomerSQL(productTable, customerPlaceholder string) string {
+	productTable = strings.TrimSpace(productTable)
+	if productTable == "" {
+		productTable = "products"
+	}
+	return fmt.Sprintf(`(
+		(
+			CASE
+				WHEN COALESCE(customer_id,0)>0 THEN COALESCE(NULLIF(visibility,''),'customer_only')
+				ELSE COALESCE(NULLIF(visibility,''),'public')
+			END <> 'customer_only'
+			OR COALESCE(customer_id,0)=%[1]s
+		)
+		AND NOT (
+			COALESCE(customer_id,0)=0
+			AND EXISTS (
+				SELECT 1 FROM %[2]s alias_products
+				WHERE alias_products.active=true
+				  AND COALESCE(alias_products.customer_id,0)=%[1]s
+				  AND COALESCE(alias_products.base_product_id,0)=id
+				  AND COALESCE(NULLIF(alias_products.visibility,''),'customer_only')='customer_only'
+			)
+		)
+	)`, customerPlaceholder, productTable)
+}
+
+func (r *Repository) customerFulfillmentSubmittedUnitPriceTx(ctx context.Context, tx pgx.Tx, customerID, productID, specG int64, qty int64, defaultPrice float64) float64 {
+	if productID <= 0 || specG <= 0 || qty <= 0 {
+		return defaultPrice
+	}
+	rule := r.customerFulfillmentDirectShipSmallBatchPriceRuleTx(ctx, tx, customerID)
+	if !rule.Enabled {
+		return defaultPrice
+	}
+	tierQty := qty
+	qtyLb := float64(specG*qty) / 454.0
+	tierQtyLb := qtyLb
+	if adjustedQty, ok := customerFulfillmentSmallBatchTierQuantity(specG, qtyLb, rule); ok {
+		tierQty = adjustedQty
+		tierQtyLb = float64(specG*adjustedQty) / 454.0
+	}
+	var packagePrice, pricePerLb float64
+	q := fmt.Sprintf(`
+		SELECT
+			COALESCE(NULLIF(price_per_unit,0), NULLIF(price_per_lb,0) * COALESCE(NULLIF(spec_g,0),454) / 454.0, 0),
+			COALESCE(NULLIF(price_per_lb,0), NULLIF(price_per_unit,0) * 454.0 / COALESCE(NULLIF(spec_g,0),454), 0)
+		FROM %s.product_price_tiers
+		WHERE product_id=$1 AND active=true
+		  AND COALESCE(NULLIF(spec_g,0),454)=$2
+		  AND COALESCE(NULLIF(min_qty_units,0), min_qty_lb, 0) <= $3
+		  AND (COALESCE(NULLIF(max_qty_units,0), max_qty_lb) IS NULL OR COALESCE(NULLIF(max_qty_units,0), max_qty_lb) >= $3)
+		ORDER BY COALESCE(NULLIF(min_qty_units,0), min_qty_lb, 0) DESC
+		LIMIT 1
+	`, r.schema)
+	if err := tx.QueryRow(ctx, q, productID, specG, tierQty).Scan(&packagePrice, &pricePerLb); err == nil && packagePrice > 0 {
+		return packagePrice
+	}
+	q = fmt.Sprintf(`
+		SELECT
+			COALESCE(NULLIF(price_per_unit,0), NULLIF(price_per_lb,0) * COALESCE(NULLIF(spec_g,0),454) / 454.0, 0),
+			COALESCE(NULLIF(price_per_lb,0), NULLIF(price_per_unit,0) * 454.0 / COALESCE(NULLIF(spec_g,0),454), 0)
+		FROM %s.product_price_tiers
+		WHERE product_id=$1 AND active=true
+		  AND COALESCE(NULLIF(spec_g,0),454)=$2
+		ORDER BY COALESCE(NULLIF(min_qty_units,0), min_qty_lb, 0) ASC
+		LIMIT 1
+	`, r.schema)
+	if err := tx.QueryRow(ctx, q, productID, specG).Scan(&packagePrice, &pricePerLb); err == nil && packagePrice > 0 {
+		return packagePrice
+	}
+	q = fmt.Sprintf(`
+		SELECT COALESCE(NULLIF(price_per_lb,0), NULLIF(price_per_unit,0) * 454.0 / COALESCE(NULLIF(spec_g,0),454), 0)
+		FROM %s.product_price_tiers
+		WHERE product_id=$1 AND active=true
+		  AND COALESCE(NULLIF(min_qty_lb,0), NULLIF(min_qty_units,0) * COALESCE(NULLIF(spec_g,0),454) / 454.0, 0) <= $2
+		  AND (
+		    COALESCE(NULLIF(max_qty_lb,0), NULLIF(max_qty_units,0) * COALESCE(NULLIF(spec_g,0),454) / 454.0) IS NULL
+		    OR COALESCE(NULLIF(max_qty_lb,0), NULLIF(max_qty_units,0) * COALESCE(NULLIF(spec_g,0),454) / 454.0) >= $2
+		  )
+		ORDER BY COALESCE(NULLIF(min_qty_lb,0), NULLIF(min_qty_units,0) * COALESCE(NULLIF(spec_g,0),454) / 454.0, 0) DESC
+		LIMIT 1
+	`, r.schema)
+	if err := tx.QueryRow(ctx, q, productID, tierQtyLb).Scan(&pricePerLb); err == nil && pricePerLb > 0 {
+		return customerFulfillmentPackageUnitPriceFromLb(pricePerLb, specG)
+	}
+	q = fmt.Sprintf(`
+		SELECT COALESCE(NULLIF(price_per_lb,0), NULLIF(price_per_unit,0) * 454.0 / COALESCE(NULLIF(spec_g,0),454), 0)
+		FROM %s.product_price_tiers
+		WHERE product_id=$1 AND active=true
+		  AND COALESCE(NULLIF(min_qty_lb,0), NULLIF(min_qty_units,0) * COALESCE(NULLIF(spec_g,0),454) / 454.0, 0) <= $2
+		ORDER BY COALESCE(NULLIF(min_qty_lb,0), NULLIF(min_qty_units,0) * COALESCE(NULLIF(spec_g,0),454) / 454.0, 0) DESC
+		LIMIT 1
+	`, r.schema)
+	if err := tx.QueryRow(ctx, q, productID, tierQtyLb).Scan(&pricePerLb); err == nil && pricePerLb > 0 {
+		return customerFulfillmentPackageUnitPriceFromLb(pricePerLb, specG)
+	}
+	q = fmt.Sprintf(`
+		SELECT COALESCE(NULLIF(price_per_lb,0), NULLIF(price_per_unit,0) * 454.0 / COALESCE(NULLIF(spec_g,0),454), 0)
+		FROM %s.product_price_tiers
+		WHERE product_id=$1 AND active=true
+		ORDER BY COALESCE(NULLIF(min_qty_lb,0), NULLIF(min_qty_units,0) * COALESCE(NULLIF(spec_g,0),454) / 454.0, 0) ASC
+		LIMIT 1
+	`, r.schema)
+	if err := tx.QueryRow(ctx, q, productID).Scan(&pricePerLb); err == nil && pricePerLb > 0 {
+		return customerFulfillmentPackageUnitPriceFromLb(pricePerLb, specG)
+	}
+	return defaultPrice
+}
+
+func customerFulfillmentPackageUnitPriceFromLb(pricePerLb float64, specG int64) float64 {
+	if pricePerLb <= 0 || specG <= 0 {
+		return 0
+	}
+	unitG := float64(454)
+	if specG >= 1000 {
+		unitG = 1000
+	}
+	displayUnitPrice := pricePerLb * unitG / 454.0
+	if unitG == 1000 {
+		displayUnitPrice = math.Round(displayUnitPrice)
+	}
+	return displayUnitPrice * float64(specG) / unitG
+}
+
+func (r *Repository) customerFulfillmentDirectShipSmallBatchPriceRuleTx(ctx context.Context, tx pgx.Tx, customerID int64) customerportalapp.SmallBatchPriceRule {
+	if customerID <= 0 {
+		return customerportalapp.SmallBatchPriceRule{}
+	}
+	if template, ok, err := r.customerCapabilityTemplateForCustomer(ctx, tx, customerID); err == nil && ok {
+		for _, capability := range template.Capabilities {
+			if strings.TrimSpace(capability.Code) != customerportalapp.CapabilityDirectShip || !capability.Enabled {
+				continue
+			}
+			raw, _ := capability.Config["small_batch_price_rule"].(map[string]any)
+			return customerFulfillmentNormalizeSmallBatchPriceRule(customerportalapp.SmallBatchPriceRule{
+				Enabled:     boolFromAny(raw["enabled"]),
+				ThresholdLB: floatFromAny(raw["threshold_lb"]),
+				TierMinLB:   floatFromAny(raw["tier_min_lb"]),
+				TierMaxLB:   floatFromAny(raw["tier_max_lb"]),
+			})
+		}
+		return customerportalapp.SmallBatchPriceRule{}
+	}
+	var raw []byte
+	err := tx.QueryRow(ctx, fmt.Sprintf(`
+		SELECT config_json
+		FROM %s.customer_service_capabilities
+		WHERE customer_id=$1 AND capability_code=$2 AND enabled=true
+	`, r.schema), customerID, customerportalapp.CapabilityDirectShip).Scan(&raw)
+	if err != nil {
+		return customerportalapp.SmallBatchPriceRule{}
+	}
+	var config struct {
+		SmallBatchPriceRule customerportalapp.SmallBatchPriceRule `json:"small_batch_price_rule"`
+	}
+	if err := json.Unmarshal(raw, &config); err != nil {
+		return customerportalapp.SmallBatchPriceRule{}
+	}
+	return customerFulfillmentNormalizeSmallBatchPriceRule(config.SmallBatchPriceRule)
+}
+
+func customerFulfillmentNormalizeSmallBatchPriceRule(rule customerportalapp.SmallBatchPriceRule) customerportalapp.SmallBatchPriceRule {
+	if !rule.Enabled {
+		return customerportalapp.SmallBatchPriceRule{}
+	}
+	if rule.ThresholdLB <= 0 {
+		rule.ThresholdLB = 14
+	}
+	if rule.TierMinLB <= 0 {
+		rule.TierMinLB = 15
+	}
+	if rule.TierMaxLB <= 0 {
+		rule.TierMaxLB = 28
+	}
+	if rule.TierMaxLB < rule.TierMinLB {
+		rule.TierMaxLB = rule.TierMinLB
+	}
+	return rule
+}
+
+func customerFulfillmentSmallBatchTierQuantity(specG int64, qtyLb float64, rule customerportalapp.SmallBatchPriceRule) (int64, bool) {
+	if specG <= 0 || !rule.Enabled || qtyLb <= 0 {
+		return 0, false
+	}
+	if qtyLb >= rule.ThresholdLB {
+		return 0, false
+	}
+	targetLb := rule.TierMinLB
+	if targetLb <= 0 {
+		return 0, false
+	}
+	if rule.TierMaxLB > 0 && targetLb > rule.TierMaxLB {
+		targetLb = rule.TierMaxLB
+	}
+	units := int64(math.Ceil(targetLb * 454.0 / float64(specG)))
+	if units <= 0 {
+		return 0, false
+	}
+	return units, true
+}
+
+func (r *Repository) refreshSubmittedDirectShipOrderAmountsTx(ctx context.Context, tx pgx.Tx, importOrderID, orderID int64) error {
+	var shippingAmount float64
+	_ = tx.QueryRow(ctx, fmt.Sprintf(`
+		SELECT COALESCE(NULLIF(payload->>'shipping_amount','')::numeric, 0)::float8
+		FROM %s.customer_direct_ship_import_orders
+		WHERE id=$1
+	`, r.schema), importOrderID).Scan(&shippingAmount)
+	if shippingAmount < 0 {
+		shippingAmount = 0
+	}
+	var totalAmount float64
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`
+		SELECT COALESCE(SUM(COALESCE(line_total,0)),0)::float8
+		FROM %s.order_items
+		WHERE order_id=$1
+	`, r.schema), orderID).Scan(&totalAmount); err != nil {
+		return err
+	}
+	grandTotal := totalAmount + shippingAmount
+	_, err := tx.Exec(ctx, fmt.Sprintf(`
+		UPDATE %s.orders
+		SET total_amount=$2,
+		    shipping_amount=$3,
+		    grand_total=$4
+		WHERE id=$1
+	`, r.schema), orderID, totalAmount, shippingAmount, grandTotal)
+	return err
+}
+
+func boolFromAny(value any) bool {
+	switch v := value.(type) {
+	case bool:
+		return v
+	case string:
+		return strings.EqualFold(strings.TrimSpace(v), "true")
+	default:
+		return false
+	}
+}
+
+func floatFromAny(value any) float64 {
+	switch v := value.(type) {
+	case float64:
+		return v
+	case float32:
+		return float64(v)
+	case int:
+		return float64(v)
+	case int64:
+		return float64(v)
+	case int32:
+		return float64(v)
+	case json.Number:
+		n, _ := v.Float64()
+		return n
+	case string:
+		n, _ := strconv.ParseFloat(strings.TrimSpace(v), 64)
+		return n
+	default:
+		return 0
+	}
 }
 
 func (r *Repository) requireCustomerCapability(ctx context.Context, customerID int64, capability string) error {
@@ -657,6 +1041,9 @@ func (r *Repository) createSubmittedDirectShipERPOrderTx(ctx context.Context, tx
 	`, r.schema), importOrderID, orderID); err != nil {
 		return 0, err
 	}
+	if err := r.refreshSubmittedDirectShipOrderAmountsTx(ctx, tx, importOrderID, orderID); err != nil {
+		return 0, err
+	}
 	return orderID, nil
 }
 
@@ -676,6 +1063,8 @@ func (r *Repository) createSubmittedDirectShipERPOrderItemsTx(ctx context.Contex
 		productTitle string
 		spec         string
 		quantity     int64
+		unitPrice    float64
+		lineTotal    float64
 	}
 	items := make([]itemSeed, 0)
 	lineNo := 0
@@ -705,6 +1094,11 @@ func (r *Repository) createSubmittedDirectShipERPOrderItemsTx(ctx context.Contex
 		if quantity <= 0 {
 			quantity = 1
 		}
+		unitPrice := payloadFloat(payload, "unit_price")
+		lineTotal := payloadFloat(payload, "line_total")
+		if lineTotal <= 0 && unitPrice > 0 {
+			lineTotal = unitPrice * float64(quantity)
+		}
 		if rowLineNo <= 0 {
 			rowLineNo = lineNo
 		}
@@ -714,6 +1108,8 @@ func (r *Repository) createSubmittedDirectShipERPOrderItemsTx(ctx context.Contex
 			productTitle: productTitle,
 			spec:         spec,
 			quantity:     quantity,
+			unitPrice:    unitPrice,
+			lineTotal:    lineTotal,
 		})
 	}
 	if err := rows.Err(); err != nil {
@@ -724,9 +1120,9 @@ func (r *Repository) createSubmittedDirectShipERPOrderItemsTx(ctx context.Contex
 
 	for _, item := range items {
 		if _, err := tx.Exec(ctx, fmt.Sprintf(`
-			INSERT INTO %s.order_items(order_id,line_no,product_id,item_name,qty,unit,spec)
-			VALUES($1,$2,$3,$4,$5,'件',$6)
-		`, r.schema), orderID, item.lineNo, nullableCustomerFulfillmentID(item.productID), item.productTitle, item.quantity, item.spec); err != nil {
+			INSERT INTO %s.order_items(order_id,line_no,product_id,item_name,qty,unit,spec,unit_price,line_total)
+			VALUES($1,$2,$3,$4,$5,'件',$6,$7,$8)
+		`, r.schema), orderID, item.lineNo, nullableCustomerFulfillmentID(item.productID), item.productTitle, item.quantity, item.spec, item.unitPrice, item.lineTotal); err != nil {
 			return err
 		}
 	}
@@ -1267,6 +1663,7 @@ func (r *Repository) listCustomerSKUOptions(ctx context.Context, customerID int6
 		       COALESCE(NULLIF(r.payload->>'sku_name',''), NULLIF(r.payload->>'product_name',''), p.name, ''),
 		       COALESCE(NULLIF(r.payload->>'spec',''), ''),
 		       COALESCE(NULLIF(r.payload->>'roast_degree',''), p.roast_level, ''),
+		       COALESCE(p.default_price,0),
 		       'customer_sku_import'
 		FROM %s.customer_fulfillment_import_rows r
 		JOIN %s.customer_fulfillment_import_batches b ON b.id=r.batch_id
@@ -1282,7 +1679,7 @@ func (r *Repository) listCustomerSKUOptions(ctx context.Context, customerID int6
 	}
 	for rows.Next() {
 		var row app.CustomerSKUOption
-		if err := rows.Scan(&row.ProductID, &row.BaseProductID, &row.SKUCode, &row.ProductName, &row.Spec, &row.RoastDegree, &row.Source); err != nil {
+		if err := rows.Scan(&row.ProductID, &row.BaseProductID, &row.SKUCode, &row.ProductName, &row.Spec, &row.RoastDegree, &row.DefaultPrice, &row.Source); err != nil {
 			rows.Close()
 			return nil, err
 		}
@@ -1295,7 +1692,7 @@ func (r *Repository) listCustomerSKUOptions(ctx context.Context, customerID int6
 	rows.Close()
 
 	rows, err = r.pool.Query(ctx, fmt.Sprintf(`
-		SELECT id, COALESCE(base_product_id,0), '', name, '', COALESCE(roast_level,''), COALESCE(NULLIF(custom_type,''),'customer_product')
+		SELECT id, COALESCE(base_product_id,0), '', name, '', COALESCE(roast_level,''), COALESCE(default_price,0), COALESCE(NULLIF(custom_type,''),'customer_product')
 		FROM %s.products
 		WHERE customer_id=$1
 		  AND visibility='customer_only'
@@ -1309,7 +1706,7 @@ func (r *Repository) listCustomerSKUOptions(ctx context.Context, customerID int6
 	defer rows.Close()
 	for rows.Next() {
 		var row app.CustomerSKUOption
-		if err := rows.Scan(&row.ProductID, &row.BaseProductID, &row.SKUCode, &row.ProductName, &row.Spec, &row.RoastDegree, &row.Source); err != nil {
+		if err := rows.Scan(&row.ProductID, &row.BaseProductID, &row.SKUCode, &row.ProductName, &row.Spec, &row.RoastDegree, &row.DefaultPrice, &row.Source); err != nil {
 			return nil, err
 		}
 		add(row)
@@ -1322,7 +1719,7 @@ func (r *Repository) listCustomerSKUOptions(ctx context.Context, customerID int6
 	} else if allowed {
 		rows.Close()
 		rows, err = r.pool.Query(ctx, fmt.Sprintf(`
-			SELECT id, 0, '公共SKU', name, '', COALESCE(roast_level,''), 'public_sku'
+			SELECT id, 0, '公共SKU', name, '', COALESCE(roast_level,''), COALESCE(default_price,0), 'public_sku'
 			FROM %s.products
 			WHERE active=true
 			  AND COALESCE(customer_id,0)=0
@@ -1336,14 +1733,77 @@ func (r *Repository) listCustomerSKUOptions(ctx context.Context, customerID int6
 		defer rows.Close()
 		for rows.Next() {
 			var row app.CustomerSKUOption
-			if err := rows.Scan(&row.ProductID, &row.BaseProductID, &row.SKUCode, &row.ProductName, &row.Spec, &row.RoastDegree, &row.Source); err != nil {
+			if err := rows.Scan(&row.ProductID, &row.BaseProductID, &row.SKUCode, &row.ProductName, &row.Spec, &row.RoastDegree, &row.DefaultPrice, &row.Source); err != nil {
 				return nil, err
 			}
 			add(row)
 		}
-		return out, rows.Err()
+		if err := rows.Err(); err != nil {
+			return nil, err
+		}
+	}
+	tiersByProduct, err := r.listProductTierOptions(ctx, out)
+	if err != nil {
+		return nil, err
+	}
+	for i := range out {
+		if out[i].ProductID > 0 {
+			out[i].Tiers = tiersByProduct[out[i].ProductID]
+		}
 	}
 	return out, nil
+}
+
+func (r *Repository) listProductTierOptions(ctx context.Context, options []app.CustomerSKUOption) (map[int64][]app.CustomerSKUPriceTier, error) {
+	productIDs := make([]int64, 0)
+	seen := map[int64]struct{}{}
+	for _, row := range options {
+		if row.ProductID <= 0 {
+			continue
+		}
+		if _, ok := seen[row.ProductID]; ok {
+			continue
+		}
+		seen[row.ProductID] = struct{}{}
+		productIDs = append(productIDs, row.ProductID)
+	}
+	if len(productIDs) == 0 {
+		return map[int64][]app.CustomerSKUPriceTier{}, nil
+	}
+	rows, err := r.pool.Query(ctx, fmt.Sprintf(`
+		SELECT product_id,
+		       id,
+		       COALESCE(NULLIF(spec_g,0),454),
+		       COALESCE(NULLIF(min_qty_units,0), min_qty_lb, 0),
+		       COALESCE(NULLIF(max_qty_units,0), max_qty_lb),
+		       COALESCE(NULLIF(price_per_unit,0), NULLIF(price_per_lb,0) * COALESCE(NULLIF(spec_g,0),454) / 454.0, 0)
+		FROM %s.product_price_tiers
+		WHERE active=true
+		  AND product_id = ANY($1)
+		ORDER BY product_id, COALESCE(NULLIF(spec_g,0),454), COALESCE(NULLIF(min_qty_units,0), min_qty_lb, 0)
+	`, r.schema), productIDs)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := make(map[int64][]app.CustomerSKUPriceTier, len(productIDs))
+	for rows.Next() {
+		var productID, tierID, specG int64
+		var min float64
+		var max *float64
+		var unitPrice float64
+		if err := rows.Scan(&productID, &tierID, &specG, &min, &max, &unitPrice); err != nil {
+			return nil, err
+		}
+		out[productID] = append(out[productID], app.CustomerSKUPriceTier{
+			ID:        tierID,
+			SpecG:     specG,
+			Min:       min,
+			Max:       max,
+			UnitPrice: unitPrice,
+		})
+	}
+	return out, rows.Err()
 }
 
 type queryRower interface {
@@ -3713,6 +4173,34 @@ func payloadInt64(payload map[string]any, key string) int64 {
 		return n
 	default:
 		n, _ := parseIntText(fmt.Sprint(v))
+		return n
+	}
+}
+
+func payloadFloat(payload map[string]any, key string) float64 {
+	value, ok := payload[key]
+	if !ok || value == nil {
+		return 0
+	}
+	switch v := value.(type) {
+	case float64:
+		return v
+	case float32:
+		return float64(v)
+	case int:
+		return float64(v)
+	case int64:
+		return float64(v)
+	case int32:
+		return float64(v)
+	case json.Number:
+		n, _ := v.Float64()
+		return n
+	case string:
+		n, _ := strconv.ParseFloat(strings.TrimSpace(v), 64)
+		return n
+	default:
+		n, _ := strconv.ParseFloat(strings.TrimSpace(fmt.Sprint(v)), 64)
 		return n
 	}
 }
