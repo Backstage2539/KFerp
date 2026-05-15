@@ -674,7 +674,7 @@ func (r *Repository) customerFulfillmentSubmittedUnitPriceTx(ctx context.Context
 	}
 	rule := r.customerFulfillmentDirectShipSmallBatchPriceRuleTx(ctx, tx, customerID)
 	if !rule.Enabled {
-		return defaultPrice
+		return customerFulfillmentPackageUnitPriceFromLb(defaultPrice, specG)
 	}
 	tierQty := qty
 	qtyLb := float64(specG*qty) / 454.0
@@ -1195,6 +1195,14 @@ type submittedDirectShipERPItemSeed struct {
 }
 
 func (r *Repository) submittedDirectShipERPItemSeedsTx(ctx context.Context, tx pgx.Tx, importOrderID int64) ([]submittedDirectShipERPItemSeed, error) {
+	var customerID int64
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`
+		SELECT customer_id
+		FROM %s.customer_direct_ship_import_orders
+		WHERE id=$1
+	`, r.schema), importOrderID).Scan(&customerID); err != nil {
+		return nil, err
+	}
 	rows, err := tx.Query(ctx, fmt.Sprintf(`
 		SELECT line_no, product_title, spec, quantity_units, payload
 		FROM %s.customer_direct_ship_import_order_items
@@ -1236,12 +1244,39 @@ func (r *Repository) submittedDirectShipERPItemSeedsTx(ctx context.Context, tx p
 		unitPrice := payloadFloat(payload, "unit_price")
 		baseLineTotal := payloadFloat(payload, "line_total_before_discount")
 		lineTotal := payloadFloat(payload, "line_total")
+		specG := payloadInt64(payload, "spec_g")
+		if specG <= 0 {
+			specG = parseSubmittedDirectShipSpecG(spec)
+		}
 		if baseLineTotal <= 0 && unitPrice > 0 {
 			baseLineTotal = unitPrice * float64(quantity)
 		}
 		discountType := normalizeSubmittedDirectShipDiscountType(payloadString(payload, "discount_type"))
 		discountValue := payloadFloat(payload, "discount_value")
 		discountAmount := payloadFloat(payload, "discount_amount")
+		quoted, quoteErr := r.quoteSubmittedDirectShipItemTx(ctx, tx, customerID, submittedDirectShipItem{
+			ProductID:     productID,
+			ProductName:   productTitle,
+			Spec:          spec,
+			SpecG:         specG,
+			QuantityUnits: quantity,
+			DiscountType:  discountType,
+			DiscountValue: discountValue,
+		})
+		if quoteErr == nil {
+			if quoted.ProductName != "" {
+				productTitle = quoted.ProductName
+			}
+			if quoted.Spec != "" {
+				spec = quoted.Spec
+			}
+			unitPrice = quoted.UnitPrice
+			baseLineTotal = quoted.BaseLineTotal
+			discountType = quoted.DiscountType
+			discountValue = quoted.DiscountValue
+			discountAmount = quoted.DiscountAmount
+			lineTotal = quoted.LineTotal
+		}
 		if lineTotal <= 0 && discountType == "" && discountAmount <= 0 && unitPrice > 0 {
 			lineTotal = unitPrice * float64(quantity)
 		}

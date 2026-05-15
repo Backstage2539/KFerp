@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
 	"os"
 	"strings"
 	"testing"
@@ -3069,6 +3070,29 @@ func TestSubmittedDirectShipERPItemPricingKeepsFreeLineAndOrderDiscount(t *testi
 	}
 	if items[0].lineTotal != 0 {
 		t.Fatalf("free line total = %v, want 0", items[0].lineTotal)
+	}
+}
+
+func TestCustomerFulfillmentSubmittedUnitPriceUsesSpecAdjustedDefaultWhenRuleDisabled(t *testing.T) {
+	ctx := context.Background()
+	pool, schema := newCustomerFulfillmentTestDB(t)
+	repo := NewRepository(pool, schema)
+
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatalf("begin tx: %v", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	price80 := repo.customerFulfillmentSubmittedUnitPriceTx(ctx, tx, 999, 1, 80, 1, 63)
+	want80 := customerFulfillmentPackageUnitPriceFromLb(63, 80)
+	if math.Abs(price80-want80) > 0.000001 {
+		t.Fatalf("spec 80g unit price = %v, want %v", price80, want80)
+	}
+
+	price454 := repo.customerFulfillmentSubmittedUnitPriceTx(ctx, tx, 999, 1, 454, 1, 63)
+	if math.Abs(price454-63) > 0.000001 {
+		t.Fatalf("spec 454g unit price = %v, want 63", price454)
 	}
 }
 
