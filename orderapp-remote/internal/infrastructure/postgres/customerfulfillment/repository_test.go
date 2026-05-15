@@ -1735,6 +1735,15 @@ func TestOverviewIncludesCustomerPortalDirectShipOrders(t *testing.T) {
 	`, schema), customerID, employeeID); err != nil {
 		t.Fatalf("insert binding: %v", err)
 	}
+	if _, err := pool.Exec(ctx, fmt.Sprintf(`
+		INSERT INTO %s.customer_service_capabilities(customer_id, capability_code, enabled)
+		VALUES
+			($1,'direct_ship',true),
+			($1,'processing',false),
+			($1,'settlement',true)
+	`, schema), customerID); err != nil {
+		t.Fatalf("insert capabilities: %v", err)
+	}
 	if err := pool.QueryRow(ctx, fmt.Sprintf(`
 		SELECT id FROM %s.ship_statuses WHERE name='未发货' ORDER BY id LIMIT 1
 	`, schema)).Scan(&shipStatusID); err != nil {
@@ -1762,6 +1771,9 @@ func TestOverviewIncludesCustomerPortalDirectShipOrders(t *testing.T) {
 	}
 	if len(got.DirectShipOrders) != 1 {
 		t.Fatalf("direct ship orders = %#v, want one customer portal order", got.DirectShipOrders)
+	}
+	if strings.Join(got.Capabilities, ",") != "direct_ship,settlement" {
+		t.Fatalf("overview capabilities = %#v, want enabled direct_ship and settlement only", got.Capabilities)
 	}
 	order := got.DirectShipOrders[0]
 	if order.OrderNo != "CP-DS-20260512-0001" || order.ItemCount != 2 || order.Status != "未发货" {

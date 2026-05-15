@@ -471,7 +471,11 @@ func (s *threeTemplateWalkthroughStore) CreateLoginSession(context.Context, cust
 	return customerportalapp.LoginResult{}, nil
 }
 
-func (s *threeTemplateWalkthroughStore) CreateERPBoundLoginSession(context.Context, customerportalapp.ERPBoundLoginSessionCommand) (customerportalapp.LoginResult, error) {
+func (s *threeTemplateWalkthroughStore) CreatePhoneVerifiedLoginSession(context.Context, customerportalapp.CreatePhoneVerifiedLoginSessionCommand) (customerportalapp.LoginResult, error) {
+	return customerportalapp.LoginResult{}, nil
+}
+
+func (s *threeTemplateWalkthroughStore) CreatePasswordLoginSession(context.Context, customerportalapp.CreatePasswordLoginSessionCommand) (customerportalapp.LoginResult, error) {
 	return customerportalapp.LoginResult{}, nil
 }
 
@@ -648,6 +652,15 @@ func (s *threeTemplateWalkthroughStore) LoadMallPage(_ context.Context, customer
 		CurrentCustomerName: customer.Name,
 		Products:            []customerportalapp.MallProduct{{ID: 11, ProductID: 8, Title: "审计冷萃豆", SpecG: 250, UnitPrice: 68, Status: customerportalapp.MallProductStatusPublished}},
 	}, nil
+}
+
+func (s *threeTemplateWalkthroughStore) CustomerOwnsOrder(_ context.Context, customerID, orderID int64) (bool, error) {
+	for _, order := range s.orders {
+		if order.ID == orderID && order.CustomerID == customerID {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 func (s *threeTemplateWalkthroughStore) CreateMallOrder(_ context.Context, cmd customerportalapp.CreateMallOrderCommand) (customerportalapp.FulfillmentOrder, error) {
@@ -845,8 +858,8 @@ func (s *threeTemplateWalkthroughStore) Start(_ context.Context, cmd productiona
 	return productionapp.StartResult{BatchID: batchID}, nil
 }
 
-func (s *threeTemplateWalkthroughStore) Finish(context.Context, productionapp.FinishCommand) error {
-	return nil
+func (s *threeTemplateWalkthroughStore) Finish(_ context.Context, cmd productionapp.FinishCommand) (productionapp.FinishResult, error) {
+	return productionapp.FinishResult{RunningItemID: cmd.ID}, nil
 }
 
 func (s *threeTemplateWalkthroughStore) Cancel(context.Context, productionapp.CancelCommand) error {

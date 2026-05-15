@@ -15,6 +15,7 @@ import (
 	"testing"
 	"time"
 
+	authzapp "orderapp/internal/application/authz"
 	messagecenterapp "orderapp/internal/application/messagecenter"
 	salesapp "orderapp/internal/application/sales"
 	postgressales "orderapp/internal/infrastructure/postgres/sales"
@@ -163,6 +164,7 @@ func TestOrderAPISmallBatchDirectShipCustomerUsesDefaultPriceTier(t *testing.T) 
 		"source_id":      1,
 		"order_type_id":  1,
 		"pay_status_id":  2,
+		"payment_method": "微信支付",
 		"ship_status_id": 1,
 		"product_id":     []string{"7"},
 		"tier_id":        []string{""},
@@ -209,6 +211,7 @@ func TestOrderAPISavesAndListsEmployeeResponsiblePerson(t *testing.T) {
 		"source_id":        1,
 		"order_type_id":    1,
 		"pay_status_id":    2,
+		"payment_method":   "微信支付",
 		"ship_status_id":   1,
 		"responsible_type": "employee",
 		"responsible_id":   5,
@@ -270,6 +273,62 @@ func TestOrderAPISavesAndListsEmployeeResponsiblePerson(t *testing.T) {
 	}
 }
 
+func TestOrderAPIEditsPaidOrderRequirePaymentMethodAndExposeToList(t *testing.T) {
+	pool, schema := newOrderAPITestDB(t)
+	ctx := context.Background()
+	seedOrderAPITestData(t, ctx, pool, schema)
+	mustExecOrderAPITestSQL(t, ctx, pool, fmt.Sprintf(`
+		INSERT INTO %s.orders(id, order_no, order_date, customer_id, source_id, order_type_id, pay_status_id, ship_status_id, total_amount, grand_total)
+		VALUES(91, 'SO-PAYMENT-METHOD', '2026-05-15', 3, 1, 1, 1, 1, 88, 88);
+		INSERT INTO %s.order_items(order_id,line_no,product_id,item_name,qty,unit,spec,unit_price,line_total)
+		VALUES(91, 1, 7, '橘皮乌龙', 1, '件', '454g', 88, 88);
+	`, schema, schema))
+
+	e := newOrderAPITestEcho(pool, schema)
+	payload := map[string]any{
+		"edit_id":        91,
+		"order_date":     "2026-05-15",
+		"customer_id":    3,
+		"source_id":      1,
+		"order_type_id":  1,
+		"pay_status_id":  2,
+		"ship_status_id": 1,
+		"product_id":     []string{"7"},
+		"tier_id":        []string{"manual"},
+		"unit_price":     []string{"88"},
+		"item_name":      []string{"橘皮乌龙"},
+		"qty":            []string{"1"},
+		"unit":           []string{"件"},
+		"spec":           []string{"454"},
+	}
+	body, _ := json.Marshal(payload)
+	req := httptest.NewRequest(http.MethodPost, "/api/order", bytes.NewReader(body))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "payment_method required") {
+		t.Fatalf("paid edit without payment_method status=%d body=%s", rec.Code, rec.Body.String())
+	}
+
+	payload["payment_method"] = "银行转账"
+	body, _ = json.Marshal(payload)
+	req = httptest.NewRequest(http.MethodPost, "/api/order", bytes.NewReader(body))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec = httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("paid edit with payment_method status=%d body=%s", rec.Code, rec.Body.String())
+	}
+
+	req = httptest.NewRequest(http.MethodGet, "/api/orders?q=SO-PAYMENT-METHOD", nil)
+	rec = httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"payment_method":"银行转账"`) {
+		t.Fatalf("GET /api/orders payment_method status=%d body=%s", rec.Code, rec.Body.String())
+	}
+}
+
 func TestOrderAPISavesCustomerResponsiblePersonForPartnerCommission(t *testing.T) {
 	pool, schema := newOrderAPITestDB(t)
 	ctx := context.Background()
@@ -283,6 +342,7 @@ func TestOrderAPISavesCustomerResponsiblePersonForPartnerCommission(t *testing.T
 		"source_id":        1,
 		"order_type_id":    1,
 		"pay_status_id":    2,
+		"payment_method":   "微信支付",
 		"ship_status_id":   1,
 		"responsible_type": "customer",
 		"responsible_id":   4,
@@ -435,6 +495,45 @@ func TestOrderAPIListUsesOrderRecipientSnapshot(t *testing.T) {
 	}
 }
 
+func TestOrderAPIListSupportsCustomerFilterAndFeeBreakdown(t *testing.T) {
+	pool, schema := newOrderAPITestDB(t)
+	ctx := context.Background()
+	seedOrderAPITestData(t, ctx, pool, schema)
+	mustExecOrderAPITestSQL(t, ctx, pool, fmt.Sprintf(`
+		INSERT INTO %s.orders(
+			id, order_no, order_date, customer_id, source_id, order_type_id, pay_status_id,
+			ship_status_id, process_status_id, total_amount, shipping_amount, discount_amount, grand_total, is_void
+		)
+		VALUES
+			(43, 'SO-FEE-CUSTOMER-3', '2026-05-07', 3, 1, 1, 2, 1, 1, 128.00, 12.00, 5.00, 135.00, false),
+			(44, 'SO-FEE-CUSTOMER-4', '2026-05-07', 4, 1, 1, 2, 1, 1, 200.00, 18.00, 10.00, 208.00, false);
+	`, schema))
+
+	e := newOrderAPITestEcho(pool, schema)
+	req := httptest.NewRequest(http.MethodGet, "/api/orders?customer_id=3&limit=20", nil)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET /api/orders customer filter status = %d, want 200, body=%s", rec.Code, rec.Body.String())
+	}
+	body := rec.Body.String()
+	for _, needle := range []string{
+		`"order_no":"SO-FEE-CUSTOMER-3"`,
+		`"total_amount":"128.00"`,
+		`"shipping_amount":"12.00"`,
+		`"discount_amount":"5.00"`,
+		`"grand_total":"135.00"`,
+	} {
+		if !strings.Contains(body, needle) {
+			t.Fatalf("GET /api/orders customer filter missing %s: %s", needle, body)
+		}
+	}
+	if strings.Contains(body, "SO-FEE-CUSTOMER-4") {
+		t.Fatalf("GET /api/orders customer filter leaked other customer order: %s", body)
+	}
+}
+
 func TestOrderAPIListKeepsSearchKeywordForResponsibleLookup(t *testing.T) {
 	repo := &capturingOrderListRepo{}
 	e := echo.New()
@@ -481,6 +580,48 @@ func TestOrderAPIListCarriesOrderScopeAndCurrentEmployee(t *testing.T) {
 	}
 }
 
+func TestOrderAPIListFulfillmentScopeAllowsCustomerWorkbenchPermission(t *testing.T) {
+	repo := &capturingOrderListRepo{}
+	e := echo.New()
+	e.Use(func(next echo.HandlerFunc) echo.HandlerFunc {
+		return func(c echo.Context) error {
+			c.Set("employee_id", int64(7))
+			return next(c)
+		}
+	})
+	e.Use(support.AuthorizationMiddleware(&orderAPIAuthzService{actor: authzapp.Actor{
+		Permissions: []string{"customer_processing.read"},
+	}}))
+	registerOrderAPI(e, salesapp.NewService(repo), nil)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/orders?scope=fulfillment&customer_id=152&limit=20", nil)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET /api/orders fulfillment customer workbench status = %d, want 200, body=%s", rec.Code, rec.Body.String())
+	}
+	var body map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("GET /api/orders fulfillment customer workbench response must be valid JSON, got %q: %v", rec.Body.String(), err)
+	}
+	if !repo.called {
+		t.Fatal("orders API was not called for customer workbench fulfillment scope")
+	}
+	if repo.query.Scope != "fulfillment" {
+		t.Fatalf("orders API scope = %q, want fulfillment", repo.query.Scope)
+	}
+	if repo.query.CustomerID != 152 {
+		t.Fatalf("orders API customer id = %d, want 152", repo.query.CustomerID)
+	}
+	if repo.query.EmployeeID != 7 {
+		t.Fatalf("orders API employee id = %d, want 7", repo.query.EmployeeID)
+	}
+	if repo.query.FulfillmentEmployeeID != 7 {
+		t.Fatalf("orders API fulfillment employee id = %d, want 7", repo.query.FulfillmentEmployeeID)
+	}
+}
+
 func TestOrderAPIListFulfillmentScopeSkipsLegacyNonWorkbenchBinding(t *testing.T) {
 	pool, schema := newOrderAPITestDB(t)
 	ctx := context.Background()
@@ -490,6 +631,12 @@ func TestOrderAPIListFulfillmentScopeSkipsLegacyNonWorkbenchBinding(t *testing.T
 		CREATE TABLE %[1]s.customer_portal_profiles (
 			customer_id BIGINT PRIMARY KEY,
 			capability_template_key TEXT NOT NULL DEFAULT ''
+		);
+		CREATE TABLE %[1]s.customer_capability_templates (
+			template_key TEXT PRIMARY KEY,
+			active BOOLEAN NOT NULL DEFAULT true,
+			erp_permissions JSONB NOT NULL DEFAULT '[]'::jsonb,
+			erp_view_keys JSONB NOT NULL DEFAULT '[]'::jsonb
 		);
 		CREATE TABLE %[1]s.customer_erp_user_bindings (
 			id BIGSERIAL PRIMARY KEY,
@@ -548,6 +695,12 @@ func TestOrderAPIListFulfillmentScopeSkipsDisabledLoginBinding(t *testing.T) {
 		CREATE TABLE %[1]s.customer_portal_profiles (
 			customer_id BIGINT PRIMARY KEY,
 			capability_template_key TEXT NOT NULL DEFAULT ''
+		);
+		CREATE TABLE %[1]s.customer_capability_templates (
+			template_key TEXT PRIMARY KEY,
+			active BOOLEAN NOT NULL DEFAULT true,
+			erp_permissions JSONB NOT NULL DEFAULT '[]'::jsonb,
+			erp_view_keys JSONB NOT NULL DEFAULT '[]'::jsonb
 		);
 		CREATE TABLE %[1]s.customer_erp_user_bindings (
 			id BIGSERIAL PRIMARY KEY,
@@ -626,6 +779,28 @@ type capturingOrderListRepo struct {
 	query  salesapp.OrderListQuery
 }
 
+type orderAPIAuthzService struct {
+	actor authzapp.Actor
+}
+
+func (s *orderAPIAuthzService) ActorByEmployeeID(ctx context.Context, employeeID int64) (authzapp.Actor, error) {
+	actor := s.actor
+	actor.EmployeeID = employeeID
+	return actor, nil
+}
+
+func (s *orderAPIAuthzService) ListRoles(ctx context.Context) ([]authzapp.Role, error) {
+	return nil, nil
+}
+
+func (s *orderAPIAuthzService) ListEmployeeRoles(ctx context.Context) (map[int64][]string, error) {
+	return nil, nil
+}
+
+func (s *orderAPIAuthzService) AssignEmployeeRoles(ctx context.Context, cmd authzapp.AssignmentCommand) error {
+	return nil
+}
+
 func (r *capturingOrderListRepo) ListOrders(ctx context.Context, query salesapp.OrderListQuery) (salesapp.OrderListResult, error) {
 	r.called = true
 	r.query = query
@@ -677,6 +852,7 @@ func TestOrderAPISavePublishesNewOrderNotification(t *testing.T) {
 		"source_id":      1,
 		"order_type_id":  1,
 		"pay_status_id":  2,
+		"payment_method": "微信支付",
 		"ship_status_id": 1,
 		"product_id":     []string{"7"},
 		"tier_id":        []string{"manual"},
@@ -721,6 +897,7 @@ func TestOrderAPISaveCarriesItemNotes(t *testing.T) {
 		"source_id":      1,
 		"order_type_id":  1,
 		"pay_status_id":  2,
+		"payment_method": "微信支付",
 		"ship_status_id": 1,
 		"product_id":     []string{"7"},
 		"tier_id":        []string{"manual"},
@@ -925,6 +1102,7 @@ func TestOrderAPIDefaultsNewOrderToPaidAndUnshipped(t *testing.T) {
 		"source_id":      1,
 		"order_type_id":  1,
 		"pay_status_id":  0,
+		"payment_method": "微信支付",
 		"ship_status_id": 0,
 		"product_id":     []string{"7"},
 		"tier_id":        []string{"manual"},
@@ -1033,6 +1211,7 @@ func TestOrderAPISaveWithStockBatchDecisionMarksInventoryReadyAndStoresBatchChoi
 		"source_id":            1,
 		"order_type_id":        1,
 		"pay_status_id":        2,
+		"payment_method":       "微信支付",
 		"ship_status_id":       1,
 		"stock_batch_decision": "use_batch",
 		"product_id":           []string{"7"},
@@ -1090,6 +1269,7 @@ func TestOrderAPISaveWithLegacyFinishedInventoryDecisionMarksReadyAndShipReady(t
 		"source_id":            1,
 		"order_type_id":        1,
 		"pay_status_id":        2,
+		"payment_method":       "微信支付",
 		"ship_status_id":       1,
 		"stock_batch_decision": "use_batch",
 		"product_id":           []string{"7"},
@@ -1154,6 +1334,7 @@ func TestOrderAPISaveWithProduceDecisionKeepsOrderInProductionGap(t *testing.T) 
 		"source_id":            1,
 		"order_type_id":        1,
 		"pay_status_id":        2,
+		"payment_method":       "微信支付",
 		"ship_status_id":       1,
 		"stock_batch_decision": "produce",
 		"product_id":           []string{"7"},
@@ -1215,6 +1396,7 @@ func TestOrderAPISaveDoesNotGenerateShippingExcel(t *testing.T) {
 		"source_id":      1,
 		"order_type_id":  1,
 		"pay_status_id":  2,
+		"payment_method": "微信支付",
 		"ship_status_id": 1,
 		"product_id":     []string{"7"},
 		"tier_id":        []string{"manual"},
@@ -2141,7 +2323,7 @@ func TestOrdersShippingTrackingExcelAPIRejectsOversizedUpload(t *testing.T) {
 			return next(c)
 		}
 	})
-	registerOrderShippingExcelRoutes(e, salesapp.NewService(nil))
+	registerOrderShippingExcelRoutes(e, salesapp.NewService(nil), nil)
 
 	var body bytes.Buffer
 	writer := multipart.NewWriter(&body)
@@ -2304,7 +2486,7 @@ func newOrderAPITestEcho(pool *pgxpool.Pool, schema string) *echo.Echo {
 	})
 	svc := salesapp.NewService(postgressales.NewRepository(pool, schema))
 	registerOrderAPI(e, svc, nil)
-	registerOrderShippingExcelRoutes(e, svc)
+	registerOrderShippingExcelRoutes(e, svc, nil)
 	registerSenderSettingsPage(e, svc)
 	return e
 }
@@ -2519,6 +2701,7 @@ CREATE TABLE %s.orders (
 	source_id BIGINT,
 	order_type_id BIGINT,
 	pay_status_id BIGINT,
+	payment_method TEXT NOT NULL DEFAULT '',
 	ship_status_id BIGINT,
 	ship_method TEXT,
 	ship_tracking_no TEXT,

@@ -39,12 +39,20 @@ const (
 	salesOrderSealLegacyXMM      = 32
 	salesOrderSealLegacyYMM      = 22
 	salesOrderSealLegacyWidthMM  = 42
-	salesOrderSealHeightRatio    = 0.62
+	salesOrderSealHeightRatio    = 1
 	salesOrderPaymentLineMM      = 6.2
 	salesOrderPaymentBlockGapMM  = 3.5
 )
 
 func (r SalesOrderRenderer) Render(snapshot salesdomain.SalesOrderSnapshot) ([]byte, error) {
+	return r.render(snapshot, false)
+}
+
+func (r SalesOrderRenderer) RenderPreview(snapshot salesdomain.SalesOrderSnapshot) ([]byte, error) {
+	return r.render(snapshot, true)
+}
+
+func (r SalesOrderRenderer) render(snapshot salesdomain.SalesOrderSnapshot, preview bool) ([]byte, error) {
 	if err := snapshot.Validate(); err != nil {
 		return nil, err
 	}
@@ -69,6 +77,9 @@ func (r SalesOrderRenderer) Render(snapshot salesdomain.SalesOrderSnapshot) ([]b
 	r.renderSalesOrderItemsTable(pdf, snapshot)
 	renderSalesOrderTotals(pdf, snapshot)
 	r.renderSalesOrderPaymentInfoSection(pdf, snapshot)
+	if preview {
+		renderDocumentPreviewLabel(pdf)
+	}
 
 	if pdf.Error() != nil {
 		return nil, pdf.Error()
@@ -78,6 +89,15 @@ func (r SalesOrderRenderer) Render(snapshot salesdomain.SalesOrderSnapshot) ([]b
 		return nil, err
 	}
 	return buf.Bytes(), nil
+}
+
+func renderDocumentPreviewLabel(pdf *gofpdf.Fpdf) {
+	pageW, _ := pdf.GetPageSize()
+	pdf.SetFont("noto", "", 16)
+	pdf.SetTextColor(190, 30, 30)
+	pdf.SetXY(pageW-68, 4)
+	pdf.CellFormat(58, 8, "PREVIEW 预览版", "1", 0, "C", false, 0, "")
+	pdf.SetTextColor(0, 0, 0)
 }
 
 func (r SalesOrderRenderer) renderSalesOrderHeader(pdf *gofpdf.Fpdf, snapshot salesdomain.SalesOrderSnapshot) {

@@ -16,6 +16,7 @@ type SaveOrderCommand struct {
 	SourceID              int64
 	OrderTypeID           int64
 	PayStatusID           int64
+	PaymentMethod         string
 	ShipStatusID          int64
 	ShipMethod            string
 	ShipTrackingNo        string
@@ -117,6 +118,7 @@ type UpdateHeaderCommand struct {
 	SourceID              int64
 	OrderTypeID           int64
 	PayStatusID           int64
+	PaymentMethod         string
 	ShipStatusID          int64
 	ShipMethod            string
 	ShipTrackingNo        string
@@ -139,27 +141,29 @@ type UpdateHeaderCommand struct {
 type InlineUpdateCommand struct {
 	OrderTypeID     string
 	PayStatusID     string
+	PaymentMethod   string
 	ShipStatusID    string
 	ProcessStatusID string
 	Notes           string
 }
 
 type OrderListQuery struct {
-	Q               string
-	From            string
-	To              string
-	Void            string
-	Scope           string
-	EmployeeID      int64
-	CustomerID      int64
-	PayStatusID     int64
-	ShipStatusID    int64
-	ProcessStatusID int64
-	UnproducedOnly  bool
-	CompletedOnly   bool
-	ShipReadyOnly   bool
-	Limit           int
-	Offset          int
+	Q                     string
+	From                  string
+	To                    string
+	Void                  string
+	Scope                 string
+	EmployeeID            int64
+	FulfillmentEmployeeID int64
+	CustomerID            int64
+	PayStatusID           int64
+	ShipStatusID          int64
+	ProcessStatusID       int64
+	UnproducedOnly        bool
+	CompletedOnly         bool
+	ShipReadyOnly         bool
+	Limit                 int
+	Offset                int
 }
 
 type OrderListResult struct {
@@ -253,6 +257,7 @@ type OrderEditData struct {
 	SourceID        int64
 	OrderTypeID     int64
 	PayStatusID     int64
+	PaymentMethod   string
 	ShipStatusID    int64
 	ShipMethod      string
 	ShipTrackingNo  string
@@ -298,9 +303,13 @@ type OrderRow struct {
 	ResponsibleType   string `json:"responsible_type"`
 	ResponsibleID     int64  `json:"responsible_id"`
 	ResponsibleName   string `json:"responsible_name"`
+	TotalAmount       string `json:"total_amount"`
+	ShippingAmount    string `json:"shipping_amount"`
+	DiscountAmount    string `json:"discount_amount"`
 	GrandTotal        string `json:"grand_total"`
 	OrderType         string `json:"order_type"`
 	PayStatus         string `json:"pay_status"`
+	PaymentMethod     string `json:"payment_method"`
 	ShipStatus        string `json:"ship_status"`
 	ShipTrackingNo    string `json:"ship_tracking_no"`
 	ReceiverName      string `json:"receiver_name"`
@@ -418,8 +427,10 @@ type FillOrderTrackingCommand struct {
 }
 
 type FillShipmentTrackingResult struct {
-	Updated int `json:"updated"`
-	Total   int `json:"total"`
+	Updated  int      `json:"updated"`
+	Total    int      `json:"total"`
+	OrderIDs []int64  `json:"order_ids,omitempty"`
+	OrderNos []string `json:"order_nos,omitempty"`
 }
 
 type SenderProfile struct {
@@ -557,6 +568,12 @@ type SalesOrderPreview struct {
 	Snapshot      salesdomain.SalesOrderSnapshot `json:"snapshot"`
 }
 
+type SalesOrderPreviewPDF struct {
+	Preview  SalesOrderPreview `json:"preview"`
+	Data     []byte            `json:"-"`
+	Filename string            `json:"filename"`
+}
+
 type SalesOrderDocument struct {
 	ID          int64                          `json:"id"`
 	OrderID     int64                          `json:"order_id"`
@@ -645,6 +662,12 @@ type DeliveryNotePreview struct {
 	NextVersionNo int                              `json:"next_version_no"`
 	Form          DeliveryNoteForm                 `json:"form"`
 	Snapshot      salesdomain.DeliveryNoteSnapshot `json:"snapshot"`
+}
+
+type DeliveryNotePreviewPDF struct {
+	Preview  DeliveryNotePreview `json:"preview"`
+	Data     []byte              `json:"-"`
+	Filename string              `json:"filename"`
 }
 
 type DeliveryNoteDocument struct {
@@ -767,6 +790,7 @@ type Repository interface {
 	SaveSalesOrderSettings(ctx context.Context, cmd SaveSalesOrderSettingsCommand) error
 	SaveSalesOrderAsset(ctx context.Context, cmd SaveSalesOrderAssetCommand) (SalesOrderAsset, error)
 	DeleteSalesOrderAsset(ctx context.Context, id int64, actor string) error
+	ListSalesOrderSealAssets(ctx context.Context) ([]SalesOrderAsset, error)
 	SaveSalesOrderPaymentCode(ctx context.Context, cmd SaveSalesOrderPaymentCodeCommand) (SalesOrderPaymentCode, error)
 	DeleteSalesOrderPaymentCode(ctx context.Context, id int64, actor string) error
 	SetSalesOrderSealAsset(ctx context.Context, assetID int64, actor string) error
@@ -774,6 +798,7 @@ type Repository interface {
 	ListSalesOrderDocuments(ctx context.Context, orderID int64) ([]SalesOrderDocument, error)
 	ListSalesOrderImageDocuments(ctx context.Context, orderID int64) ([]SalesOrderImageDocument, error)
 	PreviewSalesOrderDocument(ctx context.Context, orderID int64) (SalesOrderPreview, error)
+	PreviewSalesOrderPDF(ctx context.Context, orderID int64) (SalesOrderPreviewPDF, error)
 	GenerateSalesOrderDocument(ctx context.Context, cmd GenerateSalesOrderDocumentCommand) (GenerateSalesOrderDocumentResult, error)
 	GenerateSalesOrderImage(ctx context.Context, cmd GenerateSalesOrderImageCommand) (GenerateSalesOrderImageResult, error)
 	LoadSalesOrderDocumentFile(ctx context.Context, orderID, documentID int64, latest bool) (SalesOrderDocumentFile, error)
@@ -783,6 +808,7 @@ type Repository interface {
 	SaveDeliveryNoteForm(ctx context.Context, cmd SaveDeliveryNoteFormCommand) (DeliveryNoteForm, error)
 	ListDeliveryNoteDocuments(ctx context.Context, orderID int64) ([]DeliveryNoteDocument, error)
 	PreviewDeliveryNoteDocument(ctx context.Context, orderID int64) (DeliveryNotePreview, error)
+	PreviewDeliveryNotePDF(ctx context.Context, orderID int64) (DeliveryNotePreviewPDF, error)
 	GenerateDeliveryNoteDocument(ctx context.Context, cmd GenerateDeliveryNoteDocumentCommand) (GenerateDeliveryNoteDocumentResult, error)
 	LoadDeliveryNoteDocumentFile(ctx context.Context, orderID, documentID int64, latest bool) (DeliveryNoteDocumentFile, error)
 	CreateExternalShareResource(ctx context.Context, cmd CreateExternalShareResourceCommand) (ExternalShareResource, error)
@@ -1262,6 +1288,19 @@ func (s *Service) DeleteSalesOrderAsset(ctx context.Context, id int64, actor str
 	return s.repo.DeleteSalesOrderAsset(ctx, id, actor)
 }
 
+func (s *Service) ListSalesOrderSealAssets(ctx context.Context) ([]SalesOrderAsset, error) {
+	assets, err := s.repo.ListSalesOrderSealAssets(ctx)
+	if err != nil {
+		return nil, err
+	}
+	for i := range assets {
+		if strings.TrimSpace(assets[i].URL) == "" && strings.TrimSpace(assets[i].ObjectKey) != "" {
+			assets[i].URL = "/assets/" + strings.TrimSpace(assets[i].ObjectKey)
+		}
+	}
+	return assets, nil
+}
+
 func (s *Service) SaveSalesOrderPaymentCode(ctx context.Context, cmd SaveSalesOrderPaymentCodeCommand) (SalesOrderPaymentCode, error) {
 	cmd.Actor = strings.TrimSpace(cmd.Actor)
 	if cmd.Actor == "" {
@@ -1350,6 +1389,13 @@ func (s *Service) PreviewSalesOrderDocument(ctx context.Context, orderID int64) 
 	return s.repo.PreviewSalesOrderDocument(ctx, orderID)
 }
 
+func (s *Service) PreviewSalesOrderPDF(ctx context.Context, orderID int64) (SalesOrderPreviewPDF, error) {
+	if orderID <= 0 {
+		return SalesOrderPreviewPDF{}, fmt.Errorf("invalid order id")
+	}
+	return s.repo.PreviewSalesOrderPDF(ctx, orderID)
+}
+
 func (s *Service) LoadSalesOrderDocumentFile(ctx context.Context, orderID, documentID int64, latest bool) (SalesOrderDocumentFile, error) {
 	if orderID <= 0 {
 		return SalesOrderDocumentFile{}, fmt.Errorf("invalid order id")
@@ -1416,6 +1462,13 @@ func (s *Service) PreviewDeliveryNoteDocument(ctx context.Context, orderID int64
 		return DeliveryNotePreview{}, fmt.Errorf("invalid order id")
 	}
 	return s.repo.PreviewDeliveryNoteDocument(ctx, orderID)
+}
+
+func (s *Service) PreviewDeliveryNotePDF(ctx context.Context, orderID int64) (DeliveryNotePreviewPDF, error) {
+	if orderID <= 0 {
+		return DeliveryNotePreviewPDF{}, fmt.Errorf("invalid order id")
+	}
+	return s.repo.PreviewDeliveryNotePDF(ctx, orderID)
 }
 
 func (s *Service) GenerateDeliveryNoteDocument(ctx context.Context, cmd GenerateDeliveryNoteDocumentCommand) (GenerateDeliveryNoteDocumentResult, error) {

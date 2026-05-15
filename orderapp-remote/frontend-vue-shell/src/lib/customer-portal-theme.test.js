@@ -76,3 +76,64 @@ test('customer portal settings preserves unknown template keys for correction', 
   assert.doesNotMatch(source, /capability_template_key:\s*normalizeTemplateKey\(row\.form\.capability_template_key\)/)
   assert.match(source, /!unknownTemplateKey\(row\)/)
 })
+
+test('customer processing portal uses the ERP fulfillment order list and document drawers', () => {
+  const source = fs.readFileSync(path.join(currentDir, '..', 'views', 'CustomerProcessingPortalView.vue'), 'utf8')
+  for (const want of [
+    '履约客户订单',
+    '订单费用',
+    'fetchCustomerFulfillmentOrders',
+    'fetchCustomerFulfillmentOrderDetail',
+    'customerFulfillmentOrderFees',
+    'SalesOrderView',
+    'DeliveryNoteView',
+    'openFulfillmentOrderDetail',
+  ]) {
+    assert.ok(source.includes(want), `missing ${want}`)
+  }
+  assert.doesNotMatch(source, /overview\.direct_ship_orders/)
+})
+
+test('customer capability templates view supports manual child templates and folding', () => {
+  const source = fs.readFileSync(path.join(currentDir, '..', 'views', 'CustomerCapabilityTemplatesView.vue'), 'utf8')
+  for (const want of [
+    '复制模板',
+    '模板失效',
+    'parent_template_key',
+    'active',
+    'sort_order',
+    'expandedTemplateKey',
+    'templateSummary',
+    'visibleTemplateEditors',
+    'flattenTemplateEditorsForTree',
+    'isTemplateExpanded',
+    'toggleTemplateExpanded',
+    'copyTemplate',
+  ]) {
+    assert.ok(source.includes(want), `missing ${want}`)
+  }
+  assert.match(source, /window\.prompt\('请输入新模板名称'/)
+  assert.doesNotMatch(source, /请输入新模板 key/)
+  assert.doesNotMatch(source, /body:\s*\{\s*new_key:/)
+  assert.match(source, /body:\s*\{\s*label\s*\}/)
+})
+
+test('inactive customer capability templates keep save actions visually available', () => {
+  const source = fs.readFileSync(path.join(currentDir, '..', 'views', 'CustomerCapabilityTemplatesView.vue'), 'utf8')
+  assert.match(source, /:class="\{\s*inactive:\s*!editor\.form\.active/)
+  assert.match(source, /:disabled="loading \|\| editor\.saving"/)
+  assert.doesNotMatch(source, /\.template-panel\.inactive\s*\{[^}]*opacity/s)
+  assert.ok(source.includes('inactive-template-badge'), 'missing inactive template badge')
+})
+
+test('customer portal settings only lets customers bind active templates', () => {
+  const source = fs.readFileSync(path.join(currentDir, '..', 'views', 'CustomerPortalSettingsView.vue'), 'utf8')
+  for (const want of [
+    'activeTemplates',
+    '模板已失效',
+    'inactiveTemplateKey',
+    'template.active !== false',
+  ]) {
+    assert.ok(source.includes(want), `missing ${want}`)
+  }
+})

@@ -1,6 +1,7 @@
 package sales
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -53,6 +54,19 @@ func TestDeliveryNoteDocumentAPI(t *testing.T) {
 		}
 	}
 
+	previewPDFReq := httptest.NewRequest(http.MethodGet, "/api/orders/1/delivery-note-preview.pdf", nil)
+	previewPDFRec := httptest.NewRecorder()
+	e.ServeHTTP(previewPDFRec, previewPDFReq)
+	if previewPDFRec.Code != http.StatusOK || previewPDFRec.Header().Get(echo.HeaderContentType) != "application/pdf" {
+		t.Fatalf("preview pdf status=%d content-type=%q body=%s", previewPDFRec.Code, previewPDFRec.Header().Get(echo.HeaderContentType), previewPDFRec.Body.String())
+	}
+	if !bytes.HasPrefix(previewPDFRec.Body.Bytes(), []byte("%PDF-")) {
+		t.Fatalf("preview pdf prefix=%q", previewPDFRec.Body.Bytes()[:min(len(previewPDFRec.Body.Bytes()), 8)])
+	}
+	if disposition := previewPDFRec.Header().Get(echo.HeaderContentDisposition); !strings.HasPrefix(disposition, "inline;") || !strings.Contains(disposition, "preview") {
+		t.Fatalf("preview pdf disposition=%q", disposition)
+	}
+
 	listReq := httptest.NewRequest(http.MethodGet, "/api/orders/1/delivery-notes", nil)
 	listRec := httptest.NewRecorder()
 	e.ServeHTTP(listRec, listReq)
@@ -82,6 +96,25 @@ func TestDeliveryNoteDocumentAPI(t *testing.T) {
 	e.ServeHTTP(historyRec, historyReq)
 	if historyRec.Code != http.StatusOK || historyRec.Header().Get(echo.HeaderContentType) != "application/pdf" {
 		t.Fatalf("history download status=%d content-type=%q body=%s", historyRec.Code, historyRec.Header().Get(echo.HeaderContentType), historyRec.Body.String())
+	}
+}
+
+func TestDeliveryNoteDocumentRoutesRegisterPreviewPDF(t *testing.T) {
+	e := echo.New()
+	registerDeliveryNoteDocumentRoutes(e, salesapp.NewService(nil))
+	routes := map[string]bool{}
+	for _, route := range e.Routes() {
+		routes[route.Method+" "+route.Path] = true
+	}
+	for _, want := range []string{
+		"GET /api/orders/:id/delivery-note-preview",
+		"GET /api/orders/:id/delivery-note-preview.pdf",
+		"POST /api/orders/:id/delivery-notes",
+		"GET /orders/:id/delivery-note-latest.pdf",
+	} {
+		if !routes[want] {
+			t.Fatalf("missing route %s", want)
+		}
 	}
 }
 

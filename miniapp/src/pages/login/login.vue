@@ -1,58 +1,41 @@
 <script setup lang="ts">
 import { ref } from 'vue'
-import { loginWithCode, loginWithPassword, loginWithPhoneVerify, type LoginResponse } from '../../api/customerPortal'
+import { loginWithPassword, loginWithPhoneVerify, type LoginResponse } from '../../api/customerPortal'
 import { useSessionStore } from '../../stores/session'
+import { customerEntryRoute } from '../../utils/customerSwitch'
 import { miniappThemeClass, miniappThemeMeta } from '../../utils/themes'
 
 const session = useSessionStore()
 const loading = ref(false)
 const errorMessage = ref('')
 const loginMode = ref<'quick' | 'password'>('quick')
-const phone = ref('')
-const password = ref('')
+const loginForm = ref({ login: '', password: '' })
 const themeClass = miniappThemeClass()
 const themeMeta = miniappThemeMeta()
-const phoneRe = /^1\d{10}$/
 
 function requestLoginCode(): Promise<string> {
   return new Promise((resolve, reject) => {
     uni.login({
       provider: 'weixin',
-      success: (res) => {
-        if (res.code) {
-          resolve(res.code)
+      success(result) {
+        const code = String(result.code || '').trim()
+        if (!code) {
+          reject(new Error('未获得微信登录凭证'))
           return
         }
-        reject(new Error('微信登录未返回 code'))
+        resolve(code)
       },
-      fail: (err) => reject(new Error(err.errMsg || '微信登录失败')),
+      fail() {
+        reject(new Error('微信登录失败'))
+      },
     })
   })
-}
-
-async function handleLogin() {
-  if (loading.value) return
-
-  loading.value = true
-  errorMessage.value = ''
-
-  try {
-    const code = await requestLoginCode()
-    const response = await loginWithCode(code)
-    session.setToken(response.token)
-    session.applyContext(response)
-    uni.redirectTo({ url: '/pages/home/home' })
-  } catch (error) {
-    errorMessage.value = error instanceof Error ? error.message : '登录失败'
-  } finally {
-    loading.value = false
-  }
 }
 
 function completeLogin(response: LoginResponse) {
   session.setToken(response.token)
   session.applyContext(response)
-  uni.redirectTo({ url: '/pages/home/home' })
+  uni.reLaunch({ url: customerEntryRoute(response) })
 }
 
 async function handlePhoneLogin(event: { detail?: { code?: string; errMsg?: string } }) {
@@ -80,14 +63,11 @@ async function handlePhoneLogin(event: { detail?: { code?: string; errMsg?: stri
 
 async function handlePasswordLogin() {
   if (loading.value) return
-  const normalizedPhone = phone.value.trim()
-  const normalizedPassword = password.value.trim()
-  if (!phoneRe.test(normalizedPhone)) {
-    errorMessage.value = '请输入11位手机号'
-    return
-  }
-  if (!normalizedPassword) {
-    errorMessage.value = '请输入密码'
+
+  const login = loginForm.value.login.trim()
+  const password = loginForm.value.password.trim()
+  if (!login || !password) {
+    errorMessage.value = '请输入用户名和密码'
     return
   }
 
@@ -95,11 +75,10 @@ async function handlePasswordLogin() {
   errorMessage.value = ''
 
   try {
-    const code = await requestLoginCode()
-    const response = await loginWithPassword(code, normalizedPhone, normalizedPassword)
+    const response = await loginWithPassword(login, password)
     completeLogin(response)
   } catch (error) {
-    errorMessage.value = error instanceof Error ? error.message : '登录失败'
+    errorMessage.value = error instanceof Error ? error.message : '账号或密码不正确'
   } finally {
     loading.value = false
   }
@@ -130,18 +109,16 @@ async function handlePasswordLogin() {
         >
           手机号快捷登录
         </button>
-        <button class="plain-button" :loading="loading" :disabled="loading" @tap="handleLogin">
-          微信身份登录
-        </button>
       </view>
 
       <view v-else class="login-block">
-        <input v-model="phone" class="input" type="number" maxlength="11" placeholder="手机号" />
-        <input v-model="password" class="input" password placeholder="密码" />
+        <input v-model="loginForm.login" class="input" placeholder="用户名或手机号" />
+        <input v-model="loginForm.password" class="input" password placeholder="密码" />
         <button class="login-button" :loading="loading" :disabled="loading" @tap="handlePasswordLogin">
           登录
         </button>
       </view>
+
       <text v-if="errorMessage" class="error">{{ errorMessage }}</text>
     </view>
   </view>
@@ -237,14 +214,24 @@ async function handlePasswordLogin() {
 }
 
 .input {
-  height: 88rpx;
-  padding: 0 24rpx;
-  background: #ffffff;
-  border: 2rpx solid rgba(43, 33, 24, 0.16);
+  min-height: 88rpx;
+  padding: 0 28rpx;
+  border: 1rpx solid #ead9bd;
   border-radius: 10rpx;
+  background: #fffaf2;
   color: #171717;
-  font-size: 28rpx;
+  font-size: 30rpx;
   box-sizing: border-box;
+}
+
+.theme-clean-ops .input {
+  border-color: #dfe7e2;
+  background: #ffffff;
+}
+
+.theme-premium-partner .input {
+  border-color: #eadab7;
+  background: #fffdf8;
 }
 
 .login-button {
@@ -254,17 +241,6 @@ async function handlePasswordLogin() {
   border-radius: 10rpx;
   color: #ffffff;
   font-size: 30rpx;
-  font-weight: 800;
-}
-
-.plain-button {
-  width: 100%;
-  min-height: 76rpx;
-  background: transparent;
-  border: 2rpx solid rgba(43, 33, 24, 0.22);
-  border-radius: 10rpx;
-  color: #3b3128;
-  font-size: 26rpx;
   font-weight: 800;
 }
 

@@ -1,9 +1,44 @@
-export function importTypeOptions() {
-  return [
-    { value: 'processing_workbook', label: '代加工工单' },
-    { value: 'direct_ship_workbook', label: '代发清单' },
-    { value: 'settlement_workbook', label: '结算单' },
-  ]
+const importTypeCatalog = [
+  { value: 'processing_workbook', label: '代加工工单', capability: 'processing' },
+  { value: 'direct_ship_workbook', label: '代发清单', capability: 'direct_ship' },
+  { value: 'settlement_workbook', label: '结算单', capability: 'settlement' },
+]
+
+export function importTypeOptions(capabilities = null) {
+  const rows = Array.isArray(capabilities)
+    ? importTypeCatalog.filter((option) => hasCustomerCapability(capabilities, option.capability))
+    : importTypeCatalog
+  return rows.map(({ value, label }) => ({ value, label }))
+}
+
+export function hasCustomerCapability(capabilities = [], code) {
+  if (!code) return false
+  const allowed = new Set((Array.isArray(capabilities) ? capabilities : []).map((item) => String(item || '').trim()).filter(Boolean))
+  return allowed.has(code)
+}
+
+export function customerFulfillmentWorkbenchSections(capabilities = []) {
+  const processing = hasCustomerCapability(capabilities, 'processing')
+  const directShip = hasCustomerCapability(capabilities, 'direct_ship')
+  const inventory = hasCustomerCapability(capabilities, 'inventory_custody')
+  const settlement = hasCustomerCapability(capabilities, 'settlement')
+  const orders = processing
+    || directShip
+    || hasCustomerCapability(capabilities, 'product_order')
+    || hasCustomerCapability(capabilities, 'mall')
+  return {
+    processing,
+    directShip,
+    inventory,
+    settlement,
+    imports: processing || directShip || settlement,
+    orders,
+  }
+}
+
+export function visibleCustomerFulfillmentImports(imports = [], capabilities = []) {
+  const allowedTypes = new Set(importTypeOptions(capabilities).map((option) => option.value))
+  return (Array.isArray(imports) ? imports : []).filter((row) => allowedTypes.has(row?.import_type))
 }
 
 export function importSummaryCards(summary = {}) {
@@ -83,6 +118,15 @@ export function customerFulfillmentCustomerOptionMeta(customer) {
   return parts.join(' / ')
 }
 
+export function customerFulfillmentOrderFees(row = {}) {
+  return [
+    { label: '商品', value: orderMoneyValue(row?.total_amount) },
+    { label: '运费', value: orderMoneyValue(row?.shipping_amount) },
+    { label: '优惠', value: orderMoneyValue(row?.discount_amount) },
+    { label: '应收', value: orderMoneyValue(row?.grand_total), emphasized: true },
+  ]
+}
+
 function isParsedBatchForType(batch, importType) {
   return Boolean(batch && batch.status === 'parsed' && batch.import_type === importType)
 }
@@ -95,4 +139,9 @@ function addPositiveCard(cards, label, value) {
 function addPositiveEffect(effects, label, value) {
   const n = Number(value || 0)
   if (n > 0) effects.push({ label, value: n })
+}
+
+function orderMoneyValue(value) {
+  const text = String(value ?? '').trim()
+  return text || '0.00'
 }

@@ -68,8 +68,24 @@ if [ -d miniapp ]; then
 fi
 ssh -i "$KEY" "$SERVER" "set -e; mkdir -p /opt/stacks/erp/orderapp_data/shipping_exports; if [ -f /data/ship_temp.xlsx ]; then cp /data/ship_temp.xlsx /opt/stacks/erp/orderapp_data/ship_temp.xlsx; fi"
 
-# 4) Build & restart
-ssh -i "$KEY" "$SERVER" "cd /opt/stacks/erp && docker compose build orderapp && docker compose up -d orderapp"
+# 4) Ensure the DOCX conversion service is isolated from the app image.
+ssh -i "$KEY" "$SERVER" "cat > /opt/stacks/erp/docker-compose.docconvert.yml <<'YAML'
+services:
+  orderapp:
+    depends_on:
+      docconvert:
+        condition: service_started
+    environment:
+      DOCX_CONVERTER_URL: http://docconvert:3000/forms/libreoffice/convert
+
+  docconvert:
+    image: \${DOCX_CONVERTER_IMAGE:-docker.m.daocloud.io/gotenberg/gotenberg:8-libreoffice}
+    container_name: erp_docconvert
+    restart: unless-stopped
+YAML"
+
+# 5) Build & restart
+ssh -i "$KEY" "$SERVER" "cd /opt/stacks/erp && docker compose -f docker-compose.yml -f docker-compose.docconvert.yml pull docconvert && docker compose -f docker-compose.yml -f docker-compose.docconvert.yml up -d docconvert && docker compose -f docker-compose.yml -f docker-compose.docconvert.yml build orderapp && docker compose -f docker-compose.yml -f docker-compose.docconvert.yml up -d orderapp"
 
 echo "Deployed origin/develop=$REMOTE_HEAD with docs synced to $SERVER:$DOCS_DIR"
 echo "Previous app backup: $SERVER:$BACKUP"

@@ -165,6 +165,17 @@ type FinishCommand struct {
 	Outputs          []FinishOutputCommand
 }
 
+type FinishedOrder struct {
+	OrderID int64  `json:"order_id"`
+	OrderNo string `json:"order_no"`
+}
+
+type FinishResult struct {
+	RunningItemID  int64           `json:"running_item_id"`
+	Completed      bool            `json:"completed"`
+	FinishedOrders []FinishedOrder `json:"finished_orders,omitempty"`
+}
+
 type FinishOutputCommand struct {
 	SpecG          int64 `json:"spec_g"`
 	FinishedUnits  int64 `json:"finished_units"`
@@ -534,7 +545,7 @@ type Repository interface {
 	ListRunning(ctx context.Context) ([]RunningItem, error)
 	ListStartNeeds(ctx context.Context, cmd StartCommand) ([]StartNeed, error)
 	Start(ctx context.Context, cmd StartExecutionCommand) (StartResult, error)
-	Finish(ctx context.Context, cmd FinishCommand) error
+	Finish(ctx context.Context, cmd FinishCommand) (FinishResult, error)
 	Cancel(ctx context.Context, cmd CancelCommand) error
 	ListMachines(ctx context.Context, activeOnly bool) ([]RoastMachine, error)
 	SaveMachine(ctx context.Context, cmd RoastMachineCommand) error
@@ -598,13 +609,13 @@ func (s *Service) ListRunning(ctx context.Context) ([]RunningItem, error) {
 	return s.repo.ListRunning(ctx)
 }
 
-func (s *Service) Finish(ctx context.Context, cmd FinishCommand) error {
+func (s *Service) Finish(ctx context.Context, cmd FinishCommand) (FinishResult, error) {
 	cmd.Warehouse = strings.TrimSpace(cmd.Warehouse)
 	if cmd.Warehouse == "" {
 		cmd.Warehouse = stockdomain.WarehouseFinishedGoods
 	}
 	if cmd.ConsumedInputG < 0 {
-		return fmt.Errorf("consumed_input_g must be >= 0")
+		return FinishResult{}, fmt.Errorf("consumed_input_g must be >= 0")
 	}
 	return s.repo.Finish(ctx, cmd)
 }

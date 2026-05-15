@@ -32,7 +32,8 @@ func TestDev162SalesOrderManualDocumentsPreviewDownloadParity(t *testing.T) {
 	for _, rel := range rels {
 		manual := string(readOrderAppFileForTest(t, rel))
 		for _, want := range []string{
-			"销售单预览按下载图片同一张 A4 页面比例显示",
+			"销售单预览显示 PDF 页面",
+			"PREVIEW 预览版",
 			"如果预览区域横向滚动",
 			"重新生成 PDF 或图片",
 		} {

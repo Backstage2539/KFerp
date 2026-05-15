@@ -243,6 +243,7 @@ func TestOverviewAPIReturnsCustomerFulfillmentData(t *testing.T) {
 		overviewResult: app.Overview{
 			CustomerID:   147,
 			CustomerName: "誉观山",
+			Capabilities: []string{"direct_ship", "settlement"},
 			CustodyBalances: []app.CustodyBalance{{
 				ItemType:  "raw_bean",
 				ItemName:  "埃塞花魁",
@@ -260,7 +261,7 @@ func TestOverviewAPIReturnsCustomerFulfillmentData(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("overview status=%d body=%s", rec.Code, rec.Body.String())
 	}
-	for _, want := range []string{`"customer_name":"誉观山"`, `"item_name":"埃塞花魁"`, `"quantity_g":1000`} {
+	for _, want := range []string{`"customer_name":"誉观山"`, `"capabilities":["direct_ship","settlement"]`, `"item_name":"埃塞花魁"`, `"quantity_g":1000`} {
 		if !strings.Contains(rec.Body.String(), want) {
 			t.Fatalf("overview response missing %s: %s", want, rec.Body.String())
 		}

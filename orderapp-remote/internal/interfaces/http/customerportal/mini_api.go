@@ -18,8 +18,12 @@ type miniLoginRequest struct {
 	Code      string `json:"code"`
 	Phone     string `json:"phone"`
 	PhoneCode string `json:"phone_code"`
-	Password  string `json:"password"`
 	Nickname  string `json:"nickname"`
+}
+
+type miniPasswordLoginRequest struct {
+	Login    string `json:"login"`
+	Password string `json:"password"`
 }
 
 type switchCustomerRequest struct {
@@ -66,7 +70,9 @@ type mallOrderRequest struct {
 	Items            []customerportalapp.MallOrderItemCommand `json:"items"`
 }
 
-func registerMiniAPI(e *echo.Echo, svc Service, messages MessagePublisher, beanListPDFRenderer BeanListPDFRenderer) {
+const miniCustomerConfigUpdatedMessage = "客户配置已更新，请联系管理员处理"
+
+func registerMiniAPI(e *echo.Echo, svc Service, messages MessagePublisher, beanListPDFRenderer BeanListPDFRenderer, salesDocs SalesDocuments) {
 	e.POST("/api/mini/login", func(c echo.Context) error {
 		if svc == nil {
 			return miniInternalError(c)
@@ -80,11 +86,30 @@ func registerMiniAPI(e *echo.Echo, svc Service, messages MessagePublisher, beanL
 			Code:      req.Code,
 			Phone:     req.Phone,
 			PhoneCode: req.PhoneCode,
-			Password:  req.Password,
 			Nickname:  req.Nickname,
 		})
 		if err != nil {
 			return miniLoginError(c, err)
+		}
+		return c.JSON(http.StatusOK, result)
+	})
+
+	e.POST("/api/mini/login/password", func(c echo.Context) error {
+		if svc == nil {
+			return miniInternalError(c)
+		}
+		var req miniPasswordLoginRequest
+		if err := c.Bind(&req); err != nil {
+			return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid request"})
+		}
+		login := strings.TrimSpace(req.Login)
+		password := strings.TrimSpace(req.Password)
+		if login == "" || password == "" {
+			return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid request"})
+		}
+		result, err := svc.LoginWithPassword(c.Request().Context(), customerportalapp.PasswordLoginCommand{Login: login, Password: password})
+		if err != nil {
+			return miniPasswordLoginError(c, err)
 		}
 		return c.JSON(http.StatusOK, result)
 	})
@@ -212,6 +237,14 @@ func registerMiniAPI(e *echo.Echo, svc Service, messages MessagePublisher, beanL
 		return c.Blob(http.StatusOK, "application/pdf", body)
 	})
 
+	e.GET("/api/mini/orders/:id/sales-order-latest.pdf", func(c echo.Context) error {
+		return miniOrderDocument(c, svc, salesDocs, "sales_order")
+	})
+
+	e.GET("/api/mini/orders/:id/delivery-note-latest.pdf", func(c echo.Context) error {
+		return miniOrderDocument(c, svc, salesDocs, "delivery_note")
+	})
+
 	e.POST("/api/mini/direct-ship/batches", func(c echo.Context) error {
 		if svc == nil {
 			return miniInternalError(c)
@@ -294,6 +327,47 @@ func registerMiniAPI(e *echo.Echo, svc Service, messages MessagePublisher, beanL
 	})
 }
 
+func miniOrderDocument(c echo.Context, svc Service, salesDocs SalesDocuments, kind string) error {
+	if svc == nil || salesDocs == nil {
+		return miniInternalError(c)
+	}
+	token := miniTokenFromHeader(c.Request().Header.Get(echo.HeaderAuthorization))
+	if token == "" {
+		return c.JSON(http.StatusUnauthorized, map[string]string{"error": "mini token required"})
+	}
+	orderID, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil || orderID <= 0 {
+		return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid request"})
+	}
+	if err := svc.EnsureOrderAccess(c.Request().Context(), token, orderID); err != nil {
+		return miniBusinessError(c, err)
+	}
+
+	var path string
+	var filename string
+	switch kind {
+	case "sales_order":
+		file, err := salesDocs.LoadSalesOrderDocumentFile(c.Request().Context(), orderID, 0, true)
+		if err != nil {
+			return c.JSON(http.StatusNotFound, map[string]string{"error": "order document not found"})
+		}
+		path = file.Path
+		filename = file.Filename
+	case "delivery_note":
+		file, err := salesDocs.LoadDeliveryNoteDocumentFile(c.Request().Context(), orderID, 0, true)
+		if err != nil {
+			return c.JSON(http.StatusNotFound, map[string]string{"error": "order document not found"})
+		}
+		path = file.Path
+		filename = file.Filename
+	default:
+		return miniInternalError(c)
+	}
+	c.Response().Header().Set(echo.HeaderContentType, "application/pdf")
+	c.Response().Header().Set(echo.HeaderContentDisposition, fmt.Sprintf(`attachment; filename="%s"`, filename))
+	return c.File(path)
+}
+
 func publishMiniOrderCreated(c echo.Context, messages MessagePublisher, result customerportalapp.FulfillmentOrder, serviceCode string) {
 	if messages == nil || result.OrderID <= 0 {
 		return
@@ -342,8 +416,30 @@ func miniLoginError(c echo.Context, err error) error {
 	if errors.Is(err, customerportalapp.ErrMiniUserDisabled) {
 		return c.JSON(http.StatusForbidden, map[string]string{"error": "mini user disabled"})
 	}
-	if errors.Is(err, customerportalapp.ErrMiniInvalidCredentials) {
-		return c.JSON(http.StatusUnauthorized, map[string]string{"error": "invalid credentials"})
+	if errors.Is(err, customerportalapp.ErrCapabilityTemplateInvalid) {
+		return miniCustomerConfigUpdatedError(c)
+	}
+	if isMiniValidationError(err) {
+		return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid request"})
+	}
+	return miniInternalError(c)
+}
+
+func miniPasswordLoginError(c echo.Context, err error) error {
+	if errors.Is(err, customerportalapp.ErrMiniInvalidLogin) {
+		return c.JSON(http.StatusUnauthorized, map[string]string{"error": "invalid login"})
+	}
+	if errors.Is(err, customerportalapp.ErrMiniAccountLoginDisabled) {
+		return c.JSON(http.StatusForbidden, map[string]string{"error": "login disabled"})
+	}
+	if errors.Is(err, customerportalapp.ErrCustomerBindingNotFound) {
+		return c.JSON(http.StatusForbidden, map[string]string{"error": "customer binding not found"})
+	}
+	if errors.Is(err, customerportalapp.ErrMiniUserDisabled) {
+		return c.JSON(http.StatusForbidden, map[string]string{"error": "mini user disabled"})
+	}
+	if errors.Is(err, customerportalapp.ErrCapabilityTemplateInvalid) {
+		return miniCustomerConfigUpdatedError(c)
 	}
 	if isMiniValidationError(err) {
 		return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid request"})
@@ -355,6 +451,9 @@ func miniSessionError(c echo.Context, err error) error {
 	if errors.Is(err, customerportalapp.ErrMiniSessionNotFound) {
 		return c.JSON(http.StatusUnauthorized, map[string]string{"error": "invalid or expired mini token"})
 	}
+	if errors.Is(err, customerportalapp.ErrCapabilityTemplateInvalid) {
+		return miniCustomerConfigUpdatedError(c)
+	}
 	return miniInternalError(c)
 }
 
@@ -364,6 +463,9 @@ func miniSwitchCustomerError(c echo.Context, err error) error {
 	}
 	if errors.Is(err, customerportalapp.ErrCustomerBindingNotFound) {
 		return c.JSON(http.StatusForbidden, map[string]string{"error": "customer binding not found"})
+	}
+	if errors.Is(err, customerportalapp.ErrCapabilityTemplateInvalid) {
+		return miniCustomerConfigUpdatedError(c)
 	}
 	return miniInternalError(c)
 }
@@ -381,10 +483,17 @@ func miniBusinessError(c echo.Context, err error) error {
 	if errors.Is(err, customerportalapp.ErrBeanListPublicationNotFound) {
 		return c.JSON(http.StatusNotFound, map[string]string{"error": "bean list publication not found"})
 	}
+	if errors.Is(err, customerportalapp.ErrCapabilityTemplateInvalid) {
+		return miniCustomerConfigUpdatedError(c)
+	}
 	if isMiniValidationError(err) {
 		return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid request"})
 	}
 	return miniInternalError(c)
+}
+
+func miniCustomerConfigUpdatedError(c echo.Context) error {
+	return c.JSON(http.StatusConflict, map[string]string{"error": miniCustomerConfigUpdatedMessage})
 }
 
 func miniInternalError(c echo.Context) error {
@@ -403,8 +512,7 @@ func isMiniValidationError(err error) bool {
 		"input_qty required", "target_product required", "target_spec required", "target_qty required",
 		"input material unavailable", "target product unavailable",
 		"bean_list required", "recipient_name required", "recipient_phone required", "recipient_address required",
-		"items required", "mall_product required", "qty required", "product unavailable", "mall product unavailable",
-		"capability template invalid":
+		"items required", "mall_product required", "qty required", "product unavailable", "mall product unavailable":
 		return true
 	default:
 		return false

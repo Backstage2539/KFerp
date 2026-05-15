@@ -32,9 +32,9 @@ func TestDeliveryNoteViewSupportsSharedSealSettings(t *testing.T) {
 		"CompanySealSettingsView",
 		"settingsDrawerOpen",
 		"公章设置",
-		"seal-stamp-preview",
-		"beginSalesOrderSealDrag",
-		"savePreviewSealPosition",
+		"PDFStampPreview",
+		"@placement-commit=\"savePDFPreviewSealPosition\"",
+		"savePDFPreviewSealPosition",
 		"/api/settings/sales-order/seal-position",
 	} {
 		if !strings.Contains(src, want) {

@@ -111,9 +111,13 @@ func fetchOrders(ctx context.Context, pool *pgxpool.Pool, schema string, query s
 			COALESCE(o.responsible_party_type, '') AS responsible_party_type,
 			COALESCE(o.responsible_party_id, 0) AS responsible_party_id,
 			COALESCE(o.responsible_party_name, '') AS responsible_party_name,
+			COALESCE(to_char(o.total_amount, 'FM999999999.00'), '') AS total_amount,
+			COALESCE(to_char(o.shipping_amount, 'FM999999999.00'), '') AS shipping_amount,
+			COALESCE(to_char(o.discount_amount, 'FM999999999.00'), '') AS discount_amount,
 			COALESCE(to_char(o.grand_total, 'FM999999999.00'), '') AS grand_total,
 			COALESCE(ot.name, '') AS order_type,
 			COALESCE(ps.name, '') AS pay_status,
+			COALESCE(o.payment_method, '') AS payment_method,
 			COALESCE(ss.name, '') AS ship_status,
 			%s AS ship_tracking_no,
 			COALESCE(NULLIF(o.receiver_name,''), NULLIF(c.contact,''), c.name, '') AS receiver_name,
@@ -168,7 +172,7 @@ func fetchOrders(ctx context.Context, pool *pgxpool.Pool, schema string, query s
 	for dbRows.Next() {
 		var r salesapp.OrderRow
 		var invoiceObjectKey string
-		if err := dbRows.Scan(&r.ID, &r.OrderNo, &r.OrderDate, &r.CustomerID, &r.Customer, &r.ResponsibleType, &r.ResponsibleID, &r.ResponsibleName, &r.GrandTotal, &r.OrderType, &r.PayStatus, &r.ShipStatus, &r.ShipTrackingNo, &r.ReceiverName, &r.ReceiverPhone, &r.ReceiverAddress, &r.ReceiverCompany, &r.PortalServiceCode, &r.SourceWarehouse, &r.SenderID, &r.SenderLabel, &r.SenderName, &r.ProcessStatus, &r.CreatedByEmployee, &r.OrderTypeID, &r.PayStatusID, &r.ShipStatusID, &r.ProcessStatusID, &r.Notes, &r.IsVoid, &r.InvoiceStatus, &r.InvoiceFilename, &invoiceObjectKey); err != nil {
+		if err := dbRows.Scan(&r.ID, &r.OrderNo, &r.OrderDate, &r.CustomerID, &r.Customer, &r.ResponsibleType, &r.ResponsibleID, &r.ResponsibleName, &r.TotalAmount, &r.ShippingAmount, &r.DiscountAmount, &r.GrandTotal, &r.OrderType, &r.PayStatus, &r.PaymentMethod, &r.ShipStatus, &r.ShipTrackingNo, &r.ReceiverName, &r.ReceiverPhone, &r.ReceiverAddress, &r.ReceiverCompany, &r.PortalServiceCode, &r.SourceWarehouse, &r.SenderID, &r.SenderLabel, &r.SenderName, &r.ProcessStatus, &r.CreatedByEmployee, &r.OrderTypeID, &r.PayStatusID, &r.ShipStatusID, &r.ProcessStatusID, &r.Notes, &r.IsVoid, &r.InvoiceStatus, &r.InvoiceFilename, &invoiceObjectKey); err != nil {
 			return nil, false, err
 		}
 		r.InvoiceFileURL = salesOrderAssetURL(invoiceObjectKey)
@@ -268,19 +272,41 @@ func orderListWhere(schema string, query salesapp.OrderListQuery) ([]string, []a
 			where = append(where, "1=0")
 		}
 	case "fulfillment":
+		employeeBindingClause := ""
+		if query.FulfillmentEmployeeID > 0 {
+			employeeBindingClause = fmt.Sprintf("AND b.employee_id=$%d", argn)
+			args = append(args, query.FulfillmentEmployeeID)
+			argn++
+		}
 		where = append(where, fmt.Sprintf(`COALESCE(NULLIF(c.customer_type,''),'retail')='wholesale'
 			AND o.portal_service_code IN ('direct_ship','processing_ship')
 			AND EXISTS (
-				SELECT 1 FROM %s.customer_erp_user_bindings b
-				JOIN %s.company_employees e ON e.id=b.employee_id
-				LEFT JOIN %s.employee_login_passwords lp ON lp.employee_id=e.id
-				LEFT JOIN %s.customer_portal_profiles p ON p.customer_id=b.customer_id
+				SELECT 1 FROM %[1]s.customer_erp_user_bindings b
+				JOIN %[1]s.company_employees e ON e.id=b.employee_id
+				LEFT JOIN %[1]s.employee_login_passwords lp ON lp.employee_id=e.id
+				LEFT JOIN %[1]s.customer_portal_profiles p ON p.customer_id=b.customer_id
 				WHERE b.customer_id=o.customer_id AND b.status='active'
 				  AND e.active=true
 				  AND e.account_type='channel_customer'
 				  AND COALESCE(lp.login_disabled,false)=false
-				  AND COALESCE(NULLIF(p.capability_template_key,''),'processing_fulfillment') IN ('processing_fulfillment','public_sku_direct_ship')
-			)`, schema, schema, schema, schema))
+				  %[2]s
+				  AND (
+				      (
+				          COALESCE(NULLIF(p.capability_template_key,''),'processing_fulfillment') IN ('processing_fulfillment','public_sku_direct_ship')
+				          AND NOT EXISTS (
+				              SELECT 1 FROM %[1]s.customer_capability_templates inactive_template
+				              WHERE inactive_template.template_key=COALESCE(NULLIF(p.capability_template_key,''),'processing_fulfillment')
+				                AND inactive_template.active=false
+				          )
+				      )
+				      OR EXISTS (
+				          SELECT 1 FROM %[1]s.customer_capability_templates active_template
+				          WHERE active_template.template_key=p.capability_template_key
+				            AND active_template.active=true
+				            AND (jsonb_array_length(active_template.erp_permissions)>0 OR jsonb_array_length(active_template.erp_view_keys)>0)
+				      )
+				  )
+			)`, schema, employeeBindingClause))
 	}
 	if query.PayStatusID > 0 {
 		where = append(where, fmt.Sprintf("COALESCE(o.pay_status_id,0) = $%d", argn))

@@ -29,13 +29,12 @@ func TestSalesOrderLayoutCompanySettingsRequirementSeeds(t *testing.T) {
 func TestSalesOrderPreviewRendersPDFAssetsAndMultilineText(t *testing.T) {
 	src := string(readOrderAppFileForTest(t, filepath.Join("frontend-vue-shell", "src", "views", "SalesOrderView.vue")))
 	for _, want := range []string{
-		"payment-code-preview",
-		"seal-stamp-preview",
-		"assetURL(",
-		"sealPositionStyle",
-		"white-space: pre-line",
-		"preview.snapshot.payment_codes",
-		"preview.snapshot.seal",
+		"PDFStampPreview",
+		":pdf-url=\"salesOrderPreviewPDFUrl\"",
+		"preview-label=\"PREVIEW 预览版\"",
+		"previewSealUrl",
+		"salesOrderPreviewPlacements",
+		"onPreviewPDFLoaded",
 	} {
 		if !strings.Contains(src, want) {
 			t.Fatalf("SalesOrderView missing sales-order PDF parity marker %q", want)

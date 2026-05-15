@@ -4,6 +4,8 @@ import assert from 'node:assert/strict'
 import {
   activeCustomerFulfillmentCustomers,
   buildImportPreviewEffects,
+  customerFulfillmentOrderFees,
+  customerFulfillmentWorkbenchSections,
   customerFulfillmentCustomerOptionLabel,
   customerFulfillmentCustomerOptionMeta,
   groupInvalidImportRows,
@@ -11,6 +13,7 @@ import {
   importTypeOptions,
   latestParsedBatchForType,
   rowStatusLabel,
+  visibleCustomerFulfillmentImports,
 } from './customer-fulfillment.js'
 
 test('importTypeOptions returns the three customer fulfillment workbook types', () => {
@@ -19,6 +22,28 @@ test('importTypeOptions returns the three customer fulfillment workbook types', 
     { value: 'direct_ship_workbook', label: '代发清单' },
     { value: 'settlement_workbook', label: '结算单' },
   ])
+})
+
+test('customer fulfillment workbench follows enabled customer capabilities', () => {
+  const publicSkuCapabilities = ['product_order', 'direct_ship', 'settlement']
+
+  assert.deepEqual(importTypeOptions(publicSkuCapabilities), [
+    { value: 'direct_ship_workbook', label: '代发清单' },
+    { value: 'settlement_workbook', label: '结算单' },
+  ])
+  assert.deepEqual(customerFulfillmentWorkbenchSections(publicSkuCapabilities), {
+    processing: false,
+    directShip: true,
+    inventory: false,
+    settlement: true,
+    imports: true,
+    orders: true,
+  })
+  assert.deepEqual(visibleCustomerFulfillmentImports([
+    { id: 1, import_type: 'processing_workbook' },
+    { id: 2, import_type: 'direct_ship_workbook' },
+    { id: 3, import_type: 'settlement_workbook' },
+  ], publicSkuCapabilities).map((row) => row.id), [2, 3])
 })
 
 test('importSummaryCards includes only relevant import counters', () => {
@@ -98,5 +123,19 @@ test('buildImportPreviewEffects converts batch summary into apply preview counte
     { label: '需先处理错误行', value: 194 },
     { label: '加工工单', value: 136 },
     { label: '费用明细', value: 2 },
+  ])
+})
+
+test('customer fulfillment order fees keep ERP-style fee breakdown for the bottom order list', () => {
+  assert.deepEqual(customerFulfillmentOrderFees({
+    total_amount: '128.00',
+    shipping_amount: '12.00',
+    discount_amount: '5.00',
+    grand_total: '135.00',
+  }), [
+    { label: '商品', value: '128.00' },
+    { label: '运费', value: '12.00' },
+    { label: '优惠', value: '5.00' },
+    { label: '应收', value: '135.00', emphasized: true },
   ])
 })

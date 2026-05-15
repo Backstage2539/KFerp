@@ -55,19 +55,21 @@ describe('mini mall helpers', () => {
     })
   })
 
-  it('registers the mall page and lets mall entry-mode customers land there', () => {
+  it('registers the mall page and keeps customers on the home main tab', () => {
     const pages = fs.readFileSync(path.join(currentDir, '..', 'pages.json'), 'utf8')
     const home = fs.readFileSync(path.join(currentDir, '..', 'pages', 'home', 'home.vue'), 'utf8')
     expect(pages).toContain('"path": "pages/mall/mall"')
-    expect(home).toContain("session.entryMode === 'mall'")
-    expect(home).toContain("uni.redirectTo({ url: '/pages/mall/mall' })")
+    expect(home).toContain('MainTabBar')
+    expect(home).toContain('current="home"')
+    expect(home).not.toContain("session.entryMode === 'mall'")
+    expect(home).not.toContain("uni.redirectTo({ url: '/pages/mall/mall' })")
   })
 
-  it('keeps order history reachable from mall-first customers', () => {
-    const mallPage = fs.readFileSync(path.join(currentDir, '..', 'pages', 'mall', 'mall.vue'), 'utf8')
-    expect(mallPage).toContain("openOrders")
-    expect(mallPage).toContain("uni.navigateTo({ url: '/pages/service/service?key=orders' })")
-    expect(mallPage).toContain('我的订单')
+  it('keeps order history reachable from the bottom order entry', () => {
+    const tabBar = fs.readFileSync(path.join(currentDir, '..', 'components', 'MainTabBar.vue'), 'utf8')
+    expect(tabBar).toContain('/pages/service/service?key=orders')
+    expect(tabBar).toContain('订单')
+    expect(tabBar).toContain('uni.reLaunch')
   })
 
   it('preserves mall entry mode when mall customers open service pages', () => {

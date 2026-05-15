@@ -60,52 +60,24 @@
         <h3>出库单预览 <span v-if="preview" class="version-tag">V{{ preview.next_version_no }}</span></h3>
         <button class="secondary" type="button" @click="loadPreview" :disabled="previewLoading || !orderID">{{ previewLoading ? '预览中' : '刷新预览' }}</button>
       </div>
-      <div v-if="!preview" class="muted preview-empty">暂无预览</div>
-      <div v-else class="preview-box">
-        <div ref="previewSealStage" class="preview-title">
-          <strong>{{ preview.snapshot.company_name }}</strong>
-          <span>出库单 DELIVERY NOTE</span>
-          <img
-            v-if="preview.snapshot.seal?.url"
-            class="seal-stamp-preview"
-            :src="preview.snapshot.seal.url"
-            alt="公章"
-            :style="sealPreviewStyle"
-            title="拖动调整公章位置，松手自动保存"
-            @pointerdown.stop="startPreviewSealDrag"
-          />
-        </div>
-        <div class="preview-meta">
-          <span>出库单号：{{ preview.snapshot.delivery_note_no }}</span>
-          <span>订单号：{{ preview.snapshot.order_no }}</span>
-          <span>出库日期：{{ preview.snapshot.posting_date || '-' }}</span>
-          <span>客户：{{ preview.snapshot.customer_name || '-' }}</span>
-          <span>客户公司：{{ preview.snapshot.customer_company_name || preview.snapshot.customer_name || '-' }}</span>
-          <span>联系电话：{{ preview.snapshot.customer_company_phone || preview.snapshot.receiver_phone || '-' }}</span>
-          <span>出库仓：{{ preview.snapshot.source_warehouse_name || preview.snapshot.source_warehouse }}</span>
-          <span>发货方式：{{ preview.snapshot.delivery_method || '-' }}</span>
-          <span>快递单号：{{ preview.snapshot.tracking_no || '-' }}</span>
-          <span class="wide">收货地址：{{ preview.snapshot.receiver_address || preview.snapshot.customer_company_address || '-' }}</span>
-        </div>
-        <table>
-          <thead>
-            <tr><th>商品</th><th>规格</th><th>出库数量</th><th>出库仓</th><th>备注</th></tr>
-          </thead>
-          <tbody>
-            <tr v-for="(item, idx) in preview.snapshot.items" :key="`${item.name}-${idx}`">
-              <td>{{ item.name }}</td>
-              <td>{{ item.spec }}</td>
-              <td>{{ item.qty }}{{ item.unit }}</td>
-              <td>{{ item.warehouse_name || item.warehouse }}</td>
-              <td>{{ item.note || '-' }}</td>
-            </tr>
-          </tbody>
-        </table>
-        <div v-if="preview.snapshot.note" class="preview-note">
-          <strong>备注</strong>
-          <p>{{ preview.snapshot.note }}</p>
-        </div>
+      <div v-if="preview?.snapshot?.seal" class="preview-tools">
+        <label class="seal-size-slider">
+          <span>公章大小</span>
+          <input v-model.number="previewSealWidthMM" type="range" :min="salesOrderSealMinWidthMM" :max="salesOrderSealMaxWidthMM" step="1" :disabled="sealDragSaving" @change="savePreviewSealSize" />
+          <output>{{ previewSealWidthMM }}mm</output>
+        </label>
       </div>
+      <div v-if="!preview" class="muted preview-empty">暂无预览</div>
+      <PDFStampPreview
+        v-else
+        :pdf-url="deliveryNotePreviewPDFUrl"
+        :placements="deliveryNotePreviewPlacements"
+        :seal-url="previewSealUrl"
+        seal-label="公章"
+        preview-label="PREVIEW 预览版"
+        @loaded="onPreviewPDFLoaded"
+        @placement-commit="savePDFPreviewSealPosition"
+      />
     </section>
 
     <section class="panel">
@@ -140,11 +112,13 @@
 </template>
 
 <script setup>
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { apiGet, apiSend, appURL } from '../api/client'
 import { deliveryNoteDownloadUrl } from '../lib/delivery-note'
 import { buildShareResourcePayload, shareResourceToWechat } from '../lib/external-share'
-import { beginSalesOrderSealDrag, moveSalesOrderSealDrag, salesOrderSealPreviewScale, salesOrderSealStyle } from '../lib/sales-order-seal'
+import { pdfPlacementToSalesSealMM, salesSealMMToPDFPlacement } from '../lib/document-pdf-stamp'
+import { salesOrderSealMaxWidthMM, salesOrderSealMinWidthMM } from '../lib/sales-order-seal'
+import PDFStampPreview from '../components/PDFStampPreview.vue'
 import CompanySealSettingsView from './CompanySealSettingsView.vue'
 
 const props = defineProps({
@@ -164,8 +138,10 @@ const documents = ref([])
 const preview = ref(null)
 const shareLoading = ref(false)
 const settingsDrawerOpen = ref(false)
-const previewSealStage = ref(null)
 const sealDragSaving = ref(false)
+const previewPDFPages = ref([])
+const previewPDFRefreshKey = ref(0)
+const previewSealAspectRatio = ref(1)
 const orderSummary = reactive({ order_id: 0, order_no: '', ship_status: '', customer: {} })
 const form = reactive(emptyForm())
 
@@ -175,7 +151,30 @@ const warehouseOptions = [
 ]
 
 const orderID = computed(() => Number(props.orderId || new URL(window.location.href).searchParams.get('order_id') || 0))
-const sealPreviewStyle = computed(() => salesOrderSealStyle(preview.value?.snapshot?.seal || {}, salesOrderSealPreviewScale))
+const deliveryNotePreviewBasePDFUrl = computed(() => orderID.value ? `/api/orders/${orderID.value}/delivery-note-preview.pdf` : '')
+const deliveryNotePreviewPDFUrl = computed(() => deliveryNotePreviewBasePDFUrl.value ? `${deliveryNotePreviewBasePDFUrl.value}?v=${previewPDFRefreshKey.value}` : '')
+const previewSealUrl = computed(() => preview.value?.snapshot?.seal?.url || '')
+const previewSealWidthMM = computed({
+  get() {
+    return clampSealWidthMM(preview.value?.snapshot?.seal?.width_mm ?? preview.value?.snapshot?.seal?.seal_width_mm ?? 36)
+  },
+  set(value) {
+    const seal = preview.value?.snapshot?.seal
+    if (!seal) return
+    const width = clampSealWidthMM(value)
+    seal.width_mm = width
+    seal.seal_width_mm = width
+  },
+})
+const deliveryNotePreviewPlacements = computed(() => {
+  const seal = preview.value?.snapshot?.seal
+  const page = previewPDFPages.value[0]
+  if (!seal || !page) return []
+  return [salesSealMMToPDFPlacement(seal, page, { sealAspectRatio: previewSealAspectRatio.value })]
+})
+
+let previewSealAspectToken = 0
+watch(previewSealUrl, loadPreviewSealAspectRatio, { immediate: true })
 
 function emptyForm() {
   return {
@@ -258,6 +257,7 @@ async function loadPreview() {
   error.value = ''
   try {
     preview.value = await apiGet(`/api/orders/${orderID.value}/delivery-note-preview`)
+    previewPDFRefreshKey.value += 1
   } catch (err) {
     preview.value = null
     error.value = err.message || '加载出库单预览失败'
@@ -317,49 +317,86 @@ async function closeSettingsDrawer() {
   await loadPreview()
 }
 
-function startPreviewSealDrag(event) {
-  const seal = preview.value?.snapshot?.seal
-  if (!seal || !previewSealStage.value || sealDragSaving.value) return
-  event.preventDefault()
-  const drag = beginSalesOrderSealDrag({
-    seal,
-    clientX: event.clientX,
-    clientY: event.clientY,
-    scale: salesOrderSealPreviewScale,
-  })
-  const update = (clientX, clientY) => {
-    const next = moveSalesOrderSealDrag(drag, { clientX, clientY })
-    seal.x_mm = next.x_mm
-    seal.y_mm = next.y_mm
-    seal.width_mm = next.width_mm
-  }
-  const move = (moveEvent) => update(moveEvent.clientX, moveEvent.clientY)
-  const up = async () => {
-    window.removeEventListener('pointermove', move)
-    window.removeEventListener('pointerup', up)
-    await savePreviewSealPosition()
-  }
-  event.currentTarget?.setPointerCapture?.(event.pointerId)
-  window.addEventListener('pointermove', move)
-  window.addEventListener('pointerup', up, { once: true })
+function onPreviewPDFLoaded(pages) {
+  previewPDFPages.value = pages || []
 }
 
-async function savePreviewSealPosition() {
+function loadPreviewSealAspectRatio(url) {
+  previewSealAspectRatio.value = 1
+  const token = ++previewSealAspectToken
+  if (!url || typeof Image === 'undefined') return
+  const img = new Image()
+  img.onload = () => {
+    if (token !== previewSealAspectToken) return
+    if (img.naturalWidth > 0 && img.naturalHeight > 0) {
+      previewSealAspectRatio.value = img.naturalHeight / img.naturalWidth
+    }
+  }
+  img.onerror = () => {
+    if (token === previewSealAspectToken) previewSealAspectRatio.value = 1
+  }
+  img.src = url
+}
+
+function clampSealWidthMM(value) {
+  const n = Number(value)
+  const width = Number.isFinite(n) && n > 0 ? Math.round(n) : 36
+  return Math.min(salesOrderSealMaxWidthMM, Math.max(salesOrderSealMinWidthMM, width))
+}
+
+function currentSealPositionPayload() {
+  const seal = preview.value?.snapshot?.seal || {}
+  return {
+    seal_x_mm: Math.round(Number(seal.x_mm ?? seal.seal_x_mm ?? 32)),
+    seal_y_mm: Math.round(Number(seal.y_mm ?? seal.seal_y_mm ?? 5)),
+    seal_width_mm: clampSealWidthMM(seal.width_mm ?? seal.seal_width_mm ?? 36),
+  }
+}
+
+async function savePDFPreviewSealPosition(placement) {
   const seal = preview.value?.snapshot?.seal
-  if (!seal) return
+  const page = previewPDFPages.value.find((item) => Number(item.pageNumber) === Number(placement?.page_number || 1))
+  if (!seal || !page || sealDragSaving.value) return
+  const next = pdfPlacementToSalesSealMM(placement, page)
   sealDragSaving.value = true
   error.value = ''
   try {
     await apiSend('/api/settings/sales-order/seal-position', {
-      body: {
-        seal_x_mm: Number(seal.x_mm || 32),
-        seal_y_mm: Number(seal.y_mm || 5),
-        seal_width_mm: Number(seal.width_mm || 36),
-      },
+      body: next,
     })
+    seal.x_mm = next.seal_x_mm
+    seal.seal_x_mm = next.seal_x_mm
+    seal.y_mm = next.seal_y_mm
+    seal.seal_y_mm = next.seal_y_mm
+    seal.width_mm = next.seal_width_mm
+    seal.seal_width_mm = next.seal_width_mm
     message.value = '公章位置已保存，请重新生成出库单 PDF 后下载'
   } catch (err) {
     error.value = err.message || '保存公章位置失败'
+  } finally {
+    sealDragSaving.value = false
+  }
+}
+
+async function savePreviewSealSize() {
+  const seal = preview.value?.snapshot?.seal
+  if (!seal || sealDragSaving.value) return
+  const next = currentSealPositionPayload()
+  sealDragSaving.value = true
+  error.value = ''
+  try {
+    await apiSend('/api/settings/sales-order/seal-position', {
+      body: next,
+    })
+    seal.x_mm = next.seal_x_mm
+    seal.seal_x_mm = next.seal_x_mm
+    seal.y_mm = next.seal_y_mm
+    seal.seal_y_mm = next.seal_y_mm
+    seal.width_mm = next.seal_width_mm
+    seal.seal_width_mm = next.seal_width_mm
+    message.value = '公章大小已保存，请重新生成出库单 PDF 后下载'
+  } catch (err) {
+    error.value = err.message || '保存公章大小失败'
   } finally {
     sealDragSaving.value = false
   }
@@ -374,6 +411,10 @@ onMounted(loadPage)
 .delivery-note-page.embedded { padding: 14px; }
 .panel { background: #fff; border: 1px solid #e6e0d8; border-radius: 8px; padding: 16px; }
 .panel-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
+.preview-tools { display: flex; justify-content: flex-end; margin: -4px 0 12px; }
+.seal-size-slider { min-width: min(340px, 100%); display: grid; grid-template-columns: auto minmax(160px, 1fr) auto; gap: 10px; align-items: center; color: #4b5563; font-size: 13px; }
+.seal-size-slider input { width: 100%; accent-color: #1f6f4a; }
+.seal-size-slider output { min-width: 46px; text-align: right; color: #171717; font-variant-numeric: tabular-nums; }
 h2, h3 { margin: 0; }
 h2 { font-size: 22px; }
 h3 { font-size: 17px; }
@@ -412,6 +453,8 @@ th { color: #555; background: #faf8f4; font-weight: 600; }
 @media (max-width: 900px) {
   .delivery-note-page { padding: 12px; }
   .panel-head, .actions { align-items: stretch; flex-direction: column; }
+  .preview-tools { justify-content: flex-start; }
+  .seal-size-slider { grid-template-columns: 1fr; }
   .form-grid, .preview-meta { grid-template-columns: 1fr; }
   .settings-drawer { width: 100vw; }
 }

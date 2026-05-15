@@ -144,6 +144,22 @@ func TestBusinessRepositoryCreatesMallOrdersFromPublishedMallProducts(t *testing
 	}
 }
 
+func TestPortalProductVisibleSQLExcludesBaseProductWithCustomerAlias(t *testing.T) {
+	sql := portalProductVisibleToCustomerAliasSQL("products", "p", "$2")
+
+	for _, want := range []string{
+		"AND NOT",
+		"EXISTS",
+		"base_product_id",
+		"alias_products",
+		"customer_only",
+	} {
+		if !strings.Contains(sql, want) {
+			t.Fatalf("portal product visibility SQL missing %q: %s", want, sql)
+		}
+	}
+}
+
 func TestParseBeanListDisplaySummaryExtractsPublishedStyleAndContent(t *testing.T) {
 	configRaw, err := json.Marshal(map[string]any{
 		"brandName":           "棵凡咖啡",

@@ -1,6 +1,12 @@
 {
   "pages": [
     {
+      "path": "pages/index/index",
+      "style": {
+        "navigationBarTitleText": "棵凡客户中心"
+      }
+    },
+    {
       "path": "pages/login/login",
       "style": {
         "navigationBarTitleText": "客户登录"
@@ -22,6 +28,12 @@
       "path": "pages/service/service",
       "style": {
         "navigationBarTitleText": "服务入口"
+      }
+    },
+    {
+      "path": "pages/profile/profile",
+      "style": {
+        "navigationBarTitleText": "个人中心"
       }
     }
   ],

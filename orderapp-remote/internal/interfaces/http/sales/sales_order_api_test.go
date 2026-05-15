@@ -60,12 +60,72 @@ func TestSalesOrderSettingsRegistersSealToolRoutes(t *testing.T) {
 		routes[route.Method+" "+route.Path] = true
 	}
 	for _, want := range []string{
+		"GET /api/settings/sales-order/seals",
 		"POST /api/settings/sales-order/seal-position",
 		"POST /api/settings/sales-order/seal/remove-background",
 	} {
 		if !routes[want] {
 			t.Fatalf("missing route %s", want)
 		}
+	}
+}
+
+func TestSalesOrderDocumentRoutesRegisterPreviewPDF(t *testing.T) {
+	e := echo.New()
+	registerSalesOrderDocumentRoutes(e, salesapp.NewService(nil))
+	routes := map[string]bool{}
+	for _, route := range e.Routes() {
+		routes[route.Method+" "+route.Path] = true
+	}
+	for _, want := range []string{
+		"GET /api/orders/:id/sales-order-preview",
+		"GET /api/orders/:id/sales-order-preview.pdf",
+		"POST /api/orders/:id/sales-orders",
+		"GET /orders/:id/sales-order-latest.pdf",
+	} {
+		if !routes[want] {
+			t.Fatalf("missing route %s", want)
+		}
+	}
+}
+
+func TestSalesOrderSealListAPIReturnsReusableSealAssets(t *testing.T) {
+	pool, schema := newOrderAPITestDB(t)
+	ctx := context.Background()
+	seedOrderAPITestData(t, ctx, pool, schema)
+	if err := postgressales.EnsureSchema(ctx, pool, schema); err != nil {
+		t.Fatalf("EnsureSchema: %v", err)
+	}
+	mustExecOrderAPITestSQL(t, ctx, pool, fmt.Sprintf(`
+		INSERT INTO %s.sales_order_assets(id, kind, filename, content_type, bytes, sha256, object_key, created_by)
+		VALUES
+			(1201, 'seal', '公章A.png', 'image/png', 12, 'seal-a', 'sales_order_assets/seal/a.png', '测试员'),
+			(1202, 'payment_code', '收款码.png', 'image/png', 13, 'pay', 'sales_order_assets/payment/pay.png', '测试员'),
+			(1203, 'seal', '公章B.png', 'image/png', 14, 'seal-b', 'sales_order_assets/seal/b.png', '测试员')`, schema))
+	mustExecOrderAPITestSQL(t, ctx, pool, fmt.Sprintf(`
+		INSERT INTO %s.sales_order_settings(id, seal_asset_id)
+		VALUES(1, 1203)
+		ON CONFLICT(id) DO UPDATE SET seal_asset_id=excluded.seal_asset_id`, schema))
+	e := newSalesOrderAPITestEcho(pool, schema, t.TempDir())
+
+	req := httptest.NewRequest(http.MethodGet, "/api/settings/sales-order/seals", nil)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("seal list status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	for _, want := range []string{
+		`"current_id":1203`,
+		`"filename":"公章B.png"`,
+		`"filename":"公章A.png"`,
+		`"/assets/sales_order_assets/seal/b.png"`,
+	} {
+		if !strings.Contains(rec.Body.String(), want) {
+			t.Fatalf("seal list response missing %s: %s", want, rec.Body.String())
+		}
+	}
+	if strings.Contains(rec.Body.String(), "收款码.png") {
+		t.Fatalf("seal list should exclude payment code assets: %s", rec.Body.String())
 	}
 }
 
@@ -670,6 +730,19 @@ func TestSalesOrderPreviewAPIDoesNotCreateDocumentVersion(t *testing.T) {
 		if !strings.Contains(previewRec.Body.String(), want) {
 			t.Fatalf("preview response missing %s: %s", want, previewRec.Body.String())
 		}
+	}
+
+	previewPDFReq := httptest.NewRequest(http.MethodGet, "/api/orders/1/sales-order-preview.pdf", nil)
+	previewPDFRec := httptest.NewRecorder()
+	e.ServeHTTP(previewPDFRec, previewPDFReq)
+	if previewPDFRec.Code != http.StatusOK || previewPDFRec.Header().Get(echo.HeaderContentType) != "application/pdf" {
+		t.Fatalf("preview pdf status=%d content-type=%q body=%s", previewPDFRec.Code, previewPDFRec.Header().Get(echo.HeaderContentType), previewPDFRec.Body.String())
+	}
+	if !bytes.HasPrefix(previewPDFRec.Body.Bytes(), []byte("%PDF-")) {
+		t.Fatalf("preview pdf prefix=%q", previewPDFRec.Body.Bytes()[:min(len(previewPDFRec.Body.Bytes()), 8)])
+	}
+	if disposition := previewPDFRec.Header().Get(echo.HeaderContentDisposition); !strings.HasPrefix(disposition, "inline;") || !strings.Contains(disposition, "preview") {
+		t.Fatalf("preview pdf disposition=%q", disposition)
 	}
 
 	listReq := httptest.NewRequest(http.MethodGet, "/api/orders/1/sales-orders", nil)

@@ -58,6 +58,7 @@ import AuditView from './views/AuditView.vue'
 import BomView from './views/BomView.vue'
 import CompanyProfileView from './views/CompanyProfileView.vue'
 import CompanyStaffView from './views/CompanyStaffView.vue'
+import ContractsView from './views/ContractsView.vue'
 import CostingView from './views/CostingView.vue'
 import CostingSettingsView from './views/CostingSettingsView.vue'
 import CustomerCapabilityTemplatesView from './views/CustomerCapabilityTemplatesView.vue'
@@ -84,6 +85,7 @@ import OrderInvoiceView from './views/OrderInvoiceView.vue'
 import OrdersView from './views/OrdersView.vue'
 import OperationManualView from './views/OperationManualView.vue'
 import OutsourceSettingsView from './views/OutsourceSettingsView.vue'
+import NotificationSettingsView from './views/NotificationSettingsView.vue'
 import ProducePlanView from './views/ProducePlanView.vue'
 import ProduceRunningView from './views/ProduceRunningView.vue'
 import ProductionAcceptanceView from './views/ProductionAcceptanceView.vue'
@@ -138,6 +140,7 @@ let notificationTimer = 0
 const internalViews = {
   order: OrderEntryView,
   orders: OrdersView,
+  contracts: ContractsView,
   orderSalesManual: OperationManualView,
   orderInvoice: OrderInvoiceView,
   salesOrder: SalesOrderView,
@@ -187,6 +190,8 @@ const internalViews = {
   salesOrderSettings: SalesOrderSettingsView,
   senderSettings: SenderSettingsView,
   outsourceSettings: OutsourceSettingsView,
+  notificationSettings: NotificationSettingsView,
+  notificationManual: OperationManualView,
   customerCapabilityTemplates: CustomerCapabilityTemplatesView,
   customerPortalSettings: CustomerPortalSettingsView,
   customerPortalManual: OperationManualView,

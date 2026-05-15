@@ -8,6 +8,8 @@ import {
   createCustomerFulfillmentSettlement,
   fetchCustomerFulfillmentCustomers,
   fetchCustomerFulfillmentERPBindings,
+  fetchCustomerFulfillmentOrderDetail,
+  fetchCustomerFulfillmentOrders,
   fetchCustomerFulfillmentOptions,
   fetchCustomerFulfillmentImportPreview,
   fetchCustomerFulfillmentImportRows,
@@ -69,6 +71,8 @@ test('customer fulfillment API wrappers call the expected endpoints', async () =
     await upsertCustomerFulfillmentERPBinding(147, { employee_id: 23, status: 'active' })
     await submitCustomerFulfillmentProcessingWorkOrder(147, { product_name: '誉观山冷萃豆', input_quantity_g: 5000, planned_output_units: 50 })
     await submitCustomerFulfillmentDirectShipOrder(147, { receiver_name: '张三', receiver_phone: '13800000000', receiver_address: '杭州', product_name: '誉观山冷萃豆', quantity_units: 1 })
+    await fetchCustomerFulfillmentOrders(147, { page: 2, limit: 15 })
+    await fetchCustomerFulfillmentOrderDetail(88)
     await fetchCustomerProcessingPortalOverview()
     await fetchCustomerProcessingPortalOptions()
     await submitCustomerProcessingWorkOrder({ product_name: '誉观山冷萃豆', input_quantity_g: 5000, planned_output_units: 50 })
@@ -89,6 +93,8 @@ test('customer fulfillment API wrappers call the expected endpoints', async () =
       ['/api/customer-fulfillment/147/erp-bindings', 'POST'],
       ['/api/customer-fulfillment/147/work-orders', 'POST'],
       ['/api/customer-fulfillment/147/direct-ship-orders', 'POST'],
+      ['/api/orders', 'GET'],
+      ['/api/order/form', 'GET'],
       ['/api/customer-processing/portal/overview', 'GET'],
       ['/api/customer-processing/portal/options', 'GET'],
       ['/api/customer-processing/portal/work-orders', 'POST'],
@@ -98,6 +104,11 @@ test('customer fulfillment API wrappers call the expected endpoints', async () =
     assert.equal(new URL(requests[5].url).searchParams.get('limit'), '60')
     assert.equal(new URL(requests[6].url).searchParams.get('status'), 'invalid')
     assert.equal(new URL(requests[6].url).searchParams.get('limit'), '80')
+    assert.equal(new URL(requests[14].url).searchParams.get('scope'), 'fulfillment')
+    assert.equal(new URL(requests[14].url).searchParams.get('customer_id'), '147')
+    assert.equal(new URL(requests[14].url).searchParams.get('page'), '2')
+    assert.equal(new URL(requests[14].url).searchParams.get('limit'), '15')
+    assert.equal(new URL(requests[15].url).searchParams.get('edit_id'), '88')
     assert.ok(requests[0].init.body instanceof FormData)
     assert.equal(requests[0].init.headers?.['Content-Type'], undefined)
     assert.equal(JSON.parse(requests[8].init.body).period_from, '2026-03-01')
@@ -105,7 +116,7 @@ test('customer fulfillment API wrappers call the expected endpoints', async () =
     assert.equal(JSON.parse(requests[11].init.body).employee_id, 23)
     assert.equal(JSON.parse(requests[12].init.body).product_name, '誉观山冷萃豆')
     assert.equal(JSON.parse(requests[13].init.body).receiver_name, '张三')
-    assert.equal(JSON.parse(requests[16].init.body).product_name, '誉观山冷萃豆')
-    assert.equal(JSON.parse(requests[17].init.body).receiver_name, '张三')
+    assert.equal(JSON.parse(requests[18].init.body).product_name, '誉观山冷萃豆')
+    assert.equal(JSON.parse(requests[19].init.body).receiver_name, '张三')
   })
 })

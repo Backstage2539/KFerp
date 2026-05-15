@@ -45,12 +45,15 @@ func TestOrderListWhereSupportsMineAndFulfillmentScopes(t *testing.T) {
 		"portal_service_code IN ('direct_ship','processing_ship')",
 		"test_schema.customer_erp_user_bindings",
 		"test_schema.customer_portal_profiles",
+		"test_schema.customer_capability_templates",
 		"test_schema.company_employees",
 		"test_schema.employee_login_passwords",
 		"b.status='active'",
 		"e.account_type='channel_customer'",
 		"COALESCE(lp.login_disabled,false)=false",
 		"capability_template_key",
+		"active_template.active=true",
+		"inactive_template.active=false",
 		"processing_fulfillment",
 		"public_sku_direct_ship",
 	} {
@@ -60,5 +63,14 @@ func TestOrderListWhereSupportsMineAndFulfillmentScopes(t *testing.T) {
 	}
 	if len(args) != 0 {
 		t.Fatalf("fulfillment scope args = %#v, want none", args)
+	}
+
+	where, args, _ = orderListWhere("test_schema", salesapp.OrderListQuery{Scope: "fulfillment", FulfillmentEmployeeID: 7})
+	joined = strings.Join(where, " AND ")
+	if !strings.Contains(joined, "b.employee_id=$1") {
+		t.Fatalf("customer workbench fulfillment scope must be limited to the bound employee, got %q", joined)
+	}
+	if len(args) != 1 || args[0] != int64(7) {
+		t.Fatalf("customer workbench fulfillment scope args = %#v, want employee id 7", args)
 	}
 }

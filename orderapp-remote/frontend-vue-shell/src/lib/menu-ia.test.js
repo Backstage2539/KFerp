@@ -63,6 +63,7 @@ test('operation manuals live inside their functional menu groups', () => {
     ['inventoryMaterialsManual', 'inventory'],
     ['costingManual', 'product'],
     ['settingsAuditManual', 'settings'],
+    ['notificationManual', 'settings'],
     ['customerPortalManual', 'customerFulfillment'],
     ['customerFulfillmentManual', 'customerFulfillment'],
     ['requirementsManual', 'requirements'],

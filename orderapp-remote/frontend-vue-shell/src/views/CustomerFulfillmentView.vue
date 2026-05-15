@@ -29,10 +29,10 @@
         <button class="primary" type="button" @click="loadAll" :disabled="loading || !normalizedCustomerId">载入账户</button>
       </div>
 
-      <div class="import-row">
+      <div v-if="workbenchSections.imports" class="import-row">
         <div class="segmented">
           <button
-            v-for="option in importTypes"
+            v-for="option in visibleImportTypes"
             :key="option.value"
             type="button"
             :class="{ active: selectedImportType === option.value }"
@@ -50,7 +50,7 @@
         <span v-if="!normalizedCustomerId" class="muted import-hint">先选择客户再上传 Excel</span>
       </div>
 
-      <div class="settlement-row">
+      <div v-if="workbenchSections.settlement" class="settlement-row">
         <label>
           <span>结算开始</span>
           <input v-model="settlement.period_from" type="date" />
@@ -63,7 +63,7 @@
       </div>
 
       <div class="ops-grid">
-        <div class="ops-panel">
+        <div v-if="workbenchSections.processing" class="ops-panel">
           <h3>提交加工工单</h3>
           <div class="ops-form">
             <label>
@@ -114,7 +114,7 @@
           </div>
         </div>
 
-        <div class="ops-panel">
+        <div v-if="workbenchSections.directShip" class="ops-panel">
           <h3>提交代发信息</h3>
           <div class="ops-form">
             <label class="wide-field">
@@ -178,7 +178,7 @@
           </div>
         </div>
 
-        <div class="ops-panel">
+        <div v-if="workbenchSections.inventory" class="ops-panel">
           <h3>库存手动调整</h3>
           <div class="ops-form">
             <label>
@@ -287,13 +287,13 @@
     </section>
 
     <section class="grid-2">
-      <DataPanel title="导入批次" :rows="imports" empty="暂无导入批次">
+      <DataPanel v-if="workbenchSections.imports" title="导入批次" :rows="visibleImports" empty="暂无导入批次">
         <table>
           <thead>
             <tr><th>ID</th><th>类型</th><th>文件</th><th>状态</th><th>有效/错误</th><th>操作</th></tr>
           </thead>
           <tbody>
-            <tr v-for="row in imports" :key="row.id">
+            <tr v-for="row in visibleImports" :key="row.id">
               <td>{{ row.id }}</td>
               <td>{{ importTypeLabel(row.import_type) }}</td>
               <td>{{ row.source_filename }}</td>
@@ -307,7 +307,7 @@
         </table>
       </DataPanel>
 
-      <DataPanel title="托管库存" :rows="overview.custody_balances" empty="暂无托管库存">
+      <DataPanel v-if="workbenchSections.inventory" title="托管库存" :rows="overview.custody_balances" empty="暂无托管库存">
         <table>
           <thead>
             <tr><th>类型</th><th>名称</th><th>规格</th><th>克重</th><th>件数</th></tr>
@@ -324,7 +324,7 @@
         </table>
       </DataPanel>
 
-      <DataPanel title="加工工单" :rows="overview.processing_orders" empty="暂无加工工单">
+      <DataPanel v-if="workbenchSections.processing" title="加工工单" :rows="overview.processing_orders" empty="暂无加工工单">
         <table>
           <thead>
             <tr><th>工单号</th><th>产品</th><th>状态</th><th>投豆</th><th>产量</th></tr>
@@ -341,24 +341,7 @@
         </table>
       </DataPanel>
 
-      <DataPanel title="代发订单" :rows="overview.direct_ship_orders" empty="暂无代发订单">
-        <table>
-          <thead>
-            <tr><th>订单号</th><th>日期</th><th>收件地址</th><th>状态</th><th>明细</th></tr>
-          </thead>
-          <tbody>
-            <tr v-for="row in overview.direct_ship_orders || []" :key="row.order_no">
-              <td>{{ row.order_no }}</td>
-              <td>{{ row.order_date || '-' }}</td>
-              <td>{{ row.receiver_address }}</td>
-              <td>{{ row.status || '-' }}</td>
-              <td>{{ row.item_count || 0 }}</td>
-            </tr>
-          </tbody>
-        </table>
-      </DataPanel>
-
-      <DataPanel title="费用明细" :rows="overview.fees" empty="暂无费用">
+      <DataPanel v-if="workbenchSections.settlement" title="费用明细" :rows="overview.fees" empty="暂无费用">
         <table>
           <thead>
             <tr><th>类型</th><th>名称</th><th>金额</th><th>来源</th></tr>
@@ -374,7 +357,7 @@
         </table>
       </DataPanel>
 
-      <DataPanel title="结算批次" :rows="overview.settlements" empty="暂无结算">
+      <DataPanel v-if="workbenchSections.settlement" title="结算批次" :rows="overview.settlements" empty="暂无结算">
         <table>
           <thead>
             <tr><th>ID</th><th>期间</th><th>状态</th><th>金额</th></tr>
@@ -390,6 +373,196 @@
         </table>
       </DataPanel>
     </section>
+
+    <section v-if="workbenchSections.orders" class="panel fulfillment-orders-panel">
+      <div class="panel-head">
+        <div>
+          <h3>履约客户订单</h3>
+          <p>按当前履约客户读取 ERP 订单列表，订单费用、销售单和出库单都在这里核对。</p>
+        </div>
+        <div class="head-actions">
+          <span class="muted">共 {{ fulfillmentOrdersSummary.orders || 0 }} 单</span>
+          <button class="secondary" type="button" @click="loadFulfillmentOrders(fulfillmentOrdersPage)" :disabled="fulfillmentOrdersLoading || !normalizedCustomerId">
+            刷新
+          </button>
+        </div>
+      </div>
+
+      <div class="table-wrap">
+        <table class="fulfillment-orders-table">
+          <thead>
+            <tr>
+              <th>订单号</th>
+              <th>日期</th>
+              <th>客户 / 类型</th>
+              <th>收件信息</th>
+              <th>订单费用</th>
+              <th>快递信息</th>
+              <th>订单状态</th>
+              <th>操作</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="row in fulfillmentOrders" :key="row.id">
+              <td>
+                <button class="order-link" type="button" @click="openFulfillmentOrderDetail(row)">{{ row.order_no }}</button>
+                <div class="cell-meta">{{ row.portal_service_code || row.order_type || '-' }}</div>
+              </td>
+              <td>{{ row.order_date || '-' }}</td>
+              <td>
+                <div class="stacked-text">
+                  <strong>{{ row.customer || '-' }}</strong>
+                  <span>{{ row.order_type || '-' }}</span>
+                </div>
+              </td>
+              <td>
+                <div class="stacked-text receiver-cell">
+                  <strong>{{ row.receiver_name || '-' }} {{ row.receiver_phone || '' }}</strong>
+                  <span>{{ row.receiver_address || '-' }}</span>
+                </div>
+              </td>
+              <td>
+                <div class="fee-stack">
+                  <div v-for="fee in orderFeeLines(row)" :key="`${row.id}-${fee.label}`" class="fee-line" :class="{ emphasized: fee.emphasized }">
+                    <span>{{ fee.label }}</span>
+                    <strong>{{ fee.value }}</strong>
+                  </div>
+                </div>
+              </td>
+              <td>
+                <div class="stacked-text">
+                  <strong>{{ row.sender_label || row.sender_name || '-' }}</strong>
+                  <span>{{ row.ship_tracking_no || '-' }}</span>
+                </div>
+              </td>
+              <td>
+                <div class="status-stack">
+                  <span>收款：{{ row.pay_status || '-' }}</span>
+                  <span>发货：{{ row.ship_status || '-' }}</span>
+                  <span>生产：{{ row.process_status || '-' }}</span>
+                  <span>发票：{{ row.invoice_status || '-' }}</span>
+                </div>
+              </td>
+              <td>
+                <div class="actions-inline">
+                  <button class="link-button" type="button" @click="openSalesOrderDrawer(row)">销售单</button>
+                  <button class="link-button" type="button" @click="openDeliveryNoteDrawer(row)" :disabled="!isShipped(row)">出库单</button>
+                </div>
+              </td>
+            </tr>
+            <tr v-if="!fulfillmentOrders.length">
+              <td colspan="8" class="muted empty-row">{{ fulfillmentOrdersLoading ? '加载中...' : '暂无履约订单' }}</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="pager">
+        <button class="secondary" type="button" @click="loadFulfillmentOrders(fulfillmentOrdersPage - 1)" :disabled="!fulfillmentOrdersHasPrev || fulfillmentOrdersLoading">上一页</button>
+        <span>第 {{ fulfillmentOrdersPage }} 页</span>
+        <button class="secondary" type="button" @click="loadFulfillmentOrders(fulfillmentOrdersPage + 1)" :disabled="!fulfillmentOrdersHasNext || fulfillmentOrdersLoading">下一页</button>
+      </div>
+    </section>
+
+    <div v-if="orderDetailDrawerOpen" class="order-detail-drawer-mask" @click.self="closeOrderDetailDrawer">
+      <aside class="order-detail-drawer" aria-label="履约订单详情">
+        <div class="drawer-head">
+          <div>
+            <h3>{{ activeOrderSummary?.order_no || '订单详情' }}</h3>
+            <p>{{ activeOrderSummary?.customer || '-' }} · {{ activeOrderSummary?.order_date || '-' }}</p>
+          </div>
+          <button class="secondary" type="button" @click="closeOrderDetailDrawer">关闭</button>
+        </div>
+
+        <div v-if="orderDetailError" class="error">{{ orderDetailError }}</div>
+
+        <div v-if="activeOrderSummary" class="drawer-body">
+          <section class="drawer-section">
+            <h4>收件与快递</h4>
+            <div class="detail-grid">
+              <span>收件人：{{ activeOrderSummary.receiver_name || '-' }}</span>
+              <span>电话：{{ activeOrderSummary.receiver_phone || '-' }}</span>
+              <span class="wide-item">地址：{{ activeOrderSummary.receiver_address || '-' }}</span>
+              <span>寄件人：{{ activeOrderSummary.sender_label || activeOrderSummary.sender_name || '-' }}</span>
+              <span>运单号：{{ activeOrderSummary.ship_tracking_no || '-' }}</span>
+            </div>
+          </section>
+
+          <section class="drawer-section">
+            <h4>订单状态</h4>
+            <div class="detail-grid">
+              <span>收款：{{ activeOrderSummary.pay_status || '-' }}</span>
+              <span>发货：{{ activeOrderSummary.ship_status || '-' }}</span>
+              <span>生产：{{ activeOrderSummary.process_status || '-' }}</span>
+              <span>发票：{{ activeOrderSummary.invoice_status || '-' }}</span>
+            </div>
+          </section>
+
+          <section class="drawer-section">
+            <h4>订单费用</h4>
+            <div class="detail-grid">
+              <span>商品金额：{{ activeOrderDetail?.total_amount || activeOrderSummary.total_amount || '0.00' }}</span>
+              <span>运费：{{ activeOrderDetail?.shipping_amount || activeOrderSummary.shipping_amount || '0.00' }}</span>
+              <span>优惠：{{ activeOrderDetail?.discount_amount || activeOrderSummary.discount_amount || '0.00' }}</span>
+              <span>应收：{{ activeOrderDetail?.grand_total || activeOrderSummary.grand_total || '0.00' }}</span>
+            </div>
+          </section>
+
+          <section class="drawer-section">
+            <h4>订单信息</h4>
+            <div class="detail-grid">
+              <span>类型：{{ activeOrderSummary.order_type || '-' }}</span>
+              <span>来源：{{ activeOrderSummary.portal_service_code || '-' }}</span>
+              <span>负责人：{{ activeOrderSummary.responsible_name || '-' }}</span>
+              <span>录入：{{ activeOrderSummary.created_by_employee || '-' }}</span>
+              <span class="wide-item">备注：{{ activeOrderDetail?.notes || activeOrderSummary.notes || '-' }}</span>
+            </div>
+          </section>
+
+          <section class="drawer-section">
+            <div class="drawer-actions">
+              <button class="secondary" type="button" @click="openSalesOrderDrawer(activeOrderSummary)">销售单</button>
+              <button class="secondary" type="button" @click="openDeliveryNoteDrawer(activeOrderSummary)" :disabled="!isShipped(activeOrderSummary)">出库单</button>
+            </div>
+          </section>
+
+          <section class="drawer-section">
+            <h4>商品明细</h4>
+            <div v-if="orderDetailLoading" class="muted">订单明细加载中...</div>
+            <div v-else-if="!activeOrderDetail?.items?.length" class="muted">暂无商品明细</div>
+            <div v-else class="table-wrap drawer-table-wrap">
+              <table class="drawer-table">
+                <thead>
+                  <tr><th>商品</th><th>规格</th><th>数量</th><th>单价</th><th>小计</th><th>备注</th></tr>
+                </thead>
+                <tbody>
+                  <tr v-for="(item, idx) in activeOrderDetail?.items || []" :key="`${activeOrderSummary.id}-${idx}`">
+                    <td>{{ item.product_name || '-' }}</td>
+                    <td>{{ item.spec || '-' }}</td>
+                    <td>{{ item.qty || '-' }}{{ item.unit || '' }}</td>
+                    <td>{{ item.unit_price || '-' }}</td>
+                    <td>{{ item.line_total || '-' }}</td>
+                    <td>{{ item.note || '-' }}</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </section>
+        </div>
+      </aside>
+    </div>
+
+    <div v-if="salesOrderDrawerOpen" class="sales-order-drawer-mask" @click.self="closeSalesOrderDrawer">
+      <aside class="sales-order-drawer" aria-label="销售单">
+        <SalesOrderView :order-id="activeSalesOrderID" embedded @close="closeSalesOrderDrawer" />
+      </aside>
+    </div>
+
+    <div v-if="deliveryNoteDrawerOpen" class="delivery-note-drawer-mask" @click.self="closeDeliveryNoteDrawer">
+      <aside class="delivery-note-drawer" aria-label="出库单">
+        <DeliveryNoteView :order-id="activeDeliveryNoteID" embedded @close="closeDeliveryNoteDrawer" />
+      </aside>
+    </div>
   </div>
 </template>
 
@@ -397,11 +570,15 @@
 import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue'
 import DataPanel from '../components/DataPanel.vue'
 import SearchableSelect from '../components/SearchableSelect.vue'
+import DeliveryNoteView from './DeliveryNoteView.vue'
+import SalesOrderView from './SalesOrderView.vue'
 import {
   applyCustomerFulfillmentImport,
   adjustCustomerFulfillmentCustodyInventory,
   createCustomerFulfillmentSettlement,
   fetchCustomerFulfillmentCustomers,
+  fetchCustomerFulfillmentOrderDetail,
+  fetchCustomerFulfillmentOrders,
   fetchCustomerFulfillmentOptions,
   fetchCustomerFulfillmentImportPreview,
   fetchCustomerFulfillmentImportRows,
@@ -416,11 +593,14 @@ import {
   buildImportPreviewEffects,
   customerFulfillmentCustomerOptionLabel,
   customerFulfillmentCustomerOptionMeta,
+  customerFulfillmentOrderFees,
+  customerFulfillmentWorkbenchSections,
   groupInvalidImportRows,
   importSummaryCards,
   importTypeOptions,
   latestParsedBatchForType,
   rowStatusLabel,
+  visibleCustomerFulfillmentImports,
 } from '../lib/customer-fulfillment'
 import { parseRecipientText } from '../lib/customer-recipient'
 
@@ -439,6 +619,21 @@ const resultAnchor = ref(null)
 const loading = ref(false)
 const error = ref('')
 const ok = ref('')
+const fulfillmentOrders = ref([])
+const fulfillmentOrdersSummary = ref({})
+const fulfillmentOrdersPage = ref(1)
+const fulfillmentOrdersHasPrev = ref(false)
+const fulfillmentOrdersHasNext = ref(false)
+const fulfillmentOrdersLoading = ref(false)
+const orderDetailDrawerOpen = ref(false)
+const activeOrderSummary = ref(null)
+const activeOrderDetail = ref(null)
+const orderDetailLoading = ref(false)
+const orderDetailError = ref('')
+const salesOrderDrawerOpen = ref(false)
+const activeSalesOrderID = ref(0)
+const deliveryNoteDrawerOpen = ref(false)
+const activeDeliveryNoteID = ref(0)
 const settlement = reactive({
   period_from: '',
   period_to: '',
@@ -477,7 +672,6 @@ const adjustment = reactive({
   quantity_units_delta: 0,
   note: '',
 })
-const importTypes = importTypeOptions()
 const normalizedCustomerId = computed(() => Number(customerId.value || 0))
 const selectedCustomer = computed(() => customerOptions.value.find((row) => Number(row.id) === normalizedCustomerId.value) || null)
 const selectedCustomerLabel = computed(() => selectedCustomer.value ? customerFulfillmentCustomerOptionLabel(selectedCustomer.value) : '')
@@ -485,7 +679,11 @@ const selectedFileName = computed(() => selectedFile.value?.name || '')
 const summaryCards = computed(() => importSummaryCards(latestSummary.value || latestBatch.value?.summary || {}))
 const latestInvalidCount = computed(() => Number((latestSummary.value || latestBatch.value?.summary || {}).invalid_rows || 0))
 const invalidRowGroups = computed(() => groupInvalidImportRows(invalidRows.value))
-const selectedParsedBatch = computed(() => latestParsedBatchForType(imports.value, latestBatch.value, selectedImportType.value))
+const enabledCapabilities = computed(() => Array.isArray(overview.value?.capabilities) ? overview.value.capabilities : [])
+const workbenchSections = computed(() => customerFulfillmentWorkbenchSections(enabledCapabilities.value))
+const visibleImportTypes = computed(() => importTypeOptions(enabledCapabilities.value))
+const visibleImports = computed(() => visibleCustomerFulfillmentImports(imports.value, enabledCapabilities.value))
+const selectedParsedBatch = computed(() => latestParsedBatchForType(visibleImports.value, latestBatch.value, selectedImportType.value))
 const selectedParsedBatchId = computed(() => Number(selectedParsedBatch.value?.id || selectedParsedBatch.value?.batch_id || 0))
 const selectedParsedBatchLabel = computed(() => {
   const batch = selectedParsedBatch.value
@@ -520,6 +718,11 @@ watch(selectedImportType, async () => {
   await loadApplyPreview()
 })
 
+watch(visibleImportTypes, (options) => {
+  if (options.some((option) => option.value === selectedImportType.value)) return
+  selectedImportType.value = options[0]?.value || ''
+}, { immediate: true })
+
 watch(selectedParsedBatchId, async () => {
   await loadApplyPreview()
 })
@@ -546,28 +749,34 @@ async function loadCustomerOptions(query = '') {
 
 async function selectCustomer(customer) {
   customerId.value = Number(customer?.id || 0)
+  fulfillmentOrdersPage.value = 1
+  closeOrderDetailDrawer()
   if (customerId.value) await loadAll()
 }
 
 async function loadAll() {
   if (!normalizedCustomerId.value) return
   loading.value = true
+  fulfillmentOrdersLoading.value = true
   error.value = ''
   ok.value = ''
   try {
-    const [overviewData, importData, optionsData] = await Promise.all([
+    const [overviewData, importData, optionsData, orderData] = await Promise.all([
       fetchCustomerFulfillmentOverview(normalizedCustomerId.value),
       fetchCustomerFulfillmentImports(normalizedCustomerId.value),
       fetchCustomerFulfillmentOptions(normalizedCustomerId.value),
+      loadFulfillmentOrdersData(normalizedCustomerId.value, fulfillmentOrdersPage.value),
     ])
     overview.value = overviewData || {}
     fulfillmentOptions.value = optionsData || {}
     rememberOverviewCustomer(overviewData)
     imports.value = importData?.imports || overviewData?.imports || []
+    assignFulfillmentOrders(orderData)
   } catch (err) {
     error.value = err.message || '加载客户履约账户失败'
   } finally {
     loading.value = false
+    fulfillmentOrdersLoading.value = false
   }
 }
 
@@ -676,6 +885,7 @@ async function submitDirectShipOrder() {
     directShipForm.spec = ''
     directShipForm.quantity_units = 1
     directShipForm.note = ''
+    fulfillmentOrdersPage.value = 1
     await loadAll()
   } catch (err) {
     error.value = err.message || '提交代发失败'
@@ -746,6 +956,86 @@ async function loadApplyPreview() {
       warning: '应用预览暂时不可用，请按批次摘要核对后再应用。',
     }
   }
+}
+
+async function loadFulfillmentOrders(page = fulfillmentOrdersPage.value) {
+  if (!normalizedCustomerId.value) return
+  fulfillmentOrdersLoading.value = true
+  try {
+    const data = await loadFulfillmentOrdersData(normalizedCustomerId.value, page)
+    assignFulfillmentOrders(data)
+  } catch (err) {
+    error.value = err.message || '加载履约客户订单失败'
+  } finally {
+    fulfillmentOrdersLoading.value = false
+  }
+}
+
+function loadFulfillmentOrdersData(customerId, page = 1) {
+  return fetchCustomerFulfillmentOrders(customerId, { page, limit: 10 })
+}
+
+function assignFulfillmentOrders(data = {}) {
+  fulfillmentOrders.value = Array.isArray(data?.rows) ? data.rows : []
+  fulfillmentOrdersSummary.value = data?.summary || {}
+  fulfillmentOrdersPage.value = Number(data?.page || fulfillmentOrdersPage.value || 1)
+  fulfillmentOrdersHasPrev.value = Boolean(data?.has_prev)
+  fulfillmentOrdersHasNext.value = Boolean(data?.has_next)
+  const currentID = Number(activeOrderSummary.value?.id || 0)
+  if (currentID > 0) {
+    const refreshed = fulfillmentOrders.value.find((row) => Number(row.id) === currentID)
+    if (refreshed) activeOrderSummary.value = { ...refreshed }
+  }
+}
+
+async function openFulfillmentOrderDetail(row) {
+  const orderId = Number(row?.id || 0)
+  if (!orderId) return
+  activeOrderSummary.value = { ...row }
+  activeOrderDetail.value = null
+  orderDetailError.value = ''
+  orderDetailDrawerOpen.value = true
+  orderDetailLoading.value = true
+  try {
+    const data = await fetchCustomerFulfillmentOrderDetail(orderId)
+    activeOrderDetail.value = data?.edit_data || null
+  } catch (err) {
+    orderDetailError.value = err.message || '加载订单明细失败'
+  } finally {
+    orderDetailLoading.value = false
+  }
+}
+
+function closeOrderDetailDrawer() {
+  orderDetailDrawerOpen.value = false
+  activeOrderSummary.value = null
+  activeOrderDetail.value = null
+  orderDetailError.value = ''
+  orderDetailLoading.value = false
+}
+
+function openSalesOrderDrawer(row) {
+  const id = Number(row?.id || 0)
+  if (!id) return
+  activeSalesOrderID.value = id
+  salesOrderDrawerOpen.value = true
+}
+
+function closeSalesOrderDrawer() {
+  salesOrderDrawerOpen.value = false
+  activeSalesOrderID.value = 0
+}
+
+function openDeliveryNoteDrawer(row) {
+  const id = Number(row?.id || 0)
+  if (!id) return
+  activeDeliveryNoteID.value = id
+  deliveryNoteDrawerOpen.value = true
+}
+
+function closeDeliveryNoteDrawer() {
+  deliveryNoteDrawerOpen.value = false
+  activeDeliveryNoteID.value = 0
 }
 
 async function createSettlement() {
@@ -881,7 +1171,15 @@ function uniqueProductOptions(rows) {
 }
 
 function importTypeLabel(value) {
-  return importTypes.find((option) => option.value === value)?.label || value
+  return importTypeOptions().find((option) => option.value === value)?.label || value
+}
+
+function orderFeeLines(row) {
+  return customerFulfillmentOrderFees(row)
+}
+
+function isShipped(row) {
+  return String(row?.ship_status || '').includes('已发货')
 }
 
 function custodyTypeLabel(value) {
@@ -1192,27 +1490,48 @@ button:disabled {
 
 .grid-2 {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(360px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(420px, 1fr));
+  align-items: start;
   gap: 14px;
+}
+
+.grid-2 :deep(.data-panel) {
+  min-width: 0;
+  overflow-x: auto;
+}
+
+.table-wrap {
+  overflow-x: auto;
 }
 
 table {
   width: 100%;
+  min-width: 560px;
   border-collapse: collapse;
+  table-layout: fixed;
   font-size: 13px;
 }
 
 th,
 td {
   border-bottom: 1px solid #e2e8f0;
-  padding: 8px;
+  height: 40px;
+  padding: 8px 10px;
   text-align: left;
   vertical-align: top;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 th {
   color: #475569;
   background: #f8fafc;
+  font-weight: 600;
+}
+
+td {
+  color: #1f2937;
 }
 
 .muted {
@@ -1221,6 +1540,179 @@ th {
 
 .empty {
   padding: 12px 0;
+}
+
+.empty-row {
+  text-align: center;
+}
+
+.fulfillment-orders-table {
+  min-width: 1120px;
+}
+
+.order-link {
+  border: 0;
+  padding: 0;
+  min-height: 0;
+  background: transparent;
+  color: #0f766e;
+  font-weight: 700;
+}
+
+.cell-meta {
+  margin-top: 4px;
+  color: #64748b;
+  font-size: 12px;
+}
+
+.stacked-text {
+  display: grid;
+  gap: 4px;
+  white-space: normal;
+}
+
+.stacked-text strong {
+  color: #0f172a;
+  font-size: 13px;
+}
+
+.stacked-text span {
+  color: #64748b;
+  font-size: 12px;
+  word-break: break-all;
+}
+
+.receiver-cell span {
+  word-break: break-word;
+}
+
+.fee-stack {
+  display: grid;
+  gap: 4px;
+}
+
+.fee-line {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  color: #475569;
+  font-size: 12px;
+}
+
+.fee-line strong {
+  color: #0f172a;
+}
+
+.fee-line.emphasized {
+  font-weight: 700;
+}
+
+.status-stack {
+  display: grid;
+  gap: 4px;
+  white-space: normal;
+  color: #475569;
+  font-size: 12px;
+}
+
+.actions-inline {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.pager {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.order-detail-drawer-mask,
+.sales-order-drawer-mask,
+.delivery-note-drawer-mask {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  display: flex;
+  justify-content: flex-end;
+  background: rgba(15, 23, 42, 0.28);
+}
+
+.order-detail-drawer,
+.sales-order-drawer,
+.delivery-note-drawer {
+  width: min(1120px, 100vw);
+  height: 100%;
+  overflow-y: auto;
+  background: #fff;
+  box-shadow: -18px 0 44px rgba(15, 23, 42, 0.18);
+}
+
+.order-detail-drawer {
+  width: min(840px, 100vw);
+  padding: 18px;
+}
+
+.drawer-head {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.drawer-head h3 {
+  margin: 0;
+}
+
+.drawer-head p {
+  margin: 4px 0 0;
+  color: #64748b;
+}
+
+.drawer-body {
+  display: grid;
+  gap: 14px;
+}
+
+.drawer-section {
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 12px;
+  background: #f8fafc;
+}
+
+.drawer-section h4 {
+  margin: 0 0 10px;
+  font-size: 15px;
+}
+
+.detail-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px 12px;
+  color: #334155;
+  font-size: 13px;
+}
+
+.wide-item {
+  grid-column: 1 / -1;
+}
+
+.drawer-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.drawer-table-wrap {
+  margin-top: 8px;
+}
+
+.drawer-table {
+  min-width: 640px;
 }
 
 .error,
@@ -1238,5 +1730,19 @@ th {
 .ok {
   background: #ecfdf5;
   color: #047857;
+}
+
+@media (max-width: 520px) {
+  .grid-2 {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .wide-field {
+    grid-column: span 1;
+  }
+
+  .detail-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
 </style>

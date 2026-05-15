@@ -28,11 +28,13 @@ type Repository struct {
 
 type SalesOrderPDFRenderer interface {
 	Render(snapshot salesdomain.SalesOrderSnapshot) ([]byte, error)
+	RenderPreview(snapshot salesdomain.SalesOrderSnapshot) ([]byte, error)
 	RenderPNG(snapshot salesdomain.SalesOrderSnapshot) ([]byte, error)
 }
 
 type DeliveryNotePDFRenderer interface {
 	Render(snapshot salesdomain.DeliveryNoteSnapshot) ([]byte, error)
+	RenderPreview(snapshot salesdomain.DeliveryNoteSnapshot) ([]byte, error)
 }
 
 type RepositoryOption func(*Repository)
@@ -127,6 +129,29 @@ func normalizeSmallBatchPriceRule(rule smallBatchPriceRule) smallBatchPriceRule 
 		rule.TierMaxLB = 28
 	}
 	return rule
+}
+
+func orderPaidStatusRequiresPaymentMethod(statusName string) bool {
+	statusName = strings.TrimSpace(statusName)
+	return strings.Contains(statusName, "已付款") || strings.Contains(statusName, "已收款") || strings.Contains(statusName, "已支付")
+}
+
+func normalizeOrderPaymentMethodForStatusTx(ctx context.Context, tx pgx.Tx, schema string, payStatusID int64, raw string) (string, error) {
+	method := strings.TrimSpace(raw)
+	if payStatusID <= 0 {
+		return "", nil
+	}
+	var statusName string
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT COALESCE(name,'') FROM %s.pay_statuses WHERE id=$1`, schema), payStatusID).Scan(&statusName); err != nil {
+		return "", fmt.Errorf("invalid pay_status_id")
+	}
+	if orderPaidStatusRequiresPaymentMethod(statusName) {
+		if method == "" {
+			return "", fmt.Errorf("payment_method required")
+		}
+		return method, nil
+	}
+	return "", nil
 }
 
 func smallBatchTierQuantity(specG int64, qtyLb float64, rule smallBatchPriceRule) (int64, bool) {
@@ -455,6 +480,10 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 	if payStatusID == 0 {
 		payStatusID = lookupDefaultStatusID(ctx, tx, r.schema, "pay_statuses", "已付款", "已收款")
 	}
+	paymentMethod, err := normalizeOrderPaymentMethodForStatusTx(ctx, tx, r.schema, payStatusID, cmd.PaymentMethod)
+	if err != nil {
+		return salesapp.SaveOrderResult{}, err
+	}
 
 	// 默认发货状态：未选择时自动写入“未发货”。
 	shipStatusID := cmd.ShipStatusID
@@ -494,27 +523,28 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 					source_id=$4,
 					order_type_id=$5,
 					pay_status_id=$6,
-					ship_status_id=$7,
-					ship_method=$8,
-					ship_tracking_no=$9,
-					notes=$10,
-					total_amount=$11,
-					shipping_amount=$12,
-					discount_amount=$13,
-					round_to_int=$14,
-					rounding_amount=$15,
-					grand_total=$16,
-					express_fee=$17,
-					outsource_material_fee=$18,
-					outsource_roast_fee=$19,
-					outsource_packaging_fee=$20,
-					outsource_manual_fee=$21,
-					outsource_tax_fee=$22,
-					outsource_other_fee=$23,
-					outsource_total_fee=$24,
-					responsible_party_type=$25,
-					responsible_party_id=$26,
-					responsible_party_name=$27
+					payment_method=$7,
+					ship_status_id=$8,
+					ship_method=$9,
+					ship_tracking_no=$10,
+					notes=$11,
+					total_amount=$12,
+					shipping_amount=$13,
+					discount_amount=$14,
+					round_to_int=$15,
+					rounding_amount=$16,
+					grand_total=$17,
+					express_fee=$18,
+					outsource_material_fee=$19,
+					outsource_roast_fee=$20,
+					outsource_packaging_fee=$21,
+					outsource_manual_fee=$22,
+					outsource_tax_fee=$23,
+					outsource_other_fee=$24,
+					outsource_total_fee=$25,
+					responsible_party_type=$26,
+					responsible_party_id=$27,
+					responsible_party_name=$28
 				WHERE id=$1
 			`, r.schema)
 		if _, err := tx.Exec(ctx, uq,
@@ -524,6 +554,7 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 			nullInt(cmd.SourceID),
 			nullInt(cmd.OrderTypeID),
 			nullInt(payStatusID),
+			paymentMethod,
 			nullInt(shipStatusID),
 			nullText(shipMethod),
 			nullText(shipTrackingNo),
@@ -559,7 +590,7 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 		insertOrderSQL := fmt.Sprintf(`
 				INSERT INTO %s.orders(
 					order_date, customer_id,
-					source_id, order_type_id, pay_status_id, ship_status_id,
+					source_id, order_type_id, pay_status_id, payment_method, ship_status_id,
 					ship_method, ship_tracking_no,
 					notes,
 					total_amount, shipping_amount, discount_amount,
@@ -570,12 +601,12 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 					responsible_party_type, responsible_party_id, responsible_party_name,
 					order_no
 				) VALUES (
-					$1,$2,$3,$4,$5,$6,$7,$8,$9,
-					$10,$11,$12,
-					$13,$14,$15,
-					$16,$17,$18,$19,$20,$21,$22,$23,
-					$24,$25,$26,
-					$27
+					$1,$2,$3,$4,$5,$6,$7,$8,$9,$10,
+					$11,$12,$13,
+					$14,$15,$16,
+					$17,$18,$19,$20,$21,$22,$23,$24,
+					$25,$26,$27,
+					$28
 				)
 				RETURNING id
 			`, r.schema)
@@ -585,6 +616,7 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 			nullInt(cmd.SourceID),
 			nullInt(cmd.OrderTypeID),
 			nullInt(payStatusID),
+			paymentMethod,
 			nullInt(shipStatusID),
 			nullText(shipMethod),
 			nullText(shipTrackingNo),
@@ -666,6 +698,7 @@ func (r Repository) InlineUpdate(ctx context.Context, id int64, actor string, cm
 	req := inlineUpdateRequest{
 		OrderTypeID:     cmd.OrderTypeID,
 		PayStatusID:     cmd.PayStatusID,
+		PaymentMethod:   cmd.PaymentMethod,
 		ShipStatusID:    cmd.ShipStatusID,
 		ProcessStatusID: cmd.ProcessStatusID,
 		Notes:           cmd.Notes,
@@ -769,6 +802,7 @@ func (r Repository) SaveOutsourceTemplate(ctx context.Context, cmd salesapp.Save
 type inlineUpdateRequest struct {
 	OrderTypeID     string
 	PayStatusID     string
+	PaymentMethod   string
 	ShipStatusID    string
 	ProcessStatusID string
 	Notes           string
@@ -782,11 +816,12 @@ func inlineUpdateOrder(ctx context.Context, pool *pgxpool.Pool, schema string, o
 
 	var curOrderType *int64
 	var curPay *int64
+	var curPaymentMethod *string
 	var curShip *int64
 	var curProc *int64
 	var curNotes *string
-	q := fmt.Sprintf("SELECT order_type_id, pay_status_id, ship_status_id, process_status_id, notes FROM %s.orders WHERE id=$1", schema)
-	if err := pool.QueryRow(ctx, q, orderID).Scan(&curOrderType, &curPay, &curShip, &curProc, &curNotes); err != nil {
+	q := fmt.Sprintf("SELECT order_type_id, pay_status_id, payment_method, ship_status_id, process_status_id, notes FROM %s.orders WHERE id=$1", schema)
+	if err := pool.QueryRow(ctx, q, orderID).Scan(&curOrderType, &curPay, &curPaymentMethod, &curShip, &curProc, &curNotes); err != nil {
 		return err
 	}
 
@@ -821,6 +856,10 @@ func inlineUpdateOrder(ctx context.Context, pool *pgxpool.Pool, schema string, o
 	if err != nil {
 		return fmt.Errorf("invalid process_status_id")
 	}
+	paymentMethodRaw := strings.TrimSpace(req.PaymentMethod)
+	if paymentMethodRaw == "" && eqIntPtr(curPay, nextPay) && curPaymentMethod != nil {
+		paymentMethodRaw = strings.TrimSpace(*curPaymentMethod)
+	}
 	nextNotes := strings.TrimSpace(req.Notes)
 	var nextNotesPtr *string
 	if nextNotes != "" {
@@ -833,10 +872,23 @@ func inlineUpdateOrder(ctx context.Context, pool *pgxpool.Pool, schema string, o
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
+	payStatusID := int64(0)
+	if nextPay != nil {
+		payStatusID = *nextPay
+	}
+	paymentMethod, err := normalizeOrderPaymentMethodForStatusTx(ctx, tx, schema, payStatusID, paymentMethodRaw)
+	if err != nil {
+		return err
+	}
+	var nextPaymentMethod *string
+	if paymentMethod != "" {
+		nextPaymentMethod = &paymentMethod
+	}
+
 	changed := false
-	if !eqIntPtr(curOrderType, nextOrderType) || !eqIntPtr(curPay, nextPay) || !eqIntPtr(curShip, nextShip) || !eqIntPtr(curProc, nextProc) || !eqStrPtr(curNotes, nextNotesPtr) {
-		upd := fmt.Sprintf(`UPDATE %s.orders SET order_type_id=$2, pay_status_id=$3, ship_status_id=$4, process_status_id=$5, notes=$6 WHERE id=$1`, schema)
-		if _, err := tx.Exec(ctx, upd, orderID, nextOrderType, nextPay, nextShip, nextProc, nextNotesPtr); err != nil {
+	if !eqIntPtr(curOrderType, nextOrderType) || !eqIntPtr(curPay, nextPay) || !eqStrPtr(curPaymentMethod, nextPaymentMethod) || !eqIntPtr(curShip, nextShip) || !eqIntPtr(curProc, nextProc) || !eqStrPtr(curNotes, nextNotesPtr) {
+		upd := fmt.Sprintf(`UPDATE %s.orders SET order_type_id=$2, pay_status_id=$3, payment_method=$4, ship_status_id=$5, process_status_id=$6, notes=$7 WHERE id=$1`, schema)
+		if _, err := tx.Exec(ctx, upd, orderID, nextOrderType, nextPay, paymentMethod, nextShip, nextProc, nextNotesPtr); err != nil {
 			return err
 		}
 		changed = true
@@ -856,6 +908,9 @@ func inlineUpdateOrder(ctx context.Context, pool *pgxpool.Pool, schema string, o
 		return err
 	}
 	if err := logDiff(!eqIntPtr(curPay, nextPay), "pay_status_id", intPtrToStr(curPay), intPtrToStr(nextPay)); err != nil {
+		return err
+	}
+	if err := logDiff(!eqStrPtr(curPaymentMethod, nextPaymentMethod), "payment_method", strPtr(curPaymentMethod), strPtr(nextPaymentMethod)); err != nil {
 		return err
 	}
 	if err := logDiff(!eqIntPtr(curShip, nextShip), "ship_status_id", intPtrToStr(curShip), intPtrToStr(nextShip)); err != nil {
@@ -981,6 +1036,10 @@ func updateOrderHeader(ctx context.Context, pool *pgxpool.Pool, schema string, i
 	}
 	grand0 := totalAmt + ship - disc + outsourceTotal
 	grandTotal, roundingAmt := applyRoundToInt(grand0, round)
+	paymentMethod, err := normalizeOrderPaymentMethodForStatusTx(ctx, tx, schema, req.PayStatusID, req.PaymentMethod)
+	if err != nil {
+		return err
+	}
 	q := fmt.Sprintf(`
 		UPDATE %s.orders
 		SET order_date=$2,
@@ -988,22 +1047,23 @@ func updateOrderHeader(ctx context.Context, pool *pgxpool.Pool, schema string, i
 			source_id=$4,
 			order_type_id=$5,
 			pay_status_id=$6,
-			ship_status_id=$7,
-			notes=$8,
-			total_amount=$9,
-			shipping_amount=$10,
-			discount_amount=$11,
-			round_to_int=$12,
-			rounding_amount=$13,
-			grand_total=$14,
-			express_fee=$15,
-			outsource_material_fee=$16,
-			outsource_roast_fee=$17,
-			outsource_packaging_fee=$18,
-			outsource_manual_fee=$19,
-			outsource_tax_fee=$20,
-			outsource_other_fee=$21,
-			outsource_total_fee=$22
+			payment_method=$7,
+			ship_status_id=$8,
+			notes=$9,
+			total_amount=$10,
+			shipping_amount=$11,
+			discount_amount=$12,
+			round_to_int=$13,
+			rounding_amount=$14,
+			grand_total=$15,
+			express_fee=$16,
+			outsource_material_fee=$17,
+			outsource_roast_fee=$18,
+			outsource_packaging_fee=$19,
+			outsource_manual_fee=$20,
+			outsource_tax_fee=$21,
+			outsource_other_fee=$22,
+			outsource_total_fee=$23
 		WHERE id=$1
 	`, schema)
 	if _, err := tx.Exec(ctx, q,
@@ -1013,6 +1073,7 @@ func updateOrderHeader(ctx context.Context, pool *pgxpool.Pool, schema string, i
 		nullInt(req.SourceID),
 		nullInt(req.OrderTypeID),
 		nullInt(req.PayStatusID),
+		paymentMethod,
 		nullInt(req.ShipStatusID),
 		nullText(req.Notes),
 		totalAmt,

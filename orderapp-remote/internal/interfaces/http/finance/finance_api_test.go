@@ -546,6 +546,7 @@ CREATE TABLE %s.orders (
 	total_amount NUMERIC(12,2) NOT NULL DEFAULT 0,
 	shipping_amount NUMERIC(12,2) NOT NULL DEFAULT 0,
 	discount_amount NUMERIC(12,2) NOT NULL DEFAULT 0,
+	payment_method TEXT NOT NULL DEFAULT '',
 	grand_total NUMERIC(12,2) NOT NULL DEFAULT 0,
 	is_void BOOLEAN NOT NULL DEFAULT false
 );

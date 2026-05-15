@@ -13,7 +13,7 @@ describe('visibleHomeEntries', () => {
       { code: 'processing', enabled: false },
       { code: 'settlement', enabled: true },
     ])
-    expect(entries.map((entry) => entry.key)).toEqual(['mall', 'orders', 'directShip', 'settlement'])
+    expect(entries.map((entry) => entry.key)).toEqual(['mall', 'directShip'])
   })
 
   it('uses the dedicated mall page for customer shopping', () => {
@@ -34,24 +34,22 @@ describe('visibleHomeEntries', () => {
 
     expect(entries.map((entry) => entry.url)).toEqual([
       '/pages/service/service?key=beanList',
-      '/pages/service/service?key=orders',
       '/pages/service/service?key=directShip',
     ])
   })
 
-  it('shows a direct order entrance for any order-related customer capability', () => {
+  it('keeps order history out of the home grid because orders use a bottom entry', () => {
     for (const code of ['product_order', 'direct_ship', 'shipping_query', 'mall']) {
       const entries = visibleHomeEntries([{ code, enabled: true }])
       const orders = entries.find((entry) => entry.key === 'orders')
-      expect(orders?.label).toBe('我的订单')
-      expect(orders?.url).toBe('/pages/service/service?key=orders')
+      expect(orders).toBeUndefined()
     }
   })
 
   it('does not expose logistics as a standalone home entry', () => {
     const entries = visibleHomeEntries([{ code: 'shipping_query', enabled: true }])
 
-    expect(entries.map((entry) => entry.key)).toEqual(['orders'])
+    expect(entries.map((entry) => entry.key)).toEqual([])
   })
 
   it('ignores unknown capability codes', () => {

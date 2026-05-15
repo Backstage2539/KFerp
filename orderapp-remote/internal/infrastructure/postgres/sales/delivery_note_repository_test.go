@@ -61,6 +61,13 @@ func (fakeDeliveryNoteRenderer) Render(snapshot salesdomain.DeliveryNoteSnapshot
 	return []byte("%PDF-delivery-test"), nil
 }
 
+func (fakeDeliveryNoteRenderer) RenderPreview(snapshot salesdomain.DeliveryNoteSnapshot) ([]byte, error) {
+	if err := snapshot.Validate(); err != nil {
+		return nil, err
+	}
+	return []byte("%PDF-delivery-preview-test"), nil
+}
+
 func prepareDeliveryNoteGenerationOrderColumns(t *testing.T, ctx context.Context, pool *pgxpool.Pool, schema string) {
 	t.Helper()
 	for _, stmt := range []string{

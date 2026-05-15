@@ -31,7 +31,8 @@ func TestSalesOrderVueRequiresPreviewBeforeGenerate(t *testing.T) {
 		"销售单预览",
 		"确认生成 PDF",
 		":disabled=\"generating || !orderID || !preview\"",
-		"preview.snapshot.items",
+		"PDFStampPreview",
+		"salesOrderPreviewPDFUrl",
 	} {
 		if !strings.Contains(src, want) {
 			t.Fatalf("SalesOrderView missing preview-before-generate marker %q", want)

@@ -6,7 +6,9 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"regexp"
 	"strings"
 
 	customerportalapp "orderapp/internal/application/customerportal"
@@ -24,6 +26,8 @@ type txQuerier interface {
 	Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error)
 	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
 }
+
+var passwordLoginPhoneRe = regexp.MustCompile(`^1\d{10}$`)
 
 func NewRepository(pool *pgxpool.Pool, schema string) Repository {
 	return Repository{pool: pool, schema: schema}
@@ -53,17 +57,38 @@ func (r Repository) CreateLoginSession(ctx context.Context, cmd customerportalap
 	return result, nil
 }
 
-func (r Repository) CreateERPBoundLoginSession(ctx context.Context, cmd customerportalapp.ERPBoundLoginSessionCommand) (customerportalapp.LoginResult, error) {
+func (r Repository) CreatePhoneVerifiedLoginSession(ctx context.Context, cmd customerportalapp.CreatePhoneVerifiedLoginSessionCommand) (customerportalapp.LoginResult, error) {
 	tx, err := r.pool.Begin(ctx)
 	if err != nil {
 		return customerportalapp.LoginResult{}, err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
-	customerID, err := r.resolveERPBoundCustomerTx(ctx, tx, strings.TrimSpace(cmd.Phone), strings.TrimSpace(cmd.Password))
-	if err != nil {
+	phone := strings.TrimSpace(cmd.Phone)
+	if phone == "" {
+		return customerportalapp.LoginResult{}, fmt.Errorf("phone required")
+	}
+	var employeeID int64
+	var loginDisabled bool
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`
+		SELECT e.id, COALESCE(p.login_disabled,false)
+		FROM %s.company_employees e
+		LEFT JOIN %s.employee_login_passwords p ON p.employee_id=e.id
+		WHERE e.active=true
+		  AND e.account_type='channel_customer'
+		  AND e.phone=$1
+		ORDER BY e.id
+		LIMIT 1
+	`, r.schema, r.schema), phone).Scan(&employeeID, &loginDisabled); err != nil {
+		if err == pgx.ErrNoRows {
+			return customerportalapp.LoginResult{}, customerportalapp.ErrMiniInvalidLogin
+		}
 		return customerportalapp.LoginResult{}, err
 	}
+	if loginDisabled {
+		return customerportalapp.LoginResult{}, customerportalapp.ErrMiniAccountLoginDisabled
+	}
+
 	miniUserID, active, err := r.upsertMiniUserTx(ctx, tx, strings.TrimSpace(cmd.OpenID), strings.TrimSpace(cmd.UnionID), strings.TrimSpace(cmd.Phone), strings.TrimSpace(cmd.Nickname))
 	if err != nil {
 		return customerportalapp.LoginResult{}, err
@@ -73,15 +98,38 @@ func (r Repository) CreateERPBoundLoginSession(ctx context.Context, cmd customer
 	}
 	if _, err := tx.Exec(ctx, fmt.Sprintf(`
 		INSERT INTO %s.customer_portal_user_bindings(mini_user_id, customer_id, role, status, approved_by)
-		VALUES($1,$2,'owner','approved','erp_account_login')
+		SELECT $1, b.customer_id, COALESCE(NULLIF(b.role,''),'member'), 'approved', 'phone-verify-login'
+		FROM %s.customer_erp_user_bindings b
+		JOIN %s.customers c ON c.id=b.customer_id AND c.active=true
+		WHERE b.employee_id=$2 AND b.status='active'
 		ON CONFLICT(mini_user_id, customer_id) DO UPDATE SET
-			role='owner',
+			role=EXCLUDED.role,
 			status='approved',
-			approved_by='erp_account_login'
-	`, r.schema), miniUserID, customerID); err != nil {
+			approved_by='phone-verify-login'
+	`, r.schema, r.schema, r.schema), miniUserID, employeeID); err != nil {
 		return customerportalapp.LoginResult{}, err
 	}
-	result, err := r.createMiniSessionTx(ctx, tx, miniUserID, customerID)
+	if _, err := tx.Exec(ctx, fmt.Sprintf(`
+		UPDATE %s.customer_portal_user_bindings
+		SET status='revoked'
+		WHERE mini_user_id=$1
+		  AND customer_id NOT IN (
+		    SELECT b.customer_id
+		    FROM %s.customer_erp_user_bindings b
+		    JOIN %s.customers c ON c.id=b.customer_id AND c.active=true
+		    WHERE b.employee_id=$2 AND b.status='active'
+		  )
+	`, r.schema, r.schema, r.schema), miniUserID, employeeID); err != nil {
+		return customerportalapp.LoginResult{}, err
+	}
+	bindings, err := r.listBindingsTx(ctx, tx, miniUserID)
+	if err != nil {
+		return customerportalapp.LoginResult{}, err
+	}
+	if len(bindings) == 0 {
+		return customerportalapp.LoginResult{}, customerportalapp.ErrCustomerBindingNotFound
+	}
+	result, err := r.createMiniSessionTx(ctx, tx, miniUserID, 0)
 	if err != nil {
 		return customerportalapp.LoginResult{}, err
 	}
@@ -154,39 +202,145 @@ func (r Repository) createMiniSessionTx(ctx context.Context, tx pgx.Tx, miniUser
 	}, nil
 }
 
-func (r Repository) resolveERPBoundCustomerTx(ctx context.Context, tx pgx.Tx, phone, password string) (int64, error) {
-	phone = strings.TrimSpace(phone)
-	if phone == "" {
-		return 0, fmt.Errorf("phone required")
+func (r Repository) CreatePasswordLoginSession(ctx context.Context, cmd customerportalapp.CreatePasswordLoginSessionCommand) (customerportalapp.LoginResult, error) {
+	login := strings.TrimSpace(cmd.Login)
+	if login == "" {
+		return customerportalapp.LoginResult{}, fmt.Errorf("login required")
 	}
-	var customerID int64
-	var passwordHash string
-	if err := tx.QueryRow(ctx, fmt.Sprintf(`
-		SELECT b.customer_id, COALESCE(p.password_hash,'')
+	password := strings.TrimSpace(cmd.Password)
+	if password == "" {
+		return customerportalapp.LoginResult{}, fmt.Errorf("password required")
+	}
+
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return customerportalapp.LoginResult{}, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	loginColumn := "e.name=$1"
+	if passwordLoginPhoneRe.MatchString(login) {
+		loginColumn = "e.phone=$1"
+	}
+	var employeeID int64
+	var employeeName, employeePhone, accountType, passwordHash string
+	var loginDisabled bool
+	err = tx.QueryRow(ctx, fmt.Sprintf(`
+		SELECT e.id,
+		       COALESCE(e.name,''),
+		       COALESCE(e.phone,''),
+		       COALESCE(NULLIF(e.account_type,''),'internal_employee'),
+		       COALESCE(p.password_hash,''),
+		       COALESCE(p.login_disabled,false)
+		FROM %s.company_employees e
+		LEFT JOIN %s.employee_login_passwords p ON p.employee_id=e.id
+		WHERE e.active=true AND %s
+		ORDER BY e.id
+		LIMIT 1
+	`, r.schema, r.schema, loginColumn), login).Scan(&employeeID, &employeeName, &employeePhone, &accountType, &passwordHash, &loginDisabled)
+	if err == pgx.ErrNoRows {
+		return customerportalapp.LoginResult{}, customerportalapp.ErrMiniInvalidLogin
+	}
+	if err != nil {
+		return customerportalapp.LoginResult{}, err
+	}
+	if strings.TrimSpace(accountType) != "channel_customer" {
+		return customerportalapp.LoginResult{}, customerportalapp.ErrCustomerBindingNotFound
+	}
+	if loginDisabled {
+		return customerportalapp.LoginResult{}, customerportalapp.ErrMiniAccountLoginDisabled
+	}
+	if passwordHash == "" || passwordHash != erpPasswordHash(password) {
+		return customerportalapp.LoginResult{}, customerportalapp.ErrMiniInvalidLogin
+	}
+
+	bindingRows, err := tx.Query(ctx, fmt.Sprintf(`
+		SELECT b.customer_id
 		FROM %s.customer_erp_user_bindings b
 		JOIN %s.customers c ON c.id=b.customer_id AND c.active=true
-		JOIN %s.company_employees e ON e.id=b.employee_id AND e.active=true AND e.account_type='channel_customer'
-		LEFT JOIN %s.employee_login_passwords p ON p.employee_id=e.id
-		WHERE b.status='active'
-		  AND e.phone=$1
-		  AND COALESCE(p.login_disabled,false)=false
-		ORDER BY b.updated_at DESC, b.id DESC
-		LIMIT 1
-	`, r.schema, r.schema, r.schema, r.schema), phone).Scan(&customerID, &passwordHash); err != nil {
-		if err == pgx.ErrNoRows {
-			return 0, customerportalapp.ErrMiniInvalidCredentials
+		WHERE b.employee_id=$1 AND b.status='active'
+		ORDER BY b.id
+	`, r.schema, r.schema), employeeID)
+	if err != nil {
+		return customerportalapp.LoginResult{}, err
+	}
+	activeCustomerIDs := make([]int64, 0, 1)
+	for bindingRows.Next() {
+		var customerID int64
+		if err := bindingRows.Scan(&customerID); err != nil {
+			bindingRows.Close()
+			return customerportalapp.LoginResult{}, err
 		}
-		return 0, err
+		activeCustomerIDs = append(activeCustomerIDs, customerID)
 	}
-	if password != "" && hashMobilePassword(password) != strings.TrimSpace(passwordHash) {
-		return 0, customerportalapp.ErrMiniInvalidCredentials
+	if err := bindingRows.Err(); err != nil {
+		bindingRows.Close()
+		return customerportalapp.LoginResult{}, err
 	}
-	return customerID, nil
-}
+	bindingRows.Close()
+	if len(activeCustomerIDs) == 0 {
+		return customerportalapp.LoginResult{}, customerportalapp.ErrCustomerBindingNotFound
+	}
 
-func hashMobilePassword(raw string) string {
-	sum := sha256.Sum256([]byte("orderapp-mobile-auth:" + raw))
-	return hex.EncodeToString(sum[:])
+	openID := fmt.Sprintf("erp-employee:%d", employeeID)
+	nickname := strings.TrimSpace(employeeName)
+	if nickname == "" {
+		nickname = strings.TrimSpace(employeePhone)
+	}
+	var miniUserID int64
+	var active bool
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`
+		INSERT INTO %s.mini_users(openid, phone, nickname, active, last_login_at)
+		VALUES($1,$2,$3,true,now())
+		ON CONFLICT(openid) DO UPDATE SET
+			phone=CASE WHEN mini_users.active AND EXCLUDED.phone<>'' THEN EXCLUDED.phone ELSE mini_users.phone END,
+			nickname=CASE WHEN mini_users.active AND EXCLUDED.nickname<>'' THEN EXCLUDED.nickname ELSE mini_users.nickname END,
+			last_login_at=CASE WHEN mini_users.active THEN now() ELSE mini_users.last_login_at END
+		RETURNING id, active
+	`, r.schema), openID, strings.TrimSpace(employeePhone), nickname).Scan(&miniUserID, &active); err != nil {
+		return customerportalapp.LoginResult{}, err
+	}
+	if !active {
+		return customerportalapp.LoginResult{}, customerportalapp.ErrMiniUserDisabled
+	}
+	if _, err := tx.Exec(ctx, fmt.Sprintf(`
+		INSERT INTO %s.customer_portal_user_bindings(mini_user_id, customer_id, role, status, approved_by)
+		SELECT $1, b.customer_id, COALESCE(NULLIF(b.role,''),'member'), 'approved', 'erp-password-login'
+		FROM %s.customer_erp_user_bindings b
+		JOIN %s.customers c ON c.id=b.customer_id AND c.active=true
+		WHERE b.employee_id=$2 AND b.status='active'
+		ON CONFLICT(mini_user_id, customer_id) DO UPDATE SET
+			role=EXCLUDED.role,
+			status='approved',
+			approved_by='erp-password-login'
+	`, r.schema, r.schema, r.schema), miniUserID, employeeID); err != nil {
+		return customerportalapp.LoginResult{}, err
+	}
+	if _, err := tx.Exec(ctx, fmt.Sprintf(`
+		UPDATE %s.customer_portal_user_bindings
+		SET status='revoked'
+		WHERE mini_user_id=$1
+		  AND customer_id NOT IN (
+		    SELECT b.customer_id
+		    FROM %s.customer_erp_user_bindings b
+		    JOIN %s.customers c ON c.id=b.customer_id AND c.active=true
+		    WHERE b.employee_id=$2 AND b.status='active'
+		  )
+	`, r.schema, r.schema, r.schema), miniUserID, employeeID); err != nil {
+		return customerportalapp.LoginResult{}, err
+	}
+
+	result, err := r.createMiniSessionTx(ctx, tx, miniUserID, 0)
+	if err != nil {
+		return customerportalapp.LoginResult{}, err
+	}
+	if len(result.Bindings) == 0 {
+		return customerportalapp.LoginResult{}, customerportalapp.ErrCustomerBindingNotFound
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return customerportalapp.LoginResult{}, err
+	}
+	return result, nil
 }
 
 func (r Repository) CurrentContextByToken(ctx context.Context, token string) (customerportalapp.CurrentContext, error) {
@@ -350,6 +504,11 @@ func (r Repository) capabilitiesForCustomerTx(ctx context.Context, q txQuerier, 
 	if customerID <= 0 {
 		return []customerportalapp.Capability{}, nil
 	}
+	if template, ok, err := r.capabilityTemplateForCustomerTx(ctx, q, customerID); err != nil {
+		return nil, err
+	} else if ok {
+		return capabilityOptionsToCapabilities(template.Capabilities), nil
+	}
 	rows, err := q.Query(ctx, fmt.Sprintf(`
 		SELECT capability_code, enabled, config_json
 		FROM %s.customer_service_capabilities
@@ -383,6 +542,11 @@ func (r Repository) themeForCustomerTx(ctx context.Context, q txQuerier, custome
 	if customerID <= 0 {
 		return customerportalapp.PortalThemeCoffeeFactory, nil
 	}
+	if template, ok, err := r.capabilityTemplateForCustomerTx(ctx, q, customerID); err != nil {
+		return "", err
+	} else if ok {
+		return customerportalapp.NormalizePortalThemeKey(template.ThemeKey), nil
+	}
 	var raw string
 	err := q.QueryRow(ctx, fmt.Sprintf(`
 		SELECT COALESCE(NULLIF(theme_key,''),'coffee_factory')
@@ -402,6 +566,11 @@ func (r Repository) miniappEntryModeForCustomerTx(ctx context.Context, q txQueri
 	if customerID <= 0 {
 		return customerportalapp.MiniappEntryModeServices, nil
 	}
+	if template, ok, err := r.capabilityTemplateForCustomerTx(ctx, q, customerID); err != nil {
+		return "", err
+	} else if ok {
+		return customerportalapp.NormalizeMiniappEntryMode(template.MiniappEntryMode), nil
+	}
 	var raw string
 	err := q.QueryRow(ctx, fmt.Sprintf(`
 		SELECT COALESCE(NULLIF(miniapp_entry_mode,''),'services')
@@ -417,10 +586,93 @@ func (r Repository) miniappEntryModeForCustomerTx(ctx context.Context, q txQueri
 	return customerportalapp.NormalizeMiniappEntryMode(raw), nil
 }
 
+func (r Repository) capabilityTemplateForCustomerTx(ctx context.Context, q txQuerier, customerID int64) (customerportalapp.CapabilityTemplate, bool, error) {
+	var raw string
+	err := q.QueryRow(ctx, fmt.Sprintf(`
+		SELECT COALESCE(capability_template_key,'')
+		FROM %s.customer_portal_profiles
+		WHERE customer_id=$1
+	`, r.schema), customerID).Scan(&raw)
+	if err == pgx.ErrNoRows {
+		return customerportalapp.CapabilityTemplate{}, false, nil
+	}
+	if err != nil {
+		return customerportalapp.CapabilityTemplate{}, false, err
+	}
+	key := customerportalapp.NormalizeCapabilityTemplateKey(raw)
+	if strings.TrimSpace(raw) != "" && key == "" {
+		return customerportalapp.CapabilityTemplate{}, false, customerportalapp.ErrCapabilityTemplateInvalid
+	}
+	if key == "" {
+		return customerportalapp.CapabilityTemplate{}, false, nil
+	}
+	return r.capabilityTemplateForKeyTx(ctx, q, key)
+}
+
+func (r Repository) capabilityTemplateForKeyTx(ctx context.Context, q txQuerier, key string) (customerportalapp.CapabilityTemplate, bool, error) {
+	key = customerportalapp.NormalizeCapabilityTemplateKey(key)
+	if key == "" {
+		return customerportalapp.CapabilityTemplate{}, false, customerportalapp.ErrCapabilityTemplateInvalid
+	}
+	row := q.QueryRow(ctx, fmt.Sprintf(`
+		SELECT template_key,
+		       parent_template_key,
+		       label,
+		       description,
+		       theme_key,
+		       miniapp_entry_mode,
+		       erp_role_codes,
+		       erp_permissions,
+		       erp_view_keys,
+		       capabilities_json,
+		       active,
+		       sort_order,
+		       to_char(updated_at,'YYYY-MM-DD HH24:MI'),
+		       updated_by
+		FROM %s.customer_capability_templates
+		WHERE template_key=$1
+	`, r.schema), key)
+	template, err := scanCapabilityTemplate(row)
+	if err == nil {
+		if !template.Active {
+			return customerportalapp.CapabilityTemplate{}, false, customerportalapp.ErrCapabilityTemplateInvalid
+		}
+		return template, true, nil
+	}
+	if !errors.Is(err, pgx.ErrNoRows) {
+		return customerportalapp.CapabilityTemplate{}, false, err
+	}
+	if template, ok := customerportalapp.CustomerCapabilityTemplateByKey(key); ok && template.Active {
+		return template, true, nil
+	}
+	return customerportalapp.CapabilityTemplate{}, false, customerportalapp.ErrCapabilityTemplateInvalid
+}
+
+func capabilityOptionsToCapabilities(options []customerportalapp.CapabilityOption) []customerportalapp.Capability {
+	out := make([]customerportalapp.Capability, 0, len(options))
+	for _, option := range options {
+		config := map[string]any{}
+		for key, value := range option.Config {
+			config[key] = value
+		}
+		out = append(out, customerportalapp.Capability{
+			Code:    strings.TrimSpace(option.Code),
+			Enabled: option.Enabled,
+			Config:  config,
+		})
+	}
+	return out
+}
+
 func randomToken(n int) (string, error) {
 	b := make([]byte, n)
 	if _, err := rand.Read(b); err != nil {
 		return "", err
 	}
 	return hex.EncodeToString(b), nil
+}
+
+func erpPasswordHash(raw string) string {
+	sum := sha256.Sum256([]byte("orderapp-mobile-auth:" + raw))
+	return hex.EncodeToString(sum[:])
 }

@@ -12,23 +12,51 @@
       <div v-if="ok" class="ok">{{ ok }}</div>
     </section>
 
-    <section v-for="editor in editors" :key="editor.form.key" class="template-panel">
+    <section
+      v-for="editor in visibleTemplateEditors"
+      :key="editor.form.key"
+      class="template-panel"
+      :class="{ inactive: !editor.form.active, child: !!editor.form.parent_template_key }"
+      :style="{ marginLeft: `${templateDepth(editor) * 22}px` }">
       <div class="template-head">
-        <div>
-          <h3>{{ editor.form.label }}</h3>
-          <span>{{ editor.form.key }}</span>
+        <div class="template-title">
+          <button
+            class="icon-button"
+            type="button"
+            @click="toggleTemplateExpanded(editor)"
+            :aria-label="isTemplateExpanded(editor) ? '当前模板详情已展开' : '展开模板详情'">
+            {{ isTemplateExpanded(editor) ? '▾' : '▸' }}
+          </button>
+          <div>
+            <div class="template-name-line">
+              <h3>{{ editor.form.label }}</h3>
+              <span v-if="!editor.form.active" class="inactive-template-badge">已失效</span>
+            </div>
+            <p class="template-summary">{{ templateSummary(editor) }}</p>
+          </div>
         </div>
-        <button class="primary" type="button" @click="saveTemplate(editor)" :disabled="loading || editor.saving">
-          {{ editor.saving ? '保存中' : '保存模板' }}
-        </button>
+        <div v-if="isTemplateExpanded(editor)" class="template-actions">
+          <label class="status-toggle">
+            <input v-model="editor.form.active" type="checkbox" />
+            <span>{{ editor.form.active ? '模板启用' : '模板失效' }}</span>
+          </label>
+          <button class="secondary" type="button" @click="copyTemplate(editor)" :disabled="loading || editor.saving">复制模板</button>
+          <button class="primary" type="button" @click="saveTemplate(editor)" :disabled="loading || editor.saving">
+            {{ editor.saving ? '保存中' : '保存模板' }}
+          </button>
+        </div>
       </div>
 
-      <div class="template-layout">
+      <div v-if="isTemplateExpanded(editor)" class="template-layout">
         <div class="rule-group identity-group">
           <div class="group-title">模板定位</div>
           <label>
             <span>模板名称</span>
             <input v-model.trim="editor.form.label" />
+          </label>
+          <label>
+            <span>父模板</span>
+            <input :value="editor.form.parent_template_key || '母模板'" disabled />
           </label>
           <label class="wide">
             <span>说明</span>
@@ -136,7 +164,7 @@
 </template>
 
 <script setup>
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { apiGet, apiSend } from '../api/client'
 import { customerPortalThemeOptions, normalizeCustomerPortalThemeKey } from '../lib/customer-portal-theme'
 
@@ -152,17 +180,22 @@ const capabilityDefinitions = [
 
 const defaultCapabilityLabels = Object.fromEntries(capabilityDefinitions.map((item) => [item.code, item.label]))
 const editors = ref([])
+const expandedTemplateKey = ref('')
 const loading = ref(false)
 const error = ref('')
 const ok = ref('')
 
-async function loadTemplates() {
+const editorsByKey = computed(() => new Map(editors.value.map((editor) => [editor.form.key, editor])))
+const visibleTemplateEditors = computed(() => flattenTemplateEditorsForTree(editors.value))
+
+async function loadTemplates(preferredExpandedKey = '') {
   loading.value = true
   error.value = ''
   ok.value = ''
   try {
     const data = await apiGet('/api/customer-portal/admin/capability-templates')
     editors.value = (data.templates || []).map(createEditor)
+    ensureExpandedTemplate(preferredExpandedKey)
   } catch (err) {
     error.value = err.message || '加载模板失败'
   } finally {
@@ -191,6 +224,7 @@ function normalizeTemplate(template) {
   })
   return {
     key: template?.key || '',
+    parent_template_key: template?.parent_template_key || '',
     label: template?.label || '',
     description: template?.description || '',
     theme_key: normalizeCustomerPortalThemeKey(template?.theme_key),
@@ -198,6 +232,8 @@ function normalizeTemplate(template) {
     erp_role_codes: normalizedStringList(template?.erp_role_codes),
     erp_permissions: normalizedStringList(template?.erp_permissions),
     erp_view_keys: normalizedStringList(template?.erp_view_keys),
+    active: template?.active !== false,
+    sort_order: Number(template?.sort_order || 0),
     capabilities,
   }
 }
@@ -283,6 +319,7 @@ function positiveNumber(value, fallback) {
 function payloadFor(editor) {
   return {
     key: editor.form.key,
+    parent_template_key: editor.form.parent_template_key || '',
     label: editor.form.label,
     description: editor.form.description,
     theme_key: normalizeCustomerPortalThemeKey(editor.form.theme_key),
@@ -290,6 +327,8 @@ function payloadFor(editor) {
     erp_role_codes: normalizedStringList(editor.form.erp_role_codes),
     erp_permissions: normalizedStringList(editor.form.erp_permissions),
     erp_view_keys: normalizedStringList(editor.form.erp_view_keys),
+    active: editor.form.active !== false,
+    sort_order: Number(editor.form.sort_order || 0),
     capabilities: capabilityDefinitions.map((definition) => {
       const capability = capabilityOf(editor, definition.code)
       return {
@@ -298,6 +337,99 @@ function payloadFor(editor) {
         config: normalizeCapabilityConfig(capability.code, capability.config || {}),
       }
     }),
+  }
+}
+
+function templateDepth(editor) {
+  let depth = 0
+  let parentKey = editor.form.parent_template_key
+  const seen = new Set()
+  while (parentKey && !seen.has(parentKey)) {
+    depth += 1
+    seen.add(parentKey)
+    parentKey = editorsByKey.value.get(parentKey)?.form?.parent_template_key || ''
+  }
+  return depth
+}
+
+function flattenTemplateEditorsForTree(items) {
+  const byKey = new Map(items.map((editor) => [editor.form.key, editor]))
+  const childrenByParent = new Map()
+  const roots = []
+  for (const editor of items) {
+    const parentKey = editor.form.parent_template_key
+    if (parentKey && parentKey !== editor.form.key && byKey.has(parentKey)) {
+      const children = childrenByParent.get(parentKey) || []
+      children.push(editor)
+      childrenByParent.set(parentKey, children)
+    } else {
+      roots.push(editor)
+    }
+  }
+  const out = []
+  const walk = (siblings, seen = new Set()) => {
+    for (const editor of sortTemplateSiblings(siblings)) {
+      if (!editor?.form?.key || seen.has(editor.form.key)) continue
+      out.push(editor)
+      const nextSeen = new Set(seen)
+      nextSeen.add(editor.form.key)
+      walk(childrenByParent.get(editor.form.key) || [], nextSeen)
+    }
+  }
+  walk(roots)
+  return out
+}
+
+function sortTemplateSiblings(items) {
+  return [...items].sort((left, right) => {
+    const leftOrder = Number(left.form.sort_order || 0)
+    const rightOrder = Number(right.form.sort_order || 0)
+    if (leftOrder !== rightOrder) return leftOrder - rightOrder
+    return String(left.form.key || '').localeCompare(String(right.form.key || ''))
+  })
+}
+
+function templateSummary(editor) {
+  return editor.form.description || '暂无说明'
+}
+
+function isTemplateExpanded(editor) {
+  return !!editor?.form?.key && expandedTemplateKey.value === editor.form.key
+}
+
+function toggleTemplateExpanded(editor) {
+  if (!editor?.form?.key) return
+  expandedTemplateKey.value = editor.form.key
+}
+
+function ensureExpandedTemplate(preferredKey = '') {
+  const keys = new Set(editors.value.map((editor) => editor.form.key))
+  if (preferredKey && keys.has(preferredKey)) {
+    expandedTemplateKey.value = preferredKey
+    return
+  }
+  if (expandedTemplateKey.value && keys.has(expandedTemplateKey.value)) return
+  expandedTemplateKey.value = visibleTemplateEditors.value[0]?.form?.key || ''
+}
+
+async function copyTemplate(editor) {
+  if (!editor?.form?.key) return
+  const label = window.prompt('请输入新模板名称', `${editor.form.label} 副本`)
+  if (!label) return
+  loading.value = true
+  error.value = ''
+  ok.value = ''
+  try {
+    const data = await apiSend(`/api/customer-portal/admin/capability-templates/${editor.form.key}/copy`, {
+      method: 'POST',
+      body: { label },
+    })
+    await loadTemplates(data.key)
+    ok.value = `已复制模板 ${data.label || label}`
+  } catch (err) {
+    error.value = err.message || '复制模板失败'
+  } finally {
+    loading.value = false
   }
 }
 
@@ -335,15 +467,25 @@ onMounted(loadTemplates)
 * { box-sizing: border-box; }
 .page { padding: 18px; color: #171717; }
 .panel, .template-panel { border: 1px solid #e1e5ea; border-radius: 8px; background: #fff; padding: 14px; margin-bottom: 14px; }
+.template-panel.child { border-left: 4px solid #d7e2ea; }
+.template-panel.inactive { background: #f8fafc; border-color: #d7dde5; }
 .panel-head, .template-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.template-title, .template-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.template-name-line { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.inactive-template-badge { display: inline-flex; align-items: center; min-height: 22px; border-radius: 999px; background: #eef2f6; color: #596579; padding: 0 8px; font-size: 12px; font-weight: 700; margin-top: 0; }
 h2, h3, p { margin: 0; }
 h2 { font-size: 20px; }
 h3 { font-size: 18px; }
 p, .template-head span { color: #666; font-size: 13px; margin-top: 5px; }
+.template-summary { max-width: 720px; line-height: 1.35; overflow-wrap: anywhere; }
 button { min-height: 38px; border-radius: 6px; border: 1px solid #1f1f1f; padding: 0 12px; font: inherit; cursor: pointer; }
 button:disabled { cursor: not-allowed; opacity: .55; }
 .primary { background: #1f1f1f; color: #fff; }
 .secondary { background: #fff; color: #1f1f1f; }
+.icon-button { width: 30px; min-height: 30px; padding: 0; border-color: #d5dce3; background: #f8fafc; }
+.status-toggle { display: inline-flex; align-items: center; gap: 6px; min-height: 38px; border: 1px solid #e4e7ec; border-radius: 6px; padding: 0 10px; }
+.status-toggle input { width: auto; height: auto; }
+.status-toggle span { margin: 0; color: #333; }
 .template-layout { display: grid; grid-template-columns: minmax(240px, .9fr) minmax(260px, 1fr) minmax(300px, 1.1fr) minmax(260px, 1fr); gap: 18px; margin-top: 14px; align-items: start; }
 .rule-group { min-width: 0; }
 .group-title { color: #333; font-weight: 700; font-size: 14px; padding-bottom: 8px; border-bottom: 1px solid #eef1f4; margin-bottom: 10px; }

@@ -277,6 +277,13 @@ func (fakeSalesOrderRenderer) Render(snapshot salesdomain.SalesOrderSnapshot) ([
 	return []byte("%PDF-test"), nil
 }
 
+func (fakeSalesOrderRenderer) RenderPreview(snapshot salesdomain.SalesOrderSnapshot) ([]byte, error) {
+	if err := snapshot.Validate(); err != nil {
+		return nil, err
+	}
+	return []byte("%PDF-preview-test"), nil
+}
+
 func (fakeSalesOrderRenderer) RenderPNG(snapshot salesdomain.SalesOrderSnapshot) ([]byte, error) {
 	if err := snapshot.Validate(); err != nil {
 		return nil, err

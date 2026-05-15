@@ -112,6 +112,8 @@ export type CustomerOrderSummary = {
   ship_tracking_no: string
   grand_total: string
   shipping_amount: string
+  sales_order_url?: string
+  delivery_note_url?: string
   items?: CustomerOrderItemSummary[]
 }
 
@@ -265,13 +267,12 @@ export type ServicePageFilters = {
   ship_status?: string
 }
 
-export type MiniLoginMode = 'wechat' | 'phone_verify' | 'password'
+export type MiniLoginMode = 'wechat' | 'phone_verify'
 
 export type MiniLoginFields = {
   code: string
   phone?: string
   phoneCode?: string
-  password?: string
   nickname?: string
 }
 
@@ -282,7 +283,6 @@ export function buildMiniLoginPayload(mode: MiniLoginMode, fields: MiniLoginFiel
   }
   if (String(fields.phone || '').trim()) payload.phone = String(fields.phone || '').trim()
   if (String(fields.phoneCode || '').trim()) payload.phone_code = String(fields.phoneCode || '').trim()
-  if (String(fields.password || '').trim()) payload.password = String(fields.password || '').trim()
   if (String(fields.nickname || '').trim()) payload.nickname = String(fields.nickname || '').trim()
   return payload
 }
@@ -301,10 +301,14 @@ export function loginWithPhoneVerify(code: string, phoneCode: string, nickname?:
   })
 }
 
-export function loginWithPassword(code: string, phone: string, password: string, nickname?: string): Promise<LoginResponse> {
-  return miniRequest<LoginResponse>('/api/mini/login', {
+export function buildPasswordLoginPath(): string {
+  return '/api/mini/login/password'
+}
+
+export function loginWithPassword(login: string, password: string): Promise<LoginResponse> {
+  return miniRequest<LoginResponse>(buildPasswordLoginPath(), {
     method: 'POST',
-    data: buildMiniLoginPayload('password', { code, phone, password, nickname }),
+    data: { login, password },
   })
 }
 
@@ -335,6 +339,10 @@ export function buildMallOrderPath(): string {
   return '/api/mini/mall/orders'
 }
 
+export function buildSwitchCustomerPath(): string {
+  return '/api/mini/current-customer'
+}
+
 export function fetchServicePage(token: string, key: ServiceKey, filters: ServicePageFilters = {}): Promise<ServicePageResponse> {
   return miniRequest<ServicePageResponse>(buildServicePagePath(key, filters), { token })
 }
@@ -348,6 +356,14 @@ export function createMallOrder(token: string, payload: MallOrderPayload): Promi
     method: 'POST',
     token,
     data: payload,
+  })
+}
+
+export function switchCurrentCustomer(token: string, customerID: number): Promise<MeResponse> {
+  return miniRequest<MeResponse>(buildSwitchCustomerPath(), {
+    method: 'POST',
+    token,
+    data: { customer_id: customerID },
   })
 }
 

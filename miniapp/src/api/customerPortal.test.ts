@@ -3,7 +3,9 @@ import {
   buildMallOrderPath,
   buildMallPagePath,
   buildMiniLoginPayload,
+  buildPasswordLoginPath,
   buildServicePagePath,
+  buildSwitchCustomerPath,
 } from './customerPortal'
 
 describe('customer portal API helpers', () => {
@@ -38,12 +40,11 @@ describe('customer portal API helpers', () => {
     })
   })
 
-  it('builds password login payloads', () => {
-    expect(buildMiniLoginPayload('password', { code: 'wx-code', phone: '13800138000', password: 'secret123' })).toEqual({
-      mode: 'password',
-      code: 'wx-code',
-      phone: '13800138000',
-      password: 'secret123',
-    })
+  it('exposes the current-customer switch API path', () => {
+    expect(buildSwitchCustomerPath()).toBe('/api/mini/current-customer')
+  })
+
+  it('exposes the ERP password login API path', () => {
+    expect(buildPasswordLoginPath()).toBe('/api/mini/login/password')
   })
 })

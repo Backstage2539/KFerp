@@ -8,6 +8,7 @@ import (
 	postgresbom "orderapp/internal/infrastructure/postgres/bom"
 	postgrescatalog "orderapp/internal/infrastructure/postgres/catalog"
 	postgrescompany "orderapp/internal/infrastructure/postgres/company"
+	postgrescontracts "orderapp/internal/infrastructure/postgres/contracts"
 	postgrescore "orderapp/internal/infrastructure/postgres/core"
 	postgrescosting "orderapp/internal/infrastructure/postgres/costing"
 	postgrescustomerfulfillment "orderapp/internal/infrastructure/postgres/customerfulfillment"
@@ -44,5 +45,6 @@ func ensureAppSchema(ctx context.Context, pool *pgxpool.Pool, schema string) err
 		{Name: "inventory", Run: func(ctx context.Context) error { return postgresinventory.EnsureSchema(ctx, pool, schema) }},
 		{Name: "production", Run: func(ctx context.Context) error { return postgresproduction.EnsureSchema(ctx, pool, schema) }},
 		{Name: "sales", Run: func(ctx context.Context) error { return postgressales.EnsureSchema(ctx, pool, schema) }},
+		{Name: "contracts", Run: func(ctx context.Context) error { return postgrescontracts.EnsureSchema(ctx, pool, schema) }},
 	})
 }

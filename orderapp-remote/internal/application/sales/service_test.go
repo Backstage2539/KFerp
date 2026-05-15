@@ -28,6 +28,7 @@ type fakeRepo struct {
 	shareCmd               CreateExternalShareResourceCommand
 	invoiceRequestCmd      RequestOrderInvoiceCommand
 	invoiceFileCmd         SaveOrderInvoiceFileCommand
+	sealAssets             []SalesOrderAsset
 }
 
 func (r *fakeRepo) SaveOrder(ctx context.Context, cmd SaveOrderCommand) (SaveOrderResult, error) {
@@ -162,6 +163,10 @@ func (r *fakeRepo) SetSalesOrderSealAsset(ctx context.Context, assetID int64, ac
 	return nil
 }
 
+func (r *fakeRepo) ListSalesOrderSealAssets(ctx context.Context) ([]SalesOrderAsset, error) {
+	return append([]SalesOrderAsset(nil), r.sealAssets...), nil
+}
+
 func (r *fakeRepo) ListSalesOrderDocuments(ctx context.Context, orderID int64) ([]SalesOrderDocument, error) {
 	return []SalesOrderDocument{{ID: 9, OrderID: orderID, OrderNo: "SO-TEST", VersionNo: 2, IsLatest: true}}, nil
 }
@@ -187,6 +192,15 @@ func (r *fakeRepo) GenerateSalesOrderImage(ctx context.Context, cmd GenerateSale
 func (r *fakeRepo) PreviewSalesOrderDocument(ctx context.Context, orderID int64) (SalesOrderPreview, error) {
 	r.previewOrderID = orderID
 	return SalesOrderPreview{OrderID: orderID, OrderNo: "SO-TEST", NextVersionNo: 3}, nil
+}
+
+func (r *fakeRepo) PreviewSalesOrderPDF(ctx context.Context, orderID int64) (SalesOrderPreviewPDF, error) {
+	r.previewOrderID = orderID
+	return SalesOrderPreviewPDF{
+		Preview:  SalesOrderPreview{OrderID: orderID, OrderNo: "SO-TEST", NextVersionNo: 3},
+		Data:     []byte("%PDF-preview"),
+		Filename: "SO-TEST-preview.pdf",
+	}, nil
 }
 
 func (r *fakeRepo) LoadSalesOrderDocumentFile(ctx context.Context, orderID, documentID int64, latest bool) (SalesOrderDocumentFile, error) {
@@ -217,6 +231,15 @@ func (r *fakeRepo) ListDeliveryNoteDocuments(ctx context.Context, orderID int64)
 func (r *fakeRepo) PreviewDeliveryNoteDocument(ctx context.Context, orderID int64) (DeliveryNotePreview, error) {
 	r.previewDeliveryOrderID = orderID
 	return DeliveryNotePreview{OrderID: orderID, OrderNo: "SO-TEST", NextVersionNo: 2}, nil
+}
+
+func (r *fakeRepo) PreviewDeliveryNotePDF(ctx context.Context, orderID int64) (DeliveryNotePreviewPDF, error) {
+	r.previewDeliveryOrderID = orderID
+	return DeliveryNotePreviewPDF{
+		Preview:  DeliveryNotePreview{OrderID: orderID, OrderNo: "SO-TEST", NextVersionNo: 2},
+		Data:     []byte("%PDF-delivery-preview"),
+		Filename: "SO-TEST-delivery-note-preview.pdf",
+	}, nil
 }
 
 func (r *fakeRepo) GenerateDeliveryNoteDocument(ctx context.Context, cmd GenerateDeliveryNoteDocumentCommand) (GenerateDeliveryNoteDocumentResult, error) {
@@ -716,6 +739,21 @@ func TestServiceOwnsSalesOrderImageUseCases(t *testing.T) {
 	}
 	if _, err := svc.LoadSalesOrderImageFile(context.Background(), 18, 0, true); err != nil {
 		t.Fatalf("LoadSalesOrderImageFile latest error = %v", err)
+	}
+}
+
+func TestServiceListsSalesOrderSealAssets(t *testing.T) {
+	repo := &fakeRepo{sealAssets: []SalesOrderAsset{
+		{ID: 3, Kind: "seal", Filename: "公章A.png", ObjectKey: "sales_order_assets/seal/a.png"},
+		{ID: 4, Kind: "seal", Filename: "公章B.png", ObjectKey: "sales_order_assets/seal/b.png"},
+	}}
+	svc := NewService(repo)
+	got, err := svc.ListSalesOrderSealAssets(context.Background())
+	if err != nil {
+		t.Fatalf("ListSalesOrderSealAssets: %v", err)
+	}
+	if len(got) != 2 || got[0].URL == "" || got[1].Filename != "公章B.png" {
+		t.Fatalf("seal assets = %+v", got)
 	}
 }
 

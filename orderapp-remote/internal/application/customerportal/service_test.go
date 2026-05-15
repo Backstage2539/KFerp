@@ -28,38 +28,42 @@ func (p fakeIdentityProvider) ResolvePhoneNumber(ctx context.Context, code strin
 }
 
 type fakeRepository struct {
-	loginResult             LoginResult
-	loginCommand            CreateLoginSessionCommand
-	erpBoundLoginResult     LoginResult
-	erpBoundLoginCommand    ERPBoundLoginSessionCommand
-	context                 CurrentContext
-	session                 string
-	serviceQuery            ServicePageQuery
-	servicePage             ServicePage
-	beanList                BeanListSummary
-	portalCustomers         []PortalAdminCustomer
-	portalDetail            PortalAdminDetail
-	visibilityCommand       UpdatePortalVisibilityCommand
-	templates               []CapabilityTemplate
-	templateSaveCommand     SaveCapabilityTemplateCommand
-	templateCommand         ApplyCapabilityTemplateCommand
-	erpBindingCommand       UpsertPortalERPBindingCommand
-	mallProducts            []MallProduct
-	mallProductOptions      []MallProductOption
-	mallProductCommand      SaveMallProductCommand
-	mallImageCommand        UpdateMallProductImageCommand
-	mallPage                MallPage
-	mallOrderCommand        CreateMallOrderCommand
-	mallOrder               FulfillmentOrder
-	directShipCommand       CreateDirectShipBatchCommand
-	directShipBatch         DirectShipBatch
-	processingCommand       CreateProcessingRequestCommand
-	processingRequest       ProcessingRequest
-	fulfillmentCommand      CreateFulfillmentOrderCommand
-	fulfillmentOrder        FulfillmentOrder
-	err                     error
-	switchErr               error
-	erpBoundLoginSessionErr error
+	loginResult              LoginResult
+	loginCommand             CreateLoginSessionCommand
+	phoneVerifiedLoginResult LoginResult
+	phoneVerifiedCommand     CreatePhoneVerifiedLoginSessionCommand
+	passwordCommand          CreatePasswordLoginSessionCommand
+	context                  CurrentContext
+	session                  string
+	serviceQuery             ServicePageQuery
+	servicePage              ServicePage
+	beanList                 BeanListSummary
+	portalCustomers          []PortalAdminCustomer
+	portalDetail             PortalAdminDetail
+	visibilityCommand        UpdatePortalVisibilityCommand
+	templates                []CapabilityTemplate
+	templateSaveCommand      SaveCapabilityTemplateCommand
+	templateCommand          ApplyCapabilityTemplateCommand
+	erpBindingCommand        UpsertPortalERPBindingCommand
+	mallProducts             []MallProduct
+	mallProductOptions       []MallProductOption
+	mallProductCommand       SaveMallProductCommand
+	mallImageCommand         UpdateMallProductImageCommand
+	mallPage                 MallPage
+	mallOrderCommand         CreateMallOrderCommand
+	mallOrder                FulfillmentOrder
+	directShipCommand        CreateDirectShipBatchCommand
+	directShipBatch          DirectShipBatch
+	processingCommand        CreateProcessingRequestCommand
+	processingRequest        ProcessingRequest
+	fulfillmentCommand       CreateFulfillmentOrderCommand
+	fulfillmentOrder         FulfillmentOrder
+	orderAccessCustomer      int64
+	orderAccessOrder         int64
+	orderAccessOK            bool
+	err                      error
+	switchErr                error
+	phoneVerifiedErr         error
 }
 
 func (r *fakeRepository) CreateLoginSession(ctx context.Context, cmd CreateLoginSessionCommand) (LoginResult, error) {
@@ -70,12 +74,20 @@ func (r *fakeRepository) CreateLoginSession(ctx context.Context, cmd CreateLogin
 	return r.loginResult, nil
 }
 
-func (r *fakeRepository) CreateERPBoundLoginSession(ctx context.Context, cmd ERPBoundLoginSessionCommand) (LoginResult, error) {
-	r.erpBoundLoginCommand = cmd
-	if r.erpBoundLoginSessionErr != nil {
-		return LoginResult{}, r.erpBoundLoginSessionErr
+func (r *fakeRepository) CreatePhoneVerifiedLoginSession(ctx context.Context, cmd CreatePhoneVerifiedLoginSessionCommand) (LoginResult, error) {
+	r.phoneVerifiedCommand = cmd
+	if r.phoneVerifiedErr != nil {
+		return LoginResult{}, r.phoneVerifiedErr
 	}
-	return r.erpBoundLoginResult, nil
+	return r.phoneVerifiedLoginResult, nil
+}
+
+func (r *fakeRepository) CreatePasswordLoginSession(ctx context.Context, cmd CreatePasswordLoginSessionCommand) (LoginResult, error) {
+	r.passwordCommand = cmd
+	if r.err != nil {
+		return LoginResult{}, r.err
+	}
+	return r.loginResult, nil
 }
 
 func (r *fakeRepository) CurrentContextByToken(ctx context.Context, token string) (CurrentContext, error) {
@@ -247,11 +259,41 @@ func (r *fakeRepository) CreateFulfillmentOrder(ctx context.Context, cmd CreateF
 	return r.fulfillmentOrder, nil
 }
 
+func (r *fakeRepository) CustomerOwnsOrder(ctx context.Context, customerID, orderID int64) (bool, error) {
+	r.orderAccessCustomer = customerID
+	r.orderAccessOrder = orderID
+	if r.err != nil {
+		return false, r.err
+	}
+	return r.orderAccessOK, nil
+}
+
 func TestLoginRejectsEmptyCode(t *testing.T) {
 	svc := NewService(&fakeRepository{}, fakeIdentityProvider{})
 	_, err := svc.Login(context.Background(), LoginCommand{})
 	if err == nil || err.Error() != "code required" {
 		t.Fatalf("Login() err=%v, want code required", err)
+	}
+}
+
+func TestEnsureOrderAccessChecksCurrentCustomerOwnership(t *testing.T) {
+	repo := &fakeRepository{
+		context:       CurrentContext{MiniUserID: 9, CurrentCustomerID: 7},
+		orderAccessOK: true,
+	}
+	svc := NewService(repo, fakeIdentityProvider{})
+
+	if err := svc.EnsureOrderAccess(context.Background(), " mini-token ", 88); err != nil {
+		t.Fatalf("EnsureOrderAccess() err=%v", err)
+	}
+	if repo.session != "mini-token" || repo.orderAccessCustomer != 7 || repo.orderAccessOrder != 88 {
+		t.Fatalf("access session=%q customer=%d order=%d", repo.session, repo.orderAccessCustomer, repo.orderAccessOrder)
+	}
+
+	repo.orderAccessOK = false
+	err := svc.EnsureOrderAccess(context.Background(), "mini-token", 99)
+	if !errors.Is(err, ErrCustomerBindingNotFound) {
+		t.Fatalf("EnsureOrderAccess() err=%v, want ErrCustomerBindingNotFound", err)
 	}
 }
 
@@ -271,7 +313,7 @@ func TestLoginCreatesSessionFromResolvedIdentity(t *testing.T) {
 }
 
 func TestLoginWithPhoneVerifyCreatesERPBoundSession(t *testing.T) {
-	repo := &fakeRepository{erpBoundLoginResult: LoginResult{Token: "mini-phone-token", MiniUserID: 11}}
+	repo := &fakeRepository{phoneVerifiedLoginResult: LoginResult{Token: "mini-phone-token", MiniUserID: 11}}
 	svc := NewService(repo, fakeIdentityProvider{
 		identity: MiniIdentity{OpenID: " openid-verify ", UnionID: " union-verify "},
 		phone:    MiniPhoneNumber{PhoneNumber: " 13800138000 ", PurePhoneNumber: "13800138000"},
@@ -283,31 +325,56 @@ func TestLoginWithPhoneVerifyCreatesERPBoundSession(t *testing.T) {
 	if got.Token != "mini-phone-token" || got.MiniUserID != 11 {
 		t.Fatalf("Login()=%+v", got)
 	}
-	if repo.erpBoundLoginCommand.OpenID != "openid-verify" ||
-		repo.erpBoundLoginCommand.UnionID != "union-verify" ||
-		repo.erpBoundLoginCommand.Phone != "13800138000" ||
-		repo.erpBoundLoginCommand.Password != "" ||
-		repo.erpBoundLoginCommand.Nickname != "渠道客户" {
-		t.Fatalf("CreateERPBoundLoginSession() cmd=%+v", repo.erpBoundLoginCommand)
+	if repo.phoneVerifiedCommand.OpenID != "openid-verify" ||
+		repo.phoneVerifiedCommand.UnionID != "union-verify" ||
+		repo.phoneVerifiedCommand.Phone != "13800138000" ||
+		repo.phoneVerifiedCommand.Nickname != "渠道客户" {
+		t.Fatalf("CreatePhoneVerifiedLoginSession() cmd=%+v", repo.phoneVerifiedCommand)
 	}
 }
 
-func TestLoginWithPasswordCreatesERPBoundSession(t *testing.T) {
-	repo := &fakeRepository{erpBoundLoginResult: LoginResult{Token: "mini-password-token", MiniUserID: 12}}
-	svc := NewService(repo, fakeIdentityProvider{identity: MiniIdentity{OpenID: " openid-password ", UnionID: " union-password "}})
-	got, err := svc.Login(context.Background(), LoginCommand{Mode: "password", Code: "wx-code", Phone: " 13800138001 ", Password: " secret123 ", Nickname: " 客户B "})
+func TestLoginWithPasswordCreatesSessionForERPChannelAccount(t *testing.T) {
+	repo := &fakeRepository{loginResult: LoginResult{
+		Token:             "mini-token",
+		MiniUserID:        11,
+		CurrentCustomerID: 7,
+		ThemeKey:          " premium_partner ",
+		MiniappEntryMode:  " mall ",
+	}}
+	svc := NewService(repo, fakeIdentityProvider{})
+
+	got, err := svc.LoginWithPassword(context.Background(), PasswordLoginCommand{Login: " 13800138075 ", Password: " secret "})
 	if err != nil {
-		t.Fatalf("Login() err=%v", err)
+		t.Fatalf("LoginWithPassword() err=%v", err)
 	}
-	if got.Token != "mini-password-token" || got.MiniUserID != 12 {
-		t.Fatalf("Login()=%+v", got)
+	if got.Token != "mini-token" || got.MiniUserID != 11 || got.CurrentCustomerID != 7 {
+		t.Fatalf("LoginWithPassword()=%+v", got)
 	}
-	if repo.erpBoundLoginCommand.OpenID != "openid-password" ||
-		repo.erpBoundLoginCommand.UnionID != "union-password" ||
-		repo.erpBoundLoginCommand.Phone != "13800138001" ||
-		repo.erpBoundLoginCommand.Password != "secret123" ||
-		repo.erpBoundLoginCommand.Nickname != "客户B" {
-		t.Fatalf("CreateERPBoundLoginSession() cmd=%+v", repo.erpBoundLoginCommand)
+	if got.ThemeKey != PortalThemePremiumPartner || got.MiniappEntryMode != MiniappEntryModeMall {
+		t.Fatalf("LoginWithPassword() theme=%q entry=%q, want normalized premium_partner/mall", got.ThemeKey, got.MiniappEntryMode)
+	}
+	if repo.passwordCommand.Login != "13800138075" || repo.passwordCommand.Password != "secret" {
+		t.Fatalf("CreatePasswordLoginSession() cmd=%+v", repo.passwordCommand)
+	}
+}
+
+func TestLoginWithPasswordRejectsMissingCredentials(t *testing.T) {
+	svc := NewService(&fakeRepository{}, fakeIdentityProvider{})
+	cases := []struct {
+		name string
+		cmd  PasswordLoginCommand
+		want string
+	}{
+		{name: "login", cmd: PasswordLoginCommand{Password: "secret"}, want: "login required"},
+		{name: "password", cmd: PasswordLoginCommand{Login: "13800138075"}, want: "password required"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := svc.LoginWithPassword(context.Background(), tc.cmd)
+			if err == nil || err.Error() != tc.want {
+				t.Fatalf("LoginWithPassword() err=%v, want %s", err, tc.want)
+			}
+		})
 	}
 }
 
@@ -824,6 +891,170 @@ func TestSaveCapabilityTemplateRejectsRetailMallERPWorkbenchFields(t *testing.T)
 	}
 }
 
+func TestListCapabilityTemplatesKeepsManualChildrenAndInactiveRows(t *testing.T) {
+	child, _ := CustomerCapabilityTemplateByKey(CapabilityTemplatePublicSKUDirectShip)
+	child.Key = "public_sku_direct_ship_b"
+	child.ParentTemplateKey = CapabilityTemplatePublicSKUDirectShip
+	child.Label = "公共 SKU 小批量代发 B"
+	child.Active = true
+	child.SortOrder = 30
+	inactive, _ := CustomerCapabilityTemplateByKey(CapabilityTemplateRetailMall)
+	inactive.Active = false
+	repo := &fakeRepository{templates: []CapabilityTemplate{child, inactive}}
+	svc := NewService(repo, fakeIdentityProvider{})
+
+	rows, err := svc.ListCapabilityTemplates(context.Background())
+	if err != nil {
+		t.Fatalf("ListCapabilityTemplates() err=%v", err)
+	}
+	var gotChild, gotRetail CapabilityTemplate
+	for _, row := range rows {
+		if row.Key == child.Key {
+			gotChild = row
+		}
+		if row.Key == CapabilityTemplateRetailMall {
+			gotRetail = row
+		}
+	}
+	if gotChild.Key == "" || gotChild.ParentTemplateKey != CapabilityTemplatePublicSKUDirectShip || !gotChild.Active || gotChild.SortOrder != 30 {
+		t.Fatalf("manual child template missing tree metadata: %+v", gotChild)
+	}
+	if gotRetail.Key == "" || gotRetail.Active {
+		t.Fatalf("inactive saved template should stay visible to admin list: %+v", gotRetail)
+	}
+}
+
+func TestSaveCapabilityTemplateAllowsManualChildTemplate(t *testing.T) {
+	parent, _ := CustomerCapabilityTemplateByKey(CapabilityTemplatePublicSKUDirectShip)
+	child := parent
+	child.Key = "public_sku_direct_ship_b"
+	child.ParentTemplateKey = CapabilityTemplatePublicSKUDirectShip
+	child.Label = "岩师傅模板"
+	child.Active = true
+	child.SortOrder = 10
+	repo := &fakeRepository{}
+	svc := NewService(repo, fakeIdentityProvider{})
+
+	got, err := svc.SaveCapabilityTemplate(context.Background(), SaveCapabilityTemplateCommand{
+		Template:  child,
+		UpdatedBy: " admin ",
+	})
+	if err != nil {
+		t.Fatalf("SaveCapabilityTemplate child err=%v", err)
+	}
+	if got.Key != "public_sku_direct_ship_b" || got.ParentTemplateKey != CapabilityTemplatePublicSKUDirectShip || !got.Active {
+		t.Fatalf("child template not preserved: %+v", got)
+	}
+	if repo.templateSaveCommand.Template.ParentTemplateKey != CapabilityTemplatePublicSKUDirectShip || repo.templateSaveCommand.UpdatedBy != "admin" {
+		t.Fatalf("save child command=%+v", repo.templateSaveCommand)
+	}
+}
+
+func TestCopyCapabilityTemplateCreatesManualChildFromSource(t *testing.T) {
+	parent, _ := CustomerCapabilityTemplateByKey(CapabilityTemplatePublicSKUDirectShip)
+	parent.Active = true
+	repo := &fakeRepository{templates: []CapabilityTemplate{parent}}
+	svc := NewService(repo, fakeIdentityProvider{})
+
+	got, err := svc.CopyCapabilityTemplate(context.Background(), CopyCapabilityTemplateCommand{
+		SourceKey: CapabilityTemplatePublicSKUDirectShip,
+		NewKey:    "public_sku_direct_ship_b",
+		Label:     "模板 B",
+		UpdatedBy: " admin ",
+	})
+	if err != nil {
+		t.Fatalf("CopyCapabilityTemplate() err=%v", err)
+	}
+	if got.Key != "public_sku_direct_ship_b" || got.ParentTemplateKey != CapabilityTemplatePublicSKUDirectShip || got.Label != "模板 B" || !got.Active {
+		t.Fatalf("copy template result=%+v", got)
+	}
+	if repo.templateSaveCommand.Template.Key != "public_sku_direct_ship_b" || repo.templateSaveCommand.Template.ParentTemplateKey != CapabilityTemplatePublicSKUDirectShip {
+		t.Fatalf("copy should save a manual child template: %+v", repo.templateSaveCommand)
+	}
+}
+
+func TestCopyCapabilityTemplateGeneratesSafeKeyWhenOnlyLabelProvided(t *testing.T) {
+	parent, _ := CustomerCapabilityTemplateByKey(CapabilityTemplatePublicSKUDirectShip)
+	parent.Active = true
+	existing := parent
+	existing.Key = "public_sku_direct_ship_copy"
+	existing.ParentTemplateKey = CapabilityTemplatePublicSKUDirectShip
+	existing.Label = "已有副本"
+	repo := &fakeRepository{templates: []CapabilityTemplate{parent, existing}}
+	svc := NewService(repo, fakeIdentityProvider{})
+
+	got, err := svc.CopyCapabilityTemplate(context.Background(), CopyCapabilityTemplateCommand{
+		SourceKey: CapabilityTemplatePublicSKUDirectShip,
+		Label:     "岩师傅模板",
+		UpdatedBy: " admin ",
+	})
+	if err != nil {
+		t.Fatalf("CopyCapabilityTemplate() err=%v", err)
+	}
+	if got.Key != "public_sku_direct_ship_copy_2" || got.Label != "岩师傅模板" || got.ParentTemplateKey != CapabilityTemplatePublicSKUDirectShip {
+		t.Fatalf("copy template result=%+v", got)
+	}
+	if repo.templateSaveCommand.Template.Key != "public_sku_direct_ship_copy_2" || repo.templateSaveCommand.UpdatedBy != "admin" {
+		t.Fatalf("copy should save generated safe key: %+v", repo.templateSaveCommand)
+	}
+}
+
+func TestUpdatePortalVisibilityRejectsInactiveTemplateKey(t *testing.T) {
+	inactive, _ := CustomerCapabilityTemplateByKey(CapabilityTemplatePublicSKUDirectShip)
+	inactive.Key = "public_sku_direct_ship_b"
+	inactive.ParentTemplateKey = CapabilityTemplatePublicSKUDirectShip
+	inactive.Active = false
+	repo := &fakeRepository{templates: []CapabilityTemplate{inactive}}
+	svc := NewService(repo, fakeIdentityProvider{})
+
+	_, err := svc.UpdatePortalVisibility(context.Background(), UpdatePortalVisibilityCommand{
+		CustomerID:            147,
+		DisplayName:           "客户B",
+		Enabled:               true,
+		CapabilityTemplateKey: " public_sku_direct_ship_b ",
+	})
+	if !errors.Is(err, ErrCapabilityTemplateInvalid) {
+		t.Fatalf("UpdatePortalVisibility() err=%v, want ErrCapabilityTemplateInvalid", err)
+	}
+	if repo.visibilityCommand.CustomerID != 0 {
+		t.Fatalf("inactive template should not save visibility command: %+v", repo.visibilityCommand)
+	}
+}
+
+func TestPortalAdminDetailUsesLiveTemplateCapabilities(t *testing.T) {
+	liveTemplate, _ := CustomerCapabilityTemplateByKey(CapabilityTemplatePublicSKUDirectShip)
+	liveTemplate.Key = "public_sku_direct_ship_b"
+	liveTemplate.ParentTemplateKey = CapabilityTemplatePublicSKUDirectShip
+	liveTemplate.Active = true
+	for i := range liveTemplate.Capabilities {
+		if liveTemplate.Capabilities[i].Code == CapabilityDirectShip {
+			liveTemplate.Capabilities[i].Enabled = false
+		}
+	}
+	repo := &fakeRepository{
+		templates: []CapabilityTemplate{liveTemplate},
+		portalDetail: PortalAdminDetail{
+			Customer: PortalAdminCustomer{Name: "客户B", CapabilityTemplateKey: " public_sku_direct_ship_b "},
+			Capabilities: []CapabilityOption{
+				{Code: CapabilityDirectShip, Enabled: true},
+				{Code: CapabilitySettlement, Enabled: false},
+			},
+		},
+	}
+	svc := NewService(repo, fakeIdentityProvider{})
+
+	detail, err := svc.PortalAdminDetail(context.Background(), 147)
+	if err != nil {
+		t.Fatalf("PortalAdminDetail() err=%v", err)
+	}
+	if capabilityOptionEnabled(detail.Capabilities, CapabilityDirectShip) {
+		t.Fatalf("detail should reflect live template capabilities, not stale customer_service_capabilities: %+v", detail.Capabilities)
+	}
+	if !capabilityOptionEnabled(detail.Capabilities, CapabilitySettlement) {
+		t.Fatalf("detail should include live template settlement capability: %+v", detail.Capabilities)
+	}
+}
+
 func TestApplyCapabilityTemplateUsesSavedTemplateSettings(t *testing.T) {
 	template, _ := CustomerCapabilityTemplateByKey(CapabilityTemplatePublicSKUDirectShip)
 	for i := range template.Capabilities {
@@ -868,6 +1099,27 @@ func TestApplyCapabilityTemplateNormalizesAndDelegates(t *testing.T) {
 	}
 	if got.Customer.CapabilityTemplateKey != CapabilityTemplatePublicSKUDirectShip || !got.HasCapabilityOption(CapabilityDirectShip) {
 		t.Fatalf("detail=%+v", got)
+	}
+}
+
+func TestApplyCapabilityTemplateRejectsInactiveTemplateKey(t *testing.T) {
+	inactive, _ := CustomerCapabilityTemplateByKey(CapabilityTemplatePublicSKUDirectShip)
+	inactive.Key = "public_sku_direct_ship_b"
+	inactive.ParentTemplateKey = CapabilityTemplatePublicSKUDirectShip
+	inactive.Active = false
+	repo := &fakeRepository{templates: []CapabilityTemplate{inactive}}
+	svc := NewService(repo, fakeIdentityProvider{})
+
+	_, err := svc.ApplyCapabilityTemplate(context.Background(), ApplyCapabilityTemplateCommand{
+		CustomerID:  147,
+		TemplateKey: " public_sku_direct_ship_b ",
+		UpdatedBy:   "admin",
+	})
+	if !errors.Is(err, ErrCapabilityTemplateInvalid) {
+		t.Fatalf("ApplyCapabilityTemplate() err=%v, want ErrCapabilityTemplateInvalid", err)
+	}
+	if repo.templateCommand.CustomerID != 0 {
+		t.Fatalf("inactive template should not be applied: %+v", repo.templateCommand)
 	}
 }
 

@@ -2,6 +2,7 @@
 import { computed, ref } from 'vue'
 import { onShow } from '@dcloudio/uni-app'
 import { fetchMe } from '../../api/customerPortal'
+import MainTabBar from '../../components/MainTabBar.vue'
 import { useSessionStore } from '../../stores/session'
 import { visibleHomeEntries } from '../../utils/capabilities'
 import { miniappThemeClass, miniappThemeMeta } from '../../utils/themes'
@@ -21,7 +22,7 @@ function openEntry(url: string) {
 
 async function loadContext() {
   if (!session.token) {
-    uni.redirectTo({ url: '/pages/login/login' })
+    uni.reLaunch({ url: '/pages/login/login' })
     return
   }
 
@@ -31,14 +32,10 @@ async function loadContext() {
   try {
     const response = await fetchMe(session.token)
     session.applyContext(response)
-    if (session.entryMode === 'mall' && session.capabilities.some((item) => item.code === 'mall' && item.enabled)) {
-      uni.redirectTo({ url: '/pages/mall/mall' })
-      return
-    }
   } catch (error) {
     errorMessage.value = error instanceof Error ? error.message : '客户信息加载失败'
     session.clearSession()
-    uni.redirectTo({ url: '/pages/login/login' })
+    uni.reLaunch({ url: '/pages/login/login' })
   } finally {
     loading.value = false
   }
@@ -74,13 +71,15 @@ onShow(() => {
     <view v-else class="state">
       <text>暂无可用服务</text>
     </view>
+
+    <MainTabBar current="home" />
   </view>
 </template>
 
 <style scoped>
 .page {
   min-height: 100vh;
-  padding: 32rpx;
+  padding: 32rpx 32rpx 160rpx;
   background: #f7f2ea;
   box-sizing: border-box;
 }

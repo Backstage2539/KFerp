@@ -50,19 +50,27 @@ func TestSalesOrderPDFRendererUsesPreviewStylePaymentLayout(t *testing.T) {
 	}
 }
 
-func TestSalesOrderPreviewShowsAccountAndSharedPaymentLayout(t *testing.T) {
+func TestSalesOrderPreviewUsesPDFRendererForAccountAndSharedPaymentLayout(t *testing.T) {
 	src := string(readOrderAppFileForTest(t, filepath.Join("frontend-vue-shell", "src", "views", "SalesOrderView.vue")))
 	for _, want := range []string{
-		"payment-info-grid",
-		"payment-text-panel",
-		"account-payment-preview",
-		"payment-code-panel",
-		"bank_account_name",
-		"bank_name",
-		"bank_account_no",
+		"PDFStampPreview",
+		"salesOrderPreviewPDFUrl",
+		"preview-label=\"PREVIEW 预览版\"",
 	} {
 		if !strings.Contains(src, want) {
 			t.Fatalf("SalesOrderView missing shared payment/account layout marker %q", want)
+		}
+	}
+	pdf := string(readOrderAppFileForTest(t, filepath.Join("internal", "infrastructure", "pdf", "sales_order_pdf.go")))
+	for _, want := range []string{
+		"renderSalesOrderPaymentInfoSection",
+		"renderSalesOrderAccountLines",
+		"BankAccountName",
+		"BankName",
+		"BankAccountNo",
+	} {
+		if !strings.Contains(pdf, want) {
+			t.Fatalf("sales order PDF renderer missing shared payment/account marker %q", want)
 		}
 	}
 }

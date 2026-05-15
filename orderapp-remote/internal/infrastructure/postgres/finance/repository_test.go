@@ -146,6 +146,32 @@ func TestMonthlySourceTotalsUsesLegacyTotalAmountWhenGrandTotalWasDefaultZero(t 
 	}
 }
 
+func TestFinanceSourceDetailsIncludesOrderPaymentMethod(t *testing.T) {
+	pool, schema := newFinancePostgresTestDB(t)
+	ctx := context.Background()
+
+	mustExecFinanceSQL(t, ctx, pool, fmt.Sprintf(`
+		INSERT INTO %s.customers(id, name, company_name) VALUES (1, '门店客户', '');
+		INSERT INTO %s.orders(id, order_no, order_date, customer_id, total_amount, grand_total, payment_method, is_void)
+		VALUES (11, 'SO-PAID-BANK', '2026-05-15', 1, 680, 680, '银行转账', false);
+	`, schema, schema))
+
+	repo := NewRepository(pool, schema)
+	details, err := repo.FinanceSourceDetails(ctx, "2026-05")
+	if err != nil {
+		t.Fatalf("FinanceSourceDetails: %v", err)
+	}
+	for _, row := range details {
+		if row.SourceType == "order_revenue" && row.SourceID == 11 {
+			if row.PaymentMethod != "银行转账" {
+				t.Fatalf("payment method = %q, want 银行转账; row=%#v", row.PaymentMethod, row)
+			}
+			return
+		}
+	}
+	t.Fatalf("missing SO-PAID-BANK revenue detail: %#v", details)
+}
+
 func TestCloseMonthKeepsAdjustedStatusAfterAdjustment(t *testing.T) {
 	pool, schema := newFinancePostgresTestDB(t)
 	ctx := context.Background()
@@ -222,6 +248,7 @@ CREATE TABLE %s.orders (
 	total_amount NUMERIC(12,2) NOT NULL DEFAULT 0,
 	shipping_amount NUMERIC(12,2) NOT NULL DEFAULT 0,
 	discount_amount NUMERIC(12,2) NOT NULL DEFAULT 0,
+	payment_method TEXT NOT NULL DEFAULT '',
 	grand_total NUMERIC(12,2) NOT NULL DEFAULT 0,
 	is_void BOOLEAN NOT NULL DEFAULT false
 );

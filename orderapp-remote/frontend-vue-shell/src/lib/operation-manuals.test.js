@@ -16,6 +16,7 @@ test('operation manual view keys map to deployed OP_MANUAL docs', () => {
       costingManual: 'OP_MANUAL_COSTING.md',
       financeManual: 'OP_MANUAL_FINANCE.md',
       settingsAuditManual: 'OP_MANUAL_SETTINGS_AUDIT.md',
+      notificationManual: 'OP_MANUAL_NOTIFICATIONS.md',
       customerPortalManual: 'OP_MANUAL_CUSTOMER_PORTAL.md',
       customerFulfillmentManual: 'OP_MANUAL_CUSTOMER_FULFILLMENT.md',
       requirementsManual: 'OP_MANUAL_REQUIREMENTS.md',

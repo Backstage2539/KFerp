@@ -20,7 +20,7 @@ func TestDeployScriptTargetsDevelopAndVueShellOnly(t *testing.T) {
 		`BRANCH" != "develop"`,
 		"origin/develop",
 		"frontend-vue-shell",
-		"docker compose build orderapp",
+		"docker compose -f docker-compose.yml -f docker-compose.docconvert.yml build orderapp",
 	} {
 		if !strings.Contains(src, want) {
 			t.Fatalf("deploy script missing %q", want)

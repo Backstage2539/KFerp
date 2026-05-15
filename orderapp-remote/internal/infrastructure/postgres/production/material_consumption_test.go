@@ -219,6 +219,69 @@ INSERT INTO %s.stock_batches(batch_code,remaining_g) VALUES ('MB-HOLD',1000);
 	}
 }
 
+func TestEnsureWIPStockForNeedsTxAggregatesAllShortages(t *testing.T) {
+	pool, schema := newProductionTestDB(t)
+	ctx := context.Background()
+	defer func() {
+		_, _ = pool.Exec(ctx, "DROP SCHEMA IF EXISTS "+schema+" CASCADE")
+		pool.Close()
+	}()
+
+	mustExecProductionSQL(t, ctx, pool, fmt.Sprintf(`
+CREATE TABLE %s.material_batches (
+	id BIGSERIAL PRIMARY KEY,
+	batch_code TEXT NOT NULL UNIQUE,
+	material_id BIGINT NOT NULL,
+	qty_g BIGINT NOT NULL DEFAULT 0,
+	remaining_g BIGINT NOT NULL DEFAULT 0,
+	status TEXT NOT NULL DEFAULT 'active',
+	quality_status TEXT NOT NULL DEFAULT 'unchecked',
+	received_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE TABLE %s.material_batch_locations (
+	material_batch_id BIGINT NOT NULL,
+	batch_code TEXT NOT NULL DEFAULT '',
+	material_id BIGINT NOT NULL DEFAULT 0,
+	warehouse TEXT NOT NULL DEFAULT '',
+	qty_g BIGINT NOT NULL DEFAULT 0,
+	updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+	PRIMARY KEY(material_batch_id, warehouse)
+);
+INSERT INTO %s.material_batches(id,batch_code,material_id,qty_g,remaining_g)
+VALUES
+	(1,'MB-CATIM',11,200,200),
+	(2,'MB-GESHA',12,120,120);
+INSERT INTO %s.material_batch_locations(material_batch_id,batch_code,material_id,warehouse,qty_g)
+VALUES
+	(1,'MB-CATIM',11,'wip',200),
+	(2,'MB-GESHA',12,'wip',120);
+`, schema, schema, schema, schema))
+
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = ensureWIPStockForNeedsTx(ctx, tx, schema, []materialConsumptionNeed{
+		{MaterialID: 11, MaterialName: "卡蒂姆", DeductG: 500},
+		{MaterialID: 12, MaterialName: "瑰夏", DeductG: 300},
+	})
+	_ = tx.Rollback(ctx)
+	if err == nil {
+		t.Fatal("expected aggregated WIP stock insufficient error")
+	}
+	msg := err.Error()
+	for _, needle := range []string{
+		"WIP stock insufficient:",
+		"卡蒂姆 need 500g, available 200g, reserved 0g",
+		"瑰夏 need 300g, available 120g, reserved 0g",
+		"transfer raw material to WIP before starting production",
+	} {
+		if !strings.Contains(msg, needle) {
+			t.Fatalf("shortage message %q missing %q", msg, needle)
+		}
+	}
+}
+
 func newProductionTestDB(t *testing.T) (*pgxpool.Pool, string) {
 	t.Helper()
 	dsn := strings.TrimSpace(os.Getenv("ORDERAPP_TEST_DATABASE_URL"))
