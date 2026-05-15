@@ -68,6 +68,8 @@ type mallOrderRequest struct {
 	Items            []customerportalapp.MallOrderItemCommand `json:"items"`
 }
 
+const miniCustomerConfigUpdatedMessage = "客户配置已更新，请联系管理员处理"
+
 func registerMiniAPI(e *echo.Echo, svc Service, messages MessagePublisher, beanListPDFRenderer BeanListPDFRenderer, salesDocs SalesDocuments) {
 	e.POST("/api/mini/login", func(c echo.Context) error {
 		if svc == nil {
@@ -406,6 +408,9 @@ func miniLoginError(c echo.Context, err error) error {
 	if errors.Is(err, customerportalapp.ErrMiniUserDisabled) {
 		return c.JSON(http.StatusForbidden, map[string]string{"error": "mini user disabled"})
 	}
+	if errors.Is(err, customerportalapp.ErrCapabilityTemplateInvalid) {
+		return miniCustomerConfigUpdatedError(c)
+	}
 	if isMiniValidationError(err) {
 		return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid request"})
 	}
@@ -425,6 +430,9 @@ func miniPasswordLoginError(c echo.Context, err error) error {
 	if errors.Is(err, customerportalapp.ErrMiniUserDisabled) {
 		return c.JSON(http.StatusForbidden, map[string]string{"error": "mini user disabled"})
 	}
+	if errors.Is(err, customerportalapp.ErrCapabilityTemplateInvalid) {
+		return miniCustomerConfigUpdatedError(c)
+	}
 	if isMiniValidationError(err) {
 		return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid request"})
 	}
@@ -435,6 +443,9 @@ func miniSessionError(c echo.Context, err error) error {
 	if errors.Is(err, customerportalapp.ErrMiniSessionNotFound) {
 		return c.JSON(http.StatusUnauthorized, map[string]string{"error": "invalid or expired mini token"})
 	}
+	if errors.Is(err, customerportalapp.ErrCapabilityTemplateInvalid) {
+		return miniCustomerConfigUpdatedError(c)
+	}
 	return miniInternalError(c)
 }
 
@@ -444,6 +455,9 @@ func miniSwitchCustomerError(c echo.Context, err error) error {
 	}
 	if errors.Is(err, customerportalapp.ErrCustomerBindingNotFound) {
 		return c.JSON(http.StatusForbidden, map[string]string{"error": "customer binding not found"})
+	}
+	if errors.Is(err, customerportalapp.ErrCapabilityTemplateInvalid) {
+		return miniCustomerConfigUpdatedError(c)
 	}
 	return miniInternalError(c)
 }
@@ -461,10 +475,17 @@ func miniBusinessError(c echo.Context, err error) error {
 	if errors.Is(err, customerportalapp.ErrBeanListPublicationNotFound) {
 		return c.JSON(http.StatusNotFound, map[string]string{"error": "bean list publication not found"})
 	}
+	if errors.Is(err, customerportalapp.ErrCapabilityTemplateInvalid) {
+		return miniCustomerConfigUpdatedError(c)
+	}
 	if isMiniValidationError(err) {
 		return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid request"})
 	}
 	return miniInternalError(c)
+}
+
+func miniCustomerConfigUpdatedError(c echo.Context) error {
+	return c.JSON(http.StatusConflict, map[string]string{"error": miniCustomerConfigUpdatedMessage})
 }
 
 func miniInternalError(c echo.Context) error {
@@ -481,8 +502,7 @@ func isMiniValidationError(err error) bool {
 		"input_qty required", "target_product required", "target_spec required", "target_qty required",
 		"input material unavailable", "target product unavailable",
 		"bean_list required", "recipient_name required", "recipient_phone required", "recipient_address required",
-		"items required", "mall_product required", "qty required", "product unavailable", "mall product unavailable",
-		"capability template invalid":
+		"items required", "mall_product required", "qty required", "product unavailable", "mall product unavailable":
 		return true
 	default:
 		return false

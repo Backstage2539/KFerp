@@ -118,6 +118,14 @@ test('customer capability templates view supports manual child templates and fol
   assert.match(source, /body:\s*\{\s*label\s*\}/)
 })
 
+test('inactive customer capability templates keep save actions visually available', () => {
+  const source = fs.readFileSync(path.join(currentDir, '..', 'views', 'CustomerCapabilityTemplatesView.vue'), 'utf8')
+  assert.match(source, /:class="\{\s*inactive:\s*!editor\.form\.active/)
+  assert.match(source, /:disabled="loading \|\| editor\.saving"/)
+  assert.doesNotMatch(source, /\.template-panel\.inactive\s*\{[^}]*opacity/s)
+  assert.ok(source.includes('inactive-template-badge'), 'missing inactive template badge')
+})
+
 test('customer portal settings only lets customers bind active templates', () => {
   const source = fs.readFileSync(path.join(currentDir, '..', 'views', 'CustomerPortalSettingsView.vue'), 'utf8')
   for (const want of [

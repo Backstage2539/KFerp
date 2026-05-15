@@ -28,7 +28,10 @@
             {{ isTemplateExpanded(editor) ? '▾' : '▸' }}
           </button>
           <div>
-            <h3>{{ editor.form.label }}</h3>
+            <div class="template-name-line">
+              <h3>{{ editor.form.label }}</h3>
+              <span v-if="!editor.form.active" class="inactive-template-badge">已失效</span>
+            </div>
             <p class="template-summary">{{ templateSummary(editor) }}</p>
           </div>
         </div>
@@ -465,9 +468,11 @@ onMounted(loadTemplates)
 .page { padding: 18px; color: #171717; }
 .panel, .template-panel { border: 1px solid #e1e5ea; border-radius: 8px; background: #fff; padding: 14px; margin-bottom: 14px; }
 .template-panel.child { border-left: 4px solid #d7e2ea; }
-.template-panel.inactive { background: #f8fafc; opacity: .78; }
+.template-panel.inactive { background: #f8fafc; border-color: #d7dde5; }
 .panel-head, .template-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
 .template-title, .template-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.template-name-line { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.inactive-template-badge { display: inline-flex; align-items: center; min-height: 22px; border-radius: 999px; background: #eef2f6; color: #596579; padding: 0 8px; font-size: 12px; font-weight: 700; margin-top: 0; }
 h2, h3, p { margin: 0; }
 h2 { font-size: 20px; }
 h3 { font-size: 18px; }

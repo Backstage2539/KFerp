@@ -387,6 +387,7 @@ func TestMiniPasswordLoginErrorMapping(t *testing.T) {
 		{name: "invalid login", err: customerportalapp.ErrMiniInvalidLogin, want: http.StatusUnauthorized, body: "invalid login"},
 		{name: "disabled", err: customerportalapp.ErrMiniAccountLoginDisabled, want: http.StatusForbidden, body: "login disabled"},
 		{name: "binding", err: customerportalapp.ErrCustomerBindingNotFound, want: http.StatusForbidden, body: "customer binding not found"},
+		{name: "invalid template", err: customerportalapp.ErrCapabilityTemplateInvalid, want: http.StatusConflict, body: "客户配置已更新，请联系管理员处理"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -400,6 +401,18 @@ func TestMiniPasswordLoginErrorMapping(t *testing.T) {
 				t.Fatalf("%s status=%d body=%s, want %d containing %q", tc.name, rec.Code, rec.Body.String(), tc.want, tc.body)
 			}
 		})
+	}
+}
+
+func TestMiniMeCapabilityTemplateInvalidShowsCustomerConfigMessage(t *testing.T) {
+	e := echo.New()
+	RegisterRoutes(e, Dependencies{CustomerPortal: fakeService{err: customerportalapp.ErrCapabilityTemplateInvalid}})
+	req := httptest.NewRequest(http.MethodGet, "/api/mini/me", nil)
+	req.Header.Set(echo.HeaderAuthorization, "Bearer mini-token")
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusConflict || !strings.Contains(rec.Body.String(), "客户配置已更新，请联系管理员处理") {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
 	}
 }
 
