@@ -595,6 +595,61 @@ func (r *Repository) quoteSubmittedDirectShipItemTx(ctx context.Context, tx pgx.
 	}, nil
 }
 
+func (r *Repository) quoteSubmittedDirectShipItemForERPRebuildTx(ctx context.Context, tx pgx.Tx, customerID int64, item submittedDirectShipItem) (submittedDirectShipQuotedItem, bool, error) {
+	specG := item.SpecG
+	if specG <= 0 {
+		specG = parseSubmittedDirectShipSpecG(item.Spec)
+	}
+	if specG <= 0 {
+		specG = 454
+	}
+	if item.QuantityUnits <= 0 {
+		item.QuantityUnits = 1
+	}
+	var dbProductName string
+	var defaultPrice float64
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`
+		SELECT COALESCE(name,''), COALESCE(default_price,0)
+		FROM %s.products
+		WHERE id=$1
+	`, r.schema), item.ProductID).Scan(&dbProductName, &defaultPrice); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return submittedDirectShipQuotedItem{}, false, nil
+		}
+		return submittedDirectShipQuotedItem{}, false, err
+	}
+	productName := item.ProductName
+	if productName == "" {
+		productName = strings.TrimSpace(dbProductName)
+	}
+	specText := item.Spec
+	if specText == "" {
+		specText = fmt.Sprintf("%dg", specG)
+	}
+	unitPrice := r.customerFulfillmentSubmittedUnitPriceTx(ctx, tx, customerID, item.ProductID, specG, item.QuantityUnits, defaultPrice)
+	baseLineTotal := unitPrice * float64(item.QuantityUnits)
+	discountType := normalizeSubmittedDirectShipDiscountType(item.DiscountType)
+	discountValue := item.DiscountValue
+	if discountValue < 0 {
+		discountValue = 0
+	}
+	discountAmount, lineTotal := submittedDirectShipLineDiscount(baseLineTotal, discountType, discountValue)
+	return submittedDirectShipQuotedItem{
+		ProductID:      item.ProductID,
+		ProductName:    productName,
+		Spec:           specText,
+		SpecG:          specG,
+		QuantityUnits:  item.QuantityUnits,
+		UnitPrice:      unitPrice,
+		DiscountType:   discountType,
+		DiscountValue:  discountValue,
+		DiscountAmount: discountAmount,
+		BaseLineTotal:  baseLineTotal,
+		LineTotal:      lineTotal,
+		Note:           item.Note,
+	}, true, nil
+}
+
 func normalizeSubmittedDirectShipDiscountType(value string) string {
 	switch strings.TrimSpace(strings.ToLower(value)) {
 	case "amount", "fixed", "minus":
@@ -1254,7 +1309,7 @@ func (r *Repository) submittedDirectShipERPItemSeedsTx(ctx context.Context, tx p
 		discountType := normalizeSubmittedDirectShipDiscountType(payloadString(payload, "discount_type"))
 		discountValue := payloadFloat(payload, "discount_value")
 		discountAmount := payloadFloat(payload, "discount_amount")
-		quoted, quoteErr := r.quoteSubmittedDirectShipItemTx(ctx, tx, customerID, submittedDirectShipItem{
+		quoted, quoteOK, quoteErr := r.quoteSubmittedDirectShipItemForERPRebuildTx(ctx, tx, customerID, submittedDirectShipItem{
 			ProductID:     productID,
 			ProductName:   productTitle,
 			Spec:          spec,
@@ -1263,7 +1318,11 @@ func (r *Repository) submittedDirectShipERPItemSeedsTx(ctx context.Context, tx p
 			DiscountType:  discountType,
 			DiscountValue: discountValue,
 		})
-		if quoteErr == nil {
+		if quoteErr != nil {
+			rows.Close()
+			return nil, quoteErr
+		}
+		if quoteOK {
 			if quoted.ProductName != "" {
 				productTitle = quoted.ProductName
 			}
