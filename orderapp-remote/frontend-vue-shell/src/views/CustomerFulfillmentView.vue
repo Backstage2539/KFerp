@@ -1572,7 +1572,7 @@ button:disabled {
 .order-lines-table th:nth-child(8) { width: 80px; }
 
 .order-lines-table td {
-  vertical-align: middle;
+  vertical-align: top;
 }
 
 .order-lines-table td :deep(.searchable-select) {
@@ -1584,18 +1584,25 @@ button:disabled {
 }
 
 .price-cell {
-  display: grid;
-  gap: 4px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
 }
 
 .price-cell small {
   color: #64748b;
   font-size: 12px;
+  white-space: nowrap;
 }
 
 .discount-cell {
   display: grid;
   gap: 6px;
+}
+
+.discount-cell select,
+.discount-cell input {
+  width: 100%;
 }
 
 .line-total {
