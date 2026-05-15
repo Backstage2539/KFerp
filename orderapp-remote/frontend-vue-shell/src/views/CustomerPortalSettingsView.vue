@@ -23,7 +23,7 @@
         <span>客户</span>
         <span>客户配置</span>
         <span>引用模板</span>
-        <span>ERP账号</span>
+        <span>履约账号</span>
         <span>绑定用户</span>
       </div>
 
@@ -128,15 +128,9 @@
             <strong>{{ row.customer.erp_binding.employee_name || row.customer.erp_binding.phone || row.customer.erp_binding.employee_id }}</strong>
             <span>{{ row.customer.erp_binding.phone || '未填手机号' }}</span>
           </div>
-          <span v-else class="muted">未绑定ERP账号</span>
+          <span v-else class="muted">未配置外部用户</span>
           <p v-if="erpBindingHint(row)" class="binding-hint">{{ erpBindingHint(row) }}</p>
-          <select v-model.number="row.form.erp_employee_id" :disabled="!templateSupportsERPWorkbench(row)">
-            <option :value="0">选择渠道客户账号</option>
-            <option v-for="account in channelAccounts" :key="account.employee_id" :value="account.employee_id">
-              {{ accountLabel(account) }}
-            </option>
-          </select>
-          <button class="secondary" type="button" @click="saveERPBinding(row)" :disabled="row.saving || !row.form.erp_employee_id || !templateSupportsERPWorkbench(row)">绑定ERP账号</button>
+          <button class="secondary" type="button" @click="goToFulfillmentAccount(row)" :disabled="!templateSupportsERPWorkbench(row)">去履约运营台管理</button>
         </div>
 
         <div class="binding-list">
@@ -159,7 +153,6 @@ const q = ref('')
 const portalRows = ref([])
 const senderProfiles = ref([])
 const capabilityTemplates = ref([])
-const authAccounts = ref([])
 const loading = ref(false)
 const error = ref('')
 const ok = ref('')
@@ -178,7 +171,6 @@ const themeLabels = {
   premium_partner: '品牌会员高级风',
 }
 
-const channelAccounts = computed(() => (authAccounts.value || []).filter((row) => row.account_type === 'channel_customer' && row.login_disabled !== true))
 const activeTemplates = computed(() => (capabilityTemplates.value || []).filter((template) => template.active !== false))
 
 async function loadCustomers() {
@@ -195,15 +187,6 @@ async function loadCustomers() {
     error.value = err.message || '加载客户失败'
   } finally {
     loading.value = false
-  }
-}
-
-async function loadAuthAccounts() {
-  try {
-    const data = await apiGet('/api/auth/accounts')
-    authAccounts.value = data.rows || []
-  } catch (err) {
-    authAccounts.value = []
   }
 }
 
@@ -229,12 +212,6 @@ function senderProfileLabel(profile) {
   return profile?.sender_label || profile?.sender_name || `寄件人${profile?.sender_id || ''}`
 }
 
-function accountLabel(account) {
-  const name = account?.name || account?.phone || `账号${account?.employee_id || ''}`
-  const phone = account?.phone ? ` / ${account.phone}` : ''
-  return `${name}${phone}`
-}
-
 function customerTypeLabel(value) {
   return {
     wholesale: '批发客户',
@@ -252,7 +229,6 @@ function createPortalRow(customer) {
       default_sender_id: Number(customer.default_sender_id || 0),
       enabled: customer.portal_enabled !== false,
       capability_template_key: trimTemplateKey(customer.capability_template_key),
-      erp_employee_id: Number(customer.erp_binding?.employee_id || 0),
     },
     capabilities: [],
     bindings: [],
@@ -278,7 +254,6 @@ function assignRowDetail(row, data) {
   row.form.default_sender_id = Number(row.customer.default_sender_id || 0)
   row.form.enabled = row.customer.portal_enabled !== false
   row.form.capability_template_key = trimTemplateKey(row.customer.capability_template_key)
-  row.form.erp_employee_id = Number(row.customer.erp_binding?.employee_id || 0)
   row.bindings = data?.bindings || []
   row.capabilities = (data?.capabilities || []).map((item) => ({
     code: item.code,
@@ -309,32 +284,6 @@ async function saveVisibility(row) {
     ok.value = `已保存 ${row.customer.name} 的客户门户配置`
   } catch (err) {
     error.value = err.message || '保存配置失败'
-  } finally {
-    row.saving = false
-  }
-}
-
-async function saveERPBinding(row) {
-  if (!row?.customer?.id || !row.form.erp_employee_id) return
-  if (!templateSupportsERPWorkbench(row)) {
-    error.value = erpBindingHint(row)
-    return
-  }
-  row.saving = true
-  error.value = ''
-  ok.value = ''
-  try {
-    const data = await apiSend(`/api/customer-portal/admin/customers/${row.customer.id}/erp-binding`, {
-      method: 'PUT',
-      body: {
-        employee_id: Number(row.form.erp_employee_id),
-        status: 'active',
-      },
-    })
-    assignRowDetail(row, data)
-    ok.value = `已绑定 ${row.customer.name} 的ERP账号`
-  } catch (err) {
-    error.value = err.message || '绑定ERP账号失败'
   } finally {
     row.saving = false
   }
@@ -375,7 +324,7 @@ function templateSupportsERPWorkbench(row) {
 function erpBindingHint(row) {
   if (unknownTemplateKey(row)) return '当前能力模板无法识别，请先重新选择系统模板'
   if (inactiveTemplateKey(row)) return '当前能力模板已失效，请先重新选择启用中的模板'
-  if (!selectedTemplate(row)) return '请选择支持 ERP 工作台的能力模板后再绑定账号'
+  if (!selectedTemplate(row)) return '请选择支持 ERP 工作台的能力模板后再管理外部用户'
   if (!templateSupportsERPWorkbench(row)) return '该模板不开放 ERP 工作台，零售商城客户不需要绑定 ERP 账号'
   return ''
 }
@@ -426,8 +375,17 @@ function canSaveRow(row) {
   return !row.saving && !row.loading && !unknownTemplateKey(row) && !inactiveTemplateKey(row) && (!row.form.enabled || !!selectedTemplate(row))
 }
 
+function goToFulfillmentAccount(row) {
+  const customerID = Number(row?.customer?.id || 0)
+  if (!customerID) return
+  const url = new URL(window.location.href)
+  url.searchParams.set('view', 'customer-fulfillment')
+  url.searchParams.set('customer_id', String(customerID))
+  window.location.href = url.toString()
+}
+
 onMounted(async () => {
-  await Promise.all([loadCapabilityTemplates(), loadSenderProfiles(), loadAuthAccounts()])
+  await Promise.all([loadCapabilityTemplates(), loadSenderProfiles()])
   loadCustomers()
 })
 </script>
@@ -467,7 +425,6 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .summary-block b { font-size: 12px; color: #555; }
 .binding-row { border: 1px solid #e4e7ec; border-radius: 8px; padding: 8px; }
 .binding-row strong { font-size: 13px; }
-.erp-binding select { width: 100%; }
 .binding-hint { margin: 0; color: #8a5a16; background: #fff7e6; border: 1px solid #f0d7a0; border-radius: 6px; padding: 7px 8px; font-size: 12px; line-height: 1.45; }
 .active-binding { border-color: #b7d9c2; background: #f7fff9; }
 .muted { color: #666; }

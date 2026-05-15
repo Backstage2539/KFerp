@@ -58,13 +58,17 @@ func TestCustomerAccountPortalTypesWiredAcrossUIAndAPIs(t *testing.T) {
 		}
 	}
 	for _, want := range []string{
-		"ERP账号",
 		"erp_binding",
-		"saveERPBinding",
-		"channel_customer",
+		"goToFulfillmentAccount",
+		"去履约运营台管理",
 	} {
 		if !strings.Contains(portalSettings, want) {
-			t.Fatalf("CustomerPortalSettingsView.vue missing ERP binding UI %q", want)
+			t.Fatalf("CustomerPortalSettingsView.vue missing fulfillment account handoff UI %q", want)
+		}
+	}
+	for _, forbidden := range []string{"saveERPBinding", "/api/auth/accounts", "channel_customer"} {
+		if strings.Contains(portalSettings, forbidden) {
+			t.Fatalf("CustomerPortalSettingsView.vue must not manage external accounts directly %q", forbidden)
 		}
 	}
 	for _, want := range []string{

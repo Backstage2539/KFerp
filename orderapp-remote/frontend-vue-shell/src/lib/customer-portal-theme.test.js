@@ -62,10 +62,13 @@ test('customer portal settings disables ERP binding for templates without workbe
   assert.match(source, /该模板不开放 ERP 工作台/)
 })
 
-test('customer portal settings excludes disabled channel accounts from ERP binding selector', () => {
+test('customer portal settings hands external account management to fulfillment operations', () => {
   const source = fs.readFileSync(path.join(currentDir, '..', 'views', 'CustomerPortalSettingsView.vue'), 'utf8')
-  assert.match(source, /account_type\s*===\s*'channel_customer'/)
-  assert.match(source, /login_disabled\s*!==\s*true/)
+  assert.match(source, /goToFulfillmentAccount/)
+  assert.match(source, /去履约运营台管理/)
+  assert.doesNotMatch(source, /\/api\/auth\/accounts/)
+  assert.doesNotMatch(source, /saveERPBinding/)
+  assert.doesNotMatch(source, /channel_customer/)
 })
 
 test('customer portal settings preserves unknown template keys for correction', () => {
