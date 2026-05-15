@@ -72,6 +72,7 @@ test('Finance improvements expose closing review, drilldown, tax ledger and acco
   assert.ok(menu.includes('financeTaxLedger'))
   assert.ok(report.includes('fetchFinanceReportDrilldown'))
   assert.ok(report.includes('accountant-handoff.xlsx'))
+  assert.ok(report.includes('row.payment_method'))
   assert.ok(closing.includes('fetchFinanceClosingReview'))
   assert.ok(expenses.includes('order_id'))
   assert.ok(expenses.includes('dimension_note'))

@@ -59,6 +59,7 @@ func saveOrderCommandFromCreateRequest(req CreateOrderRequest, editID int64, act
 		SourceID:              req.SourceID,
 		OrderTypeID:           req.OrderTypeID,
 		PayStatusID:           req.PayStatusID,
+		PaymentMethod:         strings.TrimSpace(req.PaymentMethod),
 		ShipStatusID:          req.ShipStatusID,
 		ShipMethod:            req.ShipMethod,
 		ShipTrackingNo:        req.ShipTrackingNo,
@@ -142,6 +143,7 @@ func updateHeaderCommandFromRequest(req UpdateOrderRequest, actor string) salesa
 		SourceID:              req.SourceID,
 		OrderTypeID:           req.OrderTypeID,
 		PayStatusID:           req.PayStatusID,
+		PaymentMethod:         strings.TrimSpace(req.PaymentMethod),
 		ShipStatusID:          req.ShipStatusID,
 		ShipMethod:            req.ShipMethod,
 		ShipTrackingNo:        req.ShipTrackingNo,
@@ -166,6 +168,7 @@ func inlineUpdateCommandFromRequest(req support.InlineUpdateRequest) salesapp.In
 	return salesapp.InlineUpdateCommand{
 		OrderTypeID:     req.OrderTypeID,
 		PayStatusID:     req.PayStatusID,
+		PaymentMethod:   strings.TrimSpace(req.PaymentMethod),
 		ShipStatusID:    req.ShipStatusID,
 		ProcessStatusID: req.ProcessStatusID,
 		Notes:           req.Notes,

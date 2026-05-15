@@ -69,13 +69,13 @@ func writeChecklistSheet(f *excelize.File, handoff appfinance.AccountantHandoff)
 func writeDrilldownSheet(f *excelize.File, handoff appfinance.AccountantHandoff) error {
 	sheet := "Drilldown"
 	f.NewSheet(sheet)
-	rows := [][]any{{"Section", "Source type", "Source id", "Date", "Name", "Category", "Counterparty", "Amount", "Link"}}
+	rows := [][]any{{"Section", "Source type", "Source id", "Date", "Name", "Category", "Counterparty", "Payment method", "Amount", "Link"}}
 	for _, section := range handoff.Drilldown.Sections {
 		for _, row := range section.Rows {
-			rows = append(rows, []any{section.Section, row.SourceType, row.SourceID, row.Date, row.Name, row.Category, row.Counterparty, float64(row.Amount), row.Link})
+			rows = append(rows, []any{section.Section, row.SourceType, row.SourceID, row.Date, row.Name, row.Category, row.Counterparty, row.PaymentMethod, float64(row.Amount), row.Link})
 		}
 	}
-	return setSheetRows(f, sheet, rows, []string{"A", "B", "C", "D", "E", "F", "G", "H", "I"}, []float64{18, 18, 12, 14, 28, 20, 24, 16, 28})
+	return setSheetRows(f, sheet, rows, []string{"A", "B", "C", "D", "E", "F", "G", "H", "I", "J"}, []float64{18, 18, 12, 14, 28, 20, 24, 18, 16, 28})
 }
 
 func writeTaxLedgerSheet(f *excelize.File, handoff appfinance.AccountantHandoff) error {

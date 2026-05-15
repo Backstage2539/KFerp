@@ -11,6 +11,8 @@ import {
   lineTotal,
   syncWholesaleTierPrice,
   normalizeSpecG,
+  orderReceiptMethodOptions,
+  requiresOrderPaymentMethod,
   responsibleOptions,
   retailPackagePrice,
   retailSpecOptions,
@@ -256,6 +258,47 @@ test('buildOrderPayload includes structured order responsible person', () => {
 
   assert.equal(payload.responsible_type, 'employee')
   assert.equal(payload.responsible_id, 8)
+})
+
+test('buildOrderPayload carries selected receipt method into order saves', () => {
+  const payload = buildOrderPayload({
+    form: {
+      order_date: '2026-05-15',
+      customer_id: 3,
+      source_id: 1,
+      order_type_id: 1,
+      pay_status_id: 2,
+      payment_method: ' 银行转账 ',
+      ship_status_id: 1,
+    },
+    rows: [
+      {
+        product_id: 7,
+        product_name: '橘皮乌龙',
+        tier_id: 'manual',
+        spec_mode: '454',
+        qty: 1,
+        unit: '件',
+        unit_price: '88',
+      },
+    ],
+  })
+
+  assert.equal(payload.payment_method, '银行转账')
+})
+
+test('requiresOrderPaymentMethod only triggers for paid receipt statuses', () => {
+  const payStatuses = [
+    { id: 1, name: '未付款' },
+    { id: 2, name: '已付款' },
+    { id: 3, name: '已收款' },
+  ]
+
+  assert.equal(requiresOrderPaymentMethod({ pay_status_id: 1 }, payStatuses), false)
+  assert.equal(requiresOrderPaymentMethod({ pay_status_id: 2 }, payStatuses), true)
+  assert.equal(requiresOrderPaymentMethod({ pay_status_id: 3 }, payStatuses), true)
+  assert.ok(orderReceiptMethodOptions.includes('银行转账'))
+  assert.ok(orderReceiptMethodOptions.includes('微信支付'))
 })
 
 test('responsibleOptions groups employees and customer partners for commission ownership', () => {

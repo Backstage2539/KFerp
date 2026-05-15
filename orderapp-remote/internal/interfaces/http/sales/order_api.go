@@ -64,6 +64,7 @@ type orderSaveAPIRequest struct {
 	SourceID              int64  `json:"source_id"`
 	OrderTypeID           int64  `json:"order_type_id"`
 	PayStatusID           int64  `json:"pay_status_id"`
+	PaymentMethod         string `json:"payment_method"`
 	ShipStatusID          int64  `json:"ship_status_id"`
 	ShipMethod            string `json:"ship_method"`
 	ShipTrackingNo        string `json:"ship_tracking_no"`
@@ -357,6 +358,7 @@ func (r orderSaveAPIRequest) toCreateRequest() CreateOrderRequest {
 		SourceID:              r.SourceID,
 		OrderTypeID:           r.OrderTypeID,
 		PayStatusID:           r.PayStatusID,
+		PaymentMethod:         r.PaymentMethod,
 		ShipStatusID:          r.ShipStatusID,
 		ShipMethod:            r.ShipMethod,
 		ShipTrackingNo:        r.ShipTrackingNo,
@@ -515,6 +517,7 @@ func editDataForAPI(ed *OrderEditData) map[string]any {
 		"source_id":               strconv.FormatInt(ed.SourceID, 10),
 		"order_type_id":           strconv.FormatInt(ed.OrderTypeID, 10),
 		"pay_status_id":           strconv.FormatInt(ed.PayStatusID, 10),
+		"payment_method":          ed.PaymentMethod,
 		"ship_status_id":          strconv.FormatInt(ed.ShipStatusID, 10),
 		"ship_method":             ed.ShipMethod,
 		"ship_tracking_no":        ed.ShipTrackingNo,

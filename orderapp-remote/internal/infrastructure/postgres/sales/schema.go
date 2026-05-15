@@ -32,6 +32,9 @@ func EnsureSchema(ctx context.Context, pool *pgxpool.Pool, schema string) error 
 	if err := ensureOrderResponsibleColumns(ctx, pool, schema); err != nil {
 		return err
 	}
+	if err := ensureOrderPaymentMethodColumn(ctx, pool, schema); err != nil {
+		return err
+	}
 	if err := ensureSalesOrderTables(ctx, pool, schema); err != nil {
 		return err
 	}
@@ -59,6 +62,11 @@ func ensureCustomerCompanyColumns(ctx context.Context, pool *pgxpool.Pool, schem
 		}
 	}
 	return nil
+}
+
+func ensureOrderPaymentMethodColumn(ctx context.Context, pool *pgxpool.Pool, schema string) error {
+	_, err := pool.Exec(ctx, fmt.Sprintf(`ALTER TABLE %s.orders ADD COLUMN IF NOT EXISTS payment_method TEXT NOT NULL DEFAULT ''`, schema))
+	return err
 }
 
 func ensureOrderResponsibleColumns(ctx context.Context, pool *pgxpool.Pool, schema string) error {

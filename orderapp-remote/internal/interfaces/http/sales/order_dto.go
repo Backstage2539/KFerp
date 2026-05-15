@@ -15,6 +15,7 @@ type CreateOrderRequest struct {
 	SourceID              int64  `form:"source_id"`
 	OrderTypeID           int64  `form:"order_type_id"`
 	PayStatusID           int64  `form:"pay_status_id"`
+	PaymentMethod         string `form:"payment_method"`
 	ShipStatusID          int64  `form:"ship_status_id"`
 	ShipMethod            string `form:"ship_method"`
 	ShipTrackingNo        string `form:"ship_tracking_no"`
@@ -49,6 +50,7 @@ type UpdateOrderRequest struct {
 	SourceID              int64  `form:"source_id"`
 	OrderTypeID           int64  `form:"order_type_id"`
 	PayStatusID           int64  `form:"pay_status_id"`
+	PaymentMethod         string `form:"payment_method"`
 	ShipStatusID          int64  `form:"ship_status_id"`
 	ShipMethod            string `form:"ship_method"`
 	ShipTrackingNo        string `form:"ship_tracking_no"`

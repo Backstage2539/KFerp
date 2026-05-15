@@ -314,6 +314,7 @@ func (r Repository) FinanceSourceDetails(ctx context.Context, month string) ([]a
 				       COALESCE(to_char(o.order_date,'YYYY-MM-DD'),'') AS source_date,
 				       COALESCE(NULLIF(o.order_no,''), '订单#' || o.id::text) AS name,
 				       '' AS category,COALESCE(NULLIF(c.name,''),NULLIF(c.company_name,''),'') AS counterparty,
+				       COALESCE(o.payment_method,'') AS payment_method,
 				       %s::float8 AS amount,
 				       '/app/vue-shell?view=orders' AS link
 				FROM %s.orders o
@@ -330,7 +331,7 @@ func (r Repository) FinanceSourceDetails(ctx context.Context, month string) ([]a
 				SELECT 'main_cost' AS section,'production_cost' AS source_type,id AS source_id,
 				       to_char(created_at,'YYYY-MM-DD') AS source_date,
 				       COALESCE(NULLIF(product_name,''),'生产批次成本') AS name,
-				       '生产批次成本' AS category,'' AS counterparty,total_cost::float8 AS amount,
+				       '生产批次成本' AS category,'' AS counterparty,'' AS payment_method,total_cost::float8 AS amount,
 				       '/app/vue-shell?view=productionCosts' AS link
 				FROM %s.production_batch_costs
 				WHERE created_at >= $1::date
@@ -344,6 +345,7 @@ func (r Repository) FinanceSourceDetails(ctx context.Context, month string) ([]a
 				SELECT fe.allocation AS section,'expense' AS source_type,fe.id AS source_id,
 				       to_char(fe.expense_date,'YYYY-MM-DD') AS source_date,
 				       fe.category AS name,fe.category AS category,COALESCE(e.name,'') AS counterparty,
+				       '' AS payment_method,
 				       fe.amount::float8 AS amount,'/app/vue-shell?view=financeExpenses' AS link
 				FROM %s.finance_expenses fe
 				LEFT JOIN %s.company_employees e ON e.id=fe.employee_id
@@ -357,6 +359,7 @@ func (r Repository) FinanceSourceDetails(ctx context.Context, month string) ([]a
 				SELECT 'tax' AS section,'tax_ledger' AS source_type,id AS source_id,
 				       to_char(created_at,'YYYY-MM-DD') AS source_date,
 				       COALESCE(NULLIF(invoice_no,''),kind) AS name,kind AS category,counterparty,
+				       '' AS payment_method,
 				       CASE WHEN tax_amount > 0 THEN tax_amount ELSE total_amount END::float8 AS amount,
 				       '/app/vue-shell?view=financeTaxLedger' AS link
 				FROM %s.finance_tax_ledger
@@ -583,7 +586,7 @@ func scanSourceDetails(rows pgx.Rows, out *[]appfinance.SourceDetail) error {
 	defer rows.Close()
 	for rows.Next() {
 		var row appfinance.SourceDetail
-		if err := rows.Scan(&row.Section, &row.SourceType, &row.SourceID, &row.Date, &row.Name, &row.Category, &row.Counterparty, &row.Amount, &row.Link); err != nil {
+		if err := rows.Scan(&row.Section, &row.SourceType, &row.SourceID, &row.Date, &row.Name, &row.Category, &row.Counterparty, &row.PaymentMethod, &row.Amount, &row.Link); err != nil {
 			return err
 		}
 		*out = append(*out, row)

@@ -108,6 +108,14 @@
         </label>
 
         <label>
+          <span>收款方式</span>
+          <select v-model.trim="form.payment_method" :disabled="!paymentMethodRequired">
+            <option value="">选择收款方式</option>
+            <option v-for="item in orderReceiptMethodOptions" :key="item" :value="item">{{ item }}</option>
+          </select>
+        </label>
+
+        <label>
           <span>发货状态</span>
           <select v-model.number="form.ship_status_id">
             <option v-for="item in shipStatuses" :key="item.id" :value="item.id">{{ item.name }}</option>
@@ -334,7 +342,9 @@ import {
   filterOptions,
   lineTotal,
   normalizeSpecG,
+  orderReceiptMethodOptions,
   responsibleOptions,
+  requiresOrderPaymentMethod,
   retailPackagePrice,
   retailSpecOptions,
   syncWholesaleTierPrice,
@@ -383,6 +393,7 @@ const form = reactive({
   source_id: 0,
   order_type_id: 0,
   pay_status_id: 0,
+  payment_method: '',
   ship_status_id: 0,
   ship_method: '',
   ship_tracking_no: '',
@@ -441,6 +452,7 @@ const retailOrder = computed(() => {
 
 const itemsTotal = computed(() => rows.value.reduce((sum, row) => sum + rowTotal(row), 0))
 const filteredCustomers = computed(() => filterOptions(customers.value, customerQuery.value).slice(0, 20))
+const paymentMethodRequired = computed(() => requiresOrderPaymentMethod(form, payStatuses.value))
 const responsibleCandidateOptions = computed(() => responsibleOptions({ employees: employees.value, customers: customers.value }))
 const filteredResponsibleOptions = computed(() => {
   const q = String(responsibleQuery.value || '').trim().toLowerCase()
@@ -702,6 +714,7 @@ function applyEditData(data) {
     source_id: Number(data.source_id || 0),
     order_type_id: Number(data.order_type_id || 0),
     pay_status_id: Number(data.pay_status_id || 0),
+    payment_method: data.payment_method || '',
     ship_status_id: Number(data.ship_status_id || 0),
     ship_method: data.ship_method || '',
     ship_tracking_no: data.ship_tracking_no || '',
@@ -783,6 +796,7 @@ async function save() {
   try {
     const payload = buildOrderPayload({ form, rows: rows.value })
     if (!payload.customer_id) throw new Error('请选择客户')
+    if (paymentMethodRequired.value && !payload.payment_method) throw new Error('请选择收款方式')
     if (!payload.product_id.length) throw new Error('请至少录入一条有效明细')
     const stockDecision = await previewStockBatchesBeforeSave(payload)
     if (stockDecision) payload.stock_batch_decision = stockDecision
@@ -832,6 +846,13 @@ watch(
   (next, prev) => {
     if (!props.embedded || Number(next || 0) === Number(prev || 0)) return
     load()
+  },
+)
+
+watch(
+  paymentMethodRequired,
+  (required) => {
+    if (!required) form.payment_method = ''
   },
 )
 </script>

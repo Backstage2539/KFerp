@@ -16,6 +16,7 @@ type SaveOrderCommand struct {
 	SourceID              int64
 	OrderTypeID           int64
 	PayStatusID           int64
+	PaymentMethod         string
 	ShipStatusID          int64
 	ShipMethod            string
 	ShipTrackingNo        string
@@ -117,6 +118,7 @@ type UpdateHeaderCommand struct {
 	SourceID              int64
 	OrderTypeID           int64
 	PayStatusID           int64
+	PaymentMethod         string
 	ShipStatusID          int64
 	ShipMethod            string
 	ShipTrackingNo        string
@@ -139,6 +141,7 @@ type UpdateHeaderCommand struct {
 type InlineUpdateCommand struct {
 	OrderTypeID     string
 	PayStatusID     string
+	PaymentMethod   string
 	ShipStatusID    string
 	ProcessStatusID string
 	Notes           string
@@ -254,6 +257,7 @@ type OrderEditData struct {
 	SourceID        int64
 	OrderTypeID     int64
 	PayStatusID     int64
+	PaymentMethod   string
 	ShipStatusID    int64
 	ShipMethod      string
 	ShipTrackingNo  string
@@ -305,6 +309,7 @@ type OrderRow struct {
 	GrandTotal        string `json:"grand_total"`
 	OrderType         string `json:"order_type"`
 	PayStatus         string `json:"pay_status"`
+	PaymentMethod     string `json:"payment_method"`
 	ShipStatus        string `json:"ship_status"`
 	ShipTrackingNo    string `json:"ship_tracking_no"`
 	ReceiverName      string `json:"receiver_name"`
