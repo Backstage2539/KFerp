@@ -394,7 +394,9 @@ func (r *Repository) SubmitCustomerDirectShipOrder(ctx context.Context, cmd app.
 		customerID = current.CustomerID
 	}
 	if err := r.requireCustomerCapability(ctx, customerID, "direct_ship"); err != nil {
-		return app.DirectShipOrderSummary{}, err
+		if altErr := r.requireCustomerCapability(ctx, customerID, "product_order"); altErr != nil {
+			return app.DirectShipOrderSummary{}, err
+		}
 	}
 	items := normalizeSubmittedDirectShipItems(cmd)
 	tx, err := r.pool.Begin(ctx)
