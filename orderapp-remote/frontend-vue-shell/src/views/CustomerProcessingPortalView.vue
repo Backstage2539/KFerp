@@ -123,7 +123,6 @@
                     <th>规格(g)</th>
                     <th>数量</th>
                     <th>单价</th>
-                    <th>优惠</th>
                     <th>小计</th>
                     <th>阶梯价</th>
                     <th>操作</th>
@@ -150,21 +149,6 @@
                       <input :value="row.unit_price || ''" type="text" disabled />
                       <small>{{ priceUnitLabel(row) }}</small>
                     </td>
-                    <td class="discount-cell">
-                      <select v-model="row.discount_type" @change="onDiscountTypeChange(row)">
-                        <option value="">无优惠</option>
-                        <option value="amount">减免数额</option>
-                        <option value="percent">折扣</option>
-                        <option value="free">免费</option>
-                      </select>
-                      <input
-                        v-if="row.discount_type === 'amount' || row.discount_type === 'percent'"
-                        v-model.number="row.discount_value"
-                        type="number"
-                        min="0"
-                        step="0.01"
-                        :placeholder="row.discount_type === 'percent' ? '90=9折' : '减免金额'" />
-                    </td>
                     <td class="subtotal-cell">{{ money(rowLineTotal(row)) }}</td>
                     <td>
                       <div v-if="rowTierRows(row).length" class="tier-chips">
@@ -188,10 +172,6 @@
           </section>
 
           <div class="direct-ship-footer">
-            <label>
-              <span>运费</span>
-              <input v-model.number="directShipForm.shipping_amount" type="number" min="0" step="0.01" />
-            </label>
             <div class="line-total grand-total">
               <span>订单合计</span>
               <strong>{{ money(directShipGrandTotal) }}</strong>
@@ -489,7 +469,7 @@ import {
   submitCustomerProcessingWorkOrder,
 } from '../api/customer-fulfillment'
 import { customerFulfillmentOrderFees, customerFulfillmentSubmitCopy } from '../lib/customer-fulfillment'
-import { lineTotal, syncWholesaleTierPrice, toInt, toNumber, wholesalePriceUnit, wholesaleTierPriceRows } from '../lib/order-entry'
+import { lineTotal, syncWholesaleTierPrice, toInt, wholesalePriceUnit, wholesaleTierPriceRows } from '../lib/order-entry'
 import { parseRecipientText } from '../lib/customer-recipient'
 
 const loading = ref(false)
@@ -531,7 +511,6 @@ const directShipForm = reactive({
   receiver_name: '',
   receiver_phone: '',
   receiver_address: '',
-  shipping_amount: '',
   note: '',
 })
 
@@ -561,7 +540,7 @@ const directShipProductOptions = computed(() => uniqueProductOptions([
   ...finishedGoodsProductOptions.value,
 ]))
 const directShipItemsTotal = computed(() => directShipItems.value.reduce((sum, row) => sum + rowLineTotal(row), 0))
-const directShipGrandTotal = computed(() => directShipItemsTotal.value + Math.max(0, toNumber(directShipForm.shipping_amount)))
+const directShipGrandTotal = computed(() => directShipItemsTotal.value)
 const metrics = computed(() => [
   canViewInventory.value ? { label: '原料库存', value: (overview.value.custody_balances || []).length } : null,
   canSubmitProcessing.value ? { label: '加工工单', value: (overview.value.processing_orders || []).length } : null,
@@ -643,15 +622,12 @@ async function submitDirectShip() {
         product_name: String(row.product_name || '').trim(),
         spec_g: Number(row.spec_g || 0),
         quantity_units: Number(row.qty || 0),
-        discount_type: String(row.discount_type || '').trim(),
-        discount_value: Number(row.discount_value || 0),
       }))
       .filter((row) => row.product_id > 0 && row.spec_g > 0 && row.quantity_units > 0)
     const row = await submitCustomerDirectShipOrder({
       receiver_name: directShipForm.receiver_name,
       receiver_phone: directShipForm.receiver_phone,
       receiver_address: directShipForm.receiver_address,
-      shipping_amount: Number(directShipForm.shipping_amount || 0),
       items,
       note: directShipForm.note,
     })
@@ -661,7 +637,6 @@ async function submitDirectShip() {
     directShipForm.receiver_name = ''
     directShipForm.receiver_phone = ''
     directShipForm.receiver_address = ''
-    directShipForm.shipping_amount = ''
     directShipForm.note = ''
     directShipItems.value = [newDirectShipItem()]
     fulfillmentOrdersPage.value = 1
@@ -881,8 +856,6 @@ function newDirectShipItem() {
     qty: 1,
     tier_id: 'auto',
     unit_price: '',
-    discount_type: '',
-    discount_value: '',
   }
 }
 
@@ -910,16 +883,7 @@ function syncDirectShipItemPrice(row) {
 
 function rowLineTotal(row) {
   const base = lineTotal(productByID(row.product_id), row, false)
-  if (base <= 0) return 0
-  const discountType = String(row?.discount_type || '')
-  const discountValue = Math.max(0, toNumber(row?.discount_value))
-  if (discountType === 'free') return 0
-  if (discountType === 'amount') return Math.max(base - Math.min(discountValue, base), 0)
-  if (discountType === 'percent') {
-    const rate = Math.max(0, Math.min(discountValue, 100))
-    return Math.max(base*rate/100, 0)
-  }
-  return base
+  return base > 0 ? base : 0
 }
 
 function priceUnitLabel(row) {
@@ -942,12 +906,6 @@ function ensureSingleTrailingEmptyRow() {
   const filled = directShipItems.value.filter((row) => isDirectShipItemFilled(row))
   const firstEmpty = directShipItems.value.find((row) => !isDirectShipItemFilled(row))
   directShipItems.value = [...filled, firstEmpty || newDirectShipItem()]
-}
-
-function onDiscountTypeChange(row) {
-  if (row?.discount_type === 'free' || row?.discount_type === '') {
-    row.discount_value = ''
-  }
 }
 
 function parseSpecG(spec) {
@@ -1184,7 +1142,7 @@ button:disabled {
 }
 
 .order-lines-table {
-  min-width: 1080px;
+  min-width: 920px;
   table-layout: fixed;
 }
 
@@ -1192,10 +1150,9 @@ button:disabled {
 .order-lines-table th:nth-child(2) { width: 100px; }
 .order-lines-table th:nth-child(3) { width: 90px; }
 .order-lines-table th:nth-child(4) { width: 130px; }
-.order-lines-table th:nth-child(5) { width: 170px; }
-.order-lines-table th:nth-child(6) { width: 100px; }
-.order-lines-table th:nth-child(7) { width: 240px; }
-.order-lines-table th:nth-child(8) { width: 80px; }
+.order-lines-table th:nth-child(5) { width: 100px; }
+.order-lines-table th:nth-child(6) { width: 240px; }
+.order-lines-table th:nth-child(7) { width: 80px; }
 
 .order-lines-table td {
   vertical-align: top;
@@ -1219,16 +1176,6 @@ button:disabled {
   color: #64748b;
   font-size: 12px;
   white-space: nowrap;
-}
-
-.discount-cell {
-  display: grid;
-  gap: 6px;
-}
-
-.discount-cell select,
-.discount-cell input {
-  width: 100%;
 }
 
 .line-total {
@@ -1271,7 +1218,7 @@ button:disabled {
 
 .direct-ship-footer {
   display: grid;
-  grid-template-columns: minmax(140px, 220px) minmax(120px, 180px) minmax(280px, 1fr);
+  grid-template-columns: minmax(120px, 180px) minmax(280px, 1fr);
   gap: 12px;
   align-items: end;
 }

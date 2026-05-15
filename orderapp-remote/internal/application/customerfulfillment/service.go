@@ -536,11 +536,19 @@ func (s *Service) SubmitCustomerDirectShipOrder(ctx context.Context, cmd SubmitC
 	if cmd.ShippingAmount < 0 {
 		cmd.ShippingAmount = 0
 	}
+	customerWorkbenchSubmit := cmd.EmployeeID > 0 && cmd.CustomerID <= 0
+	if customerWorkbenchSubmit {
+		cmd.ShippingAmount = 0
+	}
 	for i := range cmd.Items {
 		cmd.Items[i].ProductName = strings.Join(strings.Fields(strings.TrimSpace(cmd.Items[i].ProductName)), " ")
 		cmd.Items[i].Spec = strings.Join(strings.Fields(strings.TrimSpace(cmd.Items[i].Spec)), " ")
 		cmd.Items[i].DiscountType = strings.TrimSpace(strings.ToLower(cmd.Items[i].DiscountType))
 		if cmd.Items[i].DiscountValue < 0 {
+			cmd.Items[i].DiscountValue = 0
+		}
+		if customerWorkbenchSubmit {
+			cmd.Items[i].DiscountType = ""
 			cmd.Items[i].DiscountValue = 0
 		}
 		cmd.Items[i].Note = strings.TrimSpace(cmd.Items[i].Note)

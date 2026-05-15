@@ -74,7 +74,6 @@ const fulfillmentForm = ref({
   product_name: '',
   spec_g: 454,
   qty: 1,
-  shipping_amount: 0,
   note: '',
 })
 
@@ -206,7 +205,6 @@ function resetLocalForms() {
     product_name: '',
     spec_g: 454,
     qty: 1,
-    shipping_amount: 0,
     note: '',
   }
   orderSearch.value = emptyOrderSearch()
@@ -449,7 +447,6 @@ async function submitFulfillmentOrder() {
     product_name: fulfillmentForm.value.product_name.trim(),
     spec_g: Number(fulfillmentForm.value.spec_g) || 0,
     qty: Number(fulfillmentForm.value.qty) || 0,
-    shipping_amount: Number(fulfillmentForm.value.shipping_amount) || 0,
     note: fulfillmentForm.value.note,
   }
   if (!payload.recipient_name || !payload.recipient_phone || !payload.recipient_address || !payload.product_id || !payload.spec_g || !payload.qty) {
@@ -469,7 +466,6 @@ async function submitFulfillmentOrder() {
       product_name: '',
       spec_g: 454,
       qty: 1,
-      shipping_amount: 0,
       note: '',
     }
     uni.showToast({ title: '订单已提交', icon: 'success' })
@@ -548,7 +544,6 @@ onShow(() => {
         </picker>
         <input v-model.number="fulfillmentForm.spec_g" class="input" type="number" placeholder="规格克重" />
         <input v-model.number="fulfillmentForm.qty" class="input" type="number" placeholder="件数" />
-        <input v-model.number="fulfillmentForm.shipping_amount" class="input" type="digit" placeholder="运费，可不填" />
         <textarea v-model="fulfillmentForm.note" class="textarea" placeholder="订单备注" />
         <button class="primary" :disabled="submitting" @tap="submitFulfillmentOrder">提交订单</button>
       </view>

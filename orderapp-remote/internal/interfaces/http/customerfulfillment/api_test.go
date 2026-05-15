@@ -537,7 +537,7 @@ func TestCustomerPortalDirectShipSubmitAPIAcceptsMultiLineItems(t *testing.T) {
 	})
 	RegisterRoutes(e, Dependencies{CustomerFulfillment: svc})
 
-	body := `{"receiver_name":"张三","receiver_phone":"13800000000","receiver_address":"浙江杭州","shipping_amount":12,"items":[{"product_id":12,"product_name":"岩师傅冷萃豆","spec":"100g","quantity_units":2},{"product_id":12,"product_name":"岩师傅冷萃豆","spec_g":227,"quantity_units":1}],"note":"门卫代收"}`
+	body := `{"receiver_name":"张三","receiver_phone":"13800000000","receiver_address":"浙江杭州","shipping_amount":12,"items":[{"product_id":12,"product_name":"岩师傅冷萃豆","spec":"100g","quantity_units":2,"discount_type":"percent","discount_value":80},{"product_id":12,"product_name":"岩师傅冷萃豆","spec_g":227,"quantity_units":1,"discount_type":"amount","discount_value":10}],"note":"门卫代收"}`
 	req := httptest.NewRequest(http.MethodPost, "/api/customer-processing/portal/direct-ship-orders", strings.NewReader(body))
 	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
 	rec := httptest.NewRecorder()
@@ -546,8 +546,17 @@ func TestCustomerPortalDirectShipSubmitAPIAcceptsMultiLineItems(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("customer direct ship submit status=%d body=%s", rec.Code, rec.Body.String())
 	}
-	if len(svc.customerDirectShipCmd.Items) != 2 || svc.customerDirectShipCmd.Items[1].SpecG != 227 || svc.customerDirectShipCmd.ShippingAmount != 12 {
+	if len(svc.customerDirectShipCmd.Items) != 2 || svc.customerDirectShipCmd.Items[1].SpecG != 227 {
 		t.Fatalf("direct ship multi-line cmd = %+v", svc.customerDirectShipCmd)
+	}
+	if svc.customerDirectShipCmd.ShippingAmount != 0 {
+		t.Fatalf("customer portal direct ship shipping amount = %v, want 0", svc.customerDirectShipCmd.ShippingAmount)
+	}
+	if svc.customerDirectShipCmd.Items[0].DiscountType != "" || svc.customerDirectShipCmd.Items[0].DiscountValue != 0 {
+		t.Fatalf("customer portal first item discount = %#v, want stripped customer-side discount", svc.customerDirectShipCmd.Items[0])
+	}
+	if svc.customerDirectShipCmd.Items[1].DiscountType != "" || svc.customerDirectShipCmd.Items[1].DiscountValue != 0 {
+		t.Fatalf("customer portal second item discount = %#v, want stripped customer-side discount", svc.customerDirectShipCmd.Items[1])
 	}
 }
 
@@ -571,7 +580,7 @@ func TestInternalProcessingAndDirectShipSubmitAPIsUseExplicitCustomer(t *testing
 		t.Fatalf("internal processing cmd = %+v", svc.customerProcessingCmd)
 	}
 
-	directShipBody := `{"receiver_name":"张三","receiver_phone":"13800000000","receiver_address":"浙江杭州","product_name":"誉观山冷萃豆","spec":"100g","quantity_units":2,"note":"管理员提交"}`
+	directShipBody := `{"receiver_name":"张三","receiver_phone":"13800000000","receiver_address":"浙江杭州","shipping_amount":12,"items":[{"product_id":12,"product_name":"誉观山冷萃豆","spec_g":227,"quantity_units":2,"discount_type":"percent","discount_value":85}],"note":"管理员提交"}`
 	req = httptest.NewRequest(http.MethodPost, "/api/customer-fulfillment/149/direct-ship-orders", strings.NewReader(directShipBody))
 	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
 	rec = httptest.NewRecorder()
@@ -581,6 +590,12 @@ func TestInternalProcessingAndDirectShipSubmitAPIsUseExplicitCustomer(t *testing
 	}
 	if svc.customerDirectShipCmd.CustomerID != 149 || svc.customerDirectShipCmd.EmployeeID != 0 || svc.customerDirectShipCmd.ReceiverName != "张三" {
 		t.Fatalf("internal direct ship cmd = %+v", svc.customerDirectShipCmd)
+	}
+	if svc.customerDirectShipCmd.ShippingAmount != 12 {
+		t.Fatalf("internal direct ship shipping amount = %v, want preserved ERP-side value", svc.customerDirectShipCmd.ShippingAmount)
+	}
+	if len(svc.customerDirectShipCmd.Items) != 1 || svc.customerDirectShipCmd.Items[0].DiscountType != "percent" || svc.customerDirectShipCmd.Items[0].DiscountValue != 85 {
+		t.Fatalf("internal direct ship item discount = %#v, want preserved ERP-side discount", svc.customerDirectShipCmd.Items)
 	}
 }
 

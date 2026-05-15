@@ -1279,6 +1279,7 @@ func (s *Service) CreateMallOrder(ctx context.Context, token string, cmd CreateM
 	cmd.RecipientPhone = strings.TrimSpace(cmd.RecipientPhone)
 	cmd.RecipientAddress = strings.TrimSpace(cmd.RecipientAddress)
 	cmd.RecipientCompany = strings.TrimSpace(cmd.RecipientCompany)
+	cmd.ShippingAmount = 0
 	cmd.Note = strings.TrimSpace(cmd.Note)
 	if cmd.RecipientName == "" {
 		return FulfillmentOrder{}, fmt.Errorf("recipient_name required")
@@ -1364,6 +1365,7 @@ func (s *Service) CreateFulfillmentOrder(ctx context.Context, token string, cmd 
 	cmd.RecipientAddress = strings.TrimSpace(cmd.RecipientAddress)
 	cmd.RecipientCompany = strings.TrimSpace(cmd.RecipientCompany)
 	cmd.ProductName = strings.TrimSpace(cmd.ProductName)
+	cmd.ShippingAmount = 0
 	cmd.UnitPrice = 0
 	cmd.Note = strings.TrimSpace(cmd.Note)
 	if cmd.RecipientName == "" {

@@ -56,7 +56,6 @@ type fulfillmentOrderRequest struct {
 	SpecG            int64   `json:"spec_g"`
 	Qty              int64   `json:"qty"`
 	UnitPrice        float64 `json:"unit_price"`
-	ShippingAmount   float64 `json:"shipping_amount"`
 	Note             string  `json:"note"`
 }
 
@@ -65,7 +64,6 @@ type mallOrderRequest struct {
 	RecipientPhone   string                                   `json:"recipient_phone"`
 	RecipientAddress string                                   `json:"recipient_address"`
 	RecipientCompany string                                   `json:"recipient_company"`
-	ShippingAmount   float64                                  `json:"shipping_amount"`
 	Note             string                                   `json:"note"`
 	Items            []customerportalapp.MallOrderItemCommand `json:"items"`
 }
@@ -202,7 +200,6 @@ func registerMiniAPI(e *echo.Echo, svc Service, messages MessagePublisher, beanL
 			RecipientPhone:   req.RecipientPhone,
 			RecipientAddress: req.RecipientAddress,
 			RecipientCompany: req.RecipientCompany,
-			ShippingAmount:   req.ShippingAmount,
 			Note:             req.Note,
 			Items:            req.Items,
 		})
@@ -316,7 +313,6 @@ func registerMiniAPI(e *echo.Echo, svc Service, messages MessagePublisher, beanL
 			ProductName:       req.ProductName,
 			SpecG:             req.SpecG,
 			Qty:               req.Qty,
-			ShippingAmount:    req.ShippingAmount,
 			Note:              req.Note,
 		})
 		if err != nil {

@@ -193,7 +193,6 @@ func (a api) submitCustomerDirectShipOrder(c echo.Context) error {
 		ReceiverPhone   string  `json:"receiver_phone"`
 		ReceiverAddress string  `json:"receiver_address"`
 		ReceiverCompany string  `json:"receiver_company"`
-		ShippingAmount  float64 `json:"shipping_amount"`
 		ProductID       int64   `json:"product_id"`
 		ProductName     string  `json:"product_name"`
 		Spec            string  `json:"spec"`
@@ -204,8 +203,6 @@ func (a api) submitCustomerDirectShipOrder(c echo.Context) error {
 			Spec          string  `json:"spec"`
 			SpecG         int64   `json:"spec_g"`
 			QuantityUnits int64   `json:"quantity_units"`
-			DiscountType  string  `json:"discount_type"`
-			DiscountValue float64 `json:"discount_value"`
 			Note          string  `json:"note"`
 		} `json:"items"`
 		Note string `json:"note"`
@@ -221,8 +218,6 @@ func (a api) submitCustomerDirectShipOrder(c echo.Context) error {
 			Spec:          item.Spec,
 			SpecG:         item.SpecG,
 			QuantityUnits: item.QuantityUnits,
-			DiscountType:  item.DiscountType,
-			DiscountValue: item.DiscountValue,
 			Note:          item.Note,
 		})
 	}
@@ -232,7 +227,6 @@ func (a api) submitCustomerDirectShipOrder(c echo.Context) error {
 		ReceiverPhone:   req.ReceiverPhone,
 		ReceiverAddress: req.ReceiverAddress,
 		ReceiverCompany: req.ReceiverCompany,
-		ShippingAmount:  req.ShippingAmount,
 		ProductID:       req.ProductID,
 		ProductName:     req.ProductName,
 		Spec:            req.Spec,

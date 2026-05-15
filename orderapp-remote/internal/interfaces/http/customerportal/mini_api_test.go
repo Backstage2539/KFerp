@@ -1147,7 +1147,7 @@ func TestMallAdminAndMiniAPIs(t *testing.T) {
 		t.Fatalf("mini mall status=%d body=%s", mallRec.Code, mallRec.Body.String())
 	}
 
-	orderReq := httptest.NewRequest(http.MethodPost, "/api/mini/mall/orders", strings.NewReader(`{"recipient_name":"张三","recipient_phone":"13800138000","recipient_address":"上海市","items":[{"mall_product_id":11,"qty":2}]}`))
+	orderReq := httptest.NewRequest(http.MethodPost, "/api/mini/mall/orders", strings.NewReader(`{"recipient_name":"张三","recipient_phone":"13800138000","recipient_address":"上海市","shipping_amount":12,"items":[{"mall_product_id":11,"qty":2}]}`))
 	orderReq.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
 	orderReq.Header.Set(echo.HeaderAuthorization, "Bearer mini-token")
 	orderRec := httptest.NewRecorder()
@@ -1159,6 +1159,9 @@ func TestMallAdminAndMiniAPIs(t *testing.T) {
 	}
 	if orderCmd.RecipientName != "张三" || len(orderCmd.Items) != 1 || orderCmd.Items[0].MallProductID != 11 || orderCmd.Items[0].Qty != 2 {
 		t.Fatalf("mall order command=%+v", orderCmd)
+	}
+	if orderCmd.ShippingAmount != 0 {
+		t.Fatalf("mall order shipping amount=%v, want 0 for customer-side order submit", orderCmd.ShippingAmount)
 	}
 }
 
@@ -1383,11 +1386,13 @@ func TestMiniServicePageCapabilityDeniedMapsToForbidden(t *testing.T) {
 }
 
 func TestMiniDirectShipAndProcessingSubmitAPIs(t *testing.T) {
+	var cmd customerportalapp.CreateFulfillmentOrderCommand
 	e := echo.New()
 	RegisterRoutes(e, Dependencies{CustomerPortal: fakeService{
 		directShip:  customerportalapp.DirectShipBatch{ID: 5, BatchNo: "DS-20260503-0005", Status: "submitted", TotalRows: 100},
 		processing:  customerportalapp.ProcessingRequest{ID: 7, RequestNo: "PJ-20260503-0007", Status: "submitted"},
 		fulfillment: customerportalapp.FulfillmentOrder{OrderID: 9, OrderNo: "SO-20260504-0009", PortalServiceCode: customerportalapp.PortalServiceProcessingShipment, SourceWarehouse: "cust_147_processing"},
+		fulfillmentCmd: &cmd,
 	}})
 
 	directReq := httptest.NewRequest(http.MethodPost, "/api/mini/direct-ship/batches", strings.NewReader(`{"source_name":"5月直播订单","total_rows":100,"note":"客户一次发来100单"}`))
@@ -1416,6 +1421,9 @@ func TestMiniDirectShipAndProcessingSubmitAPIs(t *testing.T) {
 	if orderRec.Code != http.StatusOK || !strings.Contains(orderRec.Body.String(), `"order_no":"SO-20260504-0009"`) || !strings.Contains(orderRec.Body.String(), `"source_warehouse":"cust_147_processing"`) {
 		t.Fatalf("fulfillment status=%d body=%s", orderRec.Code, orderRec.Body.String())
 	}
+	if cmd.ShippingAmount != 0 {
+		t.Fatalf("fulfillment shipping amount=%v, want 0 for customer-side order submit", cmd.ShippingAmount)
+	}
 }
 
 func TestMiniFulfillmentOrderAPIIgnoresClientUnitPrice(t *testing.T) {
@@ -1437,6 +1445,9 @@ func TestMiniFulfillmentOrderAPIIgnoresClientUnitPrice(t *testing.T) {
 	}
 	if cmd.UnitPrice != 0 {
 		t.Fatalf("service command UnitPrice=%.2f, want 0 so backend pricing stays authoritative", cmd.UnitPrice)
+	}
+	if cmd.ShippingAmount != 0 {
+		t.Fatalf("service command ShippingAmount=%.2f, want 0 so customer-side freight stays authoritative", cmd.ShippingAmount)
 	}
 }
 

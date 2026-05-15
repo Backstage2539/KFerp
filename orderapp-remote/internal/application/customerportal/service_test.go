@@ -1523,6 +1523,7 @@ func TestMallPageAndOrderRequireMallCapability(t *testing.T) {
 		RecipientName:    " 张三 ",
 		RecipientPhone:   " 13800138000 ",
 		RecipientAddress: " 上海市 ",
+		ShippingAmount:   18,
 		Items:            []MallOrderItemCommand{{MallProductID: 11, Qty: 2}},
 	})
 	if err != nil {
@@ -1531,10 +1532,49 @@ func TestMallPageAndOrderRequireMallCapability(t *testing.T) {
 	if order.OrderNo != "SO-20260507-0088" || repo.mallOrderCommand.CustomerID != 7 || repo.mallOrderCommand.CreatedByMiniUserID != 3 || repo.mallOrderCommand.RecipientName != "张三" || repo.mallOrderCommand.Items[0].Qty != 2 {
 		t.Fatalf("mall order=%+v command=%+v", order, repo.mallOrderCommand)
 	}
+	if repo.mallOrderCommand.ShippingAmount != 0 {
+		t.Fatalf("mall order shipping amount=%v, want 0", repo.mallOrderCommand.ShippingAmount)
+	}
 
 	repo.context.Capabilities = []Capability{{Code: CapabilityProductOrder, Enabled: true}}
 	_, err = svc.GetMallPage(context.Background(), "mini-token")
 	if !errors.Is(err, ErrCapabilityNotEnabled) {
 		t.Fatalf("GetMallPage without mall capability err=%v, want ErrCapabilityNotEnabled", err)
+	}
+}
+
+func TestCreateFulfillmentOrderIgnoresCustomerSuppliedShippingAmount(t *testing.T) {
+	repo := &fakeRepository{
+		context: CurrentContext{
+			MiniUserID:        3,
+			CurrentCustomerID: 7,
+			Capabilities:      []Capability{{Code: CapabilityDirectShip, Enabled: true}},
+		},
+		fulfillmentOrder: FulfillmentOrder{OrderID: 401, OrderNo: "SO-FULFILLMENT", PortalServiceCode: PortalServiceDirectShip},
+	}
+	svc := NewService(repo, fakeIdentityProvider{})
+
+	order, err := svc.CreateFulfillmentOrder(context.Background(), "mini-token", CreateFulfillmentOrderCommand{
+		PortalServiceCode: PortalServiceDirectShip,
+		RecipientName:     " 张三 ",
+		RecipientPhone:    " 13800138000 ",
+		RecipientAddress:  " 上海市 ",
+		ProductID:         8,
+		ProductName:       " 乌拉嘎 ",
+		SpecG:             250,
+		Qty:               2,
+		ShippingAmount:    16,
+	})
+	if err != nil {
+		t.Fatalf("CreateFulfillmentOrder() err=%v", err)
+	}
+	if order.OrderNo != "SO-FULFILLMENT" {
+		t.Fatalf("fulfillment order=%+v", order)
+	}
+	if repo.fulfillmentCommand.CustomerID != 7 || repo.fulfillmentCommand.CreatedByMiniUserID != 3 || repo.fulfillmentCommand.ProductName != "乌拉嘎" {
+		t.Fatalf("fulfillment command=%+v", repo.fulfillmentCommand)
+	}
+	if repo.fulfillmentCommand.ShippingAmount != 0 {
+		t.Fatalf("fulfillment shipping amount=%v, want 0", repo.fulfillmentCommand.ShippingAmount)
 	}
 }

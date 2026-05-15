@@ -185,8 +185,8 @@ func TestServiceSubmitCustomerDirectShipOrderRequiresRecipientAndItem(t *testing
 		ReceiverAddress: " 浙江杭州 ",
 		ShippingAmount:  12.5,
 		Items: []SubmitCustomerDirectShipOrderItem{
-			{ProductID: 101, ProductName: " 冷萃拼配 ", SpecG: 454, QuantityUnits: 2, Note: " 多带两个阀 "},
-			{ProductID: 102, ProductName: " 手冲拼配 ", Spec: "227g", QuantityUnits: 1},
+			{ProductID: 101, ProductName: " 冷萃拼配 ", SpecG: 454, QuantityUnits: 2, DiscountType: "percent", DiscountValue: 80, Note: " 多带两个阀 "},
+			{ProductID: 102, ProductName: " 手冲拼配 ", Spec: "227g", QuantityUnits: 1, DiscountType: "amount", DiscountValue: 10},
 		},
 		Note: " 门卫代收 ",
 	})
@@ -198,6 +198,15 @@ func TestServiceSubmitCustomerDirectShipOrderRequiresRecipientAndItem(t *testing
 	}
 	if len(repo.customerDirectShipCmd.Items) != 2 || repo.customerDirectShipCmd.Items[0].SpecG != 454 || repo.customerDirectShipCmd.Items[1].Spec != "227g" {
 		t.Fatalf("direct ship multi-line cmd = %#v", repo.customerDirectShipCmd)
+	}
+	if repo.customerDirectShipCmd.ShippingAmount != 0 {
+		t.Fatalf("direct ship shipping amount = %v, want 0 for customer workbench submit", repo.customerDirectShipCmd.ShippingAmount)
+	}
+	if repo.customerDirectShipCmd.Items[0].DiscountType != "" || repo.customerDirectShipCmd.Items[0].DiscountValue != 0 {
+		t.Fatalf("first direct ship item discount = %#v, want cleared discount", repo.customerDirectShipCmd.Items[0])
+	}
+	if repo.customerDirectShipCmd.Items[1].DiscountType != "" || repo.customerDirectShipCmd.Items[1].DiscountValue != 0 {
+		t.Fatalf("second direct ship item discount = %#v, want cleared discount", repo.customerDirectShipCmd.Items[1])
 	}
 }
 
@@ -226,14 +235,21 @@ func TestServiceSubmitInternalCustomerWorkOrderAcceptsExplicitCustomerWithoutBin
 		ReceiverName:    "张三",
 		ReceiverPhone:   "13800000000",
 		ReceiverAddress: "浙江杭州",
-		ProductName:     "誉观山冷萃豆",
-		Spec:            "454g",
-		QuantityUnits:   1,
+		ShippingAmount:  15,
+		Items: []SubmitCustomerDirectShipOrderItem{
+			{ProductID: 88, ProductName: " 誉观山冷萃豆 ", SpecG: 454, QuantityUnits: 1, DiscountType: "percent", DiscountValue: 90},
+		},
 	}); err != nil {
 		t.Fatalf("SubmitCustomerDirectShipOrder internal err = %v", err)
 	}
 	if repo.customerDirectShipCmd.CustomerID != 149 || repo.customerDirectShipCmd.EmployeeID != 0 {
 		t.Fatalf("direct ship cmd = %#v, want explicit customer without employee", repo.customerDirectShipCmd)
+	}
+	if repo.customerDirectShipCmd.ShippingAmount != 15 {
+		t.Fatalf("direct ship shipping amount = %v, want preserved ERP-side value", repo.customerDirectShipCmd.ShippingAmount)
+	}
+	if len(repo.customerDirectShipCmd.Items) != 1 || repo.customerDirectShipCmd.Items[0].DiscountType != "percent" || repo.customerDirectShipCmd.Items[0].DiscountValue != 90 {
+		t.Fatalf("direct ship item discount = %#v, want preserved ERP-side discount", repo.customerDirectShipCmd.Items)
 	}
 }
 

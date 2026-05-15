@@ -254,7 +254,6 @@ export type CreateFulfillmentOrderPayload = {
   product_name?: string
   spec_g: number
   qty: number
-  shipping_amount?: number
   note?: string
 }
 

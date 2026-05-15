@@ -29,7 +29,7 @@ describe('miniapp customer switching', () => {
     expect(customerEntryRoute({ miniapp_entry_mode: 'services', capabilities: [{ code: 'direct_ship', enabled: true }] })).toBe('/pages/home/home')
   })
 
-  it('moves account actions into profile and removes the WeChat login entry', () => {
+  it('moves account actions into profile and keeps quick plus password login entry', () => {
     const pages = JSON.parse(readFileSync(resolve('src/pages.json'), 'utf8')) as { pages: { path: string }[] }
     const login = readFileSync(resolve('src/pages/login/login.vue'), 'utf8')
     const home = readFileSync(resolve('src/pages/home/home.vue'), 'utf8')
@@ -39,11 +39,13 @@ describe('miniapp customer switching', () => {
 
     expect(pages.pages.map((page) => page.path)).toContain('pages/profile/profile')
     expect(login).toContain('loginWithPassword')
+    expect(login).toContain('loginWithPhoneVerify')
     expect(login).toContain('用户名或手机号')
     expect(login).toContain('password placeholder="密码"')
+    expect(login).toContain('手机号快捷登录')
+    expect(login).toContain('uni.login')
     expect(login).not.toContain('type="text" placeholder="密码"')
     expect(login).not.toContain('微信一键登录')
-    expect(login).not.toContain('uni.login')
 
     expect(profile).toContain('switchCurrentCustomer')
     expect(profile).toContain('customerPickerLabels')
