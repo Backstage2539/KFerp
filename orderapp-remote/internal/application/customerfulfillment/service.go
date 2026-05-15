@@ -138,12 +138,14 @@ type SubmitCustomerDirectShipOrderCommand struct {
 }
 
 type SubmitCustomerDirectShipOrderItem struct {
-	ProductID     int64  `json:"product_id"`
-	ProductName   string `json:"product_name,omitempty"`
-	Spec          string `json:"spec,omitempty"`
-	SpecG         int64  `json:"spec_g,omitempty"`
-	QuantityUnits int64  `json:"quantity_units"`
-	Note          string `json:"note,omitempty"`
+	ProductID     int64   `json:"product_id"`
+	ProductName   string  `json:"product_name,omitempty"`
+	Spec          string  `json:"spec,omitempty"`
+	SpecG         int64   `json:"spec_g,omitempty"`
+	QuantityUnits int64   `json:"quantity_units"`
+	DiscountType  string  `json:"discount_type,omitempty"`
+	DiscountValue float64 `json:"discount_value,omitempty"`
+	Note          string  `json:"note,omitempty"`
 }
 
 type AdjustCustodyInventoryCommand struct {
@@ -216,15 +218,15 @@ type CustomerFulfillmentOptions struct {
 }
 
 type CustomerSKUOption struct {
-	ProductID     int64  `json:"product_id"`
-	BaseProductID int64  `json:"base_product_id,omitempty"`
-	SKUCode       string `json:"sku_code,omitempty"`
-	ProductName   string `json:"product_name"`
-	Spec          string `json:"spec,omitempty"`
-	RoastDegree   string `json:"roast_degree,omitempty"`
-	DefaultPrice  float64 `json:"default_price,omitempty"`
+	ProductID     int64                  `json:"product_id"`
+	BaseProductID int64                  `json:"base_product_id,omitempty"`
+	SKUCode       string                 `json:"sku_code,omitempty"`
+	ProductName   string                 `json:"product_name"`
+	Spec          string                 `json:"spec,omitempty"`
+	RoastDegree   string                 `json:"roast_degree,omitempty"`
+	DefaultPrice  float64                `json:"default_price,omitempty"`
 	Tiers         []CustomerSKUPriceTier `json:"tiers,omitempty"`
-	Source        string `json:"source,omitempty"`
+	Source        string                 `json:"source,omitempty"`
 }
 
 type CustomerSKUPriceTier struct {
@@ -537,6 +539,10 @@ func (s *Service) SubmitCustomerDirectShipOrder(ctx context.Context, cmd SubmitC
 	for i := range cmd.Items {
 		cmd.Items[i].ProductName = strings.Join(strings.Fields(strings.TrimSpace(cmd.Items[i].ProductName)), " ")
 		cmd.Items[i].Spec = strings.Join(strings.Fields(strings.TrimSpace(cmd.Items[i].Spec)), " ")
+		cmd.Items[i].DiscountType = strings.TrimSpace(strings.ToLower(cmd.Items[i].DiscountType))
+		if cmd.Items[i].DiscountValue < 0 {
+			cmd.Items[i].DiscountValue = 0
+		}
 		cmd.Items[i].Note = strings.TrimSpace(cmd.Items[i].Note)
 	}
 	cmd.Note = strings.TrimSpace(cmd.Note)
