@@ -19,10 +19,11 @@
       </div>
     </section>
 
-    <section v-if="formVisible" class="panel">
-      <div class="panel-head">
+    <div v-if="customerDrawerOpen" class="drawer-mask" @click.self="closeCustomerDrawer">
+      <aside class="customer-drawer" role="dialog" aria-modal="true">
+      <div class="drawer-head">
         <h3>{{ editingId ? '编辑客户' : '新增客户' }}</h3>
-        <button class="secondary" type="button" @click="closeForm">关闭</button>
+        <button class="secondary" type="button" @click="closeCustomerDrawer">关闭</button>
       </div>
       <form class="form-grid" @submit.prevent="saveCustomer">
         <label>
@@ -126,7 +127,8 @@
           <div v-if="!assets.length" class="muted">暂无附件</div>
         </div>
       </div>
-    </section>
+      </aside>
+    </div>
 
     <section class="panel">
       <div class="table-wrap">
@@ -144,12 +146,13 @@
               <th>默认订单类型</th>
               <th>状态</th>
               <th>更新时间</th>
-              <th>操作</th>
             </tr>
           </thead>
           <tbody>
             <tr v-for="row in rows" :key="row.id" :class="{ active: row.id === editingId }">
-              <td>{{ row.name }}</td>
+              <td>
+                <button class="name-button" type="button" @click="openCustomerDrawer(row.id)">{{ row.name }}</button>
+              </td>
               <td>{{ customerTypeLabel(row.customer_type) }}</td>
               <td>{{ row.company_name || row.name }}</td>
               <td>{{ row.company_phone || '' }}</td>
@@ -160,10 +163,9 @@
               <td>{{ optionName(orderTypes, row.default_order_type_id) }}</td>
               <td>{{ row.active ? '启用' : '停用' }}</td>
               <td>{{ row.updated }}</td>
-              <td><button class="text-button" type="button" @click="editCustomer(row.id)">编辑</button></td>
             </tr>
             <tr v-if="!rows.length">
-              <td colspan="12" class="muted">暂无客户</td>
+              <td colspan="11" class="muted">暂无客户</td>
             </tr>
           </tbody>
         </table>
@@ -192,7 +194,7 @@ const hasNext = ref(false)
 const loading = ref(false)
 const error = ref('')
 const ok = ref('')
-const formVisible = ref(false)
+const customerDrawerOpen = ref(false)
 const editingId = ref(0)
 const assets = ref([])
 const dashboard = reactive({ total_orders: 0, unpaid_orders: 0, unshipped_orders: 0, in_production: 0, in_shipping: 0, completed: 0 })
@@ -318,7 +320,7 @@ async function load() {
     hasPrev.value = !!data.has_prev
     hasNext.value = !!data.has_next
     page.value = Number(data.page || page.value)
-    updateUrl(formVisible.value ? (editingId.value ? { edit_id: editingId.value } : { mode: 'new' }) : {})
+    updateUrl(customerDrawerOpen.value ? (editingId.value ? { edit_id: editingId.value } : { mode: 'new' }) : {})
   } catch (err) {
     error.value = err.message || '加载失败'
   } finally {
@@ -327,7 +329,7 @@ async function load() {
 }
 
 function startNew() {
-  formVisible.value = true
+  customerDrawerOpen.value = true
   editingId.value = 0
   assets.value = []
   assignDashboard()
@@ -337,20 +339,20 @@ function startNew() {
   updateUrl({ mode: 'new' })
 }
 
-function closeForm() {
-  formVisible.value = false
+function closeCustomerDrawer() {
+  customerDrawerOpen.value = false
   editingId.value = 0
   assets.value = []
   updateUrl()
 }
 
-async function editCustomer(id) {
+async function openCustomerDrawer(id) {
   loading.value = true
   error.value = ''
   ok.value = ''
   try {
     const data = await apiGet(`/api/customers/${id}`)
-    formVisible.value = true
+    customerDrawerOpen.value = true
     editingId.value = Number(data.customer.id)
     assignForm(data.customer)
     sources.value = data.sources || sources.value
@@ -388,7 +390,7 @@ async function saveCustomer() {
       method: editingId.value ? 'PUT' : 'POST',
       body,
     })
-    formVisible.value = true
+    customerDrawerOpen.value = true
     editingId.value = Number(data.customer.id)
     assignForm(data.customer)
     assets.value = data.assets || []
@@ -420,7 +422,7 @@ async function uploadAsset() {
     await apiSend(`/customers/${editingId.value}/assets/upload`, { body: fd })
     assetInput.value.value = ''
     ok.value = '已上传'
-    await editCustomer(editingId.value)
+    await openCustomerDrawer(editingId.value)
   } catch (err) {
     error.value = err.message || '上传失败'
   } finally {
@@ -437,7 +439,7 @@ async function deleteAsset(id) {
     const body = new URLSearchParams({ asset_id: String(id) })
     await apiSend(`/customers/${editingId.value}/assets/delete`, { body })
     ok.value = '已删除附件'
-    await editCustomer(editingId.value)
+    await openCustomerDrawer(editingId.value)
   } catch (err) {
     error.value = err.message || '删除失败'
   } finally {
@@ -451,7 +453,7 @@ onMounted(async () => {
   const editID = Number(params.get('edit_id') || 0)
   const newMode = params.get('mode') === 'new'
   await load()
-  if (editID > 0) await editCustomer(editID)
+  if (editID > 0) await openCustomerDrawer(editID)
   else if (newMode) startNew()
 })
 </script>
@@ -460,8 +462,12 @@ onMounted(async () => {
 * { box-sizing: border-box; }
 .page { padding: 18px; color: #171717; }
 .panel { border: 1px solid #e6e0d8; border-radius: 8px; background: #fff; padding: 14px; margin-bottom: 14px; }
-.panel-head, .filters, .pager, .actions, .asset-form { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.panel-head, .drawer-head, .filters, .pager, .actions, .asset-form { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .panel-head { justify-content: space-between; margin-bottom: 12px; }
+.drawer-mask { position: fixed; inset: 0; z-index: 40; display: flex; justify-content: flex-end; background: rgba(20, 20, 20, .32); }
+.customer-drawer { width: min(760px, 100vw); height: 100vh; overflow: auto; background: #fff; padding: 18px; box-shadow: -18px 0 38px rgba(20, 20, 20, .18); }
+.drawer-head { position: sticky; top: 0; z-index: 2; justify-content: space-between; padding-bottom: 12px; margin-bottom: 14px; border-bottom: 1px solid #eee8df; background: #fff; }
+.customer-drawer input, .customer-drawer select, .customer-drawer textarea { width: 100%; }
 h2, h3 { margin: 0; font-size: 20px; }
 h3 { font-size: 18px; }
 label span, .stats span { display: block; color: #666; font-size: 12px; margin-bottom: 5px; }
@@ -473,6 +479,7 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .primary { background: #1f1f1f; color: #fff; }
 .secondary { background: #fff; color: #1f1f1f; }
 .text-button { height: 30px; border: 0; background: transparent; color: #1f4f82; padding: 0; }
+.name-button { height: auto; border: 0; background: transparent; color: #1f4f82; padding: 0; text-align: left; text-decoration: underline; text-underline-offset: 2px; }
 .form-grid { display: grid; grid-template-columns: repeat(2, minmax(220px, 1fr)); gap: 12px; align-items: end; }
 .wide { grid-column: 1 / -1; }
 .wide textarea { width: 100%; }

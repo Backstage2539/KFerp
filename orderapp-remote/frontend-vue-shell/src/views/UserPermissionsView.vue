@@ -13,19 +13,13 @@
       <div class="table-wrap">
         <table>
           <thead>
-            <tr><th>用户</th><th>电话</th><th>部门</th><th>账号类型</th><th>账号</th><th>内部权限</th><th>操作</th></tr>
+            <tr><th>用户</th><th>电话</th><th>部门</th><th>账号</th><th>内部权限</th><th>操作</th></tr>
           </thead>
           <tbody>
             <tr v-for="employee in employees" :key="employee.id">
               <td>{{ employee.name }}</td>
               <td>{{ employee.phone }}</td>
               <td>{{ employee.department }}</td>
-              <td>
-                <select class="type-select" :value="accountTypeOf(employee.id)" @change="setAccountTypeForEmployee(employee.id, $event.target.value)">
-                  <option value="internal_employee">内部员工</option>
-                  <option value="channel_customer">渠道客户</option>
-                </select>
-              </td>
               <td class="account-cell">
                 <label class="switch">
                   <input type="checkbox" :checked="accountOf(employee.id).login_enabled" @change="setEnabled(employee.id, $event.target.checked)" />
@@ -37,23 +31,20 @@
                 </div>
               </td>
               <td>
-                <span v-if="isChannelCustomer(employee.id)" class="muted">客户门户配置绑定</span>
-                <template v-else>
-                  <label v-for="role in roles" :key="role.code" class="role">
-                    <input
-                      type="checkbox"
-                      :value="role.code"
-                      :checked="selectedRoles(employee.id).includes(role.code)"
-                      @change="toggleRole(employee.id, role.code, $event.target.checked)" />
-                    {{ role.name }}
-                  </label>
-                </template>
+                <label v-for="role in roles" :key="role.code" class="role">
+                  <input
+                    type="checkbox"
+                    :value="role.code"
+                    :checked="selectedRoles(employee.id).includes(role.code)"
+                    @change="toggleRole(employee.id, role.code, $event.target.checked)" />
+                  {{ role.name }}
+                </label>
               </td>
               <td>
-                <button class="primary" type="button" @click="save(employee.id)" :disabled="saving || isChannelCustomer(employee.id)">保存</button>
+                <button class="primary" type="button" @click="save(employee.id)" :disabled="saving">保存</button>
               </td>
             </tr>
-            <tr v-if="!employees.length"><td colspan="7" class="muted">暂无用户</td></tr>
+            <tr v-if="!employees.length"><td colspan="6" class="muted">暂无用户</td></tr>
           </tbody>
         </table>
       </div>
@@ -64,7 +55,7 @@
 <script setup>
 import { onMounted, reactive, ref } from 'vue'
 import { apiGet } from '../api/client'
-import { fetchAuthAccounts, fetchEmployeeRoles, fetchRoles, resetEmployeePassword, saveEmployeeRoles, setAccountState, setAccountType } from '../api/auth'
+import { fetchEmployeeRoles, fetchInternalAuthAccounts, fetchRoles, resetEmployeePassword, saveEmployeeRoles, setAccountState } from '../api/auth'
 
 const employees = ref([])
 const roles = ref([])
@@ -81,15 +72,7 @@ function selectedRoles(employeeId) {
 }
 
 function accountOf(employeeId) {
-  return accountMap[String(employeeId)] || { login_enabled: true, has_password: false, account_type: 'internal_employee' }
-}
-
-function accountTypeOf(employeeId) {
-  return accountOf(employeeId).account_type || 'internal_employee'
-}
-
-function isChannelCustomer(employeeId) {
-  return accountTypeOf(employeeId) === 'channel_customer'
+  return accountMap[String(employeeId)] || { login_enabled: true, has_password: false }
 }
 
 function passwordActionLabel(employeeId) {
@@ -121,7 +104,7 @@ async function load() {
       apiGet('/api/company/employees'),
       fetchRoles(),
       fetchEmployeeRoles(),
-      fetchAuthAccounts(),
+      fetchInternalAuthAccounts(),
     ])
     employees.value = Array.isArray(employeeRows) ? employeeRows : []
     roles.value = (roleRes.roles || []).filter((role) => !String(role.code || '').startsWith('customer_'))
@@ -134,33 +117,13 @@ async function load() {
     for (const row of accountRes.rows || []) {
       accountMap[String(row.employee_id)] = {
         ...row,
-        account_type: row.account_type || 'internal_employee',
         login_enabled: !row.login_disabled,
-      }
-      if (row.account_type === 'channel_customer') {
-        roleMap[String(row.employee_id)] = []
       }
     }
   } catch (err) {
     error.value = err.message || '加载失败'
   } finally {
     loading.value = false
-  }
-}
-
-async function setAccountTypeForEmployee(employeeId, accountType) {
-  saving.value = true
-  error.value = ''
-  ok.value = false
-  try {
-    const nextType = accountType === 'channel_customer' ? 'channel_customer' : 'internal_employee'
-    await setAccountType(employeeId, nextType)
-    ok.value = true
-    await load()
-  } catch (err) {
-    error.value = err.message || '账号类型保存失败'
-  } finally {
-    saving.value = false
   }
 }
 
@@ -196,7 +159,6 @@ async function savePassword(employeeId) {
 }
 
 async function save(employeeId) {
-  if (isChannelCustomer(employeeId)) return
   saving.value = true
   error.value = ''
   ok.value = false
@@ -221,12 +183,11 @@ onMounted(load)
 .panel-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
 h2 { margin: 0; font-size: 20px; }
 .table-wrap { overflow: auto; }
-table { width: 100%; min-width: 1100px; border-collapse: collapse; }
+table { width: 100%; min-width: 960px; border-collapse: collapse; }
 th, td { border-bottom: 1px solid #eef1f4; padding: 10px 8px; text-align: left; vertical-align: top; font-size: 14px; }
 th { background: #f8fafc; }
 .role { display: inline-flex; align-items: center; gap: 5px; margin: 0 12px 8px 0; white-space: nowrap; }
 .account-cell { min-width: 240px; }
-.type-select { width: 128px; height: 34px; border: 1px solid #cfc8bf; border-radius: 6px; padding: 5px 8px; background: #fff; font: inherit; }
 .switch { display: inline-flex; align-items: center; gap: 6px; margin-bottom: 8px; white-space: nowrap; }
 .password-row { display: grid; grid-template-columns: minmax(130px, 1fr) 88px; gap: 6px; }
 .password-row input { height: 34px; border: 1px solid #cfc8bf; border-radius: 6px; padding: 6px 8px; }

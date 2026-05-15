@@ -2,6 +2,8 @@ package customerfulfillment
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -996,6 +998,208 @@ func (r *Repository) ListCustomerERPBindings(ctx context.Context, customerID int
 		out = append(out, row)
 	}
 	return out, rows.Err()
+}
+
+func (r *Repository) ListExternalUsers(ctx context.Context, customerID int64) ([]app.CustomerExternalUser, error) {
+	rows, err := r.pool.Query(ctx, fmt.Sprintf(`
+		SELECT b.customer_id, e.id, COALESCE(e.name,''), COALESCE(e.phone,''),
+		       COALESCE(p.password_hash,'') <> '' AS has_password,
+		       COALESCE(p.login_disabled,false) AS login_disabled,
+		       b.status, to_char(b.updated_at,'YYYY-MM-DD HH24:MI')
+		FROM %s.customer_erp_user_bindings b
+		JOIN %s.company_employees e ON e.id=b.employee_id
+		LEFT JOIN %s.employee_login_passwords p ON p.employee_id=e.id
+		WHERE b.customer_id=$1 AND e.account_type='channel_customer'
+		ORDER BY b.updated_at DESC, b.id DESC
+	`, r.schema, r.schema, r.schema), customerID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := make([]app.CustomerExternalUser, 0)
+	for rows.Next() {
+		var row app.CustomerExternalUser
+		var loginDisabled bool
+		if err := rows.Scan(&row.CustomerID, &row.EmployeeID, &row.Name, &row.Phone, &row.HasPassword, &loginDisabled, &row.BindingStatus, &row.UpdatedAt); err != nil {
+			return nil, err
+		}
+		row.LoginEnabled = !loginDisabled
+		out = append(out, row)
+	}
+	return out, rows.Err()
+}
+
+func (r *Repository) CreateExternalUser(ctx context.Context, cmd app.CreateExternalUserCommand) (app.CustomerExternalUser, error) {
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return app.CustomerExternalUser{}, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	if err := r.requireCustomerERPWorkbenchTemplateTx(ctx, tx, cmd.CustomerID); err != nil {
+		return app.CustomerExternalUser{}, err
+	}
+	var depID int64
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT id FROM %s.company_departments WHERE active=true ORDER BY id LIMIT 1`, r.schema)).Scan(&depID); err != nil {
+		return app.CustomerExternalUser{}, fmt.Errorf("department not found")
+	}
+	var employeeID int64
+	var accountType string
+	err = tx.QueryRow(ctx, fmt.Sprintf(`SELECT id, COALESCE(NULLIF(account_type,''),'internal_employee') FROM %s.company_employees WHERE phone=$1 LIMIT 1`, r.schema), cmd.Phone).Scan(&employeeID, &accountType)
+	if err == nil {
+		if accountType != "channel_customer" {
+			return app.CustomerExternalUser{}, fmt.Errorf("phone already belongs to internal employee")
+		}
+		if _, err := tx.Exec(ctx, fmt.Sprintf(`
+			UPDATE %s.company_employees
+			SET name=$2, department_id=$3, active=true, updated_at=now()
+			WHERE id=$1
+		`, r.schema), employeeID, cmd.Name, depID); err != nil {
+			return app.CustomerExternalUser{}, err
+		}
+	} else if errors.Is(err, pgx.ErrNoRows) {
+		if err := tx.QueryRow(ctx, fmt.Sprintf(`
+			INSERT INTO %s.company_employees(name, phone, department_id, account_type, active, updated_at)
+			VALUES($1,$2,$3,'channel_customer',true,now())
+			RETURNING id
+		`, r.schema), cmd.Name, cmd.Phone, depID).Scan(&employeeID); err != nil {
+			return app.CustomerExternalUser{}, err
+		}
+	} else {
+		return app.CustomerExternalUser{}, err
+	}
+	if _, err := tx.Exec(ctx, fmt.Sprintf(`
+		INSERT INTO %s.employee_login_passwords(employee_id,password_hash,login_disabled,must_reset_password,updated_at)
+		VALUES($1,$2,false,true,now())
+		ON CONFLICT (employee_id) DO UPDATE SET password_hash=excluded.password_hash,login_disabled=false,must_reset_password=true,updated_at=now()
+	`, r.schema), employeeID, hashCustomerFulfillmentPassword(cmd.Password)); err != nil {
+		return app.CustomerExternalUser{}, err
+	}
+	if err := r.activateExternalUserBindingTx(ctx, tx, cmd.CustomerID, employeeID, cmd.Actor); err != nil {
+		return app.CustomerExternalUser{}, err
+	}
+	row, err := r.externalUserByID(ctx, tx, cmd.CustomerID, employeeID)
+	if err != nil {
+		return app.CustomerExternalUser{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return app.CustomerExternalUser{}, err
+	}
+	return row, nil
+}
+
+func (r *Repository) ResetExternalUserPassword(ctx context.Context, cmd app.ResetExternalUserPasswordCommand) (app.CustomerExternalUser, error) {
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return app.CustomerExternalUser{}, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	if _, err := r.externalUserByID(ctx, tx, cmd.CustomerID, cmd.EmployeeID); err != nil {
+		return app.CustomerExternalUser{}, err
+	}
+	if _, err := tx.Exec(ctx, fmt.Sprintf(`
+		INSERT INTO %s.employee_login_passwords(employee_id,password_hash,login_disabled,must_reset_password,updated_at)
+		VALUES($1,$2,false,true,now())
+		ON CONFLICT (employee_id) DO UPDATE SET password_hash=excluded.password_hash,login_disabled=false,must_reset_password=true,updated_at=now()
+	`, r.schema), cmd.EmployeeID, hashCustomerFulfillmentPassword(cmd.Password)); err != nil {
+		return app.CustomerExternalUser{}, err
+	}
+	row, err := r.externalUserByID(ctx, tx, cmd.CustomerID, cmd.EmployeeID)
+	if err != nil {
+		return app.CustomerExternalUser{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return app.CustomerExternalUser{}, err
+	}
+	return row, nil
+}
+
+func (r *Repository) SetExternalUserLoginEnabled(ctx context.Context, cmd app.SetExternalUserLoginEnabledCommand) (app.CustomerExternalUser, error) {
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return app.CustomerExternalUser{}, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	if _, err := r.externalUserByID(ctx, tx, cmd.CustomerID, cmd.EmployeeID); err != nil {
+		return app.CustomerExternalUser{}, err
+	}
+	if _, err := tx.Exec(ctx, fmt.Sprintf(`
+		INSERT INTO %s.employee_login_passwords(employee_id,password_hash,login_disabled,updated_at)
+		VALUES($1,'',$2,now())
+		ON CONFLICT (employee_id) DO UPDATE SET login_disabled=excluded.login_disabled,updated_at=now()
+	`, r.schema), cmd.EmployeeID, !cmd.LoginEnabled); err != nil {
+		return app.CustomerExternalUser{}, err
+	}
+	row, err := r.externalUserByID(ctx, tx, cmd.CustomerID, cmd.EmployeeID)
+	if err != nil {
+		return app.CustomerExternalUser{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return app.CustomerExternalUser{}, err
+	}
+	return row, nil
+}
+
+func (r *Repository) activateExternalUserBindingTx(ctx context.Context, tx pgx.Tx, customerID, employeeID int64, actor string) error {
+	var otherCustomerID int64
+	err := tx.QueryRow(ctx, fmt.Sprintf(`
+		SELECT customer_id
+		FROM %s.customer_erp_user_bindings
+		WHERE employee_id=$1 AND status='active' AND customer_id<>$2
+		LIMIT 1
+	`, r.schema), employeeID, customerID).Scan(&otherCustomerID)
+	if err == nil && otherCustomerID > 0 {
+		return fmt.Errorf("external user already bound to another customer")
+	}
+	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		return err
+	}
+	if _, err := tx.Exec(ctx, fmt.Sprintf(`
+		UPDATE %s.customer_erp_user_bindings
+		SET status='inactive', updated_by=$3, updated_at=now()
+		WHERE customer_id=$1 AND status='active' AND employee_id<>$2
+	`, r.schema), customerID, employeeID, actor); err != nil {
+		return err
+	}
+	_, err = tx.Exec(ctx, fmt.Sprintf(`
+		INSERT INTO %s.customer_erp_user_bindings(customer_id, employee_id, role, status, updated_by, updated_at)
+		VALUES($1,$2,'customer','active',$3,now())
+		ON CONFLICT (employee_id, customer_id) DO UPDATE SET
+			role='customer',
+			status='active',
+			updated_by=excluded.updated_by,
+			updated_at=now()
+	`, r.schema), customerID, employeeID, actor)
+	return err
+}
+
+func (r *Repository) externalUserByID(ctx context.Context, q queryRower, customerID, employeeID int64) (app.CustomerExternalUser, error) {
+	var row app.CustomerExternalUser
+	var loginDisabled bool
+	err := q.QueryRow(ctx, fmt.Sprintf(`
+		SELECT b.customer_id, e.id, COALESCE(e.name,''), COALESCE(e.phone,''),
+		       COALESCE(p.password_hash,'') <> '' AS has_password,
+		       COALESCE(p.login_disabled,false) AS login_disabled,
+		       b.status, to_char(b.updated_at,'YYYY-MM-DD HH24:MI')
+		FROM %s.customer_erp_user_bindings b
+		JOIN %s.company_employees e ON e.id=b.employee_id
+		LEFT JOIN %s.employee_login_passwords p ON p.employee_id=e.id
+		WHERE b.customer_id=$1 AND e.id=$2 AND e.account_type='channel_customer'
+		LIMIT 1
+	`, r.schema, r.schema, r.schema), customerID, employeeID).Scan(&row.CustomerID, &row.EmployeeID, &row.Name, &row.Phone, &row.HasPassword, &loginDisabled, &row.BindingStatus, &row.UpdatedAt)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return app.CustomerExternalUser{}, fmt.Errorf("external user not found")
+	}
+	if err != nil {
+		return app.CustomerExternalUser{}, err
+	}
+	row.LoginEnabled = !loginDisabled
+	return row, nil
+}
+
+func hashCustomerFulfillmentPassword(raw string) string {
+	sum := sha256.Sum256([]byte("orderapp-mobile-auth:" + raw))
+	return hex.EncodeToString(sum[:])
 }
 
 func (r *Repository) CustomerERPWorkbenchAvailable(ctx context.Context, customerID int64) (bool, error) {

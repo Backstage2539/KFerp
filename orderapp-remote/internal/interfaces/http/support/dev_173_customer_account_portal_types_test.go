@@ -44,27 +44,31 @@ func TestCustomerAccountPortalTypesWiredAcrossUIAndAPIs(t *testing.T) {
 		}
 	}
 	for _, want := range []string{
-		"account_type",
-		"内部员工",
-		"渠道客户",
-		"setAccountType",
-		"isChannelCustomer",
+		"fetchInternalAuthAccounts",
+		"内部权限",
+		"resetEmployeePassword",
 	} {
 		if !strings.Contains(userPermissions, want) {
-			t.Fatalf("UserPermissionsView.vue missing account type behavior %q", want)
+			t.Fatalf("UserPermissionsView.vue missing internal permission behavior %q", want)
 		}
 	}
-	if strings.Contains(userPermissions, "公共SKU代发客户") || strings.Contains(userPermissions, "代加工客户") {
-		t.Fatal("user permissions page must not show customer business role labels")
+	for _, forbidden := range []string{"account_type", "渠道客户", "setAccountType", "isChannelCustomer", "公共SKU代发客户", "代加工客户"} {
+		if strings.Contains(userPermissions, forbidden) {
+			t.Fatalf("user permissions page must not show external account behavior %q", forbidden)
+		}
 	}
 	for _, want := range []string{
-		"ERP账号",
 		"erp_binding",
-		"saveERPBinding",
-		"channel_customer",
+		"goToFulfillmentAccount",
+		"去履约运营台管理",
 	} {
 		if !strings.Contains(portalSettings, want) {
-			t.Fatalf("CustomerPortalSettingsView.vue missing ERP binding UI %q", want)
+			t.Fatalf("CustomerPortalSettingsView.vue missing fulfillment account handoff UI %q", want)
+		}
+	}
+	for _, forbidden := range []string{"saveERPBinding", "/api/auth/accounts", "channel_customer"} {
+		if strings.Contains(portalSettings, forbidden) {
+			t.Fatalf("CustomerPortalSettingsView.vue must not manage external accounts directly %q", forbidden)
 		}
 	}
 	for _, want := range []string{

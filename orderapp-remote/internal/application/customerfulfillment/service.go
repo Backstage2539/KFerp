@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"regexp"
 	"strings"
 	"time"
 )
@@ -19,6 +20,8 @@ const (
 	ImportTypeDirectShipWorkbook ImportType = "direct_ship_workbook"
 	ImportTypeSettlementWorkbook ImportType = "settlement_workbook"
 )
+
+var externalUserPhoneRe = regexp.MustCompile(`^1\d{10}$`)
 
 type ParsedWorkbook struct {
 	ImportType ImportType    `json:"import_type"`
@@ -158,6 +161,39 @@ type CustomerERPBinding struct {
 	Status       string `json:"status"`
 	UpdatedBy    string `json:"updated_by,omitempty"`
 	UpdatedAt    string `json:"updated_at,omitempty"`
+}
+
+type CreateExternalUserCommand struct {
+	CustomerID int64
+	Name       string
+	Phone      string
+	Password   string
+	Actor      string
+}
+
+type ResetExternalUserPasswordCommand struct {
+	CustomerID int64
+	EmployeeID int64
+	Password   string
+	Actor      string
+}
+
+type SetExternalUserLoginEnabledCommand struct {
+	CustomerID   int64
+	EmployeeID   int64
+	LoginEnabled bool
+	Actor        string
+}
+
+type CustomerExternalUser struct {
+	CustomerID    int64  `json:"customer_id"`
+	EmployeeID    int64  `json:"employee_id"`
+	Name          string `json:"name"`
+	Phone         string `json:"phone"`
+	LoginEnabled  bool   `json:"login_enabled"`
+	HasPassword   bool   `json:"has_password"`
+	BindingStatus string `json:"binding_status"`
+	UpdatedAt     string `json:"updated_at,omitempty"`
 }
 
 type CustomerFulfillmentOptions struct {
@@ -353,6 +389,10 @@ type Repository interface {
 	UpsertCustomerERPBinding(context.Context, UpsertCustomerERPBindingCommand) (CustomerERPBinding, error)
 	ListCustomerERPBindings(context.Context, int64) ([]CustomerERPBinding, error)
 	CustomerERPWorkbenchAvailable(context.Context, int64) (bool, error)
+	CreateExternalUser(context.Context, CreateExternalUserCommand) (CustomerExternalUser, error)
+	ListExternalUsers(context.Context, int64) ([]CustomerExternalUser, error)
+	ResetExternalUserPassword(context.Context, ResetExternalUserPasswordCommand) (CustomerExternalUser, error)
+	SetExternalUserLoginEnabled(context.Context, SetExternalUserLoginEnabledCommand) (CustomerExternalUser, error)
 	CustomerFulfillmentOptions(context.Context, int64) (CustomerFulfillmentOptions, error)
 	CreateSettlement(context.Context, CreateSettlementCommand) (SettlementResult, error)
 	Overview(context.Context, OverviewQuery) (Overview, error)
@@ -537,6 +577,59 @@ func (s *Service) CustomerERPWorkbenchAvailable(ctx context.Context, customerID 
 		return false, fmt.Errorf("customer required")
 	}
 	return s.repo.CustomerERPWorkbenchAvailable(ctx, customerID)
+}
+
+func (s *Service) CreateExternalUser(ctx context.Context, cmd CreateExternalUserCommand) (CustomerExternalUser, error) {
+	if cmd.CustomerID <= 0 {
+		return CustomerExternalUser{}, fmt.Errorf("customer required")
+	}
+	cmd.Name = strings.Join(strings.Fields(strings.TrimSpace(cmd.Name)), " ")
+	cmd.Phone = strings.TrimSpace(cmd.Phone)
+	cmd.Password = strings.TrimSpace(cmd.Password)
+	cmd.Actor = strings.TrimSpace(cmd.Actor)
+	if cmd.Name == "" {
+		return CustomerExternalUser{}, fmt.Errorf("name required")
+	}
+	if !externalUserPhoneRe.MatchString(cmd.Phone) {
+		return CustomerExternalUser{}, fmt.Errorf("phone invalid")
+	}
+	if len(cmd.Password) < 6 {
+		return CustomerExternalUser{}, fmt.Errorf("password too short")
+	}
+	return s.repo.CreateExternalUser(ctx, cmd)
+}
+
+func (s *Service) ListExternalUsers(ctx context.Context, customerID int64) ([]CustomerExternalUser, error) {
+	if customerID <= 0 {
+		return nil, fmt.Errorf("customer required")
+	}
+	return s.repo.ListExternalUsers(ctx, customerID)
+}
+
+func (s *Service) ResetExternalUserPassword(ctx context.Context, cmd ResetExternalUserPasswordCommand) (CustomerExternalUser, error) {
+	if cmd.CustomerID <= 0 {
+		return CustomerExternalUser{}, fmt.Errorf("customer required")
+	}
+	if cmd.EmployeeID <= 0 {
+		return CustomerExternalUser{}, fmt.Errorf("employee required")
+	}
+	cmd.Password = strings.TrimSpace(cmd.Password)
+	cmd.Actor = strings.TrimSpace(cmd.Actor)
+	if len(cmd.Password) < 6 {
+		return CustomerExternalUser{}, fmt.Errorf("password too short")
+	}
+	return s.repo.ResetExternalUserPassword(ctx, cmd)
+}
+
+func (s *Service) SetExternalUserLoginEnabled(ctx context.Context, cmd SetExternalUserLoginEnabledCommand) (CustomerExternalUser, error) {
+	if cmd.CustomerID <= 0 {
+		return CustomerExternalUser{}, fmt.Errorf("customer required")
+	}
+	if cmd.EmployeeID <= 0 {
+		return CustomerExternalUser{}, fmt.Errorf("employee required")
+	}
+	cmd.Actor = strings.TrimSpace(cmd.Actor)
+	return s.repo.SetExternalUserLoginEnabled(ctx, cmd)
 }
 
 func (s *Service) CustomerFulfillmentOptions(ctx context.Context, customerID int64) (CustomerFulfillmentOptions, error) {

@@ -19,6 +19,8 @@ type api struct {
 	messages  MessagePublisher
 }
 
+const externalUsersRouteSegment = "external-users"
+
 func (a api) listCustomers(c echo.Context) error {
 	if a.customers == nil {
 		return customerFulfillmentError(c, http.StatusInternalServerError, fmt.Errorf("customer directory unavailable"))
@@ -484,6 +486,98 @@ func (a api) upsertERPBinding(c echo.Context) error {
 		Role:       req.Role,
 		Status:     req.Status,
 		Actor:      currentCustomerFulfillmentActor(c),
+	})
+	if err != nil {
+		return customerFulfillmentError(c, http.StatusBadRequest, err)
+	}
+	return c.JSON(http.StatusOK, row)
+}
+
+func (a api) listExternalUsers(c echo.Context) error {
+	customerID, err := parseID(c.Param("customer_id"), "customer")
+	if err != nil {
+		return customerFulfillmentError(c, http.StatusBadRequest, err)
+	}
+	rows, err := a.svc.ListExternalUsers(c.Request().Context(), customerID)
+	if err != nil {
+		return customerFulfillmentError(c, http.StatusBadRequest, err)
+	}
+	return c.JSON(http.StatusOK, map[string]any{"users": rows})
+}
+
+func (a api) CreateExternalUser(c echo.Context) error {
+	customerID, err := parseID(c.Param("customer_id"), "customer")
+	if err != nil {
+		return customerFulfillmentError(c, http.StatusBadRequest, err)
+	}
+	var req struct {
+		Name     string `json:"name"`
+		Phone    string `json:"phone"`
+		Password string `json:"password"`
+	}
+	if err := c.Bind(&req); err != nil {
+		return customerFulfillmentError(c, http.StatusBadRequest, fmt.Errorf("invalid request"))
+	}
+	row, err := a.svc.CreateExternalUser(c.Request().Context(), app.CreateExternalUserCommand{
+		CustomerID: customerID,
+		Name:       req.Name,
+		Phone:      req.Phone,
+		Password:   req.Password,
+		Actor:      currentCustomerFulfillmentActor(c),
+	})
+	if err != nil {
+		return customerFulfillmentError(c, http.StatusBadRequest, err)
+	}
+	return c.JSON(http.StatusOK, row)
+}
+
+func (a api) ResetExternalUserPassword(c echo.Context) error {
+	customerID, err := parseID(c.Param("customer_id"), "customer")
+	if err != nil {
+		return customerFulfillmentError(c, http.StatusBadRequest, err)
+	}
+	employeeID, err := parseID(c.Param("employee_id"), "employee")
+	if err != nil {
+		return customerFulfillmentError(c, http.StatusBadRequest, err)
+	}
+	var req struct {
+		Password string `json:"password"`
+	}
+	if err := c.Bind(&req); err != nil {
+		return customerFulfillmentError(c, http.StatusBadRequest, fmt.Errorf("invalid request"))
+	}
+	row, err := a.svc.ResetExternalUserPassword(c.Request().Context(), app.ResetExternalUserPasswordCommand{
+		CustomerID: customerID,
+		EmployeeID: employeeID,
+		Password:   req.Password,
+		Actor:      currentCustomerFulfillmentActor(c),
+	})
+	if err != nil {
+		return customerFulfillmentError(c, http.StatusBadRequest, err)
+	}
+	return c.JSON(http.StatusOK, row)
+}
+
+func (a api) SetExternalUserLoginEnabled(c echo.Context) error {
+	customerID, err := parseID(c.Param("customer_id"), "customer")
+	if err != nil {
+		return customerFulfillmentError(c, http.StatusBadRequest, err)
+	}
+	employeeID, err := parseID(c.Param("employee_id"), "employee")
+	if err != nil {
+		return customerFulfillmentError(c, http.StatusBadRequest, err)
+	}
+	var req struct {
+		LoginEnabled bool `json:"login_enabled"`
+	}
+	if err := c.Bind(&req); err != nil {
+		return customerFulfillmentError(c, http.StatusBadRequest, fmt.Errorf("invalid request"))
+	}
+	row, err := a.svc.SetExternalUserLoginEnabled(c.Request().Context(), app.SetExternalUserLoginEnabledCommand{
+		CustomerID:   customerID,
+		EmployeeID:   employeeID,
+		LoginEnabled: req.LoginEnabled,
+		Actor:        currentCustomerFulfillmentActor(c),
 	})
 	if err != nil {
 		return customerFulfillmentError(c, http.StatusBadRequest, err)

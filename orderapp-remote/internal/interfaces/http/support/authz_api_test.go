@@ -209,6 +209,12 @@ func TestMessageCenterAPIRequiresOrderReadPermission(t *testing.T) {
 	}
 }
 
+func TestRequiredPermissionForInternalAccounts(t *testing.T) {
+	if got := requiredPermissionForRequest(http.MethodGet, "/api/auth/internal-accounts"); got != "" {
+		t.Fatalf("GET /api/auth/internal-accounts middleware permission = %q, want empty", got)
+	}
+}
+
 func TestBeanListPublicationPermissionsSeparatePublishAndDraft(t *testing.T) {
 	cases := []struct {
 		method string

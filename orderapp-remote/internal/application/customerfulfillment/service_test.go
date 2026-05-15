@@ -243,6 +243,48 @@ func TestServiceCustomerFulfillmentOptionsRequiresCustomerAndDelegates(t *testin
 	}
 }
 
+func TestServiceExternalUserManagementValidatesAndDelegates(t *testing.T) {
+	repo := &fakeCustomerFulfillmentRepository{
+		createExternalUserResult:   CustomerExternalUser{CustomerID: 149, EmployeeID: 23, Name: "誉观山账号", Phone: "13800138075", LoginEnabled: true, HasPassword: true, BindingStatus: "active"},
+		listExternalUsersResult:    []CustomerExternalUser{{CustomerID: 149, EmployeeID: 23, Name: "誉观山账号", Phone: "13800138075", LoginEnabled: true, HasPassword: true, BindingStatus: "active"}},
+		resetExternalUserResult:    CustomerExternalUser{CustomerID: 149, EmployeeID: 23, Name: "誉观山账号", Phone: "13800138075", LoginEnabled: true, HasPassword: true, BindingStatus: "active"},
+		setExternalUserLoginResult: CustomerExternalUser{CustomerID: 149, EmployeeID: 23, Name: "誉观山账号", Phone: "13800138075", LoginEnabled: false, HasPassword: true, BindingStatus: "active"},
+	}
+	svc := NewService(repo)
+	if _, err := svc.CreateExternalUser(context.Background(), CreateExternalUserCommand{CustomerID: 149, Name: "誉观山账号", Phone: "13800138075", Password: "123"}); err == nil || !strings.Contains(err.Error(), "password") {
+		t.Fatalf("CreateExternalUser short password error = %v, want password validation", err)
+	}
+	got, err := svc.CreateExternalUser(context.Background(), CreateExternalUserCommand{CustomerID: 149, Name: "  誉观山账号  ", Phone: " 13800138075 ", Password: " secret123 ", Actor: " Codex "})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.EmployeeID != 23 || repo.createExternalUserCmd.Name != "誉观山账号" || repo.createExternalUserCmd.Phone != "13800138075" || repo.createExternalUserCmd.Password != "secret123" || repo.createExternalUserCmd.Actor != "Codex" {
+		t.Fatalf("create result/cmd = %#v/%#v", got, repo.createExternalUserCmd)
+	}
+	users, err := svc.ListExternalUsers(context.Background(), 149)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if repo.listExternalUsersCustomerID != 149 || len(users) != 1 {
+		t.Fatalf("list external users = %#v customer=%d", users, repo.listExternalUsersCustomerID)
+	}
+	if _, err := svc.ResetExternalUserPassword(context.Background(), ResetExternalUserPasswordCommand{CustomerID: 149, EmployeeID: 23, Password: "123"}); err == nil || !strings.Contains(err.Error(), "password") {
+		t.Fatalf("ResetExternalUserPassword short password error = %v, want password validation", err)
+	}
+	if _, err := svc.ResetExternalUserPassword(context.Background(), ResetExternalUserPasswordCommand{CustomerID: 149, EmployeeID: 23, Password: " secret456 ", Actor: " Codex "}); err != nil {
+		t.Fatal(err)
+	}
+	if repo.resetExternalUserCmd.Password != "secret456" || repo.resetExternalUserCmd.Actor != "Codex" {
+		t.Fatalf("reset external user cmd = %#v", repo.resetExternalUserCmd)
+	}
+	if _, err := svc.SetExternalUserLoginEnabled(context.Background(), SetExternalUserLoginEnabledCommand{CustomerID: 149, EmployeeID: 23, LoginEnabled: false, Actor: " Codex "}); err != nil {
+		t.Fatal(err)
+	}
+	if repo.setExternalUserLoginCmd.CustomerID != 149 || repo.setExternalUserLoginCmd.EmployeeID != 23 || repo.setExternalUserLoginCmd.LoginEnabled || repo.setExternalUserLoginCmd.Actor != "Codex" {
+		t.Fatalf("set external user login cmd = %#v", repo.setExternalUserLoginCmd)
+	}
+}
+
 func TestServiceCustomerPortalOptionsDerivesCustomerFromBoundEmployee(t *testing.T) {
 	repo := &fakeCustomerFulfillmentRepository{
 		customerContextResult: CustomerERPContext{EmployeeID: 23, CustomerID: 149, CustomerName: "客户A", BindingStatus: "active"},
@@ -409,36 +451,44 @@ func directShipWorkbookForServiceTest(t *testing.T) *excelize.File {
 }
 
 type fakeCustomerFulfillmentRepository struct {
-	storeCmd                   StoreParsedImportCommand
-	storeResult                ImportBatch
-	importBatchID              int64
-	importBatchResult          ImportBatch
-	applyCmd                   ApplyImportCommand
-	applyResult                ApplyResult
-	customerContextEmployeeID  int64
-	customerContextResult      CustomerERPContext
-	customerOverviewEmployeeID int64
-	customerOverviewResult     CustomerPortalOverview
-	customerProcessingCmd      SubmitCustomerProcessingWorkOrderCommand
-	customerProcessingResult   ProcessingOrderSummary
-	customerDirectShipCmd      SubmitCustomerDirectShipOrderCommand
-	customerDirectShipResult   DirectShipOrderSummary
-	custodyAdjustmentCmd       AdjustCustodyInventoryCommand
-	custodyAdjustmentResult    CustodyBalance
-	erpBindingCmd              UpsertCustomerERPBindingCommand
-	erpBindingResult           CustomerERPBinding
-	listERPBindingsCustomerID  int64
-	listERPBindingsResult      []CustomerERPBinding
-	optionsCustomerID          int64
-	optionsResult              CustomerFulfillmentOptions
-	settlementCmd              CreateSettlementCommand
-	settlementResult           SettlementResult
-	overviewQuery              OverviewQuery
-	overviewResult             Overview
-	listImportsQuery           ListImportsQuery
-	listImportsResult          []ImportBatch
-	listImportRowsQuery        ListImportRowsQuery
-	listImportRowsResult       []ImportRow
+	storeCmd                    StoreParsedImportCommand
+	storeResult                 ImportBatch
+	importBatchID               int64
+	importBatchResult           ImportBatch
+	applyCmd                    ApplyImportCommand
+	applyResult                 ApplyResult
+	customerContextEmployeeID   int64
+	customerContextResult       CustomerERPContext
+	customerOverviewEmployeeID  int64
+	customerOverviewResult      CustomerPortalOverview
+	customerProcessingCmd       SubmitCustomerProcessingWorkOrderCommand
+	customerProcessingResult    ProcessingOrderSummary
+	customerDirectShipCmd       SubmitCustomerDirectShipOrderCommand
+	customerDirectShipResult    DirectShipOrderSummary
+	custodyAdjustmentCmd        AdjustCustodyInventoryCommand
+	custodyAdjustmentResult     CustodyBalance
+	erpBindingCmd               UpsertCustomerERPBindingCommand
+	erpBindingResult            CustomerERPBinding
+	listERPBindingsCustomerID   int64
+	listERPBindingsResult       []CustomerERPBinding
+	createExternalUserCmd       CreateExternalUserCommand
+	createExternalUserResult    CustomerExternalUser
+	listExternalUsersCustomerID int64
+	listExternalUsersResult     []CustomerExternalUser
+	resetExternalUserCmd        ResetExternalUserPasswordCommand
+	resetExternalUserResult     CustomerExternalUser
+	setExternalUserLoginCmd     SetExternalUserLoginEnabledCommand
+	setExternalUserLoginResult  CustomerExternalUser
+	optionsCustomerID           int64
+	optionsResult               CustomerFulfillmentOptions
+	settlementCmd               CreateSettlementCommand
+	settlementResult            SettlementResult
+	overviewQuery               OverviewQuery
+	overviewResult              Overview
+	listImportsQuery            ListImportsQuery
+	listImportsResult           []ImportBatch
+	listImportRowsQuery         ListImportRowsQuery
+	listImportRowsResult        []ImportRow
 }
 
 func (r *fakeCustomerFulfillmentRepository) StoreParsedImport(ctx context.Context, cmd StoreParsedImportCommand) (ImportBatch, error) {
@@ -488,6 +538,26 @@ func (r *fakeCustomerFulfillmentRepository) ListCustomerERPBindings(ctx context.
 
 func (r *fakeCustomerFulfillmentRepository) CustomerERPWorkbenchAvailable(ctx context.Context, customerID int64) (bool, error) {
 	return true, nil
+}
+
+func (r *fakeCustomerFulfillmentRepository) CreateExternalUser(ctx context.Context, cmd CreateExternalUserCommand) (CustomerExternalUser, error) {
+	r.createExternalUserCmd = cmd
+	return r.createExternalUserResult, nil
+}
+
+func (r *fakeCustomerFulfillmentRepository) ListExternalUsers(ctx context.Context, customerID int64) ([]CustomerExternalUser, error) {
+	r.listExternalUsersCustomerID = customerID
+	return r.listExternalUsersResult, nil
+}
+
+func (r *fakeCustomerFulfillmentRepository) ResetExternalUserPassword(ctx context.Context, cmd ResetExternalUserPasswordCommand) (CustomerExternalUser, error) {
+	r.resetExternalUserCmd = cmd
+	return r.resetExternalUserResult, nil
+}
+
+func (r *fakeCustomerFulfillmentRepository) SetExternalUserLoginEnabled(ctx context.Context, cmd SetExternalUserLoginEnabledCommand) (CustomerExternalUser, error) {
+	r.setExternalUserLoginCmd = cmd
+	return r.setExternalUserLoginResult, nil
 }
 
 func (r *fakeCustomerFulfillmentRepository) CustomerFulfillmentOptions(ctx context.Context, customerID int64) (CustomerFulfillmentOptions, error) {

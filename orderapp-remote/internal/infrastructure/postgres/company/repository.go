@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 
 	companyapp "orderapp/internal/application/company"
 	postgresinfra "orderapp/internal/infrastructure/postgres"
@@ -57,11 +58,12 @@ func (r Repository) UpdateDepartment(ctx context.Context, id int64, cmd companya
 
 func (r Repository) ListEmployees(ctx context.Context, departmentID int64) ([]companyapp.Employee, error) {
 	args := []any{}
-	where := ""
+	whereParts := []string{"(e.account_type='internal_employee' OR COALESCE(e.account_type,'')='')"}
 	if departmentID > 0 {
-		where = " WHERE e.department_id=$1"
 		args = append(args, departmentID)
+		whereParts = append(whereParts, fmt.Sprintf("e.department_id=$%d", len(args)))
 	}
+	where := " WHERE " + strings.Join(whereParts, " AND ")
 	rows, err := r.pool.Query(ctx, "SELECT e.id,e.name,e.phone,e.department_id,COALESCE(d.name,''),e.active FROM "+r.schema+".company_employees e JOIN "+r.schema+".company_departments d ON d.id=e.department_id"+where+" ORDER BY e.id DESC", args...)
 	if err != nil {
 		return nil, err
