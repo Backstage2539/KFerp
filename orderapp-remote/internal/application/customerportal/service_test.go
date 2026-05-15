@@ -9,6 +9,7 @@ import (
 
 type fakeIdentityProvider struct {
 	identity MiniIdentity
+	phone    MiniPhoneNumber
 	err      error
 }
 
@@ -19,40 +20,50 @@ func (p fakeIdentityProvider) Resolve(ctx context.Context, code string) (MiniIde
 	return p.identity, nil
 }
 
+func (p fakeIdentityProvider) ResolvePhoneNumber(ctx context.Context, code string) (MiniPhoneNumber, error) {
+	if p.err != nil {
+		return MiniPhoneNumber{}, p.err
+	}
+	return p.phone, nil
+}
+
 type fakeRepository struct {
-	loginResult         LoginResult
-	loginCommand        CreateLoginSessionCommand
-	passwordCommand     CreatePasswordLoginSessionCommand
-	context             CurrentContext
-	session             string
-	serviceQuery        ServicePageQuery
-	servicePage         ServicePage
-	beanList            BeanListSummary
-	portalCustomers     []PortalAdminCustomer
-	portalDetail        PortalAdminDetail
-	visibilityCommand   UpdatePortalVisibilityCommand
-	templates           []CapabilityTemplate
-	templateSaveCommand SaveCapabilityTemplateCommand
-	templateCommand     ApplyCapabilityTemplateCommand
-	erpBindingCommand   UpsertPortalERPBindingCommand
-	mallProducts        []MallProduct
-	mallProductOptions  []MallProductOption
-	mallProductCommand  SaveMallProductCommand
-	mallImageCommand    UpdateMallProductImageCommand
-	mallPage            MallPage
-	mallOrderCommand    CreateMallOrderCommand
-	mallOrder           FulfillmentOrder
-	directShipCommand   CreateDirectShipBatchCommand
-	directShipBatch     DirectShipBatch
-	processingCommand   CreateProcessingRequestCommand
-	processingRequest   ProcessingRequest
-	fulfillmentCommand  CreateFulfillmentOrderCommand
-	fulfillmentOrder    FulfillmentOrder
-	orderAccessCustomer int64
-	orderAccessOrder    int64
-	orderAccessOK       bool
-	err                 error
-	switchErr           error
+	loginResult              LoginResult
+	loginCommand             CreateLoginSessionCommand
+	phoneVerifiedLoginResult LoginResult
+	phoneVerifiedCommand     CreatePhoneVerifiedLoginSessionCommand
+	passwordCommand          CreatePasswordLoginSessionCommand
+	context                  CurrentContext
+	session                  string
+	serviceQuery             ServicePageQuery
+	servicePage              ServicePage
+	beanList                 BeanListSummary
+	portalCustomers          []PortalAdminCustomer
+	portalDetail             PortalAdminDetail
+	visibilityCommand        UpdatePortalVisibilityCommand
+	templates                []CapabilityTemplate
+	templateSaveCommand      SaveCapabilityTemplateCommand
+	templateCommand          ApplyCapabilityTemplateCommand
+	erpBindingCommand        UpsertPortalERPBindingCommand
+	mallProducts             []MallProduct
+	mallProductOptions       []MallProductOption
+	mallProductCommand       SaveMallProductCommand
+	mallImageCommand         UpdateMallProductImageCommand
+	mallPage                 MallPage
+	mallOrderCommand         CreateMallOrderCommand
+	mallOrder                FulfillmentOrder
+	directShipCommand        CreateDirectShipBatchCommand
+	directShipBatch          DirectShipBatch
+	processingCommand        CreateProcessingRequestCommand
+	processingRequest        ProcessingRequest
+	fulfillmentCommand       CreateFulfillmentOrderCommand
+	fulfillmentOrder         FulfillmentOrder
+	orderAccessCustomer      int64
+	orderAccessOrder         int64
+	orderAccessOK            bool
+	err                      error
+	switchErr                error
+	phoneVerifiedErr         error
 }
 
 func (r *fakeRepository) CreateLoginSession(ctx context.Context, cmd CreateLoginSessionCommand) (LoginResult, error) {
@@ -61,6 +72,14 @@ func (r *fakeRepository) CreateLoginSession(ctx context.Context, cmd CreateLogin
 		return LoginResult{}, r.err
 	}
 	return r.loginResult, nil
+}
+
+func (r *fakeRepository) CreatePhoneVerifiedLoginSession(ctx context.Context, cmd CreatePhoneVerifiedLoginSessionCommand) (LoginResult, error) {
+	r.phoneVerifiedCommand = cmd
+	if r.phoneVerifiedErr != nil {
+		return LoginResult{}, r.phoneVerifiedErr
+	}
+	return r.phoneVerifiedLoginResult, nil
 }
 
 func (r *fakeRepository) CreatePasswordLoginSession(ctx context.Context, cmd CreatePasswordLoginSessionCommand) (LoginResult, error) {
@@ -290,6 +309,27 @@ func TestLoginCreatesSessionFromResolvedIdentity(t *testing.T) {
 	}
 	if repo.loginCommand.OpenID != "openid-1" || repo.loginCommand.UnionID != "union-1" || repo.loginCommand.Phone != "13800138000" || repo.loginCommand.Nickname != "客户" {
 		t.Fatalf("CreateLoginSession() cmd=%+v", repo.loginCommand)
+	}
+}
+
+func TestLoginWithPhoneVerifyCreatesERPBoundSession(t *testing.T) {
+	repo := &fakeRepository{phoneVerifiedLoginResult: LoginResult{Token: "mini-phone-token", MiniUserID: 11}}
+	svc := NewService(repo, fakeIdentityProvider{
+		identity: MiniIdentity{OpenID: " openid-verify ", UnionID: " union-verify "},
+		phone:    MiniPhoneNumber{PhoneNumber: " 13800138000 ", PurePhoneNumber: "13800138000"},
+	})
+	got, err := svc.Login(context.Background(), LoginCommand{Mode: "phone_verify", Code: "wx-code", PhoneCode: " phone-code ", Nickname: " 渠道客户 "})
+	if err != nil {
+		t.Fatalf("Login() err=%v", err)
+	}
+	if got.Token != "mini-phone-token" || got.MiniUserID != 11 {
+		t.Fatalf("Login()=%+v", got)
+	}
+	if repo.phoneVerifiedCommand.OpenID != "openid-verify" ||
+		repo.phoneVerifiedCommand.UnionID != "union-verify" ||
+		repo.phoneVerifiedCommand.Phone != "13800138000" ||
+		repo.phoneVerifiedCommand.Nickname != "渠道客户" {
+		t.Fatalf("CreatePhoneVerifiedLoginSession() cmd=%+v", repo.phoneVerifiedCommand)
 	}
 }
 

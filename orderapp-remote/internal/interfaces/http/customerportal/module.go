@@ -90,6 +90,14 @@ func (p StaticIdentityProvider) Resolve(ctx context.Context, code string) (custo
 	return customerportalapp.MiniIdentity{OpenID: openID, UnionID: strings.TrimSpace(p.UnionID)}, nil
 }
 
+func (p StaticIdentityProvider) ResolvePhoneNumber(ctx context.Context, code string) (customerportalapp.MiniPhoneNumber, error) {
+	code = strings.TrimSpace(code)
+	if code == "" {
+		return customerportalapp.MiniPhoneNumber{}, fmt.Errorf("phone_code required")
+	}
+	return customerportalapp.MiniPhoneNumber{PhoneNumber: code, PurePhoneNumber: code, CountryCode: "86"}, nil
+}
+
 type DisabledIdentityProvider struct{}
 
 func (DisabledIdentityProvider) Resolve(ctx context.Context, code string) (customerportalapp.MiniIdentity, error) {
@@ -97,12 +105,16 @@ func (DisabledIdentityProvider) Resolve(ctx context.Context, code string) (custo
 }
 
 const defaultWechatCode2SessionEndpoint = "https://api.weixin.qq.com/sns/jscode2session"
+const defaultWechatAccessTokenEndpoint = "https://api.weixin.qq.com/cgi-bin/token"
+const defaultWechatPhoneNumberEndpoint = "https://api.weixin.qq.com/wxa/business/getuserphonenumber"
 
 type WechatIdentityProvider struct {
-	AppID     string
-	AppSecret string
-	Endpoint  string
-	Client    *http.Client
+	AppID               string
+	AppSecret           string
+	Endpoint            string
+	AccessTokenEndpoint string
+	PhoneNumberEndpoint string
+	Client              *http.Client
 }
 
 type wechatCode2SessionResponse struct {
@@ -110,6 +122,24 @@ type wechatCode2SessionResponse struct {
 	UnionID string `json:"unionid"`
 	ErrCode int    `json:"errcode"`
 	ErrMsg  string `json:"errmsg"`
+}
+
+type wechatAccessTokenResponse struct {
+	AccessToken string `json:"access_token"`
+	ErrCode     int    `json:"errcode"`
+	ErrMsg      string `json:"errmsg"`
+}
+
+type wechatPhoneNumberInfo struct {
+	PhoneNumber     string `json:"phoneNumber"`
+	PurePhoneNumber string `json:"purePhoneNumber"`
+	CountryCode     string `json:"countryCode"`
+}
+
+type wechatPhoneNumberResponse struct {
+	PhoneInfo wechatPhoneNumberInfo `json:"phone_info"`
+	ErrCode   int                   `json:"errcode"`
+	ErrMsg    string                `json:"errmsg"`
 }
 
 func (p WechatIdentityProvider) Resolve(ctx context.Context, code string) (customerportalapp.MiniIdentity, error) {
@@ -165,4 +195,110 @@ func (p WechatIdentityProvider) Resolve(ctx context.Context, code string) (custo
 		return customerportalapp.MiniIdentity{}, fmt.Errorf("openid required")
 	}
 	return customerportalapp.MiniIdentity{OpenID: openID, UnionID: strings.TrimSpace(payload.UnionID)}, nil
+}
+
+func (p WechatIdentityProvider) ResolvePhoneNumber(ctx context.Context, code string) (customerportalapp.MiniPhoneNumber, error) {
+	code = strings.TrimSpace(code)
+	if code == "" {
+		return customerportalapp.MiniPhoneNumber{}, fmt.Errorf("phone_code required")
+	}
+	accessToken, err := p.accessToken(ctx)
+	if err != nil {
+		return customerportalapp.MiniPhoneNumber{}, err
+	}
+	endpoint := strings.TrimSpace(p.PhoneNumberEndpoint)
+	if endpoint == "" {
+		endpoint = defaultWechatPhoneNumberEndpoint
+	}
+	reqURL, err := url.Parse(endpoint)
+	if err != nil {
+		return customerportalapp.MiniPhoneNumber{}, err
+	}
+	q := reqURL.Query()
+	q.Set("access_token", accessToken)
+	reqURL.RawQuery = q.Encode()
+
+	body, err := json.Marshal(map[string]string{"code": code})
+	if err != nil {
+		return customerportalapp.MiniPhoneNumber{}, err
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, reqURL.String(), strings.NewReader(string(body)))
+	if err != nil {
+		return customerportalapp.MiniPhoneNumber{}, err
+	}
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	client := p.Client
+	if client == nil {
+		client = http.DefaultClient
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return customerportalapp.MiniPhoneNumber{}, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return customerportalapp.MiniPhoneNumber{}, fmt.Errorf("wechat phone number http status %d", resp.StatusCode)
+	}
+	var payload wechatPhoneNumberResponse
+	if err := json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&payload); err != nil {
+		return customerportalapp.MiniPhoneNumber{}, err
+	}
+	if payload.ErrCode != 0 {
+		return customerportalapp.MiniPhoneNumber{}, fmt.Errorf("wechat phone number failed: %d %s", payload.ErrCode, payload.ErrMsg)
+	}
+	return customerportalapp.MiniPhoneNumber{
+		PhoneNumber:     strings.TrimSpace(payload.PhoneInfo.PhoneNumber),
+		PurePhoneNumber: strings.TrimSpace(payload.PhoneInfo.PurePhoneNumber),
+		CountryCode:     strings.TrimSpace(payload.PhoneInfo.CountryCode),
+	}, nil
+}
+
+func (p WechatIdentityProvider) accessToken(ctx context.Context) (string, error) {
+	appID := strings.TrimSpace(p.AppID)
+	appSecret := strings.TrimSpace(p.AppSecret)
+	if appID == "" || appSecret == "" {
+		return "", fmt.Errorf("wechat mini app credentials required")
+	}
+	endpoint := strings.TrimSpace(p.AccessTokenEndpoint)
+	if endpoint == "" {
+		endpoint = defaultWechatAccessTokenEndpoint
+	}
+	reqURL, err := url.Parse(endpoint)
+	if err != nil {
+		return "", err
+	}
+	q := reqURL.Query()
+	q.Set("grant_type", "client_credential")
+	q.Set("appid", appID)
+	q.Set("secret", appSecret)
+	reqURL.RawQuery = q.Encode()
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, reqURL.String(), nil)
+	if err != nil {
+		return "", err
+	}
+	client := p.Client
+	if client == nil {
+		client = http.DefaultClient
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return "", fmt.Errorf("wechat access token http status %d", resp.StatusCode)
+	}
+	var payload wechatAccessTokenResponse
+	if err := json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&payload); err != nil {
+		return "", err
+	}
+	if payload.ErrCode != 0 {
+		return "", fmt.Errorf("wechat access token failed: %d %s", payload.ErrCode, payload.ErrMsg)
+	}
+	token := strings.TrimSpace(payload.AccessToken)
+	if token == "" {
+		return "", fmt.Errorf("wechat access token required")
+	}
+	return token, nil
 }

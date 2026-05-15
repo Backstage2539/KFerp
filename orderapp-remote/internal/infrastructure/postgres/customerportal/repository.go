@@ -34,20 +34,115 @@ func NewRepository(pool *pgxpool.Pool, schema string) Repository {
 }
 
 func (r Repository) CreateLoginSession(ctx context.Context, cmd customerportalapp.CreateLoginSessionCommand) (customerportalapp.LoginResult, error) {
-	openID := strings.TrimSpace(cmd.OpenID)
-	if openID == "" {
-		return customerportalapp.LoginResult{}, fmt.Errorf("openid required")
-	}
-	unionID := strings.TrimSpace(cmd.UnionID)
-	phone := strings.TrimSpace(cmd.Phone)
-	nickname := strings.TrimSpace(cmd.Nickname)
-
 	tx, err := r.pool.Begin(ctx)
 	if err != nil {
 		return customerportalapp.LoginResult{}, err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
+	miniUserID, active, err := r.upsertMiniUserTx(ctx, tx, strings.TrimSpace(cmd.OpenID), strings.TrimSpace(cmd.UnionID), strings.TrimSpace(cmd.Phone), strings.TrimSpace(cmd.Nickname))
+	if err != nil {
+		return customerportalapp.LoginResult{}, err
+	}
+	if !active {
+		return customerportalapp.LoginResult{}, customerportalapp.ErrMiniUserDisabled
+	}
+	result, err := r.createMiniSessionTx(ctx, tx, miniUserID, 0)
+	if err != nil {
+		return customerportalapp.LoginResult{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return customerportalapp.LoginResult{}, err
+	}
+	return result, nil
+}
+
+func (r Repository) CreatePhoneVerifiedLoginSession(ctx context.Context, cmd customerportalapp.CreatePhoneVerifiedLoginSessionCommand) (customerportalapp.LoginResult, error) {
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return customerportalapp.LoginResult{}, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	phone := strings.TrimSpace(cmd.Phone)
+	if phone == "" {
+		return customerportalapp.LoginResult{}, fmt.Errorf("phone required")
+	}
+	var employeeID int64
+	var loginDisabled bool
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`
+		SELECT e.id, COALESCE(p.login_disabled,false)
+		FROM %s.company_employees e
+		LEFT JOIN %s.employee_login_passwords p ON p.employee_id=e.id
+		WHERE e.active=true
+		  AND e.account_type='channel_customer'
+		  AND e.phone=$1
+		ORDER BY e.id
+		LIMIT 1
+	`, r.schema, r.schema), phone).Scan(&employeeID, &loginDisabled); err != nil {
+		if err == pgx.ErrNoRows {
+			return customerportalapp.LoginResult{}, customerportalapp.ErrMiniInvalidLogin
+		}
+		return customerportalapp.LoginResult{}, err
+	}
+	if loginDisabled {
+		return customerportalapp.LoginResult{}, customerportalapp.ErrMiniAccountLoginDisabled
+	}
+
+	miniUserID, active, err := r.upsertMiniUserTx(ctx, tx, strings.TrimSpace(cmd.OpenID), strings.TrimSpace(cmd.UnionID), strings.TrimSpace(cmd.Phone), strings.TrimSpace(cmd.Nickname))
+	if err != nil {
+		return customerportalapp.LoginResult{}, err
+	}
+	if !active {
+		return customerportalapp.LoginResult{}, customerportalapp.ErrMiniUserDisabled
+	}
+	if _, err := tx.Exec(ctx, fmt.Sprintf(`
+		INSERT INTO %s.customer_portal_user_bindings(mini_user_id, customer_id, role, status, approved_by)
+		SELECT $1, b.customer_id, COALESCE(NULLIF(b.role,''),'member'), 'approved', 'phone-verify-login'
+		FROM %s.customer_erp_user_bindings b
+		JOIN %s.customers c ON c.id=b.customer_id AND c.active=true
+		WHERE b.employee_id=$2 AND b.status='active'
+		ON CONFLICT(mini_user_id, customer_id) DO UPDATE SET
+			role=EXCLUDED.role,
+			status='approved',
+			approved_by='phone-verify-login'
+	`, r.schema, r.schema, r.schema), miniUserID, employeeID); err != nil {
+		return customerportalapp.LoginResult{}, err
+	}
+	if _, err := tx.Exec(ctx, fmt.Sprintf(`
+		UPDATE %s.customer_portal_user_bindings
+		SET status='revoked'
+		WHERE mini_user_id=$1
+		  AND customer_id NOT IN (
+		    SELECT b.customer_id
+		    FROM %s.customer_erp_user_bindings b
+		    JOIN %s.customers c ON c.id=b.customer_id AND c.active=true
+		    WHERE b.employee_id=$2 AND b.status='active'
+		  )
+	`, r.schema, r.schema, r.schema), miniUserID, employeeID); err != nil {
+		return customerportalapp.LoginResult{}, err
+	}
+	bindings, err := r.listBindingsTx(ctx, tx, miniUserID)
+	if err != nil {
+		return customerportalapp.LoginResult{}, err
+	}
+	if len(bindings) == 0 {
+		return customerportalapp.LoginResult{}, customerportalapp.ErrCustomerBindingNotFound
+	}
+	result, err := r.createMiniSessionTx(ctx, tx, miniUserID, 0)
+	if err != nil {
+		return customerportalapp.LoginResult{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return customerportalapp.LoginResult{}, err
+	}
+	return result, nil
+}
+
+func (r Repository) upsertMiniUserTx(ctx context.Context, tx pgx.Tx, openID, unionID, phone, nickname string) (int64, bool, error) {
+	if openID == "" {
+		return 0, false, fmt.Errorf("openid required")
+	}
 	var miniUserID int64
 	var active bool
 	if err := tx.QueryRow(ctx, fmt.Sprintf(`
@@ -60,18 +155,18 @@ func (r Repository) CreateLoginSession(ctx context.Context, cmd customerportalap
 			last_login_at=CASE WHEN mini_users.active THEN now() ELSE mini_users.last_login_at END
 		RETURNING id, active
 	`, r.schema), openID, unionID, phone, nickname).Scan(&miniUserID, &active); err != nil {
-		return customerportalapp.LoginResult{}, err
+		return 0, false, err
 	}
-	if !active {
-		return customerportalapp.LoginResult{}, customerportalapp.ErrMiniUserDisabled
-	}
+	return miniUserID, active, nil
+}
 
+func (r Repository) createMiniSessionTx(ctx context.Context, tx pgx.Tx, miniUserID, preferredCustomerID int64) (customerportalapp.LoginResult, error) {
 	bindings, err := r.listBindingsTx(ctx, tx, miniUserID)
 	if err != nil {
 		return customerportalapp.LoginResult{}, err
 	}
-	var currentCustomerID int64
-	if len(bindings) > 0 {
+	currentCustomerID := preferredCustomerID
+	if currentCustomerID == 0 && len(bindings) > 0 {
 		currentCustomerID = bindings[0].CustomerID
 	}
 	token, err := randomToken(24)
@@ -80,7 +175,7 @@ func (r Repository) CreateLoginSession(ctx context.Context, cmd customerportalap
 	}
 	if _, err := tx.Exec(ctx, fmt.Sprintf(`
 		INSERT INTO %s.mini_sessions(token, mini_user_id, current_customer_id, expire_at)
-		VALUES($1,$2,NULLIF($3,0),now() + INTERVAL '30 days')
+		VALUES($1,$2,NULLIF($3,0),'infinity'::timestamptz)
 	`, r.schema), token, miniUserID, currentCustomerID); err != nil {
 		return customerportalapp.LoginResult{}, err
 	}
@@ -94,9 +189,6 @@ func (r Repository) CreateLoginSession(ctx context.Context, cmd customerportalap
 	}
 	entryMode, err := r.miniappEntryModeForCustomerTx(ctx, tx, currentCustomerID)
 	if err != nil {
-		return customerportalapp.LoginResult{}, err
-	}
-	if err := tx.Commit(ctx); err != nil {
 		return customerportalapp.LoginResult{}, err
 	}
 	return customerportalapp.LoginResult{
@@ -238,48 +330,17 @@ func (r Repository) CreatePasswordLoginSession(ctx context.Context, cmd customer
 		return customerportalapp.LoginResult{}, err
 	}
 
-	bindings, err := r.listBindingsTx(ctx, tx, miniUserID)
+	result, err := r.createMiniSessionTx(ctx, tx, miniUserID, 0)
 	if err != nil {
 		return customerportalapp.LoginResult{}, err
 	}
-	if len(bindings) == 0 {
+	if len(result.Bindings) == 0 {
 		return customerportalapp.LoginResult{}, customerportalapp.ErrCustomerBindingNotFound
-	}
-	currentCustomerID := bindings[0].CustomerID
-	token, err := randomToken(24)
-	if err != nil {
-		return customerportalapp.LoginResult{}, err
-	}
-	if _, err := tx.Exec(ctx, fmt.Sprintf(`
-		INSERT INTO %s.mini_sessions(token, mini_user_id, current_customer_id, expire_at)
-		VALUES($1,$2,$3,now() + INTERVAL '30 days')
-	`, r.schema), token, miniUserID, currentCustomerID); err != nil {
-		return customerportalapp.LoginResult{}, err
-	}
-	capabilities, err := r.capabilitiesForCustomerTx(ctx, tx, currentCustomerID)
-	if err != nil {
-		return customerportalapp.LoginResult{}, err
-	}
-	themeKey, err := r.themeForCustomerTx(ctx, tx, currentCustomerID)
-	if err != nil {
-		return customerportalapp.LoginResult{}, err
-	}
-	entryMode, err := r.miniappEntryModeForCustomerTx(ctx, tx, currentCustomerID)
-	if err != nil {
-		return customerportalapp.LoginResult{}, err
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return customerportalapp.LoginResult{}, err
 	}
-	return customerportalapp.LoginResult{
-		Token:             token,
-		MiniUserID:        miniUserID,
-		CurrentCustomerID: currentCustomerID,
-		Bindings:          bindings,
-		Capabilities:      capabilities,
-		ThemeKey:          themeKey,
-		MiniappEntryMode:  entryMode,
-	}, nil
+	return result, nil
 }
 
 func (r Repository) CurrentContextByToken(ctx context.Context, token string) (customerportalapp.CurrentContext, error) {

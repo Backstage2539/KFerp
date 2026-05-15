@@ -471,6 +471,10 @@ func (s *threeTemplateWalkthroughStore) CreateLoginSession(context.Context, cust
 	return customerportalapp.LoginResult{}, nil
 }
 
+func (s *threeTemplateWalkthroughStore) CreatePhoneVerifiedLoginSession(context.Context, customerportalapp.CreatePhoneVerifiedLoginSessionCommand) (customerportalapp.LoginResult, error) {
+	return customerportalapp.LoginResult{}, nil
+}
+
 func (s *threeTemplateWalkthroughStore) CreatePasswordLoginSession(context.Context, customerportalapp.CreatePasswordLoginSessionCommand) (customerportalapp.LoginResult, error) {
 	return customerportalapp.LoginResult{}, nil
 }

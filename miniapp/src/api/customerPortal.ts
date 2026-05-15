@@ -267,8 +267,38 @@ export type ServicePageFilters = {
   ship_status?: string
 }
 
-export function loginWithCode(code: string): Promise<LoginResponse> {
-  return miniRequest<LoginResponse>('/api/mini/login', { method: 'POST', data: { code } })
+export type MiniLoginMode = 'wechat' | 'phone_verify'
+
+export type MiniLoginFields = {
+  code: string
+  phone?: string
+  phoneCode?: string
+  nickname?: string
+}
+
+export function buildMiniLoginPayload(mode: MiniLoginMode, fields: MiniLoginFields): Record<string, string> {
+  const payload: Record<string, string> = {
+    mode,
+    code: String(fields.code || '').trim(),
+  }
+  if (String(fields.phone || '').trim()) payload.phone = String(fields.phone || '').trim()
+  if (String(fields.phoneCode || '').trim()) payload.phone_code = String(fields.phoneCode || '').trim()
+  if (String(fields.nickname || '').trim()) payload.nickname = String(fields.nickname || '').trim()
+  return payload
+}
+
+export function loginWithCode(code: string, phone?: string, nickname?: string): Promise<LoginResponse> {
+  return miniRequest<LoginResponse>('/api/mini/login', {
+    method: 'POST',
+    data: buildMiniLoginPayload('wechat', { code, phone, nickname }),
+  })
+}
+
+export function loginWithPhoneVerify(code: string, phoneCode: string, nickname?: string): Promise<LoginResponse> {
+  return miniRequest<LoginResponse>('/api/mini/login', {
+    method: 'POST',
+    data: buildMiniLoginPayload('phone_verify', { code, phoneCode, nickname }),
+  })
 }
 
 export function buildPasswordLoginPath(): string {

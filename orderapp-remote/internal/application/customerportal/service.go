@@ -81,9 +81,11 @@ var (
 )
 
 type LoginCommand struct {
-	Code     string
-	Phone    string
-	Nickname string
+	Mode      string
+	Code      string
+	Phone     string
+	PhoneCode string
+	Nickname  string
 }
 
 type PasswordLoginCommand struct {
@@ -96,7 +98,20 @@ type MiniIdentity struct {
 	UnionID string
 }
 
+type MiniPhoneNumber struct {
+	PhoneNumber     string
+	PurePhoneNumber string
+	CountryCode     string
+}
+
 type CreateLoginSessionCommand struct {
+	OpenID   string
+	UnionID  string
+	Phone    string
+	Nickname string
+}
+
+type CreatePhoneVerifiedLoginSessionCommand struct {
 	OpenID   string
 	UnionID  string
 	Phone    string
@@ -610,8 +625,13 @@ type IdentityProvider interface {
 	Resolve(ctx context.Context, code string) (MiniIdentity, error)
 }
 
+type PhoneNumberResolver interface {
+	ResolvePhoneNumber(ctx context.Context, code string) (MiniPhoneNumber, error)
+}
+
 type Repository interface {
 	CreateLoginSession(ctx context.Context, cmd CreateLoginSessionCommand) (LoginResult, error)
+	CreatePhoneVerifiedLoginSession(ctx context.Context, cmd CreatePhoneVerifiedLoginSessionCommand) (LoginResult, error)
 	CreatePasswordLoginSession(ctx context.Context, cmd CreatePasswordLoginSessionCommand) (LoginResult, error)
 	CurrentContextByToken(ctx context.Context, token string) (CurrentContext, error)
 	SwitchCurrentCustomer(ctx context.Context, token string, customerID int64) (CurrentContext, error)
@@ -663,12 +683,45 @@ func (s *Service) Login(ctx context.Context, cmd LoginCommand) (LoginResult, err
 	if identity.OpenID == "" {
 		return LoginResult{}, fmt.Errorf("openid required")
 	}
-	result, err := s.repo.CreateLoginSession(ctx, CreateLoginSessionCommand{
-		OpenID:   identity.OpenID,
-		UnionID:  strings.TrimSpace(identity.UnionID),
-		Phone:    strings.TrimSpace(cmd.Phone),
-		Nickname: strings.TrimSpace(cmd.Nickname),
-	})
+	mode := strings.TrimSpace(cmd.Mode)
+	var result LoginResult
+	switch mode {
+	case "", "wechat":
+		result, err = s.repo.CreateLoginSession(ctx, CreateLoginSessionCommand{
+			OpenID:   identity.OpenID,
+			UnionID:  strings.TrimSpace(identity.UnionID),
+			Phone:    strings.TrimSpace(cmd.Phone),
+			Nickname: strings.TrimSpace(cmd.Nickname),
+		})
+	case "phone_verify":
+		phoneResolver, ok := s.identity.(PhoneNumberResolver)
+		if !ok {
+			return LoginResult{}, fmt.Errorf("phone verification unavailable")
+		}
+		phoneCode := strings.TrimSpace(cmd.PhoneCode)
+		if phoneCode == "" {
+			return LoginResult{}, fmt.Errorf("phone_code required")
+		}
+		phoneNumber, err := phoneResolver.ResolvePhoneNumber(ctx, phoneCode)
+		if err != nil {
+			return LoginResult{}, err
+		}
+		phone := strings.TrimSpace(phoneNumber.PhoneNumber)
+		if phone == "" {
+			phone = strings.TrimSpace(phoneNumber.PurePhoneNumber)
+		}
+		if phone == "" {
+			return LoginResult{}, fmt.Errorf("phone required")
+		}
+		result, err = s.repo.CreatePhoneVerifiedLoginSession(ctx, CreatePhoneVerifiedLoginSessionCommand{
+			OpenID:   identity.OpenID,
+			UnionID:  strings.TrimSpace(identity.UnionID),
+			Phone:    phone,
+			Nickname: strings.TrimSpace(cmd.Nickname),
+		})
+	default:
+		return LoginResult{}, fmt.Errorf("login mode invalid")
+	}
 	if err != nil {
 		return LoginResult{}, err
 	}
