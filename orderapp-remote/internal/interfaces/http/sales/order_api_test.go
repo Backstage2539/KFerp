@@ -15,6 +15,7 @@ import (
 	"testing"
 	"time"
 
+	authzapp "orderapp/internal/application/authz"
 	messagecenterapp "orderapp/internal/application/messagecenter"
 	salesapp "orderapp/internal/application/sales"
 	postgressales "orderapp/internal/infrastructure/postgres/sales"
@@ -270,6 +271,62 @@ func TestOrderAPISavesAndListsEmployeeResponsiblePerson(t *testing.T) {
 	}
 }
 
+func TestOrderAPIEditsPaidOrderRequirePaymentMethodAndExposeToList(t *testing.T) {
+	pool, schema := newOrderAPITestDB(t)
+	ctx := context.Background()
+	seedOrderAPITestData(t, ctx, pool, schema)
+	mustExecOrderAPITestSQL(t, ctx, pool, fmt.Sprintf(`
+		INSERT INTO %s.orders(id, order_no, order_date, customer_id, source_id, order_type_id, pay_status_id, ship_status_id, total_amount, grand_total)
+		VALUES(91, 'SO-PAYMENT-METHOD', '2026-05-15', 3, 1, 1, 1, 1, 88, 88);
+		INSERT INTO %s.order_items(order_id,line_no,product_id,item_name,qty,unit,spec,unit_price,line_total)
+		VALUES(91, 1, 7, '橘皮乌龙', 1, '件', '454g', 88, 88);
+	`, schema, schema))
+
+	e := newOrderAPITestEcho(pool, schema)
+	payload := map[string]any{
+		"edit_id":        91,
+		"order_date":     "2026-05-15",
+		"customer_id":    3,
+		"source_id":      1,
+		"order_type_id":  1,
+		"pay_status_id":  2,
+		"ship_status_id": 1,
+		"product_id":     []string{"7"},
+		"tier_id":        []string{"manual"},
+		"unit_price":     []string{"88"},
+		"item_name":      []string{"橘皮乌龙"},
+		"qty":            []string{"1"},
+		"unit":           []string{"件"},
+		"spec":           []string{"454"},
+	}
+	body, _ := json.Marshal(payload)
+	req := httptest.NewRequest(http.MethodPost, "/api/order", bytes.NewReader(body))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "payment_method required") {
+		t.Fatalf("paid edit without payment_method status=%d body=%s", rec.Code, rec.Body.String())
+	}
+
+	payload["payment_method"] = "银行转账"
+	body, _ = json.Marshal(payload)
+	req = httptest.NewRequest(http.MethodPost, "/api/order", bytes.NewReader(body))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec = httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("paid edit with payment_method status=%d body=%s", rec.Code, rec.Body.String())
+	}
+
+	req = httptest.NewRequest(http.MethodGet, "/api/orders?q=SO-PAYMENT-METHOD", nil)
+	rec = httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"payment_method":"银行转账"`) {
+		t.Fatalf("GET /api/orders payment_method status=%d body=%s", rec.Code, rec.Body.String())
+	}
+}
+
 func TestOrderAPISavesCustomerResponsiblePersonForPartnerCommission(t *testing.T) {
 	pool, schema := newOrderAPITestDB(t)
 	ctx := context.Background()
@@ -520,6 +577,48 @@ func TestOrderAPIListCarriesOrderScopeAndCurrentEmployee(t *testing.T) {
 	}
 }
 
+func TestOrderAPIListFulfillmentScopeAllowsCustomerWorkbenchPermission(t *testing.T) {
+	repo := &capturingOrderListRepo{}
+	e := echo.New()
+	e.Use(func(next echo.HandlerFunc) echo.HandlerFunc {
+		return func(c echo.Context) error {
+			c.Set("employee_id", int64(7))
+			return next(c)
+		}
+	})
+	e.Use(support.AuthorizationMiddleware(&orderAPIAuthzService{actor: authzapp.Actor{
+		Permissions: []string{"customer_processing.read"},
+	}}))
+	registerOrderAPI(e, salesapp.NewService(repo), nil)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/orders?scope=fulfillment&customer_id=152&limit=20", nil)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET /api/orders fulfillment customer workbench status = %d, want 200, body=%s", rec.Code, rec.Body.String())
+	}
+	var body map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("GET /api/orders fulfillment customer workbench response must be valid JSON, got %q: %v", rec.Body.String(), err)
+	}
+	if !repo.called {
+		t.Fatal("orders API was not called for customer workbench fulfillment scope")
+	}
+	if repo.query.Scope != "fulfillment" {
+		t.Fatalf("orders API scope = %q, want fulfillment", repo.query.Scope)
+	}
+	if repo.query.CustomerID != 152 {
+		t.Fatalf("orders API customer id = %d, want 152", repo.query.CustomerID)
+	}
+	if repo.query.EmployeeID != 7 {
+		t.Fatalf("orders API employee id = %d, want 7", repo.query.EmployeeID)
+	}
+	if repo.query.FulfillmentEmployeeID != 7 {
+		t.Fatalf("orders API fulfillment employee id = %d, want 7", repo.query.FulfillmentEmployeeID)
+	}
+}
+
 func TestOrderAPIListFulfillmentScopeSkipsLegacyNonWorkbenchBinding(t *testing.T) {
 	pool, schema := newOrderAPITestDB(t)
 	ctx := context.Background()
@@ -675,6 +774,28 @@ type capturingOrderListRepo struct {
 	salesapp.Repository
 	called bool
 	query  salesapp.OrderListQuery
+}
+
+type orderAPIAuthzService struct {
+	actor authzapp.Actor
+}
+
+func (s *orderAPIAuthzService) ActorByEmployeeID(ctx context.Context, employeeID int64) (authzapp.Actor, error) {
+	actor := s.actor
+	actor.EmployeeID = employeeID
+	return actor, nil
+}
+
+func (s *orderAPIAuthzService) ListRoles(ctx context.Context) ([]authzapp.Role, error) {
+	return nil, nil
+}
+
+func (s *orderAPIAuthzService) ListEmployeeRoles(ctx context.Context) (map[int64][]string, error) {
+	return nil, nil
+}
+
+func (s *orderAPIAuthzService) AssignEmployeeRoles(ctx context.Context, cmd authzapp.AssignmentCommand) error {
+	return nil
 }
 
 func (r *capturingOrderListRepo) ListOrders(ctx context.Context, query salesapp.OrderListQuery) (salesapp.OrderListResult, error) {

@@ -271,6 +271,12 @@ func orderListWhere(schema string, query salesapp.OrderListQuery) ([]string, []a
 			where = append(where, "1=0")
 		}
 	case "fulfillment":
+		employeeBindingClause := ""
+		if query.FulfillmentEmployeeID > 0 {
+			employeeBindingClause = fmt.Sprintf("AND b.employee_id=$%d", argn)
+			args = append(args, query.FulfillmentEmployeeID)
+			argn++
+		}
 		where = append(where, fmt.Sprintf(`COALESCE(NULLIF(c.customer_type,''),'retail')='wholesale'
 			AND o.portal_service_code IN ('direct_ship','processing_ship')
 			AND EXISTS (
@@ -282,6 +288,7 @@ func orderListWhere(schema string, query salesapp.OrderListQuery) ([]string, []a
 				  AND e.active=true
 				  AND e.account_type='channel_customer'
 				  AND COALESCE(lp.login_disabled,false)=false
+				  %[2]s
 				  AND (
 				      (
 				          COALESCE(NULLIF(p.capability_template_key,''),'processing_fulfillment') IN ('processing_fulfillment','public_sku_direct_ship')
@@ -298,7 +305,7 @@ func orderListWhere(schema string, query salesapp.OrderListQuery) ([]string, []a
 				            AND (jsonb_array_length(active_template.erp_permissions)>0 OR jsonb_array_length(active_template.erp_view_keys)>0)
 				      )
 				  )
-			)`, schema))
+			)`, schema, employeeBindingClause))
 	}
 	if query.PayStatusID > 0 {
 		where = append(where, fmt.Sprintf("COALESCE(o.pay_status_id,0) = $%d", argn))
