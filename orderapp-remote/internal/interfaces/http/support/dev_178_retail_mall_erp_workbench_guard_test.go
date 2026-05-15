@@ -39,14 +39,16 @@ func TestRetailMallERPWorkbenchGuardEvidenceExists(t *testing.T) {
 		t.Fatal("customer fulfillment PostgreSQL tests must not expect the removed hidden customer_direct_ship_customer role")
 	}
 	for _, want := range []string{
-		"templateSupportsERPWorkbench",
-		"该模板不开放 ERP 工作台",
+		"外部用户配置了手机号、密码并启用登录后",
+		"doesNotMatch(source, /templateSupportsERPWorkbench/)",
+		"doesNotMatch(source, /该模板不开放 ERP 工作台/)",
 	} {
-		if !strings.Contains(portalSettingsView, want) {
-			t.Fatalf("customer portal settings view missing marker %q", want)
+		target := portalSettingsView
+		if strings.Contains(want, "doesNotMatch(") {
+			target = portalSettingsTest
 		}
-		if !strings.Contains(portalSettingsTest, want) {
-			t.Fatalf("customer portal settings frontend test missing marker %q", want)
+		if !strings.Contains(target, want) {
+			t.Fatalf("customer portal settings evidence missing marker %q", want)
 		}
 	}
 	for _, want := range []string{

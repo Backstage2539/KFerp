@@ -29,6 +29,8 @@
         <button class="primary" type="button" @click="loadAll" :disabled="loading || !normalizedCustomerId">载入账户</button>
       </div>
 
+      <p class="muted account-hint">外部用户配置已移到“门户客户配置”；配置手机号、密码并启用登录后，该客户会出现在这里。</p>
+
       <div v-if="workbenchSections.imports" class="import-row">
         <div class="segmented">
           <button
@@ -227,64 +229,6 @@
 
       <div v-if="error" class="error">{{ error }}</div>
       <div v-if="ok" class="ok">{{ ok }}</div>
-    </section>
-
-    <section v-if="normalizedCustomerId" class="panel external-users-panel">
-      <div class="panel-head">
-        <div>
-          <h3>外部用户</h3>
-          <p>{{ overview.customer_name || selectedCustomerLabel || '-' }}</p>
-        </div>
-        <button class="secondary" type="button" @click="loadExternalUsers" :disabled="loading">刷新账号</button>
-      </div>
-
-      <form class="external-user-form" @submit.prevent="createExternalUser">
-        <label>
-          <span>姓名</span>
-          <input v-model.trim="externalUserForm.name" required />
-        </label>
-        <label>
-          <span>手机号</span>
-          <input v-model.trim="externalUserForm.phone" required />
-        </label>
-        <label>
-          <span>初始密码</span>
-          <input v-model.trim="externalUserForm.password" type="password" required />
-        </label>
-        <button class="primary" type="submit" :disabled="loading || !normalizedCustomerId">创建账号</button>
-      </form>
-
-      <div class="table-wrap">
-        <table class="external-users-table">
-          <thead>
-            <tr><th>姓名</th><th>手机号</th><th>登录</th><th>绑定</th><th>密码</th><th>操作</th></tr>
-          </thead>
-          <tbody>
-            <tr v-for="user in externalUsers" :key="user.employee_id">
-              <td>{{ user.name || '-' }}</td>
-              <td>{{ user.phone || '-' }}</td>
-              <td>{{ user.login_enabled ? '可登录' : '已停用' }}</td>
-              <td>{{ user.binding_status || '-' }}</td>
-              <td>
-                <div class="password-row">
-                  <input v-model.trim="externalUserPasswordMap[String(user.employee_id)]" type="password" placeholder="新密码" />
-                  <button class="secondary" type="button" @click="resetExternalUserPassword(user)" :disabled="loading || !externalUserPasswordMap[String(user.employee_id)]">
-                    {{ user.has_password ? '重置' : '设置' }}
-                  </button>
-                </div>
-              </td>
-              <td>
-                <button class="secondary" type="button" @click="toggleExternalUserLogin(user)" :disabled="loading">
-                  {{ user.login_enabled ? '停用登录' : '启用登录' }}
-                </button>
-              </td>
-            </tr>
-            <tr v-if="!externalUsers.length">
-              <td colspan="6" class="muted empty-row">暂无外部用户</td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
     </section>
 
     <section v-if="selectedParsedBatch" class="panel apply-panel">
@@ -634,9 +578,7 @@ import {
   applyCustomerFulfillmentImport,
   adjustCustomerFulfillmentCustodyInventory,
   createCustomerFulfillmentSettlement,
-  createCustomerFulfillmentExternalUser,
   fetchCustomerFulfillmentCustomers,
-  fetchCustomerFulfillmentExternalUsers,
   fetchCustomerFulfillmentOrderDetail,
   fetchCustomerFulfillmentOrders,
   fetchCustomerFulfillmentOptions,
@@ -645,8 +587,6 @@ import {
   fetchCustomerFulfillmentImports,
   fetchCustomerFulfillmentOverview,
   parseCustomerFulfillmentImport,
-  resetCustomerFulfillmentExternalUserPassword,
-  setCustomerFulfillmentExternalUserLoginEnabled,
   submitCustomerFulfillmentDirectShipOrder,
   submitCustomerFulfillmentProcessingWorkOrder,
 } from '../api/customer-fulfillment'
@@ -678,8 +618,6 @@ const overview = ref({})
 const fulfillmentOptions = ref({})
 const invalidRows = ref([])
 const resultAnchor = ref(null)
-const externalUsers = ref([])
-const externalUserPasswordMap = reactive({})
 const loading = ref(false)
 const error = ref('')
 const ok = ref('')
@@ -735,11 +673,6 @@ const adjustment = reactive({
   quantity_g_delta: 0,
   quantity_units_delta: 0,
   note: '',
-})
-const externalUserForm = reactive({
-  name: '',
-  phone: '',
-  password: '',
 })
 const normalizedCustomerId = computed(() => Number(customerId.value || 0))
 const selectedCustomer = computed(() => customerOptions.value.find((row) => Number(row.id) === normalizedCustomerId.value) || null)
@@ -830,19 +763,17 @@ async function loadAll() {
   error.value = ''
   ok.value = ''
   try {
-    const [overviewData, importData, optionsData, orderData, externalUsersData] = await Promise.all([
+    const [overviewData, importData, optionsData, orderData] = await Promise.all([
       fetchCustomerFulfillmentOverview(normalizedCustomerId.value),
       fetchCustomerFulfillmentImports(normalizedCustomerId.value),
       fetchCustomerFulfillmentOptions(normalizedCustomerId.value),
       loadFulfillmentOrdersData(normalizedCustomerId.value, fulfillmentOrdersPage.value),
-      fetchCustomerFulfillmentExternalUsers(normalizedCustomerId.value),
     ])
     overview.value = overviewData || {}
     fulfillmentOptions.value = optionsData || {}
     rememberOverviewCustomer(overviewData)
     imports.value = importData?.imports || overviewData?.imports || []
     assignFulfillmentOrders(orderData)
-    assignExternalUsers(externalUsersData)
   } catch (err) {
     error.value = err.message || '加载客户履约账户失败'
   } finally {
@@ -1056,86 +987,6 @@ function assignFulfillmentOrders(data = {}) {
   if (currentID > 0) {
     const refreshed = fulfillmentOrders.value.find((row) => Number(row.id) === currentID)
     if (refreshed) activeOrderSummary.value = { ...refreshed }
-  }
-}
-
-function assignExternalUsers(data = {}) {
-  externalUsers.value = Array.isArray(data?.users) ? data.users : []
-}
-
-async function loadExternalUsers() {
-  if (!normalizedCustomerId.value) return
-  loading.value = true
-  error.value = ''
-  try {
-    const data = await fetchCustomerFulfillmentExternalUsers(normalizedCustomerId.value)
-    assignExternalUsers(data)
-  } catch (err) {
-    error.value = err.message || '加载外部用户失败'
-  } finally {
-    loading.value = false
-  }
-}
-
-async function createExternalUser() {
-  if (!normalizedCustomerId.value) return
-  loading.value = true
-  error.value = ''
-  ok.value = ''
-  try {
-    const row = await createCustomerFulfillmentExternalUser(normalizedCustomerId.value, {
-      name: externalUserForm.name,
-      phone: externalUserForm.phone,
-      password: externalUserForm.password,
-    })
-    ok.value = `已创建外部用户 ${row.name || externalUserForm.name}`
-    externalUserForm.name = ''
-    externalUserForm.phone = ''
-    externalUserForm.password = ''
-    await loadExternalUsers()
-    await loadCustomerOptions()
-  } catch (err) {
-    error.value = err.message || '创建外部用户失败'
-  } finally {
-    loading.value = false
-  }
-}
-
-async function resetExternalUserPassword(user) {
-  const employeeId = Number(user?.employee_id || 0)
-  const password = externalUserPasswordMap[String(employeeId)] || ''
-  if (!normalizedCustomerId.value || !employeeId || !password) return
-  loading.value = true
-  error.value = ''
-  ok.value = ''
-  try {
-    await resetCustomerFulfillmentExternalUserPassword(normalizedCustomerId.value, employeeId, password)
-    externalUserPasswordMap[String(employeeId)] = ''
-    ok.value = `已更新 ${user.name || user.phone || employeeId} 的密码`
-    await loadExternalUsers()
-  } catch (err) {
-    error.value = err.message || '密码更新失败'
-  } finally {
-    loading.value = false
-  }
-}
-
-async function toggleExternalUserLogin(user) {
-  const employeeId = Number(user?.employee_id || 0)
-  if (!normalizedCustomerId.value || !employeeId) return
-  loading.value = true
-  error.value = ''
-  ok.value = ''
-  try {
-    const nextEnabled = !user.login_enabled
-    await setCustomerFulfillmentExternalUserLoginEnabled(normalizedCustomerId.value, employeeId, nextEnabled)
-    ok.value = nextEnabled ? '已启用外部用户登录' : '已停用外部用户登录'
-    await loadExternalUsers()
-    await loadCustomerOptions()
-  } catch (err) {
-    error.value = err.message || '登录状态保存失败'
-  } finally {
-    loading.value = false
   }
 }
 
@@ -1433,6 +1284,10 @@ function openManual() {
 
 .import-hint {
   align-self: center;
+}
+
+.account-hint {
+  margin: 10px 0 0;
 }
 
 label {

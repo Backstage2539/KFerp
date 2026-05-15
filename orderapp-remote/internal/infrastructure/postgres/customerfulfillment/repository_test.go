@@ -2821,6 +2821,42 @@ func TestUpsertCustomerERPBindingRejectsDisabledLoginAccount(t *testing.T) {
 	assertCustomerFulfillmentCount(t, pool, schema, "customer_erp_user_bindings", "customer_id=$1 AND status='active'", customerID, 0)
 }
 
+func TestCreateExternalUserAllowsNonWorkbenchTemplate(t *testing.T) {
+	ctx := context.Background()
+	pool, schema := newCustomerFulfillmentTestDB(t)
+	repo := NewRepository(pool, schema)
+
+	var customerID int64
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`
+		INSERT INTO %s.customers(name, customer_type, active)
+		VALUES('非工作台模板客户','wholesale',true)
+		RETURNING id
+	`, schema)).Scan(&customerID); err != nil {
+		t.Fatalf("insert customer: %v", err)
+	}
+	if _, err := pool.Exec(ctx, fmt.Sprintf(`
+		INSERT INTO %s.customer_portal_profiles(customer_id, capability_template_key)
+		VALUES($1,'retail_mall')
+	`, schema), customerID); err != nil {
+		t.Fatalf("insert portal profile: %v", err)
+	}
+
+	got, err := repo.CreateExternalUser(ctx, app.CreateExternalUserCommand{
+		CustomerID: customerID,
+		Name:       "门户账号",
+		Phone:      "13900000123",
+		Password:   "secret123",
+		Actor:      "Codex",
+	})
+	if err != nil {
+		t.Fatalf("CreateExternalUser: %v", err)
+	}
+	if got.CustomerID != customerID || got.Name != "门户账号" || got.Phone != "13900000123" || !got.LoginEnabled || !got.HasPassword || got.BindingStatus != "active" {
+		t.Fatalf("external user = %+v", got)
+	}
+	assertCustomerFulfillmentCount(t, pool, schema, "customer_erp_user_bindings", "customer_id=$1 AND status='active'", customerID, 1)
+}
+
 func TestCustomerPortalContextRejectsLegacyBindingWithoutERPWorkbench(t *testing.T) {
 	ctx := context.Background()
 	pool, schema := newCustomerFulfillmentTestDB(t)

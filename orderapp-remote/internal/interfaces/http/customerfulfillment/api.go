@@ -70,10 +70,13 @@ func (a api) hasActiveERPBinding(c echo.Context, customerID int64) (bool, error)
 		return false, err
 	}
 	for _, user := range users {
+		if strings.TrimSpace(user.BindingStatus) != "active" {
+			continue
+		}
 		if strings.TrimSpace(user.Phone) == "" || !user.HasPassword || !user.LoginEnabled {
 			continue
 		}
-		return a.svc.CustomerERPWorkbenchAvailable(c.Request().Context(), customerID)
+		return true, nil
 	}
 	return false, nil
 }

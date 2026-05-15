@@ -39,14 +39,14 @@ func TestCustomerDossierUserBoundarySourceGuards(t *testing.T) {
 			t.Fatalf("customer fulfillment API missing external user marker %q", want)
 		}
 	}
-	for _, want := range []string{"外部用户", "createExternalUser", "resetExternalUserPassword", "toggleExternalUserLogin"} {
+	for _, want := range []string{"外部用户配置已移到“门户客户配置”", "选择客户", "载入账户"} {
 		if !strings.Contains(fulfillmentView, want) {
-			t.Fatalf("CustomerFulfillmentView.vue missing external user UI marker %q", want)
+			t.Fatalf("CustomerFulfillmentView.vue missing fulfillment handoff marker %q", want)
 		}
 	}
-	for _, want := range []string{"goToFulfillmentAccount", "去履约运营台管理"} {
+	for _, want := range []string{"外部用户", "createExternalUser", "resetExternalUserPassword", "toggleExternalUserLogin"} {
 		if !strings.Contains(portalSettings, want) {
-			t.Fatalf("CustomerPortalSettingsView.vue missing account handoff marker %q", want)
+			t.Fatalf("CustomerPortalSettingsView.vue missing external user management marker %q", want)
 		}
 	}
 }

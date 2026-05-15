@@ -23,7 +23,7 @@
         <span>客户</span>
         <span>客户配置</span>
         <span>引用模板</span>
-        <span>履约账号</span>
+        <span>外部用户</span>
         <span>绑定用户</span>
       </div>
 
@@ -123,14 +123,49 @@
           <span v-if="row.loading" class="muted">加载模板中...</span>
         </div>
 
-        <div class="erp-binding">
-          <div v-if="row.customer.erp_binding" class="binding-row active-binding">
-            <strong>{{ row.customer.erp_binding.employee_name || row.customer.erp_binding.phone || row.customer.erp_binding.employee_id }}</strong>
-            <span>{{ row.customer.erp_binding.phone || '未填手机号' }}</span>
+        <div class="external-user-cell">
+          <form class="external-user-form" @submit.prevent="createExternalUser(row)">
+            <label>
+              <span>姓名</span>
+              <input v-model.trim="row.externalUserForm.name" required />
+            </label>
+            <label>
+              <span>手机号</span>
+              <input v-model.trim="row.externalUserForm.phone" required />
+            </label>
+            <label>
+              <span>初始密码</span>
+              <input v-model.trim="row.externalUserForm.password" type="password" required />
+            </label>
+            <button class="secondary" type="submit" :disabled="row.externalUsersLoading">
+              {{ row.externalUsersLoading ? '处理中' : '创建账号' }}
+            </button>
+          </form>
+          <div class="external-user-list">
+            <div v-for="user in row.externalUsers" :key="`${row.customer.id}-${user.employee_id}`" class="external-user-card">
+              <div class="binding-row active-binding">
+                <strong>{{ user.name || '-' }}</strong>
+                <span>{{ user.phone || '未填手机号' }}</span>
+              </div>
+              <div class="chips">
+                <i>{{ user.login_enabled ? '已启用登录' : '已停用登录' }}</i>
+                <i>{{ user.has_password ? '已设密码' : '未设密码' }}</i>
+                <i>{{ user.binding_status || '-' }}</i>
+              </div>
+              <div class="password-row">
+                <input v-model.trim="row.externalUserPasswordMap[String(user.employee_id)]" type="password" placeholder="新密码" />
+                <button class="secondary" type="button" @click="resetExternalUserPassword(row, user)" :disabled="row.externalUsersLoading || !row.externalUserPasswordMap[String(user.employee_id)]">
+                  {{ user.has_password ? '重置密码' : '设置密码' }}
+                </button>
+              </div>
+              <button class="secondary" type="button" @click="toggleExternalUserLogin(row, user)" :disabled="row.externalUsersLoading">
+                {{ user.login_enabled ? '停用登录' : '启用登录' }}
+              </button>
+            </div>
+            <span v-if="!row.externalUsers.length && !row.externalUsersLoading" class="muted">暂无外部用户</span>
+            <span v-if="row.externalUsersLoading" class="muted">加载账号中...</span>
           </div>
-          <span v-else class="muted">未配置外部用户</span>
-          <p v-if="erpBindingHint(row)" class="binding-hint">{{ erpBindingHint(row) }}</p>
-          <button class="secondary" type="button" @click="goToFulfillmentAccount(row)" :disabled="!templateSupportsERPWorkbench(row)">去履约运营台管理</button>
+          <p class="binding-hint">外部用户配置了手机号、密码并启用登录后，该客户会出现在客户履约运营台。</p>
         </div>
 
         <div class="binding-list">
@@ -148,6 +183,12 @@
 <script setup>
 import { computed, onMounted, ref } from 'vue'
 import { apiGet, apiSend } from '../api/client'
+import {
+  createCustomerFulfillmentExternalUser,
+  fetchCustomerFulfillmentExternalUsers,
+  resetCustomerFulfillmentExternalUserPassword,
+  setCustomerFulfillmentExternalUserLoginEnabled,
+} from '../api/customer-fulfillment'
 
 const q = ref('')
 const portalRows = ref([])
@@ -182,7 +223,7 @@ async function loadCustomers() {
     if (q.value) url.searchParams.set('q', q.value)
     const data = await apiGet(url)
     portalRows.value = (data.rows || []).map(createPortalRow)
-    await Promise.all(portalRows.value.map((row) => loadRowDetail(row)))
+    await Promise.all(portalRows.value.map((row) => Promise.all([loadRowDetail(row), loadRowExternalUsers(row)])))
   } catch (err) {
     error.value = err.message || '加载客户失败'
   } finally {
@@ -232,8 +273,16 @@ function createPortalRow(customer) {
     },
     capabilities: [],
     bindings: [],
+    externalUsers: [],
+    externalUserForm: {
+      name: '',
+      phone: '',
+      password: '',
+    },
+    externalUserPasswordMap: {},
     loading: false,
     saving: false,
+    externalUsersLoading: false,
   }
 }
 
@@ -262,6 +311,20 @@ function assignRowDetail(row, data) {
     enabled: !!item.enabled,
     config: item.config || {},
   }))
+}
+
+function assignExternalUsers(row, data) {
+  row.externalUsers = Array.isArray(data?.users) ? data.users : []
+}
+
+async function loadRowExternalUsers(row) {
+  row.externalUsersLoading = true
+  try {
+    const data = await fetchCustomerFulfillmentExternalUsers(row.customer.id)
+    assignExternalUsers(row, data)
+  } finally {
+    row.externalUsersLoading = false
+  }
 }
 
 async function saveVisibility(row) {
@@ -314,25 +377,6 @@ function inactiveTemplateKey(row) {
   return template && template.active === false ? key : ''
 }
 
-function templateSupportsERPWorkbench(row) {
-  if (unknownTemplateKey(row)) return false
-  if (inactiveTemplateKey(row)) return false
-  const template = selectedTemplate(row)
-  return hasStringValues(template?.erp_permissions) || hasStringValues(template?.erp_view_keys)
-}
-
-function erpBindingHint(row) {
-  if (unknownTemplateKey(row)) return '当前能力模板无法识别，请先重新选择系统模板'
-  if (inactiveTemplateKey(row)) return '当前能力模板已失效，请先重新选择启用中的模板'
-  if (!selectedTemplate(row)) return '请选择支持 ERP 工作台的能力模板后再管理外部用户'
-  if (!templateSupportsERPWorkbench(row)) return '该模板不开放 ERP 工作台，零售商城客户不需要绑定 ERP 账号'
-  return ''
-}
-
-function hasStringValues(values) {
-  return (values || []).some((value) => String(value || '').trim())
-}
-
 function enabledTemplateCapabilities(row) {
   return (selectedTemplate(row)?.capabilities || []).filter((capability) => capability.enabled)
 }
@@ -375,13 +419,63 @@ function canSaveRow(row) {
   return !row.saving && !row.loading && !unknownTemplateKey(row) && !inactiveTemplateKey(row) && (!row.form.enabled || !!selectedTemplate(row))
 }
 
-function goToFulfillmentAccount(row) {
-  const customerID = Number(row?.customer?.id || 0)
-  if (!customerID) return
-  const url = new URL(window.location.href)
-  url.searchParams.set('view', 'customer-fulfillment')
-  url.searchParams.set('customer_id', String(customerID))
-  window.location.href = url.toString()
+async function createExternalUser(row) {
+  row.externalUsersLoading = true
+  error.value = ''
+  ok.value = ''
+  try {
+    const created = await createCustomerFulfillmentExternalUser(row.customer.id, {
+      name: row.externalUserForm.name,
+      phone: row.externalUserForm.phone,
+      password: row.externalUserForm.password,
+    })
+    row.externalUserForm.name = ''
+    row.externalUserForm.phone = ''
+    row.externalUserForm.password = ''
+    ok.value = `已为 ${row.customer.name} 创建外部用户 ${created.name || created.phone || ''}`.trim()
+    await Promise.all([loadRowDetail(row), loadRowExternalUsers(row)])
+  } catch (err) {
+    error.value = err.message || '创建外部用户失败'
+  } finally {
+    row.externalUsersLoading = false
+  }
+}
+
+async function resetExternalUserPassword(row, user) {
+  const employeeID = Number(user?.employee_id || 0)
+  const password = row.externalUserPasswordMap[String(employeeID)] || ''
+  if (!employeeID || !password) return
+  row.externalUsersLoading = true
+  error.value = ''
+  ok.value = ''
+  try {
+    await resetCustomerFulfillmentExternalUserPassword(row.customer.id, employeeID, password)
+    row.externalUserPasswordMap[String(employeeID)] = ''
+    ok.value = `已更新 ${user.name || user.phone || employeeID} 的密码`
+    await Promise.all([loadRowDetail(row), loadRowExternalUsers(row)])
+  } catch (err) {
+    error.value = err.message || '密码更新失败'
+  } finally {
+    row.externalUsersLoading = false
+  }
+}
+
+async function toggleExternalUserLogin(row, user) {
+  const employeeID = Number(user?.employee_id || 0)
+  if (!employeeID) return
+  row.externalUsersLoading = true
+  error.value = ''
+  ok.value = ''
+  try {
+    const nextEnabled = !user.login_enabled
+    await setCustomerFulfillmentExternalUserLoginEnabled(row.customer.id, employeeID, nextEnabled)
+    ok.value = nextEnabled ? '已启用外部用户登录' : '已停用外部用户登录'
+    await Promise.all([loadRowDetail(row), loadRowExternalUsers(row)])
+  } catch (err) {
+    error.value = err.message || '登录状态保存失败'
+  } finally {
+    row.externalUsersLoading = false
+  }
 }
 
 onMounted(async () => {
@@ -404,11 +498,11 @@ button { height: 38px; border-radius: 6px; border: 1px solid #1f1f1f; padding: 0
 button:disabled { cursor: not-allowed; opacity: .55; }
 .primary { background: #1f1f1f; color: #fff; }
 .secondary { background: #fff; color: #1f1f1f; }
-.list-head, .portal-row { display: grid; grid-template-columns: 190px 280px minmax(320px, 1fr) 220px 210px; gap: 14px; align-items: start; }
+.list-head, .portal-row { display: grid; grid-template-columns: 190px 280px minmax(320px, 1fr) minmax(300px, 360px) 210px; gap: 14px; align-items: start; }
 .list-head { padding: 8px 10px; background: #f8fafc; border-bottom: 1px solid #eef1f4; color: #666; font-size: 13px; font-weight: 700; }
 .portal-row { padding: 14px 10px; border-bottom: 1px solid #eef1f4; }
 .portal-row:last-child { border-bottom: 0; }
-.customer-cell, .config-cell, .binding-list, .erp-binding { display: flex; flex-direction: column; gap: 8px; }
+.customer-cell, .config-cell, .binding-list, .external-user-cell { display: flex; flex-direction: column; gap: 8px; }
 .customer-cell strong { font-size: 15px; }
 .customer-cell span, .binding-row span { color: #666; font-size: 13px; line-height: 1.4; }
 .config-cell input, .config-cell select { width: 100%; }
@@ -425,6 +519,11 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .summary-block b { font-size: 12px; color: #555; }
 .binding-row { border: 1px solid #e4e7ec; border-radius: 8px; padding: 8px; }
 .binding-row strong { font-size: 13px; }
+.external-user-form, .external-user-list { display: grid; gap: 8px; }
+.external-user-form input { width: 100%; }
+.external-user-card { border: 1px solid #e4e7ec; border-radius: 8px; padding: 8px; display: grid; gap: 8px; }
+.password-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; align-items: center; }
+.password-row input { width: 100%; }
 .binding-hint { margin: 0; color: #8a5a16; background: #fff7e6; border: 1px solid #f0d7a0; border-radius: 6px; padding: 7px 8px; font-size: 12px; line-height: 1.45; }
 .active-binding { border-color: #b7d9c2; background: #f7fff9; }
 .muted { color: #666; }

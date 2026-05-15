@@ -54,21 +54,33 @@ test('customer portal settings view only references capability templates', () =>
   assert.doesNotMatch(source, /v-model="capability\.enabled"/)
 })
 
-test('customer portal settings disables ERP binding for templates without workbench views', () => {
+test('customer portal settings does not gate external users by workbench template', () => {
   const source = fs.readFileSync(path.join(currentDir, '..', 'views', 'CustomerPortalSettingsView.vue'), 'utf8')
-  assert.match(source, /function\s+templateSupportsERPWorkbench\(row\)/)
-  assert.match(source, /:disabled="!templateSupportsERPWorkbench\(row\)"/)
-  assert.match(source, /!templateSupportsERPWorkbench\(row\)/)
-  assert.match(source, /该模板不开放 ERP 工作台/)
+  assert.doesNotMatch(source, /templateSupportsERPWorkbench/)
+  assert.doesNotMatch(source, /该模板不开放 ERP 工作台/)
+  assert.match(source, /手机号、密码并启用登录后/)
 })
 
-test('customer portal settings hands external account management to fulfillment operations', () => {
+test('customer portal settings manages external users directly', () => {
   const source = fs.readFileSync(path.join(currentDir, '..', 'views', 'CustomerPortalSettingsView.vue'), 'utf8')
-  assert.match(source, /goToFulfillmentAccount/)
-  assert.match(source, /去履约运营台管理/)
-  assert.doesNotMatch(source, /\/api\/auth\/accounts/)
-  assert.doesNotMatch(source, /saveERPBinding/)
-  assert.doesNotMatch(source, /channel_customer/)
+  for (const want of [
+    '外部用户',
+    'fetchCustomerFulfillmentExternalUsers',
+    'createCustomerFulfillmentExternalUser',
+    'resetCustomerFulfillmentExternalUserPassword',
+    'setCustomerFulfillmentExternalUserLoginEnabled',
+  ]) {
+    assert.ok(source.includes(want), `missing ${want}`)
+  }
+  assert.doesNotMatch(source, /goToFulfillmentAccount/)
+  assert.doesNotMatch(source, /去履约运营台管理/)
+})
+
+test('customer fulfillment view no longer hosts external user management', () => {
+  const source = fs.readFileSync(path.join(currentDir, '..', 'views', 'CustomerFulfillmentView.vue'), 'utf8')
+  assert.match(source, /外部用户配置已移到“门户客户配置”/)
+  assert.doesNotMatch(source, /刷新账号/)
+  assert.doesNotMatch(source, /createCustomerFulfillmentExternalUser/)
 })
 
 test('customer portal settings preserves unknown template keys for correction', () => {
