@@ -109,21 +109,22 @@ func (h orderAPIHandler) list(c echo.Context) error {
 		return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid scope"})
 	}
 	result, err := h.sales.ListOrders(c.Request().Context(), salesapp.OrderListQuery{
-		Q:               query.Q,
-		From:            query.From,
-		To:              query.To,
-		Void:            query.Void,
-		Scope:           query.Scope,
-		EmployeeID:      query.EmployeeID,
-		CustomerID:      query.CustomerID,
-		PayStatusID:     query.PayStatusID,
-		ShipStatusID:    query.ShipStatusID,
-		ProcessStatusID: query.ProcessStatusID,
-		UnproducedOnly:  query.UnproducedOnly,
-		CompletedOnly:   query.CompletedOnly,
-		ShipReadyOnly:   query.ShipReadyOnly,
-		Limit:           query.Limit,
-		Offset:          query.Offset,
+		Q:                     query.Q,
+		From:                  query.From,
+		To:                    query.To,
+		Void:                  query.Void,
+		Scope:                 query.Scope,
+		EmployeeID:            query.EmployeeID,
+		FulfillmentEmployeeID: query.FulfillmentEmployeeID,
+		CustomerID:            query.CustomerID,
+		PayStatusID:           query.PayStatusID,
+		ShipStatusID:          query.ShipStatusID,
+		ProcessStatusID:       query.ProcessStatusID,
+		UnproducedOnly:        query.UnproducedOnly,
+		CompletedOnly:         query.CompletedOnly,
+		ShipReadyOnly:         query.ShipReadyOnly,
+		Limit:                 query.Limit,
+		Offset:                query.Offset,
 	})
 	if err != nil {
 		return c.JSON(http.StatusInternalServerError, map[string]any{"error": err.Error()})
@@ -197,22 +198,23 @@ func (h orderAPIHandler) form(c echo.Context) error {
 }
 
 type ordersAPIQuery struct {
-	Q               string
-	From            string
-	To              string
-	Void            string
-	Scope           string
-	EmployeeID      int64
-	CustomerID      int64
-	PayStatusID     int64
-	ShipStatusID    int64
-	ProcessStatusID int64
-	UnproducedOnly  bool
-	CompletedOnly   bool
-	ShipReadyOnly   bool
-	Limit           int
-	Offset          int
-	Page            int
+	Q                     string
+	From                  string
+	To                    string
+	Void                  string
+	Scope                 string
+	EmployeeID            int64
+	FulfillmentEmployeeID int64
+	CustomerID            int64
+	PayStatusID           int64
+	ShipStatusID          int64
+	ProcessStatusID       int64
+	UnproducedOnly        bool
+	CompletedOnly         bool
+	ShipReadyOnly         bool
+	Limit                 int
+	Offset                int
+	Page                  int
 }
 
 func ordersQueryFromContext(c echo.Context) (ordersAPIQuery, bool) {
@@ -253,6 +255,9 @@ func ordersQueryFromContext(c echo.Context) (ordersAPIQuery, bool) {
 	q.UnproducedOnly = strings.TrimSpace(c.QueryParam("preset")) == "unprod"
 	q.CompletedOnly = strings.TrimSpace(c.QueryParam("completed")) == "1"
 	q.ShipReadyOnly = strings.TrimSpace(c.QueryParam("ship_ready")) == "1"
+	if q.Scope == "fulfillment" && support.CustomerFulfillmentOrderScopeLimited(c) {
+		q.FulfillmentEmployeeID = q.EmployeeID
+	}
 	if q.Void == "" {
 		q.Void = "normal"
 	}

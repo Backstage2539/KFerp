@@ -7,9 +7,17 @@ import (
 	"github.com/labstack/echo/v4"
 )
 
+const customerFulfillmentOrderScopeLimitedContextKey = "customer_fulfillment_order_scope_limited"
+
 func AuthorizationMiddleware(authz AuthzService) echo.MiddlewareFunc {
 	return func(next echo.HandlerFunc) echo.HandlerFunc {
 		return func(c echo.Context) error {
+			if isFulfillmentOrderListRequest(c.Request().Method, c.Request().URL.Path, c.QueryParam("scope")) {
+				if err := authorizeFulfillmentOrderList(c, authz); err != nil {
+					return err
+				}
+				return next(c)
+			}
 			permission := requiredPermissionForRequest(c.Request().Method, c.Request().URL.Path)
 			if permission == "" {
 				return next(c)
@@ -20,6 +28,36 @@ func AuthorizationMiddleware(authz AuthzService) echo.MiddlewareFunc {
 			return next(c)
 		}
 	}
+}
+
+func CustomerFulfillmentOrderScopeLimited(c echo.Context) bool {
+	v, _ := c.Get(customerFulfillmentOrderScopeLimitedContextKey).(bool)
+	return v
+}
+
+func isFulfillmentOrderListRequest(method, path, scope string) bool {
+	path = strings.TrimSpace(path)
+	return method == http.MethodGet &&
+		(path == "/api/orders" || path == "/app/api/orders") &&
+		strings.TrimSpace(scope) == "fulfillment"
+}
+
+func authorizeFulfillmentOrderList(c echo.Context, authz AuthzService) error {
+	actor, ok, err := CurrentActor(c, authz)
+	if err != nil {
+		return permissionJSONError(c, http.StatusForbidden, map[string]string{"error": err.Error()})
+	}
+	if !ok {
+		return permissionJSONError(c, http.StatusUnauthorized, map[string]string{"error": "auth required"})
+	}
+	if actor.Can("orders.read") {
+		return nil
+	}
+	if actor.Can("customer_processing.read") {
+		c.Set(customerFulfillmentOrderScopeLimitedContextKey, true)
+		return nil
+	}
+	return permissionJSONError(c, http.StatusForbidden, map[string]string{"error": "permission denied", "permission": "orders.read"})
 }
 
 func requiredPermissionForRequest(method, path string) string {
