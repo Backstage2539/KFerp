@@ -8,7 +8,7 @@ import (
 
 func TestCustomerDossierUserBoundarySourceGuards(t *testing.T) {
 	customersView := string(readOrderAppFileForTest(t, filepath.Join("frontend-vue-shell", "src", "views", "CustomersView.vue")))
-	userPermissionsView := string(readOrderAppFileForTest(t, filepath.Join("frontend-vue-shell", "src", "views", "UserPermissionsView.vue")))
+	companyStaffView := string(readOrderAppFileForTest(t, filepath.Join("frontend-vue-shell", "src", "views", "CompanyStaffView.vue")))
 	companyRepo := string(readOrderAppFileForTest(t, filepath.Join("internal", "infrastructure", "postgres", "company", "repository.go")))
 	mobileAuth := string(readOrderAppFileForTest(t, filepath.Join("internal", "interfaces", "http", "support", "mobile_auth.go")))
 	fulfillmentAPI := string(readOrderAppFileForTest(t, filepath.Join("internal", "interfaces", "http", "customerfulfillment", "api.go")))
@@ -23,8 +23,8 @@ func TestCustomerDossierUserBoundarySourceGuards(t *testing.T) {
 	if strings.Contains(customersView, "<th>操作</th>") || strings.Contains(customersView, "editCustomer(row.id)\">编辑") {
 		t.Fatal("customer list must not render the old edit operation column/button")
 	}
-	if strings.Contains(userPermissionsView, "setAccountType") || strings.Contains(userPermissionsView, "渠道客户") || strings.Contains(userPermissionsView, "account_type") {
-		t.Fatal("user permissions view must not expose external account type controls")
+	if strings.Contains(companyStaffView, "setAccountType") || strings.Contains(companyStaffView, "渠道客户") || strings.Contains(companyStaffView, "account_type") {
+		t.Fatal("employee maintenance view must not expose external account type controls")
 	}
 	for _, want := range []string{"/api/auth/internal-accounts", "account_type='internal_employee'"} {
 		if !strings.Contains(mobileAuth, want) {

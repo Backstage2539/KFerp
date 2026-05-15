@@ -104,6 +104,15 @@ test('customer fulfillment menu consolidates operator, portal and template pages
   assert.equal(menuGroups.find((group) => group.id === 'customerFulfillment')?.name, '客户履约')
 })
 
+test('system menu merges user permissions into employee maintenance', () => {
+  const keys = primaryMenuKeys(menuGroups)
+  assert.ok(keys.includes('employees'))
+  assert.equal(keys.includes('userPermissions'), false)
+  assert.equal(groupForView(menuGroups, 'employees')?.id, 'system')
+  assert.equal(groupForView(menuGroups, 'userPermissions'), null)
+  assert.equal(JSON.stringify(menuGroups).includes('用户权限'), false)
+})
+
 test('finance menu exposes monthly finance workflows as primary pages', () => {
   const keys = primaryMenuKeys(menuGroups)
   for (const key of ['financeDashboard', 'financeExpenses', 'financeClosing', 'financeReport', 'financeSettings', 'financeManual']) {
@@ -139,7 +148,6 @@ test('remaining ERP click-matrix targets reference real Vue shell views', () => 
     'customerCapabilityTemplates',
     'companyProfile',
     'machines',
-    'userPermissions',
     'employees',
     'departments',
     'audit',

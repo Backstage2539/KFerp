@@ -34,12 +34,15 @@ func TestDefaultViewPermissionsCoverVueShellMenuKeys(t *testing.T) {
 		"warehouseInventory", "stockOperations", "stockOutboundLogs", "inventoryMaterialsManual", "materials", "materialReceipts", "materialBatches", "wipMaterials", "stockLedger", "stockBatches", "stockAdjustments", "inventory", "allocationLogs",
 		"productSettings", "mallSettings", "bom", "products", "costing", "costingManual",
 		"costingSettings", "machines", "companyProfile", "salesOrderSettings", "senderSettings", "outsourceSettings", "customerCapabilityTemplates", "customerPortalSettings", "customerPortalManual", "customerFulfillment", "customerFulfillmentManual", "settingsAuditManual",
-		"departments", "employees", "audit", "userPermissions",
+		"departments", "employees", "audit",
 		"reqProduct", "reqDev", "reqUnit", "reqApi", "reqReview", "requirementsManual",
 	} {
 		if views[key] == "" {
 			t.Fatalf("missing permission for view %s", key)
 		}
+	}
+	if views["userPermissions"] != "" {
+		t.Fatal("userPermissions should be merged into employees and should not keep a standalone view permission")
 	}
 	if views["quotePrint"] != "" {
 		t.Fatal("removed quote export page should not keep a view permission")

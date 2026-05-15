@@ -223,16 +223,16 @@ func TestVueShellUsesDefaultMenuExpansionAfterFreshLogin(t *testing.T) {
 	}
 }
 
-func TestUserPermissionsDistinguishesSetAndResetPasswordLabels(t *testing.T) {
-	src := readSupportTestFile(t, "frontend-vue-shell/src/views/UserPermissionsView.vue")
+func TestEmployeeMaintenanceDistinguishesSetAndResetPasswordLabels(t *testing.T) {
+	src := readSupportTestFile(t, "frontend-vue-shell/src/views/CompanyStaffView.vue")
 	for _, want := range []string{
-		"passwordActionLabel(employee.id)",
+		"passwordActionLabel(row.id)",
 		"has_password ? '重置密码' : '设置密码'",
-		"passwordPlaceholder(employee.id)",
-		"savePassword(employee.id)",
+		"passwordPlaceholder(row.id)",
+		"savePassword(row.id)",
 	} {
 		if !strings.Contains(src, want) {
-			t.Fatalf("UserPermissionsView.vue missing %q", want)
+			t.Fatalf("CompanyStaffView.vue missing %q", want)
 		}
 	}
 }

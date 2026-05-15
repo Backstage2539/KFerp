@@ -11,7 +11,7 @@ func TestCustomerAccountPortalTypesWiredAcrossUIAndAPIs(t *testing.T) {
 	companySchema := string(readOrderAppFileForTest(t, filepath.Join("internal", "infrastructure", "postgres", "company", "schema.go")))
 	customerRepo := string(readOrderAppFileForTest(t, filepath.Join("internal", "infrastructure", "postgres", "customer", "repository.go")))
 	portalAdmin := string(readOrderAppFileForTest(t, filepath.Join("internal", "interfaces", "http", "customerportal", "admin_api.go")))
-	userPermissions := string(readOrderAppFileForTest(t, filepath.Join("frontend-vue-shell", "src", "views", "UserPermissionsView.vue")))
+	employeeMaintenance := string(readOrderAppFileForTest(t, filepath.Join("frontend-vue-shell", "src", "views", "CompanyStaffView.vue")))
 	portalSettings := string(readOrderAppFileForTest(t, filepath.Join("frontend-vue-shell", "src", "views", "CustomerPortalSettingsView.vue")))
 	customersView := string(readOrderAppFileForTest(t, filepath.Join("frontend-vue-shell", "src", "views", "CustomersView.vue")))
 
@@ -48,13 +48,13 @@ func TestCustomerAccountPortalTypesWiredAcrossUIAndAPIs(t *testing.T) {
 		"内部权限",
 		"resetEmployeePassword",
 	} {
-		if !strings.Contains(userPermissions, want) {
-			t.Fatalf("UserPermissionsView.vue missing internal permission behavior %q", want)
+		if !strings.Contains(employeeMaintenance, want) {
+			t.Fatalf("CompanyStaffView.vue missing internal permission behavior %q", want)
 		}
 	}
 	for _, forbidden := range []string{"account_type", "渠道客户", "setAccountType", "isChannelCustomer", "公共SKU代发客户", "代加工客户"} {
-		if strings.Contains(userPermissions, forbidden) {
-			t.Fatalf("user permissions page must not show external account behavior %q", forbidden)
+		if strings.Contains(employeeMaintenance, forbidden) {
+			t.Fatalf("employee maintenance page must not show external account behavior %q", forbidden)
 		}
 	}
 	for _, want := range []string{
