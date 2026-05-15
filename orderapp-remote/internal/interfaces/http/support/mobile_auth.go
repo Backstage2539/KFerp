@@ -393,6 +393,49 @@ func registerMobileAuthAPI(e *echo.Echo, pool *pgxpool.Pool, schema string, auth
 		return c.JSON(200, map[string]any{"rows": out})
 	})
 
+	e.GET("/api/auth/internal-accounts", func(c echo.Context) error {
+		if err := requireCurrentPermission(c, authz, "auth.manage"); err != nil {
+			return err
+		}
+		rows, err := pool.Query(c.Request().Context(), fmt.Sprintf(`
+			SELECT e.id,COALESCE(e.name,''),COALESCE(e.phone,''),COALESCE(d.name,''),
+			       COALESCE(p.password_hash,'') <> '' AS has_password,
+			       COALESCE(p.login_disabled,false) AS login_disabled,
+			       COALESCE(p.must_reset_password,false) AS must_reset_password
+			FROM %s.company_employees e
+			LEFT JOIN %s.company_departments d ON d.id=e.department_id
+			LEFT JOIN %s.employee_login_passwords p ON p.employee_id=e.id
+			WHERE e.active=true AND (e.account_type='internal_employee' OR COALESCE(e.account_type,'')='')
+			ORDER BY e.id
+		`, schema, schema, schema))
+		if err != nil {
+			return c.JSON(500, map[string]string{"error": err.Error()})
+		}
+		defer rows.Close()
+		out := make([]map[string]any, 0)
+		for rows.Next() {
+			var id int64
+			var name, phone, department string
+			var hasPassword, loginDisabled, mustReset bool
+			if err := rows.Scan(&id, &name, &phone, &department, &hasPassword, &loginDisabled, &mustReset); err != nil {
+				return c.JSON(500, map[string]string{"error": err.Error()})
+			}
+			out = append(out, map[string]any{
+				"employee_id":         id,
+				"name":                name,
+				"phone":               phone,
+				"department":          department,
+				"has_password":        hasPassword,
+				"login_disabled":      loginDisabled,
+				"must_reset_password": mustReset,
+			})
+		}
+		if err := rows.Err(); err != nil {
+			return c.JSON(500, map[string]string{"error": err.Error()})
+		}
+		return c.JSON(200, map[string]any{"rows": out})
+	})
+
 	e.POST("/api/auth/account-type", func(c echo.Context) error {
 		if err := requireCurrentPermission(c, authz, "auth.manage"); err != nil {
 			return err

@@ -41,6 +41,10 @@ export function fetchAuthAccounts() {
   return apiGet('/api/auth/accounts')
 }
 
+export function fetchInternalAuthAccounts() {
+  return apiGet('/api/auth/internal-accounts')
+}
+
 export function setAccountState(employeeId, loginEnabled) {
   return apiSend('/api/auth/account-state', {
     method: 'POST',
