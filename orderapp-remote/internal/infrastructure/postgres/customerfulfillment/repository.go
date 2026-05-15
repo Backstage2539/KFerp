@@ -1299,43 +1299,12 @@ func (r *Repository) submittedDirectShipERPItemSeedsTx(ctx context.Context, tx p
 		unitPrice := payloadFloat(payload, "unit_price")
 		baseLineTotal := payloadFloat(payload, "line_total_before_discount")
 		lineTotal := payloadFloat(payload, "line_total")
-		specG := payloadInt64(payload, "spec_g")
-		if specG <= 0 {
-			specG = parseSubmittedDirectShipSpecG(spec)
-		}
 		if baseLineTotal <= 0 && unitPrice > 0 {
 			baseLineTotal = unitPrice * float64(quantity)
 		}
 		discountType := normalizeSubmittedDirectShipDiscountType(payloadString(payload, "discount_type"))
 		discountValue := payloadFloat(payload, "discount_value")
 		discountAmount := payloadFloat(payload, "discount_amount")
-		quoted, quoteOK, quoteErr := r.quoteSubmittedDirectShipItemForERPRebuildTx(ctx, tx, customerID, submittedDirectShipItem{
-			ProductID:     productID,
-			ProductName:   productTitle,
-			Spec:          spec,
-			SpecG:         specG,
-			QuantityUnits: quantity,
-			DiscountType:  discountType,
-			DiscountValue: discountValue,
-		})
-		if quoteErr != nil {
-			rows.Close()
-			return nil, quoteErr
-		}
-		if quoteOK {
-			if quoted.ProductName != "" {
-				productTitle = quoted.ProductName
-			}
-			if quoted.Spec != "" {
-				spec = quoted.Spec
-			}
-			unitPrice = quoted.UnitPrice
-			baseLineTotal = quoted.BaseLineTotal
-			discountType = quoted.DiscountType
-			discountValue = quoted.DiscountValue
-			discountAmount = quoted.DiscountAmount
-			lineTotal = quoted.LineTotal
-		}
 		if lineTotal <= 0 && discountType == "" && discountAmount <= 0 && unitPrice > 0 {
 			lineTotal = unitPrice * float64(quantity)
 		}
@@ -1364,6 +1333,36 @@ func (r *Repository) submittedDirectShipERPItemSeedsTx(ctx context.Context, tx p
 		return nil, err
 	}
 	rows.Close()
+	for idx := range items {
+		specG := parseSubmittedDirectShipSpecG(items[idx].spec)
+		quoted, quoteOK, quoteErr := r.quoteSubmittedDirectShipItemForERPRebuildTx(ctx, tx, customerID, submittedDirectShipItem{
+			ProductID:     items[idx].productID,
+			ProductName:   items[idx].productTitle,
+			Spec:          items[idx].spec,
+			SpecG:         specG,
+			QuantityUnits: items[idx].quantity,
+			DiscountType:  items[idx].discountType,
+			DiscountValue: items[idx].discountValue,
+		})
+		if quoteErr != nil {
+			return nil, quoteErr
+		}
+		if !quoteOK {
+			continue
+		}
+		if quoted.ProductName != "" {
+			items[idx].productTitle = quoted.ProductName
+		}
+		if quoted.Spec != "" {
+			items[idx].spec = quoted.Spec
+		}
+		items[idx].unitPrice = quoted.UnitPrice
+		items[idx].baseLineTotal = quoted.BaseLineTotal
+		items[idx].discountType = quoted.DiscountType
+		items[idx].discountValue = quoted.DiscountValue
+		items[idx].discountAmount = quoted.DiscountAmount
+		items[idx].lineTotal = quoted.LineTotal
+	}
 	return items, nil
 }
 
