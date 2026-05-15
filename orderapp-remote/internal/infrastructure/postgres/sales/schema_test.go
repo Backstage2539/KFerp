@@ -24,3 +24,23 @@ func TestEnsureOrderShippingTrackingTablesAddsLegacyTrackingColumnBeforeBackfill
 		t.Fatal("sales schema must add orders.ship_tracking_no before reading it during tracking backfill")
 	}
 }
+
+func TestEnsureSchemaBackfillsERPOrdersForFulfillmentCustomers(t *testing.T) {
+	body, err := os.ReadFile("schema.go")
+	if err != nil {
+		t.Fatalf("read schema.go: %v", err)
+	}
+	text := string(body)
+	for _, want := range []string{
+		"backfillERPOrdersForFulfillmentCustomers",
+		"portal_service_code='product_order'",
+		"COALESCE(o.portal_service_code,'')=''",
+		"customer_erp_user_bindings",
+		"public_sku_direct_ship",
+		"processing_fulfillment",
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("sales schema missing fulfillment backfill marker %q", want)
+		}
+	}
+}

@@ -35,6 +35,9 @@ func EnsureSchema(ctx context.Context, pool *pgxpool.Pool, schema string) error 
 	if err := ensureOrderPaymentMethodColumn(ctx, pool, schema); err != nil {
 		return err
 	}
+	if err := backfillERPOrdersForFulfillmentCustomers(ctx, pool, schema); err != nil {
+		return err
+	}
 	if err := ensureSalesOrderTables(ctx, pool, schema); err != nil {
 		return err
 	}
@@ -82,6 +85,48 @@ func ensureOrderResponsibleColumns(ctx context.Context, pool *pgxpool.Pool, sche
 		}
 	}
 	return nil
+}
+
+func backfillERPOrdersForFulfillmentCustomers(ctx context.Context, pool *pgxpool.Pool, schema string) error {
+	q := fmt.Sprintf(`
+DO $$
+BEGIN
+	IF to_regclass('%[1]s.customer_erp_user_bindings') IS NOT NULL
+		AND to_regclass('%[1]s.company_employees') IS NOT NULL
+		AND to_regclass('%[1]s.employee_login_passwords') IS NOT NULL
+		AND to_regclass('%[1]s.customer_portal_profiles') IS NOT NULL
+		AND to_regclass('%[1]s.customer_capability_templates') IS NOT NULL
+	THEN
+		UPDATE %[1]s.orders o
+		SET portal_service_code='product_order',
+			source_warehouse=COALESCE(NULLIF(o.source_warehouse,''),'finished_goods')
+		WHERE COALESCE(o.portal_service_code,'')=''
+		  AND EXISTS (
+			SELECT 1
+			FROM %[1]s.customer_erp_user_bindings b
+			JOIN %[1]s.company_employees e ON e.id=b.employee_id
+			LEFT JOIN %[1]s.employee_login_passwords lp ON lp.employee_id=e.id
+			LEFT JOIN %[1]s.customer_portal_profiles p ON p.customer_id=b.customer_id
+			WHERE b.customer_id=o.customer_id
+			  AND b.status='active'
+			  AND e.active=true
+			  AND e.account_type='channel_customer'
+			  AND COALESCE(lp.login_disabled,false)=false
+			  AND (
+				COALESCE(NULLIF(p.capability_template_key,''),'processing_fulfillment') IN ('processing_fulfillment','public_sku_direct_ship')
+				OR EXISTS (
+					SELECT 1 FROM %[1]s.customer_capability_templates active_template
+					WHERE active_template.template_key=p.capability_template_key
+					  AND active_template.active=true
+					  AND (jsonb_array_length(active_template.erp_permissions)>0 OR jsonb_array_length(active_template.erp_view_keys)>0)
+				)
+			  )
+		  );
+	END IF;
+END $$;
+`, schema)
+	_, err := pool.Exec(ctx, q)
+	return err
 }
 
 func ensureOrderProcessStatuses(ctx context.Context, pool *pgxpool.Pool, schema string) error {
