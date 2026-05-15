@@ -4,7 +4,9 @@ import assert from 'node:assert/strict'
 import {
   activeCustomerFulfillmentCustomers,
   buildImportPreviewEffects,
+  customerFulfillmentSubmitCopy,
   customerFulfillmentOrderFees,
+  customerFulfillmentPublicSKUOrderMode,
   customerFulfillmentWorkbenchSections,
   customerFulfillmentCustomerOptionLabel,
   customerFulfillmentCustomerOptionMeta,
@@ -28,7 +30,7 @@ test('customer fulfillment workbench follows enabled customer capabilities', () 
   const publicSkuCapabilities = ['product_order', 'direct_ship', 'settlement']
 
   assert.deepEqual(importTypeOptions(publicSkuCapabilities), [
-    { value: 'direct_ship_workbook', label: '代发清单' },
+    { value: 'direct_ship_workbook', label: '订单清单' },
     { value: 'settlement_workbook', label: '结算单' },
   ])
   assert.deepEqual(customerFulfillmentWorkbenchSections(publicSkuCapabilities), {
@@ -44,6 +46,25 @@ test('customer fulfillment workbench follows enabled customer capabilities', () 
     { id: 2, import_type: 'direct_ship_workbook' },
     { id: 3, import_type: 'settlement_workbook' },
   ], publicSkuCapabilities).map((row) => row.id), [2, 3])
+})
+
+test('customer fulfillment submit copy distinguishes public sku order mode and one-piece direct-ship mode', () => {
+  assert.equal(customerFulfillmentPublicSKUOrderMode(['product_order', 'direct_ship']), true)
+  assert.deepEqual(customerFulfillmentSubmitCopy(['product_order', 'direct_ship']), {
+    formTitle: '提交订单信息',
+    submitButton: '提交订单',
+    successPrefix: '已提交订单',
+    errorFallback: '提交订单失败',
+    notePlaceholder: '订单要求',
+  })
+  assert.equal(customerFulfillmentPublicSKUOrderMode(['direct_ship']), false)
+  assert.deepEqual(customerFulfillmentSubmitCopy(['direct_ship']), {
+    formTitle: '提交代发信息',
+    submitButton: '提交代发',
+    successPrefix: '已提交代发',
+    errorFallback: '提交代发失败',
+    notePlaceholder: '发货要求',
+  })
 })
 
 test('importSummaryCards includes only relevant import counters', () => {

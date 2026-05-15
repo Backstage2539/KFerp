@@ -3,7 +3,7 @@
     <section class="portal-head">
       <div>
         <h2>{{ overview.customer_name || '客户履约工作台' }}</h2>
-        <p>客户登录 · 查看数据、提交工单和代发信息</p>
+        <p>客户登录 · 查看数据、提交工单和履约订单信息</p>
       </div>
       <button class="secondary" type="button" @click="loadOverview" :disabled="loading">刷新</button>
     </section>
@@ -74,7 +74,7 @@
 
       <form v-if="canDirectShip" class="panel" @submit.prevent="submitDirectShip">
         <div class="panel-head">
-          <h3>提交代发信息</h3>
+          <h3>{{ submitCopy.formTitle }}</h3>
         </div>
         <div class="fields">
           <label class="wide">
@@ -132,10 +132,10 @@
           </label>
           <label class="wide">
             <span>备注</span>
-            <input v-model.trim="directShipForm.note" placeholder="发货要求" />
+            <input v-model.trim="directShipForm.note" :placeholder="submitCopy.notePlaceholder" />
           </label>
         </div>
-        <button class="primary" type="submit" :disabled="loading">提交代发</button>
+        <button class="primary" type="submit" :disabled="loading">{{ submitCopy.submitButton }}</button>
       </form>
     </section>
 
@@ -421,7 +421,7 @@ import {
   submitCustomerDirectShipOrder,
   submitCustomerProcessingWorkOrder,
 } from '../api/customer-fulfillment'
-import { customerFulfillmentOrderFees } from '../lib/customer-fulfillment'
+import { customerFulfillmentOrderFees, customerFulfillmentSubmitCopy } from '../lib/customer-fulfillment'
 import { parseRecipientText } from '../lib/customer-recipient'
 
 const loading = ref(false)
@@ -475,6 +475,7 @@ const hasScopedCapabilities = computed(() => capabilities.value.length > 0)
 const overviewCustomerId = computed(() => Number(overview.value?.customer_id || 0))
 const canSubmitProcessing = computed(() => hasCapability('processing'))
 const canDirectShip = computed(() => hasCapability('direct_ship') || hasCapability('product_order'))
+const submitCopy = computed(() => customerFulfillmentSubmitCopy(capabilities.value))
 const canViewInventory = computed(() => hasCapability('inventory_custody') || hasCapability('processing'))
 const canViewSettlement = computed(() => hasCapability('settlement'))
 const customerSKUOptions = computed(() => fulfillmentOptions.value?.customer_skus || [])
@@ -579,7 +580,7 @@ async function submitDirectShip() {
       quantity_units: Number(directShipForm.quantity_units || 0),
       note: directShipForm.note,
     })
-    ok.value = `已提交代发 ${row.order_no || ''}`
+    ok.value = `${submitCopy.value.successPrefix} ${row.order_no || ''}`
     directShipProductValue.value = ''
     recipientHistoryValue.value = ''
     recipientPasteText.value = ''
@@ -594,7 +595,7 @@ async function submitDirectShip() {
     fulfillmentOrdersPage.value = 1
     await loadOverview()
   } catch (err) {
-    error.value = err.message || '提交代发失败'
+    error.value = err.message || submitCopy.value.errorFallback
   } finally {
     loading.value = false
   }

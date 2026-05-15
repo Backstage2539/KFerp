@@ -117,7 +117,7 @@
         </div>
 
         <div v-if="workbenchSections.directShip" class="ops-panel">
-          <h3>提交代发信息</h3>
+          <h3>{{ submitCopy.formTitle }}</h3>
           <div class="ops-form">
             <label class="wide-field">
               <span>粘贴收件信息</span>
@@ -174,9 +174,9 @@
             </label>
             <label class="wide-field">
               <span>备注</span>
-              <input v-model.trim="directShipForm.note" placeholder="发货要求" />
+              <input v-model.trim="directShipForm.note" :placeholder="submitCopy.notePlaceholder" />
             </label>
-            <button class="primary" type="button" @click="submitDirectShipOrder" :disabled="loading || !normalizedCustomerId">提交代发</button>
+            <button class="primary" type="button" @click="submitDirectShipOrder" :disabled="loading || !normalizedCustomerId">{{ submitCopy.submitButton }}</button>
           </div>
         </div>
 
@@ -596,6 +596,7 @@ import {
   customerFulfillmentCustomerOptionLabel,
   customerFulfillmentCustomerOptionMeta,
   customerFulfillmentOrderFees,
+  customerFulfillmentSubmitCopy,
   customerFulfillmentWorkbenchSections,
   groupInvalidImportRows,
   importSummaryCards,
@@ -685,6 +686,7 @@ const enabledCapabilities = computed(() => Array.isArray(overview.value?.capabil
 const workbenchSections = computed(() => customerFulfillmentWorkbenchSections(enabledCapabilities.value))
 const visibleImportTypes = computed(() => importTypeOptions(enabledCapabilities.value))
 const visibleImports = computed(() => visibleCustomerFulfillmentImports(imports.value, enabledCapabilities.value))
+const submitCopy = computed(() => customerFulfillmentSubmitCopy(enabledCapabilities.value))
 const selectedParsedBatch = computed(() => latestParsedBatchForType(visibleImports.value, latestBatch.value, selectedImportType.value))
 const selectedParsedBatchId = computed(() => Number(selectedParsedBatch.value?.id || selectedParsedBatch.value?.batch_id || 0))
 const selectedParsedBatchLabel = computed(() => {
@@ -875,7 +877,7 @@ async function submitDirectShipOrder() {
       quantity_units: Number(directShipForm.quantity_units || 0),
       note: directShipForm.note,
     })
-    ok.value = `已提交代发 ${row.order_no || ''}`
+    ok.value = `${submitCopy.value.successPrefix} ${row.order_no || ''}`
     directShipProductValue.value = ''
     recipientHistoryValue.value = ''
     recipientPasteText.value = ''
@@ -890,7 +892,7 @@ async function submitDirectShipOrder() {
     fulfillmentOrdersPage.value = 1
     await loadAll()
   } catch (err) {
-    error.value = err.message || '提交代发失败'
+    error.value = err.message || submitCopy.value.errorFallback
   } finally {
     loading.value = false
   }
@@ -1173,7 +1175,7 @@ function uniqueProductOptions(rows) {
 }
 
 function importTypeLabel(value) {
-  return importTypeOptions().find((option) => option.value === value)?.label || value
+  return importTypeOptions(enabledCapabilities.value).find((option) => option.value === value)?.label || value
 }
 
 function orderFeeLines(row) {
