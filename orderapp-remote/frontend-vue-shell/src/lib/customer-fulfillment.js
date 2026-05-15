@@ -5,16 +5,43 @@ const importTypeCatalog = [
 ]
 
 export function importTypeOptions(capabilities = null) {
+  const publicSKUOrderMode = customerFulfillmentPublicSKUOrderMode(capabilities)
   const rows = Array.isArray(capabilities)
     ? importTypeCatalog.filter((option) => hasCustomerCapability(capabilities, option.capability))
     : importTypeCatalog
-  return rows.map(({ value, label }) => ({ value, label }))
+  return rows.map(({ value, label }) => ({
+    value,
+    label: value === 'direct_ship_workbook' && publicSKUOrderMode ? '订单清单' : label,
+  }))
 }
 
 export function hasCustomerCapability(capabilities = [], code) {
   if (!code) return false
   const allowed = new Set((Array.isArray(capabilities) ? capabilities : []).map((item) => String(item || '').trim()).filter(Boolean))
   return allowed.has(code)
+}
+
+export function customerFulfillmentPublicSKUOrderMode(capabilities = []) {
+  return hasCustomerCapability(capabilities, 'product_order')
+}
+
+export function customerFulfillmentSubmitCopy(capabilities = []) {
+  if (customerFulfillmentPublicSKUOrderMode(capabilities)) {
+    return {
+      formTitle: '提交订单信息',
+      submitButton: '提交订单',
+      successPrefix: '已提交订单',
+      errorFallback: '提交订单失败',
+      notePlaceholder: '订单要求',
+    }
+  }
+  return {
+    formTitle: '提交代发信息',
+    submitButton: '提交代发',
+    successPrefix: '已提交代发',
+    errorFallback: '提交代发失败',
+    notePlaceholder: '发货要求',
+  }
 }
 
 export function customerFulfillmentWorkbenchSections(capabilities = []) {
