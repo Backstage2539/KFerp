@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import { buildMallOrderPath, buildMallPagePath, buildServicePagePath } from './customerPortal'
+import {
+  buildMallOrderPath,
+  buildMallPagePath,
+  buildMiniLoginPayload,
+  buildServicePagePath,
+} from './customerPortal'
 
 describe('customer portal API helpers', () => {
   it('encodes service page filters into the mini service path', () => {
@@ -22,5 +27,23 @@ describe('customer portal API helpers', () => {
   it('exposes stable mini mall API paths', () => {
     expect(buildMallPagePath()).toBe('/api/mini/mall')
     expect(buildMallOrderPath()).toBe('/api/mini/mall/orders')
+  })
+
+  it('builds phone verify login payloads', () => {
+    expect(buildMiniLoginPayload('phone_verify', { code: 'wx-code', phoneCode: 'phone-code', nickname: '客户A' })).toEqual({
+      mode: 'phone_verify',
+      code: 'wx-code',
+      phone_code: 'phone-code',
+      nickname: '客户A',
+    })
+  })
+
+  it('builds password login payloads', () => {
+    expect(buildMiniLoginPayload('password', { code: 'wx-code', phone: '13800138000', password: 'secret123' })).toEqual({
+      mode: 'password',
+      code: 'wx-code',
+      phone: '13800138000',
+      password: 'secret123',
+    })
   })
 })

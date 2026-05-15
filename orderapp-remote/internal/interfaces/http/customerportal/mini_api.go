@@ -14,9 +14,12 @@ import (
 )
 
 type miniLoginRequest struct {
-	Code     string `json:"code"`
-	Phone    string `json:"phone"`
-	Nickname string `json:"nickname"`
+	Mode      string `json:"mode"`
+	Code      string `json:"code"`
+	Phone     string `json:"phone"`
+	PhoneCode string `json:"phone_code"`
+	Password  string `json:"password"`
+	Nickname  string `json:"nickname"`
 }
 
 type switchCustomerRequest struct {
@@ -72,7 +75,14 @@ func registerMiniAPI(e *echo.Echo, svc Service, messages MessagePublisher, beanL
 		if err := c.Bind(&req); err != nil {
 			return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid request"})
 		}
-		result, err := svc.Login(c.Request().Context(), customerportalapp.LoginCommand{Code: req.Code, Phone: req.Phone, Nickname: req.Nickname})
+		result, err := svc.Login(c.Request().Context(), customerportalapp.LoginCommand{
+			Mode:      req.Mode,
+			Code:      req.Code,
+			Phone:     req.Phone,
+			PhoneCode: req.PhoneCode,
+			Password:  req.Password,
+			Nickname:  req.Nickname,
+		})
 		if err != nil {
 			return miniLoginError(c, err)
 		}
@@ -332,6 +342,9 @@ func miniLoginError(c echo.Context, err error) error {
 	if errors.Is(err, customerportalapp.ErrMiniUserDisabled) {
 		return c.JSON(http.StatusForbidden, map[string]string{"error": "mini user disabled"})
 	}
+	if errors.Is(err, customerportalapp.ErrMiniInvalidCredentials) {
+		return c.JSON(http.StatusUnauthorized, map[string]string{"error": "invalid credentials"})
+	}
 	if isMiniValidationError(err) {
 		return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid request"})
 	}
@@ -384,6 +397,8 @@ func isMiniValidationError(err error) bool {
 	}
 	switch err.Error() {
 	case "code required", "openid required", "customer required", "mini token required",
+		"phone required", "phone_code required", "password required", "phone verification unavailable",
+		"login mode invalid",
 		"service key invalid", "source_name required", "total_rows invalid", "input_material required",
 		"input_qty required", "target_product required", "target_spec required", "target_qty required",
 		"input material unavailable", "target product unavailable",

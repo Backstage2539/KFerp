@@ -2,6 +2,8 @@ package customerportal
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"math"
@@ -19,6 +21,28 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 )
+
+func TestCreateLoginSessionUsesMaxMiniTokenLifetime(t *testing.T) {
+	ctx := context.Background()
+	pool, schema := newCustomerPortalTestDB(t)
+	repo := NewRepository(pool, schema)
+
+	got, err := repo.CreateLoginSession(ctx, customerportalapp.CreateLoginSessionCommand{OpenID: "openid-max-lifetime"})
+	if err != nil {
+		t.Fatalf("CreateLoginSession: %v", err)
+	}
+	var nonExpiring bool
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`
+		SELECT expire_at = 'infinity'::timestamptz
+		FROM %[1]s.mini_sessions
+		WHERE token=$1
+	`, schema), got.Token).Scan(&nonExpiring); err != nil {
+		t.Fatalf("load session expiry: %v", err)
+	}
+	if !nonExpiring {
+		t.Fatalf("mini session expire_at is not infinity")
+	}
+}
 
 func TestCurrentContextByTokenClearsRevokedCurrentCustomer(t *testing.T) {
 	ctx := context.Background()
@@ -1082,6 +1106,100 @@ func TestPortalAdminDetailHidesDisabledLoginERPBinding(t *testing.T) {
 	}
 }
 
+func TestCreateERPBoundLoginSessionAutoApprovesBindingFromActiveERPAccount(t *testing.T) {
+	ctx := context.Background()
+	pool, schema := newCustomerPortalTestDB(t)
+	ensureCustomerPortalERPBindingTestSchema(t, ctx, pool, schema)
+	repo := NewRepository(pool, schema)
+
+	var customerID, employeeID int64
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`
+		INSERT INTO %[1]s.customers(name, customer_type, active) VALUES('手机号直登客户','wholesale',true) RETURNING id
+	`, schema)).Scan(&customerID); err != nil {
+		t.Fatalf("insert customer: %v", err)
+	}
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`
+		INSERT INTO %[1]s.company_employees(name, phone, account_type, department_id, active)
+		VALUES('渠道客户账号','13800138000','channel_customer',(SELECT id FROM %[1]s.company_departments WHERE name='销售' LIMIT 1),true)
+		RETURNING id
+	`, schema)).Scan(&employeeID); err != nil {
+		t.Fatalf("insert employee: %v", err)
+	}
+	if _, err := pool.Exec(ctx, fmt.Sprintf(`
+		INSERT INTO %[1]s.customer_erp_user_bindings(customer_id, employee_id, role, status, updated_by)
+		VALUES($1,$2,'customer','active','codex')
+	`, schema), customerID, employeeID); err != nil {
+		t.Fatalf("insert erp binding: %v", err)
+	}
+
+	got, err := repo.CreateERPBoundLoginSession(ctx, customerportalapp.ERPBoundLoginSessionCommand{
+		OpenID:   "openid-phone-verify",
+		UnionID:  "union-phone-verify",
+		Phone:    "13800138000",
+		Nickname: "小程序客户",
+	})
+	if err != nil {
+		t.Fatalf("CreateERPBoundLoginSession: %v", err)
+	}
+	if got.MiniUserID <= 0 || got.CurrentCustomerID != customerID || got.Token == "" {
+		t.Fatalf("login result=%+v", got)
+	}
+
+	var bindingCount int
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`
+		SELECT COUNT(*)
+		FROM %[1]s.customer_portal_user_bindings
+		WHERE mini_user_id=$1 AND customer_id=$2 AND role='owner' AND status='approved'
+	`, schema), got.MiniUserID, customerID).Scan(&bindingCount); err != nil {
+		t.Fatalf("count portal binding: %v", err)
+	}
+	if bindingCount != 1 {
+		t.Fatalf("bindingCount=%d, want 1", bindingCount)
+	}
+}
+
+func TestCreateERPBoundLoginSessionRejectsInvalidPassword(t *testing.T) {
+	ctx := context.Background()
+	pool, schema := newCustomerPortalTestDB(t)
+	ensureCustomerPortalERPBindingTestSchema(t, ctx, pool, schema)
+	repo := NewRepository(pool, schema)
+
+	var customerID, employeeID int64
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`
+		INSERT INTO %[1]s.customers(name, customer_type, active) VALUES('密码登录客户','wholesale',true) RETURNING id
+	`, schema)).Scan(&customerID); err != nil {
+		t.Fatalf("insert customer: %v", err)
+	}
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`
+		INSERT INTO %[1]s.company_employees(name, phone, account_type, department_id, active)
+		VALUES('渠道密码账号','13800138001','channel_customer',(SELECT id FROM %[1]s.company_departments WHERE name='销售' LIMIT 1),true)
+		RETURNING id
+	`, schema)).Scan(&employeeID); err != nil {
+		t.Fatalf("insert employee: %v", err)
+	}
+	if _, err := pool.Exec(ctx, fmt.Sprintf(`
+		INSERT INTO %[1]s.employee_login_passwords(employee_id, password_hash, login_disabled)
+		VALUES($1,$2,false)
+	`, schema), employeeID, hashMobilePasswordForCustomerPortalTest("correct123")); err != nil {
+		t.Fatalf("insert password: %v", err)
+	}
+	if _, err := pool.Exec(ctx, fmt.Sprintf(`
+		INSERT INTO %[1]s.customer_erp_user_bindings(customer_id, employee_id, role, status, updated_by)
+		VALUES($1,$2,'customer','active','codex')
+	`, schema), customerID, employeeID); err != nil {
+		t.Fatalf("insert erp binding: %v", err)
+	}
+
+	_, err := repo.CreateERPBoundLoginSession(ctx, customerportalapp.ERPBoundLoginSessionCommand{
+		OpenID:   "openid-password",
+		Phone:    "13800138001",
+		Password: "wrong123",
+	})
+	if !errors.Is(err, customerportalapp.ErrMiniInvalidCredentials) {
+		t.Fatalf("CreateERPBoundLoginSession err=%v, want ErrMiniInvalidCredentials", err)
+	}
+}
+
 func TestSaveMallProductRejectsCustomerOnlyProduct(t *testing.T) {
 	ctx := context.Background()
 	pool, schema := newCustomerPortalTestDB(t)
@@ -1525,6 +1643,11 @@ func ensureCustomerPortalERPBindingTestSchema(t *testing.T, ctx context.Context,
 	if err := postgrescustomerfulfillment.EnsureSchema(ctx, pool, schema); err != nil {
 		t.Fatalf("customerfulfillment.EnsureSchema: %v", err)
 	}
+}
+
+func hashMobilePasswordForCustomerPortalTest(raw string) string {
+	sum := sha256.Sum256([]byte("orderapp-mobile-auth:" + raw))
+	return hex.EncodeToString(sum[:])
 }
 
 func seedBeanListPublicationForCustomerPortalTest(t *testing.T, ctx context.Context, pool *pgxpool.Pool, schema, ownerType, ownerKey, title string) int64 {

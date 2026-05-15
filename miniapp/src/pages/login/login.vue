@@ -1,14 +1,18 @@
 <script setup lang="ts">
 import { ref } from 'vue'
-import { loginWithCode } from '../../api/customerPortal'
+import { loginWithCode, loginWithPassword, loginWithPhoneVerify, type LoginResponse } from '../../api/customerPortal'
 import { useSessionStore } from '../../stores/session'
 import { miniappThemeClass, miniappThemeMeta } from '../../utils/themes'
 
 const session = useSessionStore()
 const loading = ref(false)
 const errorMessage = ref('')
+const loginMode = ref<'quick' | 'password'>('quick')
+const phone = ref('')
+const password = ref('')
 const themeClass = miniappThemeClass()
 const themeMeta = miniappThemeMeta()
+const phoneRe = /^1\d{10}$/
 
 function requestLoginCode(): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -44,6 +48,62 @@ async function handleLogin() {
     loading.value = false
   }
 }
+
+function completeLogin(response: LoginResponse) {
+  session.setToken(response.token)
+  session.applyContext(response)
+  uni.redirectTo({ url: '/pages/home/home' })
+}
+
+async function handlePhoneLogin(event: { detail?: { code?: string; errMsg?: string } }) {
+  if (loading.value) return
+
+  const phoneCode = String(event?.detail?.code || '').trim()
+  if (!phoneCode) {
+    errorMessage.value = event?.detail?.errMsg || '未获得手机号授权'
+    return
+  }
+
+  loading.value = true
+  errorMessage.value = ''
+
+  try {
+    const code = await requestLoginCode()
+    const response = await loginWithPhoneVerify(code, phoneCode)
+    completeLogin(response)
+  } catch (error) {
+    errorMessage.value = error instanceof Error ? error.message : '登录失败'
+  } finally {
+    loading.value = false
+  }
+}
+
+async function handlePasswordLogin() {
+  if (loading.value) return
+  const normalizedPhone = phone.value.trim()
+  const normalizedPassword = password.value.trim()
+  if (!phoneRe.test(normalizedPhone)) {
+    errorMessage.value = '请输入11位手机号'
+    return
+  }
+  if (!normalizedPassword) {
+    errorMessage.value = '请输入密码'
+    return
+  }
+
+  loading.value = true
+  errorMessage.value = ''
+
+  try {
+    const code = await requestLoginCode()
+    const response = await loginWithPassword(code, normalizedPhone, normalizedPassword)
+    completeLogin(response)
+  } catch (error) {
+    errorMessage.value = error instanceof Error ? error.message : '登录失败'
+  } finally {
+    loading.value = false
+  }
+}
 </script>
 
 <template>
@@ -55,9 +115,33 @@ async function handleLogin() {
     </view>
 
     <view class="panel">
-      <button class="login-button" :loading="loading" :disabled="loading" @tap="handleLogin">
-        微信一键登录
-      </button>
+      <view class="mode-tabs">
+        <button class="mode-tab" :class="{ active: loginMode === 'quick' }" @tap="loginMode = 'quick'">手机号快捷登录</button>
+        <button class="mode-tab" :class="{ active: loginMode === 'password' }" @tap="loginMode = 'password'">密码登录</button>
+      </view>
+
+      <view v-if="loginMode === 'quick'" class="login-block">
+        <button
+          class="login-button"
+          open-type="getPhoneNumber"
+          :loading="loading"
+          :disabled="loading"
+          @getphonenumber="handlePhoneLogin"
+        >
+          手机号快捷登录
+        </button>
+        <button class="plain-button" :loading="loading" :disabled="loading" @tap="handleLogin">
+          微信身份登录
+        </button>
+      </view>
+
+      <view v-else class="login-block">
+        <input v-model="phone" class="input" type="number" maxlength="11" placeholder="手机号" />
+        <input v-model="password" class="input" password placeholder="密码" />
+        <button class="login-button" :loading="loading" :disabled="loading" @tap="handlePasswordLogin">
+          登录
+        </button>
+      </view>
       <text v-if="errorMessage" class="error">{{ errorMessage }}</text>
     </view>
   </view>
@@ -123,6 +207,46 @@ async function handleLogin() {
   gap: 24rpx;
 }
 
+.mode-tabs {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12rpx;
+  padding: 8rpx;
+  background: rgba(43, 33, 24, 0.08);
+  border-radius: 12rpx;
+}
+
+.mode-tab {
+  min-height: 64rpx;
+  background: transparent;
+  border-radius: 8rpx;
+  color: #5f5a52;
+  font-size: 26rpx;
+  font-weight: 800;
+}
+
+.mode-tab.active {
+  background: #ffffff;
+  color: #171717;
+}
+
+.login-block {
+  display: flex;
+  flex-direction: column;
+  gap: 20rpx;
+}
+
+.input {
+  height: 88rpx;
+  padding: 0 24rpx;
+  background: #ffffff;
+  border: 2rpx solid rgba(43, 33, 24, 0.16);
+  border-radius: 10rpx;
+  color: #171717;
+  font-size: 28rpx;
+  box-sizing: border-box;
+}
+
 .login-button {
   width: 100%;
   min-height: 88rpx;
@@ -130,6 +254,17 @@ async function handleLogin() {
   border-radius: 10rpx;
   color: #ffffff;
   font-size: 30rpx;
+  font-weight: 800;
+}
+
+.plain-button {
+  width: 100%;
+  min-height: 76rpx;
+  background: transparent;
+  border: 2rpx solid rgba(43, 33, 24, 0.22);
+  border-radius: 10rpx;
+  color: #3b3128;
+  font-size: 26rpx;
   font-weight: 800;
 }
 

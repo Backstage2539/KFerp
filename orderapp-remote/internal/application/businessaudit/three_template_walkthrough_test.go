@@ -471,6 +471,10 @@ func (s *threeTemplateWalkthroughStore) CreateLoginSession(context.Context, cust
 	return customerportalapp.LoginResult{}, nil
 }
 
+func (s *threeTemplateWalkthroughStore) CreateERPBoundLoginSession(context.Context, customerportalapp.ERPBoundLoginSessionCommand) (customerportalapp.LoginResult, error) {
+	return customerportalapp.LoginResult{}, nil
+}
+
 func (s *threeTemplateWalkthroughStore) CurrentContextByToken(_ context.Context, token string) (customerportalapp.CurrentContext, error) {
 	customer := s.customerByToken[token]
 	if customer == nil {

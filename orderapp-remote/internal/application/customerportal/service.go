@@ -70,6 +70,7 @@ var (
 	ErrMiniSessionNotFound                       = errors.New("mini session not found")
 	ErrMiniLoginDisabled                         = errors.New("mini login disabled")
 	ErrMiniUserDisabled                          = errors.New("mini user disabled")
+	ErrMiniInvalidCredentials                    = errors.New("mini invalid credentials")
 	ErrCapabilityNotEnabled                      = errors.New("capability not enabled")
 	ErrPortalCustomerNotFound                    = errors.New("portal customer not found")
 	ErrBeanListPublicationNotFound               = errors.New("bean list publication not found")
@@ -77,9 +78,12 @@ var (
 )
 
 type LoginCommand struct {
-	Code     string
-	Phone    string
-	Nickname string
+	Mode      string
+	Code      string
+	Phone     string
+	PhoneCode string
+	Password  string
+	Nickname  string
 }
 
 type MiniIdentity struct {
@@ -87,10 +91,24 @@ type MiniIdentity struct {
 	UnionID string
 }
 
+type MiniPhoneNumber struct {
+	PhoneNumber     string
+	PurePhoneNumber string
+	CountryCode     string
+}
+
 type CreateLoginSessionCommand struct {
 	OpenID   string
 	UnionID  string
 	Phone    string
+	Nickname string
+}
+
+type ERPBoundLoginSessionCommand struct {
+	OpenID   string
+	UnionID  string
+	Phone    string
+	Password string
 	Nickname string
 }
 
@@ -583,8 +601,13 @@ type IdentityProvider interface {
 	Resolve(ctx context.Context, code string) (MiniIdentity, error)
 }
 
+type PhoneNumberResolver interface {
+	ResolvePhoneNumber(ctx context.Context, code string) (MiniPhoneNumber, error)
+}
+
 type Repository interface {
 	CreateLoginSession(ctx context.Context, cmd CreateLoginSessionCommand) (LoginResult, error)
+	CreateERPBoundLoginSession(ctx context.Context, cmd ERPBoundLoginSessionCommand) (LoginResult, error)
 	CurrentContextByToken(ctx context.Context, token string) (CurrentContext, error)
 	SwitchCurrentCustomer(ctx context.Context, token string, customerID int64) (CurrentContext, error)
 	LoadServicePage(ctx context.Context, query ServicePageQuery) (ServicePage, error)
@@ -634,12 +657,61 @@ func (s *Service) Login(ctx context.Context, cmd LoginCommand) (LoginResult, err
 	if identity.OpenID == "" {
 		return LoginResult{}, fmt.Errorf("openid required")
 	}
-	result, err := s.repo.CreateLoginSession(ctx, CreateLoginSessionCommand{
-		OpenID:   identity.OpenID,
-		UnionID:  strings.TrimSpace(identity.UnionID),
-		Phone:    strings.TrimSpace(cmd.Phone),
-		Nickname: strings.TrimSpace(cmd.Nickname),
-	})
+	mode := strings.TrimSpace(cmd.Mode)
+	var result LoginResult
+	switch mode {
+	case "", "wechat":
+		result, err = s.repo.CreateLoginSession(ctx, CreateLoginSessionCommand{
+			OpenID:   identity.OpenID,
+			UnionID:  strings.TrimSpace(identity.UnionID),
+			Phone:    strings.TrimSpace(cmd.Phone),
+			Nickname: strings.TrimSpace(cmd.Nickname),
+		})
+	case "phone_verify":
+		phoneResolver, ok := s.identity.(PhoneNumberResolver)
+		if !ok {
+			return LoginResult{}, fmt.Errorf("phone verification unavailable")
+		}
+		phoneCode := strings.TrimSpace(cmd.PhoneCode)
+		if phoneCode == "" {
+			return LoginResult{}, fmt.Errorf("phone_code required")
+		}
+		phoneNumber, err := phoneResolver.ResolvePhoneNumber(ctx, phoneCode)
+		if err != nil {
+			return LoginResult{}, err
+		}
+		phone := strings.TrimSpace(phoneNumber.PhoneNumber)
+		if phone == "" {
+			phone = strings.TrimSpace(phoneNumber.PurePhoneNumber)
+		}
+		if phone == "" {
+			return LoginResult{}, fmt.Errorf("phone required")
+		}
+		result, err = s.repo.CreateERPBoundLoginSession(ctx, ERPBoundLoginSessionCommand{
+			OpenID:   identity.OpenID,
+			UnionID:  strings.TrimSpace(identity.UnionID),
+			Phone:    phone,
+			Nickname: strings.TrimSpace(cmd.Nickname),
+		})
+	case "password":
+		phone := strings.TrimSpace(cmd.Phone)
+		if phone == "" {
+			return LoginResult{}, fmt.Errorf("phone required")
+		}
+		password := strings.TrimSpace(cmd.Password)
+		if password == "" {
+			return LoginResult{}, fmt.Errorf("password required")
+		}
+		result, err = s.repo.CreateERPBoundLoginSession(ctx, ERPBoundLoginSessionCommand{
+			OpenID:   identity.OpenID,
+			UnionID:  strings.TrimSpace(identity.UnionID),
+			Phone:    phone,
+			Password: password,
+			Nickname: strings.TrimSpace(cmd.Nickname),
+		})
+	default:
+		return LoginResult{}, fmt.Errorf("login mode invalid")
+	}
 	if err != nil {
 		return LoginResult{}, err
 	}

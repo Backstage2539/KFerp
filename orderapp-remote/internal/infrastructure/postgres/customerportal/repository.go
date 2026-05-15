@@ -3,6 +3,7 @@ package customerportal
 import (
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -29,20 +30,71 @@ func NewRepository(pool *pgxpool.Pool, schema string) Repository {
 }
 
 func (r Repository) CreateLoginSession(ctx context.Context, cmd customerportalapp.CreateLoginSessionCommand) (customerportalapp.LoginResult, error) {
-	openID := strings.TrimSpace(cmd.OpenID)
-	if openID == "" {
-		return customerportalapp.LoginResult{}, fmt.Errorf("openid required")
-	}
-	unionID := strings.TrimSpace(cmd.UnionID)
-	phone := strings.TrimSpace(cmd.Phone)
-	nickname := strings.TrimSpace(cmd.Nickname)
-
 	tx, err := r.pool.Begin(ctx)
 	if err != nil {
 		return customerportalapp.LoginResult{}, err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
+	miniUserID, active, err := r.upsertMiniUserTx(ctx, tx, strings.TrimSpace(cmd.OpenID), strings.TrimSpace(cmd.UnionID), strings.TrimSpace(cmd.Phone), strings.TrimSpace(cmd.Nickname))
+	if err != nil {
+		return customerportalapp.LoginResult{}, err
+	}
+	if !active {
+		return customerportalapp.LoginResult{}, customerportalapp.ErrMiniUserDisabled
+	}
+	result, err := r.createMiniSessionTx(ctx, tx, miniUserID, 0)
+	if err != nil {
+		return customerportalapp.LoginResult{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return customerportalapp.LoginResult{}, err
+	}
+	return result, nil
+}
+
+func (r Repository) CreateERPBoundLoginSession(ctx context.Context, cmd customerportalapp.ERPBoundLoginSessionCommand) (customerportalapp.LoginResult, error) {
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return customerportalapp.LoginResult{}, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	customerID, err := r.resolveERPBoundCustomerTx(ctx, tx, strings.TrimSpace(cmd.Phone), strings.TrimSpace(cmd.Password))
+	if err != nil {
+		return customerportalapp.LoginResult{}, err
+	}
+	miniUserID, active, err := r.upsertMiniUserTx(ctx, tx, strings.TrimSpace(cmd.OpenID), strings.TrimSpace(cmd.UnionID), strings.TrimSpace(cmd.Phone), strings.TrimSpace(cmd.Nickname))
+	if err != nil {
+		return customerportalapp.LoginResult{}, err
+	}
+	if !active {
+		return customerportalapp.LoginResult{}, customerportalapp.ErrMiniUserDisabled
+	}
+	if _, err := tx.Exec(ctx, fmt.Sprintf(`
+		INSERT INTO %s.customer_portal_user_bindings(mini_user_id, customer_id, role, status, approved_by)
+		VALUES($1,$2,'owner','approved','erp_account_login')
+		ON CONFLICT(mini_user_id, customer_id) DO UPDATE SET
+			role='owner',
+			status='approved',
+			approved_by='erp_account_login'
+	`, r.schema), miniUserID, customerID); err != nil {
+		return customerportalapp.LoginResult{}, err
+	}
+	result, err := r.createMiniSessionTx(ctx, tx, miniUserID, customerID)
+	if err != nil {
+		return customerportalapp.LoginResult{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return customerportalapp.LoginResult{}, err
+	}
+	return result, nil
+}
+
+func (r Repository) upsertMiniUserTx(ctx context.Context, tx pgx.Tx, openID, unionID, phone, nickname string) (int64, bool, error) {
+	if openID == "" {
+		return 0, false, fmt.Errorf("openid required")
+	}
 	var miniUserID int64
 	var active bool
 	if err := tx.QueryRow(ctx, fmt.Sprintf(`
@@ -55,18 +107,18 @@ func (r Repository) CreateLoginSession(ctx context.Context, cmd customerportalap
 			last_login_at=CASE WHEN mini_users.active THEN now() ELSE mini_users.last_login_at END
 		RETURNING id, active
 	`, r.schema), openID, unionID, phone, nickname).Scan(&miniUserID, &active); err != nil {
-		return customerportalapp.LoginResult{}, err
+		return 0, false, err
 	}
-	if !active {
-		return customerportalapp.LoginResult{}, customerportalapp.ErrMiniUserDisabled
-	}
+	return miniUserID, active, nil
+}
 
+func (r Repository) createMiniSessionTx(ctx context.Context, tx pgx.Tx, miniUserID, preferredCustomerID int64) (customerportalapp.LoginResult, error) {
 	bindings, err := r.listBindingsTx(ctx, tx, miniUserID)
 	if err != nil {
 		return customerportalapp.LoginResult{}, err
 	}
-	var currentCustomerID int64
-	if len(bindings) > 0 {
+	currentCustomerID := preferredCustomerID
+	if currentCustomerID == 0 && len(bindings) > 0 {
 		currentCustomerID = bindings[0].CustomerID
 	}
 	token, err := randomToken(24)
@@ -75,7 +127,7 @@ func (r Repository) CreateLoginSession(ctx context.Context, cmd customerportalap
 	}
 	if _, err := tx.Exec(ctx, fmt.Sprintf(`
 		INSERT INTO %s.mini_sessions(token, mini_user_id, current_customer_id, expire_at)
-		VALUES($1,$2,NULLIF($3,0),now() + INTERVAL '30 days')
+		VALUES($1,$2,NULLIF($3,0),'infinity'::timestamptz)
 	`, r.schema), token, miniUserID, currentCustomerID); err != nil {
 		return customerportalapp.LoginResult{}, err
 	}
@@ -91,9 +143,6 @@ func (r Repository) CreateLoginSession(ctx context.Context, cmd customerportalap
 	if err != nil {
 		return customerportalapp.LoginResult{}, err
 	}
-	if err := tx.Commit(ctx); err != nil {
-		return customerportalapp.LoginResult{}, err
-	}
 	return customerportalapp.LoginResult{
 		Token:             token,
 		MiniUserID:        miniUserID,
@@ -103,6 +152,41 @@ func (r Repository) CreateLoginSession(ctx context.Context, cmd customerportalap
 		ThemeKey:          themeKey,
 		MiniappEntryMode:  entryMode,
 	}, nil
+}
+
+func (r Repository) resolveERPBoundCustomerTx(ctx context.Context, tx pgx.Tx, phone, password string) (int64, error) {
+	phone = strings.TrimSpace(phone)
+	if phone == "" {
+		return 0, fmt.Errorf("phone required")
+	}
+	var customerID int64
+	var passwordHash string
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`
+		SELECT b.customer_id, COALESCE(p.password_hash,'')
+		FROM %s.customer_erp_user_bindings b
+		JOIN %s.customers c ON c.id=b.customer_id AND c.active=true
+		JOIN %s.company_employees e ON e.id=b.employee_id AND e.active=true AND e.account_type='channel_customer'
+		LEFT JOIN %s.employee_login_passwords p ON p.employee_id=e.id
+		WHERE b.status='active'
+		  AND e.phone=$1
+		  AND COALESCE(p.login_disabled,false)=false
+		ORDER BY b.updated_at DESC, b.id DESC
+		LIMIT 1
+	`, r.schema, r.schema, r.schema, r.schema), phone).Scan(&customerID, &passwordHash); err != nil {
+		if err == pgx.ErrNoRows {
+			return 0, customerportalapp.ErrMiniInvalidCredentials
+		}
+		return 0, err
+	}
+	if password != "" && hashMobilePassword(password) != strings.TrimSpace(passwordHash) {
+		return 0, customerportalapp.ErrMiniInvalidCredentials
+	}
+	return customerID, nil
+}
+
+func hashMobilePassword(raw string) string {
+	sum := sha256.Sum256([]byte("orderapp-mobile-auth:" + raw))
+	return hex.EncodeToString(sum[:])
 }
 
 func (r Repository) CurrentContextByToken(ctx context.Context, token string) (customerportalapp.CurrentContext, error) {

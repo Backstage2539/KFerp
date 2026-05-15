@@ -19,6 +19,7 @@ import (
 
 type fakeService struct {
 	login           customerportalapp.LoginResult
+	loginCmd        *customerportalapp.LoginCommand
 	me              customerportalapp.CurrentContext
 	service         customerportalapp.ServicePage
 	filter          *customerportalapp.ServicePageFilter
@@ -45,9 +46,12 @@ type fakeService struct {
 	err             error
 }
 
-func (s fakeService) Login(context.Context, customerportalapp.LoginCommand) (customerportalapp.LoginResult, error) {
+func (s fakeService) Login(_ context.Context, cmd customerportalapp.LoginCommand) (customerportalapp.LoginResult, error) {
 	if s.err != nil {
 		return customerportalapp.LoginResult{}, s.err
+	}
+	if s.loginCmd != nil {
+		*s.loginCmd = cmd
 	}
 	return s.login, nil
 }
@@ -257,6 +261,46 @@ func TestMiniLoginAndMeAPI(t *testing.T) {
 		!strings.Contains(meRec.Body.String(), `"miniapp_entry_mode":"mall"`) ||
 		!strings.Contains(meRec.Body.String(), customerportalapp.CapabilityDirectShip) {
 		t.Fatalf("me status=%d body=%s", meRec.Code, meRec.Body.String())
+	}
+}
+
+func TestMiniLoginAcceptsPhoneVerifyPayload(t *testing.T) {
+	e := echo.New()
+	var loginCmd customerportalapp.LoginCommand
+	RegisterRoutes(e, Dependencies{CustomerPortal: fakeService{
+		login:    customerportalapp.LoginResult{Token: "mini-token"},
+		loginCmd: &loginCmd,
+	}})
+
+	req := httptest.NewRequest(http.MethodPost, "/api/mini/login", strings.NewReader(`{"mode":"phone_verify","code":"wx-code","phone_code":"phone-code","nickname":"客户A"}`))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if loginCmd.Mode != "phone_verify" || loginCmd.Code != "wx-code" || loginCmd.PhoneCode != "phone-code" || loginCmd.Nickname != "客户A" {
+		t.Fatalf("login cmd=%+v", loginCmd)
+	}
+}
+
+func TestMiniLoginAcceptsPasswordPayload(t *testing.T) {
+	e := echo.New()
+	var loginCmd customerportalapp.LoginCommand
+	RegisterRoutes(e, Dependencies{CustomerPortal: fakeService{
+		login:    customerportalapp.LoginResult{Token: "mini-token"},
+		loginCmd: &loginCmd,
+	}})
+
+	req := httptest.NewRequest(http.MethodPost, "/api/mini/login", strings.NewReader(`{"mode":"password","code":"wx-code","phone":"13800138000","password":"secret123","nickname":"客户B"}`))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if loginCmd.Mode != "password" || loginCmd.Code != "wx-code" || loginCmd.Phone != "13800138000" || loginCmd.Password != "secret123" || loginCmd.Nickname != "客户B" {
+		t.Fatalf("login cmd=%+v", loginCmd)
 	}
 }
 
@@ -1324,6 +1368,10 @@ type templateContractRepository struct {
 }
 
 func (r *templateContractRepository) CreateLoginSession(context.Context, customerportalapp.CreateLoginSessionCommand) (customerportalapp.LoginResult, error) {
+	return customerportalapp.LoginResult{Token: "mini-token", MiniUserID: r.current.MiniUserID, CurrentCustomerID: r.current.CurrentCustomerID, ThemeKey: r.current.ThemeKey, MiniappEntryMode: r.current.MiniappEntryMode, Capabilities: r.current.Capabilities}, nil
+}
+
+func (r *templateContractRepository) CreateERPBoundLoginSession(context.Context, customerportalapp.ERPBoundLoginSessionCommand) (customerportalapp.LoginResult, error) {
 	return customerportalapp.LoginResult{Token: "mini-token", MiniUserID: r.current.MiniUserID, CurrentCustomerID: r.current.CurrentCustomerID, ThemeKey: r.current.ThemeKey, MiniappEntryMode: r.current.MiniappEntryMode, Capabilities: r.current.Capabilities}, nil
 }
 

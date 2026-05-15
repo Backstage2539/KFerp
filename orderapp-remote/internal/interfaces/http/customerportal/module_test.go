@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -69,5 +70,54 @@ func TestWechatIdentityProviderMapsWechatError(t *testing.T) {
 	_, err := provider.Resolve(context.Background(), "bad-code")
 	if err == nil || errors.Is(err, customerportalapp.ErrMiniLoginDisabled) {
 		t.Fatalf("Resolve() err = %v, want provider error distinct from login disabled", err)
+	}
+}
+
+func TestWechatIdentityProviderResolvesPhoneNumber(t *testing.T) {
+	var tokenQuery map[string]string
+	var phoneQuery map[string]string
+	var phoneBody string
+	tokenServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		tokenQuery = map[string]string{
+			"appid":      r.URL.Query().Get("appid"),
+			"secret":     r.URL.Query().Get("secret"),
+			"grant_type": r.URL.Query().Get("grant_type"),
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"access_token": "access-token"})
+	}))
+	defer tokenServer.Close()
+	phoneServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		phoneQuery = map[string]string{"access_token": r.URL.Query().Get("access_token")}
+		body, _ := io.ReadAll(r.Body)
+		phoneBody = string(body)
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"phone_info": map[string]any{
+				"phoneNumber":     "13800138000",
+				"purePhoneNumber": "13800138000",
+				"countryCode":     "86",
+			},
+		})
+	}))
+	defer phoneServer.Close()
+
+	provider := WechatIdentityProvider{
+		AppID:               "wx-test-app",
+		AppSecret:           "wx-test-secret",
+		AccessTokenEndpoint: tokenServer.URL,
+		PhoneNumberEndpoint: phoneServer.URL,
+		Client:              tokenServer.Client(),
+	}
+	got, err := provider.ResolvePhoneNumber(context.Background(), "phone-code")
+	if err != nil {
+		t.Fatalf("ResolvePhoneNumber() error = %v", err)
+	}
+	if got.PhoneNumber != "13800138000" || got.PurePhoneNumber != "13800138000" || got.CountryCode != "86" {
+		t.Fatalf("phone number = %+v", got)
+	}
+	if tokenQuery["appid"] != "wx-test-app" || tokenQuery["secret"] != "wx-test-secret" || tokenQuery["grant_type"] != "client_credential" {
+		t.Fatalf("token query = %#v", tokenQuery)
+	}
+	if phoneQuery["access_token"] != "access-token" || phoneBody != `{"code":"phone-code"}` {
+		t.Fatalf("phone query=%#v body=%s", phoneQuery, phoneBody)
 	}
 }
