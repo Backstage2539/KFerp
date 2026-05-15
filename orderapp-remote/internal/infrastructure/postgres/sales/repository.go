@@ -131,6 +131,112 @@ func normalizeSmallBatchPriceRule(rule smallBatchPriceRule) smallBatchPriceRule 
 	return rule
 }
 
+func normalizeOrderItemDiscountType(value string) string {
+	switch strings.TrimSpace(strings.ToLower(value)) {
+	case "amount", "fixed", "minus":
+		return "amount"
+	case "percent", "discount":
+		return "percent"
+	case "free":
+		return "free"
+	default:
+		return ""
+	}
+}
+
+func applyOrderItemDiscount(baseLineTotal float64, discountType string, discountValue float64) (float64, float64) {
+	baseLineTotal = maxFloat(baseLineTotal, 0)
+	discountValue = maxFloat(discountValue, 0)
+	if baseLineTotal <= 0 {
+		return 0, 0
+	}
+	switch normalizeOrderItemDiscountType(discountType) {
+	case "free":
+		return baseLineTotal, 0
+	case "amount":
+		discountAmount := minFloat(discountValue, baseLineTotal)
+		return discountAmount, maxFloat(baseLineTotal-discountAmount, 0)
+	case "percent":
+		rate := minFloat(discountValue, 100)
+		lineTotal := baseLineTotal * rate / 100
+		return maxFloat(baseLineTotal-lineTotal, 0), maxFloat(lineTotal, 0)
+	default:
+		return 0, baseLineTotal
+	}
+}
+
+func maxFloat(a, b float64) float64 {
+	if a > b {
+		return a
+	}
+	return b
+}
+
+func minFloat(a, b float64) float64 {
+	if a < b {
+		return a
+	}
+	return b
+}
+
+func (r Repository) orderFulfillmentMarkersTx(ctx context.Context, tx pgx.Tx, customerID int64) (string, string) {
+	if customerID <= 0 {
+		return "", "finished_goods"
+	}
+	var hasBindingTable bool
+	if err := tx.QueryRow(ctx, `SELECT to_regclass($1) IS NOT NULL`, fmt.Sprintf("%s.customer_erp_user_bindings", r.schema)).Scan(&hasBindingTable); err != nil || !hasBindingTable {
+		return "", "finished_goods"
+	}
+	var ok bool
+	err := tx.QueryRow(ctx, fmt.Sprintf(`
+		SELECT EXISTS (
+			SELECT 1
+			FROM %[1]s.customer_erp_user_bindings b
+			JOIN %[1]s.company_employees e ON e.id=b.employee_id
+			LEFT JOIN %[1]s.employee_login_passwords lp ON lp.employee_id=e.id
+			LEFT JOIN %[1]s.customer_portal_profiles p ON p.customer_id=b.customer_id
+			WHERE b.customer_id=$1
+			  AND b.status='active'
+			  AND e.active=true
+			  AND e.account_type='channel_customer'
+			  AND COALESCE(lp.login_disabled,false)=false
+			  AND (
+			      COALESCE(NULLIF(p.capability_template_key,''),'processing_fulfillment') IN ('processing_fulfillment','public_sku_direct_ship')
+			      OR EXISTS (
+			          SELECT 1 FROM %[1]s.customer_capability_templates active_template
+			          WHERE active_template.template_key=p.capability_template_key
+			            AND active_template.active=true
+			            AND (jsonb_array_length(active_template.erp_permissions)>0 OR jsonb_array_length(active_template.erp_view_keys)>0)
+			      )
+			  )
+		)
+	`, r.schema), customerID).Scan(&ok)
+	if err != nil || !ok {
+		return "", "finished_goods"
+	}
+	return "product_order", "finished_goods"
+}
+
+func resolveOrderFulfillmentMarkers(existingPortalServiceCode, existingSourceWarehouse, detectedPortalServiceCode, detectedSourceWarehouse string) (string, string) {
+	existingPortalServiceCode = strings.TrimSpace(existingPortalServiceCode)
+	existingSourceWarehouse = strings.TrimSpace(existingSourceWarehouse)
+	detectedPortalServiceCode = strings.TrimSpace(detectedPortalServiceCode)
+	detectedSourceWarehouse = strings.TrimSpace(detectedSourceWarehouse)
+	if detectedSourceWarehouse == "" {
+		detectedSourceWarehouse = "finished_goods"
+	}
+	if detectedPortalServiceCode == "" {
+		return "", detectedSourceWarehouse
+	}
+	if existingPortalServiceCode != "" {
+		if existingSourceWarehouse == "" {
+			existingSourceWarehouse = detectedSourceWarehouse
+		}
+		return existingPortalServiceCode, existingSourceWarehouse
+	}
+	return detectedPortalServiceCode, detectedSourceWarehouse
+}
+
 func orderPaidStatusRequiresPaymentMethod(statusName string) bool {
 	statusName = strings.TrimSpace(statusName)
 	return strings.Contains(statusName, "已付款") || strings.Contains(statusName, "已收款") || strings.Contains(statusName, "已支付")
@@ -224,18 +330,22 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 	}
 
 	type item struct {
-		productID     *int64
-		tierID        *int64
-		manualPrice   *float64
-		name          string
-		note          string
-		units         int64
-		specG         int64
-		unit          *string
-		spec          *string
-		unitPrice     float64
-		lineTotal     float64
-		priceOverride bool
+		productID      *int64
+		tierID         *int64
+		manualPrice    *float64
+		discountType   string
+		discountValue  float64
+		discountAmount float64
+		baseLineTotal  float64
+		name           string
+		note           string
+		units          int64
+		specG          int64
+		unit           *string
+		spec           *string
+		unitPrice      float64
+		lineTotal      float64
+		priceOverride  bool
 	}
 	items := make([]item, 0, len(cmd.Items))
 	for _, src := range cmd.Items {
@@ -244,13 +354,15 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 			continue
 		}
 		it := item{
-			productID:   src.ProductID,
-			tierID:      src.TierID,
-			manualPrice: src.ManualPrice,
-			name:        name,
-			note:        strings.TrimSpace(src.Note),
-			units:       src.Units,
-			specG:       src.SpecG,
+			productID:     src.ProductID,
+			tierID:        src.TierID,
+			manualPrice:   src.ManualPrice,
+			discountType:  normalizeOrderItemDiscountType(src.DiscountType),
+			discountValue: maxFloat(src.DiscountValue, 0),
+			name:          name,
+			note:          strings.TrimSpace(src.Note),
+			units:         src.Units,
+			specG:         src.SpecG,
 		}
 		if it.manualPrice != nil {
 			it.priceOverride = true
@@ -304,6 +416,7 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 	// Pricing: wholesale tiers prefer exact package spec tiers, then fall back to
 	// bean-list weight tiers so non-454g packaging can still price by total lb.
 	totalAmt := 0.0
+	itemDiscountAmt := 0.0
 	orderWeightG := int64(0)
 	for idx := range items {
 		itemWeightG := items[idx].specG * items[idx].units
@@ -316,10 +429,12 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 			if retailOrder {
 				lineTotal = *items[idx].manualPrice * float64(items[idx].units)
 			}
-			items[idx].lineTotal = lineTotal
+			items[idx].baseLineTotal = lineTotal
+			items[idx].discountAmount, items[idx].lineTotal = applyOrderItemDiscount(lineTotal, items[idx].discountType, items[idx].discountValue)
 			items[idx].unitPrice = *items[idx].manualPrice
 			items[idx].priceOverride = true
-			totalAmt += items[idx].lineTotal
+			totalAmt += items[idx].baseLineTotal
+			itemDiscountAmt += items[idx].discountAmount
 			continue
 		} else if retailOrder && items[idx].productID != nil {
 			retailPrices := salesdomain.RetailSpecPrices{}
@@ -331,11 +446,13 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 				FROM %s.products WHERE id=$1`, r.schema)
 			_ = tx.QueryRow(ctx, q, *items[idx].productID).Scan(&retailPrices.Price100G, &retailPrices.Price200G, &retailPrices.Price227G, &retailPrices.Price250G)
 			_, lineTotal := salesdomain.RetailLinePriceForSpec(retailPrices, items[idx].specG, items[idx].units)
-			items[idx].lineTotal = lineTotal
+			items[idx].baseLineTotal = lineTotal
+			items[idx].discountAmount, items[idx].lineTotal = applyOrderItemDiscount(lineTotal, items[idx].discountType, items[idx].discountValue)
 			if qtyLb > 0 {
 				items[idx].unitPrice = lineTotal / qtyLb
 			}
-			totalAmt += items[idx].lineTotal
+			totalAmt += items[idx].baseLineTotal
+			itemDiscountAmt += items[idx].discountAmount
 			continue
 		} else if items[idx].productID != nil {
 			// If user selected a tier explicitly
@@ -453,15 +570,20 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 			}
 		}
 
-		if items[idx].lineTotal == 0 {
-			items[idx].lineTotal = wholesaleLineTotalFromDisplayUnit(items[idx].unitPrice, items[idx].specG, items[idx].units)
+		if items[idx].baseLineTotal == 0 {
+			items[idx].baseLineTotal = items[idx].lineTotal
 		}
-		totalAmt += items[idx].lineTotal
+		if items[idx].baseLineTotal == 0 {
+			items[idx].baseLineTotal = wholesaleLineTotalFromDisplayUnit(items[idx].unitPrice, items[idx].specG, items[idx].units)
+		}
+		items[idx].discountAmount, items[idx].lineTotal = applyOrderItemDiscount(items[idx].baseLineTotal, items[idx].discountType, items[idx].discountValue)
+		totalAmt += items[idx].baseLineTotal
+		itemDiscountAmt += items[idx].discountAmount
 	}
 
 	// Amount calculation (items + shipping - discount)
 	shippingAmt := cmd.ShippingAmount
-	discountAmt := cmd.DiscountAmount
+	discountAmt := cmd.DiscountAmount + itemDiscountAmt
 	roundToInt := cmd.RoundToInt
 	outsourceFees := [6]float64{
 		cmd.OutsourceMaterialFee,
@@ -507,15 +629,18 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 	}
 
 	editID := cmd.EditID
+	portalServiceCode, sourceWarehouse := r.orderFulfillmentMarkersTx(ctx, tx, cmd.CustomerID)
 
-	insertItemSQL := fmt.Sprintf(`INSERT INTO %s.order_items(order_id,line_no,product_id,price_tier_id,price_overridden,item_name,item_note,qty,unit,spec,unit_price,line_total)
-			VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`, r.schema)
+	insertItemSQL := fmt.Sprintf(`INSERT INTO %s.order_items(order_id,line_no,product_id,price_tier_id,price_overridden,item_name,item_note,qty,unit,spec,unit_price,line_total_before_discount,discount_type,discount_value,discount_amount,line_total)
+				VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)`, r.schema)
 
 	var orderID int64
 	if editID > 0 {
-		if err := tx.QueryRow(ctx, fmt.Sprintf("SELECT id, order_no FROM %s.orders WHERE id=$1 FOR UPDATE", r.schema), editID).Scan(&orderID, &orderNo); err != nil {
+		var existingPortalServiceCode, existingSourceWarehouse string
+		if err := tx.QueryRow(ctx, fmt.Sprintf("SELECT id, order_no, COALESCE(portal_service_code,''), COALESCE(source_warehouse,'') FROM %s.orders WHERE id=$1 FOR UPDATE", r.schema), editID).Scan(&orderID, &orderNo, &existingPortalServiceCode, &existingSourceWarehouse); err != nil {
 			return salesapp.SaveOrderResult{}, fmt.Errorf("invalid edit_id")
 		}
+		portalServiceCode, sourceWarehouse = resolveOrderFulfillmentMarkers(existingPortalServiceCode, existingSourceWarehouse, portalServiceCode, sourceWarehouse)
 		uq := fmt.Sprintf(`
 				UPDATE %s.orders
 				SET order_date=$2,
@@ -541,11 +666,13 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 					outsource_manual_fee=$22,
 					outsource_tax_fee=$23,
 					outsource_other_fee=$24,
-					outsource_total_fee=$25,
-					responsible_party_type=$26,
-					responsible_party_id=$27,
-					responsible_party_name=$28
-				WHERE id=$1
+						outsource_total_fee=$25,
+						responsible_party_type=$26,
+						responsible_party_id=$27,
+						responsible_party_name=$28,
+						portal_service_code=$29,
+						source_warehouse=$30
+					WHERE id=$1
 			`, r.schema)
 		if _, err := tx.Exec(ctx, uq,
 			orderID,
@@ -576,6 +703,8 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 			responsibleType,
 			responsibleID,
 			responsibleName,
+			portalServiceCode,
+			sourceWarehouse,
 		); err != nil {
 			return salesapp.SaveOrderResult{}, err
 		}
@@ -598,17 +727,19 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 					express_fee,
 					outsource_material_fee, outsource_roast_fee, outsource_packaging_fee,
 					outsource_manual_fee, outsource_tax_fee, outsource_other_fee, outsource_total_fee,
-					responsible_party_type, responsible_party_id, responsible_party_name,
-					order_no
-				) VALUES (
-					$1,$2,$3,$4,$5,$6,$7,$8,$9,$10,
-					$11,$12,$13,
-					$14,$15,$16,
-					$17,$18,$19,$20,$21,$22,$23,$24,
-					$25,$26,$27,
-					$28
-				)
-				RETURNING id
+						responsible_party_type, responsible_party_id, responsible_party_name,
+						portal_service_code, source_warehouse,
+						order_no
+					) VALUES (
+						$1,$2,$3,$4,$5,$6,$7,$8,$9,$10,
+						$11,$12,$13,
+						$14,$15,$16,
+						$17,$18,$19,$20,$21,$22,$23,$24,
+						$25,$26,$27,
+						$28,$29,
+						$30
+					)
+					RETURNING id
 			`, r.schema)
 		err = tx.QueryRow(ctx, insertOrderSQL,
 			od,
@@ -638,6 +769,8 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 			responsibleType,
 			responsibleID,
 			responsibleName,
+			portalServiceCode,
+			sourceWarehouse,
 			orderNo,
 		).Scan(&orderID)
 		if err != nil {
@@ -653,7 +786,7 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 		if it.units > 0 {
 			qtyAny = it.units
 		}
-		if _, err := tx.Exec(ctx, insertItemSQL, orderID, idx+1, it.productID, it.tierID, it.priceOverride, it.name, it.note, qtyAny, it.unit, it.spec, it.unitPrice, it.lineTotal); err != nil {
+		if _, err := tx.Exec(ctx, insertItemSQL, orderID, idx+1, it.productID, it.tierID, it.priceOverride, it.name, it.note, qtyAny, it.unit, it.spec, it.unitPrice, it.baseLineTotal, it.discountType, it.discountValue, it.discountAmount, it.lineTotal); err != nil {
 			return salesapp.SaveOrderResult{}, err
 		}
 	}

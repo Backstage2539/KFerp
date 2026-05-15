@@ -38,14 +38,16 @@ type SaveOrderCommand struct {
 }
 
 type OrderItemCommand struct {
-	ProductID   *int64
-	TierID      *int64
-	ManualPrice *float64
-	Name        string
-	Note        string
-	Units       int64
-	Unit        string
-	SpecG       int64
+	ProductID     *int64
+	TierID        *int64
+	ManualPrice   *float64
+	DiscountType  string
+	DiscountValue float64
+	Name          string
+	Note          string
+	Units         int64
+	Unit          string
+	SpecG         int64
 }
 
 type SaveOrderResult struct {
@@ -236,17 +238,20 @@ type OrderFormData struct {
 }
 
 type OrderEditItem struct {
-	ItemID      int64
-	LineNo      int
-	ProductID   int64
-	Product     string
-	Note        string
-	Spec        string
-	Qty         string
-	Unit        string
-	UnitPrice   string
-	LineTotal   string
-	PriceTierID int64
+	ItemID         int64
+	LineNo         int
+	ProductID      int64
+	Product        string
+	Note           string
+	Spec           string
+	Qty            string
+	Unit           string
+	UnitPrice      string
+	LineTotal      string
+	PriceTierID    int64
+	DiscountType   string
+	DiscountValue  string
+	DiscountAmount string
 }
 
 type OrderEditData struct {

@@ -291,5 +291,8 @@ CREATE INDEX IF NOT EXISTS customer_billing_rules_customer_fee_idx
 	if err := backfillSubmittedDirectShipERPOrders(ctx, pool, schema); err != nil {
 		return err
 	}
-	return repairSubmittedDirectShipERPOrderReceivers(ctx, pool, schema)
+	if err := repairSubmittedDirectShipERPOrderReceivers(ctx, pool, schema); err != nil {
+		return err
+	}
+	return repairSubmittedDirectShipERPOrderDiscounts(ctx, pool, schema)
 }

@@ -130,10 +130,14 @@ CREATE TABLE IF NOT EXISTS %[1]s.order_items (
 	item_note TEXT NOT NULL DEFAULT '',
 	qty NUMERIC NOT NULL DEFAULT 0,
 	unit TEXT NOT NULL DEFAULT '',
-	spec TEXT NOT NULL DEFAULT '',
-	unit_price NUMERIC NOT NULL DEFAULT 0,
-	line_total NUMERIC NOT NULL DEFAULT 0
-);
+		spec TEXT NOT NULL DEFAULT '',
+		unit_price NUMERIC NOT NULL DEFAULT 0,
+		line_total_before_discount NUMERIC NOT NULL DEFAULT 0,
+		discount_type TEXT NOT NULL DEFAULT '',
+		discount_value NUMERIC NOT NULL DEFAULT 0,
+		discount_amount NUMERIC NOT NULL DEFAULT 0,
+		line_total NUMERIC NOT NULL DEFAULT 0
+	);
 `, schema)
 	if _, err := pool.Exec(ctx, q); err != nil {
 		return err
@@ -192,6 +196,10 @@ func ensureCoreColumns(ctx context.Context, pool *pgxpool.Pool, schema string) e
 		`ALTER TABLE %[1]s.order_items ADD COLUMN IF NOT EXISTS price_tier_id BIGINT`,
 		`ALTER TABLE %[1]s.order_items ADD COLUMN IF NOT EXISTS price_overridden BOOLEAN NOT NULL DEFAULT false`,
 		`ALTER TABLE %[1]s.order_items ADD COLUMN IF NOT EXISTS item_note TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE %[1]s.order_items ADD COLUMN IF NOT EXISTS line_total_before_discount NUMERIC NOT NULL DEFAULT 0`,
+		`ALTER TABLE %[1]s.order_items ADD COLUMN IF NOT EXISTS discount_type TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE %[1]s.order_items ADD COLUMN IF NOT EXISTS discount_value NUMERIC NOT NULL DEFAULT 0`,
+		`ALTER TABLE %[1]s.order_items ADD COLUMN IF NOT EXISTS discount_amount NUMERIC NOT NULL DEFAULT 0`,
 	}
 	for _, stmt := range stmts {
 		if _, err := pool.Exec(ctx, fmt.Sprintf(stmt, schema)); err != nil {

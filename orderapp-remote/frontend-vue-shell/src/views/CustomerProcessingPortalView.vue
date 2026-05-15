@@ -1171,6 +1171,9 @@ button:disabled {
 .direct-ship-items {
   display: grid;
   gap: 8px;
+  position: relative;
+  z-index: 5;
+  overflow: visible;
 }
 
 .direct-ship-items-head {
@@ -1337,7 +1340,7 @@ th {
 
 .table-wrap {
   width: 100%;
-  overflow-x: auto;
+  overflow: visible;
 }
 
 .fulfillment-orders-panel {

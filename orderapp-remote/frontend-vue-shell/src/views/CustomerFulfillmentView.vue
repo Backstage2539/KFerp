@@ -1548,6 +1548,9 @@ button:disabled {
 .direct-ship-items {
   display: grid;
   gap: 8px;
+  position: relative;
+  z-index: 5;
+  overflow: visible;
 }
 
 .direct-ship-items-head {
@@ -1845,7 +1848,7 @@ button:disabled {
 }
 
 .table-wrap {
-  overflow-x: auto;
+  overflow: visible;
 }
 
 table {

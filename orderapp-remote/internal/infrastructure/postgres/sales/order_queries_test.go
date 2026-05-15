@@ -42,7 +42,7 @@ func TestOrderListWhereSupportsMineAndFulfillmentScopes(t *testing.T) {
 	joined = strings.Join(where, " AND ")
 	for _, want := range []string{
 		"customer_type",
-		"portal_service_code IN ('direct_ship','processing_ship')",
+		"portal_service_code IN ('direct_ship','processing_ship','product_order')",
 		"test_schema.customer_erp_user_bindings",
 		"test_schema.customer_portal_profiles",
 		"test_schema.customer_capability_templates",
@@ -72,5 +72,22 @@ func TestOrderListWhereSupportsMineAndFulfillmentScopes(t *testing.T) {
 	}
 	if len(args) != 1 || args[0] != int64(7) {
 		t.Fatalf("customer workbench fulfillment scope args = %#v, want employee id 7", args)
+	}
+}
+
+func TestResolveOrderFulfillmentMarkersPreservesExistingGeneratedOrderScope(t *testing.T) {
+	portalServiceCode, sourceWarehouse := resolveOrderFulfillmentMarkers("direct_ship", "finished_goods", "product_order", "finished_goods")
+	if portalServiceCode != "direct_ship" || sourceWarehouse != "finished_goods" {
+		t.Fatalf("existing generated scope should be preserved, got portal=%q warehouse=%q", portalServiceCode, sourceWarehouse)
+	}
+
+	portalServiceCode, sourceWarehouse = resolveOrderFulfillmentMarkers("", "", "product_order", "finished_goods")
+	if portalServiceCode != "product_order" || sourceWarehouse != "finished_goods" {
+		t.Fatalf("new ERP fulfillment order should be marked as product_order, got portal=%q warehouse=%q", portalServiceCode, sourceWarehouse)
+	}
+
+	portalServiceCode, _ = resolveOrderFulfillmentMarkers("direct_ship", "finished_goods", "", "finished_goods")
+	if portalServiceCode != "" {
+		t.Fatalf("non-fulfillment customer selection should clear fulfillment scope, got %q", portalServiceCode)
 	}
 }

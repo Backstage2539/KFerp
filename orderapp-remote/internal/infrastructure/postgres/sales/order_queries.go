@@ -279,7 +279,7 @@ func orderListWhere(schema string, query salesapp.OrderListQuery) ([]string, []a
 			argn++
 		}
 		where = append(where, fmt.Sprintf(`COALESCE(NULLIF(c.customer_type,''),'retail')='wholesale'
-			AND o.portal_service_code IN ('direct_ship','processing_ship')
+				AND o.portal_service_code IN ('direct_ship','processing_ship','product_order')
 			AND EXISTS (
 				SELECT 1 FROM %[1]s.customer_erp_user_bindings b
 				JOIN %[1]s.company_employees e ON e.id=b.employee_id

@@ -83,14 +83,16 @@ type orderSaveAPIRequest struct {
 	OutsourceOtherFee     string `json:"outsource_other_fee"`
 	StockBatchDecision    string `json:"stock_batch_decision"`
 
-	ProductID []string `json:"product_id"`
-	TierID    []string `json:"tier_id"`
-	UnitPrice []string `json:"unit_price"`
-	ItemName  []string `json:"item_name"`
-	ItemNote  []string `json:"item_note"`
-	Qty       []string `json:"qty"`
-	Unit      []string `json:"unit"`
-	Spec      []string `json:"spec"`
+	ProductID     []string `json:"product_id"`
+	TierID        []string `json:"tier_id"`
+	UnitPrice     []string `json:"unit_price"`
+	ItemName      []string `json:"item_name"`
+	ItemNote      []string `json:"item_note"`
+	Qty           []string `json:"qty"`
+	Unit          []string `json:"unit"`
+	Spec          []string `json:"spec"`
+	DiscountType  []string `json:"discount_type"`
+	DiscountValue []string `json:"discount_value"`
 }
 
 func registerOrderAPI(e *echo.Echo, salesSvc *salesapp.Service, messages MessagePublisher) {
@@ -384,6 +386,8 @@ func (r orderSaveAPIRequest) toCreateRequest() CreateOrderRequest {
 		Qty:                   r.Qty,
 		Unit:                  r.Unit,
 		Spec:                  r.Spec,
+		DiscountType:          r.DiscountType,
+		DiscountValue:         r.DiscountValue,
 	}
 }
 
@@ -484,14 +488,17 @@ func productVisibilityForAPI(visibility string, customerID int64) string {
 
 func editDataForAPI(ed *OrderEditData) map[string]any {
 	type editItem struct {
-		ProductID   int64  `json:"product_id"`
-		ProductName string `json:"product_name"`
-		Note        string `json:"note"`
-		TierID      string `json:"tier_id"`
-		UnitPrice   string `json:"unit_price"`
-		Qty         string `json:"qty"`
-		Unit        string `json:"unit"`
-		Spec        string `json:"spec"`
+		ProductID      int64  `json:"product_id"`
+		ProductName    string `json:"product_name"`
+		Note           string `json:"note"`
+		TierID         string `json:"tier_id"`
+		UnitPrice      string `json:"unit_price"`
+		Qty            string `json:"qty"`
+		Unit           string `json:"unit"`
+		Spec           string `json:"spec"`
+		DiscountType   string `json:"discount_type"`
+		DiscountValue  string `json:"discount_value"`
+		DiscountAmount string `json:"discount_amount"`
 	}
 	items := make([]editItem, 0, len(ed.Items))
 	for _, it := range ed.Items {
@@ -501,14 +508,17 @@ func editDataForAPI(ed *OrderEditData) map[string]any {
 			tierID = strconv.FormatInt(it.PriceTierID, 10)
 		}
 		items = append(items, editItem{
-			ProductID:   it.ProductID,
-			ProductName: it.Product,
-			Note:        it.Note,
-			TierID:      tierID,
-			UnitPrice:   it.UnitPrice,
-			Qty:         it.Qty,
-			Unit:        it.Unit,
-			Spec:        spec,
+			ProductID:      it.ProductID,
+			ProductName:    it.Product,
+			Note:           it.Note,
+			TierID:         tierID,
+			UnitPrice:      it.UnitPrice,
+			Qty:            it.Qty,
+			Unit:           it.Unit,
+			Spec:           spec,
+			DiscountType:   it.DiscountType,
+			DiscountValue:  it.DiscountValue,
+			DiscountAmount: it.DiscountAmount,
 		})
 	}
 	return map[string]any{

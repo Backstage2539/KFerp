@@ -1825,7 +1825,7 @@ func TestSubmitCustomerDirectShipOrderCreatesERPOrder(t *testing.T) {
 			{ProductID: 12, ProductName: "岩师傅冷萃豆", Spec: "100g", QuantityUnits: 2},
 			{ProductID: 12, ProductName: "岩师傅冷萃豆", Spec: "227g", QuantityUnits: 1},
 		},
-		Note:            "客户门户代发",
+		Note: "客户门户代发",
 	})
 	if err != nil {
 		t.Fatalf("SubmitCustomerDirectShipOrder: %v", err)
@@ -3045,6 +3045,30 @@ func TestCustomerERPWorkbenchAvailableRejectsUnknownTemplateKey(t *testing.T) {
 	}
 	if available {
 		t.Fatalf("CustomerERPWorkbenchAvailable = true, want false for unknown template")
+	}
+}
+
+func TestSubmittedDirectShipERPItemPricingKeepsFreeLineAndOrderDiscount(t *testing.T) {
+	items := []submittedDirectShipERPItemSeed{{
+		lineNo:         1,
+		productID:      91,
+		productTitle:   "曜石2.0",
+		spec:           "80g",
+		quantity:       1,
+		unitPrice:      63,
+		lineTotal:      0,
+		baseLineTotal:  63,
+		discountType:   "free",
+		discountAmount: 63,
+	}}
+
+	totalAmount, discountAmount := submittedDirectShipERPOrderAmounts(items)
+
+	if totalAmount != 63 || discountAmount != 63 {
+		t.Fatalf("submitted direct ship ERP amounts total=%v discount=%v, want 63/63", totalAmount, discountAmount)
+	}
+	if items[0].lineTotal != 0 {
+		t.Fatalf("free line total = %v, want 0", items[0].lineTotal)
 	}
 }
 
