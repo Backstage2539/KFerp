@@ -72,7 +72,9 @@ func TestCustomerOptionsAPIReturnsBoundWholesaleCustomersForPicker(t *testing.T)
 		}},
 	}
 	svc := &fakeCustomerFulfillmentService{
-		listERPBindingsResult: []app.CustomerERPBinding{{CustomerID: 147, EmployeeID: 8, Status: "active"}},
+		externalUsersByCustomer: map[int64][]app.CustomerExternalUser{
+			147: {{CustomerID: 147, EmployeeID: 8, Phone: "13800138001", HasPassword: true, LoginEnabled: true}},
+		},
 	}
 	e := echo.New()
 	RegisterRoutes(e, Dependencies{CustomerFulfillment: svc, Customers: customers})
@@ -107,9 +109,9 @@ func TestCustomerOptionsAPISkipsLegacyNonWorkbenchBinding(t *testing.T) {
 		}},
 	}
 	svc := &fakeCustomerFulfillmentService{
-		listERPBindingsByCustomer: map[int64][]app.CustomerERPBinding{
-			201: {{CustomerID: 201, EmployeeID: 31, Status: "active"}},
-			202: {{CustomerID: 202, EmployeeID: 32, Status: "active"}},
+		externalUsersByCustomer: map[int64][]app.CustomerExternalUser{
+			201: {{CustomerID: 201, EmployeeID: 31, Phone: "13800138031", HasPassword: true, LoginEnabled: true}},
+			202: {{CustomerID: 202, EmployeeID: 32, Phone: "13800138032", HasPassword: true, LoginEnabled: true}},
 		},
 		erpWorkbenchAvailableByCustomer: map[int64]bool{
 			201: false,
@@ -131,6 +133,36 @@ func TestCustomerOptionsAPISkipsLegacyNonWorkbenchBinding(t *testing.T) {
 	}
 	if !strings.Contains(rec.Body.String(), "代加工工作台客户") {
 		t.Fatalf("customer options must keep workbench customer: %s", rec.Body.String())
+	}
+}
+
+func TestCustomerOptionsAPISkipsLegacyBindingWithoutLoginOrPassword(t *testing.T) {
+	customers := &fakeCustomerDirectory{
+		result: customerapp.ListResult{Rows: []customerapp.CustomerRow{
+			{ID: 203, Name: "无密码客户", CustomerType: "wholesale", Active: true},
+			{ID: 204, Name: "禁用登录客户", CustomerType: "wholesale", Active: true},
+		}},
+	}
+	svc := &fakeCustomerFulfillmentService{
+		externalUsersByCustomer: map[int64][]app.CustomerExternalUser{
+			203: {{CustomerID: 203, EmployeeID: 33, Phone: "13800138033", HasPassword: false, LoginEnabled: true}},
+			204: {{CustomerID: 204, EmployeeID: 34, Phone: "13800138034", HasPassword: true, LoginEnabled: false}},
+		},
+	}
+	e := echo.New()
+	RegisterRoutes(e, Dependencies{CustomerFulfillment: svc, Customers: customers})
+
+	req := httptest.NewRequest(http.MethodGet, "/api/customer-fulfillment/customers?limit=80", nil)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("customer options status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	for _, unwanted := range []string{"无密码客户", "禁用登录客户"} {
+		if strings.Contains(rec.Body.String(), unwanted) {
+			t.Fatalf("customer options should skip weak external-user customer %s: %s", unwanted, rec.Body.String())
+		}
 	}
 }
 
@@ -768,6 +800,7 @@ type fakeCustomerFulfillmentService struct {
 	erpWorkbenchAvailableCustomerID int64
 	erpWorkbenchAvailableErr        error
 	externalUsersCustomerID         int64
+	externalUsersByCustomer         map[int64][]app.CustomerExternalUser
 	externalUsersResult             []app.CustomerExternalUser
 	createExternalUserCmd           app.CreateExternalUserCommand
 	createExternalUserResult        app.CustomerExternalUser
@@ -873,6 +906,9 @@ func (s *fakeCustomerFulfillmentService) CustomerERPWorkbenchAvailable(ctx conte
 
 func (s *fakeCustomerFulfillmentService) ListExternalUsers(ctx context.Context, customerID int64) ([]app.CustomerExternalUser, error) {
 	s.externalUsersCustomerID = customerID
+	if s.externalUsersByCustomer != nil {
+		return s.externalUsersByCustomer[customerID], nil
+	}
 	return s.externalUsersResult, nil
 }
 

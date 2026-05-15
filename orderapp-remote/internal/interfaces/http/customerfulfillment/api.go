@@ -65,14 +65,15 @@ func (a api) hasActiveERPBinding(c echo.Context, customerID int64) (bool, error)
 	if a.svc == nil || customerID <= 0 {
 		return false, nil
 	}
-	bindings, err := a.svc.ListCustomerERPBindings(c.Request().Context(), customerID)
+	users, err := a.svc.ListExternalUsers(c.Request().Context(), customerID)
 	if err != nil {
 		return false, err
 	}
-	for _, binding := range bindings {
-		if binding.Status == "active" {
-			return a.svc.CustomerERPWorkbenchAvailable(c.Request().Context(), customerID)
+	for _, user := range users {
+		if strings.TrimSpace(user.Phone) == "" || !user.HasPassword || !user.LoginEnabled {
+			continue
 		}
+		return a.svc.CustomerERPWorkbenchAvailable(c.Request().Context(), customerID)
 	}
 	return false, nil
 }
