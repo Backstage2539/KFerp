@@ -13,7 +13,7 @@
       <div class="filters">
         <label>
           <span>搜索</span>
-          <input v-model.trim="q" placeholder="客户/公司/联系人/电话/地址" @keyup.enter="loadPage(1)" />
+          <input v-model.trim="q" placeholder="客户/公司/联系人/联系电话/地址" @keyup.enter="loadPage(1)" />
         </label>
         <button class="primary" type="button" @click="loadPage(1)" :disabled="loading">查询</button>
       </div>
@@ -26,13 +26,14 @@
         <button class="secondary" type="button" @click="closeCustomerDrawer">关闭</button>
       </div>
       <form class="form-grid" @submit.prevent="saveCustomer">
+        <label class="wide">
+          <span>粘贴收件信息</span>
+          <textarea v-model.trim="customerPaste" rows="2" placeholder="张三 13800138000 云南省普洱市思茅区咖啡路 88 号"></textarea>
+        </label>
+        <button class="secondary parse-button" type="button" @click="applyAddressParse">地址解析</button>
         <label>
           <span>客户名</span>
           <input v-model.trim="form.name" required />
-        </label>
-        <label>
-          <span>原始名称</span>
-          <input v-model.trim="form.raw_name" />
         </label>
         <label>
           <span>客户类型</span>
@@ -55,26 +56,18 @@
           <input v-model.trim="form.contact" />
         </label>
         <label>
-          <span>电话</span>
-          <input v-model.trim="form.phone" />
-        </label>
-        <label>
-          <span>默认来源</span>
+          <span>来源</span>
           <select v-model.number="form.default_source_id">
             <option :value="0">未设置</option>
             <option v-for="item in sources" :key="item.id" :value="item.id">{{ item.name }}</option>
           </select>
         </label>
         <label>
-          <span>默认订单类型</span>
+          <span>订单类型</span>
           <select v-model.number="form.default_order_type_id">
             <option :value="0">未设置</option>
             <option v-for="item in orderTypes" :key="item.id" :value="item.id">{{ item.name }}</option>
           </select>
-        </label>
-        <label class="wide">
-          <span>公司地址</span>
-          <textarea v-model.trim="form.company_address" rows="2"></textarea>
         </label>
         <label class="wide">
           <span>地址</span>
@@ -140,10 +133,9 @@
               <th>公司</th>
               <th>联系电话</th>
               <th>联系人</th>
-              <th>电话</th>
               <th>地址</th>
-              <th>默认来源</th>
-              <th>默认订单类型</th>
+              <th>来源</th>
+              <th>订单类型</th>
               <th>状态</th>
               <th>更新时间</th>
             </tr>
@@ -157,7 +149,6 @@
               <td>{{ row.company_name || row.name }}</td>
               <td>{{ row.company_phone || '' }}</td>
               <td>{{ row.contact || '' }}</td>
-              <td>{{ row.phone || '' }}</td>
               <td class="address">{{ row.address || '' }}</td>
               <td>{{ optionName(sources, row.default_source_id) }}</td>
               <td>{{ optionName(orderTypes, row.default_order_type_id) }}</td>
@@ -165,7 +156,7 @@
               <td>{{ row.updated }}</td>
             </tr>
             <tr v-if="!rows.length">
-              <td colspan="11" class="muted">暂无客户</td>
+              <td colspan="10" class="muted">暂无客户</td>
             </tr>
           </tbody>
         </table>
@@ -182,6 +173,7 @@
 <script setup>
 import { onMounted, reactive, ref } from 'vue'
 import { apiGet, apiSend } from '../api/client'
+import { parseRecipientText } from '../lib/customer-recipient'
 import { replaceHistoryURL } from '../lib/url-state'
 
 const rows = ref([])
@@ -200,6 +192,7 @@ const assets = ref([])
 const dashboard = reactive({ total_orders: 0, unpaid_orders: 0, unshipped_orders: 0, in_production: 0, in_shipping: 0, completed: 0 })
 const assetKind = ref('label_front')
 const assetInput = ref(null)
+const customerPaste = ref('')
 const form = reactive(emptyForm())
 const assetKinds = [
   { value: 'label_front', label: '标签-正面' },
@@ -212,13 +205,10 @@ const assetKinds = [
 function emptyForm() {
   return {
     name: '',
-    raw_name: '',
     customer_type: 'retail',
     company_name: '',
-    company_address: '',
     company_phone: '',
     contact: '',
-    phone: '',
     address: '',
     default_source_id: 0,
     default_order_type_id: 0,
@@ -229,13 +219,10 @@ function emptyForm() {
 function assignForm(data) {
   Object.assign(form, {
     name: data?.name || '',
-    raw_name: data?.raw_name || '',
     customer_type: normalizeCustomerType(data?.customer_type),
     company_name: data?.company_name || '',
-    company_address: data?.company_address || '',
     company_phone: data?.company_phone || '',
     contact: data?.contact || '',
-    phone: data?.phone || '',
     address: data?.address || '',
     default_source_id: Number(data?.default_source_id || 0),
     default_order_type_id: Number(data?.default_order_type_id || 0),
@@ -257,6 +244,24 @@ function assignDashboard(data = {}) {
 function optionName(options, id) {
   const item = options.find((x) => Number(x.id) === Number(id))
   return item?.name || ''
+}
+
+function defaultOptionID(options, labels) {
+  const row = (options || []).find((item) => labels.some((label) => String(item.name || '').includes(label)))
+  return Number(row?.id || options?.[0]?.id || 0)
+}
+
+function defaultSourceID() {
+  return defaultOptionID(sources.value, ['微信', 'Wechat', 'wechat'])
+}
+
+function defaultOrderTypeID() {
+  return defaultOptionID(orderTypes.value, ['批发', 'Wholesale', 'wholesale'])
+}
+
+function applyFormDefaults() {
+  if (!form.default_source_id && sources.value.length) form.default_source_id = defaultSourceID()
+  if (!form.default_order_type_id && orderTypes.value.length) form.default_order_type_id = defaultOrderTypeID()
 }
 
 function normalizeCustomerType(value) {
@@ -317,6 +322,7 @@ async function load() {
     rows.value = data.rows || []
     sources.value = data.sources || []
     orderTypes.value = data.order_types || []
+    if (customerDrawerOpen.value && !editingId.value) applyFormDefaults()
     hasPrev.value = !!data.has_prev
     hasNext.value = !!data.has_next
     page.value = Number(data.page || page.value)
@@ -334,6 +340,8 @@ function startNew() {
   assets.value = []
   assignDashboard()
   assignForm(emptyForm())
+  applyFormDefaults()
+  customerPaste.value = ''
   ok.value = ''
   error.value = ''
   updateUrl({ mode: 'new' })
@@ -343,6 +351,7 @@ function closeCustomerDrawer() {
   customerDrawerOpen.value = false
   editingId.value = 0
   assets.value = []
+  customerPaste.value = ''
   updateUrl()
 }
 
@@ -359,6 +368,7 @@ async function openCustomerDrawer(id) {
     orderTypes.value = data.order_types || orderTypes.value
     assets.value = data.assets || []
     assignDashboard(data.dashboard)
+    customerPaste.value = ''
     updateUrl({ edit_id: editingId.value })
   } catch (err) {
     error.value = err.message || '加载失败'
@@ -367,20 +377,33 @@ async function openCustomerDrawer(id) {
   }
 }
 
+function applyAddressParse() {
+  const source = String(customerPaste.value || form.address || '').trim()
+  if (!source) return
+  const parsed = parseRecipientText(source)
+  if (parsed.recipient_name) {
+    form.contact = parsed.recipient_name
+    if (!form.name) form.name = parsed.recipient_name
+  }
+  if (parsed.phone) form.company_phone = parsed.phone
+  if (parsed.address) form.address = parsed.address
+}
+
 async function saveCustomer() {
   loading.value = true
   error.value = ''
   ok.value = ''
   try {
+    if (!form.name && form.contact) form.name = form.contact
     const body = {
       name: form.name,
-      raw_name: form.raw_name,
+      raw_name: '',
       customer_type: normalizeCustomerType(form.customer_type),
       company_name: form.company_name,
-      company_address: form.company_address,
+      company_address: '',
       company_phone: form.company_phone,
       contact: form.contact,
-      phone: form.phone,
+      phone: form.company_phone,
       address: form.address,
       default_source_id: form.default_source_id || null,
       default_order_type_id: form.default_order_type_id || null,

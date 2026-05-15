@@ -269,7 +269,7 @@
         <summary>录单手册</summary>
         <ul>
           <li>客户和商品输入框支持名称、拼音和首字母搜索。</li>
-          <li>录单时可点“新增客户”打开右侧抽屉，粘贴收件信息后自动识别姓名、电话和地址。</li>
+          <li>录单时可点“新增客户”打开右侧抽屉，粘贴收件信息后可解析姓名、联系电话和地址。</li>
           <li>选择客户后会带入客户档案中的默认来源和订单类型。</li>
           <li>常用规格：36g、80g、100g、227g、454g、500g、1000g、2.5kg。</li>
           <li>新订单默认已付款、未发货；商品单价会随规格和数量匹配价格梯度。</li>
@@ -290,7 +290,7 @@
           <span>粘贴收件信息</span>
           <textarea v-model.trim="customerPaste" rows="4" placeholder="张三 13800138000 云南省普洱市思茅区咖啡路 88 号"></textarea>
         </label>
-        <button class="secondary parse-button" type="button" @click="applyRecipientParse">自动识别</button>
+        <button class="secondary parse-button" type="button" @click="applyRecipientParse">地址解析</button>
         <div v-if="customerError" class="notice error">{{ customerError }}</div>
         <div class="drawer-grid">
           <label>
@@ -302,11 +302,11 @@
             <input v-model.trim="customerForm.contact" />
           </label>
           <label>
-            <span>电话</span>
+            <span>联系电话</span>
             <input v-model.trim="customerForm.phone" />
           </label>
           <label>
-            <span>客户来源</span>
+            <span>来源</span>
             <select v-model.number="customerForm.default_source_id">
               <option v-for="item in sources" :key="item.id" :value="item.id">{{ item.name }}</option>
             </select>
@@ -551,7 +551,7 @@ async function saveCustomerFromDrawer() {
         raw_name: '',
         company_name: '',
         company_address: '',
-        company_phone: '',
+        company_phone: customerForm.phone,
         contact: customerForm.contact,
         phone: customerForm.phone,
         address: customerForm.address,
