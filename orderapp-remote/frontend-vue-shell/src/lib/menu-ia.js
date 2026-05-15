@@ -93,7 +93,6 @@ export const menuGroups = [
     items: [
       { key: 'departments', label: '部门维护', title: '部门维护' },
       { key: 'employees', label: '员工维护', title: '员工维护' },
-      { key: 'userPermissions', label: '用户权限', title: '用户权限' },
       { key: 'audit', label: '操作日志', title: '操作日志' },
     ],
   },

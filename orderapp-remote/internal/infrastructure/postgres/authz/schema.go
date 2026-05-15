@@ -56,7 +56,10 @@ CREATE TABLE IF NOT EXISTS %s.auth_view_permissions (
 	if err := seedRoles(ctx, pool, schema); err != nil {
 		return err
 	}
-	return seedViewPermissions(ctx, pool, schema)
+	if err := seedViewPermissions(ctx, pool, schema); err != nil {
+		return err
+	}
+	return removeMergedViewPermissions(ctx, pool, schema)
 }
 
 func seedPermissions(ctx context.Context, pool *pgxpool.Pool, schema string) error {
@@ -89,6 +92,11 @@ func seedViewPermissions(ctx context.Context, pool *pgxpool.Pool, schema string)
 		}
 	}
 	return nil
+}
+
+func removeMergedViewPermissions(ctx context.Context, pool *pgxpool.Pool, schema string) error {
+	_, err := pool.Exec(ctx, "DELETE FROM "+schema+".auth_view_permissions WHERE view_key=ANY($1::text[])", []string{"userPermissions"})
+	return err
 }
 
 func defaultPermissions() []permissionSeed {
@@ -208,7 +216,6 @@ func defaultViewPermissions() map[string]string {
 		"departments":                 "company.manage",
 		"employees":                   "company.manage",
 		"audit":                       "audit.read",
-		"userPermissions":             "auth.manage",
 		"reqProduct":                  "requirements.manage",
 		"reqDev":                      "requirements.manage",
 		"reqUnit":                     "requirements.manage",

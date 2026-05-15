@@ -381,7 +381,7 @@ func operationMenuFeature(meta *string, field string) (string, string) {
 	case strings.Contains(target, "/api/auth/login/accounts") || strings.Contains(target, "/account-state"):
 		return "系统 / 员工维护", "修改员工账号状态"
 	case strings.Contains(target, "/api/auth/me/roles") || strings.Contains(target, "/api/auth"):
-		return "系统 / 用户权限", "检查用户权限"
+		return "系统 / 员工维护", "检查用户权限"
 	case strings.Contains(target, "/produce/quality-inspections"):
 		if method == "POST" {
 			return "生产管理 / 生产质检", "保存质检记录"

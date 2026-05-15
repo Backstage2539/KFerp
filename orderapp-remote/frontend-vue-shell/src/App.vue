@@ -103,7 +103,6 @@ import StockBatchesView from './views/StockBatchesView.vue'
 import StockLedgerView from './views/StockLedgerView.vue'
 import StockOperationsView from './views/StockOperationsView.vue'
 import StockOutboundLogsView from './views/StockOutboundLogsView.vue'
-import UserPermissionsView from './views/UserPermissionsView.vue'
 import WipMaterialsView from './views/WipMaterialsView.vue'
 import WarehouseInventoryView from './views/WarehouseInventoryView.vue'
 import WorkOrdersView from './views/WorkOrdersView.vue'
@@ -122,8 +121,13 @@ import {
 import { actorHasFullViewAccess, filterMenuGroups, isViewAllowed } from './lib/menu-permissions.js'
 
 const collapsed = ref(false)
-const requestedView = new URL(window.location.href).searchParams.get('view')
-const requestedViewFromUrl = !!requestedView
+const viewAliases = { userPermissions: 'employees' }
+function normalizeViewKey(key) {
+  return viewAliases[key] || key
+}
+const requestedViewParam = new URL(window.location.href).searchParams.get('view')
+const requestedView = normalizeViewKey(requestedViewParam)
+const requestedViewFromUrl = !!requestedViewParam
 const freshLogin = new URL(window.location.href).searchParams.get('fresh_login') === '1'
 const currentKey = ref(requestedView && menuMap[requestedView] ? requestedView : 'order')
 const currentViewParams = ref(readViewParams())
@@ -200,7 +204,6 @@ const internalViews = {
   customerProcessingPortal: CustomerProcessingPortalView,
   settingsAuditManual: OperationManualView,
   audit: AuditView,
-  userPermissions: UserPermissionsView,
   reqProduct: RequirementsView,
   reqDev: RequirementsView,
   reqUnit: RequirementsView,
@@ -366,6 +369,9 @@ async function loadActor() {
         currentKey.value,
       )
     clearFreshLoginFlag()
+    if (requestedViewParam && requestedView !== requestedViewParam) {
+      applyKeyToUrl(currentKey.value, currentViewParams.value)
+    }
     if (!requestedViewFromUrl && !isViewAllowed(currentKey.value, allowedViewKeys.value)) {
       const first = firstAllowedMenuKey()
       if (first) open(first)
