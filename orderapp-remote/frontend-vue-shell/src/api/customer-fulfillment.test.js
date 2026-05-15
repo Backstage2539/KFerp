@@ -6,7 +6,9 @@ import {
   adjustCustomerFulfillmentCustodyInventory,
   buildCustomerFulfillmentImportForm,
   createCustomerFulfillmentSettlement,
+  createCustomerFulfillmentExternalUser,
   fetchCustomerFulfillmentCustomers,
+  fetchCustomerFulfillmentExternalUsers,
   fetchCustomerFulfillmentERPBindings,
   fetchCustomerFulfillmentOrderDetail,
   fetchCustomerFulfillmentOrders,
@@ -20,6 +22,8 @@ import {
   submitCustomerFulfillmentDirectShipOrder,
   submitCustomerFulfillmentProcessingWorkOrder,
   parseCustomerFulfillmentImport,
+  resetCustomerFulfillmentExternalUserPassword,
+  setCustomerFulfillmentExternalUserLoginEnabled,
   submitCustomerDirectShipOrder,
   submitCustomerProcessingWorkOrder,
   upsertCustomerFulfillmentERPBinding,
@@ -67,6 +71,10 @@ test('customer fulfillment API wrappers call the expected endpoints', async () =
     await fetchCustomerFulfillmentImportPreview(55)
     await createCustomerFulfillmentSettlement(147, { period_from: '2026-03-01', period_to: '2026-03-31' })
     await adjustCustomerFulfillmentCustodyInventory(147, { item_type: 'raw_bean', item_name: '埃塞花魁', quantity_g_delta: 1000 })
+    await fetchCustomerFulfillmentExternalUsers(147)
+    await createCustomerFulfillmentExternalUser(147, { name: '誉观山账号', phone: '13800138075', password: 'secret123' })
+    await resetCustomerFulfillmentExternalUserPassword(147, 23, 'secret456')
+    await setCustomerFulfillmentExternalUserLoginEnabled(147, 23, false)
     await fetchCustomerFulfillmentERPBindings(147)
     await upsertCustomerFulfillmentERPBinding(147, { employee_id: 23, status: 'active' })
     await submitCustomerFulfillmentProcessingWorkOrder(147, { product_name: '誉观山冷萃豆', input_quantity_g: 5000, planned_output_units: 50 })
@@ -89,6 +97,10 @@ test('customer fulfillment API wrappers call the expected endpoints', async () =
       ['/api/customer-fulfillment/imports/55/preview', 'GET'],
       ['/api/customer-fulfillment/147/settlements', 'POST'],
       ['/api/customer-fulfillment/147/custody-adjustments', 'POST'],
+      ['/api/customer-fulfillment/147/external-users', 'GET'],
+      ['/api/customer-fulfillment/147/external-users', 'POST'],
+      ['/api/customer-fulfillment/147/external-users/23/password/reset', 'POST'],
+      ['/api/customer-fulfillment/147/external-users/23/login-enabled', 'POST'],
       ['/api/customer-fulfillment/147/erp-bindings', 'GET'],
       ['/api/customer-fulfillment/147/erp-bindings', 'POST'],
       ['/api/customer-fulfillment/147/work-orders', 'POST'],
@@ -104,19 +116,22 @@ test('customer fulfillment API wrappers call the expected endpoints', async () =
     assert.equal(new URL(requests[5].url).searchParams.get('limit'), '60')
     assert.equal(new URL(requests[6].url).searchParams.get('status'), 'invalid')
     assert.equal(new URL(requests[6].url).searchParams.get('limit'), '80')
-    assert.equal(new URL(requests[14].url).searchParams.get('scope'), 'fulfillment')
-    assert.equal(new URL(requests[14].url).searchParams.get('customer_id'), '147')
-    assert.equal(new URL(requests[14].url).searchParams.get('page'), '2')
-    assert.equal(new URL(requests[14].url).searchParams.get('limit'), '15')
-    assert.equal(new URL(requests[15].url).searchParams.get('edit_id'), '88')
+    assert.equal(new URL(requests[18].url).searchParams.get('scope'), 'fulfillment')
+    assert.equal(new URL(requests[18].url).searchParams.get('customer_id'), '147')
+    assert.equal(new URL(requests[18].url).searchParams.get('page'), '2')
+    assert.equal(new URL(requests[18].url).searchParams.get('limit'), '15')
+    assert.equal(new URL(requests[19].url).searchParams.get('edit_id'), '88')
     assert.ok(requests[0].init.body instanceof FormData)
     assert.equal(requests[0].init.headers?.['Content-Type'], undefined)
     assert.equal(JSON.parse(requests[8].init.body).period_from, '2026-03-01')
     assert.equal(JSON.parse(requests[9].init.body).item_name, '埃塞花魁')
-    assert.equal(JSON.parse(requests[11].init.body).employee_id, 23)
-    assert.equal(JSON.parse(requests[12].init.body).product_name, '誉观山冷萃豆')
-    assert.equal(JSON.parse(requests[13].init.body).receiver_name, '张三')
-    assert.equal(JSON.parse(requests[18].init.body).product_name, '誉观山冷萃豆')
-    assert.equal(JSON.parse(requests[19].init.body).receiver_name, '张三')
+    assert.equal(JSON.parse(requests[11].init.body).phone, '13800138075')
+    assert.equal(JSON.parse(requests[12].init.body).password, 'secret456')
+    assert.equal(JSON.parse(requests[13].init.body).login_enabled, false)
+    assert.equal(JSON.parse(requests[15].init.body).employee_id, 23)
+    assert.equal(JSON.parse(requests[16].init.body).product_name, '誉观山冷萃豆')
+    assert.equal(JSON.parse(requests[17].init.body).receiver_name, '张三')
+    assert.equal(JSON.parse(requests[22].init.body).product_name, '誉观山冷萃豆')
+    assert.equal(JSON.parse(requests[23].init.body).receiver_name, '张三')
   })
 })

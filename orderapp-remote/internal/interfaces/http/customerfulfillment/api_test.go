@@ -628,6 +628,60 @@ func TestInternalERPBindingAPIWorkbenchUnavailableMapsToBadRequest(t *testing.T)
 	}
 }
 
+func TestExternalUsersAPIManagesCustomerAccounts(t *testing.T) {
+	svc := &fakeCustomerFulfillmentService{
+		externalUsersResult:        []app.CustomerExternalUser{{CustomerID: 149, EmployeeID: 23, Name: "誉观山账号", Phone: "13800138075", LoginEnabled: true, HasPassword: true, BindingStatus: "active"}},
+		createExternalUserResult:   app.CustomerExternalUser{CustomerID: 149, EmployeeID: 24, Name: "誉观山新账号", Phone: "13800138076", LoginEnabled: true, HasPassword: true, BindingStatus: "active"},
+		resetExternalUserResult:    app.CustomerExternalUser{CustomerID: 149, EmployeeID: 23, Name: "誉观山账号", Phone: "13800138075", LoginEnabled: true, HasPassword: true, BindingStatus: "active"},
+		setExternalUserLoginResult: app.CustomerExternalUser{CustomerID: 149, EmployeeID: 23, Name: "誉观山账号", Phone: "13800138075", LoginEnabled: false, HasPassword: true, BindingStatus: "active"},
+	}
+	e := echo.New()
+	RegisterRoutes(e, Dependencies{CustomerFulfillment: svc})
+
+	req := httptest.NewRequest(http.MethodGet, "/api/customer-fulfillment/149/external-users", nil)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"users"`) || !strings.Contains(rec.Body.String(), "誉观山账号") {
+		t.Fatalf("list external users status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if svc.externalUsersCustomerID != 149 {
+		t.Fatalf("external users customer id = %d, want 149", svc.externalUsersCustomerID)
+	}
+
+	req = httptest.NewRequest(http.MethodPost, "/api/customer-fulfillment/149/external-users", strings.NewReader(`{"name":"誉观山新账号","phone":"13800138076","password":"secret123"}`))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec = httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"employee_id":24`) {
+		t.Fatalf("create external user status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if svc.createExternalUserCmd.CustomerID != 149 || svc.createExternalUserCmd.Phone != "13800138076" || svc.createExternalUserCmd.Password != "secret123" {
+		t.Fatalf("create external user cmd = %+v", svc.createExternalUserCmd)
+	}
+
+	req = httptest.NewRequest(http.MethodPost, "/api/customer-fulfillment/149/external-users/23/password/reset", strings.NewReader(`{"password":"secret456"}`))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec = httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"employee_id":23`) {
+		t.Fatalf("reset external user status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if svc.resetExternalUserCmd.CustomerID != 149 || svc.resetExternalUserCmd.EmployeeID != 23 || svc.resetExternalUserCmd.Password != "secret456" {
+		t.Fatalf("reset external user cmd = %+v", svc.resetExternalUserCmd)
+	}
+
+	req = httptest.NewRequest(http.MethodPost, "/api/customer-fulfillment/149/external-users/23/login-enabled", strings.NewReader(`{"login_enabled":false}`))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec = httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"login_enabled":false`) {
+		t.Fatalf("toggle external user login status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if svc.setExternalUserLoginCmd.CustomerID != 149 || svc.setExternalUserLoginCmd.EmployeeID != 23 || svc.setExternalUserLoginCmd.LoginEnabled {
+		t.Fatalf("set external user login cmd = %+v", svc.setExternalUserLoginCmd)
+	}
+}
+
 func TestCreateSettlementAPIRequiresPeriod(t *testing.T) {
 	svc := &fakeCustomerFulfillmentService{
 		settlementResult: app.SettlementResult{BatchID: 88, CustomerID: 147, PeriodFrom: "2026-03-01", PeriodTo: "2026-03-31", FeeItems: 4, TotalAmountCents: 16300},
@@ -713,6 +767,14 @@ type fakeCustomerFulfillmentService struct {
 	erpWorkbenchAvailableByCustomer map[int64]bool
 	erpWorkbenchAvailableCustomerID int64
 	erpWorkbenchAvailableErr        error
+	externalUsersCustomerID         int64
+	externalUsersResult             []app.CustomerExternalUser
+	createExternalUserCmd           app.CreateExternalUserCommand
+	createExternalUserResult        app.CustomerExternalUser
+	resetExternalUserCmd            app.ResetExternalUserPasswordCommand
+	resetExternalUserResult         app.CustomerExternalUser
+	setExternalUserLoginCmd         app.SetExternalUserLoginEnabledCommand
+	setExternalUserLoginResult      app.CustomerExternalUser
 	optionsCustomerID               int64
 	optionsResult                   app.CustomerFulfillmentOptions
 	importPreviewQuery              app.ImportPreviewQuery
@@ -807,6 +869,26 @@ func (s *fakeCustomerFulfillmentService) CustomerERPWorkbenchAvailable(ctx conte
 		return s.erpWorkbenchAvailableByCustomer[customerID], nil
 	}
 	return true, nil
+}
+
+func (s *fakeCustomerFulfillmentService) ListExternalUsers(ctx context.Context, customerID int64) ([]app.CustomerExternalUser, error) {
+	s.externalUsersCustomerID = customerID
+	return s.externalUsersResult, nil
+}
+
+func (s *fakeCustomerFulfillmentService) CreateExternalUser(ctx context.Context, cmd app.CreateExternalUserCommand) (app.CustomerExternalUser, error) {
+	s.createExternalUserCmd = cmd
+	return s.createExternalUserResult, nil
+}
+
+func (s *fakeCustomerFulfillmentService) ResetExternalUserPassword(ctx context.Context, cmd app.ResetExternalUserPasswordCommand) (app.CustomerExternalUser, error) {
+	s.resetExternalUserCmd = cmd
+	return s.resetExternalUserResult, nil
+}
+
+func (s *fakeCustomerFulfillmentService) SetExternalUserLoginEnabled(ctx context.Context, cmd app.SetExternalUserLoginEnabledCommand) (app.CustomerExternalUser, error) {
+	s.setExternalUserLoginCmd = cmd
+	return s.setExternalUserLoginResult, nil
 }
 
 func (s *fakeCustomerFulfillmentService) CustomerFulfillmentOptions(ctx context.Context, customerID int64) (app.CustomerFulfillmentOptions, error) {

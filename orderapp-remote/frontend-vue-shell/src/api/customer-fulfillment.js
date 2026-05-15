@@ -70,6 +70,26 @@ export function upsertCustomerFulfillmentERPBinding(customerId, payload) {
   return apiSend(`/api/customer-fulfillment/${Number(customerId)}/erp-bindings`, { body: payload })
 }
 
+export function fetchCustomerFulfillmentExternalUsers(customerId) {
+  return apiGet(`/api/customer-fulfillment/${Number(customerId)}/external-users`)
+}
+
+export function createCustomerFulfillmentExternalUser(customerId, payload) {
+  return apiSend(`/api/customer-fulfillment/${Number(customerId)}/external-users`, { body: payload })
+}
+
+export function resetCustomerFulfillmentExternalUserPassword(customerId, employeeId, password) {
+  return apiSend(`/api/customer-fulfillment/${Number(customerId)}/external-users/${Number(employeeId)}/password/reset`, {
+    body: { password },
+  })
+}
+
+export function setCustomerFulfillmentExternalUserLoginEnabled(customerId, employeeId, loginEnabled) {
+  return apiSend(`/api/customer-fulfillment/${Number(customerId)}/external-users/${Number(employeeId)}/login-enabled`, {
+    body: { login_enabled: !!loginEnabled },
+  })
+}
+
 export function submitCustomerFulfillmentProcessingWorkOrder(customerId, payload) {
   return apiSend(`/api/customer-fulfillment/${Number(customerId)}/work-orders`, { body: payload })
 }
