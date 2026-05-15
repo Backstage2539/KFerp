@@ -75,6 +75,7 @@ func (r Repository) FillShipmentTracking(ctx context.Context, cmd salesapp.FillS
 	}
 
 	updated := 0
+	updatedOrderIDs := make([]int64, 0, len(cmd.Items))
 	for _, item := range cmd.Items {
 		tag, err := tx.Exec(ctx, fmt.Sprintf(`
 			UPDATE %s.order_shipment_orders
@@ -115,6 +116,7 @@ func (r Repository) FillShipmentTracking(ctx context.Context, cmd salesapp.FillS
 			return salesapp.FillShipmentTrackingResult{}, err
 		}
 		updated++
+		updatedOrderIDs = append(updatedOrderIDs, item.OrderID)
 	}
 	if updated > 0 {
 		if _, err := tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.order_shipments SET status='shipped' WHERE id=$1`, r.schema), cmd.ShipmentID); err != nil {
@@ -124,7 +126,7 @@ func (r Repository) FillShipmentTracking(ctx context.Context, cmd salesapp.FillS
 	if err := tx.Commit(ctx); err != nil {
 		return salesapp.FillShipmentTrackingResult{}, err
 	}
-	return salesapp.FillShipmentTrackingResult{Updated: updated, Total: len(cmd.Items)}, nil
+	return salesapp.FillShipmentTrackingResult{Updated: updated, Total: len(cmd.Items), OrderIDs: updatedOrderIDs}, nil
 }
 
 func (r Repository) FillShipmentTrackingByOrderNo(ctx context.Context, cmd salesapp.FillShipmentTrackingByOrderNoCommand) (salesapp.FillShipmentTrackingResult, error) {
@@ -140,6 +142,8 @@ func (r Repository) FillShipmentTrackingByOrderNo(ctx context.Context, cmd sales
 	}
 
 	updated := 0
+	updatedOrderIDs := make([]int64, 0, len(cmd.Items))
+	updatedOrderNos := make([]string, 0, len(cmd.Items))
 	for _, item := range cmd.Items {
 		var orderID int64
 		err := tx.QueryRow(ctx, fmt.Sprintf(`
@@ -195,11 +199,13 @@ func (r Repository) FillShipmentTrackingByOrderNo(ctx context.Context, cmd sales
 			return salesapp.FillShipmentTrackingResult{}, err
 		}
 		updated++
+		updatedOrderIDs = append(updatedOrderIDs, orderID)
+		updatedOrderNos = append(updatedOrderNos, item.OrderNo)
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return salesapp.FillShipmentTrackingResult{}, err
 	}
-	return salesapp.FillShipmentTrackingResult{Updated: updated, Total: len(cmd.Items)}, nil
+	return salesapp.FillShipmentTrackingResult{Updated: updated, Total: len(cmd.Items), OrderIDs: updatedOrderIDs, OrderNos: updatedOrderNos}, nil
 }
 
 func (r Repository) FillOrderTracking(ctx context.Context, cmd salesapp.FillOrderTrackingCommand) (salesapp.FillShipmentTrackingResult, error) {
@@ -274,7 +280,7 @@ func (r Repository) FillOrderTracking(ctx context.Context, cmd salesapp.FillOrde
 	if err := tx.Commit(ctx); err != nil {
 		return salesapp.FillShipmentTrackingResult{}, err
 	}
-	return salesapp.FillShipmentTrackingResult{Updated: 1, Total: 1}, nil
+	return salesapp.FillShipmentTrackingResult{Updated: 1, Total: 1, OrderIDs: []int64{orderID}}, nil
 }
 
 func nextShipmentNo(ctx context.Context, tx pgx.Tx, schema string) (string, error) {

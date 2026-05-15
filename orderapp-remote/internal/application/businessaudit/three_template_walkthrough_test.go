@@ -854,8 +854,8 @@ func (s *threeTemplateWalkthroughStore) Start(_ context.Context, cmd productiona
 	return productionapp.StartResult{BatchID: batchID}, nil
 }
 
-func (s *threeTemplateWalkthroughStore) Finish(context.Context, productionapp.FinishCommand) error {
-	return nil
+func (s *threeTemplateWalkthroughStore) Finish(_ context.Context, cmd productionapp.FinishCommand) (productionapp.FinishResult, error) {
+	return productionapp.FinishResult{RunningItemID: cmd.ID}, nil
 }
 
 func (s *threeTemplateWalkthroughStore) Cancel(context.Context, productionapp.CancelCommand) error {

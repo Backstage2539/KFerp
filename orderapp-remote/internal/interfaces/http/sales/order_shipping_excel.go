@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	messagecenterapp "orderapp/internal/application/messagecenter"
 	salesapp "orderapp/internal/application/sales"
 	support "orderapp/internal/interfaces/http/support"
 
@@ -60,7 +61,7 @@ type orderShippingExcelRow struct {
 
 const maxShippingTrackingExcelUploadBytes = 20 << 20
 
-func registerOrderShippingExcelRoutes(e *echo.Echo, salesSvc *salesapp.Service) {
+func registerOrderShippingExcelRoutes(e *echo.Echo, salesSvc *salesapp.Service, messages MessagePublisher) {
 	e.GET("/ship/order_exports/:filename", func(c echo.Context) error {
 		filename := filepath.Base(strings.TrimSpace(c.Param("filename")))
 		if filename == "." || filename == "" || filename != strings.TrimSpace(c.Param("filename")) {
@@ -126,6 +127,7 @@ func registerOrderShippingExcelRoutes(e *echo.Echo, salesSvc *salesapp.Service) 
 		if err != nil {
 			return c.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
 		}
+		publishOrdersShipped(c, messages, res)
 		return c.JSON(http.StatusOK, res)
 	})
 	e.POST("/api/orders/:id/shipping-tracking", func(c echo.Context) error {
@@ -148,6 +150,7 @@ func registerOrderShippingExcelRoutes(e *echo.Echo, salesSvc *salesapp.Service) 
 		if err != nil {
 			return c.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
 		}
+		publishOrdersShipped(c, messages, res)
 		return c.JSON(http.StatusOK, res)
 	})
 	e.POST("/api/orders/shipping-tracking-excel", func(c echo.Context) error {
@@ -181,8 +184,50 @@ func registerOrderShippingExcelRoutes(e *echo.Echo, salesSvc *salesapp.Service) 
 		if err != nil {
 			return c.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
 		}
+		publishOrdersShipped(c, messages, res)
 		return c.JSON(http.StatusOK, res)
 	})
+}
+
+func publishOrdersShipped(c echo.Context, messages MessagePublisher, res salesapp.FillShipmentTrackingResult) {
+	if messages == nil || res.Updated <= 0 {
+		return
+	}
+	for i, orderID := range res.OrderIDs {
+		if orderID <= 0 {
+			continue
+		}
+		orderNo := ""
+		if i < len(res.OrderNos) {
+			orderNo = strings.TrimSpace(res.OrderNos[i])
+		}
+		_, _ = messages.Publish(c.Request().Context(), messagecenterapp.PublishCommand{
+			EventKey:   "order.shipped." + strconv.FormatInt(orderID, 10),
+			Topic:      "orders",
+			EventType:  "order.shipped",
+			SourceType: "order",
+			SourceID:   orderID,
+			Actor:      support.ActorOf(c),
+			Title:      "订单已发货" + formatOrderNoSuffix(orderNo),
+			Body:       "订单已回填快递单号并标记为已发货",
+			Tone:       "info",
+			Payload: map[string]any{
+				"order_id":           orderID,
+				"order_no":           orderNo,
+				"new_status":         "已发货",
+				"orders_scope":       "all",
+				"highlight_order_id": orderID,
+			},
+		})
+	}
+}
+
+func formatOrderNoSuffix(orderNo string) string {
+	orderNo = strings.TrimSpace(orderNo)
+	if orderNo == "" {
+		return ""
+	}
+	return " " + orderNo
 }
 
 func readShipmentTrackingExcelUpload(r io.Reader) ([]byte, error) {

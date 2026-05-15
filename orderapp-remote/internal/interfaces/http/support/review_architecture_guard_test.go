@@ -185,7 +185,7 @@ func TestProductionRoutesCallApplicationService(t *testing.T) {
 		t.Fatal(err)
 	}
 	content := string(body)
-	if !strings.Contains(content, "func registerProductionFlowPages(e *echo.Echo, productionSvc *productionapp.Service)") {
+	if !strings.Contains(content, "func registerProductionFlowPages(e *echo.Echo, productionSvc *productionapp.Service, messages MessagePublisher)") {
 		t.Fatal("production_flow_routes.go should receive the production application service from the composition root")
 	}
 	for _, forbidden := range []string{

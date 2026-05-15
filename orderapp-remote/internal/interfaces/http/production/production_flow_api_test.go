@@ -1643,7 +1643,7 @@ func newProductionFlowTestEcho(pool *pgxpool.Pool, schema string) *echo.Echo {
 	productionSvc := productionapp.NewService(postgresproduction.NewRepository(pool, schema))
 	registerUnprodSummaryAPI(e, productionSvc)
 	registerManufacturingGapAPI(e, productionSvc)
-	registerProductionFlowPages(e, productionSvc)
+	registerProductionFlowPages(e, productionSvc, nil)
 	return e
 }
 

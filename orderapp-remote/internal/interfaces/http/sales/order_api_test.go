@@ -2323,7 +2323,7 @@ func TestOrdersShippingTrackingExcelAPIRejectsOversizedUpload(t *testing.T) {
 			return next(c)
 		}
 	})
-	registerOrderShippingExcelRoutes(e, salesapp.NewService(nil))
+	registerOrderShippingExcelRoutes(e, salesapp.NewService(nil), nil)
 
 	var body bytes.Buffer
 	writer := multipart.NewWriter(&body)
@@ -2486,7 +2486,7 @@ func newOrderAPITestEcho(pool *pgxpool.Pool, schema string) *echo.Echo {
 	})
 	svc := salesapp.NewService(postgressales.NewRepository(pool, schema))
 	registerOrderAPI(e, svc, nil)
-	registerOrderShippingExcelRoutes(e, svc)
+	registerOrderShippingExcelRoutes(e, svc, nil)
 	registerSenderSettingsPage(e, svc)
 	return e
 }

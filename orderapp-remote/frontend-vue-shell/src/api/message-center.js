@@ -11,3 +11,11 @@ export function fetchERPNotifications(limit = 5) {
 export function markNotificationRead(id) {
   return apiSend(`/api/message-center/notifications/${id}/read`)
 }
+
+export function fetchNotificationRules() {
+  return apiGet('/api/message-center/rules')
+}
+
+export function saveNotificationRule(rule) {
+  return apiSend('/api/message-center/rules', { body: rule })
+}

@@ -4,8 +4,10 @@ import (
 	"net/http"
 	"net/url"
 	support "orderapp/internal/interfaces/http/support"
+	"strconv"
 	"strings"
 
+	messagecenterapp "orderapp/internal/application/messagecenter"
 	productionapp "orderapp/internal/application/production"
 
 	"github.com/labstack/echo/v4"
@@ -80,7 +82,7 @@ type ProduceRunningActionAPIResponse struct {
 	OK bool `json:"ok"`
 }
 
-func registerProductionFlowPages(e *echo.Echo, productionSvc *productionapp.Service) {
+func registerProductionFlowPages(e *echo.Echo, productionSvc *productionapp.Service, messages MessagePublisher) {
 	e.POST("/produce/start", func(c echo.Context) error {
 		if err := support.RequireEmployeeBound(c); err != nil {
 			return c.Redirect(http.StatusSeeOther, support.PrefixRelativeLocation(c, "/produce/plan?err="+url.QueryEscape(err.Error())))
@@ -161,7 +163,7 @@ func registerProductionFlowPages(e *echo.Echo, productionSvc *productionapp.Serv
 		if err := support.RequireEmployeeBound(c); err != nil {
 			return c.Redirect(http.StatusSeeOther, support.PrefixRelativeLocation(c, "/produce/running?err="+url.QueryEscape(err.Error())))
 		}
-		if err := productionSvc.Finish(c.Request().Context(), productionapp.FinishCommand{
+		res, err := productionSvc.Finish(c.Request().Context(), productionapp.FinishCommand{
 			ID:               parseInt64(c.FormValue("id")),
 			FinishedUnits:    parseInt64(c.FormValue("finished_units")),
 			FinishedLooseG:   parseInt64(c.FormValue("finished_loose_g")),
@@ -170,9 +172,11 @@ func registerProductionFlowPages(e *echo.Echo, productionSvc *productionapp.Serv
 			Partial:          strings.TrimSpace(c.FormValue("partial")) == "true" || strings.TrimSpace(c.FormValue("partial")) == "on",
 			ConsumedInputG:   parseInt64(c.FormValue("consumed_input_g")),
 			Operator:         support.ActorOf(c),
-		}); err != nil {
+		})
+		if err != nil {
 			return c.Redirect(http.StatusSeeOther, support.PrefixRelativeLocation(c, "/produce/running?err="+url.QueryEscape(err.Error())))
 		}
+		publishProductionFinished(c, messages, res)
 		return c.Redirect(http.StatusSeeOther, support.PrefixRelativeLocation(c, "/produce/running?ok=1"))
 	})
 
@@ -187,7 +191,7 @@ func registerProductionFlowPages(e *echo.Echo, productionSvc *productionapp.Serv
 		if req.ID <= 0 {
 			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: "invalid id"})
 		}
-		if err := productionSvc.Finish(c.Request().Context(), productionapp.FinishCommand{
+		res, err := productionSvc.Finish(c.Request().Context(), productionapp.FinishCommand{
 			ID:               req.ID,
 			FinishedUnits:    req.FinishedUnits,
 			FinishedLooseG:   req.FinishedLooseG,
@@ -197,9 +201,11 @@ func registerProductionFlowPages(e *echo.Echo, productionSvc *productionapp.Serv
 			ConsumedInputG:   req.ConsumedInputG,
 			Operator:         support.ActorOf(c),
 			Outputs:          finishOutputsToApp(req.Outputs),
-		}); err != nil {
+		})
+		if err != nil {
 			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: err.Error()})
 		}
+		publishProductionFinished(c, messages, res)
 		return c.JSON(http.StatusOK, ProduceRunningActionAPIResponse{OK: true})
 	})
 
@@ -269,6 +275,44 @@ func produceRunningAPIOutputs(rows []productionapp.RunningOutput) []ProduceRunni
 		})
 	}
 	return out
+}
+
+func publishProductionFinished(c echo.Context, messages MessagePublisher, res productionapp.FinishResult) {
+	if messages == nil || !res.Completed {
+		return
+	}
+	for _, order := range res.FinishedOrders {
+		if order.OrderID <= 0 {
+			continue
+		}
+		_, _ = messages.Publish(c.Request().Context(), messagecenterapp.PublishCommand{
+			EventKey:   "order.production_finished." + strconv.FormatInt(order.OrderID, 10),
+			Topic:      "orders",
+			EventType:  "order.production_finished",
+			SourceType: "order",
+			SourceID:   order.OrderID,
+			Actor:      support.ActorOf(c),
+			Title:      "订单生产完成" + orderNoSuffix(order.OrderNo),
+			Body:       "订单已完成生产，可进入后续发货处理",
+			Tone:       "success",
+			Payload: map[string]any{
+				"order_id":           order.OrderID,
+				"order_no":           order.OrderNo,
+				"new_status":         "生产完成",
+				"running_item_id":    res.RunningItemID,
+				"orders_scope":       "all",
+				"highlight_order_id": order.OrderID,
+			},
+		})
+	}
+}
+
+func orderNoSuffix(orderNo string) string {
+	orderNo = strings.TrimSpace(orderNo)
+	if orderNo == "" {
+		return ""
+	}
+	return " " + orderNo
 }
 
 func finishOutputsToApp(rows []ProduceRunningFinishOutputAPIRequest) []productionapp.FinishOutputCommand {

@@ -42,8 +42,8 @@ func (r *fakeRepo) Start(ctx context.Context, cmd StartExecutionCommand) (StartR
 	return StartResult{BatchID: "PB-1"}, nil
 }
 
-func (r *fakeRepo) Finish(ctx context.Context, cmd FinishCommand) error {
-	return nil
+func (r *fakeRepo) Finish(ctx context.Context, cmd FinishCommand) (FinishResult, error) {
+	return FinishResult{RunningItemID: cmd.ID}, nil
 }
 
 func (r *fakeRepo) Cancel(ctx context.Context, cmd CancelCommand) error {

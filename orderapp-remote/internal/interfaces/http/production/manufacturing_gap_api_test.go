@@ -48,9 +48,9 @@ func (r *fakeManufacturingGapRepo) ListStartNeeds(ctx context.Context, cmd produ
 func (r *fakeManufacturingGapRepo) Start(ctx context.Context, cmd productionapp.StartExecutionCommand) (productionapp.StartResult, error) {
 	return productionapp.StartResult{}, nil
 }
-func (r *fakeManufacturingGapRepo) Finish(ctx context.Context, cmd productionapp.FinishCommand) error {
+func (r *fakeManufacturingGapRepo) Finish(ctx context.Context, cmd productionapp.FinishCommand) (productionapp.FinishResult, error) {
 	r.finish = cmd
-	return nil
+	return productionapp.FinishResult{RunningItemID: cmd.ID}, nil
 }
 func (r *fakeManufacturingGapRepo) Cancel(ctx context.Context, cmd productionapp.CancelCommand) error {
 	return nil
