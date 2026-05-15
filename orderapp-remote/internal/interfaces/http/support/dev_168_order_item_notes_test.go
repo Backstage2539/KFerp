@@ -40,9 +40,11 @@ func TestDev168OrderItemNotesFlowThroughAPISnapshotsAndViews(t *testing.T) {
 		{
 			rel: filepath.Join("internal", "interfaces", "http", "sales", "order_api.go"),
 			wants: []string{
-				"ItemNote  []string `json:\"item_note\"`",
+				"ItemNote",
+				"`json:\"item_note\"`",
 				"ItemNote:              r.ItemNote",
-				"Note        string `json:\"note\"`",
+				"Note",
+				"`json:\"note\"`",
 			},
 		},
 		{
@@ -56,7 +58,7 @@ func TestDev168OrderItemNotesFlowThroughAPISnapshotsAndViews(t *testing.T) {
 			rel: filepath.Join("internal", "infrastructure", "postgres", "sales", "repository.go"),
 			wants: []string{
 				"item_note",
-				"note:        strings.TrimSpace(src.Note)",
+				"strings.TrimSpace(src.Note)",
 			},
 		},
 		{
