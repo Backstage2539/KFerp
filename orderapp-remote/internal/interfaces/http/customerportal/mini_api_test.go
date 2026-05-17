@@ -691,6 +691,10 @@ func TestMiniSettlementServicePageAPIReturnsFinancePayload(t *testing.T) {
 			Amount: "12.34", Currency: "CNY", OccurredAt: "2026-05-13 09:00",
 			Status: "unsettled", Note: "客户A费用",
 		}},
+		Orders: []customerportalapp.CustomerOrderSummary{{
+			ID: 88, OrderNo: "SO-YAN-BILL", OrderDate: "2026-05-17", GrandTotal: "4559.00",
+			Items: []customerportalapp.CustomerOrderItemSummary{{ID: 89, ItemName: "兰卡拼配", Spec: "1000g", Qty: "25", Unit: "件", UnitPrice: "180.00", LineTotal: "4500.00"}},
+		}},
 		SettlementBatches: []customerportalapp.SettlementBatch{{
 			ID: 2, SettlementNo: "客户A结算单", PeriodFrom: "2026-05-01", PeriodTo: "2026-05-31",
 			Status: "confirmed", TotalAmount: "12.34", ConfirmedAt: "2026-05-31 10:00",
@@ -703,7 +707,10 @@ func TestMiniSettlementServicePageAPIReturnsFinancePayload(t *testing.T) {
 	e.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK ||
 		!strings.Contains(rec.Body.String(), `"fee_items":[`) ||
+		!strings.Contains(rec.Body.String(), `"orders":[`) ||
 		!strings.Contains(rec.Body.String(), `"settlement_batches":[`) ||
+		!strings.Contains(rec.Body.String(), `"order_no":"SO-YAN-BILL"`) ||
+		!strings.Contains(rec.Body.String(), `"item_name":"兰卡拼配"`) ||
 		!strings.Contains(rec.Body.String(), `"note":"客户A费用"`) ||
 		!strings.Contains(rec.Body.String(), `"settlement_no":"客户A结算单"`) ||
 		strings.Contains(rec.Body.String(), "客户B不应泄露") {
@@ -1389,9 +1396,9 @@ func TestMiniDirectShipAndProcessingSubmitAPIs(t *testing.T) {
 	var cmd customerportalapp.CreateFulfillmentOrderCommand
 	e := echo.New()
 	RegisterRoutes(e, Dependencies{CustomerPortal: fakeService{
-		directShip:  customerportalapp.DirectShipBatch{ID: 5, BatchNo: "DS-20260503-0005", Status: "submitted", TotalRows: 100},
-		processing:  customerportalapp.ProcessingRequest{ID: 7, RequestNo: "PJ-20260503-0007", Status: "submitted"},
-		fulfillment: customerportalapp.FulfillmentOrder{OrderID: 9, OrderNo: "SO-20260504-0009", PortalServiceCode: customerportalapp.PortalServiceProcessingShipment, SourceWarehouse: "cust_147_processing"},
+		directShip:     customerportalapp.DirectShipBatch{ID: 5, BatchNo: "DS-20260503-0005", Status: "submitted", TotalRows: 100},
+		processing:     customerportalapp.ProcessingRequest{ID: 7, RequestNo: "PJ-20260503-0007", Status: "submitted"},
+		fulfillment:    customerportalapp.FulfillmentOrder{OrderID: 9, OrderNo: "SO-20260504-0009", PortalServiceCode: customerportalapp.PortalServiceProcessingShipment, SourceWarehouse: "cust_147_processing"},
 		fulfillmentCmd: &cmd,
 	}})
 

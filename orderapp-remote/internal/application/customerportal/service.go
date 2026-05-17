@@ -2123,7 +2123,7 @@ func serviceSummary(page ServicePage) []ServiceMetric {
 	case ServiceKeyShipping:
 		return []ServiceMetric{{Label: "订单 / 物流", Value: fmt.Sprintf("%d", len(page.Orders))}}
 	case ServiceKeySettlement:
-		return []ServiceMetric{{Label: "费用明细", Value: fmt.Sprintf("%d", len(page.FeeItems))}, {Label: "结算单", Value: fmt.Sprintf("%d", len(page.SettlementBatches))}}
+		return []ServiceMetric{{Label: "订单账单", Value: fmt.Sprintf("%d", len(page.Orders))}, {Label: "费用明细", Value: fmt.Sprintf("%d", len(page.FeeItems))}, {Label: "结算单", Value: fmt.Sprintf("%d", len(page.SettlementBatches))}}
 	default:
 		return []ServiceMetric{}
 	}

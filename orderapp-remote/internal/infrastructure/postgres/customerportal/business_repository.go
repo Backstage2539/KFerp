@@ -56,7 +56,10 @@ func (r Repository) LoadServicePage(ctx context.Context, query customerportalapp
 		if page.FeeItems, err = r.listFeeItems(ctx, query.CustomerID, limit); err != nil {
 			return customerportalapp.ServicePage{}, err
 		}
-		page.SettlementBatches, err = r.listSettlementBatches(ctx, query.CustomerID, limit)
+		if page.SettlementBatches, err = r.listSettlementBatches(ctx, query.CustomerID, limit); err != nil {
+			return customerportalapp.ServicePage{}, err
+		}
+		page.Orders, err = r.listCustomerOrders(ctx, query, limit)
 	default:
 		err = fmt.Errorf("service key invalid")
 	}

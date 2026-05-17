@@ -496,6 +496,28 @@ func TestGetServicePageLoadsCustomerScopedData(t *testing.T) {
 	}
 }
 
+func TestGetSettlementServicePageSummaryCountsOrderBills(t *testing.T) {
+	repo := &fakeRepository{
+		context: CurrentContext{
+			CurrentCustomerID:   152,
+			CurrentCustomerName: "岩师傅",
+			Capabilities:        []Capability{{Code: CapabilitySettlement, Enabled: true}},
+		},
+		servicePage: ServicePage{
+			Key:    ServiceKeySettlement,
+			Orders: []CustomerOrderSummary{{OrderNo: "SO-YAN-BILL", GrandTotal: "4559.00"}},
+		},
+	}
+	svc := NewService(repo, fakeIdentityProvider{})
+	got, err := svc.GetServicePage(context.Background(), "mini-token", ServiceKeySettlement, ServicePageFilter{})
+	if err != nil {
+		t.Fatalf("GetServicePage(settlement) err=%v", err)
+	}
+	if len(got.Summary) < 3 || got.Summary[0].Label != "订单账单" || got.Summary[0].Value != "1" {
+		t.Fatalf("settlement summary=%+v, want first card to count order bills", got.Summary)
+	}
+}
+
 func TestGetServicePageNormalizesOrderSearchFilters(t *testing.T) {
 	repo := &fakeRepository{
 		context: CurrentContext{
