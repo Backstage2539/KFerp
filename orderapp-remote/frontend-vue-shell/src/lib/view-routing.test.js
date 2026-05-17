@@ -40,3 +40,13 @@ test('orders view exposes recipient snapshots and fee breakdowns', () => {
   assert.match(source, /委外合计/)
   assert.match(source, /outsource_total_fee/)
 })
+
+test('orders view exposes soft invalidation and restore through the shared orders API', () => {
+  const source = readFileSync(new URL('../views/OrdersView.vue', import.meta.url), 'utf8')
+  assert.match(source, /失效/)
+  assert.match(source, /恢复/)
+  assert.match(source, /voidOrder\(row\)/)
+  assert.match(source, /restoreOrder\(row\)/)
+  assert.match(source, /`\/api\/orders\/\$\{id\}\/void`/)
+  assert.match(source, /`\/api\/orders\/\$\{id\}\/unvoid`/)
+})

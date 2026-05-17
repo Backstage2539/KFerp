@@ -123,6 +123,27 @@ func TestCustomerPortalOrderQuerySupportsStatusFilters(t *testing.T) {
 	}
 }
 
+func TestCustomerPortalOrderBackboneUsesSharedOrdersAndExcludesVoided(t *testing.T) {
+	body, err := os.ReadFile("business_repository.go")
+	if err != nil {
+		t.Fatalf("read business_repository.go: %v", err)
+	}
+	text := string(body)
+	for _, want := range []string{
+		"case customerportalapp.ServiceKeyOrders:",
+		"case customerportalapp.ServiceKeySettlement:",
+		"page.Orders, err = r.listCustomerOrders(ctx, query, limit, true)",
+		"page.Orders, err = r.listCustomerOrders(ctx, query, limit, false)",
+		`where := []string{"o.customer_id=$1", "o.is_void=false"}`,
+		"FROM %s.orders o",
+		"WHERE id=$1 AND customer_id=$2 AND is_void=false",
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("customer portal order backbone missing %q", want)
+		}
+	}
+}
+
 func TestBusinessRepositoryCreatesMallOrdersFromPublishedMallProducts(t *testing.T) {
 	body, err := os.ReadFile("business_repository.go")
 	if err != nil {

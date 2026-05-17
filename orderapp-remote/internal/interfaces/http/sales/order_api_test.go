@@ -42,6 +42,24 @@ func TestOrderEntryRedirectsToVueShell(t *testing.T) {
 	}
 }
 
+func TestOrderAPIRoutesExposeVoidAndUnvoidJSONEndpoints(t *testing.T) {
+	body, err := os.ReadFile(filepath.Join("internal", "interfaces", "http", "sales", "order_api.go"))
+	if err != nil {
+		t.Fatalf("read order_api.go: %v", err)
+	}
+	source := string(body)
+	for _, want := range []string{
+		`e.POST("/api/orders/:id/void", h.void)`,
+		`e.POST("/api/orders/:id/unvoid", h.unvoid)`,
+		"func (h orderAPIHandler) void",
+		"func (h orderAPIHandler) unvoid",
+	} {
+		if !strings.Contains(source, want) {
+			t.Fatalf("order API missing JSON void endpoint wiring %q", want)
+		}
+	}
+}
+
 func TestOrderAPIFormReturnsRetailSpecs(t *testing.T) {
 	pool, schema := newOrderAPITestDB(t)
 	ctx := context.Background()
@@ -81,6 +99,82 @@ func TestOrderAPIFormReturnsCustomerDefaultsForOrderEntry(t *testing.T) {
 		if !strings.Contains(body, needle) {
 			t.Fatalf("GET /api/order/form missing %s: %s", needle, body)
 		}
+	}
+}
+
+func TestOrderAPIVoidAndUnvoidUseSoftDeleteAndListFilters(t *testing.T) {
+	pool, schema := newOrderAPITestDB(t)
+	ctx := context.Background()
+	seedOrderAPITestData(t, ctx, pool, schema)
+	mustExecOrderAPITestSQL(t, ctx, pool, fmt.Sprintf(`
+		INSERT INTO %[1]s.orders(id, order_no, order_date, customer_id, order_type_id, pay_status_id, ship_status_id, process_status_id, grand_total, is_void)
+		VALUES
+			(7001, 'VOID-API-NORMAL', '2026-05-18', 3, 1, 2, 1, 1, 100, false),
+			(7002, 'VOID-API-TARGET', '2026-05-18', 3, 1, 2, 1, 1, 200, false);
+	`, schema))
+
+	e := newOrderAPITestEcho(pool, schema)
+	req := httptest.NewRequest(http.MethodPost, "/api/orders/7002/void", strings.NewReader(`{"reason":"客户取消"}`))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("POST /api/orders/:id/void status=%d body=%s, want 200", rec.Code, rec.Body.String())
+	}
+	if body := rec.Body.String(); !strings.Contains(body, `"is_void":true`) || !strings.Contains(body, `"order_id":7002`) {
+		t.Fatalf("void response missing state: %s", body)
+	}
+
+	var isVoid bool
+	var reason string
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT is_void, COALESCE(void_reason,'') FROM %s.orders WHERE id=7002`, schema)).Scan(&isVoid, &reason); err != nil {
+		t.Fatalf("query voided order: %v", err)
+	}
+	if !isVoid || reason != "客户取消" {
+		t.Fatalf("voided order state=%v reason=%q, want true/客户取消", isVoid, reason)
+	}
+
+	req = httptest.NewRequest(http.MethodGet, "/api/orders?q=VOID-API&limit=20", nil)
+	rec = httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET /api/orders default status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	body := rec.Body.String()
+	if !strings.Contains(body, "VOID-API-NORMAL") || strings.Contains(body, "VOID-API-TARGET") {
+		t.Fatalf("default order list should hide voided order, body=%s", body)
+	}
+
+	req = httptest.NewRequest(http.MethodGet, "/api/orders?q=VOID-API&void=void&limit=20", nil)
+	rec = httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET /api/orders void status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	body = rec.Body.String()
+	if !strings.Contains(body, "VOID-API-TARGET") || strings.Contains(body, "VOID-API-NORMAL") {
+		t.Fatalf("void order list should include only voided order, body=%s", body)
+	}
+
+	req = httptest.NewRequest(http.MethodPost, "/api/orders/7002/unvoid", nil)
+	rec = httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("POST /api/orders/:id/unvoid status=%d body=%s, want 200", rec.Code, rec.Body.String())
+	}
+	if body := rec.Body.String(); !strings.Contains(body, `"is_void":false`) || !strings.Contains(body, `"order_id":7002`) {
+		t.Fatalf("unvoid response missing state: %s", body)
+	}
+
+	req = httptest.NewRequest(http.MethodGet, "/api/orders?q=VOID-API&limit=20", nil)
+	rec = httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET /api/orders after unvoid status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	body = rec.Body.String()
+	if !strings.Contains(body, "VOID-API-NORMAL") || !strings.Contains(body, "VOID-API-TARGET") {
+		t.Fatalf("default order list should show restored order, body=%s", body)
 	}
 }
 
