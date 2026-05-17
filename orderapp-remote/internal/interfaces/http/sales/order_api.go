@@ -95,6 +95,10 @@ type orderSaveAPIRequest struct {
 	DiscountValue []string `json:"discount_value"`
 }
 
+type orderVoidAPIRequest struct {
+	Reason string `json:"reason"`
+}
+
 func registerOrderAPI(e *echo.Echo, salesSvc *salesapp.Service, messages MessagePublisher) {
 	h := orderAPIHandler{
 		sales:    salesSvc,
@@ -102,6 +106,8 @@ func registerOrderAPI(e *echo.Echo, salesSvc *salesapp.Service, messages Message
 	}
 	e.GET("/api/orders", h.list)
 	e.GET("/api/orders/:id/detail", h.detail)
+	e.POST("/api/orders/:id/void", h.void)
+	e.POST("/api/orders/:id/unvoid", h.unvoid)
 	e.GET("/api/order/form", h.form)
 	e.POST("/api/order/stock-batch-preview", h.stockBatchPreview)
 	e.POST("/api/order", h.save)
@@ -237,6 +243,40 @@ func (h orderAPIHandler) detail(c echo.Context) error {
 		EditMode: true,
 		EditID:   id,
 		EditData: editDataForAPI(data.EditData),
+	})
+}
+
+func (h orderAPIHandler) void(c echo.Context) error {
+	id, err := strconv.ParseInt(strings.TrimSpace(c.Param("id")), 10, 64)
+	if err != nil || id <= 0 {
+		return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid id"})
+	}
+	var req orderVoidAPIRequest
+	if c.Request().ContentLength != 0 {
+		if err := c.Bind(&req); err != nil {
+			return c.JSON(http.StatusBadRequest, map[string]string{"error": "bad request"})
+		}
+	}
+	if err := h.sales.Void(c.Request().Context(), id, support.ActorOf(c), strings.TrimSpace(req.Reason)); err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
+	}
+	return c.JSON(http.StatusOK, map[string]any{
+		"order_id": id,
+		"is_void":  true,
+	})
+}
+
+func (h orderAPIHandler) unvoid(c echo.Context) error {
+	id, err := strconv.ParseInt(strings.TrimSpace(c.Param("id")), 10, 64)
+	if err != nil || id <= 0 {
+		return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid id"})
+	}
+	if err := h.sales.Unvoid(c.Request().Context(), id, support.ActorOf(c)); err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
+	}
+	return c.JSON(http.StatusOK, map[string]any{
+		"order_id": id,
+		"is_void":  false,
 	})
 }
 

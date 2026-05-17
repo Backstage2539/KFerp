@@ -46,10 +46,10 @@
           </select>
         </label>
         <label>
-          <span>作废</span>
+          <span>失效</span>
           <select v-model="filters.void">
             <option value="normal">正常</option>
-            <option value="void">已作废</option>
+            <option value="void">已失效</option>
             <option value="all">全部</option>
           </select>
         </label>
@@ -119,7 +119,7 @@
                   type="checkbox"
                   :checked="selectedOrderIDs.includes(Number(row.id))"
                   :disabled="!isShipReady(row)"
-                  :title="isShipReady(row) ? '选择发货' : '生产完成、无需生产或库存待发货后可发货'"
+                  :title="isShipReady(row) ? '选择发货' : (row.is_void ? '已失效订单不能发货' : '生产完成、无需生产或库存待发货后可发货')"
                   @change="toggleOrder(row, $event.target.checked)"
                 />
               </td>
@@ -156,6 +156,20 @@
                 <span v-else class="muted inline-muted">出库单</span>
                 <a class="text-link" href="#" @click.prevent="openInvoiceDrawer(row)">发票</a>
                 <a class="text-link" :href="`/orders/${row.id}/audit`">审计</a>
+                <button
+                  v-if="row.is_void"
+                  class="text-button restore-text"
+                  type="button"
+                  @click.prevent="restoreOrder(row)"
+                  :disabled="voidingOrderID === Number(row.id)"
+                >恢复</button>
+                <button
+                  v-else
+                  class="text-button danger-text"
+                  type="button"
+                  @click.prevent="voidOrder(row)"
+                  :disabled="voidingOrderID === Number(row.id)"
+                >失效</button>
               </td>
             </tr>
             <tr v-if="!rows.length">
@@ -228,6 +242,7 @@
               <span>发货：{{ activeOrderDetail.ship_status || '-' }}</span>
               <span>生产：{{ activeOrderDetail.process_status || '-' }}</span>
               <span>发票：{{ invoiceStatusLabel(activeOrderDetail.invoice_status) }}</span>
+              <span>失效：{{ activeOrderDetail.is_void ? '已失效' : '正常' }}</span>
             </div>
           </section>
           <section class="drawer-section">
@@ -250,6 +265,8 @@
             <button class="secondary" type="button" @click="openSalesOrderDrawer(activeOrderDetail)">销售单</button>
             <button class="secondary" type="button" @click="openDeliveryNoteDrawer(activeOrderDetail)" :disabled="!isShipped(activeOrderDetail)">出库单</button>
             <button class="secondary" type="button" @click="openInvoiceDrawer(activeOrderDetail)">发票</button>
+            <button v-if="activeOrderDetail.is_void" class="secondary restore-text" type="button" @click="restoreOrder(activeOrderDetail)" :disabled="voidingOrderID === Number(activeOrderDetail.id)">恢复订单</button>
+            <button v-else class="secondary danger-text" type="button" @click="voidOrder(activeOrderDetail)" :disabled="voidingOrderID === Number(activeOrderDetail.id)">失效订单</button>
           </div>
           <section class="drawer-section order-edit-panel">
             <OrderEntryView
@@ -334,6 +351,7 @@ const deliveryNoteDrawerOpen = ref(false)
 const activeDeliveryNoteID = ref(0)
 const invoiceDrawerOpen = ref(false)
 const activeInvoiceID = ref(0)
+const voidingOrderID = ref(0)
 
 const filters = reactive({
   scope: 'all',
@@ -459,6 +477,11 @@ function closeOrderDetailDrawer() {
   drawerTrackingNo.value = ''
 }
 
+function orderDisplayName(row = {}) {
+  const id = Number(row?.id || 0)
+  return row?.order_no || (id ? `#${id}` : '当前订单')
+}
+
 async function loadPage(nextPage) {
   page.value = Math.max(1, nextPage)
   await load()
@@ -470,6 +493,7 @@ async function handlePaginationChange({ page: nextPage, pageSize }) {
 }
 
 function isShipReady(row) {
+  if (row?.is_void) return false
   const status = String(row?.process_status || '').trim()
   return status.includes('生产完成') || status === '无需生产' || status === '库存待发货'
 }
@@ -584,6 +608,47 @@ async function applyShipReadyPreset() {
   filters.ship_ready = true
   filters.void = 'normal'
   await loadPage(1)
+}
+
+async function voidOrder(row) {
+  const id = Number(row?.id || 0)
+  if (!id || row?.is_void) return
+  const label = orderDisplayName(row)
+  if (!window.confirm(`确认失效订单 ${label}？失效后 ERP 默认列表、履约客户订单和小程序订单都不展示，可从“已失效/全部”筛选恢复。`)) return
+  voidingOrderID.value = id
+  shippingError.value = ''
+  shippingMessage.value = ''
+  try {
+    await apiSend(`/api/orders/${id}/void`, { body: { reason: 'ERP订单列表失效' } })
+    selectedOrderIDs.value = selectedOrderIDs.value.filter((item) => item !== id)
+    delete orderSenderIDs[id]
+    shippingMessage.value = `订单 ${label} 已失效`
+    await load()
+    if (filters.void === 'normal' && Number(activeOrderDetail.value?.id || 0) === id) closeOrderDetailDrawer()
+  } catch (err) {
+    shippingError.value = err.message || '订单失效失败'
+  } finally {
+    voidingOrderID.value = 0
+  }
+}
+
+async function restoreOrder(row) {
+  const id = Number(row?.id || 0)
+  if (!id) return
+  const label = orderDisplayName(row)
+  voidingOrderID.value = id
+  shippingError.value = ''
+  shippingMessage.value = ''
+  try {
+    await apiSend(`/api/orders/${id}/unvoid`, { body: {} })
+    shippingMessage.value = `订单 ${label} 已恢复`
+    await load()
+    if (filters.void === 'void' && Number(activeOrderDetail.value?.id || 0) === id) closeOrderDetailDrawer()
+  } catch (err) {
+    shippingError.value = err.message || '订单恢复失败'
+  } finally {
+    voidingOrderID.value = 0
+  }
 }
 
 async function generateShippingExcel() {
@@ -773,6 +838,9 @@ tr.voided { opacity: .55; }
 .select-col { width: 54px; text-align: center; }
 .select-col input { width: 18px; height: 18px; padding: 0; }
 a, .text-link { color: #1f4f82; text-decoration: none; }
+.text-button { height: auto; border: 0; border-radius: 0; padding: 0; background: transparent; color: #1f4f82; font: inherit; text-decoration: none; cursor: pointer; }
+.danger-text { color: #9f2f2f; }
+.restore-text { color: #1f6b38; }
 .link-button { display: inline-flex; align-items: center; justify-content: center; text-decoration: none; }
 .order-link { height: auto; border: 0; border-radius: 0; padding: 0; background: transparent; color: #1f4f82; font: inherit; text-align: left; cursor: pointer; }
 .shipping-summary { display: grid; gap: 4px; min-width: 130px; }
@@ -784,7 +852,7 @@ a, .text-link { color: #1f4f82; text-decoration: none; }
 .fee-line.emphasized strong { color: #0f5132; }
 .status-stack { display: grid; grid-template-columns: repeat(2, minmax(90px, 1fr)); gap: 4px 8px; min-width: 230px; color: #333; font-size: 13px; }
 .actions-cell { min-width: 210px; }
-.actions-cell a, .actions-cell .inline-muted { display: inline-block; margin-right: 8px; }
+.actions-cell a, .actions-cell button, .actions-cell .inline-muted { display: inline-block; margin-right: 8px; }
 .inline-muted { font-size: 14px; }
 .invoice-status { display: inline-block; border: 1px solid #ddd5ca; border-radius: 6px; padding: 3px 7px; font-size: 12px; white-space: nowrap; }
 .invoice-status.ok { background: #eef8f1; border-color: #cfe8d4; color: #1f6f4a; }
