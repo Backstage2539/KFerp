@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -299,6 +300,7 @@ type CustomerOrderSummary struct {
 	ReceiverAddress string                     `json:"receiver_address"`
 	ProcessStatus   string                     `json:"process_status"`
 	PayStatus       string                     `json:"pay_status"`
+	PaymentMethod   string                     `json:"payment_method"`
 	ShipStatus      string                     `json:"ship_status"`
 	ShipTrackingNo  string                     `json:"ship_tracking_no"`
 	GrandTotal      string                     `json:"grand_total"`
@@ -830,6 +832,8 @@ func (s *Service) GetServicePage(ctx context.Context, token, key string, filter 
 	limit := 20
 	if serviceKeyContainsOrders(def.key) {
 		limit = 50
+	} else if def.key == ServiceKeySettlement {
+		limit = 200
 	}
 	page, err := s.repo.LoadServicePage(ctx, ServicePageQuery{
 		CustomerID:    current.CurrentCustomerID,
@@ -2123,8 +2127,46 @@ func serviceSummary(page ServicePage) []ServiceMetric {
 	case ServiceKeyShipping:
 		return []ServiceMetric{{Label: "订单 / 物流", Value: fmt.Sprintf("%d", len(page.Orders))}}
 	case ServiceKeySettlement:
-		return []ServiceMetric{{Label: "订单账单", Value: fmt.Sprintf("%d", len(page.Orders))}, {Label: "费用明细", Value: fmt.Sprintf("%d", len(page.FeeItems))}, {Label: "结算单", Value: fmt.Sprintf("%d", len(page.SettlementBatches))}}
+		return settlementAccountingSummary(page.Orders)
 	default:
 		return []ServiceMetric{}
 	}
+}
+
+func settlementAccountingSummary(orders []CustomerOrderSummary) []ServiceMetric {
+	var total, paid, unpaid float64
+	unpaidOrders := 0
+	for _, order := range orders {
+		amount := parseAccountingAmount(order.GrandTotal)
+		total += amount
+		if isPaidOrderStatus(order.PayStatus) {
+			paid += amount
+			continue
+		}
+		unpaid += amount
+		unpaidOrders++
+	}
+	return []ServiceMetric{
+		{Label: "应收总额", Value: formatAccountingAmount(total)},
+		{Label: "未付款金额", Value: formatAccountingAmount(unpaid)},
+		{Label: "未付款订单", Value: fmt.Sprintf("%d", unpaidOrders)},
+		{Label: "已付款金额", Value: formatAccountingAmount(paid)},
+	}
+}
+
+func parseAccountingAmount(value string) float64 {
+	amount, err := strconv.ParseFloat(strings.TrimSpace(value), 64)
+	if err != nil {
+		return 0
+	}
+	return amount
+}
+
+func formatAccountingAmount(value float64) string {
+	return fmt.Sprintf("%.2f", value)
+}
+
+func isPaidOrderStatus(value string) bool {
+	status := strings.ToLower(strings.TrimSpace(value))
+	return strings.Contains(status, "已付") || strings.Contains(status, "已收") || strings.Contains(status, "已支付") || strings.Contains(status, "paid")
 }

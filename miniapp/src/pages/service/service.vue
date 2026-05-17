@@ -78,6 +78,7 @@ const fulfillmentForm = ref({
 })
 
 const title = computed(() => page.value?.title || serviceTitle(serviceKey.value))
+const isBillingPage = computed(() => serviceKey.value === 'settlement')
 const mainTab = computed(() => {
   if (serviceKey.value === 'orders') return 'orders'
   if (serviceKey.value === 'settlement') return 'billing'
@@ -118,7 +119,7 @@ async function loadPage() {
     if (serviceKey.value === 'beanList') {
       primeCachedBeanListPage()
     }
-    const filters = serviceKey.value === 'orders' ? buildOrderServiceFilters(orderSearch.value) : {}
+    const filters = serviceKey.value === 'orders' || serviceKey.value === 'settlement' ? buildOrderServiceFilters(orderSearch.value) : {}
     page.value = await fetchServicePage(session.token, serviceKey.value, filters)
     if (page.value.theme_key) {
       session.applyContext({
@@ -227,7 +228,30 @@ async function applyDatePreset(preset: OrderDatePreset) {
 
 async function clearOrderFilters() {
   orderSearch.value = emptyOrderSearch()
+  if (isBillingPage.value) {
+    applyBillingDefaultPeriod()
+  }
   await loadPage()
+}
+
+function applyBillingDefaultPeriod() {
+  const range = datePresetRange('month')
+  orderSearch.value.date_from = range.date_from
+  orderSearch.value.date_to = range.date_to
+}
+
+function openOrderFromBill(orderNo?: string) {
+  const keyword = String(orderNo || '').trim()
+  if (!keyword) return
+  uni.navigateTo({ url: `/pages/service/service?key=orders&q=${encodeURIComponent(keyword)}` })
+}
+
+function paymentMethodText(payStatus?: string, paymentMethod?: string): string {
+  const method = String(paymentMethod || '').trim()
+  if (method) return method
+  const status = normalizeStatusText(payStatus)
+  if (status.includes('已付') || status.includes('已收')) return '未填写'
+  return '未付款'
 }
 
 function openOrderDocument(path?: string) {
@@ -479,6 +503,14 @@ async function submitFulfillmentOrder() {
 
 onLoad((query) => {
   serviceKey.value = normalizeServiceKey(String(query?.key || 'beanList'))
+  orderSearch.value = emptyOrderSearch()
+  if (serviceKey.value === 'settlement') {
+    applyBillingDefaultPeriod()
+  }
+  const keyword = String(query?.q || '').trim()
+  if (keyword) {
+    orderSearch.value.keyword = keyword
+  }
 })
 
 onShow(() => {
@@ -691,6 +723,32 @@ onShow(() => {
         </view>
       </view>
 
+      <view v-if="serviceKey === 'settlement'" class="panel filter-panel">
+        <text class="panel-title">账期筛选</text>
+        <view class="date-presets bill-presets">
+          <button class="chip" @tap="applyDatePreset('week')">本周</button>
+          <button class="chip" @tap="applyDatePreset('month')">本月</button>
+          <button class="chip" @tap="applyDatePreset('year')">本年</button>
+        </view>
+        <view class="date-range">
+          <picker mode="date" :value="orderSearch.date_from" @change="setOrderDateFrom">
+            <view class="picker-field">{{ orderSearch.date_from || '开始日期' }}</view>
+          </picker>
+          <picker mode="date" :value="orderSearch.date_to" @change="setOrderDateTo">
+            <view class="picker-field">{{ orderSearch.date_to || '结束日期' }}</view>
+          </picker>
+        </view>
+        <view class="billing-status-row">
+          <picker mode="selector" :range="payStatusPickerOptions" :value="statusPickerValue(payStatusPickerOptions, orderSearch.pay_status)" @change="setOrderPayStatus">
+            <view class="picker-field status-picker">{{ orderSearch.pay_status || '收款状态' }}</view>
+          </picker>
+        </view>
+        <view class="filter-actions">
+          <button class="secondary" @tap="clearOrderFilters">重置</button>
+          <button class="primary compact" @tap="applyOrderFilters">查询</button>
+        </view>
+      </view>
+
       <view v-if="page?.products?.length" class="panel">
         <text class="panel-title">现货商品</text>
         <view v-for="item in page.products" :key="item.id" class="list-row">
@@ -699,7 +757,22 @@ onShow(() => {
         </view>
       </view>
 
-      <view v-if="page?.orders?.length" class="panel">
+      <view v-if="serviceKey === 'settlement' && page?.orders?.length" class="panel bill-panel">
+        <text class="panel-title">订单账单</text>
+        <view v-for="item in page.orders" :key="item.id" class="list-row bill-row">
+          <view class="row-head">
+            <text class="row-main order-link" @tap="openOrderFromBill(item.order_no)">{{ item.order_no || '未编号订单' }}</text>
+            <text class="price">¥{{ item.grand_total || '0.00' }}</text>
+          </view>
+          <view class="bill-meta">
+            <text class="status-pill" :class="{ unpaid: !item.pay_status || item.pay_status.includes('未') }">{{ item.pay_status || '未付款' }}</text>
+            <text class="row-sub">{{ item.order_date || '未填写日期' }}</text>
+          </view>
+          <text class="row-sub">收款方式：{{ paymentMethodText(item.pay_status, item.payment_method) }}</text>
+        </view>
+      </view>
+
+      <view v-if="serviceKey !== 'settlement' && page?.orders?.length" class="panel">
         <text class="panel-title">{{ orderPanelTitle }}</text>
         <view v-for="item in page.orders" :key="item.id" class="list-row">
           <view class="row-head">
@@ -985,6 +1058,10 @@ onShow(() => {
   gap: 10rpx;
 }
 
+.bill-presets {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
 .chip {
   min-height: 64rpx;
   display: flex;
@@ -1026,6 +1103,11 @@ onShow(() => {
 
 .status-filters {
   grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.billing-status-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
 }
 
 .picker-field {
@@ -1095,6 +1177,45 @@ onShow(() => {
   font-size: 28rpx;
   font-weight: 700;
   white-space: nowrap;
+}
+
+.bill-panel {
+  gap: 14rpx;
+}
+
+.bill-row {
+  gap: 12rpx;
+}
+
+.order-link {
+  color: #7a4b12;
+  text-decoration: underline;
+  text-decoration-thickness: 1rpx;
+  text-underline-offset: 5rpx;
+}
+
+.bill-meta {
+  display: flex;
+  align-items: center;
+  gap: 12rpx;
+  flex-wrap: wrap;
+}
+
+.status-pill {
+  display: inline-flex;
+  align-items: center;
+  min-height: 42rpx;
+  padding: 0 14rpx;
+  border-radius: 8rpx;
+  background: #eef7ef;
+  color: #28624a;
+  font-size: 22rpx;
+  font-weight: 700;
+}
+
+.status-pill.unpaid {
+  background: #fff0e3;
+  color: #9a4b10;
 }
 
 .order-items {
