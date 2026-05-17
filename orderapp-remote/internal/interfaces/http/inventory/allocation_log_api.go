@@ -27,15 +27,18 @@ type AllocationLogPageData struct {
 }
 
 type AllocationLogAPIResponse struct {
-	BatchID  string                 `json:"batch_id"`
-	Rows     []AllocationLogViewRow `json:"rows"`
-	Batches  []AllocationBatchRow   `json:"batches"`
-	Page     int                    `json:"page"`
-	PerPage  int                    `json:"per_page"`
-	HasNext  bool                   `json:"has_next"`
-	HasPrev  bool                   `json:"has_prev"`
-	PrevPage int                    `json:"prev_page"`
-	NextPage int                    `json:"next_page"`
+	BatchID    string                 `json:"batch_id"`
+	Rows       []AllocationLogViewRow `json:"rows"`
+	Batches    []AllocationBatchRow   `json:"batches"`
+	Page       int                    `json:"page"`
+	PerPage    int                    `json:"per_page"`
+	Limit      int                    `json:"limit"`
+	Total      int                    `json:"total"`
+	TotalPages int                    `json:"total_pages"`
+	HasNext    bool                   `json:"has_next"`
+	HasPrev    bool                   `json:"has_prev"`
+	PrevPage   int                    `json:"prev_page"`
+	NextPage   int                    `json:"next_page"`
 }
 
 func registerAllocationLogPages(e *echo.Echo, inventorySvc *inventoryapp.Service) {
@@ -70,20 +73,34 @@ func registerAllocationLogPages(e *echo.Echo, inventorySvc *inventoryapp.Service
 		if err != nil {
 			return c.JSON(http.StatusInternalServerError, map[string]any{"error": err.Error()})
 		}
+		totalPages := allocationPageCount(result.Total, per)
 		prevPage := 0
 		if page > 1 {
 			prevPage = page - 1
 		}
 		return c.JSON(http.StatusOK, AllocationLogAPIResponse{
-			BatchID:  result.BatchID,
-			Rows:     result.Rows,
-			Batches:  result.Batches,
-			Page:     page,
-			PerPage:  per,
-			HasNext:  result.HasNext,
-			HasPrev:  page > 1,
-			PrevPage: prevPage,
-			NextPage: page + 1,
+			BatchID:    result.BatchID,
+			Rows:       result.Rows,
+			Batches:    result.Batches,
+			Page:       page,
+			PerPage:    per,
+			Limit:      per,
+			Total:      result.Total,
+			TotalPages: totalPages,
+			HasNext:    page < totalPages,
+			HasPrev:    page > 1,
+			PrevPage:   prevPage,
+			NextPage:   page + 1,
 		})
 	})
+}
+
+func allocationPageCount(total, limit int) int {
+	if limit <= 0 {
+		limit = 20
+	}
+	if total <= 0 {
+		return 1
+	}
+	return (total + limit - 1) / limit
 }

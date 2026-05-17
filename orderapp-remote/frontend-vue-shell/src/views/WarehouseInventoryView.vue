@@ -14,16 +14,16 @@
       </div>
       <div v-if="error" class="error">{{ error }}</div>
       <div class="filters">
-        <label><span>搜索</span><input v-model.trim="q" placeholder="物品/批次" @keyup.enter="loadInventory" /></label>
+        <label><span>搜索</span><input v-model.trim="q" placeholder="物品/批次" @keyup.enter="loadInventoryPage(1)" /></label>
         <label>
           <span>类型</span>
-          <select v-model="itemType" @change="loadInventory">
+          <select v-model="itemType" @change="loadInventoryPage(1)">
             <option value="">全部</option>
             <option value="material">原料/包材</option>
             <option value="finished_product">成品</option>
           </select>
         </label>
-        <button class="primary" type="button" @click="loadInventory" :disabled="loading">查询</button>
+        <button class="primary" type="button" @click="loadInventoryPage(1)" :disabled="loading">查询</button>
       </div>
     </section>
 
@@ -87,6 +87,13 @@
             </tbody>
           </table>
         </div>
+        <PaginationControls
+          :page="page"
+          :page-size="limit"
+          :total="total"
+          :disabled="loading"
+          @change="handleInventoryPaginationChange"
+        />
       </section>
     </div>
 
@@ -199,6 +206,8 @@
 <script setup>
 import { computed, onMounted, ref, watch } from 'vue'
 import { apiGet, apiSend } from '../api/client'
+import PaginationControls from '../components/PaginationControls.vue'
+import { normalizePageSize, paginationFromApi } from '../lib/pagination'
 
 const props = defineProps({
   viewParams: { type: Object, default: () => ({}) },
@@ -209,6 +218,9 @@ const rows = ref([])
 const q = ref('')
 const itemType = ref('')
 const selectedWarehouse = ref('')
+const page = ref(1)
+const limit = ref(50)
+const total = ref(0)
 const loading = ref(false)
 const error = ref('')
 const traceDrawerOpen = ref(false)
@@ -271,7 +283,7 @@ function rowKey(row) {
 
 function selectWarehouse(code) {
   selectedWarehouse.value = code
-  loadInventory()
+  loadInventoryPage(1)
 }
 
 function applyViewParams(params = {}) {
@@ -285,7 +297,7 @@ function applyViewParams(params = {}) {
     traceBatch.value = nextBatch
     traceDrawerOpen.value = true
   }
-  if (changed) loadInventory()
+  if (changed) loadInventoryPage(1)
 }
 
 async function loadWarehouses() {
@@ -301,13 +313,29 @@ async function loadInventory() {
     if (q.value) url.searchParams.set('q', q.value)
     if (selectedWarehouse.value) url.searchParams.set('warehouse', selectedWarehouse.value)
     if (itemType.value) url.searchParams.set('item_type', itemType.value)
+    url.searchParams.set('page', String(page.value))
+    url.searchParams.set('limit', String(limit.value))
     const data = await apiGet(url)
+    const pagination = paginationFromApi(data)
     rows.value = data.rows || []
+    page.value = pagination.page
+    limit.value = pagination.pageSize
+    total.value = pagination.total
   } catch (err) {
     error.value = err.message || '加载失败'
   } finally {
     loading.value = false
   }
+}
+
+async function loadInventoryPage(nextPage) {
+  page.value = Math.max(1, Number(nextPage || 1))
+  await loadInventory()
+}
+
+function handleInventoryPaginationChange({ page: nextPage, pageSize }) {
+  limit.value = normalizePageSize(pageSize)
+  loadInventoryPage(nextPage)
 }
 
 function openTraceDrawer(batch) {

@@ -34,6 +34,7 @@ type FinishedInventoryResult struct {
 	Rows     []FinishedInventoryRow
 	Products []ProductOption
 	HasNext  bool
+	Total    int
 }
 
 type AllocationLogRow struct {
@@ -67,6 +68,7 @@ type AllocationLogResult struct {
 	Batches []AllocationBatchRow
 	Rows    []AllocationLogRow
 	HasNext bool
+	Total   int
 }
 
 type AdjustFinishedInventoryCommand struct {

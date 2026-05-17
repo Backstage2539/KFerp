@@ -8,8 +8,8 @@
       <div v-if="error" class="error">{{ error }}</div>
       <div v-if="ok" class="ok">已保存</div>
       <div class="filters">
-        <label><span>搜索</span><input v-model.trim="q" placeholder="商品名" @keyup.enter="load" /></label>
-        <button class="primary" type="button" @click="load" :disabled="loading">查询</button>
+        <label><span>搜索</span><input v-model.trim="q" placeholder="商品名" @keyup.enter="loadPage(1)" /></label>
+        <button class="primary" type="button" @click="loadPage(1)" :disabled="loading">查询</button>
       </div>
     </section>
 
@@ -47,6 +47,13 @@
           </tbody>
         </table>
       </div>
+      <PaginationControls
+        :page="page"
+        :page-size="limit"
+        :total="total"
+        :disabled="loading"
+        @change="handlePaginationChange"
+      />
     </section>
   </div>
 </template>
@@ -54,6 +61,8 @@
 <script setup>
 import { onMounted, reactive, ref } from 'vue'
 import { apiGet, apiSend } from '../api/client'
+import PaginationControls from '../components/PaginationControls.vue'
+import { normalizePageSize, paginationFromApi } from '../lib/pagination'
 
 const rows = ref([])
 const products = ref([])
@@ -62,7 +71,20 @@ const loading = ref(false)
 const saving = ref(false)
 const error = ref('')
 const ok = ref(false)
+const page = ref(1)
+const limit = ref(50)
+const total = ref(0)
 const form = reactive({ product_id: 0, spec_g: 227, units: 0, loose_g: 0 })
+
+async function loadPage(nextPage) {
+  page.value = Math.max(1, Number(nextPage || 1))
+  await load()
+}
+
+async function handlePaginationChange({ page: nextPage, pageSize }) {
+  limit.value = normalizePageSize(pageSize)
+  await loadPage(nextPage)
+}
 
 async function load() {
   loading.value = true
@@ -70,9 +92,15 @@ async function load() {
   try {
     const url = new URL('/api/products/inventory', window.location.origin)
     if (q.value) url.searchParams.set('q', q.value)
+    url.searchParams.set('page', String(page.value))
+    url.searchParams.set('limit', String(limit.value))
     const data = await apiGet(url)
+    const pagination = paginationFromApi(data)
     rows.value = data.rows || []
     products.value = data.products || []
+    page.value = pagination.page
+    limit.value = pagination.pageSize
+    total.value = pagination.total
   } catch (err) {
     error.value = err.message || '加载失败'
   } finally {

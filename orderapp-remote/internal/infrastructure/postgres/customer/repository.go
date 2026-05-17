@@ -139,7 +139,7 @@ func (r Repository) Delete(ctx context.Context, actor string, id int64) error {
 }
 
 func (r Repository) List(ctx context.Context, query customerapp.ListQuery) (customerapp.ListResult, error) {
-	rows, hasNext, err := fetchCustomers(ctx, r.pool, r.schema, query)
+	rows, total, hasNext, err := fetchCustomers(ctx, r.pool, r.schema, query)
 	if err != nil {
 		return customerapp.ListResult{}, err
 	}
@@ -151,7 +151,7 @@ func (r Repository) List(ctx context.Context, query customerapp.ListQuery) (cust
 	if err != nil {
 		return customerapp.ListResult{}, err
 	}
-	return customerapp.ListResult{Rows: rows, Sources: sources, OrderTypes: orderTypes, HasNext: hasNext}, nil
+	return customerapp.ListResult{Rows: rows, Sources: sources, OrderTypes: orderTypes, Total: total, HasNext: hasNext}, nil
 }
 
 func (r Repository) Editor(ctx context.Context, id int64) (*customerapp.EditorData, error) {
@@ -194,7 +194,7 @@ func (r Repository) AssetObject(ctx context.Context, assetID int64) (customerapp
 	return customerapp.AssetObject{ObjectKey: obj, ContentType: contentType}, nil
 }
 
-func fetchCustomers(ctx context.Context, pool *pgxpool.Pool, schema string, query customerapp.ListQuery) (rows []customerapp.CustomerRow, hasNext bool, err error) {
+func fetchCustomers(ctx context.Context, pool *pgxpool.Pool, schema string, query customerapp.ListQuery) (rows []customerapp.CustomerRow, total int, hasNext bool, err error) {
 	q := strings.TrimSpace(query.Query)
 	limit := query.Limit
 	offset := query.Offset
@@ -226,6 +226,11 @@ func fetchCustomers(ctx context.Context, pool *pgxpool.Pool, schema string, quer
 		}
 		args = append(args, *query.Active)
 	}
+	countArgs := append([]any(nil), args...)
+	countSQL := fmt.Sprintf(`SELECT count(*)::int FROM %s.customers %s`, schema, where)
+	if err := pool.QueryRow(ctx, countSQL, countArgs...).Scan(&total); err != nil {
+		return nil, 0, false, err
+	}
 	args = append(args, limit+1, offset)
 	limitArg := len(args) - 1
 	offsetArg := len(args)
@@ -249,7 +254,7 @@ func fetchCustomers(ctx context.Context, pool *pgxpool.Pool, schema string, quer
 
 	dbRows, err := pool.Query(ctx, sql, args...)
 	if err != nil {
-		return nil, false, err
+		return nil, 0, false, err
 	}
 	defer dbRows.Close()
 
@@ -257,20 +262,20 @@ func fetchCustomers(ctx context.Context, pool *pgxpool.Pool, schema string, quer
 	for dbRows.Next() {
 		var r customerapp.CustomerRow
 		if err := dbRows.Scan(&r.ID, &r.Name, &r.CustomerType, &r.CompanyName, &r.CompanyAddress, &r.CompanyPhone, &r.Contact, &r.Phone, &r.Address, &r.Active, &r.DefaultSourceID, &r.DefaultOrderTypeID, &r.Updated); err != nil {
-			return nil, false, err
+			return nil, 0, false, err
 		}
 		r.CustomerType = customerapp.NormalizeCustomerType(r.CustomerType)
 		out = append(out, r)
 	}
 	if err := dbRows.Err(); err != nil {
-		return nil, false, err
+		return nil, 0, false, err
 	}
 
 	if len(out) > limit {
 		hasNext = true
 		out = out[:limit]
 	}
-	return out, hasNext, nil
+	return out, total, hasNext, nil
 }
 
 func fetchCustomerByID(ctx context.Context, pool *pgxpool.Pool, schema string, id int64) (*customerapp.CustomerEditData, error) {

@@ -37,17 +37,21 @@ func registerFinishedInventoryPages(e *echo.Echo, inventorySvc *inventoryapp.Ser
 		if err != nil {
 			return c.JSON(http.StatusInternalServerError, map[string]any{"error": err.Error()})
 		}
+		page := (offset / limit) + 1
+		totalPages := finishedInventoryPageCount(result.Total, limit)
 		options := make([]productAPIOption, 0, len(result.Products))
 		for _, p := range result.Products {
 			options = append(options, productAPIOption{ID: p.ID, Name: p.Name})
 		}
 		return c.JSON(http.StatusOK, map[string]any{
-			"rows":     result.Rows,
-			"products": options,
-			"page":     (offset / limit) + 1,
-			"limit":    limit,
-			"has_prev": offset > 0,
-			"has_next": result.HasNext,
+			"rows":        result.Rows,
+			"products":    options,
+			"page":        page,
+			"limit":       limit,
+			"total":       result.Total,
+			"total_pages": totalPages,
+			"has_prev":    offset > 0,
+			"has_next":    page < totalPages,
 		})
 	})
 	e.POST("/api/products/inventory", func(c echo.Context) error {
@@ -73,4 +77,14 @@ func registerFinishedInventoryPages(e *echo.Echo, inventorySvc *inventoryapp.Ser
 		}
 		return c.JSON(http.StatusOK, map[string]any{"ok": true})
 	})
+}
+
+func finishedInventoryPageCount(total, limit int) int {
+	if limit <= 0 {
+		limit = 50
+	}
+	if total <= 0 {
+		return 1
+	}
+	return (total + limit - 1) / limit
 }

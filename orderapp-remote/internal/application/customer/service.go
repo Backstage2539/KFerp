@@ -86,6 +86,7 @@ type ListResult struct {
 	Rows       []CustomerRow
 	Sources    []Option
 	OrderTypes []Option
+	Total      int
 	HasNext    bool
 }
 

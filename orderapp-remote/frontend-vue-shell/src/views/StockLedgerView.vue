@@ -7,10 +7,10 @@
       </div>
       <div v-if="error" class="error">{{ error }}</div>
       <div class="filters">
-        <label><span>搜索</span><input v-model.trim="filters.q" placeholder="物料/商品/批次" @keyup.enter="load" /></label>
+        <label><span>搜索</span><input v-model.trim="filters.q" placeholder="物料/商品/批次" @keyup.enter="loadPage(1)" /></label>
         <label><span>类型</span><select v-model="filters.item_type"><option value="">全部</option><option value="material">物料</option><option value="finished_product">成品</option></select></label>
-        <label><span>来源</span><input v-model.trim="filters.source_doc_type" placeholder="production_run" @keyup.enter="load" /></label>
-        <button class="primary" type="button" @click="load" :disabled="loading">查询</button>
+        <label><span>来源</span><input v-model.trim="filters.source_doc_type" placeholder="production_run" @keyup.enter="loadPage(1)" /></label>
+        <button class="primary" type="button" @click="loadPage(1)" :disabled="loading">查询</button>
       </div>
     </section>
     <section class="panel">
@@ -28,6 +28,13 @@
           </tbody>
         </table>
       </div>
+      <PaginationControls
+        :page="page"
+        :page-size="limit"
+        :total="total"
+        :disabled="loading"
+        @change="handlePaginationChange"
+      />
     </section>
   </div>
 </template>
@@ -35,10 +42,15 @@
 <script setup>
 import { onMounted, reactive, ref } from 'vue'
 import { apiGet } from '../api/client'
+import PaginationControls from '../components/PaginationControls.vue'
+import { normalizePageSize, paginationFromApi } from '../lib/pagination'
 
 const rows = ref([])
 const loading = ref(false)
 const error = ref('')
+const page = ref(1)
+const limit = ref(50)
+const total = ref(0)
 const filters = reactive({ q: '', item_type: '', source_doc_type: '' })
 
 function itemTypeText(v) {
@@ -47,14 +59,30 @@ function itemTypeText(v) {
   return v || '-'
 }
 
+async function loadPage(nextPage) {
+  page.value = Math.max(1, Number(nextPage || 1))
+  await load()
+}
+
+async function handlePaginationChange({ page: nextPage, pageSize }) {
+  limit.value = normalizePageSize(pageSize)
+  await loadPage(nextPage)
+}
+
 async function load() {
   loading.value = true
   error.value = ''
   try {
     const url = new URL('/api/stock/ledger', window.location.origin)
     for (const [key, val] of Object.entries(filters)) if (val) url.searchParams.set(key, val)
+    url.searchParams.set('page', String(page.value))
+    url.searchParams.set('limit', String(limit.value))
     const data = await apiGet(url)
+    const pagination = paginationFromApi(data)
     rows.value = data.rows || []
+    page.value = pagination.page
+    limit.value = pagination.pageSize
+    total.value = pagination.total
   } catch (err) {
     error.value = err.message || '加载失败'
   } finally {
