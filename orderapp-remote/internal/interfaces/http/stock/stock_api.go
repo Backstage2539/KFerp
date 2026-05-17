@@ -40,6 +40,8 @@ func registerStockPages(e *echo.Echo) {
 
 func registerStockAPI(e *echo.Echo, stockSvc *stockapp.Service) {
 	e.GET("/api/stock/ledger", func(c echo.Context) error {
+		limit := stockLimit(c)
+		offset := stockOffsetForLimit(c, limit)
 		result, err := stockSvc.ListLedger(c.Request().Context(), stockapp.LedgerQuery{
 			Q:             strings.TrimSpace(c.QueryParam("q")),
 			ItemType:      strings.TrimSpace(c.QueryParam("item_type")),
@@ -48,39 +50,52 @@ func registerStockAPI(e *echo.Echo, stockSvc *stockapp.Service) {
 			SourceBatch:   strings.TrimSpace(c.QueryParam("source_batch")),
 			From:          strings.TrimSpace(c.QueryParam("from")),
 			To:            strings.TrimSpace(c.QueryParam("to")),
-			Limit:         support.IntParam(c, "limit", 100),
-			Offset:        stockOffset(c),
+			Limit:         limit,
+			Offset:        offset,
 		})
 		if err != nil {
 			return c.JSON(http.StatusInternalServerError, errorResponse{Error: err.Error()})
 		}
+		result.Page, result.TotalPages, result.HasNext = stockPaginationValues(result.Total, limit, offset)
+		result.Limit = limit
+		result.Offset = offset
 		return c.JSON(http.StatusOK, result)
 	})
 
 	e.GET("/api/stock/batches", func(c echo.Context) error {
+		limit := stockLimit(c)
+		offset := stockOffsetForLimit(c, limit)
 		result, err := stockSvc.ListBatches(c.Request().Context(), stockapp.BatchQuery{
 			Q:        strings.TrimSpace(c.QueryParam("q")),
 			ItemType: strings.TrimSpace(c.QueryParam("item_type")),
-			Limit:    support.IntParam(c, "limit", 100),
-			Offset:   stockOffset(c),
+			Limit:    limit,
+			Offset:   offset,
 		})
 		if err != nil {
 			return c.JSON(http.StatusInternalServerError, errorResponse{Error: err.Error()})
 		}
+		result.Page, result.TotalPages, result.HasNext = stockPaginationValues(result.Total, limit, offset)
+		result.Limit = limit
+		result.Offset = offset
 		return c.JSON(http.StatusOK, result)
 	})
 
 	e.GET("/api/stock/material-batches", func(c echo.Context) error {
+		limit := stockLimit(c)
+		offset := stockOffsetForLimit(c, limit)
 		result, err := stockSvc.ListMaterialBatches(c.Request().Context(), stockapp.MaterialBatchQuery{
 			Q:          strings.TrimSpace(c.QueryParam("q")),
 			MaterialID: int64(support.IntParam(c, "material_id", 0)),
 			ActiveOnly: strings.TrimSpace(c.QueryParam("active_only")) == "1",
-			Limit:      support.IntParam(c, "limit", 100),
-			Offset:     stockOffset(c),
+			Limit:      limit,
+			Offset:     offset,
 		})
 		if err != nil {
 			return c.JSON(http.StatusInternalServerError, errorResponse{Error: err.Error()})
 		}
+		result.Page, result.TotalPages, result.HasNext = stockPaginationValues(result.Total, limit, offset)
+		result.Limit = limit
+		result.Offset = offset
 		return c.JSON(http.StatusOK, result)
 	})
 
@@ -93,45 +108,63 @@ func registerStockAPI(e *echo.Echo, stockSvc *stockapp.Service) {
 	})
 
 	e.GET("/api/stock/material-batch-locations", func(c echo.Context) error {
+		limit := stockLimit(c)
+		offset := stockOffsetForLimit(c, limit)
 		result, err := stockSvc.ListMaterialBatchLocations(c.Request().Context(), stockapp.MaterialBatchLocationQuery{
 			Q:          strings.TrimSpace(c.QueryParam("q")),
 			MaterialID: int64(support.IntParam(c, "material_id", 0)),
 			Warehouse:  strings.TrimSpace(c.QueryParam("warehouse")),
 			ActiveOnly: strings.TrimSpace(c.QueryParam("active_only")) == "1",
-			Limit:      support.IntParam(c, "limit", 100),
-			Offset:     stockOffset(c),
+			Limit:      limit,
+			Offset:     offset,
 		})
 		if err != nil {
 			return c.JSON(http.StatusInternalServerError, errorResponse{Error: err.Error()})
 		}
+		result.Page, result.TotalPages, result.HasNext = stockPaginationValues(result.Total, limit, offset)
+		result.Limit = limit
+		result.Offset = offset
 		return c.JSON(http.StatusOK, result)
 	})
 
 	e.GET("/api/stock/warehouse-inventory", func(c echo.Context) error {
+		limit := stockLimit(c)
+		offset := stockOffsetForLimit(c, limit)
 		result, err := stockSvc.ListWarehouseInventory(c.Request().Context(), stockapp.WarehouseInventoryQuery{
 			Q:         strings.TrimSpace(c.QueryParam("q")),
 			Warehouse: strings.TrimSpace(c.QueryParam("warehouse")),
 			ItemType:  strings.TrimSpace(c.QueryParam("item_type")),
-			Limit:     support.IntParam(c, "limit", 100),
-			Offset:    stockOffset(c),
+			Limit:     limit,
+			Offset:    offset,
 		})
 		if err != nil {
 			return c.JSON(http.StatusInternalServerError, errorResponse{Error: err.Error()})
 		}
+		result.Page, result.TotalPages, result.HasNext = stockPaginationValues(result.Total, limit, offset)
+		result.Limit = limit
+		result.Offset = offset
 		return c.JSON(http.StatusOK, result)
 	})
 
 	e.GET("/api/stock/outbound-logs", func(c echo.Context) error {
+		limit := stockLimit(c)
+		offset := stockOffsetForLimit(c, limit)
 		result, err := stockSvc.ListOutboundLogs(c.Request().Context(), stockapp.OutboundLogQuery{
 			Q:      strings.TrimSpace(c.QueryParam("q")),
 			From:   strings.TrimSpace(c.QueryParam("from")),
 			To:     strings.TrimSpace(c.QueryParam("to")),
-			Limit:  support.IntParam(c, "limit", 100),
-			Offset: stockOffset(c),
+			Limit:  limit,
+			Offset: offset,
 		})
 		if err != nil {
 			return c.JSON(http.StatusInternalServerError, errorResponse{Error: err.Error()})
 		}
+		page, totalPages, hasNext := stockPaginationValues(result.Total, limit, offset)
+		result.Page = page
+		result.Limit = limit
+		result.Offset = offset
+		result.TotalPages = totalPages
+		result.HasNext = hasNext
 		return c.JSON(http.StatusOK, result)
 	})
 
@@ -260,6 +293,24 @@ func registerStockAPI(e *echo.Echo, stockSvc *stockapp.Service) {
 
 func stockOffset(c echo.Context) int {
 	limit := support.IntParam(c, "limit", 100)
+	return stockOffsetForLimit(c, limit)
+}
+
+func stockLimit(c echo.Context) int {
+	limit := support.IntParam(c, "limit", 100)
+	if limit <= 0 {
+		return 100
+	}
+	if limit > 500 {
+		return 500
+	}
+	return limit
+}
+
+func stockOffsetForLimit(c echo.Context, limit int) int {
+	if limit <= 0 {
+		limit = 100
+	}
 	offset := support.IntParam(c, "offset", 0)
 	if page := support.IntParam(c, "page", 0); page > 0 {
 		offset = (page - 1) * limit
@@ -268,6 +319,28 @@ func stockOffset(c echo.Context) int {
 		return 0
 	}
 	return offset
+}
+
+func stockPageCount(total, limit int) int {
+	if limit <= 0 {
+		limit = 100
+	}
+	if total <= 0 {
+		return 1
+	}
+	return (total + limit - 1) / limit
+}
+
+func stockPaginationValues(total, limit, offset int) (int, int, bool) {
+	if limit <= 0 {
+		limit = 100
+	}
+	if offset < 0 {
+		offset = 0
+	}
+	page := (offset / limit) + 1
+	totalPages := stockPageCount(total, limit)
+	return page, totalPages, page < totalPages
 }
 
 func vueStockURL(view string, values url.Values) string {

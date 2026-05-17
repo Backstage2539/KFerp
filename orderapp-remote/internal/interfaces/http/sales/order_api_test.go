@@ -416,7 +416,7 @@ func TestOrderAPIListUsesSalesReadModel(t *testing.T) {
 		t.Fatalf("GET /api/orders status = %d, want 200, body=%s", rec.Code, rec.Body.String())
 	}
 	body := rec.Body.String()
-	for _, needle := range []string{`"rows"`, `"order_no":"SO-API-LIST"`, `"summary"`, `"order_types"`, `"process_statuses"`} {
+	for _, needle := range []string{`"rows"`, `"order_no":"SO-API-LIST"`, `"summary"`, `"order_types"`, `"process_statuses"`, `"total":`, `"total_pages":`} {
 		if !strings.Contains(body, needle) {
 			t.Fatalf("GET /api/orders missing %s: %s", needle, body)
 		}

@@ -39,6 +39,15 @@ func (r Repository) ListFinished(ctx context.Context, query inventoryapp.Finishe
 		args = append(args, "%"+s+"%")
 		argn++
 	}
+	var total int
+	if err := r.pool.QueryRow(ctx, fmt.Sprintf(`
+		SELECT count(*)::int
+		FROM %s.finished_inventory fi
+		LEFT JOIN %s.products p ON p.id = fi.product_id
+		%s
+	`, r.schema, r.schema, where), args...).Scan(&total); err != nil {
+		return inventoryapp.FinishedInventoryResult{}, err
+	}
 	args = append(args, query.Limit+1, query.Offset)
 	limitArg := argn
 	offsetArg := argn + 1
@@ -82,7 +91,7 @@ func (r Repository) ListFinished(ctx context.Context, query inventoryapp.Finishe
 		out = out[:query.Limit]
 		hasNext = true
 	}
-	return inventoryapp.FinishedInventoryResult{Rows: out, Products: products, HasNext: hasNext}, nil
+	return inventoryapp.FinishedInventoryResult{Rows: out, Products: products, Total: total, HasNext: hasNext}, nil
 }
 
 func (r Repository) AdjustFinished(ctx context.Context, cmd inventoryapp.AdjustFinishedInventoryCommand) error {
@@ -175,7 +184,7 @@ func (r Repository) AdjustFinished(ctx context.Context, cmd inventoryapp.AdjustF
 }
 
 func (r Repository) ListAllocations(ctx context.Context, query inventoryapp.AllocationLogQuery) (inventoryapp.AllocationLogResult, error) {
-	batches, hasNext, err := r.listAllocationBatches(ctx, query.Limit, query.Offset)
+	batches, total, hasNext, err := r.listAllocationBatches(ctx, query.Limit, query.Offset)
 	if err != nil {
 		return inventoryapp.AllocationLogResult{}, err
 	}
@@ -195,10 +204,18 @@ func (r Repository) ListAllocations(ctx context.Context, query inventoryapp.Allo
 		Batches: batches,
 		Rows:    rows,
 		HasNext: hasNext,
+		Total:   total,
 	}, nil
 }
 
-func (r Repository) listAllocationBatches(ctx context.Context, limit, offset int) ([]inventoryapp.AllocationBatchRow, bool, error) {
+func (r Repository) listAllocationBatches(ctx context.Context, limit, offset int) ([]inventoryapp.AllocationBatchRow, int, bool, error) {
+	var total int
+	if err := r.pool.QueryRow(ctx, fmt.Sprintf(`
+		SELECT count(DISTINCT batch_id)::int
+		FROM %s.finished_allocation_logs
+	`, r.schema)).Scan(&total); err != nil {
+		return nil, 0, false, err
+	}
 	q := fmt.Sprintf(`
 		SELECT batch_id,
 		       count(*)::bigint as items,
@@ -211,14 +228,14 @@ func (r Repository) listAllocationBatches(ctx context.Context, limit, offset int
 	`, r.schema)
 	rows, err := r.pool.Query(ctx, q, limit+1, offset)
 	if err != nil {
-		return nil, false, err
+		return nil, 0, false, err
 	}
 	defer rows.Close()
 	out := make([]inventoryapp.AllocationBatchRow, 0)
 	for rows.Next() {
 		var row inventoryapp.AllocationBatchRow
 		if err := rows.Scan(&row.BatchID, &row.Items, &row.Operator, &row.CreatedAt); err != nil {
-			return nil, false, err
+			return nil, 0, false, err
 		}
 		row.OperatorName = strings.TrimSpace(row.Operator)
 		if row.OperatorName == "" {
@@ -227,12 +244,12 @@ func (r Repository) listAllocationBatches(ctx context.Context, limit, offset int
 		out = append(out, row)
 	}
 	if err := rows.Err(); err != nil {
-		return nil, false, err
+		return nil, 0, false, err
 	}
 	if len(out) > limit {
-		return out[:limit], true, nil
+		return out[:limit], total, true, nil
 	}
-	return out, false, nil
+	return out, total, false, nil
 }
 
 func (r Repository) fetchAllocationLogsByBatch(ctx context.Context, batchID string) ([]inventoryapp.AllocationLogRow, error) {

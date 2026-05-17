@@ -42,11 +42,13 @@
             </tbody>
           </table>
         </div>
-        <div class="pager">
-          <button class="secondary" type="button" :disabled="!hasPrev" @click="changePage(prevPage)">上一页</button>
-          <span class="muted">第 {{ page }} 页</span>
-          <button class="secondary" type="button" :disabled="!hasNext" @click="changePage(nextPage)">下一页</button>
-        </div>
+        <PaginationControls
+          :page="page"
+          :page-size="perPage"
+          :total="totalBatches"
+          :disabled="loading"
+          @change="handleBatchPaginationChange"
+        />
       </div>
 
       <div class="panel">
@@ -89,6 +91,8 @@
 <script setup>
 import { onMounted, ref } from 'vue'
 import { apiGet } from '../api/client'
+import PaginationControls from '../components/PaginationControls.vue'
+import { normalizePageSize, paginationFromApi } from '../lib/pagination'
 import { replaceHistoryURL } from '../lib/url-state'
 
 const loading = ref(false)
@@ -98,18 +102,14 @@ const batches = ref([])
 const batchId = ref('')
 const page = ref(1)
 const perPage = ref(20)
-const hasPrev = ref(false)
-const hasNext = ref(false)
-const prevPage = ref(0)
-const nextPage = ref(2)
+const totalBatches = ref(0)
 
 function applyUrlState() {
   const params = new URL(window.location.href).searchParams
   batchId.value = params.get('batch') || ''
   page.value = Number(params.get('page') || 1)
   if (!Number.isFinite(page.value) || page.value <= 0) page.value = 1
-  perPage.value = Number(params.get('per_page') || 20)
-  if (!Number.isFinite(perPage.value) || perPage.value <= 0) perPage.value = 20
+  perPage.value = normalizePageSize(params.get('per_page') || params.get('limit') || 20)
 }
 
 function updateUrl() {
@@ -131,15 +131,13 @@ async function load() {
     url.searchParams.set('per_page', String(perPage.value))
     if (batchId.value) url.searchParams.set('batch', batchId.value)
     const data = await apiGet(url.toString())
+    const pagination = paginationFromApi(data)
     rows.value = data.rows || []
     batches.value = data.batches || []
     batchId.value = data.batch_id || ''
-    page.value = Number(data.page || 1)
-    perPage.value = Number(data.per_page || 20)
-    hasPrev.value = Boolean(data.has_prev)
-    hasNext.value = Boolean(data.has_next)
-    prevPage.value = Number(data.prev_page || 0)
-    nextPage.value = Number(data.next_page || page.value + 1)
+    page.value = pagination.page
+    perPage.value = pagination.pageSize
+    totalBatches.value = pagination.total
     updateUrl()
   } catch (err) {
     error.value = err.message || '加载失败'
@@ -153,9 +151,9 @@ function selectBatch(id) {
   load()
 }
 
-function changePage(next) {
-  if (!next || next < 1) return
-  page.value = next
+function handleBatchPaginationChange({ page: nextPage, pageSize }) {
+  page.value = nextPage
+  perPage.value = normalizePageSize(pageSize)
   batchId.value = ''
   load()
 }
@@ -176,7 +174,7 @@ onMounted(() => {
 .panel { border: 1px solid #e6e0d8; border-radius: 8px; background: #fff; padding: 14px; min-width: 0; }
 .panel-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 12px; }
 h2 { margin: 0; font-size: 20px; }
-.actions, .pager { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .grid { display: grid; grid-template-columns: minmax(360px, .9fr) minmax(520px, 1.4fr); gap: 14px; margin-top: 14px; align-items: start; }
 .section-title { font-weight: 700; margin-bottom: 10px; }
 .current { color: #444; margin-bottom: 10px; font-size: 13px; }

@@ -93,11 +93,13 @@
           </tbody>
         </table>
       </div>
-      <div class="pager">
-        <button class="secondary" type="button" @click="loadPage(page - 1)" :disabled="!hasPrev || loading">上一页</button>
-        <span>第 {{ page }} / {{ totalPages }} 页</span>
-        <button class="secondary" type="button" @click="loadPage(page + 1)" :disabled="!hasNext || loading">下一页</button>
-      </div>
+      <PaginationControls
+        :page="page"
+        :page-size="pageSize"
+        :total="total"
+        :disabled="loading"
+        @change="handlePaginationChange"
+      />
     </section>
   </div>
 </template>
@@ -105,6 +107,8 @@
 <script setup>
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { apiGet, apiSend } from '../api/client'
+import PaginationControls from '../components/PaginationControls.vue'
+import { normalizePageSize } from '../lib/pagination'
 import { replaceHistoryURL } from '../lib/url-state'
 
 const props = defineProps({
@@ -125,6 +129,7 @@ const saving = ref(false)
 const error = ref('')
 const ok = ref(false)
 const page = ref(1)
+const pageSize = ref(10)
 const total = ref(0)
 const totalPages = ref(1)
 const hasPrev = ref(false)
@@ -151,6 +156,7 @@ function updateUrl() {
   const url = new URL(window.location.href)
   url.searchParams.set('view', props.viewKey)
   url.searchParams.set('page', String(page.value))
+  url.searchParams.set('limit', String(pageSize.value))
   replaceHistoryURL(url)
 }
 
@@ -159,13 +165,18 @@ async function loadPage(nextPage) {
   await load()
 }
 
+async function handlePaginationChange({ page: nextPage, pageSize: nextPageSize }) {
+  pageSize.value = normalizePageSize(nextPageSize)
+  await loadPage(nextPage)
+}
+
 async function load() {
   loading.value = true
   error.value = ''
   try {
     const url = new URL(`/api/req/${config.value.type}`, window.location.origin)
     url.searchParams.set('page', String(page.value))
-    url.searchParams.set('limit', '10')
+    url.searchParams.set('limit', String(pageSize.value))
     const data = await apiGet(`${url.pathname}${url.search}`)
     rows.value = data.rows || []
     total.value = Number(data.total || 0)
@@ -173,6 +184,7 @@ async function load() {
     hasPrev.value = !!data.has_prev
     hasNext.value = !!data.has_next
     page.value = Number(data.page || page.value)
+    pageSize.value = normalizePageSize(data.limit || pageSize.value)
     for (const row of rows.value) {
       statusDraft[row.code] = row.status || 'todo'
     }
@@ -232,6 +244,7 @@ watch(() => props.viewKey, () => {
 onMounted(() => {
   const params = new URL(window.location.href).searchParams
   page.value = Math.max(1, Number(params.get('page') || 1))
+  pageSize.value = normalizePageSize(params.get('limit') || pageSize.value)
   load()
 })
 </script>
@@ -265,7 +278,6 @@ th { background: #fbfaf8; position: sticky; top: 0; }
 .pill.done { border-color: #9fc7a3; background: #f2fff3; color: #27602d; }
 .pill.doing, .pill.review { border-color: #d9c48a; background: #fff9df; color: #6a5313; }
 .muted { color: #666; text-align: center; }
-.pager { display: flex; gap: 10px; align-items: center; justify-content: flex-end; margin-top: 12px; }
 .error, .ok { border-radius: 6px; padding: 9px; margin-bottom: 12px; }
 .error { background: #fff0f0; border: 1px solid #e6b7b7; color: #8a1f1f; }
 .ok { background: #f0fff0; border: 1px solid #b7d9b7; color: #246024; }

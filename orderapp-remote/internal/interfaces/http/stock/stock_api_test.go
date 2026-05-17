@@ -60,7 +60,7 @@ func (f *fakeStockRepo) ListOutboundLogs(ctx context.Context, query stockapp.Out
 		CreatedBy:       "stock",
 		DownloadURL:     "/orders/22/delivery-notes/11.pdf",
 		LatestURL:       "/orders/22/delivery-note-latest.pdf",
-	}}}, nil
+	}}, Total: 31}, nil
 }
 func (f *fakeStockRepo) GetStockTrace(ctx context.Context, query stockapp.StockTraceQuery) (stockapp.StockTraceResult, error) {
 	f.traceQuery = query
@@ -165,7 +165,7 @@ func TestStockAPIRoutes(t *testing.T) {
 	if repo.outboundQuery.Q != "SO-20260503" || repo.outboundQuery.Limit != 30 {
 		t.Fatalf("outbound log query = %+v", repo.outboundQuery)
 	}
-	for _, want := range []string{`"order_no":"SO-20260503-0001"`, `"delivery_method":"顺丰发货"`, `"download_url":"/orders/22/delivery-notes/11.pdf"`, `"latest_url":"/orders/22/delivery-note-latest.pdf"`} {
+	for _, want := range []string{`"order_no":"SO-20260503-0001"`, `"delivery_method":"顺丰发货"`, `"download_url":"/orders/22/delivery-notes/11.pdf"`, `"latest_url":"/orders/22/delivery-note-latest.pdf"`, `"total":31`, `"total_pages":2`} {
 		if !bytes.Contains(rec.Body.Bytes(), []byte(want)) {
 			t.Fatalf("GET outbound logs missing %s: %s", want, rec.Body.String())
 		}

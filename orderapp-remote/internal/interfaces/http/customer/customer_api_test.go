@@ -26,7 +26,7 @@ func (r *fakeCustomerRepo) Upsert(ctx context.Context, actor string, id *int64, 
 
 func (r *fakeCustomerRepo) List(ctx context.Context, query customerapp.ListQuery) (customerapp.ListResult, error) {
 	r.listQuery = query
-	return customerapp.ListResult{}, nil
+	return customerapp.ListResult{Total: 37}, nil
 }
 
 func (r *fakeCustomerRepo) Editor(ctx context.Context, id int64) (*customerapp.EditorData, error) {
@@ -176,6 +176,11 @@ func TestCustomerAPIIndexSupportsFiltersAndSortParams(t *testing.T) {
 	}
 	if repo.listQuery.Query != "王" {
 		t.Fatalf("list query=%q, want 王", repo.listQuery.Query)
+	}
+	for _, want := range []string{`"total":37`, `"total_pages":4`, `"page":3`, `"limit":10`} {
+		if !strings.Contains(rec.Body.String(), want) {
+			t.Fatalf("GET /api/customers missing pagination marker %s: %s", want, rec.Body.String())
+		}
 	}
 }
 

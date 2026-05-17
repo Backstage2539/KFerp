@@ -354,11 +354,13 @@
         </table>
       </div>
 
-      <div class="pager">
-        <button class="secondary" type="button" @click="loadFulfillmentOrders(fulfillmentOrdersPage - 1)" :disabled="!fulfillmentOrdersHasPrev || fulfillmentOrdersLoading">上一页</button>
-        <span>第 {{ fulfillmentOrdersPage }} 页</span>
-        <button class="secondary" type="button" @click="loadFulfillmentOrders(fulfillmentOrdersPage + 1)" :disabled="!fulfillmentOrdersHasNext || fulfillmentOrdersLoading">下一页</button>
-      </div>
+      <PaginationControls
+        :page="fulfillmentOrdersPage"
+        :page-size="fulfillmentOrdersLimit"
+        :total="Number(fulfillmentOrdersSummary.orders || 0)"
+        :disabled="fulfillmentOrdersLoading"
+        @change="handleFulfillmentOrdersPagination"
+      />
     </section>
 
     <div v-if="orderDetailDrawerOpen" class="order-detail-drawer-mask" @click.self="closeOrderDetailDrawer">
@@ -457,6 +459,7 @@
 
 <script setup>
 import { computed, onMounted, reactive, ref } from 'vue'
+import PaginationControls from '../components/PaginationControls.vue'
 import SearchableSelect from '../components/SearchableSelect.vue'
 import DeliveryNoteView from './DeliveryNoteView.vue'
 import SalesOrderView from './SalesOrderView.vue'
@@ -471,6 +474,7 @@ import {
 import { customerFulfillmentOrderFees, customerFulfillmentSubmitCopy } from '../lib/customer-fulfillment'
 import { lineTotal, syncWholesaleTierPrice, toInt, wholesalePriceUnit, wholesaleTierPriceRows } from '../lib/order-entry'
 import { parseRecipientText } from '../lib/customer-recipient'
+import { normalizePageSize } from '../lib/pagination'
 
 const loading = ref(false)
 const error = ref('')
@@ -480,6 +484,7 @@ const fulfillmentOptions = ref({})
 const fulfillmentOrders = ref([])
 const fulfillmentOrdersSummary = ref({})
 const fulfillmentOrdersPage = ref(1)
+const fulfillmentOrdersLimit = ref(10)
 const fulfillmentOrdersHasPrev = ref(false)
 const fulfillmentOrdersHasNext = ref(false)
 const fulfillmentOrdersLoading = ref(false)
@@ -662,13 +667,19 @@ async function loadFulfillmentOrders(page = fulfillmentOrdersPage.value) {
 }
 
 function loadFulfillmentOrdersData(customerId, page = 1) {
-  return fetchCustomerFulfillmentOrders(customerId, { page, limit: 10 })
+  return fetchCustomerFulfillmentOrders(customerId, { page, limit: fulfillmentOrdersLimit.value })
+}
+
+function handleFulfillmentOrdersPagination({ page, pageSize }) {
+  fulfillmentOrdersLimit.value = normalizePageSize(pageSize)
+  loadFulfillmentOrders(page)
 }
 
 function assignFulfillmentOrders(data = {}) {
   fulfillmentOrders.value = Array.isArray(data?.rows) ? data.rows : []
   fulfillmentOrdersSummary.value = data?.summary || {}
   fulfillmentOrdersPage.value = Number(data?.page || fulfillmentOrdersPage.value || 1)
+  fulfillmentOrdersLimit.value = normalizePageSize(data?.limit || fulfillmentOrdersLimit.value)
   fulfillmentOrdersHasPrev.value = Boolean(data?.has_prev)
   fulfillmentOrdersHasNext.value = Boolean(data?.has_next)
   const currentID = Number(activeOrderSummary.value?.id || 0)
@@ -1277,7 +1288,6 @@ th {
 
 .head-actions,
 .actions-inline,
-.pager,
 .drawer-actions {
   display: flex;
   align-items: center;
@@ -1366,11 +1376,6 @@ th {
 
 .fee-line.emphasized strong {
   color: #0f766e;
-}
-
-.pager {
-  justify-content: flex-end;
-  padding: 10px 14px 14px;
 }
 
 .empty-row {

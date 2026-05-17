@@ -132,6 +132,8 @@ func (h orderAPIHandler) list(c echo.Context) error {
 	if err != nil {
 		return c.JSON(http.StatusInternalServerError, map[string]any{"error": err.Error()})
 	}
+	total := result.Summary.Orders
+	totalPages := orderAPITotalPages(total, query.Limit)
 
 	return c.JSON(http.StatusOK, map[string]any{
 		"rows":             result.Rows,
@@ -143,9 +145,21 @@ func (h orderAPIHandler) list(c echo.Context) error {
 		"page":             query.Page,
 		"limit":            query.Limit,
 		"offset":           query.Offset,
+		"total":            total,
+		"total_pages":      totalPages,
 		"has_prev":         query.Offset > 0,
-		"has_next":         result.HasNext,
+		"has_next":         query.Page < totalPages,
 	})
+}
+
+func orderAPITotalPages(total, limit int) int {
+	if limit <= 0 {
+		limit = 10
+	}
+	if total <= 0 {
+		return 1
+	}
+	return (total + limit - 1) / limit
 }
 
 func (h orderAPIHandler) form(c echo.Context) error {

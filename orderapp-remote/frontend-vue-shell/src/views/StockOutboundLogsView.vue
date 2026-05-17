@@ -80,11 +80,13 @@
           </tbody>
         </table>
       </div>
-      <div class="pager">
-        <button class="secondary" type="button" @click="loadPage(page - 1)" :disabled="page <= 1 || loading">上一页</button>
-        <span>第 {{ page }} 页</span>
-        <button class="secondary" type="button" @click="loadPage(page + 1)" :disabled="!hasNext || loading">下一页</button>
-      </div>
+      <PaginationControls
+        :page="page"
+        :page-size="limit"
+        :total="total"
+        :disabled="loading"
+        @change="handlePaginationChange"
+      />
     </section>
 
     <div v-if="deliveryNoteDrawerOpen" class="delivery-note-drawer-mask" @click.self="closeDeliveryNote">
@@ -98,6 +100,8 @@
 <script setup>
 import { onMounted, reactive, ref } from 'vue'
 import { apiGet } from '../api/client'
+import PaginationControls from '../components/PaginationControls.vue'
+import { normalizePageSize, paginationFromApi } from '../lib/pagination'
 import DeliveryNoteView from './DeliveryNoteView.vue'
 
 const rows = ref([])
@@ -105,7 +109,8 @@ const loading = ref(false)
 const error = ref('')
 const page = ref(1)
 const hasNext = ref(false)
-const limit = 50
+const limit = ref(50)
+const total = ref(0)
 const deliveryNoteDrawerOpen = ref(false)
 const activeOrderID = ref(0)
 const filters = reactive({ q: '', from: '', to: '' })
@@ -115,19 +120,28 @@ async function loadPage(nextPage) {
   await load()
 }
 
+async function handlePaginationChange({ page: nextPage, pageSize }) {
+  limit.value = normalizePageSize(pageSize)
+  await loadPage(nextPage)
+}
+
 async function load() {
   loading.value = true
   error.value = ''
   try {
     const url = new URL('/api/stock/outbound-logs', window.location.origin)
-    url.searchParams.set('limit', String(limit))
-    url.searchParams.set('offset', String((page.value - 1) * limit))
+    url.searchParams.set('limit', String(limit.value))
+    url.searchParams.set('page', String(page.value))
     for (const [key, val] of Object.entries(filters)) {
       if (val) url.searchParams.set(key, val)
     }
     const data = await apiGet(url)
     rows.value = data.rows || []
-    hasNext.value = Boolean(data.has_next)
+    const pagination = paginationFromApi(data)
+    total.value = pagination.total
+    page.value = pagination.page
+    limit.value = pagination.pageSize
+    hasNext.value = pagination.hasNext
   } catch (err) {
     error.value = err.message || '加载出库日志失败'
   } finally {
@@ -190,7 +204,6 @@ th { background: #fbfbfb; color: #555; font-weight: 600; }
 .version-tag.latest { border-color: #cfe8d4; background: #eef8f1; color: #1f6f4a; }
 .actions-cell { display: flex; gap: 10px; align-items: center; white-space: nowrap; }
 .muted { color: #777; text-align: center; }
-.pager { display: flex; align-items: center; justify-content: flex-end; gap: 10px; margin-top: 12px; }
 .delivery-note-drawer-mask { position: fixed; inset: 0; z-index: 40; display: flex; justify-content: flex-end; background: rgba(0, 0, 0, .24); }
 .delivery-note-drawer { width: min(980px, calc(100vw - 28px)); height: 100%; overflow: auto; background: #f8f7f4; border-left: 1px solid #e6e0d8; box-shadow: -10px 0 24px rgba(0, 0, 0, .14); }
 @media (max-width: 900px) {

@@ -58,23 +58,50 @@ func (h coreHandler) auditAPI(c echo.Context) error {
 	if limit > 500 {
 		limit = 500
 	}
+	page := IntParam(c, "page", 1)
+	if page <= 0 {
+		page = 1
+	}
+	offset := IntParam(c, "offset", (page-1)*limit)
+	if offset < 0 {
+		offset = 0
+	}
+	page = (offset / limit) + 1
 	data := AuditPageData{
 		From:       strings.TrimSpace(c.QueryParam("from")),
 		To:         strings.TrimSpace(c.QueryParam("to")),
 		Q:          strings.TrimSpace(c.QueryParam("q")),
 		EntityType: strings.TrimSpace(c.QueryParam("type")),
 	}
-	rows, err := fetchAuditPage(c.Request().Context(), h.pool, h.schema, data.From, data.To, data.Q, data.EntityType, limit)
+	result, err := fetchAuditPage(c.Request().Context(), h.pool, h.schema, data.From, data.To, data.Q, data.EntityType, limit, offset)
 	if err != nil {
 		return c.JSON(http.StatusInternalServerError, map[string]any{"error": err.Error()})
 	}
+	totalPages := auditPageCount(result.Total, limit)
 	return c.JSON(http.StatusOK, map[string]any{
-		"rows": rows,
+		"rows": result.Rows,
 		"filters": map[string]any{
 			"from": data.From,
 			"to":   data.To,
 			"q":    data.Q,
 			"type": data.EntityType,
 		},
+		"page":        page,
+		"limit":       limit,
+		"offset":      offset,
+		"total":       result.Total,
+		"total_pages": totalPages,
+		"has_prev":    page > 1,
+		"has_next":    page < totalPages,
 	})
+}
+
+func auditPageCount(total, limit int) int {
+	if limit <= 0 {
+		limit = 200
+	}
+	if total <= 0 {
+		return 1
+	}
+	return (total + limit - 1) / limit
 }
