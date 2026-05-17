@@ -110,6 +110,7 @@ import { clearStoredAuthToken, fetchCurrentActor, hasStoredAuthToken, logoutCurr
 import { appURL } from './api/client.js'
 import { fetchERPNotifications, markNotificationRead } from './api/message-center.js'
 import { replaceHistoryURL, viewNavigationURL } from './lib/url-state.js'
+import { installTableAutoPagination } from './lib/table-auto-pagination.js'
 import {
   defaultExpandedGroups,
   groupForView,
@@ -140,6 +141,7 @@ const authError = ref('')
 const currentActor = ref(null)
 const notifications = ref([])
 let notificationTimer = 0
+let stopTableAutoPagination = null
 
 const internalViews = {
   order: OrderEntryView,
@@ -406,6 +408,7 @@ async function logout() {
 
 onMounted(async () => {
   handleResize()
+  stopTableAutoPagination = installTableAutoPagination(document.querySelector('.content') || document.body)
   expandedGroups.value = restoreExpandedGroups(
     availableMenuGroups.value,
     readStoredExpandedGroups(),
@@ -419,6 +422,7 @@ onMounted(async () => {
 onBeforeUnmount(() => {
   window.removeEventListener('resize', handleResize)
   window.removeEventListener('kferp:navigate-view', handleNavigateView)
+  if (stopTableAutoPagination) stopTableAutoPagination()
   stopNotificationPolling()
 })
 
@@ -527,6 +531,40 @@ const activeNotification = computed(() => notifications.value[0] || null)
   color: inherit;
   cursor: pointer;
 }
+
+:global(.list-pagination-controls) {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-top: 12px;
+  color: #333;
+}
+:global(.list-pagination-controls .pagination-summary) { font-size: 13px; color: #5f6368; }
+:global(.list-pagination-controls .pagination-actions) { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+:global(.list-pagination-controls label) { display: inline-flex; align-items: center; gap: 6px; color: #666; font-size: 13px; }
+:global(.list-pagination-controls input),
+:global(.list-pagination-controls select) {
+  height: 34px;
+  border: 1px solid #cfc8bf;
+  border-radius: 6px;
+  padding: 6px 8px;
+  font: inherit;
+  background: #fff;
+}
+:global(.list-pagination-controls input) { width: 72px; }
+:global(.list-pagination-controls button) {
+  min-height: 34px;
+  border-radius: 6px;
+  border: 1px solid #999;
+  padding: 6px 10px;
+  font: inherit;
+  background: #fff;
+  color: #1f1f1f;
+  cursor: pointer;
+}
+:global(.list-pagination-controls button:disabled) { cursor: not-allowed; opacity: .55; }
 
 @media (max-width: 900px) {
   .sidebar.mobile {

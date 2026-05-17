@@ -155,6 +155,8 @@ func (h customerHandler) indexAPI(c echo.Context) error {
 		"page":           (offset / limit) + 1,
 		"limit":          limit,
 		"offset":         offset,
+		"total":          result.Total,
+		"total_pages":    pageCount(result.Total, limit),
 		"customer_type":  customerType,
 		"active":         formatActiveFilter(active),
 		"sort_by":        c.QueryParam("sort_by"),
@@ -162,6 +164,16 @@ func (h customerHandler) indexAPI(c echo.Context) error {
 		"has_prev":       offset > 0,
 		"has_next":       result.HasNext,
 	})
+}
+
+func pageCount(total, limit int) int {
+	if limit <= 0 {
+		limit = 10
+	}
+	if total <= 0 {
+		return 1
+	}
+	return (total + limit - 1) / limit
 }
 
 func parseTriStateBool(value string) *bool {

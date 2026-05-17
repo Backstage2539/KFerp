@@ -60,9 +60,9 @@
         </label>
         <label>
           <span>搜索</span>
-          <input v-model.trim="filters.q" placeholder="操作者/字段/内容" @keyup.enter="load" />
+          <input v-model.trim="filters.q" placeholder="操作者/字段/内容" @keyup.enter="loadPage(1)" />
         </label>
-        <button class="primary" type="button" @click="load" :disabled="loading">筛选</button>
+        <button class="primary" type="button" @click="loadPage(1)" :disabled="loading">筛选</button>
       </div>
     </section>
 
@@ -105,6 +105,13 @@
           </tbody>
         </table>
       </div>
+      <PaginationControls
+        :page="page"
+        :page-size="pageSize"
+        :total="total"
+        :disabled="loading"
+        @change="handlePaginationChange"
+      />
     </section>
   </div>
 </template>
@@ -112,11 +119,16 @@
 <script setup>
 import { onMounted, reactive, ref } from 'vue'
 import { apiGet } from '../api/client'
+import PaginationControls from '../components/PaginationControls.vue'
+import { normalizePageSize, paginationFromApi } from '../lib/pagination'
 import { replaceHistoryURL } from '../lib/url-state'
 
 const loading = ref(false)
 const error = ref('')
 const rows = ref([])
+const page = ref(1)
+const pageSize = ref(20)
+const total = ref(0)
 const filters = reactive({
   from: '',
   to: '',
@@ -130,6 +142,8 @@ function applyUrlFilters() {
   filters.to = params.get('to') || ''
   filters.type = params.get('type') || ''
   filters.q = params.get('q') || ''
+  page.value = Math.max(1, Number(params.get('page') || 1))
+  pageSize.value = normalizePageSize(params.get('limit') || pageSize.value)
 }
 
 function updateUrl() {
@@ -139,7 +153,19 @@ function updateUrl() {
     if (filters[key]) url.searchParams.set(key, filters[key])
     else url.searchParams.delete(key)
   }
+  url.searchParams.set('page', String(page.value))
+  url.searchParams.set('limit', String(pageSize.value))
   replaceHistoryURL(url)
+}
+
+async function loadPage(nextPage) {
+  page.value = Math.max(1, Number(nextPage || 1))
+  await load()
+}
+
+async function handlePaginationChange({ page: nextPage, pageSize: nextPageSize }) {
+  pageSize.value = normalizePageSize(nextPageSize)
+  await loadPage(nextPage)
 }
 
 async function load() {
@@ -150,8 +176,14 @@ async function load() {
     for (const key of ['from', 'to', 'type', 'q']) {
       if (filters[key]) url.searchParams.set(key, filters[key])
     }
+    url.searchParams.set('page', String(page.value))
+    url.searchParams.set('limit', String(pageSize.value))
     const data = await apiGet(url)
     rows.value = data.rows || []
+    const pagination = paginationFromApi(data)
+    total.value = pagination.total
+    page.value = pagination.page
+    pageSize.value = pagination.pageSize
     updateUrl()
   } catch (err) {
     error.value = err.message || '加载失败'

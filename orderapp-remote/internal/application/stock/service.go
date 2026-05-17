@@ -41,8 +41,13 @@ type LedgerRow struct {
 }
 
 type LedgerResult struct {
-	Rows    []LedgerRow `json:"rows"`
-	HasNext bool        `json:"has_next"`
+	Rows       []LedgerRow `json:"rows"`
+	HasNext    bool        `json:"has_next"`
+	Total      int         `json:"total"`
+	Page       int         `json:"page"`
+	Limit      int         `json:"limit"`
+	Offset     int         `json:"offset"`
+	TotalPages int         `json:"total_pages"`
 }
 
 type BatchQuery struct {
@@ -73,8 +78,13 @@ type BatchRow struct {
 }
 
 type BatchResult struct {
-	Rows    []BatchRow `json:"rows"`
-	HasNext bool       `json:"has_next"`
+	Rows       []BatchRow `json:"rows"`
+	HasNext    bool       `json:"has_next"`
+	Total      int        `json:"total"`
+	Page       int        `json:"page"`
+	Limit      int        `json:"limit"`
+	Offset     int        `json:"offset"`
+	TotalPages int        `json:"total_pages"`
 }
 
 type MaterialBatchQuery struct {
@@ -102,8 +112,13 @@ type MaterialBatchRow struct {
 }
 
 type MaterialBatchResult struct {
-	Rows    []MaterialBatchRow `json:"rows"`
-	HasNext bool               `json:"has_next"`
+	Rows       []MaterialBatchRow `json:"rows"`
+	HasNext    bool               `json:"has_next"`
+	Total      int                `json:"total"`
+	Page       int                `json:"page"`
+	Limit      int                `json:"limit"`
+	Offset     int                `json:"offset"`
+	TotalPages int                `json:"total_pages"`
 }
 
 type WarehouseRow struct {
@@ -140,8 +155,13 @@ type MaterialBatchLocationRow struct {
 }
 
 type MaterialBatchLocationResult struct {
-	Rows    []MaterialBatchLocationRow `json:"rows"`
-	HasNext bool                       `json:"has_next"`
+	Rows       []MaterialBatchLocationRow `json:"rows"`
+	HasNext    bool                       `json:"has_next"`
+	Total      int                        `json:"total"`
+	Page       int                        `json:"page"`
+	Limit      int                        `json:"limit"`
+	Offset     int                        `json:"offset"`
+	TotalPages int                        `json:"total_pages"`
 }
 
 type WarehouseInventoryQuery struct {
@@ -170,8 +190,13 @@ type WarehouseInventoryRow struct {
 }
 
 type WarehouseInventoryResult struct {
-	Rows    []WarehouseInventoryRow `json:"rows"`
-	HasNext bool                    `json:"has_next"`
+	Rows       []WarehouseInventoryRow `json:"rows"`
+	HasNext    bool                    `json:"has_next"`
+	Total      int                     `json:"total"`
+	Page       int                     `json:"page"`
+	Limit      int                     `json:"limit"`
+	Offset     int                     `json:"offset"`
+	TotalPages int                     `json:"total_pages"`
 }
 
 type OutboundLogQuery struct {
@@ -205,8 +230,13 @@ type OutboundLogRow struct {
 }
 
 type OutboundLogResult struct {
-	Rows    []OutboundLogRow `json:"rows"`
-	HasNext bool             `json:"has_next"`
+	Rows       []OutboundLogRow `json:"rows"`
+	HasNext    bool             `json:"has_next"`
+	Total      int              `json:"total"`
+	Page       int              `json:"page"`
+	Limit      int              `json:"limit"`
+	Offset     int              `json:"offset"`
+	TotalPages int              `json:"total_pages"`
 }
 
 type StockTraceQuery struct {

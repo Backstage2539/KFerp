@@ -63,6 +63,14 @@ func (r Repository) ListLedger(ctx context.Context, query stockapp.LedgerQuery) 
 	if query.To != "" {
 		add("created_at < ($%d::date + INTERVAL '1 day')", query.To)
 	}
+	var total int
+	if err := r.pool.QueryRow(ctx, fmt.Sprintf(`
+		SELECT count(*)::int
+		FROM %s.stock_ledger_entries
+		WHERE %s
+	`, r.schema, strings.Join(where, " AND ")), args...).Scan(&total); err != nil {
+		return stockapp.LedgerResult{}, err
+	}
 	args = append(args, query.Limit+1, query.Offset)
 	limitArg, offsetArg := len(args)-1, len(args)
 	sql := fmt.Sprintf(`
@@ -97,7 +105,7 @@ func (r Repository) ListLedger(ctx context.Context, query stockapp.LedgerQuery) 
 		out = out[:query.Limit]
 		hasNext = true
 	}
-	return stockapp.LedgerResult{Rows: out, HasNext: hasNext}, nil
+	return stockapp.LedgerResult{Rows: out, Total: total, HasNext: hasNext}, nil
 }
 
 func (r Repository) ListBatches(ctx context.Context, query stockapp.BatchQuery) (stockapp.BatchResult, error) {
@@ -109,6 +117,14 @@ func (r Repository) ListBatches(ctx context.Context, query stockapp.BatchQuery) 
 	if query.ItemType != "" {
 		args = append(args, query.ItemType)
 		where = append(where, fmt.Sprintf("item_type=$%d", len(args)))
+	}
+	var total int
+	if err := r.pool.QueryRow(ctx, fmt.Sprintf(`
+		SELECT count(*)::int
+		FROM %s.stock_batches
+		WHERE %s
+	`, r.schema, strings.Join(where, " AND ")), args...).Scan(&total); err != nil {
+		return stockapp.BatchResult{}, err
 	}
 	args = append(args, query.Limit+1, query.Offset)
 	limitArg, offsetArg := len(args)-1, len(args)
@@ -144,7 +160,7 @@ func (r Repository) ListBatches(ctx context.Context, query stockapp.BatchQuery) 
 		out = out[:query.Limit]
 		hasNext = true
 	}
-	return stockapp.BatchResult{Rows: out, HasNext: hasNext}, nil
+	return stockapp.BatchResult{Rows: out, Total: total, HasNext: hasNext}, nil
 }
 
 func (r Repository) ListMaterialBatches(ctx context.Context, query stockapp.MaterialBatchQuery) (stockapp.MaterialBatchResult, error) {
@@ -159,6 +175,15 @@ func (r Repository) ListMaterialBatches(ctx context.Context, query stockapp.Mate
 	}
 	if query.ActiveOnly {
 		where = append(where, "b.remaining_g > 0 AND b.status='active' AND COALESCE(b.quality_status,'unchecked') NOT IN ('hold','reject')")
+	}
+	var total int
+	if err := r.pool.QueryRow(ctx, fmt.Sprintf(`
+		SELECT count(*)::int
+		FROM %s.material_batches b
+		LEFT JOIN %s.materials m ON m.id=b.material_id
+		WHERE %s
+	`, r.schema, r.schema, strings.Join(where, " AND ")), args...).Scan(&total); err != nil {
+		return stockapp.MaterialBatchResult{}, err
 	}
 	args = append(args, query.Limit+1, query.Offset)
 	limitArg, offsetArg := len(args)-1, len(args)
@@ -193,7 +218,7 @@ func (r Repository) ListMaterialBatches(ctx context.Context, query stockapp.Mate
 		out = out[:query.Limit]
 		hasNext = true
 	}
-	return stockapp.MaterialBatchResult{Rows: out, HasNext: hasNext}, nil
+	return stockapp.MaterialBatchResult{Rows: out, Total: total, HasNext: hasNext}, nil
 }
 
 func (r Repository) ListWarehouses(ctx context.Context) ([]stockapp.WarehouseRow, error) {
@@ -235,6 +260,16 @@ func (r Repository) ListMaterialBatchLocations(ctx context.Context, query stocka
 	if query.ActiveOnly {
 		where = append(where, "l.qty_g > 0 AND COALESCE(b.quality_status,'unchecked') NOT IN ('hold','reject')")
 	}
+	var total int
+	if err := r.pool.QueryRow(ctx, fmt.Sprintf(`
+		SELECT count(*)::int
+		FROM %s.material_batch_locations l
+		LEFT JOIN %s.material_batches b ON b.id=l.material_batch_id
+		LEFT JOIN %s.materials m ON m.id=l.material_id
+		WHERE %s
+	`, r.schema, r.schema, r.schema, strings.Join(where, " AND ")), args...).Scan(&total); err != nil {
+		return stockapp.MaterialBatchLocationResult{}, err
+	}
 	args = append(args, query.Limit+1, query.Offset)
 	limitArg, offsetArg := len(args)-1, len(args)
 	rows, err := r.pool.Query(ctx, fmt.Sprintf(`
@@ -271,7 +306,7 @@ func (r Repository) ListMaterialBatchLocations(ctx context.Context, query stocka
 		out = out[:query.Limit]
 		hasNext = true
 	}
-	return stockapp.MaterialBatchLocationResult{Rows: out, HasNext: hasNext}, nil
+	return stockapp.MaterialBatchLocationResult{Rows: out, Total: total, HasNext: hasNext}, nil
 }
 
 func (r Repository) ListWarehouseInventory(ctx context.Context, query stockapp.WarehouseInventoryQuery) (stockapp.WarehouseInventoryResult, error) {
@@ -366,7 +401,8 @@ func (r Repository) ListWarehouseInventory(ctx context.Context, query stockapp.W
 			  )
 		)
 		SELECT warehouse,warehouse_name,warehouse_kind,item_type,item_id,item_name,spec_g,batch_id,batch_code,
-		       qty_g,qty_units,COALESCE(unit_cost,0),quality_status,to_char(updated_at,'YYYY-MM-DD HH24:MI')
+		       qty_g,qty_units,COALESCE(unit_cost,0),quality_status,to_char(updated_at,'YYYY-MM-DD HH24:MI'),
+		       count(*) OVER()::int AS total_count
 		FROM warehouse_inventory
 		ORDER BY warehouse_name,item_type,item_name,spec_g,batch_code
 		LIMIT $5 OFFSET $6
@@ -376,9 +412,10 @@ func (r Repository) ListWarehouseInventory(ctx context.Context, query stockapp.W
 	}
 	defer rows.Close()
 	out := make([]stockapp.WarehouseInventoryRow, 0)
+	total := 0
 	for rows.Next() {
 		var row stockapp.WarehouseInventoryRow
-		if err := rows.Scan(&row.Warehouse, &row.WarehouseName, &row.WarehouseKind, &row.ItemType, &row.ItemID, &row.ItemName, &row.SpecG, &row.BatchID, &row.BatchCode, &row.QtyG, &row.QtyUnits, &row.UnitCost, &row.QualityStatus, &row.UpdatedAt); err != nil {
+		if err := rows.Scan(&row.Warehouse, &row.WarehouseName, &row.WarehouseKind, &row.ItemType, &row.ItemID, &row.ItemName, &row.SpecG, &row.BatchID, &row.BatchCode, &row.QtyG, &row.QtyUnits, &row.UnitCost, &row.QualityStatus, &row.UpdatedAt, &total); err != nil {
 			return stockapp.WarehouseInventoryResult{}, err
 		}
 		out = append(out, row)
@@ -391,7 +428,7 @@ func (r Repository) ListWarehouseInventory(ctx context.Context, query stockapp.W
 		out = out[:query.Limit]
 		hasNext = true
 	}
-	return stockapp.WarehouseInventoryResult{Rows: out, HasNext: hasNext}, nil
+	return stockapp.WarehouseInventoryResult{Rows: out, Total: total, HasNext: hasNext}, nil
 }
 
 func (r Repository) ListOutboundLogs(ctx context.Context, query stockapp.OutboundLogQuery) (stockapp.OutboundLogResult, error) {
@@ -444,7 +481,8 @@ func (r Repository) ListOutboundLogs(ctx context.Context, query stockapp.Outboun
 		)
 		SELECT document_id, order_id, order_no, customer_name, posting_date, source_warehouse, warehouse_name,
 		       delivery_method, tracking_no, version_no, is_latest, created_at, created_by,
-		       pay_status, ship_status, process_status, invoice_status
+		       pay_status, ship_status, process_status, invoice_status,
+		       count(*) OVER()::int AS total_count
 		FROM outbound_logs
 		WHERE ($1 = '' OR order_no ILIKE $2 OR customer_name ILIKE $2 OR tracking_no ILIKE $2 OR delivery_method ILIKE $2)
 		  AND ($3 = '' OR created_sort >= $3::date)
@@ -457,9 +495,10 @@ func (r Repository) ListOutboundLogs(ctx context.Context, query stockapp.Outboun
 	}
 	defer rows.Close()
 	out := make([]stockapp.OutboundLogRow, 0)
+	total := 0
 	for rows.Next() {
 		var row stockapp.OutboundLogRow
-		if err := rows.Scan(&row.DocumentID, &row.OrderID, &row.OrderNo, &row.CustomerName, &row.PostingDate, &row.SourceWarehouse, &row.WarehouseName, &row.DeliveryMethod, &row.TrackingNo, &row.VersionNo, &row.IsLatest, &row.CreatedAt, &row.CreatedBy, &row.PayStatus, &row.ShipStatus, &row.ProcessStatus, &row.InvoiceStatus); err != nil {
+		if err := rows.Scan(&row.DocumentID, &row.OrderID, &row.OrderNo, &row.CustomerName, &row.PostingDate, &row.SourceWarehouse, &row.WarehouseName, &row.DeliveryMethod, &row.TrackingNo, &row.VersionNo, &row.IsLatest, &row.CreatedAt, &row.CreatedBy, &row.PayStatus, &row.ShipStatus, &row.ProcessStatus, &row.InvoiceStatus, &total); err != nil {
 			return stockapp.OutboundLogResult{}, err
 		}
 		row.DownloadURL = fmt.Sprintf("/orders/%d/delivery-notes/%d.pdf", row.OrderID, row.DocumentID)
@@ -474,7 +513,7 @@ func (r Repository) ListOutboundLogs(ctx context.Context, query stockapp.Outboun
 		out = out[:query.Limit]
 		hasNext = true
 	}
-	return stockapp.OutboundLogResult{Rows: out, HasNext: hasNext}, nil
+	return stockapp.OutboundLogResult{Rows: out, Total: total, HasNext: hasNext}, nil
 }
 
 func (r Repository) GetStockTrace(ctx context.Context, query stockapp.StockTraceQuery) (stockapp.StockTraceResult, error) {

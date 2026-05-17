@@ -190,11 +190,13 @@
           </tbody>
         </table>
       </div>
-      <div class="pager">
-        <button class="secondary" type="button" @click="loadPage(page - 1)" :disabled="!hasPrev || loading">上一页</button>
-        <span>第 {{ page }} 页</span>
-        <button class="secondary" type="button" @click="loadPage(page + 1)" :disabled="!hasNext || loading">下一页</button>
-      </div>
+      <PaginationControls
+        :page="page"
+        :page-size="pageSize"
+        :total="totalCustomers"
+        :disabled="loading"
+        @change="handlePaginationChange"
+      />
     </section>
   </div>
 </template>
@@ -202,7 +204,9 @@
 <script setup>
 import { onMounted, reactive, ref } from 'vue'
 import { apiGet, apiSend } from '../api/client'
+import PaginationControls from '../components/PaginationControls.vue'
 import { parseRecipientText } from '../lib/customer-recipient'
+import { normalizePageSize, paginationFromApi } from '../lib/pagination'
 import { replaceHistoryURL } from '../lib/url-state'
 
 const rows = ref([])
@@ -210,6 +214,8 @@ const sources = ref([])
 const orderTypes = ref([])
 const q = ref('')
 const page = ref(1)
+const pageSize = ref(10)
+const totalCustomers = ref(0)
 const hasPrev = ref(false)
 const hasNext = ref(false)
 const customerTypeFilter = ref('')
@@ -325,6 +331,7 @@ function applyUrl() {
   q.value = params.get('q') || ''
   const parsedPage = Number(params.get('page') || 1)
   page.value = Number.isFinite(parsedPage) && parsedPage > 0 ? parsedPage : 1
+  pageSize.value = normalizePageSize(params.get('limit') || pageSize.value)
   customerTypeFilter.value = normalizeListCustomerType(params.get('customer_type'))
   activeFilter.value = normalizeActiveFilter(params.get('active'))
   sortBy.value = normalizeCustomerSortBy(params.get('sort_by'))
@@ -368,6 +375,7 @@ function updateUrl(extra = {}) {
   url.searchParams.set('sort_by', sortBy.value)
   url.searchParams.set('sort_direction', sortDirection.value)
   url.searchParams.set('page', String(page.value))
+  url.searchParams.set('limit', String(pageSize.value))
   url.searchParams.delete('mode')
   url.searchParams.delete('edit_id')
   if (extra.mode) url.searchParams.set('mode', extra.mode)
@@ -378,6 +386,11 @@ function updateUrl(extra = {}) {
 async function loadPage(nextPage) {
   page.value = Math.max(1, nextPage)
   await load()
+}
+
+async function handlePaginationChange({ page: nextPage, pageSize: nextPageSize }) {
+  pageSize.value = normalizePageSize(nextPageSize)
+  await loadPage(nextPage)
 }
 
 async function load() {
@@ -391,14 +404,18 @@ async function load() {
     url.searchParams.set('sort_by', sortBy.value)
     url.searchParams.set('sort_direction', sortDirection.value)
     url.searchParams.set('page', String(page.value))
+    url.searchParams.set('limit', String(pageSize.value))
     const data = await apiGet(url)
     rows.value = data.rows || []
     sources.value = data.sources || []
     orderTypes.value = data.order_types || []
     if (customerDrawerOpen.value && !editingId.value) applyFormDefaults()
-    hasPrev.value = !!data.has_prev
-    hasNext.value = !!data.has_next
-    page.value = Number(data.page || page.value)
+    const pagination = paginationFromApi(data)
+    totalCustomers.value = pagination.total
+    hasPrev.value = pagination.hasPrev
+    hasNext.value = pagination.hasNext
+    page.value = pagination.page
+    pageSize.value = pagination.pageSize
     updateUrl(customerDrawerOpen.value ? (editingId.value ? { edit_id: editingId.value } : { mode: 'new' }) : {})
   } catch (err) {
     error.value = err.message || '加载失败'
@@ -570,7 +587,7 @@ onMounted(async () => {
 * { box-sizing: border-box; }
 .page { padding: 18px; color: #171717; }
 .panel { border: 1px solid #e6e0d8; border-radius: 8px; background: #fff; padding: 14px; margin-bottom: 14px; }
-.panel-head, .drawer-head, .filters, .pager, .actions, .asset-form { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.panel-head, .drawer-head, .filters, .actions, .asset-form { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .sortable { cursor: pointer; white-space: nowrap; user-select: none; }
 .sort-icons { display: inline-flex; flex-direction: column; font-size: 10px; margin-left: 6px; vertical-align: middle; color: #bdb1a5; line-height: 1; }
 .sort-icons span { opacity: 0.35; }
@@ -616,7 +633,6 @@ th { background: #fbfaf8; position: sticky; top: 0; }
 tr.active { background: #f3f7fb; }
 .address { max-width: 300px; white-space: pre-wrap; }
 .muted { color: #666; text-align: center; }
-.pager { justify-content: flex-end; margin-top: 12px; }
 .error, .ok { border-radius: 6px; padding: 9px; margin-bottom: 12px; }
 .error { background: #fff0f0; border: 1px solid #e6b7b7; color: #8a1f1f; }
 .ok { background: #f0fff6; border: 1px solid #a9d8ba; color: #1f6a3f; }

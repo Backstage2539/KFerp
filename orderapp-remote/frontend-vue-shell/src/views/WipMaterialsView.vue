@@ -61,7 +61,7 @@
         <button class="secondary" type="button" @click="loadLocations" :disabled="loading">刷新库存</button>
       </div>
       <div class="filters">
-        <label><span>搜索</span><input v-model.trim="filters.q" placeholder="批次/物料" @keyup.enter="loadLocations" /></label>
+        <label><span>搜索</span><input v-model.trim="filters.q" placeholder="批次/物料" @keyup.enter="loadLocationPage(1)" /></label>
         <label>
           <span>仓库</span>
           <select v-model="filters.warehouse">
@@ -70,7 +70,7 @@
             <option value="">全部</option>
           </select>
         </label>
-        <button class="primary" type="button" @click="loadLocations" :disabled="loading">查询</button>
+        <button class="primary" type="button" @click="loadLocationPage(1)" :disabled="loading">查询</button>
       </div>
       <div class="table-wrap">
         <table>
@@ -90,6 +90,13 @@
           </tbody>
         </table>
       </div>
+      <PaginationControls
+        :page="locationPage"
+        :page-size="locationLimit"
+        :total="locationTotal"
+        :disabled="loading"
+        @change="handleLocationPaginationChange"
+      />
     </section>
   </div>
 </template>
@@ -97,7 +104,9 @@
 <script setup>
 import { onMounted, reactive, ref } from 'vue'
 import { apiGet, apiSend } from '../api/client'
+import PaginationControls from '../components/PaginationControls.vue'
 import SearchableSelect from '../components/SearchableSelect.vue'
+import { normalizePageSize, paginationFromApi } from '../lib/pagination'
 
 const props = defineProps({
   embedded: { type: Boolean, default: false },
@@ -119,6 +128,9 @@ const form = reactive({
   note: '',
 })
 const filters = reactive({ q: '', warehouse: 'wip' })
+const locationPage = ref(1)
+const locationLimit = ref(50)
+const locationTotal = ref(0)
 
 function materialLabel(row) {
   const name = String(row?.name || row?.Name || '').trim()
@@ -154,8 +166,24 @@ async function loadLocations() {
   if (filters.q) url.searchParams.set('q', filters.q)
   if (filters.warehouse) url.searchParams.set('warehouse', filters.warehouse)
   url.searchParams.set('active_only', '1')
+  url.searchParams.set('page', String(locationPage.value))
+  url.searchParams.set('limit', String(locationLimit.value))
   const data = await apiGet(url)
+  const pagination = paginationFromApi(data)
   locations.value = data.rows || []
+  locationPage.value = pagination.page
+  locationLimit.value = pagination.pageSize
+  locationTotal.value = pagination.total
+}
+
+async function loadLocationPage(nextPage) {
+  locationPage.value = Math.max(1, Number(nextPage || 1))
+  await loadLocations()
+}
+
+function handleLocationPaginationChange({ page, pageSize }) {
+  locationLimit.value = normalizePageSize(pageSize)
+  loadLocationPage(page)
 }
 
 async function loadAll() {

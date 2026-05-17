@@ -18,7 +18,12 @@ type AuditPageData struct {
 	Error      string
 }
 
-func fetchAuditPage(ctx context.Context, pool *pgxpool.Pool, schema string, from, to, q, entityType string, limit int) ([]AuditLogRow, error) {
+type AuditPageResult struct {
+	Rows  []AuditLogRow
+	Total int
+}
+
+func fetchAuditPage(ctx context.Context, pool *pgxpool.Pool, schema string, from, to, q, entityType string, limit, offset int) (AuditPageResult, error) {
 	w := make([]string, 0)
 	args := make([]any, 0)
 	arg := 1
@@ -55,8 +60,19 @@ func fetchAuditPage(ctx context.Context, pool *pgxpool.Pool, schema string, from
 	if limit <= 0 {
 		limit = 200
 	}
+	if offset < 0 {
+		offset = 0
+	}
+	countSQL := fmt.Sprintf(`SELECT count(*)::int FROM %s.audit_logs a %s`, schema, where)
+	var total int
+	if err := pool.QueryRow(ctx, countSQL, args...).Scan(&total); err != nil {
+		return AuditPageResult{}, err
+	}
 	args = append(args, limit)
 	limitArg := arg
+	arg++
+	args = append(args, offset)
+	offsetArg := arg
 
 	sql := fmt.Sprintf(`
 		SELECT
@@ -85,12 +101,12 @@ func fetchAuditPage(ctx context.Context, pool *pgxpool.Pool, schema string, from
 		LEFT JOIN %s.customers c ON a.entity_type='customer' AND a.entity_id=c.id
 		%s
 		ORDER BY a.id DESC
-		LIMIT $%d
-	`, schema, schema, schema, schema, schema, where, limitArg)
+		LIMIT $%d OFFSET $%d
+	`, schema, schema, schema, schema, schema, where, limitArg, offsetArg)
 
 	rows, err := pool.Query(ctx, sql, args...)
 	if err != nil {
-		return nil, err
+		return AuditPageResult{}, err
 	}
 	defer rows.Close()
 
@@ -98,7 +114,7 @@ func fetchAuditPage(ctx context.Context, pool *pgxpool.Pool, schema string, from
 	for rows.Next() {
 		var r AuditLogRow
 		if err := rows.Scan(&r.Ts, &r.Actor, &r.EntityType, &r.EntityID, &r.EntityLabel, &r.EntityURL, &r.Action, &r.Field, &r.OldValue, &r.NewValue, &r.Meta); err != nil {
-			return nil, err
+			return AuditPageResult{}, err
 		}
 
 		if r.Field != nil {
@@ -115,7 +131,10 @@ func fetchAuditPage(ctx context.Context, pool *pgxpool.Pool, schema string, from
 
 		out = append(out, r)
 	}
-	return out, rows.Err()
+	if err := rows.Err(); err != nil {
+		return AuditPageResult{}, err
+	}
+	return AuditPageResult{Rows: out, Total: total}, nil
 }
 
 func decorateAuditLogRow(r *AuditLogRow, payMap, shipMap map[int64]string) {

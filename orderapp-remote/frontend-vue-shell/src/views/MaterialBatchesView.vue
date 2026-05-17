@@ -4,9 +4,9 @@
       <div class="panel-head"><h2>原料批次</h2><button class="secondary" @click="load" :disabled="loading">刷新</button></div>
       <div v-if="error" class="error">{{ error }}</div>
       <div class="filters">
-        <label><span>搜索</span><input v-model.trim="q" placeholder="批次/物料/供应商" @keyup.enter="load" /></label>
+        <label><span>搜索</span><input v-model.trim="q" placeholder="批次/物料/供应商" @keyup.enter="loadPage(1)" /></label>
         <label class="check"><input type="checkbox" v-model="activeOnly" /> 只看可用</label>
-        <button class="primary" @click="load" :disabled="loading">查询</button>
+        <button class="primary" @click="loadPage(1)" :disabled="loading">查询</button>
       </div>
     </section>
     <section class="panel">
@@ -22,6 +22,13 @@
           </tbody>
         </table>
       </div>
+      <PaginationControls
+        :page="page"
+        :page-size="limit"
+        :total="total"
+        :disabled="loading"
+        @change="handlePaginationChange"
+      />
     </section>
   </div>
 </template>
@@ -29,14 +36,27 @@
 <script setup>
 import { onMounted, ref } from 'vue'
 import { apiGet } from '../api/client'
+import PaginationControls from '../components/PaginationControls.vue'
+import { normalizePageSize, paginationFromApi } from '../lib/pagination'
 const rows = ref([])
 const q = ref('')
 const activeOnly = ref(false)
 const loading = ref(false)
 const error = ref('')
+const page = ref(1)
+const limit = ref(50)
+const total = ref(0)
 const money = (v) => Number(v || 0).toFixed(2)
 const qualityLabel = (status) => ({ pass: '通过', hold: '待处理', reject: '不通过', unchecked: '未检' }[status || 'unchecked'] || '未检')
 const qualityClass = (status) => `quality-${status || 'unchecked'}`
+async function loadPage(nextPage) {
+  page.value = Math.max(1, Number(nextPage || 1))
+  await load()
+}
+async function handlePaginationChange({ page: nextPage, pageSize }) {
+  limit.value = normalizePageSize(pageSize)
+  await loadPage(nextPage)
+}
 async function load() {
   loading.value = true
   error.value = ''
@@ -44,8 +64,14 @@ async function load() {
     const url = new URL('/api/stock/material-batches', window.location.origin)
     if (q.value) url.searchParams.set('q', q.value)
     if (activeOnly.value) url.searchParams.set('active_only', '1')
+    url.searchParams.set('page', String(page.value))
+    url.searchParams.set('limit', String(limit.value))
     const data = await apiGet(url)
+    const pagination = paginationFromApi(data)
     rows.value = data.rows || []
+    page.value = pagination.page
+    limit.value = pagination.pageSize
+    total.value = pagination.total
   } catch (err) { error.value = err.message || '加载失败' } finally { loading.value = false }
 }
 onMounted(load)

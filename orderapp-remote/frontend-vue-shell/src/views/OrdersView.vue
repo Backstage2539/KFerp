@@ -164,11 +164,13 @@
           </tbody>
         </table>
       </div>
-      <div class="pager">
-        <button class="secondary" type="button" @click="loadPage(page - 1)" :disabled="!hasPrev || loading">上一页</button>
-        <span>第 {{ page }} 页</span>
-        <button class="secondary" type="button" @click="loadPage(page + 1)" :disabled="!hasNext || loading">下一页</button>
-      </div>
+      <PaginationControls
+        :page="page"
+        :page-size="filters.limit"
+        :total="totalOrders"
+        :disabled="loading"
+        @change="handlePaginationChange"
+      />
     </section>
 
     <div v-if="orderDetailDrawerOpen" class="order-detail-drawer-mask" @click.self="closeOrderDetailDrawer">
@@ -285,9 +287,11 @@
 <script setup>
 import { onMounted, reactive, ref, watch } from 'vue'
 import { apiGet, apiSend } from '../api/client'
+import PaginationControls from '../components/PaginationControls.vue'
 import { invoiceStatusLabel, invoiceStatusTone } from '../lib/order-invoice'
 import { formatTrackingSummary, trackingInputSummary } from '../lib/order-shipping'
 import { orderListScopeForRequest } from '../lib/order-scope'
+import { normalizePageSize, paginationFromApi } from '../lib/pagination'
 import { replaceHistoryURL } from '../lib/url-state'
 import DeliveryNoteView from './DeliveryNoteView.vue'
 import OrderEntryView from './OrderEntryView.vue'
@@ -305,6 +309,7 @@ const payStatuses = ref([])
 const shipStatuses = ref([])
 const processStatuses = ref([])
 const summary = ref({})
+const totalOrders = ref(0)
 const page = ref(1)
 const hasPrev = ref(false)
 const hasNext = ref(false)
@@ -355,6 +360,7 @@ function applyUrlFilters() {
   filters.ship_status_id = Number(params.get('ship_status_id') || 0)
   filters.process_status_id = Number(params.get('process_status_id') || 0)
   filters.ship_ready = params.get('ship_ready') === '1'
+  filters.limit = normalizePageSize(params.get('limit') || filters.limit)
   page.value = Math.max(1, Number(params.get('page') || 1))
 }
 
@@ -391,6 +397,7 @@ function updateBrowserUrl(nextPage) {
   if (filters.highlight_order_id) url.searchParams.set('highlight_order_id', String(filters.highlight_order_id))
   else url.searchParams.delete('highlight_order_id')
   url.searchParams.set('page', String(nextPage))
+  url.searchParams.set('limit', String(filters.limit))
   replaceHistoryURL(url)
 }
 
@@ -454,6 +461,11 @@ function closeOrderDetailDrawer() {
 async function loadPage(nextPage) {
   page.value = Math.max(1, nextPage)
   await load()
+}
+
+async function handlePaginationChange({ page: nextPage, pageSize }) {
+  filters.limit = normalizePageSize(pageSize)
+  await loadPage(nextPage)
 }
 
 function isShipReady(row) {
@@ -693,9 +705,12 @@ async function load() {
     shipStatuses.value = data.ship_statuses || []
     processStatuses.value = data.process_statuses || []
     summary.value = data.summary || {}
-    hasPrev.value = !!data.has_prev
-    hasNext.value = !!data.has_next
-    page.value = Number(data.page || page.value)
+    const pagination = paginationFromApi(data)
+    totalOrders.value = pagination.total || Number(summary.value.orders || rows.value.length || 0)
+    hasPrev.value = pagination.hasPrev
+    hasNext.value = pagination.hasNext
+    page.value = pagination.page
+    filters.limit = pagination.pageSize
     updateBrowserUrl(page.value)
   } catch (err) {
     error.value = err.message || '加载失败'
@@ -781,7 +796,6 @@ a, .text-link { color: #1f4f82; text-decoration: none; }
 .invoice-file-link { margin-left: 6px; font-size: 12px; }
 .muted { color: #666; text-align: center; }
 .voided { color: #8a1f1f; background: #fff7f7; }
-.pager { display: flex; gap: 10px; align-items: center; justify-content: flex-end; margin-top: 12px; }
 .error { background: #fff0f0; border: 1px solid #e6b7b7; border-radius: 6px; padding: 9px; margin-bottom: 12px; color: #8a1f1f; }
 .order-detail-drawer-mask { position: fixed; inset: 0; z-index: 35; display: flex; justify-content: flex-end; background: rgba(0, 0, 0, .24); }
 .order-detail-drawer { width: min(1040px, calc(100vw - 28px)); height: 100%; overflow: auto; background: #f8f7f4; border-left: 1px solid #e6e0d8; box-shadow: -10px 0 24px rgba(0, 0, 0, .14); padding: 16px; }
