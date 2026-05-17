@@ -572,7 +572,7 @@ func (r *Repository) quoteSubmittedDirectShipItemTx(ctx context.Context, tx pgx.
 		specText = fmt.Sprintf("%dg", specG)
 	}
 	unitPrice := r.customerFulfillmentSubmittedUnitPriceTx(ctx, tx, customerID, item.ProductID, specG, item.QuantityUnits, defaultPrice)
-	baseLineTotal := unitPrice * float64(item.QuantityUnits)
+	baseLineTotal := customerFulfillmentLineTotalFromDisplayUnit(unitPrice, specG, item.QuantityUnits)
 	discountType := normalizeSubmittedDirectShipDiscountType(item.DiscountType)
 	discountValue := item.DiscountValue
 	if discountValue < 0 {
@@ -627,7 +627,7 @@ func (r *Repository) quoteSubmittedDirectShipItemForERPRebuildTx(ctx context.Con
 		specText = fmt.Sprintf("%dg", specG)
 	}
 	unitPrice := r.customerFulfillmentSubmittedUnitPriceTx(ctx, tx, customerID, item.ProductID, specG, item.QuantityUnits, defaultPrice)
-	baseLineTotal := unitPrice * float64(item.QuantityUnits)
+	baseLineTotal := customerFulfillmentLineTotalFromDisplayUnit(unitPrice, specG, item.QuantityUnits)
 	discountType := normalizeSubmittedDirectShipDiscountType(item.DiscountType)
 	discountValue := item.DiscountValue
 	if discountValue < 0 {
@@ -729,13 +729,13 @@ func (r *Repository) customerFulfillmentSubmittedUnitPriceTx(ctx context.Context
 	}
 	rule := r.customerFulfillmentDirectShipSmallBatchPriceRuleTx(ctx, tx, customerID)
 	if !rule.Enabled {
-		return customerFulfillmentPackageUnitPriceFromLb(defaultPrice, specG)
+		return customerFulfillmentDisplayUnitPriceFromLb(defaultPrice, specG)
 	}
-	tierQty := qty
+	tierQty := customerFulfillmentTierQuantityForSpec(specG, qty)
 	qtyLb := float64(specG*qty) / 454.0
 	tierQtyLb := qtyLb
 	if adjustedQty, ok := customerFulfillmentSmallBatchTierQuantity(specG, qtyLb, rule); ok {
-		tierQty = adjustedQty
+		tierQty = customerFulfillmentTierQuantityForSpec(specG, adjustedQty)
 		tierQtyLb = float64(specG*adjustedQty) / 454.0
 	}
 	var packagePrice, pricePerLb float64
@@ -751,8 +751,8 @@ func (r *Repository) customerFulfillmentSubmittedUnitPriceTx(ctx context.Context
 		ORDER BY COALESCE(NULLIF(min_qty_units,0), min_qty_lb, 0) DESC
 		LIMIT 1
 	`, r.schema)
-	if err := tx.QueryRow(ctx, q, productID, specG, tierQty).Scan(&packagePrice, &pricePerLb); err == nil && packagePrice > 0 {
-		return packagePrice
+	if err := tx.QueryRow(ctx, q, productID, specG, tierQty).Scan(&packagePrice, &pricePerLb); err == nil && pricePerLb > 0 {
+		return customerFulfillmentDisplayUnitPriceFromLb(pricePerLb, specG)
 	}
 	q = fmt.Sprintf(`
 		SELECT
@@ -764,8 +764,8 @@ func (r *Repository) customerFulfillmentSubmittedUnitPriceTx(ctx context.Context
 		ORDER BY COALESCE(NULLIF(min_qty_units,0), min_qty_lb, 0) ASC
 		LIMIT 1
 	`, r.schema)
-	if err := tx.QueryRow(ctx, q, productID, specG).Scan(&packagePrice, &pricePerLb); err == nil && packagePrice > 0 {
-		return packagePrice
+	if err := tx.QueryRow(ctx, q, productID, specG).Scan(&packagePrice, &pricePerLb); err == nil && pricePerLb > 0 {
+		return customerFulfillmentDisplayUnitPriceFromLb(pricePerLb, specG)
 	}
 	q = fmt.Sprintf(`
 		SELECT COALESCE(NULLIF(price_per_lb,0), NULLIF(price_per_unit,0) * 454.0 / COALESCE(NULLIF(spec_g,0),454), 0)
@@ -780,7 +780,7 @@ func (r *Repository) customerFulfillmentSubmittedUnitPriceTx(ctx context.Context
 		LIMIT 1
 	`, r.schema)
 	if err := tx.QueryRow(ctx, q, productID, tierQtyLb).Scan(&pricePerLb); err == nil && pricePerLb > 0 {
-		return customerFulfillmentPackageUnitPriceFromLb(pricePerLb, specG)
+		return customerFulfillmentDisplayUnitPriceFromLb(pricePerLb, specG)
 	}
 	q = fmt.Sprintf(`
 		SELECT COALESCE(NULLIF(price_per_lb,0), NULLIF(price_per_unit,0) * 454.0 / COALESCE(NULLIF(spec_g,0),454), 0)
@@ -791,7 +791,7 @@ func (r *Repository) customerFulfillmentSubmittedUnitPriceTx(ctx context.Context
 		LIMIT 1
 	`, r.schema)
 	if err := tx.QueryRow(ctx, q, productID, tierQtyLb).Scan(&pricePerLb); err == nil && pricePerLb > 0 {
-		return customerFulfillmentPackageUnitPriceFromLb(pricePerLb, specG)
+		return customerFulfillmentDisplayUnitPriceFromLb(pricePerLb, specG)
 	}
 	q = fmt.Sprintf(`
 		SELECT COALESCE(NULLIF(price_per_lb,0), NULLIF(price_per_unit,0) * 454.0 / COALESCE(NULLIF(spec_g,0),454), 0)
@@ -801,24 +801,42 @@ func (r *Repository) customerFulfillmentSubmittedUnitPriceTx(ctx context.Context
 		LIMIT 1
 	`, r.schema)
 	if err := tx.QueryRow(ctx, q, productID).Scan(&pricePerLb); err == nil && pricePerLb > 0 {
-		return customerFulfillmentPackageUnitPriceFromLb(pricePerLb, specG)
+		return customerFulfillmentDisplayUnitPriceFromLb(pricePerLb, specG)
 	}
 	return defaultPrice
 }
 
-func customerFulfillmentPackageUnitPriceFromLb(pricePerLb float64, specG int64) float64 {
+func customerFulfillmentTierQuantityForSpec(specG int64, units int64) float64 {
+	if specG >= 1000 {
+		return float64(specG*units) / 1000.0
+	}
+	return float64(units)
+}
+
+func customerFulfillmentDisplayUnitG(specG int64) float64 {
+	if specG >= 1000 {
+		return 1000
+	}
+	return 454
+}
+
+func customerFulfillmentDisplayUnitPriceFromLb(pricePerLb float64, specG int64) float64 {
 	if pricePerLb <= 0 || specG <= 0 {
 		return 0
 	}
-	unitG := float64(454)
-	if specG >= 1000 {
-		unitG = 1000
-	}
+	unitG := customerFulfillmentDisplayUnitG(specG)
 	displayUnitPrice := pricePerLb * unitG / 454.0
 	if unitG == 1000 {
 		displayUnitPrice = math.Round(displayUnitPrice)
 	}
-	return displayUnitPrice * float64(specG) / unitG
+	return displayUnitPrice
+}
+
+func customerFulfillmentLineTotalFromDisplayUnit(unitPrice float64, specG int64, units int64) float64 {
+	if unitPrice <= 0 || specG <= 0 || units <= 0 {
+		return 0
+	}
+	return unitPrice * float64(specG*units) / customerFulfillmentDisplayUnitG(specG)
 }
 
 func (r *Repository) customerFulfillmentDirectShipSmallBatchPriceRuleTx(ctx context.Context, tx pgx.Tx, customerID int64) customerportalapp.SmallBatchPriceRule {
