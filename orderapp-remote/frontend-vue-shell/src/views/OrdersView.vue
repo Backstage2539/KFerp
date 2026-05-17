@@ -129,7 +129,7 @@
               <td>{{ row.responsible_name || '-' }}</td>
               <td>
                 <div class="fee-stack">
-                  <span v-for="line in orderFeeLines(row)" :key="line.label" class="fee-line">
+                  <span v-for="line in orderFeeLines(row)" :key="line.label" class="fee-line" :class="{ emphasized: line.emphasized }">
                     <span>{{ line.label }}</span>
                     <strong>{{ line.value }}</strong>
                   </span>
@@ -288,6 +288,7 @@
 import { onMounted, reactive, ref, watch } from 'vue'
 import { apiGet, apiSend } from '../api/client'
 import PaginationControls from '../components/PaginationControls.vue'
+import { customerFulfillmentOrderFees } from '../lib/customer-fulfillment'
 import { invoiceStatusLabel, invoiceStatusTone } from '../lib/order-invoice'
 import { formatTrackingSummary, trackingInputSummary } from '../lib/order-shipping'
 import { orderListScopeForRequest } from '../lib/order-scope'
@@ -503,12 +504,7 @@ function orderRowClass(row) {
 }
 
 function orderFeeLines(row = {}) {
-  const lines = [
-    { label: '商品', value: moneyLabel(row.total_amount) },
-    { label: '运费', value: moneyLabel(row.shipping_amount) },
-    { label: '优惠', value: moneyLabel(row.discount_amount) },
-    { label: '应收', value: moneyLabel(row.grand_total) },
-  ]
+  const lines = customerFulfillmentOrderFees(row)
   if (String(row.express_fee || '').trim()) lines.push({ label: '快递费', value: row.express_fee })
   if (hasMoney(row.outsource_total_fee)) lines.push({ label: '委外合计', value: moneyLabel(row.outsource_total_fee) })
   return lines
@@ -785,6 +781,7 @@ a, .text-link { color: #1f4f82; text-decoration: none; }
 .fee-stack { display: grid; gap: 3px; min-width: 120px; }
 .fee-line { display: flex; justify-content: space-between; gap: 8px; color: #555; font-size: 12px; }
 .fee-line strong { color: #171717; font-weight: 600; }
+.fee-line.emphasized strong { color: #0f5132; }
 .status-stack { display: grid; grid-template-columns: repeat(2, minmax(90px, 1fr)); gap: 4px 8px; min-width: 230px; color: #333; font-size: 13px; }
 .actions-cell { min-width: 210px; }
 .actions-cell a, .actions-cell .inline-muted { display: inline-block; margin-right: 8px; }
