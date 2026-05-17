@@ -905,6 +905,74 @@ func TestCreateFulfillmentOrderUsesSmallBatchWeightTierForNon454Spec(t *testing.
 	}
 }
 
+func TestCreateFulfillmentOrderUsesKgExactTierWithoutSmallBatchRule(t *testing.T) {
+	ctx := context.Background()
+	pool, schema := newCustomerPortalTestDB(t)
+	repo := NewRepository(pool, schema)
+
+	var customerID, productID int64
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`
+		INSERT INTO %s.customers(name) VALUES('KG梯度客户') RETURNING id
+	`, schema)).Scan(&customerID); err != nil {
+		t.Fatalf("insert customer: %v", err)
+	}
+	if _, err := pool.Exec(ctx, fmt.Sprintf(`
+		INSERT INTO %[1]s.customer_service_capabilities(customer_id, capability_code, enabled, config_json)
+		VALUES($1,'product_order',true,'{}'::jsonb)
+	`, schema), customerID); err != nil {
+		t.Fatalf("insert product order capability: %v", err)
+	}
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`
+		INSERT INTO %s.products(name, default_price, active, customer_id, visibility, custom_type)
+		VALUES('兰卡拼配', 81.91, true, $1, 'customer_only', 'public_sku_alias')
+		RETURNING id
+	`, schema), customerID).Scan(&productID); err != nil {
+		t.Fatalf("insert product: %v", err)
+	}
+	if _, err := pool.Exec(ctx, fmt.Sprintf(`
+		INSERT INTO %s.product_price_tiers(product_id, spec_g, min_qty_units, max_qty_units, price_per_unit, price_per_lb, active)
+		VALUES
+			($1,1000,24,49,81.91,81.91*454.0/1000.0,true),
+			($1,1000,50,99,78.01,78.01*454.0/1000.0,true)
+	`, schema), productID); err != nil {
+		t.Fatalf("insert tiers: %v", err)
+	}
+
+	_, err := repo.CreateFulfillmentOrder(ctx, customerportalapp.CreateFulfillmentOrderCommand{
+		CustomerID:          customerID,
+		PortalServiceCode:   customerportalapp.PortalServiceProductOrder,
+		RecipientName:       "张三",
+		RecipientPhone:      "13800138000",
+		RecipientAddress:    "上海市测试路",
+		ProductID:           productID,
+		SpecG:               1000,
+		Qty:                 25,
+		ShippingAmount:      59,
+		CreatedByMiniUserID: 1,
+	})
+	if err != nil {
+		t.Fatalf("CreateFulfillmentOrder: %v", err)
+	}
+
+	var unitPrice, lineTotal, totalAmount, grandTotal float64
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`
+		SELECT COALESCE(oi.unit_price,0)::float8,
+		       COALESCE(oi.line_total,0)::float8,
+		       COALESCE(o.total_amount,0)::float8,
+		       COALESCE(o.grand_total,0)::float8
+		FROM %s.order_items oi
+		JOIN %s.orders o ON o.id=oi.order_id
+		WHERE oi.product_id=$1
+		ORDER BY oi.id DESC
+		LIMIT 1
+	`, schema, schema), productID).Scan(&unitPrice, &lineTotal, &totalAmount, &grandTotal); err != nil {
+		t.Fatalf("query order item: %v", err)
+	}
+	if unitPrice != 82 || lineTotal != 2050 || totalAmount != 2050 || grandTotal != 2109 {
+		t.Fatalf("kg exact tier order pricing unit/line/total/grand = %.2f/%.2f/%.2f/%.2f, want 82/2050/2050/2109", unitPrice, lineTotal, totalAmount, grandTotal)
+	}
+}
+
 func TestCreateFulfillmentOrderIgnoresClientSuppliedUnitPrice(t *testing.T) {
 	ctx := context.Background()
 	pool, schema := newCustomerPortalTestDB(t)

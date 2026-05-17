@@ -728,9 +728,6 @@ func (r *Repository) customerFulfillmentSubmittedUnitPriceTx(ctx context.Context
 		return defaultPrice
 	}
 	rule := r.customerFulfillmentDirectShipSmallBatchPriceRuleTx(ctx, tx, customerID)
-	if !rule.Enabled {
-		return customerFulfillmentDisplayUnitPriceFromLb(defaultPrice, specG)
-	}
 	tierQty := customerFulfillmentTierQuantityForSpec(specG, qty)
 	qtyLb := float64(specG*qty) / 454.0
 	tierQtyLb := qtyLb
