@@ -25,4 +25,14 @@ describe('service page helpers', () => {
 
     expect(sections.map((section) => section.title)).toEqual(['我的订单', '费用明细'])
   })
+
+  it('labels settlement orders as bill rows', () => {
+    const sections = visibleServiceSections({
+      key: 'settlement',
+      title: '结算中心',
+      orders: [{ order_no: 'SO-YAN-BILL', grand_total: '4559.00' }],
+    })
+
+    expect(sections.map((section) => section.title)).toEqual(['订单账单'])
+  })
 })

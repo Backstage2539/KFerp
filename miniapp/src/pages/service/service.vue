@@ -22,7 +22,7 @@ import {
   type BeanListPageCacheRecord,
 } from '../../utils/beanListPageCache'
 import { buildOrderServiceFilters, datePresetRange, normalizeDateRange, type OrderDatePreset } from '../../utils/orderFilters'
-import { normalizeServiceKey, serviceTitle, visibleServiceSections, type ServiceKey } from '../../utils/servicePage'
+import { normalizeServiceKey, orderSectionTitle, serviceTitle, visibleServiceSections, type ServiceKey } from '../../utils/servicePage'
 import { miniappThemeClass, miniappThemeMeta } from '../../utils/themes'
 
 type OrderSearchForm = {
@@ -88,7 +88,7 @@ const themeClass = computed(() => miniappThemeClass(activeThemeKey.value))
 const themeMeta = computed(() => miniappThemeMeta(activeThemeKey.value))
 const summary = computed(() => page.value?.summary || [])
 const sections = computed(() => (page.value ? visibleServiceSections(page.value) : []))
-const orderPanelTitle = computed(() => (serviceKey.value === 'orders' ? '我的订单' : '订单 / 物流'))
+const orderPanelTitle = computed(() => orderSectionTitle(serviceKey.value))
 const beanListsForDisplay = computed(() => {
   if (page.value?.bean_lists?.length) return page.value.bean_lists
   return cachedBeanList.value ? [cachedBeanList.value] : []

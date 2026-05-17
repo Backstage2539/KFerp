@@ -65,13 +65,19 @@ export function visibleServiceSections(payload: ServicePayload): ServiceSection[
   const sections: ServiceSection[] = []
   addSection(sections, '豆单', payload.bean_lists)
   addSection(sections, '现货商品', payload.products)
-  addSection(sections, normalizeServiceKey(String(payload.key)) === 'orders' ? '我的订单' : '订单 / 物流', payload.orders)
+  addSection(sections, orderSectionTitle(normalizeServiceKey(String(payload.key))), payload.orders)
   addSection(sections, '一件代发批次', payload.direct_ship_batches)
   addSection(sections, '库存', payload.inventory)
   addSection(sections, '加工申请', payload.processing_requests)
   addSection(sections, '费用明细', payload.fee_items)
   addSection(sections, '结算单', payload.settlement_batches)
   return sections
+}
+
+export function orderSectionTitle(key: ServiceKey): string {
+  if (key === 'orders') return '我的订单'
+  if (key === 'settlement') return '订单账单'
+  return '订单 / 物流'
 }
 
 function addSection(sections: ServiceSection[], title: string, rows: unknown[] | undefined) {

@@ -1695,6 +1695,66 @@ func TestLoadSettlementServicePageFiltersFinanceRowsByCustomer(t *testing.T) {
 	}
 }
 
+func TestLoadSettlementServicePageIncludesOrderReceivablesForCurrentCustomer(t *testing.T) {
+	ctx := context.Background()
+	pool, schema := newCustomerPortalTestDB(t)
+	repo := NewRepository(pool, schema)
+
+	var customerAID, customerBID, orderAID, orderBID int64
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`
+		INSERT INTO %s.customers(name, contact, phone, address)
+		VALUES('岩师傅','岩师傅','13099656096','A地址') RETURNING id
+	`, schema)).Scan(&customerAID); err != nil {
+		t.Fatalf("insert customer A: %v", err)
+	}
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`
+		INSERT INTO %s.customers(name, contact, phone, address)
+		VALUES('其他客户','其他联系人','13800000002','B地址') RETURNING id
+	`, schema)).Scan(&customerBID); err != nil {
+		t.Fatalf("insert customer B: %v", err)
+	}
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`
+		INSERT INTO %[1]s.orders(order_no, order_date, customer_id, grand_total, shipping_amount, is_void, portal_service_code)
+		VALUES('SO-YAN-BILL','2026-05-17',$1,4559,59,false,'product_order')
+		RETURNING id
+	`, schema), customerAID).Scan(&orderAID); err != nil {
+		t.Fatalf("insert order A: %v", err)
+	}
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`
+		INSERT INTO %[1]s.orders(order_no, order_date, customer_id, grand_total, shipping_amount, is_void, portal_service_code)
+		VALUES('SO-OTHER-BILL','2026-05-17',$1,188,0,false,'product_order')
+		RETURNING id
+	`, schema), customerBID).Scan(&orderBID); err != nil {
+		t.Fatalf("insert order B: %v", err)
+	}
+	if _, err := pool.Exec(ctx, fmt.Sprintf(`
+		INSERT INTO %[1]s.order_items(order_id, line_no, item_name, qty, unit, spec, unit_price, line_total)
+		VALUES
+			($1,1,'兰卡拼配',25,'件','1000g',180,4500),
+			($2,1,'其他商品',1,'件','454g',188,188)
+	`, schema), orderAID, orderBID); err != nil {
+		t.Fatalf("insert order items: %v", err)
+	}
+
+	got, err := repo.LoadServicePage(ctx, customerportalapp.ServicePageQuery{
+		CustomerID: customerAID,
+		Key:        customerportalapp.ServiceKeySettlement,
+		Limit:      20,
+	})
+	if err != nil {
+		t.Fatalf("LoadServicePage(settlement): %v", err)
+	}
+	if len(got.Orders) != 1 || got.Orders[0].OrderNo != "SO-YAN-BILL" || got.Orders[0].GrandTotal != "4559.00" {
+		t.Fatalf("settlement orders=%+v, want current customer order receivable", got.Orders)
+	}
+	if len(got.Orders[0].Items) != 1 || got.Orders[0].Items[0].ItemName != "兰卡拼配" {
+		t.Fatalf("settlement order items=%+v, want order line details", got.Orders[0].Items)
+	}
+	if strings.Contains(fmt.Sprintf("%+v", got), "SO-OTHER-BILL") || strings.Contains(fmt.Sprintf("%+v", got), "其他商品") {
+		t.Fatalf("settlement service page leaked other customer order receivable: %+v", got)
+	}
+}
+
 func TestEnsureSchemaRejectsNonObjectCapabilityConfig(t *testing.T) {
 	ctx := context.Background()
 	pool, schema := newCustomerPortalTestDB(t)
