@@ -115,6 +115,14 @@ func fetchOrders(ctx context.Context, pool *pgxpool.Pool, schema string, query s
 			COALESCE(to_char(o.shipping_amount, 'FM999999999.00'), '') AS shipping_amount,
 			COALESCE(to_char(o.discount_amount, 'FM999999999.00'), '') AS discount_amount,
 			COALESCE(to_char(o.grand_total, 'FM999999999.00'), '') AS grand_total,
+			COALESCE(o.express_fee, '') AS express_fee,
+			COALESCE(to_char(o.outsource_material_fee, 'FM999999999.00'), '') AS outsource_material_fee,
+			COALESCE(to_char(o.outsource_roast_fee, 'FM999999999.00'), '') AS outsource_roast_fee,
+			COALESCE(to_char(o.outsource_packaging_fee, 'FM999999999.00'), '') AS outsource_packaging_fee,
+			COALESCE(to_char(o.outsource_manual_fee, 'FM999999999.00'), '') AS outsource_manual_fee,
+			COALESCE(to_char(o.outsource_tax_fee, 'FM999999999.00'), '') AS outsource_tax_fee,
+			COALESCE(to_char(o.outsource_other_fee, 'FM999999999.00'), '') AS outsource_other_fee,
+			COALESCE(to_char(o.outsource_total_fee, 'FM999999999.00'), '') AS outsource_total_fee,
 			COALESCE(ot.name, '') AS order_type,
 			COALESCE(ps.name, '') AS pay_status,
 			COALESCE(o.payment_method, '') AS payment_method,
@@ -172,7 +180,7 @@ func fetchOrders(ctx context.Context, pool *pgxpool.Pool, schema string, query s
 	for dbRows.Next() {
 		var r salesapp.OrderRow
 		var invoiceObjectKey string
-		if err := dbRows.Scan(&r.ID, &r.OrderNo, &r.OrderDate, &r.CustomerID, &r.Customer, &r.ResponsibleType, &r.ResponsibleID, &r.ResponsibleName, &r.TotalAmount, &r.ShippingAmount, &r.DiscountAmount, &r.GrandTotal, &r.OrderType, &r.PayStatus, &r.PaymentMethod, &r.ShipStatus, &r.ShipTrackingNo, &r.ReceiverName, &r.ReceiverPhone, &r.ReceiverAddress, &r.ReceiverCompany, &r.PortalServiceCode, &r.SourceWarehouse, &r.SenderID, &r.SenderLabel, &r.SenderName, &r.ProcessStatus, &r.CreatedByEmployee, &r.OrderTypeID, &r.PayStatusID, &r.ShipStatusID, &r.ProcessStatusID, &r.Notes, &r.IsVoid, &r.InvoiceStatus, &r.InvoiceFilename, &invoiceObjectKey); err != nil {
+		if err := dbRows.Scan(&r.ID, &r.OrderNo, &r.OrderDate, &r.CustomerID, &r.Customer, &r.ResponsibleType, &r.ResponsibleID, &r.ResponsibleName, &r.TotalAmount, &r.ShippingAmount, &r.DiscountAmount, &r.GrandTotal, &r.ExpressFee, &r.OutsourceMaterialFee, &r.OutsourceRoastFee, &r.OutsourcePackagingFee, &r.OutsourceManualFee, &r.OutsourceTaxFee, &r.OutsourceOtherFee, &r.OutsourceTotalFee, &r.OrderType, &r.PayStatus, &r.PaymentMethod, &r.ShipStatus, &r.ShipTrackingNo, &r.ReceiverName, &r.ReceiverPhone, &r.ReceiverAddress, &r.ReceiverCompany, &r.PortalServiceCode, &r.SourceWarehouse, &r.SenderID, &r.SenderLabel, &r.SenderName, &r.ProcessStatus, &r.CreatedByEmployee, &r.OrderTypeID, &r.PayStatusID, &r.ShipStatusID, &r.ProcessStatusID, &r.Notes, &r.IsVoid, &r.InvoiceStatus, &r.InvoiceFilename, &invoiceObjectKey); err != nil {
 			return nil, false, err
 		}
 		r.InvoiceFileURL = salesOrderAssetURL(invoiceObjectKey)
@@ -250,6 +258,11 @@ func orderListWhere(schema string, query salesapp.OrderListQuery) ([]string, []a
 	args := make([]any, 0)
 	argn := 1
 
+	if query.OrderID > 0 {
+		where = append(where, fmt.Sprintf("o.id = $%d", argn))
+		args = append(args, query.OrderID)
+		argn++
+	}
 	if q := strings.TrimSpace(query.Q); q != "" {
 		where = append(where, fmt.Sprintf(`(o.order_no ILIKE $%d OR c.name ILIKE $%d OR o.responsible_party_name ILIKE $%d OR o.ship_tracking_no ILIKE $%d OR EXISTS (
 			SELECT 1 FROM %s.order_shipping_trackings ost WHERE ost.order_id=o.id AND ost.tracking_no ILIKE $%d

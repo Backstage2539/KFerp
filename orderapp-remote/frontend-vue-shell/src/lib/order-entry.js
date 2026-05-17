@@ -76,9 +76,10 @@ export function defaultWholesaleSpec(product) {
 export function formatTierRange(tier) {
   const min = toNumber(tier?.min)
   const max = tier?.max == null ? 0 : toNumber(tier.max)
-  if (min > 0 && max > 0) return `${trimNumber(min)}-${trimNumber(max)}件`
-  if (min > 0) return `${trimNumber(min)}件+`
-  if (max > 0) return `≤${trimNumber(max)}件`
+  const unit = tierQuantityUnitLabel(tier)
+  if (min > 0 && max > 0) return `${trimNumber(min)}-${trimNumber(max)}${unit}`
+  if (min > 0) return `${trimNumber(min)}${unit}+`
+  if (max > 0) return `≤${trimNumber(max)}${unit}`
   return '全部数量'
 }
 
@@ -97,6 +98,18 @@ function tierMaxLb(tier) {
 
 function rowQuantityLb(row) {
   return normalizeSpecG(row) * Math.max(1, toInt(row?.qty)) / 454
+}
+
+function rowQuantityKg(row) {
+  return normalizeSpecG(row) * Math.max(1, toInt(row?.qty)) / 1000
+}
+
+function tierUsesKgQuantity(tier) {
+  return tierSpecG(tier) >= 1000
+}
+
+function tierQuantityUnitLabel(tier) {
+  return tierUsesKgQuantity(tier) ? 'kg' : '件'
 }
 
 export function wholesalePriceUnit(rowOrSpec) {
@@ -156,7 +169,8 @@ export function findWholesaleTier(product, row) {
   const exactSpecTiers = tiers
     .filter((item) => toInt(item.spec_g) === specG)
   if (exactSpecTiers.length) {
-    return matchTierByQuantity(exactSpecTiers, qty, (item) => toNumber(item.min), (item) => (item.max == null ? null : toNumber(item.max)))
+    const exactQuantity = tierUsesKgQuantity(exactSpecTiers[0]) ? rowQuantityKg(row) : qty
+    return matchTierByQuantity(exactSpecTiers, exactQuantity, (item) => toNumber(item.min), (item) => (item.max == null ? null : toNumber(item.max)))
   }
   return matchTierByQuantity(tiers, rowQuantityLb(row), tierMinLb, tierMaxLb)
 }

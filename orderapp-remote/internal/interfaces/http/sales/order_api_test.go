@@ -198,6 +198,61 @@ func TestOrderAPISmallBatchDirectShipCustomerUsesDefaultPriceTier(t *testing.T) 
 	}
 }
 
+func TestOrderAPIWholesaleExactSpecTierUsesKilogramQuantityForKgProducts(t *testing.T) {
+	pool, schema := newOrderAPITestDB(t)
+	ctx := context.Background()
+	seedOrderAPITestData(t, ctx, pool, schema)
+	mustExecOrderAPITestSQL(t, ctx, pool, fmt.Sprintf(`
+		INSERT INTO %[1]s.products(id,name,default_price,active,retail_price_227g)
+		VALUES (77,'曲奇拼配',0,true,0);
+		INSERT INTO %[1]s.product_price_tiers(id, product_id, spec_g, min_qty_units, max_qty_units, price_per_unit, min_qty_lb, max_qty_lb, price_per_lb, active)
+		VALUES
+			(901,77,2500,1,23,550,1,23,0,true),
+			(902,77,2500,24,49,512.50,24,49,0,true),
+			(903,77,2500,50,NULL,475,50,NULL,0,true);
+	`, schema))
+
+	e := newOrderAPITestEcho(pool, schema)
+	payload := map[string]any{
+		"order_date":     "2026-05-17",
+		"customer_id":    3,
+		"source_id":      1,
+		"order_type_id":  1,
+		"pay_status_id":  2,
+		"payment_method": "微信支付",
+		"ship_status_id": 1,
+		"product_id":     []string{"77"},
+		"tier_id":        []string{""},
+		"unit_price":     []string{""},
+		"item_name":      []string{"曲奇拼配"},
+		"qty":            []string{"10"},
+		"unit":           []string{"件"},
+		"spec":           []string{"2500"},
+	}
+	body, _ := json.Marshal(payload)
+	req := httptest.NewRequest(http.MethodPost, "/api/order", bytes.NewReader(body))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("POST /api/order status = %d, want 200, body=%s", rec.Code, rec.Body.String())
+	}
+
+	var tierID int64
+	var unitPrice, lineTotal float64
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`
+		SELECT COALESCE(price_tier_id,0), COALESCE(unit_price,0)::float8, COALESCE(line_total,0)::float8
+		FROM %s.order_items
+		ORDER BY id DESC
+		LIMIT 1
+	`, schema)).Scan(&tierID, &unitPrice, &lineTotal); err != nil {
+		t.Fatalf("query order item: %v", err)
+	}
+	if tierID != 902 || unitPrice != 205 || lineTotal != 5125 {
+		t.Fatalf("tier/unit_price/line_total=%d/%.2f/%.2f, want 902/205.00/5125.00", tierID, unitPrice, lineTotal)
+	}
+}
+
 func TestOrderAPISavesAndListsEmployeeResponsiblePerson(t *testing.T) {
 	pool, schema := newOrderAPITestDB(t)
 	ctx := context.Background()
@@ -495,6 +550,50 @@ func TestOrderAPIListUsesOrderRecipientSnapshot(t *testing.T) {
 	}
 }
 
+func TestOrderAPIFormEditReturnsRecipientSnapshot(t *testing.T) {
+	pool, schema := newOrderAPITestDB(t)
+	ctx := context.Background()
+	seedOrderAPITestData(t, ctx, pool, schema)
+	mustExecOrderAPITestSQL(t, ctx, pool, fmt.Sprintf(`
+		INSERT INTO %s.orders(
+			id, order_no, order_date, customer_id, source_id, order_type_id, pay_status_id,
+			ship_status_id, process_status_id, grand_total, is_void,
+			receiver_name, receiver_phone, receiver_address, receiver_company,
+			portal_service_code, source_warehouse
+		)
+		VALUES (
+			29, 'SO-FORM-RECIPIENT', '2026-05-04', 3, 1, 1, 2,
+			1, 1, 88.00, false,
+			'李四', '13800000002', '杭州市测试路2号', '杭州测试公司',
+			'direct_ship', 'cust_3_direct'
+		);
+		INSERT INTO %s.order_items(order_id,line_no,product_id,item_name,qty,unit,spec,unit_price,line_total)
+		VALUES(29, 1, 7, '橘皮乌龙', 1, '件', '454g', 88, 88);
+	`, schema, schema))
+
+	e := newOrderAPITestEcho(pool, schema)
+	req := httptest.NewRequest(http.MethodGet, "/api/order/form?edit_id=29", nil)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET /api/order/form edit status = %d, want 200, body=%s", rec.Code, rec.Body.String())
+	}
+	body := rec.Body.String()
+	for _, needle := range []string{
+		`"receiver_name":"李四"`,
+		`"receiver_phone":"13800000002"`,
+		`"receiver_address":"杭州市测试路2号"`,
+		`"receiver_company":"杭州测试公司"`,
+		`"portal_service_code":"direct_ship"`,
+		`"source_warehouse":"cust_3_direct"`,
+	} {
+		if !strings.Contains(body, needle) {
+			t.Fatalf("GET /api/order/form edit missing %s: %s", needle, body)
+		}
+	}
+}
+
 func TestOrderAPIListSupportsCustomerFilterAndFeeBreakdown(t *testing.T) {
 	pool, schema := newOrderAPITestDB(t)
 	ctx := context.Background()
@@ -502,11 +601,15 @@ func TestOrderAPIListSupportsCustomerFilterAndFeeBreakdown(t *testing.T) {
 	mustExecOrderAPITestSQL(t, ctx, pool, fmt.Sprintf(`
 		INSERT INTO %s.orders(
 			id, order_no, order_date, customer_id, source_id, order_type_id, pay_status_id,
-			ship_status_id, process_status_id, total_amount, shipping_amount, discount_amount, grand_total, is_void
+			ship_status_id, process_status_id, total_amount, shipping_amount, discount_amount, grand_total,
+			express_fee, outsource_material_fee, outsource_roast_fee, outsource_packaging_fee,
+			outsource_manual_fee, outsource_tax_fee, outsource_other_fee, outsource_total_fee, is_void
 		)
 		VALUES
-			(43, 'SO-FEE-CUSTOMER-3', '2026-05-07', 3, 1, 1, 2, 1, 1, 128.00, 12.00, 5.00, 135.00, false),
-			(44, 'SO-FEE-CUSTOMER-4', '2026-05-07', 4, 1, 1, 2, 1, 1, 200.00, 18.00, 10.00, 208.00, false);
+			(43, 'SO-FEE-CUSTOMER-3', '2026-05-07', 3, 1, 1, 2, 1, 1, 128.00, 12.00, 5.00, 135.00,
+			 '顺丰18元', 30.00, 40.00, 8.00, 6.00, 2.00, 4.00, 90.00, false),
+			(44, 'SO-FEE-CUSTOMER-4', '2026-05-07', 4, 1, 1, 2, 1, 1, 200.00, 18.00, 10.00, 208.00,
+			 '', 0, 0, 0, 0, 0, 0, 0, false);
 	`, schema))
 
 	e := newOrderAPITestEcho(pool, schema)
@@ -524,6 +627,14 @@ func TestOrderAPIListSupportsCustomerFilterAndFeeBreakdown(t *testing.T) {
 		`"shipping_amount":"12.00"`,
 		`"discount_amount":"5.00"`,
 		`"grand_total":"135.00"`,
+		`"express_fee":"顺丰18元"`,
+		`"outsource_material_fee":"30.00"`,
+		`"outsource_roast_fee":"40.00"`,
+		`"outsource_packaging_fee":"8.00"`,
+		`"outsource_manual_fee":"6.00"`,
+		`"outsource_tax_fee":"2.00"`,
+		`"outsource_other_fee":"4.00"`,
+		`"outsource_total_fee":"90.00"`,
 	} {
 		if !strings.Contains(body, needle) {
 			t.Fatalf("GET /api/orders customer filter missing %s: %s", needle, body)
@@ -619,6 +730,48 @@ func TestOrderAPIListFulfillmentScopeAllowsCustomerWorkbenchPermission(t *testin
 	}
 	if repo.query.FulfillmentEmployeeID != 7 {
 		t.Fatalf("orders API fulfillment employee id = %d, want 7", repo.query.FulfillmentEmployeeID)
+	}
+}
+
+func TestOrderAPIDetailAllowsCustomerWorkbenchBoundOrder(t *testing.T) {
+	repo := &capturingOrderDetailRepo{}
+	e := echo.New()
+	e.Use(func(next echo.HandlerFunc) echo.HandlerFunc {
+		return func(c echo.Context) error {
+			c.Set("employee_id", int64(7))
+			return next(c)
+		}
+	})
+	e.Use(support.AuthorizationMiddleware(&orderAPIAuthzService{actor: authzapp.Actor{
+		Permissions: []string{"customer_processing.read"},
+	}}))
+	registerOrderAPI(e, salesapp.NewService(repo), nil)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/orders/88/detail", nil)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET /api/orders/88/detail customer workbench status = %d, want 200, body=%s", rec.Code, rec.Body.String())
+	}
+	if repo.formEditID != 88 {
+		t.Fatalf("order detail form edit id = %d, want 88", repo.formEditID)
+	}
+	if !repo.accessCalled {
+		t.Fatal("order detail must verify customer workbench fulfillment binding")
+	}
+	if repo.accessQuery.OrderID != 88 || repo.accessQuery.Scope != "fulfillment" || repo.accessQuery.CustomerID != 152 || repo.accessQuery.FulfillmentEmployeeID != 7 {
+		t.Fatalf("order detail access query = %#v, want order 88 customer 152 employee 7 fulfillment scope", repo.accessQuery)
+	}
+	body := rec.Body.String()
+	for _, needle := range []string{
+		`"edit_mode":true`,
+		`"receiver_name":"李四"`,
+		`"receiver_phone":"13800000002"`,
+	} {
+		if !strings.Contains(body, needle) {
+			t.Fatalf("GET /api/orders/88/detail missing %s: %s", needle, body)
+		}
 	}
 }
 
@@ -779,6 +932,13 @@ type capturingOrderListRepo struct {
 	query  salesapp.OrderListQuery
 }
 
+type capturingOrderDetailRepo struct {
+	salesapp.Repository
+	formEditID   int64
+	accessCalled bool
+	accessQuery  salesapp.OrderListQuery
+}
+
 type orderAPIAuthzService struct {
 	actor authzapp.Actor
 }
@@ -812,6 +972,31 @@ func (r *capturingOrderListRepo) ListOrders(ctx context.Context, query salesapp.
 		}},
 		Summary: salesapp.OrdersSummary{Orders: 1, Customers: 1},
 	}, nil
+}
+
+func (r *capturingOrderDetailRepo) OrderForm(ctx context.Context, editID int64) (salesapp.OrderFormData, error) {
+	r.formEditID = editID
+	return salesapp.OrderFormData{
+		EditData: &salesapp.OrderEditData{
+			ID:              editID,
+			OrderNo:         "SO-DETAIL-88",
+			OrderDate:       "2026-05-17",
+			CustomerID:      152,
+			ReceiverName:    "李四",
+			ReceiverPhone:   "13800000002",
+			ReceiverAddress: "杭州市测试路2号",
+			GrandTotal:      "88.00",
+		},
+	}, nil
+}
+
+func (r *capturingOrderDetailRepo) ListOrders(ctx context.Context, query salesapp.OrderListQuery) (salesapp.OrderListResult, error) {
+	r.accessCalled = true
+	r.accessQuery = query
+	if query.OrderID == 88 && query.CustomerID == 152 && query.FulfillmentEmployeeID == 7 {
+		return salesapp.OrderListResult{Rows: []salesapp.OrderRow{{ID: 88}}}, nil
+	}
+	return salesapp.OrderListResult{}, nil
 }
 
 type capturingSaveOrderRepo struct {

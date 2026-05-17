@@ -320,6 +320,13 @@ func wholesaleLineTotalFromDisplayUnit(unitPrice float64, specG int64, units int
 	return unitPrice * (float64(specG*units) / wholesaleDisplayUnitG(specG))
 }
 
+func wholesaleTierQuantityForSpec(specG int64, units int64) float64 {
+	if specG >= 1000 {
+		return float64(specG*units) / 1000.0
+	}
+	return float64(units)
+}
+
 func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand) (salesapp.SaveOrderResult, error) {
 	od := cmd.OrderDate
 	if od.IsZero() {
@@ -473,13 +480,14 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 				items[idx].unitPrice = wholesaleDisplayUnitPriceFromLb(pricePerLb, items[idx].specG)
 				items[idx].lineTotal = wholesaleLineTotalFromDisplayUnit(items[idx].unitPrice, items[idx].specG, items[idx].units)
 			} else {
-				// Auto-match tier by package count for the selected spec(g).
+				// Auto-match exact-spec tiers by the tier unit. Small packs use package
+				// count; kg-priced packs use total kg.
 				var tid *int64
 				var packagePrice, pricePerLb float64
-				tierQty := items[idx].units
+				tierQty := wholesaleTierQuantityForSpec(items[idx].specG, items[idx].units)
 				tierQtyLb := qtyLb
 				if adjustedQty, ok := smallBatchTierQuantity(items[idx].specG, qtyLb, smallBatchRule); ok {
-					tierQty = adjustedQty
+					tierQty = wholesaleTierQuantityForSpec(items[idx].specG, adjustedQty)
 					tierQtyLb = float64(items[idx].specG*adjustedQty) / 454.0
 				}
 				q := fmt.Sprintf(`

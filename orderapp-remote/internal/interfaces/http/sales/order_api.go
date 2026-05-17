@@ -101,6 +101,7 @@ func registerOrderAPI(e *echo.Echo, salesSvc *salesapp.Service, messages Message
 		messages: messages,
 	}
 	e.GET("/api/orders", h.list)
+	e.GET("/api/orders/:id/detail", h.detail)
 	e.GET("/api/order/form", h.form)
 	e.POST("/api/order/stock-batch-preview", h.stockBatchPreview)
 	e.POST("/api/order", h.save)
@@ -212,6 +213,56 @@ func (h orderAPIHandler) form(c echo.Context) error {
 	}
 
 	return c.JSON(http.StatusOK, resp)
+}
+
+func (h orderAPIHandler) detail(c echo.Context) error {
+	id, err := strconv.ParseInt(strings.TrimSpace(c.Param("id")), 10, 64)
+	if err != nil || id <= 0 {
+		return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid id"})
+	}
+	data, err := h.sales.OrderForm(c.Request().Context(), id)
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
+	}
+	if data.EditData == nil {
+		return c.JSON(http.StatusNotFound, map[string]string{"error": "order not found"})
+	}
+	if support.CustomerFulfillmentOrderScopeLimited(c) {
+		if err := h.ensureFulfillmentOrderDetailAccess(c, id, data.EditData.CustomerID); err != nil {
+			return err
+		}
+	}
+	return c.JSON(http.StatusOK, orderFormAPIResponse{
+		Today:    data.EditData.OrderDate,
+		EditMode: true,
+		EditID:   id,
+		EditData: editDataForAPI(data.EditData),
+	})
+}
+
+func (h orderAPIHandler) ensureFulfillmentOrderDetailAccess(c echo.Context, orderID int64, customerID int64) error {
+	employeeID := support.CurrentEmployeeID(c)
+	if orderID <= 0 || customerID <= 0 || employeeID <= 0 {
+		return c.JSON(http.StatusForbidden, map[string]string{"error": "permission denied"})
+	}
+	result, err := h.sales.ListOrders(c.Request().Context(), salesapp.OrderListQuery{
+		OrderID:               orderID,
+		Scope:                 "fulfillment",
+		CustomerID:            customerID,
+		EmployeeID:            employeeID,
+		FulfillmentEmployeeID: employeeID,
+		Void:                  "all",
+		Limit:                 1,
+	})
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
+	}
+	for _, row := range result.Rows {
+		if row.ID == orderID {
+			return nil
+		}
+	}
+	return c.JSON(http.StatusForbidden, map[string]string{"error": "permission denied"})
 }
 
 type ordersAPIQuery struct {
@@ -548,6 +599,12 @@ func editDataForAPI(ed *OrderEditData) map[string]any {
 		"responsible_type":        ed.ResponsibleType,
 		"responsible_id":          ed.ResponsibleID,
 		"responsible_name":        ed.ResponsibleName,
+		"receiver_name":           ed.ReceiverName,
+		"receiver_phone":          ed.ReceiverPhone,
+		"receiver_address":        ed.ReceiverAddress,
+		"receiver_company":        ed.ReceiverCompany,
+		"portal_service_code":     ed.PortalServiceCode,
+		"source_warehouse":        ed.SourceWarehouse,
 		"notes":                   ed.Notes,
 		"shipping_amount":         ed.ShippingAmount,
 		"discount_amount":         ed.DiscountAmount,
@@ -559,6 +616,7 @@ func editDataForAPI(ed *OrderEditData) map[string]any {
 		"outsource_manual_fee":    ed.OutsourceManualFee,
 		"outsource_tax_fee":       ed.OutsourceTaxFee,
 		"outsource_other_fee":     ed.OutsourceOtherFee,
+		"outsource_total_fee":     ed.OutsourceTotalFee,
 		"items":                   items,
 	}
 }

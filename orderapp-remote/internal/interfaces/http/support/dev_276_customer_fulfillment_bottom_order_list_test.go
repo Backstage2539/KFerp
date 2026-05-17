@@ -47,7 +47,7 @@ func TestDev276CustomerFulfillmentBottomOrderListSourceWiring(t *testing.T) {
 		"/api/orders",
 		"scope",
 		"customer_id",
-		"/api/order/form?edit_id=",
+		"/api/orders/${Number(orderId)}/detail",
 	} {
 		if !strings.Contains(api, want) {
 			t.Fatalf("customer-fulfillment API missing %q", want)

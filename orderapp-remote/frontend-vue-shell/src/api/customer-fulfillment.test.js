@@ -106,7 +106,7 @@ test('customer fulfillment API wrappers call the expected endpoints', async () =
       ['/api/customer-fulfillment/147/work-orders', 'POST'],
       ['/api/customer-fulfillment/147/direct-ship-orders', 'POST'],
       ['/api/orders', 'GET'],
-      ['/api/order/form', 'GET'],
+      ['/api/orders/88/detail', 'GET'],
       ['/api/customer-processing/portal/overview', 'GET'],
       ['/api/customer-processing/portal/options', 'GET'],
       ['/api/customer-processing/portal/work-orders', 'POST'],
@@ -120,7 +120,7 @@ test('customer fulfillment API wrappers call the expected endpoints', async () =
     assert.equal(new URL(requests[18].url).searchParams.get('customer_id'), '147')
     assert.equal(new URL(requests[18].url).searchParams.get('page'), '2')
     assert.equal(new URL(requests[18].url).searchParams.get('limit'), '15')
-    assert.equal(new URL(requests[19].url).searchParams.get('edit_id'), '88')
+    assert.equal(new URL(requests[19].url).search, '')
     assert.ok(requests[0].init.body instanceof FormData)
     assert.equal(requests[0].init.headers?.['Content-Type'], undefined)
     assert.equal(JSON.parse(requests[8].init.body).period_from, '2026-03-01')
