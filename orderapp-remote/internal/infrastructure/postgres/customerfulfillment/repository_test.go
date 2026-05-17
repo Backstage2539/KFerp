@@ -3073,6 +3073,110 @@ func TestSubmittedDirectShipERPItemPricingKeepsFreeLineAndOrderDiscount(t *testi
 	}
 }
 
+func TestCustomerFulfillmentSubmittedPricingUsesKgDisplayUnitAndTotals(t *testing.T) {
+	if got := customerFulfillmentTierQuantityForSpec(2500, 10); got != 25 {
+		t.Fatalf("2.5kg x 10 tier quantity = %v, want 25kg", got)
+	}
+	if got := customerFulfillmentTierQuantityForSpec(1000, 25); got != 25 {
+		t.Fatalf("1000g x 25 tier quantity = %v, want 25kg", got)
+	}
+	if got := customerFulfillmentTierQuantityForSpec(454, 25); got != 25 {
+		t.Fatalf("454g x 25 tier quantity = %v, want 25 packages", got)
+	}
+
+	pricePerLb := 81.91 * 454.0 / 1000.0
+	unitPrice := customerFulfillmentDisplayUnitPriceFromLb(pricePerLb, 1000)
+	if unitPrice != 82 {
+		t.Fatalf("1000g display unit price = %v, want rounded 82/kg", unitPrice)
+	}
+	if got := customerFulfillmentLineTotalFromDisplayUnit(unitPrice, 1000, 25); got != 2050 {
+		t.Fatalf("1000g x 25 line total = %v, want 2050", got)
+	}
+	if got := customerFulfillmentLineTotalFromDisplayUnit(unitPrice, 2500, 10); got != 2050 {
+		t.Fatalf("2.5kg x 10 line total at 82/kg = %v, want 2050", got)
+	}
+}
+
+func TestSubmitCustomerDirectShipOrderUsesKgTierPriceAsDisplayUnit(t *testing.T) {
+	ctx := context.Background()
+	pool, schema := newCustomerFulfillmentTestDB(t)
+	repo := NewRepository(pool, schema)
+
+	var customerID, employeeID int64
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`
+		INSERT INTO %s.customers(name, customer_type) VALUES('岩师傅','wholesale') RETURNING id
+	`, schema)).Scan(&customerID); err != nil {
+		t.Fatalf("insert customer: %v", err)
+	}
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`
+		INSERT INTO %[1]s.company_employees(name, phone, account_type, department_id, active)
+		VALUES('13800138066','13800138066','channel_customer',(SELECT id FROM %[1]s.company_departments WHERE name='销售' LIMIT 1),true)
+		RETURNING id
+	`, schema)).Scan(&employeeID); err != nil {
+		t.Fatalf("insert employee: %v", err)
+	}
+	if _, err := pool.Exec(ctx, fmt.Sprintf(`
+		INSERT INTO %s.customer_erp_user_bindings(customer_id, employee_id, status)
+		VALUES($1,$2,'active')
+	`, schema), customerID, employeeID); err != nil {
+		t.Fatalf("insert binding: %v", err)
+	}
+	if _, err := pool.Exec(ctx, fmt.Sprintf(`
+		INSERT INTO %s.customer_service_capabilities(customer_id, capability_code, enabled)
+		VALUES($1,'direct_ship',true)
+	`, schema), customerID); err != nil {
+		t.Fatalf("insert direct ship capability: %v", err)
+	}
+	var productID int64
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`
+		INSERT INTO %s.products(name, default_price, active, customer_id, visibility, custom_type)
+		VALUES('岩师傅兰卡拼配', 180, true, $1, 'customer_only', 'public_sku_alias')
+		RETURNING id
+	`, schema), customerID).Scan(&productID); err != nil {
+		t.Fatalf("insert product: %v", err)
+	}
+	if _, err := pool.Exec(ctx, fmt.Sprintf(`
+		INSERT INTO %s.product_price_tiers(product_id, spec_g, min_qty_units, max_qty_units, price_per_unit, price_per_lb, active)
+		VALUES
+			($1,1000,1,23,180,180*454.0/1000.0,true),
+			($1,1000,24,49,81.91,81.91*454.0/1000.0,true)
+	`, schema), productID); err != nil {
+		t.Fatalf("insert tiers: %v", err)
+	}
+
+	got, err := repo.SubmitCustomerDirectShipOrder(ctx, app.SubmitCustomerDirectShipOrderCommand{
+		EmployeeID:      employeeID,
+		ReceiverName:    "自红波",
+		ReceiverPhone:   "13769940806",
+		ReceiverAddress: "普洱市思茅区",
+		ShippingAmount:  59,
+		Items: []app.SubmitCustomerDirectShipOrderItem{{
+			ProductID:     productID,
+			ProductName:   "岩师傅兰卡拼配",
+			SpecG:         1000,
+			QuantityUnits: 25,
+			DiscountType:  "",
+			DiscountValue: 0,
+		}},
+	})
+	if err != nil {
+		t.Fatalf("SubmitCustomerDirectShipOrder: %v", err)
+	}
+
+	var unitPrice, lineTotal, totalAmount, shippingAmount, grandTotal float64
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`
+		SELECT oi.unit_price::float8, oi.line_total::float8, o.total_amount::float8, o.shipping_amount::float8, o.grand_total::float8
+		FROM %[1]s.orders o
+		JOIN %[1]s.order_items oi ON oi.order_id=o.id
+		WHERE o.order_no=$1
+	`, schema), got.OrderNo).Scan(&unitPrice, &lineTotal, &totalAmount, &shippingAmount, &grandTotal); err != nil {
+		t.Fatalf("load order item: %v", err)
+	}
+	if unitPrice != 82 || lineTotal != 2050 || totalAmount != 2050 || shippingAmount != 59 || grandTotal != 2109 {
+		t.Fatalf("kg order pricing unit/line/total/shipping/grand = %.2f/%.2f/%.2f/%.2f/%.2f, want 82/2050/2050/59/2109", unitPrice, lineTotal, totalAmount, shippingAmount, grandTotal)
+	}
+}
+
 func TestCustomerFulfillmentSubmittedUnitPriceUsesSpecAdjustedDefaultWhenRuleDisabled(t *testing.T) {
 	ctx := context.Background()
 	pool, schema := newCustomerFulfillmentTestDB(t)
@@ -3085,9 +3189,8 @@ func TestCustomerFulfillmentSubmittedUnitPriceUsesSpecAdjustedDefaultWhenRuleDis
 	defer func() { _ = tx.Rollback(ctx) }()
 
 	price80 := repo.customerFulfillmentSubmittedUnitPriceTx(ctx, tx, 999, 1, 80, 1, 63)
-	want80 := customerFulfillmentPackageUnitPriceFromLb(63, 80)
-	if math.Abs(price80-want80) > 0.000001 {
-		t.Fatalf("spec 80g unit price = %v, want %v", price80, want80)
+	if math.Abs(price80-63) > 0.000001 {
+		t.Fatalf("spec 80g unit price = %v, want 63", price80)
 	}
 
 	price454 := repo.customerFulfillmentSubmittedUnitPriceTx(ctx, tx, 999, 1, 454, 1, 63)
