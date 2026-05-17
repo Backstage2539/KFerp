@@ -132,7 +132,8 @@ func TestCustomerPortalOrderBackboneUsesSharedOrdersAndExcludesVoided(t *testing
 	for _, want := range []string{
 		"case customerportalapp.ServiceKeyOrders:",
 		"case customerportalapp.ServiceKeySettlement:",
-		"page.Orders, err = r.listCustomerOrders(ctx, query, limit)",
+		"page.Orders, err = r.listCustomerOrders(ctx, query, limit, true)",
+		"page.Orders, err = r.listCustomerOrders(ctx, query, limit, false)",
 		`where := []string{"o.customer_id=$1", "o.is_void=false"}`,
 		"FROM %s.orders o",
 		"WHERE id=$1 AND customer_id=$2 AND is_void=false",

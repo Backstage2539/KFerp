@@ -17,8 +17,17 @@ import (
 
 func (r Repository) LoadServicePage(ctx context.Context, query customerportalapp.ServicePageQuery) (customerportalapp.ServicePage, error) {
 	limit := query.Limit
-	if limit <= 0 || limit > 50 {
-		limit = 20
+	defaultLimit := 20
+	maxLimit := 50
+	if query.Key == customerportalapp.ServiceKeySettlement {
+		defaultLimit = 200
+		maxLimit = 200
+	}
+	if limit <= 0 {
+		limit = defaultLimit
+	}
+	if limit > maxLimit {
+		limit = maxLimit
 	}
 	page := customerportalapp.ServicePage{Key: query.Key}
 	var err error
@@ -26,12 +35,12 @@ func (r Repository) LoadServicePage(ctx context.Context, query customerportalapp
 	case customerportalapp.ServiceKeyBeanList:
 		page.BeanLists, err = r.listBeanLists(ctx, query.CustomerID, limit)
 	case customerportalapp.ServiceKeyOrders:
-		page.Orders, err = r.listCustomerOrders(ctx, query, limit)
+		page.Orders, err = r.listCustomerOrders(ctx, query, limit, true)
 	case customerportalapp.ServiceKeyProductOrder:
 		if page.Products, err = r.listProducts(ctx, query.CustomerID, limit); err != nil {
 			return customerportalapp.ServicePage{}, err
 		}
-		page.Orders, err = r.listCustomerOrders(ctx, query, limit)
+		page.Orders, err = r.listCustomerOrders(ctx, query, limit, true)
 	case customerportalapp.ServiceKeyDirectShip:
 		if page.Products, err = r.listProducts(ctx, query.CustomerID, limit); err != nil {
 			return customerportalapp.ServicePage{}, err
@@ -39,7 +48,7 @@ func (r Repository) LoadServicePage(ctx context.Context, query customerportalapp
 		if page.DirectShipBatches, err = r.listDirectShipBatches(ctx, query.CustomerID, limit); err != nil {
 			return customerportalapp.ServicePage{}, err
 		}
-		page.Orders, err = r.listCustomerOrders(ctx, query, limit)
+		page.Orders, err = r.listCustomerOrders(ctx, query, limit, true)
 	case customerportalapp.ServiceKeyProcessing:
 		if page.Products, err = r.listProducts(ctx, query.CustomerID, limit); err != nil {
 			return customerportalapp.ServicePage{}, err
@@ -51,7 +60,7 @@ func (r Repository) LoadServicePage(ctx context.Context, query customerportalapp
 	case customerportalapp.ServiceKeyInventory:
 		page.Inventory, err = r.listInventory(ctx, query.CustomerID, limit)
 	case customerportalapp.ServiceKeyShipping:
-		page.Orders, err = r.listCustomerOrders(ctx, query, limit)
+		page.Orders, err = r.listCustomerOrders(ctx, query, limit, true)
 	case customerportalapp.ServiceKeySettlement:
 		if page.FeeItems, err = r.listFeeItems(ctx, query.CustomerID, limit); err != nil {
 			return customerportalapp.ServicePage{}, err
@@ -59,7 +68,7 @@ func (r Repository) LoadServicePage(ctx context.Context, query customerportalapp
 		if page.SettlementBatches, err = r.listSettlementBatches(ctx, query.CustomerID, limit); err != nil {
 			return customerportalapp.ServicePage{}, err
 		}
-		page.Orders, err = r.listCustomerOrders(ctx, query, limit)
+		page.Orders, err = r.listCustomerOrders(ctx, query, limit, false)
 	default:
 		err = fmt.Errorf("service key invalid")
 	}
@@ -589,7 +598,7 @@ func mallProductPublicCatalogSQL(productAlias string) string {
 	return fmt.Sprintf(`(COALESCE(%scustomer_id,0)=0 AND COALESCE(NULLIF(%svisibility,''),'public')='public')`, productAlias, productAlias)
 }
 
-func (r Repository) listCustomerOrders(ctx context.Context, query customerportalapp.ServicePageQuery, limit int) ([]customerportalapp.CustomerOrderSummary, error) {
+func (r Repository) listCustomerOrders(ctx context.Context, query customerportalapp.ServicePageQuery, limit int, includeItems bool) ([]customerportalapp.CustomerOrderSummary, error) {
 	where := []string{"o.customer_id=$1", "o.is_void=false"}
 	args := []any{query.CustomerID}
 	if keyword := strings.TrimSpace(query.Query); keyword != "" {
@@ -637,6 +646,7 @@ func (r Repository) listCustomerOrders(ctx context.Context, query customerportal
 		       COALESCE(NULLIF(c.address,''), c.company_address, ''),
 		       COALESCE(ops.name,''),
 		       COALESCE(ps.name,''),
+		       COALESCE(o.payment_method,''),
 		       COALESCE(ss.name,''),
 		       COALESCE(o.ship_tracking_no,''),
 		       to_char(COALESCE(o.grand_total,0), 'FM999999990.00'),
@@ -658,7 +668,7 @@ func (r Repository) listCustomerOrders(ctx context.Context, query customerportal
 	orderIDs := make([]int64, 0)
 	for rows.Next() {
 		var row customerportalapp.CustomerOrderSummary
-		if err := rows.Scan(&row.ID, &row.OrderNo, &row.OrderDate, &row.ReceiverName, &row.ReceiverPhone, &row.ReceiverAddress, &row.ProcessStatus, &row.PayStatus, &row.ShipStatus, &row.ShipTrackingNo, &row.GrandTotal, &row.ShippingAmount); err != nil {
+		if err := rows.Scan(&row.ID, &row.OrderNo, &row.OrderDate, &row.ReceiverName, &row.ReceiverPhone, &row.ReceiverAddress, &row.ProcessStatus, &row.PayStatus, &row.PaymentMethod, &row.ShipStatus, &row.ShipTrackingNo, &row.GrandTotal, &row.ShippingAmount); err != nil {
 			return nil, err
 		}
 		orderIDs = append(orderIDs, row.ID)
@@ -667,12 +677,18 @@ func (r Repository) listCustomerOrders(ctx context.Context, query customerportal
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
-	items, err := r.listCustomerOrderItems(ctx, orderIDs)
-	if err != nil {
-		return nil, err
+	items := map[int64][]customerportalapp.CustomerOrderItemSummary{}
+	if includeItems {
+		var err error
+		items, err = r.listCustomerOrderItems(ctx, orderIDs)
+		if err != nil {
+			return nil, err
+		}
 	}
 	for i := range out {
-		out[i].Items = items[out[i].ID]
+		if includeItems {
+			out[i].Items = items[out[i].ID]
+		}
 		out[i].SalesOrderURL = fmt.Sprintf("/api/mini/orders/%d/sales-order-latest.pdf", out[i].ID)
 		out[i].DeliveryNoteURL = fmt.Sprintf("/api/mini/orders/%d/delivery-note-latest.pdf", out[i].ID)
 	}

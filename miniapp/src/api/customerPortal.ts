@@ -108,6 +108,7 @@ export type CustomerOrderSummary = {
   receiver_address: string
   process_status: string
   pay_status: string
+  payment_method: string
   ship_status: string
   ship_tracking_no: string
   grand_total: string

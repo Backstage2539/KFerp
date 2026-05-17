@@ -1,4 +1,4 @@
-export type OrderDatePreset = 'today' | 'last3' | 'last7' | 'month'
+export type OrderDatePreset = 'today' | 'last3' | 'last7' | 'week' | 'month' | 'year'
 
 export type OrderDateRange = {
   date_from?: string
@@ -28,8 +28,14 @@ export function datePresetRange(preset: OrderDatePreset, now = new Date()): Requ
     start.setDate(end.getDate() - 2)
   } else if (preset === 'last7') {
     start.setDate(end.getDate() - 6)
+  } else if (preset === 'week') {
+    const day = end.getDay()
+    const mondayOffset = (day + 6) % 7
+    start.setDate(end.getDate() - mondayOffset)
   } else if (preset === 'month') {
     start.setDate(1)
+  } else if (preset === 'year') {
+    start.setMonth(0, 1)
   }
   return {
     date_from: formatDate(start),
