@@ -187,6 +187,12 @@ func (r Repository) fetchOrderEdit(ctx context.Context, id int64) (*salesapp.Ord
 			COALESCE(o.responsible_party_type,'') as responsible_party_type,
 			COALESCE(o.responsible_party_id,0) as responsible_party_id,
 			COALESCE(o.responsible_party_name,'') as responsible_party_name,
+			COALESCE(NULLIF(o.receiver_name,''), NULLIF(c.contact,''), c.name, '') AS receiver_name,
+			COALESCE(NULLIF(o.receiver_phone,''), c.phone, '') AS receiver_phone,
+			COALESCE(NULLIF(o.receiver_address,''), c.address, '') AS receiver_address,
+			COALESCE(o.receiver_company, '') AS receiver_company,
+			COALESCE(o.portal_service_code,'') AS portal_service_code,
+			COALESCE(o.source_warehouse,'') AS source_warehouse,
 			COALESCE(o.notes,'') as notes,
 			COALESCE(o.total_amount,0) as total_amount,
 			COALESCE(o.shipping_amount,0) as shipping_amount,
@@ -206,8 +212,9 @@ func (r Repository) fetchOrderEdit(ctx context.Context, id int64) (*salesapp.Ord
 			CASE WHEN o.voided_at IS NULL THEN NULL ELSE to_char(o.voided_at, 'YYYY-MM-DD HH24:MI:SS') END AS voided_at,
 			o.void_reason
 		FROM %s.orders o
+		LEFT JOIN %s.customers c ON c.id=o.customer_id
 		WHERE o.id=$1
-	`, orderTrackingSummaryExpr(r.schema, "o"), r.schema)
+	`, orderTrackingSummaryExpr(r.schema, "o"), r.schema, r.schema)
 
 	var d salesapp.OrderEditData
 	var totalAmt, shipAmt, discAmt, roundAmt, grandAmt float64
@@ -227,6 +234,12 @@ func (r Repository) fetchOrderEdit(ctx context.Context, id int64) (*salesapp.Ord
 		&d.ResponsibleType,
 		&d.ResponsibleID,
 		&d.ResponsibleName,
+		&d.ReceiverName,
+		&d.ReceiverPhone,
+		&d.ReceiverAddress,
+		&d.ReceiverCompany,
+		&d.PortalServiceCode,
+		&d.SourceWarehouse,
 		&d.Notes,
 		&totalAmt,
 		&shipAmt,

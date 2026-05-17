@@ -127,7 +127,14 @@
               <td>{{ row.order_date }}</td>
               <td>{{ row.customer }}</td>
               <td>{{ row.responsible_name || '-' }}</td>
-              <td>{{ row.grand_total }}</td>
+              <td>
+                <div class="fee-stack">
+                  <span v-for="line in orderFeeLines(row)" :key="line.label" class="fee-line">
+                    <span>{{ line.label }}</span>
+                    <strong>{{ line.value }}</strong>
+                  </span>
+                </div>
+              </td>
               <td>{{ row.order_type }}</td>
               <td>
                 <div class="shipping-summary">
@@ -177,6 +184,16 @@
         <div v-if="shippingMessage" class="notice ok">{{ shippingMessage }}</div>
         <div v-if="activeOrderDetail" class="drawer-body">
           <section class="drawer-section">
+            <h4>收件信息</h4>
+            <div class="drawer-status-grid">
+              <span>收件人：{{ activeOrderDetail.receiver_name || '-' }}</span>
+              <span>电话：{{ activeOrderDetail.receiver_phone || '-' }}</span>
+              <span>公司：{{ activeOrderDetail.receiver_company || '-' }}</span>
+              <span>来源：{{ activeOrderDetail.portal_service_code || '-' }}</span>
+              <span class="wide-item">地址：{{ activeOrderDetail.receiver_address || '-' }}</span>
+            </div>
+          </section>
+          <section class="drawer-section">
             <h4>快递信息</h4>
             <div class="drawer-grid">
               <label>
@@ -212,9 +229,15 @@
             </div>
           </section>
           <section class="drawer-section">
+            <h4>费用明细</h4>
+            <div class="drawer-status-grid">
+              <span v-for="line in orderFeeLines(activeOrderDetail)" :key="line.label">{{ line.label }}：{{ line.value }}</span>
+              <span v-for="line in orderOutsourceFeeLines(activeOrderDetail)" :key="line.key">{{ line.label }}：{{ line.value }}</span>
+            </div>
+          </section>
+          <section class="drawer-section">
             <h4>订单信息</h4>
             <div class="drawer-status-grid">
-              <span>金额：{{ activeOrderDetail.grand_total || '-' }}</span>
               <span>类型：{{ activeOrderDetail.order_type || '-' }}</span>
               <span>负责人：{{ activeOrderDetail.responsible_name || '-' }}</span>
               <span>录入：{{ activeOrderDetail.created_by_employee || '-' }}</span>
@@ -467,6 +490,40 @@ function orderRowClass(row) {
   }
 }
 
+function orderFeeLines(row = {}) {
+  const lines = [
+    { label: '商品', value: moneyLabel(row.total_amount) },
+    { label: '运费', value: moneyLabel(row.shipping_amount) },
+    { label: '优惠', value: moneyLabel(row.discount_amount) },
+    { label: '应收', value: moneyLabel(row.grand_total) },
+  ]
+  if (String(row.express_fee || '').trim()) lines.push({ label: '快递费', value: row.express_fee })
+  if (hasMoney(row.outsource_total_fee)) lines.push({ label: '委外合计', value: moneyLabel(row.outsource_total_fee) })
+  return lines
+}
+
+function orderOutsourceFeeLines(row = {}) {
+  return [
+    { key: 'outsource_material_fee', label: '委外物料', value: row.outsource_material_fee },
+    { key: 'outsource_roast_fee', label: '委外烘焙', value: row.outsource_roast_fee },
+    { key: 'outsource_packaging_fee', label: '委外包装', value: row.outsource_packaging_fee },
+    { key: 'outsource_manual_fee', label: '委外人工', value: row.outsource_manual_fee },
+    { key: 'outsource_tax_fee', label: '委外税费', value: row.outsource_tax_fee },
+    { key: 'outsource_other_fee', label: '委外其他', value: row.outsource_other_fee },
+  ]
+    .filter((line) => hasMoney(line.value))
+    .map((line) => ({ ...line, value: moneyLabel(line.value) }))
+}
+
+function hasMoney(value) {
+  return Math.abs(Number.parseFloat(String(value || '0'))) > 0.0001
+}
+
+function moneyLabel(value) {
+  const text = String(value ?? '').trim()
+  return text || '0.00'
+}
+
 function profileLabel(profile = {}) {
   return profile.sender_label || profile.sender_name || `寄件人${profile.sender_id}`
 }
@@ -710,6 +767,9 @@ a, .text-link { color: #1f4f82; text-decoration: none; }
 .shipping-summary { display: grid; gap: 4px; min-width: 130px; }
 .shipping-summary span { color: #666; font-size: 12px; }
 .shipping-summary strong { font-weight: 600; color: #171717; }
+.fee-stack { display: grid; gap: 3px; min-width: 120px; }
+.fee-line { display: flex; justify-content: space-between; gap: 8px; color: #555; font-size: 12px; }
+.fee-line strong { color: #171717; font-weight: 600; }
 .status-stack { display: grid; grid-template-columns: repeat(2, minmax(90px, 1fr)); gap: 4px 8px; min-width: 230px; color: #333; font-size: 13px; }
 .actions-cell { min-width: 210px; }
 .actions-cell a, .actions-cell .inline-muted { display: inline-block; margin-right: 8px; }
@@ -737,6 +797,7 @@ a, .text-link { color: #1f4f82; text-decoration: none; }
 .drawer-grid { display: grid; gap: 10px; }
 .tracking-fill-row { display: grid; grid-template-columns: 1fr auto; gap: 8px; align-items: start; }
 .drawer-status-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; color: #333; font-size: 13px; }
+.drawer-status-grid .wide-item { grid-column: 1 / -1; }
 .drawer-actions { display: flex; flex-wrap: wrap; gap: 8px; justify-content: flex-end; }
 .sales-order-drawer-mask { position: fixed; inset: 0; z-index: 35; display: flex; justify-content: flex-end; background: rgba(0, 0, 0, .24); }
 .sales-order-drawer { width: min(1160px, calc(100vw - 28px)); height: 100%; overflow: auto; background: #f8f7f4; border-left: 1px solid #e6e0d8; box-shadow: -10px 0 24px rgba(0, 0, 0, .14); }

@@ -28,6 +28,27 @@ func TestOrderListWhereSearchMatchesResponsibleName(t *testing.T) {
 	}
 }
 
+func TestOrderListWhereSupportsOrderIDForScopedDetailAccess(t *testing.T) {
+	where, args, nextArg := orderListWhere("test_schema", salesapp.OrderListQuery{OrderID: 88, Scope: "fulfillment", FulfillmentEmployeeID: 7, Void: "all"})
+	joined := strings.Join(where, " AND ")
+
+	for _, want := range []string{
+		"o.id = $1",
+		"b.employee_id=$2",
+		"portal_service_code IN ('direct_ship','processing_ship','product_order')",
+	} {
+		if !strings.Contains(joined, want) {
+			t.Fatalf("scoped detail where missing %q in %q", want, joined)
+		}
+	}
+	if len(args) != 2 || args[0] != int64(88) || args[1] != int64(7) {
+		t.Fatalf("scoped detail args = %#v, want order id 88 and employee id 7", args)
+	}
+	if nextArg != 3 {
+		t.Fatalf("nextArg = %d, want 3", nextArg)
+	}
+}
+
 func TestOrderListWhereSupportsMineAndFulfillmentScopes(t *testing.T) {
 	where, args, _ := orderListWhere("test_schema", salesapp.OrderListQuery{Scope: "mine", EmployeeID: 7})
 	joined := strings.Join(where, " AND ")
@@ -89,5 +110,14 @@ func TestResolveOrderFulfillmentMarkersPreservesExistingGeneratedOrderScope(t *t
 	portalServiceCode, _ = resolveOrderFulfillmentMarkers("direct_ship", "finished_goods", "", "finished_goods")
 	if portalServiceCode != "" {
 		t.Fatalf("non-fulfillment customer selection should clear fulfillment scope, got %q", portalServiceCode)
+	}
+}
+
+func TestWholesaleTierQuantityForSpecUsesKilogramsForKgSpecs(t *testing.T) {
+	if got := wholesaleTierQuantityForSpec(2500, 10); got != 25 {
+		t.Fatalf("2500g x 10 tier quantity = %.2f, want 25kg", got)
+	}
+	if got := wholesaleTierQuantityForSpec(454, 10); got != 10 {
+		t.Fatalf("454g x 10 tier quantity = %.2f, want 10 packages", got)
 	}
 }

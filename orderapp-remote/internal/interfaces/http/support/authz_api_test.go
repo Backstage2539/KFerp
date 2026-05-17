@@ -161,6 +161,30 @@ func TestAuthorizationMiddlewareAllowsFulfillmentOrderListForCustomerWorkbench(t
 	}
 }
 
+func TestAuthorizationMiddlewareAllowsFulfillmentOrderDetailForCustomerWorkbench(t *testing.T) {
+	e := echo.New()
+	authz := &fakeAuthzService{actor: authzapp.Actor{Permissions: []string{"customer_processing.read"}}}
+	e.Use(func(next echo.HandlerFunc) echo.HandlerFunc {
+		return func(c echo.Context) error {
+			c.Set("employee_id", int64(7))
+			return next(c)
+		}
+	})
+	e.Use(AuthorizationMiddleware(authz))
+	e.GET("/api/orders/:id/detail", func(c echo.Context) error {
+		if !CustomerFulfillmentOrderScopeLimited(c) {
+			return c.JSON(http.StatusInternalServerError, map[string]any{"error": "scope marker missing"})
+		}
+		return c.JSON(http.StatusOK, map[string]any{"ok": true})
+	})
+
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/orders/88/detail", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status=%d, want 200, body=%s", rec.Code, rec.Body.String())
+	}
+}
+
 func TestAuthorizationMiddlewareAllowsMatchingPermission(t *testing.T) {
 	e := echo.New()
 	authz := &fakeAuthzService{actor: authzapp.Actor{Permissions: []string{"settings.write"}}}

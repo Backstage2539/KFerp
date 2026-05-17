@@ -112,7 +112,7 @@ export function fetchCustomerFulfillmentOrders(customerId, options = {}) {
 }
 
 export function fetchCustomerFulfillmentOrderDetail(orderId) {
-  return apiGet(`/api/order/form?edit_id=${Number(orderId)}`)
+  return apiGet(`/api/orders/${Number(orderId)}/detail`)
 }
 
 export function fetchCustomerProcessingPortalOverview() {

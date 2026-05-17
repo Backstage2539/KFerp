@@ -29,3 +29,12 @@ test('customer fulfillment workbench renders sections from capability helpers', 
   assert.match(source, /workbenchSections\.inventory/)
   assert.match(source, /workbenchSections\.settlement/)
 })
+
+test('orders view exposes recipient snapshots and fee breakdowns', () => {
+  const source = readFileSync(new URL('../views/OrdersView.vue', import.meta.url), 'utf8')
+  assert.match(source, /收件信息/)
+  assert.match(source, /activeOrderDetail\.receiver_name/)
+  assert.match(source, /orderFeeLines\(row\)/)
+  assert.match(source, /委外合计/)
+  assert.match(source, /outsource_total_fee/)
+})

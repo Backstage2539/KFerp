@@ -2,6 +2,7 @@ package support
 
 import (
 	"net/http"
+	"strconv"
 	"strings"
 
 	"github.com/labstack/echo/v4"
@@ -13,6 +14,12 @@ func AuthorizationMiddleware(authz AuthzService) echo.MiddlewareFunc {
 	return func(next echo.HandlerFunc) echo.HandlerFunc {
 		return func(c echo.Context) error {
 			if isFulfillmentOrderListRequest(c.Request().Method, c.Request().URL.Path, c.QueryParam("scope")) {
+				if err := authorizeFulfillmentOrderList(c, authz); err != nil {
+					return err
+				}
+				return next(c)
+			}
+			if isFulfillmentOrderDetailRequest(c.Request().Method, c.Request().URL.Path) {
 				if err := authorizeFulfillmentOrderList(c, authz); err != nil {
 					return err
 				}
@@ -40,6 +47,23 @@ func isFulfillmentOrderListRequest(method, path, scope string) bool {
 	return method == http.MethodGet &&
 		(path == "/api/orders" || path == "/app/api/orders") &&
 		strings.TrimSpace(scope) == "fulfillment"
+}
+
+func isFulfillmentOrderDetailRequest(method, path string) bool {
+	if method != http.MethodGet {
+		return false
+	}
+	path = strings.TrimSpace(path)
+	path = strings.TrimPrefix(path, "/app")
+	if !strings.HasPrefix(path, "/api/orders/") || !strings.HasSuffix(path, "/detail") {
+		return false
+	}
+	idPart := strings.TrimSuffix(strings.TrimPrefix(path, "/api/orders/"), "/detail")
+	if idPart == "" || strings.Contains(idPart, "/") {
+		return false
+	}
+	id, err := strconv.ParseInt(idPart, 10, 64)
+	return err == nil && id > 0
 }
 
 func authorizeFulfillmentOrderList(c echo.Context, authz AuthzService) error {

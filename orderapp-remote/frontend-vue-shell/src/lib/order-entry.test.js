@@ -172,7 +172,7 @@ test('wholesaleTierPriceRows exposes every configured gradient price', () => {
   assert.deepEqual(got, [
     { id: '1', specG: 227, specLabel: '227g', rangeLabel: '1-7件', unitPrice: 98, priceUnit: { label: '元/磅', suffix: '/磅', unitG: 454 } },
     { id: '2', specG: 227, specLabel: '227g', rangeLabel: '8件+', unitPrice: 84, priceUnit: { label: '元/磅', suffix: '/磅', unitG: 454 } },
-    { id: '3', specG: 2500, specLabel: '2.5kg', rangeLabel: '1件+', unitPrice: 155, priceUnit: { label: '元/kg', suffix: '/kg', unitG: 1000 } },
+    { id: '3', specG: 2500, specLabel: '2.5kg', rangeLabel: '1kg+', unitPrice: 155, priceUnit: { label: '元/kg', suffix: '/kg', unitG: 1000 } },
   ])
 })
 
@@ -203,6 +203,20 @@ test('syncWholesaleTierPrice falls back to bean-list weight tiers when selected 
   assert.deepEqual(got, { tierID: '4', unitPrice: '106' })
   assert.deepEqual(wholesalePriceUnit(row), { label: '元/kg', suffix: '/kg', unitG: 1000 })
   assert.equal(lineTotal({ tiers: [] }, { ...row, tier_id: got.tierID, unit_price: got.unitPrice }, false), 106 * 30)
+})
+
+test('syncWholesaleTierPrice matches kg-priced exact specs by total kg instead of package count', () => {
+  const row = { spec_mode: '2500', qty: 10, tier_id: 'auto', unit_price: '' }
+  const got = syncWholesaleTierPrice({
+    tiers: [
+      { id: 1, spec_g: 2500, min: 1, max: 23, unit_price: 550 },
+      { id: 2, spec_g: 2500, min: 24, max: 49, unit_price: 512.5 },
+      { id: 3, spec_g: 2500, min: 50, max: null, unit_price: 475 },
+    ],
+  }, row)
+
+  assert.deepEqual(got, { tierID: '2', unitPrice: '205' })
+  assert.equal(lineTotal({ tiers: [] }, { ...row, tier_id: got.tierID, unit_price: got.unitPrice }, false), 205 * 25)
 })
 
 test('buildOrderPayload preserves manual unit price override', () => {
