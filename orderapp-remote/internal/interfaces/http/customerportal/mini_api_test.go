@@ -692,8 +692,7 @@ func TestMiniSettlementServicePageAPIReturnsFinancePayload(t *testing.T) {
 			Status: "unsettled", Note: "客户A费用",
 		}},
 		Orders: []customerportalapp.CustomerOrderSummary{{
-			ID: 88, OrderNo: "SO-YAN-BILL", OrderDate: "2026-05-17", GrandTotal: "4559.00",
-			Items: []customerportalapp.CustomerOrderItemSummary{{ID: 89, ItemName: "兰卡拼配", Spec: "1000g", Qty: "25", Unit: "件", UnitPrice: "180.00", LineTotal: "4500.00"}},
+			ID: 88, OrderNo: "SO-YAN-BILL", OrderDate: "2026-05-17", PayStatus: "未付款", PaymentMethod: "", GrandTotal: "4559.00",
 		}},
 		SettlementBatches: []customerportalapp.SettlementBatch{{
 			ID: 2, SettlementNo: "客户A结算单", PeriodFrom: "2026-05-01", PeriodTo: "2026-05-31",
@@ -710,11 +709,37 @@ func TestMiniSettlementServicePageAPIReturnsFinancePayload(t *testing.T) {
 		!strings.Contains(rec.Body.String(), `"orders":[`) ||
 		!strings.Contains(rec.Body.String(), `"settlement_batches":[`) ||
 		!strings.Contains(rec.Body.String(), `"order_no":"SO-YAN-BILL"`) ||
-		!strings.Contains(rec.Body.String(), `"item_name":"兰卡拼配"`) ||
+		!strings.Contains(rec.Body.String(), `"payment_method":""`) ||
 		!strings.Contains(rec.Body.String(), `"note":"客户A费用"`) ||
 		!strings.Contains(rec.Body.String(), `"settlement_no":"客户A结算单"`) ||
+		strings.Contains(rec.Body.String(), `"item_name":`) ||
 		strings.Contains(rec.Body.String(), "客户B不应泄露") {
 		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestMiniSettlementServicePageAPIParsesBillingFilters(t *testing.T) {
+	var gotFilter customerportalapp.ServicePageFilter
+	e := echo.New()
+	RegisterRoutes(e, Dependencies{CustomerPortal: fakeService{
+		filter: &gotFilter,
+		service: customerportalapp.ServicePage{
+			Key:                 customerportalapp.ServiceKeySettlement,
+			Title:               "结算中心",
+			CurrentCustomerID:   8,
+			CurrentCustomerName: "客户A",
+		},
+	}})
+
+	req := httptest.NewRequest(http.MethodGet, "/api/mini/services/settlement?q=SO-YAN&date_from=2026-05-01&date_to=2026-05-31&pay_status=%E6%9C%AA%E4%BB%98%E6%AC%BE", nil)
+	req.Header.Set(echo.HeaderAuthorization, "Bearer mini-token")
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if gotFilter.Query != "SO-YAN" || gotFilter.DateFrom != "2026-05-01" || gotFilter.DateTo != "2026-05-31" || gotFilter.PayStatus != "未付款" {
+		t.Fatalf("billing filter=%+v", gotFilter)
 	}
 }
 

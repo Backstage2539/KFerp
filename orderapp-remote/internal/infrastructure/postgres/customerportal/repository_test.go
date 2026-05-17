@@ -1815,11 +1815,79 @@ func TestLoadSettlementServicePageIncludesOrderReceivablesForCurrentCustomer(t *
 	if len(got.Orders) != 1 || got.Orders[0].OrderNo != "SO-YAN-BILL" || got.Orders[0].GrandTotal != "4559.00" {
 		t.Fatalf("settlement orders=%+v, want current customer order receivable", got.Orders)
 	}
-	if len(got.Orders[0].Items) != 1 || got.Orders[0].Items[0].ItemName != "兰卡拼配" {
-		t.Fatalf("settlement order items=%+v, want order line details", got.Orders[0].Items)
+	if len(got.Orders[0].Items) != 0 {
+		t.Fatalf("settlement order items=%+v, want lightweight bill row without order item details", got.Orders[0].Items)
 	}
-	if strings.Contains(fmt.Sprintf("%+v", got), "SO-OTHER-BILL") || strings.Contains(fmt.Sprintf("%+v", got), "其他商品") {
+	if strings.Contains(fmt.Sprintf("%+v", got), "SO-OTHER-BILL") || strings.Contains(fmt.Sprintf("%+v", got), "其他商品") || strings.Contains(fmt.Sprintf("%+v", got), "兰卡拼配") {
 		t.Fatalf("settlement service page leaked other customer order receivable: %+v", got)
+	}
+}
+
+func TestLoadSettlementServicePageFiltersOrderBillsByPeriodAndPayment(t *testing.T) {
+	ctx := context.Background()
+	pool, schema := newCustomerPortalTestDB(t)
+	repo := NewRepository(pool, schema)
+
+	var unpaidStatusID, paidStatusID int64
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT id FROM %s.pay_statuses WHERE name='未付款' ORDER BY id LIMIT 1`, schema)).Scan(&unpaidStatusID); err != nil {
+		t.Fatalf("query unpaid status: %v", err)
+	}
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT id FROM %s.pay_statuses WHERE name='已付款' ORDER BY id LIMIT 1`, schema)).Scan(&paidStatusID); err != nil {
+		t.Fatalf("query paid status: %v", err)
+	}
+
+	var customerAID, customerBID int64
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`INSERT INTO %s.customers(name) VALUES('账单客户A') RETURNING id`, schema)).Scan(&customerAID); err != nil {
+		t.Fatalf("insert customer A: %v", err)
+	}
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`INSERT INTO %s.customers(name) VALUES('账单客户B') RETURNING id`, schema)).Scan(&customerBID); err != nil {
+		t.Fatalf("insert customer B: %v", err)
+	}
+	if _, err := pool.Exec(ctx, fmt.Sprintf(`
+		INSERT INTO %[1]s.orders(order_no, order_date, customer_id, pay_status_id, payment_method, grand_total, is_void, portal_service_code)
+		VALUES
+			('SO-MAY-UNPAID','2026-05-10',$1,$2,'',2109,false,'product_order'),
+			('SO-MAY-PAID','2026-05-11',$1,$3,'银行转账',128,false,'product_order'),
+			('SO-APR-UNPAID','2026-04-30',$1,$2,'',77,false,'product_order'),
+			('SO-OTHER-UNPAID','2026-05-10',$4,$2,'',999,false,'product_order')
+	`, schema), customerAID, unpaidStatusID, paidStatusID, customerBID); err != nil {
+		t.Fatalf("insert orders: %v", err)
+	}
+
+	got, err := repo.LoadServicePage(ctx, customerportalapp.ServicePageQuery{
+		CustomerID: customerAID,
+		Key:        customerportalapp.ServiceKeySettlement,
+		DateFrom:   "2026-05-01",
+		DateTo:     "2026-05-31",
+		PayStatus:  "未付款",
+		Limit:      20,
+	})
+	if err != nil {
+		t.Fatalf("LoadServicePage(settlement): %v", err)
+	}
+	if len(got.Orders) != 1 || got.Orders[0].OrderNo != "SO-MAY-UNPAID" {
+		t.Fatalf("settlement filtered orders=%+v, want only May unpaid order for customer A", got.Orders)
+	}
+	all := fmt.Sprintf("%+v", got.Orders)
+	for _, leaked := range []string{"SO-MAY-PAID", "SO-APR-UNPAID", "SO-OTHER-UNPAID"} {
+		if strings.Contains(all, leaked) {
+			t.Fatalf("settlement filtered orders leaked %s: %+v", leaked, got.Orders)
+		}
+	}
+
+	paid, err := repo.LoadServicePage(ctx, customerportalapp.ServicePageQuery{
+		CustomerID: customerAID,
+		Key:        customerportalapp.ServiceKeySettlement,
+		DateFrom:   "2026-05-01",
+		DateTo:     "2026-05-31",
+		PayStatus:  "已付款",
+		Limit:      20,
+	})
+	if err != nil {
+		t.Fatalf("LoadServicePage(settlement paid): %v", err)
+	}
+	if len(paid.Orders) != 1 || !strings.Contains(fmt.Sprintf("%+v", paid.Orders[0]), "银行转账") {
+		t.Fatalf("paid settlement order=%+v, want payment method exposed", paid.Orders)
 	}
 }
 

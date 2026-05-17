@@ -513,8 +513,69 @@ func TestGetSettlementServicePageSummaryCountsOrderBills(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetServicePage(settlement) err=%v", err)
 	}
-	if len(got.Summary) < 3 || got.Summary[0].Label != "订单账单" || got.Summary[0].Value != "1" {
-		t.Fatalf("settlement summary=%+v, want first card to count order bills", got.Summary)
+	if len(got.Summary) < 3 || got.Summary[0].Label != "应收总额" || got.Summary[0].Value != "4559.00" ||
+		got.Summary[2].Label != "未付款订单" || got.Summary[2].Value != "1" {
+		t.Fatalf("settlement summary=%+v, want accounting bill totals", got.Summary)
+	}
+}
+
+func TestGetSettlementServicePageSummaryShowsReceivableLedger(t *testing.T) {
+	repo := &fakeRepository{
+		context: CurrentContext{
+			CurrentCustomerID:   152,
+			CurrentCustomerName: "岩师傅",
+			Capabilities:        []Capability{{Code: CapabilitySettlement, Enabled: true}},
+		},
+		servicePage: ServicePage{
+			Key: ServiceKeySettlement,
+			Orders: []CustomerOrderSummary{
+				{OrderNo: "SO-UNPAID", GrandTotal: "2109.00", PayStatus: "未付款"},
+				{OrderNo: "SO-PAID", GrandTotal: "128.50", PayStatus: "已付款"},
+				{OrderNo: "SO-RECEIVED", GrandTotal: "20.50", PayStatus: "已收款"},
+			},
+		},
+	}
+	svc := NewService(repo, fakeIdentityProvider{})
+	got, err := svc.GetServicePage(context.Background(), "mini-token", ServiceKeySettlement, ServicePageFilter{})
+	if err != nil {
+		t.Fatalf("GetServicePage(settlement) err=%v", err)
+	}
+	if len(got.Summary) < 4 {
+		t.Fatalf("settlement summary=%+v, want accounting metrics", got.Summary)
+	}
+	want := []ServiceMetric{
+		{Label: "应收总额", Value: "2258.00"},
+		{Label: "未付款金额", Value: "2109.00"},
+		{Label: "未付款订单", Value: "1"},
+		{Label: "已付款金额", Value: "149.00"},
+	}
+	for i, metric := range want {
+		if got.Summary[i] != metric {
+			t.Fatalf("summary[%d]=%+v, want %+v; full=%+v", i, got.Summary[i], metric, got.Summary)
+		}
+	}
+}
+
+func TestGetSettlementServicePageUsesLedgerLimitAndFilters(t *testing.T) {
+	repo := &fakeRepository{
+		context: CurrentContext{
+			CurrentCustomerID:   152,
+			CurrentCustomerName: "岩师傅",
+			Capabilities:        []Capability{{Code: CapabilitySettlement, Enabled: true}},
+		},
+		servicePage: ServicePage{Key: ServiceKeySettlement},
+	}
+	svc := NewService(repo, fakeIdentityProvider{})
+	_, err := svc.GetServicePage(context.Background(), "mini-token", ServiceKeySettlement, ServicePageFilter{
+		DateFrom:  "2026-05-01",
+		DateTo:    "2026-05-31",
+		PayStatus: "未付款",
+	})
+	if err != nil {
+		t.Fatalf("GetServicePage(settlement) err=%v", err)
+	}
+	if repo.serviceQuery.Limit != 200 || repo.serviceQuery.DateFrom != "2026-05-01" || repo.serviceQuery.DateTo != "2026-05-31" || repo.serviceQuery.PayStatus != "未付款" {
+		t.Fatalf("settlement query=%+v, want billing filters and ledger limit", repo.serviceQuery)
 	}
 }
 

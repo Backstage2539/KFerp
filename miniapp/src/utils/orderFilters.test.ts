@@ -11,6 +11,12 @@ describe('order filter helpers', () => {
     expect(datePresetRange('month', today)).toEqual({ date_from: '2026-05-01', date_to: '2026-05-03' })
   })
 
+  it('builds accounting bill period presets for week, month, and year', () => {
+    expect(datePresetRange('week', today)).toEqual({ date_from: '2026-04-27', date_to: '2026-05-03' })
+    expect(datePresetRange('month', today)).toEqual({ date_from: '2026-05-01', date_to: '2026-05-03' })
+    expect(datePresetRange('year', today)).toEqual({ date_from: '2026-01-01', date_to: '2026-05-03' })
+  })
+
   it('normalizes manual date ranges by ordering from/to and trimming invalid input', () => {
     expect(normalizeDateRange('2026-05-07', '2026-05-01')).toEqual({
       date_from: '2026-05-01',
