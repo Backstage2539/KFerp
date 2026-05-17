@@ -13,7 +13,7 @@ func TestPublicSKUPortalSmallBatchPricingEvidenceExists(t *testing.T) {
 
 	for _, want := range []string{
 		"portalFulfillmentUnitPriceTx",
-		"portalPackageUnitPriceFromLb",
+		"portalDisplayUnitPriceFromLb",
 		"tierQtyLb",
 		"NULLIF(price_per_lb,0)",
 	} {

@@ -1162,7 +1162,7 @@ func (r Repository) CreateFulfillmentOrder(ctx context.Context, cmd customerport
 	}
 	productName = firstNonEmpty(strings.TrimSpace(cmd.ProductName), productName)
 	unitPrice := r.portalFulfillmentUnitPriceTx(ctx, tx, cmd.CustomerID, cmd.ProductID, cmd.SpecG, cmd.Qty, defaultPrice)
-	totalAmount := unitPrice * float64(cmd.Qty)
+	totalAmount := portalLineTotalFromDisplayUnit(unitPrice, cmd.SpecG, cmd.Qty)
 	shippingAmount := cmd.ShippingAmount
 	if shippingAmount < 0 {
 		shippingAmount = 0
@@ -1240,14 +1240,11 @@ func (r Repository) portalFulfillmentUnitPriceTx(ctx context.Context, tx pgx.Tx,
 		return defaultPrice
 	}
 	rule := r.portalDirectShipSmallBatchPriceRuleTx(ctx, tx, customerID)
-	if !rule.Enabled {
-		return defaultPrice
-	}
-	tierQty := qty
+	tierQty := portalTierQuantityForSpec(specG, qty)
 	qtyLb := float64(specG*qty) / 454.0
 	tierQtyLb := qtyLb
 	if adjustedQty, ok := portalSmallBatchTierQuantity(specG, qtyLb, rule); ok {
-		tierQty = adjustedQty
+		tierQty = portalTierQuantityForSpec(specG, adjustedQty)
 		tierQtyLb = float64(specG*adjustedQty) / 454.0
 	}
 	var packagePrice, pricePerLb float64
@@ -1263,8 +1260,8 @@ func (r Repository) portalFulfillmentUnitPriceTx(ctx context.Context, tx pgx.Tx,
 		ORDER BY COALESCE(NULLIF(min_qty_units,0), min_qty_lb, 0) DESC
 		LIMIT 1
 	`, r.schema)
-	if err := tx.QueryRow(ctx, q, productID, specG, tierQty).Scan(&packagePrice, &pricePerLb); err == nil && packagePrice > 0 {
-		return packagePrice
+	if err := tx.QueryRow(ctx, q, productID, specG, tierQty).Scan(&packagePrice, &pricePerLb); err == nil && pricePerLb > 0 {
+		return portalDisplayUnitPriceFromLb(pricePerLb, specG)
 	}
 	q = fmt.Sprintf(`
 		SELECT
@@ -1276,8 +1273,8 @@ func (r Repository) portalFulfillmentUnitPriceTx(ctx context.Context, tx pgx.Tx,
 		ORDER BY COALESCE(NULLIF(min_qty_units,0), min_qty_lb, 0) ASC
 		LIMIT 1
 	`, r.schema)
-	if err := tx.QueryRow(ctx, q, productID, specG).Scan(&packagePrice, &pricePerLb); err == nil && packagePrice > 0 {
-		return packagePrice
+	if err := tx.QueryRow(ctx, q, productID, specG).Scan(&packagePrice, &pricePerLb); err == nil && pricePerLb > 0 {
+		return portalDisplayUnitPriceFromLb(pricePerLb, specG)
 	}
 	q = fmt.Sprintf(`
 		SELECT COALESCE(NULLIF(price_per_lb,0), NULLIF(price_per_unit,0) * 454.0 / COALESCE(NULLIF(spec_g,0),454), 0)
@@ -1292,7 +1289,7 @@ func (r Repository) portalFulfillmentUnitPriceTx(ctx context.Context, tx pgx.Tx,
 		LIMIT 1
 	`, r.schema)
 	if err := tx.QueryRow(ctx, q, productID, tierQtyLb).Scan(&pricePerLb); err == nil && pricePerLb > 0 {
-		return portalPackageUnitPriceFromLb(pricePerLb, specG)
+		return portalDisplayUnitPriceFromLb(pricePerLb, specG)
 	}
 	q = fmt.Sprintf(`
 		SELECT COALESCE(NULLIF(price_per_lb,0), NULLIF(price_per_unit,0) * 454.0 / COALESCE(NULLIF(spec_g,0),454), 0)
@@ -1303,7 +1300,7 @@ func (r Repository) portalFulfillmentUnitPriceTx(ctx context.Context, tx pgx.Tx,
 		LIMIT 1
 	`, r.schema)
 	if err := tx.QueryRow(ctx, q, productID, tierQtyLb).Scan(&pricePerLb); err == nil && pricePerLb > 0 {
-		return portalPackageUnitPriceFromLb(pricePerLb, specG)
+		return portalDisplayUnitPriceFromLb(pricePerLb, specG)
 	}
 	q = fmt.Sprintf(`
 		SELECT COALESCE(NULLIF(price_per_lb,0), NULLIF(price_per_unit,0) * 454.0 / COALESCE(NULLIF(spec_g,0),454), 0)
@@ -1313,24 +1310,42 @@ func (r Repository) portalFulfillmentUnitPriceTx(ctx context.Context, tx pgx.Tx,
 		LIMIT 1
 	`, r.schema)
 	if err := tx.QueryRow(ctx, q, productID).Scan(&pricePerLb); err == nil && pricePerLb > 0 {
-		return portalPackageUnitPriceFromLb(pricePerLb, specG)
+		return portalDisplayUnitPriceFromLb(pricePerLb, specG)
 	}
 	return defaultPrice
 }
 
-func portalPackageUnitPriceFromLb(pricePerLb float64, specG int64) float64 {
+func portalTierQuantityForSpec(specG int64, units int64) float64 {
+	if specG >= 1000 {
+		return float64(specG*units) / 1000.0
+	}
+	return float64(units)
+}
+
+func portalDisplayUnitG(specG int64) float64 {
+	if specG >= 1000 {
+		return 1000
+	}
+	return 454
+}
+
+func portalDisplayUnitPriceFromLb(pricePerLb float64, specG int64) float64 {
 	if pricePerLb <= 0 || specG <= 0 {
 		return 0
 	}
-	unitG := float64(454)
-	if specG >= 1000 {
-		unitG = 1000
-	}
+	unitG := portalDisplayUnitG(specG)
 	displayUnitPrice := pricePerLb * unitG / 454.0
 	if unitG == 1000 {
 		displayUnitPrice = math.Round(displayUnitPrice)
 	}
-	return displayUnitPrice * float64(specG) / unitG
+	return displayUnitPrice
+}
+
+func portalLineTotalFromDisplayUnit(unitPrice float64, specG int64, units int64) float64 {
+	if unitPrice <= 0 || specG <= 0 || units <= 0 {
+		return 0
+	}
+	return unitPrice * float64(specG*units) / portalDisplayUnitG(specG)
 }
 
 func (r Repository) portalDirectShipSmallBatchPriceRuleTx(ctx context.Context, tx pgx.Tx, customerID int64) customerportalapp.SmallBatchPriceRule {

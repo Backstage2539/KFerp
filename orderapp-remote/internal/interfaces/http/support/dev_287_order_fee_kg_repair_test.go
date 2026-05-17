@@ -31,6 +31,16 @@ func TestDev287OrderFeeKgRepairSourceWiring(t *testing.T) {
 			"TestSubmitCustomerDirectShipOrderUsesKgTierPriceAsDisplayUnit",
 			"1000g x 25",
 		},
+		filepath.Join("internal", "infrastructure", "postgres", "customerportal", "business_repository.go"): {
+			"portalTierQuantityForSpec",
+			"portalDisplayUnitPriceFromLb",
+			"portalLineTotalFromDisplayUnit",
+		},
+		filepath.Join("internal", "infrastructure", "postgres", "customerportal", "repository_test.go"): {
+			"TestCreateFulfillmentOrderUsesKgExactTierWithoutSmallBatchRule",
+			"1000,",
+			"2109",
+		},
 		filepath.Join("frontend-vue-shell", "src", "views", "OrdersView.vue"): {
 			"customerFulfillmentOrderFees(row)",
 			"emphasized",
