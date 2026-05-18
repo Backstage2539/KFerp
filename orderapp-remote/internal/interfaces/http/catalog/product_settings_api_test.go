@@ -75,15 +75,21 @@ func (r *productSettingsRepo) CreateProduct(ctx context.Context, cmd catalogapp.
 	r.createdPublic = cmd
 	r.publicCreated = true
 	return catalogapp.Product{
-		ID:            77,
-		Name:          cmd.Name,
-		RoastLevel:    cmd.RoastLevel,
-		DefaultPrice:  cmd.DefaultPrice,
-		YieldRate:     cmd.YieldRate,
-		Visibility:    "public",
-		BomItemCount:  0,
-		CustomerID:    0,
-		BaseProductID: 0,
+		ID:                    77,
+		Name:                  cmd.Name,
+		RoastLevel:            cmd.RoastLevel,
+		ProductKind:           cmd.ProductKind,
+		DripBagGrams:          cmd.DripBagGrams,
+		DripBoxBagCount:       cmd.DripBoxBagCount,
+		AllowFulfillmentOrder: cmd.AllowFulfillmentOrder,
+		AllowMallOrder:        cmd.AllowMallOrder,
+		SalesUnits:            cmd.SalesUnits,
+		DefaultPrice:          cmd.DefaultPrice,
+		YieldRate:             cmd.YieldRate,
+		Visibility:            "public",
+		BomItemCount:          0,
+		CustomerID:            0,
+		BaseProductID:         0,
 	}, nil
 }
 
@@ -318,6 +324,42 @@ func TestProductSettingsAPICreatesPublicProduct(t *testing.T) {
 		if !bytes.Contains(rec.Body.Bytes(), []byte(want)) {
 			t.Fatalf("public product response missing %s: %s", want, rec.Body.String())
 		}
+	}
+}
+
+func TestProductSettingsAPICreatesDripBagProduct(t *testing.T) {
+	repo := &productSettingsRepo{}
+	e := echo.New()
+	registerProductRoutes(e, catalogapp.NewService(repo))
+
+	body := `{"name":"耶加雪菲挂耳","product_kind":"drip_bag","drip_bag_grams":10,"drip_box_bag_count":10,"allow_fulfillment_order":true,"allow_mall_order":true}`
+	req := httptest.NewRequest(http.MethodPost, "/api/product-settings/products", bytes.NewBufferString(body))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("POST drip product status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if !repo.publicCreated || repo.createdPublic.ProductKind != "drip_bag" || repo.createdPublic.DripBagGrams != 10 || repo.createdPublic.DripBoxBagCount != 10 || !repo.createdPublic.AllowFulfillmentOrder || !repo.createdPublic.AllowMallOrder {
+		t.Fatalf("drip product command = %+v created=%v", repo.createdPublic, repo.publicCreated)
+	}
+	var payload struct {
+		Product struct {
+			ProductKind     string   `json:"product_kind"`
+			DripBagGrams    float64  `json:"drip_bag_grams"`
+			DripBoxBagCount int      `json:"drip_box_bag_count"`
+			SalesUnits      []string `json:"sales_units"`
+		} `json:"product"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("decode product response: %v body=%s", err, rec.Body.String())
+	}
+	if payload.Product.ProductKind != "drip_bag" || payload.Product.DripBagGrams != 10 || payload.Product.DripBoxBagCount != 10 {
+		t.Fatalf("drip product response = %+v body=%s", payload.Product, rec.Body.String())
+	}
+	if !reflect.DeepEqual(payload.Product.SalesUnits, []string{"bag", "box"}) {
+		t.Fatalf("sales_units = %#v, want bag/box body=%s", payload.Product.SalesUnits, rec.Body.String())
 	}
 }
 

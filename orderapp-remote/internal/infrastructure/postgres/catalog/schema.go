@@ -21,9 +21,16 @@ ALTER TABLE %[1]s.products ADD COLUMN IF NOT EXISTS base_product_id BIGINT NOT N
 ALTER TABLE %[1]s.products ADD COLUMN IF NOT EXISTS visibility TEXT NOT NULL DEFAULT 'public';
 ALTER TABLE %[1]s.products ADD COLUMN IF NOT EXISTS custom_type TEXT NOT NULL DEFAULT '';
 ALTER TABLE %[1]s.products ADD COLUMN IF NOT EXISTS margin_rate_override NUMERIC(14,6);
+ALTER TABLE %[1]s.products ADD COLUMN IF NOT EXISTS product_kind TEXT NOT NULL DEFAULT 'roasted_bean';
+ALTER TABLE %[1]s.products ADD COLUMN IF NOT EXISTS drip_bag_grams NUMERIC(12,3) NOT NULL DEFAULT 10;
+ALTER TABLE %[1]s.products ADD COLUMN IF NOT EXISTS drip_box_bag_count INT NOT NULL DEFAULT 10;
+ALTER TABLE %[1]s.products ADD COLUMN IF NOT EXISTS allow_fulfillment_order BOOLEAN NOT NULL DEFAULT true;
+ALTER TABLE %[1]s.products ADD COLUMN IF NOT EXISTS allow_mall_order BOOLEAN NOT NULL DEFAULT false;
 UPDATE %[1]s.products SET visibility='public' WHERE COALESCE(visibility,'')='';
+UPDATE %[1]s.products SET product_kind='roasted_bean' WHERE COALESCE(product_kind,'')='';
 CREATE INDEX IF NOT EXISTS products_customer_visibility_idx ON %[1]s.products(customer_id, visibility, active);
 CREATE INDEX IF NOT EXISTS products_base_product_idx ON %[1]s.products(base_product_id);
+CREATE INDEX IF NOT EXISTS products_kind_active_idx ON %[1]s.products(product_kind, active);
 CREATE TABLE IF NOT EXISTS %[1]s.product_categories (
 	id BIGSERIAL PRIMARY KEY,
 	parent_id BIGINT,

@@ -21,6 +21,12 @@ type Product struct {
 	ID                      int64
 	Name                    string
 	RoastLevel              string
+	ProductKind             string
+	DripBagGrams            float64
+	DripBoxBagCount         int
+	AllowFulfillmentOrder   bool
+	AllowMallOrder          bool
+	SalesUnits              []string
 	DefaultPrice            float64
 	RetailPrice100G         float64
 	RetailPrice200G         float64
@@ -54,6 +60,12 @@ type ProductSettingsProduct struct {
 	ID                      int64    `json:"id"`
 	Name                    string   `json:"name"`
 	RoastLevel              string   `json:"roast_level"`
+	ProductKind             string   `json:"product_kind"`
+	DripBagGrams            float64  `json:"drip_bag_grams"`
+	DripBoxBagCount         int      `json:"drip_box_bag_count"`
+	AllowFulfillmentOrder   bool     `json:"allow_fulfillment_order"`
+	AllowMallOrder          bool     `json:"allow_mall_order"`
+	SalesUnits              []string `json:"sales_units"`
 	DefaultPrice            float64  `json:"default_price"`
 	RetailPrice100G         float64  `json:"retail_price_100g"`
 	RetailPrice200G         float64  `json:"retail_price_200g"`
@@ -116,27 +128,39 @@ type ReplacePriceTiersCommand struct {
 }
 
 type UpdateProductBasicsCommand struct {
-	Actor              string
-	ProductID          int64
-	RoastLevel         string
-	RetailPrice100G    float64
-	RetailPrice200G    float64
-	RetailPrice227G    float64
-	RetailPrice250G    float64
-	YieldRate          float64
-	MarginRateOverride *float64
+	Actor                 string
+	ProductID             int64
+	RoastLevel            string
+	ProductKind           string
+	DripBagGrams          float64
+	DripBoxBagCount       int
+	AllowFulfillmentOrder bool
+	AllowMallOrder        bool
+	SalesUnits            []string
+	RetailPrice100G       float64
+	RetailPrice200G       float64
+	RetailPrice227G       float64
+	RetailPrice250G       float64
+	YieldRate             float64
+	MarginRateOverride    *float64
 }
 
 type CreateProductCommand struct {
-	Actor           string
-	Name            string
-	RoastLevel      string
-	DefaultPrice    float64
-	RetailPrice100G float64
-	RetailPrice200G float64
-	RetailPrice227G float64
-	RetailPrice250G float64
-	YieldRate       float64
+	Actor                 string
+	Name                  string
+	RoastLevel            string
+	ProductKind           string
+	DripBagGrams          float64
+	DripBoxBagCount       int
+	AllowFulfillmentOrder bool
+	AllowMallOrder        bool
+	SalesUnits            []string
+	DefaultPrice          float64
+	RetailPrice100G       float64
+	RetailPrice200G       float64
+	RetailPrice227G       float64
+	RetailPrice250G       float64
+	YieldRate             float64
 }
 
 type DeactivateProductsCommand struct {
@@ -242,6 +266,11 @@ func (s *Service) ReplacePriceTiers(ctx context.Context, cmd ReplacePriceTiersCo
 }
 
 func (s *Service) UpdateProductBasics(ctx context.Context, cmd UpdateProductBasicsCommand) error {
+	var err error
+	cmd.ProductKind, cmd.DripBagGrams, cmd.DripBoxBagCount, cmd.SalesUnits, err = normalizeProductKindSettings(cmd.ProductKind, cmd.DripBagGrams, cmd.DripBoxBagCount)
+	if err != nil {
+		return err
+	}
 	return s.repo.UpdateProductBasics(ctx, cmd)
 }
 
@@ -267,6 +296,11 @@ func (s *Service) CreateProduct(ctx context.Context, cmd CreateProductCommand) (
 	cmd.Name = strings.TrimSpace(cmd.Name)
 	if cmd.Name == "" {
 		return Product{}, fmt.Errorf("name required")
+	}
+	var err error
+	cmd.ProductKind, cmd.DripBagGrams, cmd.DripBoxBagCount, cmd.SalesUnits, err = normalizeProductKindSettings(cmd.ProductKind, cmd.DripBagGrams, cmd.DripBoxBagCount)
+	if err != nil {
+		return Product{}, err
 	}
 	cmd.RoastLevel = catalogdomain.NormalizeRoastLevel(cmd.RoastLevel)
 	if cmd.RoastLevel == "" {
@@ -519,10 +553,17 @@ func BuildProductSettings(categories []ProductCategory, products []Product) Prod
 }
 
 func productSettingsProduct(p Product) ProductSettingsProduct {
+	productKind, dripBagGrams, dripBoxBagCount, salesUnits, _ := normalizeProductKindSettings(p.ProductKind, p.DripBagGrams, p.DripBoxBagCount)
 	return ProductSettingsProduct{
 		ID:                      p.ID,
 		Name:                    p.Name,
 		RoastLevel:              p.RoastLevel,
+		ProductKind:             productKind,
+		DripBagGrams:            dripBagGrams,
+		DripBoxBagCount:         dripBoxBagCount,
+		AllowFulfillmentOrder:   p.AllowFulfillmentOrder,
+		AllowMallOrder:          p.AllowMallOrder,
+		SalesUnits:              salesUnits,
 		DefaultPrice:            p.DefaultPrice,
 		RetailPrice100G:         p.RetailPrice100G,
 		RetailPrice200G:         p.RetailPrice200G,
@@ -539,6 +580,26 @@ func productSettingsProduct(p Product) ProductSettingsProduct {
 		BomItemCount:            p.BomItemCount,
 		BomStatus:               productBomStatus(p.BomStatus, p.BomItemCount),
 	}
+}
+
+func normalizeProductKindSettings(productKind string, dripBagGrams float64, dripBoxBagCount int) (string, float64, int, []string, error) {
+	productKind = catalogdomain.NormalizeProductKind(productKind)
+	if productKind != catalogdomain.ProductKindDripBag {
+		return productKind, dripBagGrams, dripBoxBagCount, []string{}, nil
+	}
+	if dripBagGrams == 0 {
+		dripBagGrams = 10
+	}
+	if dripBoxBagCount == 0 {
+		dripBoxBagCount = 10
+	}
+	if dripBagGrams <= 0 {
+		return productKind, dripBagGrams, dripBoxBagCount, nil, fmt.Errorf("drip_bag_grams must be > 0")
+	}
+	if dripBoxBagCount <= 0 {
+		return productKind, dripBagGrams, dripBoxBagCount, nil, fmt.Errorf("drip_box_bag_count must be > 0")
+	}
+	return productKind, dripBagGrams, dripBoxBagCount, []string{"bag", "box"}, nil
 }
 
 func productBomStatus(status string, itemCount int) string {

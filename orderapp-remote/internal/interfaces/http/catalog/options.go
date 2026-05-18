@@ -17,6 +17,12 @@ type ProductOption struct {
 	ID                      int64               `json:"id"`
 	Name                    string              `json:"name"`
 	RoastLevel              string              `json:"roast_level"`
+	ProductKind             string              `json:"product_kind"`
+	DripBagGrams            float64             `json:"drip_bag_grams"`
+	DripBoxBagCount         int                 `json:"drip_box_bag_count"`
+	AllowFulfillmentOrder   bool                `json:"allow_fulfillment_order"`
+	AllowMallOrder          bool                `json:"allow_mall_order"`
+	SalesUnits              []string            `json:"sales_units"`
 	DefaultPrice            float64             `json:"default_price"`
 	RetailPrice100G         float64             `json:"retail_price_100g"`
 	RetailPrice200G         float64             `json:"retail_price_200g"`

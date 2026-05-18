@@ -43,25 +43,35 @@ type productHandler struct {
 }
 
 type productUpdateAPIRequest struct {
-	RoastLevel         string                    `json:"roast_level"`
-	RetailPrice100G    float64                   `json:"retail_price_100g"`
-	RetailPrice200G    float64                   `json:"retail_price_200g"`
-	RetailPrice227G    float64                   `json:"retail_price_227g"`
-	RetailPrice250G    float64                   `json:"retail_price_250g"`
-	YieldRate          float64                   `json:"yield_rate"`
-	MarginRateOverride *float64                  `json:"margin_rate_override"`
-	Tiers              []productTierAPIUpsertRow `json:"tiers"`
+	RoastLevel            string                    `json:"roast_level"`
+	ProductKind           string                    `json:"product_kind"`
+	DripBagGrams          float64                   `json:"drip_bag_grams"`
+	DripBoxBagCount       int                       `json:"drip_box_bag_count"`
+	AllowFulfillmentOrder *bool                     `json:"allow_fulfillment_order"`
+	AllowMallOrder        *bool                     `json:"allow_mall_order"`
+	RetailPrice100G       float64                   `json:"retail_price_100g"`
+	RetailPrice200G       float64                   `json:"retail_price_200g"`
+	RetailPrice227G       float64                   `json:"retail_price_227g"`
+	RetailPrice250G       float64                   `json:"retail_price_250g"`
+	YieldRate             float64                   `json:"yield_rate"`
+	MarginRateOverride    *float64                  `json:"margin_rate_override"`
+	Tiers                 []productTierAPIUpsertRow `json:"tiers"`
 }
 
 type productCreateAPIRequest struct {
-	Name            string  `json:"name"`
-	RoastLevel      string  `json:"roast_level"`
-	DefaultPrice    float64 `json:"default_price"`
-	RetailPrice100G float64 `json:"retail_price_100g"`
-	RetailPrice200G float64 `json:"retail_price_200g"`
-	RetailPrice227G float64 `json:"retail_price_227g"`
-	RetailPrice250G float64 `json:"retail_price_250g"`
-	YieldRate       float64 `json:"yield_rate"`
+	Name                  string  `json:"name"`
+	RoastLevel            string  `json:"roast_level"`
+	ProductKind           string  `json:"product_kind"`
+	DripBagGrams          float64 `json:"drip_bag_grams"`
+	DripBoxBagCount       int     `json:"drip_box_bag_count"`
+	AllowFulfillmentOrder *bool   `json:"allow_fulfillment_order"`
+	AllowMallOrder        *bool   `json:"allow_mall_order"`
+	DefaultPrice          float64 `json:"default_price"`
+	RetailPrice100G       float64 `json:"retail_price_100g"`
+	RetailPrice200G       float64 `json:"retail_price_200g"`
+	RetailPrice227G       float64 `json:"retail_price_227g"`
+	RetailPrice250G       float64 `json:"retail_price_250g"`
+	YieldRate             float64 `json:"yield_rate"`
 }
 
 type productDeactivateAPIRequest struct {
@@ -149,9 +159,39 @@ func (h productHandler) updateAPI(c echo.Context) error {
 	if err := c.Bind(&req); err != nil {
 		return c.JSON(http.StatusBadRequest, map[string]any{"error": "bad request"})
 	}
+	existing, err := h.catalog.GetProduct(c.Request().Context(), id)
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]any{"error": err.Error()})
+	}
+	if existing == nil {
+		return c.JSON(http.StatusNotFound, map[string]any{"error": "not found"})
+	}
 	roastLevel := NormalizeRoastLevel(req.RoastLevel)
 	if roastLevel == "" {
+		roastLevel = existing.RoastLevel
+	}
+	if roastLevel == "" {
 		return c.JSON(http.StatusBadRequest, map[string]any{"error": "invalid roast_level"})
+	}
+	productKind := req.ProductKind
+	dripBagGrams := req.DripBagGrams
+	dripBoxBagCount := req.DripBoxBagCount
+	allowFulfillmentOrder := existing.AllowFulfillmentOrder
+	allowMallOrder := existing.AllowMallOrder
+	if productKind == "" {
+		productKind = existing.ProductKind
+	}
+	if dripBagGrams == 0 {
+		dripBagGrams = existing.DripBagGrams
+	}
+	if dripBoxBagCount == 0 {
+		dripBoxBagCount = existing.DripBoxBagCount
+	}
+	if req.AllowFulfillmentOrder != nil {
+		allowFulfillmentOrder = *req.AllowFulfillmentOrder
+	}
+	if req.AllowMallOrder != nil {
+		allowMallOrder = *req.AllowMallOrder
 	}
 	yieldRate := normalizeProductYieldRate(req.YieldRate)
 	if req.YieldRate > 0 && yieldRate <= 0 {
@@ -162,15 +202,20 @@ func (h productHandler) updateAPI(c echo.Context) error {
 		return c.JSON(http.StatusBadRequest, map[string]any{"error": err.Error()})
 	}
 	if err := h.catalog.UpdateProductBasics(c.Request().Context(), catalogapp.UpdateProductBasicsCommand{
-		Actor:              support.ActorOf(c),
-		ProductID:          id,
-		RoastLevel:         roastLevel,
-		RetailPrice100G:    req.RetailPrice100G,
-		RetailPrice200G:    req.RetailPrice200G,
-		RetailPrice227G:    req.RetailPrice227G,
-		RetailPrice250G:    req.RetailPrice250G,
-		YieldRate:          yieldRate,
-		MarginRateOverride: marginRateOverride,
+		Actor:                 support.ActorOf(c),
+		ProductID:             id,
+		RoastLevel:            roastLevel,
+		ProductKind:           productKind,
+		DripBagGrams:          dripBagGrams,
+		DripBoxBagCount:       dripBoxBagCount,
+		AllowFulfillmentOrder: allowFulfillmentOrder,
+		AllowMallOrder:        allowMallOrder,
+		RetailPrice100G:       req.RetailPrice100G,
+		RetailPrice200G:       req.RetailPrice200G,
+		RetailPrice227G:       req.RetailPrice227G,
+		RetailPrice250G:       req.RetailPrice250G,
+		YieldRate:             yieldRate,
+		MarginRateOverride:    marginRateOverride,
 	}); err != nil {
 		return c.JSON(http.StatusInternalServerError, map[string]any{"error": err.Error()})
 	}
@@ -191,22 +236,35 @@ func (h productHandler) createProductAPI(c echo.Context) error {
 	}
 	roastLevel := NormalizeRoastLevel(req.RoastLevel)
 	if roastLevel == "" {
-		return c.JSON(http.StatusBadRequest, map[string]any{"error": "invalid roast_level"})
+		roastLevel = "深烘"
 	}
 	yieldRate := normalizeProductYieldRate(req.YieldRate)
 	if req.YieldRate > 0 && yieldRate <= 0 {
 		return c.JSON(http.StatusBadRequest, map[string]any{"error": "invalid yield_rate"})
 	}
+	allowFulfillmentOrder := true
+	if req.AllowFulfillmentOrder != nil {
+		allowFulfillmentOrder = *req.AllowFulfillmentOrder
+	}
+	allowMallOrder := false
+	if req.AllowMallOrder != nil {
+		allowMallOrder = *req.AllowMallOrder
+	}
 	product, err := h.catalog.CreateProduct(c.Request().Context(), catalogapp.CreateProductCommand{
-		Actor:           support.ActorOf(c),
-		Name:            req.Name,
-		RoastLevel:      roastLevel,
-		DefaultPrice:    req.DefaultPrice,
-		RetailPrice100G: req.RetailPrice100G,
-		RetailPrice200G: req.RetailPrice200G,
-		RetailPrice227G: req.RetailPrice227G,
-		RetailPrice250G: req.RetailPrice250G,
-		YieldRate:       yieldRate,
+		Actor:                 support.ActorOf(c),
+		Name:                  req.Name,
+		RoastLevel:            roastLevel,
+		ProductKind:           req.ProductKind,
+		DripBagGrams:          req.DripBagGrams,
+		DripBoxBagCount:       req.DripBoxBagCount,
+		AllowFulfillmentOrder: allowFulfillmentOrder,
+		AllowMallOrder:        allowMallOrder,
+		DefaultPrice:          req.DefaultPrice,
+		RetailPrice100G:       req.RetailPrice100G,
+		RetailPrice200G:       req.RetailPrice200G,
+		RetailPrice227G:       req.RetailPrice227G,
+		RetailPrice250G:       req.RetailPrice250G,
+		YieldRate:             yieldRate,
 	})
 	if err != nil {
 		return c.JSON(http.StatusBadRequest, map[string]any{"error": err.Error()})

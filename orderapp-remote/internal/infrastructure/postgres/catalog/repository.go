@@ -118,8 +118,9 @@ func (r Repository) UpdateProductBasics(ctx context.Context, cmd catalogapp.Upda
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 	if _, err := tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.products
-		SET roast_level=$2, retail_price_100g=$3, retail_price_200g=$4, retail_price_227g=$5, retail_price_250g=$6, margin_rate_override=$7
-		WHERE id=$1`, r.schema), cmd.ProductID, roastLevel, cmd.RetailPrice100G, cmd.RetailPrice200G, cmd.RetailPrice227G, cmd.RetailPrice250G, cmd.MarginRateOverride); err != nil {
+		SET roast_level=$2, retail_price_100g=$3, retail_price_200g=$4, retail_price_227g=$5, retail_price_250g=$6, margin_rate_override=$7,
+		    product_kind=$8, drip_bag_grams=$9, drip_box_bag_count=$10, allow_fulfillment_order=$11, allow_mall_order=$12
+		WHERE id=$1`, r.schema), cmd.ProductID, roastLevel, cmd.RetailPrice100G, cmd.RetailPrice200G, cmd.RetailPrice227G, cmd.RetailPrice250G, cmd.MarginRateOverride, cmd.ProductKind, cmd.DripBagGrams, cmd.DripBoxBagCount, cmd.AllowFulfillmentOrder, cmd.AllowMallOrder); err != nil {
 		return err
 	}
 	if _, err := tx.Exec(ctx, fmt.Sprintf(`INSERT INTO %s.product_bom(product_id,yield_rate,updated_at)
@@ -130,7 +131,7 @@ func (r Repository) UpdateProductBasics(ctx context.Context, cmd catalogapp.Upda
 	if err := tx.Commit(ctx); err != nil {
 		return err
 	}
-	postgresinfra.AuditInsert(ctx, r.pool, r.schema, cmd.Actor, "product", &cmd.ProductID, "update", postgresinfra.StrPtr("product_basics"), nil, postgresinfra.StrPtr(roastLevel), postgresinfra.AuditMeta{
+	meta := postgresinfra.AuditMeta{
 		"product_id":           cmd.ProductID,
 		"roast_level":          roastLevel,
 		"yield_rate":           yieldRate,
@@ -139,7 +140,14 @@ func (r Repository) UpdateProductBasics(ctx context.Context, cmd catalogapp.Upda
 		"retail_price_227g":    cmd.RetailPrice227G,
 		"retail_price_250g":    cmd.RetailPrice250G,
 		"margin_rate_override": cmd.MarginRateOverride,
-	})
+	}
+	meta["product_kind"] = cmd.ProductKind
+	meta["drip_bag_grams"] = cmd.DripBagGrams
+	meta["drip_box_bag_count"] = cmd.DripBoxBagCount
+	meta["allow_fulfillment_order"] = cmd.AllowFulfillmentOrder
+	meta["allow_mall_order"] = cmd.AllowMallOrder
+	meta["sales_units"] = cmd.SalesUnits
+	postgresinfra.AuditInsert(ctx, r.pool, r.schema, cmd.Actor, "product", &cmd.ProductID, "update", postgresinfra.StrPtr("product_basics"), nil, postgresinfra.StrPtr(roastLevel), meta)
 	return nil
 }
 
@@ -196,11 +204,12 @@ func (r Repository) CreateProduct(ctx context.Context, cmd catalogapp.CreateProd
 		INSERT INTO %s.products(
 			name, roast_level, default_price, active,
 			retail_price_100g, retail_price_200g, retail_price_227g, retail_price_250g,
+			product_kind, drip_bag_grams, drip_box_bag_count, allow_fulfillment_order, allow_mall_order,
 			customer_id, base_product_id, visibility, custom_type, created_at
 		)
-		VALUES($1,$2,$3,true,$4,$5,$6,$7,0,0,'public','',now())
+		VALUES($1,$2,$3,true,$4,$5,$6,$7,$8,$9,$10,$11,$12,0,0,'public','',now())
 		RETURNING id
-	`, r.schema), name, roastLevel, cmd.DefaultPrice, cmd.RetailPrice100G, cmd.RetailPrice200G, cmd.RetailPrice227G, cmd.RetailPrice250G).Scan(&productID); err != nil {
+	`, r.schema), name, roastLevel, cmd.DefaultPrice, cmd.RetailPrice100G, cmd.RetailPrice200G, cmd.RetailPrice227G, cmd.RetailPrice250G, cmd.ProductKind, cmd.DripBagGrams, cmd.DripBoxBagCount, cmd.AllowFulfillmentOrder, cmd.AllowMallOrder).Scan(&productID); err != nil {
 		return catalogapp.Product{}, err
 	}
 
@@ -212,14 +221,20 @@ func (r Repository) CreateProduct(ctx context.Context, cmd catalogapp.CreateProd
 		return catalogapp.Product{}, err
 	}
 	if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, cmd.Actor, "product", &productID, "create", postgresinfra.StrPtr("public_product"), nil, postgresinfra.StrPtr(name), postgresinfra.AuditMeta{
-		"product_id":        productID,
-		"roast_level":       roastLevel,
-		"default_price":     cmd.DefaultPrice,
-		"yield_rate":        yieldRate,
-		"retail_price_100g": cmd.RetailPrice100G,
-		"retail_price_200g": cmd.RetailPrice200G,
-		"retail_price_227g": cmd.RetailPrice227G,
-		"retail_price_250g": cmd.RetailPrice250G,
+		"product_id":              productID,
+		"roast_level":             roastLevel,
+		"default_price":           cmd.DefaultPrice,
+		"yield_rate":              yieldRate,
+		"retail_price_100g":       cmd.RetailPrice100G,
+		"retail_price_200g":       cmd.RetailPrice200G,
+		"retail_price_227g":       cmd.RetailPrice227G,
+		"retail_price_250g":       cmd.RetailPrice250G,
+		"product_kind":            cmd.ProductKind,
+		"drip_bag_grams":          cmd.DripBagGrams,
+		"drip_box_bag_count":      cmd.DripBoxBagCount,
+		"allow_fulfillment_order": cmd.AllowFulfillmentOrder,
+		"allow_mall_order":        cmd.AllowMallOrder,
+		"sales_units":             cmd.SalesUnits,
 	}); err != nil {
 		return catalogapp.Product{}, err
 	}
@@ -766,6 +781,11 @@ func fetchProductByID(ctx context.Context, pool *pgxpool.Pool, schema string, id
 	}
 	var p postgresinfra.ProductOption
 	err = pool.QueryRow(ctx, fmt.Sprintf(`SELECT id, name, COALESCE(roast_level,''), default_price,
+		COALESCE(NULLIF(product_kind,''), 'roasted_bean'),
+		COALESCE(drip_bag_grams, 10)::float8,
+		COALESCE(drip_box_bag_count, 10),
+		COALESCE(allow_fulfillment_order, true),
+		COALESCE(allow_mall_order, false),
 		COALESCE(retail_price_100g, 0), COALESCE(retail_price_200g, 0),
 		COALESCE(retail_price_227g, default_price, 0), COALESCE(retail_price_250g, 0),
 		COALESCE((SELECT yield_rate FROM %[1]s.product_bom WHERE product_id=products.id), 0.8),
@@ -775,15 +795,18 @@ func fetchProductByID(ctx context.Context, pool *pgxpool.Pool, schema string, id
 		margin_rate_override::float8,
 		COALESCE((SELECT COUNT(*) FROM %[1]s.product_bom_items bi WHERE bi.product_id=products.id),0),
 		COALESCE((SELECT NULLIF(status,'') FROM %[1]s.product_bom WHERE product_id=products.id), 'missing')
-		FROM %[1]s.products WHERE id=$1`, schema), id).Scan(&p.ID, &p.Name, &p.RoastLevel, &p.DefaultPrice, &p.RetailPrice100G, &p.RetailPrice200G, &p.RetailPrice227G, &p.RetailPrice250G, &p.YieldRate, &p.ProductCategoryID, &p.ProductCategoryPosition, &p.CustomerID, &p.BaseProductID, &p.Visibility, &p.CustomType, &p.MarginRateOverride, &p.BomItemCount, &p.BomStatus)
+		FROM %[1]s.products WHERE id=$1`, schema), id).Scan(&p.ID, &p.Name, &p.RoastLevel, &p.DefaultPrice, &p.ProductKind, &p.DripBagGrams, &p.DripBoxBagCount, &p.AllowFulfillmentOrder, &p.AllowMallOrder, &p.RetailPrice100G, &p.RetailPrice200G, &p.RetailPrice227G, &p.RetailPrice250G, &p.YieldRate, &p.ProductCategoryID, &p.ProductCategoryPosition, &p.CustomerID, &p.BaseProductID, &p.Visibility, &p.CustomType, &p.MarginRateOverride, &p.BomItemCount, &p.BomStatus)
 	if err != nil {
 		return nil, nil
+	}
+	if p.ProductKind == catalogdomain.ProductKindDripBag {
+		p.SalesUnits = []string{"bag", "box"}
 	}
 	return &p, nil
 }
 
 func catalogProductFromOption(p postgresinfra.ProductOption) catalogapp.Product {
-	out := catalogapp.Product{ID: p.ID, Name: p.Name, RoastLevel: p.RoastLevel, DefaultPrice: p.DefaultPrice, RetailPrice100G: p.RetailPrice100G, RetailPrice200G: p.RetailPrice200G, RetailPrice227G: p.RetailPrice227G, RetailPrice250G: p.RetailPrice250G, YieldRate: p.YieldRate, ProductCategoryID: p.ProductCategoryID, ProductCategoryPosition: p.ProductCategoryPosition, CustomerID: p.CustomerID, BaseProductID: p.BaseProductID, Visibility: p.Visibility, CustomType: p.CustomType, MarginRateOverride: p.MarginRateOverride, BomItemCount: p.BomItemCount, BomStatus: p.BomStatus}
+	out := catalogapp.Product{ID: p.ID, Name: p.Name, RoastLevel: p.RoastLevel, ProductKind: p.ProductKind, DripBagGrams: p.DripBagGrams, DripBoxBagCount: p.DripBoxBagCount, AllowFulfillmentOrder: p.AllowFulfillmentOrder, AllowMallOrder: p.AllowMallOrder, SalesUnits: p.SalesUnits, DefaultPrice: p.DefaultPrice, RetailPrice100G: p.RetailPrice100G, RetailPrice200G: p.RetailPrice200G, RetailPrice227G: p.RetailPrice227G, RetailPrice250G: p.RetailPrice250G, YieldRate: p.YieldRate, ProductCategoryID: p.ProductCategoryID, ProductCategoryPosition: p.ProductCategoryPosition, CustomerID: p.CustomerID, BaseProductID: p.BaseProductID, Visibility: p.Visibility, CustomType: p.CustomType, MarginRateOverride: p.MarginRateOverride, BomItemCount: p.BomItemCount, BomStatus: p.BomStatus}
 	out.Tiers = make([]catalogapp.PriceTier, 0, len(p.Tiers))
 	for _, t := range p.Tiers {
 		out.Tiers = append(out.Tiers, catalogapp.PriceTier{ID: t.ID, SpecG: t.SpecG, MinQty: t.MinQty, MaxQty: t.MaxQty, UnitPrice: t.UnitPrice})
