@@ -79,7 +79,10 @@ export function wholesaleSpecOptions(product) {
     const spec = toInt(tier.spec_g)
     if (spec > 0) specs.add(spec)
   }
-  return [...specs].sort((a, b) => a - b).map((spec) => ({ label: formatSpecLabel(spec), value: String(spec) }))
+  return [
+    ...[...specs].sort((a, b) => a - b).map((spec) => ({ label: formatSpecLabel(spec), value: String(spec) })),
+    { label: '自定义克数', value: CUSTOM_SPEC_VALUE },
+  ]
 }
 
 export function defaultWholesaleSpec(product) {

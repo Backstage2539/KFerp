@@ -292,7 +292,7 @@
           <li>客户和商品输入框支持名称、拼音和首字母搜索。</li>
           <li>录单时可点“新增客户”打开右侧抽屉，粘贴收件信息后可解析姓名、联系电话和地址。</li>
           <li>选择客户后会带入客户档案中的默认来源和订单类型。</li>
-          <li>常用规格：36g、80g、100g、227g、454g、500g、1000g、2.5kg。</li>
+          <li>规格可选择常用克数，也可选“自定义克数”后直接输入实际克数。</li>
           <li>新订单默认已付款、未发货；商品单价会随规格和数量匹配价格梯度。</li>
           <li>需要临时改价时直接修改单价，点击 ↺ 恢复自动梯度价。</li>
           <li>每条商品明细可选择减免数额、折扣或免费，保存后会计入订单优惠。</li>
@@ -775,8 +775,10 @@ function applyEditData(data) {
   rows.value = (data.items || []).map((item) => {
     const spec = String(item.spec || '').replace(/g$/i, '')
     const product = productByID(item.product_id)
-    const retailSpecs = (product?.retail_specs || []).map(toInt)
-    const shouldUseCustomSpec = retailOrder.value && !retailSpecs.includes(toInt(spec))
+    const specValues = (retailOrder.value ? retailSpecOptions(product, true) : wholesaleSpecOptions(product))
+      .filter((option) => option.value !== CUSTOM_SPEC_VALUE)
+      .map((option) => toInt(option.value))
+    const shouldUseCustomSpec = toInt(spec) > 0 && !specValues.includes(toInt(spec))
     return {
       ...newRow(),
       product_id: Number(item.product_id || 0),
