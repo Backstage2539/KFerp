@@ -51,6 +51,37 @@ func (fakeService) UpdateSetting(context.Context, appcosting.UpdateParameterComm
 	return appcosting.ParameterSetting{Key: "roast_yield_rate", Label: "生豆到熟豆转化率", Value: 0.81, Unit: "ratio"}, nil
 }
 
+func (fakeService) ListDripPriceTemplates(context.Context) ([]domain.DripPriceTemplate, error) {
+	return []domain.DripPriceTemplate{fakeDripPriceTemplate()}, nil
+}
+
+func (fakeService) SaveDripPriceTemplate(ctx context.Context, cmd appcosting.SaveDripPriceTemplateCommand) (*domain.DripPriceTemplate, error) {
+	return appcosting.NewService(&fakeRepo{}).SaveDripPriceTemplate(ctx, cmd)
+}
+
+func (fakeService) DeactivateDripPriceTemplate(context.Context, appcosting.DeactivateDripPriceTemplateCommand) error {
+	return nil
+}
+
+func (fakeService) ExplainDripPrice(ctx context.Context, req appcosting.DripPriceExplanationCommand) (*domain.DripPriceExplanation, error) {
+	return appcosting.NewService(&fakeRepo{}).ExplainDripPrice(ctx, req)
+}
+
+func fakeDripPriceTemplate() domain.DripPriceTemplate {
+	return domain.DripPriceTemplate{
+		ID:               5,
+		Name:             "默认挂耳供应价",
+		Active:           true,
+		BagGrams:         10,
+		BoxBagCount:      10,
+		IncludePackaging: true,
+		Tiers: []domain.DripPriceTemplateTier{
+			{ID: 51, Label: "100袋", MinBags: 100, Multiplier: 2.2, Position: 1, Active: true},
+			{ID: 52, Label: "1000袋", MinBags: 1000, Multiplier: 1.8, Position: 2, Active: true},
+		},
+	}
+}
+
 func (fakeService) ListBeanListPublications(context.Context, appcosting.BeanListPublicationQuery) ([]appcosting.BeanListPublication, error) {
 	row := fakePublishedBeanListPublication()
 	return []appcosting.BeanListPublication{row}, nil
@@ -217,6 +248,19 @@ func (fakeRepo) ListParameterSettings(context.Context) ([]appcosting.ParameterSe
 
 func (fakeRepo) UpdateParameterSetting(context.Context, appcosting.UpdateParameterCommand) (appcosting.ParameterSetting, error) {
 	return appcosting.ParameterSetting{}, nil
+}
+
+func (fakeRepo) ListDripPriceTemplates(context.Context) ([]domain.DripPriceTemplate, error) {
+	return []domain.DripPriceTemplate{fakeDripPriceTemplate()}, nil
+}
+
+func (fakeRepo) SaveDripPriceTemplate(context.Context, appcosting.SaveDripPriceTemplateCommand) (*domain.DripPriceTemplate, error) {
+	template := fakeDripPriceTemplate()
+	return &template, nil
+}
+
+func (fakeRepo) DeactivateDripPriceTemplate(context.Context, appcosting.DeactivateDripPriceTemplateCommand) error {
+	return nil
 }
 
 func (fakeRepo) ListBeanListPublications(context.Context, appcosting.BeanListPublicationQuery) ([]appcosting.BeanListPublication, error) {
@@ -458,6 +502,11 @@ func TestRoutesAreRegistered(t *testing.T) {
 		"GET /api/costing/settings",
 		"POST /api/costing/settings/:key",
 		"POST /api/costing/calculate",
+		"GET /api/drip-price-templates",
+		"POST /api/drip-price-templates",
+		"PUT /api/drip-price-templates/:id",
+		"POST /api/drip-price-templates/:id/deactivate",
+		"POST /api/costing/drip-price-explanation",
 		"GET /api/costing/bean-list",
 		"GET /api/costing/bean-list/publications",
 		"POST /api/costing/bean-list/publications",
@@ -469,6 +518,116 @@ func TestRoutesAreRegistered(t *testing.T) {
 	} {
 		if !seen[want] {
 			t.Fatalf("missing route %s; got %+v", want, seen)
+		}
+	}
+}
+
+func TestDripPriceTemplateAPIValidatesBagAndBoxConfig(t *testing.T) {
+	e := echo.New()
+	RegisterRoutes(e, Dependencies{Costing: fakeService{}})
+
+	for _, tc := range []struct {
+		name string
+		body string
+		want string
+	}{
+		{name: "bag grams", body: `{"name":"坏模板","bag_grams":0,"box_bag_count":10,"tiers":[{"label":"100袋","min_bags":100,"multiplier":2.2}]}`, want: "bag_grams"},
+		{name: "box count", body: `{"name":"坏模板","bag_grams":10,"box_bag_count":0,"tiers":[{"label":"100袋","min_bags":100,"multiplier":2.2}]}`, want: "box_bag_count"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodPost, "/api/drip-price-templates", bytes.NewBufferString(tc.body))
+			req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+			rec := httptest.NewRecorder()
+			e.ServeHTTP(rec, req)
+			if rec.Code != http.StatusBadRequest {
+				t.Fatalf("status = %d, body = %s", rec.Code, rec.Body.String())
+			}
+			if !strings.Contains(rec.Body.String(), tc.want) {
+				t.Fatalf("body %s missing %s", rec.Body.String(), tc.want)
+			}
+		})
+	}
+}
+
+func TestDripPriceTemplateDeactivateAPIKeepsPublishedTiersByOnlyDeactivatingTemplate(t *testing.T) {
+	svc := &recordingDripTemplateService{}
+	e := echo.New()
+	RegisterRoutes(e, Dependencies{Costing: svc})
+
+	req := httptest.NewRequest(http.MethodPost, "/api/drip-price-templates/5/deactivate", nil)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	if svc.deactivatedID != 5 {
+		t.Fatalf("deactivated id = %d", svc.deactivatedID)
+	}
+	if svc.publishRunCalls != 0 {
+		t.Fatalf("deactivate must not republish or delete product price tiers, publish calls = %d", svc.publishRunCalls)
+	}
+}
+
+type recordingDripTemplateService struct {
+	fakeService
+	deactivatedID   int64
+	publishRunCalls int
+}
+
+func (s *recordingDripTemplateService) DeactivateDripPriceTemplate(ctx context.Context, cmd appcosting.DeactivateDripPriceTemplateCommand) error {
+	s.deactivatedID = cmd.ID
+	return nil
+}
+
+func (s *recordingDripTemplateService) PublishRun(ctx context.Context, actor string, runID int64) error {
+	s.publishRunCalls++
+	return nil
+}
+
+func TestCostingDripPriceExplanationAPIIncludesCostFormulaAndBoxConversion(t *testing.T) {
+	e := echo.New()
+	RegisterRoutes(e, Dependencies{Costing: fakeService{}})
+
+	template := fakeDripPriceTemplate()
+	body, err := json.Marshal(appcosting.DripPriceExplanationCommand{
+		Product: domain.ProductInput{
+			ProductID:          701,
+			Name:               "耶加雪菲挂耳",
+			ProductKind:        "drip_bag",
+			DripBagGrams:       10,
+			DripBoxBagCount:    10,
+			GreenBeanCostPerKg: 60,
+			YieldRate:          0.8,
+			DripPriceTemplate:  &template,
+		},
+		TierLabel: "100袋",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := httptest.NewRequest(http.MethodPost, "/api/costing/drip-price-explanation", bytes.NewReader(body))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+
+	e.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	bodyText := rec.Body.String()
+	for _, want := range []string{
+		`"key":"roasted_bean_cost_per_kg"`,
+		`"key":"bag_grams"`,
+		`"key":"drip_process_cost_per_bag"`,
+		`"key":"drip_extra_cost_per_bag"`,
+		`"key":"template_multiplier"`,
+		`"key":"retail_tax_rate"`,
+		`"key":"packed_price_per_bag"`,
+		`"key":"box_conversion"`,
+		`"box_bag_count":10`,
+	} {
+		if !strings.Contains(bodyText, want) {
+			t.Fatalf("drip explanation missing %s: %s", want, bodyText)
 		}
 	}
 }
@@ -591,6 +750,69 @@ func TestCostingSettingsAPI(t *testing.T) {
 	}
 	if got.Key != "roast_yield_rate" || got.Value != 0.81 {
 		t.Fatalf("setting = %+v", got)
+	}
+}
+
+type costingSettingsRepo struct {
+	fakeRepo
+}
+
+func (costingSettingsRepo) ListParameterSettings(context.Context) ([]appcosting.ParameterSetting, error) {
+	return []appcosting.ParameterSetting{
+		{Key: "roast_yield_rate", Label: "生豆到熟豆转化率", Value: 0.8, Unit: "ratio"},
+		{Key: "kg_to_lb_factor", Label: "kg 到 lb 换算", Value: 0.454, Unit: "lb/kg"},
+		{Key: "retail_bean_margin_rate", Label: "零售熟豆利润系数", Value: 0.6, Unit: "ratio"},
+		{Key: "retail_tax_rate", Label: "零售税率", Value: 0.03, Unit: "ratio"},
+		{Key: "retail_drip_multiplier", Label: "零售挂耳利润系数", Value: 2.5, Unit: "ratio"},
+		{Key: "wholesale_kg_margin_rate_1", Label: "商用熟豆 2包-13包 利润系数", Value: 0.42, Unit: "ratio"},
+		{Key: "wholesale_drip_multiplier_1", Label: "商用挂耳 100包 利润系数", Value: 2.2, Unit: "ratio"},
+	}, nil
+}
+
+func (costingSettingsRepo) UpdateParameterSetting(_ context.Context, cmd appcosting.UpdateParameterCommand) (appcosting.ParameterSetting, error) {
+	return appcosting.ParameterSetting{Key: cmd.Key, Label: "kg 到 lb 换算", Value: cmd.Value, Unit: "lb/kg"}, nil
+}
+
+func TestCostingSettingsAPIFiltersDeprecatedQuickSettings(t *testing.T) {
+	e := echo.New()
+	RegisterRoutes(e, Dependencies{Costing: appcosting.NewService(costingSettingsRepo{})})
+
+	req := httptest.NewRequest(http.MethodGet, "/api/costing/settings", nil)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	var listed struct {
+		Rows []appcosting.ParameterSetting `json:"rows"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &listed); err != nil {
+		t.Fatal(err)
+	}
+	body := rec.Body.String()
+	for _, removed := range []string{"roast_yield_rate", "retail_bean_margin_rate", "retail_drip_multiplier", "wholesale_kg_margin_rate_1", "wholesale_drip_multiplier_1"} {
+		if strings.Contains(body, removed) {
+			t.Fatalf("settings response exposed deprecated quick setting %q: %s", removed, body)
+		}
+	}
+	if len(listed.Rows) != 2 {
+		t.Fatalf("rows = %+v", listed.Rows)
+	}
+
+	req = httptest.NewRequest(http.MethodPost, "/api/costing/settings/roast_yield_rate", bytes.NewBufferString(`{"value":0.81}`))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec = httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("deprecated update status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+
+	req = httptest.NewRequest(http.MethodPost, "/api/costing/settings/kg_to_lb_factor", bytes.NewBufferString(`{"value":0.454}`))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec = httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("editable update status = %d, body = %s", rec.Code, rec.Body.String())
 	}
 }
 

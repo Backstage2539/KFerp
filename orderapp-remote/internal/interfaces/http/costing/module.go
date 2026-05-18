@@ -16,6 +16,10 @@ type Service interface {
 	UpdateSetting(context.Context, appcosting.UpdateParameterCommand) (appcosting.ParameterSetting, error)
 	Calculate(context.Context, appcosting.CalculateRequest) (*appcosting.CalculateResponse, error)
 	ExplainPrice(context.Context, appcosting.PriceExplanationCommand) (*domain.PriceExplanation, error)
+	ExplainDripPrice(context.Context, appcosting.DripPriceExplanationCommand) (*domain.DripPriceExplanation, error)
+	ListDripPriceTemplates(context.Context) ([]domain.DripPriceTemplate, error)
+	SaveDripPriceTemplate(context.Context, appcosting.SaveDripPriceTemplateCommand) (*domain.DripPriceTemplate, error)
+	DeactivateDripPriceTemplate(context.Context, appcosting.DeactivateDripPriceTemplateCommand) error
 	BeanList(context.Context) (*appcosting.CalculateResponse, error)
 	ListBeanListPublications(context.Context, appcosting.BeanListPublicationQuery) ([]appcosting.BeanListPublication, error)
 	PublishedBeanList(context.Context, appcosting.BeanListPublicationQuery) (*appcosting.BeanListPublication, error)

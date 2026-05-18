@@ -19,6 +19,11 @@ func TestBomViewUsesVueMaterialOptions(t *testing.T) {
 		"@submit.prevent=\"saveItem\"",
 		"@submit.prevent=\"saveMapping\"",
 		"选择物料",
+		"componentTypeLabel",
+		"选择熟豆成品",
+		"component_product_id",
+		"consume_unit",
+		"qty_per_unit",
 	}
 	for _, want := range required {
 		if !strings.Contains(src, want) {

@@ -1,3 +1,5 @@
+import type { CreateFulfillmentOrderPayload, ProductSummary, SalesUnit } from '../api/customerPortal'
+
 export type ServiceKey =
   | 'beanList'
   | 'orders'
@@ -26,6 +28,32 @@ export type ServiceSection = {
   title: string
   count: number
 }
+
+export type FulfillmentSalesUnitOption = {
+  sales_unit: SalesUnit
+  label: string
+  unit_bag_count: number
+  unit_bean_g: number
+  spec_g: number
+  quantity_label: string
+}
+
+export type FulfillmentOrderForm = {
+  recipient_name: string
+  recipient_phone: string
+  recipient_address: string
+  recipient_company?: string
+  product_id: number
+  product_name?: string
+  spec_g: number
+  qty: number
+  sales_unit?: SalesUnit | string
+  unit_bag_count?: number
+  unit_bean_g?: number
+  note?: string
+}
+
+type FulfillmentProductLike = Partial<ProductSummary>
 
 const labels: Record<ServiceKey, string> = {
   beanList: '我的豆单',
@@ -80,8 +108,82 @@ export function orderSectionTitle(key: ServiceKey): string {
   return '订单 / 物流'
 }
 
+export function fulfillmentSalesUnitOptions(product?: FulfillmentProductLike | null): FulfillmentSalesUnitOption[] {
+  if (product?.product_kind !== 'drip_bag') return []
+  const bagGrams = positiveNumber(product.drip_bag_grams) || 10
+  const boxBagCount = positiveInteger(product.drip_box_bag_count) || 10
+  return normalizeSalesUnits(product.sales_units).map((salesUnit) => {
+    const unitBagCount = salesUnit === 'box' ? boxBagCount : 1
+    return {
+      sales_unit: salesUnit,
+      label: salesUnit === 'box' ? '盒' : '袋',
+      unit_bag_count: unitBagCount,
+      unit_bean_g: bagGrams,
+      spec_g: bagGrams * unitBagCount,
+      quantity_label: salesUnit === 'box' ? '盒数' : '袋数',
+    }
+  })
+}
+
+export function fulfillmentUnitOption(
+  product?: FulfillmentProductLike | null,
+  salesUnit?: SalesUnit | string,
+): FulfillmentSalesUnitOption | null {
+  const options = fulfillmentSalesUnitOptions(product)
+  if (!options.length) return null
+  return options.find((item) => item.sales_unit === salesUnit) || options[0]
+}
+
+export function buildFulfillmentOrderPayload(
+  serviceCode: 'direct_ship' | 'processing_ship' | 'product_order' | string,
+  form: FulfillmentOrderForm,
+): CreateFulfillmentOrderPayload {
+  const payload: CreateFulfillmentOrderPayload = {
+    service_code: serviceCode,
+    recipient_name: String(form.recipient_name || '').trim(),
+    recipient_phone: String(form.recipient_phone || '').trim(),
+    recipient_address: String(form.recipient_address || '').trim(),
+    recipient_company: String(form.recipient_company || '').trim(),
+    product_id: Number(form.product_id) || 0,
+    product_name: String(form.product_name || '').trim(),
+    spec_g: Number(form.spec_g) || 0,
+    qty: Number(form.qty) || 0,
+    note: String(form.note || ''),
+  }
+  const salesUnit = normalizeSalesUnit(form.sales_unit)
+  if (salesUnit) {
+    payload.sales_unit = salesUnit
+    payload.unit_bag_count = positiveInteger(form.unit_bag_count) || (salesUnit === 'box' ? 10 : 1)
+    payload.unit_bean_g = positiveNumber(form.unit_bean_g) || 10
+  }
+  return payload
+}
+
 function addSection(sections: ServiceSection[], title: string, rows: unknown[] | undefined) {
   if (rows?.length) {
     sections.push({ title, count: rows.length })
   }
+}
+
+function normalizeSalesUnits(values?: SalesUnit[]): SalesUnit[] {
+  const out: SalesUnit[] = []
+  for (const value of values || ['bag', 'box']) {
+    const normalized = normalizeSalesUnit(value)
+    if (normalized && !out.includes(normalized)) out.push(normalized)
+  }
+  return out.length ? out : ['bag', 'box']
+}
+
+function normalizeSalesUnit(value?: SalesUnit | string): SalesUnit | '' {
+  return value === 'bag' || value === 'box' ? value : ''
+}
+
+function positiveNumber(value: unknown): number {
+  const n = Number(value || 0)
+  return Number.isFinite(n) && n > 0 ? n : 0
+}
+
+function positiveInteger(value: unknown): number {
+  const n = Number(value || 0)
+  return Number.isFinite(n) && n > 0 ? Math.trunc(n) : 0
 }

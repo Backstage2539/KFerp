@@ -2,6 +2,7 @@ package sales
 
 import (
 	"fmt"
+	"math"
 	support "orderapp/internal/interfaces/http/support"
 	"strconv"
 	"strings"
@@ -96,13 +97,19 @@ func parseCreateOrderAmount(raw, field string) (float64, error) {
 
 func orderItemCommandsFromCreateRequest(req CreateOrderRequest) []salesapp.OrderItemCommand {
 	items := make([]salesapp.OrderItemCommand, 0)
-	for i := 0; i < maxLen(req.ItemName, req.ItemNote, req.ProductID, req.TierID, req.UnitPrice, req.Qty, req.Unit, req.Spec, req.DiscountType, req.DiscountValue); i++ {
+	for i := 0; i < maxLen(req.ItemName, req.ItemNote, req.ProductID, req.TierID, req.UnitPrice, req.Qty, req.Unit, req.Spec, req.ProductKind, req.SalesUnit, req.UnitBagCount, req.UnitBeanG, req.DiscountType, req.DiscountValue); i++ {
 		pidStr := strings.TrimSpace(getStr(req.ProductID, i))
 		name := strings.TrimSpace(getStr(req.ItemName, i))
 		if pidStr == "" && name == "" {
 			continue
 		}
-		it := salesapp.OrderItemCommand{Name: name, Note: strings.TrimSpace(getStr(req.ItemNote, i))}
+		it := salesapp.OrderItemCommand{
+			Name: name,
+			// Note: strings.TrimSpace(getStr(req.ItemNote, i))
+			Note:        strings.TrimSpace(getStr(req.ItemNote, i)),
+			ProductKind: strings.TrimSpace(getStr(req.ProductKind, i)),
+			SalesUnit:   strings.TrimSpace(getStr(req.SalesUnit, i)),
+		}
 		if pidStr != "" {
 			if pid, err := strconv.ParseInt(pidStr, 10, 64); err == nil && pid > 0 {
 				it.ProductID = &pid
@@ -134,6 +141,19 @@ func orderItemCommandsFromCreateRequest(req CreateOrderRequest) []salesapp.Order
 			sg = strings.TrimSuffix(strings.ToLower(sg), "g")
 			if n, err := strconv.ParseInt(sg, 10, 64); err == nil && n > 0 {
 				it.SpecG = n
+			}
+		}
+		if v := strings.TrimSpace(getStr(req.UnitBagCount, i)); v != "" {
+			if n, err := strconv.ParseInt(v, 10, 64); err == nil && n > 0 {
+				it.UnitBagCount = n
+			}
+		}
+		if v := strings.TrimSpace(getStr(req.UnitBeanG, i)); v != "" {
+			if f, err := strconv.ParseFloat(v, 64); err == nil && f > 0 {
+				it.UnitBeanG = f
+				if it.SpecG <= 0 {
+					it.SpecG = int64(math.Round(f))
+				}
 			}
 		}
 		it.Unit = strings.TrimSpace(getStr(req.Unit, i))

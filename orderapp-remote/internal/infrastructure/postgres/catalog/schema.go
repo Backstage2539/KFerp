@@ -21,12 +21,32 @@ ALTER TABLE %[1]s.products ADD COLUMN IF NOT EXISTS base_product_id BIGINT NOT N
 ALTER TABLE %[1]s.products ADD COLUMN IF NOT EXISTS visibility TEXT NOT NULL DEFAULT 'public';
 ALTER TABLE %[1]s.products ADD COLUMN IF NOT EXISTS custom_type TEXT NOT NULL DEFAULT '';
 ALTER TABLE %[1]s.products ADD COLUMN IF NOT EXISTS margin_rate_override NUMERIC(14,6);
+ALTER TABLE %[1]s.products ADD COLUMN IF NOT EXISTS product_kind TEXT;
 ALTER TABLE %[1]s.products ADD COLUMN IF NOT EXISTS green_bean_type TEXT NOT NULL DEFAULT '';
 ALTER TABLE %[1]s.products ADD COLUMN IF NOT EXISTS green_bean_bom_product_id BIGINT NOT NULL DEFAULT 0;
+ALTER TABLE %[1]s.products ADD COLUMN IF NOT EXISTS drip_bag_grams NUMERIC(12,3);
+ALTER TABLE %[1]s.products ADD COLUMN IF NOT EXISTS drip_box_bag_count INT;
+ALTER TABLE %[1]s.products ADD COLUMN IF NOT EXISTS allow_fulfillment_order BOOLEAN;
+ALTER TABLE %[1]s.products ADD COLUMN IF NOT EXISTS allow_mall_order BOOLEAN;
 UPDATE %[1]s.products SET visibility='public' WHERE COALESCE(visibility,'')='';
+UPDATE %[1]s.products SET product_kind='roasted_bean' WHERE COALESCE(product_kind,'')='';
+UPDATE %[1]s.products SET drip_bag_grams = 10 WHERE drip_bag_grams IS NULL;
+UPDATE %[1]s.products SET drip_box_bag_count = 10 WHERE drip_box_bag_count IS NULL;
+UPDATE %[1]s.products SET allow_fulfillment_order = true WHERE allow_fulfillment_order IS NULL;
+UPDATE %[1]s.products SET allow_mall_order = false WHERE allow_mall_order IS NULL;
+ALTER TABLE %[1]s.products ALTER COLUMN product_kind SET DEFAULT 'roasted_bean';
+ALTER TABLE %[1]s.products ALTER COLUMN drip_bag_grams SET DEFAULT 10;
+ALTER TABLE %[1]s.products ALTER COLUMN drip_box_bag_count SET DEFAULT 10;
+ALTER TABLE %[1]s.products ALTER COLUMN allow_fulfillment_order SET DEFAULT true;
+ALTER TABLE %[1]s.products ALTER COLUMN allow_mall_order SET DEFAULT false;
+ALTER TABLE %[1]s.products ALTER COLUMN product_kind SET NOT NULL;
+ALTER TABLE %[1]s.products ALTER COLUMN drip_bag_grams SET NOT NULL;
+ALTER TABLE %[1]s.products ALTER COLUMN drip_box_bag_count SET NOT NULL;
+ALTER TABLE %[1]s.products ALTER COLUMN allow_fulfillment_order SET NOT NULL;
+ALTER TABLE %[1]s.products ALTER COLUMN allow_mall_order SET NOT NULL;
 CREATE INDEX IF NOT EXISTS products_customer_visibility_idx ON %[1]s.products(customer_id, visibility, active);
 CREATE INDEX IF NOT EXISTS products_base_product_idx ON %[1]s.products(base_product_id);
-CREATE INDEX IF NOT EXISTS products_green_bean_bom_product_idx ON %[1]s.products(green_bean_bom_product_id);
+CREATE INDEX IF NOT EXISTS products_kind_active_idx ON %[1]s.products(product_kind, active);
 CREATE TABLE IF NOT EXISTS %[1]s.product_categories (
 	id BIGSERIAL PRIMARY KEY,
 	parent_id BIGINT,

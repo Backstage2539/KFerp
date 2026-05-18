@@ -14,6 +14,9 @@ import (
 
 	app "orderapp/internal/application/customerfulfillment"
 	customerportalapp "orderapp/internal/application/customerportal"
+	catalogdomain "orderapp/internal/domain/catalog"
+	salesdomain "orderapp/internal/domain/sales"
+	postgresinfra "orderapp/internal/infrastructure/postgres"
 	"orderapp/internal/infrastructure/postgres/orderbeans"
 
 	"github.com/jackc/pgx/v5"
@@ -448,8 +451,15 @@ func (r *Repository) SubmitCustomerDirectShipOrder(ctx context.Context, cmd app.
 			"submitted_by_employee_id":   cmd.EmployeeID,
 			"product_id":                 item.ProductID,
 			"product_name":               item.ProductName,
+			"product_kind":               item.ProductKind,
 			"spec":                       item.Spec,
 			"spec_g":                     item.SpecG,
+			"sales_unit":                 item.SalesUnit,
+			"unit_bag_count":             item.UnitBagCount,
+			"unit_bean_g":                item.UnitBeanG,
+			"matched_price_qty":          item.MatchedPriceQty,
+			"price_source":               item.PriceSource,
+			"price_source_snapshot":      item.PriceSourceSnapshot,
 			"quantity_units":             item.QuantityUnits,
 			"unit_price":                 item.UnitPrice,
 			"line_total_before_discount": item.BaseLineTotal,
@@ -472,6 +482,22 @@ func (r *Repository) SubmitCustomerDirectShipOrder(ctx context.Context, cmd app.
 	if err != nil {
 		return app.DirectShipOrderSummary{}, err
 	}
+	for _, item := range quotedItems {
+		if item.ProductKind != catalogdomain.ProductKindDripBag {
+			continue
+		}
+		if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, customerFulfillmentOrderActor(cmd), "customer_fulfillment_order", &orderID, "fulfillment customer drip submit", nil, nil, nil, postgresinfra.AuditMeta{
+			"product_id":     item.ProductID,
+			"sales_unit":     item.SalesUnit,
+			"qty":            item.QuantityUnits,
+			"unit_bag_count": item.UnitBagCount,
+			"unit_bean_g":    item.UnitBeanG,
+			"price_source":   item.PriceSource,
+			"total":          item.LineTotal,
+		}); err != nil {
+			return app.DirectShipOrderSummary{}, err
+		}
+	}
 	if err := tx.Commit(ctx); err != nil {
 		return app.DirectShipOrderSummary{}, err
 	}
@@ -490,6 +516,7 @@ type submittedDirectShipItem struct {
 	ProductName   string
 	Spec          string
 	SpecG         int64
+	SalesUnit     string
 	QuantityUnits int64
 	DiscountType  string
 	DiscountValue float64
@@ -497,18 +524,25 @@ type submittedDirectShipItem struct {
 }
 
 type submittedDirectShipQuotedItem struct {
-	ProductID      int64
-	ProductName    string
-	Spec           string
-	SpecG          int64
-	QuantityUnits  int64
-	UnitPrice      float64
-	DiscountType   string
-	DiscountValue  float64
-	DiscountAmount float64
-	BaseLineTotal  float64
-	LineTotal      float64
-	Note           string
+	ProductID           int64
+	ProductName         string
+	ProductKind         string
+	Spec                string
+	SpecG               int64
+	SalesUnit           string
+	UnitBagCount        float64
+	UnitBeanG           float64
+	MatchedPriceQty     float64
+	PriceSource         string
+	PriceSourceSnapshot string
+	QuantityUnits       int64
+	UnitPrice           float64
+	DiscountType        string
+	DiscountValue       float64
+	DiscountAmount      float64
+	BaseLineTotal       float64
+	LineTotal           float64
+	Note                string
 }
 
 func normalizeSubmittedDirectShipItems(cmd app.SubmitCustomerDirectShipOrderCommand) []submittedDirectShipItem {
@@ -519,6 +553,7 @@ func normalizeSubmittedDirectShipItems(cmd app.SubmitCustomerDirectShipOrderComm
 			ProductName:   strings.TrimSpace(item.ProductName),
 			Spec:          strings.TrimSpace(item.Spec),
 			SpecG:         item.SpecG,
+			SalesUnit:     strings.TrimSpace(item.SalesUnit),
 			QuantityUnits: item.QuantityUnits,
 			DiscountType:  strings.TrimSpace(strings.ToLower(item.DiscountType)),
 			DiscountValue: item.DiscountValue,
@@ -533,6 +568,7 @@ func normalizeSubmittedDirectShipItems(cmd app.SubmitCustomerDirectShipOrderComm
 		ProductName:   strings.TrimSpace(cmd.ProductName),
 		Spec:          strings.TrimSpace(cmd.Spec),
 		SpecG:         parseSubmittedDirectShipSpecG(cmd.Spec),
+		SalesUnit:     "bag",
 		QuantityUnits: cmd.QuantityUnits,
 		DiscountType:  "",
 		DiscountValue: 0,
@@ -551,19 +587,25 @@ func (r *Repository) quoteSubmittedDirectShipItemTx(ctx context.Context, tx pgx.
 	if item.QuantityUnits <= 0 {
 		item.QuantityUnits = 1
 	}
-	var dbProductName string
+	var dbProductName, productKind string
 	var defaultPrice float64
+	var dripBagGrams float64
+	var dripBoxBagCount int
 	if err := tx.QueryRow(ctx, fmt.Sprintf(`
-		SELECT COALESCE(name,''), COALESCE(default_price,0)
+		SELECT COALESCE(name,''), COALESCE(default_price,0),
+		       COALESCE(NULLIF(product_kind,''), 'roasted_bean'),
+		       COALESCE(drip_bag_grams,10)::float8,
+		       COALESCE(drip_box_bag_count,10)
 		FROM %s.products
 		WHERE id=$1 AND active=true
 		  AND %s
-	`, r.schema, customerFulfillmentProductVisibleToCustomerSQL(r.schema+".products", "$2")), item.ProductID, customerID).Scan(&dbProductName, &defaultPrice); err != nil {
+	`, r.schema, customerFulfillmentProductVisibleToCustomerSQL(r.schema+".products", "$2")), item.ProductID, customerID).Scan(&dbProductName, &defaultPrice, &productKind, &dripBagGrams, &dripBoxBagCount); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return submittedDirectShipQuotedItem{}, fmt.Errorf("product unavailable")
 		}
 		return submittedDirectShipQuotedItem{}, err
 	}
+	productKind = catalogdomain.NormalizeProductKind(productKind)
 	productName := item.ProductName
 	if productName == "" {
 		productName = strings.TrimSpace(dbProductName)
@@ -572,8 +614,57 @@ func (r *Repository) quoteSubmittedDirectShipItemTx(ctx context.Context, tx pgx.
 	if specText == "" {
 		specText = fmt.Sprintf("%dg", specG)
 	}
-	unitPrice := r.customerFulfillmentSubmittedUnitPriceTx(ctx, tx, customerID, item.ProductID, specG, item.QuantityUnits, defaultPrice)
-	baseLineTotal := customerFulfillmentLineTotalFromDisplayUnit(unitPrice, specG, item.QuantityUnits)
+	salesUnit := strings.TrimSpace(item.SalesUnit)
+	unitBagCount := 0.0
+	unitBeanG := 0.0
+	matchedPriceQty := 0.0
+	priceSource := ""
+	priceSourceSnapshot := ""
+	var unitPrice, baseLineTotal float64
+	if productKind == catalogdomain.ProductKindDripBag {
+		if err := r.ensureDripProductHasActiveBOMTx(ctx, tx, item.ProductID); err != nil {
+			return submittedDirectShipQuotedItem{}, err
+		}
+		if salesUnit == "" {
+			salesUnit = "bag"
+		}
+		if salesUnit != "bag" && salesUnit != "box" {
+			return submittedDirectShipQuotedItem{}, fmt.Errorf("sales_unit invalid")
+		}
+		unitBagCount = 1
+		if salesUnit == "box" {
+			unitBagCount = float64(dripBoxBagCount)
+		}
+		unitBeanG = dripBagGrams
+		if specG <= 0 || specG == 454 {
+			specG = int64(math.Round(dripBagGrams))
+		}
+		if specText == "" || specText == "454g" {
+			specText = customerFulfillmentDripSpecText(salesUnit, dripBagGrams, dripBoxBagCount)
+		}
+		tiers, err := r.customerFulfillmentDripUnitPriceTiersTx(ctx, tx, item.ProductID)
+		if err != nil {
+			return submittedDirectShipQuotedItem{}, err
+		}
+		result, err := salesdomain.CalculateUnitLineTotal(salesdomain.UnitLineInput{
+			ProductKind:  productKind,
+			SalesUnit:    salesUnit,
+			Quantity:     float64(item.QuantityUnits),
+			UnitBagCount: unitBagCount,
+			Tiers:        tiers,
+		})
+		if err != nil {
+			return submittedDirectShipQuotedItem{}, fmt.Errorf("drip price unpublished")
+		}
+		unitPrice = result.UnitPrice
+		baseLineTotal = result.LineTotal
+		matchedPriceQty = result.MatchedQtyForTier
+		priceSource = "published_unit_price"
+		priceSourceSnapshot = customerFulfillmentPriceSourceSnapshot(result)
+	} else {
+		unitPrice = r.customerFulfillmentSubmittedUnitPriceTx(ctx, tx, customerID, item.ProductID, specG, item.QuantityUnits, defaultPrice)
+		baseLineTotal = customerFulfillmentLineTotalFromDisplayUnit(unitPrice, specG, item.QuantityUnits)
+	}
 	discountType := normalizeSubmittedDirectShipDiscountType(item.DiscountType)
 	discountValue := item.DiscountValue
 	if discountValue < 0 {
@@ -581,18 +672,25 @@ func (r *Repository) quoteSubmittedDirectShipItemTx(ctx context.Context, tx pgx.
 	}
 	discountAmount, lineTotal := submittedDirectShipLineDiscount(baseLineTotal, discountType, discountValue)
 	return submittedDirectShipQuotedItem{
-		ProductID:      item.ProductID,
-		ProductName:    productName,
-		Spec:           specText,
-		SpecG:          specG,
-		QuantityUnits:  item.QuantityUnits,
-		UnitPrice:      unitPrice,
-		DiscountType:   discountType,
-		DiscountValue:  discountValue,
-		DiscountAmount: discountAmount,
-		BaseLineTotal:  baseLineTotal,
-		LineTotal:      lineTotal,
-		Note:           item.Note,
+		ProductID:           item.ProductID,
+		ProductName:         productName,
+		ProductKind:         productKind,
+		Spec:                specText,
+		SpecG:               specG,
+		SalesUnit:           salesUnit,
+		UnitBagCount:        unitBagCount,
+		UnitBeanG:           unitBeanG,
+		MatchedPriceQty:     matchedPriceQty,
+		PriceSource:         priceSource,
+		PriceSourceSnapshot: priceSourceSnapshot,
+		QuantityUnits:       item.QuantityUnits,
+		UnitPrice:           unitPrice,
+		DiscountType:        discountType,
+		DiscountValue:       discountValue,
+		DiscountAmount:      discountAmount,
+		BaseLineTotal:       baseLineTotal,
+		LineTotal:           lineTotal,
+		Note:                item.Note,
 	}, nil
 }
 
@@ -696,6 +794,113 @@ func parseSubmittedDirectShipSpecG(spec string) int64 {
 		return 0
 	}
 	return n
+}
+
+func customerFulfillmentOrderActor(cmd app.SubmitCustomerDirectShipOrderCommand) string {
+	if actor := strings.TrimSpace(cmd.Actor); actor != "" {
+		return actor
+	}
+	if cmd.EmployeeID > 0 {
+		return fmt.Sprintf("employee:%d", cmd.EmployeeID)
+	}
+	return "customer_fulfillment"
+}
+
+func (r *Repository) ensureDripProductHasActiveBOMTx(ctx context.Context, tx pgx.Tx, productID int64) error {
+	var exists bool
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`
+		SELECT EXISTS (
+			SELECT 1
+			FROM %s.product_bom b
+			WHERE b.product_id=$1 AND b.status='active'
+			  AND EXISTS (SELECT 1 FROM %s.product_bom_items bi WHERE bi.product_id=b.product_id)
+		)
+	`, r.schema, r.schema), productID).Scan(&exists); err != nil {
+		return err
+	}
+	if !exists {
+		return fmt.Errorf("product BOM not configured")
+	}
+	return nil
+}
+
+func (r *Repository) customerFulfillmentDripUnitPriceTiersTx(ctx context.Context, tx pgx.Tx, productID int64) ([]salesdomain.UnitPriceTier, error) {
+	rows, err := tx.Query(ctx, fmt.Sprintf(`
+		SELECT COALESCE(NULLIF(product_kind,''), 'roasted_bean'),
+		       COALESCE(NULLIF(sales_unit,''), ''),
+		       COALESCE(NULLIF(min_qty_units,0), 0)::float8,
+		       COALESCE(price_per_unit,0)::float8,
+		       COALESCE(NULLIF(unit_bag_count,0), 0)::float8
+		FROM %s.product_price_tiers
+		WHERE product_id=$1
+		  AND active=true
+		  AND COALESCE(NULLIF(product_kind,''), 'roasted_bean')='drip_bag'
+		  AND COALESCE(NULLIF(sales_unit,''), '') IN ('bag','box')
+		  AND COALESCE(price_per_unit,0)>0
+		ORDER BY COALESCE(NULLIF(sales_unit,''), ''), COALESCE(NULLIF(min_qty_units,0), 0)
+	`, r.schema), productID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	tiers := make([]salesdomain.UnitPriceTier, 0)
+	for rows.Next() {
+		var tier salesdomain.UnitPriceTier
+		if err := rows.Scan(&tier.ProductKind, &tier.SalesUnit, &tier.MinQty, &tier.PricePerUnit, &tier.UnitBagCount); err != nil {
+			return nil, err
+		}
+		tiers = append(tiers, tier)
+	}
+	return tiers, rows.Err()
+}
+
+func customerFulfillmentPriceSourceSnapshot(result salesdomain.UnitLineResult) string {
+	b, _ := json.Marshal(map[string]any{
+		"price_source":         "published_unit_price",
+		"product_kind":         result.Tier.ProductKind,
+		"sales_unit":           result.Tier.SalesUnit,
+		"min_qty":              result.Tier.MinQty,
+		"unit_price":           result.UnitPrice,
+		"tier_price_per_unit":  result.Tier.PricePerUnit,
+		"tier_unit_bag_count":  result.Tier.UnitBagCount,
+		"matched_qty_for_tier": result.MatchedQtyForTier,
+	})
+	return string(b)
+}
+
+func customerFulfillmentDripSpecText(salesUnit string, bagGrams float64, boxBagCount int) string {
+	if bagGrams <= 0 {
+		bagGrams = 10
+	}
+	if boxBagCount <= 0 {
+		boxBagCount = 10
+	}
+	bagText := fmt.Sprintf("%.0fg", bagGrams)
+	if math.Abs(bagGrams-math.Round(bagGrams)) > 0.001 {
+		bagText = fmt.Sprintf("%.1fg", bagGrams)
+	}
+	if salesUnit == "box" {
+		return fmt.Sprintf("%s*%d袋/盒", bagText, boxBagCount)
+	}
+	return bagText + "/袋"
+}
+
+func customerFulfillmentDisplayUnit(salesUnit string) string {
+	switch strings.TrimSpace(salesUnit) {
+	case "bag":
+		return "袋"
+	case "box":
+		return "盒"
+	default:
+		return "件"
+	}
+}
+
+func customerFulfillmentJSONOrEmpty(raw string) string {
+	if strings.TrimSpace(raw) == "" {
+		return "{}"
+	}
+	return raw
 }
 
 func customerFulfillmentProductVisibleToCustomerSQL(productTable, customerPlaceholder string) string {
@@ -1242,10 +1447,11 @@ func (r *Repository) createSubmittedDirectShipERPOrderItemsTx(ctx context.Contex
 			INSERT INTO %s.order_items(
 				order_id,line_no,product_id,item_name,qty,unit,spec,unit_price,
 				line_total_before_discount,discount_type,discount_value,discount_amount,line_total,
+				product_kind,sales_unit,unit_bag_count,unit_bean_g,matched_price_qty,price_source_json,
 				bean_list_publication_id,bean_list_version_no
 			)
-			VALUES($1,$2,$3,$4,$5,'件',$6,$7,$8,$9,$10,$11,$12,NULLIF($13,0),$14)
-		`, r.schema), orderID, item.lineNo, nullableCustomerFulfillmentID(item.productID), item.productTitle, item.quantity, item.spec, item.unitPrice, item.baseLineTotal, item.discountType, item.discountValue, item.discountAmount, item.lineTotal, item.beanListUsage.PublicationID, item.beanListUsage.VersionNo); err != nil {
+			VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19::jsonb,NULLIF($20,0),$21)
+		`, r.schema), orderID, item.lineNo, nullableCustomerFulfillmentID(item.productID), item.productTitle, item.quantity, customerFulfillmentDisplayUnit(item.salesUnit), item.spec, item.unitPrice, item.baseLineTotal, item.discountType, item.discountValue, item.discountAmount, item.lineTotal, item.productKind, item.salesUnit, item.unitBagCount, item.unitBeanG, item.matchedPriceQty, customerFulfillmentJSONOrEmpty(item.priceSourceSnapshot), item.beanListUsage.PublicationID, item.beanListUsage.VersionNo); err != nil {
 			return err
 		}
 	}
@@ -1253,18 +1459,24 @@ func (r *Repository) createSubmittedDirectShipERPOrderItemsTx(ctx context.Contex
 }
 
 type submittedDirectShipERPItemSeed struct {
-	lineNo         int
-	productID      int64
-	productTitle   string
-	spec           string
-	quantity       int64
-	unitPrice      float64
-	baseLineTotal  float64
-	discountType   string
-	discountValue  float64
-	discountAmount float64
-	lineTotal      float64
-	beanListUsage  orderbeans.Usage
+	lineNo              int
+	productID           int64
+	productTitle        string
+	productKind         string
+	spec                string
+	quantity            int64
+	salesUnit           string
+	unitBagCount        float64
+	unitBeanG           float64
+	matchedPriceQty     float64
+	priceSourceSnapshot string
+	unitPrice           float64
+	baseLineTotal       float64
+	discountType        string
+	discountValue       float64
+	discountAmount      float64
+	lineTotal           float64
+	beanListUsage       orderbeans.Usage
 }
 
 func (r *Repository) submittedDirectShipERPItemSeedsTx(ctx context.Context, tx pgx.Tx, importOrderID int64) ([]submittedDirectShipERPItemSeed, error) {
@@ -1314,6 +1526,12 @@ func (r *Repository) submittedDirectShipERPItemSeedsTx(ctx context.Context, tx p
 		if quantity <= 0 {
 			quantity = 1
 		}
+		productKind := catalogdomain.NormalizeProductKind(payloadString(payload, "product_kind"))
+		salesUnit := strings.TrimSpace(payloadString(payload, "sales_unit"))
+		unitBagCount := payloadFloat(payload, "unit_bag_count")
+		unitBeanG := payloadFloat(payload, "unit_bean_g")
+		matchedPriceQty := payloadFloat(payload, "matched_price_qty")
+		priceSourceSnapshot := payloadString(payload, "price_source_snapshot")
 		unitPrice := payloadFloat(payload, "unit_price")
 		baseLineTotal := payloadFloat(payload, "line_total_before_discount")
 		lineTotal := payloadFloat(payload, "line_total")
@@ -1333,17 +1551,23 @@ func (r *Repository) submittedDirectShipERPItemSeedsTx(ctx context.Context, tx p
 			rowLineNo = lineNo
 		}
 		items = append(items, submittedDirectShipERPItemSeed{
-			lineNo:         rowLineNo,
-			productID:      productID,
-			productTitle:   productTitle,
-			spec:           spec,
-			quantity:       quantity,
-			unitPrice:      unitPrice,
-			baseLineTotal:  baseLineTotal,
-			discountType:   discountType,
-			discountValue:  discountValue,
-			discountAmount: discountAmount,
-			lineTotal:      lineTotal,
+			lineNo:              rowLineNo,
+			productID:           productID,
+			productTitle:        productTitle,
+			productKind:         productKind,
+			spec:                spec,
+			quantity:            quantity,
+			salesUnit:           salesUnit,
+			unitBagCount:        unitBagCount,
+			unitBeanG:           unitBeanG,
+			matchedPriceQty:     matchedPriceQty,
+			priceSourceSnapshot: priceSourceSnapshot,
+			unitPrice:           unitPrice,
+			baseLineTotal:       baseLineTotal,
+			discountType:        discountType,
+			discountValue:       discountValue,
+			discountAmount:      discountAmount,
+			lineTotal:           lineTotal,
 		})
 	}
 	if err := rows.Err(); err != nil {
@@ -1358,6 +1582,7 @@ func (r *Repository) submittedDirectShipERPItemSeedsTx(ctx context.Context, tx p
 			ProductName:   items[idx].productTitle,
 			Spec:          items[idx].spec,
 			SpecG:         specG,
+			SalesUnit:     items[idx].salesUnit,
 			QuantityUnits: items[idx].quantity,
 			DiscountType:  items[idx].discountType,
 			DiscountValue: items[idx].discountValue,
@@ -1374,7 +1599,24 @@ func (r *Repository) submittedDirectShipERPItemSeedsTx(ctx context.Context, tx p
 		if quoted.Spec != "" {
 			items[idx].spec = quoted.Spec
 		}
-		items[idx].productID = quoted.ProductID
+		if quoted.ProductKind != "" {
+			items[idx].productKind = quoted.ProductKind
+		}
+		if quoted.SalesUnit != "" {
+			items[idx].salesUnit = quoted.SalesUnit
+		}
+		if quoted.UnitBagCount > 0 {
+			items[idx].unitBagCount = quoted.UnitBagCount
+		}
+		if quoted.UnitBeanG > 0 {
+			items[idx].unitBeanG = quoted.UnitBeanG
+		}
+		if quoted.MatchedPriceQty > 0 {
+			items[idx].matchedPriceQty = quoted.MatchedPriceQty
+		}
+		if quoted.PriceSourceSnapshot != "" {
+			items[idx].priceSourceSnapshot = quoted.PriceSourceSnapshot
+		}
 		items[idx].unitPrice = quoted.UnitPrice
 		items[idx].baseLineTotal = quoted.BaseLineTotal
 		items[idx].discountType = quoted.DiscountType
@@ -1915,6 +2157,10 @@ func (r *Repository) listCustomerSKUOptions(ctx context.Context, customerID int6
 		row.Spec = strings.TrimSpace(row.Spec)
 		row.RoastDegree = strings.TrimSpace(row.RoastDegree)
 		row.Source = strings.TrimSpace(row.Source)
+		row.ProductKind = catalogdomain.NormalizeProductKind(row.ProductKind)
+		if row.ProductKind == catalogdomain.ProductKindDripBag {
+			row.SalesUnits = []string{"bag", "box"}
+		}
 		if row.ProductName == "" {
 			return
 		}
@@ -1936,6 +2182,9 @@ func (r *Repository) listCustomerSKUOptions(ctx context.Context, customerID int6
 		       COALESCE(p.base_product_id,0),
 		       COALESCE(r.payload->>'sku_code', ''),
 		       COALESCE(NULLIF(r.payload->>'sku_name',''), NULLIF(r.payload->>'product_name',''), p.name, ''),
+		       COALESCE(NULLIF(p.product_kind,''), 'roasted_bean'),
+		       COALESCE(p.drip_bag_grams,10)::float8,
+		       COALESCE(p.drip_box_bag_count,10),
 		       COALESCE(NULLIF(r.payload->>'spec',''), ''),
 		       COALESCE(NULLIF(r.payload->>'roast_degree',''), p.roast_level, ''),
 		       COALESCE(p.default_price,0),
@@ -1954,7 +2203,7 @@ func (r *Repository) listCustomerSKUOptions(ctx context.Context, customerID int6
 	}
 	for rows.Next() {
 		var row app.CustomerSKUOption
-		if err := rows.Scan(&row.ProductID, &row.BaseProductID, &row.SKUCode, &row.ProductName, &row.Spec, &row.RoastDegree, &row.DefaultPrice, &row.Source); err != nil {
+		if err := rows.Scan(&row.ProductID, &row.BaseProductID, &row.SKUCode, &row.ProductName, &row.ProductKind, &row.DripBagGrams, &row.DripBoxBagCount, &row.Spec, &row.RoastDegree, &row.DefaultPrice, &row.Source); err != nil {
 			rows.Close()
 			return nil, err
 		}
@@ -1967,7 +2216,11 @@ func (r *Repository) listCustomerSKUOptions(ctx context.Context, customerID int6
 	rows.Close()
 
 	rows, err = r.pool.Query(ctx, fmt.Sprintf(`
-		SELECT id, COALESCE(base_product_id,0), '', name, '', COALESCE(roast_level,''), COALESCE(default_price,0), COALESCE(NULLIF(custom_type,''),'customer_product')
+		SELECT id, COALESCE(base_product_id,0), '', name,
+		       COALESCE(NULLIF(product_kind,''), 'roasted_bean'),
+		       COALESCE(drip_bag_grams,10)::float8,
+		       COALESCE(drip_box_bag_count,10),
+		       '', COALESCE(roast_level,''), COALESCE(default_price,0), COALESCE(NULLIF(custom_type,''),'customer_product')
 		FROM %s.products
 		WHERE customer_id=$1
 		  AND visibility='customer_only'
@@ -1981,7 +2234,7 @@ func (r *Repository) listCustomerSKUOptions(ctx context.Context, customerID int6
 	defer rows.Close()
 	for rows.Next() {
 		var row app.CustomerSKUOption
-		if err := rows.Scan(&row.ProductID, &row.BaseProductID, &row.SKUCode, &row.ProductName, &row.Spec, &row.RoastDegree, &row.DefaultPrice, &row.Source); err != nil {
+		if err := rows.Scan(&row.ProductID, &row.BaseProductID, &row.SKUCode, &row.ProductName, &row.ProductKind, &row.DripBagGrams, &row.DripBoxBagCount, &row.Spec, &row.RoastDegree, &row.DefaultPrice, &row.Source); err != nil {
 			return nil, err
 		}
 		add(row)
@@ -1994,7 +2247,11 @@ func (r *Repository) listCustomerSKUOptions(ctx context.Context, customerID int6
 	} else if allowed {
 		rows.Close()
 		rows, err = r.pool.Query(ctx, fmt.Sprintf(`
-			SELECT id, 0, '公共SKU', name, '', COALESCE(roast_level,''), COALESCE(default_price,0), 'public_sku'
+			SELECT id, 0, '公共SKU', name,
+			       COALESCE(NULLIF(product_kind,''), 'roasted_bean'),
+			       COALESCE(drip_bag_grams,10)::float8,
+			       COALESCE(drip_box_bag_count,10),
+			       '', COALESCE(roast_level,''), COALESCE(default_price,0), 'public_sku'
 			FROM %s.products
 			WHERE active=true
 			  AND COALESCE(customer_id,0)=0
@@ -2008,7 +2265,7 @@ func (r *Repository) listCustomerSKUOptions(ctx context.Context, customerID int6
 		defer rows.Close()
 		for rows.Next() {
 			var row app.CustomerSKUOption
-			if err := rows.Scan(&row.ProductID, &row.BaseProductID, &row.SKUCode, &row.ProductName, &row.Spec, &row.RoastDegree, &row.DefaultPrice, &row.Source); err != nil {
+			if err := rows.Scan(&row.ProductID, &row.BaseProductID, &row.SKUCode, &row.ProductName, &row.ProductKind, &row.DripBagGrams, &row.DripBoxBagCount, &row.Spec, &row.RoastDegree, &row.DefaultPrice, &row.Source); err != nil {
 				return nil, err
 			}
 			add(row)
@@ -2048,14 +2305,18 @@ func (r *Repository) listProductTierOptions(ctx context.Context, options []app.C
 	rows, err := r.pool.Query(ctx, fmt.Sprintf(`
 		SELECT product_id,
 		       id,
+		       COALESCE(NULLIF(product_kind,''), 'roasted_bean'),
+		       COALESCE(NULLIF(sales_unit,''), ''),
 		       COALESCE(NULLIF(spec_g,0),454),
 		       COALESCE(NULLIF(min_qty_units,0), min_qty_lb, 0),
 		       COALESCE(NULLIF(max_qty_units,0), max_qty_lb),
-		       COALESCE(NULLIF(price_per_unit,0), NULLIF(price_per_lb,0) * COALESCE(NULLIF(spec_g,0),454) / 454.0, 0)
+		       COALESCE(NULLIF(price_per_unit,0), NULLIF(price_per_lb,0) * COALESCE(NULLIF(spec_g,0),454) / 454.0, 0),
+		       COALESCE(NULLIF(unit_bag_count,0), 0),
+		       CASE WHEN COALESCE(price_source_json,'{}'::jsonb) <> '{}'::jsonb THEN 'published_unit_price' ELSE '' END
 		FROM %s.product_price_tiers
 		WHERE active=true
 		  AND product_id = ANY($1)
-		ORDER BY product_id, COALESCE(NULLIF(spec_g,0),454), COALESCE(NULLIF(min_qty_units,0), min_qty_lb, 0)
+		ORDER BY product_id, COALESCE(NULLIF(product_kind,''), 'roasted_bean'), COALESCE(NULLIF(sales_unit,''), ''), COALESCE(NULLIF(spec_g,0),454), COALESCE(NULLIF(min_qty_units,0), min_qty_lb, 0)
 	`, r.schema), productIDs)
 	if err != nil {
 		return nil, err
@@ -2064,18 +2325,25 @@ func (r *Repository) listProductTierOptions(ctx context.Context, options []app.C
 	out := make(map[int64][]app.CustomerSKUPriceTier, len(productIDs))
 	for rows.Next() {
 		var productID, tierID, specG int64
+		var productKind, salesUnit string
 		var min float64
 		var max *float64
 		var unitPrice float64
-		if err := rows.Scan(&productID, &tierID, &specG, &min, &max, &unitPrice); err != nil {
+		var unitBagCount float64
+		var priceSource string
+		if err := rows.Scan(&productID, &tierID, &productKind, &salesUnit, &specG, &min, &max, &unitPrice, &unitBagCount, &priceSource); err != nil {
 			return nil, err
 		}
 		out[productID] = append(out[productID], app.CustomerSKUPriceTier{
-			ID:        tierID,
-			SpecG:     specG,
-			Min:       min,
-			Max:       max,
-			UnitPrice: unitPrice,
+			ID:           tierID,
+			ProductKind:  catalogdomain.NormalizeProductKind(productKind),
+			SalesUnit:    strings.TrimSpace(salesUnit),
+			SpecG:        specG,
+			Min:          min,
+			Max:          max,
+			UnitPrice:    unitPrice,
+			UnitBagCount: unitBagCount,
+			PriceSource:  strings.TrimSpace(priceSource),
 		})
 	}
 	return out, rows.Err()

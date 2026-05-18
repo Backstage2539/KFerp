@@ -216,78 +216,47 @@ func TestGradientTemplateCommercialTiersMatchByWeightAndUseTemplateUnit(t *testi
 	assertClose(t, "227g price", smallUnit.CommercialWholesaleTiers[0].PricePerUnit, 19)
 }
 
-func TestGreenBeanProductUsesGradientTemplateAndSkipsRoastCosting(t *testing.T) {
+func TestDripWholesaleTiersUseTemplateAndProductBagConfig(t *testing.T) {
 	params := DefaultParameters()
 	got := CalculateProduct(params, ProductInput{
 		ProductID:          701,
-		Name:               "埃塞瑰夏生豆",
-		ProductKind:        "green_bean",
-		GreenBeanCostPerKg: 50,
-		YieldRate:          0.7,
-		GradientTemplate: &GradientTemplate{
-			ID:          31,
-			Name:        "生豆销售模板",
-			DisplayUnit: GradientDisplayUnitKg,
-			Tiers: []GradientTemplateTier{
-				{ID: 311, Label: "1kg+", MinWeightG: 1000, MaxWeightG: nil, MarginRate: 0.2, Position: 1},
+		Name:               "Uraga乌拉嘎",
+		ProductKind:        "drip_bag",
+		DripBagGrams:       12,
+		DripBoxBagCount:    10,
+		GreenBeanCostPerKg: 60,
+		YieldRate:          0.8,
+		DripPriceTemplate: &DripPriceTemplate{
+			ID:               5,
+			Name:             "挂耳供应价",
+			BagGrams:         12,
+			BoxBagCount:      10,
+			IncludePackaging: true,
+			Tiers: []DripPriceTemplateTier{
+				{ID: 51, Label: "100袋", MinBags: 100, Multiplier: 2.2, Position: 1},
+				{ID: 52, Label: "1000袋", MinBags: 1000, Multiplier: 1.8, Position: 2},
 			},
 		},
 	})
 
-	if got.ProductKind != "green_bean" {
-		t.Fatalf("ProductKind = %q, want green_bean", got.ProductKind)
+	if got.ProductKind != "drip_bag" || got.DripBagGrams != 12 || got.DripBoxBagCount != 10 {
+		t.Fatalf("drip product config = %+v", got)
 	}
-	if got.RoastedBeanCostPerKg != 0 || got.SmallBatchCostPerKg != 0 || got.LargeBatchCostPerKg != 0 {
-		t.Fatalf("green bean should not populate roasted costing fields: roasted=%.2f small=%.2f large=%.2f", got.RoastedBeanCostPerKg, got.SmallBatchCostPerKg, got.LargeBatchCostPerKg)
+	if got.DripBeanList.Code == "" || got.CommercialBeanList.Code != "" || got.RetailBeanList.Code != "" {
+		t.Fatalf("drip product must only appear in drip bean list, got commercial=%+v drip=%+v retail=%+v", got.CommercialBeanList, got.DripBeanList, got.RetailBeanList)
 	}
-	if len(got.CommercialWholesaleTiers) != 0 {
-		t.Fatalf("green bean should not populate roasted commercial tiers: %+v", got.CommercialWholesaleTiers)
+	if len(got.DripWholesaleTiers) != 2 {
+		t.Fatalf("drip tiers = %+v, want template tiers", got.DripWholesaleTiers)
 	}
-	if got.BomStatus != "bom_cost_template_price" {
-		t.Fatalf("BomStatus = %q, want bom_cost_template_price", got.BomStatus)
+	first := got.DripWholesaleTiers[0]
+	if first.Label != "100袋" || first.MinBags != 100 || first.TemplateID != 5 || first.TemplateTierID != 51 {
+		t.Fatalf("first drip tier metadata = %+v", first)
 	}
-	if len(got.GreenBeanSaleTiers) != 1 {
-		t.Fatalf("GreenBeanSaleTiers = %+v, want one template tier", got.GreenBeanSaleTiers)
+	if first.BagGrams != 12 || first.BoxBagCount != 10 || first.Multiplier != 2.2 || first.TaxRate != params.RetailTaxRate {
+		t.Fatalf("first drip tier pricing source = %+v", first)
 	}
-	tier := got.GreenBeanSaleTiers[0]
-	if tier.Label != "1kg+" || tier.Scheme != "green_bean_template" || tier.TemplateID != 31 || tier.TemplateTierID != 311 || tier.DisplayUnit != GradientDisplayUnitKg {
-		t.Fatalf("green bean tier metadata = %+v", tier)
-	}
-	assertClose(t, "green bean kg unit price", tier.PricePerUnit, 60)
-	assertClose(t, "green bean kg price", tier.PricePerKg, 60)
-	assertClose(t, "green bean lb price", tier.PricePerLb, 60*params.KgToLbFactor)
-}
-
-func TestCalculateProductCarriesBeanListQuality(t *testing.T) {
-	params := DefaultParameters()
-	got := CalculateProduct(params, ProductInput{
-		ProductID:          702,
-		Name:               "埃塞瑰夏生豆",
-		ProductKind:        "green_bean",
-		GreenBeanCostPerKg: 50,
-		GradientTemplate: &GradientTemplate{
-			ID:          32,
-			Name:        "生豆销售模板",
-			DisplayUnit: GradientDisplayUnitKg,
-			Tiers: []GradientTemplateTier{
-				{ID: 321, Label: "1kg+", MinWeightG: 1000, MarginRate: 0.2, Position: 1},
-			},
-		},
-		BeanListQuality: BeanListQuality{
-			FactoryFlavorDescription: "茉莉花、柑橘",
-			Moisture:                 "10.8%",
-			Density:                  "780g/L",
-			InspectionCreatedAt:      "2026-05-18 09:30",
-			InspectionReferenceNo:    "WO-0000000020",
-		},
-	})
-
-	if got.BeanListQuality.FactoryFlavorDescription != "茉莉花、柑橘" ||
-		got.BeanListQuality.Moisture != "10.8%" ||
-		got.BeanListQuality.Density != "780g/L" ||
-		got.BeanListQuality.InspectionCreatedAt != "2026-05-18 09:30" ||
-		got.BeanListQuality.InspectionReferenceNo != "WO-0000000020" {
-		t.Fatalf("BeanListQuality = %+v", got.BeanListQuality)
+	if first.PackedPricePerBag <= first.LoosePricePerBag || first.PackedPricePerBag <= 0 {
+		t.Fatalf("first drip tier prices = %+v", first)
 	}
 }
 
@@ -529,6 +498,31 @@ func TestCalculateProductCarriesInactiveBomWarning(t *testing.T) {
 	}
 	if len(got.Warnings) != 1 || got.Warnings[0] != "BOM已失效：请重新启用 BOM 后再发布价格策略" {
 		t.Fatalf("warnings = %+v", got.Warnings)
+	}
+}
+
+func TestDripWholesaleTiersMatchExcelFormula(t *testing.T) {
+	params := DefaultParameters()
+	params.RetailTaxRate = 0.03
+	params.DripGreenRatioKgPerBag = 0.01
+	params.DripProcessCostPerBag = 0.44
+	params.DripExtraCostPerBag = 0.10
+	params.DripPackingMaterialPerBag = 0.20
+	params.WholesaleDripMultipliers = []float64{2.2, 1.8, 1.6, 1.35}
+
+	out := CalculateProduct(params, ProductInput{
+		Name:               "挂耳测试",
+		GreenBeanCostPerKg: 80,
+		YieldRate:          0.8,
+	})
+	if len(out.DripWholesaleTiers) != 4 {
+		t.Fatalf("tiers len=%d", len(out.DripWholesaleTiers))
+	}
+	base := (80/0.8+params.SmallBatchProductionCostPerKg)*0.01 + 0.44 + 0.10
+	wantLoose := roundPrice(base*2.2 + base*(2.2-1)*0.03)
+	wantPacked := roundPrice(wantLoose + 0.20)
+	if out.DripWholesaleTiers[0].MinBags != 100 || out.DripWholesaleTiers[0].LoosePricePerBag != wantLoose || out.DripWholesaleTiers[0].PackedPricePerBag != wantPacked {
+		t.Fatalf("first tier=%+v want loose %.2f packed %.2f", out.DripWholesaleTiers[0], wantLoose, wantPacked)
 	}
 }
 

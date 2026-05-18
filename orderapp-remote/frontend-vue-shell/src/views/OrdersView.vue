@@ -282,6 +282,22 @@
               <span v-for="line in orderOutsourceFeeLines(activeOrderDetail)" :key="line.key">{{ line.label }}：{{ line.value }}</span>
             </div>
           </section>
+          <section v-if="activeOrderDetail.items?.length" class="drawer-section">
+            <h4>商品明细</h4>
+            <div class="detail-items">
+              <div v-for="item in activeOrderDetail.items" :key="`${item.product_id}-${item.tier_id}-${item.qty}-${item.spec}`" class="detail-item">
+                <div>
+                  <strong>{{ item.product_name || '-' }}</strong>
+                  <span>{{ orderItemSpecLabel(item) }} × {{ item.qty }}{{ item.unit || '' }}</span>
+                </div>
+                <div>
+                  <span>{{ item.product_kind === 'drip_bag' ? '挂耳' : '熟豆' }}</span>
+                  <span>{{ item.unit_price ? `单价 ${item.unit_price}` : '-' }}</span>
+                  <span v-if="item.price_source_json">{{ orderItemPriceSourceLabel(item.price_source_json) }}</span>
+                </div>
+              </div>
+            </div>
+          </section>
           <section class="drawer-section">
             <h4>订单信息</h4>
             <div class="drawer-status-grid">
@@ -506,6 +522,7 @@ function openOrderDetailDrawer(row) {
   drawerTrackingNo.value = row.ship_tracking_no || ''
   orderDetailDrawerOpen.value = true
   if (orderSenderIDs[id] === undefined) orderSenderIDs[id] = 0
+  loadOrderDetail(id)
 }
 
 function closeOrderDetailDrawer() {
@@ -529,6 +546,48 @@ function activeOrderCopyID() {
 function activeOrderEditID() {
   const id = Number(activeOrderDetail.value?.id || 0)
   return activeOrderCopyID() ? 0 : id
+}
+
+async function loadOrderDetail(id) {
+  try {
+    const data = await apiGet(`/api/orders/${id}/detail`)
+    const editData = data?.edit_data || {}
+    if (Number(activeOrderDetail.value?.id || 0) !== Number(id)) return
+    activeOrderDetail.value = {
+      ...activeOrderDetail.value,
+      ...editData,
+      id,
+      order_no: activeOrderDetail.value?.order_no || editData.order_no,
+      customer: activeOrderDetail.value?.customer || editData.customer,
+      order_type: activeOrderDetail.value?.order_type || editData.order_type,
+      pay_status: activeOrderDetail.value?.pay_status || editData.pay_status,
+      ship_status: activeOrderDetail.value?.ship_status || editData.ship_status,
+      process_status: activeOrderDetail.value?.process_status || editData.process_status,
+    }
+  } catch (err) {
+    shippingError.value = err.message || '加载订单详情失败'
+  }
+}
+
+function orderItemSpecLabel(item = {}) {
+  if (item.product_kind === 'drip_bag') {
+    return item.unit_conversion_label || (item.sales_unit === 'box' ? `${item.unit_bag_count || 10}袋/盒` : `${item.unit_bean_g || 10}g/袋`)
+  }
+  return item.spec ? `${item.spec}g` : '-'
+}
+
+function orderItemPriceSourceLabel(sourceJSON) {
+  try {
+    const data = JSON.parse(sourceJSON || '{}')
+    const version = data.version || data.template_version || data.price_version || ''
+    const source = data.source || data.template_name || ''
+    if (version && source) return `价格来源 ${source} ${version}`
+    if (version) return `价格版本 ${version}`
+    if (source) return `价格来源 ${source}`
+  } catch {
+    return '价格来源快照'
+  }
+  return '价格来源快照'
 }
 
 function orderEntryPanelKey() {
@@ -1014,6 +1073,11 @@ a, .text-link { color: #1f4f82; text-decoration: none; }
 .tracking-fill-row { display: grid; grid-template-columns: 1fr auto; gap: 8px; align-items: start; }
 .drawer-status-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; color: #333; font-size: 13px; }
 .drawer-status-grid .wide-item { grid-column: 1 / -1; }
+.detail-items { display: grid; gap: 8px; }
+.detail-item { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr); gap: 10px; padding: 8px 10px; border: 1px solid #edf0f5; border-radius: 7px; background: #fcfcfd; }
+.detail-item div { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; min-width: 0; }
+.detail-item strong { min-width: 120px; }
+.detail-item span { color: #4b5563; font-size: 12px; }
 .drawer-actions { display: flex; flex-wrap: wrap; gap: 8px; justify-content: flex-end; }
 .sales-order-drawer-mask { position: fixed; inset: 0; z-index: 35; display: flex; justify-content: flex-end; background: rgba(0, 0, 0, .24); }
 .sales-order-drawer { width: min(1160px, calc(100vw - 28px)); height: 100%; overflow: auto; background: #f8f7f4; border-left: 1px solid #e6e0d8; box-shadow: -10px 0 24px rgba(0, 0, 0, .14); }

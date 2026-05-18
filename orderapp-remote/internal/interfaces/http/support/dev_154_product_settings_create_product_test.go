@@ -22,8 +22,29 @@ func TestProductSettingsCanCreatePublicProducts(t *testing.T) {
 	}
 
 	routes := string(readDev154File(t, "internal/interfaces/http/catalog/product_routes.go"))
-	if !strings.Contains(routes, `e.POST("/api/product-settings/products", h.createProductAPI)`) {
-		t.Fatalf("product settings routes must expose POST /api/product-settings/products")
+	for _, want := range []string{
+		`e.POST("/api/product-settings/products", h.createProductAPI)`,
+		"ProductKind",
+		"DripBagGrams",
+		"DripBoxBagCount",
+		"AllowFulfillmentOrder",
+		"AllowMallOrder",
+	} {
+		if !strings.Contains(routes, want) {
+			t.Fatalf("product settings routes missing %q", want)
+		}
+	}
+
+	productsJSON := string(readDev154File(t, "internal/interfaces/http/catalog/products_json.go"))
+	for _, want := range []string{
+		"product_kind",
+		"drip_bag_grams",
+		"drip_box_bag_count",
+		"sales_units",
+	} {
+		if !strings.Contains(productsJSON, want) {
+			t.Fatalf("products JSON source missing %q", want)
+		}
 	}
 
 	reqs := string(readDev154File(t, "internal/interfaces/http/support/req_store.go"))

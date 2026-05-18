@@ -189,21 +189,22 @@ func (a api) submitCustomerDirectShipOrder(c echo.Context) error {
 		return customerFulfillmentError(c, http.StatusUnauthorized, fmt.Errorf("employee required"))
 	}
 	var req struct {
-		ReceiverName    string  `json:"receiver_name"`
-		ReceiverPhone   string  `json:"receiver_phone"`
-		ReceiverAddress string  `json:"receiver_address"`
-		ReceiverCompany string  `json:"receiver_company"`
-		ProductID       int64   `json:"product_id"`
-		ProductName     string  `json:"product_name"`
-		Spec            string  `json:"spec"`
-		QuantityUnits   int64   `json:"quantity_units"`
+		ReceiverName    string `json:"receiver_name"`
+		ReceiverPhone   string `json:"receiver_phone"`
+		ReceiverAddress string `json:"receiver_address"`
+		ReceiverCompany string `json:"receiver_company"`
+		ProductID       int64  `json:"product_id"`
+		ProductName     string `json:"product_name"`
+		Spec            string `json:"spec"`
+		QuantityUnits   int64  `json:"quantity_units"`
 		Items           []struct {
-			ProductID     int64   `json:"product_id"`
-			ProductName   string  `json:"product_name"`
-			Spec          string  `json:"spec"`
-			SpecG         int64   `json:"spec_g"`
-			QuantityUnits int64   `json:"quantity_units"`
-			Note          string  `json:"note"`
+			ProductID     int64  `json:"product_id"`
+			ProductName   string `json:"product_name"`
+			Spec          string `json:"spec"`
+			SpecG         int64  `json:"spec_g"`
+			SalesUnit     string `json:"sales_unit"`
+			QuantityUnits int64  `json:"quantity_units"`
+			Note          string `json:"note"`
 		} `json:"items"`
 		Note string `json:"note"`
 	}
@@ -217,6 +218,7 @@ func (a api) submitCustomerDirectShipOrder(c echo.Context) error {
 			ProductName:   item.ProductName,
 			Spec:          item.Spec,
 			SpecG:         item.SpecG,
+			SalesUnit:     item.SalesUnit,
 			QuantityUnits: item.QuantityUnits,
 			Note:          item.Note,
 		})
@@ -233,6 +235,7 @@ func (a api) submitCustomerDirectShipOrder(c echo.Context) error {
 		QuantityUnits:   req.QuantityUnits,
 		Items:           items,
 		Note:            req.Note,
+		Actor:           currentCustomerFulfillmentActor(c),
 	})
 	if err != nil {
 		return customerPortalError(c, err)
@@ -326,6 +329,7 @@ func (a api) submitInternalDirectShipOrder(c echo.Context) error {
 			ProductName   string  `json:"product_name"`
 			Spec          string  `json:"spec"`
 			SpecG         int64   `json:"spec_g"`
+			SalesUnit     string  `json:"sales_unit"`
 			QuantityUnits int64   `json:"quantity_units"`
 			DiscountType  string  `json:"discount_type"`
 			DiscountValue float64 `json:"discount_value"`
@@ -343,6 +347,7 @@ func (a api) submitInternalDirectShipOrder(c echo.Context) error {
 			ProductName:   item.ProductName,
 			Spec:          item.Spec,
 			SpecG:         item.SpecG,
+			SalesUnit:     item.SalesUnit,
 			QuantityUnits: item.QuantityUnits,
 			DiscountType:  item.DiscountType,
 			DiscountValue: item.DiscountValue,
@@ -363,6 +368,7 @@ func (a api) submitInternalDirectShipOrder(c echo.Context) error {
 		QuantityUnits:   req.QuantityUnits,
 		Items:           items,
 		Note:            req.Note,
+		Actor:           currentCustomerFulfillmentActor(c),
 	})
 	if err != nil {
 		return customerFulfillmentError(c, http.StatusBadRequest, err)

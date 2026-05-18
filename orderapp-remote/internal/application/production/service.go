@@ -207,22 +207,32 @@ type RoastMachineCommand struct {
 }
 
 type UnprodNeedRow struct {
-	ProductID int64  `json:"product_id"`
-	Product   string `json:"product"`
-	OrderNos  string `json:"order_nos"`
-	SpecG     int64  `json:"spec_g"`
-	NeedUnits int64  `json:"need_units"`
-	NeedG     int64  `json:"need_g"`
-	InvUnits  int64  `json:"inv_units"`
-	InvLooseG int64  `json:"inv_loose_g"`
-	InvG      int64  `json:"inv_g"`
-	GapG      int64  `json:"gap_g"`
+	ProductID                         int64  `json:"product_id"`
+	Product                           string `json:"product"`
+	OrderNos                          string `json:"order_nos"`
+	SpecG                             int64  `json:"spec_g"`
+	NeedUnits                         int64  `json:"need_units"`
+	NeedG                             int64  `json:"need_g"`
+	InvUnits                          int64  `json:"inv_units"`
+	InvLooseG                         int64  `json:"inv_loose_g"`
+	InvG                              int64  `json:"inv_g"`
+	GapG                              int64  `json:"gap_g"`
+	ProductionKind                    string `json:"production_kind,omitempty"`
+	NeedBags                          int64  `json:"need_bags,omitempty"`
+	NeedBoxes                         int64  `json:"need_boxes,omitempty"`
+	UpstreamProductID                 int64  `json:"upstream_product_id,omitempty"`
+	UpstreamRoastDemandG              int64  `json:"upstream_roast_demand_g,omitempty"`
+	UpstreamShortageG                 int64  `json:"upstream_shortage_g,omitempty"`
+	FinishedProductComponentShortageG int64  `json:"finished_product_component_shortage_g,omitempty"`
 }
 
 type MaterialNeed struct {
 	Name                   string `json:"name"`
 	Qty                    int64  `json:"qty"`
 	Unit                   string `json:"unit"`
+	ComponentType          string `json:"component_type,omitempty"`
+	UpstreamProductID      int64  `json:"upstream_product_id,omitempty"`
+	UpstreamShortageG      int64  `json:"upstream_shortage_g,omitempty"`
 	WIPG                   int64  `json:"wip_g,omitempty"`
 	AvailableG             int64  `json:"available_g,omitempty"`
 	RawG                   int64  `json:"raw_g,omitempty"`
@@ -419,6 +429,9 @@ type MaterialPlanRow struct {
 	MaterialID             int64  `json:"material_id"`
 	MaterialName           string `json:"material_name"`
 	Unit                   string `json:"unit"`
+	ComponentType          string `json:"component_type,omitempty"`
+	UpstreamProductID      int64  `json:"upstream_product_id,omitempty"`
+	UpstreamShortageG      int64  `json:"upstream_shortage_g,omitempty"`
 	RequiredG              int64  `json:"required_g"`
 	RequiredUnits          int64  `json:"required_units"`
 	WIPG                   int64  `json:"wip_g"`
@@ -703,7 +716,50 @@ func (s *Service) MaterialPlan(ctx context.Context, query MaterialPlanQuery) (Ma
 	if query.InputByKey == nil {
 		query.InputByKey = map[string]int64{}
 	}
-	return s.repo.MaterialPlan(ctx, query)
+	res, err := s.repo.MaterialPlan(ctx, query)
+	if err != nil {
+		return MaterialPlanResult{}, err
+	}
+	summary, err := s.repo.PlanSummary(ctx, PlanSummaryQuery{
+		From:       query.From,
+		To:         query.To,
+		CustomerID: query.CustomerID,
+		Selected:   query.Selected,
+		Plan:       true,
+	})
+	if err == nil {
+		enrichMaterialPlanWithUpstream(&res, summary)
+	}
+	return res, nil
+}
+
+func enrichMaterialPlanWithUpstream(res *MaterialPlanResult, summary PlanSummaryData) {
+	if res == nil || len(res.Rows) == 0 {
+		return
+	}
+	upstreamShortageByProduct := map[int64]int64{}
+	for _, row := range summary.PlanRows {
+		if row.UpstreamProductID > 0 {
+			upstreamShortageByProduct[row.UpstreamProductID] += row.UpstreamShortageG
+		}
+	}
+	for _, item := range summary.Materials {
+		if item.ComponentType == "finished_product" && item.UpstreamProductID > 0 {
+			upstreamShortageByProduct[item.UpstreamProductID] += item.UpstreamShortageG
+		}
+	}
+	for i := range res.Rows {
+		if res.Rows[i].ComponentType == "" {
+			if shortage, ok := upstreamShortageByProduct[res.Rows[i].MaterialID]; ok {
+				res.Rows[i].ComponentType = "finished_product"
+				res.Rows[i].UpstreamProductID = res.Rows[i].MaterialID
+				res.Rows[i].UpstreamShortageG = shortage
+			}
+		}
+		if res.Rows[i].ComponentType == "finished_product" && res.Rows[i].UpstreamProductID == 0 {
+			res.Rows[i].UpstreamProductID = res.Rows[i].MaterialID
+		}
+	}
 }
 
 func (s *Service) CreateQualityInspection(ctx context.Context, cmd QualityInspectionCommand) (QualityInspectionRow, error) {

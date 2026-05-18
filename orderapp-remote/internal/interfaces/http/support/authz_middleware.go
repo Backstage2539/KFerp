@@ -215,6 +215,12 @@ func requiredPermissionForRequest(method, path string) string {
 	if strings.HasPrefix(path, "/api/costing/bean-list/drafts") {
 		return "costing.read"
 	}
+	if strings.HasPrefix(path, "/api/drip-price-templates") {
+		if method == http.MethodGet {
+			return "costing.read"
+		}
+		return "costing.write"
+	}
 	if strings.HasPrefix(path, "/api/costing/") {
 		if method == http.MethodGet {
 			return "costing.read"

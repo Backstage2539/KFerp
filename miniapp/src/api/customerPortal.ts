@@ -4,6 +4,9 @@ import type { MallOrderPayload, MallProduct } from '../utils/mall'
 import type { ServiceKey } from '../utils/servicePage'
 import type { MiniappThemeKey } from '../utils/themes'
 
+export type ProductKind = 'roasted' | 'roasted_bean' | 'green_bean' | 'drip_bag'
+export type SalesUnit = 'bag' | 'box'
+
 export type CustomerBinding = {
   customer_id: number
   customer_name: string
@@ -120,13 +123,16 @@ export type BeanListPriceSummary = {
 export type ProductSummary = {
   id: number
   name: string
-  product_kind?: string
   roast_level: string
   default_price: string
   retail_price_100g: string
   retail_price_200g: string
   retail_price_227g: string
   retail_price_250g: string
+  product_kind?: ProductKind
+  sales_units?: SalesUnit[]
+  drip_bag_grams?: number
+  drip_box_bag_count?: number
 }
 
 export type CustomerOrderSummary = {
@@ -288,6 +294,9 @@ export type CreateFulfillmentOrderPayload = {
   product_name?: string
   spec_g: number
   qty: number
+  sales_unit?: SalesUnit
+  unit_bag_count?: number
+  unit_bean_g?: number
   note?: string
 }
 

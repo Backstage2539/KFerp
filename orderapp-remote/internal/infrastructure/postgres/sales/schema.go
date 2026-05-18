@@ -44,6 +44,9 @@ func EnsureSchema(ctx context.Context, pool *pgxpool.Pool, schema string) error 
 	if err := ensureSalesOrderTables(ctx, pool, schema); err != nil {
 		return err
 	}
+	if err := ensureOrderItemUnitPricingColumns(ctx, pool, schema); err != nil {
+		return err
+	}
 	if err := ensureOrderInvoiceTables(ctx, pool, schema); err != nil {
 		return err
 	}
@@ -437,6 +440,41 @@ func ensureSalesOrderTables(ctx context.Context, pool *pgxpool.Pool, schema stri
 		fmt.Sprintf(`ALTER TABLE %s.sales_order_settings ADD COLUMN IF NOT EXISTS bank_name TEXT NOT NULL DEFAULT ''`, schema),
 		fmt.Sprintf(`ALTER TABLE %s.sales_order_settings ADD COLUMN IF NOT EXISTS bank_account_no TEXT NOT NULL DEFAULT ''`, schema),
 	} {
+		if _, err := pool.Exec(ctx, stmt); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func ensureOrderItemUnitPricingColumns(ctx context.Context, pool *pgxpool.Pool, schema string) error {
+	stmts := []string{
+		fmt.Sprintf(`ALTER TABLE %s.order_items ADD COLUMN IF NOT EXISTS product_kind TEXT NOT NULL DEFAULT 'roasted_bean'`, schema),
+		fmt.Sprintf(`ALTER TABLE %s.order_items ADD COLUMN IF NOT EXISTS sales_unit TEXT NOT NULL DEFAULT ''`, schema),
+		fmt.Sprintf(`ALTER TABLE %s.order_items ADD COLUMN IF NOT EXISTS unit_bag_count INT NOT NULL DEFAULT 0`, schema),
+		fmt.Sprintf(`ALTER TABLE %s.order_items ADD COLUMN IF NOT EXISTS unit_bean_g NUMERIC(12,3) NOT NULL DEFAULT 0`, schema),
+		fmt.Sprintf(`ALTER TABLE %s.order_items ADD COLUMN IF NOT EXISTS matched_price_qty NUMERIC(14,3) NOT NULL DEFAULT 0`, schema),
+		fmt.Sprintf(`ALTER TABLE %s.order_items ADD COLUMN IF NOT EXISTS price_source_json JSONB NOT NULL DEFAULT '{}'::jsonb`, schema),
+		fmt.Sprintf(`UPDATE %s.order_items SET product_kind='roasted_bean' WHERE COALESCE(product_kind,'')=''`, schema),
+		fmt.Sprintf(`UPDATE %s.order_items SET sales_unit='' WHERE sales_unit IS NULL`, schema),
+		fmt.Sprintf(`UPDATE %s.order_items SET unit_bag_count=0 WHERE unit_bag_count IS NULL`, schema),
+		fmt.Sprintf(`UPDATE %s.order_items SET unit_bean_g=0 WHERE unit_bean_g IS NULL`, schema),
+		fmt.Sprintf(`UPDATE %s.order_items SET matched_price_qty=0 WHERE matched_price_qty IS NULL`, schema),
+		fmt.Sprintf(`UPDATE %s.order_items SET price_source_json='{}'::jsonb WHERE price_source_json IS NULL`, schema),
+		fmt.Sprintf(`ALTER TABLE %s.order_items ALTER COLUMN product_kind SET DEFAULT 'roasted_bean'`, schema),
+		fmt.Sprintf(`ALTER TABLE %s.order_items ALTER COLUMN product_kind SET NOT NULL`, schema),
+		fmt.Sprintf(`ALTER TABLE %s.order_items ALTER COLUMN sales_unit SET DEFAULT ''`, schema),
+		fmt.Sprintf(`ALTER TABLE %s.order_items ALTER COLUMN sales_unit SET NOT NULL`, schema),
+		fmt.Sprintf(`ALTER TABLE %s.order_items ALTER COLUMN unit_bag_count SET DEFAULT 0`, schema),
+		fmt.Sprintf(`ALTER TABLE %s.order_items ALTER COLUMN unit_bag_count SET NOT NULL`, schema),
+		fmt.Sprintf(`ALTER TABLE %s.order_items ALTER COLUMN unit_bean_g SET DEFAULT 0`, schema),
+		fmt.Sprintf(`ALTER TABLE %s.order_items ALTER COLUMN unit_bean_g SET NOT NULL`, schema),
+		fmt.Sprintf(`ALTER TABLE %s.order_items ALTER COLUMN matched_price_qty SET DEFAULT 0`, schema),
+		fmt.Sprintf(`ALTER TABLE %s.order_items ALTER COLUMN matched_price_qty SET NOT NULL`, schema),
+		fmt.Sprintf(`ALTER TABLE %s.order_items ALTER COLUMN price_source_json SET DEFAULT '{}'::jsonb`, schema),
+		fmt.Sprintf(`ALTER TABLE %s.order_items ALTER COLUMN price_source_json SET NOT NULL`, schema),
+	}
+	for _, stmt := range stmts {
 		if _, err := pool.Exec(ctx, stmt); err != nil {
 			return err
 		}

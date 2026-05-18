@@ -249,6 +249,10 @@ func TestBeanListPublicationPermissionsSeparatePublishAndDraft(t *testing.T) {
 		{http.MethodPost, "/api/costing/bean-list/publications/8/withdraw", "auth.manage"},
 		{http.MethodPost, "/api/costing/bean-list/drafts", "costing.read"},
 		{http.MethodGet, "/api/costing/bean-list/publications", "costing.read"},
+		{http.MethodGet, "/api/drip-price-templates", "costing.read"},
+		{http.MethodPost, "/api/drip-price-templates", "costing.write"},
+		{http.MethodPut, "/api/drip-price-templates/8", "costing.write"},
+		{http.MethodPost, "/api/drip-price-templates/8/deactivate", "costing.write"},
 	}
 	for _, tc := range cases {
 		if got := requiredPermissionForRequest(tc.method, tc.path); got != tc.want {

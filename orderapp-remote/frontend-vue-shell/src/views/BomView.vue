@@ -100,8 +100,26 @@
 
         <form class="inline-form" @submit.prevent="saveItem">
           <label>
-            <span>物料</span>
+            <span>组件类型</span>
+            <select v-model="itemForm.component_type" :disabled="!detail" @change="syncComponentTypeDefaults">
+              <option value="material">物料</option>
+              <option value="finished_product">成品</option>
+            </select>
+          </label>
+          <label>
+            <span>{{ itemForm.component_type === 'finished_product' ? '熟豆成品' : '物料' }}</span>
             <SearchableSelect
+              v-if="itemForm.component_type === 'finished_product'"
+              v-model="itemForm.component_product_id"
+              :options="roastedBeanProducts"
+              :option-label="optionLabel"
+              :option-meta="optionMeta"
+              :option-value="optionNumericValue"
+              placeholder="选择熟豆成品"
+              empty-text="没有可用熟豆成品"
+              :disabled="!detail" />
+            <SearchableSelect
+              v-else
               v-model="itemForm.material_id"
               :options="materials"
               :option-label="optionLabel"
@@ -111,29 +129,41 @@
               :disabled="!detail" />
           </label>
           <label>
+            <span>消耗单位</span>
+            <select v-model="itemForm.consume_unit" :disabled="!detail || itemForm.component_type === 'finished_product'">
+              <option v-for="unit in currentConsumeUnitOptions" :key="unit.value" :value="unit.value">{{ unit.label }}</option>
+            </select>
+          </label>
+          <label v-if="itemForm.consume_unit === 'ratio_pct'">
             <span>比例 %</span>
             <input v-model.number="itemForm.ratio_pct" type="number" min="0.01" max="100" step="0.01" :disabled="!detail" />
           </label>
-          <button class="primary" type="submit" :disabled="!detail || loading">保存物料</button>
+          <label v-else>
+            <span>用量</span>
+            <input v-model.number="itemForm.qty_per_unit" type="number" min="0.001" step="0.001" :disabled="!detail" />
+          </label>
+          <button class="primary" type="submit" :disabled="!detail || loading">保存组件</button>
         </form>
 
         <div class="table-wrap">
           <table>
             <thead>
               <tr>
-                <th>物料</th>
-                <th>比例</th>
+                <th>类型</th>
+                <th>组件</th>
+                <th>用量</th>
                 <th>操作</th>
               </tr>
             </thead>
             <tbody>
               <tr v-for="item in detailItems" :key="item.id">
-                <td>{{ item.material_name }}</td>
-                <td>{{ ratio(item.ratio_pct) }}</td>
+                <td>{{ componentTypeLabel(item.component_type) }}</td>
+                <td>{{ componentItemName(item) }}</td>
+                <td>{{ itemQuantityDisplay(item) }}</td>
                 <td><button class="text-button" type="button" @click="deleteItem(item.id)">删除</button></td>
               </tr>
               <tr v-if="!detailItems.length">
-                <td colspan="3" class="muted">暂无物料</td>
+                <td colspan="4" class="muted">暂无组件</td>
               </tr>
             </tbody>
           </table>
@@ -226,6 +256,7 @@
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { apiGet, apiSend } from '../api/client'
 import SearchableSelect from '../components/SearchableSelect.vue'
+import { componentTypeLabel, isDripProduct } from '../lib/drip-product'
 import { replaceHistoryURL } from '../lib/url-state'
 
 const rows = ref([])
@@ -241,7 +272,15 @@ const pendingUrlProductId = ref(0)
 const loading = ref(false)
 const error = ref('')
 const ok = ref('')
-const itemForm = reactive({ material_id: 0, ratio_pct: '' })
+const itemForm = reactive({
+  component_type: 'material',
+  material_id: 0,
+  component_product_id: 0,
+  component_spec_g: 0,
+  consume_unit: 'ratio_pct',
+  qty_per_unit: '',
+  ratio_pct: '',
+})
 const mappingForm = reactive({ spec_g: 227, material_id: 0 })
 const versionNote = ref('')
 
@@ -270,6 +309,23 @@ const bomSkuCustomers = computed(() => customers.value
   .sort((a, b) => customerOptionLabel(a).localeCompare(customerOptionLabel(b))))
 const bomContextProducts = computed(() => products.value.filter(bomContextProductFilter))
 const bomContextRows = computed(() => rows.value.filter(bomContextProductFilter))
+const selectedProduct = computed(() => productByID(selectedProductId.value))
+const roastedBeanProducts = computed(() => products.value.filter((product) => {
+  if (Number(product.id || 0) === Number(selectedProductId.value || 0)) return false
+  return (product.product_kind || 'roasted_bean') === 'roasted_bean'
+}))
+const materialConsumeUnitOptions = [
+  { value: 'ratio_pct', label: '比例 %' },
+  { value: 'g_per_bag', label: '克/袋' },
+  { value: 'unit_per_bag', label: '个/袋' },
+  { value: 'unit_per_box', label: '个/盒' },
+]
+const finishedProductConsumeUnitOptions = [
+  { value: 'g_per_bag', label: '克/袋' },
+]
+const currentConsumeUnitOptions = computed(() => itemForm.component_type === 'finished_product'
+  ? finishedProductConsumeUnitOptions
+  : materialConsumeUnitOptions)
 
 function pct(value) {
   const n = Number(value || 0) * 100
@@ -279,6 +335,12 @@ function pct(value) {
 function ratio(value) {
   const n = Number(value || 0)
   return `${n.toFixed(2)}%`
+}
+
+function qty(value) {
+  const n = Number(value || 0)
+  if (!n) return '-'
+  return Number.isInteger(n) ? String(n) : n.toFixed(3).replace(/0+$/, '').replace(/\.$/, '')
 }
 
 function optionLabel(option) {
@@ -339,6 +401,46 @@ function bomContextProductFilter(product) {
 function productByID(productId) {
   const id = Number(productId || 0)
   return products.value.find((product) => Number(product.id || 0) === id) || null
+}
+
+function consumeUnitLabel(unit) {
+  return materialConsumeUnitOptions.find((option) => option.value === unit)?.label || unit || '-'
+}
+
+function componentItemName(item) {
+  if (item?.component_type === 'finished_product') return item.component_product_name || `成品 #${item.component_product_id}`
+  return item?.material_name || `物料 #${item?.material_id || 0}`
+}
+
+function itemQuantityDisplay(item) {
+  if ((item?.consume_unit || 'ratio_pct') === 'ratio_pct') return ratio(item.ratio_pct)
+  return `${qty(item.qty_per_unit)} ${consumeUnitLabel(item.consume_unit)}`
+}
+
+function syncComponentTypeDefaults() {
+  if (itemForm.component_type === 'finished_product') {
+    itemForm.material_id = 0
+    itemForm.consume_unit = 'g_per_bag'
+    itemForm.ratio_pct = ''
+    if (!Number(itemForm.qty_per_unit || 0) && isDripProduct(selectedProduct.value)) {
+      itemForm.qty_per_unit = Number(selectedProduct.value.drip_bag_grams || 0) || ''
+    }
+    return
+  }
+  itemForm.component_product_id = 0
+  itemForm.component_spec_g = 0
+  itemForm.consume_unit = 'ratio_pct'
+  itemForm.qty_per_unit = ''
+}
+
+function resetItemForm() {
+  itemForm.component_type = 'material'
+  itemForm.material_id = 0
+  itemForm.component_product_id = 0
+  itemForm.component_spec_g = 0
+  itemForm.consume_unit = 'ratio_pct'
+  itemForm.qty_per_unit = ''
+  itemForm.ratio_pct = ''
 }
 
 function syncBomContextFromUrlProduct() {
@@ -472,8 +574,7 @@ async function deleteBom() {
   if (!okToDeactivate) return
   await mutate(async () => {
     await apiSend(`/api/bom/${selectedProductId.value}`, { method: 'DELETE' })
-    itemForm.material_id = 0
-    itemForm.ratio_pct = ''
+    resetItemForm()
     ok.value = '当前 BOM 已失效'
     await loadAll()
   })
@@ -484,12 +585,16 @@ async function saveItem() {
     await apiSend('/api/bom/item/save', {
       body: {
         product_id: selectedProductId.value,
+        component_type: itemForm.component_type,
         material_id: Number(itemForm.material_id || 0),
+        component_product_id: Number(itemForm.component_product_id || 0),
+        component_spec_g: Number(itemForm.component_spec_g || 0),
+        consume_unit: itemForm.consume_unit,
+        qty_per_unit: Number(itemForm.qty_per_unit || 0),
         ratio_pct: Number(itemForm.ratio_pct || 0),
       },
     })
-    itemForm.material_id = 0
-    itemForm.ratio_pct = ''
+    resetItemForm()
     ok.value = '已保存'
     await loadAll()
   })
@@ -564,6 +669,12 @@ onMounted(() => {
 
 watch(selectedBomCustomerSkuCustomerID, () => {
   syncSelectedProductToBomContext()
+})
+
+watch(selectedProductId, () => {
+  if (itemForm.component_type === 'finished_product' && isDripProduct(selectedProduct.value)) {
+    itemForm.qty_per_unit = Number(selectedProduct.value.drip_bag_grams || 0) || ''
+  }
 })
 </script>
 

@@ -151,26 +151,21 @@ func TestCreateCustomProductAcceptsPublicSKUAliasType(t *testing.T) {
 	}
 }
 
-func TestGreenBeanBomBindingRequiresRoastedProduct(t *testing.T) {
-	repo := &fakeRepo{products: map[int64]Product{
-		7: {ID: 7, Name: "熟豆 BOM", ProductKind: "roasted"},
-		8: {ID: 8, Name: "生豆 SKU", ProductKind: "green_bean"},
-	}}
+func TestCreateProductDefaultsAllowFulfillmentOrderAtServiceBoundary(t *testing.T) {
+	repo := &fakeRepo{}
 	svc := NewService(repo)
-	if err := svc.UpdateProductBasics(context.Background(), UpdateProductBasicsCommand{
-		ProductID:             9,
-		ProductKind:           "green_bean",
-		GreenBeanType:         "single_origin",
-		GreenBeanBomProductID: 8,
-	}); err == nil {
-		t.Fatal("UpdateProductBasics should reject green bean SKU as BOM binding")
+
+	if _, err := svc.CreateProduct(context.Background(), CreateProductCommand{Name: "默认履约", RoastLevel: "中烘"}); err != nil {
+		t.Fatalf("CreateProduct() err=%v", err)
 	}
-	if err := svc.UpdateProductBasics(context.Background(), UpdateProductBasicsCommand{
-		ProductID:             9,
-		ProductKind:           "green_bean",
-		GreenBeanType:         "single_origin",
-		GreenBeanBomProductID: 7,
-	}); err != nil {
-		t.Fatalf("UpdateProductBasics should accept roasted BOM product: %v", err)
+	if !repo.create.AllowFulfillmentOrder {
+		t.Fatalf("CreateProductCommand should default allow fulfillment to true: %+v", repo.create)
+	}
+
+	if _, err := svc.CreateProduct(context.Background(), CreateProductCommand{Name: "禁止履约", RoastLevel: "中烘", AllowFulfillmentOrder: false, AllowFulfillmentOrderSet: true}); err != nil {
+		t.Fatalf("CreateProduct(explicit false) err=%v", err)
+	}
+	if repo.create.AllowFulfillmentOrder {
+		t.Fatalf("explicit allow fulfillment false should be preserved: %+v", repo.create)
 	}
 }

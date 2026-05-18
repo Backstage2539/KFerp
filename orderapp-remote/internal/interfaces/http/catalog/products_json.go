@@ -20,6 +20,9 @@ type jsProduct struct {
 	ProductKind     string   `json:"product_kind"`
 	Py              string   `json:"py"`
 	Pyi             string   `json:"pyi"`
+	SalesUnits      []string `json:"sales_units"`
+	DripBagGrams    float64  `json:"drip_bag_grams"`
+	DripBoxBagCount int      `json:"drip_box_bag_count"`
 	RetailPrice100G float64  `json:"retail_price_100g"`
 	RetailPrice200G float64  `json:"retail_price_200g"`
 	RetailPrice227G float64  `json:"retail_price_227g"`
@@ -31,7 +34,7 @@ type jsProduct struct {
 func buildProductsJSON(ps []ProductOption) template.JS {
 	out := make([]jsProduct, 0, len(ps))
 	for _, p := range ps {
-		jp := jsProduct{ID: p.ID, Name: p.Name, ProductKind: p.ProductKind, Py: support.PinyinFull(p.Name), Pyi: support.PinyinInitials(p.Name), RetailPrice100G: p.RetailPrice100G, RetailPrice200G: p.RetailPrice200G, RetailPrice227G: p.RetailPrice227G, RetailPrice250G: p.RetailPrice250G, RetailSpecs: p.RetailSpecs}
+		jp := jsProduct{ID: p.ID, Name: p.Name, Py: support.PinyinFull(p.Name), Pyi: support.PinyinInitials(p.Name), ProductKind: p.ProductKind, SalesUnits: p.SalesUnits, DripBagGrams: p.DripBagGrams, DripBoxBagCount: p.DripBoxBagCount, RetailPrice100G: p.RetailPrice100G, RetailPrice200G: p.RetailPrice200G, RetailPrice227G: p.RetailPrice227G, RetailPrice250G: p.RetailPrice250G, RetailSpecs: p.RetailSpecs}
 		for _, t := range p.Tiers {
 			jp.Tiers = append(jp.Tiers, jsTier{ID: t.ID, SpecG: t.SpecG, Min: t.MinQty, Max: t.MaxQty, UnitPrice: t.UnitPrice})
 		}

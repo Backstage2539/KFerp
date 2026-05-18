@@ -23,7 +23,16 @@ import {
   type BeanListPageCacheRecord,
 } from '../../utils/beanListPageCache'
 import { buildOrderServiceFilters, datePresetRange, normalizeDateRange, type OrderDatePreset } from '../../utils/orderFilters'
-import { normalizeServiceKey, orderSectionTitle, serviceTitle, visibleServiceSections, type ServiceKey } from '../../utils/servicePage'
+import {
+  buildFulfillmentOrderPayload,
+  fulfillmentSalesUnitOptions,
+  fulfillmentUnitOption,
+  normalizeServiceKey,
+  orderSectionTitle,
+  serviceTitle,
+  visibleServiceSections,
+  type ServiceKey,
+} from '../../utils/servicePage'
 import { miniappThemeClass, miniappThemeMeta } from '../../utils/themes'
 
 type OrderSearchForm = {
@@ -75,6 +84,9 @@ const fulfillmentForm = ref({
   product_name: '',
   spec_g: 454,
   qty: 1,
+  sales_unit: '',
+  unit_bag_count: 0,
+  unit_bean_g: 0,
   note: '',
 })
 
@@ -108,6 +120,11 @@ const fulfillmentProductLabels = computed(() => pickerLabels(fulfillmentProductO
 const selectedProcessingInputLabel = computed(() => selectedPickerLabel(processingInputOptions.value, processingForm.value.input_material_id, '选择投入物料'))
 const selectedProcessingTargetProductLabel = computed(() => selectedPickerLabel(processingTargetProductOptions.value, processingForm.value.target_product_id, '选择目标产品'))
 const selectedFulfillmentProductLabel = computed(() => selectedPickerLabel(fulfillmentProductOptions.value, fulfillmentForm.value.product_id, '选择发货商品'))
+const selectedFulfillmentProduct = computed(() => fulfillmentProductOptions.value.find((item) => item.value === fulfillmentForm.value.product_id)?.data || null)
+const fulfillmentSalesUnitPickerOptions = computed(() => fulfillmentSalesUnitOptions(selectedFulfillmentProduct.value))
+const fulfillmentSalesUnitLabels = computed(() => pickerLabels(fulfillmentSalesUnitPickerOptions.value, '暂无可选单位'))
+const selectedFulfillmentSalesUnitLabel = computed(() => fulfillmentUnitOption(selectedFulfillmentProduct.value, fulfillmentForm.value.sales_unit)?.label || '选择销售单位')
+const fulfillmentQuantityPlaceholder = computed(() => fulfillmentUnitOption(selectedFulfillmentProduct.value, fulfillmentForm.value.sales_unit)?.quantity_label || '件数')
 
 async function loadPage() {
   if (!session.token) {
@@ -207,6 +224,9 @@ function resetLocalForms() {
     product_name: '',
     spec_g: 454,
     qty: 1,
+    sales_unit: '',
+    unit_bag_count: 0,
+    unit_bean_g: 0,
     note: '',
   }
   orderSearch.value = emptyOrderSearch()
@@ -343,7 +363,7 @@ function emptyOrderSearch(): OrderSearchForm {
   return { keyword: '', date_from: '', date_to: '', process_status: '', pay_status: '', ship_status: '' }
 }
 
-function pickerLabels(options: PickerOption[], emptyLabel: string): string[] {
+function pickerLabels(options: Array<{ label: string }>, emptyLabel: string): string[] {
   return options.length ? options.map((item) => item.label) : [emptyLabel]
 }
 
@@ -395,6 +415,30 @@ function setFulfillmentProduct(event: { detail?: { value?: number | string } }) 
   if (!option) return
   fulfillmentForm.value.product_id = option.value
   fulfillmentForm.value.product_name = option.data.name
+  const unit = fulfillmentUnitOption(option.data)
+  if (unit) {
+    applyFulfillmentSalesUnit(unit.sales_unit)
+  } else {
+    fulfillmentForm.value.sales_unit = ''
+    fulfillmentForm.value.unit_bag_count = 0
+    fulfillmentForm.value.unit_bean_g = 0
+    fulfillmentForm.value.spec_g = 454
+  }
+}
+
+function setFulfillmentSalesUnit(event: { detail?: { value?: number | string } }) {
+  const option = fulfillmentSalesUnitPickerOptions.value[Number(event.detail?.value ?? -1)]
+  if (!option) return
+  applyFulfillmentSalesUnit(option.sales_unit)
+}
+
+function applyFulfillmentSalesUnit(salesUnit: string) {
+  const unit = fulfillmentUnitOption(selectedFulfillmentProduct.value, salesUnit)
+  if (!unit) return
+  fulfillmentForm.value.sales_unit = unit.sales_unit
+  fulfillmentForm.value.unit_bag_count = unit.unit_bag_count
+  fulfillmentForm.value.unit_bean_g = unit.unit_bean_g
+  fulfillmentForm.value.spec_g = unit.spec_g
 }
 
 async function submitDirectShipBatch() {
@@ -466,18 +510,7 @@ function fulfillmentServiceCode(): 'direct_ship' | 'processing_ship' | 'product_
 }
 
 async function submitFulfillmentOrder() {
-  const payload = {
-    service_code: fulfillmentServiceCode(),
-    recipient_name: fulfillmentForm.value.recipient_name.trim(),
-    recipient_phone: fulfillmentForm.value.recipient_phone.trim(),
-    recipient_address: fulfillmentForm.value.recipient_address.trim(),
-    recipient_company: fulfillmentForm.value.recipient_company.trim(),
-    product_id: Number(fulfillmentForm.value.product_id) || 0,
-    product_name: fulfillmentForm.value.product_name.trim(),
-    spec_g: Number(fulfillmentForm.value.spec_g) || 0,
-    qty: Number(fulfillmentForm.value.qty) || 0,
-    note: fulfillmentForm.value.note,
-  }
+  const payload = buildFulfillmentOrderPayload(fulfillmentServiceCode(), fulfillmentForm.value)
   if (!payload.recipient_name || !payload.recipient_phone || !payload.recipient_address || !payload.product_id || !payload.spec_g || !payload.qty) {
     errorMessage.value = '请填写完整发货订单'
     return
@@ -496,6 +529,9 @@ async function submitFulfillmentOrder() {
       product_name: '',
       spec_g: 454,
       qty: 1,
+      sales_unit: '',
+      unit_bag_count: 0,
+      unit_bean_g: 0,
       note: '',
     }
     uni.showToast({ title: '订单已提交', icon: 'success' })
@@ -626,8 +662,11 @@ onShow(() => {
         <picker mode="selector" :range="fulfillmentProductLabels" @change="setFulfillmentProduct">
           <view class="picker-field">{{ selectedFulfillmentProductLabel }}</view>
         </picker>
+        <picker v-if="fulfillmentSalesUnitPickerOptions.length" mode="selector" :range="fulfillmentSalesUnitLabels" @change="setFulfillmentSalesUnit">
+          <view class="picker-field">{{ selectedFulfillmentSalesUnitLabel }}</view>
+        </picker>
         <input v-model.number="fulfillmentForm.spec_g" class="input" type="number" placeholder="规格克重" />
-        <input v-model.number="fulfillmentForm.qty" class="input" type="number" placeholder="件数" />
+        <input v-model.number="fulfillmentForm.qty" class="input" type="number" :placeholder="fulfillmentQuantityPlaceholder" />
         <textarea v-model="fulfillmentForm.note" class="textarea" placeholder="订单备注" />
         <button class="primary" :disabled="submitting" @tap="submitFulfillmentOrder">提交订单</button>
       </view>

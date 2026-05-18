@@ -17,10 +17,16 @@ type ListItem struct {
 }
 
 type Item struct {
-	ID           int64   `json:"id"`
-	MaterialID   int64   `json:"material_id"`
-	MaterialName string  `json:"material_name"`
-	RatioPct     float64 `json:"ratio_pct"`
+	ID                   int64   `json:"id"`
+	MaterialID           int64   `json:"material_id"`
+	MaterialName         string  `json:"material_name"`
+	ComponentType        string  `json:"component_type"`
+	ComponentProductID   int64   `json:"component_product_id"`
+	ComponentProductName string  `json:"component_product_name"`
+	ComponentSpecG       int64   `json:"component_spec_g"`
+	ConsumeUnit          string  `json:"consume_unit"`
+	QtyPerUnit           float64 `json:"qty_per_unit"`
+	RatioPct             float64 `json:"ratio_pct"`
 }
 
 type Detail struct {
@@ -35,9 +41,13 @@ type Detail struct {
 }
 
 type Option struct {
-	ID         int64  `json:"id"`
-	Name       string `json:"name"`
-	CustomerID int64  `json:"customer_id"`
+	ID              int64   `json:"id"`
+	Name            string  `json:"name"`
+	CustomerID      int64   `json:"customer_id"`
+	RoastLevel      string  `json:"roast_level,omitempty"`
+	ProductKind     string  `json:"product_kind,omitempty"`
+	DripBagGrams    float64 `json:"drip_bag_grams,omitempty"`
+	DripBoxBagCount int     `json:"drip_box_bag_count,omitempty"`
 }
 
 type BagSpecMapping struct {
@@ -58,24 +68,53 @@ type Version struct {
 }
 
 type CreateVersionCommand struct {
-	ProductID int64
-	Note      string
+	ProductID int64  `json:"product_id"`
+	Note      string `json:"note"`
+	Actor     string `json:"actor"`
+}
+
+type SyncProductYieldCommand struct {
+	ProductID int64  `json:"product_id"`
+	Actor     string `json:"actor"`
+}
+
+type DeactivateBomCommand struct {
+	ProductID int64  `json:"product_id"`
+	Actor     string `json:"actor"`
+}
+
+type ActivateVersionCommand struct {
+	VersionID int64  `json:"version_id"`
+	Actor     string `json:"actor"`
 }
 
 type SaveItemCommand struct {
-	ProductID  int64
-	MaterialID int64
-	RatioPct   float64
+	ProductID          int64   `json:"product_id"`
+	MaterialID         int64   `json:"material_id"`
+	ComponentType      string  `json:"component_type"`
+	ComponentProductID int64   `json:"component_product_id"`
+	ComponentSpecG     int64   `json:"component_spec_g"`
+	ConsumeUnit        string  `json:"consume_unit"`
+	QtyPerUnit         float64 `json:"qty_per_unit"`
+	RatioPct           float64 `json:"ratio_pct"`
+	Actor              string  `json:"actor"`
 }
 
 type DeleteItemCommand struct {
-	ProductID int64
-	ID        int64
+	ProductID int64  `json:"product_id"`
+	ID        int64  `json:"id"`
+	Actor     string `json:"actor"`
 }
 
 type SaveBagSpecMappingCommand struct {
-	SpecG      int64
-	MaterialID int64
+	SpecG      int64  `json:"spec_g"`
+	MaterialID int64  `json:"material_id"`
+	Actor      string `json:"actor"`
+}
+
+type DeleteBagSpecMappingCommand struct {
+	SpecG int64  `json:"spec_g"`
+	Actor string `json:"actor"`
 }
 
 type Repository interface {
@@ -84,15 +123,15 @@ type Repository interface {
 	Products(ctx context.Context) ([]Option, error)
 	Materials(ctx context.Context) ([]Option, error)
 	BagSpecMappings(ctx context.Context) ([]BagSpecMapping, error)
-	SyncProductYield(ctx context.Context, productID int64) error
-	DeactivateBom(ctx context.Context, productID int64) error
+	SyncProductYield(ctx context.Context, cmd SyncProductYieldCommand) error
+	DeactivateBom(ctx context.Context, cmd DeactivateBomCommand) error
 	SaveItem(ctx context.Context, cmd SaveItemCommand) error
 	DeleteItem(ctx context.Context, cmd DeleteItemCommand) error
 	SaveBagSpecMapping(ctx context.Context, cmd SaveBagSpecMappingCommand) error
-	DeleteBagSpecMapping(ctx context.Context, specG int64) error
+	DeleteBagSpecMapping(ctx context.Context, cmd DeleteBagSpecMappingCommand) error
 	ListVersions(ctx context.Context, productID int64) ([]Version, error)
 	CreateVersion(ctx context.Context, cmd CreateVersionCommand) (Version, error)
-	ActivateVersion(ctx context.Context, versionID int64) error
+	ActivateVersion(ctx context.Context, cmd ActivateVersionCommand) error
 }
 
 type Service struct {
@@ -126,31 +165,69 @@ func (s *Service) BagSpecMappings(ctx context.Context) ([]BagSpecMapping, error)
 	return s.repo.BagSpecMappings(ctx)
 }
 
-func (s *Service) SyncProductYield(ctx context.Context, productID int64) error {
-	if productID <= 0 {
+func (s *Service) SyncProductYield(ctx context.Context, cmd SyncProductYieldCommand) error {
+	if cmd.ProductID <= 0 {
 		return fmt.Errorf("product required")
 	}
-	return s.repo.SyncProductYield(ctx, productID)
+	return s.repo.SyncProductYield(ctx, cmd)
 }
 
-func (s *Service) DeactivateBom(ctx context.Context, productID int64) error {
-	if productID <= 0 {
+func (s *Service) DeactivateBom(ctx context.Context, cmd DeactivateBomCommand) error {
+	if cmd.ProductID <= 0 {
 		return fmt.Errorf("product required")
 	}
-	return s.repo.DeactivateBom(ctx, productID)
+	return s.repo.DeactivateBom(ctx, cmd)
 }
 
 func (s *Service) SaveItem(ctx context.Context, cmd SaveItemCommand) error {
-	if cmd.ProductID <= 0 || cmd.MaterialID <= 0 {
-		return fmt.Errorf("product/material required")
+	if cmd.ProductID <= 0 {
+		return fmt.Errorf("product required")
 	}
-	if cmd.RatioPct <= 0 || cmd.RatioPct > 100 {
-		return fmt.Errorf("ratio must be (0,100]")
+	componentType := cmd.ComponentType
+	if componentType == "" {
+		componentType = "material"
 	}
+	if componentType != "material" && componentType != "finished_product" {
+		return fmt.Errorf("invalid component_type")
+	}
+	consumeUnit := cmd.ConsumeUnit
+	if consumeUnit == "" {
+		consumeUnit = "ratio_pct"
+	}
+	switch consumeUnit {
+	case "ratio_pct", "g_per_bag", "unit_per_bag", "unit_per_box":
+	default:
+		return fmt.Errorf("invalid consume_unit")
+	}
+	switch componentType {
+	case "material":
+		if cmd.MaterialID <= 0 {
+			return fmt.Errorf("material_id required")
+		}
+	case "finished_product":
+		if cmd.ComponentProductID <= 0 {
+			return fmt.Errorf("component_product_id required")
+		}
+		if consumeUnit == "ratio_pct" {
+			return fmt.Errorf("finished_product consume_unit must not be ratio_pct")
+		}
+	}
+	if consumeUnit == "ratio_pct" {
+		if cmd.RatioPct <= 0 || cmd.RatioPct > 100 {
+			return fmt.Errorf("ratio must be (0,100]")
+		}
+	} else if cmd.QtyPerUnit <= 0 {
+		return fmt.Errorf("qty_per_unit required")
+	}
+	cmd.ComponentType = componentType
+	cmd.ConsumeUnit = consumeUnit
 	return s.repo.SaveItem(ctx, cmd)
 }
 
 func (s *Service) DeleteItem(ctx context.Context, cmd DeleteItemCommand) error {
+	if cmd.ProductID <= 0 {
+		return fmt.Errorf("product_id required")
+	}
 	if cmd.ID <= 0 {
 		return nil
 	}
@@ -167,11 +244,11 @@ func (s *Service) SaveBagSpecMapping(ctx context.Context, cmd SaveBagSpecMapping
 	return s.repo.SaveBagSpecMapping(ctx, cmd)
 }
 
-func (s *Service) DeleteBagSpecMapping(ctx context.Context, specG int64) error {
-	if specG <= 0 {
+func (s *Service) DeleteBagSpecMapping(ctx context.Context, cmd DeleteBagSpecMappingCommand) error {
+	if cmd.SpecG <= 0 {
 		return fmt.Errorf("spec_g required")
 	}
-	return s.repo.DeleteBagSpecMapping(ctx, specG)
+	return s.repo.DeleteBagSpecMapping(ctx, cmd)
 }
 
 func (s *Service) ListVersions(ctx context.Context, productID int64) ([]Version, error) {
@@ -188,9 +265,9 @@ func (s *Service) CreateVersion(ctx context.Context, cmd CreateVersionCommand) (
 	return s.repo.CreateVersion(ctx, cmd)
 }
 
-func (s *Service) ActivateVersion(ctx context.Context, versionID int64) error {
-	if versionID <= 0 {
+func (s *Service) ActivateVersion(ctx context.Context, cmd ActivateVersionCommand) error {
+	if cmd.VersionID <= 0 {
 		return fmt.Errorf("version_id required")
 	}
-	return s.repo.ActivateVersion(ctx, versionID)
+	return s.repo.ActivateVersion(ctx, cmd)
 }

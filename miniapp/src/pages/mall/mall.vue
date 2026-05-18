@@ -12,8 +12,10 @@ import {
   mallCartCount,
   mallProductKindLabel,
   mallCartTotal,
-  normalizeMallProduct,
+  mallProductForSalesUnit,
+  mallProductUnitLabel,
   updateMallCartQty,
+  visibleMallProducts,
   type MallCartItem,
   type MallProduct,
 } from '../../utils/mall'
@@ -22,12 +24,13 @@ import { miniappThemeClass, miniappThemeMeta } from '../../utils/themes'
 const session = useSessionStore()
 const page = ref<MallPageResponse | null>(null)
 const cart = ref<MallCartItem[]>([])
+const selectedUnits = ref<Record<number, string>>({})
 const loading = ref(false)
 const submitting = ref(false)
 const errorMessage = ref('')
 const recipient = ref({ name: '', phone: '', address: '', note: '' })
 
-const products = computed(() => (page.value?.products || []).map((item) => normalizeMallProduct(item)))
+const products = computed(() => visibleMallProducts(page.value?.products || []))
 const activeThemeKey = computed(() => page.value?.theme_key || session.themeKey)
 const themeClass = computed(() => miniappThemeClass(activeThemeKey.value))
 const themeMeta = computed(() => miniappThemeMeta(activeThemeKey.value))
@@ -69,11 +72,27 @@ function productImageURL(product: MallProduct): string {
 }
 
 function addProduct(product: MallProduct) {
-  cart.value = addMallCartItem(cart.value, product, 1)
+  const priced = selectedMallProduct(product)
+  if (priced.unit_price <= 0) return
+  cart.value = addMallCartItem(cart.value, priced, 1)
 }
 
 function changeQty(item: MallCartItem, delta: number) {
-  cart.value = updateMallCartQty(cart.value, item.mall_product_id, item.qty + delta)
+  cart.value = updateMallCartQty(cart.value, item.mall_product_id, item.qty + delta, item.sales_unit)
+}
+
+function selectedMallProduct(product: MallProduct): MallProduct {
+  return mallProductForSalesUnit(product, selectedUnits.value[product.id])
+}
+
+function mallSalesUnitLabels(product: MallProduct): string[] {
+  return product.sales_units.map((unit) => mallProductForSalesUnit(product, unit).unit_label || unit)
+}
+
+function setMallSalesUnit(product: MallProduct, event: { detail?: { value?: number | string } }) {
+  const unit = product.sales_units[Number(event.detail?.value ?? 0)]
+  if (!unit) return
+  selectedUnits.value = { ...selectedUnits.value, [product.id]: unit }
 }
 
 async function submitOrder() {
@@ -132,10 +151,14 @@ onShow(() => {
           <view v-else class="product-image empty-image"></view>
           <view class="product-body">
             <text class="product-title">{{ product.title }}</text>
-            <text class="product-subtitle">{{ mallProductKindLabel(product) }} / {{ product.subtitle || `${product.spec_g}g` }}</text>
+            <text class="product-subtitle">{{ product.subtitle || `${product.spec_g}g` }}</text>
+            <picker v-if="product.product_kind === 'drip_bag' && product.sales_units.length > 1" mode="selector" :range="mallSalesUnitLabels(product)" @change="setMallSalesUnit(product, $event)">
+              <view class="unit-picker">{{ selectedMallProduct(product).unit_label || mallProductUnitLabel(product) }}</view>
+            </picker>
+            <text v-else-if="product.product_kind === 'drip_bag'" class="unit-label">{{ selectedMallProduct(product).unit_label || mallProductUnitLabel(product) }}</text>
             <text class="product-description">{{ product.description }}</text>
             <view class="product-foot">
-              <text class="price">{{ formatMallMoney(product.unit_price) }}</text>
+              <text class="price">{{ formatMallMoney(selectedMallProduct(product).unit_price) }}</text>
               <button class="add-btn" size="mini" @tap="addProduct(product)">加入</button>
             </view>
           </view>
@@ -153,8 +176,11 @@ onShow(() => {
         </view>
 
         <view v-if="cart.length" class="cart-lines">
-          <view v-for="item in cart" :key="item.mall_product_id" class="cart-line">
-            <text class="cart-title">{{ mallProductKindLabel(item) }} / {{ item.title }}</text>
+          <view v-for="item in cart" :key="`${item.mall_product_id}-${item.sales_unit || 'unit'}`" class="cart-line">
+            <view class="cart-title-block">
+              <text class="cart-title">{{ item.title }}</text>
+              <text v-if="item.unit_label" class="cart-unit">{{ item.unit_label }}</text>
+            </view>
             <view class="qty">
               <button size="mini" @tap="changeQty(item, -1)">-</button>
               <text>{{ item.qty }}</text>
@@ -299,6 +325,22 @@ onShow(() => {
   line-height: 1.5;
 }
 
+.unit-label,
+.unit-picker,
+.cart-unit {
+  color: #28624a;
+  font-size: 24rpx;
+  font-weight: 800;
+}
+
+.unit-picker {
+  display: inline-flex;
+  padding: 8rpx 14rpx;
+  border: 1rpx solid #b8d1c4;
+  border-radius: 10rpx;
+  background: #f4fbf7;
+}
+
 .product-foot,
 .checkout-head,
 .cart-line {
@@ -350,6 +392,13 @@ onShow(() => {
 .cart-line {
   min-height: 76rpx;
   border-bottom: 1rpx solid #eef1f4;
+}
+
+.cart-title-block {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4rpx;
 }
 
 .cart-title {

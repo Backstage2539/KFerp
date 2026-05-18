@@ -2,16 +2,19 @@ package catalog
 
 import "testing"
 
-func TestNormalizeProductKindDefaultsAndAcceptsGreenBean(t *testing.T) {
+func TestNormalizeProductKindPreservesGreenBeanAndDripBag(t *testing.T) {
 	cases := []struct {
 		name  string
 		input string
 		want  string
 	}{
 		{name: "empty defaults to roasted", input: "", want: ProductKindRoasted},
-		{name: "roasted stays roasted", input: "roasted", want: ProductKindRoasted},
-		{name: "green bean canonical", input: "green_bean", want: ProductKindGreenBean},
+		{name: "roasted canonical", input: ProductKindRoasted, want: ProductKindRoasted},
+		{name: "legacy roasted bean alias", input: "roasted_bean", want: ProductKindRoasted},
+		{name: "drip bag canonical", input: ProductKindDripBag, want: ProductKindDripBag},
+		{name: "green bean canonical", input: ProductKindGreenBean, want: ProductKindGreenBean},
 		{name: "green alias", input: "green", want: ProductKindGreenBean},
+		{name: "raw alias", input: "raw_bean", want: ProductKindGreenBean},
 		{name: "Chinese alias", input: "生豆", want: ProductKindGreenBean},
 		{name: "unknown defaults to roasted", input: "unexpected", want: ProductKindRoasted},
 	}
@@ -25,11 +28,15 @@ func TestNormalizeProductKindDefaultsAndAcceptsGreenBean(t *testing.T) {
 	}
 }
 
-func TestProductKindLabelsDistinguishGreenAndRoasted(t *testing.T) {
-	if ProductKindLabel(ProductKindRoasted) != "熟豆" {
-		t.Fatalf("roasted label = %q", ProductKindLabel(ProductKindRoasted))
+func TestProductKindLabelsDistinguishKnownKinds(t *testing.T) {
+	cases := map[string]string{
+		ProductKindRoasted:   "熟豆",
+		ProductKindGreenBean: "生豆",
+		ProductKindDripBag:   "挂耳",
 	}
-	if ProductKindLabel(ProductKindGreenBean) != "生豆" {
-		t.Fatalf("green label = %q", ProductKindLabel(ProductKindGreenBean))
+	for kind, want := range cases {
+		if got := ProductKindLabel(kind); got != want {
+			t.Fatalf("ProductKindLabel(%q) = %q, want %q", kind, got, want)
+		}
 	}
 }

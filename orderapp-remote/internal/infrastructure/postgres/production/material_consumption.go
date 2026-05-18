@@ -8,20 +8,26 @@ import (
 	bomdomain "orderapp/internal/domain/bom"
 	catalogdomain "orderapp/internal/domain/catalog"
 	stockdomain "orderapp/internal/domain/stock"
+	postgresinfra "orderapp/internal/infrastructure/postgres"
 	"strings"
 
 	"github.com/jackc/pgx/v5"
 )
 
 type materialConsumptionNeed struct {
-	MaterialID   int64
-	MaterialName string
-	Unit         string
-	Qty          int64
-	DeductG      int64
-	DeductUnits  int64
-	RatioPct     float64
-	Source       string
+	MaterialID         int64
+	MaterialName       string
+	Unit               string
+	Qty                int64
+	DeductG            int64
+	DeductUnits        int64
+	RatioPct           float64
+	Source             string
+	ComponentType      string
+	ComponentProductID int64
+	ComponentSpecG     int64
+	ConsumeUnit        string
+	QtyPerUnit         float64
 }
 
 type materialConsumptionSummaryItem struct {
@@ -34,11 +40,16 @@ type materialConsumptionSummaryItem struct {
 }
 
 type materialSnapshotRow struct {
-	MaterialID   int64   `json:"material_id"`
-	MaterialName string  `json:"material_name"`
-	Unit         string  `json:"unit"`
-	RatioPct     float64 `json:"ratio_pct,omitempty"`
-	Source       string  `json:"source"`
+	MaterialID         int64   `json:"material_id"`
+	MaterialName       string  `json:"material_name"`
+	Unit               string  `json:"unit"`
+	RatioPct           float64 `json:"ratio_pct,omitempty"`
+	Source             string  `json:"source"`
+	ComponentType      string  `json:"component_type,omitempty"`
+	ComponentProductID int64   `json:"component_product_id,omitempty"`
+	ComponentSpecG     int64   `json:"component_spec_g,omitempty"`
+	ConsumeUnit        string  `json:"consume_unit,omitempty"`
+	QtyPerUnit         float64 `json:"qty_per_unit,omitempty"`
 }
 
 func isWeightMaterialUnit(unit string) bool {
@@ -61,6 +72,27 @@ func materialNeedToDeduct(unit string, qty int64) (deductG int64, deductUnits in
 	}
 }
 
+func componentConsumptionQty(consumeUnit string, qtyPerUnit float64, ratioPct float64, unit string, rawG int64, packedUnits int64, boxUnits int64) int64 {
+	switch normalizeBomConsumeUnit(consumeUnit) {
+	case "g_per_bag", "unit_per_bag":
+		return int64(math.Ceil(float64(packedUnits) * qtyPerUnit))
+	case "unit_per_box":
+		return int64(math.Ceil(float64(boxUnits) * qtyPerUnit))
+	default:
+		ratio := bomdomain.NormalizeRatioPct(ratioPct)
+		if ratio <= 0 {
+			return 0
+		}
+		if isWeightMaterialUnit(unit) {
+			if strings.EqualFold(unit, "kg") || unit == "千克" {
+				return int64(math.Ceil((float64(rawG) * ratio / 100.0) / 1000.0))
+			}
+			return int64(math.Ceil(float64(rawG) * ratio / 100.0))
+		}
+		return int64(math.Ceil(float64(packedUnits) * ratio / 100.0))
+	}
+}
+
 func calcRunningItemMaterialNeedsTx(ctx context.Context, tx pgx.Tx, schema string, r ProduceRunRow, finished InvQty) ([]materialConsumptionNeed, error) {
 	if needs, ok, err := materialSnapshotNeedsTx(r, finished); ok || err != nil {
 		return needs, err
@@ -78,14 +110,22 @@ func currentMaterialNeedsTx(ctx context.Context, tx pgx.Tx, schema string, r Pro
 		       COALESCE(NULLIF(m.unit,''),'g'),
 		       COALESCE(bi.ratio_pct,0),
 		       COALESCE(p.roast_level,''),
-		       COALESCE(pb.yield_rate,0)
+		       COALESCE(pb.yield_rate,0),
+		       COALESCE(NULLIF(bi.component_type,''),'material'),
+		       COALESCE(bi.component_product_id,0),
+		       COALESCE(cp.name,''),
+		       COALESCE(bi.component_spec_g,0),
+		       COALESCE(NULLIF(bi.consume_unit,''),'ratio_pct'),
+		       COALESCE(bi.qty_per_unit,0),
+		       COALESCE(NULLIF(p.drip_box_bag_count,0),10)
 		FROM %s.product_bom_items bi
 		LEFT JOIN %s.products p ON p.id=bi.product_id
 		LEFT JOIN %s.product_bom pb ON pb.product_id=bi.product_id
 		LEFT JOIN %s.materials m ON m.id=bi.material_id
+		LEFT JOIN %s.products cp ON cp.id=bi.component_product_id
 		WHERE bi.product_id=$1
 		ORDER BY bi.id
-	`, schema, schema, schema, schema)
+	`, schema, schema, schema, schema, schema)
 	rows, err := tx.Query(ctx, q, r.ProductID)
 	if err != nil {
 		return nil, err
@@ -93,21 +133,44 @@ func currentMaterialNeedsTx(ctx context.Context, tx pgx.Tx, schema string, r Pro
 	defer rows.Close()
 
 	type bomRow struct {
-		materialID int64
-		name       string
-		unit       string
-		ratio      float64
-		roastLevel string
-		yieldRate  float64
+		materialID           int64
+		name                 string
+		unit                 string
+		ratio                float64
+		roastLevel           string
+		yieldRate            float64
+		componentType        string
+		componentProductID   int64
+		componentProductName string
+		componentSpecG       int64
+		consumeUnit          string
+		qtyPerUnit           float64
+		dripBoxBagCount      int64
 	}
 	bomRows := make([]bomRow, 0)
 	for rows.Next() {
 		var x bomRow
-		if err := rows.Scan(&x.materialID, &x.name, &x.unit, &x.ratio, &x.roastLevel, &x.yieldRate); err != nil {
+		if err := rows.Scan(
+			&x.materialID, &x.name, &x.unit, &x.ratio, &x.roastLevel, &x.yieldRate,
+			&x.componentType, &x.componentProductID, &x.componentProductName, &x.componentSpecG,
+			&x.consumeUnit, &x.qtyPerUnit, &x.dripBoxBagCount,
+		); err != nil {
 			return nil, err
 		}
+		x.componentType = normalizeBomComponentType(x.componentType)
+		x.consumeUnit = normalizeBomConsumeUnit(x.consumeUnit)
 		x.ratio = bomdomain.NormalizeRatioPct(x.ratio)
-		if x.materialID <= 0 || strings.TrimSpace(x.name) == "" || x.ratio <= 0 {
+		if x.componentType == "finished_product" {
+			if x.componentProductID <= 0 || x.qtyPerUnit <= 0 {
+				continue
+			}
+			x.materialID = x.componentProductID
+			x.name = strings.TrimSpace(x.componentProductName)
+			if x.name == "" {
+				x.name = fmt.Sprintf("finished product %d", x.componentProductID)
+			}
+			x.unit = "g"
+		} else if x.materialID <= 0 || strings.TrimSpace(x.name) == "" || (x.ratio <= 0 && x.qtyPerUnit <= 0) {
 			continue
 		}
 		bomRows = append(bomRows, x)
@@ -128,6 +191,7 @@ func currentMaterialNeedsTx(ctx context.Context, tx pgx.Tx, schema string, r Pro
 	if packedUnits < 0 {
 		packedUnits = 0
 	}
+	boxUnits := int64(0)
 
 	needs := make([]materialConsumptionNeed, 0, len(bomRows)+1)
 	for _, bi := range bomRows {
@@ -135,26 +199,32 @@ func currentMaterialNeedsTx(ctx context.Context, tx pgx.Tx, schema string, r Pro
 		if unit == "" {
 			unit = "g"
 		}
-		qty := int64(0)
-		if isWeightMaterialUnit(unit) {
-			if strings.EqualFold(unit, "kg") || unit == "千克" {
-				qty = int64(math.Ceil((float64(rawG) * bi.ratio / 100.0) / 1000.0))
-			} else {
-				qty = int64(math.Ceil(float64(rawG) * bi.ratio / 100.0))
-			}
-		} else {
-			qty = int64(math.Ceil(float64(packedUnits) * bi.ratio / 100.0))
+		if bi.consumeUnit == "unit_per_box" && boxUnits <= 0 {
+			boxUnits = ceilDiv64(packedUnits, bi.dripBoxBagCount)
 		}
+		qty := componentConsumptionQty(bi.consumeUnit, bi.qtyPerUnit, bi.ratio, unit, rawG, packedUnits, boxUnits)
 		deductG, deductUnits := materialNeedToDeduct(unit, qty)
+		source := "bom"
+		componentType := bi.componentType
+		if componentType == "finished_product" {
+			source = "finished_product"
+			deductG = qty
+			deductUnits = 0
+		}
 		needs = append(needs, materialConsumptionNeed{
-			MaterialID:   bi.materialID,
-			MaterialName: strings.TrimSpace(bi.name),
-			Unit:         unit,
-			Qty:          qty,
-			DeductG:      deductG,
-			DeductUnits:  deductUnits,
-			RatioPct:     bi.ratio,
-			Source:       "bom",
+			MaterialID:         bi.materialID,
+			MaterialName:       strings.TrimSpace(bi.name),
+			Unit:               unit,
+			Qty:                qty,
+			DeductG:            deductG,
+			DeductUnits:        deductUnits,
+			RatioPct:           bi.ratio,
+			Source:             source,
+			ComponentType:      componentType,
+			ComponentProductID: bi.componentProductID,
+			ComponentSpecG:     bi.componentSpecG,
+			ConsumeUnit:        bi.consumeUnit,
+			QtyPerUnit:         bi.qtyPerUnit,
 		})
 	}
 
@@ -194,14 +264,22 @@ func materialNeedsForRunOutputsTx(ctx context.Context, tx pgx.Tx, schema string,
 		       COALESCE(NULLIF(m.unit,''),'g'),
 		       COALESCE(bi.ratio_pct,0),
 		       COALESCE(p.roast_level,''),
-		       COALESCE(pb.yield_rate,0)
+		       COALESCE(pb.yield_rate,0),
+		       COALESCE(NULLIF(bi.component_type,''),'material'),
+		       COALESCE(bi.component_product_id,0),
+		       COALESCE(cp.name,''),
+		       COALESCE(bi.component_spec_g,0),
+		       COALESCE(NULLIF(bi.consume_unit,''),'ratio_pct'),
+		       COALESCE(bi.qty_per_unit,0),
+		       COALESCE(NULLIF(p.drip_box_bag_count,0),10)
 		FROM %s.product_bom_items bi
 		LEFT JOIN %s.products p ON p.id=bi.product_id
 		LEFT JOIN %s.product_bom pb ON pb.product_id=bi.product_id
 		LEFT JOIN %s.materials m ON m.id=bi.material_id
+		LEFT JOIN %s.products cp ON cp.id=bi.component_product_id
 		WHERE bi.product_id=$1
 		ORDER BY bi.id
-	`, schema, schema, schema, schema)
+	`, schema, schema, schema, schema, schema)
 	rows, err := tx.Query(ctx, q, r.ProductID)
 	if err != nil {
 		return nil, err
@@ -209,21 +287,44 @@ func materialNeedsForRunOutputsTx(ctx context.Context, tx pgx.Tx, schema string,
 	defer rows.Close()
 
 	type bomRow struct {
-		materialID int64
-		name       string
-		unit       string
-		ratio      float64
-		roastLevel string
-		yieldRate  float64
+		materialID           int64
+		name                 string
+		unit                 string
+		ratio                float64
+		roastLevel           string
+		yieldRate            float64
+		componentType        string
+		componentProductID   int64
+		componentProductName string
+		componentSpecG       int64
+		consumeUnit          string
+		qtyPerUnit           float64
+		dripBoxBagCount      int64
 	}
 	bomRows := make([]bomRow, 0)
 	for rows.Next() {
 		var x bomRow
-		if err := rows.Scan(&x.materialID, &x.name, &x.unit, &x.ratio, &x.roastLevel, &x.yieldRate); err != nil {
+		if err := rows.Scan(
+			&x.materialID, &x.name, &x.unit, &x.ratio, &x.roastLevel, &x.yieldRate,
+			&x.componentType, &x.componentProductID, &x.componentProductName, &x.componentSpecG,
+			&x.consumeUnit, &x.qtyPerUnit, &x.dripBoxBagCount,
+		); err != nil {
 			return nil, err
 		}
+		x.componentType = normalizeBomComponentType(x.componentType)
+		x.consumeUnit = normalizeBomConsumeUnit(x.consumeUnit)
 		x.ratio = bomdomain.NormalizeRatioPct(x.ratio)
-		if x.materialID <= 0 || strings.TrimSpace(x.name) == "" || x.ratio <= 0 {
+		if x.componentType == "finished_product" {
+			if x.componentProductID <= 0 || x.qtyPerUnit <= 0 {
+				continue
+			}
+			x.materialID = x.componentProductID
+			x.name = strings.TrimSpace(x.componentProductName)
+			if x.name == "" {
+				x.name = fmt.Sprintf("finished product %d", x.componentProductID)
+			}
+			x.unit = "g"
+		} else if x.materialID <= 0 || strings.TrimSpace(x.name) == "" || (x.ratio <= 0 && x.qtyPerUnit <= 0) {
 			continue
 		}
 		bomRows = append(bomRows, x)
@@ -251,26 +352,33 @@ func materialNeedsForRunOutputsTx(ctx context.Context, tx pgx.Tx, schema string,
 		if unit == "" {
 			unit = "g"
 		}
-		qty := int64(0)
-		if isWeightMaterialUnit(unit) {
-			if strings.EqualFold(unit, "kg") || unit == "千克" {
-				qty = int64(math.Ceil((float64(rawG) * bi.ratio / 100.0) / 1000.0))
-			} else {
-				qty = int64(math.Ceil(float64(rawG) * bi.ratio / 100.0))
-			}
-		} else {
-			qty = int64(math.Ceil(float64(totalPackedUnits) * bi.ratio / 100.0))
+		boxUnits := int64(0)
+		if bi.consumeUnit == "unit_per_box" {
+			boxUnits = ceilDiv64(totalPackedUnits, bi.dripBoxBagCount)
 		}
+		qty := componentConsumptionQty(bi.consumeUnit, bi.qtyPerUnit, bi.ratio, unit, rawG, totalPackedUnits, boxUnits)
 		deductG, deductUnits := materialNeedToDeduct(unit, qty)
+		source := "bom"
+		componentType := bi.componentType
+		if componentType == "finished_product" {
+			source = "finished_product"
+			deductG = qty
+			deductUnits = 0
+		}
 		needs = append(needs, materialConsumptionNeed{
-			MaterialID:   bi.materialID,
-			MaterialName: strings.TrimSpace(bi.name),
-			Unit:         unit,
-			Qty:          qty,
-			DeductG:      deductG,
-			DeductUnits:  deductUnits,
-			RatioPct:     bi.ratio,
-			Source:       "bom",
+			MaterialID:         bi.materialID,
+			MaterialName:       strings.TrimSpace(bi.name),
+			Unit:               unit,
+			Qty:                qty,
+			DeductG:            deductG,
+			DeductUnits:        deductUnits,
+			RatioPct:           bi.ratio,
+			Source:             source,
+			ComponentType:      componentType,
+			ComponentProductID: bi.componentProductID,
+			ComponentSpecG:     bi.componentSpecG,
+			ConsumeUnit:        bi.consumeUnit,
+			QtyPerUnit:         bi.qtyPerUnit,
 		})
 	}
 
@@ -327,11 +435,16 @@ func buildMaterialSnapshotForRunningItemTx(ctx context.Context, tx pgx.Tx, schem
 			source = "bom"
 		}
 		rows = append(rows, materialSnapshotRow{
-			MaterialID:   need.MaterialID,
-			MaterialName: need.MaterialName,
-			Unit:         need.Unit,
-			RatioPct:     need.RatioPct,
-			Source:       source,
+			MaterialID:         need.MaterialID,
+			MaterialName:       need.MaterialName,
+			Unit:               need.Unit,
+			RatioPct:           need.RatioPct,
+			Source:             source,
+			ComponentType:      need.ComponentType,
+			ComponentProductID: need.ComponentProductID,
+			ComponentSpecG:     need.ComponentSpecG,
+			ConsumeUnit:        need.ConsumeUnit,
+			QtyPerUnit:         need.QtyPerUnit,
 		})
 	}
 	if len(rows) == 0 {
@@ -376,6 +489,8 @@ func materialSnapshotNeedsTx(r ProduceRunRow, finished InvQty) ([]materialConsum
 		qty := int64(0)
 		if source == "packaging" {
 			qty = packedUnits
+		} else if source == "finished_product" {
+			qty = componentConsumptionQty(row.ConsumeUnit, row.QtyPerUnit, row.RatioPct, unit, rawG, packedUnits, 0)
 		} else if isWeightMaterialUnit(unit) {
 			ratio := bomdomain.NormalizeRatioPct(row.RatioPct)
 			if ratio <= 0 {
@@ -394,15 +509,24 @@ func materialSnapshotNeedsTx(r ProduceRunRow, finished InvQty) ([]materialConsum
 			qty = int64(math.Ceil(float64(packedUnits) * ratio / 100.0))
 		}
 		deductG, deductUnits := materialNeedToDeduct(unit, qty)
+		if source == "finished_product" {
+			deductG = qty
+			deductUnits = 0
+		}
 		needs = append(needs, materialConsumptionNeed{
-			MaterialID:   row.MaterialID,
-			MaterialName: strings.TrimSpace(row.MaterialName),
-			Unit:         unit,
-			Qty:          qty,
-			DeductG:      deductG,
-			DeductUnits:  deductUnits,
-			RatioPct:     row.RatioPct,
-			Source:       source,
+			MaterialID:         row.MaterialID,
+			MaterialName:       strings.TrimSpace(row.MaterialName),
+			Unit:               unit,
+			Qty:                qty,
+			DeductG:            deductG,
+			DeductUnits:        deductUnits,
+			RatioPct:           row.RatioPct,
+			Source:             source,
+			ComponentType:      row.ComponentType,
+			ComponentProductID: row.ComponentProductID,
+			ComponentSpecG:     row.ComponentSpecG,
+			ConsumeUnit:        row.ConsumeUnit,
+			QtyPerUnit:         row.QtyPerUnit,
 		})
 	}
 	return needs, true, nil
@@ -426,6 +550,9 @@ func ensureWIPStockForRunningItemTx(ctx context.Context, tx pgx.Tx, schema strin
 func ensureWIPStockForNeedsTx(ctx context.Context, tx pgx.Tx, schema string, needs []materialConsumptionNeed) error {
 	shortages := make([]string, 0)
 	for _, need := range aggregateMaterialConsumptionNeeds(needs) {
+		if need.Source == "finished_product" || need.ComponentType == "finished_product" {
+			continue
+		}
 		if need.MaterialID <= 0 || need.DeductG <= 0 {
 			continue
 		}
@@ -485,6 +612,12 @@ func deductMaterialsForRunOutputsTx(ctx context.Context, tx pgx.Tx, schema strin
 func deductMaterialNeedsForRunningItemTx(ctx context.Context, tx pgx.Tx, schema string, r ProduceRunRow, needs []materialConsumptionNeed, operator string) error {
 	for _, need := range needs {
 		if need.DeductG <= 0 && need.DeductUnits <= 0 {
+			continue
+		}
+		if need.Source == "finished_product" || need.ComponentType == "finished_product" {
+			if err := deductFinishedProductComponentForRunningItemTx(ctx, tx, schema, r, need, operator); err != nil {
+				return err
+			}
 			continue
 		}
 		var beforeG, beforeUnits int64
@@ -550,6 +683,118 @@ func deductMaterialNeedsForRunningItemTx(ctx context.Context, tx pgx.Tx, schema 
 	return nil
 }
 
+func deductFinishedProductComponentForRunningItemTx(ctx context.Context, tx pgx.Tx, schema string, r ProduceRunRow, need materialConsumptionNeed, operator string) error {
+	productID := need.ComponentProductID
+	if productID <= 0 {
+		productID = need.MaterialID
+	}
+	if productID <= 0 || need.DeductG <= 0 {
+		return nil
+	}
+	specG := need.ComponentSpecG
+	var beforeUnits, beforeLooseG int64
+	err := tx.QueryRow(ctx, fmt.Sprintf(`
+		SELECT onhand_units,onhand_loose_g
+		FROM %s.finished_inventory
+		WHERE product_id=$1 AND spec_g=$2 AND warehouse=$3
+		FOR UPDATE
+	`, schema), productID, specG, stockdomain.WarehouseFinishedGoods).Scan(&beforeUnits, &beforeLooseG)
+	if err != nil && err != pgx.ErrNoRows {
+		return err
+	}
+	beforeG := finishedComponentTotalG(specG, beforeUnits, beforeLooseG)
+	if beforeG < need.DeductG {
+		return fmt.Errorf("finished product stock insufficient: %s", need.MaterialName)
+	}
+	afterUnits, afterLooseG, err := deductFinishedComponentQty(specG, beforeUnits, beforeLooseG, need.DeductG)
+	if err != nil {
+		return err
+	}
+	afterG := finishedComponentTotalG(specG, afterUnits, afterLooseG)
+	if _, err := tx.Exec(ctx, fmt.Sprintf(`
+		INSERT INTO %s.finished_inventory(product_id,spec_g,warehouse,onhand_units,onhand_loose_g,updated_at)
+		VALUES($1,$2,$3,$4,$5,now())
+		ON CONFLICT (product_id,spec_g,warehouse) DO UPDATE
+		SET onhand_units=excluded.onhand_units,
+		    onhand_loose_g=excluded.onhand_loose_g,
+		    updated_at=now()
+	`, schema), productID, specG, stockdomain.WarehouseFinishedGoods, afterUnits, afterLooseG); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, fmt.Sprintf(`
+		INSERT INTO %s.material_consumption_logs(
+			running_item_id,batch_id,product_id,product_name,spec_g,
+			material_id,material_name,unit,deduct_g,deduct_units,
+			before_g,after_g,before_units,after_units,operator,
+			material_batch_id,material_batch_code
+		) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,0,$10,$11,$12,$13,$14,0,'')
+	`, schema),
+		r.ID, r.BatchID, r.ProductID, r.Product, r.SpecG,
+		productID, need.MaterialName, "g", need.DeductG,
+		beforeG, afterG, beforeUnits, afterUnits, operator,
+	); err != nil {
+		return err
+	}
+	if err := insertStockLedgerEntryTx(ctx, tx, schema,
+		stockItemTypeFinishedProduct, productID, need.MaterialName, specG, stockdomain.WarehouseFinishedGoods,
+		stockSourceProductionRun, r.ID, "", r.BatchID,
+		stockLedgerQty{
+			BeforeG:     beforeG,
+			ChangeG:     -need.DeductG,
+			AfterG:      afterG,
+			BeforeUnits: beforeUnits,
+			ChangeUnits: afterUnits - beforeUnits,
+			AfterUnits:  afterUnits,
+		}, operator,
+	); err != nil {
+		return err
+	}
+	return postgresinfra.AuditInsertTx(ctx, tx, schema, operator, "produce_running", &r.ID, "consume_finished_product_component", postgresinfra.StrPtr("finished_product_component_consumption"), postgresinfra.StrPtr(fmt.Sprintf("%d", beforeG)), postgresinfra.StrPtr(fmt.Sprintf("%d", afterG)), postgresinfra.AuditMeta{
+		"running_item_id":                           r.ID,
+		"batch_id":                                  r.BatchID,
+		"drip_demand":                               true,
+		"drip_product_id":                           r.ProductID,
+		"drip_product_name":                         r.Product,
+		"drip_spec_g":                               r.SpecG,
+		"drip_need_g":                               r.NeedG,
+		"upstream_roast_demand_g":                   need.DeductG,
+		"upstream_product_id":                       productID,
+		"upstream_product_name":                     need.MaterialName,
+		"finished_product_component_consumption":    true,
+		"finished_product_component_before_g":       beforeG,
+		"finished_product_component_after_g":        afterG,
+		"finished_product_component_change_g":       -need.DeductG,
+		"finished_product_component_component_spec": specG,
+	})
+}
+
+func finishedComponentTotalG(specG, units, looseG int64) int64 {
+	if specG <= 0 {
+		return looseG
+	}
+	return units*specG + looseG
+}
+
+func deductFinishedComponentQty(specG, units, looseG, deductG int64) (int64, int64, error) {
+	if deductG <= 0 {
+		return units, looseG, nil
+	}
+	if specG <= 0 {
+		if looseG < deductG {
+			return 0, 0, fmt.Errorf("finished product stock insufficient")
+		}
+		return units, looseG - deductG, nil
+	}
+	after, deductedG, gapG, err := invDeduct(specG, InvQty{Units: units, LooseG: looseG}, deductG)
+	if err != nil {
+		return 0, 0, err
+	}
+	if gapG > 0 || deductedG != deductG {
+		return 0, 0, fmt.Errorf("finished product stock insufficient")
+	}
+	return after.Units, after.LooseG, nil
+}
+
 func aggregateMaterialConsumptionNeeds(needs []materialConsumptionNeed) []materialConsumptionNeed {
 	byMaterial := map[int64]materialConsumptionNeed{}
 	order := make([]int64, 0, len(needs))
@@ -560,11 +805,16 @@ func aggregateMaterialConsumptionNeeds(needs []materialConsumptionNeed) []materi
 		row, ok := byMaterial[need.MaterialID]
 		if !ok {
 			row = materialConsumptionNeed{
-				MaterialID:   need.MaterialID,
-				MaterialName: need.MaterialName,
-				Unit:         need.Unit,
-				RatioPct:     need.RatioPct,
-				Source:       need.Source,
+				MaterialID:         need.MaterialID,
+				MaterialName:       need.MaterialName,
+				Unit:               need.Unit,
+				RatioPct:           need.RatioPct,
+				Source:             need.Source,
+				ComponentType:      need.ComponentType,
+				ComponentProductID: need.ComponentProductID,
+				ComponentSpecG:     need.ComponentSpecG,
+				ConsumeUnit:        need.ConsumeUnit,
+				QtyPerUnit:         need.QtyPerUnit,
 			}
 			order = append(order, need.MaterialID)
 		}
@@ -604,6 +854,9 @@ func reservedWIPGForMaterialTx(ctx context.Context, tx pgx.Tx, schema string, ma
 
 func createMaterialReservationsForRunningItemTx(ctx context.Context, tx pgx.Tx, schema string, workOrderID, runningItemID int64, needs []materialConsumptionNeed) error {
 	for _, need := range aggregateMaterialConsumptionNeeds(needs) {
+		if need.Source == "finished_product" || need.ComponentType == "finished_product" {
+			continue
+		}
 		if need.MaterialID <= 0 || (need.DeductG <= 0 && need.DeductUnits <= 0) {
 			continue
 		}

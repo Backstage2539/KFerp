@@ -63,14 +63,81 @@ ALTER TABLE %[1]s.bean_list_publications ADD COLUMN IF NOT EXISTS style_source_p
 ALTER TABLE %[1]s.bean_list_publications ADD COLUMN IF NOT EXISTS source_version_no TEXT NOT NULL DEFAULT '';
 CREATE INDEX IF NOT EXISTS bean_list_publications_type_created_idx ON %[1]s.bean_list_publications(list_type, created_at DESC);
 DROP INDEX IF EXISTS %[1]s.bean_list_publications_one_published_idx;
+DROP INDEX IF EXISTS %[1]s.bean_list_publications_one_published_owner_idx;
+CREATE INDEX IF NOT EXISTS bean_list_publications_owner_status_idx
+	ON %[1]s.bean_list_publications(owner_type, owner_key, status, published_at DESC, id DESC);
 CREATE UNIQUE INDEX IF NOT EXISTS bean_list_publications_one_published_owner_idx
 	ON %[1]s.bean_list_publications(list_type, owner_type, owner_key)
 	WHERE status = 'published';
+CREATE TABLE IF NOT EXISTS %[1]s.bean_list_publication_assets (
+	id BIGSERIAL PRIMARY KEY,
+	publication_id BIGINT NOT NULL REFERENCES %[1]s.bean_list_publications(id) ON DELETE CASCADE,
+	asset_type TEXT NOT NULL DEFAULT 'pdf',
+	content_type TEXT NOT NULL DEFAULT 'application/pdf',
+	cache_key TEXT NOT NULL DEFAULT '',
+	payload BYTEA NOT NULL DEFAULT ''::bytea,
+	created_by TEXT NOT NULL DEFAULT '',
+	created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+	updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+	UNIQUE(publication_id, asset_type)
+);
+CREATE TABLE IF NOT EXISTS %[1]s.customer_bean_list_acknowledgements (
+	id BIGSERIAL PRIMARY KEY,
+	customer_id BIGINT NOT NULL REFERENCES %[1]s.customers(id) ON DELETE CASCADE,
+	publication_id BIGINT NOT NULL REFERENCES %[1]s.bean_list_publications(id) ON DELETE CASCADE,
+	acknowledged_by TEXT NOT NULL DEFAULT '',
+	acknowledged_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+	UNIQUE(customer_id, publication_id)
+);
+CREATE TABLE IF NOT EXISTS %[1]s.drip_price_templates (
+	id BIGSERIAL PRIMARY KEY,
+	name TEXT NOT NULL,
+	active BOOLEAN NOT NULL DEFAULT true,
+	bag_grams NUMERIC(12,3) NOT NULL DEFAULT 10,
+	box_bag_count INT NOT NULL DEFAULT 10,
+	include_packaging BOOLEAN NOT NULL DEFAULT true,
+	created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+	updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE TABLE IF NOT EXISTS %[1]s.drip_price_template_tiers (
+	id BIGSERIAL PRIMARY KEY,
+	template_id BIGINT NOT NULL REFERENCES %[1]s.drip_price_templates(id) ON DELETE CASCADE,
+	label TEXT NOT NULL,
+	min_bags NUMERIC(14,3) NOT NULL,
+	max_bags NUMERIC(14,3) NULL,
+	multiplier NUMERIC(14,6) NOT NULL,
+	position INT NOT NULL DEFAULT 1,
+	active BOOLEAN NOT NULL DEFAULT true
+);
+CREATE INDEX IF NOT EXISTS drip_price_template_tiers_template_idx ON %[1]s.drip_price_template_tiers(template_id, position, id);
+ALTER TABLE %[1]s.product_price_tiers ADD COLUMN IF NOT EXISTS product_kind TEXT NOT NULL DEFAULT 'roasted_bean';
+ALTER TABLE %[1]s.product_price_tiers ADD COLUMN IF NOT EXISTS price_basis TEXT NOT NULL DEFAULT 'weight';
+ALTER TABLE %[1]s.product_price_tiers ADD COLUMN IF NOT EXISTS sales_unit TEXT NOT NULL DEFAULT '';
+ALTER TABLE %[1]s.product_price_tiers ADD COLUMN IF NOT EXISTS unit_bag_count INT NOT NULL DEFAULT 0;
+ALTER TABLE %[1]s.product_price_tiers ADD COLUMN IF NOT EXISTS price_source_json JSONB NOT NULL DEFAULT '{}'::jsonb;
+UPDATE %[1]s.product_price_tiers SET product_kind='roasted_bean' WHERE COALESCE(product_kind,'')='';
+UPDATE %[1]s.product_price_tiers SET price_basis='weight' WHERE COALESCE(price_basis,'')='';
+UPDATE %[1]s.product_price_tiers SET sales_unit='' WHERE sales_unit IS NULL;
+UPDATE %[1]s.product_price_tiers SET unit_bag_count=0 WHERE unit_bag_count IS NULL;
+UPDATE %[1]s.product_price_tiers SET price_source_json='{}'::jsonb WHERE price_source_json IS NULL;
+ALTER TABLE %[1]s.product_price_tiers ALTER COLUMN product_kind SET DEFAULT 'roasted_bean';
+ALTER TABLE %[1]s.product_price_tiers ALTER COLUMN product_kind SET NOT NULL;
+ALTER TABLE %[1]s.product_price_tiers ALTER COLUMN price_basis SET DEFAULT 'weight';
+ALTER TABLE %[1]s.product_price_tiers ALTER COLUMN price_basis SET NOT NULL;
+ALTER TABLE %[1]s.product_price_tiers ALTER COLUMN sales_unit SET DEFAULT '';
+ALTER TABLE %[1]s.product_price_tiers ALTER COLUMN sales_unit SET NOT NULL;
+ALTER TABLE %[1]s.product_price_tiers ALTER COLUMN unit_bag_count SET DEFAULT 0;
+ALTER TABLE %[1]s.product_price_tiers ALTER COLUMN unit_bag_count SET NOT NULL;
+ALTER TABLE %[1]s.product_price_tiers ALTER COLUMN price_source_json SET DEFAULT '{}'::jsonb;
+ALTER TABLE %[1]s.product_price_tiers ALTER COLUMN price_source_json SET NOT NULL;
 `, schema)
 	if _, err := pool.Exec(ctx, q); err != nil {
 		return err
 	}
-	return seedParameters(ctx, pool, schema)
+	if err := seedParameters(ctx, pool, schema); err != nil {
+		return err
+	}
+	return seedDefaultDripPriceTemplate(ctx, pool, schema)
 }
 
 func seedParameters(ctx context.Context, pool *pgxpool.Pool, schema string) error {
@@ -110,6 +177,44 @@ func seedParameters(ctx context.Context, pool *pgxpool.Pool, schema string) erro
 		ON CONFLICT(key) DO UPDATE SET label=EXCLUDED.label, unit=EXCLUDED.unit`, schema)
 	for _, r := range rows {
 		if _, err := pool.Exec(ctx, q, r.key, r.label, r.value, r.unit); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func seedDefaultDripPriceTemplate(ctx context.Context, pool *pgxpool.Pool, schema string) error {
+	var id int64
+	err := pool.QueryRow(ctx, fmt.Sprintf(`
+		INSERT INTO %s.drip_price_templates(name, active, bag_grams, box_bag_count, include_packaging)
+		SELECT '默认挂耳供应价', true, 10, 10, true
+		WHERE NOT EXISTS (SELECT 1 FROM %s.drip_price_templates WHERE name='默认挂耳供应价')
+		RETURNING id
+	`, schema, schema)).Scan(&id)
+	if err != nil {
+		if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT id FROM %s.drip_price_templates WHERE name='默认挂耳供应价' ORDER BY id LIMIT 1`, schema)).Scan(&id); err != nil {
+			return err
+		}
+	}
+	rows := []struct {
+		label      string
+		minBags    float64
+		multiplier float64
+		position   int
+	}{
+		{"100袋", 100, 2.2, 1},
+		{"1000袋", 1000, 1.8, 2},
+		{"5000袋", 5000, 1.6, 3},
+		{"10000袋", 10000, 1.35, 4},
+	}
+	for _, row := range rows {
+		if _, err := pool.Exec(ctx, fmt.Sprintf(`
+			INSERT INTO %s.drip_price_template_tiers(template_id, label, min_bags, multiplier, position, active)
+			SELECT $1, $2, $3, $4, $5, true
+			WHERE NOT EXISTS (
+				SELECT 1 FROM %s.drip_price_template_tiers WHERE template_id=$1 AND label=$2
+			)
+		`, schema, schema), id, row.label, row.minBags, row.multiplier, row.position); err != nil {
 			return err
 		}
 	}

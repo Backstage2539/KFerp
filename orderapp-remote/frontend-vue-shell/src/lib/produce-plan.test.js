@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 
 import {
   buildInsufficientSelection,
+  describeProducePlanRow,
   gramsToKgString,
   insufficientSelectionState,
   normalizeRoastPlans,
@@ -88,4 +89,17 @@ test('gramsToKgString keeps roast output display stable', () => {
   assert.equal(gramsToKgString(10897), '10.90')
   assert.equal(gramsToKgString(571), '0.57')
   assert.equal(gramsToKgString(0), '0')
+})
+
+test('describeProducePlanRow summarizes drip bag production and upstream shortage', () => {
+  const labels = describeProducePlanRow({
+    product_name: '蓝山挂耳',
+    production_kind: 'drip_bag',
+    need_bags: 20,
+    upstream_roast_demand_g: 150,
+    upstream_shortage_g: 110,
+    finished_product_component_shortage_g: 110,
+  })
+
+  assert.deepEqual(labels, ['挂耳生产', '需求 20 袋', '熟豆组件缺口 110g', '上游烘焙需求 150g'])
 })

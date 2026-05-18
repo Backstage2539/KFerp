@@ -3,15 +3,19 @@ package catalog
 import "strings"
 
 const (
-	ProductKindRoasted   = "roasted"
-	ProductKindGreenBean = "green_bean"
+	ProductKindRoasted     = "roasted"
+	ProductKindRoastedBean = ProductKindRoasted
+	ProductKindGreenBean   = "green_bean"
+	ProductKindDripBag     = "drip_bag"
 )
 
 func NormalizeProductKind(value string) string {
 	switch strings.ToLower(strings.TrimSpace(value)) {
+	case ProductKindDripBag, "drip", "挂耳":
+		return ProductKindDripBag
 	case ProductKindGreenBean, "green", "raw", "raw_bean", "生豆":
 		return ProductKindGreenBean
-	case ProductKindRoasted, "熟豆":
+	case ProductKindRoasted, "roasted_bean", "熟豆":
 		return ProductKindRoasted
 	default:
 		return ProductKindRoasted
@@ -19,8 +23,12 @@ func NormalizeProductKind(value string) string {
 }
 
 func ProductKindLabel(value string) string {
-	if NormalizeProductKind(value) == ProductKindGreenBean {
+	switch NormalizeProductKind(value) {
+	case ProductKindDripBag:
+		return "挂耳"
+	case ProductKindGreenBean:
 		return "生豆"
+	default:
+		return "熟豆"
 	}
-	return "熟豆"
 }

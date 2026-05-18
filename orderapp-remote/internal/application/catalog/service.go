@@ -2,6 +2,7 @@ package catalog
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"math"
 	catalogdomain "orderapp/internal/domain/catalog"
@@ -24,6 +25,11 @@ type Product struct {
 	GreenBeanType           string
 	GreenBeanBomProductID   int64
 	RoastLevel              string
+	DripBagGrams            float64
+	DripBoxBagCount         int
+	AllowFulfillmentOrder   bool
+	AllowMallOrder          bool
+	SalesUnits              []string
 	DefaultPrice            float64
 	RetailPrice100G         float64
 	RetailPrice200G         float64
@@ -60,6 +66,11 @@ type ProductSettingsProduct struct {
 	GreenBeanType           string   `json:"green_bean_type"`
 	GreenBeanBomProductID   int64    `json:"green_bean_bom_product_id"`
 	RoastLevel              string   `json:"roast_level"`
+	DripBagGrams            float64  `json:"drip_bag_grams"`
+	DripBoxBagCount         int      `json:"drip_box_bag_count"`
+	AllowFulfillmentOrder   bool     `json:"allow_fulfillment_order"`
+	AllowMallOrder          bool     `json:"allow_mall_order"`
+	SalesUnits              []string `json:"sales_units"`
 	DefaultPrice            float64  `json:"default_price"`
 	RetailPrice100G         float64  `json:"retail_price_100g"`
 	RetailPrice200G         float64  `json:"retail_price_200g"`
@@ -134,6 +145,11 @@ type UpdateProductBasicsCommand struct {
 	GreenBeanBomProductID int64
 	DefaultPrice          float64
 	RoastLevel            string
+	DripBagGrams          float64
+	DripBoxBagCount       int
+	AllowFulfillmentOrder bool
+	AllowMallOrder        bool
+	SalesUnits            []string
 	RetailPrice100G       float64
 	RetailPrice200G       float64
 	RetailPrice227G       float64
@@ -143,19 +159,25 @@ type UpdateProductBasicsCommand struct {
 }
 
 type CreateProductCommand struct {
-	Actor                 string
-	Name                  string
-	ProductKind           string
-	GreenBeanType         string
-	GreenBeanBomProductID int64
-	RoastLevel            string
-	DefaultPrice          float64
-	RetailPrice100G       float64
-	RetailPrice200G       float64
-	RetailPrice227G       float64
-	RetailPrice250G       float64
-	YieldRate             float64
-	Tiers                 []PriceTier
+	Actor                    string
+	Name                     string
+	ProductKind              string
+	GreenBeanType            string
+	GreenBeanBomProductID    int64
+	RoastLevel               string
+	DripBagGrams             float64
+	DripBoxBagCount          int
+	AllowFulfillmentOrder    bool
+	AllowFulfillmentOrderSet bool
+	AllowMallOrder           bool
+	SalesUnits               []string
+	DefaultPrice             float64
+	RetailPrice100G          float64
+	RetailPrice200G          float64
+	RetailPrice227G          float64
+	RetailPrice250G          float64
+	YieldRate                float64
+	Tiers                    []PriceTier
 }
 
 type DeactivateProductsCommand struct {
@@ -244,6 +266,19 @@ type Service struct {
 	repo Repository
 }
 
+type ValidationError struct {
+	Message string
+}
+
+func (e ValidationError) Error() string {
+	return e.Message
+}
+
+func IsValidationError(err error) bool {
+	var validationErr ValidationError
+	return errors.As(err, &validationErr)
+}
+
 func NewService(repo Repository) *Service {
 	return &Service{repo: repo}
 }
@@ -270,7 +305,11 @@ func (s *Service) ReplacePriceTiers(ctx context.Context, cmd ReplacePriceTiersCo
 }
 
 func (s *Service) UpdateProductBasics(ctx context.Context, cmd UpdateProductBasicsCommand) error {
-	cmd.ProductKind = catalogdomain.NormalizeProductKind(cmd.ProductKind)
+	var err error
+	cmd.ProductKind, cmd.DripBagGrams, cmd.DripBoxBagCount, cmd.SalesUnits, err = normalizeProductKindSettings(cmd.ProductKind, cmd.DripBagGrams, cmd.DripBoxBagCount)
+	if err != nil {
+		return err
+	}
 	if err := normalizeProductSalesShape(&cmd.ProductKind, &cmd.GreenBeanType, &cmd.GreenBeanBomProductID, &cmd.RoastLevel, &cmd.DefaultPrice, &cmd.RetailPrice100G, &cmd.RetailPrice200G, &cmd.RetailPrice227G, &cmd.RetailPrice250G, &cmd.YieldRate, nil); err != nil {
 		return err
 	}
@@ -303,11 +342,18 @@ func (s *Service) DeactivateProducts(ctx context.Context, cmd DeactivateProducts
 func (s *Service) CreateProduct(ctx context.Context, cmd CreateProductCommand) (Product, error) {
 	cmd.Name = strings.TrimSpace(cmd.Name)
 	if cmd.Name == "" {
-		return Product{}, fmt.Errorf("name required")
+		return Product{}, ValidationError{Message: "name required"}
 	}
-	cmd.ProductKind = catalogdomain.NormalizeProductKind(cmd.ProductKind)
+	var err error
+	cmd.ProductKind, cmd.DripBagGrams, cmd.DripBoxBagCount, cmd.SalesUnits, err = normalizeProductKindSettings(cmd.ProductKind, cmd.DripBagGrams, cmd.DripBoxBagCount)
+	if err != nil {
+		return Product{}, err
+	}
+	if !cmd.AllowFulfillmentOrderSet {
+		cmd.AllowFulfillmentOrder = true
+	}
 	if cmd.DefaultPrice < 0 || cmd.RetailPrice100G < 0 || cmd.RetailPrice200G < 0 || cmd.RetailPrice227G < 0 || cmd.RetailPrice250G < 0 {
-		return Product{}, fmt.Errorf("price must not be negative")
+		return Product{}, ValidationError{Message: "price must not be negative"}
 	}
 	if cmd.RetailPrice227G <= 0 && cmd.DefaultPrice > 0 {
 		cmd.RetailPrice227G = cmd.DefaultPrice
@@ -322,13 +368,13 @@ func (s *Service) CreateProduct(ctx context.Context, cmd CreateProductCommand) (
 	} else {
 		cmd.RoastLevel = catalogdomain.NormalizeRoastLevel(cmd.RoastLevel)
 		if cmd.RoastLevel == "" {
-			return Product{}, fmt.Errorf("invalid roast_level")
+			return Product{}, ValidationError{Message: "invalid roast_level"}
 		}
 		if cmd.YieldRate <= 0 {
 			cmd.YieldRate = catalogdomain.ResolveYieldRate(cmd.RoastLevel, 0.8)
 		}
 		if cmd.YieldRate <= 0 || cmd.YieldRate > 1 {
-			return Product{}, fmt.Errorf("invalid yield_rate")
+			return Product{}, ValidationError{Message: "invalid yield_rate"}
 		}
 	}
 	return s.repo.CreateProduct(ctx, cmd)
@@ -340,10 +386,10 @@ func (s *Service) validateGreenBeanBomProduct(ctx context.Context, productID int
 		return err
 	}
 	if product == nil || product.ID <= 0 {
-		return fmt.Errorf("green_bean_bom_product_id not found")
+		return ValidationError{Message: "green_bean_bom_product_id not found"}
 	}
 	if catalogdomain.NormalizeProductKind(product.ProductKind) == catalogdomain.ProductKindGreenBean {
-		return fmt.Errorf("green_bean_bom_product_id must reference roasted product")
+		return ValidationError{Message: "green_bean_bom_product_id must reference roasted product"}
 	}
 	return nil
 }
@@ -616,13 +662,19 @@ func BuildProductSettings(categories []ProductCategory, products []Product) Prod
 }
 
 func productSettingsProduct(p Product) ProductSettingsProduct {
+	productKind, dripBagGrams, dripBoxBagCount, salesUnits, _ := normalizeProductKindSettings(p.ProductKind, p.DripBagGrams, p.DripBoxBagCount)
 	return ProductSettingsProduct{
 		ID:                      p.ID,
 		Name:                    p.Name,
-		ProductKind:             catalogdomain.NormalizeProductKind(p.ProductKind),
 		GreenBeanType:           p.GreenBeanType,
 		GreenBeanBomProductID:   p.GreenBeanBomProductID,
 		RoastLevel:              p.RoastLevel,
+		ProductKind:             productKind,
+		DripBagGrams:            dripBagGrams,
+		DripBoxBagCount:         dripBoxBagCount,
+		AllowFulfillmentOrder:   p.AllowFulfillmentOrder,
+		AllowMallOrder:          p.AllowMallOrder,
+		SalesUnits:              salesUnits,
 		DefaultPrice:            p.DefaultPrice,
 		RetailPrice100G:         p.RetailPrice100G,
 		RetailPrice200G:         p.RetailPrice200G,
@@ -639,6 +691,26 @@ func productSettingsProduct(p Product) ProductSettingsProduct {
 		BomItemCount:            p.BomItemCount,
 		BomStatus:               productBomStatus(p.BomStatus, p.BomItemCount),
 	}
+}
+
+func normalizeProductKindSettings(productKind string, dripBagGrams float64, dripBoxBagCount int) (string, float64, int, []string, error) {
+	productKind = catalogdomain.NormalizeProductKind(productKind)
+	if productKind != catalogdomain.ProductKindDripBag {
+		return productKind, dripBagGrams, dripBoxBagCount, []string{}, nil
+	}
+	if dripBagGrams == 0 {
+		dripBagGrams = 10
+	}
+	if dripBoxBagCount == 0 {
+		dripBoxBagCount = 10
+	}
+	if dripBagGrams <= 0 {
+		return productKind, dripBagGrams, dripBoxBagCount, nil, ValidationError{Message: "drip_bag_grams must be > 0"}
+	}
+	if dripBoxBagCount <= 0 {
+		return productKind, dripBagGrams, dripBoxBagCount, nil, ValidationError{Message: "drip_box_bag_count must be > 0"}
+	}
+	return productKind, dripBagGrams, dripBoxBagCount, []string{"bag", "box"}, nil
 }
 
 func productBomStatus(status string, itemCount int) string {

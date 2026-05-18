@@ -10,6 +10,7 @@ import (
 	catalogdomain "orderapp/internal/domain/catalog"
 	postgresinfra "orderapp/internal/infrastructure/postgres"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -88,7 +89,7 @@ func (r Repository) Detail(ctx context.Context, productID int64) (bomapp.Detail,
 }
 
 func (r Repository) Products(ctx context.Context) ([]bomapp.Option, error) {
-	rows, err := r.pool.Query(ctx, "SELECT id, name, COALESCE(customer_id,0) FROM "+r.schema+".products WHERE active=true ORDER BY name")
+	rows, err := r.pool.Query(ctx, "SELECT id, name, COALESCE(customer_id,0), COALESCE(roast_level,''), COALESCE(NULLIF(product_kind,''),'roasted_bean'), COALESCE(drip_bag_grams,10)::float8, COALESCE(drip_box_bag_count,10) FROM "+r.schema+".products WHERE active=true ORDER BY name")
 	if err != nil {
 		return nil, err
 	}
@@ -97,7 +98,7 @@ func (r Repository) Products(ctx context.Context) ([]bomapp.Option, error) {
 	out := make([]bomapp.Option, 0)
 	for rows.Next() {
 		var opt bomapp.Option
-		if err := rows.Scan(&opt.ID, &opt.Name, &opt.CustomerID); err != nil {
+		if err := rows.Scan(&opt.ID, &opt.Name, &opt.CustomerID, &opt.RoastLevel, &opt.ProductKind, &opt.DripBagGrams, &opt.DripBoxBagCount); err != nil {
 			return nil, err
 		}
 		out = append(out, opt)
@@ -121,18 +122,21 @@ func (r Repository) BagSpecMappings(ctx context.Context) ([]bomapp.BagSpecMappin
 	return bagSpecMappingsToApp(rows), nil
 }
 
-func (r Repository) SyncProductYield(ctx context.Context, productID int64) error {
+func (r Repository) SyncProductYield(ctx context.Context, cmd bomapp.SyncProductYieldCommand) error {
 	var roastLevel string
-	if err := r.pool.QueryRow(ctx, "SELECT COALESCE(roast_level,'') FROM "+r.schema+".products WHERE id=$1", productID).Scan(&roastLevel); err != nil {
+	if err := r.pool.QueryRow(ctx, "SELECT COALESCE(roast_level,'') FROM "+r.schema+".products WHERE id=$1", cmd.ProductID).Scan(&roastLevel); err != nil {
 		return fmt.Errorf("product not found")
 	}
 	yieldRate := catalogdomain.ResolveYieldRate(roastLevel, 0.8)
 	q := "INSERT INTO " + r.schema + ".product_bom(product_id,yield_rate,status,updated_at) VALUES($1,$2,'active',now()) ON CONFLICT (product_id) DO UPDATE SET yield_rate=excluded.yield_rate, status='active', updated_at=now()"
-	_, err := r.pool.Exec(ctx, q, productID, yieldRate)
+	_, err := r.pool.Exec(ctx, q, cmd.ProductID, yieldRate)
+	if err == nil {
+		postgresinfra.AuditInsert(ctx, r.pool, r.schema, cmd.Actor, "product_bom", &cmd.ProductID, "sync_yield", postgresinfra.StrPtr("yield_rate"), nil, postgresinfra.StrPtr(fmt.Sprintf("%.4f", yieldRate)), postgresinfra.AuditMeta{"product_id": cmd.ProductID, "status": "active"})
+	}
 	return err
 }
 
-func (r Repository) DeactivateBom(ctx context.Context, productID int64) error {
+func (r Repository) DeactivateBom(ctx context.Context, cmd bomapp.DeactivateBomCommand) error {
 	tx, err := r.pool.Begin(ctx)
 	if err != nil {
 		return err
@@ -140,18 +144,21 @@ func (r Repository) DeactivateBom(ctx context.Context, productID int64) error {
 	defer func() { _ = tx.Rollback(ctx) }()
 
 	var roastLevel string
-	if err := tx.QueryRow(ctx, "SELECT COALESCE(roast_level,'') FROM "+r.schema+".products WHERE id=$1", productID).Scan(&roastLevel); err != nil {
+	if err := tx.QueryRow(ctx, "SELECT COALESCE(roast_level,'') FROM "+r.schema+".products WHERE id=$1", cmd.ProductID).Scan(&roastLevel); err != nil {
 		return fmt.Errorf("product not found")
 	}
 	yieldRate := catalogdomain.ResolveYieldRate(roastLevel, 0.8)
-	if _, err := tx.Exec(ctx, "INSERT INTO "+r.schema+".product_bom(product_id,yield_rate,status,updated_at) VALUES($1,$2,'inactive',now()) ON CONFLICT (product_id) DO UPDATE SET status='inactive', updated_at=now()", productID, yieldRate); err != nil {
+	if _, err := tx.Exec(ctx, "INSERT INTO "+r.schema+".product_bom(product_id,yield_rate,status,updated_at) VALUES($1,$2,'inactive',now()) ON CONFLICT (product_id) DO UPDATE SET status='inactive', updated_at=now()", cmd.ProductID, yieldRate); err != nil {
+		return err
+	}
+	if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, cmd.Actor, "product_bom", &cmd.ProductID, "deactivate", postgresinfra.StrPtr("status"), nil, postgresinfra.StrPtr("inactive"), postgresinfra.AuditMeta{"product_id": cmd.ProductID}); err != nil {
 		return err
 	}
 	return tx.Commit(ctx)
 }
 
 func (r Repository) SaveItem(ctx context.Context, cmd bomapp.SaveItemCommand) error {
-	if err := r.SyncProductYield(ctx, cmd.ProductID); err != nil {
+	if err := r.SyncProductYield(ctx, bomapp.SyncProductYieldCommand{ProductID: cmd.ProductID, Actor: cmd.Actor}); err != nil {
 		return err
 	}
 	_, total, err := listBomItems(ctx, r.pool, r.schema, cmd.ProductID)
@@ -159,30 +166,74 @@ func (r Repository) SaveItem(ctx context.Context, cmd bomapp.SaveItemCommand) er
 		return err
 	}
 
-	var oldRatio float64
-	_ = r.pool.QueryRow(ctx,
-		"SELECT COALESCE(ratio_pct,0) FROM "+r.schema+".product_bom_items WHERE product_id=$1 AND material_id=$2",
-		cmd.ProductID, cmd.MaterialID).Scan(&oldRatio)
-	if total-oldRatio+cmd.RatioPct > 100.0001 {
-		return fmt.Errorf("ratio sum exceed 100%%")
+	if cmd.ComponentType == "material" && cmd.ConsumeUnit == "ratio_pct" {
+		var oldRatio float64
+		_ = r.pool.QueryRow(ctx,
+			"SELECT COALESCE(ratio_pct,0) FROM "+r.schema+".product_bom_items WHERE product_id=$1 AND component_type='material' AND material_id=$2",
+			cmd.ProductID, cmd.MaterialID).Scan(&oldRatio)
+		if total-oldRatio+cmd.RatioPct > 100.0001 {
+			return fmt.Errorf("ratio sum exceed 100%%")
+		}
 	}
 
-	q := "INSERT INTO " + r.schema + ".product_bom_items(product_id,material_id,ratio_pct,updated_at) VALUES($1,$2,$3,now()) ON CONFLICT (product_id,material_id) DO UPDATE SET ratio_pct=excluded.ratio_pct, updated_at=now()"
-	_, err = r.pool.Exec(ctx, q, cmd.ProductID, cmd.MaterialID, cmd.RatioPct)
+	if cmd.ComponentType == "finished_product" {
+		q := "INSERT INTO " + r.schema + ".product_bom_items(product_id,material_id,component_type,component_product_id,component_spec_g,consume_unit,qty_per_unit,ratio_pct,updated_at) VALUES($1,0,$2,$3,$4,$5,$6,0,now()) ON CONFLICT (product_id,component_product_id,component_spec_g,consume_unit) WHERE component_type='finished_product' DO UPDATE SET component_product_id=excluded.component_product_id, component_spec_g=excluded.component_spec_g, consume_unit=excluded.consume_unit, qty_per_unit=excluded.qty_per_unit, ratio_pct=excluded.ratio_pct, updated_at=now()"
+		_, err = r.pool.Exec(ctx, q, cmd.ProductID, cmd.ComponentType, cmd.ComponentProductID, cmd.ComponentSpecG, cmd.ConsumeUnit, cmd.QtyPerUnit)
+		if err == nil {
+			auditBomItemSave(ctx, r.pool, r.schema, cmd)
+		}
+		return err
+	}
+
+	q := "INSERT INTO " + r.schema + ".product_bom_items(product_id,material_id,component_type,component_product_id,component_spec_g,consume_unit,qty_per_unit,ratio_pct,updated_at) VALUES($1,$2,'material',0,$3,$4,$5,$6,now()) ON CONFLICT (product_id,material_id) WHERE component_type='material' DO UPDATE SET component_spec_g=excluded.component_spec_g, consume_unit=excluded.consume_unit, qty_per_unit=excluded.qty_per_unit, ratio_pct=excluded.ratio_pct, updated_at=now()"
+	_, err = r.pool.Exec(ctx, q, cmd.ProductID, cmd.MaterialID, cmd.ComponentSpecG, cmd.ConsumeUnit, cmd.QtyPerUnit, cmd.RatioPct)
+	if err == nil {
+		auditBomItemSave(ctx, r.pool, r.schema, cmd)
+	}
 	return err
 }
 
 func (r Repository) DeleteItem(ctx context.Context, cmd bomapp.DeleteItemCommand) error {
-	_, err := r.pool.Exec(ctx, "DELETE FROM "+r.schema+".product_bom_items WHERE id=$1", cmd.ID)
-	return err
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	var row struct {
+		ID                 int64
+		ProductID          int64
+		MaterialID         int64
+		ComponentType      string
+		ComponentProductID int64
+		ComponentSpecG     int64
+		ConsumeUnit        string
+		QtyPerUnit         float64
+		RatioPct           float64
+	}
+	err = tx.QueryRow(ctx, "SELECT id, product_id, material_id, COALESCE(NULLIF(component_type,''),'material'), COALESCE(component_product_id,0), COALESCE(component_spec_g,0), COALESCE(NULLIF(consume_unit,''),'ratio_pct'), COALESCE(qty_per_unit,0)::float8, COALESCE(ratio_pct,0)::float8 FROM "+r.schema+".product_bom_items WHERE id=$1 AND product_id=$2 FOR UPDATE", cmd.ID, cmd.ProductID).
+		Scan(&row.ID, &row.ProductID, &row.MaterialID, &row.ComponentType, &row.ComponentProductID, &row.ComponentSpecG, &row.ConsumeUnit, &row.QtyPerUnit, &row.RatioPct)
+	if err != nil {
+		if err == pgx.ErrNoRows {
+			return fmt.Errorf("bom item not found")
+		}
+		return err
+	}
+	if _, err := tx.Exec(ctx, "DELETE FROM "+r.schema+".product_bom_items WHERE id=$1 AND product_id=$2", cmd.ID, cmd.ProductID); err != nil {
+		return err
+	}
+	if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, cmd.Actor, "product_bom_item", &cmd.ProductID, "delete", postgresinfra.StrPtr("item_id"), postgresinfra.StrPtr(fmt.Sprintf("%d", row.ID)), nil, postgresinfra.AuditMeta{"product_id": row.ProductID, "material_id": row.MaterialID, "component_type": row.ComponentType, "component_product_id": row.ComponentProductID, "component_spec_g": row.ComponentSpecG, "consume_unit": row.ConsumeUnit, "qty_per_unit": row.QtyPerUnit, "ratio_pct": row.RatioPct}); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
 }
 
 func (r Repository) SaveBagSpecMapping(ctx context.Context, cmd bomapp.SaveBagSpecMappingCommand) error {
-	return saveBagSpecMapping(ctx, r.pool, r.schema, cmd.SpecG, cmd.MaterialID)
+	return saveBagSpecMapping(ctx, r.pool, r.schema, cmd)
 }
 
-func (r Repository) DeleteBagSpecMapping(ctx context.Context, specG int64) error {
-	return deleteBagSpecMapping(ctx, r.pool, r.schema, specG)
+func (r Repository) DeleteBagSpecMapping(ctx context.Context, cmd bomapp.DeleteBagSpecMappingCommand) error {
+	return deleteBagSpecMapping(ctx, r.pool, r.schema, cmd)
 }
 
 func (r Repository) ListVersions(ctx context.Context, productID int64) ([]bomapp.Version, error) {
@@ -234,12 +285,15 @@ func (r Repository) CreateVersion(ctx context.Context, cmd bomapp.CreateVersionC
 		return bomapp.Version{}, err
 	}
 	if _, err := tx.Exec(ctx, fmt.Sprintf(`
-		INSERT INTO %s.bom_version_items(version_id,material_id,ratio_pct)
-		SELECT $1,material_id,ratio_pct
+		INSERT INTO %s.bom_version_items(version_id,material_id,component_type,component_product_id,component_spec_g,consume_unit,qty_per_unit,ratio_pct)
+		SELECT $1,material_id,component_type,component_product_id,component_spec_g,consume_unit,qty_per_unit,ratio_pct
 		FROM %s.product_bom_items
 		WHERE product_id=$2
 		ORDER BY id
 	`, r.schema, r.schema), versionID, cmd.ProductID); err != nil {
+		return bomapp.Version{}, err
+	}
+	if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, cmd.Actor, "bom_version", &versionID, "create", postgresinfra.StrPtr("version_no"), nil, postgresinfra.StrPtr(versionNo), postgresinfra.AuditMeta{"product_id": cmd.ProductID, "note": strings.TrimSpace(cmd.Note)}); err != nil {
 		return bomapp.Version{}, err
 	}
 	if err := tx.Commit(ctx); err != nil {
@@ -257,7 +311,7 @@ func (r Repository) CreateVersion(ctx context.Context, cmd bomapp.CreateVersionC
 	return bomapp.Version{ID: versionID, ProductID: cmd.ProductID, VersionNo: versionNo, Status: "draft", YieldRate: yieldRate}, nil
 }
 
-func (r Repository) ActivateVersion(ctx context.Context, versionID int64) error {
+func (r Repository) ActivateVersion(ctx context.Context, cmd bomapp.ActivateVersionCommand) error {
 	tx, err := r.pool.Begin(ctx)
 	if err != nil {
 		return err
@@ -266,13 +320,13 @@ func (r Repository) ActivateVersion(ctx context.Context, versionID int64) error 
 
 	var productID int64
 	var yieldRate float64
-	if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT product_id,COALESCE(yield_rate,0.8) FROM %s.bom_versions WHERE id=$1 FOR UPDATE`, r.schema), versionID).Scan(&productID, &yieldRate); err != nil {
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT product_id,COALESCE(yield_rate,0.8) FROM %s.bom_versions WHERE id=$1 FOR UPDATE`, r.schema), cmd.VersionID).Scan(&productID, &yieldRate); err != nil {
 		return fmt.Errorf("bom version not found")
 	}
-	if _, err := tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.bom_versions SET status='disabled' WHERE product_id=$1 AND id<>$2`, r.schema), productID, versionID); err != nil {
+	if _, err := tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.bom_versions SET status='disabled' WHERE product_id=$1 AND id<>$2`, r.schema), productID, cmd.VersionID); err != nil {
 		return err
 	}
-	if _, err := tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.bom_versions SET status='active',activated_at=now() WHERE id=$1`, r.schema), versionID); err != nil {
+	if _, err := tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.bom_versions SET status='active',activated_at=now() WHERE id=$1`, r.schema), cmd.VersionID); err != nil {
 		return err
 	}
 	if _, err := tx.Exec(ctx, fmt.Sprintf(`
@@ -286,32 +340,54 @@ func (r Repository) ActivateVersion(ctx context.Context, versionID int64) error 
 		return err
 	}
 	if _, err := tx.Exec(ctx, fmt.Sprintf(`
-		INSERT INTO %s.product_bom_items(product_id,material_id,ratio_pct,updated_at)
-		SELECT $1,material_id,ratio_pct,now()
+		INSERT INTO %s.product_bom_items(product_id,material_id,component_type,component_product_id,component_spec_g,consume_unit,qty_per_unit,ratio_pct,updated_at)
+		SELECT $1,material_id,component_type,component_product_id,component_spec_g,consume_unit,qty_per_unit,ratio_pct,now()
 		FROM %s.bom_version_items
 		WHERE version_id=$2
 		ORDER BY id
-	`, r.schema, r.schema), productID, versionID); err != nil {
+	`, r.schema, r.schema), productID, cmd.VersionID); err != nil {
+		return err
+	}
+	if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, cmd.Actor, "product_bom", &productID, "activate_version", postgresinfra.StrPtr("version_id"), nil, postgresinfra.StrPtr(fmt.Sprintf("%d", cmd.VersionID)), postgresinfra.AuditMeta{"product_id": productID, "version_id": cmd.VersionID}); err != nil {
+		return err
+	}
+	if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, cmd.Actor, "bom_version", &cmd.VersionID, "activate", postgresinfra.StrPtr("status"), nil, postgresinfra.StrPtr("active"), postgresinfra.AuditMeta{"product_id": productID, "version_id": cmd.VersionID}); err != nil {
 		return err
 	}
 	return tx.Commit(ctx)
 }
 
 type bomItemRow struct {
-	ID           int64
-	MaterialID   int64
-	MaterialName string
-	RatioPct     float64
+	ID                   int64
+	MaterialID           int64
+	MaterialName         string
+	ComponentType        string
+	ComponentProductID   int64
+	ComponentProductName string
+	ComponentSpecG       int64
+	ConsumeUnit          string
+	QtyPerUnit           float64
+	RatioPct             float64
 }
 
 func listBomItems(ctx context.Context, pool *pgxpool.Pool, schema string, productID int64) ([]bomItemRow, float64, error) {
 	q := fmt.Sprintf(`
-		SELECT bi.id, bi.material_id, COALESCE(m.name,''), bi.ratio_pct
+		SELECT bi.id,
+		       bi.material_id,
+		       COALESCE(m.name,''),
+		       COALESCE(NULLIF(bi.component_type,''),'material'),
+		       COALESCE(bi.component_product_id,0),
+		       COALESCE(cp.name,''),
+		       COALESCE(bi.component_spec_g,0),
+		       COALESCE(NULLIF(bi.consume_unit,''),'ratio_pct'),
+		       COALESCE(bi.qty_per_unit,0)::float8,
+		       bi.ratio_pct
 		FROM %s.product_bom_items bi
 		LEFT JOIN %s.materials m ON m.id=bi.material_id
+		LEFT JOIN %s.products cp ON cp.id=bi.component_product_id
 		WHERE bi.product_id=$1
-		ORDER BY m.name, bi.id
-	`, schema, schema)
+		ORDER BY COALESCE(m.name, cp.name, ''), bi.id
+	`, schema, schema, schema)
 	rows, err := pool.Query(ctx, q, productID)
 	if err != nil {
 		return nil, 0, err
@@ -322,46 +398,78 @@ func listBomItems(ctx context.Context, pool *pgxpool.Pool, schema string, produc
 	total := 0.0
 	for rows.Next() {
 		var row bomItemRow
-		if err := rows.Scan(&row.ID, &row.MaterialID, &row.MaterialName, &row.RatioPct); err != nil {
+		if err := rows.Scan(&row.ID, &row.MaterialID, &row.MaterialName, &row.ComponentType, &row.ComponentProductID, &row.ComponentProductName, &row.ComponentSpecG, &row.ConsumeUnit, &row.QtyPerUnit, &row.RatioPct); err != nil {
 			return nil, 0, err
 		}
-		total += row.RatioPct
+		if row.ComponentType == "material" && row.ConsumeUnit == "ratio_pct" {
+			total += row.RatioPct
+		}
 		out = append(out, row)
 	}
 	return out, total, rows.Err()
 }
 
-func saveBagSpecMapping(ctx context.Context, pool *pgxpool.Pool, schema string, specG, materialID int64) error {
-	if specG <= 0 {
+func saveBagSpecMapping(ctx context.Context, pool *pgxpool.Pool, schema string, cmd bomapp.SaveBagSpecMappingCommand) error {
+	if cmd.SpecG <= 0 {
 		return fmt.Errorf("spec_g required")
 	}
-	if materialID <= 0 {
+	if cmd.MaterialID <= 0 {
 		return fmt.Errorf("material_id required")
 	}
 
 	q := fmt.Sprintf(`INSERT INTO %s.packaging_spec_material_map(spec_g, material_id, updated_at)
 		VALUES($1,$2,now())
 		ON CONFLICT (spec_g) DO UPDATE SET material_id=excluded.material_id, updated_at=now()`, schema)
-	_, err := pool.Exec(ctx, q, specG, materialID)
+	_, err := pool.Exec(ctx, q, cmd.SpecG, cmd.MaterialID)
+	if err == nil {
+		postgresinfra.AuditInsert(ctx, pool, schema, cmd.Actor, "packaging_spec_material_map", &cmd.SpecG, "save", postgresinfra.StrPtr("material_id"), nil, postgresinfra.StrPtr(fmt.Sprintf("%d", cmd.MaterialID)), postgresinfra.AuditMeta{"spec_g": cmd.SpecG, "material_id": cmd.MaterialID})
+	}
 	return err
 }
 
-func deleteBagSpecMapping(ctx context.Context, pool *pgxpool.Pool, schema string, specG int64) error {
-	if specG <= 0 {
+func deleteBagSpecMapping(ctx context.Context, pool *pgxpool.Pool, schema string, cmd bomapp.DeleteBagSpecMappingCommand) error {
+	if cmd.SpecG <= 0 {
 		return fmt.Errorf("spec_g required")
 	}
-	_, err := pool.Exec(ctx, "DELETE FROM "+schema+".packaging_spec_material_map WHERE spec_g=$1", specG)
+	_, err := pool.Exec(ctx, "DELETE FROM "+schema+".packaging_spec_material_map WHERE spec_g=$1", cmd.SpecG)
+	if err == nil {
+		postgresinfra.AuditInsert(ctx, pool, schema, cmd.Actor, "packaging_spec_material_map", &cmd.SpecG, "delete", postgresinfra.StrPtr("spec_g"), postgresinfra.StrPtr(fmt.Sprintf("%d", cmd.SpecG)), nil, postgresinfra.AuditMeta{"spec_g": cmd.SpecG})
+	}
 	return err
+}
+
+func auditBomItemSave(ctx context.Context, pool *pgxpool.Pool, schema string, cmd bomapp.SaveItemCommand) {
+	componentID := cmd.MaterialID
+	if cmd.ComponentType == "finished_product" {
+		componentID = cmd.ComponentProductID
+	}
+	newValue := fmt.Sprintf("%s:%d:%s", cmd.ComponentType, componentID, cmd.ConsumeUnit)
+	postgresinfra.AuditInsert(ctx, pool, schema, cmd.Actor, "product_bom_item", &cmd.ProductID, "save", postgresinfra.StrPtr("component"), nil, postgresinfra.StrPtr(newValue), postgresinfra.AuditMeta{
+		"product_id":           cmd.ProductID,
+		"material_id":          cmd.MaterialID,
+		"component_type":       cmd.ComponentType,
+		"component_product_id": cmd.ComponentProductID,
+		"component_spec_g":     cmd.ComponentSpecG,
+		"consume_unit":         cmd.ConsumeUnit,
+		"qty_per_unit":         cmd.QtyPerUnit,
+		"ratio_pct":            cmd.RatioPct,
+	})
 }
 
 func bomItemsToApp(rows []bomItemRow) []bomapp.Item {
 	out := make([]bomapp.Item, 0, len(rows))
 	for _, row := range rows {
 		out = append(out, bomapp.Item{
-			ID:           row.ID,
-			MaterialID:   row.MaterialID,
-			MaterialName: row.MaterialName,
-			RatioPct:     row.RatioPct,
+			ID:                   row.ID,
+			MaterialID:           row.MaterialID,
+			MaterialName:         row.MaterialName,
+			ComponentType:        row.ComponentType,
+			ComponentProductID:   row.ComponentProductID,
+			ComponentProductName: row.ComponentProductName,
+			ComponentSpecG:       row.ComponentSpecG,
+			ConsumeUnit:          row.ConsumeUnit,
+			QtyPerUnit:           row.QtyPerUnit,
+			RatioPct:             row.RatioPct,
 		})
 	}
 	return out

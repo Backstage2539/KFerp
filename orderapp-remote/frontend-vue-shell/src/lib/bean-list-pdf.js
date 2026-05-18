@@ -23,6 +23,7 @@ export function buildBeanListPdfTitle(listType, brandName = '棵凡咖啡') {
   const brand = String(brandName || '棵凡咖啡').trim() || '棵凡咖啡'
   const normalized = normalizeBeanListType(listType)
   if (normalized === 'green') return `${brand}生豆豆单`
+  if (normalized === 'drip') return `${brand}挂耳豆单`
   return normalized === 'retail' ? `${brand}零售豆单` : `${brand}批发豆单`
 }
 
@@ -40,13 +41,14 @@ export function filterBeanListItemsForScope(items = [], scope = 'official', cust
 export function buildBeanListPdfSubtitle(listType) {
   const normalized = normalizeBeanListType(listType)
   if (normalized === 'green') return '生豆销售报价'
+  if (normalized === 'drip') return '挂耳供应价，报价按袋/盒快照发布'
   return normalized === 'retail' ? '报价含税运' : '报价不含税、不含运'
 }
 
 export function buildBeanListPdfGroups(items = [], listType = 'commercial', options = {}) {
   const normalizedListType = normalizeBeanListType(listType)
-  const metaKey = normalizedListType === 'green' ? 'green_bean_list' : normalizedListType === 'retail' ? 'retail_bean_list' : 'commercial_bean_list'
-  const tierKey = normalizedListType === 'green' ? 'green_bean_sale_tiers' : normalizedListType === 'retail' ? 'retail_bean_tiers' : 'commercial_wholesale_tiers'
+  const metaKey = normalizedListType === 'green' ? 'green_bean_list' : normalizedListType === 'retail' ? 'retail_bean_list' : normalizedListType === 'drip' ? 'drip_bean_list' : 'commercial_bean_list'
+  const tierKey = normalizedListType === 'green' ? 'green_bean_sale_tiers' : normalizedListType === 'retail' ? 'retail_bean_tiers' : normalizedListType === 'drip' ? 'drip_wholesale_tiers' : 'commercial_wholesale_tiers'
   const selectedIDs = normalizeStringSet(options.selectedProductIDs)
   const hasProductFilter = Object.prototype.hasOwnProperty.call(options, 'selectedProductIDs')
   const visibleCategoryCodes = normalizeStringSet(options.visibleCategoryCodes)
@@ -93,6 +95,7 @@ export function buildBeanListPdfGroups(items = [], listType = 'commercial', opti
 
 function normalizeBeanListType(listType) {
   if (listType === 'retail') return 'retail'
+  if (listType === 'drip') return 'drip'
   if (listType === 'green' || listType === 'green_bean') return 'green'
   return 'commercial'
 }
@@ -115,16 +118,73 @@ function buildPdfItem(item, metaKey, tierKey, listType, code, customizers) {
     badgeLabel: badgeLabel(badge),
     highlightTerms,
     ...(beanListQuality ? { beanListQuality, qualityLines: beanListQualityLines(beanListQuality) } : {}),
-    prices: (Array.isArray(item[tierKey]) ? item[tierKey] : []).map((tier) => {
-      const label = tier.label || ''
-      return {
-        label,
-        price: Number(tier.price_per_unit || tier.price_per_lb || 0),
-        unit: listType === 'retail' ? '' : priceUnit(tier),
-        red: false,
-      }
+    prices: pdfPriceRows(item, tierKey, listType)
+  }
+}
+
+function pdfPriceRows(item, tierKey, listType) {
+  const tiers = Array.isArray(item[tierKey]) ? item[tierKey] : []
+  if (listType === 'drip') {
+    return tiers.flatMap((tier) => dripPdfPriceRows(tier, item))
+  }
+  return tiers.map((tier) => {
+    const label = tier.label || ''
+    return {
+      label,
+      price: firstNumber(tier.price_per_unit, tier.price_per_lb, 0),
+      unit: listType === 'retail' ? '' : priceUnit(tier),
+      red: false,
+    }
+  })
+}
+
+function dripPdfPriceRows(tier = {}, item = {}) {
+  if (tier.sales_unit === 'box') {
+    return [{
+      label: tier.label || '',
+      price: firstNumber(tier.price_per_unit, tier.packed_price_per_box, 0),
+      unit: dripPriceUnit(tier),
+      red: false,
+    }]
+  }
+  const boxBagCount = positiveInteger(tier.unit_bag_count, tier.box_bag_count, item.drip_box_bag_count, 10)
+  const bagPrice = firstNumber(tier.price_per_unit, tier.packed_price_per_bag, tier.price_per_lb, 0)
+  const rows = [{
+    label: tier.label || '',
+    price: bagPrice,
+    unit: '袋',
+    red: false,
+  }]
+  if (boxBagCount > 1) {
+    rows.push({
+      label: tier.label || '',
+      price: firstNumber(tier.packed_price_per_box, bagPrice * boxBagCount),
+      unit: `盒(${boxBagCount}袋)`,
+      red: false,
     })
   }
+  return rows
+}
+
+function dripPriceUnit(tier = {}) {
+  if (tier.sales_unit === 'box') return `盒(${positiveInteger(tier.unit_bag_count, tier.box_bag_count, 10)}袋)`
+  return '袋'
+}
+
+function firstNumber(...values) {
+  for (const value of values) {
+    const n = Number(value)
+    if (Number.isFinite(n)) return n
+  }
+  return 0
+}
+
+function positiveInteger(...values) {
+  for (const value of values) {
+    const n = Number.parseInt(String(value ?? ''), 10)
+    if (Number.isFinite(n) && n > 0) return n
+  }
+  return 10
 }
 
 function normalizeBeanListQuality(input) {
@@ -218,7 +278,7 @@ export function splitHighlightedText(text, terms = []) {
 
 export function copyBeanListPublicationConfig(publication = {}, currentOptions = {}, available = {}) {
   const config = publication.config && typeof publication.config === 'object' ? publication.config : {}
-  const listType = normalizeBeanListType(config.listType || publication.list_type)
+  const listType = config.listType === 'drip' || publication.list_type === 'drip' ? 'drip' : config.listType === 'retail' || publication.list_type === 'retail' ? 'retail' : 'commercial'
   const options = {
     ...sanitizeBeanListPdfTheme({
       ...currentOptions,

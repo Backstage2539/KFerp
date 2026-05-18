@@ -182,7 +182,10 @@ func (r Repository) fetchOrderProducts(ctx context.Context) ([]salesapp.ProductO
 		COALESCE(customer_id, 0),
 		COALESCE(base_product_id, 0),
 		COALESCE(NULLIF(visibility,''), 'public'),
-		COALESCE(custom_type, '')
+		COALESCE(custom_type, ''),
+		COALESCE(NULLIF(product_kind,''), 'roasted_bean'),
+		COALESCE(drip_bag_grams, 0)::float8,
+		COALESCE(drip_box_bag_count, 0)
 		FROM %s.products WHERE active=true ORDER BY name`, r.schema)
 	rows, err := r.pool.Query(ctx, sqlstr)
 	if err != nil {
@@ -193,8 +196,11 @@ func (r Repository) fetchOrderProducts(ctx context.Context) ([]salesapp.ProductO
 	out := make([]salesapp.ProductOption, 0)
 	for rows.Next() {
 		var p salesapp.ProductOption
-		if err := rows.Scan(&p.ID, &p.Name, &p.ProductKind, &p.RoastLevel, &p.DefaultPrice, &p.RetailPrice100G, &p.RetailPrice200G, &p.RetailPrice227G, &p.RetailPrice250G, &p.CustomerID, &p.BaseProductID, &p.Visibility, &p.CustomType); err != nil {
+		if err := rows.Scan(&p.ID, &p.Name, &p.RoastLevel, &p.DefaultPrice, &p.RetailPrice100G, &p.RetailPrice200G, &p.RetailPrice227G, &p.RetailPrice250G, &p.CustomerID, &p.BaseProductID, &p.Visibility, &p.CustomType, &p.ProductKind, &p.DripBagGrams, &p.DripBoxBagCount); err != nil {
 			return nil, err
+		}
+		if p.ProductKind == "drip_bag" {
+			p.SalesUnits = []string{"bag", "box"}
 		}
 		p.RetailSpecs = salesdomain.RetailAvailableSpecs(salesdomain.RetailSpecPrices{
 			Price100G: p.RetailPrice100G,
@@ -213,7 +219,11 @@ func (r Repository) fetchOrderProducts(ctx context.Context) ([]salesapp.ProductO
 		       COALESCE(NULLIF(spec_g,0), 454),
 		       COALESCE(min_qty_units, min_qty_lb),
 		       COALESCE(max_qty_units, max_qty_lb),
-		       COALESCE(price_per_unit, price_per_lb)
+		       COALESCE(price_per_unit, price_per_lb),
+		       COALESCE(NULLIF(product_kind,''), 'roasted_bean'),
+		       COALESCE(sales_unit, ''),
+		       COALESCE(unit_bag_count, 0),
+		       COALESCE(price_source_json, '{}'::jsonb)::text
 		FROM %s.product_price_tiers
 		WHERE active=true
 		ORDER BY product_id, COALESCE(NULLIF(spec_g,0), 454), COALESCE(min_qty_units, min_qty_lb)
@@ -231,10 +241,12 @@ func (r Repository) fetchOrderProducts(ctx context.Context) ([]salesapp.ProductO
 		var min float64
 		var max *float64
 		var price float64
-		if err := trs.Scan(&tid, &pid, &specG, &min, &max, &price); err != nil {
+		var productKind, salesUnit, priceSourceJSON string
+		var unitBagCount int64
+		if err := trs.Scan(&tid, &pid, &specG, &min, &max, &price, &productKind, &salesUnit, &unitBagCount, &priceSourceJSON); err != nil {
 			return nil, err
 		}
-		tierMap[pid] = append(tierMap[pid], salesapp.ProductTierOption{ID: tid, SpecG: specG, MinQty: min, MaxQty: max, UnitPrice: price})
+		tierMap[pid] = append(tierMap[pid], salesapp.ProductTierOption{ID: tid, SpecG: specG, MinQty: min, MaxQty: max, UnitPrice: price, ProductKind: productKind, SalesUnit: salesUnit, UnitBagCount: unitBagCount, PriceSourceJSON: priceSourceJSON})
 	}
 	if err := trs.Err(); err != nil {
 		return nil, err
@@ -359,14 +371,13 @@ func (r Repository) fetchOrderEdit(ctx context.Context, id int64) (*salesapp.Ord
 	d.OutsourceTotalFee = fmt.Sprintf("%.2f", outsourceTotal)
 
 	itemsQ := fmt.Sprintf(`
-		SELECT oi.id, oi.line_no,
-			COALESCE(oi.product_id,0),
-			COALESCE(p.name,''),
-			COALESCE(NULLIF(oi.product_kind,''), NULLIF(p.product_kind,''), 'roasted'),
-			COALESCE(oi.item_note,''),
-			COALESCE(oi.spec,''),
-			COALESCE(oi.qty,0),
-			COALESCE(oi.unit,''),
+			SELECT oi.id, oi.line_no,
+				COALESCE(oi.product_id,0),
+				COALESCE(p.name,''),
+				COALESCE(oi.item_note,''),
+				COALESCE(oi.spec,''),
+				COALESCE(oi.qty,0),
+				COALESCE(oi.unit,''),
 				COALESCE(oi.unit_price,0),
 				COALESCE(oi.line_total,0),
 				COALESCE(oi.price_tier_id,0),
@@ -374,7 +385,13 @@ func (r Repository) fetchOrderEdit(ctx context.Context, id int64) (*salesapp.Ord
 				COALESCE(oi.bean_list_version_no,''),
 				COALESCE(oi.discount_type,''),
 				COALESCE(oi.discount_value,0),
-				COALESCE(oi.discount_amount,0)
+				COALESCE(oi.discount_amount,0),
+				COALESCE(NULLIF(oi.product_kind,''), NULLIF(p.product_kind,''), 'roasted'),
+				COALESCE(oi.sales_unit,''),
+				COALESCE(oi.unit_bag_count,0),
+				COALESCE(oi.unit_bean_g,0)::float8,
+				COALESCE(oi.matched_price_qty,0)::float8,
+				COALESCE(oi.price_source_json,'{}'::jsonb)::text
 		FROM %s.order_items oi
 		LEFT JOIN %s.products p ON p.id=oi.product_id
 		WHERE oi.order_id=$1
@@ -389,8 +406,8 @@ func (r Repository) fetchOrderEdit(ctx context.Context, id int64) (*salesapp.Ord
 	d.Items = make([]salesapp.OrderEditItem, 0)
 	for rows.Next() {
 		var it salesapp.OrderEditItem
-		var qty, unitPrice, lineTotal, discountValue, discountAmount float64
-		if err := rows.Scan(&it.ItemID, &it.LineNo, &it.ProductID, &it.Product, &it.ProductKind, &it.Note, &it.Spec, &qty, &it.Unit, &unitPrice, &lineTotal, &it.PriceTierID, &it.BeanListPublicationID, &it.BeanListVersionNo, &it.DiscountType, &discountValue, &discountAmount); err != nil {
+		var qty, unitPrice, lineTotal, discountValue, discountAmount, unitBeanG, matchedPriceQty float64
+		if err := rows.Scan(&it.ItemID, &it.LineNo, &it.ProductID, &it.Product, &it.Note, &it.Spec, &qty, &it.Unit, &unitPrice, &lineTotal, &it.PriceTierID, &it.BeanListPublicationID, &it.BeanListVersionNo, &it.DiscountType, &discountValue, &discountAmount, &it.ProductKind, &it.SalesUnit, &it.UnitBagCount, &unitBeanG, &matchedPriceQty, &it.PriceSourceJSON); err != nil {
 			return nil, err
 		}
 		it.Qty = trimFloatZero(qty)
@@ -398,6 +415,9 @@ func (r Repository) fetchOrderEdit(ctx context.Context, id int64) (*salesapp.Ord
 		it.LineTotal = fmt.Sprintf("%.2f", lineTotal)
 		it.DiscountValue = trimFloatZero(discountValue)
 		it.DiscountAmount = fmt.Sprintf("%.2f", discountAmount)
+		it.UnitBeanG = trimFloatZero(unitBeanG)
+		it.MatchedPriceQty = trimFloatZero(matchedPriceQty)
+		it.UnitConversionLabel = orderEditUnitConversionLabel(it.SalesUnit, it.UnitBagCount, unitBeanG)
 		d.Items = append(d.Items, it)
 	}
 	if err := rows.Err(); err != nil {
@@ -545,6 +565,20 @@ func trimFloatZero(v float64) string {
 		return "0"
 	}
 	return s
+}
+
+func orderEditUnitConversionLabel(salesUnit string, unitBagCount int64, unitBeanG float64) string {
+	switch strings.TrimSpace(salesUnit) {
+	case "bag":
+		if unitBeanG > 0 {
+			return trimFloatZero(unitBeanG) + "g/袋"
+		}
+	case "box":
+		if unitBagCount > 0 {
+			return strconv.FormatInt(unitBagCount, 10) + "袋/盒"
+		}
+	}
+	return ""
 }
 
 func env(key, def string) string {
