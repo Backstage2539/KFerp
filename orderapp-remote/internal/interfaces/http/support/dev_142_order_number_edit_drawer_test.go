@@ -31,7 +31,8 @@ func TestOrdersViewMergesOrderNumberAndEditIntoDrawer(t *testing.T) {
 		"openOrderDetailDrawer(row)",
 		`@click.prevent="openOrderDetailDrawer(row)"`,
 		`@saved="handleOrderEditSaved"`,
-		":edit-id=\"activeOrderDetail.id\"",
+		`:edit-id="activeOrderEditID()"`,
+		`:copy-id="activeOrderCopyID()"`,
 	} {
 		if !strings.Contains(src, want) {
 			t.Fatalf("OrdersView missing order edit drawer marker %q", want)

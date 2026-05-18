@@ -29,6 +29,8 @@ type fakeRepo struct {
 	invoiceRequestCmd      RequestOrderInvoiceCommand
 	invoiceFileCmd         SaveOrderInvoiceFileCommand
 	sealAssets             []SalesOrderAsset
+	voidManyIDs            []int64
+	voidManyReason         string
 }
 
 func (r *fakeRepo) SaveOrder(ctx context.Context, cmd SaveOrderCommand) (SaveOrderResult, error) {
@@ -55,8 +57,10 @@ func (r *fakeRepo) Void(ctx context.Context, id int64, actor, reason string) err
 	return nil
 }
 
-func (r *fakeRepo) Unvoid(ctx context.Context, id int64, actor string) error {
-	return nil
+func (r *fakeRepo) VoidMany(ctx context.Context, ids []int64, actor, reason string) (int, error) {
+	r.voidManyIDs = append([]int64(nil), ids...)
+	r.voidManyReason = reason
+	return len(ids), nil
 }
 
 func (r *fakeRepo) ListOrders(ctx context.Context, query OrderListQuery) (OrderListResult, error) {
@@ -314,6 +318,27 @@ func TestServiceDelegatesSaveOrder(t *testing.T) {
 	}
 	if len(repo.saveCmd.Items) != 1 || repo.saveCmd.Items[0].SpecG != 227 {
 		t.Fatalf("repo items = %+v", repo.saveCmd.Items)
+	}
+}
+
+func TestServiceVoidManyDeduplicatesAndRejectsInvalidIDs(t *testing.T) {
+	repo := &fakeRepo{}
+	svc := NewService(repo)
+	count, err := svc.VoidMany(context.Background(), []int64{9, 9, 10}, "tester", "批量失效")
+	if err != nil {
+		t.Fatalf("VoidMany() error = %v", err)
+	}
+	if count != 2 {
+		t.Fatalf("VoidMany() count = %d, want 2", count)
+	}
+	if len(repo.voidManyIDs) != 2 || repo.voidManyIDs[0] != 9 || repo.voidManyIDs[1] != 10 {
+		t.Fatalf("VoidMany() ids = %v, want [9 10]", repo.voidManyIDs)
+	}
+	if repo.voidManyReason != "批量失效" {
+		t.Fatalf("VoidMany() reason = %q", repo.voidManyReason)
+	}
+	if _, err := svc.VoidMany(context.Background(), []int64{9, 0}, "tester", "bad"); err == nil {
+		t.Fatal("VoidMany() invalid id error = nil")
 	}
 }
 

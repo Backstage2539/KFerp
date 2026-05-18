@@ -99,6 +99,11 @@ type orderVoidAPIRequest struct {
 	Reason string `json:"reason"`
 }
 
+type orderVoidManyAPIRequest struct {
+	OrderIDs []int64 `json:"order_ids"`
+	Reason   string  `json:"reason"`
+}
+
 func registerOrderAPI(e *echo.Echo, salesSvc *salesapp.Service, messages MessagePublisher) {
 	h := orderAPIHandler{
 		sales:    salesSvc,
@@ -107,7 +112,7 @@ func registerOrderAPI(e *echo.Echo, salesSvc *salesapp.Service, messages Message
 	e.GET("/api/orders", h.list)
 	e.GET("/api/orders/:id/detail", h.detail)
 	e.POST("/api/orders/:id/void", h.void)
-	e.POST("/api/orders/:id/unvoid", h.unvoid)
+	e.POST("/api/orders/void", h.voidMany)
 	e.GET("/api/order/form", h.form)
 	e.POST("/api/order/stock-batch-preview", h.stockBatchPreview)
 	e.POST("/api/order", h.save)
@@ -266,17 +271,19 @@ func (h orderAPIHandler) void(c echo.Context) error {
 	})
 }
 
-func (h orderAPIHandler) unvoid(c echo.Context) error {
-	id, err := strconv.ParseInt(strings.TrimSpace(c.Param("id")), 10, 64)
-	if err != nil || id <= 0 {
-		return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid id"})
+func (h orderAPIHandler) voidMany(c echo.Context) error {
+	var req orderVoidManyAPIRequest
+	if err := c.Bind(&req); err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]string{"error": "bad request"})
 	}
-	if err := h.sales.Unvoid(c.Request().Context(), id, support.ActorOf(c)); err != nil {
+	count, err := h.sales.VoidMany(c.Request().Context(), req.OrderIDs, support.ActorOf(c), strings.TrimSpace(req.Reason))
+	if err != nil {
 		return c.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
 	}
 	return c.JSON(http.StatusOK, map[string]any{
-		"order_id": id,
-		"is_void":  false,
+		"order_ids": req.OrderIDs,
+		"voided":    count,
+		"is_void":   true,
 	})
 }
 

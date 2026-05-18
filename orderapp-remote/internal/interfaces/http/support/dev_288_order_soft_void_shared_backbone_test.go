@@ -15,24 +15,41 @@ func TestDev288OrderSoftVoidSharedBackboneSources(t *testing.T) {
 
 	for _, want := range []string{
 		`e.POST("/api/orders/:id/void", h.void)`,
-		`e.POST("/api/orders/:id/unvoid", h.unvoid)`,
+		`e.POST("/api/orders/void", h.voidMany)`,
 		"sales.Void",
-		"sales.Unvoid",
+		"sales.VoidMany",
 	} {
 		if !strings.Contains(orderAPI, want) {
 			t.Fatalf("order API missing shared soft void marker %q", want)
 		}
 	}
+	for _, forbidden := range []string{
+		`/api/orders/:id/unvoid`,
+		"func (h orderAPIHandler) unvoid",
+		"sales.Unvoid",
+	} {
+		if strings.Contains(orderAPI, forbidden) {
+			t.Fatalf("order API must not expose restore marker %q", forbidden)
+		}
+	}
 	for _, want := range []string{
 		"失效",
-		"恢复",
+		"批量失效",
+		"复制",
 		"voidOrder(row)",
-		"restoreOrder(row)",
+		"voidSelectedOrders",
+		"copyOrder(row)",
 		"`/api/orders/${id}/void`",
-		"`/api/orders/${id}/unvoid`",
+		"`/api/orders/void`",
+		"失效后不可恢复",
 	} {
 		if !strings.Contains(ordersView, want) {
 			t.Fatalf("OrdersView.vue missing soft void marker %q", want)
+		}
+	}
+	for _, forbidden := range []string{"restoreOrder", "unvoid"} {
+		if strings.Contains(ordersView, forbidden) {
+			t.Fatalf("OrdersView.vue must not expose restore marker %q", forbidden)
 		}
 	}
 	for _, want := range []string{
@@ -90,6 +107,9 @@ func TestDev288OrderSoftVoidSharedBackboneReqAndDocs(t *testing.T) {
 			"履约客户订单",
 			"小程序订单",
 			"已失效",
+			"不可恢复",
+			"复制",
+			"批量失效",
 		} {
 			if !strings.Contains(doc, want) {
 				t.Fatalf("%s missing order soft void doc marker %q", path, want)
