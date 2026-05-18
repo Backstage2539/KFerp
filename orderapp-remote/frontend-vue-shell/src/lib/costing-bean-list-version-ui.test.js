@@ -25,3 +25,15 @@ test('product bean-list view exposes publication versions without pricing trial 
     assert.ok(viewSource.includes(expected), `missing version list behavior: ${expected}`)
   }
 })
+
+test('product bean-list view maps every bean-list type to its own metadata and tier fields', () => {
+  for (const expected of [
+    "if (listType === 'green') return 'green_bean_list'",
+    "if (listType === 'green') return 'green_bean_sale_tiers'",
+    'official: { commercial: [], drip: [], retail: [], green: [] }',
+    'selectedProductIDsByType.value = { commercial: [], drip: [], retail: [], green: [] }',
+    "if (normalized === 'drip') return '挂耳'",
+  ]) {
+    assert.ok(viewSource.includes(expected), `missing bean-list type mapping: ${expected}`)
+  }
+})

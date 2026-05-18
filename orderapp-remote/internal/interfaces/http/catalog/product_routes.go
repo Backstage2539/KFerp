@@ -33,6 +33,7 @@ func registerProductRoutes(e *echo.Echo, catalogSvc *catalogapp.Service) {
 	e.POST("/api/product-settings/products/deactivate", h.deactivateProductsAPI)
 	e.POST("/api/product-settings/categories", h.saveProductCategoryAPI)
 	e.POST("/api/product-settings/custom-products", h.createCustomProductAPI)
+	e.POST("/api/product-settings/customer-public-copy", h.copyPublicCatalogForCustomerAPI)
 	e.PUT("/api/product-settings/categories/:id", h.saveProductCategoryAPI)
 	e.DELETE("/api/product-settings/categories/:id", h.deleteProductCategoryAPI)
 	e.POST("/api/product-settings/categories/:id/move", h.moveProductCategoryAPI)
@@ -135,6 +136,12 @@ type customProductAPIRequest struct {
 	CustomType     string `json:"custom_type"`
 	CopyBOM        bool   `json:"copy_bom"`
 	CopyPriceTiers bool   `json:"copy_price_tiers"`
+}
+
+type copyPublicCatalogForCustomerAPIRequest struct {
+	CustomerID          int64 `json:"customer_id"`
+	UsePublicSKU        bool  `json:"use_public_sku"`
+	UsePublicCategories bool  `json:"use_public_categories"`
 }
 
 type gradientTemplateAPIRequest struct {
@@ -555,6 +562,23 @@ func (h productHandler) createCustomProductAPI(c echo.Context) error {
 		return c.JSON(http.StatusBadRequest, map[string]any{"error": err.Error()})
 	}
 	return c.JSON(http.StatusOK, map[string]any{"product": productOptionFromCatalog(product)})
+}
+
+func (h productHandler) copyPublicCatalogForCustomerAPI(c echo.Context) error {
+	var req copyPublicCatalogForCustomerAPIRequest
+	if err := c.Bind(&req); err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]any{"error": "bad request"})
+	}
+	result, err := h.catalog.CopyPublicCatalogForCustomer(c.Request().Context(), catalogapp.CopyPublicCatalogForCustomerCommand{
+		Actor:               support.ActorOf(c),
+		CustomerID:          req.CustomerID,
+		UsePublicSKU:        req.UsePublicSKU,
+		UsePublicCategories: req.UsePublicCategories,
+	})
+	if err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]any{"error": err.Error()})
+	}
+	return c.JSON(http.StatusOK, map[string]any{"result": result})
 }
 
 func (h productHandler) moveProductCategoryAPI(c echo.Context) error {

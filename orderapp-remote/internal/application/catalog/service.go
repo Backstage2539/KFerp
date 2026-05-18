@@ -196,6 +196,21 @@ type CreateCustomProductCommand struct {
 	CopyPriceTiers bool
 }
 
+type CopyPublicCatalogForCustomerCommand struct {
+	Actor               string
+	CustomerID          int64
+	UsePublicSKU        bool
+	UsePublicCategories bool
+}
+
+type CopyPublicCatalogForCustomerResult struct {
+	CustomerID        int64 `json:"customer_id"`
+	CategoriesCreated int   `json:"categories_created"`
+	CategoriesReused  int   `json:"categories_reused"`
+	ProductsCreated   int   `json:"products_created"`
+	ProductsSkipped   int   `json:"products_skipped"`
+}
+
 type SaveProductCategoryCommand struct {
 	Actor      string
 	ID         int64
@@ -260,6 +275,7 @@ type Repository interface {
 	DeleteProductCategory(ctx context.Context, cmd DeleteProductCategoryCommand) error
 	AssignProductCategory(ctx context.Context, cmd AssignProductCategoryCommand) error
 	CreateCustomProduct(ctx context.Context, cmd CreateCustomProductCommand) (Product, error)
+	CopyPublicCatalogForCustomer(ctx context.Context, cmd CopyPublicCatalogForCustomerCommand) (CopyPublicCatalogForCustomerResult, error)
 }
 
 type Service struct {
@@ -512,6 +528,17 @@ func (s *Service) CreateCustomProduct(ctx context.Context, cmd CreateCustomProdu
 		return Product{}, fmt.Errorf("invalid custom_type")
 	}
 	return s.repo.CreateCustomProduct(ctx, cmd)
+}
+
+func (s *Service) CopyPublicCatalogForCustomer(ctx context.Context, cmd CopyPublicCatalogForCustomerCommand) (CopyPublicCatalogForCustomerResult, error) {
+	if cmd.CustomerID <= 0 {
+		return CopyPublicCatalogForCustomerResult{}, fmt.Errorf("customer_id required")
+	}
+	if !cmd.UsePublicSKU && !cmd.UsePublicCategories {
+		return CopyPublicCatalogForCustomerResult{}, fmt.Errorf("at least one public source is required")
+	}
+	cmd.Actor = strings.TrimSpace(cmd.Actor)
+	return s.repo.CopyPublicCatalogForCustomer(ctx, cmd)
 }
 
 func normalizeGradientTemplateCommand(cmd SaveGradientTemplateCommand) (SaveGradientTemplateCommand, error) {

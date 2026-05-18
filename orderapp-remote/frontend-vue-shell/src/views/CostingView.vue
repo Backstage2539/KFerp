@@ -751,16 +751,16 @@ const explanationTier = ref(null)
 const explanationMode = ref('commercial')
 const customers = ref([])
 const beanListPublications = ref({
-  official: { commercial: [], drip: [], retail: [] },
-  mine: { commercial: [], drip: [], retail: [] },
-  customer: { commercial: [], drip: [], retail: [] },
+  official: { commercial: [], drip: [], retail: [], green: [] },
+  mine: { commercial: [], drip: [], retail: [], green: [] },
+  customer: { commercial: [], drip: [], retail: [], green: [] },
 })
-const priceSourcePublicationByType = ref({ commercial: null, drip: null, retail: null })
-const styleSourcePublicationIDByType = ref({ commercial: 0, drip: 0, retail: 0 })
-const selectedProductIDsByType = ref({ commercial: [], drip: [], retail: [] })
-const visibleCategoryCodesByType = ref({ commercial: [], drip: [], retail: [] })
-const productSelectionInitialized = ref({ commercial: false, drip: false, retail: false })
-const categorySelectionInitialized = ref({ commercial: false, drip: false, retail: false })
+const priceSourcePublicationByType = ref({ commercial: null, drip: null, retail: null, green: null })
+const styleSourcePublicationIDByType = ref({ commercial: 0, drip: 0, retail: 0, green: 0 })
+const selectedProductIDsByType = ref({ commercial: [], drip: [], retail: [], green: [] })
+const visibleCategoryCodesByType = ref({ commercial: [], drip: [], retail: [], green: [] })
+const productSelectionInitialized = ref({ commercial: false, drip: false, retail: false, green: false })
+const categorySelectionInitialized = ref({ commercial: false, drip: false, retail: false, green: false })
 const pdfCustomizers = ref({})
 const pdfOptions = ref({
   listType: 'commercial',
@@ -868,7 +868,7 @@ watch(publicationScope, (scope) => {
 watch(selectedBeanListCustomerID, () => {
   beanListPublications.value = {
     ...beanListPublications.value,
-    customer: { commercial: [], drip: [], retail: [] },
+    customer: { commercial: [], drip: [], retail: [], green: [] },
   }
   selectedCopyPublicationID.value = ''
   resetPdfSelectionDefaults()
@@ -1012,11 +1012,13 @@ function itemProductID(item) {
 }
 
 function metaKeyForListType(listType) {
+  if (listType === 'green') return 'green_bean_list'
   if (listType === 'drip') return 'drip_bean_list'
   return listType === 'retail' ? 'retail_bean_list' : 'commercial_bean_list'
 }
 
 function tierKeyForListType(listType) {
+  if (listType === 'green') return 'green_bean_sale_tiers'
   if (listType === 'drip') return 'drip_wholesale_tiers'
   return listType === 'retail' ? 'retail_bean_tiers' : 'commercial_wholesale_tiers'
 }
@@ -1083,10 +1085,10 @@ function initializePdfDefaultsIfItemsLoaded() {
 }
 
 function resetPdfSelectionDefaults() {
-  selectedProductIDsByType.value = { commercial: [], drip: [], retail: [] }
-  visibleCategoryCodesByType.value = { commercial: [], drip: [], retail: [] }
-  productSelectionInitialized.value = { commercial: false, drip: false, retail: false }
-  categorySelectionInitialized.value = { commercial: false, drip: false, retail: false }
+  selectedProductIDsByType.value = { commercial: [], drip: [], retail: [], green: [] }
+  visibleCategoryCodesByType.value = { commercial: [], drip: [], retail: [], green: [] }
+  productSelectionInitialized.value = { commercial: false, drip: false, retail: false, green: false }
+  categorySelectionInitialized.value = { commercial: false, drip: false, retail: false, green: false }
 }
 
 function initializePdfDefaultsForType(listType) {
@@ -1167,6 +1169,7 @@ function applyCopiedBeanListPriceSource(row = selectedPriceSourcePublication.val
 function beanListTypeLabel(listType) {
   const normalized = normalizeBeanListType(listType)
   if (normalized === 'green') return '生豆'
+  if (normalized === 'drip') return '挂耳'
   return normalized === 'retail' ? '零售' : '商用'
 }
 

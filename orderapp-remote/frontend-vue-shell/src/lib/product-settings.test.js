@@ -2,8 +2,10 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 
 import {
+  buildCustomerPublicCopyPayload,
   buildProductBasicsPayload,
   buildProductCreatePayload,
+  customerSkuCustomerOptions,
   filterSkuRows,
   paginatedSkuRows,
   greenBeanTypeLabel,
@@ -96,4 +98,32 @@ test('green bean labels and BOM product options stay fused with existing product
     { id: 4, name: '历史缺形态 SKU', product_kind: '' },
     { id: 5, name: '异常缺形态生豆', product_kind: '', green_bean_bom_product_id: 1 },
   ]).map((row) => row.id), [1])
+})
+
+test('customer SKU customer options include active customers before they have copied SKUs', () => {
+  assert.deepEqual(customerSkuCustomerOptions([
+    { id: 9, name: 'Z 客户', active: true },
+    { id: 7, name: 'A 客户', active: true },
+    { id: 8, name: '停用客户', active: false },
+  ]).map((row) => row.id), [7, 9])
+})
+
+test('customer public copy payload keeps SKU and category switches independent', () => {
+  assert.deepEqual(buildCustomerPublicCopyPayload(42, {
+    use_public_sku: true,
+    use_public_categories: false,
+  }), {
+    customer_id: 42,
+    use_public_sku: true,
+    use_public_categories: false,
+  })
+
+  assert.deepEqual(buildCustomerPublicCopyPayload('7', {
+    usePublicSku: false,
+    usePublicCategories: true,
+  }), {
+    customer_id: 7,
+    use_public_sku: false,
+    use_public_categories: true,
+  })
 })

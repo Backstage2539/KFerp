@@ -42,7 +42,7 @@
         </div>
       </div>
 
-      <div class="panel public-product-panel">
+      <div v-if="!selectedCustomerSkuCustomerID" class="panel public-product-panel">
         <div class="panel-title">
           <span>新增公共产品</span>
         </div>
@@ -104,19 +104,8 @@
         <div class="panel-title">
           <span>客户专属 SKU</span>
         </div>
-        <form class="custom-product-form" @submit.prevent="createCustomProduct">
-          <label>
-            <span>客户</span>
-            <SearchableSelect
-              v-model="customForm.customer_id"
-              :options="customers"
-              :option-label="customerOptionLabel"
-              :option-meta="customerOptionMeta"
-              :option-value="optionNumericValue"
-              placeholder="输入客户名/拼音"
-              empty-text="没有匹配客户"
-              @select="fillCustomProductName" />
-          </label>
+        <p v-if="!selectedCustomerSkuCustomerID" class="muted">先在顶部选择客户后创建客户专属 SKU。</p>
+        <form v-else class="custom-product-form" @submit.prevent="createCustomProduct">
           <label>
             <span>基础产品</span>
             <SearchableSelect
@@ -233,6 +222,20 @@
           </button>
         </div>
         <div v-show="!categoryCollapsed">
+          <div v-if="selectedCustomerSkuCustomerID" class="customer-copy-panel">
+            <label class="checkline switchline">
+              <input v-model="publicCopyOptions.use_public_sku" type="checkbox" />
+              <span>是否使用公共SKU</span>
+            </label>
+            <label class="checkline switchline">
+              <input v-model="publicCopyOptions.use_public_categories" type="checkbox" />
+              <span>是否使用公共商品分类</span>
+            </label>
+            <button class="secondary compact-action" type="button" :disabled="publicCopySaving || !canCopyPublicCatalog" @click="copyPublicCatalogForCustomer">
+              复制公共配置
+            </button>
+          </div>
+
           <form class="inline-form" @submit.prevent="savePrimaryCategory">
             <input v-model.trim="newPrimaryName" placeholder="新增一级分类，如 咖啡豆" />
             <button class="secondary" type="submit">新增一级分类</button>
@@ -352,7 +355,21 @@
             </button>
           </div>
         </div>
-        <div v-show="!productsCollapsed" class="table-wrap">
+        <div v-show="!productsCollapsed">
+          <div v-if="selectedCustomerSkuCustomerID" class="customer-copy-panel">
+            <label class="checkline switchline">
+              <input v-model="publicCopyOptions.use_public_sku" type="checkbox" />
+              <span>是否使用公共SKU</span>
+            </label>
+            <label class="checkline switchline">
+              <input v-model="publicCopyOptions.use_public_categories" type="checkbox" />
+              <span>是否使用公共商品分类</span>
+            </label>
+            <button class="secondary compact-action" type="button" :disabled="publicCopySaving || !canCopyPublicCatalog" @click="copyPublicCatalogForCustomer">
+              复制公共配置
+            </button>
+          </div>
+          <div class="table-wrap">
           <div class="sku-filters">
             <label>
               <span>形态</span>
@@ -488,6 +505,7 @@
               </tr>
             </tbody>
           </table>
+          </div>
         </div>
         <PaginationControls
           :page="skuPage"
@@ -517,8 +535,10 @@ import {
   validateGradientTemplate,
 } from '../lib/gradient-templates'
 import {
+  buildCustomerPublicCopyPayload,
   buildProductBasicsPayload,
   buildProductCreatePayload,
+  customerSkuCustomerOptions,
   filterSkuRows,
   greenBeanTypeOptions,
   normalizedProductKind,
@@ -554,6 +574,11 @@ const selectedProductIds = ref([])
 const skuFilters = ref(defaultSkuFilters())
 const skuPage = ref(1)
 const skuPageSize = ref(10)
+const publicCopySaving = ref(false)
+const publicCopyOptions = ref({
+  use_public_sku: true,
+  use_public_categories: true,
+})
 const roastLevels = ['浅烘', '中烘', '中深烘', '深烘']
 const productForm = ref(defaultProductForm())
 const customForm = ref(defaultCustomForm())
@@ -565,6 +590,10 @@ const selectedSkuContextLabel = computed(() => {
   if (!customerID) return '公共SKU'
   return `${customerName(customerID) || `客户 #${customerID}`} SKU`
 })
+const canCopyPublicCatalog = computed(() => Boolean(
+  selectedCustomerSkuCustomerID.value &&
+  (publicCopyOptions.value.use_public_sku || publicCopyOptions.value.use_public_categories),
+))
 const categoryTreeForSkuContext = computed(() => categories.value
   .filter(categoryBelongsToSkuContext)
   .map((primary, primaryIndex) => {
@@ -634,17 +663,7 @@ const uncategorizedProducts = computed(() => products.value
   .sort((a, b) => ownerLabel(a).localeCompare(ownerLabel(b)) || a.name.localeCompare(b.name)))
 const baseProducts = computed(() => products.value.filter((product) => Number(product.customer_id || 0) === 0 && productVisibility(product) === 'public'))
 const publicSkuRows = computed(() => productRows.value.filter((product) => Number(product.customer_id || 0) === 0))
-const customProductCustomerIDs = computed(() => {
-  const ids = new Set()
-  for (const product of products.value) {
-    const customerID = Number(product.customer_id || 0)
-    if (customerID > 0) ids.add(customerID)
-  }
-  return ids
-})
-const customerSkuCustomers = computed(() => customers.value
-  .filter((customer) => customProductCustomerIDs.value.has(Number(customer.id || 0)))
-  .sort((a, b) => customerOptionLabel(a).localeCompare(customerOptionLabel(b))))
+const customerSkuCustomers = computed(() => customerSkuCustomerOptions(customers.value))
 const customerSkuRows = computed(() => productRows.value
   .filter((product) => Number(product.customer_id || 0) > 0)
   .filter((product) => !selectedCustomerSkuCustomerID.value || Number(product.customer_id || 0) === Number(selectedCustomerSkuCustomerID.value))
@@ -934,7 +953,7 @@ function pruneSelectedProducts(sourceProducts) {
 
 function syncSelectedCustomerSkuCustomer() {
   if (!selectedCustomerSkuCustomerID.value) return
-  if (!customProductCustomerIDs.value.has(Number(selectedCustomerSkuCustomerID.value))) {
+  if (!customers.value.some((customer) => Number(customer.id || 0) === Number(selectedCustomerSkuCustomerID.value))) {
     selectedCustomerSkuCustomerID.value = 0
   }
 }
@@ -971,7 +990,7 @@ function baseProductName(id) {
 
 function fillCustomProductName() {
   if (customForm.value.name) return
-  const customer = customerName(customForm.value.customer_id)
+  const customer = customerName(selectedCustomerSkuCustomerID.value || customForm.value.customer_id)
   const base = selectedBaseProduct()
   if (!customer || !base) return
   customForm.value.name = `${customer}-${base.name}-${customForm.value.roast_level}`
@@ -1016,7 +1035,8 @@ async function createProduct() {
 }
 
 async function createCustomProduct() {
-  if (!customForm.value.customer_id) {
+  const customerID = Number(selectedCustomerSkuCustomerID.value || customForm.value.customer_id || 0)
+  if (!customerID) {
     error.value = '请选择客户'
     return
   }
@@ -1035,14 +1055,40 @@ async function createCustomProduct() {
   error.value = ''
   ok.value = ''
   try {
-    await apiSend('/api/product-settings/custom-products', { body: customForm.value })
+    await apiSend('/api/product-settings/custom-products', {
+      body: {
+        ...customForm.value,
+        customer_id: customerID,
+      },
+    })
     ok.value = '客户专属 SKU 已创建'
-    customForm.value = defaultCustomForm()
+    customForm.value = { ...defaultCustomForm(), customer_id: customerID }
     await loadAll()
   } catch (err) {
     error.value = err.message || '创建专属 SKU 失败'
   } finally {
     customSaving.value = false
+  }
+}
+
+async function copyPublicCatalogForCustomer() {
+  if (!canCopyPublicCatalog.value) {
+    error.value = '请选择客户，并至少开启一个公共配置开关'
+    return
+  }
+  publicCopySaving.value = true
+  error.value = ''
+  ok.value = ''
+  try {
+    const payload = buildCustomerPublicCopyPayload(selectedCustomerSkuCustomerID.value, publicCopyOptions.value)
+    const data = await apiSend('/api/product-settings/customer-public-copy', { body: payload })
+    const result = data?.result || {}
+    ok.value = `公共配置已复制：分类 ${Number(result.categories_created || 0)} 个，SKU ${Number(result.products_created || 0)} 个`
+    await loadAll()
+  } catch (err) {
+    error.value = err.message || '复制公共配置失败'
+  } finally {
+    publicCopySaving.value = false
   }
 }
 
@@ -1432,6 +1478,7 @@ async function deactivateProducts(productIds) {
 }
 
 watch(selectedCustomerSkuCustomerID, () => {
+  customForm.value = { ...customForm.value, customer_id: Number(selectedCustomerSkuCustomerID.value || 0), name: '' }
   skuFilters.value = defaultSkuFilters()
   skuPage.value = 1
   pruneSelectedProducts(displaySkuRows.value)
@@ -1507,6 +1554,8 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .sku-filters label { display: grid; gap: 5px; font-size: 12px; color: #333; }
 .checkline { display: flex !important; align-items: center; gap: 8px; min-height: 36px; }
 .checkline input { width: auto; min-height: 0; }
+.customer-copy-panel { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; border: 1px solid #e6e0d8; border-radius: 8px; background: #fbfaf8; padding: 8px 10px; margin-bottom: 10px; }
+.switchline { min-height: 30px; color: #333; font-size: 13px; }
 .form-actions { display: flex; justify-content: flex-end; }
 .inline-form { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; margin-bottom: 10px; }
 .sub-form { margin: 8px 0; }

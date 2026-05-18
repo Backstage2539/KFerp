@@ -18,7 +18,7 @@ func TestDev169ProductSettingsSkuListRequirementSeeds(t *testing.T) {
 		"REV-169-01",
 		"客户SKU列表",
 		"默认展示公共SKU",
-		"只存在有自定义SKU的客户",
+		"所有启用客户",
 	} {
 		if !strings.Contains(src, want) {
 			t.Fatalf("dev 169 product settings SKU list seed missing %q", want)
@@ -32,7 +32,7 @@ func TestDev169ProductSettingsShowsUnifiedSkuList(t *testing.T) {
 		"客户SKU列表",
 		"公共SKU",
 		"selectedCustomerSkuCustomerID",
-		"customProductCustomerIDs",
+		"customerSkuCustomerOptions",
 		"customerSkuCustomers",
 		"displaySkuRows",
 		"v-for=\"row in displaySkuRows\"",
@@ -71,7 +71,7 @@ func TestDev169ManualsDocumentUnifiedSkuListOperation(t *testing.T) {
 		for _, want := range []string{
 			"客户SKU列表",
 			"公共SKU",
-			"自定义SKU的客户",
+			"启用客户",
 		} {
 			if !strings.Contains(doc, want) {
 				t.Fatalf("%s missing unified SKU list manual marker %q", rel, want)
