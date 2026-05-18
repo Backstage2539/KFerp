@@ -182,3 +182,22 @@ func TestCopyPublicCatalogForCustomerCopiesCategoriesProductsAndAudits(t *testin
 		}
 	}
 }
+
+func TestCopyPublicCatalogForCustomerUsesUniqueCustomerProductNames(t *testing.T) {
+	repository, err := os.ReadFile("repository.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := string(repository)
+	for _, want := range []string{
+		"customerProductCopyBaseName",
+		"ensureUniqueProductNameTx",
+		"FROM %s.products WHERE lower(name)=lower($1)",
+		"customerName, err := fetchCustomerNameTx",
+		"name, err := ensureUniqueProductNameTx(ctx, tx, schema, customerProductCopyBaseName(customerName, customerID, row.Name))",
+	} {
+		if !strings.Contains(src, want) {
+			t.Fatalf("copy public catalog should avoid products_name_key duplicate, missing marker %q", want)
+		}
+	}
+}

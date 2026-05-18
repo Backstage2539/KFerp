@@ -108,6 +108,17 @@ test('customer SKU customer options include active customers before they have co
   ]).map((row) => row.id), [7, 9])
 })
 
+test('customer SKU customer options use fulfillment customer payload rows', () => {
+  assert.deepEqual(customerSkuCustomerOptions({
+    rows: [{ id: 1, name: '普通客户', active: true }],
+    customers: [
+      { id: 9, name: '履约 Z', active: true },
+      { id: 7, name: '履约 A', active: true },
+      { id: 8, name: '停用履约', active: false },
+    ],
+  }).map((row) => row.id), [7, 9])
+})
+
 test('customer public copy payload keeps SKU and category switches independent', () => {
   assert.deepEqual(buildCustomerPublicCopyPayload(42, {
     use_public_sku: true,

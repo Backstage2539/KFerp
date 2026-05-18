@@ -18,7 +18,7 @@ func TestDev169ProductSettingsSkuListRequirementSeeds(t *testing.T) {
 		"REV-169-01",
 		"客户SKU列表",
 		"默认展示公共SKU",
-		"所有启用客户",
+		"履约客户",
 	} {
 		if !strings.Contains(src, want) {
 			t.Fatalf("dev 169 product settings SKU list seed missing %q", want)
@@ -34,6 +34,7 @@ func TestDev169ProductSettingsShowsUnifiedSkuList(t *testing.T) {
 		"selectedCustomerSkuCustomerID",
 		"customerSkuCustomerOptions",
 		"customerSkuCustomers",
+		"/api/customer-fulfillment/customers?limit=200",
 		"displaySkuRows",
 		"v-for=\"row in displaySkuRows\"",
 		":disabled=\"!displaySkuRows.length\"",
@@ -71,7 +72,7 @@ func TestDev169ManualsDocumentUnifiedSkuListOperation(t *testing.T) {
 		for _, want := range []string{
 			"客户SKU列表",
 			"公共SKU",
-			"启用客户",
+			"履约客户",
 		} {
 			if !strings.Contains(doc, want) {
 				t.Fatalf("%s missing unified SKU list manual marker %q", rel, want)

@@ -42,7 +42,14 @@ export function paginatedSkuRows(rows = [], filters = {}, pagination = {}) {
 }
 
 export function customerSkuCustomerOptions(customers = []) {
-  return (Array.isArray(customers) ? customers : [])
+  const rows = Array.isArray(customers)
+    ? customers
+    : Array.isArray(customers?.customers)
+      ? customers.customers
+      : Array.isArray(customers?.rows)
+        ? customers.rows
+        : []
+  return rows
     .filter((customer) => Number(customer?.id || 0) > 0 && customer?.active !== false)
     .slice()
     .sort((a, b) => String(a?.name || '').localeCompare(String(b?.name || '')))

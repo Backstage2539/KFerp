@@ -31,8 +31,8 @@
               :option-label="customerOptionLabel"
               :option-meta="customerOptionMeta"
               :option-value="optionNumericValue"
-              placeholder="选择客户SKU"
-              empty-text="暂无自定义SKU客户" />
+              placeholder="选择履约客户"
+              empty-text="暂无履约客户" />
           </div>
         </div>
         <div class="context-stats">
@@ -100,12 +100,11 @@
         </form>
       </div>
 
-      <div class="panel custom-product-panel">
+      <div v-if="selectedCustomerSkuCustomerID" class="panel custom-product-panel">
         <div class="panel-title">
           <span>客户专属 SKU</span>
         </div>
-        <p v-if="!selectedCustomerSkuCustomerID" class="muted">先在顶部选择客户后创建客户专属 SKU。</p>
-        <form v-else class="custom-product-form" @submit.prevent="createCustomProduct">
+        <form class="custom-product-form" @submit.prevent="createCustomProduct">
           <label>
             <span>基础产品</span>
             <SearchableSelect
@@ -224,16 +223,9 @@
         <div v-show="!categoryCollapsed">
           <div v-if="selectedCustomerSkuCustomerID" class="customer-copy-panel">
             <label class="checkline switchline">
-              <input v-model="publicCopyOptions.use_public_sku" type="checkbox" />
-              <span>是否使用公共SKU</span>
+              <input :checked="customerUsesPublicCategories" type="checkbox" :disabled="publicCopySaving" @change="copyPublicCategoriesForCustomer" />
+              <span>是否使用商品分类</span>
             </label>
-            <label class="checkline switchline">
-              <input v-model="publicCopyOptions.use_public_categories" type="checkbox" />
-              <span>是否使用公共商品分类</span>
-            </label>
-            <button class="secondary compact-action" type="button" :disabled="publicCopySaving || !canCopyPublicCatalog" @click="copyPublicCatalogForCustomer">
-              复制公共配置
-            </button>
           </div>
 
           <form class="inline-form" @submit.prevent="savePrimaryCategory">
@@ -358,16 +350,9 @@
         <div v-show="!productsCollapsed">
           <div v-if="selectedCustomerSkuCustomerID" class="customer-copy-panel">
             <label class="checkline switchline">
-              <input v-model="publicCopyOptions.use_public_sku" type="checkbox" />
+              <input :checked="customerUsesPublicSku" type="checkbox" :disabled="publicCopySaving" @change="copyPublicSkuForCustomer" />
               <span>是否使用公共SKU</span>
             </label>
-            <label class="checkline switchline">
-              <input v-model="publicCopyOptions.use_public_categories" type="checkbox" />
-              <span>是否使用公共商品分类</span>
-            </label>
-            <button class="secondary compact-action" type="button" :disabled="publicCopySaving || !canCopyPublicCatalog" @click="copyPublicCatalogForCustomer">
-              复制公共配置
-            </button>
           </div>
           <div class="table-wrap">
           <div class="sku-filters">
@@ -575,10 +560,6 @@ const skuFilters = ref(defaultSkuFilters())
 const skuPage = ref(1)
 const skuPageSize = ref(10)
 const publicCopySaving = ref(false)
-const publicCopyOptions = ref({
-  use_public_sku: true,
-  use_public_categories: true,
-})
 const roastLevels = ['浅烘', '中烘', '中深烘', '深烘']
 const productForm = ref(defaultProductForm())
 const customForm = ref(defaultCustomForm())
@@ -590,10 +571,6 @@ const selectedSkuContextLabel = computed(() => {
   if (!customerID) return '公共SKU'
   return `${customerName(customerID) || `客户 #${customerID}`} SKU`
 })
-const canCopyPublicCatalog = computed(() => Boolean(
-  selectedCustomerSkuCustomerID.value &&
-  (publicCopyOptions.value.use_public_sku || publicCopyOptions.value.use_public_categories),
-))
 const categoryTreeForSkuContext = computed(() => categories.value
   .filter(categoryBelongsToSkuContext)
   .map((primary, primaryIndex) => {
@@ -668,6 +645,12 @@ const customerSkuRows = computed(() => productRows.value
   .filter((product) => Number(product.customer_id || 0) > 0)
   .filter((product) => !selectedCustomerSkuCustomerID.value || Number(product.customer_id || 0) === Number(selectedCustomerSkuCustomerID.value))
   .sort((a, b) => ownerLabel(a).localeCompare(ownerLabel(b)) || a.name.localeCompare(b.name)))
+const customerUsesPublicCategories = computed(() => Boolean(
+  selectedCustomerSkuCustomerID.value && categoryTreeForSkuContext.value.length > 0,
+))
+const customerUsesPublicSku = computed(() => Boolean(
+  selectedCustomerSkuCustomerID.value && customerSkuRows.value.some((product) => Number(product.base_product_id || 0) > 0),
+))
 const unfilteredDisplaySkuRows = computed(() => selectedCustomerSkuCustomerID.value ? customerSkuRows.value : publicSkuRows.value)
 const filteredSkuRows = computed(() => filterSkuRows(unfilteredDisplaySkuRows.value, skuFilters.value))
 const displaySkuRows = computed(() => paginatedSkuRows(unfilteredDisplaySkuRows.value, skuFilters.value, {
@@ -780,12 +763,12 @@ async function loadAll() {
   try {
     const [data, customerData] = await Promise.all([
       apiGet('/api/product-settings'),
-      apiGet('/api/customers?limit=200'),
+      apiGet('/api/customer-fulfillment/customers?limit=200'),
     ])
     categories.value = (data.categories || []).map(decorateCategory)
     products.value = (data.products || []).map(decorateProduct)
     gradientTemplates.value = (data.gradient_templates || []).map(normalizeGradientTemplate)
-    customers.value = (customerData.rows || []).filter((row) => row.active !== false)
+    customers.value = customerSkuCustomerOptions(customerData)
     syncSelectedCustomerSkuCustomer()
     pruneSelectedProducts(displaySkuRows.value)
   } catch (err) {
@@ -1071,19 +1054,41 @@ async function createCustomProduct() {
   }
 }
 
-async function copyPublicCatalogForCustomer() {
-  if (!canCopyPublicCatalog.value) {
-    error.value = '请选择客户，并至少开启一个公共配置开关'
+async function copyPublicCategoriesForCustomer(event) {
+  if (!event?.target?.checked) {
+    ok.value = '已复制的商品分类不会自动删除，可在当前客户分类中手动调整'
+    return
+  }
+  await copyPublicCatalogForCustomer({ use_public_categories: true }, '公共商品分类已复制')
+}
+
+async function copyPublicSkuForCustomer(event) {
+  if (!event?.target?.checked) {
+    ok.value = '已复制的客户 SKU 不会自动删除，可在当前客户 SKU 列表中手动失效'
+    return
+  }
+  await copyPublicCatalogForCustomer({
+    use_public_sku: true,
+    use_public_categories: customerUsesPublicCategories.value,
+  }, '公共 SKU 已复制')
+}
+
+async function copyPublicCatalogForCustomer(options, successPrefix) {
+  if (!selectedCustomerSkuCustomerID.value) {
+    error.value = '请选择履约客户'
     return
   }
   publicCopySaving.value = true
   error.value = ''
   ok.value = ''
   try {
-    const payload = buildCustomerPublicCopyPayload(selectedCustomerSkuCustomerID.value, publicCopyOptions.value)
+    const payload = buildCustomerPublicCopyPayload(selectedCustomerSkuCustomerID.value, {
+      use_public_sku: Boolean(options?.use_public_sku),
+      use_public_categories: Boolean(options?.use_public_categories),
+    })
     const data = await apiSend('/api/product-settings/customer-public-copy', { body: payload })
     const result = data?.result || {}
-    ok.value = `公共配置已复制：分类 ${Number(result.categories_created || 0)} 个，SKU ${Number(result.products_created || 0)} 个`
+    ok.value = `${successPrefix || '公共配置已复制'}：分类 ${Number(result.categories_created || 0)} 个，SKU ${Number(result.products_created || 0)} 个`
     await loadAll()
   } catch (err) {
     error.value = err.message || '复制公共配置失败'
