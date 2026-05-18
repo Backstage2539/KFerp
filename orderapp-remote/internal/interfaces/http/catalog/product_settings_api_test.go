@@ -363,6 +363,47 @@ func TestProductSettingsAPICreatesDripBagProduct(t *testing.T) {
 	}
 }
 
+func TestProductSettingsAPIRejectsExplicitZeroDripBagCreate(t *testing.T) {
+	cases := []struct {
+		name string
+		body string
+		want string
+	}{
+		{
+			name: "zero grams",
+			body: `{"name":"耶加雪菲挂耳","product_kind":"drip_bag","drip_bag_grams":0,"drip_box_bag_count":10}`,
+			want: "drip_bag_grams",
+		},
+		{
+			name: "zero box count",
+			body: `{"name":"耶加雪菲挂耳","product_kind":"drip_bag","drip_bag_grams":10,"drip_box_bag_count":0}`,
+			want: "drip_box_bag_count",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			repo := &productSettingsRepo{}
+			e := echo.New()
+			registerProductRoutes(e, catalogapp.NewService(repo))
+
+			req := httptest.NewRequest(http.MethodPost, "/api/product-settings/products", bytes.NewBufferString(tc.body))
+			req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+			rec := httptest.NewRecorder()
+			e.ServeHTTP(rec, req)
+
+			if rec.Code != http.StatusBadRequest {
+				t.Fatalf("POST explicit zero drip product status=%d, want 400 body=%s", rec.Code, rec.Body.String())
+			}
+			if repo.publicCreated {
+				t.Fatalf("invalid drip create should not reach repo, command=%+v", repo.createdPublic)
+			}
+			if !bytes.Contains(rec.Body.Bytes(), []byte(tc.want)) {
+				t.Fatalf("invalid drip create response should mention %s: %s", tc.want, rec.Body.String())
+			}
+		})
+	}
+}
+
 func TestProductSettingsAPIUpdatesProductYieldRate(t *testing.T) {
 	repo := &productSettingsRepo{
 		products: []catalogapp.Product{{ID: 7, Name: "曲奇拼配", RoastLevel: "中烘", YieldRate: 0.82}},
@@ -379,6 +420,59 @@ func TestProductSettingsAPIUpdatesProductYieldRate(t *testing.T) {
 	}
 	if !repo.productUpdated || repo.updated.ProductID != 7 || repo.updated.YieldRate != 0.835 {
 		t.Fatalf("update command = %+v updated=%v", repo.updated, repo.productUpdated)
+	}
+}
+
+func TestProductSettingsAPIRejectsExplicitZeroDripBagUpdate(t *testing.T) {
+	cases := []struct {
+		name string
+		body string
+		want string
+	}{
+		{
+			name: "zero grams",
+			body: `{"roast_level":"中烘","product_kind":"drip_bag","drip_bag_grams":0,"drip_box_bag_count":10}`,
+			want: "drip_bag_grams",
+		},
+		{
+			name: "zero box count",
+			body: `{"roast_level":"中烘","product_kind":"drip_bag","drip_bag_grams":10,"drip_box_bag_count":0}`,
+			want: "drip_box_bag_count",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			repo := &productSettingsRepo{
+				products: []catalogapp.Product{{
+					ID:                    7,
+					Name:                  "耶加雪菲挂耳",
+					RoastLevel:            "中烘",
+					ProductKind:           "drip_bag",
+					DripBagGrams:          10,
+					DripBoxBagCount:       10,
+					AllowFulfillmentOrder: true,
+					AllowMallOrder:        true,
+					YieldRate:             0.82,
+				}},
+			}
+			e := echo.New()
+			registerProductRoutes(e, catalogapp.NewService(repo))
+
+			req := httptest.NewRequest(http.MethodPut, "/api/products/7", bytes.NewBufferString(tc.body))
+			req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+			rec := httptest.NewRecorder()
+			e.ServeHTTP(rec, req)
+
+			if rec.Code != http.StatusBadRequest {
+				t.Fatalf("PUT explicit zero drip product status=%d, want 400 body=%s", rec.Code, rec.Body.String())
+			}
+			if repo.productUpdated {
+				t.Fatalf("invalid drip update should not reach repo, command=%+v", repo.updated)
+			}
+			if !bytes.Contains(rec.Body.Bytes(), []byte(tc.want)) {
+				t.Fatalf("invalid drip update response should mention %s: %s", tc.want, rec.Body.String())
+			}
+		})
 	}
 }
 

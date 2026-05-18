@@ -3,6 +3,7 @@ package catalog
 import (
 	"fmt"
 	"net/http"
+	catalogdomain "orderapp/internal/domain/catalog"
 	support "orderapp/internal/interfaces/http/support"
 	"strconv"
 
@@ -45,8 +46,8 @@ type productHandler struct {
 type productUpdateAPIRequest struct {
 	RoastLevel            string                    `json:"roast_level"`
 	ProductKind           string                    `json:"product_kind"`
-	DripBagGrams          float64                   `json:"drip_bag_grams"`
-	DripBoxBagCount       int                       `json:"drip_box_bag_count"`
+	DripBagGrams          *float64                  `json:"drip_bag_grams"`
+	DripBoxBagCount       *int                      `json:"drip_box_bag_count"`
 	AllowFulfillmentOrder *bool                     `json:"allow_fulfillment_order"`
 	AllowMallOrder        *bool                     `json:"allow_mall_order"`
 	RetailPrice100G       float64                   `json:"retail_price_100g"`
@@ -59,19 +60,19 @@ type productUpdateAPIRequest struct {
 }
 
 type productCreateAPIRequest struct {
-	Name                  string  `json:"name"`
-	RoastLevel            string  `json:"roast_level"`
-	ProductKind           string  `json:"product_kind"`
-	DripBagGrams          float64 `json:"drip_bag_grams"`
-	DripBoxBagCount       int     `json:"drip_box_bag_count"`
-	AllowFulfillmentOrder *bool   `json:"allow_fulfillment_order"`
-	AllowMallOrder        *bool   `json:"allow_mall_order"`
-	DefaultPrice          float64 `json:"default_price"`
-	RetailPrice100G       float64 `json:"retail_price_100g"`
-	RetailPrice200G       float64 `json:"retail_price_200g"`
-	RetailPrice227G       float64 `json:"retail_price_227g"`
-	RetailPrice250G       float64 `json:"retail_price_250g"`
-	YieldRate             float64 `json:"yield_rate"`
+	Name                  string   `json:"name"`
+	RoastLevel            string   `json:"roast_level"`
+	ProductKind           string   `json:"product_kind"`
+	DripBagGrams          *float64 `json:"drip_bag_grams"`
+	DripBoxBagCount       *int     `json:"drip_box_bag_count"`
+	AllowFulfillmentOrder *bool    `json:"allow_fulfillment_order"`
+	AllowMallOrder        *bool    `json:"allow_mall_order"`
+	DefaultPrice          float64  `json:"default_price"`
+	RetailPrice100G       float64  `json:"retail_price_100g"`
+	RetailPrice200G       float64  `json:"retail_price_200g"`
+	RetailPrice227G       float64  `json:"retail_price_227g"`
+	RetailPrice250G       float64  `json:"retail_price_250g"`
+	YieldRate             float64  `json:"yield_rate"`
 }
 
 type productDeactivateAPIRequest struct {
@@ -173,25 +174,28 @@ func (h productHandler) updateAPI(c echo.Context) error {
 	if roastLevel == "" {
 		return c.JSON(http.StatusBadRequest, map[string]any{"error": "invalid roast_level"})
 	}
-	productKind := req.ProductKind
-	dripBagGrams := req.DripBagGrams
-	dripBoxBagCount := req.DripBoxBagCount
+	productKind := catalogdomain.NormalizeProductKind(req.ProductKind)
+	dripBagGrams := existing.DripBagGrams
+	dripBoxBagCount := existing.DripBoxBagCount
 	allowFulfillmentOrder := existing.AllowFulfillmentOrder
 	allowMallOrder := existing.AllowMallOrder
-	if productKind == "" {
-		productKind = existing.ProductKind
+	if req.ProductKind == "" {
+		productKind = catalogdomain.NormalizeProductKind(existing.ProductKind)
 	}
-	if dripBagGrams == 0 {
-		dripBagGrams = existing.DripBagGrams
+	if req.DripBagGrams != nil {
+		dripBagGrams = *req.DripBagGrams
 	}
-	if dripBoxBagCount == 0 {
-		dripBoxBagCount = existing.DripBoxBagCount
+	if req.DripBoxBagCount != nil {
+		dripBoxBagCount = *req.DripBoxBagCount
 	}
 	if req.AllowFulfillmentOrder != nil {
 		allowFulfillmentOrder = *req.AllowFulfillmentOrder
 	}
 	if req.AllowMallOrder != nil {
 		allowMallOrder = *req.AllowMallOrder
+	}
+	if err := validateExplicitDripConfig(productKind, req.DripBagGrams, req.DripBoxBagCount); err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]any{"error": err.Error()})
 	}
 	yieldRate := normalizeProductYieldRate(req.YieldRate)
 	if req.YieldRate > 0 && yieldRate <= 0 {
@@ -242,6 +246,18 @@ func (h productHandler) createProductAPI(c echo.Context) error {
 	if req.YieldRate > 0 && yieldRate <= 0 {
 		return c.JSON(http.StatusBadRequest, map[string]any{"error": "invalid yield_rate"})
 	}
+	productKind := catalogdomain.NormalizeProductKind(req.ProductKind)
+	if err := validateExplicitDripConfig(productKind, req.DripBagGrams, req.DripBoxBagCount); err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]any{"error": err.Error()})
+	}
+	dripBagGrams := 0.0
+	if req.DripBagGrams != nil {
+		dripBagGrams = *req.DripBagGrams
+	}
+	dripBoxBagCount := 0
+	if req.DripBoxBagCount != nil {
+		dripBoxBagCount = *req.DripBoxBagCount
+	}
 	allowFulfillmentOrder := true
 	if req.AllowFulfillmentOrder != nil {
 		allowFulfillmentOrder = *req.AllowFulfillmentOrder
@@ -254,9 +270,9 @@ func (h productHandler) createProductAPI(c echo.Context) error {
 		Actor:                 support.ActorOf(c),
 		Name:                  req.Name,
 		RoastLevel:            roastLevel,
-		ProductKind:           req.ProductKind,
-		DripBagGrams:          req.DripBagGrams,
-		DripBoxBagCount:       req.DripBoxBagCount,
+		ProductKind:           productKind,
+		DripBagGrams:          dripBagGrams,
+		DripBoxBagCount:       dripBoxBagCount,
 		AllowFulfillmentOrder: allowFulfillmentOrder,
 		AllowMallOrder:        allowMallOrder,
 		DefaultPrice:          req.DefaultPrice,
@@ -297,6 +313,19 @@ func normalizeProductYieldRate(value float64) float64 {
 		return 0
 	}
 	return value
+}
+
+func validateExplicitDripConfig(productKind string, dripBagGrams *float64, dripBoxBagCount *int) error {
+	if catalogdomain.NormalizeProductKind(productKind) != catalogdomain.ProductKindDripBag {
+		return nil
+	}
+	if dripBagGrams != nil && *dripBagGrams <= 0 {
+		return fmt.Errorf("drip_bag_grams must be > 0")
+	}
+	if dripBoxBagCount != nil && *dripBoxBagCount <= 0 {
+		return fmt.Errorf("drip_box_bag_count must be > 0")
+	}
+	return nil
 }
 
 func normalizeProductMarginRateOverride(value *float64) (*float64, error) {
