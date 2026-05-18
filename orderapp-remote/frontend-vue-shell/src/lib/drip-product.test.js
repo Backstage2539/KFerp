@@ -11,4 +11,5 @@ test('drip unit options expose bag and box', () => {
 
 test('validate drip product requires positive bag grams and box count', () => {
   assert.deepEqual(validateDripProduct({ product_kind: 'drip_bag', drip_bag_grams: 0, drip_box_bag_count: 10 }), ['每袋熟豆克重必须大于 0'])
+  assert.deepEqual(validateDripProduct({ product_kind: 'drip_bag', drip_bag_grams: 10, drip_box_bag_count: 0 }), ['每盒袋数必须大于 0'])
 })

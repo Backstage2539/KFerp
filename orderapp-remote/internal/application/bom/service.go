@@ -73,15 +73,15 @@ type CreateVersionCommand struct {
 }
 
 type SaveItemCommand struct {
-	ProductID          int64
-	MaterialID         int64
-	ComponentType      string
-	ComponentProductID int64
-	ComponentSpecG     int64
-	ConsumeUnit        string
-	QtyPerUnit         float64
-	RatioPct           float64
-	Actor              string
+	ProductID          int64   `json:"product_id"`
+	MaterialID         int64   `json:"material_id"`
+	ComponentType      string  `json:"component_type"`
+	ComponentProductID int64   `json:"component_product_id"`
+	ComponentSpecG     int64   `json:"component_spec_g"`
+	ConsumeUnit        string  `json:"consume_unit"`
+	QtyPerUnit         float64 `json:"qty_per_unit"`
+	RatioPct           float64 `json:"ratio_pct"`
+	Actor              string  `json:"actor"`
 }
 
 type DeleteItemCommand struct {
