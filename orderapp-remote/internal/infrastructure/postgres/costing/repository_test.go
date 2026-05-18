@@ -72,6 +72,23 @@ func TestLoadProductInputsReadsCategoryGradientTemplates(t *testing.T) {
 	}
 }
 
+func TestLoadProductInputsReadsProductMarginOverrideForTemplatePricing(t *testing.T) {
+	b, err := os.ReadFile("repository.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := string(b)
+	for _, want := range []string{
+		"p.margin_rate_override::float8",
+		"&input.MarginRateOverride",
+		"margin_rate_override",
+	} {
+		if !strings.Contains(src, want) {
+			t.Fatalf("costing repository must load product margin override; missing %q", want)
+		}
+	}
+}
+
 func TestPublishBeanListUsesQueryRowBeforeAuditToAvoidBusyConnection(t *testing.T) {
 	b, err := os.ReadFile("repository.go")
 	if err != nil {

@@ -2,6 +2,7 @@ package costing
 
 import (
 	"context"
+	"reflect"
 	"testing"
 
 	domain "orderapp/internal/domain/costing"
@@ -183,11 +184,54 @@ func TestBeanListAppliesCategoryGradientTemplateAndLeavesUnboundDefaults(t *test
 	}
 }
 
+func TestBeanListAppliesProductMarginOverrideBeforeCategoryTemplateMargin(t *testing.T) {
+	input := domain.ProductInput{
+		ProductID:          501,
+		Name:               "模板拼配",
+		GreenBeanCostPerKg: 51.75,
+		YieldRate:          0.8,
+		GradientTemplate: &domain.GradientTemplate{
+			ID:          9,
+			Name:        "工厂量单模板",
+			DisplayUnit: domain.GradientDisplayUnitKg,
+			Tiers: []domain.GradientTemplateTier{{
+				ID: 91, Label: "大客户量单", MinWeightG: 24000, MaxWeightG: floatPtr(49000), MarginRate: 0.175, Position: 1,
+			}},
+		},
+	}
+	setDomainProductInputFloat64PtrField(t, &input, "MarginRateOverride", 0.30)
+	svc := NewService(&fakeRepo{inputs: []domain.ProductInput{input}})
+
+	resp, err := svc.BeanList(context.Background())
+	if err != nil {
+		t.Fatalf("BeanList() error = %v", err)
+	}
+	if len(resp.Items) != 1 || len(resp.Items[0].CommercialWholesaleTiers) != 1 {
+		t.Fatalf("bean list items = %+v", resp.Items)
+	}
+	tier := resp.Items[0].CommercialWholesaleTiers[0]
+	if tier.MarginRate != 0.30 || tier.PricePerUnit != 91 {
+		t.Fatalf("tier should use product margin override before category template margin, got %+v", tier)
+	}
+}
+
 func TestPublishRunRequiresPositiveID(t *testing.T) {
 	svc := NewService(&fakeRepo{})
 	if err := svc.PublishRun(context.Background(), "JJ", 0); err == nil {
 		t.Fatalf("expected invalid id error")
 	}
+}
+
+func setDomainProductInputFloat64PtrField(t *testing.T, target any, fieldName string, value float64) {
+	t.Helper()
+	field := reflect.ValueOf(target).Elem().FieldByName(fieldName)
+	if !field.IsValid() {
+		t.Fatalf("missing %s field", fieldName)
+	}
+	if field.Kind() != reflect.Ptr || field.Type().Elem().Kind() != reflect.Float64 {
+		t.Fatalf("%s field type = %s, want *float64", fieldName, field.Type())
+	}
+	field.Set(reflect.ValueOf(&value))
 }
 
 func TestPublishBeanListValidatesVersionAndListType(t *testing.T) {

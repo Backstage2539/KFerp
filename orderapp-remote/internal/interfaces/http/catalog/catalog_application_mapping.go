@@ -19,6 +19,7 @@ func productOptionFromCatalog(p catalogapp.Product) ProductOption {
 		BaseProductID:           p.BaseProductID,
 		Visibility:              p.Visibility,
 		CustomType:              p.CustomType,
+		MarginRateOverride:      p.MarginRateOverride,
 		BomItemCount:            p.BomItemCount,
 		BomStatus:               p.BomStatus,
 	}

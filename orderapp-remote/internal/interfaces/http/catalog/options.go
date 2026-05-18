@@ -29,6 +29,7 @@ type ProductOption struct {
 	BaseProductID           int64               `json:"base_product_id"`
 	Visibility              string              `json:"visibility"`
 	CustomType              string              `json:"custom_type"`
+	MarginRateOverride      *float64            `json:"margin_rate_override"`
 	BomItemCount            int                 `json:"bom_item_count"`
 	BomStatus               string              `json:"bom_status"`
 	RetailSpecs             []int64             `json:"retail_specs"`

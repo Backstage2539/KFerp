@@ -1,6 +1,9 @@
 package costing
 
-import "testing"
+import (
+	"reflect"
+	"testing"
+)
 
 func assertClose(t *testing.T, name string, got, want float64) {
 	t.Helper()
@@ -211,6 +214,37 @@ func TestGradientTemplateCommercialTiersMatchByWeightAndUseTemplateUnit(t *testi
 		t.Fatalf("227g template tier = %+v", tier)
 	}
 	assertClose(t, "227g price", smallUnit.CommercialWholesaleTiers[0].PricePerUnit, 19)
+}
+
+func TestProductMarginOverrideReplacesGradientTemplateTierMargin(t *testing.T) {
+	params := DefaultParameters()
+	input := ProductInput{
+		ProductID:          501,
+		Name:               "模板拼配",
+		GreenBeanCostPerKg: 51.75,
+		YieldRate:          0.8,
+		GradientTemplate: &GradientTemplate{
+			ID:          9,
+			Name:        "工厂量单模板",
+			DisplayUnit: GradientDisplayUnitKg,
+			Tiers: []GradientTemplateTier{
+				{ID: 91, Label: "大客户量单", MinWeightG: 24000, MaxWeightG: f64(49000), MarginRate: 0.175, Position: 1},
+			},
+		},
+	}
+	setProductInputFloat64PtrField(t, &input, "MarginRateOverride", 0.30)
+
+	got := CalculateProduct(params, input)
+	if len(got.CommercialWholesaleTiers) != 1 {
+		t.Fatalf("commercial tiers = %+v, want one template tier", got.CommercialWholesaleTiers)
+	}
+	tier := got.CommercialWholesaleTiers[0]
+	if tier.MarginRate != 0.30 {
+		t.Fatalf("tier margin = %.3f, want product override 0.300; tier=%+v", tier.MarginRate, tier)
+	}
+	if tier.PricePerUnit != 91 {
+		t.Fatalf("tier price = %.2f, want override price 91 from 0.30 margin; tier=%+v", tier.PricePerUnit, tier)
+	}
 }
 
 func TestCommercialPriceExplanationIncludesFastCostParametersAndTemporaryOverrides(t *testing.T) {
@@ -425,6 +459,18 @@ func TestCalculateProductCarriesInactiveBomWarning(t *testing.T) {
 
 func f64(v float64) *float64 {
 	return &v
+}
+
+func setProductInputFloat64PtrField(t *testing.T, target any, fieldName string, value float64) {
+	t.Helper()
+	field := reflect.ValueOf(target).Elem().FieldByName(fieldName)
+	if !field.IsValid() {
+		t.Fatalf("missing %s field", fieldName)
+	}
+	if field.Kind() != reflect.Ptr || field.Type().Elem().Kind() != reflect.Float64 {
+		t.Fatalf("%s field type = %s, want *float64", fieldName, field.Type())
+	}
+	field.Set(reflect.ValueOf(&value))
 }
 
 func commercialPriceMap(tiers []CommercialWholesaleTier) map[string]float64 {

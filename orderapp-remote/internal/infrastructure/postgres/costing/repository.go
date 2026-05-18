@@ -67,6 +67,7 @@ func (r Repository) LoadProductInputs(ctx context.Context, params domain.Paramet
 		       COALESCE(p.custom_type, ''),
 		       COALESCE(p.product_category_id, 0),
 		       COALESCE(pc.gradient_template_id, 0),
+		       p.margin_rate_override::float8,
 		       COALESCE(NULLIF(b.yield_rate,0), $1),
 		       COALESCE(SUM(COALESCE(mv.weighted_unit_cost, m.purchase_price, 0) * COALESCE(bi.ratio_pct,0) / 100.0),0),
 		       COALESCE(string_agg(DISTINCT NULLIF(bp.flavor, ''), ' / ') FILTER (WHERE NULLIF(bp.flavor, '') IS NOT NULL), ''),
@@ -87,7 +88,7 @@ func (r Repository) LoadProductInputs(ctx context.Context, params domain.Paramet
 		LEFT JOIN %s.products base_p ON base_p.id = p.base_product_id
 		LEFT JOIN %s.product_categories pc ON pc.id = p.product_category_id AND pc.active=true
 		WHERE p.active = true
-		GROUP BY p.id, p.name, base_p.name, p.roast_level, p.customer_id, p.base_product_id, p.visibility, p.custom_type, p.product_category_id, pc.gradient_template_id, b.yield_rate, b.status, b.product_id
+		GROUP BY p.id, p.name, base_p.name, p.roast_level, p.customer_id, p.base_product_id, p.visibility, p.custom_type, p.product_category_id, pc.gradient_template_id, p.margin_rate_override, b.yield_rate, b.status, b.product_id
 		ORDER BY p.name
 	`, r.schema, r.schema, r.schema, r.schema, r.schema, r.schema, r.schema, r.schema, r.schema)
 	rows, err := r.pool.Query(ctx, q, params.RoastYieldRate)
@@ -104,7 +105,7 @@ func (r Repository) LoadProductInputs(ctx context.Context, params domain.Paramet
 		var roastLevel string
 		var fallbackYield float64
 		var gradientTemplateID int64
-		if err := rows.Scan(&input.ProductID, &input.Name, &input.BeanListTemplateName, &roastLevel, &input.CustomerID, &input.BaseProductID, &input.Visibility, &input.CustomType, &input.ProductCategoryID, &gradientTemplateID, &fallbackYield, &input.GreenBeanCostPerKg, &input.Flavor, &input.Origin, &input.ProcessingStation, &input.Variety, &input.ProcessMethod, &input.Grade, &input.Altitude, &input.BeanListNote, &input.BomStatus); err != nil {
+		if err := rows.Scan(&input.ProductID, &input.Name, &input.BeanListTemplateName, &roastLevel, &input.CustomerID, &input.BaseProductID, &input.Visibility, &input.CustomType, &input.ProductCategoryID, &gradientTemplateID, &input.MarginRateOverride, &fallbackYield, &input.GreenBeanCostPerKg, &input.Flavor, &input.Origin, &input.ProcessingStation, &input.Variety, &input.ProcessMethod, &input.Grade, &input.Altitude, &input.BeanListNote, &input.BomStatus); err != nil {
 			return nil, err
 		}
 		if gradientTemplateID > 0 {
