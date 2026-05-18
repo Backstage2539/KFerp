@@ -189,6 +189,28 @@ func TestGradientTemplateCommercialTiersMatchByWeightAndUseTemplateUnit(t *testi
 		t.Fatalf("lb template tier = %+v", tier)
 	}
 	assertClose(t, "lb price", lb.CommercialWholesaleTiers[0].PricePerUnit, 61)
+
+	smallUnit := CalculateProduct(params, ProductInput{
+		ProductID:          503,
+		Name:               "小包装模板单品",
+		GreenBeanCostPerKg: 51.75,
+		YieldRate:          0.8,
+		GradientTemplate: &GradientTemplate{
+			ID:          11,
+			Name:        "227g 小包装模板",
+			DisplayUnit: GradientDisplayUnit227G,
+			Tiers: []GradientTemplateTier{
+				{ID: 111, Label: "2-7份", MinWeightG: 454, MaxWeightG: f64(1589), MarginRate: 0.175, Position: 1},
+			},
+		},
+	})
+	if len(smallUnit.CommercialWholesaleTiers) != 1 {
+		t.Fatalf("227g tiers = %+v, want one tier", smallUnit.CommercialWholesaleTiers)
+	}
+	if tier := smallUnit.CommercialWholesaleTiers[0]; tier.Label != "2-7份" || tier.SpecG != 227 || tier.MinQty != 2 || tier.MaxQty == nil || *tier.MaxQty != 7 || tier.DisplayUnit != GradientDisplayUnit227G {
+		t.Fatalf("227g template tier = %+v", tier)
+	}
+	assertClose(t, "227g price", smallUnit.CommercialWholesaleTiers[0].PricePerUnit, 19)
 }
 
 func TestCommercialPriceExplanationIncludesFastCostParametersAndTemporaryOverrides(t *testing.T) {

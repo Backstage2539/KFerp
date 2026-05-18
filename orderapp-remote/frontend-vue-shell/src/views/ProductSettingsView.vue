@@ -168,8 +168,7 @@
               <label>
                 <span>展示单位</span>
                 <select v-model="templateForm.display_unit">
-                  <option value="lb">元/磅</option>
-                  <option value="kg">元/kg</option>
+                  <option v-for="unit in gradientDisplayUnitOptions" :key="unit.value" :value="unit.value">{{ unit.label }}</option>
                 </select>
               </label>
             </div>
@@ -184,12 +183,12 @@
                   <input v-model.trim="tier.label" placeholder="24-49kg" />
                 </label>
                 <label>
-                  <span>最小总克重</span>
-                  <input v-model.number="tier.min_weight_g" type="number" min="0" step="1" />
+                  <span>最小数量（{{ gradientDisplayQuantityUnitLabel(templateForm.display_unit) }}）</span>
+                  <input v-model.number="tier.min_display_qty" type="number" min="0" :step="gradientDisplayQuantityStep(templateForm.display_unit)" />
                 </label>
                 <label>
-                  <span>最大总克重</span>
-                  <input v-model="tier.max_weight_g" type="number" min="0" step="1" placeholder="无上限" />
+                  <span>最大数量（{{ gradientDisplayQuantityUnitLabel(templateForm.display_unit) }}）</span>
+                  <input v-model="tier.max_display_qty" type="number" min="0" :step="gradientDisplayQuantityStep(templateForm.display_unit)" placeholder="无上限" />
                 </label>
                 <label>
                   <span>利润率</span>
@@ -415,6 +414,10 @@ import { apiGet, apiSend } from '../api/client'
 import SearchableSelect from '../components/SearchableSelect.vue'
 import CostingView from './CostingView.vue'
 import {
+  buildGradientTemplatePayload,
+  gradientDisplayQuantityStep,
+  gradientDisplayQuantityUnitLabel,
+  gradientDisplayUnitOptions,
   gradientDisplayUnitLabel,
   normalizeGradientTemplate,
   validateGradientTemplate,
@@ -571,7 +574,7 @@ function defaultGradientTemplateForm() {
     name: '',
     display_unit: 'lb',
     tiers: [
-      { label: '2包-13包', min_weight_g: 908, max_weight_g: 5902, margin_rate: 0.5421052631578949, position: 1 },
+      { label: '2磅-13磅', min_display_qty: 2, max_display_qty: 13, margin_rate: 0.5421052631578949, position: 1 },
     ],
   })
 }
@@ -635,6 +638,8 @@ function addGradientTemplateTier() {
   templateForm.value.tiers.push({
     id: 0,
     label: '',
+    min_display_qty: 0,
+    max_display_qty: null,
     min_weight_g: 0,
     max_weight_g: null,
     margin_rate: 0,
@@ -650,8 +655,8 @@ function removeGradientTemplateTier(index) {
 }
 
 async function saveGradientTemplate() {
-  const normalized = normalizeGradientTemplate(templateForm.value)
-  const errors = validateGradientTemplate(normalized)
+  const payload = buildGradientTemplatePayload(templateForm.value)
+  const errors = validateGradientTemplate(payload)
   if (errors.length) {
     error.value = errors[0]
     return
@@ -660,9 +665,9 @@ async function saveGradientTemplate() {
   error.value = ''
   ok.value = ''
   try {
-    const url = normalized.id ? `/api/pricing-gradient-templates/${normalized.id}` : '/api/pricing-gradient-templates'
-    const method = normalized.id ? 'PUT' : 'POST'
-    await apiSend(url, { method, body: normalized })
+    const url = payload.id ? `/api/pricing-gradient-templates/${payload.id}` : '/api/pricing-gradient-templates'
+    const method = payload.id ? 'PUT' : 'POST'
+    await apiSend(url, { method, body: payload })
     ok.value = '梯度模板已保存'
     resetGradientTemplateForm()
     await loadAll()

@@ -125,9 +125,25 @@ export function compareBeanCodes(a, b) {
 }
 
 export function priceUnit(tier = {}) {
+  switch (tier.display_unit) {
+    case 'kg':
+      return 'kg'
+    case 'lb':
+      return '磅'
+    case 'g227':
+      return '227g'
+    case 'g100':
+      return '100g'
+    case 'g250':
+      return '250g'
+    default:
+      break
+  }
   const specG = Number(tier.spec_g || 454)
   if (specG === 1000) return 'kg'
   if (specG === 227) return '227g'
+  if (specG === 100) return '100g'
+  if (specG === 250) return '250g'
   return '包'
 }
 

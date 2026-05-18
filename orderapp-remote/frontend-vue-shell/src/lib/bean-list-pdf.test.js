@@ -116,6 +116,17 @@ test('bean-list scope filter keeps customer SKUs isolated by customer', () => {
   assert.deepEqual(filterBeanListItemsForScope(scopedRows, 'customer', 0).map((item) => item.product_id), [1])
 })
 
+test('PDF commercial price units follow gradient template display units', () => {
+  const groups = buildBeanListPdfGroups([{
+    product_id: 40,
+    name: '小包装模板豆',
+    commercial_bean_list: { code: '2.1', category: '2、小包装', display_name: '小包装模板豆' },
+    commercial_wholesale_tiers: [{ label: '10份+', spec_g: 100, display_unit: 'g100', price_per_unit: 9 }],
+  }], 'commercial')
+
+  assert.equal(groups[0].items[0].prices[0].unit, '100g')
+})
+
 test('PDF bean-list helper supports product selection, category filtering, and Excel-style renumbering', () => {
   const groups = buildBeanListPdfGroups(rows, 'commercial', {
     selectedProductIDs: [10, 30],

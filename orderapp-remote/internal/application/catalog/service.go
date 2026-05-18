@@ -3,6 +3,7 @@ package catalog
 import (
 	"context"
 	"fmt"
+	"math"
 	catalogdomain "orderapp/internal/domain/catalog"
 	"sort"
 	"strings"
@@ -90,13 +91,15 @@ type GradientTemplate struct {
 }
 
 type GradientTemplateTier struct {
-	ID         int64    `json:"id"`
-	TemplateID int64    `json:"template_id,omitempty"`
-	Label      string   `json:"label"`
-	MinWeightG float64  `json:"min_weight_g"`
-	MaxWeightG *float64 `json:"max_weight_g,omitempty"`
-	MarginRate float64  `json:"margin_rate"`
-	Position   int      `json:"position"`
+	ID            int64    `json:"id"`
+	TemplateID    int64    `json:"template_id,omitempty"`
+	Label         string   `json:"label"`
+	MinDisplayQty *float64 `json:"min_display_qty,omitempty"`
+	MaxDisplayQty *float64 `json:"max_display_qty,omitempty"`
+	MinWeightG    float64  `json:"min_weight_g"`
+	MaxWeightG    *float64 `json:"max_weight_g,omitempty"`
+	MarginRate    float64  `json:"margin_rate"`
+	Position      int      `json:"position"`
 }
 
 type ReplacePriceTiersCommand struct {
@@ -380,6 +383,7 @@ func normalizeGradientTemplateCommand(cmd SaveGradientTemplateCommand) (SaveGrad
 		if tier.Label == "" {
 			return cmd, fmt.Errorf("tier label required")
 		}
+		tier = normalizeGradientTemplateTierWeights(cmd.DisplayUnit, tier)
 		if tier.MinWeightG <= 0 {
 			return cmd, fmt.Errorf("tier min_weight_g must be > 0")
 		}
@@ -408,9 +412,48 @@ func normalizeGradientDisplayUnit(unit string) string {
 	switch strings.TrimSpace(unit) {
 	case "kg":
 		return "kg"
+	case "g227":
+		return "g227"
+	case "g100":
+		return "g100"
+	case "g250":
+		return "g250"
+	case "lb":
+		return "lb"
 	default:
 		return "lb"
 	}
+}
+
+func normalizeGradientTemplateTierWeights(displayUnit string, tier GradientTemplateTier) GradientTemplateTier {
+	specG := gradientDisplayUnitSpecG(displayUnit)
+	if tier.MinDisplayQty != nil {
+		tier.MinWeightG = roundTemplateWeightG(*tier.MinDisplayQty * float64(specG))
+	}
+	if tier.MaxDisplayQty != nil {
+		v := roundTemplateWeightG(*tier.MaxDisplayQty * float64(specG))
+		tier.MaxWeightG = &v
+	}
+	return tier
+}
+
+func gradientDisplayUnitSpecG(unit string) int {
+	switch normalizeGradientDisplayUnit(unit) {
+	case "kg":
+		return 1000
+	case "g227":
+		return 227
+	case "g100":
+		return 100
+	case "g250":
+		return 250
+	default:
+		return 454
+	}
+}
+
+func roundTemplateWeightG(value float64) float64 {
+	return math.Round(value*1000) / 1000
 }
 
 func BuildProductSettings(categories []ProductCategory, products []Product) ProductSettingsData {
