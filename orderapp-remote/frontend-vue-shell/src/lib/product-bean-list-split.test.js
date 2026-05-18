@@ -29,9 +29,22 @@ test('SKU settings no longer embeds the product bean-list workspace', () => {
   assert.doesNotMatch(productSettingsSource, /豆单和价格试算会按当前归属切换/)
 })
 
-test('product bean-list page owns customer context for costing and previews', () => {
+test('product bean-list page owns customer context for bean-list previews', () => {
   assert.match(costingSource, /<h2>产品豆单<\/h2>/)
   assert.match(costingSource, /const activeBeanListCustomerID = computed/)
   assert.match(costingSource, /if \(normalizedCustomerContextID\.value > 0\) return 'customer'/)
   assert.match(costingSource, /filterBeanListItemsForScope\(items\.value,\s*activeCostingScope\.value,\s*activeBeanListCustomerID\.value\)/)
+})
+
+test('product bean-list page does not expose pricing trial workspace', () => {
+  assert.doesNotMatch(costingSource, /试算/)
+  assert.doesNotMatch(costingSource, /价格试算/)
+  assert.doesNotMatch(costingSource, /pricingCollapsed/)
+  assert.doesNotMatch(costingSource, /保存试算/)
+  assert.doesNotMatch(costingSource, /发布价格/)
+  assert.doesNotMatch(costingSource, /试算批次/)
+  assert.doesNotMatch(costingSource, /function createRun/)
+  assert.doesNotMatch(costingSource, /function publishRun/)
+  assert.match(costingSource, /豆单版本列表/)
+  assert.match(costingSource, /生成豆单/)
 })

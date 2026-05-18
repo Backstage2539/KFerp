@@ -6,13 +6,11 @@
         <div class="actions">
           <button class="secondary" type="button" :disabled="loading" @click="loadBeanList">刷新</button>
           <button class="secondary" type="button" @click="settingsOpen = true">参数设置</button>
-          <button class="primary" type="button" :disabled="saving || loading || !visibleCostingItems.length" @click="createRun">保存试算</button>
-          <button class="danger" type="button" :disabled="publishing || !runId" @click="publishRun">发布价格</button>
         </div>
       </div>
       <div v-if="error" class="error">{{ error }}</div>
       <div v-if="message" class="ok">{{ message }}</div>
-      <div v-if="inactiveBomWarningCount" class="warning-banner">BOM已失效：{{ inactiveBomWarningCount }} 款产品依赖的 BOM 已失效，发布价格策略或豆单前请先重新启用 BOM。</div>
+      <div v-if="inactiveBomWarningCount" class="warning-banner">BOM已失效：{{ inactiveBomWarningCount }} 款产品依赖的 BOM 已失效，发布豆单前请先重新启用 BOM。</div>
       <div class="metrics">
         <div>
           <span>商品数</span>
@@ -25,10 +23,6 @@
         <div>
           <span>kg/lb</span>
           <strong>{{ fixed(parameters?.kg_to_lb_factor, 3) }}</strong>
-        </div>
-        <div>
-          <span>试算批次</span>
-          <strong>{{ runId || '-' }}</strong>
         </div>
       </div>
     </section>
@@ -129,60 +123,6 @@
       </div>
       <div v-else class="muted empty">
         当前{{ publicationScopeLabel(publicationScope) }}暂无{{ beanListTypeLabel(pdfTheme.listType) }}豆单版本。
-      </div>
-    </section>
-
-    <section class="panel">
-      <div class="section-bar">
-        <div class="section-title">价格试算</div>
-        <button class="secondary compact" type="button" @click="pricingCollapsed = !pricingCollapsed">
-          {{ pricingCollapsed ? '展开' : '收起' }}
-        </button>
-      </div>
-      <div v-show="!pricingCollapsed" class="table-wrap">
-        <table>
-          <thead>
-            <tr>
-              <th>商品</th>
-              <th>生豆/kg</th>
-              <th>熟豆成本/kg</th>
-              <th>商用批发梯度</th>
-              <th>零售豆单价</th>
-              <th>挂耳/袋</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-for="item in visibleCostingItems" :key="item.product_id || item.name">
-              <td class="name">
-                <div>{{ item.name }}</div>
-                <div v-if="itemWarnings(item).length" class="item-warning-list">
-                  <span v-for="warning in itemWarnings(item)" :key="warning" class="warning-chip">{{ warning }}</span>
-                </div>
-              </td>
-              <td>{{ costMoney(item.green_bean_cost_per_kg) }}</td>
-              <td>{{ costMoney(item.small_batch_cost_per_kg) }}</td>
-              <td class="tiers-cell">
-                <div class="tier-list">
-                  <span v-for="tier in item.commercial_wholesale_tiers || []" :key="tier.label" class="tier-chip">
-                    <b>{{ tier.label }}</b>{{ price(tierPriceValue(tier)) }}/{{ tierUnit(tier) }}
-                    <button v-if="item.gradient_template" class="source-button" type="button" @click="openPriceExplanation(item, tier)">来源</button>
-                  </span>
-                </div>
-              </td>
-              <td class="tiers-cell">
-                <div class="tier-list">
-                  <span v-for="tier in item.retail_bean_tiers || []" :key="tier.label" class="tier-chip">
-                    <b>{{ tier.label }}</b>{{ price(tier.price_per_unit) }}
-                  </span>
-                </div>
-              </td>
-              <td>{{ price(first(item.wholesale_drip_bag_prices)) }}</td>
-            </tr>
-            <tr v-if="!loading && !visibleCostingItems.length">
-              <td colspan="6" class="muted empty">暂无可试算商品</td>
-            </tr>
-          </tbody>
-        </table>
       </div>
     </section>
 
@@ -297,7 +237,7 @@
         <div class="drawer-head">
           <div>
             <h3>快速成本参数设置</h3>
-            <p>保存单个参数后，当前成本试算会自动刷新。</p>
+            <p>保存单个参数后，豆单数据会自动刷新。</p>
           </div>
           <button class="secondary" type="button" @click="settingsOpen = false">关闭</button>
         </div>
@@ -321,30 +261,14 @@
             <strong>{{ priceExplanation.template_name || '-' }}</strong>
           </div>
           <div>
-            <span>{{ isDripExplanation ? '袋价' : '当前试算' }}</span>
+            <span>{{ isDripExplanation ? '袋价' : '当前价格' }}</span>
             <strong v-if="isDripExplanation">{{ price(priceExplanation.packed_price_per_bag) }}/袋</strong>
             <strong v-else>{{ price(priceExplanation.saved_final_price) }}/{{ gradientDisplayUnitLabel(priceExplanation.display_unit).replace('元/', '') }}</strong>
           </div>
-          <div>
-            <span>{{ isDripExplanation ? '盒价' : '临时试算' }}</span>
-            <strong v-if="isDripExplanation">{{ price(priceExplanation.packed_price_per_box) }}/盒</strong>
-            <strong v-else>{{ price(priceExplanation.preview_final_price) }}/{{ gradientDisplayUnitLabel(priceExplanation.display_unit).replace('元/', '') }}</strong>
+          <div v-if="isDripExplanation">
+            <span>盒价</span>
+            <strong>{{ price(priceExplanation.packed_price_per_box) }}/盒</strong>
           </div>
-        </div>
-        <div v-if="!isDripExplanation" class="explanation-form">
-          <label>
-            <span>临时生豆成本 元/kg</span>
-            <input v-model="explanationOverrides.green_bean_cost_per_kg" type="number" min="0" step="0.01" placeholder="不改" />
-          </label>
-          <label>
-            <span>临时出成率</span>
-            <input v-model="explanationOverrides.yield_rate" type="number" min="0" max="1" step="0.001" placeholder="不改" />
-          </label>
-          <label>
-            <span>临时利润率</span>
-            <input v-model="explanationOverrides.margin_rate" type="number" min="0" step="0.001" placeholder="不改" />
-          </label>
-          <button class="secondary" type="button" :disabled="priceExplanationLoading" @click="loadPriceExplanation">重新试算</button>
         </div>
         <div v-if="priceExplanation" class="formula-steps">
           <div v-for="step in priceExplanation.steps || []" :key="step.key" :class="['formula-step', { changed: step.changed }]">
@@ -353,7 +277,7 @@
             <small>{{ step.source }}</small>
           </div>
         </div>
-        <p class="muted">{{ isDripExplanation ? '挂耳价格来源只展示当前公式步骤；交易价格仍需发布价格或豆单后生效。' : '这里的参数只做临时试算；保存请回到快速成本参数或梯度模板，交易价格仍需发布后生效。' }}</p>
+        <p class="muted">{{ isDripExplanation ? '挂耳价格来源只展示当前公式步骤；交易价格仍需发布价格或豆单后生效。' : '价格来源只展示当前公式步骤；需要调整源参数时回到对应设置页保存。' }}</p>
       </aside>
     </div>
 
@@ -802,8 +726,6 @@ const props = defineProps({
 })
 
 const loading = ref(false)
-const saving = ref(false)
-const publishing = ref(false)
 const beanListPublishing = ref(false)
 const beanListWithdrawing = ref(false)
 const beanListVersionListLoading = ref(false)
@@ -812,7 +734,6 @@ const priceExplanationOpen = ref(false)
 const priceExplanationLoading = ref(false)
 const pdfDrawerOpen = ref(false)
 const pdfPrinting = ref(false)
-const pricingCollapsed = ref(true)
 const publicationScope = ref('official')
 const selectedBeanListCustomerID = ref(0)
 const actorLoaded = ref(false)
@@ -828,13 +749,7 @@ const priceExplanation = ref(null)
 const explanationItem = ref(null)
 const explanationTier = ref(null)
 const explanationMode = ref('commercial')
-const explanationOverrides = ref({
-  green_bean_cost_per_kg: '',
-  yield_rate: '',
-  margin_rate: '',
-})
 const customers = ref([])
-const runId = ref(null)
 const beanListPublications = ref({
   official: { commercial: [], drip: [], retail: [] },
   mine: { commercial: [], drip: [], retail: [] },
@@ -995,10 +910,6 @@ function syncCustomerContext() {
   initializePdfDefaultsIfItemsLoaded()
 }
 
-function first(values) {
-  return Array.isArray(values) && values.length ? Number(values[0] || 0) : 0
-}
-
 function tierPriceValue(tier) {
   return Number(tier?.price_per_unit || tier?.price_per_lb || 0)
 }
@@ -1091,7 +1002,7 @@ function beanDescription(item, key) {
 function itemWarnings(item) {
   const warnings = Array.isArray(item?.warnings) ? item.warnings.filter(Boolean) : []
   if (item?.bom_status === 'inactive' && !warnings.some((warning) => String(warning).includes('BOM已失效'))) {
-    return ['BOM已失效：请重新启用 BOM 后再发布价格策略', ...warnings]
+    return ['BOM已失效：请重新启用 BOM 后再发布豆单', ...warnings]
   }
   return warnings
 }
@@ -1408,16 +1319,8 @@ function fixed(value, digits = 2) {
   return Number(value || 0).toFixed(digits)
 }
 
-function money(value) {
-  return fixed(value, 2)
-}
-
 function price(value) {
   return fixed(value, 0)
-}
-
-function costMoney(value) {
-  return fixed(value, 2)
 }
 
 function percent(value) {
@@ -1506,51 +1409,15 @@ function beanListPublicationURL(listType, scope) {
   return `/api/costing/bean-list/publications?${params.toString()}`
 }
 
-async function createRun() {
-  saving.value = true
-  error.value = ''
-  message.value = ''
-  try {
-    const data = await apiSend('/api/costing/runs')
-    runId.value = data.id
-    if (Array.isArray(data.items)) items.value = data.items
-    message.value = `已保存试算批次 ${data.id}`
-  } catch (err) {
-    error.value = err.message || '保存失败'
-  } finally {
-    saving.value = false
-  }
-}
-
-async function publishRun() {
-  if (!runId.value) return
-  publishing.value = true
-  error.value = ''
-  message.value = ''
-  try {
-    await apiSend(`/api/costing/runs/${runId.value}/publish`)
-    message.value = `已发布试算批次 ${runId.value}`
-  } catch (err) {
-    error.value = err.message || '发布失败'
-  } finally {
-    publishing.value = false
-  }
-}
-
 async function handleSettingSaved() {
   await loadBeanList()
-  message.value = '成本参数已保存，当前试算已刷新'
+  message.value = '成本参数已保存，豆单数据已刷新'
 }
 
 async function openPriceExplanation(item, tier) {
   explanationMode.value = 'commercial'
   explanationItem.value = item
   explanationTier.value = tier
-  explanationOverrides.value = {
-    green_bean_cost_per_kg: '',
-    yield_rate: '',
-    margin_rate: '',
-  }
   priceExplanation.value = null
   priceExplanationError.value = ''
   priceExplanationOpen.value = true
@@ -1561,25 +1428,10 @@ async function openDripPriceExplanation(item, tier) {
   explanationMode.value = 'drip'
   explanationItem.value = item
   explanationTier.value = tier
-  explanationOverrides.value = {
-    green_bean_cost_per_kg: '',
-    yield_rate: '',
-    margin_rate: '',
-  }
   priceExplanation.value = null
   priceExplanationError.value = ''
   priceExplanationOpen.value = true
   await loadPriceExplanation()
-}
-
-function cleanExplanationOverrides() {
-  const out = {}
-  for (const [key, value] of Object.entries(explanationOverrides.value || {})) {
-    if (value === '' || value == null) continue
-    const n = Number(value)
-    if (Number.isFinite(n)) out[key] = n
-  }
-  return out
 }
 
 async function loadPriceExplanation() {
@@ -1596,7 +1448,6 @@ async function loadPriceExplanation() {
       const payload = buildPriceExplanationRequest(
         explanationItem.value,
         explanationTier.value,
-        cleanExplanationOverrides(),
       )
       priceExplanation.value = await apiSend('/api/costing/price-explanation', { body: payload })
     }
@@ -1804,7 +1655,7 @@ onBeforeUnmount(() => {
 .status-draft { border-color: #c8d4e1; background: #f7fbff; color: #1f4f82; }
 .status-withdrawn { border-color: #e0b4b4; background: #fff1f1; color: #8b1e1e; }
 .status-unknown { background: #f5f5f5; color: #555; }
-.metrics { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
+.metrics { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
 .metrics > div { border: 1px solid #eee; border-radius: 8px; padding: 12px; background: #fafafa; }
 .metrics span, .muted { color: #666; font-size: 12px; }
 .metrics span { display: block; margin-bottom: 6px; }
@@ -1839,13 +1690,10 @@ button:disabled { opacity: .45; cursor: not-allowed; }
 .drawer-head { position: sticky; top: 0; z-index: 2; background: #f7f7f7; display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; padding-bottom: 12px; margin-bottom: 4px; }
 .drawer-head h3 { margin: 0; font-size: 18px; }
 .drawer-head p { margin: 4px 0 0; color: #666; font-size: 12px; line-height: 1.45; }
-.explanation-summary { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin-bottom: 12px; }
+.explanation-summary { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; margin-bottom: 12px; }
 .explanation-summary > div { border: 1px solid #ddd; border-radius: 8px; background: #fff; padding: 10px; }
 .explanation-summary span { display: block; margin-bottom: 5px; color: #666; font-size: 12px; }
 .explanation-summary strong { display: block; overflow-wrap: anywhere; font-size: 16px; }
-.explanation-form { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)) auto; gap: 10px; align-items: end; border: 1px solid #ddd; border-radius: 8px; background: #fff; padding: 10px; margin-bottom: 12px; }
-.explanation-form label span { display: block; color: #666; font-size: 12px; margin-bottom: 5px; }
-.explanation-form input { width: 100%; min-height: 36px; border: 1px solid #ddd; border-radius: 8px; padding: 7px 9px; background: #fff; font: inherit; box-sizing: border-box; }
 .formula-steps { display: grid; gap: 8px; margin: 12px 0; }
 .formula-step { display: grid; grid-template-columns: minmax(110px, .7fr) minmax(130px, .6fr) minmax(0, 1fr); align-items: center; gap: 10px; border: 1px solid #ddd; border-radius: 8px; background: #fff; padding: 9px 10px; }
 .formula-step.changed { border-color: #d29b42; background: #fff8eb; }
@@ -1957,7 +1805,7 @@ article, .empty-card { border: 1px solid #eee; border-radius: 8px; padding: 12px
   .metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .bean-grid { grid-template-columns: 1fr; }
   .settings-drawer { width: 100vw; }
-  .explanation-summary, .explanation-form, .formula-step { grid-template-columns: 1fr; }
+  .explanation-summary, .formula-step { grid-template-columns: 1fr; }
   .formula-step strong { text-align: left; }
   .section-bar.bean-list-version-head { align-items: flex-start; flex-direction: column; }
   .version-controls { grid-template-columns: 1fr; }

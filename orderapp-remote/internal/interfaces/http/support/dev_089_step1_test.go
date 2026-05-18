@@ -135,7 +135,6 @@ func TestBeanListAdvancedGenerationRequirementSeeds(t *testing.T) {
 		"UT-095-01",
 		"API-095-01",
 		"REV-095-01",
-		"价格试算支持折叠",
 		"豆单生成支持选择产品、分级显示、重排编号",
 		"豆卡样式",
 		"表格样式",
