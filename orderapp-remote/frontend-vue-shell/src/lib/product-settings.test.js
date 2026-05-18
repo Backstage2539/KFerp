@@ -5,6 +5,7 @@ import {
   buildProductBasicsPayload,
   buildProductCreatePayload,
   filterSkuRows,
+  paginatedSkuRows,
   greenBeanTypeLabel,
   primaryCategoryOptions,
   roastedBomProductOptions,
@@ -21,6 +22,23 @@ test('filterSkuRows supports product kind, name, primary category, and secondary
   assert.deepEqual(filterSkuRows(rows, { productKind: 'green_bean' }).map((row) => row.id), [2, 3])
   assert.deepEqual(filterSkuRows(rows, { query: '瑰夏' }).map((row) => row.id), [2])
   assert.deepEqual(filterSkuRows(rows, { primaryCategory: '生豆', secondaryCategory: '拼配生豆' }).map((row) => row.id), [3])
+})
+
+test('paginatedSkuRows filters all SKU rows before slicing the current page', () => {
+  const manyRows = [
+    ...Array.from({ length: 12 }, (_, index) => ({
+      id: index + 1,
+      name: `熟豆 ${index + 1}`,
+      product_kind: 'roasted',
+    })),
+    { id: 13, name: '后页生豆 A', product_kind: 'green_bean' },
+    { id: 14, name: '后页生豆 B', product_kind: 'green_bean' },
+  ]
+
+  assert.deepEqual(
+    paginatedSkuRows(manyRows, { productKind: 'green_bean' }, { page: 1, pageSize: 10 }).map((row) => row.id),
+    [13, 14],
+  )
 })
 
 test('category filter options are derived from current SKU rows', () => {

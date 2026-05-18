@@ -1,4 +1,7 @@
+import { slicePageRows } from './pagination.js'
+
 export const PRODUCT_KIND_ALL = 'all'
+
 export const greenBeanTypeOptions = [
   { value: 'single_origin', label: '单品' },
   { value: 'blend', label: '拼配' },
@@ -32,6 +35,10 @@ export function filterSkuRows(rows = [], filters = {}) {
     if (secondaryCategory && String(row.secondary_name || '') !== secondaryCategory) return false
     return true
   })
+}
+
+export function paginatedSkuRows(rows = [], filters = {}, pagination = {}) {
+  return slicePageRows(filterSkuRows(rows, filters), pagination)
 }
 
 export function primaryCategoryOptions(rows = []) {

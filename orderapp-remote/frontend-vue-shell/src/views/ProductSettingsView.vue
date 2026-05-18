@@ -37,7 +37,7 @@
         </div>
         <div class="context-stats">
           <span>公共SKU {{ publicSkuRows.length }}</span>
-          <span>当前SKU {{ displaySkuRows.length }}</span>
+          <span>当前SKU {{ filteredSkuRows.length }}</span>
           <span>商品分类 {{ categoryTreeForSkuContext.length }}</span>
         </div>
       </div>
@@ -381,7 +381,7 @@
               </select>
             </label>
           </div>
-          <table>
+          <table data-auto-pagination="off">
             <thead>
               <tr>
                 <th class="select-col">
@@ -489,6 +489,13 @@
             </tbody>
           </table>
         </div>
+        <PaginationControls
+          :page="skuPage"
+          :page-size="skuPageSize"
+          :total="filteredSkuRows.length"
+          :disabled="loading"
+          @change="handleSkuPaginationChange"
+        />
       </div>
     </section>
 
@@ -498,6 +505,7 @@
 <script setup>
 import { computed, onMounted, ref, watch } from 'vue'
 import { apiGet, apiSend } from '../api/client'
+import PaginationControls from '../components/PaginationControls.vue'
 import SearchableSelect from '../components/SearchableSelect.vue'
 import {
   buildGradientTemplatePayload,
@@ -514,10 +522,12 @@ import {
   filterSkuRows,
   greenBeanTypeOptions,
   normalizedProductKind,
+  paginatedSkuRows,
   primaryCategoryOptions,
   roastedBomProductOptions,
   secondaryCategoryOptions,
 } from '../lib/product-settings'
+import { normalizePageSize } from '../lib/pagination'
 
 const categories = ref([])
 const products = ref([])
@@ -542,6 +552,8 @@ const productsCollapsed = ref(false)
 const selectedCustomerSkuCustomerID = ref(0)
 const selectedProductIds = ref([])
 const skuFilters = ref(defaultSkuFilters())
+const skuPage = ref(1)
+const skuPageSize = ref(10)
 const roastLevels = ['浅烘', '中烘', '中深烘', '深烘']
 const productForm = ref(defaultProductForm())
 const customForm = ref(defaultCustomForm())
@@ -638,7 +650,11 @@ const customerSkuRows = computed(() => productRows.value
   .filter((product) => !selectedCustomerSkuCustomerID.value || Number(product.customer_id || 0) === Number(selectedCustomerSkuCustomerID.value))
   .sort((a, b) => ownerLabel(a).localeCompare(ownerLabel(b)) || a.name.localeCompare(b.name)))
 const unfilteredDisplaySkuRows = computed(() => selectedCustomerSkuCustomerID.value ? customerSkuRows.value : publicSkuRows.value)
-const displaySkuRows = computed(() => filterSkuRows(unfilteredDisplaySkuRows.value, skuFilters.value))
+const filteredSkuRows = computed(() => filterSkuRows(unfilteredDisplaySkuRows.value, skuFilters.value))
+const displaySkuRows = computed(() => paginatedSkuRows(unfilteredDisplaySkuRows.value, skuFilters.value, {
+  page: skuPage.value,
+  pageSize: skuPageSize.value,
+}))
 const allProductRowsSelected = computed(() => displaySkuRows.value.length > 0 && displaySkuRows.value.every((row) => selectedProductIds.value.includes(Number(row.id))))
 const activeGradientTemplates = computed(() => gradientTemplates.value.filter((template) => template.active !== false))
 const skuPrimaryCategoryOptions = computed(() => primaryCategoryOptions(unfilteredDisplaySkuRows.value))
@@ -938,6 +954,11 @@ function toggleProductSelection(row, checked) {
 
 function toggleAllProductRows(checked) {
   selectedProductIds.value = checked ? displaySkuRows.value.map((row) => Number(row.id)).filter(Boolean) : []
+}
+
+function handleSkuPaginationChange({ page, pageSize }) {
+  skuPageSize.value = normalizePageSize(pageSize)
+  skuPage.value = page
 }
 
 function selectedBaseProduct() {
@@ -1412,8 +1433,13 @@ async function deactivateProducts(productIds) {
 
 watch(selectedCustomerSkuCustomerID, () => {
   skuFilters.value = defaultSkuFilters()
+  skuPage.value = 1
   pruneSelectedProducts(displaySkuRows.value)
 })
+
+watch(skuFilters, () => {
+  skuPage.value = 1
+}, { deep: true })
 
 watch(() => skuFilters.value.primaryCategory, () => {
   if (!skuSecondaryCategoryOptions.value.includes(skuFilters.value.secondaryCategory)) {
