@@ -47,6 +47,16 @@ func (r Repository) LoadParameters(ctx context.Context) (domain.Parameters, erro
 
 func (r Repository) LoadProductInputs(ctx context.Context, params domain.Parameters) ([]domain.ProductInput, error) {
 	q := fmt.Sprintf(`
+		WITH material_valuation AS (
+			SELECT l.material_id,
+			       SUM(l.qty_g::numeric * COALESCE(b.unit_cost,0)) / NULLIF(SUM(l.qty_g),0) AS weighted_unit_cost
+			FROM %s.material_batch_locations l
+			JOIN %s.material_batches b ON b.id = l.material_batch_id
+			WHERE l.qty_g > 0
+			  AND b.status='active'
+			  AND COALESCE(b.quality_status,'unchecked') NOT IN ('hold','reject')
+			GROUP BY l.material_id
+		)
 		SELECT p.id,
 		       p.name,
 		       COALESCE(base_p.name, p.name),
@@ -58,7 +68,7 @@ func (r Repository) LoadProductInputs(ctx context.Context, params domain.Paramet
 		       COALESCE(p.product_category_id, 0),
 		       COALESCE(pc.gradient_template_id, 0),
 		       COALESCE(NULLIF(b.yield_rate,0), $1),
-		       COALESCE(SUM(COALESCE(m.purchase_price,0) * COALESCE(bi.ratio_pct,0) / 100.0),0),
+		       COALESCE(SUM(COALESCE(mv.weighted_unit_cost, m.purchase_price, 0) * COALESCE(bi.ratio_pct,0) / 100.0),0),
 		       COALESCE(string_agg(DISTINCT NULLIF(bp.flavor, ''), ' / ') FILTER (WHERE NULLIF(bp.flavor, '') IS NOT NULL), ''),
 		       COALESCE(string_agg(DISTINCT NULLIF(bp.origin, ''), ' / ') FILTER (WHERE NULLIF(bp.origin, '') IS NOT NULL), ''),
 		       COALESCE(string_agg(DISTINCT NULLIF(bp.processing_station, ''), ' / ') FILTER (WHERE NULLIF(bp.processing_station, '') IS NOT NULL), ''),
@@ -72,13 +82,14 @@ func (r Repository) LoadProductInputs(ctx context.Context, params domain.Paramet
 		LEFT JOIN %s.product_bom b ON b.product_id = p.id
 		LEFT JOIN %s.product_bom_items bi ON bi.product_id = p.id
 		LEFT JOIN %s.materials m ON m.id = bi.material_id
+		LEFT JOIN material_valuation mv ON mv.material_id = m.id
 		LEFT JOIN %s.material_bean_profiles bp ON bp.material_id = m.id
 		LEFT JOIN %s.products base_p ON base_p.id = p.base_product_id
 		LEFT JOIN %s.product_categories pc ON pc.id = p.product_category_id AND pc.active=true
 		WHERE p.active = true
 		GROUP BY p.id, p.name, base_p.name, p.roast_level, p.customer_id, p.base_product_id, p.visibility, p.custom_type, p.product_category_id, pc.gradient_template_id, b.yield_rate, b.status, b.product_id
 		ORDER BY p.name
-	`, r.schema, r.schema, r.schema, r.schema, r.schema, r.schema, r.schema)
+	`, r.schema, r.schema, r.schema, r.schema, r.schema, r.schema, r.schema, r.schema, r.schema)
 	rows, err := r.pool.Query(ctx, q, params.RoastYieldRate)
 	if err != nil {
 		return nil, err

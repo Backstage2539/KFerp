@@ -246,6 +246,23 @@ func TestStockAdjustmentsAPIRequiresReasonAndRecordsMaterialTarget(t *testing.T)
 	}
 }
 
+func TestStockAdjustmentsAPIRecordsMaterialCostAdjustment(t *testing.T) {
+	repo := &fakeStockRepo{}
+	e := echo.New()
+	RegisterRoutes(e, Dependencies{Stock: stockapp.NewService(repo)})
+
+	req := httptest.NewRequest(http.MethodPost, "/api/stock/adjustments", bytes.NewBufferString(`{"adjustment_type":"material_cost","item_type":"material","item_id":1,"material_batch_id":7,"target_unit_cost":52.75,"reason":"入库单价录错更正"}`))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("POST material cost adjustment status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if repo.adjustment.AdjustmentType != "material_cost" || repo.adjustment.ItemType != "material" || repo.adjustment.ItemID != 1 || repo.adjustment.MaterialBatchID != 7 || repo.adjustment.TargetUnitCost != 52.75 {
+		t.Fatalf("cost adjustment command = %+v", repo.adjustment)
+	}
+}
+
 func TestStockAdjustmentsAPIRecordsFinishedWarehouse(t *testing.T) {
 	repo := &fakeStockRepo{}
 	e := echo.New()
