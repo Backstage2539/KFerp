@@ -6,6 +6,7 @@ import (
 	catalogdomain "orderapp/internal/domain/catalog"
 	support "orderapp/internal/interfaces/http/support"
 	"strconv"
+	"strings"
 
 	catalogapp "orderapp/internal/application/catalog"
 
@@ -61,7 +62,7 @@ type productUpdateAPIRequest struct {
 
 type productCreateAPIRequest struct {
 	Name                  string   `json:"name"`
-	RoastLevel            string   `json:"roast_level"`
+	RoastLevel            *string  `json:"roast_level"`
 	ProductKind           string   `json:"product_kind"`
 	DripBagGrams          *float64 `json:"drip_bag_grams"`
 	DripBoxBagCount       *int     `json:"drip_box_bag_count"`
@@ -241,7 +242,14 @@ func (h productHandler) createProductAPI(c echo.Context) error {
 	if err := c.Bind(&req); err != nil {
 		return c.JSON(http.StatusBadRequest, map[string]any{"error": "bad request"})
 	}
-	roastLevel := NormalizeRoastLevel(req.RoastLevel)
+	roastLevelInput := ""
+	if req.RoastLevel != nil {
+		roastLevelInput = *req.RoastLevel
+	}
+	roastLevel := NormalizeRoastLevel(roastLevelInput)
+	if strings.TrimSpace(roastLevelInput) != "" && roastLevel == "" {
+		return c.JSON(http.StatusBadRequest, map[string]any{"error": "invalid roast_level"})
+	}
 	if roastLevel == "" {
 		roastLevel = "深烘"
 	}

@@ -438,6 +438,11 @@ func TestProductSettingsAPIReturnsBadRequestForCreateValidationFailures(t *testi
 			body: `{"name":"新公共拼配","roast_level":"中深烘","default_price":-1}`,
 			want: "price must not be negative",
 		},
+		{
+			name: "invalid roast level",
+			body: `{"name":"X","roast_level":"not-a-level"}`,
+			want: "invalid roast_level",
+		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
