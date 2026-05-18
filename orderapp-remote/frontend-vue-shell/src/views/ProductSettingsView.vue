@@ -77,9 +77,22 @@
               <span>%</span>
             </div>
           </label>
-          <label>
-            <span>{{ productForm.product_kind === 'green_bean' ? '生豆销售价/kg' : '默认价' }}</span>
-            <input v-model.number="productForm.default_price" type="number" min="0" step="0.01" />
+          <label v-if="productForm.product_kind === 'green_bean'">
+            <span>生豆属性</span>
+            <select v-model="productForm.green_bean_type">
+              <option v-for="option in greenBeanTypeOptions" :key="option.value" :value="option.value">{{ option.label }}</option>
+            </select>
+          </label>
+          <label v-if="productForm.product_kind === 'green_bean'" class="wide-field">
+            <span>绑定熟豆 BOM</span>
+            <SearchableSelect
+              v-model="productForm.green_bean_bom_product_id"
+              :options="roastedBomProducts"
+              :option-label="baseProductOptionLabel"
+              :option-meta="baseProductOptionMeta"
+              :option-value="optionNumericValue"
+              placeholder="选择对应熟豆产品/BOM"
+              empty-text="暂无熟豆产品" />
           </label>
           <div class="form-actions">
             <button class="primary" type="submit" :disabled="productSaving">创建公共产品</button>
@@ -340,6 +353,34 @@
           </div>
         </div>
         <div v-show="!productsCollapsed" class="table-wrap">
+          <div class="sku-filters">
+            <label>
+              <span>形态</span>
+              <select v-model="skuFilters.productKind">
+                <option value="all">全部形态</option>
+                <option value="roasted">熟豆</option>
+                <option value="green_bean">生豆</option>
+              </select>
+            </label>
+            <label>
+              <span>名称</span>
+              <input v-model.trim="skuFilters.query" placeholder="搜索商品名称" />
+            </label>
+            <label>
+              <span>一级分类</span>
+              <select v-model="skuFilters.primaryCategory">
+                <option value="">全部一级分类</option>
+                <option v-for="name in skuPrimaryCategoryOptions" :key="name" :value="name">{{ name }}</option>
+              </select>
+            </label>
+            <label>
+              <span>二级分类</span>
+              <select v-model="skuFilters.secondaryCategory">
+                <option value="">全部二级分类</option>
+                <option v-for="name in skuSecondaryCategoryOptions" :key="name" :value="name">{{ name }}</option>
+              </select>
+            </label>
+          </div>
           <table>
             <thead>
               <tr>
@@ -351,9 +392,10 @@
                 <th>商品编号</th>
                 <th>商品</th>
                 <th>形态</th>
+                <th>生豆属性</th>
+                <th>绑定熟豆 BOM</th>
                 <th>归属</th>
                 <th>类型</th>
-                <th>销售价</th>
                 <th>烘焙度</th>
                 <th>BOM出品率</th>
                 <th v-if="!selectedCustomerSkuCustomerID">利润率覆盖</th>
@@ -372,18 +414,32 @@
                 <td>{{ row.number || '' }}</td>
                 <td>{{ row.name }}</td>
                 <td><span class="kind-badge" :class="productKindBadgeClass(row)">{{ productKindLabel(row) }}</span></td>
+                <td>
+                  <select
+                    v-if="row.product_kind === 'green_bean'"
+                    class="green-type-select"
+                    v-model="row.green_bean_type"
+                    @change="saveProductBasics(row)">
+                    <option v-for="option in greenBeanTypeOptions" :key="option.value" :value="option.value">{{ option.label }}</option>
+                  </select>
+                  <span v-else class="muted">-</span>
+                </td>
+                <td>
+                  <SearchableSelect
+                    v-if="row.product_kind === 'green_bean'"
+                    class="bom-product-select"
+                    v-model="row.green_bean_bom_product_id"
+                    :options="roastedBomProducts"
+                    :option-label="baseProductOptionLabel"
+                    :option-meta="baseProductOptionMeta"
+                    :option-value="optionNumericValue"
+                    placeholder="绑定熟豆 BOM"
+                    empty-text="暂无熟豆产品"
+                    @select="saveProductBasics(row)" />
+                  <span v-else class="muted">-</span>
+                </td>
                 <td>{{ ownerLabel(row) }}</td>
                 <td>{{ customTypeLabel(row.custom_type) }}</td>
-                <td>
-                  <input
-                    class="price-input"
-                    v-model.number="row.default_price"
-                    type="number"
-                    min="0"
-                    step="0.01"
-                    :disabled="row.product_kind !== 'green_bean'"
-                    @change="saveProductBasics(row)" />
-                </td>
                 <td>
                   <select class="roast-select" v-model="row.roast_level" :disabled="row.product_kind === 'green_bean'" @change="saveProductBasics(row)">
                     <option v-for="level in roastLevels" :key="level" :value="level">{{ level }}</option>
@@ -424,7 +480,7 @@
                 </td>
               </tr>
               <tr v-if="!displaySkuRows.length">
-                <td :colspan="selectedCustomerSkuCustomerID ? 14 : 15" class="muted">{{ selectedCustomerSkuCustomerID ? '暂无客户SKU' : '暂无公共SKU' }}</td>
+                <td :colspan="selectedCustomerSkuCustomerID ? 15 : 16" class="muted">{{ selectedCustomerSkuCustomerID ? '暂无客户SKU' : '暂无公共SKU' }}</td>
               </tr>
             </tbody>
           </table>
@@ -454,6 +510,16 @@ import {
   normalizeGradientTemplate,
   validateGradientTemplate,
 } from '../lib/gradient-templates'
+import {
+  buildProductBasicsPayload,
+  buildProductCreatePayload,
+  filterSkuRows,
+  greenBeanTypeOptions,
+  normalizedProductKind,
+  primaryCategoryOptions,
+  roastedBomProductOptions,
+  secondaryCategoryOptions,
+} from '../lib/product-settings'
 
 const categories = ref([])
 const products = ref([])
@@ -477,6 +543,7 @@ const categoryCollapsed = ref(false)
 const productsCollapsed = ref(false)
 const selectedCustomerSkuCustomerID = ref(0)
 const selectedProductIds = ref([])
+const skuFilters = ref(defaultSkuFilters())
 const roastLevels = ['浅烘', '中烘', '中深烘', '深烘']
 const productForm = ref(defaultProductForm())
 const customForm = ref(defaultCustomForm())
@@ -572,22 +639,32 @@ const customerSkuRows = computed(() => productRows.value
   .filter((product) => Number(product.customer_id || 0) > 0)
   .filter((product) => !selectedCustomerSkuCustomerID.value || Number(product.customer_id || 0) === Number(selectedCustomerSkuCustomerID.value))
   .sort((a, b) => ownerLabel(a).localeCompare(ownerLabel(b)) || a.name.localeCompare(b.name)))
-const displaySkuRows = computed(() => selectedCustomerSkuCustomerID.value ? customerSkuRows.value : publicSkuRows.value)
+const unfilteredDisplaySkuRows = computed(() => selectedCustomerSkuCustomerID.value ? customerSkuRows.value : publicSkuRows.value)
+const displaySkuRows = computed(() => filterSkuRows(unfilteredDisplaySkuRows.value, skuFilters.value))
 const allProductRowsSelected = computed(() => displaySkuRows.value.length > 0 && displaySkuRows.value.every((row) => selectedProductIds.value.includes(Number(row.id))))
 const activeGradientTemplates = computed(() => gradientTemplates.value.filter((template) => template.active !== false))
+const skuPrimaryCategoryOptions = computed(() => primaryCategoryOptions(unfilteredDisplaySkuRows.value))
+const skuSecondaryCategoryOptions = computed(() => secondaryCategoryOptions(unfilteredDisplaySkuRows.value, skuFilters.value.primaryCategory))
+const roastedBomProducts = computed(() => roastedBomProductOptions(products.value))
+
+function defaultSkuFilters() {
+  return {
+    productKind: 'all',
+    query: '',
+    primaryCategory: '',
+    secondaryCategory: '',
+  }
+}
 
 function defaultProductForm() {
   return {
     name: '',
     product_kind: 'roasted',
+    green_bean_type: 'single_origin',
+    green_bean_bom_product_id: 0,
     roast_level: '中烘',
     yield_percent: 80,
-    default_price: 0,
   }
-}
-
-function normalizedProductKind(row = {}) {
-  return row?.product_kind === 'green_bean' ? 'green_bean' : 'roasted'
 }
 
 function productKindLabel(row = {}) {
@@ -631,6 +708,8 @@ function decorateProduct(product) {
   return {
     ...product,
     product_kind: productKind,
+    green_bean_type: product.green_bean_type || 'single_origin',
+    green_bean_bom_product_id: Number(product.green_bean_bom_product_id || 0),
     roast_level: productKind === 'green_bean' ? '' : roastLevels.includes(product.roast_level) ? product.roast_level : '中烘',
     yield_rate: productKind === 'green_bean' ? 0 : yieldRate,
     yield_percent: productKind === 'green_bean' ? 0 : Number((yieldRate * 100).toFixed(2)),
@@ -896,21 +975,16 @@ async function createProduct() {
     error.value = 'BOM出品率必须在 1% 到 100% 之间'
     return
   }
+  if (productForm.value.product_kind === 'green_bean' && Number(productForm.value.green_bean_bom_product_id || 0) <= 0) {
+    error.value = '生豆 SKU 必须绑定对应熟豆 BOM'
+    return
+  }
   productSaving.value = true
   error.value = ''
   ok.value = ''
   try {
     await apiSend('/api/product-settings/products', {
-      body: {
-        name: productForm.value.name,
-        product_kind: productForm.value.product_kind,
-        roast_level: productForm.value.roast_level,
-        yield_rate: productForm.value.product_kind === 'green_bean' ? 0 : Number((yieldPercent / 100).toFixed(4)),
-        default_price: Number(productForm.value.default_price || 0),
-        tiers: productForm.value.product_kind === 'green_bean'
-          ? [{ spec_g: 1000, min_qty: 1, unit_price: Number(productForm.value.default_price || 0) }]
-          : [],
-      },
+      body: buildProductCreatePayload(productForm.value),
     })
     ok.value = '公共产品已创建'
     productForm.value = defaultProductForm()
@@ -1288,6 +1362,10 @@ async function saveProductBasics(row, successMessage = '商品基础信息已保
     error.value = 'BOM出品率必须在 1% 到 100% 之间'
     return
   }
+  if (row.product_kind === 'green_bean' && Number(row.green_bean_bom_product_id || 0) <= 0) {
+    error.value = '生豆 SKU 必须绑定对应熟豆 BOM'
+    return
+  }
   const marginOverride = normalizeMarginRateOverride(row)
   if (!marginOverride.ok) {
     error.value = '利润率覆盖必须为 0 或正数'
@@ -1299,20 +1377,7 @@ async function saveProductBasics(row, successMessage = '商品基础信息已保
   try {
     await apiSend(`/api/products/${row.id}`, {
       method: 'PUT',
-      body: {
-        product_kind: row.product_kind,
-        default_price: Number(row.default_price || 0),
-        roast_level: row.roast_level,
-        yield_rate: row.product_kind === 'green_bean' ? 0 : Number((yieldPercent / 100).toFixed(4)),
-        retail_price_100g: Number(row.retail_price_100g || 0),
-        retail_price_200g: Number(row.retail_price_200g || 0),
-        retail_price_227g: Number(row.retail_price_227g || 0),
-        retail_price_250g: Number(row.retail_price_250g || 0),
-        tiers: row.product_kind === 'green_bean'
-          ? [{ spec_g: 1000, min_qty: 1, unit_price: Number(row.default_price || 0) }]
-          : [],
-        margin_rate_override: marginOverride.value,
-      },
+      body: buildProductBasicsPayload(row, marginOverride.value),
     })
     row.margin_rate_override = marginOverride.value
     row.margin_rate_override_input = marginOverride.value === null ? '' : marginOverride.value
@@ -1348,7 +1413,18 @@ async function deactivateProducts(productIds) {
 }
 
 watch(selectedCustomerSkuCustomerID, () => {
+  skuFilters.value = defaultSkuFilters()
   pruneSelectedProducts(displaySkuRows.value)
+})
+
+watch(() => skuFilters.value.primaryCategory, () => {
+  if (!skuSecondaryCategoryOptions.value.includes(skuFilters.value.secondaryCategory)) {
+    skuFilters.value.secondaryCategory = ''
+  }
+})
+
+watch(displaySkuRows, (rows) => {
+  pruneSelectedProducts(rows)
 })
 
 onMounted(loadAll)
@@ -1403,6 +1479,8 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .sku-panel-title { align-items: flex-start; }
 .sku-panel-actions { flex: 1; }
 .sku-customer-select { min-width: 220px; max-width: 320px; flex: 1 1 220px; font-weight: 400; }
+.sku-filters { display: grid; grid-template-columns: 150px minmax(180px, 1fr) 180px 180px; gap: 8px; margin-bottom: 10px; align-items: end; }
+.sku-filters label { display: grid; gap: 5px; font-size: 12px; color: #333; }
 .checkline { display: flex !important; align-items: center; gap: 8px; min-height: 36px; }
 .checkline input { width: auto; min-height: 0; }
 .form-actions { display: flex; justify-content: flex-end; }
@@ -1423,16 +1501,17 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .product-chip-list, .uncategorized { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
 .product-chip { border: 1px solid #ddd; border-radius: 8px; padding: 5px 8px; background: #fff; font-size: 12px; cursor: grab; }
 .table-wrap { overflow: auto; }
-table { width: 100%; min-width: 1080px; border-collapse: collapse; }
+table { width: 100%; min-width: 1280px; border-collapse: collapse; }
 .compact-table table { min-width: 760px; }
 th, td { border-bottom: 1px solid #eee8df; padding: 8px; text-align: left; font-size: 13px; vertical-align: middle; }
 th { background: #fbfaf8; position: sticky; top: 0; }
 .select-col { width: 42px; text-align: center; }
 .select-col input { width: 16px; min-height: 16px; }
 .roast-select { min-width: 92px; }
+.green-type-select { min-width: 92px; }
+.bom-product-select { min-width: 220px; }
 .yield-editor { display: flex; align-items: center; gap: 6px; max-width: 130px; }
 .yield-input { width: 90px; }
-.price-input { width: 96px; }
 .kind-badge { display: inline-flex; align-items: center; min-height: 20px; padding: 1px 7px; border-radius: 4px; font-size: 12px; font-weight: 600; }
 .kind-roasted { color: #8a4b12; background: #fff3df; border: 1px solid #f3c67c; }
 .kind-green { color: #12613a; background: #e8f7ee; border: 1px solid #8bd4a6; }
@@ -1446,7 +1525,7 @@ th { background: #fbfaf8; position: sticky; top: 0; }
 .muted { color: #666; font-size: 12px; }
 @media (max-width: 900px) {
   .page { padding: 12px; }
-  .settings-grid, .inline-form, .product-create-form, .custom-product-form, .gradient-template-layout, .template-editor-grid, .template-tier-row { grid-template-columns: 1fr; }
+  .settings-grid, .inline-form, .product-create-form, .custom-product-form, .gradient-template-layout, .template-editor-grid, .template-tier-row, .sku-filters { grid-template-columns: 1fr; }
   .sku-context-main { display: grid; }
   .sku-context-controls { justify-content: flex-start; min-width: 0; }
   .panel-actions { justify-content: flex-start; }
@@ -1454,6 +1533,6 @@ th { background: #fbfaf8; position: sticky; top: 0; }
   .sku-customer-select { max-width: none; }
   .product-create-form .wide-field, .custom-product-form .wide-field { grid-column: auto; }
   .template-select { width: 100%; }
-  table { min-width: 1080px; }
+  table { min-width: 1280px; }
 }
 </style>

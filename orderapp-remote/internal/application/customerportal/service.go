@@ -214,15 +214,24 @@ type BeanListGroupSummary struct {
 }
 
 type BeanListProductSummary struct {
-	Code           string                 `json:"code,omitempty"`
-	Name           string                 `json:"name"`
-	Badge          string                 `json:"badge,omitempty"`
-	BadgeLabel     string                 `json:"badge_label,omitempty"`
-	RecommendedUse string                 `json:"recommended_use,omitempty"`
-	Flavor         string                 `json:"flavor,omitempty"`
-	Description    string                 `json:"description,omitempty"`
-	HighlightTerms []string               `json:"highlight_terms,omitempty"`
-	Prices         []BeanListPriceSummary `json:"prices,omitempty"`
+	Code            string                 `json:"code,omitempty"`
+	Name            string                 `json:"name"`
+	Badge           string                 `json:"badge,omitempty"`
+	BadgeLabel      string                 `json:"badge_label,omitempty"`
+	RecommendedUse  string                 `json:"recommended_use,omitempty"`
+	Flavor          string                 `json:"flavor,omitempty"`
+	Description     string                 `json:"description,omitempty"`
+	BeanListQuality BeanListQualitySummary `json:"bean_list_quality,omitempty"`
+	HighlightTerms  []string               `json:"highlight_terms,omitempty"`
+	Prices          []BeanListPriceSummary `json:"prices,omitempty"`
+}
+
+type BeanListQualitySummary struct {
+	FactoryFlavorDescription string `json:"factory_flavor_description,omitempty"`
+	Moisture                 string `json:"moisture,omitempty"`
+	Density                  string `json:"density,omitempty"`
+	InspectionCreatedAt      string `json:"inspection_created_at,omitempty"`
+	InspectionReferenceNo    string `json:"inspection_reference_no,omitempty"`
 }
 
 type BeanListPriceSummary struct {

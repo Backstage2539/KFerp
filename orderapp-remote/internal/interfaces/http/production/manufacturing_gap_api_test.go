@@ -187,7 +187,7 @@ func TestManufacturingGapAPIs(t *testing.T) {
 		t.Fatalf("edited full finish command = %+v", repo.finish)
 	}
 
-	qualityBody := []byte(`{"scope":"work_order","reference_type":"work_order","reference_no":"WO-0000000020","item_name":"测试拼配","result":"pass","metrics_json":"{\"色值\":\"正常\"}","note":"首锅通过"}`)
+	qualityBody := []byte(`{"scope":"raw_material","reference_type":"raw_material","reference_no":"MB-0000000007","item_name":"孟连水洗5T批次","result":"pass","metrics_json":"{\"水分\":\"10.5%\"}","factory_flavor_description":"茉莉花、柑橘","moisture":"10.8%","density":"780g/L","note":"入库杯测通过"}`)
 	req = httptest.NewRequest(http.MethodPost, "/api/produce/quality-inspections", bytes.NewReader(qualityBody))
 	req.Header.Set("Content-Type", "application/json")
 	rec = httptest.NewRecorder()
@@ -199,7 +199,12 @@ func TestManufacturingGapAPIs(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &createResp); err != nil {
 		t.Fatal(err)
 	}
-	if createResp["ok"] != true || repo.qualityCommand.ReferenceNo != "WO-0000000020" || repo.qualityCommand.Operator != "测试员" {
+	if createResp["ok"] != true ||
+		repo.qualityCommand.ReferenceNo != "MB-0000000007" ||
+		repo.qualityCommand.FactoryFlavorDescription != "茉莉花、柑橘" ||
+		repo.qualityCommand.Moisture != "10.8%" ||
+		repo.qualityCommand.Density != "780g/L" ||
+		repo.qualityCommand.Operator != "测试员" {
 		t.Fatalf("quality create response=%+v command=%+v", createResp, repo.qualityCommand)
 	}
 

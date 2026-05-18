@@ -104,7 +104,7 @@ test('PDF bean-list helper builds separate commercial and retail groups from Exc
   assert.equal(buildBeanListPdfTitle('retail'), '棵凡咖啡零售豆单')
 })
 
-test('PDF bean-list helper builds a green bean list from direct sale tiers', () => {
+test('PDF bean-list helper builds a green bean list from template tiers and quality data', () => {
   const groups = buildBeanListPdfGroups([{
     product_id: 90,
     product_kind: 'green_bean',
@@ -114,7 +114,13 @@ test('PDF bean-list helper builds a green bean list from direct sale tiers', () 
       category: '生豆销售',
       display_name: '埃塞瑰夏生豆',
       flavor: '茉莉、柑橘',
-      description: '水洗处理，生豆销售价',
+      description: '水洗处理，阶梯模板报价',
+    },
+    bean_list_quality: {
+      factory_flavor_description: '茉莉花、柑橘',
+      moisture: '10.8%',
+      density: '780g/L',
+      inspection_created_at: '2026-05-18 09:30',
     },
     green_bean_sale_tiers: [{ label: '1kg+', spec_g: 1000, price_per_unit: 128, display_unit: 'kg' }],
   }], 'green')
@@ -126,6 +132,18 @@ test('PDF bean-list helper builds a green bean list from direct sale tiers', () 
   assert.equal(groups[0].items[0].name, '埃塞瑰夏生豆')
   assert.equal(groups[0].items[0].prices[0].price, 128)
   assert.equal(groups[0].items[0].prices[0].unit, 'kg')
+  assert.deepEqual(groups[0].items[0].beanListQuality, {
+    factoryFlavorDescription: '茉莉花、柑橘',
+    moisture: '10.8%',
+    density: '780g/L',
+    inspectionCreatedAt: '2026-05-18 09:30',
+  })
+  assert.deepEqual(groups[0].items[0].qualityLines, [
+    { label: '工厂风味', value: '茉莉花、柑橘' },
+    { label: '水分', value: '10.8%' },
+    { label: '密度', value: '780g/L' },
+    { label: '质检时间', value: '2026-05-18 09:30' },
+  ])
 })
 
 test('bean-list scope filter keeps customer SKUs isolated by customer', () => {

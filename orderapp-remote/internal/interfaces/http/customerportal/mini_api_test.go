@@ -804,6 +804,12 @@ func TestMiniBeanListServicePageAPIReturnsDisplayContent(t *testing.T) {
 				ShowCategory: true,
 				Items: []customerportalapp.BeanListProductSummary{{
 					Code: "5.2", Name: "乌拉嘎", Badge: "new", BadgeLabel: "NEW", Flavor: "柑橘/莓果",
+					BeanListQuality: customerportalapp.BeanListQualitySummary{
+						FactoryFlavorDescription: "茉莉花、柑橘",
+						Moisture:                 "10.8%",
+						Density:                  "780g/L",
+						InspectionCreatedAt:      "2026-05-18 09:30",
+					},
 					HighlightTerms: []string{"乌拉嘎"},
 					Prices:         []customerportalapp.BeanListPriceSummary{{Label: "454g", Value: "118/包", Red: true}},
 				}},
@@ -823,6 +829,7 @@ func TestMiniBeanListServicePageAPIReturnsDisplayContent(t *testing.T) {
 		!strings.Contains(rec.Body.String(), `"cards_per_row":2`) ||
 		!strings.Contains(rec.Body.String(), `"background_color":"#f8f1e5"`) ||
 		!strings.Contains(rec.Body.String(), `"show_category":true`) ||
+		!strings.Contains(rec.Body.String(), `"bean_list_quality":{"factory_flavor_description":"茉莉花、柑橘","moisture":"10.8%","density":"780g/L","inspection_created_at":"2026-05-18 09:30"}`) ||
 		!strings.Contains(rec.Body.String(), `"highlight_terms":["乌拉嘎"]`) ||
 		!strings.Contains(rec.Body.String(), `"name":"乌拉嘎"`) ||
 		!strings.Contains(rec.Body.String(), `"prices":[`) {

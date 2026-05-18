@@ -72,9 +72,21 @@
           </label>
         </div>
         <div class="note-grid">
+          <label v-if="form.scope === 'raw_material'">
+            <span>工厂风味描述</span>
+            <input v-model.trim="form.factory_flavor_description" placeholder="杯测后工厂确认的风味" />
+          </label>
+          <label v-if="form.scope === 'raw_material'">
+            <span>水分</span>
+            <input v-model.trim="form.moisture" placeholder="10.8%" />
+          </label>
+          <label v-if="form.scope === 'raw_material'">
+            <span>密度</span>
+            <input v-model.trim="form.density" placeholder="780g/L" />
+          </label>
           <label>
             <span>指标 JSON</span>
-            <textarea v-model.trim="form.metrics_json" rows="3" placeholder='{"水分":"10.5%","色值":"正常"}'></textarea>
+            <textarea v-model.trim="form.metrics_json" rows="3" placeholder='{"色值":"正常"}'></textarea>
           </label>
           <label>
             <span>备注</span>
@@ -235,6 +247,9 @@ const form = reactive({
   item_name: '',
   result: 'pass',
   metrics_json: '',
+  factory_flavor_description: '',
+  moisture: '',
+  density: '',
   note: '',
 })
 
@@ -290,6 +305,9 @@ function switchScope(scope) {
   targetError.value = ''
   form.reference_no = ''
   form.item_name = ''
+  form.factory_flavor_description = ''
+  form.moisture = ''
+  form.density = ''
 }
 
 function targetPrimary(row) {
@@ -368,6 +386,9 @@ async function save() {
         item_name: form.item_name,
         result: form.result,
         metrics_json: form.metrics_json || '{}',
+        factory_flavor_description: form.factory_flavor_description,
+        moisture: form.moisture,
+        density: form.density,
         note: form.note,
       },
     })
@@ -376,6 +397,9 @@ async function save() {
     form.reference_no = ''
     form.item_name = ''
     form.metrics_json = ''
+    form.factory_flavor_description = ''
+    form.moisture = ''
+    form.density = ''
     form.note = ''
     await load()
   } catch (err) {
