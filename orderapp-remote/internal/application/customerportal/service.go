@@ -213,30 +213,51 @@ type BeanListPriceSummary struct {
 }
 
 type ProductSummary struct {
-	ID             int64  `json:"id"`
-	Name           string `json:"name"`
-	RoastLevel     string `json:"roast_level"`
-	DefaultPrice   string `json:"default_price"`
-	RetailPrice100 string `json:"retail_price_100g"`
-	RetailPrice200 string `json:"retail_price_200g"`
-	RetailPrice227 string `json:"retail_price_227g"`
-	RetailPrice250 string `json:"retail_price_250g"`
+	ID                 int64               `json:"id"`
+	Name               string              `json:"name"`
+	RoastLevel         string              `json:"roast_level"`
+	ProductKind        string              `json:"product_kind,omitempty"`
+	SalesUnits         []string            `json:"sales_units,omitempty"`
+	DripBagGrams       float64             `json:"drip_bag_grams,omitempty"`
+	DripBoxBagCount    int                 `json:"drip_box_bag_count,omitempty"`
+	DripPriceGradients []UnitPriceGradient `json:"drip_price_gradients,omitempty"`
+	DefaultPrice       string              `json:"default_price"`
+	RetailPrice100     string              `json:"retail_price_100g"`
+	RetailPrice200     string              `json:"retail_price_200g"`
+	RetailPrice227     string              `json:"retail_price_227g"`
+	RetailPrice250     string              `json:"retail_price_250g"`
+}
+
+type UnitPriceGradient struct {
+	ID           int64    `json:"id,omitempty"`
+	ProductKind  string   `json:"product_kind,omitempty"`
+	SalesUnit    string   `json:"sales_unit"`
+	MinQty       float64  `json:"min_qty"`
+	MaxQty       *float64 `json:"max_qty,omitempty"`
+	UnitPrice    float64  `json:"unit_price"`
+	UnitBagCount float64  `json:"unit_bag_count,omitempty"`
+	PriceSource  string   `json:"price_source,omitempty"`
 }
 
 type MallProduct struct {
-	ID          int64   `json:"id"`
-	ProductID   int64   `json:"product_id"`
-	ProductName string  `json:"product_name"`
-	Title       string  `json:"title"`
-	Subtitle    string  `json:"subtitle"`
-	Description string  `json:"description"`
-	ImageURL    string  `json:"image_url"`
-	SpecG       int64   `json:"spec_g"`
-	UnitPrice   float64 `json:"unit_price"`
-	TemplateKey string  `json:"template_key"`
-	Status      string  `json:"status"`
-	SortOrder   int     `json:"sort_order"`
-	UpdatedAt   string  `json:"updated_at"`
+	ID              int64    `json:"id"`
+	ProductID       int64    `json:"product_id"`
+	ProductName     string   `json:"product_name"`
+	ProductKind     string   `json:"product_kind,omitempty"`
+	SalesUnits      []string `json:"sales_units,omitempty"`
+	Title           string   `json:"title"`
+	Subtitle        string   `json:"subtitle"`
+	Description     string   `json:"description"`
+	ImageURL        string   `json:"image_url"`
+	SpecG           int64    `json:"spec_g"`
+	DripBagGrams    float64  `json:"drip_bag_grams,omitempty"`
+	DripBoxBagCount int      `json:"drip_box_bag_count,omitempty"`
+	UnitPrice       float64  `json:"unit_price"`
+	MallPrice       float64  `json:"mall_price,omitempty"`
+	TemplateKey     string   `json:"template_key"`
+	Status          string   `json:"status"`
+	SortOrder       int      `json:"sort_order"`
+	UpdatedAt       string   `json:"updated_at"`
 }
 
 type MallProductOption struct {
@@ -275,8 +296,11 @@ type UpdateMallProductImageCommand struct {
 }
 
 type MallOrderItemCommand struct {
-	MallProductID int64 `json:"mall_product_id"`
-	Qty           int64 `json:"qty"`
+	MallProductID int64   `json:"mall_product_id"`
+	Qty           int64   `json:"qty"`
+	SalesUnit     string  `json:"sales_unit"`
+	UnitBagCount  int64   `json:"unit_bag_count"`
+	UnitBeanG     float64 `json:"unit_bean_g"`
 }
 
 type CreateMallOrderCommand struct {
@@ -465,6 +489,7 @@ type CreateFulfillmentOrderCommand struct {
 	ProductID           int64
 	ProductName         string
 	SpecG               int64
+	SalesUnit           string
 	Qty                 int64
 	UnitPrice           float64
 	ShippingAmount      float64
@@ -1369,6 +1394,7 @@ func (s *Service) CreateFulfillmentOrder(ctx context.Context, token string, cmd 
 	cmd.RecipientAddress = strings.TrimSpace(cmd.RecipientAddress)
 	cmd.RecipientCompany = strings.TrimSpace(cmd.RecipientCompany)
 	cmd.ProductName = strings.TrimSpace(cmd.ProductName)
+	cmd.SalesUnit = normalizePortalSalesUnit(cmd.SalesUnit)
 	cmd.ShippingAmount = 0
 	cmd.UnitPrice = 0
 	cmd.Note = strings.TrimSpace(cmd.Note)
@@ -1391,6 +1417,17 @@ func (s *Service) CreateFulfillmentOrder(ctx context.Context, token string, cmd 
 		return FulfillmentOrder{}, fmt.Errorf("qty required")
 	}
 	return s.repo.CreateFulfillmentOrder(ctx, cmd)
+}
+
+func normalizePortalSalesUnit(unit string) string {
+	switch strings.TrimSpace(strings.ToLower(unit)) {
+	case "box":
+		return "box"
+	case "bag":
+		return "bag"
+	default:
+		return strings.TrimSpace(unit)
+	}
 }
 
 func fulfillmentOrderCapability(raw string) (string, string, error) {
@@ -1555,6 +1592,9 @@ func normalizeMallProduct(row MallProduct) MallProduct {
 	}
 	row.TemplateKey = NormalizeMallTemplateKey(row.TemplateKey)
 	row.Status = NormalizeMallProductStatus(row.Status)
+	if row.ProductKind == "drip_bag" && row.MallPrice <= 0 && row.UnitPrice > 0 {
+		row.MallPrice = row.UnitPrice
+	}
 	return row
 }
 

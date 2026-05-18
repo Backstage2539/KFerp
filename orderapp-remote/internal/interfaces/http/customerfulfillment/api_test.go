@@ -358,6 +358,53 @@ func TestCustomerFulfillmentOptionsAPIReturnsPickerData(t *testing.T) {
 	}
 }
 
+func TestCustomerFulfillmentOptionsAPIReturnsDripUnitPricingFields(t *testing.T) {
+	svc := &fakeCustomerFulfillmentService{
+		optionsResult: app.CustomerFulfillmentOptions{
+			CustomerSKUs: []app.CustomerSKUOption{{
+				ProductID:       88,
+				ProductName:     "誉观山挂耳",
+				ProductKind:     "drip_bag",
+				SalesUnits:      []string{"bag", "box"},
+				DripBagGrams:    10,
+				DripBoxBagCount: 10,
+				Tiers: []app.CustomerSKUPriceTier{{
+					ID:           7,
+					ProductKind:  "drip_bag",
+					SalesUnit:    "bag",
+					Min:          1,
+					UnitPrice:    6.5,
+					UnitBagCount: 1,
+					PriceSource:  "published_unit_price",
+				}},
+			}},
+		},
+	}
+	e := echo.New()
+	RegisterRoutes(e, Dependencies{CustomerFulfillment: svc})
+
+	req := httptest.NewRequest(http.MethodGet, "/api/customer-fulfillment/149/options", nil)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("options status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	for _, want := range []string{
+		`"product_kind":"drip_bag"`,
+		`"sales_units":["bag","box"]`,
+		`"drip_bag_grams":10`,
+		`"drip_box_bag_count":10`,
+		`"sales_unit":"bag"`,
+		`"unit_bag_count":1`,
+		`"price_source":"published_unit_price"`,
+	} {
+		if !strings.Contains(rec.Body.String(), want) {
+			t.Fatalf("drip options response missing %s: %s", want, rec.Body.String())
+		}
+	}
+}
+
 func TestCustomerPortalOverviewAPIDerivesCustomerFromEmployeeBinding(t *testing.T) {
 	svc := &fakeCustomerFulfillmentService{
 		customerOverviewResult: app.CustomerPortalOverview{
@@ -521,6 +568,36 @@ func TestCustomerPortalDirectShipSubmitAPIDerivesEmployee(t *testing.T) {
 	}
 	if messages.cmd.EventType != "order.created" || messages.cmd.SourceID != 98 || messages.cmd.Payload["orders_scope"] != "fulfillment" {
 		t.Fatalf("message publish cmd = %#v", messages.cmd)
+	}
+}
+
+func TestCustomerPortalDirectShipSubmitAPIForwardsDripSalesUnit(t *testing.T) {
+	svc := &fakeCustomerFulfillmentService{
+		customerDirectShipResult: app.DirectShipOrderSummary{OrderID: 98, OrderNo: "CDS-20260508-0001", Status: "submitted", ItemCount: 1},
+	}
+	e := echo.New()
+	e.Use(func(next echo.HandlerFunc) echo.HandlerFunc {
+		return func(c echo.Context) error {
+			c.Set("employee_id", int64(23))
+			return next(c)
+		}
+	})
+	RegisterRoutes(e, Dependencies{CustomerFulfillment: svc})
+
+	body := `{"receiver_name":"张三","receiver_phone":"13800000000","receiver_address":"浙江杭州","items":[{"product_id":88,"product_name":"誉观山挂耳","spec_g":10,"quantity_units":3,"sales_unit":"box"}]}`
+	req := httptest.NewRequest(http.MethodPost, "/api/customer-processing/portal/direct-ship-orders", strings.NewReader(body))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("customer direct ship submit status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if len(svc.customerDirectShipCmd.Items) != 1 {
+		t.Fatalf("direct ship items = %+v", svc.customerDirectShipCmd.Items)
+	}
+	if got := svc.customerDirectShipCmd.Items[0].SalesUnit; got != "box" {
+		t.Fatalf("sales unit = %q, want box", got)
 	}
 }
 

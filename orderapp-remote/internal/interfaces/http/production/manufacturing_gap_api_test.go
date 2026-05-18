@@ -17,6 +17,7 @@ import (
 type fakeManufacturingGapRepo struct {
 	finish            productionapp.FinishCommand
 	materialPlanQuery productionapp.MaterialPlanQuery
+	materialPlanRows  []productionapp.MaterialPlanRow
 	qualityCommand    productionapp.QualityInspectionCommand
 	qualityQuery      productionapp.QualityInspectionQuery
 	reservationQuery  productionapp.WIPReservationQuery
@@ -78,6 +79,9 @@ func (r *fakeManufacturingGapRepo) ListBatchCosts(ctx context.Context, query pro
 }
 func (r *fakeManufacturingGapRepo) MaterialPlan(ctx context.Context, query productionapp.MaterialPlanQuery) (productionapp.MaterialPlanResult, error) {
 	r.materialPlanQuery = query
+	if r.materialPlanRows != nil {
+		return productionapp.MaterialPlanResult{Rows: r.materialPlanRows}, nil
+	}
 	return productionapp.MaterialPlanResult{Rows: []productionapp.MaterialPlanRow{{
 		MaterialID:             10,
 		MaterialName:           "孟连水洗5T批次",
@@ -284,5 +288,46 @@ func TestManufacturingGapAPIs(t *testing.T) {
 	}
 	if !strings.Contains(rec.Body.String(), `"code":"wip_stock"`) || !strings.Contains(rec.Body.String(), `"view":"warehouseInventory"`) || !strings.Contains(rec.Body.String(), `"view_params":{"item_type":"material","warehouse":"wip"}`) {
 		t.Fatalf("acceptance smoke response missing checklist row: %s", rec.Body.String())
+	}
+}
+
+func TestManufacturingGapAPIDripFinishedProductComponentShowsUpstreamShortage(t *testing.T) {
+	repo := &fakeManufacturingGapRepo{}
+	repo.materialPlanRows = []productionapp.MaterialPlanRow{{
+		MaterialID:        2,
+		MaterialName:      "蓝山熟豆",
+		Unit:              "g",
+		RequiredG:         150,
+		AvailableG:        40,
+		ShortageG:         110,
+		ComponentType:     "finished_product",
+		UpstreamProductID: 2,
+		UpstreamShortageG: 110,
+	}}
+	e := echo.New()
+	e.Use(func(next echo.HandlerFunc) echo.HandlerFunc {
+		return func(c echo.Context) error {
+			c.Set("employee_id", int64(1))
+			c.Set("operator_employee", "测试员")
+			c.Set("actor", "测试员")
+			return next(c)
+		}
+	})
+	RegisterRoutes(e, Dependencies{Production: productionapp.NewService(repo)})
+
+	req := httptest.NewRequest(http.MethodGet, "/api/produce/material-plan?selected=1-10&input_1_10=150", nil)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET /api/produce/material-plan status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	for _, want := range []string{
+		`"component_type":"finished_product"`,
+		`"upstream_product_id":2`,
+		`"upstream_shortage_g":110`,
+	} {
+		if !strings.Contains(rec.Body.String(), want) {
+			t.Fatalf("drip upstream material plan response missing %s: %s", want, rec.Body.String())
+		}
 	}
 }

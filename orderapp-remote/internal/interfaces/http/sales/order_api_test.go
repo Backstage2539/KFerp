@@ -378,6 +378,158 @@ func TestOrderAPIWholesaleExactSpecTierUsesKilogramQuantityForKgProducts(t *test
 	}
 }
 
+func TestOrderAPICreatesDripBagOrderSavesUnitMetadataPriceAndAudit(t *testing.T) {
+	pool, schema := newOrderAPITestDB(t)
+	ctx := context.Background()
+	seedOrderAPITestData(t, ctx, pool, schema)
+	mustExecOrderAPITestSQL(t, ctx, pool, fmt.Sprintf(`
+		UPDATE %[1]s.products
+		SET product_kind='drip_bag', drip_bag_grams=10, drip_box_bag_count=10
+		WHERE id=7;
+		INSERT INTO %[1]s.product_price_tiers(id, product_id, spec_g, min_qty_units, max_qty_units, price_per_unit, active, product_kind, price_basis, sales_unit, unit_bag_count, price_source_json)
+		VALUES (9101,7,10,100,NULL,2.15,true,'drip_bag','unit','bag',1,'{"version":"V3.0.6","source":"published"}'::jsonb);
+	`, schema))
+
+	e := newOrderAPITestEcho(pool, schema)
+	payload := map[string]any{
+		"order_date":     "2026-05-18",
+		"customer_id":    3,
+		"source_id":      1,
+		"order_type_id":  1,
+		"pay_status_id":  2,
+		"payment_method": "微信支付",
+		"ship_status_id": 1,
+		"product_id":     []string{"7"},
+		"tier_id":        []string{"auto"},
+		"item_name":      []string{"耶加雪菲挂耳"},
+		"qty":            []string{"120"},
+		"unit":           []string{"袋"},
+		"product_kind":   []string{"drip_bag"},
+		"sales_unit":     []string{"bag"},
+		"unit_bag_count": []string{"1"},
+		"unit_bean_g":    []string{"10"},
+	}
+	body, _ := json.Marshal(payload)
+	req := httptest.NewRequest(http.MethodPost, "/api/order", bytes.NewReader(body))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("POST /api/order status = %d, want 200, body=%s", rec.Code, rec.Body.String())
+	}
+
+	var orderID int64
+	var productKind, salesUnit, priceSource string
+	var unitBagCount int
+	var unitBeanG, matchedQty, unitPrice, lineTotal float64
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`
+		SELECT order_id, product_kind, sales_unit, unit_bag_count, unit_bean_g::float8, matched_price_qty::float8, price_source_json::text, unit_price::float8, line_total::float8
+		FROM %s.order_items
+		WHERE product_id=7
+		ORDER BY id DESC
+		LIMIT 1
+	`, schema)).Scan(&orderID, &productKind, &salesUnit, &unitBagCount, &unitBeanG, &matchedQty, &priceSource, &unitPrice, &lineTotal); err != nil {
+		t.Fatalf("query drip order item: %v", err)
+	}
+	if productKind != "drip_bag" || salesUnit != "bag" || unitBagCount != 1 || unitBeanG != 10 || matchedQty != 120 {
+		t.Fatalf("saved metadata kind=%q unit=%q bags=%d bean=%.3f matched=%.3f", productKind, salesUnit, unitBagCount, unitBeanG, matchedQty)
+	}
+	if unitPrice != 2.15 || lineTotal != 258 {
+		t.Fatalf("unit_price/line_total=%.2f/%.2f, want 2.15/258.00", unitPrice, lineTotal)
+	}
+	if !strings.Contains(priceSource, `"version": "V3.0.6"`) && !strings.Contains(priceSource, `"version":"V3.0.6"`) {
+		t.Fatalf("price_source_json missing version: %s", priceSource)
+	}
+	var auditNewValue string
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`
+		SELECT COALESCE(new_value,'')
+		FROM %s.order_audit_logs
+		WHERE order_id=$1
+		ORDER BY id DESC
+		LIMIT 1
+	`, schema), orderID).Scan(&auditNewValue); err != nil {
+		t.Fatalf("query order audit: %v", err)
+	}
+	for _, want := range []string{"drip_bag", "bag", "120", "source"} {
+		if !strings.Contains(auditNewValue, want) {
+			t.Fatalf("audit new_value missing %q: %s", want, auditNewValue)
+		}
+	}
+
+	editReq := httptest.NewRequest(http.MethodGet, fmt.Sprintf("/api/order/form?edit_id=%d", orderID), nil)
+	editRec := httptest.NewRecorder()
+	e.ServeHTTP(editRec, editReq)
+	if editRec.Code != http.StatusOK {
+		t.Fatalf("GET /api/order/form edit status = %d, want 200, body=%s", editRec.Code, editRec.Body.String())
+	}
+	editBody := editRec.Body.String()
+	for _, want := range []string{`"product_kind":"drip_bag"`, `"sales_unit":"bag"`, `"unit_bag_count":1`, `"unit_bean_g":"10"`, `"matched_price_qty":"120"`, `"unit_conversion_label":"10g/袋"`, `"price_source_json":`} {
+		if !strings.Contains(editBody, want) {
+			t.Fatalf("edit data missing %s: %s", want, editBody)
+		}
+	}
+}
+
+func TestOrderAPICreatesDripBoxOrderFallsBackToBagTier(t *testing.T) {
+	pool, schema := newOrderAPITestDB(t)
+	ctx := context.Background()
+	seedOrderAPITestData(t, ctx, pool, schema)
+	mustExecOrderAPITestSQL(t, ctx, pool, fmt.Sprintf(`
+		UPDATE %[1]s.products
+		SET product_kind='drip_bag', drip_bag_grams=10, drip_box_bag_count=10
+		WHERE id=7;
+		INSERT INTO %[1]s.product_price_tiers(id, product_id, spec_g, min_qty_units, max_qty_units, price_per_unit, active, product_kind, price_basis, sales_unit, unit_bag_count, price_source_json)
+		VALUES (9201,7,10,100,NULL,2.15,true,'drip_bag','unit','bag',1,'{"version":"V3.0.6","source":"published"}'::jsonb);
+	`, schema))
+
+	e := newOrderAPITestEcho(pool, schema)
+	payload := map[string]any{
+		"order_date":     "2026-05-18",
+		"customer_id":    3,
+		"source_id":      1,
+		"order_type_id":  1,
+		"pay_status_id":  2,
+		"ship_status_id": 1,
+		"product_id":     []string{"7"},
+		"tier_id":        []string{"auto"},
+		"item_name":      []string{"耶加雪菲挂耳"},
+		"qty":            []string{"12"},
+		"unit":           []string{"盒"},
+		"product_kind":   []string{"drip_bag"},
+		"sales_unit":     []string{"box"},
+		"unit_bag_count": []string{"10"},
+		"unit_bean_g":    []string{"10"},
+	}
+	body, _ := json.Marshal(payload)
+	req := httptest.NewRequest(http.MethodPost, "/api/order", bytes.NewReader(body))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("POST /api/order status = %d, want 200, body=%s", rec.Code, rec.Body.String())
+	}
+
+	var tierID int64
+	var productKind, salesUnit string
+	var unitBagCount int
+	var matchedQty, unitPrice, lineTotal float64
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`
+		SELECT COALESCE(price_tier_id,0), product_kind, sales_unit, unit_bag_count, matched_price_qty::float8, unit_price::float8, line_total::float8
+		FROM %s.order_items
+		WHERE product_id=7
+		ORDER BY id DESC
+		LIMIT 1
+	`, schema)).Scan(&tierID, &productKind, &salesUnit, &unitBagCount, &matchedQty, &unitPrice, &lineTotal); err != nil {
+		t.Fatalf("query drip box order item: %v", err)
+	}
+	if tierID != 9201 || productKind != "drip_bag" || salesUnit != "box" || unitBagCount != 10 || matchedQty != 120 {
+		t.Fatalf("saved tier/metadata=%d %q %q bags=%d matched=%.3f", tierID, productKind, salesUnit, unitBagCount, matchedQty)
+	}
+	if unitPrice != 21.50 || lineTotal != 258 {
+		t.Fatalf("unit_price/line_total=%.2f/%.2f, want 21.50/258.00", unitPrice, lineTotal)
+	}
+}
+
 func TestOrderAPISavesAndListsEmployeeResponsiblePerson(t *testing.T) {
 	pool, schema := newOrderAPITestDB(t)
 	ctx := context.Background()
@@ -1232,6 +1384,53 @@ func TestOrderAPISaveCarriesItemNotes(t *testing.T) {
 	}
 	if repo.cmd.Items[0].Note != "贴标：A店" {
 		t.Fatalf("captured item note = %q, want per-item note", repo.cmd.Items[0].Note)
+	}
+}
+
+func TestOrderAPISaveCarriesDripBagMetadata(t *testing.T) {
+	repo := &capturingSaveOrderRepo{}
+	e := echo.New()
+	e.Use(func(next echo.HandlerFunc) echo.HandlerFunc {
+		return func(c echo.Context) error {
+			c.Set("employee_id", int64(1))
+			c.Set("operator_employee", "测试员")
+			return next(c)
+		}
+	})
+	registerOrderAPI(e, salesapp.NewService(repo), nil)
+
+	payload := map[string]any{
+		"order_date":     "2026-05-18",
+		"customer_id":    3,
+		"source_id":      1,
+		"order_type_id":  1,
+		"pay_status_id":  2,
+		"ship_status_id": 1,
+		"product_id":     []string{"7"},
+		"tier_id":        []string{"auto"},
+		"item_name":      []string{"耶加雪菲挂耳"},
+		"qty":            []string{"12"},
+		"unit":           []string{"盒"},
+		"product_kind":   []string{"drip_bag"},
+		"sales_unit":     []string{"box"},
+		"unit_bag_count": []string{"10"},
+		"unit_bean_g":    []string{"10"},
+	}
+	body, _ := json.Marshal(payload)
+	req := httptest.NewRequest(http.MethodPost, "/api/order", bytes.NewReader(body))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("POST /api/order status = %d, want 200, body=%s", rec.Code, rec.Body.String())
+	}
+	if len(repo.cmd.Items) != 1 {
+		t.Fatalf("captured items len = %d, want 1", len(repo.cmd.Items))
+	}
+	got := repo.cmd.Items[0]
+	if got.ProductKind != "drip_bag" || got.SalesUnit != "box" || got.UnitBagCount != 10 || got.UnitBeanG != 10 {
+		t.Fatalf("drip metadata = kind %q unit %q bags %d bean %.3f", got.ProductKind, got.SalesUnit, got.UnitBagCount, got.UnitBeanG)
 	}
 }
 
@@ -3028,7 +3227,10 @@ CREATE TABLE %s.products (
 	customer_id BIGINT NOT NULL DEFAULT 0,
 	base_product_id BIGINT NOT NULL DEFAULT 0,
 	visibility TEXT NOT NULL DEFAULT 'public',
-	custom_type TEXT NOT NULL DEFAULT ''
+	custom_type TEXT NOT NULL DEFAULT '',
+	product_kind TEXT NOT NULL DEFAULT 'roasted_bean',
+	drip_bag_grams NUMERIC(12,3) NOT NULL DEFAULT 10,
+	drip_box_bag_count INT NOT NULL DEFAULT 10
 );
 CREATE TABLE %s.product_price_tiers (
 	id BIGSERIAL PRIMARY KEY,
@@ -3040,7 +3242,12 @@ CREATE TABLE %s.product_price_tiers (
 	min_qty_lb NUMERIC,
 	max_qty_lb NUMERIC,
 	price_per_lb NUMERIC,
-	active BOOLEAN NOT NULL DEFAULT true
+	active BOOLEAN NOT NULL DEFAULT true,
+	product_kind TEXT NOT NULL DEFAULT 'roasted_bean',
+	price_basis TEXT NOT NULL DEFAULT 'weight',
+	sales_unit TEXT NOT NULL DEFAULT '',
+	unit_bag_count INT NOT NULL DEFAULT 0,
+	price_source_json JSONB NOT NULL DEFAULT '{}'::jsonb
 );
 CREATE TABLE %s.customer_service_capabilities (
 	id BIGSERIAL PRIMARY KEY,
@@ -3107,6 +3314,16 @@ CREATE TABLE %s.order_items (
 	unit TEXT,
 	spec TEXT,
 	unit_price NUMERIC NOT NULL DEFAULT 0,
+	line_total_before_discount NUMERIC NOT NULL DEFAULT 0,
+	discount_type TEXT NOT NULL DEFAULT '',
+	discount_value NUMERIC NOT NULL DEFAULT 0,
+	discount_amount NUMERIC NOT NULL DEFAULT 0,
+	product_kind TEXT NOT NULL DEFAULT 'roasted_bean',
+	sales_unit TEXT NOT NULL DEFAULT '',
+	unit_bag_count INT NOT NULL DEFAULT 0,
+	unit_bean_g NUMERIC(12,3) NOT NULL DEFAULT 0,
+	matched_price_qty NUMERIC(14,3) NOT NULL DEFAULT 0,
+	price_source_json JSONB NOT NULL DEFAULT '{}'::jsonb,
 	line_total NUMERIC NOT NULL DEFAULT 0
 );
 CREATE TABLE %s.order_stock_decisions (

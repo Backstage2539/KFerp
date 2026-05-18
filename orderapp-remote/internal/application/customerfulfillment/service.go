@@ -135,6 +135,7 @@ type SubmitCustomerDirectShipOrderCommand struct {
 	QuantityUnits   int64
 	Items           []SubmitCustomerDirectShipOrderItem
 	Note            string
+	Actor           string
 }
 
 type SubmitCustomerDirectShipOrderItem struct {
@@ -142,6 +143,7 @@ type SubmitCustomerDirectShipOrderItem struct {
 	ProductName   string  `json:"product_name,omitempty"`
 	Spec          string  `json:"spec,omitempty"`
 	SpecG         int64   `json:"spec_g,omitempty"`
+	SalesUnit     string  `json:"sales_unit,omitempty"`
 	QuantityUnits int64   `json:"quantity_units"`
 	DiscountType  string  `json:"discount_type,omitempty"`
 	DiscountValue float64 `json:"discount_value,omitempty"`
@@ -218,23 +220,31 @@ type CustomerFulfillmentOptions struct {
 }
 
 type CustomerSKUOption struct {
-	ProductID     int64                  `json:"product_id"`
-	BaseProductID int64                  `json:"base_product_id,omitempty"`
-	SKUCode       string                 `json:"sku_code,omitempty"`
-	ProductName   string                 `json:"product_name"`
-	Spec          string                 `json:"spec,omitempty"`
-	RoastDegree   string                 `json:"roast_degree,omitempty"`
-	DefaultPrice  float64                `json:"default_price,omitempty"`
-	Tiers         []CustomerSKUPriceTier `json:"tiers,omitempty"`
-	Source        string                 `json:"source,omitempty"`
+	ProductID       int64                  `json:"product_id"`
+	BaseProductID   int64                  `json:"base_product_id,omitempty"`
+	SKUCode         string                 `json:"sku_code,omitempty"`
+	ProductName     string                 `json:"product_name"`
+	ProductKind     string                 `json:"product_kind,omitempty"`
+	SalesUnits      []string               `json:"sales_units,omitempty"`
+	Spec            string                 `json:"spec,omitempty"`
+	RoastDegree     string                 `json:"roast_degree,omitempty"`
+	DripBagGrams    float64                `json:"drip_bag_grams,omitempty"`
+	DripBoxBagCount int                    `json:"drip_box_bag_count,omitempty"`
+	DefaultPrice    float64                `json:"default_price,omitempty"`
+	Tiers           []CustomerSKUPriceTier `json:"tiers,omitempty"`
+	Source          string                 `json:"source,omitempty"`
 }
 
 type CustomerSKUPriceTier struct {
-	ID        int64    `json:"id"`
-	SpecG     int64    `json:"spec_g"`
-	Min       float64  `json:"min"`
-	Max       *float64 `json:"max,omitempty"`
-	UnitPrice float64  `json:"unit_price"`
+	ID           int64    `json:"id"`
+	ProductKind  string   `json:"product_kind,omitempty"`
+	SalesUnit    string   `json:"sales_unit,omitempty"`
+	SpecG        int64    `json:"spec_g,omitempty"`
+	Min          float64  `json:"min"`
+	Max          *float64 `json:"max,omitempty"`
+	UnitPrice    float64  `json:"unit_price"`
+	UnitBagCount float64  `json:"unit_bag_count,omitempty"`
+	PriceSource  string   `json:"price_source,omitempty"`
 }
 
 type CustodyItemOption struct {
@@ -543,6 +553,7 @@ func (s *Service) SubmitCustomerDirectShipOrder(ctx context.Context, cmd SubmitC
 	for i := range cmd.Items {
 		cmd.Items[i].ProductName = strings.Join(strings.Fields(strings.TrimSpace(cmd.Items[i].ProductName)), " ")
 		cmd.Items[i].Spec = strings.Join(strings.Fields(strings.TrimSpace(cmd.Items[i].Spec)), " ")
+		cmd.Items[i].SalesUnit = normalizeCustomerFulfillmentSalesUnit(cmd.Items[i].SalesUnit)
 		cmd.Items[i].DiscountType = strings.TrimSpace(strings.ToLower(cmd.Items[i].DiscountType))
 		if cmd.Items[i].DiscountValue < 0 {
 			cmd.Items[i].DiscountValue = 0
@@ -568,6 +579,7 @@ func (s *Service) SubmitCustomerDirectShipOrder(ctx context.Context, cmd SubmitC
 			ProductID:     cmd.ProductID,
 			ProductName:   cmd.ProductName,
 			Spec:          cmd.Spec,
+			SalesUnit:     "bag",
 			QuantityUnits: cmd.QuantityUnits,
 			Note:          cmd.Note,
 		}}
@@ -588,6 +600,17 @@ func (s *Service) SubmitCustomerDirectShipOrder(ctx context.Context, cmd SubmitC
 		}
 	}
 	return s.repo.SubmitCustomerDirectShipOrder(ctx, cmd)
+}
+
+func normalizeCustomerFulfillmentSalesUnit(unit string) string {
+	switch strings.TrimSpace(strings.ToLower(unit)) {
+	case "box":
+		return "box"
+	case "bag":
+		return "bag"
+	default:
+		return strings.TrimSpace(unit)
+	}
 }
 
 func parseCustomerFulfillmentSpecG(spec string) int64 {

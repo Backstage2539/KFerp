@@ -603,6 +603,43 @@ func TestMiniOrdersServicePageAPIReturnsDirectOrderPayload(t *testing.T) {
 	}
 }
 
+func TestMiniServicePageAPIReturnsDripProductPayload(t *testing.T) {
+	e := echo.New()
+	RegisterRoutes(e, Dependencies{CustomerPortal: fakeService{service: customerportalapp.ServicePage{
+		Key: customerportalapp.ServiceKeyProductOrder,
+		Products: []customerportalapp.ProductSummary{{
+			ID:                 88,
+			Name:               "誉观山挂耳",
+			ProductKind:        "drip_bag",
+			SalesUnits:         []string{"bag", "box"},
+			DripBagGrams:       10,
+			DripBoxBagCount:    10,
+			DripPriceGradients: []customerportalapp.UnitPriceGradient{{SalesUnit: "bag", MinQty: 1, UnitPrice: 6.5, UnitBagCount: 1, PriceSource: "published_unit_price"}},
+		}},
+	}}})
+
+	req := httptest.NewRequest(http.MethodGet, "/api/mini/services/productOrder", nil)
+	req.Header.Set(echo.HeaderAuthorization, "Bearer mini-token")
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	for _, want := range []string{
+		`"product_kind":"drip_bag"`,
+		`"sales_units":["bag","box"]`,
+		`"drip_bag_grams":10`,
+		`"drip_box_bag_count":10`,
+		`"drip_price_gradients":[`,
+		`"sales_unit":"bag"`,
+		`"price_source":"published_unit_price"`,
+	} {
+		if !strings.Contains(rec.Body.String(), want) {
+			t.Fatalf("drip service payload missing %s: %s", want, rec.Body.String())
+		}
+	}
+}
+
 func TestMiniOrdersServicePageAPIReturnsDocumentURLs(t *testing.T) {
 	e := echo.New()
 	RegisterRoutes(e, Dependencies{CustomerPortal: fakeService{service: customerportalapp.ServicePage{
@@ -1141,6 +1178,9 @@ func TestMallAdminAndMiniAPIs(t *testing.T) {
 			Products: []customerportalapp.MallProduct{{
 				ID: 11, ProductID: 7, Title: "乌拉嘎", Subtitle: "柑橘莓果", SpecG: 250, UnitPrice: 68,
 				TemplateKey: customerportalapp.MallTemplateHero, Status: customerportalapp.MallProductStatusPublished,
+			}, {
+				ID: 12, ProductID: 8, Title: "誉观山挂耳", UnitPrice: 0, ProductKind: "drip_bag",
+				SalesUnits: []string{"bag", "box"}, DripBagGrams: 10, DripBoxBagCount: 10,
 			}},
 		},
 		mallOrder: customerportalapp.FulfillmentOrder{OrderID: 99, OrderNo: "SO-20260507-0099", PortalServiceCode: customerportalapp.PortalServiceMall, SourceWarehouse: "finished_goods"},
@@ -1175,7 +1215,9 @@ func TestMallAdminAndMiniAPIs(t *testing.T) {
 	if mallRec.Code != http.StatusOK ||
 		!strings.Contains(mallRec.Body.String(), `"miniapp_entry_mode":"mall"`) ||
 		!strings.Contains(mallRec.Body.String(), `"products":[`) ||
-		!strings.Contains(mallRec.Body.String(), `"unit_price":68`) {
+		!strings.Contains(mallRec.Body.String(), `"unit_price":68`) ||
+		!strings.Contains(mallRec.Body.String(), `"product_kind":"drip_bag"`) ||
+		!strings.Contains(mallRec.Body.String(), `"unit_price":0`) {
 		t.Fatalf("mini mall status=%d body=%s", mallRec.Code, mallRec.Body.String())
 	}
 
@@ -1480,6 +1522,28 @@ func TestMiniFulfillmentOrderAPIIgnoresClientUnitPrice(t *testing.T) {
 	}
 	if cmd.ShippingAmount != 0 {
 		t.Fatalf("service command ShippingAmount=%.2f, want 0 so customer-side freight stays authoritative", cmd.ShippingAmount)
+	}
+}
+
+func TestMiniFulfillmentOrderAPIForwardsDripSalesUnit(t *testing.T) {
+	var cmd customerportalapp.CreateFulfillmentOrderCommand
+	e := echo.New()
+	RegisterRoutes(e, Dependencies{CustomerPortal: fakeService{
+		fulfillment:    customerportalapp.FulfillmentOrder{OrderID: 9, OrderNo: "SO-20260504-0009", PortalServiceCode: customerportalapp.PortalServiceProductOrder, SourceWarehouse: "finished_goods"},
+		fulfillmentCmd: &cmd,
+	}})
+
+	req := httptest.NewRequest(http.MethodPost, "/api/mini/fulfillment-orders", strings.NewReader(`{"service_code":"product_order","recipient_name":"张三","recipient_phone":"13800138000","recipient_address":"上海市","product_id":88,"spec_g":10,"qty":3,"sales_unit":"box"}`))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	req.Header.Set(echo.HeaderAuthorization, "Bearer mini-token")
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if cmd.SalesUnit != "box" {
+		t.Fatalf("service command SalesUnit=%q, want box", cmd.SalesUnit)
 	}
 }
 

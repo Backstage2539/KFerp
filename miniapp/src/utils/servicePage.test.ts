@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest'
-import { serviceCapability, serviceTitle, visibleServiceSections } from './servicePage'
+import {
+  buildFulfillmentOrderPayload,
+  fulfillmentSalesUnitOptions,
+  serviceCapability,
+  serviceTitle,
+  visibleServiceSections,
+} from './servicePage'
 
 describe('service page helpers', () => {
   it('maps mini service keys to capability codes and titles', () => {
@@ -34,5 +40,60 @@ describe('service page helpers', () => {
     })
 
     expect(sections.map((section) => section.title)).toEqual(['订单账单'])
+  })
+
+  it('maps drip fulfillment products to bag and box options', () => {
+    const options = fulfillmentSalesUnitOptions({
+      id: 8,
+      name: '耶加雪菲挂耳',
+      roast_level: '',
+      default_price: '0.00',
+      retail_price_100g: '0.00',
+      retail_price_200g: '0.00',
+      retail_price_227g: '0.00',
+      retail_price_250g: '0.00',
+      product_kind: 'drip_bag',
+      sales_units: ['bag', 'box'],
+      drip_bag_grams: 10,
+      drip_box_bag_count: 12,
+    })
+
+    expect(options).toEqual([
+      { sales_unit: 'bag', label: '袋', unit_bag_count: 1, unit_bean_g: 10, spec_g: 10, quantity_label: '袋数' },
+      { sales_unit: 'box', label: '盒', unit_bag_count: 12, unit_bean_g: 10, spec_g: 120, quantity_label: '盒数' },
+    ])
+  })
+
+  it('builds drip fulfillment submit payload with the selected unit snapshot', () => {
+    const payload = buildFulfillmentOrderPayload('product_order', {
+      recipient_name: '张三',
+      recipient_phone: '13800138000',
+      recipient_address: '上海市',
+      recipient_company: '',
+      product_id: 8,
+      product_name: '耶加雪菲挂耳',
+      spec_g: 120,
+      qty: 3,
+      sales_unit: 'box',
+      unit_bag_count: 12,
+      unit_bean_g: 10,
+      note: '周末前发',
+    })
+
+    expect(payload).toEqual({
+      service_code: 'product_order',
+      recipient_name: '张三',
+      recipient_phone: '13800138000',
+      recipient_address: '上海市',
+      recipient_company: '',
+      product_id: 8,
+      product_name: '耶加雪菲挂耳',
+      spec_g: 120,
+      qty: 3,
+      sales_unit: 'box',
+      unit_bag_count: 12,
+      unit_bean_g: 10,
+      note: '周末前发',
+    })
   })
 })

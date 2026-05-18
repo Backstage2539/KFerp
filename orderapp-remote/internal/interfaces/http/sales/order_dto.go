@@ -42,6 +42,10 @@ type CreateOrderRequest struct {
 	Qty           []string `form:"qty[]"`
 	Unit          []string `form:"unit[]"`
 	Spec          []string `form:"spec[]"`
+	ProductKind   []string `form:"product_kind[]"`
+	SalesUnit     []string `form:"sales_unit[]"`
+	UnitBagCount  []string `form:"unit_bag_count[]"`
+	UnitBeanG     []string `form:"unit_bean_g[]"`
 	DiscountType  []string `form:"discount_type[]"`
 	DiscountValue []string `form:"discount_value[]"`
 }

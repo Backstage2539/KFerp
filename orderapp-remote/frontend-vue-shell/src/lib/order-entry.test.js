@@ -8,8 +8,10 @@ import {
   filterOptions,
   filterProductsForCustomer,
   formatSpecLabel,
+  dripTierPriceRows,
   lineDiscountAmount,
   lineTotal,
+  syncDripTierPrice,
   syncWholesaleTierPrice,
   normalizeSpecG,
   orderReceiptMethodOptions,
@@ -424,4 +426,95 @@ test('filterProductsForCustomer keeps public and selected customer products only
 test('defaultStatusID picks paid and unshipped status labels', () => {
   assert.equal(defaultStatusID([{ id: 1, name: '未付款' }, { id: 2, name: '已付款' }], ['已付款']), 2)
   assert.equal(defaultStatusID([{ id: 3, name: '未发货' }], ['未发货']), 3)
+})
+
+test('syncDripTierPrice matches bag tiers by bag quantity', () => {
+  const dripProduct = {
+    id: 21,
+    name: '耶加雪菲挂耳',
+    product_kind: 'drip_bag',
+    drip_bag_grams: 10,
+    drip_box_bag_count: 10,
+    tiers: [
+      { id: 81, product_kind: 'drip_bag', sales_unit: 'bag', min: 1, max: 99, unit_price: 2.4, unit_bag_count: 1 },
+      { id: 82, product_kind: 'drip_bag', sales_unit: 'bag', min: 100, max: null, unit_price: 2.15, unit_bag_count: 1 },
+    ],
+  }
+
+  const got = syncDripTierPrice(dripProduct, { sales_unit: 'bag', qty: 120 })
+
+  assert.deepEqual(got, { tierID: '82', unitPrice: '2.15' })
+  assert.equal(lineTotal(dripProduct, { product_kind: 'drip_bag', sales_unit: 'bag', qty: 120, unit_price: '2.15' }, false), 258)
+})
+
+test('syncDripTierPrice converts box orders to bag tiers before pricing', () => {
+  const dripProduct = {
+    id: 22,
+    name: '哥伦比亚挂耳',
+    product_kind: 'drip_bag',
+    drip_bag_grams: 10,
+    drip_box_bag_count: 10,
+    tiers: [
+      { id: 91, product_kind: 'drip_bag', sales_unit: 'bag', min: 1, max: 99, unit_price: 2.4, unit_bag_count: 1 },
+      { id: 92, product_kind: 'drip_bag', sales_unit: 'bag', min: 100, max: null, unit_price: 2.15, unit_bag_count: 1 },
+      { id: 93, product_kind: 'drip_bag', sales_unit: 'box', min: 10, max: null, unit_price: 30, unit_bag_count: 10 },
+    ],
+  }
+
+  const row = { product_kind: 'drip_bag', sales_unit: 'box', unit_bag_count: 10, unit_bean_g: 10, qty: 12 }
+  const got = syncDripTierPrice(dripProduct, row)
+
+  assert.deepEqual(got, { tierID: '92', unitPrice: '21.5' })
+  assert.equal(lineTotal(dripProduct, { ...row, unit_price: got.unitPrice }, false), 258)
+})
+
+test('dripTierPriceRows exposes unit labels for bag and box quotation', () => {
+  const got = dripTierPriceRows({
+    product_kind: 'drip_bag',
+    drip_bag_grams: 10,
+    drip_box_bag_count: 10,
+    tiers: [
+      { id: 101, product_kind: 'drip_bag', sales_unit: 'bag', min: 100, max: null, unit_price: 2.15, unit_bag_count: 1 },
+      { id: 102, product_kind: 'drip_bag', sales_unit: 'box', min: 10, max: null, unit_price: 21.5, unit_bag_count: 10 },
+    ],
+  }, { sales_unit: 'box', unit_bag_count: 10, qty: 12 })
+
+  assert.deepEqual(got, [
+    { id: '101', salesUnit: 'bag', specLabel: '10g/袋', rangeLabel: '100袋+', unitPrice: 21.5, priceUnit: { label: '元/盒', suffix: '/盒' } },
+    { id: '102', salesUnit: 'box', specLabel: '10袋/盒', rangeLabel: '10盒+', unitPrice: 21.5, priceUnit: { label: '元/盒', suffix: '/盒' } },
+  ])
+})
+
+test('buildOrderPayload carries drip product unit metadata', () => {
+  const payload = buildOrderPayload({
+    form: {
+      order_date: '2026-05-18',
+      customer_id: 3,
+      source_id: 1,
+      order_type_id: 1,
+      pay_status_id: 2,
+      ship_status_id: 1,
+    },
+    rows: [
+      {
+        product_id: 22,
+        product_name: '哥伦比亚挂耳',
+        product_kind: 'drip_bag',
+        tier_id: '92',
+        sales_unit: 'box',
+        unit_bag_count: 10,
+        unit_bean_g: 10,
+        qty: 12,
+        unit_price: '21.5',
+      },
+    ],
+  })
+
+  assert.equal(payload.product_id[0], '22')
+  assert.equal(payload.product_kind[0], 'drip_bag')
+  assert.equal(payload.sales_unit[0], 'box')
+  assert.equal(payload.unit_bag_count[0], '10')
+  assert.equal(payload.unit_bean_g[0], '10')
+  assert.equal(payload.unit[0], '盒')
+  assert.equal(payload.spec[0], '100')
 })

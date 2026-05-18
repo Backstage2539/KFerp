@@ -282,6 +282,177 @@ VALUES
 	}
 }
 
+func TestFinishedProductComponentConsumptionDeductsFinishedInventoryNotRawMaterialBatches(t *testing.T) {
+	pool, schema := newProductionTestDB(t)
+	ctx := context.Background()
+	defer func() {
+		_, _ = pool.Exec(ctx, "DROP SCHEMA IF EXISTS "+schema+" CASCADE")
+		pool.Close()
+	}()
+
+	mustExecProductionSQL(t, ctx, pool, fmt.Sprintf(`
+CREATE TABLE %s.products (
+	id BIGINT PRIMARY KEY,
+	name TEXT NOT NULL DEFAULT '',
+	roast_level TEXT NOT NULL DEFAULT '',
+	active BOOLEAN NOT NULL DEFAULT true
+);
+CREATE TABLE %s.product_bom (
+	product_id BIGINT PRIMARY KEY,
+	yield_rate NUMERIC(10,4) NOT NULL DEFAULT 1
+);
+CREATE TABLE %s.product_bom_items (
+	id BIGSERIAL PRIMARY KEY,
+	product_id BIGINT NOT NULL,
+	material_id BIGINT NOT NULL DEFAULT 0,
+	ratio_pct NUMERIC(10,4) NOT NULL DEFAULT 0,
+	component_type TEXT NOT NULL DEFAULT 'material',
+	component_product_id BIGINT NOT NULL DEFAULT 0,
+	component_spec_g BIGINT NOT NULL DEFAULT 0,
+	consume_unit TEXT NOT NULL DEFAULT 'ratio_pct',
+	qty_per_unit NUMERIC(14,6) NOT NULL DEFAULT 0
+);
+CREATE TABLE %s.materials (
+	id BIGINT PRIMARY KEY,
+	name TEXT NOT NULL DEFAULT '',
+	unit TEXT NOT NULL DEFAULT '',
+	onhand_g BIGINT NOT NULL DEFAULT 0,
+	onhand_units BIGINT NOT NULL DEFAULT 0,
+	updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE TABLE %s.finished_inventory (
+	product_id BIGINT NOT NULL,
+	spec_g BIGINT NOT NULL,
+	warehouse TEXT NOT NULL,
+	onhand_units BIGINT NOT NULL DEFAULT 0,
+	onhand_loose_g BIGINT NOT NULL DEFAULT 0,
+	updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+	PRIMARY KEY(product_id,spec_g,warehouse)
+);
+CREATE TABLE %s.material_consumption_logs (
+	id BIGSERIAL PRIMARY KEY,
+	running_item_id BIGINT NOT NULL DEFAULT 0,
+	batch_id TEXT NOT NULL DEFAULT '',
+	product_id BIGINT NOT NULL DEFAULT 0,
+	product_name TEXT NOT NULL DEFAULT '',
+	spec_g BIGINT NOT NULL DEFAULT 0,
+	material_id BIGINT NOT NULL DEFAULT 0,
+	material_name TEXT NOT NULL DEFAULT '',
+	unit TEXT NOT NULL DEFAULT '',
+	deduct_g BIGINT NOT NULL DEFAULT 0,
+	deduct_units BIGINT NOT NULL DEFAULT 0,
+	before_g BIGINT NOT NULL DEFAULT 0,
+	after_g BIGINT NOT NULL DEFAULT 0,
+	before_units BIGINT NOT NULL DEFAULT 0,
+	after_units BIGINT NOT NULL DEFAULT 0,
+	operator TEXT NOT NULL DEFAULT '',
+	material_batch_id BIGINT NOT NULL DEFAULT 0,
+	material_batch_code TEXT NOT NULL DEFAULT ''
+);
+CREATE TABLE %s.stock_ledger_entries (
+	id BIGSERIAL PRIMARY KEY,
+	item_type TEXT NOT NULL DEFAULT '',
+	item_id BIGINT NOT NULL DEFAULT 0,
+	item_name TEXT NOT NULL DEFAULT '',
+	spec_g BIGINT NOT NULL DEFAULT 0,
+	warehouse TEXT NOT NULL DEFAULT '',
+	source_doc_type TEXT NOT NULL DEFAULT '',
+	source_doc_id BIGINT NOT NULL DEFAULT 0,
+	source_batch_code TEXT NOT NULL DEFAULT '',
+	source_batch_id TEXT NOT NULL DEFAULT '',
+	qty_before_g BIGINT NOT NULL DEFAULT 0,
+	qty_change_g BIGINT NOT NULL DEFAULT 0,
+	qty_after_g BIGINT NOT NULL DEFAULT 0,
+	qty_before_units BIGINT NOT NULL DEFAULT 0,
+	qty_change_units BIGINT NOT NULL DEFAULT 0,
+	qty_after_units BIGINT NOT NULL DEFAULT 0,
+	operator TEXT NOT NULL DEFAULT '',
+	created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE TABLE %s.audit_logs (
+	id BIGSERIAL PRIMARY KEY,
+	actor TEXT NOT NULL DEFAULT '',
+	entity_type TEXT NOT NULL DEFAULT '',
+	entity_id BIGINT,
+	action TEXT NOT NULL DEFAULT '',
+	field TEXT,
+	old_value TEXT,
+	new_value TEXT,
+	meta JSONB,
+	created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+INSERT INTO %s.products(id,name,roast_level) VALUES
+	(1,'蓝山挂耳','深烘'),
+	(2,'蓝山熟豆','深烘');
+INSERT INTO %s.product_bom(product_id,yield_rate) VALUES (1,1.0000);
+INSERT INTO %s.product_bom_items(
+	product_id,material_id,ratio_pct,component_type,component_product_id,component_spec_g,consume_unit,qty_per_unit
+) VALUES (1,0,0,'finished_product',2,0,'g_per_bag',10);
+INSERT INTO %s.finished_inventory(product_id,spec_g,warehouse,onhand_units,onhand_loose_g)
+VALUES (2,0,'finished_goods',0,200);
+`, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema))
+
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	run := ProduceRunRow{
+		ID:        9,
+		BatchID:   "BATCH-DRIP",
+		ProductID: 1,
+		Product:   "蓝山挂耳",
+		SpecG:     10,
+		NeedG:     150,
+		InputG:    150,
+		PlanUnits: 15,
+	}
+	needs, err := currentMaterialNeedsTx(ctx, tx, schema, run, InvQty{Units: 15})
+	if err != nil {
+		_ = tx.Rollback(ctx)
+		t.Fatalf("currentMaterialNeedsTx: %v", err)
+	}
+	if len(needs) != 1 {
+		_ = tx.Rollback(ctx)
+		t.Fatalf("needs = %+v, want one finished product component", needs)
+	}
+	if needs[0].Source != "finished_product" || needs[0].MaterialID != 2 || needs[0].DeductG != 150 || needs[0].DeductUnits != 0 {
+		_ = tx.Rollback(ctx)
+		t.Fatalf("finished product component need = %+v, want product 2 150g", needs[0])
+	}
+	if err := deductMaterialNeedsForRunningItemTx(ctx, tx, schema, run, needs, "测试员"); err != nil {
+		_ = tx.Rollback(ctx)
+		t.Fatalf("deductMaterialNeedsForRunningItemTx: %v", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+
+	var remainingG int64
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT onhand_loose_g FROM %s.finished_inventory WHERE product_id=2 AND spec_g=0 AND warehouse='finished_goods'`, schema)).Scan(&remainingG); err != nil {
+		t.Fatal(err)
+	}
+	if remainingG != 50 {
+		t.Fatalf("upstream finished inventory remaining = %d, want 50", remainingG)
+	}
+	var ledgerType string
+	var changeG int64
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT item_type, qty_change_g FROM %s.stock_ledger_entries WHERE source_doc_id=9`, schema)).Scan(&ledgerType, &changeG); err != nil {
+		t.Fatal(err)
+	}
+	if ledgerType != "finished_product" || changeG != -150 {
+		t.Fatalf("ledger = %s/%d, want finished_product/-150", ledgerType, changeG)
+	}
+	var meta string
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT COALESCE(meta::text,'') FROM %s.audit_logs WHERE entity_type='produce_running' AND action='consume_finished_product_component'`, schema)).Scan(&meta); err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"finished_product_component_consumption", "drip_demand", "upstream_roast_demand_g"} {
+		if !strings.Contains(meta, want) {
+			t.Fatalf("audit meta %s missing %q", meta, want)
+		}
+	}
+}
+
 func newProductionTestDB(t *testing.T) (*pgxpool.Pool, string) {
 	t.Helper()
 	dsn := strings.TrimSpace(os.Getenv("ORDERAPP_TEST_DATABASE_URL"))

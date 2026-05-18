@@ -1,3 +1,5 @@
+import { isDripProduct } from './drip-product.js'
+
 export const CUSTOM_SPEC_VALUE = 'custom'
 export const COMMON_SPEC_GRAMS = [36, 80, 100, 227, 454, 500, 1000, 2500]
 export const orderReceiptMethodOptions = [
@@ -181,6 +183,121 @@ export function syncWholesaleTierPrice(product, row) {
   return { tierID: String(tier.id), unitPrice: String(wholesaleDisplayUnitPrice(wholesaleTierUnitPriceLb(tier), row) || 0) }
 }
 
+function normalizeDripSalesUnit(unit) {
+  return String(unit || '').trim() === 'box' ? 'box' : 'bag'
+}
+
+export function dripSalesUnitSpec(product, row = {}) {
+  const salesUnit = normalizeDripSalesUnit(row?.sales_unit)
+  const unitBeanG = toNumber(row?.unit_bean_g) || toNumber(product?.drip_bag_grams) || 10
+  const productBoxBagCount = toInt(product?.drip_box_bag_count) || 10
+  const unitBagCount = salesUnit === 'box' ? (toInt(row?.unit_bag_count) || productBoxBagCount) : 1
+  return {
+    salesUnit,
+    unitBeanG,
+    unitBagCount,
+    unitLabel: salesUnit === 'box' ? '盒' : '袋',
+    specG: salesUnit === 'box' ? unitBeanG * unitBagCount : unitBeanG,
+    specLabel: salesUnit === 'box' ? `${unitBagCount}袋/盒` : `${trimNumber(unitBeanG)}g/袋`,
+  }
+}
+
+function dripTierSalesUnit(tier) {
+  return normalizeDripSalesUnit(tier?.sales_unit)
+}
+
+function dripTierMin(tier) {
+  return toNumber(tier?.min ?? tier?.min_qty_units)
+}
+
+function dripTierMax(tier) {
+  const max = tier?.max ?? tier?.max_qty_units
+  if (max == null || max === '') return null
+  return toNumber(max)
+}
+
+function dripTierPrice(tier) {
+  return toNumber(tier?.unit_price ?? tier?.price_per_unit ?? tier?.price)
+}
+
+function isDripTier(tier) {
+  return String(tier?.product_kind || 'drip_bag') === 'drip_bag' && ['bag', 'box'].includes(dripTierSalesUnit(tier))
+}
+
+function dripTiersForUnit(product, salesUnit) {
+  const tiers = (product?.tiers || []).filter(isDripTier)
+  if (salesUnit === 'box') return tiers.filter((tier) => dripTierSalesUnit(tier) === 'bag' || dripTierSalesUnit(tier) === 'box')
+  return tiers.filter((tier) => dripTierSalesUnit(tier) === 'bag')
+}
+
+function dripTierRangeLabel(tier) {
+  const min = dripTierMin(tier)
+  const max = dripTierMax(tier)
+  const unit = dripTierSalesUnit(tier) === 'box' ? '盒' : '袋'
+  if (min > 0 && max > 0) return `${trimNumber(min)}-${trimNumber(max)}${unit}`
+  if (min > 0) return `${trimNumber(min)}${unit}+`
+  if (max > 0) return `≤${trimNumber(max)}${unit}`
+  return '全部数量'
+}
+
+function matchDripTier(tiers, salesUnit, quantity) {
+  const unitTiers = tiers.filter((tier) => dripTierSalesUnit(tier) === salesUnit)
+  return matchTierByQuantity(unitTiers, quantity, dripTierMin, dripTierMax)
+}
+
+export function findDripTier(product, row) {
+  const spec = dripSalesUnitSpec(product, row)
+  const qty = Math.max(1, toInt(row?.qty))
+  const tiers = dripTiersForUnit(product, spec.salesUnit)
+  if (spec.salesUnit === 'box') {
+    const bagQty = qty * spec.unitBagCount
+    const bagTier = matchDripTier(tiers, 'bag', bagQty)
+    if (bagTier) {
+      return {
+        tier: bagTier,
+        matchedQty: bagQty,
+        unitPrice: dripTierPrice(bagTier) * spec.unitBagCount,
+      }
+    }
+  }
+  const tier = matchDripTier(tiers, spec.salesUnit, qty)
+  if (!tier) return null
+  return {
+    tier,
+    matchedQty: qty,
+    unitPrice: dripTierPrice(tier),
+  }
+}
+
+export function syncDripTierPrice(product, row) {
+  const matched = findDripTier(product, row)
+  if (!matched) return { tierID: 'auto', unitPrice: '' }
+  return { tierID: String(matched.tier.id || ''), unitPrice: String(matched.unitPrice || 0) }
+}
+
+export function dripTierPriceRows(product, row = {}) {
+  const spec = dripSalesUnitSpec(product, row)
+  return dripTiersForUnit(product, spec.salesUnit)
+    .map((tier) => {
+      const tierUnit = dripTierSalesUnit(tier)
+      const unitPrice = tierUnit === 'bag' && spec.salesUnit === 'box'
+        ? dripTierPrice(tier) * spec.unitBagCount
+        : dripTierPrice(tier)
+      const tierBagCount = toInt(tier?.unit_bag_count) || toInt(product?.drip_box_bag_count) || 10
+      return {
+        id: String(tier.id || ''),
+        salesUnit: tierUnit,
+        specLabel: tierUnit === 'box' ? `${tierBagCount}袋/盒` : `${trimNumber(spec.unitBeanG)}g/袋`,
+        rangeLabel: dripTierRangeLabel(tier),
+        unitPrice,
+        priceUnit: {
+          label: spec.salesUnit === 'box' ? '元/盒' : '元/袋',
+          suffix: spec.salesUnit === 'box' ? '/盒' : '/袋',
+        },
+      }
+    })
+}
+
 export function filterOptions(options, query) {
   const q = String(query || '').trim().toLowerCase()
   if (!q) return options || []
@@ -271,6 +388,10 @@ export function lineTotal(product, row, retailOrder) {
 
 export function lineTotalBeforeDiscount(product, row, retailOrder) {
   const units = Math.max(0, toInt(row?.qty))
+  if (isDripProduct(product) || row?.product_kind === 'drip_bag') {
+    if (units <= 0) return 0
+    return toNumber(row?.unit_price) * units
+  }
   const specG = normalizeSpecG(row)
   if (units <= 0 || specG <= 0) return 0
   if (row?.tier_id === 'manual') {
@@ -328,13 +449,19 @@ export function buildOrderPayload({ form, rows }) {
     qty: [],
     unit: [],
     spec: [],
+    product_kind: [],
+    sales_unit: [],
+    unit_bag_count: [],
+    unit_bean_g: [],
     discount_type: [],
     discount_value: [],
   }
 
   for (const row of rows || []) {
     const productID = toInt(row.product_id)
-    const specG = normalizeSpecG(row)
+    const productKind = row.product_kind === 'drip_bag' ? 'drip_bag' : 'roasted_bean'
+    const dripSpec = dripSalesUnitSpec(null, row)
+    const specG = productKind === 'drip_bag' ? dripSpec.specG : normalizeSpecG(row)
     const qty = toInt(row.qty)
     if (productID <= 0 || specG <= 0 || qty <= 0) continue
     payload.product_id.push(String(productID))
@@ -343,8 +470,12 @@ export function buildOrderPayload({ form, rows }) {
     payload.item_name.push(row.product_name || row.item_name || '')
     payload.item_note.push(String(row.item_note || '').trim())
     payload.qty.push(String(qty))
-    payload.unit.push(row.unit || '件')
-    payload.spec.push(String(specG))
+    payload.unit.push(productKind === 'drip_bag' ? dripSpec.unitLabel : (row.unit || '件'))
+    payload.spec.push(String(trimNumber(specG)))
+    payload.product_kind.push(productKind)
+    payload.sales_unit.push(productKind === 'drip_bag' ? dripSpec.salesUnit : '')
+    payload.unit_bag_count.push(productKind === 'drip_bag' ? String(dripSpec.unitBagCount) : '0')
+    payload.unit_bean_g.push(productKind === 'drip_bag' ? String(trimNumber(dripSpec.unitBeanG)) : '0')
     payload.discount_type.push(String(row.discount_type || '').trim())
     payload.discount_value.push(row.discount_type === 'amount' || row.discount_type === 'percent' ? String(row.discount_value || '') : '')
   }

@@ -165,6 +165,28 @@ func TestBusinessRepositoryCreatesMallOrdersFromPublishedMallProducts(t *testing
 	}
 }
 
+func TestPortalMallLinePricingUsesBagQuoteForDripBoxOrders(t *testing.T) {
+	got, err := portalMallLinePricingFor(mallOrderLine{
+		ProductID:       18,
+		Title:           "花魁挂耳",
+		UnitPrice:       3.5,
+		ProductKind:     "drip_bag",
+		DripBagGrams:    10,
+		DripBoxBagCount: 12,
+	}, customerportalapp.MallOrderItemCommand{
+		Qty:          3,
+		SalesUnit:    "box",
+		UnitBagCount: 1,
+		UnitBeanG:    8,
+	})
+	if err != nil {
+		t.Fatalf("portalMallLinePricingFor() err=%v", err)
+	}
+	if got.DisplayUnit != "盒" || got.SpecText != "10g*12袋/盒" || got.UnitPrice != 42 || got.LineTotal != 126 || got.UnitBagCount != 12 || got.UnitBeanG != 10 {
+		t.Fatalf("pricing=%+v, want authoritative product box metadata and bag quote multiplied to box price", got)
+	}
+}
+
 func TestPortalProductVisibleSQLExcludesBaseProductWithCustomerAlias(t *testing.T) {
 	sql := portalProductVisibleToCustomerAliasSQL("products", "p", "$2")
 

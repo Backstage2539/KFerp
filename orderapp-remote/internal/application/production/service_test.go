@@ -165,6 +165,28 @@ func TestServiceMachineAllowedSpecsErrorExplainsRoastLoads(t *testing.T) {
 	}
 }
 
+func TestEnrichMaterialPlanWithUpstreamFinishedProductShortage(t *testing.T) {
+	res := MaterialPlanResult{Rows: []MaterialPlanRow{{
+		MaterialID:   2,
+		MaterialName: "蓝山熟豆",
+		Unit:         "g",
+		RequiredG:    150,
+		ShortageG:    110,
+	}}}
+	enrichMaterialPlanWithUpstream(&res, PlanSummaryData{PlanRows: []ProducePlanDisplayRow{{
+		UnprodNeedRow: UnprodNeedRow{
+			ProductionKind:       "drip_bag",
+			UpstreamProductID:    2,
+			UpstreamShortageG:    110,
+			UpstreamRoastDemandG: 150,
+		},
+	}}})
+
+	if res.Rows[0].ComponentType != "finished_product" || res.Rows[0].UpstreamProductID != 2 || res.Rows[0].UpstreamShortageG != 110 {
+		t.Fatalf("material plan row = %+v, want finished_product upstream shortage", res.Rows[0])
+	}
+}
+
 type machineFakeRepo struct {
 	fakeRepo
 	machine RoastMachineCommand

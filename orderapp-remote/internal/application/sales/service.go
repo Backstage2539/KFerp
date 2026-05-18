@@ -48,6 +48,10 @@ type OrderItemCommand struct {
 	Units         int64
 	Unit          string
 	SpecG         int64
+	ProductKind   string
+	SalesUnit     string
+	UnitBagCount  int64
+	UnitBeanG     float64
 }
 
 type SaveOrderResult struct {
@@ -202,11 +206,15 @@ type EmployeeOption struct {
 }
 
 type ProductTierOption struct {
-	ID        int64    `json:"id"`
-	SpecG     int64    `json:"spec_g"`
-	MinQty    float64  `json:"min_qty"`
-	MaxQty    *float64 `json:"max_qty"`
-	UnitPrice float64  `json:"unit_price"`
+	ID              int64    `json:"id"`
+	SpecG           int64    `json:"spec_g"`
+	MinQty          float64  `json:"min_qty"`
+	MaxQty          *float64 `json:"max_qty"`
+	UnitPrice       float64  `json:"unit_price"`
+	ProductKind     string   `json:"product_kind"`
+	SalesUnit       string   `json:"sales_unit"`
+	UnitBagCount    int64    `json:"unit_bag_count"`
+	PriceSourceJSON string   `json:"price_source_json"`
 }
 
 type ProductOption struct {
@@ -222,6 +230,10 @@ type ProductOption struct {
 	BaseProductID   int64               `json:"base_product_id"`
 	Visibility      string              `json:"visibility"`
 	CustomType      string              `json:"custom_type"`
+	ProductKind     string              `json:"product_kind"`
+	DripBagGrams    float64             `json:"drip_bag_grams"`
+	DripBoxBagCount int64               `json:"drip_box_bag_count"`
+	SalesUnits      []string            `json:"sales_units"`
 	RetailSpecs     []int64             `json:"retail_specs"`
 	Tiers           []ProductTierOption `json:"tiers"`
 }
@@ -239,20 +251,27 @@ type OrderFormData struct {
 }
 
 type OrderEditItem struct {
-	ItemID         int64
-	LineNo         int
-	ProductID      int64
-	Product        string
-	Note           string
-	Spec           string
-	Qty            string
-	Unit           string
-	UnitPrice      string
-	LineTotal      string
-	PriceTierID    int64
-	DiscountType   string
-	DiscountValue  string
-	DiscountAmount string
+	ItemID              int64
+	LineNo              int
+	ProductID           int64
+	Product             string
+	Note                string
+	Spec                string
+	Qty                 string
+	Unit                string
+	UnitPrice           string
+	LineTotal           string
+	PriceTierID         int64
+	DiscountType        string
+	DiscountValue       string
+	DiscountAmount      string
+	ProductKind         string
+	SalesUnit           string
+	UnitBagCount        int64
+	UnitBeanG           string
+	MatchedPriceQty     string
+	UnitConversionLabel string
+	PriceSourceJSON     string
 }
 
 type OrderEditData struct {
@@ -898,7 +917,14 @@ func validateSaveOrderCommand(cmd SaveOrderCommand) error {
 		if item.ProductID == nil {
 			return fmt.Errorf("product required")
 		}
-		if item.SpecG <= 0 {
+		if isDripBagOrderItemKind(item.ProductKind) {
+			if item.UnitBeanG <= 0 && item.SpecG <= 0 {
+				return fmt.Errorf("unit_bean_g required")
+			}
+			if strings.TrimSpace(item.SalesUnit) == "box" && item.UnitBagCount <= 0 {
+				return fmt.Errorf("unit_bag_count required")
+			}
+		} else if item.SpecG <= 0 {
 			return fmt.Errorf("spec required")
 		}
 		if item.Units <= 0 {
@@ -910,6 +936,10 @@ func validateSaveOrderCommand(cmd SaveOrderCommand) error {
 		return fmt.Errorf("at least one item required")
 	}
 	return nil
+}
+
+func isDripBagOrderItemKind(kind string) bool {
+	return strings.TrimSpace(kind) == "drip_bag"
 }
 
 func (s *Service) UpdateHeader(ctx context.Context, id int64, cmd UpdateHeaderCommand) error {

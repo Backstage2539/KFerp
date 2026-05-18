@@ -51,7 +51,7 @@ type orderFormAPIResponse struct {
 	ShipStatuses []apiOption         `json:"ship_statuses"`
 	PayStatuses  []apiOption         `json:"pay_statuses"`
 	OrderTypes   []apiOption         `json:"order_types"`
-	Products     []jsProduct         `json:"products"`
+	Products     []map[string]any    `json:"products"`
 	EditMode     bool                `json:"edit_mode"`
 	EditID       int64               `json:"edit_id"`
 	EditData     any                 `json:"edit_data,omitempty"`
@@ -91,6 +91,10 @@ type orderSaveAPIRequest struct {
 	Qty           []string `json:"qty"`
 	Unit          []string `json:"unit"`
 	Spec          []string `json:"spec"`
+	ProductKind   []string `json:"product_kind"`
+	SalesUnit     []string `json:"sales_unit"`
+	UnitBagCount  []string `json:"unit_bag_count"`
+	UnitBeanG     []string `json:"unit_bean_g"`
 	DiscountType  []string `json:"discount_type"`
 	DiscountValue []string `json:"discount_value"`
 }
@@ -498,6 +502,10 @@ func (r orderSaveAPIRequest) toCreateRequest() CreateOrderRequest {
 		Qty:                   r.Qty,
 		Unit:                  r.Unit,
 		Spec:                  r.Spec,
+		ProductKind:           r.ProductKind,
+		SalesUnit:             r.SalesUnit,
+		UnitBagCount:          r.UnitBagCount,
+		UnitBeanG:             r.UnitBeanG,
 		DiscountType:          r.DiscountType,
 		DiscountValue:         r.DiscountValue,
 	}
@@ -544,27 +552,43 @@ func apiEmployeeOptions(in []EmployeeOption) []employeeAPIOption {
 	return out
 }
 
-func apiProducts(ps []ProductOption) []jsProduct {
-	out := make([]jsProduct, 0, len(ps))
+func apiProducts(ps []ProductOption) []map[string]any {
+	out := make([]map[string]any, 0, len(ps))
 	for _, p := range ps {
-		jp := jsProduct{
-			ID:              p.ID,
-			Name:            p.Name,
-			Py:              support.PinyinFull(p.Name),
-			Pyi:             support.PinyinInitials(p.Name),
-			RetailPrice100G: p.RetailPrice100G,
-			RetailPrice200G: p.RetailPrice200G,
-			RetailPrice227G: p.RetailPrice227G,
-			RetailPrice250G: p.RetailPrice250G,
-			CustomerID:      p.CustomerID,
-			BaseProductID:   p.BaseProductID,
-			Visibility:      productVisibilityForAPI(p.Visibility, p.CustomerID),
-			CustomType:      p.CustomType,
-			RetailSpecs:     p.RetailSpecs,
+		jp := map[string]any{
+			"id":                 p.ID,
+			"name":               p.Name,
+			"py":                 support.PinyinFull(p.Name),
+			"pyi":                support.PinyinInitials(p.Name),
+			"retail_price_100g":  p.RetailPrice100G,
+			"retail_price_200g":  p.RetailPrice200G,
+			"retail_price_227g":  p.RetailPrice227G,
+			"retail_price_250g":  p.RetailPrice250G,
+			"customer_id":        p.CustomerID,
+			"base_product_id":    p.BaseProductID,
+			"visibility":         productVisibilityForAPI(p.Visibility, p.CustomerID),
+			"custom_type":        p.CustomType,
+			"product_kind":       p.ProductKind,
+			"drip_bag_grams":     p.DripBagGrams,
+			"drip_box_bag_count": p.DripBoxBagCount,
+			"sales_units":        p.SalesUnits,
+			"retail_specs":       p.RetailSpecs,
 		}
+		tiers := make([]map[string]any, 0, len(p.Tiers))
 		for _, t := range p.Tiers {
-			jp.Tiers = append(jp.Tiers, jsTier{ID: t.ID, SpecG: t.SpecG, Min: t.MinQty, Max: t.MaxQty, UnitPrice: t.UnitPrice})
+			tiers = append(tiers, map[string]any{
+				"id":                t.ID,
+				"spec_g":            t.SpecG,
+				"min":               t.MinQty,
+				"max":               t.MaxQty,
+				"unit_price":        t.UnitPrice,
+				"product_kind":      t.ProductKind,
+				"sales_unit":        t.SalesUnit,
+				"unit_bag_count":    t.UnitBagCount,
+				"price_source_json": t.PriceSourceJSON,
+			})
 		}
+		jp["tiers"] = tiers
 		out = append(out, jp)
 	}
 	return out
@@ -600,17 +624,24 @@ func productVisibilityForAPI(visibility string, customerID int64) string {
 
 func editDataForAPI(ed *OrderEditData) map[string]any {
 	type editItem struct {
-		ProductID      int64  `json:"product_id"`
-		ProductName    string `json:"product_name"`
-		Note           string `json:"note"`
-		TierID         string `json:"tier_id"`
-		UnitPrice      string `json:"unit_price"`
-		Qty            string `json:"qty"`
-		Unit           string `json:"unit"`
-		Spec           string `json:"spec"`
-		DiscountType   string `json:"discount_type"`
-		DiscountValue  string `json:"discount_value"`
-		DiscountAmount string `json:"discount_amount"`
+		ProductID           int64  `json:"product_id"`
+		ProductName         string `json:"product_name"`
+		Note                string `json:"note"`
+		TierID              string `json:"tier_id"`
+		UnitPrice           string `json:"unit_price"`
+		Qty                 string `json:"qty"`
+		Unit                string `json:"unit"`
+		Spec                string `json:"spec"`
+		DiscountType        string `json:"discount_type"`
+		DiscountValue       string `json:"discount_value"`
+		DiscountAmount      string `json:"discount_amount"`
+		ProductKind         string `json:"product_kind"`
+		SalesUnit           string `json:"sales_unit"`
+		UnitBagCount        int64  `json:"unit_bag_count"`
+		UnitBeanG           string `json:"unit_bean_g"`
+		MatchedPriceQty     string `json:"matched_price_qty"`
+		UnitConversionLabel string `json:"unit_conversion_label"`
+		PriceSourceJSON     string `json:"price_source_json"`
 	}
 	items := make([]editItem, 0, len(ed.Items))
 	for _, it := range ed.Items {
@@ -620,17 +651,24 @@ func editDataForAPI(ed *OrderEditData) map[string]any {
 			tierID = strconv.FormatInt(it.PriceTierID, 10)
 		}
 		items = append(items, editItem{
-			ProductID:      it.ProductID,
-			ProductName:    it.Product,
-			Note:           it.Note,
-			TierID:         tierID,
-			UnitPrice:      it.UnitPrice,
-			Qty:            it.Qty,
-			Unit:           it.Unit,
-			Spec:           spec,
-			DiscountType:   it.DiscountType,
-			DiscountValue:  it.DiscountValue,
-			DiscountAmount: it.DiscountAmount,
+			ProductID:           it.ProductID,
+			ProductName:         it.Product,
+			Note:                it.Note,
+			TierID:              tierID,
+			UnitPrice:           it.UnitPrice,
+			Qty:                 it.Qty,
+			Unit:                it.Unit,
+			Spec:                spec,
+			DiscountType:        it.DiscountType,
+			DiscountValue:       it.DiscountValue,
+			DiscountAmount:      it.DiscountAmount,
+			ProductKind:         it.ProductKind,
+			SalesUnit:           it.SalesUnit,
+			UnitBagCount:        it.UnitBagCount,
+			UnitBeanG:           it.UnitBeanG,
+			MatchedPriceQty:     it.MatchedPriceQty,
+			UnitConversionLabel: it.UnitConversionLabel,
+			PriceSourceJSON:     it.PriceSourceJSON,
 		})
 	}
 	return map[string]any{

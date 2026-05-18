@@ -6,8 +6,11 @@ import {
   addMallCartItem,
   buildMallOrderPayload,
   mallCartTotal,
+  mallProductForSalesUnit,
+  mallProductUnitLabel,
   normalizeMallProduct,
   updateMallCartQty,
+  visibleMallProducts,
 } from './mall'
 
 const currentDir = path.dirname(fileURLToPath(import.meta.url))
@@ -53,6 +56,82 @@ describe('mini mall helpers', () => {
       note: '周末前发',
       items: [{ mall_product_id: 11, qty: 2 }],
     })
+  })
+
+  it('hides drip mall products without mall price and never exposes supply price', () => {
+    const row = {
+      id: 21,
+      product_id: 18,
+      title: '花魁挂耳',
+      product_kind: 'drip_bag',
+      sales_units: ['bag', 'box'],
+      drip_bag_grams: 10,
+      drip_box_bag_count: 10,
+      unit_price: 2.1,
+      supply_price: 2.1,
+    }
+
+    expect(visibleMallProducts([row]).map((item) => item.id)).toEqual([])
+    const product = normalizeMallProduct(row)
+    expect(product.unit_price).toBe(0)
+    expect('supply_price' in product).toBe(false)
+  })
+
+  it('submits drip mall orders with selected sales unit and quantity', () => {
+    const product = normalizeMallProduct({
+      id: 22,
+      product_id: 19,
+      title: '耶加雪菲挂耳',
+      product_kind: 'drip_bag',
+      sales_units: ['box'],
+      drip_bag_grams: 10,
+      drip_box_bag_count: 10,
+      unit_price: 2.1,
+      mall_price: 32.5,
+    })
+
+    expect(product.unit_price).toBe(32.5)
+    expect(mallProductUnitLabel(product)).toBe('盒(10袋)')
+
+    const payload = buildMallOrderPayload(
+      { name: '张三', phone: '13800138000', address: '上海市' },
+      addMallCartItem([], product, 2),
+    )
+
+    expect(payload.items).toEqual([
+      { mall_product_id: 22, qty: 2, sales_unit: 'box', unit_bag_count: 10, unit_bean_g: 10 },
+    ])
+  })
+
+  it('switches drip mall products from bag quote to box bulk order price', () => {
+    const product = normalizeMallProduct({
+      id: 23,
+      product_id: 20,
+      title: '花魁挂耳',
+      product_kind: 'drip_bag',
+      sales_units: ['bag', 'box'],
+      drip_bag_grams: 10,
+      drip_box_bag_count: 12,
+      mall_price: 3.5,
+    })
+
+    const bag = mallProductForSalesUnit(product, 'bag')
+    const box = mallProductForSalesUnit(product, 'box')
+
+    expect(bag.unit_price).toBe(3.5)
+    expect(bag.unit_label).toBe('袋(10g)')
+    expect(box.unit_price).toBe(42)
+    expect(box.unit_label).toBe('盒(12袋)')
+
+    const cart = addMallCartItem(addMallCartItem([], bag, 2), box, 1)
+    expect(cart).toEqual([
+      { mall_product_id: 23, title: '花魁挂耳', unit_price: 3.5, qty: 2, sales_unit: 'bag', unit_label: '袋(10g)', unit_bag_count: 1, unit_bean_g: 10 },
+      { mall_product_id: 23, title: '花魁挂耳', unit_price: 42, qty: 1, sales_unit: 'box', unit_label: '盒(12袋)', unit_bag_count: 12, unit_bean_g: 10 },
+    ])
+    expect(updateMallCartQty(cart, 23, 0, 'bag')).toEqual([
+      { mall_product_id: 23, title: '花魁挂耳', unit_price: 42, qty: 1, sales_unit: 'box', unit_label: '盒(12袋)', unit_bag_count: 12, unit_bean_g: 10 },
+    ])
+    expect(mallCartTotal(cart)).toBe(49)
   })
 
   it('registers the mall page and keeps customers on the home main tab', () => {

@@ -7,6 +7,7 @@ import {
   buildServicePagePath,
   buildSwitchCustomerPath,
 } from './customerPortal'
+import type { CreateFulfillmentOrderPayload, ProductSummary } from './customerPortal'
 
 describe('customer portal API helpers', () => {
   it('encodes service page filters into the mini service path', () => {
@@ -46,5 +47,37 @@ describe('customer portal API helpers', () => {
 
   it('exposes the ERP password login API path', () => {
     expect(buildPasswordLoginPath()).toBe('/api/mini/login/password')
+  })
+
+  it('types mini product and fulfillment payload drip unit metadata', () => {
+    const product: ProductSummary = {
+      id: 8,
+      name: '耶加雪菲挂耳',
+      roast_level: '',
+      default_price: '0.00',
+      retail_price_100g: '0.00',
+      retail_price_200g: '0.00',
+      retail_price_227g: '0.00',
+      retail_price_250g: '0.00',
+      product_kind: 'drip_bag',
+      sales_units: ['bag', 'box'],
+      drip_bag_grams: 10,
+      drip_box_bag_count: 12,
+    }
+    const payload: CreateFulfillmentOrderPayload = {
+      service_code: 'product_order',
+      recipient_name: '张三',
+      recipient_phone: '13800138000',
+      recipient_address: '上海市',
+      product_id: product.id,
+      spec_g: 120,
+      qty: 3,
+      sales_unit: 'box',
+      unit_bag_count: 12,
+      unit_bean_g: 10,
+    }
+
+    expect(product.sales_units).toEqual(['bag', 'box'])
+    expect(payload).toMatchObject({ sales_unit: 'box', unit_bag_count: 12, unit_bean_g: 10 })
   })
 })

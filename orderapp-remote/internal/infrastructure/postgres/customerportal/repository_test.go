@@ -1281,6 +1281,66 @@ func TestLoadMallPageFiltersCustomerOnlyMallProducts(t *testing.T) {
 	}
 }
 
+func TestCreateMallOrderUsesBagMallPriceForDripBoxOrders(t *testing.T) {
+	ctx := context.Background()
+	pool, schema := newCustomerPortalTestDB(t)
+	repo := NewRepository(pool, schema)
+
+	var customerID, productID, mallProductID int64
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`
+		INSERT INTO %s.customers(name) VALUES('挂耳商城客户') RETURNING id
+	`, schema)).Scan(&customerID); err != nil {
+		t.Fatalf("insert customer: %v", err)
+	}
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`
+		INSERT INTO %s.products(name, default_price, active, visibility, product_kind, drip_bag_grams, drip_box_bag_count)
+		VALUES('花魁挂耳', 0, true, 'public', 'drip_bag', 10, 12)
+		RETURNING id
+	`, schema)).Scan(&productID); err != nil {
+		t.Fatalf("insert drip product: %v", err)
+	}
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`
+		INSERT INTO %s.mall_products(product_id, title, spec_g, unit_price, status, sort_order)
+		VALUES($1,'花魁挂耳',10,3.5,'published',1)
+		RETURNING id
+	`, schema), productID).Scan(&mallProductID); err != nil {
+		t.Fatalf("insert mall product: %v", err)
+	}
+
+	order, err := repo.CreateMallOrder(ctx, customerportalapp.CreateMallOrderCommand{
+		CustomerID:          customerID,
+		CreatedByMiniUserID: 9,
+		RecipientName:       "张三",
+		RecipientPhone:      "13800138000",
+		RecipientAddress:    "上海市测试路",
+		Items: []customerportalapp.MallOrderItemCommand{{
+			MallProductID: mallProductID,
+			Qty:           3,
+			SalesUnit:     "box",
+			UnitBagCount:  1,
+			UnitBeanG:     8,
+		}},
+	})
+	if err != nil {
+		t.Fatalf("CreateMallOrder: %v", err)
+	}
+
+	var total, unitPrice, lineTotal, unitBeanG, unitBagCount float64
+	var unit, spec, salesUnit string
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`
+		SELECT o.total_amount, i.unit, i.spec, i.unit_price, i.line_total, i.sales_unit,
+		       i.unit_bag_count::float8, i.unit_bean_g::float8
+		FROM %s.orders o
+		JOIN %s.order_items i ON i.order_id=o.id
+		WHERE o.id=$1
+	`, schema, schema), order.OrderID).Scan(&total, &unit, &spec, &unitPrice, &lineTotal, &salesUnit, &unitBagCount, &unitBeanG); err != nil {
+		t.Fatalf("load created mall order: %v", err)
+	}
+	if total != 126 || unitPrice != 42 || lineTotal != 126 || unit != "盒" || spec != "10g*12袋/盒" || salesUnit != "box" || unitBagCount != 12 || unitBeanG != 10 {
+		t.Fatalf("drip mall box order total=%.2f unit=%q spec=%q unitPrice=%.2f lineTotal=%.2f salesUnit=%q unitBagCount=%.0f unitBeanG=%.0f", total, unit, spec, unitPrice, lineTotal, salesUnit, unitBagCount, unitBeanG)
+	}
+}
+
 func TestCreateMallOrderRejectsCustomerOnlyMallProduct(t *testing.T) {
 	ctx := context.Background()
 	pool, schema := newCustomerPortalTestDB(t)

@@ -54,6 +54,7 @@ type fulfillmentOrderRequest struct {
 	ProductID        int64   `json:"product_id"`
 	ProductName      string  `json:"product_name"`
 	SpecG            int64   `json:"spec_g"`
+	SalesUnit        string  `json:"sales_unit"`
 	Qty              int64   `json:"qty"`
 	UnitPrice        float64 `json:"unit_price"`
 	Note             string  `json:"note"`
@@ -312,6 +313,7 @@ func registerMiniAPI(e *echo.Echo, svc Service, messages MessagePublisher, beanL
 			ProductID:         req.ProductID,
 			ProductName:       req.ProductName,
 			SpecG:             req.SpecG,
+			SalesUnit:         req.SalesUnit,
 			Qty:               req.Qty,
 			Note:              req.Note,
 		})
@@ -508,7 +510,8 @@ func isMiniValidationError(err error) bool {
 		"input_qty required", "target_product required", "target_spec required", "target_qty required",
 		"input material unavailable", "target product unavailable",
 		"bean_list required", "recipient_name required", "recipient_phone required", "recipient_address required",
-		"items required", "mall_product required", "qty required", "product unavailable", "mall product unavailable":
+		"items required", "mall_product required", "qty required", "product unavailable", "mall product unavailable",
+		"mall price unavailable", "sales_unit invalid", "drip price unpublished", "product BOM not configured":
 		return true
 	default:
 		return false

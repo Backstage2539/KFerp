@@ -15,12 +15,20 @@ import (
 )
 
 type planBomItem struct {
-	ProductID    int64
-	RoastLevel   string
-	YieldRate    float64
-	MaterialName string
-	MaterialUnit string
-	RatioPct     float64
+	ProductID            int64
+	RoastLevel           string
+	YieldRate            float64
+	MaterialID           int64
+	MaterialName         string
+	MaterialUnit         string
+	RatioPct             float64
+	ComponentType        string
+	ComponentProductID   int64
+	ComponentProductName string
+	ComponentSpecG       int64
+	ConsumeUnit          string
+	QtyPerUnit           float64
+	DripBoxBagCount      int64
 }
 
 type planParams struct {
@@ -44,6 +52,11 @@ func (r Repository) PlanSummary(ctx context.Context, query productionapp.PlanSum
 		return data, err
 	}
 	appRows := unprodRowsToApp(rows)
+	dripRows, err := r.fetchDripPlanNeeds(ctx, query.From, query.To, query.CustomerID)
+	if err != nil {
+		return data, err
+	}
+	appRows = mergeDripPlanRows(appRows, dripRows)
 	data.Rows = appRows
 	if !data.PlanReady {
 		return data, nil
@@ -77,6 +90,9 @@ func (r Repository) PlanSummary(ctx context.Context, query productionapp.PlanSum
 	}
 	bomMap, _ := r.loadPlanBomItemsFromRows(ctx, planRows)
 	machines, _ := r.ListMachines(ctx, true)
+	if err := r.attachDripUpstreamShortages(ctx, planRows, bomMap); err != nil {
+		return data, err
+	}
 	data.RoastPlans = buildRoastPlanRows(planRows, machines, yieldMap)
 	data.MaterialRatios = buildRoastPlanMaterialRatios(planRows, bomMap)
 	finalInputByKey := map[string]int64{}
@@ -115,6 +131,160 @@ func unprodRowsToApp(rows []UnprodNeedRow) []productionapp.UnprodNeedRow {
 		})
 	}
 	return out
+}
+
+func mergeDripPlanRows(rows []productionapp.UnprodNeedRow, dripRows []productionapp.UnprodNeedRow) []productionapp.UnprodNeedRow {
+	if len(dripRows) == 0 {
+		return rows
+	}
+	dripByKey := map[string]productionapp.UnprodNeedRow{}
+	for _, row := range dripRows {
+		dripByKey[producePlanKey(row.ProductID, row.SpecG)] = row
+	}
+	out := make([]productionapp.UnprodNeedRow, 0, len(rows)+len(dripRows))
+	seen := map[string]bool{}
+	for _, row := range rows {
+		key := producePlanKey(row.ProductID, row.SpecG)
+		if drip, ok := dripByKey[key]; ok {
+			out = append(out, drip)
+			seen[key] = true
+			continue
+		}
+		out = append(out, row)
+	}
+	for _, row := range dripRows {
+		key := producePlanKey(row.ProductID, row.SpecG)
+		if !seen[key] {
+			out = append(out, row)
+		}
+	}
+	sort.SliceStable(out, func(i, j int) bool {
+		if out[i].GapG != out[j].GapG {
+			return out[i].GapG > out[j].GapG
+		}
+		if out[i].Product != out[j].Product {
+			return out[i].Product < out[j].Product
+		}
+		return out[i].SpecG < out[j].SpecG
+	})
+	return out
+}
+
+func (r Repository) fetchDripPlanNeeds(ctx context.Context, from, to string, customerID int64) ([]productionapp.UnprodNeedRow, error) {
+	where := fmt.Sprintf(`WHERE o.is_void=false AND (
+		COALESCE(o.process_status_id,0) = 0
+		OR EXISTS (
+			SELECT 1 FROM %s.order_process_statuses ops
+			WHERE ops.id=o.process_status_id
+			  AND ops.name IN ('待处理','待生产')
+		)
+	)
+	AND COALESCE(oi.product_id,0) > 0
+	AND COALESCE(NULLIF(oi.product_kind,''), NULLIF(p.product_kind,''), 'roasted_bean') = 'drip_bag'
+	AND NOT EXISTS (
+		SELECT 1 FROM %s.ship_statuses ss
+		WHERE ss.id=o.ship_status_id
+		  AND ss.name='已发货'
+	)`, r.schema, r.schema)
+	args := []any{}
+	argn := 1
+	if customerID > 0 {
+		where += fmt.Sprintf(" AND o.customer_id = $%d", argn)
+		args = append(args, customerID)
+		argn++
+	}
+	if s := strings.TrimSpace(from); s != "" {
+		where += fmt.Sprintf(" AND o.order_date >= $%d", argn)
+		args = append(args, s)
+		argn++
+	}
+	if s := strings.TrimSpace(to); s != "" {
+		where += fmt.Sprintf(" AND o.order_date <= $%d", argn)
+		args = append(args, s)
+		argn++
+	}
+
+	q := fmt.Sprintf(`
+		WITH need AS (
+			SELECT
+				oi.product_id,
+				COALESCE(p.name,'') AS product,
+				STRING_AGG(DISTINCT COALESCE(o.order_no,''), ',' ORDER BY COALESCE(o.order_no,'')) AS order_nos,
+				COALESCE(NULLIF(oi.unit_bean_g,0), NULLIF(p.drip_bag_grams,0), NULLIF(regexp_replace(COALESCE(oi.spec,''), '[^0-9]', '', 'g'), '')::numeric, 0)::bigint AS spec_g,
+				SUM(
+					CASE WHEN COALESCE(NULLIF(oi.sales_unit,''), lower(oi.unit), '') = 'box'
+						THEN COALESCE(oi.qty,0) * GREATEST(COALESCE(NULLIF(oi.unit_bag_count,0), NULLIF(p.drip_box_bag_count,0), 1), 1)
+						ELSE COALESCE(oi.qty,0)
+					END
+				)::bigint AS need_bags,
+				SUM(
+					CASE WHEN COALESCE(NULLIF(oi.sales_unit,''), lower(oi.unit), '') = 'box'
+						THEN COALESCE(oi.qty,0)
+						ELSE 0
+					END
+				)::bigint AS need_boxes,
+				SUM(
+					CASE WHEN COALESCE(osd.decision,'') = 'produce' THEN
+						CASE WHEN COALESCE(NULLIF(oi.sales_unit,''), lower(oi.unit), '') = 'box'
+							THEN COALESCE(oi.qty,0) * GREATEST(COALESCE(NULLIF(oi.unit_bag_count,0), NULLIF(p.drip_box_bag_count,0), 1), 1)
+							ELSE COALESCE(oi.qty,0)
+						END
+					ELSE 0 END
+				)::bigint AS force_produce_bags
+			FROM %s.order_items oi
+			JOIN %s.orders o ON o.id = oi.order_id
+			LEFT JOIN %s.products p ON p.id = oi.product_id
+			LEFT JOIN %s.order_stock_decisions osd ON osd.order_id = o.id
+			%s
+			GROUP BY oi.product_id, p.name, COALESCE(NULLIF(oi.unit_bean_g,0), NULLIF(p.drip_bag_grams,0), NULLIF(regexp_replace(COALESCE(oi.spec,''), '[^0-9]', '', 'g'), '')::numeric, 0)
+		)
+		, reserved AS (
+			SELECT product_id, spec_g, SUM(allocated_g)::bigint AS reserved_g
+			FROM %s.order_stock_batch_allocations
+			GROUP BY product_id, spec_g
+		)
+		SELECT
+			n.product_id,
+			n.product,
+			COALESCE(n.order_nos,'') AS order_nos,
+			n.spec_g,
+			n.need_bags,
+			n.need_boxes,
+			(n.need_bags * n.spec_g)::bigint AS need_g,
+			COALESCE(fi.onhand_units,0) AS inv_units,
+			COALESCE(fi.onhand_loose_g,0) AS inv_loose_g,
+			(COALESCE(fi.onhand_units,0) * n.spec_g + COALESCE(fi.onhand_loose_g,0))::bigint AS inv_g,
+			(
+				(n.force_produce_bags * n.spec_g)
+				+ GREATEST(
+					0,
+					((n.need_bags - n.force_produce_bags) * n.spec_g)
+					- GREATEST(0, (COALESCE(fi.onhand_units,0) * n.spec_g + COALESCE(fi.onhand_loose_g,0)) - COALESCE(reserved.reserved_g,0))
+				)
+			)::bigint AS gap_g
+		FROM need n
+		LEFT JOIN %s.finished_inventory fi
+			ON fi.product_id = n.product_id AND fi.spec_g = n.spec_g AND fi.warehouse='finished_goods'
+		LEFT JOIN reserved
+			ON reserved.product_id = n.product_id AND reserved.spec_g = n.spec_g
+		WHERE n.spec_g > 0
+	`, r.schema, r.schema, r.schema, r.schema, where, r.schema, r.schema)
+	rows, err := r.pool.Query(ctx, q, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := make([]productionapp.UnprodNeedRow, 0)
+	for rows.Next() {
+		var row productionapp.UnprodNeedRow
+		if err := rows.Scan(&row.ProductID, &row.Product, &row.OrderNos, &row.SpecG, &row.NeedUnits, &row.NeedBoxes, &row.NeedG, &row.InvUnits, &row.InvLooseG, &row.InvG, &row.GapG); err != nil {
+			return nil, err
+		}
+		row.ProductionKind = "drip_bag"
+		row.NeedBags = row.NeedUnits
+		out = append(out, row)
+	}
+	return out, rows.Err()
 }
 
 func defaultPlanParams() planParams {
@@ -221,16 +391,25 @@ func (r Repository) loadPlanBomItems(ctx context.Context, productIDs []int64) (m
 		SELECT bi.product_id,
 		       COALESCE(p.roast_level,''),
 		       COALESCE(pb.yield_rate,0),
+		       COALESCE(bi.material_id,0),
 		       COALESCE(m.name,''),
 		       COALESCE(NULLIF(m.unit,''),'g'),
-		       COALESCE(bi.ratio_pct,0)
+		       COALESCE(bi.ratio_pct,0),
+		       COALESCE(NULLIF(bi.component_type,''),'material'),
+		       COALESCE(bi.component_product_id,0),
+		       COALESCE(cp.name,''),
+		       COALESCE(bi.component_spec_g,0),
+		       COALESCE(NULLIF(bi.consume_unit,''),'ratio_pct'),
+		       COALESCE(bi.qty_per_unit,0),
+		       COALESCE(NULLIF(p.drip_box_bag_count,0),10)
 		FROM %s.product_bom_items bi
 		LEFT JOIN %s.products p ON p.id=bi.product_id
 		LEFT JOIN %s.product_bom pb ON pb.product_id=bi.product_id
 		LEFT JOIN %s.materials m ON m.id=bi.material_id
+		LEFT JOIN %s.products cp ON cp.id=bi.component_product_id
 		WHERE bi.product_id = ANY($1)
 		ORDER BY bi.product_id, bi.id
-	`, r.schema, r.schema, r.schema, r.schema)
+	`, r.schema, r.schema, r.schema, r.schema, r.schema)
 	rows, err := r.pool.Query(ctx, q, productIDs)
 	if err != nil {
 		return out, err
@@ -238,10 +417,26 @@ func (r Repository) loadPlanBomItems(ctx context.Context, productIDs []int64) (m
 	defer rows.Close()
 	for rows.Next() {
 		var item planBomItem
-		if err := rows.Scan(&item.ProductID, &item.RoastLevel, &item.YieldRate, &item.MaterialName, &item.MaterialUnit, &item.RatioPct); err != nil {
+		if err := rows.Scan(
+			&item.ProductID, &item.RoastLevel, &item.YieldRate,
+			&item.MaterialID, &item.MaterialName, &item.MaterialUnit, &item.RatioPct,
+			&item.ComponentType, &item.ComponentProductID, &item.ComponentProductName, &item.ComponentSpecG,
+			&item.ConsumeUnit, &item.QtyPerUnit, &item.DripBoxBagCount,
+		); err != nil {
 			return out, err
 		}
-		if strings.TrimSpace(item.MaterialName) == "" || item.RatioPct <= 0 {
+		item.ComponentType = normalizeBomComponentType(item.ComponentType)
+		item.ConsumeUnit = normalizeBomConsumeUnit(item.ConsumeUnit)
+		if item.ComponentType == "finished_product" {
+			if item.ComponentProductID <= 0 || item.QtyPerUnit <= 0 {
+				continue
+			}
+			item.MaterialName = strings.TrimSpace(item.ComponentProductName)
+			if item.MaterialName == "" {
+				item.MaterialName = fmt.Sprintf("finished product %d", item.ComponentProductID)
+			}
+			item.MaterialUnit = "g"
+		} else if strings.TrimSpace(item.MaterialName) == "" || (item.RatioPct <= 0 && item.QtyPerUnit <= 0) {
 			continue
 		}
 		item.RatioPct = bomdomain.NormalizeRatioPct(item.RatioPct)
@@ -287,15 +482,27 @@ func buildRoastPlanMaterialRatios(rows []productionapp.UnprodNeedRow, bomMap map
 
 func calcProducePlanMaterialsFromFinalInputs(rows []productionapp.UnprodNeedRow, finalInputByKey map[string]int64, bomMap map[int64][]planBomItem, p planParams) []productionapp.MaterialNeed {
 	m := map[string]productionapp.MaterialNeed{}
-	add := func(name string, qty int64, unit string) {
-		if qty <= 0 {
+	add := func(item productionapp.MaterialNeed) {
+		name := strings.TrimSpace(item.Name)
+		if item.Qty <= 0 {
 			return
 		}
-		item := m[name]
-		item.Name = name
-		item.Unit = unit
-		item.Qty += qty
-		m[name] = item
+		key := materialAvailabilityKey(name, item.Unit)
+		existing := m[key]
+		if existing.Name == "" {
+			existing = item
+			existing.Name = name
+			existing.Qty = 0
+		}
+		existing.Qty += item.Qty
+		if existing.ComponentType == "" {
+			existing.ComponentType = item.ComponentType
+		}
+		if existing.UpstreamProductID == 0 {
+			existing.UpstreamProductID = item.UpstreamProductID
+		}
+		existing.UpstreamShortageG += item.UpstreamShortageG
+		m[key] = existing
 	}
 	ceilDiv := func(a, b int64) int64 {
 		if b <= 0 {
@@ -328,25 +535,43 @@ func calcProducePlanMaterialsFromFinalInputs(rows []productionapp.UnprodNeedRow,
 				if item.Unit == "个" && strings.Contains(item.Name, "豆袋") {
 					item.Qty = ceilDiv(row.GapG, row.SpecG)
 				}
-				add(item.Name, item.Qty, item.Unit)
+				add(item)
 			}
 			continue
 		}
 
-		unitsMissing := ceilDiv(row.GapG, row.SpecG)
+		unitsMissing := dripOrPackedUnitsMissing(row)
 		for _, bom := range items {
 			unit := strings.TrimSpace(bom.MaterialUnit)
 			if unit == "" {
 				unit = "g"
 			}
 			ratioPct := bomdomain.NormalizeRatioPct(bom.RatioPct)
+			qty := int64(0)
 			switch {
+			case bom.ConsumeUnit == "g_per_bag":
+				qty = int64(math.Ceil(float64(unitsMissing) * bom.QtyPerUnit))
+			case bom.ConsumeUnit == "unit_per_bag":
+				qty = int64(math.Ceil(float64(unitsMissing) * bom.QtyPerUnit))
+			case bom.ConsumeUnit == "unit_per_box":
+				qty = int64(math.Ceil(float64(dripBoxesMissing(row, bom.DripBoxBagCount)) * bom.QtyPerUnit))
 			case strings.EqualFold(unit, "g"):
-				add(bom.MaterialName, int64(math.Ceil(float64(finalInputG)*ratioPct/100.0)), "g")
+				qty = int64(math.Ceil(float64(finalInputG) * ratioPct / 100.0))
 			case strings.EqualFold(unit, "kg"):
-				add(bom.MaterialName, int64(math.Ceil((float64(finalInputG)*ratioPct/100.0)/1000.0)), "kg")
+				qty = int64(math.Ceil((float64(finalInputG) * ratioPct / 100.0) / 1000.0))
 			default:
-				add(bom.MaterialName, int64(math.Ceil(float64(unitsMissing)*ratioPct/100.0)), unit)
+				qty = int64(math.Ceil(float64(unitsMissing) * ratioPct / 100.0))
+			}
+			if bom.ComponentType == "finished_product" {
+				add(productionapp.MaterialNeed{
+					Name:              bom.MaterialName,
+					Qty:               qty,
+					Unit:              "g",
+					ComponentType:     "finished_product",
+					UpstreamProductID: bom.ComponentProductID,
+				})
+			} else {
+				add(productionapp.MaterialNeed{Name: bom.MaterialName, Qty: qty, Unit: unit})
 			}
 		}
 
@@ -356,7 +581,9 @@ func calcProducePlanMaterialsFromFinalInputs(rows []productionapp.UnprodNeedRow,
 				bagName = v
 			}
 		}
-		add(bagName, unitsMissing, "个")
+		if row.ProductionKind != "drip_bag" {
+			add(productionapp.MaterialNeed{Name: bagName, Qty: unitsMissing, Unit: "个"})
+		}
 	}
 
 	out := make([]productionapp.MaterialNeed, 0, len(m))
@@ -370,6 +597,91 @@ func calcProducePlanMaterialsFromFinalInputs(rows []productionapp.UnprodNeedRow,
 		return out[i].Name < out[j].Name
 	})
 	return out
+}
+
+func (r Repository) attachDripUpstreamShortages(ctx context.Context, rows []productionapp.UnprodNeedRow, bomMap map[int64][]planBomItem) error {
+	for i := range rows {
+		if rows[i].ProductionKind != "drip_bag" || rows[i].GapG <= 0 || rows[i].SpecG <= 0 {
+			continue
+		}
+		bagsMissing := dripOrPackedUnitsMissing(rows[i])
+		for _, item := range bomMap[rows[i].ProductID] {
+			if item.ComponentType != "finished_product" || item.ComponentProductID <= 0 {
+				continue
+			}
+			demandG := componentDemandQty(item, rows[i].GapG, bagsMissing, dripBoxesMissing(rows[i], item.DripBoxBagCount), "g")
+			if demandG <= 0 {
+				continue
+			}
+			availableG, err := r.finishedProductAvailableG(ctx, item.ComponentProductID, item.ComponentSpecG)
+			if err != nil {
+				return err
+			}
+			shortageG := demandG - availableG
+			if shortageG < 0 {
+				shortageG = 0
+			}
+			rows[i].UpstreamProductID = item.ComponentProductID
+			rows[i].UpstreamRoastDemandG += demandG
+			rows[i].UpstreamShortageG += shortageG
+			rows[i].FinishedProductComponentShortageG += shortageG
+		}
+	}
+	return nil
+}
+
+func (r Repository) finishedProductAvailableG(ctx context.Context, productID, specG int64) (int64, error) {
+	var totalG int64
+	err := r.pool.QueryRow(ctx, fmt.Sprintf(`
+		SELECT COALESCE(SUM(onhand_units * $2 + onhand_loose_g),0)::bigint
+		FROM %s.finished_inventory
+		WHERE product_id=$1 AND spec_g=$2 AND warehouse='finished_goods'
+	`, r.schema), productID, specG).Scan(&totalG)
+	if err != nil {
+		if strings.Contains(err.Error(), "finished_inventory") {
+			return 0, nil
+		}
+		return 0, err
+	}
+	return totalG, nil
+}
+
+func dripOrPackedUnitsMissing(row productionapp.UnprodNeedRow) int64 {
+	if row.SpecG <= 0 || row.GapG <= 0 {
+		return 0
+	}
+	return ceilDiv64(row.GapG, row.SpecG)
+}
+
+func dripBoxesMissing(row productionapp.UnprodNeedRow, bagsPerBox int64) int64 {
+	if row.ProductionKind != "drip_bag" {
+		return 0
+	}
+	if row.NeedBoxes <= 0 {
+		return 0
+	}
+	if bagsPerBox <= 0 {
+		bagsPerBox = 10
+	}
+	return ceilDiv64(dripOrPackedUnitsMissing(row), bagsPerBox)
+}
+
+func componentDemandQty(item planBomItem, inputG, bagUnits, boxUnits int64, unit string) int64 {
+	switch item.ConsumeUnit {
+	case "g_per_bag", "unit_per_bag":
+		return int64(math.Ceil(float64(bagUnits) * item.QtyPerUnit))
+	case "unit_per_box":
+		return int64(math.Ceil(float64(boxUnits) * item.QtyPerUnit))
+	default:
+		ratioPct := bomdomain.NormalizeRatioPct(item.RatioPct)
+		if ratioPct <= 0 {
+			return 0
+		}
+		if strings.EqualFold(unit, "kg") || unit == "千克" {
+			return int64(math.Ceil((float64(inputG) * ratioPct / 100.0) / 1000.0))
+		}
+		return int64(math.Ceil(float64(inputG) * ratioPct / 100.0))
+	}
 }
 
 func mergeMaterialAvailability(materials []productionapp.MaterialNeed, planRows []productionapp.MaterialPlanRow) []productionapp.MaterialNeed {
@@ -398,6 +710,22 @@ func mergeMaterialAvailability(materials []productionapp.MaterialNeed, planRows 
 
 func materialAvailabilityKey(name string, unit string) string {
 	return strings.TrimSpace(name) + "::" + strings.ToLower(strings.TrimSpace(unit))
+}
+
+func normalizeBomComponentType(value string) string {
+	if strings.TrimSpace(value) == "finished_product" {
+		return "finished_product"
+	}
+	return "material"
+}
+
+func normalizeBomConsumeUnit(value string) string {
+	switch strings.TrimSpace(value) {
+	case "g_per_bag", "unit_per_bag", "unit_per_box":
+		return strings.TrimSpace(value)
+	default:
+		return "ratio_pct"
+	}
 }
 
 func calcNoBomProducePlanMaterials(row productionapp.UnprodNeedRow, p planParams) []productionapp.MaterialNeed {

@@ -169,9 +169,14 @@
           </label>
 
           <label>
-            <span>规格</span>
+            <span>{{ isDripRow(row) ? '单位' : '规格' }}</span>
             <div class="spec-control">
-              <select v-model="row.spec_mode" @change="syncPrice(row)">
+              <select v-if="isDripRow(row)" v-model="row.sales_unit" @change="onDripUnitChange(row)">
+                <option v-for="option in dripUnitOptionsForRow(row)" :key="option.value" :value="option.value">
+                  {{ option.spec }}
+                </option>
+              </select>
+              <select v-else v-model="row.spec_mode" @change="syncPrice(row)">
                 <option value="">选择规格</option>
                 <option v-for="option in specOptions(row)" :key="option.value" :value="option.value">
                   {{ option.label }}
@@ -247,7 +252,7 @@
               :key="tier.id || `${tier.specG}-${tier.rangeLabel}`"
               type="button"
               class="tier-price-chip"
-              :class="{ active: String(row.spec_mode) === String(tier.specG) && String(row.tier_id) === tier.id }"
+              :class="{ active: isTierActive(row, tier) }"
               @click="selectTier(row, tier)"
             >
               <span>{{ tier.specLabel }} {{ tier.rangeLabel }}</span>
@@ -292,6 +297,7 @@
           <li>录单时可点“新增客户”打开右侧抽屉，粘贴收件信息后可解析姓名、联系电话和地址。</li>
           <li>选择客户后会带入客户档案中的默认来源和订单类型。</li>
           <li>常用规格：36g、80g、100g、227g、454g、500g、1000g、2.5kg。</li>
+          <li>挂耳产品可按袋或盒录单，盒价会按发布的挂耳价格梯度自动匹配。</li>
           <li>新订单默认已付款、未发货；商品单价会随规格和数量匹配价格梯度。</li>
           <li>需要临时改价时直接修改单价，点击 ↺ 恢复自动梯度价。</li>
           <li>每条商品明细可选择减免数额、折扣或免费，保存后会计入订单优惠。</li>
@@ -359,6 +365,8 @@ import {
   buildOrderPayload,
   defaultWholesaleSpec,
   defaultStatusID,
+  dripSalesUnitSpec,
+  dripTierPriceRows,
   filterProductsForCustomer,
   filterOptions,
   lineTotal,
@@ -368,6 +376,7 @@ import {
   requiresOrderPaymentMethod,
   retailPackagePrice,
   retailSpecOptions,
+  syncDripTierPrice,
   syncWholesaleTierPrice,
   toInt,
   toNumber,
@@ -376,6 +385,7 @@ import {
   wholesaleSpecOptions,
 } from '../lib/order-entry'
 import { parseRecipientText } from '../lib/customer-recipient'
+import { dripUnitOptions, isDripProduct } from '../lib/drip-product'
 
 const props = defineProps({
   editId: { type: [Number, String], default: 0 },
@@ -442,11 +452,15 @@ function newRow() {
     product_open: false,
     product_id: 0,
     product_name: '',
+    product_kind: 'roasted_bean',
     tier_id: 'auto',
     unit_price: '',
     manual_price: false,
     spec_mode: '',
     custom_spec_g: '',
+    sales_unit: '',
+    unit_bag_count: 0,
+    unit_bean_g: '',
     qty: 1,
     unit: '件',
     item_note: '',
@@ -490,6 +504,10 @@ const filteredResponsibleOptions = computed(() => {
 
 function productByID(id) {
   return products.value.find((item) => Number(item.id) === Number(id)) || null
+}
+
+function isDripRow(row) {
+  return row?.product_kind === 'drip_bag' || isDripProduct(productByID(row?.product_id))
 }
 
 function optionName(options, id) {
@@ -606,9 +624,16 @@ function clearProduct(row) {
   row.product_open = true
   row.product_id = 0
   row.product_name = ''
+  row.product_kind = 'roasted_bean'
   row.tier_id = 'auto'
   row.unit_price = ''
   row.manual_price = false
+  row.spec_mode = ''
+  row.custom_spec_g = ''
+  row.sales_unit = ''
+  row.unit_bag_count = 0
+  row.unit_bean_g = ''
+  row.unit = '件'
 }
 
 function chooseProduct(row, product) {
@@ -617,6 +642,21 @@ function chooseProduct(row, product) {
   row.product_query = product?.name || ''
   row.product_open = false
   row.manual_price = false
+  row.product_kind = product?.product_kind || 'roasted_bean'
+  if (isDripProduct(product)) {
+    row.sales_unit = 'bag'
+    row.unit_bean_g = Number(product?.drip_bag_grams || 10)
+    row.unit_bag_count = 1
+    row.unit = '袋'
+    row.spec_mode = ''
+    row.custom_spec_g = ''
+    syncPrice(row, { force: true })
+    return
+  }
+  row.sales_unit = ''
+  row.unit_bag_count = 0
+  row.unit_bean_g = ''
+  row.unit = '件'
   if (retailOrder.value) {
     const options = retailSpecOptions(product, true)
     row.spec_mode = options[0]?.value || CUSTOM_SPEC_VALUE
@@ -628,6 +668,7 @@ function chooseProduct(row, product) {
 
 function specOptions(row) {
   const product = productByID(row.product_id)
+  if (isDripProduct(product)) return []
   if (retailOrder.value) return retailSpecOptions(product, true)
   return wholesaleSpecOptions(product)
 }
@@ -636,6 +677,10 @@ function syncRowsForType() {
   rows.value.forEach((row) => {
     if (!row.product_id) return
     row.manual_price = false
+    if (isDripRow(row)) {
+      syncPrice(row, { force: true })
+      return
+    }
     const options = specOptions(row)
     if (!options.some((option) => option.value === row.spec_mode)) {
       row.spec_mode = retailOrder.value ? (options[0]?.value || '') : defaultWholesaleSpec(productByID(row.product_id))
@@ -651,6 +696,15 @@ function syncPrice(row, options = {}) {
     row.unit_price = ''
     return
   }
+  if (isDripProduct(product)) {
+    applyDripUnit(row, product)
+    if (row.manual_price && !options.force) return
+    const price = syncDripTierPrice(product, row)
+    row.tier_id = price.tierID
+    row.unit_price = price.unitPrice
+    row.manual_price = false
+    return
+  }
   if (row.manual_price && !options.force) return
   if (retailOrder.value) {
     row.tier_id = 'auto'
@@ -662,6 +716,24 @@ function syncPrice(row, options = {}) {
   row.tier_id = price.tierID
   row.unit_price = price.unitPrice
   row.manual_price = false
+}
+
+function applyDripUnit(row, product) {
+  row.product_kind = 'drip_bag'
+  const spec = dripSalesUnitSpec(product, row)
+  row.sales_unit = spec.salesUnit
+  row.unit_bean_g = spec.unitBeanG
+  row.unit_bag_count = spec.unitBagCount
+  row.unit = spec.unitLabel
+}
+
+function onDripUnitChange(row) {
+  row.manual_price = false
+  syncPrice(row, { force: true })
+}
+
+function dripUnitOptionsForRow(row) {
+  return dripUnitOptions(productByID(row.product_id))
 }
 
 function markManualPrice(row) {
@@ -676,23 +748,37 @@ function resetAutoPrice(row) {
 
 function tierRows(row) {
   if (retailOrder.value) return []
+  if (isDripRow(row)) return dripTierPriceRows(productByID(row.product_id), row)
   return wholesaleTierPriceRows(productByID(row.product_id), row)
 }
 
 function selectTier(row, tier) {
+  if (isDripRow(row)) {
+    row.manual_price = false
+    row.tier_id = tier.id || 'auto'
+    row.unit_price = String(tier.unitPrice || '')
+    return
+  }
   row.spec_mode = String(tier.specG || '')
   row.custom_spec_g = ''
   row.manual_price = false
   syncPrice(row, { force: true })
 }
 
+function isTierActive(row, tier) {
+  if (isDripRow(row)) return String(row.tier_id) === String(tier.id)
+  return String(row.spec_mode) === String(tier.specG) && String(row.tier_id) === String(tier.id)
+}
+
 function autoPriceLabel(row) {
+  if (isDripRow(row)) return row.sales_unit === 'box' ? '挂耳盒价' : '挂耳袋价'
   if (retailOrder.value) return '零售价'
   if (row.tier_id && row.tier_id !== 'auto' && row.tier_id !== 'manual') return `梯度 ${row.tier_id}`
   return '自动价'
 }
 
 function priceUnitLabel(row) {
+  if (isDripRow(row)) return row.sales_unit === 'box' ? '元/盒' : '元/袋'
   return wholesalePriceUnit(row).label
 }
 
@@ -770,20 +856,34 @@ function applyEditData(data) {
   rows.value = (data.items || []).map((item) => {
     const spec = String(item.spec || '').replace(/g$/i, '')
     const product = productByID(item.product_id)
+    const productKind = item.product_kind || product?.product_kind || 'roasted_bean'
+    const salesUnit = item.sales_unit || (item.unit === '盒' ? 'box' : 'bag')
+    const unitBagCount = salesUnit === 'box'
+      ? (toInt(item.unit_bag_count) || toInt(product?.drip_box_bag_count) || 10)
+      : 1
+    const specNumber = toNumber(spec)
+    const unitBeanG = toNumber(item.unit_bean_g)
+      || toNumber(product?.drip_bag_grams)
+      || (salesUnit === 'box' && unitBagCount > 0 ? specNumber / unitBagCount : specNumber)
+      || 10
     const retailSpecs = (product?.retail_specs || []).map(toInt)
-    const shouldUseCustomSpec = retailOrder.value && !retailSpecs.includes(toInt(spec))
+    const shouldUseCustomSpec = productKind !== 'drip_bag' && retailOrder.value && !retailSpecs.includes(toInt(spec))
     return {
       ...newRow(),
       product_id: Number(item.product_id || 0),
       product_name: item.product_name || '',
       product_query: item.product_name || '',
+      product_kind: productKind,
       tier_id: item.tier_id || 'auto',
       unit_price: item.unit_price || '',
       manual_price: item.tier_id === 'manual',
-      spec_mode: shouldUseCustomSpec ? CUSTOM_SPEC_VALUE : spec,
+      spec_mode: productKind === 'drip_bag' ? '' : (shouldUseCustomSpec ? CUSTOM_SPEC_VALUE : spec),
       custom_spec_g: shouldUseCustomSpec ? spec : '',
+      sales_unit: productKind === 'drip_bag' ? salesUnit : '',
+      unit_bag_count: productKind === 'drip_bag' ? unitBagCount : 0,
+      unit_bean_g: productKind === 'drip_bag' ? unitBeanG : '',
       qty: Number(item.qty || 1),
-      unit: item.unit || '件',
+      unit: productKind === 'drip_bag' ? (salesUnit === 'box' ? '盒' : '袋') : (item.unit || '件'),
       item_note: item.note || '',
       discount_type: item.discount_type || '',
       discount_value: item.discount_value || '',

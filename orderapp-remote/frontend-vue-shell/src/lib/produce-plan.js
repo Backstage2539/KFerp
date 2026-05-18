@@ -26,6 +26,18 @@ export function gramsToKgString(value, digits = 2) {
   return (grams / 1000).toFixed(digits)
 }
 
+export function describeProducePlanRow(row) {
+  if (!row || row.production_kind !== 'drip_bag') return []
+  const labels = ['挂耳生产']
+  const needBags = Number(row.need_bags || row.need_units || 0)
+  if (needBags > 0) labels.push(`需求 ${needBags} 袋`)
+  const componentShortage = Number(row.finished_product_component_shortage_g || row.upstream_shortage_g || 0)
+  if (componentShortage > 0) labels.push(`熟豆组件缺口 ${componentShortage}g`)
+  const upstreamDemand = Number(row.upstream_roast_demand_g || 0)
+  if (upstreamDemand > 0) labels.push(`上游烘焙需求 ${upstreamDemand}g`)
+  return labels
+}
+
 export function producePlanKey(productId, specG) {
   return `${productId}-${specG}`
 }

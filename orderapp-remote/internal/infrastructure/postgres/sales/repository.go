@@ -327,6 +327,200 @@ func wholesaleTierQuantityForSpec(specG int64, units int64) float64 {
 	return float64(units)
 }
 
+func normalizeOrderItemProductKind(kind string) string {
+	kind = strings.TrimSpace(kind)
+	if kind == "" {
+		return ""
+	}
+	if kind == "drip_bag" {
+		return "drip_bag"
+	}
+	return "roasted_bean"
+}
+
+func normalizeOrderItemSalesUnit(unit string) string {
+	unit = strings.TrimSpace(unit)
+	switch unit {
+	case "bag", "袋":
+		return "bag"
+	case "box", "盒":
+		return "box"
+	default:
+		return unit
+	}
+}
+
+func dripOrderItemLabel(salesUnit string, unitBagCount int64, unitBeanG float64) string {
+	switch normalizeOrderItemSalesUnit(salesUnit) {
+	case "box":
+		if unitBagCount > 0 {
+			return fmt.Sprintf("%d袋/盒", unitBagCount)
+		}
+	case "bag":
+		if unitBeanG > 0 {
+			return fmt.Sprintf("%s/袋", formatOrderDecimal(unitBeanG, "g"))
+		}
+	}
+	return ""
+}
+
+func formatOrderDecimal(v float64, suffix string) string {
+	if math.Abs(v-math.Round(v)) < 0.000001 {
+		return fmt.Sprintf("%.0f%s", v, suffix)
+	}
+	return fmt.Sprintf("%.3f%s", v, suffix)
+}
+
+func orderItemWeightG(productKind string, salesUnit string, unitBeanG float64, unitBagCount int64, specG int64, units int64) int64 {
+	if productKind == "drip_bag" {
+		bagsPerUnit := unitBagCount
+		if salesUnit != "box" || bagsPerUnit <= 0 {
+			bagsPerUnit = 1
+		}
+		return int64(math.Round(unitBeanG * float64(bagsPerUnit) * float64(units)))
+	}
+	return specG * units
+}
+
+type orderUnitPriceTierMeta struct {
+	ID              int64
+	ProductKind     string
+	SalesUnit       string
+	MinQty          float64
+	PricePerUnit    float64
+	UnitBagCount    float64
+	PriceSourceJSON string
+}
+
+func loadOrderProductUnitDefaultsTx(ctx context.Context, tx pgx.Tx, schema string, productID int64) (string, float64, int64) {
+	if productID <= 0 {
+		return "", 0, 0
+	}
+	var productKind string
+	var unitBeanG float64
+	var unitBagCount int64
+	q := fmt.Sprintf(`
+		SELECT
+			COALESCE(NULLIF(product_kind,''), 'roasted_bean'),
+			COALESCE(drip_bag_grams, 0)::float8,
+			COALESCE(drip_box_bag_count, 0)
+		FROM %s.products
+		WHERE id=$1
+	`, schema)
+	if err := tx.QueryRow(ctx, q, productID).Scan(&productKind, &unitBeanG, &unitBagCount); err != nil {
+		return "", 0, 0
+	}
+	return normalizeOrderItemProductKind(productKind), unitBeanG, unitBagCount
+}
+
+func loadOrderUnitPriceTiersTx(ctx context.Context, tx pgx.Tx, schema string, productID int64, productKind string, salesUnit string, qty float64, unitBagCount float64) ([]salesdomain.UnitPriceTier, []orderUnitPriceTierMeta, error) {
+	q := fmt.Sprintf(`
+		SELECT
+			id,
+			COALESCE(NULLIF(sales_unit,''), ''),
+			COALESCE(min_qty_units, 0)::float8,
+			max_qty_units::float8,
+			COALESCE(price_per_unit, 0)::float8,
+			COALESCE(unit_bag_count, 0)::float8,
+			COALESCE(price_source_json, '{}'::jsonb)::text
+		FROM %s.product_price_tiers
+		WHERE product_id=$1
+		  AND active=true
+		  AND COALESCE(NULLIF(product_kind,''), 'roasted_bean')=$2
+		  AND COALESCE(NULLIF(price_basis,''), 'unit')='unit'
+		  AND COALESCE(NULLIF(sales_unit,''), '') = ANY($3)
+		ORDER BY COALESCE(min_qty_units, 0) DESC, id DESC
+	`, schema)
+	units := []string{salesUnit}
+	if productKind == "drip_bag" && salesUnit == "box" {
+		units = []string{"bag", "box"}
+	}
+	rows, err := tx.Query(ctx, q, productID, productKind, units)
+	if err != nil {
+		return nil, nil, err
+	}
+	defer rows.Close()
+
+	tiers := make([]salesdomain.UnitPriceTier, 0)
+	metas := make([]orderUnitPriceTierMeta, 0)
+	for rows.Next() {
+		var id int64
+		var tierSalesUnit string
+		var minQty float64
+		var maxQty *float64
+		var pricePerUnit float64
+		var tierUnitBagCount float64
+		var priceSource string
+		if err := rows.Scan(&id, &tierSalesUnit, &minQty, &maxQty, &pricePerUnit, &tierUnitBagCount, &priceSource); err != nil {
+			return nil, nil, err
+		}
+		matchedQty := qty
+		if productKind == "drip_bag" && salesUnit == "box" && tierSalesUnit == "bag" {
+			matchedQty = qty * unitBagCount
+		}
+		if matchedQty < minQty {
+			continue
+		}
+		if maxQty != nil && matchedQty > *maxQty {
+			continue
+		}
+		if pricePerUnit <= 0 {
+			continue
+		}
+		tier := salesdomain.UnitPriceTier{
+			ProductKind:  productKind,
+			SalesUnit:    tierSalesUnit,
+			MinQty:       minQty,
+			PricePerUnit: pricePerUnit,
+			UnitBagCount: tierUnitBagCount,
+		}
+		tiers = append(tiers, tier)
+		metas = append(metas, orderUnitPriceTierMeta{
+			ID:              id,
+			ProductKind:     productKind,
+			SalesUnit:       tierSalesUnit,
+			MinQty:          minQty,
+			PricePerUnit:    pricePerUnit,
+			UnitBagCount:    tierUnitBagCount,
+			PriceSourceJSON: strings.TrimSpace(priceSource),
+		})
+	}
+	return tiers, metas, rows.Err()
+}
+
+func metaForMatchedUnitTier(result salesdomain.UnitLineResult, metas []orderUnitPriceTierMeta) orderUnitPriceTierMeta {
+	for _, meta := range metas {
+		if meta.ProductKind == result.Tier.ProductKind &&
+			meta.SalesUnit == result.Tier.SalesUnit &&
+			math.Abs(meta.MinQty-result.Tier.MinQty) < 0.000001 &&
+			math.Abs(meta.PricePerUnit-result.Tier.PricePerUnit) < 0.000001 &&
+			math.Abs(meta.UnitBagCount-result.Tier.UnitBagCount) < 0.000001 {
+			return meta
+		}
+	}
+	return orderUnitPriceTierMeta{}
+}
+
+func buildOrderPriceSourceJSON(raw string, meta orderUnitPriceTierMeta, result salesdomain.UnitLineResult, salesUnit string, unitBagCount int64) string {
+	source := map[string]any{}
+	if strings.TrimSpace(raw) != "" {
+		if err := json.Unmarshal([]byte(raw), &source); err != nil {
+			source["raw"] = raw
+		}
+	}
+	source["tier_id"] = meta.ID
+	source["product_kind"] = result.Tier.ProductKind
+	source["sales_unit"] = salesUnit
+	source["source_unit"] = result.Tier.SalesUnit
+	source["matched_price_qty"] = result.MatchedQtyForTier
+	source["unit_bag_count"] = unitBagCount
+	buf, err := json.Marshal(source)
+	if err != nil {
+		return "{}"
+	}
+	return string(buf)
+}
+
 func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand) (salesapp.SaveOrderResult, error) {
 	od := cmd.OrderDate
 	if od.IsZero() {
@@ -337,22 +531,28 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 	}
 
 	type item struct {
-		productID      *int64
-		tierID         *int64
-		manualPrice    *float64
-		discountType   string
-		discountValue  float64
-		discountAmount float64
-		baseLineTotal  float64
-		name           string
-		note           string
-		units          int64
-		specG          int64
-		unit           *string
-		spec           *string
-		unitPrice      float64
-		lineTotal      float64
-		priceOverride  bool
+		productID       *int64
+		tierID          *int64
+		manualPrice     *float64
+		discountType    string
+		discountValue   float64
+		discountAmount  float64
+		baseLineTotal   float64
+		name            string
+		note            string
+		units           int64
+		specG           int64
+		unit            *string
+		spec            *string
+		unitPrice       float64
+		lineTotal       float64
+		priceOverride   bool
+		productKind     string
+		salesUnit       string
+		unitBagCount    int64
+		unitBeanG       float64
+		matchedPriceQty float64
+		priceSourceJSON string
 	}
 	items := make([]item, 0, len(cmd.Items))
 	for _, src := range cmd.Items {
@@ -370,16 +570,44 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 			note:          strings.TrimSpace(src.Note),
 			units:         src.Units,
 			specG:         src.SpecG,
+			productKind:   normalizeOrderItemProductKind(src.ProductKind),
+			salesUnit:     normalizeOrderItemSalesUnit(src.SalesUnit),
+			unitBagCount:  src.UnitBagCount,
+			unitBeanG:     src.UnitBeanG,
+		}
+		if it.productKind == "drip_bag" {
+			if it.unitBeanG <= 0 && it.specG > 0 {
+				it.unitBeanG = float64(it.specG)
+			}
+			if it.specG <= 0 && it.unitBeanG > 0 {
+				it.specG = int64(math.Round(it.unitBeanG))
+			}
+			if it.unitBagCount <= 0 {
+				it.unitBagCount = 1
+			}
 		}
 		if it.manualPrice != nil {
 			it.priceOverride = true
 		}
-		if src.SpecG > 0 {
+		if it.productKind == "drip_bag" {
+			spec := dripOrderItemLabel(it.salesUnit, it.unitBagCount, it.unitBeanG)
+			it.spec = &spec
+		} else if src.SpecG > 0 {
 			spec := fmt.Sprintf("%dg", src.SpecG)
 			it.spec = &spec
 		}
 		if unit := strings.TrimSpace(src.Unit); unit != "" {
 			it.unit = &unit
+			if it.productKind == "drip_bag" && it.salesUnit == "" {
+				it.salesUnit = normalizeOrderItemSalesUnit(unit)
+			}
+		}
+		if it.productKind == "drip_bag" && it.salesUnit == "" {
+			it.salesUnit = "bag"
+		}
+		if it.productKind == "drip_bag" {
+			spec := dripOrderItemLabel(it.salesUnit, it.unitBagCount, it.unitBeanG)
+			it.spec = &spec
 		}
 		items = append(items, it)
 	}
@@ -393,6 +621,37 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 	}
 	if !valid {
 		return salesapp.SaveOrderResult{}, fmt.Errorf("at least one item required")
+	}
+	orderSaveDripAuditSummary := func() string {
+		dripItems := make([]map[string]any, 0)
+		for _, it := range items {
+			if it.productKind != "drip_bag" {
+				continue
+			}
+			itemSummary := map[string]any{
+				"product_kind":      it.productKind,
+				"sales_unit":        it.salesUnit,
+				"qty":               it.units,
+				"unit_bag_count":    it.unitBagCount,
+				"unit_bean_g":       it.unitBeanG,
+				"matched_price_qty": it.matchedPriceQty,
+				"unit_price":        it.unitPrice,
+				"line_total":        it.lineTotal,
+			}
+			var source map[string]any
+			if err := json.Unmarshal([]byte(strings.TrimSpace(it.priceSourceJSON)), &source); err == nil && len(source) > 0 {
+				itemSummary["price_source"] = source
+			}
+			dripItems = append(dripItems, itemSummary)
+		}
+		if len(dripItems) == 0 {
+			return ""
+		}
+		buf, err := json.Marshal(map[string]any{"drip_items": dripItems})
+		if err != nil {
+			return ""
+		}
+		return string(buf)
 	}
 
 	conn, err := r.pool.Acquire(ctx)
@@ -426,13 +685,46 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 	itemDiscountAmt := 0.0
 	orderWeightG := int64(0)
 	for idx := range items {
-		itemWeightG := items[idx].specG * items[idx].units
+		if items[idx].productID != nil {
+			productKind, unitBeanG, unitBagCount := loadOrderProductUnitDefaultsTx(ctx, tx, r.schema, *items[idx].productID)
+			if items[idx].productKind == "" && productKind != "" {
+				items[idx].productKind = productKind
+			}
+			if items[idx].productKind == "drip_bag" {
+				if items[idx].unitBeanG <= 0 {
+					items[idx].unitBeanG = unitBeanG
+				}
+				if items[idx].unitBagCount <= 0 {
+					items[idx].unitBagCount = unitBagCount
+				}
+				if items[idx].unitBagCount <= 0 {
+					items[idx].unitBagCount = 1
+				}
+				if items[idx].salesUnit == "" {
+					items[idx].salesUnit = "bag"
+				}
+				if items[idx].specG <= 0 && items[idx].unitBeanG > 0 {
+					items[idx].specG = int64(math.Round(items[idx].unitBeanG))
+				}
+				spec := dripOrderItemLabel(items[idx].salesUnit, items[idx].unitBagCount, items[idx].unitBeanG)
+				items[idx].spec = &spec
+			}
+		}
+		if items[idx].productKind == "" {
+			items[idx].productKind = "roasted_bean"
+		}
+		itemWeightG := orderItemWeightG(items[idx].productKind, items[idx].salesUnit, items[idx].unitBeanG, items[idx].unitBagCount, items[idx].specG, items[idx].units)
 		orderWeightG += itemWeightG
 		totalG := float64(itemWeightG)
 		qtyLb := totalG / 454.0
 
 		if items[idx].manualPrice != nil {
 			lineTotal := wholesaleLineTotalFromDisplayUnit(*items[idx].manualPrice, items[idx].specG, items[idx].units)
+			if items[idx].productKind == "drip_bag" {
+				lineTotal = *items[idx].manualPrice * float64(items[idx].units)
+				items[idx].matchedPriceQty = float64(items[idx].units)
+				items[idx].priceSourceJSON = `{"source":"manual"}`
+			}
 			if retailOrder {
 				lineTotal = *items[idx].manualPrice * float64(items[idx].units)
 			}
@@ -443,6 +735,31 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 			totalAmt += items[idx].baseLineTotal
 			itemDiscountAmt += items[idx].discountAmount
 			continue
+		} else if items[idx].productKind == "drip_bag" && items[idx].productID != nil {
+			tiers, metas, err := loadOrderUnitPriceTiersTx(ctx, tx, r.schema, *items[idx].productID, items[idx].productKind, items[idx].salesUnit, float64(items[idx].units), float64(items[idx].unitBagCount))
+			if err != nil {
+				return salesapp.SaveOrderResult{}, err
+			}
+			result, err := salesdomain.CalculateUnitLineTotal(salesdomain.UnitLineInput{
+				ProductKind:  items[idx].productKind,
+				SalesUnit:    items[idx].salesUnit,
+				Quantity:     float64(items[idx].units),
+				UnitBagCount: float64(items[idx].unitBagCount),
+				Tiers:        tiers,
+			})
+			if err != nil {
+				return salesapp.SaveOrderResult{}, err
+			}
+			meta := metaForMatchedUnitTier(result, metas)
+			if meta.ID > 0 {
+				tid := meta.ID
+				items[idx].tierID = &tid
+			}
+			items[idx].unitPrice = result.UnitPrice
+			items[idx].baseLineTotal = result.LineTotal
+			items[idx].lineTotal = result.LineTotal
+			items[idx].matchedPriceQty = result.MatchedQtyForTier
+			items[idx].priceSourceJSON = buildOrderPriceSourceJSON(meta.PriceSourceJSON, meta, result, items[idx].salesUnit, items[idx].unitBagCount)
 		} else if retailOrder && items[idx].productID != nil {
 			retailPrices := salesdomain.RetailSpecPrices{}
 			q := fmt.Sprintf(`SELECT
@@ -639,8 +956,8 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 	editID := cmd.EditID
 	portalServiceCode, sourceWarehouse := r.orderFulfillmentMarkersTx(ctx, tx, cmd.CustomerID)
 
-	insertItemSQL := fmt.Sprintf(`INSERT INTO %s.order_items(order_id,line_no,product_id,price_tier_id,price_overridden,item_name,item_note,qty,unit,spec,unit_price,line_total_before_discount,discount_type,discount_value,discount_amount,line_total)
-				VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)`, r.schema)
+	insertItemSQL := fmt.Sprintf(`INSERT INTO %s.order_items(order_id,line_no,product_id,price_tier_id,price_overridden,item_name,item_note,qty,unit,spec,unit_price,line_total_before_discount,discount_type,discount_value,discount_amount,line_total,product_kind,sales_unit,unit_bag_count,unit_bean_g,matched_price_qty,price_source_json)
+				VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22::jsonb)`, r.schema)
 
 	var orderID int64
 	if editID > 0 {
@@ -794,7 +1111,11 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 		if it.units > 0 {
 			qtyAny = it.units
 		}
-		if _, err := tx.Exec(ctx, insertItemSQL, orderID, idx+1, it.productID, it.tierID, it.priceOverride, it.name, it.note, qtyAny, it.unit, it.spec, it.unitPrice, it.baseLineTotal, it.discountType, it.discountValue, it.discountAmount, it.lineTotal); err != nil {
+		priceSourceJSON := strings.TrimSpace(it.priceSourceJSON)
+		if priceSourceJSON == "" {
+			priceSourceJSON = "{}"
+		}
+		if _, err := tx.Exec(ctx, insertItemSQL, orderID, idx+1, it.productID, it.tierID, it.priceOverride, it.name, it.note, qtyAny, it.unit, it.spec, it.unitPrice, it.baseLineTotal, it.discountType, it.discountValue, it.discountAmount, it.lineTotal, it.productKind, it.salesUnit, it.unitBagCount, it.unitBeanG, it.matchedPriceQty, priceSourceJSON); err != nil {
 			return salesapp.SaveOrderResult{}, err
 		}
 	}
@@ -809,7 +1130,7 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 			ProductName: it.name,
 			SpecG:       it.specG,
 			Units:       it.units,
-			NeedG:       it.specG * it.units,
+			NeedG:       orderItemWeightG(it.productKind, it.salesUnit, it.unitBeanG, it.unitBagCount, it.specG, it.units),
 		})
 	}
 	stockDecision := strings.TrimSpace(cmd.StockBatchDecision)
@@ -821,7 +1142,7 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 		return salesapp.SaveOrderResult{}, err
 	}
 
-	r.logOrderSave(ctx, cmd.Actor, orderID, orderNo, editID > 0)
+	r.logOrderSave(ctx, cmd.Actor, orderID, orderNo, editID > 0, orderSaveDripAuditSummary())
 
 	return salesapp.SaveOrderResult{OrderID: orderID, OrderNo: orderNo, Edited: editID > 0, StockBatchUsed: stockDecision == "use_batch"}, nil
 
@@ -880,7 +1201,7 @@ func (r Repository) VoidMany(ctx context.Context, ids []int64, actor, reason str
 	return len(updatedIDs), nil
 }
 
-func (r Repository) logOrderSave(ctx context.Context, actor string, orderID int64, orderNo string, edited bool) {
+func (r Repository) logOrderSave(ctx context.Context, actor string, orderID int64, orderNo string, edited bool, extraNewValue string) {
 	action := "create"
 	field := "created"
 	newValue := orderNo
@@ -888,6 +1209,9 @@ func (r Repository) logOrderSave(ctx context.Context, actor string, orderID int6
 		action = "update"
 		field = "order"
 		newValue = "updated"
+	}
+	if strings.TrimSpace(extraNewValue) != "" {
+		newValue = strings.TrimSpace(newValue + " " + extraNewValue)
 	}
 	r.insertOrderAudit(ctx, actor, orderID, field, nil, postgresinfra.StrPtr(newValue))
 	postgresinfra.AuditInsert(ctx, r.pool, r.schema, actor, "order", &orderID, action, postgresinfra.StrPtr(field), nil, postgresinfra.StrPtr(newValue), postgresinfra.AuditMeta{"order_id": orderID, "order_no": orderNo})
