@@ -235,7 +235,7 @@ func TestProductSettingsAPIManagesGradientTemplatesAndCategoryBinding(t *testing
 	e := echo.New()
 	registerProductRoutes(e, catalogapp.NewService(repo))
 
-	body := `{"name":"工厂量单模板","display_unit":"kg","tiers":[{"label":"24-49kg","min_weight_g":24000,"max_weight_g":49000,"margin_rate":0.175,"position":1},{"label":"50kg+","min_weight_g":50000,"margin_rate":0.12,"position":2}]}`
+	body := `{"name":"工厂量单模板","display_unit":"g227","tiers":[{"label":"2-7份","min_display_qty":2,"max_display_qty":7,"margin_rate":0.175,"position":1},{"label":"8份+","min_display_qty":8,"margin_rate":0.12,"position":2}]}`
 	req := httptest.NewRequest(http.MethodPost, "/api/pricing-gradient-templates", bytes.NewBufferString(body))
 	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
 	rec := httptest.NewRecorder()
@@ -243,10 +243,10 @@ func TestProductSettingsAPIManagesGradientTemplatesAndCategoryBinding(t *testing
 	if rec.Code != http.StatusOK {
 		t.Fatalf("POST template status=%d body=%s", rec.Code, rec.Body.String())
 	}
-	if !repo.templateSaved || repo.savedTemplate.Name != "工厂量单模板" || repo.savedTemplate.DisplayUnit != "kg" || len(repo.savedTemplate.Tiers) != 2 {
+	if !repo.templateSaved || repo.savedTemplate.Name != "工厂量单模板" || repo.savedTemplate.DisplayUnit != "g227" || len(repo.savedTemplate.Tiers) != 2 {
 		t.Fatalf("template command = %+v saved=%v", repo.savedTemplate, repo.templateSaved)
 	}
-	if repo.savedTemplate.Tiers[0].MinWeightG != 24000 || repo.savedTemplate.Tiers[0].MarginRate != 0.175 {
+	if repo.savedTemplate.Tiers[0].MinWeightG != 454 || repo.savedTemplate.Tiers[0].MaxWeightG == nil || *repo.savedTemplate.Tiers[0].MaxWeightG != 1589 || repo.savedTemplate.Tiers[0].MarginRate != 0.175 {
 		t.Fatalf("template tiers = %+v", repo.savedTemplate.Tiers)
 	}
 

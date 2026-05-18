@@ -12,8 +12,11 @@ const (
 	WholesaleTierSchemeKgThree  = "kg_three"
 	WholesaleTierScheme227GTwo  = "bag_227_two"
 
-	GradientDisplayUnitLb = "lb"
-	GradientDisplayUnitKg = "kg"
+	GradientDisplayUnitLb   = "lb"
+	GradientDisplayUnitKg   = "kg"
+	GradientDisplayUnit227G = "g227"
+	GradientDisplayUnit100G = "g100"
+	GradientDisplayUnit250G = "g250"
 )
 
 type Parameters struct {
@@ -530,9 +533,12 @@ func commercialPriceForGradientTier(params Parameters, in ProductInput, displayU
 	rawLb := rawKg*params.KgToLbFactor + 1
 	finalKg := roundPrice(rawKg)
 	finalLb := roundPrice(rawLb)
+	normalizedDisplayUnit := normalizeGradientDisplayUnit(displayUnit)
 	finalUnit := finalLb
-	if normalizeGradientDisplayUnit(displayUnit) == GradientDisplayUnitKg {
+	if normalizedDisplayUnit == GradientDisplayUnitKg {
 		finalUnit = finalKg
+	} else if normalizedDisplayUnit != GradientDisplayUnitLb {
+		finalUnit = roundPrice(rawKg * float64(specGForGradientDisplayUnit(normalizedDisplayUnit)) / 1000.0)
 	}
 	return commercialPriceParts{
 		RoastedCostPerKg:    roasted,
@@ -546,7 +552,7 @@ func commercialPriceForGradientTier(params Parameters, in ProductInput, displayU
 		FinalPricePerKg:     finalKg,
 		FinalPricePerLb:     finalLb,
 		FinalPricePerUnit:   finalUnit,
-		DisplayUnit:         normalizeGradientDisplayUnit(displayUnit),
+		DisplayUnit:         normalizedDisplayUnit,
 	}
 }
 
@@ -601,7 +607,7 @@ func ExplainCommercialPrice(params Parameters, in ProductInput, req PriceExplana
 			{Key: "product_loss_per_kg", Label: "产品损耗", Source: "cost_parameter", Value: params.ProductLossPerKg, Unit: "元/kg"},
 			{Key: "retail_tax_rate", Label: "税费比例", Source: "cost_parameter", Value: params.RetailTaxRate, Unit: "ratio"},
 			{Key: "template_margin_rate", Label: "模板利润率", Source: "gradient_template", Value: preview.MarginRate, Unit: "ratio", Changed: req.Overrides.MarginRate != nil},
-			{Key: "display_unit_conversion", Label: "展示单位换算", Source: "cost_parameter", Value: params.KgToLbFactor, Unit: template.DisplayUnit},
+			{Key: "display_unit_conversion", Label: "展示单位克重", Source: "gradient_template", Value: float64(specGForGradientDisplayUnit(template.DisplayUnit)), Unit: "g"},
 			{Key: "final_price", Label: "最终价格", Source: "formula", Value: preview.FinalPricePerUnit, Unit: template.DisplayUnit, Changed: preview.FinalPricePerUnit != saved.FinalPricePerUnit},
 		},
 	}, nil
@@ -649,16 +655,32 @@ func normalizeGradientDisplayUnit(unit string) string {
 	switch strings.TrimSpace(unit) {
 	case GradientDisplayUnitKg:
 		return GradientDisplayUnitKg
+	case GradientDisplayUnit227G:
+		return GradientDisplayUnit227G
+	case GradientDisplayUnit100G:
+		return GradientDisplayUnit100G
+	case GradientDisplayUnit250G:
+		return GradientDisplayUnit250G
+	case GradientDisplayUnitLb:
+		return GradientDisplayUnitLb
 	default:
 		return GradientDisplayUnitLb
 	}
 }
 
 func specGForGradientDisplayUnit(unit string) int {
-	if normalizeGradientDisplayUnit(unit) == GradientDisplayUnitKg {
+	switch normalizeGradientDisplayUnit(unit) {
+	case GradientDisplayUnitKg:
 		return 1000
+	case GradientDisplayUnit227G:
+		return 227
+	case GradientDisplayUnit100G:
+		return 100
+	case GradientDisplayUnit250G:
+		return 250
+	default:
+		return 454
 	}
-	return 454
 }
 
 func roundQuantity(v float64) float64 {

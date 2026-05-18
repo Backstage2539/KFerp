@@ -859,9 +859,12 @@ function tierPriceValue(tier) {
 }
 
 function tierUnit(tier) {
+  if (tier?.display_unit) return gradientDisplayUnitLabel(tier.display_unit).replace('元/', '')
   const specG = Number(tier?.spec_g || 454)
   if (specG === 1000) return 'kg'
   if (specG === 227) return '227g'
+  if (specG === 250) return '250g'
+  if (specG === 100) return '100g'
   return '包'
 }
 

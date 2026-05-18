@@ -2,7 +2,10 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 
 import {
+  buildGradientTemplatePayload,
   buildPriceExplanationRequest,
+  gradientDisplayQuantityUnitLabel,
+  gradientDisplayUnitSpecG,
   gradientDisplayUnitLabel,
   normalizeGradientTemplate,
   validateGradientTemplate,
@@ -30,14 +33,44 @@ test('validateGradientTemplate rejects missing gram ranges and mixed invalid val
   assert.deepEqual(validateGradientTemplate({
     name: '',
     display_unit: 'kg',
-    tiers: [{ label: '', min_weight_g: 0, max_weight_g: -1, margin_rate: -1 }],
+    tiers: [{ label: '', min_display_qty: 0, max_display_qty: -1, margin_rate: -1 }],
   }), [
     '请填写模板名称',
     '第 1 档请填写区间名',
-    '第 1 档最小总克重必须大于 0',
-    '第 1 档最大总克重必须大于最小总克重',
+    '第 1 档最小数量必须大于 0',
+    '第 1 档最大数量必须大于最小数量',
     '第 1 档利润率不能为负数',
   ])
+})
+
+test('buildGradientTemplatePayload converts display quantities to backend gram ranges', () => {
+  const got = buildGradientTemplatePayload({
+    name: '小包装模板',
+    display_unit: 'g227',
+    tiers: [
+      { label: '2-7份', min_display_qty: '2', max_display_qty: '7', margin_rate: '0.3', position: 1 },
+      { label: '8份+', min_display_qty: '8', max_display_qty: '', margin_rate: '0.2', position: 2 },
+    ],
+  })
+
+  assert.equal(got.display_unit, 'g227')
+  assert.equal(got.tiers[0].min_weight_g, 454)
+  assert.equal(got.tiers[0].max_weight_g, 1589)
+  assert.equal(got.tiers[1].min_weight_g, 1816)
+  assert.equal(got.tiers[1].max_weight_g, null)
+})
+
+test('normalizeGradientTemplate exposes stored grams in the selected display unit', () => {
+  const got = normalizeGradientTemplate({
+    display_unit: 'g250',
+    tiers: [{ label: '2-4份', min_weight_g: 500, max_weight_g: 1000, margin_rate: 0.2 }],
+  })
+
+  assert.equal(gradientDisplayUnitSpecG('g250'), 250)
+  assert.equal(gradientDisplayUnitLabel('g250'), '元/250g')
+  assert.equal(gradientDisplayQuantityUnitLabel('g250'), '250g')
+  assert.equal(got.tiers[0].min_display_qty, 2)
+  assert.equal(got.tiers[0].max_display_qty, 4)
 })
 
 test('buildPriceExplanationRequest creates a temporary what-if payload without saving settings', () => {
@@ -58,5 +91,8 @@ test('buildPriceExplanationRequest creates a temporary what-if payload without s
 test('gradientDisplayUnitLabel returns operator-facing unit text', () => {
   assert.equal(gradientDisplayUnitLabel('kg'), '元/kg')
   assert.equal(gradientDisplayUnitLabel('lb'), '元/磅')
+  assert.equal(gradientDisplayUnitLabel('g227'), '元/227g')
+  assert.equal(gradientDisplayUnitLabel('g100'), '元/100g')
+  assert.equal(gradientDisplayUnitLabel('g250'), '元/250g')
   assert.equal(gradientDisplayUnitLabel('bad'), '元/磅')
 })
