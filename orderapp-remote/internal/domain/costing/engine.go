@@ -383,6 +383,8 @@ func CalculateProduct(params Parameters, in ProductInput) ProductResult {
 	dripDisplay := BeanListDisplay{}
 	if in.ProductKind == "drip_bag" {
 		dripDisplay = commercialDisplay
+		commercialDisplay = BeanListDisplay{}
+		retailDisplay = BeanListDisplay{}
 	}
 	if in.CustomerID > 0 {
 		if commercialDisplay.Code != "" {

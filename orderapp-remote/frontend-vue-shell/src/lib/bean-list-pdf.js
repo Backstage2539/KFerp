@@ -104,21 +104,73 @@ function buildPdfItem(item, metaKey, tierKey, listType, code, customizers) {
     badge,
     badgeLabel: badgeLabel(badge),
     highlightTerms,
-    prices: (Array.isArray(item[tierKey]) ? item[tierKey] : []).map((tier) => {
-      const label = tier.label || ''
-      return {
-        label,
-        price: Number(tier.price_per_unit || tier.price_per_lb || 0),
-        unit: listType === 'retail' ? '' : listType === 'drip' ? dripPriceUnit(tier) : priceUnit(tier),
-        red: false,
-      }
-    })
+    prices: pdfPriceRows(item, tierKey, listType)
   }
 }
 
+function pdfPriceRows(item, tierKey, listType) {
+  const tiers = Array.isArray(item[tierKey]) ? item[tierKey] : []
+  if (listType === 'drip') {
+    return tiers.flatMap((tier) => dripPdfPriceRows(tier, item))
+  }
+  return tiers.map((tier) => {
+    const label = tier.label || ''
+    return {
+      label,
+      price: firstNumber(tier.price_per_unit, tier.price_per_lb, 0),
+      unit: listType === 'retail' ? '' : priceUnit(tier),
+      red: false,
+    }
+  })
+}
+
+function dripPdfPriceRows(tier = {}, item = {}) {
+  if (tier.sales_unit === 'box') {
+    return [{
+      label: tier.label || '',
+      price: firstNumber(tier.price_per_unit, tier.packed_price_per_box, 0),
+      unit: dripPriceUnit(tier),
+      red: false,
+    }]
+  }
+  const boxBagCount = positiveInteger(tier.unit_bag_count, tier.box_bag_count, item.drip_box_bag_count, 10)
+  const bagPrice = firstNumber(tier.price_per_unit, tier.packed_price_per_bag, tier.price_per_lb, 0)
+  const rows = [{
+    label: tier.label || '',
+    price: bagPrice,
+    unit: '袋',
+    red: false,
+  }]
+  if (boxBagCount > 1) {
+    rows.push({
+      label: tier.label || '',
+      price: firstNumber(tier.packed_price_per_box, bagPrice * boxBagCount),
+      unit: `盒(${boxBagCount}袋)`,
+      red: false,
+    })
+  }
+  return rows
+}
+
 function dripPriceUnit(tier = {}) {
-  if (tier.sales_unit === 'box') return `盒(${Number(tier.unit_bag_count || 10)}袋)`
+  if (tier.sales_unit === 'box') return `盒(${positiveInteger(tier.unit_bag_count, tier.box_bag_count, 10)}袋)`
   return '袋'
+}
+
+function firstNumber(...values) {
+  for (const value of values) {
+    const n = Number(value)
+    if (Number.isFinite(n)) return n
+  }
+  return 0
+}
+
+function positiveInteger(...values) {
+  for (const value of values) {
+    const n = Number.parseInt(String(value ?? ''), 10)
+    if (Number.isFinite(n) && n > 0) return n
+  }
+  return 10
 }
 
 export function compareBeanCodes(a, b) {

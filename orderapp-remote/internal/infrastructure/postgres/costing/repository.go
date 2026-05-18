@@ -48,17 +48,38 @@ func (r Repository) LoadParameters(ctx context.Context) (domain.Parameters, erro
 
 func (r Repository) LoadProductInputs(ctx context.Context, params domain.Parameters) ([]domain.ProductInput, error) {
 	q := fmt.Sprintf(`
-		WITH material_valuation AS (
-			SELECT l.material_id,
-			       SUM(l.qty_g::numeric * COALESCE(b.unit_cost,0)) / NULLIF(SUM(l.qty_g),0) AS weighted_unit_cost
+			WITH material_valuation AS (
+				SELECT l.material_id,
+				       SUM(l.qty_g::numeric * COALESCE(b.unit_cost,0)) / NULLIF(SUM(l.qty_g),0) AS weighted_unit_cost
 			FROM %s.material_batch_locations l
 			JOIN %s.material_batches b ON b.id = l.material_batch_id
 			WHERE l.qty_g > 0
 			  AND b.status='active'
-			  AND COALESCE(b.quality_status,'unchecked') NOT IN ('hold','reject')
-			GROUP BY l.material_id
-		)
-		SELECT p.id,
+				  AND COALESCE(b.quality_status,'unchecked') NOT IN ('hold','reject')
+				GROUP BY l.material_id
+			),
+			finished_product_cost AS (
+				SELECT p.id AS product_id,
+				       COALESCE(SUM(COALESCE(mv.weighted_unit_cost, m.purchase_price, 0) * COALESCE(bi.ratio_pct,0) / 100.0),0) AS green_cost_per_kg
+				FROM %s.products p
+				LEFT JOIN %s.product_bom_items bi ON bi.product_id = p.id
+					AND COALESCE(NULLIF(bi.component_type,''),'material') = 'material'
+					AND COALESCE(NULLIF(bi.consume_unit,''),'ratio_pct') = 'ratio_pct'
+				LEFT JOIN %s.materials m ON m.id = bi.material_id
+				LEFT JOIN material_valuation mv ON mv.material_id = m.id
+				WHERE p.active = true
+				GROUP BY p.id
+			),
+			finished_component_cost AS (
+				SELECT bi.product_id,
+				       SUM(COALESCE(fpc.green_cost_per_kg,0) * COALESCE(NULLIF(bi.qty_per_unit,0), NULLIF(bi.component_spec_g,0), 1))
+				       / NULLIF(SUM(COALESCE(NULLIF(bi.qty_per_unit,0), NULLIF(bi.component_spec_g,0), 1)),0) AS finished_green_cost_per_kg
+				FROM %s.product_bom_items bi
+				JOIN finished_product_cost fpc ON fpc.product_id = bi.component_product_id
+				WHERE COALESCE(NULLIF(bi.component_type,''),'material') = 'finished_product'
+				GROUP BY bi.product_id
+			)
+			SELECT p.id,
 		       p.name,
 		       COALESCE(base_p.name, p.name),
 		       COALESCE(p.roast_level, ''),
@@ -70,10 +91,14 @@ func (r Repository) LoadProductInputs(ctx context.Context, params domain.Paramet
 		       COALESCE(p.drip_bag_grams, 10)::float8,
 		       COALESCE(p.drip_box_bag_count, 10),
 		       COALESCE(p.product_category_id, 0),
-		       COALESCE(pc.gradient_template_id, 0),
-		       p.margin_rate_override::float8,
-		       COALESCE(NULLIF(b.yield_rate,0), $1),
-		       COALESCE(SUM(COALESCE(mv.weighted_unit_cost, m.purchase_price, 0) * COALESCE(bi.ratio_pct,0) / 100.0),0),
+			       COALESCE(pc.gradient_template_id, 0),
+			       p.margin_rate_override::float8,
+			       COALESCE(NULLIF(b.yield_rate,0), $1),
+			       CASE
+			           WHEN COALESCE(NULLIF(p.product_kind,''), 'roasted_bean') = 'drip_bag' AND COALESCE(fcc.finished_green_cost_per_kg,0) > 0
+			           THEN COALESCE(fcc.finished_green_cost_per_kg,0)
+			           ELSE COALESCE(SUM(COALESCE(mv.weighted_unit_cost, m.purchase_price, 0) * COALESCE(bi.ratio_pct,0) / 100.0),0)
+			       END,
 		       COALESCE(string_agg(DISTINCT NULLIF(bp.flavor, ''), ' / ') FILTER (WHERE NULLIF(bp.flavor, '') IS NOT NULL), ''),
 		       COALESCE(string_agg(DISTINCT NULLIF(bp.origin, ''), ' / ') FILTER (WHERE NULLIF(bp.origin, '') IS NOT NULL), ''),
 		       COALESCE(string_agg(DISTINCT NULLIF(bp.processing_station, ''), ' / ') FILTER (WHERE NULLIF(bp.processing_station, '') IS NOT NULL), ''),
@@ -89,12 +114,13 @@ func (r Repository) LoadProductInputs(ctx context.Context, params domain.Paramet
 		LEFT JOIN %s.materials m ON m.id = bi.material_id
 		LEFT JOIN material_valuation mv ON mv.material_id = m.id
 		LEFT JOIN %s.material_bean_profiles bp ON bp.material_id = m.id
-		LEFT JOIN %s.products base_p ON base_p.id = p.base_product_id
-		LEFT JOIN %s.product_categories pc ON pc.id = p.product_category_id AND pc.active=true
-		WHERE p.active = true
-		GROUP BY p.id, p.name, base_p.name, p.roast_level, p.customer_id, p.base_product_id, p.visibility, p.custom_type, p.product_kind, p.drip_bag_grams, p.drip_box_bag_count, p.product_category_id, pc.gradient_template_id, p.margin_rate_override, b.yield_rate, b.status, b.product_id
-		ORDER BY p.name
-	`, r.schema, r.schema, r.schema, r.schema, r.schema, r.schema, r.schema, r.schema, r.schema)
+			LEFT JOIN %s.products base_p ON base_p.id = p.base_product_id
+			LEFT JOIN %s.product_categories pc ON pc.id = p.product_category_id AND pc.active=true
+			LEFT JOIN finished_component_cost fcc ON fcc.product_id = p.id
+			WHERE p.active = true
+			GROUP BY p.id, p.name, base_p.name, p.roast_level, p.customer_id, p.base_product_id, p.visibility, p.custom_type, p.product_kind, p.drip_bag_grams, p.drip_box_bag_count, p.product_category_id, pc.gradient_template_id, p.margin_rate_override, b.yield_rate, b.status, b.product_id, fcc.finished_green_cost_per_kg
+			ORDER BY p.name
+		`, r.schema, r.schema, r.schema, r.schema, r.schema, r.schema, r.schema, r.schema, r.schema, r.schema, r.schema, r.schema, r.schema)
 	rows, err := r.pool.Query(ctx, q, params.RoastYieldRate)
 	if err != nil {
 		return nil, err
@@ -349,18 +375,42 @@ func (r Repository) SaveDripPriceTemplate(ctx context.Context, cmd appcosting.Sa
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
-	active := cmd.Active
+	active := true
+	includePackaging := true
 	if cmd.ID == 0 {
 		active = true
+		if cmd.Active != nil {
+			active = *cmd.Active
+		}
+		if cmd.IncludePackaging != nil {
+			includePackaging = *cmd.IncludePackaging
+		}
 	}
 	var id int64
 	if cmd.ID > 0 {
+		if err := tx.QueryRow(ctx, fmt.Sprintf(`
+			SELECT active, include_packaging
+			FROM %s.drip_price_templates
+			WHERE id=$1
+			FOR UPDATE
+		`, r.schema), cmd.ID).Scan(&active, &includePackaging); err != nil {
+			if err == pgx.ErrNoRows {
+				return nil, fmt.Errorf("template not found")
+			}
+			return nil, err
+		}
+		if cmd.Active != nil {
+			active = *cmd.Active
+		}
+		if cmd.IncludePackaging != nil {
+			includePackaging = *cmd.IncludePackaging
+		}
 		if err := tx.QueryRow(ctx, fmt.Sprintf(`
 			UPDATE %s.drip_price_templates
 			SET name=$2, active=$3, bag_grams=$4, box_bag_count=$5, include_packaging=$6, updated_at=now()
 			WHERE id=$1
 			RETURNING id
-		`, r.schema), cmd.ID, cmd.Name, active, cmd.BagGrams, cmd.BoxBagCount, cmd.IncludePackaging).Scan(&id); err != nil {
+		`, r.schema), cmd.ID, cmd.Name, active, cmd.BagGrams, cmd.BoxBagCount, includePackaging).Scan(&id); err != nil {
 			if err == pgx.ErrNoRows {
 				return nil, fmt.Errorf("template not found")
 			}
@@ -374,7 +424,7 @@ func (r Repository) SaveDripPriceTemplate(ctx context.Context, cmd appcosting.Sa
 			INSERT INTO %s.drip_price_templates(name, active, bag_grams, box_bag_count, include_packaging)
 			VALUES($1,$2,$3,$4,$5)
 			RETURNING id
-		`, r.schema), cmd.Name, active, cmd.BagGrams, cmd.BoxBagCount, cmd.IncludePackaging).Scan(&id); err != nil {
+		`, r.schema), cmd.Name, active, cmd.BagGrams, cmd.BoxBagCount, includePackaging).Scan(&id); err != nil {
 			return nil, err
 		}
 	}
@@ -399,7 +449,7 @@ func (r Repository) SaveDripPriceTemplate(ctx context.Context, cmd appcosting.Sa
 		"template_id":       id,
 		"bag_grams":         cmd.BagGrams,
 		"box_bag_count":     cmd.BoxBagCount,
-		"include_packaging": cmd.IncludePackaging,
+		"include_packaging": includePackaging,
 		"tier_count":        len(cmd.Tiers),
 	}); err != nil {
 		return nil, err
@@ -830,12 +880,8 @@ func (r Repository) PublishRun(ctx context.Context, actor string, runID int64) e
 				if _, err := tx.Exec(ctx, insertDripTier, item.ProductID, int64(math.Round(bagGrams)), tier.MinBags, tier.MaxBags, tier.PackedPricePerBag, item.ProductKind, "bag", 1, source); err != nil {
 					return err
 				}
-				minBoxes := math.Ceil(float64(tier.MinBags) / float64(boxBagCount))
-				var maxBoxes *float64
-				if tier.MaxBags != nil {
-					v := math.Ceil(*tier.MaxBags / float64(boxBagCount))
-					maxBoxes = &v
-				}
+				minBoxes := dripBoxMinQty(tier.MinBags, boxBagCount)
+				maxBoxes := dripBoxMaxQty(tier.MaxBags, boxBagCount)
 				boxSource := dripPriceSourceJSON(tier, bagGrams, boxBagCount)
 				if _, err := tx.Exec(ctx, insertDripTier, item.ProductID, int64(math.Round(bagGrams))*int64(boxBagCount), minBoxes, maxBoxes, tier.PackedPricePerBag*float64(boxBagCount), item.ProductKind, "box", boxBagCount, boxSource); err != nil {
 					return err
@@ -891,6 +937,24 @@ func dripPriceSourceJSON(tier domain.DripWholesaleTier, bagGrams float64, boxBag
 		"tax_rate":             tier.TaxRate,
 	})
 	return string(b)
+}
+
+func dripBoxMinQty(minBags int64, boxBagCount int) float64 {
+	if boxBagCount <= 0 {
+		boxBagCount = 10
+	}
+	return math.Ceil(float64(minBags) / float64(boxBagCount))
+}
+
+func dripBoxMaxQty(maxBags *float64, boxBagCount int) *float64 {
+	if maxBags == nil {
+		return nil
+	}
+	if boxBagCount <= 0 {
+		boxBagCount = 10
+	}
+	v := math.Floor(*maxBags / float64(boxBagCount))
+	return &v
 }
 
 func loadRunItems(ctx context.Context, tx pgx.Tx, schema string, runID int64) ([]domain.ProductResult, error) {

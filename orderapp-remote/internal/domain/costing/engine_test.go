@@ -220,7 +220,7 @@ func TestDripWholesaleTiersUseTemplateAndProductBagConfig(t *testing.T) {
 	params := DefaultParameters()
 	got := CalculateProduct(params, ProductInput{
 		ProductID:          701,
-		Name:               "耶加雪菲挂耳",
+		Name:               "Uraga乌拉嘎",
 		ProductKind:        "drip_bag",
 		DripBagGrams:       12,
 		DripBoxBagCount:    10,
@@ -241,6 +241,9 @@ func TestDripWholesaleTiersUseTemplateAndProductBagConfig(t *testing.T) {
 
 	if got.ProductKind != "drip_bag" || got.DripBagGrams != 12 || got.DripBoxBagCount != 10 {
 		t.Fatalf("drip product config = %+v", got)
+	}
+	if got.DripBeanList.Code == "" || got.CommercialBeanList.Code != "" || got.RetailBeanList.Code != "" {
+		t.Fatalf("drip product must only appear in drip bean list, got commercial=%+v drip=%+v retail=%+v", got.CommercialBeanList, got.DripBeanList, got.RetailBeanList)
 	}
 	if len(got.DripWholesaleTiers) != 2 {
 		t.Fatalf("drip tiers = %+v, want template tiers", got.DripWholesaleTiers)

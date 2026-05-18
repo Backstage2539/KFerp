@@ -53,6 +53,26 @@ func TestLoadProductInputsUsesAvailableBatchWeightedAverageBeanCost(t *testing.T
 	}
 }
 
+func TestLoadProductInputsPricesDripFromFinishedProductComponentCost(t *testing.T) {
+	b, err := os.ReadFile("repository.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := string(b)
+	for _, want := range []string{
+		"finished_product_cost",
+		"finished_component_cost",
+		"component_type,''),'material') = 'finished_product'",
+		"finished_green_cost_per_kg",
+		"p.product_kind",
+		"drip_bag",
+	} {
+		if !strings.Contains(src, want) {
+			t.Fatalf("costing repository must price drip products from finished-product BOM components; missing %q", want)
+		}
+	}
+}
+
 func TestLoadProductInputsReadsCategoryGradientTemplates(t *testing.T) {
 	b, err := os.ReadFile("repository.go")
 	if err != nil {
@@ -201,6 +221,9 @@ func TestPublishRunPublishesDripPriceTiersAsUnitAndBoxSnapshots(t *testing.T) {
 		"bag",
 		"box",
 		"math.Ceil",
+		"math.Floor",
+		"dripBoxMinQty",
+		"dripBoxMaxQty",
 		"PackedPricePerBag",
 		"LoosePricePerBag",
 		"TemplateID",

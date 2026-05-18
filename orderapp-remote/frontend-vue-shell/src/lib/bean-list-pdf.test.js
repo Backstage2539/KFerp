@@ -127,6 +127,40 @@ test('PDF commercial price units follow gradient template display units', () => 
   assert.equal(groups[0].items[0].prices[0].unit, '100g')
 })
 
+test('PDF drip bean-list helper expands live bag tiers to bag and box prices', () => {
+  const groups = buildBeanListPdfGroups([{
+    product_id: 50,
+    name: '耶加挂耳',
+    product_kind: 'drip_bag',
+    drip_box_bag_count: 10,
+    drip_bean_list: { code: '1.1', category: '1、挂耳', display_name: '耶加挂耳' },
+    drip_wholesale_tiers: [{ label: '100袋', packed_price_per_bag: 3 }],
+  }], 'drip')
+
+  assert.deepEqual(groups[0].items[0].prices, [
+    { label: '100袋', price: 3, unit: '袋', red: false },
+    { label: '100袋', price: 30, unit: '盒(10袋)', red: false },
+  ])
+})
+
+test('PDF drip bean-list helper preserves published box tier snapshots', () => {
+  const groups = buildBeanListPdfGroups([{
+    product_id: 51,
+    name: '花魁挂耳',
+    product_kind: 'drip_bag',
+    drip_bean_list: { code: '1.2', category: '1、挂耳', display_name: '花魁挂耳' },
+    drip_wholesale_tiers: [
+      { label: '100袋', sales_unit: 'bag', unit_bag_count: 1, price_per_unit: 3 },
+      { label: '100袋', sales_unit: 'box', unit_bag_count: 10, price_per_unit: 30 },
+    ],
+  }], 'drip')
+
+  assert.deepEqual(groups[0].items[0].prices, [
+    { label: '100袋', price: 3, unit: '袋', red: false },
+    { label: '100袋', price: 30, unit: '盒(10袋)', red: false },
+  ])
+})
+
 test('PDF bean-list helper supports product selection, category filtering, and Excel-style renumbering', () => {
   const groups = buildBeanListPdfGroups(rows, 'commercial', {
     selectedProductIDs: [10, 30],

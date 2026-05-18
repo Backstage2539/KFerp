@@ -13,6 +13,8 @@ type fakeRepo struct {
 	inputs            []domain.ProductInput
 	savedItems        []domain.ProductResult
 	publishedID       int64
+	savedDripTemplate SaveDripPriceTemplateCommand
+	deactivatedDripID int64
 	publishedBeanList PublishBeanListCommand
 	draftBeanList     PublishBeanListCommand
 }
@@ -44,6 +46,31 @@ func (r *fakeRepo) ListParameterSettings(context.Context) ([]ParameterSetting, e
 
 func (r *fakeRepo) UpdateParameterSetting(context.Context, UpdateParameterCommand) (ParameterSetting, error) {
 	return ParameterSetting{}, nil
+}
+
+func (r *fakeRepo) ListDripPriceTemplates(context.Context) ([]domain.DripPriceTemplate, error) {
+	return nil, nil
+}
+
+func (r *fakeRepo) SaveDripPriceTemplate(_ context.Context, cmd SaveDripPriceTemplateCommand) (*domain.DripPriceTemplate, error) {
+	r.savedDripTemplate = cmd
+	includePackaging := true
+	if cmd.IncludePackaging != nil {
+		includePackaging = *cmd.IncludePackaging
+	}
+	return &domain.DripPriceTemplate{
+		ID:               1,
+		Name:             cmd.Name,
+		Active:           cmd.Active == nil || *cmd.Active,
+		BagGrams:         cmd.BagGrams,
+		BoxBagCount:      cmd.BoxBagCount,
+		IncludePackaging: includePackaging,
+	}, nil
+}
+
+func (r *fakeRepo) DeactivateDripPriceTemplate(_ context.Context, cmd DeactivateDripPriceTemplateCommand) error {
+	r.deactivatedDripID = cmd.ID
+	return nil
 }
 
 func (r *fakeRepo) ListBeanListPublications(context.Context, BeanListPublicationQuery) ([]BeanListPublication, error) {
@@ -219,6 +246,31 @@ func TestPublishRunRequiresPositiveID(t *testing.T) {
 	svc := NewService(&fakeRepo{})
 	if err := svc.PublishRun(context.Background(), "JJ", 0); err == nil {
 		t.Fatalf("expected invalid id error")
+	}
+}
+
+func TestSaveDripPriceTemplatePreservesOmittedBooleanFields(t *testing.T) {
+	repo := &fakeRepo{}
+	svc := NewService(repo)
+
+	_, err := svc.SaveDripPriceTemplate(context.Background(), SaveDripPriceTemplateCommand{
+		Name:        "挂耳供应价",
+		BagGrams:    10,
+		BoxBagCount: 10,
+		Tiers: []SaveDripPriceTemplateTierRow{{
+			Label:      "100袋",
+			MinBags:    100,
+			Multiplier: 2.2,
+		}},
+	})
+	if err != nil {
+		t.Fatalf("SaveDripPriceTemplate() error = %v", err)
+	}
+	if repo.savedDripTemplate.Active != nil {
+		t.Fatalf("active should stay nil when omitted, got %v", *repo.savedDripTemplate.Active)
+	}
+	if repo.savedDripTemplate.IncludePackaging != nil {
+		t.Fatalf("include_packaging should stay nil when omitted, got %v", *repo.savedDripTemplate.IncludePackaging)
 	}
 }
 

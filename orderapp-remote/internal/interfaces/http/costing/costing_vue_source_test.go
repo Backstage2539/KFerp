@@ -45,6 +45,9 @@ func TestCostingViewSupportsDripBeanListSource(t *testing.T) {
 		"挂耳豆单",
 		"/api/drip-price-templates",
 		"/api/costing/drip-price-explanation",
+		"openDripPriceExplanation",
+		"loadDripPriceExplanation",
+		"dripDisplayTiers",
 	} {
 		if !strings.Contains(src, want) {
 			t.Fatalf("CostingView.vue missing drip bean-list support %q", want)

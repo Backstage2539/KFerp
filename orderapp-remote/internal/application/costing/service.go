@@ -29,10 +29,10 @@ type DripPriceExplanationCommand struct {
 type SaveDripPriceTemplateCommand struct {
 	ID               int64                          `json:"id,omitempty"`
 	Name             string                         `json:"name"`
-	Active           bool                           `json:"active"`
+	Active           *bool                          `json:"active,omitempty"`
 	BagGrams         float64                        `json:"bag_grams"`
 	BoxBagCount      int                            `json:"box_bag_count"`
-	IncludePackaging bool                           `json:"include_packaging"`
+	IncludePackaging *bool                          `json:"include_packaging,omitempty"`
 	Tiers            []SaveDripPriceTemplateTierRow `json:"tiers"`
 	Actor            string                         `json:"actor,omitempty"`
 }

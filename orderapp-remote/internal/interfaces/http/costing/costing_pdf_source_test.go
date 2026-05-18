@@ -187,6 +187,9 @@ func TestCostingViewPDFSupportsDripBeanListPricing(t *testing.T) {
 		"挂耳豆单",
 		"sales_unit",
 		"unit_bag_count",
+		"packed_price_per_bag",
+		"packed_price_per_box",
+		"盒(",
 		"bag",
 		"box",
 	} {
