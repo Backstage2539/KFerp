@@ -166,7 +166,7 @@ test('normalizeSpecG rejects non-positive custom grams', () => {
   assert.equal(normalizeSpecG({ spec_mode: 'custom', custom_spec_g: 300 }), 300)
 })
 
-test('wholesaleSpecOptions includes standard order-entry specs and product tiers', () => {
+test('wholesaleSpecOptions includes standard order-entry specs, product tiers, and custom grams', () => {
   const got = wholesaleSpecOptions({
     tiers: [
       { spec_g: 454, min: 1, unit_price: 88 },
@@ -174,7 +174,8 @@ test('wholesaleSpecOptions includes standard order-entry specs and product tiers
     ],
   })
 
-  assert.deepEqual(got.map((option) => option.value), ['36', '80', '100', '227', '454', '500', '1000', '2500'])
+  assert.deepEqual(got.map((option) => option.value), ['36', '80', '100', '227', '454', '500', '1000', '2500', 'custom'])
+  assert.equal(got.at(-1).label, '自定义克数')
   assert.equal(formatSpecLabel(2500), '2.5kg')
 })
 

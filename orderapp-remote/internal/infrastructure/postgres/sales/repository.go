@@ -469,6 +469,18 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 			totalAmt += items[idx].baseLineTotal
 			itemDiscountAmt += items[idx].discountAmount
 			continue
+		} else if items[idx].productID != nil && items[idx].productKind == "green_bean" {
+			unitPrice, err := orderbeans.ResolvePublishedUnitPrice(ctx, tx, r.schema, cmd.CustomerID, *items[idx].productID, orderbeans.ListTypeGreen, items[idx].specG, items[idx].units)
+			if err != nil {
+				return salesapp.SaveOrderResult{}, err
+			}
+			items[idx].tierID = nil
+			items[idx].unitPrice = unitPrice
+			items[idx].baseLineTotal = wholesaleLineTotalFromDisplayUnit(unitPrice, items[idx].specG, items[idx].units)
+			items[idx].discountAmount, items[idx].lineTotal = applyOrderItemDiscount(items[idx].baseLineTotal, items[idx].discountType, items[idx].discountValue)
+			totalAmt += items[idx].baseLineTotal
+			itemDiscountAmt += items[idx].discountAmount
+			continue
 		} else if items[idx].productID != nil {
 			// If user selected a tier explicitly
 			if items[idx].tierID != nil {
@@ -818,7 +830,7 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 		if it.productID != nil {
 			productID = *it.productID
 		}
-		usage, err := orderbeans.ResolveUsage(ctx, tx, r.schema, cmd.CustomerID, productID, orderbeans.ListTypeForRetail(retailOrder))
+		usage, err := orderbeans.ResolveUsage(ctx, tx, r.schema, cmd.CustomerID, productID, orderbeans.ListTypeForProductKind(it.productKind, retailOrder))
 		if err != nil {
 			return salesapp.SaveOrderResult{}, err
 		}

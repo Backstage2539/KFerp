@@ -61,29 +61,33 @@ type productHandler struct {
 }
 
 type productUpdateAPIRequest struct {
-	ProductKind        string                    `json:"product_kind"`
-	DefaultPrice       *float64                  `json:"default_price"`
-	RoastLevel         string                    `json:"roast_level"`
-	RetailPrice100G    *float64                  `json:"retail_price_100g"`
-	RetailPrice200G    *float64                  `json:"retail_price_200g"`
-	RetailPrice227G    *float64                  `json:"retail_price_227g"`
-	RetailPrice250G    *float64                  `json:"retail_price_250g"`
-	YieldRate          float64                   `json:"yield_rate"`
-	MarginRateOverride optionalNullableFloat64   `json:"margin_rate_override"`
-	Tiers              []productTierAPIUpsertRow `json:"tiers"`
+	ProductKind           string                    `json:"product_kind"`
+	GreenBeanType         string                    `json:"green_bean_type"`
+	GreenBeanBomProductID int64                     `json:"green_bean_bom_product_id"`
+	DefaultPrice          *float64                  `json:"default_price"`
+	RoastLevel            string                    `json:"roast_level"`
+	RetailPrice100G       *float64                  `json:"retail_price_100g"`
+	RetailPrice200G       *float64                  `json:"retail_price_200g"`
+	RetailPrice227G       *float64                  `json:"retail_price_227g"`
+	RetailPrice250G       *float64                  `json:"retail_price_250g"`
+	YieldRate             float64                   `json:"yield_rate"`
+	MarginRateOverride    optionalNullableFloat64   `json:"margin_rate_override"`
+	Tiers                 []productTierAPIUpsertRow `json:"tiers"`
 }
 
 type productCreateAPIRequest struct {
-	Name            string                    `json:"name"`
-	ProductKind     string                    `json:"product_kind"`
-	RoastLevel      string                    `json:"roast_level"`
-	DefaultPrice    float64                   `json:"default_price"`
-	RetailPrice100G float64                   `json:"retail_price_100g"`
-	RetailPrice200G float64                   `json:"retail_price_200g"`
-	RetailPrice227G float64                   `json:"retail_price_227g"`
-	RetailPrice250G float64                   `json:"retail_price_250g"`
-	YieldRate       float64                   `json:"yield_rate"`
-	Tiers           []productTierAPIUpsertRow `json:"tiers"`
+	Name                  string                    `json:"name"`
+	ProductKind           string                    `json:"product_kind"`
+	GreenBeanType         string                    `json:"green_bean_type"`
+	GreenBeanBomProductID int64                     `json:"green_bean_bom_product_id"`
+	RoastLevel            string                    `json:"roast_level"`
+	DefaultPrice          float64                   `json:"default_price"`
+	RetailPrice100G       float64                   `json:"retail_price_100g"`
+	RetailPrice200G       float64                   `json:"retail_price_200g"`
+	RetailPrice227G       float64                   `json:"retail_price_227g"`
+	RetailPrice250G       float64                   `json:"retail_price_250g"`
+	YieldRate             float64                   `json:"yield_rate"`
+	Tiers                 []productTierAPIUpsertRow `json:"tiers"`
 }
 
 type productDeactivateAPIRequest struct {
@@ -192,6 +196,11 @@ func (h productHandler) updateAPI(c echo.Context) error {
 		return c.JSON(http.StatusNotFound, map[string]any{"error": "not found"})
 	}
 	productKind := catalogdomain.NormalizeProductKind(firstNonEmptyString(req.ProductKind, existing.ProductKind))
+	greenBeanType := firstNonEmptyString(req.GreenBeanType, existing.GreenBeanType)
+	greenBeanBomProductID := req.GreenBeanBomProductID
+	if greenBeanBomProductID <= 0 {
+		greenBeanBomProductID = existing.GreenBeanBomProductID
+	}
 	roastLevel := NormalizeRoastLevel(firstNonEmptyString(req.RoastLevel, existing.RoastLevel))
 	defaultPrice := optionalFloat64(req.DefaultPrice, existing.DefaultPrice)
 	retailPrice100G := optionalFloat64(req.RetailPrice100G, existing.RetailPrice100G)
@@ -216,32 +225,36 @@ func (h productHandler) updateAPI(c echo.Context) error {
 		}
 	}
 	if err := h.catalog.UpdateProductBasics(c.Request().Context(), catalogapp.UpdateProductBasicsCommand{
-		Actor:              support.ActorOf(c),
-		ProductID:          id,
-		ProductKind:        productKind,
-		DefaultPrice:       defaultPrice,
-		RoastLevel:         roastLevel,
-		RetailPrice100G:    retailPrice100G,
-		RetailPrice200G:    retailPrice200G,
-		RetailPrice227G:    retailPrice227G,
-		RetailPrice250G:    retailPrice250G,
-		YieldRate:          yieldRate,
-		MarginRateOverride: marginRateOverride,
+		Actor:                 support.ActorOf(c),
+		ProductID:             id,
+		ProductKind:           productKind,
+		GreenBeanType:         greenBeanType,
+		GreenBeanBomProductID: greenBeanBomProductID,
+		DefaultPrice:          defaultPrice,
+		RoastLevel:            roastLevel,
+		RetailPrice100G:       retailPrice100G,
+		RetailPrice200G:       retailPrice200G,
+		RetailPrice227G:       retailPrice227G,
+		RetailPrice250G:       retailPrice250G,
+		YieldRate:             yieldRate,
+		MarginRateOverride:    marginRateOverride,
 	}); err != nil {
 		return c.JSON(http.StatusInternalServerError, map[string]any{"error": err.Error()})
 	}
-	if productKind == catalogdomain.ProductKindGreenBean || len(req.Tiers) > 0 {
+	if productKind != catalogdomain.ProductKindGreenBean && len(req.Tiers) > 0 {
 		if err := h.catalog.ReplacePriceTiers(c.Request().Context(), catalogapp.ReplacePriceTiersCommand{
-			Actor:           support.ActorOf(c),
-			ProductID:       id,
-			ProductKind:     productKind,
-			DefaultPrice:    defaultPrice,
-			RoastLevel:      roastLevel,
-			RetailPrice100G: retailPrice100G,
-			RetailPrice200G: retailPrice200G,
-			RetailPrice227G: retailPrice227G,
-			RetailPrice250G: retailPrice250G,
-			Tiers:           productTiersFromAPI(req.Tiers),
+			Actor:                 support.ActorOf(c),
+			ProductID:             id,
+			ProductKind:           productKind,
+			GreenBeanType:         greenBeanType,
+			GreenBeanBomProductID: greenBeanBomProductID,
+			DefaultPrice:          defaultPrice,
+			RoastLevel:            roastLevel,
+			RetailPrice100G:       retailPrice100G,
+			RetailPrice200G:       retailPrice200G,
+			RetailPrice227G:       retailPrice227G,
+			RetailPrice250G:       retailPrice250G,
+			Tiers:                 productTiersFromAPI(req.Tiers),
 		}); err != nil {
 			return c.JSON(http.StatusInternalServerError, map[string]any{"error": err.Error()})
 		}
@@ -287,17 +300,19 @@ func (h productHandler) createProductAPI(c echo.Context) error {
 		return c.JSON(http.StatusBadRequest, map[string]any{"error": "invalid yield_rate"})
 	}
 	product, err := h.catalog.CreateProduct(c.Request().Context(), catalogapp.CreateProductCommand{
-		Actor:           support.ActorOf(c),
-		Name:            req.Name,
-		ProductKind:     productKind,
-		RoastLevel:      roastLevel,
-		DefaultPrice:    req.DefaultPrice,
-		RetailPrice100G: req.RetailPrice100G,
-		RetailPrice200G: req.RetailPrice200G,
-		RetailPrice227G: req.RetailPrice227G,
-		RetailPrice250G: req.RetailPrice250G,
-		YieldRate:       yieldRate,
-		Tiers:           productTiersFromAPI(req.Tiers),
+		Actor:                 support.ActorOf(c),
+		Name:                  req.Name,
+		ProductKind:           productKind,
+		GreenBeanType:         req.GreenBeanType,
+		GreenBeanBomProductID: req.GreenBeanBomProductID,
+		RoastLevel:            roastLevel,
+		DefaultPrice:          req.DefaultPrice,
+		RetailPrice100G:       req.RetailPrice100G,
+		RetailPrice200G:       req.RetailPrice200G,
+		RetailPrice227G:       req.RetailPrice227G,
+		RetailPrice250G:       req.RetailPrice250G,
+		YieldRate:             yieldRate,
+		Tiers:                 productTiersFromAPI(req.Tiers),
 	})
 	if err != nil {
 		return c.JSON(http.StatusBadRequest, map[string]any{"error": err.Error()})

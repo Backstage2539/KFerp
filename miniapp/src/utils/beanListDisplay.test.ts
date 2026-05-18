@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { BeanListProductSummary, BeanListSummary } from '../api/customerPortal'
-import { beanListCardRows, beanListDisplayStyle, splitBeanListHighlight } from './beanListDisplay'
+import { beanListCardRows, beanListDisplayStyle, beanListQualityLines, splitBeanListHighlight } from './beanListDisplay'
 
 describe('bean list native display helpers', () => {
   it('builds the miniapp surface style from the published ERP config', () => {
@@ -41,6 +41,26 @@ describe('bean list native display helpers', () => {
       { text: ' ', red: false },
       { text: '柑橘', red: true },
       { text: '莓果', red: false },
+    ])
+  })
+
+  it('builds quality rows from the latest passed bean-list inspection', () => {
+    const item: BeanListProductSummary = {
+      code: 'G.1',
+      name: '埃塞瑰夏生豆',
+      bean_list_quality: {
+        factory_flavor_description: '茉莉花、柑橘',
+        moisture: '10.8%',
+        density: '780g/L',
+        inspection_created_at: '2026-05-18 09:30',
+      },
+    }
+
+    expect(beanListQualityLines(item)).toEqual([
+      { label: '工厂风味', value: '茉莉花、柑橘' },
+      { label: '水分', value: '10.8%' },
+      { label: '密度', value: '780g/L' },
+      { label: '质检时间', value: '2026-05-18 09:30' },
     ])
   })
 })

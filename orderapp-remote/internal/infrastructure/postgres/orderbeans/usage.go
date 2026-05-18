@@ -2,8 +2,10 @@ package orderbeans
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"strings"
 
 	"github.com/jackc/pgx/v5"
@@ -13,6 +15,7 @@ import (
 const (
 	ListTypeCommercial = "commercial"
 	ListTypeRetail     = "retail"
+	ListTypeGreen      = "green"
 )
 
 type Usage struct {
@@ -29,6 +32,33 @@ func ListTypeForRetail(retail bool) string {
 		return ListTypeRetail
 	}
 	return ListTypeCommercial
+}
+
+func ListTypeForProductKind(productKind string, retail bool) string {
+	if strings.TrimSpace(productKind) == "green_bean" {
+		return ListTypeGreen
+	}
+	return ListTypeForRetail(retail)
+}
+
+func ResolvePublishedUnitPrice(ctx context.Context, q rowQuerier, schema string, customerID int64, productID int64, listType string, specG int64, qty int64) (float64, error) {
+	usage, err := ResolveUsage(ctx, q, schema, customerID, productID, listType)
+	if err != nil || usage.PublicationID <= 0 {
+		return 0, err
+	}
+	var raw []byte
+	sql := fmt.Sprintf(`SELECT COALESCE(content_json, '{}'::jsonb) FROM %s.bean_list_publications WHERE id=$1`, schema)
+	if err := q.QueryRow(ctx, sql, usage.PublicationID).Scan(&raw); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) || isMissingBeanListSchema(err) {
+			return 0, nil
+		}
+		return 0, err
+	}
+	price, ok := publishedUnitPriceFromContent(raw, productID, specG, qty)
+	if !ok {
+		return 0, nil
+	}
+	return price, nil
 }
 
 func ResolveUsage(ctx context.Context, q rowQuerier, schema string, customerID int64, productID int64, listType string) (Usage, error) {
@@ -76,6 +106,152 @@ func ResolveUsage(ctx context.Context, q rowQuerier, schema string, customerID i
 		return Usage{}, err
 	}
 	return usage, nil
+}
+
+type publishedBeanListContent struct {
+	Groups []struct {
+		Items []json.RawMessage `json:"items"`
+	} `json:"groups"`
+}
+
+type publishedPriceTier struct {
+	SpecG        int64    `json:"spec_g"`
+	MinQty       float64  `json:"min_qty"`
+	MaxQty       *float64 `json:"max_qty"`
+	PricePerUnit float64  `json:"price_per_unit"`
+	MinLb        float64  `json:"min_lb"`
+	MaxLb        *float64 `json:"max_lb"`
+	PricePerLb   float64  `json:"price_per_lb"`
+	MinWeightG   float64  `json:"min_weight_g"`
+	MaxWeightG   *float64 `json:"max_weight_g"`
+}
+
+func publishedUnitPriceFromContent(raw []byte, productID int64, specG int64, qty int64) (float64, bool) {
+	if productID <= 0 || specG <= 0 || qty <= 0 || len(raw) == 0 {
+		return 0, false
+	}
+	var content publishedBeanListContent
+	if err := json.Unmarshal(raw, &content); err != nil {
+		return 0, false
+	}
+	for _, group := range content.Groups {
+		for _, itemRaw := range group.Items {
+			if !publishedItemMatchesProduct(itemRaw, productID) {
+				continue
+			}
+			tiers := publishedItemGreenTiers(itemRaw)
+			if tier, ok := matchPublishedPriceTier(tiers, specG, qty); ok {
+				price := publishedTierDisplayUnitPrice(tier, specG)
+				return price, price > 0
+			}
+		}
+	}
+	return 0, false
+}
+
+func publishedItemMatchesProduct(raw json.RawMessage, productID int64) bool {
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &fields); err != nil {
+		return false
+	}
+	for _, key := range []string{"productId", "product_id", "productID"} {
+		var id int64
+		if data, ok := fields[key]; ok && json.Unmarshal(data, &id) == nil && id == productID {
+			return true
+		}
+	}
+	return false
+}
+
+func publishedItemGreenTiers(raw json.RawMessage) []publishedPriceTier {
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &fields); err != nil {
+		return nil
+	}
+	var tiers []publishedPriceTier
+	if data, ok := fields["green_bean_sale_tiers"]; ok {
+		_ = json.Unmarshal(data, &tiers)
+	}
+	return tiers
+}
+
+func matchPublishedPriceTier(tiers []publishedPriceTier, specG int64, qty int64) (publishedPriceTier, bool) {
+	if len(tiers) == 0 {
+		return publishedPriceTier{}, false
+	}
+	totalG := float64(specG * qty)
+	totalLb := totalG / 454.0
+	sorted := append([]publishedPriceTier(nil), tiers...)
+	sortPublishedTiers(sorted)
+	for _, tier := range sorted {
+		if tier.MinWeightG > 0 && totalG >= tier.MinWeightG && (tier.MaxWeightG == nil || totalG <= *tier.MaxWeightG) {
+			return tier, true
+		}
+	}
+	for _, tier := range sorted {
+		tierSpec := tier.SpecG
+		if tierSpec <= 0 {
+			tierSpec = 1000
+		}
+		if tierSpec != specG {
+			continue
+		}
+		tierQty := totalG / float64(tierSpec)
+		if tierQty >= tier.MinQty && (tier.MaxQty == nil || tierQty <= *tier.MaxQty) {
+			return tier, true
+		}
+	}
+	for _, tier := range sorted {
+		if tier.MinLb > 0 && totalLb >= tier.MinLb && (tier.MaxLb == nil || totalLb <= *tier.MaxLb) {
+			return tier, true
+		}
+	}
+	return sorted[len(sorted)-1], true
+}
+
+func sortPublishedTiers(tiers []publishedPriceTier) {
+	for i := 1; i < len(tiers); i++ {
+		for j := i; j > 0 && publishedTierMinWeight(tiers[j]) > publishedTierMinWeight(tiers[j-1]); j-- {
+			tiers[j], tiers[j-1] = tiers[j-1], tiers[j]
+		}
+	}
+}
+
+func publishedTierMinWeight(tier publishedPriceTier) float64 {
+	if tier.MinWeightG > 0 {
+		return tier.MinWeightG
+	}
+	if tier.MinLb > 0 {
+		return tier.MinLb * 454.0
+	}
+	specG := tier.SpecG
+	if specG <= 0 {
+		specG = 1000
+	}
+	return tier.MinQty * float64(specG)
+}
+
+func publishedTierDisplayUnitPrice(tier publishedPriceTier, specG int64) float64 {
+	pricePerLb := tier.PricePerLb
+	tierSpec := tier.SpecG
+	if tierSpec <= 0 {
+		tierSpec = 1000
+	}
+	if pricePerLb <= 0 && tier.PricePerUnit > 0 {
+		pricePerLb = tier.PricePerUnit * 454.0 / float64(tierSpec)
+	}
+	if pricePerLb <= 0 {
+		return 0
+	}
+	unitG := 454.0
+	if specG >= 1000 {
+		unitG = 1000
+	}
+	price := pricePerLb * unitG / 454.0
+	if unitG == 1000 {
+		return math.Round(price)
+	}
+	return price
 }
 
 func isMissingBeanListSchema(err error) bool {

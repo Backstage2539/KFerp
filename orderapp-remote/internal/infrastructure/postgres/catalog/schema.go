@@ -21,9 +21,12 @@ ALTER TABLE %[1]s.products ADD COLUMN IF NOT EXISTS base_product_id BIGINT NOT N
 ALTER TABLE %[1]s.products ADD COLUMN IF NOT EXISTS visibility TEXT NOT NULL DEFAULT 'public';
 ALTER TABLE %[1]s.products ADD COLUMN IF NOT EXISTS custom_type TEXT NOT NULL DEFAULT '';
 ALTER TABLE %[1]s.products ADD COLUMN IF NOT EXISTS margin_rate_override NUMERIC(14,6);
+ALTER TABLE %[1]s.products ADD COLUMN IF NOT EXISTS green_bean_type TEXT NOT NULL DEFAULT '';
+ALTER TABLE %[1]s.products ADD COLUMN IF NOT EXISTS green_bean_bom_product_id BIGINT NOT NULL DEFAULT 0;
 UPDATE %[1]s.products SET visibility='public' WHERE COALESCE(visibility,'')='';
 CREATE INDEX IF NOT EXISTS products_customer_visibility_idx ON %[1]s.products(customer_id, visibility, active);
 CREATE INDEX IF NOT EXISTS products_base_product_idx ON %[1]s.products(base_product_id);
+CREATE INDEX IF NOT EXISTS products_green_bean_bom_product_idx ON %[1]s.products(green_bean_bom_product_id);
 CREATE TABLE IF NOT EXISTS %[1]s.product_categories (
 	id BIGSERIAL PRIMARY KEY,
 	parent_id BIGINT,

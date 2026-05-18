@@ -93,15 +93,23 @@ func TestReceiveMaterialDefaultsOperator(t *testing.T) {
 	repo := &fakeRepo{}
 	svc := NewService(repo)
 	_, err := svc.ReceiveMaterial(context.Background(), MaterialReceiptCommand{
-		MaterialID: 1,
-		QtyG:       1000,
-		UnitCost:   12.5,
+		MaterialID:                1,
+		QtyG:                      1000,
+		UnitCost:                  12.5,
+		CropSeason:                " 2025/26 ",
+		Origin:                    " 云南保山 ",
+		ProducerFlavorDescription: " 李子、红糖 ",
 	})
 	if err != nil {
 		t.Fatalf("ReceiveMaterial: %v", err)
 	}
 	if repo.receipt.Operator != "stock" {
 		t.Fatalf("operator = %q, want stock", repo.receipt.Operator)
+	}
+	if repo.receipt.CropSeason != "2025/26" ||
+		repo.receipt.Origin != "云南保山" ||
+		repo.receipt.ProducerFlavorDescription != "李子、红糖" {
+		t.Fatalf("green bean receipt metadata = %+v", repo.receipt)
 	}
 }
 

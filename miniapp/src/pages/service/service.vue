@@ -15,7 +15,7 @@ import {
 import { buildAPIURL } from '../../api/client'
 import MainTabBar from '../../components/MainTabBar.vue'
 import { useSessionStore } from '../../stores/session'
-import { beanListCardRows, beanListDisplayStyle, splitBeanListHighlight } from '../../utils/beanListDisplay'
+import { beanListCardRows, beanListDisplayStyle, beanListQualityLines, splitBeanListHighlight } from '../../utils/beanListDisplay'
 import {
   beanListPageCacheChanged,
   beanListPageCacheStorageKey,
@@ -679,6 +679,9 @@ onShow(() => {
                   <text v-if="bean.description" class="bean-list-table-line">
                     特点 <text v-for="(part, index) in splitBeanListHighlight(bean.description, bean.highlight_terms || [])" :key="`${bean.name}-desc-${index}`" :class="{ red: part.red }">{{ part.text }}</text>
                   </text>
+                  <text v-for="quality in beanListQualityLines(bean)" :key="`${bean.name}-quality-${quality.label}`" class="bean-list-table-line">
+                    {{ quality.label }} {{ quality.value }}
+                  </text>
                 </view>
                 <view class="bean-list-table-prices">
                   <text v-for="price in bean.prices || []" :key="`${price.label}-${price.value}`" :class="['bean-list-table-price', { red: price.red }]">{{ price.label }} {{ price.value }}</text>
@@ -713,6 +716,10 @@ onShow(() => {
                     <text class="bean-list-detail-value">
                       <text v-for="(part, index) in splitBeanListHighlight(bean.description, bean.highlight_terms || [])" :key="`${bean.name}-desc-${index}`" :class="{ red: part.red }">{{ part.text }}</text>
                     </text>
+                  </view>
+                  <view v-for="quality in beanListQualityLines(bean)" :key="`${bean.name}-quality-${quality.label}`" class="bean-list-detail">
+                    <text class="bean-list-detail-label">{{ quality.label }}</text>
+                    <text class="bean-list-detail-value">{{ quality.value }}</text>
                   </view>
                   <view v-if="bean.prices?.length" class="bean-list-price-block">
                     <text class="bean-list-section-label">报价</text>

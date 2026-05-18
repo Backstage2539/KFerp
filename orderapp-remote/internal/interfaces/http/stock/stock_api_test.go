@@ -118,7 +118,7 @@ func TestStockAPIRoutes(t *testing.T) {
 		t.Fatalf("ledger body missing row: %s", rec.Body.String())
 	}
 
-	req = httptest.NewRequest(http.MethodPost, "/api/stock/material-receipts", bytes.NewBufferString(`{"material_id":1,"qty_g":1200,"unit_cost":42.5}`))
+	req = httptest.NewRequest(http.MethodPost, "/api/stock/material-receipts", bytes.NewBufferString(`{"material_id":1,"qty_g":1200,"unit_cost":42.5,"crop_season":"2025/26","origin":"云南保山","producer_flavor_description":"李子、红糖"}`))
 	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
 	rec = httptest.NewRecorder()
 	e.ServeHTTP(rec, req)
@@ -127,6 +127,11 @@ func TestStockAPIRoutes(t *testing.T) {
 	}
 	if repo.received.MaterialID != 1 || repo.received.QtyG != 1200 {
 		t.Fatalf("received command = %+v", repo.received)
+	}
+	if repo.received.CropSeason != "2025/26" ||
+		repo.received.Origin != "云南保山" ||
+		repo.received.ProducerFlavorDescription != "李子、红糖" {
+		t.Fatalf("received metadata = %+v", repo.received)
 	}
 
 	req = httptest.NewRequest(http.MethodGet, "/api/stock/warehouses", nil)

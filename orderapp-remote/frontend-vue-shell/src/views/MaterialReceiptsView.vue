@@ -24,6 +24,9 @@
         <label><span>供应商</span><input v-model.trim="form.supplier" /></label>
         <label><span>数量(g)</span><input type="number" min="1" step="1" v-model.number="form.qty_g" /></label>
         <label><span>成本/千克</span><input type="number" min="0" step="0.01" v-model.number="form.unit_cost" /></label>
+        <label><span>产季</span><input v-model.trim="form.crop_season" placeholder="2025/26" /></label>
+        <label><span>产地</span><input v-model.trim="form.origin" placeholder="云南保山" /></label>
+        <label class="span-2"><span>产家风味描述</span><input v-model.trim="form.producer_flavor_description" placeholder="供应商/产家描述的风味" /></label>
         <label class="span-2"><span>备注</span><input v-model.trim="form.note" /></label>
         <button class="primary" type="button" @click="submit" :disabled="saving">提交入库</button>
       </div>
@@ -46,7 +49,7 @@ const loading = ref(false)
 const saving = ref(false)
 const error = ref('')
 const ok = ref('')
-const form = reactive({ material_id: 0, supplier: '', qty_g: 0, unit_cost: 0, note: '' })
+const form = reactive({ material_id: 0, supplier: '', qty_g: 0, unit_cost: 0, crop_season: '', origin: '', producer_flavor_description: '', note: '' })
 const materialOptions = computed(() => selectableReceiptMaterials(materials.value))
 
 async function loadMaterials() {

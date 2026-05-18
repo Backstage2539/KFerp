@@ -31,6 +31,7 @@ func beanListPDFDocument(row customerportalapp.BeanListSummary) pdfinfra.BeanLis
 				RecommendedUse: item.RecommendedUse,
 				Flavor:         item.Flavor,
 				Description:    item.Description,
+				QualityLines:   beanListPDFQualityLines(item.BeanListQuality),
 				Prices:         make([]pdfinfra.BeanListPrice, 0, len(item.Prices)),
 			}
 			for _, price := range item.Prices {
@@ -47,12 +48,33 @@ func beanListPDFDocument(row customerportalapp.BeanListSummary) pdfinfra.BeanLis
 	return doc
 }
 
+func beanListPDFQualityLines(quality customerportalapp.BeanListQualitySummary) []pdfinfra.BeanListQualityLine {
+	lines := []pdfinfra.BeanListQualityLine{}
+	for _, row := range []struct {
+		label string
+		value string
+	}{
+		{"工厂风味", quality.FactoryFlavorDescription},
+		{"水分", quality.Moisture},
+		{"密度", quality.Density},
+		{"质检时间", quality.InspectionCreatedAt},
+		{"质检单号", quality.InspectionReferenceNo},
+	} {
+		if value := strings.TrimSpace(row.value); value != "" {
+			lines = append(lines, pdfinfra.BeanListQualityLine{Label: row.label, Value: value})
+		}
+	}
+	return lines
+}
+
 func beanListPDFTitle(row customerportalapp.BeanListSummary) string {
 	switch strings.TrimSpace(row.ListType) {
 	case "retail":
 		return "零售豆单"
 	case "commercial":
 		return "商用豆单"
+	case "green", "green_bean":
+		return "生豆豆单"
 	default:
 		return "我的豆单"
 	}
