@@ -35,6 +35,7 @@
               <option value="material_transfer">原料转仓单</option>
               <option value="finished_product_transfer">成品转仓单</option>
               <option value="finished_inventory">成品库存</option>
+              <option value="stock_adjustment">库存调整单</option>
             </optgroup>
             <optgroup label="商品与配方">
               <option value="product">产品</option>

@@ -118,6 +118,42 @@ func TestMaterialCostAdjustmentRequiresAvailableBatchSourceGuard(t *testing.T) {
 	}
 }
 
+func TestStockAdjustmentsWriteAuditLogsSourceGuard(t *testing.T) {
+	b, err := os.ReadFile("repository.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := string(b)
+	quantityBody := stockRepositoryFunctionBody(t, src, "func (r Repository) CreateAdjustment", "func (r Repository) createMaterialCostAdjustment")
+	costBody := stockRepositoryFunctionBody(t, src, "func (r Repository) createMaterialCostAdjustment", "func (r Repository) materialAdjustmentUnitCostTx")
+
+	for _, want := range []string{
+		"AuditInsertTx",
+		"stock_adjustment",
+		`postgresinfra.StrPtr("qty_g")`,
+		`"adjustment_type"`,
+		`"quantity"`,
+		`"change_g"`,
+	} {
+		if !strings.Contains(quantityBody, want) {
+			t.Fatalf("quantity stock adjustment must write audit log; missing %q", want)
+		}
+	}
+	for _, want := range []string{
+		"AuditInsertTx",
+		"stock_adjustment",
+		`postgresinfra.StrPtr("unit_cost")`,
+		`"adjustment_type"`,
+		`"material_cost"`,
+		`"material_batch_id"`,
+		`"value_change"`,
+	} {
+		if !strings.Contains(costBody, want) {
+			t.Fatalf("material cost adjustment must write audit log; missing %q", want)
+		}
+	}
+}
+
 func TestEnsureSchemaAddsQualityStatusColumns(t *testing.T) {
 	pool, schema := newStockTestDB(t)
 	ctx := context.Background()
@@ -598,8 +634,20 @@ CREATE TABLE %s.finished_inventory (
 	updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
 	PRIMARY KEY(product_id, spec_g)
 );
+CREATE TABLE %s.audit_logs (
+	id BIGSERIAL PRIMARY KEY,
+	actor TEXT NOT NULL DEFAULT '',
+	entity_type TEXT NOT NULL DEFAULT '',
+	entity_id BIGINT,
+	action TEXT NOT NULL DEFAULT '',
+	field TEXT,
+	old_value TEXT,
+	new_value TEXT,
+	meta JSONB,
+	created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
 INSERT INTO %s.materials(id,code,name,purchase_price,onhand_g) VALUES (1,'BEAN-1','水洗豆',38.25,0);
-`, schema, schema, schema, schema))
+`, schema, schema, schema, schema, schema))
 	if err := EnsureSchema(ctx, pool, schema); err != nil {
 		t.Fatalf("EnsureSchema: %v", err)
 	}
@@ -633,6 +681,25 @@ INSERT INTO %s.materials(id,code,name,purchase_price,onhand_g) VALUES (1,'BEAN-1
 	}
 	if batchUnitCost != 38.25 || stockBatchUnitCost != 38.25 {
 		t.Fatalf("backfill unit costs = %.2f/%.2f, want 38.25/38.25", batchUnitCost, stockBatchUnitCost)
+	}
+
+	var auditCount int
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`
+		SELECT COUNT(*)
+		FROM %s.audit_logs
+		WHERE entity_type='stock_adjustment'
+		  AND entity_id=$1
+		  AND action='submit'
+		  AND field='qty_g'
+		  AND old_value='0'
+		  AND new_value='60000'
+		  AND meta->>'adjustment_type'='quantity'
+		  AND meta->>'batch_code'=$2
+	`, schema), res.AdjustmentID, fmt.Sprintf("ADJ-%010d", res.AdjustmentID)).Scan(&auditCount); err != nil {
+		t.Fatal(err)
+	}
+	if auditCount != 1 {
+		t.Fatalf("stock adjustment audit rows = %d, want 1", auditCount)
 	}
 }
 
@@ -670,8 +737,20 @@ CREATE TABLE %s.finished_inventory (
 	updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
 	PRIMARY KEY(product_id, spec_g)
 );
+CREATE TABLE %s.audit_logs (
+	id BIGSERIAL PRIMARY KEY,
+	actor TEXT NOT NULL DEFAULT '',
+	entity_type TEXT NOT NULL DEFAULT '',
+	entity_id BIGINT,
+	action TEXT NOT NULL DEFAULT '',
+	field TEXT,
+	old_value TEXT,
+	new_value TEXT,
+	meta JSONB,
+	created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
 INSERT INTO %s.materials(id,code,name,onhand_g) VALUES (1,'BEAN-1','水洗豆',0);
-`, schema, schema, schema, schema))
+`, schema, schema, schema, schema, schema))
 	if err := EnsureSchema(ctx, pool, schema); err != nil {
 		t.Fatalf("EnsureSchema: %v", err)
 	}
@@ -720,6 +799,24 @@ INSERT INTO %s.materials(id,code,name,onhand_g) VALUES (1,'BEAN-1','水洗豆',0
 	}
 	if beforeCost != 42.5 || afterCost != 52.75 || valueChange != 615 || quantityChange != 0 {
 		t.Fatalf("adjustment cost before/after/value/change = %.2f/%.2f/%.2f/%d, want 42.50/52.75/615.00/0", beforeCost, afterCost, valueChange, quantityChange)
+	}
+
+	var auditOld, auditNew, auditBatchCode string
+	var auditValueChange float64
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`
+		SELECT old_value,new_value,meta->>'batch_code',(meta->>'value_change')::float8
+		FROM %s.audit_logs
+		WHERE entity_type='stock_adjustment'
+		  AND entity_id=$1
+		  AND action='submit'
+		  AND field='unit_cost'
+		  AND meta->>'adjustment_type'='material_cost'
+		  AND (meta->>'material_batch_id')::bigint=$2
+	`, schema), res.AdjustmentID, receipt.BatchID).Scan(&auditOld, &auditNew, &auditBatchCode, &auditValueChange); err != nil {
+		t.Fatal(err)
+	}
+	if auditOld != "42.5000" || auditNew != "52.7500" || auditBatchCode != receipt.BatchCode || auditValueChange != 615 {
+		t.Fatalf("material cost audit = old %q new %q batch %q value %.2f, want 42.5000/52.7500/%s/615", auditOld, auditNew, auditBatchCode, auditValueChange, receipt.BatchCode)
 	}
 }
 
@@ -937,4 +1034,14 @@ func mustExecStockSQL(t *testing.T, ctx context.Context, pool *pgxpool.Pool, sql
 	if _, err := pool.Exec(ctx, sql); err != nil {
 		t.Fatalf("exec sql: %v", err)
 	}
+}
+
+func stockRepositoryFunctionBody(t *testing.T, src, startMarker, endMarker string) string {
+	t.Helper()
+	start := strings.Index(src, startMarker)
+	end := strings.Index(src, endMarker)
+	if start < 0 || end < 0 || end <= start {
+		t.Fatalf("function bounds not found: %q -> %q", startMarker, endMarker)
+	}
+	return src[start:end]
 }
