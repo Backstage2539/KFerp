@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -26,6 +27,7 @@ type productSettingsRepo struct {
 	deactivatedTemplate catalogapp.DeactivateGradientTemplateCommand
 	boundTemplate       catalogapp.BindCategoryGradientTemplateCommand
 	updated             catalogapp.UpdateProductBasicsCommand
+	updateErr           error
 	deactivated         catalogapp.DeactivateProductsCommand
 	createdPublic       catalogapp.CreateProductCommand
 	createdProduct      catalogapp.CreateCustomProductCommand
@@ -60,6 +62,9 @@ func (r *productSettingsRepo) ReplacePriceTiers(ctx context.Context, cmd catalog
 }
 
 func (r *productSettingsRepo) UpdateProductBasics(ctx context.Context, cmd catalogapp.UpdateProductBasicsCommand) error {
+	if r.updateErr != nil {
+		return r.updateErr
+	}
 	r.updated = cmd
 	r.productUpdated = true
 	return nil
@@ -363,6 +368,38 @@ func TestProductSettingsAPICreatesDripBagProduct(t *testing.T) {
 	}
 }
 
+func TestProductSettingsAPIDefaultsOmittedDripBagConfig(t *testing.T) {
+	repo := &productSettingsRepo{}
+	e := echo.New()
+	registerProductRoutes(e, catalogapp.NewService(repo))
+
+	body := `{"name":"耶加雪菲挂耳","product_kind":"drip_bag"}`
+	req := httptest.NewRequest(http.MethodPost, "/api/product-settings/products", bytes.NewBufferString(body))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("POST drip product with omitted config status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if !repo.publicCreated || repo.createdPublic.ProductKind != "drip_bag" || repo.createdPublic.DripBagGrams != 10 || repo.createdPublic.DripBoxBagCount != 10 {
+		t.Fatalf("omitted drip config command = %+v created=%v", repo.createdPublic, repo.publicCreated)
+	}
+	var payload struct {
+		Product struct {
+			DripBagGrams    float64  `json:"drip_bag_grams"`
+			DripBoxBagCount int      `json:"drip_box_bag_count"`
+			SalesUnits      []string `json:"sales_units"`
+		} `json:"product"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("decode product response: %v body=%s", err, rec.Body.String())
+	}
+	if payload.Product.DripBagGrams != 10 || payload.Product.DripBoxBagCount != 10 || !reflect.DeepEqual(payload.Product.SalesUnits, []string{"bag", "box"}) {
+		t.Fatalf("omitted drip config response = %+v body=%s", payload.Product, rec.Body.String())
+	}
+}
+
 func TestProductSettingsAPIRejectsExplicitZeroDripBagCreate(t *testing.T) {
 	cases := []struct {
 		name string
@@ -506,6 +543,27 @@ func TestProductSettingsAPIRejectsInvalidDripBagUpdate(t *testing.T) {
 	}
 	if !bytes.Contains(rec.Body.Bytes(), []byte("drip_bag_grams")) {
 		t.Fatalf("invalid drip response should mention drip_bag_grams: %s", rec.Body.String())
+	}
+}
+
+func TestProductSettingsAPIReturnsInternalErrorForProductUpdatePersistenceFailure(t *testing.T) {
+	repo := &productSettingsRepo{
+		products:  []catalogapp.Product{{ID: 7, Name: "曲奇拼配", RoastLevel: "中烘", YieldRate: 0.82}},
+		updateErr: errors.New("database unavailable"),
+	}
+	e := echo.New()
+	registerProductRoutes(e, catalogapp.NewService(repo))
+
+	req := httptest.NewRequest(http.MethodPut, "/api/products/7", bytes.NewBufferString(`{"roast_level":"中烘","yield_rate":0.835}`))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("PUT product persistence failure status=%d, want 500 body=%s", rec.Code, rec.Body.String())
+	}
+	if repo.productUpdated {
+		t.Fatalf("failed persistence should not mark product updated, command=%+v", repo.updated)
 	}
 }
 

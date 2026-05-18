@@ -58,3 +58,53 @@ func TestProductMarginOverridePersistsOnProducts(t *testing.T) {
 		}
 	}
 }
+
+func TestProductKindSchemaRepairsPartiallyCreatedColumns(t *testing.T) {
+	schema, err := os.ReadFile("schema.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := string(schema)
+	for _, want := range []string{
+		"UPDATE %[1]s.products SET product_kind='roasted_bean' WHERE COALESCE(product_kind,'')=''",
+		"UPDATE %[1]s.products SET drip_bag_grams = 10 WHERE drip_bag_grams IS NULL",
+		"UPDATE %[1]s.products SET drip_box_bag_count = 10 WHERE drip_box_bag_count IS NULL",
+		"UPDATE %[1]s.products SET allow_fulfillment_order = true WHERE allow_fulfillment_order IS NULL",
+		"UPDATE %[1]s.products SET allow_mall_order = false WHERE allow_mall_order IS NULL",
+		"ALTER TABLE %[1]s.products ALTER COLUMN product_kind SET DEFAULT 'roasted_bean'",
+		"ALTER TABLE %[1]s.products ALTER COLUMN drip_bag_grams SET DEFAULT 10",
+		"ALTER TABLE %[1]s.products ALTER COLUMN drip_box_bag_count SET DEFAULT 10",
+		"ALTER TABLE %[1]s.products ALTER COLUMN allow_fulfillment_order SET DEFAULT true",
+		"ALTER TABLE %[1]s.products ALTER COLUMN allow_mall_order SET DEFAULT false",
+		"ALTER TABLE %[1]s.products ALTER COLUMN product_kind SET NOT NULL",
+		"ALTER TABLE %[1]s.products ALTER COLUMN drip_bag_grams SET NOT NULL",
+		"ALTER TABLE %[1]s.products ALTER COLUMN drip_box_bag_count SET NOT NULL",
+		"ALTER TABLE %[1]s.products ALTER COLUMN allow_fulfillment_order SET NOT NULL",
+		"ALTER TABLE %[1]s.products ALTER COLUMN allow_mall_order SET NOT NULL",
+	} {
+		if !strings.Contains(src, want) {
+			t.Fatalf("schema missing product kind repair marker %q", want)
+		}
+	}
+}
+
+func TestCreateCustomProductCopiesDripProductMetadata(t *testing.T) {
+	repository, err := os.ReadFile("repository.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := string(repository)
+	for _, want := range []string{
+		"COALESCE(NULLIF(product_kind,''), 'roasted_bean')",
+		"COALESCE(drip_bag_grams,10)",
+		"COALESCE(drip_box_bag_count,10)",
+		"COALESCE(allow_fulfillment_order,true)",
+		"COALESCE(allow_mall_order,false)",
+		"product_kind, drip_bag_grams, drip_box_bag_count, allow_fulfillment_order, allow_mall_order,",
+		"base.ProductKind, base.DripBagGrams, base.DripBoxBagCount, base.AllowFulfillmentOrder, base.AllowMallOrder",
+	} {
+		if !strings.Contains(src, want) {
+			t.Fatalf("custom product drip metadata copy missing marker %q", want)
+		}
+	}
+}

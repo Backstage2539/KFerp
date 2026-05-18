@@ -680,12 +680,17 @@ func (r Repository) CreateCustomProduct(ctx context.Context, cmd catalogapp.Crea
 	}
 
 	var base struct {
-		Name            string
-		DefaultPrice    float64
-		RetailPrice100G float64
-		RetailPrice200G float64
-		RetailPrice227G float64
-		RetailPrice250G float64
+		Name                  string
+		DefaultPrice          float64
+		RetailPrice100G       float64
+		RetailPrice200G       float64
+		RetailPrice227G       float64
+		RetailPrice250G       float64
+		ProductKind           string
+		DripBagGrams          float64
+		DripBoxBagCount       int
+		AllowFulfillmentOrder bool
+		AllowMallOrder        bool
 	}
 	if err := tx.QueryRow(ctx, fmt.Sprintf(`
 		SELECT name,
@@ -693,10 +698,15 @@ func (r Repository) CreateCustomProduct(ctx context.Context, cmd catalogapp.Crea
 		       COALESCE(retail_price_100g,0),
 		       COALESCE(retail_price_200g,0),
 		       COALESCE(retail_price_227g,default_price,0),
-		       COALESCE(retail_price_250g,0)
+		       COALESCE(retail_price_250g,0),
+		       COALESCE(NULLIF(product_kind,''), 'roasted_bean'),
+		       COALESCE(drip_bag_grams,10),
+		       COALESCE(drip_box_bag_count,10),
+		       COALESCE(allow_fulfillment_order,true),
+		       COALESCE(allow_mall_order,false)
 		FROM %s.products
 		WHERE id=$1 AND active=true
-	`, r.schema), cmd.BaseProductID).Scan(&base.Name, &base.DefaultPrice, &base.RetailPrice100G, &base.RetailPrice200G, &base.RetailPrice227G, &base.RetailPrice250G); err != nil {
+	`, r.schema), cmd.BaseProductID).Scan(&base.Name, &base.DefaultPrice, &base.RetailPrice100G, &base.RetailPrice200G, &base.RetailPrice227G, &base.RetailPrice250G, &base.ProductKind, &base.DripBagGrams, &base.DripBoxBagCount, &base.AllowFulfillmentOrder, &base.AllowMallOrder); err != nil {
 		return catalogapp.Product{}, fmt.Errorf("base product not found")
 	}
 
@@ -708,12 +718,13 @@ func (r Repository) CreateCustomProduct(ctx context.Context, cmd catalogapp.Crea
 		INSERT INTO %s.products(
 			name, roast_level, default_price, active,
 			retail_price_100g, retail_price_200g, retail_price_227g, retail_price_250g,
+			product_kind, drip_bag_grams, drip_box_bag_count, allow_fulfillment_order, allow_mall_order,
 			product_category_id, product_category_position,
 			customer_id, base_product_id, visibility, custom_type, created_at
 		)
-		VALUES($1,$2,$3,true,$4,$5,$6,$7,NULLIF($8,0),$9,$10,$11,'customer_only',$12,now())
+		VALUES($1,$2,$3,true,$4,$5,$6,$7,$8,$9,$10,$11,$12,NULLIF($13,0),$14,$15,$16,'customer_only',$17,now())
 		RETURNING id
-	`, r.schema), name, roastLevel, base.DefaultPrice, base.RetailPrice100G, base.RetailPrice200G, base.RetailPrice227G, base.RetailPrice250G, 0, 0, cmd.CustomerID, cmd.BaseProductID, strings.TrimSpace(cmd.CustomType)).Scan(&productID); err != nil {
+	`, r.schema), name, roastLevel, base.DefaultPrice, base.RetailPrice100G, base.RetailPrice200G, base.RetailPrice227G, base.RetailPrice250G, base.ProductKind, base.DripBagGrams, base.DripBoxBagCount, base.AllowFulfillmentOrder, base.AllowMallOrder, 0, 0, cmd.CustomerID, cmd.BaseProductID, strings.TrimSpace(cmd.CustomType)).Scan(&productID); err != nil {
 		return catalogapp.Product{}, err
 	}
 
@@ -747,12 +758,17 @@ func (r Repository) CreateCustomProduct(ctx context.Context, cmd catalogapp.Crea
 		}
 	}
 	if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, cmd.Actor, "product", &productID, "create", postgresinfra.StrPtr("customer_custom_product"), nil, postgresinfra.StrPtr(name), postgresinfra.AuditMeta{
-		"customer_id":      cmd.CustomerID,
-		"base_product_id":  cmd.BaseProductID,
-		"roast_level":      roastLevel,
-		"custom_type":      strings.TrimSpace(cmd.CustomType),
-		"copy_bom":         cmd.CopyBOM,
-		"copy_price_tiers": cmd.CopyPriceTiers,
+		"customer_id":             cmd.CustomerID,
+		"base_product_id":         cmd.BaseProductID,
+		"roast_level":             roastLevel,
+		"custom_type":             strings.TrimSpace(cmd.CustomType),
+		"copy_bom":                cmd.CopyBOM,
+		"copy_price_tiers":        cmd.CopyPriceTiers,
+		"product_kind":            base.ProductKind,
+		"drip_bag_grams":          base.DripBagGrams,
+		"drip_box_bag_count":      base.DripBoxBagCount,
+		"allow_fulfillment_order": base.AllowFulfillmentOrder,
+		"allow_mall_order":        base.AllowMallOrder,
 	}); err != nil {
 		return catalogapp.Product{}, err
 	}

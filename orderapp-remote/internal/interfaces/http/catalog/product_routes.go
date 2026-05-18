@@ -221,7 +221,10 @@ func (h productHandler) updateAPI(c echo.Context) error {
 		YieldRate:             yieldRate,
 		MarginRateOverride:    marginRateOverride,
 	}); err != nil {
-		return c.JSON(http.StatusBadRequest, map[string]any{"error": err.Error()})
+		if catalogapp.IsValidationError(err) {
+			return c.JSON(http.StatusBadRequest, map[string]any{"error": err.Error()})
+		}
+		return c.JSON(http.StatusInternalServerError, map[string]any{"error": err.Error()})
 	}
 	p, err := h.catalog.GetProduct(c.Request().Context(), id)
 	if err != nil {
@@ -267,20 +270,21 @@ func (h productHandler) createProductAPI(c echo.Context) error {
 		allowMallOrder = *req.AllowMallOrder
 	}
 	product, err := h.catalog.CreateProduct(c.Request().Context(), catalogapp.CreateProductCommand{
-		Actor:                 support.ActorOf(c),
-		Name:                  req.Name,
-		RoastLevel:            roastLevel,
-		ProductKind:           productKind,
-		DripBagGrams:          dripBagGrams,
-		DripBoxBagCount:       dripBoxBagCount,
-		AllowFulfillmentOrder: allowFulfillmentOrder,
-		AllowMallOrder:        allowMallOrder,
-		DefaultPrice:          req.DefaultPrice,
-		RetailPrice100G:       req.RetailPrice100G,
-		RetailPrice200G:       req.RetailPrice200G,
-		RetailPrice227G:       req.RetailPrice227G,
-		RetailPrice250G:       req.RetailPrice250G,
-		YieldRate:             yieldRate,
+		Actor:                    support.ActorOf(c),
+		Name:                     req.Name,
+		RoastLevel:               roastLevel,
+		ProductKind:              productKind,
+		DripBagGrams:             dripBagGrams,
+		DripBoxBagCount:          dripBoxBagCount,
+		AllowFulfillmentOrder:    allowFulfillmentOrder,
+		AllowFulfillmentOrderSet: req.AllowFulfillmentOrder != nil,
+		AllowMallOrder:           allowMallOrder,
+		DefaultPrice:             req.DefaultPrice,
+		RetailPrice100G:          req.RetailPrice100G,
+		RetailPrice200G:          req.RetailPrice200G,
+		RetailPrice227G:          req.RetailPrice227G,
+		RetailPrice250G:          req.RetailPrice250G,
+		YieldRate:                yieldRate,
 	})
 	if err != nil {
 		return c.JSON(http.StatusBadRequest, map[string]any{"error": err.Error()})

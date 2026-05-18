@@ -143,3 +143,22 @@ func TestCreateCustomProductAcceptsPublicSKUAliasType(t *testing.T) {
 		t.Fatalf("custom product=%+v", got)
 	}
 }
+
+func TestCreateProductDefaultsAllowFulfillmentOrderAtServiceBoundary(t *testing.T) {
+	repo := &fakeRepo{}
+	svc := NewService(repo)
+
+	if _, err := svc.CreateProduct(context.Background(), CreateProductCommand{Name: "默认履约", RoastLevel: "中烘"}); err != nil {
+		t.Fatalf("CreateProduct() err=%v", err)
+	}
+	if !repo.create.AllowFulfillmentOrder {
+		t.Fatalf("CreateProductCommand should default allow fulfillment to true: %+v", repo.create)
+	}
+
+	if _, err := svc.CreateProduct(context.Background(), CreateProductCommand{Name: "禁止履约", RoastLevel: "中烘", AllowFulfillmentOrder: false, AllowFulfillmentOrderSet: true}); err != nil {
+		t.Fatalf("CreateProduct(explicit false) err=%v", err)
+	}
+	if repo.create.AllowFulfillmentOrder {
+		t.Fatalf("explicit allow fulfillment false should be preserved: %+v", repo.create)
+	}
+}

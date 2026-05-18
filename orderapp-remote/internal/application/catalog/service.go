@@ -2,6 +2,7 @@ package catalog
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"math"
 	catalogdomain "orderapp/internal/domain/catalog"
@@ -146,21 +147,22 @@ type UpdateProductBasicsCommand struct {
 }
 
 type CreateProductCommand struct {
-	Actor                 string
-	Name                  string
-	RoastLevel            string
-	ProductKind           string
-	DripBagGrams          float64
-	DripBoxBagCount       int
-	AllowFulfillmentOrder bool
-	AllowMallOrder        bool
-	SalesUnits            []string
-	DefaultPrice          float64
-	RetailPrice100G       float64
-	RetailPrice200G       float64
-	RetailPrice227G       float64
-	RetailPrice250G       float64
-	YieldRate             float64
+	Actor                    string
+	Name                     string
+	RoastLevel               string
+	ProductKind              string
+	DripBagGrams             float64
+	DripBoxBagCount          int
+	AllowFulfillmentOrder    bool
+	AllowFulfillmentOrderSet bool
+	AllowMallOrder           bool
+	SalesUnits               []string
+	DefaultPrice             float64
+	RetailPrice100G          float64
+	RetailPrice200G          float64
+	RetailPrice227G          float64
+	RetailPrice250G          float64
+	YieldRate                float64
 }
 
 type DeactivateProductsCommand struct {
@@ -249,6 +251,19 @@ type Service struct {
 	repo Repository
 }
 
+type ValidationError struct {
+	Message string
+}
+
+func (e ValidationError) Error() string {
+	return e.Message
+}
+
+func IsValidationError(err error) bool {
+	var validationErr ValidationError
+	return errors.As(err, &validationErr)
+}
+
 func NewService(repo Repository) *Service {
 	return &Service{repo: repo}
 }
@@ -301,6 +316,9 @@ func (s *Service) CreateProduct(ctx context.Context, cmd CreateProductCommand) (
 	cmd.ProductKind, cmd.DripBagGrams, cmd.DripBoxBagCount, cmd.SalesUnits, err = normalizeProductKindSettings(cmd.ProductKind, cmd.DripBagGrams, cmd.DripBoxBagCount)
 	if err != nil {
 		return Product{}, err
+	}
+	if !cmd.AllowFulfillmentOrderSet {
+		cmd.AllowFulfillmentOrder = true
 	}
 	cmd.RoastLevel = catalogdomain.NormalizeRoastLevel(cmd.RoastLevel)
 	if cmd.RoastLevel == "" {
@@ -594,10 +612,10 @@ func normalizeProductKindSettings(productKind string, dripBagGrams float64, drip
 		dripBoxBagCount = 10
 	}
 	if dripBagGrams <= 0 {
-		return productKind, dripBagGrams, dripBoxBagCount, nil, fmt.Errorf("drip_bag_grams must be > 0")
+		return productKind, dripBagGrams, dripBoxBagCount, nil, ValidationError{Message: "drip_bag_grams must be > 0"}
 	}
 	if dripBoxBagCount <= 0 {
-		return productKind, dripBagGrams, dripBoxBagCount, nil, fmt.Errorf("drip_box_bag_count must be > 0")
+		return productKind, dripBagGrams, dripBoxBagCount, nil, ValidationError{Message: "drip_box_bag_count must be > 0"}
 	}
 	return productKind, dripBagGrams, dripBoxBagCount, []string{"bag", "box"}, nil
 }
