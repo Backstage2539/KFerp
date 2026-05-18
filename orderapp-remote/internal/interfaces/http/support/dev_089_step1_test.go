@@ -337,7 +337,7 @@ func TestProductSettingsVueWiringAndLegacyTierEditorRemoval(t *testing.T) {
 	for _, want := range []string{
 		"ProductSettingsView",
 		"productSettings",
-		"产品设置",
+		"SKU设置",
 		"CostingView",
 		"dragstart",
 		"drop",
@@ -356,7 +356,7 @@ func TestProductSettingsVueWiringAndLegacyTierEditorRemoval(t *testing.T) {
 		t.Fatalf("legacy product archive page should be removed, stat err=%v", err)
 	}
 	if strings.Contains(string(menu), "label: '商品档案'") || strings.Contains(string(menu), "label: '成本核算'") {
-		t.Fatalf("primary product menu should expose 产品设置 instead of 商品档案/成本核算")
+		t.Fatalf("primary product menu should expose SKU设置 instead of 商品档案/成本核算")
 	}
 }
 

@@ -13,7 +13,7 @@ test('costing view exposes bean-list publication versions before pricing trial',
 
   assert.ok(versionListIndex > -1, 'missing visible bean-list version list section')
   assert.ok(pricingIndex > -1, 'missing pricing trial section')
-  assert.ok(versionListIndex < pricingIndex, 'bean-list version list should be shown in 产品设置 -> 价格与豆单 before 价格试算')
+  assert.ok(versionListIndex < pricingIndex, 'bean-list version list should be shown in 产品豆单 before 价格试算')
 
   for (const expected of [
     'v-model="publicationScope"',

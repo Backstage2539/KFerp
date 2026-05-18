@@ -110,7 +110,7 @@ func TestGreenBeanSalesWiringAndManuals(t *testing.T) {
 		},
 		{
 			path: "orderapp-remote/docs/OP_MANUAL_GREEN_BEAN_SALES.md",
-			want: []string{"生豆销售", "绑定熟豆 BOM", "生豆豆单", "最新通过生产质检", "小程序"},
+			want: []string{"生豆销售", "SKU设置", "绑定熟豆 BOM", "生豆豆单", "最新通过生产质检", "小程序"},
 		},
 		{
 			path: "orderapp-remote/docs/OP_MANUAL_INVENTORY_MATERIALS.md",

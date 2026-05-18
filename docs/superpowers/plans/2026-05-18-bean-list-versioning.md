@@ -76,7 +76,7 @@
 - [ ] Write failing unit tests for default version selection and unacknowledged update prompt state.
 - [ ] Add customer bean list version selector in customer portal settings.
 - [ ] Add order-entry version selector and update-confirmation dialog.
-- [ ] Expose the bean list publication version list directly in 产品设置 -> 价格与豆单, with filters for official/mine/customer and commercial/retail/green versions.
+- [ ] Expose the bean list publication version list directly in 产品豆单, with filters for official/mine/customer and commercial/retail/green versions.
 - [ ] Ensure customer without owned bean list sees no fixed-version selector.
 
 ### Task 6: Miniapp Cache And Prompt
