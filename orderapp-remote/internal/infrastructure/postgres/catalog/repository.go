@@ -53,14 +53,23 @@ func (r Repository) ReplacePriceTiers(ctx context.Context, cmd catalogapp.Replac
 
 	productKind := catalogdomain.NormalizeProductKind(cmd.ProductKind)
 	roastLevel := catalogdomain.NormalizeRoastLevel(cmd.RoastLevel)
+	greenBeanType := strings.TrimSpace(cmd.GreenBeanType)
+	greenBeanBomProductID := cmd.GreenBeanBomProductID
 	if productKind == catalogdomain.ProductKindGreenBean {
 		roastLevel = ""
+		if greenBeanType == "" {
+			greenBeanType = "single_origin"
+		}
+	} else {
+		greenBeanType = ""
+		greenBeanBomProductID = 0
 	}
 	yieldRate := catalogdomain.ResolveYieldRate(roastLevel, 0.8)
 	if _, err := tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.products
 		SET product_kind=$2, roast_level=$3, default_price=$4,
-		    retail_price_100g=$5, retail_price_200g=$6, retail_price_227g=$7, retail_price_250g=$8
-		WHERE id=$1`, r.schema), cmd.ProductID, productKind, roastLevel, cmd.DefaultPrice, cmd.RetailPrice100G, cmd.RetailPrice200G, cmd.RetailPrice227G, cmd.RetailPrice250G); err != nil {
+		    retail_price_100g=$5, retail_price_200g=$6, retail_price_227g=$7, retail_price_250g=$8,
+		    green_bean_type=$9, green_bean_bom_product_id=$10
+		WHERE id=$1`, r.schema), cmd.ProductID, productKind, roastLevel, cmd.DefaultPrice, cmd.RetailPrice100G, cmd.RetailPrice200G, cmd.RetailPrice227G, cmd.RetailPrice250G, greenBeanType, greenBeanBomProductID); err != nil {
 		return err
 	}
 	if productKind == catalogdomain.ProductKindRoasted {
@@ -105,6 +114,8 @@ func (r Repository) ReplacePriceTiers(ctx context.Context, cmd catalogapp.Replac
 		"retail_price_200g": cmd.RetailPrice200G,
 		"retail_price_227g": cmd.RetailPrice227G,
 		"retail_price_250g": cmd.RetailPrice250G,
+		"green_bean_type":   greenBeanType,
+		"green_bean_bom":    greenBeanBomProductID,
 	})
 	return nil
 }
@@ -112,8 +123,16 @@ func (r Repository) ReplacePriceTiers(ctx context.Context, cmd catalogapp.Replac
 func (r Repository) UpdateProductBasics(ctx context.Context, cmd catalogapp.UpdateProductBasicsCommand) error {
 	productKind := catalogdomain.NormalizeProductKind(cmd.ProductKind)
 	roastLevel := catalogdomain.NormalizeRoastLevel(cmd.RoastLevel)
+	greenBeanType := strings.TrimSpace(cmd.GreenBeanType)
+	greenBeanBomProductID := cmd.GreenBeanBomProductID
 	if productKind == catalogdomain.ProductKindGreenBean {
 		roastLevel = ""
+		if greenBeanType == "" {
+			greenBeanType = "single_origin"
+		}
+	} else {
+		greenBeanType = ""
+		greenBeanBomProductID = 0
 	}
 	yieldRate := catalogdomain.ResolveYieldRate(roastLevel, 0.8)
 	if cmd.YieldRate > 0 {
@@ -132,8 +151,8 @@ func (r Repository) UpdateProductBasics(ctx context.Context, cmd catalogapp.Upda
 	if _, err := tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.products
 		SET product_kind=$2, roast_level=$3, default_price=$4,
 		    retail_price_100g=$5, retail_price_200g=$6, retail_price_227g=$7, retail_price_250g=$8,
-		    margin_rate_override=$9
-		WHERE id=$1`, r.schema), cmd.ProductID, productKind, roastLevel, cmd.DefaultPrice, cmd.RetailPrice100G, cmd.RetailPrice200G, cmd.RetailPrice227G, cmd.RetailPrice250G, cmd.MarginRateOverride); err != nil {
+		    margin_rate_override=$9, green_bean_type=$10, green_bean_bom_product_id=$11
+		WHERE id=$1`, r.schema), cmd.ProductID, productKind, roastLevel, cmd.DefaultPrice, cmd.RetailPrice100G, cmd.RetailPrice200G, cmd.RetailPrice227G, cmd.RetailPrice250G, cmd.MarginRateOverride, greenBeanType, greenBeanBomProductID); err != nil {
 		return err
 	}
 	if productKind == catalogdomain.ProductKindRoasted {
@@ -156,6 +175,8 @@ func (r Repository) UpdateProductBasics(ctx context.Context, cmd catalogapp.Upda
 		"retail_price_227g":    cmd.RetailPrice227G,
 		"retail_price_250g":    cmd.RetailPrice250G,
 		"margin_rate_override": cmd.MarginRateOverride,
+		"green_bean_type":      greenBeanType,
+		"green_bean_bom":       greenBeanBomProductID,
 	})
 	return nil
 }
@@ -192,8 +213,16 @@ func (r Repository) DeactivateProducts(ctx context.Context, cmd catalogapp.Deact
 func (r Repository) CreateProduct(ctx context.Context, cmd catalogapp.CreateProductCommand) (catalogapp.Product, error) {
 	productKind := catalogdomain.NormalizeProductKind(cmd.ProductKind)
 	roastLevel := catalogdomain.NormalizeRoastLevel(cmd.RoastLevel)
+	greenBeanType := strings.TrimSpace(cmd.GreenBeanType)
+	greenBeanBomProductID := cmd.GreenBeanBomProductID
 	if productKind == catalogdomain.ProductKindGreenBean {
 		roastLevel = ""
+		if greenBeanType == "" {
+			greenBeanType = "single_origin"
+		}
+	} else {
+		greenBeanType = ""
+		greenBeanBomProductID = 0
 	}
 	yieldRate := cmd.YieldRate
 	if productKind == catalogdomain.ProductKindRoasted && yieldRate <= 0 {
@@ -217,11 +246,11 @@ func (r Repository) CreateProduct(ctx context.Context, cmd catalogapp.CreateProd
 		INSERT INTO %s.products(
 			name, product_kind, roast_level, default_price, active,
 			retail_price_100g, retail_price_200g, retail_price_227g, retail_price_250g,
-			customer_id, base_product_id, visibility, custom_type, created_at
+			customer_id, base_product_id, visibility, custom_type, green_bean_type, green_bean_bom_product_id, created_at
 		)
-		VALUES($1,$2,$3,$4,true,$5,$6,$7,$8,0,0,'public','',now())
+		VALUES($1,$2,$3,$4,true,$5,$6,$7,$8,0,0,'public','',$9,$10,now())
 		RETURNING id
-	`, r.schema), name, productKind, roastLevel, cmd.DefaultPrice, cmd.RetailPrice100G, cmd.RetailPrice200G, cmd.RetailPrice227G, cmd.RetailPrice250G).Scan(&productID); err != nil {
+	`, r.schema), name, productKind, roastLevel, cmd.DefaultPrice, cmd.RetailPrice100G, cmd.RetailPrice200G, cmd.RetailPrice227G, cmd.RetailPrice250G, greenBeanType, greenBeanBomProductID).Scan(&productID); err != nil {
 		return catalogapp.Product{}, err
 	}
 
@@ -249,6 +278,8 @@ func (r Repository) CreateProduct(ctx context.Context, cmd catalogapp.CreateProd
 		"retail_price_200g": cmd.RetailPrice200G,
 		"retail_price_227g": cmd.RetailPrice227G,
 		"retail_price_250g": cmd.RetailPrice250G,
+		"green_bean_type":   greenBeanType,
+		"green_bean_bom":    greenBeanBomProductID,
 	}); err != nil {
 		return catalogapp.Product{}, err
 	}
@@ -832,7 +863,10 @@ func fetchProductByID(ctx context.Context, pool *pgxpool.Pool, schema string, id
 		}
 	}
 	var p postgresinfra.ProductOption
-	err = pool.QueryRow(ctx, fmt.Sprintf(`SELECT id, name, COALESCE(NULLIF(product_kind,''),'roasted'), COALESCE(roast_level,''), default_price,
+	err = pool.QueryRow(ctx, fmt.Sprintf(`SELECT id, name, COALESCE(NULLIF(product_kind,''),'roasted'),
+		COALESCE(NULLIF(green_bean_type,''), CASE WHEN COALESCE(NULLIF(product_kind,''),'roasted')='green_bean' THEN 'single_origin' ELSE '' END),
+		COALESCE(green_bean_bom_product_id,0),
+		COALESCE(roast_level,''), default_price,
 		COALESCE(retail_price_100g, 0), COALESCE(retail_price_200g, 0),
 		COALESCE(retail_price_227g, default_price, 0), COALESCE(retail_price_250g, 0),
 		COALESCE((SELECT yield_rate FROM %[1]s.product_bom WHERE product_id=products.id), 0.8),
@@ -842,7 +876,7 @@ func fetchProductByID(ctx context.Context, pool *pgxpool.Pool, schema string, id
 		margin_rate_override::float8,
 		COALESCE((SELECT COUNT(*) FROM %[1]s.product_bom_items bi WHERE bi.product_id=products.id),0),
 		COALESCE((SELECT NULLIF(status,'') FROM %[1]s.product_bom WHERE product_id=products.id), 'missing')
-		FROM %[1]s.products WHERE id=$1`, schema), id).Scan(&p.ID, &p.Name, &p.ProductKind, &p.RoastLevel, &p.DefaultPrice, &p.RetailPrice100G, &p.RetailPrice200G, &p.RetailPrice227G, &p.RetailPrice250G, &p.YieldRate, &p.ProductCategoryID, &p.ProductCategoryPosition, &p.CustomerID, &p.BaseProductID, &p.Visibility, &p.CustomType, &p.MarginRateOverride, &p.BomItemCount, &p.BomStatus)
+		FROM %[1]s.products WHERE id=$1`, schema), id).Scan(&p.ID, &p.Name, &p.ProductKind, &p.GreenBeanType, &p.GreenBeanBomProductID, &p.RoastLevel, &p.DefaultPrice, &p.RetailPrice100G, &p.RetailPrice200G, &p.RetailPrice227G, &p.RetailPrice250G, &p.YieldRate, &p.ProductCategoryID, &p.ProductCategoryPosition, &p.CustomerID, &p.BaseProductID, &p.Visibility, &p.CustomType, &p.MarginRateOverride, &p.BomItemCount, &p.BomStatus)
 	if err != nil {
 		return nil, nil
 	}
@@ -850,7 +884,7 @@ func fetchProductByID(ctx context.Context, pool *pgxpool.Pool, schema string, id
 }
 
 func catalogProductFromOption(p postgresinfra.ProductOption) catalogapp.Product {
-	out := catalogapp.Product{ID: p.ID, Name: p.Name, ProductKind: p.ProductKind, RoastLevel: p.RoastLevel, DefaultPrice: p.DefaultPrice, RetailPrice100G: p.RetailPrice100G, RetailPrice200G: p.RetailPrice200G, RetailPrice227G: p.RetailPrice227G, RetailPrice250G: p.RetailPrice250G, YieldRate: p.YieldRate, ProductCategoryID: p.ProductCategoryID, ProductCategoryPosition: p.ProductCategoryPosition, CustomerID: p.CustomerID, BaseProductID: p.BaseProductID, Visibility: p.Visibility, CustomType: p.CustomType, MarginRateOverride: p.MarginRateOverride, BomItemCount: p.BomItemCount, BomStatus: p.BomStatus}
+	out := catalogapp.Product{ID: p.ID, Name: p.Name, ProductKind: p.ProductKind, GreenBeanType: p.GreenBeanType, GreenBeanBomProductID: p.GreenBeanBomProductID, RoastLevel: p.RoastLevel, DefaultPrice: p.DefaultPrice, RetailPrice100G: p.RetailPrice100G, RetailPrice200G: p.RetailPrice200G, RetailPrice227G: p.RetailPrice227G, RetailPrice250G: p.RetailPrice250G, YieldRate: p.YieldRate, ProductCategoryID: p.ProductCategoryID, ProductCategoryPosition: p.ProductCategoryPosition, CustomerID: p.CustomerID, BaseProductID: p.BaseProductID, Visibility: p.Visibility, CustomType: p.CustomType, MarginRateOverride: p.MarginRateOverride, BomItemCount: p.BomItemCount, BomStatus: p.BomStatus}
 	out.Tiers = make([]catalogapp.PriceTier, 0, len(p.Tiers))
 	for _, t := range p.Tiers {
 		out.Tiers = append(out.Tiers, catalogapp.PriceTier{ID: t.ID, SpecG: t.SpecG, MinQty: t.MinQty, MaxQty: t.MaxQty, UnitPrice: t.UnitPrice})
