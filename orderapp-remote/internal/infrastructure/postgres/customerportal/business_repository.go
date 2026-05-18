@@ -11,6 +11,7 @@ import (
 	"time"
 
 	customerportalapp "orderapp/internal/application/customerportal"
+	"orderapp/internal/infrastructure/postgres/orderbeans"
 
 	"github.com/jackc/pgx/v5"
 )
@@ -729,7 +730,9 @@ func (r Repository) listCustomerOrderItems(ctx context.Context, orderIDs []int64
 		       to_char(COALESCE(oi.qty,0), 'FM999999990.##'),
 		       COALESCE(oi.unit,''),
 		       to_char(COALESCE(oi.unit_price,0), 'FM999999990.00'),
-		       to_char(COALESCE(oi.line_total,0), 'FM999999990.00')
+		       to_char(COALESCE(oi.line_total,0), 'FM999999990.00'),
+		       COALESCE(oi.bean_list_publication_id,0),
+		       COALESCE(oi.bean_list_version_no,'')
 		FROM %s.order_items oi
 		WHERE oi.order_id IN (`+strings.Join(placeholders, ",")+`)
 		ORDER BY oi.order_id, oi.line_no, oi.id
@@ -741,7 +744,7 @@ func (r Repository) listCustomerOrderItems(ctx context.Context, orderIDs []int64
 	for rows.Next() {
 		var orderID int64
 		var row customerportalapp.CustomerOrderItemSummary
-		if err := rows.Scan(&orderID, &row.ID, &row.ItemName, &row.Spec, &row.Qty, &row.Unit, &row.UnitPrice, &row.LineTotal); err != nil {
+		if err := rows.Scan(&orderID, &row.ID, &row.ItemName, &row.Spec, &row.Qty, &row.Unit, &row.UnitPrice, &row.LineTotal, &row.BeanListPublicationID, &row.BeanListVersionNo); err != nil {
 			return nil, err
 		}
 		out[orderID] = append(out[orderID], row)
@@ -1117,10 +1120,14 @@ func (r Repository) CreateMallOrder(ctx context.Context, cmd customerportalapp.C
 	for i, item := range cmd.Items {
 		line := linesByMallProduct[item.MallProductID]
 		lineTotal := line.UnitPrice * float64(item.Qty)
+		usage, err := orderbeans.ResolveUsage(ctx, tx, r.schema, cmd.CustomerID, line.ProductID, orderbeans.ListTypeRetail)
+		if err != nil {
+			return customerportalapp.FulfillmentOrder{}, err
+		}
 		if _, err := tx.Exec(ctx, fmt.Sprintf(`
-			INSERT INTO %s.order_items(order_id,line_no,product_id,item_name,qty,unit,spec,unit_price,line_total)
-			VALUES($1,$2,$3,$4,$5,'件',$6,$7,$8)
-		`, r.schema), orderID, i+1, line.ProductID, line.Title, item.Qty, fmt.Sprintf("%dg", line.SpecG), line.UnitPrice, lineTotal); err != nil {
+			INSERT INTO %s.order_items(order_id,line_no,product_id,bean_list_publication_id,bean_list_version_no,item_name,qty,unit,spec,unit_price,line_total)
+			VALUES($1,$2,$3,NULLIF($4,0),$5,$6,$7,'件',$8,$9,$10)
+		`, r.schema), orderID, i+1, line.ProductID, usage.PublicationID, usage.VersionNo, line.Title, item.Qty, fmt.Sprintf("%dg", line.SpecG), line.UnitPrice, lineTotal); err != nil {
 			return customerportalapp.FulfillmentOrder{}, err
 		}
 	}
@@ -1230,10 +1237,14 @@ func (r Repository) CreateFulfillmentOrder(ctx context.Context, cmd customerport
 	).Scan(&orderID); err != nil {
 		return customerportalapp.FulfillmentOrder{}, err
 	}
+	usage, err := orderbeans.ResolveUsage(ctx, tx, r.schema, cmd.CustomerID, cmd.ProductID, orderbeans.ListTypeCommercial)
+	if err != nil {
+		return customerportalapp.FulfillmentOrder{}, err
+	}
 	if _, err := tx.Exec(ctx, fmt.Sprintf(`
-		INSERT INTO %s.order_items(order_id,line_no,product_id,item_name,qty,unit,spec,unit_price,line_total)
-		VALUES($1,1,$2,$3,$4,'件',$5,$6,$7)
-	`, r.schema), orderID, cmd.ProductID, productName, cmd.Qty, fmt.Sprintf("%dg", cmd.SpecG), unitPrice, totalAmount); err != nil {
+		INSERT INTO %s.order_items(order_id,line_no,product_id,bean_list_publication_id,bean_list_version_no,item_name,qty,unit,spec,unit_price,line_total)
+		VALUES($1,1,$2,NULLIF($3,0),$4,$5,$6,'件',$7,$8,$9)
+	`, r.schema), orderID, cmd.ProductID, usage.PublicationID, usage.VersionNo, productName, cmd.Qty, fmt.Sprintf("%dg", cmd.SpecG), unitPrice, totalAmount); err != nil {
 		return customerportalapp.FulfillmentOrder{}, err
 	}
 	if err := tx.Commit(ctx); err != nil {

@@ -311,13 +311,15 @@ type CustomerOrderSummary struct {
 }
 
 type CustomerOrderItemSummary struct {
-	ID        int64  `json:"id"`
-	ItemName  string `json:"item_name"`
-	Spec      string `json:"spec"`
-	Qty       string `json:"qty"`
-	Unit      string `json:"unit"`
-	UnitPrice string `json:"unit_price"`
-	LineTotal string `json:"line_total"`
+	ID                    int64  `json:"id"`
+	ItemName              string `json:"item_name"`
+	Spec                  string `json:"spec"`
+	Qty                   string `json:"qty"`
+	Unit                  string `json:"unit"`
+	UnitPrice             string `json:"unit_price"`
+	LineTotal             string `json:"line_total"`
+	BeanListPublicationID int64  `json:"bean_list_publication_id"`
+	BeanListVersionNo     string `json:"bean_list_version_no"`
 }
 
 type DirectShipBatch struct {

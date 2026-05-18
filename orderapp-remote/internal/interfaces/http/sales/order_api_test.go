@@ -893,6 +893,8 @@ func TestOrderAPIDetailAllowsCustomerWorkbenchBoundOrder(t *testing.T) {
 		`"edit_mode":true`,
 		`"receiver_name":"李四"`,
 		`"receiver_phone":"13800000002"`,
+		`"bean_list_publication_id":7`,
+		`"bean_list_version_no":"V3.0.8"`,
 	} {
 		if !strings.Contains(body, needle) {
 			t.Fatalf("GET /api/orders/88/detail missing %s: %s", needle, body)
@@ -1111,6 +1113,18 @@ func (r *capturingOrderDetailRepo) OrderForm(ctx context.Context, editID int64) 
 			ReceiverPhone:   "13800000002",
 			ReceiverAddress: "杭州市测试路2号",
 			GrandTotal:      "88.00",
+			Items: []salesapp.OrderEditItem{{
+				ItemID:                901,
+				ProductID:             12,
+				Product:               "兰卡拼配",
+				Spec:                  "1000g",
+				Qty:                   "2",
+				Unit:                  "件",
+				UnitPrice:             "82.00",
+				LineTotal:             "164.00",
+				BeanListPublicationID: 7,
+				BeanListVersionNo:     "V3.0.8",
+			}},
 		},
 	}, nil
 }

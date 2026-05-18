@@ -239,20 +239,22 @@ type OrderFormData struct {
 }
 
 type OrderEditItem struct {
-	ItemID         int64
-	LineNo         int
-	ProductID      int64
-	Product        string
-	Note           string
-	Spec           string
-	Qty            string
-	Unit           string
-	UnitPrice      string
-	LineTotal      string
-	PriceTierID    int64
-	DiscountType   string
-	DiscountValue  string
-	DiscountAmount string
+	ItemID                int64
+	LineNo                int
+	ProductID             int64
+	Product               string
+	Note                  string
+	Spec                  string
+	Qty                   string
+	Unit                  string
+	UnitPrice             string
+	LineTotal             string
+	PriceTierID           int64
+	BeanListPublicationID int64
+	BeanListVersionNo     string
+	DiscountType          string
+	DiscountValue         string
+	DiscountAmount        string
 }
 
 type OrderEditData struct {

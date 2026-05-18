@@ -232,6 +232,7 @@
             <span>小计</span>
             <strong>{{ money(rowTotal(row)) }}</strong>
             <small>{{ row.manual_price ? '手动价' : autoPriceLabel(row) }}</small>
+            <small v-if="row.product_id">豆单版本：{{ row.bean_list_version_no || '未记录' }}</small>
           </div>
 
           <button class="secondary danger" type="button" @click="removeRow(idx)" :disabled="rows.length === 1">删除</button>
@@ -443,6 +444,8 @@ function newRow() {
     product_id: 0,
     product_name: '',
     tier_id: 'auto',
+    bean_list_publication_id: 0,
+    bean_list_version_no: '',
     unit_price: '',
     manual_price: false,
     spec_mode: '',
@@ -778,6 +781,8 @@ function applyEditData(data) {
       product_name: item.product_name || '',
       product_query: item.product_name || '',
       tier_id: item.tier_id || 'auto',
+      bean_list_publication_id: Number(item.bean_list_publication_id || 0),
+      bean_list_version_no: item.bean_list_version_no || '',
       unit_price: item.unit_price || '',
       manual_price: item.tier_id === 'manual',
       spec_mode: shouldUseCustomSpec ? CUSTOM_SPEC_VALUE : spec,

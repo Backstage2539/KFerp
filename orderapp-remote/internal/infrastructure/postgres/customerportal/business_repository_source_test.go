@@ -157,7 +157,7 @@ func TestBusinessRepositoryCreatesMallOrdersFromPublishedMallProducts(t *testing
 		"PortalServiceMall",
 		"created_by_mini_user_id",
 		"status='published'",
-		"line_no,product_id,item_name,qty,unit,spec,unit_price,line_total",
+		"line_no,product_id,bean_list_publication_id,bean_list_version_no,item_name,qty,unit,spec,unit_price,line_total",
 	} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("mall order repository missing %q", want)

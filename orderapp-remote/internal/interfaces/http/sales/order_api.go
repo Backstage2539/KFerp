@@ -600,17 +600,19 @@ func productVisibilityForAPI(visibility string, customerID int64) string {
 
 func editDataForAPI(ed *OrderEditData) map[string]any {
 	type editItem struct {
-		ProductID      int64  `json:"product_id"`
-		ProductName    string `json:"product_name"`
-		Note           string `json:"note"`
-		TierID         string `json:"tier_id"`
-		UnitPrice      string `json:"unit_price"`
-		Qty            string `json:"qty"`
-		Unit           string `json:"unit"`
-		Spec           string `json:"spec"`
-		DiscountType   string `json:"discount_type"`
-		DiscountValue  string `json:"discount_value"`
-		DiscountAmount string `json:"discount_amount"`
+		ProductID             int64  `json:"product_id"`
+		ProductName           string `json:"product_name"`
+		Note                  string `json:"note"`
+		TierID                string `json:"tier_id"`
+		BeanListPublicationID int64  `json:"bean_list_publication_id"`
+		BeanListVersionNo     string `json:"bean_list_version_no"`
+		UnitPrice             string `json:"unit_price"`
+		Qty                   string `json:"qty"`
+		Unit                  string `json:"unit"`
+		Spec                  string `json:"spec"`
+		DiscountType          string `json:"discount_type"`
+		DiscountValue         string `json:"discount_value"`
+		DiscountAmount        string `json:"discount_amount"`
 	}
 	items := make([]editItem, 0, len(ed.Items))
 	for _, it := range ed.Items {
@@ -620,17 +622,19 @@ func editDataForAPI(ed *OrderEditData) map[string]any {
 			tierID = strconv.FormatInt(it.PriceTierID, 10)
 		}
 		items = append(items, editItem{
-			ProductID:      it.ProductID,
-			ProductName:    it.Product,
-			Note:           it.Note,
-			TierID:         tierID,
-			UnitPrice:      it.UnitPrice,
-			Qty:            it.Qty,
-			Unit:           it.Unit,
-			Spec:           spec,
-			DiscountType:   it.DiscountType,
-			DiscountValue:  it.DiscountValue,
-			DiscountAmount: it.DiscountAmount,
+			ProductID:             it.ProductID,
+			ProductName:           it.Product,
+			Note:                  it.Note,
+			TierID:                tierID,
+			BeanListPublicationID: it.BeanListPublicationID,
+			BeanListVersionNo:     it.BeanListVersionNo,
+			UnitPrice:             it.UnitPrice,
+			Qty:                   it.Qty,
+			Unit:                  it.Unit,
+			Spec:                  spec,
+			DiscountType:          it.DiscountType,
+			DiscountValue:         it.DiscountValue,
+			DiscountAmount:        it.DiscountAmount,
 		})
 	}
 	return map[string]any{
