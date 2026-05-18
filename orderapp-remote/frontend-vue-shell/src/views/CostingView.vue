@@ -277,7 +277,7 @@
             <small>{{ step.source }}</small>
           </div>
         </div>
-        <p class="muted">{{ isDripExplanation ? '挂耳价格来源只展示当前公式步骤；交易价格仍需发布价格或豆单后生效。' : '价格来源只展示当前公式步骤；需要调整源参数时回到对应设置页保存。' }}</p>
+        <p class="muted">{{ isDripExplanation ? '挂耳价格来源只展示当前公式步骤；交易价格仍需发布豆单后生效。' : '价格来源只展示当前公式步骤；需要调整源参数时回到对应设置页保存。' }}</p>
       </aside>
     </div>
 

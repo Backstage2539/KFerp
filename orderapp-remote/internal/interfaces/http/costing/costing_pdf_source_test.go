@@ -95,7 +95,6 @@ func TestCostingViewSupportsConfigurableBeanListPublishingWorkflow(t *testing.T)
 	}
 	src := string(view) + "\n" + string(helper)
 	for _, want := range []string{
-		"pricingCollapsed",
 		"bean-list-generate-bar",
 		"categoryProductGroups",
 		"selectedProductIDs",
@@ -155,6 +154,11 @@ func TestCostingViewSupportsConfigurableBeanListPublishingWorkflow(t *testing.T)
 		}
 	}
 	for _, forbidden := range []string{
+		"pricingCollapsed",
+		"价格试算",
+		"保存试算",
+		"发布价格",
+		"试算批次",
 		"redPriceLabels",
 		"标红价格档",
 		"可填 55/包",
