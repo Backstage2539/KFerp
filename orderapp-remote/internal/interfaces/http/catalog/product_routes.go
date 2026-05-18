@@ -21,6 +21,10 @@ func registerProductRoutes(e *echo.Echo, catalogSvc *catalogapp.Service) {
 	e.PUT("/api/products/:id", h.updateAPI)
 	e.GET("/api/product-settings", h.productSettingsAPI)
 	e.GET("/api/product-settings/categories", h.productCategoriesAPI)
+	e.GET("/api/pricing-gradient-templates", h.gradientTemplatesAPI)
+	e.POST("/api/pricing-gradient-templates", h.saveGradientTemplateAPI)
+	e.PUT("/api/pricing-gradient-templates/:id", h.saveGradientTemplateAPI)
+	e.POST("/api/pricing-gradient-templates/:id/deactivate", h.deactivateGradientTemplateAPI)
 	e.POST("/api/product-settings/products", h.createProductAPI)
 	e.POST("/api/product-settings/products/deactivate", h.deactivateProductsAPI)
 	e.POST("/api/product-settings/categories", h.saveProductCategoryAPI)
@@ -28,6 +32,7 @@ func registerProductRoutes(e *echo.Echo, catalogSvc *catalogapp.Service) {
 	e.PUT("/api/product-settings/categories/:id", h.saveProductCategoryAPI)
 	e.DELETE("/api/product-settings/categories/:id", h.deleteProductCategoryAPI)
 	e.POST("/api/product-settings/categories/:id/move", h.moveProductCategoryAPI)
+	e.POST("/api/product-settings/categories/:id/gradient-template", h.bindCategoryGradientTemplateAPI)
 	e.POST("/api/product-settings/products/:id/category", h.assignProductCategoryAPI)
 	e.GET("/products/:id", h.edit)
 }
@@ -94,6 +99,16 @@ type customProductAPIRequest struct {
 	CustomType     string `json:"custom_type"`
 	CopyBOM        bool   `json:"copy_bom"`
 	CopyPriceTiers bool   `json:"copy_price_tiers"`
+}
+
+type gradientTemplateAPIRequest struct {
+	Name        string                            `json:"name"`
+	DisplayUnit string                            `json:"display_unit"`
+	Tiers       []catalogapp.GradientTemplateTier `json:"tiers"`
+}
+
+type bindCategoryGradientTemplateAPIRequest struct {
+	GradientTemplateID int64 `json:"gradient_template_id"`
 }
 
 func (h productHandler) index(c echo.Context) error {
@@ -235,6 +250,54 @@ func (h productHandler) productCategoriesAPI(c echo.Context) error {
 	return c.JSON(http.StatusOK, map[string]any{"categories": data.Categories})
 }
 
+func (h productHandler) gradientTemplatesAPI(c echo.Context) error {
+	rows, err := h.catalog.ListGradientTemplates(c.Request().Context())
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]any{"error": err.Error()})
+	}
+	return c.JSON(http.StatusOK, map[string]any{"rows": rows})
+}
+
+func (h productHandler) saveGradientTemplateAPI(c echo.Context) error {
+	var req gradientTemplateAPIRequest
+	if err := c.Bind(&req); err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]any{"error": "bad request"})
+	}
+	var id int64
+	if idText := c.Param("id"); idText != "" {
+		parsed, err := strconv.ParseInt(idText, 10, 64)
+		if err != nil || parsed <= 0 {
+			return c.JSON(http.StatusBadRequest, map[string]any{"error": "invalid id"})
+		}
+		id = parsed
+	}
+	row, err := h.catalog.SaveGradientTemplate(c.Request().Context(), catalogapp.SaveGradientTemplateCommand{
+		Actor:       support.ActorOf(c),
+		ID:          id,
+		Name:        req.Name,
+		DisplayUnit: req.DisplayUnit,
+		Tiers:       req.Tiers,
+	})
+	if err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]any{"error": err.Error()})
+	}
+	return c.JSON(http.StatusOK, map[string]any{"template": row})
+}
+
+func (h productHandler) deactivateGradientTemplateAPI(c echo.Context) error {
+	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil || id <= 0 {
+		return c.JSON(http.StatusBadRequest, map[string]any{"error": "invalid id"})
+	}
+	if err := h.catalog.DeactivateGradientTemplate(c.Request().Context(), catalogapp.DeactivateGradientTemplateCommand{
+		Actor: support.ActorOf(c),
+		ID:    id,
+	}); err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]any{"error": err.Error()})
+	}
+	return c.JSON(http.StatusOK, map[string]any{"ok": true})
+}
+
 func (h productHandler) saveProductCategoryAPI(c echo.Context) error {
 	var req productCategoryAPIRequest
 	if err := c.Bind(&req); err != nil {
@@ -301,6 +364,25 @@ func (h productHandler) moveProductCategoryAPI(c echo.Context) error {
 		Position: req.Position,
 	}); err != nil {
 		return c.JSON(http.StatusInternalServerError, map[string]any{"error": err.Error()})
+	}
+	return c.JSON(http.StatusOK, map[string]any{"ok": true})
+}
+
+func (h productHandler) bindCategoryGradientTemplateAPI(c echo.Context) error {
+	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil || id <= 0 {
+		return c.JSON(http.StatusBadRequest, map[string]any{"error": "invalid id"})
+	}
+	var req bindCategoryGradientTemplateAPIRequest
+	if err := c.Bind(&req); err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]any{"error": "bad request"})
+	}
+	if err := h.catalog.BindCategoryGradientTemplate(c.Request().Context(), catalogapp.BindCategoryGradientTemplateCommand{
+		Actor:              support.ActorOf(c),
+		CategoryID:         id,
+		GradientTemplateID: req.GradientTemplateID,
+	}); err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]any{"error": err.Error()})
 	}
 	return c.JSON(http.StatusOK, map[string]any{"ok": true})
 }

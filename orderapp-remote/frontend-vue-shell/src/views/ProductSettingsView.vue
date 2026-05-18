@@ -141,6 +141,71 @@
         </form>
       </div>
 
+      <div class="panel gradient-template-panel">
+        <div class="panel-title">
+          <span>梯度模板</span>
+          <button class="secondary compact-action" type="button" @click="resetGradientTemplateForm">新建模板</button>
+        </div>
+        <div class="gradient-template-layout">
+          <div class="template-list">
+            <button
+              v-for="template in gradientTemplates"
+              :key="template.id"
+              type="button"
+              :class="['template-row', { active: Number(template.id) === Number(templateForm.id), inactive: template.active === false }]"
+              @click="startGradientTemplateEdit(template)">
+              <strong>{{ template.name }}</strong>
+              <small>{{ gradientDisplayUnitLabel(template.display_unit) }} · {{ template.tiers.length }} 档</small>
+            </button>
+            <p v-if="!gradientTemplates.length" class="muted">暂无梯度模板</p>
+          </div>
+          <form class="template-editor" @submit.prevent="saveGradientTemplate">
+            <div class="template-editor-grid">
+              <label>
+                <span>模板名称</span>
+                <input v-model.trim="templateForm.name" placeholder="如 工厂量单模板" />
+              </label>
+              <label>
+                <span>展示单位</span>
+                <select v-model="templateForm.display_unit">
+                  <option value="lb">元/磅</option>
+                  <option value="kg">元/kg</option>
+                </select>
+              </label>
+            </div>
+            <div class="template-tier-head">
+              <strong>梯度档位</strong>
+              <button class="secondary compact-action" type="button" @click="addGradientTemplateTier">新增档位</button>
+            </div>
+            <div class="template-tier-list">
+              <div v-for="(tier, index) in templateForm.tiers" :key="`tier-${index}`" class="template-tier-row">
+                <label>
+                  <span>区间名</span>
+                  <input v-model.trim="tier.label" placeholder="24-49kg" />
+                </label>
+                <label>
+                  <span>最小总克重</span>
+                  <input v-model.number="tier.min_weight_g" type="number" min="0" step="1" />
+                </label>
+                <label>
+                  <span>最大总克重</span>
+                  <input v-model="tier.max_weight_g" type="number" min="0" step="1" placeholder="无上限" />
+                </label>
+                <label>
+                  <span>利润率</span>
+                  <input v-model.number="tier.margin_rate" type="number" min="0" step="0.001" />
+                </label>
+                <button class="text-button danger-text" type="button" @click="removeGradientTemplateTier(index)">删除</button>
+              </div>
+            </div>
+            <div class="form-actions">
+              <button class="primary" type="submit" :disabled="templateSaving">保存模板</button>
+              <button v-if="templateForm.id" class="secondary" type="button" :disabled="templateSaving" @click="deactivateGradientTemplate(templateForm.id)">停用模板</button>
+            </div>
+          </form>
+        </div>
+      </div>
+
       <div class="panel category-panel">
         <div class="panel-title">
           <span>商品分类 · {{ selectedSkuContextLabel }}</span>
@@ -205,6 +270,16 @@
                     <span>{{ secondary.number }}</span>
                     <b>{{ secondary.name }}</b>
                     <small>{{ secondary.products.length }} 款</small>
+                    <select
+                      class="template-select"
+                      :value="secondary.gradient_template_id || 0"
+                      @pointerdown.stop
+                      @change.stop="bindCategoryGradientTemplate(secondary, $event.target.value)">
+                      <option value="0">未绑定模板</option>
+                      <option v-for="template in activeGradientTemplates" :key="template.id" :value="template.id">
+                        {{ template.name }} · {{ gradientDisplayUnitLabel(template.display_unit) }}
+                      </option>
+                    </select>
                     <button class="text-button" type="button" @click="startCategoryEdit(secondary)">改名</button>
                     <button class="text-button danger-text" type="button" @click="deleteCategory(secondary)">删除</button>
                   </div>
@@ -339,13 +414,20 @@ import { computed, onMounted, ref, watch } from 'vue'
 import { apiGet, apiSend } from '../api/client'
 import SearchableSelect from '../components/SearchableSelect.vue'
 import CostingView from './CostingView.vue'
+import {
+  gradientDisplayUnitLabel,
+  normalizeGradientTemplate,
+  validateGradientTemplate,
+} from '../lib/gradient-templates'
 
 const categories = ref([])
 const products = ref([])
+const gradientTemplates = ref([])
 const customers = ref([])
 const loading = ref(false)
 const productSaving = ref(false)
 const customSaving = ref(false)
+const templateSaving = ref(false)
 const error = ref('')
 const ok = ref('')
 const newPrimaryName = ref('')
@@ -363,6 +445,7 @@ const selectedProductIds = ref([])
 const roastLevels = ['浅烘', '中烘', '中深烘', '深烘']
 const productForm = ref(defaultProductForm())
 const customForm = ref(defaultCustomForm())
+const templateForm = ref(defaultGradientTemplateForm())
 
 const skuContextCustomerID = computed(() => Number(selectedCustomerSkuCustomerID.value || 0))
 const selectedSkuContextLabel = computed(() => {
@@ -456,6 +539,7 @@ const customerSkuRows = computed(() => productRows.value
   .sort((a, b) => ownerLabel(a).localeCompare(ownerLabel(b)) || a.name.localeCompare(b.name)))
 const displaySkuRows = computed(() => selectedCustomerSkuCustomerID.value ? customerSkuRows.value : publicSkuRows.value)
 const allProductRowsSelected = computed(() => displaySkuRows.value.length > 0 && displaySkuRows.value.every((row) => selectedProductIds.value.includes(Number(row.id))))
+const activeGradientTemplates = computed(() => gradientTemplates.value.filter((template) => template.active !== false))
 
 function defaultProductForm() {
   return {
@@ -482,6 +566,16 @@ function defaultCustomForm() {
   }
 }
 
+function defaultGradientTemplateForm() {
+  return normalizeGradientTemplate({
+    name: '',
+    display_unit: 'lb',
+    tiers: [
+      { label: '2包-13包', min_weight_g: 908, max_weight_g: 5902, margin_rate: 0.5421052631578949, position: 1 },
+    ],
+  })
+}
+
 function decorateProduct(product) {
   const yieldRate = Number(product.yield_rate || 0.8)
   return {
@@ -502,6 +596,7 @@ function decorateCategory(category) {
   return {
     ...category,
     customer_id: Number(category.customer_id || 0),
+    gradient_template_id: Number(category.gradient_template_id || 0),
     children: (category.children || []).map(decorateCategory),
     products: (category.products || []).map(decorateProduct),
   }
@@ -517,11 +612,96 @@ async function loadAll() {
     ])
     categories.value = (data.categories || []).map(decorateCategory)
     products.value = (data.products || []).map(decorateProduct)
+    gradientTemplates.value = (data.gradient_templates || []).map(normalizeGradientTemplate)
     customers.value = (customerData.rows || []).filter((row) => row.active !== false)
     syncSelectedCustomerSkuCustomer()
     pruneSelectedProducts(displaySkuRows.value)
   } catch (err) {
     error.value = err.message || '加载失败'
+  } finally {
+    loading.value = false
+  }
+}
+
+function resetGradientTemplateForm() {
+  templateForm.value = defaultGradientTemplateForm()
+}
+
+function startGradientTemplateEdit(template) {
+  templateForm.value = normalizeGradientTemplate(JSON.parse(JSON.stringify(template)))
+}
+
+function addGradientTemplateTier() {
+  templateForm.value.tiers.push({
+    id: 0,
+    label: '',
+    min_weight_g: 0,
+    max_weight_g: null,
+    margin_rate: 0,
+    position: templateForm.value.tiers.length + 1,
+  })
+}
+
+function removeGradientTemplateTier(index) {
+  templateForm.value.tiers.splice(index, 1)
+  templateForm.value.tiers.forEach((tier, tierIndex) => {
+    tier.position = tierIndex + 1
+  })
+}
+
+async function saveGradientTemplate() {
+  const normalized = normalizeGradientTemplate(templateForm.value)
+  const errors = validateGradientTemplate(normalized)
+  if (errors.length) {
+    error.value = errors[0]
+    return
+  }
+  templateSaving.value = true
+  error.value = ''
+  ok.value = ''
+  try {
+    const url = normalized.id ? `/api/pricing-gradient-templates/${normalized.id}` : '/api/pricing-gradient-templates'
+    const method = normalized.id ? 'PUT' : 'POST'
+    await apiSend(url, { method, body: normalized })
+    ok.value = '梯度模板已保存'
+    resetGradientTemplateForm()
+    await loadAll()
+  } catch (err) {
+    error.value = err.message || '保存梯度模板失败'
+  } finally {
+    templateSaving.value = false
+  }
+}
+
+async function deactivateGradientTemplate(id) {
+  if (!id) return
+  templateSaving.value = true
+  error.value = ''
+  ok.value = ''
+  try {
+    await apiSend(`/api/pricing-gradient-templates/${id}/deactivate`)
+    ok.value = '梯度模板已停用'
+    resetGradientTemplateForm()
+    await loadAll()
+  } catch (err) {
+    error.value = err.message || '停用梯度模板失败'
+  } finally {
+    templateSaving.value = false
+  }
+}
+
+async function bindCategoryGradientTemplate(category, templateID) {
+  loading.value = true
+  error.value = ''
+  ok.value = ''
+  try {
+    await apiSend(`/api/product-settings/categories/${category.id}/gradient-template`, {
+      body: { gradient_template_id: Number(templateID || 0) },
+    })
+    ok.value = '分类梯度模板已更新，未发布预览会自动按新模板试算'
+    await loadAll()
+  } catch (err) {
+    error.value = err.message || '绑定梯度模板失败'
   } finally {
     loading.value = false
   }
@@ -1115,6 +1295,20 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .custom-product-form { display: grid; grid-template-columns: repeat(3, minmax(150px, 1fr)); gap: 10px; align-items: end; }
 .product-create-form label, .custom-product-form label { display: grid; gap: 5px; font-size: 13px; }
 .product-create-form .wide-field, .custom-product-form .wide-field { grid-column: span 2; }
+.gradient-template-panel { grid-column: 1 / -1; }
+.gradient-template-layout { display: grid; grid-template-columns: minmax(220px, 280px) minmax(0, 1fr); gap: 12px; align-items: start; }
+.template-list { display: grid; gap: 8px; }
+.template-row { min-height: 50px; display: grid; gap: 3px; align-content: center; text-align: left; border: 1px solid #e2ddd6; background: #fbfaf8; padding: 8px 10px; }
+.template-row.active { border-color: #1f4f82; background: #eef6ff; }
+.template-row.inactive { opacity: .58; }
+.template-row small { color: #666; font-size: 12px; }
+.template-editor { border: 1px solid #eee8df; border-radius: 8px; background: #fbfaf8; padding: 12px; }
+.template-editor-grid { display: grid; grid-template-columns: minmax(0, 1fr) 160px; gap: 10px; }
+.template-editor label { display: grid; gap: 5px; font-size: 13px; }
+.template-tier-head { display: flex; justify-content: space-between; align-items: center; gap: 10px; margin: 12px 0 8px; }
+.template-tier-list { display: grid; gap: 8px; }
+.template-tier-row { display: grid; grid-template-columns: minmax(130px, 1.1fr) minmax(130px, .9fr) minmax(130px, .9fr) minmax(100px, .7fr) auto; gap: 8px; align-items: end; border: 1px solid #e2ddd6; border-radius: 8px; background: #fff; padding: 10px; }
+.template-select { width: min(280px, 100%); min-height: 30px; padding: 4px 8px; font-size: 12px; }
 .sku-panel-title { align-items: flex-start; }
 .sku-panel-actions { flex: 1; }
 .sku-customer-select { min-width: 220px; max-width: 320px; flex: 1 1 220px; font-weight: 400; }
@@ -1126,6 +1320,8 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .category-tree { display: grid; gap: 10px; }
 .primary-category { border: 1px solid #eee8df; border-radius: 8px; padding: 10px; background: #fbfaf8; }
 .category-head, .secondary-head, .category-actions { display: flex; align-items: center; gap: 8px; justify-content: space-between; }
+.secondary-head { flex-wrap: wrap; justify-content: flex-start; }
+.secondary-head b { min-width: 120px; }
 .secondary-category { border: 1px solid #ddd; border-radius: 8px; padding: 9px; background: #fff; cursor: grab; user-select: none; touch-action: none; }
 .secondary-category.dragging { opacity: .45; }
 .secondary-category.pointer-dragging { cursor: grabbing; }
@@ -1154,13 +1350,14 @@ th { background: #fbfaf8; position: sticky; top: 0; }
 .muted { color: #666; font-size: 12px; }
 @media (max-width: 900px) {
   .page { padding: 12px; }
-  .settings-grid, .inline-form, .product-create-form, .custom-product-form { grid-template-columns: 1fr; }
+  .settings-grid, .inline-form, .product-create-form, .custom-product-form, .gradient-template-layout, .template-editor-grid, .template-tier-row { grid-template-columns: 1fr; }
   .sku-context-main { display: grid; }
   .sku-context-controls { justify-content: flex-start; min-width: 0; }
   .panel-actions { justify-content: flex-start; }
   .sku-panel-actions { width: 100%; }
   .sku-customer-select { max-width: none; }
   .product-create-form .wide-field, .custom-product-form .wide-field { grid-column: auto; }
+  .template-select { width: 100%; }
   table { min-width: 900px; }
 }
 </style>

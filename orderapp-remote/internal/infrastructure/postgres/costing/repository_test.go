@@ -33,6 +33,25 @@ func TestLoadProductInputsDoesNotUsePublishedDefaultPriceAsBeanCost(t *testing.T
 	}
 }
 
+func TestLoadProductInputsReadsCategoryGradientTemplates(t *testing.T) {
+	b, err := os.ReadFile("repository.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := string(b)
+	for _, want := range []string{
+		"pc.gradient_template_id",
+		"product_categories pc",
+		"pricing_gradient_templates",
+		"pricing_gradient_template_tiers",
+		"GradientTemplate = template",
+	} {
+		if !strings.Contains(src, want) {
+			t.Fatalf("costing repository must load category gradient templates; missing %q", want)
+		}
+	}
+}
+
 func TestPublishBeanListUsesQueryRowBeforeAuditToAvoidBusyConnection(t *testing.T) {
 	b, err := os.ReadFile("repository.go")
 	if err != nil {

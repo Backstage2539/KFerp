@@ -55,6 +55,8 @@ func (r Repository) LoadProductInputs(ctx context.Context, params domain.Paramet
 		       COALESCE(p.base_product_id, 0),
 		       COALESCE(NULLIF(p.visibility, ''), 'public'),
 		       COALESCE(p.custom_type, ''),
+		       COALESCE(p.product_category_id, 0),
+		       COALESCE(pc.gradient_template_id, 0),
 		       COALESCE(NULLIF(b.yield_rate,0), $1),
 		       COALESCE(SUM(COALESCE(m.purchase_price,0) * COALESCE(bi.ratio_pct,0) / 100.0),0),
 		       COALESCE(string_agg(DISTINCT NULLIF(bp.flavor, ''), ' / ') FILTER (WHERE NULLIF(bp.flavor, '') IS NOT NULL), ''),
@@ -72,10 +74,11 @@ func (r Repository) LoadProductInputs(ctx context.Context, params domain.Paramet
 		LEFT JOIN %s.materials m ON m.id = bi.material_id
 		LEFT JOIN %s.material_bean_profiles bp ON bp.material_id = m.id
 		LEFT JOIN %s.products base_p ON base_p.id = p.base_product_id
+		LEFT JOIN %s.product_categories pc ON pc.id = p.product_category_id AND pc.active=true
 		WHERE p.active = true
-		GROUP BY p.id, p.name, base_p.name, p.roast_level, p.customer_id, p.base_product_id, p.visibility, p.custom_type, b.yield_rate, b.status, b.product_id
+		GROUP BY p.id, p.name, base_p.name, p.roast_level, p.customer_id, p.base_product_id, p.visibility, p.custom_type, p.product_category_id, pc.gradient_template_id, b.yield_rate, b.status, b.product_id
 		ORDER BY p.name
-	`, r.schema, r.schema, r.schema, r.schema, r.schema, r.schema)
+	`, r.schema, r.schema, r.schema, r.schema, r.schema, r.schema, r.schema)
 	rows, err := r.pool.Query(ctx, q, params.RoastYieldRate)
 	if err != nil {
 		return nil, err
@@ -83,12 +86,19 @@ func (r Repository) LoadProductInputs(ctx context.Context, params domain.Paramet
 	defer rows.Close()
 
 	out := make([]domain.ProductInput, 0)
+	templateIDs := map[int64]bool{}
+	templateIDByProduct := map[int64]int64{}
 	for rows.Next() {
 		var input domain.ProductInput
 		var roastLevel string
 		var fallbackYield float64
-		if err := rows.Scan(&input.ProductID, &input.Name, &input.BeanListTemplateName, &roastLevel, &input.CustomerID, &input.BaseProductID, &input.Visibility, &input.CustomType, &fallbackYield, &input.GreenBeanCostPerKg, &input.Flavor, &input.Origin, &input.ProcessingStation, &input.Variety, &input.ProcessMethod, &input.Grade, &input.Altitude, &input.BeanListNote, &input.BomStatus); err != nil {
+		var gradientTemplateID int64
+		if err := rows.Scan(&input.ProductID, &input.Name, &input.BeanListTemplateName, &roastLevel, &input.CustomerID, &input.BaseProductID, &input.Visibility, &input.CustomType, &input.ProductCategoryID, &gradientTemplateID, &fallbackYield, &input.GreenBeanCostPerKg, &input.Flavor, &input.Origin, &input.ProcessingStation, &input.Variety, &input.ProcessMethod, &input.Grade, &input.Altitude, &input.BeanListNote, &input.BomStatus); err != nil {
 			return nil, err
+		}
+		if gradientTemplateID > 0 {
+			templateIDs[gradientTemplateID] = true
+			templateIDByProduct[input.ProductID] = gradientTemplateID
 		}
 		_ = roastLevel
 		_ = fallbackYield
@@ -99,7 +109,75 @@ func (r Repository) LoadProductInputs(ctx context.Context, params domain.Paramet
 		input = domain.ApplyExcelCommercialPricingProfile(params, input)
 		out = append(out, input)
 	}
-	return out, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	templates, err := r.loadGradientTemplatesByID(ctx, templateIDs)
+	if err != nil {
+		return nil, err
+	}
+	for i := range out {
+		if templateID := templateIDByProduct[out[i].ProductID]; templateID > 0 {
+			if template := templates[templateID]; template != nil {
+				out[i].GradientTemplate = template
+			}
+		}
+	}
+	return out, nil
+}
+
+func (r Repository) loadGradientTemplatesByID(ctx context.Context, ids map[int64]bool) (map[int64]*domain.GradientTemplate, error) {
+	out := map[int64]*domain.GradientTemplate{}
+	if len(ids) == 0 {
+		return out, nil
+	}
+	idList := make([]int64, 0, len(ids))
+	for id := range ids {
+		idList = append(idList, id)
+	}
+	rows, err := r.pool.Query(ctx, fmt.Sprintf(`
+		SELECT id, name, display_unit, active
+		FROM %s.pricing_gradient_templates
+		WHERE id = ANY($1)
+	`, r.schema), idList)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		template := &domain.GradientTemplate{}
+		if err := rows.Scan(&template.ID, &template.Name, &template.DisplayUnit, &template.Active); err != nil {
+			return nil, err
+		}
+		out[template.ID] = template
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	tierRows, err := r.pool.Query(ctx, fmt.Sprintf(`
+		SELECT id, template_id, label, min_weight_g::float8, max_weight_g::float8, margin_rate::float8, position
+		FROM %s.pricing_gradient_template_tiers
+		WHERE active=true AND template_id = ANY($1)
+		ORDER BY template_id, position, min_weight_g, id
+	`, r.schema), idList)
+	if err != nil {
+		return nil, err
+	}
+	defer tierRows.Close()
+	for tierRows.Next() {
+		var templateID int64
+		var tier domain.GradientTemplateTier
+		if err := tierRows.Scan(&tier.ID, &templateID, &tier.Label, &tier.MinWeightG, &tier.MaxWeightG, &tier.MarginRate, &tier.Position); err != nil {
+			return nil, err
+		}
+		if template := out[templateID]; template != nil {
+			template.Tiers = append(template.Tiers, tier)
+		}
+	}
+	if err := tierRows.Err(); err != nil {
+		return nil, err
+	}
+	return out, nil
 }
 
 func (r Repository) ListParameterSettings(ctx context.Context) ([]appcosting.ParameterSetting, error) {

@@ -77,6 +77,18 @@ func registerCostingAPI(e *echo.Echo, svc Service, authz support.AuthzService) {
 		return c.JSON(http.StatusOK, resp)
 	})
 
+	e.POST("/api/costing/price-explanation", func(c echo.Context) error {
+		var req appcosting.PriceExplanationCommand
+		if err := c.Bind(&req); err != nil {
+			return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid request"})
+		}
+		resp, err := svc.ExplainPrice(c.Request().Context(), req)
+		if err != nil {
+			return c.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
+		}
+		return c.JSON(http.StatusOK, resp)
+	})
+
 	e.GET("/api/costing/bean-list", func(c echo.Context) error {
 		resp, err := svc.BeanList(c.Request().Context())
 		if err != nil {

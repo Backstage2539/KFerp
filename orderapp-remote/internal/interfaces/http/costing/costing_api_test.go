@@ -27,6 +27,10 @@ func (fakeService) Calculate(ctx context.Context, req appcosting.CalculateReques
 	return items, err
 }
 
+func (fakeService) ExplainPrice(ctx context.Context, req appcosting.PriceExplanationCommand) (*domain.PriceExplanation, error) {
+	return appcosting.NewService(&fakeRepo{}).ExplainPrice(ctx, req)
+}
+
 func (fakeService) BeanList(context.Context) (*appcosting.CalculateResponse, error) {
 	return &appcosting.CalculateResponse{Parameters: domain.DefaultParameters()}, nil
 }
@@ -263,6 +267,56 @@ func TestCostingCalculateAPI(t *testing.T) {
 	}
 	if len(got.Items) != 1 || got.Items[0].Name != "金色山脉" {
 		t.Fatalf("items = %+v", got.Items)
+	}
+}
+
+func TestCostingPriceExplanationAPIIncludesFastCostParameters(t *testing.T) {
+	e := echo.New()
+	RegisterRoutes(e, Dependencies{Costing: fakeService{}})
+
+	body, err := json.Marshal(appcosting.PriceExplanationCommand{
+		Product: domain.ProductInput{
+			ProductID:          501,
+			Name:               "模板拼配",
+			GreenBeanCostPerKg: 51.75,
+			YieldRate:          0.8,
+			GradientTemplate: &domain.GradientTemplate{
+				ID:          9,
+				Name:        "工厂量单模板",
+				DisplayUnit: domain.GradientDisplayUnitKg,
+				Tiers: []domain.GradientTemplateTier{{
+					ID: 91, Label: "大客户量单", MinWeightG: 24000, MaxWeightG: floatPtr(49000), MarginRate: 0.175, Position: 1,
+				}},
+			},
+		},
+		TierLabel: "大客户量单",
+		Overrides: domain.PriceExplanationOverrides{
+			MarginRate: floatPtr(0.30),
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := httptest.NewRequest(http.MethodPost, "/api/costing/price-explanation", bytes.NewReader(body))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+
+	e.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	var got domain.PriceExplanation
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatalf("invalid json: %v", err)
+	}
+	if got.TemplateName != "工厂量单模板" || got.TierLabel != "大客户量单" || got.SavedFinalPrice != 82 || got.PreviewFinalPrice != 91 {
+		t.Fatalf("explanation = %+v", got)
+	}
+	for _, want := range []string{`"key":"large_batch_production_cost_per_kg"`, `"key":"wholesale_package_cost_per_kg"`, `"key":"product_loss_per_kg"`, `"key":"retail_tax_rate"`, `"key":"template_margin_rate"`} {
+		if !strings.Contains(rec.Body.String(), want) {
+			t.Fatalf("response missing %s: %s", want, rec.Body.String())
+		}
 	}
 }
 
@@ -644,4 +698,8 @@ func TestBeanListDraftAPISavesCustomerOwnedDraft(t *testing.T) {
 	if row.Status != "draft" || row.OwnerType != "actor" || row.OwnerKey != "employee:7" {
 		t.Fatalf("draft row = %+v", row)
 	}
+}
+
+func floatPtr(v float64) *float64 {
+	return &v
 }

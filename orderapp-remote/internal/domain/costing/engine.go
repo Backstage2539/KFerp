@@ -3,6 +3,7 @@ package costing
 import (
 	"fmt"
 	"math"
+	"sort"
 	"strings"
 )
 
@@ -10,6 +11,9 @@ const (
 	WholesaleTierScheme454GFour = "bag_454_four"
 	WholesaleTierSchemeKgThree  = "kg_three"
 	WholesaleTierScheme227GTwo  = "bag_227_two"
+
+	GradientDisplayUnitLb = "lb"
+	GradientDisplayUnitKg = "kg"
 )
 
 type Parameters struct {
@@ -33,45 +37,113 @@ type Parameters struct {
 }
 
 type ProductInput struct {
-	ProductID                 int64     `json:"product_id"`
-	Name                      string    `json:"name"`
-	CustomerID                int64     `json:"customer_id,omitempty"`
-	BaseProductID             int64     `json:"base_product_id,omitempty"`
-	Visibility                string    `json:"visibility,omitempty"`
-	CustomType                string    `json:"custom_type,omitempty"`
-	BeanListTemplateName      string    `json:"bean_list_template_name,omitempty"`
-	Flavor                    string    `json:"flavor,omitempty"`
-	Origin                    string    `json:"origin,omitempty"`
-	ProcessingStation         string    `json:"processing_station,omitempty"`
-	Variety                   string    `json:"variety,omitempty"`
-	ProcessMethod             string    `json:"process_method,omitempty"`
-	Grade                     string    `json:"grade,omitempty"`
-	Altitude                  string    `json:"altitude,omitempty"`
-	BeanListNote              string    `json:"bean_list_note,omitempty"`
-	BomStatus                 string    `json:"bom_status,omitempty"`
-	Warnings                  []string  `json:"warnings,omitempty"`
-	GreenBeanCostPerKg        float64   `json:"green_bean_cost_per_kg"`
-	YieldRate                 float64   `json:"yield_rate"`
-	WholesaleTaxAddPerKg      float64   `json:"wholesale_tax_add_per_kg"`
-	WholesaleTaxAddPerKgTiers []float64 `json:"wholesale_tax_add_per_kg_tiers"`
-	DripTaxAddPerBag100       float64   `json:"drip_tax_add_per_bag_100"`
-	DripTaxAddPerBagRetail    float64   `json:"drip_tax_add_per_bag_retail"`
-	WholesaleKgMarginRates    []float64 `json:"wholesale_kg_margin_rates"`
-	WholesaleDripMultipliers  []float64 `json:"wholesale_drip_multipliers"`
-	WholesaleTierScheme       string    `json:"wholesale_tier_scheme,omitempty"`
+	ProductID                 int64             `json:"product_id"`
+	Name                      string            `json:"name"`
+	CustomerID                int64             `json:"customer_id,omitempty"`
+	BaseProductID             int64             `json:"base_product_id,omitempty"`
+	Visibility                string            `json:"visibility,omitempty"`
+	CustomType                string            `json:"custom_type,omitempty"`
+	ProductCategoryID         int64             `json:"product_category_id,omitempty"`
+	BeanListTemplateName      string            `json:"bean_list_template_name,omitempty"`
+	Flavor                    string            `json:"flavor,omitempty"`
+	Origin                    string            `json:"origin,omitempty"`
+	ProcessingStation         string            `json:"processing_station,omitempty"`
+	Variety                   string            `json:"variety,omitempty"`
+	ProcessMethod             string            `json:"process_method,omitempty"`
+	Grade                     string            `json:"grade,omitempty"`
+	Altitude                  string            `json:"altitude,omitempty"`
+	BeanListNote              string            `json:"bean_list_note,omitempty"`
+	BomStatus                 string            `json:"bom_status,omitempty"`
+	Warnings                  []string          `json:"warnings,omitempty"`
+	GreenBeanCostPerKg        float64           `json:"green_bean_cost_per_kg"`
+	YieldRate                 float64           `json:"yield_rate"`
+	WholesaleTaxAddPerKg      float64           `json:"wholesale_tax_add_per_kg"`
+	WholesaleTaxAddPerKgTiers []float64         `json:"wholesale_tax_add_per_kg_tiers"`
+	DripTaxAddPerBag100       float64           `json:"drip_tax_add_per_bag_100"`
+	DripTaxAddPerBagRetail    float64           `json:"drip_tax_add_per_bag_retail"`
+	WholesaleKgMarginRates    []float64         `json:"wholesale_kg_margin_rates"`
+	WholesaleDripMultipliers  []float64         `json:"wholesale_drip_multipliers"`
+	WholesaleTierScheme       string            `json:"wholesale_tier_scheme,omitempty"`
+	GradientTemplate          *GradientTemplate `json:"gradient_template,omitempty"`
 }
 
 type CommercialWholesaleTier struct {
-	Label        string   `json:"label"`
-	Scheme       string   `json:"scheme,omitempty"`
-	SpecG        int64    `json:"spec_g,omitempty"`
-	MinQty       float64  `json:"min_qty,omitempty"`
-	MaxQty       *float64 `json:"max_qty,omitempty"`
-	PricePerUnit float64  `json:"price_per_unit"`
-	MinLb        float64  `json:"min_lb"`
-	MaxLb        *float64 `json:"max_lb,omitempty"`
-	PricePerKg   float64  `json:"price_per_kg"`
-	PricePerLb   float64  `json:"price_per_lb"`
+	Label          string   `json:"label"`
+	Scheme         string   `json:"scheme,omitempty"`
+	SpecG          int64    `json:"spec_g,omitempty"`
+	MinQty         float64  `json:"min_qty,omitempty"`
+	MaxQty         *float64 `json:"max_qty,omitempty"`
+	PricePerUnit   float64  `json:"price_per_unit"`
+	MinLb          float64  `json:"min_lb"`
+	MaxLb          *float64 `json:"max_lb,omitempty"`
+	PricePerKg     float64  `json:"price_per_kg"`
+	PricePerLb     float64  `json:"price_per_lb"`
+	TemplateID     int64    `json:"template_id,omitempty"`
+	TemplateTierID int64    `json:"template_tier_id,omitempty"`
+	DisplayUnit    string   `json:"display_unit,omitempty"`
+	MinWeightG     float64  `json:"min_weight_g,omitempty"`
+	MaxWeightG     *float64 `json:"max_weight_g,omitempty"`
+	MarginRate     float64  `json:"margin_rate,omitempty"`
+}
+
+type GradientTemplate struct {
+	ID          int64                  `json:"id,omitempty"`
+	Name        string                 `json:"name"`
+	DisplayUnit string                 `json:"display_unit"`
+	Active      bool                   `json:"active"`
+	Tiers       []GradientTemplateTier `json:"tiers"`
+}
+
+type GradientTemplateTier struct {
+	ID         int64    `json:"id,omitempty"`
+	Label      string   `json:"label"`
+	MinWeightG float64  `json:"min_weight_g"`
+	MaxWeightG *float64 `json:"max_weight_g,omitempty"`
+	MarginRate float64  `json:"margin_rate"`
+	Position   int      `json:"position"`
+}
+
+type PriceExplanationRequest struct {
+	TierLabel string                    `json:"tier_label"`
+	Overrides PriceExplanationOverrides `json:"overrides,omitempty"`
+}
+
+type PriceExplanationOverrides struct {
+	GreenBeanCostPerKg *float64 `json:"green_bean_cost_per_kg,omitempty"`
+	YieldRate          *float64 `json:"yield_rate,omitempty"`
+	MarginRate         *float64 `json:"margin_rate,omitempty"`
+}
+
+type PriceExplanationStep struct {
+	Key     string  `json:"key"`
+	Label   string  `json:"label"`
+	Source  string  `json:"source"`
+	Value   float64 `json:"value"`
+	Unit    string  `json:"unit,omitempty"`
+	Changed bool    `json:"changed,omitempty"`
+}
+
+type PriceExplanation struct {
+	ProductID         int64                  `json:"product_id"`
+	ProductName       string                 `json:"product_name"`
+	TemplateID        int64                  `json:"template_id,omitempty"`
+	TemplateName      string                 `json:"template_name,omitempty"`
+	TierLabel         string                 `json:"tier_label"`
+	DisplayUnit       string                 `json:"display_unit"`
+	MinWeightG        float64                `json:"min_weight_g"`
+	MaxWeightG        *float64               `json:"max_weight_g,omitempty"`
+	SavedFinalPrice   float64                `json:"saved_final_price"`
+	PreviewFinalPrice float64                `json:"preview_final_price"`
+	Steps             []PriceExplanationStep `json:"steps"`
+}
+
+func (e PriceExplanation) HasStep(key string) bool {
+	for _, step := range e.Steps {
+		if step.Key == key {
+			return true
+		}
+	}
+	return false
 }
 
 type RetailBeanTier struct {
@@ -96,6 +168,8 @@ type ProductResult struct {
 	BaseProductID                  int64                     `json:"base_product_id,omitempty"`
 	Visibility                     string                    `json:"visibility,omitempty"`
 	CustomType                     string                    `json:"custom_type,omitempty"`
+	ProductCategoryID              int64                     `json:"product_category_id,omitempty"`
+	GradientTemplate               *GradientTemplate         `json:"gradient_template,omitempty"`
 	CommercialBeanList             BeanListDisplay           `json:"commercial_bean_list"`
 	RetailBeanList                 BeanListDisplay           `json:"retail_bean_list"`
 	Flavor                         string                    `json:"flavor,omitempty"`
@@ -108,6 +182,7 @@ type ProductResult struct {
 	BeanListNote                   string                    `json:"bean_list_note,omitempty"`
 	BomStatus                      string                    `json:"bom_status,omitempty"`
 	Warnings                       []string                  `json:"warnings,omitempty"`
+	YieldRate                      float64                   `json:"yield_rate"`
 	GreenBeanCostPerKg             float64                   `json:"green_bean_cost_per_kg"`
 	RoastedBeanCostPerKg           float64                   `json:"roasted_bean_cost_per_kg"`
 	SmallBatchCostPerKg            float64                   `json:"small_batch_cost_per_kg"`
@@ -232,6 +307,8 @@ func CalculateProduct(params Parameters, in ProductInput) ProductResult {
 		BaseProductID:        in.BaseProductID,
 		Visibility:           in.Visibility,
 		CustomType:           in.CustomType,
+		ProductCategoryID:    in.ProductCategoryID,
+		GradientTemplate:     in.GradientTemplate,
 		CommercialBeanList:   commercialDisplay,
 		RetailBeanList:       retailDisplay,
 		Flavor:               in.Flavor,
@@ -244,6 +321,7 @@ func CalculateProduct(params Parameters, in ProductInput) ProductResult {
 		BeanListNote:         in.BeanListNote,
 		BomStatus:            in.BomStatus,
 		Warnings:             append([]string(nil), in.Warnings...),
+		YieldRate:            in.YieldRate,
 		GreenBeanCostPerKg:   in.GreenBeanCostPerKg,
 		RoastedBeanCostPerKg: roasted,
 		SmallBatchCostPerKg:  small,
@@ -268,7 +346,7 @@ func CalculateProduct(params Parameters, in ProductInput) ProductResult {
 		out.WholesaleKgPrices = append(out.WholesaleKgPrices, kg)
 		out.WholesaleLbPrices = append(out.WholesaleLbPrices, kg*params.KgToLbFactor+1)
 	}
-	out.CommercialWholesaleTiers = buildCommercialWholesaleTiers(in, out.WholesaleKgPrices, out.WholesaleLbPrices)
+	out.CommercialWholesaleTiers = buildCommercialWholesaleTiers(params, in, out.WholesaleKgPrices, out.WholesaleLbPrices)
 
 	for _, multiplier := range in.WholesaleDripMultipliers {
 		price := dripBase*multiplier + in.DripTaxAddPerBag100
@@ -310,7 +388,10 @@ func normalizeWarnings(warnings []string) []string {
 	return out
 }
 
-func buildCommercialWholesaleTiers(in ProductInput, kgPrices, lbPrices []float64) []CommercialWholesaleTier {
+func buildCommercialWholesaleTiers(params Parameters, in ProductInput, kgPrices, lbPrices []float64) []CommercialWholesaleTier {
+	if template := normalizeGradientTemplate(in.GradientTemplate); template != nil {
+		return buildGradientTemplateCommercialTiers(params, in, *template)
+	}
 	profileName := costingProfileName(in)
 	type tierDef struct {
 		label      string
@@ -370,6 +451,218 @@ func buildCommercialWholesaleTiers(in ProductInput, kgPrices, lbPrices []float64
 		})
 	}
 	return applyCommercialTierOverrides(profileName, out)
+}
+
+type commercialPriceParts struct {
+	RoastedCostPerKg    float64
+	BaseCostPerKg       float64
+	ProductionCostPerKg float64
+	ProductionKey       string
+	MarginRate          float64
+	TaxAddPerKg         float64
+	RawPricePerKg       float64
+	RawPricePerLb       float64
+	FinalPricePerKg     float64
+	FinalPricePerLb     float64
+	FinalPricePerUnit   float64
+	DisplayUnit         string
+}
+
+func buildGradientTemplateCommercialTiers(params Parameters, in ProductInput, template GradientTemplate) []CommercialWholesaleTier {
+	out := make([]CommercialWholesaleTier, 0, len(template.Tiers))
+	for _, tier := range template.Tiers {
+		parts := commercialPriceForGradientTier(params, in, template.DisplayUnit, tier, nil)
+		specG := specGForGradientDisplayUnit(template.DisplayUnit)
+		minQty := roundQuantity(tier.MinWeightG / float64(specG))
+		var maxQty *float64
+		if tier.MaxWeightG != nil {
+			v := roundQuantity(*tier.MaxWeightG / float64(specG))
+			maxQty = &v
+		}
+		minLb := roundQuantity(tier.MinWeightG / 454.0)
+		var maxLb *float64
+		if tier.MaxWeightG != nil {
+			v := roundQuantity(*tier.MaxWeightG / 454.0)
+			maxLb = &v
+		}
+		out = append(out, CommercialWholesaleTier{
+			Label:          tier.Label,
+			Scheme:         "gradient_template",
+			SpecG:          int64(specG),
+			MinQty:         minQty,
+			MaxQty:         maxQty,
+			PricePerUnit:   parts.FinalPricePerUnit,
+			MinLb:          minLb,
+			MaxLb:          maxLb,
+			PricePerKg:     parts.FinalPricePerKg,
+			PricePerLb:     parts.FinalPricePerLb,
+			TemplateID:     template.ID,
+			TemplateTierID: tier.ID,
+			DisplayUnit:    template.DisplayUnit,
+			MinWeightG:     tier.MinWeightG,
+			MaxWeightG:     tier.MaxWeightG,
+			MarginRate:     tier.MarginRate,
+		})
+	}
+	return out
+}
+
+func commercialPriceForGradientTier(params Parameters, in ProductInput, displayUnit string, tier GradientTemplateTier, marginOverride *float64) commercialPriceParts {
+	greenCost := in.GreenBeanCostPerKg
+	yieldRate := in.YieldRate
+	if yieldRate <= 0 {
+		yieldRate = params.RoastYieldRate
+	}
+	roasted := greenCost / yieldRate
+	productionCost := params.SmallBatchProductionCostPerKg
+	productionKey := "small_batch_production_cost_per_kg"
+	if tier.MinWeightG >= 10000 {
+		productionCost = params.LargeBatchProductionCostPerKg
+		productionKey = "large_batch_production_cost_per_kg"
+	}
+	base := roasted + productionCost
+	margin := tier.MarginRate
+	if marginOverride != nil {
+		margin = *marginOverride
+	}
+	taxAdd := base * margin * params.RetailTaxRate
+	rawKg := base*(1+margin) + params.WholesalePackageCostPerKg + params.ProductLossPerKg + taxAdd
+	rawLb := rawKg*params.KgToLbFactor + 1
+	finalKg := roundPrice(rawKg)
+	finalLb := roundPrice(rawLb)
+	finalUnit := finalLb
+	if normalizeGradientDisplayUnit(displayUnit) == GradientDisplayUnitKg {
+		finalUnit = finalKg
+	}
+	return commercialPriceParts{
+		RoastedCostPerKg:    roasted,
+		BaseCostPerKg:       base,
+		ProductionCostPerKg: productionCost,
+		ProductionKey:       productionKey,
+		MarginRate:          margin,
+		TaxAddPerKg:         taxAdd,
+		RawPricePerKg:       rawKg,
+		RawPricePerLb:       rawLb,
+		FinalPricePerKg:     finalKg,
+		FinalPricePerLb:     finalLb,
+		FinalPricePerUnit:   finalUnit,
+		DisplayUnit:         normalizeGradientDisplayUnit(displayUnit),
+	}
+}
+
+func ExplainCommercialPrice(params Parameters, in ProductInput, req PriceExplanationRequest) (PriceExplanation, error) {
+	validated, err := ValidateProductInput(params, in)
+	if err != nil {
+		return PriceExplanation{}, err
+	}
+	template := normalizeGradientTemplate(validated.GradientTemplate)
+	if template == nil {
+		return PriceExplanation{}, fmt.Errorf("gradient template required")
+	}
+	label := strings.TrimSpace(req.TierLabel)
+	var tier GradientTemplateTier
+	found := false
+	for _, row := range template.Tiers {
+		if label == "" || row.Label == label {
+			tier = row
+			found = true
+			break
+		}
+	}
+	if !found {
+		return PriceExplanation{}, fmt.Errorf("tier not found")
+	}
+	saved := commercialPriceForGradientTier(params, validated, template.DisplayUnit, tier, nil)
+	previewInput := validated
+	if req.Overrides.GreenBeanCostPerKg != nil {
+		previewInput.GreenBeanCostPerKg = *req.Overrides.GreenBeanCostPerKg
+	}
+	if req.Overrides.YieldRate != nil {
+		previewInput.YieldRate = *req.Overrides.YieldRate
+	}
+	preview := commercialPriceForGradientTier(params, previewInput, template.DisplayUnit, tier, req.Overrides.MarginRate)
+	return PriceExplanation{
+		ProductID:         validated.ProductID,
+		ProductName:       validated.Name,
+		TemplateID:        template.ID,
+		TemplateName:      template.Name,
+		TierLabel:         tier.Label,
+		DisplayUnit:       template.DisplayUnit,
+		MinWeightG:        tier.MinWeightG,
+		MaxWeightG:        tier.MaxWeightG,
+		SavedFinalPrice:   saved.FinalPricePerUnit,
+		PreviewFinalPrice: preview.FinalPricePerUnit,
+		Steps: []PriceExplanationStep{
+			{Key: "green_bean_cost_per_kg", Label: "生豆成本", Source: "product", Value: previewInput.GreenBeanCostPerKg, Unit: "元/kg", Changed: req.Overrides.GreenBeanCostPerKg != nil},
+			{Key: "yield_rate", Label: "出成率", Source: "product_bom", Value: previewInput.YieldRate, Unit: "ratio", Changed: req.Overrides.YieldRate != nil},
+			{Key: "roasted_bean_cost_per_kg", Label: "熟豆成本", Source: "formula", Value: preview.RoastedCostPerKg, Unit: "元/kg", Changed: req.Overrides.GreenBeanCostPerKg != nil || req.Overrides.YieldRate != nil},
+			{Key: preview.ProductionKey, Label: "生产成本", Source: "cost_parameter", Value: preview.ProductionCostPerKg, Unit: "元/kg"},
+			{Key: "wholesale_package_cost_per_kg", Label: "批发包装成本", Source: "cost_parameter", Value: params.WholesalePackageCostPerKg, Unit: "元/kg"},
+			{Key: "product_loss_per_kg", Label: "产品损耗", Source: "cost_parameter", Value: params.ProductLossPerKg, Unit: "元/kg"},
+			{Key: "retail_tax_rate", Label: "税费比例", Source: "cost_parameter", Value: params.RetailTaxRate, Unit: "ratio"},
+			{Key: "template_margin_rate", Label: "模板利润率", Source: "gradient_template", Value: preview.MarginRate, Unit: "ratio", Changed: req.Overrides.MarginRate != nil},
+			{Key: "display_unit_conversion", Label: "展示单位换算", Source: "cost_parameter", Value: params.KgToLbFactor, Unit: template.DisplayUnit},
+			{Key: "final_price", Label: "最终价格", Source: "formula", Value: preview.FinalPricePerUnit, Unit: template.DisplayUnit, Changed: preview.FinalPricePerUnit != saved.FinalPricePerUnit},
+		},
+	}, nil
+}
+
+func normalizeGradientTemplate(template *GradientTemplate) *GradientTemplate {
+	if template == nil || len(template.Tiers) == 0 {
+		return nil
+	}
+	out := *template
+	out.Name = strings.TrimSpace(out.Name)
+	out.DisplayUnit = normalizeGradientDisplayUnit(out.DisplayUnit)
+	out.Tiers = append([]GradientTemplateTier(nil), template.Tiers...)
+	sort.SliceStable(out.Tiers, func(i, j int) bool {
+		if out.Tiers[i].Position != out.Tiers[j].Position {
+			return out.Tiers[i].Position < out.Tiers[j].Position
+		}
+		if out.Tiers[i].MinWeightG != out.Tiers[j].MinWeightG {
+			return out.Tiers[i].MinWeightG < out.Tiers[j].MinWeightG
+		}
+		return out.Tiers[i].ID < out.Tiers[j].ID
+	})
+	filtered := make([]GradientTemplateTier, 0, len(out.Tiers))
+	for _, tier := range out.Tiers {
+		tier.Label = strings.TrimSpace(tier.Label)
+		if tier.Label == "" {
+			tier.Label = fmt.Sprintf("%.0fg+", tier.MinWeightG)
+		}
+		if tier.MinWeightG <= 0 || tier.MarginRate < 0 {
+			continue
+		}
+		if tier.MaxWeightG != nil && *tier.MaxWeightG <= tier.MinWeightG {
+			continue
+		}
+		filtered = append(filtered, tier)
+	}
+	if len(filtered) == 0 {
+		return nil
+	}
+	out.Tiers = filtered
+	return &out
+}
+
+func normalizeGradientDisplayUnit(unit string) string {
+	switch strings.TrimSpace(unit) {
+	case GradientDisplayUnitKg:
+		return GradientDisplayUnitKg
+	default:
+		return GradientDisplayUnitLb
+	}
+}
+
+func specGForGradientDisplayUnit(unit string) int {
+	if normalizeGradientDisplayUnit(unit) == GradientDisplayUnitKg {
+		return 1000
+	}
+	return 454
+}
+
+func roundQuantity(v float64) float64 {
+	return math.Round(v*100) / 100
 }
 
 func costingProfileName(in ProductInput) string {

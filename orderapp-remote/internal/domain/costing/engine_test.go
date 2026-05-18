@@ -135,6 +135,115 @@ func TestCommercialWholesaleTiersSupportExcelSchemes(t *testing.T) {
 	assertClose(t, "8+ bags uses rounded second half-pound price", halfLb.CommercialWholesaleTiers[1].PricePerUnit, 166)
 }
 
+func TestGradientTemplateCommercialTiersMatchByWeightAndUseTemplateUnit(t *testing.T) {
+	params := DefaultParameters()
+	got := CalculateProduct(params, ProductInput{
+		ProductID:          501,
+		Name:               "模板拼配",
+		GreenBeanCostPerKg: 51.75,
+		YieldRate:          0.8,
+		GradientTemplate: &GradientTemplate{
+			ID:          9,
+			Name:        "工厂量单模板",
+			DisplayUnit: GradientDisplayUnitKg,
+			Tiers: []GradientTemplateTier{
+				{ID: 91, Label: "大客户量单", MinWeightG: 24000, MaxWeightG: f64(49000), MarginRate: 0.175, Position: 1},
+				{ID: 92, Label: "战略客户", MinWeightG: 50000, MaxWeightG: nil, MarginRate: 0.12, Position: 2},
+			},
+		},
+	})
+
+	if len(got.CommercialWholesaleTiers) != 2 {
+		t.Fatalf("commercial tiers = %+v, want 2 template tiers", got.CommercialWholesaleTiers)
+	}
+	first := got.CommercialWholesaleTiers[0]
+	if first.Label != "大客户量单" || first.SpecG != 1000 || first.MinQty != 24 {
+		t.Fatalf("first tier = %+v", first)
+	}
+	if first.MaxQty == nil || *first.MaxQty != 49 {
+		t.Fatalf("first max qty = %+v, want 49kg", first.MaxQty)
+	}
+	if first.TemplateID != 9 || first.TemplateTierID != 91 || first.MarginRate != 0.175 || first.DisplayUnit != GradientDisplayUnitKg {
+		t.Fatalf("template metadata = %+v", first)
+	}
+	assertClose(t, "kg price", first.PricePerUnit, 82)
+
+	lb := CalculateProduct(params, ProductInput{
+		ProductID:          502,
+		Name:               "模板单品",
+		GreenBeanCostPerKg: 62,
+		YieldRate:          0.8,
+		GradientTemplate: &GradientTemplate{
+			ID:          10,
+			Name:        "454g 包数模板",
+			DisplayUnit: GradientDisplayUnitLb,
+			Tiers: []GradientTemplateTier{
+				{ID: 101, Label: "自定义小单", MinWeightG: 908, MaxWeightG: f64(5902), MarginRate: 0.5421052631578949, Position: 1},
+			},
+		},
+	})
+	if len(lb.CommercialWholesaleTiers) != 1 {
+		t.Fatalf("lb tiers = %+v, want one tier", lb.CommercialWholesaleTiers)
+	}
+	if tier := lb.CommercialWholesaleTiers[0]; tier.Label != "自定义小单" || tier.SpecG != 454 || tier.MinQty != 2 || tier.DisplayUnit != GradientDisplayUnitLb {
+		t.Fatalf("lb template tier = %+v", tier)
+	}
+	assertClose(t, "lb price", lb.CommercialWholesaleTiers[0].PricePerUnit, 61)
+}
+
+func TestCommercialPriceExplanationIncludesFastCostParametersAndTemporaryOverrides(t *testing.T) {
+	params := DefaultParameters()
+	input := ProductInput{
+		ProductID:          501,
+		Name:               "模板拼配",
+		GreenBeanCostPerKg: 51.75,
+		YieldRate:          0.8,
+		GradientTemplate: &GradientTemplate{
+			ID:          9,
+			Name:        "工厂量单模板",
+			DisplayUnit: GradientDisplayUnitKg,
+			Tiers: []GradientTemplateTier{
+				{ID: 91, Label: "大客户量单", MinWeightG: 24000, MaxWeightG: f64(49000), MarginRate: 0.175, Position: 1},
+			},
+		},
+	}
+
+	explanation, err := ExplainCommercialPrice(params, input, PriceExplanationRequest{
+		TierLabel: "大客户量单",
+		Overrides: PriceExplanationOverrides{
+			MarginRate: f64(0.30),
+		},
+	})
+	if err != nil {
+		t.Fatalf("ExplainCommercialPrice() error = %v", err)
+	}
+	if explanation.TemplateName != "工厂量单模板" || explanation.TierLabel != "大客户量单" || explanation.DisplayUnit != GradientDisplayUnitKg {
+		t.Fatalf("explanation header = %+v", explanation)
+	}
+	if explanation.SavedFinalPrice == explanation.PreviewFinalPrice {
+		t.Fatalf("temporary override should change preview price: %+v", explanation)
+	}
+	if explanation.SavedFinalPrice != 82 || explanation.PreviewFinalPrice != 91 {
+		t.Fatalf("prices = saved %.2f preview %.2f, want 82/91", explanation.SavedFinalPrice, explanation.PreviewFinalPrice)
+	}
+	wantKeys := []string{
+		"green_bean_cost_per_kg",
+		"yield_rate",
+		"roasted_bean_cost_per_kg",
+		"large_batch_production_cost_per_kg",
+		"wholesale_package_cost_per_kg",
+		"product_loss_per_kg",
+		"retail_tax_rate",
+		"template_margin_rate",
+		"display_unit_conversion",
+	}
+	for _, key := range wantKeys {
+		if !explanation.HasStep(key) {
+			t.Fatalf("missing explanation step %s in %+v", key, explanation.Steps)
+		}
+	}
+}
+
 func TestExcelBeanListCommercialPricesMatchRoundedWorkbook(t *testing.T) {
 	params := DefaultParameters()
 	cases := []struct {

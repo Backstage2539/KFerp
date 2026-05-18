@@ -16,10 +16,14 @@ import (
 type productSettingsRepo struct {
 	products            []catalogapp.Product
 	categories          []catalogapp.ProductCategory
+	gradientTemplates   []catalogapp.GradientTemplate
 	savedCategory       catalogapp.SaveProductCategoryCommand
 	movedCategory       catalogapp.MoveProductCategoryCommand
 	deletedCategory     catalogapp.DeleteProductCategoryCommand
 	assigned            catalogapp.AssignProductCategoryCommand
+	savedTemplate       catalogapp.SaveGradientTemplateCommand
+	deactivatedTemplate catalogapp.DeactivateGradientTemplateCommand
+	boundTemplate       catalogapp.BindCategoryGradientTemplateCommand
 	updated             catalogapp.UpdateProductBasicsCommand
 	deactivated         catalogapp.DeactivateProductsCommand
 	createdPublic       catalogapp.CreateProductCommand
@@ -28,6 +32,9 @@ type productSettingsRepo struct {
 	categoryMoved       bool
 	categoryDeleted     bool
 	productAssigned     bool
+	templateSaved       bool
+	templateDeactivated bool
+	templateBound       bool
 	productUpdated      bool
 	productsDeactivated bool
 	publicCreated       bool
@@ -83,6 +90,28 @@ func (r *productSettingsRepo) ListProductCategories(ctx context.Context) ([]cata
 	return r.categories, nil
 }
 
+func (r *productSettingsRepo) ListGradientTemplates(ctx context.Context) ([]catalogapp.GradientTemplate, error) {
+	return r.gradientTemplates, nil
+}
+
+func (r *productSettingsRepo) SaveGradientTemplate(ctx context.Context, cmd catalogapp.SaveGradientTemplateCommand) (catalogapp.GradientTemplate, error) {
+	r.savedTemplate = cmd
+	r.templateSaved = true
+	return catalogapp.GradientTemplate{ID: 77, Name: cmd.Name, DisplayUnit: cmd.DisplayUnit, Active: true, Tiers: cmd.Tiers}, nil
+}
+
+func (r *productSettingsRepo) DeactivateGradientTemplate(ctx context.Context, cmd catalogapp.DeactivateGradientTemplateCommand) error {
+	r.deactivatedTemplate = cmd
+	r.templateDeactivated = true
+	return nil
+}
+
+func (r *productSettingsRepo) BindCategoryGradientTemplate(ctx context.Context, cmd catalogapp.BindCategoryGradientTemplateCommand) error {
+	r.boundTemplate = cmd
+	r.templateBound = true
+	return nil
+}
+
 func (r *productSettingsRepo) SaveProductCategory(ctx context.Context, cmd catalogapp.SaveProductCategoryCommand) (catalogapp.ProductCategory, error) {
 	r.savedCategory = cmd
 	r.categoryCreated = true
@@ -128,10 +157,14 @@ func TestProductSettingsAPISupportsCategoryTreeAndDragAssignments(t *testing.T) 
 		}},
 		categories: []catalogapp.ProductCategory{
 			{ID: 1, Name: "咖啡豆", Level: 1, Position: 1},
-			{ID: 2, ParentID: 1, Name: "意式拼配", Level: 2, Position: 1},
+			{ID: 2, ParentID: 1, Name: "意式拼配", Level: 2, Position: 1, GradientTemplateID: 9},
 			{ID: 10, Name: "客户A分类", Level: 1, Position: 1, CustomerID: 3},
 			{ID: 11, ParentID: 10, Name: "客户A二级", Level: 2, Position: 1, CustomerID: 3},
 		},
+		gradientTemplates: []catalogapp.GradientTemplate{{
+			ID: 9, Name: "工厂量单模板", DisplayUnit: "kg", Active: true,
+			Tiers: []catalogapp.GradientTemplateTier{{ID: 91, Label: "24-49kg", MinWeightG: 24000, MaxWeightG: f64(49000), MarginRate: 0.175, Position: 1}},
+		}},
 	}
 	e := echo.New()
 	registerProductRoutes(e, catalogapp.NewService(repo))
@@ -142,7 +175,7 @@ func TestProductSettingsAPISupportsCategoryTreeAndDragAssignments(t *testing.T) 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("GET /api/product-settings status=%d body=%s", rec.Code, rec.Body.String())
 	}
-	for _, want := range []string{`"categories"`, `"children"`, `"products"`, `"number":1`, `"name":"咖啡豆"`, `"name":"意式拼配"`, `"name":"客户A分类"`, `"customer_id":3`, `"name":"曲奇拼配"`, `"yield_rate":0.82`} {
+	for _, want := range []string{`"categories"`, `"children"`, `"products"`, `"gradient_templates"`, `"gradient_template_id":9`, `"name":"工厂量单模板"`, `"display_unit":"kg"`, `"number":1`, `"name":"咖啡豆"`, `"name":"意式拼配"`, `"name":"客户A分类"`, `"customer_id":3`, `"name":"曲奇拼配"`, `"yield_rate":0.82`} {
 		if !bytes.Contains(rec.Body.Bytes(), []byte(want)) {
 			t.Fatalf("product settings response missing %s: %s", want, rec.Body.String())
 		}
@@ -194,6 +227,48 @@ func TestProductSettingsAPISupportsCategoryTreeAndDragAssignments(t *testing.T) 
 	}
 	if !repo.productAssigned || repo.assigned.ProductID != 7 || repo.assigned.CategoryID != 2 || repo.assigned.Position != 3 {
 		t.Fatalf("assign product command = %+v assigned=%v", repo.assigned, repo.productAssigned)
+	}
+}
+
+func TestProductSettingsAPIManagesGradientTemplatesAndCategoryBinding(t *testing.T) {
+	repo := &productSettingsRepo{}
+	e := echo.New()
+	registerProductRoutes(e, catalogapp.NewService(repo))
+
+	body := `{"name":"工厂量单模板","display_unit":"kg","tiers":[{"label":"24-49kg","min_weight_g":24000,"max_weight_g":49000,"margin_rate":0.175,"position":1},{"label":"50kg+","min_weight_g":50000,"margin_rate":0.12,"position":2}]}`
+	req := httptest.NewRequest(http.MethodPost, "/api/pricing-gradient-templates", bytes.NewBufferString(body))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("POST template status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if !repo.templateSaved || repo.savedTemplate.Name != "工厂量单模板" || repo.savedTemplate.DisplayUnit != "kg" || len(repo.savedTemplate.Tiers) != 2 {
+		t.Fatalf("template command = %+v saved=%v", repo.savedTemplate, repo.templateSaved)
+	}
+	if repo.savedTemplate.Tiers[0].MinWeightG != 24000 || repo.savedTemplate.Tiers[0].MarginRate != 0.175 {
+		t.Fatalf("template tiers = %+v", repo.savedTemplate.Tiers)
+	}
+
+	req = httptest.NewRequest(http.MethodPost, "/api/product-settings/categories/2/gradient-template", bytes.NewBufferString(`{"gradient_template_id":77}`))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec = httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("POST category template status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if !repo.templateBound || repo.boundTemplate.CategoryID != 2 || repo.boundTemplate.GradientTemplateID != 77 {
+		t.Fatalf("bind command = %+v bound=%v", repo.boundTemplate, repo.templateBound)
+	}
+
+	req = httptest.NewRequest(http.MethodPost, "/api/pricing-gradient-templates/77/deactivate", nil)
+	rec = httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("POST deactivate template status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if !repo.templateDeactivated || repo.deactivatedTemplate.ID != 77 {
+		t.Fatalf("deactivate command = %+v deactivated=%v", repo.deactivatedTemplate, repo.templateDeactivated)
 	}
 }
 
@@ -354,4 +429,8 @@ func TestLegacyProductAndCostingRoutesRedirectToProductSettings(t *testing.T) {
 			t.Fatalf("GET %s status=%d location=%q want %s", tc.path, rec.Code, rec.Header().Get("Location"), tc.want)
 		}
 	}
+}
+
+func f64(v float64) *float64 {
+	return &v
 }
