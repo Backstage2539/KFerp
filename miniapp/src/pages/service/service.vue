@@ -791,6 +791,7 @@ onShow(() => {
             <view v-for="line in item.items" :key="line.id" class="item-line">
               <text>{{ line.item_name }} {{ line.spec }}</text>
               <text>{{ line.qty }}{{ line.unit }} x ¥{{ line.unit_price }} = ¥{{ line.line_total }}</text>
+              <text v-if="line.bean_list_version_no" class="line-meta">豆单版本：{{ line.bean_list_version_no }}</text>
             </view>
           </view>
           <text class="row-sub">运费：¥{{ item.shipping_amount || '0.00' }}</text>
@@ -1524,11 +1525,18 @@ onShow(() => {
 
 .item-line {
   display: flex;
+  flex-wrap: wrap;
   justify-content: space-between;
   gap: 16rpx;
   color: #333333;
   font-size: 24rpx;
   line-height: 1.45;
+}
+
+.line-meta {
+  width: 100%;
+  color: #7a6a55;
+  font-size: 22rpx;
 }
 
 .section-count {

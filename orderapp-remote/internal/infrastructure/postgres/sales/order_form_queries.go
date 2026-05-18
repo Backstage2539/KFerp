@@ -290,6 +290,8 @@ func (r Repository) fetchOrderEdit(ctx context.Context, id int64) (*salesapp.Ord
 				COALESCE(oi.unit_price,0),
 				COALESCE(oi.line_total,0),
 				COALESCE(oi.price_tier_id,0),
+				COALESCE(oi.bean_list_publication_id,0),
+				COALESCE(oi.bean_list_version_no,''),
 				COALESCE(oi.discount_type,''),
 				COALESCE(oi.discount_value,0),
 				COALESCE(oi.discount_amount,0)
@@ -308,7 +310,7 @@ func (r Repository) fetchOrderEdit(ctx context.Context, id int64) (*salesapp.Ord
 	for rows.Next() {
 		var it salesapp.OrderEditItem
 		var qty, unitPrice, lineTotal, discountValue, discountAmount float64
-		if err := rows.Scan(&it.ItemID, &it.LineNo, &it.ProductID, &it.Product, &it.ProductKind, &it.Note, &it.Spec, &qty, &it.Unit, &unitPrice, &lineTotal, &it.PriceTierID, &it.DiscountType, &discountValue, &discountAmount); err != nil {
+		if err := rows.Scan(&it.ItemID, &it.LineNo, &it.ProductID, &it.Product, &it.ProductKind, &it.Note, &it.Spec, &qty, &it.Unit, &unitPrice, &lineTotal, &it.PriceTierID, &it.BeanListPublicationID, &it.BeanListVersionNo, &it.DiscountType, &discountValue, &discountAmount); err != nil {
 			return nil, err
 		}
 		it.Qty = trimFloatZero(qty)

@@ -128,6 +128,8 @@ export type CustomerOrderItemSummary = {
   unit: string
   unit_price: string
   line_total: string
+  bean_list_publication_id: number
+  bean_list_version_no: string
 }
 
 export type DirectShipBatch = {

@@ -14,6 +14,7 @@ import (
 
 	app "orderapp/internal/application/customerfulfillment"
 	customerportalapp "orderapp/internal/application/customerportal"
+	"orderapp/internal/infrastructure/postgres/orderbeans"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -1240,10 +1241,11 @@ func (r *Repository) createSubmittedDirectShipERPOrderItemsTx(ctx context.Contex
 		if _, err := tx.Exec(ctx, fmt.Sprintf(`
 			INSERT INTO %s.order_items(
 				order_id,line_no,product_id,item_name,qty,unit,spec,unit_price,
-				line_total_before_discount,discount_type,discount_value,discount_amount,line_total
+				line_total_before_discount,discount_type,discount_value,discount_amount,line_total,
+				bean_list_publication_id,bean_list_version_no
 			)
-			VALUES($1,$2,$3,$4,$5,'件',$6,$7,$8,$9,$10,$11,$12)
-		`, r.schema), orderID, item.lineNo, nullableCustomerFulfillmentID(item.productID), item.productTitle, item.quantity, item.spec, item.unitPrice, item.baseLineTotal, item.discountType, item.discountValue, item.discountAmount, item.lineTotal); err != nil {
+			VALUES($1,$2,$3,$4,$5,'件',$6,$7,$8,$9,$10,$11,$12,NULLIF($13,0),$14)
+		`, r.schema), orderID, item.lineNo, nullableCustomerFulfillmentID(item.productID), item.productTitle, item.quantity, item.spec, item.unitPrice, item.baseLineTotal, item.discountType, item.discountValue, item.discountAmount, item.lineTotal, item.beanListUsage.PublicationID, item.beanListUsage.VersionNo); err != nil {
 			return err
 		}
 	}
@@ -1262,6 +1264,7 @@ type submittedDirectShipERPItemSeed struct {
 	discountValue  float64
 	discountAmount float64
 	lineTotal      float64
+	beanListUsage  orderbeans.Usage
 }
 
 func (r *Repository) submittedDirectShipERPItemSeedsTx(ctx context.Context, tx pgx.Tx, importOrderID int64) ([]submittedDirectShipERPItemSeed, error) {
@@ -1371,12 +1374,18 @@ func (r *Repository) submittedDirectShipERPItemSeedsTx(ctx context.Context, tx p
 		if quoted.Spec != "" {
 			items[idx].spec = quoted.Spec
 		}
+		items[idx].productID = quoted.ProductID
 		items[idx].unitPrice = quoted.UnitPrice
 		items[idx].baseLineTotal = quoted.BaseLineTotal
 		items[idx].discountType = quoted.DiscountType
 		items[idx].discountValue = quoted.DiscountValue
 		items[idx].discountAmount = quoted.DiscountAmount
 		items[idx].lineTotal = quoted.LineTotal
+		usage, err := orderbeans.ResolveUsage(ctx, tx, r.schema, customerID, items[idx].productID, orderbeans.ListTypeCommercial)
+		if err != nil {
+			return nil, err
+		}
+		items[idx].beanListUsage = usage
 	}
 	return items, nil
 }
@@ -3550,6 +3559,14 @@ func (r *Repository) applyDirectShipItemTx(ctx context.Context, tx pgx.Tx, custo
 	} else if !errors.Is(productErr, pgx.ErrNoRows) {
 		return 0, productErr
 	}
+	usage := orderbeans.Usage{}
+	if matchedProductID > 0 {
+		var usageErr error
+		usage, usageErr = orderbeans.ResolveUsage(ctx, tx, r.schema, customerID, matchedProductID, orderbeans.ListTypeCommercial)
+		if usageErr != nil {
+			return 0, usageErr
+		}
+	}
 	quantity := payloadInt64(row.Payload, "quantity_units")
 	var importItemID int64
 	if err := tx.QueryRow(ctx, fmt.Sprintf(`
@@ -3617,9 +3634,11 @@ func (r *Repository) applyDirectShipItemTx(ctx context.Context, tx pgx.Tx, custo
 				unit='件',
 				spec=$5,
 				unit_price=0,
-				line_total=0
+				line_total=0,
+				bean_list_publication_id=NULLIF($6,0),
+				bean_list_version_no=$7
 			WHERE id=$1
-		`, r.schema), orderItemID, productID, productTitle, quantity, payloadString(row.Payload, "spec")); err != nil {
+		`, r.schema), orderItemID, productID, productTitle, quantity, payloadString(row.Payload, "spec"), usage.PublicationID, usage.VersionNo); err != nil {
 			return 0, err
 		}
 		if _, err := tx.Exec(ctx, fmt.Sprintf(`
@@ -3630,9 +3649,9 @@ func (r *Repository) applyDirectShipItemTx(ctx context.Context, tx pgx.Tx, custo
 		}
 	} else if errors.Is(err, pgx.ErrNoRows) {
 		if _, err := tx.Exec(ctx, fmt.Sprintf(`
-			INSERT INTO %s.order_items(order_id, line_no, product_id, item_name, qty, unit, spec, unit_price, line_total)
-			VALUES($1,$2,$3,$4,$5,'件',$6,0,0)
-		`, r.schema), orderID, lineNo, productID, productTitle, quantity, payloadString(row.Payload, "spec")); err != nil {
+			INSERT INTO %s.order_items(order_id, line_no, product_id, item_name, qty, unit, spec, unit_price, line_total, bean_list_publication_id, bean_list_version_no)
+			VALUES($1,$2,$3,$4,$5,'件',$6,0,0,NULLIF($7,0),$8)
+		`, r.schema), orderID, lineNo, productID, productTitle, quantity, payloadString(row.Payload, "spec"), usage.PublicationID, usage.VersionNo); err != nil {
 			return 0, err
 		}
 	} else {

@@ -424,7 +424,7 @@
             <div v-else class="table-wrap drawer-table-wrap">
               <table class="drawer-table">
                 <thead>
-                  <tr><th>商品</th><th>规格</th><th>数量</th><th>单价</th><th>小计</th><th>备注</th></tr>
+                  <tr><th>商品</th><th>规格</th><th>数量</th><th>单价</th><th>小计</th><th>豆单版本</th><th>备注</th></tr>
                 </thead>
                 <tbody>
                   <tr v-for="(item, idx) in activeOrderDetail?.items || []" :key="`${activeOrderSummary.id}-${idx}`">
@@ -433,6 +433,7 @@
                     <td>{{ item.qty || '-' }}{{ item.unit || '' }}</td>
                     <td>{{ item.unit_price || '-' }}</td>
                     <td>{{ item.line_total || '-' }}</td>
+                    <td>{{ item.bean_list_version_no || '未记录' }}</td>
                     <td>{{ item.note || '-' }}</td>
                   </tr>
                 </tbody>
