@@ -553,6 +553,18 @@ func (s *threeTemplateWalkthroughStore) LoadBeanListPublication(context.Context,
 	return customerportalapp.BeanListSummary{}, nil
 }
 
+func (s *threeTemplateWalkthroughStore) LoadBeanListPublicationAsset(context.Context, int64, string) (customerportalapp.BeanListPublicationAsset, error) {
+	return customerportalapp.BeanListPublicationAsset{}, customerportalapp.ErrBeanListPublicationNotFound
+}
+
+func (s *threeTemplateWalkthroughStore) SaveBeanListPublicationAsset(_ context.Context, asset customerportalapp.BeanListPublicationAsset, _ string) (customerportalapp.BeanListPublicationAsset, error) {
+	return asset, nil
+}
+
+func (s *threeTemplateWalkthroughStore) AcknowledgeBeanListPublication(context.Context, int64, int64, string) error {
+	return nil
+}
+
 func (s *threeTemplateWalkthroughStore) ListPortalAdminCustomers(context.Context, customerportalapp.PortalAdminCustomerQuery) ([]customerportalapp.PortalAdminCustomer, error) {
 	rows := make([]customerportalapp.PortalAdminCustomer, 0, len(s.customers))
 	for _, customer := range s.customers {
