@@ -31,9 +31,8 @@ func registerOrderRoutes(e *echo.Echo, salesSvc *salesapp.Service) {
 	e.GET("/orders/:id/edit", h.editRedirect)
 	e.POST("/orders/:id/edit", h.editPost)
 
-	// Void / unvoid
+	// Void is irreversible. Operators can copy a voided order into a new order instead.
 	e.POST("/orders/:id/void", h.void)
-	e.POST("/orders/:id/unvoid", h.unvoid)
 
 	// Create order
 	e.GET("/order", h.entry)
@@ -119,18 +118,6 @@ func (h orderHandler) void(c echo.Context) error {
 	}
 	reason := strings.TrimSpace(c.FormValue("reason"))
 	if err := h.sales.Void(c.Request().Context(), id, support.ActorOf(c), reason); err != nil {
-		return err
-	}
-	return c.Redirect(http.StatusSeeOther, support.PrefixRelativeLocation(c, fmt.Sprintf("/orders/%d", id)))
-
-}
-
-func (h orderHandler) unvoid(c echo.Context) error {
-	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
-	if err != nil || id <= 0 {
-		return c.String(http.StatusBadRequest, "invalid id")
-	}
-	if err := h.sales.Unvoid(c.Request().Context(), id, support.ActorOf(c)); err != nil {
 		return err
 	}
 	return c.Redirect(http.StatusSeeOther, support.PrefixRelativeLocation(c, fmt.Sprintf("/orders/%d", id)))

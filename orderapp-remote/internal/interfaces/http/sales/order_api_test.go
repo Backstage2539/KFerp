@@ -42,7 +42,7 @@ func TestOrderEntryRedirectsToVueShell(t *testing.T) {
 	}
 }
 
-func TestOrderAPIRoutesExposeVoidAndUnvoidJSONEndpoints(t *testing.T) {
+func TestOrderAPIRoutesExposeIrreversibleVoidJSONEndpoints(t *testing.T) {
 	body, err := os.ReadFile(filepath.Join("internal", "interfaces", "http", "sales", "order_api.go"))
 	if err != nil {
 		t.Fatalf("read order_api.go: %v", err)
@@ -50,12 +50,21 @@ func TestOrderAPIRoutesExposeVoidAndUnvoidJSONEndpoints(t *testing.T) {
 	source := string(body)
 	for _, want := range []string{
 		`e.POST("/api/orders/:id/void", h.void)`,
-		`e.POST("/api/orders/:id/unvoid", h.unvoid)`,
+		`e.POST("/api/orders/void", h.voidMany)`,
 		"func (h orderAPIHandler) void",
-		"func (h orderAPIHandler) unvoid",
+		"func (h orderAPIHandler) voidMany",
 	} {
 		if !strings.Contains(source, want) {
 			t.Fatalf("order API missing JSON void endpoint wiring %q", want)
+		}
+	}
+	for _, forbidden := range []string{
+		"/api/orders/:id/unvoid",
+		"func (h orderAPIHandler) unvoid",
+		"sales.Unvoid",
+	} {
+		if strings.Contains(source, forbidden) {
+			t.Fatalf("order API must not expose restore marker %q", forbidden)
 		}
 	}
 }
@@ -102,7 +111,7 @@ func TestOrderAPIFormReturnsCustomerDefaultsForOrderEntry(t *testing.T) {
 	}
 }
 
-func TestOrderAPIVoidAndUnvoidUseSoftDeleteAndListFilters(t *testing.T) {
+func TestOrderAPIVoidIsIrreversibleAndBulkVoidUsesSoftDeleteAndListFilters(t *testing.T) {
 	pool, schema := newOrderAPITestDB(t)
 	ctx := context.Background()
 	seedOrderAPITestData(t, ctx, pool, schema)
@@ -110,7 +119,8 @@ func TestOrderAPIVoidAndUnvoidUseSoftDeleteAndListFilters(t *testing.T) {
 		INSERT INTO %[1]s.orders(id, order_no, order_date, customer_id, order_type_id, pay_status_id, ship_status_id, process_status_id, grand_total, is_void)
 		VALUES
 			(7001, 'VOID-API-NORMAL', '2026-05-18', 3, 1, 2, 1, 1, 100, false),
-			(7002, 'VOID-API-TARGET', '2026-05-18', 3, 1, 2, 1, 1, 200, false);
+			(7002, 'VOID-API-TARGET', '2026-05-18', 3, 1, 2, 1, 1, 200, false),
+			(7003, 'VOID-API-BULK', '2026-05-18', 3, 1, 2, 1, 1, 300, false);
 	`, schema))
 
 	e := newOrderAPITestEcho(pool, schema)
@@ -159,22 +169,43 @@ func TestOrderAPIVoidAndUnvoidUseSoftDeleteAndListFilters(t *testing.T) {
 	req = httptest.NewRequest(http.MethodPost, "/api/orders/7002/unvoid", nil)
 	rec = httptest.NewRecorder()
 	e.ServeHTTP(rec, req)
-	if rec.Code != http.StatusOK {
-		t.Fatalf("POST /api/orders/:id/unvoid status=%d body=%s, want 200", rec.Code, rec.Body.String())
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("POST /api/orders/:id/unvoid status=%d body=%s, want 404", rec.Code, rec.Body.String())
 	}
-	if body := rec.Body.String(); !strings.Contains(body, `"is_void":false`) || !strings.Contains(body, `"order_id":7002`) {
-		t.Fatalf("unvoid response missing state: %s", body)
+
+	req = httptest.NewRequest(http.MethodPost, "/api/orders/void", strings.NewReader(`{"order_ids":[7001,7003],"reason":"批量失效"}`))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec = httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("POST /api/orders/void status=%d body=%s, want 200", rec.Code, rec.Body.String())
+	}
+	if body := rec.Body.String(); !strings.Contains(body, `"voided":2`) || !strings.Contains(body, `"order_ids":[7001,7003]`) {
+		t.Fatalf("bulk void response missing count and ids: %s", body)
 	}
 
 	req = httptest.NewRequest(http.MethodGet, "/api/orders?q=VOID-API&limit=20", nil)
 	rec = httptest.NewRecorder()
 	e.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
-		t.Fatalf("GET /api/orders after unvoid status=%d body=%s", rec.Code, rec.Body.String())
+		t.Fatalf("GET /api/orders after bulk void status=%d body=%s", rec.Code, rec.Body.String())
 	}
 	body = rec.Body.String()
-	if !strings.Contains(body, "VOID-API-NORMAL") || !strings.Contains(body, "VOID-API-TARGET") {
-		t.Fatalf("default order list should show restored order, body=%s", body)
+	if strings.Contains(body, "VOID-API-NORMAL") || strings.Contains(body, "VOID-API-TARGET") || strings.Contains(body, "VOID-API-BULK") {
+		t.Fatalf("default order list should hide all voided orders, body=%s", body)
+	}
+
+	req = httptest.NewRequest(http.MethodGet, "/api/orders?q=VOID-API&void=void&limit=20", nil)
+	rec = httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET /api/orders void after bulk status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	body = rec.Body.String()
+	for _, want := range []string{"VOID-API-NORMAL", "VOID-API-TARGET", "VOID-API-BULK"} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("void order list missing %s after bulk void, body=%s", want, body)
+		}
 	}
 }
 

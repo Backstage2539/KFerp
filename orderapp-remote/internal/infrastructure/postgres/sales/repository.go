@@ -848,25 +848,36 @@ func (r Repository) InlineUpdate(ctx context.Context, id int64, actor string, cm
 }
 
 func (r Repository) Void(ctx context.Context, id int64, actor, reason string) error {
-	q := fmt.Sprintf("UPDATE %s.orders SET is_void=true, voided_at=now(), void_reason=$2 WHERE id=$1", r.schema)
-	if _, err := r.pool.Exec(ctx, q, id, nullText(reason)); err != nil {
-		return err
+	_, err := r.VoidMany(ctx, []int64{id}, actor, reason)
+	return err
+}
+
+func (r Repository) VoidMany(ctx context.Context, ids []int64, actor, reason string) (int, error) {
+	q := fmt.Sprintf("UPDATE %s.orders SET is_void=true, voided_at=now(), void_reason=$2 WHERE id = ANY($1) AND COALESCE(is_void,false)=false RETURNING id", r.schema)
+	rows, err := r.pool.Query(ctx, q, ids, nullText(reason))
+	if err != nil {
+		return 0, err
+	}
+	defer rows.Close()
+	updatedIDs := make([]int64, 0, len(ids))
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			return 0, err
+		}
+		updatedIDs = append(updatedIDs, id)
+	}
+	if err := rows.Err(); err != nil {
+		return 0, err
 	}
 	var rv *string
 	if strings.TrimSpace(reason) != "" {
 		rv = &reason
 	}
-	postgresinfra.AuditInsert(ctx, r.pool, r.schema, actor, "order", &id, "void", nil, nil, rv, postgresinfra.AuditMeta{"order_id": id})
-	return nil
-}
-
-func (r Repository) Unvoid(ctx context.Context, id int64, actor string) error {
-	q := fmt.Sprintf("UPDATE %s.orders SET is_void=false, voided_at=NULL, void_reason=NULL WHERE id=$1", r.schema)
-	if _, err := r.pool.Exec(ctx, q, id); err != nil {
-		return err
+	for _, id := range updatedIDs {
+		postgresinfra.AuditInsert(ctx, r.pool, r.schema, actor, "order", &id, "void", nil, nil, rv, postgresinfra.AuditMeta{"order_id": id})
 	}
-	postgresinfra.AuditInsert(ctx, r.pool, r.schema, actor, "order", &id, "unvoid", nil, nil, nil, postgresinfra.AuditMeta{"order_id": id})
-	return nil
+	return len(updatedIDs), nil
 }
 
 func (r Repository) logOrderSave(ctx context.Context, actor string, orderID int64, orderNo string, edited bool) {

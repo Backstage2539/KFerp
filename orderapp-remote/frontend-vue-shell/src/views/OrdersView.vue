@@ -96,10 +96,20 @@
         <a v-if="shippingExcelUrl" :href="shippingExcelUrl" target="_blank" rel="noopener">下载 Excel</a>
       </div>
       <div v-if="shippingError" class="notice error">{{ shippingError }}</div>
+      <div class="bulk-order-bar">
+        <span>批量失效已选 {{ bulkSelectedOrderIDs.length }} 个</span>
+        <button class="secondary" type="button" @click="selectVisibleVoidableOrders" :disabled="!hasVisibleVoidableOrders()">选择本页正常订单</button>
+        <button class="secondary" type="button" @click="clearBulkSelection" :disabled="!bulkSelectedOrderIDs.length">清空</button>
+        <button class="danger-action" type="button" @click="voidSelectedOrders" :disabled="bulkVoiding || !bulkSelectedOrderIDs.length">
+          {{ bulkVoiding ? '失效中' : '批量失效' }}
+        </button>
+        <small>失效后不可恢复；需要重建时，从“已失效”订单点“复制”。</small>
+      </div>
       <div class="table-wrap">
         <table>
           <thead>
             <tr>
+              <th class="select-col">失效</th>
               <th class="select-col">发货</th>
               <th>订单号</th>
               <th>日期</th>
@@ -114,6 +124,15 @@
           </thead>
           <tbody>
             <tr v-for="row in rows" :key="row.id" :class="orderRowClass(row)">
+              <td class="select-col">
+                <input
+                  type="checkbox"
+                  :checked="bulkSelectedOrderIDs.includes(Number(row.id))"
+                  :disabled="row.is_void"
+                  :title="row.is_void ? '已失效订单不能再次失效' : '选择后可批量失效'"
+                  @change="toggleBulkOrder(row, $event.target.checked)"
+                />
+              </td>
               <td class="select-col">
                 <input
                   type="checkbox"
@@ -156,13 +175,8 @@
                 <span v-else class="muted inline-muted">出库单</span>
                 <a class="text-link" href="#" @click.prevent="openInvoiceDrawer(row)">发票</a>
                 <a class="text-link" :href="`/orders/${row.id}/audit`">审计</a>
-                <button
-                  v-if="row.is_void"
-                  class="text-button restore-text"
-                  type="button"
-                  @click.prevent="restoreOrder(row)"
-                  :disabled="voidingOrderID === Number(row.id)"
-                >恢复</button>
+                <button class="text-button" type="button" @click.prevent="copyOrder(row)">复制</button>
+                <button v-if="row.is_void" class="voided-action-button" type="button" disabled>已失效</button>
                 <button
                   v-else
                   class="text-button danger-text"
@@ -173,7 +187,7 @@
               </td>
             </tr>
             <tr v-if="!rows.length">
-              <td colspan="10" class="muted">暂无订单</td>
+              <td colspan="11" class="muted">暂无订单</td>
             </tr>
           </tbody>
         </table>
@@ -242,7 +256,6 @@
               <span>发货：{{ activeOrderDetail.ship_status || '-' }}</span>
               <span>生产：{{ activeOrderDetail.process_status || '-' }}</span>
               <span>发票：{{ invoiceStatusLabel(activeOrderDetail.invoice_status) }}</span>
-              <span>失效：{{ activeOrderDetail.is_void ? '已失效' : '正常' }}</span>
             </div>
           </section>
           <section class="drawer-section">
@@ -265,13 +278,15 @@
             <button class="secondary" type="button" @click="openSalesOrderDrawer(activeOrderDetail)">销售单</button>
             <button class="secondary" type="button" @click="openDeliveryNoteDrawer(activeOrderDetail)" :disabled="!isShipped(activeOrderDetail)">出库单</button>
             <button class="secondary" type="button" @click="openInvoiceDrawer(activeOrderDetail)">发票</button>
-            <button v-if="activeOrderDetail.is_void" class="secondary restore-text" type="button" @click="restoreOrder(activeOrderDetail)" :disabled="voidingOrderID === Number(activeOrderDetail.id)">恢复订单</button>
+            <button class="secondary" type="button" @click="copyOrder(activeOrderDetail)">复制订单</button>
+            <button v-if="activeOrderDetail.is_void" class="voided-action-button" type="button" disabled>已失效</button>
             <button v-else class="secondary danger-text" type="button" @click="voidOrder(activeOrderDetail)" :disabled="voidingOrderID === Number(activeOrderDetail.id)">失效订单</button>
           </div>
           <section class="drawer-section order-edit-panel">
             <OrderEntryView
-              :key="activeOrderDetail.id"
-              :edit-id="activeOrderDetail.id"
+              :key="orderEntryPanelKey()"
+              :edit-id="activeOrderEditID()"
+              :copy-id="activeOrderCopyID()"
               embedded
               @close="closeOrderDetailDrawer"
               @saved="handleOrderEditSaved"
@@ -332,6 +347,7 @@ const page = ref(1)
 const hasPrev = ref(false)
 const hasNext = ref(false)
 const selectedOrderIDs = ref([])
+const bulkSelectedOrderIDs = ref([])
 const shippingLoading = ref(false)
 const shippingExcelUrl = ref('')
 const shippingMessage = ref('')
@@ -352,6 +368,8 @@ const activeDeliveryNoteID = ref(0)
 const invoiceDrawerOpen = ref(false)
 const activeInvoiceID = ref(0)
 const voidingOrderID = ref(0)
+const bulkVoiding = ref(false)
+const copyingOrderID = ref(0)
 
 const filters = reactive({
   scope: 'all',
@@ -466,6 +484,7 @@ function openOrderDetailDrawer(row) {
   const id = Number(row?.id || 0)
   if (!id) return
   activeOrderDetail.value = { ...row }
+  copyingOrderID.value = row?.is_void ? id : 0
   drawerTrackingNo.value = row.ship_tracking_no || ''
   orderDetailDrawerOpen.value = true
   if (orderSenderIDs[id] === undefined) orderSenderIDs[id] = 0
@@ -474,12 +493,29 @@ function openOrderDetailDrawer(row) {
 function closeOrderDetailDrawer() {
   orderDetailDrawerOpen.value = false
   activeOrderDetail.value = null
+  copyingOrderID.value = 0
   drawerTrackingNo.value = ''
 }
 
 function orderDisplayName(row = {}) {
   const id = Number(row?.id || 0)
   return row?.order_no || (id ? `#${id}` : '当前订单')
+}
+
+function activeOrderCopyID() {
+  const id = Number(activeOrderDetail.value?.id || 0)
+  if (!id) return 0
+  return activeOrderDetail.value?.is_void || Number(copyingOrderID.value || 0) === id ? id : 0
+}
+
+function activeOrderEditID() {
+  const id = Number(activeOrderDetail.value?.id || 0)
+  return activeOrderCopyID() ? 0 : id
+}
+
+function orderEntryPanelKey() {
+  const id = Number(activeOrderDetail.value?.id || 0)
+  return `${id}-${activeOrderCopyID() ? 'copy' : 'edit'}`
 }
 
 async function loadPage(nextPage) {
@@ -594,6 +630,31 @@ function toggleOrder(row, checked) {
   shippingError.value = ''
 }
 
+function toggleBulkOrder(row, checked) {
+  const id = Number(row?.id || 0)
+  if (!id || row?.is_void) return
+  if (checked) {
+    if (!bulkSelectedOrderIDs.value.includes(id)) bulkSelectedOrderIDs.value = [...bulkSelectedOrderIDs.value, id]
+  } else {
+    bulkSelectedOrderIDs.value = bulkSelectedOrderIDs.value.filter((item) => item !== id)
+  }
+  shippingError.value = ''
+}
+
+function selectVisibleVoidableOrders() {
+  const ids = rows.value.filter((row) => !row?.is_void).map((row) => Number(row.id)).filter(Boolean)
+  bulkSelectedOrderIDs.value = Array.from(new Set([...bulkSelectedOrderIDs.value, ...ids]))
+  shippingError.value = ids.length ? '' : '本页没有可批量失效的正常订单'
+}
+
+function clearBulkSelection() {
+  bulkSelectedOrderIDs.value = []
+}
+
+function hasVisibleVoidableOrders() {
+  return rows.value.some((row) => !row?.is_void)
+}
+
 function selectVisibleShipReady() {
   const ids = rows.value.filter(isShipReady).map((row) => Number(row.id)).filter(Boolean)
   selectedOrderIDs.value = Array.from(new Set([...selectedOrderIDs.value, ...ids]))
@@ -614,13 +675,14 @@ async function voidOrder(row) {
   const id = Number(row?.id || 0)
   if (!id || row?.is_void) return
   const label = orderDisplayName(row)
-  if (!window.confirm(`确认失效订单 ${label}？失效后 ERP 默认列表、履约客户订单和小程序订单都不展示，可从“已失效/全部”筛选恢复。`)) return
+  if (!window.confirm(`确认失效订单 ${label}？失效后不可恢复，ERP 默认列表、履约客户订单和小程序订单都不展示；如需重建，请从“已失效”订单复制。`)) return
   voidingOrderID.value = id
   shippingError.value = ''
   shippingMessage.value = ''
   try {
     await apiSend(`/api/orders/${id}/void`, { body: { reason: 'ERP订单列表失效' } })
     selectedOrderIDs.value = selectedOrderIDs.value.filter((item) => item !== id)
+    bulkSelectedOrderIDs.value = bulkSelectedOrderIDs.value.filter((item) => item !== id)
     delete orderSenderIDs[id]
     shippingMessage.value = `订单 ${label} 已失效`
     await load()
@@ -632,23 +694,35 @@ async function voidOrder(row) {
   }
 }
 
-async function restoreOrder(row) {
-  const id = Number(row?.id || 0)
-  if (!id) return
-  const label = orderDisplayName(row)
-  voidingOrderID.value = id
+async function voidSelectedOrders() {
+  const ids = bulkSelectedOrderIDs.value.filter((id) => rows.value.some((row) => Number(row.id) === id && !row.is_void))
+  if (!ids.length) return
+  if (!window.confirm(`确认批量失效 ${ids.length} 个订单？失效后不可恢复；ERP 默认列表、履约客户订单和小程序订单都不展示。`)) return
+  bulkVoiding.value = true
   shippingError.value = ''
   shippingMessage.value = ''
   try {
-    await apiSend(`/api/orders/${id}/unvoid`, { body: {} })
-    shippingMessage.value = `订单 ${label} 已恢复`
+    const data = await apiSend(`/api/orders/void`, { body: { order_ids: ids, reason: 'ERP订单列表批量失效' } })
+    selectedOrderIDs.value = selectedOrderIDs.value.filter((item) => !ids.includes(item))
+    bulkSelectedOrderIDs.value = []
+    for (const id of ids) delete orderSenderIDs[id]
+    shippingMessage.value = `已批量失效 ${Number(data.voided || ids.length)} 个订单`
     await load()
-    if (filters.void === 'void' && Number(activeOrderDetail.value?.id || 0) === id) closeOrderDetailDrawer()
+    if (filters.void === 'normal' && ids.includes(Number(activeOrderDetail.value?.id || 0))) closeOrderDetailDrawer()
   } catch (err) {
-    shippingError.value = err.message || '订单恢复失败'
+    shippingError.value = err.message || '批量失效失败'
   } finally {
-    voidingOrderID.value = 0
+    bulkVoiding.value = false
   }
+}
+
+function copyOrder(row) {
+  const id = Number(row?.id || 0)
+  if (!id) return
+  activeOrderDetail.value = { ...row }
+  copyingOrderID.value = id
+  drawerTrackingNo.value = row.ship_tracking_no || ''
+  orderDetailDrawerOpen.value = true
 }
 
 async function generateShippingExcel() {
@@ -697,8 +771,18 @@ async function fillOrderTracking() {
   }
 }
 
-async function handleOrderEditSaved() {
+async function handleOrderEditSaved(data = {}) {
   const orderID = Number(activeOrderDetail.value?.id || 0)
+  const copied = activeOrderCopyID() > 0
+  if (copied) {
+    if (Number(data.order_id || 0) > 0) filters.highlight_order_id = Number(data.order_id)
+    filters.void = 'normal'
+    await load()
+    shippingMessage.value = `已复制为新订单 ${data.order_no || ''}`.trim()
+    copyingOrderID.value = 0
+    closeOrderDetailDrawer()
+    return
+  }
   await load()
   const refreshed = rows.value.find((row) => Number(row.id) === orderID)
   if (refreshed) activeOrderDetail.value = { ...refreshed }
@@ -758,6 +842,7 @@ async function load() {
       }
     }
     selectedOrderIDs.value = selectedOrderIDs.value.filter((id) => rows.value.some((row) => Number(row.id) === id && isShipReady(row)))
+    bulkSelectedOrderIDs.value = bulkSelectedOrderIDs.value.filter((id) => rows.value.some((row) => Number(row.id) === id && !row.is_void))
     for (const key of Object.keys(orderSenderIDs)) {
       const id = Number(key)
       if (!rows.value.some((row) => Number(row.id) === id)) delete orderSenderIDs[key]
@@ -824,6 +909,10 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .sender-picker select { height: 38px; }
 .tracking-upload { min-width: 180px; }
 .tracking-upload input { padding: 6px; }
+.bulk-order-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; border: 1px solid #efd1d1; border-radius: 8px; background: #fff7f7; padding: 9px 10px; margin-bottom: 12px; color: #6f2424; }
+.bulk-order-bar span { font-weight: 700; }
+.bulk-order-bar small { color: #7a4b4b; }
+.danger-action { border-color: #8a1f1f; background: #8a1f1f; color: #fff; }
 .notice { display: flex; align-items: center; justify-content: space-between; gap: 10px; border-radius: 6px; padding: 9px; margin-bottom: 12px; }
 .ok { background: #eef8f1; border: 1px solid #b9dfc4; color: #1f6b38; }
 .table-wrap { overflow: auto; }
@@ -840,7 +929,8 @@ tr.voided { opacity: .55; }
 a, .text-link { color: #1f4f82; text-decoration: none; }
 .text-button { height: auto; border: 0; border-radius: 0; padding: 0; background: transparent; color: #1f4f82; font: inherit; text-decoration: none; cursor: pointer; }
 .danger-text { color: #9f2f2f; }
-.restore-text { color: #1f6b38; }
+.voided-action-button { height: 28px; border-color: #b91c1c; background: #fff1f2; color: #991b1b; padding: 0 9px; cursor: default; font-size: 13px; font-weight: 700; }
+.voided-action-button:disabled { opacity: 1; cursor: default; }
 .link-button { display: inline-flex; align-items: center; justify-content: center; text-decoration: none; }
 .order-link { height: auto; border: 0; border-radius: 0; padding: 0; background: transparent; color: #1f4f82; font: inherit; text-align: left; cursor: pointer; }
 .shipping-summary { display: grid; gap: 4px; min-width: 130px; }

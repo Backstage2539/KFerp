@@ -3,7 +3,7 @@
     <section class="order-hero">
       <div>
         <p class="eyebrow">订单销售</p>
-        <h2>{{ form.edit_id ? '编辑订单' : '录单' }}</h2>
+        <h2>{{ copyMode ? '复制订单' : (form.edit_id ? '编辑订单' : '录单') }}</h2>
       </div>
       <div class="hero-actions">
         <div class="total-pill">
@@ -17,6 +17,7 @@
 
     <div v-if="error" class="notice error">{{ error }}</div>
     <div v-if="ok" class="notice ok">订单已保存：{{ ok }}</div>
+    <div v-if="copyMode" class="notice warn">复制订单会生成一张新订单，不会修改原订单。</div>
     <div v-if="stockBatchNotice" class="notice warn">{{ stockBatchNotice }}</div>
 
     <section class="panel order-fields">
@@ -378,6 +379,7 @@ import { parseRecipientText } from '../lib/customer-recipient'
 
 const props = defineProps({
   editId: { type: [Number, String], default: 0 },
+  copyId: { type: [Number, String], default: 0 },
   embedded: { type: Boolean, default: false },
 })
 
@@ -405,6 +407,7 @@ const customerSaving = ref(false)
 const customerError = ref('')
 const customerPaste = ref('')
 const customerForm = reactive(emptyCustomerForm())
+const effectiveCopyID = ref(0)
 
 const form = reactive({
   edit_id: 0,
@@ -475,6 +478,7 @@ const retailOrder = computed(() => {
 const itemsTotal = computed(() => rows.value.reduce((sum, row) => sum + rowTotal(row), 0))
 const filteredCustomers = computed(() => filterOptions(customers.value, customerQuery.value).slice(0, 20))
 const paymentMethodRequired = computed(() => requiresOrderPaymentMethod(form, payStatuses.value))
+const copyMode = computed(() => Number(props.copyId || effectiveCopyID.value || 0) > 0)
 const responsibleCandidateOptions = computed(() => responsibleOptions({ employees: employees.value, customers: customers.value }))
 const filteredResponsibleOptions = computed(() => {
   const q = String(responsibleQuery.value || '').trim().toLowerCase()
@@ -794,9 +798,13 @@ async function load() {
   ok.value = ''
   try {
     const url = new URL('/api/order/form', window.location.origin)
+    const propCopyID = Number(props.copyId || 0)
+    const urlCopyID = new URL(window.location.href).searchParams.get('copy_id')
+    const copyID = propCopyID > 0 ? String(propCopyID) : urlCopyID
+    effectiveCopyID.value = Number(copyID || 0)
     const propEditID = Number(props.editId || 0)
     const urlEditID = new URL(window.location.href).searchParams.get('edit_id')
-    const editID = propEditID > 0 ? String(propEditID) : urlEditID
+    const editID = copyID || (propEditID > 0 ? String(propEditID) : urlEditID)
     if (editID) url.searchParams.set('edit_id', editID)
     const data = await apiGet(url)
     customers.value = data.customers || []
@@ -808,8 +816,13 @@ async function load() {
     employees.value = data.employees || []
     applyDefaultSelections(data)
     if (data.edit_mode) {
-      form.edit_id = Number(data.edit_id || 0)
-      applyEditData({ ...data.edit_data, edit_id: data.edit_id })
+      const editData = { ...data.edit_data, edit_id: copyID ? 0 : data.edit_id }
+      if (copyID) {
+        editData.ship_tracking_no = ''
+        editData.ship_status_id = defaultStatusID(shipStatuses.value, ['未发货']) || editData.ship_status_id
+      }
+      form.edit_id = Number(editData.edit_id || 0)
+      applyEditData(editData)
     }
   } catch (err) {
     error.value = err.message || '加载失败'
@@ -873,6 +886,14 @@ onMounted(load)
 
 watch(
   () => props.editId,
+  (next, prev) => {
+    if (!props.embedded || Number(next || 0) === Number(prev || 0)) return
+    load()
+  },
+)
+
+watch(
+  () => props.copyId,
   (next, prev) => {
     if (!props.embedded || Number(next || 0) === Number(prev || 0)) return
     load()

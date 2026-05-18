@@ -788,7 +788,7 @@ type Repository interface {
 	UpdateHeader(ctx context.Context, id int64, cmd UpdateHeaderCommand) error
 	InlineUpdate(ctx context.Context, id int64, actor string, cmd InlineUpdateCommand) error
 	Void(ctx context.Context, id int64, actor, reason string) error
-	Unvoid(ctx context.Context, id int64, actor string) error
+	VoidMany(ctx context.Context, ids []int64, actor, reason string) (int, error)
 	ListOrders(ctx context.Context, query OrderListQuery) (OrderListResult, error)
 	ListOrderAuditLogs(ctx context.Context, orderID int64, limit int) ([]AuditRow, error)
 	OrderForm(ctx context.Context, editID int64) (OrderFormData, error)
@@ -921,11 +921,40 @@ func (s *Service) InlineUpdate(ctx context.Context, id int64, actor string, cmd 
 }
 
 func (s *Service) Void(ctx context.Context, id int64, actor, reason string) error {
+	if id <= 0 {
+		return fmt.Errorf("invalid order id")
+	}
 	return s.repo.Void(ctx, id, actor, reason)
 }
 
-func (s *Service) Unvoid(ctx context.Context, id int64, actor string) error {
-	return s.repo.Unvoid(ctx, id, actor)
+func (s *Service) VoidMany(ctx context.Context, ids []int64, actor, reason string) (int, error) {
+	normalized, err := normalizeOrderIDs(ids)
+	if err != nil {
+		return 0, err
+	}
+	return s.repo.VoidMany(ctx, normalized, actor, reason)
+}
+
+func normalizeOrderIDs(ids []int64) ([]int64, error) {
+	if len(ids) == 0 {
+		return nil, fmt.Errorf("order_ids required")
+	}
+	seen := map[int64]bool{}
+	out := make([]int64, 0, len(ids))
+	for _, id := range ids {
+		if id <= 0 {
+			return nil, fmt.Errorf("invalid order id")
+		}
+		if seen[id] {
+			continue
+		}
+		seen[id] = true
+		out = append(out, id)
+	}
+	if len(out) == 0 {
+		return nil, fmt.Errorf("order_ids required")
+	}
+	return out, nil
 }
 
 func (s *Service) ListOrders(ctx context.Context, query OrderListQuery) (OrderListResult, error) {
