@@ -1,6 +1,7 @@
 package catalog
 
 import (
+	"fmt"
 	"net/http"
 	support "orderapp/internal/interfaces/http/support"
 	"strconv"
@@ -42,13 +43,14 @@ type productHandler struct {
 }
 
 type productUpdateAPIRequest struct {
-	RoastLevel      string                    `json:"roast_level"`
-	RetailPrice100G float64                   `json:"retail_price_100g"`
-	RetailPrice200G float64                   `json:"retail_price_200g"`
-	RetailPrice227G float64                   `json:"retail_price_227g"`
-	RetailPrice250G float64                   `json:"retail_price_250g"`
-	YieldRate       float64                   `json:"yield_rate"`
-	Tiers           []productTierAPIUpsertRow `json:"tiers"`
+	RoastLevel         string                    `json:"roast_level"`
+	RetailPrice100G    float64                   `json:"retail_price_100g"`
+	RetailPrice200G    float64                   `json:"retail_price_200g"`
+	RetailPrice227G    float64                   `json:"retail_price_227g"`
+	RetailPrice250G    float64                   `json:"retail_price_250g"`
+	YieldRate          float64                   `json:"yield_rate"`
+	MarginRateOverride *float64                  `json:"margin_rate_override"`
+	Tiers              []productTierAPIUpsertRow `json:"tiers"`
 }
 
 type productCreateAPIRequest struct {
@@ -155,15 +157,20 @@ func (h productHandler) updateAPI(c echo.Context) error {
 	if req.YieldRate > 0 && yieldRate <= 0 {
 		return c.JSON(http.StatusBadRequest, map[string]any{"error": "invalid yield_rate"})
 	}
+	marginRateOverride, err := normalizeProductMarginRateOverride(req.MarginRateOverride)
+	if err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]any{"error": err.Error()})
+	}
 	if err := h.catalog.UpdateProductBasics(c.Request().Context(), catalogapp.UpdateProductBasicsCommand{
-		Actor:           support.ActorOf(c),
-		ProductID:       id,
-		RoastLevel:      roastLevel,
-		RetailPrice100G: req.RetailPrice100G,
-		RetailPrice200G: req.RetailPrice200G,
-		RetailPrice227G: req.RetailPrice227G,
-		RetailPrice250G: req.RetailPrice250G,
-		YieldRate:       yieldRate,
+		Actor:              support.ActorOf(c),
+		ProductID:          id,
+		RoastLevel:         roastLevel,
+		RetailPrice100G:    req.RetailPrice100G,
+		RetailPrice200G:    req.RetailPrice200G,
+		RetailPrice227G:    req.RetailPrice227G,
+		RetailPrice250G:    req.RetailPrice250G,
+		YieldRate:          yieldRate,
+		MarginRateOverride: marginRateOverride,
 	}); err != nil {
 		return c.JSON(http.StatusInternalServerError, map[string]any{"error": err.Error()})
 	}
@@ -232,6 +239,17 @@ func normalizeProductYieldRate(value float64) float64 {
 		return 0
 	}
 	return value
+}
+
+func normalizeProductMarginRateOverride(value *float64) (*float64, error) {
+	if value == nil {
+		return nil, nil
+	}
+	if *value < 0 {
+		return nil, fmt.Errorf("invalid margin_rate_override")
+	}
+	normalized := *value
+	return &normalized, nil
 }
 
 func (h productHandler) productSettingsAPI(c echo.Context) error {

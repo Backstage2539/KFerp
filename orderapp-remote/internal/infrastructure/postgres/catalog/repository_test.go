@@ -1,7 +1,9 @@
 package catalog
 
 import (
+	"os"
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -24,5 +26,35 @@ func TestInsertIDAtPositionReordersWithoutDuplicatePositionTie(t *testing.T) {
 				t.Fatalf("insertIDAtPosition() = %v, want %v", got, tc.want)
 			}
 		})
+	}
+}
+
+func TestProductMarginOverridePersistsOnProducts(t *testing.T) {
+	schema, err := os.ReadFile("schema.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	repository, err := os.ReadFile("repository.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	queries, err := os.ReadFile("../catalog_queries.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		name string
+		src  string
+		want string
+	}{
+		{name: "schema column", src: string(schema), want: "ALTER TABLE %[1]s.products ADD COLUMN IF NOT EXISTS margin_rate_override NUMERIC(14,6)"},
+		{name: "product fetch", src: string(queries), want: "p.margin_rate_override::float8"},
+		{name: "product get fallback", src: string(repository), want: "margin_rate_override::float8"},
+		{name: "product update", src: string(repository), want: "margin_rate_override=$7"},
+		{name: "audit metadata", src: string(repository), want: `"margin_rate_override": cmd.MarginRateOverride`},
+	} {
+		if !strings.Contains(tc.src, tc.want) {
+			t.Fatalf("catalog product margin override persistence missing %s marker %q", tc.name, tc.want)
+		}
 	}
 }

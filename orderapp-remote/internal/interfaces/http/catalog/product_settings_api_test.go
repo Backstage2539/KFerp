@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	catalogapp "orderapp/internal/application/catalog"
+	"reflect"
 	"testing"
 
 	"github.com/labstack/echo/v4"
@@ -339,6 +340,54 @@ func TestProductSettingsAPIUpdatesProductYieldRate(t *testing.T) {
 	}
 }
 
+func TestProductSettingsAPISavesAndReturnsProductMarginOverride(t *testing.T) {
+	margin := 0.235
+	product := catalogapp.Product{ID: 7, Name: "曲奇拼配", RoastLevel: "中烘", YieldRate: 0.82}
+	setFloat64PtrField(t, &product, "MarginRateOverride", margin)
+	repo := &productSettingsRepo{
+		products: []catalogapp.Product{product},
+		categories: []catalogapp.ProductCategory{
+			{ID: 1, Name: "咖啡豆", Level: 1, Position: 1},
+			{ID: 2, ParentID: 1, Name: "意式拼配", Level: 2, Position: 1, GradientTemplateID: 9},
+		},
+	}
+	e := echo.New()
+	registerProductRoutes(e, catalogapp.NewService(repo))
+
+	req := httptest.NewRequest(http.MethodGet, "/api/product-settings", nil)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET /api/product-settings status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if !bytes.Contains(rec.Body.Bytes(), []byte(`"margin_rate_override":0.235`)) {
+		t.Fatalf("product settings response missing product margin override: %s", rec.Body.String())
+	}
+
+	req = httptest.NewRequest(http.MethodPut, "/api/products/7", bytes.NewBufferString(`{"roast_level":"中烘","yield_rate":0.82,"margin_rate_override":0.31}`))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec = httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("PUT product status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	got := float64PtrField(t, repo.updated, "MarginRateOverride")
+	if got == nil || *got != 0.31 {
+		t.Fatalf("margin override command = %+v, got %v", repo.updated, got)
+	}
+
+	req = httptest.NewRequest(http.MethodPut, "/api/products/7", bytes.NewBufferString(`{"roast_level":"中烘","yield_rate":0.82,"margin_rate_override":null}`))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec = httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("PUT product clear status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if got := float64PtrField(t, repo.updated, "MarginRateOverride"); got != nil {
+		t.Fatalf("margin override should clear to nil, got %v in %+v", *got, repo.updated)
+	}
+}
+
 func TestProductSettingsAPIDeactivatesMultipleProducts(t *testing.T) {
 	repo := &productSettingsRepo{}
 	e := echo.New()
@@ -429,6 +478,34 @@ func TestLegacyProductAndCostingRoutesRedirectToProductSettings(t *testing.T) {
 			t.Fatalf("GET %s status=%d location=%q want %s", tc.path, rec.Code, rec.Header().Get("Location"), tc.want)
 		}
 	}
+}
+
+func setFloat64PtrField(t *testing.T, target any, fieldName string, value float64) {
+	t.Helper()
+	field := reflect.ValueOf(target).Elem().FieldByName(fieldName)
+	if !field.IsValid() {
+		t.Fatalf("missing %s field", fieldName)
+	}
+	if field.Kind() != reflect.Ptr || field.Type().Elem().Kind() != reflect.Float64 {
+		t.Fatalf("%s field type = %s, want *float64", fieldName, field.Type())
+	}
+	field.Set(reflect.ValueOf(&value))
+}
+
+func float64PtrField(t *testing.T, target any, fieldName string) *float64 {
+	t.Helper()
+	field := reflect.ValueOf(target).FieldByName(fieldName)
+	if !field.IsValid() {
+		t.Fatalf("missing %s field", fieldName)
+	}
+	if field.Kind() != reflect.Ptr || field.Type().Elem().Kind() != reflect.Float64 {
+		t.Fatalf("%s field type = %s, want *float64", fieldName, field.Type())
+	}
+	if field.IsNil() {
+		return nil
+	}
+	v := field.Elem().Float()
+	return &v
 }
 
 func f64(v float64) *float64 {
