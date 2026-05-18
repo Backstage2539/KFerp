@@ -15,11 +15,13 @@ type apiFakeRepo struct {
 	deactivatedBomProductID int64
 	listRows                []bomapp.ListItem
 	productRows             []bomapp.Option
+	detail                  bomapp.Detail
+	savedItem               bomapp.SaveItemCommand
 }
 
 func (r *apiFakeRepo) List(context.Context) ([]bomapp.ListItem, error) { return r.listRows, nil }
 func (r *apiFakeRepo) Detail(context.Context, int64) (bomapp.Detail, error) {
-	return bomapp.Detail{}, nil
+	return r.detail, nil
 }
 func (r *apiFakeRepo) Products(context.Context) ([]bomapp.Option, error)  { return r.productRows, nil }
 func (r *apiFakeRepo) Materials(context.Context) ([]bomapp.Option, error) { return nil, nil }
@@ -31,7 +33,8 @@ func (r *apiFakeRepo) DeactivateBom(_ context.Context, productID int64) error {
 	r.deactivatedBomProductID = productID
 	return nil
 }
-func (r *apiFakeRepo) SaveItem(context.Context, bomapp.SaveItemCommand) error {
+func (r *apiFakeRepo) SaveItem(_ context.Context, cmd bomapp.SaveItemCommand) error {
+	r.savedItem = cmd
 	return nil
 }
 func (r *apiFakeRepo) DeleteItem(context.Context, bomapp.DeleteItemCommand) error {

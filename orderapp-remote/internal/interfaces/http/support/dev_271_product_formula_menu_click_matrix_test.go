@@ -85,7 +85,7 @@ func TestProductFormulaMenuClickMatrixViewsExposeActions(t *testing.T) {
 			"/api/bom/versions",
 			"/api/bom/bag-spec-mappings/save",
 			"同步出品率",
-			"保存物料",
+			"保存组件",
 			"保存当前为版本",
 			"保存映射",
 		},

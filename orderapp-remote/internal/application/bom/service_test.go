@@ -3,6 +3,7 @@ package bom
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 )
 
@@ -74,6 +75,33 @@ func TestServiceValidatesSaveItem(t *testing.T) {
 	}
 	if repo.savedItem.MaterialID != 2 || repo.savedItem.RatioPct != 25 {
 		t.Fatalf("savedItem = %+v, want material 2 ratio 25", repo.savedItem)
+	}
+}
+
+func TestSaveFinishedProductComponentRequiresComponentProduct(t *testing.T) {
+	svc := NewService(&fakeRepo{})
+	err := svc.SaveItem(context.Background(), SaveItemCommand{
+		ProductID:     1,
+		ComponentType: "finished_product",
+		ConsumeUnit:   "g_per_bag",
+		QtyPerUnit:    10,
+	})
+	if err == nil || !strings.Contains(err.Error(), "component_product_id required") {
+		t.Fatalf("expected component_product_id error, got %v", err)
+	}
+}
+
+func TestSaveMaterialComponentKeepsLegacyMaterialValidation(t *testing.T) {
+	svc := NewService(&fakeRepo{})
+	err := svc.SaveItem(context.Background(), SaveItemCommand{
+		ProductID:     1,
+		ComponentType: "material",
+		MaterialID:    2,
+		ConsumeUnit:   "unit_per_bag",
+		QtyPerUnit:    1,
+	})
+	if err != nil {
+		t.Fatalf("SaveItem: %v", err)
 	}
 }
 

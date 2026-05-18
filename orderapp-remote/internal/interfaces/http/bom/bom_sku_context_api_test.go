@@ -48,4 +48,54 @@ func TestBomListAndProductsExposeCustomerID(t *testing.T) {
 	}
 }
 
+func TestBomDetailExposesFinishedProductComponentFields(t *testing.T) {
+	repo := &apiFakeRepo{
+		detail: bomapp.Detail{
+			ProductID: 1,
+			Items: []bomapp.Item{{
+				ID:                   9,
+				ComponentType:        "finished_product",
+				ComponentProductID:   7,
+				ComponentProductName: "中烘熟豆",
+				ComponentSpecG:       10,
+				ConsumeUnit:          "g_per_bag",
+				QtyPerUnit:           10,
+			}},
+		},
+	}
+	e := echo.New()
+	RegisterRoutes(e, Dependencies{Bom: bomapp.NewService(repo)})
+
+	req := httptest.NewRequest(http.MethodGet, "/api/bom/detail/1", nil)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	body := rec.Body.String()
+	for _, want := range []string{`"component_type":"finished_product"`, `"component_product_id":7`, `"consume_unit":"g_per_bag"`, `"qty_per_unit":10`} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("detail body missing %s: %s", want, body)
+		}
+	}
+}
+
+func TestBomSaveItemAcceptsFinishedProductComponentFields(t *testing.T) {
+	repo := &apiFakeRepo{}
+	e := echo.New()
+	RegisterRoutes(e, Dependencies{Bom: bomapp.NewService(repo)})
+
+	body := `{"product_id":1,"component_type":"finished_product","component_product_id":7,"component_spec_g":10,"consume_unit":"g_per_bag","qty_per_unit":10}`
+	req := httptest.NewRequest(http.MethodPost, "/api/bom/item/save", strings.NewReader(body))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	if repo.savedItem.ComponentType != "finished_product" || repo.savedItem.ComponentProductID != 7 || repo.savedItem.ConsumeUnit != "g_per_bag" || repo.savedItem.QtyPerUnit != 10 {
+		t.Fatalf("saved item = %+v", repo.savedItem)
+	}
+}
+
 var _ bomapp.Repository = (*apiFakeRepo)(nil)

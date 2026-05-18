@@ -6,6 +6,7 @@ import (
 	"strconv"
 
 	bomapp "orderapp/internal/application/bom"
+	"orderapp/internal/interfaces/http/support"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/labstack/echo/v4"
@@ -16,9 +17,14 @@ type SaveBomRequest struct {
 }
 
 type SaveBomItemRequest struct {
-	ProductID  int64   `json:"product_id"`
-	MaterialID int64   `json:"material_id"`
-	RatioPct   float64 `json:"ratio_pct"`
+	ProductID          int64   `json:"product_id"`
+	MaterialID         int64   `json:"material_id"`
+	ComponentType      string  `json:"component_type"`
+	ComponentProductID int64   `json:"component_product_id"`
+	ComponentSpecG     int64   `json:"component_spec_g"`
+	ConsumeUnit        string  `json:"consume_unit"`
+	QtyPerUnit         float64 `json:"qty_per_unit"`
+	RatioPct           float64 `json:"ratio_pct"`
 }
 
 type DeleteBomItemRequest struct {
@@ -155,9 +161,15 @@ func registerBomAPI(e *echo.Echo, bomSvc *bomapp.Service) {
 			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: "invalid request"})
 		}
 		err := bomSvc.SaveItem(c.Request().Context(), bomapp.SaveItemCommand{
-			ProductID:  req.ProductID,
-			MaterialID: req.MaterialID,
-			RatioPct:   req.RatioPct,
+			ProductID:          req.ProductID,
+			MaterialID:         req.MaterialID,
+			ComponentType:      req.ComponentType,
+			ComponentProductID: req.ComponentProductID,
+			ComponentSpecG:     req.ComponentSpecG,
+			ConsumeUnit:        req.ConsumeUnit,
+			QtyPerUnit:         req.QtyPerUnit,
+			RatioPct:           req.RatioPct,
+			Actor:              support.ActorOf(c),
 		})
 		if err != nil {
 			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: err.Error()})
@@ -170,7 +182,7 @@ func registerBomAPI(e *echo.Echo, bomSvc *bomapp.Service) {
 		if err := c.Bind(&req); err != nil {
 			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: "invalid request"})
 		}
-		if err := bomSvc.DeleteItem(c.Request().Context(), bomapp.DeleteItemCommand{ProductID: req.ProductID, ID: req.ID}); err != nil {
+		if err := bomSvc.DeleteItem(c.Request().Context(), bomapp.DeleteItemCommand{ProductID: req.ProductID, ID: req.ID, Actor: support.ActorOf(c)}); err != nil {
 			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: err.Error()})
 		}
 		return c.NoContent(http.StatusOK)
