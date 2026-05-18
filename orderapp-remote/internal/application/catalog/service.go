@@ -20,6 +20,7 @@ type PriceTier struct {
 type Product struct {
 	ID                      int64
 	Name                    string
+	ProductKind             string
 	RoastLevel              string
 	DefaultPrice            float64
 	RetailPrice100G         float64
@@ -33,6 +34,7 @@ type Product struct {
 	BaseProductID           int64
 	Visibility              string
 	CustomType              string
+	MarginRateOverride      *float64
 	BomItemCount            int
 	BomStatus               string
 	Tiers                   []PriceTier
@@ -50,24 +52,26 @@ type ProductCategory struct {
 }
 
 type ProductSettingsProduct struct {
-	ID                      int64   `json:"id"`
-	Name                    string  `json:"name"`
-	RoastLevel              string  `json:"roast_level"`
-	DefaultPrice            float64 `json:"default_price"`
-	RetailPrice100G         float64 `json:"retail_price_100g"`
-	RetailPrice200G         float64 `json:"retail_price_200g"`
-	RetailPrice227G         float64 `json:"retail_price_227g"`
-	RetailPrice250G         float64 `json:"retail_price_250g"`
-	YieldRate               float64 `json:"yield_rate"`
-	ProductCategoryID       int64   `json:"product_category_id"`
-	ProductCategoryPosition int     `json:"product_category_position"`
-	CustomerID              int64   `json:"customer_id"`
-	BaseProductID           int64   `json:"base_product_id"`
-	Visibility              string  `json:"visibility"`
-	CustomType              string  `json:"custom_type"`
-	BomItemCount            int     `json:"bom_item_count"`
-	BomStatus               string  `json:"bom_status"`
-	Number                  int     `json:"number"`
+	ID                      int64    `json:"id"`
+	Name                    string   `json:"name"`
+	ProductKind             string   `json:"product_kind"`
+	RoastLevel              string   `json:"roast_level"`
+	DefaultPrice            float64  `json:"default_price"`
+	RetailPrice100G         float64  `json:"retail_price_100g"`
+	RetailPrice200G         float64  `json:"retail_price_200g"`
+	RetailPrice227G         float64  `json:"retail_price_227g"`
+	RetailPrice250G         float64  `json:"retail_price_250g"`
+	YieldRate               float64  `json:"yield_rate"`
+	ProductCategoryID       int64    `json:"product_category_id"`
+	ProductCategoryPosition int      `json:"product_category_position"`
+	CustomerID              int64    `json:"customer_id"`
+	BaseProductID           int64    `json:"base_product_id"`
+	Visibility              string   `json:"visibility"`
+	CustomType              string   `json:"custom_type"`
+	MarginRateOverride      *float64 `json:"margin_rate_override"`
+	BomItemCount            int      `json:"bom_item_count"`
+	BomStatus               string   `json:"bom_status"`
+	Number                  int      `json:"number"`
 }
 
 type ProductCategoryNode struct {
@@ -105,6 +109,8 @@ type GradientTemplateTier struct {
 type ReplacePriceTiersCommand struct {
 	Actor           string
 	ProductID       int64
+	ProductKind     string
+	DefaultPrice    float64
 	RoastLevel      string
 	RetailPrice100G float64
 	RetailPrice200G float64
@@ -114,19 +120,23 @@ type ReplacePriceTiersCommand struct {
 }
 
 type UpdateProductBasicsCommand struct {
-	Actor           string
-	ProductID       int64
-	RoastLevel      string
-	RetailPrice100G float64
-	RetailPrice200G float64
-	RetailPrice227G float64
-	RetailPrice250G float64
-	YieldRate       float64
+	Actor              string
+	ProductID          int64
+	ProductKind        string
+	DefaultPrice       float64
+	RoastLevel         string
+	RetailPrice100G    float64
+	RetailPrice200G    float64
+	RetailPrice227G    float64
+	RetailPrice250G    float64
+	YieldRate          float64
+	MarginRateOverride *float64
 }
 
 type CreateProductCommand struct {
 	Actor           string
 	Name            string
+	ProductKind     string
 	RoastLevel      string
 	DefaultPrice    float64
 	RetailPrice100G float64
@@ -134,6 +144,7 @@ type CreateProductCommand struct {
 	RetailPrice227G float64
 	RetailPrice250G float64
 	YieldRate       float64
+	Tiers           []PriceTier
 }
 
 type DeactivateProductsCommand struct {
@@ -235,10 +246,12 @@ func (s *Service) GetProduct(ctx context.Context, id int64) (*Product, error) {
 }
 
 func (s *Service) ReplacePriceTiers(ctx context.Context, cmd ReplacePriceTiersCommand) error {
+	cmd.ProductKind = catalogdomain.NormalizeProductKind(cmd.ProductKind)
 	return s.repo.ReplacePriceTiers(ctx, cmd)
 }
 
 func (s *Service) UpdateProductBasics(ctx context.Context, cmd UpdateProductBasicsCommand) error {
+	cmd.ProductKind = catalogdomain.NormalizeProductKind(cmd.ProductKind)
 	return s.repo.UpdateProductBasics(ctx, cmd)
 }
 
@@ -265,21 +278,27 @@ func (s *Service) CreateProduct(ctx context.Context, cmd CreateProductCommand) (
 	if cmd.Name == "" {
 		return Product{}, fmt.Errorf("name required")
 	}
-	cmd.RoastLevel = catalogdomain.NormalizeRoastLevel(cmd.RoastLevel)
-	if cmd.RoastLevel == "" {
-		return Product{}, fmt.Errorf("invalid roast_level")
-	}
+	cmd.ProductKind = catalogdomain.NormalizeProductKind(cmd.ProductKind)
 	if cmd.DefaultPrice < 0 || cmd.RetailPrice100G < 0 || cmd.RetailPrice200G < 0 || cmd.RetailPrice227G < 0 || cmd.RetailPrice250G < 0 {
 		return Product{}, fmt.Errorf("price must not be negative")
 	}
 	if cmd.RetailPrice227G <= 0 && cmd.DefaultPrice > 0 {
 		cmd.RetailPrice227G = cmd.DefaultPrice
 	}
-	if cmd.YieldRate <= 0 {
-		cmd.YieldRate = catalogdomain.ResolveYieldRate(cmd.RoastLevel, 0.8)
-	}
-	if cmd.YieldRate <= 0 || cmd.YieldRate > 1 {
-		return Product{}, fmt.Errorf("invalid yield_rate")
+	if cmd.ProductKind == catalogdomain.ProductKindGreenBean {
+		cmd.RoastLevel = ""
+		cmd.YieldRate = 0
+	} else {
+		cmd.RoastLevel = catalogdomain.NormalizeRoastLevel(cmd.RoastLevel)
+		if cmd.RoastLevel == "" {
+			return Product{}, fmt.Errorf("invalid roast_level")
+		}
+		if cmd.YieldRate <= 0 {
+			cmd.YieldRate = catalogdomain.ResolveYieldRate(cmd.RoastLevel, 0.8)
+		}
+		if cmd.YieldRate <= 0 || cmd.YieldRate > 1 {
+			return Product{}, fmt.Errorf("invalid yield_rate")
+		}
 	}
 	return s.repo.CreateProduct(ctx, cmd)
 }
@@ -519,6 +538,7 @@ func productSettingsProduct(p Product) ProductSettingsProduct {
 	return ProductSettingsProduct{
 		ID:                      p.ID,
 		Name:                    p.Name,
+		ProductKind:             catalogdomain.NormalizeProductKind(p.ProductKind),
 		RoastLevel:              p.RoastLevel,
 		DefaultPrice:            p.DefaultPrice,
 		RetailPrice100G:         p.RetailPrice100G,
@@ -532,6 +552,7 @@ func productSettingsProduct(p Product) ProductSettingsProduct {
 		BaseProductID:           p.BaseProductID,
 		Visibility:              productVisibility(p.Visibility, p.CustomerID),
 		CustomType:              p.CustomType,
+		MarginRateOverride:      p.MarginRateOverride,
 		BomItemCount:            p.BomItemCount,
 		BomStatus:               productBomStatus(p.BomStatus, p.BomItemCount),
 	}

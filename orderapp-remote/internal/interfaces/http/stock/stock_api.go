@@ -205,26 +205,32 @@ func registerStockAPI(e *echo.Echo, stockSvc *stockapp.Service) {
 
 	e.POST("/api/stock/adjustments", func(c echo.Context) error {
 		var req struct {
-			ItemType    string `json:"item_type"`
-			ItemID      int64  `json:"item_id"`
-			SpecG       int64  `json:"spec_g"`
-			Warehouse   string `json:"warehouse"`
-			TargetG     int64  `json:"target_g"`
-			TargetUnits int64  `json:"target_units"`
-			Reason      string `json:"reason"`
+			AdjustmentType  string  `json:"adjustment_type"`
+			ItemType        string  `json:"item_type"`
+			ItemID          int64   `json:"item_id"`
+			SpecG           int64   `json:"spec_g"`
+			Warehouse       string  `json:"warehouse"`
+			TargetG         int64   `json:"target_g"`
+			TargetUnits     int64   `json:"target_units"`
+			MaterialBatchID int64   `json:"material_batch_id"`
+			TargetUnitCost  float64 `json:"target_unit_cost"`
+			Reason          string  `json:"reason"`
 		}
 		if err := c.Bind(&req); err != nil {
 			return c.JSON(http.StatusBadRequest, errorResponse{Error: "invalid request"})
 		}
 		result, err := stockSvc.CreateAdjustment(c.Request().Context(), stockapp.StockAdjustmentCommand{
-			ItemType:    req.ItemType,
-			ItemID:      req.ItemID,
-			SpecG:       req.SpecG,
-			Warehouse:   req.Warehouse,
-			TargetG:     req.TargetG,
-			TargetUnits: req.TargetUnits,
-			Reason:      req.Reason,
-			Operator:    support.ActorOf(c),
+			AdjustmentType:  req.AdjustmentType,
+			ItemType:        req.ItemType,
+			ItemID:          req.ItemID,
+			SpecG:           req.SpecG,
+			Warehouse:       req.Warehouse,
+			TargetG:         req.TargetG,
+			TargetUnits:     req.TargetUnits,
+			MaterialBatchID: req.MaterialBatchID,
+			TargetUnitCost:  req.TargetUnitCost,
+			Reason:          req.Reason,
+			Operator:        support.ActorOf(c),
 		})
 		if err != nil {
 			return c.JSON(http.StatusBadRequest, errorResponse{Error: err.Error()})

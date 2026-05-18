@@ -161,7 +161,7 @@
                 class="combo-option"
                 @mousedown.prevent="chooseProduct(row, product)"
               >
-                <strong>{{ product.name }}</strong>
+                <strong>{{ product.name }} <span class="kind-badge" :class="productKindBadgeClass(product)">{{ productKindLabel(product) }}</span></strong>
                 <small v-if="product.tiers?.length">{{ product.tiers.length }} 个价格梯度</small>
               </button>
               <div v-if="!productOptions(row).length" class="combo-empty">没有匹配商品</div>
@@ -365,6 +365,8 @@ import {
   lineTotal,
   normalizeSpecG,
   orderReceiptMethodOptions,
+  productKindBadgeClass,
+  productKindLabel,
   responsibleOptions,
   requiresOrderPaymentMethod,
   retailPackagePrice,
@@ -951,6 +953,9 @@ button:disabled { cursor: not-allowed; opacity: 0.5; }
 .combo-menu { position: absolute; top: calc(100% + 4px); left: 0; right: 0; z-index: 20; max-height: 280px; overflow: auto; border: 1px solid #d7dbe3; border-radius: 8px; background: #fff; box-shadow: 0 14px 30px rgba(15, 23, 42, 0.16); padding: 6px; }
 .combo-option { width: 100%; display: grid; gap: 2px; text-align: left; border: 0; background: transparent; padding: 8px; border-radius: 6px; }
 .combo-option:hover { background: #f3f6fb; }
+.kind-badge { display: inline-flex; align-items: center; min-height: 18px; padding: 1px 6px; border-radius: 4px; font-size: 12px; font-weight: 600; margin-left: 4px; }
+.kind-roasted { color: #8a4b12; background: #fff3df; border: 1px solid #f3c67c; }
+.kind-green { color: #12613a; background: #e8f7ee; border: 1px solid #8bd4a6; }
 .combo-empty { padding: 12px; color: #667085; font-size: 13px; }
 .line-list { display: grid; gap: 10px; margin-top: 12px; }
 .line-item { display: grid; grid-template-columns: minmax(240px, 1.35fr) minmax(160px, 0.85fr) minmax(90px, 0.45fr) minmax(145px, 0.7fr) minmax(150px, 0.75fr) minmax(100px, 0.5fr) auto; align-items: end; gap: 12px; padding: 12px; border: 1px solid #edf0f5; border-radius: 8px; background: #fcfcfd; }

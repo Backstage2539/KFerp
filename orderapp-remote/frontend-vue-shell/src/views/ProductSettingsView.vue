@@ -52,12 +52,19 @@
             <input v-model.trim="productForm.name" placeholder="如 花魁 SOE" />
           </label>
           <label>
+            <span>产品形态</span>
+            <select v-model="productForm.product_kind">
+              <option value="roasted">熟豆</option>
+              <option value="green_bean">生豆</option>
+            </select>
+          </label>
+          <label v-if="productForm.product_kind !== 'green_bean'">
             <span>烘焙度</span>
             <select v-model="productForm.roast_level">
               <option v-for="level in roastLevels" :key="level" :value="level">{{ level }}</option>
             </select>
           </label>
-          <label>
+          <label v-if="productForm.product_kind !== 'green_bean'">
             <span>BOM出品率</span>
             <div class="yield-editor">
               <input
@@ -71,7 +78,7 @@
             </div>
           </label>
           <label>
-            <span>默认价</span>
+            <span>{{ productForm.product_kind === 'green_bean' ? '生豆销售价/kg' : '默认价' }}</span>
             <input v-model.number="productForm.default_price" type="number" min="0" step="0.01" />
           </label>
           <div class="form-actions">
@@ -343,10 +350,13 @@
                 <th>二级分类</th>
                 <th>商品编号</th>
                 <th>商品</th>
+                <th>形态</th>
                 <th>归属</th>
                 <th>类型</th>
+                <th>销售价</th>
                 <th>烘焙度</th>
                 <th>BOM出品率</th>
+                <th v-if="!selectedCustomerSkuCustomerID">利润率覆盖</th>
                 <th>BOM状态</th>
                 <th>BOM</th>
                 <th>处理</th>
@@ -361,10 +371,21 @@
                 <td>{{ categoryLabel(row, 2) }}</td>
                 <td>{{ row.number || '' }}</td>
                 <td>{{ row.name }}</td>
+                <td><span class="kind-badge" :class="productKindBadgeClass(row)">{{ productKindLabel(row) }}</span></td>
                 <td>{{ ownerLabel(row) }}</td>
                 <td>{{ customTypeLabel(row.custom_type) }}</td>
                 <td>
-                  <select class="roast-select" v-model="row.roast_level" @change="saveProductBasics(row)">
+                  <input
+                    class="price-input"
+                    v-model.number="row.default_price"
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    :disabled="row.product_kind !== 'green_bean'"
+                    @change="saveProductBasics(row)" />
+                </td>
+                <td>
+                  <select class="roast-select" v-model="row.roast_level" :disabled="row.product_kind === 'green_bean'" @change="saveProductBasics(row)">
                     <option v-for="level in roastLevels" :key="level" :value="level">{{ level }}</option>
                   </select>
                 </td>
@@ -377,9 +398,20 @@
                       min="1"
                       max="100"
                       step="0.01"
+                      :disabled="row.product_kind === 'green_bean'"
                       @change="saveProductBasics(row)" />
                     <span>%</span>
                   </div>
+                </td>
+                <td v-if="!selectedCustomerSkuCustomerID">
+                  <input
+                    class="margin-input"
+                    v-model="row.margin_rate_override_input"
+                    type="number"
+                    min="0"
+                    step="0.001"
+                    placeholder="留空继承分类模板"
+                    @change="saveProductMarginOverride(row)" />
                 </td>
                 <td>
                   <span :class="['status-pill', row.bom_status === 'inactive' ? 'inactive' : '']">{{ bomStatusLabel(row.bom_status) }}</span>
@@ -392,7 +424,7 @@
                 </td>
               </tr>
               <tr v-if="!displaySkuRows.length">
-                <td colspan="12" class="muted">{{ selectedCustomerSkuCustomerID ? '暂无客户SKU' : '暂无公共SKU' }}</td>
+                <td :colspan="selectedCustomerSkuCustomerID ? 14 : 15" class="muted">{{ selectedCustomerSkuCustomerID ? '暂无客户SKU' : '暂无公共SKU' }}</td>
               </tr>
             </tbody>
           </table>
@@ -547,10 +579,23 @@ const activeGradientTemplates = computed(() => gradientTemplates.value.filter((t
 function defaultProductForm() {
   return {
     name: '',
+    product_kind: 'roasted',
     roast_level: '中烘',
     yield_percent: 80,
     default_price: 0,
   }
+}
+
+function normalizedProductKind(row = {}) {
+  return row?.product_kind === 'green_bean' ? 'green_bean' : 'roasted'
+}
+
+function productKindLabel(row = {}) {
+  return normalizedProductKind(row) === 'green_bean' ? '生豆' : '熟豆'
+}
+
+function productKindBadgeClass(row = {}) {
+  return normalizedProductKind(row) === 'green_bean' ? 'kind-green' : 'kind-roasted'
 }
 
 function categoryLabel(row, level) {
@@ -581,11 +626,17 @@ function defaultGradientTemplateForm() {
 
 function decorateProduct(product) {
   const yieldRate = Number(product.yield_rate || 0.8)
+  const productKind = normalizedProductKind(product)
+  const marginRateOverride = normalizeBackendMarginRateOverride(product.margin_rate_override)
   return {
     ...product,
-    roast_level: roastLevels.includes(product.roast_level) ? product.roast_level : '中烘',
-    yield_rate: yieldRate,
-    yield_percent: Number((yieldRate * 100).toFixed(2)),
+    product_kind: productKind,
+    roast_level: productKind === 'green_bean' ? '' : roastLevels.includes(product.roast_level) ? product.roast_level : '中烘',
+    yield_rate: productKind === 'green_bean' ? 0 : yieldRate,
+    yield_percent: productKind === 'green_bean' ? 0 : Number((yieldRate * 100).toFixed(2)),
+    default_price: Number(product.default_price || 0),
+    margin_rate_override: marginRateOverride,
+    margin_rate_override_input: marginRateOverride === null ? '' : marginRateOverride,
     customer_id: Number(product.customer_id || 0),
     base_product_id: Number(product.base_product_id || 0),
     visibility: productVisibility(product),
@@ -593,6 +644,12 @@ function decorateProduct(product) {
     bom_item_count: Number(product.bom_item_count || 0),
     bom_status: product.bom_status || (Number(product.bom_item_count || 0) > 0 ? 'active' : 'missing'),
   }
+}
+
+function normalizeBackendMarginRateOverride(value) {
+  if (value === null || typeof value === 'undefined' || value === '') return null
+  const numberValue = Number(value)
+  return Number.isFinite(numberValue) && numberValue >= 0 ? numberValue : null
 }
 
 function decorateCategory(category) {
@@ -835,7 +892,7 @@ async function createProduct() {
     return
   }
   const yieldPercent = Number(productForm.value.yield_percent || 0)
-  if (yieldPercent <= 0 || yieldPercent > 100) {
+  if (productForm.value.product_kind !== 'green_bean' && (yieldPercent <= 0 || yieldPercent > 100)) {
     error.value = 'BOM出品率必须在 1% 到 100% 之间'
     return
   }
@@ -846,9 +903,13 @@ async function createProduct() {
     await apiSend('/api/product-settings/products', {
       body: {
         name: productForm.value.name,
+        product_kind: productForm.value.product_kind,
         roast_level: productForm.value.roast_level,
-        yield_rate: Number((yieldPercent / 100).toFixed(4)),
+        yield_rate: productForm.value.product_kind === 'green_bean' ? 0 : Number((yieldPercent / 100).toFixed(4)),
         default_price: Number(productForm.value.default_price || 0),
+        tiers: productForm.value.product_kind === 'green_bean'
+          ? [{ spec_g: 1000, min_qty: 1, unit_price: Number(productForm.value.default_price || 0) }]
+          : [],
       },
     })
     ok.value = '公共产品已创建'
@@ -1209,10 +1270,27 @@ async function dropProductOnSecondary(secondary) {
   }
 }
 
-async function saveProductBasics(row) {
+function normalizeMarginRateOverride(row) {
+  const raw = row.margin_rate_override_input
+  if (raw === '' || raw === null || typeof raw === 'undefined') return { ok: true, value: null }
+  const value = Number(raw)
+  if (!Number.isFinite(value) || value < 0) return { ok: false, value: null }
+  return { ok: true, value: Number(value.toFixed(6)) }
+}
+
+async function saveProductMarginOverride(row) {
+  await saveProductBasics(row, '产品级利润率覆盖已保存')
+}
+
+async function saveProductBasics(row, successMessage = '商品基础信息已保存') {
   const yieldPercent = Number(row.yield_percent || 0)
-  if (yieldPercent <= 0 || yieldPercent > 100) {
+  if (row.product_kind !== 'green_bean' && (yieldPercent <= 0 || yieldPercent > 100)) {
     error.value = 'BOM出品率必须在 1% 到 100% 之间'
+    return
+  }
+  const marginOverride = normalizeMarginRateOverride(row)
+  if (!marginOverride.ok) {
+    error.value = '利润率覆盖必须为 0 或正数'
     return
   }
   loading.value = true
@@ -1222,15 +1300,23 @@ async function saveProductBasics(row) {
     await apiSend(`/api/products/${row.id}`, {
       method: 'PUT',
       body: {
+        product_kind: row.product_kind,
+        default_price: Number(row.default_price || 0),
         roast_level: row.roast_level,
-        yield_rate: Number((yieldPercent / 100).toFixed(4)),
+        yield_rate: row.product_kind === 'green_bean' ? 0 : Number((yieldPercent / 100).toFixed(4)),
         retail_price_100g: Number(row.retail_price_100g || 0),
         retail_price_200g: Number(row.retail_price_200g || 0),
         retail_price_227g: Number(row.retail_price_227g || 0),
         retail_price_250g: Number(row.retail_price_250g || 0),
+        tiers: row.product_kind === 'green_bean'
+          ? [{ spec_g: 1000, min_qty: 1, unit_price: Number(row.default_price || 0) }]
+          : [],
+        margin_rate_override: marginOverride.value,
       },
     })
-    ok.value = '商品基础信息已保存'
+    row.margin_rate_override = marginOverride.value
+    row.margin_rate_override_input = marginOverride.value === null ? '' : marginOverride.value
+    ok.value = successMessage
     await loadAll()
   } catch (err) {
     error.value = err.message || '保存商品失败'
@@ -1337,7 +1423,7 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .product-chip-list, .uncategorized { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
 .product-chip { border: 1px solid #ddd; border-radius: 8px; padding: 5px 8px; background: #fff; font-size: 12px; cursor: grab; }
 .table-wrap { overflow: auto; }
-table { width: 100%; min-width: 940px; border-collapse: collapse; }
+table { width: 100%; min-width: 1080px; border-collapse: collapse; }
 .compact-table table { min-width: 760px; }
 th, td { border-bottom: 1px solid #eee8df; padding: 8px; text-align: left; font-size: 13px; vertical-align: middle; }
 th { background: #fbfaf8; position: sticky; top: 0; }
@@ -1346,6 +1432,11 @@ th { background: #fbfaf8; position: sticky; top: 0; }
 .roast-select { min-width: 92px; }
 .yield-editor { display: flex; align-items: center; gap: 6px; max-width: 130px; }
 .yield-input { width: 90px; }
+.price-input { width: 96px; }
+.kind-badge { display: inline-flex; align-items: center; min-height: 20px; padding: 1px 7px; border-radius: 4px; font-size: 12px; font-weight: 600; }
+.kind-roasted { color: #8a4b12; background: #fff3df; border: 1px solid #f3c67c; }
+.kind-green { color: #12613a; background: #e8f7ee; border: 1px solid #8bd4a6; }
+.margin-input { width: 150px; }
 .status-pill { display: inline-flex; align-items: center; min-height: 24px; border: 1px solid #cfd8cf; border-radius: 999px; padding: 2px 8px; color: #27602e; background: #f2fbf2; white-space: nowrap; }
 .status-pill.inactive { border-color: #e1b6b6; color: #8a1f1f; background: #fff0f0; }
 .costing-panel { padding: 0; overflow: hidden; }
@@ -1363,6 +1454,6 @@ th { background: #fbfaf8; position: sticky; top: 0; }
   .sku-customer-select { max-width: none; }
   .product-create-form .wide-field, .custom-product-form .wide-field { grid-column: auto; }
   .template-select { width: 100%; }
-  table { min-width: 900px; }
+  table { min-width: 1080px; }
 }
 </style>

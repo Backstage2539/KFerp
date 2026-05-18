@@ -12,13 +12,20 @@
       <div v-if="ok" class="ok">调整单已提交：#{{ ok }}</div>
       <div class="operation-grid">
         <label>
+          <span>调整类型</span>
+          <select v-model="form.adjustment_type">
+            <option value="quantity">库存数量</option>
+            <option value="material_cost">批次成本</option>
+          </select>
+        </label>
+        <label>
           <span>类型</span>
-          <select v-model="form.item_type">
+          <select v-model="form.item_type" :disabled="isMaterialCostAdjustment">
             <option value="material">物料</option>
             <option value="finished_product">成品</option>
           </select>
         </label>
-        <label class="span-2">
+        <label :class="isMaterialCostAdjustment ? 'span-2' : ''">
           <span>对象</span>
           <SearchableSelect
             v-model="form.item_id"
@@ -28,17 +35,29 @@
             empty-text="没有匹配对象"
           />
         </label>
-        <label><span>规格(g)</span><input type="number" min="0" step="1" v-model.number="form.spec_g" :disabled="form.item_type !== 'finished_product'" /></label>
-        <label>
+        <label v-if="isMaterialCostAdjustment" class="span-2">
+          <span>原料批次</span>
+          <SearchableSelect
+            v-model="form.material_batch_id"
+            :options="materialBatches"
+            :option-label="batchLabel"
+            placeholder="选择要修正成本的批次"
+            empty-text="当前物料没有可用批次"
+          />
+        </label>
+        <label v-if="isMaterialCostAdjustment"><span>目标成本/千克</span><input type="number" min="0" step="0.0001" v-model.number="form.target_unit_cost" /></label>
+        <label v-if="!isMaterialCostAdjustment"><span>规格(g)</span><input type="number" min="0" step="1" v-model.number="form.spec_g" :disabled="form.item_type !== 'finished_product'" /></label>
+        <label v-if="!isMaterialCostAdjustment">
           <span>仓库</span>
           <select v-model="form.warehouse">
             <option v-for="row in warehouseOptions" :key="row.code" :value="row.code">{{ row.name }}</option>
           </select>
         </label>
-        <label><span>目标(g/散装g)</span><input type="number" min="0" step="1" v-model.number="form.target_g" /></label>
-        <label><span>目标件数</span><input type="number" min="0" step="1" v-model.number="form.target_units" /></label>
+        <label v-if="!isMaterialCostAdjustment"><span>目标(g/散装g)</span><input type="number" min="0" step="1" v-model.number="form.target_g" /></label>
+        <label v-if="!isMaterialCostAdjustment"><span>目标件数</span><input type="number" min="0" step="1" v-model.number="form.target_units" /></label>
+        <label v-if="!isMaterialCostAdjustment && form.item_type === 'material'"><span>补录成本/千克</span><input type="number" min="0" step="0.0001" v-model.number="form.target_unit_cost" placeholder="不填则用物料默认采购价" /></label>
         <label class="span-3"><span>原因</span><input v-model.trim="form.reason" placeholder="盘点调整/损耗/更正" /></label>
-        <button class="primary" type="button" @click="submit" :disabled="saving">提交调整</button>
+        <button class="primary" type="button" @click="submit" :disabled="saving">{{ isMaterialCostAdjustment ? '提交成本调整' : '提交调整' }}</button>
       </div>
     </section>
   </div>
@@ -56,11 +75,13 @@ const props = defineProps({
 const materials = ref([])
 const products = ref([])
 const warehouses = ref([])
+const materialBatches = ref([])
 const loading = ref(false)
 const saving = ref(false)
 const error = ref('')
 const ok = ref('')
-const form = reactive({ item_type: 'material', item_id: 0, spec_g: 0, warehouse: 'raw_materials', target_g: 0, target_units: 0, reason: '' })
+const form = reactive({ adjustment_type: 'quantity', item_type: 'material', item_id: 0, spec_g: 0, warehouse: 'raw_materials', target_g: 0, target_units: 0, material_batch_id: 0, target_unit_cost: 0, reason: '' })
+const isMaterialCostAdjustment = computed(() => form.adjustment_type === 'material_cost')
 const currentOptions = computed(() => form.item_type === 'material' ? materials.value : products.value)
 const warehouseOptions = computed(() => {
   const kind = form.item_type === 'finished_product' ? 'finished' : ''
@@ -74,6 +95,12 @@ function itemLabel(row) {
   return code ? `${name} (${code})` : name
 }
 
+function batchLabel(row) {
+  if (!row) return ''
+  const kg = Number(row.remaining_g || 0) / 1000
+  return `${row.batch_code} · 剩余${kg.toFixed(3)}kg · ${Number(row.unit_cost || 0).toFixed(2)}元/kg`
+}
+
 async function loadOptions() {
   loading.value = true
   error.value = ''
@@ -85,12 +112,46 @@ async function loadOptions() {
   } catch (err) { error.value = err.message || '加载失败' } finally { loading.value = false }
 }
 
+async function loadMaterialBatches() {
+  materialBatches.value = []
+  form.material_batch_id = 0
+  if (!isMaterialCostAdjustment.value || !form.item_id) return
+  try {
+    const url = new URL('/api/stock/material-batches', window.location.origin)
+    url.searchParams.set('material_id', String(form.item_id))
+    url.searchParams.set('active_only', '1')
+    url.searchParams.set('limit', '500')
+    const data = await apiGet(url)
+    materialBatches.value = data.rows || []
+  } catch (err) {
+    error.value = err.message || '加载批次失败'
+  }
+}
+
 async function submit() {
   saving.value = true
   error.value = ''
   ok.value = ''
   try {
-    const data = await apiSend('/api/stock/adjustments', { body: form })
+    const body = isMaterialCostAdjustment.value ? {
+      adjustment_type: 'material_cost',
+      item_type: 'material',
+      item_id: form.item_id,
+      material_batch_id: form.material_batch_id,
+      target_unit_cost: Number(form.target_unit_cost || 0),
+      reason: form.reason,
+    } : {
+      adjustment_type: 'quantity',
+      item_type: form.item_type,
+      item_id: form.item_id,
+      spec_g: form.spec_g,
+      warehouse: form.warehouse,
+      target_g: form.target_g,
+      target_units: form.target_units,
+      target_unit_cost: form.item_type === 'material' ? Number(form.target_unit_cost || 0) : 0,
+      reason: form.reason,
+    }
+    const data = await apiSend('/api/stock/adjustments', { body })
     ok.value = data.adjustment_id
   } catch (err) { error.value = err.message || '提交失败' } finally { saving.value = false }
 }
@@ -98,7 +159,26 @@ async function submit() {
 watch(() => form.item_type, () => {
   form.item_id = 0
   form.warehouse = form.item_type === 'finished_product' ? 'finished_goods' : 'raw_materials'
+  form.material_batch_id = 0
+  materialBatches.value = []
 })
+
+watch(() => form.adjustment_type, () => {
+  materialBatches.value = []
+  form.material_batch_id = 0
+  if (isMaterialCostAdjustment.value) {
+    const keepMaterialID = form.item_type === 'material' ? form.item_id : 0
+    form.item_type = 'material'
+    form.item_id = keepMaterialID
+    form.spec_g = 0
+    form.warehouse = 'raw_materials'
+    form.target_g = 0
+    form.target_units = 0
+  }
+  loadMaterialBatches()
+})
+
+watch(() => form.item_id, loadMaterialBatches)
 
 onMounted(loadOptions)
 </script>

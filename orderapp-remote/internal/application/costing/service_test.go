@@ -2,6 +2,7 @@ package costing
 
 import (
 	"context"
+	"reflect"
 	"testing"
 
 	domain "orderapp/internal/domain/costing"
@@ -183,11 +184,91 @@ func TestBeanListAppliesCategoryGradientTemplateAndLeavesUnboundDefaults(t *test
 	}
 }
 
+func TestBeanListKeepsGreenBeanProductsOnDirectSaleTiers(t *testing.T) {
+	repo := &fakeRepo{inputs: []domain.ProductInput{{
+		ProductID:   909,
+		Name:        "埃塞瑰夏生豆",
+		ProductKind: "green_bean",
+		GreenBeanSaleTiers: []domain.CommercialWholesaleTier{{
+			Label:        "1kg+",
+			SpecG:        1000,
+			MinQty:       1,
+			PricePerUnit: 128,
+			DisplayUnit:  domain.GradientDisplayUnitKg,
+		}},
+	}}}
+	svc := NewService(repo)
+
+	resp, err := svc.BeanList(context.Background())
+	if err != nil {
+		t.Fatalf("BeanList() error = %v", err)
+	}
+	if len(resp.Items) != 1 {
+		t.Fatalf("items = %+v", resp.Items)
+	}
+	item := resp.Items[0]
+	if item.ProductKind != "green_bean" {
+		t.Fatalf("product_kind = %q", item.ProductKind)
+	}
+	if item.GreenBeanCostPerKg != 0 || item.RoastedBeanCostPerKg != 0 {
+		t.Fatalf("green sales item must not run roasted costing, got green/roasted costs %.2f/%.2f", item.GreenBeanCostPerKg, item.RoastedBeanCostPerKg)
+	}
+	if item.GreenBeanList.Code == "" || item.GreenBeanList.DisplayName != "埃塞瑰夏生豆" {
+		t.Fatalf("green bean list metadata = %+v", item.GreenBeanList)
+	}
+	if len(item.GreenBeanSaleTiers) != 1 || item.GreenBeanSaleTiers[0].PricePerUnit != 128 {
+		t.Fatalf("green bean sale tiers = %+v", item.GreenBeanSaleTiers)
+	}
+}
+
+func TestBeanListAppliesProductMarginOverrideBeforeCategoryTemplateMargin(t *testing.T) {
+	input := domain.ProductInput{
+		ProductID:          501,
+		Name:               "模板拼配",
+		GreenBeanCostPerKg: 51.75,
+		YieldRate:          0.8,
+		GradientTemplate: &domain.GradientTemplate{
+			ID:          9,
+			Name:        "工厂量单模板",
+			DisplayUnit: domain.GradientDisplayUnitKg,
+			Tiers: []domain.GradientTemplateTier{{
+				ID: 91, Label: "大客户量单", MinWeightG: 24000, MaxWeightG: floatPtr(49000), MarginRate: 0.175, Position: 1,
+			}},
+		},
+	}
+	setDomainProductInputFloat64PtrField(t, &input, "MarginRateOverride", 0.30)
+	svc := NewService(&fakeRepo{inputs: []domain.ProductInput{input}})
+
+	resp, err := svc.BeanList(context.Background())
+	if err != nil {
+		t.Fatalf("BeanList() error = %v", err)
+	}
+	if len(resp.Items) != 1 || len(resp.Items[0].CommercialWholesaleTiers) != 1 {
+		t.Fatalf("bean list items = %+v", resp.Items)
+	}
+	tier := resp.Items[0].CommercialWholesaleTiers[0]
+	if tier.MarginRate != 0.30 || tier.PricePerUnit != 91 {
+		t.Fatalf("tier should use product margin override before category template margin, got %+v", tier)
+	}
+}
+
 func TestPublishRunRequiresPositiveID(t *testing.T) {
 	svc := NewService(&fakeRepo{})
 	if err := svc.PublishRun(context.Background(), "JJ", 0); err == nil {
 		t.Fatalf("expected invalid id error")
 	}
+}
+
+func setDomainProductInputFloat64PtrField(t *testing.T, target any, fieldName string, value float64) {
+	t.Helper()
+	field := reflect.ValueOf(target).Elem().FieldByName(fieldName)
+	if !field.IsValid() {
+		t.Fatalf("missing %s field", fieldName)
+	}
+	if field.Kind() != reflect.Ptr || field.Type().Elem().Kind() != reflect.Float64 {
+		t.Fatalf("%s field type = %s, want *float64", fieldName, field.Type())
+	}
+	field.Set(reflect.ValueOf(&value))
 }
 
 func TestPublishBeanListValidatesVersionAndListType(t *testing.T) {
@@ -204,6 +285,9 @@ func TestPublishBeanListValidatesVersionAndListType(t *testing.T) {
 	}
 	if _, err := svc.ListBeanListPublications(context.Background(), BeanListPublicationQuery{ListType: "bad"}); err == nil {
 		t.Fatalf("expected invalid list type")
+	}
+	if _, err := svc.SaveBeanListDraft(context.Background(), PublishBeanListCommand{ListType: "green", Version: "VGREEN-1"}); err != nil {
+		t.Fatalf("green bean list type should be publishable: %v", err)
 	}
 	if err := svc.WithdrawBeanList(context.Background(), WithdrawBeanListCommand{}); err == nil {
 		t.Fatalf("expected invalid id")

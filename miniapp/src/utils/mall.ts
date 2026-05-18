@@ -3,6 +3,7 @@ export type MallTemplateKey = 'hero' | 'compact' | 'wide'
 export type MallProduct = {
   id: number
   product_id: number
+  product_kind?: string
   title: string
   subtitle: string
   description: string
@@ -17,6 +18,7 @@ export type MallProduct = {
 export type MallCartItem = {
   mall_product_id: number
   title: string
+  product_kind?: string
   unit_price: number
   qty: number
 }
@@ -44,6 +46,7 @@ export function normalizeMallProduct(row: Partial<Record<keyof MallProduct, unkn
   return {
     id: Number(row.id || 0),
     product_id: Number(row.product_id || 0),
+    product_kind: String(row.product_kind || '').trim() === 'green_bean' ? 'green_bean' : 'roasted',
     title: String(row.title || '').trim() || '商品',
     subtitle: String(row.subtitle || '').trim(),
     description: String(row.description || '').trim(),
@@ -60,13 +63,17 @@ export function addMallCartItem(cart: MallCartItem[], product: MallProduct, qty 
   const nextQty = Math.max(1, Number(qty || 1))
   const existing = cart.find((item) => item.mall_product_id === product.id)
   if (!existing) {
-    return [...cart, { mall_product_id: product.id, title: product.title, unit_price: product.unit_price, qty: nextQty }]
+    return [...cart, { mall_product_id: product.id, title: product.title, product_kind: product.product_kind, unit_price: product.unit_price, qty: nextQty }]
   }
   return cart.map((item) => (
     item.mall_product_id === product.id
       ? { ...item, qty: item.qty + nextQty }
       : item
   ))
+}
+
+export function mallProductKindLabel(product: Partial<MallProduct | MallCartItem>): string {
+  return product.product_kind === 'green_bean' ? '生豆' : '熟豆'
 }
 
 export function updateMallCartQty(cart: MallCartItem[], mallProductID: number, qty: number): MallCartItem[] {

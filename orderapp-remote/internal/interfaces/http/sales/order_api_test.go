@@ -378,6 +378,68 @@ func TestOrderAPIWholesaleExactSpecTierUsesKilogramQuantityForKgProducts(t *test
 	}
 }
 
+func TestOrderAPISavesGreenBeanProductKindSnapshot(t *testing.T) {
+	pool, schema := newOrderAPITestDB(t)
+	ctx := context.Background()
+	seedOrderAPITestData(t, ctx, pool, schema)
+	mustExecOrderAPITestSQL(t, ctx, pool, fmt.Sprintf(`
+		INSERT INTO %[1]s.products(id,name,product_kind,default_price,active,retail_price_227g)
+		VALUES (88,'埃塞瑰夏生豆','green_bean',0,true,0);
+		INSERT INTO %[1]s.product_price_tiers(id, product_id, spec_g, min_qty_units, max_qty_units, price_per_unit, min_qty_lb, max_qty_lb, price_per_lb, active)
+		VALUES (8801,88,1000,1,NULL,128,2.2026,NULL,58.12,true);
+	`, schema))
+
+	e := newOrderAPITestEcho(pool, schema)
+	payload := map[string]any{
+		"order_date":     "2026-05-18",
+		"customer_id":    3,
+		"source_id":      1,
+		"order_type_id":  1,
+		"pay_status_id":  2,
+		"payment_method": "微信支付",
+		"ship_status_id": 1,
+		"product_id":     []string{"88"},
+		"tier_id":        []string{""},
+		"unit_price":     []string{""},
+		"item_name":      []string{"埃塞瑰夏生豆"},
+		"qty":            []string{"2"},
+		"unit":           []string{"件"},
+		"spec":           []string{"1000"},
+	}
+	body, _ := json.Marshal(payload)
+	req := httptest.NewRequest(http.MethodPost, "/api/order", bytes.NewReader(body))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("POST /api/order status = %d, want 200, body=%s", rec.Code, rec.Body.String())
+	}
+
+	var productKind string
+	var unitPrice, lineTotal float64
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`
+		SELECT COALESCE(product_kind,''), COALESCE(unit_price,0)::float8, COALESCE(line_total,0)::float8
+		FROM %s.order_items
+		ORDER BY id DESC
+		LIMIT 1
+	`, schema)).Scan(&productKind, &unitPrice, &lineTotal); err != nil {
+		t.Fatalf("query order item: %v", err)
+	}
+	if productKind != "green_bean" || unitPrice != 128 || lineTotal != 256 {
+		t.Fatalf("product_kind/unit_price/line_total=%q/%.2f/%.2f, want green_bean/128.00/256.00", productKind, unitPrice, lineTotal)
+	}
+
+	req = httptest.NewRequest(http.MethodGet, "/api/orders", nil)
+	rec = httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET /api/orders status = %d, want 200, body=%s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), `"product_kind_summary":"green_bean"`) {
+		t.Fatalf("order list must expose product_kind_summary for one-glance distinction: %s", rec.Body.String())
+	}
+}
+
 func TestOrderAPISavesAndListsEmployeeResponsiblePerson(t *testing.T) {
 	pool, schema := newOrderAPITestDB(t)
 	ctx := context.Background()
@@ -3033,6 +3095,7 @@ CREATE TABLE %s.products (
 	name TEXT NOT NULL,
 	roast_level TEXT NOT NULL DEFAULT '',
 	default_price NUMERIC NOT NULL DEFAULT 0,
+	product_kind TEXT NOT NULL DEFAULT 'roasted',
 	active BOOLEAN NOT NULL DEFAULT true,
 	created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
 	retail_price_100g NUMERIC NOT NULL DEFAULT 0,
@@ -3114,6 +3177,7 @@ CREATE TABLE %s.order_items (
 	line_no INTEGER,
 	product_id BIGINT,
 	price_tier_id BIGINT,
+	product_kind TEXT NOT NULL DEFAULT 'roasted',
 	price_overridden BOOLEAN NOT NULL DEFAULT false,
 	item_name TEXT,
 	item_note TEXT NOT NULL DEFAULT '',

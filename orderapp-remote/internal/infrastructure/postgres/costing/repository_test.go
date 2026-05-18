@@ -33,6 +33,26 @@ func TestLoadProductInputsDoesNotUsePublishedDefaultPriceAsBeanCost(t *testing.T
 	}
 }
 
+func TestLoadProductInputsUsesAvailableBatchWeightedAverageBeanCost(t *testing.T) {
+	b, err := os.ReadFile("repository.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := string(b)
+	for _, want := range []string{
+		"material_valuation",
+		"material_batch_locations",
+		"material_batches",
+		"SUM(l.qty_g::numeric * COALESCE(b.unit_cost,0)) / NULLIF(SUM(l.qty_g),0)",
+		"COALESCE(mv.weighted_unit_cost, m.purchase_price, 0)",
+		"COALESCE(b.quality_status,'unchecked') NOT IN ('hold','reject')",
+	} {
+		if !strings.Contains(src, want) {
+			t.Fatalf("costing repository must price BOM beans from available batch weighted average; missing %q", want)
+		}
+	}
+}
+
 func TestLoadProductInputsReadsCategoryGradientTemplates(t *testing.T) {
 	b, err := os.ReadFile("repository.go")
 	if err != nil {
@@ -48,6 +68,23 @@ func TestLoadProductInputsReadsCategoryGradientTemplates(t *testing.T) {
 	} {
 		if !strings.Contains(src, want) {
 			t.Fatalf("costing repository must load category gradient templates; missing %q", want)
+		}
+	}
+}
+
+func TestLoadProductInputsReadsProductMarginOverrideForTemplatePricing(t *testing.T) {
+	b, err := os.ReadFile("repository.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := string(b)
+	for _, want := range []string{
+		"p.margin_rate_override::float8",
+		"&input.MarginRateOverride",
+		"margin_rate_override",
+	} {
+		if !strings.Contains(src, want) {
+			t.Fatalf("costing repository must load product margin override; missing %q", want)
 		}
 	}
 }

@@ -360,14 +360,17 @@ type MaterialReceiptResult struct {
 }
 
 type StockAdjustmentCommand struct {
-	ItemType    string
-	ItemID      int64
-	SpecG       int64
-	Warehouse   string
-	TargetG     int64
-	TargetUnits int64
-	Reason      string
-	Operator    string
+	AdjustmentType  string
+	ItemType        string
+	ItemID          int64
+	SpecG           int64
+	Warehouse       string
+	TargetG         int64
+	TargetUnits     int64
+	MaterialBatchID int64
+	TargetUnitCost  float64
+	Reason          string
+	Operator        string
 }
 
 type StockAdjustmentResult struct {
@@ -541,12 +544,19 @@ func (s *Service) TransferFinishedProduct(ctx context.Context, cmd FinishedProdu
 }
 
 func (s *Service) CreateAdjustment(ctx context.Context, cmd StockAdjustmentCommand) (StockAdjustmentResult, error) {
+	cmd.AdjustmentType = strings.TrimSpace(cmd.AdjustmentType)
+	if cmd.AdjustmentType == "" {
+		cmd.AdjustmentType = "quantity"
+	}
 	cmd.ItemType = normalizeStockItemType(cmd.ItemType)
 	cmd.Warehouse = normalizeWarehouse(cmd.Warehouse)
 	cmd.Reason = strings.TrimSpace(cmd.Reason)
 	cmd.Operator = strings.TrimSpace(cmd.Operator)
 	if cmd.Operator == "" {
 		cmd.Operator = "stock"
+	}
+	if cmd.AdjustmentType != "quantity" && cmd.AdjustmentType != "material_cost" {
+		return StockAdjustmentResult{}, fmt.Errorf("invalid adjustment_type")
 	}
 	if cmd.ItemType != "material" && cmd.ItemType != "finished_product" {
 		return StockAdjustmentResult{}, fmt.Errorf("invalid item_type")
@@ -566,8 +576,19 @@ func (s *Service) CreateAdjustment(ctx context.Context, cmd StockAdjustmentComma
 	if cmd.TargetG < 0 || cmd.TargetUnits < 0 {
 		return StockAdjustmentResult{}, fmt.Errorf("negative qty")
 	}
+	if cmd.TargetUnitCost < 0 {
+		return StockAdjustmentResult{}, fmt.Errorf("target_unit_cost must be >= 0")
+	}
 	if cmd.Reason == "" {
 		return StockAdjustmentResult{}, fmt.Errorf("reason required")
+	}
+	if cmd.AdjustmentType == "material_cost" {
+		if cmd.ItemType != "material" {
+			return StockAdjustmentResult{}, fmt.Errorf("material cost adjustment requires material")
+		}
+		if cmd.MaterialBatchID <= 0 {
+			return StockAdjustmentResult{}, fmt.Errorf("material_batch_id required")
+		}
 	}
 	return s.repo.CreateAdjustment(ctx, cmd)
 }

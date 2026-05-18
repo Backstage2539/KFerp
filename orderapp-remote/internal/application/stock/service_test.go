@@ -234,3 +234,57 @@ func TestCreateAdjustmentAcceptsProductAliasForFinishedProduct(t *testing.T) {
 		t.Fatalf("warehouse = %q, want finished_goods", repo.adjustment.Warehouse)
 	}
 }
+
+func TestCreateAdjustmentAcceptsMaterialCostAdjustment(t *testing.T) {
+	repo := &fakeRepo{}
+	svc := NewService(repo)
+
+	_, err := svc.CreateAdjustment(context.Background(), StockAdjustmentCommand{
+		AdjustmentType:  " material_cost ",
+		ItemType:        "material",
+		ItemID:          1,
+		MaterialBatchID: 7,
+		TargetUnitCost:  52.75,
+		Reason:          "入库单价录错更正",
+	})
+	if err != nil {
+		t.Fatalf("CreateAdjustment material cost: %v", err)
+	}
+
+	if repo.adjustment.AdjustmentType != "material_cost" {
+		t.Fatalf("adjustment_type = %q, want material_cost", repo.adjustment.AdjustmentType)
+	}
+	if repo.adjustment.MaterialBatchID != 7 || repo.adjustment.TargetUnitCost != 52.75 {
+		t.Fatalf("cost fields = batch %d cost %.2f", repo.adjustment.MaterialBatchID, repo.adjustment.TargetUnitCost)
+	}
+	if repo.adjustment.Warehouse != "raw_materials" {
+		t.Fatalf("warehouse = %q, want raw_materials default", repo.adjustment.Warehouse)
+	}
+}
+
+func TestCreateAdjustmentRejectsInvalidMaterialCostAdjustment(t *testing.T) {
+	svc := NewService(&fakeRepo{})
+
+	_, err := svc.CreateAdjustment(context.Background(), StockAdjustmentCommand{
+		AdjustmentType: "material_cost",
+		ItemType:       "material",
+		ItemID:         1,
+		TargetUnitCost: 52.75,
+		Reason:         "入库单价录错更正",
+	})
+	if err == nil {
+		t.Fatal("expected missing material batch validation error")
+	}
+
+	_, err = svc.CreateAdjustment(context.Background(), StockAdjustmentCommand{
+		AdjustmentType:  "material_cost",
+		ItemType:        "material",
+		ItemID:          1,
+		MaterialBatchID: 7,
+		TargetUnitCost:  -1,
+		Reason:          "入库单价录错更正",
+	})
+	if err == nil {
+		t.Fatal("expected negative target_unit_cost validation error")
+	}
+}

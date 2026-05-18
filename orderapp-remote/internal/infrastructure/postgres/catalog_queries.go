@@ -25,6 +25,7 @@ type ProductTierOption struct {
 type ProductOption struct {
 	ID                      int64
 	Name                    string
+	ProductKind             string
 	RoastLevel              string
 	DefaultPrice            float64
 	RetailPrice100G         float64
@@ -38,6 +39,7 @@ type ProductOption struct {
 	BaseProductID           int64
 	Visibility              string
 	CustomType              string
+	MarginRateOverride      *float64
 	BomItemCount            int
 	BomStatus               string
 	RetailSpecs             []int64
@@ -63,7 +65,7 @@ func FetchOptions(ctx context.Context, pool *pgxpool.Pool, sqlstr string) ([]Opt
 }
 
 func FetchProducts(ctx context.Context, pool *pgxpool.Pool, schema string) ([]ProductOption, error) {
-	sqlstr := fmt.Sprintf(`SELECT p.id, p.name, COALESCE(p.roast_level,''), p.default_price,
+	sqlstr := fmt.Sprintf(`SELECT p.id, p.name, COALESCE(NULLIF(p.product_kind,''),'roasted'), COALESCE(p.roast_level,''), p.default_price,
 		COALESCE(p.retail_price_100g, 0),
 		COALESCE(p.retail_price_200g, 0),
 		COALESCE(p.retail_price_227g, p.default_price, 0),
@@ -75,6 +77,7 @@ func FetchProducts(ctx context.Context, pool *pgxpool.Pool, schema string) ([]Pr
 		COALESCE(p.base_product_id, 0),
 		COALESCE(NULLIF(p.visibility,''), 'public'),
 		COALESCE(p.custom_type, ''),
+		p.margin_rate_override::float8,
 		COALESCE((SELECT COUNT(*) FROM %[1]s.product_bom_items bi WHERE bi.product_id=p.id), 0),
 		COALESCE(NULLIF(b.status,''), CASE WHEN b.product_id IS NULL THEN 'missing' ELSE 'active' END)
 		FROM %[1]s.products p
@@ -89,7 +92,7 @@ func FetchProducts(ctx context.Context, pool *pgxpool.Pool, schema string) ([]Pr
 	out := make([]ProductOption, 0)
 	for rows.Next() {
 		var p ProductOption
-		if err := rows.Scan(&p.ID, &p.Name, &p.RoastLevel, &p.DefaultPrice, &p.RetailPrice100G, &p.RetailPrice200G, &p.RetailPrice227G, &p.RetailPrice250G, &p.YieldRate, &p.ProductCategoryID, &p.ProductCategoryPosition, &p.CustomerID, &p.BaseProductID, &p.Visibility, &p.CustomType, &p.BomItemCount, &p.BomStatus); err != nil {
+		if err := rows.Scan(&p.ID, &p.Name, &p.ProductKind, &p.RoastLevel, &p.DefaultPrice, &p.RetailPrice100G, &p.RetailPrice200G, &p.RetailPrice227G, &p.RetailPrice250G, &p.YieldRate, &p.ProductCategoryID, &p.ProductCategoryPosition, &p.CustomerID, &p.BaseProductID, &p.Visibility, &p.CustomType, &p.MarginRateOverride, &p.BomItemCount, &p.BomStatus); err != nil {
 			return nil, err
 		}
 		p.RetailSpecs = salesdomain.RetailAvailableSpecs(salesdomain.RetailSpecPrices{

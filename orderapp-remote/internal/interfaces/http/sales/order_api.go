@@ -550,6 +550,7 @@ func apiProducts(ps []ProductOption) []jsProduct {
 		jp := jsProduct{
 			ID:              p.ID,
 			Name:            p.Name,
+			ProductKind:     p.ProductKind,
 			Py:              support.PinyinFull(p.Name),
 			Pyi:             support.PinyinInitials(p.Name),
 			RetailPrice100G: p.RetailPrice100G,

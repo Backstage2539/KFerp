@@ -104,6 +104,30 @@ test('PDF bean-list helper builds separate commercial and retail groups from Exc
   assert.equal(buildBeanListPdfTitle('retail'), '棵凡咖啡零售豆单')
 })
 
+test('PDF bean-list helper builds a green bean list from direct sale tiers', () => {
+  const groups = buildBeanListPdfGroups([{
+    product_id: 90,
+    product_kind: 'green_bean',
+    name: '埃塞瑰夏生豆',
+    green_bean_list: {
+      code: 'G.1',
+      category: '生豆销售',
+      display_name: '埃塞瑰夏生豆',
+      flavor: '茉莉、柑橘',
+      description: '水洗处理，生豆销售价',
+    },
+    green_bean_sale_tiers: [{ label: '1kg+', spec_g: 1000, price_per_unit: 128, display_unit: 'kg' }],
+  }], 'green')
+
+  assert.equal(buildBeanListPdfTitle('green'), '棵凡咖啡生豆豆单')
+  assert.equal(groups.length, 1)
+  assert.equal(groups[0].category, 'G、生豆销售')
+  assert.equal(groups[0].categoryCode, 'G')
+  assert.equal(groups[0].items[0].name, '埃塞瑰夏生豆')
+  assert.equal(groups[0].items[0].prices[0].price, 128)
+  assert.equal(groups[0].items[0].prices[0].unit, 'kg')
+})
+
 test('bean-list scope filter keeps customer SKUs isolated by customer', () => {
   const scopedRows = [
     { product_id: 1, name: '公共豆', customer_id: 0 },

@@ -325,6 +325,7 @@ func ensureStockAdjustmentTables(ctx context.Context, pool *pgxpool.Pool, schema
 	q := fmt.Sprintf(`
 CREATE TABLE IF NOT EXISTS %s.stock_adjustments (
 	id BIGSERIAL PRIMARY KEY,
+	adjustment_type TEXT NOT NULL DEFAULT 'quantity',
 	item_type TEXT NOT NULL DEFAULT '',
 	item_id BIGINT NOT NULL DEFAULT 0,
 	item_name TEXT NOT NULL DEFAULT '',
@@ -333,6 +334,10 @@ CREATE TABLE IF NOT EXISTS %s.stock_adjustments (
 	reason TEXT NOT NULL DEFAULT '',
 	status TEXT NOT NULL DEFAULT 'submitted',
 	operator TEXT NOT NULL DEFAULT '',
+	material_batch_id BIGINT NOT NULL DEFAULT 0,
+	unit_cost_before NUMERIC(12,4) NOT NULL DEFAULT 0,
+	unit_cost_after NUMERIC(12,4) NOT NULL DEFAULT 0,
+	value_change NUMERIC(14,4) NOT NULL DEFAULT 0,
 	created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE TABLE IF NOT EXISTS %s.stock_adjustment_items (
@@ -351,6 +356,19 @@ CREATE TABLE IF NOT EXISTS %s.stock_adjustment_items (
 CREATE INDEX IF NOT EXISTS stock_adjustments_item_idx
 	ON %s.stock_adjustments(item_type, item_id, created_at DESC);
 `, schema, schema, schema)
-	_, err := pool.Exec(ctx, q)
-	return err
+	if _, err := pool.Exec(ctx, q); err != nil {
+		return err
+	}
+	for _, stmt := range []string{
+		fmt.Sprintf(`ALTER TABLE %s.stock_adjustments ADD COLUMN IF NOT EXISTS adjustment_type TEXT NOT NULL DEFAULT 'quantity'`, schema),
+		fmt.Sprintf(`ALTER TABLE %s.stock_adjustments ADD COLUMN IF NOT EXISTS material_batch_id BIGINT NOT NULL DEFAULT 0`, schema),
+		fmt.Sprintf(`ALTER TABLE %s.stock_adjustments ADD COLUMN IF NOT EXISTS unit_cost_before NUMERIC(12,4) NOT NULL DEFAULT 0`, schema),
+		fmt.Sprintf(`ALTER TABLE %s.stock_adjustments ADD COLUMN IF NOT EXISTS unit_cost_after NUMERIC(12,4) NOT NULL DEFAULT 0`, schema),
+		fmt.Sprintf(`ALTER TABLE %s.stock_adjustments ADD COLUMN IF NOT EXISTS value_change NUMERIC(14,4) NOT NULL DEFAULT 0`, schema),
+	} {
+		if _, err := pool.Exec(ctx, stmt); err != nil {
+			return err
+		}
+	}
+	return nil
 }

@@ -354,6 +354,7 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 		unitPrice      float64
 		lineTotal      float64
 		priceOverride  bool
+		productKind    string
 	}
 	items := make([]item, 0, len(cmd.Items))
 	for _, src := range cmd.Items {
@@ -420,6 +421,12 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 		retailOrder = isRetailOrderTypeName(orderTypeName)
 	}
 	smallBatchRule := r.customerDirectShipSmallBatchPriceRuleTx(ctx, tx, cmd.CustomerID)
+	for idx := range items {
+		items[idx].productKind = "roasted"
+		if items[idx].productID != nil && *items[idx].productID > 0 {
+			items[idx].productKind = productKindForOrderItem(ctx, tx, r.schema, *items[idx].productID)
+		}
+	}
 
 	// Pricing: wholesale tiers prefer exact package spec tiers, then fall back to
 	// bean-list weight tiers so non-454g packaging can still price by total lb.
@@ -640,8 +647,8 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 	editID := cmd.EditID
 	portalServiceCode, sourceWarehouse := r.orderFulfillmentMarkersTx(ctx, tx, cmd.CustomerID)
 
-	insertItemSQL := fmt.Sprintf(`INSERT INTO %s.order_items(order_id,line_no,product_id,price_tier_id,price_overridden,bean_list_publication_id,bean_list_version_no,item_name,item_note,qty,unit,spec,unit_price,line_total_before_discount,discount_type,discount_value,discount_amount,line_total)
-				VALUES ($1,$2,$3,$4,$5,NULLIF($6,0),$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)`, r.schema)
+	insertItemSQL := fmt.Sprintf(`INSERT INTO %s.order_items(order_id,line_no,product_id,price_tier_id,price_overridden,product_kind,bean_list_publication_id,bean_list_version_no,item_name,item_note,qty,unit,spec,unit_price,line_total_before_discount,discount_type,discount_value,discount_amount,line_total)
+				VALUES ($1,$2,$3,$4,$5,$6,NULLIF($7,0),$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)`, r.schema)
 
 	var orderID int64
 	if editID > 0 {
@@ -803,7 +810,7 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 		if err != nil {
 			return salesapp.SaveOrderResult{}, err
 		}
-		if _, err := tx.Exec(ctx, insertItemSQL, orderID, idx+1, it.productID, it.tierID, it.priceOverride, usage.PublicationID, usage.VersionNo, it.name, it.note, qtyAny, it.unit, it.spec, it.unitPrice, it.baseLineTotal, it.discountType, it.discountValue, it.discountAmount, it.lineTotal); err != nil {
+		if _, err := tx.Exec(ctx, insertItemSQL, orderID, idx+1, it.productID, it.tierID, it.priceOverride, it.productKind, usage.PublicationID, usage.VersionNo, it.name, it.note, qtyAny, it.unit, it.spec, it.unitPrice, it.baseLineTotal, it.discountType, it.discountValue, it.discountAmount, it.lineTotal); err != nil {
 			return salesapp.SaveOrderResult{}, err
 		}
 	}
@@ -854,6 +861,25 @@ func (r Repository) InlineUpdate(ctx context.Context, id int64, actor string, cm
 		Notes:           cmd.Notes,
 	}
 	return inlineUpdateOrder(ctx, r.pool, r.schema, id, actor, &req)
+}
+
+func productKindForOrderItem(ctx context.Context, tx pgx.Tx, schema string, productID int64) string {
+	if productID <= 0 {
+		return "roasted"
+	}
+	var kind string
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`
+		SELECT COALESCE(NULLIF(product_kind,''),'roasted')
+		FROM %s.products
+		WHERE id=$1
+	`, schema), productID).Scan(&kind); err != nil {
+		return "roasted"
+	}
+	kind = strings.TrimSpace(kind)
+	if kind == "" {
+		return "roasted"
+	}
+	return kind
 }
 
 func (r Repository) Void(ctx context.Context, id int64, actor, reason string) error {

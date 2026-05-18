@@ -212,6 +212,7 @@ type ProductTierOption struct {
 type ProductOption struct {
 	ID              int64               `json:"id"`
 	Name            string              `json:"name"`
+	ProductKind     string              `json:"product_kind"`
 	RoastLevel      string              `json:"roast_level"`
 	DefaultPrice    float64             `json:"default_price"`
 	RetailPrice100G float64             `json:"retail_price_100g"`
@@ -243,6 +244,7 @@ type OrderEditItem struct {
 	LineNo                int
 	ProductID             int64
 	Product               string
+	ProductKind           string
 	Note                  string
 	Spec                  string
 	Qty                   string
@@ -348,6 +350,7 @@ type OrderRow struct {
 	ShipStatusID          int64  `json:"ship_status_id"`
 	ProcessStatusID       int64  `json:"process_status_id"`
 	ProcessStatus         string `json:"process_status"`
+	ProductKindSummary    string `json:"product_kind_summary"`
 	CreatedByEmployee     string `json:"created_by_employee"`
 	Notes                 string `json:"notes"`
 	IsVoid                bool   `json:"is_void"`
