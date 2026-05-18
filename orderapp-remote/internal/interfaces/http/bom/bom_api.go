@@ -115,7 +115,7 @@ func registerBomAPI(e *echo.Echo, bomSvc *bomapp.Service) {
 		if err := c.Bind(&req); err != nil {
 			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: "invalid request"})
 		}
-		version, err := bomSvc.CreateVersion(c.Request().Context(), bomapp.CreateVersionCommand{ProductID: req.ProductID, Note: req.Note})
+		version, err := bomSvc.CreateVersion(c.Request().Context(), bomapp.CreateVersionCommand{ProductID: req.ProductID, Note: req.Note, Actor: support.ActorOf(c)})
 		if err != nil {
 			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: err.Error()})
 		}
@@ -127,7 +127,7 @@ func registerBomAPI(e *echo.Echo, bomSvc *bomapp.Service) {
 		if err != nil || versionID <= 0 {
 			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: "invalid version_id"})
 		}
-		if err := bomSvc.ActivateVersion(c.Request().Context(), versionID); err != nil {
+		if err := bomSvc.ActivateVersion(c.Request().Context(), bomapp.ActivateVersionCommand{VersionID: versionID, Actor: support.ActorOf(c)}); err != nil {
 			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: err.Error()})
 		}
 		return c.JSON(http.StatusOK, map[string]any{"ok": true})
@@ -138,7 +138,7 @@ func registerBomAPI(e *echo.Echo, bomSvc *bomapp.Service) {
 		if err := c.Bind(&req); err != nil {
 			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: "invalid request"})
 		}
-		if err := bomSvc.SyncProductYield(c.Request().Context(), req.ProductID); err != nil {
+		if err := bomSvc.SyncProductYield(c.Request().Context(), bomapp.SyncProductYieldCommand{ProductID: req.ProductID, Actor: support.ActorOf(c)}); err != nil {
 			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: err.Error()})
 		}
 		return c.NoContent(http.StatusOK)
@@ -149,7 +149,7 @@ func registerBomAPI(e *echo.Echo, bomSvc *bomapp.Service) {
 		if err != nil {
 			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: "invalid product_id"})
 		}
-		if err := bomSvc.DeactivateBom(c.Request().Context(), productID); err != nil {
+		if err := bomSvc.DeactivateBom(c.Request().Context(), bomapp.DeactivateBomCommand{ProductID: productID, Actor: support.ActorOf(c)}); err != nil {
 			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: err.Error()})
 		}
 		return c.JSON(http.StatusOK, map[string]any{"ok": true})
@@ -196,6 +196,7 @@ func registerBomAPI(e *echo.Echo, bomSvc *bomapp.Service) {
 		err := bomSvc.SaveBagSpecMapping(c.Request().Context(), bomapp.SaveBagSpecMappingCommand{
 			SpecG:      req.SpecG,
 			MaterialID: req.MaterialID,
+			Actor:      support.ActorOf(c),
 		})
 		if err != nil {
 			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: err.Error()})
@@ -208,7 +209,7 @@ func registerBomAPI(e *echo.Echo, bomSvc *bomapp.Service) {
 		if err := c.Bind(&req); err != nil {
 			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: "invalid request"})
 		}
-		if err := bomSvc.DeleteBagSpecMapping(c.Request().Context(), req.SpecG); err != nil {
+		if err := bomSvc.DeleteBagSpecMapping(c.Request().Context(), bomapp.DeleteBagSpecMappingCommand{SpecG: req.SpecG, Actor: support.ActorOf(c)}); err != nil {
 			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: err.Error()})
 		}
 		return c.NoContent(http.StatusOK)

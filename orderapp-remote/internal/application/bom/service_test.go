@@ -24,9 +24,11 @@ func (r *fakeRepo) Materials(ctx context.Context) ([]Option, error) { return nil
 func (r *fakeRepo) BagSpecMappings(ctx context.Context) ([]BagSpecMapping, error) {
 	return nil, nil
 }
-func (r *fakeRepo) SyncProductYield(ctx context.Context, productID int64) error { return nil }
-func (r *fakeRepo) DeactivateBom(ctx context.Context, productID int64) error {
-	r.deactivatedID = productID
+func (r *fakeRepo) SyncProductYield(ctx context.Context, cmd SyncProductYieldCommand) error {
+	return nil
+}
+func (r *fakeRepo) DeactivateBom(ctx context.Context, cmd DeactivateBomCommand) error {
+	r.deactivatedID = cmd.ProductID
 	return nil
 }
 func (r *fakeRepo) SaveItem(ctx context.Context, cmd SaveItemCommand) error {
@@ -40,7 +42,9 @@ func (r *fakeRepo) DeleteItem(ctx context.Context, cmd DeleteItemCommand) error 
 func (r *fakeRepo) SaveBagSpecMapping(ctx context.Context, cmd SaveBagSpecMappingCommand) error {
 	return nil
 }
-func (r *fakeRepo) DeleteBagSpecMapping(ctx context.Context, specG int64) error { return nil }
+func (r *fakeRepo) DeleteBagSpecMapping(ctx context.Context, cmd DeleteBagSpecMappingCommand) error {
+	return nil
+}
 func (r *fakeRepo) ListVersions(ctx context.Context, productID int64) ([]Version, error) {
 	r.versionFor = productID
 	return nil, nil
@@ -48,8 +52,8 @@ func (r *fakeRepo) ListVersions(ctx context.Context, productID int64) ([]Version
 func (r *fakeRepo) CreateVersion(ctx context.Context, cmd CreateVersionCommand) (Version, error) {
 	return Version{ID: 9, ProductID: cmd.ProductID, VersionNo: "V001"}, nil
 }
-func (r *fakeRepo) ActivateVersion(ctx context.Context, versionID int64) error {
-	r.activated = versionID
+func (r *fakeRepo) ActivateVersion(ctx context.Context, cmd ActivateVersionCommand) error {
+	r.activated = cmd.VersionID
 	return nil
 }
 
@@ -105,6 +109,28 @@ func TestSaveMaterialComponentKeepsLegacyMaterialValidation(t *testing.T) {
 	}
 }
 
+func TestSaveFinishedProductComponentRejectsRatioPct(t *testing.T) {
+	svc := NewService(&fakeRepo{})
+	err := svc.SaveItem(context.Background(), SaveItemCommand{
+		ProductID:          1,
+		ComponentType:      "finished_product",
+		ComponentProductID: 2,
+		ConsumeUnit:        "ratio_pct",
+		RatioPct:           10,
+	})
+	if err == nil || !strings.Contains(err.Error(), "finished_product consume_unit must not be ratio_pct") {
+		t.Fatalf("expected finished product ratio error, got %v", err)
+	}
+}
+
+func TestDeleteItemRequiresProductID(t *testing.T) {
+	svc := NewService(&fakeRepo{})
+	err := svc.DeleteItem(context.Background(), DeleteItemCommand{ID: 7})
+	if err == nil || !strings.Contains(err.Error(), "product_id required") {
+		t.Fatalf("expected product_id error, got %v", err)
+	}
+}
+
 func TestServicePropagatesRepositoryErrors(t *testing.T) {
 	wantErr := errors.New("repo failed")
 	svc := NewService(errorRepo{err: wantErr})
@@ -124,10 +150,10 @@ func TestServiceValidatesBOMVersions(t *testing.T) {
 	if _, err := svc.CreateVersion(ctx, CreateVersionCommand{}); err == nil {
 		t.Fatal("CreateVersion should require product id")
 	}
-	if err := svc.ActivateVersion(ctx, 0); err == nil {
+	if err := svc.ActivateVersion(ctx, ActivateVersionCommand{}); err == nil {
 		t.Fatal("ActivateVersion should require version id")
 	}
-	if err := svc.ActivateVersion(ctx, 7); err != nil {
+	if err := svc.ActivateVersion(ctx, ActivateVersionCommand{VersionID: 7}); err != nil {
 		t.Fatalf("ActivateVersion valid command: %v", err)
 	}
 	if repo.activated != 7 {
@@ -140,10 +166,10 @@ func TestServiceValidatesDeactivateBom(t *testing.T) {
 	svc := NewService(repo)
 	ctx := context.Background()
 
-	if err := svc.DeactivateBom(ctx, 0); err == nil {
+	if err := svc.DeactivateBom(ctx, DeactivateBomCommand{}); err == nil {
 		t.Fatal("DeactivateBom should require product id")
 	}
-	if err := svc.DeactivateBom(ctx, 7); err != nil {
+	if err := svc.DeactivateBom(ctx, DeactivateBomCommand{ProductID: 7}); err != nil {
 		t.Fatalf("DeactivateBom valid command: %v", err)
 	}
 	if repo.deactivatedID != 7 {
@@ -164,10 +190,10 @@ func (r errorRepo) Materials(ctx context.Context) ([]Option, error) { return nil
 func (r errorRepo) BagSpecMappings(ctx context.Context) ([]BagSpecMapping, error) {
 	return nil, r.err
 }
-func (r errorRepo) SyncProductYield(ctx context.Context, productID int64) error {
+func (r errorRepo) SyncProductYield(ctx context.Context, cmd SyncProductYieldCommand) error {
 	return r.err
 }
-func (r errorRepo) DeactivateBom(ctx context.Context, productID int64) error {
+func (r errorRepo) DeactivateBom(ctx context.Context, cmd DeactivateBomCommand) error {
 	return r.err
 }
 func (r errorRepo) SaveItem(ctx context.Context, cmd SaveItemCommand) error {
@@ -179,7 +205,7 @@ func (r errorRepo) DeleteItem(ctx context.Context, cmd DeleteItemCommand) error 
 func (r errorRepo) SaveBagSpecMapping(ctx context.Context, cmd SaveBagSpecMappingCommand) error {
 	return r.err
 }
-func (r errorRepo) DeleteBagSpecMapping(ctx context.Context, specG int64) error {
+func (r errorRepo) DeleteBagSpecMapping(ctx context.Context, cmd DeleteBagSpecMappingCommand) error {
 	return r.err
 }
 func (r errorRepo) ListVersions(ctx context.Context, productID int64) ([]Version, error) {
@@ -188,6 +214,6 @@ func (r errorRepo) ListVersions(ctx context.Context, productID int64) ([]Version
 func (r errorRepo) CreateVersion(ctx context.Context, cmd CreateVersionCommand) (Version, error) {
 	return Version{}, r.err
 }
-func (r errorRepo) ActivateVersion(ctx context.Context, versionID int64) error {
+func (r errorRepo) ActivateVersion(ctx context.Context, cmd ActivateVersionCommand) error {
 	return r.err
 }

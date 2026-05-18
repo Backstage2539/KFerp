@@ -108,3 +108,19 @@ func TestCreateCustomProductCopiesDripProductMetadata(t *testing.T) {
 		}
 	}
 }
+
+func TestCreateCustomProductCopyBOMPreservesComponentFields(t *testing.T) {
+	repository, err := os.ReadFile("repository.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := string(repository)
+	for _, want := range []string{
+		"INSERT INTO %s.product_bom_items(product_id,material_id,component_type,component_product_id,component_spec_g,consume_unit,qty_per_unit,ratio_pct,updated_at)",
+		"SELECT $1,material_id,component_type,component_product_id,component_spec_g,consume_unit,qty_per_unit,ratio_pct,now()",
+	} {
+		if !strings.Contains(src, want) {
+			t.Fatalf("custom product BOM copy missing component marker %q", want)
+		}
+	}
+}

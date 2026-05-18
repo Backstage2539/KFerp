@@ -98,4 +98,22 @@ func TestBomSaveItemAcceptsFinishedProductComponentFields(t *testing.T) {
 	}
 }
 
+func TestBomSaveItemRejectsFinishedProductRatioPct(t *testing.T) {
+	repo := &apiFakeRepo{}
+	e := echo.New()
+	RegisterRoutes(e, Dependencies{Bom: bomapp.NewService(repo)})
+
+	body := `{"product_id":1,"component_type":"finished_product","component_product_id":7,"consume_unit":"ratio_pct","ratio_pct":10}`
+	req := httptest.NewRequest(http.MethodPost, "/api/bom/item/save", strings.NewReader(body))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "finished_product consume_unit must not be ratio_pct") {
+		t.Fatalf("body missing finished product ratio error: %s", rec.Body.String())
+	}
+}
+
 var _ bomapp.Repository = (*apiFakeRepo)(nil)
