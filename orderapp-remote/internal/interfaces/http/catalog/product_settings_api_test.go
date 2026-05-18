@@ -422,6 +422,47 @@ func TestProductSettingsAPIReturnsInternalErrorForProductCreatePersistenceFailur
 	}
 }
 
+func TestProductSettingsAPIReturnsBadRequestForCreateValidationFailures(t *testing.T) {
+	cases := []struct {
+		name string
+		body string
+		want string
+	}{
+		{
+			name: "missing name",
+			body: `{"roast_level":"中深烘"}`,
+			want: "name required",
+		},
+		{
+			name: "negative price",
+			body: `{"name":"新公共拼配","roast_level":"中深烘","default_price":-1}`,
+			want: "price must not be negative",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			repo := &productSettingsRepo{}
+			e := echo.New()
+			registerProductRoutes(e, catalogapp.NewService(repo))
+
+			req := httptest.NewRequest(http.MethodPost, "/api/product-settings/products", bytes.NewBufferString(tc.body))
+			req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+			rec := httptest.NewRecorder()
+			e.ServeHTTP(rec, req)
+
+			if rec.Code != http.StatusBadRequest {
+				t.Fatalf("POST product validation failure status=%d, want 400 body=%s", rec.Code, rec.Body.String())
+			}
+			if repo.publicCreated {
+				t.Fatalf("invalid create should not reach repo, command=%+v", repo.createdPublic)
+			}
+			if !bytes.Contains(rec.Body.Bytes(), []byte(tc.want)) {
+				t.Fatalf("validation response should mention %s: %s", tc.want, rec.Body.String())
+			}
+		})
+	}
+}
+
 func TestProductSettingsAPIRejectsExplicitZeroDripBagCreate(t *testing.T) {
 	cases := []struct {
 		name string

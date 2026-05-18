@@ -310,7 +310,7 @@ func (s *Service) DeactivateProducts(ctx context.Context, cmd DeactivateProducts
 func (s *Service) CreateProduct(ctx context.Context, cmd CreateProductCommand) (Product, error) {
 	cmd.Name = strings.TrimSpace(cmd.Name)
 	if cmd.Name == "" {
-		return Product{}, fmt.Errorf("name required")
+		return Product{}, ValidationError{Message: "name required"}
 	}
 	var err error
 	cmd.ProductKind, cmd.DripBagGrams, cmd.DripBoxBagCount, cmd.SalesUnits, err = normalizeProductKindSettings(cmd.ProductKind, cmd.DripBagGrams, cmd.DripBoxBagCount)
@@ -322,10 +322,10 @@ func (s *Service) CreateProduct(ctx context.Context, cmd CreateProductCommand) (
 	}
 	cmd.RoastLevel = catalogdomain.NormalizeRoastLevel(cmd.RoastLevel)
 	if cmd.RoastLevel == "" {
-		return Product{}, fmt.Errorf("invalid roast_level")
+		return Product{}, ValidationError{Message: "invalid roast_level"}
 	}
 	if cmd.DefaultPrice < 0 || cmd.RetailPrice100G < 0 || cmd.RetailPrice200G < 0 || cmd.RetailPrice227G < 0 || cmd.RetailPrice250G < 0 {
-		return Product{}, fmt.Errorf("price must not be negative")
+		return Product{}, ValidationError{Message: "price must not be negative"}
 	}
 	if cmd.RetailPrice227G <= 0 && cmd.DefaultPrice > 0 {
 		cmd.RetailPrice227G = cmd.DefaultPrice
@@ -334,7 +334,7 @@ func (s *Service) CreateProduct(ctx context.Context, cmd CreateProductCommand) (
 		cmd.YieldRate = catalogdomain.ResolveYieldRate(cmd.RoastLevel, 0.8)
 	}
 	if cmd.YieldRate <= 0 || cmd.YieldRate > 1 {
-		return Product{}, fmt.Errorf("invalid yield_rate")
+		return Product{}, ValidationError{Message: "invalid yield_rate"}
 	}
 	return s.repo.CreateProduct(ctx, cmd)
 }
