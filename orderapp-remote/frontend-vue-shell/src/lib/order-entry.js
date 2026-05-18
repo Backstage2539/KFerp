@@ -324,6 +324,7 @@ export function buildOrderPayload({ form, rows }) {
     ship_tracking_no: form.ship_tracking_no || '',
     responsible_type: form.responsible_type || '',
     responsible_id: Number(form.responsible_id || 0),
+    bean_list_publication_id: Number(form.bean_list_publication_id || 0),
     notes: form.notes || '',
     shipping_amount: String(form.shipping_amount || ''),
     discount_amount: String(form.discount_amount || ''),

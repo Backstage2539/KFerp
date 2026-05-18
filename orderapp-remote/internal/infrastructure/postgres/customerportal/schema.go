@@ -76,7 +76,11 @@ ALTER TABLE %s.customer_portal_profiles
 	ADD COLUMN IF NOT EXISTS miniapp_entry_mode TEXT NOT NULL DEFAULT 'services';
 ALTER TABLE %s.customer_portal_profiles
 	ADD COLUMN IF NOT EXISTS capability_template_key TEXT NOT NULL DEFAULT '';
-`, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema)
+ALTER TABLE %s.customer_portal_profiles
+	ADD COLUMN IF NOT EXISTS bean_list_mode TEXT NOT NULL DEFAULT 'latest';
+ALTER TABLE %s.customer_portal_profiles
+	ADD COLUMN IF NOT EXISTS bean_list_publication_id BIGINT NOT NULL DEFAULT 0;
+`, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema)
 	if _, err := pool.Exec(ctx, q); err != nil {
 		return err
 	}

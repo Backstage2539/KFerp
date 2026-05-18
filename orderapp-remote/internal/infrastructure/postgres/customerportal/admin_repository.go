@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	customerportalapp "orderapp/internal/application/customerportal"
+	postgresinfra "orderapp/internal/infrastructure/postgres"
 
 	"github.com/jackc/pgx/v5"
 )
@@ -32,6 +33,8 @@ func (r Repository) ListPortalAdminCustomers(ctx context.Context, query customer
 		       COALESCE(NULLIF(p.theme_key,''),'coffee_factory'),
 		       COALESCE(NULLIF(p.miniapp_entry_mode,''),'services'),
 		       COALESCE(p.capability_template_key,''),
+		       COALESCE(NULLIF(p.bean_list_mode,''),'latest'),
+		       COALESCE(p.bean_list_publication_id,0),
 		       COALESCE((SELECT COUNT(*)::int FROM %s.customer_portal_user_bindings b WHERE b.customer_id=c.id AND b.status='approved'),0),
 		       eb.employee_id,
 		       eb.employee_name,
@@ -76,7 +79,7 @@ func (r Repository) ListPortalAdminCustomers(ctx context.Context, query customer
 		var row customerportalapp.PortalAdminCustomer
 		var employeeID sql.NullInt64
 		var employeeName, employeePhone, role, status, updatedBy, updatedAt sql.NullString
-		if err := rows.Scan(&row.ID, &row.Name, &row.CustomerType, &row.Phone, &row.CompanyName, &row.DisplayName, &row.ProcessingWarehouseCode, &row.DefaultSenderID, &row.PortalEnabled, &row.PortalStatus, &row.ThemeKey, &row.MiniappEntryMode, &row.CapabilityTemplateKey, &row.BindingCount, &employeeID, &employeeName, &employeePhone, &role, &status, &updatedBy, &updatedAt); err != nil {
+		if err := rows.Scan(&row.ID, &row.Name, &row.CustomerType, &row.Phone, &row.CompanyName, &row.DisplayName, &row.ProcessingWarehouseCode, &row.DefaultSenderID, &row.PortalEnabled, &row.PortalStatus, &row.ThemeKey, &row.MiniappEntryMode, &row.CapabilityTemplateKey, &row.BeanListMode, &row.BeanListPublicationID, &row.BindingCount, &employeeID, &employeeName, &employeePhone, &role, &status, &updatedBy, &updatedAt); err != nil {
 			return nil, err
 		}
 		row.ERPBinding = nullableERPBinding(row.ID, employeeID, employeeName, employeePhone, role, status, updatedBy, updatedAt)
@@ -270,9 +273,10 @@ func (r Repository) PortalAdminDetail(ctx context.Context, customerID int64) (cu
 		return customerportalapp.PortalAdminDetail{}, err
 	}
 	return customerportalapp.PortalAdminDetail{
-		Customer:     customer,
-		Bindings:     bindings,
-		Capabilities: capabilities,
+		Customer:               customer,
+		Bindings:               bindings,
+		Capabilities:           capabilities,
+		BeanListVersionOptions: r.portalBeanListVersionOptions(ctx, customerID),
 	}, nil
 }
 
@@ -295,8 +299,8 @@ func (r Repository) UpdatePortalVisibility(ctx context.Context, cmd customerport
 		warehouseCode = defaultProcessingWarehouseCode(cmd.CustomerID)
 	}
 	if _, err := tx.Exec(ctx, fmt.Sprintf(`
-		INSERT INTO %s.customer_portal_profiles(customer_id, display_name, processing_warehouse_code, default_sender_id, enabled, status, theme_key, miniapp_entry_mode, capability_template_key, updated_at, updated_by)
-		VALUES($1,$2,$3,$4,$5,'active',$6,$7,$8,now(),$9)
+		INSERT INTO %s.customer_portal_profiles(customer_id, display_name, processing_warehouse_code, default_sender_id, enabled, status, theme_key, miniapp_entry_mode, capability_template_key, bean_list_mode, bean_list_publication_id, updated_at, updated_by)
+		VALUES($1,$2,$3,$4,$5,'active',$6,$7,$8,$9,$10,now(),$11)
 		ON CONFLICT(customer_id) DO UPDATE SET
 			display_name=excluded.display_name,
 			processing_warehouse_code=excluded.processing_warehouse_code,
@@ -306,9 +310,11 @@ func (r Repository) UpdatePortalVisibility(ctx context.Context, cmd customerport
 			theme_key=excluded.theme_key,
 			miniapp_entry_mode=excluded.miniapp_entry_mode,
 			capability_template_key=excluded.capability_template_key,
+			bean_list_mode=excluded.bean_list_mode,
+			bean_list_publication_id=excluded.bean_list_publication_id,
 			updated_at=now(),
 			updated_by=excluded.updated_by
-	`, r.schema), cmd.CustomerID, strings.TrimSpace(cmd.DisplayName), warehouseCode, cmd.DefaultSenderID, cmd.Enabled, customerportalapp.NormalizePortalThemeKey(cmd.ThemeKey), customerportalapp.NormalizeMiniappEntryMode(cmd.MiniappEntryMode), customerportalapp.NormalizeCapabilityTemplateKey(cmd.CapabilityTemplateKey), strings.TrimSpace(cmd.UpdatedBy)); err != nil {
+	`, r.schema), cmd.CustomerID, strings.TrimSpace(cmd.DisplayName), warehouseCode, cmd.DefaultSenderID, cmd.Enabled, customerportalapp.NormalizePortalThemeKey(cmd.ThemeKey), customerportalapp.NormalizeMiniappEntryMode(cmd.MiniappEntryMode), customerportalapp.NormalizeCapabilityTemplateKey(cmd.CapabilityTemplateKey), strings.TrimSpace(cmd.BeanListMode), cmd.BeanListPublicationID, strings.TrimSpace(cmd.UpdatedBy)); err != nil {
 		return customerportalapp.PortalAdminDetail{}, err
 	}
 	if warehouseCode != "" {
@@ -342,6 +348,13 @@ func (r Repository) UpdatePortalVisibility(ctx context.Context, cmd customerport
 		if err := r.grantTemplateERPRolesTx(ctx, tx, cmd.CustomerID, cmd.Template); err != nil {
 			return customerportalapp.PortalAdminDetail{}, err
 		}
+	}
+	if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, strings.TrimSpace(cmd.UpdatedBy), "customer_portal_profile", &cmd.CustomerID, "update", postgresinfra.StrPtr("bean_list_version"), nil, postgresinfra.StrPtr(fmt.Sprintf("%s:%d", strings.TrimSpace(cmd.BeanListMode), cmd.BeanListPublicationID)), postgresinfra.AuditMeta{
+		"customer_id":              cmd.CustomerID,
+		"bean_list_mode":           strings.TrimSpace(cmd.BeanListMode),
+		"bean_list_publication_id": cmd.BeanListPublicationID,
+	}); err != nil {
+		return customerportalapp.PortalAdminDetail{}, err
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return customerportalapp.PortalAdminDetail{}, err
@@ -613,6 +626,8 @@ func (r Repository) portalAdminCustomer(ctx context.Context, customerID int64) (
 		       COALESCE(NULLIF(p.theme_key,''),'coffee_factory'),
 		       COALESCE(NULLIF(p.miniapp_entry_mode,''),'services'),
 		       COALESCE(p.capability_template_key,''),
+		       COALESCE(NULLIF(p.bean_list_mode,''),'latest'),
+		       COALESCE(p.bean_list_publication_id,0),
 		       COALESCE((SELECT COUNT(*)::int FROM %s.customer_portal_user_bindings b WHERE b.customer_id=c.id AND b.status='approved'),0),
 		       eb.employee_id,
 		       eb.employee_name,
@@ -643,7 +658,7 @@ func (r Repository) portalAdminCustomer(ctx context.Context, customerID int64) (
 			LIMIT 1
 		) eb ON true
 		WHERE c.id=$1
-		`, r.schema, r.schema, r.schema, r.schema, r.schema, r.schema), customerID).Scan(&row.ID, &row.Name, &row.CustomerType, &row.Phone, &row.CompanyName, &row.DisplayName, &row.ProcessingWarehouseCode, &row.DefaultSenderID, &row.PortalEnabled, &row.PortalStatus, &row.ThemeKey, &row.MiniappEntryMode, &row.CapabilityTemplateKey, &row.BindingCount, &employeeID, &employeeName, &employeePhone, &role, &status, &updatedBy, &updatedAt)
+		`, r.schema, r.schema, r.schema, r.schema, r.schema, r.schema), customerID).Scan(&row.ID, &row.Name, &row.CustomerType, &row.Phone, &row.CompanyName, &row.DisplayName, &row.ProcessingWarehouseCode, &row.DefaultSenderID, &row.PortalEnabled, &row.PortalStatus, &row.ThemeKey, &row.MiniappEntryMode, &row.CapabilityTemplateKey, &row.BeanListMode, &row.BeanListPublicationID, &row.BindingCount, &employeeID, &employeeName, &employeePhone, &role, &status, &updatedBy, &updatedAt)
 	if err == nil {
 		row.ThemeKey = customerportalapp.NormalizePortalThemeKey(row.ThemeKey)
 		row.MiniappEntryMode = customerportalapp.NormalizeMiniappEntryMode(row.MiniappEntryMode)
@@ -653,6 +668,39 @@ func (r Repository) portalAdminCustomer(ctx context.Context, customerID int64) (
 		return customerportalapp.PortalAdminCustomer{}, customerportalapp.ErrPortalCustomerNotFound
 	}
 	return row, err
+}
+
+func (r Repository) portalBeanListVersionOptions(ctx context.Context, customerID int64) []customerportalapp.BeanListVersionOption {
+	rows, err := r.pool.Query(ctx, fmt.Sprintf(`
+		SELECT id, list_type, version_no, to_char(published_at,'YYYY-MM-DD HH24:MI'), config_json, content_json
+		FROM %s.bean_list_publications
+		WHERE owner_type='customer' AND owner_key=$1 AND status='published'
+		ORDER BY published_at DESC, id DESC
+	`, r.schema), fmt.Sprintf("%d", customerID))
+	if err != nil {
+		return nil
+	}
+	defer rows.Close()
+	out := make([]customerportalapp.BeanListVersionOption, 0)
+	for rows.Next() {
+		var row customerportalapp.BeanListSummary
+		var configJSON, contentJSON []byte
+		if err := rows.Scan(&row.ID, &row.ListType, &row.VersionNo, &row.PublishedAt, &configJSON, &contentJSON); err != nil {
+			return nil
+		}
+		if err := parseBeanListDisplaySummary(configJSON, contentJSON, &row); err != nil {
+			return nil
+		}
+		out = append(out, customerportalapp.BeanListVersionOption{
+			ID:          row.ID,
+			ListType:    row.ListType,
+			VersionNo:   row.VersionNo,
+			Title:       row.Title,
+			PublishedAt: row.PublishedAt,
+			CacheKey:    row.CacheKey,
+		})
+	}
+	return out
 }
 
 func nullableERPBinding(customerID int64, employeeID sql.NullInt64, employeeName, employeePhone, role, status, updatedBy, updatedAt sql.NullString) *customerportalapp.PortalERPBinding {

@@ -252,6 +252,13 @@ func seedReqWorkflowA(ctx context.Context, pool *pgxpool.Pool, schema string) er
 		}
 	}
 	for _, row := range []reqSeedRow{
+		{table: "req_product", code: "PR-BEANLIST-VERSION-001", title: "豆单发布形成版本列表，录单和小程序按客户选择最新或固定版本并缓存生成结果", status: "review", assignee: "VA", evidence: "docs/superpowers/plans/2026-05-18-bean-list-versioning.md"},
+		{table: "req_dev", code: "DEV-BEANLIST-VERSION-001", title: "新增豆单发布资产缓存、客户确认记录、客户门户固定版本配置和订单豆单版本字段", status: "done", assignee: "Codex", evidence: "bean_list_publication_assets; customer_bean_list_acknowledgements; orders.bean_list_publication_id"},
+		{table: "req_dev", code: "DEV-BEANLIST-VERSION-002", title: "ERP 录单按客户返回豆单版本选项，客户有专属版本时可选择且默认最新，无专属版本自动公共豆单", status: "done", assignee: "Codex", evidence: "OrderEntryView.vue; order_form_queries.go"},
+		{table: "req_dev", code: "DEV-BEANLIST-VERSION-003", title: "小程序展示最新豆单并按版本本地缓存，首次按新版下单前弹出更新摘要并确认一次", status: "done", assignee: "Codex", evidence: "miniapp/src/pages/service/service.vue"},
+		{table: "req_unit", code: "UT-BEANLIST-VERSION-001", title: "单测覆盖豆单 diff、新增录单 payload 字段和小程序确认接口路径", status: "done", assignee: "Codex", evidence: "TestBeanListDiffDetectsAddedRemovedAndChangedItems; order-entry.test.js; customerPortal.test.ts"},
+		{table: "req_api", code: "API-BEANLIST-VERSION-001", title: "API 测试覆盖小程序豆单 PDF 缓存下载、服务页固定版本选择和录单保存版本 ID", status: "done", assignee: "Codex", evidence: "TestMiniBeanListPDFAPIReturnsPDFDownload; TestLoadBeanListServicePageUsesFixedCustomerPublication; TestOrderAPISavesSelectedBeanListPublicationVersion"},
+		{table: "req_review", code: "REV-BEANLIST-VERSION-001", prCode: "PR-BEANLIST-VERSION-001", title: "验收：发布多个客户豆单版本后，录单可选版本，小程序首次新版下单提示一次，门户可固定版本", status: "todo", assignee: "VA", evidence: "待 Van 服务器验收"},
 		{table: "req_product", code: "PR-AUTH-001", title: "建立用户角色和页面/API 权限 P0：管理员分配员工角色，菜单和接口按权限拦截", status: "review", assignee: "VA", evidence: "codex/user-permissions-p0-20260427"},
 		{table: "req_dev", code: "DEV-AUTH-001", title: "新增 authz application service，统一角色、权限、页面可见性和员工角色分配规则", status: "done", assignee: "Codex", evidence: "internal/application/authz"},
 		{table: "req_dev", code: "DEV-AUTH-002", title: "新增 authz Postgres schema/repository，种子管理员、销售、生产、仓库、财务、商品、系统角色", status: "done", assignee: "Codex", evidence: "internal/infrastructure/postgres/authz"},

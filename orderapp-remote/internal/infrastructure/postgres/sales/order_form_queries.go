@@ -40,6 +40,9 @@ func (r Repository) OrderForm(ctx context.Context, editID int64) (salesapp.Order
 	if data.Employees, err = r.fetchOrderEmployees(ctx); err != nil {
 		return salesapp.OrderFormData{}, err
 	}
+	if data.BeanListVersionOptions, err = r.fetchOrderBeanListVersionOptions(ctx); err != nil {
+		return salesapp.OrderFormData{}, err
+	}
 	if editID > 0 {
 		editData, err := r.fetchOrderEdit(ctx, editID)
 		if err != nil {
@@ -48,6 +51,79 @@ func (r Repository) OrderForm(ctx context.Context, editID int64) (salesapp.Order
 		data.EditData = editData
 	}
 	return data, nil
+}
+
+func (r Repository) fetchOrderBeanListVersionOptions(ctx context.Context) ([]salesapp.BeanListVersionOption, error) {
+	var exists bool
+	if err := r.pool.QueryRow(ctx, `SELECT to_regclass($1) IS NOT NULL`, fmt.Sprintf("%s.bean_list_publications", r.schema)).Scan(&exists); err != nil || !exists {
+		return nil, err
+	}
+	q := fmt.Sprintf(`
+		WITH active_customers AS (
+			SELECT id FROM %[1]s.customers WHERE active=true
+		),
+		customer_versions AS (
+			SELECT c.id AS customer_id,
+			       b.id,
+			       b.version_no,
+			       COALESCE(to_char(b.published_at, 'YYYY-MM-DD HH24:MI'), '') AS published_at,
+			       COALESCE(b.changelog, '') AS changelog,
+			       true AS is_customer_owned,
+			       row_number() OVER (PARTITION BY c.id ORDER BY b.published_at DESC, b.id DESC) = 1 AS is_default
+			FROM active_customers c
+			JOIN %[1]s.bean_list_publications b
+			  ON b.owner_type='customer' AND b.owner_key=c.id::text AND b.status='published'
+		),
+		official_latest AS (
+			SELECT b.id,
+			       b.version_no,
+			       COALESCE(to_char(b.published_at, 'YYYY-MM-DD HH24:MI'), '') AS published_at,
+			       COALESCE(b.changelog, '') AS changelog
+			FROM %[1]s.bean_list_publications b
+			WHERE b.owner_type='official' AND b.status='published'
+			ORDER BY b.published_at DESC, b.id DESC
+			LIMIT 1
+		),
+		public_fallback AS (
+			SELECT c.id AS customer_id,
+			       o.id,
+			       o.version_no,
+			       o.published_at,
+			       o.changelog,
+			       false AS is_customer_owned,
+			       true AS is_default
+			FROM active_customers c
+			CROSS JOIN official_latest o
+			WHERE NOT EXISTS (
+				SELECT 1 FROM customer_versions cv WHERE cv.customer_id=c.id
+			)
+		)
+		SELECT customer_id, id, version_no, published_at, changelog, is_customer_owned, is_default
+		FROM customer_versions
+		UNION ALL
+		SELECT customer_id, id, version_no, published_at, changelog, is_customer_owned, is_default
+		FROM public_fallback
+		ORDER BY customer_id, is_customer_owned DESC, is_default DESC, published_at DESC, id DESC
+	`, r.schema)
+	rows, err := r.pool.Query(ctx, q)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := make([]salesapp.BeanListVersionOption, 0)
+	for rows.Next() {
+		var row salesapp.BeanListVersionOption
+		if err := rows.Scan(&row.CustomerID, &row.ID, &row.VersionNo, &row.PublishedAt, &row.Changelog, &row.IsCustomerOwned, &row.IsDefault); err != nil {
+			return nil, err
+		}
+		ownerLabel := "公共豆单"
+		if row.IsCustomerOwned {
+			ownerLabel = "客户豆单"
+		}
+		row.Label = strings.TrimSpace(fmt.Sprintf("%s %s %s", ownerLabel, row.VersionNo, row.PublishedAt))
+		out = append(out, row)
+	}
+	return out, rows.Err()
 }
 
 func (r Repository) fetchOrderCustomers(ctx context.Context) ([]salesapp.CustomerOption, error) {
@@ -193,6 +269,8 @@ func (r Repository) fetchOrderEdit(ctx context.Context, id int64) (*salesapp.Ord
 			COALESCE(o.receiver_company, '') AS receiver_company,
 			COALESCE(o.portal_service_code,'') AS portal_service_code,
 			COALESCE(o.source_warehouse,'') AS source_warehouse,
+			COALESCE(o.bean_list_publication_id,0) AS bean_list_publication_id,
+			COALESCE(o.bean_list_version_no,'') AS bean_list_version_no,
 			COALESCE(o.notes,'') as notes,
 			COALESCE(o.total_amount,0) as total_amount,
 			COALESCE(o.shipping_amount,0) as shipping_amount,
@@ -240,6 +318,8 @@ func (r Repository) fetchOrderEdit(ctx context.Context, id int64) (*salesapp.Ord
 		&d.ReceiverCompany,
 		&d.PortalServiceCode,
 		&d.SourceWarehouse,
+		&d.BeanListPublicationID,
+		&d.BeanListVersionNo,
 		&d.Notes,
 		&totalAmt,
 		&shipAmt,
