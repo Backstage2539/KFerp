@@ -323,6 +323,57 @@ func TestOrderAPISmallBatchDirectShipCustomerUsesDefaultPriceTier(t *testing.T) 
 	}
 }
 
+func TestOrderAPISavesSelectedBeanListPublicationVersion(t *testing.T) {
+	pool, schema := newOrderAPITestDB(t)
+	ctx := context.Background()
+	seedOrderAPITestData(t, ctx, pool, schema)
+	mustExecOrderAPITestSQL(t, ctx, pool, fmt.Sprintf(`
+		INSERT INTO %[1]s.bean_list_publications(id, list_type, version_no, status, owner_type, owner_key, config_json, content_json, changelog, actor)
+		VALUES(88,'commercial','V3.0.8','published','customer','3','{}'::jsonb,'{"title":"客户豆单 V3.0.8"}'::jsonb,'新版','tester');
+	`, schema))
+
+	e := newOrderAPITestEcho(pool, schema)
+	payload := map[string]any{
+		"order_date":               "2026-05-18",
+		"customer_id":              3,
+		"source_id":                1,
+		"order_type_id":            1,
+		"pay_status_id":            2,
+		"payment_method":           "微信支付",
+		"ship_status_id":           1,
+		"bean_list_publication_id": 88,
+		"product_id":               []string{"7"},
+		"tier_id":                  []string{""},
+		"unit_price":               []string{"99"},
+		"item_name":                []string{"客户A自定义货品名"},
+		"qty":                      []string{"1"},
+		"unit":                     []string{"件"},
+		"spec":                     []string{"454"},
+	}
+	body, _ := json.Marshal(payload)
+	req := httptest.NewRequest(http.MethodPost, "/api/order", bytes.NewReader(body))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("POST /api/order status = %d, want 200, body=%s", rec.Code, rec.Body.String())
+	}
+
+	var publicationID int64
+	var version string
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`
+		SELECT bean_list_publication_id, bean_list_version_no
+		FROM %s.orders
+		ORDER BY id DESC
+		LIMIT 1
+	`, schema)).Scan(&publicationID, &version); err != nil {
+		t.Fatalf("query order bean list version: %v", err)
+	}
+	if publicationID != 88 || version != "V3.0.8" {
+		t.Fatalf("bean list publication/version=%d/%q, want 88/V3.0.8", publicationID, version)
+	}
+}
+
 func TestOrderAPIWholesaleExactSpecTierUsesKilogramQuantityForKgProducts(t *testing.T) {
 	pool, schema := newOrderAPITestDB(t)
 	ctx := context.Background()
@@ -3128,6 +3179,20 @@ CREATE TABLE %s.customer_service_capabilities (
 	updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
 	UNIQUE(customer_id, capability_code)
 );
+CREATE TABLE %s.bean_list_publications (
+	id BIGSERIAL PRIMARY KEY,
+	list_type TEXT NOT NULL,
+	version_no TEXT NOT NULL DEFAULT '',
+	status TEXT NOT NULL DEFAULT 'published',
+	owner_type TEXT NOT NULL DEFAULT 'official',
+	owner_key TEXT NOT NULL DEFAULT '',
+	config_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+	content_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+	changelog TEXT NOT NULL DEFAULT '',
+	actor TEXT NOT NULL DEFAULT '',
+	published_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+	created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
 CREATE TABLE %s.orders (
 	id BIGSERIAL PRIMARY KEY,
 	order_date DATE,
@@ -3169,6 +3234,8 @@ CREATE TABLE %s.orders (
 	responsible_party_type TEXT NOT NULL DEFAULT '',
 	responsible_party_id BIGINT NOT NULL DEFAULT 0,
 	responsible_party_name TEXT NOT NULL DEFAULT '',
+	bean_list_publication_id BIGINT NOT NULL DEFAULT 0,
+	bean_list_version_no TEXT NOT NULL DEFAULT '',
 	created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE TABLE %s.order_items (
@@ -3277,7 +3344,7 @@ INSERT INTO %s.sender_settings(id, sender_label, is_default, active) VALUES(1, '
 	`, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema,
 		schema, schema, schema, schema, schema, schema, schema, schema, schema, schema,
 		schema, schema, schema, schema, schema, schema, schema, schema, schema, schema,
-		schema, schema, schema, schema)
+		schema, schema, schema, schema, schema)
 }
 
 func orderAPITrackingDDL(schema string) string {

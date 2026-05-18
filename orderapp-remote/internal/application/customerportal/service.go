@@ -163,29 +163,48 @@ type ServiceMetric struct {
 }
 
 type BeanListSummary struct {
-	ID                  int64                  `json:"id"`
-	ListType            string                 `json:"list_type"`
-	VersionNo           string                 `json:"version_no"`
-	Status              string                 `json:"status"`
-	PublishedAt         string                 `json:"published_at"`
-	Changelog           string                 `json:"changelog"`
-	PDFURL              string                 `json:"pdf_url,omitempty"`
-	CacheKey            string                 `json:"cache_key,omitempty"`
-	Title               string                 `json:"title,omitempty"`
-	Subtitle            string                 `json:"subtitle,omitempty"`
-	ListTypeLabel       string                 `json:"list_type_label,omitempty"`
-	BrandName           string                 `json:"brand_name,omitempty"`
-	BrandIntro          string                 `json:"brand_intro,omitempty"`
-	LayoutStyle         string                 `json:"layout_style,omitempty"`
-	CardsPerRow         int                    `json:"cards_per_row,omitempty"`
-	ShowVersion         bool                   `json:"show_version"`
-	ShowChangelog       bool                   `json:"show_changelog"`
-	ShowCategoryNumbers bool                   `json:"show_category_numbers"`
-	BackgroundColor     string                 `json:"background_color,omitempty"`
-	FontColor           string                 `json:"font_color,omitempty"`
-	BackgroundImage     string                 `json:"background_image,omitempty"`
-	LogoImage           string                 `json:"logo_image,omitempty"`
-	Groups              []BeanListGroupSummary `json:"groups,omitempty"`
+	ID                      int64                  `json:"id"`
+	ListType                string                 `json:"list_type"`
+	VersionNo               string                 `json:"version_no"`
+	Status                  string                 `json:"status"`
+	PublishedAt             string                 `json:"published_at"`
+	Changelog               string                 `json:"changelog"`
+	PDFURL                  string                 `json:"pdf_url,omitempty"`
+	CacheKey                string                 `json:"cache_key,omitempty"`
+	Title                   string                 `json:"title,omitempty"`
+	Subtitle                string                 `json:"subtitle,omitempty"`
+	ListTypeLabel           string                 `json:"list_type_label,omitempty"`
+	BrandName               string                 `json:"brand_name,omitempty"`
+	BrandIntro              string                 `json:"brand_intro,omitempty"`
+	LayoutStyle             string                 `json:"layout_style,omitempty"`
+	CardsPerRow             int                    `json:"cards_per_row,omitempty"`
+	ShowVersion             bool                   `json:"show_version"`
+	ShowChangelog           bool                   `json:"show_changelog"`
+	ShowCategoryNumbers     bool                   `json:"show_category_numbers"`
+	BackgroundColor         string                 `json:"background_color,omitempty"`
+	FontColor               string                 `json:"font_color,omitempty"`
+	BackgroundImage         string                 `json:"background_image,omitempty"`
+	LogoImage               string                 `json:"logo_image,omitempty"`
+	Groups                  []BeanListGroupSummary `json:"groups,omitempty"`
+	RequiresAcknowledgement bool                   `json:"requires_acknowledgement"`
+	Diff                    BeanListDiff           `json:"diff,omitempty"`
+}
+
+type BeanListVersionOption struct {
+	ID          int64  `json:"id"`
+	ListType    string `json:"list_type"`
+	VersionNo   string `json:"version_no"`
+	Title       string `json:"title"`
+	PublishedAt string `json:"published_at"`
+	CacheKey    string `json:"cache_key"`
+}
+
+type BeanListPublicationAsset struct {
+	PublicationID int64
+	AssetType     string
+	ContentType   string
+	CacheKey      string
+	Payload       []byte
 }
 
 type BeanListGroupSummary struct {
@@ -210,6 +229,114 @@ type BeanListPriceSummary struct {
 	Label string `json:"label"`
 	Value string `json:"value"`
 	Red   bool   `json:"red,omitempty"`
+}
+
+type BeanListDiff struct {
+	Added   []BeanListDiffItem   `json:"added,omitempty"`
+	Removed []BeanListDiffItem   `json:"removed,omitempty"`
+	Changed []BeanListDiffChange `json:"changed,omitempty"`
+}
+
+type BeanListDiffItem struct {
+	Code string `json:"code,omitempty"`
+	Name string `json:"name"`
+}
+
+type BeanListDiffChange struct {
+	Code   string   `json:"code,omitempty"`
+	Name   string   `json:"name"`
+	Fields []string `json:"fields"`
+}
+
+func (c BeanListDiffChange) HasField(field string) bool {
+	field = strings.TrimSpace(field)
+	for _, item := range c.Fields {
+		if item == field {
+			return true
+		}
+	}
+	return false
+}
+
+func BeanListDiffBetween(oldList, newList BeanListSummary) BeanListDiff {
+	oldItems := beanListItemsByStableKey(oldList)
+	newItems := beanListItemsByStableKey(newList)
+	keys := make([]string, 0, len(oldItems)+len(newItems))
+	seen := map[string]bool{}
+	for key := range oldItems {
+		keys = append(keys, key)
+		seen[key] = true
+	}
+	for key := range newItems {
+		if !seen[key] {
+			keys = append(keys, key)
+		}
+	}
+	sort.Strings(keys)
+
+	diff := BeanListDiff{}
+	for _, key := range keys {
+		oldItem, hadOld := oldItems[key]
+		newItem, hasNew := newItems[key]
+		switch {
+		case !hadOld && hasNew:
+			diff.Added = append(diff.Added, beanListDiffItem(newItem))
+		case hadOld && !hasNew:
+			diff.Removed = append(diff.Removed, beanListDiffItem(oldItem))
+		case hadOld && hasNew:
+			fields := beanListChangedFields(oldItem, newItem)
+			if len(fields) > 0 {
+				diff.Changed = append(diff.Changed, BeanListDiffChange{Code: newItem.Code, Name: newItem.Name, Fields: fields})
+			}
+		}
+	}
+	return diff
+}
+
+func beanListItemsByStableKey(list BeanListSummary) map[string]BeanListProductSummary {
+	out := map[string]BeanListProductSummary{}
+	for _, group := range list.Groups {
+		for _, item := range group.Items {
+			key := strings.TrimSpace(item.Code)
+			if key == "" {
+				key = strings.ToLower(strings.Join(strings.Fields(item.Name), ""))
+			}
+			if key != "" {
+				out[key] = item
+			}
+		}
+	}
+	return out
+}
+
+func beanListDiffItem(item BeanListProductSummary) BeanListDiffItem {
+	return BeanListDiffItem{Code: item.Code, Name: item.Name}
+}
+
+func beanListChangedFields(oldItem, newItem BeanListProductSummary) []string {
+	fields := make([]string, 0, 4)
+	if strings.TrimSpace(oldItem.RecommendedUse) != strings.TrimSpace(newItem.RecommendedUse) {
+		fields = append(fields, "recommended_use")
+	}
+	if strings.TrimSpace(oldItem.Flavor) != strings.TrimSpace(newItem.Flavor) {
+		fields = append(fields, "flavor")
+	}
+	if strings.TrimSpace(oldItem.Description) != strings.TrimSpace(newItem.Description) {
+		fields = append(fields, "description")
+	}
+	if beanListPricesSignature(oldItem.Prices) != beanListPricesSignature(newItem.Prices) {
+		fields = append(fields, "prices")
+	}
+	return fields
+}
+
+func beanListPricesSignature(prices []BeanListPriceSummary) string {
+	parts := make([]string, 0, len(prices))
+	for _, price := range prices {
+		parts = append(parts, strings.TrimSpace(price.Label)+"="+strings.TrimSpace(price.Value))
+	}
+	sort.Strings(parts)
+	return strings.Join(parts, "|")
 }
 
 type ProductSummary struct {
@@ -402,22 +529,25 @@ type SettlementBatch struct {
 }
 
 type ServicePage struct {
-	Key                 string                 `json:"key"`
-	Title               string                 `json:"title"`
-	Capability          string                 `json:"capability"`
-	ThemeKey            string                 `json:"theme_key"`
-	MiniappEntryMode    string                 `json:"miniapp_entry_mode"`
-	CurrentCustomerID   int64                  `json:"current_customer_id"`
-	CurrentCustomerName string                 `json:"current_customer_name"`
-	Summary             []ServiceMetric        `json:"summary"`
-	BeanLists           []BeanListSummary      `json:"bean_lists,omitempty"`
-	Products            []ProductSummary       `json:"products,omitempty"`
-	Orders              []CustomerOrderSummary `json:"orders,omitempty"`
-	DirectShipBatches   []DirectShipBatch      `json:"direct_ship_batches,omitempty"`
-	Inventory           []InventoryItem        `json:"inventory,omitempty"`
-	ProcessingRequests  []ProcessingRequest    `json:"processing_requests,omitempty"`
-	FeeItems            []FeeItem              `json:"fee_items,omitempty"`
-	SettlementBatches   []SettlementBatch      `json:"settlement_batches,omitempty"`
+	// MiniappEntryMode    string                 `json:"miniapp_entry_mode"`
+	Key                 string                  `json:"key"`
+	Title               string                  `json:"title"`
+	Capability          string                  `json:"capability"`
+	ThemeKey            string                  `json:"theme_key"`
+	MiniappEntryMode    string                  `json:"miniapp_entry_mode"`
+	CurrentCustomerID   int64                   `json:"current_customer_id"`
+	CurrentCustomerName string                  `json:"current_customer_name"`
+	Summary             []ServiceMetric         `json:"summary"`
+	BeanLists           []BeanListSummary       `json:"bean_lists,omitempty"`
+	HasBeanListVersions bool                    `json:"has_customer_bean_list_versions"`
+	BeanListVersions    []BeanListVersionOption `json:"bean_list_version_options,omitempty"`
+	Products            []ProductSummary        `json:"products,omitempty"`
+	Orders              []CustomerOrderSummary  `json:"orders,omitempty"`
+	DirectShipBatches   []DirectShipBatch       `json:"direct_ship_batches,omitempty"`
+	Inventory           []InventoryItem         `json:"inventory,omitempty"`
+	ProcessingRequests  []ProcessingRequest     `json:"processing_requests,omitempty"`
+	FeeItems            []FeeItem               `json:"fee_items,omitempty"`
+	SettlementBatches   []SettlementBatch       `json:"settlement_batches,omitempty"`
 }
 
 type ServicePageQuery struct {
@@ -528,6 +658,8 @@ type PortalAdminCustomer struct {
 	ThemeKey                string            `json:"theme_key"`
 	MiniappEntryMode        string            `json:"miniapp_entry_mode"`
 	CapabilityTemplateKey   string            `json:"capability_template_key"`
+	BeanListMode            string            `json:"bean_list_mode"`
+	BeanListPublicationID   int64             `json:"bean_list_publication_id"`
 	BindingCount            int               `json:"binding_count"`
 	ERPBinding              *PortalERPBinding `json:"erp_binding,omitempty"`
 }
@@ -554,9 +686,10 @@ type PortalUserBinding struct {
 }
 
 type PortalAdminDetail struct {
-	Customer     PortalAdminCustomer `json:"customer"`
-	Bindings     []PortalUserBinding `json:"bindings"`
-	Capabilities []CapabilityOption  `json:"capabilities"`
+	Customer               PortalAdminCustomer     `json:"customer"`
+	Bindings               []PortalUserBinding     `json:"bindings"`
+	Capabilities           []CapabilityOption      `json:"capabilities"`
+	BeanListVersionOptions []BeanListVersionOption `json:"bean_list_version_options,omitempty"`
 }
 
 type UpdatePortalVisibilityCommand struct {
@@ -568,6 +701,8 @@ type UpdatePortalVisibilityCommand struct {
 	ThemeKey                string
 	MiniappEntryMode        string
 	CapabilityTemplateKey   string
+	BeanListMode            string
+	BeanListPublicationID   int64
 	Template                CapabilityTemplate
 	Capabilities            []CapabilityOption
 	UpdatedBy               string
@@ -645,6 +780,9 @@ type Repository interface {
 	SwitchCurrentCustomer(ctx context.Context, token string, customerID int64) (CurrentContext, error)
 	LoadServicePage(ctx context.Context, query ServicePageQuery) (ServicePage, error)
 	LoadBeanListPublication(ctx context.Context, customerID, publicationID int64) (BeanListSummary, error)
+	LoadBeanListPublicationAsset(ctx context.Context, publicationID int64, assetType string) (BeanListPublicationAsset, error)
+	SaveBeanListPublicationAsset(ctx context.Context, asset BeanListPublicationAsset, actor string) (BeanListPublicationAsset, error)
+	AcknowledgeBeanListPublication(ctx context.Context, customerID, publicationID int64, actor string) error
 	ListPortalAdminCustomers(ctx context.Context, query PortalAdminCustomerQuery) ([]PortalAdminCustomer, error)
 	PortalAdminDetail(ctx context.Context, customerID int64) (PortalAdminDetail, error)
 	UpdatePortalVisibility(ctx context.Context, cmd UpdatePortalVisibilityCommand) (PortalAdminDetail, error)
@@ -877,6 +1015,54 @@ func (s *Service) GetBeanListPublication(ctx context.Context, token string, publ
 	return s.repo.LoadBeanListPublication(ctx, current.CurrentCustomerID, publicationID)
 }
 
+func (s *Service) GetBeanListPublicationPDF(ctx context.Context, token string, publicationID int64, render func(BeanListSummary) ([]byte, error)) (BeanListSummary, []byte, error) {
+	if render == nil {
+		return BeanListSummary{}, nil, fmt.Errorf("bean list renderer required")
+	}
+	row, err := s.GetBeanListPublication(ctx, token, publicationID)
+	if err != nil {
+		return BeanListSummary{}, nil, err
+	}
+	if s.repo == nil {
+		return BeanListSummary{}, nil, fmt.Errorf("repository required")
+	}
+	if asset, err := s.repo.LoadBeanListPublicationAsset(ctx, row.ID, "pdf"); err == nil && len(asset.Payload) > 0 {
+		return row, asset.Payload, nil
+	}
+	body, err := render(row)
+	if err != nil {
+		return BeanListSummary{}, nil, err
+	}
+	asset, err := s.repo.SaveBeanListPublicationAsset(ctx, BeanListPublicationAsset{
+		PublicationID: row.ID,
+		AssetType:     "pdf",
+		ContentType:   "application/pdf",
+		CacheKey:      row.CacheKey,
+		Payload:       body,
+	}, "miniapp")
+	if err != nil {
+		return BeanListSummary{}, nil, err
+	}
+	return row, asset.Payload, nil
+}
+
+func (s *Service) AcknowledgeBeanListPublication(ctx context.Context, token string, publicationID int64) error {
+	if publicationID <= 0 {
+		return fmt.Errorf("bean_list required")
+	}
+	current, err := s.requireCustomerCapability(ctx, token, CapabilityBeanList)
+	if err != nil {
+		return err
+	}
+	if current.CurrentCustomerID <= 0 {
+		return ErrCustomerBindingNotFound
+	}
+	if s.repo == nil {
+		return fmt.Errorf("repository required")
+	}
+	return s.repo.AcknowledgeBeanListPublication(ctx, current.CurrentCustomerID, publicationID, "miniapp")
+}
+
 func (s *Service) ListPortalAdminCustomers(ctx context.Context, query PortalAdminCustomerQuery) ([]PortalAdminCustomer, error) {
 	if s.repo == nil {
 		return nil, fmt.Errorf("repository required")
@@ -930,6 +1116,10 @@ func (s *Service) UpdatePortalVisibility(ctx context.Context, cmd UpdatePortalVi
 	cmd.DisplayName = strings.TrimSpace(cmd.DisplayName)
 	cmd.ProcessingWarehouseCode = strings.TrimSpace(cmd.ProcessingWarehouseCode)
 	cmd.UpdatedBy = strings.TrimSpace(cmd.UpdatedBy)
+	cmd.BeanListMode = normalizeBeanListMode(cmd.BeanListMode)
+	if cmd.BeanListMode != "fixed" {
+		cmd.BeanListPublicationID = 0
+	}
 	rawTemplateKey := strings.TrimSpace(cmd.CapabilityTemplateKey)
 	cmd.CapabilityTemplateKey = NormalizeCapabilityTemplateKey(cmd.CapabilityTemplateKey)
 	if rawTemplateKey != "" && cmd.CapabilityTemplateKey == "" {
@@ -1488,11 +1678,22 @@ func normalizePortalAdminCustomer(customer PortalAdminCustomer) PortalAdminCusto
 	customer.ThemeKey = NormalizePortalThemeKey(customer.ThemeKey)
 	customer.MiniappEntryMode = NormalizeMiniappEntryMode(customer.MiniappEntryMode)
 	customer.CapabilityTemplateKey = normalizePortalAdminCapabilityTemplateKey(customer.CapabilityTemplateKey)
+	customer.BeanListMode = normalizeBeanListMode(customer.BeanListMode)
+	if customer.BeanListMode != "fixed" {
+		customer.BeanListPublicationID = 0
+	}
 	if customer.ERPBinding != nil {
 		customer.ERPBinding.Role = firstNonEmpty(customer.ERPBinding.Role, "customer")
 		customer.ERPBinding.Status = normalizePortalERPBindingStatus(customer.ERPBinding.Status)
 	}
 	return customer
+}
+
+func normalizeBeanListMode(value string) string {
+	if strings.TrimSpace(value) == "fixed" {
+		return "fixed"
+	}
+	return "latest"
 }
 
 func normalizePortalAdminCapabilityTemplateKey(value string) string {

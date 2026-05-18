@@ -35,6 +35,9 @@ func EnsureSchema(ctx context.Context, pool *pgxpool.Pool, schema string) error 
 	if err := ensureOrderPaymentMethodColumn(ctx, pool, schema); err != nil {
 		return err
 	}
+	if err := ensureOrderBeanListColumns(ctx, pool, schema); err != nil {
+		return err
+	}
 	if err := backfillERPOrdersForFulfillmentCustomers(ctx, pool, schema); err != nil {
 		return err
 	}
@@ -51,6 +54,20 @@ func EnsureSchema(ctx context.Context, pool *pgxpool.Pool, schema string) error 
 		return err
 	}
 	return ensureExternalShareResourceTables(ctx, pool, schema)
+}
+
+func ensureOrderBeanListColumns(ctx context.Context, pool *pgxpool.Pool, schema string) error {
+	stmts := []string{
+		fmt.Sprintf(`ALTER TABLE %s.orders ADD COLUMN IF NOT EXISTS bean_list_publication_id BIGINT NOT NULL DEFAULT 0`, schema),
+		fmt.Sprintf(`ALTER TABLE %s.orders ADD COLUMN IF NOT EXISTS bean_list_version_no TEXT NOT NULL DEFAULT ''`, schema),
+		fmt.Sprintf(`CREATE INDEX IF NOT EXISTS idx_%s_orders_bean_list_publication ON %s.orders(bean_list_publication_id)`, schema, schema),
+	}
+	for _, stmt := range stmts {
+		if _, err := pool.Exec(ctx, stmt); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func ensureCustomerCompanyColumns(ctx context.Context, pool *pgxpool.Pool, schema string) error {

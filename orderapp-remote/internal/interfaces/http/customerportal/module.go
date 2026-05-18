@@ -24,6 +24,7 @@ type Service interface {
 	SwitchCurrentCustomer(context.Context, string, int64) (customerportalapp.CurrentContext, error)
 	GetServicePage(context.Context, string, string, customerportalapp.ServicePageFilter) (customerportalapp.ServicePage, error)
 	GetBeanListPublication(context.Context, string, int64) (customerportalapp.BeanListSummary, error)
+	AcknowledgeBeanListPublication(context.Context, string, int64) error
 	ListPortalAdminCustomers(context.Context, customerportalapp.PortalAdminCustomerQuery) ([]customerportalapp.PortalAdminCustomer, error)
 	PortalAdminDetail(context.Context, int64) (customerportalapp.PortalAdminDetail, error)
 	UpdatePortalVisibility(context.Context, customerportalapp.UpdatePortalVisibilityCommand) (customerportalapp.PortalAdminDetail, error)

@@ -646,6 +646,10 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 
 	editID := cmd.EditID
 	portalServiceCode, sourceWarehouse := r.orderFulfillmentMarkersTx(ctx, tx, cmd.CustomerID)
+	beanListPublicationID, beanListVersionNo, err := r.resolveOrderBeanListPublicationTx(ctx, tx, cmd.CustomerID, cmd.BeanListPublicationID)
+	if err != nil {
+		return salesapp.SaveOrderResult{}, err
+	}
 
 	insertItemSQL := fmt.Sprintf(`INSERT INTO %s.order_items(order_id,line_no,product_id,price_tier_id,price_overridden,product_kind,bean_list_publication_id,bean_list_version_no,item_name,item_note,qty,unit,spec,unit_price,line_total_before_discount,discount_type,discount_value,discount_amount,line_total)
 				VALUES ($1,$2,$3,$4,$5,$6,NULLIF($7,0),$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)`, r.schema)
@@ -687,7 +691,9 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 						responsible_party_id=$27,
 						responsible_party_name=$28,
 						portal_service_code=$29,
-						source_warehouse=$30
+						source_warehouse=$30,
+						bean_list_publication_id=$31,
+						bean_list_version_no=$32
 					WHERE id=$1
 			`, r.schema)
 		if _, err := tx.Exec(ctx, uq,
@@ -721,6 +727,8 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 			responsibleName,
 			portalServiceCode,
 			sourceWarehouse,
+			beanListPublicationID,
+			beanListVersionNo,
 		); err != nil {
 			return salesapp.SaveOrderResult{}, err
 		}
@@ -745,6 +753,7 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 					outsource_manual_fee, outsource_tax_fee, outsource_other_fee, outsource_total_fee,
 						responsible_party_type, responsible_party_id, responsible_party_name,
 						portal_service_code, source_warehouse,
+						bean_list_publication_id, bean_list_version_no,
 						order_no
 					) VALUES (
 						$1,$2,$3,$4,$5,$6,$7,$8,$9,$10,
@@ -753,7 +762,8 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 						$17,$18,$19,$20,$21,$22,$23,$24,
 						$25,$26,$27,
 						$28,$29,
-						$30
+						$30,$31,
+						$32
 					)
 					RETURNING id
 			`, r.schema)
@@ -787,6 +797,8 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 			responsibleName,
 			portalServiceCode,
 			sourceWarehouse,
+			beanListPublicationID,
+			beanListVersionNo,
 			orderNo,
 		).Scan(&orderID)
 		if err != nil {
@@ -837,10 +849,79 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 		return salesapp.SaveOrderResult{}, err
 	}
 
-	r.logOrderSave(ctx, cmd.Actor, orderID, orderNo, editID > 0)
+	r.logOrderSave(ctx, cmd.Actor, orderID, orderNo, editID > 0, beanListPublicationID, beanListVersionNo)
 
 	return salesapp.SaveOrderResult{OrderID: orderID, OrderNo: orderNo, Edited: editID > 0, StockBatchUsed: stockDecision == "use_batch"}, nil
 
+}
+
+func (r Repository) resolveOrderBeanListPublicationTx(ctx context.Context, tx pgx.Tx, customerID, requestedID int64) (int64, string, error) {
+	if !relationExistsTx(ctx, tx, fmt.Sprintf("%s.bean_list_publications", r.schema)) {
+		return 0, "", nil
+	}
+	customerKey := fmt.Sprintf("%d", customerID)
+	var err error
+	if requestedID > 0 {
+		var version string
+		err := tx.QueryRow(ctx, fmt.Sprintf(`
+			SELECT version_no
+			FROM %s.bean_list_publications
+			WHERE id=$1 AND status='published'
+			  AND ((owner_type='customer' AND owner_key=$2) OR owner_type='official')
+		`, r.schema), requestedID, customerKey).Scan(&version)
+		if err != nil {
+			return 0, "", fmt.Errorf("invalid bean list publication")
+		}
+		return requestedID, version, nil
+	}
+
+	var fixedID int64
+	if relationExistsTx(ctx, tx, fmt.Sprintf("%s.customer_portal_profiles", r.schema)) {
+		err := tx.QueryRow(ctx, fmt.Sprintf(`
+			SELECT COALESCE(p.bean_list_publication_id,0)
+			FROM %s.customer_portal_profiles p
+			JOIN %s.bean_list_publications b ON b.id=p.bean_list_publication_id
+			WHERE p.customer_id=$1 AND p.bean_list_mode='fixed'
+			  AND b.owner_type='customer' AND b.owner_key=$2 AND b.status='published'
+		`, r.schema, r.schema), customerID, customerKey).Scan(&fixedID)
+		if err == nil && fixedID > 0 {
+			requestedID = fixedID
+		}
+	}
+	if requestedID <= 0 {
+		err = tx.QueryRow(ctx, fmt.Sprintf(`
+			SELECT id
+			FROM %s.bean_list_publications
+			WHERE owner_type='customer' AND owner_key=$1 AND status='published'
+			ORDER BY published_at DESC, id DESC
+			LIMIT 1
+		`, r.schema), customerKey).Scan(&requestedID)
+		if err != nil {
+			_ = tx.QueryRow(ctx, fmt.Sprintf(`
+				SELECT id
+				FROM %s.bean_list_publications
+				WHERE owner_type='official' AND status='published'
+				ORDER BY published_at DESC, id DESC
+				LIMIT 1
+			`, r.schema)).Scan(&requestedID)
+		}
+	}
+	if requestedID <= 0 {
+		return 0, "", nil
+	}
+	var version string
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT version_no FROM %s.bean_list_publications WHERE id=$1`, r.schema), requestedID).Scan(&version); err != nil {
+		return 0, "", nil
+	}
+	return requestedID, version, nil
+}
+
+func relationExistsTx(ctx context.Context, tx pgx.Tx, relation string) bool {
+	var exists bool
+	if err := tx.QueryRow(ctx, `SELECT to_regclass($1) IS NOT NULL`, relation).Scan(&exists); err != nil {
+		return false
+	}
+	return exists
 }
 
 func (r Repository) UpdateHeader(ctx context.Context, id int64, cmd salesapp.UpdateHeaderCommand) error {
@@ -915,7 +996,7 @@ func (r Repository) VoidMany(ctx context.Context, ids []int64, actor, reason str
 	return len(updatedIDs), nil
 }
 
-func (r Repository) logOrderSave(ctx context.Context, actor string, orderID int64, orderNo string, edited bool) {
+func (r Repository) logOrderSave(ctx context.Context, actor string, orderID int64, orderNo string, edited bool, beanListPublicationID int64, beanListVersionNo string) {
 	action := "create"
 	field := "created"
 	newValue := orderNo
@@ -925,7 +1006,12 @@ func (r Repository) logOrderSave(ctx context.Context, actor string, orderID int6
 		newValue = "updated"
 	}
 	r.insertOrderAudit(ctx, actor, orderID, field, nil, postgresinfra.StrPtr(newValue))
-	postgresinfra.AuditInsert(ctx, r.pool, r.schema, actor, "order", &orderID, action, postgresinfra.StrPtr(field), nil, postgresinfra.StrPtr(newValue), postgresinfra.AuditMeta{"order_id": orderID, "order_no": orderNo})
+	meta := postgresinfra.AuditMeta{"order_id": orderID, "order_no": orderNo}
+	if beanListPublicationID > 0 {
+		meta["bean_list_publication_id"] = beanListPublicationID
+		meta["bean_list_version_no"] = beanListVersionNo
+	}
+	postgresinfra.AuditInsert(ctx, r.pool, r.schema, actor, "order", &orderID, action, postgresinfra.StrPtr(field), nil, postgresinfra.StrPtr(newValue), meta)
 }
 
 func (r Repository) logOrderHeaderUpdate(ctx context.Context, actor string, orderID int64) {
