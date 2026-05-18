@@ -1027,9 +1027,10 @@ func TestCreateFulfillmentOrderIgnoresClientSuppliedUnitPrice(t *testing.T) {
 	}
 }
 
-func TestCreateFulfillmentOrderSavesGreenBeanKindAndDirectTierPrice(t *testing.T) {
+func TestCreateFulfillmentOrderSavesGreenBeanKindAndPublishedBeanListPrice(t *testing.T) {
 	ctx := context.Background()
 	pool, schema := newCustomerPortalTestDB(t)
+	ensureCustomerPortalCostingSchema(t, ctx, pool, schema)
 	repo := NewRepository(pool, schema)
 
 	var customerID, productID int64
@@ -1045,11 +1046,12 @@ func TestCreateFulfillmentOrderSavesGreenBeanKindAndDirectTierPrice(t *testing.T
 	`, schema)).Scan(&productID); err != nil {
 		t.Fatalf("insert green product: %v", err)
 	}
+	content := fmt.Sprintf(`{"groups":[{"items":[{"productId":%d,"name":"埃塞瑰夏生豆","green_bean_sale_tiers":[{"label":"1kg+","spec_g":1000,"min_qty":1,"price_per_unit":128,"price_per_lb":58.112,"display_unit":"kg"}]}]}]}`, productID)
 	if _, err := pool.Exec(ctx, fmt.Sprintf(`
-		INSERT INTO %s.product_price_tiers(product_id, spec_g, min_qty_units, max_qty_units, price_per_unit, price_per_lb, active)
-		VALUES($1,1000,1,NULL,128,128*454.0/1000.0,true)
-	`, schema), productID); err != nil {
-		t.Fatalf("insert green tiers: %v", err)
+		INSERT INTO %s.bean_list_publications(list_type, version_no, status, owner_type, owner_key, config_json, content_json, changelog, actor)
+		VALUES('green','G-1','published','official','','{}'::jsonb,$1::jsonb,'生豆豆单','codex')
+	`, schema), content); err != nil {
+		t.Fatalf("insert green bean list: %v", err)
 	}
 
 	_, err := repo.CreateFulfillmentOrder(ctx, customerportalapp.CreateFulfillmentOrderCommand{

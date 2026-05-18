@@ -1229,6 +1229,13 @@ func (r Repository) CreateFulfillmentOrder(ctx context.Context, cmd customerport
 	}
 	productName = firstNonEmpty(strings.TrimSpace(cmd.ProductName), productName)
 	unitPrice := r.portalFulfillmentUnitPriceTx(ctx, tx, cmd.CustomerID, cmd.ProductID, cmd.SpecG, cmd.Qty, defaultPrice)
+	if productKind == "green_bean" {
+		publishedPrice, err := orderbeans.ResolvePublishedUnitPrice(ctx, tx, r.schema, cmd.CustomerID, cmd.ProductID, orderbeans.ListTypeGreen, cmd.SpecG, cmd.Qty)
+		if err != nil {
+			return customerportalapp.FulfillmentOrder{}, err
+		}
+		unitPrice = publishedPrice
+	}
 	totalAmount := portalLineTotalFromDisplayUnit(unitPrice, cmd.SpecG, cmd.Qty)
 	shippingAmount := cmd.ShippingAmount
 	if shippingAmount < 0 {
@@ -1281,7 +1288,7 @@ func (r Repository) CreateFulfillmentOrder(ctx context.Context, cmd customerport
 	).Scan(&orderID); err != nil {
 		return customerportalapp.FulfillmentOrder{}, err
 	}
-	usage, err := orderbeans.ResolveUsage(ctx, tx, r.schema, cmd.CustomerID, cmd.ProductID, orderbeans.ListTypeCommercial)
+	usage, err := orderbeans.ResolveUsage(ctx, tx, r.schema, cmd.CustomerID, cmd.ProductID, orderbeans.ListTypeForProductKind(productKind, false))
 	if err != nil {
 		return customerportalapp.FulfillmentOrder{}, err
 	}

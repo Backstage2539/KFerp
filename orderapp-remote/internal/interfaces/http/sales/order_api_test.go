@@ -385,8 +385,20 @@ func TestOrderAPISavesGreenBeanProductKindSnapshot(t *testing.T) {
 	mustExecOrderAPITestSQL(t, ctx, pool, fmt.Sprintf(`
 		INSERT INTO %[1]s.products(id,name,product_kind,default_price,active,retail_price_227g)
 		VALUES (88,'埃塞瑰夏生豆','green_bean',0,true,0);
-		INSERT INTO %[1]s.product_price_tiers(id, product_id, spec_g, min_qty_units, max_qty_units, price_per_unit, min_qty_lb, max_qty_lb, price_per_lb, active)
-		VALUES (8801,88,1000,1,NULL,128,2.2026,NULL,58.12,true);
+		CREATE TABLE IF NOT EXISTS %[1]s.bean_list_publications (
+			id BIGSERIAL PRIMARY KEY,
+			list_type TEXT NOT NULL,
+			version_no TEXT NOT NULL DEFAULT '',
+			status TEXT NOT NULL DEFAULT 'published',
+			owner_type TEXT NOT NULL DEFAULT 'official',
+			owner_key TEXT NOT NULL DEFAULT '',
+			config_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+			content_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+			published_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+			created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+		);
+		INSERT INTO %[1]s.bean_list_publications(list_type, version_no, status, owner_type, owner_key, config_json, content_json)
+		VALUES ('green','G-1','published','official','','{}'::jsonb,'{"groups":[{"items":[{"productId":88,"name":"埃塞瑰夏生豆","green_bean_sale_tiers":[{"label":"1kg+","spec_g":1000,"min_qty":1,"price_per_unit":128,"price_per_lb":58.112,"display_unit":"kg"}]}]}]}'::jsonb);
 	`, schema))
 
 	e := newOrderAPITestEcho(pool, schema)
