@@ -211,6 +211,11 @@ func ensureCoreColumns(ctx context.Context, pool *pgxpool.Pool, schema string) e
 		`ALTER TABLE %[1]s.order_items ADD COLUMN IF NOT EXISTS discount_type TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE %[1]s.order_items ADD COLUMN IF NOT EXISTS discount_value NUMERIC NOT NULL DEFAULT 0`,
 		`ALTER TABLE %[1]s.order_items ADD COLUMN IF NOT EXISTS discount_amount NUMERIC NOT NULL DEFAULT 0`,
+		`ALTER TABLE %[1]s.order_items ADD COLUMN IF NOT EXISTS sales_unit TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE %[1]s.order_items ADD COLUMN IF NOT EXISTS unit_bag_count INT NOT NULL DEFAULT 0`,
+		`ALTER TABLE %[1]s.order_items ADD COLUMN IF NOT EXISTS unit_bean_g NUMERIC(12,3) NOT NULL DEFAULT 0`,
+		`ALTER TABLE %[1]s.order_items ADD COLUMN IF NOT EXISTS matched_price_qty NUMERIC(14,3) NOT NULL DEFAULT 0`,
+		`ALTER TABLE %[1]s.order_items ADD COLUMN IF NOT EXISTS price_source_json JSONB NOT NULL DEFAULT '{}'::jsonb`,
 	}
 	for _, stmt := range stmts {
 		if _, err := pool.Exec(ctx, fmt.Sprintf(stmt, schema)); err != nil {

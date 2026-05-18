@@ -38,7 +38,15 @@ func TestGreenBeanSalesWiringAndManuals(t *testing.T) {
 	}{
 		{
 			path: "orderapp-remote/internal/infrastructure/postgres/core/schema.go",
-			want: []string{"products ADD COLUMN IF NOT EXISTS product_kind", "order_items ADD COLUMN IF NOT EXISTS product_kind"},
+			want: []string{
+				"products ADD COLUMN IF NOT EXISTS product_kind",
+				"order_items ADD COLUMN IF NOT EXISTS product_kind",
+				"order_items ADD COLUMN IF NOT EXISTS sales_unit",
+				"order_items ADD COLUMN IF NOT EXISTS unit_bag_count",
+				"order_items ADD COLUMN IF NOT EXISTS unit_bean_g",
+				"order_items ADD COLUMN IF NOT EXISTS matched_price_qty",
+				"order_items ADD COLUMN IF NOT EXISTS price_source_json",
+			},
 		},
 		{
 			path: "orderapp-remote/internal/infrastructure/postgres/catalog/schema.go",
