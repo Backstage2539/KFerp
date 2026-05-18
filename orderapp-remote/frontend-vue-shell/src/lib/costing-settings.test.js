@@ -43,7 +43,7 @@ test('groupCostingSettings groups editable settings by business category and kee
 })
 
 test('enrichCostingSetting adds operator guidance without changing API values', () => {
-  const got = enrichCostingSetting(rows[0])
+  const got = enrichCostingSetting(rows[1])
 
   assert.equal(got.key, 'retail_tax_rate')
   assert.equal(got.label, '零售税率')

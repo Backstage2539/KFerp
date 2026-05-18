@@ -1,9 +1,9 @@
 export const categorySummaries = {
-  base: '影响所有成本公式的基础换算和默认出成率。',
+  base: '影响所有成本公式的基础换算。',
   production: '把烘焙、包装和损耗折入熟豆每公斤成本。',
   commercialBeans: '控制商用熟豆 454g 四档、227g 两档和 kg 三档报价。',
-  retailBeans: '控制零售熟豆价格中的利润、税费和物流。',
-  dripBags: '控制挂耳单袋成本、包装、物流和商用/零售利润系数。',
+  retailBeans: '控制零售熟豆价格中的税费和物流。',
+  dripBags: '控制挂耳单袋成本、包装和物流。',
   other: '接口返回但前端暂未识别的参数。',
 }
 
@@ -146,6 +146,26 @@ const categoryTitles = {
   other: '其他参数',
 }
 
+const hiddenQuickSettingKeys = new Set([
+  'roast_yield_rate',
+  'retail_bean_margin_rate',
+  'retail_drip_multiplier',
+  'wholesale_kg_margin_rate_1',
+  'wholesale_kg_margin_rate_2',
+  'wholesale_kg_margin_rate_3',
+  'wholesale_kg_margin_rate_4',
+  'wholesale_kg_margin_rate_5',
+  'wholesale_kg_margin_rate_6',
+  'wholesale_drip_multiplier_1',
+  'wholesale_drip_multiplier_2',
+  'wholesale_drip_multiplier_3',
+  'wholesale_drip_multiplier_4',
+])
+
+export function isEditableQuickCostingSetting(key) {
+  return !hiddenQuickSettingKeys.has(String(key || '').trim())
+}
+
 function normalizeNumber(value) {
   const n = Number(value || 0)
   return Number.isFinite(n) ? n : 0
@@ -169,6 +189,7 @@ export function enrichCostingSetting(row) {
 export function groupCostingSettings(rows) {
   const byCategory = new Map(categoryOrder.map((key) => [key, []]))
   for (const row of rows || []) {
+    if (!isEditableQuickCostingSetting(row?.key)) continue
     const enriched = enrichCostingSetting(row)
     byCategory.get(enriched.category)?.push(enriched)
   }

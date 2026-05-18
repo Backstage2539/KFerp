@@ -753,6 +753,69 @@ func TestCostingSettingsAPI(t *testing.T) {
 	}
 }
 
+type costingSettingsRepo struct {
+	fakeRepo
+}
+
+func (costingSettingsRepo) ListParameterSettings(context.Context) ([]appcosting.ParameterSetting, error) {
+	return []appcosting.ParameterSetting{
+		{Key: "roast_yield_rate", Label: "生豆到熟豆转化率", Value: 0.8, Unit: "ratio"},
+		{Key: "kg_to_lb_factor", Label: "kg 到 lb 换算", Value: 0.454, Unit: "lb/kg"},
+		{Key: "retail_bean_margin_rate", Label: "零售熟豆利润系数", Value: 0.6, Unit: "ratio"},
+		{Key: "retail_tax_rate", Label: "零售税率", Value: 0.03, Unit: "ratio"},
+		{Key: "retail_drip_multiplier", Label: "零售挂耳利润系数", Value: 2.5, Unit: "ratio"},
+		{Key: "wholesale_kg_margin_rate_1", Label: "商用熟豆 2包-13包 利润系数", Value: 0.42, Unit: "ratio"},
+		{Key: "wholesale_drip_multiplier_1", Label: "商用挂耳 100包 利润系数", Value: 2.2, Unit: "ratio"},
+	}, nil
+}
+
+func (costingSettingsRepo) UpdateParameterSetting(_ context.Context, cmd appcosting.UpdateParameterCommand) (appcosting.ParameterSetting, error) {
+	return appcosting.ParameterSetting{Key: cmd.Key, Label: "kg 到 lb 换算", Value: cmd.Value, Unit: "lb/kg"}, nil
+}
+
+func TestCostingSettingsAPIFiltersDeprecatedQuickSettings(t *testing.T) {
+	e := echo.New()
+	RegisterRoutes(e, Dependencies{Costing: appcosting.NewService(costingSettingsRepo{})})
+
+	req := httptest.NewRequest(http.MethodGet, "/api/costing/settings", nil)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	var listed struct {
+		Rows []appcosting.ParameterSetting `json:"rows"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &listed); err != nil {
+		t.Fatal(err)
+	}
+	body := rec.Body.String()
+	for _, removed := range []string{"roast_yield_rate", "retail_bean_margin_rate", "retail_drip_multiplier", "wholesale_kg_margin_rate_1", "wholesale_drip_multiplier_1"} {
+		if strings.Contains(body, removed) {
+			t.Fatalf("settings response exposed deprecated quick setting %q: %s", removed, body)
+		}
+	}
+	if len(listed.Rows) != 2 {
+		t.Fatalf("rows = %+v", listed.Rows)
+	}
+
+	req = httptest.NewRequest(http.MethodPost, "/api/costing/settings/roast_yield_rate", bytes.NewBufferString(`{"value":0.81}`))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec = httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("deprecated update status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+
+	req = httptest.NewRequest(http.MethodPost, "/api/costing/settings/kg_to_lb_factor", bytes.NewBufferString(`{"value":0.454}`))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec = httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("editable update status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+}
+
 func TestBeanListPublicationAPI(t *testing.T) {
 	e := echo.New()
 	e.Use(func(next echo.HandlerFunc) echo.HandlerFunc {

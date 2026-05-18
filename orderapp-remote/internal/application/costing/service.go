@@ -162,15 +162,22 @@ func (s *Service) Parameters(ctx context.Context) (domain.Parameters, error) {
 
 func (s *Service) Settings(ctx context.Context) ([]ParameterSetting, error) {
 	if s.repo == nil {
-		return defaultParameterSettings(), nil
+		return filterEditableQuickSettings(defaultParameterSettings()), nil
 	}
-	return s.repo.ListParameterSettings(ctx)
+	rows, err := s.repo.ListParameterSettings(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return filterEditableQuickSettings(rows), nil
 }
 
 func (s *Service) UpdateSetting(ctx context.Context, cmd UpdateParameterCommand) (ParameterSetting, error) {
 	cmd.Key = strings.TrimSpace(cmd.Key)
 	if cmd.Key == "" {
 		return ParameterSetting{}, fmt.Errorf("key required")
+	}
+	if isHiddenQuickSetting(cmd.Key) {
+		return ParameterSetting{}, fmt.Errorf("setting %s is managed by BOM, gradient templates, or drip templates", cmd.Key)
 	}
 	if math.IsNaN(cmd.Value) || math.IsInf(cmd.Value, 0) || cmd.Value < 0 {
 		return ParameterSetting{}, fmt.Errorf("value must be >= 0")
@@ -179,6 +186,38 @@ func (s *Service) UpdateSetting(ctx context.Context, cmd UpdateParameterCommand)
 		return ParameterSetting{}, fmt.Errorf("repository required")
 	}
 	return s.repo.UpdateParameterSetting(ctx, cmd)
+}
+
+func filterEditableQuickSettings(rows []ParameterSetting) []ParameterSetting {
+	out := make([]ParameterSetting, 0, len(rows))
+	for _, row := range rows {
+		if isHiddenQuickSetting(row.Key) {
+			continue
+		}
+		out = append(out, row)
+	}
+	return out
+}
+
+func isHiddenQuickSetting(key string) bool {
+	switch strings.TrimSpace(key) {
+	case "roast_yield_rate",
+		"retail_bean_margin_rate",
+		"retail_drip_multiplier",
+		"wholesale_kg_margin_rate_1",
+		"wholesale_kg_margin_rate_2",
+		"wholesale_kg_margin_rate_3",
+		"wholesale_kg_margin_rate_4",
+		"wholesale_kg_margin_rate_5",
+		"wholesale_kg_margin_rate_6",
+		"wholesale_drip_multiplier_1",
+		"wholesale_drip_multiplier_2",
+		"wholesale_drip_multiplier_3",
+		"wholesale_drip_multiplier_4":
+		return true
+	default:
+		return false
+	}
 }
 
 func (s *Service) Calculate(ctx context.Context, req CalculateRequest) (*CalculateResponse, error) {
