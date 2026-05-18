@@ -9,9 +9,11 @@ type fakeRepo struct {
 	replace     ReplacePriceTiersCommand
 	update      UpdateProductBasicsCommand
 	create      CreateProductCommand
+	copyPublic  CopyPublicCatalogForCustomerCommand
 	deactivate  DeactivateProductsCommand
 	products    map[int64]Product
 	deactivated bool
+	copied      bool
 }
 
 func (r *fakeRepo) ListProducts(ctx context.Context) ([]Product, error) {
@@ -89,6 +91,12 @@ func (r *fakeRepo) CreateCustomProduct(ctx context.Context, cmd CreateCustomProd
 	return Product{ID: 10, Name: cmd.Name, CustomerID: cmd.CustomerID, BaseProductID: cmd.BaseProductID, Visibility: "customer_only", CustomType: cmd.CustomType}, nil
 }
 
+func (r *fakeRepo) CopyPublicCatalogForCustomer(ctx context.Context, cmd CopyPublicCatalogForCustomerCommand) (CopyPublicCatalogForCustomerResult, error) {
+	r.copyPublic = cmd
+	r.copied = true
+	return CopyPublicCatalogForCustomerResult{CustomerID: cmd.CustomerID, CategoriesCreated: 2, ProductsCreated: 3}, nil
+}
+
 func TestServiceDelegatesCatalogOperations(t *testing.T) {
 	repo := &fakeRepo{}
 	svc := NewService(repo)
@@ -148,6 +156,37 @@ func TestCreateCustomProductAcceptsPublicSKUAliasType(t *testing.T) {
 	}
 	if got.CustomType != "public_sku_alias" || got.CustomerID != 3 || got.BaseProductID != 7 {
 		t.Fatalf("custom product=%+v", got)
+	}
+}
+
+func TestCopyPublicCatalogForCustomerValidatesAndDelegates(t *testing.T) {
+	repo := &fakeRepo{}
+	svc := NewService(repo)
+
+	got, err := svc.CopyPublicCatalogForCustomer(context.Background(), CopyPublicCatalogForCustomerCommand{
+		Actor:               "tester",
+		CustomerID:          42,
+		UsePublicSKU:        true,
+		UsePublicCategories: true,
+	})
+	if err != nil {
+		t.Fatalf("CopyPublicCatalogForCustomer() err=%v", err)
+	}
+	if !repo.copied || repo.copyPublic.Actor != "tester" || repo.copyPublic.CustomerID != 42 || !repo.copyPublic.UsePublicSKU || !repo.copyPublic.UsePublicCategories {
+		t.Fatalf("copy public command = %+v copied=%v", repo.copyPublic, repo.copied)
+	}
+	if got.CustomerID != 42 || got.CategoriesCreated != 2 || got.ProductsCreated != 3 {
+		t.Fatalf("copy public result = %+v", got)
+	}
+}
+
+func TestCopyPublicCatalogForCustomerRequiresCustomerAndSelectedSource(t *testing.T) {
+	svc := NewService(&fakeRepo{})
+	if _, err := svc.CopyPublicCatalogForCustomer(context.Background(), CopyPublicCatalogForCustomerCommand{UsePublicSKU: true}); err == nil {
+		t.Fatalf("CopyPublicCatalogForCustomer() should require customer_id")
+	}
+	if _, err := svc.CopyPublicCatalogForCustomer(context.Background(), CopyPublicCatalogForCustomerCommand{CustomerID: 42}); err == nil {
+		t.Fatalf("CopyPublicCatalogForCustomer() should require at least one source switch")
 	}
 }
 

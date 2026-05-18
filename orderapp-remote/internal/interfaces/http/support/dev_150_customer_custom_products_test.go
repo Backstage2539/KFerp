@@ -61,11 +61,10 @@ func TestCustomerCustomSkuFormUsesSearchableDropdowns(t *testing.T) {
 	productSettings := string(readDev150File(t, filepath.Join("frontend-vue-shell", "src", "views", "ProductSettingsView.vue")))
 	for _, want := range []string{
 		"SearchableSelect",
-		"customerOptionLabel",
+		"selectedCustomerSkuCustomerID",
 		"baseProductOptionLabel",
-		"输入客户名/拼音",
+		"先在顶部选择客户后创建客户专属 SKU",
 		"输入产品名",
-		"没有匹配客户",
 		"没有匹配产品",
 	} {
 		if !strings.Contains(productSettings, want) {

@@ -30,6 +30,7 @@ type productSettingsRepo struct {
 	updateErr           error
 	deactivated         catalogapp.DeactivateProductsCommand
 	createdPublic       catalogapp.CreateProductCommand
+	copiedPublic        catalogapp.CopyPublicCatalogForCustomerCommand
 	createErr           error
 	createdProduct      catalogapp.CreateCustomProductCommand
 	categoryCreated     bool
@@ -43,6 +44,7 @@ type productSettingsRepo struct {
 	productsDeactivated bool
 	publicCreated       bool
 	productCreated      bool
+	publicCopied        bool
 }
 
 func (r *productSettingsRepo) ListProducts(ctx context.Context) ([]catalogapp.Product, error) {
@@ -182,6 +184,12 @@ func (r *productSettingsRepo) CreateCustomProduct(ctx context.Context, cmd catal
 		Visibility:    "customer_only",
 		CustomType:    cmd.CustomType,
 	}, nil
+}
+
+func (r *productSettingsRepo) CopyPublicCatalogForCustomer(ctx context.Context, cmd catalogapp.CopyPublicCatalogForCustomerCommand) (catalogapp.CopyPublicCatalogForCustomerResult, error) {
+	r.copiedPublic = cmd
+	r.publicCopied = true
+	return catalogapp.CopyPublicCatalogForCustomerResult{CustomerID: cmd.CustomerID, CategoriesCreated: 2, ProductsCreated: 3}, nil
 }
 
 func TestProductSettingsAPISupportsCategoryTreeAndDragAssignments(t *testing.T) {
@@ -455,6 +463,28 @@ func TestProductSettingsAPICreatesCustomerCustomProduct(t *testing.T) {
 	for _, want := range []string{`"product"`, `"customer_id":3`, `"base_product_id":7`, `"visibility":"customer_only"`, `"custom_type":"custom_roast"`} {
 		if !bytes.Contains(rec.Body.Bytes(), []byte(want)) {
 			t.Fatalf("custom product response missing %s: %s", want, rec.Body.String())
+		}
+	}
+}
+
+func TestProductSettingsAPICopiesPublicCatalogForCustomer(t *testing.T) {
+	repo := &productSettingsRepo{}
+	e := echo.New()
+	registerProductRoutes(e, catalogapp.NewService(repo))
+
+	req := httptest.NewRequest(http.MethodPost, "/api/product-settings/customer-public-copy", bytes.NewBufferString(`{"customer_id":42,"use_public_sku":true,"use_public_categories":true}`))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("POST /api/product-settings/customer-public-copy status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if !repo.publicCopied || repo.copiedPublic.CustomerID != 42 || !repo.copiedPublic.UsePublicSKU || !repo.copiedPublic.UsePublicCategories {
+		t.Fatalf("copy public command = %+v copied=%v", repo.copiedPublic, repo.publicCopied)
+	}
+	for _, want := range []string{`"customer_id":42`, `"categories_created":2`, `"products_created":3`} {
+		if !bytes.Contains(rec.Body.Bytes(), []byte(want)) {
+			t.Fatalf("copy public response missing %s: %s", want, rec.Body.String())
 		}
 	}
 }

@@ -88,6 +88,31 @@ func TestProductKindSchemaRepairsPartiallyCreatedColumns(t *testing.T) {
 	}
 }
 
+func TestProductQueriesReturnGreenBeanMetadata(t *testing.T) {
+	repository, err := os.ReadFile("repository.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	queries, err := os.ReadFile("../catalog_queries.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		name string
+		src  string
+		want string
+	}{
+		{name: "list green type", src: string(queries), want: "p.green_bean_type"},
+		{name: "list green bom", src: string(queries), want: "p.green_bean_bom_product_id"},
+		{name: "detail green type", src: string(repository), want: "green_bean_type"},
+		{name: "detail green bom", src: string(repository), want: "green_bean_bom_product_id"},
+	} {
+		if !strings.Contains(tc.src, tc.want) {
+			t.Fatalf("product query missing %s marker %q", tc.name, tc.want)
+		}
+	}
+}
+
 func TestCreateCustomProductCopiesDripProductMetadata(t *testing.T) {
 	repository, err := os.ReadFile("repository.go")
 	if err != nil {
@@ -100,8 +125,9 @@ func TestCreateCustomProductCopiesDripProductMetadata(t *testing.T) {
 		"COALESCE(drip_box_bag_count,10)",
 		"COALESCE(allow_fulfillment_order,true)",
 		"COALESCE(allow_mall_order,false)",
-		"product_kind, drip_bag_grams, drip_box_bag_count, allow_fulfillment_order, allow_mall_order,",
-		"base.ProductKind, base.DripBagGrams, base.DripBoxBagCount, base.AllowFulfillmentOrder, base.AllowMallOrder",
+		"drip_bag_grams, drip_box_bag_count, allow_fulfillment_order, allow_mall_order,",
+		"productKind, roastLevel, base.DefaultPrice",
+		"base.DripBagGrams, base.DripBoxBagCount, base.AllowFulfillmentOrder, base.AllowMallOrder",
 	} {
 		if !strings.Contains(src, want) {
 			t.Fatalf("custom product drip metadata copy missing marker %q", want)
@@ -121,6 +147,38 @@ func TestCreateCustomProductCopyBOMPreservesComponentFields(t *testing.T) {
 	} {
 		if !strings.Contains(src, want) {
 			t.Fatalf("custom product BOM copy missing component marker %q", want)
+		}
+	}
+}
+
+func TestCreateCustomProductInsertDoesNotDuplicateProductKindColumn(t *testing.T) {
+	repository, err := os.ReadFile("repository.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := string(repository)
+	if strings.Contains(src, "product_kind, drip_bag_grams, drip_box_bag_count, allow_fulfillment_order, allow_mall_order,\n\t\t\tproduct_category_id") {
+		t.Fatalf("custom product insert still duplicates product_kind and shifts insert values")
+	}
+}
+
+func TestCopyPublicCatalogForCustomerCopiesCategoriesProductsAndAudits(t *testing.T) {
+	repository, err := os.ReadFile("repository.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := string(repository)
+	for _, want := range []string{
+		"func (r Repository) CopyPublicCatalogForCustomer",
+		"copy_public_catalog",
+		"product_categories",
+		"base_product_id",
+		"green_bean_bom_product_id",
+		"product_bom_items(product_id,material_id,component_type,component_product_id,component_spec_g,consume_unit,qty_per_unit,ratio_pct,updated_at)",
+		"AuditInsertTx(ctx, tx, r.schema, cmd.Actor, \"customer_product_catalog\"",
+	} {
+		if !strings.Contains(src, want) {
+			t.Fatalf("copy public catalog repository missing marker %q", want)
 		}
 	}
 }

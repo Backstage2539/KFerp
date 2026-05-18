@@ -29,6 +29,20 @@ test('SKU settings no longer embeds the product bean-list workspace', () => {
   assert.doesNotMatch(productSettingsSource, /豆单和价格试算会按当前归属切换/)
 })
 
+test('SKU settings exposes customer context initialization without the public product form', () => {
+  for (const expected of [
+    'v-if="!selectedCustomerSkuCustomerID"',
+    'customerSkuCustomerOptions(customers.value)',
+    'buildCustomerPublicCopyPayload',
+    'use_public_sku',
+    'use_public_categories',
+    '/api/product-settings/customer-public-copy',
+  ]) {
+    assert.match(productSettingsSource, new RegExp(expected.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')))
+  }
+  assert.doesNotMatch(productSettingsSource, /v-model="customForm\.customer_id"/)
+})
+
 test('product bean-list page owns customer context for bean-list previews', () => {
   assert.match(costingSource, /<h2>产品豆单<\/h2>/)
   assert.match(costingSource, /const activeBeanListCustomerID = computed/)

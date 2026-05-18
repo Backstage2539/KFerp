@@ -41,6 +41,21 @@ export function paginatedSkuRows(rows = [], filters = {}, pagination = {}) {
   return slicePageRows(filterSkuRows(rows, filters), pagination)
 }
 
+export function customerSkuCustomerOptions(customers = []) {
+  return (Array.isArray(customers) ? customers : [])
+    .filter((customer) => Number(customer?.id || 0) > 0 && customer?.active !== false)
+    .slice()
+    .sort((a, b) => String(a?.name || '').localeCompare(String(b?.name || '')))
+}
+
+export function buildCustomerPublicCopyPayload(customerID, options = {}) {
+  return {
+    customer_id: Number(customerID || 0),
+    use_public_sku: Boolean(options.use_public_sku ?? options.usePublicSku),
+    use_public_categories: Boolean(options.use_public_categories ?? options.usePublicCategories),
+  }
+}
+
 export function primaryCategoryOptions(rows = []) {
   return uniqueSorted((rows || []).map((row) => row.primary_name))
 }
