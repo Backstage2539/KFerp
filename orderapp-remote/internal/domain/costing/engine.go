@@ -90,6 +90,13 @@ type CommercialWholesaleTier struct {
 	MarginRate     float64  `json:"margin_rate,omitempty"`
 }
 
+type DripWholesaleTier struct {
+	MinBags           int64   `json:"min_bags"`
+	Multiplier        float64 `json:"multiplier"`
+	LoosePricePerBag  float64 `json:"loose_price_per_bag"`
+	PackedPricePerBag float64 `json:"packed_price_per_bag"`
+}
+
 type GradientTemplate struct {
 	ID          int64                  `json:"id,omitempty"`
 	Name        string                 `json:"name"`
@@ -197,6 +204,7 @@ type ProductResult struct {
 	WholesaleKgPrices              []float64                 `json:"wholesale_kg_prices"`
 	WholesaleLbPrices              []float64                 `json:"wholesale_lb_prices"`
 	CommercialWholesaleTiers       []CommercialWholesaleTier `json:"commercial_wholesale_tiers"`
+	DripWholesaleTiers             []DripWholesaleTier       `json:"drip_wholesale_tiers"`
 	WholesaleDripBagPrices         []float64                 `json:"wholesale_drip_bag_prices"`
 	WholesaleDripBagWithPackPrices []float64                 `json:"wholesale_drip_bag_with_pack_prices"`
 	RetailKgPrice                  float64                   `json:"retail_kg_price"`
@@ -227,7 +235,7 @@ func DefaultParameters() Parameters {
 		DripPackingMaterialPerBag:     0.2,
 		RetailDripMultiplier:          2.5,
 		WholesaleKgMarginRates:        []float64{0.5421052631578949, 0.3842105263157895, 0.27894736842105267, 0.2, 0.12, 0.045},
-		WholesaleDripMultipliers:      []float64{2.2, 1.8, 1.6, 1.5},
+		WholesaleDripMultipliers:      []float64{2.2, 1.8, 1.6, 1.35},
 	}
 }
 
@@ -357,10 +365,17 @@ func CalculateProduct(params Parameters, in ProductInput) ProductResult {
 	}
 	out.CommercialWholesaleTiers = buildCommercialWholesaleTiers(params, in, out.WholesaleKgPrices, out.WholesaleLbPrices)
 
-	for _, multiplier := range in.WholesaleDripMultipliers {
-		price := dripBase*multiplier + in.DripTaxAddPerBag100
+	for i, multiplier := range in.WholesaleDripMultipliers {
+		price := dripBase*multiplier + dripBase*(multiplier-1)*params.RetailTaxRate
+		packedPrice := price + params.DripPackingMaterialPerBag
 		out.WholesaleDripBagPrices = append(out.WholesaleDripBagPrices, price)
-		out.WholesaleDripBagWithPackPrices = append(out.WholesaleDripBagWithPackPrices, price+params.DripPackingMaterialPerBag)
+		out.WholesaleDripBagWithPackPrices = append(out.WholesaleDripBagWithPackPrices, packedPrice)
+		out.DripWholesaleTiers = append(out.DripWholesaleTiers, DripWholesaleTier{
+			MinBags:           defaultDripWholesaleMinBags(i),
+			Multiplier:        multiplier,
+			LoosePricePerBag:  price,
+			PackedPricePerBag: packedPrice,
+		})
 	}
 
 	out.RetailKgPrice = retailSmall*(1+params.RetailBeanMarginRate) + params.WholesalePackageCostPerKg + params.ProductLossPerKg + retailTax + params.RetailLogisticsPerKg
@@ -743,6 +758,10 @@ func roundProductPrices(out *ProductResult) {
 	for i := range out.WholesaleDripBagWithPackPrices {
 		out.WholesaleDripBagWithPackPrices[i] = roundPrice(out.WholesaleDripBagWithPackPrices[i])
 	}
+	for i := range out.DripWholesaleTiers {
+		out.DripWholesaleTiers[i].LoosePricePerBag = roundPrice(out.DripWholesaleTiers[i].LoosePricePerBag)
+		out.DripWholesaleTiers[i].PackedPricePerBag = roundPrice(out.DripWholesaleTiers[i].PackedPricePerBag)
+	}
 	out.RetailKgPrice = roundPrice(out.RetailKgPrice)
 	out.Retail454gPrice = roundPrice(out.Retail454gPrice)
 	out.Retail227gPrice = roundPrice(out.Retail227gPrice)
@@ -761,6 +780,14 @@ func roundPrice(v float64) float64 {
 
 func ptrFloat64(v float64) *float64 {
 	return &v
+}
+
+func defaultDripWholesaleMinBags(index int) int64 {
+	tiers := []int64{100, 1000, 5000, 10000}
+	if index >= 0 && index < len(tiers) {
+		return tiers[index]
+	}
+	return tiers[len(tiers)-1]
 }
 
 func normalizeWholesaleTierScheme(s string) string {

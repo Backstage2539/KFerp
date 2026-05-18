@@ -457,6 +457,31 @@ func TestCalculateProductCarriesInactiveBomWarning(t *testing.T) {
 	}
 }
 
+func TestDripWholesaleTiersMatchExcelFormula(t *testing.T) {
+	params := DefaultParameters()
+	params.RetailTaxRate = 0.03
+	params.DripGreenRatioKgPerBag = 0.01
+	params.DripProcessCostPerBag = 0.44
+	params.DripExtraCostPerBag = 0.10
+	params.DripPackingMaterialPerBag = 0.20
+	params.WholesaleDripMultipliers = []float64{2.2, 1.8, 1.6, 1.35}
+
+	out := CalculateProduct(params, ProductInput{
+		Name:               "挂耳测试",
+		GreenBeanCostPerKg: 80,
+		YieldRate:          0.8,
+	})
+	if len(out.DripWholesaleTiers) != 4 {
+		t.Fatalf("tiers len=%d", len(out.DripWholesaleTiers))
+	}
+	base := (80/0.8+params.SmallBatchProductionCostPerKg)*0.01 + 0.44 + 0.10
+	wantLoose := roundPrice(base*2.2 + base*(2.2-1)*0.03)
+	wantPacked := roundPrice(wantLoose + 0.20)
+	if out.DripWholesaleTiers[0].MinBags != 100 || out.DripWholesaleTiers[0].LoosePricePerBag != wantLoose || out.DripWholesaleTiers[0].PackedPricePerBag != wantPacked {
+		t.Fatalf("first tier=%+v want loose %.2f packed %.2f", out.DripWholesaleTiers[0], wantLoose, wantPacked)
+	}
+}
+
 func f64(v float64) *float64 {
 	return &v
 }

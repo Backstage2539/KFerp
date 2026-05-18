@@ -82,3 +82,48 @@ func TestRetailAvailableSpecs(t *testing.T) {
 		}
 	}
 }
+
+func TestDripBagLineUsesBagTier(t *testing.T) {
+	tier := UnitPriceTier{
+		ProductKind:  "drip_bag",
+		SalesUnit:    "bag",
+		MinQty:       100,
+		PricePerUnit: 2.15,
+		UnitBagCount: 1,
+	}
+	got, err := CalculateUnitLineTotal(UnitLineInput{
+		ProductKind:  "drip_bag",
+		SalesUnit:    "bag",
+		Quantity:     120,
+		UnitBagCount: 1,
+		Tiers:        []UnitPriceTier{tier},
+	})
+	if err != nil {
+		t.Fatalf("CalculateUnitLineTotal: %v", err)
+	}
+	if got.UnitPrice != 2.15 || got.LineTotal != 258 {
+		t.Fatalf("got unit price %.2f total %.2f", got.UnitPrice, got.LineTotal)
+	}
+}
+
+func TestDripBoxLineMatchesTierByConvertedBags(t *testing.T) {
+	got, err := CalculateUnitLineTotal(UnitLineInput{
+		ProductKind:  "drip_bag",
+		SalesUnit:    "box",
+		Quantity:     12,
+		UnitBagCount: 10,
+		Tiers: []UnitPriceTier{{
+			ProductKind:  "drip_bag",
+			SalesUnit:    "box",
+			MinQty:       10,
+			PricePerUnit: 21.50,
+			UnitBagCount: 10,
+		}},
+	})
+	if err != nil {
+		t.Fatalf("CalculateUnitLineTotal: %v", err)
+	}
+	if got.MatchedQtyForTier != 120 || got.LineTotal != 258 {
+		t.Fatalf("got matched %.0f total %.2f", got.MatchedQtyForTier, got.LineTotal)
+	}
+}
