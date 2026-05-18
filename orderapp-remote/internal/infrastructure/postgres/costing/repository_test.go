@@ -178,6 +178,74 @@ func TestPublishBeanListWithdrawsOnlySameOwnerSnapshot(t *testing.T) {
 	}
 }
 
+func TestPublishRunPublishesDripPriceTiersAsUnitAndBoxSnapshots(t *testing.T) {
+	b, err := os.ReadFile("repository.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := string(b)
+	start := strings.Index(src, "func (r Repository) PublishRun")
+	end := strings.Index(src, "func loadRunItems")
+	if start < 0 || end < 0 || end <= start {
+		t.Fatalf("PublishRun function not found")
+	}
+	body := src[start:end]
+	for _, want := range []string{
+		"ProductKind",
+		"drip_bag",
+		"product_kind",
+		"price_basis",
+		"sales_unit",
+		"unit_bag_count",
+		"price_source_json",
+		"bag",
+		"box",
+		"math.Ceil",
+		"PackedPricePerBag",
+		"LoosePricePerBag",
+		"TemplateID",
+		"TemplateTierID",
+		"BagGrams",
+		"BoxBagCount",
+		"Multiplier",
+		"TaxRate",
+	} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("PublishRun must publish drip bag/box price snapshots; missing %q", want)
+		}
+	}
+}
+
+func TestDefaultDripPriceTemplateSchemaAndSeed(t *testing.T) {
+	b, err := os.ReadFile("schema.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := string(b)
+	for _, want := range []string{
+		"drip_price_templates",
+		"drip_price_template_tiers",
+		"默认挂耳供应价",
+		"product_kind TEXT NOT NULL DEFAULT 'roasted_bean'",
+		"price_basis TEXT NOT NULL DEFAULT 'weight'",
+		"sales_unit TEXT NOT NULL DEFAULT ''",
+		"unit_bag_count INT NOT NULL DEFAULT 0",
+		"price_source_json JSONB NOT NULL DEFAULT '{}'::jsonb",
+		"100袋",
+		"1000袋",
+		"5000袋",
+		"10000袋",
+		"2.2",
+		"1.8",
+		"1.6",
+		"1.35",
+	} {
+		if !strings.Contains(src, want) {
+			t.Fatalf("costing schema must create and seed drip price templates; missing %q", want)
+		}
+	}
+}
+
 func TestSaveBeanListDraftInsertsCustomerDraftWithoutPublishing(t *testing.T) {
 	b, err := os.ReadFile("repository.go")
 	if err != nil {

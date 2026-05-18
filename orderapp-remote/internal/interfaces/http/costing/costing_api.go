@@ -89,6 +89,71 @@ func registerCostingAPI(e *echo.Echo, svc Service, authz support.AuthzService) {
 		return c.JSON(http.StatusOK, resp)
 	})
 
+	e.POST("/api/costing/drip-price-explanation", func(c echo.Context) error {
+		var req appcosting.DripPriceExplanationCommand
+		if err := c.Bind(&req); err != nil {
+			return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid request"})
+		}
+		resp, err := svc.ExplainDripPrice(c.Request().Context(), req)
+		if err != nil {
+			return c.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
+		}
+		return c.JSON(http.StatusOK, resp)
+	})
+
+	e.GET("/api/drip-price-templates", func(c echo.Context) error {
+		rows, err := svc.ListDripPriceTemplates(c.Request().Context())
+		if err != nil {
+			return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		}
+		return c.JSON(http.StatusOK, map[string]any{"rows": rows})
+	})
+
+	e.POST("/api/drip-price-templates", func(c echo.Context) error {
+		var req appcosting.SaveDripPriceTemplateCommand
+		if err := c.Bind(&req); err != nil {
+			return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid request"})
+		}
+		req.Actor = support.ActorOf(c)
+		row, err := svc.SaveDripPriceTemplate(c.Request().Context(), req)
+		if err != nil {
+			return c.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
+		}
+		return c.JSON(http.StatusOK, row)
+	})
+
+	e.PUT("/api/drip-price-templates/:id", func(c echo.Context) error {
+		id, err := strconv.ParseInt(c.Param("id"), 10, 64)
+		if err != nil || id <= 0 {
+			return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid id"})
+		}
+		var req appcosting.SaveDripPriceTemplateCommand
+		if err := c.Bind(&req); err != nil {
+			return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid request"})
+		}
+		req.ID = id
+		req.Actor = support.ActorOf(c)
+		row, err := svc.SaveDripPriceTemplate(c.Request().Context(), req)
+		if err != nil {
+			return c.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
+		}
+		return c.JSON(http.StatusOK, row)
+	})
+
+	e.POST("/api/drip-price-templates/:id/deactivate", func(c echo.Context) error {
+		id, err := strconv.ParseInt(c.Param("id"), 10, 64)
+		if err != nil || id <= 0 {
+			return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid id"})
+		}
+		if err := svc.DeactivateDripPriceTemplate(c.Request().Context(), appcosting.DeactivateDripPriceTemplateCommand{
+			ID:    id,
+			Actor: support.ActorOf(c),
+		}); err != nil {
+			return c.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
+		}
+		return c.JSON(http.StatusOK, map[string]any{"ok": true, "id": id})
+	})
+
 	e.GET("/api/costing/bean-list", func(c echo.Context) error {
 		resp, err := svc.BeanList(c.Request().Context())
 		if err != nil {

@@ -40,35 +40,39 @@ type Parameters struct {
 }
 
 type ProductInput struct {
-	ProductID                 int64             `json:"product_id"`
-	Name                      string            `json:"name"`
-	CustomerID                int64             `json:"customer_id,omitempty"`
-	BaseProductID             int64             `json:"base_product_id,omitempty"`
-	Visibility                string            `json:"visibility,omitempty"`
-	CustomType                string            `json:"custom_type,omitempty"`
-	ProductCategoryID         int64             `json:"product_category_id,omitempty"`
-	BeanListTemplateName      string            `json:"bean_list_template_name,omitempty"`
-	Flavor                    string            `json:"flavor,omitempty"`
-	Origin                    string            `json:"origin,omitempty"`
-	ProcessingStation         string            `json:"processing_station,omitempty"`
-	Variety                   string            `json:"variety,omitempty"`
-	ProcessMethod             string            `json:"process_method,omitempty"`
-	Grade                     string            `json:"grade,omitempty"`
-	Altitude                  string            `json:"altitude,omitempty"`
-	BeanListNote              string            `json:"bean_list_note,omitempty"`
-	BomStatus                 string            `json:"bom_status,omitempty"`
-	Warnings                  []string          `json:"warnings,omitempty"`
-	GreenBeanCostPerKg        float64           `json:"green_bean_cost_per_kg"`
-	YieldRate                 float64           `json:"yield_rate"`
-	WholesaleTaxAddPerKg      float64           `json:"wholesale_tax_add_per_kg"`
-	WholesaleTaxAddPerKgTiers []float64         `json:"wholesale_tax_add_per_kg_tiers"`
-	DripTaxAddPerBag100       float64           `json:"drip_tax_add_per_bag_100"`
-	DripTaxAddPerBagRetail    float64           `json:"drip_tax_add_per_bag_retail"`
-	WholesaleKgMarginRates    []float64         `json:"wholesale_kg_margin_rates"`
-	WholesaleDripMultipliers  []float64         `json:"wholesale_drip_multipliers"`
-	WholesaleTierScheme       string            `json:"wholesale_tier_scheme,omitempty"`
-	MarginRateOverride        *float64          `json:"margin_rate_override,omitempty"`
-	GradientTemplate          *GradientTemplate `json:"gradient_template,omitempty"`
+	ProductID                 int64              `json:"product_id"`
+	Name                      string             `json:"name"`
+	ProductKind               string             `json:"product_kind,omitempty"`
+	DripBagGrams              float64            `json:"drip_bag_grams,omitempty"`
+	DripBoxBagCount           int                `json:"drip_box_bag_count,omitempty"`
+	CustomerID                int64              `json:"customer_id,omitempty"`
+	BaseProductID             int64              `json:"base_product_id,omitempty"`
+	Visibility                string             `json:"visibility,omitempty"`
+	CustomType                string             `json:"custom_type,omitempty"`
+	ProductCategoryID         int64              `json:"product_category_id,omitempty"`
+	BeanListTemplateName      string             `json:"bean_list_template_name,omitempty"`
+	Flavor                    string             `json:"flavor,omitempty"`
+	Origin                    string             `json:"origin,omitempty"`
+	ProcessingStation         string             `json:"processing_station,omitempty"`
+	Variety                   string             `json:"variety,omitempty"`
+	ProcessMethod             string             `json:"process_method,omitempty"`
+	Grade                     string             `json:"grade,omitempty"`
+	Altitude                  string             `json:"altitude,omitempty"`
+	BeanListNote              string             `json:"bean_list_note,omitempty"`
+	BomStatus                 string             `json:"bom_status,omitempty"`
+	Warnings                  []string           `json:"warnings,omitempty"`
+	GreenBeanCostPerKg        float64            `json:"green_bean_cost_per_kg"`
+	YieldRate                 float64            `json:"yield_rate"`
+	WholesaleTaxAddPerKg      float64            `json:"wholesale_tax_add_per_kg"`
+	WholesaleTaxAddPerKgTiers []float64          `json:"wholesale_tax_add_per_kg_tiers"`
+	DripTaxAddPerBag100       float64            `json:"drip_tax_add_per_bag_100"`
+	DripTaxAddPerBagRetail    float64            `json:"drip_tax_add_per_bag_retail"`
+	WholesaleKgMarginRates    []float64          `json:"wholesale_kg_margin_rates"`
+	WholesaleDripMultipliers  []float64          `json:"wholesale_drip_multipliers"`
+	WholesaleTierScheme       string             `json:"wholesale_tier_scheme,omitempty"`
+	MarginRateOverride        *float64           `json:"margin_rate_override,omitempty"`
+	GradientTemplate          *GradientTemplate  `json:"gradient_template,omitempty"`
+	DripPriceTemplate         *DripPriceTemplate `json:"drip_price_template,omitempty"`
 }
 
 type CommercialWholesaleTier struct {
@@ -91,10 +95,37 @@ type CommercialWholesaleTier struct {
 }
 
 type DripWholesaleTier struct {
-	MinBags           int64   `json:"min_bags"`
-	Multiplier        float64 `json:"multiplier"`
-	LoosePricePerBag  float64 `json:"loose_price_per_bag"`
-	PackedPricePerBag float64 `json:"packed_price_per_bag"`
+	Label             string   `json:"label,omitempty"`
+	MinBags           int64    `json:"min_bags"`
+	MaxBags           *float64 `json:"max_bags,omitempty"`
+	Multiplier        float64  `json:"multiplier"`
+	LoosePricePerBag  float64  `json:"loose_price_per_bag"`
+	PackedPricePerBag float64  `json:"packed_price_per_bag"`
+	TemplateID        int64    `json:"template_id,omitempty"`
+	TemplateTierID    int64    `json:"template_tier_id,omitempty"`
+	BagGrams          float64  `json:"bag_grams,omitempty"`
+	BoxBagCount       int      `json:"box_bag_count,omitempty"`
+	TaxRate           float64  `json:"tax_rate,omitempty"`
+}
+
+type DripPriceTemplate struct {
+	ID               int64                   `json:"id,omitempty"`
+	Name             string                  `json:"name"`
+	Active           bool                    `json:"active"`
+	BagGrams         float64                 `json:"bag_grams"`
+	BoxBagCount      int                     `json:"box_bag_count"`
+	IncludePackaging bool                    `json:"include_packaging"`
+	Tiers            []DripPriceTemplateTier `json:"tiers"`
+}
+
+type DripPriceTemplateTier struct {
+	ID         int64    `json:"id,omitempty"`
+	Label      string   `json:"label"`
+	MinBags    float64  `json:"min_bags"`
+	MaxBags    *float64 `json:"max_bags,omitempty"`
+	Multiplier float64  `json:"multiplier"`
+	Position   int      `json:"position"`
+	Active     bool     `json:"active"`
 }
 
 type GradientTemplate struct {
@@ -148,6 +179,23 @@ type PriceExplanation struct {
 	Steps             []PriceExplanationStep `json:"steps"`
 }
 
+type DripPriceExplanation struct {
+	ProductID         int64                  `json:"product_id"`
+	ProductName       string                 `json:"product_name"`
+	TemplateID        int64                  `json:"template_id,omitempty"`
+	TemplateTierID    int64                  `json:"template_tier_id,omitempty"`
+	TemplateName      string                 `json:"template_name,omitempty"`
+	TierLabel         string                 `json:"tier_label"`
+	BagGrams          float64                `json:"bag_grams"`
+	BoxBagCount       int                    `json:"box_bag_count"`
+	MinBags           int64                  `json:"min_bags"`
+	MinBoxes          int64                  `json:"min_boxes"`
+	LoosePricePerBag  float64                `json:"loose_price_per_bag"`
+	PackedPricePerBag float64                `json:"packed_price_per_bag"`
+	PackedPricePerBox float64                `json:"packed_price_per_box"`
+	Steps             []PriceExplanationStep `json:"steps"`
+}
+
 func (e PriceExplanation) HasStep(key string) bool {
 	for _, step := range e.Steps {
 		if step.Key == key {
@@ -175,6 +223,9 @@ type BeanListDisplay struct {
 type ProductResult struct {
 	ProductID                      int64                     `json:"product_id"`
 	Name                           string                    `json:"name"`
+	ProductKind                    string                    `json:"product_kind,omitempty"`
+	DripBagGrams                   float64                   `json:"drip_bag_grams,omitempty"`
+	DripBoxBagCount                int                       `json:"drip_box_bag_count,omitempty"`
 	CustomerID                     int64                     `json:"customer_id,omitempty"`
 	BaseProductID                  int64                     `json:"base_product_id,omitempty"`
 	Visibility                     string                    `json:"visibility,omitempty"`
@@ -182,7 +233,9 @@ type ProductResult struct {
 	ProductCategoryID              int64                     `json:"product_category_id,omitempty"`
 	MarginRateOverride             *float64                  `json:"margin_rate_override,omitempty"`
 	GradientTemplate               *GradientTemplate         `json:"gradient_template,omitempty"`
+	DripPriceTemplate              *DripPriceTemplate        `json:"drip_price_template,omitempty"`
 	CommercialBeanList             BeanListDisplay           `json:"commercial_bean_list"`
+	DripBeanList                   BeanListDisplay           `json:"drip_bean_list"`
 	RetailBeanList                 BeanListDisplay           `json:"retail_bean_list"`
 	Flavor                         string                    `json:"flavor,omitempty"`
 	Origin                         string                    `json:"origin,omitempty"`
@@ -252,6 +305,13 @@ func ValidateProductInput(params Parameters, in ProductInput) (ProductInput, err
 	if in.MarginRateOverride != nil && *in.MarginRateOverride < 0 {
 		return in, fmt.Errorf("margin_rate_override must be >= 0")
 	}
+	in.ProductKind = normalizeProductKind(in.ProductKind)
+	if in.DripBagGrams <= 0 {
+		in.DripBagGrams = 10
+	}
+	if in.DripBoxBagCount <= 0 {
+		in.DripBoxBagCount = 10
+	}
 	in = ApplyExcelCommercialPricingProfile(params, in)
 	if len(in.WholesaleKgMarginRates) == 0 {
 		in.WholesaleKgMarginRates = params.WholesaleKgMarginRates
@@ -292,13 +352,26 @@ func ApplyExcelCommercialPricingProfile(params Parameters, in ProductInput) Prod
 	return in
 }
 
+func normalizeProductKind(kind string) string {
+	switch strings.TrimSpace(kind) {
+	case "drip_bag":
+		return "drip_bag"
+	default:
+		return "roasted_bean"
+	}
+}
+
 func CalculateProduct(params Parameters, in ProductInput) ProductResult {
 	in, _ = ValidateProductInput(params, in)
 	profileName := costingProfileName(in)
 	roasted := in.GreenBeanCostPerKg / in.YieldRate
 	small := roasted + params.SmallBatchProductionCostPerKg
 	large := roasted + params.LargeBatchProductionCostPerKg
-	dripBase := small*params.DripGreenRatioKgPerBag + params.DripProcessCostPerBag + params.DripExtraCostPerBag
+	dripRatioKgPerBag := in.DripBagGrams / 1000.0
+	if dripRatioKgPerBag <= 0 {
+		dripRatioKgPerBag = params.DripGreenRatioKgPerBag
+	}
+	dripBase := small*dripRatioKgPerBag + params.DripProcessCostPerBag + params.DripExtraCostPerBag
 	retailTax := small * params.RetailBeanMarginRate * params.RetailTaxRate
 	retailSmall := small
 	if retailGreenCost, ok := excelRetailGreenCostOverride(profileName); ok {
@@ -307,6 +380,10 @@ func CalculateProduct(params Parameters, in ProductInput) ProductResult {
 	}
 	commercialDisplay := commercialBeanListDisplay(profileName)
 	retailDisplay := retailBeanListDisplay(profileName)
+	dripDisplay := BeanListDisplay{}
+	if in.ProductKind == "drip_bag" {
+		dripDisplay = commercialDisplay
+	}
 	if in.CustomerID > 0 {
 		if commercialDisplay.Code != "" {
 			commercialDisplay.DisplayName = in.Name
@@ -314,11 +391,17 @@ func CalculateProduct(params Parameters, in ProductInput) ProductResult {
 		if retailDisplay.Code != "" {
 			retailDisplay.DisplayName = in.Name
 		}
+		if dripDisplay.Code != "" {
+			dripDisplay.DisplayName = in.Name
+		}
 	}
 
 	out := ProductResult{
 		ProductID:            in.ProductID,
 		Name:                 in.Name,
+		ProductKind:          in.ProductKind,
+		DripBagGrams:         in.DripBagGrams,
+		DripBoxBagCount:      in.DripBoxBagCount,
 		CustomerID:           in.CustomerID,
 		BaseProductID:        in.BaseProductID,
 		Visibility:           in.Visibility,
@@ -326,7 +409,9 @@ func CalculateProduct(params Parameters, in ProductInput) ProductResult {
 		ProductCategoryID:    in.ProductCategoryID,
 		MarginRateOverride:   in.MarginRateOverride,
 		GradientTemplate:     in.GradientTemplate,
+		DripPriceTemplate:    in.DripPriceTemplate,
 		CommercialBeanList:   commercialDisplay,
+		DripBeanList:         dripDisplay,
 		RetailBeanList:       retailDisplay,
 		Flavor:               in.Flavor,
 		Origin:               in.Origin,
@@ -365,17 +450,10 @@ func CalculateProduct(params Parameters, in ProductInput) ProductResult {
 	}
 	out.CommercialWholesaleTiers = buildCommercialWholesaleTiers(params, in, out.WholesaleKgPrices, out.WholesaleLbPrices)
 
-	for i, multiplier := range in.WholesaleDripMultipliers {
-		price := dripBase*multiplier + dripBase*(multiplier-1)*params.RetailTaxRate
-		packedPrice := price + params.DripPackingMaterialPerBag
-		out.WholesaleDripBagPrices = append(out.WholesaleDripBagPrices, price)
-		out.WholesaleDripBagWithPackPrices = append(out.WholesaleDripBagWithPackPrices, packedPrice)
-		out.DripWholesaleTiers = append(out.DripWholesaleTiers, DripWholesaleTier{
-			MinBags:           defaultDripWholesaleMinBags(i),
-			Multiplier:        multiplier,
-			LoosePricePerBag:  price,
-			PackedPricePerBag: packedPrice,
-		})
+	out.DripWholesaleTiers = buildDripWholesaleTiers(params, in)
+	for _, tier := range out.DripWholesaleTiers {
+		out.WholesaleDripBagPrices = append(out.WholesaleDripBagPrices, tier.LoosePricePerBag)
+		out.WholesaleDripBagWithPackPrices = append(out.WholesaleDripBagWithPackPrices, tier.PackedPricePerBag)
 	}
 
 	out.RetailKgPrice = retailSmall*(1+params.RetailBeanMarginRate) + params.WholesalePackageCostPerKg + params.ProductLossPerKg + retailTax + params.RetailLogisticsPerKg
@@ -388,6 +466,103 @@ func CalculateProduct(params Parameters, in ProductInput) ProductResult {
 	out.RetailBeanTiers = buildRetailBeanTiers(profileName, out)
 	roundProductPrices(&out)
 	return out
+}
+
+func buildDripWholesaleTiers(params Parameters, in ProductInput) []DripWholesaleTier {
+	template := normalizeDripPriceTemplate(in.DripPriceTemplate)
+	bagGrams := in.DripBagGrams
+	if bagGrams <= 0 {
+		bagGrams = 10
+	}
+	boxBagCount := in.DripBoxBagCount
+	if boxBagCount <= 0 {
+		boxBagCount = 10
+	}
+	type tierDef struct {
+		id         int64
+		label      string
+		minBags    float64
+		maxBags    *float64
+		multiplier float64
+		position   int
+	}
+	defs := make([]tierDef, 0)
+	var templateID int64
+	includePackaging := true
+	if template != nil {
+		templateID = template.ID
+		includePackaging = template.IncludePackaging
+		for _, tier := range template.Tiers {
+			defs = append(defs, tierDef{
+				id:         tier.ID,
+				label:      tier.Label,
+				minBags:    tier.MinBags,
+				maxBags:    tier.MaxBags,
+				multiplier: tier.Multiplier,
+				position:   tier.Position,
+			})
+		}
+	}
+	if len(defs) == 0 {
+		for i, multiplier := range in.WholesaleDripMultipliers {
+			defs = append(defs, tierDef{
+				label:      fmt.Sprintf("%d袋", defaultDripWholesaleMinBags(i)),
+				minBags:    float64(defaultDripWholesaleMinBags(i)),
+				multiplier: multiplier,
+				position:   i + 1,
+			})
+		}
+	}
+	sort.SliceStable(defs, func(i, j int) bool {
+		if defs[i].position != defs[j].position {
+			return defs[i].position < defs[j].position
+		}
+		return defs[i].minBags < defs[j].minBags
+	})
+	out := make([]DripWholesaleTier, 0, len(defs))
+	for _, def := range defs {
+		if def.minBags <= 0 || def.multiplier <= 0 {
+			continue
+		}
+		base := dripBaseCostPerBag(params, in, bagGrams)
+		loose := base*def.multiplier + base*(def.multiplier-1)*params.RetailTaxRate
+		packed := loose
+		if includePackaging {
+			packed += params.DripPackingMaterialPerBag
+		}
+		label := strings.TrimSpace(def.label)
+		if label == "" {
+			label = fmt.Sprintf("%.0f袋", def.minBags)
+		}
+		out = append(out, DripWholesaleTier{
+			Label:             label,
+			MinBags:           int64(math.Ceil(def.minBags)),
+			MaxBags:           def.maxBags,
+			Multiplier:        def.multiplier,
+			LoosePricePerBag:  loose,
+			PackedPricePerBag: packed,
+			TemplateID:        templateID,
+			TemplateTierID:    def.id,
+			BagGrams:          bagGrams,
+			BoxBagCount:       boxBagCount,
+			TaxRate:           params.RetailTaxRate,
+		})
+	}
+	return out
+}
+
+func dripBaseCostPerBag(params Parameters, in ProductInput, bagGrams float64) float64 {
+	yield := in.YieldRate
+	if yield <= 0 {
+		yield = params.RoastYieldRate
+	}
+	ratio := bagGrams / 1000.0
+	if ratio <= 0 {
+		ratio = params.DripGreenRatioKgPerBag
+	}
+	roasted := in.GreenBeanCostPerKg / yield
+	small := roasted + params.SmallBatchProductionCostPerKg
+	return small*ratio + params.DripProcessCostPerBag + params.DripExtraCostPerBag
 }
 
 func normalizeBomStatus(status string) string {
@@ -645,6 +820,78 @@ func ExplainCommercialPrice(params Parameters, in ProductInput, req PriceExplana
 	}, nil
 }
 
+func ExplainDripPrice(params Parameters, in ProductInput, req PriceExplanationRequest) (DripPriceExplanation, error) {
+	validated, err := ValidateProductInput(params, in)
+	if err != nil {
+		return DripPriceExplanation{}, err
+	}
+	if normalizeProductKind(validated.ProductKind) != "drip_bag" {
+		return DripPriceExplanation{}, fmt.Errorf("drip_bag product required")
+	}
+	tierLabel := strings.TrimSpace(req.TierLabel)
+	tiers := buildDripWholesaleTiers(params, validated)
+	if len(tiers) == 0 {
+		return DripPriceExplanation{}, fmt.Errorf("drip price tier required")
+	}
+	tier := tiers[0]
+	if tierLabel != "" {
+		found := false
+		for _, row := range tiers {
+			if row.Label == tierLabel {
+				tier = row
+				found = true
+				break
+			}
+		}
+		if !found {
+			return DripPriceExplanation{}, fmt.Errorf("tier not found")
+		}
+	}
+	boxBagCount := tier.BoxBagCount
+	if boxBagCount <= 0 {
+		boxBagCount = validated.DripBoxBagCount
+	}
+	if boxBagCount <= 0 {
+		boxBagCount = 10
+	}
+	roasted := validated.GreenBeanCostPerKg / validated.YieldRate
+	small := roasted + params.SmallBatchProductionCostPerKg
+	base := dripBaseCostPerBag(params, validated, tier.BagGrams)
+	minBoxes := int64(math.Ceil(float64(tier.MinBags) / float64(boxBagCount)))
+	packedBox := tier.PackedPricePerBag * float64(boxBagCount)
+	return DripPriceExplanation{
+		ProductID:         validated.ProductID,
+		ProductName:       validated.Name,
+		TemplateID:        tier.TemplateID,
+		TemplateTierID:    tier.TemplateTierID,
+		TemplateName:      dripTemplateName(validated.DripPriceTemplate),
+		TierLabel:         tier.Label,
+		BagGrams:          tier.BagGrams,
+		BoxBagCount:       boxBagCount,
+		MinBags:           tier.MinBags,
+		MinBoxes:          minBoxes,
+		LoosePricePerBag:  tier.LoosePricePerBag,
+		PackedPricePerBag: tier.PackedPricePerBag,
+		PackedPricePerBox: packedBox,
+		Steps: []PriceExplanationStep{
+			{Key: "green_bean_cost_per_kg", Label: "生豆成本", Source: "product", Value: validated.GreenBeanCostPerKg, Unit: "元/kg"},
+			{Key: "yield_rate", Label: "出成率", Source: "product_bom", Value: validated.YieldRate, Unit: "ratio"},
+			{Key: "roasted_bean_cost_per_kg", Label: "熟豆成本", Source: "formula", Value: roasted, Unit: "元/kg"},
+			{Key: "small_batch_production_cost_per_kg", Label: "小批量生产成本", Source: "cost_parameter", Value: params.SmallBatchProductionCostPerKg, Unit: "元/kg"},
+			{Key: "bag_grams", Label: "单袋熟豆克重", Source: "product_or_template", Value: tier.BagGrams, Unit: "g"},
+			{Key: "drip_roasted_cost_per_bag", Label: "单袋熟豆成本", Source: "formula", Value: small * tier.BagGrams / 1000.0, Unit: "元/袋"},
+			{Key: "drip_process_cost_per_bag", Label: "挂耳加工成本", Source: "cost_parameter", Value: params.DripProcessCostPerBag, Unit: "元/袋"},
+			{Key: "drip_extra_cost_per_bag", Label: "挂耳额外成本", Source: "cost_parameter", Value: params.DripExtraCostPerBag, Unit: "元/袋"},
+			{Key: "drip_base_cost_per_bag", Label: "单袋基础成本", Source: "formula", Value: base, Unit: "元/袋"},
+			{Key: "template_multiplier", Label: "供应价倍率", Source: "drip_price_template", Value: tier.Multiplier, Unit: "ratio"},
+			{Key: "retail_tax_rate", Label: "税费比例", Source: "cost_parameter", Value: params.RetailTaxRate, Unit: "ratio"},
+			{Key: "drip_packing_material_per_bag", Label: "挂耳包装材料", Source: "cost_parameter", Value: params.DripPackingMaterialPerBag, Unit: "元/袋"},
+			{Key: "packed_price_per_bag", Label: "含包装单袋价", Source: "formula", Value: tier.PackedPricePerBag, Unit: "元/袋"},
+			{Key: "box_conversion", Label: "盒装换算", Source: "product", Value: packedBox, Unit: "元/盒"},
+		},
+	}, nil
+}
+
 func normalizeGradientTemplate(template *GradientTemplate) *GradientTemplate {
 	if template == nil || len(template.Tiers) == 0 {
 		return nil
@@ -681,6 +928,56 @@ func normalizeGradientTemplate(template *GradientTemplate) *GradientTemplate {
 	}
 	out.Tiers = filtered
 	return &out
+}
+
+func normalizeDripPriceTemplate(template *DripPriceTemplate) *DripPriceTemplate {
+	if template == nil || len(template.Tiers) == 0 {
+		return nil
+	}
+	out := *template
+	out.Name = strings.TrimSpace(out.Name)
+	if out.BagGrams <= 0 {
+		out.BagGrams = 10
+	}
+	if out.BoxBagCount <= 0 {
+		out.BoxBagCount = 10
+	}
+	out.Tiers = append([]DripPriceTemplateTier(nil), template.Tiers...)
+	sort.SliceStable(out.Tiers, func(i, j int) bool {
+		if out.Tiers[i].Position != out.Tiers[j].Position {
+			return out.Tiers[i].Position < out.Tiers[j].Position
+		}
+		if out.Tiers[i].MinBags != out.Tiers[j].MinBags {
+			return out.Tiers[i].MinBags < out.Tiers[j].MinBags
+		}
+		return out.Tiers[i].ID < out.Tiers[j].ID
+	})
+	filtered := make([]DripPriceTemplateTier, 0, len(out.Tiers))
+	for _, tier := range out.Tiers {
+		tier.Label = strings.TrimSpace(tier.Label)
+		if tier.Label == "" {
+			tier.Label = fmt.Sprintf("%.0f袋", tier.MinBags)
+		}
+		if tier.MinBags <= 0 || tier.Multiplier <= 0 {
+			continue
+		}
+		if tier.MaxBags != nil && *tier.MaxBags <= tier.MinBags {
+			continue
+		}
+		filtered = append(filtered, tier)
+	}
+	if len(filtered) == 0 {
+		return nil
+	}
+	out.Tiers = filtered
+	return &out
+}
+
+func dripTemplateName(template *DripPriceTemplate) string {
+	if template == nil {
+		return ""
+	}
+	return strings.TrimSpace(template.Name)
 }
 
 func normalizeGradientDisplayUnit(unit string) string {

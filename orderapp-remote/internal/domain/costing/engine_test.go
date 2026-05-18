@@ -216,6 +216,47 @@ func TestGradientTemplateCommercialTiersMatchByWeightAndUseTemplateUnit(t *testi
 	assertClose(t, "227g price", smallUnit.CommercialWholesaleTiers[0].PricePerUnit, 19)
 }
 
+func TestDripWholesaleTiersUseTemplateAndProductBagConfig(t *testing.T) {
+	params := DefaultParameters()
+	got := CalculateProduct(params, ProductInput{
+		ProductID:          701,
+		Name:               "耶加雪菲挂耳",
+		ProductKind:        "drip_bag",
+		DripBagGrams:       12,
+		DripBoxBagCount:    10,
+		GreenBeanCostPerKg: 60,
+		YieldRate:          0.8,
+		DripPriceTemplate: &DripPriceTemplate{
+			ID:               5,
+			Name:             "挂耳供应价",
+			BagGrams:         12,
+			BoxBagCount:      10,
+			IncludePackaging: true,
+			Tiers: []DripPriceTemplateTier{
+				{ID: 51, Label: "100袋", MinBags: 100, Multiplier: 2.2, Position: 1},
+				{ID: 52, Label: "1000袋", MinBags: 1000, Multiplier: 1.8, Position: 2},
+			},
+		},
+	})
+
+	if got.ProductKind != "drip_bag" || got.DripBagGrams != 12 || got.DripBoxBagCount != 10 {
+		t.Fatalf("drip product config = %+v", got)
+	}
+	if len(got.DripWholesaleTiers) != 2 {
+		t.Fatalf("drip tiers = %+v, want template tiers", got.DripWholesaleTiers)
+	}
+	first := got.DripWholesaleTiers[0]
+	if first.Label != "100袋" || first.MinBags != 100 || first.TemplateID != 5 || first.TemplateTierID != 51 {
+		t.Fatalf("first drip tier metadata = %+v", first)
+	}
+	if first.BagGrams != 12 || first.BoxBagCount != 10 || first.Multiplier != 2.2 || first.TaxRate != params.RetailTaxRate {
+		t.Fatalf("first drip tier pricing source = %+v", first)
+	}
+	if first.PackedPricePerBag <= first.LoosePricePerBag || first.PackedPricePerBag <= 0 {
+		t.Fatalf("first drip tier prices = %+v", first)
+	}
+}
+
 func TestProductMarginOverrideReplacesGradientTemplateTierMargin(t *testing.T) {
 	params := DefaultParameters()
 	input := ProductInput{

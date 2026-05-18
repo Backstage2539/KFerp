@@ -168,3 +168,30 @@ func TestCostingViewSupportsConfigurableBeanListPublishingWorkflow(t *testing.T)
 		t.Fatalf("PDF changelog should render at the bottom, not directly under the cover")
 	}
 }
+
+func TestCostingViewPDFSupportsDripBeanListPricing(t *testing.T) {
+	view, err := os.ReadFile(filepath.Join("..", "..", "..", "..", "frontend-vue-shell", "src", "views", "CostingView.vue"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	helper, err := os.ReadFile(filepath.Join("..", "..", "..", "..", "frontend-vue-shell", "src", "lib", "bean-list-pdf.js"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := string(view) + "\n" + string(helper)
+	for _, want := range []string{
+		"drip_bean_list",
+		"drip_wholesale_tiers",
+		"dripBagGroups",
+		"openBeanListDrawer('drip')",
+		"挂耳豆单",
+		"sales_unit",
+		"unit_bag_count",
+		"bag",
+		"box",
+	} {
+		if !strings.Contains(src, want) {
+			t.Fatalf("PDF source must support drip bean-list pricing; missing %q", want)
+		}
+	}
+}

@@ -1,7 +1,7 @@
 export const DEFAULT_BEAN_LIST_PDF_VERSION = 'V3.0.5'
 
 export function sanitizeBeanListPdfTheme(input = {}) {
-  const listType = input.listType === 'retail' ? 'retail' : 'commercial'
+  const listType = input.listType === 'retail' || input.listType === 'drip' ? input.listType : 'commercial'
   return {
     listType,
     version: String(input.version || DEFAULT_BEAN_LIST_PDF_VERSION).trim() || DEFAULT_BEAN_LIST_PDF_VERSION,
@@ -21,6 +21,7 @@ export function sanitizeBeanListPdfTheme(input = {}) {
 
 export function buildBeanListPdfTitle(listType, brandName = '棵凡咖啡') {
   const brand = String(brandName || '棵凡咖啡').trim() || '棵凡咖啡'
+  if (listType === 'drip') return `${brand}挂耳豆单`
   return listType === 'retail' ? `${brand}零售豆单` : `${brand}批发豆单`
 }
 
@@ -36,12 +37,13 @@ export function filterBeanListItemsForScope(items = [], scope = 'official', cust
 }
 
 export function buildBeanListPdfSubtitle(listType) {
+  if (listType === 'drip') return '挂耳供应价，报价按袋/盒快照发布'
   return listType === 'retail' ? '报价含税运' : '报价不含税、不含运'
 }
 
 export function buildBeanListPdfGroups(items = [], listType = 'commercial', options = {}) {
-  const metaKey = listType === 'retail' ? 'retail_bean_list' : 'commercial_bean_list'
-  const tierKey = listType === 'retail' ? 'retail_bean_tiers' : 'commercial_wholesale_tiers'
+  const metaKey = listType === 'retail' ? 'retail_bean_list' : listType === 'drip' ? 'drip_bean_list' : 'commercial_bean_list'
+  const tierKey = listType === 'retail' ? 'retail_bean_tiers' : listType === 'drip' ? 'drip_wholesale_tiers' : 'commercial_wholesale_tiers'
   const selectedIDs = normalizeStringSet(options.selectedProductIDs)
   const hasProductFilter = Object.prototype.hasOwnProperty.call(options, 'selectedProductIDs')
   const visibleCategoryCodes = normalizeStringSet(options.visibleCategoryCodes)
@@ -107,11 +109,16 @@ function buildPdfItem(item, metaKey, tierKey, listType, code, customizers) {
       return {
         label,
         price: Number(tier.price_per_unit || tier.price_per_lb || 0),
-        unit: listType === 'retail' ? '' : priceUnit(tier),
+        unit: listType === 'retail' ? '' : listType === 'drip' ? dripPriceUnit(tier) : priceUnit(tier),
         red: false,
       }
     })
   }
+}
+
+function dripPriceUnit(tier = {}) {
+  if (tier.sales_unit === 'box') return `盒(${Number(tier.unit_bag_count || 10)}袋)`
+  return '袋'
 }
 
 export function compareBeanCodes(a, b) {
@@ -178,7 +185,7 @@ export function splitHighlightedText(text, terms = []) {
 
 export function copyBeanListPublicationConfig(publication = {}, currentOptions = {}, available = {}) {
   const config = publication.config && typeof publication.config === 'object' ? publication.config : {}
-  const listType = config.listType === 'retail' || publication.list_type === 'retail' ? 'retail' : 'commercial'
+  const listType = config.listType === 'drip' || publication.list_type === 'drip' ? 'drip' : config.listType === 'retail' || publication.list_type === 'retail' ? 'retail' : 'commercial'
   const options = {
     ...sanitizeBeanListPdfTheme({
       ...currentOptions,

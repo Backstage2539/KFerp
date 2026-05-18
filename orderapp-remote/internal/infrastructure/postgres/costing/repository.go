@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"math"
 	"strconv"
 	"strings"
 
@@ -65,6 +66,9 @@ func (r Repository) LoadProductInputs(ctx context.Context, params domain.Paramet
 		       COALESCE(p.base_product_id, 0),
 		       COALESCE(NULLIF(p.visibility, ''), 'public'),
 		       COALESCE(p.custom_type, ''),
+		       COALESCE(NULLIF(p.product_kind,''), 'roasted_bean'),
+		       COALESCE(p.drip_bag_grams, 10)::float8,
+		       COALESCE(p.drip_box_bag_count, 10),
 		       COALESCE(p.product_category_id, 0),
 		       COALESCE(pc.gradient_template_id, 0),
 		       p.margin_rate_override::float8,
@@ -88,7 +92,7 @@ func (r Repository) LoadProductInputs(ctx context.Context, params domain.Paramet
 		LEFT JOIN %s.products base_p ON base_p.id = p.base_product_id
 		LEFT JOIN %s.product_categories pc ON pc.id = p.product_category_id AND pc.active=true
 		WHERE p.active = true
-		GROUP BY p.id, p.name, base_p.name, p.roast_level, p.customer_id, p.base_product_id, p.visibility, p.custom_type, p.product_category_id, pc.gradient_template_id, p.margin_rate_override, b.yield_rate, b.status, b.product_id
+		GROUP BY p.id, p.name, base_p.name, p.roast_level, p.customer_id, p.base_product_id, p.visibility, p.custom_type, p.product_kind, p.drip_bag_grams, p.drip_box_bag_count, p.product_category_id, pc.gradient_template_id, p.margin_rate_override, b.yield_rate, b.status, b.product_id
 		ORDER BY p.name
 	`, r.schema, r.schema, r.schema, r.schema, r.schema, r.schema, r.schema, r.schema, r.schema)
 	rows, err := r.pool.Query(ctx, q, params.RoastYieldRate)
@@ -105,7 +109,7 @@ func (r Repository) LoadProductInputs(ctx context.Context, params domain.Paramet
 		var roastLevel string
 		var fallbackYield float64
 		var gradientTemplateID int64
-		if err := rows.Scan(&input.ProductID, &input.Name, &input.BeanListTemplateName, &roastLevel, &input.CustomerID, &input.BaseProductID, &input.Visibility, &input.CustomType, &input.ProductCategoryID, &gradientTemplateID, &input.MarginRateOverride, &fallbackYield, &input.GreenBeanCostPerKg, &input.Flavor, &input.Origin, &input.ProcessingStation, &input.Variety, &input.ProcessMethod, &input.Grade, &input.Altitude, &input.BeanListNote, &input.BomStatus); err != nil {
+		if err := rows.Scan(&input.ProductID, &input.Name, &input.BeanListTemplateName, &roastLevel, &input.CustomerID, &input.BaseProductID, &input.Visibility, &input.CustomType, &input.ProductKind, &input.DripBagGrams, &input.DripBoxBagCount, &input.ProductCategoryID, &gradientTemplateID, &input.MarginRateOverride, &fallbackYield, &input.GreenBeanCostPerKg, &input.Flavor, &input.Origin, &input.ProcessingStation, &input.Variety, &input.ProcessMethod, &input.Grade, &input.Altitude, &input.BeanListNote, &input.BomStatus); err != nil {
 			return nil, err
 		}
 		if gradientTemplateID > 0 {
@@ -128,14 +132,34 @@ func (r Repository) LoadProductInputs(ctx context.Context, params domain.Paramet
 	if err != nil {
 		return nil, err
 	}
+	dripTemplate, err := r.loadDefaultDripPriceTemplate(ctx)
+	if err != nil {
+		return nil, err
+	}
 	for i := range out {
 		if templateID := templateIDByProduct[out[i].ProductID]; templateID > 0 {
 			if template := templates[templateID]; template != nil {
 				out[i].GradientTemplate = template
 			}
 		}
+		if out[i].ProductKind == "drip_bag" && dripTemplate != nil {
+			out[i].DripPriceTemplate = dripTemplate
+		}
 	}
 	return out, nil
+}
+
+func (r Repository) loadDefaultDripPriceTemplate(ctx context.Context) (*domain.DripPriceTemplate, error) {
+	rows, err := r.ListDripPriceTemplates(ctx)
+	if err != nil {
+		return nil, err
+	}
+	for i := range rows {
+		if rows[i].Active {
+			return &rows[i], nil
+		}
+	}
+	return nil, nil
 }
 
 func (r Repository) loadGradientTemplatesByID(ctx context.Context, ids map[int64]bool) (map[int64]*domain.GradientTemplate, error) {
@@ -258,6 +282,167 @@ func (r Repository) UpdateParameterSetting(ctx context.Context, cmd appcosting.U
 		return appcosting.ParameterSetting{}, err
 	}
 	return next, nil
+}
+
+func (r Repository) ListDripPriceTemplates(ctx context.Context) ([]domain.DripPriceTemplate, error) {
+	rows, err := r.pool.Query(ctx, fmt.Sprintf(`
+		SELECT id, name, active, bag_grams::float8, box_bag_count, include_packaging
+		FROM %s.drip_price_templates
+		ORDER BY active DESC, id
+	`, r.schema))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := make([]domain.DripPriceTemplate, 0)
+	templateIndex := map[int64]int{}
+	for rows.Next() {
+		var row domain.DripPriceTemplate
+		if err := rows.Scan(&row.ID, &row.Name, &row.Active, &row.BagGrams, &row.BoxBagCount, &row.IncludePackaging); err != nil {
+			return nil, err
+		}
+		templateIndex[row.ID] = len(out)
+		out = append(out, row)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	if len(out) == 0 {
+		return out, nil
+	}
+	ids := make([]int64, 0, len(out))
+	for _, row := range out {
+		ids = append(ids, row.ID)
+	}
+	tierRows, err := r.pool.Query(ctx, fmt.Sprintf(`
+		SELECT id, template_id, label, min_bags::float8, max_bags::float8, multiplier::float8, position, active
+		FROM %s.drip_price_template_tiers
+		WHERE template_id = ANY($1)
+		ORDER BY template_id, position, min_bags, id
+	`, r.schema), ids)
+	if err != nil {
+		return nil, err
+	}
+	defer tierRows.Close()
+	for tierRows.Next() {
+		var templateID int64
+		var tier domain.DripPriceTemplateTier
+		if err := tierRows.Scan(&tier.ID, &templateID, &tier.Label, &tier.MinBags, &tier.MaxBags, &tier.Multiplier, &tier.Position, &tier.Active); err != nil {
+			return nil, err
+		}
+		if idx, ok := templateIndex[templateID]; ok {
+			out[idx].Tiers = append(out[idx].Tiers, tier)
+		}
+	}
+	return out, tierRows.Err()
+}
+
+func (r Repository) SaveDripPriceTemplate(ctx context.Context, cmd appcosting.SaveDripPriceTemplateCommand) (*domain.DripPriceTemplate, error) {
+	conn, err := r.pool.Acquire(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer conn.Release()
+	tx, err := conn.Begin(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	active := cmd.Active
+	if cmd.ID == 0 {
+		active = true
+	}
+	var id int64
+	if cmd.ID > 0 {
+		if err := tx.QueryRow(ctx, fmt.Sprintf(`
+			UPDATE %s.drip_price_templates
+			SET name=$2, active=$3, bag_grams=$4, box_bag_count=$5, include_packaging=$6, updated_at=now()
+			WHERE id=$1
+			RETURNING id
+		`, r.schema), cmd.ID, cmd.Name, active, cmd.BagGrams, cmd.BoxBagCount, cmd.IncludePackaging).Scan(&id); err != nil {
+			if err == pgx.ErrNoRows {
+				return nil, fmt.Errorf("template not found")
+			}
+			return nil, err
+		}
+		if _, err := tx.Exec(ctx, fmt.Sprintf(`DELETE FROM %s.drip_price_template_tiers WHERE template_id=$1`, r.schema), id); err != nil {
+			return nil, err
+		}
+	} else {
+		if err := tx.QueryRow(ctx, fmt.Sprintf(`
+			INSERT INTO %s.drip_price_templates(name, active, bag_grams, box_bag_count, include_packaging)
+			VALUES($1,$2,$3,$4,$5)
+			RETURNING id
+		`, r.schema), cmd.Name, active, cmd.BagGrams, cmd.BoxBagCount, cmd.IncludePackaging).Scan(&id); err != nil {
+			return nil, err
+		}
+	}
+	insertTier := fmt.Sprintf(`
+		INSERT INTO %s.drip_price_template_tiers(template_id, label, min_bags, max_bags, multiplier, position, active)
+		VALUES($1,$2,$3,$4,$5,$6,$7)
+	`, r.schema)
+	for i, tier := range cmd.Tiers {
+		position := tier.Position
+		if position <= 0 {
+			position = i + 1
+		}
+		if _, err := tx.Exec(ctx, insertTier, id, tier.Label, tier.MinBags, tier.MaxBags, tier.Multiplier, position, true); err != nil {
+			return nil, err
+		}
+	}
+	action := "create"
+	if cmd.ID > 0 {
+		action = "update"
+	}
+	if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, cmd.Actor, "drip_price_template", &id, action, postgresinfra.StrPtr("name"), nil, postgresinfra.StrPtr(cmd.Name), postgresinfra.AuditMeta{
+		"template_id":       id,
+		"bag_grams":         cmd.BagGrams,
+		"box_bag_count":     cmd.BoxBagCount,
+		"include_packaging": cmd.IncludePackaging,
+		"tier_count":        len(cmd.Tiers),
+	}); err != nil {
+		return nil, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return nil, err
+	}
+	rows, err := r.ListDripPriceTemplates(ctx)
+	if err != nil {
+		return nil, err
+	}
+	for i := range rows {
+		if rows[i].ID == id {
+			return &rows[i], nil
+		}
+	}
+	return nil, fmt.Errorf("template not found")
+}
+
+func (r Repository) DeactivateDripPriceTemplate(ctx context.Context, cmd appcosting.DeactivateDripPriceTemplateCommand) error {
+	conn, err := r.pool.Acquire(ctx)
+	if err != nil {
+		return err
+	}
+	defer conn.Release()
+	tx, err := conn.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	tag, err := tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.drip_price_templates SET active=false, updated_at=now() WHERE id=$1`, r.schema), cmd.ID)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return fmt.Errorf("template not found")
+	}
+	if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, cmd.Actor, "drip_price_template", &cmd.ID, "deactivate", postgresinfra.StrPtr("active"), postgresinfra.StrPtr("true"), postgresinfra.StrPtr("false"), postgresinfra.AuditMeta{
+		"template_id": cmd.ID,
+	}); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
 }
 
 func (r Repository) ListBeanListPublications(ctx context.Context, query appcosting.BeanListPublicationQuery) ([]appcosting.BeanListPublication, error) {
@@ -603,8 +788,11 @@ func (r Repository) PublishRun(ctx context.Context, actor string, runID int64) e
 		WHERE id=$1`, r.schema)
 	deleteTiers := fmt.Sprintf(`DELETE FROM %s.product_price_tiers WHERE product_id=$1`, r.schema)
 	insertTier := fmt.Sprintf(`INSERT INTO %s.product_price_tiers
-		(product_id, spec_g, min_qty_units, max_qty_units, price_per_unit, min_qty_lb, max_qty_lb, price_per_lb, active)
-		VALUES($1,$2,$3,$4,$5,$3,$4,$6,true)`, r.schema)
+		(product_id, spec_g, min_qty_units, max_qty_units, price_per_unit, min_qty_lb, max_qty_lb, price_per_lb, active, product_kind, price_basis, sales_unit, unit_bag_count, price_source_json)
+		VALUES($1,$2,$3,$4,$5,$3,$4,$6,true,'roasted_bean','weight','',0,'{}'::jsonb)`, r.schema)
+	insertDripTier := fmt.Sprintf(`INSERT INTO %s.product_price_tiers
+		(product_id, spec_g, min_qty_units, max_qty_units, price_per_unit, min_qty_lb, max_qty_lb, price_per_lb, active, product_kind, price_basis, sales_unit, unit_bag_count, price_source_json)
+		VALUES($1,$2,$3,$4,$5,NULL,NULL,NULL,true,$6,'unit',$7,$8,$9::jsonb)`, r.schema)
 	publishedProducts := 0
 	for _, item := range items {
 		if item.ProductID <= 0 {
@@ -622,26 +810,59 @@ func (r Repository) PublishRun(ctx context.Context, actor string, runID int64) e
 		if _, err := tx.Exec(ctx, deleteTiers, item.ProductID); err != nil {
 			return err
 		}
-		for _, tier := range commercialTiersForPublish(item) {
-			specG := tier.SpecG
-			if specG <= 0 {
-				specG = 454
+		if item.ProductKind == "drip_bag" {
+			for _, tier := range item.DripWholesaleTiers {
+				bagGrams := tier.BagGrams
+				if bagGrams <= 0 {
+					bagGrams = item.DripBagGrams
+				}
+				if bagGrams <= 0 {
+					bagGrams = 10
+				}
+				boxBagCount := tier.BoxBagCount
+				if boxBagCount <= 0 {
+					boxBagCount = item.DripBoxBagCount
+				}
+				if boxBagCount <= 0 {
+					boxBagCount = 10
+				}
+				source := dripPriceSourceJSON(tier, bagGrams, boxBagCount)
+				if _, err := tx.Exec(ctx, insertDripTier, item.ProductID, int64(math.Round(bagGrams)), tier.MinBags, tier.MaxBags, tier.PackedPricePerBag, item.ProductKind, "bag", 1, source); err != nil {
+					return err
+				}
+				minBoxes := math.Ceil(float64(tier.MinBags) / float64(boxBagCount))
+				var maxBoxes *float64
+				if tier.MaxBags != nil {
+					v := math.Ceil(*tier.MaxBags / float64(boxBagCount))
+					maxBoxes = &v
+				}
+				boxSource := dripPriceSourceJSON(tier, bagGrams, boxBagCount)
+				if _, err := tx.Exec(ctx, insertDripTier, item.ProductID, int64(math.Round(bagGrams))*int64(boxBagCount), minBoxes, maxBoxes, tier.PackedPricePerBag*float64(boxBagCount), item.ProductKind, "box", boxBagCount, boxSource); err != nil {
+					return err
+				}
 			}
-			minQty := tier.MinQty
-			if minQty <= 0 {
-				minQty = tier.MinLb
-			}
-			maxQty := tier.MaxQty
-			if maxQty == nil {
-				maxQty = tier.MaxLb
-			}
-			pricePerUnit := tier.PricePerUnit
-			if pricePerUnit == 0 {
-				pricePerUnit = tier.PricePerLb
-			}
-			pricePerLb := pricePerUnit * 454.0 / float64(specG)
-			if _, err := tx.Exec(ctx, insertTier, item.ProductID, specG, minQty, maxQty, pricePerUnit, pricePerLb); err != nil {
-				return err
+		} else {
+			for _, tier := range commercialTiersForPublish(item) {
+				specG := tier.SpecG
+				if specG <= 0 {
+					specG = 454
+				}
+				minQty := tier.MinQty
+				if minQty <= 0 {
+					minQty = tier.MinLb
+				}
+				maxQty := tier.MaxQty
+				if maxQty == nil {
+					maxQty = tier.MaxLb
+				}
+				pricePerUnit := tier.PricePerUnit
+				if pricePerUnit == 0 {
+					pricePerUnit = tier.PricePerLb
+				}
+				pricePerLb := pricePerUnit * 454.0 / float64(specG)
+				if _, err := tx.Exec(ctx, insertTier, item.ProductID, specG, minQty, maxQty, pricePerUnit, pricePerLb); err != nil {
+					return err
+				}
 			}
 		}
 		publishedProducts++
@@ -656,6 +877,20 @@ func (r Repository) PublishRun(ctx context.Context, actor string, runID int64) e
 		return err
 	}
 	return tx.Commit(ctx)
+}
+
+func dripPriceSourceJSON(tier domain.DripWholesaleTier, bagGrams float64, boxBagCount int) string {
+	b, _ := json.Marshal(map[string]any{
+		"template_id":          tier.TemplateID,
+		"tier_id":              tier.TemplateTierID,
+		"bag_grams":            bagGrams,
+		"box_bag_count":        boxBagCount,
+		"loose_price_per_bag":  tier.LoosePricePerBag,
+		"packed_price_per_bag": tier.PackedPricePerBag,
+		"multiplier":           tier.Multiplier,
+		"tax_rate":             tier.TaxRate,
+	})
+	return string(b)
 }
 
 func loadRunItems(ctx context.Context, tx pgx.Tx, schema string, runID int64) ([]domain.ProductResult, error) {

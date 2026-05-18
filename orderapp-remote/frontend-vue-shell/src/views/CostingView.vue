@@ -94,6 +94,7 @@
           <p class="muted">生成豆单前可选择产品、分级、样式、标签和标红内容。</p>
         </div>
         <button class="primary" type="button" :disabled="loading || !visibleCostingItems.length" @click="openBeanListDrawer('commercial')">生成豆单</button>
+        <button class="secondary" type="button" :disabled="loading || !dripBagGroups.length" @click="openBeanListDrawer('drip')">生成挂耳豆单</button>
       </div>
       <div class="bean-groups">
         <section v-for="group in commercialGroups" :key="group.category" class="bean-group">
@@ -125,6 +126,35 @@
           </div>
         </section>
         <div v-if="!commercialGroups.length" class="muted empty-card">暂无豆单数据</div>
+      </div>
+    </section>
+
+    <section class="panel">
+      <div class="section-title">挂耳豆单</div>
+      <div class="bean-groups">
+        <section v-for="group in dripGroups" :key="`drip-${group.category}`" class="bean-group">
+          <h3>{{ group.category }}</h3>
+          <div class="bean-grid">
+            <article v-for="item in group.items" :key="`drip-${item.product_id || item.name}`">
+              <div class="bean-heading">
+                <span class="bean-code">{{ beanMeta(item, 'drip_bean_list').code }}</span>
+                <div>
+                  <div class="bean-title">{{ beanName(item, 'drip_bean_list') }}</div>
+                  <div v-if="beanMeta(item, 'drip_bean_list').recommended_use" class="bean-use">
+                    {{ beanMeta(item, 'drip_bean_list').recommended_use }}
+                  </div>
+                </div>
+              </div>
+              <div v-if="beanFlavor(item, 'drip_bean_list')" class="bean-note">{{ beanFlavor(item, 'drip_bean_list') }}</div>
+              <div v-if="beanDescription(item, 'drip_bean_list')" class="bean-desc">{{ beanDescription(item, 'drip_bean_list') }}</div>
+              <div class="bean-row" v-for="tier in item.drip_wholesale_tiers || []" :key="`drip-tier-${tier.label}`">
+                <span>{{ tier.label }} / {{ tier.sales_unit === 'box' ? `盒(${tier.unit_bag_count || item.drip_box_bag_count || 10}袋)` : '袋' }}</span>
+                <strong>{{ price(tier.price_per_unit || tier.packed_price_per_bag) }}</strong>
+              </div>
+            </article>
+          </div>
+        </section>
+        <div v-if="!dripGroups.length" class="muted empty-card">暂无挂耳豆单数据</div>
       </div>
     </section>
 
@@ -309,6 +339,7 @@
             <span>豆单类型</span>
             <select v-model="pdfOptions.listType">
               <option value="commercial">商用批发豆单</option>
+              <option value="drip">挂耳豆单</option>
               <option value="retail">零售豆单</option>
             </select>
           </label>
@@ -698,16 +729,16 @@ const explanationOverrides = ref({
 const customers = ref([])
 const runId = ref(null)
 const beanListPublications = ref({
-  official: { commercial: [], retail: [] },
-  mine: { commercial: [], retail: [] },
-  customer: { commercial: [], retail: [] },
+  official: { commercial: [], drip: [], retail: [] },
+  mine: { commercial: [], drip: [], retail: [] },
+  customer: { commercial: [], drip: [], retail: [] },
 })
-const priceSourcePublicationByType = ref({ commercial: null, retail: null })
-const styleSourcePublicationIDByType = ref({ commercial: 0, retail: 0 })
-const selectedProductIDsByType = ref({ commercial: [], retail: [] })
-const visibleCategoryCodesByType = ref({ commercial: [], retail: [] })
-const productSelectionInitialized = ref({ commercial: false, retail: false })
-const categorySelectionInitialized = ref({ commercial: false, retail: false })
+const priceSourcePublicationByType = ref({ commercial: null, drip: null, retail: null })
+const styleSourcePublicationIDByType = ref({ commercial: 0, drip: 0, retail: 0 })
+const selectedProductIDsByType = ref({ commercial: [], drip: [], retail: [] })
+const visibleCategoryCodesByType = ref({ commercial: [], drip: [], retail: [] })
+const productSelectionInitialized = ref({ commercial: false, drip: false, retail: false })
+const categorySelectionInitialized = ref({ commercial: false, drip: false, retail: false })
 const pdfCustomizers = ref({})
 const pdfOptions = ref({
   listType: 'commercial',
@@ -730,6 +761,8 @@ const normalizedCustomerContextID = computed(() => Number(props.customerContextI
 const activeCostingScope = computed(() => normalizedCustomerContextID.value > 0 ? 'customer' : 'official')
 const visibleCostingItems = computed(() => filterBeanListItemsForScope(items.value, activeCostingScope.value, normalizedCustomerContextID.value))
 const commercialGroups = computed(() => groupBeanItems('commercial_bean_list'))
+const dripGroups = computed(() => groupBeanItems('drip_bean_list'))
+const dripBagGroups = computed(() => dripGroups.value.filter((group) => group.items.some((item) => item.product_kind === 'drip_bag')))
 const retailGroups = computed(() => groupBeanItems('retail_bean_list'))
 const pdfTheme = computed(() => sanitizeBeanListPdfTheme(pdfOptions.value))
 const pdfAvailableItems = computed(() => beanListItemsForType(pdfTheme.value.listType))
@@ -808,7 +841,7 @@ watch(publicationScope, (scope) => {
 watch(selectedBeanListCustomerID, () => {
   beanListPublications.value = {
     ...beanListPublications.value,
-    customer: { commercial: [], retail: [] },
+    customer: { commercial: [], drip: [], retail: [] },
   }
   selectedCopyPublicationID.value = ''
   resetPdfSelectionDefaults()
@@ -913,10 +946,12 @@ function itemProductID(item) {
 }
 
 function metaKeyForListType(listType) {
+  if (listType === 'drip') return 'drip_bean_list'
   return listType === 'retail' ? 'retail_bean_list' : 'commercial_bean_list'
 }
 
 function tierKeyForListType(listType) {
+  if (listType === 'drip') return 'drip_wholesale_tiers'
   return listType === 'retail' ? 'retail_bean_tiers' : 'commercial_wholesale_tiers'
 }
 
@@ -971,6 +1006,7 @@ function publicationRows(scope, listType) {
 
 function initializePdfDefaults() {
   initializePdfDefaultsForType('commercial')
+  initializePdfDefaultsForType('drip')
   initializePdfDefaultsForType('retail')
 }
 
@@ -980,10 +1016,10 @@ function initializePdfDefaultsIfItemsLoaded() {
 }
 
 function resetPdfSelectionDefaults() {
-  selectedProductIDsByType.value = { commercial: [], retail: [] }
-  visibleCategoryCodesByType.value = { commercial: [], retail: [] }
-  productSelectionInitialized.value = { commercial: false, retail: false }
-  categorySelectionInitialized.value = { commercial: false, retail: false }
+  selectedProductIDsByType.value = { commercial: [], drip: [], retail: [] }
+  visibleCategoryCodesByType.value = { commercial: [], drip: [], retail: [] }
+  productSelectionInitialized.value = { commercial: false, drip: false, retail: false }
+  categorySelectionInitialized.value = { commercial: false, drip: false, retail: false }
 }
 
 function initializePdfDefaultsForType(listType) {
@@ -1361,6 +1397,14 @@ async function loadPriceExplanation() {
   } finally {
     priceExplanationLoading.value = false
   }
+}
+
+async function loadDripPriceTemplates() {
+  return apiGet('/api/drip-price-templates')
+}
+
+async function loadDripPriceExplanation(payload) {
+  return apiSend('/api/costing/drip-price-explanation', { body: payload })
 }
 
 function handlePdfBackgroundUpload(event) {

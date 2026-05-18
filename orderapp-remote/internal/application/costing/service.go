@@ -21,6 +21,37 @@ type PriceExplanationCommand struct {
 	Overrides domain.PriceExplanationOverrides `json:"overrides,omitempty"`
 }
 
+type DripPriceExplanationCommand struct {
+	Product   domain.ProductInput `json:"product"`
+	TierLabel string              `json:"tier_label"`
+}
+
+type SaveDripPriceTemplateCommand struct {
+	ID               int64                          `json:"id,omitempty"`
+	Name             string                         `json:"name"`
+	Active           bool                           `json:"active"`
+	BagGrams         float64                        `json:"bag_grams"`
+	BoxBagCount      int                            `json:"box_bag_count"`
+	IncludePackaging bool                           `json:"include_packaging"`
+	Tiers            []SaveDripPriceTemplateTierRow `json:"tiers"`
+	Actor            string                         `json:"actor,omitempty"`
+}
+
+type SaveDripPriceTemplateTierRow struct {
+	ID         int64    `json:"id,omitempty"`
+	Label      string   `json:"label"`
+	MinBags    float64  `json:"min_bags"`
+	MaxBags    *float64 `json:"max_bags,omitempty"`
+	Multiplier float64  `json:"multiplier"`
+	Position   int      `json:"position"`
+	Active     bool     `json:"active"`
+}
+
+type DeactivateDripPriceTemplateCommand struct {
+	ID    int64  `json:"id"`
+	Actor string `json:"actor,omitempty"`
+}
+
 type CalculateResponse struct {
 	Parameters domain.Parameters      `json:"parameters"`
 	Items      []domain.ProductResult `json:"items"`
@@ -104,6 +135,9 @@ type Repository interface {
 	PublishRun(ctx context.Context, actor string, runID int64) error
 	ListParameterSettings(ctx context.Context) ([]ParameterSetting, error)
 	UpdateParameterSetting(ctx context.Context, cmd UpdateParameterCommand) (ParameterSetting, error)
+	ListDripPriceTemplates(ctx context.Context) ([]domain.DripPriceTemplate, error)
+	SaveDripPriceTemplate(ctx context.Context, cmd SaveDripPriceTemplateCommand) (*domain.DripPriceTemplate, error)
+	DeactivateDripPriceTemplate(ctx context.Context, cmd DeactivateDripPriceTemplateCommand) error
 	ListBeanListPublications(ctx context.Context, query BeanListPublicationQuery) ([]BeanListPublication, error)
 	PublishedBeanList(ctx context.Context, query BeanListPublicationQuery) (*BeanListPublication, error)
 	PublishBeanList(ctx context.Context, cmd PublishBeanListCommand) (*BeanListPublication, error)
@@ -174,6 +208,46 @@ func (s *Service) ExplainPrice(ctx context.Context, req PriceExplanationCommand)
 	return &out, nil
 }
 
+func (s *Service) ExplainDripPrice(ctx context.Context, req DripPriceExplanationCommand) (*domain.DripPriceExplanation, error) {
+	params, err := s.Parameters(ctx)
+	if err != nil {
+		return nil, err
+	}
+	out, err := domain.ExplainDripPrice(params, req.Product, domain.PriceExplanationRequest{TierLabel: req.TierLabel})
+	if err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+func (s *Service) ListDripPriceTemplates(ctx context.Context) ([]domain.DripPriceTemplate, error) {
+	if s.repo == nil {
+		return []domain.DripPriceTemplate{}, nil
+	}
+	return s.repo.ListDripPriceTemplates(ctx)
+}
+
+func (s *Service) SaveDripPriceTemplate(ctx context.Context, cmd SaveDripPriceTemplateCommand) (*domain.DripPriceTemplate, error) {
+	normalized, err := normalizeDripPriceTemplateCommand(cmd)
+	if err != nil {
+		return nil, err
+	}
+	if s.repo == nil {
+		return nil, fmt.Errorf("repository required")
+	}
+	return s.repo.SaveDripPriceTemplate(ctx, normalized)
+}
+
+func (s *Service) DeactivateDripPriceTemplate(ctx context.Context, cmd DeactivateDripPriceTemplateCommand) error {
+	if cmd.ID <= 0 {
+		return fmt.Errorf("invalid id")
+	}
+	if s.repo == nil {
+		return fmt.Errorf("repository required")
+	}
+	return s.repo.DeactivateDripPriceTemplate(ctx, cmd)
+}
+
 func (s *Service) BeanList(ctx context.Context) (*CalculateResponse, error) {
 	params, err := s.Parameters(ctx)
 	if err != nil {
@@ -192,6 +266,42 @@ func (s *Service) BeanList(ctx context.Context) (*CalculateResponse, error) {
 	}
 	sortBeanListResults(items)
 	return &CalculateResponse{Parameters: params, Items: items}, nil
+}
+
+func normalizeDripPriceTemplateCommand(cmd SaveDripPriceTemplateCommand) (SaveDripPriceTemplateCommand, error) {
+	cmd.Name = strings.TrimSpace(cmd.Name)
+	if cmd.Name == "" {
+		return SaveDripPriceTemplateCommand{}, fmt.Errorf("name required")
+	}
+	if math.IsNaN(cmd.BagGrams) || math.IsInf(cmd.BagGrams, 0) || cmd.BagGrams <= 0 {
+		return SaveDripPriceTemplateCommand{}, fmt.Errorf("bag_grams must be > 0")
+	}
+	if cmd.BoxBagCount <= 0 {
+		return SaveDripPriceTemplateCommand{}, fmt.Errorf("box_bag_count must be > 0")
+	}
+	if len(cmd.Tiers) == 0 {
+		return SaveDripPriceTemplateCommand{}, fmt.Errorf("tiers required")
+	}
+	for i := range cmd.Tiers {
+		cmd.Tiers[i].Label = strings.TrimSpace(cmd.Tiers[i].Label)
+		if cmd.Tiers[i].Label == "" {
+			return SaveDripPriceTemplateCommand{}, fmt.Errorf("tier label required")
+		}
+		if cmd.Tiers[i].MinBags <= 0 {
+			return SaveDripPriceTemplateCommand{}, fmt.Errorf("tier min_bags must be > 0")
+		}
+		if cmd.Tiers[i].MaxBags != nil && *cmd.Tiers[i].MaxBags <= cmd.Tiers[i].MinBags {
+			return SaveDripPriceTemplateCommand{}, fmt.Errorf("tier max_bags must be greater than min_bags")
+		}
+		if cmd.Tiers[i].Multiplier <= 0 || math.IsNaN(cmd.Tiers[i].Multiplier) || math.IsInf(cmd.Tiers[i].Multiplier, 0) {
+			return SaveDripPriceTemplateCommand{}, fmt.Errorf("tier multiplier must be > 0")
+		}
+		if cmd.Tiers[i].Position <= 0 {
+			cmd.Tiers[i].Position = i + 1
+		}
+		cmd.Tiers[i].Active = true
+	}
+	return cmd, nil
 }
 
 func (s *Service) CreateRun(ctx context.Context, actor string) (*Run, error) {
@@ -324,6 +434,8 @@ func normalizeBeanListType(listType string) (string, error) {
 	switch strings.TrimSpace(listType) {
 	case "", "commercial":
 		return "commercial", nil
+	case "drip":
+		return "drip", nil
 	case "retail":
 		return "retail", nil
 	default:
