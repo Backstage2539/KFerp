@@ -17,7 +17,7 @@
 - `OP_MANUAL_PRODUCTION.md`：生产计划、生产中、工单、工序卡、生产成本、生产日志、分配批次。
 - `OP_MANUAL_INVENTORY_MATERIALS.md`：物料、原料入库、批次、库存流水、库存调整、BOM。
 - `OP_MANUAL_COSTING.md`：成本参数、成本试算、豆单预览、价格发布。
-- `OP_MANUAL_GREEN_BEAN_SALES.md`：生豆产品建档、生豆销售价、生豆豆单、ERP 录单和小程序下单。
+- `OP_MANUAL_GREEN_BEAN_SALES.md`：生豆产品建档、绑定熟豆 BOM、生豆豆单、ERP 录单和小程序下单。
 - `OP_MANUAL_FINANCE.md`：财务首页、费用管理、月度结账、经营报告、票税台账、财务设置。
 - `OP_MANUAL_SETTINGS_AUDIT.md`：设备产能、发货人、代加工模板、部门员工、操作日志。
 - `OP_MANUAL_NOTIFICATIONS.md`：通知规则、ERP 站内通知和外部 IM 扩展框架。
