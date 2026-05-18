@@ -116,6 +116,26 @@ func TestVueStockWorkspaceIncludesFinishedTransferAndTraceLookup(t *testing.T) {
 	}
 }
 
+func TestVueStockAdjustmentsExposeMaterialCostAdjustment(t *testing.T) {
+	view, err := readStockWorkspaceFile(filepath.Join("frontend-vue-shell", "src", "views", "StockAdjustmentsView.vue"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := string(view)
+	for _, want := range []string{
+		"adjustment_type",
+		"material_cost",
+		"material_batch_id",
+		"target_unit_cost",
+		"/api/stock/material-batches",
+		"批次成本",
+	} {
+		if !strings.Contains(src, want) {
+			t.Fatalf("StockAdjustmentsView.vue must expose material cost adjustment; missing %q", want)
+		}
+	}
+}
+
 func readStockWorkspaceFile(path string) ([]byte, error) {
 	if b, err := os.ReadFile(path); err == nil {
 		return b, nil
