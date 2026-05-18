@@ -7,13 +7,12 @@ import { test } from 'node:test'
 const here = dirname(fileURLToPath(import.meta.url))
 const viewSource = readFileSync(resolve(here, '../views/CostingView.vue'), 'utf8')
 
-test('costing view exposes bean-list publication versions before pricing trial', () => {
+test('product bean-list view exposes publication versions without pricing trial workspace', () => {
   const versionListIndex = viewSource.indexOf('豆单版本列表')
-  const pricingIndex = viewSource.indexOf('价格试算')
 
   assert.ok(versionListIndex > -1, 'missing visible bean-list version list section')
-  assert.ok(pricingIndex > -1, 'missing pricing trial section')
-  assert.ok(versionListIndex < pricingIndex, 'bean-list version list should be shown in 产品豆单 before 价格试算')
+  assert.equal(viewSource.indexOf('价格试算'), -1, '产品豆单 should not expose the pricing trial workspace')
+  assert.equal(viewSource.indexOf('pricingCollapsed'), -1, 'pricing trial collapse state should be removed from 产品豆单')
 
   for (const expected of [
     'v-model="publicationScope"',
