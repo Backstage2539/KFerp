@@ -2,6 +2,7 @@ package production
 
 import (
 	"context"
+	"strings"
 	"testing"
 )
 
@@ -289,6 +290,27 @@ func TestServiceOwnsManufacturingGapUseCases(t *testing.T) {
 	}
 	if repo.qualityCommand.Operator != "测试员" {
 		t.Fatalf("quality operator was not trimmed: %+v", repo.qualityCommand)
+	}
+
+	created, err = svc.CreateQualityInspection(ctx, QualityInspectionCommand{
+		Scope:                    "raw_material",
+		ReferenceNo:              "MB-0000000007",
+		ItemName:                 "孟连水洗5T批次",
+		Result:                   "pass",
+		MetricsJSON:              `{"水分":"10.5%"}`,
+		FactoryFlavorDescription: " 茉莉花、柑橘 ",
+		Moisture:                 " 10.8% ",
+		Density:                  " 780g/L ",
+	})
+	if err != nil {
+		t.Fatalf("CreateQualityInspection inbound metrics: %v", err)
+	}
+	if created.Scope != "raw_material" ||
+		!strings.Contains(repo.qualityCommand.MetricsJSON, `"factory_flavor_description":"茉莉花、柑橘"`) ||
+		!strings.Contains(repo.qualityCommand.MetricsJSON, `"moisture":"10.8%"`) ||
+		!strings.Contains(repo.qualityCommand.MetricsJSON, `"density":"780g/L"`) ||
+		!strings.Contains(repo.qualityCommand.MetricsJSON, `"水分":"10.5%"`) {
+		t.Fatalf("inbound quality metrics = %+v", repo.qualityCommand)
 	}
 
 	created, err = svc.CreateQualityInspection(ctx, QualityInspectionCommand{

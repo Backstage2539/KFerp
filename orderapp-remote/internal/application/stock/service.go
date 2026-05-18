@@ -96,19 +96,22 @@ type MaterialBatchQuery struct {
 }
 
 type MaterialBatchRow struct {
-	ID            int64   `json:"id"`
-	BatchCode     string  `json:"batch_code"`
-	MaterialID    int64   `json:"material_id"`
-	MaterialName  string  `json:"material_name"`
-	Supplier      string  `json:"supplier"`
-	ReceiptID     int64   `json:"receipt_id"`
-	QtyG          int64   `json:"qty_g"`
-	RemainingG    int64   `json:"remaining_g"`
-	UnitCost      float64 `json:"unit_cost"`
-	ReceivedAt    string  `json:"received_at"`
-	Status        string  `json:"status"`
-	QualityStatus string  `json:"quality_status"`
-	Note          string  `json:"note"`
+	ID                        int64   `json:"id"`
+	BatchCode                 string  `json:"batch_code"`
+	MaterialID                int64   `json:"material_id"`
+	MaterialName              string  `json:"material_name"`
+	Supplier                  string  `json:"supplier"`
+	ReceiptID                 int64   `json:"receipt_id"`
+	QtyG                      int64   `json:"qty_g"`
+	RemainingG                int64   `json:"remaining_g"`
+	UnitCost                  float64 `json:"unit_cost"`
+	CropSeason                string  `json:"crop_season"`
+	Origin                    string  `json:"origin"`
+	ProducerFlavorDescription string  `json:"producer_flavor_description"`
+	ReceivedAt                string  `json:"received_at"`
+	Status                    string  `json:"status"`
+	QualityStatus             string  `json:"quality_status"`
+	Note                      string  `json:"note"`
 }
 
 type MaterialBatchResult struct {
@@ -281,19 +284,22 @@ type TraceMaterial struct {
 }
 
 type TraceMaterialBatch struct {
-	ID            int64   `json:"id"`
-	BatchCode     string  `json:"batch_code"`
-	MaterialID    int64   `json:"material_id"`
-	MaterialName  string  `json:"material_name"`
-	Supplier      string  `json:"supplier"`
-	ReceiptID     int64   `json:"receipt_id"`
-	QtyG          int64   `json:"qty_g"`
-	RemainingG    int64   `json:"remaining_g"`
-	UnitCost      float64 `json:"unit_cost"`
-	ReceivedAt    string  `json:"received_at"`
-	Status        string  `json:"status"`
-	QualityStatus string  `json:"quality_status"`
-	Note          string  `json:"note"`
+	ID                        int64   `json:"id"`
+	BatchCode                 string  `json:"batch_code"`
+	MaterialID                int64   `json:"material_id"`
+	MaterialName              string  `json:"material_name"`
+	Supplier                  string  `json:"supplier"`
+	ReceiptID                 int64   `json:"receipt_id"`
+	QtyG                      int64   `json:"qty_g"`
+	RemainingG                int64   `json:"remaining_g"`
+	UnitCost                  float64 `json:"unit_cost"`
+	CropSeason                string  `json:"crop_season"`
+	Origin                    string  `json:"origin"`
+	ProducerFlavorDescription string  `json:"producer_flavor_description"`
+	ReceivedAt                string  `json:"received_at"`
+	Status                    string  `json:"status"`
+	QualityStatus             string  `json:"quality_status"`
+	Note                      string  `json:"note"`
 }
 
 type StockTraceResult struct {
@@ -345,12 +351,15 @@ type FinishedProductTransferResult struct {
 }
 
 type MaterialReceiptCommand struct {
-	MaterialID int64
-	Supplier   string
-	QtyG       int64
-	UnitCost   float64
-	Note       string
-	Operator   string
+	MaterialID                int64
+	Supplier                  string
+	QtyG                      int64
+	UnitCost                  float64
+	CropSeason                string
+	Origin                    string
+	ProducerFlavorDescription string
+	Note                      string
+	Operator                  string
 }
 
 type MaterialReceiptResult struct {
@@ -471,6 +480,9 @@ func (s *Service) ReceiveMaterial(ctx context.Context, cmd MaterialReceiptComman
 		return MaterialReceiptResult{}, fmt.Errorf("unit_cost must be >= 0")
 	}
 	cmd.Supplier = strings.TrimSpace(cmd.Supplier)
+	cmd.CropSeason = strings.TrimSpace(cmd.CropSeason)
+	cmd.Origin = strings.TrimSpace(cmd.Origin)
+	cmd.ProducerFlavorDescription = strings.TrimSpace(cmd.ProducerFlavorDescription)
 	cmd.Note = strings.TrimSpace(cmd.Note)
 	cmd.Operator = strings.TrimSpace(cmd.Operator)
 	if cmd.Operator == "" {

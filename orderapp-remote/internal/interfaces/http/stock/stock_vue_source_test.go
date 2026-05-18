@@ -116,6 +116,55 @@ func TestVueStockWorkspaceIncludesFinishedTransferAndTraceLookup(t *testing.T) {
 	}
 }
 
+func TestVueMaterialReceiptsAndQualityExposeGreenBeanInboundFields(t *testing.T) {
+	receipts, err := readStockWorkspaceFile(filepath.Join("frontend-vue-shell", "src", "views", "MaterialReceiptsView.vue"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	receiptSrc := string(receipts)
+	for _, want := range []string{
+		"crop_season",
+		"origin",
+		"producer_flavor_description",
+		"产季",
+		"产地",
+		"产家风味描述",
+	} {
+		if !strings.Contains(receiptSrc, want) {
+			t.Fatalf("MaterialReceiptsView.vue missing %q", want)
+		}
+	}
+
+	quality, err := readStockWorkspaceFile(filepath.Join("frontend-vue-shell", "src", "views", "QualityInspectionsView.vue"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	qualitySrc := string(quality)
+	for _, want := range []string{
+		"factory_flavor_description",
+		"moisture",
+		"density",
+		"工厂风味描述",
+		"水分",
+		"密度",
+	} {
+		if !strings.Contains(qualitySrc, want) {
+			t.Fatalf("QualityInspectionsView.vue missing %q", want)
+		}
+	}
+
+	batches, err := readStockWorkspaceFile(filepath.Join("frontend-vue-shell", "src", "views", "MaterialBatchesView.vue"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	batchSrc := string(batches)
+	for _, want := range []string{"crop_season", "origin", "producer_flavor_description", "产季", "产地", "产家风味描述"} {
+		if !strings.Contains(batchSrc, want) {
+			t.Fatalf("MaterialBatchesView.vue missing %q", want)
+		}
+	}
+}
+
 func TestVueStockAdjustmentsExposeMaterialCostAdjustment(t *testing.T) {
 	view, err := readStockWorkspaceFile(filepath.Join("frontend-vue-shell", "src", "views", "StockAdjustmentsView.vue"))
 	if err != nil {

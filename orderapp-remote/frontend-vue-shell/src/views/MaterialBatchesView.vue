@@ -12,13 +12,13 @@
     <section class="panel">
       <div class="table-wrap">
         <table>
-          <thead><tr><th>批次号</th><th>物料</th><th>供应商</th><th>入库单</th><th>入库(g)</th><th>剩余(g)</th><th>成本</th><th>库存状态</th><th>质检</th><th>时间</th><th>备注</th></tr></thead>
+          <thead><tr><th>批次号</th><th>物料</th><th>供应商</th><th>产季</th><th>产地</th><th>产家风味描述</th><th>入库单</th><th>入库(g)</th><th>剩余(g)</th><th>成本</th><th>库存状态</th><th>质检</th><th>时间</th><th>备注</th></tr></thead>
           <tbody>
             <tr v-for="row in rows" :key="row.id">
-              <td>{{ row.batch_code }}</td><td>{{ row.material_name }}</td><td>{{ row.supplier || '-' }}</td><td>#{{ row.receipt_id }}</td>
+              <td>{{ row.batch_code }}</td><td>{{ row.material_name }}</td><td>{{ row.supplier || '-' }}</td><td>{{ row.crop_season || '-' }}</td><td>{{ row.origin || '-' }}</td><td>{{ row.producer_flavor_description || '-' }}</td><td>#{{ row.receipt_id }}</td>
               <td>{{ row.qty_g }}</td><td>{{ row.remaining_g }}</td><td>{{ money(row.unit_cost) }}</td><td>{{ row.status }}</td><td><span class="quality-pill" :class="qualityClass(row.quality_status)">{{ qualityLabel(row.quality_status) }}</span></td><td>{{ row.received_at }}</td><td>{{ row.note }}</td>
             </tr>
-            <tr v-if="!rows.length"><td colspan="11" class="muted">暂无原料批次</td></tr>
+            <tr v-if="!rows.length"><td colspan="14" class="muted">暂无原料批次</td></tr>
           </tbody>
         </table>
       </div>
@@ -91,7 +91,7 @@ button { padding:8px 12px; cursor:pointer; }
 .primary { border:1px solid #111; background:#111; color:#fff; }
 .secondary { border:1px solid #999; background:#fff; color:#111; }
 .table-wrap { overflow:auto; }
-table { width:100%; min-width:1060px; border-collapse:collapse; }
+table { width:100%; min-width:1260px; border-collapse:collapse; }
 th, td { border-bottom:1px solid #f0f0f0; padding:8px; text-align:left; font-size:13px; }
 th { background:#fbfbfb; }
 .quality-pill { display:inline-flex; border:1px solid #d1d5db; border-radius:999px; padding:2px 8px; background:#f9fafb; white-space:nowrap; }

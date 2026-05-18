@@ -190,6 +190,7 @@ func (r Repository) ListMaterialBatches(ctx context.Context, query stockapp.Mate
 	sql := fmt.Sprintf(`
 		SELECT b.id,b.batch_code,b.material_id,COALESCE(m.name,''),b.supplier,b.receipt_id,
 		       b.qty_g,b.remaining_g,COALESCE(b.unit_cost,0),
+		       COALESCE(b.crop_season,''),COALESCE(b.origin,''),COALESCE(b.producer_flavor_description,''),
 		       to_char(b.received_at,'YYYY-MM-DD HH24:MI'),b.status,COALESCE(b.quality_status,'unchecked'),b.note
 		FROM %s.material_batches b
 		LEFT JOIN %s.materials m ON m.id=b.material_id
@@ -205,7 +206,7 @@ func (r Repository) ListMaterialBatches(ctx context.Context, query stockapp.Mate
 	out := make([]stockapp.MaterialBatchRow, 0)
 	for rows.Next() {
 		var row stockapp.MaterialBatchRow
-		if err := rows.Scan(&row.ID, &row.BatchCode, &row.MaterialID, &row.MaterialName, &row.Supplier, &row.ReceiptID, &row.QtyG, &row.RemainingG, &row.UnitCost, &row.ReceivedAt, &row.Status, &row.QualityStatus, &row.Note); err != nil {
+		if err := rows.Scan(&row.ID, &row.BatchCode, &row.MaterialID, &row.MaterialName, &row.Supplier, &row.ReceiptID, &row.QtyG, &row.RemainingG, &row.UnitCost, &row.CropSeason, &row.Origin, &row.ProducerFlavorDescription, &row.ReceivedAt, &row.Status, &row.QualityStatus, &row.Note); err != nil {
 			return stockapp.MaterialBatchResult{}, err
 		}
 		out = append(out, row)
@@ -622,6 +623,7 @@ func (r Repository) getMaterialStockTrace(ctx context.Context, batchCode string)
 	err := r.pool.QueryRow(ctx, fmt.Sprintf(`
 		SELECT b.id,b.batch_code,b.material_id,COALESCE(m.name,''),b.supplier,b.receipt_id,
 		       b.qty_g,b.remaining_g,COALESCE(b.unit_cost,0),
+		       COALESCE(b.crop_season,''),COALESCE(b.origin,''),COALESCE(b.producer_flavor_description,''),
 		       to_char(b.received_at,'YYYY-MM-DD HH24:MI'),b.status,COALESCE(b.quality_status,'unchecked'),b.note
 		FROM %s.material_batches b
 		LEFT JOIN %s.materials m ON m.id=b.material_id
@@ -637,6 +639,9 @@ func (r Repository) getMaterialStockTrace(ctx context.Context, batchCode string)
 		&result.MaterialBatch.QtyG,
 		&result.MaterialBatch.RemainingG,
 		&result.MaterialBatch.UnitCost,
+		&result.MaterialBatch.CropSeason,
+		&result.MaterialBatch.Origin,
+		&result.MaterialBatch.ProducerFlavorDescription,
 		&result.MaterialBatch.ReceivedAt,
 		&result.MaterialBatch.Status,
 		&result.MaterialBatch.QualityStatus,
@@ -702,19 +707,19 @@ func (r Repository) ReceiveMaterial(ctx context.Context, cmd stockapp.MaterialRe
 
 	var receiptID int64
 	if err := tx.QueryRow(ctx, fmt.Sprintf(`
-		INSERT INTO %s.material_receipts(material_id,supplier,qty_g,unit_cost,note,operator,created_at)
-		VALUES($1,$2,$3,$4,$5,$6,now())
+		INSERT INTO %s.material_receipts(material_id,supplier,qty_g,unit_cost,crop_season,origin,producer_flavor_description,note,operator,created_at)
+		VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,now())
 		RETURNING id
-	`, r.schema), cmd.MaterialID, cmd.Supplier, cmd.QtyG, cmd.UnitCost, cmd.Note, cmd.Operator).Scan(&receiptID); err != nil {
+	`, r.schema), cmd.MaterialID, cmd.Supplier, cmd.QtyG, cmd.UnitCost, cmd.CropSeason, cmd.Origin, cmd.ProducerFlavorDescription, cmd.Note, cmd.Operator).Scan(&receiptID); err != nil {
 		return stockapp.MaterialReceiptResult{}, err
 	}
 	batchCode := fmt.Sprintf("MB-%010d", receiptID)
 	var batchID int64
 	if err := tx.QueryRow(ctx, fmt.Sprintf(`
-		INSERT INTO %s.material_batches(batch_code,material_id,supplier,receipt_id,qty_g,remaining_g,unit_cost,note,received_at,created_at)
-		VALUES($1,$2,$3,$4,$5,$5,$6,$7,now(),now())
+		INSERT INTO %s.material_batches(batch_code,material_id,supplier,receipt_id,qty_g,remaining_g,unit_cost,crop_season,origin,producer_flavor_description,note,received_at,created_at)
+		VALUES($1,$2,$3,$4,$5,$5,$6,$7,$8,$9,$10,now(),now())
 		RETURNING id
-	`, r.schema), batchCode, cmd.MaterialID, cmd.Supplier, receiptID, cmd.QtyG, cmd.UnitCost, cmd.Note).Scan(&batchID); err != nil {
+	`, r.schema), batchCode, cmd.MaterialID, cmd.Supplier, receiptID, cmd.QtyG, cmd.UnitCost, cmd.CropSeason, cmd.Origin, cmd.ProducerFlavorDescription, cmd.Note).Scan(&batchID); err != nil {
 		return stockapp.MaterialReceiptResult{}, err
 	}
 	if _, err := tx.Exec(ctx, fmt.Sprintf(`

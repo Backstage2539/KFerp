@@ -46,13 +46,16 @@ type WIPReservationReleaseAPIResponse struct {
 }
 
 type QualityInspectionAPIRequest struct {
-	Scope         string `json:"scope"`
-	ReferenceType string `json:"reference_type"`
-	ReferenceNo   string `json:"reference_no"`
-	ItemName      string `json:"item_name"`
-	Result        string `json:"result"`
-	MetricsJSON   string `json:"metrics_json"`
-	Note          string `json:"note"`
+	Scope                    string `json:"scope"`
+	ReferenceType            string `json:"reference_type"`
+	ReferenceNo              string `json:"reference_no"`
+	ItemName                 string `json:"item_name"`
+	Result                   string `json:"result"`
+	MetricsJSON              string `json:"metrics_json"`
+	FactoryFlavorDescription string `json:"factory_flavor_description"`
+	Moisture                 string `json:"moisture"`
+	Density                  string `json:"density"`
+	Note                     string `json:"note"`
 }
 
 type QualityInspectionCreateAPIResponse struct {
@@ -168,14 +171,17 @@ func registerManufacturingGapAPI(e *echo.Echo, productionSvc *productionapp.Serv
 			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: "invalid request"})
 		}
 		row, err := productionSvc.CreateQualityInspection(c.Request().Context(), productionapp.QualityInspectionCommand{
-			Scope:         req.Scope,
-			ReferenceType: req.ReferenceType,
-			ReferenceNo:   req.ReferenceNo,
-			ItemName:      req.ItemName,
-			Result:        req.Result,
-			MetricsJSON:   req.MetricsJSON,
-			Note:          req.Note,
-			Operator:      support.ActorOf(c),
+			Scope:                    req.Scope,
+			ReferenceType:            req.ReferenceType,
+			ReferenceNo:              req.ReferenceNo,
+			ItemName:                 req.ItemName,
+			Result:                   req.Result,
+			MetricsJSON:              req.MetricsJSON,
+			FactoryFlavorDescription: req.FactoryFlavorDescription,
+			Moisture:                 req.Moisture,
+			Density:                  req.Density,
+			Note:                     req.Note,
+			Operator:                 support.ActorOf(c),
 		})
 		if err != nil {
 			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: err.Error()})
