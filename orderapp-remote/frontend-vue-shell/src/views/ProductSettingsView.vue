@@ -4,7 +4,7 @@
       <div class="panel-head">
         <div>
           <h2>SKU设置</h2>
-          <p>维护公共 SKU、客户专属 SKU、商品分类和梯度模板；豆单生成与价格试算请进入产品豆单。</p>
+          <p>维护公共 SKU、客户专属 SKU、商品分类和梯度模板；豆单生成请进入产品豆单。</p>
         </div>
         <button class="secondary" type="button" @click="loadAll" :disabled="loading">刷新</button>
       </div>
@@ -837,7 +837,7 @@ async function bindCategoryGradientTemplate(category, templateID) {
     await apiSend(`/api/product-settings/categories/${category.id}/gradient-template`, {
       body: { gradient_template_id: Number(templateID || 0) },
     })
-    ok.value = '分类梯度模板已更新，未发布预览会自动按新模板试算'
+    ok.value = '分类梯度模板已更新，未发布预览会自动按新模板更新'
     await loadAll()
   } catch (err) {
     error.value = err.message || '绑定梯度模板失败'
