@@ -45,7 +45,7 @@ type productHandler struct {
 }
 
 type productUpdateAPIRequest struct {
-	RoastLevel            string                    `json:"roast_level"`
+	RoastLevel            *string                   `json:"roast_level"`
 	ProductKind           string                    `json:"product_kind"`
 	DripBagGrams          *float64                  `json:"drip_bag_grams"`
 	DripBoxBagCount       *int                      `json:"drip_box_bag_count"`
@@ -168,7 +168,14 @@ func (h productHandler) updateAPI(c echo.Context) error {
 	if existing == nil {
 		return c.JSON(http.StatusNotFound, map[string]any{"error": "not found"})
 	}
-	roastLevel := NormalizeRoastLevel(req.RoastLevel)
+	roastLevelInput := ""
+	if req.RoastLevel != nil {
+		roastLevelInput = *req.RoastLevel
+	}
+	roastLevel := NormalizeRoastLevel(roastLevelInput)
+	if strings.TrimSpace(roastLevelInput) != "" && roastLevel == "" {
+		return c.JSON(http.StatusBadRequest, map[string]any{"error": "invalid roast_level"})
+	}
 	if roastLevel == "" {
 		roastLevel = existing.RoastLevel
 	}

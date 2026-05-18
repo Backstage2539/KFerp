@@ -528,6 +528,29 @@ func TestProductSettingsAPIUpdatesProductYieldRate(t *testing.T) {
 	}
 }
 
+func TestProductSettingsAPIRejectsInvalidUpdateRoastLevel(t *testing.T) {
+	repo := &productSettingsRepo{
+		products: []catalogapp.Product{{ID: 7, Name: "曲奇拼配", RoastLevel: "中烘", YieldRate: 0.82}},
+	}
+	e := echo.New()
+	registerProductRoutes(e, catalogapp.NewService(repo))
+
+	req := httptest.NewRequest(http.MethodPut, "/api/products/7", bytes.NewBufferString(`{"roast_level":"not-a-level"}`))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("PUT invalid roast level status=%d, want 400 body=%s", rec.Code, rec.Body.String())
+	}
+	if repo.productUpdated {
+		t.Fatalf("invalid roast level update should not reach repo, command=%+v", repo.updated)
+	}
+	if !bytes.Contains(rec.Body.Bytes(), []byte("invalid roast_level")) {
+		t.Fatalf("invalid roast level response should mention invalid roast_level: %s", rec.Body.String())
+	}
+}
+
 func TestProductSettingsAPIRejectsExplicitZeroDripBagUpdate(t *testing.T) {
 	cases := []struct {
 		name string
