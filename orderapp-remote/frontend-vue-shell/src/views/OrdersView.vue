@@ -98,18 +98,28 @@
       <div v-if="shippingError" class="notice error">{{ shippingError }}</div>
       <div class="bulk-order-bar">
         <span>批量失效已选 {{ bulkSelectedOrderIDs.length }} 个</span>
-        <button class="secondary" type="button" @click="selectVisibleVoidableOrders" :disabled="!hasVisibleVoidableOrders()">选择本页正常订单</button>
         <button class="secondary" type="button" @click="clearBulkSelection" :disabled="!bulkSelectedOrderIDs.length">清空</button>
         <button class="danger-action" type="button" @click="voidSelectedOrders" :disabled="bulkVoiding || !bulkSelectedOrderIDs.length">
           {{ bulkVoiding ? '失效中' : '批量失效' }}
         </button>
-        <small>失效后不可恢复；需要重建时，从“已失效”订单点“复制”。</small>
+        <small>表头复选框用于当前页正常订单全选/取消；失效后不可恢复，需要重建时从“已失效”订单点“复制”。</small>
       </div>
       <div class="table-wrap">
         <table>
           <thead>
             <tr>
-              <th class="select-col">失效</th>
+              <th class="select-col">
+                <label class="select-all-cell" title="当前页正常订单全选/取消">
+                  <input
+                    type="checkbox"
+                    :checked="allVisibleVoidableOrdersSelected()"
+                    :disabled="!hasVisibleVoidableOrders()"
+                    aria-label="当前页正常订单全选"
+                    @change="togglePageVoidSelection"
+                  />
+                  <span>失效</span>
+                </label>
+              </th>
               <th class="select-col">发货</th>
               <th>订单号</th>
               <th>日期</th>
@@ -641,10 +651,27 @@ function toggleBulkOrder(row, checked) {
   shippingError.value = ''
 }
 
-function selectVisibleVoidableOrders() {
-  const ids = rows.value.filter((row) => !row?.is_void).map((row) => Number(row.id)).filter(Boolean)
-  bulkSelectedOrderIDs.value = Array.from(new Set([...bulkSelectedOrderIDs.value, ...ids]))
-  shippingError.value = ids.length ? '' : '本页没有可批量失效的正常订单'
+function currentPageVoidableOrderIDs() {
+  return rows.value.filter((row) => !row?.is_void).map((row) => Number(row.id)).filter(Boolean)
+}
+
+function allVisibleVoidableOrdersSelected() {
+  const ids = currentPageVoidableOrderIDs()
+  return ids.length > 0 && ids.every((id) => bulkSelectedOrderIDs.value.includes(id))
+}
+
+function togglePageVoidSelection() {
+  const ids = currentPageVoidableOrderIDs()
+  if (!ids.length) {
+    shippingError.value = '本页没有可批量失效的正常订单'
+    return
+  }
+  if (allVisibleVoidableOrdersSelected()) {
+    bulkSelectedOrderIDs.value = bulkSelectedOrderIDs.value.filter((id) => !ids.includes(id))
+  } else {
+    bulkSelectedOrderIDs.value = Array.from(new Set([...bulkSelectedOrderIDs.value, ...ids]))
+  }
+  shippingError.value = ''
 }
 
 function clearBulkSelection() {
@@ -926,6 +953,8 @@ tr.state-unpaid { background: #fff1f2; box-shadow: inset 4px 0 0 #ef4444; }
 tr.voided { opacity: .55; }
 .select-col { width: 54px; text-align: center; }
 .select-col input { width: 18px; height: 18px; padding: 0; }
+.select-all-cell { display: inline-flex; flex-direction: column; align-items: center; gap: 3px; margin: 0; color: #555; font-size: 12px; cursor: pointer; }
+.select-all-cell input { margin: 0; }
 a, .text-link { color: #1f4f82; text-decoration: none; }
 .text-button { height: auto; border: 0; border-radius: 0; padding: 0; background: transparent; color: #1f4f82; font: inherit; text-decoration: none; cursor: pointer; }
 .danger-text { color: #9f2f2f; }
