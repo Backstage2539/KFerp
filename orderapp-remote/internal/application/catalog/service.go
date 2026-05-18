@@ -261,6 +261,11 @@ func (s *Service) ReplacePriceTiers(ctx context.Context, cmd ReplacePriceTiersCo
 	if err := normalizeProductSalesShape(&cmd.ProductKind, &cmd.GreenBeanType, &cmd.GreenBeanBomProductID, &cmd.RoastLevel, &cmd.DefaultPrice, &cmd.RetailPrice100G, &cmd.RetailPrice200G, &cmd.RetailPrice227G, &cmd.RetailPrice250G, &cmd.YieldRate, &cmd.Tiers); err != nil {
 		return err
 	}
+	if cmd.ProductKind == catalogdomain.ProductKindGreenBean {
+		if err := s.validateGreenBeanBomProduct(ctx, cmd.GreenBeanBomProductID); err != nil {
+			return err
+		}
+	}
 	return s.repo.ReplacePriceTiers(ctx, cmd)
 }
 
@@ -268,6 +273,11 @@ func (s *Service) UpdateProductBasics(ctx context.Context, cmd UpdateProductBasi
 	cmd.ProductKind = catalogdomain.NormalizeProductKind(cmd.ProductKind)
 	if err := normalizeProductSalesShape(&cmd.ProductKind, &cmd.GreenBeanType, &cmd.GreenBeanBomProductID, &cmd.RoastLevel, &cmd.DefaultPrice, &cmd.RetailPrice100G, &cmd.RetailPrice200G, &cmd.RetailPrice227G, &cmd.RetailPrice250G, &cmd.YieldRate, nil); err != nil {
 		return err
+	}
+	if cmd.ProductKind == catalogdomain.ProductKindGreenBean {
+		if err := s.validateGreenBeanBomProduct(ctx, cmd.GreenBeanBomProductID); err != nil {
+			return err
+		}
 	}
 	return s.repo.UpdateProductBasics(ctx, cmd)
 }
@@ -306,6 +316,9 @@ func (s *Service) CreateProduct(ctx context.Context, cmd CreateProductCommand) (
 		if err := normalizeProductSalesShape(&cmd.ProductKind, &cmd.GreenBeanType, &cmd.GreenBeanBomProductID, &cmd.RoastLevel, &cmd.DefaultPrice, &cmd.RetailPrice100G, &cmd.RetailPrice200G, &cmd.RetailPrice227G, &cmd.RetailPrice250G, &cmd.YieldRate, &cmd.Tiers); err != nil {
 			return Product{}, err
 		}
+		if err := s.validateGreenBeanBomProduct(ctx, cmd.GreenBeanBomProductID); err != nil {
+			return Product{}, err
+		}
 	} else {
 		cmd.RoastLevel = catalogdomain.NormalizeRoastLevel(cmd.RoastLevel)
 		if cmd.RoastLevel == "" {
@@ -319,6 +332,20 @@ func (s *Service) CreateProduct(ctx context.Context, cmd CreateProductCommand) (
 		}
 	}
 	return s.repo.CreateProduct(ctx, cmd)
+}
+
+func (s *Service) validateGreenBeanBomProduct(ctx context.Context, productID int64) error {
+	product, err := s.repo.GetProduct(ctx, productID)
+	if err != nil {
+		return err
+	}
+	if product == nil || product.ID <= 0 {
+		return fmt.Errorf("green_bean_bom_product_id not found")
+	}
+	if catalogdomain.NormalizeProductKind(product.ProductKind) == catalogdomain.ProductKindGreenBean {
+		return fmt.Errorf("green_bean_bom_product_id must reference roasted product")
+	}
+	return nil
 }
 
 func normalizeProductSalesShape(productKind *string, greenBeanType *string, greenBeanBomProductID *int64, roastLevel *string, defaultPrice *float64, retailPrice100G *float64, retailPrice200G *float64, retailPrice227G *float64, retailPrice250G *float64, yieldRate *float64, tiers *[]PriceTier) error {

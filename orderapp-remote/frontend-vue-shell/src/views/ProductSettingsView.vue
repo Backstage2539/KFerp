@@ -84,14 +84,14 @@
             </select>
           </label>
           <label v-if="productForm.product_kind === 'green_bean'" class="wide-field">
-            <span>绑定熟豆 BOM</span>
+            <span>绑定熟豆</span>
             <SearchableSelect
               v-model="productForm.green_bean_bom_product_id"
               :options="roastedBomProducts"
               :option-label="baseProductOptionLabel"
               :option-meta="baseProductOptionMeta"
               :option-value="optionNumericValue"
-              placeholder="选择对应熟豆产品/BOM"
+              placeholder="选择对应熟豆"
               empty-text="暂无熟豆产品" />
           </label>
           <div class="form-actions">
@@ -392,8 +392,6 @@
                 <th>商品编号</th>
                 <th>商品</th>
                 <th>形态</th>
-                <th>生豆属性</th>
-                <th>绑定熟豆 BOM</th>
                 <th>归属</th>
                 <th>类型</th>
                 <th>烘焙度</th>
@@ -405,82 +403,88 @@
               </tr>
             </thead>
             <tbody>
-              <tr v-for="row in displaySkuRows" :key="row.id">
-                <td class="select-col">
-                  <input type="checkbox" :checked="isProductSelected(row)" @change="toggleProductSelection(row, $event.target.checked)" />
-                </td>
-                <td>{{ categoryLabel(row, 1) }}</td>
-                <td>{{ categoryLabel(row, 2) }}</td>
-                <td>{{ row.number || '' }}</td>
-                <td>{{ row.name }}</td>
-                <td><span class="kind-badge" :class="productKindBadgeClass(row)">{{ productKindLabel(row) }}</span></td>
-                <td>
-                  <select
-                    v-if="row.product_kind === 'green_bean'"
-                    class="green-type-select"
-                    v-model="row.green_bean_type"
-                    @change="saveProductBasics(row)">
-                    <option v-for="option in greenBeanTypeOptions" :key="option.value" :value="option.value">{{ option.label }}</option>
-                  </select>
-                  <span v-else class="muted">-</span>
-                </td>
-                <td>
-                  <SearchableSelect
-                    v-if="row.product_kind === 'green_bean'"
-                    class="bom-product-select"
-                    v-model="row.green_bean_bom_product_id"
-                    :options="roastedBomProducts"
-                    :option-label="baseProductOptionLabel"
-                    :option-meta="baseProductOptionMeta"
-                    :option-value="optionNumericValue"
-                    placeholder="绑定熟豆 BOM"
-                    empty-text="暂无熟豆产品"
-                    @select="saveProductBasics(row)" />
-                  <span v-else class="muted">-</span>
-                </td>
-                <td>{{ ownerLabel(row) }}</td>
-                <td>{{ customTypeLabel(row.custom_type) }}</td>
-                <td>
-                  <select class="roast-select" v-model="row.roast_level" :disabled="row.product_kind === 'green_bean'" @change="saveProductBasics(row)">
-                    <option v-for="level in roastLevels" :key="level" :value="level">{{ level }}</option>
-                  </select>
-                </td>
-                <td>
-                  <div class="yield-editor">
+              <template v-for="row in displaySkuRows" :key="row.id">
+                <tr>
+                  <td class="select-col">
+                    <input type="checkbox" :checked="isProductSelected(row)" @change="toggleProductSelection(row, $event.target.checked)" />
+                  </td>
+                  <td>{{ categoryLabel(row, 1) }}</td>
+                  <td>{{ categoryLabel(row, 2) }}</td>
+                  <td>{{ row.number || '' }}</td>
+                  <td>{{ row.name }}</td>
+                  <td><span class="kind-badge" :class="productKindBadgeClass(row)">{{ productKindLabel(row) }}</span></td>
+                  <td>{{ ownerLabel(row) }}</td>
+                  <td>{{ customTypeLabel(row.custom_type) }}</td>
+                  <td>
+                    <select class="roast-select" v-model="row.roast_level" :disabled="row.product_kind === 'green_bean'" @change="saveProductBasics(row)">
+                      <option v-for="level in roastLevels" :key="level" :value="level">{{ level }}</option>
+                    </select>
+                  </td>
+                  <td>
+                    <div class="yield-editor">
+                      <input
+                        class="yield-input"
+                        v-model.number="row.yield_percent"
+                        type="number"
+                        min="1"
+                        max="100"
+                        step="0.01"
+                        :disabled="row.product_kind === 'green_bean'"
+                        @change="saveProductBasics(row)" />
+                      <span>%</span>
+                    </div>
+                  </td>
+                  <td v-if="!selectedCustomerSkuCustomerID">
                     <input
-                      class="yield-input"
-                      v-model.number="row.yield_percent"
+                      class="margin-input"
+                      v-model="row.margin_rate_override_input"
                       type="number"
-                      min="1"
-                      max="100"
-                      step="0.01"
-                      :disabled="row.product_kind === 'green_bean'"
-                      @change="saveProductBasics(row)" />
-                    <span>%</span>
-                  </div>
-                </td>
-                <td v-if="!selectedCustomerSkuCustomerID">
-                  <input
-                    class="margin-input"
-                    v-model="row.margin_rate_override_input"
-                    type="number"
-                    min="0"
-                    step="0.001"
-                    placeholder="留空继承分类模板"
-                    @change="saveProductMarginOverride(row)" />
-                </td>
-                <td>
-                  <span :class="['status-pill', row.bom_status === 'inactive' ? 'inactive' : '']">{{ bomStatusLabel(row.bom_status) }}</span>
-                </td>
-                <td>
-                  <button class="text-button" type="button" @click="openProductBom(row)">维护 BOM</button>
-                </td>
-                <td>
-                  <button class="text-button danger-text" type="button" @click="deactivateProducts([row.id])">失效</button>
-                </td>
-              </tr>
+                      min="0"
+                      step="0.001"
+                      placeholder="留空继承分类模板"
+                      @change="saveProductMarginOverride(row)" />
+                  </td>
+                  <td>
+                    <span :class="['status-pill', row.bom_status === 'inactive' ? 'inactive' : '']">{{ bomStatusLabel(row.bom_status) }}</span>
+                  </td>
+                  <td>
+                    <button class="text-button" type="button" @click="openProductBom(row)">维护 BOM</button>
+                  </td>
+                  <td>
+                    <button class="text-button danger-text" type="button" @click="deactivateProducts([row.id])">失效</button>
+                  </td>
+                </tr>
+                <tr v-if="row.product_kind === 'green_bean'" class="green-bean-detail-row">
+                  <td :colspan="selectedCustomerSkuCustomerID ? 13 : 14">
+                    <div class="green-bean-detail-fields">
+                      <label>
+                        <span>生豆属性</span>
+                        <select
+                          class="green-type-select"
+                          v-model="row.green_bean_type"
+                          @change="saveProductBasics(row)">
+                          <option v-for="option in greenBeanTypeOptions" :key="option.value" :value="option.value">{{ option.label }}</option>
+                        </select>
+                      </label>
+                      <label class="green-bom-field">
+                        <span>绑定熟豆</span>
+                        <SearchableSelect
+                          class="bom-product-select"
+                          v-model="row.green_bean_bom_product_id"
+                          :options="roastedBomProducts"
+                          :option-label="baseProductOptionLabel"
+                          :option-meta="baseProductOptionMeta"
+                          :option-value="optionNumericValue"
+                          placeholder="选择熟豆"
+                          empty-text="暂无熟豆产品"
+                          @select="saveProductBasics(row)" />
+                      </label>
+                    </div>
+                  </td>
+                </tr>
+              </template>
               <tr v-if="!displaySkuRows.length">
-                <td :colspan="selectedCustomerSkuCustomerID ? 15 : 16" class="muted">{{ selectedCustomerSkuCustomerID ? '暂无客户SKU' : '暂无公共SKU' }}</td>
+                <td :colspan="selectedCustomerSkuCustomerID ? 13 : 14" class="muted">{{ selectedCustomerSkuCustomerID ? '暂无客户SKU' : '暂无公共SKU' }}</td>
               </tr>
             </tbody>
           </table>
@@ -1510,6 +1514,11 @@ th { background: #fbfaf8; position: sticky; top: 0; }
 .roast-select { min-width: 92px; }
 .green-type-select { min-width: 92px; }
 .bom-product-select { min-width: 220px; }
+.green-bean-detail-row td { background: #f7fbf8; padding-top: 6px; padding-bottom: 12px; }
+.green-bean-detail-fields { display: flex; align-items: flex-end; gap: 14px; padding-left: 296px; }
+.green-bean-detail-fields label { display: grid; gap: 5px; }
+.green-bean-detail-fields label span { color: #667085; font-size: 12px; font-weight: 600; }
+.green-bom-field { min-width: 360px; }
 .yield-editor { display: flex; align-items: center; gap: 6px; max-width: 130px; }
 .yield-input { width: 90px; }
 .kind-badge { display: inline-flex; align-items: center; min-height: 20px; padding: 1px 7px; border-radius: 4px; font-size: 12px; font-weight: 600; }

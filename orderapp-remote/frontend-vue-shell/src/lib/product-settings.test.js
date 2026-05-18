@@ -73,5 +73,9 @@ test('product basics payload preserves green bean type and BOM binding without d
 test('green bean labels and BOM product options stay fused with existing product model', () => {
   assert.equal(greenBeanTypeLabel('blend'), '拼配')
   assert.equal(greenBeanTypeLabel('single_origin'), '单品')
-  assert.deepEqual(roastedBomProductOptions(rows).map((row) => row.id), [1])
+  assert.deepEqual(roastedBomProductOptions([
+    ...rows,
+    { id: 4, name: '历史缺形态 SKU', product_kind: '' },
+    { id: 5, name: '异常缺形态生豆', product_kind: '', green_bean_bom_product_id: 1 },
+  ]).map((row) => row.id), [1])
 })
