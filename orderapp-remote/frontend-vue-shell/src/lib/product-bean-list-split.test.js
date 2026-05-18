@@ -32,15 +32,19 @@ test('SKU settings no longer embeds the product bean-list workspace', () => {
 test('SKU settings exposes customer context initialization without the public product form', () => {
   for (const expected of [
     'v-if="!selectedCustomerSkuCustomerID"',
-    'customerSkuCustomerOptions(customers.value)',
+    '/api/customer-fulfillment/customers?limit=200',
+    'customerSkuCustomerOptions(customerData)',
     'buildCustomerPublicCopyPayload',
-    'use_public_sku',
-    'use_public_categories',
-    '/api/product-settings/customer-public-copy',
+    'copyPublicCategoriesForCustomer',
+    'copyPublicSkuForCustomer',
   ]) {
     assert.match(productSettingsSource, new RegExp(expected.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')))
   }
+  assert.match(productSettingsSource, /<div v-if="selectedCustomerSkuCustomerID" class="panel custom-product-panel">/)
+  assert.match(productSettingsSource, /<span>是否使用商品分类<\/span>/)
+  assert.match(productSettingsSource, /<span>是否使用公共SKU<\/span>/)
   assert.doesNotMatch(productSettingsSource, /v-model="customForm\.customer_id"/)
+  assert.doesNotMatch(productSettingsSource, /先在顶部选择客户后创建客户专属 SKU/)
 })
 
 test('product bean-list page owns customer context for bean-list previews', () => {

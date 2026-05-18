@@ -57,7 +57,7 @@ func TestProductFormulaMenuClickMatrixViewsExposeActions(t *testing.T) {
 			"/api/product-settings/categories",
 			"/api/products/",
 			"创建公共产品",
-			"选择客户SKU",
+			"选择履约客户",
 			"商品基础信息已保存",
 		},
 		filepath.Join("frontend-vue-shell", "src", "views", "MallSettingsView.vue"): {

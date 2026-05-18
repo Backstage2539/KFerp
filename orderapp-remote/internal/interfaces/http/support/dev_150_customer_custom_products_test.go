@@ -63,7 +63,7 @@ func TestCustomerCustomSkuFormUsesSearchableDropdowns(t *testing.T) {
 		"SearchableSelect",
 		"selectedCustomerSkuCustomerID",
 		"baseProductOptionLabel",
-		"先在顶部选择客户后创建客户专属 SKU",
+		`v-if="selectedCustomerSkuCustomerID" class="panel custom-product-panel"`,
 		"输入产品名",
 		"没有匹配产品",
 	} {
