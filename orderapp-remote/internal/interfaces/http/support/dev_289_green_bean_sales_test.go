@@ -108,6 +108,22 @@ func repoFilePath(t *testing.T, rel string) string {
 	if !ok {
 		t.Fatal("resolve repo test path")
 	}
-	root := filepath.Clean(filepath.Join(filepath.Dir(file), "../../../../.."))
-	return filepath.Join(root, filepath.FromSlash(rel))
+	supportDir := filepath.Dir(file)
+	roots := []string{
+		filepath.Clean(filepath.Join(supportDir, "../../../../..")),
+		filepath.Clean(filepath.Join(supportDir, "../../../..")),
+	}
+	paths := []string{rel}
+	if trimmed := strings.TrimPrefix(rel, "orderapp-remote/"); trimmed != rel {
+		paths = append(paths, trimmed)
+	}
+	for _, root := range roots {
+		for _, path := range paths {
+			candidate := filepath.Join(root, filepath.FromSlash(path))
+			if _, err := os.Stat(candidate); err == nil {
+				return candidate
+			}
+		}
+	}
+	return filepath.Join(roots[0], filepath.FromSlash(rel))
 }
