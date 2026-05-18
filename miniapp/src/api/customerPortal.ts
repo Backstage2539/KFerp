@@ -78,8 +78,17 @@ export type BeanListProductSummary = {
   recommended_use?: string
   flavor?: string
   description?: string
+  bean_list_quality?: BeanListQualitySummary
   highlight_terms?: string[]
   prices?: BeanListPriceSummary[]
+}
+
+export type BeanListQualitySummary = {
+  factory_flavor_description?: string
+  moisture?: string
+  density?: string
+  inspection_created_at?: string
+  inspection_reference_no?: string
 }
 
 export type BeanListPriceSummary = {

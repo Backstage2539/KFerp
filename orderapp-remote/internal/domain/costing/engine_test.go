@@ -258,6 +258,39 @@ func TestGreenBeanProductUsesGradientTemplateAndSkipsRoastCosting(t *testing.T) 
 	assertClose(t, "green bean lb price", tier.PricePerLb, 60*params.KgToLbFactor)
 }
 
+func TestCalculateProductCarriesBeanListQuality(t *testing.T) {
+	params := DefaultParameters()
+	got := CalculateProduct(params, ProductInput{
+		ProductID:          702,
+		Name:               "埃塞瑰夏生豆",
+		ProductKind:        "green_bean",
+		GreenBeanCostPerKg: 50,
+		GradientTemplate: &GradientTemplate{
+			ID:          32,
+			Name:        "生豆销售模板",
+			DisplayUnit: GradientDisplayUnitKg,
+			Tiers: []GradientTemplateTier{
+				{ID: 321, Label: "1kg+", MinWeightG: 1000, MarginRate: 0.2, Position: 1},
+			},
+		},
+		BeanListQuality: BeanListQuality{
+			FactoryFlavorDescription: "茉莉花、柑橘",
+			Moisture:                 "10.8%",
+			Density:                  "780g/L",
+			InspectionCreatedAt:      "2026-05-18 09:30",
+			InspectionReferenceNo:    "WO-0000000020",
+		},
+	})
+
+	if got.BeanListQuality.FactoryFlavorDescription != "茉莉花、柑橘" ||
+		got.BeanListQuality.Moisture != "10.8%" ||
+		got.BeanListQuality.Density != "780g/L" ||
+		got.BeanListQuality.InspectionCreatedAt != "2026-05-18 09:30" ||
+		got.BeanListQuality.InspectionReferenceNo != "WO-0000000020" {
+		t.Fatalf("BeanListQuality = %+v", got.BeanListQuality)
+	}
+}
+
 func TestProductMarginOverrideReplacesGradientTemplateTierMargin(t *testing.T) {
 	params := DefaultParameters()
 	input := ProductInput{

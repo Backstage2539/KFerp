@@ -102,6 +102,7 @@ function buildPdfItem(item, metaKey, tierKey, listType, code, customizers) {
   const customizer = customizerFor(item, customizers)
   const highlightTerms = normalizeStringList(customizer.highlightTerms)
   const badge = normalizeBadge(customizer.badge)
+  const beanListQuality = normalizeBeanListQuality(item.bean_list_quality || item.beanListQuality)
   return {
     productId: item.product_id || item.productID || item.id || null,
     code: code || meta.code || '',
@@ -113,6 +114,7 @@ function buildPdfItem(item, metaKey, tierKey, listType, code, customizers) {
     badge,
     badgeLabel: badgeLabel(badge),
     highlightTerms,
+    ...(beanListQuality ? { beanListQuality, qualityLines: beanListQualityLines(beanListQuality) } : {}),
     prices: (Array.isArray(item[tierKey]) ? item[tierKey] : []).map((tier) => {
       const label = tier.label || ''
       return {
@@ -123,6 +125,33 @@ function buildPdfItem(item, metaKey, tierKey, listType, code, customizers) {
       }
     })
   }
+}
+
+function normalizeBeanListQuality(input) {
+  if (!input || typeof input !== 'object' || Array.isArray(input)) return null
+  const candidates = {
+    factoryFlavorDescription: input.factory_flavor_description ?? input.factoryFlavorDescription,
+    moisture: input.moisture,
+    density: input.density,
+    inspectionCreatedAt: input.inspection_created_at ?? input.inspectionCreatedAt,
+    inspectionReferenceNo: input.inspection_reference_no ?? input.inspectionReferenceNo,
+  }
+  const out = {}
+  Object.entries(candidates).forEach(([key, value]) => {
+    const normalized = stringField(value)
+    if (normalized) out[key] = normalized
+  })
+  return Object.keys(out).length > 0 ? out : null
+}
+
+function beanListQualityLines(quality = {}) {
+  return [
+    { label: '工厂风味', value: stringField(quality.factoryFlavorDescription) },
+    { label: '水分', value: stringField(quality.moisture) },
+    { label: '密度', value: stringField(quality.density) },
+    { label: '质检时间', value: stringField(quality.inspectionCreatedAt) },
+    { label: '质检单号', value: stringField(quality.inspectionReferenceNo) },
+  ].filter((line) => line.value)
 }
 
 export function compareBeanCodes(a, b) {
@@ -233,6 +262,10 @@ function normalizeStringSet(values) {
 function normalizeStringList(values) {
   const raw = Array.isArray(values) ? values : String(values || '').split(/[\n,，]/)
   return raw.map((value) => String(value ?? '').trim()).filter(Boolean)
+}
+
+function stringField(value) {
+  return String(value ?? '').trim()
 }
 
 function copySelectedValues(config, key, validValues = []) {

@@ -281,6 +281,9 @@ func parseBeanListDisplaySummary(configJSON, contentJSON []byte, row *customerpo
 				RecommendedUse: beanListMapString(itemMap, "recommendedUse", ""),
 				Flavor:         beanListMapString(itemMap, "flavor", ""),
 				Description:    beanListMapString(itemMap, "description", ""),
+				BeanListQuality: beanListQualitySummaryFromMap(
+					beanListFirstMap(itemMap, "beanListQuality", "bean_list_quality"),
+				),
 				HighlightTerms: highlightTerms,
 				Prices:         make([]customerportalapp.BeanListPriceSummary, 0),
 			}
@@ -313,6 +316,34 @@ func parseBeanListDisplaySummary(configJSON, contentJSON []byte, row *customerpo
 	row.Groups = groups
 	populateBeanListMetadata(row)
 	return nil
+}
+
+func beanListQualitySummaryFromMap(value map[string]any) customerportalapp.BeanListQualitySummary {
+	return customerportalapp.BeanListQualitySummary{
+		FactoryFlavorDescription: beanListFirstString(value, "factoryFlavorDescription", "factory_flavor_description"),
+		Moisture:                 beanListFirstString(value, "moisture"),
+		Density:                  beanListFirstString(value, "density"),
+		InspectionCreatedAt:      beanListFirstString(value, "inspectionCreatedAt", "inspection_created_at"),
+		InspectionReferenceNo:    beanListFirstString(value, "inspectionReferenceNo", "inspection_reference_no"),
+	}
+}
+
+func beanListFirstMap(m map[string]any, keys ...string) map[string]any {
+	for _, key := range keys {
+		if row, ok := m[key].(map[string]any); ok {
+			return row
+		}
+	}
+	return nil
+}
+
+func beanListFirstString(m map[string]any, keys ...string) string {
+	for _, key := range keys {
+		if value := beanListMapString(m, key, ""); value != "" {
+			return value
+		}
+	}
+	return ""
 }
 
 func beanListMapsFromAny(value any) []map[string]any {

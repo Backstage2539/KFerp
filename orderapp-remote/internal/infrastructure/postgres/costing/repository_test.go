@@ -124,6 +124,28 @@ func TestLoadProductInputsDoesNotLoadGreenBeanDirectSaleTiers(t *testing.T) {
 	}
 }
 
+func TestLoadProductInputsReadsLatestPassedProductionQualityForBeanList(t *testing.T) {
+	b, err := os.ReadFile("repository.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := string(b)
+	for _, want := range []string{
+		"quality_inspections qi",
+		"qi.result='pass'",
+		"qi_work_order.product_id=p.bom_product_id",
+		"qi_finished_batch.item_id=p.bom_product_id",
+		"ORDER BY qi.created_at DESC, qi.id DESC",
+		"factory_flavor_description",
+		"moisture",
+		"density",
+	} {
+		if !strings.Contains(src, want) {
+			t.Fatalf("bean list QC must use latest passed production inspection; missing %q", want)
+		}
+	}
+}
+
 func TestPublishBeanListUsesQueryRowBeforeAuditToAvoidBusyConnection(t *testing.T) {
 	b, err := os.ReadFile("repository.go")
 	if err != nil {

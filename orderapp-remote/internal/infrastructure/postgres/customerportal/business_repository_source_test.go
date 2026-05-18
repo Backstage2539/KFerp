@@ -214,6 +214,12 @@ func TestParseBeanListDisplaySummaryExtractsPublishedStyleAndContent(t *testing.
 						"recommendedUse": "手冲/SOE/冷萃",
 						"flavor":         "柑橘/莓果",
 						"description":    "干净明亮",
+						"beanListQuality": map[string]any{
+							"factoryFlavorDescription": "茉莉花、柑橘",
+							"moisture":                 "10.8%",
+							"density":                  "780g/L",
+							"inspectionCreatedAt":      "2026-05-18 09:30",
+						},
 						"highlightTerms": []any{"乌拉嘎", "柑橘"},
 						"prices": []any{
 							map[string]any{"label": "454g", "price": 118, "unit": "包", "red": true},
@@ -264,6 +270,10 @@ func TestParseBeanListDisplaySummaryExtractsPublishedStyleAndContent(t *testing.
 		item.RecommendedUse == "" ||
 		item.Flavor == "" ||
 		item.Description == "" ||
+		item.BeanListQuality.FactoryFlavorDescription != "茉莉花、柑橘" ||
+		item.BeanListQuality.Moisture != "10.8%" ||
+		item.BeanListQuality.Density != "780g/L" ||
+		item.BeanListQuality.InspectionCreatedAt != "2026-05-18 09:30" ||
 		len(item.HighlightTerms) != 2 ||
 		item.HighlightTerms[0] != "乌拉嘎" {
 		t.Fatalf("item=%+v", item)

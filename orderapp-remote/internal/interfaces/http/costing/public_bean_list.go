@@ -45,6 +45,7 @@ type publicBeanListItem struct {
 	RecommendedUseHTML template.HTML
 	FlavorHTML         template.HTML
 	DescriptionHTML    template.HTML
+	QualityHTML        template.HTML
 	Prices             []publicBeanListPrice
 }
 
@@ -162,6 +163,7 @@ var publicBeanListTemplate = template.Must(template.New("public-bean-list").Func
                       {{if .RecommendedUseHTML}}<div class="pdf-table-line">出品建议 {{.RecommendedUseHTML}}</div>{{end}}
                       {{if .FlavorHTML}}<div class="pdf-table-line">风味 {{.FlavorHTML}}</div>{{end}}
                       {{if .DescriptionHTML}}<div class="pdf-table-line">特点 {{.DescriptionHTML}}</div>{{end}}
+                      {{if .QualityHTML}}<div class="pdf-table-line">质检 {{.QualityHTML}}</div>{{end}}
                     </td>
                     <td class="pdf-table-prices">
                       {{range .Prices}}<div><span class="{{if .Red}}pdf-red{{end}}">{{.LabelHTML}}</span><strong class="{{if .Red}}pdf-red{{end}}">{{.ValueHTML}}</strong></div>{{end}}
@@ -182,6 +184,7 @@ var publicBeanListTemplate = template.Must(template.New("public-bean-list").Func
                     {{if .RecommendedUseHTML}}<dl class="pdf-detail"><dt>出品建议</dt><dd>{{.RecommendedUseHTML}}</dd></dl>{{end}}
                     {{if .FlavorHTML}}<dl class="pdf-detail"><dt>风味</dt><dd>{{.FlavorHTML}}</dd></dl>{{end}}
                     {{if .DescriptionHTML}}<dl class="pdf-detail"><dt>特点</dt><dd>{{.DescriptionHTML}}</dd></dl>{{end}}
+                    {{if .QualityHTML}}<dl class="pdf-detail"><dt>质检</dt><dd>{{.QualityHTML}}</dd></dl>{{end}}
                     <div class="pdf-price-block">
                       <div class="pdf-section-label">报价</div>
                       <div class="pdf-price-list">
@@ -214,8 +217,11 @@ func renderPublicBeanListPage(row appcosting.BeanListPublication) (string, error
 
 func renderNoPublishedBeanListPage(listType string) string {
 	label := "商用"
-	if strings.TrimSpace(listType) == "retail" {
+	switch normalizePublicBeanListType(listType) {
+	case "retail":
 		label = "零售"
+	case "green":
+		label = "生豆"
 	}
 	return fmt.Sprintf(`<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>暂无已发布%s豆单</title><style>body{margin:0;background:#f5f5f5;font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:#171717}.empty-page{width:min(620px,100%%);margin:44px auto;border:1px solid #ddd;border-radius:10px;background:#fff;padding:26px;box-sizing:border-box}h1{margin:0 0 8px;font-size:28px}p{margin:0;color:#666}</style></head><body><main class="empty-page"><h1>暂无已发布%s豆单</h1><p>请先在 ERP 生成豆单页面发布后，再把链接发给客户。</p></main></body></html>`, label, label)
 }
@@ -275,6 +281,7 @@ func publicItemFromMap(item map[string]any) publicBeanListItem {
 		RecommendedUseHTML: publicHighlightHTML(mapString(item, "recommendedUse", ""), terms),
 		FlavorHTML:         publicHighlightHTML(mapString(item, "flavor", ""), terms),
 		DescriptionHTML:    publicHighlightHTML(mapString(item, "description", ""), terms),
+		QualityHTML:        publicQualityHTML(item, terms),
 	}
 	for _, priceMap := range publicMapsFromAny(item["prices"]) {
 		label := mapString(priceMap, "label", "")
@@ -310,24 +317,44 @@ func buildPublicBeanListTitle(listType, brandName string) string {
 	if brand == "" {
 		brand = "棵凡咖啡"
 	}
-	if listType == "retail" {
+	switch normalizePublicBeanListType(listType) {
+	case "retail":
 		return brand + "零售豆单"
+	case "green":
+		return brand + "生豆豆单"
 	}
 	return brand + "批发豆单"
 }
 
 func buildPublicBeanListSubtitle(listType string) string {
-	if listType == "retail" {
+	switch normalizePublicBeanListType(listType) {
+	case "retail":
 		return "报价含税运"
+	case "green":
+		return "生豆销售报价"
 	}
 	return "报价不含税、不含运"
 }
 
 func publicBeanListTypeLabel(listType string) string {
-	if listType == "retail" {
+	switch normalizePublicBeanListType(listType) {
+	case "retail":
 		return "零售"
+	case "green":
+		return "生豆"
 	}
 	return "商用"
+}
+
+func normalizePublicBeanListType(listType string) string {
+	switch strings.TrimSpace(listType) {
+	case "retail":
+		return "retail"
+	case "green", "green_bean":
+		return "green"
+	default:
+		return "commercial"
+	}
 }
 
 func publicLayoutStyle(value string) string {
@@ -389,6 +416,51 @@ func publicHighlightHTML(text string, terms []string) template.HTML {
 		index = matchIndex + len(match)
 	}
 	return template.HTML(out.String())
+}
+
+func publicQualityHTML(item map[string]any, terms []string) template.HTML {
+	quality := publicMapFromAny(item["beanListQuality"])
+	if len(quality) == 0 {
+		quality = publicMapFromAny(item["bean_list_quality"])
+	}
+	lines := []string{}
+	for _, row := range []struct {
+		label string
+		keys  []string
+	}{
+		{"工厂风味", []string{"factoryFlavorDescription", "factory_flavor_description"}},
+		{"水分", []string{"moisture"}},
+		{"密度", []string{"density"}},
+		{"质检时间", []string{"inspectionCreatedAt", "inspection_created_at"}},
+		{"质检单号", []string{"inspectionReferenceNo", "inspection_reference_no"}},
+	} {
+		if value := publicFirstString(quality, row.keys...); value != "" {
+			lines = append(lines, row.label+" "+value)
+		}
+	}
+	if len(lines) == 0 {
+		return ""
+	}
+	return publicHighlightHTML(strings.Join(lines, " / "), terms)
+}
+
+func publicMapFromAny(value any) map[string]any {
+	if value == nil {
+		return nil
+	}
+	if m, ok := value.(map[string]any); ok {
+		return m
+	}
+	return nil
+}
+
+func publicFirstString(m map[string]any, keys ...string) string {
+	for _, key := range keys {
+		if value := mapString(m, key, ""); value != "" {
+			return value
+		}
+	}
+	return ""
 }
 
 func publicSortTerms(terms []string) []string {

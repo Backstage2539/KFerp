@@ -72,6 +72,7 @@ type ProductInput struct {
 	MarginRateOverride        *float64                  `json:"margin_rate_override,omitempty"`
 	GradientTemplate          *GradientTemplate         `json:"gradient_template,omitempty"`
 	GreenBeanSaleTiers        []CommercialWholesaleTier `json:"green_bean_sale_tiers,omitempty"`
+	BeanListQuality           BeanListQuality           `json:"bean_list_quality,omitempty"`
 }
 
 type CommercialWholesaleTier struct {
@@ -168,6 +169,14 @@ type BeanListDisplay struct {
 	Description    string `json:"description,omitempty"`
 }
 
+type BeanListQuality struct {
+	FactoryFlavorDescription string `json:"factory_flavor_description,omitempty"`
+	Moisture                 string `json:"moisture,omitempty"`
+	Density                  string `json:"density,omitempty"`
+	InspectionCreatedAt      string `json:"inspection_created_at,omitempty"`
+	InspectionReferenceNo    string `json:"inspection_reference_no,omitempty"`
+}
+
 type ProductResult struct {
 	ProductID                      int64                     `json:"product_id"`
 	Name                           string                    `json:"name"`
@@ -182,6 +191,7 @@ type ProductResult struct {
 	CommercialBeanList             BeanListDisplay           `json:"commercial_bean_list"`
 	RetailBeanList                 BeanListDisplay           `json:"retail_bean_list"`
 	GreenBeanList                  BeanListDisplay           `json:"green_bean_list"`
+	BeanListQuality                BeanListQuality           `json:"bean_list_quality,omitempty"`
 	Flavor                         string                    `json:"flavor,omitempty"`
 	Origin                         string                    `json:"origin,omitempty"`
 	ProcessingStation              string                    `json:"processing_station,omitempty"`
@@ -330,6 +340,7 @@ func CalculateProduct(params Parameters, in ProductInput) ProductResult {
 		GradientTemplate:     in.GradientTemplate,
 		CommercialBeanList:   commercialDisplay,
 		RetailBeanList:       retailDisplay,
+		BeanListQuality:      in.BeanListQuality,
 		Flavor:               in.Flavor,
 		Origin:               in.Origin,
 		ProcessingStation:    in.ProcessingStation,
@@ -412,6 +423,7 @@ func calculateGreenBeanProduct(params Parameters, in ProductInput) ProductResult
 		Visibility:        in.Visibility,
 		CustomType:        in.CustomType,
 		ProductCategoryID: in.ProductCategoryID,
+		BeanListQuality:   in.BeanListQuality,
 		GreenBeanList: BeanListDisplay{
 			Code:           code,
 			Category:       "生豆销售",

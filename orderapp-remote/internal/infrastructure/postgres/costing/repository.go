@@ -90,7 +90,12 @@ func (r Repository) LoadProductInputs(ctx context.Context, params domain.Paramet
 		       COALESCE(string_agg(DISTINCT NULLIF(bp.grade, ''), ' / ') FILTER (WHERE NULLIF(bp.grade, '') IS NOT NULL), ''),
 		       COALESCE(string_agg(DISTINCT NULLIF(bp.altitude, ''), ' / ') FILTER (WHERE NULLIF(bp.altitude, '') IS NOT NULL), ''),
 		       COALESCE(string_agg(DISTINCT NULLIF(bp.bean_list_note, ''), ' / ') FILTER (WHERE NULLIF(bp.bean_list_note, '') IS NOT NULL), ''),
-		       COALESCE(NULLIF(b.status,''), CASE WHEN b.product_id IS NULL THEN 'missing' ELSE 'active' END)
+		       COALESCE(NULLIF(b.status,''), CASE WHEN b.product_id IS NULL THEN 'missing' ELSE 'active' END),
+		       COALESCE(qc.factory_flavor_description, ''),
+		       COALESCE(qc.moisture, ''),
+		       COALESCE(qc.density, ''),
+		       COALESCE(qc.inspection_created_at, ''),
+		       COALESCE(qc.inspection_reference_no, '')
 		FROM product_scope p
 		LEFT JOIN %s.product_bom b ON b.product_id = bom_product_id
 		LEFT JOIN %s.product_bom_items bi ON bi.product_id = bom_product_id
@@ -99,9 +104,35 @@ func (r Repository) LoadProductInputs(ctx context.Context, params domain.Paramet
 		LEFT JOIN %s.material_bean_profiles bp ON bp.material_id = m.id
 		LEFT JOIN %s.products base_p ON base_p.id = p.base_product_id
 		LEFT JOIN %s.product_categories pc ON pc.id = p.product_category_id AND pc.active=true
-		GROUP BY p.id, p.name, p.product_kind, base_p.name, p.roast_level, p.customer_id, p.base_product_id, p.visibility, p.custom_type, p.product_category_id, pc.gradient_template_id, p.margin_rate_override, p.bom_product_id, b.yield_rate, b.status, b.product_id
+		LEFT JOIN LATERAL (
+			SELECT COALESCE(NULLIF(qi.metrics_json->>'factory_flavor_description',''), NULLIF(qi.metrics_json->>'factory_flavor',''), NULLIF(qi.metrics_json->>'工厂风味描述',''), '') AS factory_flavor_description,
+			       COALESCE(NULLIF(qi.metrics_json->>'moisture',''), NULLIF(qi.metrics_json->>'水分',''), '') AS moisture,
+			       COALESCE(NULLIF(qi.metrics_json->>'density',''), NULLIF(qi.metrics_json->>'密度',''), '') AS density,
+			       to_char(qi.created_at,'YYYY-MM-DD HH24:MI') AS inspection_created_at,
+			       qi.reference_no AS inspection_reference_no
+			FROM %s.quality_inspections qi
+			LEFT JOIN %s.work_orders qi_work_order
+			  ON (qi.reference_type='work_order' OR qi.scope='work_order')
+			 AND qi_work_order.work_order_no=qi.reference_no
+			LEFT JOIN %s.stock_batches qi_work_batch
+			  ON (qi.reference_type='work_order' OR qi.scope='work_order')
+			 AND qi_work_batch.item_type='finished_product'
+			 AND qi_work_batch.source_doc_id=qi_work_order.running_item_id
+			LEFT JOIN %s.stock_batches qi_finished_batch
+			  ON (qi.reference_type='finished_batch' OR qi.scope='finished_batch')
+			 AND qi_finished_batch.item_type='finished_product'
+			 AND qi_finished_batch.batch_code=qi.reference_no
+			WHERE qi.result='pass'
+			  AND (
+			    ((qi.reference_type='work_order' OR qi.scope='work_order') AND (qi_work_order.product_id=p.bom_product_id OR qi_work_batch.item_id=p.bom_product_id))
+			    OR ((qi.reference_type='finished_batch' OR qi.scope='finished_batch') AND qi_finished_batch.item_id=p.bom_product_id)
+			  )
+			ORDER BY qi.created_at DESC, qi.id DESC
+			LIMIT 1
+		) qc ON true
+		GROUP BY p.id, p.name, p.product_kind, base_p.name, p.roast_level, p.customer_id, p.base_product_id, p.visibility, p.custom_type, p.product_category_id, pc.gradient_template_id, p.margin_rate_override, p.bom_product_id, b.yield_rate, b.status, b.product_id, qc.factory_flavor_description, qc.moisture, qc.density, qc.inspection_created_at, qc.inspection_reference_no
 		ORDER BY p.name
-	`, r.schema, r.schema, r.schema, r.schema, r.schema, r.schema, r.schema, r.schema, r.schema)
+	`, r.schema, r.schema, r.schema, r.schema, r.schema, r.schema, r.schema, r.schema, r.schema, r.schema, r.schema, r.schema, r.schema)
 	rows, err := r.pool.Query(ctx, q, params.RoastYieldRate)
 	if err != nil {
 		return nil, err
@@ -116,7 +147,7 @@ func (r Repository) LoadProductInputs(ctx context.Context, params domain.Paramet
 		var roastLevel string
 		var fallbackYield float64
 		var gradientTemplateID int64
-		if err := rows.Scan(&input.ProductID, &input.Name, &input.ProductKind, &input.BeanListTemplateName, &roastLevel, &input.CustomerID, &input.BaseProductID, &input.Visibility, &input.CustomType, &input.ProductCategoryID, &gradientTemplateID, &input.MarginRateOverride, &fallbackYield, &input.GreenBeanCostPerKg, &input.Flavor, &input.Origin, &input.ProcessingStation, &input.Variety, &input.ProcessMethod, &input.Grade, &input.Altitude, &input.BeanListNote, &input.BomStatus); err != nil {
+		if err := rows.Scan(&input.ProductID, &input.Name, &input.ProductKind, &input.BeanListTemplateName, &roastLevel, &input.CustomerID, &input.BaseProductID, &input.Visibility, &input.CustomType, &input.ProductCategoryID, &gradientTemplateID, &input.MarginRateOverride, &fallbackYield, &input.GreenBeanCostPerKg, &input.Flavor, &input.Origin, &input.ProcessingStation, &input.Variety, &input.ProcessMethod, &input.Grade, &input.Altitude, &input.BeanListNote, &input.BomStatus, &input.BeanListQuality.FactoryFlavorDescription, &input.BeanListQuality.Moisture, &input.BeanListQuality.Density, &input.BeanListQuality.InspectionCreatedAt, &input.BeanListQuality.InspectionReferenceNo); err != nil {
 			return nil, err
 		}
 		if gradientTemplateID > 0 {
