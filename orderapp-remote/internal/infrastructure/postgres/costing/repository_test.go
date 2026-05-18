@@ -89,6 +89,41 @@ func TestLoadProductInputsReadsProductMarginOverrideForTemplatePricing(t *testin
 	}
 }
 
+func TestLoadProductInputsUsesGreenBeanBoundBomProductForCosting(t *testing.T) {
+	b, err := os.ReadFile("repository.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := string(b)
+	for _, want := range []string{
+		"green_bean_bom_product_id",
+		"bom_product_id",
+		"b.product_id = bom_product_id",
+		"bi.product_id = bom_product_id",
+	} {
+		if !strings.Contains(src, want) {
+			t.Fatalf("green bean costing must read BOM through bound roasted product; missing %q", want)
+		}
+	}
+}
+
+func TestLoadProductInputsDoesNotLoadGreenBeanDirectSaleTiers(t *testing.T) {
+	b, err := os.ReadFile("repository.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := string(b)
+	for _, forbidden := range []string{
+		"loadGreenBeanSaleTiers",
+		"green_bean_direct",
+		"GreenBeanSaleTiers = tiers",
+	} {
+		if strings.Contains(src, forbidden) {
+			t.Fatalf("green bean sale tiers must come from costing templates, not direct product price tiers; found %q", forbidden)
+		}
+	}
+}
+
 func TestPublishBeanListUsesQueryRowBeforeAuditToAvoidBusyConnection(t *testing.T) {
 	b, err := os.ReadFile("repository.go")
 	if err != nil {

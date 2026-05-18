@@ -216,6 +216,48 @@ func TestGradientTemplateCommercialTiersMatchByWeightAndUseTemplateUnit(t *testi
 	assertClose(t, "227g price", smallUnit.CommercialWholesaleTiers[0].PricePerUnit, 19)
 }
 
+func TestGreenBeanProductUsesGradientTemplateAndSkipsRoastCosting(t *testing.T) {
+	params := DefaultParameters()
+	got := CalculateProduct(params, ProductInput{
+		ProductID:          701,
+		Name:               "埃塞瑰夏生豆",
+		ProductKind:        "green_bean",
+		GreenBeanCostPerKg: 50,
+		YieldRate:          0.7,
+		GradientTemplate: &GradientTemplate{
+			ID:          31,
+			Name:        "生豆销售模板",
+			DisplayUnit: GradientDisplayUnitKg,
+			Tiers: []GradientTemplateTier{
+				{ID: 311, Label: "1kg+", MinWeightG: 1000, MaxWeightG: nil, MarginRate: 0.2, Position: 1},
+			},
+		},
+	})
+
+	if got.ProductKind != "green_bean" {
+		t.Fatalf("ProductKind = %q, want green_bean", got.ProductKind)
+	}
+	if got.RoastedBeanCostPerKg != 0 || got.SmallBatchCostPerKg != 0 || got.LargeBatchCostPerKg != 0 {
+		t.Fatalf("green bean should not populate roasted costing fields: roasted=%.2f small=%.2f large=%.2f", got.RoastedBeanCostPerKg, got.SmallBatchCostPerKg, got.LargeBatchCostPerKg)
+	}
+	if len(got.CommercialWholesaleTiers) != 0 {
+		t.Fatalf("green bean should not populate roasted commercial tiers: %+v", got.CommercialWholesaleTiers)
+	}
+	if got.BomStatus != "bom_cost_template_price" {
+		t.Fatalf("BomStatus = %q, want bom_cost_template_price", got.BomStatus)
+	}
+	if len(got.GreenBeanSaleTiers) != 1 {
+		t.Fatalf("GreenBeanSaleTiers = %+v, want one template tier", got.GreenBeanSaleTiers)
+	}
+	tier := got.GreenBeanSaleTiers[0]
+	if tier.Label != "1kg+" || tier.Scheme != "green_bean_template" || tier.TemplateID != 31 || tier.TemplateTierID != 311 || tier.DisplayUnit != GradientDisplayUnitKg {
+		t.Fatalf("green bean tier metadata = %+v", tier)
+	}
+	assertClose(t, "green bean kg unit price", tier.PricePerUnit, 60)
+	assertClose(t, "green bean kg price", tier.PricePerKg, 60)
+	assertClose(t, "green bean lb price", tier.PricePerLb, 60*params.KgToLbFactor)
+}
+
 func TestProductMarginOverrideReplacesGradientTemplateTierMargin(t *testing.T) {
 	params := DefaultParameters()
 	input := ProductInput{

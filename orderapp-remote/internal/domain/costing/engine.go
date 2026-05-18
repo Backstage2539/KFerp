@@ -292,7 +292,7 @@ func ApplyExcelCommercialPricingProfile(params Parameters, in ProductInput) Prod
 
 func CalculateProduct(params Parameters, in ProductInput) ProductResult {
 	if strings.TrimSpace(in.ProductKind) == "green_bean" {
-		return calculateGreenBeanProduct(in)
+		return calculateGreenBeanProduct(params, in)
 	}
 	in, _ = ValidateProductInput(params, in)
 	profileName := costingProfileName(in)
@@ -385,7 +385,7 @@ func CalculateProduct(params Parameters, in ProductInput) ProductResult {
 	return out
 }
 
-func calculateGreenBeanProduct(in ProductInput) ProductResult {
+func calculateGreenBeanProduct(params Parameters, in ProductInput) ProductResult {
 	displayName := strings.TrimSpace(in.BeanListTemplateName)
 	if displayName == "" {
 		displayName = strings.TrimSpace(in.Name)
@@ -394,29 +394,14 @@ func calculateGreenBeanProduct(in ProductInput) ProductResult {
 	if in.ProductID <= 0 {
 		code = "G.0"
 	}
-	tiers := make([]CommercialWholesaleTier, 0, len(in.GreenBeanSaleTiers))
-	for i, tier := range in.GreenBeanSaleTiers {
-		next := tier
-		if strings.TrimSpace(next.Label) == "" {
-			next.Label = greenBeanTierLabel(next)
+	tiers := buildGreenBeanTemplateSaleTiers(params, in)
+	bomStatus := "bom_cost_template_price"
+	if len(tiers) == 0 {
+		tiers = normalizeLegacyGreenBeanSaleTiers(in.GreenBeanSaleTiers)
+		bomStatus = "missing_green_bean_template"
+		if len(tiers) > 0 {
+			bomStatus = "direct_sale_price"
 		}
-		if next.SpecG <= 0 {
-			next.SpecG = 1000
-		}
-		if strings.TrimSpace(next.DisplayUnit) == "" {
-			next.DisplayUnit = GradientDisplayUnitKg
-		}
-		if next.MinQty <= 0 {
-			next.MinQty = float64(i + 1)
-		}
-		if next.PricePerUnit > 0 && next.PricePerLb == 0 {
-			next.PricePerLb = next.PricePerUnit * 454.0 / float64(next.SpecG)
-		}
-		if next.PricePerUnit > 0 && next.PricePerKg == 0 {
-			next.PricePerKg = next.PricePerUnit * 1000.0 / float64(next.SpecG)
-		}
-		next.Scheme = "green_bean_direct"
-		tiers = append(tiers, next)
 	}
 	return ProductResult{
 		ProductID:         in.ProductID,
@@ -443,9 +428,96 @@ func calculateGreenBeanProduct(in ProductInput) ProductResult {
 		Grade:              in.Grade,
 		Altitude:           in.Altitude,
 		BeanListNote:       in.BeanListNote,
-		BomStatus:          "direct_sale_price",
+		GreenBeanCostPerKg: in.GreenBeanCostPerKg,
+		BomStatus:          bomStatus,
 		GreenBeanSaleTiers: tiers,
 	}
+}
+
+func buildGreenBeanTemplateSaleTiers(params Parameters, in ProductInput) []CommercialWholesaleTier {
+	template := normalizeGradientTemplate(in.GradientTemplate)
+	if template == nil {
+		return nil
+	}
+	out := make([]CommercialWholesaleTier, 0, len(template.Tiers))
+	for _, tier := range template.Tiers {
+		margin := tier.MarginRate
+		if in.MarginRateOverride != nil {
+			margin = *in.MarginRateOverride
+		}
+		displayUnit := normalizeGradientDisplayUnit(template.DisplayUnit)
+		specG := specGForGradientDisplayUnit(displayUnit)
+		pricePerKg := roundPrice(in.GreenBeanCostPerKg * (1 + margin))
+		pricePerLb := pricePerKg * params.KgToLbFactor
+		pricePerUnit := pricePerKg
+		switch displayUnit {
+		case GradientDisplayUnitLb:
+			pricePerUnit = roundPrice(pricePerLb)
+		case GradientDisplayUnitKg:
+			pricePerUnit = pricePerKg
+		default:
+			pricePerUnit = roundPrice(pricePerKg * float64(specG) / 1000.0)
+		}
+		minQty := roundQuantity(tier.MinWeightG / float64(specG))
+		var maxQty *float64
+		if tier.MaxWeightG != nil {
+			v := roundQuantity(*tier.MaxWeightG / float64(specG))
+			maxQty = &v
+		}
+		minLb := roundQuantity(tier.MinWeightG / 454.0)
+		var maxLb *float64
+		if tier.MaxWeightG != nil {
+			v := roundQuantity(*tier.MaxWeightG / 454.0)
+			maxLb = &v
+		}
+		out = append(out, CommercialWholesaleTier{
+			Label:          tier.Label,
+			Scheme:         "green_bean_template",
+			SpecG:          int64(specG),
+			MinQty:         minQty,
+			MaxQty:         maxQty,
+			PricePerUnit:   pricePerUnit,
+			MinLb:          minLb,
+			MaxLb:          maxLb,
+			PricePerKg:     pricePerKg,
+			PricePerLb:     pricePerLb,
+			TemplateID:     template.ID,
+			TemplateTierID: tier.ID,
+			DisplayUnit:    displayUnit,
+			MinWeightG:     tier.MinWeightG,
+			MaxWeightG:     tier.MaxWeightG,
+			MarginRate:     margin,
+		})
+	}
+	return out
+}
+
+func normalizeLegacyGreenBeanSaleTiers(source []CommercialWholesaleTier) []CommercialWholesaleTier {
+	tiers := make([]CommercialWholesaleTier, 0, len(source))
+	for i, tier := range source {
+		next := tier
+		if strings.TrimSpace(next.Label) == "" {
+			next.Label = greenBeanTierLabel(next)
+		}
+		if next.SpecG <= 0 {
+			next.SpecG = 1000
+		}
+		if strings.TrimSpace(next.DisplayUnit) == "" {
+			next.DisplayUnit = GradientDisplayUnitKg
+		}
+		if next.MinQty <= 0 {
+			next.MinQty = float64(i + 1)
+		}
+		if next.PricePerUnit > 0 && next.PricePerLb == 0 {
+			next.PricePerLb = next.PricePerUnit * 454.0 / float64(next.SpecG)
+		}
+		if next.PricePerUnit > 0 && next.PricePerKg == 0 {
+			next.PricePerKg = next.PricePerUnit * 1000.0 / float64(next.SpecG)
+		}
+		next.Scheme = "green_bean_direct"
+		tiers = append(tiers, next)
+	}
+	return tiers
 }
 
 func greenBeanTierLabel(tier CommercialWholesaleTier) string {

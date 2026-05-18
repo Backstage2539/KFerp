@@ -56,6 +56,17 @@ func (r Repository) LoadProductInputs(ctx context.Context, params domain.Paramet
 			  AND b.status='active'
 			  AND COALESCE(b.quality_status,'unchecked') NOT IN ('hold','reject')
 			GROUP BY l.material_id
+		),
+		product_scope AS (
+			SELECT p.*,
+			       CASE
+			         WHEN COALESCE(NULLIF(p.product_kind,''),'roasted')='green_bean'
+			          AND COALESCE(p.green_bean_bom_product_id,0) > 0
+			         THEN p.green_bean_bom_product_id
+			         ELSE p.id
+			       END AS bom_product_id
+			FROM %s.products p
+			WHERE p.active = true
 		)
 		SELECT p.id,
 		       p.name,
@@ -80,16 +91,15 @@ func (r Repository) LoadProductInputs(ctx context.Context, params domain.Paramet
 		       COALESCE(string_agg(DISTINCT NULLIF(bp.altitude, ''), ' / ') FILTER (WHERE NULLIF(bp.altitude, '') IS NOT NULL), ''),
 		       COALESCE(string_agg(DISTINCT NULLIF(bp.bean_list_note, ''), ' / ') FILTER (WHERE NULLIF(bp.bean_list_note, '') IS NOT NULL), ''),
 		       COALESCE(NULLIF(b.status,''), CASE WHEN b.product_id IS NULL THEN 'missing' ELSE 'active' END)
-		FROM %s.products p
-		LEFT JOIN %s.product_bom b ON b.product_id = p.id
-		LEFT JOIN %s.product_bom_items bi ON bi.product_id = p.id
+		FROM product_scope p
+		LEFT JOIN %s.product_bom b ON b.product_id = bom_product_id
+		LEFT JOIN %s.product_bom_items bi ON bi.product_id = bom_product_id
 		LEFT JOIN %s.materials m ON m.id = bi.material_id
 		LEFT JOIN material_valuation mv ON mv.material_id = m.id
 		LEFT JOIN %s.material_bean_profiles bp ON bp.material_id = m.id
 		LEFT JOIN %s.products base_p ON base_p.id = p.base_product_id
 		LEFT JOIN %s.product_categories pc ON pc.id = p.product_category_id AND pc.active=true
-		WHERE p.active = true
-		GROUP BY p.id, p.name, p.product_kind, base_p.name, p.roast_level, p.customer_id, p.base_product_id, p.visibility, p.custom_type, p.product_category_id, pc.gradient_template_id, p.margin_rate_override, b.yield_rate, b.status, b.product_id
+		GROUP BY p.id, p.name, p.product_kind, base_p.name, p.roast_level, p.customer_id, p.base_product_id, p.visibility, p.custom_type, p.product_category_id, pc.gradient_template_id, p.margin_rate_override, p.bom_product_id, b.yield_rate, b.status, b.product_id
 		ORDER BY p.name
 	`, r.schema, r.schema, r.schema, r.schema, r.schema, r.schema, r.schema, r.schema, r.schema)
 	rows, err := r.pool.Query(ctx, q, params.RoastYieldRate)
@@ -136,60 +146,7 @@ func (r Repository) LoadProductInputs(ctx context.Context, params domain.Paramet
 			}
 		}
 	}
-	if err := r.loadGreenBeanSaleTiers(ctx, out); err != nil {
-		return nil, err
-	}
 	return out, nil
-}
-
-func (r Repository) loadGreenBeanSaleTiers(ctx context.Context, products []domain.ProductInput) error {
-	ids := make([]int64, 0)
-	for _, product := range products {
-		if strings.TrimSpace(product.ProductKind) == "green_bean" && product.ProductID > 0 {
-			ids = append(ids, product.ProductID)
-		}
-	}
-	if len(ids) == 0 {
-		return nil
-	}
-	rows, err := r.pool.Query(ctx, fmt.Sprintf(`
-		SELECT id,
-		       product_id,
-		       COALESCE(NULLIF(spec_g,0),1000),
-		       COALESCE(min_qty_units, min_qty_lb, 0),
-		       max_qty_units,
-		       COALESCE(NULLIF(price_per_unit,0), price_per_lb * COALESCE(NULLIF(spec_g,0),1000) / 454.0, 0),
-		       COALESCE(min_qty_lb, min_qty_units * COALESCE(NULLIF(spec_g,0),1000) / 454.0, 0),
-		       max_qty_lb,
-		       COALESCE(NULLIF(price_per_lb,0), price_per_unit * 454.0 / COALESCE(NULLIF(spec_g,0),1000), 0)
-		FROM %s.product_price_tiers
-		WHERE active=true AND product_id = ANY($1)
-		ORDER BY product_id, COALESCE(NULLIF(spec_g,0),1000), COALESCE(min_qty_units, min_qty_lb, 0), id
-	`, r.schema), ids)
-	if err != nil {
-		return err
-	}
-	defer rows.Close()
-	tiersByProduct := map[int64][]domain.CommercialWholesaleTier{}
-	for rows.Next() {
-		var tier domain.CommercialWholesaleTier
-		var productID int64
-		if err := rows.Scan(&tier.TemplateTierID, &productID, &tier.SpecG, &tier.MinQty, &tier.MaxQty, &tier.PricePerUnit, &tier.MinLb, &tier.MaxLb, &tier.PricePerLb); err != nil {
-			return err
-		}
-		tier.DisplayUnit = domain.GradientDisplayUnitKg
-		tier.Scheme = "green_bean_direct"
-		tiersByProduct[productID] = append(tiersByProduct[productID], tier)
-	}
-	if err := rows.Err(); err != nil {
-		return err
-	}
-	for i := range products {
-		if tiers := tiersByProduct[products[i].ProductID]; len(tiers) > 0 {
-			products[i].GreenBeanSaleTiers = tiers
-		}
-	}
-	return nil
 }
 
 func (r Repository) loadGradientTemplatesByID(ctx context.Context, ids map[int64]bool) (map[int64]*domain.GradientTemplate, error) {
