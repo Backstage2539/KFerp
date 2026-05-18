@@ -36,33 +36,25 @@ func CalculateUnitLineTotal(in UnitLineInput) (UnitLineResult, error) {
 	productKind := catalog.NormalizeProductKind(in.ProductKind)
 	salesUnit := normalizeSalesUnit(in.SalesUnit)
 	matchedQty := in.Quantity
+	unitBagCount := normalizeUnitBagCount(in.UnitBagCount)
 	if productKind == catalog.ProductKindDripBag && salesUnit == "box" {
-		matchedQty = in.Quantity * normalizeUnitBagCount(in.UnitBagCount)
+		matchedQty = in.Quantity * unitBagCount
 	}
 
-	var matched UnitPriceTier
-	found := false
-	for _, tier := range in.Tiers {
-		if catalog.NormalizeProductKind(tier.ProductKind) != productKind {
-			continue
-		}
-		if normalizeSalesUnit(tier.SalesUnit) != salesUnit {
-			continue
-		}
-		if matchedQty < tier.MinQty {
-			continue
-		}
-		if !found || tier.MinQty > matched.MinQty {
-			matched = tier
-			found = true
+	matched, found := matchUnitPriceTier(in.Tiers, productKind, salesUnit, in.Quantity)
+	unitPrice := matched.PricePerUnit
+	if productKind == catalog.ProductKindDripBag && salesUnit == "box" {
+		if !found {
+			matched, found = matchUnitPriceTier(in.Tiers, productKind, "bag", matchedQty)
+			unitPrice = matched.PricePerUnit * unitBagCount
 		}
 	}
 	if !found {
 		return UnitLineResult{}, fmt.Errorf("no unit price tier matched")
 	}
 	return UnitLineResult{
-		UnitPrice:         matched.PricePerUnit,
-		LineTotal:         matched.PricePerUnit * in.Quantity,
+		UnitPrice:         unitPrice,
+		LineTotal:         unitPrice * in.Quantity,
 		MatchedQtyForTier: matchedQty,
 		Tier:              matched,
 	}, nil
@@ -77,6 +69,27 @@ func CalculateLegacyWeightLineTotal(unitPrice float64, specG int64, units float6
 
 func normalizeSalesUnit(unit string) string {
 	return strings.TrimSpace(unit)
+}
+
+func matchUnitPriceTier(tiers []UnitPriceTier, productKind string, salesUnit string, quantity float64) (UnitPriceTier, bool) {
+	var matched UnitPriceTier
+	found := false
+	for _, tier := range tiers {
+		if catalog.NormalizeProductKind(tier.ProductKind) != productKind {
+			continue
+		}
+		if normalizeSalesUnit(tier.SalesUnit) != salesUnit {
+			continue
+		}
+		if quantity < tier.MinQty {
+			continue
+		}
+		if !found || tier.MinQty > matched.MinQty {
+			matched = tier
+			found = true
+		}
+	}
+	return matched, found
 }
 
 func normalizeUnitBagCount(count float64) float64 {
