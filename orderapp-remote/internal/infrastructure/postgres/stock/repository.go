@@ -1152,6 +1152,24 @@ func (r Repository) CreateAdjustment(ctx context.Context, cmd stockapp.StockAdju
 	}); err != nil {
 		return stockapp.StockAdjustmentResult{}, err
 	}
+	if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, cmd.Operator, "stock_adjustment", &adjustmentID, "submit", postgresinfra.StrPtr("qty_g"), postgresinfra.StrPtr(fmt.Sprintf("%d", beforeG)), postgresinfra.StrPtr(fmt.Sprintf("%d", afterG)), postgresinfra.AuditMeta{
+		"adjustment_type": "quantity",
+		"item_type":       cmd.ItemType,
+		"item_id":         cmd.ItemID,
+		"item_name":       itemName,
+		"spec_g":          cmd.SpecG,
+		"warehouse":       cmd.Warehouse,
+		"reason":          cmd.Reason,
+		"batch_code":      batchCode,
+		"before_g":        beforeG,
+		"change_g":        changeG,
+		"after_g":         afterG,
+		"before_units":    beforeUnits,
+		"change_units":    changeUnits,
+		"after_units":     afterUnits,
+	}); err != nil {
+		return stockapp.StockAdjustmentResult{}, err
+	}
 	if err := tx.Commit(ctx); err != nil {
 		return stockapp.StockAdjustmentResult{}, err
 	}
@@ -1211,6 +1229,20 @@ func (r Repository) createMaterialCostAdjustment(ctx context.Context, cmd stocka
 		INSERT INTO %s.stock_adjustment_items(adjustment_id,item_type,item_id,spec_g,qty_before_g,qty_change_g,qty_after_g,qty_before_units,qty_change_units,qty_after_units)
 		VALUES($1,$2,$3,0,$4,0,$4,0,0,0)
 	`, r.schema), adjustmentID, itemTypeMaterial, cmd.ItemID, remainingG); err != nil {
+		return stockapp.StockAdjustmentResult{}, err
+	}
+	if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, cmd.Operator, "stock_adjustment", &adjustmentID, "submit", postgresinfra.StrPtr("unit_cost"), postgresinfra.StrPtr(fmt.Sprintf("%.4f", beforeCost)), postgresinfra.StrPtr(fmt.Sprintf("%.4f", cmd.TargetUnitCost)), postgresinfra.AuditMeta{
+		"adjustment_type":   "material_cost",
+		"item_type":         itemTypeMaterial,
+		"item_id":           cmd.ItemID,
+		"item_name":         itemName,
+		"warehouse":         cmd.Warehouse,
+		"reason":            cmd.Reason,
+		"material_batch_id": cmd.MaterialBatchID,
+		"batch_code":        batchCode,
+		"remaining_g":       remainingG,
+		"value_change":      valueChange,
+	}); err != nil {
 		return stockapp.StockAdjustmentResult{}, err
 	}
 	if err := tx.Commit(ctx); err != nil {

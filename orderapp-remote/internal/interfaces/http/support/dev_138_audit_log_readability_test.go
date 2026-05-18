@@ -38,10 +38,12 @@ func TestDev138AuditLogFilterIncludesReadableEntityTypes(t *testing.T) {
 	src := string(content)
 	for _, want := range []string{
 		`value="material_receipt"`,
+		`value="stock_adjustment"`,
 		`value="sales_order_document"`,
 		`value="cost_parameter"`,
 		`value="auth_account"`,
 		"原料入库单",
+		"库存调整单",
 		"销售单文件",
 		"成本参数",
 		"员工账号",
