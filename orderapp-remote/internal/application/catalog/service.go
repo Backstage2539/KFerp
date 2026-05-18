@@ -38,13 +38,14 @@ type Product struct {
 }
 
 type ProductCategory struct {
-	ID         int64  `json:"id"`
-	ParentID   int64  `json:"parent_id"`
-	CustomerID int64  `json:"customer_id"`
-	Name       string `json:"name"`
-	Level      int    `json:"level"`
-	Position   int    `json:"position"`
-	Number     int    `json:"number"`
+	ID                 int64  `json:"id"`
+	ParentID           int64  `json:"parent_id"`
+	CustomerID         int64  `json:"customer_id"`
+	Name               string `json:"name"`
+	Level              int    `json:"level"`
+	Position           int    `json:"position"`
+	Number             int    `json:"number"`
+	GradientTemplateID int64  `json:"gradient_template_id"`
 }
 
 type ProductSettingsProduct struct {
@@ -75,8 +76,27 @@ type ProductCategoryNode struct {
 }
 
 type ProductSettingsData struct {
-	Categories []ProductCategoryNode    `json:"categories"`
-	Products   []ProductSettingsProduct `json:"products"`
+	Categories        []ProductCategoryNode    `json:"categories"`
+	Products          []ProductSettingsProduct `json:"products"`
+	GradientTemplates []GradientTemplate       `json:"gradient_templates"`
+}
+
+type GradientTemplate struct {
+	ID          int64                  `json:"id"`
+	Name        string                 `json:"name"`
+	DisplayUnit string                 `json:"display_unit"`
+	Active      bool                   `json:"active"`
+	Tiers       []GradientTemplateTier `json:"tiers"`
+}
+
+type GradientTemplateTier struct {
+	ID         int64    `json:"id"`
+	TemplateID int64    `json:"template_id,omitempty"`
+	Label      string   `json:"label"`
+	MinWeightG float64  `json:"min_weight_g"`
+	MaxWeightG *float64 `json:"max_weight_g,omitempty"`
+	MarginRate float64  `json:"margin_rate"`
+	Position   int      `json:"position"`
 }
 
 type ReplacePriceTiersCommand struct {
@@ -157,6 +177,25 @@ type AssignProductCategoryCommand struct {
 	Position   int
 }
 
+type SaveGradientTemplateCommand struct {
+	Actor       string
+	ID          int64
+	Name        string
+	DisplayUnit string
+	Tiers       []GradientTemplateTier
+}
+
+type DeactivateGradientTemplateCommand struct {
+	Actor string
+	ID    int64
+}
+
+type BindCategoryGradientTemplateCommand struct {
+	Actor              string
+	CategoryID         int64
+	GradientTemplateID int64
+}
+
 type Repository interface {
 	ListProducts(ctx context.Context) ([]Product, error)
 	GetProduct(ctx context.Context, id int64) (*Product, error)
@@ -165,6 +204,10 @@ type Repository interface {
 	DeactivateProducts(ctx context.Context, cmd DeactivateProductsCommand) error
 	CreateProduct(ctx context.Context, cmd CreateProductCommand) (Product, error)
 	ListProductCategories(ctx context.Context) ([]ProductCategory, error)
+	ListGradientTemplates(ctx context.Context) ([]GradientTemplate, error)
+	SaveGradientTemplate(ctx context.Context, cmd SaveGradientTemplateCommand) (GradientTemplate, error)
+	DeactivateGradientTemplate(ctx context.Context, cmd DeactivateGradientTemplateCommand) error
+	BindCategoryGradientTemplate(ctx context.Context, cmd BindCategoryGradientTemplateCommand) error
 	SaveProductCategory(ctx context.Context, cmd SaveProductCategoryCommand) (ProductCategory, error)
 	MoveProductCategory(ctx context.Context, cmd MoveProductCategoryCommand) error
 	DeleteProductCategory(ctx context.Context, cmd DeleteProductCategoryCommand) error
@@ -247,7 +290,42 @@ func (s *Service) ProductSettings(ctx context.Context) (ProductSettingsData, err
 	if err != nil {
 		return ProductSettingsData{}, err
 	}
-	return BuildProductSettings(categories, products), nil
+	templates, err := s.repo.ListGradientTemplates(ctx)
+	if err != nil {
+		return ProductSettingsData{}, err
+	}
+	data := BuildProductSettings(categories, products)
+	data.GradientTemplates = templates
+	return data, nil
+}
+
+func (s *Service) ListGradientTemplates(ctx context.Context) ([]GradientTemplate, error) {
+	return s.repo.ListGradientTemplates(ctx)
+}
+
+func (s *Service) SaveGradientTemplate(ctx context.Context, cmd SaveGradientTemplateCommand) (GradientTemplate, error) {
+	normalized, err := normalizeGradientTemplateCommand(cmd)
+	if err != nil {
+		return GradientTemplate{}, err
+	}
+	return s.repo.SaveGradientTemplate(ctx, normalized)
+}
+
+func (s *Service) DeactivateGradientTemplate(ctx context.Context, cmd DeactivateGradientTemplateCommand) error {
+	if cmd.ID <= 0 {
+		return fmt.Errorf("invalid id")
+	}
+	return s.repo.DeactivateGradientTemplate(ctx, cmd)
+}
+
+func (s *Service) BindCategoryGradientTemplate(ctx context.Context, cmd BindCategoryGradientTemplateCommand) error {
+	if cmd.CategoryID <= 0 {
+		return fmt.Errorf("invalid category")
+	}
+	if cmd.GradientTemplateID < 0 {
+		return fmt.Errorf("invalid gradient_template_id")
+	}
+	return s.repo.BindCategoryGradientTemplate(ctx, cmd)
 }
 
 func (s *Service) SaveProductCategory(ctx context.Context, cmd SaveProductCategoryCommand) (ProductCategory, error) {
@@ -285,6 +363,54 @@ func (s *Service) CreateCustomProduct(ctx context.Context, cmd CreateCustomProdu
 		return Product{}, fmt.Errorf("invalid custom_type")
 	}
 	return s.repo.CreateCustomProduct(ctx, cmd)
+}
+
+func normalizeGradientTemplateCommand(cmd SaveGradientTemplateCommand) (SaveGradientTemplateCommand, error) {
+	cmd.Name = strings.TrimSpace(cmd.Name)
+	if cmd.Name == "" {
+		return cmd, fmt.Errorf("name required")
+	}
+	cmd.DisplayUnit = normalizeGradientDisplayUnit(cmd.DisplayUnit)
+	if len(cmd.Tiers) == 0 {
+		return cmd, fmt.Errorf("tiers required")
+	}
+	normalized := make([]GradientTemplateTier, 0, len(cmd.Tiers))
+	for i, tier := range cmd.Tiers {
+		tier.Label = strings.TrimSpace(tier.Label)
+		if tier.Label == "" {
+			return cmd, fmt.Errorf("tier label required")
+		}
+		if tier.MinWeightG <= 0 {
+			return cmd, fmt.Errorf("tier min_weight_g must be > 0")
+		}
+		if tier.MaxWeightG != nil && *tier.MaxWeightG <= tier.MinWeightG {
+			return cmd, fmt.Errorf("tier max_weight_g must be greater than min_weight_g")
+		}
+		if tier.MarginRate < 0 {
+			return cmd, fmt.Errorf("tier margin_rate must be >= 0")
+		}
+		if tier.Position <= 0 {
+			tier.Position = i + 1
+		}
+		normalized = append(normalized, tier)
+	}
+	sort.SliceStable(normalized, func(i, j int) bool {
+		if normalized[i].Position != normalized[j].Position {
+			return normalized[i].Position < normalized[j].Position
+		}
+		return normalized[i].MinWeightG < normalized[j].MinWeightG
+	})
+	cmd.Tiers = normalized
+	return cmd, nil
+}
+
+func normalizeGradientDisplayUnit(unit string) string {
+	switch strings.TrimSpace(unit) {
+	case "kg":
+		return "kg"
+	default:
+		return "lb"
+	}
 }
 
 func BuildProductSettings(categories []ProductCategory, products []Product) ProductSettingsData {

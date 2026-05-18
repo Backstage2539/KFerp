@@ -137,6 +137,52 @@ func TestBeanListOrdersItemsByExcelCommercialCode(t *testing.T) {
 	}
 }
 
+func TestBeanListAppliesCategoryGradientTemplateAndLeavesUnboundDefaults(t *testing.T) {
+	repo := &fakeRepo{inputs: []domain.ProductInput{
+		{
+			ProductID:          501,
+			Name:               "模板拼配",
+			GreenBeanCostPerKg: 51.75,
+			YieldRate:          0.8,
+			GradientTemplate: &domain.GradientTemplate{
+				ID:          9,
+				Name:        "工厂量单模板",
+				DisplayUnit: domain.GradientDisplayUnitKg,
+				Tiers: []domain.GradientTemplateTier{{
+					ID: 91, Label: "大客户量单", MinWeightG: 24000, MaxWeightG: floatPtr(49000), MarginRate: 0.175, Position: 1,
+				}},
+			},
+		},
+		{
+			ProductID:          502,
+			Name:               "金色山脉",
+			GreenBeanCostPerKg: 62,
+			YieldRate:          0.8,
+		},
+	}}
+	svc := NewService(repo)
+
+	resp, err := svc.BeanList(context.Background())
+	if err != nil {
+		t.Fatalf("BeanList() error = %v", err)
+	}
+	var templated, unbound domain.ProductResult
+	for _, item := range resp.Items {
+		if item.ProductID == 501 {
+			templated = item
+		}
+		if item.ProductID == 502 {
+			unbound = item
+		}
+	}
+	if len(templated.CommercialWholesaleTiers) != 1 || templated.CommercialWholesaleTiers[0].Label != "大客户量单" || templated.CommercialWholesaleTiers[0].DisplayUnit != domain.GradientDisplayUnitKg {
+		t.Fatalf("templated tiers = %+v", templated.CommercialWholesaleTiers)
+	}
+	if len(unbound.CommercialWholesaleTiers) != 4 || unbound.CommercialWholesaleTiers[0].Label != "2包-13包" {
+		t.Fatalf("unbound tiers = %+v", unbound.CommercialWholesaleTiers)
+	}
+}
+
 func TestPublishRunRequiresPositiveID(t *testing.T) {
 	svc := NewService(&fakeRepo{})
 	if err := svc.PublishRun(context.Background(), "JJ", 0); err == nil {
@@ -217,4 +263,8 @@ func TestSaveBeanListDraftValidatesAndKeepsCustomerOwner(t *testing.T) {
 	if repo.draftBeanList.Config == nil || repo.draftBeanList.Content == nil {
 		t.Fatalf("draft should normalize empty config/content maps: %+v", repo.draftBeanList)
 	}
+}
+
+func floatPtr(v float64) *float64 {
+	return &v
 }

@@ -66,6 +66,7 @@
                 <div class="tier-list">
                   <span v-for="tier in item.commercial_wholesale_tiers || []" :key="tier.label" class="tier-chip">
                     <b>{{ tier.label }}</b>{{ price(tierPriceValue(tier)) }}/{{ tierUnit(tier) }}
+                    <button v-if="item.gradient_template" class="source-button" type="button" @click="openPriceExplanation(item, tier)">来源</button>
                   </span>
                 </div>
               </td>
@@ -114,7 +115,11 @@
               <div v-if="beanFlavor(item, 'commercial_bean_list')" class="bean-note">{{ beanFlavor(item, 'commercial_bean_list') }}</div>
               <div v-if="beanDescription(item, 'commercial_bean_list')" class="bean-desc">{{ beanDescription(item, 'commercial_bean_list') }}</div>
               <div class="bean-row" v-for="tier in item.commercial_wholesale_tiers || []" :key="tier.label">
-                <span>{{ tier.label }}</span><strong>{{ price(tierPriceValue(tier)) }}/{{ tierUnit(tier) }}</strong>
+                <span>{{ tier.label }}</span>
+                <strong>
+                  {{ price(tierPriceValue(tier)) }}/{{ tierUnit(tier) }}
+                  <button v-if="item.gradient_template" class="source-button" type="button" @click="openPriceExplanation(item, tier)">来源</button>
+                </strong>
               </div>
             </article>
           </div>
@@ -165,6 +170,56 @@
           <button class="secondary" type="button" @click="settingsOpen = false">关闭</button>
         </div>
         <CostingSettingsPanel compact :show-header="false" @saved="handleSettingSaved" />
+      </aside>
+    </div>
+
+    <div v-if="priceExplanationOpen" class="drawer-backdrop" @click.self="priceExplanationOpen = false">
+      <aside class="settings-drawer explanation-drawer" aria-label="价格来源解释">
+        <div class="drawer-head">
+          <div>
+            <h3>价格来源</h3>
+            <p>{{ explanationItem?.name || '-' }} · {{ explanationTier?.label || '-' }}</p>
+          </div>
+          <button class="secondary" type="button" @click="priceExplanationOpen = false">关闭</button>
+        </div>
+        <div v-if="priceExplanationError" class="error">{{ priceExplanationError }}</div>
+        <div v-if="priceExplanation" class="explanation-summary">
+          <div>
+            <span>模板</span>
+            <strong>{{ priceExplanation.template_name || '-' }}</strong>
+          </div>
+          <div>
+            <span>当前试算</span>
+            <strong>{{ price(priceExplanation.saved_final_price) }}/{{ gradientDisplayUnitLabel(priceExplanation.display_unit).replace('元/', '') }}</strong>
+          </div>
+          <div>
+            <span>临时试算</span>
+            <strong>{{ price(priceExplanation.preview_final_price) }}/{{ gradientDisplayUnitLabel(priceExplanation.display_unit).replace('元/', '') }}</strong>
+          </div>
+        </div>
+        <div class="explanation-form">
+          <label>
+            <span>临时生豆成本 元/kg</span>
+            <input v-model="explanationOverrides.green_bean_cost_per_kg" type="number" min="0" step="0.01" placeholder="不改" />
+          </label>
+          <label>
+            <span>临时出成率</span>
+            <input v-model="explanationOverrides.yield_rate" type="number" min="0" max="1" step="0.001" placeholder="不改" />
+          </label>
+          <label>
+            <span>临时利润率</span>
+            <input v-model="explanationOverrides.margin_rate" type="number" min="0" step="0.001" placeholder="不改" />
+          </label>
+          <button class="secondary" type="button" :disabled="priceExplanationLoading" @click="loadPriceExplanation">重新试算</button>
+        </div>
+        <div v-if="priceExplanation" class="formula-steps">
+          <div v-for="step in priceExplanation.steps || []" :key="step.key" :class="['formula-step', { changed: step.changed }]">
+            <span>{{ step.label }}</span>
+            <strong>{{ fixed(step.value, step.unit === 'ratio' ? 3 : 2) }} {{ step.unit || '' }}</strong>
+            <small>{{ step.source }}</small>
+          </div>
+        </div>
+        <p class="muted">这里的参数只做临时试算；保存请回到快速成本参数或梯度模板，交易价格仍需发布后生效。</p>
       </aside>
     </div>
 
@@ -600,6 +655,10 @@ import {
   sanitizeBeanListPdfTheme,
   splitHighlightedText,
 } from '../lib/bean-list-pdf'
+import {
+  buildPriceExplanationRequest,
+  gradientDisplayUnitLabel,
+} from '../lib/gradient-templates'
 
 const props = defineProps({
   customerContextId: { type: [Number, String], default: 0 },
@@ -612,6 +671,8 @@ const publishing = ref(false)
 const beanListPublishing = ref(false)
 const beanListWithdrawing = ref(false)
 const settingsOpen = ref(false)
+const priceExplanationOpen = ref(false)
+const priceExplanationLoading = ref(false)
 const pdfDrawerOpen = ref(false)
 const pdfPrinting = ref(false)
 const pricingCollapsed = ref(true)
@@ -623,8 +684,17 @@ const selectedCopyPublicationID = ref('')
 const selectedPriceSourcePublicationID = ref('')
 const error = ref('')
 const message = ref('')
+const priceExplanationError = ref('')
 const parameters = ref(null)
 const items = ref([])
+const priceExplanation = ref(null)
+const explanationItem = ref(null)
+const explanationTier = ref(null)
+const explanationOverrides = ref({
+  green_bean_cost_per_kg: '',
+  yield_rate: '',
+  margin_rate: '',
+})
 const customers = ref([])
 const runId = ref(null)
 const beanListPublications = ref({
@@ -1247,6 +1317,49 @@ async function handleSettingSaved() {
   message.value = '成本参数已保存，当前试算已刷新'
 }
 
+async function openPriceExplanation(item, tier) {
+  explanationItem.value = item
+  explanationTier.value = tier
+  explanationOverrides.value = {
+    green_bean_cost_per_kg: '',
+    yield_rate: '',
+    margin_rate: '',
+  }
+  priceExplanation.value = null
+  priceExplanationError.value = ''
+  priceExplanationOpen.value = true
+  await loadPriceExplanation()
+}
+
+function cleanExplanationOverrides() {
+  const out = {}
+  for (const [key, value] of Object.entries(explanationOverrides.value || {})) {
+    if (value === '' || value == null) continue
+    const n = Number(value)
+    if (Number.isFinite(n)) out[key] = n
+  }
+  return out
+}
+
+async function loadPriceExplanation() {
+  if (!explanationItem.value || !explanationTier.value) return
+  priceExplanationLoading.value = true
+  priceExplanationError.value = ''
+  try {
+    const payload = buildPriceExplanationRequest(
+      explanationItem.value,
+      explanationTier.value,
+      cleanExplanationOverrides(),
+    )
+    priceExplanation.value = await apiSend('/api/costing/price-explanation', { body: payload })
+  } catch (err) {
+    priceExplanation.value = null
+    priceExplanationError.value = err.message || '加载价格来源失败'
+  } finally {
+    priceExplanationLoading.value = false
+  }
+}
+
 function handlePdfBackgroundUpload(event) {
   const file = event.target.files?.[0]
   if (!file) return
@@ -1430,6 +1543,7 @@ th { color: #555; background: #fafafa; font-weight: 700; }
 .tier-list { display: flex; flex-wrap: wrap; gap: 6px; justify-content: flex-start; }
 .tier-chip { border: 1px solid #ddd; border-radius: 8px; background: #fff; padding: 5px 7px; color: #222; font-size: 12px; line-height: 1.2; }
 .tier-chip b { margin-right: 5px; font-weight: 700; color: #111; }
+.source-button { min-height: 22px; margin-left: 6px; border: 1px solid #c8d4e1; border-radius: 6px; background: #f7fbff; color: #1f4f82; padding: 0 6px; font-size: 11px; line-height: 20px; vertical-align: middle; }
 .empty { text-align: center !important; padding: 18px; }
 button { border-radius: 8px; padding: 9px 12px; cursor: pointer; white-space: nowrap; font: inherit; }
 button:disabled { opacity: .45; cursor: not-allowed; }
@@ -1443,9 +1557,23 @@ button:disabled { opacity: .45; cursor: not-allowed; }
 .warning-banner { border: 1px solid #e8c28f; border-radius: 8px; background: #fff8eb; color: #8a4b00; padding: 10px; margin-bottom: 12px; }
 .drawer-backdrop { position: fixed; inset: 0; z-index: 80; background: rgba(0,0,0,.25); display: flex; justify-content: flex-end; }
 .settings-drawer { width: min(620px, 100vw); height: 100vh; overflow: auto; background: #f7f7f7; border-left: 1px solid #d9d9d9; padding: 14px; box-shadow: -18px 0 36px rgba(0,0,0,.18); }
+.explanation-drawer { width: min(680px, 100vw); }
 .drawer-head { position: sticky; top: 0; z-index: 2; background: #f7f7f7; display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; padding-bottom: 12px; margin-bottom: 4px; }
 .drawer-head h3 { margin: 0; font-size: 18px; }
 .drawer-head p { margin: 4px 0 0; color: #666; font-size: 12px; line-height: 1.45; }
+.explanation-summary { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin-bottom: 12px; }
+.explanation-summary > div { border: 1px solid #ddd; border-radius: 8px; background: #fff; padding: 10px; }
+.explanation-summary span { display: block; margin-bottom: 5px; color: #666; font-size: 12px; }
+.explanation-summary strong { display: block; overflow-wrap: anywhere; font-size: 16px; }
+.explanation-form { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)) auto; gap: 10px; align-items: end; border: 1px solid #ddd; border-radius: 8px; background: #fff; padding: 10px; margin-bottom: 12px; }
+.explanation-form label span { display: block; color: #666; font-size: 12px; margin-bottom: 5px; }
+.explanation-form input { width: 100%; min-height: 36px; border: 1px solid #ddd; border-radius: 8px; padding: 7px 9px; background: #fff; font: inherit; box-sizing: border-box; }
+.formula-steps { display: grid; gap: 8px; margin: 12px 0; }
+.formula-step { display: grid; grid-template-columns: minmax(110px, .7fr) minmax(130px, .6fr) minmax(0, 1fr); align-items: center; gap: 10px; border: 1px solid #ddd; border-radius: 8px; background: #fff; padding: 9px 10px; }
+.formula-step.changed { border-color: #d29b42; background: #fff8eb; }
+.formula-step span { color: #333; font-weight: 650; }
+.formula-step strong { text-align: right; }
+.formula-step small { min-width: 0; color: #666; overflow-wrap: anywhere; }
 .publish-state { color: #333 !important; }
 .public-link-box { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 8px; margin-top: 8px; border: 1px solid #ddd; border-radius: 8px; background: #fff; padding: 8px; font-size: 12px; }
 .public-link-box span { color: #666; font-weight: 700; }
@@ -1551,6 +1679,8 @@ article, .empty-card { border: 1px solid #eee; border-radius: 8px; padding: 12px
   .metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .bean-grid { grid-template-columns: 1fr; }
   .settings-drawer { width: 100vw; }
+  .explanation-summary, .explanation-form, .formula-step { grid-template-columns: 1fr; }
+  .formula-step strong { text-align: left; }
   .copy-config-box, .copy-config-actions { grid-template-columns: 1fr; }
   .pdf-form { grid-template-columns: 1fr; }
   .checkbox-grid, .customizer-row { grid-template-columns: 1fr; }

@@ -30,11 +30,38 @@ CREATE TABLE IF NOT EXISTS %[1]s.product_categories (
 	name TEXT NOT NULL,
 	level INT NOT NULL DEFAULT 1,
 	position INT NOT NULL DEFAULT 1,
+	gradient_template_id BIGINT NOT NULL DEFAULT 0,
 	active BOOLEAN NOT NULL DEFAULT true,
 	created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
 	updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 ALTER TABLE %[1]s.product_categories ADD COLUMN IF NOT EXISTS customer_id BIGINT NOT NULL DEFAULT 0;
+ALTER TABLE %[1]s.product_categories ADD COLUMN IF NOT EXISTS gradient_template_id BIGINT NOT NULL DEFAULT 0;
+CREATE TABLE IF NOT EXISTS %[1]s.pricing_gradient_templates (
+	id BIGSERIAL PRIMARY KEY,
+	name TEXT NOT NULL,
+	display_unit TEXT NOT NULL DEFAULT 'lb',
+	active BOOLEAN NOT NULL DEFAULT true,
+	created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+	updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE UNIQUE INDEX IF NOT EXISTS pricing_gradient_templates_name_active_uniq
+ON %[1]s.pricing_gradient_templates (lower(name))
+WHERE active=true;
+CREATE TABLE IF NOT EXISTS %[1]s.pricing_gradient_template_tiers (
+	id BIGSERIAL PRIMARY KEY,
+	template_id BIGINT NOT NULL REFERENCES %[1]s.pricing_gradient_templates(id) ON DELETE CASCADE,
+	label TEXT NOT NULL,
+	min_weight_g NUMERIC(14,3) NOT NULL DEFAULT 0,
+	max_weight_g NUMERIC(14,3) NULL,
+	margin_rate NUMERIC(14,6) NOT NULL DEFAULT 0,
+	position INT NOT NULL DEFAULT 1,
+	active BOOLEAN NOT NULL DEFAULT true,
+	created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+	updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS pricing_gradient_template_tiers_template_idx
+ON %[1]s.pricing_gradient_template_tiers(template_id, active, position, id);
 DROP INDEX IF EXISTS %[1]s.product_categories_parent_name_uniq;
 CREATE UNIQUE INDEX IF NOT EXISTS product_categories_customer_parent_name_uniq
 ON %[1]s.product_categories (customer_id, COALESCE(parent_id,0), lower(name))

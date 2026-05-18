@@ -236,7 +236,7 @@ func (r Repository) CreateProduct(ctx context.Context, cmd catalogapp.CreateProd
 }
 
 func (r Repository) ListProductCategories(ctx context.Context) ([]catalogapp.ProductCategory, error) {
-	rows, err := r.pool.Query(ctx, fmt.Sprintf(`SELECT id, COALESCE(parent_id,0), COALESCE(customer_id,0), name, level, position
+	rows, err := r.pool.Query(ctx, fmt.Sprintf(`SELECT id, COALESCE(parent_id,0), COALESCE(customer_id,0), name, level, position, COALESCE(gradient_template_id,0)
 		FROM %s.product_categories
 		WHERE active=true
 		ORDER BY COALESCE(customer_id,0), COALESCE(parent_id,0), position, id`, r.schema))
@@ -247,12 +247,165 @@ func (r Repository) ListProductCategories(ctx context.Context) ([]catalogapp.Pro
 	out := make([]catalogapp.ProductCategory, 0)
 	for rows.Next() {
 		var row catalogapp.ProductCategory
-		if err := rows.Scan(&row.ID, &row.ParentID, &row.CustomerID, &row.Name, &row.Level, &row.Position); err != nil {
+		if err := rows.Scan(&row.ID, &row.ParentID, &row.CustomerID, &row.Name, &row.Level, &row.Position, &row.GradientTemplateID); err != nil {
 			return nil, err
 		}
 		out = append(out, row)
 	}
 	return out, rows.Err()
+}
+
+func (r Repository) ListGradientTemplates(ctx context.Context) ([]catalogapp.GradientTemplate, error) {
+	rows, err := r.pool.Query(ctx, fmt.Sprintf(`
+		SELECT id, name, display_unit, active
+		FROM %s.pricing_gradient_templates
+		ORDER BY active DESC, name, id
+	`, r.schema))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := make([]catalogapp.GradientTemplate, 0)
+	for rows.Next() {
+		var row catalogapp.GradientTemplate
+		if err := rows.Scan(&row.ID, &row.Name, &row.DisplayUnit, &row.Active); err != nil {
+			return nil, err
+		}
+		out = append(out, row)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	tierRows, err := r.pool.Query(ctx, fmt.Sprintf(`
+		SELECT id, template_id, label, min_weight_g::float8, max_weight_g::float8, margin_rate::float8, position
+		FROM %s.pricing_gradient_template_tiers
+		WHERE active=true
+		ORDER BY template_id, position, min_weight_g, id
+	`, r.schema))
+	if err != nil {
+		return nil, err
+	}
+	defer tierRows.Close()
+	tiersByTemplate := map[int64][]catalogapp.GradientTemplateTier{}
+	for tierRows.Next() {
+		var tier catalogapp.GradientTemplateTier
+		if err := tierRows.Scan(&tier.ID, &tier.TemplateID, &tier.Label, &tier.MinWeightG, &tier.MaxWeightG, &tier.MarginRate, &tier.Position); err != nil {
+			return nil, err
+		}
+		tiersByTemplate[tier.TemplateID] = append(tiersByTemplate[tier.TemplateID], tier)
+	}
+	if err := tierRows.Err(); err != nil {
+		return nil, err
+	}
+	for i := range out {
+		out[i].Tiers = tiersByTemplate[out[i].ID]
+		if out[i].Tiers == nil {
+			out[i].Tiers = make([]catalogapp.GradientTemplateTier, 0)
+		}
+	}
+	return out, nil
+}
+
+func (r Repository) SaveGradientTemplate(ctx context.Context, cmd catalogapp.SaveGradientTemplateCommand) (catalogapp.GradientTemplate, error) {
+	conn, err := r.pool.Acquire(ctx)
+	if err != nil {
+		return catalogapp.GradientTemplate{}, err
+	}
+	defer conn.Release()
+	tx, err := conn.Begin(ctx)
+	if err != nil {
+		return catalogapp.GradientTemplate{}, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	var id int64
+	if cmd.ID > 0 {
+		if err := tx.QueryRow(ctx, fmt.Sprintf(`
+			UPDATE %s.pricing_gradient_templates
+			SET name=$2, display_unit=$3, active=true, updated_at=now()
+			WHERE id=$1
+			RETURNING id
+		`, r.schema), cmd.ID, cmd.Name, cmd.DisplayUnit).Scan(&id); err != nil {
+			return catalogapp.GradientTemplate{}, err
+		}
+		if _, err := tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.pricing_gradient_template_tiers SET active=false, updated_at=now() WHERE template_id=$1`, r.schema), id); err != nil {
+			return catalogapp.GradientTemplate{}, err
+		}
+	} else {
+		if err := tx.QueryRow(ctx, fmt.Sprintf(`
+			INSERT INTO %s.pricing_gradient_templates(name, display_unit, active)
+			VALUES($1,$2,true)
+			RETURNING id
+		`, r.schema), cmd.Name, cmd.DisplayUnit).Scan(&id); err != nil {
+			return catalogapp.GradientTemplate{}, err
+		}
+	}
+	insertTier := fmt.Sprintf(`
+		INSERT INTO %s.pricing_gradient_template_tiers(template_id,label,min_weight_g,max_weight_g,margin_rate,position,active)
+		VALUES($1,$2,$3,$4,$5,$6,true)
+		RETURNING id
+	`, r.schema)
+	for i := range cmd.Tiers {
+		cmd.Tiers[i].TemplateID = id
+		if err := tx.QueryRow(ctx, insertTier, id, cmd.Tiers[i].Label, cmd.Tiers[i].MinWeightG, cmd.Tiers[i].MaxWeightG, cmd.Tiers[i].MarginRate, cmd.Tiers[i].Position).Scan(&cmd.Tiers[i].ID); err != nil {
+			return catalogapp.GradientTemplate{}, err
+		}
+	}
+	if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, cmd.Actor, "pricing_gradient_template", &id, "update", postgresinfra.StrPtr("template"), nil, postgresinfra.StrPtr(cmd.Name), postgresinfra.AuditMeta{
+		"display_unit": cmd.DisplayUnit,
+		"tier_count":   len(cmd.Tiers),
+	}); err != nil {
+		return catalogapp.GradientTemplate{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return catalogapp.GradientTemplate{}, err
+	}
+	return catalogapp.GradientTemplate{ID: id, Name: cmd.Name, DisplayUnit: cmd.DisplayUnit, Active: true, Tiers: cmd.Tiers}, nil
+}
+
+func (r Repository) DeactivateGradientTemplate(ctx context.Context, cmd catalogapp.DeactivateGradientTemplateCommand) error {
+	if _, err := r.pool.Exec(ctx, fmt.Sprintf(`UPDATE %s.pricing_gradient_templates SET active=false, updated_at=now() WHERE id=$1`, r.schema), cmd.ID); err != nil {
+		return err
+	}
+	postgresinfra.AuditInsert(ctx, r.pool, r.schema, cmd.Actor, "pricing_gradient_template", &cmd.ID, "deactivate", postgresinfra.StrPtr("active"), postgresinfra.StrPtr("true"), postgresinfra.StrPtr("false"), nil)
+	return nil
+}
+
+func (r Repository) BindCategoryGradientTemplate(ctx context.Context, cmd catalogapp.BindCategoryGradientTemplateCommand) error {
+	conn, err := r.pool.Acquire(ctx)
+	if err != nil {
+		return err
+	}
+	defer conn.Release()
+	tx, err := conn.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	if cmd.GradientTemplateID > 0 {
+		var exists bool
+		if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT EXISTS(SELECT 1 FROM %s.pricing_gradient_templates WHERE id=$1 AND active=true)`, r.schema), cmd.GradientTemplateID).Scan(&exists); err != nil {
+			return err
+		}
+		if !exists {
+			return fmt.Errorf("gradient template not found")
+		}
+	}
+	var oldID int64
+	var level int
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT COALESCE(gradient_template_id,0), level FROM %s.product_categories WHERE id=$1 AND active=true`, r.schema), cmd.CategoryID).Scan(&oldID, &level); err != nil {
+		return err
+	}
+	if level != 2 {
+		return fmt.Errorf("only secondary category can bind gradient template")
+	}
+	if _, err := tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.product_categories SET gradient_template_id=$2, updated_at=now() WHERE id=$1`, r.schema), cmd.CategoryID, cmd.GradientTemplateID); err != nil {
+		return err
+	}
+	if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, cmd.Actor, "product_category", &cmd.CategoryID, "update", postgresinfra.StrPtr("gradient_template_id"), postgresinfra.StrPtr(fmt.Sprintf("%d", oldID)), postgresinfra.StrPtr(fmt.Sprintf("%d", cmd.GradientTemplateID)), nil); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
 }
 
 func (r Repository) SaveProductCategory(ctx context.Context, cmd catalogapp.SaveProductCategoryCommand) (catalogapp.ProductCategory, error) {

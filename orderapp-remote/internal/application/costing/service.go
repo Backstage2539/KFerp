@@ -15,6 +15,12 @@ type CalculateRequest struct {
 	Products []domain.ProductInput `json:"products"`
 }
 
+type PriceExplanationCommand struct {
+	Product   domain.ProductInput              `json:"product"`
+	TierLabel string                           `json:"tier_label"`
+	Overrides domain.PriceExplanationOverrides `json:"overrides,omitempty"`
+}
+
 type CalculateResponse struct {
 	Parameters domain.Parameters      `json:"parameters"`
 	Items      []domain.ProductResult `json:"items"`
@@ -151,6 +157,21 @@ func (s *Service) Calculate(ctx context.Context, req CalculateRequest) (*Calcula
 		return nil, err
 	}
 	return &CalculateResponse{Parameters: params, Items: items}, nil
+}
+
+func (s *Service) ExplainPrice(ctx context.Context, req PriceExplanationCommand) (*domain.PriceExplanation, error) {
+	params, err := s.Parameters(ctx)
+	if err != nil {
+		return nil, err
+	}
+	out, err := domain.ExplainCommercialPrice(params, req.Product, domain.PriceExplanationRequest{
+		TierLabel: req.TierLabel,
+		Overrides: req.Overrides,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return &out, nil
 }
 
 func (s *Service) BeanList(ctx context.Context) (*CalculateResponse, error) {
