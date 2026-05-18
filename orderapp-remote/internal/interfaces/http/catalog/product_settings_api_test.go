@@ -251,7 +251,9 @@ func TestProductSettingsAPISupportsCategoryTreeAndDragAssignments(t *testing.T) 
 }
 
 func TestProductSettingsAPICreatesGreenBeanProductWithBomBinding(t *testing.T) {
-	repo := &productSettingsRepo{}
+	repo := &productSettingsRepo{
+		products: []catalogapp.Product{{ID: 7, Name: "埃塞瑰夏熟豆", ProductKind: "roasted"}},
+	}
 	e := echo.New()
 	registerProductRoutes(e, catalogapp.NewService(repo))
 
@@ -292,13 +294,17 @@ func TestProductSettingsAPICreatesGreenBeanProductWithBomBinding(t *testing.T) {
 
 func TestProductSettingsAPIUpdatesGreenBeanBomBinding(t *testing.T) {
 	repo := &productSettingsRepo{
-		products: []catalogapp.Product{{
-			ID:                    91,
-			Name:                  "埃塞瑰夏生豆",
-			ProductKind:           "green_bean",
-			GreenBeanType:         "single_origin",
-			GreenBeanBomProductID: 7,
-		}},
+		products: []catalogapp.Product{
+			{
+				ID:                    91,
+				Name:                  "埃塞瑰夏生豆",
+				ProductKind:           "green_bean",
+				GreenBeanType:         "single_origin",
+				GreenBeanBomProductID: 7,
+			},
+			{ID: 7, Name: "原绑定熟豆", ProductKind: "roasted"},
+			{ID: 8, Name: "新绑定熟豆", ProductKind: "roasted"},
+		},
 	}
 	e := echo.New()
 	registerProductRoutes(e, catalogapp.NewService(repo))
@@ -333,6 +339,36 @@ func TestProductSettingsAPIUpdatesGreenBeanBomBinding(t *testing.T) {
 	}
 	if !bytes.Contains(rec.Body.Bytes(), []byte(`"green_bean_type":"blend"`)) || !bytes.Contains(rec.Body.Bytes(), []byte(`"green_bean_bom_product_id":8`)) {
 		t.Fatalf("response missing updated green bean binding: %s", rec.Body.String())
+	}
+}
+
+func TestProductSettingsAPIRejectsGreenBeanAsBomBinding(t *testing.T) {
+	repo := &productSettingsRepo{
+		products: []catalogapp.Product{{ID: 8, Name: "生豆 SKU", ProductKind: "green_bean"}},
+	}
+	e := echo.New()
+	registerProductRoutes(e, catalogapp.NewService(repo))
+
+	body := bytes.NewBufferString(`{
+		"name":"错误绑定生豆",
+		"product_kind":"green_bean",
+		"green_bean_type":"single_origin",
+		"green_bean_bom_product_id":8
+	}`)
+	req := httptest.NewRequest(http.MethodPost, "/api/product-settings/products", body)
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+
+	e.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("POST /api/product-settings/products status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if repo.publicCreated {
+		t.Fatalf("green bean BOM binding should reject non-roasted products, created=%+v", repo.createdPublic)
+	}
+	if !bytes.Contains(rec.Body.Bytes(), []byte("green_bean_bom_product_id must reference roasted product")) {
+		t.Fatalf("response should explain roasted binding requirement: %s", rec.Body.String())
 	}
 }
 

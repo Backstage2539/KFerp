@@ -10,6 +10,7 @@ type fakeRepo struct {
 	update      UpdateProductBasicsCommand
 	create      CreateProductCommand
 	deactivate  DeactivateProductsCommand
+	products    map[int64]Product
 	deactivated bool
 }
 
@@ -18,6 +19,12 @@ func (r *fakeRepo) ListProducts(ctx context.Context) ([]Product, error) {
 }
 
 func (r *fakeRepo) GetProduct(ctx context.Context, id int64) (*Product, error) {
+	if r.products != nil {
+		if product, ok := r.products[id]; ok {
+			return &product, nil
+		}
+		return nil, nil
+	}
 	return &Product{ID: id, Name: "A"}, nil
 }
 
@@ -141,5 +148,29 @@ func TestCreateCustomProductAcceptsPublicSKUAliasType(t *testing.T) {
 	}
 	if got.CustomType != "public_sku_alias" || got.CustomerID != 3 || got.BaseProductID != 7 {
 		t.Fatalf("custom product=%+v", got)
+	}
+}
+
+func TestGreenBeanBomBindingRequiresRoastedProduct(t *testing.T) {
+	repo := &fakeRepo{products: map[int64]Product{
+		7: {ID: 7, Name: "熟豆 BOM", ProductKind: "roasted"},
+		8: {ID: 8, Name: "生豆 SKU", ProductKind: "green_bean"},
+	}}
+	svc := NewService(repo)
+	if err := svc.UpdateProductBasics(context.Background(), UpdateProductBasicsCommand{
+		ProductID:             9,
+		ProductKind:           "green_bean",
+		GreenBeanType:         "single_origin",
+		GreenBeanBomProductID: 8,
+	}); err == nil {
+		t.Fatal("UpdateProductBasics should reject green bean SKU as BOM binding")
+	}
+	if err := svc.UpdateProductBasics(context.Background(), UpdateProductBasicsCommand{
+		ProductID:             9,
+		ProductKind:           "green_bean",
+		GreenBeanType:         "single_origin",
+		GreenBeanBomProductID: 7,
+	}); err != nil {
+		t.Fatalf("UpdateProductBasics should accept roasted BOM product: %v", err)
 	}
 }

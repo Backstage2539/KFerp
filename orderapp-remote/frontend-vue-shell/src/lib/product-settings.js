@@ -47,7 +47,7 @@ export function secondaryCategoryOptions(rows = [], primaryCategory = '') {
 
 export function roastedBomProductOptions(products = []) {
   return (products || [])
-    .filter((row) => Number(row.id || 0) > 0 && normalizedProductKind(row) === 'roasted')
+    .filter((row) => Number(row.id || 0) > 0 && String(row?.product_kind || '').trim() === 'roasted')
     .slice()
     .sort((a, b) => String(a.name || '').localeCompare(String(b.name || '')))
 }
