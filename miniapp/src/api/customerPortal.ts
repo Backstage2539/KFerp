@@ -91,6 +91,7 @@ export type BeanListPriceSummary = {
 export type ProductSummary = {
   id: number
   name: string
+  product_kind?: string
   roast_level: string
   default_price: string
   retail_price_100g: string
@@ -121,6 +122,7 @@ export type CustomerOrderSummary = {
 export type CustomerOrderItemSummary = {
   id: number
   item_name: string
+  product_kind?: string
   spec: string
   qty: string
   unit: string

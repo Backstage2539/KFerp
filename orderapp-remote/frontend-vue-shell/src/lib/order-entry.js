@@ -58,6 +58,21 @@ export function formatSpecLabel(specG) {
   return `${spec}g`
 }
 
+export function normalizedProductKind(productOrKind) {
+  const raw = typeof productOrKind === 'object'
+    ? productOrKind?.product_kind
+    : productOrKind
+  return String(raw || '').trim() === 'green_bean' ? 'green_bean' : 'roasted'
+}
+
+export function productKindLabel(productOrKind) {
+  return normalizedProductKind(productOrKind) === 'green_bean' ? '生豆' : '熟豆'
+}
+
+export function productKindBadgeClass(productOrKind) {
+  return normalizedProductKind(productOrKind) === 'green_bean' ? 'kind-green' : 'kind-roasted'
+}
+
 export function wholesaleSpecOptions(product) {
   const specs = new Set(COMMON_SPEC_GRAMS)
   for (const tier of product?.tiers || []) {

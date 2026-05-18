@@ -10,6 +10,7 @@ import {
   buildMallOrderPayload,
   formatMallMoney,
   mallCartCount,
+  mallProductKindLabel,
   mallCartTotal,
   normalizeMallProduct,
   updateMallCartQty,
@@ -131,7 +132,7 @@ onShow(() => {
           <view v-else class="product-image empty-image"></view>
           <view class="product-body">
             <text class="product-title">{{ product.title }}</text>
-            <text class="product-subtitle">{{ product.subtitle || `${product.spec_g}g` }}</text>
+            <text class="product-subtitle">{{ mallProductKindLabel(product) }} / {{ product.subtitle || `${product.spec_g}g` }}</text>
             <text class="product-description">{{ product.description }}</text>
             <view class="product-foot">
               <text class="price">{{ formatMallMoney(product.unit_price) }}</text>
@@ -153,7 +154,7 @@ onShow(() => {
 
         <view v-if="cart.length" class="cart-lines">
           <view v-for="item in cart" :key="item.mall_product_id" class="cart-line">
-            <text class="cart-title">{{ item.title }}</text>
+            <text class="cart-title">{{ mallProductKindLabel(item) }} / {{ item.title }}</text>
             <view class="qty">
               <button size="mini" @tap="changeQty(item, -1)">-</button>
               <text>{{ item.qty }}</text>

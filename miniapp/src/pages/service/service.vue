@@ -350,6 +350,10 @@ function selectedPickerLabel(options: PickerOption[], value: number, emptyLabel:
   return options.find((item) => item.value === value)?.label || emptyLabel
 }
 
+function productKindLabel(item: Pick<ProductSummary, 'product_kind'>): string {
+  return item.product_kind === 'green_bean' ? '生豆' : '熟豆'
+}
+
 function pickerOptionAt<T>(options: PickerOption<T>[], event: { detail?: { value?: number | string } }): PickerOption<T> | null {
   return options[Number(event.detail?.value ?? -1)] || null
 }
@@ -367,7 +371,7 @@ function inventoryInputOptions(items: InventoryItem[]): PickerOption<InventoryIt
 
 function productPickerOptions(products: ProductSummary[]): PickerOption<ProductSummary>[] {
   return products.map((item) => ({
-    label: `${item.name} / 默认 ¥${item.default_price || '0.00'}`,
+    label: `${productKindLabel(item)} / ${item.name} / 默认 ¥${item.default_price || '0.00'}`,
     value: item.id,
     data: item,
   }))
@@ -753,7 +757,7 @@ onShow(() => {
         <text class="panel-title">现货商品</text>
         <view v-for="item in page.products" :key="item.id" class="list-row">
           <text class="row-main">{{ item.name }}</text>
-          <text class="row-sub">{{ item.roast_level }} / 默认 ¥{{ item.default_price }}</text>
+          <text class="row-sub">{{ productKindLabel(item) }} / {{ item.roast_level || '未烘焙' }} / 默认 ¥{{ item.default_price }}</text>
         </view>
       </view>
 

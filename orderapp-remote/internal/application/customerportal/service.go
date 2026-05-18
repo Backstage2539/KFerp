@@ -215,6 +215,7 @@ type BeanListPriceSummary struct {
 type ProductSummary struct {
 	ID             int64  `json:"id"`
 	Name           string `json:"name"`
+	ProductKind    string `json:"product_kind"`
 	RoastLevel     string `json:"roast_level"`
 	DefaultPrice   string `json:"default_price"`
 	RetailPrice100 string `json:"retail_price_100g"`
@@ -227,6 +228,7 @@ type MallProduct struct {
 	ID          int64   `json:"id"`
 	ProductID   int64   `json:"product_id"`
 	ProductName string  `json:"product_name"`
+	ProductKind string  `json:"product_kind"`
 	Title       string  `json:"title"`
 	Subtitle    string  `json:"subtitle"`
 	Description string  `json:"description"`
@@ -242,6 +244,7 @@ type MallProduct struct {
 type MallProductOption struct {
 	ID           int64   `json:"id"`
 	Name         string  `json:"name"`
+	ProductKind  string  `json:"product_kind"`
 	DefaultPrice float64 `json:"default_price"`
 }
 
@@ -311,13 +314,14 @@ type CustomerOrderSummary struct {
 }
 
 type CustomerOrderItemSummary struct {
-	ID        int64  `json:"id"`
-	ItemName  string `json:"item_name"`
-	Spec      string `json:"spec"`
-	Qty       string `json:"qty"`
-	Unit      string `json:"unit"`
-	UnitPrice string `json:"unit_price"`
-	LineTotal string `json:"line_total"`
+	ID          int64  `json:"id"`
+	ItemName    string `json:"item_name"`
+	ProductKind string `json:"product_kind"`
+	Spec        string `json:"spec"`
+	Qty         string `json:"qty"`
+	Unit        string `json:"unit"`
+	UnitPrice   string `json:"unit_price"`
+	LineTotal   string `json:"line_total"`
 }
 
 type DirectShipBatch struct {

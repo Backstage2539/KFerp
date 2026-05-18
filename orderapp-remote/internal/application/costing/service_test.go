@@ -184,6 +184,43 @@ func TestBeanListAppliesCategoryGradientTemplateAndLeavesUnboundDefaults(t *test
 	}
 }
 
+func TestBeanListKeepsGreenBeanProductsOnDirectSaleTiers(t *testing.T) {
+	repo := &fakeRepo{inputs: []domain.ProductInput{{
+		ProductID:   909,
+		Name:        "埃塞瑰夏生豆",
+		ProductKind: "green_bean",
+		GreenBeanSaleTiers: []domain.CommercialWholesaleTier{{
+			Label:        "1kg+",
+			SpecG:        1000,
+			MinQty:       1,
+			PricePerUnit: 128,
+			DisplayUnit:  domain.GradientDisplayUnitKg,
+		}},
+	}}}
+	svc := NewService(repo)
+
+	resp, err := svc.BeanList(context.Background())
+	if err != nil {
+		t.Fatalf("BeanList() error = %v", err)
+	}
+	if len(resp.Items) != 1 {
+		t.Fatalf("items = %+v", resp.Items)
+	}
+	item := resp.Items[0]
+	if item.ProductKind != "green_bean" {
+		t.Fatalf("product_kind = %q", item.ProductKind)
+	}
+	if item.GreenBeanCostPerKg != 0 || item.RoastedBeanCostPerKg != 0 {
+		t.Fatalf("green sales item must not run roasted costing, got green/roasted costs %.2f/%.2f", item.GreenBeanCostPerKg, item.RoastedBeanCostPerKg)
+	}
+	if item.GreenBeanList.Code == "" || item.GreenBeanList.DisplayName != "埃塞瑰夏生豆" {
+		t.Fatalf("green bean list metadata = %+v", item.GreenBeanList)
+	}
+	if len(item.GreenBeanSaleTiers) != 1 || item.GreenBeanSaleTiers[0].PricePerUnit != 128 {
+		t.Fatalf("green bean sale tiers = %+v", item.GreenBeanSaleTiers)
+	}
+}
+
 func TestBeanListAppliesProductMarginOverrideBeforeCategoryTemplateMargin(t *testing.T) {
 	input := domain.ProductInput{
 		ProductID:          501,
@@ -248,6 +285,9 @@ func TestPublishBeanListValidatesVersionAndListType(t *testing.T) {
 	}
 	if _, err := svc.ListBeanListPublications(context.Background(), BeanListPublicationQuery{ListType: "bad"}); err == nil {
 		t.Fatalf("expected invalid list type")
+	}
+	if _, err := svc.SaveBeanListDraft(context.Background(), PublishBeanListCommand{ListType: "green", Version: "VGREEN-1"}); err != nil {
+		t.Fatalf("green bean list type should be publishable: %v", err)
 	}
 	if err := svc.WithdrawBeanList(context.Background(), WithdrawBeanListCommand{}); err == nil {
 		t.Fatalf("expected invalid id")

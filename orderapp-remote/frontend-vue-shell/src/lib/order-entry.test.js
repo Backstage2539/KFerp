@@ -8,6 +8,8 @@ import {
   filterOptions,
   filterProductsForCustomer,
   formatSpecLabel,
+  productKindBadgeClass,
+  productKindLabel,
   lineDiscountAmount,
   lineTotal,
   syncWholesaleTierPrice,
@@ -147,6 +149,14 @@ test('wholesaleSpecOptions includes standard order-entry specs and product tiers
 
   assert.deepEqual(got.map((option) => option.value), ['36', '80', '100', '227', '454', '500', '1000', '2500'])
   assert.equal(formatSpecLabel(2500), '2.5kg')
+})
+
+test('product kind helpers label green bean and roasted products distinctly', () => {
+  assert.equal(productKindLabel({ product_kind: 'green_bean' }), '生豆')
+  assert.equal(productKindLabel({ product_kind: 'roasted' }), '熟豆')
+  assert.equal(productKindLabel({}), '熟豆')
+  assert.equal(productKindBadgeClass({ product_kind: 'green_bean' }), 'kind-green')
+  assert.equal(productKindBadgeClass({ product_kind: 'roasted' }), 'kind-roasted')
 })
 
 test('defaultWholesaleSpec uses the product first configured tier spec', () => {

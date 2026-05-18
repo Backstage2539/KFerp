@@ -57,6 +57,7 @@ export const menuGroups = [
       { key: 'costing', label: '价格与豆单', title: '价格与豆单' },
       { key: 'bom', label: 'BOM配方维护', title: 'BOM配方维护' },
       { key: 'costingManual', label: '成本核价手册', title: '成本核价手册' },
+      { key: 'greenBeanSalesManual', label: '生豆销售手册', title: '生豆销售手册' },
     ],
   },
   {

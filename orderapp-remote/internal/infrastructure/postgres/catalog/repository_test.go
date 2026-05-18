@@ -50,7 +50,7 @@ func TestProductMarginOverridePersistsOnProducts(t *testing.T) {
 		{name: "schema column", src: string(schema), want: "ALTER TABLE %[1]s.products ADD COLUMN IF NOT EXISTS margin_rate_override NUMERIC(14,6)"},
 		{name: "product fetch", src: string(queries), want: "p.margin_rate_override::float8"},
 		{name: "product get fallback", src: string(repository), want: "margin_rate_override::float8"},
-		{name: "product update", src: string(repository), want: "margin_rate_override=$7"},
+		{name: "product update", src: string(repository), want: "margin_rate_override=$9"},
 		{name: "audit metadata", src: string(repository), want: `"margin_rate_override": cmd.MarginRateOverride`},
 	} {
 		if !strings.Contains(tc.src, tc.want) {
