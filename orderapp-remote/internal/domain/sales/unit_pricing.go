@@ -41,13 +41,20 @@ func CalculateUnitLineTotal(in UnitLineInput) (UnitLineResult, error) {
 		matchedQty = in.Quantity * unitBagCount
 	}
 
-	matched, found := matchUnitPriceTier(in.Tiers, productKind, salesUnit, in.Quantity)
-	unitPrice := matched.PricePerUnit
+	var matched UnitPriceTier
+	var found bool
+	unitPrice := 0.0
 	if productKind == catalog.ProductKindDripBag && salesUnit == "box" {
-		if !found {
-			matched, found = matchUnitPriceTier(in.Tiers, productKind, "bag", matchedQty)
+		matched, found = matchUnitPriceTier(in.Tiers, productKind, "bag", matchedQty)
+		if found {
 			unitPrice = matched.PricePerUnit * unitBagCount
+		} else {
+			matched, found = matchUnitPriceTier(in.Tiers, productKind, salesUnit, in.Quantity)
+			unitPrice = matched.PricePerUnit
 		}
+	} else {
+		matched, found = matchUnitPriceTier(in.Tiers, productKind, salesUnit, in.Quantity)
+		unitPrice = matched.PricePerUnit
 	}
 	if !found {
 		return UnitLineResult{}, fmt.Errorf("no unit price tier matched")

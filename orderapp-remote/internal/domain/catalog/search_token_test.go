@@ -19,3 +19,9 @@ func TestSearchPinyinEmpty(t *testing.T) {
 		t.Fatalf("expected empty token, got %q", got)
 	}
 }
+
+func TestNormalizeProductKindTrimsWhitespace(t *testing.T) {
+	if got := NormalizeProductKind(" drip_bag "); got != ProductKindDripBag {
+		t.Fatalf("NormalizeProductKind() = %q, want %q", got, ProductKindDripBag)
+	}
+}
