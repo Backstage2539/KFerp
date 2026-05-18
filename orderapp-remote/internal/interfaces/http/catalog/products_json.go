@@ -20,7 +20,6 @@ type jsProduct struct {
 	ProductKind     string   `json:"product_kind"`
 	Py              string   `json:"py"`
 	Pyi             string   `json:"pyi"`
-	ProductKind     string   `json:"product_kind"`
 	SalesUnits      []string `json:"sales_units"`
 	DripBagGrams    float64  `json:"drip_bag_grams"`
 	DripBoxBagCount int      `json:"drip_box_bag_count"`

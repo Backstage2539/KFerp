@@ -25,7 +25,6 @@ type Product struct {
 	GreenBeanType           string
 	GreenBeanBomProductID   int64
 	RoastLevel              string
-	ProductKind             string
 	DripBagGrams            float64
 	DripBoxBagCount         int
 	AllowFulfillmentOrder   bool
@@ -67,7 +66,6 @@ type ProductSettingsProduct struct {
 	GreenBeanType           string   `json:"green_bean_type"`
 	GreenBeanBomProductID   int64    `json:"green_bean_bom_product_id"`
 	RoastLevel              string   `json:"roast_level"`
-	ProductKind             string   `json:"product_kind"`
 	DripBagGrams            float64  `json:"drip_bag_grams"`
 	DripBoxBagCount         int      `json:"drip_box_bag_count"`
 	AllowFulfillmentOrder   bool     `json:"allow_fulfillment_order"`
@@ -142,8 +140,11 @@ type ReplacePriceTiersCommand struct {
 type UpdateProductBasicsCommand struct {
 	Actor                 string
 	ProductID             int64
-	RoastLevel            string
 	ProductKind           string
+	GreenBeanType         string
+	GreenBeanBomProductID int64
+	DefaultPrice          float64
+	RoastLevel            string
 	DripBagGrams          float64
 	DripBoxBagCount       int
 	AllowFulfillmentOrder bool
@@ -160,8 +161,10 @@ type UpdateProductBasicsCommand struct {
 type CreateProductCommand struct {
 	Actor                    string
 	Name                     string
-	RoastLevel               string
 	ProductKind              string
+	GreenBeanType            string
+	GreenBeanBomProductID    int64
+	RoastLevel               string
 	DripBagGrams             float64
 	DripBoxBagCount          int
 	AllowFulfillmentOrder    bool
@@ -174,6 +177,7 @@ type CreateProductCommand struct {
 	RetailPrice227G          float64
 	RetailPrice250G          float64
 	YieldRate                float64
+	Tiers                    []PriceTier
 }
 
 type DeactivateProductsCommand struct {
@@ -306,6 +310,14 @@ func (s *Service) UpdateProductBasics(ctx context.Context, cmd UpdateProductBasi
 	if err != nil {
 		return err
 	}
+	if err := normalizeProductSalesShape(&cmd.ProductKind, &cmd.GreenBeanType, &cmd.GreenBeanBomProductID, &cmd.RoastLevel, &cmd.DefaultPrice, &cmd.RetailPrice100G, &cmd.RetailPrice200G, &cmd.RetailPrice227G, &cmd.RetailPrice250G, &cmd.YieldRate, nil); err != nil {
+		return err
+	}
+	if cmd.ProductKind == catalogdomain.ProductKindGreenBean {
+		if err := s.validateGreenBeanBomProduct(ctx, cmd.GreenBeanBomProductID); err != nil {
+			return err
+		}
+	}
 	return s.repo.UpdateProductBasics(ctx, cmd)
 }
 
@@ -340,21 +352,30 @@ func (s *Service) CreateProduct(ctx context.Context, cmd CreateProductCommand) (
 	if !cmd.AllowFulfillmentOrderSet {
 		cmd.AllowFulfillmentOrder = true
 	}
-	cmd.RoastLevel = catalogdomain.NormalizeRoastLevel(cmd.RoastLevel)
-	if cmd.RoastLevel == "" {
-		return Product{}, ValidationError{Message: "invalid roast_level"}
-	}
 	if cmd.DefaultPrice < 0 || cmd.RetailPrice100G < 0 || cmd.RetailPrice200G < 0 || cmd.RetailPrice227G < 0 || cmd.RetailPrice250G < 0 {
 		return Product{}, ValidationError{Message: "price must not be negative"}
 	}
 	if cmd.RetailPrice227G <= 0 && cmd.DefaultPrice > 0 {
 		cmd.RetailPrice227G = cmd.DefaultPrice
 	}
-	if cmd.YieldRate <= 0 {
-		cmd.YieldRate = catalogdomain.ResolveYieldRate(cmd.RoastLevel, 0.8)
-	}
-	if cmd.YieldRate <= 0 || cmd.YieldRate > 1 {
-		return Product{}, ValidationError{Message: "invalid yield_rate"}
+	if cmd.ProductKind == catalogdomain.ProductKindGreenBean {
+		if err := normalizeProductSalesShape(&cmd.ProductKind, &cmd.GreenBeanType, &cmd.GreenBeanBomProductID, &cmd.RoastLevel, &cmd.DefaultPrice, &cmd.RetailPrice100G, &cmd.RetailPrice200G, &cmd.RetailPrice227G, &cmd.RetailPrice250G, &cmd.YieldRate, &cmd.Tiers); err != nil {
+			return Product{}, err
+		}
+		if err := s.validateGreenBeanBomProduct(ctx, cmd.GreenBeanBomProductID); err != nil {
+			return Product{}, err
+		}
+	} else {
+		cmd.RoastLevel = catalogdomain.NormalizeRoastLevel(cmd.RoastLevel)
+		if cmd.RoastLevel == "" {
+			return Product{}, ValidationError{Message: "invalid roast_level"}
+		}
+		if cmd.YieldRate <= 0 {
+			cmd.YieldRate = catalogdomain.ResolveYieldRate(cmd.RoastLevel, 0.8)
+		}
+		if cmd.YieldRate <= 0 || cmd.YieldRate > 1 {
+			return Product{}, ValidationError{Message: "invalid yield_rate"}
+		}
 	}
 	return s.repo.CreateProduct(ctx, cmd)
 }
@@ -365,10 +386,10 @@ func (s *Service) validateGreenBeanBomProduct(ctx context.Context, productID int
 		return err
 	}
 	if product == nil || product.ID <= 0 {
-		return fmt.Errorf("green_bean_bom_product_id not found")
+		return ValidationError{Message: "green_bean_bom_product_id not found"}
 	}
 	if catalogdomain.NormalizeProductKind(product.ProductKind) == catalogdomain.ProductKindGreenBean {
-		return fmt.Errorf("green_bean_bom_product_id must reference roasted product")
+		return ValidationError{Message: "green_bean_bom_product_id must reference roasted product"}
 	}
 	return nil
 }
@@ -645,7 +666,6 @@ func productSettingsProduct(p Product) ProductSettingsProduct {
 	return ProductSettingsProduct{
 		ID:                      p.ID,
 		Name:                    p.Name,
-		ProductKind:             catalogdomain.NormalizeProductKind(p.ProductKind),
 		GreenBeanType:           p.GreenBeanType,
 		GreenBeanBomProductID:   p.GreenBeanBomProductID,
 		RoastLevel:              p.RoastLevel,

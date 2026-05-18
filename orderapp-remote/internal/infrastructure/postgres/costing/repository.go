@@ -48,58 +48,68 @@ func (r Repository) LoadParameters(ctx context.Context) (domain.Parameters, erro
 
 func (r Repository) LoadProductInputs(ctx context.Context, params domain.Parameters) ([]domain.ProductInput, error) {
 	q := fmt.Sprintf(`
-			WITH material_valuation AS (
-				SELECT l.material_id,
-				       SUM(l.qty_g::numeric * COALESCE(b.unit_cost,0)) / NULLIF(SUM(l.qty_g),0) AS weighted_unit_cost
-			FROM %s.material_batch_locations l
-			JOIN %s.material_batches b ON b.id = l.material_batch_id
+		WITH material_valuation AS (
+			SELECT l.material_id,
+			       SUM(l.qty_g::numeric * COALESCE(b.unit_cost,0)) / NULLIF(SUM(l.qty_g),0) AS weighted_unit_cost
+			FROM %[1]s.material_batch_locations l
+			JOIN %[1]s.material_batches b ON b.id = l.material_batch_id
 			WHERE l.qty_g > 0
 			  AND b.status='active'
-				  AND COALESCE(b.quality_status,'unchecked') NOT IN ('hold','reject')
-				GROUP BY l.material_id
-			),
-			finished_product_cost AS (
-				SELECT p.id AS product_id,
-				       COALESCE(SUM(COALESCE(mv.weighted_unit_cost, m.purchase_price, 0) * COALESCE(bi.ratio_pct,0) / 100.0),0) AS green_cost_per_kg
-				FROM %s.products p
-				LEFT JOIN %s.product_bom_items bi ON bi.product_id = p.id
-					AND COALESCE(NULLIF(bi.component_type,''),'material') = 'material'
-					AND COALESCE(NULLIF(bi.consume_unit,''),'ratio_pct') = 'ratio_pct'
-				LEFT JOIN %s.materials m ON m.id = bi.material_id
-				LEFT JOIN material_valuation mv ON mv.material_id = m.id
-				WHERE p.active = true
-				GROUP BY p.id
-			),
-			finished_component_cost AS (
-				SELECT bi.product_id,
-				       SUM(COALESCE(fpc.green_cost_per_kg,0) * COALESCE(NULLIF(bi.qty_per_unit,0), NULLIF(bi.component_spec_g,0), 1))
-				       / NULLIF(SUM(COALESCE(NULLIF(bi.qty_per_unit,0), NULLIF(bi.component_spec_g,0), 1)),0) AS finished_green_cost_per_kg
-				FROM %s.product_bom_items bi
-				JOIN finished_product_cost fpc ON fpc.product_id = bi.component_product_id
-				WHERE COALESCE(NULLIF(bi.component_type,''),'material') = 'finished_product'
-				GROUP BY bi.product_id
-			)
-			SELECT p.id,
+			  AND COALESCE(b.quality_status,'unchecked') NOT IN ('hold','reject')
+			GROUP BY l.material_id
+		),
+		product_scope AS (
+			SELECT p.*,
+			       CASE
+			         WHEN COALESCE(NULLIF(p.product_kind,''),'roasted')='green_bean'
+			          AND COALESCE(p.green_bean_bom_product_id,0) > 0
+			         THEN p.green_bean_bom_product_id
+			         ELSE p.id
+			       END AS bom_product_id
+			FROM %[1]s.products p
+			WHERE p.active = true
+		),
+		finished_product_cost AS (
+			SELECT p.id AS product_id,
+			       COALESCE(SUM(COALESCE(mv.weighted_unit_cost, m.purchase_price, 0) * COALESCE(bi.ratio_pct,0) / 100.0),0) AS green_cost_per_kg
+			FROM %[1]s.products p
+			LEFT JOIN %[1]s.product_bom_items bi ON bi.product_id = p.id
+				AND COALESCE(NULLIF(bi.component_type,''),'material') = 'material'
+				AND COALESCE(NULLIF(bi.consume_unit,''),'ratio_pct') = 'ratio_pct'
+			LEFT JOIN %[1]s.materials m ON m.id = bi.material_id
+			LEFT JOIN material_valuation mv ON mv.material_id = m.id
+			WHERE p.active = true
+			GROUP BY p.id
+		),
+		finished_component_cost AS (
+			SELECT bi.product_id,
+			       SUM(COALESCE(fpc.green_cost_per_kg,0) * COALESCE(NULLIF(bi.qty_per_unit,0), NULLIF(bi.component_spec_g,0), 1))
+			       / NULLIF(SUM(COALESCE(NULLIF(bi.qty_per_unit,0), NULLIF(bi.component_spec_g,0), 1)),0) AS finished_green_cost_per_kg
+			FROM %[1]s.product_bom_items bi
+			JOIN finished_product_cost fpc ON fpc.product_id = bi.component_product_id
+			WHERE COALESCE(NULLIF(bi.component_type,''),'material') = 'finished_product'
+			GROUP BY bi.product_id
+		)
+		SELECT p.id,
 		       p.name,
-		       COALESCE(NULLIF(p.product_kind,''),'roasted'),
 		       COALESCE(base_p.name, p.name),
 		       COALESCE(p.roast_level, ''),
 		       COALESCE(p.customer_id, 0),
 		       COALESCE(p.base_product_id, 0),
 		       COALESCE(NULLIF(p.visibility, ''), 'public'),
 		       COALESCE(p.custom_type, ''),
-		       COALESCE(NULLIF(p.product_kind,''), 'roasted_bean'),
+		       COALESCE(NULLIF(p.product_kind,''), 'roasted'),
 		       COALESCE(p.drip_bag_grams, 10)::float8,
 		       COALESCE(p.drip_box_bag_count, 10),
 		       COALESCE(p.product_category_id, 0),
-			       COALESCE(pc.gradient_template_id, 0),
-			       p.margin_rate_override::float8,
-			       COALESCE(NULLIF(b.yield_rate,0), $1),
-			       CASE
-			           WHEN COALESCE(NULLIF(p.product_kind,''), 'roasted_bean') = 'drip_bag' AND COALESCE(fcc.finished_green_cost_per_kg,0) > 0
-			           THEN COALESCE(fcc.finished_green_cost_per_kg,0)
-			           ELSE COALESCE(SUM(COALESCE(mv.weighted_unit_cost, m.purchase_price, 0) * COALESCE(bi.ratio_pct,0) / 100.0),0)
-			       END,
+		       COALESCE(pc.gradient_template_id, 0),
+		       p.margin_rate_override::float8,
+		       COALESCE(NULLIF(b.yield_rate,0), $1),
+		       CASE
+		           WHEN COALESCE(NULLIF(p.product_kind,''), 'roasted') = 'drip_bag' AND COALESCE(fcc.finished_green_cost_per_kg,0) > 0
+		           THEN COALESCE(fcc.finished_green_cost_per_kg,0)
+		           ELSE COALESCE(SUM(COALESCE(mv.weighted_unit_cost, m.purchase_price, 0) * COALESCE(bi.ratio_pct,0) / 100.0),0)
+		       END,
 		       COALESCE(string_agg(DISTINCT NULLIF(bp.flavor, ''), ' / ') FILTER (WHERE NULLIF(bp.flavor, '') IS NOT NULL), ''),
 		       COALESCE(string_agg(DISTINCT NULLIF(bp.origin, ''), ' / ') FILTER (WHERE NULLIF(bp.origin, '') IS NOT NULL), ''),
 		       COALESCE(string_agg(DISTINCT NULLIF(bp.processing_station, ''), ' / ') FILTER (WHERE NULLIF(bp.processing_station, '') IS NOT NULL), ''),
@@ -115,18 +125,44 @@ func (r Repository) LoadProductInputs(ctx context.Context, params domain.Paramet
 		       COALESCE(qc.inspection_created_at, ''),
 		       COALESCE(qc.inspection_reference_no, '')
 		FROM product_scope p
-		LEFT JOIN %s.product_bom b ON b.product_id = bom_product_id
-		LEFT JOIN %s.product_bom_items bi ON bi.product_id = bom_product_id
-		LEFT JOIN %s.materials m ON m.id = bi.material_id
+		LEFT JOIN %[1]s.product_bom b ON b.product_id = bom_product_id
+		LEFT JOIN %[1]s.product_bom_items bi ON bi.product_id = bom_product_id
+		LEFT JOIN %[1]s.materials m ON m.id = bi.material_id
 		LEFT JOIN material_valuation mv ON mv.material_id = m.id
-		LEFT JOIN %s.material_bean_profiles bp ON bp.material_id = m.id
-			LEFT JOIN %s.products base_p ON base_p.id = p.base_product_id
-			LEFT JOIN %s.product_categories pc ON pc.id = p.product_category_id AND pc.active=true
-			LEFT JOIN finished_component_cost fcc ON fcc.product_id = p.id
-			WHERE p.active = true
-			GROUP BY p.id, p.name, base_p.name, p.roast_level, p.customer_id, p.base_product_id, p.visibility, p.custom_type, p.product_kind, p.drip_bag_grams, p.drip_box_bag_count, p.product_category_id, pc.gradient_template_id, p.margin_rate_override, b.yield_rate, b.status, b.product_id, fcc.finished_green_cost_per_kg
-			ORDER BY p.name
-		`, r.schema, r.schema, r.schema, r.schema, r.schema, r.schema, r.schema, r.schema, r.schema, r.schema, r.schema, r.schema, r.schema)
+		LEFT JOIN %[1]s.material_bean_profiles bp ON bp.material_id = m.id
+		LEFT JOIN %[1]s.products base_p ON base_p.id = p.base_product_id
+		LEFT JOIN %[1]s.product_categories pc ON pc.id = p.product_category_id AND pc.active=true
+		LEFT JOIN finished_component_cost fcc ON fcc.product_id = p.id
+		LEFT JOIN LATERAL (
+			SELECT COALESCE(NULLIF(qi.metrics_json->>'factory_flavor_description',''), NULLIF(qi.metrics_json->>'factory_flavor',''), NULLIF(qi.metrics_json->>'工厂风味描述',''), '') AS factory_flavor_description,
+			       COALESCE(NULLIF(qi.metrics_json->>'moisture',''), NULLIF(qi.metrics_json->>'水分',''), '') AS moisture,
+			       COALESCE(NULLIF(qi.metrics_json->>'density',''), NULLIF(qi.metrics_json->>'密度',''), '') AS density,
+			       to_char(qi.created_at,'YYYY-MM-DD HH24:MI') AS inspection_created_at,
+			       qi.reference_no AS inspection_reference_no
+			FROM %[1]s.quality_inspections qi
+			LEFT JOIN %[1]s.work_orders qi_work_order
+			  ON (qi.reference_type='work_order' OR qi.scope='work_order')
+			 AND qi_work_order.work_order_no=qi.reference_no
+			LEFT JOIN %[1]s.stock_batches qi_work_batch
+			  ON (qi.reference_type='work_order' OR qi.scope='work_order')
+			 AND qi_work_batch.item_type='finished_product'
+			 AND qi_work_batch.source_doc_id=qi_work_order.running_item_id
+			LEFT JOIN %[1]s.stock_batches qi_finished_batch
+			  ON (qi.reference_type='finished_batch' OR qi.scope='finished_batch')
+			 AND qi_finished_batch.item_type='finished_product'
+			 AND qi_finished_batch.batch_code=qi.reference_no
+			WHERE qi.result='pass'
+			  AND (
+			    ((qi.reference_type='work_order' OR qi.scope='work_order') AND (qi_work_order.product_id=p.bom_product_id OR qi_work_batch.item_id=p.bom_product_id))
+			    OR ((qi.reference_type='finished_batch' OR qi.scope='finished_batch') AND qi_finished_batch.item_id=p.bom_product_id)
+			  )
+			ORDER BY qi.created_at DESC, qi.id DESC
+			LIMIT 1
+		) qc ON true
+		WHERE p.active = true
+		GROUP BY p.id, p.name, base_p.name, p.roast_level, p.customer_id, p.base_product_id, p.visibility, p.custom_type, p.product_kind, p.drip_bag_grams, p.drip_box_bag_count, p.product_category_id, pc.gradient_template_id, p.margin_rate_override, p.bom_product_id, b.yield_rate, b.status, b.product_id, fcc.finished_green_cost_per_kg, qc.factory_flavor_description, qc.moisture, qc.density, qc.inspection_created_at, qc.inspection_reference_no
+		ORDER BY p.name
+	`, r.schema)
 	rows, err := r.pool.Query(ctx, q, params.RoastYieldRate)
 	if err != nil {
 		return nil, err
@@ -141,7 +177,7 @@ func (r Repository) LoadProductInputs(ctx context.Context, params domain.Paramet
 		var roastLevel string
 		var fallbackYield float64
 		var gradientTemplateID int64
-		if err := rows.Scan(&input.ProductID, &input.Name, &input.BeanListTemplateName, &roastLevel, &input.CustomerID, &input.BaseProductID, &input.Visibility, &input.CustomType, &input.ProductKind, &input.DripBagGrams, &input.DripBoxBagCount, &input.ProductCategoryID, &gradientTemplateID, &input.MarginRateOverride, &fallbackYield, &input.GreenBeanCostPerKg, &input.Flavor, &input.Origin, &input.ProcessingStation, &input.Variety, &input.ProcessMethod, &input.Grade, &input.Altitude, &input.BeanListNote, &input.BomStatus); err != nil {
+		if err := rows.Scan(&input.ProductID, &input.Name, &input.BeanListTemplateName, &roastLevel, &input.CustomerID, &input.BaseProductID, &input.Visibility, &input.CustomType, &input.ProductKind, &input.DripBagGrams, &input.DripBoxBagCount, &input.ProductCategoryID, &gradientTemplateID, &input.MarginRateOverride, &fallbackYield, &input.GreenBeanCostPerKg, &input.Flavor, &input.Origin, &input.ProcessingStation, &input.Variety, &input.ProcessMethod, &input.Grade, &input.Altitude, &input.BeanListNote, &input.BomStatus, &input.BeanListQuality.FactoryFlavorDescription, &input.BeanListQuality.Moisture, &input.BeanListQuality.Density, &input.BeanListQuality.InspectionCreatedAt, &input.BeanListQuality.InspectionReferenceNo); err != nil {
 			return nil, err
 		}
 		if gradientTemplateID > 0 {

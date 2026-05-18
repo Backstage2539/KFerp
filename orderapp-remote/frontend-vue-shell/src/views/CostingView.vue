@@ -1211,14 +1211,17 @@ function beanListPublicationLabel(row) {
 }
 
 function normalizeBeanListType(value) {
+  if (value === 'green' || value === 'green_bean') return 'green'
   if (value === 'drip') return 'drip'
   if (value === 'retail') return 'retail'
   return 'commercial'
 }
 
 function beanListTypeName(listType) {
-  if (listType === 'drip') return '挂耳'
-  return listType === 'retail' ? '零售' : '商用'
+  const normalized = normalizeBeanListType(listType)
+  if (normalized === 'green') return '生豆'
+  if (normalized === 'drip') return '挂耳'
+  return normalized === 'retail' ? '零售' : '商用'
 }
 
 function applyCopiedBeanListPublicationConfig(row = selectedCopyPublication.value) {
@@ -1244,12 +1247,6 @@ function applyCopiedBeanListPriceSource(row = selectedPriceSourcePublication.val
   priceSourcePublicationByType.value = { ...priceSourcePublicationByType.value, [listType]: row }
   selectedPriceSourcePublicationID.value = String(row.id)
   message.value = `已复制${beanListPublicationLabel(row)}价格来源，发布后会锁定为客户豆单快照`
-}
-
-function normalizeBeanListType(listType) {
-  if (listType === 'retail') return 'retail'
-  if (listType === 'green' || listType === 'green_bean') return 'green'
-  return 'commercial'
 }
 
 function beanListTypeLabel(listType) {

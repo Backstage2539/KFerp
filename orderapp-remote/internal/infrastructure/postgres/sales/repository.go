@@ -979,8 +979,8 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 		return salesapp.SaveOrderResult{}, err
 	}
 
-	insertItemSQL := fmt.Sprintf(`INSERT INTO %s.order_items(order_id,line_no,product_id,price_tier_id,price_overridden,item_name,item_note,qty,unit,spec,unit_price,line_total_before_discount,discount_type,discount_value,discount_amount,line_total,product_kind,sales_unit,unit_bag_count,unit_bean_g,matched_price_qty,price_source_json)
-				VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22::jsonb)`, r.schema)
+	insertItemSQL := fmt.Sprintf(`INSERT INTO %s.order_items(order_id,line_no,product_id,price_tier_id,price_overridden,product_kind,bean_list_publication_id,bean_list_version_no,item_name,item_note,qty,unit,spec,unit_price,line_total_before_discount,discount_type,discount_value,discount_amount,line_total,sales_unit,unit_bag_count,unit_bean_g,matched_price_qty,price_source_json)
+				VALUES ($1,$2,$3,$4,$5,$6,NULLIF($7,0),$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24::jsonb)`, r.schema)
 
 	var orderID int64
 	if editID > 0 {
@@ -1146,7 +1146,28 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 		if priceSourceJSON == "" {
 			priceSourceJSON = "{}"
 		}
-		if _, err := tx.Exec(ctx, insertItemSQL, orderID, idx+1, it.productID, it.tierID, it.priceOverride, it.name, it.note, qtyAny, it.unit, it.spec, it.unitPrice, it.baseLineTotal, it.discountType, it.discountValue, it.discountAmount, it.lineTotal, it.productKind, it.salesUnit, it.unitBagCount, it.unitBeanG, it.matchedPriceQty, priceSourceJSON); err != nil {
+		productID := int64(0)
+		if it.productID != nil {
+			productID = *it.productID
+		}
+		if !it.priceOverride && productID > 0 && it.unitPrice <= 0 && it.specG > 0 && it.units > 0 {
+			publishedPrice, err := orderbeans.ResolvePublishedUnitPrice(ctx, tx, r.schema, cmd.CustomerID, productID, orderbeans.ListTypeForProductKind(it.productKind, retailOrder), int64(it.specG), int64(it.units))
+			if err != nil {
+				return salesapp.SaveOrderResult{}, err
+			}
+			if publishedPrice > 0 {
+				it.unitPrice = publishedPrice
+				it.baseLineTotal = publishedPrice * float64(it.units)
+				if it.lineTotal <= 0 {
+					it.lineTotal = it.baseLineTotal
+				}
+			}
+		}
+		usage, err := orderbeans.ResolveUsage(ctx, tx, r.schema, cmd.CustomerID, productID, orderbeans.ListTypeForProductKind(it.productKind, retailOrder))
+		if err != nil {
+			return salesapp.SaveOrderResult{}, err
+		}
+		if _, err := tx.Exec(ctx, insertItemSQL, orderID, idx+1, it.productID, it.tierID, it.priceOverride, it.productKind, usage.PublicationID, usage.VersionNo, it.name, it.note, qtyAny, it.unit, it.spec, it.unitPrice, it.baseLineTotal, it.discountType, it.discountValue, it.discountAmount, it.lineTotal, it.salesUnit, it.unitBagCount, it.unitBeanG, it.matchedPriceQty, priceSourceJSON); err != nil {
 			return salesapp.SaveOrderResult{}, err
 		}
 	}
@@ -1173,7 +1194,7 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 		return salesapp.SaveOrderResult{}, err
 	}
 
-	r.logOrderSave(ctx, cmd.Actor, orderID, orderNo, editID > 0, orderSaveDripAuditSummary())
+	r.logOrderSave(ctx, cmd.Actor, orderID, orderNo, editID > 0, orderSaveDripAuditSummary(), beanListPublicationID, beanListVersionNo)
 
 	return salesapp.SaveOrderResult{OrderID: orderID, OrderNo: orderNo, Edited: editID > 0, StockBatchUsed: stockDecision == "use_batch"}, nil
 
@@ -1320,7 +1341,7 @@ func (r Repository) VoidMany(ctx context.Context, ids []int64, actor, reason str
 	return len(updatedIDs), nil
 }
 
-func (r Repository) logOrderSave(ctx context.Context, actor string, orderID int64, orderNo string, edited bool, extraNewValue string) {
+func (r Repository) logOrderSave(ctx context.Context, actor string, orderID int64, orderNo string, edited bool, extraNewValue string, beanListPublicationID int64, beanListVersionNo string) {
 	action := "create"
 	field := "created"
 	newValue := orderNo

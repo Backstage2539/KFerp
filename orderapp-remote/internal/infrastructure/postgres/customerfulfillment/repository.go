@@ -17,6 +17,7 @@ import (
 	catalogdomain "orderapp/internal/domain/catalog"
 	salesdomain "orderapp/internal/domain/sales"
 	postgresinfra "orderapp/internal/infrastructure/postgres"
+	"orderapp/internal/infrastructure/postgres/orderbeans"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -1446,10 +1447,11 @@ func (r *Repository) createSubmittedDirectShipERPOrderItemsTx(ctx context.Contex
 			INSERT INTO %s.order_items(
 				order_id,line_no,product_id,item_name,qty,unit,spec,unit_price,
 				line_total_before_discount,discount_type,discount_value,discount_amount,line_total,
-				product_kind,sales_unit,unit_bag_count,unit_bean_g,matched_price_qty,price_source_json
+				product_kind,sales_unit,unit_bag_count,unit_bean_g,matched_price_qty,price_source_json,
+				bean_list_publication_id,bean_list_version_no
 			)
-			VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19::jsonb)
-		`, r.schema), orderID, item.lineNo, nullableCustomerFulfillmentID(item.productID), item.productTitle, item.quantity, customerFulfillmentDisplayUnit(item.salesUnit), item.spec, item.unitPrice, item.baseLineTotal, item.discountType, item.discountValue, item.discountAmount, item.lineTotal, item.productKind, item.salesUnit, item.unitBagCount, item.unitBeanG, item.matchedPriceQty, customerFulfillmentJSONOrEmpty(item.priceSourceSnapshot)); err != nil {
+			VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19::jsonb,NULLIF($20,0),$21)
+		`, r.schema), orderID, item.lineNo, nullableCustomerFulfillmentID(item.productID), item.productTitle, item.quantity, customerFulfillmentDisplayUnit(item.salesUnit), item.spec, item.unitPrice, item.baseLineTotal, item.discountType, item.discountValue, item.discountAmount, item.lineTotal, item.productKind, item.salesUnit, item.unitBagCount, item.unitBeanG, item.matchedPriceQty, customerFulfillmentJSONOrEmpty(item.priceSourceSnapshot), item.beanListUsage.PublicationID, item.beanListUsage.VersionNo); err != nil {
 			return err
 		}
 	}
@@ -1474,6 +1476,7 @@ type submittedDirectShipERPItemSeed struct {
 	discountValue       float64
 	discountAmount      float64
 	lineTotal           float64
+	beanListUsage       orderbeans.Usage
 }
 
 func (r *Repository) submittedDirectShipERPItemSeedsTx(ctx context.Context, tx pgx.Tx, importOrderID int64) ([]submittedDirectShipERPItemSeed, error) {

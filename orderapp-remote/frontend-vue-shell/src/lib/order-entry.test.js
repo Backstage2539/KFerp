@@ -15,6 +15,8 @@ import {
   syncWholesaleTierPrice,
   normalizeSpecG,
   orderReceiptMethodOptions,
+  productKindBadgeClass,
+  productKindLabel,
   requiresOrderPaymentMethod,
   responsibleOptions,
   retailPackagePrice,

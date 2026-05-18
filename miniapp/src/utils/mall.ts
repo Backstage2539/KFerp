@@ -5,7 +5,6 @@ export type MallTemplateKey = 'hero' | 'compact' | 'wide'
 export type MallProduct = {
   id: number
   product_id: number
-  product_kind?: string
   title: string
   subtitle: string
   description: string
@@ -80,7 +79,6 @@ export function normalizeMallProduct(row: Record<string, unknown> = {}): MallPro
   return {
     id: Number(row.id || 0),
     product_id: Number(row.product_id || 0),
-    product_kind: String(row.product_kind || '').trim() === 'green_bean' ? 'green_bean' : 'roasted',
     title: String(row.title || '').trim() || '商品',
     subtitle: String(row.subtitle || '').trim(),
     description: String(row.description || '').trim(),
@@ -163,6 +161,12 @@ export function visibleMallProducts(rows: unknown[] = []): MallProduct[] {
   return rows.map((row) => normalizeMallProduct(asRecord(row))).filter((product) => product.unit_price > 0)
 }
 
+export function mallProductKindLabel(product: Partial<MallProduct | MallCartItem>): string {
+  if (product.product_kind === 'green_bean') return '生豆'
+  if (product.product_kind === 'drip_bag') return '挂耳'
+  return '熟豆'
+}
+
 export function mallProductUnitLabel(product: MallProduct): string {
   if (product.product_kind !== 'drip_bag') return `${product.spec_g}g`
   const bagGrams = positiveNumber(product.drip_bag_grams) || positiveNumber(product.unit_bean_g) || 10
@@ -201,6 +205,9 @@ function mallCartItemFromProduct(product: MallProduct, qty: number): MallCartIte
     unit_price: product.unit_price,
     qty,
   }
+  if (product.product_kind !== 'drip_bag') {
+    item.product_kind = product.product_kind
+  }
   if (product.product_kind === 'drip_bag' && product.sales_unit) {
     item.sales_unit = product.sales_unit
     item.unit_label = product.unit_label || mallProductUnitLabel(product)
@@ -211,7 +218,8 @@ function mallCartItemFromProduct(product: MallProduct, qty: number): MallCartIte
 }
 
 function normalizeProductKind(value: unknown): ProductKind {
-  return value === 'drip_bag' ? 'drip_bag' : 'roasted_bean'
+  if (value === 'green_bean') return 'green_bean'
+  return value === 'drip_bag' ? 'drip_bag' : 'roasted'
 }
 
 function normalizeSalesUnit(value: unknown): SalesUnit | '' {

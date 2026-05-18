@@ -11,6 +11,7 @@ import (
 type fakeRepo struct {
 	params            domain.Parameters
 	inputs            []domain.ProductInput
+	settings          []ParameterSetting
 	savedItems        []domain.ProductResult
 	publishedID       int64
 	savedDripTemplate SaveDripPriceTemplateCommand
@@ -41,7 +42,7 @@ func (r *fakeRepo) PublishRun(_ context.Context, actor string, runID int64) erro
 }
 
 func (r *fakeRepo) ListParameterSettings(context.Context) ([]ParameterSetting, error) {
-	return nil, nil
+	return r.settings, nil
 }
 
 func (r *fakeRepo) UpdateParameterSetting(context.Context, UpdateParameterCommand) (ParameterSetting, error) {
@@ -99,6 +100,44 @@ func TestCalculateRejectsEmptyProducts(t *testing.T) {
 	svc := NewService(&fakeRepo{})
 	if _, err := svc.Calculate(context.Background(), CalculateRequest{}); err == nil {
 		t.Fatalf("expected products required error")
+	}
+}
+
+func TestSettingsHidesDeprecatedYieldAndMarginParameters(t *testing.T) {
+	repo := &fakeRepo{settings: []ParameterSetting{
+		{Key: "roast_yield_rate", Label: "生豆到熟豆转化率", Value: 0.8, Unit: "ratio"},
+		{Key: "kg_to_lb_factor", Label: "kg 到 lb 换算", Value: 0.454, Unit: "lb/kg"},
+		{Key: "retail_bean_margin_rate", Label: "零售熟豆利润系数", Value: 0.6, Unit: "ratio"},
+		{Key: "retail_tax_rate", Label: "零售税率", Value: 0.03, Unit: "ratio"},
+		{Key: "retail_drip_multiplier", Label: "零售挂耳利润系数", Value: 2.5, Unit: "ratio"},
+		{Key: "wholesale_kg_margin_rate_2", Label: "商用熟豆 14包-23包 利润系数", Value: 0.38, Unit: "ratio"},
+		{Key: "wholesale_drip_multiplier_1", Label: "商用挂耳 100包 利润系数", Value: 2.2, Unit: "ratio"},
+	}}
+
+	rows, err := NewService(repo).Settings(context.Background())
+	if err != nil {
+		t.Fatalf("Settings() error = %v", err)
+	}
+
+	got := map[string]bool{}
+	for _, row := range rows {
+		got[row.Key] = true
+	}
+	for _, removed := range []string{
+		"roast_yield_rate",
+		"retail_bean_margin_rate",
+		"retail_drip_multiplier",
+		"wholesale_kg_margin_rate_2",
+		"wholesale_drip_multiplier_1",
+	} {
+		if got[removed] {
+			t.Fatalf("Settings() exposed deprecated quick setting %q in %+v", removed, rows)
+		}
+	}
+	for _, kept := range []string{"kg_to_lb_factor", "retail_tax_rate"} {
+		if !got[kept] {
+			t.Fatalf("Settings() missing editable quick setting %q in %+v", kept, rows)
+		}
 	}
 }
 

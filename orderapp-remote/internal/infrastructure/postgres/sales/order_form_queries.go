@@ -371,14 +371,13 @@ func (r Repository) fetchOrderEdit(ctx context.Context, id int64) (*salesapp.Ord
 	d.OutsourceTotalFee = fmt.Sprintf("%.2f", outsourceTotal)
 
 	itemsQ := fmt.Sprintf(`
-		SELECT oi.id, oi.line_no,
-			COALESCE(oi.product_id,0),
-			COALESCE(p.name,''),
-			COALESCE(NULLIF(oi.product_kind,''), NULLIF(p.product_kind,''), 'roasted'),
-			COALESCE(oi.item_note,''),
-			COALESCE(oi.spec,''),
-			COALESCE(oi.qty,0),
-			COALESCE(oi.unit,''),
+			SELECT oi.id, oi.line_no,
+				COALESCE(oi.product_id,0),
+				COALESCE(p.name,''),
+				COALESCE(oi.item_note,''),
+				COALESCE(oi.spec,''),
+				COALESCE(oi.qty,0),
+				COALESCE(oi.unit,''),
 				COALESCE(oi.unit_price,0),
 				COALESCE(oi.line_total,0),
 				COALESCE(oi.price_tier_id,0),
@@ -387,7 +386,7 @@ func (r Repository) fetchOrderEdit(ctx context.Context, id int64) (*salesapp.Ord
 				COALESCE(oi.discount_type,''),
 				COALESCE(oi.discount_value,0),
 				COALESCE(oi.discount_amount,0),
-				COALESCE(NULLIF(oi.product_kind,''), 'roasted_bean'),
+				COALESCE(NULLIF(oi.product_kind,''), NULLIF(p.product_kind,''), 'roasted'),
 				COALESCE(oi.sales_unit,''),
 				COALESCE(oi.unit_bag_count,0),
 				COALESCE(oi.unit_bean_g,0)::float8,
@@ -408,7 +407,7 @@ func (r Repository) fetchOrderEdit(ctx context.Context, id int64) (*salesapp.Ord
 	for rows.Next() {
 		var it salesapp.OrderEditItem
 		var qty, unitPrice, lineTotal, discountValue, discountAmount, unitBeanG, matchedPriceQty float64
-		if err := rows.Scan(&it.ItemID, &it.LineNo, &it.ProductID, &it.Product, &it.Note, &it.Spec, &qty, &it.Unit, &unitPrice, &lineTotal, &it.PriceTierID, &it.DiscountType, &discountValue, &discountAmount, &it.ProductKind, &it.SalesUnit, &it.UnitBagCount, &unitBeanG, &matchedPriceQty, &it.PriceSourceJSON); err != nil {
+		if err := rows.Scan(&it.ItemID, &it.LineNo, &it.ProductID, &it.Product, &it.Note, &it.Spec, &qty, &it.Unit, &unitPrice, &lineTotal, &it.PriceTierID, &it.BeanListPublicationID, &it.BeanListVersionNo, &it.DiscountType, &discountValue, &discountAmount, &it.ProductKind, &it.SalesUnit, &it.UnitBagCount, &unitBeanG, &matchedPriceQty, &it.PriceSourceJSON); err != nil {
 			return nil, err
 		}
 		it.Qty = trimFloatZero(qty)

@@ -149,9 +149,10 @@ func (r Repository) UpdateProductBasics(ctx context.Context, cmd catalogapp.Upda
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 	if _, err := tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.products
-		SET roast_level=$2, retail_price_100g=$3, retail_price_200g=$4, retail_price_227g=$5, retail_price_250g=$6, margin_rate_override=$7,
-		    product_kind=$8, drip_bag_grams=$9, drip_box_bag_count=$10, allow_fulfillment_order=$11, allow_mall_order=$12
-		WHERE id=$1`, r.schema), cmd.ProductID, roastLevel, cmd.RetailPrice100G, cmd.RetailPrice200G, cmd.RetailPrice227G, cmd.RetailPrice250G, cmd.MarginRateOverride, cmd.ProductKind, cmd.DripBagGrams, cmd.DripBoxBagCount, cmd.AllowFulfillmentOrder, cmd.AllowMallOrder); err != nil {
+		SET roast_level=$2, retail_price_100g=$3, retail_price_200g=$4, retail_price_227g=$5, retail_price_250g=$6,
+		    product_kind=$7, drip_bag_grams=$8, margin_rate_override=$9, drip_box_bag_count=$10, allow_fulfillment_order=$11, allow_mall_order=$12,
+		    green_bean_type=$13, green_bean_bom_product_id=$14
+		WHERE id=$1`, r.schema), cmd.ProductID, roastLevel, cmd.RetailPrice100G, cmd.RetailPrice200G, cmd.RetailPrice227G, cmd.RetailPrice250G, productKind, cmd.DripBagGrams, cmd.MarginRateOverride, cmd.DripBoxBagCount, cmd.AllowFulfillmentOrder, cmd.AllowMallOrder, greenBeanType, greenBeanBomProductID); err != nil {
 		return err
 	}
 	if productKind == catalogdomain.ProductKindRoasted {
@@ -181,6 +182,8 @@ func (r Repository) UpdateProductBasics(ctx context.Context, cmd catalogapp.Upda
 	meta["allow_fulfillment_order"] = cmd.AllowFulfillmentOrder
 	meta["allow_mall_order"] = cmd.AllowMallOrder
 	meta["sales_units"] = cmd.SalesUnits
+	meta["green_bean_type"] = greenBeanType
+	meta["green_bean_bom"] = greenBeanBomProductID
 	postgresinfra.AuditInsert(ctx, r.pool, r.schema, cmd.Actor, "product", &cmd.ProductID, "update", postgresinfra.StrPtr("product_basics"), nil, postgresinfra.StrPtr(roastLevel), meta)
 	return nil
 }
@@ -250,12 +253,12 @@ func (r Repository) CreateProduct(ctx context.Context, cmd catalogapp.CreateProd
 		INSERT INTO %s.products(
 			name, product_kind, roast_level, default_price, active,
 			retail_price_100g, retail_price_200g, retail_price_227g, retail_price_250g,
-			product_kind, drip_bag_grams, drip_box_bag_count, allow_fulfillment_order, allow_mall_order,
-			customer_id, base_product_id, visibility, custom_type, created_at
+			drip_bag_grams, drip_box_bag_count, allow_fulfillment_order, allow_mall_order,
+			customer_id, base_product_id, visibility, custom_type, green_bean_type, green_bean_bom_product_id, created_at
 		)
-		VALUES($1,$2,$3,true,$4,$5,$6,$7,$8,$9,$10,$11,$12,0,0,'public','',now())
+		VALUES($1,$2,$3,$4,true,$5,$6,$7,$8,$9,$10,$11,$12,0,0,'public','',$13,$14,now())
 		RETURNING id
-	`, r.schema), name, roastLevel, cmd.DefaultPrice, cmd.RetailPrice100G, cmd.RetailPrice200G, cmd.RetailPrice227G, cmd.RetailPrice250G, cmd.ProductKind, cmd.DripBagGrams, cmd.DripBoxBagCount, cmd.AllowFulfillmentOrder, cmd.AllowMallOrder).Scan(&productID); err != nil {
+	`, r.schema), name, productKind, roastLevel, cmd.DefaultPrice, cmd.RetailPrice100G, cmd.RetailPrice200G, cmd.RetailPrice227G, cmd.RetailPrice250G, cmd.DripBagGrams, cmd.DripBoxBagCount, cmd.AllowFulfillmentOrder, cmd.AllowMallOrder, greenBeanType, greenBeanBomProductID).Scan(&productID); err != nil {
 		return catalogapp.Product{}, err
 	}
 
@@ -282,12 +285,14 @@ func (r Repository) CreateProduct(ctx context.Context, cmd catalogapp.CreateProd
 		"retail_price_200g":       cmd.RetailPrice200G,
 		"retail_price_227g":       cmd.RetailPrice227G,
 		"retail_price_250g":       cmd.RetailPrice250G,
-		"product_kind":            cmd.ProductKind,
+		"product_kind":            productKind,
 		"drip_bag_grams":          cmd.DripBagGrams,
 		"drip_box_bag_count":      cmd.DripBoxBagCount,
 		"allow_fulfillment_order": cmd.AllowFulfillmentOrder,
 		"allow_mall_order":        cmd.AllowMallOrder,
 		"sales_units":             cmd.SalesUnits,
+		"green_bean_type":         greenBeanType,
+		"green_bean_bom":          greenBeanBomProductID,
 	}); err != nil {
 		return catalogapp.Product{}, err
 	}

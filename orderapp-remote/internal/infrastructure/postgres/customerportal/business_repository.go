@@ -14,6 +14,7 @@ import (
 	catalogdomain "orderapp/internal/domain/catalog"
 	salesdomain "orderapp/internal/domain/sales"
 	postgresinfra "orderapp/internal/infrastructure/postgres"
+	"orderapp/internal/infrastructure/postgres/orderbeans"
 
 	"github.com/jackc/pgx/v5"
 )
@@ -1465,10 +1466,14 @@ func (r Repository) CreateMallOrder(ctx context.Context, cmd customerportalapp.C
 		if err != nil {
 			return customerportalapp.FulfillmentOrder{}, err
 		}
+		usage, err := orderbeans.ResolveUsage(ctx, tx, r.schema, cmd.CustomerID, line.ProductID, orderbeans.ListTypeForProductKind(line.ProductKind, true))
+		if err != nil {
+			return customerportalapp.FulfillmentOrder{}, err
+		}
 		if _, err := tx.Exec(ctx, fmt.Sprintf(`
-			INSERT INTO %s.order_items(order_id,line_no,product_id,item_name,qty,unit,spec,unit_price,line_total,product_kind,sales_unit,unit_bag_count,unit_bean_g,matched_price_qty,price_source_json)
-			VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15::jsonb)
-		`, r.schema), orderID, i+1, line.ProductID, line.Title, item.Qty, pricing.DisplayUnit, pricing.SpecText, pricing.UnitPrice, pricing.LineTotal, line.ProductKind, pricing.SalesUnit, pricing.UnitBagCount, pricing.UnitBeanG, item.Qty, pricing.PriceSource); err != nil {
+			INSERT INTO %s.order_items(order_id,line_no,product_id,product_kind,bean_list_publication_id,bean_list_version_no,item_name,qty,unit,spec,unit_price,line_total,sales_unit,unit_bag_count,unit_bean_g,matched_price_qty,price_source_json)
+			VALUES($1,$2,$3,$4,NULLIF($5,0),$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17::jsonb)
+		`, r.schema), orderID, i+1, line.ProductID, line.ProductKind, usage.PublicationID, usage.VersionNo, line.Title, item.Qty, pricing.DisplayUnit, pricing.SpecText, pricing.UnitPrice, pricing.LineTotal, pricing.SalesUnit, pricing.UnitBagCount, pricing.UnitBeanG, item.Qty, pricing.PriceSource); err != nil {
 			return customerportalapp.FulfillmentOrder{}, err
 		}
 		if line.ProductKind == catalogdomain.ProductKindDripBag {
@@ -1552,7 +1557,18 @@ func (r Repository) CreateFulfillmentOrder(ctx context.Context, cmd customerport
 	priceSourceSnapshot := "{}"
 	specText := fmt.Sprintf("%dg", cmd.SpecG)
 	var unitPrice, totalAmount float64
-	if productKind == catalogdomain.ProductKindDripBag {
+	if productKind == catalogdomain.ProductKindGreenBean {
+		publishedPrice, err := orderbeans.ResolvePublishedUnitPrice(ctx, tx, r.schema, cmd.CustomerID, cmd.ProductID, orderbeans.ListTypeGreen, cmd.SpecG, cmd.Qty)
+		if err != nil {
+			return customerportalapp.FulfillmentOrder{}, err
+		}
+		unitPrice = publishedPrice
+		if unitPrice <= 0 {
+			unitPrice = r.portalFulfillmentUnitPriceTx(ctx, tx, cmd.CustomerID, cmd.ProductID, cmd.SpecG, cmd.Qty, defaultPrice)
+		}
+		totalAmount = portalLineTotalFromDisplayUnit(unitPrice, cmd.SpecG, cmd.Qty)
+		priceSourceName = "green_bean_list"
+	} else if productKind == catalogdomain.ProductKindDripBag {
 		if err := r.ensurePortalDripProductHasActiveBOMTx(ctx, tx, cmd.ProductID); err != nil {
 			return customerportalapp.FulfillmentOrder{}, err
 		}
@@ -1647,9 +1663,9 @@ func (r Repository) CreateFulfillmentOrder(ctx context.Context, cmd customerport
 		return customerportalapp.FulfillmentOrder{}, err
 	}
 	if _, err := tx.Exec(ctx, fmt.Sprintf(`
-		INSERT INTO %s.order_items(order_id,line_no,product_id,item_name,qty,unit,spec,unit_price,line_total,product_kind,sales_unit,unit_bag_count,unit_bean_g,matched_price_qty,price_source_json)
-		VALUES($1,1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14::jsonb)
-	`, r.schema), orderID, cmd.ProductID, productName, cmd.Qty, portalDisplayUnit(salesUnit), specText, unitPrice, totalAmount, productKind, salesUnit, unitBagCount, unitBeanG, matchedPriceQty, priceSourceSnapshot); err != nil {
+		INSERT INTO %s.order_items(order_id,line_no,product_id,item_name,qty,unit,spec,unit_price,line_total,product_kind,sales_unit,unit_bag_count,unit_bean_g,matched_price_qty,price_source_json,bean_list_publication_id,bean_list_version_no)
+		VALUES($1,1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14::jsonb,NULLIF($15,0),$16)
+	`, r.schema), orderID, cmd.ProductID, productName, cmd.Qty, portalDisplayUnit(salesUnit), specText, unitPrice, totalAmount, productKind, salesUnit, unitBagCount, unitBeanG, matchedPriceQty, priceSourceSnapshot, usage.PublicationID, usage.VersionNo); err != nil {
 		return customerportalapp.FulfillmentOrder{}, err
 	}
 	if productKind == catalogdomain.ProductKindDripBag {

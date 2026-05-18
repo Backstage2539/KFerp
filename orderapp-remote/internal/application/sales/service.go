@@ -232,7 +232,6 @@ type ProductOption struct {
 	BaseProductID   int64               `json:"base_product_id"`
 	Visibility      string              `json:"visibility"`
 	CustomType      string              `json:"custom_type"`
-	ProductKind     string              `json:"product_kind"`
 	DripBagGrams    float64             `json:"drip_bag_grams"`
 	DripBoxBagCount int64               `json:"drip_box_bag_count"`
 	SalesUnits      []string            `json:"sales_units"`
@@ -265,27 +264,29 @@ type OrderFormData struct {
 }
 
 type OrderEditItem struct {
-	ItemID              int64
-	LineNo              int
-	ProductID           int64
-	Product             string
-	Note                string
-	Spec                string
-	Qty                 string
-	Unit                string
-	UnitPrice           string
-	LineTotal           string
-	PriceTierID         int64
-	DiscountType        string
-	DiscountValue       string
-	DiscountAmount      string
-	ProductKind         string
-	SalesUnit           string
-	UnitBagCount        int64
-	UnitBeanG           string
-	MatchedPriceQty     string
-	UnitConversionLabel string
-	PriceSourceJSON     string
+	ItemID                int64
+	LineNo                int
+	ProductID             int64
+	Product               string
+	Note                  string
+	Spec                  string
+	Qty                   string
+	Unit                  string
+	UnitPrice             string
+	LineTotal             string
+	PriceTierID           int64
+	BeanListPublicationID int64
+	BeanListVersionNo     string
+	DiscountType          string
+	DiscountValue         string
+	DiscountAmount        string
+	ProductKind           string
+	SalesUnit             string
+	UnitBagCount          int64
+	UnitBeanG             string
+	MatchedPriceQty       string
+	UnitConversionLabel   string
+	PriceSourceJSON       string
 }
 
 type OrderEditData struct {

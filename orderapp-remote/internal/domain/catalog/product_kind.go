@@ -3,26 +3,27 @@ package catalog
 import "strings"
 
 const (
-	ProductKindRoastedBean = "roasted_bean"
+	ProductKindRoasted     = "roasted"
+	ProductKindRoastedBean = ProductKindRoasted
 	ProductKindGreenBean   = "green_bean"
 	ProductKindDripBag     = "drip_bag"
 )
 
-func NormalizeProductKind(kind string) string {
-	switch strings.ToLower(strings.TrimSpace(kind)) {
+func NormalizeProductKind(value string) string {
+	switch strings.ToLower(strings.TrimSpace(value)) {
 	case ProductKindDripBag, "drip", "挂耳":
 		return ProductKindDripBag
 	case ProductKindGreenBean, "green", "raw", "raw_bean", "生豆":
 		return ProductKindGreenBean
-	case ProductKindRoastedBean, "roasted", "熟豆":
-		return ProductKindRoastedBean
+	case ProductKindRoasted, "roasted_bean", "熟豆":
+		return ProductKindRoasted
 	default:
-		return ProductKindRoastedBean
+		return ProductKindRoasted
 	}
 }
 
-func ProductKindLabel(kind string) string {
-	switch NormalizeProductKind(kind) {
+func ProductKindLabel(value string) string {
+	switch NormalizeProductKind(value) {
 	case ProductKindDripBag:
 		return "挂耳"
 	case ProductKindGreenBean:

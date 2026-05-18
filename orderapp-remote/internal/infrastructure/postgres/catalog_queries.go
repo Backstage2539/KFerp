@@ -30,7 +30,6 @@ type ProductOption struct {
 	GreenBeanType           string
 	GreenBeanBomProductID   int64
 	RoastLevel              string
-	ProductKind             string
 	DripBagGrams            float64
 	DripBoxBagCount         int
 	AllowFulfillmentOrder   bool

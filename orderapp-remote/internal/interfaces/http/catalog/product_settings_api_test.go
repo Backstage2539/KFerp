@@ -104,6 +104,8 @@ func (r *productSettingsRepo) CreateProduct(ctx context.Context, cmd catalogapp.
 		Name:                  cmd.Name,
 		RoastLevel:            cmd.RoastLevel,
 		ProductKind:           cmd.ProductKind,
+		GreenBeanType:         cmd.GreenBeanType,
+		GreenBeanBomProductID: cmd.GreenBeanBomProductID,
 		DripBagGrams:          cmd.DripBagGrams,
 		DripBoxBagCount:       cmd.DripBoxBagCount,
 		AllowFulfillmentOrder: cmd.AllowFulfillmentOrder,

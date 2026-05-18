@@ -44,17 +44,18 @@ type employeeAPIOption struct {
 }
 
 type orderFormAPIResponse struct {
-	Today        string              `json:"today"`
-	Customers    []customerAPIOption `json:"customers"`
-	Employees    []employeeAPIOption `json:"employees"`
-	Sources      []apiOption         `json:"sources"`
-	ShipStatuses []apiOption         `json:"ship_statuses"`
-	PayStatuses  []apiOption         `json:"pay_statuses"`
-	OrderTypes   []apiOption         `json:"order_types"`
-	Products     []map[string]any    `json:"products"`
-	EditMode     bool                `json:"edit_mode"`
-	EditID       int64               `json:"edit_id"`
-	EditData     any                 `json:"edit_data,omitempty"`
+	Today                  string                           `json:"today"`
+	Customers              []customerAPIOption              `json:"customers"`
+	Employees              []employeeAPIOption              `json:"employees"`
+	Sources                []apiOption                      `json:"sources"`
+	ShipStatuses           []apiOption                      `json:"ship_statuses"`
+	PayStatuses            []apiOption                      `json:"pay_statuses"`
+	OrderTypes             []apiOption                      `json:"order_types"`
+	Products               []map[string]any                 `json:"products"`
+	BeanListVersionOptions []salesapp.BeanListVersionOption `json:"bean_list_version_options"`
+	EditMode               bool                             `json:"edit_mode"`
+	EditID                 int64                            `json:"edit_id"`
+	EditData               any                              `json:"edit_data,omitempty"`
 }
 
 type orderSaveAPIRequest struct {
@@ -627,24 +628,26 @@ func productVisibilityForAPI(visibility string, customerID int64) string {
 
 func editDataForAPI(ed *OrderEditData) map[string]any {
 	type editItem struct {
-		ProductID           int64  `json:"product_id"`
-		ProductName         string `json:"product_name"`
-		Note                string `json:"note"`
-		TierID              string `json:"tier_id"`
-		UnitPrice           string `json:"unit_price"`
-		Qty                 string `json:"qty"`
-		Unit                string `json:"unit"`
-		Spec                string `json:"spec"`
-		DiscountType        string `json:"discount_type"`
-		DiscountValue       string `json:"discount_value"`
-		DiscountAmount      string `json:"discount_amount"`
-		ProductKind         string `json:"product_kind"`
-		SalesUnit           string `json:"sales_unit"`
-		UnitBagCount        int64  `json:"unit_bag_count"`
-		UnitBeanG           string `json:"unit_bean_g"`
-		MatchedPriceQty     string `json:"matched_price_qty"`
-		UnitConversionLabel string `json:"unit_conversion_label"`
-		PriceSourceJSON     string `json:"price_source_json"`
+		ProductID             int64  `json:"product_id"`
+		ProductName           string `json:"product_name"`
+		Note                  string `json:"note"`
+		TierID                string `json:"tier_id"`
+		UnitPrice             string `json:"unit_price"`
+		Qty                   string `json:"qty"`
+		Unit                  string `json:"unit"`
+		Spec                  string `json:"spec"`
+		BeanListPublicationID int64  `json:"bean_list_publication_id"`
+		BeanListVersionNo     string `json:"bean_list_version_no"`
+		DiscountType          string `json:"discount_type"`
+		DiscountValue         string `json:"discount_value"`
+		DiscountAmount        string `json:"discount_amount"`
+		ProductKind           string `json:"product_kind"`
+		SalesUnit             string `json:"sales_unit"`
+		UnitBagCount          int64  `json:"unit_bag_count"`
+		UnitBeanG             string `json:"unit_bean_g"`
+		MatchedPriceQty       string `json:"matched_price_qty"`
+		UnitConversionLabel   string `json:"unit_conversion_label"`
+		PriceSourceJSON       string `json:"price_source_json"`
 	}
 	items := make([]editItem, 0, len(ed.Items))
 	for _, it := range ed.Items {
@@ -654,24 +657,26 @@ func editDataForAPI(ed *OrderEditData) map[string]any {
 			tierID = strconv.FormatInt(it.PriceTierID, 10)
 		}
 		items = append(items, editItem{
-			ProductID:           it.ProductID,
-			ProductName:         it.Product,
-			Note:                it.Note,
-			TierID:              tierID,
-			UnitPrice:           it.UnitPrice,
-			Qty:                 it.Qty,
-			Unit:                it.Unit,
-			Spec:                spec,
-			DiscountType:        it.DiscountType,
-			DiscountValue:       it.DiscountValue,
-			DiscountAmount:      it.DiscountAmount,
-			ProductKind:         it.ProductKind,
-			SalesUnit:           it.SalesUnit,
-			UnitBagCount:        it.UnitBagCount,
-			UnitBeanG:           it.UnitBeanG,
-			MatchedPriceQty:     it.MatchedPriceQty,
-			UnitConversionLabel: it.UnitConversionLabel,
-			PriceSourceJSON:     it.PriceSourceJSON,
+			ProductID:             it.ProductID,
+			ProductName:           it.Product,
+			Note:                  it.Note,
+			TierID:                tierID,
+			UnitPrice:             it.UnitPrice,
+			Qty:                   it.Qty,
+			Unit:                  it.Unit,
+			Spec:                  spec,
+			BeanListPublicationID: it.BeanListPublicationID,
+			BeanListVersionNo:     it.BeanListVersionNo,
+			DiscountType:          it.DiscountType,
+			DiscountValue:         it.DiscountValue,
+			DiscountAmount:        it.DiscountAmount,
+			ProductKind:           it.ProductKind,
+			SalesUnit:             it.SalesUnit,
+			UnitBagCount:          it.UnitBagCount,
+			UnitBeanG:             it.UnitBeanG,
+			MatchedPriceQty:       it.MatchedPriceQty,
+			UnitConversionLabel:   it.UnitConversionLabel,
+			PriceSourceJSON:       it.PriceSourceJSON,
 		})
 	}
 	return map[string]any{

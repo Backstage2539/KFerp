@@ -1,7 +1,7 @@
 export const DEFAULT_BEAN_LIST_PDF_VERSION = 'V3.0.5'
 
 export function sanitizeBeanListPdfTheme(input = {}) {
-  const listType = input.listType === 'retail' || input.listType === 'drip' ? input.listType : 'commercial'
+  const listType = normalizeBeanListType(input.listType)
   return {
     listType,
     version: String(input.version || DEFAULT_BEAN_LIST_PDF_VERSION).trim() || DEFAULT_BEAN_LIST_PDF_VERSION,
@@ -21,8 +21,10 @@ export function sanitizeBeanListPdfTheme(input = {}) {
 
 export function buildBeanListPdfTitle(listType, brandName = '棵凡咖啡') {
   const brand = String(brandName || '棵凡咖啡').trim() || '棵凡咖啡'
-  if (listType === 'drip') return `${brand}挂耳豆单`
-  return listType === 'retail' ? `${brand}零售豆单` : `${brand}批发豆单`
+  const normalized = normalizeBeanListType(listType)
+  if (normalized === 'green') return `${brand}生豆豆单`
+  if (normalized === 'drip') return `${brand}挂耳豆单`
+  return normalized === 'retail' ? `${brand}零售豆单` : `${brand}批发豆单`
 }
 
 export function filterBeanListItemsForScope(items = [], scope = 'official', customerID = 0) {
@@ -37,13 +39,16 @@ export function filterBeanListItemsForScope(items = [], scope = 'official', cust
 }
 
 export function buildBeanListPdfSubtitle(listType) {
-  if (listType === 'drip') return '挂耳供应价，报价按袋/盒快照发布'
-  return listType === 'retail' ? '报价含税运' : '报价不含税、不含运'
+  const normalized = normalizeBeanListType(listType)
+  if (normalized === 'green') return '生豆销售报价'
+  if (normalized === 'drip') return '挂耳供应价，报价按袋/盒快照发布'
+  return normalized === 'retail' ? '报价含税运' : '报价不含税、不含运'
 }
 
 export function buildBeanListPdfGroups(items = [], listType = 'commercial', options = {}) {
-  const metaKey = listType === 'retail' ? 'retail_bean_list' : listType === 'drip' ? 'drip_bean_list' : 'commercial_bean_list'
-  const tierKey = listType === 'retail' ? 'retail_bean_tiers' : listType === 'drip' ? 'drip_wholesale_tiers' : 'commercial_wholesale_tiers'
+  const normalizedListType = normalizeBeanListType(listType)
+  const metaKey = normalizedListType === 'green' ? 'green_bean_list' : normalizedListType === 'retail' ? 'retail_bean_list' : normalizedListType === 'drip' ? 'drip_bean_list' : 'commercial_bean_list'
+  const tierKey = normalizedListType === 'green' ? 'green_bean_sale_tiers' : normalizedListType === 'retail' ? 'retail_bean_tiers' : normalizedListType === 'drip' ? 'drip_wholesale_tiers' : 'commercial_wholesale_tiers'
   const selectedIDs = normalizeStringSet(options.selectedProductIDs)
   const hasProductFilter = Object.prototype.hasOwnProperty.call(options, 'selectedProductIDs')
   const visibleCategoryCodes = normalizeStringSet(options.visibleCategoryCodes)
@@ -90,6 +95,7 @@ export function buildBeanListPdfGroups(items = [], listType = 'commercial', opti
 
 function normalizeBeanListType(listType) {
   if (listType === 'retail') return 'retail'
+  if (listType === 'drip') return 'drip'
   if (listType === 'green' || listType === 'green_bean') return 'green'
   return 'commercial'
 }
@@ -111,6 +117,7 @@ function buildPdfItem(item, metaKey, tierKey, listType, code, customizers) {
     badge,
     badgeLabel: badgeLabel(badge),
     highlightTerms,
+    ...(beanListQuality ? { beanListQuality, qualityLines: beanListQualityLines(beanListQuality) } : {}),
     prices: pdfPriceRows(item, tierKey, listType)
   }
 }

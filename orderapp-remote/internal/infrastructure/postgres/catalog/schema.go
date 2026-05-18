@@ -22,6 +22,8 @@ ALTER TABLE %[1]s.products ADD COLUMN IF NOT EXISTS visibility TEXT NOT NULL DEF
 ALTER TABLE %[1]s.products ADD COLUMN IF NOT EXISTS custom_type TEXT NOT NULL DEFAULT '';
 ALTER TABLE %[1]s.products ADD COLUMN IF NOT EXISTS margin_rate_override NUMERIC(14,6);
 ALTER TABLE %[1]s.products ADD COLUMN IF NOT EXISTS product_kind TEXT;
+ALTER TABLE %[1]s.products ADD COLUMN IF NOT EXISTS green_bean_type TEXT NOT NULL DEFAULT '';
+ALTER TABLE %[1]s.products ADD COLUMN IF NOT EXISTS green_bean_bom_product_id BIGINT NOT NULL DEFAULT 0;
 ALTER TABLE %[1]s.products ADD COLUMN IF NOT EXISTS drip_bag_grams NUMERIC(12,3);
 ALTER TABLE %[1]s.products ADD COLUMN IF NOT EXISTS drip_box_bag_count INT;
 ALTER TABLE %[1]s.products ADD COLUMN IF NOT EXISTS allow_fulfillment_order BOOLEAN;

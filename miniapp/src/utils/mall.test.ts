@@ -6,6 +6,7 @@ import {
   addMallCartItem,
   buildMallOrderPayload,
   mallCartTotal,
+  mallProductKindLabel,
   mallProductForSalesUnit,
   mallProductUnitLabel,
   normalizeMallProduct,

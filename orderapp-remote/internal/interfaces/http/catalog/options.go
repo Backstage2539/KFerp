@@ -20,7 +20,6 @@ type ProductOption struct {
 	GreenBeanType           string              `json:"green_bean_type"`
 	GreenBeanBomProductID   int64               `json:"green_bean_bom_product_id"`
 	RoastLevel              string              `json:"roast_level"`
-	ProductKind             string              `json:"product_kind"`
 	DripBagGrams            float64             `json:"drip_bag_grams"`
 	DripBoxBagCount         int                 `json:"drip_box_bag_count"`
 	AllowFulfillmentOrder   bool                `json:"allow_fulfillment_order"`
