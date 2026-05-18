@@ -158,3 +158,25 @@ func TestDripBoxLinePrefersBagTierWhenBoxTierAlsoExists(t *testing.T) {
 		t.Fatalf("got tier %+v matched %.0f unit price %.2f total %.2f", got.Tier, got.MatchedQtyForTier, got.UnitPrice, got.LineTotal)
 	}
 }
+
+func TestDripBoxLineFallbackToBoxTierReportsBoxMatchedQuantity(t *testing.T) {
+	got, err := CalculateUnitLineTotal(UnitLineInput{
+		ProductKind:  "drip_bag",
+		SalesUnit:    "box",
+		Quantity:     12,
+		UnitBagCount: 10,
+		Tiers: []UnitPriceTier{{
+			ProductKind:  "drip_bag",
+			SalesUnit:    "box",
+			MinQty:       10,
+			PricePerUnit: 30,
+			UnitBagCount: 10,
+		}},
+	})
+	if err != nil {
+		t.Fatalf("CalculateUnitLineTotal: %v", err)
+	}
+	if got.Tier.SalesUnit != "box" || got.MatchedQtyForTier != 12 || got.UnitPrice != 30 || got.LineTotal != 360 {
+		t.Fatalf("got tier %+v matched %.0f unit price %.2f total %.2f", got.Tier, got.MatchedQtyForTier, got.UnitPrice, got.LineTotal)
+	}
+}

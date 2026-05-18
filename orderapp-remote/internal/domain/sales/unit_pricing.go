@@ -50,6 +50,7 @@ func CalculateUnitLineTotal(in UnitLineInput) (UnitLineResult, error) {
 			unitPrice = matched.PricePerUnit * unitBagCount
 		} else {
 			matched, found = matchUnitPriceTier(in.Tiers, productKind, salesUnit, in.Quantity)
+			matchedQty = in.Quantity
 			unitPrice = matched.PricePerUnit
 		}
 	} else {

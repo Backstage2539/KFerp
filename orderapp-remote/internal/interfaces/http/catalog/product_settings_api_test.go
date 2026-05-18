@@ -30,6 +30,7 @@ type productSettingsRepo struct {
 	updateErr           error
 	deactivated         catalogapp.DeactivateProductsCommand
 	createdPublic       catalogapp.CreateProductCommand
+	createErr           error
 	createdProduct      catalogapp.CreateCustomProductCommand
 	categoryCreated     bool
 	categoryMoved       bool
@@ -77,6 +78,9 @@ func (r *productSettingsRepo) DeactivateProducts(ctx context.Context, cmd catalo
 }
 
 func (r *productSettingsRepo) CreateProduct(ctx context.Context, cmd catalogapp.CreateProductCommand) (catalogapp.Product, error) {
+	if r.createErr != nil {
+		return catalogapp.Product{}, r.createErr
+	}
 	r.createdPublic = cmd
 	r.publicCreated = true
 	return catalogapp.Product{
@@ -397,6 +401,24 @@ func TestProductSettingsAPIDefaultsOmittedDripBagConfig(t *testing.T) {
 	}
 	if payload.Product.DripBagGrams != 10 || payload.Product.DripBoxBagCount != 10 || !reflect.DeepEqual(payload.Product.SalesUnits, []string{"bag", "box"}) {
 		t.Fatalf("omitted drip config response = %+v body=%s", payload.Product, rec.Body.String())
+	}
+}
+
+func TestProductSettingsAPIReturnsInternalErrorForProductCreatePersistenceFailure(t *testing.T) {
+	repo := &productSettingsRepo{createErr: errors.New("database unavailable")}
+	e := echo.New()
+	registerProductRoutes(e, catalogapp.NewService(repo))
+
+	req := httptest.NewRequest(http.MethodPost, "/api/product-settings/products", bytes.NewBufferString(`{"name":"新公共拼配","roast_level":"中深烘"}`))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("POST product persistence failure status=%d, want 500 body=%s", rec.Code, rec.Body.String())
+	}
+	if repo.publicCreated {
+		t.Fatalf("failed persistence should not mark product created, command=%+v", repo.createdPublic)
 	}
 }
 
