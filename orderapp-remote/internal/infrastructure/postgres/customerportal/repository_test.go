@@ -2184,6 +2184,40 @@ func TestLoadBeanListPublicationAllowsOfficialPublication(t *testing.T) {
 	}
 }
 
+func TestLoadBeanListServicePageUsesFixedCustomerPublication(t *testing.T) {
+	ctx := context.Background()
+	pool, schema := newCustomerPortalTestDB(t)
+	ensureCustomerPortalCostingSchema(t, ctx, pool, schema)
+	repo := NewRepository(pool, schema)
+
+	var customerID int64
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`
+		INSERT INTO %s.customers(name) VALUES('固定版本客户') RETURNING id
+	`, schema)).Scan(&customerID); err != nil {
+		t.Fatalf("insert customer: %v", err)
+	}
+	oldID := seedBeanListPublicationForCustomerPortalTest(t, ctx, pool, schema, "customer", fmt.Sprintf("%d", customerID), "客户专属旧版")
+	_ = seedBeanListPublicationForCustomerPortalTest(t, ctx, pool, schema, "customer", fmt.Sprintf("%d", customerID), "客户专属新版")
+	_ = seedBeanListPublicationForCustomerPortalTest(t, ctx, pool, schema, "official", "", "公共最新版")
+	if _, err := pool.Exec(ctx, fmt.Sprintf(`
+		INSERT INTO %[1]s.customer_portal_profiles(customer_id, display_name, bean_list_mode, bean_list_publication_id)
+		VALUES($1,'固定版本客户','fixed',$2)
+	`, schema), customerID, oldID); err != nil {
+		t.Fatalf("insert profile: %v", err)
+	}
+
+	page, err := repo.LoadServicePage(ctx, customerportalapp.ServicePageQuery{CustomerID: customerID, Key: customerportalapp.ServiceKeyBeanList, Limit: 20})
+	if err != nil {
+		t.Fatalf("LoadServicePage: %v", err)
+	}
+	if len(page.BeanLists) != 1 || page.BeanLists[0].ID != oldID || page.BeanLists[0].Title != "客户专属旧版" {
+		t.Fatalf("bean lists=%+v, want fixed old publication %d", page.BeanLists, oldID)
+	}
+	if !page.HasBeanListVersions || len(page.BeanListVersions) != 2 {
+		t.Fatalf("version metadata has_customer=%v options=%+v", page.HasBeanListVersions, page.BeanListVersions)
+	}
+}
+
 func ensureCustomerPortalCostingSchema(t *testing.T, ctx context.Context, pool *pgxpool.Pool, schema string) {
 	t.Helper()
 	if err := postgrescosting.EnsureSchema(ctx, pool, schema); err != nil {

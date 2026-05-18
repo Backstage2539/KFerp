@@ -102,6 +102,10 @@ func (s fakeService) GetBeanListPublication(context.Context, string, int64) (cus
 	return s.beanList, nil
 }
 
+func (s fakeService) AcknowledgeBeanListPublication(context.Context, string, int64) error {
+	return s.err
+}
+
 func (s fakeService) ListPortalAdminCustomers(context.Context, customerportalapp.PortalAdminCustomerQuery) ([]customerportalapp.PortalAdminCustomer, error) {
 	if s.err != nil {
 		return nil, s.err
@@ -1722,6 +1726,18 @@ func (r *templateContractRepository) LoadServicePage(_ context.Context, query cu
 
 func (r *templateContractRepository) LoadBeanListPublication(context.Context, int64, int64) (customerportalapp.BeanListSummary, error) {
 	return customerportalapp.BeanListSummary{}, nil
+}
+
+func (r *templateContractRepository) LoadBeanListPublicationAsset(context.Context, int64, string) (customerportalapp.BeanListPublicationAsset, error) {
+	return customerportalapp.BeanListPublicationAsset{}, customerportalapp.ErrBeanListPublicationNotFound
+}
+
+func (r *templateContractRepository) SaveBeanListPublicationAsset(_ context.Context, asset customerportalapp.BeanListPublicationAsset, _ string) (customerportalapp.BeanListPublicationAsset, error) {
+	return asset, nil
+}
+
+func (r *templateContractRepository) AcknowledgeBeanListPublication(context.Context, int64, int64, string) error {
+	return nil
 }
 
 func (r *templateContractRepository) ListPortalAdminCustomers(context.Context, customerportalapp.PortalAdminCustomerQuery) ([]customerportalapp.PortalAdminCustomer, error) {

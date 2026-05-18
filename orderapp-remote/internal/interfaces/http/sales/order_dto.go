@@ -33,6 +33,7 @@ type CreateOrderRequest struct {
 	OutsourceTaxFee       string `form:"outsource_tax_fee"`
 	OutsourceOtherFee     string `form:"outsource_other_fee"`
 	StockBatchDecision    string `form:"stock_batch_decision"`
+	BeanListPublicationID int64  `form:"bean_list_publication_id"`
 
 	ProductID     []string `form:"product_id[]"`
 	TierID        []string `form:"tier_id[]"`

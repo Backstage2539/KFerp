@@ -101,6 +101,20 @@
           </select>
         </label>
 
+        <label v-if="showBeanListVersionPicker">
+          <span>豆单版本</span>
+          <select v-model.number="form.bean_list_publication_id">
+            <option v-for="item in customerBeanListVersionOptions" :key="item.id" :value="item.id">
+              {{ beanListVersionLabel(item) }}
+            </option>
+          </select>
+        </label>
+
+        <label v-else-if="selectedBeanListVersionOption" class="readonly-field">
+          <span>豆单版本</span>
+          <input :value="beanListVersionLabel(selectedBeanListVersionOption)" readonly />
+        </label>
+
         <label>
           <span>付款状态</span>
           <select v-model.number="form.pay_status_id">
@@ -400,6 +414,7 @@ const payStatuses = ref([])
 const orderTypes = ref([])
 const products = ref([])
 const employees = ref([])
+const beanListVersionOptions = ref([])
 const rows = ref([newRow()])
 const customerQuery = ref('')
 const customerOpen = ref(false)
@@ -425,6 +440,7 @@ const form = reactive({
   ship_tracking_no: '',
   responsible_type: '',
   responsible_id: 0,
+  bean_list_publication_id: 0,
   notes: '',
   shipping_amount: '',
   discount_amount: '',
@@ -485,6 +501,18 @@ const filteredCustomers = computed(() => filterOptions(customers.value, customer
 const paymentMethodRequired = computed(() => requiresOrderPaymentMethod(form, payStatuses.value))
 const copyMode = computed(() => Number(props.copyId || effectiveCopyID.value || 0) > 0)
 const responsibleCandidateOptions = computed(() => responsibleOptions({ employees: employees.value, customers: customers.value }))
+const customerBeanListVersionOptions = computed(() => {
+  const customerID = Number(form.customer_id || 0)
+  return (beanListVersionOptions.value || []).filter((item) => Number(item.customer_id || 0) === customerID)
+})
+const showBeanListVersionPicker = computed(() => customerBeanListVersionOptions.value.some((item) => item.is_customer_owned))
+const selectedBeanListVersionOption = computed(() => {
+  if (!customerBeanListVersionOptions.value.length) return null
+  const selected = Number(form.bean_list_publication_id || 0)
+  return customerBeanListVersionOptions.value.find((item) => Number(item.id) === selected)
+    || customerBeanListVersionOptions.value.find((item) => item.is_default)
+    || customerBeanListVersionOptions.value[0]
+})
 const filteredResponsibleOptions = computed(() => {
   const q = String(responsibleQuery.value || '').trim().toLowerCase()
   if (!q) return responsibleCandidateOptions.value.slice(0, 30)
@@ -518,11 +546,32 @@ function chooseCustomer(item) {
   form.customer_id = Number(item.id || 0)
   customerQuery.value = item.name || ''
   customerOpen.value = false
+  syncBeanListVersionForCustomer({ force: true })
   if (Number(item.default_source_id || 0) > 0) form.source_id = Number(item.default_source_id)
   if (Number(item.default_order_type_id || 0) > 0) {
     form.order_type_id = Number(item.default_order_type_id)
     syncRowsForType()
   }
+}
+
+function beanListVersionLabel(item) {
+  if (!item) return ''
+  const owner = item.is_customer_owned ? '客户豆单' : '公共豆单'
+  const version = item.version_no || item.label || `#${item.id}`
+  const time = item.published_at ? ` · ${item.published_at}` : ''
+  return `${owner} ${version}${time}`
+}
+
+function syncBeanListVersionForCustomer(options = {}) {
+  const rows = customerBeanListVersionOptions.value
+  if (!rows.length) {
+    form.bean_list_publication_id = 0
+    return
+  }
+  const currentID = Number(form.bean_list_publication_id || 0)
+  if (!options.force && rows.some((item) => Number(item.id) === currentID)) return
+  const selected = rows.find((item) => item.is_default) || rows[0]
+  form.bean_list_publication_id = Number(selected?.id || 0)
 }
 
 function clearResponsible() {
@@ -757,6 +806,7 @@ function applyEditData(data) {
     ship_tracking_no: data.ship_tracking_no || '',
     responsible_type: data.responsible_type || '',
     responsible_id: Number(data.responsible_id || 0),
+    bean_list_publication_id: Number(data.bean_list_publication_id || 0),
     notes: data.notes || '',
     shipping_amount: data.shipping_amount || '',
     discount_amount: data.discount_amount || '',
@@ -823,15 +873,20 @@ async function load() {
     orderTypes.value = data.order_types || []
     products.value = data.products || []
     employees.value = data.employees || []
+    beanListVersionOptions.value = data.bean_list_version_options || []
     applyDefaultSelections(data)
     if (data.edit_mode) {
       const editData = { ...data.edit_data, edit_id: copyID ? 0 : data.edit_id }
       if (copyID) {
         editData.ship_tracking_no = ''
         editData.ship_status_id = defaultStatusID(shipStatuses.value, ['未发货']) || editData.ship_status_id
+        editData.bean_list_publication_id = 0
       }
       form.edit_id = Number(editData.edit_id || 0)
       applyEditData(editData)
+      syncBeanListVersionForCustomer({ force: !!copyID })
+    } else {
+      syncBeanListVersionForCustomer({ force: true })
     }
   } catch (err) {
     error.value = err.message || '加载失败'
@@ -944,6 +999,7 @@ button:disabled { cursor: not-allowed; opacity: 0.5; }
 .text-button { border: 0; background: transparent; color: #174ea6; padding: 0; min-height: 0; font-size: 12px; text-decoration: underline; }
 .danger { color: #9f1239; }
 .label-row { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.readonly-field input { background: #f8fafc; color: #4b5563; }
 .notes { margin-top: 14px; }
 .notice { border-radius: 8px; padding: 10px 12px; }
 .notice.ok { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }

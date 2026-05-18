@@ -77,6 +77,7 @@ func saveOrderCommandFromCreateRequest(req CreateOrderRequest, editID int64, act
 		OutsourceTaxFee:       taxFee,
 		OutsourceOtherFee:     otherFee,
 		StockBatchDecision:    strings.TrimSpace(req.StockBatchDecision),
+		BeanListPublicationID: req.BeanListPublicationID,
 		Items:                 orderItemCommandsFromCreateRequest(req),
 	}, nil
 }

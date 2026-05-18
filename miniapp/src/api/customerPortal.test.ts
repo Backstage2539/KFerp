@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   buildMallOrderPath,
   buildMallPagePath,
+  buildBeanListAckPath,
   buildMiniLoginPayload,
   buildPasswordLoginPath,
   buildServicePagePath,
@@ -46,5 +47,9 @@ describe('customer portal API helpers', () => {
 
   it('exposes the ERP password login API path', () => {
     expect(buildPasswordLoginPath()).toBe('/api/mini/login/password')
+  })
+
+  it('exposes the bean list acknowledgement API path', () => {
+    expect(buildBeanListAckPath(88)).toBe('/api/mini/bean-lists/88/ack')
   })
 })

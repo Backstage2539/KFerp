@@ -44,17 +44,18 @@ type employeeAPIOption struct {
 }
 
 type orderFormAPIResponse struct {
-	Today        string              `json:"today"`
-	Customers    []customerAPIOption `json:"customers"`
-	Employees    []employeeAPIOption `json:"employees"`
-	Sources      []apiOption         `json:"sources"`
-	ShipStatuses []apiOption         `json:"ship_statuses"`
-	PayStatuses  []apiOption         `json:"pay_statuses"`
-	OrderTypes   []apiOption         `json:"order_types"`
-	Products     []jsProduct         `json:"products"`
-	EditMode     bool                `json:"edit_mode"`
-	EditID       int64               `json:"edit_id"`
-	EditData     any                 `json:"edit_data,omitempty"`
+	Today                  string                           `json:"today"`
+	Customers              []customerAPIOption              `json:"customers"`
+	Employees              []employeeAPIOption              `json:"employees"`
+	Sources                []apiOption                      `json:"sources"`
+	ShipStatuses           []apiOption                      `json:"ship_statuses"`
+	PayStatuses            []apiOption                      `json:"pay_statuses"`
+	OrderTypes             []apiOption                      `json:"order_types"`
+	Products               []jsProduct                      `json:"products"`
+	BeanListVersionOptions []salesapp.BeanListVersionOption `json:"bean_list_version_options"`
+	EditMode               bool                             `json:"edit_mode"`
+	EditID                 int64                            `json:"edit_id"`
+	EditData               any                              `json:"edit_data,omitempty"`
 }
 
 type orderSaveAPIRequest struct {
@@ -82,6 +83,7 @@ type orderSaveAPIRequest struct {
 	OutsourceTaxFee       string `json:"outsource_tax_fee"`
 	OutsourceOtherFee     string `json:"outsource_other_fee"`
 	StockBatchDecision    string `json:"stock_batch_decision"`
+	BeanListPublicationID int64  `json:"bean_list_publication_id"`
 
 	ProductID     []string `json:"product_id"`
 	TierID        []string `json:"tier_id"`
@@ -203,14 +205,15 @@ func (h orderAPIHandler) form(c echo.Context) error {
 	}
 
 	resp := orderFormAPIResponse{
-		Today:        data.Today,
-		Customers:    apiCustomerOptions(data.Customers),
-		Employees:    apiEmployeeOptions(data.Employees),
-		Sources:      apiOptions(data.Sources),
-		ShipStatuses: apiOptions(data.ShipStatuses),
-		PayStatuses:  apiOptions(data.PayStatuses),
-		OrderTypes:   apiOptions(data.OrderTypes),
-		Products:     apiProducts(data.Products),
+		Today:                  data.Today,
+		Customers:              apiCustomerOptions(data.Customers),
+		Employees:              apiEmployeeOptions(data.Employees),
+		Sources:                apiOptions(data.Sources),
+		ShipStatuses:           apiOptions(data.ShipStatuses),
+		PayStatuses:            apiOptions(data.PayStatuses),
+		OrderTypes:             apiOptions(data.OrderTypes),
+		Products:               apiProducts(data.Products),
+		BeanListVersionOptions: data.BeanListVersionOptions,
 	}
 
 	if editID > 0 {
@@ -490,6 +493,7 @@ func (r orderSaveAPIRequest) toCreateRequest() CreateOrderRequest {
 		OutsourceTaxFee:       r.OutsourceTaxFee,
 		OutsourceOtherFee:     r.OutsourceOtherFee,
 		StockBatchDecision:    r.StockBatchDecision,
+		BeanListPublicationID: r.BeanListPublicationID,
 		ProductID:             r.ProductID,
 		TierID:                r.TierID,
 		UnitPrice:             r.UnitPrice,
@@ -639,36 +643,38 @@ func editDataForAPI(ed *OrderEditData) map[string]any {
 		})
 	}
 	return map[string]any{
-		"order_date":              ed.OrderDate,
-		"customer_id":             strconv.FormatInt(ed.CustomerID, 10),
-		"source_id":               strconv.FormatInt(ed.SourceID, 10),
-		"order_type_id":           strconv.FormatInt(ed.OrderTypeID, 10),
-		"pay_status_id":           strconv.FormatInt(ed.PayStatusID, 10),
-		"payment_method":          ed.PaymentMethod,
-		"ship_status_id":          strconv.FormatInt(ed.ShipStatusID, 10),
-		"ship_method":             ed.ShipMethod,
-		"ship_tracking_no":        ed.ShipTrackingNo,
-		"responsible_type":        ed.ResponsibleType,
-		"responsible_id":          ed.ResponsibleID,
-		"responsible_name":        ed.ResponsibleName,
-		"receiver_name":           ed.ReceiverName,
-		"receiver_phone":          ed.ReceiverPhone,
-		"receiver_address":        ed.ReceiverAddress,
-		"receiver_company":        ed.ReceiverCompany,
-		"portal_service_code":     ed.PortalServiceCode,
-		"source_warehouse":        ed.SourceWarehouse,
-		"notes":                   ed.Notes,
-		"shipping_amount":         ed.ShippingAmount,
-		"discount_amount":         ed.DiscountAmount,
-		"round_to_int":            ed.RoundToInt,
-		"express_fee":             ed.ExpressFee,
-		"outsource_material_fee":  ed.OutsourceMaterialFee,
-		"outsource_roast_fee":     ed.OutsourceRoastFee,
-		"outsource_packaging_fee": ed.OutsourcePackagingFee,
-		"outsource_manual_fee":    ed.OutsourceManualFee,
-		"outsource_tax_fee":       ed.OutsourceTaxFee,
-		"outsource_other_fee":     ed.OutsourceOtherFee,
-		"outsource_total_fee":     ed.OutsourceTotalFee,
-		"items":                   items,
+		"order_date":               ed.OrderDate,
+		"customer_id":              strconv.FormatInt(ed.CustomerID, 10),
+		"source_id":                strconv.FormatInt(ed.SourceID, 10),
+		"order_type_id":            strconv.FormatInt(ed.OrderTypeID, 10),
+		"pay_status_id":            strconv.FormatInt(ed.PayStatusID, 10),
+		"payment_method":           ed.PaymentMethod,
+		"ship_status_id":           strconv.FormatInt(ed.ShipStatusID, 10),
+		"ship_method":              ed.ShipMethod,
+		"ship_tracking_no":         ed.ShipTrackingNo,
+		"responsible_type":         ed.ResponsibleType,
+		"responsible_id":           ed.ResponsibleID,
+		"responsible_name":         ed.ResponsibleName,
+		"receiver_name":            ed.ReceiverName,
+		"receiver_phone":           ed.ReceiverPhone,
+		"receiver_address":         ed.ReceiverAddress,
+		"receiver_company":         ed.ReceiverCompany,
+		"portal_service_code":      ed.PortalServiceCode,
+		"source_warehouse":         ed.SourceWarehouse,
+		"bean_list_publication_id": ed.BeanListPublicationID,
+		"bean_list_version_no":     ed.BeanListVersionNo,
+		"notes":                    ed.Notes,
+		"shipping_amount":          ed.ShippingAmount,
+		"discount_amount":          ed.DiscountAmount,
+		"round_to_int":             ed.RoundToInt,
+		"express_fee":              ed.ExpressFee,
+		"outsource_material_fee":   ed.OutsourceMaterialFee,
+		"outsource_roast_fee":      ed.OutsourceRoastFee,
+		"outsource_packaging_fee":  ed.OutsourcePackagingFee,
+		"outsource_manual_fee":     ed.OutsourceManualFee,
+		"outsource_tax_fee":        ed.OutsourceTaxFee,
+		"outsource_other_fee":      ed.OutsourceOtherFee,
+		"outsource_total_fee":      ed.OutsourceTotalFee,
+		"items":                    items,
 	}
 }

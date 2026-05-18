@@ -2,6 +2,7 @@
 import { computed, ref } from 'vue'
 import { onLoad, onShow } from '@dcloudio/uni-app'
 import {
+  acknowledgeBeanListVersion,
   type BeanListSummary,
   createDirectShipBatch,
   createFulfillmentOrder,
@@ -481,6 +482,7 @@ async function submitFulfillmentOrder() {
     errorMessage.value = '请填写完整发货订单'
     return
   }
+  if (!(await confirmBeanListUpdateIfNeeded())) return
   submitting.value = true
   errorMessage.value = ''
   try {
@@ -502,6 +504,52 @@ async function submitFulfillmentOrder() {
     errorMessage.value = error instanceof Error ? error.message : '提交失败'
   } finally {
     submitting.value = false
+  }
+}
+
+function beanListPromptTarget(): BeanListSummary | null {
+  return beanListsForDisplay.value.find((item) => item.requires_acknowledgement) || null
+}
+
+function beanListDiffText(item: BeanListSummary | null): string {
+  if (!item) return ''
+  const diff = item.diff || {}
+  const lines: string[] = []
+  if (item.changelog) lines.push(item.changelog)
+  const previous = diff.previous_version_no ? `从 ${diff.previous_version_no} 更新到 ${item.version_no || '新版'}` : `当前版本 ${item.version_no || ''}`.trim()
+  if (previous) lines.push(previous)
+  if (diff.added?.length) lines.push(`新增：${diff.added.map((bean) => bean.name).slice(0, 4).join('、')}`)
+  if (diff.removed?.length) lines.push(`下架：${diff.removed.map((bean) => bean.name).slice(0, 4).join('、')}`)
+  if (diff.changed?.length) lines.push(`调整：${diff.changed.map((bean) => bean.name).slice(0, 4).join('、')}`)
+  return lines.filter(Boolean).join('\n') || '豆单已更新，请确认后继续下单。'
+}
+
+function showConfirmModal(title: string, content: string): Promise<boolean> {
+  return new Promise((resolve) => {
+    uni.showModal({
+      title,
+      content,
+      confirmText: '查看并确认',
+      cancelText: '稍后下单',
+      success: (res) => resolve(!!res.confirm),
+      fail: () => resolve(false),
+    })
+  })
+}
+
+async function confirmBeanListUpdateIfNeeded(): Promise<boolean> {
+  const target = beanListPromptTarget()
+  if (!target || !session.token) return true
+  const confirmed = await showConfirmModal('豆单已更新', beanListDiffText(target))
+  if (!confirmed) return false
+  try {
+    await acknowledgeBeanListVersion(session.token, target.id)
+    target.requires_acknowledgement = false
+    if (cachedBeanList.value?.id === target.id) cachedBeanList.value.requires_acknowledgement = false
+    return true
+  } catch (error) {
+    errorMessage.value = error instanceof Error ? error.message : '豆单确认失败'
+    return false
   }
 }
 
@@ -604,6 +652,10 @@ onShow(() => {
             <text class="bean-list-type">{{ item.list_type_label || item.list_type }}</text>
           </view>
           <text v-if="beanListCacheStatus" class="bean-list-cache-hint">{{ beanListCacheStatus }}</text>
+          <view v-if="item.requires_acknowledgement" class="bean-list-update">
+            <text class="bean-list-section-label">新版提示</text>
+            <text>{{ beanListDiffText(item) }}</text>
+          </view>
 
           <view v-for="group in item.groups || []" :key="`${item.id}-${group.category}`" class="bean-list-group">
             <text v-if="showBeanListCategory(item, group)" class="bean-list-category">{{ group.category }}</text>
@@ -1512,6 +1564,7 @@ onShow(() => {
   font-weight: 900;
 }
 
+.bean-list-update,
 .bean-list-changelog {
   display: flex;
   flex-direction: column;
@@ -1521,6 +1574,13 @@ onShow(() => {
   border-top: 2rpx solid rgba(0, 0, 0, 0.18);
   font-size: 24rpx;
   line-height: 1.6;
+}
+
+.bean-list-update {
+  padding: 18rpx;
+  border: 2rpx solid rgba(216, 23, 23, 0.26);
+  border-radius: 8rpx;
+  background: rgba(255, 245, 245, 0.9);
 }
 
 .bean-list-footer {

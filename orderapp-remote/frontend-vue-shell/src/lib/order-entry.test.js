@@ -134,6 +134,33 @@ test('buildOrderPayload carries per-item notes with order detail rows', () => {
   assert.deepEqual(payload.item_name, ['橘皮乌龙', '榛巧拼配'])
 })
 
+test('buildOrderPayload includes selected bean list publication', () => {
+  const payload = buildOrderPayload({
+    form: {
+      order_date: '2026-05-18',
+      customer_id: 3,
+      source_id: 1,
+      order_type_id: 1,
+      pay_status_id: 2,
+      ship_status_id: 1,
+      bean_list_publication_id: 88,
+    },
+    rows: [
+      {
+        product_id: 7,
+        product_name: '曲奇拼配',
+        tier_id: 'auto',
+        spec_mode: '454',
+        qty: 1,
+        unit: '件',
+        unit_price: 88,
+      },
+    ],
+  })
+
+  assert.equal(payload.bean_list_publication_id, 88)
+})
+
 test('normalizeSpecG rejects non-positive custom grams', () => {
   assert.equal(normalizeSpecG({ spec_mode: 'custom', custom_spec_g: 0 }), 0)
   assert.equal(normalizeSpecG({ spec_mode: 'custom', custom_spec_g: 300 }), 300)
