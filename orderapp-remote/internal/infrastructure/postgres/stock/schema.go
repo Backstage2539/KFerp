@@ -138,6 +138,9 @@ CREATE TABLE IF NOT EXISTS %s.material_receipts (
 	supplier TEXT NOT NULL DEFAULT '',
 	qty_g BIGINT NOT NULL DEFAULT 0,
 	unit_cost NUMERIC(12,4) NOT NULL DEFAULT 0,
+	crop_season TEXT NOT NULL DEFAULT '',
+	origin TEXT NOT NULL DEFAULT '',
+	producer_flavor_description TEXT NOT NULL DEFAULT '',
 	note TEXT NOT NULL DEFAULT '',
 	status TEXT NOT NULL DEFAULT 'submitted',
 	operator TEXT NOT NULL DEFAULT '',
@@ -155,6 +158,9 @@ CREATE TABLE IF NOT EXISTS %s.material_batches (
 	qty_g BIGINT NOT NULL DEFAULT 0,
 	remaining_g BIGINT NOT NULL DEFAULT 0,
 	unit_cost NUMERIC(12,4) NOT NULL DEFAULT 0,
+	crop_season TEXT NOT NULL DEFAULT '',
+	origin TEXT NOT NULL DEFAULT '',
+	producer_flavor_description TEXT NOT NULL DEFAULT '',
 	status TEXT NOT NULL DEFAULT 'active',
 	note TEXT NOT NULL DEFAULT '',
 	received_at TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -169,6 +175,12 @@ CREATE INDEX IF NOT EXISTS material_batches_material_fifo_idx
 	_, _ = pool.Exec(ctx, fmt.Sprintf(`ALTER TABLE %s.material_batches ADD COLUMN IF NOT EXISTS quality_status TEXT NOT NULL DEFAULT 'unchecked'`, schema))
 	_, _ = pool.Exec(ctx, fmt.Sprintf(`ALTER TABLE %s.material_batches ADD COLUMN IF NOT EXISTS material_name TEXT NOT NULL DEFAULT ''`, schema))
 	_, _ = pool.Exec(ctx, fmt.Sprintf(`ALTER TABLE %s.material_batches ADD COLUMN IF NOT EXISTS received_g BIGINT NOT NULL DEFAULT 0`, schema))
+	_, _ = pool.Exec(ctx, fmt.Sprintf(`ALTER TABLE %s.material_receipts ADD COLUMN IF NOT EXISTS crop_season TEXT NOT NULL DEFAULT ''`, schema))
+	_, _ = pool.Exec(ctx, fmt.Sprintf(`ALTER TABLE %s.material_receipts ADD COLUMN IF NOT EXISTS origin TEXT NOT NULL DEFAULT ''`, schema))
+	_, _ = pool.Exec(ctx, fmt.Sprintf(`ALTER TABLE %s.material_receipts ADD COLUMN IF NOT EXISTS producer_flavor_description TEXT NOT NULL DEFAULT ''`, schema))
+	_, _ = pool.Exec(ctx, fmt.Sprintf(`ALTER TABLE %s.material_batches ADD COLUMN IF NOT EXISTS crop_season TEXT NOT NULL DEFAULT ''`, schema))
+	_, _ = pool.Exec(ctx, fmt.Sprintf(`ALTER TABLE %s.material_batches ADD COLUMN IF NOT EXISTS origin TEXT NOT NULL DEFAULT ''`, schema))
+	_, _ = pool.Exec(ctx, fmt.Sprintf(`ALTER TABLE %s.material_batches ADD COLUMN IF NOT EXISTS producer_flavor_description TEXT NOT NULL DEFAULT ''`, schema))
 	_, _ = pool.Exec(ctx, fmt.Sprintf(`UPDATE %s.material_batches SET received_g=qty_g WHERE received_g=0 AND qty_g > 0`, schema))
 	_, _ = pool.Exec(ctx, fmt.Sprintf(`UPDATE %[1]s.material_batches b SET material_name=m.name FROM %[1]s.materials m WHERE b.material_id=m.id AND COALESCE(b.material_name,'')=''`, schema))
 	_, _ = pool.Exec(ctx, fmt.Sprintf(`CREATE INDEX IF NOT EXISTS material_batches_quality_idx ON %s.material_batches(material_id, quality_status, status, received_at, id)`, schema))

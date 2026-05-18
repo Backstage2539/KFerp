@@ -180,22 +180,28 @@ func registerStockAPI(e *echo.Echo, stockSvc *stockapp.Service) {
 
 	e.POST("/api/stock/material-receipts", func(c echo.Context) error {
 		var req struct {
-			MaterialID int64   `json:"material_id"`
-			Supplier   string  `json:"supplier"`
-			QtyG       int64   `json:"qty_g"`
-			UnitCost   float64 `json:"unit_cost"`
-			Note       string  `json:"note"`
+			MaterialID                int64   `json:"material_id"`
+			Supplier                  string  `json:"supplier"`
+			QtyG                      int64   `json:"qty_g"`
+			UnitCost                  float64 `json:"unit_cost"`
+			CropSeason                string  `json:"crop_season"`
+			Origin                    string  `json:"origin"`
+			ProducerFlavorDescription string  `json:"producer_flavor_description"`
+			Note                      string  `json:"note"`
 		}
 		if err := c.Bind(&req); err != nil {
 			return c.JSON(http.StatusBadRequest, errorResponse{Error: "invalid request"})
 		}
 		result, err := stockSvc.ReceiveMaterial(c.Request().Context(), stockapp.MaterialReceiptCommand{
-			MaterialID: req.MaterialID,
-			Supplier:   req.Supplier,
-			QtyG:       req.QtyG,
-			UnitCost:   req.UnitCost,
-			Note:       req.Note,
-			Operator:   support.ActorOf(c),
+			MaterialID:                req.MaterialID,
+			Supplier:                  req.Supplier,
+			QtyG:                      req.QtyG,
+			UnitCost:                  req.UnitCost,
+			CropSeason:                req.CropSeason,
+			Origin:                    req.Origin,
+			ProducerFlavorDescription: req.ProducerFlavorDescription,
+			Note:                      req.Note,
+			Operator:                  support.ActorOf(c),
 		})
 		if err != nil {
 			return c.JSON(http.StatusBadRequest, errorResponse{Error: err.Error()})

@@ -59,6 +59,7 @@ func (r *productSettingsRepo) GetProduct(ctx context.Context, id int64) (*catalo
 }
 
 func (r *productSettingsRepo) ReplacePriceTiers(ctx context.Context, cmd catalogapp.ReplacePriceTiersCommand) error {
+	r.updated = catalogapp.UpdateProductBasicsCommand{ProductID: cmd.ProductID, ProductKind: cmd.ProductKind}
 	return nil
 }
 
@@ -68,6 +69,21 @@ func (r *productSettingsRepo) UpdateProductBasics(ctx context.Context, cmd catal
 	}
 	r.updated = cmd
 	r.productUpdated = true
+	for i := range r.products {
+		if r.products[i].ID == cmd.ProductID {
+			r.products[i].ProductKind = cmd.ProductKind
+			r.products[i].GreenBeanType = cmd.GreenBeanType
+			r.products[i].GreenBeanBomProductID = cmd.GreenBeanBomProductID
+			r.products[i].RoastLevel = cmd.RoastLevel
+			r.products[i].DefaultPrice = cmd.DefaultPrice
+			r.products[i].RetailPrice100G = cmd.RetailPrice100G
+			r.products[i].RetailPrice200G = cmd.RetailPrice200G
+			r.products[i].RetailPrice227G = cmd.RetailPrice227G
+			r.products[i].RetailPrice250G = cmd.RetailPrice250G
+			r.products[i].YieldRate = cmd.YieldRate
+			r.products[i].MarginRateOverride = cmd.MarginRateOverride
+		}
+	}
 	return nil
 }
 
@@ -250,6 +266,128 @@ func TestProductSettingsAPISupportsCategoryTreeAndDragAssignments(t *testing.T) 
 	}
 	if !repo.productAssigned || repo.assigned.ProductID != 7 || repo.assigned.CategoryID != 2 || repo.assigned.Position != 3 {
 		t.Fatalf("assign product command = %+v assigned=%v", repo.assigned, repo.productAssigned)
+	}
+}
+
+func TestProductSettingsAPICreatesGreenBeanProductWithBomBinding(t *testing.T) {
+	repo := &productSettingsRepo{
+		products: []catalogapp.Product{{ID: 7, Name: "埃塞瑰夏熟豆", ProductKind: "roasted"}},
+	}
+	e := echo.New()
+	registerProductRoutes(e, catalogapp.NewService(repo))
+
+	body := bytes.NewBufferString(`{
+		"name":"埃塞瑰夏生豆",
+		"product_kind":"green_bean",
+		"green_bean_type":"single_origin",
+		"green_bean_bom_product_id":7
+	}`)
+	req := httptest.NewRequest(http.MethodPost, "/api/product-settings/products", body)
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+
+	e.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("POST /api/product-settings/products status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if !repo.publicCreated || repo.createdPublic.ProductKind != "green_bean" {
+		t.Fatalf("created command = %+v", repo.createdPublic)
+	}
+	if repo.createdPublic.GreenBeanType != "single_origin" || repo.createdPublic.GreenBeanBomProductID != 7 {
+		t.Fatalf("green bean binding command = %+v", repo.createdPublic)
+	}
+	if repo.createdPublic.DefaultPrice != 0 || len(repo.createdPublic.Tiers) != 0 {
+		t.Fatalf("green bean create should not carry direct sale price fields, got default=%.2f tiers=%+v", repo.createdPublic.DefaultPrice, repo.createdPublic.Tiers)
+	}
+	if repo.createdPublic.RoastLevel != "" || repo.createdPublic.YieldRate != 0 {
+		t.Fatalf("green bean create should not require roasted defaults, got roast=%q yield=%.2f", repo.createdPublic.RoastLevel, repo.createdPublic.YieldRate)
+	}
+	if !bytes.Contains(rec.Body.Bytes(), []byte(`"product_kind":"green_bean"`)) {
+		t.Fatalf("response missing product_kind: %s", rec.Body.String())
+	}
+	if !bytes.Contains(rec.Body.Bytes(), []byte(`"green_bean_type":"single_origin"`)) || !bytes.Contains(rec.Body.Bytes(), []byte(`"green_bean_bom_product_id":7`)) {
+		t.Fatalf("response missing green bean binding fields: %s", rec.Body.String())
+	}
+}
+
+func TestProductSettingsAPIUpdatesGreenBeanBomBinding(t *testing.T) {
+	repo := &productSettingsRepo{
+		products: []catalogapp.Product{
+			{
+				ID:                    91,
+				Name:                  "埃塞瑰夏生豆",
+				ProductKind:           "green_bean",
+				GreenBeanType:         "single_origin",
+				GreenBeanBomProductID: 7,
+			},
+			{ID: 7, Name: "原绑定熟豆", ProductKind: "roasted"},
+			{ID: 8, Name: "新绑定熟豆", ProductKind: "roasted"},
+		},
+	}
+	e := echo.New()
+	registerProductRoutes(e, catalogapp.NewService(repo))
+
+	body := bytes.NewBufferString(`{
+		"product_kind":"green_bean",
+		"green_bean_type":"blend",
+		"green_bean_bom_product_id":8,
+		"default_price":135,
+		"tiers":[{"spec_g":1000,"min_qty":1,"unit_price":135}]
+	}`)
+	req := httptest.NewRequest(http.MethodPut, "/api/products/91", body)
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+
+	e.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("PUT /api/products/91 status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if !repo.productUpdated || repo.updated.ProductKind != "green_bean" {
+		t.Fatalf("updated command = %+v", repo.updated)
+	}
+	if repo.updated.GreenBeanType != "blend" || repo.updated.GreenBeanBomProductID != 8 {
+		t.Fatalf("updated green bean binding = %+v", repo.updated)
+	}
+	if repo.updated.DefaultPrice != 0 || repo.updated.RetailPrice227G != 0 {
+		t.Fatalf("green bean update should ignore direct price fields, got %+v", repo.updated)
+	}
+	if !bytes.Contains(rec.Body.Bytes(), []byte(`"product_kind":"green_bean"`)) {
+		t.Fatalf("response missing product_kind: %s", rec.Body.String())
+	}
+	if !bytes.Contains(rec.Body.Bytes(), []byte(`"green_bean_type":"blend"`)) || !bytes.Contains(rec.Body.Bytes(), []byte(`"green_bean_bom_product_id":8`)) {
+		t.Fatalf("response missing updated green bean binding: %s", rec.Body.String())
+	}
+}
+
+func TestProductSettingsAPIRejectsGreenBeanAsBomBinding(t *testing.T) {
+	repo := &productSettingsRepo{
+		products: []catalogapp.Product{{ID: 8, Name: "生豆 SKU", ProductKind: "green_bean"}},
+	}
+	e := echo.New()
+	registerProductRoutes(e, catalogapp.NewService(repo))
+
+	body := bytes.NewBufferString(`{
+		"name":"错误绑定生豆",
+		"product_kind":"green_bean",
+		"green_bean_type":"single_origin",
+		"green_bean_bom_product_id":8
+	}`)
+	req := httptest.NewRequest(http.MethodPost, "/api/product-settings/products", body)
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+
+	e.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("POST /api/product-settings/products status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if repo.publicCreated {
+		t.Fatalf("green bean BOM binding should reject non-roasted products, created=%+v", repo.createdPublic)
+	}
+	if !bytes.Contains(rec.Body.Bytes(), []byte("green_bean_bom_product_id must reference roasted product")) {
+		t.Fatalf("response should explain roasted binding requirement: %s", rec.Body.String())
 	}
 }
 
@@ -518,7 +656,7 @@ func TestProductSettingsAPIRejectsExplicitZeroDripBagCreate(t *testing.T) {
 
 func TestProductSettingsAPIUpdatesProductYieldRate(t *testing.T) {
 	repo := &productSettingsRepo{
-		products: []catalogapp.Product{{ID: 7, Name: "曲奇拼配", RoastLevel: "中烘", YieldRate: 0.82}},
+		products: []catalogapp.Product{{ID: 7, Name: "曲奇拼配", RoastLevel: "中烘", DefaultPrice: 99, RetailPrice100G: 22, RetailPrice200G: 43, RetailPrice227G: 48, RetailPrice250G: 52, YieldRate: 0.82}},
 	}
 	e := echo.New()
 	registerProductRoutes(e, catalogapp.NewService(repo))
@@ -530,7 +668,7 @@ func TestProductSettingsAPIUpdatesProductYieldRate(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("PUT product status=%d body=%s", rec.Code, rec.Body.String())
 	}
-	if !repo.productUpdated || repo.updated.ProductID != 7 || repo.updated.YieldRate != 0.835 {
+	if !repo.productUpdated || repo.updated.ProductID != 7 || repo.updated.YieldRate != 0.835 || repo.updated.DefaultPrice != 99 || repo.updated.RetailPrice227G != 48 {
 		t.Fatalf("update command = %+v updated=%v", repo.updated, repo.productUpdated)
 	}
 }

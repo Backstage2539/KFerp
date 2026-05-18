@@ -134,12 +134,39 @@ test('buildOrderPayload carries per-item notes with order detail rows', () => {
   assert.deepEqual(payload.item_name, ['橘皮乌龙', '榛巧拼配'])
 })
 
+test('buildOrderPayload includes selected bean list publication', () => {
+  const payload = buildOrderPayload({
+    form: {
+      order_date: '2026-05-18',
+      customer_id: 3,
+      source_id: 1,
+      order_type_id: 1,
+      pay_status_id: 2,
+      ship_status_id: 1,
+      bean_list_publication_id: 88,
+    },
+    rows: [
+      {
+        product_id: 7,
+        product_name: '曲奇拼配',
+        tier_id: 'auto',
+        spec_mode: '454',
+        qty: 1,
+        unit: '件',
+        unit_price: 88,
+      },
+    ],
+  })
+
+  assert.equal(payload.bean_list_publication_id, 88)
+})
+
 test('normalizeSpecG rejects non-positive custom grams', () => {
   assert.equal(normalizeSpecG({ spec_mode: 'custom', custom_spec_g: 0 }), 0)
   assert.equal(normalizeSpecG({ spec_mode: 'custom', custom_spec_g: 300 }), 300)
 })
 
-test('wholesaleSpecOptions includes standard order-entry specs and product tiers', () => {
+test('wholesaleSpecOptions includes standard order-entry specs, product tiers, and custom grams', () => {
   const got = wholesaleSpecOptions({
     tiers: [
       { spec_g: 454, min: 1, unit_price: 88 },
@@ -147,8 +174,17 @@ test('wholesaleSpecOptions includes standard order-entry specs and product tiers
     ],
   })
 
-  assert.deepEqual(got.map((option) => option.value), ['36', '80', '100', '227', '454', '500', '1000', '2500'])
+  assert.deepEqual(got.map((option) => option.value), ['36', '80', '100', '227', '454', '500', '1000', '2500', 'custom'])
+  assert.equal(got.at(-1).label, '自定义克数')
   assert.equal(formatSpecLabel(2500), '2.5kg')
+})
+
+test('product kind helpers label green bean and roasted products distinctly', () => {
+  assert.equal(productKindLabel({ product_kind: 'green_bean' }), '生豆')
+  assert.equal(productKindLabel({ product_kind: 'roasted' }), '熟豆')
+  assert.equal(productKindLabel({}), '熟豆')
+  assert.equal(productKindBadgeClass({ product_kind: 'green_bean' }), 'kind-green')
+  assert.equal(productKindBadgeClass({ product_kind: 'roasted' }), 'kind-roasted')
 })
 
 test('defaultWholesaleSpec uses the product first configured tier spec', () => {

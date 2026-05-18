@@ -10,6 +10,7 @@ type fakeRepo struct {
 	update      UpdateProductBasicsCommand
 	create      CreateProductCommand
 	deactivate  DeactivateProductsCommand
+	products    map[int64]Product
 	deactivated bool
 }
 
@@ -18,6 +19,12 @@ func (r *fakeRepo) ListProducts(ctx context.Context) ([]Product, error) {
 }
 
 func (r *fakeRepo) GetProduct(ctx context.Context, id int64) (*Product, error) {
+	if r.products != nil {
+		if product, ok := r.products[id]; ok {
+			return &product, nil
+		}
+		return nil, nil
+	}
 	return &Product{ID: id, Name: "A"}, nil
 }
 

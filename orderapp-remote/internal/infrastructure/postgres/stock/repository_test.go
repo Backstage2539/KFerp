@@ -67,11 +67,14 @@ INSERT INTO %s.materials(id,code,name,onhand_g) VALUES (1,'BEAN-1','水洗豆',3
 
 	repo := NewRepository(pool, schema)
 	res, err := repo.ReceiveMaterial(ctx, stockapp.MaterialReceiptCommand{
-		MaterialID: 1,
-		Supplier:   "云南供应商",
-		QtyG:       1200,
-		UnitCost:   42.5,
-		Operator:   "jj",
+		MaterialID:                1,
+		Supplier:                  "云南供应商",
+		QtyG:                      1200,
+		UnitCost:                  42.5,
+		CropSeason:                "2025/26",
+		Origin:                    "云南保山",
+		ProducerFlavorDescription: "李子、红糖",
+		Operator:                  "jj",
 	})
 	if err != nil {
 		t.Fatalf("ReceiveMaterial: %v", err)
@@ -92,6 +95,27 @@ INSERT INTO %s.materials(id,code,name,onhand_g) VALUES (1,'BEAN-1','水洗豆',3
 	}
 	if onhandG != 1500 || remainingG != 1200 || ledgerChange != 1200 {
 		t.Fatalf("onhand/remaining/ledger = %d/%d/%d, want 1500/1200/1200", onhandG, remainingG, ledgerChange)
+	}
+	var receiptCropSeason, batchOrigin, batchProducerFlavor string
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT crop_season FROM %s.material_receipts WHERE id=$1`, schema), res.ReceiptID).Scan(&receiptCropSeason); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT origin,producer_flavor_description FROM %s.material_batches WHERE id=$1`, schema), res.BatchID).Scan(&batchOrigin, &batchProducerFlavor); err != nil {
+		t.Fatal(err)
+	}
+	if receiptCropSeason != "2025/26" || batchOrigin != "云南保山" || batchProducerFlavor != "李子、红糖" {
+		t.Fatalf("receipt/batch metadata = %q/%q/%q", receiptCropSeason, batchOrigin, batchProducerFlavor)
+	}
+
+	listed, err := repo.ListMaterialBatches(ctx, stockapp.MaterialBatchQuery{Limit: 20})
+	if err != nil {
+		t.Fatalf("ListMaterialBatches: %v", err)
+	}
+	if len(listed.Rows) != 1 ||
+		listed.Rows[0].CropSeason != "2025/26" ||
+		listed.Rows[0].Origin != "云南保山" ||
+		listed.Rows[0].ProducerFlavorDescription != "李子、红糖" {
+		t.Fatalf("listed material batch metadata = %+v", listed.Rows)
 	}
 }
 
@@ -210,6 +234,31 @@ CREATE TABLE %s.finished_inventory (
 		}
 		if !exists {
 			t.Fatalf("%s missing quality_status column", tc.table)
+		}
+	}
+	for _, tc := range []struct {
+		table  string
+		column string
+	}{
+		{table: "material_receipts", column: "crop_season"},
+		{table: "material_receipts", column: "origin"},
+		{table: "material_receipts", column: "producer_flavor_description"},
+		{table: "material_batches", column: "crop_season"},
+		{table: "material_batches", column: "origin"},
+		{table: "material_batches", column: "producer_flavor_description"},
+	} {
+		var exists bool
+		if err := pool.QueryRow(ctx, `
+			SELECT EXISTS (
+				SELECT 1
+				FROM information_schema.columns
+				WHERE table_schema=$1 AND table_name=$2 AND column_name=$3
+			)
+		`, schema, tc.table, tc.column).Scan(&exists); err != nil {
+			t.Fatal(err)
+		}
+		if !exists {
+			t.Fatalf("%s missing %s column", tc.table, tc.column)
 		}
 	}
 }

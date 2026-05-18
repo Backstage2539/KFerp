@@ -16,6 +16,9 @@ type ProductTierOption struct {
 type ProductOption struct {
 	ID                      int64               `json:"id"`
 	Name                    string              `json:"name"`
+	ProductKind             string              `json:"product_kind"`
+	GreenBeanType           string              `json:"green_bean_type"`
+	GreenBeanBomProductID   int64               `json:"green_bean_bom_product_id"`
 	RoastLevel              string              `json:"roast_level"`
 	ProductKind             string              `json:"product_kind"`
 	DripBagGrams            float64             `json:"drip_bag_grams"`

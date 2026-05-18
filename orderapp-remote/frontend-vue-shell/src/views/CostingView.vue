@@ -33,6 +33,105 @@
       </div>
     </section>
 
+    <section class="panel bean-list-version-panel">
+      <div class="section-bar bean-list-version-head">
+        <div>
+          <div class="section-title">豆单版本列表</div>
+          <p class="muted">发布后的官方、我的客户豆单和指定客户豆单版本在这里查看、复制配置和撤回。</p>
+        </div>
+        <div class="actions">
+          <button class="secondary compact" type="button" :disabled="beanListVersionListLoading" @click="refreshBeanListVersionList">刷新版本</button>
+          <button class="primary compact" type="button" :disabled="loading || !visibleCostingItems.length" @click="openBeanListDrawer(pdfTheme.listType)">生成豆单</button>
+        </div>
+      </div>
+
+      <div class="version-controls">
+        <label>
+          <span>发布归属</span>
+          <select v-model="publicationScope" :disabled="!isBeanListAdmin">
+            <option value="official">棵凡官方豆单</option>
+            <option value="mine">我的客户豆单</option>
+            <option value="customer">指定客户豆单</option>
+          </select>
+        </label>
+        <label v-if="publicationScope === 'customer'" class="version-control-customer">
+          <span>客户</span>
+          <SearchableSelect
+            v-model="selectedBeanListCustomerID"
+            :options="customers"
+            :option-label="customerOptionLabel"
+            :option-meta="customerOptionMeta"
+            :option-value="optionNumericValue"
+            placeholder="选择客户"
+            empty-text="没有匹配客户" />
+        </label>
+        <label>
+          <span>豆单类型</span>
+          <select v-model="pdfOptions.listType">
+            <option value="commercial">商用批发豆单</option>
+            <option value="retail">零售豆单</option>
+            <option value="green">生豆豆单</option>
+          </select>
+        </label>
+        <div class="version-summary">
+          <span>当前发布</span>
+          <strong>{{ currentBeanListPublication?.version || '暂无' }}</strong>
+        </div>
+        <div class="version-summary">
+          <span>版本数</span>
+          <strong>{{ currentScopePublicationRows.length }}</strong>
+        </div>
+      </div>
+
+      <div v-if="publicationScope === 'customer' && !selectedBeanListCustomerID" class="muted empty">
+        选择客户后查看客户自己的豆单版本；没有专属豆单的客户使用公共豆单。
+      </div>
+      <div v-else-if="currentScopePublicationRows.length" class="version-table-wrap">
+        <table class="version-table">
+          <thead>
+            <tr>
+              <th>版本号</th>
+              <th>类型</th>
+              <th>归属</th>
+              <th>状态</th>
+              <th>时间</th>
+              <th>更新说明</th>
+              <th>来源</th>
+              <th>操作</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="row in currentScopePublicationRows" :key="`bean-list-version-${row.id}`">
+              <td class="version-main">
+                <strong>{{ row.version || '未命名版本' }}</strong>
+                <small>#{{ row.id }}</small>
+              </td>
+              <td>{{ beanListTypeLabel(row.list_type) }}</td>
+              <td>{{ beanListPublicationOwnerLabel(row) }}</td>
+              <td>
+                <span :class="['status-pill', beanListPublicationStatusClass(row)]">
+                  {{ beanListPublicationStatusLabel(row) }}
+                </span>
+              </td>
+              <td>{{ beanListPublicationTime(row) || '-' }}</td>
+              <td class="version-note">{{ row.changelog || '无更新说明' }}</td>
+              <td class="version-note">{{ beanListPublicationSourceLabel(row) }}</td>
+              <td>
+                <div class="version-actions">
+                  <button class="secondary compact" type="button" @click="startBeanListFromPublication(row)">生成新版</button>
+                  <button class="secondary compact" type="button" @click="applyCopiedBeanListPublicationConfig(row)">复制配置</button>
+                  <button v-if="isBeanListAdmin && row.status === 'published'" class="danger compact" type="button" :disabled="beanListWithdrawing" @click="withdrawBeanList(row)">撤回</button>
+                </div>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <div v-else class="muted empty">
+        当前{{ publicationScopeLabel(publicationScope) }}暂无{{ beanListTypeLabel(pdfTheme.listType) }}豆单版本。
+      </div>
+    </section>
+
     <section class="panel">
       <div class="section-bar">
         <div class="section-title">价格试算</div>
@@ -346,6 +445,7 @@
               <option value="commercial">商用批发豆单</option>
               <option value="drip">挂耳豆单</option>
               <option value="retail">零售豆单</option>
+              <option value="green">生豆豆单</option>
             </select>
           </label>
           <label>
@@ -450,7 +550,7 @@
           <strong>预览</strong>
           <span>{{ pdfTotalItems }} 款</span>
           <div class="pdf-actions">
-            <button v-if="isBeanListAdmin" class="secondary" type="button" :disabled="beanListWithdrawing || !currentBeanListPublication" @click="withdrawBeanList">撤回发布</button>
+            <button v-if="isBeanListAdmin" class="secondary" type="button" :disabled="beanListWithdrawing || !currentBeanListPublication" @click="withdrawBeanList()">撤回发布</button>
             <button v-if="isBeanListAdmin" class="primary" type="button" :disabled="beanListPublishing || !pdfGroups.length || !pdfTheme.version || !customerScopeReady" @click="publishBeanList">发布豆单</button>
             <button v-else class="primary" type="button" :disabled="beanListPublishing || !pdfGroups.length || !pdfTheme.version || !customerScopeReady" @click="saveBeanListDraft">保存修改</button>
             <button class="secondary" type="button" :disabled="!pdfGroups.length" @click="generateBeanListPdf">生成 PDF</button>
@@ -465,7 +565,7 @@
               <p>{{ pdfSubtitle }}</p>
               <p v-if="pdfTheme.brandIntro" class="pdf-brand-intro">{{ pdfTheme.brandIntro }}</p>
             </div>
-            <div class="pdf-badge">{{ pdfTheme.listType === 'retail' ? '零售' : '商用' }}</div>
+            <div class="pdf-badge">{{ beanListTypeLabel(pdfTheme.listType) }}</div>
           </header>
 
           <section v-for="group in pdfGroups" :key="`preview-${group.category}`" class="pdf-group">
@@ -574,7 +674,7 @@
             <p>{{ pdfSubtitle }}</p>
             <p v-if="pdfTheme.brandIntro" class="pdf-brand-intro">{{ pdfTheme.brandIntro }}</p>
           </div>
-          <div class="pdf-badge">{{ pdfTheme.listType === 'retail' ? '零售' : '商用' }}</div>
+          <div class="pdf-badge">{{ beanListTypeLabel(pdfTheme.listType) }}</div>
         </header>
 
         <section v-for="group in pdfGroups" :key="`pdf-${group.category}`" class="pdf-group">
@@ -706,6 +806,7 @@ const saving = ref(false)
 const publishing = ref(false)
 const beanListPublishing = ref(false)
 const beanListWithdrawing = ref(false)
+const beanListVersionListLoading = ref(false)
 const settingsOpen = ref(false)
 const priceExplanationOpen = ref(false)
 const priceExplanationLoading = ref(false)
@@ -1058,6 +1159,7 @@ function initializePdfDefaults() {
   initializePdfDefaultsForType('commercial')
   initializePdfDefaultsForType('drip')
   initializePdfDefaultsForType('retail')
+  initializePdfDefaultsForType('green')
 }
 
 function initializePdfDefaultsIfItemsLoaded() {
@@ -1103,8 +1205,8 @@ function openBeanListDrawer(listType = 'commercial') {
 }
 
 function beanListPublicationLabel(row) {
-  const status = row?.status === 'published' ? '已发布' : '已撤回'
-  const time = row?.published_at || row?.created_at || ''
+  const status = beanListPublicationStatusLabel(row)
+  const time = beanListPublicationTime(row)
   return [row?.version || '未命名版本', status, time].filter(Boolean).join(' · ')
 }
 
@@ -1142,6 +1244,18 @@ function applyCopiedBeanListPriceSource(row = selectedPriceSourcePublication.val
   priceSourcePublicationByType.value = { ...priceSourcePublicationByType.value, [listType]: row }
   selectedPriceSourcePublicationID.value = String(row.id)
   message.value = `已复制${beanListPublicationLabel(row)}价格来源，发布后会锁定为客户豆单快照`
+}
+
+function normalizeBeanListType(listType) {
+  if (listType === 'retail') return 'retail'
+  if (listType === 'green' || listType === 'green_bean') return 'green'
+  return 'commercial'
+}
+
+function beanListTypeLabel(listType) {
+  const normalized = normalizeBeanListType(listType)
+  if (normalized === 'green') return '生豆'
+  return normalized === 'retail' ? '零售' : '商用'
 }
 
 function isPdfProductSelected(id) {
@@ -1370,6 +1484,16 @@ async function loadBeanListPublications(listType = pdfTheme.value.listType, scop
     }
   } catch (err) {
     error.value = err.message || '加载豆单发布记录失败'
+  }
+}
+
+async function refreshBeanListVersionList() {
+  beanListVersionListLoading.value = true
+  error.value = ''
+  try {
+    await loadBeanListPublications(pdfTheme.value.listType, publicationScope.value)
+  } finally {
+    beanListVersionListLoading.value = false
   }
 }
 
@@ -1612,20 +1736,19 @@ async function copyPublicBeanListURL() {
   }
 }
 
-async function withdrawBeanList() {
-  const row = currentBeanListPublication.value
+async function withdrawBeanList(row = currentBeanListPublication.value) {
   if (!row?.id) return
   beanListWithdrawing.value = true
   error.value = ''
   message.value = ''
-  const listType = pdfTheme.value.listType
+  const listType = normalizeBeanListType(row.list_type || pdfTheme.value.listType)
   try {
     const params = new URLSearchParams({ scope: publicationScope.value })
     if (publicationScope.value === 'customer') {
       params.set('customer_id', String(selectedBeanListCustomerID.value || 0))
     }
     await apiSend(`/api/costing/bean-list/publications/${row.id}/withdraw?${params.toString()}`)
-    message.value = `已撤回${listType === 'retail' ? '零售' : '商用'}豆单 ${row.version}`
+    message.value = `已撤回${beanListTypeLabel(listType)}豆单 ${row.version}`
     await loadBeanListPublications(listType, publicationScope.value)
   } catch (err) {
     error.value = err.message || '撤回豆单失败'
@@ -1640,6 +1763,8 @@ onMounted(() => {
   loadCustomers()
   loadBeanListPublications('commercial', 'official')
   loadBeanListPublications('commercial', 'mine')
+  loadBeanListPublications('green', 'official')
+  loadBeanListPublications('green', 'mine')
   window.addEventListener('afterprint', clearPdfPrintMode)
 })
 
@@ -1657,6 +1782,27 @@ onBeforeUnmount(() => {
 .actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
 .section-bar, .bean-list-generate-bar { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
 .bean-list-generate-bar p { margin: 4px 0 0; }
+.bean-list-version-panel { display: grid; gap: 12px; }
+.bean-list-version-head { align-items: flex-start; }
+.bean-list-version-head p { margin: 4px 0 0; line-height: 1.45; }
+.version-controls { display: grid; grid-template-columns: minmax(150px, .8fr) minmax(150px, .8fr) minmax(110px, .55fr) minmax(90px, .45fr); gap: 10px; align-items: end; }
+.version-controls label span, .version-summary span { display: block; color: #666; font-size: 12px; margin-bottom: 5px; }
+.version-controls select { width: 100%; min-height: 38px; border: 1px solid #ddd; border-radius: 8px; padding: 7px 9px; background: #fff; font: inherit; box-sizing: border-box; }
+.version-control-customer { grid-column: span 2; }
+.version-summary { min-height: 38px; border: 1px solid #eee; border-radius: 8px; background: #fafafa; padding: 8px 10px; box-sizing: border-box; }
+.version-summary strong { display: block; overflow-wrap: anywhere; font-size: 14px; line-height: 1.2; }
+.version-table-wrap { overflow: auto; }
+.version-table { min-width: 1040px; }
+.version-table th, .version-table td { text-align: left; white-space: normal; vertical-align: top; }
+.version-main strong { display: block; line-height: 1.25; }
+.version-main small { display: block; margin-top: 3px; color: #777; font-size: 12px; }
+.version-note { max-width: 260px; line-height: 1.45; color: #333; overflow-wrap: anywhere; }
+.version-actions { display: flex; flex-wrap: wrap; gap: 6px; justify-content: flex-start; }
+.status-pill { display: inline-flex; align-items: center; border-radius: 999px; border: 1px solid #d4d4d4; padding: 3px 8px; font-size: 12px; font-weight: 700; line-height: 1.2; white-space: nowrap; }
+.status-published { border-color: #9fd0a4; background: #ecfaee; color: #176528; }
+.status-draft { border-color: #c8d4e1; background: #f7fbff; color: #1f4f82; }
+.status-withdrawn { border-color: #e0b4b4; background: #fff1f1; color: #8b1e1e; }
+.status-unknown { background: #f5f5f5; color: #555; }
 .metrics { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
 .metrics > div { border: 1px solid #eee; border-radius: 8px; padding: 12px; background: #fafafa; }
 .metrics span, .muted { color: #666; font-size: 12px; }
@@ -1812,6 +1958,9 @@ article, .empty-card { border: 1px solid #eee; border-radius: 8px; padding: 12px
   .settings-drawer { width: 100vw; }
   .explanation-summary, .explanation-form, .formula-step { grid-template-columns: 1fr; }
   .formula-step strong { text-align: left; }
+  .section-bar.bean-list-version-head { align-items: flex-start; flex-direction: column; }
+  .version-controls { grid-template-columns: 1fr; }
+  .version-control-customer { grid-column: auto; }
   .copy-config-box, .copy-config-actions { grid-template-columns: 1fr; }
   .pdf-form { grid-template-columns: 1fr; }
   .checkbox-grid, .customizer-row { grid-template-columns: 1fr; }

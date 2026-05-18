@@ -10,6 +10,7 @@ import {
   buildMallOrderPayload,
   formatMallMoney,
   mallCartCount,
+  mallProductKindLabel,
   mallCartTotal,
   mallProductForSalesUnit,
   mallProductUnitLabel,

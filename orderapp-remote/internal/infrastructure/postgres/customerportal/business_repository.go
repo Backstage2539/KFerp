@@ -36,7 +36,7 @@ func (r Repository) LoadServicePage(ctx context.Context, query customerportalapp
 	var err error
 	switch query.Key {
 	case customerportalapp.ServiceKeyBeanList:
-		page.BeanLists, err = r.listBeanLists(ctx, query.CustomerID, limit)
+		page.BeanLists, page.BeanListVersions, page.HasBeanListVersions, err = r.loadBeanListServiceData(ctx, query.CustomerID, limit)
 	case customerportalapp.ServiceKeyOrders:
 		page.Orders, err = r.listCustomerOrders(ctx, query, limit, true)
 	case customerportalapp.ServiceKeyProductOrder:
@@ -157,7 +157,137 @@ func (r Repository) LoadBeanListPublication(ctx context.Context, customerID, pub
 	return row, nil
 }
 
-func (r Repository) listBeanLists(ctx context.Context, customerID int64, limit int) ([]customerportalapp.BeanListSummary, error) {
+func (r Repository) LoadBeanListPublicationAsset(ctx context.Context, publicationID int64, assetType string) (customerportalapp.BeanListPublicationAsset, error) {
+	assetType = strings.TrimSpace(assetType)
+	if assetType == "" {
+		assetType = "pdf"
+	}
+	var asset customerportalapp.BeanListPublicationAsset
+	err := r.pool.QueryRow(ctx, fmt.Sprintf(`
+		SELECT publication_id, asset_type, content_type, cache_key, payload
+		FROM %s.bean_list_publication_assets
+		WHERE publication_id=$1 AND asset_type=$2
+	`, r.schema), publicationID, assetType).Scan(&asset.PublicationID, &asset.AssetType, &asset.ContentType, &asset.CacheKey, &asset.Payload)
+	if err != nil {
+		return customerportalapp.BeanListPublicationAsset{}, err
+	}
+	return asset, nil
+}
+
+func (r Repository) SaveBeanListPublicationAsset(ctx context.Context, asset customerportalapp.BeanListPublicationAsset, actor string) (customerportalapp.BeanListPublicationAsset, error) {
+	asset.AssetType = strings.TrimSpace(asset.AssetType)
+	if asset.AssetType == "" {
+		asset.AssetType = "pdf"
+	}
+	asset.ContentType = strings.TrimSpace(asset.ContentType)
+	if asset.ContentType == "" {
+		asset.ContentType = "application/octet-stream"
+	}
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return customerportalapp.BeanListPublicationAsset{}, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	var created bool
+	err = tx.QueryRow(ctx, fmt.Sprintf(`
+		WITH inserted AS (
+			INSERT INTO %[1]s.bean_list_publication_assets(publication_id, asset_type, content_type, cache_key, payload, created_by)
+			VALUES($1,$2,$3,$4,$5,$6)
+			ON CONFLICT(publication_id, asset_type) DO NOTHING
+			RETURNING publication_id, asset_type, content_type, cache_key, payload, true
+		)
+		SELECT publication_id, asset_type, content_type, cache_key, payload, true FROM inserted
+		UNION ALL
+		SELECT publication_id, asset_type, content_type, cache_key, payload, false
+		FROM %[1]s.bean_list_publication_assets
+		WHERE publication_id=$1 AND asset_type=$2 AND NOT EXISTS (SELECT 1 FROM inserted)
+		LIMIT 1
+	`, r.schema), asset.PublicationID, asset.AssetType, asset.ContentType, asset.CacheKey, asset.Payload, strings.TrimSpace(actor)).
+		Scan(&asset.PublicationID, &asset.AssetType, &asset.ContentType, &asset.CacheKey, &asset.Payload, &created)
+	if err != nil {
+		return customerportalapp.BeanListPublicationAsset{}, err
+	}
+	if created {
+		if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, strings.TrimSpace(actor), "bean_list_publication_asset", &asset.PublicationID, "create", postgresinfra.StrPtr("asset_type"), nil, postgresinfra.StrPtr(asset.AssetType), postgresinfra.AuditMeta{
+			"publication_id": asset.PublicationID,
+			"asset_type":     asset.AssetType,
+			"cache_key":      asset.CacheKey,
+		}); err != nil {
+			return customerportalapp.BeanListPublicationAsset{}, err
+		}
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return customerportalapp.BeanListPublicationAsset{}, err
+	}
+	return asset, nil
+}
+
+func (r Repository) AcknowledgeBeanListPublication(ctx context.Context, customerID, publicationID int64, actor string) error {
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	tag, err := tx.Exec(ctx, fmt.Sprintf(`
+		INSERT INTO %s.customer_bean_list_acknowledgements(customer_id, publication_id, acknowledged_by)
+		VALUES($1,$2,$3)
+		ON CONFLICT(customer_id, publication_id) DO NOTHING
+	`, r.schema), customerID, publicationID, strings.TrimSpace(actor))
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() > 0 {
+		if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, strings.TrimSpace(actor), "customer_bean_list_acknowledgement", &publicationID, "acknowledge", postgresinfra.StrPtr("publication_id"), nil, postgresinfra.StrPtr(fmt.Sprintf("%d", publicationID)), postgresinfra.AuditMeta{
+			"customer_id":    customerID,
+			"publication_id": publicationID,
+		}); err != nil {
+			return err
+		}
+	}
+	return tx.Commit(ctx)
+}
+
+func (r Repository) loadBeanListServiceData(ctx context.Context, customerID int64, limit int) ([]customerportalapp.BeanListSummary, []customerportalapp.BeanListVersionOption, bool, error) {
+	customerRows, err := r.listCustomerBeanListVersions(ctx, customerID, limit)
+	if err != nil {
+		return nil, nil, false, err
+	}
+	if len(customerRows) > 0 {
+		options := beanListVersionOptions(customerRows)
+		fixedID, fixed := r.fixedBeanListPublicationID(ctx, customerID)
+		if fixed && fixedID > 0 {
+			for _, row := range customerRows {
+				if row.ID == fixedID {
+					row.RequiresAcknowledgement = !r.beanListAcknowledged(ctx, customerID, row.ID)
+					return []customerportalapp.BeanListSummary{row}, options, true, nil
+				}
+			}
+		}
+		customerRows[0].RequiresAcknowledgement = !r.beanListAcknowledged(ctx, customerID, customerRows[0].ID)
+		if len(customerRows) > 1 {
+			customerRows[0].Diff = customerportalapp.BeanListDiffBetween(customerRows[1], customerRows[0])
+		}
+		return []customerportalapp.BeanListSummary{customerRows[0]}, options, true, nil
+	}
+	rows, err := r.listLatestOfficialBeanLists(ctx, limit)
+	if err != nil {
+		return nil, nil, false, err
+	}
+	return rows, nil, false, nil
+}
+
+func (r Repository) beanListAcknowledged(ctx context.Context, customerID, publicationID int64) bool {
+	var ok bool
+	_ = r.pool.QueryRow(ctx, fmt.Sprintf(`
+		SELECT EXISTS (
+			SELECT 1 FROM %s.customer_bean_list_acknowledgements
+			WHERE customer_id=$1 AND publication_id=$2
+		)
+	`, r.schema), customerID, publicationID).Scan(&ok)
+	return ok
+}
+
+func (r Repository) listCustomerBeanListVersions(ctx context.Context, customerID int64, limit int) ([]customerportalapp.BeanListSummary, error) {
 	rows, err := r.pool.Query(ctx, fmt.Sprintf(`
 		SELECT id, list_type, version_no, status, to_char(published_at,'YYYY-MM-DD HH24:MI'), changelog, config_json, content_json
 		FROM %s.bean_list_publications
@@ -173,10 +303,36 @@ func (r Repository) listBeanLists(ctx context.Context, customerID int64, limit i
 	if err != nil {
 		return nil, err
 	}
-	if len(out) > 0 {
-		return out, nil
+	return out, nil
+}
+
+func (r Repository) fixedBeanListPublicationID(ctx context.Context, customerID int64) (int64, bool) {
+	var mode string
+	var publicationID int64
+	err := r.pool.QueryRow(ctx, fmt.Sprintf(`
+		SELECT COALESCE(bean_list_mode,'latest'), COALESCE(bean_list_publication_id,0)
+		FROM %s.customer_portal_profiles
+		WHERE customer_id=$1
+	`, r.schema), customerID).Scan(&mode, &publicationID)
+	if err != nil {
+		return 0, false
 	}
-	return r.listLatestOfficialBeanLists(ctx, limit)
+	return publicationID, strings.TrimSpace(mode) == "fixed"
+}
+
+func beanListVersionOptions(rows []customerportalapp.BeanListSummary) []customerportalapp.BeanListVersionOption {
+	out := make([]customerportalapp.BeanListVersionOption, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, customerportalapp.BeanListVersionOption{
+			ID:          row.ID,
+			ListType:    row.ListType,
+			VersionNo:   row.VersionNo,
+			Title:       row.Title,
+			PublishedAt: row.PublishedAt,
+			CacheKey:    row.CacheKey,
+		})
+	}
+	return out
 }
 
 func (r Repository) listLatestOfficialBeanLists(ctx context.Context, limit int) ([]customerportalapp.BeanListSummary, error) {
@@ -291,6 +447,9 @@ func parseBeanListDisplaySummary(configJSON, contentJSON []byte, row *customerpo
 				RecommendedUse: beanListMapString(itemMap, "recommendedUse", ""),
 				Flavor:         beanListMapString(itemMap, "flavor", ""),
 				Description:    beanListMapString(itemMap, "description", ""),
+				BeanListQuality: beanListQualitySummaryFromMap(
+					beanListFirstMap(itemMap, "beanListQuality", "bean_list_quality"),
+				),
 				HighlightTerms: highlightTerms,
 				Prices:         make([]customerportalapp.BeanListPriceSummary, 0),
 			}
@@ -323,6 +482,34 @@ func parseBeanListDisplaySummary(configJSON, contentJSON []byte, row *customerpo
 	row.Groups = groups
 	populateBeanListMetadata(row)
 	return nil
+}
+
+func beanListQualitySummaryFromMap(value map[string]any) customerportalapp.BeanListQualitySummary {
+	return customerportalapp.BeanListQualitySummary{
+		FactoryFlavorDescription: beanListFirstString(value, "factoryFlavorDescription", "factory_flavor_description"),
+		Moisture:                 beanListFirstString(value, "moisture"),
+		Density:                  beanListFirstString(value, "density"),
+		InspectionCreatedAt:      beanListFirstString(value, "inspectionCreatedAt", "inspection_created_at"),
+		InspectionReferenceNo:    beanListFirstString(value, "inspectionReferenceNo", "inspection_reference_no"),
+	}
+}
+
+func beanListFirstMap(m map[string]any, keys ...string) map[string]any {
+	for _, key := range keys {
+		if row, ok := m[key].(map[string]any); ok {
+			return row
+		}
+	}
+	return nil
+}
+
+func beanListFirstString(m map[string]any, keys ...string) string {
+	for _, key := range keys {
+		if value := beanListMapString(m, key, ""); value != "" {
+			return value
+		}
+	}
+	return ""
 }
 
 func beanListMapsFromAny(value any) []map[string]any {
@@ -447,22 +634,31 @@ func buildBeanListDisplayTitle(listType, brandName string) string {
 	if brand == "" {
 		brand = "棵凡咖啡"
 	}
-	if strings.TrimSpace(listType) == "retail" {
+	switch strings.TrimSpace(listType) {
+	case "retail":
 		return brand + "零售豆单"
+	case "green", "green_bean":
+		return brand + "生豆豆单"
 	}
 	return brand + "批发豆单"
 }
 
 func buildBeanListDisplaySubtitle(listType string) string {
-	if strings.TrimSpace(listType) == "retail" {
+	switch strings.TrimSpace(listType) {
+	case "retail":
 		return "报价含税运"
+	case "green", "green_bean":
+		return "生豆销售报价"
 	}
 	return "报价不含税、不含运"
 }
 
 func beanListTypeLabel(listType string) string {
-	if strings.TrimSpace(listType) == "retail" {
+	switch strings.TrimSpace(listType) {
+	case "retail":
 		return "零售"
+	case "green", "green_bean":
+		return "生豆"
 	}
 	return "商用"
 }
@@ -800,15 +996,19 @@ func (r Repository) listCustomerOrderItems(ctx context.Context, orderIDs []int64
 		SELECT oi.order_id,
 		       oi.id,
 		       COALESCE(oi.item_name,''),
+		       COALESCE(NULLIF(oi.product_kind,''), NULLIF(p.product_kind,''), 'roasted'),
 		       COALESCE(oi.spec,''),
 		       to_char(COALESCE(oi.qty,0), 'FM999999990.##'),
 		       COALESCE(oi.unit,''),
 		       to_char(COALESCE(oi.unit_price,0), 'FM999999990.00'),
-		       to_char(COALESCE(oi.line_total,0), 'FM999999990.00')
+		       to_char(COALESCE(oi.line_total,0), 'FM999999990.00'),
+		       COALESCE(oi.bean_list_publication_id,0),
+		       COALESCE(oi.bean_list_version_no,'')
 		FROM %s.order_items oi
+		LEFT JOIN %s.products p ON p.id=oi.product_id
 		WHERE oi.order_id IN (`+strings.Join(placeholders, ",")+`)
 		ORDER BY oi.order_id, oi.line_no, oi.id
-	`, r.schema), args...)
+	`, r.schema, r.schema), args...)
 	if err != nil {
 		return nil, err
 	}
@@ -816,7 +1016,7 @@ func (r Repository) listCustomerOrderItems(ctx context.Context, orderIDs []int64
 	for rows.Next() {
 		var orderID int64
 		var row customerportalapp.CustomerOrderItemSummary
-		if err := rows.Scan(&orderID, &row.ID, &row.ItemName, &row.Spec, &row.Qty, &row.Unit, &row.UnitPrice, &row.LineTotal); err != nil {
+		if err := rows.Scan(&orderID, &row.ID, &row.ItemName, &row.ProductKind, &row.Spec, &row.Qty, &row.Unit, &row.UnitPrice, &row.LineTotal, &row.BeanListPublicationID, &row.BeanListVersionNo); err != nil {
 			return nil, err
 		}
 		out[orderID] = append(out[orderID], row)
@@ -1440,6 +1640,10 @@ func (r Repository) CreateFulfillmentOrder(ctx context.Context, cmd customerport
 		grandTotal,
 		orderNo,
 	).Scan(&orderID); err != nil {
+		return customerportalapp.FulfillmentOrder{}, err
+	}
+	usage, err := orderbeans.ResolveUsage(ctx, tx, r.schema, cmd.CustomerID, cmd.ProductID, orderbeans.ListTypeForProductKind(productKind, false))
+	if err != nil {
 		return customerportalapp.FulfillmentOrder{}, err
 	}
 	if _, err := tx.Exec(ctx, fmt.Sprintf(`

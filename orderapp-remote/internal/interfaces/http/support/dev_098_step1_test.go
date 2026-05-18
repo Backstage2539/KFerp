@@ -43,7 +43,7 @@ func TestOrderEntryVueUsesComboboxesAndManualPrice(t *testing.T) {
 		"chooseCustomer",
 		"chooseProduct",
 		"markManualPrice",
-		"2.5kg",
+		"wholesaleSpecOptions",
 	} {
 		if !strings.Contains(src, needle) {
 			t.Fatalf("OrderEntryView.vue missing %q", needle)
@@ -51,5 +51,12 @@ func TestOrderEntryVueUsesComboboxesAndManualPrice(t *testing.T) {
 	}
 	if strings.Contains(src, "product-filter") {
 		t.Fatal("OrderEntryView.vue should not keep a separate product-filter input")
+	}
+	lib, err := os.ReadFile(filepath.Join("frontend-vue-shell", "src", "lib", "order-entry.js"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(lib), "2.5kg") {
+		t.Fatal("order-entry.js should keep the 2.5kg shared spec option")
 	}
 }

@@ -1,6 +1,7 @@
 package catalog
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/http"
 	catalogdomain "orderapp/internal/domain/catalog"
@@ -38,6 +39,21 @@ func registerProductRoutes(e *echo.Echo, catalogSvc *catalogapp.Service) {
 	e.POST("/api/product-settings/categories/:id/gradient-template", h.bindCategoryGradientTemplateAPI)
 	e.POST("/api/product-settings/products/:id/category", h.assignProductCategoryAPI)
 	e.GET("/products/:id", h.edit)
+}
+
+type optionalNullableFloat64 struct {
+	Set   bool
+	Value *float64
+}
+
+func (o *optionalNullableFloat64) UnmarshalJSON(data []byte) error {
+	o.Set = true
+	var value *float64
+	if err := json.Unmarshal(data, &value); err != nil {
+		return err
+	}
+	o.Value = value
+	return nil
 }
 
 type productHandler struct {
@@ -125,6 +141,19 @@ type bindCategoryGradientTemplateAPIRequest struct {
 	GradientTemplateID int64 `json:"gradient_template_id"`
 }
 
+func productTiersFromAPI(rows []productTierAPIUpsertRow) []catalogapp.PriceTier {
+	out := make([]catalogapp.PriceTier, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, catalogapp.PriceTier{
+			SpecG:     row.SpecG,
+			MinQty:    row.MinQty,
+			MaxQty:    row.MaxQty,
+			UnitPrice: row.UnitPrice,
+		})
+	}
+	return out
+}
+
 func (h productHandler) index(c echo.Context) error {
 	return support.VueShellRedirect(c, "productSettings")
 }
@@ -206,12 +235,15 @@ func (h productHandler) updateAPI(c echo.Context) error {
 		return c.JSON(http.StatusBadRequest, map[string]any{"error": err.Error()})
 	}
 	yieldRate := normalizeProductYieldRate(req.YieldRate)
-	if req.YieldRate > 0 && yieldRate <= 0 {
+	if productKind != catalogdomain.ProductKindGreenBean && req.YieldRate > 0 && yieldRate <= 0 {
 		return c.JSON(http.StatusBadRequest, map[string]any{"error": "invalid yield_rate"})
 	}
-	marginRateOverride, err := normalizeProductMarginRateOverride(req.MarginRateOverride)
-	if err != nil {
-		return c.JSON(http.StatusBadRequest, map[string]any{"error": err.Error()})
+	marginRateOverride := existing.MarginRateOverride
+	if req.MarginRateOverride.Set {
+		marginRateOverride, err = normalizeProductMarginRateOverride(req.MarginRateOverride.Value)
+		if err != nil {
+			return c.JSON(http.StatusBadRequest, map[string]any{"error": err.Error()})
+		}
 	}
 	if err := h.catalog.UpdateProductBasics(c.Request().Context(), catalogapp.UpdateProductBasicsCommand{
 		Actor:                 support.ActorOf(c),
@@ -234,6 +266,24 @@ func (h productHandler) updateAPI(c echo.Context) error {
 		}
 		return c.JSON(http.StatusInternalServerError, map[string]any{"error": err.Error()})
 	}
+	if productKind != catalogdomain.ProductKindGreenBean && len(req.Tiers) > 0 {
+		if err := h.catalog.ReplacePriceTiers(c.Request().Context(), catalogapp.ReplacePriceTiersCommand{
+			Actor:                 support.ActorOf(c),
+			ProductID:             id,
+			ProductKind:           productKind,
+			GreenBeanType:         greenBeanType,
+			GreenBeanBomProductID: greenBeanBomProductID,
+			DefaultPrice:          defaultPrice,
+			RoastLevel:            roastLevel,
+			RetailPrice100G:       retailPrice100G,
+			RetailPrice200G:       retailPrice200G,
+			RetailPrice227G:       retailPrice227G,
+			RetailPrice250G:       retailPrice250G,
+			Tiers:                 productTiersFromAPI(req.Tiers),
+		}); err != nil {
+			return c.JSON(http.StatusInternalServerError, map[string]any{"error": err.Error()})
+		}
+	}
 	p, err := h.catalog.GetProduct(c.Request().Context(), id)
 	if err != nil {
 		return c.JSON(http.StatusInternalServerError, map[string]any{"error": err.Error()})
@@ -242,6 +292,22 @@ func (h productHandler) updateAPI(c echo.Context) error {
 		return c.JSON(http.StatusNotFound, map[string]any{"error": "not found"})
 	}
 	return c.JSON(http.StatusOK, map[string]any{"product": productOptionFromCatalog(*p)})
+}
+
+func optionalFloat64(value *float64, fallback float64) float64 {
+	if value == nil {
+		return fallback
+	}
+	return *value
+}
+
+func firstNonEmptyString(values ...string) string {
+	for _, value := range values {
+		if s := strings.TrimSpace(value); s != "" {
+			return s
+		}
+	}
+	return ""
 }
 
 func (h productHandler) createProductAPI(c echo.Context) error {
@@ -261,7 +327,7 @@ func (h productHandler) createProductAPI(c echo.Context) error {
 		roastLevel = "深烘"
 	}
 	yieldRate := normalizeProductYieldRate(req.YieldRate)
-	if req.YieldRate > 0 && yieldRate <= 0 {
+	if productKind != catalogdomain.ProductKindGreenBean && req.YieldRate > 0 && yieldRate <= 0 {
 		return c.JSON(http.StatusBadRequest, map[string]any{"error": "invalid yield_rate"})
 	}
 	productKind := catalogdomain.NormalizeProductKind(req.ProductKind)

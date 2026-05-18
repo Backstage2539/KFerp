@@ -81,6 +81,7 @@ func (r Repository) LoadProductInputs(ctx context.Context, params domain.Paramet
 			)
 			SELECT p.id,
 		       p.name,
+		       COALESCE(NULLIF(p.product_kind,''),'roasted'),
 		       COALESCE(base_p.name, p.name),
 		       COALESCE(p.roast_level, ''),
 		       COALESCE(p.customer_id, 0),
@@ -107,10 +108,15 @@ func (r Repository) LoadProductInputs(ctx context.Context, params domain.Paramet
 		       COALESCE(string_agg(DISTINCT NULLIF(bp.grade, ''), ' / ') FILTER (WHERE NULLIF(bp.grade, '') IS NOT NULL), ''),
 		       COALESCE(string_agg(DISTINCT NULLIF(bp.altitude, ''), ' / ') FILTER (WHERE NULLIF(bp.altitude, '') IS NOT NULL), ''),
 		       COALESCE(string_agg(DISTINCT NULLIF(bp.bean_list_note, ''), ' / ') FILTER (WHERE NULLIF(bp.bean_list_note, '') IS NOT NULL), ''),
-		       COALESCE(NULLIF(b.status,''), CASE WHEN b.product_id IS NULL THEN 'missing' ELSE 'active' END)
-		FROM %s.products p
-		LEFT JOIN %s.product_bom b ON b.product_id = p.id
-		LEFT JOIN %s.product_bom_items bi ON bi.product_id = p.id
+		       COALESCE(NULLIF(b.status,''), CASE WHEN b.product_id IS NULL THEN 'missing' ELSE 'active' END),
+		       COALESCE(qc.factory_flavor_description, ''),
+		       COALESCE(qc.moisture, ''),
+		       COALESCE(qc.density, ''),
+		       COALESCE(qc.inspection_created_at, ''),
+		       COALESCE(qc.inspection_reference_no, '')
+		FROM product_scope p
+		LEFT JOIN %s.product_bom b ON b.product_id = bom_product_id
+		LEFT JOIN %s.product_bom_items bi ON bi.product_id = bom_product_id
 		LEFT JOIN %s.materials m ON m.id = bi.material_id
 		LEFT JOIN material_valuation mv ON mv.material_id = m.id
 		LEFT JOIN %s.material_bean_profiles bp ON bp.material_id = m.id
@@ -846,6 +852,9 @@ func (r Repository) PublishRun(ctx context.Context, actor string, runID int64) e
 	publishedProducts := 0
 	for _, item := range items {
 		if item.ProductID <= 0 {
+			continue
+		}
+		if strings.TrimSpace(item.ProductKind) == "green_bean" {
 			continue
 		}
 		defaultPrice := 0.0

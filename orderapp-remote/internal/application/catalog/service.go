@@ -21,6 +21,9 @@ type PriceTier struct {
 type Product struct {
 	ID                      int64
 	Name                    string
+	ProductKind             string
+	GreenBeanType           string
+	GreenBeanBomProductID   int64
 	RoastLevel              string
 	ProductKind             string
 	DripBagGrams            float64
@@ -60,6 +63,9 @@ type ProductCategory struct {
 type ProductSettingsProduct struct {
 	ID                      int64    `json:"id"`
 	Name                    string   `json:"name"`
+	ProductKind             string   `json:"product_kind"`
+	GreenBeanType           string   `json:"green_bean_type"`
+	GreenBeanBomProductID   int64    `json:"green_bean_bom_product_id"`
 	RoastLevel              string   `json:"roast_level"`
 	ProductKind             string   `json:"product_kind"`
 	DripBagGrams            float64  `json:"drip_bag_grams"`
@@ -118,14 +124,19 @@ type GradientTemplateTier struct {
 }
 
 type ReplacePriceTiersCommand struct {
-	Actor           string
-	ProductID       int64
-	RoastLevel      string
-	RetailPrice100G float64
-	RetailPrice200G float64
-	RetailPrice227G float64
-	RetailPrice250G float64
-	Tiers           []PriceTier
+	Actor                 string
+	ProductID             int64
+	ProductKind           string
+	GreenBeanType         string
+	GreenBeanBomProductID int64
+	DefaultPrice          float64
+	RoastLevel            string
+	RetailPrice100G       float64
+	RetailPrice200G       float64
+	RetailPrice227G       float64
+	RetailPrice250G       float64
+	YieldRate             float64
+	Tiers                 []PriceTier
 }
 
 type UpdateProductBasicsCommand struct {
@@ -277,6 +288,15 @@ func (s *Service) GetProduct(ctx context.Context, id int64) (*Product, error) {
 }
 
 func (s *Service) ReplacePriceTiers(ctx context.Context, cmd ReplacePriceTiersCommand) error {
+	cmd.ProductKind = catalogdomain.NormalizeProductKind(cmd.ProductKind)
+	if err := normalizeProductSalesShape(&cmd.ProductKind, &cmd.GreenBeanType, &cmd.GreenBeanBomProductID, &cmd.RoastLevel, &cmd.DefaultPrice, &cmd.RetailPrice100G, &cmd.RetailPrice200G, &cmd.RetailPrice227G, &cmd.RetailPrice250G, &cmd.YieldRate, &cmd.Tiers); err != nil {
+		return err
+	}
+	if cmd.ProductKind == catalogdomain.ProductKindGreenBean {
+		if err := s.validateGreenBeanBomProduct(ctx, cmd.GreenBeanBomProductID); err != nil {
+			return err
+		}
+	}
 	return s.repo.ReplacePriceTiers(ctx, cmd)
 }
 
@@ -337,6 +357,56 @@ func (s *Service) CreateProduct(ctx context.Context, cmd CreateProductCommand) (
 		return Product{}, ValidationError{Message: "invalid yield_rate"}
 	}
 	return s.repo.CreateProduct(ctx, cmd)
+}
+
+func (s *Service) validateGreenBeanBomProduct(ctx context.Context, productID int64) error {
+	product, err := s.repo.GetProduct(ctx, productID)
+	if err != nil {
+		return err
+	}
+	if product == nil || product.ID <= 0 {
+		return fmt.Errorf("green_bean_bom_product_id not found")
+	}
+	if catalogdomain.NormalizeProductKind(product.ProductKind) == catalogdomain.ProductKindGreenBean {
+		return fmt.Errorf("green_bean_bom_product_id must reference roasted product")
+	}
+	return nil
+}
+
+func normalizeProductSalesShape(productKind *string, greenBeanType *string, greenBeanBomProductID *int64, roastLevel *string, defaultPrice *float64, retailPrice100G *float64, retailPrice200G *float64, retailPrice227G *float64, retailPrice250G *float64, yieldRate *float64, tiers *[]PriceTier) error {
+	kind := catalogdomain.NormalizeProductKind(*productKind)
+	*productKind = kind
+	if kind != catalogdomain.ProductKindGreenBean {
+		*greenBeanType = ""
+		*greenBeanBomProductID = 0
+		return nil
+	}
+	*greenBeanType = normalizeGreenBeanType(*greenBeanType)
+	if *greenBeanBomProductID <= 0 {
+		return fmt.Errorf("green_bean_bom_product_id required")
+	}
+	*roastLevel = ""
+	*defaultPrice = 0
+	*retailPrice100G = 0
+	*retailPrice200G = 0
+	*retailPrice227G = 0
+	*retailPrice250G = 0
+	*yieldRate = 0
+	if tiers != nil {
+		*tiers = nil
+	}
+	return nil
+}
+
+func normalizeGreenBeanType(value string) string {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "blend", "拼配":
+		return "blend"
+	case "single_origin", "single", "单品":
+		return "single_origin"
+	default:
+		return "single_origin"
+	}
 }
 
 func (s *Service) ProductSettings(ctx context.Context) (ProductSettingsData, error) {
@@ -575,6 +645,9 @@ func productSettingsProduct(p Product) ProductSettingsProduct {
 	return ProductSettingsProduct{
 		ID:                      p.ID,
 		Name:                    p.Name,
+		ProductKind:             catalogdomain.NormalizeProductKind(p.ProductKind),
+		GreenBeanType:           p.GreenBeanType,
+		GreenBeanBomProductID:   p.GreenBeanBomProductID,
 		RoastLevel:              p.RoastLevel,
 		ProductKind:             productKind,
 		DripBagGrams:            dripBagGrams,

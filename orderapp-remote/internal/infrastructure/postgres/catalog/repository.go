@@ -51,17 +51,33 @@ func (r Repository) ReplacePriceTiers(ctx context.Context, cmd catalogapp.Replac
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
+	productKind := catalogdomain.NormalizeProductKind(cmd.ProductKind)
 	roastLevel := catalogdomain.NormalizeRoastLevel(cmd.RoastLevel)
+	greenBeanType := strings.TrimSpace(cmd.GreenBeanType)
+	greenBeanBomProductID := cmd.GreenBeanBomProductID
+	if productKind == catalogdomain.ProductKindGreenBean {
+		roastLevel = ""
+		if greenBeanType == "" {
+			greenBeanType = "single_origin"
+		}
+	} else {
+		greenBeanType = ""
+		greenBeanBomProductID = 0
+	}
 	yieldRate := catalogdomain.ResolveYieldRate(roastLevel, 0.8)
 	if _, err := tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.products
-		SET roast_level=$2, retail_price_100g=$3, retail_price_200g=$4, retail_price_227g=$5, retail_price_250g=$6
-		WHERE id=$1`, r.schema), cmd.ProductID, roastLevel, cmd.RetailPrice100G, cmd.RetailPrice200G, cmd.RetailPrice227G, cmd.RetailPrice250G); err != nil {
+		SET product_kind=$2, roast_level=$3, default_price=$4,
+		    retail_price_100g=$5, retail_price_200g=$6, retail_price_227g=$7, retail_price_250g=$8,
+		    green_bean_type=$9, green_bean_bom_product_id=$10
+		WHERE id=$1`, r.schema), cmd.ProductID, productKind, roastLevel, cmd.DefaultPrice, cmd.RetailPrice100G, cmd.RetailPrice200G, cmd.RetailPrice227G, cmd.RetailPrice250G, greenBeanType, greenBeanBomProductID); err != nil {
 		return err
 	}
-	if _, err := tx.Exec(ctx, fmt.Sprintf(`INSERT INTO %s.product_bom(product_id,yield_rate,updated_at)
-		VALUES($1,$2,now())
-		ON CONFLICT (product_id) DO UPDATE SET yield_rate=excluded.yield_rate, status='active', updated_at=now()`, r.schema), cmd.ProductID, yieldRate); err != nil {
-		return err
+	if productKind == catalogdomain.ProductKindRoasted {
+		if _, err := tx.Exec(ctx, fmt.Sprintf(`INSERT INTO %s.product_bom(product_id,yield_rate,updated_at)
+			VALUES($1,$2,now())
+			ON CONFLICT (product_id) DO UPDATE SET yield_rate=excluded.yield_rate, status='active', updated_at=now()`, r.schema), cmd.ProductID, yieldRate); err != nil {
+			return err
+		}
 	}
 	if _, err := tx.Exec(ctx, fmt.Sprintf("DELETE FROM %s.product_price_tiers WHERE product_id=$1", r.schema), cmd.ProductID); err != nil {
 		return err
@@ -90,6 +106,7 @@ func (r Repository) ReplacePriceTiers(ctx context.Context, cmd catalogapp.Replac
 	}
 	postgresinfra.AuditInsert(ctx, r.pool, r.schema, cmd.Actor, "product", &cmd.ProductID, "update", postgresinfra.StrPtr("price_tiers"), nil, postgresinfra.StrPtr(fmt.Sprintf("%d", len(cmd.Tiers))), postgresinfra.AuditMeta{
 		"product_id":        cmd.ProductID,
+		"product_kind":      productKind,
 		"roast_level":       roastLevel,
 		"yield_rate":        yieldRate,
 		"tier_count":        len(cmd.Tiers),
@@ -97,12 +114,26 @@ func (r Repository) ReplacePriceTiers(ctx context.Context, cmd catalogapp.Replac
 		"retail_price_200g": cmd.RetailPrice200G,
 		"retail_price_227g": cmd.RetailPrice227G,
 		"retail_price_250g": cmd.RetailPrice250G,
+		"green_bean_type":   greenBeanType,
+		"green_bean_bom":    greenBeanBomProductID,
 	})
 	return nil
 }
 
 func (r Repository) UpdateProductBasics(ctx context.Context, cmd catalogapp.UpdateProductBasicsCommand) error {
+	productKind := catalogdomain.NormalizeProductKind(cmd.ProductKind)
 	roastLevel := catalogdomain.NormalizeRoastLevel(cmd.RoastLevel)
+	greenBeanType := strings.TrimSpace(cmd.GreenBeanType)
+	greenBeanBomProductID := cmd.GreenBeanBomProductID
+	if productKind == catalogdomain.ProductKindGreenBean {
+		roastLevel = ""
+		if greenBeanType == "" {
+			greenBeanType = "single_origin"
+		}
+	} else {
+		greenBeanType = ""
+		greenBeanBomProductID = 0
+	}
 	yieldRate := catalogdomain.ResolveYieldRate(roastLevel, 0.8)
 	if cmd.YieldRate > 0 {
 		yieldRate = cmd.YieldRate
@@ -123,16 +154,19 @@ func (r Repository) UpdateProductBasics(ctx context.Context, cmd catalogapp.Upda
 		WHERE id=$1`, r.schema), cmd.ProductID, roastLevel, cmd.RetailPrice100G, cmd.RetailPrice200G, cmd.RetailPrice227G, cmd.RetailPrice250G, cmd.MarginRateOverride, cmd.ProductKind, cmd.DripBagGrams, cmd.DripBoxBagCount, cmd.AllowFulfillmentOrder, cmd.AllowMallOrder); err != nil {
 		return err
 	}
-	if _, err := tx.Exec(ctx, fmt.Sprintf(`INSERT INTO %s.product_bom(product_id,yield_rate,updated_at)
-		VALUES($1,$2,now())
-		ON CONFLICT (product_id) DO UPDATE SET yield_rate=excluded.yield_rate, status='active', updated_at=now()`, r.schema), cmd.ProductID, yieldRate); err != nil {
-		return err
+	if productKind == catalogdomain.ProductKindRoasted {
+		if _, err := tx.Exec(ctx, fmt.Sprintf(`INSERT INTO %s.product_bom(product_id,yield_rate,updated_at)
+			VALUES($1,$2,now())
+			ON CONFLICT (product_id) DO UPDATE SET yield_rate=excluded.yield_rate, status='active', updated_at=now()`, r.schema), cmd.ProductID, yieldRate); err != nil {
+			return err
+		}
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return err
 	}
 	meta := postgresinfra.AuditMeta{
 		"product_id":           cmd.ProductID,
+		"product_kind":         productKind,
 		"roast_level":          roastLevel,
 		"yield_rate":           yieldRate,
 		"retail_price_100g":    cmd.RetailPrice100G,
@@ -181,9 +215,21 @@ func (r Repository) DeactivateProducts(ctx context.Context, cmd catalogapp.Deact
 }
 
 func (r Repository) CreateProduct(ctx context.Context, cmd catalogapp.CreateProductCommand) (catalogapp.Product, error) {
+	productKind := catalogdomain.NormalizeProductKind(cmd.ProductKind)
 	roastLevel := catalogdomain.NormalizeRoastLevel(cmd.RoastLevel)
+	greenBeanType := strings.TrimSpace(cmd.GreenBeanType)
+	greenBeanBomProductID := cmd.GreenBeanBomProductID
+	if productKind == catalogdomain.ProductKindGreenBean {
+		roastLevel = ""
+		if greenBeanType == "" {
+			greenBeanType = "single_origin"
+		}
+	} else {
+		greenBeanType = ""
+		greenBeanBomProductID = 0
+	}
 	yieldRate := cmd.YieldRate
-	if yieldRate <= 0 {
+	if productKind == catalogdomain.ProductKindRoasted && yieldRate <= 0 {
 		yieldRate = catalogdomain.ResolveYieldRate(roastLevel, 0.8)
 	}
 	name := strings.TrimSpace(cmd.Name)
@@ -202,7 +248,7 @@ func (r Repository) CreateProduct(ctx context.Context, cmd catalogapp.CreateProd
 	var productID int64
 	if err := tx.QueryRow(ctx, fmt.Sprintf(`
 		INSERT INTO %s.products(
-			name, roast_level, default_price, active,
+			name, product_kind, roast_level, default_price, active,
 			retail_price_100g, retail_price_200g, retail_price_227g, retail_price_250g,
 			product_kind, drip_bag_grams, drip_box_bag_count, allow_fulfillment_order, allow_mall_order,
 			customer_id, base_product_id, visibility, custom_type, created_at
@@ -213,12 +259,19 @@ func (r Repository) CreateProduct(ctx context.Context, cmd catalogapp.CreateProd
 		return catalogapp.Product{}, err
 	}
 
-	if _, err := tx.Exec(ctx, fmt.Sprintf(`
-		INSERT INTO %s.product_bom(product_id,yield_rate,status,updated_at)
-		VALUES($1,$2,'active',now())
-		ON CONFLICT (product_id) DO UPDATE SET yield_rate=excluded.yield_rate, status='active', updated_at=now()
-	`, r.schema), productID, yieldRate); err != nil {
-		return catalogapp.Product{}, err
+	if productKind == catalogdomain.ProductKindRoasted {
+		if _, err := tx.Exec(ctx, fmt.Sprintf(`
+			INSERT INTO %s.product_bom(product_id,yield_rate,status,updated_at)
+			VALUES($1,$2,'active',now())
+			ON CONFLICT (product_id) DO UPDATE SET yield_rate=excluded.yield_rate, status='active', updated_at=now()
+		`, r.schema), productID, yieldRate); err != nil {
+			return catalogapp.Product{}, err
+		}
+	}
+	if len(cmd.Tiers) > 0 {
+		if err := replaceProductPriceTiersTx(ctx, tx, r.schema, productID, cmd.Tiers); err != nil {
+			return catalogapp.Product{}, err
+		}
 	}
 	if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, cmd.Actor, "product", &productID, "create", postgresinfra.StrPtr("public_product"), nil, postgresinfra.StrPtr(name), postgresinfra.AuditMeta{
 		"product_id":              productID,
@@ -249,6 +302,35 @@ func (r Repository) CreateProduct(ctx context.Context, cmd catalogapp.CreateProd
 		return catalogapp.Product{}, fmt.Errorf("created product not found")
 	}
 	return *product, nil
+}
+
+func replaceProductPriceTiersTx(ctx context.Context, tx pgx.Tx, schema string, productID int64, tiers []catalogapp.PriceTier) error {
+	if _, err := tx.Exec(ctx, fmt.Sprintf("DELETE FROM %s.product_price_tiers WHERE product_id=$1", schema), productID); err != nil {
+		return err
+	}
+	ins := fmt.Sprintf(`INSERT INTO %s.product_price_tiers
+		(product_id, spec_g, min_qty_units, max_qty_units, price_per_unit, min_qty_lb, max_qty_lb, price_per_lb, active)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,true)`, schema)
+	for _, tier := range tiers {
+		specG := tier.SpecG
+		if specG <= 0 {
+			specG = 454
+		}
+		minLb := tier.MinQty * float64(specG) / 454.0
+		var maxLb *float64
+		if tier.MaxQty != nil {
+			v := *tier.MaxQty * float64(specG) / 454.0
+			maxLb = &v
+		}
+		priceLb := 0.0
+		if tier.UnitPrice > 0 {
+			priceLb = tier.UnitPrice * 454.0 / float64(specG)
+		}
+		if _, err := tx.Exec(ctx, ins, productID, specG, tier.MinQty, tier.MaxQty, tier.UnitPrice, minLb, maxLb, priceLb); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (r Repository) ListProductCategories(ctx context.Context) ([]catalogapp.ProductCategory, error) {
@@ -694,6 +776,7 @@ func (r Repository) CreateCustomProduct(ctx context.Context, cmd catalogapp.Crea
 	}
 	if err := tx.QueryRow(ctx, fmt.Sprintf(`
 		SELECT name,
+		       COALESCE(NULLIF(product_kind,''),'roasted'),
 		       default_price,
 		       COALESCE(retail_price_100g,0),
 		       COALESCE(retail_price_200g,0),
@@ -710,13 +793,17 @@ func (r Repository) CreateCustomProduct(ctx context.Context, cmd catalogapp.Crea
 		return catalogapp.Product{}, fmt.Errorf("base product not found")
 	}
 
+	productKind := catalogdomain.NormalizeProductKind(base.ProductKind)
 	roastLevel := catalogdomain.NormalizeRoastLevel(cmd.RoastLevel)
+	if productKind == catalogdomain.ProductKindGreenBean {
+		roastLevel = ""
+	}
 	yieldRate := catalogdomain.ResolveYieldRate(roastLevel, 0.8)
 	name := strings.TrimSpace(cmd.Name)
 	var productID int64
 	if err := tx.QueryRow(ctx, fmt.Sprintf(`
 		INSERT INTO %s.products(
-			name, roast_level, default_price, active,
+			name, product_kind, roast_level, default_price, active,
 			retail_price_100g, retail_price_200g, retail_price_227g, retail_price_250g,
 			product_kind, drip_bag_grams, drip_box_bag_count, allow_fulfillment_order, allow_mall_order,
 			product_category_id, product_category_position,
@@ -728,14 +815,16 @@ func (r Repository) CreateCustomProduct(ctx context.Context, cmd catalogapp.Crea
 		return catalogapp.Product{}, err
 	}
 
-	if _, err := tx.Exec(ctx, fmt.Sprintf(`
-		INSERT INTO %s.product_bom(product_id,yield_rate,status,updated_at)
-		VALUES($1,$2,'active',now())
-		ON CONFLICT (product_id) DO UPDATE SET yield_rate=excluded.yield_rate, status='active', updated_at=now()
-	`, r.schema), productID, yieldRate); err != nil {
-		return catalogapp.Product{}, err
+	if productKind == catalogdomain.ProductKindRoasted {
+		if _, err := tx.Exec(ctx, fmt.Sprintf(`
+			INSERT INTO %s.product_bom(product_id,yield_rate,status,updated_at)
+			VALUES($1,$2,'active',now())
+			ON CONFLICT (product_id) DO UPDATE SET yield_rate=excluded.yield_rate, status='active', updated_at=now()
+		`, r.schema), productID, yieldRate); err != nil {
+			return catalogapp.Product{}, err
+		}
 	}
-	if cmd.CopyBOM {
+	if cmd.CopyBOM && productKind == catalogdomain.ProductKindRoasted {
 		if _, err := tx.Exec(ctx, fmt.Sprintf(`
 			INSERT INTO %s.product_bom_items(product_id,material_id,component_type,component_product_id,component_spec_g,consume_unit,qty_per_unit,ratio_pct,updated_at)
 			SELECT $1,material_id,component_type,component_product_id,component_spec_g,consume_unit,qty_per_unit,ratio_pct,now()

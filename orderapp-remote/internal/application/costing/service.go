@@ -438,6 +438,8 @@ func normalizeBeanListType(listType string) (string, error) {
 		return "drip", nil
 	case "retail":
 		return "retail", nil
+	case "green", "green_bean":
+		return "green", nil
 	default:
 		return "", fmt.Errorf("invalid list_type")
 	}
@@ -486,6 +488,9 @@ func beanListSortCode(item domain.ProductResult) string {
 	}
 	if item.RetailBeanList.Code != "" {
 		return item.RetailBeanList.Code
+	}
+	if item.GreenBeanList.Code != "" {
+		return item.GreenBeanList.Code
 	}
 	return "9999"
 }

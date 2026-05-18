@@ -2,6 +2,7 @@ package production
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	stockdomain "orderapp/internal/domain/stock"
 	"strings"
@@ -447,14 +448,17 @@ type MaterialPlanResult struct {
 }
 
 type QualityInspectionCommand struct {
-	Scope         string
-	ReferenceType string
-	ReferenceNo   string
-	ItemName      string
-	Result        string
-	MetricsJSON   string
-	Note          string
-	Operator      string
+	Scope                    string
+	ReferenceType            string
+	ReferenceNo              string
+	ItemName                 string
+	Result                   string
+	MetricsJSON              string
+	FactoryFlavorDescription string
+	Moisture                 string
+	Density                  string
+	Note                     string
+	Operator                 string
 }
 
 type QualityInspectionQuery struct {
@@ -765,6 +769,9 @@ func (s *Service) CreateQualityInspection(ctx context.Context, cmd QualityInspec
 	cmd.ItemName = strings.TrimSpace(cmd.ItemName)
 	cmd.Result = normalizeQualityInspectionResult(cmd.Result)
 	cmd.MetricsJSON = strings.TrimSpace(cmd.MetricsJSON)
+	cmd.FactoryFlavorDescription = strings.TrimSpace(cmd.FactoryFlavorDescription)
+	cmd.Moisture = strings.TrimSpace(cmd.Moisture)
+	cmd.Density = strings.TrimSpace(cmd.Density)
 	cmd.Note = strings.TrimSpace(cmd.Note)
 	cmd.Operator = strings.TrimSpace(cmd.Operator)
 	if cmd.Scope == "" || cmd.ReferenceNo == "" || cmd.Result == "" {
@@ -776,6 +783,11 @@ func (s *Service) CreateQualityInspection(ctx context.Context, cmd QualityInspec
 	if !validQualityInspectionResult(cmd.Result) {
 		return QualityInspectionRow{}, fmt.Errorf("invalid quality inspection result")
 	}
+	metricsJSON, err := mergeQualityInspectionMetrics(cmd)
+	if err != nil {
+		return QualityInspectionRow{}, err
+	}
+	cmd.MetricsJSON = metricsJSON
 	return s.repo.CreateQualityInspection(ctx, cmd)
 }
 
@@ -856,4 +868,32 @@ func validQualityInspectionResult(result string) bool {
 	default:
 		return false
 	}
+}
+
+func mergeQualityInspectionMetrics(cmd QualityInspectionCommand) (string, error) {
+	raw := strings.TrimSpace(cmd.MetricsJSON)
+	if raw == "" {
+		raw = "{}"
+	}
+	metrics := map[string]any{}
+	if err := json.Unmarshal([]byte(raw), &metrics); err != nil {
+		return "", fmt.Errorf("metrics_json must be valid json")
+	}
+	if metrics == nil {
+		metrics = map[string]any{}
+	}
+	if cmd.FactoryFlavorDescription != "" {
+		metrics["factory_flavor_description"] = cmd.FactoryFlavorDescription
+	}
+	if cmd.Moisture != "" {
+		metrics["moisture"] = cmd.Moisture
+	}
+	if cmd.Density != "" {
+		metrics["density"] = cmd.Density
+	}
+	b, err := json.Marshal(metrics)
+	if err != nil {
+		return "", err
+	}
+	return string(b), nil
 }

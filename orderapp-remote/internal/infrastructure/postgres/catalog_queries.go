@@ -26,6 +26,9 @@ type ProductTierOption struct {
 type ProductOption struct {
 	ID                      int64
 	Name                    string
+	ProductKind             string
+	GreenBeanType           string
+	GreenBeanBomProductID   int64
 	RoastLevel              string
 	ProductKind             string
 	DripBagGrams            float64

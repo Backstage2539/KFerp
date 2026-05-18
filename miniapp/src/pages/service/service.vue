@@ -2,6 +2,7 @@
 import { computed, ref } from 'vue'
 import { onLoad, onShow } from '@dcloudio/uni-app'
 import {
+  acknowledgeBeanListVersion,
   type BeanListSummary,
   createDirectShipBatch,
   createFulfillmentOrder,
@@ -14,7 +15,7 @@ import {
 import { buildAPIURL } from '../../api/client'
 import MainTabBar from '../../components/MainTabBar.vue'
 import { useSessionStore } from '../../stores/session'
-import { beanListCardRows, beanListDisplayStyle, splitBeanListHighlight } from '../../utils/beanListDisplay'
+import { beanListCardRows, beanListDisplayStyle, beanListQualityLines, splitBeanListHighlight } from '../../utils/beanListDisplay'
 import {
   beanListPageCacheChanged,
   beanListPageCacheStorageKey,
@@ -370,6 +371,10 @@ function selectedPickerLabel(options: PickerOption[], value: number, emptyLabel:
   return options.find((item) => item.value === value)?.label || emptyLabel
 }
 
+function productKindLabel(item: Pick<ProductSummary, 'product_kind'>): string {
+  return item.product_kind === 'green_bean' ? '生豆' : '熟豆'
+}
+
 function pickerOptionAt<T>(options: PickerOption<T>[], event: { detail?: { value?: number | string } }): PickerOption<T> | null {
   return options[Number(event.detail?.value ?? -1)] || null
 }
@@ -387,7 +392,7 @@ function inventoryInputOptions(items: InventoryItem[]): PickerOption<InventoryIt
 
 function productPickerOptions(products: ProductSummary[]): PickerOption<ProductSummary>[] {
   return products.map((item) => ({
-    label: `${item.name} / 默认 ¥${item.default_price || '0.00'}`,
+    label: `${productKindLabel(item)} / ${item.name} / 默认 ¥${item.default_price || '0.00'}`,
     value: item.id,
     data: item,
   }))
@@ -510,6 +515,7 @@ async function submitFulfillmentOrder() {
     errorMessage.value = '请填写完整发货订单'
     return
   }
+  if (!(await confirmBeanListUpdateIfNeeded())) return
   submitting.value = true
   errorMessage.value = ''
   try {
@@ -534,6 +540,52 @@ async function submitFulfillmentOrder() {
     errorMessage.value = error instanceof Error ? error.message : '提交失败'
   } finally {
     submitting.value = false
+  }
+}
+
+function beanListPromptTarget(): BeanListSummary | null {
+  return beanListsForDisplay.value.find((item) => item.requires_acknowledgement) || null
+}
+
+function beanListDiffText(item: BeanListSummary | null): string {
+  if (!item) return ''
+  const diff = item.diff || {}
+  const lines: string[] = []
+  if (item.changelog) lines.push(item.changelog)
+  const previous = diff.previous_version_no ? `从 ${diff.previous_version_no} 更新到 ${item.version_no || '新版'}` : `当前版本 ${item.version_no || ''}`.trim()
+  if (previous) lines.push(previous)
+  if (diff.added?.length) lines.push(`新增：${diff.added.map((bean) => bean.name).slice(0, 4).join('、')}`)
+  if (diff.removed?.length) lines.push(`下架：${diff.removed.map((bean) => bean.name).slice(0, 4).join('、')}`)
+  if (diff.changed?.length) lines.push(`调整：${diff.changed.map((bean) => bean.name).slice(0, 4).join('、')}`)
+  return lines.filter(Boolean).join('\n') || '豆单已更新，请确认后继续下单。'
+}
+
+function showConfirmModal(title: string, content: string): Promise<boolean> {
+  return new Promise((resolve) => {
+    uni.showModal({
+      title,
+      content,
+      confirmText: '查看并确认',
+      cancelText: '稍后下单',
+      success: (res) => resolve(!!res.confirm),
+      fail: () => resolve(false),
+    })
+  })
+}
+
+async function confirmBeanListUpdateIfNeeded(): Promise<boolean> {
+  const target = beanListPromptTarget()
+  if (!target || !session.token) return true
+  const confirmed = await showConfirmModal('豆单已更新', beanListDiffText(target))
+  if (!confirmed) return false
+  try {
+    await acknowledgeBeanListVersion(session.token, target.id)
+    target.requires_acknowledgement = false
+    if (cachedBeanList.value?.id === target.id) cachedBeanList.value.requires_acknowledgement = false
+    return true
+  } catch (error) {
+    errorMessage.value = error instanceof Error ? error.message : '豆单确认失败'
+    return false
   }
 }
 
@@ -639,6 +691,10 @@ onShow(() => {
             <text class="bean-list-type">{{ item.list_type_label || item.list_type }}</text>
           </view>
           <text v-if="beanListCacheStatus" class="bean-list-cache-hint">{{ beanListCacheStatus }}</text>
+          <view v-if="item.requires_acknowledgement" class="bean-list-update">
+            <text class="bean-list-section-label">新版提示</text>
+            <text>{{ beanListDiffText(item) }}</text>
+          </view>
 
           <view v-for="group in item.groups || []" :key="`${item.id}-${group.category}`" class="bean-list-group">
             <text v-if="showBeanListCategory(item, group)" class="bean-list-category">{{ group.category }}</text>
@@ -661,6 +717,9 @@ onShow(() => {
                   </text>
                   <text v-if="bean.description" class="bean-list-table-line">
                     特点 <text v-for="(part, index) in splitBeanListHighlight(bean.description, bean.highlight_terms || [])" :key="`${bean.name}-desc-${index}`" :class="{ red: part.red }">{{ part.text }}</text>
+                  </text>
+                  <text v-for="quality in beanListQualityLines(bean)" :key="`${bean.name}-quality-${quality.label}`" class="bean-list-table-line">
+                    {{ quality.label }} {{ quality.value }}
                   </text>
                 </view>
                 <view class="bean-list-table-prices">
@@ -696,6 +755,10 @@ onShow(() => {
                     <text class="bean-list-detail-value">
                       <text v-for="(part, index) in splitBeanListHighlight(bean.description, bean.highlight_terms || [])" :key="`${bean.name}-desc-${index}`" :class="{ red: part.red }">{{ part.text }}</text>
                     </text>
+                  </view>
+                  <view v-for="quality in beanListQualityLines(bean)" :key="`${bean.name}-quality-${quality.label}`" class="bean-list-detail">
+                    <text class="bean-list-detail-label">{{ quality.label }}</text>
+                    <text class="bean-list-detail-value">{{ quality.value }}</text>
                   </view>
                   <view v-if="bean.prices?.length" class="bean-list-price-block">
                     <text class="bean-list-section-label">报价</text>
@@ -792,7 +855,7 @@ onShow(() => {
         <text class="panel-title">现货商品</text>
         <view v-for="item in page.products" :key="item.id" class="list-row">
           <text class="row-main">{{ item.name }}</text>
-          <text class="row-sub">{{ item.roast_level }} / 默认 ¥{{ item.default_price }}</text>
+          <text class="row-sub">{{ productKindLabel(item) }} / {{ item.roast_level || '未烘焙' }} / 默认 ¥{{ item.default_price }}</text>
         </view>
       </view>
 
@@ -826,6 +889,7 @@ onShow(() => {
             <view v-for="line in item.items" :key="line.id" class="item-line">
               <text>{{ line.item_name }} {{ line.spec }}</text>
               <text>{{ line.qty }}{{ line.unit }} x ¥{{ line.unit_price }} = ¥{{ line.line_total }}</text>
+              <text v-if="line.bean_list_version_no" class="line-meta">豆单版本：{{ line.bean_list_version_no }}</text>
             </view>
           </view>
           <text class="row-sub">运费：¥{{ item.shipping_amount || '0.00' }}</text>
@@ -1539,6 +1603,7 @@ onShow(() => {
   font-weight: 900;
 }
 
+.bean-list-update,
 .bean-list-changelog {
   display: flex;
   flex-direction: column;
@@ -1550,6 +1615,13 @@ onShow(() => {
   line-height: 1.6;
 }
 
+.bean-list-update {
+  padding: 18rpx;
+  border: 2rpx solid rgba(216, 23, 23, 0.26);
+  border-radius: 8rpx;
+  background: rgba(255, 245, 245, 0.9);
+}
+
 .bean-list-footer {
   display: flex;
   justify-content: space-between;
@@ -1559,11 +1631,18 @@ onShow(() => {
 
 .item-line {
   display: flex;
+  flex-wrap: wrap;
   justify-content: space-between;
   gap: 16rpx;
   color: #333333;
   font-size: 24rpx;
   line-height: 1.45;
+}
+
+.line-meta {
+  width: 100%;
+  color: #7a6a55;
+  font-size: 22rpx;
 }
 
 .section-count {

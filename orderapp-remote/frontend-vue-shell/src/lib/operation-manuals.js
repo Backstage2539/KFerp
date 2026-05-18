@@ -3,6 +3,7 @@ export const operationManualsByView = {
   productionManual: { doc: 'OP_MANUAL_PRODUCTION.md', title: '生产手册' },
   inventoryMaterialsManual: { doc: 'OP_MANUAL_INVENTORY_MATERIALS.md', title: '库存物料手册' },
   costingManual: { doc: 'OP_MANUAL_COSTING.md', title: '成本核价手册' },
+  greenBeanSalesManual: { doc: 'OP_MANUAL_GREEN_BEAN_SALES.md', title: '生豆销售手册' },
   financeManual: { doc: 'OP_MANUAL_FINANCE.md', title: '财务手册' },
   settingsAuditManual: { doc: 'OP_MANUAL_SETTINGS_AUDIT.md', title: '设置审计手册' },
   notificationManual: { doc: 'OP_MANUAL_NOTIFICATIONS.md', title: '通知配置手册' },

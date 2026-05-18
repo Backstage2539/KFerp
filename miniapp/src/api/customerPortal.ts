@@ -60,11 +60,31 @@ export type BeanListSummary = {
   show_version?: boolean
   show_changelog?: boolean
   show_category_numbers?: boolean
+  requires_acknowledgement?: boolean
+  diff?: BeanListDiffSummary
   background_color?: string
   font_color?: string
   background_image?: string
   logo_image?: string
   groups?: BeanListGroupSummary[]
+}
+
+export type BeanListDiffSummary = {
+  previous_version_no?: string
+  added?: BeanListDiffItem[]
+  removed?: BeanListDiffItem[]
+  changed?: BeanListDiffChange[]
+}
+
+export type BeanListDiffItem = {
+  code?: string
+  name: string
+}
+
+export type BeanListDiffChange = {
+  code?: string
+  name: string
+  fields?: string[]
 }
 
 export type BeanListGroupSummary = {
@@ -81,8 +101,17 @@ export type BeanListProductSummary = {
   recommended_use?: string
   flavor?: string
   description?: string
+  bean_list_quality?: BeanListQualitySummary
   highlight_terms?: string[]
   prices?: BeanListPriceSummary[]
+}
+
+export type BeanListQualitySummary = {
+  factory_flavor_description?: string
+  moisture?: string
+  density?: string
+  inspection_created_at?: string
+  inspection_reference_no?: string
 }
 
 export type BeanListPriceSummary = {
@@ -94,6 +123,7 @@ export type BeanListPriceSummary = {
 export type ProductSummary = {
   id: number
   name: string
+  product_kind?: string
   roast_level: string
   default_price: string
   retail_price_100g: string
@@ -128,11 +158,14 @@ export type CustomerOrderSummary = {
 export type CustomerOrderItemSummary = {
   id: number
   item_name: string
+  product_kind?: string
   spec: string
   qty: string
   unit: string
   unit_price: string
   line_total: string
+  bean_list_publication_id: number
+  bean_list_version_no: string
 }
 
 export type DirectShipBatch = {
@@ -349,6 +382,10 @@ export function buildMallOrderPath(): string {
   return '/api/mini/mall/orders'
 }
 
+export function buildBeanListAckPath(publicationID: number): string {
+  return `/api/mini/bean-lists/${Number(publicationID || 0)}/ack`
+}
+
 export function buildSwitchCustomerPath(): string {
   return '/api/mini/current-customer'
 }
@@ -407,5 +444,12 @@ export function createFulfillmentOrder(
     method: 'POST',
     token,
     data: payload,
+  })
+}
+
+export function acknowledgeBeanListVersion(token: string, publicationID: number): Promise<{ acknowledged: boolean }> {
+  return miniRequest<{ acknowledged: boolean }>(buildBeanListAckPath(publicationID), {
+    method: 'POST',
+    token,
   })
 }

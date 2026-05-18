@@ -35,10 +35,18 @@ describe('mini mall helpers', () => {
     expect(product.template_key).toBe('wide')
   })
 
+  it('normalizes green bean product kind for mall cards and cart rows', () => {
+    const product = normalizeMallProduct({ id: 12, title: '巴拿马生豆', product_kind: 'green_bean', unit_price: 168 })
+
+    expect(product.product_kind).toBe('green_bean')
+    expect(mallProductKindLabel(product)).toBe('生豆')
+    expect(addMallCartItem([], product, 1)[0]).toMatchObject({ product_kind: 'green_bean' })
+  })
+
   it('merges cart lines and keeps only positive quantities', () => {
     const product = normalizeMallProduct({ id: 11, title: '乌拉嘎', unit_price: 68 })
     const cart = addMallCartItem(addMallCartItem([], product, 1), product, 2)
-    expect(cart).toEqual([{ mall_product_id: 11, title: '乌拉嘎', unit_price: 68, qty: 3 }])
+    expect(cart).toEqual([{ mall_product_id: 11, title: '乌拉嘎', product_kind: 'roasted', unit_price: 68, qty: 3 }])
     expect(updateMallCartQty(cart, 11, 0)).toEqual([])
     expect(mallCartTotal(cart)).toBe(204)
   })
@@ -167,9 +175,12 @@ describe('mini mall helpers', () => {
 
   it('uses customer-facing pickers instead of raw system ID fields for service order forms', () => {
     const servicePage = fs.readFileSync(path.join(currentDir, '..', 'pages', 'service', 'service.vue'), 'utf8')
+    const api = fs.readFileSync(path.join(currentDir, '..', 'api', 'customerPortal.ts'), 'utf8')
+    expect(api).toContain('product_kind?:')
     expect(servicePage).toContain('processingInputOptions')
     expect(servicePage).toContain('processingTargetProductOptions')
     expect(servicePage).toContain('fulfillmentProductOptions')
+    expect(servicePage).toContain('productKindLabel')
     expect(servicePage).toContain('setProcessingInputMaterial')
     expect(servicePage).toContain('setProcessingTargetProduct')
     expect(servicePage).toContain('setFulfillmentProduct')

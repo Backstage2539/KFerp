@@ -11,6 +11,7 @@ type jsTier struct {
 type jsProduct struct {
 	ID              int64    `json:"id"`
 	Name            string   `json:"name"`
+	ProductKind     string   `json:"product_kind"`
 	Py              string   `json:"py"`
 	Pyi             string   `json:"pyi"`
 	RetailPrice100G float64  `json:"retail_price_100g"`

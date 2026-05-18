@@ -164,7 +164,14 @@
                   </span>
                 </div>
               </td>
-              <td>{{ row.order_type }}</td>
+              <td>
+                <div class="order-type-stack">
+                  <span>{{ row.order_type || '-' }}</span>
+                  <span class="kind-badges">
+                    <span v-for="kind in productKindSummaryKinds(row)" :key="kind" class="kind-badge" :class="productKindBadgeClass(kind)">{{ productKindLabel(kind) }}</span>
+                  </span>
+                </div>
+              </td>
               <td>
                 <div class="shipping-summary">
                   <span>{{ senderDisplay(row) }}</span>
@@ -348,6 +355,7 @@ import { apiGet, apiSend } from '../api/client'
 import PaginationControls from '../components/PaginationControls.vue'
 import { customerFulfillmentOrderFees } from '../lib/customer-fulfillment'
 import { invoiceStatusLabel, invoiceStatusTone } from '../lib/order-invoice'
+import { productKindBadgeClass, productKindLabel } from '../lib/order-entry'
 import { formatTrackingSummary, trackingInputSummary } from '../lib/order-shipping'
 import { orderListScopeForRequest } from '../lib/order-scope'
 import { normalizePageSize, paginationFromApi } from '../lib/pagination'
@@ -616,6 +624,11 @@ function isUnproduced(row) {
   const status = String(row?.process_status || '').trim()
   if (!status) return true
   return !(status.includes('生产完成') || status === '无需生产' || status === '库存待发货')
+}
+
+function productKindSummaryKinds(row) {
+  const kinds = String(row?.product_kind_summary || '').split(',').map((value) => value.trim()).filter(Boolean)
+  return kinds.length ? kinds : ['roasted']
 }
 
 function isHighlightedOrder(row) {
@@ -1028,6 +1041,11 @@ a, .text-link { color: #1f4f82; text-decoration: none; }
 .fee-line { display: flex; justify-content: space-between; gap: 8px; color: #555; font-size: 12px; }
 .fee-line strong { color: #171717; font-weight: 600; }
 .fee-line.emphasized strong { color: #0f5132; }
+.order-type-stack { display: grid; gap: 5px; min-width: 96px; }
+.kind-badges { display: flex; flex-wrap: wrap; gap: 4px; }
+.kind-badge { display: inline-flex; align-items: center; min-height: 18px; padding: 1px 6px; border-radius: 4px; font-size: 12px; font-weight: 600; }
+.kind-roasted { color: #8a4b12; background: #fff3df; border: 1px solid #f3c67c; }
+.kind-green { color: #12613a; background: #e8f7ee; border: 1px solid #8bd4a6; }
 .status-stack { display: grid; grid-template-columns: repeat(2, minmax(90px, 1fr)); gap: 4px 8px; min-width: 230px; color: #333; font-size: 13px; }
 .actions-cell { min-width: 210px; }
 .actions-cell a, .actions-cell button, .actions-cell .inline-muted { display: inline-block; margin-right: 8px; }

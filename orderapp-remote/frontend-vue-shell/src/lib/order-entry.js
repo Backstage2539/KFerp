@@ -60,13 +60,31 @@ export function formatSpecLabel(specG) {
   return `${spec}g`
 }
 
+export function normalizedProductKind(productOrKind) {
+  const raw = typeof productOrKind === 'object'
+    ? productOrKind?.product_kind
+    : productOrKind
+  return String(raw || '').trim() === 'green_bean' ? 'green_bean' : 'roasted'
+}
+
+export function productKindLabel(productOrKind) {
+  return normalizedProductKind(productOrKind) === 'green_bean' ? '生豆' : '熟豆'
+}
+
+export function productKindBadgeClass(productOrKind) {
+  return normalizedProductKind(productOrKind) === 'green_bean' ? 'kind-green' : 'kind-roasted'
+}
+
 export function wholesaleSpecOptions(product) {
   const specs = new Set(COMMON_SPEC_GRAMS)
   for (const tier of product?.tiers || []) {
     const spec = toInt(tier.spec_g)
     if (spec > 0) specs.add(spec)
   }
-  return [...specs].sort((a, b) => a - b).map((spec) => ({ label: formatSpecLabel(spec), value: String(spec) }))
+  return [
+    ...[...specs].sort((a, b) => a - b).map((spec) => ({ label: formatSpecLabel(spec), value: String(spec) })),
+    { label: '自定义克数', value: CUSTOM_SPEC_VALUE },
+  ]
 }
 
 export function defaultWholesaleSpec(product) {
@@ -430,6 +448,7 @@ export function buildOrderPayload({ form, rows }) {
     ship_tracking_no: form.ship_tracking_no || '',
     responsible_type: form.responsible_type || '',
     responsible_id: Number(form.responsible_id || 0),
+    bean_list_publication_id: Number(form.bean_list_publication_id || 0),
     notes: form.notes || '',
     shipping_amount: String(form.shipping_amount || ''),
     discount_amount: String(form.discount_amount || ''),

@@ -63,7 +63,7 @@ export function buildBeanListPdfGroups(items = [], listType = 'commercial', opti
       categoryCode: '',
       originalCategoryCode: '',
       showCategory: false,
-      items: sourceRows.map((item, index) => buildPdfItem(item, metaKey, tierKey, listType, String(index + 1), customizers)),
+      items: sourceRows.map((item, index) => buildPdfItem(item, metaKey, tierKey, normalizedListType, String(index + 1), customizers)),
     }]
   }
 
@@ -83,9 +83,15 @@ export function buildBeanListPdfGroups(items = [], listType = 'commercial', opti
     if (!groups.has(key)) {
       groups.set(key, { category, categoryCode, originalCategoryCode, showCategory: true, items: [] })
     }
-    groups.get(key).items.push(buildPdfItem(item, metaKey, tierKey, listType, renumberItemCode(meta.code, categoryCode), customizers))
+    groups.get(key).items.push(buildPdfItem(item, metaKey, tierKey, normalizedListType, renumberItemCode(meta.code, categoryCode), customizers))
   })
   return Array.from(groups.values())
+}
+
+function normalizeBeanListType(listType) {
+  if (listType === 'retail') return 'retail'
+  if (listType === 'green' || listType === 'green_bean') return 'green'
+  return 'commercial'
 }
 
 function buildPdfItem(item, metaKey, tierKey, listType, code, customizers) {
@@ -93,6 +99,7 @@ function buildPdfItem(item, metaKey, tierKey, listType, code, customizers) {
   const customizer = customizerFor(item, customizers)
   const highlightTerms = normalizeStringList(customizer.highlightTerms)
   const badge = normalizeBadge(customizer.badge)
+  const beanListQuality = normalizeBeanListQuality(item.bean_list_quality || item.beanListQuality)
   return {
     productId: item.product_id || item.productID || item.id || null,
     code: code || meta.code || '',
@@ -171,6 +178,33 @@ function positiveInteger(...values) {
     if (Number.isFinite(n) && n > 0) return n
   }
   return 10
+}
+
+function normalizeBeanListQuality(input) {
+  if (!input || typeof input !== 'object' || Array.isArray(input)) return null
+  const candidates = {
+    factoryFlavorDescription: input.factory_flavor_description ?? input.factoryFlavorDescription,
+    moisture: input.moisture,
+    density: input.density,
+    inspectionCreatedAt: input.inspection_created_at ?? input.inspectionCreatedAt,
+    inspectionReferenceNo: input.inspection_reference_no ?? input.inspectionReferenceNo,
+  }
+  const out = {}
+  Object.entries(candidates).forEach(([key, value]) => {
+    const normalized = stringField(value)
+    if (normalized) out[key] = normalized
+  })
+  return Object.keys(out).length > 0 ? out : null
+}
+
+function beanListQualityLines(quality = {}) {
+  return [
+    { label: '工厂风味', value: stringField(quality.factoryFlavorDescription) },
+    { label: '水分', value: stringField(quality.moisture) },
+    { label: '密度', value: stringField(quality.density) },
+    { label: '质检时间', value: stringField(quality.inspectionCreatedAt) },
+    { label: '质检单号', value: stringField(quality.inspectionReferenceNo) },
+  ].filter((line) => line.value)
 }
 
 export function compareBeanCodes(a, b) {
@@ -281,6 +315,10 @@ function normalizeStringSet(values) {
 function normalizeStringList(values) {
   const raw = Array.isArray(values) ? values : String(values || '').split(/[\n,，]/)
   return raw.map((value) => String(value ?? '').trim()).filter(Boolean)
+}
+
+function stringField(value) {
+  return String(value ?? '').trim()
 }
 
 function copySelectedValues(config, key, validValues = []) {

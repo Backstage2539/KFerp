@@ -34,6 +34,7 @@ type SaveOrderCommand struct {
 	OutsourceTaxFee       float64
 	OutsourceOtherFee     float64
 	StockBatchDecision    string
+	BeanListPublicationID int64
 	Items                 []OrderItemCommand
 }
 
@@ -220,6 +221,7 @@ type ProductTierOption struct {
 type ProductOption struct {
 	ID              int64               `json:"id"`
 	Name            string              `json:"name"`
+	ProductKind     string              `json:"product_kind"`
 	RoastLevel      string              `json:"roast_level"`
 	DefaultPrice    float64             `json:"default_price"`
 	RetailPrice100G float64             `json:"retail_price_100g"`
@@ -238,16 +240,28 @@ type ProductOption struct {
 	Tiers           []ProductTierOption `json:"tiers"`
 }
 
+type BeanListVersionOption struct {
+	CustomerID      int64  `json:"customer_id"`
+	ID              int64  `json:"id"`
+	VersionNo       string `json:"version_no"`
+	Label           string `json:"label"`
+	PublishedAt     string `json:"published_at"`
+	Changelog       string `json:"changelog"`
+	IsCustomerOwned bool   `json:"is_customer_owned"`
+	IsDefault       bool   `json:"is_default"`
+}
+
 type OrderFormData struct {
-	Today        string
-	Customers    []CustomerOption
-	Sources      []Option
-	ShipStatuses []Option
-	PayStatuses  []Option
-	OrderTypes   []Option
-	Products     []ProductOption
-	Employees    []EmployeeOption
-	EditData     *OrderEditData
+	Today                  string
+	Customers              []CustomerOption
+	Sources                []Option
+	ShipStatuses           []Option
+	PayStatuses            []Option
+	OrderTypes             []Option
+	Products               []ProductOption
+	Employees              []EmployeeOption
+	BeanListVersionOptions []BeanListVersionOption
+	EditData               *OrderEditData
 }
 
 type OrderEditItem struct {
@@ -275,27 +289,29 @@ type OrderEditItem struct {
 }
 
 type OrderEditData struct {
-	ID                int64
-	OrderNo           string
-	OrderDate         string
-	CustomerID        int64
-	SourceID          int64
-	OrderTypeID       int64
-	PayStatusID       int64
-	PaymentMethod     string
-	ShipStatusID      int64
-	ShipMethod        string
-	ShipTrackingNo    string
-	ResponsibleType   string
-	ResponsibleID     int64
-	ResponsibleName   string
-	ReceiverName      string
-	ReceiverPhone     string
-	ReceiverAddress   string
-	ReceiverCompany   string
-	PortalServiceCode string
-	SourceWarehouse   string
-	Notes             string
+	ID                    int64
+	OrderNo               string
+	OrderDate             string
+	CustomerID            int64
+	SourceID              int64
+	OrderTypeID           int64
+	PayStatusID           int64
+	PaymentMethod         string
+	ShipStatusID          int64
+	ShipMethod            string
+	ShipTrackingNo        string
+	ResponsibleType       string
+	ResponsibleID         int64
+	ResponsibleName       string
+	ReceiverName          string
+	ReceiverPhone         string
+	ReceiverAddress       string
+	ReceiverCompany       string
+	PortalServiceCode     string
+	SourceWarehouse       string
+	BeanListPublicationID int64
+	BeanListVersionNo     string
+	Notes                 string
 
 	TotalAmount           string
 	ShippingAmount        string
@@ -365,6 +381,7 @@ type OrderRow struct {
 	ShipStatusID          int64  `json:"ship_status_id"`
 	ProcessStatusID       int64  `json:"process_status_id"`
 	ProcessStatus         string `json:"process_status"`
+	ProductKindSummary    string `json:"product_kind_summary"`
 	CreatedByEmployee     string `json:"created_by_employee"`
 	Notes                 string `json:"notes"`
 	IsVoid                bool   `json:"is_void"`

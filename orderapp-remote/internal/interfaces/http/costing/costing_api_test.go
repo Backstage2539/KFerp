@@ -668,6 +668,63 @@ func TestPublicBeanListPageRendersPublishedSnapshot(t *testing.T) {
 	}
 }
 
+func TestPublicGreenBeanListPageRendersQualitySnapshot(t *testing.T) {
+	page, err := renderPublicBeanListPage(appcosting.BeanListPublication{
+		ID:        12,
+		ListType:  "green",
+		Version:   "V3.0.6",
+		Status:    "published",
+		OwnerType: "official",
+		Config: map[string]any{
+			"brandName":   "棵凡咖啡",
+			"layoutStyle": "table",
+		},
+		Content: map[string]any{
+			"groups": []any{map[string]any{
+				"category":     "G、生豆销售",
+				"showCategory": true,
+				"items": []any{map[string]any{
+					"code":        "G.1",
+					"name":        "埃塞瑰夏生豆",
+					"flavor":      "茉莉、柑橘",
+					"description": "来自绑定熟豆 BOM 的阶梯模板报价",
+					"beanListQuality": map[string]any{
+						"factoryFlavorDescription": "茉莉花、柑橘",
+						"moisture":                 "10.8%",
+						"density":                  "780g/L",
+						"inspectionCreatedAt":      "2026-05-18 09:30",
+					},
+					"prices": []any{map[string]any{
+						"label": "1kg+",
+						"price": float64(128),
+						"unit":  "kg",
+					}},
+				}},
+			}},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"棵凡咖啡生豆豆单",
+		"生豆销售报价",
+		"生豆",
+		"工厂风味",
+		"茉莉花、柑橘",
+		"水分",
+		"10.8%",
+		"密度",
+		"780g/L",
+		"质检时间",
+		"2026-05-18 09:30",
+	} {
+		if !strings.Contains(page, want) {
+			t.Fatalf("green public bean list page missing %q in body: %s", want, page)
+		}
+	}
+}
+
 func TestCostingSettingsAPI(t *testing.T) {
 	e := echo.New()
 	RegisterRoutes(e, Dependencies{Costing: fakeService{}})

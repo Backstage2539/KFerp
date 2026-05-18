@@ -5,6 +5,7 @@ export type MallTemplateKey = 'hero' | 'compact' | 'wide'
 export type MallProduct = {
   id: number
   product_id: number
+  product_kind?: string
   title: string
   subtitle: string
   description: string
@@ -30,6 +31,7 @@ export type MallProduct = {
 export type MallCartItem = {
   mall_product_id: number
   title: string
+  product_kind?: string
   unit_price: number
   qty: number
   sales_unit?: SalesUnit
@@ -78,6 +80,7 @@ export function normalizeMallProduct(row: Record<string, unknown> = {}): MallPro
   return {
     id: Number(row.id || 0),
     product_id: Number(row.product_id || 0),
+    product_kind: String(row.product_kind || '').trim() === 'green_bean' ? 'green_bean' : 'roasted',
     title: String(row.title || '').trim() || '商品',
     subtitle: String(row.subtitle || '').trim(),
     description: String(row.description || '').trim(),

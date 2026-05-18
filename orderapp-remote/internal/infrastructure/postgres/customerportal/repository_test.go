@@ -1027,6 +1027,64 @@ func TestCreateFulfillmentOrderIgnoresClientSuppliedUnitPrice(t *testing.T) {
 	}
 }
 
+func TestCreateFulfillmentOrderSavesGreenBeanKindAndPublishedBeanListPrice(t *testing.T) {
+	ctx := context.Background()
+	pool, schema := newCustomerPortalTestDB(t)
+	ensureCustomerPortalCostingSchema(t, ctx, pool, schema)
+	repo := NewRepository(pool, schema)
+
+	var customerID, productID int64
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`
+		INSERT INTO %s.customers(name) VALUES('生豆履约客户') RETURNING id
+	`, schema)).Scan(&customerID); err != nil {
+		t.Fatalf("insert customer: %v", err)
+	}
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`
+		INSERT INTO %s.products(name, product_kind, default_price, active)
+		VALUES('埃塞瑰夏生豆', 'green_bean', 0, true)
+		RETURNING id
+	`, schema)).Scan(&productID); err != nil {
+		t.Fatalf("insert green product: %v", err)
+	}
+	content := fmt.Sprintf(`{"groups":[{"items":[{"productId":%d,"name":"埃塞瑰夏生豆","green_bean_sale_tiers":[{"label":"1kg+","spec_g":1000,"min_qty":1,"price_per_unit":128,"price_per_lb":58.112,"display_unit":"kg"}]}]}]}`, productID)
+	if _, err := pool.Exec(ctx, fmt.Sprintf(`
+		INSERT INTO %s.bean_list_publications(list_type, version_no, status, owner_type, owner_key, config_json, content_json, changelog, actor)
+		VALUES('green','G-1','published','official','','{}'::jsonb,$1::jsonb,'生豆豆单','codex')
+	`, schema), content); err != nil {
+		t.Fatalf("insert green bean list: %v", err)
+	}
+
+	_, err := repo.CreateFulfillmentOrder(ctx, customerportalapp.CreateFulfillmentOrderCommand{
+		CustomerID:          customerID,
+		PortalServiceCode:   customerportalapp.PortalServiceProductOrder,
+		RecipientName:       "张三",
+		RecipientPhone:      "13800138000",
+		RecipientAddress:    "上海市测试路",
+		ProductID:           productID,
+		SpecG:               1000,
+		Qty:                 2,
+		CreatedByMiniUserID: 1,
+	})
+	if err != nil {
+		t.Fatalf("CreateFulfillmentOrder: %v", err)
+	}
+
+	var productKind string
+	var unitPrice, lineTotal float64
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`
+		SELECT COALESCE(product_kind,''), COALESCE(unit_price,0)::float8, COALESCE(line_total,0)::float8
+		FROM %s.order_items
+		WHERE product_id=$1
+		ORDER BY id DESC
+		LIMIT 1
+	`, schema), productID).Scan(&productKind, &unitPrice, &lineTotal); err != nil {
+		t.Fatalf("query order item: %v", err)
+	}
+	if productKind != "green_bean" || unitPrice != 128 || lineTotal != 256 {
+		t.Fatalf("product_kind/unit_price/line_total=%q/%.2f/%.2f, want green_bean/128.00/256.00", productKind, unitPrice, lineTotal)
+	}
+}
+
 func TestLoadProductOrderServicePageFiltersCustomerOnlyProducts(t *testing.T) {
 	ctx := context.Background()
 	pool, schema := newCustomerPortalTestDB(t)
@@ -1387,6 +1445,59 @@ func TestCreateMallOrderRejectsCustomerOnlyMallProduct(t *testing.T) {
 	}
 	if rows != 0 {
 		t.Fatalf("customer-only mall product created order rows=%d", rows)
+	}
+}
+
+func TestCreateMallOrderSavesGreenBeanProductKind(t *testing.T) {
+	ctx := context.Background()
+	pool, schema := newCustomerPortalTestDB(t)
+	repo := NewRepository(pool, schema)
+
+	var customerID, productID, mallProductID int64
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`
+		INSERT INTO %s.customers(name) VALUES('生豆商城客户') RETURNING id
+	`, schema)).Scan(&customerID); err != nil {
+		t.Fatalf("insert customer: %v", err)
+	}
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`
+		INSERT INTO %s.products(name, product_kind, default_price, active, customer_id, visibility)
+		VALUES('巴拿马生豆', 'green_bean', 0, true, 0, 'public')
+		RETURNING id
+	`, schema)).Scan(&productID); err != nil {
+		t.Fatalf("insert green product: %v", err)
+	}
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`
+		INSERT INTO %s.mall_products(product_id, title, spec_g, unit_price, status, sort_order)
+		VALUES($1,'巴拿马生豆',1000,168,'published',1)
+		RETURNING id
+	`, schema), productID).Scan(&mallProductID); err != nil {
+		t.Fatalf("insert mall product: %v", err)
+	}
+
+	_, err := repo.CreateMallOrder(ctx, customerportalapp.CreateMallOrderCommand{
+		CustomerID:          customerID,
+		CreatedByMiniUserID: 1,
+		RecipientName:       "张三",
+		RecipientPhone:      "13800138000",
+		RecipientAddress:    "上海市测试路",
+		Items:               []customerportalapp.MallOrderItemCommand{{MallProductID: mallProductID, Qty: 1}},
+	})
+	if err != nil {
+		t.Fatalf("CreateMallOrder: %v", err)
+	}
+
+	var productKind string
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`
+		SELECT COALESCE(product_kind,'')
+		FROM %s.order_items
+		WHERE product_id=$1
+		ORDER BY id DESC
+		LIMIT 1
+	`, schema), productID).Scan(&productKind); err != nil {
+		t.Fatalf("query order item: %v", err)
+	}
+	if productKind != "green_bean" {
+		t.Fatalf("mall order product_kind=%q, want green_bean", productKind)
 	}
 }
 
@@ -2130,6 +2241,40 @@ func TestLoadBeanListPublicationAllowsOfficialPublication(t *testing.T) {
 	wantCacheKey := fmt.Sprintf("bean-list:%d:V3.0.192", publicationID)
 	if got.ID != publicationID || got.Title != "官方已发布豆单可下载" || got.CacheKey != wantCacheKey {
 		t.Fatalf("official publication=%+v, want id=%d title/cache key", got, publicationID)
+	}
+}
+
+func TestLoadBeanListServicePageUsesFixedCustomerPublication(t *testing.T) {
+	ctx := context.Background()
+	pool, schema := newCustomerPortalTestDB(t)
+	ensureCustomerPortalCostingSchema(t, ctx, pool, schema)
+	repo := NewRepository(pool, schema)
+
+	var customerID int64
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`
+		INSERT INTO %s.customers(name) VALUES('固定版本客户') RETURNING id
+	`, schema)).Scan(&customerID); err != nil {
+		t.Fatalf("insert customer: %v", err)
+	}
+	oldID := seedBeanListPublicationForCustomerPortalTest(t, ctx, pool, schema, "customer", fmt.Sprintf("%d", customerID), "客户专属旧版")
+	_ = seedBeanListPublicationForCustomerPortalTest(t, ctx, pool, schema, "customer", fmt.Sprintf("%d", customerID), "客户专属新版")
+	_ = seedBeanListPublicationForCustomerPortalTest(t, ctx, pool, schema, "official", "", "公共最新版")
+	if _, err := pool.Exec(ctx, fmt.Sprintf(`
+		INSERT INTO %[1]s.customer_portal_profiles(customer_id, display_name, bean_list_mode, bean_list_publication_id)
+		VALUES($1,'固定版本客户','fixed',$2)
+	`, schema), customerID, oldID); err != nil {
+		t.Fatalf("insert profile: %v", err)
+	}
+
+	page, err := repo.LoadServicePage(ctx, customerportalapp.ServicePageQuery{CustomerID: customerID, Key: customerportalapp.ServiceKeyBeanList, Limit: 20})
+	if err != nil {
+		t.Fatalf("LoadServicePage: %v", err)
+	}
+	if len(page.BeanLists) != 1 || page.BeanLists[0].ID != oldID || page.BeanLists[0].Title != "客户专属旧版" {
+		t.Fatalf("bean lists=%+v, want fixed old publication %d", page.BeanLists, oldID)
+	}
+	if !page.HasBeanListVersions || len(page.BeanListVersions) != 2 {
+		t.Fatalf("version metadata has_customer=%v options=%+v", page.HasBeanListVersions, page.BeanListVersions)
 	}
 }
 

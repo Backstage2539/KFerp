@@ -1,6 +1,7 @@
 package customerportal
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"net/http"
@@ -70,6 +71,10 @@ type mallOrderRequest struct {
 }
 
 const miniCustomerConfigUpdatedMessage = "客户配置已更新，请联系管理员处理"
+
+type beanListPDFCacheService interface {
+	GetBeanListPublicationPDF(context.Context, string, int64, func(customerportalapp.BeanListSummary) ([]byte, error)) (customerportalapp.BeanListSummary, []byte, error)
+}
 
 func registerMiniAPI(e *echo.Echo, svc Service, messages MessagePublisher, beanListPDFRenderer BeanListPDFRenderer, salesDocs SalesDocuments) {
 	e.POST("/api/mini/login", func(c echo.Context) error {
@@ -223,16 +228,47 @@ func registerMiniAPI(e *echo.Echo, svc Service, messages MessagePublisher, beanL
 		if err != nil || publicationID <= 0 {
 			return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid request"})
 		}
-		row, err := svc.GetBeanListPublication(c.Request().Context(), token, publicationID)
-		if err != nil {
-			return miniBusinessError(c, err)
-		}
-		body, err := beanListPDFRenderer.Render(beanListPDFDocument(row))
-		if err != nil {
-			return miniInternalError(c)
+		var row customerportalapp.BeanListSummary
+		var body []byte
+		if cachedSvc, ok := svc.(beanListPDFCacheService); ok {
+			var err error
+			row, body, err = cachedSvc.GetBeanListPublicationPDF(c.Request().Context(), token, publicationID, func(row customerportalapp.BeanListSummary) ([]byte, error) {
+				return beanListPDFRenderer.Render(beanListPDFDocument(row))
+			})
+			if err != nil {
+				return miniBusinessError(c, err)
+			}
+		} else {
+			var err error
+			row, err = svc.GetBeanListPublication(c.Request().Context(), token, publicationID)
+			if err != nil {
+				return miniBusinessError(c, err)
+			}
+			body, err = beanListPDFRenderer.Render(beanListPDFDocument(row))
+			if err != nil {
+				return miniInternalError(c)
+			}
 		}
 		c.Response().Header().Set(echo.HeaderContentDisposition, fmt.Sprintf(`inline; filename="%s"`, beanListPDFFilename(row)))
 		return c.Blob(http.StatusOK, "application/pdf", body)
+	})
+
+	e.POST("/api/mini/bean-lists/:id/ack", func(c echo.Context) error {
+		if svc == nil {
+			return miniInternalError(c)
+		}
+		token := miniTokenFromHeader(c.Request().Header.Get(echo.HeaderAuthorization))
+		if token == "" {
+			return c.JSON(http.StatusUnauthorized, map[string]string{"error": "mini token required"})
+		}
+		publicationID, err := strconv.ParseInt(strings.TrimSpace(c.Param("id")), 10, 64)
+		if err != nil || publicationID <= 0 {
+			return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid request"})
+		}
+		if err := svc.AcknowledgeBeanListPublication(c.Request().Context(), token, publicationID); err != nil {
+			return miniBusinessError(c, err)
+		}
+		return c.JSON(http.StatusOK, map[string]any{"ok": true})
 	})
 
 	e.GET("/api/mini/orders/:id/sales-order-latest.pdf", func(c echo.Context) error {

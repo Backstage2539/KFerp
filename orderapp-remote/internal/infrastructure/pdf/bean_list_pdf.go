@@ -31,7 +31,13 @@ type BeanListItem struct {
 	RecommendedUse string
 	Flavor         string
 	Description    string
+	QualityLines   []BeanListQualityLine
 	Prices         []BeanListPrice
+}
+
+type BeanListQualityLine struct {
+	Label string
+	Value string
 }
 
 type BeanListPrice struct {
@@ -142,6 +148,14 @@ func renderBeanListItem(pdf *gofpdf.Fpdf, item BeanListItem) {
 			pdf.MultiCell(0, 5, line.label+"："+value, "", "L", false)
 		}
 	}
+	for _, line := range item.QualityLines {
+		label := strings.TrimSpace(line.Label)
+		value := strings.TrimSpace(line.Value)
+		if label == "" || value == "" {
+			continue
+		}
+		pdf.MultiCell(0, 5, label+"："+value, "", "L", false)
+	}
 	for _, price := range item.Prices {
 		label := strings.TrimSpace(price.Label)
 		value := strings.TrimSpace(price.Value)
@@ -190,6 +204,8 @@ func beanListTypeLabel(listType string) string {
 		return "商用"
 	case "retail":
 		return "零售"
+	case "green", "green_bean":
+		return "生豆"
 	default:
 		return ""
 	}

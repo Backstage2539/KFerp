@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"math"
 	"sort"
+	"strconv"
 	"strings"
 )
 
@@ -220,6 +221,14 @@ type BeanListDisplay struct {
 	Description    string `json:"description,omitempty"`
 }
 
+type BeanListQuality struct {
+	FactoryFlavorDescription string `json:"factory_flavor_description,omitempty"`
+	Moisture                 string `json:"moisture,omitempty"`
+	Density                  string `json:"density,omitempty"`
+	InspectionCreatedAt      string `json:"inspection_created_at,omitempty"`
+	InspectionReferenceNo    string `json:"inspection_reference_no,omitempty"`
+}
+
 type ProductResult struct {
 	ProductID                      int64                     `json:"product_id"`
 	Name                           string                    `json:"name"`
@@ -237,6 +246,8 @@ type ProductResult struct {
 	CommercialBeanList             BeanListDisplay           `json:"commercial_bean_list"`
 	DripBeanList                   BeanListDisplay           `json:"drip_bean_list"`
 	RetailBeanList                 BeanListDisplay           `json:"retail_bean_list"`
+	GreenBeanList                  BeanListDisplay           `json:"green_bean_list"`
+	BeanListQuality                BeanListQuality           `json:"bean_list_quality,omitempty"`
 	Flavor                         string                    `json:"flavor,omitempty"`
 	Origin                         string                    `json:"origin,omitempty"`
 	ProcessingStation              string                    `json:"processing_station,omitempty"`
@@ -362,6 +373,9 @@ func normalizeProductKind(kind string) string {
 }
 
 func CalculateProduct(params Parameters, in ProductInput) ProductResult {
+	if strings.TrimSpace(in.ProductKind) == "green_bean" {
+		return calculateGreenBeanProduct(params, in)
+	}
 	in, _ = ValidateProductInput(params, in)
 	profileName := costingProfileName(in)
 	roasted := in.GreenBeanCostPerKg / in.YieldRate
@@ -415,6 +429,7 @@ func CalculateProduct(params Parameters, in ProductInput) ProductResult {
 		CommercialBeanList:   commercialDisplay,
 		DripBeanList:         dripDisplay,
 		RetailBeanList:       retailDisplay,
+		BeanListQuality:      in.BeanListQuality,
 		Flavor:               in.Flavor,
 		Origin:               in.Origin,
 		ProcessingStation:    in.ProcessingStation,

@@ -122,6 +122,56 @@ func (r *fakeRepository) LoadBeanListPublication(ctx context.Context, customerID
 	return r.beanList, nil
 }
 
+func (r *fakeRepository) LoadBeanListPublicationAsset(ctx context.Context, publicationID int64, assetType string) (BeanListPublicationAsset, error) {
+	return BeanListPublicationAsset{}, ErrBeanListPublicationNotFound
+}
+
+func (r *fakeRepository) SaveBeanListPublicationAsset(ctx context.Context, asset BeanListPublicationAsset, actor string) (BeanListPublicationAsset, error) {
+	return asset, nil
+}
+
+func (r *fakeRepository) AcknowledgeBeanListPublication(ctx context.Context, customerID, publicationID int64, actor string) error {
+	return nil
+}
+
+func TestBeanListDiffDetectsAddedRemovedAndChangedItems(t *testing.T) {
+	oldList := BeanListSummary{Groups: []BeanListGroupSummary{{
+		Category: "经典拼配",
+		Items: []BeanListProductSummary{{
+			Code: "1.1", Name: "曲奇拼配", Flavor: "坚果", Description: "均衡",
+			Prices: []BeanListPriceSummary{{Label: "454g", Value: "88/包"}},
+		}, {
+			Code: "1.2", Name: "旧豆", Flavor: "可可",
+			Prices: []BeanListPriceSummary{{Label: "454g", Value: "78/包"}},
+		}},
+	}}}
+	newList := BeanListSummary{Groups: []BeanListGroupSummary{{
+		Category: "经典拼配",
+		Items: []BeanListProductSummary{{
+			Code: "1.1", Name: "曲奇拼配", Flavor: "坚果/黄油", Description: "均衡",
+			Prices: []BeanListPriceSummary{{Label: "454g", Value: "92/包"}},
+		}, {
+			Code: "1.3", Name: "新豆", Flavor: "柑橘",
+			Prices: []BeanListPriceSummary{{Label: "454g", Value: "98/包"}},
+		}},
+	}}}
+
+	diff := BeanListDiffBetween(oldList, newList)
+
+	if len(diff.Added) != 1 || diff.Added[0].Name != "新豆" {
+		t.Fatalf("added=%+v, want 新豆", diff.Added)
+	}
+	if len(diff.Removed) != 1 || diff.Removed[0].Name != "旧豆" {
+		t.Fatalf("removed=%+v, want 旧豆", diff.Removed)
+	}
+	if len(diff.Changed) != 1 || diff.Changed[0].Code != "1.1" {
+		t.Fatalf("changed=%+v, want 曲奇拼配", diff.Changed)
+	}
+	if !diff.Changed[0].HasField("prices") || !diff.Changed[0].HasField("flavor") {
+		t.Fatalf("changed fields=%+v, want prices and flavor", diff.Changed[0].Fields)
+	}
+}
+
 func (r *fakeRepository) ListPortalAdminCustomers(ctx context.Context, query PortalAdminCustomerQuery) ([]PortalAdminCustomer, error) {
 	if r.err != nil {
 		return nil, r.err

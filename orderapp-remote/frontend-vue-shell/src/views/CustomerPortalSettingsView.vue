@@ -73,6 +73,25 @@
               </select>
             </label>
           </div>
+          <div class="bean-list-picker">
+            <span>豆单展示版本</span>
+            <label class="check">
+              <input v-model="row.form.bean_list_mode" type="radio" value="latest" />
+              <span>{{ row.beanListVersionOptions.length ? '展示客户最新版本' : '使用公共豆单' }}</span>
+            </label>
+            <label v-if="row.beanListVersionOptions.length" class="check">
+              <input v-model="row.form.bean_list_mode" type="radio" value="fixed" />
+              <span>固定指定版本</span>
+            </label>
+            <select
+              v-if="row.beanListVersionOptions.length && row.form.bean_list_mode === 'fixed'"
+              v-model.number="row.form.bean_list_publication_id"
+            >
+              <option v-for="item in row.beanListVersionOptions" :key="item.id" :value="item.id">
+                {{ beanListVersionLabel(item) }}
+              </option>
+            </select>
+          </div>
           <label class="check">
             <input v-model="row.form.enabled" type="checkbox" />
             <span>{{ row.form.enabled ? '门户启用' : '门户停用' }}</span>
@@ -280,9 +299,12 @@ function createPortalRow(customer) {
       default_sender_id: Number(customer.default_sender_id || 0),
       enabled: customer.portal_enabled !== false,
       capability_template_key: trimTemplateKey(customer.capability_template_key),
+      bean_list_mode: normalizeBeanListMode(customer.bean_list_mode),
+      bean_list_publication_id: Number(customer.bean_list_publication_id || 0),
     },
     capabilities: [],
     bindings: [],
+    beanListVersionOptions: [],
     externalUsers: [],
     externalUserForm: {
       name: '',
@@ -313,7 +335,11 @@ function assignRowDetail(row, data) {
   row.form.default_sender_id = Number(row.customer.default_sender_id || 0)
   row.form.enabled = row.customer.portal_enabled !== false
   row.form.capability_template_key = trimTemplateKey(row.customer.capability_template_key)
+  row.form.bean_list_mode = normalizeBeanListMode(row.customer.bean_list_mode)
+  row.form.bean_list_publication_id = Number(row.customer.bean_list_publication_id || 0)
   row.bindings = data?.bindings || []
+  row.beanListVersionOptions = data?.bean_list_version_options || []
+  syncRowBeanListVersion(row)
   row.capabilities = (data?.capabilities || []).map((item) => ({
     code: item.code,
     label: item.label || capabilityLabels[item.code] || item.code,
@@ -339,6 +365,7 @@ async function loadRowExternalUsers(row) {
 
 async function saveVisibility(row) {
   if (!row?.customer?.id) return
+  syncRowBeanListVersion(row)
   row.saving = true
   error.value = ''
   ok.value = ''
@@ -351,6 +378,8 @@ async function saveVisibility(row) {
         default_sender_id: Number(row.form.default_sender_id || 0),
         enabled: !!row.form.enabled,
         capability_template_key: trimTemplateKey(row.form.capability_template_key),
+        bean_list_mode: row.form.bean_list_mode,
+        bean_list_publication_id: Number(row.form.bean_list_publication_id || 0),
       },
     })
     assignRowDetail(row, data)
@@ -374,6 +403,31 @@ function selectedTemplate(row) {
 
 function trimTemplateKey(value) {
   return String(value || '').trim()
+}
+
+function normalizeBeanListMode(value) {
+  return String(value || '').trim() === 'fixed' ? 'fixed' : 'latest'
+}
+
+function beanListVersionLabel(item) {
+  const version = item?.version_no || `#${item?.id || ''}`
+  const time = item?.published_at ? ` · ${item.published_at}` : ''
+  return `${version}${time}`
+}
+
+function syncRowBeanListVersion(row) {
+  if (!row?.beanListVersionOptions?.length) {
+    row.form.bean_list_mode = 'latest'
+    row.form.bean_list_publication_id = 0
+    return
+  }
+  if (row.form.bean_list_mode !== 'fixed') {
+    row.form.bean_list_publication_id = 0
+    return
+  }
+  const currentID = Number(row.form.bean_list_publication_id || 0)
+  if (row.beanListVersionOptions.some((item) => Number(item.id) === currentID)) return
+  row.form.bean_list_publication_id = Number(row.beanListVersionOptions[0]?.id || 0)
 }
 
 function unknownTemplateKey(row) {
@@ -523,6 +577,8 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .customer-cell span, .binding-row span { color: #666; font-size: 13px; line-height: 1.4; }
 .config-cell input, .config-cell select { width: 100%; }
 .template-picker { display: grid; gap: 8px; align-items: end; }
+.bean-list-picker { display: grid; gap: 7px; border: 1px solid #e4e7ec; border-radius: 8px; padding: 8px; background: #f8fafc; }
+.bean-list-picker > span { color: #555; font-size: 12px; margin: 0; }
 .check { display: inline-flex; align-items: center; gap: 8px; }
 .check input { width: auto; height: auto; }
 .check span { margin: 0; color: #333; font-size: 13px; }
