@@ -217,7 +217,7 @@ func (h productHandler) updateAPI(c echo.Context) error {
 		YieldRate:             yieldRate,
 		MarginRateOverride:    marginRateOverride,
 	}); err != nil {
-		return c.JSON(http.StatusInternalServerError, map[string]any{"error": err.Error()})
+		return c.JSON(http.StatusBadRequest, map[string]any{"error": err.Error()})
 	}
 	p, err := h.catalog.GetProduct(c.Request().Context(), id)
 	if err != nil {

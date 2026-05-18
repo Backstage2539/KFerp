@@ -382,6 +382,39 @@ func TestProductSettingsAPIUpdatesProductYieldRate(t *testing.T) {
 	}
 }
 
+func TestProductSettingsAPIRejectsInvalidDripBagUpdate(t *testing.T) {
+	repo := &productSettingsRepo{
+		products: []catalogapp.Product{{
+			ID:                    7,
+			Name:                  "耶加雪菲挂耳",
+			RoastLevel:            "中烘",
+			ProductKind:           "drip_bag",
+			DripBagGrams:          10,
+			DripBoxBagCount:       10,
+			AllowFulfillmentOrder: true,
+			AllowMallOrder:        true,
+			YieldRate:             0.82,
+		}},
+	}
+	e := echo.New()
+	registerProductRoutes(e, catalogapp.NewService(repo))
+
+	req := httptest.NewRequest(http.MethodPut, "/api/products/7", bytes.NewBufferString(`{"roast_level":"中烘","product_kind":"drip_bag","drip_bag_grams":-1,"drip_box_bag_count":10}`))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("PUT invalid drip product status=%d, want 400 body=%s", rec.Code, rec.Body.String())
+	}
+	if repo.productUpdated {
+		t.Fatalf("invalid drip update should not reach repo, command=%+v", repo.updated)
+	}
+	if !bytes.Contains(rec.Body.Bytes(), []byte("drip_bag_grams")) {
+		t.Fatalf("invalid drip response should mention drip_bag_grams: %s", rec.Body.String())
+	}
+}
+
 func TestProductSettingsAPISavesAndReturnsProductMarginOverride(t *testing.T) {
 	margin := 0.235
 	product := catalogapp.Product{ID: 7, Name: "曲奇拼配", RoastLevel: "中烘", YieldRate: 0.82}
