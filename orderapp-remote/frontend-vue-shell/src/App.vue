@@ -168,6 +168,7 @@ const internalViews = {
   mallSettings: MallSettingsView,
   costing: CostingView,
   costingManual: OperationManualView,
+  greenBeanSalesManual: OperationManualView,
   costingSettings: CostingSettingsView,
   financeDashboard: FinanceDashboardView,
   financeExpenses: FinanceExpensesView,

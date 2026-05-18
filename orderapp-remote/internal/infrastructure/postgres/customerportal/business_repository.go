@@ -97,7 +97,7 @@ func (r Repository) LoadMallPage(ctx context.Context, customerID int64) (custome
 	page.CurrentCustomerID = customerID
 
 	rows, err := r.pool.Query(ctx, fmt.Sprintf(`
-		SELECT m.id, m.product_id, COALESCE(p.name,''), COALESCE(NULLIF(m.title,''), p.name, ''), m.subtitle, m.description,
+		SELECT m.id, m.product_id, COALESCE(p.name,''), COALESCE(NULLIF(p.product_kind,''),'roasted'), COALESCE(NULLIF(m.title,''), p.name, ''), m.subtitle, m.description,
 		       m.image_url, m.spec_g, m.unit_price, m.template_key, m.status, m.sort_order,
 		       to_char(m.updated_at,'YYYY-MM-DD HH24:MI')
 		FROM %s.mall_products m
@@ -112,7 +112,7 @@ func (r Repository) LoadMallPage(ctx context.Context, customerID int64) (custome
 	defer rows.Close()
 	for rows.Next() {
 		var row customerportalapp.MallProduct
-		if err := rows.Scan(&row.ID, &row.ProductID, &row.ProductName, &row.Title, &row.Subtitle, &row.Description, &row.ImageURL, &row.SpecG, &row.UnitPrice, &row.TemplateKey, &row.Status, &row.SortOrder, &row.UpdatedAt); err != nil {
+		if err := rows.Scan(&row.ID, &row.ProductID, &row.ProductName, &row.ProductKind, &row.Title, &row.Subtitle, &row.Description, &row.ImageURL, &row.SpecG, &row.UnitPrice, &row.TemplateKey, &row.Status, &row.SortOrder, &row.UpdatedAt); err != nil {
 			return customerportalapp.MallPage{}, err
 		}
 		row.TemplateKey = customerportalapp.NormalizeMallTemplateKey(row.TemplateKey)
@@ -436,22 +436,31 @@ func buildBeanListDisplayTitle(listType, brandName string) string {
 	if brand == "" {
 		brand = "棵凡咖啡"
 	}
-	if strings.TrimSpace(listType) == "retail" {
+	switch strings.TrimSpace(listType) {
+	case "retail":
 		return brand + "零售豆单"
+	case "green", "green_bean":
+		return brand + "生豆豆单"
 	}
 	return brand + "批发豆单"
 }
 
 func buildBeanListDisplaySubtitle(listType string) string {
-	if strings.TrimSpace(listType) == "retail" {
+	switch strings.TrimSpace(listType) {
+	case "retail":
 		return "报价含税运"
+	case "green", "green_bean":
+		return "生豆销售报价"
 	}
 	return "报价不含税、不含运"
 }
 
 func beanListTypeLabel(listType string) string {
-	if strings.TrimSpace(listType) == "retail" {
+	switch strings.TrimSpace(listType) {
+	case "retail":
 		return "零售"
+	case "green", "green_bean":
+		return "生豆"
 	}
 	return "商用"
 }
@@ -529,7 +538,7 @@ func formatBeanListPrice(price float64, unit string) string {
 
 func (r Repository) listProducts(ctx context.Context, customerID int64, limit int) ([]customerportalapp.ProductSummary, error) {
 	rows, err := r.pool.Query(ctx, fmt.Sprintf(`
-		SELECT id, name, roast_level,
+		SELECT id, name, COALESCE(NULLIF(product_kind,''),'roasted'), roast_level,
 		       to_char(COALESCE(default_price,0), 'FM999999990.00'),
 		       to_char(COALESCE(retail_price_100g,0), 'FM999999990.00'),
 		       to_char(COALESCE(retail_price_200g,0), 'FM999999990.00'),
@@ -548,7 +557,7 @@ func (r Repository) listProducts(ctx context.Context, customerID int64, limit in
 	out := make([]customerportalapp.ProductSummary, 0)
 	for rows.Next() {
 		var row customerportalapp.ProductSummary
-		if err := rows.Scan(&row.ID, &row.Name, &row.RoastLevel, &row.DefaultPrice, &row.RetailPrice100, &row.RetailPrice200, &row.RetailPrice227, &row.RetailPrice250); err != nil {
+		if err := rows.Scan(&row.ID, &row.Name, &row.ProductKind, &row.RoastLevel, &row.DefaultPrice, &row.RetailPrice100, &row.RetailPrice200, &row.RetailPrice227, &row.RetailPrice250); err != nil {
 			return nil, err
 		}
 		out = append(out, row)
@@ -725,15 +734,17 @@ func (r Repository) listCustomerOrderItems(ctx context.Context, orderIDs []int64
 		SELECT oi.order_id,
 		       oi.id,
 		       COALESCE(oi.item_name,''),
+		       COALESCE(NULLIF(oi.product_kind,''), NULLIF(p.product_kind,''), 'roasted'),
 		       COALESCE(oi.spec,''),
 		       to_char(COALESCE(oi.qty,0), 'FM999999990.##'),
 		       COALESCE(oi.unit,''),
 		       to_char(COALESCE(oi.unit_price,0), 'FM999999990.00'),
 		       to_char(COALESCE(oi.line_total,0), 'FM999999990.00')
 		FROM %s.order_items oi
+		LEFT JOIN %s.products p ON p.id=oi.product_id
 		WHERE oi.order_id IN (`+strings.Join(placeholders, ",")+`)
 		ORDER BY oi.order_id, oi.line_no, oi.id
-	`, r.schema), args...)
+	`, r.schema, r.schema), args...)
 	if err != nil {
 		return nil, err
 	}
@@ -741,7 +752,7 @@ func (r Repository) listCustomerOrderItems(ctx context.Context, orderIDs []int64
 	for rows.Next() {
 		var orderID int64
 		var row customerportalapp.CustomerOrderItemSummary
-		if err := rows.Scan(&orderID, &row.ID, &row.ItemName, &row.Spec, &row.Qty, &row.Unit, &row.UnitPrice, &row.LineTotal); err != nil {
+		if err := rows.Scan(&orderID, &row.ID, &row.ItemName, &row.ProductKind, &row.Spec, &row.Qty, &row.Unit, &row.UnitPrice, &row.LineTotal); err != nil {
 			return nil, err
 		}
 		out[orderID] = append(out[orderID], row)
@@ -1010,6 +1021,7 @@ func (r Repository) ensureProcessingTargetProductTx(ctx context.Context, tx pgx.
 type mallOrderLine struct {
 	MallProductID int64
 	ProductID     int64
+	ProductKind   string
 	Title         string
 	SpecG         int64
 	UnitPrice     float64
@@ -1031,7 +1043,7 @@ func (r Repository) CreateMallOrder(ctx context.Context, cmd customerportalapp.C
 		ids = append(ids, item.MallProductID)
 	}
 	rows, err := tx.Query(ctx, fmt.Sprintf(`
-		SELECT m.id, m.product_id, COALESCE(NULLIF(m.title,''), p.name, ''), m.spec_g, m.unit_price
+		SELECT m.id, m.product_id, COALESCE(NULLIF(p.product_kind,''),'roasted'), COALESCE(NULLIF(m.title,''), p.name, ''), m.spec_g, m.unit_price
 		FROM %s.mall_products m
 		JOIN %s.products p ON p.id=m.product_id
 		WHERE m.id = ANY($1) AND m.status='published' AND p.active=true
@@ -1043,7 +1055,7 @@ func (r Repository) CreateMallOrder(ctx context.Context, cmd customerportalapp.C
 	linesByMallProduct := map[int64]mallOrderLine{}
 	for rows.Next() {
 		var line mallOrderLine
-		if err := rows.Scan(&line.MallProductID, &line.ProductID, &line.Title, &line.SpecG, &line.UnitPrice); err != nil {
+		if err := rows.Scan(&line.MallProductID, &line.ProductID, &line.ProductKind, &line.Title, &line.SpecG, &line.UnitPrice); err != nil {
 			rows.Close()
 			return customerportalapp.FulfillmentOrder{}, err
 		}
@@ -1118,9 +1130,9 @@ func (r Repository) CreateMallOrder(ctx context.Context, cmd customerportalapp.C
 		line := linesByMallProduct[item.MallProductID]
 		lineTotal := line.UnitPrice * float64(item.Qty)
 		if _, err := tx.Exec(ctx, fmt.Sprintf(`
-			INSERT INTO %s.order_items(order_id,line_no,product_id,item_name,qty,unit,spec,unit_price,line_total)
-			VALUES($1,$2,$3,$4,$5,'件',$6,$7,$8)
-		`, r.schema), orderID, i+1, line.ProductID, line.Title, item.Qty, fmt.Sprintf("%dg", line.SpecG), line.UnitPrice, lineTotal); err != nil {
+			INSERT INTO %s.order_items(order_id,line_no,product_id,product_kind,item_name,qty,unit,spec,unit_price,line_total)
+			VALUES($1,$2,$3,$4,$5,$6,'件',$7,$8,$9)
+		`, r.schema), orderID, i+1, line.ProductID, line.ProductKind, line.Title, item.Qty, fmt.Sprintf("%dg", line.SpecG), line.UnitPrice, lineTotal); err != nil {
 			return customerportalapp.FulfillmentOrder{}, err
 		}
 	}
@@ -1164,13 +1176,14 @@ func (r Repository) CreateFulfillmentOrder(ctx context.Context, cmd customerport
 	}
 
 	var productName string
+	var productKind string
 	var defaultPrice float64
 	if err := tx.QueryRow(ctx, fmt.Sprintf(`
-		SELECT COALESCE(name,''), COALESCE(default_price,0)
+		SELECT COALESCE(name,''), COALESCE(NULLIF(product_kind,''),'roasted'), COALESCE(default_price,0)
 		FROM %s.products
 		WHERE id=$1 AND active=true
 		  AND %s
-	`, r.schema, portalProductVisibleToCustomerSQL(r.schema+".products", "$2")), cmd.ProductID, cmd.CustomerID).Scan(&productName, &defaultPrice); err != nil {
+	`, r.schema, portalProductVisibleToCustomerSQL(r.schema+".products", "$2")), cmd.ProductID, cmd.CustomerID).Scan(&productName, &productKind, &defaultPrice); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return customerportalapp.FulfillmentOrder{}, fmt.Errorf("product unavailable")
 		}
@@ -1231,9 +1244,9 @@ func (r Repository) CreateFulfillmentOrder(ctx context.Context, cmd customerport
 		return customerportalapp.FulfillmentOrder{}, err
 	}
 	if _, err := tx.Exec(ctx, fmt.Sprintf(`
-		INSERT INTO %s.order_items(order_id,line_no,product_id,item_name,qty,unit,spec,unit_price,line_total)
-		VALUES($1,1,$2,$3,$4,'件',$5,$6,$7)
-	`, r.schema), orderID, cmd.ProductID, productName, cmd.Qty, fmt.Sprintf("%dg", cmd.SpecG), unitPrice, totalAmount); err != nil {
+		INSERT INTO %s.order_items(order_id,line_no,product_id,product_kind,item_name,qty,unit,spec,unit_price,line_total)
+		VALUES($1,1,$2,$3,$4,$5,'件',$6,$7,$8)
+	`, r.schema), orderID, cmd.ProductID, productKind, productName, cmd.Qty, fmt.Sprintf("%dg", cmd.SpecG), unitPrice, totalAmount); err != nil {
 		return customerportalapp.FulfillmentOrder{}, err
 	}
 	if err := tx.Commit(ctx); err != nil {

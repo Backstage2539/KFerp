@@ -673,7 +673,7 @@ func nullableERPBinding(customerID int64, employeeID sql.NullInt64, employeeName
 
 func (r Repository) ListMallProducts(ctx context.Context) ([]customerportalapp.MallProduct, []customerportalapp.MallProductOption, error) {
 	rows, err := r.pool.Query(ctx, fmt.Sprintf(`
-		SELECT m.id, m.product_id, COALESCE(p.name,''), COALESCE(NULLIF(m.title,''), p.name, ''), m.subtitle, m.description,
+		SELECT m.id, m.product_id, COALESCE(p.name,''), COALESCE(NULLIF(p.product_kind,''),'roasted'), COALESCE(NULLIF(m.title,''), p.name, ''), m.subtitle, m.description,
 		       m.image_url, m.spec_g, m.unit_price, m.template_key, m.status, m.sort_order,
 		       to_char(m.updated_at,'YYYY-MM-DD HH24:MI')
 		FROM %s.mall_products m
@@ -688,7 +688,7 @@ func (r Repository) ListMallProducts(ctx context.Context) ([]customerportalapp.M
 	mallRows := make([]customerportalapp.MallProduct, 0)
 	for rows.Next() {
 		var row customerportalapp.MallProduct
-		if err := rows.Scan(&row.ID, &row.ProductID, &row.ProductName, &row.Title, &row.Subtitle, &row.Description, &row.ImageURL, &row.SpecG, &row.UnitPrice, &row.TemplateKey, &row.Status, &row.SortOrder, &row.UpdatedAt); err != nil {
+		if err := rows.Scan(&row.ID, &row.ProductID, &row.ProductName, &row.ProductKind, &row.Title, &row.Subtitle, &row.Description, &row.ImageURL, &row.SpecG, &row.UnitPrice, &row.TemplateKey, &row.Status, &row.SortOrder, &row.UpdatedAt); err != nil {
 			return nil, nil, err
 		}
 		row.TemplateKey = customerportalapp.NormalizeMallTemplateKey(row.TemplateKey)
@@ -700,7 +700,7 @@ func (r Repository) ListMallProducts(ctx context.Context) ([]customerportalapp.M
 	}
 
 	optionRows, err := r.pool.Query(ctx, fmt.Sprintf(`
-		SELECT id, COALESCE(name,''), COALESCE(default_price,0)
+		SELECT id, COALESCE(name,''), COALESCE(NULLIF(product_kind,''),'roasted'), COALESCE(default_price,0)
 		FROM %s.products
 		WHERE active=true
 		  AND %s
@@ -714,7 +714,7 @@ func (r Repository) ListMallProducts(ctx context.Context) ([]customerportalapp.M
 	productOptions := make([]customerportalapp.MallProductOption, 0)
 	for optionRows.Next() {
 		var row customerportalapp.MallProductOption
-		if err := optionRows.Scan(&row.ID, &row.Name, &row.DefaultPrice); err != nil {
+		if err := optionRows.Scan(&row.ID, &row.Name, &row.ProductKind, &row.DefaultPrice); err != nil {
 			return nil, nil, err
 		}
 		productOptions = append(productOptions, row)
@@ -792,13 +792,13 @@ func (r Repository) UpdateMallProductImage(ctx context.Context, cmd customerport
 func (r Repository) mallProductByID(ctx context.Context, id int64) (customerportalapp.MallProduct, error) {
 	var row customerportalapp.MallProduct
 	err := r.pool.QueryRow(ctx, fmt.Sprintf(`
-		SELECT m.id, m.product_id, COALESCE(p.name,''), COALESCE(NULLIF(m.title,''), p.name, ''), m.subtitle, m.description,
+		SELECT m.id, m.product_id, COALESCE(p.name,''), COALESCE(NULLIF(p.product_kind,''),'roasted'), COALESCE(NULLIF(m.title,''), p.name, ''), m.subtitle, m.description,
 		       m.image_url, m.spec_g, m.unit_price, m.template_key, m.status, m.sort_order,
 		       to_char(m.updated_at,'YYYY-MM-DD HH24:MI')
 		FROM %s.mall_products m
 		JOIN %s.products p ON p.id=m.product_id
 		WHERE m.id=$1
-	`, r.schema, r.schema), id).Scan(&row.ID, &row.ProductID, &row.ProductName, &row.Title, &row.Subtitle, &row.Description, &row.ImageURL, &row.SpecG, &row.UnitPrice, &row.TemplateKey, &row.Status, &row.SortOrder, &row.UpdatedAt)
+	`, r.schema, r.schema), id).Scan(&row.ID, &row.ProductID, &row.ProductName, &row.ProductKind, &row.Title, &row.Subtitle, &row.Description, &row.ImageURL, &row.SpecG, &row.UnitPrice, &row.TemplateKey, &row.Status, &row.SortOrder, &row.UpdatedAt)
 	if err != nil {
 		return customerportalapp.MallProduct{}, err
 	}

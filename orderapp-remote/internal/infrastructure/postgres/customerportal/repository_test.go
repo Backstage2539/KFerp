@@ -1027,6 +1027,62 @@ func TestCreateFulfillmentOrderIgnoresClientSuppliedUnitPrice(t *testing.T) {
 	}
 }
 
+func TestCreateFulfillmentOrderSavesGreenBeanKindAndDirectTierPrice(t *testing.T) {
+	ctx := context.Background()
+	pool, schema := newCustomerPortalTestDB(t)
+	repo := NewRepository(pool, schema)
+
+	var customerID, productID int64
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`
+		INSERT INTO %s.customers(name) VALUES('生豆履约客户') RETURNING id
+	`, schema)).Scan(&customerID); err != nil {
+		t.Fatalf("insert customer: %v", err)
+	}
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`
+		INSERT INTO %s.products(name, product_kind, default_price, active)
+		VALUES('埃塞瑰夏生豆', 'green_bean', 0, true)
+		RETURNING id
+	`, schema)).Scan(&productID); err != nil {
+		t.Fatalf("insert green product: %v", err)
+	}
+	if _, err := pool.Exec(ctx, fmt.Sprintf(`
+		INSERT INTO %s.product_price_tiers(product_id, spec_g, min_qty_units, max_qty_units, price_per_unit, price_per_lb, active)
+		VALUES($1,1000,1,NULL,128,128*454.0/1000.0,true)
+	`, schema), productID); err != nil {
+		t.Fatalf("insert green tiers: %v", err)
+	}
+
+	_, err := repo.CreateFulfillmentOrder(ctx, customerportalapp.CreateFulfillmentOrderCommand{
+		CustomerID:          customerID,
+		PortalServiceCode:   customerportalapp.PortalServiceProductOrder,
+		RecipientName:       "张三",
+		RecipientPhone:      "13800138000",
+		RecipientAddress:    "上海市测试路",
+		ProductID:           productID,
+		SpecG:               1000,
+		Qty:                 2,
+		CreatedByMiniUserID: 1,
+	})
+	if err != nil {
+		t.Fatalf("CreateFulfillmentOrder: %v", err)
+	}
+
+	var productKind string
+	var unitPrice, lineTotal float64
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`
+		SELECT COALESCE(product_kind,''), COALESCE(unit_price,0)::float8, COALESCE(line_total,0)::float8
+		FROM %s.order_items
+		WHERE product_id=$1
+		ORDER BY id DESC
+		LIMIT 1
+	`, schema), productID).Scan(&productKind, &unitPrice, &lineTotal); err != nil {
+		t.Fatalf("query order item: %v", err)
+	}
+	if productKind != "green_bean" || unitPrice != 128 || lineTotal != 256 {
+		t.Fatalf("product_kind/unit_price/line_total=%q/%.2f/%.2f, want green_bean/128.00/256.00", productKind, unitPrice, lineTotal)
+	}
+}
+
 func TestLoadProductOrderServicePageFiltersCustomerOnlyProducts(t *testing.T) {
 	ctx := context.Background()
 	pool, schema := newCustomerPortalTestDB(t)
@@ -1327,6 +1383,59 @@ func TestCreateMallOrderRejectsCustomerOnlyMallProduct(t *testing.T) {
 	}
 	if rows != 0 {
 		t.Fatalf("customer-only mall product created order rows=%d", rows)
+	}
+}
+
+func TestCreateMallOrderSavesGreenBeanProductKind(t *testing.T) {
+	ctx := context.Background()
+	pool, schema := newCustomerPortalTestDB(t)
+	repo := NewRepository(pool, schema)
+
+	var customerID, productID, mallProductID int64
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`
+		INSERT INTO %s.customers(name) VALUES('生豆商城客户') RETURNING id
+	`, schema)).Scan(&customerID); err != nil {
+		t.Fatalf("insert customer: %v", err)
+	}
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`
+		INSERT INTO %s.products(name, product_kind, default_price, active, customer_id, visibility)
+		VALUES('巴拿马生豆', 'green_bean', 0, true, 0, 'public')
+		RETURNING id
+	`, schema)).Scan(&productID); err != nil {
+		t.Fatalf("insert green product: %v", err)
+	}
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`
+		INSERT INTO %s.mall_products(product_id, title, spec_g, unit_price, status, sort_order)
+		VALUES($1,'巴拿马生豆',1000,168,'published',1)
+		RETURNING id
+	`, schema), productID).Scan(&mallProductID); err != nil {
+		t.Fatalf("insert mall product: %v", err)
+	}
+
+	_, err := repo.CreateMallOrder(ctx, customerportalapp.CreateMallOrderCommand{
+		CustomerID:          customerID,
+		CreatedByMiniUserID: 1,
+		RecipientName:       "张三",
+		RecipientPhone:      "13800138000",
+		RecipientAddress:    "上海市测试路",
+		Items:               []customerportalapp.MallOrderItemCommand{{MallProductID: mallProductID, Qty: 1}},
+	})
+	if err != nil {
+		t.Fatalf("CreateMallOrder: %v", err)
+	}
+
+	var productKind string
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`
+		SELECT COALESCE(product_kind,'')
+		FROM %s.order_items
+		WHERE product_id=$1
+		ORDER BY id DESC
+		LIMIT 1
+	`, schema), productID).Scan(&productKind); err != nil {
+		t.Fatalf("query order item: %v", err)
+	}
+	if productKind != "green_bean" {
+		t.Fatalf("mall order product_kind=%q, want green_bean", productKind)
 	}
 }
 

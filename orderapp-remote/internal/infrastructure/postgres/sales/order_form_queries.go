@@ -98,7 +98,7 @@ func (r Repository) fetchOrderEmployees(ctx context.Context) ([]salesapp.Employe
 }
 
 func (r Repository) fetchOrderProducts(ctx context.Context) ([]salesapp.ProductOption, error) {
-	sqlstr := fmt.Sprintf(`SELECT id, name, COALESCE(roast_level,''), default_price,
+	sqlstr := fmt.Sprintf(`SELECT id, name, COALESCE(NULLIF(product_kind,''),'roasted'), COALESCE(roast_level,''), default_price,
 		COALESCE(retail_price_100g, 0),
 		COALESCE(retail_price_200g, 0),
 		COALESCE(retail_price_227g, default_price, 0),
@@ -117,7 +117,7 @@ func (r Repository) fetchOrderProducts(ctx context.Context) ([]salesapp.ProductO
 	out := make([]salesapp.ProductOption, 0)
 	for rows.Next() {
 		var p salesapp.ProductOption
-		if err := rows.Scan(&p.ID, &p.Name, &p.RoastLevel, &p.DefaultPrice, &p.RetailPrice100G, &p.RetailPrice200G, &p.RetailPrice227G, &p.RetailPrice250G, &p.CustomerID, &p.BaseProductID, &p.Visibility, &p.CustomType); err != nil {
+		if err := rows.Scan(&p.ID, &p.Name, &p.ProductKind, &p.RoastLevel, &p.DefaultPrice, &p.RetailPrice100G, &p.RetailPrice200G, &p.RetailPrice227G, &p.RetailPrice250G, &p.CustomerID, &p.BaseProductID, &p.Visibility, &p.CustomType); err != nil {
 			return nil, err
 		}
 		p.RetailSpecs = salesdomain.RetailAvailableSpecs(salesdomain.RetailSpecPrices{
@@ -282,6 +282,7 @@ func (r Repository) fetchOrderEdit(ctx context.Context, id int64) (*salesapp.Ord
 		SELECT oi.id, oi.line_no,
 			COALESCE(oi.product_id,0),
 			COALESCE(p.name,''),
+			COALESCE(NULLIF(oi.product_kind,''), NULLIF(p.product_kind,''), 'roasted'),
 			COALESCE(oi.item_note,''),
 			COALESCE(oi.spec,''),
 			COALESCE(oi.qty,0),
@@ -307,7 +308,7 @@ func (r Repository) fetchOrderEdit(ctx context.Context, id int64) (*salesapp.Ord
 	for rows.Next() {
 		var it salesapp.OrderEditItem
 		var qty, unitPrice, lineTotal, discountValue, discountAmount float64
-		if err := rows.Scan(&it.ItemID, &it.LineNo, &it.ProductID, &it.Product, &it.Note, &it.Spec, &qty, &it.Unit, &unitPrice, &lineTotal, &it.PriceTierID, &it.DiscountType, &discountValue, &discountAmount); err != nil {
+		if err := rows.Scan(&it.ItemID, &it.LineNo, &it.ProductID, &it.Product, &it.ProductKind, &it.Note, &it.Spec, &qty, &it.Unit, &unitPrice, &lineTotal, &it.PriceTierID, &it.DiscountType, &discountValue, &discountAmount); err != nil {
 			return nil, err
 		}
 		it.Qty = trimFloatZero(qty)

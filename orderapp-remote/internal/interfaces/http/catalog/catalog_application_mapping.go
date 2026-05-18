@@ -6,6 +6,7 @@ func productOptionFromCatalog(p catalogapp.Product) ProductOption {
 	out := ProductOption{
 		ID:                      p.ID,
 		Name:                    p.Name,
+		ProductKind:             p.ProductKind,
 		RoastLevel:              p.RoastLevel,
 		DefaultPrice:            p.DefaultPrice,
 		RetailPrice100G:         p.RetailPrice100G,

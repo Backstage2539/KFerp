@@ -310,6 +310,7 @@
             <select v-model="pdfOptions.listType">
               <option value="commercial">商用批发豆单</option>
               <option value="retail">零售豆单</option>
+              <option value="green">生豆豆单</option>
             </select>
           </label>
           <label>
@@ -429,7 +430,7 @@
               <p>{{ pdfSubtitle }}</p>
               <p v-if="pdfTheme.brandIntro" class="pdf-brand-intro">{{ pdfTheme.brandIntro }}</p>
             </div>
-            <div class="pdf-badge">{{ pdfTheme.listType === 'retail' ? '零售' : '商用' }}</div>
+            <div class="pdf-badge">{{ beanListTypeLabel(pdfTheme.listType) }}</div>
           </header>
 
           <section v-for="group in pdfGroups" :key="`preview-${group.category}`" class="pdf-group">
@@ -538,7 +539,7 @@
             <p>{{ pdfSubtitle }}</p>
             <p v-if="pdfTheme.brandIntro" class="pdf-brand-intro">{{ pdfTheme.brandIntro }}</p>
           </div>
-          <div class="pdf-badge">{{ pdfTheme.listType === 'retail' ? '零售' : '商用' }}</div>
+          <div class="pdf-badge">{{ beanListTypeLabel(pdfTheme.listType) }}</div>
         </header>
 
         <section v-for="group in pdfGroups" :key="`pdf-${group.category}`" class="pdf-group">
@@ -698,16 +699,16 @@ const explanationOverrides = ref({
 const customers = ref([])
 const runId = ref(null)
 const beanListPublications = ref({
-  official: { commercial: [], retail: [] },
-  mine: { commercial: [], retail: [] },
-  customer: { commercial: [], retail: [] },
+  official: { commercial: [], retail: [], green: [] },
+  mine: { commercial: [], retail: [], green: [] },
+  customer: { commercial: [], retail: [], green: [] },
 })
-const priceSourcePublicationByType = ref({ commercial: null, retail: null })
-const styleSourcePublicationIDByType = ref({ commercial: 0, retail: 0 })
-const selectedProductIDsByType = ref({ commercial: [], retail: [] })
-const visibleCategoryCodesByType = ref({ commercial: [], retail: [] })
-const productSelectionInitialized = ref({ commercial: false, retail: false })
-const categorySelectionInitialized = ref({ commercial: false, retail: false })
+const priceSourcePublicationByType = ref({ commercial: null, retail: null, green: null })
+const styleSourcePublicationIDByType = ref({ commercial: 0, retail: 0, green: 0 })
+const selectedProductIDsByType = ref({ commercial: [], retail: [], green: [] })
+const visibleCategoryCodesByType = ref({ commercial: [], retail: [], green: [] })
+const productSelectionInitialized = ref({ commercial: false, retail: false, green: false })
+const categorySelectionInitialized = ref({ commercial: false, retail: false, green: false })
 const pdfCustomizers = ref({})
 const pdfOptions = ref({
   listType: 'commercial',
@@ -808,7 +809,7 @@ watch(publicationScope, (scope) => {
 watch(selectedBeanListCustomerID, () => {
   beanListPublications.value = {
     ...beanListPublications.value,
-    customer: { commercial: [], retail: [] },
+    customer: { commercial: [], retail: [], green: [] },
   }
   selectedCopyPublicationID.value = ''
   resetPdfSelectionDefaults()
@@ -913,10 +914,12 @@ function itemProductID(item) {
 }
 
 function metaKeyForListType(listType) {
+  if (listType === 'green') return 'green_bean_list'
   return listType === 'retail' ? 'retail_bean_list' : 'commercial_bean_list'
 }
 
 function tierKeyForListType(listType) {
+  if (listType === 'green') return 'green_bean_sale_tiers'
   return listType === 'retail' ? 'retail_bean_tiers' : 'commercial_wholesale_tiers'
 }
 
@@ -972,6 +975,7 @@ function publicationRows(scope, listType) {
 function initializePdfDefaults() {
   initializePdfDefaultsForType('commercial')
   initializePdfDefaultsForType('retail')
+  initializePdfDefaultsForType('green')
 }
 
 function initializePdfDefaultsIfItemsLoaded() {
@@ -980,10 +984,10 @@ function initializePdfDefaultsIfItemsLoaded() {
 }
 
 function resetPdfSelectionDefaults() {
-  selectedProductIDsByType.value = { commercial: [], retail: [] }
-  visibleCategoryCodesByType.value = { commercial: [], retail: [] }
-  productSelectionInitialized.value = { commercial: false, retail: false }
-  categorySelectionInitialized.value = { commercial: false, retail: false }
+  selectedProductIDsByType.value = { commercial: [], retail: [], green: [] }
+  visibleCategoryCodesByType.value = { commercial: [], retail: [], green: [] }
+  productSelectionInitialized.value = { commercial: false, retail: false, green: false }
+  categorySelectionInitialized.value = { commercial: false, retail: false, green: false }
 }
 
 function initializePdfDefaultsForType(listType) {
@@ -1024,7 +1028,7 @@ function beanListPublicationLabel(row) {
 
 function applyCopiedBeanListPublicationConfig(row = selectedCopyPublication.value) {
   if (!row) return
-  const listType = row.list_type === 'retail' ? 'retail' : 'commercial'
+  const listType = normalizeBeanListType(row.list_type)
   const copied = copyBeanListPublicationConfig(row, pdfOptions.value, {
     productIDs: beanListItemsForType(listType).map((item) => itemProductID(item)),
     categoryCodes: beanListCategoryOptions(listType).map((item) => item.code),
@@ -1041,10 +1045,22 @@ function applyCopiedBeanListPublicationConfig(row = selectedCopyPublication.valu
 
 function applyCopiedBeanListPriceSource(row = selectedPriceSourcePublication.value) {
   if (!row) return
-  const listType = row.list_type === 'retail' ? 'retail' : 'commercial'
+  const listType = normalizeBeanListType(row.list_type)
   priceSourcePublicationByType.value = { ...priceSourcePublicationByType.value, [listType]: row }
   selectedPriceSourcePublicationID.value = String(row.id)
   message.value = `已复制${beanListPublicationLabel(row)}价格来源，发布后会锁定为客户豆单快照`
+}
+
+function normalizeBeanListType(listType) {
+  if (listType === 'retail') return 'retail'
+  if (listType === 'green' || listType === 'green_bean') return 'green'
+  return 'commercial'
+}
+
+function beanListTypeLabel(listType) {
+  const normalized = normalizeBeanListType(listType)
+  if (normalized === 'green') return '生豆'
+  return normalized === 'retail' ? '零售' : '商用'
 }
 
 function isPdfProductSelected(id) {
@@ -1416,8 +1432,8 @@ async function publishBeanList() {
   try {
     const row = await apiSend('/api/costing/bean-list/publications', { body: beanListPublicationPayload() })
     message.value = publicationScope.value === 'official'
-      ? `已发布${listType === 'retail' ? '零售' : '商用'}豆单 ${row.version}，客户访问链接已生成`
-      : `已发布${listType === 'retail' ? '零售' : '商用'}客户豆单 ${row.version}，内容和价格已锁定为快照`
+      ? `已发布${beanListTypeLabel(listType)}豆单 ${row.version}，客户访问链接已生成`
+      : `已发布${beanListTypeLabel(listType)}客户豆单 ${row.version}，内容和价格已锁定为快照`
     await loadBeanListPublications(listType, publicationScope.value)
   } catch (err) {
     error.value = err.message || '发布豆单失败'
@@ -1438,7 +1454,7 @@ async function saveBeanListDraft() {
   const listType = pdfTheme.value.listType
   try {
     const row = await apiSend('/api/costing/bean-list/drafts', { body: beanListPublicationPayload() })
-    message.value = `已保存${listType === 'retail' ? '零售' : '商用'}豆单修改 ${row.version}，可继续生成 PDF 下载`
+    message.value = `已保存${beanListTypeLabel(listType)}豆单修改 ${row.version}，可继续生成 PDF 下载`
     await loadBeanListPublications(listType, publicationScope.value)
   } catch (err) {
     error.value = err.message || '保存豆单修改失败'
@@ -1497,7 +1513,7 @@ async function withdrawBeanList() {
       params.set('customer_id', String(selectedBeanListCustomerID.value || 0))
     }
     await apiSend(`/api/costing/bean-list/publications/${row.id}/withdraw?${params.toString()}`)
-    message.value = `已撤回${listType === 'retail' ? '零售' : '商用'}豆单 ${row.version}`
+    message.value = `已撤回${beanListTypeLabel(listType)}豆单 ${row.version}`
     await loadBeanListPublications(listType, publicationScope.value)
   } catch (err) {
     error.value = err.message || '撤回豆单失败'
@@ -1512,6 +1528,8 @@ onMounted(() => {
   loadCustomers()
   loadBeanListPublications('commercial', 'official')
   loadBeanListPublications('commercial', 'mine')
+  loadBeanListPublications('green', 'official')
+  loadBeanListPublications('green', 'mine')
   window.addEventListener('afterprint', clearPdfPrintMode)
 })
 

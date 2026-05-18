@@ -20,6 +20,7 @@ type PriceTier struct {
 type Product struct {
 	ID                      int64
 	Name                    string
+	ProductKind             string
 	RoastLevel              string
 	DefaultPrice            float64
 	RetailPrice100G         float64
@@ -52,6 +53,7 @@ type ProductCategory struct {
 type ProductSettingsProduct struct {
 	ID                      int64   `json:"id"`
 	Name                    string  `json:"name"`
+	ProductKind             string  `json:"product_kind"`
 	RoastLevel              string  `json:"roast_level"`
 	DefaultPrice            float64 `json:"default_price"`
 	RetailPrice100G         float64 `json:"retail_price_100g"`
@@ -105,6 +107,8 @@ type GradientTemplateTier struct {
 type ReplacePriceTiersCommand struct {
 	Actor           string
 	ProductID       int64
+	ProductKind     string
+	DefaultPrice    float64
 	RoastLevel      string
 	RetailPrice100G float64
 	RetailPrice200G float64
@@ -116,6 +120,8 @@ type ReplacePriceTiersCommand struct {
 type UpdateProductBasicsCommand struct {
 	Actor           string
 	ProductID       int64
+	ProductKind     string
+	DefaultPrice    float64
 	RoastLevel      string
 	RetailPrice100G float64
 	RetailPrice200G float64
@@ -127,6 +133,7 @@ type UpdateProductBasicsCommand struct {
 type CreateProductCommand struct {
 	Actor           string
 	Name            string
+	ProductKind     string
 	RoastLevel      string
 	DefaultPrice    float64
 	RetailPrice100G float64
@@ -134,6 +141,7 @@ type CreateProductCommand struct {
 	RetailPrice227G float64
 	RetailPrice250G float64
 	YieldRate       float64
+	Tiers           []PriceTier
 }
 
 type DeactivateProductsCommand struct {
@@ -235,10 +243,12 @@ func (s *Service) GetProduct(ctx context.Context, id int64) (*Product, error) {
 }
 
 func (s *Service) ReplacePriceTiers(ctx context.Context, cmd ReplacePriceTiersCommand) error {
+	cmd.ProductKind = catalogdomain.NormalizeProductKind(cmd.ProductKind)
 	return s.repo.ReplacePriceTiers(ctx, cmd)
 }
 
 func (s *Service) UpdateProductBasics(ctx context.Context, cmd UpdateProductBasicsCommand) error {
+	cmd.ProductKind = catalogdomain.NormalizeProductKind(cmd.ProductKind)
 	return s.repo.UpdateProductBasics(ctx, cmd)
 }
 
@@ -265,21 +275,27 @@ func (s *Service) CreateProduct(ctx context.Context, cmd CreateProductCommand) (
 	if cmd.Name == "" {
 		return Product{}, fmt.Errorf("name required")
 	}
-	cmd.RoastLevel = catalogdomain.NormalizeRoastLevel(cmd.RoastLevel)
-	if cmd.RoastLevel == "" {
-		return Product{}, fmt.Errorf("invalid roast_level")
-	}
+	cmd.ProductKind = catalogdomain.NormalizeProductKind(cmd.ProductKind)
 	if cmd.DefaultPrice < 0 || cmd.RetailPrice100G < 0 || cmd.RetailPrice200G < 0 || cmd.RetailPrice227G < 0 || cmd.RetailPrice250G < 0 {
 		return Product{}, fmt.Errorf("price must not be negative")
 	}
 	if cmd.RetailPrice227G <= 0 && cmd.DefaultPrice > 0 {
 		cmd.RetailPrice227G = cmd.DefaultPrice
 	}
-	if cmd.YieldRate <= 0 {
-		cmd.YieldRate = catalogdomain.ResolveYieldRate(cmd.RoastLevel, 0.8)
-	}
-	if cmd.YieldRate <= 0 || cmd.YieldRate > 1 {
-		return Product{}, fmt.Errorf("invalid yield_rate")
+	if cmd.ProductKind == catalogdomain.ProductKindGreenBean {
+		cmd.RoastLevel = ""
+		cmd.YieldRate = 0
+	} else {
+		cmd.RoastLevel = catalogdomain.NormalizeRoastLevel(cmd.RoastLevel)
+		if cmd.RoastLevel == "" {
+			return Product{}, fmt.Errorf("invalid roast_level")
+		}
+		if cmd.YieldRate <= 0 {
+			cmd.YieldRate = catalogdomain.ResolveYieldRate(cmd.RoastLevel, 0.8)
+		}
+		if cmd.YieldRate <= 0 || cmd.YieldRate > 1 {
+			return Product{}, fmt.Errorf("invalid yield_rate")
+		}
 	}
 	return s.repo.CreateProduct(ctx, cmd)
 }
@@ -519,6 +535,7 @@ func productSettingsProduct(p Product) ProductSettingsProduct {
 	return ProductSettingsProduct{
 		ID:                      p.ID,
 		Name:                    p.Name,
+		ProductKind:             catalogdomain.NormalizeProductKind(p.ProductKind),
 		RoastLevel:              p.RoastLevel,
 		DefaultPrice:            p.DefaultPrice,
 		RetailPrice100G:         p.RetailPrice100G,
