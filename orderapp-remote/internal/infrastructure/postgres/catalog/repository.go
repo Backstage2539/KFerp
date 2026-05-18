@@ -131,8 +131,9 @@ func (r Repository) UpdateProductBasics(ctx context.Context, cmd catalogapp.Upda
 	defer func() { _ = tx.Rollback(ctx) }()
 	if _, err := tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.products
 		SET product_kind=$2, roast_level=$3, default_price=$4,
-		    retail_price_100g=$5, retail_price_200g=$6, retail_price_227g=$7, retail_price_250g=$8
-		WHERE id=$1`, r.schema), cmd.ProductID, productKind, roastLevel, cmd.DefaultPrice, cmd.RetailPrice100G, cmd.RetailPrice200G, cmd.RetailPrice227G, cmd.RetailPrice250G); err != nil {
+		    retail_price_100g=$5, retail_price_200g=$6, retail_price_227g=$7, retail_price_250g=$8,
+		    margin_rate_override=$9
+		WHERE id=$1`, r.schema), cmd.ProductID, productKind, roastLevel, cmd.DefaultPrice, cmd.RetailPrice100G, cmd.RetailPrice200G, cmd.RetailPrice227G, cmd.RetailPrice250G, cmd.MarginRateOverride); err != nil {
 		return err
 	}
 	if productKind == catalogdomain.ProductKindRoasted {
@@ -146,14 +147,15 @@ func (r Repository) UpdateProductBasics(ctx context.Context, cmd catalogapp.Upda
 		return err
 	}
 	postgresinfra.AuditInsert(ctx, r.pool, r.schema, cmd.Actor, "product", &cmd.ProductID, "update", postgresinfra.StrPtr("product_basics"), nil, postgresinfra.StrPtr(roastLevel), postgresinfra.AuditMeta{
-		"product_id":        cmd.ProductID,
-		"product_kind":      productKind,
-		"roast_level":       roastLevel,
-		"yield_rate":        yieldRate,
-		"retail_price_100g": cmd.RetailPrice100G,
-		"retail_price_200g": cmd.RetailPrice200G,
-		"retail_price_227g": cmd.RetailPrice227G,
-		"retail_price_250g": cmd.RetailPrice250G,
+		"product_id":           cmd.ProductID,
+		"product_kind":         productKind,
+		"roast_level":          roastLevel,
+		"yield_rate":           yieldRate,
+		"retail_price_100g":    cmd.RetailPrice100G,
+		"retail_price_200g":    cmd.RetailPrice200G,
+		"retail_price_227g":    cmd.RetailPrice227G,
+		"retail_price_250g":    cmd.RetailPrice250G,
+		"margin_rate_override": cmd.MarginRateOverride,
 	})
 	return nil
 }
@@ -837,9 +839,10 @@ func fetchProductByID(ctx context.Context, pool *pgxpool.Pool, schema string, id
 		COALESCE(product_category_id,0), COALESCE(product_category_position,0),
 		COALESCE(customer_id,0), COALESCE(base_product_id,0),
 		COALESCE(NULLIF(visibility,''),'public'), COALESCE(custom_type,''),
+		margin_rate_override::float8,
 		COALESCE((SELECT COUNT(*) FROM %[1]s.product_bom_items bi WHERE bi.product_id=products.id),0),
 		COALESCE((SELECT NULLIF(status,'') FROM %[1]s.product_bom WHERE product_id=products.id), 'missing')
-		FROM %[1]s.products WHERE id=$1`, schema), id).Scan(&p.ID, &p.Name, &p.ProductKind, &p.RoastLevel, &p.DefaultPrice, &p.RetailPrice100G, &p.RetailPrice200G, &p.RetailPrice227G, &p.RetailPrice250G, &p.YieldRate, &p.ProductCategoryID, &p.ProductCategoryPosition, &p.CustomerID, &p.BaseProductID, &p.Visibility, &p.CustomType, &p.BomItemCount, &p.BomStatus)
+		FROM %[1]s.products WHERE id=$1`, schema), id).Scan(&p.ID, &p.Name, &p.ProductKind, &p.RoastLevel, &p.DefaultPrice, &p.RetailPrice100G, &p.RetailPrice200G, &p.RetailPrice227G, &p.RetailPrice250G, &p.YieldRate, &p.ProductCategoryID, &p.ProductCategoryPosition, &p.CustomerID, &p.BaseProductID, &p.Visibility, &p.CustomType, &p.MarginRateOverride, &p.BomItemCount, &p.BomStatus)
 	if err != nil {
 		return nil, nil
 	}
@@ -847,7 +850,7 @@ func fetchProductByID(ctx context.Context, pool *pgxpool.Pool, schema string, id
 }
 
 func catalogProductFromOption(p postgresinfra.ProductOption) catalogapp.Product {
-	out := catalogapp.Product{ID: p.ID, Name: p.Name, ProductKind: p.ProductKind, RoastLevel: p.RoastLevel, DefaultPrice: p.DefaultPrice, RetailPrice100G: p.RetailPrice100G, RetailPrice200G: p.RetailPrice200G, RetailPrice227G: p.RetailPrice227G, RetailPrice250G: p.RetailPrice250G, YieldRate: p.YieldRate, ProductCategoryID: p.ProductCategoryID, ProductCategoryPosition: p.ProductCategoryPosition, CustomerID: p.CustomerID, BaseProductID: p.BaseProductID, Visibility: p.Visibility, CustomType: p.CustomType, BomItemCount: p.BomItemCount, BomStatus: p.BomStatus}
+	out := catalogapp.Product{ID: p.ID, Name: p.Name, ProductKind: p.ProductKind, RoastLevel: p.RoastLevel, DefaultPrice: p.DefaultPrice, RetailPrice100G: p.RetailPrice100G, RetailPrice200G: p.RetailPrice200G, RetailPrice227G: p.RetailPrice227G, RetailPrice250G: p.RetailPrice250G, YieldRate: p.YieldRate, ProductCategoryID: p.ProductCategoryID, ProductCategoryPosition: p.ProductCategoryPosition, CustomerID: p.CustomerID, BaseProductID: p.BaseProductID, Visibility: p.Visibility, CustomType: p.CustomType, MarginRateOverride: p.MarginRateOverride, BomItemCount: p.BomItemCount, BomStatus: p.BomStatus}
 	out.Tiers = make([]catalogapp.PriceTier, 0, len(p.Tiers))
 	for _, t := range p.Tiers {
 		out.Tiers = append(out.Tiers, catalogapp.PriceTier{ID: t.ID, SpecG: t.SpecG, MinQty: t.MinQty, MaxQty: t.MaxQty, UnitPrice: t.UnitPrice})

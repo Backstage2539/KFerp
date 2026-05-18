@@ -1,6 +1,8 @@
 package catalog
 
 import (
+	"encoding/json"
+	"fmt"
 	"net/http"
 	catalogdomain "orderapp/internal/domain/catalog"
 	support "orderapp/internal/interfaces/http/support"
@@ -39,20 +41,36 @@ func registerProductRoutes(e *echo.Echo, catalogSvc *catalogapp.Service) {
 	e.GET("/products/:id", h.edit)
 }
 
+type optionalNullableFloat64 struct {
+	Set   bool
+	Value *float64
+}
+
+func (o *optionalNullableFloat64) UnmarshalJSON(data []byte) error {
+	o.Set = true
+	var value *float64
+	if err := json.Unmarshal(data, &value); err != nil {
+		return err
+	}
+	o.Value = value
+	return nil
+}
+
 type productHandler struct {
 	catalog *catalogapp.Service
 }
 
 type productUpdateAPIRequest struct {
-	ProductKind     string                    `json:"product_kind"`
-	DefaultPrice    *float64                  `json:"default_price"`
-	RoastLevel      string                    `json:"roast_level"`
-	RetailPrice100G *float64                  `json:"retail_price_100g"`
-	RetailPrice200G *float64                  `json:"retail_price_200g"`
-	RetailPrice227G *float64                  `json:"retail_price_227g"`
-	RetailPrice250G *float64                  `json:"retail_price_250g"`
-	YieldRate       float64                   `json:"yield_rate"`
-	Tiers           []productTierAPIUpsertRow `json:"tiers"`
+	ProductKind        string                    `json:"product_kind"`
+	DefaultPrice       *float64                  `json:"default_price"`
+	RoastLevel         string                    `json:"roast_level"`
+	RetailPrice100G    *float64                  `json:"retail_price_100g"`
+	RetailPrice200G    *float64                  `json:"retail_price_200g"`
+	RetailPrice227G    *float64                  `json:"retail_price_227g"`
+	RetailPrice250G    *float64                  `json:"retail_price_250g"`
+	YieldRate          float64                   `json:"yield_rate"`
+	MarginRateOverride optionalNullableFloat64   `json:"margin_rate_override"`
+	Tiers              []productTierAPIUpsertRow `json:"tiers"`
 }
 
 type productCreateAPIRequest struct {
@@ -190,17 +208,25 @@ func (h productHandler) updateAPI(c echo.Context) error {
 	if productKind != catalogdomain.ProductKindGreenBean && req.YieldRate > 0 && yieldRate <= 0 {
 		return c.JSON(http.StatusBadRequest, map[string]any{"error": "invalid yield_rate"})
 	}
+	marginRateOverride := existing.MarginRateOverride
+	if req.MarginRateOverride.Set {
+		marginRateOverride, err = normalizeProductMarginRateOverride(req.MarginRateOverride.Value)
+		if err != nil {
+			return c.JSON(http.StatusBadRequest, map[string]any{"error": err.Error()})
+		}
+	}
 	if err := h.catalog.UpdateProductBasics(c.Request().Context(), catalogapp.UpdateProductBasicsCommand{
-		Actor:           support.ActorOf(c),
-		ProductID:       id,
-		ProductKind:     productKind,
-		DefaultPrice:    defaultPrice,
-		RoastLevel:      roastLevel,
-		RetailPrice100G: retailPrice100G,
-		RetailPrice200G: retailPrice200G,
-		RetailPrice227G: retailPrice227G,
-		RetailPrice250G: retailPrice250G,
-		YieldRate:       yieldRate,
+		Actor:              support.ActorOf(c),
+		ProductID:          id,
+		ProductKind:        productKind,
+		DefaultPrice:       defaultPrice,
+		RoastLevel:         roastLevel,
+		RetailPrice100G:    retailPrice100G,
+		RetailPrice200G:    retailPrice200G,
+		RetailPrice227G:    retailPrice227G,
+		RetailPrice250G:    retailPrice250G,
+		YieldRate:          yieldRate,
+		MarginRateOverride: marginRateOverride,
 	}); err != nil {
 		return c.JSON(http.StatusInternalServerError, map[string]any{"error": err.Error()})
 	}
@@ -304,6 +330,17 @@ func normalizeProductYieldRate(value float64) float64 {
 		return 0
 	}
 	return value
+}
+
+func normalizeProductMarginRateOverride(value *float64) (*float64, error) {
+	if value == nil {
+		return nil, nil
+	}
+	if *value < 0 {
+		return nil, fmt.Errorf("invalid margin_rate_override")
+	}
+	normalized := *value
+	return &normalized, nil
 }
 
 func (h productHandler) productSettingsAPI(c echo.Context) error {

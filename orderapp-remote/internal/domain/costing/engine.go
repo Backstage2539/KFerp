@@ -69,6 +69,7 @@ type ProductInput struct {
 	WholesaleKgMarginRates    []float64                 `json:"wholesale_kg_margin_rates"`
 	WholesaleDripMultipliers  []float64                 `json:"wholesale_drip_multipliers"`
 	WholesaleTierScheme       string                    `json:"wholesale_tier_scheme,omitempty"`
+	MarginRateOverride        *float64                  `json:"margin_rate_override,omitempty"`
 	GradientTemplate          *GradientTemplate         `json:"gradient_template,omitempty"`
 	GreenBeanSaleTiers        []CommercialWholesaleTier `json:"green_bean_sale_tiers,omitempty"`
 }
@@ -176,6 +177,7 @@ type ProductResult struct {
 	Visibility                     string                    `json:"visibility,omitempty"`
 	CustomType                     string                    `json:"custom_type,omitempty"`
 	ProductCategoryID              int64                     `json:"product_category_id,omitempty"`
+	MarginRateOverride             *float64                  `json:"margin_rate_override,omitempty"`
 	GradientTemplate               *GradientTemplate         `json:"gradient_template,omitempty"`
 	CommercialBeanList             BeanListDisplay           `json:"commercial_bean_list"`
 	RetailBeanList                 BeanListDisplay           `json:"retail_bean_list"`
@@ -244,6 +246,9 @@ func ValidateProductInput(params Parameters, in ProductInput) (ProductInput, err
 	}
 	if in.YieldRate <= 0 || in.YieldRate > 1 {
 		return in, fmt.Errorf("yield_rate must be (0,1]")
+	}
+	if in.MarginRateOverride != nil && *in.MarginRateOverride < 0 {
+		return in, fmt.Errorf("margin_rate_override must be >= 0")
 	}
 	in = ApplyExcelCommercialPricingProfile(params, in)
 	if len(in.WholesaleKgMarginRates) == 0 {
@@ -321,6 +326,7 @@ func CalculateProduct(params Parameters, in ProductInput) ProductResult {
 		Visibility:           in.Visibility,
 		CustomType:           in.CustomType,
 		ProductCategoryID:    in.ProductCategoryID,
+		MarginRateOverride:   in.MarginRateOverride,
 		GradientTemplate:     in.GradientTemplate,
 		CommercialBeanList:   commercialDisplay,
 		RetailBeanList:       retailDisplay,
@@ -582,7 +588,7 @@ type commercialPriceParts struct {
 func buildGradientTemplateCommercialTiers(params Parameters, in ProductInput, template GradientTemplate) []CommercialWholesaleTier {
 	out := make([]CommercialWholesaleTier, 0, len(template.Tiers))
 	for _, tier := range template.Tiers {
-		parts := commercialPriceForGradientTier(params, in, template.DisplayUnit, tier, nil)
+		parts := commercialPriceForGradientTier(params, in, template.DisplayUnit, tier, in.MarginRateOverride)
 		specG := specGForGradientDisplayUnit(template.DisplayUnit)
 		minQty := roundQuantity(tier.MinWeightG / float64(specG))
 		var maxQty *float64
@@ -612,7 +618,7 @@ func buildGradientTemplateCommercialTiers(params Parameters, in ProductInput, te
 			DisplayUnit:    template.DisplayUnit,
 			MinWeightG:     tier.MinWeightG,
 			MaxWeightG:     tier.MaxWeightG,
-			MarginRate:     tier.MarginRate,
+			MarginRate:     parts.MarginRate,
 		})
 	}
 	return out
@@ -686,7 +692,7 @@ func ExplainCommercialPrice(params Parameters, in ProductInput, req PriceExplana
 	if !found {
 		return PriceExplanation{}, fmt.Errorf("tier not found")
 	}
-	saved := commercialPriceForGradientTier(params, validated, template.DisplayUnit, tier, nil)
+	saved := commercialPriceForGradientTier(params, validated, template.DisplayUnit, tier, validated.MarginRateOverride)
 	previewInput := validated
 	if req.Overrides.GreenBeanCostPerKg != nil {
 		previewInput.GreenBeanCostPerKg = *req.Overrides.GreenBeanCostPerKg
@@ -694,7 +700,18 @@ func ExplainCommercialPrice(params Parameters, in ProductInput, req PriceExplana
 	if req.Overrides.YieldRate != nil {
 		previewInput.YieldRate = *req.Overrides.YieldRate
 	}
-	preview := commercialPriceForGradientTier(params, previewInput, template.DisplayUnit, tier, req.Overrides.MarginRate)
+	previewMarginOverride := validated.MarginRateOverride
+	if req.Overrides.MarginRate != nil {
+		previewMarginOverride = req.Overrides.MarginRate
+	}
+	preview := commercialPriceForGradientTier(params, previewInput, template.DisplayUnit, tier, previewMarginOverride)
+	marginSource := "gradient_template"
+	if validated.MarginRateOverride != nil {
+		marginSource = "product_margin_override"
+	}
+	if req.Overrides.MarginRate != nil {
+		marginSource = "temporary_override"
+	}
 	return PriceExplanation{
 		ProductID:         validated.ProductID,
 		ProductName:       validated.Name,
@@ -714,7 +731,7 @@ func ExplainCommercialPrice(params Parameters, in ProductInput, req PriceExplana
 			{Key: "wholesale_package_cost_per_kg", Label: "批发包装成本", Source: "cost_parameter", Value: params.WholesalePackageCostPerKg, Unit: "元/kg"},
 			{Key: "product_loss_per_kg", Label: "产品损耗", Source: "cost_parameter", Value: params.ProductLossPerKg, Unit: "元/kg"},
 			{Key: "retail_tax_rate", Label: "税费比例", Source: "cost_parameter", Value: params.RetailTaxRate, Unit: "ratio"},
-			{Key: "template_margin_rate", Label: "模板利润率", Source: "gradient_template", Value: preview.MarginRate, Unit: "ratio", Changed: req.Overrides.MarginRate != nil},
+			{Key: "template_margin_rate", Label: "利润率", Source: marginSource, Value: preview.MarginRate, Unit: "ratio", Changed: req.Overrides.MarginRate != nil},
 			{Key: "display_unit_conversion", Label: "展示单位克重", Source: "gradient_template", Value: float64(specGForGradientDisplayUnit(template.DisplayUnit)), Unit: "g"},
 			{Key: "final_price", Label: "最终价格", Source: "formula", Value: preview.FinalPricePerUnit, Unit: template.DisplayUnit, Changed: preview.FinalPricePerUnit != saved.FinalPricePerUnit},
 		},

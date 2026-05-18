@@ -225,6 +225,8 @@ func auditMenuFeature(entityType, action, field string, meta *string) (string, s
 		return "库存管理 / 库存作业", "提交成品转仓"
 	case "finished_inventory":
 		return "库存管理 / 仓库库存", "调整成品库存"
+	case "stock_adjustment":
+		return "库存管理 / 库存作业", "提交库存调整"
 	case "cost_parameter":
 		return "设置 / 成本参数设置", "保存成本参数"
 	case "bean_list_publication":
@@ -621,6 +623,8 @@ func auditTargetHint(r *AuditLogRow, rawEntityType string) string {
 			return "产品 " + productID + " " + specG + "g"
 		}
 		return firstNonEmpty(productID, specG)
+	case "stock_adjustment":
+		return firstMetaText(meta, "batch_code", "material_batch_id", "item_name", "item_id")
 	case "cost_parameter":
 		return firstNonEmpty(firstMetaText(meta, "label", "key"), labelField(fieldText(r.Field)))
 	case "bean_list_publication":
@@ -784,6 +788,8 @@ func labelEntityType(t string) string {
 		return "成品转仓单"
 	case "finished_inventory":
 		return "成品库存"
+	case "stock_adjustment":
+		return "库存调整单"
 	case "cost_parameter":
 		return "成本参数"
 	case "bean_list_publication":
@@ -932,6 +938,8 @@ func labelField(f string) string {
 		return "数量"
 	case "qty_g":
 		return "数量(g)"
+	case "unit_cost":
+		return "批次成本/kg"
 	case "reserved_g":
 		return "占用量(g)"
 	case "work_order_no":

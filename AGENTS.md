@@ -215,6 +215,8 @@ For every requirement, follow the fixed pipeline:
 - Operation manual update when new features or behavior changes affect user workflows
 - Acceptance review against REQUIREMENTS / ACCEPTANCE_TESTS with evidence
 
+Global audit rule from Van: any user-triggered business operation that creates, updates, deletes, submits, imports, publishes, voids, adjusts, transfers, uploads, or changes status must write an operation/audit log entry that is visible from 操作日志. Do not add a user-facing write path without an audit record.
+
 Any new feature development or functional change that changes how users operate the system must update the relevant operation/user manual in the Vue/Vite frontend and any source Markdown/manual docs. Treat the manual update as part of the same requirement, not as optional follow-up work.
 For every single major feature, keep one standalone operation manual. Smaller changes update the existing feature manual. During development, audit existing manuals for missing entry points, changed fields, changed workflow order, permissions, export/import behavior, and common failure handling; patch gaps before marking DEV complete.
 
