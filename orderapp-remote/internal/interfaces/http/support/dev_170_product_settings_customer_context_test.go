@@ -17,8 +17,11 @@ func TestDev170ProductSettingsCustomerContextRequirementSeeds(t *testing.T) {
 		"UT-170-01",
 		"API-170-01",
 		"REV-170-01",
+		"PR-PRODUCT-SKU-BEANLIST-SPLIT-001",
+		"DEV-PRODUCT-SKU-BEANLIST-SPLIT-001",
 		"客户上下文置顶",
-		"客户自己的商品分类、豆单和价格试算",
+		"客户自己的商品分类同步切换",
+		"产品豆单独立选择客户",
 	} {
 		if !strings.Contains(src, want) {
 			t.Fatalf("dev 170 customer context seed missing %q", want)
@@ -37,13 +40,14 @@ func TestDev170ProductSettingsLayoutUsesTopLevelCustomerContext(t *testing.T) {
 		"skuContextProductFilter",
 		"v-for=\"primary in categoryTreeForSkuContext\"",
 		"customer_id: selectedCustomerSkuCustomerID.value",
-		"<CostingView",
-		":customer-context-id=\"selectedCustomerSkuCustomerID\"",
-		":customer-context-label=\"selectedSkuContextLabel\"",
+		"豆单生成与价格试算请进入产品豆单",
 	} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("ProductSettingsView.vue missing customer context marker %q", want)
 		}
+	}
+	if strings.Contains(view, "<CostingView") {
+		t.Fatalf("ProductSettingsView.vue must not embed product bean-list workspace after SKU/product bean-list split")
 	}
 	contextPanel := strings.Index(view, "sku-context-panel")
 	publicCreate := strings.Index(view, "新增公共产品")
@@ -52,13 +56,14 @@ func TestDev170ProductSettingsLayoutUsesTopLevelCustomerContext(t *testing.T) {
 	}
 }
 
-func TestDev170CostingViewAcceptsProductSettingsCustomerContext(t *testing.T) {
+func TestDev170CostingViewAcceptsCustomerContext(t *testing.T) {
 	view := string(readOrderAppFileForTest(t, filepath.Join("frontend-vue-shell", "src", "views", "CostingView.vue")))
 	for _, want := range []string{
 		"defineProps",
 		"customerContextId",
 		"customerContextLabel",
 		"syncCustomerContext",
+		"activeBeanListCustomerID",
 		"visibleCostingItems",
 		"publicationScope.value = 'customer'",
 		"selectedBeanListCustomerID.value = normalizedCustomerID",
@@ -120,8 +125,8 @@ func TestDev170ManualsDocumentCustomerContextOperation(t *testing.T) {
 			"客户上下文",
 			"SKU归属",
 			"客户自己的商品分类",
-			"客户自己的豆单",
-			"客户自己的价格试算",
+			"指定客户豆单",
+			"价格试算",
 		} {
 			if !strings.Contains(doc, want) {
 				t.Fatalf("%s missing customer context manual marker %q", rel, want)

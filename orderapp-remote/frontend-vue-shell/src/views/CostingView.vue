@@ -2,7 +2,7 @@
   <div class="page">
     <section class="panel">
       <div class="panel-head">
-        <h2>价格与豆单</h2>
+        <h2>产品豆单</h2>
         <div class="actions">
           <button class="secondary" type="button" :disabled="loading" @click="loadBeanList">刷新</button>
           <button class="secondary" type="button" @click="settingsOpen = true">参数设置</button>
@@ -828,8 +828,12 @@ const pdfOptions = ref({
 })
 
 const normalizedCustomerContextID = computed(() => Number(props.customerContextId || 0))
-const activeCostingScope = computed(() => normalizedCustomerContextID.value > 0 ? 'customer' : 'official')
-const visibleCostingItems = computed(() => filterBeanListItemsForScope(items.value, activeCostingScope.value, normalizedCustomerContextID.value))
+const activeBeanListCustomerID = computed(() => normalizedCustomerContextID.value || Number(selectedBeanListCustomerID.value || 0))
+const activeCostingScope = computed(() => {
+  if (normalizedCustomerContextID.value > 0) return 'customer'
+  return activeBeanListCustomerID.value > 0 && publicationScope.value === 'customer' ? 'customer' : 'official'
+})
+const visibleCostingItems = computed(() => filterBeanListItemsForScope(items.value, activeCostingScope.value, activeBeanListCustomerID.value))
 const commercialGroups = computed(() => groupBeanItems('commercial_bean_list'))
 const retailGroups = computed(() => groupBeanItems('retail_bean_list'))
 const pdfTheme = computed(() => sanitizeBeanListPdfTheme(pdfOptions.value))

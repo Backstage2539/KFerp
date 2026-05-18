@@ -75,7 +75,7 @@ func TestGreenBeanSalesWiringAndManuals(t *testing.T) {
 		},
 		{
 			path: "orderapp-remote/docs/OP_MANUAL_GREEN_BEAN_SALES.md",
-			want: []string{"生豆销售", "产品设置", "生豆豆单", "小程序"},
+			want: []string{"生豆销售", "SKU设置", "生豆豆单", "小程序"},
 		},
 	}
 	for _, check := range checks {

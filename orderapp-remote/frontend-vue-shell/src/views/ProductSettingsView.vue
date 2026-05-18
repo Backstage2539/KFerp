@@ -3,8 +3,8 @@
     <section class="panel">
       <div class="panel-head">
         <div>
-          <h2>产品设置</h2>
-          <p>合并客户SKU列表、产品分类和价格试算。商用阶梯价由价格发布生成。</p>
+          <h2>SKU设置</h2>
+          <p>维护公共 SKU、客户专属 SKU、商品分类和梯度模板；豆单生成与价格试算请进入产品豆单。</p>
         </div>
         <button class="secondary" type="button" @click="loadAll" :disabled="loading">刷新</button>
       </div>
@@ -18,7 +18,7 @@
           <div>
             <div class="context-eyebrow">SKU归属</div>
             <h3>{{ selectedSkuContextLabel }}</h3>
-            <p class="muted">产品列表、商品分类、豆单和价格试算会按当前归属切换。</p>
+            <p class="muted">产品列表、商品分类和梯度模板会按当前归属切换。</p>
           </div>
           <div class="sku-context-controls">
             <button class="secondary compact-action" type="button" @click="selectedCustomerSkuCustomerID = 0" :disabled="!selectedCustomerSkuCustomerID">
@@ -432,11 +432,6 @@
       </div>
     </section>
 
-    <section class="panel costing-panel">
-      <CostingView
-        :customer-context-id="selectedCustomerSkuCustomerID"
-        :customer-context-label="selectedSkuContextLabel" />
-    </section>
   </div>
 </template>
 
@@ -444,7 +439,6 @@
 import { computed, onMounted, ref, watch } from 'vue'
 import { apiGet, apiSend } from '../api/client'
 import SearchableSelect from '../components/SearchableSelect.vue'
-import CostingView from './CostingView.vue'
 import {
   buildGradientTemplatePayload,
   gradientDisplayQuantityStep,
@@ -1439,7 +1433,6 @@ th { background: #fbfaf8; position: sticky; top: 0; }
 .margin-input { width: 150px; }
 .status-pill { display: inline-flex; align-items: center; min-height: 24px; border: 1px solid #cfd8cf; border-radius: 999px; padding: 2px 8px; color: #27602e; background: #f2fbf2; white-space: nowrap; }
 .status-pill.inactive { border-color: #e1b6b6; color: #8a1f1f; background: #fff0f0; }
-.costing-panel { padding: 0; overflow: hidden; }
 .error, .ok { border-radius: 6px; padding: 9px; margin-top: 12px; }
 .error { background: #fff0f0; border: 1px solid #e6b7b7; color: #8a1f1f; }
 .ok { background: #f0fff6; border: 1px solid #a9d8ba; color: #1f6a3f; }
