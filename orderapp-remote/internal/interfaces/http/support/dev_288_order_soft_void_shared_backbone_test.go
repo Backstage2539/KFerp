@@ -38,6 +38,9 @@ func TestDev288OrderSoftVoidSharedBackboneSources(t *testing.T) {
 		"复制",
 		"voidOrder(row)",
 		"voidSelectedOrders",
+		"togglePageVoidSelection",
+		"allVisibleVoidableOrdersSelected",
+		"当前页正常订单全选",
 		"copyOrder(row)",
 		"`/api/orders/${id}/void`",
 		"`/api/orders/void`",
@@ -51,6 +54,9 @@ func TestDev288OrderSoftVoidSharedBackboneSources(t *testing.T) {
 		if strings.Contains(ordersView, forbidden) {
 			t.Fatalf("OrdersView.vue must not expose restore marker %q", forbidden)
 		}
+	}
+	if strings.Contains(ordersView, "选择本页正常订单") {
+		t.Fatalf("OrdersView.vue must use header checkbox instead of the old select-current-page button")
 	}
 	for _, want := range []string{
 		"o.is_void = true",
@@ -110,6 +116,7 @@ func TestDev288OrderSoftVoidSharedBackboneReqAndDocs(t *testing.T) {
 			"不可恢复",
 			"复制",
 			"批量失效",
+			"当前页",
 		} {
 			if !strings.Contains(doc, want) {
 				t.Fatalf("%s missing order soft void doc marker %q", path, want)
