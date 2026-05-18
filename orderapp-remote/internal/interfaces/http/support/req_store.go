@@ -252,10 +252,11 @@ func seedReqWorkflowA(ctx context.Context, pool *pgxpool.Pool, schema string) er
 		}
 	}
 	for _, row := range []reqSeedRow{
-		{table: "req_product", code: "PR-BEANLIST-VERSION-001", title: "豆单发布形成版本列表，录单和小程序按客户选择最新或固定版本并缓存生成结果", status: "review", assignee: "VA", evidence: "docs/superpowers/plans/2026-05-18-bean-list-versioning.md"},
+		{table: "req_product", code: "PR-BEANLIST-VERSION-001", title: "豆单发布形成版本列表，入口在产品设置价格与豆单，录单和小程序按客户选择最新或固定版本并缓存生成结果", status: "review", assignee: "VA", evidence: "docs/superpowers/plans/2026-05-18-bean-list-versioning.md; CostingView.vue bean-list-version-panel"},
 		{table: "req_dev", code: "DEV-BEANLIST-VERSION-001", title: "新增豆单发布资产缓存、客户确认记录、客户门户固定版本配置和订单豆单版本字段", status: "done", assignee: "Codex", evidence: "bean_list_publication_assets; customer_bean_list_acknowledgements; orders.bean_list_publication_id"},
 		{table: "req_dev", code: "DEV-BEANLIST-VERSION-002", title: "ERP 录单按客户返回豆单版本选项，客户有专属版本时可选择且默认最新，无专属版本自动公共豆单", status: "done", assignee: "Codex", evidence: "OrderEntryView.vue; order_form_queries.go"},
 		{table: "req_dev", code: "DEV-BEANLIST-VERSION-003", title: "小程序展示最新豆单并按版本本地缓存，首次按新版下单前弹出更新摘要并确认一次", status: "done", assignee: "Codex", evidence: "miniapp/src/pages/service/service.vue"},
+		{table: "req_dev", code: "DEV-BEANLIST-VERSION-004", title: "产品设置价格与豆单展示豆单版本列表，支持归属、客户、类型筛选和历史版本复制或撤回", status: "done", assignee: "Codex", evidence: "CostingView.vue bean-list-version-panel; costing-bean-list-version-ui.test.js"},
 		{table: "req_unit", code: "UT-BEANLIST-VERSION-001", title: "单测覆盖豆单 diff、新增录单 payload 字段和小程序确认接口路径", status: "done", assignee: "Codex", evidence: "TestBeanListDiffDetectsAddedRemovedAndChangedItems; order-entry.test.js; customerPortal.test.ts"},
 		{table: "req_api", code: "API-BEANLIST-VERSION-001", title: "API 测试覆盖小程序豆单 PDF 缓存下载、服务页固定版本选择和录单保存版本 ID", status: "done", assignee: "Codex", evidence: "TestMiniBeanListPDFAPIReturnsPDFDownload; TestLoadBeanListServicePageUsesFixedCustomerPublication; TestOrderAPISavesSelectedBeanListPublicationVersion"},
 		{table: "req_review", code: "REV-BEANLIST-VERSION-001", prCode: "PR-BEANLIST-VERSION-001", title: "验收：发布多个客户豆单版本后，录单可选版本，小程序首次新版下单提示一次，门户可固定版本", status: "todo", assignee: "VA", evidence: "待 Van 服务器验收"},
