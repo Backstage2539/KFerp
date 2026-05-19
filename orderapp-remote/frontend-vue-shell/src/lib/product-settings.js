@@ -8,7 +8,10 @@ export const greenBeanTypeOptions = [
 ]
 
 export function normalizedProductKind(row = {}) {
-  return row?.product_kind === 'green_bean' ? 'green_bean' : 'roasted'
+  const kind = String(row?.product_kind || '').trim()
+  if (kind === 'green_bean') return 'green_bean'
+  if (kind === 'drip_bag') return 'drip_bag'
+  return 'roasted'
 }
 
 export function normalizedGreenBeanType(value) {
@@ -137,8 +140,40 @@ export function buildProductCreatePayload(form = {}) {
     payload.green_bean_bom_product_id = Number(form.green_bean_bom_product_id || 0)
     return payload
   }
+  if (kind === 'drip_bag') {
+    payload.roast_level = String(form.roast_level || '').trim()
+    payload.yield_rate = Number((Number(form.yield_percent || 0) / 100).toFixed(4))
+    payload.drip_bag_grams = Number(form.drip_bag_grams || 10)
+    payload.drip_box_bag_count = Number(form.drip_box_bag_count || 10)
+    return payload
+  }
   payload.roast_level = String(form.roast_level || '').trim()
   payload.yield_rate = Number((Number(form.yield_percent || 0) / 100).toFixed(4))
+  return payload
+}
+
+export function buildCustomProductCreatePayload(customerID, form = {}) {
+  const kind = normalizedProductKind(form)
+  const payload = {
+    customer_id: Number(customerID || form.customer_id || 0),
+    base_product_id: Number(form.base_product_id || 0),
+    name: String(form.name || '').trim(),
+    remark: String(form.remark || '').trim(),
+    product_kind: kind,
+    custom_type: String(form.custom_type || '').trim(),
+    copy_bom: Boolean(form.copy_bom),
+    copy_price_tiers: Boolean(form.copy_price_tiers),
+  }
+  if (kind === 'green_bean') {
+    payload.green_bean_type = normalizedGreenBeanType(form.green_bean_type)
+    payload.green_bean_bom_product_id = Number(form.green_bean_bom_product_id || 0)
+    return payload
+  }
+  payload.roast_level = String(form.roast_level || '').trim()
+  if (kind === 'drip_bag') {
+    payload.drip_bag_grams = Number(form.drip_bag_grams || 10)
+    payload.drip_box_bag_count = Number(form.drip_box_bag_count || 10)
+  }
   return payload
 }
 
@@ -154,6 +189,10 @@ export function buildProductBasicsPayload(row = {}, marginRateOverride = null) {
   } else {
     payload.roast_level = String(row.roast_level || '').trim()
     payload.yield_rate = Number((Number(row.yield_percent || 0) / 100).toFixed(4))
+    if (kind === 'drip_bag') {
+      payload.drip_bag_grams = Number(row.drip_bag_grams || 10)
+      payload.drip_box_bag_count = Number(row.drip_box_bag_count || 10)
+    }
   }
   payload.margin_rate_override = marginRateOverride
   return payload

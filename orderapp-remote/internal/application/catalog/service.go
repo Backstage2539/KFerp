@@ -191,15 +191,20 @@ type DeactivateProductsCommand struct {
 }
 
 type CreateCustomProductCommand struct {
-	Actor          string
-	CustomerID     int64
-	BaseProductID  int64
-	Name           string
-	Remark         string
-	RoastLevel     string
-	CustomType     string
-	CopyBOM        bool
-	CopyPriceTiers bool
+	Actor                 string
+	CustomerID            int64
+	BaseProductID         int64
+	Name                  string
+	Remark                string
+	ProductKind           string
+	GreenBeanType         string
+	GreenBeanBomProductID int64
+	RoastLevel            string
+	DripBagGrams          float64
+	DripBoxBagCount       int
+	CustomType            string
+	CopyBOM               bool
+	CopyPriceTiers        bool
 }
 
 type CustomerPublicUsage struct {
@@ -528,14 +533,62 @@ func (s *Service) CreateCustomProduct(ctx context.Context, cmd CreateCustomProdu
 	if cmd.BaseProductID <= 0 {
 		return Product{}, fmt.Errorf("base_product_id required")
 	}
+	base, err := s.repo.GetProduct(ctx, cmd.BaseProductID)
+	if err != nil {
+		return Product{}, err
+	}
+	if base == nil || base.ID <= 0 {
+		return Product{}, fmt.Errorf("base product not found")
+	}
 	cmd.Name = strings.TrimSpace(cmd.Name)
 	cmd.Remark = strings.TrimSpace(cmd.Remark)
 	if cmd.Name == "" {
 		return Product{}, fmt.Errorf("name required")
 	}
-	cmd.RoastLevel = catalogdomain.NormalizeRoastLevel(cmd.RoastLevel)
-	if cmd.RoastLevel == "" {
-		return Product{}, fmt.Errorf("invalid roast_level")
+	baseKind := catalogdomain.NormalizeProductKind(base.ProductKind)
+	if strings.TrimSpace(cmd.ProductKind) == "" {
+		cmd.ProductKind = baseKind
+	} else {
+		cmd.ProductKind = catalogdomain.NormalizeProductKind(cmd.ProductKind)
+		if cmd.ProductKind != baseKind {
+			return Product{}, fmt.Errorf("product_kind must match base product")
+		}
+	}
+	if cmd.ProductKind == catalogdomain.ProductKindGreenBean {
+		cmd.RoastLevel = ""
+		cmd.GreenBeanType = normalizeGreenBeanType(cmd.GreenBeanType)
+		if cmd.GreenBeanBomProductID <= 0 {
+			cmd.GreenBeanBomProductID = base.GreenBeanBomProductID
+		}
+		if cmd.GreenBeanBomProductID <= 0 {
+			return Product{}, ValidationError{Message: "green_bean_bom_product_id required"}
+		}
+		if err := s.validateGreenBeanBomProduct(ctx, cmd.GreenBeanBomProductID); err != nil {
+			return Product{}, err
+		}
+		cmd.CopyBOM = false
+	} else {
+		cmd.RoastLevel = catalogdomain.NormalizeRoastLevel(cmd.RoastLevel)
+		if cmd.RoastLevel == "" {
+			return Product{}, fmt.Errorf("invalid roast_level")
+		}
+		cmd.GreenBeanType = ""
+		cmd.GreenBeanBomProductID = 0
+	}
+	if cmd.ProductKind == catalogdomain.ProductKindDripBag {
+		if cmd.DripBagGrams <= 0 {
+			cmd.DripBagGrams = base.DripBagGrams
+		}
+		if cmd.DripBoxBagCount <= 0 {
+			cmd.DripBoxBagCount = base.DripBoxBagCount
+		}
+		var salesUnits []string
+		cmd.ProductKind, cmd.DripBagGrams, cmd.DripBoxBagCount, salesUnits, err = normalizeProductKindSettings(cmd.ProductKind, cmd.DripBagGrams, cmd.DripBoxBagCount)
+		if err != nil {
+			return Product{}, err
+		}
+		_ = salesUnits
+		cmd.CopyBOM = false
 	}
 	cmd.CustomType = strings.TrimSpace(cmd.CustomType)
 	if cmd.CustomType != "custom_blend" && cmd.CustomType != "custom_roast" && cmd.CustomType != "public_sku_alias" {

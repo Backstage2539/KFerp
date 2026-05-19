@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 
 import {
   buildCustomerPublicUsagePayload,
+  buildCustomProductCreatePayload,
   buildProductBasicsPayload,
   buildProductCreatePayload,
   categoryBelongsToSkuContext,
@@ -26,6 +27,10 @@ test('filterSkuRows supports product kind, name, primary category, and secondary
   assert.deepEqual(filterSkuRows(rows, { productKind: 'green_bean' }).map((row) => row.id), [2, 3])
   assert.deepEqual(filterSkuRows(rows, { query: '瑰夏' }).map((row) => row.id), [2])
   assert.deepEqual(filterSkuRows(rows, { primaryCategory: '生豆', secondaryCategory: '拼配生豆' }).map((row) => row.id), [3])
+  assert.deepEqual(filterSkuRows([
+    ...rows,
+    { id: 4, name: '耶加雪菲挂耳', product_kind: 'drip_bag' },
+  ], { productKind: 'drip_bag' }).map((row) => row.id), [4])
 })
 
 test('paginatedSkuRows filters all SKU rows before slicing the current page', () => {
@@ -94,6 +99,54 @@ test('product basics payload preserves remark, green bean type, and BOM binding 
     green_bean_type: 'single_origin',
     green_bean_bom_product_id: 7,
     margin_rate_override: null,
+  })
+})
+
+test('customer custom SKU payload supports green bean and drip bag product settings', () => {
+  assert.deepEqual(buildCustomProductCreatePayload(42, {
+    base_product_id: 7,
+    name: '客户A-巴拿马生豆',
+    remark: '客户生豆',
+    product_kind: 'green_bean',
+    green_bean_type: 'blend',
+    green_bean_bom_product_id: 9,
+    custom_type: 'public_sku_alias',
+    copy_bom: true,
+    copy_price_tiers: true,
+    roast_level: '中烘',
+  }), {
+    customer_id: 42,
+    base_product_id: 7,
+    name: '客户A-巴拿马生豆',
+    remark: '客户生豆',
+    product_kind: 'green_bean',
+    green_bean_type: 'blend',
+    green_bean_bom_product_id: 9,
+    custom_type: 'public_sku_alias',
+    copy_bom: true,
+    copy_price_tiers: true,
+  })
+
+  assert.deepEqual(buildCustomProductCreatePayload('42', {
+    base_product_id: '8',
+    name: '客户A-耶加挂耳',
+    product_kind: 'drip_bag',
+    drip_bag_grams: 12,
+    drip_box_bag_count: 8,
+    roast_level: '中深烘',
+    custom_type: 'custom_roast',
+  }), {
+    customer_id: 42,
+    base_product_id: 8,
+    name: '客户A-耶加挂耳',
+    remark: '',
+    product_kind: 'drip_bag',
+    drip_bag_grams: 12,
+    drip_box_bag_count: 8,
+    roast_level: '中深烘',
+    custom_type: 'custom_roast',
+    copy_bom: false,
+    copy_price_tiers: false,
   })
 })
 

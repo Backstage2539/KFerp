@@ -183,14 +183,19 @@ func (r *productSettingsRepo) CreateCustomProduct(ctx context.Context, cmd catal
 	r.createdProduct = cmd
 	r.productCreated = true
 	return catalogapp.Product{
-		ID:            88,
-		Name:          cmd.Name,
-		Remark:        cmd.Remark,
-		RoastLevel:    cmd.RoastLevel,
-		CustomerID:    cmd.CustomerID,
-		BaseProductID: cmd.BaseProductID,
-		Visibility:    "customer_only",
-		CustomType:    cmd.CustomType,
+		ID:                    88,
+		Name:                  cmd.Name,
+		Remark:                cmd.Remark,
+		ProductKind:           cmd.ProductKind,
+		GreenBeanType:         cmd.GreenBeanType,
+		GreenBeanBomProductID: cmd.GreenBeanBomProductID,
+		RoastLevel:            cmd.RoastLevel,
+		DripBagGrams:          cmd.DripBagGrams,
+		DripBoxBagCount:       cmd.DripBoxBagCount,
+		CustomerID:            cmd.CustomerID,
+		BaseProductID:         cmd.BaseProductID,
+		Visibility:            "customer_only",
+		CustomType:            cmd.CustomType,
 	}, nil
 }
 
@@ -479,7 +484,7 @@ func TestProductSettingsAPIManagesGradientTemplatesAndCategoryBinding(t *testing
 }
 
 func TestProductSettingsAPICreatesCustomerCustomProduct(t *testing.T) {
-	repo := &productSettingsRepo{}
+	repo := &productSettingsRepo{products: []catalogapp.Product{{ID: 7, Name: "橘皮乌龙", ProductKind: "roasted"}}}
 	e := echo.New()
 	registerProductRoutes(e, catalogapp.NewService(repo))
 
@@ -501,6 +506,33 @@ func TestProductSettingsAPICreatesCustomerCustomProduct(t *testing.T) {
 	for _, want := range []string{`"product"`, `"customer_id":3`, `"base_product_id":7`, `"visibility":"customer_only"`, `"custom_type":"custom_roast"`, `"remark":"客户指定口味"`} {
 		if !bytes.Contains(rec.Body.Bytes(), []byte(want)) {
 			t.Fatalf("custom product response missing %s: %s", want, rec.Body.String())
+		}
+	}
+}
+
+func TestProductSettingsAPICreatesCustomerGreenBeanCustomProduct(t *testing.T) {
+	repo := &productSettingsRepo{products: []catalogapp.Product{
+		{ID: 7, Name: "巴拿马生豆", ProductKind: "green_bean", GreenBeanType: "single_origin", GreenBeanBomProductID: 8},
+		{ID: 8, Name: "巴拿马熟豆", ProductKind: "roasted"},
+	}}
+	e := echo.New()
+	registerProductRoutes(e, catalogapp.NewService(repo))
+
+	body := `{"customer_id":3,"base_product_id":7,"name":"测试客户-巴拿马生豆","product_kind":"green_bean","green_bean_type":"blend","green_bean_bom_product_id":8,"custom_type":"public_sku_alias","copy_price_tiers":true}`
+	req := httptest.NewRequest(http.MethodPost, "/api/product-settings/custom-products", bytes.NewBufferString(body))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("POST custom green product status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if !repo.productCreated || repo.createdProduct.ProductKind != "green_bean" || repo.createdProduct.GreenBeanType != "blend" || repo.createdProduct.GreenBeanBomProductID != 8 {
+		t.Fatalf("custom green command = %+v created=%v", repo.createdProduct, repo.productCreated)
+	}
+	for _, want := range []string{`"product_kind":"green_bean"`, `"green_bean_type":"blend"`, `"green_bean_bom_product_id":8`} {
+		if !bytes.Contains(rec.Body.Bytes(), []byte(want)) {
+			t.Fatalf("custom green response missing %s: %s", want, rec.Body.String())
 		}
 	}
 }

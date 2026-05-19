@@ -64,6 +64,11 @@ func TestCustomerCustomSkuFormUsesSearchableDropdowns(t *testing.T) {
 		"selectedCustomerSkuCustomerID",
 		"baseProductOptionLabel",
 		`v-if="selectedCustomerSkuCustomerID" class="panel custom-product-panel"`,
+		"customForm.product_kind",
+		"customForm.green_bean_type",
+		"customForm.green_bean_bom_product_id",
+		"customForm.drip_bag_grams",
+		"customForm.drip_box_bag_count",
 		"输入产品名",
 		"没有匹配产品",
 	} {

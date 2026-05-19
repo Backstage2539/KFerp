@@ -60,6 +60,7 @@
             <select v-model="productForm.product_kind">
               <option value="roasted">熟豆</option>
               <option value="green_bean">生豆</option>
+              <option value="drip_bag">挂耳</option>
             </select>
           </label>
           <label v-if="productForm.product_kind !== 'green_bean'">
@@ -98,6 +99,14 @@
               placeholder="选择对应熟豆"
               empty-text="暂无熟豆产品" />
           </label>
+          <label v-if="productForm.product_kind === 'drip_bag'">
+            <span>每袋克重</span>
+            <input v-model.number="productForm.drip_bag_grams" type="number" min="0.01" step="0.01" />
+          </label>
+          <label v-if="productForm.product_kind === 'drip_bag'">
+            <span>每盒袋数</span>
+            <input v-model.number="productForm.drip_box_bag_count" type="number" min="1" step="1" />
+          </label>
           <div class="form-actions">
             <button class="primary" type="submit" :disabled="productSaving">创建公共产品</button>
           </div>
@@ -113,13 +122,21 @@
             <span>基础产品</span>
             <SearchableSelect
               v-model="customForm.base_product_id"
-              :options="baseProducts"
+              :options="customBaseProducts"
               :option-label="baseProductOptionLabel"
               :option-meta="baseProductOptionMeta"
               :option-value="optionNumericValue"
               placeholder="输入产品名"
               empty-text="没有匹配产品"
               @select="fillCustomProductName" />
+          </label>
+          <label>
+            <span>产品形态</span>
+            <select v-model="customForm.product_kind" @change="handleCustomProductKindChange">
+              <option value="roasted">熟豆</option>
+              <option value="green_bean">生豆</option>
+              <option value="drip_bag">挂耳</option>
+            </select>
           </label>
           <label>
             <span>定制类型</span>
@@ -129,11 +146,36 @@
               <option value="custom_blend">定制拼配 BOM</option>
             </select>
           </label>
-          <label>
+          <label v-if="customForm.product_kind !== 'green_bean'">
             <span>烘焙度</span>
             <select v-model="customForm.roast_level" @change="fillCustomProductName">
               <option v-for="level in roastLevels" :key="level" :value="level">{{ level }}</option>
             </select>
+          </label>
+          <label v-if="customForm.product_kind === 'green_bean'">
+            <span>生豆属性</span>
+            <select v-model="customForm.green_bean_type">
+              <option v-for="option in greenBeanTypeOptions" :key="option.value" :value="option.value">{{ option.label }}</option>
+            </select>
+          </label>
+          <label v-if="customForm.product_kind === 'green_bean'" class="wide-field">
+            <span>绑定熟豆</span>
+            <SearchableSelect
+              v-model="customForm.green_bean_bom_product_id"
+              :options="roastedBomProducts"
+              :option-label="baseProductOptionLabel"
+              :option-meta="baseProductOptionMeta"
+              :option-value="optionNumericValue"
+              placeholder="选择对应熟豆"
+              empty-text="暂无熟豆产品" />
+          </label>
+          <label v-if="customForm.product_kind === 'drip_bag'">
+            <span>每袋克重</span>
+            <input v-model.number="customForm.drip_bag_grams" type="number" min="0.01" step="0.01" />
+          </label>
+          <label v-if="customForm.product_kind === 'drip_bag'">
+            <span>每盒袋数</span>
+            <input v-model.number="customForm.drip_box_bag_count" type="number" min="1" step="1" />
           </label>
           <label class="wide-field">
             <span>专属 SKU 名称</span>
@@ -143,7 +185,7 @@
             <span>备注</span>
             <textarea v-model.trim="customForm.remark" rows="2" placeholder="如 客户指定口味或包装说明"></textarea>
           </label>
-          <label class="checkline">
+          <label v-if="customForm.product_kind === 'roasted'" class="checkline">
             <input v-model="customForm.copy_bom" type="checkbox" />
             <span>复制基础产品 BOM</span>
           </label>
@@ -372,6 +414,7 @@
                 <option value="all">全部形态</option>
                 <option value="roasted">熟豆</option>
                 <option value="green_bean">生豆</option>
+                <option value="drip_bag">挂耳</option>
               </select>
             </label>
             <label>
@@ -505,6 +548,20 @@
                     </div>
                   </td>
                 </tr>
+                <tr v-if="row.product_kind === 'drip_bag'" class="green-bean-detail-row">
+                  <td :colspan="selectedCustomerSkuCustomerID ? 14 : 15">
+                    <div class="green-bean-detail-fields">
+                      <label>
+                        <span>每袋克重</span>
+                        <input v-model.number="row.drip_bag_grams" type="number" min="0.01" step="0.01" :disabled="!canEditSkuRow(row)" @change="saveProductBasics(row)" />
+                      </label>
+                      <label>
+                        <span>每盒袋数</span>
+                        <input v-model.number="row.drip_box_bag_count" type="number" min="1" step="1" :disabled="!canEditSkuRow(row)" @change="saveProductBasics(row)" />
+                      </label>
+                    </div>
+                  </td>
+                </tr>
               </template>
               <tr v-if="!displaySkuRows.length">
                 <td :colspan="selectedCustomerSkuCustomerID ? 14 : 15" class="muted">{{ selectedCustomerSkuCustomerID ? '暂无客户SKU' : '暂无公共SKU' }}</td>
@@ -542,6 +599,7 @@ import {
 } from '../lib/gradient-templates'
 import {
   buildCustomerPublicUsagePayload,
+  buildCustomProductCreatePayload,
   buildProductBasicsPayload,
   buildProductCreatePayload,
   categoryBelongsToSkuContext as categoryBelongsToContext,
@@ -680,6 +738,7 @@ const uncategorizedProducts = computed(() => products.value
   .slice()
   .sort((a, b) => ownerLabel(a).localeCompare(ownerLabel(b)) || a.name.localeCompare(b.name)))
 const baseProducts = computed(() => products.value.filter((product) => Number(product.customer_id || 0) === 0 && productVisibility(product) === 'public'))
+const customBaseProducts = computed(() => baseProducts.value.filter((product) => normalizedProductKind(product) === customForm.value.product_kind))
 const publicSkuRows = computed(() => productRows.value.filter((product) => Number(product.customer_id || 0) === 0))
 const customerSkuCustomers = computed(() => customerSkuCustomerOptions(customers.value))
 const customerSkuRows = computed(() => productRows.value
@@ -714,17 +773,25 @@ function defaultProductForm() {
     remark: '',
     green_bean_type: 'single_origin',
     green_bean_bom_product_id: 0,
+    drip_bag_grams: 10,
+    drip_box_bag_count: 10,
     roast_level: '中烘',
     yield_percent: 80,
   }
 }
 
 function productKindLabel(row = {}) {
-  return normalizedProductKind(row) === 'green_bean' ? '生豆' : '熟豆'
+  const kind = normalizedProductKind(row)
+  if (kind === 'green_bean') return '生豆'
+  if (kind === 'drip_bag') return '挂耳'
+  return '熟豆'
 }
 
 function productKindBadgeClass(row = {}) {
-  return normalizedProductKind(row) === 'green_bean' ? 'kind-green' : 'kind-roasted'
+  const kind = normalizedProductKind(row)
+  if (kind === 'green_bean') return 'kind-green'
+  if (kind === 'drip_bag') return 'kind-drip'
+  return 'kind-roasted'
 }
 
 function categoryLabel(row, level) {
@@ -737,6 +804,11 @@ function defaultCustomForm() {
     base_product_id: 0,
     name: '',
     remark: '',
+    product_kind: 'roasted',
+    green_bean_type: 'single_origin',
+    green_bean_bom_product_id: 0,
+    drip_bag_grams: 10,
+    drip_box_bag_count: 10,
     roast_level: '中烘',
     custom_type: 'public_sku_alias',
     copy_bom: true,
@@ -764,6 +836,8 @@ function decorateProduct(product) {
     product_kind: productKind,
     green_bean_type: product.green_bean_type || 'single_origin',
     green_bean_bom_product_id: Number(product.green_bean_bom_product_id || 0),
+    drip_bag_grams: Number(product.drip_bag_grams || 10),
+    drip_box_bag_count: Number(product.drip_box_bag_count || 10),
     roast_level: productKind === 'green_bean' ? '' : roastLevels.includes(product.roast_level) ? product.roast_level : '中烘',
     yield_rate: productKind === 'green_bean' ? 0 : yieldRate,
     yield_percent: productKind === 'green_bean' ? 0 : Number((yieldRate * 100).toFixed(2)),
@@ -1044,7 +1118,27 @@ function fillCustomProductName() {
   const customer = customerName(selectedCustomerSkuCustomerID.value || customForm.value.customer_id)
   const base = selectedBaseProduct()
   if (!customer || !base) return
-  customForm.value.name = `${customer}-${base.name}-${customForm.value.roast_level}`
+  customForm.value.name = customForm.value.product_kind === 'roasted'
+    ? `${customer}-${base.name}-${customForm.value.roast_level}`
+    : `${customer}-${base.name}`
+}
+
+function syncCustomFormFromBaseProduct(product) {
+  if (!product) return
+  const kind = normalizedProductKind(product)
+  customForm.value.product_kind = kind
+  customForm.value.roast_level = kind === 'green_bean' ? '' : roastLevels.includes(product.roast_level) ? product.roast_level : customForm.value.roast_level || '中烘'
+  customForm.value.green_bean_type = product.green_bean_type || 'single_origin'
+  customForm.value.green_bean_bom_product_id = Number(product.green_bean_bom_product_id || 0)
+  customForm.value.drip_bag_grams = Number(product.drip_bag_grams || 10)
+  customForm.value.drip_box_bag_count = Number(product.drip_box_bag_count || 10)
+  if (kind !== 'roasted') customForm.value.copy_bom = false
+}
+
+function handleCustomProductKindChange() {
+  customForm.value.base_product_id = 0
+  customForm.value.name = ''
+  customForm.value.copy_bom = customForm.value.product_kind === 'roasted'
 }
 
 function openProductBom(row) {
@@ -1066,6 +1160,14 @@ async function createProduct() {
   }
   if (productForm.value.product_kind === 'green_bean' && Number(productForm.value.green_bean_bom_product_id || 0) <= 0) {
     error.value = '生豆 SKU 必须绑定对应熟豆 BOM'
+    return
+  }
+  if (productForm.value.product_kind === 'drip_bag' && Number(productForm.value.drip_bag_grams || 0) <= 0) {
+    error.value = '挂耳每袋克重必须大于 0'
+    return
+  }
+  if (productForm.value.product_kind === 'drip_bag' && Number(productForm.value.drip_box_bag_count || 0) <= 0) {
+    error.value = '挂耳每盒袋数必须大于 0'
     return
   }
   productSaving.value = true
@@ -1102,15 +1204,24 @@ async function createCustomProduct() {
     error.value = '请填写专属 SKU 名称'
     return
   }
+  if (customForm.value.product_kind === 'green_bean' && Number(customForm.value.green_bean_bom_product_id || 0) <= 0) {
+    error.value = '生豆 SKU 必须绑定对应熟豆 BOM'
+    return
+  }
+  if (customForm.value.product_kind === 'drip_bag' && Number(customForm.value.drip_bag_grams || 0) <= 0) {
+    error.value = '挂耳每袋克重必须大于 0'
+    return
+  }
+  if (customForm.value.product_kind === 'drip_bag' && Number(customForm.value.drip_box_bag_count || 0) <= 0) {
+    error.value = '挂耳每盒袋数必须大于 0'
+    return
+  }
   customSaving.value = true
   error.value = ''
   ok.value = ''
   try {
     await apiSend('/api/product-settings/custom-products', {
-      body: {
-        ...customForm.value,
-        customer_id: customerID,
-      },
+      body: buildCustomProductCreatePayload(customerID, customForm.value),
     })
     ok.value = '客户专属 SKU 已创建'
     customForm.value = { ...defaultCustomForm(), customer_id: customerID }
@@ -1518,13 +1629,22 @@ async function saveProductBasics(row, successMessage = '商品基础信息已保
     error.value = '公共 SKU 为引用，请回到公共SKU归属维护'
     return
   }
+  const productKind = normalizedProductKind(row)
   const yieldPercent = Number(row.yield_percent || 0)
-  if (row.product_kind !== 'green_bean' && (yieldPercent <= 0 || yieldPercent > 100)) {
+  if (productKind !== 'green_bean' && (yieldPercent <= 0 || yieldPercent > 100)) {
     error.value = 'BOM出品率必须在 1% 到 100% 之间'
     return
   }
-  if (row.product_kind === 'green_bean' && Number(row.green_bean_bom_product_id || 0) <= 0) {
+  if (productKind === 'green_bean' && Number(row.green_bean_bom_product_id || 0) <= 0) {
     error.value = '生豆 SKU 必须绑定对应熟豆 BOM'
+    return
+  }
+  if (productKind === 'drip_bag' && Number(row.drip_bag_grams || 0) <= 0) {
+    error.value = '挂耳每袋克重必须大于 0'
+    return
+  }
+  if (productKind === 'drip_bag' && Number(row.drip_box_bag_count || 0) <= 0) {
+    error.value = '挂耳每盒袋数必须大于 0'
     return
   }
   const marginOverride = normalizeMarginRateOverride(row)
@@ -1578,6 +1698,10 @@ watch(selectedCustomerSkuCustomerID, () => {
   skuFilters.value = defaultSkuFilters()
   skuPage.value = 1
   pruneSelectedProducts(displaySkuRows.value)
+})
+
+watch(() => customForm.value.base_product_id, () => {
+  syncCustomFormFromBaseProduct(selectedBaseProduct())
 })
 
 watch(skuFilters, () => {
@@ -1690,6 +1814,7 @@ th { background: #fbfaf8; position: sticky; top: 0; }
 .kind-badge { display: inline-flex; align-items: center; min-height: 20px; padding: 1px 7px; border-radius: 4px; font-size: 12px; font-weight: 600; }
 .kind-roasted { color: #8a4b12; background: #fff3df; border: 1px solid #f3c67c; }
 .kind-green { color: #12613a; background: #e8f7ee; border: 1px solid #8bd4a6; }
+.kind-drip { color: #1f4b7a; background: #eaf3ff; border: 1px solid #9bc4ef; }
 .margin-input { width: 150px; }
 .remark-input { width: 180px; min-height: 46px; resize: vertical; }
 .status-pill { display: inline-flex; align-items: center; min-height: 24px; border: 1px solid #cfd8cf; border-radius: 999px; padding: 2px 8px; color: #27602e; background: #f2fbf2; white-space: nowrap; }
