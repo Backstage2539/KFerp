@@ -92,6 +92,13 @@ DROP INDEX IF EXISTS %[1]s.product_categories_parent_name_uniq;
 CREATE UNIQUE INDEX IF NOT EXISTS product_categories_customer_parent_name_uniq
 ON %[1]s.product_categories (customer_id, COALESCE(parent_id,0), lower(name))
 WHERE active=true;
+CREATE TABLE IF NOT EXISTS %[1]s.customer_sku_public_usage (
+	customer_id BIGINT PRIMARY KEY,
+	use_public_sku BOOLEAN NOT NULL DEFAULT false,
+	use_public_categories BOOLEAN NOT NULL DEFAULT false,
+	created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+	updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
 INSERT INTO %[1]s.product_categories(parent_id,customer_id,name,level,position)
 SELECT NULL,0,'咖啡豆',1,1
 WHERE NOT EXISTS (SELECT 1 FROM %[1]s.product_categories WHERE active=true AND customer_id=0 AND COALESCE(parent_id,0)=0 AND name='咖啡豆');

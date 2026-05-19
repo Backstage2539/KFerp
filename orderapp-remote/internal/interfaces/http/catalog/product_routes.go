@@ -33,7 +33,7 @@ func registerProductRoutes(e *echo.Echo, catalogSvc *catalogapp.Service) {
 	e.POST("/api/product-settings/products/deactivate", h.deactivateProductsAPI)
 	e.POST("/api/product-settings/categories", h.saveProductCategoryAPI)
 	e.POST("/api/product-settings/custom-products", h.createCustomProductAPI)
-	e.POST("/api/product-settings/customer-public-copy", h.copyPublicCatalogForCustomerAPI)
+	e.POST("/api/product-settings/customer-public-usage", h.saveCustomerPublicUsageAPI)
 	e.PUT("/api/product-settings/categories/:id", h.saveProductCategoryAPI)
 	e.DELETE("/api/product-settings/categories/:id", h.deleteProductCategoryAPI)
 	e.POST("/api/product-settings/categories/:id/move", h.moveProductCategoryAPI)
@@ -138,7 +138,7 @@ type customProductAPIRequest struct {
 	CopyPriceTiers bool   `json:"copy_price_tiers"`
 }
 
-type copyPublicCatalogForCustomerAPIRequest struct {
+type customerPublicUsageAPIRequest struct {
 	CustomerID          int64 `json:"customer_id"`
 	UsePublicSKU        bool  `json:"use_public_sku"`
 	UsePublicCategories bool  `json:"use_public_categories"`
@@ -564,12 +564,12 @@ func (h productHandler) createCustomProductAPI(c echo.Context) error {
 	return c.JSON(http.StatusOK, map[string]any{"product": productOptionFromCatalog(product)})
 }
 
-func (h productHandler) copyPublicCatalogForCustomerAPI(c echo.Context) error {
-	var req copyPublicCatalogForCustomerAPIRequest
+func (h productHandler) saveCustomerPublicUsageAPI(c echo.Context) error {
+	var req customerPublicUsageAPIRequest
 	if err := c.Bind(&req); err != nil {
 		return c.JSON(http.StatusBadRequest, map[string]any{"error": "bad request"})
 	}
-	result, err := h.catalog.CopyPublicCatalogForCustomer(c.Request().Context(), catalogapp.CopyPublicCatalogForCustomerCommand{
+	usage, err := h.catalog.SaveCustomerPublicUsage(c.Request().Context(), catalogapp.CustomerPublicUsageCommand{
 		Actor:               support.ActorOf(c),
 		CustomerID:          req.CustomerID,
 		UsePublicSKU:        req.UsePublicSKU,
@@ -578,7 +578,7 @@ func (h productHandler) copyPublicCatalogForCustomerAPI(c echo.Context) error {
 	if err != nil {
 		return c.JSON(http.StatusBadRequest, map[string]any{"error": err.Error()})
 	}
-	return c.JSON(http.StatusOK, map[string]any{"result": result})
+	return c.JSON(http.StatusOK, map[string]any{"usage": usage})
 }
 
 func (h productHandler) moveProductCategoryAPI(c echo.Context) error {

@@ -162,49 +162,39 @@ func TestCreateCustomProductInsertDoesNotDuplicateProductKindColumn(t *testing.T
 	}
 }
 
-func TestCopyPublicCatalogForCustomerCopiesCategoriesProductsAndAudits(t *testing.T) {
+func TestCustomerPublicUsagePersistsReferenceSwitchesAndAudits(t *testing.T) {
 	repository, err := os.ReadFile("repository.go")
 	if err != nil {
 		t.Fatal(err)
 	}
 	src := string(repository)
 	for _, want := range []string{
-		"func (r Repository) CopyPublicCatalogForCustomer",
-		"copy_public_catalog",
-		"product_categories",
-		"base_product_id",
-		"green_bean_bom_product_id",
-		"product_bom_items(product_id,material_id,component_type,component_product_id,component_spec_g,consume_unit,qty_per_unit,ratio_pct,updated_at)",
+		"func (r Repository) SaveCustomerPublicUsage",
+		"customer_sku_public_usage",
+		"update_public_usage",
+		"cleanupLegacyPublicCopiesTx",
 		"AuditInsertTx(ctx, tx, r.schema, cmd.Actor, \"customer_product_catalog\"",
 	} {
 		if !strings.Contains(src, want) {
-			t.Fatalf("copy public catalog repository missing marker %q", want)
+			t.Fatalf("customer public usage repository missing marker %q", want)
 		}
 	}
 }
 
-func TestCopyPublicCatalogForCustomerPreservesPublicSKUNames(t *testing.T) {
+func TestCustomerPublicUsageDoesNotInsertCopiedPublicProductsOrCategories(t *testing.T) {
 	repository, err := os.ReadFile("repository.go")
 	if err != nil {
 		t.Fatal(err)
 	}
 	src := string(repository)
 	for _, forbidden := range []string{
-		"customerProductCopyBaseName",
-		"ensureUniqueProductNameTx",
-		"fetchCustomerNameTx",
+		"func insertCustomerProductCopyTx",
+		"func ensureCustomerCategoryCopyTx",
+		"func fetchPublicProductCopyRowsTx",
+		"func fetchPublicCategoryCopyRowsTx",
 	} {
 		if strings.Contains(src, forbidden) {
-			t.Fatalf("copy public catalog should preserve public SKU names, but still contains %q", forbidden)
-		}
-	}
-	for _, want := range []string{
-		"func insertCustomerProductCopyTx(ctx context.Context, tx pgx.Tx, schema string, customerID int64, row publicProductCopyRow, categoryID int64)",
-		"'customer_only','public_sku_alias',$19,now())",
-		"`, schema), row.Name, productKind",
-	} {
-		if !strings.Contains(src, want) {
-			t.Fatalf("copy public catalog should insert customer copy with the original public SKU name, missing marker %q", want)
+			t.Fatalf("public usage should reference public catalog without copy helper %q", forbidden)
 		}
 	}
 }
@@ -218,6 +208,7 @@ func TestProductSchemaDropsLegacyGlobalProductNameUniqueness(t *testing.T) {
 	for _, want := range []string{
 		"ALTER TABLE %[1]s.products DROP CONSTRAINT IF EXISTS products_name_key",
 		"DROP INDEX IF EXISTS %[1]s.products_name_key",
+		"CREATE TABLE IF NOT EXISTS %[1]s.customer_sku_public_usage",
 	} {
 		if !strings.Contains(src, want) {
 			t.Fatalf("schema must remove legacy global product name uniqueness so customer SKU copies can keep public names, missing %q", want)

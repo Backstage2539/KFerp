@@ -34,9 +34,10 @@ test('SKU settings exposes customer context initialization without the public pr
     'v-if="!selectedCustomerSkuCustomerID"',
     '/api/customer-fulfillment/customers?limit=200',
     'customerSkuCustomerOptions(customerData)',
-    'buildCustomerPublicCopyPayload',
-    'copyPublicCategoriesForCustomer',
-    'copyPublicSkuForCustomer',
+    'buildCustomerPublicUsagePayload',
+    '/api/product-settings/customer-public-usage',
+    'savePublicCategoryUsageForCustomer',
+    'savePublicSkuUsageForCustomer',
   ]) {
     assert.match(productSettingsSource, new RegExp(expected.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')))
   }

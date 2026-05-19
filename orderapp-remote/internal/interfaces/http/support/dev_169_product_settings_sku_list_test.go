@@ -37,9 +37,10 @@ func TestDev169ProductSettingsShowsUnifiedSkuList(t *testing.T) {
 		"/api/customer-fulfillment/customers?limit=200",
 		"displaySkuRows",
 		"v-for=\"row in displaySkuRows\"",
-		":disabled=\"!displaySkuRows.length\"",
+		":disabled=\"!editableDisplaySkuRows.length\"",
 		":options=\"customerSkuCustomers\"",
-		"Number(product.customer_id || 0) === 0",
+		"productBelongsToContext",
+		"customer-public-usage",
 	} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("ProductSettingsView.vue missing unified SKU list marker %q", want)

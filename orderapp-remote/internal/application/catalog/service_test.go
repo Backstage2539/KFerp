@@ -9,11 +9,11 @@ type fakeRepo struct {
 	replace     ReplacePriceTiersCommand
 	update      UpdateProductBasicsCommand
 	create      CreateProductCommand
-	copyPublic  CopyPublicCatalogForCustomerCommand
+	publicUsage CustomerPublicUsageCommand
 	deactivate  DeactivateProductsCommand
 	products    map[int64]Product
 	deactivated bool
-	copied      bool
+	usageSaved  bool
 }
 
 func (r *fakeRepo) ListProducts(ctx context.Context) ([]Product, error) {
@@ -91,10 +91,14 @@ func (r *fakeRepo) CreateCustomProduct(ctx context.Context, cmd CreateCustomProd
 	return Product{ID: 10, Name: cmd.Name, CustomerID: cmd.CustomerID, BaseProductID: cmd.BaseProductID, Visibility: "customer_only", CustomType: cmd.CustomType}, nil
 }
 
-func (r *fakeRepo) CopyPublicCatalogForCustomer(ctx context.Context, cmd CopyPublicCatalogForCustomerCommand) (CopyPublicCatalogForCustomerResult, error) {
-	r.copyPublic = cmd
-	r.copied = true
-	return CopyPublicCatalogForCustomerResult{CustomerID: cmd.CustomerID, CategoriesCreated: 2, ProductsCreated: 3}, nil
+func (r *fakeRepo) ListCustomerPublicUsages(ctx context.Context) ([]CustomerPublicUsage, error) {
+	return nil, nil
+}
+
+func (r *fakeRepo) SaveCustomerPublicUsage(ctx context.Context, cmd CustomerPublicUsageCommand) (CustomerPublicUsage, error) {
+	r.publicUsage = cmd
+	r.usageSaved = true
+	return CustomerPublicUsage{CustomerID: cmd.CustomerID, UsePublicSKU: cmd.UsePublicSKU, UsePublicCategories: cmd.UsePublicCategories}, nil
 }
 
 func TestServiceDelegatesCatalogOperations(t *testing.T) {
@@ -159,34 +163,34 @@ func TestCreateCustomProductAcceptsPublicSKUAliasType(t *testing.T) {
 	}
 }
 
-func TestCopyPublicCatalogForCustomerValidatesAndDelegates(t *testing.T) {
+func TestSaveCustomerPublicUsageAllowsIndependentReferenceSwitches(t *testing.T) {
 	repo := &fakeRepo{}
 	svc := NewService(repo)
 
-	got, err := svc.CopyPublicCatalogForCustomer(context.Background(), CopyPublicCatalogForCustomerCommand{
+	got, err := svc.SaveCustomerPublicUsage(context.Background(), CustomerPublicUsageCommand{
 		Actor:               "tester",
 		CustomerID:          42,
-		UsePublicSKU:        true,
+		UsePublicSKU:        false,
 		UsePublicCategories: true,
 	})
 	if err != nil {
-		t.Fatalf("CopyPublicCatalogForCustomer() err=%v", err)
+		t.Fatalf("SaveCustomerPublicUsage() err=%v", err)
 	}
-	if !repo.copied || repo.copyPublic.Actor != "tester" || repo.copyPublic.CustomerID != 42 || !repo.copyPublic.UsePublicSKU || !repo.copyPublic.UsePublicCategories {
-		t.Fatalf("copy public command = %+v copied=%v", repo.copyPublic, repo.copied)
+	if !repo.usageSaved || repo.publicUsage.Actor != "tester" || repo.publicUsage.CustomerID != 42 || repo.publicUsage.UsePublicSKU || !repo.publicUsage.UsePublicCategories {
+		t.Fatalf("public usage command = %+v saved=%v", repo.publicUsage, repo.usageSaved)
 	}
-	if got.CustomerID != 42 || got.CategoriesCreated != 2 || got.ProductsCreated != 3 {
-		t.Fatalf("copy public result = %+v", got)
+	if got.CustomerID != 42 || got.UsePublicSKU || !got.UsePublicCategories {
+		t.Fatalf("public usage result = %+v", got)
 	}
 }
 
-func TestCopyPublicCatalogForCustomerRequiresCustomerAndSelectedSource(t *testing.T) {
+func TestSaveCustomerPublicUsageRequiresCustomerButAllowsBothSwitchesOff(t *testing.T) {
 	svc := NewService(&fakeRepo{})
-	if _, err := svc.CopyPublicCatalogForCustomer(context.Background(), CopyPublicCatalogForCustomerCommand{UsePublicSKU: true}); err == nil {
-		t.Fatalf("CopyPublicCatalogForCustomer() should require customer_id")
+	if _, err := svc.SaveCustomerPublicUsage(context.Background(), CustomerPublicUsageCommand{UsePublicSKU: true}); err == nil {
+		t.Fatalf("SaveCustomerPublicUsage() should require customer_id")
 	}
-	if _, err := svc.CopyPublicCatalogForCustomer(context.Background(), CopyPublicCatalogForCustomerCommand{CustomerID: 42}); err == nil {
-		t.Fatalf("CopyPublicCatalogForCustomer() should require at least one source switch")
+	if _, err := svc.SaveCustomerPublicUsage(context.Background(), CustomerPublicUsageCommand{CustomerID: 42}); err != nil {
+		t.Fatalf("SaveCustomerPublicUsage() should allow both public switches off, err=%v", err)
 	}
 }
 

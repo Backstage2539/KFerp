@@ -96,9 +96,10 @@ type ProductCategoryNode struct {
 }
 
 type ProductSettingsData struct {
-	Categories        []ProductCategoryNode    `json:"categories"`
-	Products          []ProductSettingsProduct `json:"products"`
-	GradientTemplates []GradientTemplate       `json:"gradient_templates"`
+	Categories           []ProductCategoryNode    `json:"categories"`
+	Products             []ProductSettingsProduct `json:"products"`
+	GradientTemplates    []GradientTemplate       `json:"gradient_templates"`
+	CustomerPublicUsages []CustomerPublicUsage    `json:"customer_public_usages"`
 }
 
 type GradientTemplate struct {
@@ -196,19 +197,17 @@ type CreateCustomProductCommand struct {
 	CopyPriceTiers bool
 }
 
-type CopyPublicCatalogForCustomerCommand struct {
+type CustomerPublicUsage struct {
+	CustomerID          int64 `json:"customer_id"`
+	UsePublicSKU        bool  `json:"use_public_sku"`
+	UsePublicCategories bool  `json:"use_public_categories"`
+}
+
+type CustomerPublicUsageCommand struct {
 	Actor               string
 	CustomerID          int64
 	UsePublicSKU        bool
 	UsePublicCategories bool
-}
-
-type CopyPublicCatalogForCustomerResult struct {
-	CustomerID        int64 `json:"customer_id"`
-	CategoriesCreated int   `json:"categories_created"`
-	CategoriesReused  int   `json:"categories_reused"`
-	ProductsCreated   int   `json:"products_created"`
-	ProductsSkipped   int   `json:"products_skipped"`
 }
 
 type SaveProductCategoryCommand struct {
@@ -275,7 +274,8 @@ type Repository interface {
 	DeleteProductCategory(ctx context.Context, cmd DeleteProductCategoryCommand) error
 	AssignProductCategory(ctx context.Context, cmd AssignProductCategoryCommand) error
 	CreateCustomProduct(ctx context.Context, cmd CreateCustomProductCommand) (Product, error)
-	CopyPublicCatalogForCustomer(ctx context.Context, cmd CopyPublicCatalogForCustomerCommand) (CopyPublicCatalogForCustomerResult, error)
+	ListCustomerPublicUsages(ctx context.Context) ([]CustomerPublicUsage, error)
+	SaveCustomerPublicUsage(ctx context.Context, cmd CustomerPublicUsageCommand) (CustomerPublicUsage, error)
 }
 
 type Service struct {
@@ -459,8 +459,13 @@ func (s *Service) ProductSettings(ctx context.Context) (ProductSettingsData, err
 	if err != nil {
 		return ProductSettingsData{}, err
 	}
+	usages, err := s.repo.ListCustomerPublicUsages(ctx)
+	if err != nil {
+		return ProductSettingsData{}, err
+	}
 	data := BuildProductSettings(categories, products)
 	data.GradientTemplates = templates
+	data.CustomerPublicUsages = usages
 	return data, nil
 }
 
@@ -530,15 +535,12 @@ func (s *Service) CreateCustomProduct(ctx context.Context, cmd CreateCustomProdu
 	return s.repo.CreateCustomProduct(ctx, cmd)
 }
 
-func (s *Service) CopyPublicCatalogForCustomer(ctx context.Context, cmd CopyPublicCatalogForCustomerCommand) (CopyPublicCatalogForCustomerResult, error) {
+func (s *Service) SaveCustomerPublicUsage(ctx context.Context, cmd CustomerPublicUsageCommand) (CustomerPublicUsage, error) {
 	if cmd.CustomerID <= 0 {
-		return CopyPublicCatalogForCustomerResult{}, fmt.Errorf("customer_id required")
-	}
-	if !cmd.UsePublicSKU && !cmd.UsePublicCategories {
-		return CopyPublicCatalogForCustomerResult{}, fmt.Errorf("at least one public source is required")
+		return CustomerPublicUsage{}, fmt.Errorf("customer_id required")
 	}
 	cmd.Actor = strings.TrimSpace(cmd.Actor)
-	return s.repo.CopyPublicCatalogForCustomer(ctx, cmd)
+	return s.repo.SaveCustomerPublicUsage(ctx, cmd)
 }
 
 func normalizeGradientTemplateCommand(cmd SaveGradientTemplateCommand) (SaveGradientTemplateCommand, error) {
