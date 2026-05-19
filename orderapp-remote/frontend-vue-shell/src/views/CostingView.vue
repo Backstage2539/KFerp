@@ -1134,6 +1134,65 @@ function normalizeBeanListType(value) {
   return 'commercial'
 }
 
+function beanListPublicationStatusLabel(row) {
+  switch (String(row?.status || '').trim()) {
+  case 'published':
+    return '已发布'
+  case 'withdrawn':
+    return '已撤回'
+  case 'draft':
+    return '草稿'
+  default:
+    return row?.status || '未知'
+  }
+}
+
+function beanListPublicationStatusClass(row) {
+  const status = String(row?.status || '').trim()
+  if (status === 'published') return 'status-published'
+  if (status === 'draft') return 'status-draft'
+  if (status === 'withdrawn') return 'status-withdrawn'
+  return 'status-unknown'
+}
+
+function beanListPublicationTime(row) {
+  return row?.published_at || row?.created_at || ''
+}
+
+function publicationScopeLabel(scope) {
+  if (scope === 'mine') return '我的客户豆单'
+  if (scope === 'customer') return '指定客户豆单'
+  return '棵凡官方豆单'
+}
+
+function beanListPublicationOwnerLabel(row) {
+  if (row?.owner_type === 'customer') {
+    const customerID = Number(row.owner_key || 0)
+    const customer = customers.value.find((item) => Number(item?.id || 0) === customerID)
+    return customer ? customerOptionLabel(customer) : `客户 ${row.owner_key || '-'}`
+  }
+  if (row?.owner_type === 'actor') return '我的客户豆单'
+  return '棵凡官方豆单'
+}
+
+function beanListPublicationSourceLabel(row) {
+  const parts = []
+  if (row?.source_version) parts.push(`价格源 ${row.source_version}`)
+  if (Number(row?.price_source_publication_id || 0) > 0 && !row?.source_version) {
+    parts.push(`价格源 #${row.price_source_publication_id}`)
+  }
+  if (Number(row?.style_source_publication_id || 0) > 0) {
+    parts.push(`样式源 #${row.style_source_publication_id}`)
+  }
+  return parts.length ? parts.join(' / ') : '本版本配置'
+}
+
+function startBeanListFromPublication(row) {
+  if (!row) return
+  applyCopiedBeanListPublicationConfig(row)
+  openBeanListDrawer(normalizeBeanListType(row.list_type))
+}
+
 function beanListTypeName(listType) {
   const normalized = normalizeBeanListType(listType)
   if (normalized === 'green') return '生豆'

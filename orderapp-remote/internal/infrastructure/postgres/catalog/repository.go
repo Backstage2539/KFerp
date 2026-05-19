@@ -940,10 +940,6 @@ func (r Repository) CopyPublicCatalogForCustomer(ctx context.Context, cmd catalo
 	if !customerExists {
 		return result, fmt.Errorf("customer not found")
 	}
-	customerName, err := fetchCustomerNameTx(ctx, tx, r.schema, cmd.CustomerID)
-	if err != nil {
-		return result, err
-	}
 
 	categoryMap := map[int64]int64{}
 	if cmd.UsePublicCategories {
@@ -995,7 +991,7 @@ func (r Repository) CopyPublicCatalogForCustomer(ctx context.Context, cmd catalo
 			if cmd.UsePublicCategories && product.ProductCategoryID > 0 {
 				categoryID = categoryMap[product.ProductCategoryID]
 			}
-			productID, err := insertCustomerProductCopyTx(ctx, tx, r.schema, cmd.CustomerID, customerName, product, categoryID)
+			productID, err := insertCustomerProductCopyTx(ctx, tx, r.schema, cmd.CustomerID, product, categoryID)
 			if err != nil {
 				return result, err
 			}
@@ -1141,52 +1137,7 @@ func findExistingCustomerProductCopyTx(ctx context.Context, tx pgx.Tx, schema st
 	return id, err
 }
 
-func fetchCustomerNameTx(ctx context.Context, tx pgx.Tx, schema string, customerID int64) (string, error) {
-	var name string
-	if err := tx.QueryRow(ctx, fmt.Sprintf(`
-		SELECT COALESCE(NULLIF(name,''), $2)
-		FROM %s.customers
-		WHERE id=$1
-	`, schema), customerID, fmt.Sprintf("客户#%d", customerID)).Scan(&name); err != nil {
-		return "", err
-	}
-	return strings.TrimSpace(name), nil
-}
-
-func customerProductCopyBaseName(customerName string, customerID int64, productName string) string {
-	customerName = strings.TrimSpace(customerName)
-	if customerName == "" {
-		customerName = fmt.Sprintf("客户#%d", customerID)
-	}
-	productName = strings.TrimSpace(productName)
-	if productName == "" {
-		productName = "公共SKU"
-	}
-	return fmt.Sprintf("%s - %s", customerName, productName)
-}
-
-func ensureUniqueProductNameTx(ctx context.Context, tx pgx.Tx, schema string, baseName string) (string, error) {
-	baseName = strings.TrimSpace(baseName)
-	if baseName == "" {
-		baseName = "客户SKU"
-	}
-	for suffix := 0; suffix < 100; suffix++ {
-		name := baseName
-		if suffix > 0 {
-			name = fmt.Sprintf("%s-%d", baseName, suffix+1)
-		}
-		var exists bool
-		if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT EXISTS(SELECT 1 FROM %s.products WHERE lower(name)=lower($1))`, schema), name).Scan(&exists); err != nil {
-			return "", err
-		}
-		if !exists {
-			return name, nil
-		}
-	}
-	return "", fmt.Errorf("unique product name exhausted")
-}
-
-func insertCustomerProductCopyTx(ctx context.Context, tx pgx.Tx, schema string, customerID int64, customerName string, row publicProductCopyRow, categoryID int64) (int64, error) {
+func insertCustomerProductCopyTx(ctx context.Context, tx pgx.Tx, schema string, customerID int64, row publicProductCopyRow, categoryID int64) (int64, error) {
 	productKind := catalogdomain.NormalizeProductKind(row.ProductKind)
 	roastLevel := catalogdomain.NormalizeRoastLevel(row.RoastLevel)
 	greenBeanType := strings.TrimSpace(row.GreenBeanType)
@@ -1200,10 +1151,6 @@ func insertCustomerProductCopyTx(ctx context.Context, tx pgx.Tx, schema string, 
 		greenBeanType = ""
 		greenBeanBomProductID = 0
 	}
-	name, err := ensureUniqueProductNameTx(ctx, tx, schema, customerProductCopyBaseName(customerName, customerID, row.Name))
-	if err != nil {
-		return 0, err
-	}
 	var productID int64
 	if err := tx.QueryRow(ctx, fmt.Sprintf(`
 		INSERT INTO %s.products(
@@ -1215,7 +1162,7 @@ func insertCustomerProductCopyTx(ctx context.Context, tx pgx.Tx, schema string, 
 		)
 		VALUES($1,$2,$3,$4,$5,$6,true,$7,$8,$9,$10,$11,$12,$13,$14,NULLIF($15,0),$16,$17,$18,'customer_only','public_sku_alias',$19,now())
 		RETURNING id
-	`, schema), name, productKind, greenBeanType, greenBeanBomProductID, roastLevel, row.DefaultPrice, row.RetailPrice100G, row.RetailPrice200G, row.RetailPrice227G, row.RetailPrice250G, row.DripBagGrams, row.DripBoxBagCount, row.AllowFulfillmentOrder, row.AllowMallOrder, categoryID, row.ProductCategoryPosition, customerID, row.ID, row.MarginRateOverride).Scan(&productID); err != nil {
+	`, schema), row.Name, productKind, greenBeanType, greenBeanBomProductID, roastLevel, row.DefaultPrice, row.RetailPrice100G, row.RetailPrice200G, row.RetailPrice227G, row.RetailPrice250G, row.DripBagGrams, row.DripBoxBagCount, row.AllowFulfillmentOrder, row.AllowMallOrder, categoryID, row.ProductCategoryPosition, customerID, row.ID, row.MarginRateOverride).Scan(&productID); err != nil {
 		return 0, err
 	}
 	return productID, nil

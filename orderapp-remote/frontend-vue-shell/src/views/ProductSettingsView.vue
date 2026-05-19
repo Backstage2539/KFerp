@@ -224,7 +224,7 @@
           <div v-if="selectedCustomerSkuCustomerID" class="customer-copy-panel">
             <label class="checkline switchline">
               <input :checked="customerUsesPublicCategories" type="checkbox" :disabled="publicCopySaving" @change="copyPublicCategoriesForCustomer" />
-              <span>是否使用商品分类</span>
+              <span>是否使用公共商品分类</span>
             </label>
           </div>
 

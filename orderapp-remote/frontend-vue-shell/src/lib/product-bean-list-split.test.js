@@ -41,8 +41,9 @@ test('SKU settings exposes customer context initialization without the public pr
     assert.match(productSettingsSource, new RegExp(expected.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')))
   }
   assert.match(productSettingsSource, /<div v-if="selectedCustomerSkuCustomerID" class="panel custom-product-panel">/)
-  assert.match(productSettingsSource, /<span>是否使用商品分类<\/span>/)
+  assert.match(productSettingsSource, /<span>是否使用公共商品分类<\/span>/)
   assert.match(productSettingsSource, /<span>是否使用公共SKU<\/span>/)
+  assert.doesNotMatch(productSettingsSource, /<span>是否使用商品分类<\/span>/)
   assert.doesNotMatch(productSettingsSource, /v-model="customForm\.customer_id"/)
   assert.doesNotMatch(productSettingsSource, /先在顶部选择客户后创建客户专属 SKU/)
 })
