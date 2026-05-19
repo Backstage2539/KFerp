@@ -2,6 +2,7 @@ package support
 
 import (
 	"os"
+	"regexp"
 	"strings"
 	"testing"
 )
@@ -232,10 +233,20 @@ func TestSalesSaveOrderCommandIsTyped(t *testing.T) {
 			t.Fatalf("SaveOrderCommand still carries HTTP/form-shaped field %q", forbidden)
 		}
 	}
-	for _, want := range []string{"OrderDate             time.Time", "Items                 []OrderItemCommand", "type OrderItemCommand struct"} {
-		if !strings.Contains(content, want) {
-			t.Fatalf("SaveOrderCommand missing typed field %q", want)
+	for _, want := range []struct {
+		field string
+		typ   string
+	}{
+		{field: "OrderDate", typ: "time.Time"},
+		{field: "Items", typ: "[]OrderItemCommand"},
+	} {
+		pattern := regexp.MustCompile(`(?m)^\s*` + want.field + `\s+` + regexp.QuoteMeta(want.typ) + `\s*$`)
+		if !pattern.MatchString(saveOrderCommand) {
+			t.Fatalf("SaveOrderCommand missing typed field %s %s", want.field, want.typ)
 		}
+	}
+	if !strings.Contains(content, "type OrderItemCommand struct") {
+		t.Fatalf("SaveOrderCommand missing typed field %q", "type OrderItemCommand struct")
 	}
 }
 

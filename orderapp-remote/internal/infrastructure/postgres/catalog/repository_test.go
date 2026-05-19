@@ -175,8 +175,8 @@ func TestCreateCustomProductCopyBOMPreservesComponentFields(t *testing.T) {
 	}
 	src := string(repository)
 	for _, want := range []string{
-		"INSERT INTO %s.product_bom_items(product_id,material_id,component_type,component_product_id,component_spec_g,consume_unit,qty_per_unit,ratio_pct,updated_at)",
-		"SELECT $1,material_id,component_type,component_product_id,component_spec_g,consume_unit,qty_per_unit,ratio_pct,now()",
+		"INSERT INTO %s.product_bom_items(product_id,material_id,component_type,component_product_id,component_spec_g,consume_unit,qty_per_unit,ratio_pct,unit_cost_snapshot,updated_at)",
+		"SELECT $1,material_id,component_type,component_product_id,component_spec_g,consume_unit,qty_per_unit,ratio_pct,unit_cost_snapshot,now()",
 	} {
 		if !strings.Contains(src, want) {
 			t.Fatalf("custom product BOM copy missing component marker %q", want)
