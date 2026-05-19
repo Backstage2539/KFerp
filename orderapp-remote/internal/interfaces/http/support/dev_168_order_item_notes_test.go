@@ -42,7 +42,8 @@ func TestDev168OrderItemNotesFlowThroughAPISnapshotsAndViews(t *testing.T) {
 			wants: []string{
 				"ItemNote",
 				"`json:\"item_note\"`",
-				"ItemNote:              r.ItemNote",
+				"ItemNote:",
+				"r.ItemNote",
 				"Note",
 				"`json:\"note\"`",
 			},

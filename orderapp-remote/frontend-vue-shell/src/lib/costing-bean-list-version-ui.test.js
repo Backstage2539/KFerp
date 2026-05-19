@@ -70,3 +70,15 @@ test('product bean-list view maps every bean-list type to its own metadata and t
     assert.ok(viewSource.includes(expected), `missing bean-list type mapping: ${expected}`)
   }
 })
+
+test('product bean-list view exposes manual green bean tier price editing', () => {
+  for (const expected of [
+    'green-tier-price-editor',
+    'greenTierPriceRows(row)',
+    'setGreenBeanTierPrice(itemProductID(row), tier, $event.target.value)',
+    'function setGreenBeanTierPrice',
+    'greenPriceOverrides',
+  ]) {
+    assert.ok(viewSource.includes(expected), `missing green bean tier price editing: ${expected}`)
+  }
+})

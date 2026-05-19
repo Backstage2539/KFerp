@@ -106,6 +106,8 @@ func (r Repository) LoadProductInputs(ctx context.Context, params domain.Paramet
 		       p.margin_rate_override::float8,
 		       COALESCE(NULLIF(b.yield_rate,0), $1),
 		       CASE
+		           WHEN COALESCE(NULLIF(p.product_kind,''), 'roasted') = 'green_bean'
+		           THEN COALESCE(SUM(COALESCE(NULLIF(bi.unit_cost_snapshot,0), m.purchase_price, 0) * COALESCE(bi.ratio_pct,0) / 100.0),0)
 		           WHEN COALESCE(NULLIF(p.product_kind,''), 'roasted') = 'drip_bag' AND COALESCE(fcc.finished_green_cost_per_kg,0) > 0
 		           THEN COALESCE(fcc.finished_green_cost_per_kg,0)
 		           ELSE COALESCE(SUM(COALESCE(mv.weighted_unit_cost, m.purchase_price, 0) * COALESCE(bi.ratio_pct,0) / 100.0),0)

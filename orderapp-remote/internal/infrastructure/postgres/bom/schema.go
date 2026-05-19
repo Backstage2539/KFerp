@@ -51,21 +51,30 @@ ALTER TABLE %[1]s.product_bom_items ADD COLUMN IF NOT EXISTS component_product_i
 ALTER TABLE %[1]s.product_bom_items ADD COLUMN IF NOT EXISTS component_spec_g BIGINT NOT NULL DEFAULT 0;
 ALTER TABLE %[1]s.product_bom_items ADD COLUMN IF NOT EXISTS consume_unit TEXT NOT NULL DEFAULT 'ratio_pct';
 ALTER TABLE %[1]s.product_bom_items ADD COLUMN IF NOT EXISTS qty_per_unit NUMERIC(14,6) NOT NULL DEFAULT 0;
+ALTER TABLE %[1]s.product_bom_items ADD COLUMN IF NOT EXISTS unit_cost_snapshot NUMERIC(12,4) NOT NULL DEFAULT 0;
 UPDATE %[1]s.product_bom_items SET component_type='material' WHERE COALESCE(component_type,'')='';
 UPDATE %[1]s.product_bom_items SET component_product_id=0 WHERE component_product_id IS NULL;
 UPDATE %[1]s.product_bom_items SET component_spec_g=0 WHERE component_spec_g IS NULL;
 UPDATE %[1]s.product_bom_items SET consume_unit='ratio_pct' WHERE COALESCE(consume_unit,'')='';
 UPDATE %[1]s.product_bom_items SET qty_per_unit=0 WHERE qty_per_unit IS NULL;
+UPDATE %[1]s.product_bom_items bi
+SET unit_cost_snapshot=COALESCE(m.purchase_price,0)
+FROM %[1]s.materials m
+WHERE bi.component_type='material'
+  AND bi.material_id=m.id
+  AND COALESCE(bi.unit_cost_snapshot,0)=0;
 ALTER TABLE %[1]s.product_bom_items ALTER COLUMN component_type SET DEFAULT 'material';
 ALTER TABLE %[1]s.product_bom_items ALTER COLUMN component_product_id SET DEFAULT 0;
 ALTER TABLE %[1]s.product_bom_items ALTER COLUMN component_spec_g SET DEFAULT 0;
 ALTER TABLE %[1]s.product_bom_items ALTER COLUMN consume_unit SET DEFAULT 'ratio_pct';
 ALTER TABLE %[1]s.product_bom_items ALTER COLUMN qty_per_unit SET DEFAULT 0;
+ALTER TABLE %[1]s.product_bom_items ALTER COLUMN unit_cost_snapshot SET DEFAULT 0;
 ALTER TABLE %[1]s.product_bom_items ALTER COLUMN component_type SET NOT NULL;
 ALTER TABLE %[1]s.product_bom_items ALTER COLUMN component_product_id SET NOT NULL;
 ALTER TABLE %[1]s.product_bom_items ALTER COLUMN component_spec_g SET NOT NULL;
 ALTER TABLE %[1]s.product_bom_items ALTER COLUMN consume_unit SET NOT NULL;
 ALTER TABLE %[1]s.product_bom_items ALTER COLUMN qty_per_unit SET NOT NULL;
+ALTER TABLE %[1]s.product_bom_items ALTER COLUMN unit_cost_snapshot SET NOT NULL;
 ALTER TABLE %[1]s.product_bom_items DROP CONSTRAINT IF EXISTS product_bom_items_product_id_material_id_key;
 CREATE UNIQUE INDEX IF NOT EXISTS product_bom_items_material_uq ON %[1]s.product_bom_items(product_id, material_id) WHERE component_type='material';
 CREATE UNIQUE INDEX IF NOT EXISTS product_bom_items_finished_product_uq ON %[1]s.product_bom_items(product_id, component_product_id, component_spec_g, consume_unit) WHERE component_type='finished_product';
@@ -108,21 +117,30 @@ ALTER TABLE %[1]s.bom_version_items ADD COLUMN IF NOT EXISTS component_product_i
 ALTER TABLE %[1]s.bom_version_items ADD COLUMN IF NOT EXISTS component_spec_g BIGINT NOT NULL DEFAULT 0;
 ALTER TABLE %[1]s.bom_version_items ADD COLUMN IF NOT EXISTS consume_unit TEXT NOT NULL DEFAULT 'ratio_pct';
 ALTER TABLE %[1]s.bom_version_items ADD COLUMN IF NOT EXISTS qty_per_unit NUMERIC(14,6) NOT NULL DEFAULT 0;
+ALTER TABLE %[1]s.bom_version_items ADD COLUMN IF NOT EXISTS unit_cost_snapshot NUMERIC(12,4) NOT NULL DEFAULT 0;
 UPDATE %[1]s.bom_version_items SET component_type='material' WHERE COALESCE(component_type,'')='';
 UPDATE %[1]s.bom_version_items SET component_product_id=0 WHERE component_product_id IS NULL;
 UPDATE %[1]s.bom_version_items SET component_spec_g=0 WHERE component_spec_g IS NULL;
 UPDATE %[1]s.bom_version_items SET consume_unit='ratio_pct' WHERE COALESCE(consume_unit,'')='';
 UPDATE %[1]s.bom_version_items SET qty_per_unit=0 WHERE qty_per_unit IS NULL;
+UPDATE %[1]s.bom_version_items vi
+SET unit_cost_snapshot=COALESCE(m.purchase_price,0)
+FROM %[1]s.materials m
+WHERE vi.component_type='material'
+  AND vi.material_id=m.id
+  AND COALESCE(vi.unit_cost_snapshot,0)=0;
 ALTER TABLE %[1]s.bom_version_items ALTER COLUMN component_type SET DEFAULT 'material';
 ALTER TABLE %[1]s.bom_version_items ALTER COLUMN component_product_id SET DEFAULT 0;
 ALTER TABLE %[1]s.bom_version_items ALTER COLUMN component_spec_g SET DEFAULT 0;
 ALTER TABLE %[1]s.bom_version_items ALTER COLUMN consume_unit SET DEFAULT 'ratio_pct';
 ALTER TABLE %[1]s.bom_version_items ALTER COLUMN qty_per_unit SET DEFAULT 0;
+ALTER TABLE %[1]s.bom_version_items ALTER COLUMN unit_cost_snapshot SET DEFAULT 0;
 ALTER TABLE %[1]s.bom_version_items ALTER COLUMN component_type SET NOT NULL;
 ALTER TABLE %[1]s.bom_version_items ALTER COLUMN component_product_id SET NOT NULL;
 ALTER TABLE %[1]s.bom_version_items ALTER COLUMN component_spec_g SET NOT NULL;
 ALTER TABLE %[1]s.bom_version_items ALTER COLUMN consume_unit SET NOT NULL;
 ALTER TABLE %[1]s.bom_version_items ALTER COLUMN qty_per_unit SET NOT NULL;
+ALTER TABLE %[1]s.bom_version_items ALTER COLUMN unit_cost_snapshot SET NOT NULL;
 `, schema)
 	_, err := pool.Exec(ctx, q)
 	return err

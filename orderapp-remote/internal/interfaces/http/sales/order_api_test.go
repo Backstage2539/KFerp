@@ -268,7 +268,7 @@ func TestOrderAPIFormFiltersCustomerSpecificProducts(t *testing.T) {
 	}
 }
 
-func TestOrderAPIFormReturnsBoundRoastedTiersForGreenBeanProduct(t *testing.T) {
+func TestOrderAPIFormDoesNotReturnBoundRoastedTiersForGreenBeanProduct(t *testing.T) {
 	pool, schema := newOrderAPITestDB(t)
 	ctx := context.Background()
 	seedOrderAPITestData(t, ctx, pool, schema)
@@ -326,8 +326,8 @@ func TestOrderAPIFormReturnsBoundRoastedTiersForGreenBeanProduct(t *testing.T) {
 	if green.ProductKind != "green_bean" {
 		t.Fatalf("product_kind=%q, want green_bean", green.ProductKind)
 	}
-	if len(green.Tiers) != 2 || green.Tiers[0].ID != 8801 || green.Tiers[0].SpecG != 1000 || green.Tiers[0].UnitPrice != 81.91 {
-		t.Fatalf("green bean inherited tiers = %+v, want bound roasted tiers", green.Tiers)
+	if len(green.Tiers) != 0 {
+		t.Fatalf("green bean must not inherit bound roasted tiers, got %+v", green.Tiers)
 	}
 }
 
@@ -1725,7 +1725,7 @@ func TestOrderAPISavesWholesale1000gByBeanListWeightTier(t *testing.T) {
 	}
 }
 
-func TestOrderAPISavesGreenBeanOrderUsingBoundRoastedTierFallback(t *testing.T) {
+func TestOrderAPISavesGreenBeanOrderRejectsMissingGreenBeanListPrice(t *testing.T) {
 	pool, schema := newOrderAPITestDB(t)
 	ctx := context.Background()
 	seedOrderAPITestData(t, ctx, pool, schema)
@@ -1761,30 +1761,73 @@ func TestOrderAPISavesGreenBeanOrderUsingBoundRoastedTierFallback(t *testing.T) 
 	rec := httptest.NewRecorder()
 	e.ServeHTTP(rec, req)
 
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("POST /api/order status = %d, want 400, body=%s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "生豆豆单") && !strings.Contains(rec.Body.String(), "green bean") {
+		t.Fatalf("missing green bean list price error, body=%s", rec.Body.String())
+	}
+}
+
+func TestOrderAPISavesGreenBeanOrderUsingSelectedGreenBeanListPublication(t *testing.T) {
+	pool, schema := newOrderAPITestDB(t)
+	ctx := context.Background()
+	seedOrderAPITestData(t, ctx, pool, schema)
+	mustExecOrderAPITestSQL(t, ctx, pool, fmt.Sprintf(`
+		INSERT INTO %[1]s.products(id,name,default_price,active,product_kind,green_bean_type,green_bean_bom_product_id,customer_id,visibility,custom_type)
+		VALUES (88,'兰卡拼配生豆',0,true,'green_bean','blend',7,3,'customer_only','public_sku_alias');
+		INSERT INTO %[1]s.bean_list_publications(id, list_type, version_no, status, owner_type, owner_key, config_json, content_json, changelog, actor, published_at)
+		VALUES (9901,'green','G-2026-05-18','published','customer','3','{}'::jsonb,
+			'{"groups":[{"items":[{"productId":88,"name":"兰卡拼配生豆","green_bean_sale_tiers":[{"label":"24-49kg","spec_g":1000,"min_qty":24,"max_qty":49,"price_per_unit":72,"display_unit":"kg","min_weight_g":24000,"max_weight_g":49000}]}]}]}'::jsonb,
+			'生豆手工价','codex','2026-05-18 09:00:00+08'),
+			(9902,'green','G-2026-05-19','published','customer','3','{}'::jsonb,
+			'{"groups":[{"items":[{"productId":88,"name":"兰卡拼配生豆","green_bean_sale_tiers":[{"label":"24-49kg","spec_g":1000,"min_qty":24,"max_qty":49,"price_per_unit":99,"display_unit":"kg","min_weight_g":24000,"max_weight_g":49000}]}]}]}'::jsonb,
+			'生豆较新版本','codex','2026-05-19 09:00:00+08');
+	`, schema))
+
+	e := newOrderAPITestEcho(pool, schema)
+	payload := map[string]any{
+		"order_date":                     "2026-05-19",
+		"customer_id":                    3,
+		"source_id":                      1,
+		"order_type_id":                  1,
+		"pay_status_id":                  1,
+		"ship_status_id":                 1,
+		"bean_list_publication_id":       9902,
+		"green_bean_list_publication_id": 9901,
+		"product_id":                     []string{"88"},
+		"tier_id":                        []string{"auto"},
+		"unit_price":                     []string{""},
+		"item_name":                      []string{"兰卡拼配生豆"},
+		"product_kind":                   []string{"green_bean"},
+		"qty":                            []string{"30"},
+		"unit":                           []string{"kg"},
+		"spec":                           []string{"1000"},
+	}
+	body, _ := json.Marshal(payload)
+	req := httptest.NewRequest(http.MethodPost, "/api/order", bytes.NewReader(body))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+
 	if rec.Code != http.StatusOK {
 		t.Fatalf("POST /api/order status = %d, want 200, body=%s", rec.Code, rec.Body.String())
 	}
 
-	var productKind, priceSource string
-	var tierID int64
+	var productKind, versionNo string
+	var publicationID int64
 	var unitPrice, lineTotal float64
 	if err := pool.QueryRow(ctx, fmt.Sprintf(`
-		SELECT COALESCE(product_kind,''), COALESCE(price_tier_id,0), COALESCE(unit_price,0)::float8, COALESCE(line_total,0)::float8, COALESCE(price_source_json,'{}'::jsonb)::text
+		SELECT COALESCE(product_kind,''), COALESCE(bean_list_publication_id,0), COALESCE(bean_list_version_no,''), COALESCE(unit_price,0)::float8, COALESCE(line_total,0)::float8
 		FROM %s.order_items
 		WHERE product_id=88
 		ORDER BY id DESC
 		LIMIT 1
-	`, schema)).Scan(&productKind, &tierID, &unitPrice, &lineTotal, &priceSource); err != nil {
+	`, schema)).Scan(&productKind, &publicationID, &versionNo, &unitPrice, &lineTotal); err != nil {
 		t.Fatalf("query green bean order item: %v", err)
 	}
-	if productKind != "green_bean" {
-		t.Fatalf("product_kind=%q, want green_bean", productKind)
-	}
-	if tierID != 8801 || unitPrice != 82 || lineTotal != 2460 {
-		t.Fatalf("tier/unit_price/line_total=%d/%.2f/%.2f, want 8801/82.00/2460.00", tierID, unitPrice, lineTotal)
-	}
-	if !strings.Contains(priceSource, "green_bean_bound_roasted_tier") || !strings.Contains(priceSource, `"source_product_id": 7`) && !strings.Contains(priceSource, `"source_product_id":7`) {
-		t.Fatalf("price_source_json missing bound roasted fallback: %s", priceSource)
+	if productKind != "green_bean" || publicationID != 9901 || versionNo != "G-2026-05-18" || unitPrice != 72 || lineTotal != 2160 {
+		t.Fatalf("saved green item kind/pub/version/unit/total=%q/%d/%q/%.2f/%.2f, want green_bean/9901/G-2026-05-18/72.00/2160.00", productKind, publicationID, versionNo, unitPrice, lineTotal)
 	}
 }
 

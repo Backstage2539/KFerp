@@ -549,22 +549,18 @@ func buildGreenBeanTemplateSaleTiers(params Parameters, in ProductInput) []Comme
 	}
 	out := make([]CommercialWholesaleTier, 0, len(template.Tiers))
 	for _, tier := range template.Tiers {
-		margin := tier.MarginRate
-		if in.MarginRateOverride != nil {
-			margin = *in.MarginRateOverride
-		}
 		displayUnit := normalizeGradientDisplayUnit(template.DisplayUnit)
 		specG := specGForGradientDisplayUnit(displayUnit)
-		pricePerKg := roundPrice(in.GreenBeanCostPerKg * (1 + margin))
-		pricePerLb := pricePerKg * params.KgToLbFactor
+		pricePerKg := roundPriceTo(in.GreenBeanCostPerKg, 2)
+		pricePerLb := roundPriceTo(pricePerKg*params.KgToLbFactor, 2)
 		pricePerUnit := pricePerKg
 		switch displayUnit {
 		case GradientDisplayUnitLb:
-			pricePerUnit = roundPrice(pricePerLb)
+			pricePerUnit = pricePerLb
 		case GradientDisplayUnitKg:
 			pricePerUnit = pricePerKg
 		default:
-			pricePerUnit = roundPrice(pricePerKg * float64(specG) / 1000.0)
+			pricePerUnit = roundPriceTo(pricePerKg*float64(specG)/1000.0, 2)
 		}
 		minQty := roundQuantity(tier.MinWeightG / float64(specG))
 		var maxQty *float64
@@ -594,7 +590,7 @@ func buildGreenBeanTemplateSaleTiers(params Parameters, in ProductInput) []Comme
 			DisplayUnit:    displayUnit,
 			MinWeightG:     tier.MinWeightG,
 			MaxWeightG:     tier.MaxWeightG,
-			MarginRate:     margin,
+			MarginRate:     0,
 		})
 	}
 	return out
@@ -1268,6 +1264,14 @@ func roundProductPrices(out *ProductResult) {
 
 func roundPrice(v float64) float64 {
 	return math.Round(v)
+}
+
+func roundPriceTo(v float64, precision int) float64 {
+	if precision <= 0 {
+		return roundPrice(v)
+	}
+	pow := math.Pow10(precision)
+	return math.Round(v*pow) / pow
 }
 
 func ptrFloat64(v float64) *float64 {

@@ -185,7 +185,7 @@ func (r Repository) SaveItem(ctx context.Context, cmd bomapp.SaveItemCommand) er
 		return err
 	}
 
-	q := "INSERT INTO " + r.schema + ".product_bom_items(product_id,material_id,component_type,component_product_id,component_spec_g,consume_unit,qty_per_unit,ratio_pct,updated_at) VALUES($1,$2,'material',0,$3,$4,$5,$6,now()) ON CONFLICT (product_id,material_id) WHERE component_type='material' DO UPDATE SET component_spec_g=excluded.component_spec_g, consume_unit=excluded.consume_unit, qty_per_unit=excluded.qty_per_unit, ratio_pct=excluded.ratio_pct, updated_at=now()"
+	q := "INSERT INTO " + r.schema + ".product_bom_items(product_id,material_id,component_type,component_product_id,component_spec_g,consume_unit,qty_per_unit,ratio_pct,unit_cost_snapshot,updated_at) VALUES($1,$2,'material',0,$3,$4,$5,$6,COALESCE((SELECT purchase_price FROM " + r.schema + ".materials WHERE id=$2),0),now()) ON CONFLICT (product_id,material_id) WHERE component_type='material' DO UPDATE SET component_spec_g=excluded.component_spec_g, consume_unit=excluded.consume_unit, qty_per_unit=excluded.qty_per_unit, ratio_pct=excluded.ratio_pct, unit_cost_snapshot=excluded.unit_cost_snapshot, updated_at=now()"
 	_, err = r.pool.Exec(ctx, q, cmd.ProductID, cmd.MaterialID, cmd.ComponentSpecG, cmd.ConsumeUnit, cmd.QtyPerUnit, cmd.RatioPct)
 	if err == nil {
 		auditBomItemSave(ctx, r.pool, r.schema, cmd)
@@ -285,8 +285,8 @@ func (r Repository) CreateVersion(ctx context.Context, cmd bomapp.CreateVersionC
 		return bomapp.Version{}, err
 	}
 	if _, err := tx.Exec(ctx, fmt.Sprintf(`
-		INSERT INTO %s.bom_version_items(version_id,material_id,component_type,component_product_id,component_spec_g,consume_unit,qty_per_unit,ratio_pct)
-		SELECT $1,material_id,component_type,component_product_id,component_spec_g,consume_unit,qty_per_unit,ratio_pct
+		INSERT INTO %s.bom_version_items(version_id,material_id,component_type,component_product_id,component_spec_g,consume_unit,qty_per_unit,ratio_pct,unit_cost_snapshot)
+		SELECT $1,material_id,component_type,component_product_id,component_spec_g,consume_unit,qty_per_unit,ratio_pct,unit_cost_snapshot
 		FROM %s.product_bom_items
 		WHERE product_id=$2
 		ORDER BY id
@@ -340,8 +340,8 @@ func (r Repository) ActivateVersion(ctx context.Context, cmd bomapp.ActivateVers
 		return err
 	}
 	if _, err := tx.Exec(ctx, fmt.Sprintf(`
-		INSERT INTO %s.product_bom_items(product_id,material_id,component_type,component_product_id,component_spec_g,consume_unit,qty_per_unit,ratio_pct,updated_at)
-		SELECT $1,material_id,component_type,component_product_id,component_spec_g,consume_unit,qty_per_unit,ratio_pct,now()
+		INSERT INTO %s.product_bom_items(product_id,material_id,component_type,component_product_id,component_spec_g,consume_unit,qty_per_unit,ratio_pct,unit_cost_snapshot,updated_at)
+		SELECT $1,material_id,component_type,component_product_id,component_spec_g,consume_unit,qty_per_unit,ratio_pct,unit_cost_snapshot,now()
 		FROM %s.bom_version_items
 		WHERE version_id=$2
 		ORDER BY id
@@ -368,6 +368,7 @@ type bomItemRow struct {
 	ConsumeUnit          string
 	QtyPerUnit           float64
 	RatioPct             float64
+	UnitCostSnapshot     float64
 }
 
 func listBomItems(ctx context.Context, pool *pgxpool.Pool, schema string, productID int64) ([]bomItemRow, float64, error) {
@@ -381,7 +382,8 @@ func listBomItems(ctx context.Context, pool *pgxpool.Pool, schema string, produc
 		       COALESCE(bi.component_spec_g,0),
 		       COALESCE(NULLIF(bi.consume_unit,''),'ratio_pct'),
 		       COALESCE(bi.qty_per_unit,0)::float8,
-		       bi.ratio_pct
+		       bi.ratio_pct,
+		       COALESCE(bi.unit_cost_snapshot,0)::float8
 		FROM %s.product_bom_items bi
 		LEFT JOIN %s.materials m ON m.id=bi.material_id
 		LEFT JOIN %s.products cp ON cp.id=bi.component_product_id
@@ -398,7 +400,7 @@ func listBomItems(ctx context.Context, pool *pgxpool.Pool, schema string, produc
 	total := 0.0
 	for rows.Next() {
 		var row bomItemRow
-		if err := rows.Scan(&row.ID, &row.MaterialID, &row.MaterialName, &row.ComponentType, &row.ComponentProductID, &row.ComponentProductName, &row.ComponentSpecG, &row.ConsumeUnit, &row.QtyPerUnit, &row.RatioPct); err != nil {
+		if err := rows.Scan(&row.ID, &row.MaterialID, &row.MaterialName, &row.ComponentType, &row.ComponentProductID, &row.ComponentProductName, &row.ComponentSpecG, &row.ConsumeUnit, &row.QtyPerUnit, &row.RatioPct, &row.UnitCostSnapshot); err != nil {
 			return nil, 0, err
 		}
 		if row.ComponentType == "material" && row.ConsumeUnit == "ratio_pct" {

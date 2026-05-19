@@ -20,38 +20,55 @@ func TestOrderFormProductQueryKeepsRoastLevelAndProductKindScanShape(t *testing.
 	}
 }
 
-func TestOrderFormProductQueryExposesBoundRoastedTiersForGreenBeanProducts(t *testing.T) {
+func TestOrderFormProductQueryDoesNotExposeBoundRoastedTiersForGreenBeanProducts(t *testing.T) {
+	source, err := os.ReadFile("order_form_queries.go")
+	if err != nil {
+		t.Fatalf("read order_form_queries.go: %v", err)
+	}
+	text := string(source)
+	for _, forbidden := range []string{
+		"green_bound_tiers",
+		"green_bean_bound_roasted_tier",
+	} {
+		if strings.Contains(text, forbidden) {
+			t.Fatalf("order form product tiers must not expose bound roasted tiers for green bean products; found %q", forbidden)
+		}
+	}
+}
+
+func TestOrderSaveRejectsMissingGreenBeanListPriceWithoutBoundRoastedFallback(t *testing.T) {
+	source, err := os.ReadFile("repository.go")
+	if err != nil {
+		t.Fatalf("read repository.go: %v", err)
+	}
+	text := string(source)
+	for _, forbidden := range []string{
+		"greenBeanOrderPriceProductIDTx",
+		"greenBeanBoundRoastedTierPriceSourceJSON",
+		"green_bean_bound_roasted_tier",
+	} {
+		if strings.Contains(text, forbidden) {
+			t.Fatalf("green bean order save must not fall back to bound roasted tiers; found %q", forbidden)
+		}
+	}
+	if !strings.Contains(text, "missing green bean list price") && !strings.Contains(text, "缺少生豆豆单价格") {
+		t.Fatalf("green bean order save must return an explicit missing green bean list price error")
+	}
+}
+
+func TestOrderFormBeanListVersionOptionsArePartitionedByListType(t *testing.T) {
 	source, err := os.ReadFile("order_form_queries.go")
 	if err != nil {
 		t.Fatalf("read order_form_queries.go: %v", err)
 	}
 	text := string(source)
 	for _, want := range []string{
-		"green_bean_bom_product_id",
-		"green_bean_bound_roasted_tier",
-		"source_product_id",
-		"NOT EXISTS",
+		"b.list_type",
+		"PARTITION BY c.id, b.list_type",
+		"&row.ListType",
 	} {
 		if !strings.Contains(text, want) {
-			t.Fatalf("order form product tiers must expose bound roasted tiers for green bean products; missing %q", want)
-		}
-	}
-}
-
-func TestOrderSaveUsesBoundRoastedTierFallbackForGreenBeanOrders(t *testing.T) {
-	source, err := os.ReadFile("repository.go")
-	if err != nil {
-		t.Fatalf("read repository.go: %v", err)
-	}
-	text := string(source)
-	for _, want := range []string{
-		"greenBeanOrderPriceProductIDTx",
-		"resolveAutoWeightTierPriceTx",
-		"green_bean_bound_roasted_tier",
-		"source_product_id",
-	} {
-		if !strings.Contains(text, want) {
-			t.Fatalf("green bean order save must fall back to bound roasted tiers; missing %q", want)
+			t.Fatalf("order form bean-list versions must be grouped by customer and list type; missing %q", want)
 		}
 	}
 }

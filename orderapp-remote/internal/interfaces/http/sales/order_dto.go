@@ -10,30 +10,33 @@ type ProductOption = salesapp.ProductOption
 type PageData = salesapp.OrderFormData
 
 type CreateOrderRequest struct {
-	OrderDate             string `form:"order_date"`
-	CustomerID            int64  `form:"customer_id"`
-	SourceID              int64  `form:"source_id"`
-	OrderTypeID           int64  `form:"order_type_id"`
-	PayStatusID           int64  `form:"pay_status_id"`
-	PaymentMethod         string `form:"payment_method"`
-	ShipStatusID          int64  `form:"ship_status_id"`
-	ShipMethod            string `form:"ship_method"`
-	ShipTrackingNo        string `form:"ship_tracking_no"`
-	ResponsibleType       string `form:"responsible_type"`
-	ResponsibleID         int64  `form:"responsible_id"`
-	Notes                 string `form:"notes"`
-	ShippingAmount        string `form:"shipping_amount"`
-	DiscountAmount        string `form:"discount_amount"`
-	RoundToInt            string `form:"round_to_int"`
-	ExpressFee            string `form:"express_fee"`
-	OutsourceMaterialFee  string `form:"outsource_material_fee"`
-	OutsourceRoastFee     string `form:"outsource_roast_fee"`
-	OutsourcePackagingFee string `form:"outsource_packaging_fee"`
-	OutsourceManualFee    string `form:"outsource_manual_fee"`
-	OutsourceTaxFee       string `form:"outsource_tax_fee"`
-	OutsourceOtherFee     string `form:"outsource_other_fee"`
-	StockBatchDecision    string `form:"stock_batch_decision"`
-	BeanListPublicationID int64  `form:"bean_list_publication_id"`
+	OrderDate                       string `form:"order_date"`
+	CustomerID                      int64  `form:"customer_id"`
+	SourceID                        int64  `form:"source_id"`
+	OrderTypeID                     int64  `form:"order_type_id"`
+	PayStatusID                     int64  `form:"pay_status_id"`
+	PaymentMethod                   string `form:"payment_method"`
+	ShipStatusID                    int64  `form:"ship_status_id"`
+	ShipMethod                      string `form:"ship_method"`
+	ShipTrackingNo                  string `form:"ship_tracking_no"`
+	ResponsibleType                 string `form:"responsible_type"`
+	ResponsibleID                   int64  `form:"responsible_id"`
+	Notes                           string `form:"notes"`
+	ShippingAmount                  string `form:"shipping_amount"`
+	DiscountAmount                  string `form:"discount_amount"`
+	RoundToInt                      string `form:"round_to_int"`
+	ExpressFee                      string `form:"express_fee"`
+	OutsourceMaterialFee            string `form:"outsource_material_fee"`
+	OutsourceRoastFee               string `form:"outsource_roast_fee"`
+	OutsourcePackagingFee           string `form:"outsource_packaging_fee"`
+	OutsourceManualFee              string `form:"outsource_manual_fee"`
+	OutsourceTaxFee                 string `form:"outsource_tax_fee"`
+	OutsourceOtherFee               string `form:"outsource_other_fee"`
+	StockBatchDecision              string `form:"stock_batch_decision"`
+	BeanListPublicationID           int64  `form:"bean_list_publication_id"`
+	CommercialBeanListPublicationID int64  `form:"commercial_bean_list_publication_id"`
+	GreenBeanListPublicationID      int64  `form:"green_bean_list_publication_id"`
+	DripBeanListPublicationID       int64  `form:"drip_bean_list_publication_id"`
 
 	ProductID     []string `form:"product_id[]"`
 	TierID        []string `form:"tier_id[]"`

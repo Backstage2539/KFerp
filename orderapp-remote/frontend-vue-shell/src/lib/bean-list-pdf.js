@@ -106,6 +106,7 @@ function buildPdfItem(item, metaKey, tierKey, listType, code, customizers) {
   const highlightTerms = normalizeStringList(customizer.highlightTerms)
   const badge = normalizeBadge(customizer.badge)
   const beanListQuality = normalizeBeanListQuality(item.bean_list_quality || item.beanListQuality)
+  const tierSnapshots = pdfTierSnapshots(item, tierKey, listType, customizer)
   return {
     productId: item.product_id || item.productID || item.id || null,
     code: code || meta.code || '',
@@ -118,12 +119,25 @@ function buildPdfItem(item, metaKey, tierKey, listType, code, customizers) {
     badgeLabel: badgeLabel(badge),
     highlightTerms,
     ...(beanListQuality ? { beanListQuality, qualityLines: beanListQualityLines(beanListQuality) } : {}),
-    prices: pdfPriceRows(item, tierKey, listType)
+    ...(tierSnapshots.length ? { [tierKey]: tierSnapshots } : {}),
+    prices: pdfPriceRows(item, tierKey, listType, customizer)
   }
 }
 
-function pdfPriceRows(item, tierKey, listType) {
+function pdfTierSnapshots(item, tierKey, listType, customizer = {}) {
   const tiers = Array.isArray(item[tierKey]) ? item[tierKey] : []
+  return tiers.map((tier) => {
+    const next = { ...tier }
+    if (listType === 'green') {
+      const override = greenTierPriceOverride(tier, customizer)
+      if (override != null) applyGreenTierPrice(next, override)
+    }
+    return next
+  })
+}
+
+function pdfPriceRows(item, tierKey, listType, customizer = {}) {
+  const tiers = pdfTierSnapshots(item, tierKey, listType, customizer)
   if (listType === 'drip') {
     return tiers.flatMap((tier) => dripPdfPriceRows(tier, item))
   }
@@ -136,6 +150,46 @@ function pdfPriceRows(item, tierKey, listType) {
       red: false,
     }
   })
+}
+
+function applyGreenTierPrice(tier, price) {
+  const unitPrice = roundTo(price, 2)
+  const specG = Number(tier.spec_g || 1000) || 1000
+  tier.price_per_unit = unitPrice
+  switch (tier.display_unit) {
+    case 'lb':
+      tier.price_per_lb = unitPrice
+      tier.price_per_kg = roundTo(unitPrice / 0.454, 2)
+      break
+    case 'g100':
+    case 'g227':
+    case 'g250':
+      tier.price_per_kg = roundTo(unitPrice * 1000 / specG, 2)
+      tier.price_per_lb = roundTo(tier.price_per_kg * 0.454, 2)
+      break
+    case 'kg':
+    default:
+      tier.price_per_kg = unitPrice
+      tier.price_per_lb = roundTo(unitPrice * 0.454, 2)
+      break
+  }
+}
+
+function greenTierPriceOverride(tier = {}, customizer = {}) {
+  const overrides = customizer.greenPriceOverrides && typeof customizer.greenPriceOverrides === 'object' ? customizer.greenPriceOverrides : {}
+  for (const key of greenTierOverrideKeys(tier)) {
+    const value = Number(overrides[key])
+    if (Number.isFinite(value) && value > 0) return value
+  }
+  return undefined
+}
+
+function greenTierOverrideKeys(tier = {}) {
+  return [
+    tier.template_tier_id,
+    tier.templateTierID,
+    tier.label,
+  ].filter((value) => value !== undefined && value !== null && String(value).trim() !== '').map((value) => String(value))
 }
 
 function dripPdfPriceRows(tier = {}, item = {}) {
@@ -173,10 +227,18 @@ function dripPriceUnit(tier = {}) {
 
 function firstNumber(...values) {
   for (const value of values) {
+    if (value === null || value === undefined || value === '') continue
     const n = Number(value)
     if (Number.isFinite(n)) return n
   }
   return 0
+}
+
+function roundTo(value, precision = 2) {
+  const n = Number(value)
+  if (!Number.isFinite(n)) return 0
+  const pow = 10 ** precision
+  return Math.round(n * pow) / pow
 }
 
 function positiveInteger(...values) {

@@ -9,33 +9,36 @@ import (
 )
 
 type SaveOrderCommand struct {
-	Actor                 string
-	EditID                int64
-	OrderDate             time.Time
-	CustomerID            int64
-	SourceID              int64
-	OrderTypeID           int64
-	PayStatusID           int64
-	PaymentMethod         string
-	ShipStatusID          int64
-	ShipMethod            string
-	ShipTrackingNo        string
-	ResponsibleType       string
-	ResponsibleID         int64
-	Notes                 string
-	ShippingAmount        float64
-	DiscountAmount        float64
-	RoundToInt            bool
-	ExpressFee            string
-	OutsourceMaterialFee  float64
-	OutsourceRoastFee     float64
-	OutsourcePackagingFee float64
-	OutsourceManualFee    float64
-	OutsourceTaxFee       float64
-	OutsourceOtherFee     float64
-	StockBatchDecision    string
-	BeanListPublicationID int64
-	Items                 []OrderItemCommand
+	Actor                           string
+	EditID                          int64
+	OrderDate                       time.Time
+	CustomerID                      int64
+	SourceID                        int64
+	OrderTypeID                     int64
+	PayStatusID                     int64
+	PaymentMethod                   string
+	ShipStatusID                    int64
+	ShipMethod                      string
+	ShipTrackingNo                  string
+	ResponsibleType                 string
+	ResponsibleID                   int64
+	Notes                           string
+	ShippingAmount                  float64
+	DiscountAmount                  float64
+	RoundToInt                      bool
+	ExpressFee                      string
+	OutsourceMaterialFee            float64
+	OutsourceRoastFee               float64
+	OutsourcePackagingFee           float64
+	OutsourceManualFee              float64
+	OutsourceTaxFee                 float64
+	OutsourceOtherFee               float64
+	StockBatchDecision              string
+	BeanListPublicationID           int64
+	CommercialBeanListPublicationID int64
+	GreenBeanListPublicationID      int64
+	DripBeanListPublicationID       int64
+	Items                           []OrderItemCommand
 }
 
 type OrderItemCommand struct {
@@ -241,6 +244,7 @@ type ProductOption struct {
 
 type BeanListVersionOption struct {
 	CustomerID      int64  `json:"customer_id"`
+	ListType        string `json:"list_type"`
 	ID              int64  `json:"id"`
 	VersionNo       string `json:"version_no"`
 	Label           string `json:"label"`

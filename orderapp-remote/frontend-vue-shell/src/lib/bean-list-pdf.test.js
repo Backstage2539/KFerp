@@ -132,6 +132,9 @@ test('PDF bean-list helper builds a green bean list from template tiers and qual
   assert.equal(groups[0].items[0].name, '埃塞瑰夏生豆')
   assert.equal(groups[0].items[0].prices[0].price, 128)
   assert.equal(groups[0].items[0].prices[0].unit, 'kg')
+  assert.deepEqual(groups[0].items[0].green_bean_sale_tiers, [
+    { label: '1kg+', spec_g: 1000, price_per_unit: 128, display_unit: 'kg' },
+  ])
   assert.deepEqual(groups[0].items[0].beanListQuality, {
     factoryFlavorDescription: '茉莉花、柑橘',
     moisture: '10.8%',
@@ -144,6 +147,37 @@ test('PDF bean-list helper builds a green bean list from template tiers and qual
     { label: '密度', value: '780g/L' },
     { label: '质检时间', value: '2026-05-18 09:30' },
   ])
+})
+
+test('PDF bean-list helper applies manual green bean tier price overrides only to selected tiers', () => {
+  const groups = buildBeanListPdfGroups([{
+    product_id: 90,
+    product_kind: 'green_bean',
+    name: '兰卡拼配生豆',
+    green_bean_list: {
+      code: 'G.1',
+      category: '生豆销售',
+      display_name: '兰卡拼配生豆',
+    },
+    green_bean_sale_tiers: [
+      { label: '24-49kg', template_tier_id: 2401, spec_g: 1000, price_per_unit: 60, display_unit: 'kg' },
+      { label: '50-99kg', template_tier_id: 2402, spec_g: 1000, price_per_unit: 58, display_unit: 'kg' },
+    ],
+  }], 'green', {
+    customizers: {
+      90: {
+        greenPriceOverrides: {
+          2402: 66.5,
+        },
+      },
+    },
+  })
+
+  assert.equal(groups[0].items[0].prices[0].price, 60)
+  assert.equal(groups[0].items[0].prices[1].price, 66.5)
+  assert.equal(groups[0].items[0].prices[1].unit, 'kg')
+  assert.equal(groups[0].items[0].green_bean_sale_tiers[0].price_per_unit, 60)
+  assert.equal(groups[0].items[0].green_bean_sale_tiers[1].price_per_unit, 66.5)
 })
 
 test('bean-list scope filter keeps customer SKUs isolated by customer', () => {

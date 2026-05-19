@@ -473,6 +473,12 @@
                   </select>
                   <input :value="customizerField(itemProductID(row), 'highlightTerms')" placeholder="标红词，用逗号分隔" @input="setCustomizerField(itemProductID(row), 'highlightTerms', $event.target.value)" />
                 </div>
+                <div v-if="pdfTheme.listType === 'green' && greenTierPriceRows(row).length" class="green-tier-price-editor">
+                  <label v-for="tier in greenTierPriceRows(row)" :key="`green-price-${itemProductID(row)}-${greenTierOverrideKey(tier)}`">
+                    <span>{{ tier.label }}</span>
+                    <input type="number" min="0" step="0.01" :value="greenTierPriceValue(itemProductID(row), tier)" @input="setGreenBeanTierPrice(itemProductID(row), tier, $event.target.value)" />
+                  </label>
+                </div>
               </article>
             </section>
           </div>
@@ -1352,6 +1358,45 @@ function setCustomizerField(id, field, value) {
   }
 }
 
+function greenTierPriceRows(item) {
+  return Array.isArray(item?.green_bean_sale_tiers) ? item.green_bean_sale_tiers : []
+}
+
+function greenTierOverrideKey(tier) {
+  return String(tier?.template_tier_id || tier?.templateTierID || tier?.label || '')
+}
+
+function greenTierPriceValue(id, tier) {
+  const key = String(id)
+  const tierKey = greenTierOverrideKey(tier)
+  const overrides = pdfCustomizers.value[key]?.greenPriceOverrides || {}
+  const overridden = Number(overrides[tierKey])
+  if (Number.isFinite(overridden) && overridden > 0) return overridden
+  return Number(tier?.price_per_unit || tier?.pricePerUnit || 0)
+}
+
+function setGreenBeanTierPrice(id, tier, value) {
+  const key = String(id)
+  const tierKey = greenTierOverrideKey(tier)
+  if (!tierKey) return
+  const current = pdfCustomizers.value[key] || {}
+  const currentOverrides = current.greenPriceOverrides || {}
+  const nextOverrides = { ...currentOverrides }
+  const numeric = Number(value)
+  if (Number.isFinite(numeric) && numeric > 0) {
+    nextOverrides[tierKey] = numeric
+  } else {
+    delete nextOverrides[tierKey]
+  }
+  pdfCustomizers.value = {
+    ...pdfCustomizers.value,
+    [key]: {
+      ...current,
+      greenPriceOverrides: nextOverrides,
+    },
+  }
+}
+
 function highlightedParts(text, item) {
   return splitHighlightedText(text, item?.highlightTerms || [])
 }
@@ -1892,6 +1937,9 @@ button:disabled { opacity: .45; cursor: not-allowed; }
 .product-picker-category-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding-bottom: 6px; border-bottom: 1px solid #eee; }
 .product-picker-row { display: grid; gap: 7px; border: 1px solid #eee; border-radius: 8px; padding: 9px; background: #fafafa; }
 .customizer-row { display: grid; grid-template-columns: 120px minmax(0, 1fr); gap: 7px; }
+.green-tier-price-editor { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 7px; }
+.green-tier-price-editor label { display: grid; grid-template-columns: minmax(0, 1fr) 82px; align-items: center; gap: 6px; font-size: 12px; color: #555; }
+.green-tier-price-editor input { min-width: 0; }
 .pdf-preview-title { max-width: 760px; margin: 16px auto 8px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px; color: #555; font-size: 12px; }
 .pdf-preview-title strong { color: #111; font-size: 14px; }
 .pdf-preview-phone { max-width: 430px; min-height: 360px; max-height: 72vh; overflow: auto; margin: 0 auto; border: 1px solid #ded6c9; border-radius: 8px; box-shadow: 0 10px 28px rgba(0,0,0,.12); }

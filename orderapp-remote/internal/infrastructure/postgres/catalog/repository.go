@@ -1214,8 +1214,8 @@ func deriveCustomerProductTx(ctx context.Context, tx pgx.Tx, schema string, cmd 
 	}
 	if cmd.CopyBOM && base.ProductKind == catalogdomain.ProductKindRoasted {
 		if _, err := tx.Exec(ctx, fmt.Sprintf(`
-			INSERT INTO %s.product_bom_items(product_id,material_id,component_type,component_product_id,component_spec_g,consume_unit,qty_per_unit,ratio_pct,updated_at)
-			SELECT $1,material_id,component_type,component_product_id,component_spec_g,consume_unit,qty_per_unit,ratio_pct,now()
+			INSERT INTO %s.product_bom_items(product_id,material_id,component_type,component_product_id,component_spec_g,consume_unit,qty_per_unit,ratio_pct,unit_cost_snapshot,updated_at)
+			SELECT $1,material_id,component_type,component_product_id,component_spec_g,consume_unit,qty_per_unit,ratio_pct,unit_cost_snapshot,now()
 			FROM %s.product_bom_items
 			WHERE product_id=$2
 			ORDER BY id
@@ -1467,8 +1467,8 @@ func (r Repository) CreateCustomProduct(ctx context.Context, cmd catalogapp.Crea
 	}
 	if copyBOM {
 		if _, err := tx.Exec(ctx, fmt.Sprintf(`
-			INSERT INTO %s.product_bom_items(product_id,material_id,component_type,component_product_id,component_spec_g,consume_unit,qty_per_unit,ratio_pct,updated_at)
-			SELECT $1,material_id,component_type,component_product_id,component_spec_g,consume_unit,qty_per_unit,ratio_pct,now()
+			INSERT INTO %s.product_bom_items(product_id,material_id,component_type,component_product_id,component_spec_g,consume_unit,qty_per_unit,ratio_pct,unit_cost_snapshot,updated_at)
+			SELECT $1,material_id,component_type,component_product_id,component_spec_g,consume_unit,qty_per_unit,ratio_pct,unit_cost_snapshot,now()
 			FROM %s.product_bom_items
 			WHERE product_id=$2
 			ORDER BY id
