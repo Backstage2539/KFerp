@@ -49,15 +49,23 @@ type Product struct {
 	Tiers                   []PriceTier
 }
 
+const (
+	TemplateStatePublic   = "public_template"
+	TemplateStateDerived  = "derived_from_public"
+	TemplateStateCustomer = "customer_owned"
+)
+
 type ProductCategory struct {
 	ID                 int64  `json:"id"`
 	ParentID           int64  `json:"parent_id"`
 	CustomerID         int64  `json:"customer_id"`
+	SourceCategoryID   int64  `json:"source_category_id"`
 	Name               string `json:"name"`
 	Level              int    `json:"level"`
 	Position           int    `json:"position"`
 	Number             int    `json:"number"`
 	GradientTemplateID int64  `json:"gradient_template_id"`
+	TemplateState      string `json:"template_state"`
 }
 
 type ProductSettingsProduct struct {
@@ -105,11 +113,14 @@ type ProductSettingsData struct {
 }
 
 type GradientTemplate struct {
-	ID          int64                  `json:"id"`
-	Name        string                 `json:"name"`
-	DisplayUnit string                 `json:"display_unit"`
-	Active      bool                   `json:"active"`
-	Tiers       []GradientTemplateTier `json:"tiers"`
+	ID               int64                  `json:"id"`
+	Name             string                 `json:"name"`
+	CustomerID       int64                  `json:"customer_id"`
+	SourceTemplateID int64                  `json:"source_template_id"`
+	TemplateState    string                 `json:"template_state"`
+	DisplayUnit      string                 `json:"display_unit"`
+	Active           bool                   `json:"active"`
+	Tiers            []GradientTemplateTier `json:"tiers"`
 }
 
 type GradientTemplateTier struct {
@@ -208,16 +219,18 @@ type CreateCustomProductCommand struct {
 }
 
 type CustomerPublicUsage struct {
-	CustomerID          int64 `json:"customer_id"`
-	UsePublicSKU        bool  `json:"use_public_sku"`
-	UsePublicCategories bool  `json:"use_public_categories"`
+	CustomerID                 int64 `json:"customer_id"`
+	UsePublicSKU               bool  `json:"use_public_sku"`
+	UsePublicCategories        bool  `json:"use_public_categories"`
+	UsePublicGradientTemplates bool  `json:"use_public_gradient_templates"`
 }
 
 type CustomerPublicUsageCommand struct {
-	Actor               string
-	CustomerID          int64
-	UsePublicSKU        bool
-	UsePublicCategories bool
+	Actor                      string
+	CustomerID                 int64
+	UsePublicSKU               bool
+	UsePublicCategories        bool
+	UsePublicGradientTemplates bool
 }
 
 type SaveProductCategoryCommand struct {
@@ -242,15 +255,52 @@ type DeleteProductCategoryCommand struct {
 }
 
 type AssignProductCategoryCommand struct {
-	Actor      string
-	ProductID  int64
-	CategoryID int64
-	Position   int
+	Actor                string
+	ProductID            int64
+	CategoryID           int64
+	CustomerID           int64
+	Position             int
+	DerivePublicCategory bool
+	DerivePublicProduct  bool
+}
+
+type AssignProductCategoryResult struct {
+	ProductID          int64 `json:"product_id"`
+	CategoryID         int64 `json:"category_id"`
+	DerivedProductID   int64 `json:"derived_product_id"`
+	DerivedCategoryID  int64 `json:"derived_category_id"`
+	UsedPublicProduct  bool  `json:"used_public_product"`
+	UsedPublicCategory bool  `json:"used_public_category"`
+}
+
+type DeriveProductCategoryCommand struct {
+	Actor            string
+	CustomerID       int64
+	SourceCategoryID int64
+}
+
+type DeriveCustomerProductCommand struct {
+	Actor          string
+	CustomerID     int64
+	BaseProductID  int64
+	CategoryID     int64
+	Position       int
+	Name           string
+	CopyBOM        bool
+	CopyPriceTiers bool
+}
+
+type DeriveGradientTemplateCommand struct {
+	Actor            string
+	CustomerID       int64
+	SourceTemplateID int64
+	Name             string
 }
 
 type SaveGradientTemplateCommand struct {
 	Actor       string
 	ID          int64
+	CustomerID  int64
 	Name        string
 	DisplayUnit string
 	Tiers       []GradientTemplateTier
@@ -282,8 +332,11 @@ type Repository interface {
 	SaveProductCategory(ctx context.Context, cmd SaveProductCategoryCommand) (ProductCategory, error)
 	MoveProductCategory(ctx context.Context, cmd MoveProductCategoryCommand) error
 	DeleteProductCategory(ctx context.Context, cmd DeleteProductCategoryCommand) error
-	AssignProductCategory(ctx context.Context, cmd AssignProductCategoryCommand) error
+	AssignProductCategory(ctx context.Context, cmd AssignProductCategoryCommand) (AssignProductCategoryResult, error)
 	CreateCustomProduct(ctx context.Context, cmd CreateCustomProductCommand) (Product, error)
+	DeriveProductCategory(ctx context.Context, cmd DeriveProductCategoryCommand) (ProductCategory, error)
+	DeriveCustomerProduct(ctx context.Context, cmd DeriveCustomerProductCommand) (Product, error)
+	DeriveGradientTemplate(ctx context.Context, cmd DeriveGradientTemplateCommand) (GradientTemplate, error)
 	ListCustomerPublicUsages(ctx context.Context) ([]CustomerPublicUsage, error)
 	SaveCustomerPublicUsage(ctx context.Context, cmd CustomerPublicUsageCommand) (CustomerPublicUsage, error)
 }
@@ -522,7 +575,8 @@ func (s *Service) DeleteProductCategory(ctx context.Context, cmd DeleteProductCa
 	return s.repo.DeleteProductCategory(ctx, cmd)
 }
 
-func (s *Service) AssignProductCategory(ctx context.Context, cmd AssignProductCategoryCommand) error {
+func (s *Service) AssignProductCategory(ctx context.Context, cmd AssignProductCategoryCommand) (AssignProductCategoryResult, error) {
+	cmd.Actor = strings.TrimSpace(cmd.Actor)
 	return s.repo.AssignProductCategory(ctx, cmd)
 }
 
@@ -600,6 +654,41 @@ func (s *Service) CreateCustomProduct(ctx context.Context, cmd CreateCustomProdu
 		return Product{}, fmt.Errorf("invalid custom_type")
 	}
 	return s.repo.CreateCustomProduct(ctx, cmd)
+}
+
+func (s *Service) DeriveProductCategory(ctx context.Context, cmd DeriveProductCategoryCommand) (ProductCategory, error) {
+	if cmd.CustomerID <= 0 {
+		return ProductCategory{}, fmt.Errorf("customer_id required")
+	}
+	if cmd.SourceCategoryID <= 0 {
+		return ProductCategory{}, fmt.Errorf("source_category_id required")
+	}
+	cmd.Actor = strings.TrimSpace(cmd.Actor)
+	return s.repo.DeriveProductCategory(ctx, cmd)
+}
+
+func (s *Service) DeriveCustomerProduct(ctx context.Context, cmd DeriveCustomerProductCommand) (Product, error) {
+	if cmd.CustomerID <= 0 {
+		return Product{}, fmt.Errorf("customer_id required")
+	}
+	if cmd.BaseProductID <= 0 {
+		return Product{}, fmt.Errorf("base_product_id required")
+	}
+	cmd.Actor = strings.TrimSpace(cmd.Actor)
+	cmd.Name = strings.TrimSpace(cmd.Name)
+	return s.repo.DeriveCustomerProduct(ctx, cmd)
+}
+
+func (s *Service) DeriveGradientTemplate(ctx context.Context, cmd DeriveGradientTemplateCommand) (GradientTemplate, error) {
+	if cmd.CustomerID <= 0 {
+		return GradientTemplate{}, fmt.Errorf("customer_id required")
+	}
+	if cmd.SourceTemplateID <= 0 {
+		return GradientTemplate{}, fmt.Errorf("source_template_id required")
+	}
+	cmd.Actor = strings.TrimSpace(cmd.Actor)
+	cmd.Name = strings.TrimSpace(cmd.Name)
+	return s.repo.DeriveGradientTemplate(ctx, cmd)
 }
 
 func (s *Service) SaveCustomerPublicUsage(ctx context.Context, cmd CustomerPublicUsageCommand) (CustomerPublicUsage, error) {

@@ -6,15 +6,20 @@ import (
 )
 
 type fakeRepo struct {
-	replace     ReplacePriceTiersCommand
-	update      UpdateProductBasicsCommand
-	create      CreateProductCommand
-	custom      CreateCustomProductCommand
-	publicUsage CustomerPublicUsageCommand
-	deactivate  DeactivateProductsCommand
-	products    map[int64]Product
-	deactivated bool
-	usageSaved  bool
+	replace         ReplacePriceTiersCommand
+	update          UpdateProductBasicsCommand
+	create          CreateProductCommand
+	custom          CreateCustomProductCommand
+	derivedProduct  DeriveCustomerProductCommand
+	derivedCategory DeriveProductCategoryCommand
+	derivedTemplate DeriveGradientTemplateCommand
+	assigned        AssignProductCategoryCommand
+	assignResult    AssignProductCategoryResult
+	publicUsage     CustomerPublicUsageCommand
+	deactivate      DeactivateProductsCommand
+	products        map[int64]Product
+	deactivated     bool
+	usageSaved      bool
 }
 
 func (r *fakeRepo) ListProducts(ctx context.Context) ([]Product, error) {
@@ -84,13 +89,32 @@ func (r *fakeRepo) DeleteProductCategory(ctx context.Context, cmd DeleteProductC
 	return nil
 }
 
-func (r *fakeRepo) AssignProductCategory(ctx context.Context, cmd AssignProductCategoryCommand) error {
-	return nil
+func (r *fakeRepo) AssignProductCategory(ctx context.Context, cmd AssignProductCategoryCommand) (AssignProductCategoryResult, error) {
+	r.assigned = cmd
+	if r.assignResult.ProductID == 0 {
+		r.assignResult = AssignProductCategoryResult{ProductID: cmd.ProductID, CategoryID: cmd.CategoryID}
+	}
+	return r.assignResult, nil
 }
 
 func (r *fakeRepo) CreateCustomProduct(ctx context.Context, cmd CreateCustomProductCommand) (Product, error) {
 	r.custom = cmd
 	return Product{ID: 10, Name: cmd.Name, ProductKind: cmd.ProductKind, GreenBeanType: cmd.GreenBeanType, GreenBeanBomProductID: cmd.GreenBeanBomProductID, CustomerID: cmd.CustomerID, BaseProductID: cmd.BaseProductID, Visibility: "customer_only", CustomType: cmd.CustomType}, nil
+}
+
+func (r *fakeRepo) DeriveCustomerProduct(ctx context.Context, cmd DeriveCustomerProductCommand) (Product, error) {
+	r.derivedProduct = cmd
+	return Product{ID: 420, Name: cmd.Name, CustomerID: cmd.CustomerID, BaseProductID: cmd.BaseProductID, Visibility: "customer_only", CustomType: "public_sku_alias", ProductCategoryID: cmd.CategoryID}, nil
+}
+
+func (r *fakeRepo) DeriveProductCategory(ctx context.Context, cmd DeriveProductCategoryCommand) (ProductCategory, error) {
+	r.derivedCategory = cmd
+	return ProductCategory{ID: 117, CustomerID: cmd.CustomerID, SourceCategoryID: cmd.SourceCategoryID, TemplateState: "derived_from_public", Name: "客户定制"}, nil
+}
+
+func (r *fakeRepo) DeriveGradientTemplate(ctx context.Context, cmd DeriveGradientTemplateCommand) (GradientTemplate, error) {
+	r.derivedTemplate = cmd
+	return GradientTemplate{ID: 202, CustomerID: cmd.CustomerID, SourceTemplateID: cmd.SourceTemplateID, TemplateState: "derived_from_public", Name: cmd.Name, Active: true}, nil
 }
 
 func (r *fakeRepo) ListCustomerPublicUsages(ctx context.Context) ([]CustomerPublicUsage, error) {
@@ -100,7 +124,7 @@ func (r *fakeRepo) ListCustomerPublicUsages(ctx context.Context) ([]CustomerPubl
 func (r *fakeRepo) SaveCustomerPublicUsage(ctx context.Context, cmd CustomerPublicUsageCommand) (CustomerPublicUsage, error) {
 	r.publicUsage = cmd
 	r.usageSaved = true
-	return CustomerPublicUsage{CustomerID: cmd.CustomerID, UsePublicSKU: cmd.UsePublicSKU, UsePublicCategories: cmd.UsePublicCategories}, nil
+	return CustomerPublicUsage{CustomerID: cmd.CustomerID, UsePublicSKU: cmd.UsePublicSKU, UsePublicCategories: cmd.UsePublicCategories, UsePublicGradientTemplates: cmd.UsePublicGradientTemplates}, nil
 }
 
 func TestServiceDelegatesCatalogOperations(t *testing.T) {
@@ -196,19 +220,98 @@ func TestSaveCustomerPublicUsageAllowsIndependentReferenceSwitches(t *testing.T)
 	svc := NewService(repo)
 
 	got, err := svc.SaveCustomerPublicUsage(context.Background(), CustomerPublicUsageCommand{
-		Actor:               "tester",
-		CustomerID:          42,
-		UsePublicSKU:        false,
-		UsePublicCategories: true,
+		Actor:                      "tester",
+		CustomerID:                 42,
+		UsePublicSKU:               false,
+		UsePublicCategories:        true,
+		UsePublicGradientTemplates: true,
 	})
 	if err != nil {
 		t.Fatalf("SaveCustomerPublicUsage() err=%v", err)
 	}
-	if !repo.usageSaved || repo.publicUsage.Actor != "tester" || repo.publicUsage.CustomerID != 42 || repo.publicUsage.UsePublicSKU || !repo.publicUsage.UsePublicCategories {
+	if !repo.usageSaved || repo.publicUsage.Actor != "tester" || repo.publicUsage.CustomerID != 42 || repo.publicUsage.UsePublicSKU || !repo.publicUsage.UsePublicCategories || !repo.publicUsage.UsePublicGradientTemplates {
 		t.Fatalf("public usage command = %+v saved=%v", repo.publicUsage, repo.usageSaved)
 	}
-	if got.CustomerID != 42 || got.UsePublicSKU || !got.UsePublicCategories {
+	if got.CustomerID != 42 || got.UsePublicSKU || !got.UsePublicCategories || !got.UsePublicGradientTemplates {
 		t.Fatalf("public usage result = %+v", got)
+	}
+}
+
+func TestDeriveProductCategoryRequiresCustomerAndSource(t *testing.T) {
+	repo := &fakeRepo{}
+	svc := NewService(repo)
+
+	got, err := svc.DeriveProductCategory(context.Background(), DeriveProductCategoryCommand{
+		Actor:            "tester",
+		CustomerID:       42,
+		SourceCategoryID: 17,
+	})
+	if err != nil {
+		t.Fatalf("DeriveProductCategory() err=%v", err)
+	}
+	if repo.derivedCategory.Actor != "tester" || repo.derivedCategory.CustomerID != 42 || repo.derivedCategory.SourceCategoryID != 17 {
+		t.Fatalf("derive category command = %+v", repo.derivedCategory)
+	}
+	if got.ID != 117 || got.CustomerID != 42 || got.SourceCategoryID != 17 || got.TemplateState != "derived_from_public" {
+		t.Fatalf("derived category = %+v", got)
+	}
+	if _, err := svc.DeriveProductCategory(context.Background(), DeriveProductCategoryCommand{CustomerID: 42}); err == nil {
+		t.Fatalf("DeriveProductCategory() should require source_category_id")
+	}
+}
+
+func TestAssignProductCategoryCarriesCustomerDerivationContext(t *testing.T) {
+	repo := &fakeRepo{assignResult: AssignProductCategoryResult{
+		ProductID:          420,
+		CategoryID:         117,
+		DerivedProductID:   420,
+		DerivedCategoryID:  117,
+		UsedPublicCategory: true,
+		UsedPublicProduct:  true,
+	}}
+	svc := NewService(repo)
+
+	got, err := svc.AssignProductCategory(context.Background(), AssignProductCategoryCommand{
+		Actor:                "tester",
+		ProductID:            21,
+		CategoryID:           17,
+		CustomerID:           42,
+		Position:             3,
+		DerivePublicCategory: true,
+		DerivePublicProduct:  true,
+	})
+	if err != nil {
+		t.Fatalf("AssignProductCategory() err=%v", err)
+	}
+	if repo.assigned.CustomerID != 42 || !repo.assigned.DerivePublicCategory || !repo.assigned.DerivePublicProduct || repo.assigned.Position != 3 {
+		t.Fatalf("assign command = %+v", repo.assigned)
+	}
+	if got.ProductID != 420 || got.CategoryID != 117 || got.DerivedProductID != 420 || got.DerivedCategoryID != 117 {
+		t.Fatalf("assign result = %+v", got)
+	}
+}
+
+func TestDeriveGradientTemplateRequiresCustomerAndSource(t *testing.T) {
+	repo := &fakeRepo{}
+	svc := NewService(repo)
+
+	got, err := svc.DeriveGradientTemplate(context.Background(), DeriveGradientTemplateCommand{
+		Actor:            "tester",
+		CustomerID:       42,
+		SourceTemplateID: 2,
+		Name:             "岩师傅 - 正常磅价模板",
+	})
+	if err != nil {
+		t.Fatalf("DeriveGradientTemplate() err=%v", err)
+	}
+	if repo.derivedTemplate.Actor != "tester" || repo.derivedTemplate.CustomerID != 42 || repo.derivedTemplate.SourceTemplateID != 2 {
+		t.Fatalf("derive template command = %+v", repo.derivedTemplate)
+	}
+	if got.ID != 202 || got.CustomerID != 42 || got.SourceTemplateID != 2 || got.TemplateState != "derived_from_public" {
+		t.Fatalf("derived template = %+v", got)
+	}
+	if _, err := svc.DeriveGradientTemplate(context.Background(), DeriveGradientTemplateCommand{CustomerID: 42}); err == nil {
+		t.Fatalf("DeriveGradientTemplate() should require source_template_id")
 	}
 }
 

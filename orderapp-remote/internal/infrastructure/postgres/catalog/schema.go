@@ -64,6 +64,8 @@ CREATE TABLE IF NOT EXISTS %[1]s.product_categories (
 );
 ALTER TABLE %[1]s.product_categories ADD COLUMN IF NOT EXISTS customer_id BIGINT NOT NULL DEFAULT 0;
 ALTER TABLE %[1]s.product_categories ADD COLUMN IF NOT EXISTS gradient_template_id BIGINT NOT NULL DEFAULT 0;
+ALTER TABLE %[1]s.product_categories ADD COLUMN IF NOT EXISTS source_category_id BIGINT NOT NULL DEFAULT 0;
+ALTER TABLE %[1]s.product_categories ADD COLUMN IF NOT EXISTS template_state TEXT NOT NULL DEFAULT 'customer_owned';
 CREATE TABLE IF NOT EXISTS %[1]s.pricing_gradient_templates (
 	id BIGSERIAL PRIMARY KEY,
 	name TEXT NOT NULL,
@@ -72,8 +74,12 @@ CREATE TABLE IF NOT EXISTS %[1]s.pricing_gradient_templates (
 	created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
 	updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
-CREATE UNIQUE INDEX IF NOT EXISTS pricing_gradient_templates_name_active_uniq
-ON %[1]s.pricing_gradient_templates (lower(name))
+ALTER TABLE %[1]s.pricing_gradient_templates ADD COLUMN IF NOT EXISTS customer_id BIGINT NOT NULL DEFAULT 0;
+ALTER TABLE %[1]s.pricing_gradient_templates ADD COLUMN IF NOT EXISTS source_template_id BIGINT NOT NULL DEFAULT 0;
+ALTER TABLE %[1]s.pricing_gradient_templates ADD COLUMN IF NOT EXISTS template_state TEXT NOT NULL DEFAULT 'customer_owned';
+DROP INDEX IF EXISTS %[1]s.pricing_gradient_templates_name_active_uniq;
+CREATE UNIQUE INDEX IF NOT EXISTS pricing_gradient_templates_customer_name_active_uniq
+ON %[1]s.pricing_gradient_templates (customer_id, lower(name))
 WHERE active=true;
 CREATE TABLE IF NOT EXISTS %[1]s.pricing_gradient_template_tiers (
 	id BIGSERIAL PRIMARY KEY,
@@ -93,13 +99,21 @@ DROP INDEX IF EXISTS %[1]s.product_categories_parent_name_uniq;
 CREATE UNIQUE INDEX IF NOT EXISTS product_categories_customer_parent_name_uniq
 ON %[1]s.product_categories (customer_id, COALESCE(parent_id,0), lower(name))
 WHERE active=true;
+CREATE UNIQUE INDEX IF NOT EXISTS product_categories_customer_source_active_uniq
+ON %[1]s.product_categories (customer_id, source_category_id)
+WHERE active=true AND source_category_id > 0;
+CREATE UNIQUE INDEX IF NOT EXISTS pricing_gradient_templates_customer_source_active_uniq
+ON %[1]s.pricing_gradient_templates (customer_id, source_template_id)
+WHERE active=true AND source_template_id > 0;
 CREATE TABLE IF NOT EXISTS %[1]s.customer_sku_public_usage (
 	customer_id BIGINT PRIMARY KEY,
 	use_public_sku BOOLEAN NOT NULL DEFAULT false,
 	use_public_categories BOOLEAN NOT NULL DEFAULT false,
+	use_public_gradient_templates BOOLEAN NOT NULL DEFAULT false,
 	created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
 	updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+ALTER TABLE %[1]s.customer_sku_public_usage ADD COLUMN IF NOT EXISTS use_public_gradient_templates BOOLEAN NOT NULL DEFAULT false;
 INSERT INTO %[1]s.product_categories(parent_id,customer_id,name,level,position)
 SELECT NULL,0,'咖啡豆',1,1
 WHERE NOT EXISTS (SELECT 1 FROM %[1]s.product_categories WHERE active=true AND customer_id=0 AND COALESCE(parent_id,0)=0 AND name='咖啡豆');
@@ -114,6 +128,12 @@ INSERT INTO %[1]s.product_categories(parent_id,customer_id,name,level,position)
 SELECT p.id,p.customer_id,'单品豆',2,2 FROM %[1]s.product_categories p
 WHERE p.active=true AND p.customer_id=0 AND COALESCE(p.parent_id,0)=0 AND p.name='咖啡豆'
   AND NOT EXISTS (SELECT 1 FROM %[1]s.product_categories c WHERE c.active=true AND c.customer_id=p.customer_id AND c.parent_id=p.id AND c.name='单品豆');
+UPDATE %[1]s.product_categories
+SET template_state = CASE WHEN COALESCE(customer_id,0)=0 THEN 'public_template' ELSE COALESCE(NULLIF(template_state,''),'customer_owned') END
+WHERE active=true;
+UPDATE %[1]s.pricing_gradient_templates
+SET template_state = CASE WHEN COALESCE(customer_id,0)=0 THEN 'public_template' ELSE COALESCE(NULLIF(template_state,''),'customer_owned') END
+WHERE active=true;
 ALTER TABLE %[1]s.product_price_tiers ADD COLUMN IF NOT EXISTS spec_g BIGINT;
 ALTER TABLE %[1]s.product_price_tiers ADD COLUMN IF NOT EXISTS min_qty_units NUMERIC;
 ALTER TABLE %[1]s.product_price_tiers ADD COLUMN IF NOT EXISTS max_qty_units NUMERIC;

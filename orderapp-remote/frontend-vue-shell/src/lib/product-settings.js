@@ -83,6 +83,7 @@ export function buildCustomerPublicUsagePayload(customerID, options = {}) {
     customer_id: Number(customerID || 0),
     use_public_sku: Boolean(options.use_public_sku ?? options.usePublicSku),
     use_public_categories: Boolean(options.use_public_categories ?? options.usePublicCategories),
+    use_public_gradient_templates: Boolean(options.use_public_gradient_templates ?? options.usePublicGradientTemplates),
   }
 }
 
@@ -90,16 +91,66 @@ export function productBelongsToSkuContext(product = {}, context = {}) {
   const customerID = Number(context.customerID || context.customer_id || 0)
   const productCustomerID = Number(product.customer_id || 0)
   if (!customerID) return productCustomerID === 0
-  if (productCustomerID === customerID) return !isUnmodifiedPublicSkuCopy(product, context.publicProducts)
-  return productCustomerID === 0 && Boolean(context.usePublicSku || context.use_public_sku)
+  if (productCustomerID === customerID) return true
+  if (productCustomerID !== 0 || !Boolean(context.usePublicSku || context.use_public_sku)) return false
+  return !hasCustomerDerivedProduct(product, context.customerProducts)
 }
 
 export function categoryBelongsToSkuContext(category = {}, context = {}) {
   const customerID = Number(context.customerID || context.customer_id || 0)
   const categoryCustomerID = Number(category.customer_id || 0)
   if (!customerID) return categoryCustomerID === 0
-  if (categoryCustomerID === customerID) return !isDuplicatedPublicCategory(category, context.publicCategories, context.publicProducts)
-  return categoryCustomerID === 0 && Boolean(context.usePublicCategories || context.use_public_categories)
+  if (categoryCustomerID === customerID) {
+    if (Number(category.source_category_id || 0) > 0) return true
+    return !isDuplicatedPublicCategory(category, context.publicCategories, context.publicProducts)
+  }
+  if (categoryCustomerID !== 0 || !Boolean(context.usePublicCategories || context.use_public_categories)) return false
+  return !hasCustomerDerivedCategory(category, context.customerCategories)
+}
+
+export function gradientTemplateBelongsToSkuContext(template = {}, context = {}) {
+  const customerID = Number(context.customerID || context.customer_id || 0)
+  const templateCustomerID = Number(template.customer_id || 0)
+  if (!customerID) return templateCustomerID === 0
+  if (templateCustomerID === customerID) return true
+  if (templateCustomerID !== 0 || !Boolean(context.usePublicGradientTemplates || context.use_public_gradient_templates)) return false
+  return !hasCustomerDerivedTemplate(template, context.customerTemplates)
+}
+
+export function categoryDisplayState(category = {}, context = {}) {
+  if (Number(category.customer_id || 0) === 0 && Number(context.customerID || context.customer_id || 0) > 0) {
+    return { label: '公共模板', tone: 'template' }
+  }
+  if (Number(category.source_category_id || 0) > 0 || category.template_state === 'derived_from_public') {
+    return { label: '来自公共模板', tone: 'derived' }
+  }
+  return { label: '客户自有', tone: 'owned' }
+}
+
+export function productDisplayState(product = {}, context = {}) {
+  if (Number(product.customer_id || 0) === 0 && Number(context.customerID || context.customer_id || 0) > 0) {
+    return { label: '公共模板', tone: 'template' }
+  }
+  if (Number(product.base_product_id || 0) > 0 && product.custom_type === 'public_sku_alias') {
+    return { label: '来自公共 SKU', tone: 'derived' }
+  }
+  return { label: '客户自有', tone: 'owned' }
+}
+
+export function buildAssignCategoryPayload({ product = {}, category = {}, customerID = 0, position = 0 } = {}) {
+  const scopedCustomerID = Number(customerID || 0)
+  const productCustomerID = Number(product.customer_id || 0)
+  const categoryCustomerID = Number(category.customer_id || 0)
+  const payload = {
+    category_id: Number(category.id || 0),
+    position: Number(position || 0),
+  }
+  if (scopedCustomerID > 0) {
+    payload.customer_id = scopedCustomerID
+    payload.derive_public_category = Number(category.id || 0) > 0 && categoryCustomerID === 0
+    payload.derive_public_product = productCustomerID === 0
+  }
+  return payload
 }
 
 export function isPublicReferenceRow(row = {}, context = {}) {
@@ -112,6 +163,24 @@ function isUnmodifiedPublicSkuCopy(product = {}, publicProducts = []) {
   if (!baseID || product.custom_type !== 'public_sku_alias') return false
   const base = (publicProducts || []).find((row) => Number(row.id || 0) === baseID)
   return Boolean(base && String(base.name || '').trim().toLowerCase() === String(product.name || '').trim().toLowerCase())
+}
+
+function hasCustomerDerivedProduct(product = {}, customerProducts = []) {
+  const productID = Number(product.id || 0)
+  if (!productID) return false
+  return (customerProducts || []).some((row) => Number(row.base_product_id || 0) === productID && String(row.custom_type || '').trim() === 'public_sku_alias')
+}
+
+function hasCustomerDerivedCategory(category = {}, customerCategories = []) {
+  const categoryID = Number(category.id || 0)
+  if (!categoryID) return false
+  return (customerCategories || []).some((row) => Number(row.source_category_id || 0) === categoryID)
+}
+
+function hasCustomerDerivedTemplate(template = {}, customerTemplates = []) {
+  const templateID = Number(template.id || 0)
+  if (!templateID) return false
+  return (customerTemplates || []).some((row) => Number(row.source_template_id || 0) === templateID)
 }
 
 function isDuplicatedPublicCategory(category = {}, publicCategories = [], publicProducts = []) {

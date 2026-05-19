@@ -33,6 +33,9 @@ func registerProductRoutes(e *echo.Echo, catalogSvc *catalogapp.Service) {
 	e.POST("/api/product-settings/products/deactivate", h.deactivateProductsAPI)
 	e.POST("/api/product-settings/categories", h.saveProductCategoryAPI)
 	e.POST("/api/product-settings/custom-products", h.createCustomProductAPI)
+	e.POST("/api/product-settings/customer-products/derive", h.deriveCustomerProductAPI)
+	e.POST("/api/product-settings/customer-categories/derive", h.deriveProductCategoryAPI)
+	e.POST("/api/product-settings/customer-gradient-templates/derive", h.deriveGradientTemplateAPI)
 	e.POST("/api/product-settings/customer-public-usage", h.saveCustomerPublicUsageAPI)
 	e.PUT("/api/product-settings/categories/:id", h.saveProductCategoryAPI)
 	e.DELETE("/api/product-settings/categories/:id", h.deleteProductCategoryAPI)
@@ -126,8 +129,11 @@ type productCategoryMoveAPIRequest struct {
 }
 
 type productAssignCategoryAPIRequest struct {
-	CategoryID int64 `json:"category_id"`
-	Position   int   `json:"position"`
+	CategoryID           int64 `json:"category_id"`
+	CustomerID           int64 `json:"customer_id"`
+	Position             int   `json:"position"`
+	DerivePublicCategory bool  `json:"derive_public_category"`
+	DerivePublicProduct  bool  `json:"derive_public_product"`
 }
 
 type customProductAPIRequest struct {
@@ -147,12 +153,35 @@ type customProductAPIRequest struct {
 }
 
 type customerPublicUsageAPIRequest struct {
-	CustomerID          int64 `json:"customer_id"`
-	UsePublicSKU        bool  `json:"use_public_sku"`
-	UsePublicCategories bool  `json:"use_public_categories"`
+	CustomerID                 int64 `json:"customer_id"`
+	UsePublicSKU               bool  `json:"use_public_sku"`
+	UsePublicCategories        bool  `json:"use_public_categories"`
+	UsePublicGradientTemplates bool  `json:"use_public_gradient_templates"`
+}
+
+type deriveProductCategoryAPIRequest struct {
+	CustomerID       int64 `json:"customer_id"`
+	SourceCategoryID int64 `json:"source_category_id"`
+}
+
+type deriveCustomerProductAPIRequest struct {
+	CustomerID     int64  `json:"customer_id"`
+	BaseProductID  int64  `json:"base_product_id"`
+	CategoryID     int64  `json:"category_id"`
+	Position       int    `json:"position"`
+	Name           string `json:"name"`
+	CopyBOM        bool   `json:"copy_bom"`
+	CopyPriceTiers bool   `json:"copy_price_tiers"`
+}
+
+type deriveGradientTemplateAPIRequest struct {
+	CustomerID       int64  `json:"customer_id"`
+	SourceTemplateID int64  `json:"source_template_id"`
+	Name             string `json:"name"`
 }
 
 type gradientTemplateAPIRequest struct {
+	CustomerID  int64                             `json:"customer_id"`
 	Name        string                            `json:"name"`
 	DisplayUnit string                            `json:"display_unit"`
 	Tiers       []catalogapp.GradientTemplateTier `json:"tiers"`
@@ -504,6 +533,7 @@ func (h productHandler) saveGradientTemplateAPI(c echo.Context) error {
 	row, err := h.catalog.SaveGradientTemplate(c.Request().Context(), catalogapp.SaveGradientTemplateCommand{
 		Actor:       support.ActorOf(c),
 		ID:          id,
+		CustomerID:  req.CustomerID,
 		Name:        req.Name,
 		DisplayUnit: req.DisplayUnit,
 		Tiers:       req.Tiers,
@@ -584,16 +614,71 @@ func (h productHandler) createCustomProductAPI(c echo.Context) error {
 	return c.JSON(http.StatusOK, map[string]any{"product": productOptionFromCatalog(product)})
 }
 
+func (h productHandler) deriveProductCategoryAPI(c echo.Context) error {
+	var req deriveProductCategoryAPIRequest
+	if err := c.Bind(&req); err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]any{"error": "bad request"})
+	}
+	category, err := h.catalog.DeriveProductCategory(c.Request().Context(), catalogapp.DeriveProductCategoryCommand{
+		Actor:            support.ActorOf(c),
+		CustomerID:       req.CustomerID,
+		SourceCategoryID: req.SourceCategoryID,
+	})
+	if err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]any{"error": err.Error()})
+	}
+	return c.JSON(http.StatusOK, map[string]any{"category": category})
+}
+
+func (h productHandler) deriveCustomerProductAPI(c echo.Context) error {
+	var req deriveCustomerProductAPIRequest
+	if err := c.Bind(&req); err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]any{"error": "bad request"})
+	}
+	product, err := h.catalog.DeriveCustomerProduct(c.Request().Context(), catalogapp.DeriveCustomerProductCommand{
+		Actor:          support.ActorOf(c),
+		CustomerID:     req.CustomerID,
+		BaseProductID:  req.BaseProductID,
+		CategoryID:     req.CategoryID,
+		Position:       req.Position,
+		Name:           req.Name,
+		CopyBOM:        req.CopyBOM,
+		CopyPriceTiers: req.CopyPriceTiers,
+	})
+	if err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]any{"error": err.Error()})
+	}
+	return c.JSON(http.StatusOK, map[string]any{"product": productOptionFromCatalog(product)})
+}
+
+func (h productHandler) deriveGradientTemplateAPI(c echo.Context) error {
+	var req deriveGradientTemplateAPIRequest
+	if err := c.Bind(&req); err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]any{"error": "bad request"})
+	}
+	template, err := h.catalog.DeriveGradientTemplate(c.Request().Context(), catalogapp.DeriveGradientTemplateCommand{
+		Actor:            support.ActorOf(c),
+		CustomerID:       req.CustomerID,
+		SourceTemplateID: req.SourceTemplateID,
+		Name:             req.Name,
+	})
+	if err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]any{"error": err.Error()})
+	}
+	return c.JSON(http.StatusOK, map[string]any{"template": template})
+}
+
 func (h productHandler) saveCustomerPublicUsageAPI(c echo.Context) error {
 	var req customerPublicUsageAPIRequest
 	if err := c.Bind(&req); err != nil {
 		return c.JSON(http.StatusBadRequest, map[string]any{"error": "bad request"})
 	}
 	usage, err := h.catalog.SaveCustomerPublicUsage(c.Request().Context(), catalogapp.CustomerPublicUsageCommand{
-		Actor:               support.ActorOf(c),
-		CustomerID:          req.CustomerID,
-		UsePublicSKU:        req.UsePublicSKU,
-		UsePublicCategories: req.UsePublicCategories,
+		Actor:                      support.ActorOf(c),
+		CustomerID:                 req.CustomerID,
+		UsePublicSKU:               req.UsePublicSKU,
+		UsePublicCategories:        req.UsePublicCategories,
+		UsePublicGradientTemplates: req.UsePublicGradientTemplates,
 	})
 	if err != nil {
 		return c.JSON(http.StatusBadRequest, map[string]any{"error": err.Error()})
@@ -663,15 +748,19 @@ func (h productHandler) assignProductCategoryAPI(c echo.Context) error {
 	if err := c.Bind(&req); err != nil {
 		return c.JSON(http.StatusBadRequest, map[string]any{"error": "bad request"})
 	}
-	if err := h.catalog.AssignProductCategory(c.Request().Context(), catalogapp.AssignProductCategoryCommand{
-		Actor:      support.ActorOf(c),
-		ProductID:  id,
-		CategoryID: req.CategoryID,
-		Position:   req.Position,
-	}); err != nil {
+	assignment, err := h.catalog.AssignProductCategory(c.Request().Context(), catalogapp.AssignProductCategoryCommand{
+		Actor:                support.ActorOf(c),
+		ProductID:            id,
+		CategoryID:           req.CategoryID,
+		CustomerID:           req.CustomerID,
+		Position:             req.Position,
+		DerivePublicCategory: req.DerivePublicCategory,
+		DerivePublicProduct:  req.DerivePublicProduct,
+	})
+	if err != nil {
 		return c.JSON(http.StatusInternalServerError, map[string]any{"error": err.Error()})
 	}
-	return c.JSON(http.StatusOK, map[string]any{"ok": true})
+	return c.JSON(http.StatusOK, map[string]any{"ok": true, "assignment": assignment})
 }
 
 func (h productHandler) edit(c echo.Context) error {
