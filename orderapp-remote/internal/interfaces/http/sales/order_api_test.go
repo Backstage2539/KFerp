@@ -3506,7 +3506,7 @@ CREATE TABLE %s.orders (
 	responsible_party_type TEXT NOT NULL DEFAULT '',
 	responsible_party_id BIGINT NOT NULL DEFAULT 0,
 	responsible_party_name TEXT NOT NULL DEFAULT '',
-	bean_list_publication_id BIGINT,
+	bean_list_publication_id BIGINT NOT NULL DEFAULT 0,
 	bean_list_version_no TEXT NOT NULL DEFAULT '',
 	created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
@@ -3517,7 +3517,7 @@ CREATE TABLE %s.order_items (
 	product_id BIGINT,
 	price_tier_id BIGINT,
 	price_overridden BOOLEAN NOT NULL DEFAULT false,
-	bean_list_publication_id BIGINT NOT NULL DEFAULT 0,
+	bean_list_publication_id BIGINT,
 	bean_list_version_no TEXT NOT NULL DEFAULT '',
 	item_name TEXT,
 	item_note TEXT NOT NULL DEFAULT '',
