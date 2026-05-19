@@ -31,7 +31,7 @@
       <div class="section-bar bean-list-version-head">
         <div>
           <div class="section-title">豆单版本列表</div>
-          <p class="muted">按公共豆单或某个履约客户查看版本、复制配置和撤回。</p>
+          <p class="muted">按公共豆单或某个履约客户查看版本、生成新版和撤回。</p>
         </div>
         <div class="actions">
           <button class="secondary compact" type="button" :disabled="beanListVersionListLoading" @click="refreshBeanListVersionList">刷新版本</button>
@@ -52,6 +52,7 @@
           <span>豆单类型</span>
           <select v-model="pdfOptions.listType">
             <option value="commercial">商用批发豆单</option>
+            <option value="drip">挂耳豆单</option>
             <option value="retail">零售豆单</option>
             <option value="green">生豆豆单</option>
           </select>
@@ -99,7 +100,6 @@
               <td>
                 <div class="version-actions">
                   <button class="secondary compact" type="button" @click="startBeanListFromPublication(row)">生成新版</button>
-                  <button class="secondary compact" type="button" @click="applyCopiedBeanListPublicationConfig(row)">复制配置</button>
                   <button v-if="isBeanListAdmin && row.status === 'published'" class="danger compact" type="button" :disabled="beanListWithdrawing" @click="withdrawBeanList(row)">撤回</button>
                 </div>
               </td>
@@ -115,13 +115,24 @@
     <section class="panel">
       <div class="bean-list-generate-bar">
         <div>
-          <div class="section-title">商用批发豆单</div>
-          <p class="muted">生成豆单前可选择产品、分级、样式、标签和标红内容。</p>
+          <div class="section-title">生成豆单</div>
+          <p class="muted">按当前豆单范围生成公共或客户豆单；商用、挂耳、零售、生豆在抽屉中切换。</p>
         </div>
-        <button class="primary" type="button" :disabled="loading || !visibleCostingItems.length" @click="openBeanListDrawer('commercial')">生成豆单</button>
-        <button class="secondary" type="button" :disabled="loading || !dripBagGroups.length" @click="openBeanListDrawer('drip')">生成挂耳豆单</button>
+        <button class="primary" type="button" :disabled="loading || !visibleCostingItems.length" @click="openBeanListDrawer(pdfTheme.listType)">生成豆单</button>
       </div>
-      <div class="bean-groups">
+    </section>
+
+    <section class="panel collapsible-bean-section">
+      <div class="collapsible-bean-head">
+        <button class="section-toggle" type="button" :aria-expanded="!beanListPreviewCollapsed.commercial" @click="toggleBeanListPreviewSection('commercial')">
+          <span>
+            <b>商用批发豆单</b>
+            <small>{{ commercialGroups.length }} 类 · {{ commercialPreviewItemCount }} 款</small>
+          </span>
+          <span>{{ beanListPreviewCollapsed.commercial ? '展开' : '收起' }}</span>
+        </button>
+      </div>
+      <div v-show="!beanListPreviewCollapsed.commercial" class="bean-groups">
         <section v-for="group in commercialGroups" :key="group.category" class="bean-group">
           <h3>{{ group.category }}</h3>
           <div class="bean-grid">
@@ -154,9 +165,17 @@
       </div>
     </section>
 
-    <section class="panel">
-      <div class="section-title">挂耳豆单</div>
-      <div class="bean-groups">
+    <section class="panel collapsible-bean-section">
+      <div class="collapsible-bean-head">
+        <button class="section-toggle" type="button" :aria-expanded="!beanListPreviewCollapsed.drip" @click="toggleBeanListPreviewSection('drip')">
+          <span>
+            <b>挂耳豆单</b>
+            <small>{{ dripGroups.length }} 类 · {{ dripPreviewItemCount }} 款</small>
+          </span>
+          <span>{{ beanListPreviewCollapsed.drip ? '展开' : '收起' }}</span>
+        </button>
+      </div>
+      <div v-show="!beanListPreviewCollapsed.drip" class="bean-groups">
         <section v-for="group in dripGroups" :key="`drip-${group.category}`" class="bean-group">
           <h3>{{ group.category }}</h3>
           <div class="bean-grid">
@@ -186,9 +205,17 @@
       </div>
     </section>
 
-    <section class="panel">
-      <div class="section-title">零售豆单</div>
-      <div class="bean-groups">
+    <section class="panel collapsible-bean-section">
+      <div class="collapsible-bean-head">
+        <button class="section-toggle" type="button" :aria-expanded="!beanListPreviewCollapsed.retail" @click="toggleBeanListPreviewSection('retail')">
+          <span>
+            <b>零售豆单</b>
+            <small>{{ retailGroups.length }} 类 · {{ retailPreviewItemCount }} 款</small>
+          </span>
+          <span>{{ beanListPreviewCollapsed.retail ? '展开' : '收起' }}</span>
+        </button>
+      </div>
+      <div v-show="!beanListPreviewCollapsed.retail" class="bean-groups">
         <section v-for="group in retailGroups" :key="group.category" class="bean-group">
           <h3>{{ group.category }}</h3>
           <div class="bean-grid">
@@ -215,6 +242,45 @@
           </div>
         </section>
         <div v-if="!retailGroups.length" class="muted empty-card">暂无豆单数据</div>
+      </div>
+    </section>
+
+    <section class="panel collapsible-bean-section">
+      <div class="collapsible-bean-head">
+        <button class="section-toggle" type="button" :aria-expanded="!beanListPreviewCollapsed.green" @click="toggleBeanListPreviewSection('green')">
+          <span>
+            <b>生豆豆单</b>
+            <small>{{ greenGroups.length }} 类 · {{ greenPreviewItemCount }} 款</small>
+          </span>
+          <span>{{ beanListPreviewCollapsed.green ? '展开' : '收起' }}</span>
+        </button>
+      </div>
+      <div v-show="!beanListPreviewCollapsed.green" class="bean-groups">
+        <section v-for="group in greenGroups" :key="`green-${group.category}`" class="bean-group">
+          <h3>{{ group.category }}</h3>
+          <div class="bean-grid">
+            <article v-for="item in group.items" :key="`green-${item.product_id || item.name}`">
+              <div class="bean-heading">
+                <span class="bean-code">{{ beanMeta(item, 'green_bean_list').code }}</span>
+                <div>
+                  <div class="bean-title">{{ beanName(item, 'green_bean_list') }}</div>
+                  <div v-if="beanMeta(item, 'green_bean_list').recommended_use" class="bean-use">
+                    {{ beanMeta(item, 'green_bean_list').recommended_use }}
+                  </div>
+                </div>
+              </div>
+              <div v-if="itemWarnings(item).length" class="bean-warning-list">
+                <span v-for="warning in itemWarnings(item)" :key="`green-warning-${item.product_id || item.name}-${warning}`" class="warning-chip">{{ warning }}</span>
+              </div>
+              <div v-if="beanFlavor(item, 'green_bean_list')" class="bean-note">{{ beanFlavor(item, 'green_bean_list') }}</div>
+              <div v-if="beanDescription(item, 'green_bean_list')" class="bean-desc">{{ beanDescription(item, 'green_bean_list') }}</div>
+              <div class="bean-row" v-for="tier in item.green_bean_sale_tiers || []" :key="`green-tier-${tier.label}`">
+                <span>{{ tier.label }}</span><strong>{{ price(tierPriceValue(tier)) }}/{{ tierUnit(tier) }}</strong>
+              </div>
+            </article>
+          </div>
+        </section>
+        <div v-if="!greenGroups.length" class="muted empty-card">暂无生豆豆单数据</div>
       </div>
     </section>
 
@@ -306,36 +372,13 @@
           <button class="secondary" type="button" @click="pdfDrawerOpen = false">关闭</button>
         </div>
 
-        <div class="copy-config-box">
+        <div class="copy-config-box publication-context-box">
           <div>
-            <strong>发布归属</strong>
-            <p>官方豆单用于棵凡公开链接；我的客户豆单发布后锁定快照，不会跟随官方自动变价。</p>
+            <strong>当前归属</strong>
+            <p>{{ currentPublicationScopeDescription }}</p>
           </div>
-          <div class="copy-config-actions">
-            <select v-model="publicationScope" :disabled="!isBeanListAdmin">
-              <option value="official">棵凡官方豆单</option>
-              <option value="mine">我的客户豆单</option>
-              <option value="customer">指定客户豆单</option>
-            </select>
-          </div>
+          <div class="current-owner-pill">{{ currentPublicationOwnerLabel }}</div>
           <p v-if="actorLoaded && !isBeanListAdmin" class="muted">客户账号只能保存修改和下载豆单，发布由管理员执行。</p>
-        </div>
-
-        <div class="copy-config-box" v-if="publicationScope === 'customer'">
-          <div>
-            <strong>客户</strong>
-            <p>客户专属 SKU 只会出现在对应客户的豆单里；如果其他客户需要同款 SKU，请先复制一份给该客户。</p>
-          </div>
-          <div class="copy-config-actions">
-            <SearchableSelect
-              v-model="selectedBeanListCustomerID"
-              :options="customers"
-              :option-label="customerOptionLabel"
-              :option-meta="customerOptionMeta"
-              :option-value="optionNumericValue"
-              placeholder="选择客户"
-              empty-text="没有匹配客户" />
-          </div>
         </div>
 
         <div class="copy-config-box" v-if="(publicationScope === 'mine' || publicationScope === 'customer') && officialPriceSourcePublications.length">
@@ -351,22 +394,6 @@
               </option>
             </select>
             <button class="secondary" type="button" :disabled="!selectedPriceSourcePublication" @click="applyCopiedBeanListPriceSource()">复制价格</button>
-          </div>
-        </div>
-
-        <div class="copy-config-box" v-if="copyableBeanListPublications.length">
-          <div>
-            <strong>复制已有豆单配置</strong>
-            <p>选择历史发布记录，只复制样式、选择、标签和标红词；客户豆单可配合官方价格来源生成独立快照。</p>
-          </div>
-          <div class="copy-config-actions">
-            <select v-model="selectedCopyPublicationID">
-              <option value="">选择历史豆单</option>
-              <option v-for="row in copyableBeanListPublications" :key="`copy-pub-${row.id}`" :value="String(row.id)">
-                {{ beanListPublicationLabel(row) }}
-              </option>
-            </select>
-            <button class="secondary" type="button" :disabled="!selectedCopyPublication" @click="applyCopiedBeanListPublicationConfig()">复制配置</button>
           </div>
         </div>
 
@@ -717,14 +744,12 @@ import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { fetchCurrentActor } from '../api/auth'
 import { apiGet, apiSend } from '../api/client'
 import CostingSettingsPanel from '../components/CostingSettingsPanel.vue'
-import SearchableSelect from '../components/SearchableSelect.vue'
 import {
   DEFAULT_BEAN_LIST_PDF_VERSION,
   buildBeanListPdfGroups,
   buildBeanListPdfSubtitle,
   buildBeanListPdfTitle,
   copyBeanListPublicationContentGroups,
-  copyBeanListPublicationConfig,
   filterBeanListItemsForScope,
   sanitizeBeanListPdfTheme,
   splitHighlightedText,
@@ -753,7 +778,6 @@ const publicationScope = ref('official')
 const selectedBeanListCustomerID = ref(0)
 const actorLoaded = ref(false)
 const currentActor = ref(null)
-const selectedCopyPublicationID = ref('')
 const selectedPriceSourcePublicationID = ref('')
 const error = ref('')
 const message = ref('')
@@ -774,6 +798,12 @@ const beanListPublications = ref({
   official: { commercial: [], drip: [], retail: [], green: [] },
   mine: { commercial: [], drip: [], retail: [], green: [] },
   customer: { commercial: [], drip: [], retail: [], green: [] },
+})
+const beanListPreviewCollapsed = ref({
+  commercial: false,
+  drip: true,
+  retail: true,
+  green: true,
 })
 const priceSourcePublicationByType = ref({ commercial: null, drip: null, retail: null, green: null })
 const styleSourcePublicationIDByType = ref({ commercial: 0, drip: 0, retail: 0, green: 0 })
@@ -800,16 +830,19 @@ const pdfOptions = ref({
 })
 
 const normalizedCustomerContextID = computed(() => Number(props.customerContextId || 0))
-const activeBeanListCustomerID = computed(() => normalizedCustomerContextID.value || Number(selectedBeanListCustomerID.value || 0))
+const activeBeanListCustomerID = computed(() => normalizedCustomerContextID.value || versionListScopeCustomerID(versionListScope.value) || Number(selectedBeanListCustomerID.value || 0))
 const activeCostingScope = computed(() => {
-  if (normalizedCustomerContextID.value > 0) return 'customer'
-  return activeBeanListCustomerID.value > 0 && publicationScope.value === 'customer' ? 'customer' : 'official'
+  return activeBeanListCustomerID.value > 0 ? 'customer' : 'official'
 })
 const visibleCostingItems = computed(() => filterBeanListItemsForScope(items.value, activeCostingScope.value, activeBeanListCustomerID.value))
 const commercialGroups = computed(() => groupBeanItems('commercial_bean_list'))
 const dripGroups = computed(() => groupBeanItems('drip_bean_list'))
-const dripBagGroups = computed(() => dripGroups.value.filter((group) => group.items.some((item) => item.product_kind === 'drip_bag')))
 const retailGroups = computed(() => groupBeanItems('retail_bean_list'))
+const greenGroups = computed(() => groupBeanItems('green_bean_list'))
+const commercialPreviewItemCount = computed(() => beanListGroupItemCount(commercialGroups.value))
+const dripPreviewItemCount = computed(() => beanListGroupItemCount(dripGroups.value))
+const retailPreviewItemCount = computed(() => beanListGroupItemCount(retailGroups.value))
+const greenPreviewItemCount = computed(() => beanListGroupItemCount(greenGroups.value))
 const pdfTheme = computed(() => sanitizeBeanListPdfTheme(pdfOptions.value))
 const pdfAvailableItems = computed(() => beanListItemsForType(pdfTheme.value.listType))
 const pdfCategoryOptions = computed(() => beanListCategoryOptions(pdfTheme.value.listType))
@@ -847,10 +880,14 @@ const currentScopePublicationRows = computed(() => publicationRows(versionListSc
 const versionListCurrentPublication = computed(() => currentScopePublicationRows.value.find((row) => row.status === 'published') || null)
 const publicationScopeRows = computed(() => publicationRows(publicationScope.value, pdfTheme.value.listType))
 const currentBeanListPublication = computed(() => publicationScopeRows.value.find((row) => row.status === 'published') || null)
-const copyableBeanListPublications = computed(() => publicationScopeRows.value)
 const officialPriceSourcePublications = computed(() => publicationRows('official', pdfTheme.value.listType).filter((row) => row.status === 'published'))
-const selectedCopyPublication = computed(() => copyableBeanListPublications.value.find((row) => String(row.id) === String(selectedCopyPublicationID.value)) || null)
 const selectedPriceSourcePublication = computed(() => officialPriceSourcePublications.value.find((row) => String(row.id) === String(selectedPriceSourcePublicationID.value)) || null)
+const currentPublicationOwnerLabel = computed(() => publicationScopeLabel(publicationScope.value))
+const currentPublicationScopeDescription = computed(() => {
+  if (publicationScope.value === 'customer') return '生成和发布会保存到当前豆单范围对应的履约客户。'
+  if (publicationScope.value === 'mine') return '当前客户账号保存自己的豆单修改。'
+  return '生成和发布会保存到公共豆单。'
+})
 const publicBeanListURL = computed(() => {
   if (publicationScope.value !== 'official' || !currentBeanListPublication.value) return ''
   return `${window.location.origin}/public/bean-list/${pdfTheme.value.listType}`
@@ -867,7 +904,6 @@ const pdfPageStyle = computed(() => {
 })
 
 watch(() => pdfOptions.value.listType, (listType) => {
-  selectedCopyPublicationID.value = ''
   selectedPriceSourcePublicationID.value = ''
   initializePdfDefaultsForType(listType)
   loadBeanListPublications(listType, versionListScope.value)
@@ -879,15 +915,13 @@ watch(() => pdfOptions.value.listType, (listType) => {
 })
 
 watch(versionListScope, (scope) => {
+  syncPublicationScopeFromPageContext()
+  resetPdfSelectionDefaults()
+  initializePdfDefaultsIfItemsLoaded()
   loadBeanListPublications(pdfTheme.value.listType, scope)
 })
 
 watch(publicationScope, (scope) => {
-  if (actorLoaded.value && !isBeanListAdmin.value && scope !== 'mine') {
-    publicationScope.value = 'mine'
-    return
-  }
-  selectedCopyPublicationID.value = ''
   loadBeanListPublications(pdfTheme.value.listType, scope)
   initializePdfDefaultsForType(pdfTheme.value.listType)
 })
@@ -897,7 +931,6 @@ watch(selectedBeanListCustomerID, () => {
     ...beanListPublications.value,
     customer: { commercial: [], drip: [], retail: [], green: [] },
   }
-  selectedCopyPublicationID.value = ''
   resetPdfSelectionDefaults()
   initializePdfDefaultsIfItemsLoaded()
   if (publicationScope.value === 'customer' && selectedBeanListCustomerID.value) {
@@ -906,35 +939,26 @@ watch(selectedBeanListCustomerID, () => {
 })
 
 watch(isBeanListAdmin, (canPublish) => {
-  if (actorLoaded.value && !canPublish && publicationScope.value !== 'mine') {
-    publicationScope.value = 'mine'
-    return
-  }
-  syncCustomerContext()
+  void canPublish
+  syncPublicationScopeFromPageContext()
 })
 
-watch(() => props.customerContextId, syncCustomerContext, { immediate: true })
+watch(() => props.customerContextId, syncPublicationScopeFromPageContext, { immediate: true })
 
-function syncCustomerContext() {
-  const normalizedCustomerID = Number(props.customerContextId || 0)
-  if (normalizedCustomerID > 0) {
-    selectedBeanListCustomerID.value = normalizedCustomerID
-    if (isBeanListAdmin.value) {
-      publicationScope.value = 'customer'
-    }
-    resetPdfSelectionDefaults()
-    initializePdfDefaultsIfItemsLoaded()
-    if (publicationScope.value === 'customer') {
-      loadBeanListPublications(pdfTheme.value.listType, 'customer')
-    }
-    return
+function syncPublicationScopeFromPageContext() {
+  const pageCustomerID = Number(props.customerContextId || 0) || versionListScopeCustomerID(versionListScope.value)
+  if (pageCustomerID > 0) {
+    selectedBeanListCustomerID.value = pageCustomerID
+    publicationScope.value = 'customer'
+  } else {
+    selectedBeanListCustomerID.value = 0
+    publicationScope.value = 'official'
   }
-  if (publicationScope.value === 'customer') {
-    publicationScope.value = isBeanListAdmin.value ? 'official' : 'mine'
-  }
-  selectedBeanListCustomerID.value = 0
   resetPdfSelectionDefaults()
   initializePdfDefaultsIfItemsLoaded()
+  if (publicationScope.value === 'customer') {
+    loadBeanListPublications(pdfTheme.value.listType, 'customer')
+  }
 }
 
 function tierPriceValue(tier) {
@@ -992,6 +1016,17 @@ function dripDisplayTiers(item) {
 function dripTierUnit(tier) {
   if (tier?.sales_unit === 'box') return `盒(${Number(tier.unit_bag_count || 10)}袋)`
   return '袋'
+}
+
+function beanListGroupItemCount(groups) {
+  return (Array.isArray(groups) ? groups : []).reduce((sum, group) => sum + (Array.isArray(group.items) ? group.items.length : 0), 0)
+}
+
+function toggleBeanListPreviewSection(section) {
+  beanListPreviewCollapsed.value = {
+    ...beanListPreviewCollapsed.value,
+    [section]: !beanListPreviewCollapsed.value[section],
+  }
 }
 
 function customerOptionLabel(customer) {
@@ -1139,6 +1174,7 @@ function initializePdfDefaultsForType(listType) {
 }
 
 function openBeanListDrawer(listType = 'commercial') {
+  syncPublicationScopeFromPageContext()
   pdfOptions.value = { ...pdfOptions.value, listType }
   initializePdfDefaultsForType(listType)
   loadBeanListPublications(listType, 'official')
@@ -1188,7 +1224,7 @@ function beanListPublicationTime(row) {
 }
 
 function publicationScopeLabel(scope) {
-  const customerID = versionListScopeCustomerID(scope)
+  const customerID = versionListScopeCustomerID(scope) || (scope === 'customer' ? Number(selectedBeanListCustomerID.value || 0) : 0)
   if (customerID > 0) {
     const customer = customers.value.find((item) => Number(item?.id || 0) === customerID)
     return customer ? customerOptionLabel(customer) : `客户 ${customerID}`
@@ -1224,7 +1260,6 @@ function beanListPublicationSourceLabel(row) {
 function startBeanListFromPublication(row) {
   if (!row) return
   setPublicationScopeFromOwner(row)
-  applyCopiedBeanListPublicationConfig(row)
   openBeanListDrawer(normalizeBeanListType(row.list_type))
 }
 
@@ -1232,6 +1267,7 @@ function setPublicationScopeFromOwner(row) {
   if (row?.owner_type === 'customer') {
     selectedBeanListCustomerID.value = Number(row.owner_key || 0)
     publicationScope.value = 'customer'
+    versionListScope.value = `customer:${Number(row.owner_key || 0)}`
     return
   }
   if (row?.owner_type === 'actor') {
@@ -1239,6 +1275,7 @@ function setPublicationScopeFromOwner(row) {
     return
   }
   publicationScope.value = 'official'
+  versionListScope.value = 'official'
 }
 
 function beanListTypeName(listType) {
@@ -1246,23 +1283,6 @@ function beanListTypeName(listType) {
   if (normalized === 'green') return '生豆'
   if (normalized === 'drip') return '挂耳'
   return normalized === 'retail' ? '零售' : '商用'
-}
-
-function applyCopiedBeanListPublicationConfig(row = selectedCopyPublication.value) {
-  if (!row) return
-  const listType = normalizeBeanListType(row.list_type)
-  const copied = copyBeanListPublicationConfig(row, pdfOptions.value, {
-    productIDs: beanListItemsForType(listType).map((item) => itemProductID(item)),
-    categoryCodes: beanListCategoryOptions(listType).map((item) => item.code),
-  })
-  pdfOptions.value = { ...pdfOptions.value, ...copied.options, listType }
-  selectedProductIDsByType.value = { ...selectedProductIDsByType.value, [listType]: copied.selectedProductIDs }
-  visibleCategoryCodesByType.value = { ...visibleCategoryCodesByType.value, [listType]: copied.visibleCategoryCodes }
-  productSelectionInitialized.value = { ...productSelectionInitialized.value, [listType]: true }
-  categorySelectionInitialized.value = { ...categorySelectionInitialized.value, [listType]: true }
-  pdfCustomizers.value = copied.customizers
-  styleSourcePublicationIDByType.value = { ...styleSourcePublicationIDByType.value, [listType]: Number(row.id || 0) }
-  message.value = `已复制${beanListPublicationLabel(row)}配置，可继续修改后生成`
 }
 
 function applyCopiedBeanListPriceSource(row = selectedPriceSourcePublication.value) {
@@ -1509,9 +1529,7 @@ async function loadCurrentActor() {
     currentActor.value = null
   } finally {
     actorLoaded.value = true
-    if (!isBeanListAdmin.value) {
-      publicationScope.value = 'mine'
-    }
+    syncPublicationScopeFromPageContext()
   }
 }
 
@@ -1840,6 +1858,12 @@ onBeforeUnmount(() => {
 .actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
 .section-bar, .bean-list-generate-bar { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
 .bean-list-generate-bar p { margin: 4px 0 0; }
+.collapsible-bean-section { display: grid; gap: 10px; }
+.collapsible-bean-head { display: flex; align-items: stretch; }
+.section-toggle { width: 100%; min-height: 48px; display: flex; align-items: center; justify-content: space-between; gap: 12px; border: 1px solid #ddd; background: #fafafa; color: #111; text-align: left; }
+.section-toggle span:first-child { display: grid; gap: 3px; min-width: 0; }
+.section-toggle b { font-size: 15px; line-height: 1.25; }
+.section-toggle small { color: #666; font-size: 12px; line-height: 1.25; }
 .bean-list-version-panel { display: grid; gap: 12px; }
 .bean-list-version-head { align-items: flex-start; }
 .bean-list-version-head p { margin: 4px 0 0; line-height: 1.45; }
@@ -1916,6 +1940,8 @@ button:disabled { opacity: .45; cursor: not-allowed; }
 .copy-config-box { display: grid; grid-template-columns: minmax(0, 1fr) minmax(280px, .8fr); align-items: end; gap: 12px; border: 1px solid #ddd; border-radius: 10px; background: #fafafa; padding: 12px; margin-bottom: 12px; }
 .copy-config-box strong { display: block; margin-bottom: 4px; }
 .copy-config-box p { margin: 0; color: #666; font-size: 12px; line-height: 1.45; }
+.publication-context-box { align-items: center; }
+.current-owner-pill { justify-self: end; min-height: 38px; display: inline-flex; align-items: center; justify-content: center; border: 1px solid #c8d4e1; border-radius: 999px; background: #f7fbff; color: #1f4f82; padding: 0 12px; font-size: 13px; font-weight: 700; }
 .copy-config-actions { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; }
 .copy-config-actions select { min-width: 0; min-height: 38px; border: 1px solid #ddd; border-radius: 8px; padding: 7px 9px; background: #fff; font: inherit; }
 .pdf-drawer { width: min(760px, 100vw); }
@@ -2024,6 +2050,7 @@ article, .empty-card { border: 1px solid #eee; border-radius: 8px; padding: 12px
   .version-controls { grid-template-columns: 1fr; }
   .version-control-customer { grid-column: auto; }
   .copy-config-box, .copy-config-actions { grid-template-columns: 1fr; }
+  .current-owner-pill { justify-self: start; }
   .pdf-form { grid-template-columns: 1fr; }
   .checkbox-grid, .customizer-row { grid-template-columns: 1fr; }
   .bean-list-generate-bar { align-items: flex-start; flex-direction: column; }

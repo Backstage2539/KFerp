@@ -23,7 +23,7 @@ func TestCustomerBeanListSnapshotRequirementSeeds(t *testing.T) {
 		"REV-112-01",
 		"客户豆单发布后锁定为自己的快照",
 		"复制官方价格来源",
-		"复制自己的历史样式配置",
+		"不再复制自己的历史样式配置",
 	} {
 		if !strings.Contains(src, want) {
 			t.Fatalf("customer bean-list snapshot requirement seed missing %q", want)

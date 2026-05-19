@@ -125,18 +125,14 @@ func TestCostingViewSupportsConfigurableBeanListPublishingWorkflow(t *testing.T)
 		"pdf-bottom-changelog",
 		"publicBeanListURL",
 		"copyPublicBeanListURL",
-		"copyBeanListPublicationConfig",
 		"copyBeanListPublicationContentGroups",
 		"publicationScope",
 		"selectedPriceSourcePublicationID",
 		"复制官方价格来源",
-		"我的客户豆单",
+		"当前归属",
+		"syncPublicationScopeFromPageContext",
 		"price_source_publication_id",
 		"style_source_publication_id",
-		"copyableBeanListPublications",
-		"selectedCopyPublicationID",
-		"applyCopiedBeanListPublicationConfig",
-		"复制已有豆单配置",
 		"fetchCurrentActor",
 		"isBeanListAdmin",
 		"saveBeanListDraft",
@@ -162,6 +158,9 @@ func TestCostingViewSupportsConfigurableBeanListPublishingWorkflow(t *testing.T)
 		"redPriceLabels",
 		"标红价格档",
 		"可填 55/包",
+		"复制已有豆单配置",
+		"selectedCopyPublicationID",
+		"applyCopiedBeanListPublicationConfig",
 	} {
 		if strings.Contains(src, forbidden) {
 			t.Fatalf("configurable bean-list workflow should not expose old price-red option %q", forbidden)
@@ -186,8 +185,7 @@ func TestCostingViewPDFSupportsDripBeanListPricing(t *testing.T) {
 	for _, want := range []string{
 		"drip_bean_list",
 		"drip_wholesale_tiers",
-		"dripBagGroups",
-		"openBeanListDrawer('drip')",
+		"<option value=\"drip\">挂耳豆单</option>",
 		"挂耳豆单",
 		"sales_unit",
 		"unit_bag_count",
@@ -200,5 +198,32 @@ func TestCostingViewPDFSupportsDripBeanListPricing(t *testing.T) {
 		if !strings.Contains(src, want) {
 			t.Fatalf("PDF source must support drip bean-list pricing; missing %q", want)
 		}
+	}
+}
+
+func TestCostingViewHasCollapsibleBeanListPreviewSections(t *testing.T) {
+	view, err := os.ReadFile(filepath.Join("..", "..", "..", "..", "frontend-vue-shell", "src", "views", "CostingView.vue"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := string(view)
+	for _, want := range []string{
+		"collapsible-bean-section",
+		"beanListPreviewCollapsed",
+		"toggleBeanListPreviewSection('commercial')",
+		"toggleBeanListPreviewSection('drip')",
+		"toggleBeanListPreviewSection('retail')",
+		"toggleBeanListPreviewSection('green')",
+		"greenGroups",
+		"green_bean_list",
+		"green_bean_sale_tiers",
+		"生豆豆单",
+	} {
+		if !strings.Contains(src, want) {
+			t.Fatalf("CostingView.vue missing collapsible bean-list preview support %q", want)
+		}
+	}
+	if strings.Contains(src, "生成挂耳豆单") {
+		t.Fatalf("outer drip bean-list button should be removed; use the drawer list type selector")
 	}
 }
