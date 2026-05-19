@@ -295,15 +295,6 @@ func beanListPublicationQueryFromRequest(c echo.Context) (appcosting.BeanListPub
 		return appcosting.BeanListPublicationQuery{}, fmt.Errorf("invalid customer_id")
 	}
 	scope := strings.TrimSpace(c.QueryParam("scope"))
-	if scope == "fulfillment_customers" {
-		return appcosting.BeanListPublicationQuery{
-			ListType:                c.QueryParam("list_type"),
-			Scope:                   scope,
-			CustomerID:              customerID,
-			OwnerType:               "customer",
-			AllFulfillmentCustomers: true,
-		}, nil
-	}
 	ownerType, ownerKey, err := beanListOwnerFromScope(c, scope, customerID)
 	if err != nil {
 		return appcosting.BeanListPublicationQuery{}, err
@@ -319,6 +310,8 @@ func beanListPublicationQueryFromRequest(c echo.Context) (appcosting.BeanListPub
 
 func beanListOwnerFromScope(c echo.Context, scope string, customerID int64) (string, string, error) {
 	switch strings.TrimSpace(scope) {
+	case "", "official":
+		return "official", "", nil
 	case "customer":
 		if customerID <= 0 {
 			return "", "", fmt.Errorf("customer_id required")
@@ -332,7 +325,7 @@ func beanListOwnerFromScope(c echo.Context, scope string, customerID int64) (str
 		}
 		return "actor", "actor:" + support.ActorOf(c), nil
 	default:
-		return "official", "", nil
+		return "", "", fmt.Errorf("invalid scope")
 	}
 }
 

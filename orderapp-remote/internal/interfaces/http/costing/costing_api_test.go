@@ -905,7 +905,7 @@ func TestBeanListPublicationAPISupportsCustomerScope(t *testing.T) {
 	}
 }
 
-func TestBeanListPublicationAPISupportsAllFulfillmentCustomerScope(t *testing.T) {
+func TestBeanListPublicationAPIRejectsUnknownScope(t *testing.T) {
 	svc := &recordingBeanListService{}
 	e := echo.New()
 	e.Use(func(next echo.HandlerFunc) echo.HandlerFunc {
@@ -920,11 +920,11 @@ func TestBeanListPublicationAPISupportsAllFulfillmentCustomerScope(t *testing.T)
 	req := httptest.NewRequest(http.MethodGet, "/api/costing/bean-list/publications?list_type=commercial&scope=fulfillment_customers", nil)
 	rec := httptest.NewRecorder()
 	e.ServeHTTP(rec, req)
-	if rec.Code != http.StatusOK {
+	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("list status = %d, body = %s", rec.Code, rec.Body.String())
 	}
-	if svc.lastQuery.OwnerType != "customer" || svc.lastQuery.OwnerKey != "" || !svc.lastQuery.AllFulfillmentCustomers {
-		t.Fatalf("all fulfillment customer query = %+v", svc.lastQuery)
+	if svc.lastQuery.ListType != "" {
+		t.Fatalf("unknown scope should not reach service, query = %+v", svc.lastQuery)
 	}
 }
 

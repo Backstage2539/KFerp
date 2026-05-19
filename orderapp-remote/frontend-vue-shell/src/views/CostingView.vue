@@ -31,11 +31,10 @@
       <div class="section-bar bean-list-version-head">
         <div>
           <div class="section-title">豆单版本列表</div>
-          <p class="muted">发布后的公共豆单和所有履约客户豆单版本在这里查看、复制配置和撤回。</p>
+          <p class="muted">按公共豆单或某个履约客户查看版本、复制配置和撤回。</p>
         </div>
         <div class="actions">
           <button class="secondary compact" type="button" :disabled="beanListVersionListLoading" @click="refreshBeanListVersionList">刷新版本</button>
-          <button class="primary compact" type="button" :disabled="loading || !visibleCostingItems.length" @click="openBeanListDrawer(pdfTheme.listType)">生成豆单</button>
         </div>
       </div>
 
@@ -44,7 +43,9 @@
           <span>豆单范围</span>
           <select v-model="versionListScope">
             <option value="official">公共豆单</option>
-            <option value="fulfillment_customers">所有履约客户豆单</option>
+            <option v-for="customer in customers" :key="`version-scope-${customer.id}`" :value="`customer:${customer.id}`">
+              {{ customerOptionLabel(customer) }}
+            </option>
           </select>
         </label>
         <label>
@@ -765,7 +766,6 @@ const explanationOverrides = ref({
 const customers = ref([])
 const beanListPublications = ref({
   official: { commercial: [], drip: [], retail: [], green: [] },
-  fulfillment_customers: { commercial: [], drip: [], retail: [], green: [] },
   mine: { commercial: [], drip: [], retail: [], green: [] },
   customer: { commercial: [], drip: [], retail: [], green: [] },
 })
@@ -1090,7 +1090,8 @@ function categoryCodeOfItem(item, listType = pdfTheme.value.listType) {
 }
 
 function publicationRows(scope, listType) {
-  return beanListPublications.value?.[scope]?.[listType] || []
+  const cacheKey = beanListPublicationCacheKey(scope)
+  return beanListPublications.value?.[cacheKey]?.[listType] || []
 }
 
 function initializePdfDefaults() {
@@ -1181,7 +1182,11 @@ function beanListPublicationTime(row) {
 }
 
 function publicationScopeLabel(scope) {
-  if (scope === 'fulfillment_customers') return '所有履约客户豆单'
+  const customerID = versionListScopeCustomerID(scope)
+  if (customerID > 0) {
+    const customer = customers.value.find((item) => Number(item?.id || 0) === customerID)
+    return customer ? customerOptionLabel(customer) : `客户 ${customerID}`
+  }
   if (scope === 'official') return '公共豆单'
   if (scope === 'mine') return '我的客户豆单'
   if (scope === 'customer') return '指定客户豆单'
@@ -1466,11 +1471,14 @@ async function loadCurrentActor() {
 }
 
 async function loadBeanListPublications(listType = pdfTheme.value.listType, scope = publicationScope.value) {
-  if (scope === 'customer' && !selectedBeanListCustomerID.value) {
+  const cacheKey = beanListPublicationCacheKey(scope)
+  const requestScope = beanListPublicationRequestScope(scope)
+  const customerID = beanListPublicationCustomerID(scope)
+  if (requestScope === 'customer' && !customerID) {
     beanListPublications.value = {
       ...beanListPublications.value,
-      customer: {
-        ...(beanListPublications.value.customer || {}),
+      [cacheKey]: {
+        ...(beanListPublications.value[cacheKey] || {}),
         [listType]: [],
       },
     }
@@ -1481,8 +1489,8 @@ async function loadBeanListPublications(listType = pdfTheme.value.listType, scop
     const rows = Array.isArray(data.rows) ? data.rows : []
     beanListPublications.value = {
       ...beanListPublications.value,
-      [scope]: {
-        ...(beanListPublications.value[scope] || {}),
+      [cacheKey]: {
+        ...(beanListPublications.value[cacheKey] || {}),
         [listType]: rows,
       },
     }
@@ -1502,11 +1510,34 @@ async function refreshBeanListVersionList() {
 }
 
 function beanListPublicationURL(listType, scope) {
-  const params = new URLSearchParams({ list_type: listType, scope })
-  if (scope === 'customer') {
-    params.set('customer_id', String(selectedBeanListCustomerID.value || 0))
+  const requestScope = beanListPublicationRequestScope(scope)
+  const params = new URLSearchParams({ list_type: listType, scope: requestScope })
+  const customerID = beanListPublicationCustomerID(scope)
+  if (requestScope === 'customer') {
+    params.set('customer_id', String(customerID || 0))
   }
   return `/api/costing/bean-list/publications?${params.toString()}`
+}
+
+function versionListScopeCustomerID(scope = versionListScope.value) {
+  const match = String(scope || '').match(/^customer:(\d+)$/)
+  return match ? Number(match[1] || 0) : 0
+}
+
+function beanListPublicationRequestScope(scope = publicationScope.value) {
+  if (versionListScopeCustomerID(scope) > 0) return 'customer'
+  if (scope === 'customer' || scope === 'mine') return scope
+  return 'official'
+}
+
+function beanListPublicationCustomerID(scope = publicationScope.value) {
+  const versionCustomerID = versionListScopeCustomerID(scope)
+  if (versionCustomerID > 0) return versionCustomerID
+  return scope === 'customer' ? Number(selectedBeanListCustomerID.value || 0) : 0
+}
+
+function beanListPublicationCacheKey(scope = publicationScope.value) {
+  return String(scope || 'official')
 }
 
 async function handleSettingSaved() {

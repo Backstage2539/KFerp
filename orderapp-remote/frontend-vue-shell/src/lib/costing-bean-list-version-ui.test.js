@@ -33,7 +33,7 @@ test('product bean-list view exposes publication versions without pricing trial 
   }
 })
 
-test('product bean-list version scope selector only offers public and all fulfillment customer lists', () => {
+test('product bean-list version scope selector lists public and each fulfillment customer', () => {
   const versionListStart = viewSource.indexOf('<section class="panel bean-list-version-panel">')
   const versionListEnd = viewSource.indexOf('<section class="panel">', versionListStart)
   assert.ok(versionListStart > -1 && versionListEnd > versionListStart, 'missing bean-list version panel')
@@ -41,11 +41,19 @@ test('product bean-list version scope selector only offers public and all fulfil
 
   assert.match(versionListSource, /v-model="versionListScope"/)
   assert.match(versionListSource, /<option value="official">公共豆单<\/option>/)
-  assert.match(versionListSource, /<option value="fulfillment_customers">所有履约客户豆单<\/option>/)
+  assert.match(versionListSource, /v-for="customer in customers"/)
+  assert.match(versionListSource, /:value="`customer:\$\{customer\.id\}`"/)
+  assert.match(versionListSource, /customerOptionLabel\(customer\)/)
+  assert.doesNotMatch(versionListSource, /fulfillment_customers/)
+  assert.doesNotMatch(versionListSource, /所有履约客户豆单/)
   assert.doesNotMatch(versionListSource, /棵凡官方豆单/)
   assert.doesNotMatch(versionListSource, /我的客户豆单/)
   assert.doesNotMatch(versionListSource, /指定客户豆单/)
   assert.doesNotMatch(versionListSource, /version-control-customer/)
+  assert.doesNotMatch(versionListSource, /openBeanListDrawer\(pdfTheme\.listType\)/)
+  assert.match(viewSource, /function versionListScopeCustomerID/)
+  assert.match(viewSource, /function beanListPublicationRequestScope/)
+  assert.match(viewSource, /function beanListPublicationCacheKey/)
   assert.match(viewSource, /const versionListCurrentPublication = computed/)
   assert.match(viewSource, /const publicationScopeRows = computed/)
   assert.match(viewSource, /const copyableBeanListPublications = computed\(\(\) => publicationScopeRows\.value\)/)

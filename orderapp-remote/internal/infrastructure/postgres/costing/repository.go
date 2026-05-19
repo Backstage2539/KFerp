@@ -540,25 +540,6 @@ func (r Repository) DeactivateDripPriceTemplate(ctx context.Context, cmd appcost
 func (r Repository) ListBeanListPublications(ctx context.Context, query appcosting.BeanListPublicationQuery) ([]appcosting.BeanListPublication, error) {
 	whereClause := "WHERE list_type=$1 AND owner_type=$2 AND owner_key=$3"
 	args := []any{strings.TrimSpace(query.ListType), strings.TrimSpace(query.OwnerType), strings.TrimSpace(query.OwnerKey)}
-	if query.AllFulfillmentCustomers {
-		whereClause = fmt.Sprintf(`WHERE list_type=$1
-		  AND owner_type='customer'
-		  AND EXISTS (
-		    SELECT 1
-		    FROM %[1]s.customer_erp_user_bindings b
-		    JOIN %[1]s.customers c ON c.id=b.customer_id
-		    JOIN %[1]s.company_employees e ON e.id=b.employee_id
-		    JOIN %[1]s.employee_login_passwords lp ON lp.employee_id=e.id
-		    WHERE b.customer_id::text=owner_key
-		      AND b.status='active'
-		      AND c.active=true
-		      AND c.customer_type='wholesale'
-		      AND e.active=true
-		      AND e.account_type='channel_customer'
-		      AND COALESCE(lp.login_disabled,false)=false
-		  )`, r.schema)
-		args = []any{strings.TrimSpace(query.ListType)}
-	}
 	rows, err := r.pool.Query(ctx, fmt.Sprintf(`
 		SELECT id,
 		       list_type,

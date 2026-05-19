@@ -97,12 +97,11 @@ type BeanListPublication struct {
 }
 
 type BeanListPublicationQuery struct {
-	ListType                string `json:"list_type"`
-	Scope                   string `json:"scope,omitempty"`
-	CustomerID              int64  `json:"customer_id,omitempty"`
-	OwnerType               string `json:"owner_type,omitempty"`
-	OwnerKey                string `json:"owner_key,omitempty"`
-	AllFulfillmentCustomers bool   `json:"all_fulfillment_customers,omitempty"`
+	ListType   string `json:"list_type"`
+	Scope      string `json:"scope,omitempty"`
+	CustomerID int64  `json:"customer_id,omitempty"`
+	OwnerType  string `json:"owner_type,omitempty"`
+	OwnerKey   string `json:"owner_key,omitempty"`
 }
 
 type PublishBeanListCommand struct {
@@ -489,12 +488,6 @@ func normalizeBeanListPublicationQuery(query BeanListPublicationQuery) (BeanList
 	listType, err := normalizeBeanListType(query.ListType)
 	if err != nil {
 		return BeanListPublicationQuery{}, err
-	}
-	if query.AllFulfillmentCustomers {
-		query.ListType = listType
-		query.OwnerType = "customer"
-		query.OwnerKey = ""
-		return query, nil
 	}
 	ownerType, ownerKey, err := normalizeBeanListOwner(query.OwnerType, query.OwnerKey)
 	if err != nil {
