@@ -39,7 +39,7 @@ func TestCustomerCustomProductsFrontendWiring(t *testing.T) {
 		"customForm.copy_bom",
 		"customForm.copy_price_tiers",
 		"ownerLabel(row)",
-		"customTypeLabel(row.custom_type)",
+		"skuTypeLabel(row.custom_type)",
 	} {
 		if !strings.Contains(productSettings, want) {
 			t.Fatalf("ProductSettingsView.vue missing %q", want)
