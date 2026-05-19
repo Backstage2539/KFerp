@@ -163,6 +163,35 @@ test('buildOrderPayload includes selected bean list publication', () => {
   assert.equal(payload.bean_list_publication_id, 88)
 })
 
+test('buildOrderPayload preserves green bean product kind for order pricing', () => {
+  const payload = buildOrderPayload({
+    form: {
+      order_date: '2026-05-19',
+      customer_id: 152,
+      source_id: 1,
+      order_type_id: 1,
+      pay_status_id: 2,
+      ship_status_id: 1,
+    },
+    rows: [
+      {
+        product_id: 414,
+        product_name: '兰卡拼配生豆',
+        product_kind: 'green_bean',
+        tier_id: 'auto',
+        spec_mode: '1000',
+        qty: 30,
+        unit: 'kg',
+        unit_price: '',
+      },
+    ],
+  })
+
+  assert.equal(payload.product_kind[0], 'green_bean')
+  assert.equal(payload.spec[0], '1000')
+  assert.equal(payload.unit[0], 'kg')
+})
+
 test('normalizeSpecG rejects non-positive custom grams', () => {
   assert.equal(normalizeSpecG({ spec_mode: 'custom', custom_spec_g: 0 }), 0)
   assert.equal(normalizeSpecG({ spec_mode: 'custom', custom_spec_g: 300 }), 300)
