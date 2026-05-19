@@ -56,8 +56,7 @@ test('product bean-list page owns customer context for bean-list previews', () =
 })
 
 test('product bean-list page does not expose pricing trial workspace', () => {
-  assert.doesNotMatch(costingSource, /试算/)
-  assert.doesNotMatch(costingSource, /价格试算/)
+  assert.doesNotMatch(costingSource, /<div class="section-title">价格试算<\/div>/)
   assert.doesNotMatch(costingSource, /pricingCollapsed/)
   assert.doesNotMatch(costingSource, /保存试算/)
   assert.doesNotMatch(costingSource, /发布价格/)
@@ -66,4 +65,20 @@ test('product bean-list page does not expose pricing trial workspace', () => {
   assert.doesNotMatch(costingSource, /function publishRun/)
   assert.match(costingSource, /豆单版本列表/)
   assert.match(costingSource, /生成豆单/)
+})
+
+test('product bean-list price source drawer keeps temporary tier trial controls', () => {
+  for (const expected of [
+    '<span>当前试算</span>',
+    '<span>临时试算</span>',
+    'v-model="explanationOverrides.green_bean_cost_per_kg"',
+    'v-model="explanationOverrides.yield_rate"',
+    'v-model="explanationOverrides.margin_rate"',
+    '@click="loadPriceExplanation"',
+    'function cleanExplanationOverrides',
+    'cleanExplanationOverrides()',
+    '这里的参数只做临时试算',
+  ]) {
+    assert.match(costingSource, new RegExp(expected.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')))
+  }
 })

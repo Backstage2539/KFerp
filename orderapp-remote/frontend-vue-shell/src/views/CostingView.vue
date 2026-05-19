@@ -260,15 +260,37 @@
             <span>模板</span>
             <strong>{{ priceExplanation.template_name || '-' }}</strong>
           </div>
-          <div>
-            <span>{{ isDripExplanation ? '袋价' : '当前价格' }}</span>
+          <div v-if="isDripExplanation">
+            <span>袋价</span>
             <strong v-if="isDripExplanation">{{ price(priceExplanation.packed_price_per_bag) }}/袋</strong>
-            <strong v-else>{{ price(priceExplanation.saved_final_price) }}/{{ gradientDisplayUnitLabel(priceExplanation.display_unit).replace('元/', '') }}</strong>
           </div>
           <div v-if="isDripExplanation">
             <span>盒价</span>
             <strong>{{ price(priceExplanation.packed_price_per_box) }}/盒</strong>
           </div>
+          <div v-if="!isDripExplanation">
+            <span>当前试算</span>
+            <strong>{{ price(priceExplanation.saved_final_price) }}/{{ gradientDisplayUnitLabel(priceExplanation.display_unit).replace('元/', '') }}</strong>
+          </div>
+          <div v-if="!isDripExplanation">
+            <span>临时试算</span>
+            <strong>{{ price(priceExplanation.preview_final_price) }}/{{ gradientDisplayUnitLabel(priceExplanation.display_unit).replace('元/', '') }}</strong>
+          </div>
+        </div>
+        <div v-if="priceExplanation && !isDripExplanation" class="explanation-form">
+          <label>
+            <span>临时生豆成本 元/kg</span>
+            <input v-model="explanationOverrides.green_bean_cost_per_kg" type="number" step="0.01" placeholder="不填则沿用当前" />
+          </label>
+          <label>
+            <span>临时出成率</span>
+            <input v-model="explanationOverrides.yield_rate" type="number" step="0.001" placeholder="如 0.82" />
+          </label>
+          <label>
+            <span>临时利润率</span>
+            <input v-model="explanationOverrides.margin_rate" type="number" step="0.001" placeholder="如 0.28" />
+          </label>
+          <button class="secondary" type="button" :disabled="priceExplanationLoading" @click="loadPriceExplanation">重新试算</button>
         </div>
         <div v-if="priceExplanation" class="formula-steps">
           <div v-for="step in priceExplanation.steps || []" :key="step.key" :class="['formula-step', { changed: step.changed }]">
@@ -277,7 +299,7 @@
             <small>{{ step.source }}</small>
           </div>
         </div>
-        <p class="muted">{{ isDripExplanation ? '挂耳价格来源只展示当前公式步骤；交易价格仍需发布豆单后生效。' : '价格来源只展示当前公式步骤；需要调整源参数时回到对应设置页保存。' }}</p>
+        <p class="muted">{{ isDripExplanation ? '挂耳价格来源只展示当前公式步骤；交易价格仍需发布豆单后生效。' : '这里的参数只做临时试算；保存请回到快速成本参数或梯度模板，交易价格仍需发布后生效。' }}</p>
       </aside>
     </div>
 
@@ -749,6 +771,11 @@ const priceExplanation = ref(null)
 const explanationItem = ref(null)
 const explanationTier = ref(null)
 const explanationMode = ref('commercial')
+const explanationOverrides = ref({
+  green_bean_cost_per_kg: '',
+  yield_rate: '',
+  margin_rate: '',
+})
 const customers = ref([])
 const beanListPublications = ref({
   official: { commercial: [], drip: [], retail: [], green: [] },
@@ -1480,6 +1507,11 @@ async function openPriceExplanation(item, tier) {
   explanationMode.value = 'commercial'
   explanationItem.value = item
   explanationTier.value = tier
+  explanationOverrides.value = {
+    green_bean_cost_per_kg: '',
+    yield_rate: '',
+    margin_rate: '',
+  }
   priceExplanation.value = null
   priceExplanationError.value = ''
   priceExplanationOpen.value = true
@@ -1490,10 +1522,25 @@ async function openDripPriceExplanation(item, tier) {
   explanationMode.value = 'drip'
   explanationItem.value = item
   explanationTier.value = tier
+  explanationOverrides.value = {
+    green_bean_cost_per_kg: '',
+    yield_rate: '',
+    margin_rate: '',
+  }
   priceExplanation.value = null
   priceExplanationError.value = ''
   priceExplanationOpen.value = true
   await loadPriceExplanation()
+}
+
+function cleanExplanationOverrides() {
+  const out = {}
+  for (const [key, value] of Object.entries(explanationOverrides.value || {})) {
+    if (value === '' || value == null) continue
+    const n = Number(value)
+    if (Number.isFinite(n)) out[key] = n
+  }
+  return out
 }
 
 async function loadPriceExplanation() {
@@ -1510,6 +1557,7 @@ async function loadPriceExplanation() {
       const payload = buildPriceExplanationRequest(
         explanationItem.value,
         explanationTier.value,
+        cleanExplanationOverrides(),
       )
       priceExplanation.value = await apiSend('/api/costing/price-explanation', { body: payload })
     }
@@ -1756,6 +1804,9 @@ button:disabled { opacity: .45; cursor: not-allowed; }
 .explanation-summary > div { border: 1px solid #ddd; border-radius: 8px; background: #fff; padding: 10px; }
 .explanation-summary span { display: block; margin-bottom: 5px; color: #666; font-size: 12px; }
 .explanation-summary strong { display: block; overflow-wrap: anywhere; font-size: 16px; }
+.explanation-form { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)) auto; gap: 8px; align-items: end; margin: 12px 0; }
+.explanation-form label span { display: block; color: #666; font-size: 12px; margin-bottom: 5px; }
+.explanation-form input { width: 100%; min-height: 38px; border: 1px solid #ddd; border-radius: 8px; padding: 7px 9px; background: #fff; font: inherit; box-sizing: border-box; }
 .formula-steps { display: grid; gap: 8px; margin: 12px 0; }
 .formula-step { display: grid; grid-template-columns: minmax(110px, .7fr) minmax(130px, .6fr) minmax(0, 1fr); align-items: center; gap: 10px; border: 1px solid #ddd; border-radius: 8px; background: #fff; padding: 9px 10px; }
 .formula-step.changed { border-color: #d29b42; background: #fff8eb; }
@@ -1868,6 +1919,7 @@ article, .empty-card { border: 1px solid #eee; border-radius: 8px; padding: 12px
   .bean-grid { grid-template-columns: 1fr; }
   .settings-drawer { width: 100vw; }
   .explanation-summary, .formula-step { grid-template-columns: 1fr; }
+  .explanation-form { grid-template-columns: 1fr; }
   .formula-step strong { text-align: left; }
   .section-bar.bean-list-version-head { align-items: flex-start; flex-direction: column; }
   .version-controls { grid-template-columns: 1fr; }
