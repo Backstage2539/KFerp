@@ -3419,6 +3419,8 @@ CREATE TABLE %s.products (
 	base_product_id BIGINT NOT NULL DEFAULT 0,
 	visibility TEXT NOT NULL DEFAULT 'public',
 	custom_type TEXT NOT NULL DEFAULT '',
+	green_bean_type TEXT NOT NULL DEFAULT '',
+	green_bean_bom_product_id BIGINT NOT NULL DEFAULT 0,
 	product_kind TEXT NOT NULL DEFAULT 'roasted_bean',
 	drip_bag_grams NUMERIC(12,3) NOT NULL DEFAULT 10,
 	drip_box_bag_count INT NOT NULL DEFAULT 10
