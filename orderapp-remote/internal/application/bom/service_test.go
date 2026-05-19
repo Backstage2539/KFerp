@@ -13,13 +13,15 @@ type fakeRepo struct {
 	deactivatedID int64
 	activated     int64
 	versionFor    int64
+	listRows      []ListItem
+	productRows   []Option
 }
 
-func (r *fakeRepo) List(ctx context.Context) ([]ListItem, error) { return nil, nil }
+func (r *fakeRepo) List(ctx context.Context) ([]ListItem, error) { return r.listRows, nil }
 func (r *fakeRepo) Detail(ctx context.Context, productID int64) (Detail, error) {
 	return Detail{}, nil
 }
-func (r *fakeRepo) Products(ctx context.Context) ([]Option, error)  { return nil, nil }
+func (r *fakeRepo) Products(ctx context.Context) ([]Option, error)  { return r.productRows, nil }
 func (r *fakeRepo) Materials(ctx context.Context) ([]Option, error) { return nil, nil }
 func (r *fakeRepo) BagSpecMappings(ctx context.Context) ([]BagSpecMapping, error) {
 	return nil, nil
@@ -79,6 +81,38 @@ func TestServiceValidatesSaveItem(t *testing.T) {
 	}
 	if repo.savedItem.MaterialID != 2 || repo.savedItem.RatioPct != 25 {
 		t.Fatalf("savedItem = %+v, want material 2 ratio 25", repo.savedItem)
+	}
+}
+
+func TestServiceHidesGreenBeanProductsFromBomMaintenance(t *testing.T) {
+	repo := &fakeRepo{
+		listRows: []ListItem{
+			{ProductID: 1, Product: "岩师傅熟豆", CustomerID: 152, ProductKind: "roasted_bean"},
+			{ProductID: 2, Product: "兰卡拼配生豆", CustomerID: 152, ProductKind: "green_bean"},
+			{ProductID: 3, Product: "岩师傅挂耳", CustomerID: 152, ProductKind: "drip_bag"},
+		},
+		productRows: []Option{
+			{ID: 1, Name: "岩师傅熟豆", CustomerID: 152, ProductKind: "roasted_bean"},
+			{ID: 2, Name: "兰卡拼配生豆", CustomerID: 152, ProductKind: "green_bean"},
+			{ID: 3, Name: "岩师傅挂耳", CustomerID: 152, ProductKind: "drip_bag"},
+		},
+	}
+	svc := NewService(repo)
+
+	listRows, err := svc.List(context.Background())
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+	if len(listRows) != 2 || listRows[0].ProductID != 1 || listRows[1].ProductID != 3 {
+		t.Fatalf("List rows = %+v, want only non-green products", listRows)
+	}
+
+	productRows, err := svc.Products(context.Background())
+	if err != nil {
+		t.Fatalf("Products: %v", err)
+	}
+	if len(productRows) != 2 || productRows[0].ID != 1 || productRows[1].ID != 3 {
+		t.Fatalf("Product rows = %+v, want only non-green products", productRows)
 	}
 }
 

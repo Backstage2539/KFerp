@@ -256,6 +256,7 @@
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { apiGet, apiSend } from '../api/client'
 import SearchableSelect from '../components/SearchableSelect.vue'
+import { bomContextCustomerIDs, filterBomContextProducts } from '../lib/bom'
 import { componentTypeLabel, isDripProduct } from '../lib/drip-product'
 import { replaceHistoryURL } from '../lib/url-state'
 
@@ -291,24 +292,13 @@ const bomSkuContextLabel = computed(() => {
   if (!customerID) return '公共SKU'
   return `${customerName(customerID) || `客户 #${customerID}`} SKU`
 })
-const publicBomRows = computed(() => rows.value.filter((product) => Number(product.customer_id || 0) === 0))
-const customBomProductCustomerIDs = computed(() => {
-  const ids = new Set()
-  for (const product of products.value) {
-    const customerID = Number(product.customer_id || 0)
-    if (customerID > 0) ids.add(customerID)
-  }
-  for (const row of rows.value) {
-    const customerID = Number(row.customer_id || 0)
-    if (customerID > 0) ids.add(customerID)
-  }
-  return ids
-})
+const publicBomRows = computed(() => filterBomContextProducts(rows.value, 0))
+const customBomProductCustomerIDs = computed(() => bomContextCustomerIDs(products.value, rows.value))
 const bomSkuCustomers = computed(() => customers.value
   .filter((customer) => customBomProductCustomerIDs.value.has(Number(customer.id || 0)))
   .sort((a, b) => customerOptionLabel(a).localeCompare(customerOptionLabel(b))))
-const bomContextProducts = computed(() => products.value.filter(bomContextProductFilter))
-const bomContextRows = computed(() => rows.value.filter(bomContextProductFilter))
+const bomContextProducts = computed(() => filterBomContextProducts(products.value, bomContextCustomerID.value))
+const bomContextRows = computed(() => filterBomContextProducts(rows.value, bomContextCustomerID.value))
 const selectedProduct = computed(() => productByID(selectedProductId.value))
 const roastedBeanProducts = computed(() => products.value.filter((product) => {
   if (Number(product.id || 0) === Number(selectedProductId.value || 0)) return false
@@ -392,10 +382,7 @@ function normalizeBomRow(row) {
 }
 
 function bomContextProductFilter(product) {
-  const productCustomerID = Number(product?.customer_id || 0)
-  return bomContextCustomerID.value > 0
-    ? productCustomerID === bomContextCustomerID.value
-    : productCustomerID === 0
+  return filterBomContextProducts([product], bomContextCustomerID.value).length > 0
 }
 
 function productByID(productId) {

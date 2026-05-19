@@ -41,7 +41,8 @@ func TestDev171BomViewFiltersBySkuContext(t *testing.T) {
 		"v-for=\"row in bomContextRows\"",
 		"暂无公共SKU BOM",
 		"暂无客户SKU BOM",
-		"Number(product.customer_id || 0) === 0",
+		"filterBomContextProducts(rows.value, 0)",
+		"bomContextCustomerIDs(products.value, rows.value)",
 		"apiGet('/api/customers?limit=200')",
 	} {
 		if !strings.Contains(view, want) {
@@ -71,7 +72,7 @@ func TestDev171BomAPICarriesProductCustomerScope(t *testing.T) {
 	repo := string(readOrderAppFileForTest(t, filepath.Join("internal", "infrastructure", "postgres", "bom", "repository.go")))
 	for _, want := range []string{
 		"COALESCE(p.customer_id,0)",
-		"SELECT id, name, COALESCE(customer_id,0)",
+		"SELECT p.id, p.name, COALESCE(p.customer_id,0)",
 	} {
 		if !strings.Contains(repo, want) {
 			t.Fatalf("BOM repository missing customer scope query marker %q", want)
