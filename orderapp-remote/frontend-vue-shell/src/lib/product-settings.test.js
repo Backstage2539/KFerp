@@ -8,6 +8,7 @@ import {
   buildCustomProductCreatePayload,
   buildProductBasicsPayload,
   buildProductCreatePayload,
+  buildSkuContextCategoryTree,
   categoryBelongsToSkuContext,
   categoryDisplayState,
   customerSkuCustomerOptions,
@@ -265,6 +266,98 @@ test('customer SKU context prefers derived categories over public templates', ()
   assert.equal(categoryBelongsToSkuContext(derivedSecondary, context), true)
   assert.equal(categoryDisplayState(publicSecondary, context).label, '公共模板')
   assert.equal(categoryDisplayState(derivedSecondary, context).label, '来自公共模板')
+})
+
+test('customer category tree keeps public sibling categories after deriving one public secondary category', () => {
+  const publicPrimary = { id: 1, name: '咖啡豆', level: 1, customer_id: 0, products: [], children: [] }
+  const publicSingle = {
+    id: 11,
+    parent_id: 1,
+    name: '单品豆',
+    level: 2,
+    customer_id: 0,
+    products: [{ id: 101, name: '花魁', customer_id: 0, product_category_id: 11 }],
+    children: [],
+  }
+  const publicBlend = {
+    id: 12,
+    parent_id: 1,
+    name: '意式拼配',
+    level: 2,
+    customer_id: 0,
+    products: [{ id: 102, name: '暖阳拼配', customer_id: 0, product_category_id: 12 }],
+    children: [],
+  }
+  publicPrimary.children = [publicSingle, publicBlend]
+  const derivedPrimary = {
+    id: 201,
+    source_category_id: 1,
+    name: '咖啡豆',
+    level: 1,
+    customer_id: 42,
+    products: [],
+    children: [{
+      id: 212,
+      parent_id: 201,
+      source_category_id: 12,
+      name: '意式拼配',
+      level: 2,
+      customer_id: 42,
+      products: [],
+      children: [],
+    }],
+  }
+
+  const tree = buildSkuContextCategoryTree([publicPrimary, derivedPrimary], {
+    customerID: 42,
+    usePublicCategories: true,
+    usePublicSkuInCategoryTree: true,
+    customerProducts: [],
+  })
+
+  assert.equal(tree.length, 1)
+  assert.equal(tree[0].id, 201)
+  assert.deepEqual(tree[0].children.map((row) => row.name), ['单品豆', '意式拼配'])
+  assert.deepEqual(tree[0].children.map((row) => row.products.map((product) => product.name)), [['花魁'], ['暖阳拼配']])
+  assert.deepEqual(tree[0].children[1].products[0], {
+    id: 102,
+    name: '暖阳拼配',
+    customer_id: 0,
+    product_category_id: 12,
+    number: 1,
+    primary_name: '咖啡豆',
+    secondary_name: '意式拼配',
+  })
+})
+
+test('customer category tree shows public SKU references when public categories are enabled', () => {
+  const publicPrimary = {
+    id: 1,
+    name: '咖啡豆',
+    level: 1,
+    customer_id: 0,
+    products: [],
+    children: [{
+      id: 11,
+      parent_id: 1,
+      name: '单品豆',
+      level: 2,
+      customer_id: 0,
+      products: [{ id: 101, name: '花魁', customer_id: 0, product_category_id: 11 }],
+      children: [],
+    }],
+  }
+
+  const tree = buildSkuContextCategoryTree([publicPrimary], {
+    customerID: 42,
+    usePublicCategories: true,
+    usePublicSkuInCategoryTree: true,
+    usePublicSku: false,
+    customerProducts: [],
+  })
+
+  assert.deepEqual(tree.map((row) => row.name), ['咖啡豆'])
+  assert.deepEqual(tree[0].children[0].products.map((row) => row.name), ['花魁'])
 })
 
 test('customer SKU context labels public and derived product ownership', () => {
