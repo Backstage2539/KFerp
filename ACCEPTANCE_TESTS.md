@@ -23,7 +23,7 @@
 - [ ] 数量(件)只能按整数处理（输入小数时，系统行为符合预期：建议前端拦截/或后端拒绝；以实际上线行为为准）。
 - [ ] 总重量实时显示：xxx g / yy lb。
 - [ ] 每条商品明细可以填写“条目备注”，保存后重新编辑订单时在原商品行回显。
-- [ ] 保存 ERP 订单、履约客户订单或小程序订单后，订单明细商品行显示该行使用的豆单版本号；接口返回 `bean_list_publication_id` 和 `bean_list_version_no`，三处订单展示读取同一 `order_items` 记录。
+- [ ] 保存 ERP 订单、履约客户订单或小程序订单后，订单明细商品行显示该行使用的豆单版本号；ERP 录单按熟豆、生豆、挂耳分别选择豆单版本，接口返回 `bean_list_publication_id` 和 `bean_list_version_no`，三处订单展示读取同一 `order_items` 记录。
 
 ### A3. 自动匹配阶梯价
 - 用例：选择一个有阶梯价的商品。
@@ -247,7 +247,7 @@
 - [ ] 客户豆单发布后，内容和价格以发布时快照为准；后续官方豆单更新不会自动改写该客户豆单。
 - [ ] PR-BEANLIST-VERSION-001：产品豆单直接展示豆单版本列表，范围下拉列出“公共豆单”和每个履约客户（如岩师傅、用户A），选择某一项后只展示该归属版本，并能按商用/零售/生豆查看历史版本；同一豆单多次发布后版本列表保留每个已发布版本；小程序或 PDF 下载第一次生成后写入 `bean_list_publication_assets`，后续同版本复用缓存。
 - [ ] 产品豆单生成抽屉选择指定客户豆单并选择客户后，豆单预览和发布保存使用该客户上下文；未选择指定客户时展示公共豆单上下文。
-- [ ] PR-BEANLIST-VERSION-002：ERP 录单选择有专属豆单的客户时显示版本选择并默认最新；保存订单后 `orders.bean_list_publication_id` 和 `orders.bean_list_version_no` 对应所选版本。没有专属豆单的客户不要求选择，订单使用公共豆单。
+- [x] PR-BEANLIST-VERSION-002：ERP 录单按熟豆、生豆、挂耳分别显示豆单版本选择并默认各类型最新；保存订单后商品行 `order_items.bean_list_publication_id` 和 `order_items.bean_list_version_no` 对应该行商品形态所选版本。没有专属豆单的客户按对应类型使用公共豆单。
 - [ ] PR-BEANLIST-VERSION-003：小程序首次按新版豆单下单时弹出更新提示，内容展示新增、下架和调整摘要；确认后写 `customer_bean_list_acknowledgements`，同一客户同一版本后续不重复提示。
 - [ ] PR-BEANLIST-VERSION-004：客户门户配置中，有专属豆单的客户可选择展示最新版本或固定版本；没有专属豆单的客户使用公共豆单且不出现无效固定版本。
 - [ ] 商用批发价格旁可打开“价格来源”，看到模板、当前价格和公式步骤。
@@ -262,12 +262,13 @@
 - [x] 客户 SKU 列表 · 公共 SKU 支持形态过滤、名称搜索、一级分类过滤和二级分类过滤，且不提供销售价列。
 - [x] 原料入库支持产季、产地、产家风味描述；入库质检支持工厂风味描述、水分和密度。
 - [x] 产品豆单可切换并导出生豆豆单，PDF 标题、价格档和最新通过生产质检信息体现生豆销售报价。
-- [x] ERP 录单产品选择器可选择生豆产品，行内显示生豆标记，规格支持选择或直接输入自定义克数，并按已发布生豆豆单价格保存。
-- [x] ERP 录单对没有自身生豆价目的客户生豆 SKU（如岩师傅“兰卡拼配生豆”）保留 `product_kind=green_bean`，`/app/api/order/form` 返回绑定熟豆梯度，保存时按绑定熟豆梯度自动定价并记录来源快照。
+- [x] ERP 录单产品选择器可选择生豆产品，行内显示生豆标记，规格支持选择或直接输入自定义克数，并按所选生豆豆单版本的已发布 `green_bean_sale_tiers` 保存。
+- [x] ERP 录单对没有已发布生豆豆单价格的客户生豆 SKU（如岩师傅“兰卡拼配生豆”）保留 `product_kind=green_bean`，`/app/api/order/form` 不返回绑定熟豆梯度，保存时拒绝并提示缺少生豆豆单价格，不回退熟豆阶梯价。
+- [x] 生豆豆单按绑定熟豆 BOM 的原料成本快照生成默认档位价；用户可在生豆豆单草稿中手工修改每个模板档位价格，发布后订单只读取该快照价格。
 - [x] 订单列表同一行能显示生豆/熟豆标记，混合订单同时显示两种标记。
 - [x] 小程序履约客户可选择当前客户可见的生豆产品并提交订单，ERP 订单行保存 `product_kind=green_bean` 并按生豆豆单价格入单。
 - [x] 小程序商城可上架生豆商品，商品卡、购物车和商城订单承接保留生豆产品形态。
-- [x] PR/DEV/UT/API/REV 需求种子包含 PR-289-GREEN-BEAN-SALES；验收证据包含 `OP_MANUAL_GREEN_BEAN_SALES.md` 和 `docs/acceptance/2026-05-18-green-bean-sales.md`。
+- [x] PR/DEV 需求种子包含 PR-289-GREEN-BEAN-SALES；验收证据包含 `OP_MANUAL_GREEN_BEAN_SALES.md`、`OP_MANUAL_ORDER_SALES.md`、`docs/acceptance/2026-05-18-green-bean-sales.md` 和 `docs/acceptance/2026-05-19-green-bean-list-manual-pricing.md`。
 
 ---
 

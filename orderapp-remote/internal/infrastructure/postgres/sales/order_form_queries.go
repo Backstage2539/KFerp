@@ -64,46 +64,49 @@ func (r Repository) fetchOrderBeanListVersionOptions(ctx context.Context) ([]sal
 		),
 		customer_versions AS (
 			SELECT c.id AS customer_id,
+			       b.list_type,
 			       b.id,
 			       b.version_no,
 			       COALESCE(to_char(b.published_at, 'YYYY-MM-DD HH24:MI'), '') AS published_at,
 			       COALESCE(b.changelog, '') AS changelog,
 			       true AS is_customer_owned,
-			       row_number() OVER (PARTITION BY c.id ORDER BY b.published_at DESC, b.id DESC) = 1 AS is_default
+			       row_number() OVER (PARTITION BY c.id, b.list_type ORDER BY b.published_at DESC, b.id DESC) = 1 AS is_default
 			FROM active_customers c
 			JOIN %[1]s.bean_list_publications b
 			  ON b.owner_type='customer' AND b.owner_key=c.id::text AND b.status='published'
+			WHERE b.list_type IN ('commercial','green','drip')
 		),
-		official_latest AS (
-			SELECT b.id,
+		official_versions AS (
+			SELECT b.list_type,
+			       b.id,
 			       b.version_no,
 			       COALESCE(to_char(b.published_at, 'YYYY-MM-DD HH24:MI'), '') AS published_at,
-			       COALESCE(b.changelog, '') AS changelog
+			       COALESCE(b.changelog, '') AS changelog,
+			       row_number() OVER (PARTITION BY b.list_type ORDER BY b.published_at DESC, b.id DESC) = 1 AS is_default
 			FROM %[1]s.bean_list_publications b
-			WHERE b.owner_type='official' AND b.status='published'
-			ORDER BY b.published_at DESC, b.id DESC
-			LIMIT 1
+			WHERE b.owner_type='official' AND b.status='published' AND b.list_type IN ('commercial','green','drip')
 		),
 		public_fallback AS (
 			SELECT c.id AS customer_id,
+			       o.list_type,
 			       o.id,
 			       o.version_no,
 			       o.published_at,
 			       o.changelog,
 			       false AS is_customer_owned,
-			       true AS is_default
+			       o.is_default
 			FROM active_customers c
-			CROSS JOIN official_latest o
+			CROSS JOIN official_versions o
 			WHERE NOT EXISTS (
-				SELECT 1 FROM customer_versions cv WHERE cv.customer_id=c.id
+				SELECT 1 FROM customer_versions cv WHERE cv.customer_id=c.id AND cv.list_type=o.list_type
 			)
 		)
-		SELECT customer_id, id, version_no, published_at, changelog, is_customer_owned, is_default
+		SELECT customer_id, list_type, id, version_no, published_at, changelog, is_customer_owned, is_default
 		FROM customer_versions
 		UNION ALL
-		SELECT customer_id, id, version_no, published_at, changelog, is_customer_owned, is_default
+		SELECT customer_id, list_type, id, version_no, published_at, changelog, is_customer_owned, is_default
 		FROM public_fallback
-		ORDER BY customer_id, is_customer_owned DESC, is_default DESC, published_at DESC, id DESC
+		ORDER BY customer_id, list_type, is_customer_owned DESC, is_default DESC, published_at DESC, id DESC
 	`, r.schema)
 	rows, err := r.pool.Query(ctx, q)
 	if err != nil {
@@ -113,7 +116,7 @@ func (r Repository) fetchOrderBeanListVersionOptions(ctx context.Context) ([]sal
 	out := make([]salesapp.BeanListVersionOption, 0)
 	for rows.Next() {
 		var row salesapp.BeanListVersionOption
-		if err := rows.Scan(&row.CustomerID, &row.ID, &row.VersionNo, &row.PublishedAt, &row.Changelog, &row.IsCustomerOwned, &row.IsDefault); err != nil {
+		if err := rows.Scan(&row.CustomerID, &row.ListType, &row.ID, &row.VersionNo, &row.PublishedAt, &row.Changelog, &row.IsCustomerOwned, &row.IsDefault); err != nil {
 			return nil, err
 		}
 		ownerLabel := "公共豆单"
@@ -215,7 +218,16 @@ func (r Repository) fetchOrderProducts(ctx context.Context) ([]salesapp.ProductO
 	}
 
 	tierSQL := fmt.Sprintf(`
-		WITH direct_tiers AS (
+		SELECT id, product_id,
+		       spec_g,
+		       min_qty,
+		       max_qty,
+		       unit_price,
+		       product_kind,
+		       sales_unit,
+		       unit_bag_count,
+		       price_source_json::text
+		FROM (
 			SELECT id,
 			       product_id,
 			       COALESCE(NULLIF(spec_g,0), 454) AS spec_g,
@@ -228,55 +240,7 @@ func (r Repository) fetchOrderProducts(ctx context.Context) ([]salesapp.ProductO
 			       COALESCE(price_source_json, '{}'::jsonb) AS price_source_json
 			FROM %[1]s.product_price_tiers
 			WHERE active=true
-		),
-		green_bound_tiers AS (
-			SELECT t.id,
-			       p.id AS product_id,
-			       COALESCE(NULLIF(t.spec_g,0), 454) AS spec_g,
-			       COALESCE(t.min_qty_units, t.min_qty_lb) AS min_qty,
-			       COALESCE(t.max_qty_units, t.max_qty_lb) AS max_qty,
-			       COALESCE(t.price_per_unit, t.price_per_lb) AS unit_price,
-			       'green_bean' AS product_kind,
-			       COALESCE(t.sales_unit, '') AS sales_unit,
-			       COALESCE(t.unit_bag_count, 0) AS unit_bag_count,
-			       COALESCE(t.price_source_json, '{}'::jsonb) || jsonb_build_object(
-			           'source', 'green_bean_bound_roasted_tier',
-			           'source_product_id', p.green_bean_bom_product_id,
-			           'source_tier_id', t.id
-			       ) AS price_source_json
-			FROM %[1]s.products p
-			JOIN %[1]s.product_price_tiers t ON t.product_id=p.green_bean_bom_product_id
-			WHERE p.active=true
-			  AND COALESCE(NULLIF(p.product_kind,''), 'roasted_bean')='green_bean'
-			  AND COALESCE(p.green_bean_bom_product_id,0)>0
-			  AND t.active=true
-			  AND NOT EXISTS (
-				SELECT 1
-				FROM %[1]s.product_price_tiers own
-				WHERE own.product_id=p.id AND own.active=true
-			  )
-		)
-		SELECT id, product_id,
-		       spec_g,
-		       min_qty,
-		       max_qty,
-		       unit_price,
-		       product_kind,
-		       sales_unit,
-		       unit_bag_count,
-		       price_source_json::text
-		FROM direct_tiers
-		UNION ALL
-		SELECT id, product_id,
-		       spec_g,
-		       min_qty,
-		       max_qty,
-		       unit_price,
-		       product_kind,
-		       sales_unit,
-		       unit_bag_count,
-		       price_source_json::text
-		FROM green_bound_tiers
+		) direct_tiers
 		ORDER BY product_id, spec_g, min_qty
 	`, r.schema)
 	trs, err := r.pool.Query(ctx, tierSQL)

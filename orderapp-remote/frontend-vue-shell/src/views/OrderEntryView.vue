@@ -101,19 +101,21 @@
           </select>
         </label>
 
-        <label v-if="showBeanListVersionPicker">
-          <span>豆单版本</span>
-          <select v-model.number="form.bean_list_publication_id">
-            <option v-for="item in customerBeanListVersionOptions" :key="item.id" :value="item.id">
-              {{ beanListVersionLabel(item) }}
-            </option>
-          </select>
-        </label>
+        <template v-for="item in orderBeanListTypes" :key="item.type">
+          <label v-if="showBeanListVersionPickerByType(item.type)">
+            <span>{{ item.label }}</span>
+            <select :value="form[beanListVersionField(item.type)]" @change="setBeanListVersion(item.type, $event.target.value)">
+              <option v-for="option in customerBeanListVersionOptionsByType(item.type)" :key="option.id" :value="option.id">
+                {{ beanListVersionLabel(option) }}
+              </option>
+            </select>
+          </label>
 
-        <label v-else-if="selectedBeanListVersionOption" class="readonly-field">
-          <span>豆单版本</span>
-          <input :value="beanListVersionLabel(selectedBeanListVersionOption)" readonly />
-        </label>
+          <label v-else-if="selectedBeanListVersionOptionByType(item.type)" class="readonly-field">
+            <span>{{ item.label }}</span>
+            <input :value="beanListVersionLabel(selectedBeanListVersionOptionByType(item.type))" readonly />
+          </label>
+        </template>
 
         <label>
           <span>付款状态</span>
@@ -451,6 +453,9 @@ const form = reactive({
   responsible_type: '',
   responsible_id: 0,
   bean_list_publication_id: 0,
+  commercial_bean_list_publication_id: 0,
+  green_bean_list_publication_id: 0,
+  drip_bean_list_publication_id: 0,
   notes: '',
   shipping_amount: '',
   discount_amount: '',
@@ -515,17 +520,14 @@ const filteredCustomers = computed(() => filterOptions(customers.value, customer
 const paymentMethodRequired = computed(() => requiresOrderPaymentMethod(form, payStatuses.value))
 const copyMode = computed(() => Number(props.copyId || effectiveCopyID.value || 0) > 0)
 const responsibleCandidateOptions = computed(() => responsibleOptions({ employees: employees.value, customers: customers.value }))
+const orderBeanListTypes = [
+  { type: 'commercial', label: '熟豆豆单' },
+  { type: 'green', label: '生豆豆单' },
+  { type: 'drip', label: '挂耳豆单' },
+]
 const customerBeanListVersionOptions = computed(() => {
   const customerID = Number(form.customer_id || 0)
   return (beanListVersionOptions.value || []).filter((item) => Number(item.customer_id || 0) === customerID)
-})
-const showBeanListVersionPicker = computed(() => customerBeanListVersionOptions.value.some((item) => item.is_customer_owned))
-const selectedBeanListVersionOption = computed(() => {
-  if (!customerBeanListVersionOptions.value.length) return null
-  const selected = Number(form.bean_list_publication_id || 0)
-  return customerBeanListVersionOptions.value.find((item) => Number(item.id) === selected)
-    || customerBeanListVersionOptions.value.find((item) => item.is_default)
-    || customerBeanListVersionOptions.value[0]
 })
 const filteredResponsibleOptions = computed(() => {
   const q = String(responsibleQuery.value || '').trim().toLowerCase()
@@ -580,16 +582,59 @@ function beanListVersionLabel(item) {
   return `${owner} ${version}${time}`
 }
 
-function syncBeanListVersionForCustomer(options = {}) {
-  const rows = customerBeanListVersionOptions.value
-  if (!rows.length) {
-    form.bean_list_publication_id = 0
-    return
+function beanListVersionField(listType) {
+  if (listType === 'green') return 'green_bean_list_publication_id'
+  if (listType === 'drip') return 'drip_bean_list_publication_id'
+  return 'commercial_bean_list_publication_id'
+}
+
+function orderBeanListTypeForProductKind(productKind) {
+  if (productKind === 'green_bean') return 'green'
+  if (productKind === 'drip_bag') return 'drip'
+  return 'commercial'
+}
+
+function customerBeanListVersionOptionsByType(listType) {
+  return customerBeanListVersionOptions.value.filter((item) => String(item.list_type || 'commercial') === listType)
+}
+
+function showBeanListVersionPickerByType(listType) {
+  const rows = customerBeanListVersionOptionsByType(listType)
+  return rows.length > 1 || rows.some((item) => item.is_customer_owned)
+}
+
+function selectedBeanListVersionOptionByType(listType) {
+  const rows = customerBeanListVersionOptionsByType(listType)
+  if (!rows.length) return null
+  const selected = Number(form[beanListVersionField(listType)] || 0)
+  return rows.find((item) => Number(item.id) === selected)
+    || rows.find((item) => item.is_default)
+    || rows[0]
+}
+
+function setBeanListVersion(listType, value) {
+  const field = beanListVersionField(listType)
+  form[field] = Number(value || 0)
+  if (listType === 'commercial') {
+    form.bean_list_publication_id = form[field]
   }
-  const currentID = Number(form.bean_list_publication_id || 0)
-  if (!options.force && rows.some((item) => Number(item.id) === currentID)) return
-  const selected = rows.find((item) => item.is_default) || rows[0]
-  form.bean_list_publication_id = Number(selected?.id || 0)
+}
+
+function syncBeanListVersionForCustomer(options = {}) {
+  for (const item of orderBeanListTypes) {
+    const rows = customerBeanListVersionOptionsByType(item.type)
+    const field = beanListVersionField(item.type)
+    if (!rows.length) {
+      form[field] = 0
+      if (item.type === 'commercial') form.bean_list_publication_id = 0
+      continue
+    }
+    const currentID = Number(form[field] || 0)
+    if (!options.force && rows.some((row) => Number(row.id) === currentID)) continue
+    const selected = rows.find((row) => row.is_default) || rows[0]
+    form[field] = Number(selected?.id || 0)
+    if (item.type === 'commercial') form.bean_list_publication_id = form[field]
+  }
 }
 
 function clearResponsible() {
@@ -879,6 +924,11 @@ function applyDefaultSelections(data) {
 
 function applyEditData(data) {
   if (!data) return
+  const editItems = Array.isArray(data.items) ? data.items : []
+  const itemPublicationIDByType = (listType) => {
+    const item = editItems.find((row) => orderBeanListTypeForProductKind(row.product_kind) === listType && Number(row.bean_list_publication_id || 0) > 0)
+    return Number(item?.bean_list_publication_id || 0)
+  }
   Object.assign(form, {
     edit_id: Number(data.edit_id || form.edit_id || 0),
     order_date: data.order_date || form.order_date,
@@ -893,6 +943,9 @@ function applyEditData(data) {
     responsible_type: data.responsible_type || '',
     responsible_id: Number(data.responsible_id || 0),
     bean_list_publication_id: Number(data.bean_list_publication_id || 0),
+    commercial_bean_list_publication_id: Number(data.commercial_bean_list_publication_id || data.bean_list_publication_id || itemPublicationIDByType('commercial') || 0),
+    green_bean_list_publication_id: Number(data.green_bean_list_publication_id || itemPublicationIDByType('green') || 0),
+    drip_bean_list_publication_id: Number(data.drip_bean_list_publication_id || itemPublicationIDByType('drip') || 0),
     notes: data.notes || '',
     shipping_amount: data.shipping_amount || '',
     discount_amount: data.discount_amount || '',
@@ -908,7 +961,7 @@ function applyEditData(data) {
   customerQuery.value = optionName(customers.value, form.customer_id)
   const responsible = responsibleOptionByValue(form.responsible_type, form.responsible_id)
   responsibleQuery.value = responsible?.label || data.responsible_name || ''
-  rows.value = (data.items || []).map((item) => {
+  rows.value = editItems.map((item) => {
     const spec = String(item.spec || '').replace(/g$/i, '')
     const product = productByID(item.product_id)
     const productKind = item.product_kind || product?.product_kind || 'roasted_bean'
@@ -947,6 +1000,14 @@ function applyEditData(data) {
     }
   })
   if (!rows.value.length) rows.value = [newRow()]
+  for (const row of rows.value) {
+    const publicationID = Number(row.bean_list_publication_id || 0)
+    if (publicationID <= 0) continue
+    const listType = orderBeanListTypeForProductKind(row.product_kind)
+    const field = beanListVersionField(listType)
+    if (!Number(form[field] || 0)) form[field] = publicationID
+  }
+  form.bean_list_publication_id = Number(form.commercial_bean_list_publication_id || form.bean_list_publication_id || 0)
 }
 
 async function load() {
@@ -979,6 +1040,9 @@ async function load() {
         editData.ship_tracking_no = ''
         editData.ship_status_id = defaultStatusID(shipStatuses.value, ['未发货']) || editData.ship_status_id
         editData.bean_list_publication_id = 0
+        editData.commercial_bean_list_publication_id = 0
+        editData.green_bean_list_publication_id = 0
+        editData.drip_bean_list_publication_id = 0
       }
       form.edit_id = Number(editData.edit_id || 0)
       applyEditData(editData)
@@ -1066,6 +1130,13 @@ watch(
   paymentMethodRequired,
   (required) => {
     if (!required) form.payment_method = ''
+  },
+)
+
+watch(
+  () => form.commercial_bean_list_publication_id,
+  (publicationID) => {
+    form.bean_list_publication_id = Number(publicationID || 0)
   },
 )
 </script>

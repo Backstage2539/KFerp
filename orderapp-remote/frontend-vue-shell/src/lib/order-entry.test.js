@@ -163,6 +163,33 @@ test('buildOrderPayload includes selected bean list publication', () => {
   assert.equal(payload.bean_list_publication_id, 88)
 })
 
+test('buildOrderPayload includes selected bean list publications by product kind', () => {
+  const payload = buildOrderPayload({
+    form: {
+      order_date: '2026-05-19',
+      customer_id: 3,
+      commercial_bean_list_publication_id: 81,
+      green_bean_list_publication_id: 82,
+      drip_bean_list_publication_id: 83,
+    },
+    rows: [
+      {
+        product_id: 88,
+        product_name: '兰卡拼配生豆',
+        product_kind: 'green_bean',
+        tier_id: 'auto',
+        spec_mode: '1000',
+        qty: 1,
+        unit: 'kg',
+      },
+    ],
+  })
+
+  assert.equal(payload.commercial_bean_list_publication_id, 81)
+  assert.equal(payload.green_bean_list_publication_id, 82)
+  assert.equal(payload.drip_bean_list_publication_id, 83)
+})
+
 test('buildOrderPayload preserves green bean product kind for order pricing', () => {
   const payload = buildOrderPayload({
     form: {

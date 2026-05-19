@@ -1769,6 +1769,68 @@ func TestOrderAPISavesGreenBeanOrderRejectsMissingGreenBeanListPrice(t *testing.
 	}
 }
 
+func TestOrderAPISavesGreenBeanOrderUsingSelectedGreenBeanListPublication(t *testing.T) {
+	pool, schema := newOrderAPITestDB(t)
+	ctx := context.Background()
+	seedOrderAPITestData(t, ctx, pool, schema)
+	mustExecOrderAPITestSQL(t, ctx, pool, fmt.Sprintf(`
+		INSERT INTO %[1]s.products(id,name,default_price,active,product_kind,green_bean_type,green_bean_bom_product_id,customer_id,visibility,custom_type)
+		VALUES (88,'兰卡拼配生豆',0,true,'green_bean','blend',7,3,'customer_only','public_sku_alias');
+		INSERT INTO %[1]s.bean_list_publications(id, list_type, version_no, status, owner_type, owner_key, config_json, content_json, changelog, actor, published_at)
+		VALUES (9901,'green','G-2026-05-18','published','customer','3','{}'::jsonb,
+			'{"groups":[{"items":[{"productId":88,"name":"兰卡拼配生豆","green_bean_sale_tiers":[{"label":"24-49kg","spec_g":1000,"min_qty":24,"max_qty":49,"price_per_unit":72,"display_unit":"kg","min_weight_g":24000,"max_weight_g":49000}]}]}]}'::jsonb,
+			'生豆手工价','codex','2026-05-18 09:00:00+08'),
+			(9902,'green','G-2026-05-19','published','customer','3','{}'::jsonb,
+			'{"groups":[{"items":[{"productId":88,"name":"兰卡拼配生豆","green_bean_sale_tiers":[{"label":"24-49kg","spec_g":1000,"min_qty":24,"max_qty":49,"price_per_unit":99,"display_unit":"kg","min_weight_g":24000,"max_weight_g":49000}]}]}]}'::jsonb,
+			'生豆较新版本','codex','2026-05-19 09:00:00+08');
+	`, schema))
+
+	e := newOrderAPITestEcho(pool, schema)
+	payload := map[string]any{
+		"order_date":                     "2026-05-19",
+		"customer_id":                    3,
+		"source_id":                      1,
+		"order_type_id":                  1,
+		"pay_status_id":                  1,
+		"ship_status_id":                 1,
+		"bean_list_publication_id":       9902,
+		"green_bean_list_publication_id": 9901,
+		"product_id":                     []string{"88"},
+		"tier_id":                        []string{"auto"},
+		"unit_price":                     []string{""},
+		"item_name":                      []string{"兰卡拼配生豆"},
+		"product_kind":                   []string{"green_bean"},
+		"qty":                            []string{"30"},
+		"unit":                           []string{"kg"},
+		"spec":                           []string{"1000"},
+	}
+	body, _ := json.Marshal(payload)
+	req := httptest.NewRequest(http.MethodPost, "/api/order", bytes.NewReader(body))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("POST /api/order status = %d, want 200, body=%s", rec.Code, rec.Body.String())
+	}
+
+	var productKind, versionNo string
+	var publicationID int64
+	var unitPrice, lineTotal float64
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`
+		SELECT COALESCE(product_kind,''), COALESCE(bean_list_publication_id,0), COALESCE(bean_list_version_no,''), COALESCE(unit_price,0)::float8, COALESCE(line_total,0)::float8
+		FROM %s.order_items
+		WHERE product_id=88
+		ORDER BY id DESC
+		LIMIT 1
+	`, schema)).Scan(&productKind, &publicationID, &versionNo, &unitPrice, &lineTotal); err != nil {
+		t.Fatalf("query green bean order item: %v", err)
+	}
+	if productKind != "green_bean" || publicationID != 9901 || versionNo != "G-2026-05-18" || unitPrice != 72 || lineTotal != 2160 {
+		t.Fatalf("saved green item kind/pub/version/unit/total=%q/%d/%q/%.2f/%.2f, want green_bean/9901/G-2026-05-18/72.00/2160.00", productKind, publicationID, versionNo, unitPrice, lineTotal)
+	}
+}
+
 func TestOrderAPISavesManualWholesale1000gPriceAsKgUnit(t *testing.T) {
 	pool, schema := newOrderAPITestDB(t)
 	ctx := context.Background()
