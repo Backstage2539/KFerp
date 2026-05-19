@@ -213,15 +213,23 @@
         </div>
         <div class="gradient-template-layout">
           <div class="template-list">
-            <button
+            <div
               v-for="template in gradientTemplates"
               :key="template.id"
-              type="button"
-              :class="['template-row', { active: Number(template.id) === Number(templateForm.id), inactive: template.active === false }]"
-              @click="startGradientTemplateEdit(template)">
-              <strong>{{ template.name }}</strong>
-              <small>{{ gradientTemplateLabel(template) }} · {{ gradientDisplayUnitLabel(template.display_unit) }} · {{ template.tiers.length }} 档</small>
-            </button>
+              :class="['template-row', { active: Number(template.id) === Number(templateForm.id), inactive: template.active === false }]">
+              <button class="template-row-main" type="button" @click="startGradientTemplateEdit(template)">
+                <strong>{{ template.name }}</strong>
+                <small>{{ gradientTemplateLabel(template) }} · {{ gradientDisplayUnitLabel(template.display_unit) }} · {{ template.tiers.length }} 档</small>
+              </button>
+              <button
+                v-if="canDeriveGradientTemplate(template)"
+                class="text-button template-copy-action"
+                type="button"
+                :disabled="templateSaving"
+                @click.stop="deriveGradientTemplateForCustomer(template)">
+                复制为客户模板
+              </button>
+            </div>
             <p v-if="!gradientTemplates.length" class="muted">暂无梯度模板</p>
           </div>
           <form class="template-editor" @submit.prevent="saveGradientTemplate">
@@ -1057,6 +1065,43 @@ async function resolveGradientTemplateForCategory(category, templateID) {
     },
   })
   return Number(response?.template?.id || templateID)
+}
+
+function canDeriveGradientTemplate(template) {
+  return skuContextCustomerID.value > 0
+    && Number(template?.customer_id || 0) === 0
+    && template?.active !== false
+}
+
+async function deriveGradientTemplateForCustomer(template) {
+  const customerID = skuContextCustomerID.value
+  if (!customerID) {
+    error.value = '请选择履约客户'
+    return
+  }
+  if (!canDeriveGradientTemplate(template)) return
+  templateSaving.value = true
+  error.value = ''
+  ok.value = ''
+  try {
+    const response = await apiSend('/api/product-settings/customer-gradient-templates/derive', {
+      body: {
+        customer_id: customerID,
+        source_template_id: Number(template.id || 0),
+        name: `${customerName(customerID) || '客户'} - ${template.name}`,
+      },
+    })
+    const derivedID = Number(response?.template?.id || 0)
+    ok.value = '公共梯度模板已复制为客户模板，可改名和调整档位'
+    await loadAll()
+    const derived = gradientTemplates.value.find((row) => Number(row.id || 0) === derivedID)
+      || gradientTemplates.value.find((row) => Number(row.customer_id || 0) === customerID && Number(row.source_template_id || 0) === Number(template.id || 0))
+    if (derived) startGradientTemplateEdit(derived)
+  } catch (err) {
+    error.value = err.message || '复制公共梯度模板失败'
+  } finally {
+    templateSaving.value = false
+  }
 }
 
 function productVisibility(product) {
@@ -1925,10 +1970,12 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .gradient-template-panel { grid-column: 1 / -1; }
 .gradient-template-layout { display: grid; grid-template-columns: minmax(220px, 280px) minmax(0, 1fr); gap: 12px; align-items: start; }
 .template-list { display: grid; gap: 8px; }
-.template-row { min-height: 50px; display: grid; gap: 3px; align-content: center; text-align: left; border: 1px solid #e2ddd6; background: #fbfaf8; padding: 8px 10px; }
+.template-row { min-height: 50px; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; align-items: center; text-align: left; border: 1px solid #e2ddd6; background: #fbfaf8; padding: 8px 10px; }
 .template-row.active { border-color: #1f4f82; background: #eef6ff; }
 .template-row.inactive { opacity: .58; }
 .template-row small { color: #666; font-size: 12px; }
+.template-row-main { min-height: 0; border: 0; background: transparent; padding: 0; color: inherit; text-align: left; display: grid; gap: 3px; }
+.template-copy-action { white-space: nowrap; }
 .template-editor { border: 1px solid #eee8df; border-radius: 8px; background: #fbfaf8; padding: 12px; }
 .template-editor-grid { display: grid; grid-template-columns: minmax(0, 1fr) 160px; gap: 10px; }
 .template-editor label { display: grid; gap: 5px; font-size: 13px; }
