@@ -171,6 +171,19 @@ test('green bean labels and BOM product options stay fused with existing product
   ]).map((row) => row.id), [1])
 })
 
+test('roasted BOM options exclude duplicate public SKU aliases and other customers', () => {
+  const candidates = [
+    { id: 21, name: '初晓', product_kind: 'roasted', customer_id: 0, visibility: 'public' },
+    { id: 386, name: '初晓', product_kind: 'roasted', customer_id: 149, visibility: 'customer_only', custom_type: 'public_sku_alias', base_product_id: 21 },
+    { id: 420, name: '初晓-客户拼配', product_kind: 'roasted', customer_id: 149, visibility: 'customer_only', custom_type: 'custom_blend', base_product_id: 21 },
+    { id: 421, name: '初晓-别的客户', product_kind: 'roasted', customer_id: 150, visibility: 'customer_only', custom_type: 'custom_blend', base_product_id: 21 },
+    { id: 422, name: '初晓生豆', product_kind: 'green_bean', customer_id: 149 },
+  ]
+
+  assert.deepEqual(roastedBomProductOptions(candidates).map((row) => row.id), [21])
+  assert.deepEqual(roastedBomProductOptions(candidates, { customerID: 149 }).map((row) => row.id), [21, 420])
+})
+
 test('customer SKU customer options include active customers before they have copied SKUs', () => {
   assert.deepEqual(customerSkuCustomerOptions([
     { id: 9, name: 'Z 客户', active: true },

@@ -8,6 +8,7 @@
 ## 验收点
 - 客户专属 SKU 创建表单提供产品形态选择：熟豆、生豆、挂耳。
 - 生豆客户 SKU 没有基础产品，创建时只提交 `product_kind=green_bean`、`green_bean_type` 和绑定熟豆 `green_bean_bom_product_id`。
+- 绑定熟豆候选只包含公共熟豆和当前客户真正自定义的熟豆，排除历史公共 SKU 别名复制件和其他客户 SKU，避免同名熟豆重复出现。
 - 熟豆和挂耳的基础产品下拉按当前形态筛选公共 SKU，避免用熟豆基础产品创建挂耳客户 SKU。
 - 挂耳客户 SKU 创建时提交 `product_kind=drip_bag`、`drip_bag_grams` 和 `drip_box_bag_count`。
 - 客户 SKU 列表和行内保存保留 `drip_bag`，不会把挂耳保存成默认熟豆。
@@ -15,4 +16,5 @@
 
 ## 测试证据
 - `node --test src/lib/product-settings.test.js`
+- `go test ./internal/interfaces/http/support -run TestCustomerCustomSkuFormUsesSearchableDropdowns -count=1`
 - `go test ./internal/application/catalog ./internal/interfaces/http/catalog ./internal/infrastructure/postgres/catalog -run 'TestCreateCustomProductAcceptsCustomerGreenBeanWithoutRoastLevel|TestProductSettingsAPICreatesCustomerGreenBeanCustomProduct|TestProductSettingsAPICreatesCustomerCustomProduct|TestCreateCustomProductCopiesDripProductMetadata|TestCreateCustomProductAllowsGreenBeanWithoutBaseProduct' -count=1`

@@ -71,6 +71,8 @@ func TestCustomerCustomSkuFormUsesSearchableDropdowns(t *testing.T) {
 		"customForm.drip_box_bag_count",
 		`v-if="customForm.product_kind !== 'green_bean'" class="wide-field"`,
 		"customForm.value.product_kind !== 'green_bean' && !customForm.value.base_product_id",
+		"customRoastedBomProducts",
+		"roastedBomProductsForRow(row)",
 		"输入产品名",
 		"没有匹配产品",
 	} {

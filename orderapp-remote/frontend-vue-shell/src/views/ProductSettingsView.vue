@@ -92,7 +92,7 @@
             <span>绑定熟豆</span>
             <SearchableSelect
               v-model="productForm.green_bean_bom_product_id"
-              :options="roastedBomProducts"
+              :options="publicRoastedBomProducts"
               :option-label="baseProductOptionLabel"
               :option-meta="baseProductOptionMeta"
               :option-value="optionNumericValue"
@@ -162,7 +162,7 @@
             <span>绑定熟豆</span>
             <SearchableSelect
               v-model="customForm.green_bean_bom_product_id"
-              :options="roastedBomProducts"
+              :options="customRoastedBomProducts"
               :option-label="baseProductOptionLabel"
               :option-meta="baseProductOptionMeta"
               :option-value="optionNumericValue"
@@ -543,7 +543,7 @@
                         <SearchableSelect
                           class="bom-product-select"
                           v-model="row.green_bean_bom_product_id"
-                          :options="roastedBomProducts"
+                          :options="roastedBomProductsForRow(row)"
                           :option-label="baseProductOptionLabel"
                           :option-meta="baseProductOptionMeta"
                           :option-value="optionNumericValue"
@@ -764,7 +764,10 @@ const allProductRowsSelected = computed(() => editableDisplaySkuRows.value.lengt
 const activeGradientTemplates = computed(() => gradientTemplates.value.filter((template) => template.active !== false))
 const skuPrimaryCategoryOptions = computed(() => primaryCategoryOptions(unfilteredDisplaySkuRows.value))
 const skuSecondaryCategoryOptions = computed(() => secondaryCategoryOptions(unfilteredDisplaySkuRows.value, skuFilters.value.primaryCategory))
-const roastedBomProducts = computed(() => roastedBomProductOptions(products.value))
+const publicRoastedBomProducts = computed(() => roastedBomProductOptions(products.value))
+const customRoastedBomProducts = computed(() => roastedBomProductOptions(products.value, {
+  customerID: selectedCustomerSkuCustomerID.value,
+}))
 
 function defaultSkuFilters() {
   return {
@@ -1114,6 +1117,10 @@ function selectedBaseProduct() {
 
 function baseProductName(id) {
   return products.value.find((product) => Number(product.id) === Number(id))?.name || '-'
+}
+
+function roastedBomProductsForRow(row) {
+  return roastedBomProductOptions(products.value, { customerID: Number(row?.customer_id || 0) })
 }
 
 function fillCustomProductName() {
