@@ -52,8 +52,11 @@ test('SKU settings exposes customer context initialization without the public pr
 test('product bean-list page owns customer context for bean-list previews', () => {
   assert.match(costingSource, /<h2>产品豆单<\/h2>/)
   assert.match(costingSource, /const activeBeanListCustomerID = computed/)
-  assert.match(costingSource, /if \(normalizedCustomerContextID\.value > 0\) return 'customer'/)
+  assert.match(costingSource, /const activeCostingScope = computed/)
+  assert.match(costingSource, /versionListScopeCustomerID\(versionListScope\.value\)/)
+  assert.match(costingSource, /syncPublicationScopeFromPageContext/)
   assert.match(costingSource, /filterBeanListItemsForScope\(items\.value,\s*activeCostingScope\.value,\s*activeBeanListCustomerID\.value\)/)
+  assert.doesNotMatch(costingSource, /<strong>发布归属<\/strong>/)
 })
 
 test('product bean-list page does not expose pricing trial workspace', () => {

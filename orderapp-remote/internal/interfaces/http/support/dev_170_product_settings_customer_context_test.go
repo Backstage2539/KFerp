@@ -62,11 +62,12 @@ func TestDev170CostingViewAcceptsCustomerContext(t *testing.T) {
 		"defineProps",
 		"customerContextId",
 		"customerContextLabel",
-		"syncCustomerContext",
+		"syncPublicationScopeFromPageContext",
 		"activeBeanListCustomerID",
 		"visibleCostingItems",
+		"versionListScopeCustomerID(versionListScope.value)",
 		"publicationScope.value = 'customer'",
-		"selectedBeanListCustomerID.value = normalizedCustomerID",
+		"selectedBeanListCustomerID.value = pageCustomerID",
 		"filterBeanListItemsForScope(items.value, activeCostingScope.value",
 	} {
 		if !strings.Contains(view, want) {
@@ -125,7 +126,7 @@ func TestDev170ManualsDocumentCustomerContextOperation(t *testing.T) {
 			"客户上下文",
 			"SKU归属",
 			"客户自己的商品分类",
-			"指定客户豆单",
+			"豆单范围",
 			"豆单预览",
 		} {
 			if !strings.Contains(doc, want) {

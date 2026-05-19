@@ -309,12 +309,20 @@ func TestBeanListCopyPublishedConfigRequirementSeeds(t *testing.T) {
 		"UT-105-01",
 		"API-105-01",
 		"REV-105-01",
-		"生成豆单支持复制已有豆单配置",
-		"复制已有豆单配置",
-		"当前最新产品和价格重新生成预览",
+		"生成豆单下线历史配置复制入口",
+		"移除生成豆单抽屉的历史配置复制入口",
+		"不能选择历史豆单复制配置",
 	} {
 		if !strings.Contains(src, want) {
 			t.Fatalf("bean-list copy config requirement seed missing %q", want)
+		}
+	}
+	for _, forbidden := range []string{
+		"CostingView copy-config-box/applyCopiedBeanListPublicationConfig",
+		"复制已有豆单配置",
+	} {
+		if strings.Contains(src, forbidden) {
+			t.Fatalf("bean-list copy config seed should be retired, found %q", forbidden)
 		}
 	}
 }

@@ -15,9 +15,7 @@ test('product bean-list view exposes publication versions without pricing trial 
   assert.equal(viewSource.indexOf('pricingCollapsed'), -1, 'pricing trial collapse state should be removed from 产品豆单')
 
   for (const expected of [
-    'v-model="publicationScope"',
     'v-model="pdfOptions.listType"',
-    'publicationScope === \'customer\'',
     'currentScopePublicationRows',
     'function beanListPublicationStatusLabel',
     'function beanListPublicationStatusClass',
@@ -26,10 +24,18 @@ test('product bean-list view exposes publication versions without pricing trial 
     'function beanListPublicationOwnerLabel',
     'function beanListPublicationSourceLabel',
     'function startBeanListFromPublication',
-    'applyCopiedBeanListPublicationConfig(row)',
     'withdrawBeanList(row)',
   ]) {
     assert.ok(viewSource.includes(expected), `missing version list behavior: ${expected}`)
+  }
+
+  for (const forbidden of [
+    'v-model="publicationScope"',
+    'applyCopiedBeanListPublicationConfig(row)',
+    'selectedCopyPublicationID',
+    '复制已有豆单配置',
+  ]) {
+    assert.equal(viewSource.includes(forbidden), false, `old bean-list copy/scope behavior should be removed: ${forbidden}`)
   }
 })
 
@@ -44,6 +50,7 @@ test('product bean-list version scope selector lists public and each fulfillment
   assert.match(versionListSource, /v-for="customer in customers"/)
   assert.match(versionListSource, /:value="`customer:\$\{customer\.id\}`"/)
   assert.match(versionListSource, /customerOptionLabel\(customer\)/)
+  assert.match(versionListSource, /<option value="drip">挂耳豆单<\/option>/)
   assert.doesNotMatch(versionListSource, /fulfillment_customers/)
   assert.doesNotMatch(versionListSource, /所有履约客户豆单/)
   assert.doesNotMatch(versionListSource, /棵凡官方豆单/)
@@ -56,7 +63,43 @@ test('product bean-list version scope selector lists public and each fulfillment
   assert.match(viewSource, /function beanListPublicationCacheKey/)
   assert.match(viewSource, /const versionListCurrentPublication = computed/)
   assert.match(viewSource, /const publicationScopeRows = computed/)
-  assert.match(viewSource, /const copyableBeanListPublications = computed\(\(\) => publicationScopeRows\.value\)/)
+  assert.match(viewSource, /function syncPublicationScopeFromPageContext/)
+})
+
+test('product bean-list generate area uses collapsible bean-list sections including green beans', () => {
+  for (const expected of [
+    'collapsible-bean-section',
+    "beanListPreviewCollapsed",
+    "toggleBeanListPreviewSection('commercial')",
+    "toggleBeanListPreviewSection('drip')",
+    "toggleBeanListPreviewSection('retail')",
+    "toggleBeanListPreviewSection('green')",
+    "greenGroups",
+    "green_bean_list",
+    "green_bean_sale_tiers",
+    "生豆豆单",
+  ]) {
+    assert.ok(viewSource.includes(expected), `missing collapsible bean-list preview behavior: ${expected}`)
+  }
+  assert.doesNotMatch(viewSource, /生成挂耳豆单/)
+  assert.doesNotMatch(viewSource, /openBeanListDrawer\('drip'\)/)
+})
+
+test('product bean-list drawer derives publication owner from current page scope', () => {
+  for (const expected of [
+    '当前归属',
+    'currentPublicationOwnerLabel',
+    'currentPublicationScopeDescription',
+    'syncPublicationScopeFromPageContext',
+    'versionListScopeCustomerID(versionListScope.value)',
+    "publicationScope.value = 'customer'",
+    "publicationScope.value = 'official'",
+  ]) {
+    assert.ok(viewSource.includes(expected), `missing derived publication owner behavior: ${expected}`)
+  }
+  assert.doesNotMatch(viewSource, /<strong>发布归属<\/strong>/)
+  assert.doesNotMatch(viewSource, /<strong>客户<\/strong>/)
+  assert.doesNotMatch(viewSource, /<SearchableSelect[\s\S]*selectedBeanListCustomerID/)
 })
 
 test('product bean-list view maps every bean-list type to its own metadata and tier fields', () => {
