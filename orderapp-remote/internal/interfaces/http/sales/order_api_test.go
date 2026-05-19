@@ -268,7 +268,7 @@ func TestOrderAPIFormFiltersCustomerSpecificProducts(t *testing.T) {
 	}
 }
 
-func TestOrderAPIFormReturnsBoundRoastedTiersForGreenBeanProduct(t *testing.T) {
+func TestOrderAPIFormDoesNotReturnBoundRoastedTiersForGreenBeanProduct(t *testing.T) {
 	pool, schema := newOrderAPITestDB(t)
 	ctx := context.Background()
 	seedOrderAPITestData(t, ctx, pool, schema)
@@ -326,8 +326,8 @@ func TestOrderAPIFormReturnsBoundRoastedTiersForGreenBeanProduct(t *testing.T) {
 	if green.ProductKind != "green_bean" {
 		t.Fatalf("product_kind=%q, want green_bean", green.ProductKind)
 	}
-	if len(green.Tiers) != 2 || green.Tiers[0].ID != 8801 || green.Tiers[0].SpecG != 1000 || green.Tiers[0].UnitPrice != 81.91 {
-		t.Fatalf("green bean inherited tiers = %+v, want bound roasted tiers", green.Tiers)
+	if len(green.Tiers) != 0 {
+		t.Fatalf("green bean must not inherit bound roasted tiers, got %+v", green.Tiers)
 	}
 }
 
@@ -1725,7 +1725,7 @@ func TestOrderAPISavesWholesale1000gByBeanListWeightTier(t *testing.T) {
 	}
 }
 
-func TestOrderAPISavesGreenBeanOrderUsingBoundRoastedTierFallback(t *testing.T) {
+func TestOrderAPISavesGreenBeanOrderRejectsMissingGreenBeanListPrice(t *testing.T) {
 	pool, schema := newOrderAPITestDB(t)
 	ctx := context.Background()
 	seedOrderAPITestData(t, ctx, pool, schema)
@@ -1761,30 +1761,11 @@ func TestOrderAPISavesGreenBeanOrderUsingBoundRoastedTierFallback(t *testing.T) 
 	rec := httptest.NewRecorder()
 	e.ServeHTTP(rec, req)
 
-	if rec.Code != http.StatusOK {
-		t.Fatalf("POST /api/order status = %d, want 200, body=%s", rec.Code, rec.Body.String())
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("POST /api/order status = %d, want 400, body=%s", rec.Code, rec.Body.String())
 	}
-
-	var productKind, priceSource string
-	var tierID int64
-	var unitPrice, lineTotal float64
-	if err := pool.QueryRow(ctx, fmt.Sprintf(`
-		SELECT COALESCE(product_kind,''), COALESCE(price_tier_id,0), COALESCE(unit_price,0)::float8, COALESCE(line_total,0)::float8, COALESCE(price_source_json,'{}'::jsonb)::text
-		FROM %s.order_items
-		WHERE product_id=88
-		ORDER BY id DESC
-		LIMIT 1
-	`, schema)).Scan(&productKind, &tierID, &unitPrice, &lineTotal, &priceSource); err != nil {
-		t.Fatalf("query green bean order item: %v", err)
-	}
-	if productKind != "green_bean" {
-		t.Fatalf("product_kind=%q, want green_bean", productKind)
-	}
-	if tierID != 8801 || unitPrice != 82 || lineTotal != 2460 {
-		t.Fatalf("tier/unit_price/line_total=%d/%.2f/%.2f, want 8801/82.00/2460.00", tierID, unitPrice, lineTotal)
-	}
-	if !strings.Contains(priceSource, "green_bean_bound_roasted_tier") || !strings.Contains(priceSource, `"source_product_id": 7`) && !strings.Contains(priceSource, `"source_product_id":7`) {
-		t.Fatalf("price_source_json missing bound roasted fallback: %s", priceSource)
+	if !strings.Contains(rec.Body.String(), "生豆豆单") && !strings.Contains(rec.Body.String(), "green bean") {
+		t.Fatalf("missing green bean list price error, body=%s", rec.Body.String())
 	}
 }
 
