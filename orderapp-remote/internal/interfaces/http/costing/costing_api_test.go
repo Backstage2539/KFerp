@@ -905,6 +905,29 @@ func TestBeanListPublicationAPISupportsCustomerScope(t *testing.T) {
 	}
 }
 
+func TestBeanListPublicationAPISupportsAllFulfillmentCustomerScope(t *testing.T) {
+	svc := &recordingBeanListService{}
+	e := echo.New()
+	e.Use(func(next echo.HandlerFunc) echo.HandlerFunc {
+		return func(c echo.Context) error {
+			c.Set("basic_auth_admin", true)
+			c.Set("employee_id", int64(7))
+			return next(c)
+		}
+	})
+	RegisterRoutes(e, Dependencies{Costing: svc})
+
+	req := httptest.NewRequest(http.MethodGet, "/api/costing/bean-list/publications?list_type=commercial&scope=fulfillment_customers", nil)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("list status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	if svc.lastQuery.OwnerType != "customer" || svc.lastQuery.OwnerKey != "" || !svc.lastQuery.AllFulfillmentCustomers {
+		t.Fatalf("all fulfillment customer query = %+v", svc.lastQuery)
+	}
+}
+
 func TestBeanListPublicationPublishRequiresAdmin(t *testing.T) {
 	svc := &recordingBeanListService{}
 	e := echo.New()

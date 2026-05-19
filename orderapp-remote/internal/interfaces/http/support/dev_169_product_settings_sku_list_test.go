@@ -43,10 +43,22 @@ func TestDev169ProductSettingsShowsUnifiedSkuList(t *testing.T) {
 		"customer-public-usage",
 		"remark-input",
 		"SKU备注已保存",
+		"skuFilters.customType",
+		"skuTypeOptions",
 	} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("ProductSettingsView.vue missing unified SKU list marker %q", want)
 		}
+	}
+	remarkHeader := strings.Index(view, "<th>备注</th>")
+	actionHeader := strings.Index(view, "<th>处理</th>")
+	remarkInput := strings.Index(view, "class=\"remark-input\"")
+	deactivateAction := strings.Index(view, "deactivateProducts([row.id])")
+	if remarkHeader < 0 || actionHeader < 0 || remarkInput < 0 || deactivateAction < 0 {
+		t.Fatalf("ProductSettingsView.vue missing SKU remark/action column markers")
+	}
+	if remarkHeader < actionHeader || remarkInput < deactivateAction {
+		t.Fatalf("SKU remark column must be rendered after action column")
 	}
 	for _, forbidden := range []string{
 		"class=\"customer-sku-list\"",
@@ -77,6 +89,7 @@ func TestDev169ManualsDocumentUnifiedSkuListOperation(t *testing.T) {
 			"公共SKU",
 			"履约客户",
 			"备注",
+			"类型",
 		} {
 			if !strings.Contains(doc, want) {
 				t.Fatalf("%s missing unified SKU list manual marker %q", rel, want)

@@ -1,6 +1,15 @@
 import { slicePageRows } from './pagination.js'
 
 export const PRODUCT_KIND_ALL = 'all'
+export const SKU_CUSTOM_TYPE_ALL = 'all'
+
+export const skuTypeOptions = [
+  { value: SKU_CUSTOM_TYPE_ALL, label: '全部类型' },
+  { value: 'standard', label: '标准' },
+  { value: 'public_sku_alias', label: '公共 SKU 改名' },
+  { value: 'custom_roast', label: '定制烘焙' },
+  { value: 'custom_blend', label: '定制拼配' },
+]
 
 export const greenBeanTypeOptions = [
   { value: 'single_origin', label: '单品' },
@@ -23,15 +32,26 @@ export function greenBeanTypeLabel(value) {
   return greenBeanTypeOptions.find((item) => item.value === normalized)?.label || '单品'
 }
 
+export function skuTypeValue(row = {}) {
+  return String(row?.custom_type || '').trim() || 'standard'
+}
+
+export function skuTypeLabel(value) {
+  const normalized = String(value || '').trim() || 'standard'
+  return skuTypeOptions.find((item) => item.value === normalized)?.label || '标准'
+}
+
 export function filterSkuRows(rows = [], filters = {}) {
   const productKind = String(filters.productKind || PRODUCT_KIND_ALL).trim()
+  const customType = String(filters.customType || SKU_CUSTOM_TYPE_ALL).trim()
   const query = String(filters.query || '').trim().toLowerCase()
   const primaryCategory = String(filters.primaryCategory || '').trim()
   const secondaryCategory = String(filters.secondaryCategory || '').trim()
   return (rows || []).filter((row) => {
     if (productKind && productKind !== PRODUCT_KIND_ALL && normalizedProductKind(row) !== productKind) return false
+    if (customType && customType !== SKU_CUSTOM_TYPE_ALL && skuTypeValue(row) !== customType) return false
     if (query) {
-      const haystack = `${row.name || ''} ${row.number || ''}`.toLowerCase()
+      const haystack = `${row.name || ''} ${row.number || ''} ${skuTypeLabel(row.custom_type)} ${row.remark || ''}`.toLowerCase()
       if (!haystack.includes(query)) return false
     }
     if (primaryCategory && String(row.primary_name || '') !== primaryCategory) return false

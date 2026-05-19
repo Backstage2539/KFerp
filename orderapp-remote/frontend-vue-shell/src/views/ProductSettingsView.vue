@@ -418,8 +418,14 @@
               </select>
             </label>
             <label>
-              <span>名称</span>
-              <input v-model.trim="skuFilters.query" placeholder="搜索商品名称" />
+              <span>类型</span>
+              <select v-model="skuFilters.customType">
+                <option v-for="option in skuTypeOptions" :key="option.value" :value="option.value">{{ option.label }}</option>
+              </select>
+            </label>
+            <label>
+              <span>搜索</span>
+              <input v-model.trim="skuFilters.query" placeholder="搜索商品名称/类型/备注" />
             </label>
             <label>
               <span>一级分类</span>
@@ -449,13 +455,13 @@
                 <th>形态</th>
                 <th>归属</th>
                 <th>类型</th>
-                <th>备注</th>
                 <th>烘焙度</th>
                 <th>BOM出品率</th>
                 <th v-if="!selectedCustomerSkuCustomerID">利润率覆盖</th>
                 <th>BOM状态</th>
                 <th>BOM</th>
                 <th>处理</th>
+                <th>备注</th>
               </tr>
             </thead>
             <tbody>
@@ -470,15 +476,7 @@
                   <td>{{ row.name }}</td>
                   <td><span class="kind-badge" :class="productKindBadgeClass(row)">{{ productKindLabel(row) }}</span></td>
                   <td>{{ ownerLabel(row) }}</td>
-                  <td>{{ customTypeLabel(row.custom_type) }}</td>
-                  <td>
-                    <textarea
-                      class="remark-input"
-                      v-model.trim="row.remark"
-                      rows="2"
-                      :disabled="!canEditSkuRow(row)"
-                      @change="saveProductBasics(row, 'SKU备注已保存')"></textarea>
-                  </td>
+                  <td>{{ skuTypeLabel(row.custom_type) }}</td>
                   <td>
                     <select class="roast-select" v-model="row.roast_level" :disabled="row.product_kind === 'green_bean' || !canEditSkuRow(row)" @change="saveProductBasics(row)">
                       <option v-for="level in roastLevels" :key="level" :value="level">{{ level }}</option>
@@ -516,6 +514,14 @@
                   </td>
                   <td>
                     <button class="text-button danger-text" type="button" :disabled="!canEditSkuRow(row)" @click="deactivateProducts([row.id])">失效</button>
+                  </td>
+                  <td>
+                    <textarea
+                      class="remark-input"
+                      v-model.trim="row.remark"
+                      rows="2"
+                      :disabled="!canEditSkuRow(row)"
+                      @change="saveProductBasics(row, 'SKU备注已保存')"></textarea>
                   </td>
                 </tr>
                 <tr v-if="row.product_kind === 'green_bean'" class="green-bean-detail-row">
@@ -613,6 +619,8 @@ import {
   primaryCategoryOptions,
   roastedBomProductOptions,
   secondaryCategoryOptions,
+  skuTypeLabel,
+  skuTypeOptions,
 } from '../lib/product-settings'
 import { normalizePageSize } from '../lib/pagination'
 
@@ -760,6 +768,7 @@ const roastedBomProducts = computed(() => roastedBomProductOptions(products.valu
 function defaultSkuFilters() {
   return {
     productKind: 'all',
+    customType: 'all',
     query: '',
     primaryCategory: '',
     secondaryCategory: '',
@@ -1055,13 +1064,6 @@ function baseProductOptionMeta(product) {
 function ownerLabel(row) {
   if (Number(row.customer_id || 0) <= 0) return '公共'
   return customerName(row.customer_id) || `客户 #${row.customer_id}`
-}
-
-function customTypeLabel(value) {
-  if (value === 'custom_blend') return '定制拼配'
-  if (value === 'custom_roast') return '定制烘焙'
-  if (value === 'public_sku_alias') return '公共 SKU 改名'
-  return '标准'
 }
 
 function bomStatusLabel(value) {
@@ -1771,7 +1773,7 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .sku-panel-title { align-items: flex-start; }
 .sku-panel-actions { flex: 1; }
 .sku-customer-select { min-width: 220px; max-width: 320px; flex: 1 1 220px; font-weight: 400; }
-.sku-filters { display: grid; grid-template-columns: 150px minmax(180px, 1fr) 180px 180px; gap: 8px; margin-bottom: 10px; align-items: end; }
+.sku-filters { display: grid; grid-template-columns: 150px 170px minmax(200px, 1fr) 180px 180px; gap: 8px; margin-bottom: 10px; align-items: end; }
 .sku-filters label { display: grid; gap: 5px; font-size: 12px; color: #333; }
 .checkline { display: flex !important; align-items: center; gap: 8px; min-height: 36px; }
 .checkline input { width: auto; min-height: 0; }

@@ -15,12 +15,14 @@ import {
   primaryCategoryOptions,
   roastedBomProductOptions,
   secondaryCategoryOptions,
+  skuTypeLabel,
+  skuTypeOptions,
 } from './product-settings.js'
 
 const rows = [
-  { id: 1, name: '乌拉嘎 熟豆', product_kind: 'roasted', primary_name: '咖啡豆', secondary_name: '单品豆' },
-  { id: 2, name: '埃塞瑰夏 生豆', product_kind: 'green_bean', primary_name: '生豆', secondary_name: '单品生豆', green_bean_type: 'single_origin' },
-  { id: 3, name: '拼配生豆 A', product_kind: 'green_bean', primary_name: '生豆', secondary_name: '拼配生豆', green_bean_type: 'blend' },
+  { id: 1, name: '乌拉嘎 熟豆', product_kind: 'roasted', primary_name: '咖啡豆', secondary_name: '单品豆', custom_type: '', remark: '常规 SKU' },
+  { id: 2, name: '埃塞瑰夏 生豆', product_kind: 'green_bean', primary_name: '生豆', secondary_name: '单品生豆', green_bean_type: 'single_origin', custom_type: 'public_sku_alias', remark: '客户改名' },
+  { id: 3, name: '拼配生豆 A', product_kind: 'green_bean', primary_name: '生豆', secondary_name: '拼配生豆', green_bean_type: 'blend', custom_type: 'custom_blend', remark: '特殊拼配说明' },
 ]
 
 test('filterSkuRows supports product kind, name, primary category, and secondary category filters', () => {
@@ -31,6 +33,16 @@ test('filterSkuRows supports product kind, name, primary category, and secondary
     ...rows,
     { id: 4, name: '耶加雪菲挂耳', product_kind: 'drip_bag' },
   ], { productKind: 'drip_bag' }).map((row) => row.id), [4])
+})
+
+test('filterSkuRows supports SKU type options and query searches type labels', () => {
+  assert.deepEqual(skuTypeOptions.map((option) => option.value), ['all', 'standard', 'public_sku_alias', 'custom_roast', 'custom_blend'])
+  assert.equal(skuTypeLabel('custom_roast'), '定制烘焙')
+  assert.deepEqual(filterSkuRows(rows, { customType: 'standard' }).map((row) => row.id), [1])
+  assert.deepEqual(filterSkuRows(rows, { customType: 'public_sku_alias' }).map((row) => row.id), [2])
+  assert.deepEqual(filterSkuRows(rows, { customType: 'custom_blend' }).map((row) => row.id), [3])
+  assert.deepEqual(filterSkuRows(rows, { query: '定制拼配' }).map((row) => row.id), [3])
+  assert.deepEqual(filterSkuRows(rows, { query: '特殊拼配' }).map((row) => row.id), [3])
 })
 
 test('paginatedSkuRows filters all SKU rows before slicing the current page', () => {
