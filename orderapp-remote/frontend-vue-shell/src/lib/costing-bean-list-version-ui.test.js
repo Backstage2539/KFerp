@@ -33,6 +33,24 @@ test('product bean-list view exposes publication versions without pricing trial 
   }
 })
 
+test('product bean-list version scope selector only offers public and all fulfillment customer lists', () => {
+  const versionListStart = viewSource.indexOf('<section class="panel bean-list-version-panel">')
+  const versionListEnd = viewSource.indexOf('<section class="panel">', versionListStart)
+  assert.ok(versionListStart > -1 && versionListEnd > versionListStart, 'missing bean-list version panel')
+  const versionListSource = viewSource.slice(versionListStart, versionListEnd)
+
+  assert.match(versionListSource, /v-model="versionListScope"/)
+  assert.match(versionListSource, /<option value="official">公共豆单<\/option>/)
+  assert.match(versionListSource, /<option value="fulfillment_customers">所有履约客户豆单<\/option>/)
+  assert.doesNotMatch(versionListSource, /棵凡官方豆单/)
+  assert.doesNotMatch(versionListSource, /我的客户豆单/)
+  assert.doesNotMatch(versionListSource, /指定客户豆单/)
+  assert.doesNotMatch(versionListSource, /version-control-customer/)
+  assert.match(viewSource, /const versionListCurrentPublication = computed/)
+  assert.match(viewSource, /const publicationScopeRows = computed/)
+  assert.match(viewSource, /const copyableBeanListPublications = computed\(\(\) => publicationScopeRows\.value\)/)
+})
+
 test('product bean-list view maps every bean-list type to its own metadata and tier fields', () => {
   for (const expected of [
     "if (listType === 'green') return 'green_bean_list'",

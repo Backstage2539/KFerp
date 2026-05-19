@@ -159,7 +159,8 @@ func TestCreateCustomProductCopiesDripProductMetadata(t *testing.T) {
 		"COALESCE(allow_mall_order,false)",
 		"drip_bag_grams, drip_box_bag_count, allow_fulfillment_order, allow_mall_order,",
 		"productKind, roastLevel, base.DefaultPrice",
-		"base.DripBagGrams, base.DripBoxBagCount, base.AllowFulfillmentOrder, base.AllowMallOrder",
+		"dripBagGrams, dripBoxBagCount, base.AllowFulfillmentOrder, base.AllowMallOrder",
+		"product_kind,price_basis,sales_unit,unit_bag_count,price_source_json",
 	} {
 		if !strings.Contains(src, want) {
 			t.Fatalf("custom product drip metadata copy missing marker %q", want)

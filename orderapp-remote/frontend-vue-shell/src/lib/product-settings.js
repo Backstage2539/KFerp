@@ -1,6 +1,15 @@
 import { slicePageRows } from './pagination.js'
 
 export const PRODUCT_KIND_ALL = 'all'
+export const SKU_CUSTOM_TYPE_ALL = 'all'
+
+export const skuTypeOptions = [
+  { value: SKU_CUSTOM_TYPE_ALL, label: '全部类型' },
+  { value: 'standard', label: '标准' },
+  { value: 'public_sku_alias', label: '公共 SKU 改名' },
+  { value: 'custom_roast', label: '定制烘焙' },
+  { value: 'custom_blend', label: '定制拼配' },
+]
 
 export const greenBeanTypeOptions = [
   { value: 'single_origin', label: '单品' },
@@ -8,7 +17,10 @@ export const greenBeanTypeOptions = [
 ]
 
 export function normalizedProductKind(row = {}) {
-  return row?.product_kind === 'green_bean' ? 'green_bean' : 'roasted'
+  const kind = String(row?.product_kind || '').trim()
+  if (kind === 'green_bean') return 'green_bean'
+  if (kind === 'drip_bag') return 'drip_bag'
+  return 'roasted'
 }
 
 export function normalizedGreenBeanType(value) {
@@ -20,15 +32,26 @@ export function greenBeanTypeLabel(value) {
   return greenBeanTypeOptions.find((item) => item.value === normalized)?.label || '单品'
 }
 
+export function skuTypeValue(row = {}) {
+  return String(row?.custom_type || '').trim() || 'standard'
+}
+
+export function skuTypeLabel(value) {
+  const normalized = String(value || '').trim() || 'standard'
+  return skuTypeOptions.find((item) => item.value === normalized)?.label || '标准'
+}
+
 export function filterSkuRows(rows = [], filters = {}) {
   const productKind = String(filters.productKind || PRODUCT_KIND_ALL).trim()
+  const customType = String(filters.customType || SKU_CUSTOM_TYPE_ALL).trim()
   const query = String(filters.query || '').trim().toLowerCase()
   const primaryCategory = String(filters.primaryCategory || '').trim()
   const secondaryCategory = String(filters.secondaryCategory || '').trim()
   return (rows || []).filter((row) => {
     if (productKind && productKind !== PRODUCT_KIND_ALL && normalizedProductKind(row) !== productKind) return false
+    if (customType && customType !== SKU_CUSTOM_TYPE_ALL && skuTypeValue(row) !== customType) return false
     if (query) {
-      const haystack = `${row.name || ''} ${row.number || ''}`.toLowerCase()
+      const haystack = `${row.name || ''} ${row.number || ''} ${skuTypeLabel(row.custom_type)} ${row.remark || ''}`.toLowerCase()
       if (!haystack.includes(query)) return false
     }
     if (primaryCategory && String(row.primary_name || '') !== primaryCategory) return false
@@ -137,8 +160,40 @@ export function buildProductCreatePayload(form = {}) {
     payload.green_bean_bom_product_id = Number(form.green_bean_bom_product_id || 0)
     return payload
   }
+  if (kind === 'drip_bag') {
+    payload.roast_level = String(form.roast_level || '').trim()
+    payload.yield_rate = Number((Number(form.yield_percent || 0) / 100).toFixed(4))
+    payload.drip_bag_grams = Number(form.drip_bag_grams || 10)
+    payload.drip_box_bag_count = Number(form.drip_box_bag_count || 10)
+    return payload
+  }
   payload.roast_level = String(form.roast_level || '').trim()
   payload.yield_rate = Number((Number(form.yield_percent || 0) / 100).toFixed(4))
+  return payload
+}
+
+export function buildCustomProductCreatePayload(customerID, form = {}) {
+  const kind = normalizedProductKind(form)
+  const payload = {
+    customer_id: Number(customerID || form.customer_id || 0),
+    base_product_id: Number(form.base_product_id || 0),
+    name: String(form.name || '').trim(),
+    remark: String(form.remark || '').trim(),
+    product_kind: kind,
+    custom_type: String(form.custom_type || '').trim(),
+    copy_bom: Boolean(form.copy_bom),
+    copy_price_tiers: Boolean(form.copy_price_tiers),
+  }
+  if (kind === 'green_bean') {
+    payload.green_bean_type = normalizedGreenBeanType(form.green_bean_type)
+    payload.green_bean_bom_product_id = Number(form.green_bean_bom_product_id || 0)
+    return payload
+  }
+  payload.roast_level = String(form.roast_level || '').trim()
+  if (kind === 'drip_bag') {
+    payload.drip_bag_grams = Number(form.drip_bag_grams || 10)
+    payload.drip_box_bag_count = Number(form.drip_box_bag_count || 10)
+  }
   return payload
 }
 
@@ -154,6 +209,10 @@ export function buildProductBasicsPayload(row = {}, marginRateOverride = null) {
   } else {
     payload.roast_level = String(row.roast_level || '').trim()
     payload.yield_rate = Number((Number(row.yield_percent || 0) / 100).toFixed(4))
+    if (kind === 'drip_bag') {
+      payload.drip_bag_grams = Number(row.drip_bag_grams || 10)
+      payload.drip_box_bag_count = Number(row.drip_box_bag_count || 10)
+    }
   }
   payload.margin_rate_override = marginRateOverride
   return payload

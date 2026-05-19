@@ -31,7 +31,7 @@
       <div class="section-bar bean-list-version-head">
         <div>
           <div class="section-title">豆单版本列表</div>
-          <p class="muted">发布后的官方、我的客户豆单和指定客户豆单版本在这里查看、复制配置和撤回。</p>
+          <p class="muted">发布后的公共豆单和所有履约客户豆单版本在这里查看、复制配置和撤回。</p>
         </div>
         <div class="actions">
           <button class="secondary compact" type="button" :disabled="beanListVersionListLoading" @click="refreshBeanListVersionList">刷新版本</button>
@@ -41,23 +41,11 @@
 
       <div class="version-controls">
         <label>
-          <span>发布归属</span>
-          <select v-model="publicationScope" :disabled="!isBeanListAdmin">
-            <option value="official">棵凡官方豆单</option>
-            <option value="mine">我的客户豆单</option>
-            <option value="customer">指定客户豆单</option>
+          <span>豆单范围</span>
+          <select v-model="versionListScope">
+            <option value="official">公共豆单</option>
+            <option value="fulfillment_customers">所有履约客户豆单</option>
           </select>
-        </label>
-        <label v-if="publicationScope === 'customer'" class="version-control-customer">
-          <span>客户</span>
-          <SearchableSelect
-            v-model="selectedBeanListCustomerID"
-            :options="customers"
-            :option-label="customerOptionLabel"
-            :option-meta="customerOptionMeta"
-            :option-value="optionNumericValue"
-            placeholder="选择客户"
-            empty-text="没有匹配客户" />
         </label>
         <label>
           <span>豆单类型</span>
@@ -69,7 +57,7 @@
         </label>
         <div class="version-summary">
           <span>当前发布</span>
-          <strong>{{ currentBeanListPublication?.version || '暂无' }}</strong>
+          <strong>{{ versionListCurrentPublication?.version || '暂无' }}</strong>
         </div>
         <div class="version-summary">
           <span>版本数</span>
@@ -77,10 +65,7 @@
         </div>
       </div>
 
-      <div v-if="publicationScope === 'customer' && !selectedBeanListCustomerID" class="muted empty">
-        选择客户后查看客户自己的豆单版本；没有专属豆单的客户使用公共豆单。
-      </div>
-      <div v-else-if="currentScopePublicationRows.length" class="version-table-wrap">
+      <div v-if="currentScopePublicationRows.length" class="version-table-wrap">
         <table class="version-table">
           <thead>
             <tr>
@@ -122,7 +107,7 @@
         </table>
       </div>
       <div v-else class="muted empty">
-        当前{{ publicationScopeLabel(publicationScope) }}暂无{{ beanListTypeLabel(pdfTheme.listType) }}豆单版本。
+        当前{{ publicationScopeLabel(versionListScope) }}暂无{{ beanListTypeLabel(pdfTheme.listType) }}豆单版本。
       </div>
     </section>
 
@@ -756,6 +741,7 @@ const priceExplanationOpen = ref(false)
 const priceExplanationLoading = ref(false)
 const pdfDrawerOpen = ref(false)
 const pdfPrinting = ref(false)
+const versionListScope = ref('official')
 const publicationScope = ref('official')
 const selectedBeanListCustomerID = ref(0)
 const actorLoaded = ref(false)
@@ -779,6 +765,7 @@ const explanationOverrides = ref({
 const customers = ref([])
 const beanListPublications = ref({
   official: { commercial: [], drip: [], retail: [], green: [] },
+  fulfillment_customers: { commercial: [], drip: [], retail: [], green: [] },
   mine: { commercial: [], drip: [], retail: [], green: [] },
   customer: { commercial: [], drip: [], retail: [], green: [] },
 })
@@ -850,9 +837,11 @@ const isBeanListAdmin = computed(() => {
   )
 })
 const customerScopeReady = computed(() => publicationScope.value !== 'customer' || Number(selectedBeanListCustomerID.value || 0) > 0)
-const currentScopePublicationRows = computed(() => publicationRows(publicationScope.value, pdfTheme.value.listType))
-const currentBeanListPublication = computed(() => currentScopePublicationRows.value.find((row) => row.status === 'published') || null)
-const copyableBeanListPublications = computed(() => currentScopePublicationRows.value)
+const currentScopePublicationRows = computed(() => publicationRows(versionListScope.value, pdfTheme.value.listType))
+const versionListCurrentPublication = computed(() => currentScopePublicationRows.value.find((row) => row.status === 'published') || null)
+const publicationScopeRows = computed(() => publicationRows(publicationScope.value, pdfTheme.value.listType))
+const currentBeanListPublication = computed(() => publicationScopeRows.value.find((row) => row.status === 'published') || null)
+const copyableBeanListPublications = computed(() => publicationScopeRows.value)
 const officialPriceSourcePublications = computed(() => publicationRows('official', pdfTheme.value.listType).filter((row) => row.status === 'published'))
 const selectedCopyPublication = computed(() => copyableBeanListPublications.value.find((row) => String(row.id) === String(selectedCopyPublicationID.value)) || null)
 const selectedPriceSourcePublication = computed(() => officialPriceSourcePublications.value.find((row) => String(row.id) === String(selectedPriceSourcePublicationID.value)) || null)
@@ -875,11 +864,16 @@ watch(() => pdfOptions.value.listType, (listType) => {
   selectedCopyPublicationID.value = ''
   selectedPriceSourcePublicationID.value = ''
   initializePdfDefaultsForType(listType)
+  loadBeanListPublications(listType, versionListScope.value)
   loadBeanListPublications(listType, 'official')
   loadBeanListPublications(listType, 'mine')
   if (publicationScope.value === 'customer' && selectedBeanListCustomerID.value) {
     loadBeanListPublications(listType, 'customer')
   }
+})
+
+watch(versionListScope, (scope) => {
+  loadBeanListPublications(pdfTheme.value.listType, scope)
 })
 
 watch(publicationScope, (scope) => {
@@ -1187,6 +1181,8 @@ function beanListPublicationTime(row) {
 }
 
 function publicationScopeLabel(scope) {
+  if (scope === 'fulfillment_customers') return '所有履约客户豆单'
+  if (scope === 'official') return '公共豆单'
   if (scope === 'mine') return '我的客户豆单'
   if (scope === 'customer') return '指定客户豆单'
   return '棵凡官方豆单'
@@ -1216,8 +1212,22 @@ function beanListPublicationSourceLabel(row) {
 
 function startBeanListFromPublication(row) {
   if (!row) return
+  setPublicationScopeFromOwner(row)
   applyCopiedBeanListPublicationConfig(row)
   openBeanListDrawer(normalizeBeanListType(row.list_type))
+}
+
+function setPublicationScopeFromOwner(row) {
+  if (row?.owner_type === 'customer') {
+    selectedBeanListCustomerID.value = Number(row.owner_key || 0)
+    publicationScope.value = 'customer'
+    return
+  }
+  if (row?.owner_type === 'actor') {
+    publicationScope.value = 'mine'
+    return
+  }
+  publicationScope.value = 'official'
 }
 
 function beanListTypeName(listType) {
@@ -1434,8 +1444,9 @@ async function loadBeanList() {
 
 async function loadCustomers() {
   try {
-    const data = await apiGet('/api/customers?limit=200')
-    customers.value = (data.rows || []).filter((row) => row.active !== false)
+    const data = await apiGet('/api/customer-fulfillment/customers?limit=200')
+    const rows = Array.isArray(data.customers) ? data.customers : (data.rows || [])
+    customers.value = rows.filter((row) => row.active !== false)
   } catch (err) {
     customers.value = []
   }
@@ -1484,7 +1495,7 @@ async function refreshBeanListVersionList() {
   beanListVersionListLoading.value = true
   error.value = ''
   try {
-    await loadBeanListPublications(pdfTheme.value.listType, publicationScope.value)
+    await loadBeanListPublications(pdfTheme.value.listType, versionListScope.value)
   } finally {
     beanListVersionListLoading.value = false
   }
@@ -1705,18 +1716,27 @@ async function withdrawBeanList(row = currentBeanListPublication.value) {
   message.value = ''
   const listType = normalizeBeanListType(row.list_type || pdfTheme.value.listType)
   try {
-    const params = new URLSearchParams({ scope: publicationScope.value })
-    if (publicationScope.value === 'customer') {
-      params.set('customer_id', String(selectedBeanListCustomerID.value || 0))
-    }
+    const params = beanListWithdrawScopeParams(row)
     await apiSend(`/api/costing/bean-list/publications/${row.id}/withdraw?${params.toString()}`)
     message.value = `已撤回${beanListTypeLabel(listType)}豆单 ${row.version}`
     await loadBeanListPublications(listType, publicationScope.value)
+    await loadBeanListPublications(listType, versionListScope.value)
   } catch (err) {
     error.value = err.message || '撤回豆单失败'
   } finally {
     beanListWithdrawing.value = false
   }
+}
+
+function beanListWithdrawScopeParams(row) {
+  if (row?.owner_type === 'customer') {
+    return new URLSearchParams({ scope: 'customer', customer_id: String(row.owner_key || selectedBeanListCustomerID.value || 0) })
+  }
+  if (row?.owner_type === 'actor') {
+    return new URLSearchParams({ scope: 'mine' })
+  }
+  const scope = publicationScope.value === 'mine' ? 'mine' : 'official'
+  return new URLSearchParams({ scope })
 }
 
 onMounted(() => {

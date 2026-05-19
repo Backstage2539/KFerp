@@ -804,17 +804,34 @@ func (r Repository) CreateCustomProduct(ctx context.Context, cmd catalogapp.Crea
 	}
 
 	productKind := catalogdomain.NormalizeProductKind(base.ProductKind)
+	if strings.TrimSpace(cmd.ProductKind) != "" {
+		productKind = catalogdomain.NormalizeProductKind(cmd.ProductKind)
+	}
 	roastLevel := catalogdomain.NormalizeRoastLevel(cmd.RoastLevel)
 	greenBeanType := strings.TrimSpace(base.GreenBeanType)
 	greenBeanBomProductID := base.GreenBeanBomProductID
 	if productKind == catalogdomain.ProductKindGreenBean {
 		roastLevel = ""
+		if strings.TrimSpace(cmd.GreenBeanType) != "" {
+			greenBeanType = strings.TrimSpace(cmd.GreenBeanType)
+		}
+		if cmd.GreenBeanBomProductID > 0 {
+			greenBeanBomProductID = cmd.GreenBeanBomProductID
+		}
 		if greenBeanType == "" {
 			greenBeanType = "single_origin"
 		}
 	} else {
 		greenBeanType = ""
 		greenBeanBomProductID = 0
+	}
+	dripBagGrams := base.DripBagGrams
+	if cmd.DripBagGrams > 0 {
+		dripBagGrams = cmd.DripBagGrams
+	}
+	dripBoxBagCount := base.DripBoxBagCount
+	if cmd.DripBoxBagCount > 0 {
+		dripBoxBagCount = cmd.DripBoxBagCount
 	}
 	yieldRate := catalogdomain.ResolveYieldRate(roastLevel, 0.8)
 	name := strings.TrimSpace(cmd.Name)
@@ -830,7 +847,7 @@ func (r Repository) CreateCustomProduct(ctx context.Context, cmd catalogapp.Crea
 		)
 		VALUES($1,$2,$3,$4,$5,true,$6,$7,$8,$9,$10,$11,$12,$13,NULLIF($14,0),$15,$16,$17,'customer_only',$18,$19,$20,now())
 		RETURNING id
-	`, r.schema), name, remark, productKind, roastLevel, base.DefaultPrice, base.RetailPrice100G, base.RetailPrice200G, base.RetailPrice227G, base.RetailPrice250G, base.DripBagGrams, base.DripBoxBagCount, base.AllowFulfillmentOrder, base.AllowMallOrder, 0, 0, cmd.CustomerID, cmd.BaseProductID, strings.TrimSpace(cmd.CustomType), greenBeanType, greenBeanBomProductID).Scan(&productID); err != nil {
+	`, r.schema), name, remark, productKind, roastLevel, base.DefaultPrice, base.RetailPrice100G, base.RetailPrice200G, base.RetailPrice227G, base.RetailPrice250G, dripBagGrams, dripBoxBagCount, base.AllowFulfillmentOrder, base.AllowMallOrder, 0, 0, cmd.CustomerID, cmd.BaseProductID, strings.TrimSpace(cmd.CustomType), greenBeanType, greenBeanBomProductID).Scan(&productID); err != nil {
 		return catalogapp.Product{}, err
 	}
 
@@ -856,8 +873,8 @@ func (r Repository) CreateCustomProduct(ctx context.Context, cmd catalogapp.Crea
 	}
 	if cmd.CopyPriceTiers {
 		if _, err := tx.Exec(ctx, fmt.Sprintf(`
-			INSERT INTO %s.product_price_tiers(product_id,spec_g,min_qty_units,max_qty_units,price_per_unit,min_qty_lb,max_qty_lb,price_per_lb,active)
-			SELECT $1,spec_g,min_qty_units,max_qty_units,price_per_unit,min_qty_lb,max_qty_lb,price_per_lb,active
+			INSERT INTO %s.product_price_tiers(product_id,spec_g,min_qty_units,max_qty_units,price_per_unit,min_qty_lb,max_qty_lb,price_per_lb,active,product_kind,price_basis,sales_unit,unit_bag_count,price_source_json)
+			SELECT $1,spec_g,min_qty_units,max_qty_units,price_per_unit,min_qty_lb,max_qty_lb,price_per_lb,active,product_kind,price_basis,sales_unit,unit_bag_count,price_source_json
 			FROM %s.product_price_tiers
 			WHERE product_id=$2 AND active=true
 			ORDER BY id
@@ -866,18 +883,20 @@ func (r Repository) CreateCustomProduct(ctx context.Context, cmd catalogapp.Crea
 		}
 	}
 	if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, cmd.Actor, "product", &productID, "create", postgresinfra.StrPtr("customer_custom_product"), nil, postgresinfra.StrPtr(name), postgresinfra.AuditMeta{
-		"customer_id":             cmd.CustomerID,
-		"base_product_id":         cmd.BaseProductID,
-		"roast_level":             roastLevel,
-		"remark":                  cmd.Remark,
-		"custom_type":             strings.TrimSpace(cmd.CustomType),
-		"copy_bom":                cmd.CopyBOM,
-		"copy_price_tiers":        cmd.CopyPriceTiers,
-		"product_kind":            base.ProductKind,
-		"drip_bag_grams":          base.DripBagGrams,
-		"drip_box_bag_count":      base.DripBoxBagCount,
-		"allow_fulfillment_order": base.AllowFulfillmentOrder,
-		"allow_mall_order":        base.AllowMallOrder,
+		"customer_id":               cmd.CustomerID,
+		"base_product_id":           cmd.BaseProductID,
+		"roast_level":               roastLevel,
+		"remark":                    cmd.Remark,
+		"custom_type":               strings.TrimSpace(cmd.CustomType),
+		"copy_bom":                  cmd.CopyBOM,
+		"copy_price_tiers":          cmd.CopyPriceTiers,
+		"product_kind":              productKind,
+		"green_bean_type":           greenBeanType,
+		"green_bean_bom_product_id": greenBeanBomProductID,
+		"drip_bag_grams":            dripBagGrams,
+		"drip_box_bag_count":        dripBoxBagCount,
+		"allow_fulfillment_order":   base.AllowFulfillmentOrder,
+		"allow_mall_order":          base.AllowMallOrder,
 	}); err != nil {
 		return catalogapp.Product{}, err
 	}

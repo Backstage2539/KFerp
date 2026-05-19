@@ -131,14 +131,19 @@ type productAssignCategoryAPIRequest struct {
 }
 
 type customProductAPIRequest struct {
-	CustomerID     int64  `json:"customer_id"`
-	BaseProductID  int64  `json:"base_product_id"`
-	Name           string `json:"name"`
-	Remark         string `json:"remark"`
-	RoastLevel     string `json:"roast_level"`
-	CustomType     string `json:"custom_type"`
-	CopyBOM        bool   `json:"copy_bom"`
-	CopyPriceTiers bool   `json:"copy_price_tiers"`
+	CustomerID            int64   `json:"customer_id"`
+	BaseProductID         int64   `json:"base_product_id"`
+	Name                  string  `json:"name"`
+	Remark                string  `json:"remark"`
+	ProductKind           string  `json:"product_kind"`
+	GreenBeanType         string  `json:"green_bean_type"`
+	GreenBeanBomProductID int64   `json:"green_bean_bom_product_id"`
+	RoastLevel            string  `json:"roast_level"`
+	DripBagGrams          float64 `json:"drip_bag_grams"`
+	DripBoxBagCount       int     `json:"drip_box_bag_count"`
+	CustomType            string  `json:"custom_type"`
+	CopyBOM               bool    `json:"copy_bom"`
+	CopyPriceTiers        bool    `json:"copy_price_tiers"`
 }
 
 type customerPublicUsageAPIRequest struct {
@@ -558,15 +563,20 @@ func (h productHandler) createCustomProductAPI(c echo.Context) error {
 		return c.JSON(http.StatusBadRequest, map[string]any{"error": "bad request"})
 	}
 	product, err := h.catalog.CreateCustomProduct(c.Request().Context(), catalogapp.CreateCustomProductCommand{
-		Actor:          support.ActorOf(c),
-		CustomerID:     req.CustomerID,
-		BaseProductID:  req.BaseProductID,
-		Name:           req.Name,
-		Remark:         req.Remark,
-		RoastLevel:     req.RoastLevel,
-		CustomType:     req.CustomType,
-		CopyBOM:        req.CopyBOM,
-		CopyPriceTiers: req.CopyPriceTiers,
+		Actor:                 support.ActorOf(c),
+		CustomerID:            req.CustomerID,
+		BaseProductID:         req.BaseProductID,
+		Name:                  req.Name,
+		Remark:                req.Remark,
+		ProductKind:           req.ProductKind,
+		GreenBeanType:         req.GreenBeanType,
+		GreenBeanBomProductID: req.GreenBeanBomProductID,
+		RoastLevel:            req.RoastLevel,
+		DripBagGrams:          req.DripBagGrams,
+		DripBoxBagCount:       req.DripBoxBagCount,
+		CustomType:            req.CustomType,
+		CopyBOM:               req.CopyBOM,
+		CopyPriceTiers:        req.CopyPriceTiers,
 	})
 	if err != nil {
 		return c.JSON(http.StatusBadRequest, map[string]any{"error": err.Error()})

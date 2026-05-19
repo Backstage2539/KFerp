@@ -10,7 +10,8 @@
 
 - `products` 主档新增 `remark` 字段。
 - `/api/product-settings`、`POST /api/product-settings/products`、`PUT /api/products/:id`、`POST /api/product-settings/custom-products` 均读写 `remark`。
-- SKU设置新增公共产品表单、客户专属 SKU 表单和客户SKU列表行内编辑都展示备注；公共引用行禁用备注编辑。
+- SKU设置新增公共产品表单、客户专属 SKU 表单和客户SKU列表行内编辑都展示备注；公共引用行禁用备注编辑；客户SKU列表把备注列展示在最右侧。
+- 客户SKU列表新增类型筛选，支持标准、公共 SKU 改名、定制烘焙和定制拼配；搜索关键词可匹配商品名称、类型标签和备注。
 
 ## 验证
 

@@ -9,6 +9,7 @@ type fakeRepo struct {
 	replace     ReplacePriceTiersCommand
 	update      UpdateProductBasicsCommand
 	create      CreateProductCommand
+	custom      CreateCustomProductCommand
 	publicUsage CustomerPublicUsageCommand
 	deactivate  DeactivateProductsCommand
 	products    map[int64]Product
@@ -88,7 +89,8 @@ func (r *fakeRepo) AssignProductCategory(ctx context.Context, cmd AssignProductC
 }
 
 func (r *fakeRepo) CreateCustomProduct(ctx context.Context, cmd CreateCustomProductCommand) (Product, error) {
-	return Product{ID: 10, Name: cmd.Name, CustomerID: cmd.CustomerID, BaseProductID: cmd.BaseProductID, Visibility: "customer_only", CustomType: cmd.CustomType}, nil
+	r.custom = cmd
+	return Product{ID: 10, Name: cmd.Name, ProductKind: cmd.ProductKind, GreenBeanType: cmd.GreenBeanType, GreenBeanBomProductID: cmd.GreenBeanBomProductID, CustomerID: cmd.CustomerID, BaseProductID: cmd.BaseProductID, Visibility: "customer_only", CustomType: cmd.CustomType}, nil
 }
 
 func (r *fakeRepo) ListCustomerPublicUsages(ctx context.Context) ([]CustomerPublicUsage, error) {
@@ -160,6 +162,31 @@ func TestCreateCustomProductAcceptsPublicSKUAliasType(t *testing.T) {
 	}
 	if got.CustomType != "public_sku_alias" || got.CustomerID != 3 || got.BaseProductID != 7 {
 		t.Fatalf("custom product=%+v", got)
+	}
+}
+
+func TestCreateCustomProductAcceptsCustomerGreenBeanWithoutRoastLevel(t *testing.T) {
+	repo := &fakeRepo{products: map[int64]Product{
+		7: {ID: 7, ProductKind: "green_bean"},
+		8: {ID: 8, ProductKind: "roasted"},
+	}}
+	svc := NewService(repo)
+
+	got, err := svc.CreateCustomProduct(context.Background(), CreateCustomProductCommand{
+		CustomerID:            3,
+		BaseProductID:         7,
+		Name:                  "客户A-巴拿马生豆",
+		ProductKind:           "green_bean",
+		GreenBeanType:         "blend",
+		GreenBeanBomProductID: 8,
+		CustomType:            "public_sku_alias",
+		CopyPriceTiers:        true,
+	})
+	if err != nil {
+		t.Fatalf("CreateCustomProduct() err=%v", err)
+	}
+	if got.ProductKind != "green_bean" || repo.custom.RoastLevel != "" || repo.custom.GreenBeanType != "blend" || repo.custom.GreenBeanBomProductID != 8 {
+		t.Fatalf("green custom product=%+v command=%+v", got, repo.custom)
 	}
 }
 
