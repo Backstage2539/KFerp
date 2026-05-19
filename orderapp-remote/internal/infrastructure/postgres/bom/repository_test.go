@@ -37,6 +37,19 @@ func TestRepositoryWritesAuditForBomWritePaths(t *testing.T) {
 	}
 }
 
+func TestBomRepositoryExposesProductKindForGreenBeanFiltering(t *testing.T) {
+	src := readRepositorySource(t)
+	for _, want := range []string{
+		"COALESCE(NULLIF(p.product_kind,''),'roasted_bean')",
+		"&item.ProductKind",
+		"&opt.ProductKind",
+	} {
+		if !strings.Contains(src, want) {
+			t.Fatalf("BOM repository must expose product_kind so green bean SKUs stay out of BOM maintenance; missing %q", want)
+		}
+	}
+}
+
 func readRepositorySource(t *testing.T) string {
 	t.Helper()
 	b, err := os.ReadFile("repository.go")

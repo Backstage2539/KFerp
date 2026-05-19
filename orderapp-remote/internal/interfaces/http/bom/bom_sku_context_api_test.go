@@ -15,12 +15,14 @@ import (
 func TestBomListAndProductsExposeCustomerID(t *testing.T) {
 	repo := &apiFakeRepo{
 		listRows: []bomapp.ListItem{
-			{ProductID: 1, Product: "公共SKU", CustomerID: 0, Status: "active"},
-			{ProductID: 2, Product: "客户SKU", CustomerID: 9, Status: "active"},
+			{ProductID: 1, Product: "公共SKU", CustomerID: 0, Status: "active", ProductKind: "roasted_bean"},
+			{ProductID: 2, Product: "客户SKU", CustomerID: 9, Status: "active", ProductKind: "roasted_bean"},
+			{ProductID: 3, Product: "客户生豆SKU", CustomerID: 9, Status: "active", ProductKind: "green_bean"},
 		},
 		productRows: []bomapp.Option{
-			{ID: 1, Name: "公共SKU", CustomerID: 0},
-			{ID: 2, Name: "客户SKU", CustomerID: 9},
+			{ID: 1, Name: "公共SKU", CustomerID: 0, ProductKind: "roasted_bean"},
+			{ID: 2, Name: "客户SKU", CustomerID: 9, ProductKind: "roasted_bean"},
+			{ID: 3, Name: "客户生豆SKU", CustomerID: 9, ProductKind: "green_bean"},
 		},
 	}
 	e := echo.New()
@@ -44,6 +46,9 @@ func TestBomListAndProductsExposeCustomerID(t *testing.T) {
 		}
 		if got := rec.Body.String(); !strings.Contains(got, tc.wantJSON) {
 			t.Fatalf("%s body missing %s: %s", tc.path, tc.wantJSON, got)
+		}
+		if got := rec.Body.String(); strings.Contains(got, "客户生豆SKU") || strings.Contains(got, `"product_id":3`) || strings.Contains(got, `"id":3`) {
+			t.Fatalf("%s must not expose green bean SKU in BOM context: %s", tc.path, got)
 		}
 	}
 }
