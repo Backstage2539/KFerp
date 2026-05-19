@@ -23,6 +23,10 @@ type productSettingsRepo struct {
 	movedCategory       catalogapp.MoveProductCategoryCommand
 	deletedCategory     catalogapp.DeleteProductCategoryCommand
 	assigned            catalogapp.AssignProductCategoryCommand
+	assignResult        catalogapp.AssignProductCategoryResult
+	derivedProduct      catalogapp.DeriveCustomerProductCommand
+	derivedCategory     catalogapp.DeriveProductCategoryCommand
+	derivedTemplate     catalogapp.DeriveGradientTemplateCommand
 	savedTemplate       catalogapp.SaveGradientTemplateCommand
 	deactivatedTemplate catalogapp.DeactivateGradientTemplateCommand
 	boundTemplate       catalogapp.BindCategoryGradientTemplateCommand
@@ -38,6 +42,9 @@ type productSettingsRepo struct {
 	categoryMoved       bool
 	categoryDeleted     bool
 	productAssigned     bool
+	productDerived      bool
+	categoryDerived     bool
+	templateDerived     bool
 	templateSaved       bool
 	templateDeactivated bool
 	templateBound       bool
@@ -173,10 +180,13 @@ func (r *productSettingsRepo) DeleteProductCategory(ctx context.Context, cmd cat
 	return nil
 }
 
-func (r *productSettingsRepo) AssignProductCategory(ctx context.Context, cmd catalogapp.AssignProductCategoryCommand) error {
+func (r *productSettingsRepo) AssignProductCategory(ctx context.Context, cmd catalogapp.AssignProductCategoryCommand) (catalogapp.AssignProductCategoryResult, error) {
 	r.assigned = cmd
 	r.productAssigned = true
-	return nil
+	if r.assignResult.ProductID == 0 {
+		r.assignResult = catalogapp.AssignProductCategoryResult{ProductID: cmd.ProductID, CategoryID: cmd.CategoryID}
+	}
+	return r.assignResult, nil
 }
 
 func (r *productSettingsRepo) CreateCustomProduct(ctx context.Context, cmd catalogapp.CreateCustomProductCommand) (catalogapp.Product, error) {
@@ -199,10 +209,51 @@ func (r *productSettingsRepo) CreateCustomProduct(ctx context.Context, cmd catal
 	}, nil
 }
 
+func (r *productSettingsRepo) DeriveCustomerProduct(ctx context.Context, cmd catalogapp.DeriveCustomerProductCommand) (catalogapp.Product, error) {
+	r.derivedProduct = cmd
+	r.productDerived = true
+	return catalogapp.Product{
+		ID:                188,
+		Name:              cmd.Name,
+		CustomerID:        cmd.CustomerID,
+		BaseProductID:     cmd.BaseProductID,
+		ProductCategoryID: cmd.CategoryID,
+		Visibility:        "customer_only",
+		CustomType:        "public_sku_alias",
+	}, nil
+}
+
+func (r *productSettingsRepo) DeriveProductCategory(ctx context.Context, cmd catalogapp.DeriveProductCategoryCommand) (catalogapp.ProductCategory, error) {
+	r.derivedCategory = cmd
+	r.categoryDerived = true
+	return catalogapp.ProductCategory{
+		ID:               199,
+		CustomerID:       cmd.CustomerID,
+		SourceCategoryID: cmd.SourceCategoryID,
+		Name:             "岩师傅定制",
+		Level:            2,
+		Position:         1,
+		TemplateState:    "derived_from_public",
+	}, nil
+}
+
+func (r *productSettingsRepo) DeriveGradientTemplate(ctx context.Context, cmd catalogapp.DeriveGradientTemplateCommand) (catalogapp.GradientTemplate, error) {
+	r.derivedTemplate = cmd
+	r.templateDerived = true
+	return catalogapp.GradientTemplate{
+		ID:               288,
+		Name:             cmd.Name,
+		CustomerID:       cmd.CustomerID,
+		SourceTemplateID: cmd.SourceTemplateID,
+		TemplateState:    "derived_from_public",
+		Active:           true,
+	}, nil
+}
+
 func (r *productSettingsRepo) SaveCustomerPublicUsage(ctx context.Context, cmd catalogapp.CustomerPublicUsageCommand) (catalogapp.CustomerPublicUsage, error) {
 	r.publicUsage = cmd
 	r.publicUsageSaved = true
-	return catalogapp.CustomerPublicUsage{CustomerID: cmd.CustomerID, UsePublicSKU: cmd.UsePublicSKU, UsePublicCategories: cmd.UsePublicCategories}, nil
+	return catalogapp.CustomerPublicUsage{CustomerID: cmd.CustomerID, UsePublicSKU: cmd.UsePublicSKU, UsePublicCategories: cmd.UsePublicCategories, UsePublicGradientTemplates: cmd.UsePublicGradientTemplates}, nil
 }
 
 func TestProductSettingsAPISupportsCategoryTreeAndDragAssignments(t *testing.T) {
@@ -213,16 +264,16 @@ func TestProductSettingsAPISupportsCategoryTreeAndDragAssignments(t *testing.T) 
 			ID: 8, Name: "埃塞瑰夏生豆", ProductKind: "green_bean", ProductCategoryID: 2, ProductCategoryPosition: 2, YieldRate: 1,
 		}},
 		categories: []catalogapp.ProductCategory{
-			{ID: 1, Name: "咖啡豆", Level: 1, Position: 1},
-			{ID: 2, ParentID: 1, Name: "意式拼配", Level: 2, Position: 1, GradientTemplateID: 9},
+			{ID: 1, Name: "咖啡豆", Level: 1, Position: 1, TemplateState: "public_template"},
+			{ID: 2, ParentID: 1, Name: "意式拼配", Level: 2, Position: 1, GradientTemplateID: 9, TemplateState: "public_template"},
 			{ID: 10, Name: "客户A分类", Level: 1, Position: 1, CustomerID: 3},
 			{ID: 11, ParentID: 10, Name: "客户A二级", Level: 2, Position: 1, CustomerID: 3},
 		},
 		gradientTemplates: []catalogapp.GradientTemplate{{
-			ID: 9, Name: "工厂量单模板", DisplayUnit: "kg", Active: true,
+			ID: 9, Name: "工厂量单模板", DisplayUnit: "kg", Active: true, TemplateState: "public_template",
 			Tiers: []catalogapp.GradientTemplateTier{{ID: 91, Label: "24-49kg", MinWeightG: 24000, MaxWeightG: f64(49000), MarginRate: 0.175, Position: 1}},
 		}},
-		publicUsages: []catalogapp.CustomerPublicUsage{{CustomerID: 3, UsePublicSKU: true, UsePublicCategories: false}},
+		publicUsages: []catalogapp.CustomerPublicUsage{{CustomerID: 3, UsePublicSKU: true, UsePublicCategories: false, UsePublicGradientTemplates: true}},
 	}
 	e := echo.New()
 	registerProductRoutes(e, catalogapp.NewService(repo))
@@ -233,7 +284,7 @@ func TestProductSettingsAPISupportsCategoryTreeAndDragAssignments(t *testing.T) 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("GET /api/product-settings status=%d body=%s", rec.Code, rec.Body.String())
 	}
-	for _, want := range []string{`"categories"`, `"children"`, `"products"`, `"gradient_templates"`, `"customer_public_usages"`, `"use_public_sku":true`, `"use_public_categories":false`, `"gradient_template_id":9`, `"name":"工厂量单模板"`, `"display_unit":"kg"`, `"number":1`, `"name":"咖啡豆"`, `"name":"意式拼配"`, `"name":"客户A分类"`, `"customer_id":3`, `"name":"曲奇拼配"`, `"remark":"奶咖主推"`, `"yield_rate":0.82`} {
+	for _, want := range []string{`"categories"`, `"children"`, `"products"`, `"gradient_templates"`, `"customer_public_usages"`, `"use_public_sku":true`, `"use_public_categories":false`, `"use_public_gradient_templates":true`, `"gradient_template_id":9`, `"name":"工厂量单模板"`, `"display_unit":"kg"`, `"template_state":"public_template"`, `"number":1`, `"name":"咖啡豆"`, `"name":"意式拼配"`, `"name":"客户A分类"`, `"customer_id":3`, `"name":"曲奇拼配"`, `"remark":"奶咖主推"`, `"yield_rate":0.82`} {
 		if !bytes.Contains(rec.Body.Bytes(), []byte(want)) {
 			t.Fatalf("product settings response missing %s: %s", want, rec.Body.String())
 		}
@@ -539,22 +590,111 @@ func TestProductSettingsAPICreatesCustomerGreenBeanCustomProduct(t *testing.T) {
 	}
 }
 
+func TestProductSettingsAPIDerivesPublicCategoryAndProductTemplates(t *testing.T) {
+	repo := &productSettingsRepo{}
+	e := echo.New()
+	registerProductRoutes(e, catalogapp.NewService(repo))
+
+	req := httptest.NewRequest(http.MethodPost, "/api/product-settings/customer-categories/derive", bytes.NewBufferString(`{"customer_id":42,"source_category_id":17}`))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("POST derive category status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if !repo.categoryDerived || repo.derivedCategory.CustomerID != 42 || repo.derivedCategory.SourceCategoryID != 17 {
+		t.Fatalf("derive category command = %+v derived=%v", repo.derivedCategory, repo.categoryDerived)
+	}
+	for _, want := range []string{`"category"`, `"id":199`, `"customer_id":42`, `"source_category_id":17`, `"template_state":"derived_from_public"`} {
+		if !bytes.Contains(rec.Body.Bytes(), []byte(want)) {
+			t.Fatalf("derive category response missing %s: %s", want, rec.Body.String())
+		}
+	}
+
+	req = httptest.NewRequest(http.MethodPost, "/api/product-settings/customer-products/derive", bytes.NewBufferString(`{"customer_id":42,"base_product_id":21,"category_id":199,"name":"岩师傅初晓","copy_bom":true,"copy_price_tiers":true}`))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec = httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("POST derive product status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if !repo.productDerived || repo.derivedProduct.CustomerID != 42 || repo.derivedProduct.BaseProductID != 21 || repo.derivedProduct.CategoryID != 199 || !repo.derivedProduct.CopyBOM || !repo.derivedProduct.CopyPriceTiers {
+		t.Fatalf("derive product command = %+v derived=%v", repo.derivedProduct, repo.productDerived)
+	}
+	for _, want := range []string{`"product"`, `"id":188`, `"customer_id":42`, `"base_product_id":21`, `"visibility":"customer_only"`, `"custom_type":"public_sku_alias"`} {
+		if !bytes.Contains(rec.Body.Bytes(), []byte(want)) {
+			t.Fatalf("derive product response missing %s: %s", want, rec.Body.String())
+		}
+	}
+}
+
+func TestProductSettingsAPIAssignProductCategoryCarriesCustomerContext(t *testing.T) {
+	repo := &productSettingsRepo{assignResult: catalogapp.AssignProductCategoryResult{
+		ProductID:          188,
+		CategoryID:         199,
+		DerivedProductID:   188,
+		DerivedCategoryID:  199,
+		UsedPublicProduct:  true,
+		UsedPublicCategory: true,
+	}}
+	e := echo.New()
+	registerProductRoutes(e, catalogapp.NewService(repo))
+
+	req := httptest.NewRequest(http.MethodPost, "/api/product-settings/products/21/category", bytes.NewBufferString(`{"category_id":17,"position":3,"customer_id":42,"derive_public_category":true,"derive_public_product":true}`))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("POST assign with context status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if !repo.productAssigned || repo.assigned.ProductID != 21 || repo.assigned.CategoryID != 17 || repo.assigned.CustomerID != 42 || !repo.assigned.DerivePublicCategory || !repo.assigned.DerivePublicProduct || repo.assigned.Position != 3 {
+		t.Fatalf("assign command = %+v assigned=%v", repo.assigned, repo.productAssigned)
+	}
+	for _, want := range []string{`"assignment"`, `"product_id":188`, `"category_id":199`, `"derived_product_id":188`, `"derived_category_id":199`, `"used_public_product":true`, `"used_public_category":true`} {
+		if !bytes.Contains(rec.Body.Bytes(), []byte(want)) {
+			t.Fatalf("assign response missing %s: %s", want, rec.Body.String())
+		}
+	}
+}
+
+func TestProductSettingsAPIDerivesGradientTemplates(t *testing.T) {
+	repo := &productSettingsRepo{}
+	e := echo.New()
+	registerProductRoutes(e, catalogapp.NewService(repo))
+
+	req := httptest.NewRequest(http.MethodPost, "/api/product-settings/customer-gradient-templates/derive", bytes.NewBufferString(`{"customer_id":42,"source_template_id":9,"name":"岩师傅 - 工厂量单模板"}`))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("POST derive template status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if !repo.templateDerived || repo.derivedTemplate.CustomerID != 42 || repo.derivedTemplate.SourceTemplateID != 9 || repo.derivedTemplate.Name != "岩师傅 - 工厂量单模板" {
+		t.Fatalf("derive template command = %+v derived=%v", repo.derivedTemplate, repo.templateDerived)
+	}
+	for _, want := range []string{`"template"`, `"id":288`, `"customer_id":42`, `"source_template_id":9`, `"template_state":"derived_from_public"`} {
+		if !bytes.Contains(rec.Body.Bytes(), []byte(want)) {
+			t.Fatalf("derive template response missing %s: %s", want, rec.Body.String())
+		}
+	}
+}
+
 func TestProductSettingsAPISavesCustomerPublicUsage(t *testing.T) {
 	repo := &productSettingsRepo{}
 	e := echo.New()
 	registerProductRoutes(e, catalogapp.NewService(repo))
 
-	req := httptest.NewRequest(http.MethodPost, "/api/product-settings/customer-public-usage", bytes.NewBufferString(`{"customer_id":42,"use_public_sku":false,"use_public_categories":true}`))
+	req := httptest.NewRequest(http.MethodPost, "/api/product-settings/customer-public-usage", bytes.NewBufferString(`{"customer_id":42,"use_public_sku":false,"use_public_categories":true,"use_public_gradient_templates":true}`))
 	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
 	rec := httptest.NewRecorder()
 	e.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("POST /api/product-settings/customer-public-usage status=%d body=%s", rec.Code, rec.Body.String())
 	}
-	if !repo.publicUsageSaved || repo.publicUsage.CustomerID != 42 || repo.publicUsage.UsePublicSKU || !repo.publicUsage.UsePublicCategories {
+	if !repo.publicUsageSaved || repo.publicUsage.CustomerID != 42 || repo.publicUsage.UsePublicSKU || !repo.publicUsage.UsePublicCategories || !repo.publicUsage.UsePublicGradientTemplates {
 		t.Fatalf("public usage command = %+v saved=%v", repo.publicUsage, repo.publicUsageSaved)
 	}
-	for _, want := range []string{`"usage"`, `"customer_id":42`, `"use_public_sku":false`, `"use_public_categories":true`} {
+	for _, want := range []string{`"usage"`, `"customer_id":42`, `"use_public_sku":false`, `"use_public_categories":true`, `"use_public_gradient_templates":true`} {
 		if !bytes.Contains(rec.Body.Bytes(), []byte(want)) {
 			t.Fatalf("public usage response missing %s: %s", want, rec.Body.String())
 		}

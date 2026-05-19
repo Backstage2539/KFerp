@@ -267,3 +267,55 @@ func TestProductSchemaDropsLegacyGlobalProductNameUniqueness(t *testing.T) {
 		}
 	}
 }
+
+func TestTemplateOwnershipSchemaPersistsSourceAndUsageSwitches(t *testing.T) {
+	schema, err := os.ReadFile("schema.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := string(schema)
+	for _, want := range []string{
+		"ALTER TABLE %[1]s.product_categories ADD COLUMN IF NOT EXISTS source_category_id BIGINT NOT NULL DEFAULT 0",
+		"ALTER TABLE %[1]s.product_categories ADD COLUMN IF NOT EXISTS template_state TEXT NOT NULL DEFAULT 'customer_owned'",
+		"ALTER TABLE %[1]s.pricing_gradient_templates ADD COLUMN IF NOT EXISTS customer_id BIGINT NOT NULL DEFAULT 0",
+		"ALTER TABLE %[1]s.pricing_gradient_templates ADD COLUMN IF NOT EXISTS source_template_id BIGINT NOT NULL DEFAULT 0",
+		"ALTER TABLE %[1]s.pricing_gradient_templates ADD COLUMN IF NOT EXISTS template_state TEXT NOT NULL DEFAULT 'customer_owned'",
+		"use_public_gradient_templates BOOLEAN NOT NULL DEFAULT false",
+		"product_categories_customer_source_active_uniq",
+		"pricing_gradient_templates_customer_source_active_uniq",
+	} {
+		if !strings.Contains(src, want) {
+			t.Fatalf("template ownership schema missing marker %q", want)
+		}
+	}
+}
+
+func TestTemplateDerivationRepositoryAuditsAndCopiesPublicSources(t *testing.T) {
+	repository, err := os.ReadFile("repository.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := string(repository)
+	for _, want := range []string{
+		"func (r Repository) DeriveProductCategory",
+		"func (r Repository) DeriveCustomerProduct",
+		"func (r Repository) DeriveGradientTemplate",
+		"derive_public_category",
+		"derive_public_sku",
+		"derive_public_gradient_template",
+		"source_category_id",
+		"source_template_id",
+		"public category requires derivation",
+		"public product requires derivation",
+		"targetTemplateID = derived.ID",
+		"derived_public_template",
+		"if existingID > 0 {\n\t\treturn fetchCatalogProductByIDTx",
+	} {
+		if !strings.Contains(src, want) {
+			t.Fatalf("template derivation repository missing marker %q", want)
+		}
+	}
+	if strings.Contains(src, "UPDATE %s.products SET name=$2, product_category_id=NULLIF($3,0), product_category_position=$4") {
+		t.Fatalf("re-copying an existing public SKU alias must not overwrite the customer copy name or category")
+	}
+}

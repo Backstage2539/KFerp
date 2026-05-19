@@ -2,16 +2,20 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 
 import {
+  buildAssignCategoryPayload,
   buildCustomerPublicUsagePayload,
   buildCustomProductCreatePayload,
   buildProductBasicsPayload,
   buildProductCreatePayload,
   categoryBelongsToSkuContext,
+  categoryDisplayState,
   customerSkuCustomerOptions,
   filterSkuRows,
+  gradientTemplateBelongsToSkuContext,
   paginatedSkuRows,
   greenBeanTypeLabel,
   productBelongsToSkuContext,
+  productDisplayState,
   primaryCategoryOptions,
   roastedBomProductOptions,
   secondaryCategoryOptions,
@@ -207,19 +211,23 @@ test('customer public usage payload saves SKU and category reference switches in
   assert.deepEqual(buildCustomerPublicUsagePayload(42, {
     use_public_sku: true,
     use_public_categories: false,
+    use_public_gradient_templates: true,
   }), {
     customer_id: 42,
     use_public_sku: true,
     use_public_categories: false,
+    use_public_gradient_templates: true,
   })
 
   assert.deepEqual(buildCustomerPublicUsagePayload('7', {
     usePublicSku: false,
     usePublicCategories: true,
+    usePublicGradientTemplates: false,
   }), {
     customer_id: 7,
     use_public_sku: false,
     use_public_categories: true,
+    use_public_gradient_templates: false,
   })
 })
 
@@ -237,4 +245,72 @@ test('customer SKU context treats public SKU and categories as switch-controlled
   assert.equal(categoryBelongsToSkuContext(publicCategory, { customerID: 42, usePublicCategories: false }), false)
   assert.equal(categoryBelongsToSkuContext(publicCategory, { customerID: 42, usePublicCategories: true }), true)
   assert.equal(categoryBelongsToSkuContext(customerCategory, { customerID: 42, usePublicCategories: false }), true)
+})
+
+test('customer SKU context prefers derived categories over public templates', () => {
+  const publicPrimary = { id: 1, name: '咖啡豆', level: 1, customer_id: 0, source_category_id: 0, template_state: 'public_template' }
+  const derivedPrimary = { id: 101, name: '咖啡豆', level: 1, customer_id: 42, source_category_id: 1, template_state: 'derived_from_public' }
+  const publicSecondary = { id: 17, parent_id: 1, name: '客户定制', level: 2, customer_id: 0, source_category_id: 0, template_state: 'public_template' }
+  const derivedSecondary = { id: 117, parent_id: 101, name: '客户定制', level: 2, customer_id: 42, source_category_id: 17, template_state: 'derived_from_public' }
+  const context = {
+    customerID: 42,
+    usePublicCategories: true,
+    customerCategories: [derivedPrimary, derivedSecondary],
+  }
+
+  assert.equal(categoryBelongsToSkuContext(publicPrimary, context), false)
+  assert.equal(categoryBelongsToSkuContext(publicSecondary, context), false)
+  assert.equal(categoryBelongsToSkuContext(derivedPrimary, context), true)
+  assert.equal(categoryBelongsToSkuContext(derivedSecondary, context), true)
+  assert.equal(categoryDisplayState(publicSecondary, context).label, '公共模板')
+  assert.equal(categoryDisplayState(derivedSecondary, context).label, '来自公共模板')
+})
+
+test('customer SKU context labels public and derived product ownership', () => {
+  const publicProduct = { id: 21, name: '初晓', customer_id: 0, visibility: 'public' }
+  const derivedProduct = { id: 421, name: '岩师傅初晓', customer_id: 42, base_product_id: 21, visibility: 'customer_only', custom_type: 'public_sku_alias' }
+  const context = {
+    customerID: 42,
+    usePublicSku: true,
+    customerProducts: [derivedProduct],
+  }
+
+  assert.equal(productDisplayState(publicProduct, context).label, '公共模板')
+  assert.equal(productDisplayState(derivedProduct, context).label, '来自公共 SKU')
+})
+
+test('customer context filters gradient templates by ownership and public template switch', () => {
+  const publicTemplate = { id: 2, name: '正常磅价模板', customer_id: 0, template_state: 'public_template' }
+  const customerTemplate = { id: 102, name: '岩师傅 - 正常磅价模板', customer_id: 42, source_template_id: 2, template_state: 'derived_from_public' }
+
+  assert.equal(gradientTemplateBelongsToSkuContext(publicTemplate, { customerID: 42, usePublicGradientTemplates: false }), false)
+  assert.equal(gradientTemplateBelongsToSkuContext(publicTemplate, { customerID: 42, usePublicGradientTemplates: true, customerTemplates: [customerTemplate] }), false)
+  assert.equal(gradientTemplateBelongsToSkuContext(customerTemplate, { customerID: 42, usePublicGradientTemplates: false }), true)
+})
+
+test('assign category payload carries customer context for public template derivation', () => {
+  assert.deepEqual(buildAssignCategoryPayload({
+    product: { id: 421, customer_id: 42 },
+    category: { id: 17, customer_id: 0 },
+    customerID: 42,
+    position: 3,
+  }), {
+    category_id: 17,
+    customer_id: 42,
+    position: 3,
+    derive_public_category: true,
+    derive_public_product: false,
+  })
+  assert.deepEqual(buildAssignCategoryPayload({
+    product: { id: 21, customer_id: 0 },
+    category: { id: 117, customer_id: 42 },
+    customerID: 42,
+    position: 1,
+  }), {
+    category_id: 117,
+    customer_id: 42,
+    position: 1,
+    derive_public_category: false,
+    derive_public_product: true,
+  })
 })

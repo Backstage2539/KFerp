@@ -205,6 +205,12 @@
           <span>梯度模板</span>
           <button class="secondary compact-action" type="button" @click="resetGradientTemplateForm">新建模板</button>
         </div>
+        <div v-if="selectedCustomerSkuCustomerID" class="customer-copy-panel">
+          <label class="checkline switchline">
+            <input :checked="customerUsesPublicGradientTemplates" type="checkbox" :disabled="publicUsageSaving" @change="savePublicGradientTemplateUsageForCustomer" />
+            <span>是否使用公共梯度模板</span>
+          </label>
+        </div>
         <div class="gradient-template-layout">
           <div class="template-list">
             <button
@@ -214,51 +220,52 @@
               :class="['template-row', { active: Number(template.id) === Number(templateForm.id), inactive: template.active === false }]"
               @click="startGradientTemplateEdit(template)">
               <strong>{{ template.name }}</strong>
-              <small>{{ gradientDisplayUnitLabel(template.display_unit) }} · {{ template.tiers.length }} 档</small>
+              <small>{{ gradientTemplateLabel(template) }} · {{ gradientDisplayUnitLabel(template.display_unit) }} · {{ template.tiers.length }} 档</small>
             </button>
             <p v-if="!gradientTemplates.length" class="muted">暂无梯度模板</p>
           </div>
           <form class="template-editor" @submit.prevent="saveGradientTemplate">
+            <p v-if="!canEditCurrentTemplate" class="muted">公共模板需复制到客户后修改。</p>
             <div class="template-editor-grid">
               <label>
                 <span>模板名称</span>
-                <input v-model.trim="templateForm.name" placeholder="如 工厂量单模板" />
+                <input v-model.trim="templateForm.name" :disabled="!canEditCurrentTemplate" placeholder="如 工厂量单模板" />
               </label>
               <label>
                 <span>展示单位</span>
-                <select v-model="templateForm.display_unit">
+                <select v-model="templateForm.display_unit" :disabled="!canEditCurrentTemplate">
                   <option v-for="unit in gradientDisplayUnitOptions" :key="unit.value" :value="unit.value">{{ unit.label }}</option>
                 </select>
               </label>
             </div>
             <div class="template-tier-head">
               <strong>梯度档位</strong>
-              <button class="secondary compact-action" type="button" @click="addGradientTemplateTier">新增档位</button>
+              <button class="secondary compact-action" type="button" :disabled="!canEditCurrentTemplate" @click="addGradientTemplateTier">新增档位</button>
             </div>
             <div class="template-tier-list">
               <div v-for="(tier, index) in templateForm.tiers" :key="`tier-${index}`" class="template-tier-row">
                 <label>
                   <span>区间名</span>
-                  <input v-model.trim="tier.label" placeholder="24-49kg" />
+                  <input v-model.trim="tier.label" :disabled="!canEditCurrentTemplate" placeholder="24-49kg" />
                 </label>
                 <label>
                   <span>最小数量（{{ gradientDisplayQuantityUnitLabel(templateForm.display_unit) }}）</span>
-                  <input v-model.number="tier.min_display_qty" type="number" min="0" :step="gradientDisplayQuantityStep(templateForm.display_unit)" />
+                  <input v-model.number="tier.min_display_qty" type="number" min="0" :step="gradientDisplayQuantityStep(templateForm.display_unit)" :disabled="!canEditCurrentTemplate" />
                 </label>
                 <label>
                   <span>最大数量（{{ gradientDisplayQuantityUnitLabel(templateForm.display_unit) }}）</span>
-                  <input v-model="tier.max_display_qty" type="number" min="0" :step="gradientDisplayQuantityStep(templateForm.display_unit)" placeholder="无上限" />
+                  <input v-model="tier.max_display_qty" type="number" min="0" :step="gradientDisplayQuantityStep(templateForm.display_unit)" :disabled="!canEditCurrentTemplate" placeholder="无上限" />
                 </label>
                 <label>
                   <span>利润率</span>
-                  <input v-model.number="tier.margin_rate" type="number" min="0" step="0.001" />
+                  <input v-model.number="tier.margin_rate" type="number" min="0" step="0.001" :disabled="!canEditCurrentTemplate" />
                 </label>
-                <button class="text-button danger-text" type="button" @click="removeGradientTemplateTier(index)">删除</button>
+                <button class="text-button danger-text" type="button" :disabled="!canEditCurrentTemplate" @click="removeGradientTemplateTier(index)">删除</button>
               </div>
             </div>
             <div class="form-actions">
-              <button class="primary" type="submit" :disabled="templateSaving">保存模板</button>
-              <button v-if="templateForm.id" class="secondary" type="button" :disabled="templateSaving" @click="deactivateGradientTemplate(templateForm.id)">停用模板</button>
+              <button class="primary" type="submit" :disabled="templateSaving || !canEditCurrentTemplate">保存模板</button>
+              <button v-if="templateForm.id" class="secondary" type="button" :disabled="templateSaving || !canEditCurrentTemplate" @click="deactivateGradientTemplate(templateForm.id)">停用模板</button>
             </div>
           </form>
         </div>
@@ -297,11 +304,14 @@
                 <button class="secondary" type="submit">保存</button>
               </form>
               <div v-else class="category-head">
-                <strong>{{ primary.number }}. {{ primary.name }}<small v-if="!canEditCategory(primary)">（公共引用）</small></strong>
+                <strong>{{ primary.number }}. {{ primary.name }}<small v-if="skuContextCustomerID">（{{ categoryStateLabel(primary) }}）</small></strong>
                 <div v-if="canEditCategory(primary)" class="category-actions">
                   <button class="text-button" type="button" @click="startCategoryEdit(primary)">改名</button>
                   <button class="text-button" type="button" @click="startAddingSecondary(primary)">新增二级</button>
                   <button class="text-button danger-text" type="button" @click="deleteCategory(primary)">删除</button>
+                </div>
+                <div v-else-if="skuContextCustomerID" class="category-actions">
+                  <button class="text-button" type="button" @click="deriveCategoryTemplate(primary)">复制为客户分类</button>
                 </div>
               </div>
 
@@ -334,7 +344,7 @@
                   <div v-else class="secondary-head">
                     <span>{{ secondary.number }}</span>
                     <b>{{ secondary.name }}</b>
-                    <small v-if="!canEditCategory(secondary)">公共引用</small>
+                    <small v-if="skuContextCustomerID">{{ categoryStateLabel(secondary) }}</small>
                     <small>{{ secondary.products.length }} 款</small>
                     <select
                       class="template-select"
@@ -349,13 +359,14 @@
                     </select>
                     <button v-if="canEditCategory(secondary)" class="text-button" type="button" @click="startCategoryEdit(secondary)">改名</button>
                     <button v-if="canEditCategory(secondary)" class="text-button danger-text" type="button" @click="deleteCategory(secondary)">删除</button>
+                    <button v-if="!canEditCategory(secondary) && skuContextCustomerID" class="text-button" type="button" @click="deriveCategoryTemplate(secondary)">复制为客户分类</button>
                   </div>
                   <div class="product-chip-list">
                     <span
                       v-for="product in secondary.products"
                       :key="product.id"
                       class="product-chip"
-                      :draggable="canEditSkuRow(product)"
+                      :draggable="canDragSkuRow(product)"
                       @dragstart.stop="startProductDrag(product)"
                       @dragend="scheduleClearDrag">
                       {{ product.number }}. {{ product.name }}
@@ -378,7 +389,7 @@
               v-for="product in uncategorizedProducts"
               :key="product.id"
               class="product-chip"
-              :draggable="canEditSkuRow(product)"
+              :draggable="canDragSkuRow(product)"
               @dragstart="startProductDrag(product)"
               @dragend="scheduleClearDrag">
               {{ product.name }}
@@ -476,7 +487,7 @@
                   <td>{{ row.number || '' }}</td>
                   <td>{{ row.name }}</td>
                   <td><span class="kind-badge" :class="productKindBadgeClass(row)">{{ productKindLabel(row) }}</span></td>
-                  <td>{{ ownerLabel(row) }}</td>
+                  <td>{{ productOwnerLabel(row) }}</td>
                   <td>{{ skuTypeLabel(row.custom_type) }}</td>
                   <td>
                     <select class="roast-select" v-model="row.roast_level" :disabled="row.product_kind === 'green_bean' || !canEditSkuRow(row)" @change="saveProductBasics(row)">
@@ -514,7 +525,8 @@
                     <button class="text-button" type="button" :disabled="!canEditSkuRow(row)" @click="openProductBom(row)">维护 BOM</button>
                   </td>
                   <td>
-                    <button class="text-button danger-text" type="button" :disabled="!canEditSkuRow(row)" @click="deactivateProducts([row.id])">失效</button>
+                    <button v-if="isPublicSkuReference(row)" class="text-button" type="button" @click="derivePublicSku(row)">复制为客户SKU</button>
+                    <button v-else class="text-button danger-text" type="button" :disabled="!canEditSkuRow(row)" @click="deactivateProducts([row.id])">失效</button>
                   </td>
                   <td>
                     <textarea
@@ -609,14 +621,18 @@ import {
   buildCustomProductCreatePayload,
   buildProductBasicsPayload,
   buildProductCreatePayload,
+  buildAssignCategoryPayload,
   categoryBelongsToSkuContext as categoryBelongsToContext,
+  categoryDisplayState,
   customerSkuCustomerOptions,
   filterSkuRows,
+  gradientTemplateBelongsToSkuContext,
   greenBeanTypeOptions,
   isPublicReferenceRow,
   normalizedProductKind,
   paginatedSkuRows,
   productBelongsToSkuContext as productBelongsToContext,
+  productDisplayState,
   primaryCategoryOptions,
   roastedBomProductOptions,
   secondaryCategoryOptions,
@@ -664,13 +680,17 @@ const selectedSkuContextLabel = computed(() => {
   return `${customerName(customerID) || `客户 #${customerID}`} SKU`
 })
 const flatPublicCategories = computed(() => flattenCategoryNodes(categories.value).filter((category) => Number(category.customer_id || 0) === 0))
+const flatCustomerCategories = computed(() => flattenCategoryNodes(categories.value).filter((category) => Number(category.customer_id || 0) === skuContextCustomerID.value))
 const publicProducts = computed(() => products.value.filter((product) => Number(product.customer_id || 0) === 0))
+const customerProductsForContext = computed(() => products.value.filter((product) => Number(product.customer_id || 0) === skuContextCustomerID.value))
+const customerGradientTemplatesForContext = computed(() => gradientTemplates.value.filter((template) => Number(template.customer_id || 0) === skuContextCustomerID.value))
 const selectedCustomerPublicUsage = computed(() => {
   const customerID = skuContextCustomerID.value
   return customerPublicUsages.value.find((row) => Number(row.customer_id || 0) === customerID) || {
     customer_id: customerID,
     use_public_sku: false,
     use_public_categories: false,
+    use_public_gradient_templates: false,
   }
 })
 const customerUsesPublicCategories = computed(() => Boolean(
@@ -678,6 +698,9 @@ const customerUsesPublicCategories = computed(() => Boolean(
 ))
 const customerUsesPublicSku = computed(() => Boolean(
   selectedCustomerSkuCustomerID.value && selectedCustomerPublicUsage.value.use_public_sku,
+))
+const customerUsesPublicGradientTemplates = computed(() => Boolean(
+  selectedCustomerSkuCustomerID.value && selectedCustomerPublicUsage.value.use_public_gradient_templates,
 ))
 const categoryTreeForSkuContext = computed(() => categories.value
   .filter(categoryBelongsToCurrentSkuContext)
@@ -761,7 +784,19 @@ const displaySkuRows = computed(() => paginatedSkuRows(unfilteredDisplaySkuRows.
 }))
 const editableDisplaySkuRows = computed(() => displaySkuRows.value.filter(canEditSkuRow))
 const allProductRowsSelected = computed(() => editableDisplaySkuRows.value.length > 0 && editableDisplaySkuRows.value.every((row) => selectedProductIds.value.includes(Number(row.id))))
-const activeGradientTemplates = computed(() => gradientTemplates.value.filter((template) => template.active !== false))
+const activeGradientTemplates = computed(() => gradientTemplates.value
+  .filter((template) => template.active !== false)
+  .filter((template) => gradientTemplateBelongsToSkuContext(template, {
+    customerID: skuContextCustomerID.value,
+    usePublicGradientTemplates: customerUsesPublicGradientTemplates.value,
+    customerTemplates: customerGradientTemplatesForContext.value,
+  })))
+const selectedTemplateRow = computed(() => gradientTemplates.value.find((template) => Number(template.id || 0) === Number(templateForm.value.id || 0)) || null)
+const canEditCurrentTemplate = computed(() => {
+  if (!skuContextCustomerID.value) return true
+  if (!templateForm.value.id) return true
+  return Number(selectedTemplateRow.value?.customer_id || 0) === skuContextCustomerID.value
+})
 const skuPrimaryCategoryOptions = computed(() => primaryCategoryOptions(unfilteredDisplaySkuRows.value))
 const skuSecondaryCategoryOptions = computed(() => secondaryCategoryOptions(unfilteredDisplaySkuRows.value, skuFilters.value.primaryCategory))
 const publicRoastedBomProducts = computed(() => roastedBomProductOptions(products.value))
@@ -876,6 +911,8 @@ function decorateCategory(category) {
   return {
     ...category,
     customer_id: Number(category.customer_id || 0),
+    source_category_id: Number(category.source_category_id || 0),
+    template_state: category.template_state || '',
     gradient_template_id: Number(category.gradient_template_id || 0),
     children: (category.children || []).map(decorateCategory),
     products: (category.products || []).map(decorateProduct),
@@ -897,6 +934,7 @@ async function loadAll() {
       customer_id: Number(row.customer_id || 0),
       use_public_sku: Boolean(row.use_public_sku),
       use_public_categories: Boolean(row.use_public_categories),
+      use_public_gradient_templates: Boolean(row.use_public_gradient_templates),
     }))
     customers.value = customerSkuCustomerOptions(customerData)
     syncSelectedCustomerSkuCustomer()
@@ -937,7 +975,14 @@ function removeGradientTemplateTier(index) {
 }
 
 async function saveGradientTemplate() {
+  if (!canEditCurrentTemplate.value) {
+    error.value = '公共模板需复制到客户后修改'
+    return
+  }
   const payload = buildGradientTemplatePayload(templateForm.value)
+  if (!payload.id && skuContextCustomerID.value) {
+    payload.customer_id = skuContextCustomerID.value
+  }
   const errors = validateGradientTemplate(payload)
   if (errors.length) {
     error.value = errors[0]
@@ -983,8 +1028,9 @@ async function bindCategoryGradientTemplate(category, templateID) {
   error.value = ''
   ok.value = ''
   try {
+    const resolvedTemplateID = await resolveGradientTemplateForCategory(category, Number(templateID || 0))
     await apiSend(`/api/product-settings/categories/${category.id}/gradient-template`, {
-      body: { gradient_template_id: Number(templateID || 0) },
+      body: { gradient_template_id: resolvedTemplateID },
     })
     ok.value = '分类梯度模板已更新，未发布预览会自动按新模板更新'
     await loadAll()
@@ -993,6 +1039,24 @@ async function bindCategoryGradientTemplate(category, templateID) {
   } finally {
     loading.value = false
   }
+}
+
+async function resolveGradientTemplateForCategory(category, templateID) {
+  if (!templateID) return 0
+  const template = gradientTemplates.value.find((row) => Number(row.id || 0) === Number(templateID))
+  if (!template) return templateID
+  const customerID = skuContextCustomerID.value
+  if (!customerID || Number(category.customer_id || 0) !== customerID || Number(template.customer_id || 0) !== 0) {
+    return templateID
+  }
+  const response = await apiSend('/api/product-settings/customer-gradient-templates/derive', {
+    body: {
+      customer_id: customerID,
+      source_template_id: templateID,
+      name: `${customerName(customerID) || '客户'} - ${template.name}`,
+    },
+  })
+  return Number(response?.template?.id || templateID)
 }
 
 function productVisibility(product) {
@@ -1014,6 +1078,7 @@ function categoryBelongsToCurrentSkuContext(category) {
     customerID: skuContextCustomerID.value,
     usePublicCategories: customerUsesPublicCategories.value,
     publicCategories: flatPublicCategories.value,
+    customerCategories: flatCustomerCategories.value,
     publicProducts: publicProducts.value,
   })
 }
@@ -1023,6 +1088,7 @@ function skuContextProductFilter(product) {
     customerID: skuContextCustomerID.value,
     usePublicSku: customerUsesPublicSku.value,
     publicProducts: publicProducts.value,
+    customerProducts: customerProductsForContext.value,
   })
 }
 
@@ -1032,6 +1098,40 @@ function canEditCategory(category) {
 
 function canEditSkuRow(row) {
   return !isPublicReferenceRow(row, { customerID: skuContextCustomerID.value })
+}
+
+function isPublicSkuReference(row) {
+  return isPublicReferenceRow(row, { customerID: skuContextCustomerID.value })
+}
+
+function canDragSkuRow(row) {
+  return skuContextProductFilter(row)
+}
+
+async function derivePublicSku(row) {
+  const customerID = skuContextCustomerID.value
+  if (!customerID || Number(row.customer_id || 0) !== 0) return
+  loading.value = true
+  error.value = ''
+  ok.value = ''
+  try {
+    await apiSend('/api/product-settings/customer-products/derive', {
+      body: {
+        customer_id: customerID,
+        base_product_id: Number(row.id || 0),
+        category_id: 0,
+        name: row.name || '',
+        copy_bom: true,
+        copy_price_tiers: true,
+      },
+    })
+    ok.value = '公共 SKU 已复制为客户 SKU，可改名、改分类和维护客户梯度'
+    await loadAll()
+  } catch (err) {
+    error.value = err.message || '复制公共 SKU 失败'
+  } finally {
+    loading.value = false
+  }
 }
 
 function customerName(id) {
@@ -1068,6 +1168,21 @@ function baseProductOptionMeta(product) {
 function ownerLabel(row) {
   if (Number(row.customer_id || 0) <= 0) return '公共'
   return customerName(row.customer_id) || `客户 #${row.customer_id}`
+}
+
+function categoryStateLabel(category) {
+  return categoryDisplayState(category, { customerID: skuContextCustomerID.value }).label
+}
+
+function productOwnerLabel(product) {
+  if (!skuContextCustomerID.value) return ownerLabel(product)
+  return productDisplayState(product, { customerID: skuContextCustomerID.value }).label
+}
+
+function gradientTemplateLabel(template) {
+  if (Number(template.customer_id || 0) <= 0) return '公共模板'
+  if (Number(template.source_template_id || 0) > 0 || template.template_state === 'derived_from_public') return '来自公共模板'
+  return ownerLabel(template)
 }
 
 function bomStatusLabel(value) {
@@ -1256,6 +1371,7 @@ async function savePublicCategoryUsageForCustomer(event) {
   await saveCustomerPublicUsage({
     use_public_categories: checked,
     use_public_sku: customerUsesPublicSku.value,
+    use_public_gradient_templates: customerUsesPublicGradientTemplates.value,
   }, checked ? '已开启公共商品分类引用' : '已关闭公共商品分类引用')
 }
 
@@ -1264,7 +1380,17 @@ async function savePublicSkuUsageForCustomer(event) {
   await saveCustomerPublicUsage({
     use_public_sku: checked,
     use_public_categories: customerUsesPublicCategories.value,
+    use_public_gradient_templates: customerUsesPublicGradientTemplates.value,
   }, checked ? '已开启公共 SKU 引用' : '已关闭公共 SKU 引用')
+}
+
+async function savePublicGradientTemplateUsageForCustomer(event) {
+  const checked = Boolean(event?.target?.checked)
+  await saveCustomerPublicUsage({
+    use_public_sku: customerUsesPublicSku.value,
+    use_public_categories: customerUsesPublicCategories.value,
+    use_public_gradient_templates: checked,
+  }, checked ? '已开启公共梯度模板引用' : '已关闭公共梯度模板引用')
 }
 
 async function saveCustomerPublicUsage(options, successMessage) {
@@ -1279,6 +1405,7 @@ async function saveCustomerPublicUsage(options, successMessage) {
     const payload = buildCustomerPublicUsagePayload(selectedCustomerSkuCustomerID.value, {
       use_public_sku: Boolean(options?.use_public_sku),
       use_public_categories: Boolean(options?.use_public_categories),
+      use_public_gradient_templates: Boolean(options?.use_public_gradient_templates),
     })
     await apiSend('/api/product-settings/customer-public-usage', { body: payload })
     ok.value = successMessage || '公共引用设置已保存'
@@ -1329,6 +1456,28 @@ async function saveCategory(body) {
     await loadAll()
   } catch (err) {
     error.value = err.message || '保存分类失败'
+  } finally {
+    loading.value = false
+  }
+}
+
+async function deriveCategoryTemplate(category) {
+  const customerID = skuContextCustomerID.value
+  if (!customerID || Number(category.customer_id || 0) !== 0) return
+  loading.value = true
+  error.value = ''
+  ok.value = ''
+  try {
+    await apiSend('/api/product-settings/customer-categories/derive', {
+      body: {
+        customer_id: customerID,
+        source_category_id: Number(category.id || 0),
+      },
+    })
+    ok.value = '公共分类已复制为客户分类，可改名、排序和绑定客户梯度模板'
+    await loadAll()
+  } catch (err) {
+    error.value = err.message || '复制公共分类失败'
   } finally {
     loading.value = false
   }
@@ -1489,8 +1638,8 @@ function resolveCategoryPointerTarget(clientX, clientY, fallbackPrimaryID) {
 }
 
 function startProductDrag(product) {
-  if (!canEditSkuRow(product)) {
-    error.value = '公共 SKU 为引用，请回到公共SKU归属维护'
+  if (!canDragSkuRow(product)) {
+    error.value = '只能拖拽当前 SKU 归属下的商品'
     clearDrag()
     return
   }
@@ -1601,25 +1750,25 @@ async function dropProductOnSecondary(secondary) {
   const drag = dragging.value
   if (drag?.type !== 'product') return
   const product = products.value.find((item) => Number(item.id) === Number(drag.id))
-  if (!product || !canEditSkuRow(product)) {
-    error.value = '公共 SKU 为引用，请回到公共SKU归属维护'
-    clearDrag()
-    return
-  }
-  if (!product || !skuContextProductFilter(product)) {
+  if (!product || !canDragSkuRow(product)) {
     error.value = '只能调整当前 SKU 归属下的商品分类'
     clearDrag()
     return
   }
   const categoryID = Number(secondary.id || 0)
-  if (categoryID > 0 && Number(secondary.customer_id || 0) !== skuContextCustomerID.value) {
+  if (categoryID > 0 && Number(secondary.customer_id || 0) !== skuContextCustomerID.value && Number(secondary.customer_id || 0) !== 0) {
     error.value = '只能移动到当前客户自己的商品分类'
     clearDrag()
     return
   }
   try {
     await apiSend(`/api/product-settings/products/${drag.id}/category`, {
-      body: { category_id: categoryID, position: Number(secondary.products?.length || 0) + 1 },
+      body: buildAssignCategoryPayload({
+        product,
+        category: secondary,
+        customerID: skuContextCustomerID.value,
+        position: Number(secondary.products?.length || 0) + 1,
+      }),
     })
     ok.value = '商品分类已保存'
     await loadAll()

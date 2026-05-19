@@ -80,6 +80,9 @@ export function normalizeGradientTemplate(template = {}) {
   return {
     id: Number(template.id || 0),
     name: String(template.name || '').trim(),
+    customer_id: Number(template.customer_id || 0),
+    source_template_id: Number(template.source_template_id || 0),
+    template_state: String(template.template_state || '').trim(),
     display_unit: displayUnit,
     active: template.active !== false,
     tiers,
@@ -90,6 +93,7 @@ export function buildGradientTemplatePayload(template = {}) {
   const row = normalizeGradientTemplate(template)
   return {
     id: row.id,
+    customer_id: row.customer_id,
     name: row.name,
     display_unit: row.display_unit,
     active: row.active,
