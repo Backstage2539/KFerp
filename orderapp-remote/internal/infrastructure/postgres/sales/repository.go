@@ -321,6 +321,138 @@ func wholesaleLineTotalFromDisplayUnit(unitPrice float64, specG int64, units int
 	return unitPrice * (float64(specG*units) / wholesaleDisplayUnitG(specG))
 }
 
+func resolveAutoWeightTierPriceTx(ctx context.Context, tx pgx.Tx, schema string, productID int64, specG int64, units int64, qtyLb float64, smallBatchRule smallBatchPriceRule) (*int64, float64, float64, error) {
+	var tid *int64
+	var packagePrice, pricePerLb float64
+	tierQty := wholesaleTierQuantityForSpec(specG, units)
+	tierQtyLb := qtyLb
+	if adjustedQty, ok := smallBatchTierQuantity(specG, qtyLb, smallBatchRule); ok {
+		tierQty = wholesaleTierQuantityForSpec(specG, adjustedQty)
+		tierQtyLb = float64(specG*adjustedQty) / 454.0
+	}
+	q := fmt.Sprintf(`
+		SELECT id,
+		       COALESCE(NULLIF(price_per_unit,0), NULLIF(price_per_lb,0) * COALESCE(NULLIF(spec_g,0),454) / 454.0, 0),
+		       COALESCE(NULLIF(price_per_lb,0), NULLIF(price_per_unit,0) * 454.0 / COALESCE(NULLIF(spec_g,0),454), 0)
+		FROM %s.product_price_tiers
+		WHERE product_id=$1 AND active=true
+		  AND COALESCE(NULLIF(spec_g,0),454)=$2
+		  AND COALESCE(NULLIF(min_qty_units,0), min_qty_lb, 0) <= $3
+		  AND (COALESCE(NULLIF(max_qty_units,0), max_qty_lb) IS NULL OR COALESCE(NULLIF(max_qty_units,0), max_qty_lb) >= $3)
+		ORDER BY COALESCE(NULLIF(min_qty_units,0), min_qty_lb, 0) DESC
+		LIMIT 1
+	`, schema)
+	err := tx.QueryRow(ctx, q, productID, specG, tierQty).Scan(&tid, &packagePrice, &pricePerLb)
+	if err != nil {
+		q2 := fmt.Sprintf(`
+			SELECT id,
+			       COALESCE(NULLIF(price_per_unit,0), NULLIF(price_per_lb,0) * COALESCE(NULLIF(spec_g,0),454) / 454.0, 0),
+			       COALESCE(NULLIF(price_per_lb,0), NULLIF(price_per_unit,0) * 454.0 / COALESCE(NULLIF(spec_g,0),454), 0)
+			FROM %s.product_price_tiers
+			WHERE product_id=$1 AND active=true
+			  AND COALESCE(NULLIF(spec_g,0),454)=$2
+			  AND COALESCE(NULLIF(min_qty_units,0), min_qty_lb, 0) <= $3
+			ORDER BY COALESCE(NULLIF(min_qty_units,0), min_qty_lb, 0) DESC
+			LIMIT 1
+		`, schema)
+		if err2 := tx.QueryRow(ctx, q2, productID, specG, tierQty).Scan(&tid, &packagePrice, &pricePerLb); err2 != nil {
+			q3 := fmt.Sprintf(`
+				SELECT id,
+				       COALESCE(NULLIF(price_per_unit,0), NULLIF(price_per_lb,0) * COALESCE(NULLIF(spec_g,0),454) / 454.0, 0),
+				       COALESCE(NULLIF(price_per_lb,0), NULLIF(price_per_unit,0) * 454.0 / COALESCE(NULLIF(spec_g,0),454), 0)
+				FROM %s.product_price_tiers
+				WHERE product_id=$1 AND active=true
+				  AND COALESCE(NULLIF(spec_g,0),454)=$2
+				ORDER BY COALESCE(NULLIF(min_qty_units,0), min_qty_lb, 0) ASC
+				LIMIT 1
+			`, schema)
+			if err3 := tx.QueryRow(ctx, q3, productID, specG).Scan(&tid, &packagePrice, &pricePerLb); err3 != nil {
+				q4 := fmt.Sprintf(`
+					SELECT id,
+					       COALESCE(NULLIF(price_per_lb,0), NULLIF(price_per_unit,0) * 454.0 / COALESCE(NULLIF(spec_g,0),454), 0)
+					FROM %s.product_price_tiers
+					WHERE product_id=$1 AND active=true
+					  AND COALESCE(NULLIF(min_qty_lb,0), NULLIF(min_qty_units,0) * COALESCE(NULLIF(spec_g,0),454) / 454.0, 0) <= $2
+					  AND (
+					    COALESCE(NULLIF(max_qty_lb,0), NULLIF(max_qty_units,0) * COALESCE(NULLIF(spec_g,0),454) / 454.0) IS NULL
+					    OR COALESCE(NULLIF(max_qty_lb,0), NULLIF(max_qty_units,0) * COALESCE(NULLIF(spec_g,0),454) / 454.0) >= $2
+					  )
+					ORDER BY COALESCE(NULLIF(min_qty_lb,0), NULLIF(min_qty_units,0) * COALESCE(NULLIF(spec_g,0),454) / 454.0, 0) DESC
+					LIMIT 1
+				`, schema)
+				if err4 := tx.QueryRow(ctx, q4, productID, tierQtyLb).Scan(&tid, &pricePerLb); err4 != nil {
+					q5 := fmt.Sprintf(`
+						SELECT id,
+						       COALESCE(NULLIF(price_per_lb,0), NULLIF(price_per_unit,0) * 454.0 / COALESCE(NULLIF(spec_g,0),454), 0)
+						FROM %s.product_price_tiers
+						WHERE product_id=$1 AND active=true
+						  AND COALESCE(NULLIF(min_qty_lb,0), NULLIF(min_qty_units,0) * COALESCE(NULLIF(spec_g,0),454) / 454.0, 0) <= $2
+						ORDER BY COALESCE(NULLIF(min_qty_lb,0), NULLIF(min_qty_units,0) * COALESCE(NULLIF(spec_g,0),454) / 454.0, 0) DESC
+						LIMIT 1
+					`, schema)
+					if err5 := tx.QueryRow(ctx, q5, productID, tierQtyLb).Scan(&tid, &pricePerLb); err5 != nil {
+						q6 := fmt.Sprintf(`
+							SELECT id,
+							       COALESCE(NULLIF(price_per_lb,0), NULLIF(price_per_unit,0) * 454.0 / COALESCE(NULLIF(spec_g,0),454), 0)
+							FROM %s.product_price_tiers
+							WHERE product_id=$1 AND active=true
+							ORDER BY COALESCE(NULLIF(min_qty_lb,0), NULLIF(min_qty_units,0) * COALESCE(NULLIF(spec_g,0),454) / 454.0, 0) ASC
+							LIMIT 1
+						`, schema)
+						if err6 := tx.QueryRow(ctx, q6, productID).Scan(&tid, &pricePerLb); err6 != nil && err6 != pgx.ErrNoRows {
+							return nil, 0, 0, err6
+						}
+					}
+				}
+				packagePrice = 0
+			}
+		}
+	}
+	_ = packagePrice
+	unitPrice := wholesaleDisplayUnitPriceFromLb(pricePerLb, specG)
+	return tid, unitPrice, wholesaleLineTotalFromDisplayUnit(unitPrice, specG, units), nil
+}
+
+func greenBeanOrderPriceProductIDTx(ctx context.Context, tx pgx.Tx, schema string, productID int64) int64 {
+	if productID <= 0 {
+		return 0
+	}
+	var priceProductID int64
+	q := fmt.Sprintf(`
+		SELECT CASE
+		         WHEN EXISTS (
+		           SELECT 1 FROM %[1]s.product_price_tiers own
+		           WHERE own.product_id=p.id AND own.active=true
+		         ) THEN p.id
+		         WHEN COALESCE(NULLIF(p.product_kind,''), 'roasted_bean')='green_bean'
+		          AND COALESCE(p.green_bean_bom_product_id,0)>0
+		         THEN p.green_bean_bom_product_id
+		         ELSE p.id
+		       END
+		FROM %[1]s.products p
+		WHERE p.id=$1
+	`, schema)
+	if err := tx.QueryRow(ctx, q, productID).Scan(&priceProductID); err != nil || priceProductID <= 0 {
+		return productID
+	}
+	return priceProductID
+}
+
+func greenBeanBoundRoastedTierPriceSourceJSON(sourceProductID int64, tierID *int64) string {
+	source := map[string]any{
+		"source":            "green_bean_bound_roasted_tier",
+		"source_product_id": sourceProductID,
+	}
+	if tierID != nil && *tierID > 0 {
+		source["source_tier_id"] = *tierID
+	}
+	buf, err := json.Marshal(source)
+	if err != nil {
+		return "{}"
+	}
+	return string(buf)
+}
+
 func wholesaleTierQuantityForSpec(specG int64, units int64) float64 {
 	if specG >= 1000 {
 		return float64(specG*units) / 1000.0
@@ -791,8 +923,25 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 				return salesapp.SaveOrderResult{}, err
 			}
 			items[idx].tierID = nil
+			if unitPrice <= 0 {
+				priceProductID := greenBeanOrderPriceProductIDTx(ctx, tx, r.schema, *items[idx].productID)
+				tid, fallbackUnitPrice, fallbackLineTotal, err := resolveAutoWeightTierPriceTx(ctx, tx, r.schema, priceProductID, items[idx].specG, items[idx].units, qtyLb, smallBatchRule)
+				if err != nil {
+					return salesapp.SaveOrderResult{}, err
+				}
+				if fallbackUnitPrice > 0 {
+					items[idx].tierID = tid
+					unitPrice = fallbackUnitPrice
+					items[idx].baseLineTotal = fallbackLineTotal
+					if priceProductID != *items[idx].productID {
+						items[idx].priceSourceJSON = greenBeanBoundRoastedTierPriceSourceJSON(priceProductID, tid)
+					}
+				}
+			}
 			items[idx].unitPrice = unitPrice
-			items[idx].baseLineTotal = wholesaleLineTotalFromDisplayUnit(unitPrice, items[idx].specG, items[idx].units)
+			if items[idx].baseLineTotal <= 0 {
+				items[idx].baseLineTotal = wholesaleLineTotalFromDisplayUnit(unitPrice, items[idx].specG, items[idx].units)
+			}
 			items[idx].discountAmount, items[idx].lineTotal = applyOrderItemDiscount(items[idx].baseLineTotal, items[idx].discountType, items[idx].discountValue)
 			totalAmt += items[idx].baseLineTotal
 			itemDiscountAmt += items[idx].discountAmount

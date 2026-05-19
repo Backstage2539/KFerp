@@ -215,18 +215,69 @@ func (r Repository) fetchOrderProducts(ctx context.Context) ([]salesapp.ProductO
 	}
 
 	tierSQL := fmt.Sprintf(`
+		WITH direct_tiers AS (
+			SELECT id,
+			       product_id,
+			       COALESCE(NULLIF(spec_g,0), 454) AS spec_g,
+			       COALESCE(min_qty_units, min_qty_lb) AS min_qty,
+			       COALESCE(max_qty_units, max_qty_lb) AS max_qty,
+			       COALESCE(price_per_unit, price_per_lb) AS unit_price,
+			       COALESCE(NULLIF(product_kind,''), 'roasted_bean') AS product_kind,
+			       COALESCE(sales_unit, '') AS sales_unit,
+			       COALESCE(unit_bag_count, 0) AS unit_bag_count,
+			       COALESCE(price_source_json, '{}'::jsonb) AS price_source_json
+			FROM %[1]s.product_price_tiers
+			WHERE active=true
+		),
+		green_bound_tiers AS (
+			SELECT t.id,
+			       p.id AS product_id,
+			       COALESCE(NULLIF(t.spec_g,0), 454) AS spec_g,
+			       COALESCE(t.min_qty_units, t.min_qty_lb) AS min_qty,
+			       COALESCE(t.max_qty_units, t.max_qty_lb) AS max_qty,
+			       COALESCE(t.price_per_unit, t.price_per_lb) AS unit_price,
+			       'green_bean' AS product_kind,
+			       COALESCE(t.sales_unit, '') AS sales_unit,
+			       COALESCE(t.unit_bag_count, 0) AS unit_bag_count,
+			       COALESCE(t.price_source_json, '{}'::jsonb) || jsonb_build_object(
+			           'source', 'green_bean_bound_roasted_tier',
+			           'source_product_id', p.green_bean_bom_product_id,
+			           'source_tier_id', t.id
+			       ) AS price_source_json
+			FROM %[1]s.products p
+			JOIN %[1]s.product_price_tiers t ON t.product_id=p.green_bean_bom_product_id
+			WHERE p.active=true
+			  AND COALESCE(NULLIF(p.product_kind,''), 'roasted_bean')='green_bean'
+			  AND COALESCE(p.green_bean_bom_product_id,0)>0
+			  AND t.active=true
+			  AND NOT EXISTS (
+				SELECT 1
+				FROM %[1]s.product_price_tiers own
+				WHERE own.product_id=p.id AND own.active=true
+			  )
+		)
 		SELECT id, product_id,
-		       COALESCE(NULLIF(spec_g,0), 454),
-		       COALESCE(min_qty_units, min_qty_lb),
-		       COALESCE(max_qty_units, max_qty_lb),
-		       COALESCE(price_per_unit, price_per_lb),
-		       COALESCE(NULLIF(product_kind,''), 'roasted_bean'),
-		       COALESCE(sales_unit, ''),
-		       COALESCE(unit_bag_count, 0),
-		       COALESCE(price_source_json, '{}'::jsonb)::text
-		FROM %s.product_price_tiers
-		WHERE active=true
-		ORDER BY product_id, COALESCE(NULLIF(spec_g,0), 454), COALESCE(min_qty_units, min_qty_lb)
+		       spec_g,
+		       min_qty,
+		       max_qty,
+		       unit_price,
+		       product_kind,
+		       sales_unit,
+		       unit_bag_count,
+		       price_source_json::text
+		FROM direct_tiers
+		UNION ALL
+		SELECT id, product_id,
+		       spec_g,
+		       min_qty,
+		       max_qty,
+		       unit_price,
+		       product_kind,
+		       sales_unit,
+		       unit_bag_count,
+		       price_source_json::text
+		FROM green_bound_tiers
+		ORDER BY product_id, spec_g, min_qty
 	`, r.schema)
 	trs, err := r.pool.Query(ctx, tierSQL)
 	if err != nil {

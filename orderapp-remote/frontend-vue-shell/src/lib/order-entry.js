@@ -478,7 +478,7 @@ export function buildOrderPayload({ form, rows }) {
 
   for (const row of rows || []) {
     const productID = toInt(row.product_id)
-    const productKind = row.product_kind === 'drip_bag' ? 'drip_bag' : 'roasted_bean'
+    const productKind = row.product_kind === 'drip_bag' ? 'drip_bag' : row.product_kind === 'green_bean' ? 'green_bean' : 'roasted_bean'
     const dripSpec = dripSalesUnitSpec(null, row)
     const specG = productKind === 'drip_bag' ? dripSpec.specG : normalizeSpecG(row)
     const qty = toInt(row.qty)

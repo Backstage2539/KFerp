@@ -268,6 +268,69 @@ func TestOrderAPIFormFiltersCustomerSpecificProducts(t *testing.T) {
 	}
 }
 
+func TestOrderAPIFormReturnsBoundRoastedTiersForGreenBeanProduct(t *testing.T) {
+	pool, schema := newOrderAPITestDB(t)
+	ctx := context.Background()
+	seedOrderAPITestData(t, ctx, pool, schema)
+	mustExecOrderAPITestSQL(t, ctx, pool, fmt.Sprintf(`
+		INSERT INTO %[1]s.products(id,name,default_price,active,product_kind,green_bean_type,green_bean_bom_product_id,customer_id,visibility,custom_type)
+		VALUES (88,'兰卡拼配生豆',0,true,'green_bean','blend',7,3,'customer_only','public_sku_alias');
+		INSERT INTO %[1]s.product_price_tiers(id, product_id, spec_g, min_qty_units, max_qty_units, price_per_unit, min_qty_lb, max_qty_lb, price_per_lb, active)
+		VALUES
+			(8801,7,1000,24,49,81.91,52.86,107.93,37.18714,true),
+			(8802,7,1000,50,99,78.01,110.13,218.06,35.41654,true);
+	`, schema))
+
+	e := newOrderAPITestEcho(pool, schema)
+	req := httptest.NewRequest(http.MethodGet, "/api/order/form?customer_id=3", nil)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET /api/order/form status = %d, want 200, body=%s", rec.Code, rec.Body.String())
+	}
+
+	var resp struct {
+		Products []struct {
+			ID          int64  `json:"id"`
+			ProductKind string `json:"product_kind"`
+			Tiers       []struct {
+				ID        int64   `json:"id"`
+				SpecG     int64   `json:"spec_g"`
+				MinQty    float64 `json:"min_qty"`
+				UnitPrice float64 `json:"unit_price"`
+			} `json:"tiers"`
+		} `json:"products"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode order form: %v", err)
+	}
+	var green *struct {
+		ID          int64  `json:"id"`
+		ProductKind string `json:"product_kind"`
+		Tiers       []struct {
+			ID        int64   `json:"id"`
+			SpecG     int64   `json:"spec_g"`
+			MinQty    float64 `json:"min_qty"`
+			UnitPrice float64 `json:"unit_price"`
+		} `json:"tiers"`
+	}
+	for i := range resp.Products {
+		if resp.Products[i].ID == 88 {
+			green = &resp.Products[i]
+			break
+		}
+	}
+	if green == nil {
+		t.Fatalf("order form missing green bean product 88: %s", rec.Body.String())
+	}
+	if green.ProductKind != "green_bean" {
+		t.Fatalf("product_kind=%q, want green_bean", green.ProductKind)
+	}
+	if len(green.Tiers) != 2 || green.Tiers[0].ID != 8801 || green.Tiers[0].SpecG != 1000 || green.Tiers[0].UnitPrice != 81.91 {
+		t.Fatalf("green bean inherited tiers = %+v, want bound roasted tiers", green.Tiers)
+	}
+}
+
 func TestOrderAPISmallBatchDirectShipCustomerUsesDefaultPriceTier(t *testing.T) {
 	pool, schema := newOrderAPITestDB(t)
 	ctx := context.Background()
@@ -1659,6 +1722,69 @@ func TestOrderAPISavesWholesale1000gByBeanListWeightTier(t *testing.T) {
 	wantLineTotal := 106 * 30.0
 	if diff := lineTotal - wantLineTotal; diff > 0.0001 || diff < -0.0001 {
 		t.Fatalf("line_total = %.6f, want %.6f", lineTotal, wantLineTotal)
+	}
+}
+
+func TestOrderAPISavesGreenBeanOrderUsingBoundRoastedTierFallback(t *testing.T) {
+	pool, schema := newOrderAPITestDB(t)
+	ctx := context.Background()
+	seedOrderAPITestData(t, ctx, pool, schema)
+	mustExecOrderAPITestSQL(t, ctx, pool, fmt.Sprintf(`
+		INSERT INTO %[1]s.products(id,name,default_price,active,product_kind,green_bean_type,green_bean_bom_product_id,customer_id,visibility,custom_type)
+		VALUES (88,'兰卡拼配生豆',0,true,'green_bean','blend',7,3,'customer_only','public_sku_alias');
+		INSERT INTO %[1]s.product_price_tiers(id, product_id, spec_g, min_qty_units, max_qty_units, price_per_unit, min_qty_lb, max_qty_lb, price_per_lb, active)
+		VALUES
+			(8801,7,1000,24,49,81.91,52.86,107.93,37.18714,true),
+			(8802,7,1000,50,99,78.01,110.13,218.06,35.41654,true);
+	`, schema))
+
+	e := newOrderAPITestEcho(pool, schema)
+	payload := map[string]any{
+		"order_date":     "2026-05-19",
+		"customer_id":    3,
+		"source_id":      1,
+		"order_type_id":  1,
+		"pay_status_id":  1,
+		"ship_status_id": 1,
+		"product_id":     []string{"88"},
+		"tier_id":        []string{"auto"},
+		"unit_price":     []string{""},
+		"item_name":      []string{"兰卡拼配生豆"},
+		"product_kind":   []string{"green_bean"},
+		"qty":            []string{"30"},
+		"unit":           []string{"kg"},
+		"spec":           []string{"1000"},
+	}
+	body, _ := json.Marshal(payload)
+	req := httptest.NewRequest(http.MethodPost, "/api/order", bytes.NewReader(body))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("POST /api/order status = %d, want 200, body=%s", rec.Code, rec.Body.String())
+	}
+
+	var productKind, priceSource string
+	var tierID int64
+	var unitPrice, lineTotal float64
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`
+		SELECT COALESCE(product_kind,''), COALESCE(price_tier_id,0), COALESCE(unit_price,0)::float8, COALESCE(line_total,0)::float8, COALESCE(price_source_json,'{}'::jsonb)::text
+		FROM %s.order_items
+		WHERE product_id=88
+		ORDER BY id DESC
+		LIMIT 1
+	`, schema)).Scan(&productKind, &tierID, &unitPrice, &lineTotal, &priceSource); err != nil {
+		t.Fatalf("query green bean order item: %v", err)
+	}
+	if productKind != "green_bean" {
+		t.Fatalf("product_kind=%q, want green_bean", productKind)
+	}
+	if tierID != 8801 || unitPrice != 81.91 || lineTotal != 2457.30 {
+		t.Fatalf("tier/unit_price/line_total=%d/%.2f/%.2f, want 8801/81.91/2457.30", tierID, unitPrice, lineTotal)
+	}
+	if !strings.Contains(priceSource, "green_bean_bound_roasted_tier") || !strings.Contains(priceSource, `"source_product_id": 7`) && !strings.Contains(priceSource, `"source_product_id":7`) {
+		t.Fatalf("price_source_json missing bound roasted fallback: %s", priceSource)
 	}
 }
 
