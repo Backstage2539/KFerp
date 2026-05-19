@@ -167,14 +167,12 @@ func TestCreateCustomProductAcceptsPublicSKUAliasType(t *testing.T) {
 
 func TestCreateCustomProductAcceptsCustomerGreenBeanWithoutRoastLevel(t *testing.T) {
 	repo := &fakeRepo{products: map[int64]Product{
-		7: {ID: 7, ProductKind: "green_bean"},
 		8: {ID: 8, ProductKind: "roasted"},
 	}}
 	svc := NewService(repo)
 
 	got, err := svc.CreateCustomProduct(context.Background(), CreateCustomProductCommand{
 		CustomerID:            3,
-		BaseProductID:         7,
 		Name:                  "客户A-巴拿马生豆",
 		ProductKind:           "green_bean",
 		GreenBeanType:         "blend",
@@ -187,6 +185,9 @@ func TestCreateCustomProductAcceptsCustomerGreenBeanWithoutRoastLevel(t *testing
 	}
 	if got.ProductKind != "green_bean" || repo.custom.RoastLevel != "" || repo.custom.GreenBeanType != "blend" || repo.custom.GreenBeanBomProductID != 8 {
 		t.Fatalf("green custom product=%+v command=%+v", got, repo.custom)
+	}
+	if got.BaseProductID != 0 || repo.custom.BaseProductID != 0 || repo.custom.CopyPriceTiers {
+		t.Fatalf("green custom product should not require base product or copied price tiers: got=%+v command=%+v", got, repo.custom)
 	}
 }
 

@@ -119,6 +119,14 @@
         </div>
         <form class="custom-product-form" @submit.prevent="createCustomProduct">
           <label>
+            <span>产品形态</span>
+            <select v-model="customForm.product_kind" @change="handleCustomProductKindChange">
+              <option value="roasted">熟豆</option>
+              <option value="green_bean">生豆</option>
+              <option value="drip_bag">挂耳</option>
+            </select>
+          </label>
+          <label v-if="customForm.product_kind !== 'green_bean'" class="wide-field">
             <span>基础产品</span>
             <SearchableSelect
               v-model="customForm.base_product_id"
@@ -129,14 +137,6 @@
               placeholder="输入产品名"
               empty-text="没有匹配产品"
               @select="fillCustomProductName" />
-          </label>
-          <label>
-            <span>产品形态</span>
-            <select v-model="customForm.product_kind" @change="handleCustomProductKindChange">
-              <option value="roasted">熟豆</option>
-              <option value="green_bean">生豆</option>
-              <option value="drip_bag">挂耳</option>
-            </select>
           </label>
           <label>
             <span>定制类型</span>
@@ -167,7 +167,8 @@
               :option-meta="baseProductOptionMeta"
               :option-value="optionNumericValue"
               placeholder="选择对应熟豆"
-              empty-text="暂无熟豆产品" />
+              empty-text="暂无熟豆产品"
+              @select="fillCustomProductName" />
           </label>
           <label v-if="customForm.product_kind === 'drip_bag'">
             <span>每袋克重</span>
@@ -189,7 +190,7 @@
             <input v-model="customForm.copy_bom" type="checkbox" />
             <span>复制基础产品 BOM</span>
           </label>
-          <label class="checkline">
+          <label v-if="customForm.product_kind !== 'green_bean'" class="checkline">
             <input v-model="customForm.copy_price_tiers" type="checkbox" />
             <span>复制基础产品价格梯度</span>
           </label>
@@ -1118,7 +1119,9 @@ function baseProductName(id) {
 function fillCustomProductName() {
   if (customForm.value.name) return
   const customer = customerName(selectedCustomerSkuCustomerID.value || customForm.value.customer_id)
-  const base = selectedBaseProduct()
+  const base = customForm.value.product_kind === 'green_bean'
+    ? products.value.find((product) => Number(product.id) === Number(customForm.value.green_bean_bom_product_id))
+    : selectedBaseProduct()
   if (!customer || !base) return
   customForm.value.name = customForm.value.product_kind === 'roasted'
     ? `${customer}-${base.name}-${customForm.value.roast_level}`
@@ -1141,6 +1144,7 @@ function handleCustomProductKindChange() {
   customForm.value.base_product_id = 0
   customForm.value.name = ''
   customForm.value.copy_bom = customForm.value.product_kind === 'roasted'
+  customForm.value.copy_price_tiers = customForm.value.product_kind !== 'green_bean'
 }
 
 function openProductBom(row) {
@@ -1195,9 +1199,14 @@ async function createCustomProduct() {
     error.value = '请选择客户'
     return
   }
-  if (!customForm.value.base_product_id) {
+  if (customForm.value.product_kind !== 'green_bean' && !customForm.value.base_product_id) {
     error.value = '请选择基础产品'
     return
+  }
+  if (customForm.value.product_kind === 'green_bean') {
+    customForm.value.base_product_id = 0
+    customForm.value.copy_bom = false
+    customForm.value.copy_price_tiers = false
   }
   if (!customForm.value.name) {
     fillCustomProductName()
@@ -1703,6 +1712,7 @@ watch(selectedCustomerSkuCustomerID, () => {
 })
 
 watch(() => customForm.value.base_product_id, () => {
+  if (customForm.value.product_kind === 'green_bean') return
   syncCustomFormFromBaseProduct(selectedBaseProduct())
 })
 

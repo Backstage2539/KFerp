@@ -116,7 +116,6 @@ test('product basics payload preserves remark, green bean type, and BOM binding 
 
 test('customer custom SKU payload supports green bean and drip bag product settings', () => {
   assert.deepEqual(buildCustomProductCreatePayload(42, {
-    base_product_id: 7,
     name: '客户A-巴拿马生豆',
     remark: '客户生豆',
     product_kind: 'green_bean',
@@ -128,15 +127,15 @@ test('customer custom SKU payload supports green bean and drip bag product setti
     roast_level: '中烘',
   }), {
     customer_id: 42,
-    base_product_id: 7,
+    base_product_id: 0,
     name: '客户A-巴拿马生豆',
     remark: '客户生豆',
     product_kind: 'green_bean',
     green_bean_type: 'blend',
     green_bean_bom_product_id: 9,
     custom_type: 'public_sku_alias',
-    copy_bom: true,
-    copy_price_tiers: true,
+    copy_bom: false,
+    copy_price_tiers: false,
   })
 
   assert.deepEqual(buildCustomProductCreatePayload('42', {

@@ -512,13 +512,12 @@ func TestProductSettingsAPICreatesCustomerCustomProduct(t *testing.T) {
 
 func TestProductSettingsAPICreatesCustomerGreenBeanCustomProduct(t *testing.T) {
 	repo := &productSettingsRepo{products: []catalogapp.Product{
-		{ID: 7, Name: "巴拿马生豆", ProductKind: "green_bean", GreenBeanType: "single_origin", GreenBeanBomProductID: 8},
 		{ID: 8, Name: "巴拿马熟豆", ProductKind: "roasted"},
 	}}
 	e := echo.New()
 	registerProductRoutes(e, catalogapp.NewService(repo))
 
-	body := `{"customer_id":3,"base_product_id":7,"name":"测试客户-巴拿马生豆","product_kind":"green_bean","green_bean_type":"blend","green_bean_bom_product_id":8,"custom_type":"public_sku_alias","copy_price_tiers":true}`
+	body := `{"customer_id":3,"name":"测试客户-巴拿马生豆","product_kind":"green_bean","green_bean_type":"blend","green_bean_bom_product_id":8,"custom_type":"public_sku_alias","copy_price_tiers":true}`
 	req := httptest.NewRequest(http.MethodPost, "/api/product-settings/custom-products", bytes.NewBufferString(body))
 	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
 	rec := httptest.NewRecorder()
@@ -530,7 +529,10 @@ func TestProductSettingsAPICreatesCustomerGreenBeanCustomProduct(t *testing.T) {
 	if !repo.productCreated || repo.createdProduct.ProductKind != "green_bean" || repo.createdProduct.GreenBeanType != "blend" || repo.createdProduct.GreenBeanBomProductID != 8 {
 		t.Fatalf("custom green command = %+v created=%v", repo.createdProduct, repo.productCreated)
 	}
-	for _, want := range []string{`"product_kind":"green_bean"`, `"green_bean_type":"blend"`, `"green_bean_bom_product_id":8`} {
+	if repo.createdProduct.BaseProductID != 0 || repo.createdProduct.CopyPriceTiers {
+		t.Fatalf("custom green command should not require base product or copied price tiers: %+v", repo.createdProduct)
+	}
+	for _, want := range []string{`"base_product_id":0`, `"product_kind":"green_bean"`, `"green_bean_type":"blend"`, `"green_bean_bom_product_id":8`} {
 		if !bytes.Contains(rec.Body.Bytes(), []byte(want)) {
 			t.Fatalf("custom green response missing %s: %s", want, rec.Body.String())
 		}

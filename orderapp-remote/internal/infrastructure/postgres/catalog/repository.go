@@ -783,34 +783,48 @@ func (r Repository) CreateCustomProduct(ctx context.Context, cmd catalogapp.Crea
 		AllowFulfillmentOrder bool
 		AllowMallOrder        bool
 	}
-	if err := tx.QueryRow(ctx, fmt.Sprintf(`
-		SELECT name,
-		       default_price,
-		       COALESCE(retail_price_100g,0),
-		       COALESCE(retail_price_200g,0),
-		       COALESCE(retail_price_227g,default_price,0),
-		       COALESCE(retail_price_250g,0),
-		       COALESCE(NULLIF(product_kind,''), 'roasted_bean'),
-		       COALESCE(green_bean_type,''),
-		       COALESCE(green_bean_bom_product_id,0),
-		       COALESCE(drip_bag_grams,10),
-		       COALESCE(drip_box_bag_count,10),
-		       COALESCE(allow_fulfillment_order,true),
-		       COALESCE(allow_mall_order,false)
-		FROM %s.products
-		WHERE id=$1 AND active=true
-	`, r.schema), cmd.BaseProductID).Scan(&base.Name, &base.DefaultPrice, &base.RetailPrice100G, &base.RetailPrice200G, &base.RetailPrice227G, &base.RetailPrice250G, &base.ProductKind, &base.GreenBeanType, &base.GreenBeanBomProductID, &base.DripBagGrams, &base.DripBoxBagCount, &base.AllowFulfillmentOrder, &base.AllowMallOrder); err != nil {
-		return catalogapp.Product{}, fmt.Errorf("base product not found")
+	base.DripBagGrams = 10
+	base.DripBoxBagCount = 10
+	base.AllowFulfillmentOrder = true
+	base.AllowMallOrder = false
+	requestedKind := strings.TrimSpace(cmd.ProductKind)
+	productKind := catalogdomain.NormalizeProductKind(cmd.ProductKind)
+	baseProductID := cmd.BaseProductID
+	shouldLoadBase := false
+	if cmd.BaseProductID > 0 {
+		shouldLoadBase = !(requestedKind != "" && productKind == catalogdomain.ProductKindGreenBean)
 	}
-
-	productKind := catalogdomain.NormalizeProductKind(base.ProductKind)
-	if strings.TrimSpace(cmd.ProductKind) != "" {
-		productKind = catalogdomain.NormalizeProductKind(cmd.ProductKind)
+	if shouldLoadBase {
+		if err := tx.QueryRow(ctx, fmt.Sprintf(`
+			SELECT name,
+			       default_price,
+			       COALESCE(retail_price_100g,0),
+			       COALESCE(retail_price_200g,0),
+			       COALESCE(retail_price_227g,default_price,0),
+			       COALESCE(retail_price_250g,0),
+			       COALESCE(NULLIF(product_kind,''), 'roasted_bean'),
+			       COALESCE(green_bean_type,''),
+			       COALESCE(green_bean_bom_product_id,0),
+			       COALESCE(drip_bag_grams,10),
+			       COALESCE(drip_box_bag_count,10),
+			       COALESCE(allow_fulfillment_order,true),
+			       COALESCE(allow_mall_order,false)
+			FROM %s.products
+			WHERE id=$1 AND active=true
+		`, r.schema), cmd.BaseProductID).Scan(&base.Name, &base.DefaultPrice, &base.RetailPrice100G, &base.RetailPrice200G, &base.RetailPrice227G, &base.RetailPrice250G, &base.ProductKind, &base.GreenBeanType, &base.GreenBeanBomProductID, &base.DripBagGrams, &base.DripBoxBagCount, &base.AllowFulfillmentOrder, &base.AllowMallOrder); err != nil {
+			return catalogapp.Product{}, fmt.Errorf("base product not found")
+		}
+		if requestedKind == "" {
+			productKind = catalogdomain.NormalizeProductKind(base.ProductKind)
+		}
+	} else if productKind != catalogdomain.ProductKindGreenBean {
+		return catalogapp.Product{}, fmt.Errorf("base product not found")
 	}
 	roastLevel := catalogdomain.NormalizeRoastLevel(cmd.RoastLevel)
 	greenBeanType := strings.TrimSpace(base.GreenBeanType)
 	greenBeanBomProductID := base.GreenBeanBomProductID
 	if productKind == catalogdomain.ProductKindGreenBean {
+		baseProductID = 0
 		roastLevel = ""
 		if strings.TrimSpace(cmd.GreenBeanType) != "" {
 			greenBeanType = strings.TrimSpace(cmd.GreenBeanType)
@@ -825,6 +839,8 @@ func (r Repository) CreateCustomProduct(ctx context.Context, cmd catalogapp.Crea
 		greenBeanType = ""
 		greenBeanBomProductID = 0
 	}
+	copyBOM := cmd.CopyBOM && productKind == catalogdomain.ProductKindRoasted && baseProductID > 0
+	copyPriceTiers := cmd.CopyPriceTiers && baseProductID > 0
 	dripBagGrams := base.DripBagGrams
 	if cmd.DripBagGrams > 0 {
 		dripBagGrams = cmd.DripBagGrams
@@ -847,7 +863,7 @@ func (r Repository) CreateCustomProduct(ctx context.Context, cmd catalogapp.Crea
 		)
 		VALUES($1,$2,$3,$4,$5,true,$6,$7,$8,$9,$10,$11,$12,$13,NULLIF($14,0),$15,$16,$17,'customer_only',$18,$19,$20,now())
 		RETURNING id
-	`, r.schema), name, remark, productKind, roastLevel, base.DefaultPrice, base.RetailPrice100G, base.RetailPrice200G, base.RetailPrice227G, base.RetailPrice250G, dripBagGrams, dripBoxBagCount, base.AllowFulfillmentOrder, base.AllowMallOrder, 0, 0, cmd.CustomerID, cmd.BaseProductID, strings.TrimSpace(cmd.CustomType), greenBeanType, greenBeanBomProductID).Scan(&productID); err != nil {
+	`, r.schema), name, remark, productKind, roastLevel, base.DefaultPrice, base.RetailPrice100G, base.RetailPrice200G, base.RetailPrice227G, base.RetailPrice250G, dripBagGrams, dripBoxBagCount, base.AllowFulfillmentOrder, base.AllowMallOrder, 0, 0, cmd.CustomerID, baseProductID, strings.TrimSpace(cmd.CustomType), greenBeanType, greenBeanBomProductID).Scan(&productID); err != nil {
 		return catalogapp.Product{}, err
 	}
 
@@ -860,36 +876,36 @@ func (r Repository) CreateCustomProduct(ctx context.Context, cmd catalogapp.Crea
 			return catalogapp.Product{}, err
 		}
 	}
-	if cmd.CopyBOM && productKind == catalogdomain.ProductKindRoasted {
+	if copyBOM {
 		if _, err := tx.Exec(ctx, fmt.Sprintf(`
 			INSERT INTO %s.product_bom_items(product_id,material_id,component_type,component_product_id,component_spec_g,consume_unit,qty_per_unit,ratio_pct,updated_at)
 			SELECT $1,material_id,component_type,component_product_id,component_spec_g,consume_unit,qty_per_unit,ratio_pct,now()
 			FROM %s.product_bom_items
 			WHERE product_id=$2
 			ORDER BY id
-		`, r.schema, r.schema), productID, cmd.BaseProductID); err != nil {
+		`, r.schema, r.schema), productID, baseProductID); err != nil {
 			return catalogapp.Product{}, err
 		}
 	}
-	if cmd.CopyPriceTiers {
+	if copyPriceTiers {
 		if _, err := tx.Exec(ctx, fmt.Sprintf(`
 			INSERT INTO %s.product_price_tiers(product_id,spec_g,min_qty_units,max_qty_units,price_per_unit,min_qty_lb,max_qty_lb,price_per_lb,active,product_kind,price_basis,sales_unit,unit_bag_count,price_source_json)
 			SELECT $1,spec_g,min_qty_units,max_qty_units,price_per_unit,min_qty_lb,max_qty_lb,price_per_lb,active,product_kind,price_basis,sales_unit,unit_bag_count,price_source_json
 			FROM %s.product_price_tiers
 			WHERE product_id=$2 AND active=true
 			ORDER BY id
-		`, r.schema, r.schema), productID, cmd.BaseProductID); err != nil {
+		`, r.schema, r.schema), productID, baseProductID); err != nil {
 			return catalogapp.Product{}, err
 		}
 	}
 	if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, cmd.Actor, "product", &productID, "create", postgresinfra.StrPtr("customer_custom_product"), nil, postgresinfra.StrPtr(name), postgresinfra.AuditMeta{
 		"customer_id":               cmd.CustomerID,
-		"base_product_id":           cmd.BaseProductID,
+		"base_product_id":           baseProductID,
 		"roast_level":               roastLevel,
 		"remark":                    cmd.Remark,
 		"custom_type":               strings.TrimSpace(cmd.CustomType),
-		"copy_bom":                  cmd.CopyBOM,
-		"copy_price_tiers":          cmd.CopyPriceTiers,
+		"copy_bom":                  copyBOM,
+		"copy_price_tiers":          copyPriceTiers,
 		"product_kind":              productKind,
 		"green_bean_type":           greenBeanType,
 		"green_bean_bom_product_id": greenBeanBomProductID,
