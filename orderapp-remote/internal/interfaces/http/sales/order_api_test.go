@@ -3517,6 +3517,8 @@ CREATE TABLE %s.order_items (
 	product_id BIGINT,
 	price_tier_id BIGINT,
 	price_overridden BOOLEAN NOT NULL DEFAULT false,
+	bean_list_publication_id BIGINT NOT NULL DEFAULT 0,
+	bean_list_version_no TEXT NOT NULL DEFAULT '',
 	item_name TEXT,
 	item_note TEXT NOT NULL DEFAULT '',
 	qty NUMERIC,
