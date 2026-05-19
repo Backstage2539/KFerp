@@ -45,11 +45,17 @@ test('product bean-list version scope selector lists public and each fulfillment
   assert.ok(versionListStart > -1 && versionListEnd > versionListStart, 'missing bean-list version panel')
   const versionListSource = viewSource.slice(versionListStart, versionListEnd)
 
-  assert.match(versionListSource, /v-model="versionListScope"/)
-  assert.match(versionListSource, /<option value="official">公共豆单<\/option>/)
-  assert.match(versionListSource, /v-for="customer in customers"/)
-  assert.match(versionListSource, /:value="`customer:\$\{customer\.id\}`"/)
-  assert.match(versionListSource, /customerOptionLabel\(customer\)/)
+  const pageScopeStart = viewSource.indexOf('<div class="bean-list-global-scope">')
+  const pageScopeEnd = viewSource.indexOf('<section class="panel bean-list-version-panel">')
+  assert.ok(pageScopeStart > -1 && pageScopeEnd > pageScopeStart, 'missing top-level bean-list scope selector')
+  const pageScopeSource = viewSource.slice(pageScopeStart, pageScopeEnd)
+
+  assert.match(pageScopeSource, /v-model="versionListScope"/)
+  assert.match(pageScopeSource, /<option value="official">公共豆单<\/option>/)
+  assert.match(pageScopeSource, /v-for="customer in customers"/)
+  assert.match(pageScopeSource, /:value="`customer:\$\{customer\.id\}`"/)
+  assert.match(pageScopeSource, /customerOptionLabel\(customer\)/)
+  assert.doesNotMatch(versionListSource, /v-model="versionListScope"/)
   assert.match(versionListSource, /<option value="drip">挂耳豆单<\/option>/)
   assert.doesNotMatch(versionListSource, /fulfillment_customers/)
   assert.doesNotMatch(versionListSource, /所有履约客户豆单/)
@@ -117,8 +123,11 @@ test('product bean-list view maps every bean-list type to its own metadata and t
 test('product bean-list view exposes manual green bean tier price editing', () => {
   for (const expected of [
     'green-tier-price-editor',
+    'green-inline-price-editor',
     'greenTierPriceRows(row)',
+    'greenTierPriceRows(item)',
     'setGreenBeanTierPrice(itemProductID(row), tier, $event.target.value)',
+    'setGreenBeanTierPrice(itemProductID(item), tier, $event.target.value)',
     'function setGreenBeanTierPrice',
     'greenPriceOverrides',
   ]) {

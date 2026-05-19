@@ -25,13 +25,27 @@
           <strong>{{ fixed(parameters?.kg_to_lb_factor, 3) }}</strong>
         </div>
       </div>
+      <div class="bean-list-global-scope">
+        <div>
+          <span>豆单范围</span>
+          <strong>{{ publicationScopeLabel(versionListScope) }}</strong>
+        </div>
+        <label class="scope-select">
+          <select v-model="versionListScope" aria-label="豆单范围">
+            <option value="official">公共豆单</option>
+            <option v-for="customer in customers" :key="`version-scope-${customer.id}`" :value="`customer:${customer.id}`">
+              {{ customerOptionLabel(customer) }}
+            </option>
+          </select>
+        </label>
+      </div>
     </section>
 
     <section class="panel bean-list-version-panel">
       <div class="section-bar bean-list-version-head">
         <div>
           <div class="section-title">豆单版本列表</div>
-          <p class="muted">按公共豆单或某个履约客户查看版本、生成新版和撤回。</p>
+          <p class="muted">查看当前豆单范围下的版本、生成新版和撤回。</p>
         </div>
         <div class="actions">
           <button class="secondary compact" type="button" :disabled="beanListVersionListLoading" @click="refreshBeanListVersionList">刷新版本</button>
@@ -39,15 +53,6 @@
       </div>
 
       <div class="version-controls">
-        <label>
-          <span>豆单范围</span>
-          <select v-model="versionListScope">
-            <option value="official">公共豆单</option>
-            <option v-for="customer in customers" :key="`version-scope-${customer.id}`" :value="`customer:${customer.id}`">
-              {{ customerOptionLabel(customer) }}
-            </option>
-          </select>
-        </label>
         <label>
           <span>豆单类型</span>
           <select v-model="pdfOptions.listType">
@@ -274,8 +279,12 @@
               </div>
               <div v-if="beanFlavor(item, 'green_bean_list')" class="bean-note">{{ beanFlavor(item, 'green_bean_list') }}</div>
               <div v-if="beanDescription(item, 'green_bean_list')" class="bean-desc">{{ beanDescription(item, 'green_bean_list') }}</div>
-              <div class="bean-row" v-for="tier in item.green_bean_sale_tiers || []" :key="`green-tier-${tier.label}`">
-                <span>{{ tier.label }}</span><strong>{{ price(tierPriceValue(tier)) }}/{{ tierUnit(tier) }}</strong>
+              <div class="bean-row green-inline-price-editor" v-for="tier in greenTierPriceRows(item)" :key="`green-tier-${greenTierOverrideKey(tier)}`">
+                <span>{{ tier.label }}</span>
+                <label>
+                  <input type="number" min="0" step="0.01" :value="greenTierPriceValue(itemProductID(item), tier)" @input="setGreenBeanTierPrice(itemProductID(item), tier, $event.target.value)" />
+                  <small>/{{ tierUnit(tier) }}</small>
+                </label>
               </div>
             </article>
           </div>
@@ -1867,7 +1876,7 @@ onBeforeUnmount(() => {
 .bean-list-version-panel { display: grid; gap: 12px; }
 .bean-list-version-head { align-items: flex-start; }
 .bean-list-version-head p { margin: 4px 0 0; line-height: 1.45; }
-.version-controls { display: grid; grid-template-columns: minmax(150px, .8fr) minmax(150px, .8fr) minmax(110px, .55fr) minmax(90px, .45fr); gap: 10px; align-items: end; }
+.version-controls { display: grid; grid-template-columns: minmax(170px, .9fr) minmax(110px, .55fr) minmax(90px, .45fr); gap: 10px; align-items: end; }
 .version-controls label span, .version-summary span { display: block; color: #666; font-size: 12px; margin-bottom: 5px; }
 .version-controls select { width: 100%; min-height: 38px; border: 1px solid #ddd; border-radius: 8px; padding: 7px 9px; background: #fff; font: inherit; box-sizing: border-box; }
 .version-control-customer { grid-column: span 2; }
@@ -1890,6 +1899,11 @@ onBeforeUnmount(() => {
 .metrics span, .muted { color: #666; font-size: 12px; }
 .metrics span { display: block; margin-bottom: 6px; }
 .metrics strong { font-size: 18px; }
+.bean-list-global-scope { display: flex; align-items: end; justify-content: space-between; gap: 12px; margin-top: 12px; padding-top: 12px; border-top: 1px solid #eee; }
+.bean-list-global-scope span { display: block; color: #666; font-size: 12px; margin-bottom: 5px; }
+.bean-list-global-scope strong { display: block; font-size: 18px; line-height: 1.2; }
+.scope-select { min-width: min(280px, 100%); margin: 0; }
+.scope-select select { width: 100%; min-height: 38px; border: 1px solid #ddd; border-radius: 8px; padding: 7px 9px; background: #fff; font: inherit; box-sizing: border-box; }
 .table-wrap { overflow: auto; margin-top: 10px; }
 table { width: 100%; border-collapse: collapse; min-width: 1100px; }
 th, td { border-bottom: 1px solid #f1f1f1; padding: 9px 10px; text-align: right; white-space: nowrap; }
@@ -1966,6 +1980,9 @@ button:disabled { opacity: .45; cursor: not-allowed; }
 .green-tier-price-editor { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 7px; }
 .green-tier-price-editor label { display: grid; grid-template-columns: minmax(0, 1fr) 82px; align-items: center; gap: 6px; font-size: 12px; color: #555; }
 .green-tier-price-editor input { min-width: 0; }
+.green-inline-price-editor label { display: grid; grid-template-columns: minmax(82px, 110px) auto; align-items: center; gap: 5px; margin: 0; }
+.green-inline-price-editor input { width: 100%; min-width: 0; min-height: 32px; border: 1px solid #ddd; border-radius: 7px; padding: 5px 7px; font: inherit; text-align: right; box-sizing: border-box; }
+.green-inline-price-editor small { color: #666; font-size: 12px; white-space: nowrap; }
 .pdf-preview-title { max-width: 760px; margin: 16px auto 8px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px; color: #555; font-size: 12px; }
 .pdf-preview-title strong { color: #111; font-size: 14px; }
 .pdf-preview-phone { max-width: 430px; min-height: 360px; max-height: 72vh; overflow: auto; margin: 0 auto; border: 1px solid #ded6c9; border-radius: 8px; box-shadow: 0 10px 28px rgba(0,0,0,.12); }
@@ -2041,6 +2058,8 @@ article, .empty-card { border: 1px solid #eee; border-radius: 8px; padding: 12px
   .panel-head { align-items: flex-start; flex-direction: column; }
   .actions { justify-content: flex-start; }
   .metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .bean-list-global-scope { align-items: stretch; flex-direction: column; }
+  .scope-select { width: 100%; }
   .bean-grid { grid-template-columns: 1fr; }
   .settings-drawer { width: 100vw; }
   .explanation-summary, .formula-step { grid-template-columns: 1fr; }
