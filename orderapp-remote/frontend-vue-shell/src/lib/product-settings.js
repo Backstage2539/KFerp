@@ -130,6 +130,7 @@ export function buildProductCreatePayload(form = {}) {
   const payload = {
     name: String(form.name || '').trim(),
     product_kind: kind,
+    remark: String(form.remark || '').trim(),
   }
   if (kind === 'green_bean') {
     payload.green_bean_type = normalizedGreenBeanType(form.green_bean_type)
@@ -145,6 +146,7 @@ export function buildProductBasicsPayload(row = {}, marginRateOverride = null) {
   const kind = normalizedProductKind(row)
   const payload = {
     product_kind: kind,
+    remark: String(row.remark || '').trim(),
   }
   if (kind === 'green_bean') {
     payload.green_bean_type = normalizedGreenBeanType(row.green_bean_type)

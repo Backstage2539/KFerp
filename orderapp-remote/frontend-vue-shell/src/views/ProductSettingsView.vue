@@ -51,6 +51,10 @@
             <span>商品名称</span>
             <input v-model.trim="productForm.name" placeholder="如 花魁 SOE" />
           </label>
+          <label class="wide-field">
+            <span>备注</span>
+            <textarea v-model.trim="productForm.remark" rows="2" placeholder="如 奶咖主推、仅指定客户使用"></textarea>
+          </label>
           <label>
             <span>产品形态</span>
             <select v-model="productForm.product_kind">
@@ -134,6 +138,10 @@
           <label class="wide-field">
             <span>专属 SKU 名称</span>
             <input v-model.trim="customForm.name" placeholder="如 客户A-暖阳拼配-中深烘" />
+          </label>
+          <label class="wide-field">
+            <span>备注</span>
+            <textarea v-model.trim="customForm.remark" rows="2" placeholder="如 客户指定口味或包装说明"></textarea>
           </label>
           <label class="checkline">
             <input v-model="customForm.copy_bom" type="checkbox" />
@@ -398,6 +406,7 @@
                 <th>形态</th>
                 <th>归属</th>
                 <th>类型</th>
+                <th>备注</th>
                 <th>烘焙度</th>
                 <th>BOM出品率</th>
                 <th v-if="!selectedCustomerSkuCustomerID">利润率覆盖</th>
@@ -419,6 +428,14 @@
                   <td><span class="kind-badge" :class="productKindBadgeClass(row)">{{ productKindLabel(row) }}</span></td>
                   <td>{{ ownerLabel(row) }}</td>
                   <td>{{ customTypeLabel(row.custom_type) }}</td>
+                  <td>
+                    <textarea
+                      class="remark-input"
+                      v-model.trim="row.remark"
+                      rows="2"
+                      :disabled="!canEditSkuRow(row)"
+                      @change="saveProductBasics(row, 'SKU备注已保存')"></textarea>
+                  </td>
                   <td>
                     <select class="roast-select" v-model="row.roast_level" :disabled="row.product_kind === 'green_bean' || !canEditSkuRow(row)" @change="saveProductBasics(row)">
                       <option v-for="level in roastLevels" :key="level" :value="level">{{ level }}</option>
@@ -459,7 +476,7 @@
                   </td>
                 </tr>
                 <tr v-if="row.product_kind === 'green_bean'" class="green-bean-detail-row">
-                  <td :colspan="selectedCustomerSkuCustomerID ? 13 : 14">
+                  <td :colspan="selectedCustomerSkuCustomerID ? 14 : 15">
                     <div class="green-bean-detail-fields">
                       <label>
                         <span>生豆属性</span>
@@ -490,7 +507,7 @@
                 </tr>
               </template>
               <tr v-if="!displaySkuRows.length">
-                <td :colspan="selectedCustomerSkuCustomerID ? 13 : 14" class="muted">{{ selectedCustomerSkuCustomerID ? '暂无客户SKU' : '暂无公共SKU' }}</td>
+                <td :colspan="selectedCustomerSkuCustomerID ? 14 : 15" class="muted">{{ selectedCustomerSkuCustomerID ? '暂无客户SKU' : '暂无公共SKU' }}</td>
               </tr>
             </tbody>
           </table>
@@ -694,6 +711,7 @@ function defaultProductForm() {
   return {
     name: '',
     product_kind: 'roasted',
+    remark: '',
     green_bean_type: 'single_origin',
     green_bean_bom_product_id: 0,
     roast_level: '中烘',
@@ -718,6 +736,7 @@ function defaultCustomForm() {
     customer_id: 0,
     base_product_id: 0,
     name: '',
+    remark: '',
     roast_level: '中烘',
     custom_type: 'public_sku_alias',
     copy_bom: true,
@@ -741,6 +760,7 @@ function decorateProduct(product) {
   const marginRateOverride = normalizeBackendMarginRateOverride(product.margin_rate_override)
   return {
     ...product,
+    remark: product.remark || '',
     product_kind: productKind,
     green_bean_type: product.green_bean_type || 'single_origin',
     green_bean_bom_product_id: Number(product.green_bean_bom_product_id || 0),
@@ -1554,7 +1574,7 @@ async function deactivateProducts(productIds) {
 }
 
 watch(selectedCustomerSkuCustomerID, () => {
-  customForm.value = { ...customForm.value, customer_id: Number(selectedCustomerSkuCustomerID.value || 0), name: '' }
+  customForm.value = { ...customForm.value, customer_id: Number(selectedCustomerSkuCustomerID.value || 0), name: '', remark: '' }
   skuFilters.value = defaultSkuFilters()
   skuPage.value = 1
   pruneSelectedProducts(displaySkuRows.value)
@@ -1587,8 +1607,9 @@ onMounted(loadAll)
 .panel-title { display: flex; align-items: center; justify-content: space-between; gap: 10px; font-weight: 700; margin-bottom: 10px; }
 .panel-actions, .row-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
 .sub-title { width: 100%; font-weight: 700; font-size: 13px; }
-button, input, select { font: inherit; min-height: 36px; border-radius: 6px; }
-input, select { border: 1px solid #cfc8bf; padding: 7px 9px; background: #fff; width: 100%; }
+button, input, select, textarea { font: inherit; min-height: 36px; border-radius: 6px; }
+input, select, textarea { border: 1px solid #cfc8bf; padding: 7px 9px; background: #fff; width: 100%; }
+textarea { resize: vertical; line-height: 1.4; }
 button { border: 1px solid #1f1f1f; background: #fff; padding: 0 12px; cursor: pointer; }
 button:disabled { cursor: not-allowed; opacity: .55; }
 .primary { background: #111; color: #fff; }
@@ -1650,7 +1671,7 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .product-chip-list, .uncategorized { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
 .product-chip { border: 1px solid #ddd; border-radius: 8px; padding: 5px 8px; background: #fff; font-size: 12px; cursor: grab; }
 .table-wrap { overflow: auto; }
-table { width: 100%; min-width: 1280px; border-collapse: collapse; }
+table { width: 100%; min-width: 1400px; border-collapse: collapse; }
 .compact-table table { min-width: 760px; }
 th, td { border-bottom: 1px solid #eee8df; padding: 8px; text-align: left; font-size: 13px; vertical-align: middle; }
 th { background: #fbfaf8; position: sticky; top: 0; }
@@ -1670,6 +1691,7 @@ th { background: #fbfaf8; position: sticky; top: 0; }
 .kind-roasted { color: #8a4b12; background: #fff3df; border: 1px solid #f3c67c; }
 .kind-green { color: #12613a; background: #e8f7ee; border: 1px solid #8bd4a6; }
 .margin-input { width: 150px; }
+.remark-input { width: 180px; min-height: 46px; resize: vertical; }
 .status-pill { display: inline-flex; align-items: center; min-height: 24px; border: 1px solid #cfd8cf; border-radius: 999px; padding: 2px 8px; color: #27602e; background: #f2fbf2; white-space: nowrap; }
 .status-pill.inactive { border-color: #e1b6b6; color: #8a1f1f; background: #fff0f0; }
 .error, .ok { border-radius: 6px; padding: 9px; margin-top: 12px; }
@@ -1686,6 +1708,6 @@ th { background: #fbfaf8; position: sticky; top: 0; }
   .sku-customer-select { max-width: none; }
   .product-create-form .wide-field, .custom-product-form .wide-field { grid-column: auto; }
   .template-select { width: 100%; }
-  table { min-width: 1280px; }
+  table { min-width: 1400px; }
 }
 </style>

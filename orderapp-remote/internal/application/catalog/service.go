@@ -21,6 +21,7 @@ type PriceTier struct {
 type Product struct {
 	ID                      int64
 	Name                    string
+	Remark                  string
 	ProductKind             string
 	GreenBeanType           string
 	GreenBeanBomProductID   int64
@@ -62,6 +63,7 @@ type ProductCategory struct {
 type ProductSettingsProduct struct {
 	ID                      int64    `json:"id"`
 	Name                    string   `json:"name"`
+	Remark                  string   `json:"remark"`
 	ProductKind             string   `json:"product_kind"`
 	GreenBeanType           string   `json:"green_bean_type"`
 	GreenBeanBomProductID   int64    `json:"green_bean_bom_product_id"`
@@ -142,6 +144,7 @@ type UpdateProductBasicsCommand struct {
 	Actor                 string
 	ProductID             int64
 	ProductKind           string
+	Remark                string
 	GreenBeanType         string
 	GreenBeanBomProductID int64
 	DefaultPrice          float64
@@ -162,6 +165,7 @@ type UpdateProductBasicsCommand struct {
 type CreateProductCommand struct {
 	Actor                    string
 	Name                     string
+	Remark                   string
 	ProductKind              string
 	GreenBeanType            string
 	GreenBeanBomProductID    int64
@@ -191,6 +195,7 @@ type CreateCustomProductCommand struct {
 	CustomerID     int64
 	BaseProductID  int64
 	Name           string
+	Remark         string
 	RoastLevel     string
 	CustomType     string
 	CopyBOM        bool
@@ -322,6 +327,7 @@ func (s *Service) ReplacePriceTiers(ctx context.Context, cmd ReplacePriceTiersCo
 
 func (s *Service) UpdateProductBasics(ctx context.Context, cmd UpdateProductBasicsCommand) error {
 	var err error
+	cmd.Remark = strings.TrimSpace(cmd.Remark)
 	cmd.ProductKind, cmd.DripBagGrams, cmd.DripBoxBagCount, cmd.SalesUnits, err = normalizeProductKindSettings(cmd.ProductKind, cmd.DripBagGrams, cmd.DripBoxBagCount)
 	if err != nil {
 		return err
@@ -357,6 +363,7 @@ func (s *Service) DeactivateProducts(ctx context.Context, cmd DeactivateProducts
 
 func (s *Service) CreateProduct(ctx context.Context, cmd CreateProductCommand) (Product, error) {
 	cmd.Name = strings.TrimSpace(cmd.Name)
+	cmd.Remark = strings.TrimSpace(cmd.Remark)
 	if cmd.Name == "" {
 		return Product{}, ValidationError{Message: "name required"}
 	}
@@ -521,7 +528,9 @@ func (s *Service) CreateCustomProduct(ctx context.Context, cmd CreateCustomProdu
 	if cmd.BaseProductID <= 0 {
 		return Product{}, fmt.Errorf("base_product_id required")
 	}
-	if strings.TrimSpace(cmd.Name) == "" {
+	cmd.Name = strings.TrimSpace(cmd.Name)
+	cmd.Remark = strings.TrimSpace(cmd.Remark)
+	if cmd.Name == "" {
 		return Product{}, fmt.Errorf("name required")
 	}
 	cmd.RoastLevel = catalogdomain.NormalizeRoastLevel(cmd.RoastLevel)
@@ -695,6 +704,7 @@ func productSettingsProduct(p Product) ProductSettingsProduct {
 	return ProductSettingsProduct{
 		ID:                      p.ID,
 		Name:                    p.Name,
+		Remark:                  p.Remark,
 		GreenBeanType:           p.GreenBeanType,
 		GreenBeanBomProductID:   p.GreenBeanBomProductID,
 		RoastLevel:              p.RoastLevel,

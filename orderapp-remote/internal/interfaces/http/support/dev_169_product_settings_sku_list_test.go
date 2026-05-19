@@ -41,6 +41,8 @@ func TestDev169ProductSettingsShowsUnifiedSkuList(t *testing.T) {
 		":options=\"customerSkuCustomers\"",
 		"productBelongsToContext",
 		"customer-public-usage",
+		"remark-input",
+		"SKU备注已保存",
 	} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("ProductSettingsView.vue missing unified SKU list marker %q", want)
@@ -74,6 +76,7 @@ func TestDev169ManualsDocumentUnifiedSkuListOperation(t *testing.T) {
 			"客户SKU列表",
 			"公共SKU",
 			"履约客户",
+			"备注",
 		} {
 			if !strings.Contains(doc, want) {
 				t.Fatalf("%s missing unified SKU list manual marker %q", rel, want)

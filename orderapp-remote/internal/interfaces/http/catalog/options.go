@@ -16,6 +16,7 @@ type ProductTierOption struct {
 type ProductOption struct {
 	ID                      int64               `json:"id"`
 	Name                    string              `json:"name"`
+	Remark                  string              `json:"remark"`
 	ProductKind             string              `json:"product_kind"`
 	GreenBeanType           string              `json:"green_bean_type"`
 	GreenBeanBomProductID   int64               `json:"green_bean_bom_product_id"`
