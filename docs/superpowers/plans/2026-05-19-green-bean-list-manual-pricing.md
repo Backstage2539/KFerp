@@ -2,195 +2,74 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Make green bean transaction prices come only from green bean-list versions, with green bean-list prices defaulting from BOM cost snapshots and remaining manually editable per template tier.
+**Goal:** Make green bean order pricing come only from selected green bean-list publication snapshots, with green bean-list prices generated from BOM cost snapshots and editable per template tier.
 
-**Architecture:** Keep the existing products/BOM/bean-list/order tables. Add a BOM item material cost snapshot, compute green bean cost reference from the bound roasted BOM, expose green tier manual price overrides in the Vue bean-list editor, and make order pricing resolve the selected publication per product kind.
+**Architecture:** Keep green bean products in the existing product/BOM/bean-list/order tables. Add BOM material cost snapshots, publish green bean-list content with tradeable tier data, and teach order save to resolve publication prices by product kind and selected publication version. Remove the bound-roasted-price fallback from form and save paths.
 
-**Tech Stack:** Go, PostgreSQL, Vue 3, Vite, Node test runner.
+**Tech Stack:** Go, PostgreSQL/pgx, Vue 3, Vite, Node test runner.
 
 ---
 
-### Task 1: BOM Cost Snapshot And Green Tier Defaults
+### Task 1: BOM Cost Snapshots
 
 **Files:**
 - Modify: `orderapp-remote/internal/infrastructure/postgres/bom/schema.go`
 - Modify: `orderapp-remote/internal/infrastructure/postgres/bom/repository.go`
+- Modify: `orderapp-remote/internal/infrastructure/postgres/catalog/repository.go`
 - Modify: `orderapp-remote/internal/infrastructure/postgres/costing/repository.go`
-- Modify: `orderapp-remote/internal/domain/costing/engine.go`
 - Test: `orderapp-remote/internal/infrastructure/postgres/costing/repository_test.go`
+
+- [ ] Add failing static tests requiring `product_bom_items.unit_cost_snapshot` for green bean costing and forbidding `material_valuation` as the green bean cost source.
+- [ ] Add `unit_cost_snapshot NUMERIC(12,4) NOT NULL DEFAULT 0` to `product_bom_items`, backfill existing zero snapshots from `materials.purchase_price`.
+- [ ] When saving material BOM items, store the current material purchase price into `unit_cost_snapshot`.
+- [ ] When copying/activating BOM rows, copy `unit_cost_snapshot`.
+- [ ] Update costing input SQL to calculate green bean cost from BOM item snapshots through the bound roasted BOM.
+
+### Task 2: Green Bean Template Prices Are Cost Defaults
+
+**Files:**
+- Modify: `orderapp-remote/internal/domain/costing/engine.go`
 - Test: `orderapp-remote/internal/application/costing/service_test.go`
 
-- [ ] **Step 1: Write failing tests**
+- [ ] Add a failing service/domain test proving green bean template tiers default to BOM cost converted to the template unit and ignore template margin.
+- [ ] Change `buildGreenBeanTemplateSaleTiers` to use cost-only default price.
+- [ ] Keep template tier labels, ranges, display unit, and min/max quantities unchanged.
 
-Add tests that assert:
-
-```go
-func TestLoadProductInputsUsesBomMaterialCostSnapshotForGreenBeanCost(t *testing.T) {
-	source := readFile(t, "repository.go")
-	for _, want := range []string{
-		"material_unit_cost_snapshot",
-		"COALESCE(NULLIF(bi.material_unit_cost_snapshot,0), m.purchase_price, 0)",
-	} {
-		if !strings.Contains(source, want) {
-			t.Fatalf("green bean costing must use BOM material cost snapshot; missing %q", want)
-		}
-	}
-	if strings.Contains(source, "mv.weighted_unit_cost, m.purchase_price") {
-		t.Fatalf("green bean costing must not prefer inventory weighted cost over BOM snapshot")
-	}
-}
-
-func TestGreenBeanTemplateSaleTiersDefaultToCostReferenceWithoutMargin(t *testing.T) {
-	input := domain.ProductInput{
-		ProductID: 909,
-		Name: "兰卡拼配生豆",
-		ProductKind: "green_bean",
-		GreenBeanCostPerKg: 60,
-		GradientTemplate: &domain.GradientTemplate{
-			ID: 7,
-			Name: "生豆模板",
-			DisplayUnit: domain.GradientDisplayUnitLb,
-			Tiers: []domain.GradientTemplateTier{{
-				ID: 71, Label: "24-49lb", MinWeightG: 10896, MaxWeightG: floatPtr(22226), MarginRate: 0.5, Position: 1,
-			}},
-		},
-	}
-	resp, err := NewService(&fakeRepo{inputs: []domain.ProductInput{input}}).BeanList(context.Background())
-	if err != nil {
-		t.Fatalf("BeanList() error = %v", err)
-	}
-	tier := resp.Items[0].GreenBeanSaleTiers[0]
-	if tier.PricePerKg != 60 || tier.PricePerUnit != 27.24 || tier.MarginRate != 0 {
-		t.Fatalf("green tier should default to cost only, got %+v", tier)
-	}
-}
-```
-
-Run:
-
-```bash
-cd orderapp-remote
-go test ./internal/infrastructure/postgres/costing ./internal/application/costing -run 'TestLoadProductInputsUsesBomMaterialCostSnapshotForGreenBeanCost|TestGreenBeanTemplateSaleTiersDefaultToCostReferenceWithoutMargin' -count=1
-```
-
-Expected: FAIL because snapshot column and no-margin behavior are missing.
-
-- [ ] **Step 2: Implement minimal code**
-
-Add `material_unit_cost_snapshot NUMERIC(12,4) NOT NULL DEFAULT 0` to `product_bom_items`; backfill from `materials.purchase_price`. In `SaveItem`, when saving a material component, select the current material purchase price and write it to `material_unit_cost_snapshot`.
-
-Change costing SQL so material BOM cost uses:
-
-```sql
-COALESCE(NULLIF(bi.material_unit_cost_snapshot,0), m.purchase_price, 0)
-```
-
-Change `buildGreenBeanTemplateSaleTiers` so green bean default sale price is the cost reference converted to the template display unit, with `MarginRate` set to `0`.
-
-- [ ] **Step 3: Verify**
-
-Run the same targeted Go tests. Expected: PASS.
-
-### Task 2: Green Bean Manual Price Overrides In Bean-List Content
+### Task 3: Bean-List Publication Content Carries Tradeable Tiers
 
 **Files:**
 - Modify: `orderapp-remote/frontend-vue-shell/src/lib/bean-list-pdf.js`
 - Modify: `orderapp-remote/frontend-vue-shell/src/views/CostingView.vue`
 - Test: `orderapp-remote/frontend-vue-shell/src/lib/bean-list-pdf.test.js`
-- Test: `orderapp-remote/frontend-vue-shell/src/lib/costing-bean-list-version-ui.test.js`
 
-- [ ] **Step 1: Write failing tests**
+- [ ] Add failing frontend tests proving green PDF items include `green_bean_sale_tiers` snapshots and manual green tier overrides are reflected in both `prices` and `green_bean_sale_tiers`.
+- [ ] Extend PDF group building to include raw tier snapshots for trade pricing.
+- [ ] Add green bean-list tier price inputs in the product picker when `listType === 'green'`.
+- [ ] Store manual green tier prices in existing per-product customizers and apply them when building groups.
 
-Add tests that assert `buildBeanListPdfGroups` applies per-tier `greenPriceOverrides` for list type `green`, and that `CostingView.vue` contains green bean price input controls bound through `setGreenBeanTierPrice`.
-
-Run:
-
-```bash
-cd orderapp-remote/frontend-vue-shell
-node --test src/lib/bean-list-pdf.test.js src/lib/costing-bean-list-version-ui.test.js
-```
-
-Expected: FAIL because the override controls and transformation are missing.
-
-- [ ] **Step 2: Implement minimal code**
-
-Store manual prices in `pdfCustomizers[productID].greenPriceOverrides[templateTierID or label]`. Add a compact green-only pricing editor in the product picker rows. `buildBeanListPdfGroups` must copy green tiers and replace `price_per_unit` when a manual price exists, leaving template tier ranges unchanged.
-
-- [ ] **Step 3: Verify**
-
-Run the same Node tests. Expected: PASS.
-
-### Task 3: Order Form Bean-List Versions Per Product Kind
+### Task 4: Order Pricing Uses Selected Publication Per Product Kind
 
 **Files:**
+- Modify: `orderapp-remote/internal/infrastructure/postgres/orderbeans/usage.go`
 - Modify: `orderapp-remote/internal/application/sales/service.go`
-- Modify: `orderapp-remote/internal/infrastructure/postgres/sales/order_form_queries.go`
 - Modify: `orderapp-remote/internal/interfaces/http/sales/order_api.go`
-- Modify: `orderapp-remote/frontend-vue-shell/src/lib/order-entry.js`
-- Modify: `orderapp-remote/frontend-vue-shell/src/views/OrderEntryView.vue`
-- Test: `orderapp-remote/internal/interfaces/http/sales/order_api_test.go`
-- Test: `orderapp-remote/frontend-vue-shell/src/lib/order-entry.test.js`
-
-- [ ] **Step 1: Write failing tests**
-
-Add tests that assert order form version options include `list_type`, return defaults for `commercial`, `green`, and `drip`, and `buildOrderPayload` sends `commercial_bean_list_publication_id`, `green_bean_list_publication_id`, and `drip_bean_list_publication_id`.
-
-Run:
-
-```bash
-cd orderapp-remote
-go test ./internal/interfaces/http/sales -run 'TestOrderAPIFormReturnsBeanListVersionsByType' -count=1
-cd frontend-vue-shell
-node --test src/lib/order-entry.test.js
-```
-
-Expected: FAIL because the fields and selectors do not exist.
-
-- [ ] **Step 2: Implement minimal code**
-
-Add `ListType` to `BeanListVersionOption`. Update the order form query to partition latest customer/public fallback by `(customer_id, list_type)`. Add request/command fields for the three selected publication IDs. Update Vue to render compact selectors for 熟豆豆单、生豆豆单、挂耳豆单 and send the three IDs.
-
-- [ ] **Step 3: Verify**
-
-Run the same Go and Node tests. Expected: PASS.
-
-### Task 4: Remove Bound Roasted Price Fallback And Enforce Green Bean-List Pricing
-
-**Files:**
 - Modify: `orderapp-remote/internal/infrastructure/postgres/sales/order_form_queries.go`
 - Modify: `orderapp-remote/internal/infrastructure/postgres/sales/repository.go`
-- Modify: `orderapp-remote/internal/infrastructure/postgres/orderbeans/usage.go`
-- Test: `orderapp-remote/internal/interfaces/http/sales/order_api_test.go`
-- Test: `orderapp-remote/internal/infrastructure/postgres/sales/order_form_queries_static_test.go`
+- Modify: `orderapp-remote/frontend-vue-shell/src/lib/order-entry.js`
+- Modify: `orderapp-remote/frontend-vue-shell/src/views/OrderEntryView.vue`
+- Tests: `orderapp-remote/internal/infrastructure/postgres/orderbeans/usage_test.go`
+- Tests: `orderapp-remote/internal/interfaces/http/sales/order_api_test.go`
+- Tests: `orderapp-remote/frontend-vue-shell/src/lib/order-entry.test.js`
 
-- [ ] **Step 1: Write failing tests**
+- [ ] Add failing tests proving order form no longer returns bound roasted tiers for green products.
+- [ ] Add failing tests proving saving a green bean order with only bound roasted tiers fails with a missing green bean-list price error.
+- [ ] Add failing tests proving a selected green bean-list publication supplies the green order price and is recorded on the order item.
+- [ ] Add `list_type` to bean-list version options and expose per-customer latest public/customer versions for commercial, green, and drip.
+- [ ] Add separate request fields for commercial, green, and drip bean-list publication IDs, while preserving the legacy `bean_list_publication_id`.
+- [ ] Resolve published prices from the selected publication for green products; do not fall back to product or bound roasted tiers.
+- [ ] Remove `greenBeanOrderPriceProductIDTx` and `greenBeanBoundRoastedTierPriceSourceJSON`.
 
-Replace the previous bound-roasted tests with:
-
-```go
-func TestOrderAPIFormDoesNotReturnBoundRoastedTiersForGreenBeanProduct(t *testing.T)
-func TestOrderAPISavesGreenBeanOrderRequiresPublishedGreenBeanListPrice(t *testing.T)
-func TestOrderAPISavesGreenBeanOrderUsingSelectedGreenBeanListVersion(t *testing.T)
-```
-
-Run:
-
-```bash
-cd orderapp-remote
-go test ./internal/interfaces/http/sales ./internal/infrastructure/postgres/sales -run 'GreenBeanOrder|BoundRoasted|SelectedGreenBeanList' -count=1
-```
-
-Expected: FAIL because the fallback still exists.
-
-- [ ] **Step 2: Implement minimal code**
-
-Remove the `green_bound_tiers` CTE and `greenBeanOrderPriceProductIDTx` / `greenBeanBoundRoastedTierPriceSourceJSON`. Add `ResolvePublishedUnitPriceFromPublication` so order saving uses the selected green publication when provided. If a green row has no published price, return a validation error such as `missing green bean list price`.
-
-- [ ] **Step 3: Verify**
-
-Run the same Go tests. Expected: PASS.
-
-### Task 5: Documentation, PR/DEV, Acceptance, And Deployment
+### Task 5: Documentation, Requirement Tables, and Verification
 
 **Files:**
 - Modify: `REQUIREMENTS.md`
@@ -198,37 +77,12 @@ Run the same Go tests. Expected: PASS.
 - Modify: `OP_MANUAL_GREEN_BEAN_SALES.md`
 - Modify: `OP_MANUAL_ORDER_SALES.md`
 - Modify: `OP_MANUAL_COSTING.md`
-- Modify matching files under `orderapp-remote/docs/`
+- Modify mirrored docs under `orderapp-remote/docs/`
 - Modify: `orderapp-remote/internal/interfaces/http/support/req_store.go`
-- Create: `docs/acceptance/2026-05-19-green-bean-list-manual-pricing.md`
-- Create: `orderapp-remote/docs/acceptance/2026-05-19-green-bean-list-manual-pricing.md`
+- Create acceptance evidence under both `docs/acceptance/` and `orderapp-remote/docs/acceptance/`
 
-- [ ] **Step 1: Update docs**
-
-Remove all statements saying green bean orders fall back to bound roasted tiers. Add the new operating rule: green bean list price only, BOM snapshot cost reference, manual tier price edit, per-kind order bean-list selection.
-
-- [ ] **Step 2: Run full verification**
-
-Run:
-
-```bash
-cd orderapp-remote/frontend-vue-shell
-node --test src/lib/*.test.js src/api/*.test.js
-npm run build
-cd ..
-go test ./...
-git diff --check
-```
-
-Expected: PASS.
-
-- [ ] **Step 3: Integrate and deploy**
-
-Push feature branch, merge latest `origin/develop` into the feature branch, rerun verification, merge into `develop`, push `develop`, deploy development stack, and smoke test:
-
-```bash
-ssh root@1.12.242.58 "cd /opt/stacks/erp && docker compose ps"
-ssh root@1.12.242.58 "docker logs --tail=200 erp_orderapp"
-```
-
-Expected: development stack is up and authenticated order form / costing endpoints return 200.
+- [ ] Replace all “green bean falls back to bound roasted tier” text with “green bean must use green bean-list publication price”.
+- [ ] Document BOM cost snapshot, manual green tier pricing, and separate order bean-list version selectors.
+- [ ] Update PR/DEV seed evidence for PR-289.
+- [ ] Run `node --test src/lib/*.test.js src/api/*.test.js`, `go test ./...`, `npm run build`, `git diff --check`.
+- [ ] Merge into latest `origin/develop`, rerun checks, push, deploy development stack, and smoke test order form and green order pricing.
