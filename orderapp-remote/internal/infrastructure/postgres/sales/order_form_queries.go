@@ -174,7 +174,7 @@ func (r Repository) fetchOrderEmployees(ctx context.Context) ([]salesapp.Employe
 }
 
 func (r Repository) fetchOrderProducts(ctx context.Context) ([]salesapp.ProductOption, error) {
-	sqlstr := fmt.Sprintf(`SELECT id, name, COALESCE(NULLIF(product_kind,''),'roasted'), COALESCE(roast_level,''), default_price,
+	sqlstr := fmt.Sprintf(`SELECT id, name, COALESCE(roast_level,''), default_price,
 		COALESCE(retail_price_100g, 0),
 		COALESCE(retail_price_200g, 0),
 		COALESCE(retail_price_227g, default_price, 0),
