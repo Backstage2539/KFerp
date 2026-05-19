@@ -55,12 +55,56 @@ export function customerSkuCustomerOptions(customers = []) {
     .sort((a, b) => String(a?.name || '').localeCompare(String(b?.name || '')))
 }
 
-export function buildCustomerPublicCopyPayload(customerID, options = {}) {
+export function buildCustomerPublicUsagePayload(customerID, options = {}) {
   return {
     customer_id: Number(customerID || 0),
     use_public_sku: Boolean(options.use_public_sku ?? options.usePublicSku),
     use_public_categories: Boolean(options.use_public_categories ?? options.usePublicCategories),
   }
+}
+
+export function productBelongsToSkuContext(product = {}, context = {}) {
+  const customerID = Number(context.customerID || context.customer_id || 0)
+  const productCustomerID = Number(product.customer_id || 0)
+  if (!customerID) return productCustomerID === 0
+  if (productCustomerID === customerID) return !isUnmodifiedPublicSkuCopy(product, context.publicProducts)
+  return productCustomerID === 0 && Boolean(context.usePublicSku || context.use_public_sku)
+}
+
+export function categoryBelongsToSkuContext(category = {}, context = {}) {
+  const customerID = Number(context.customerID || context.customer_id || 0)
+  const categoryCustomerID = Number(category.customer_id || 0)
+  if (!customerID) return categoryCustomerID === 0
+  if (categoryCustomerID === customerID) return !isDuplicatedPublicCategory(category, context.publicCategories, context.publicProducts)
+  return categoryCustomerID === 0 && Boolean(context.usePublicCategories || context.use_public_categories)
+}
+
+export function isPublicReferenceRow(row = {}, context = {}) {
+  const customerID = Number(context.customerID || context.customer_id || 0)
+  return customerID > 0 && Number(row.customer_id || 0) === 0
+}
+
+function isUnmodifiedPublicSkuCopy(product = {}, publicProducts = []) {
+  const baseID = Number(product.base_product_id || 0)
+  if (!baseID || product.custom_type !== 'public_sku_alias') return false
+  const base = (publicProducts || []).find((row) => Number(row.id || 0) === baseID)
+  return Boolean(base && String(base.name || '').trim().toLowerCase() === String(product.name || '').trim().toLowerCase())
+}
+
+function isDuplicatedPublicCategory(category = {}, publicCategories = [], publicProducts = []) {
+  const matchesPublicCategory = (publicCategories || []).some((row) => (
+    Number(row.customer_id || 0) === 0
+    && Number(row.level || 0) === Number(category.level || 0)
+    && String(row.name || '').trim().toLowerCase() === String(category.name || '').trim().toLowerCase()
+  ))
+  if (!matchesPublicCategory) return false
+  if ((category.products || []).some((product) => !isUnmodifiedPublicSkuCopy(product, publicProducts))) {
+    return false
+  }
+  if ((category.children || []).some((child) => !isDuplicatedPublicCategory(child, publicCategories, publicProducts))) {
+    return false
+  }
+  return true
 }
 
 export function primaryCategoryOptions(rows = []) {

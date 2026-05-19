@@ -2,13 +2,15 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 
 import {
-  buildCustomerPublicCopyPayload,
+  buildCustomerPublicUsagePayload,
   buildProductBasicsPayload,
   buildProductCreatePayload,
+  categoryBelongsToSkuContext,
   customerSkuCustomerOptions,
   filterSkuRows,
   paginatedSkuRows,
   greenBeanTypeLabel,
+  productBelongsToSkuContext,
   primaryCategoryOptions,
   roastedBomProductOptions,
   secondaryCategoryOptions,
@@ -119,8 +121,8 @@ test('customer SKU customer options use fulfillment customer payload rows', () =
   }).map((row) => row.id), [7, 9])
 })
 
-test('customer public copy payload keeps SKU and category switches independent', () => {
-  assert.deepEqual(buildCustomerPublicCopyPayload(42, {
+test('customer public usage payload saves SKU and category reference switches independently', () => {
+  assert.deepEqual(buildCustomerPublicUsagePayload(42, {
     use_public_sku: true,
     use_public_categories: false,
   }), {
@@ -129,7 +131,7 @@ test('customer public copy payload keeps SKU and category switches independent',
     use_public_categories: false,
   })
 
-  assert.deepEqual(buildCustomerPublicCopyPayload('7', {
+  assert.deepEqual(buildCustomerPublicUsagePayload('7', {
     usePublicSku: false,
     usePublicCategories: true,
   }), {
@@ -137,4 +139,20 @@ test('customer public copy payload keeps SKU and category switches independent',
     use_public_sku: false,
     use_public_categories: true,
   })
+})
+
+test('customer SKU context treats public SKU and categories as switch-controlled references', () => {
+  const publicProduct = { id: 1, name: '公共拼配', customer_id: 0 }
+  const customerProduct = { id: 2, name: '客户拼配', customer_id: 42 }
+  const otherCustomerProduct = { id: 3, name: '其他客户拼配', customer_id: 7 }
+  assert.equal(productBelongsToSkuContext(publicProduct, { customerID: 42, usePublicSku: false }), false)
+  assert.equal(productBelongsToSkuContext(publicProduct, { customerID: 42, usePublicSku: true }), true)
+  assert.equal(productBelongsToSkuContext(customerProduct, { customerID: 42, usePublicSku: false }), true)
+  assert.equal(productBelongsToSkuContext(otherCustomerProduct, { customerID: 42, usePublicSku: true }), false)
+
+  const publicCategory = { id: 10, name: '公共分类', customer_id: 0 }
+  const customerCategory = { id: 11, name: '客户分类', customer_id: 42 }
+  assert.equal(categoryBelongsToSkuContext(publicCategory, { customerID: 42, usePublicCategories: false }), false)
+  assert.equal(categoryBelongsToSkuContext(publicCategory, { customerID: 42, usePublicCategories: true }), true)
+  assert.equal(categoryBelongsToSkuContext(customerCategory, { customerID: 42, usePublicCategories: false }), true)
 })

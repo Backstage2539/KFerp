@@ -30,7 +30,8 @@ type productSettingsRepo struct {
 	updateErr           error
 	deactivated         catalogapp.DeactivateProductsCommand
 	createdPublic       catalogapp.CreateProductCommand
-	copiedPublic        catalogapp.CopyPublicCatalogForCustomerCommand
+	publicUsage         catalogapp.CustomerPublicUsageCommand
+	publicUsages        []catalogapp.CustomerPublicUsage
 	createErr           error
 	createdProduct      catalogapp.CreateCustomProductCommand
 	categoryCreated     bool
@@ -44,7 +45,7 @@ type productSettingsRepo struct {
 	productsDeactivated bool
 	publicCreated       bool
 	productCreated      bool
-	publicCopied        bool
+	publicUsageSaved    bool
 }
 
 func (r *productSettingsRepo) ListProducts(ctx context.Context) ([]catalogapp.Product, error) {
@@ -130,6 +131,10 @@ func (r *productSettingsRepo) ListGradientTemplates(ctx context.Context) ([]cata
 	return r.gradientTemplates, nil
 }
 
+func (r *productSettingsRepo) ListCustomerPublicUsages(ctx context.Context) ([]catalogapp.CustomerPublicUsage, error) {
+	return r.publicUsages, nil
+}
+
 func (r *productSettingsRepo) SaveGradientTemplate(ctx context.Context, cmd catalogapp.SaveGradientTemplateCommand) (catalogapp.GradientTemplate, error) {
 	r.savedTemplate = cmd
 	r.templateSaved = true
@@ -186,10 +191,10 @@ func (r *productSettingsRepo) CreateCustomProduct(ctx context.Context, cmd catal
 	}, nil
 }
 
-func (r *productSettingsRepo) CopyPublicCatalogForCustomer(ctx context.Context, cmd catalogapp.CopyPublicCatalogForCustomerCommand) (catalogapp.CopyPublicCatalogForCustomerResult, error) {
-	r.copiedPublic = cmd
-	r.publicCopied = true
-	return catalogapp.CopyPublicCatalogForCustomerResult{CustomerID: cmd.CustomerID, CategoriesCreated: 2, ProductsCreated: 3}, nil
+func (r *productSettingsRepo) SaveCustomerPublicUsage(ctx context.Context, cmd catalogapp.CustomerPublicUsageCommand) (catalogapp.CustomerPublicUsage, error) {
+	r.publicUsage = cmd
+	r.publicUsageSaved = true
+	return catalogapp.CustomerPublicUsage{CustomerID: cmd.CustomerID, UsePublicSKU: cmd.UsePublicSKU, UsePublicCategories: cmd.UsePublicCategories}, nil
 }
 
 func TestProductSettingsAPISupportsCategoryTreeAndDragAssignments(t *testing.T) {
@@ -209,6 +214,7 @@ func TestProductSettingsAPISupportsCategoryTreeAndDragAssignments(t *testing.T) 
 			ID: 9, Name: "工厂量单模板", DisplayUnit: "kg", Active: true,
 			Tiers: []catalogapp.GradientTemplateTier{{ID: 91, Label: "24-49kg", MinWeightG: 24000, MaxWeightG: f64(49000), MarginRate: 0.175, Position: 1}},
 		}},
+		publicUsages: []catalogapp.CustomerPublicUsage{{CustomerID: 3, UsePublicSKU: true, UsePublicCategories: false}},
 	}
 	e := echo.New()
 	registerProductRoutes(e, catalogapp.NewService(repo))
@@ -219,7 +225,7 @@ func TestProductSettingsAPISupportsCategoryTreeAndDragAssignments(t *testing.T) 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("GET /api/product-settings status=%d body=%s", rec.Code, rec.Body.String())
 	}
-	for _, want := range []string{`"categories"`, `"children"`, `"products"`, `"gradient_templates"`, `"gradient_template_id":9`, `"name":"工厂量单模板"`, `"display_unit":"kg"`, `"number":1`, `"name":"咖啡豆"`, `"name":"意式拼配"`, `"name":"客户A分类"`, `"customer_id":3`, `"name":"曲奇拼配"`, `"yield_rate":0.82`} {
+	for _, want := range []string{`"categories"`, `"children"`, `"products"`, `"gradient_templates"`, `"customer_public_usages"`, `"use_public_sku":true`, `"use_public_categories":false`, `"gradient_template_id":9`, `"name":"工厂量单模板"`, `"display_unit":"kg"`, `"number":1`, `"name":"咖啡豆"`, `"name":"意式拼配"`, `"name":"客户A分类"`, `"customer_id":3`, `"name":"曲奇拼配"`, `"yield_rate":0.82`} {
 		if !bytes.Contains(rec.Body.Bytes(), []byte(want)) {
 			t.Fatalf("product settings response missing %s: %s", want, rec.Body.String())
 		}
@@ -467,24 +473,24 @@ func TestProductSettingsAPICreatesCustomerCustomProduct(t *testing.T) {
 	}
 }
 
-func TestProductSettingsAPICopiesPublicCatalogForCustomer(t *testing.T) {
+func TestProductSettingsAPISavesCustomerPublicUsage(t *testing.T) {
 	repo := &productSettingsRepo{}
 	e := echo.New()
 	registerProductRoutes(e, catalogapp.NewService(repo))
 
-	req := httptest.NewRequest(http.MethodPost, "/api/product-settings/customer-public-copy", bytes.NewBufferString(`{"customer_id":42,"use_public_sku":true,"use_public_categories":true}`))
+	req := httptest.NewRequest(http.MethodPost, "/api/product-settings/customer-public-usage", bytes.NewBufferString(`{"customer_id":42,"use_public_sku":false,"use_public_categories":true}`))
 	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
 	rec := httptest.NewRecorder()
 	e.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
-		t.Fatalf("POST /api/product-settings/customer-public-copy status=%d body=%s", rec.Code, rec.Body.String())
+		t.Fatalf("POST /api/product-settings/customer-public-usage status=%d body=%s", rec.Code, rec.Body.String())
 	}
-	if !repo.publicCopied || repo.copiedPublic.CustomerID != 42 || !repo.copiedPublic.UsePublicSKU || !repo.copiedPublic.UsePublicCategories {
-		t.Fatalf("copy public command = %+v copied=%v", repo.copiedPublic, repo.publicCopied)
+	if !repo.publicUsageSaved || repo.publicUsage.CustomerID != 42 || repo.publicUsage.UsePublicSKU || !repo.publicUsage.UsePublicCategories {
+		t.Fatalf("public usage command = %+v saved=%v", repo.publicUsage, repo.publicUsageSaved)
 	}
-	for _, want := range []string{`"customer_id":42`, `"categories_created":2`, `"products_created":3`} {
+	for _, want := range []string{`"usage"`, `"customer_id":42`, `"use_public_sku":false`, `"use_public_categories":true`} {
 		if !bytes.Contains(rec.Body.Bytes(), []byte(want)) {
-			t.Fatalf("copy public response missing %s: %s", want, rec.Body.String())
+			t.Fatalf("public usage response missing %s: %s", want, rec.Body.String())
 		}
 	}
 }

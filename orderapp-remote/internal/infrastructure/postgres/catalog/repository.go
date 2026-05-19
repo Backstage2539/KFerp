@@ -890,315 +890,118 @@ func (r Repository) CreateCustomProduct(ctx context.Context, cmd catalogapp.Crea
 	return *product, nil
 }
 
-type publicCategoryCopyRow struct {
-	ID                 int64
-	ParentID           int64
-	Name               string
-	Level              int
-	Position           int
-	GradientTemplateID int64
+func (r Repository) ListCustomerPublicUsages(ctx context.Context) ([]catalogapp.CustomerPublicUsage, error) {
+	rows, err := r.pool.Query(ctx, fmt.Sprintf(`
+		SELECT customer_id, use_public_sku, use_public_categories
+		FROM %s.customer_sku_public_usage
+		ORDER BY customer_id
+	`, r.schema))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := make([]catalogapp.CustomerPublicUsage, 0)
+	for rows.Next() {
+		var row catalogapp.CustomerPublicUsage
+		if err := rows.Scan(&row.CustomerID, &row.UsePublicSKU, &row.UsePublicCategories); err != nil {
+			return nil, err
+		}
+		out = append(out, row)
+	}
+	return out, rows.Err()
 }
 
-type publicProductCopyRow struct {
-	ID                      int64
-	Name                    string
-	ProductKind             string
-	GreenBeanType           string
-	GreenBeanBomProductID   int64
-	RoastLevel              string
-	DefaultPrice            float64
-	RetailPrice100G         float64
-	RetailPrice200G         float64
-	RetailPrice227G         float64
-	RetailPrice250G         float64
-	DripBagGrams            float64
-	DripBoxBagCount         int
-	AllowFulfillmentOrder   bool
-	AllowMallOrder          bool
-	ProductCategoryID       int64
-	ProductCategoryPosition int
-	MarginRateOverride      *float64
-}
-
-func (r Repository) CopyPublicCatalogForCustomer(ctx context.Context, cmd catalogapp.CopyPublicCatalogForCustomerCommand) (catalogapp.CopyPublicCatalogForCustomerResult, error) {
+func (r Repository) SaveCustomerPublicUsage(ctx context.Context, cmd catalogapp.CustomerPublicUsageCommand) (catalogapp.CustomerPublicUsage, error) {
 	conn, err := r.pool.Acquire(ctx)
 	if err != nil {
-		return catalogapp.CopyPublicCatalogForCustomerResult{}, err
+		return catalogapp.CustomerPublicUsage{}, err
 	}
 	defer conn.Release()
 	tx, err := conn.Begin(ctx)
 	if err != nil {
-		return catalogapp.CopyPublicCatalogForCustomerResult{}, err
+		return catalogapp.CustomerPublicUsage{}, err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
-	result := catalogapp.CopyPublicCatalogForCustomerResult{CustomerID: cmd.CustomerID}
 	var customerExists bool
 	if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT EXISTS(SELECT 1 FROM %s.customers WHERE id=$1 AND active=true)`, r.schema), cmd.CustomerID).Scan(&customerExists); err != nil {
-		return result, err
+		return catalogapp.CustomerPublicUsage{}, err
 	}
 	if !customerExists {
-		return result, fmt.Errorf("customer not found")
+		return catalogapp.CustomerPublicUsage{}, fmt.Errorf("customer not found")
 	}
-
-	categoryMap := map[int64]int64{}
-	if cmd.UsePublicCategories {
-		publicCategories, err := fetchPublicCategoryCopyRowsTx(ctx, tx, r.schema)
-		if err != nil {
-			return result, err
-		}
-		for _, category := range publicCategories {
-			parentID := int64(0)
-			if category.ParentID > 0 {
-				parentID = categoryMap[category.ParentID]
-			}
-			categoryID, created, err := ensureCustomerCategoryCopyTx(ctx, tx, r.schema, cmd.CustomerID, parentID, category)
-			if err != nil {
-				return result, err
-			}
-			categoryMap[category.ID] = categoryID
-			if created {
-				result.CategoriesCreated++
-			} else {
-				result.CategoriesReused++
-			}
-		}
+	if err := cleanupLegacyPublicCopiesTx(ctx, tx, r.schema, cmd.CustomerID); err != nil {
+		return catalogapp.CustomerPublicUsage{}, err
 	}
-
-	productMap := map[int64]int64{}
-	publicProducts := make([]publicProductCopyRow, 0)
-	if cmd.UsePublicSKU {
-		publicProducts, err = fetchPublicProductCopyRowsTx(ctx, tx, r.schema)
-		if err != nil {
-			return result, err
-		}
-		for _, product := range publicProducts {
-			if existingID, err := findExistingCustomerProductCopyTx(ctx, tx, r.schema, cmd.CustomerID, product.ID); err != nil {
-				return result, err
-			} else if existingID > 0 {
-				productMap[product.ID] = existingID
-				if cmd.UsePublicCategories && product.ProductCategoryID > 0 {
-					if categoryID := categoryMap[product.ProductCategoryID]; categoryID > 0 {
-						if _, err := tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.products SET product_category_id=$2, product_category_position=$3 WHERE id=$1`, r.schema), existingID, categoryID, product.ProductCategoryPosition); err != nil {
-							return result, err
-						}
-					}
-				}
-				result.ProductsSkipped++
-				continue
-			}
-			categoryID := int64(0)
-			if cmd.UsePublicCategories && product.ProductCategoryID > 0 {
-				categoryID = categoryMap[product.ProductCategoryID]
-			}
-			productID, err := insertCustomerProductCopyTx(ctx, tx, r.schema, cmd.CustomerID, product, categoryID)
-			if err != nil {
-				return result, err
-			}
-			productMap[product.ID] = productID
-			result.ProductsCreated++
-			if err := copyProductBomTx(ctx, tx, r.schema, product.ID, productID); err != nil {
-				return result, err
-			}
-			if err := copyProductPriceTiersTx(ctx, tx, r.schema, product.ID, productID); err != nil {
-				return result, err
-			}
-		}
-		for _, product := range publicProducts {
-			productID := productMap[product.ID]
-			mappedBomID := productMap[product.GreenBeanBomProductID]
-			if productID <= 0 || mappedBomID <= 0 {
-				continue
-			}
-			if _, err := tx.Exec(ctx, fmt.Sprintf(`
-				UPDATE %s.products
-				SET green_bean_bom_product_id=$2
-				WHERE id=$1 AND COALESCE(NULLIF(product_kind,''), 'roasted_bean')='green_bean'
-			`, r.schema), productID, mappedBomID); err != nil {
-				return result, err
-			}
-		}
+	var usage catalogapp.CustomerPublicUsage
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`
+		INSERT INTO %s.customer_sku_public_usage(customer_id, use_public_sku, use_public_categories, created_at, updated_at)
+		VALUES($1, $2, $3, now(), now())
+		ON CONFLICT (customer_id) DO UPDATE
+		SET use_public_sku=excluded.use_public_sku,
+		    use_public_categories=excluded.use_public_categories,
+		    updated_at=now()
+		RETURNING customer_id, use_public_sku, use_public_categories
+	`, r.schema), cmd.CustomerID, cmd.UsePublicSKU, cmd.UsePublicCategories).Scan(&usage.CustomerID, &usage.UsePublicSKU, &usage.UsePublicCategories); err != nil {
+		return catalogapp.CustomerPublicUsage{}, err
 	}
-
-	if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, cmd.Actor, "customer_product_catalog", &cmd.CustomerID, "copy_public_catalog", postgresinfra.StrPtr("public_catalog"), nil, postgresinfra.StrPtr(fmt.Sprintf("products:%d categories:%d", result.ProductsCreated, result.CategoriesCreated)), postgresinfra.AuditMeta{
+	if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, cmd.Actor, "customer_product_catalog", &cmd.CustomerID, "update_public_usage", postgresinfra.StrPtr("public_catalog_reference"), nil, postgresinfra.StrPtr(fmt.Sprintf("sku:%t categories:%t", usage.UsePublicSKU, usage.UsePublicCategories)), postgresinfra.AuditMeta{
 		"customer_id":           cmd.CustomerID,
-		"use_public_sku":        cmd.UsePublicSKU,
-		"use_public_categories": cmd.UsePublicCategories,
-		"products_created":      result.ProductsCreated,
-		"products_skipped":      result.ProductsSkipped,
-		"categories_created":    result.CategoriesCreated,
-		"categories_reused":     result.CategoriesReused,
+		"use_public_sku":        usage.UsePublicSKU,
+		"use_public_categories": usage.UsePublicCategories,
 	}); err != nil {
-		return result, err
+		return catalogapp.CustomerPublicUsage{}, err
 	}
 	if err := tx.Commit(ctx); err != nil {
-		return result, err
+		return catalogapp.CustomerPublicUsage{}, err
 	}
-	return result, nil
+	return usage, nil
 }
 
-func fetchPublicCategoryCopyRowsTx(ctx context.Context, tx pgx.Tx, schema string) ([]publicCategoryCopyRow, error) {
-	rows, err := tx.Query(ctx, fmt.Sprintf(`
-		SELECT id, COALESCE(parent_id,0), name, level, position, COALESCE(gradient_template_id,0)
-		FROM %s.product_categories
-		WHERE active=true AND COALESCE(customer_id,0)=0
-		ORDER BY level, COALESCE(parent_id,0), position, id
-	`, schema))
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	out := make([]publicCategoryCopyRow, 0)
-	for rows.Next() {
-		var row publicCategoryCopyRow
-		if err := rows.Scan(&row.ID, &row.ParentID, &row.Name, &row.Level, &row.Position, &row.GradientTemplateID); err != nil {
-			return nil, err
-		}
-		out = append(out, row)
-	}
-	return out, rows.Err()
-}
-
-func ensureCustomerCategoryCopyTx(ctx context.Context, tx pgx.Tx, schema string, customerID int64, parentID int64, row publicCategoryCopyRow) (int64, bool, error) {
-	var existingID int64
-	err := tx.QueryRow(ctx, fmt.Sprintf(`
-		SELECT id
-		FROM %s.product_categories
-		WHERE active=true AND customer_id=$1 AND COALESCE(parent_id,0)=$2 AND lower(name)=lower($3)
-		LIMIT 1
-	`, schema), customerID, parentID, row.Name).Scan(&existingID)
-	if err == nil {
-		return existingID, false, nil
-	}
-	if err != pgx.ErrNoRows {
-		return 0, false, err
-	}
-	if err := tx.QueryRow(ctx, fmt.Sprintf(`
-		INSERT INTO %s.product_categories(parent_id, customer_id, name, level, position, gradient_template_id, active, created_at, updated_at)
-		VALUES(NULLIF($1,0), $2, $3, $4, $5, $6, true, now(), now())
-		RETURNING id
-	`, schema), parentID, customerID, row.Name, row.Level, row.Position, row.GradientTemplateID).Scan(&existingID); err != nil {
-		return 0, false, err
-	}
-	return existingID, true, nil
-}
-
-func fetchPublicProductCopyRowsTx(ctx context.Context, tx pgx.Tx, schema string) ([]publicProductCopyRow, error) {
-	rows, err := tx.Query(ctx, fmt.Sprintf(`
-		SELECT id, name,
-		       COALESCE(NULLIF(product_kind,''), 'roasted_bean'),
-		       COALESCE(green_bean_type,''),
-		       COALESCE(green_bean_bom_product_id,0),
-		       COALESCE(roast_level,''),
-		       COALESCE(default_price,0),
-		       COALESCE(retail_price_100g,0),
-		       COALESCE(retail_price_200g,0),
-		       COALESCE(retail_price_227g,default_price,0),
-		       COALESCE(retail_price_250g,0),
-		       COALESCE(drip_bag_grams,10),
-		       COALESCE(drip_box_bag_count,10),
-		       COALESCE(allow_fulfillment_order,true),
-		       COALESCE(allow_mall_order,false),
-		       COALESCE(product_category_id,0),
-		       COALESCE(product_category_position,0),
-		       margin_rate_override::float8
-		FROM %s.products
-		WHERE active=true AND COALESCE(customer_id,0)=0 AND COALESCE(NULLIF(visibility,''),'public')='public'
-		ORDER BY CASE WHEN COALESCE(NULLIF(product_kind,''), 'roasted_bean')='green_bean' THEN 2 ELSE 1 END,
-		         COALESCE(product_category_id,0), COALESCE(product_category_position,0), name, id
-	`, schema))
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	out := make([]publicProductCopyRow, 0)
-	for rows.Next() {
-		var row publicProductCopyRow
-		if err := rows.Scan(&row.ID, &row.Name, &row.ProductKind, &row.GreenBeanType, &row.GreenBeanBomProductID, &row.RoastLevel, &row.DefaultPrice, &row.RetailPrice100G, &row.RetailPrice200G, &row.RetailPrice227G, &row.RetailPrice250G, &row.DripBagGrams, &row.DripBoxBagCount, &row.AllowFulfillmentOrder, &row.AllowMallOrder, &row.ProductCategoryID, &row.ProductCategoryPosition, &row.MarginRateOverride); err != nil {
-			return nil, err
-		}
-		out = append(out, row)
-	}
-	return out, rows.Err()
-}
-
-func findExistingCustomerProductCopyTx(ctx context.Context, tx pgx.Tx, schema string, customerID int64, baseProductID int64) (int64, error) {
-	var id int64
-	err := tx.QueryRow(ctx, fmt.Sprintf(`
-		SELECT id
-		FROM %s.products
-		WHERE active=true AND customer_id=$1 AND base_product_id=$2
-		ORDER BY id
-		LIMIT 1
-	`, schema), customerID, baseProductID).Scan(&id)
-	if err == pgx.ErrNoRows {
-		return 0, nil
-	}
-	return id, err
-}
-
-func insertCustomerProductCopyTx(ctx context.Context, tx pgx.Tx, schema string, customerID int64, row publicProductCopyRow, categoryID int64) (int64, error) {
-	productKind := catalogdomain.NormalizeProductKind(row.ProductKind)
-	roastLevel := catalogdomain.NormalizeRoastLevel(row.RoastLevel)
-	greenBeanType := strings.TrimSpace(row.GreenBeanType)
-	greenBeanBomProductID := row.GreenBeanBomProductID
-	if productKind == catalogdomain.ProductKindGreenBean {
-		roastLevel = ""
-		if greenBeanType == "" {
-			greenBeanType = "single_origin"
-		}
-	} else {
-		greenBeanType = ""
-		greenBeanBomProductID = 0
-	}
-	var productID int64
-	if err := tx.QueryRow(ctx, fmt.Sprintf(`
-		INSERT INTO %s.products(
-			name, product_kind, green_bean_type, green_bean_bom_product_id, roast_level, default_price, active,
-			retail_price_100g, retail_price_200g, retail_price_227g, retail_price_250g,
-			drip_bag_grams, drip_box_bag_count, allow_fulfillment_order, allow_mall_order,
-			product_category_id, product_category_position,
-			customer_id, base_product_id, visibility, custom_type, margin_rate_override, created_at
-		)
-		VALUES($1,$2,$3,$4,$5,$6,true,$7,$8,$9,$10,$11,$12,$13,$14,NULLIF($15,0),$16,$17,$18,'customer_only','public_sku_alias',$19,now())
-		RETURNING id
-	`, schema), row.Name, productKind, greenBeanType, greenBeanBomProductID, roastLevel, row.DefaultPrice, row.RetailPrice100G, row.RetailPrice200G, row.RetailPrice227G, row.RetailPrice250G, row.DripBagGrams, row.DripBoxBagCount, row.AllowFulfillmentOrder, row.AllowMallOrder, categoryID, row.ProductCategoryPosition, customerID, row.ID, row.MarginRateOverride).Scan(&productID); err != nil {
-		return 0, err
-	}
-	return productID, nil
-}
-
-func copyProductBomTx(ctx context.Context, tx pgx.Tx, schema string, sourceProductID int64, targetProductID int64) error {
+func cleanupLegacyPublicCopiesTx(ctx context.Context, tx pgx.Tx, schema string, customerID int64) error {
 	if _, err := tx.Exec(ctx, fmt.Sprintf(`
-		INSERT INTO %s.product_bom(product_id,yield_rate,status,updated_at)
-		SELECT $1, yield_rate, COALESCE(NULLIF(status,''),'active'), now()
-		FROM %s.product_bom
-		WHERE product_id=$2
-		ON CONFLICT (product_id) DO UPDATE SET yield_rate=excluded.yield_rate, status=excluded.status, updated_at=now()
-	`, schema, schema), targetProductID, sourceProductID); err != nil {
+		WITH legacy_products AS (
+			SELECT p.id
+			FROM %[1]s.products p
+			JOIN %[1]s.products base ON base.id=p.base_product_id
+			WHERE p.active=true
+			  AND p.customer_id=$1
+			  AND p.base_product_id > 0
+			  AND COALESCE(NULLIF(p.custom_type,''),'')='public_sku_alias'
+			  AND COALESCE(base.customer_id,0)=0
+			  AND lower(p.name)=lower(base.name)
+		)
+		UPDATE %[1]s.products p
+		SET active=false, product_category_id=NULL, product_category_position=0
+		FROM legacy_products lp
+		WHERE p.id=lp.id
+	`, schema), customerID); err != nil {
 		return err
 	}
 	if _, err := tx.Exec(ctx, fmt.Sprintf(`
-		INSERT INTO %s.product_bom_items(product_id,material_id,component_type,component_product_id,component_spec_g,consume_unit,qty_per_unit,ratio_pct,updated_at)
-		SELECT $1,material_id,component_type,component_product_id,component_spec_g,consume_unit,qty_per_unit,ratio_pct,now()
-		FROM %s.product_bom_items
-		WHERE product_id=$2
-		ORDER BY id
-	`, schema, schema), targetProductID, sourceProductID); err != nil {
+		UPDATE %[1]s.product_categories c
+		SET active=false, updated_at=now()
+		WHERE c.active=true
+		  AND c.customer_id=$1
+		  AND NOT EXISTS (
+			  SELECT 1 FROM %[1]s.products p
+			  WHERE p.active=true AND p.product_category_id=c.id
+		  )
+		  AND EXISTS (
+			  SELECT 1
+			  FROM %[1]s.product_categories pub
+			  LEFT JOIN %[1]s.product_categories pub_parent ON pub_parent.id=pub.parent_id
+			  LEFT JOIN %[1]s.product_categories c_parent ON c_parent.id=c.parent_id
+			  WHERE pub.active=true
+			    AND COALESCE(pub.customer_id,0)=0
+			    AND pub.level=c.level
+			    AND lower(pub.name)=lower(c.name)
+			    AND COALESCE(lower(pub_parent.name),'')=COALESCE(lower(c_parent.name),'')
+		  )
+	`, schema), customerID); err != nil {
 		return err
 	}
 	return nil
-}
-
-func copyProductPriceTiersTx(ctx context.Context, tx pgx.Tx, schema string, sourceProductID int64, targetProductID int64) error {
-	_, err := tx.Exec(ctx, fmt.Sprintf(`
-		INSERT INTO %s.product_price_tiers(product_id,spec_g,min_qty_units,max_qty_units,price_per_unit,min_qty_lb,max_qty_lb,price_per_lb,active)
-		SELECT $1,spec_g,min_qty_units,max_qty_units,price_per_unit,min_qty_lb,max_qty_lb,price_per_lb,active
-		FROM %s.product_price_tiers
-		WHERE product_id=$2 AND active=true
-		ORDER BY id
-	`, schema, schema), targetProductID, sourceProductID)
-	return err
 }
 
 func fetchProductByID(ctx context.Context, pool *pgxpool.Pool, schema string, id int64) (*postgresinfra.ProductOption, error) {
