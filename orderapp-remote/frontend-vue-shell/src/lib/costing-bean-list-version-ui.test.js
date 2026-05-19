@@ -19,6 +19,13 @@ test('product bean-list view exposes publication versions without pricing trial 
     'v-model="pdfOptions.listType"',
     'publicationScope === \'customer\'',
     'currentScopePublicationRows',
+    'function beanListPublicationStatusLabel',
+    'function beanListPublicationStatusClass',
+    'function beanListPublicationTime',
+    'function publicationScopeLabel',
+    'function beanListPublicationOwnerLabel',
+    'function beanListPublicationSourceLabel',
+    'function startBeanListFromPublication',
     'applyCopiedBeanListPublicationConfig(row)',
     'withdrawBeanList(row)',
   ]) {

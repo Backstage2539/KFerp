@@ -183,21 +183,44 @@ func TestCopyPublicCatalogForCustomerCopiesCategoriesProductsAndAudits(t *testin
 	}
 }
 
-func TestCopyPublicCatalogForCustomerUsesUniqueCustomerProductNames(t *testing.T) {
+func TestCopyPublicCatalogForCustomerPreservesPublicSKUNames(t *testing.T) {
 	repository, err := os.ReadFile("repository.go")
 	if err != nil {
 		t.Fatal(err)
 	}
 	src := string(repository)
-	for _, want := range []string{
+	for _, forbidden := range []string{
 		"customerProductCopyBaseName",
 		"ensureUniqueProductNameTx",
-		"FROM %s.products WHERE lower(name)=lower($1)",
-		"customerName, err := fetchCustomerNameTx",
-		"name, err := ensureUniqueProductNameTx(ctx, tx, schema, customerProductCopyBaseName(customerName, customerID, row.Name))",
+		"fetchCustomerNameTx",
+	} {
+		if strings.Contains(src, forbidden) {
+			t.Fatalf("copy public catalog should preserve public SKU names, but still contains %q", forbidden)
+		}
+	}
+	for _, want := range []string{
+		"func insertCustomerProductCopyTx(ctx context.Context, tx pgx.Tx, schema string, customerID int64, row publicProductCopyRow, categoryID int64)",
+		"'customer_only','public_sku_alias',$19,now())",
+		"`, schema), row.Name, productKind",
 	} {
 		if !strings.Contains(src, want) {
-			t.Fatalf("copy public catalog should avoid products_name_key duplicate, missing marker %q", want)
+			t.Fatalf("copy public catalog should insert customer copy with the original public SKU name, missing marker %q", want)
+		}
+	}
+}
+
+func TestProductSchemaDropsLegacyGlobalProductNameUniqueness(t *testing.T) {
+	schema, err := os.ReadFile("schema.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := string(schema)
+	for _, want := range []string{
+		"ALTER TABLE %[1]s.products DROP CONSTRAINT IF EXISTS products_name_key",
+		"DROP INDEX IF EXISTS %[1]s.products_name_key",
+	} {
+		if !strings.Contains(src, want) {
+			t.Fatalf("schema must remove legacy global product name uniqueness so customer SKU copies can keep public names, missing %q", want)
 		}
 	}
 }

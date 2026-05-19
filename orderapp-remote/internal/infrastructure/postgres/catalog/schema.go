@@ -44,6 +44,8 @@ ALTER TABLE %[1]s.products ALTER COLUMN drip_bag_grams SET NOT NULL;
 ALTER TABLE %[1]s.products ALTER COLUMN drip_box_bag_count SET NOT NULL;
 ALTER TABLE %[1]s.products ALTER COLUMN allow_fulfillment_order SET NOT NULL;
 ALTER TABLE %[1]s.products ALTER COLUMN allow_mall_order SET NOT NULL;
+ALTER TABLE %[1]s.products DROP CONSTRAINT IF EXISTS products_name_key;
+DROP INDEX IF EXISTS %[1]s.products_name_key;
 CREATE INDEX IF NOT EXISTS products_customer_visibility_idx ON %[1]s.products(customer_id, visibility, active);
 CREATE INDEX IF NOT EXISTS products_base_product_idx ON %[1]s.products(base_product_id);
 CREATE INDEX IF NOT EXISTS products_kind_active_idx ON %[1]s.products(product_kind, active);
