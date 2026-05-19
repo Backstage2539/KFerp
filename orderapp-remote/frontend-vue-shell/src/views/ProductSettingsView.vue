@@ -630,6 +630,7 @@ import {
   buildProductBasicsPayload,
   buildProductCreatePayload,
   buildAssignCategoryPayload,
+  buildSkuContextCategoryTree,
   categoryBelongsToSkuContext as categoryBelongsToContext,
   categoryDisplayState,
   customerSkuCustomerOptions,
@@ -710,39 +711,16 @@ const customerUsesPublicSku = computed(() => Boolean(
 const customerUsesPublicGradientTemplates = computed(() => Boolean(
   selectedCustomerSkuCustomerID.value && selectedCustomerPublicUsage.value.use_public_gradient_templates,
 ))
-const categoryTreeForSkuContext = computed(() => categories.value
-  .filter(categoryBelongsToCurrentSkuContext)
-  .map((primary, primaryIndex) => {
-    const primaryName = primary.name || ''
-    const primaryProducts = (primary.products || [])
-      .filter(skuContextProductFilter)
-      .map((product, index) => ({
-        ...product,
-        number: index + 1,
-        primary_name: primaryName,
-        secondary_name: '',
-      }))
-    const children = (primary.children || [])
-      .filter(categoryBelongsToCurrentSkuContext)
-      .map((secondary, secondaryIndex) => ({
-        ...secondary,
-        number: secondaryIndex + 1,
-        products: (secondary.products || [])
-          .filter(skuContextProductFilter)
-          .map((product, productIndex) => ({
-            ...product,
-            number: productIndex + 1,
-            primary_name: primaryName,
-            secondary_name: secondary.name || '',
-          })),
-      }))
-    return {
-      ...primary,
-      number: primaryIndex + 1,
-      products: primaryProducts,
-      children,
-    }
-  }))
+const categoryTreeForSkuContext = computed(() => buildSkuContextCategoryTree(categories.value, {
+  customerID: skuContextCustomerID.value,
+  usePublicCategories: customerUsesPublicCategories.value,
+  usePublicSku: customerUsesPublicSku.value,
+  usePublicSkuInCategoryTree: customerUsesPublicCategories.value,
+  publicCategories: flatPublicCategories.value,
+  customerCategories: flatCustomerCategories.value,
+  publicProducts: publicProducts.value,
+  customerProducts: customerProductsForContext.value,
+}))
 const productRows = computed(() => {
   const rows = []
   for (const primary of categoryTreeForSkuContext.value) {

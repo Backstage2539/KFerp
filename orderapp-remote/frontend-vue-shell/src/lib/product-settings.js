@@ -153,9 +153,145 @@ export function buildAssignCategoryPayload({ product = {}, category = {}, custom
   return payload
 }
 
+export function buildSkuContextCategoryTree(categories = [], context = {}) {
+  const customerID = Number(context.customerID || context.customer_id || 0)
+  const publicRoots = (categories || []).filter((category) => Number(category.customer_id || 0) === 0)
+  if (!customerID) {
+    return numberCategoryTree(publicRoots.map((primary) => projectCategoryNode(primary, context, null)))
+  }
+
+  const customerRoots = (categories || []).filter((category) => Number(category.customer_id || 0) === customerID)
+  const customerRootBySource = new Map(customerRoots
+    .filter((category) => Number(category.source_category_id || 0) > 0)
+    .map((category) => [Number(category.source_category_id || 0), category]))
+  const usedCustomerRootIDs = new Set()
+  const out = []
+
+  for (const publicRoot of publicRoots) {
+    const derivedRoot = customerRootBySource.get(Number(publicRoot.id || 0))
+    if (derivedRoot) {
+      usedCustomerRootIDs.add(Number(derivedRoot.id || 0))
+      out.push(projectMergedCategoryNode(derivedRoot, publicRoot, context, null))
+      continue
+    }
+    if (categoryBelongsToSkuContext(publicRoot, context)) {
+      out.push(projectCategoryNode(publicRoot, context, null))
+    }
+  }
+
+  for (const customerRoot of customerRoots) {
+    if (usedCustomerRootIDs.has(Number(customerRoot.id || 0))) continue
+    if (categoryBelongsToSkuContext(customerRoot, context)) {
+      out.push(projectCategoryNode(customerRoot, context, null))
+    }
+  }
+
+  return numberCategoryTree(out)
+}
+
 export function isPublicReferenceRow(row = {}, context = {}) {
   const customerID = Number(context.customerID || context.customer_id || 0)
   return customerID > 0 && Number(row.customer_id || 0) === 0
+}
+
+function projectMergedCategoryNode(customerCategory = {}, publicCategory = {}, context = {}, parentName = null) {
+  const primaryName = parentName === null ? customerCategory.name || publicCategory.name || '' : parentName
+  const secondaryName = parentName === null ? '' : customerCategory.name || publicCategory.name || ''
+  const mergedProducts = [
+    ...contextProductsForCategory(customerCategory, context),
+    ...contextProductsForCategory(publicCategory, context),
+  ]
+  const customerChildren = customerCategory.children || []
+  const publicChildren = publicCategory.children || []
+  const customerChildBySource = new Map(customerChildren
+    .filter((category) => Number(category.source_category_id || 0) > 0)
+    .map((category) => [Number(category.source_category_id || 0), category]))
+  const usedCustomerChildIDs = new Set()
+  const children = []
+
+  for (const publicChild of publicChildren) {
+    const derivedChild = customerChildBySource.get(Number(publicChild.id || 0))
+    if (derivedChild) {
+      usedCustomerChildIDs.add(Number(derivedChild.id || 0))
+      children.push(projectMergedCategoryNode(derivedChild, publicChild, context, primaryName))
+      continue
+    }
+    if (categoryBelongsToSkuContext(publicChild, context)) {
+      children.push(projectCategoryNode(publicChild, context, customerCategory.name || publicCategory.name || ''))
+    }
+  }
+
+  for (const customerChild of customerChildren) {
+    if (usedCustomerChildIDs.has(Number(customerChild.id || 0))) continue
+    if (categoryBelongsToSkuContext(customerChild, context)) {
+      children.push(projectCategoryNode(customerChild, context, customerCategory.name || publicCategory.name || ''))
+    }
+  }
+
+  return {
+    ...customerCategory,
+    products: numberProducts(dedupeRowsByID(mergedProducts), primaryName, secondaryName),
+    children: numberCategoryChildren(children),
+  }
+}
+
+function projectCategoryNode(category = {}, context = {}, parentName = null) {
+  const primaryName = parentName === null ? category.name || '' : parentName
+  const secondaryName = parentName === null ? '' : category.name || ''
+  return {
+    ...category,
+    products: numberProducts(contextProductsForCategory(category, context), primaryName, secondaryName),
+    children: numberCategoryChildren((category.children || [])
+      .filter((child) => categoryBelongsToSkuContext(child, context))
+      .map((child) => projectCategoryNode(child, context, category.name || ''))),
+  }
+}
+
+function contextProductsForCategory(category = {}, context = {}) {
+  return (category.products || [])
+    .filter((product) => productBelongsToCategoryTree(product, context))
+}
+
+function productBelongsToCategoryTree(product = {}, context = {}) {
+  const allowPublicInCategoryTree = Boolean(context.usePublicSku || context.use_public_sku || context.usePublicSkuInCategoryTree)
+  return productBelongsToSkuContext(product, {
+    ...context,
+    usePublicSku: allowPublicInCategoryTree,
+    use_public_sku: allowPublicInCategoryTree,
+  })
+}
+
+function numberCategoryTree(nodes = []) {
+  return numberCategoryChildren(nodes)
+}
+
+function numberCategoryChildren(nodes = []) {
+  return (nodes || []).map((node, index) => ({
+    ...node,
+    number: index + 1,
+    children: numberCategoryChildren(node.children || []),
+  }))
+}
+
+function numberProducts(products = [], primaryName = '', secondaryName = '') {
+  return (products || []).map((product, index) => ({
+    ...product,
+    number: index + 1,
+    primary_name: primaryName,
+    secondary_name: secondaryName,
+  }))
+}
+
+function dedupeRowsByID(rows = []) {
+  const seen = new Set()
+  const out = []
+  for (const row of rows || []) {
+    const id = Number(row?.id || 0)
+    if (id && seen.has(id)) continue
+    if (id) seen.add(id)
+    out.push(row)
+  }
+  return out
 }
 
 function isUnmodifiedPublicSkuCopy(product = {}, publicProducts = []) {
