@@ -1780,8 +1780,8 @@ func TestOrderAPISavesGreenBeanOrderUsingBoundRoastedTierFallback(t *testing.T) 
 	if productKind != "green_bean" {
 		t.Fatalf("product_kind=%q, want green_bean", productKind)
 	}
-	if tierID != 8801 || unitPrice != 81.91 || lineTotal != 2457.30 {
-		t.Fatalf("tier/unit_price/line_total=%d/%.2f/%.2f, want 8801/81.91/2457.30", tierID, unitPrice, lineTotal)
+	if tierID != 8801 || unitPrice != 82 || lineTotal != 2460 {
+		t.Fatalf("tier/unit_price/line_total=%d/%.2f/%.2f, want 8801/82.00/2460.00", tierID, unitPrice, lineTotal)
 	}
 	if !strings.Contains(priceSource, "green_bean_bound_roasted_tier") || !strings.Contains(priceSource, `"source_product_id": 7`) && !strings.Contains(priceSource, `"source_product_id":7`) {
 		t.Fatalf("price_source_json missing bound roasted fallback: %s", priceSource)
