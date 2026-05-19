@@ -195,6 +195,25 @@ func TestCreateCustomProductInsertDoesNotDuplicateProductKindColumn(t *testing.T
 	}
 }
 
+func TestCreateCustomProductAllowsGreenBeanWithoutBaseProduct(t *testing.T) {
+	repository, err := os.ReadFile("repository.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := string(repository)
+	for _, want := range []string{
+		"baseProductID := cmd.BaseProductID",
+		"if cmd.BaseProductID > 0 {",
+		"baseProductID = 0",
+		"cmd.CopyPriceTiers && baseProductID > 0",
+		`"base_product_id":           baseProductID`,
+	} {
+		if !strings.Contains(src, want) {
+			t.Fatalf("custom green product without base product missing marker %q", want)
+		}
+	}
+}
+
 func TestCustomerPublicUsagePersistsReferenceSwitchesAndAudits(t *testing.T) {
 	repository, err := os.ReadFile("repository.go")
 	if err != nil {

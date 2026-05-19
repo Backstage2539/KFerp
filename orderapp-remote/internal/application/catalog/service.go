@@ -530,34 +530,38 @@ func (s *Service) CreateCustomProduct(ctx context.Context, cmd CreateCustomProdu
 	if cmd.CustomerID <= 0 {
 		return Product{}, fmt.Errorf("customer_id required")
 	}
-	if cmd.BaseProductID <= 0 {
-		return Product{}, fmt.Errorf("base_product_id required")
-	}
-	base, err := s.repo.GetProduct(ctx, cmd.BaseProductID)
-	if err != nil {
-		return Product{}, err
-	}
-	if base == nil || base.ID <= 0 {
-		return Product{}, fmt.Errorf("base product not found")
-	}
 	cmd.Name = strings.TrimSpace(cmd.Name)
 	cmd.Remark = strings.TrimSpace(cmd.Remark)
 	if cmd.Name == "" {
 		return Product{}, fmt.Errorf("name required")
 	}
-	baseKind := catalogdomain.NormalizeProductKind(base.ProductKind)
-	if strings.TrimSpace(cmd.ProductKind) == "" {
-		cmd.ProductKind = baseKind
-	} else {
-		cmd.ProductKind = catalogdomain.NormalizeProductKind(cmd.ProductKind)
-		if cmd.ProductKind != baseKind {
+	requestedKind := strings.TrimSpace(cmd.ProductKind)
+	cmd.ProductKind = catalogdomain.NormalizeProductKind(cmd.ProductKind)
+	var base *Product
+	var err error
+	if requestedKind == "" || cmd.ProductKind != catalogdomain.ProductKindGreenBean {
+		if cmd.BaseProductID <= 0 {
+			return Product{}, fmt.Errorf("base_product_id required")
+		}
+		base, err = s.repo.GetProduct(ctx, cmd.BaseProductID)
+		if err != nil {
+			return Product{}, err
+		}
+		if base == nil || base.ID <= 0 {
+			return Product{}, fmt.Errorf("base product not found")
+		}
+		baseKind := catalogdomain.NormalizeProductKind(base.ProductKind)
+		if requestedKind == "" {
+			cmd.ProductKind = baseKind
+		} else if cmd.ProductKind != baseKind {
 			return Product{}, fmt.Errorf("product_kind must match base product")
 		}
 	}
 	if cmd.ProductKind == catalogdomain.ProductKindGreenBean {
+		cmd.BaseProductID = 0
 		cmd.RoastLevel = ""
 		cmd.GreenBeanType = normalizeGreenBeanType(cmd.GreenBeanType)
-		if cmd.GreenBeanBomProductID <= 0 {
+		if cmd.GreenBeanBomProductID <= 0 && base != nil {
 			cmd.GreenBeanBomProductID = base.GreenBeanBomProductID
 		}
 		if cmd.GreenBeanBomProductID <= 0 {
@@ -567,6 +571,7 @@ func (s *Service) CreateCustomProduct(ctx context.Context, cmd CreateCustomProdu
 			return Product{}, err
 		}
 		cmd.CopyBOM = false
+		cmd.CopyPriceTiers = false
 	} else {
 		cmd.RoastLevel = catalogdomain.NormalizeRoastLevel(cmd.RoastLevel)
 		if cmd.RoastLevel == "" {
