@@ -287,6 +287,36 @@ func TestBeanListKeepsGreenBeanProductsOnDirectSaleTiers(t *testing.T) {
 	}
 }
 
+func TestBeanListGreenBeanTemplateTiersDefaultToBomCostWithoutMargin(t *testing.T) {
+	input := domain.ProductInput{
+		ProductID:          910,
+		Name:               "兰卡拼配生豆",
+		ProductKind:        "green_bean",
+		GreenBeanCostPerKg: 60,
+		GradientTemplate: &domain.GradientTemplate{
+			ID:          18,
+			Name:        "生豆磅价模板",
+			DisplayUnit: domain.GradientDisplayUnitLb,
+			Tiers: []domain.GradientTemplateTier{{
+				ID: 1801, Label: "24-49lb", MinWeightG: 24000, MaxWeightG: floatPtr(49000), MarginRate: 0.5, Position: 1,
+			}},
+		},
+	}
+	svc := NewService(&fakeRepo{inputs: []domain.ProductInput{input}})
+
+	resp, err := svc.BeanList(context.Background())
+	if err != nil {
+		t.Fatalf("BeanList() error = %v", err)
+	}
+	if len(resp.Items) != 1 || len(resp.Items[0].GreenBeanSaleTiers) != 1 {
+		t.Fatalf("green bean list items = %+v", resp.Items)
+	}
+	tier := resp.Items[0].GreenBeanSaleTiers[0]
+	if tier.PricePerKg != 60 || tier.PricePerLb != 27.24 || tier.PricePerUnit != 27.24 || tier.MarginRate != 0 {
+		t.Fatalf("green tier should default to BOM cost without margin, got %+v", tier)
+	}
+}
+
 func TestBeanListAppliesProductMarginOverrideBeforeCategoryTemplateMargin(t *testing.T) {
 	input := domain.ProductInput{
 		ProductID:          501,
