@@ -50,11 +50,12 @@ test('category filter options are derived from current SKU rows', () => {
   assert.deepEqual(secondaryCategoryOptions(rows, '生豆'), ['单品生豆', '拼配生豆'])
 })
 
-test('product create payload does not carry default sale price or direct green bean tiers', () => {
-  const roasted = buildProductCreatePayload({ name: '暖阳拼配', product_kind: 'roasted', roast_level: '中烘', yield_percent: 82 })
+test('product create payload carries SKU remark without direct green bean prices', () => {
+  const roasted = buildProductCreatePayload({ name: '暖阳拼配', product_kind: 'roasted', roast_level: '中烘', yield_percent: 82, remark: '奶咖主推' })
   assert.deepEqual(roasted, {
     name: '暖阳拼配',
     product_kind: 'roasted',
+    remark: '奶咖主推',
     roast_level: '中烘',
     yield_rate: 0.82,
   })
@@ -65,16 +66,18 @@ test('product create payload does not carry default sale price or direct green b
     green_bean_type: 'blend',
     green_bean_bom_product_id: 7,
     default_price: 188,
+    remark: '新季生豆',
   })
   assert.deepEqual(green, {
     name: '巴拿马生豆',
     product_kind: 'green_bean',
+    remark: '新季生豆',
     green_bean_type: 'blend',
     green_bean_bom_product_id: 7,
   })
 })
 
-test('product basics payload preserves green bean type and BOM binding without direct prices', () => {
+test('product basics payload preserves remark, green bean type, and BOM binding without direct prices', () => {
   const payload = buildProductBasicsPayload({
     id: 9,
     product_kind: 'green_bean',
@@ -82,10 +85,12 @@ test('product basics payload preserves green bean type and BOM binding without d
     green_bean_bom_product_id: 7,
     default_price: 188,
     yield_percent: 80,
+    remark: '仅作生豆销售',
   }, null)
 
   assert.deepEqual(payload, {
     product_kind: 'green_bean',
+    remark: '仅作生豆销售',
     green_bean_type: 'single_origin',
     green_bean_bom_product_id: 7,
     margin_rate_override: null,

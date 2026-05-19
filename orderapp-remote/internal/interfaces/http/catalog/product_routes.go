@@ -63,6 +63,7 @@ type productHandler struct {
 
 type productUpdateAPIRequest struct {
 	ProductKind           string                    `json:"product_kind"`
+	Remark                *string                   `json:"remark"`
 	GreenBeanType         string                    `json:"green_bean_type"`
 	GreenBeanBomProductID int64                     `json:"green_bean_bom_product_id"`
 	DefaultPrice          *float64                  `json:"default_price"`
@@ -82,6 +83,7 @@ type productUpdateAPIRequest struct {
 
 type productCreateAPIRequest struct {
 	Name                  string                    `json:"name"`
+	Remark                string                    `json:"remark"`
 	ProductKind           string                    `json:"product_kind"`
 	GreenBeanType         string                    `json:"green_bean_type"`
 	GreenBeanBomProductID int64                     `json:"green_bean_bom_product_id"`
@@ -132,6 +134,7 @@ type customProductAPIRequest struct {
 	CustomerID     int64  `json:"customer_id"`
 	BaseProductID  int64  `json:"base_product_id"`
 	Name           string `json:"name"`
+	Remark         string `json:"remark"`
 	RoastLevel     string `json:"roast_level"`
 	CustomType     string `json:"custom_type"`
 	CopyBOM        bool   `json:"copy_bom"`
@@ -262,9 +265,14 @@ func (h productHandler) updateAPI(c echo.Context) error {
 			return c.JSON(http.StatusBadRequest, map[string]any{"error": err.Error()})
 		}
 	}
+	remark := existing.Remark
+	if req.Remark != nil {
+		remark = strings.TrimSpace(*req.Remark)
+	}
 	if err := h.catalog.UpdateProductBasics(c.Request().Context(), catalogapp.UpdateProductBasicsCommand{
 		Actor:                 support.ActorOf(c),
 		ProductID:             id,
+		Remark:                remark,
 		RoastLevel:            roastLevel,
 		ProductKind:           productKind,
 		GreenBeanType:         greenBeanType,
@@ -373,6 +381,7 @@ func (h productHandler) createProductAPI(c echo.Context) error {
 	product, err := h.catalog.CreateProduct(c.Request().Context(), catalogapp.CreateProductCommand{
 		Actor:                    support.ActorOf(c),
 		Name:                     req.Name,
+		Remark:                   req.Remark,
 		RoastLevel:               roastLevel,
 		ProductKind:              productKind,
 		GreenBeanType:            req.GreenBeanType,
@@ -553,6 +562,7 @@ func (h productHandler) createCustomProductAPI(c echo.Context) error {
 		CustomerID:     req.CustomerID,
 		BaseProductID:  req.BaseProductID,
 		Name:           req.Name,
+		Remark:         req.Remark,
 		RoastLevel:     req.RoastLevel,
 		CustomType:     req.CustomType,
 		CopyBOM:        req.CopyBOM,

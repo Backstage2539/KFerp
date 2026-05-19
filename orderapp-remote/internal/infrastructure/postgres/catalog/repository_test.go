@@ -59,6 +59,38 @@ func TestProductMarginOverridePersistsOnProducts(t *testing.T) {
 	}
 }
 
+func TestProductRemarkPersistsOnProducts(t *testing.T) {
+	schema, err := os.ReadFile("schema.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	repository, err := os.ReadFile("repository.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	queries, err := os.ReadFile("../catalog_queries.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		name string
+		src  string
+		want string
+	}{
+		{name: "schema column", src: string(schema), want: "ALTER TABLE %[1]s.products ADD COLUMN IF NOT EXISTS remark TEXT NOT NULL DEFAULT ''"},
+		{name: "product list query", src: string(queries), want: "COALESCE(p.remark,'')"},
+		{name: "product get query", src: string(repository), want: "COALESCE(remark,'')"},
+		{name: "product create insert", src: string(repository), want: "name, remark, product_kind"},
+		{name: "product update", src: string(repository), want: "remark=$15"},
+		{name: "custom product insert", src: string(repository), want: "name, remark, product_kind, roast_level"},
+		{name: "audit metadata", src: string(repository), want: `"remark":`},
+	} {
+		if !strings.Contains(tc.src, tc.want) {
+			t.Fatalf("catalog product remark persistence missing %s marker %q", tc.name, tc.want)
+		}
+	}
+}
+
 func TestProductKindSchemaRepairsPartiallyCreatedColumns(t *testing.T) {
 	schema, err := os.ReadFile("schema.go")
 	if err != nil {

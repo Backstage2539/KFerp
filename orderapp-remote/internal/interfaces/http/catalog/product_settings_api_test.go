@@ -75,6 +75,7 @@ func (r *productSettingsRepo) UpdateProductBasics(ctx context.Context, cmd catal
 	for i := range r.products {
 		if r.products[i].ID == cmd.ProductID {
 			r.products[i].ProductKind = cmd.ProductKind
+			r.products[i].Remark = cmd.Remark
 			r.products[i].GreenBeanType = cmd.GreenBeanType
 			r.products[i].GreenBeanBomProductID = cmd.GreenBeanBomProductID
 			r.products[i].RoastLevel = cmd.RoastLevel
@@ -105,6 +106,7 @@ func (r *productSettingsRepo) CreateProduct(ctx context.Context, cmd catalogapp.
 	return catalogapp.Product{
 		ID:                    77,
 		Name:                  cmd.Name,
+		Remark:                cmd.Remark,
 		RoastLevel:            cmd.RoastLevel,
 		ProductKind:           cmd.ProductKind,
 		GreenBeanType:         cmd.GreenBeanType,
@@ -183,6 +185,7 @@ func (r *productSettingsRepo) CreateCustomProduct(ctx context.Context, cmd catal
 	return catalogapp.Product{
 		ID:            88,
 		Name:          cmd.Name,
+		Remark:        cmd.Remark,
 		RoastLevel:    cmd.RoastLevel,
 		CustomerID:    cmd.CustomerID,
 		BaseProductID: cmd.BaseProductID,
@@ -200,7 +203,7 @@ func (r *productSettingsRepo) SaveCustomerPublicUsage(ctx context.Context, cmd c
 func TestProductSettingsAPISupportsCategoryTreeAndDragAssignments(t *testing.T) {
 	repo := &productSettingsRepo{
 		products: []catalogapp.Product{{
-			ID: 7, Name: "曲奇拼配", ProductCategoryID: 2, ProductCategoryPosition: 1, YieldRate: 0.82, BomItemCount: 2,
+			ID: 7, Name: "曲奇拼配", Remark: "奶咖主推", ProductCategoryID: 2, ProductCategoryPosition: 1, YieldRate: 0.82, BomItemCount: 2,
 		}, {
 			ID: 8, Name: "埃塞瑰夏生豆", ProductKind: "green_bean", ProductCategoryID: 2, ProductCategoryPosition: 2, YieldRate: 1,
 		}},
@@ -225,7 +228,7 @@ func TestProductSettingsAPISupportsCategoryTreeAndDragAssignments(t *testing.T) 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("GET /api/product-settings status=%d body=%s", rec.Code, rec.Body.String())
 	}
-	for _, want := range []string{`"categories"`, `"children"`, `"products"`, `"gradient_templates"`, `"customer_public_usages"`, `"use_public_sku":true`, `"use_public_categories":false`, `"gradient_template_id":9`, `"name":"工厂量单模板"`, `"display_unit":"kg"`, `"number":1`, `"name":"咖啡豆"`, `"name":"意式拼配"`, `"name":"客户A分类"`, `"customer_id":3`, `"name":"曲奇拼配"`, `"yield_rate":0.82`} {
+	for _, want := range []string{`"categories"`, `"children"`, `"products"`, `"gradient_templates"`, `"customer_public_usages"`, `"use_public_sku":true`, `"use_public_categories":false`, `"gradient_template_id":9`, `"name":"工厂量单模板"`, `"display_unit":"kg"`, `"number":1`, `"name":"咖啡豆"`, `"name":"意式拼配"`, `"name":"客户A分类"`, `"customer_id":3`, `"name":"曲奇拼配"`, `"remark":"奶咖主推"`, `"yield_rate":0.82`} {
 		if !bytes.Contains(rec.Body.Bytes(), []byte(want)) {
 			t.Fatalf("product settings response missing %s: %s", want, rec.Body.String())
 		}
@@ -377,6 +380,32 @@ func TestProductSettingsAPIUpdatesGreenBeanBomBinding(t *testing.T) {
 	}
 }
 
+func TestProductSettingsAPIUpdatesProductRemark(t *testing.T) {
+	repo := &productSettingsRepo{
+		products: []catalogapp.Product{{
+			ID: 91, Name: "暖阳拼配", ProductKind: "roasted", RoastLevel: "中烘", Remark: "旧备注", YieldRate: 0.8,
+		}},
+	}
+	e := echo.New()
+	registerProductRoutes(e, catalogapp.NewService(repo))
+
+	body := bytes.NewBufferString(`{"product_kind":"roasted","roast_level":"中烘","yield_rate":0.81,"remark":"门店常用奶咖"}`)
+	req := httptest.NewRequest(http.MethodPut, "/api/products/91", body)
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("PUT /api/products/91 status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if !repo.productUpdated || repo.updated.Remark != "门店常用奶咖" {
+		t.Fatalf("updated remark command = %+v updated=%v", repo.updated, repo.productUpdated)
+	}
+	if !bytes.Contains(rec.Body.Bytes(), []byte(`"remark":"门店常用奶咖"`)) {
+		t.Fatalf("response missing updated remark: %s", rec.Body.String())
+	}
+}
+
 func TestProductSettingsAPIRejectsGreenBeanAsBomBinding(t *testing.T) {
 	repo := &productSettingsRepo{
 		products: []catalogapp.Product{{ID: 8, Name: "生豆 SKU", ProductKind: "green_bean"}},
@@ -454,7 +483,7 @@ func TestProductSettingsAPICreatesCustomerCustomProduct(t *testing.T) {
 	e := echo.New()
 	registerProductRoutes(e, catalogapp.NewService(repo))
 
-	body := `{"customer_id":3,"base_product_id":7,"name":"测试客户-橘皮乌龙-中深烘","roast_level":"中深烘","custom_type":"custom_roast","copy_bom":true,"copy_price_tiers":true}`
+	body := `{"customer_id":3,"base_product_id":7,"name":"测试客户-橘皮乌龙-中深烘","remark":"客户指定口味","roast_level":"中深烘","custom_type":"custom_roast","copy_bom":true,"copy_price_tiers":true}`
 	req := httptest.NewRequest(http.MethodPost, "/api/product-settings/custom-products", bytes.NewBufferString(body))
 	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
 	rec := httptest.NewRecorder()
@@ -466,7 +495,10 @@ func TestProductSettingsAPICreatesCustomerCustomProduct(t *testing.T) {
 	if !repo.productCreated || repo.createdProduct.CustomerID != 3 || repo.createdProduct.BaseProductID != 7 || !repo.createdProduct.CopyBOM || !repo.createdProduct.CopyPriceTiers {
 		t.Fatalf("custom product command = %+v created=%v", repo.createdProduct, repo.productCreated)
 	}
-	for _, want := range []string{`"product"`, `"customer_id":3`, `"base_product_id":7`, `"visibility":"customer_only"`, `"custom_type":"custom_roast"`} {
+	if repo.createdProduct.Remark != "客户指定口味" {
+		t.Fatalf("custom product remark not passed: %+v", repo.createdProduct)
+	}
+	for _, want := range []string{`"product"`, `"customer_id":3`, `"base_product_id":7`, `"visibility":"customer_only"`, `"custom_type":"custom_roast"`, `"remark":"客户指定口味"`} {
 		if !bytes.Contains(rec.Body.Bytes(), []byte(want)) {
 			t.Fatalf("custom product response missing %s: %s", want, rec.Body.String())
 		}
@@ -500,7 +532,7 @@ func TestProductSettingsAPICreatesPublicProduct(t *testing.T) {
 	e := echo.New()
 	registerProductRoutes(e, catalogapp.NewService(repo))
 
-	body := `{"name":"新公共拼配","roast_level":"中深烘","default_price":88,"yield_rate":0.805}`
+	body := `{"name":"新公共拼配","remark":"奶咖主推","roast_level":"中深烘","default_price":88,"yield_rate":0.805}`
 	req := httptest.NewRequest(http.MethodPost, "/api/product-settings/products", bytes.NewBufferString(body))
 	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
 	rec := httptest.NewRecorder()
@@ -512,7 +544,10 @@ func TestProductSettingsAPICreatesPublicProduct(t *testing.T) {
 	if !repo.publicCreated || repo.createdPublic.Name != "新公共拼配" || repo.createdPublic.RoastLevel != "中深烘" || repo.createdPublic.DefaultPrice != 88 || repo.createdPublic.RetailPrice227G != 88 || repo.createdPublic.YieldRate != 0.805 {
 		t.Fatalf("public product command = %+v created=%v", repo.createdPublic, repo.publicCreated)
 	}
-	for _, want := range []string{`"product"`, `"name":"新公共拼配"`, `"customer_id":0`, `"visibility":"public"`, `"bom_item_count":0`} {
+	if repo.createdPublic.Remark != "奶咖主推" {
+		t.Fatalf("public product remark not passed: %+v", repo.createdPublic)
+	}
+	for _, want := range []string{`"product"`, `"name":"新公共拼配"`, `"remark":"奶咖主推"`, `"customer_id":0`, `"visibility":"public"`, `"bom_item_count":0`} {
 		if !bytes.Contains(rec.Body.Bytes(), []byte(want)) {
 			t.Fatalf("public product response missing %s: %s", want, rec.Body.String())
 		}
