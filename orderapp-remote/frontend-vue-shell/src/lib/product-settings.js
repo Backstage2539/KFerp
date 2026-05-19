@@ -141,11 +141,18 @@ export function secondaryCategoryOptions(rows = [], primaryCategory = '') {
     .map((row) => row.secondary_name))
 }
 
-export function roastedBomProductOptions(products = []) {
+export function roastedBomProductOptions(products = [], { customerID = 0 } = {}) {
+  const scopedCustomerID = Number(customerID || 0)
   return (products || [])
-    .filter((row) => Number(row.id || 0) > 0 && String(row?.product_kind || '').trim() === 'roasted')
+    .filter((row) => {
+      if (Number(row.id || 0) <= 0 || String(row?.product_kind || '').trim() !== 'roasted') return false
+      const rowCustomerID = Number(row.customer_id || 0)
+      if (rowCustomerID > 0 && rowCustomerID !== scopedCustomerID) return false
+      if (rowCustomerID > 0 && String(row.custom_type || '').trim() === 'public_sku_alias') return false
+      return true
+    })
     .slice()
-    .sort((a, b) => String(a.name || '').localeCompare(String(b.name || '')))
+    .sort((a, b) => String(a.name || '').localeCompare(String(b.name || '')) || Number(a.customer_id || 0) - Number(b.customer_id || 0) || Number(a.id || 0) - Number(b.id || 0))
 }
 
 export function buildProductCreatePayload(form = {}) {
