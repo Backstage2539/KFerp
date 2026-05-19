@@ -12,7 +12,7 @@
   - `POST /api/product-settings/customer-categories/derive`
   - `POST /api/product-settings/customer-products/derive`
   - `POST /api/product-settings/customer-gradient-templates/derive`
-- 客户上下文拖拽到公共分类、复制公共 SKU、绑定公共梯度模板时均 copy-on-write 生成客户私有行，并写入操作日志。
+- 客户上下文拖拽到公共分类、复制公共 SKU、点击公共梯度模板“复制为客户模板”、绑定公共梯度模板时均 copy-on-write 生成客户私有行，并写入操作日志。
 
 ## 验证
 - `node --test src/lib/product-settings.test.js src/lib/gradient-templates.test.js`
@@ -20,4 +20,3 @@
 - `npm run build`
 - `go test ./...`
 - `go test ./internal/application/catalog ./internal/interfaces/http/catalog ./internal/infrastructure/postgres/catalog -count=1`
-

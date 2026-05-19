@@ -1,5 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import fs from 'node:fs'
 
 import {
   buildAssignCategoryPayload,
@@ -286,6 +287,14 @@ test('customer context filters gradient templates by ownership and public templa
   assert.equal(gradientTemplateBelongsToSkuContext(publicTemplate, { customerID: 42, usePublicGradientTemplates: false }), false)
   assert.equal(gradientTemplateBelongsToSkuContext(publicTemplate, { customerID: 42, usePublicGradientTemplates: true, customerTemplates: [customerTemplate] }), false)
   assert.equal(gradientTemplateBelongsToSkuContext(customerTemplate, { customerID: 42, usePublicGradientTemplates: false }), true)
+})
+
+test('SKU settings exposes an explicit copy action for public gradient templates', () => {
+  const source = fs.readFileSync(new URL('../views/ProductSettingsView.vue', import.meta.url), 'utf8')
+
+  assert.match(source, /复制为客户模板/)
+  assert.match(source, /deriveGradientTemplateForCustomer/)
+  assert.match(source, /customer-gradient-templates\/derive/)
 })
 
 test('assign category payload carries customer context for public template derivation', () => {
