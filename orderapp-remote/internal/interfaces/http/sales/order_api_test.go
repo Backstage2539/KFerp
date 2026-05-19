@@ -296,7 +296,7 @@ func TestOrderAPIFormReturnsBoundRoastedTiersForGreenBeanProduct(t *testing.T) {
 			Tiers       []struct {
 				ID        int64   `json:"id"`
 				SpecG     int64   `json:"spec_g"`
-				MinQty    float64 `json:"min_qty"`
+				MinQty    float64 `json:"min"`
 				UnitPrice float64 `json:"unit_price"`
 			} `json:"tiers"`
 		} `json:"products"`
@@ -310,7 +310,7 @@ func TestOrderAPIFormReturnsBoundRoastedTiersForGreenBeanProduct(t *testing.T) {
 		Tiers       []struct {
 			ID        int64   `json:"id"`
 			SpecG     int64   `json:"spec_g"`
-			MinQty    float64 `json:"min_qty"`
+			MinQty    float64 `json:"min"`
 			UnitPrice float64 `json:"unit_price"`
 		} `json:"tiers"`
 	}
