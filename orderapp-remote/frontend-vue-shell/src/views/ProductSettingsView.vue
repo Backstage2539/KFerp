@@ -555,9 +555,8 @@
                   </td>
                 </tr>
                 <tr v-if="row.product_kind === 'drip_bag'" class="green-bean-detail-row">
-                  <td></td>
-                  <td :colspan="selectedCustomerSkuCustomerID ? 13 : 14">
-                    <div class="green-bean-detail">
+                  <td :colspan="selectedCustomerSkuCustomerID ? 14 : 15">
+                    <div class="green-bean-detail-fields">
                       <label>
                         <span>每袋克重</span>
                         <input v-model.number="row.drip_bag_grams" type="number" min="0.01" step="0.01" :disabled="!canEditSkuRow(row)" @change="saveProductBasics(row)" />
