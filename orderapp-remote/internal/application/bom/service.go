@@ -3,17 +3,19 @@ package bom
 import (
 	"context"
 	"fmt"
+	"strings"
 )
 
 type ListItem struct {
-	ProductID  int64   `json:"product_id"`
-	CustomerID int64   `json:"customer_id"`
-	Product    string  `json:"product"`
-	RoastLevel string  `json:"roast_level"`
-	YieldRate  float64 `json:"yield_rate"`
-	Status     string  `json:"status"`
-	ItemCount  int     `json:"item_count"`
-	UpdatedAt  string  `json:"updated_at"`
+	ProductID   int64   `json:"product_id"`
+	CustomerID  int64   `json:"customer_id"`
+	Product     string  `json:"product"`
+	RoastLevel  string  `json:"roast_level"`
+	ProductKind string  `json:"product_kind,omitempty"`
+	YieldRate   float64 `json:"yield_rate"`
+	Status      string  `json:"status"`
+	ItemCount   int     `json:"item_count"`
+	UpdatedAt   string  `json:"updated_at"`
 }
 
 type Item struct {
@@ -143,7 +145,17 @@ func NewService(repo Repository) *Service {
 }
 
 func (s *Service) List(ctx context.Context) ([]ListItem, error) {
-	return s.repo.List(ctx)
+	rows, err := s.repo.List(ctx)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]ListItem, 0, len(rows))
+	for _, row := range rows {
+		if isBomMaintainedProductKind(row.ProductKind) {
+			out = append(out, row)
+		}
+	}
+	return out, nil
 }
 
 func (s *Service) Detail(ctx context.Context, productID int64) (Detail, error) {
@@ -154,7 +166,17 @@ func (s *Service) Detail(ctx context.Context, productID int64) (Detail, error) {
 }
 
 func (s *Service) Products(ctx context.Context) ([]Option, error) {
-	return s.repo.Products(ctx)
+	rows, err := s.repo.Products(ctx)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]Option, 0, len(rows))
+	for _, row := range rows {
+		if isBomMaintainedProductKind(row.ProductKind) {
+			out = append(out, row)
+		}
+	}
+	return out, nil
 }
 
 func (s *Service) Materials(ctx context.Context) ([]Option, error) {
@@ -163,6 +185,14 @@ func (s *Service) Materials(ctx context.Context) ([]Option, error) {
 
 func (s *Service) BagSpecMappings(ctx context.Context) ([]BagSpecMapping, error) {
 	return s.repo.BagSpecMappings(ctx)
+}
+
+func isBomMaintainedProductKind(kind string) bool {
+	normalized := strings.ToLower(strings.TrimSpace(kind))
+	if normalized == "" {
+		normalized = "roasted_bean"
+	}
+	return normalized != "green_bean"
 }
 
 func (s *Service) SyncProductYield(ctx context.Context, cmd SyncProductYieldCommand) error {
