@@ -586,7 +586,7 @@ func apiProducts(ps []ProductOption) []map[string]any {
 		}
 		tiers := make([]map[string]any, 0, len(p.Tiers))
 		for _, t := range p.Tiers {
-			tiers = append(tiers, map[string]any{
+			tier := map[string]any{
 				"id":                t.ID,
 				"spec_g":            t.SpecG,
 				"min":               t.MinQty,
@@ -596,7 +596,11 @@ func apiProducts(ps []ProductOption) []map[string]any {
 				"sales_unit":        t.SalesUnit,
 				"unit_bag_count":    t.UnitBagCount,
 				"price_source_json": t.PriceSourceJSON,
-			})
+			}
+			if t.DisplayUnit != "" {
+				tier["display_unit"] = t.DisplayUnit
+			}
+			tiers = append(tiers, tier)
 		}
 		jp["tiers"] = tiers
 		out = append(out, jp)
