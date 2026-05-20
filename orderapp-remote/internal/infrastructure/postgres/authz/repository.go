@@ -44,6 +44,7 @@ func (r Repository) ActorByEmployeeID(ctx context.Context, employeeID int64) (au
 		roles = nil
 		actor.Permissions = []string{"customer_processing.read", "customer_processing.submit"}
 	}
+	actor.AccountType = accountType
 	actor.Roles = roles
 	actor.ViewPermissions = views
 	return actor, nil
