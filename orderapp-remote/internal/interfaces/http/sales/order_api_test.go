@@ -42,6 +42,30 @@ func TestOrderEntryRedirectsToVueShell(t *testing.T) {
 	}
 }
 
+func TestAPIProductsCarriesTierDisplayUnit(t *testing.T) {
+	products := apiProducts([]ProductOption{{
+		ID:          414,
+		Name:        "兰卡拼配生豆",
+		ProductKind: "green_bean",
+		Tiers: []ProductTierOption{{
+			ID:          50,
+			SpecG:       1000,
+			MinQty:      1,
+			UnitPrice:   23.49,
+			DisplayUnit: "kg",
+			ProductKind: "green_bean",
+		}},
+	}})
+
+	tiers, ok := products[0]["tiers"].([]map[string]any)
+	if !ok || len(tiers) != 1 {
+		t.Fatalf("tiers = %#v, want one tier map", products[0]["tiers"])
+	}
+	if got := tiers[0]["display_unit"]; got != "kg" {
+		t.Fatalf("display_unit = %#v, want kg", got)
+	}
+}
+
 func TestOrderAPIRoutesExposeIrreversibleVoidJSONEndpoints(t *testing.T) {
 	body, err := os.ReadFile(filepath.Join("internal", "interfaces", "http", "sales", "order_api.go"))
 	if err != nil {
