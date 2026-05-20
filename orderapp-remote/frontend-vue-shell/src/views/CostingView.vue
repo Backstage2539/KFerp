@@ -260,6 +260,12 @@
           <span>{{ beanListPreviewCollapsed.green ? '展开' : '收起' }}</span>
         </button>
       </div>
+      <div v-show="!beanListPreviewCollapsed.green" class="green-price-save-bar">
+        <p class="muted">生豆价格改动会先保存为当前豆单范围下的生豆豆单草稿，正式报价仍需在生成豆单中发布。</p>
+        <button class="secondary compact" type="button" :disabled="beanListPublishing || !greenGroups.length || !customerScopeReady" @click="saveGreenBeanPriceDraft">
+          {{ beanListPublishing ? '保存中' : '保存生豆价格' }}
+        </button>
+      </div>
       <div v-show="!beanListPreviewCollapsed.green" class="bean-groups">
         <section v-for="group in greenGroups" :key="`green-${group.category}`" class="bean-group">
           <h3>{{ group.category }}</h3>
@@ -1072,6 +1078,9 @@ function beanDescription(item, key) {
 
 function itemWarnings(item) {
   const warnings = Array.isArray(item?.warnings) ? item.warnings.filter(Boolean) : []
+  if (item?.bom_status === 'missing_green_bean_template' && !warnings.some((warning) => String(warning).includes('未挂到带生豆模板的分类'))) {
+    return ['未挂到带生豆模板的分类，无法生成生豆价格。请在 SKU设置 里把该生豆 SKU 移到带生豆模板的生豆分类。', ...warnings]
+  }
   if (item?.bom_status === 'inactive' && !warnings.some((warning) => String(warning).includes('BOM已失效'))) {
     return ['BOM已失效：请重新启用 BOM 后再发布豆单', ...warnings]
   }
@@ -1775,6 +1784,30 @@ async function saveBeanListDraft() {
   }
 }
 
+async function saveGreenBeanPriceDraft() {
+  syncPublicationScopeFromPageContext()
+  pdfOptions.value = { ...pdfOptions.value, listType: 'green' }
+  initializePdfDefaultsForType('green')
+  if (!pdfGroups.value.length) return
+  if (!customerScopeReady.value) {
+    error.value = '请选择客户'
+    return
+  }
+  beanListPublishing.value = true
+  error.value = ''
+  message.value = ''
+  try {
+    const row = await apiSend('/api/costing/bean-list/drafts', { body: beanListPublicationPayload() })
+    message.value = `已保存生豆价格草稿 ${row.version}，可继续在生成豆单中发布`
+    await loadBeanListPublications('green', publicationScope.value)
+    await loadBeanListPublications('green', versionListScope.value)
+  } catch (err) {
+    error.value = err.message || '保存生豆价格失败'
+  } finally {
+    beanListPublishing.value = false
+  }
+}
+
 function beanListPublicationPayload() {
   const listType = pdfTheme.value.listType
   return {
@@ -1873,6 +1906,8 @@ onBeforeUnmount(() => {
 .section-toggle span:first-child { display: grid; gap: 3px; min-width: 0; }
 .section-toggle b { font-size: 15px; line-height: 1.25; }
 .section-toggle small { color: #666; font-size: 12px; line-height: 1.25; }
+.green-price-save-bar { display: flex; align-items: center; justify-content: space-between; gap: 10px; border: 1px solid #e7edf3; border-radius: 8px; background: #f7fbff; padding: 8px 10px; }
+.green-price-save-bar p { margin: 0; line-height: 1.45; }
 .bean-list-version-panel { display: grid; gap: 12px; }
 .bean-list-version-head { align-items: flex-start; }
 .bean-list-version-head p { margin: 4px 0 0; line-height: 1.45; }
