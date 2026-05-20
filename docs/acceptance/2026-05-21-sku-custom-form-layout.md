@@ -12,9 +12,9 @@
 ## 证据
 - TDD RED：`node --test src/lib/product-settings.test.js` 曾失败于 `SKU settings renders the customer-only SKU form as a full-width workspace`，证明旧 CSS 未满足全宽布局要求。
 - TDD GREEN：`node --test src/lib/product-settings.test.js` 通过 21/21。
-- 前端单元测试：`node --test src/lib/*.test.js src/api/*.test.js` 通过 236/236。
+- 前端单元测试：`node --test src/lib/*.test.js src/api/*.test.js` 通过 241/241；合入最新 `origin/develop` 后复跑仍通过。
 - API 级测试：`go test ./internal/interfaces/http/catalog -run ProductSettings -count=1 -v` 通过产品设置 API 全部用例。
-- 全量 Go 测试：`go test ./...` 通过。
-- 构建：`npm run build` 通过；仅保留 Vite 既有 chunk size warning。
+- 全量 Go 测试：`go test ./...` 通过；合入最新 `origin/develop` 后复跑仍通过。
+- 构建：`npm run build` 通过；合入最新 `origin/develop` 后复跑仍通过，仅保留 Vite 既有 chunk size warning。
 - 空白检查：`git diff --check` 通过。
 - 浏览器验证：本地 mock Vue shell 打开 `/vue-shell/?view=productSettings`，选择“岩师傅”后检测 `.custom-product-panel` 与 `.settings-grid` 等宽，桌面宽度下 `formColumns=227px 227px 227px 227px`、`overflowing=[]`；1000px viewport 下 `formColumns=324px 324px`、`overflowing=0`；800px viewport 下 `overflowing=0`。

@@ -21,12 +21,16 @@ func RegisterRoutes(e *echo.Echo, pool *pgxpool.Pool, schema string, deps ...Dep
 	registerRequirementPages(e, pool, schema)
 	registerRequirementAPIs(e, pool, schema)
 	registerMobileAuthAPI(e, pool, schema, d.Authz)
+	registerUISettingsAPI(e, newPGUISettingsStore(pool, schema), d.Authz)
 	registerCoreRoutes(e, pool, schema)
 	registerDocsRoutes(e)
 }
 
 func EnsureSchema(ctx context.Context, pool *pgxpool.Pool, schema string) error {
 	if err := EnsureAuditTables(ctx, pool, schema); err != nil {
+		return err
+	}
+	if err := ensureAppConfigTable(ctx, pool, schema); err != nil {
 		return err
 	}
 	if err := ensureReqTables(ctx, pool, schema); err != nil {
