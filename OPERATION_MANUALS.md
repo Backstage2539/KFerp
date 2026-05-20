@@ -12,6 +12,7 @@
 
 ## 当前手册
 - 手册入口必须直接放在对应大功能菜单内，不单独建立“手册”或“文档”菜单。
+- `OP_MANUAL_WORKSPACE_MODE.md`：工厂总览 / 客户账户两种页面排布、全局客户上下文和页面复用规则。
 - `OP_MANUAL_REQUIREMENTS.md`：需求管理 5 张表和证据闭环。
 - `OP_MANUAL_ORDER_SALES.md`：录单、订单列表、客户档案、销售单、合同盖章和出库单。
 - `OP_MANUAL_PRODUCTION.md`：生产计划、生产中、工单、工序卡、生产成本、生产日志、分配批次。

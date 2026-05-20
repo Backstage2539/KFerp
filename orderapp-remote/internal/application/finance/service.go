@@ -61,6 +61,7 @@ type CreateExpenseCommand struct {
 type ExpenseFilter struct {
 	Month      string `json:"month"`
 	EmployeeID int64  `json:"employee_id,omitempty"`
+	CustomerID int64  `json:"customer_id,omitempty"`
 }
 
 type ExpenseEmployee struct {
@@ -820,6 +821,9 @@ func normalizeExpenseFilter(filter ExpenseFilter) (ExpenseFilter, error) {
 	}
 	if filter.EmployeeID < 0 {
 		return ExpenseFilter{}, fmt.Errorf("invalid employee_id")
+	}
+	if filter.CustomerID < 0 {
+		return ExpenseFilter{}, fmt.Errorf("invalid customer_id")
 	}
 	return filter, nil
 }

@@ -3,7 +3,7 @@
     <section class="panel head">
       <div>
         <h2>费用管理</h2>
-        <p>{{ month }} · 期间费用与主营成本补录</p>
+        <p>{{ month }} · {{ customerContextText }}期间费用与主营成本补录</p>
       </div>
       <div class="toolbar">
         <input v-model="month" type="month" @change="load" />
@@ -157,6 +157,12 @@ import { createFinanceExpense, fetchFinanceExpenses } from '../api/finance.js'
 import { expenseCategoryOptions, expensePaymentOptions, filterExpenseOptions } from '../lib/finance-expense-options.js'
 import { currentMonth, money, monthFromDate } from '../lib/finance.js'
 
+const props = defineProps({
+  workspaceMode: { type: String, default: '' },
+  customerContextId: { type: [Number, String], default: 0 },
+  customerContextLabel: { type: String, default: '' },
+})
+
 const month = ref(currentMonth())
 const rows = ref([])
 const employees = ref([])
@@ -183,6 +189,11 @@ const form = reactive({
 const activeEmployees = computed(() => employees.value.filter((employee) => employee.active !== false))
 const filteredExpenseCategoryOptions = computed(() => filterExpenseOptions(expenseCategoryOptions, form.category))
 const filteredExpensePaymentOptions = computed(() => filterExpenseOptions(expensePaymentOptions, form.payment))
+const contextCustomerID = computed(() => Number(props.customerContextId || 0))
+const customerContextText = computed(() => {
+  if (!contextCustomerID.value) return ''
+  return `${props.customerContextLabel || `客户#${contextCustomerID.value}`} · `
+})
 
 function allocationLabel(value) {
   return value === 'main_cost' ? '主营成本' : '期间费用'
@@ -200,7 +211,7 @@ function resetForm() {
   form.allocation = 'period_expense'
   form.employee_id = 0
   form.order_id = ''
-  form.customer_id = ''
+  form.customer_id = contextCustomerID.value ? String(contextCustomerID.value) : ''
   form.product_id = ''
   form.batch_no = ''
   form.dimension_note = ''
@@ -217,7 +228,7 @@ async function load() {
   loading.value = true
   error.value = ''
   try {
-    const data = await fetchFinanceExpenses(month.value, employeeFilter.value)
+    const data = await fetchFinanceExpenses(month.value, employeeFilter.value, contextCustomerID.value)
     rows.value = data.rows || []
   } catch (err) {
     error.value = err.message || '加载失败'
@@ -279,7 +290,13 @@ function syncMonthFromDate() {
 
 watch(() => form.date, syncMonthFromDate)
 
+watch(() => props.customerContextId, async () => {
+  if (contextCustomerID.value > 0) form.customer_id = String(contextCustomerID.value)
+  await load()
+})
+
 onMounted(async () => {
+  if (contextCustomerID.value > 0) form.customer_id = String(contextCustomerID.value)
   await loadEmployees()
   await load()
 })

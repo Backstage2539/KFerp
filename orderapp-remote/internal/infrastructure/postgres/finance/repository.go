@@ -268,9 +268,15 @@ func (r Repository) ensureExpenseDimensionRefExists(ctx context.Context, table s
 func (r Repository) ListExpenses(ctx context.Context, filter appfinance.ExpenseFilter) ([]appfinance.Expense, error) {
 	where := "WHERE fe.month=$1"
 	args := []any{filter.Month}
+	argn := 2
 	if filter.EmployeeID > 0 {
-		where += " AND fe.employee_id=$2"
+		where += fmt.Sprintf(" AND fe.employee_id=$%d", argn)
 		args = append(args, filter.EmployeeID)
+		argn++
+	}
+	if filter.CustomerID > 0 {
+		where += fmt.Sprintf(" AND fe.customer_id=$%d", argn)
+		args = append(args, filter.CustomerID)
 	}
 	rows, err := r.pool.Query(ctx, fmt.Sprintf(`
 		SELECT fe.id,to_char(fe.expense_date,'YYYY-MM-DD'),fe.month,fe.category,fe.amount::float8,fe.allocation,

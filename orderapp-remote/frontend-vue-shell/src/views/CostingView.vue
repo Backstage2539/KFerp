@@ -773,8 +773,10 @@ import {
   buildPriceExplanationRequest,
   gradientDisplayUnitLabel,
 } from '../lib/gradient-templates'
+import { CUSTOMER_WORKSPACE_MODE, workspaceCustomerChangeEvent } from '../lib/workspace-mode'
 
 const props = defineProps({
+  workspaceMode: { type: String, default: '' },
   customerContextId: { type: [Number, String], default: 0 },
   customerContextLabel: { type: String, default: '' },
 })
@@ -951,6 +953,7 @@ watch(selectedBeanListCustomerID, () => {
   if (publicationScope.value === 'customer' && selectedBeanListCustomerID.value) {
     loadBeanListPublications(pdfTheme.value.listType, 'customer')
   }
+  notifyWorkspaceCustomerChanged(selectedBeanListCustomerID.value)
 })
 
 watch(isBeanListAdmin, (canPublish) => {
@@ -974,6 +977,12 @@ function syncPublicationScopeFromPageContext() {
   if (publicationScope.value === 'customer') {
     loadBeanListPublications(pdfTheme.value.listType, 'customer')
   }
+}
+
+function notifyWorkspaceCustomerChanged(customerID) {
+  if (props.workspaceMode !== CUSTOMER_WORKSPACE_MODE || Number(customerID || 0) <= 0) return
+  if (Number(customerID || 0) === Number(props.customerContextId || 0)) return
+  window.dispatchEvent(workspaceCustomerChangeEvent(customerID))
 }
 
 function tierPriceValue(tier) {

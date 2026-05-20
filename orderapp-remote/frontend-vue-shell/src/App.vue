@@ -33,6 +33,31 @@
       <header class="top" :class="{ compact: !showTitle }">
         <button class="toggle" @click="toggleMenu">{{ toggleLabel }}</button>
         <div v-if="showTitle" class="title">{{ title }}</div>
+        <div class="workspace-switcher" role="group" aria-label="工作台模式">
+          <button
+            type="button"
+            :class="{ active: workspaceMode === FACTORY_WORKSPACE_MODE }"
+            @click="setWorkspaceMode(FACTORY_WORKSPACE_MODE)">
+            工厂总览
+          </button>
+          <button
+            type="button"
+            :class="{ active: workspaceMode === CUSTOMER_WORKSPACE_MODE }"
+            @click="setWorkspaceMode(CUSTOMER_WORKSPACE_MODE)">
+            客户账户
+          </button>
+        </div>
+        <label v-if="workspaceMode === CUSTOMER_WORKSPACE_MODE" class="workspace-customer">
+          <span>当前客户</span>
+          <SearchableSelect
+            v-model="workspaceCustomerId"
+            :options="workspaceCustomerOptions"
+            :option-label="customerOptionLabel"
+            :option-meta="customerOptionMeta"
+            :option-value="optionNumericValue"
+            placeholder="选择客户"
+            empty-text="没有匹配客户" />
+        </label>
         <div v-if="actorName" class="actor">{{ actorName }}</div>
         <button v-if="currentActor" class="logout" type="button" @click="logout">退出</button>
       </header>
@@ -46,13 +71,22 @@
       <div v-if="authLoading" class="status">加载中</div>
       <div v-else-if="authError" class="status">{{ authError }}</div>
       <div v-else-if="!isCurrentAllowed" class="status">无权访问</div>
-      <component v-else :is="currentInternalView" class="internal-view" :title="title" :view-key="currentKey" :view-params="currentViewParams" />
+      <component
+        v-else
+        :is="currentInternalView"
+        class="internal-view"
+        :title="title"
+        :view-key="currentKey"
+        :view-params="currentViewParams"
+        :workspace-mode="workspaceMode"
+        :customer-context-id="workspaceCustomerContextId"
+        :customer-context-label="workspaceCustomerLabel" />
     </main>
   </div>
 </template>
 
 <script setup>
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import AllocationLogsView from './views/AllocationLogsView.vue'
 import AuditView from './views/AuditView.vue'
 import BomView from './views/BomView.vue'
@@ -107,10 +141,11 @@ import WipMaterialsView from './views/WipMaterialsView.vue'
 import WarehouseInventoryView from './views/WarehouseInventoryView.vue'
 import WorkOrdersView from './views/WorkOrdersView.vue'
 import { clearStoredAuthToken, fetchCurrentActor, hasStoredAuthToken, logoutCurrentSession } from './api/auth.js'
-import { appURL } from './api/client.js'
+import { apiGet, appURL } from './api/client.js'
 import { fetchERPNotifications, markNotificationRead } from './api/message-center.js'
 import { replaceHistoryURL, viewNavigationURL } from './lib/url-state.js'
 import { installTableAutoPagination } from './lib/table-auto-pagination.js'
+import SearchableSelect from './components/SearchableSelect.vue'
 import {
   defaultExpandedGroups,
   groupForView,
@@ -120,21 +155,37 @@ import {
   toggleExpandedGroup,
 } from './lib/menu-ia.js'
 import { actorHasFullViewAccess, filterMenuGroups, isViewAllowed } from './lib/menu-permissions.js'
+import {
+  CUSTOMER_WORKSPACE_MODE,
+  FACTORY_WORKSPACE_MODE,
+  customerOptionLabel,
+  customerOptionMeta,
+  defaultWorkspaceEntryKey,
+  menuGroupsForWorkspaceMode,
+  normalizeWorkspaceMode,
+  workspaceViewParams,
+} from './lib/workspace-mode.js'
 
 const collapsed = ref(false)
 const viewAliases = { userPermissions: 'employees' }
 function normalizeViewKey(key) {
   return viewAliases[key] || key
 }
-const requestedViewParam = new URL(window.location.href).searchParams.get('view')
+const workspaceModeStorageKey = 'kferp.workspace.mode'
+const workspaceCustomerStorageKey = 'kferp.workspace.customerId'
+const requestedURLParams = new URL(window.location.href).searchParams
+const requestedViewParam = requestedURLParams.get('view')
 const requestedView = normalizeViewKey(requestedViewParam)
 const requestedViewFromUrl = !!requestedViewParam
-const freshLogin = new URL(window.location.href).searchParams.get('fresh_login') === '1'
+const freshLogin = requestedURLParams.get('fresh_login') === '1'
+const workspaceMode = ref(normalizeWorkspaceMode(requestedURLParams.get('workspace') || readStorage(workspaceModeStorageKey)))
+const workspaceCustomerId = ref(Number(requestedURLParams.get('customer_id') || readStorage(workspaceCustomerStorageKey) || 0))
+const workspaceCustomerOptions = ref([])
 const currentKey = ref(requestedView && menuMap[requestedView] ? requestedView : 'order')
-const currentViewParams = ref(readViewParams())
+const currentViewParams = ref(workspaceViewParams(readViewParams(), workspaceContext()))
 const isMobile = ref(false)
 const mobileOpen = ref(false)
-const expandedGroups = ref(defaultExpandedGroups(menuGroups, currentKey.value))
+const expandedGroups = ref(defaultExpandedGroups(menuGroupsForWorkspaceMode(menuGroups, workspaceMode.value), currentKey.value))
 const menuStorageKey = 'kferp.menu.expandedGroups'
 const authLoading = ref(true)
 const authError = ref('')
@@ -204,6 +255,7 @@ const internalViews = {
   customerPortalManual: OperationManualView,
   customerFulfillment: CustomerFulfillmentView,
   customerFulfillmentManual: OperationManualView,
+  workspaceModeManual: OperationManualView,
   customerProcessingPortal: CustomerProcessingPortalView,
   settingsAuditManual: OperationManualView,
   audit: AuditView,
@@ -218,26 +270,81 @@ const internalViews = {
 function readViewParams() {
   const params = new URL(window.location.href).searchParams
   const out = {}
-  for (const key of ['warehouse', 'item_type', 'batch', 'ship_ready', 'scope', 'highlight_order_id']) {
+  for (const key of ['warehouse', 'item_type', 'batch', 'ship_ready', 'scope', 'highlight_order_id', 'customer_id']) {
     const value = params.get(key)
     if (value) out[key] = value
   }
   return out
 }
 
+function readStorage(key) {
+  try {
+    return window.localStorage.getItem(key) || ''
+  } catch {
+    return ''
+  }
+}
+
+function writeStorage(key, value) {
+  try {
+    window.localStorage.setItem(key, String(value || ''))
+  } catch {
+    // Workspace preferences are a convenience; private mode should not block navigation.
+  }
+}
+
+function workspaceContext() {
+  return { mode: workspaceMode.value, customerID: workspaceCustomerId.value }
+}
+
+function optionNumericValue(option) {
+  return Number(option?.id || 0)
+}
+
+function applyWorkspaceToUrl(url) {
+  if (workspaceMode.value === CUSTOMER_WORKSPACE_MODE) {
+    url.searchParams.set('workspace', CUSTOMER_WORKSPACE_MODE)
+    if (workspaceCustomerId.value) {
+      url.searchParams.set('customer_id', String(Number(workspaceCustomerId.value || 0)))
+    } else {
+      url.searchParams.delete('customer_id')
+    }
+    return url
+  }
+  url.searchParams.delete('workspace')
+  url.searchParams.delete('customer_id')
+  return url
+}
+
 function applyKeyToUrl(key, params = {}) {
   const url = new URL(window.location.href)
-  replaceHistoryURL(viewNavigationURL(url, key, params))
+  replaceHistoryURL(applyWorkspaceToUrl(viewNavigationURL(url, key, workspaceViewParams(params, workspaceContext()))))
 }
 
 function open(key, params = {}) {
   if (!menuMap[key]) return
   if (!isViewAllowed(key, allowedViewKeys.value)) return
   currentKey.value = key
-  currentViewParams.value = { ...(params || {}) }
+  currentViewParams.value = workspaceViewParams(params, workspaceContext())
   ensureCurrentGroupOpen(key)
   applyKeyToUrl(key, currentViewParams.value)
   if (isMobile.value) mobileOpen.value = false
+}
+
+function setWorkspaceMode(mode) {
+  const nextMode = normalizeWorkspaceMode(mode)
+  if (workspaceMode.value !== nextMode) {
+    workspaceMode.value = nextMode
+    writeStorage(workspaceModeStorageKey, workspaceMode.value)
+  }
+  expandedGroups.value = defaultExpandedGroups(availableMenuGroups.value, currentKey.value)
+  if (!groupForView(availableMenuGroups.value, currentKey.value)) {
+    const first = firstAllowedMenuKey()
+    if (first) open(first)
+    return
+  }
+  currentViewParams.value = workspaceViewParams(currentViewParams.value, workspaceContext())
+  applyKeyToUrl(currentKey.value, currentViewParams.value)
 }
 
 function persistExpandedGroups() {
@@ -294,6 +401,27 @@ function handleNavigateView(event) {
   }
 }
 
+function handleWorkspaceCustomerChange(event) {
+  const nextCustomerID = Number(event?.detail?.customerID || 0)
+  if (nextCustomerID > 0 && workspaceMode.value === CUSTOMER_WORKSPACE_MODE) {
+    workspaceCustomerId.value = nextCustomerID
+  }
+}
+
+async function loadWorkspaceCustomers() {
+  try {
+    const data = await apiGet('/api/customer-fulfillment/customers?limit=200')
+    workspaceCustomerOptions.value = data.customers || data.items || []
+  } catch {
+    try {
+      const data = await apiGet('/api/customers?limit=200')
+      workspaceCustomerOptions.value = data.customers || data.items || []
+    } catch {
+      workspaceCustomerOptions.value = []
+    }
+  }
+}
+
 async function loadNotifications() {
   if (!currentActor.value || !isViewAllowed('orders', allowedViewKeys.value)) return
   try {
@@ -342,7 +470,7 @@ function notificationToneClass(item) {
 }
 
 function firstAllowedMenuKey() {
-  const primary = availableMenuGroups.value[0]?.items?.[0]?.key
+  const primary = defaultWorkspaceEntryKey(availableMenuGroups.value)
   if (primary) return primary
   if (isViewAllowed('customerProcessingPortal', allowedViewKeys.value)) return 'customerProcessingPortal'
   return ''
@@ -415,14 +543,16 @@ onMounted(async () => {
     readStoredExpandedGroups(),
     currentKey.value,
   )
-  await loadActor()
+  await Promise.all([loadActor(), loadWorkspaceCustomers()])
   window.addEventListener('resize', handleResize)
   window.addEventListener('kferp:navigate-view', handleNavigateView)
+  window.addEventListener('kferp:workspace-customer-change', handleWorkspaceCustomerChange)
 })
 
 onBeforeUnmount(() => {
   window.removeEventListener('resize', handleResize)
   window.removeEventListener('kferp:navigate-view', handleNavigateView)
+  window.removeEventListener('kferp:workspace-customer-change', handleWorkspaceCustomerChange)
   if (stopTableAutoPagination) stopTableAutoPagination()
   stopNotificationPolling()
 })
@@ -439,7 +569,8 @@ const allowedViewKeys = computed(() => {
   if (actorHasFullViewAccess(currentActor.value)) return null
   return Array.isArray(currentActor.value.allowed_views) ? currentActor.value.allowed_views : []
 })
-const availableMenuGroups = computed(() => filterMenuGroups(menuGroups, allowedViewKeys.value))
+const workspaceMenuGroups = computed(() => menuGroupsForWorkspaceMode(menuGroups, workspaceMode.value))
+const availableMenuGroups = computed(() => filterMenuGroups(workspaceMenuGroups.value, allowedViewKeys.value))
 const currentGroupId = computed(() => groupForView(availableMenuGroups.value, currentKey.value)?.id || '')
 const toggleLabel = computed(() => {
   if (isMobile.value) return '弹出菜单'
@@ -450,6 +581,23 @@ const actorName = computed(() => currentActor.value?.name || '')
 const isCurrentAllowed = computed(() => menuMap[currentKey.value] && isViewAllowed(currentKey.value, allowedViewKeys.value))
 const currentInternalView = computed(() => internalViews[currentKey.value] || OrdersView)
 const activeNotification = computed(() => notifications.value[0] || null)
+const workspaceCustomerOption = computed(() => (
+  workspaceCustomerOptions.value.find((item) => Number(item.id) === Number(workspaceCustomerId.value)) || null
+))
+const workspaceCustomerLabel = computed(() => {
+  if (workspaceMode.value !== CUSTOMER_WORKSPACE_MODE) return ''
+  return workspaceCustomerOption.value ? customerOptionLabel(workspaceCustomerOption.value) : (workspaceCustomerId.value ? `客户 #${workspaceCustomerId.value}` : '')
+})
+const workspaceCustomerContextId = computed(() => (
+  workspaceMode.value === CUSTOMER_WORKSPACE_MODE ? Number(workspaceCustomerId.value || 0) : 0
+))
+
+watch(workspaceCustomerId, (next) => {
+  writeStorage(workspaceCustomerStorageKey, Number(next || 0))
+  if (workspaceMode.value !== CUSTOMER_WORKSPACE_MODE) return
+  currentViewParams.value = workspaceViewParams(currentViewParams.value, workspaceContext())
+  applyKeyToUrl(currentKey.value, currentViewParams.value)
+})
 </script>
 
 <style scoped>
@@ -487,9 +635,42 @@ const activeNotification = computed(() => notifications.value[0] || null)
 .menu { width: 100%; min-height: 44px; text-align: left; border: 1px solid #ddd; background: #fff; border-radius: 8px; padding: 11px 12px; cursor: pointer; margin-bottom: 8px; font-size: 15px; line-height: 1.25; }
 .menu.active { border-color: #111; background: #f5f5f5; color: #111; box-shadow: 0 0 0 1px #111 inset; }
 .content { flex: 1; display: flex; flex-direction: column; min-width: 0; }
-.top { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-bottom: 1px solid #eee; }
-.top.compact { gap: 0; }
+.top { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-bottom: 1px solid #eee; flex-wrap: wrap; }
+.top.compact { gap: 8px; }
 .title { font-weight: 600; }
+.workspace-switcher {
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid #d8d8d8;
+  border-radius: 8px;
+  overflow: hidden;
+  background: #fff;
+}
+.workspace-switcher button {
+  min-height: 32px;
+  border: 0;
+  border-right: 1px solid #d8d8d8;
+  background: #fff;
+  padding: 6px 10px;
+  font-size: 13px;
+  line-height: 1.2;
+  cursor: pointer;
+  color: #333;
+}
+.workspace-switcher button:last-child { border-right: 0; }
+.workspace-switcher button.active { background: #111; color: #fff; }
+.workspace-customer {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: min(320px, 100%);
+  color: #555;
+  font-size: 13px;
+}
+.workspace-customer span { white-space: nowrap; }
+.workspace-customer :deep(.searchable-select) { flex: 1; min-width: 180px; }
+.workspace-customer :deep(.select-control input) { min-height: 32px; padding: 6px 8px; }
+.workspace-customer :deep(.select-toggle) { min-height: 32px; }
 .actor { margin-left: auto; color: #666; font-size: 13px; }
 .logout { margin-left: auto; border: 1px solid #d8d8d8; background: #fff; border-radius: 8px; padding: 6px 10px; cursor: pointer; color: #333; }
 .actor + .logout { margin-left: 0; }

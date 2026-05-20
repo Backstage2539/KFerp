@@ -82,7 +82,7 @@ func TestFinanceExpenseAndClosingAPI(t *testing.T) {
 		t.Fatalf("expense status=%d body=%s", rec.Code, rec.Body.String())
 	}
 
-	req = httptest.NewRequest(http.MethodGet, "/api/finance/expenses?month=2026-05&employee_id=7", nil)
+	req = httptest.NewRequest(http.MethodGet, "/api/finance/expenses?month=2026-05&employee_id=7&customer_id=18", nil)
 	rec = httptest.NewRecorder()
 	e.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"employee_name":"小王"`) {
@@ -90,6 +90,9 @@ func TestFinanceExpenseAndClosingAPI(t *testing.T) {
 	}
 	if svc.lastListFilter.EmployeeID != 7 {
 		t.Fatalf("employee filter = %d, want 7", svc.lastListFilter.EmployeeID)
+	}
+	if svc.lastListFilter.CustomerID != 18 {
+		t.Fatalf("customer filter = %d, want 18", svc.lastListFilter.CustomerID)
 	}
 
 	req = httptest.NewRequest(http.MethodPost, "/api/finance/reports/2026-05/close", nil)

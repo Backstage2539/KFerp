@@ -649,6 +649,13 @@ import {
   skuTypeOptions,
 } from '../lib/product-settings'
 import { normalizePageSize } from '../lib/pagination'
+import { CUSTOMER_WORKSPACE_MODE, workspaceCustomerChangeEvent } from '../lib/workspace-mode'
+
+const props = defineProps({
+  workspaceMode: { type: String, default: '' },
+  customerContextId: { type: [Number, String], default: 0 },
+  customerContextLabel: { type: String, default: '' },
+})
 
 const categories = ref([])
 const products = ref([])
@@ -924,6 +931,7 @@ async function loadAll() {
     }))
     customers.value = customerSkuCustomerOptions(customerData)
     syncSelectedCustomerSkuCustomer()
+    applyWorkspaceCustomerContext()
     pruneSelectedProducts(displaySkuRows.value)
   } catch (err) {
     error.value = err.message || '加载失败'
@@ -1224,6 +1232,19 @@ function syncSelectedCustomerSkuCustomer() {
   if (!customers.value.some((customer) => Number(customer.id || 0) === Number(selectedCustomerSkuCustomerID.value))) {
     selectedCustomerSkuCustomerID.value = 0
   }
+}
+
+function applyWorkspaceCustomerContext() {
+  const customerID = Number(props.customerContextId || 0)
+  if (customerID > 0 && Number(selectedCustomerSkuCustomerID.value || 0) !== customerID) {
+    selectedCustomerSkuCustomerID.value = customerID
+  }
+}
+
+function notifyWorkspaceCustomerChanged(customerID) {
+  if (props.workspaceMode !== CUSTOMER_WORKSPACE_MODE || Number(customerID || 0) <= 0) return
+  if (Number(customerID || 0) === Number(props.customerContextId || 0)) return
+  window.dispatchEvent(workspaceCustomerChangeEvent(customerID))
 }
 
 function isProductSelected(row) {
@@ -1883,12 +1904,15 @@ async function deactivateProducts(productIds) {
   }
 }
 
-watch(selectedCustomerSkuCustomerID, () => {
+watch(selectedCustomerSkuCustomerID, (customerID) => {
   customForm.value = { ...customForm.value, customer_id: Number(selectedCustomerSkuCustomerID.value || 0), name: '', remark: '' }
   skuFilters.value = defaultSkuFilters()
   skuPage.value = 1
   pruneSelectedProducts(displaySkuRows.value)
+  notifyWorkspaceCustomerChanged(customerID)
 })
+
+watch(() => props.customerContextId, applyWorkspaceCustomerContext, { immediate: true })
 
 watch(() => customForm.value.base_product_id, () => {
   if (customForm.value.product_kind === 'green_bean') return

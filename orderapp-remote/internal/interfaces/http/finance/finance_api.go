@@ -222,6 +222,13 @@ func expenseFilterFromRequest(c echo.Context) (appfinance.ExpenseFilter, error) 
 		}
 		filter.EmployeeID = id
 	}
+	if value := strings.TrimSpace(c.QueryParam("customer_id")); value != "" {
+		id, err := strconv.ParseInt(value, 10, 64)
+		if err != nil || id < 0 {
+			return appfinance.ExpenseFilter{}, fmt.Errorf("invalid customer_id")
+		}
+		filter.CustomerID = id
+	}
 	return filter, nil
 }
 

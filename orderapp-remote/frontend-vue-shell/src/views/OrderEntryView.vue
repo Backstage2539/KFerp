@@ -405,11 +405,15 @@ import {
 } from '../lib/order-entry'
 import { parseRecipientText } from '../lib/customer-recipient'
 import { dripUnitOptions, isDripProduct } from '../lib/drip-product'
+import { CUSTOMER_WORKSPACE_MODE, workspaceCustomerChangeEvent } from '../lib/workspace-mode'
 
 const props = defineProps({
   editId: { type: [Number, String], default: 0 },
   copyId: { type: [Number, String], default: 0 },
   embedded: { type: Boolean, default: false },
+  workspaceMode: { type: String, default: '' },
+  customerContextId: { type: [Number, String], default: 0 },
+  customerContextLabel: { type: String, default: '' },
 })
 
 const emit = defineEmits(['close', 'saved'])
@@ -572,6 +576,7 @@ function chooseCustomer(item) {
     form.order_type_id = Number(item.default_order_type_id)
     syncRowsForType()
   }
+  notifyWorkspaceCustomerChanged(form.customer_id)
 }
 
 function beanListVersionLabel(item) {
@@ -922,6 +927,25 @@ function applyDefaultSelections(data) {
   form.order_date = data.today || form.order_date
 }
 
+function applyCustomerContextToNewOrder() {
+  const customerID = Number(props.customerContextId || 0)
+  if (customerID <= 0 || form.edit_id || copyMode.value) return
+  const customer = customers.value.find((item) => Number(item.id || 0) === customerID)
+  if (customer) {
+    chooseCustomer(customer)
+    return
+  }
+  form.customer_id = customerID
+  customerQuery.value = props.customerContextLabel || `客户 #${customerID}`
+  syncBeanListVersionForCustomer({ force: true })
+}
+
+function notifyWorkspaceCustomerChanged(customerID) {
+  if (props.workspaceMode !== CUSTOMER_WORKSPACE_MODE || Number(customerID || 0) <= 0) return
+  if (Number(customerID || 0) === Number(props.customerContextId || 0)) return
+  window.dispatchEvent(workspaceCustomerChangeEvent(customerID))
+}
+
 function applyEditData(data) {
   if (!data) return
   const editItems = Array.isArray(data.items) ? data.items : []
@@ -1016,6 +1040,8 @@ async function load() {
   ok.value = ''
   try {
     const url = new URL('/api/order/form', window.location.origin)
+    const contextCustomerID = Number(props.customerContextId || 0)
+    if (contextCustomerID > 0) url.searchParams.set('customer_id', String(contextCustomerID))
     const propCopyID = Number(props.copyId || 0)
     const urlCopyID = new URL(window.location.href).searchParams.get('copy_id')
     const copyID = propCopyID > 0 ? String(propCopyID) : urlCopyID
@@ -1048,6 +1074,7 @@ async function load() {
       applyEditData(editData)
       syncBeanListVersionForCustomer({ force: !!copyID })
     } else {
+      applyCustomerContextToNewOrder()
       syncBeanListVersionForCustomer({ force: true })
     }
   } catch (err) {
@@ -1124,6 +1151,11 @@ watch(
     if (!props.embedded || Number(next || 0) === Number(prev || 0)) return
     load()
   },
+)
+
+watch(
+  () => props.customerContextId,
+  () => applyCustomerContextToNewOrder(),
 )
 
 watch(

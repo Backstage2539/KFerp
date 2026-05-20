@@ -259,6 +259,13 @@ import SearchableSelect from '../components/SearchableSelect.vue'
 import { bomContextCustomerIDs, filterBomContextProducts } from '../lib/bom'
 import { componentTypeLabel, isDripProduct } from '../lib/drip-product'
 import { replaceHistoryURL } from '../lib/url-state'
+import { CUSTOMER_WORKSPACE_MODE, workspaceCustomerChangeEvent } from '../lib/workspace-mode'
+
+const props = defineProps({
+  workspaceMode: { type: String, default: '' },
+  customerContextId: { type: [Number, String], default: 0 },
+  customerContextLabel: { type: String, default: '' },
+})
 
 const rows = ref([])
 const products = ref([])
@@ -441,9 +448,24 @@ function syncBomContextFromUrlProduct() {
 
 function syncSelectedBomCustomerSkuCustomer() {
   if (!selectedBomCustomerSkuCustomerID.value) return
-  if (!customBomProductCustomerIDs.value.has(Number(selectedBomCustomerSkuCustomerID.value))) {
+  const selectedCustomerID = Number(selectedBomCustomerSkuCustomerID.value)
+  const existsInCustomerMaster = customers.value.some((customer) => Number(customer.id || 0) === selectedCustomerID)
+  if (!existsInCustomerMaster && !customBomProductCustomerIDs.value.has(selectedCustomerID)) {
     selectedBomCustomerSkuCustomerID.value = 0
   }
+}
+
+function applyWorkspaceCustomerContext() {
+  const customerID = Number(props.customerContextId || 0)
+  if (customerID > 0 && Number(selectedBomCustomerSkuCustomerID.value || 0) !== customerID) {
+    selectedBomCustomerSkuCustomerID.value = customerID
+  }
+}
+
+function notifyWorkspaceCustomerChanged(customerID) {
+  if (props.workspaceMode !== CUSTOMER_WORKSPACE_MODE || Number(customerID || 0) <= 0) return
+  if (Number(customerID || 0) === Number(props.customerContextId || 0)) return
+  window.dispatchEvent(workspaceCustomerChangeEvent(customerID))
 }
 
 function clearSelectedProduct() {
@@ -494,6 +516,7 @@ async function loadAll() {
     mappings.value = mappingData || []
     customers.value = (customerData.rows || []).filter((row) => row.active !== false)
     syncBomContextFromUrlProduct()
+    applyWorkspaceCustomerContext()
     syncSelectedBomCustomerSkuCustomer()
     if (syncSelectedProductToBomContext()) await loadDetail(selectedProductId.value)
   } catch (err) {
@@ -654,9 +677,12 @@ onMounted(() => {
   loadAll()
 })
 
-watch(selectedBomCustomerSkuCustomerID, () => {
+watch(selectedBomCustomerSkuCustomerID, (customerID) => {
   syncSelectedProductToBomContext()
+  notifyWorkspaceCustomerChanged(customerID)
 })
+
+watch(() => props.customerContextId, applyWorkspaceCustomerContext, { immediate: true })
 
 watch(selectedProductId, () => {
   if (itemForm.component_type === 'finished_product' && isDripProduct(selectedProduct.value)) {
