@@ -138,6 +138,7 @@ import StockBatchesView from './views/StockBatchesView.vue'
 import StockLedgerView from './views/StockLedgerView.vue'
 import StockOperationsView from './views/StockOperationsView.vue'
 import StockOutboundLogsView from './views/StockOutboundLogsView.vue'
+import UISettingsView from './views/UISettingsView.vue'
 import WipMaterialsView from './views/WipMaterialsView.vue'
 import WarehouseInventoryView from './views/WarehouseInventoryView.vue'
 import WorkOrdersView from './views/WorkOrdersView.vue'
@@ -145,6 +146,7 @@ import { clearStoredAuthToken, fetchCurrentActor, hasStoredAuthToken, logoutCurr
 import { apiGet, appURL } from './api/client.js'
 import { fetchCustomerProcessingPortalOverview } from './api/customer-fulfillment.js'
 import { fetchERPNotifications, markNotificationRead } from './api/message-center.js'
+import { fetchUISettings } from './api/ui-settings.js'
 import { replaceHistoryURL, viewNavigationURL } from './lib/url-state.js'
 import { installTableAutoPagination } from './lib/table-auto-pagination.js'
 import SearchableSelect from './components/SearchableSelect.vue'
@@ -194,6 +196,7 @@ const authLoading = ref(true)
 const authError = ref('')
 const currentActor = ref(null)
 const customerAccountContext = ref(null)
+const uiSettings = ref({ hide_customer_account_fulfillment: true })
 const notifications = ref([])
 let notificationTimer = 0
 let stopTableAutoPagination = null
@@ -261,6 +264,7 @@ const internalViews = {
   customerFulfillmentManual: OperationManualView,
   workspaceModeManual: OperationManualView,
   customerProcessingPortal: CustomerProcessingPortalView,
+  uiSettings: UISettingsView,
   settingsAuditManual: OperationManualView,
   audit: AuditView,
   reqProduct: RequirementsView,
@@ -475,6 +479,17 @@ async function loadNotifications() {
   }
 }
 
+async function loadUISettings() {
+  try {
+    const data = await fetchUISettings()
+    uiSettings.value = {
+      hide_customer_account_fulfillment: data?.settings?.hide_customer_account_fulfillment !== false,
+    }
+  } catch {
+    uiSettings.value = { hide_customer_account_fulfillment: true }
+  }
+}
+
 function startNotificationPolling() {
   stopNotificationPolling()
   loadNotifications()
@@ -536,6 +551,7 @@ async function loadActor() {
   }
   try {
     currentActor.value = await fetchCurrentActor()
+    await loadUISettings()
     if (isCustomerAccountActor(currentActor.value)) {
       workspaceMode.value = CUSTOMER_WORKSPACE_MODE
       await loadCustomerAccountContext()
@@ -629,7 +645,10 @@ const isCustomerActor = computed(() => isCustomerAccountActor(currentActor.value
 const showWorkspaceSwitcher = computed(() => Boolean(currentActor.value) && !isCustomerActor.value)
 const showWorkspaceCustomerSelector = computed(() => workspaceMode.value === CUSTOMER_WORKSPACE_MODE && !isCustomerActor.value)
 const workspaceMenuGroups = computed(() => (isCustomerActor.value ? customerAccountActorMenuGroups : menuGroupsForWorkspaceMode(menuGroups, workspaceMode.value)))
-const availableMenuGroups = computed(() => filterMenuGroups(workspaceMenuGroups.value, allowedViewKeys.value))
+const availableMenuGroups = computed(() => filterMenuGroups(workspaceMenuGroups.value, allowedViewKeys.value, {
+  actor: currentActor.value,
+  hideCustomerAccountFulfillment: uiSettings.value.hide_customer_account_fulfillment,
+}))
 const currentGroupId = computed(() => groupForView(availableMenuGroups.value, currentKey.value)?.id || '')
 const toggleLabel = computed(() => {
   if (isMobile.value) return '弹出菜单'

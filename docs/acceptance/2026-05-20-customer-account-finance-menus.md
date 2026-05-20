@@ -1,7 +1,7 @@
 # 客户账号费用菜单验收记录
 
 ## 范围
-- PR-300-CUSTOMER-ACCOUNT-FINANCE-MENUS
+- PR-303-CUSTOMER-ACCOUNT-FINANCE-MENUS
 - 分支：`codex/customer-account-workspace-20260520`
 
 ## 验收点

@@ -149,6 +149,12 @@ func requiredPermissionForRequest(method, path string) string {
 	if strings.HasPrefix(path, "/api/audit") {
 		return "audit.read"
 	}
+	if strings.HasPrefix(path, "/api/ui-settings") {
+		if method == http.MethodGet {
+			return ""
+		}
+		return "settings.write"
+	}
 	if path == "/api/company/profile" {
 		return "settings.write"
 	}

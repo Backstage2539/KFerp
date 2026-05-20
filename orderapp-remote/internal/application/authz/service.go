@@ -18,6 +18,7 @@ type Role struct {
 type Actor struct {
 	EmployeeID      int64             `json:"employee_id"`
 	Name            string            `json:"name"`
+	AccountType     string            `json:"account_type"`
 	Roles           []Role            `json:"roles"`
 	Permissions     []string          `json:"permissions"`
 	ViewPermissions map[string]string `json:"-"`
@@ -150,6 +151,10 @@ func (s *Service) ListEmployeeRoles(ctx context.Context) (map[int64][]string, er
 
 func normalizeActor(actor Actor) Actor {
 	actor.Name = strings.TrimSpace(actor.Name)
+	actor.AccountType = strings.TrimSpace(actor.AccountType)
+	if actor.AccountType == "" {
+		actor.AccountType = "internal_employee"
+	}
 	permissions := map[string]bool{}
 	for i := range actor.Roles {
 		actor.Roles[i].Code = strings.ToLower(strings.TrimSpace(actor.Roles[i].Code))

@@ -204,6 +204,7 @@ func defaultViewPermissions() map[string]string {
 		"salesOrderSettings":          "settings.write",
 		"senderSettings":              "settings.write",
 		"outsourceSettings":           "settings.write",
+		"uiSettings":                  "settings.write",
 		"notificationSettings":        "settings.write",
 		"notificationManual":          "settings.write",
 		"customerCapabilityTemplates": "customers.write",
