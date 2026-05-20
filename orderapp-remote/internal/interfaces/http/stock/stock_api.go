@@ -131,11 +131,12 @@ func registerStockAPI(e *echo.Echo, stockSvc *stockapp.Service) {
 		limit := stockLimit(c)
 		offset := stockOffsetForLimit(c, limit)
 		result, err := stockSvc.ListWarehouseInventory(c.Request().Context(), stockapp.WarehouseInventoryQuery{
-			Q:         strings.TrimSpace(c.QueryParam("q")),
-			Warehouse: strings.TrimSpace(c.QueryParam("warehouse")),
-			ItemType:  strings.TrimSpace(c.QueryParam("item_type")),
-			Limit:     limit,
-			Offset:    offset,
+			Q:          strings.TrimSpace(c.QueryParam("q")),
+			Warehouse:  strings.TrimSpace(c.QueryParam("warehouse")),
+			ItemType:   strings.TrimSpace(c.QueryParam("item_type")),
+			CustomerID: int64(support.IntParam(c, "customer_id", 0)),
+			Limit:      limit,
+			Offset:     offset,
 		})
 		if err != nil {
 			return c.JSON(http.StatusInternalServerError, errorResponse{Error: err.Error()})

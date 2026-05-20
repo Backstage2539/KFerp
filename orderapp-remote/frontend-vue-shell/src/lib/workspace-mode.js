@@ -13,16 +13,14 @@ const customerWorkspaceSpec = [
     keys: ['productSettings', 'costing', 'bom', 'mallSettings'],
   },
   {
-    id: 'customerPortal',
-    name: '门户与能力',
-    keys: ['customerPortalSettings', 'customerCapabilityTemplates', 'customerFulfillmentManual', 'customerPortalManual'],
-  },
-  {
     id: 'customerFinance',
     name: '客户财务',
-    keys: ['financeExpenses', 'financeClosing', 'financeReport'],
+    keys: ['financeExpenses'],
   },
 ]
+
+const factoryHiddenKeys = new Set(['customerFulfillment'])
+const customerActorRoleCodes = new Set(['customer_processing_customer', 'customer_direct_ship_customer'])
 
 export function normalizeWorkspaceMode(value) {
   return value === CUSTOMER_WORKSPACE_MODE ? CUSTOMER_WORKSPACE_MODE : FACTORY_WORKSPACE_MODE
@@ -37,7 +35,14 @@ function itemByKey(groups, key) {
 }
 
 export function menuGroupsForWorkspaceMode(groups, mode = FACTORY_WORKSPACE_MODE) {
-  if (normalizeWorkspaceMode(mode) !== CUSTOMER_WORKSPACE_MODE) return groups || []
+  if (normalizeWorkspaceMode(mode) !== CUSTOMER_WORKSPACE_MODE) {
+    return (groups || [])
+      .map((group) => ({
+        ...group,
+        items: (group.items || []).filter((item) => !factoryHiddenKeys.has(item.key)),
+      }))
+      .filter((group) => group.items.length > 0)
+  }
   return customerWorkspaceSpec
     .map((group) => ({
       id: group.id,
@@ -75,4 +80,13 @@ export function workspaceCustomerChangeEvent(customerID) {
   return new CustomEvent('kferp:workspace-customer-change', {
     detail: { customerID: Number(customerID || 0) },
   })
+}
+
+export function isCustomerAccountActor(actor = {}) {
+  if (!actor || actor.basic_auth_admin) return false
+  const roles = Array.isArray(actor.roles) ? actor.roles : []
+  if (roles.some((role) => String(role?.code || '').trim().toLowerCase() === 'admin')) return false
+  if (roles.some((role) => customerActorRoleCodes.has(String(role?.code || '').trim().toLowerCase()))) return true
+  const allowedViews = Array.isArray(actor.allowed_views) ? actor.allowed_views : []
+  return allowedViews.length === 1 && allowedViews[0] === 'customerProcessingPortal'
 }

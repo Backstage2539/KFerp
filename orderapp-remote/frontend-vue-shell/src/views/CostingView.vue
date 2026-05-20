@@ -30,7 +30,7 @@
           <span>豆单范围</span>
           <strong>{{ publicationScopeLabel(versionListScope) }}</strong>
         </div>
-        <label class="scope-select">
+        <label v-if="!isWorkspaceCustomerLocked" class="scope-select">
           <select v-model="versionListScope" aria-label="豆单范围">
             <option value="official">公共豆单</option>
             <option v-for="customer in customers" :key="`version-scope-${customer.id}`" :value="`customer:${customer.id}`">
@@ -38,6 +38,7 @@
             </option>
           </select>
         </label>
+        <div v-else class="scope-select locked-scope">{{ publicationScopeLabel(versionListScope) }}</div>
       </div>
     </section>
 
@@ -847,6 +848,7 @@ const pdfOptions = ref({
 })
 
 const normalizedCustomerContextID = computed(() => Number(props.customerContextId || 0))
+const isWorkspaceCustomerLocked = computed(() => props.workspaceMode === CUSTOMER_WORKSPACE_MODE && normalizedCustomerContextID.value > 0)
 const activeBeanListCustomerID = computed(() => normalizedCustomerContextID.value || versionListScopeCustomerID(versionListScope.value) || Number(selectedBeanListCustomerID.value || 0))
 const activeCostingScope = computed(() => {
   return activeBeanListCustomerID.value > 0 ? 'customer' : 'official'
@@ -967,6 +969,7 @@ function syncPublicationScopeFromPageContext() {
   const pageCustomerID = Number(props.customerContextId || 0) || versionListScopeCustomerID(versionListScope.value)
   if (pageCustomerID > 0) {
     selectedBeanListCustomerID.value = pageCustomerID
+    versionListScope.value = `customer:${pageCustomerID}`
     publicationScope.value = 'customer'
   } else {
     selectedBeanListCustomerID.value = 0

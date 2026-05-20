@@ -337,6 +337,7 @@ func (r Repository) ListWarehouseInventory(ctx context.Context, query stockapp.W
 			  AND ($1 = '' OR l.batch_code ILIKE $2 OR m.name ILIKE $2)
 			  AND ($3 = '' OR l.warehouse = $3)
 			  AND ($4 = '' OR $4 = 'material')
+			  AND ($7::bigint = 0)
 			UNION ALL
 			SELECT COALESCE(last_ledger.warehouse,'finished_goods') AS warehouse,
 			       COALESCE(w.name,COALESCE(last_ledger.warehouse,'finished_goods')) AS warehouse_name,
@@ -370,6 +371,7 @@ func (r Repository) ListWarehouseInventory(ctx context.Context, query stockapp.W
 			  AND ($1 = '' OR b.batch_code ILIKE $2 OR p.name ILIKE $2)
 			  AND ($3 = '' OR COALESCE(last_ledger.warehouse,'finished_goods') = $3)
 			  AND ($4 = '' OR $4 = 'finished_product')
+			  AND ($7::bigint = 0 OR COALESCE(p.customer_id,0) = $7::bigint)
 			UNION ALL
 			SELECT fi.warehouse,
 			       COALESCE(w.name,fi.warehouse) AS warehouse_name,
@@ -392,6 +394,7 @@ func (r Repository) ListWarehouseInventory(ctx context.Context, query stockapp.W
 			  AND ($1 = '' OR p.name ILIKE $2)
 			  AND ($3 = '' OR fi.warehouse = $3)
 			  AND ($4 = '' OR $4 = 'finished_product')
+			  AND ($7::bigint = 0 OR COALESCE(p.customer_id,0) = $7::bigint)
 			  AND NOT EXISTS (
 			    SELECT 1
 			    FROM %s.stock_batches b
@@ -407,7 +410,7 @@ func (r Repository) ListWarehouseInventory(ctx context.Context, query stockapp.W
 		FROM warehouse_inventory
 		ORDER BY warehouse_name,item_type,item_name,spec_g,batch_code
 		LIMIT $5 OFFSET $6
-	`, r.schema, r.schema, r.schema, r.schema, r.schema, r.schema, r.schema, r.schema, r.schema, r.schema, r.schema, r.schema), q, qLike, query.Warehouse, query.ItemType, query.Limit+1, query.Offset)
+	`, r.schema, r.schema, r.schema, r.schema, r.schema, r.schema, r.schema, r.schema, r.schema, r.schema, r.schema, r.schema), q, qLike, query.Warehouse, query.ItemType, query.Limit+1, query.Offset, query.CustomerID)
 	if err != nil {
 		return stockapp.WarehouseInventoryResult{}, err
 	}

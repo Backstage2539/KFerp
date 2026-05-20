@@ -20,7 +20,7 @@
             <h3>{{ selectedSkuContextLabel }}</h3>
             <p class="muted">产品列表、商品分类和梯度模板会按当前归属切换。</p>
           </div>
-          <div class="sku-context-controls">
+          <div v-if="!isWorkspaceCustomerLocked" class="sku-context-controls">
             <button class="secondary compact-action" type="button" @click="selectedCustomerSkuCustomerID = 0" :disabled="!selectedCustomerSkuCustomerID">
               公共SKU
             </button>
@@ -34,6 +34,7 @@
               placeholder="选择履约客户"
               empty-text="暂无履约客户" />
           </div>
+          <p v-else class="muted context-lock-note">客户账户模式下由顶部当前客户控制。</p>
         </div>
         <div class="context-stats">
           <span>公共SKU {{ publicSkuRows.length }}</span>
@@ -690,6 +691,7 @@ const customForm = ref(defaultCustomForm())
 const templateForm = ref(defaultGradientTemplateForm())
 
 const skuContextCustomerID = computed(() => Number(selectedCustomerSkuCustomerID.value || 0))
+const isWorkspaceCustomerLocked = computed(() => props.workspaceMode === CUSTOMER_WORKSPACE_MODE && Number(props.customerContextId || 0) > 0)
 const selectedSkuContextLabel = computed(() => {
   const customerID = skuContextCustomerID.value
   if (!customerID) return '公共SKU'

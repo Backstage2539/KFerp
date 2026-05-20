@@ -6,6 +6,7 @@ import {
   CUSTOMER_WORKSPACE_MODE,
   FACTORY_WORKSPACE_MODE,
   defaultWorkspaceEntryKey,
+  isCustomerAccountActor,
   menuGroupsForWorkspaceMode,
   normalizeWorkspaceMode,
   workspaceViewParams,
@@ -13,26 +14,28 @@ import {
 
 test('factory workspace keeps the existing primary ERP menu layout', () => {
   const groups = menuGroupsForWorkspaceMode(menuGroups, FACTORY_WORKSPACE_MODE)
+  const keys = primaryMenuKeys(groups)
 
   assert.equal(groups.length, menuGroups.length)
   assert.deepEqual(groups.map((group) => group.id), menuGroups.map((group) => group.id))
-  assert.equal(defaultWorkspaceEntryKey(groups), 'customerFulfillment')
+  assert.equal(keys.includes('customerFulfillment'), false)
+  assert.equal(keys.includes('customerPortalSettings'), true)
+  assert.equal(keys.includes('customerCapabilityTemplates'), true)
+  assert.equal(defaultWorkspaceEntryKey(groups), 'customerPortalSettings')
 })
 
-test('customer workspace rearranges existing views around one customer account', () => {
+test('customer workspace keeps only customer-facing operations and finance', () => {
   const groups = menuGroupsForWorkspaceMode(menuGroups, CUSTOMER_WORKSPACE_MODE)
   const keys = primaryMenuKeys(groups)
 
   assert.deepEqual(groups.map((group) => group.id), [
     'customerAccount',
     'customerGoods',
-    'customerPortal',
     'customerFinance',
   ])
   assert.deepEqual(groups.map((group) => group.name), [
     '客户账户',
     '客户商品与配方',
-    '门户与能力',
     '客户财务',
   ])
 
@@ -47,20 +50,34 @@ test('customer workspace rearranges existing views around one customer account',
     'costing',
     'bom',
     'mallSettings',
-    'customerPortalSettings',
-    'customerCapabilityTemplates',
     'financeExpenses',
-    'financeClosing',
-    'financeReport',
   ]) {
     assert.ok(keys.includes(key), `${key} should be reachable in customer workspace`)
   }
 
-  for (const key of ['employees', 'departments', 'reqProduct', 'reqDev']) {
+  for (const key of [
+    'customerPortalSettings',
+    'customerCapabilityTemplates',
+    'financeClosing',
+    'financeReport',
+    'employees',
+    'departments',
+    'reqProduct',
+    'reqDev',
+  ]) {
     assert.equal(keys.includes(key), false, `${key} should stay out of the customer workspace`)
   }
 
   assert.equal(defaultWorkspaceEntryKey(groups), 'customerFulfillment')
+})
+
+test('customer login actors are detected from customer-only roles or portal view access', () => {
+  assert.equal(isCustomerAccountActor({ basic_auth_admin: true }), false)
+  assert.equal(isCustomerAccountActor({ roles: [{ code: 'admin' }] }), false)
+  assert.equal(isCustomerAccountActor({ roles: [{ code: 'customer_processing_customer' }] }), true)
+  assert.equal(isCustomerAccountActor({ roles: [{ code: 'customer_direct_ship_customer' }] }), true)
+  assert.equal(isCustomerAccountActor({ allowed_views: ['customerProcessingPortal'] }), true)
+  assert.equal(isCustomerAccountActor({ allowed_views: ['orders', 'customerProcessingPortal'] }), false)
 })
 
 test('customer workspace injects current customer into routed view params', () => {
@@ -88,6 +105,10 @@ test('vue shell wires workspace mode into navigation and routed pages', () => {
 
   for (const marker of [
     'workspace-switcher',
+    'showWorkspaceSwitcher',
+    'isCustomerAccountActor',
+    "return ['customerProcessingPortal']",
+    'customerProcessingPortal',
     'menuGroupsForWorkspaceMode',
     'kferp.workspace.customerId',
     ':customer-context-id="workspaceCustomerContextId"',

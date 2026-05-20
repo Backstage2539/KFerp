@@ -19,6 +19,7 @@ type fakeStockRepo struct {
 	finishedTransfer stockapp.FinishedProductTransferCommand
 	traceQuery       stockapp.StockTraceQuery
 	outboundQuery    stockapp.OutboundLogQuery
+	inventoryQuery   stockapp.WarehouseInventoryQuery
 }
 
 func (f *fakeStockRepo) ListLedger(ctx context.Context, query stockapp.LedgerQuery) (stockapp.LedgerResult, error) {
@@ -37,6 +38,7 @@ func (f *fakeStockRepo) ListMaterialBatchLocations(ctx context.Context, query st
 	return stockapp.MaterialBatchLocationResult{Rows: []stockapp.MaterialBatchLocationRow{{BatchCode: "MB-0000000002", Warehouse: "wip", QtyG: 60000, QualityStatus: "pass"}}}, nil
 }
 func (f *fakeStockRepo) ListWarehouseInventory(ctx context.Context, query stockapp.WarehouseInventoryQuery) (stockapp.WarehouseInventoryResult, error) {
+	f.inventoryQuery = query
 	return stockapp.WarehouseInventoryResult{Rows: []stockapp.WarehouseInventoryRow{
 		{Warehouse: "raw_materials", WarehouseName: "原料仓", ItemType: "material", ItemID: 1, ItemName: "水洗豆", BatchCode: "MB-0000000002", QtyG: 1200, QualityStatus: "pass"},
 		{Warehouse: "finished_goods", WarehouseName: "成品仓", ItemType: "finished_product", ItemID: 9, ItemName: "橘皮乌龙", SpecG: 454, BatchCode: "FP-0000000042", QtyG: 908, QtyUnits: 2, QualityStatus: "reject"},
@@ -148,7 +150,7 @@ func TestStockAPIRoutes(t *testing.T) {
 		t.Fatalf("GET material batch locations status=%d body=%s", rec.Code, rec.Body.String())
 	}
 
-	req = httptest.NewRequest(http.MethodGet, "/api/stock/warehouse-inventory?warehouse=finished_goods", nil)
+	req = httptest.NewRequest(http.MethodGet, "/api/stock/warehouse-inventory?warehouse=finished_goods&customer_id=149", nil)
 	rec = httptest.NewRecorder()
 	e.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
@@ -159,6 +161,9 @@ func TestStockAPIRoutes(t *testing.T) {
 	}
 	if !bytes.Contains(rec.Body.Bytes(), []byte(`"quality_status":"reject"`)) {
 		t.Fatalf("GET warehouse inventory missing quality status: %s", rec.Body.String())
+	}
+	if repo.inventoryQuery.CustomerID != 149 {
+		t.Fatalf("warehouse inventory customer_id = %d, want 149", repo.inventoryQuery.CustomerID)
 	}
 
 	req = httptest.NewRequest(http.MethodGet, "/api/stock/outbound-logs?q=SO-20260503&limit=30", nil)

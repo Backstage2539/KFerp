@@ -33,7 +33,7 @@
       <header class="top" :class="{ compact: !showTitle }">
         <button class="toggle" @click="toggleMenu">{{ toggleLabel }}</button>
         <div v-if="showTitle" class="title">{{ title }}</div>
-        <div class="workspace-switcher" role="group" aria-label="工作台模式">
+        <div v-if="showWorkspaceSwitcher" class="workspace-switcher" role="group" aria-label="工作台模式">
           <button
             type="button"
             :class="{ active: workspaceMode === FACTORY_WORKSPACE_MODE }"
@@ -47,7 +47,7 @@
             客户账户
           </button>
         </div>
-        <label v-if="workspaceMode === CUSTOMER_WORKSPACE_MODE" class="workspace-customer">
+        <label v-if="showWorkspaceCustomerSelector" class="workspace-customer">
           <span>当前客户</span>
           <SearchableSelect
             v-model="workspaceCustomerId"
@@ -161,6 +161,7 @@ import {
   customerOptionLabel,
   customerOptionMeta,
   defaultWorkspaceEntryKey,
+  isCustomerAccountActor,
   menuGroupsForWorkspaceMode,
   normalizeWorkspaceMode,
   workspaceViewParams,
@@ -267,6 +268,14 @@ const internalViews = {
   requirementsManual: OperationManualView,
 }
 
+const customerAccountActorMenuGroups = [
+  {
+    id: 'customerSelf',
+    name: '客户账户',
+    items: [{ key: 'customerProcessingPortal', label: '履约与费用', title: '客户履约与费用' }],
+  },
+]
+
 function readViewParams() {
   const params = new URL(window.location.href).searchParams
   const out = {}
@@ -332,6 +341,11 @@ function open(key, params = {}) {
 }
 
 function setWorkspaceMode(mode) {
+  if (isCustomerActor.value) {
+    workspaceMode.value = CUSTOMER_WORKSPACE_MODE
+    open('customerProcessingPortal')
+    return
+  }
   const nextMode = normalizeWorkspaceMode(mode)
   if (workspaceMode.value !== nextMode) {
     workspaceMode.value = nextMode
@@ -470,6 +484,7 @@ function notificationToneClass(item) {
 }
 
 function firstAllowedMenuKey() {
+  if (isCustomerActor.value) return 'customerProcessingPortal'
   const primary = defaultWorkspaceEntryKey(availableMenuGroups.value)
   if (primary) return primary
   if (isViewAllowed('customerProcessingPortal', allowedViewKeys.value)) return 'customerProcessingPortal'
@@ -492,6 +507,12 @@ async function loadActor() {
   }
   try {
     currentActor.value = await fetchCurrentActor()
+    if (isCustomerAccountActor(currentActor.value)) {
+      workspaceMode.value = CUSTOMER_WORKSPACE_MODE
+      currentKey.value = 'customerProcessingPortal'
+      currentViewParams.value = {}
+      applyKeyToUrl(currentKey.value, currentViewParams.value)
+    }
     expandedGroups.value = freshLogin
       ? defaultExpandedGroups(availableMenuGroups.value, currentKey.value)
       : restoreExpandedGroups(
@@ -566,10 +587,14 @@ const sidebarClass = computed(() => ({
 const showTitle = computed(() => !isMobile.value && !collapsed.value)
 const allowedViewKeys = computed(() => {
   if (!currentActor.value) return []
+  if (isCustomerAccountActor(currentActor.value)) return ['customerProcessingPortal']
   if (actorHasFullViewAccess(currentActor.value)) return null
   return Array.isArray(currentActor.value.allowed_views) ? currentActor.value.allowed_views : []
 })
-const workspaceMenuGroups = computed(() => menuGroupsForWorkspaceMode(menuGroups, workspaceMode.value))
+const isCustomerActor = computed(() => isCustomerAccountActor(currentActor.value))
+const showWorkspaceSwitcher = computed(() => Boolean(currentActor.value) && !isCustomerActor.value)
+const showWorkspaceCustomerSelector = computed(() => workspaceMode.value === CUSTOMER_WORKSPACE_MODE && !isCustomerActor.value)
+const workspaceMenuGroups = computed(() => (isCustomerActor.value ? customerAccountActorMenuGroups : menuGroupsForWorkspaceMode(menuGroups, workspaceMode.value)))
 const availableMenuGroups = computed(() => filterMenuGroups(workspaceMenuGroups.value, allowedViewKeys.value))
 const currentGroupId = computed(() => groupForView(availableMenuGroups.value, currentKey.value)?.id || '')
 const toggleLabel = computed(() => {

@@ -60,10 +60,15 @@
           <span>订单ID</span>
           <input v-model="form.order_id" type="number" min="0" placeholder="可选" />
         </label>
-        <label>
+        <label v-if="!isWorkspaceCustomerLocked">
           <span>客户ID</span>
           <input v-model="form.customer_id" type="number" min="0" placeholder="可选" />
         </label>
+        <div v-else class="locked-dimension">
+          <span>客户</span>
+          <strong>{{ props.customerContextLabel || `客户#${contextCustomerID}` }}</strong>
+          <small>客户账户费用固定为当前客户</small>
+        </div>
         <label>
           <span>商品ID</span>
           <input v-model="form.product_id" type="number" min="0" placeholder="可选" />
@@ -156,6 +161,7 @@ import { apiGet } from '../api/client.js'
 import { createFinanceExpense, fetchFinanceExpenses } from '../api/finance.js'
 import { expenseCategoryOptions, expensePaymentOptions, filterExpenseOptions } from '../lib/finance-expense-options.js'
 import { currentMonth, money, monthFromDate } from '../lib/finance.js'
+import { CUSTOMER_WORKSPACE_MODE } from '../lib/workspace-mode.js'
 
 const props = defineProps({
   workspaceMode: { type: String, default: '' },
@@ -190,6 +196,7 @@ const activeEmployees = computed(() => employees.value.filter((employee) => empl
 const filteredExpenseCategoryOptions = computed(() => filterExpenseOptions(expenseCategoryOptions, form.category))
 const filteredExpensePaymentOptions = computed(() => filterExpenseOptions(expensePaymentOptions, form.payment))
 const contextCustomerID = computed(() => Number(props.customerContextId || 0))
+const isWorkspaceCustomerLocked = computed(() => props.workspaceMode === CUSTOMER_WORKSPACE_MODE && contextCustomerID.value > 0)
 const customerContextText = computed(() => {
   if (!contextCustomerID.value) return ''
   return `${props.customerContextLabel || `客户#${contextCustomerID.value}`} · `
@@ -250,7 +257,7 @@ async function save() {
       allocation: form.allocation,
       employee_id: form.employee_id,
       order_id: Number(form.order_id || 0),
-      customer_id: Number(form.customer_id || 0),
+      customer_id: Number(isWorkspaceCustomerLocked.value ? contextCustomerID.value : form.customer_id || 0),
       product_id: Number(form.product_id || 0),
       batch_no: form.batch_no,
       dimension_note: form.dimension_note,
@@ -324,6 +331,9 @@ th, td { border-bottom: 1px solid #eee; padding: 9px 8px; text-align: left; font
 th { background: #fbfbfb; }
 .empty { text-align: center; color: #666; }
 .muted { color: #777; }
+.locked-dimension { border: 1px solid #e5e7eb; border-radius: 6px; padding: 8px 9px; min-height: 38px; background: #f9fafb; display: grid; gap: 2px; }
+.locked-dimension span, .locked-dimension small { color: #666; font-size: 12px; }
+.locked-dimension strong { font-size: 14px; }
 .error, .ok { border-radius: 6px; padding: 10px; }
 .error { background: #fff0f0; border: 1px solid #e6b7b7; color: #8a1f1f; }
 .ok { background: #f0fff0; border: 1px solid #b7d9b7; color: #246024; }
