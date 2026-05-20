@@ -331,6 +331,87 @@ func TestOrderAPIFormDoesNotReturnBoundRoastedTiersForGreenBeanProduct(t *testin
 	}
 }
 
+func TestOrderAPIFormReturnsPublishedGreenBeanListTiersForGreenBeanProduct(t *testing.T) {
+	pool, schema := newOrderAPITestDB(t)
+	ctx := context.Background()
+	seedOrderAPITestData(t, ctx, pool, schema)
+	mustExecOrderAPITestSQL(t, ctx, pool, fmt.Sprintf(`
+		INSERT INTO %[1]s.products(id,name,default_price,active,product_kind,green_bean_type,green_bean_bom_product_id,customer_id,visibility,custom_type)
+		VALUES (88,'曲奇拼配2.0',0,true,'green_bean','blend',7,3,'customer_only','public_sku_alias');
+		INSERT INTO %[1]s.product_price_tiers(id, product_id, spec_g, min_qty_units, max_qty_units, price_per_unit, active, product_kind)
+		VALUES (8803,88,454,2,13,63,true,'roasted_bean');
+		INSERT INTO %[1]s.bean_list_publications(id, list_type, version_no, status, owner_type, owner_key, config_json, content_json, changelog, actor, published_at)
+		VALUES
+			(9901,'green','G-old','published','customer','3','{}'::jsonb,
+			'{"groups":[{"items":[{"productId":88,"name":"曲奇拼配2.0","green_bean_sale_tiers":[{"label":"旧档","spec_g":1000,"min_qty":1,"price_per_unit":58,"template_id":5,"template_tier_id":49,"display_unit":"kg"}]}]}]}'::jsonb,
+			'旧生豆价','codex','2026-05-18 09:00:00+08'),
+			(9902,'green','G-new','published','customer','3','{}'::jsonb,
+			'{"groups":[{"items":[{"productId":88,"name":"曲奇拼配2.0","green_bean_sale_tiers":[{"label":"1KG","spec_g":1000,"min_qty":1,"max_qty":59,"price_per_unit":63.9,"template_id":5,"template_tier_id":50,"display_unit":"kg"},{"label":"60kG","spec_g":1000,"min_qty":60,"price_per_unit":63.9,"template_id":5,"template_tier_id":51,"display_unit":"kg"}]}]}]}'::jsonb,
+			'新生豆价','codex','2026-05-19 09:00:00+08');
+	`, schema))
+
+	e := newOrderAPITestEcho(pool, schema)
+	req := httptest.NewRequest(http.MethodGet, "/api/order/form?customer_id=3", nil)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET /api/order/form status = %d, want 200, body=%s", rec.Code, rec.Body.String())
+	}
+
+	var resp struct {
+		Products []struct {
+			ID          int64  `json:"id"`
+			ProductKind string `json:"product_kind"`
+			Tiers       []struct {
+				ID              int64    `json:"id"`
+				SpecG           int64    `json:"spec_g"`
+				MinQty          float64  `json:"min"`
+				MaxQty          *float64 `json:"max"`
+				UnitPrice       float64  `json:"unit_price"`
+				ProductKind     string   `json:"product_kind"`
+				PriceSourceJSON string   `json:"price_source_json"`
+			} `json:"tiers"`
+		} `json:"products"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode order form: %v", err)
+	}
+	var green *struct {
+		ID          int64  `json:"id"`
+		ProductKind string `json:"product_kind"`
+		Tiers       []struct {
+			ID              int64    `json:"id"`
+			SpecG           int64    `json:"spec_g"`
+			MinQty          float64  `json:"min"`
+			MaxQty          *float64 `json:"max"`
+			UnitPrice       float64  `json:"unit_price"`
+			ProductKind     string   `json:"product_kind"`
+			PriceSourceJSON string   `json:"price_source_json"`
+		} `json:"tiers"`
+	}
+	for i := range resp.Products {
+		if resp.Products[i].ID == 88 {
+			green = &resp.Products[i]
+			break
+		}
+	}
+	if green == nil {
+		t.Fatalf("order form missing green bean product 88: %s", rec.Body.String())
+	}
+	if len(green.Tiers) != 2 {
+		t.Fatalf("green bean tiers = %+v, want 2 published tiers", green.Tiers)
+	}
+	if green.Tiers[0].ID != 50 || green.Tiers[0].SpecG != 1000 || green.Tiers[0].MinQty != 1 || green.Tiers[0].MaxQty == nil || *green.Tiers[0].MaxQty != 59 || green.Tiers[0].UnitPrice != 63.9 {
+		t.Fatalf("first published green bean tier = %+v", green.Tiers[0])
+	}
+	if green.Tiers[1].ID != 51 || green.Tiers[1].MinQty != 60 || green.Tiers[1].UnitPrice != 63.9 {
+		t.Fatalf("second published green bean tier = %+v", green.Tiers[1])
+	}
+	if green.Tiers[0].ProductKind != "green_bean" || !strings.Contains(green.Tiers[0].PriceSourceJSON, `"publication_id":9902`) {
+		t.Fatalf("green bean tier source = %+v", green.Tiers[0])
+	}
+}
+
 func TestOrderAPISmallBatchDirectShipCustomerUsesDefaultPriceTier(t *testing.T) {
 	pool, schema := newOrderAPITestDB(t)
 	ctx := context.Background()
