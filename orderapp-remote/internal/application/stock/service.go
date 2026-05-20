@@ -168,11 +168,12 @@ type MaterialBatchLocationResult struct {
 }
 
 type WarehouseInventoryQuery struct {
-	Q         string
-	Warehouse string
-	ItemType  string
-	Limit     int
-	Offset    int
+	Q          string
+	Warehouse  string
+	ItemType   string
+	CustomerID int64
+	Limit      int
+	Offset     int
 }
 
 type WarehouseInventoryRow struct {
@@ -449,6 +450,9 @@ func (s *Service) ListWarehouseInventory(ctx context.Context, query WarehouseInv
 	query.Q = strings.TrimSpace(query.Q)
 	query.Warehouse = normalizeWarehouse(query.Warehouse)
 	query.ItemType = strings.TrimSpace(query.ItemType)
+	if query.CustomerID < 0 {
+		query.CustomerID = 0
+	}
 	query.Limit, query.Offset = normalizePage(query.Limit, query.Offset, 100, 500)
 	return s.repo.ListWarehouseInventory(ctx, query)
 }

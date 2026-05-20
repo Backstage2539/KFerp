@@ -2,18 +2,18 @@
   <div class="page">
     <section class="panel head">
       <div>
-        <h2>费用管理</h2>
-        <p>{{ month }} · 期间费用与主营成本补录</p>
+        <h2>{{ isCustomerFinanceReadOnly ? '费用明细' : '费用管理' }}</h2>
+        <p>{{ month }} · {{ customerContextText }}{{ isCustomerFinanceReadOnly ? '费用明细' : '期间费用与主营成本补录' }}</p>
       </div>
       <div class="toolbar">
         <input v-model="month" type="month" @change="load" />
-        <select v-model.number="employeeFilter" @change="load">
+        <select v-if="!isCustomerFinanceReadOnly" v-model.number="employeeFilter" @change="load">
           <option :value="0">全部员工</option>
           <option v-for="employee in activeEmployees" :key="employee.id" :value="employee.id">
             {{ employee.name }}
           </option>
         </select>
-        <button v-if="employeeFilter" class="secondary" type="button" @click="selectEmployeeFilter(0)">清除员工</button>
+        <button v-if="employeeFilter && !isCustomerFinanceReadOnly" class="secondary" type="button" @click="selectEmployeeFilter(0)">清除员工</button>
         <button class="secondary" type="button" @click="load" :disabled="loading">刷新</button>
       </div>
     </section>
@@ -21,7 +21,11 @@
     <div v-if="error" class="error">{{ error }}</div>
     <div v-if="ok" class="ok">已保存</div>
 
-    <section class="panel">
+    <section v-if="isCustomerFinanceReadOnly" class="panel read-only-note">
+      客户账户只展示当前客户相关费用，不在客户侧新增或归集费用。
+    </section>
+
+    <section v-if="!isCustomerFinanceReadOnly" class="panel">
       <div class="section-title">新增费用</div>
       <div class="form-grid">
         <label>
@@ -60,10 +64,15 @@
           <span>订单ID</span>
           <input v-model="form.order_id" type="number" min="0" placeholder="可选" />
         </label>
-        <label>
+        <label v-if="!isWorkspaceCustomerLocked">
           <span>客户ID</span>
           <input v-model="form.customer_id" type="number" min="0" placeholder="可选" />
         </label>
+        <div v-else class="locked-dimension">
+          <span>客户</span>
+          <strong>{{ props.customerContextLabel || `客户#${contextCustomerID}` }}</strong>
+          <small>客户账户费用固定为当前客户</small>
+        </div>
         <label>
           <span>商品ID</span>
           <input v-model="form.product_id" type="number" min="0" placeholder="可选" />
@@ -121,13 +130,14 @@
             <td>{{ allocationLabel(row.allocation) }}</td>
             <td>
               <button
-                v-if="row.employee_id"
+                v-if="row.employee_id && !isCustomerFinanceReadOnly"
                 class="link-button"
                 type="button"
                 @click="selectEmployeeFilter(row.employee_id)"
               >
                 {{ row.employee_name || employeeName(row.employee_id) }}
               </button>
+              <span v-else-if="row.employee_id">{{ row.employee_name || employeeName(row.employee_id) }}</span>
               <span v-else class="muted">未关联</span>
             </td>
             <td>
@@ -156,6 +166,14 @@ import { apiGet } from '../api/client.js'
 import { createFinanceExpense, fetchFinanceExpenses } from '../api/finance.js'
 import { expenseCategoryOptions, expensePaymentOptions, filterExpenseOptions } from '../lib/finance-expense-options.js'
 import { currentMonth, money, monthFromDate } from '../lib/finance.js'
+import { CUSTOMER_WORKSPACE_MODE } from '../lib/workspace-mode.js'
+
+const props = defineProps({
+  workspaceMode: { type: String, default: '' },
+  customerContextId: { type: [Number, String], default: 0 },
+  customerContextLabel: { type: String, default: '' },
+  customerAccountActor: { type: Boolean, default: false },
+})
 
 const month = ref(currentMonth())
 const rows = ref([])
@@ -183,6 +201,13 @@ const form = reactive({
 const activeEmployees = computed(() => employees.value.filter((employee) => employee.active !== false))
 const filteredExpenseCategoryOptions = computed(() => filterExpenseOptions(expenseCategoryOptions, form.category))
 const filteredExpensePaymentOptions = computed(() => filterExpenseOptions(expensePaymentOptions, form.payment))
+const contextCustomerID = computed(() => Number(props.customerContextId || 0))
+const isWorkspaceCustomerLocked = computed(() => props.workspaceMode === CUSTOMER_WORKSPACE_MODE && contextCustomerID.value > 0)
+const isCustomerFinanceReadOnly = computed(() => props.customerAccountActor && isWorkspaceCustomerLocked.value)
+const customerContextText = computed(() => {
+  if (!contextCustomerID.value) return ''
+  return `${props.customerContextLabel || `客户#${contextCustomerID.value}`} · `
+})
 
 function allocationLabel(value) {
   return value === 'main_cost' ? '主营成本' : '期间费用'
@@ -200,7 +225,7 @@ function resetForm() {
   form.allocation = 'period_expense'
   form.employee_id = 0
   form.order_id = ''
-  form.customer_id = ''
+  form.customer_id = contextCustomerID.value ? String(contextCustomerID.value) : ''
   form.product_id = ''
   form.batch_no = ''
   form.dimension_note = ''
@@ -217,7 +242,7 @@ async function load() {
   loading.value = true
   error.value = ''
   try {
-    const data = await fetchFinanceExpenses(month.value, employeeFilter.value)
+    const data = await fetchFinanceExpenses(month.value, employeeFilter.value, contextCustomerID.value)
     rows.value = data.rows || []
   } catch (err) {
     error.value = err.message || '加载失败'
@@ -227,6 +252,10 @@ async function load() {
 }
 
 async function save() {
+  if (isCustomerFinanceReadOnly.value) {
+    error.value = '客户账户费用为只读'
+    return
+  }
   saving.value = true
   error.value = ''
   ok.value = false
@@ -239,7 +268,7 @@ async function save() {
       allocation: form.allocation,
       employee_id: form.employee_id,
       order_id: Number(form.order_id || 0),
-      customer_id: Number(form.customer_id || 0),
+      customer_id: Number(isWorkspaceCustomerLocked.value ? contextCustomerID.value : form.customer_id || 0),
       product_id: Number(form.product_id || 0),
       batch_no: form.batch_no,
       dimension_note: form.dimension_note,
@@ -279,8 +308,16 @@ function syncMonthFromDate() {
 
 watch(() => form.date, syncMonthFromDate)
 
+watch(() => props.customerContextId, async () => {
+  if (contextCustomerID.value > 0) form.customer_id = String(contextCustomerID.value)
+  await load()
+})
+
 onMounted(async () => {
-  await loadEmployees()
+  if (contextCustomerID.value > 0) form.customer_id = String(contextCustomerID.value)
+  if (!isCustomerFinanceReadOnly.value) {
+    await loadEmployees()
+  }
   await load()
 })
 </script>
@@ -307,6 +344,10 @@ th, td { border-bottom: 1px solid #eee; padding: 9px 8px; text-align: left; font
 th { background: #fbfbfb; }
 .empty { text-align: center; color: #666; }
 .muted { color: #777; }
+.locked-dimension { border: 1px solid #e5e7eb; border-radius: 6px; padding: 8px 9px; min-height: 38px; background: #f9fafb; display: grid; gap: 2px; }
+.locked-dimension span, .locked-dimension small { color: #666; font-size: 12px; }
+.locked-dimension strong { font-size: 14px; }
+.read-only-note { color: #4b5563; background: #f9fafb; }
 .error, .ok { border-radius: 6px; padding: 10px; }
 .error { background: #fff0f0; border: 1px solid #e6b7b7; color: #8a1f1f; }
 .ok { background: #f0fff0; border: 1px solid #b7d9b7; color: #246024; }

@@ -13,7 +13,7 @@
           <h3>{{ bomSkuContextLabel }}</h3>
           <p class="muted left">BOM 商品列表和商品选择会按当前归属过滤，默认公共SKU。</p>
         </div>
-        <div class="bom-sku-context-controls">
+        <div v-if="!isWorkspaceCustomerLocked" class="bom-sku-context-controls">
           <button class="secondary compact-action" type="button" @click="selectedBomCustomerSkuCustomerID = 0" :disabled="!selectedBomCustomerSkuCustomerID">
             公共SKU
           </button>
@@ -27,6 +27,7 @@
             placeholder="选择客户SKU"
             empty-text="暂无自定义SKU客户" />
         </div>
+        <p v-else class="muted left context-lock-note">客户账户模式下由顶部当前客户控制。</p>
         <div class="context-stats">
           <span>公共SKU BOM {{ publicBomRows.length }}</span>
           <span>当前SKU BOM {{ bomContextRows.length }}</span>
@@ -45,8 +46,8 @@
             :empty-text="selectedBomCustomerSkuCustomerID ? '没有匹配客户SKU' : '没有匹配公共SKU'"
             @select="selectProduct(optionNumericValue($event))" />
         </label>
-        <button class="primary" type="button" @click="saveBom" :disabled="!selectedProductId || loading">同步出品率</button>
-        <button class="secondary danger-outline" type="button" @click="deleteBom" :disabled="!selectedProductId || loading">失效当前 BOM</button>
+        <button class="primary" type="button" @click="saveBom" :disabled="!selectedProductId || loading || !canEditCurrentBomProduct">同步出品率</button>
+        <button class="secondary danger-outline" type="button" @click="deleteBom" :disabled="!selectedProductId || loading || !canEditCurrentBomProduct">失效当前 BOM</button>
       </div>
     </section>
 
@@ -101,7 +102,7 @@
         <form class="inline-form" @submit.prevent="saveItem">
           <label>
             <span>组件类型</span>
-            <select v-model="itemForm.component_type" :disabled="!detail" @change="syncComponentTypeDefaults">
+            <select v-model="itemForm.component_type" :disabled="!detail || !canEditCurrentBomProduct" @change="syncComponentTypeDefaults">
               <option value="material">物料</option>
               <option value="finished_product">成品</option>
             </select>
@@ -117,7 +118,7 @@
               :option-value="optionNumericValue"
               placeholder="选择熟豆成品"
               empty-text="没有可用熟豆成品"
-              :disabled="!detail" />
+              :disabled="!detail || !canEditCurrentBomProduct" />
             <SearchableSelect
               v-else
               v-model="itemForm.material_id"
@@ -126,23 +127,23 @@
               :option-value="optionNumericValue"
               placeholder="选择物料"
               empty-text="没有匹配物料"
-              :disabled="!detail" />
+              :disabled="!detail || !canEditCurrentBomProduct" />
           </label>
           <label>
             <span>消耗单位</span>
-            <select v-model="itemForm.consume_unit" :disabled="!detail || itemForm.component_type === 'finished_product'">
+            <select v-model="itemForm.consume_unit" :disabled="!detail || !canEditCurrentBomProduct || itemForm.component_type === 'finished_product'">
               <option v-for="unit in currentConsumeUnitOptions" :key="unit.value" :value="unit.value">{{ unit.label }}</option>
             </select>
           </label>
           <label v-if="itemForm.consume_unit === 'ratio_pct'">
             <span>比例 %</span>
-            <input v-model.number="itemForm.ratio_pct" type="number" min="0.01" max="100" step="0.01" :disabled="!detail" />
+            <input v-model.number="itemForm.ratio_pct" type="number" min="0.01" max="100" step="0.01" :disabled="!detail || !canEditCurrentBomProduct" />
           </label>
           <label v-else>
             <span>用量</span>
-            <input v-model.number="itemForm.qty_per_unit" type="number" min="0.001" step="0.001" :disabled="!detail" />
+            <input v-model.number="itemForm.qty_per_unit" type="number" min="0.001" step="0.001" :disabled="!detail || !canEditCurrentBomProduct" />
           </label>
-          <button class="primary" type="submit" :disabled="!detail || loading">保存组件</button>
+          <button class="primary" type="submit" :disabled="!detail || loading || !canEditCurrentBomProduct">保存组件</button>
         </form>
 
         <div class="table-wrap">
@@ -160,7 +161,7 @@
                 <td>{{ componentTypeLabel(item.component_type) }}</td>
                 <td>{{ componentItemName(item) }}</td>
                 <td>{{ itemQuantityDisplay(item) }}</td>
-                <td><button class="text-button" type="button" @click="deleteItem(item.id)">删除</button></td>
+                <td><button class="text-button" type="button" :disabled="!canEditCurrentBomProduct" @click="deleteItem(item.id)">删除</button></td>
               </tr>
               <tr v-if="!detailItems.length">
                 <td colspan="4" class="muted">暂无组件</td>
@@ -176,9 +177,9 @@
       <div class="inline-form">
         <label>
           <span>版本备注</span>
-          <input v-model.trim="versionNote" placeholder="例如 2026 春季豆单" :disabled="!selectedProductId" />
+          <input v-model.trim="versionNote" placeholder="例如 2026 春季豆单" :disabled="!selectedProductId || !canEditCurrentBomProduct" />
         </label>
-        <button class="primary" type="button" @click="createVersion" :disabled="!selectedProductId || loading">保存当前为版本</button>
+        <button class="primary" type="button" @click="createVersion" :disabled="!selectedProductId || loading || !canEditCurrentBomProduct">保存当前为版本</button>
       </div>
       <div class="table-wrap compact">
         <table>
@@ -201,7 +202,7 @@
               <td>{{ version.item_count }}</td>
               <td>{{ version.note }}</td>
               <td>{{ version.created_at }}</td>
-              <td><button class="text-button" type="button" @click="activateVersion(version.id)" :disabled="version.status === 'active'">启用</button></td>
+              <td><button class="text-button" type="button" @click="activateVersion(version.id)" :disabled="version.status === 'active' || !canEditCurrentBomProduct">启用</button></td>
             </tr>
             <tr v-if="!versions.length">
               <td colspan="7" class="muted">暂无版本</td>
@@ -211,7 +212,7 @@
       </div>
     </section>
 
-    <section class="panel">
+    <section v-if="!isWorkspaceCustomerLocked" class="panel">
       <div class="panel-title">规格袋材映射</div>
       <form class="inline-form" @submit.prevent="saveMapping">
         <label>
@@ -259,6 +260,13 @@ import SearchableSelect from '../components/SearchableSelect.vue'
 import { bomContextCustomerIDs, filterBomContextProducts } from '../lib/bom'
 import { componentTypeLabel, isDripProduct } from '../lib/drip-product'
 import { replaceHistoryURL } from '../lib/url-state'
+import { CUSTOMER_WORKSPACE_MODE, workspaceCustomerChangeEvent } from '../lib/workspace-mode'
+
+const props = defineProps({
+  workspaceMode: { type: String, default: '' },
+  customerContextId: { type: [Number, String], default: 0 },
+  customerContextLabel: { type: String, default: '' },
+})
 
 const rows = ref([])
 const products = ref([])
@@ -287,6 +295,7 @@ const versionNote = ref('')
 
 const detailItems = computed(() => detail.value?.items || [])
 const bomContextCustomerID = computed(() => Number(selectedBomCustomerSkuCustomerID.value || 0))
+const isWorkspaceCustomerLocked = computed(() => props.workspaceMode === CUSTOMER_WORKSPACE_MODE && Number(props.customerContextId || 0) > 0)
 const bomSkuContextLabel = computed(() => {
   const customerID = bomContextCustomerID.value
   if (!customerID) return '公共SKU'
@@ -300,6 +309,11 @@ const bomSkuCustomers = computed(() => customers.value
 const bomContextProducts = computed(() => filterBomContextProducts(products.value, bomContextCustomerID.value))
 const bomContextRows = computed(() => filterBomContextProducts(rows.value, bomContextCustomerID.value))
 const selectedProduct = computed(() => productByID(selectedProductId.value))
+const canEditCurrentBomProduct = computed(() => {
+  if (!selectedProductId.value) return true
+  if (!bomContextCustomerID.value) return true
+  return Number(selectedProduct.value?.customer_id || 0) === bomContextCustomerID.value
+})
 const roastedBeanProducts = computed(() => products.value.filter((product) => {
   if (Number(product.id || 0) === Number(selectedProductId.value || 0)) return false
   return (product.product_kind || 'roasted_bean') === 'roasted_bean'
@@ -441,9 +455,24 @@ function syncBomContextFromUrlProduct() {
 
 function syncSelectedBomCustomerSkuCustomer() {
   if (!selectedBomCustomerSkuCustomerID.value) return
-  if (!customBomProductCustomerIDs.value.has(Number(selectedBomCustomerSkuCustomerID.value))) {
+  const selectedCustomerID = Number(selectedBomCustomerSkuCustomerID.value)
+  const existsInCustomerMaster = customers.value.some((customer) => Number(customer.id || 0) === selectedCustomerID)
+  if (!existsInCustomerMaster && !customBomProductCustomerIDs.value.has(selectedCustomerID)) {
     selectedBomCustomerSkuCustomerID.value = 0
   }
+}
+
+function applyWorkspaceCustomerContext() {
+  const customerID = Number(props.customerContextId || 0)
+  if (customerID > 0 && Number(selectedBomCustomerSkuCustomerID.value || 0) !== customerID) {
+    selectedBomCustomerSkuCustomerID.value = customerID
+  }
+}
+
+function notifyWorkspaceCustomerChanged(customerID) {
+  if (props.workspaceMode !== CUSTOMER_WORKSPACE_MODE || Number(customerID || 0) <= 0) return
+  if (Number(customerID || 0) === Number(props.customerContextId || 0)) return
+  window.dispatchEvent(workspaceCustomerChangeEvent(customerID))
 }
 
 function clearSelectedProduct() {
@@ -494,6 +523,7 @@ async function loadAll() {
     mappings.value = mappingData || []
     customers.value = (customerData.rows || []).filter((row) => row.active !== false)
     syncBomContextFromUrlProduct()
+    applyWorkspaceCustomerContext()
     syncSelectedBomCustomerSkuCustomer()
     if (syncSelectedProductToBomContext()) await loadDetail(selectedProductId.value)
   } catch (err) {
@@ -542,6 +572,7 @@ async function selectProduct(productId) {
 
 async function saveBom() {
   if (!selectedProductId.value) return
+  if (!canEditCurrentBomProduct.value) return
   await mutate(async () => {
     await apiSend('/api/bom/save', { body: { product_id: selectedProductId.value } })
     ok.value = '已同步'
@@ -557,6 +588,7 @@ function bomStatusLabel(status) {
 
 async function deleteBom() {
   if (!selectedProductId.value) return
+  if (!canEditCurrentBomProduct.value) return
   const okToDeactivate = window.confirm('确认失效当前 BOM？配方明细会保留，后续依赖该 BOM 的策略会提示 BOM 已失效。')
   if (!okToDeactivate) return
   await mutate(async () => {
@@ -568,6 +600,7 @@ async function deleteBom() {
 }
 
 async function saveItem() {
+  if (!canEditCurrentBomProduct.value) return
   await mutate(async () => {
     await apiSend('/api/bom/item/save', {
       body: {
@@ -588,6 +621,7 @@ async function saveItem() {
 }
 
 async function deleteItem(id) {
+  if (!canEditCurrentBomProduct.value) return
   await mutate(async () => {
     await apiSend('/api/bom/item/delete', { body: { product_id: selectedProductId.value, id } })
     ok.value = '已删除'
@@ -618,6 +652,7 @@ async function deleteMapping(specG) {
 }
 
 async function createVersion() {
+  if (!canEditCurrentBomProduct.value) return
   await mutate(async () => {
     await apiSend('/api/bom/versions', { body: { product_id: selectedProductId.value, note: versionNote.value } })
     versionNote.value = ''
@@ -627,6 +662,7 @@ async function createVersion() {
 }
 
 async function activateVersion(id) {
+  if (!canEditCurrentBomProduct.value) return
   await mutate(async () => {
     await apiSend(`/api/bom/versions/${id}/activate`, { body: {} })
     ok.value = '已启用版本'
@@ -654,9 +690,12 @@ onMounted(() => {
   loadAll()
 })
 
-watch(selectedBomCustomerSkuCustomerID, () => {
+watch(selectedBomCustomerSkuCustomerID, (customerID) => {
   syncSelectedProductToBomContext()
+  notifyWorkspaceCustomerChanged(customerID)
 })
+
+watch(() => props.customerContextId, applyWorkspaceCustomerContext, { immediate: true })
 
 watch(selectedProductId, () => {
   if (itemForm.component_type === 'finished_product' && isDripProduct(selectedProduct.value)) {

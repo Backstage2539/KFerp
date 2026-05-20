@@ -210,7 +210,7 @@
 </template>
 
 <script setup>
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { apiGet, apiSend } from '../api/client'
 import {
   createCustomerFulfillmentExternalUser,
@@ -218,6 +218,12 @@ import {
   resetCustomerFulfillmentExternalUserPassword,
   setCustomerFulfillmentExternalUserLoginEnabled,
 } from '../api/customer-fulfillment'
+
+const props = defineProps({
+  workspaceMode: { type: String, default: '' },
+  customerContextId: { type: [Number, String], default: 0 },
+  customerContextLabel: { type: String, default: '' },
+})
 
 const q = ref('')
 const portalRows = ref([])
@@ -549,7 +555,14 @@ async function toggleExternalUserLogin(row, user) {
 }
 
 onMounted(async () => {
+  if (props.customerContextLabel) q.value = props.customerContextLabel
   await Promise.all([loadCapabilityTemplates(), loadSenderProfiles()])
+  loadCustomers()
+})
+
+watch(() => props.customerContextId, () => {
+  if (!props.customerContextLabel) return
+  q.value = props.customerContextLabel
   loadCustomers()
 })
 </script>

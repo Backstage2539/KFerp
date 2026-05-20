@@ -205,7 +205,7 @@ func TestThreeTemplateBusinessWalkthroughAcrossModules(t *testing.T) {
 	if dashboard.Report.RevenueTaxInclusive <= 0 || dashboard.Report.MainBusinessCost <= 0 || dashboard.Report.PeriodExpenses <= 0 {
 		t.Fatalf("dashboard report missing revenue/cost/expense: %+v", dashboard.Report)
 	}
-	drilldown, err := finance.ReportDrilldown(ctx, "2026-05")
+	drilldown, err := finance.ReportDrilldown(ctx, financeapp.ReportFilter{Month: "2026-05"})
 	if err != nil {
 		t.Fatalf("finance ReportDrilldown err=%v", err)
 	}
@@ -976,15 +976,23 @@ func (s *threeTemplateWalkthroughStore) SaveSettings(_ context.Context, snapshot
 	return snapshot, nil
 }
 
-func (s *threeTemplateWalkthroughStore) MonthlySourceTotals(context.Context, string) (financedomain.MonthlySourceTotals, []financeapp.Exception, error) {
-	totals := financedomain.MonthlySourceTotals{Month: "2026-05"}
+func (s *threeTemplateWalkthroughStore) MonthlySourceTotals(_ context.Context, filter financeapp.ReportFilter) (financedomain.MonthlySourceTotals, []financeapp.Exception, error) {
+	totals := financedomain.MonthlySourceTotals{Month: filter.Month}
 	for _, order := range s.orders {
+		if filter.CustomerID > 0 && order.CustomerID != filter.CustomerID {
+			continue
+		}
 		totals.RevenueTaxInclusive += order.Amount
 	}
-	for _, cost := range s.productionCosts {
-		totals.MainBusinessCost += cost.Amount
+	if filter.CustomerID == 0 {
+		for _, cost := range s.productionCosts {
+			totals.MainBusinessCost += cost.Amount
+		}
 	}
 	for _, expense := range s.expenses {
+		if filter.CustomerID > 0 && expense.CustomerID != filter.CustomerID {
+			continue
+		}
 		if expense.Allocation == financeapp.AllocationMainCost {
 			totals.MainBusinessCost += expense.Amount
 		} else {
@@ -1013,16 +1021,24 @@ func (s *threeTemplateWalkthroughStore) ListExpenseEmployees(context.Context) ([
 	return nil, nil
 }
 
-func (s *threeTemplateWalkthroughStore) FinanceSourceDetails(context.Context, string) ([]financeapp.SourceDetail, error) {
+func (s *threeTemplateWalkthroughStore) FinanceSourceDetails(_ context.Context, filter financeapp.ReportFilter) ([]financeapp.SourceDetail, error) {
 	rows := []financeapp.SourceDetail{}
 	for _, order := range s.orders {
+		if filter.CustomerID > 0 && order.CustomerID != filter.CustomerID {
+			continue
+		}
 		customer := s.customerByID[order.CustomerID]
 		rows = append(rows, financeapp.SourceDetail{Section: "revenue", SourceType: "order_revenue", SourceID: order.ID, Date: order.OrderDate, Name: order.OrderNo, Counterparty: customer.Name, Amount: order.Amount, Link: "/app/vue-shell?view=orders"})
 	}
-	for _, cost := range s.productionCosts {
-		rows = append(rows, financeapp.SourceDetail{Section: "main_cost", SourceType: "production_cost", SourceID: cost.ID, Date: "2026-05-19", Name: cost.BatchID + " " + cost.ProductName, Amount: cost.Amount, Link: "/app/vue-shell?view=productionCosts"})
+	if filter.CustomerID == 0 {
+		for _, cost := range s.productionCosts {
+			rows = append(rows, financeapp.SourceDetail{Section: "main_cost", SourceType: "production_cost", SourceID: cost.ID, Date: "2026-05-19", Name: cost.BatchID + " " + cost.ProductName, Amount: cost.Amount, Link: "/app/vue-shell?view=productionCosts"})
+		}
 	}
 	for _, expense := range s.expenses {
+		if filter.CustomerID > 0 && expense.CustomerID != filter.CustomerID {
+			continue
+		}
 		rows = append(rows, financeapp.SourceDetail{Section: expense.Allocation, SourceType: "expense", SourceID: expense.ID, Date: expense.Date, Name: expense.Category, Category: expense.Category, Amount: expense.Amount, Link: "/app/vue-shell?view=financeExpenses"})
 	}
 	return rows, nil

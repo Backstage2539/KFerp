@@ -7,6 +7,7 @@ import (
 
 type fakeRepo struct {
 	ledgerQuery      LedgerQuery
+	inventoryQuery   WarehouseInventoryQuery
 	receipt          MaterialReceiptCommand
 	adjustment       StockAdjustmentCommand
 	transfer         MaterialTransferCommand
@@ -32,6 +33,7 @@ func (f *fakeRepo) ListMaterialBatchLocations(ctx context.Context, query Materia
 	return MaterialBatchLocationResult{}, nil
 }
 func (f *fakeRepo) ListWarehouseInventory(ctx context.Context, query WarehouseInventoryQuery) (WarehouseInventoryResult, error) {
+	f.inventoryQuery = query
 	return WarehouseInventoryResult{}, nil
 }
 func (f *fakeRepo) ListOutboundLogs(ctx context.Context, query OutboundLogQuery) (OutboundLogResult, error) {
@@ -73,6 +75,32 @@ func TestListLedgerNormalizesLimitAndFilters(t *testing.T) {
 	}
 	if repo.ledgerQuery.Limit != 100 || repo.ledgerQuery.Offset != 0 {
 		t.Fatalf("limit/offset = %d/%d, want 100/0", repo.ledgerQuery.Limit, repo.ledgerQuery.Offset)
+	}
+}
+
+func TestListWarehouseInventoryNormalizesCustomerContext(t *testing.T) {
+	repo := &fakeRepo{}
+	svc := NewService(repo)
+
+	_, err := svc.ListWarehouseInventory(context.Background(), WarehouseInventoryQuery{
+		Q:          "  熟豆  ",
+		Warehouse:  " finished_goods ",
+		ItemType:   " finished_product ",
+		CustomerID: 149,
+		Limit:      999,
+		Offset:     -8,
+	})
+	if err != nil {
+		t.Fatalf("ListWarehouseInventory: %v", err)
+	}
+	if repo.inventoryQuery.Q != "熟豆" || repo.inventoryQuery.Warehouse != "finished_goods" || repo.inventoryQuery.ItemType != "finished_product" {
+		t.Fatalf("inventory query filters = %+v, want trimmed", repo.inventoryQuery)
+	}
+	if repo.inventoryQuery.CustomerID != 149 {
+		t.Fatalf("customer_id = %d, want 149", repo.inventoryQuery.CustomerID)
+	}
+	if repo.inventoryQuery.Limit != 100 || repo.inventoryQuery.Offset != 0 {
+		t.Fatalf("limit/offset = %d/%d, want 100/0", repo.inventoryQuery.Limit, repo.inventoryQuery.Offset)
 	}
 }
 

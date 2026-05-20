@@ -146,7 +146,7 @@ func TestFinanceClosingReviewDrilldownTaxLedgerAndHandoff(t *testing.T) {
 	}
 	svc := NewService(repo)
 
-	review, err := svc.ClosingReview(context.Background(), "2026-05")
+	review, err := svc.ClosingReview(context.Background(), ReportFilter{Month: "2026-05"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -154,7 +154,7 @@ func TestFinanceClosingReviewDrilldownTaxLedgerAndHandoff(t *testing.T) {
 		t.Fatalf("closing review missing expected checks: %#v", review.Items)
 	}
 
-	drilldown, err := svc.ReportDrilldown(context.Background(), "2026-05")
+	drilldown, err := svc.ReportDrilldown(context.Background(), ReportFilter{Month: "2026-05"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -186,7 +186,7 @@ func TestFinanceClosingReviewDrilldownTaxLedgerAndHandoff(t *testing.T) {
 		t.Fatalf("ledger rows = %d, want 2", len(ledger))
 	}
 
-	handoff, err := svc.AccountantHandoff(context.Background(), "2026-05")
+	handoff, err := svc.AccountantHandoff(context.Background(), ReportFilter{Month: "2026-05"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -276,7 +276,7 @@ func TestDraftReportKeepsSavedClosedOrAdjustedStatus(t *testing.T) {
 	repo.adjustments = []AdjustmentRecord{{Type: domain.AdjustmentExpense, Amount: 100, Reason: "补记费用"}}
 	svc := NewService(repo)
 
-	report, err := svc.DraftReport(context.Background(), "2026-05")
+	report, err := svc.DraftReport(context.Background(), ReportFilter{Month: "2026-05"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -284,6 +284,28 @@ func TestDraftReportKeepsSavedClosedOrAdjustedStatus(t *testing.T) {
 		t.Fatalf("status = %q, want adjusted", report.Status)
 	}
 	assertMoney(t, "adjusted expenses", report.AppliedAdjustments[domain.AdjustmentExpense], 100)
+}
+
+func TestCustomerScopedDraftReportUsesCustomerFilterAndSkipsGlobalAdjustments(t *testing.T) {
+	repo := newFakeRepo()
+	repo.reportStatus = domain.MonthStatusClosed
+	repo.totals = domain.MonthlySourceTotals{Month: "2026-05", RevenueTaxInclusive: 1030, PeriodExpenses: 120}
+	repo.adjustments = []AdjustmentRecord{{Type: domain.AdjustmentExpense, Amount: 999, Reason: "全局调整"}}
+	svc := NewService(repo)
+
+	report, err := svc.DraftReport(context.Background(), ReportFilter{Month: "2026-05", CustomerID: 18})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if repo.lastTotalsFilter.CustomerID != 18 {
+		t.Fatalf("totals customer filter = %d, want 18", repo.lastTotalsFilter.CustomerID)
+	}
+	if got := report.AppliedAdjustments[domain.AdjustmentExpense]; got != 0 {
+		t.Fatalf("customer report adjustment = %.2f, want 0", got)
+	}
+	if report.Status != domain.MonthStatusClosed {
+		t.Fatalf("status = %q, want closed", report.Status)
+	}
 }
 
 func TestCreateExpenseRespectsStrongLockForClosedMonth(t *testing.T) {
@@ -451,6 +473,8 @@ type fakeRepo struct {
 	closedBy            string
 	expenses            []Expense
 	listExpenseFilter   ExpenseFilter
+	lastTotalsFilter    ReportFilter
+	lastSourceFilter    ReportFilter
 	expenseEmployees    []ExpenseEmployee
 	sourceDetails       []SourceDetail
 	taxLedger           []TaxLedgerEntry
@@ -470,7 +494,8 @@ func (r *fakeRepo) SaveSettings(_ context.Context, snapshot SettingsSnapshot, _ 
 	return snapshot, nil
 }
 
-func (r *fakeRepo) MonthlySourceTotals(context.Context, string) (domain.MonthlySourceTotals, []Exception, error) {
+func (r *fakeRepo) MonthlySourceTotals(_ context.Context, filter ReportFilter) (domain.MonthlySourceTotals, []Exception, error) {
+	r.lastTotalsFilter = filter
 	return r.totals, []Exception{{Code: "uncategorized_expense", Message: "有未分类费用"}}, nil
 }
 
@@ -509,7 +534,8 @@ func (r *fakeRepo) CreateAdjustment(_ context.Context, cmd CreateAdjustmentComma
 	return row, nil
 }
 
-func (r *fakeRepo) FinanceSourceDetails(context.Context, string) ([]SourceDetail, error) {
+func (r *fakeRepo) FinanceSourceDetails(_ context.Context, filter ReportFilter) ([]SourceDetail, error) {
+	r.lastSourceFilter = filter
 	return r.sourceDetails, nil
 }
 

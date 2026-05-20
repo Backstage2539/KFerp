@@ -7,8 +7,8 @@
           <p>按仓库查看原料、包材、WIP 和成品库存，批次作为明细维度展开。</p>
         </div>
         <div class="head-actions">
-          <button class="secondary" type="button" @click="openReservationDrawer">WIP占用</button>
-          <button class="secondary" type="button" @click="openTraceDrawer('')">批次追溯</button>
+          <button v-if="!isCustomerInventoryContext" class="secondary" type="button" @click="openReservationDrawer">WIP占用</button>
+          <button v-if="!isCustomerInventoryContext" class="secondary" type="button" @click="openTraceDrawer('')">批次追溯</button>
           <button class="secondary" type="button" @click="loadAll" :disabled="loading">刷新</button>
         </div>
       </div>
@@ -66,7 +66,7 @@
                 <th>件数</th>
                 <th>单位成本</th>
                 <th>更新</th>
-                <th>操作</th>
+                <th v-if="!isCustomerInventoryContext">操作</th>
               </tr>
             </thead>
             <tbody>
@@ -81,9 +81,9 @@
                 <td>{{ row.qty_units || '-' }}</td>
                 <td>{{ money(row.unit_cost) }}</td>
                 <td>{{ row.updated_at || '-' }}</td>
-                <td><button class="link" type="button" @click="openTraceDrawer(row.batch_code || '')">追溯</button></td>
+                <td v-if="!isCustomerInventoryContext"><button class="link" type="button" @click="openTraceDrawer(row.batch_code || '')">追溯</button></td>
               </tr>
-              <tr v-if="!rows.length"><td colspan="11" class="muted">暂无库存</td></tr>
+              <tr v-if="!rows.length"><td :colspan="isCustomerInventoryContext ? 10 : 11" class="muted">暂无库存</td></tr>
             </tbody>
           </table>
         </div>
@@ -97,7 +97,7 @@
       </section>
     </div>
 
-    <div v-if="traceDrawerOpen" class="drawer-mask" @click.self="traceDrawerOpen = false">
+    <div v-if="traceDrawerOpen && !isCustomerInventoryContext" class="drawer-mask" @click.self="traceDrawerOpen = false">
       <aside class="drawer">
         <div class="drawer-head">
           <h3>批次追溯</h3>
@@ -163,7 +163,7 @@
       </aside>
     </div>
 
-    <div v-if="reservationDrawerOpen" class="drawer-mask" @click.self="reservationDrawerOpen = false">
+    <div v-if="reservationDrawerOpen && !isCustomerInventoryContext" class="drawer-mask" @click.self="reservationDrawerOpen = false">
       <aside class="drawer wide">
         <div class="drawer-head">
           <h3>WIP占用</h3>
@@ -208,9 +208,13 @@ import { computed, onMounted, ref, watch } from 'vue'
 import { apiGet, apiSend } from '../api/client'
 import PaginationControls from '../components/PaginationControls.vue'
 import { normalizePageSize, paginationFromApi } from '../lib/pagination'
+import { CUSTOMER_WORKSPACE_MODE } from '../lib/workspace-mode'
 
 const props = defineProps({
   viewParams: { type: Object, default: () => ({}) },
+  workspaceMode: { type: String, default: '' },
+  customerContextId: { type: [Number, String], default: 0 },
+  customerContextLabel: { type: String, default: '' },
 })
 
 const warehouses = ref([])
@@ -234,6 +238,8 @@ const reservationError = ref('')
 const reservationWorkOrderNo = ref('')
 const reservations = ref([])
 const reservationTotals = ref({})
+const contextCustomerID = computed(() => Number(props.customerContextId || 0))
+const isCustomerInventoryContext = computed(() => props.workspaceMode === CUSTOMER_WORKSPACE_MODE && contextCustomerID.value > 0)
 
 const currentWarehouseName = computed(() => {
   if (!selectedWarehouse.value) return '全部仓库'
@@ -293,7 +299,7 @@ function applyViewParams(params = {}) {
   const changed = nextWarehouse !== selectedWarehouse.value || nextItemType !== itemType.value
   selectedWarehouse.value = nextWarehouse
   itemType.value = nextItemType
-  if (nextBatch) {
+  if (nextBatch && !isCustomerInventoryContext.value) {
     traceBatch.value = nextBatch
     traceDrawerOpen.value = true
   }
@@ -313,6 +319,7 @@ async function loadInventory() {
     if (q.value) url.searchParams.set('q', q.value)
     if (selectedWarehouse.value) url.searchParams.set('warehouse', selectedWarehouse.value)
     if (itemType.value) url.searchParams.set('item_type', itemType.value)
+    if (isCustomerInventoryContext.value) url.searchParams.set('customer_id', String(contextCustomerID.value))
     url.searchParams.set('page', String(page.value))
     url.searchParams.set('limit', String(limit.value))
     const data = await apiGet(url)
@@ -426,6 +433,13 @@ async function loadAll() {
 }
 
 watch(() => props.viewParams, (params) => applyViewParams(params), { deep: true, immediate: true })
+watch(() => props.customerContextId, () => {
+  if (isCustomerInventoryContext.value) {
+    traceDrawerOpen.value = false
+    reservationDrawerOpen.value = false
+  }
+  loadInventoryPage(1)
+})
 
 onMounted(loadAll)
 </script>

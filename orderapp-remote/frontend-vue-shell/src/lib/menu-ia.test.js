@@ -65,6 +65,7 @@ test('operation manuals live inside their functional menu groups', () => {
     ['greenBeanSalesManual', 'product'],
     ['settingsAuditManual', 'settings'],
     ['notificationManual', 'settings'],
+    ['workspaceModeManual', 'customerFulfillment'],
     ['customerPortalManual', 'customerFulfillment'],
     ['customerFulfillmentManual', 'customerFulfillment'],
     ['requirementsManual', 'requirements'],
@@ -94,9 +95,9 @@ test('sales menu no longer exposes the removed quote export page', () => {
   assert.equal(JSON.stringify(menuGroups).includes('报价导出'), false)
 })
 
-test('customer fulfillment menu consolidates operator, portal and template pages', () => {
+test('customer fulfillment menu consolidates operator, portal, templates and workspace manual', () => {
   const keys = primaryMenuKeys(menuGroups)
-  for (const key of ['customerFulfillment', 'customerPortalSettings', 'customerCapabilityTemplates', 'customerFulfillmentManual', 'customerPortalManual']) {
+  for (const key of ['customerFulfillment', 'customerPortalSettings', 'customerCapabilityTemplates', 'workspaceModeManual', 'customerFulfillmentManual', 'customerPortalManual']) {
     assert.ok(keys.includes(key))
     assert.equal(groupForView(menuGroups, key)?.id, 'customerFulfillment')
   }

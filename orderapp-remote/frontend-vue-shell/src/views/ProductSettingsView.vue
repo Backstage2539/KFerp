@@ -20,7 +20,7 @@
             <h3>{{ selectedSkuContextLabel }}</h3>
             <p class="muted">产品列表、商品分类和梯度模板会按当前归属切换。</p>
           </div>
-          <div class="sku-context-controls">
+          <div v-if="!isWorkspaceCustomerLocked" class="sku-context-controls">
             <button class="secondary compact-action" type="button" @click="selectedCustomerSkuCustomerID = 0" :disabled="!selectedCustomerSkuCustomerID">
               公共SKU
             </button>
@@ -34,6 +34,7 @@
               placeholder="选择履约客户"
               empty-text="暂无履约客户" />
           </div>
+          <p v-else class="muted context-lock-note">客户账户模式下由顶部当前客户控制。</p>
         </div>
         <div class="context-stats">
           <span>公共SKU {{ publicSkuRows.length }}</span>
@@ -649,6 +650,13 @@ import {
   skuTypeOptions,
 } from '../lib/product-settings'
 import { normalizePageSize } from '../lib/pagination'
+import { CUSTOMER_WORKSPACE_MODE, workspaceCustomerChangeEvent } from '../lib/workspace-mode'
+
+const props = defineProps({
+  workspaceMode: { type: String, default: '' },
+  customerContextId: { type: [Number, String], default: 0 },
+  customerContextLabel: { type: String, default: '' },
+})
 
 const categories = ref([])
 const products = ref([])
@@ -683,6 +691,7 @@ const customForm = ref(defaultCustomForm())
 const templateForm = ref(defaultGradientTemplateForm())
 
 const skuContextCustomerID = computed(() => Number(selectedCustomerSkuCustomerID.value || 0))
+const isWorkspaceCustomerLocked = computed(() => props.workspaceMode === CUSTOMER_WORKSPACE_MODE && Number(props.customerContextId || 0) > 0)
 const selectedSkuContextLabel = computed(() => {
   const customerID = skuContextCustomerID.value
   if (!customerID) return '公共SKU'
@@ -924,6 +933,7 @@ async function loadAll() {
     }))
     customers.value = customerSkuCustomerOptions(customerData)
     syncSelectedCustomerSkuCustomer()
+    applyWorkspaceCustomerContext()
     pruneSelectedProducts(displaySkuRows.value)
   } catch (err) {
     error.value = err.message || '加载失败'
@@ -1224,6 +1234,19 @@ function syncSelectedCustomerSkuCustomer() {
   if (!customers.value.some((customer) => Number(customer.id || 0) === Number(selectedCustomerSkuCustomerID.value))) {
     selectedCustomerSkuCustomerID.value = 0
   }
+}
+
+function applyWorkspaceCustomerContext() {
+  const customerID = Number(props.customerContextId || 0)
+  if (customerID > 0 && Number(selectedCustomerSkuCustomerID.value || 0) !== customerID) {
+    selectedCustomerSkuCustomerID.value = customerID
+  }
+}
+
+function notifyWorkspaceCustomerChanged(customerID) {
+  if (props.workspaceMode !== CUSTOMER_WORKSPACE_MODE || Number(customerID || 0) <= 0) return
+  if (Number(customerID || 0) === Number(props.customerContextId || 0)) return
+  window.dispatchEvent(workspaceCustomerChangeEvent(customerID))
 }
 
 function isProductSelected(row) {
@@ -1883,12 +1906,15 @@ async function deactivateProducts(productIds) {
   }
 }
 
-watch(selectedCustomerSkuCustomerID, () => {
+watch(selectedCustomerSkuCustomerID, (customerID) => {
   customForm.value = { ...customForm.value, customer_id: Number(selectedCustomerSkuCustomerID.value || 0), name: '', remark: '' }
   skuFilters.value = defaultSkuFilters()
   skuPage.value = 1
   pruneSelectedProducts(displaySkuRows.value)
+  notifyWorkspaceCustomerChanged(customerID)
 })
+
+watch(() => props.customerContextId, applyWorkspaceCustomerContext, { immediate: true })
 
 watch(() => customForm.value.base_product_id, () => {
   if (customForm.value.product_kind === 'green_bean') return

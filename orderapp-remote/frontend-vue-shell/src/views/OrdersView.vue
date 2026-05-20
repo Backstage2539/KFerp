@@ -56,6 +56,7 @@
         <button class="primary" type="button" @click="loadPage(1)" :disabled="loading">查询</button>
       </div>
       <div class="summary">
+        <span v-if="filters.customer_id">客户账户：{{ props.customerContextLabel || `#${filters.customer_id}` }}</span>
         <span>订单 {{ summary.orders || 0 }}</span>
         <span>客户 {{ summary.customers || 0 }}</span>
       </div>
@@ -367,6 +368,9 @@ import SalesOrderView from './SalesOrderView.vue'
 
 const props = defineProps({
   viewParams: { type: Object, default: () => ({}) },
+  workspaceMode: { type: String, default: '' },
+  customerContextId: { type: [Number, String], default: 0 },
+  customerContextLabel: { type: String, default: '' },
 })
 
 const loading = ref(false)
@@ -414,6 +418,7 @@ const filters = reactive({
   pay_status_id: 0,
   ship_status_id: 0,
   process_status_id: 0,
+  customer_id: 0,
   ship_ready: false,
   void: 'normal',
   limit: 10,
@@ -423,6 +428,7 @@ function applyUrlFilters() {
   const params = new URL(window.location.href).searchParams
   filters.scope = orderListScopeForRequest(props.viewParams?.scope || params.get('scope') || 'all')
   filters.highlight_order_id = Number(props.viewParams?.highlight_order_id || params.get('highlight_order_id') || 0)
+  filters.customer_id = Number(props.viewParams?.customer_id || params.get('customer_id') || props.customerContextId || 0)
   filters.q = params.get('q') || ''
   filters.from = params.get('from') || ''
   filters.to = params.get('to') || ''
@@ -443,6 +449,7 @@ function buildUrl(nextPage) {
   for (const key of ['pay_status_id', 'ship_status_id', 'process_status_id']) {
     if (filters[key]) url.searchParams.set(key, String(filters[key]))
   }
+  if (filters.customer_id) url.searchParams.set('customer_id', String(filters.customer_id))
   if (filters.ship_ready) url.searchParams.set('ship_ready', '1')
   if (filters.scope && filters.scope !== 'all') url.searchParams.set('scope', filters.scope)
   url.searchParams.set('page', String(nextPage))
@@ -461,6 +468,8 @@ function updateBrowserUrl(nextPage) {
     if (filters[key]) url.searchParams.set(key, String(filters[key]))
     else url.searchParams.delete(key)
   }
+  if (filters.customer_id) url.searchParams.set('customer_id', String(filters.customer_id))
+  else url.searchParams.delete('customer_id')
   if (filters.ship_ready) url.searchParams.set('ship_ready', '1')
   else url.searchParams.delete('ship_ready')
   if (filters.scope && filters.scope !== 'all') url.searchParams.set('scope', filters.scope)
@@ -973,9 +982,15 @@ onMounted(() => {
 watch(() => props.viewParams, async () => {
   const nextScope = orderListScopeForRequest(props.viewParams?.scope || 'all')
   const nextHighlightID = Number(props.viewParams?.highlight_order_id || 0)
-  if (filters.scope === nextScope && Number(filters.highlight_order_id || 0) === nextHighlightID) return
+  const nextCustomerID = Number(props.viewParams?.customer_id || props.customerContextId || 0)
+  if (
+    filters.scope === nextScope
+    && Number(filters.highlight_order_id || 0) === nextHighlightID
+    && Number(filters.customer_id || 0) === nextCustomerID
+  ) return
   filters.scope = nextScope
   filters.highlight_order_id = nextHighlightID
+  filters.customer_id = nextCustomerID
   await loadPage(1)
 }, { deep: true })
 </script>

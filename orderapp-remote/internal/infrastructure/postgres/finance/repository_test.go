@@ -88,7 +88,8 @@ func TestFinanceRepositoryAggregatesOrdersCostsExpensesAndAdjustments(t *testing
 		"finance_tax_ledger",
 		"CreateTaxLedgerEntry",
 		"WHERE fe.month=$1",
-		"fe.employee_id=$2",
+		"fe.employee_id=$%d",
+		"fe.customer_id=$%d",
 		"ListExpenseEmployees",
 		"FROM %s.company_employees",
 		"FROM %s.finance_adjustments",
@@ -117,7 +118,7 @@ func TestMonthlySourceTotalsUsesLegacyTotalAmountWhenGrandTotalWasDefaultZero(t 
 	`, schema, schema, schema, schema, schema))
 
 	repo := NewRepository(pool, schema)
-	totals, _, err := repo.MonthlySourceTotals(ctx, "2026-05")
+	totals, _, err := repo.MonthlySourceTotals(ctx, appfinance.ReportFilter{Month: "2026-05"})
 	if err != nil {
 		t.Fatalf("MonthlySourceTotals: %v", err)
 	}
@@ -125,7 +126,7 @@ func TestMonthlySourceTotalsUsesLegacyTotalAmountWhenGrandTotalWasDefaultZero(t 
 		t.Fatalf("RevenueTaxInclusive = %.2f, want 230.00", totals.RevenueTaxInclusive)
 	}
 
-	details, err := repo.FinanceSourceDetails(ctx, "2026-05")
+	details, err := repo.FinanceSourceDetails(ctx, appfinance.ReportFilter{Month: "2026-05"})
 	if err != nil {
 		t.Fatalf("FinanceSourceDetails: %v", err)
 	}
@@ -157,7 +158,7 @@ func TestFinanceSourceDetailsIncludesOrderPaymentMethod(t *testing.T) {
 	`, schema, schema))
 
 	repo := NewRepository(pool, schema)
-	details, err := repo.FinanceSourceDetails(ctx, "2026-05")
+	details, err := repo.FinanceSourceDetails(ctx, appfinance.ReportFilter{Month: "2026-05"})
 	if err != nil {
 		t.Fatalf("FinanceSourceDetails: %v", err)
 	}

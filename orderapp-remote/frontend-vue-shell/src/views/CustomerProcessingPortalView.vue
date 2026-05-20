@@ -238,37 +238,6 @@
         </table>
       </div>
 
-      <div v-if="canViewSettlement" class="panel">
-        <div class="panel-head"><h3>费用明细</h3></div>
-        <table>
-          <thead><tr><th>类型</th><th>名称</th><th>金额</th><th>来源</th></tr></thead>
-          <tbody>
-            <tr v-for="row in overview.fees || []" :key="`${row.fee_type}-${row.fee_name}-${row.amount_cents}`">
-              <td>{{ row.fee_type }}</td>
-              <td>{{ row.fee_name }}</td>
-              <td>{{ moneyFromCents(row.amount_cents) }}</td>
-              <td>{{ row.source || '-' }}</td>
-            </tr>
-            <tr v-if="!(overview.fees || []).length"><td colspan="4" class="muted">暂无费用</td></tr>
-          </tbody>
-        </table>
-      </div>
-
-      <div v-if="canViewSettlement" class="panel">
-        <div class="panel-head"><h3>结算单</h3></div>
-        <table>
-          <thead><tr><th>ID</th><th>期间</th><th>状态</th><th>金额</th></tr></thead>
-          <tbody>
-            <tr v-for="row in overview.settlements || []" :key="row.batch_id">
-              <td>{{ row.batch_id }}</td>
-              <td>{{ row.period_from }} 至 {{ row.period_to }}</td>
-              <td>{{ statusLabel(row.status) }}</td>
-              <td>{{ moneyFromCents(row.total_amount_cents) }}</td>
-            </tr>
-            <tr v-if="!(overview.settlements || []).length"><td colspan="4" class="muted">暂无结算</td></tr>
-          </tbody>
-        </table>
-      </div>
     </section>
 
     <section class="panel fulfillment-orders-panel">
@@ -527,7 +496,6 @@ const canSubmitProcessing = computed(() => hasCapability('processing'))
 const canDirectShip = computed(() => hasCapability('direct_ship') || hasCapability('product_order'))
 const submitCopy = computed(() => customerFulfillmentSubmitCopy(capabilities.value))
 const canViewInventory = computed(() => hasCapability('inventory_custody') || hasCapability('processing'))
-const canViewSettlement = computed(() => hasCapability('settlement'))
 const customerSKUOptions = computed(() => fulfillmentOptions.value?.customer_skus || [])
 const custodyItemOptions = computed(() => fulfillmentOptions.value?.custody_items || [])
 const rawBeanOptions = computed(() => custodyItemOptions.value.filter((row) => row.item_type === 'raw_bean'))
@@ -552,8 +520,6 @@ const metrics = computed(() => [
   canSubmitProcessing.value ? { label: '加工工单', value: (overview.value.processing_orders || []).length } : null,
   canViewInventory.value ? { label: '成品库存', value: (overview.value.finished_goods || []).length } : null,
   canDirectShip.value ? { label: '履约订单', value: fulfillmentOrdersSummary.value.orders || fulfillmentOrders.value.length } : null,
-  canViewSettlement.value ? { label: '未结费用', value: (overview.value.fees || []).length } : null,
-  canViewSettlement.value ? { label: '结算单', value: (overview.value.settlements || []).length } : null,
 ].filter(Boolean))
 
 onMounted(loadOverview)
@@ -970,10 +936,6 @@ function formatG(value) {
   if (!n) return '0'
   if (Math.abs(n) >= 1000) return `${(n / 1000).toFixed(2)} kg`
   return `${n} g`
-}
-
-function moneyFromCents(value) {
-  return (Number(value || 0) / 100).toFixed(2)
 }
 
 function money(value) {

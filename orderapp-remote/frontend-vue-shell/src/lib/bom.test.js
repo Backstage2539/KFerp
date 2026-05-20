@@ -6,16 +6,17 @@ import {
   isBomProductCandidate,
 } from './bom.js'
 
-test('BOM context filters out green bean SKUs that already bind a roasted BOM', () => {
+test('BOM context shows public and current-customer SKUs while hiding other customers and green beans', () => {
   const rows = [
     { id: 1, name: '岩师傅熟豆', customer_id: 152, product_kind: 'roasted_bean' },
     { id: 2, name: '兰卡拼配生豆', customer_id: 152, product_kind: 'green_bean', green_bean_bom_product_id: 1 },
     { id: 3, name: '岩师傅挂耳', customer_id: 152, product_kind: 'drip_bag' },
     { id: 4, name: '公共熟豆', customer_id: 0, product_kind: 'roasted_bean' },
+    { id: 5, name: '其他客户熟豆', customer_id: 153, product_kind: 'roasted_bean' },
   ]
 
   assert.equal(isBomProductCandidate(rows[1]), false)
-  assert.deepEqual(filterBomContextProducts(rows, 152).map((row) => row.id), [1, 3])
+  assert.deepEqual(filterBomContextProducts(rows, 152).map((row) => row.id), [1, 3, 4])
   assert.deepEqual(filterBomContextProducts(rows, 0).map((row) => row.id), [4])
 })
 

@@ -16,7 +16,7 @@ export function filterBomContextProducts(rows = [], customerID = 0) {
   return rows.filter((row) => {
     if (!isBomProductCandidate(row)) return false
     const rowCustomerID = bomRowCustomerID(row)
-    return selectedCustomerID > 0 ? rowCustomerID === selectedCustomerID : rowCustomerID === 0
+    return selectedCustomerID > 0 ? rowCustomerID === 0 || rowCustomerID === selectedCustomerID : rowCustomerID === 0
   })
 }
 
