@@ -2,13 +2,13 @@
   <div class="page">
     <section class="panel head">
       <div>
-        <h2>月度结账</h2>
-        <p>{{ month }} · {{ financeStatusLabel(report.status) }}</p>
+        <h2>{{ isWorkspaceCustomerLocked ? '客户结账相关' : '月度结账' }}</h2>
+        <p>{{ month }} · {{ customerContextText }}{{ financeStatusLabel(report.status) }}</p>
       </div>
       <div class="toolbar">
         <input v-model="month" type="month" @change="load" />
         <button class="secondary" type="button" @click="load" :disabled="loading">刷新</button>
-        <button type="button" @click="closeMonth" :disabled="saving || report.status === 'closed' || report.status === 'adjusted'">结账</button>
+        <button v-if="!isWorkspaceCustomerLocked" type="button" @click="closeMonth" :disabled="saving || report.status === 'closed' || report.status === 'adjusted'">结账</button>
       </div>
     </section>
 
@@ -47,7 +47,7 @@
         </div>
       </div>
 
-      <div class="panel">
+      <div v-if="!isWorkspaceCustomerLocked" class="panel">
         <div class="section-title">结账后调整</div>
         <div class="adjust-form">
           <label>
@@ -80,14 +80,26 @@
           <strong>{{ money(item.amount) }}</strong>
         </div>
       </div>
+
+      <div v-else class="panel customer-readonly">
+        <div class="section-title">客户账户说明</div>
+        <p>客户账户只展示当前客户相关收入、费用和结账状态，不在客户侧执行结账或调整。</p>
+      </div>
     </section>
   </div>
 </template>
 
 <script setup>
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { closeFinanceMonth, createFinanceAdjustment, fetchFinanceClosingReview, fetchFinanceReport } from '../api/finance.js'
 import { currentMonth, financeMetricCards, financeStatusLabel, money } from '../lib/finance.js'
+import { CUSTOMER_WORKSPACE_MODE } from '../lib/workspace-mode.js'
+
+const props = defineProps({
+  workspaceMode: { type: String, default: '' },
+  customerContextId: { type: [Number, String], default: 0 },
+  customerContextLabel: { type: String, default: '' },
+})
 
 const month = ref(currentMonth())
 const report = ref({})
@@ -99,6 +111,12 @@ const ok = ref('')
 const adjustment = reactive({ type: 'expense', amount: '', reason: '', note: '' })
 const cards = computed(() => financeMetricCards(report.value))
 const adjustments = computed(() => Object.entries(report.value.applied_adjustments || {}).map(([type, amount]) => ({ type, amount })))
+const contextCustomerID = computed(() => Number(props.customerContextId || 0))
+const isWorkspaceCustomerLocked = computed(() => props.workspaceMode === CUSTOMER_WORKSPACE_MODE && contextCustomerID.value > 0)
+const customerContextText = computed(() => {
+  if (!contextCustomerID.value) return ''
+  return `客户账户 · ${props.customerContextLabel || `客户#${contextCustomerID.value}`} · `
+})
 
 function adjustmentTypeLabel(type) {
   const labels = {
@@ -127,8 +145,8 @@ async function load() {
   error.value = ''
   try {
     const [reportData, reviewData] = await Promise.all([
-      fetchFinanceReport(month.value),
-      fetchFinanceClosingReview(month.value),
+      fetchFinanceReport(month.value, contextCustomerID.value),
+      fetchFinanceClosingReview(month.value, contextCustomerID.value),
     ])
     report.value = reportData
     review.value = reviewData
@@ -180,6 +198,9 @@ async function createAdjustment() {
 }
 
 onMounted(load)
+watch(contextCustomerID, () => {
+  if (props.workspaceMode === CUSTOMER_WORKSPACE_MODE) load()
+})
 </script>
 
 <style scoped>

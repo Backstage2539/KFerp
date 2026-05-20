@@ -80,7 +80,8 @@
         :view-params="currentViewParams"
         :workspace-mode="workspaceMode"
         :customer-context-id="workspaceCustomerContextId"
-        :customer-context-label="workspaceCustomerLabel" />
+        :customer-context-label="workspaceCustomerLabel"
+        :customer-account-actor="isCustomerActor" />
     </main>
   </div>
 </template>
@@ -142,6 +143,7 @@ import WarehouseInventoryView from './views/WarehouseInventoryView.vue'
 import WorkOrdersView from './views/WorkOrdersView.vue'
 import { clearStoredAuthToken, fetchCurrentActor, hasStoredAuthToken, logoutCurrentSession } from './api/auth.js'
 import { apiGet, appURL } from './api/client.js'
+import { fetchCustomerProcessingPortalOverview } from './api/customer-fulfillment.js'
 import { fetchERPNotifications, markNotificationRead } from './api/message-center.js'
 import { replaceHistoryURL, viewNavigationURL } from './lib/url-state.js'
 import { installTableAutoPagination } from './lib/table-auto-pagination.js'
@@ -191,6 +193,7 @@ const menuStorageKey = 'kferp.menu.expandedGroups'
 const authLoading = ref(true)
 const authError = ref('')
 const currentActor = ref(null)
+const customerAccountContext = ref(null)
 const notifications = ref([])
 let notificationTimer = 0
 let stopTableAutoPagination = null
@@ -270,9 +273,18 @@ const internalViews = {
 
 const customerAccountActorMenuGroups = [
   {
-    id: 'customerSelf',
-    name: '客户账户',
-    items: [{ key: 'customerProcessingPortal', label: '履约与费用', title: '客户履约与费用' }],
+    id: 'customerWorkbench',
+    name: '工作台',
+    items: [{ key: 'customerProcessingPortal', label: '工作台', title: '客户工作台' }],
+  },
+  {
+    id: 'customerFinance',
+    name: '费用相关',
+    items: [
+      { key: 'financeExpenses', label: '费用明细', title: '客户费用明细' },
+      { key: 'financeReport', label: '经营报告', title: '客户经营报告' },
+      { key: 'financeClosing', label: '结账相关', title: '客户结账相关' },
+    ],
   },
 ]
 
@@ -436,6 +448,23 @@ async function loadWorkspaceCustomers() {
   }
 }
 
+async function loadCustomerAccountContext() {
+  const data = await fetchCustomerProcessingPortalOverview()
+  customerAccountContext.value = data || {}
+  const customerID = Number(data?.customer_id || 0)
+  if (customerID <= 0) return
+  workspaceCustomerId.value = customerID
+  if (workspaceCustomerOptions.value.some((item) => Number(item.id) === customerID)) return
+  workspaceCustomerOptions.value = [
+    ...workspaceCustomerOptions.value,
+    {
+      id: customerID,
+      name: data?.customer_name || `客户 #${customerID}`,
+      company_name: data?.customer_name || '',
+    },
+  ]
+}
+
 async function loadNotifications() {
   if (!currentActor.value || !isViewAllowed('orders', allowedViewKeys.value)) return
   try {
@@ -509,8 +538,13 @@ async function loadActor() {
     currentActor.value = await fetchCurrentActor()
     if (isCustomerAccountActor(currentActor.value)) {
       workspaceMode.value = CUSTOMER_WORKSPACE_MODE
-      currentKey.value = 'customerProcessingPortal'
-      currentViewParams.value = {}
+      await loadCustomerAccountContext()
+      if (!['customerProcessingPortal', 'financeExpenses', 'financeClosing', 'financeReport'].includes(currentKey.value)) {
+        currentKey.value = 'customerProcessingPortal'
+        currentViewParams.value = {}
+      } else {
+        currentViewParams.value = workspaceViewParams(currentViewParams.value, workspaceContext())
+      }
       applyKeyToUrl(currentKey.value, currentViewParams.value)
     }
     expandedGroups.value = freshLogin
@@ -587,7 +621,7 @@ const sidebarClass = computed(() => ({
 const showTitle = computed(() => !isMobile.value && !collapsed.value)
 const allowedViewKeys = computed(() => {
   if (!currentActor.value) return []
-  if (isCustomerAccountActor(currentActor.value)) return ['customerProcessingPortal']
+  if (isCustomerAccountActor(currentActor.value)) return ['customerProcessingPortal', 'financeExpenses', 'financeClosing', 'financeReport']
   if (actorHasFullViewAccess(currentActor.value)) return null
   return Array.isArray(currentActor.value.allowed_views) ? currentActor.value.allowed_views : []
 })
@@ -611,10 +645,13 @@ const workspaceCustomerOption = computed(() => (
 ))
 const workspaceCustomerLabel = computed(() => {
   if (workspaceMode.value !== CUSTOMER_WORKSPACE_MODE) return ''
+  if (isCustomerActor.value && customerAccountContext.value?.customer_name) {
+    return customerAccountContext.value.customer_name
+  }
   return workspaceCustomerOption.value ? customerOptionLabel(workspaceCustomerOption.value) : (workspaceCustomerId.value ? `客户 #${workspaceCustomerId.value}` : '')
 })
 const workspaceCustomerContextId = computed(() => (
-  workspaceMode.value === CUSTOMER_WORKSPACE_MODE ? Number(workspaceCustomerId.value || 0) : 0
+  workspaceMode.value === CUSTOMER_WORKSPACE_MODE ? Number(customerAccountContext.value?.customer_id || workspaceCustomerId.value || 0) : 0
 ))
 
 watch(workspaceCustomerId, (next) => {

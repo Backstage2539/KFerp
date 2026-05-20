@@ -2,15 +2,15 @@
   <div class="page">
     <section class="panel head">
       <div>
-        <h2>月度经营报告</h2>
-        <p>{{ month }} · {{ financeStatusLabel(report.status) }}</p>
+        <h2>{{ isWorkspaceCustomerLocked ? '客户经营报告' : '月度经营报告' }}</h2>
+        <p>{{ month }} · {{ customerContextText }}{{ financeStatusLabel(report.status) }}</p>
       </div>
       <div class="toolbar">
         <input v-model="month" type="month" @change="load" />
         <button class="secondary" type="button" @click="load" :disabled="loading">刷新</button>
         <a :href="exportUrls.pdf" target="_blank" rel="noreferrer">PDF</a>
         <a :href="exportUrls.excel" target="_blank" rel="noreferrer">Excel</a>
-        <a :href="accountantHandoffUrl" target="_blank" rel="noreferrer" data-export-kind="accountant-handoff.xlsx">会计交接</a>
+        <a v-if="!isWorkspaceCustomerLocked" :href="accountantHandoffUrl" target="_blank" rel="noreferrer" data-export-kind="accountant-handoff.xlsx">会计交接</a>
       </div>
     </section>
 
@@ -25,7 +25,7 @@
     </section>
 
     <section class="panel brief">
-      <div class="section-title">老板简报</div>
+      <div class="section-title">{{ isWorkspaceCustomerLocked ? '客户简报' : '老板简报' }}</div>
       <div class="brief-grid">
         <div>
           <span>收入</span>
@@ -112,7 +112,7 @@
 </template>
 
 <script setup>
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { fetchFinanceReport, fetchFinanceReportDrilldown } from '../api/finance.js'
 import {
   currentMonth,
@@ -124,6 +124,13 @@ import {
   money,
   percent,
 } from '../lib/finance.js'
+import { CUSTOMER_WORKSPACE_MODE } from '../lib/workspace-mode.js'
+
+const props = defineProps({
+  workspaceMode: { type: String, default: '' },
+  customerContextId: { type: [Number, String], default: 0 },
+  customerContextLabel: { type: String, default: '' },
+})
 
 const month = ref(currentMonth())
 const report = ref({})
@@ -132,7 +139,13 @@ const loading = ref(false)
 const error = ref('')
 const cards = computed(() => financeMetricCards(report.value))
 const taxRows = computed(() => financeTaxRows(report.value))
-const exportUrls = computed(() => financeReportExportUrls(month.value))
+const contextCustomerID = computed(() => Number(props.customerContextId || 0))
+const isWorkspaceCustomerLocked = computed(() => props.workspaceMode === CUSTOMER_WORKSPACE_MODE && contextCustomerID.value > 0)
+const customerContextText = computed(() => {
+  if (!contextCustomerID.value) return ''
+  return `客户账户 · ${props.customerContextLabel || `客户#${contextCustomerID.value}`} · `
+})
+const exportUrls = computed(() => financeReportExportUrls(month.value, contextCustomerID.value))
 const accountantHandoffUrl = computed(() => financeAccountantHandoffUrl(month.value))
 
 function sourceTypeLabel(value) {
@@ -150,8 +163,8 @@ async function load() {
   error.value = ''
   try {
     const [reportData, drilldownData] = await Promise.all([
-      fetchFinanceReport(month.value),
-      fetchFinanceReportDrilldown(month.value),
+      fetchFinanceReport(month.value, contextCustomerID.value),
+      fetchFinanceReportDrilldown(month.value, contextCustomerID.value),
     ])
     report.value = reportData
     drilldown.value = drilldownData
@@ -163,6 +176,9 @@ async function load() {
 }
 
 onMounted(load)
+watch(contextCustomerID, () => {
+  if (props.workspaceMode === CUSTOMER_WORKSPACE_MODE) load()
+})
 </script>
 
 <style scoped>

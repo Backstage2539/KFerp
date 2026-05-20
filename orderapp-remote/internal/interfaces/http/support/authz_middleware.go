@@ -9,6 +9,7 @@ import (
 )
 
 const customerFulfillmentOrderScopeLimitedContextKey = "customer_fulfillment_order_scope_limited"
+const customerFinanceScopeLimitedContextKey = "customer_finance_scope_limited"
 
 func AuthorizationMiddleware(authz AuthzService) echo.MiddlewareFunc {
 	return func(next echo.HandlerFunc) echo.HandlerFunc {
@@ -21,6 +22,12 @@ func AuthorizationMiddleware(authz AuthzService) echo.MiddlewareFunc {
 			}
 			if isFulfillmentOrderDetailRequest(c.Request().Method, c.Request().URL.Path) {
 				if err := authorizeFulfillmentOrderList(c, authz); err != nil {
+					return err
+				}
+				return next(c)
+			}
+			if isCustomerFinanceReadRequest(c.Request().Method, c.Request().URL.Path) {
+				if err := authorizeCustomerFinanceRead(c, authz); err != nil {
 					return err
 				}
 				return next(c)
@@ -39,6 +46,11 @@ func AuthorizationMiddleware(authz AuthzService) echo.MiddlewareFunc {
 
 func CustomerFulfillmentOrderScopeLimited(c echo.Context) bool {
 	v, _ := c.Get(customerFulfillmentOrderScopeLimitedContextKey).(bool)
+	return v
+}
+
+func CustomerFinanceScopeLimited(c echo.Context) bool {
+	v, _ := c.Get(customerFinanceScopeLimitedContextKey).(bool)
 	return v
 }
 
@@ -66,6 +78,27 @@ func isFulfillmentOrderDetailRequest(method, path string) bool {
 	return err == nil && id > 0
 }
 
+func isCustomerFinanceReadRequest(method, path string) bool {
+	if method != http.MethodGet {
+		return false
+	}
+	path = strings.TrimSpace(path)
+	path = strings.TrimPrefix(path, "/app")
+	if path == "/api/finance/expenses" {
+		return true
+	}
+	if !strings.HasPrefix(path, "/api/finance/reports/") {
+		return false
+	}
+	if strings.HasSuffix(path, "/accountant-handoff.xlsx") {
+		return false
+	}
+	if strings.Contains(path, "/close") {
+		return false
+	}
+	return true
+}
+
 func authorizeFulfillmentOrderList(c echo.Context, authz AuthzService) error {
 	actor, ok, err := CurrentActor(c, authz)
 	if err != nil {
@@ -82,6 +115,24 @@ func authorizeFulfillmentOrderList(c echo.Context, authz AuthzService) error {
 		return nil
 	}
 	return permissionJSONError(c, http.StatusForbidden, map[string]string{"error": "permission denied", "permission": "orders.read"})
+}
+
+func authorizeCustomerFinanceRead(c echo.Context, authz AuthzService) error {
+	actor, ok, err := CurrentActor(c, authz)
+	if err != nil {
+		return permissionJSONError(c, http.StatusForbidden, map[string]string{"error": err.Error()})
+	}
+	if !ok {
+		return permissionJSONError(c, http.StatusUnauthorized, map[string]string{"error": "auth required"})
+	}
+	if actor.Can("finance.read") {
+		return nil
+	}
+	if actor.Can("customer_processing.read") {
+		c.Set(customerFinanceScopeLimitedContextKey, true)
+		return nil
+	}
+	return permissionJSONError(c, http.StatusForbidden, map[string]string{"error": "permission denied", "permission": "finance.read"})
 }
 
 func requiredPermissionForRequest(method, path string) string {

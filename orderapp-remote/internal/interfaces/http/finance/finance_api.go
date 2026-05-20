@@ -1,6 +1,7 @@
 package finance
 
 import (
+	"errors"
 	"fmt"
 	"net/http"
 	appfinance "orderapp/internal/application/finance"
@@ -14,7 +15,9 @@ import (
 	"github.com/labstack/echo/v4"
 )
 
-func registerFinanceAPI(e *echo.Echo, svc Service) {
+var errCustomerFinanceScopeDenied = errors.New("customer finance scope denied")
+
+func registerFinanceAPI(e *echo.Echo, svc Service, customerAccounts CustomerAccountContextService) {
 	e.GET("/api/finance/settings", func(c echo.Context) error {
 		settings, err := svc.Settings(c.Request().Context(), actorFromRequest(c))
 		if err != nil {
@@ -66,9 +69,9 @@ func registerFinanceAPI(e *echo.Echo, svc Service) {
 	})
 
 	e.GET("/api/finance/expenses", func(c echo.Context) error {
-		filter, err := expenseFilterFromRequest(c)
+		filter, err := expenseFilterFromRequest(c, customerAccounts)
 		if err != nil {
-			return jsonError(c, http.StatusBadRequest, err)
+			return jsonError(c, financeFilterErrorStatus(err), err)
 		}
 		rows, err := svc.ListExpenses(c.Request().Context(), filter)
 		if err != nil {
@@ -125,7 +128,11 @@ func registerFinanceAPI(e *echo.Echo, svc Service) {
 	})
 
 	e.GET("/api/finance/reports/:month/pdf", func(c echo.Context) error {
-		report, err := svc.DraftReport(c.Request().Context(), c.Param("month"))
+		filter, err := reportFilterFromRequest(c, customerAccounts)
+		if err != nil {
+			return jsonError(c, financeFilterErrorStatus(err), err)
+		}
+		report, err := svc.DraftReport(c.Request().Context(), filter)
 		if err != nil {
 			return jsonError(c, http.StatusBadRequest, err)
 		}
@@ -139,7 +146,11 @@ func registerFinanceAPI(e *echo.Echo, svc Service) {
 	})
 
 	e.GET("/api/finance/reports/:month/excel", func(c echo.Context) error {
-		report, err := svc.DraftReport(c.Request().Context(), c.Param("month"))
+		filter, err := reportFilterFromRequest(c, customerAccounts)
+		if err != nil {
+			return jsonError(c, financeFilterErrorStatus(err), err)
+		}
+		report, err := svc.DraftReport(c.Request().Context(), filter)
 		if err != nil {
 			return jsonError(c, http.StatusBadRequest, err)
 		}
@@ -153,7 +164,11 @@ func registerFinanceAPI(e *echo.Echo, svc Service) {
 	})
 
 	e.GET("/api/finance/reports/:month/closing-review", func(c echo.Context) error {
-		review, err := svc.ClosingReview(c.Request().Context(), c.Param("month"))
+		filter, err := reportFilterFromRequest(c, customerAccounts)
+		if err != nil {
+			return jsonError(c, financeFilterErrorStatus(err), err)
+		}
+		review, err := svc.ClosingReview(c.Request().Context(), filter)
 		if err != nil {
 			return jsonError(c, http.StatusBadRequest, err)
 		}
@@ -161,7 +176,11 @@ func registerFinanceAPI(e *echo.Echo, svc Service) {
 	})
 
 	e.GET("/api/finance/reports/:month/drilldown", func(c echo.Context) error {
-		drilldown, err := svc.ReportDrilldown(c.Request().Context(), c.Param("month"))
+		filter, err := reportFilterFromRequest(c, customerAccounts)
+		if err != nil {
+			return jsonError(c, financeFilterErrorStatus(err), err)
+		}
+		drilldown, err := svc.ReportDrilldown(c.Request().Context(), filter)
 		if err != nil {
 			return jsonError(c, http.StatusBadRequest, err)
 		}
@@ -169,7 +188,11 @@ func registerFinanceAPI(e *echo.Echo, svc Service) {
 	})
 
 	e.GET("/api/finance/reports/:month/accountant-handoff.xlsx", func(c echo.Context) error {
-		handoff, err := svc.AccountantHandoff(c.Request().Context(), c.Param("month"))
+		filter, err := reportFilterFromRequest(c, customerAccounts)
+		if err != nil {
+			return jsonError(c, financeFilterErrorStatus(err), err)
+		}
+		handoff, err := svc.AccountantHandoff(c.Request().Context(), filter)
 		if err != nil {
 			return jsonError(c, http.StatusBadRequest, err)
 		}
@@ -183,7 +206,11 @@ func registerFinanceAPI(e *echo.Echo, svc Service) {
 	})
 
 	e.GET("/api/finance/reports/:month", func(c echo.Context) error {
-		report, err := svc.DraftReport(c.Request().Context(), c.Param("month"))
+		filter, err := reportFilterFromRequest(c, customerAccounts)
+		if err != nil {
+			return jsonError(c, financeFilterErrorStatus(err), err)
+		}
+		report, err := svc.DraftReport(c.Request().Context(), filter)
 		if err != nil {
 			return jsonError(c, http.StatusBadRequest, err)
 		}
@@ -213,7 +240,7 @@ func monthParam(c echo.Context) string {
 	return time.Now().Format("2006-01")
 }
 
-func expenseFilterFromRequest(c echo.Context) (appfinance.ExpenseFilter, error) {
+func expenseFilterFromRequest(c echo.Context, customerAccounts CustomerAccountContextService) (appfinance.ExpenseFilter, error) {
 	filter := appfinance.ExpenseFilter{Month: monthParam(c)}
 	if value := strings.TrimSpace(c.QueryParam("employee_id")); value != "" {
 		id, err := strconv.ParseInt(value, 10, 64)
@@ -229,7 +256,60 @@ func expenseFilterFromRequest(c echo.Context) (appfinance.ExpenseFilter, error) 
 		}
 		filter.CustomerID = id
 	}
+	customerID, err := resolveFinanceCustomerScope(c, customerAccounts, filter.CustomerID)
+	if err != nil {
+		return appfinance.ExpenseFilter{}, err
+	}
+	filter.CustomerID = customerID
 	return filter, nil
+}
+
+func reportFilterFromRequest(c echo.Context, customerAccounts CustomerAccountContextService) (appfinance.ReportFilter, error) {
+	filter := appfinance.ReportFilter{Month: strings.TrimSpace(c.Param("month"))}
+	if value := strings.TrimSpace(c.QueryParam("customer_id")); value != "" {
+		id, err := strconv.ParseInt(value, 10, 64)
+		if err != nil || id < 0 {
+			return appfinance.ReportFilter{}, fmt.Errorf("invalid customer_id")
+		}
+		filter.CustomerID = id
+	}
+	customerID, err := resolveFinanceCustomerScope(c, customerAccounts, filter.CustomerID)
+	if err != nil {
+		return appfinance.ReportFilter{}, err
+	}
+	filter.CustomerID = customerID
+	return filter, nil
+}
+
+func resolveFinanceCustomerScope(c echo.Context, customerAccounts CustomerAccountContextService, requestedCustomerID int64) (int64, error) {
+	if !support.CustomerFinanceScopeLimited(c) {
+		return requestedCustomerID, nil
+	}
+	if customerAccounts == nil {
+		return 0, fmt.Errorf("%w: context unavailable", errCustomerFinanceScopeDenied)
+	}
+	employeeID := support.CurrentEmployeeID(c)
+	if employeeID <= 0 {
+		return 0, fmt.Errorf("%w: employee required", errCustomerFinanceScopeDenied)
+	}
+	overview, err := customerAccounts.CustomerPortalOverview(c.Request().Context(), employeeID)
+	if err != nil {
+		return 0, fmt.Errorf("%w: %v", errCustomerFinanceScopeDenied, err)
+	}
+	if overview.CustomerID <= 0 {
+		return 0, fmt.Errorf("%w: bound customer missing", errCustomerFinanceScopeDenied)
+	}
+	if requestedCustomerID > 0 && requestedCustomerID != overview.CustomerID {
+		return 0, fmt.Errorf("%w: requested customer does not match account", errCustomerFinanceScopeDenied)
+	}
+	return overview.CustomerID, nil
+}
+
+func financeFilterErrorStatus(err error) int {
+	if errors.Is(err, errCustomerFinanceScopeDenied) {
+		return http.StatusForbidden
+	}
+	return http.StatusBadRequest
 }
 
 func jsonError(c echo.Context, status int, err error) error {

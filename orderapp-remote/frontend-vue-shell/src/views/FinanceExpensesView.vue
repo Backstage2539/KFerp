@@ -2,18 +2,18 @@
   <div class="page">
     <section class="panel head">
       <div>
-        <h2>费用管理</h2>
-        <p>{{ month }} · {{ customerContextText }}期间费用与主营成本补录</p>
+        <h2>{{ isCustomerFinanceReadOnly ? '费用明细' : '费用管理' }}</h2>
+        <p>{{ month }} · {{ customerContextText }}{{ isCustomerFinanceReadOnly ? '费用明细' : '期间费用与主营成本补录' }}</p>
       </div>
       <div class="toolbar">
         <input v-model="month" type="month" @change="load" />
-        <select v-model.number="employeeFilter" @change="load">
+        <select v-if="!isCustomerFinanceReadOnly" v-model.number="employeeFilter" @change="load">
           <option :value="0">全部员工</option>
           <option v-for="employee in activeEmployees" :key="employee.id" :value="employee.id">
             {{ employee.name }}
           </option>
         </select>
-        <button v-if="employeeFilter" class="secondary" type="button" @click="selectEmployeeFilter(0)">清除员工</button>
+        <button v-if="employeeFilter && !isCustomerFinanceReadOnly" class="secondary" type="button" @click="selectEmployeeFilter(0)">清除员工</button>
         <button class="secondary" type="button" @click="load" :disabled="loading">刷新</button>
       </div>
     </section>
@@ -21,7 +21,11 @@
     <div v-if="error" class="error">{{ error }}</div>
     <div v-if="ok" class="ok">已保存</div>
 
-    <section class="panel">
+    <section v-if="isCustomerFinanceReadOnly" class="panel read-only-note">
+      客户账户只展示当前客户相关费用，不在客户侧新增或归集费用。
+    </section>
+
+    <section v-if="!isCustomerFinanceReadOnly" class="panel">
       <div class="section-title">新增费用</div>
       <div class="form-grid">
         <label>
@@ -126,13 +130,14 @@
             <td>{{ allocationLabel(row.allocation) }}</td>
             <td>
               <button
-                v-if="row.employee_id"
+                v-if="row.employee_id && !isCustomerFinanceReadOnly"
                 class="link-button"
                 type="button"
                 @click="selectEmployeeFilter(row.employee_id)"
               >
                 {{ row.employee_name || employeeName(row.employee_id) }}
               </button>
+              <span v-else-if="row.employee_id">{{ row.employee_name || employeeName(row.employee_id) }}</span>
               <span v-else class="muted">未关联</span>
             </td>
             <td>
@@ -167,6 +172,7 @@ const props = defineProps({
   workspaceMode: { type: String, default: '' },
   customerContextId: { type: [Number, String], default: 0 },
   customerContextLabel: { type: String, default: '' },
+  customerAccountActor: { type: Boolean, default: false },
 })
 
 const month = ref(currentMonth())
@@ -197,6 +203,7 @@ const filteredExpenseCategoryOptions = computed(() => filterExpenseOptions(expen
 const filteredExpensePaymentOptions = computed(() => filterExpenseOptions(expensePaymentOptions, form.payment))
 const contextCustomerID = computed(() => Number(props.customerContextId || 0))
 const isWorkspaceCustomerLocked = computed(() => props.workspaceMode === CUSTOMER_WORKSPACE_MODE && contextCustomerID.value > 0)
+const isCustomerFinanceReadOnly = computed(() => props.customerAccountActor && isWorkspaceCustomerLocked.value)
 const customerContextText = computed(() => {
   if (!contextCustomerID.value) return ''
   return `${props.customerContextLabel || `客户#${contextCustomerID.value}`} · `
@@ -245,6 +252,10 @@ async function load() {
 }
 
 async function save() {
+  if (isCustomerFinanceReadOnly.value) {
+    error.value = '客户账户费用为只读'
+    return
+  }
   saving.value = true
   error.value = ''
   ok.value = false
@@ -304,7 +315,9 @@ watch(() => props.customerContextId, async () => {
 
 onMounted(async () => {
   if (contextCustomerID.value > 0) form.customer_id = String(contextCustomerID.value)
-  await loadEmployees()
+  if (!isCustomerFinanceReadOnly.value) {
+    await loadEmployees()
+  }
   await load()
 })
 </script>
@@ -334,6 +347,7 @@ th { background: #fbfbfb; }
 .locked-dimension { border: 1px solid #e5e7eb; border-radius: 6px; padding: 8px 9px; min-height: 38px; background: #f9fafb; display: grid; gap: 2px; }
 .locked-dimension span, .locked-dimension small { color: #666; font-size: 12px; }
 .locked-dimension strong { font-size: 14px; }
+.read-only-note { color: #4b5563; background: #f9fafb; }
 .error, .ok { border-radius: 6px; padding: 10px; }
 .error { background: #fff0f0; border: 1px solid #e6b7b7; color: #8a1f1f; }
 .ok { background: #f0fff0; border: 1px solid #b7d9b7; color: #246024; }

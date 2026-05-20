@@ -109,6 +109,14 @@ test('customer processing portal uses the ERP fulfillment order list and documen
   assert.doesNotMatch(source, /overview\.direct_ship_orders/)
 })
 
+test('customer processing portal does not embed finance details after finance becomes a separate menu', () => {
+  const source = fs.readFileSync(path.join(currentDir, '..', 'views', 'CustomerProcessingPortalView.vue'), 'utf8')
+
+  assert.equal(source.includes('费用明细'), false)
+  assert.equal(source.includes('结算单'), false)
+  assert.equal(source.includes('canViewSettlement.value ?'), false)
+})
+
 test('customer workbench order forms do not expose discount or shipping inputs', () => {
   const portalSource = fs.readFileSync(path.join(currentDir, '..', 'views', 'CustomerProcessingPortalView.vue'), 'utf8')
   assert.doesNotMatch(portalSource, /<th>优惠<\/th>/)
