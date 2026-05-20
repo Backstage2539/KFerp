@@ -647,6 +647,7 @@ const showWorkspaceCustomerSelector = computed(() => workspaceMode.value === CUS
 const workspaceMenuGroups = computed(() => (isCustomerActor.value ? customerAccountActorMenuGroups : menuGroupsForWorkspaceMode(menuGroups, workspaceMode.value)))
 const availableMenuGroups = computed(() => filterMenuGroups(workspaceMenuGroups.value, allowedViewKeys.value, {
   actor: currentActor.value,
+  workspaceMode: workspaceMode.value,
   hideCustomerAccountFulfillment: uiSettings.value.hide_customer_account_fulfillment,
 }))
 const currentGroupId = computed(() => groupForView(availableMenuGroups.value, currentKey.value)?.id || '')

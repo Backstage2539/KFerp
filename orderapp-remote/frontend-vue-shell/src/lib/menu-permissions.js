@@ -18,15 +18,18 @@ export function isViewAllowed(key, allowedViews) {
   return allowedViews.includes(key)
 }
 
+function isCustomerWorkspaceMode(options = {}) {
+  return String(options.workspaceMode || '').trim().toLowerCase() === 'customer' || isCustomerAccountMode(options.actor)
+}
+
 export function filterMenuGroups(groups, allowedViews, options = {}) {
-  if (!Array.isArray(allowedViews)) return groups
-  const hideCustomerFulfillment = !!options.hideCustomerAccountFulfillment && isCustomerAccountMode(options.actor)
-  return groups
+  const hideCustomerFulfillment = !!options.hideCustomerAccountFulfillment && isCustomerWorkspaceMode(options)
+  return (groups || [])
     .map((group) => ({
       ...group,
       items: group.items.filter((item) => {
-        if (!isViewAllowed(item.key, allowedViews)) return false
         if (hideCustomerFulfillment && item.key === 'customerFulfillment') return false
+        if (!isViewAllowed(item.key, allowedViews)) return false
         return true
       }),
     }))

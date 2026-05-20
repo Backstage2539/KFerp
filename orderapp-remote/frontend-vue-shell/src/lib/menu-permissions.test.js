@@ -1,5 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
 
 import { actorHasFullViewAccess, filterMenuGroups, isCustomerAccountMode, isViewAllowed } from './menu-permissions.js'
 
@@ -55,4 +56,24 @@ test('filterMenuGroups keeps fulfillment console when customer account hiding is
   })
 
   assert.equal(JSON.stringify(filtered).includes('customerFulfillment'), true)
+})
+
+test('filterMenuGroups hides fulfillment console for full-access actors in customer workspace', () => {
+  const actor = { roles: [{ code: 'admin' }], allowed_views: null }
+  const filtered = filterMenuGroups(groups, null, {
+    actor,
+    workspaceMode: 'customer',
+    hideCustomerAccountFulfillment: true,
+  })
+
+  assert.equal(JSON.stringify(filtered).includes('customerFulfillment'), false)
+  assert.equal(JSON.stringify(filtered).includes('履约运营台'), false)
+  assert.equal(JSON.stringify(filtered).includes('order'), true)
+  assert.equal(JSON.stringify(filtered).includes('machines'), true)
+})
+
+test('Vue shell passes workspace mode into menu filtering', () => {
+  const source = readFileSync(new URL('../App.vue', import.meta.url), 'utf8')
+
+  assert.match(source, /filterMenuGroups\(workspaceMenuGroups\.value,\s*allowedViewKeys\.value,\s*\{[\s\S]*workspaceMode:\s*workspaceMode\.value/)
 })
