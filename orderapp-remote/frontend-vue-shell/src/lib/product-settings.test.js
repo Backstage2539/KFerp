@@ -390,6 +390,14 @@ test('SKU settings exposes an explicit copy action for public gradient templates
   assert.match(source, /customer-gradient-templates\/derive/)
 })
 
+test('SKU settings renders the customer-only SKU form as a full-width workspace', () => {
+  const source = fs.readFileSync(new URL('../views/ProductSettingsView.vue', import.meta.url), 'utf8')
+
+  assert.match(source, /\.custom-product-panel\s*\{\s*grid-column:\s*1\s*\/\s*-1;\s*\}/)
+  assert.match(source, /\.custom-product-form\s*\{\s*display:\s*grid;\s*grid-template-columns:\s*repeat\(4,\s*minmax\(160px,\s*1fr\)\);/)
+  assert.match(source, /@media\s*\(max-width:\s*1100px\)\s*\{[^}]*\.custom-product-form\s*\{\s*grid-template-columns:\s*repeat\(2,\s*minmax\(0,\s*1fr\)\);/s)
+})
+
 test('assign category payload carries customer context for public template derivation', () => {
   assert.deepEqual(buildAssignCategoryPayload({
     product: { id: 421, customer_id: 42 },
