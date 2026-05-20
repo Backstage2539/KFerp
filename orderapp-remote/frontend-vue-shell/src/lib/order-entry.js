@@ -143,9 +143,40 @@ function rowQuantityForWholesalePriceUnit(row) {
   return normalizeSpecG(row) * Math.max(1, toInt(row?.qty)) / unit.unitG
 }
 
-function wholesaleTierUnitPriceLb(tier) {
+function normalizeTierDisplayUnit(unit) {
+  const value = String(unit || '').trim().toLowerCase()
+  if (['kg', 'lb', 'g100', 'g227', 'g250'].includes(value)) return value
+  return ''
+}
+
+function priceUnitForDisplayUnit(unit) {
+  switch (normalizeTierDisplayUnit(unit)) {
+    case 'kg':
+      return { label: '元/kg', suffix: '/kg', unitG: 1000 }
+    case 'lb':
+      return { label: '元/磅', suffix: '/磅', unitG: 454 }
+    case 'g100':
+      return { label: '元/100g', suffix: '/100g', unitG: 100 }
+    case 'g227':
+      return { label: '元/227g', suffix: '/227g', unitG: 227 }
+    case 'g250':
+      return { label: '元/250g', suffix: '/250g', unitG: 250 }
+    default:
+      return null
+  }
+}
+
+function tierConfiguredUnitPrice(tier) {
   const configuredPrice = toNumber(tier?.unit_price)
-  const pricePerPackage = configuredPrice > 0 ? configuredPrice : toNumber(tier?.price)
+  return configuredPrice > 0 ? configuredPrice : toNumber(tier?.price)
+}
+
+function roundToCents(value) {
+  return Math.round((Number(value || 0) + Number.EPSILON) * 100) / 100
+}
+
+function wholesaleTierUnitPriceLb(tier) {
+  const pricePerPackage = tierConfiguredUnitPrice(tier)
   if (pricePerPackage <= 0) return 0
   return pricePerPackage * 454 / tierSpecG(tier)
 }
@@ -155,6 +186,14 @@ function wholesaleDisplayUnitPrice(pricePerLb, rowOrSpec) {
   const price = toNumber(pricePerLb) * unit.unitG / 454
   if (unit.unitG === 1000) return Math.round(price)
   return price
+}
+
+function wholesaleTierDisplayUnitPrice(tier, targetUnit) {
+  const sourceUnit = priceUnitForDisplayUnit(tier?.display_unit)
+  if (!sourceUnit) return wholesaleDisplayUnitPrice(wholesaleTierUnitPriceLb(tier), targetUnit.unitG)
+  const price = tierConfiguredUnitPrice(tier) * targetUnit.unitG / sourceUnit.unitG
+  if (sourceUnit.unitG === 454 && targetUnit.unitG === 1000) return Math.round(price)
+  return roundToCents(price)
 }
 
 function matchTierByQuantity(tiers, quantity, minValue, maxValue) {
@@ -170,14 +209,14 @@ export function wholesaleTierPriceRows(product, row = null) {
   return (product?.tiers || [])
     .filter((tier) => toInt(tier.spec_g) > 0)
     .map((tier) => {
-      const priceUnitTarget = row || toInt(tier.spec_g)
+      const priceUnit = priceUnitForDisplayUnit(tier?.display_unit) || wholesalePriceUnit(toInt(tier.spec_g))
       return {
         id: String(tier.id || ''),
         specG: toInt(tier.spec_g),
         specLabel: formatSpecLabel(tier.spec_g),
         rangeLabel: formatTierRange(tier),
-        unitPrice: wholesaleDisplayUnitPrice(wholesaleTierUnitPriceLb(tier), priceUnitTarget),
-        priceUnit: wholesalePriceUnit(priceUnitTarget),
+        unitPrice: wholesaleTierDisplayUnitPrice(tier, priceUnit),
+        priceUnit,
       }
     })
 }
@@ -198,7 +237,7 @@ export function findWholesaleTier(product, row) {
 export function syncWholesaleTierPrice(product, row) {
   const tier = findWholesaleTier(product, row)
   if (!tier) return { tierID: 'auto', unitPrice: '' }
-  return { tierID: String(tier.id), unitPrice: String(wholesaleDisplayUnitPrice(wholesaleTierUnitPriceLb(tier), row) || 0) }
+  return { tierID: String(tier.id), unitPrice: String(wholesaleTierDisplayUnitPrice(tier, wholesalePriceUnit(row)) || 0) }
 }
 
 function normalizeDripSalesUnit(unit) {
