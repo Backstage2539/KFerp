@@ -479,12 +479,16 @@ func greenBeanOrderTierOption(publicationID int64, versionNo string, idx int, ti
 	if specG <= 0 {
 		specG = 1000
 	}
+	displayUnit := strings.TrimSpace(strings.ToLower(tier.DisplayUnit))
+	if displayUnit == "" {
+		displayUnit = "kg"
+	}
 	unitPrice := tier.PricePerUnit
 	if unitPrice <= 0 {
-		switch strings.TrimSpace(tier.DisplayUnit) {
+		switch displayUnit {
 		case "lb":
 			unitPrice = tier.PricePerLb
-		case "kg", "":
+		case "kg":
 			unitPrice = tier.PricePerKg
 		default:
 			if tier.PricePerKg > 0 {
@@ -503,6 +507,7 @@ func greenBeanOrderTierOption(publicationID int64, versionNo string, idx int, ti
 		"version_no":       versionNo,
 		"template_id":      tier.TemplateID,
 		"template_tier_id": tier.TemplateTierID,
+		"display_unit":     displayUnit,
 	}
 	sourceJSON, _ := json.Marshal(source)
 	return salesapp.ProductTierOption{
@@ -511,6 +516,7 @@ func greenBeanOrderTierOption(publicationID int64, versionNo string, idx int, ti
 		MinQty:          tier.MinQty,
 		MaxQty:          tier.MaxQty,
 		UnitPrice:       unitPrice,
+		DisplayUnit:     displayUnit,
 		ProductKind:     "green_bean",
 		PriceSourceJSON: string(sourceJSON),
 	}

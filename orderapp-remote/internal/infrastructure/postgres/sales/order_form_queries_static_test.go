@@ -100,6 +100,9 @@ func TestGreenBeanOrderPublicationTiersParseTemplatePrices(t *testing.T) {
 	if tiers[0].ProductKind != "green_bean" {
 		t.Fatalf("product_kind = %q, want green_bean", tiers[0].ProductKind)
 	}
+	if tiers[0].DisplayUnit != "kg" || tiers[1].DisplayUnit != "kg" {
+		t.Fatalf("display_unit = %q/%q, want kg/kg", tiers[0].DisplayUnit, tiers[1].DisplayUnit)
+	}
 	var source map[string]any
 	if err := json.Unmarshal([]byte(tiers[0].PriceSourceJSON), &source); err != nil {
 		t.Fatalf("price source json invalid: %v", err)

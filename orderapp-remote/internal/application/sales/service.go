@@ -215,6 +215,7 @@ type ProductTierOption struct {
 	MinQty          float64  `json:"min_qty"`
 	MaxQty          *float64 `json:"max_qty"`
 	UnitPrice       float64  `json:"unit_price"`
+	DisplayUnit     string   `json:"display_unit,omitempty"`
 	ProductKind     string   `json:"product_kind"`
 	SalesUnit       string   `json:"sales_unit"`
 	UnitBagCount    int64    `json:"unit_bag_count"`

@@ -368,6 +368,7 @@ func TestOrderAPIFormReturnsPublishedGreenBeanListTiersForGreenBeanProduct(t *te
 				MinQty          float64  `json:"min"`
 				MaxQty          *float64 `json:"max"`
 				UnitPrice       float64  `json:"unit_price"`
+				DisplayUnit     string   `json:"display_unit"`
 				ProductKind     string   `json:"product_kind"`
 				PriceSourceJSON string   `json:"price_source_json"`
 			} `json:"tiers"`
@@ -385,6 +386,7 @@ func TestOrderAPIFormReturnsPublishedGreenBeanListTiersForGreenBeanProduct(t *te
 			MinQty          float64  `json:"min"`
 			MaxQty          *float64 `json:"max"`
 			UnitPrice       float64  `json:"unit_price"`
+			DisplayUnit     string   `json:"display_unit"`
 			ProductKind     string   `json:"product_kind"`
 			PriceSourceJSON string   `json:"price_source_json"`
 		} `json:"tiers"`
@@ -403,6 +405,9 @@ func TestOrderAPIFormReturnsPublishedGreenBeanListTiersForGreenBeanProduct(t *te
 	}
 	if green.Tiers[0].ID != 50 || green.Tiers[0].SpecG != 1000 || green.Tiers[0].MinQty != 1 || green.Tiers[0].MaxQty == nil || *green.Tiers[0].MaxQty != 59 || green.Tiers[0].UnitPrice != 63.9 {
 		t.Fatalf("first published green bean tier = %+v", green.Tiers[0])
+	}
+	if green.Tiers[0].DisplayUnit != "kg" || green.Tiers[1].DisplayUnit != "kg" {
+		t.Fatalf("green bean tier display units = %q/%q, want kg/kg", green.Tiers[0].DisplayUnit, green.Tiers[1].DisplayUnit)
 	}
 	if green.Tiers[1].ID != 51 || green.Tiers[1].MinQty != 60 || green.Tiers[1].UnitPrice != 63.9 {
 		t.Fatalf("second published green bean tier = %+v", green.Tiers[1])
