@@ -124,13 +124,27 @@ test('product bean-list view exposes manual green bean tier price editing', () =
   for (const expected of [
     'green-tier-price-editor',
     'green-inline-price-editor',
+    '保存生豆价格',
+    'saveGreenBeanPriceDraft',
     'greenTierPriceRows(row)',
     'greenTierPriceRows(item)',
     'setGreenBeanTierPrice(itemProductID(row), tier, $event.target.value)',
     'setGreenBeanTierPrice(itemProductID(item), tier, $event.target.value)',
     'function setGreenBeanTierPrice',
     'greenPriceOverrides',
+    "listType: 'green'",
+    "'/api/costing/bean-list/drafts'",
   ]) {
     assert.ok(viewSource.includes(expected), `missing green bean tier price editing: ${expected}`)
+  }
+})
+
+test('product bean-list warns when a green bean item has no green category template', () => {
+  for (const expected of [
+    "item?.bom_status === 'missing_green_bean_template'",
+    '未挂到带生豆模板的分类，无法生成生豆价格',
+    '请在 SKU设置 里把该生豆 SKU 移到带生豆模板的生豆分类',
+  ]) {
+    assert.ok(viewSource.includes(expected), `missing green bean category warning: ${expected}`)
   }
 })
