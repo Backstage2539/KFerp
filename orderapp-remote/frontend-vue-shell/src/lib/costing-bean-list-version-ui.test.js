@@ -124,6 +124,8 @@ test('product bean-list view exposes manual green bean tier price editing', () =
   for (const expected of [
     'green-tier-price-editor',
     'green-inline-price-editor',
+    '梯度按 KG，单价按元/磅',
+    '生成并发布新版豆单后，录单才会使用新价格',
     '保存生豆价格',
     'saveGreenBeanPriceDraft',
     'greenTierPriceRows(row)',
@@ -136,6 +138,16 @@ test('product bean-list view exposes manual green bean tier price editing', () =
     "'/api/costing/bean-list/drafts'",
   ]) {
     assert.ok(viewSource.includes(expected), `missing green bean tier price editing: ${expected}`)
+  }
+})
+
+test('product bean-list drawer defaults customer versions from the latest source plus one step', () => {
+  for (const expected of [
+    'defaultBeanListDraftVersion',
+    'defaultBeanListVersionForScope(listType)',
+    'pdfOptions.value = { ...pdfOptions.value, listType, version: defaultBeanListVersionForScope(listType) }',
+  ]) {
+    assert.ok(viewSource.includes(expected), `missing customer bean-list version default behavior: ${expected}`)
   }
 })
 

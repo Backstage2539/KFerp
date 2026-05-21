@@ -7,7 +7,9 @@ import {
   buildBeanListPdfTitle,
   copyBeanListPublicationContentGroups,
   copyBeanListPublicationConfig,
+  defaultBeanListDraftVersion,
   filterBeanListItemsForScope,
+  nextBeanListVersion,
   sanitizeBeanListPdfTheme,
   splitHighlightedText,
 } from './bean-list-pdf.js'
@@ -88,6 +90,20 @@ test('PDF bean-list helper defaults to V3.0.5 and keeps mobile print theme setti
   assert.equal(theme.backgroundColor, '#112233')
   assert.equal(theme.fontColor, '#fafafa')
   assert.equal(theme.backgroundImage, 'data:image/png;base64,abc')
+})
+
+test('PDF bean-list helper increments customer draft versions by the next 0.01-style suffix', () => {
+  assert.equal(nextBeanListVersion('V1'), 'V1.01')
+  assert.equal(nextBeanListVersion('V1.01'), 'V1.02')
+  assert.equal(nextBeanListVersion('V1.09'), 'V1.10')
+  assert.equal(nextBeanListVersion('V3.0.5'), 'V3.0.6')
+  assert.equal(nextBeanListVersion(''), DEFAULT_BEAN_LIST_PDF_VERSION)
+})
+
+test('PDF bean-list helper prefers current customer version before copied price source version', () => {
+  assert.equal(defaultBeanListDraftVersion([{ version: 'V1', status: 'published' }], { version: 'V9' }), 'V1.01')
+  assert.equal(defaultBeanListDraftVersion([{ version: 'V1.01', status: 'published' }], { version: 'V1' }), 'V1.02')
+  assert.equal(defaultBeanListDraftVersion([], { version: 'V1' }), 'V1.01')
 })
 
 test('PDF bean-list helper builds separate commercial and retail groups from Excel metadata', () => {
