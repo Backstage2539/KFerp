@@ -65,8 +65,6 @@ test('operation manuals live inside their functional menu groups', () => {
     ['greenBeanSalesManual', 'product'],
     ['settingsAuditManual', 'settings'],
     ['notificationManual', 'settings'],
-    ['workspaceModeManual', 'customerFulfillment'],
-    ['customerPortalManual', 'customerFulfillment'],
     ['customerFulfillmentManual', 'customerFulfillment'],
     ['requirementsManual', 'requirements'],
   ]
@@ -95,12 +93,16 @@ test('sales menu no longer exposes the removed quote export page', () => {
   assert.equal(JSON.stringify(menuGroups).includes('报价导出'), false)
 })
 
-test('customer fulfillment menu consolidates operator, portal, templates and workspace manual', () => {
+test('customer fulfillment menu consolidates operator, portal, templates and one combined manual', () => {
   const keys = primaryMenuKeys(menuGroups)
-  for (const key of ['customerFulfillment', 'customerPortalSettings', 'customerCapabilityTemplates', 'workspaceModeManual', 'customerFulfillmentManual', 'customerPortalManual']) {
+  for (const key of ['customerFulfillment', 'customerPortalSettings', 'customerCapabilityTemplates', 'customerFulfillmentManual']) {
     assert.ok(keys.includes(key))
     assert.equal(groupForView(menuGroups, key)?.id, 'customerFulfillment')
   }
+  assert.equal(keys.includes('workspaceModeManual'), false)
+  assert.equal(keys.includes('customerPortalManual'), false)
+  assert.equal(menuMap.workspaceModeManual?.title, '客户履约手册')
+  assert.equal(menuMap.customerPortalManual?.title, '客户履约手册')
   assert.equal(keys.includes('customerProcessingPortal'), false)
   assert.equal(groupForView(menuGroups, 'customerProcessingPortal'), null)
   assert.equal(menuGroups.find((group) => group.id === 'customerFulfillment')?.name, '客户履约')

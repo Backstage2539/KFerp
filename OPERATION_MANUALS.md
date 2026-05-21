@@ -12,7 +12,6 @@
 
 ## 当前手册
 - 手册入口必须直接放在对应大功能菜单内，不单独建立“手册”或“文档”菜单。
-- `OP_MANUAL_WORKSPACE_MODE.md`：工厂总览 / 客户账户两种页面排布、全局客户上下文和页面复用规则。
 - `OP_MANUAL_REQUIREMENTS.md`：需求管理 5 张表和证据闭环。
 - `OP_MANUAL_ORDER_SALES.md`：录单、订单列表、客户档案、销售单、合同盖章和出库单。
 - `OP_MANUAL_PRODUCTION.md`：生产计划、生产中、工单、工序卡、生产成本、生产日志、分配批次。
@@ -22,8 +21,7 @@
 - `OP_MANUAL_FINANCE.md`：财务首页、费用管理、月度结账、经营报告、票税台账、财务设置。
 - `OP_MANUAL_SETTINGS_AUDIT.md`：设备产能、发货人、代加工模板、部门员工、操作日志。
 - `OP_MANUAL_NOTIFICATIONS.md`：通知规则、ERP 站内通知和外部 IM 扩展框架。
-- `OP_MANUAL_CUSTOMER_PORTAL.md`：客户门户配置、小程序主题、商城商品、小程序商城下单。
-- `OP_MANUAL_CUSTOMER_FULFILLMENT.md`：客户履约账户、Excel 导入、客户托管库存、代发订单、费用和月结。
+- `OP_MANUAL_CUSTOMER_FULFILLMENT.md`：客户履约全流程，合并工作台模式、客户门户、客户履约账户；覆盖角色权限、客户开通、能力模板、外部用户、客户账户模式、小程序商城、Excel 导入、托管库存、代发/代加工、费用和月结。
 
 ## 手册维护流程图
 ```mermaid

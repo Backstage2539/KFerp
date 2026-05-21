@@ -6,9 +6,7 @@ export const menuGroups = [
       { key: 'customerFulfillment', label: '履约运营台', title: '客户履约运营台' },
       { key: 'customerPortalSettings', label: '门户客户配置', title: '门户客户配置' },
       { key: 'customerCapabilityTemplates', label: '能力模板', title: '客户能力模板设置' },
-      { key: 'workspaceModeManual', label: '工作台模式手册', title: '工作台模式手册' },
-      { key: 'customerFulfillmentManual', label: '履约操作手册', title: '客户履约手册' },
-      { key: 'customerPortalManual', label: '客户门户手册', title: '客户门户手册' },
+      { key: 'customerFulfillmentManual', label: '客户履约手册', title: '客户履约手册' },
     ],
   },
   {
@@ -129,6 +127,8 @@ export const hiddenViewTitles = {
   salesOrder: '销售单',
   contractPDF: '合同PDF',
   customerProcessingPortal: '客户履约工作台',
+  workspaceModeManual: '客户履约手册',
+  customerPortalManual: '客户履约手册',
 }
 
 export const menuMap = Object.fromEntries([
