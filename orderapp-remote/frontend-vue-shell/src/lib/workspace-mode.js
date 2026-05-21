@@ -5,7 +5,7 @@ const customerWorkspaceSpec = [
   {
     id: 'customerAccount',
     name: '客户账户',
-    keys: ['customerFulfillment', 'order', 'orders', 'warehouseInventory', 'producePlan', 'workspaceModeManual'],
+    keys: ['customerFulfillment', 'order', 'orders', 'warehouseInventory'],
   },
   {
     id: 'customerGoods',
@@ -20,6 +20,18 @@ const customerWorkspaceSpec = [
 ]
 
 const factoryHiddenKeys = new Set(['customerFulfillment'])
+const customerWorkspaceHiddenKeys = new Set([
+  'workspaceModeManual',
+  'productionManual',
+  'productionAcceptance',
+  'producePlan',
+  'produceRunning',
+  'workOrders',
+  'jobCards',
+  'qualityInspections',
+  'produceLogs',
+  'productionCosts',
+])
 const customerActorRoleCodes = new Set(['customer_processing_customer', 'customer_direct_ship_customer'])
 
 export function normalizeWorkspaceMode(value) {
@@ -47,7 +59,10 @@ export function menuGroupsForWorkspaceMode(groups, mode = FACTORY_WORKSPACE_MODE
     .map((group) => ({
       id: group.id,
       name: group.name,
-      items: group.keys.map((key) => itemByKey(groups, key)).filter(Boolean),
+      items: group.keys
+        .filter((key) => !customerWorkspaceHiddenKeys.has(key))
+        .map((key) => itemByKey(groups, key))
+        .filter(Boolean),
     }))
     .filter((group) => group.items.length > 0)
 }

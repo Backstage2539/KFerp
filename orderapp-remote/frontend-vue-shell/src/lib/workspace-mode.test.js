@@ -44,8 +44,6 @@ test('customer workspace keeps only customer-facing operations and finance', () 
     'order',
     'orders',
     'warehouseInventory',
-    'producePlan',
-    'workspaceModeManual',
     'productSettings',
     'costing',
     'bom',
@@ -64,6 +62,16 @@ test('customer workspace keeps only customer-facing operations and finance', () 
     'departments',
     'reqProduct',
     'reqDev',
+    'workspaceModeManual',
+    'productionManual',
+    'productionAcceptance',
+    'producePlan',
+    'produceRunning',
+    'workOrders',
+    'jobCards',
+    'qualityInspections',
+    'produceLogs',
+    'productionCosts',
   ]) {
     assert.equal(keys.includes(key), false, `${key} should stay out of the customer workspace`)
   }

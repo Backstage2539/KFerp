@@ -17,7 +17,7 @@ test('delivery note date field keeps ISO date text visible to Chinese operators'
 test('sidebar navigation sanitizes stale edit identifiers before switching views', () => {
   const source = readFileSync(new URL('../App.vue', import.meta.url), 'utf8')
   assert.match(source, /viewNavigationURL/)
-  assert.match(source, /replaceHistoryURL\(viewNavigationURL\(url,\s*key,\s*params\)\)/)
+  assert.match(source, /replaceHistoryURL\(applyWorkspaceToUrl\(viewNavigationURL\(url,\s*key,\s*workspaceViewParams\(params,\s*workspaceContext\(\)\)\)\)\)/)
 })
 
 test('customer fulfillment workbench renders sections from capability helpers', () => {
