@@ -12,13 +12,13 @@ describe('service page helpers', () => {
     expect(serviceCapability('directShip')).toBe('direct_ship')
     expect(serviceCapability('orders')).toBe('product_order')
     expect(serviceCapability('processing')).toBe('processing')
-    expect(serviceTitle('orders')).toBe('我的订单')
-    expect(serviceTitle('settlement')).toBe('结算中心')
+    expect(serviceTitle('orders')).toBe('订单中心')
+    expect(serviceTitle('settlement')).toBe('费用中心')
   })
 
   it('maps legacy logistics service links to the order service', () => {
     expect(serviceCapability('shipping')).toBe('product_order')
-    expect(serviceTitle('shipping')).toBe('我的订单')
+    expect(serviceTitle('shipping')).toBe('订单中心')
   })
 
   it('returns visible data sections for a service payload', () => {
