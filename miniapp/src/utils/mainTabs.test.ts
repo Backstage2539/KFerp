@@ -38,7 +38,7 @@ describe('miniapp startup route and main tabs', () => {
       readSource('src/pages/profile/profile.vue'),
     ]
 
-    for (const label of ['首页', '订单', '账单', '我的']) {
+    for (const label of ['首页', '订单中心', '费用中心', '个人中心']) {
       expect(tabBar).toContain(label)
     }
     for (const url of [
@@ -50,6 +50,8 @@ describe('miniapp startup route and main tabs', () => {
       expect(tabBar).toContain(url)
     }
     expect(tabBar).toContain('uni.reLaunch')
+    expect(tabBar).toContain('display: flex')
+    expect(tabBar).not.toContain('display: grid')
     for (const page of pages) {
       expect(page).toContain('MainTabBar')
     }

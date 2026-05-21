@@ -57,12 +57,12 @@ type FulfillmentProductLike = Partial<ProductSummary>
 
 const labels: Record<ServiceKey, string> = {
   beanList: '我的豆单',
-  orders: '我的订单',
+  orders: '订单中心',
   productOrder: '现货下单',
   directShip: '一件代发',
   processing: '代加工',
   inventory: '我的库存',
-  settlement: '结算中心',
+  settlement: '费用中心',
 }
 
 const capabilities: Record<ServiceKey, string> = {
