@@ -262,7 +262,7 @@
         </button>
       </div>
       <div v-show="!beanListPreviewCollapsed.green" class="green-price-save-bar">
-        <p class="muted">生豆价格改动会先保存为当前豆单范围下的生豆豆单草稿，正式报价仍需在生成豆单中发布。</p>
+        <p class="muted">梯度按 KG，单价按元/磅；这里修改的是草稿价，生成并发布新版豆单后，录单才会使用新价格。</p>
         <button class="secondary compact" type="button" :disabled="beanListPublishing || !greenGroups.length || !customerScopeReady" @click="saveGreenBeanPriceDraft">
           {{ beanListPublishing ? '保存中' : '保存生豆价格' }}
         </button>
@@ -395,6 +395,14 @@
           </div>
           <div class="current-owner-pill">{{ currentPublicationOwnerLabel }}</div>
           <p v-if="actorLoaded && !isBeanListAdmin" class="muted">客户账号只能保存修改和下载豆单，发布由管理员执行。</p>
+        </div>
+
+        <div class="copy-config-box bean-list-publish-reminder">
+          <div>
+            <strong>发布提醒</strong>
+            <p v-if="pdfTheme.listType === 'green'">梯度按 KG，单价按元/磅；生成并发布新版豆单后，录单才会使用新价格。</p>
+            <p v-else>生成并发布新版豆单后，录单和客户侧才会使用新价格。</p>
+          </div>
         </div>
 
         <div class="copy-config-box" v-if="(publicationScope === 'mine' || publicationScope === 'customer') && officialPriceSourcePublications.length">
@@ -766,6 +774,7 @@ import {
   buildBeanListPdfSubtitle,
   buildBeanListPdfTitle,
   copyBeanListPublicationContentGroups,
+  defaultBeanListDraftVersion,
   filterBeanListItemsForScope,
   sanitizeBeanListPdfTheme,
   splitHighlightedText,
@@ -1208,7 +1217,7 @@ function initializePdfDefaultsForType(listType) {
 
 function openBeanListDrawer(listType = 'commercial') {
   syncPublicationScopeFromPageContext()
-  pdfOptions.value = { ...pdfOptions.value, listType }
+  pdfOptions.value = { ...pdfOptions.value, listType, version: defaultBeanListVersionForScope(listType) }
   initializePdfDefaultsForType(listType)
   loadBeanListPublications(listType, 'official')
   loadBeanListPublications(listType, 'mine')
@@ -1216,6 +1225,11 @@ function openBeanListDrawer(listType = 'commercial') {
     loadBeanListPublications(listType, 'customer')
   }
   pdfDrawerOpen.value = true
+}
+
+function defaultBeanListVersionForScope(listType) {
+  const source = priceSourcePublicationByType.value[listType]
+  return defaultBeanListDraftVersion(publicationRows(publicationScope.value, listType), source)
 }
 
 function beanListPublicationLabel(row) {
@@ -1323,6 +1337,7 @@ function applyCopiedBeanListPriceSource(row = selectedPriceSourcePublication.val
   const listType = normalizeBeanListType(row.list_type)
   priceSourcePublicationByType.value = { ...priceSourcePublicationByType.value, [listType]: row }
   selectedPriceSourcePublicationID.value = String(row.id)
+  pdfOptions.value = { ...pdfOptions.value, listType, version: defaultBeanListVersionForScope(listType) }
   message.value = `已复制${beanListPublicationLabel(row)}价格来源，发布后会锁定为客户豆单快照`
 }
 
@@ -1811,7 +1826,7 @@ async function saveBeanListDraft() {
 
 async function saveGreenBeanPriceDraft() {
   syncPublicationScopeFromPageContext()
-  pdfOptions.value = { ...pdfOptions.value, listType: 'green' }
+  pdfOptions.value = { ...pdfOptions.value, listType: 'green', version: defaultBeanListVersionForScope('green') }
   initializePdfDefaultsForType('green')
   if (!pdfGroups.value.length) return
   if (!customerScopeReady.value) {

@@ -1,5 +1,25 @@
 export const DEFAULT_BEAN_LIST_PDF_VERSION = 'V3.0.5'
 
+export function nextBeanListVersion(version, fallback = DEFAULT_BEAN_LIST_PDF_VERSION) {
+  const source = String(version || '').trim()
+  if (!source) return fallback
+  const dotted = source.match(/^(.*\.)(\d+)$/)
+  if (dotted) {
+    const [, prefix, segment] = dotted
+    const next = String(Number(segment) + 1).padStart(segment.length, '0')
+    return `${prefix}${next}`
+  }
+  const trailingNumber = source.match(/\d+$/)
+  if (trailingNumber) return `${source}.01`
+  return `${source}.01`
+}
+
+export function defaultBeanListDraftVersion(publications = [], sourcePublication = null, fallback = DEFAULT_BEAN_LIST_PDF_VERSION) {
+  const current = (Array.isArray(publications) ? publications : []).find((row) => String(row?.status || '').trim() === 'published')
+  const row = current || sourcePublication || null
+  return nextBeanListVersion(row?.version || row?.version_no || row?.versionNo || '', fallback)
+}
+
 export function sanitizeBeanListPdfTheme(input = {}) {
   const listType = normalizeBeanListType(input.listType)
   return {
