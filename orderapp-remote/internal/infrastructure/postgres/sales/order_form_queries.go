@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"os"
 	"strconv"
 	"strings"
@@ -483,19 +484,7 @@ func greenBeanOrderTierOption(publicationID int64, versionNo string, idx int, ti
 	if displayUnit == "" {
 		displayUnit = "kg"
 	}
-	unitPrice := tier.PricePerUnit
-	if unitPrice <= 0 {
-		switch displayUnit {
-		case "lb":
-			unitPrice = tier.PricePerLb
-		case "kg":
-			unitPrice = tier.PricePerKg
-		default:
-			if tier.PricePerKg > 0 {
-				unitPrice = tier.PricePerKg * float64(specG) / 1000.0
-			}
-		}
-	}
+	unitPrice := greenBeanOrderTierPricePerLb(tier, specG, displayUnit)
 	id := tier.TemplateTierID
 	if id <= 0 {
 		id = publicationID*100000 + int64(idx+1)
@@ -508,6 +497,7 @@ func greenBeanOrderTierOption(publicationID int64, versionNo string, idx int, ti
 		"template_id":      tier.TemplateID,
 		"template_tier_id": tier.TemplateTierID,
 		"display_unit":     displayUnit,
+		"price_unit":       "lb",
 	}
 	sourceJSON, _ := json.Marshal(source)
 	return salesapp.ProductTierOption{
@@ -516,10 +506,38 @@ func greenBeanOrderTierOption(publicationID int64, versionNo string, idx int, ti
 		MinQty:          tier.MinQty,
 		MaxQty:          tier.MaxQty,
 		UnitPrice:       unitPrice,
-		DisplayUnit:     displayUnit,
+		DisplayUnit:     "lb",
 		ProductKind:     "green_bean",
 		PriceSourceJSON: string(sourceJSON),
 	}
+}
+
+func greenBeanOrderTierPricePerLb(tier orderGreenBeanPublicationTier, specG int64, displayUnit string) float64 {
+	if tier.PricePerLb > 0 {
+		return roundOrderPrice(tier.PricePerLb)
+	}
+	if tier.PricePerKg > 0 {
+		return roundOrderPrice(tier.PricePerKg * 454.0 / 1000.0)
+	}
+	if specG <= 0 {
+		specG = 1000
+	}
+	if tier.PricePerUnit <= 0 {
+		return 0
+	}
+	switch displayUnit {
+	case "lb":
+		return roundOrderPrice(tier.PricePerUnit)
+	case "kg":
+		return roundOrderPrice(tier.PricePerUnit * 454.0 / 1000.0)
+	default:
+		pricePerKg := tier.PricePerUnit * 1000.0 / float64(specG)
+		return roundOrderPrice(pricePerKg * 454.0 / 1000.0)
+	}
+}
+
+func roundOrderPrice(value float64) float64 {
+	return math.Round((value+1e-9)*100) / 100
 }
 
 func (r Repository) fetchOrderEdit(ctx context.Context, id int64) (*salesapp.OrderEditData, error) {

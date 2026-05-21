@@ -272,17 +272,17 @@ test('wholesaleTierPriceRows exposes every configured gradient price', () => {
   ])
 })
 
-test('wholesaleTierPriceRows keeps kg publication tier units even when current row spec is lb-priced', () => {
+test('wholesaleTierPriceRows keeps kg ranges while showing published lb unit prices', () => {
   const got = wholesaleTierPriceRows({
     tiers: [
-      { id: 50, spec_g: 1000, min: 1, max: 59, unit_price: 23.49, display_unit: 'kg' },
-      { id: 51, spec_g: 1000, min: 60, max: null, unit_price: 23.49, display_unit: 'kg' },
+      { id: 50, spec_g: 1000, min: 1, max: 59, unit_price: 23.49, display_unit: 'lb' },
+      { id: 51, spec_g: 1000, min: 60, max: null, unit_price: 23.49, display_unit: 'lb' },
     ],
   }, { spec_mode: '80', qty: 1 })
 
   assert.deepEqual(got, [
-    { id: '50', specG: 1000, specLabel: '1000g', rangeLabel: '1-59kg', unitPrice: 23.49, priceUnit: { label: '元/kg', suffix: '/kg', unitG: 1000 } },
-    { id: '51', specG: 1000, specLabel: '1000g', rangeLabel: '60kg+', unitPrice: 23.49, priceUnit: { label: '元/kg', suffix: '/kg', unitG: 1000 } },
+    { id: '50', specG: 1000, specLabel: '1000g', rangeLabel: '1-59kg', unitPrice: 23.49, priceUnit: { label: '元/磅', suffix: '/磅', unitG: 454 } },
+    { id: '51', specG: 1000, specLabel: '1000g', rangeLabel: '60kg+', unitPrice: 23.49, priceUnit: { label: '元/磅', suffix: '/磅', unitG: 454 } },
   ])
 })
 
