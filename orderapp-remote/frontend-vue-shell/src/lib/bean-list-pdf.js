@@ -141,6 +141,14 @@ function pdfPriceRows(item, tierKey, listType, customizer = {}) {
   if (listType === 'drip') {
     return tiers.flatMap((tier) => dripPdfPriceRows(tier, item))
   }
+  if (listType === 'green') {
+    return tiers.map((tier) => ({
+      label: tier.label || '',
+      price: firstNumber(tier.price_per_lb, tier.price_per_unit, 0),
+      unit: greenPriceUnitLabel(tier),
+      red: false,
+    }))
+  }
   return tiers.map((tier) => {
     const label = tier.label || ''
     return {
@@ -154,25 +162,20 @@ function pdfPriceRows(item, tierKey, listType, customizer = {}) {
 
 function applyGreenTierPrice(tier, price) {
   const unitPrice = roundTo(price, 2)
-  const specG = Number(tier.spec_g || 1000) || 1000
+  tier.price_unit = 'lb'
   tier.price_per_unit = unitPrice
-  switch (tier.display_unit) {
-    case 'lb':
-      tier.price_per_lb = unitPrice
-      tier.price_per_kg = roundTo(unitPrice / 0.454, 2)
-      break
-    case 'g100':
-    case 'g227':
-    case 'g250':
-      tier.price_per_kg = roundTo(unitPrice * 1000 / specG, 2)
-      tier.price_per_lb = roundTo(tier.price_per_kg * 0.454, 2)
-      break
-    case 'kg':
-    default:
-      tier.price_per_kg = unitPrice
-      tier.price_per_lb = roundTo(unitPrice * 0.454, 2)
-      break
-  }
+  tier.price_per_lb = unitPrice
+  tier.price_per_kg = roundTo(unitPrice / 0.454, 2)
+}
+
+function greenPriceUnitLabel(tier = {}) {
+  const unit = String(tier.price_unit || '').trim().toLowerCase()
+  if (unit === 'kg') return 'kg'
+  if (unit === 'g100') return '100g'
+  if (unit === 'g227') return '227g'
+  if (unit === 'g250') return '250g'
+  if (Number(tier.price_per_lb || 0) <= 0 && !unit) return priceUnit(tier)
+  return '磅'
 }
 
 function greenTierPriceOverride(tier = {}, customizer = {}) {
@@ -360,10 +363,27 @@ export function copyBeanListPublicationConfig(publication = {}, currentOptions =
   }
 }
 
-export function copyBeanListPublicationContentGroups(publication = {}) {
+export function copyBeanListPublicationContentGroups(publication = {}, options = {}) {
   const groups = publication?.content?.groups
   if (!Array.isArray(groups)) return []
-  return JSON.parse(JSON.stringify(groups))
+  const copied = JSON.parse(JSON.stringify(groups))
+  const listType = normalizeBeanListType(options.listType || publication.list_type)
+  if (listType === 'green') {
+    applyGreenOverridesToCopiedGroups(copied, options.customizers)
+  }
+  return copied
+}
+
+function applyGreenOverridesToCopiedGroups(groups = [], customizers = {}) {
+  groups.forEach((group) => {
+    const items = Array.isArray(group?.items) ? group.items : []
+    items.forEach((item) => {
+      if (!Array.isArray(item?.green_bean_sale_tiers)) return
+      const customizer = customizerFor(item, customizers && typeof customizers === 'object' ? customizers : {})
+      item.green_bean_sale_tiers = pdfTierSnapshots(item, 'green_bean_sale_tiers', 'green', customizer)
+      item.prices = pdfPriceRows(item, 'green_bean_sale_tiers', 'green', customizer)
+    })
+  })
 }
 
 function normalizeColor(value, fallback) {
@@ -410,13 +430,26 @@ function copyCustomizers(value, validProductIDs) {
     out[id] = {
       ...(badge ? { badge } : {}),
       ...(Array.isArray(highlightTerms) ? { highlightTerms } : highlightTerms ? { highlightTerms } : {}),
+      ...copyGreenPriceOverrides(customizer.greenPriceOverrides),
     }
   })
   return out
 }
 
 function productIDOf(item) {
-  return String(item?.product_id ?? item?.productID ?? item?.id ?? item?.name ?? '')
+  return String(item?.product_id ?? item?.productID ?? item?.productId ?? item?.id ?? item?.name ?? '')
+}
+
+function copyGreenPriceOverrides(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return {}
+  const overrides = {}
+  Object.entries(value).forEach(([key, price]) => {
+    const value = Number(price)
+    if (String(key).trim() && Number.isFinite(value) && value > 0) {
+      overrides[String(key)] = value
+    }
+  })
+  return Object.keys(overrides).length ? { greenPriceOverrides: overrides } : {}
 }
 
 function firstCodePart(code) {

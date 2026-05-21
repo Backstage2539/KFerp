@@ -290,7 +290,7 @@
                 <span>{{ tier.label }}</span>
                 <label>
                   <input type="number" min="0" step="0.01" :value="greenTierPriceValue(itemProductID(item), tier)" @input="setGreenBeanTierPrice(itemProductID(item), tier, $event.target.value)" />
-                  <small>/{{ tierUnit(tier) }}</small>
+                  <small>/{{ greenTierPriceUnit(tier) }}</small>
                 </label>
               </div>
             </article>
@@ -877,7 +877,10 @@ const pdfGenerationOptions = computed(() => ({
 const currentPriceSourcePublication = computed(() => (publicationScope.value === 'mine' || publicationScope.value === 'customer' ? priceSourcePublicationByType.value[pdfTheme.value.listType] : null))
 const pdfGroups = computed(() => {
   if (currentPriceSourcePublication.value?.content?.groups) {
-    return copyBeanListPublicationContentGroups(currentPriceSourcePublication.value)
+    return copyBeanListPublicationContentGroups(currentPriceSourcePublication.value, {
+      listType: pdfTheme.value.listType,
+      customizers: pdfCustomizers.value,
+    })
   }
   return buildBeanListPdfGroups(pdfAvailableItems.value, pdfTheme.value.listType, pdfGenerationOptions.value)
 })
@@ -1422,7 +1425,17 @@ function greenTierPriceValue(id, tier) {
   const overrides = pdfCustomizers.value[key]?.greenPriceOverrides || {}
   const overridden = Number(overrides[tierKey])
   if (Number.isFinite(overridden) && overridden > 0) return overridden
-  return Number(tier?.price_per_unit || tier?.pricePerUnit || 0)
+  return Number(tier?.price_per_lb || tier?.pricePerLb || tier?.price_per_unit || tier?.pricePerUnit || 0)
+}
+
+function greenTierPriceUnit(tier = {}) {
+  const unit = String(tier.price_unit || '').trim().toLowerCase()
+  if (unit === 'kg') return 'kg'
+  if (unit === 'g100') return '100g'
+  if (unit === 'g227') return '227g'
+  if (unit === 'g250') return '250g'
+  if (Number(tier?.price_per_lb || tier?.pricePerLb || 0) <= 0 && !unit) return tierUnit(tier)
+  return '磅'
 }
 
 function setGreenBeanTierPrice(id, tier, value) {

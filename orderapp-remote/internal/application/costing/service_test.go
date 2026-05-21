@@ -444,6 +444,67 @@ func TestPublishBeanListKeepsCustomerSnapshotOwnerAndSources(t *testing.T) {
 	}
 }
 
+func TestPublishGreenBeanListAppliesManualLbPriceOverridesToContentSnapshot(t *testing.T) {
+	repo := &fakeRepo{}
+	svc := NewService(repo)
+
+	_, err := svc.PublishBeanList(context.Background(), PublishBeanListCommand{
+		ListType: "green",
+		Version:  "VGREEN-1",
+		Config: map[string]any{
+			"customizers": map[string]any{
+				"414": map[string]any{
+					"greenPriceOverrides": map[string]any{
+						"51": float64(62),
+					},
+				},
+			},
+		},
+		Content: map[string]any{
+			"groups": []any{
+				map[string]any{
+					"items": []any{
+						map[string]any{
+							"productId": float64(414),
+							"name":      "兰卡拼配生豆",
+							"prices": []any{
+								map[string]any{"label": "60kg+", "price": float64(51.75), "unit": "kg"},
+							},
+							"green_bean_sale_tiers": []any{
+								map[string]any{
+									"label":            "60kg+",
+									"template_tier_id": float64(51),
+									"spec_g":           float64(1000),
+									"min_qty":          float64(60),
+									"price_per_unit":   float64(51.75),
+									"price_per_lb":     float64(23.49),
+									"display_unit":     "kg",
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("PublishBeanList() error = %v", err)
+	}
+	groups := repo.publishedBeanList.Content["groups"].([]any)
+	item := groups[0].(map[string]any)["items"].([]any)[0].(map[string]any)
+	price := item["prices"].([]any)[0].(map[string]any)
+	if price["price"] != float64(62) || price["unit"] != "磅" {
+		t.Fatalf("price row = %#v, want 62/磅", price)
+	}
+	tier := item["green_bean_sale_tiers"].([]any)[0].(map[string]any)
+	if tier["price_per_lb"] != float64(62) || tier["price_per_unit"] != float64(62) || tier["price_unit"] != "lb" || tier["display_unit"] != "kg" {
+		t.Fatalf("tier = %#v, want kg range with 62/lb", tier)
+	}
+	if tier["price_per_kg"] != float64(136.56) {
+		t.Fatalf("price_per_kg = %#v, want 136.56", tier["price_per_kg"])
+	}
+}
+
 func TestSaveBeanListDraftValidatesAndKeepsCustomerOwner(t *testing.T) {
 	repo := &fakeRepo{}
 	svc := NewService(repo)

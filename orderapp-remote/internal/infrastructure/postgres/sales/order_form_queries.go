@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"os"
 	"strconv"
 	"strings"
@@ -307,6 +308,7 @@ func (r Repository) fetchGreenBeanOrderPublicationTiers(ctx context.Context, pro
 			SELECT owner_key,
 			       id,
 			       COALESCE(version_no, '') AS version_no,
+			       COALESCE(config_json, '{}'::jsonb) AS config_json,
 			       COALESCE(content_json, '{}'::jsonb) AS content_json,
 			       row_number() OVER (PARTITION BY owner_key ORDER BY published_at DESC, id DESC) AS rn
 			FROM %[1]s.bean_list_publications
@@ -318,6 +320,7 @@ func (r Repository) fetchGreenBeanOrderPublicationTiers(ctx context.Context, pro
 		official_publications AS (
 			SELECT id,
 			       COALESCE(version_no, '') AS version_no,
+			       COALESCE(config_json, '{}'::jsonb) AS config_json,
 			       COALESCE(content_json, '{}'::jsonb) AS content_json,
 			       row_number() OVER (ORDER BY published_at DESC, id DESC) AS rn
 			FROM %[1]s.bean_list_publications
@@ -325,11 +328,11 @@ func (r Repository) fetchGreenBeanOrderPublicationTiers(ctx context.Context, pro
 			  AND list_type='green'
 			  AND owner_type='official'
 		)
-		SELECT 'customer' AS owner_type, owner_key, id, version_no, content_json
+		SELECT 'customer' AS owner_type, owner_key, id, version_no, config_json, content_json
 		FROM customer_publications
 		WHERE rn=1
 		UNION ALL
-		SELECT 'official' AS owner_type, '' AS owner_key, id, version_no, content_json
+		SELECT 'official' AS owner_type, '' AS owner_key, id, version_no, config_json, content_json
 		FROM official_publications
 		WHERE rn=1
 	`, r.schema)
@@ -344,11 +347,11 @@ func (r Repository) fetchGreenBeanOrderPublicationTiers(ctx context.Context, pro
 	for rows.Next() {
 		var ownerType, ownerKey, versionNo string
 		var publicationID int64
-		var raw []byte
-		if err := rows.Scan(&ownerType, &ownerKey, &publicationID, &versionNo, &raw); err != nil {
+		var configRaw, contentRaw []byte
+		if err := rows.Scan(&ownerType, &ownerKey, &publicationID, &versionNo, &configRaw, &contentRaw); err != nil {
 			return nil, err
 		}
-		tiers := greenBeanOrderTierMapFromPublicationContent(publicationID, versionNo, raw)
+		tiers := greenBeanOrderTierMapFromPublicationContent(publicationID, versionNo, contentRaw, configRaw)
 		if ownerType == "customer" {
 			customerTiers[ownerKey] = tiers
 			continue
@@ -408,12 +411,17 @@ type orderGreenBeanPublicationTier struct {
 	TemplateID     int64    `json:"template_id"`
 	TemplateTierID int64    `json:"template_tier_id"`
 	DisplayUnit    string   `json:"display_unit"`
+	PriceUnit      string   `json:"price_unit"`
 }
 
-func greenBeanOrderTierMapFromPublicationContent(publicationID int64, versionNo string, raw []byte) map[int64][]salesapp.ProductTierOption {
+func greenBeanOrderTierMapFromPublicationContent(publicationID int64, versionNo string, raw []byte, configRaw ...[]byte) map[int64][]salesapp.ProductTierOption {
 	out := map[int64][]salesapp.ProductTierOption{}
 	if publicationID <= 0 || len(raw) == 0 {
 		return out
+	}
+	overrides := map[string]map[string]float64{}
+	if len(configRaw) > 0 {
+		overrides = greenBeanOrderPriceOverridesFromPublicationConfig(configRaw[0])
 	}
 	var content orderBeanListPublicationContent
 	if err := json.Unmarshal(raw, &content); err != nil {
@@ -433,7 +441,15 @@ func greenBeanOrderTierMapFromPublicationContent(publicationID int64, versionNo 
 			if data, ok := fields["green_bean_sale_tiers"]; !ok || json.Unmarshal(data, &tiers) != nil {
 				continue
 			}
+			itemName := rawJSONString(fields["name"])
+			productOverrides := overrides[strconv.FormatInt(productID, 10)]
+			if len(productOverrides) == 0 && itemName != "" {
+				productOverrides = overrides[itemName]
+			}
 			for idx, tier := range tiers {
+				if price, ok := greenBeanOrderManualPriceOverride(tier, productOverrides); ok {
+					applyGreenBeanOrderManualLbPrice(&tier, price)
+				}
 				option := greenBeanOrderTierOption(publicationID, versionNo, idx, tier)
 				if option.UnitPrice <= 0 {
 					continue
@@ -443,6 +459,65 @@ func greenBeanOrderTierMapFromPublicationContent(publicationID int64, versionNo 
 		}
 	}
 	return out
+}
+
+func greenBeanOrderPriceOverridesFromPublicationConfig(raw []byte) map[string]map[string]float64 {
+	if len(raw) == 0 {
+		return nil
+	}
+	var config struct {
+		Customizers map[string]struct {
+			GreenPriceOverrides map[string]float64 `json:"greenPriceOverrides"`
+		} `json:"customizers"`
+	}
+	if err := json.Unmarshal(raw, &config); err != nil {
+		return nil
+	}
+	out := map[string]map[string]float64{}
+	for productKey, customizer := range config.Customizers {
+		key := strings.TrimSpace(productKey)
+		if key == "" {
+			continue
+		}
+		for tierKey, price := range customizer.GreenPriceOverrides {
+			tierKey = strings.TrimSpace(tierKey)
+			if tierKey == "" || price <= 0 {
+				continue
+			}
+			if out[key] == nil {
+				out[key] = map[string]float64{}
+			}
+			out[key][tierKey] = price
+		}
+	}
+	return out
+}
+
+func greenBeanOrderManualPriceOverride(tier orderGreenBeanPublicationTier, overrides map[string]float64) (float64, bool) {
+	if len(overrides) == 0 {
+		return 0, false
+	}
+	for _, key := range []string{
+		strconv.FormatInt(tier.TemplateTierID, 10),
+		strings.TrimSpace(tier.Label),
+	} {
+		if key == "" || key == "0" {
+			continue
+		}
+		price, ok := overrides[key]
+		if ok && price > 0 {
+			return price, true
+		}
+	}
+	return 0, false
+}
+
+func applyGreenBeanOrderManualLbPrice(tier *orderGreenBeanPublicationTier, price float64) {
+	unitPrice := roundOrderPrice(price)
+	tier.PriceUnit = "lb"
+	tier.PricePerUnit = unitPrice
+	tier.PricePerLb = unitPrice
+	tier.PricePerKg = roundOrderPrice(unitPrice / 0.454)
 }
 
 func orderBeanListProductID(raw json.RawMessage) int64 {
@@ -474,6 +549,17 @@ func rawJSONInt64(raw json.RawMessage) int64 {
 	return 0
 }
 
+func rawJSONString(raw json.RawMessage) string {
+	if len(raw) == 0 {
+		return ""
+	}
+	var s string
+	if err := json.Unmarshal(raw, &s); err != nil {
+		return ""
+	}
+	return strings.TrimSpace(s)
+}
+
 func greenBeanOrderTierOption(publicationID int64, versionNo string, idx int, tier orderGreenBeanPublicationTier) salesapp.ProductTierOption {
 	specG := tier.SpecG
 	if specG <= 0 {
@@ -483,19 +569,11 @@ func greenBeanOrderTierOption(publicationID int64, versionNo string, idx int, ti
 	if displayUnit == "" {
 		displayUnit = "kg"
 	}
-	unitPrice := tier.PricePerUnit
-	if unitPrice <= 0 {
-		switch displayUnit {
-		case "lb":
-			unitPrice = tier.PricePerLb
-		case "kg":
-			unitPrice = tier.PricePerKg
-		default:
-			if tier.PricePerKg > 0 {
-				unitPrice = tier.PricePerKg * float64(specG) / 1000.0
-			}
-		}
+	priceUnit := strings.TrimSpace(strings.ToLower(tier.PriceUnit))
+	if priceUnit == "" {
+		priceUnit = "lb"
 	}
+	unitPrice := greenBeanOrderTierPrice(tier, specG, displayUnit, priceUnit)
 	id := tier.TemplateTierID
 	if id <= 0 {
 		id = publicationID*100000 + int64(idx+1)
@@ -508,6 +586,7 @@ func greenBeanOrderTierOption(publicationID int64, versionNo string, idx int, ti
 		"template_id":      tier.TemplateID,
 		"template_tier_id": tier.TemplateTierID,
 		"display_unit":     displayUnit,
+		"price_unit":       priceUnit,
 	}
 	sourceJSON, _ := json.Marshal(source)
 	return salesapp.ProductTierOption{
@@ -516,10 +595,56 @@ func greenBeanOrderTierOption(publicationID int64, versionNo string, idx int, ti
 		MinQty:          tier.MinQty,
 		MaxQty:          tier.MaxQty,
 		UnitPrice:       unitPrice,
-		DisplayUnit:     displayUnit,
+		DisplayUnit:     priceUnit,
 		ProductKind:     "green_bean",
 		PriceSourceJSON: string(sourceJSON),
 	}
+}
+
+func greenBeanOrderTierPrice(tier orderGreenBeanPublicationTier, specG int64, displayUnit string, priceUnit string) float64 {
+	switch priceUnit {
+	case "kg":
+		if tier.PricePerKg > 0 {
+			return roundOrderPrice(tier.PricePerKg)
+		}
+		if tier.PricePerLb > 0 {
+			return roundOrderPrice(tier.PricePerLb / 0.454)
+		}
+		if displayUnit == "kg" && tier.PricePerUnit > 0 {
+			return roundOrderPrice(tier.PricePerUnit)
+		}
+		return roundOrderPrice(greenBeanOrderTierPricePerLb(tier, specG, displayUnit) / 0.454)
+	default:
+		return greenBeanOrderTierPricePerLb(tier, specG, displayUnit)
+	}
+}
+
+func greenBeanOrderTierPricePerLb(tier orderGreenBeanPublicationTier, specG int64, displayUnit string) float64 {
+	if tier.PricePerLb > 0 {
+		return roundOrderPrice(tier.PricePerLb)
+	}
+	if tier.PricePerKg > 0 {
+		return roundOrderPrice(tier.PricePerKg * 454.0 / 1000.0)
+	}
+	if specG <= 0 {
+		specG = 1000
+	}
+	if tier.PricePerUnit <= 0 {
+		return 0
+	}
+	switch displayUnit {
+	case "lb":
+		return roundOrderPrice(tier.PricePerUnit)
+	case "kg":
+		return roundOrderPrice(tier.PricePerUnit * 454.0 / 1000.0)
+	default:
+		pricePerKg := tier.PricePerUnit * 1000.0 / float64(specG)
+		return roundOrderPrice(pricePerKg * 454.0 / 1000.0)
+	}
+}
+
+func roundOrderPrice(value float64) float64 {
+	return math.Round((value+1e-9)*100) / 100
 }
 
 func (r Repository) fetchOrderEdit(ctx context.Context, id int64) (*salesapp.OrderEditData, error) {

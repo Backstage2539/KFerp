@@ -149,7 +149,7 @@ test('PDF bean-list helper builds a green bean list from template tiers and qual
   ])
 })
 
-test('PDF bean-list helper applies manual green bean tier price overrides only to selected tiers', () => {
+test('PDF bean-list helper applies manual green bean lb price overrides only to selected kg tiers', () => {
   const groups = buildBeanListPdfGroups([{
     product_id: 90,
     product_kind: 'green_bean',
@@ -160,24 +160,30 @@ test('PDF bean-list helper applies manual green bean tier price overrides only t
       display_name: '兰卡拼配生豆',
     },
     green_bean_sale_tiers: [
-      { label: '24-49kg', template_tier_id: 2401, spec_g: 1000, price_per_unit: 60, display_unit: 'kg' },
-      { label: '50-99kg', template_tier_id: 2402, spec_g: 1000, price_per_unit: 58, display_unit: 'kg' },
+      { label: '24-49kg', template_tier_id: 2401, spec_g: 1000, price_per_unit: 60, price_per_lb: 27.24, display_unit: 'kg' },
+      { label: '60kg+', template_tier_id: 2402, spec_g: 1000, price_per_unit: 51.75, price_per_lb: 23.49, display_unit: 'kg' },
     ],
   }], 'green', {
     customizers: {
       90: {
         greenPriceOverrides: {
-          2402: 66.5,
+          2402: 62,
         },
       },
     },
   })
 
-  assert.equal(groups[0].items[0].prices[0].price, 60)
-  assert.equal(groups[0].items[0].prices[1].price, 66.5)
-  assert.equal(groups[0].items[0].prices[1].unit, 'kg')
+  assert.equal(groups[0].items[0].prices[0].price, 27.24)
+  assert.equal(groups[0].items[0].prices[0].unit, '磅')
+  assert.equal(groups[0].items[0].prices[1].price, 62)
+  assert.equal(groups[0].items[0].prices[1].unit, '磅')
   assert.equal(groups[0].items[0].green_bean_sale_tiers[0].price_per_unit, 60)
-  assert.equal(groups[0].items[0].green_bean_sale_tiers[1].price_per_unit, 66.5)
+  assert.equal(groups[0].items[0].green_bean_sale_tiers[0].price_per_lb, 27.24)
+  assert.equal(groups[0].items[0].green_bean_sale_tiers[1].display_unit, 'kg')
+  assert.equal(groups[0].items[0].green_bean_sale_tiers[1].price_unit, 'lb')
+  assert.equal(groups[0].items[0].green_bean_sale_tiers[1].price_per_unit, 62)
+  assert.equal(groups[0].items[0].green_bean_sale_tiers[1].price_per_lb, 62)
+  assert.equal(groups[0].items[0].green_bean_sale_tiers[1].price_per_kg, 136.56)
 })
 
 test('bean-list scope filter keeps customer SKUs isolated by customer', () => {
@@ -381,4 +387,47 @@ test('PDF bean-list helper copies published content groups as an immutable price
 
   assert.equal(publication.content.groups[0].items[0].prices[0].price, 127)
   assert.equal(copyBeanListPublicationContentGroups({ content: {} }).length, 0)
+})
+
+test('PDF bean-list helper reapplies green lb overrides when copying a price source snapshot', () => {
+  const publication = {
+    list_type: 'green',
+    content: {
+      groups: [{
+        category: 'G、生豆销售',
+        items: [{
+          productId: 414,
+          code: '1.414',
+          name: '兰卡拼配生豆',
+          prices: [{ label: '60kg+', price: 51.75, unit: 'kg', red: false }],
+          green_bean_sale_tiers: [{
+            label: '60kg+',
+            template_tier_id: 51,
+            spec_g: 1000,
+            min_qty: 60,
+            price_per_unit: 51.75,
+            price_per_lb: 23.49,
+            display_unit: 'kg',
+          }],
+        }],
+      }],
+    },
+  }
+
+  const groups = copyBeanListPublicationContentGroups(publication, {
+    listType: 'green',
+    customizers: {
+      414: {
+        greenPriceOverrides: {
+          51: 62,
+        },
+      },
+    },
+  })
+
+  assert.equal(groups[0].items[0].prices[0].price, 62)
+  assert.equal(groups[0].items[0].prices[0].unit, '磅')
+  assert.equal(groups[0].items[0].green_bean_sale_tiers[0].price_per_lb, 62)
+  assert.equal(groups[0].items[0].green_bean_sale_tiers[0].price_unit, 'lb')
+  assert.equal(publication.content.groups[0].items[0].prices[0].price, 51.75)
 })

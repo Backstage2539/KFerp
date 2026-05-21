@@ -367,10 +367,10 @@ func TestOrderAPIFormReturnsPublishedGreenBeanListTiersForGreenBeanProduct(t *te
 		INSERT INTO %[1]s.bean_list_publications(id, list_type, version_no, status, owner_type, owner_key, config_json, content_json, changelog, actor, published_at)
 		VALUES
 			(9901,'green','G-old','published','customer','3','{}'::jsonb,
-			'{"groups":[{"items":[{"productId":88,"name":"曲奇拼配2.0","green_bean_sale_tiers":[{"label":"旧档","spec_g":1000,"min_qty":1,"price_per_unit":58,"template_id":5,"template_tier_id":49,"display_unit":"kg"}]}]}]}'::jsonb,
+			'{"groups":[{"items":[{"productId":88,"name":"曲奇拼配2.0","green_bean_sale_tiers":[{"label":"旧档","spec_g":1000,"min_qty":1,"price_per_unit":58,"price_per_lb":26.33,"template_id":5,"template_tier_id":49,"display_unit":"kg"}]}]}]}'::jsonb,
 			'旧生豆价','codex','2026-05-18 09:00:00+08'),
-			(9902,'green','G-new','published','customer','3','{}'::jsonb,
-			'{"groups":[{"items":[{"productId":88,"name":"曲奇拼配2.0","green_bean_sale_tiers":[{"label":"1KG","spec_g":1000,"min_qty":1,"max_qty":59,"price_per_unit":63.9,"template_id":5,"template_tier_id":50,"display_unit":"kg"},{"label":"60kG","spec_g":1000,"min_qty":60,"price_per_unit":63.9,"template_id":5,"template_tier_id":51,"display_unit":"kg"}]}]}]}'::jsonb,
+			(9902,'green','G-new','published','customer','3','{"customizers":{"88":{"greenPriceOverrides":{"51":62}}}}'::jsonb,
+			'{"groups":[{"items":[{"productId":88,"name":"曲奇拼配2.0","green_bean_sale_tiers":[{"label":"1KG","spec_g":1000,"min_qty":1,"max_qty":59,"price_per_unit":51.75,"price_per_lb":23.49,"template_id":5,"template_tier_id":50,"display_unit":"kg"},{"label":"60kG","spec_g":1000,"min_qty":60,"price_per_unit":62,"price_per_lb":28.15,"template_id":5,"template_tier_id":51,"display_unit":"kg"}]}]}]}'::jsonb,
 			'新生豆价','codex','2026-05-19 09:00:00+08');
 	`, schema))
 
@@ -427,17 +427,20 @@ func TestOrderAPIFormReturnsPublishedGreenBeanListTiersForGreenBeanProduct(t *te
 	if len(green.Tiers) != 2 {
 		t.Fatalf("green bean tiers = %+v, want 2 published tiers", green.Tiers)
 	}
-	if green.Tiers[0].ID != 50 || green.Tiers[0].SpecG != 1000 || green.Tiers[0].MinQty != 1 || green.Tiers[0].MaxQty == nil || *green.Tiers[0].MaxQty != 59 || green.Tiers[0].UnitPrice != 63.9 {
+	if green.Tiers[0].ID != 50 || green.Tiers[0].SpecG != 1000 || green.Tiers[0].MinQty != 1 || green.Tiers[0].MaxQty == nil || *green.Tiers[0].MaxQty != 59 || green.Tiers[0].UnitPrice != 23.49 {
 		t.Fatalf("first published green bean tier = %+v", green.Tiers[0])
 	}
-	if green.Tiers[0].DisplayUnit != "kg" || green.Tiers[1].DisplayUnit != "kg" {
-		t.Fatalf("green bean tier display units = %q/%q, want kg/kg", green.Tiers[0].DisplayUnit, green.Tiers[1].DisplayUnit)
+	if green.Tiers[0].DisplayUnit != "lb" || green.Tiers[1].DisplayUnit != "lb" {
+		t.Fatalf("green bean tier display units = %q/%q, want lb/lb", green.Tiers[0].DisplayUnit, green.Tiers[1].DisplayUnit)
 	}
-	if green.Tiers[1].ID != 51 || green.Tiers[1].MinQty != 60 || green.Tiers[1].UnitPrice != 63.9 {
+	if green.Tiers[1].ID != 51 || green.Tiers[1].MinQty != 60 || green.Tiers[1].UnitPrice != 62 {
 		t.Fatalf("second published green bean tier = %+v", green.Tiers[1])
 	}
 	if green.Tiers[0].ProductKind != "green_bean" || !strings.Contains(green.Tiers[0].PriceSourceJSON, `"publication_id":9902`) {
 		t.Fatalf("green bean tier source = %+v", green.Tiers[0])
+	}
+	if !strings.Contains(green.Tiers[1].PriceSourceJSON, `"price_unit":"lb"`) {
+		t.Fatalf("manual green bean tier source should preserve lb price unit: %+v", green.Tiers[1])
 	}
 }
 
