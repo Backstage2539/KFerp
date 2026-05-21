@@ -2,6 +2,7 @@ package costing
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"math"
 	"sort"
@@ -435,7 +436,237 @@ func normalizeBeanListCommand(cmd PublishBeanListCommand) (PublishBeanListComman
 	if cmd.Content == nil {
 		cmd.Content = map[string]any{}
 	}
+	if cmd.ListType == "green" {
+		applyGreenBeanListManualPriceOverrides(cmd.Config, cmd.Content)
+	}
 	return cmd, nil
+}
+
+func applyGreenBeanListManualPriceOverrides(config map[string]any, content map[string]any) {
+	overridesByProduct := greenPriceOverridesByProduct(config)
+	if len(overridesByProduct) == 0 {
+		return
+	}
+	groups, ok := content["groups"].([]any)
+	if !ok {
+		return
+	}
+	for _, rawGroup := range groups {
+		group, ok := rawGroup.(map[string]any)
+		if !ok {
+			continue
+		}
+		items, ok := group["items"].([]any)
+		if !ok {
+			continue
+		}
+		for _, rawItem := range items {
+			item, ok := rawItem.(map[string]any)
+			if !ok {
+				continue
+			}
+			overrides := overridesByProduct[beanListItemProductKey(item)]
+			if len(overrides) == 0 {
+				overrides = overridesByProduct[stringValue(item["name"])]
+			}
+			if len(overrides) == 0 {
+				continue
+			}
+			tiers, ok := item["green_bean_sale_tiers"].([]any)
+			if !ok {
+				continue
+			}
+			changed := false
+			for _, rawTier := range tiers {
+				tier, ok := rawTier.(map[string]any)
+				if !ok {
+					continue
+				}
+				price, ok := greenTierManualOverride(tier, overrides)
+				if !ok {
+					continue
+				}
+				applyGreenTierManualLbPrice(tier, price)
+				changed = true
+			}
+			if changed {
+				item["prices"] = greenBeanPriceRowsFromTiers(tiers)
+			}
+		}
+	}
+}
+
+func greenPriceOverridesByProduct(config map[string]any) map[string]map[string]float64 {
+	customizers, ok := config["customizers"].(map[string]any)
+	if !ok {
+		return nil
+	}
+	out := map[string]map[string]float64{}
+	for productKey, rawCustomizer := range customizers {
+		customizer, ok := rawCustomizer.(map[string]any)
+		if !ok {
+			continue
+		}
+		rawOverrides, ok := customizer["greenPriceOverrides"].(map[string]any)
+		if !ok {
+			continue
+		}
+		for tierKey, rawPrice := range rawOverrides {
+			price := numberValue(rawPrice)
+			if price <= 0 || strings.TrimSpace(tierKey) == "" {
+				continue
+			}
+			key := strings.TrimSpace(productKey)
+			if key == "" {
+				continue
+			}
+			if out[key] == nil {
+				out[key] = map[string]float64{}
+			}
+			out[key][strings.TrimSpace(tierKey)] = price
+		}
+	}
+	return out
+}
+
+func greenTierManualOverride(tier map[string]any, overrides map[string]float64) (float64, bool) {
+	for _, key := range []string{
+		stringValue(tier["template_tier_id"]),
+		stringValue(tier["templateTierID"]),
+		stringValue(tier["label"]),
+	} {
+		if key == "" {
+			continue
+		}
+		price, ok := overrides[key]
+		if ok && price > 0 {
+			return price, true
+		}
+	}
+	return 0, false
+}
+
+func applyGreenTierManualLbPrice(tier map[string]any, price float64) {
+	unitPrice := roundBeanListPrice(price)
+	tier["price_unit"] = "lb"
+	tier["price_per_unit"] = unitPrice
+	tier["price_per_lb"] = unitPrice
+	tier["price_per_kg"] = roundBeanListPrice(unitPrice / domain.DefaultParameters().KgToLbFactor)
+}
+
+func greenBeanPriceRowsFromTiers(tiers []any) []any {
+	rows := make([]any, 0, len(tiers))
+	for _, rawTier := range tiers {
+		tier, ok := rawTier.(map[string]any)
+		if !ok {
+			continue
+		}
+		rows = append(rows, map[string]any{
+			"label": stringValue(tier["label"]),
+			"price": firstPositiveNumber(
+				numberValue(tier["price_per_lb"]),
+				numberValue(tier["price_per_unit"]),
+			),
+			"unit": greenBeanPriceUnitLabel(tier),
+			"red":  false,
+		})
+	}
+	return rows
+}
+
+func greenBeanPriceUnitLabel(tier map[string]any) string {
+	switch strings.TrimSpace(strings.ToLower(stringValue(tier["price_unit"]))) {
+	case "kg":
+		return "kg"
+	case "g100":
+		return "100g"
+	case "g227":
+		return "227g"
+	case "g250":
+		return "250g"
+	case "lb":
+		return "磅"
+	}
+	if numberValue(tier["price_per_lb"]) > 0 {
+		return "磅"
+	}
+	switch strings.TrimSpace(strings.ToLower(stringValue(tier["display_unit"]))) {
+	case "kg":
+		return "kg"
+	case "g100":
+		return "100g"
+	case "g227":
+		return "227g"
+	case "g250":
+		return "250g"
+	default:
+		return "磅"
+	}
+}
+
+func beanListItemProductKey(item map[string]any) string {
+	for _, key := range []string{"product_id", "productID", "productId", "id", "name"} {
+		value := stringValue(item[key])
+		if value != "" {
+			return value
+		}
+	}
+	return ""
+}
+
+func stringValue(value any) string {
+	switch v := value.(type) {
+	case nil:
+		return ""
+	case string:
+		return strings.TrimSpace(v)
+	case float64:
+		return strconv.FormatFloat(v, 'f', -1, 64)
+	case float32:
+		return strconv.FormatFloat(float64(v), 'f', -1, 64)
+	case int:
+		return strconv.Itoa(v)
+	case int64:
+		return strconv.FormatInt(v, 10)
+	case json.Number:
+		return strings.TrimSpace(v.String())
+	default:
+		return strings.TrimSpace(fmt.Sprint(value))
+	}
+}
+
+func numberValue(value any) float64 {
+	switch v := value.(type) {
+	case float64:
+		return v
+	case float32:
+		return float64(v)
+	case int:
+		return float64(v)
+	case int64:
+		return float64(v)
+	case json.Number:
+		n, _ := v.Float64()
+		return n
+	case string:
+		n, _ := strconv.ParseFloat(strings.TrimSpace(v), 64)
+		return n
+	default:
+		return 0
+	}
+}
+
+func firstPositiveNumber(values ...float64) float64 {
+	for _, value := range values {
+		if value > 0 {
+			return value
+		}
+	}
+	return 0
+}
+
+func roundBeanListPrice(value float64) float64 {
+	return math.Round((value+1e-9)*100) / 100
 }
 
 func (s *Service) WithdrawBeanList(ctx context.Context, cmd WithdrawBeanListCommand) error {
