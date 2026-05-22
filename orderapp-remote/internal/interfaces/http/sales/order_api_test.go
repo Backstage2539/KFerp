@@ -430,8 +430,8 @@ func TestOrderAPIFormReturnsPublishedGreenBeanListTiersForGreenBeanProduct(t *te
 	if green.Tiers[0].ID != 50 || green.Tiers[0].SpecG != 1000 || green.Tiers[0].MinQty != 1 || green.Tiers[0].MaxQty == nil || *green.Tiers[0].MaxQty != 59 || green.Tiers[0].UnitPrice != 23.49 {
 		t.Fatalf("first published green bean tier = %+v", green.Tiers[0])
 	}
-	if green.Tiers[0].DisplayUnit != "lb" || green.Tiers[1].DisplayUnit != "lb" {
-		t.Fatalf("green bean tier display units = %q/%q, want lb/lb", green.Tiers[0].DisplayUnit, green.Tiers[1].DisplayUnit)
+	if green.Tiers[0].DisplayUnit != "kg" || green.Tiers[1].DisplayUnit != "kg" {
+		t.Fatalf("green bean tier display units = %q/%q, want kg/kg", green.Tiers[0].DisplayUnit, green.Tiers[1].DisplayUnit)
 	}
 	if green.Tiers[1].ID != 51 || green.Tiers[1].MinQty != 60 || green.Tiers[1].UnitPrice != 62 {
 		t.Fatalf("second published green bean tier = %+v", green.Tiers[1])
@@ -439,8 +439,8 @@ func TestOrderAPIFormReturnsPublishedGreenBeanListTiersForGreenBeanProduct(t *te
 	if green.Tiers[0].ProductKind != "green_bean" || !strings.Contains(green.Tiers[0].PriceSourceJSON, `"publication_id":9902`) {
 		t.Fatalf("green bean tier source = %+v", green.Tiers[0])
 	}
-	if !strings.Contains(green.Tiers[1].PriceSourceJSON, `"price_unit":"lb"`) {
-		t.Fatalf("manual green bean tier source should preserve lb price unit: %+v", green.Tiers[1])
+	if !strings.Contains(green.Tiers[1].PriceSourceJSON, `"price_unit":"kg"`) {
+		t.Fatalf("manual green bean tier source should preserve kg price unit: %+v", green.Tiers[1])
 	}
 }
 

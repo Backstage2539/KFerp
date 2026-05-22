@@ -94,14 +94,14 @@ func TestGreenBeanOrderPublicationTiersParseTemplatePrices(t *testing.T) {
 	if len(tiers) != 2 {
 		t.Fatalf("green bean tiers = %+v, want 2 tiers", tiers)
 	}
-	if tiers[0].SpecG != 1000 || tiers[0].MinQty != 1 || tiers[0].MaxQty == nil || *tiers[0].MaxQty != 59 || tiers[0].UnitPrice != 28.99 {
+	if tiers[0].SpecG != 1000 || tiers[0].MinQty != 1 || tiers[0].MaxQty == nil || *tiers[0].MaxQty != 59 || tiers[0].UnitPrice != 63.9 {
 		t.Fatalf("first green bean tier = %+v", tiers[0])
 	}
 	if tiers[0].ProductKind != "green_bean" {
 		t.Fatalf("product_kind = %q, want green_bean", tiers[0].ProductKind)
 	}
-	if tiers[0].DisplayUnit != "lb" || tiers[1].DisplayUnit != "lb" {
-		t.Fatalf("display_unit = %q/%q, want lb/lb", tiers[0].DisplayUnit, tiers[1].DisplayUnit)
+	if tiers[0].DisplayUnit != "kg" || tiers[1].DisplayUnit != "kg" {
+		t.Fatalf("display_unit = %q/%q, want kg/kg", tiers[0].DisplayUnit, tiers[1].DisplayUnit)
 	}
 	var source map[string]any
 	if err := json.Unmarshal([]byte(tiers[0].PriceSourceJSON), &source); err != nil {

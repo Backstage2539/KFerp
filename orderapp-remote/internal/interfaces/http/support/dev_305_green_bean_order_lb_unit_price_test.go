@@ -21,12 +21,12 @@ func TestDev305GreenBeanOrderLbUnitPriceSeed(t *testing.T) {
 	}
 }
 
-func TestDev305GreenBeanManualLbPriceManuals(t *testing.T) {
+func TestDev305GreenBeanManualKgPriceManuals(t *testing.T) {
 	markers := map[string][]string{
-		"docs/OP_MANUAL_COSTING.md":                                    []string{"档位价格输入框是元/磅", "60kg+"},
-		"docs/OP_MANUAL_GREEN_BEAN_SALES.md":                           []string{"60kg+` 手工价 62", "price_per_lb"},
-		"docs/OP_MANUAL_ORDER_SALES.md":                                []string{"60kg+ 62/磅"},
-		"docs/acceptance/2026-05-21-green-bean-order-lb-unit-price.md": []string{"60kg+ 62/磅", "price_per_lb"},
+		"docs/OP_MANUAL_COSTING.md":                                    []string{"档位价格输入框是元/KG", "60kg+"},
+		"docs/OP_MANUAL_GREEN_BEAN_SALES.md":                           []string{"60kg+` 手工价 62", "price_per_kg"},
+		"docs/OP_MANUAL_ORDER_SALES.md":                                []string{"60kg+ 62/kg"},
+		"docs/acceptance/2026-05-21-green-bean-order-lb-unit-price.md": []string{"60kg+ 62/kg", "price_per_kg"},
 	}
 	for rel, wants := range markers {
 		body := string(readOrderAppFileForTest(t, rel))
