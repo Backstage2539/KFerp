@@ -669,6 +669,19 @@ test('filterProductsForCustomer hides public products when customer commercial b
   )
 })
 
+test('filterProductsForCustomer hides public products when customer disables public SKU usage', () => {
+  const rows = [
+    { id: 1, name: '公共熟豆', customer_id: 0, visibility: 'public', product_kind: 'roasted' },
+    { id: 2, name: '岩师傅红酒日晒生豆', customer_id: 0, visibility: 'public', product_kind: 'green_bean' },
+    { id: 3, name: '芬纳定制-红酒日晒-中深烘', customer_id: 74, visibility: 'customer_only', product_kind: 'roasted' },
+  ]
+
+  assert.deepEqual(
+    filterProductsForCustomer(rows, 74, {}, [{ customer_id: 74, use_public_sku: false }]).map((item) => item.name),
+    ['芬纳定制-红酒日晒-中深烘'],
+  )
+})
+
 test('defaultStatusID picks paid and unshipped status labels', () => {
   assert.equal(defaultStatusID([{ id: 1, name: '未付款' }, { id: 2, name: '已付款' }], ['已付款']), 2)
   assert.equal(defaultStatusID([{ id: 3, name: '未发货' }], ['未发货']), 3)

@@ -421,6 +421,7 @@ const orderTypes = ref([])
 const products = ref([])
 const employees = ref([])
 const beanListVersionOptions = ref([])
+const customerPublicUsages = ref([])
 const rows = ref([newRow()])
 const customerQuery = ref('')
 const customerOpen = ref(false)
@@ -745,7 +746,12 @@ async function saveCustomerFromDrawer() {
 
 function productOptions(row) {
   return filterOptions(
-    filterProductsForCustomer(products.value, form.customer_id, customerOwnedBeanListPublicationIDsByType()),
+    filterProductsForCustomer(
+      products.value,
+      form.customer_id,
+      customerOwnedBeanListPublicationIDsByType(),
+      customerPublicUsages.value,
+    ),
     row.product_query,
   ).slice(0, 30)
 }
@@ -1086,6 +1092,7 @@ async function load() {
     products.value = data.products || []
     employees.value = data.employees || []
     beanListVersionOptions.value = data.bean_list_version_options || []
+    customerPublicUsages.value = data.customer_public_usages || []
     applyDefaultSelections(data)
     if (data.edit_mode) {
       const editData = { ...data.edit_data, edit_id: copyID ? 0 : data.edit_id }

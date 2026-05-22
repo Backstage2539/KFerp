@@ -410,6 +410,13 @@ function productMatchesPublicationScope(product, publicationIDsByType) {
   const listType = productBeanListType(product)
   const publicationIDs = publicationIDsByType[listType]
   if (!publicationIDs?.size) return true
+  return productMatchesExplicitPublicationScope(product, publicationIDsByType)
+}
+
+function productMatchesExplicitPublicationScope(product, publicationIDsByType) {
+  const listType = productBeanListType(product)
+  const publicationIDs = publicationIDsByType[listType]
+  if (!publicationIDs?.size) return false
   return (product?.tiers || []).some((tier) => {
     const source = tierPriceSource(tier)
     if (!source) return false
@@ -420,12 +427,30 @@ function productMatchesPublicationScope(product, publicationIDsByType) {
   })
 }
 
-export function filterProductsForCustomer(products, customerID, publicationIDsByType = {}) {
+function customerAllowsPublicSKU(customerID, publicUsages = []) {
+  const selectedCustomerID = toInt(customerID)
+  if (selectedCustomerID <= 0) return true
+  const usage = (publicUsages || []).find((item) => toInt(item?.customer_id) === selectedCustomerID)
+  return usage ? Boolean(usage.use_public_sku) : true
+}
+
+export function filterProductsForCustomer(products, customerID, publicationIDsByType = {}, publicUsages = []) {
   const selectedCustomerID = toInt(customerID)
   const scopedPublicationIDs = normalizePublicationIDsByType(publicationIDsByType)
+  const allowsPublicSKU = customerAllowsPublicSKU(selectedCustomerID, publicUsages)
   return (products || []).filter((product) => {
     const productCustomerID = toInt(product?.customer_id)
     const visibility = String(product?.visibility || (productCustomerID > 0 ? 'customer_only' : 'public')).trim()
+    if (visibility === 'public' || productCustomerID === 0) {
+      if (
+        selectedCustomerID > 0
+        && !allowsPublicSKU
+        && !productMatchesExplicitPublicationScope(product, scopedPublicationIDs)
+      ) {
+        return false
+      }
+      return productMatchesPublicationScope(product, scopedPublicationIDs)
+    }
     const visible = visibility === 'public' || productCustomerID === 0
       ? true
       : selectedCustomerID > 0 && productCustomerID === selectedCustomerID

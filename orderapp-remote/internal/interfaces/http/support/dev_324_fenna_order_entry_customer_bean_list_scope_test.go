@@ -38,7 +38,7 @@ func TestDev324FennaOrderEntryCustomerBeanListScopeWiring(t *testing.T) {
 	for _, want := range []string{
 		"customerOwnedPublicationIDsByListType",
 		"productMatchesCustomerOwnedBeanListScope",
-		"filterOrderProductsForCustomer(data.Products, customerID, data.BeanListVersionOptions)",
+		"filterOrderProductsForCustomer(data.Products, customerID, data.BeanListVersionOptions, data.CustomerPublicUsages)",
 	} {
 		if !strings.Contains(apiSrc, want) {
 			t.Fatalf("order API customer bean-list scope wiring missing %q", want)
@@ -49,7 +49,7 @@ func TestDev324FennaOrderEntryCustomerBeanListScopeWiring(t *testing.T) {
 	for _, want := range []string{
 		"normalizePublicationIDsByType",
 		"productMatchesPublicationScope",
-		"filterProductsForCustomer(products, customerID, publicationIDsByType = {})",
+		"filterProductsForCustomer(products, customerID, publicationIDsByType = {}, publicUsages = [])",
 	} {
 		if !strings.Contains(libSrc, want) {
 			t.Fatalf("order-entry lib scope wiring missing %q", want)
@@ -59,7 +59,7 @@ func TestDev324FennaOrderEntryCustomerBeanListScopeWiring(t *testing.T) {
 	viewSrc := string(readOrderAppFileForTest(t, filepath.Join("frontend-vue-shell", "src", "views", "OrderEntryView.vue")))
 	for _, want := range []string{
 		"customerOwnedBeanListPublicationIDsByType",
-		"filterProductsForCustomer(products.value, form.customer_id, customerOwnedBeanListPublicationIDsByType())",
+		"customerPublicUsages.value",
 	} {
 		if !strings.Contains(viewSrc, want) {
 			t.Fatalf("order entry view scope wiring missing %q", want)

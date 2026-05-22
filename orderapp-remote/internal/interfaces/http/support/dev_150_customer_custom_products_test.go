@@ -50,7 +50,7 @@ func TestCustomerCustomProductsFrontendWiring(t *testing.T) {
 	for _, want := range []string{
 		"filterProductsForCustomer",
 		"customerOwnedBeanListPublicationIDsByType",
-		"filterProductsForCustomer(products.value, form.customer_id, customerOwnedBeanListPublicationIDsByType())",
+		"customerPublicUsages.value",
 	} {
 		if !strings.Contains(orderEntry, want) {
 			t.Fatalf("OrderEntryView.vue missing %q", want)

@@ -45,6 +45,9 @@ func (r Repository) OrderForm(ctx context.Context, editID int64) (salesapp.Order
 	if data.BeanListVersionOptions, err = r.fetchOrderBeanListVersionOptions(ctx); err != nil {
 		return salesapp.OrderFormData{}, err
 	}
+	if data.CustomerPublicUsages, err = r.fetchOrderCustomerPublicUsages(ctx); err != nil {
+		return salesapp.OrderFormData{}, err
+	}
 	if editID > 0 {
 		editData, err := r.fetchOrderEdit(ctx, editID)
 		if err != nil {
@@ -126,6 +129,32 @@ func (r Repository) fetchOrderBeanListVersionOptions(ctx context.Context) ([]sal
 			ownerLabel = "客户豆单"
 		}
 		row.Label = strings.TrimSpace(fmt.Sprintf("%s %s %s", ownerLabel, row.VersionNo, row.PublishedAt))
+		out = append(out, row)
+	}
+	return out, rows.Err()
+}
+
+func (r Repository) fetchOrderCustomerPublicUsages(ctx context.Context) ([]salesapp.CustomerPublicUsageOption, error) {
+	var exists bool
+	if err := r.pool.QueryRow(ctx, `SELECT to_regclass($1) IS NOT NULL`, fmt.Sprintf("%s.customer_sku_public_usage", r.schema)).Scan(&exists); err != nil || !exists {
+		return nil, err
+	}
+	q := fmt.Sprintf(`
+		SELECT customer_id, use_public_sku
+		FROM %s.customer_sku_public_usage
+		ORDER BY customer_id
+	`, r.schema)
+	rows, err := r.pool.Query(ctx, q)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := make([]salesapp.CustomerPublicUsageOption, 0)
+	for rows.Next() {
+		var row salesapp.CustomerPublicUsageOption
+		if err := rows.Scan(&row.CustomerID, &row.UsePublicSKU); err != nil {
+			return nil, err
+		}
 		out = append(out, row)
 	}
 	return out, rows.Err()

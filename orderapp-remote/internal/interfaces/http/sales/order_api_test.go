@@ -379,6 +379,47 @@ func TestOrderAPIFormUsesCustomerCommercialBeanListForProductOptions(t *testing.
 	}
 }
 
+func TestOrderAPIFormHidesPublicGreenBeansWhenCustomerDisablesPublicSKU(t *testing.T) {
+	pool, schema := newOrderAPITestDB(t)
+	ctx := context.Background()
+	seedOrderAPITestData(t, ctx, pool, schema)
+	mustExecOrderAPITestSQL(t, ctx, pool, fmt.Sprintf(`
+		INSERT INTO %[1]s.customer_sku_public_usage(customer_id, use_public_sku, use_public_categories)
+		VALUES (3, false, false);
+		INSERT INTO %[1]s.products(id,name,default_price,active,retail_price_227g,customer_id,base_product_id,visibility,custom_type,product_kind)
+		VALUES
+			(8,'芬纳定制-红酒日晒-中深烘',0,true,0,3,0,'customer_only','custom_roast','roasted'),
+			(88,'岩师傅红酒日晒生豆',0,true,0,0,0,'public','','green_bean');
+		INSERT INTO %[1]s.bean_list_publications(id, list_type, version_no, status, owner_type, owner_key, config_json, content_json, changelog, actor, published_at)
+		VALUES
+			(9903,'commercial','F-1','published','customer','3','{}'::jsonb,
+			'{"groups":[{"items":[{"productId":8,"name":"芬纳定制-红酒日晒-中深烘","commercial_wholesale_tiers":[{"label":"2磅-13磅","spec_g":454,"min_qty":2,"max_qty":13,"price_per_unit":65,"price_per_lb":65,"template_id":6,"template_tier_id":56,"display_unit":"lb"}]}]}]}'::jsonb,
+			'芬纳客户豆单','codex','2026-05-22 09:00:00+08'),
+			(9904,'green','G-1','published','official','','{}'::jsonb,
+			'{"groups":[{"items":[{"productId":88,"name":"岩师傅红酒日晒生豆","green_bean_sale_tiers":[{"label":"1KG","spec_g":1000,"min_qty":1,"price_per_unit":62,"display_unit":"kg","template_id":5,"template_tier_id":51}]}]}]}'::jsonb,
+			'公共生豆豆单','codex','2026-05-22 10:00:00+08');
+	`, schema))
+
+	e := newOrderAPITestEcho(pool, schema)
+	req := httptest.NewRequest(http.MethodGet, "/api/order/form?customer_id=3", nil)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET /api/order/form status = %d, want 200, body=%s", rec.Code, rec.Body.String())
+	}
+
+	body := rec.Body.String()
+	if strings.Contains(body, "岩师傅红酒日晒生豆") {
+		t.Fatalf("customer with use_public_sku=false should not see public green bean products: %s", body)
+	}
+	if !strings.Contains(body, "芬纳定制-红酒日晒-中深烘") {
+		t.Fatalf("customer-owned bean-list product should remain visible: %s", body)
+	}
+	if !strings.Contains(body, `"customer_public_usages"`) || !strings.Contains(body, `"use_public_sku":false`) {
+		t.Fatalf("order form should expose customer public SKU usage for client-side filtering: %s", body)
+	}
+}
+
 func TestOrderAPIFormDoesNotReturnBoundRoastedTiersForGreenBeanProduct(t *testing.T) {
 	pool, schema := newOrderAPITestDB(t)
 	ctx := context.Background()
@@ -1068,7 +1109,7 @@ func TestFilterOrderProductsForCustomerKeepsPublicAndOwnProducts(t *testing.T) {
 		{ID: 3, Name: "其他客户专属深烘", CustomerID: 4, Visibility: "customer_only"},
 	}
 
-	got := filterOrderProductsForCustomer(products, 3)
+	got := filterOrderProductsForCustomer(products, 3, nil)
 	names := make([]string, 0, len(got))
 	for _, product := range got {
 		names = append(names, product.Name)
@@ -1114,6 +1155,27 @@ func TestFilterOrderProductsForCustomerLimitsCustomerOwnedBeanListScope(t *testi
 	}}
 
 	got := filterOrderProductsForCustomer(products, 3, versionOptions)
+	names := make([]string, 0, len(got))
+	for _, product := range got {
+		names = append(names, product.Name)
+	}
+	if strings.Join(names, ",") != "芬纳定制-红酒日晒-中深烘" {
+		t.Fatalf("filtered names = %q", strings.Join(names, ","))
+	}
+}
+
+func TestFilterOrderProductsForCustomerHonorsPublicSKUUsage(t *testing.T) {
+	products := []ProductOption{
+		{ID: 1, Name: "公共熟豆", CustomerID: 0, Visibility: "public", ProductKind: "roasted"},
+		{ID: 2, Name: "岩师傅红酒日晒生豆", CustomerID: 0, Visibility: "public", ProductKind: "green_bean"},
+		{ID: 3, Name: "芬纳定制-红酒日晒-中深烘", CustomerID: 74, Visibility: "customer_only", ProductKind: "roasted"},
+	}
+	publicUsages := []salesapp.CustomerPublicUsageOption{{
+		CustomerID:   74,
+		UsePublicSKU: false,
+	}}
+
+	got := filterOrderProductsForCustomer(products, 74, nil, publicUsages)
 	names := make([]string, 0, len(got))
 	for _, product := range got {
 		names = append(names, product.Name)
@@ -3897,6 +3959,11 @@ CREATE TABLE %s.bean_list_publications (
 	published_at TIMESTAMPTZ NOT NULL DEFAULT now(),
 	created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+CREATE TABLE %s.customer_sku_public_usage (
+	customer_id BIGINT PRIMARY KEY,
+	use_public_sku BOOLEAN NOT NULL DEFAULT true,
+	use_public_categories BOOLEAN NOT NULL DEFAULT false
+);
 CREATE TABLE %s.orders (
 	id BIGSERIAL PRIMARY KEY,
 	order_date DATE,
@@ -4059,7 +4126,7 @@ INSERT INTO %s.sender_settings(id, sender_label, is_default, active) VALUES(1, '
 	`, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema,
 		schema, schema, schema, schema, schema, schema, schema, schema, schema, schema,
 		schema, schema, schema, schema, schema, schema, schema, schema, schema, schema,
-		schema, schema, schema, schema, schema)
+		schema, schema, schema, schema, schema, schema)
 }
 
 func orderAPITrackingDDL(schema string) string {

@@ -47,18 +47,19 @@ type employeeAPIOption struct {
 }
 
 type orderFormAPIResponse struct {
-	Today                  string                           `json:"today"`
-	Customers              []customerAPIOption              `json:"customers"`
-	Employees              []employeeAPIOption              `json:"employees"`
-	Sources                []apiOption                      `json:"sources"`
-	ShipStatuses           []apiOption                      `json:"ship_statuses"`
-	PayStatuses            []apiOption                      `json:"pay_statuses"`
-	OrderTypes             []apiOption                      `json:"order_types"`
-	Products               []map[string]any                 `json:"products"`
-	BeanListVersionOptions []salesapp.BeanListVersionOption `json:"bean_list_version_options"`
-	EditMode               bool                             `json:"edit_mode"`
-	EditID                 int64                            `json:"edit_id"`
-	EditData               any                              `json:"edit_data,omitempty"`
+	Today                  string                               `json:"today"`
+	Customers              []customerAPIOption                  `json:"customers"`
+	Employees              []employeeAPIOption                  `json:"employees"`
+	Sources                []apiOption                          `json:"sources"`
+	ShipStatuses           []apiOption                          `json:"ship_statuses"`
+	PayStatuses            []apiOption                          `json:"pay_statuses"`
+	OrderTypes             []apiOption                          `json:"order_types"`
+	Products               []map[string]any                     `json:"products"`
+	BeanListVersionOptions []salesapp.BeanListVersionOption     `json:"bean_list_version_options"`
+	CustomerPublicUsages   []salesapp.CustomerPublicUsageOption `json:"customer_public_usages"`
+	EditMode               bool                                 `json:"edit_mode"`
+	EditID                 int64                                `json:"edit_id"`
+	EditData               any                                  `json:"edit_data,omitempty"`
 }
 
 type orderSaveAPIRequest struct {
@@ -211,7 +212,7 @@ func (h orderAPIHandler) form(c echo.Context) error {
 		filterByCustomer = true
 	}
 	if filterByCustomer {
-		data.Products = filterOrderProductsForCustomer(data.Products, customerID, data.BeanListVersionOptions)
+		data.Products = filterOrderProductsForCustomer(data.Products, customerID, data.BeanListVersionOptions, data.CustomerPublicUsages)
 	}
 
 	resp := orderFormAPIResponse{
@@ -224,6 +225,7 @@ func (h orderAPIHandler) form(c echo.Context) error {
 		OrderTypes:             apiOptions(data.OrderTypes),
 		Products:               apiProducts(data.Products),
 		BeanListVersionOptions: data.BeanListVersionOptions,
+		CustomerPublicUsages:   data.CustomerPublicUsages,
 	}
 
 	if editID > 0 {
@@ -613,15 +615,22 @@ func apiProducts(ps []ProductOption) []map[string]any {
 	return out
 }
 
-func filterOrderProductsForCustomer(products []ProductOption, customerID int64, versionOptions ...[]salesapp.BeanListVersionOption) []ProductOption {
+func filterOrderProductsForCustomer(products []ProductOption, customerID int64, versionOptions []salesapp.BeanListVersionOption, publicUsages ...[]salesapp.CustomerPublicUsageOption) []ProductOption {
 	publicationIDsByType := map[string]map[int64]bool{}
 	if len(versionOptions) > 0 {
-		publicationIDsByType = customerOwnedPublicationIDsByListType(customerID, versionOptions[0])
+		publicationIDsByType = customerOwnedPublicationIDsByListType(customerID, versionOptions)
+	}
+	allowsPublicProducts := true
+	if len(publicUsages) > 0 {
+		allowsPublicProducts = customerAllowsPublicOrderProducts(customerID, publicUsages[0])
 	}
 	out := make([]ProductOption, 0, len(products))
 	for _, product := range products {
 		visibility := productVisibilityForAPI(product.Visibility, product.CustomerID)
 		if visibility == "public" || product.CustomerID == 0 {
+			if customerID > 0 && !allowsPublicProducts && !productMatchesExplicitCustomerOwnedBeanListScope(product, publicationIDsByType) {
+				continue
+			}
 			if !productMatchesCustomerOwnedBeanListScope(product, publicationIDsByType) {
 				continue
 			}
@@ -638,6 +647,18 @@ func filterOrderProductsForCustomer(products []ProductOption, customerID int64, 
 		}
 	}
 	return out
+}
+
+func customerAllowsPublicOrderProducts(customerID int64, usages []salesapp.CustomerPublicUsageOption) bool {
+	if customerID <= 0 {
+		return true
+	}
+	for _, usage := range usages {
+		if usage.CustomerID == customerID {
+			return usage.UsePublicSKU
+		}
+	}
+	return true
 }
 
 func customerOwnedPublicationIDsByListType(customerID int64, options []salesapp.BeanListVersionOption) map[string]map[int64]bool {
@@ -663,6 +684,15 @@ func productMatchesCustomerOwnedBeanListScope(product ProductOption, publication
 	publicationIDs := publicationIDsByType[listType]
 	if len(publicationIDs) == 0 {
 		return true
+	}
+	return productMatchesExplicitCustomerOwnedBeanListScope(product, publicationIDsByType)
+}
+
+func productMatchesExplicitCustomerOwnedBeanListScope(product ProductOption, publicationIDsByType map[string]map[int64]bool) bool {
+	listType := orderProductBeanListType(product.ProductKind)
+	publicationIDs := publicationIDsByType[listType]
+	if len(publicationIDs) == 0 {
+		return false
 	}
 	for _, tier := range product.Tiers {
 		var source struct {

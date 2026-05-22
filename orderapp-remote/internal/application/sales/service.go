@@ -257,6 +257,11 @@ type BeanListVersionOption struct {
 	IsDefault       bool   `json:"is_default"`
 }
 
+type CustomerPublicUsageOption struct {
+	CustomerID   int64 `json:"customer_id"`
+	UsePublicSKU bool  `json:"use_public_sku"`
+}
+
 type OrderFormData struct {
 	Today                  string
 	Customers              []CustomerOption
@@ -267,6 +272,7 @@ type OrderFormData struct {
 	Products               []ProductOption
 	Employees              []EmployeeOption
 	BeanListVersionOptions []BeanListVersionOption
+	CustomerPublicUsages   []CustomerPublicUsageOption
 	EditData               *OrderEditData
 }
 
