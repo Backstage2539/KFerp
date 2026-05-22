@@ -128,6 +128,90 @@ type beanListPreviewState struct {
 	fg       pdfRGB
 }
 
+type beanListCardDensity struct {
+	name           string
+	scale          float64
+	sidePad        float64
+	topPad         float64
+	bottomPad      float64
+	codeHeight     float64
+	codePadX       float64
+	headMinHeight  float64
+	nameLineHeight float64
+	bodyLineHeight float64
+	detailGap      float64
+	priceBoxHeight float64
+	priceRowStep   float64
+	priceGap       float64
+	minHeight      float64
+	maxNameLines   int
+	maxUseLines    int
+	maxFlavorLines int
+	maxDescLines   int
+}
+
+var beanListCardDensities = []beanListCardDensity{
+	{
+		name:           "normal",
+		scale:          1,
+		sidePad:        3,
+		topPad:         4,
+		bottomPad:      4,
+		codeHeight:     8,
+		codePadX:       4,
+		headMinHeight:  15.3,
+		nameLineHeight: 6.2,
+		bodyLineHeight: 4.6,
+		detailGap:      3,
+		priceBoxHeight: 12,
+		priceRowStep:   14,
+		priceGap:       2.2,
+		minHeight:      46,
+	},
+	{
+		name:           "compact",
+		scale:          0.9,
+		sidePad:        2.7,
+		topPad:         3.5,
+		bottomPad:      3.5,
+		codeHeight:     7.2,
+		codePadX:       3.4,
+		headMinHeight:  13.4,
+		nameLineHeight: 5.4,
+		bodyLineHeight: 4,
+		detailGap:      2.2,
+		priceBoxHeight: 10.2,
+		priceRowStep:   12,
+		priceGap:       2,
+		minHeight:      40,
+		maxNameLines:   3,
+		maxUseLines:    1,
+		maxFlavorLines: 2,
+		maxDescLines:   2,
+	},
+	{
+		name:           "dense",
+		scale:          0.78,
+		sidePad:        2.4,
+		topPad:         3,
+		bottomPad:      3,
+		codeHeight:     6.8,
+		codePadX:       3,
+		headMinHeight:  11.3,
+		nameLineHeight: 4.6,
+		bodyLineHeight: 3.45,
+		detailGap:      1.5,
+		priceBoxHeight: 8.7,
+		priceRowStep:   10.2,
+		priceGap:       1.8,
+		minHeight:      28,
+		maxNameLines:   2,
+		maxUseLines:    1,
+		maxFlavorLines: 2,
+		maxDescLines:   2,
+	},
+}
+
 type pdfRGB struct {
 	R int
 	G int
@@ -297,163 +381,196 @@ func (s *beanListPreviewState) renderCardRow(items []BeanListItem, columns int) 
 	}
 	gap := 2.5
 	cardW := (s.contentW - gap*float64(columns-1)) / float64(columns)
-	heights := make([]float64, len(items))
-	rowH := 0.0
-	for i, item := range items {
-		heights[i] = s.estimateCardHeight(item, cardW, columns)
-		rowH = math.Max(rowH, heights[i])
-	}
+	density, rowH := s.cardRowLayout(items, cardW, columns)
 	s.ensureSpace(rowH + 4)
 	for i, item := range items {
 		x := s.margin + float64(i)*(cardW+gap)
-		s.renderCard(item, x, s.y, cardW, rowH, columns)
+		s.renderCard(item, x, s.y, cardW, rowH, columns, density)
 	}
 	s.y += rowH + 4
 }
 
-func (s *beanListPreviewState) estimateCardHeight(item BeanListItem, width float64, rowColumns int) float64 {
-	innerW := width - 6
-	nameW := math.Max(12, innerW-14)
-	nameLines := s.splitPreviewText(item.Name, nameW, cardNameFontSize(width))
-	headH := math.Max(15.3, float64(len(nameLines))*6.2)
-	height := 7 + headH
-	if strings.TrimSpace(item.RecommendedUse) != "" {
-		height += float64(len(s.splitPreviewText(item.RecommendedUse, innerW-14, previewBodyFontSize)))*4.6 + 2
+func (s *beanListPreviewState) cardRowLayout(items []BeanListItem, cardW float64, columns int) (beanListCardDensity, float64) {
+	remaining := s.pageH - s.margin - s.y
+	for _, density := range beanListCardDensities {
+		rowH := s.estimateCardRowHeight(items, cardW, columns, density)
+		if rowH+4 <= remaining {
+			return density, rowH
+		}
 	}
-	if strings.TrimSpace(item.Flavor) != "" {
-		height += float64(len(s.splitPreviewText(item.Flavor, innerW-12, previewBodyFontSize)))*4.6 + 3
+	dense := beanListCardDensities[len(beanListCardDensities)-1]
+	if remaining >= dense.minHeight+4 {
+		return dense, remaining - 4
 	}
-	if strings.TrimSpace(item.Description) != "" {
-		height += float64(len(s.splitPreviewText(item.Description, innerW-12, previewBodyFontSize)))*4.6 + 3
+	s.addPage()
+	remaining = s.pageH - s.margin - s.y
+	for _, density := range beanListCardDensities {
+		rowH := s.estimateCardRowHeight(items, cardW, columns, density)
+		if rowH+4 <= remaining {
+			return density, rowH
+		}
 	}
-	priceCols := 1
-	if rowColumns == 1 && len(item.Prices) > 1 {
-		priceCols = 2
-	}
-	priceRows := int(math.Ceil(float64(maxInt(1, len(item.Prices))) / float64(priceCols)))
-	height += 7 + float64(priceRows)*11.1 + float64(maxInt(0, priceRows-1))*1.6
-	return math.Max(height+6, 46)
+	return dense, math.Max(dense.minHeight, remaining-4)
 }
 
-func (s *beanListPreviewState) renderCard(item BeanListItem, x, y, w, h float64, rowColumns int) {
+func (s *beanListPreviewState) estimateCardRowHeight(items []BeanListItem, cardW float64, columns int, density beanListCardDensity) float64 {
+	heights := make([]float64, len(items))
+	rowH := 0.0
+	for i, item := range items {
+		heights[i] = s.estimateCardHeight(item, cardW, columns, density)
+		rowH = math.Max(rowH, heights[i])
+	}
+	return rowH
+}
+
+func (s *beanListPreviewState) estimateCardHeight(item BeanListItem, width float64, rowColumns int, density beanListCardDensity) float64 {
+	innerW := width - density.sidePad*2
+	nameW := math.Max(12, innerW-14)
+	nameLines := limitPreviewLines(s.splitPreviewText(item.Name, nameW, density.nameFontSize(width)), density.maxNameLines)
+	headH := math.Max(density.headMinHeight, float64(len(nameLines))*density.nameLineHeight)
+	height := density.topPad + 3 + headH
+	if strings.TrimSpace(item.RecommendedUse) != "" {
+		lines := limitPreviewLines(s.splitPreviewText(item.RecommendedUse, innerW-14, density.bodyFontSize()), density.maxUseLines)
+		height += float64(len(lines))*density.bodyLineHeight + density.detailGap
+	}
+	if strings.TrimSpace(item.Flavor) != "" {
+		lines := limitPreviewLines(s.splitPreviewText(item.Flavor, innerW-12, density.bodyFontSize()), density.maxFlavorLines)
+		height += float64(len(lines))*density.bodyLineHeight + density.detailGap
+	}
+	if strings.TrimSpace(item.Description) != "" {
+		lines := limitPreviewLines(s.splitPreviewText(item.Description, innerW-12, density.bodyFontSize()), density.maxDescLines)
+		height += float64(len(lines))*density.bodyLineHeight + density.detailGap
+	}
+	height += density.detailGap + s.estimatePriceBlockHeight(item.Prices, rowColumns, density) + density.bottomPad
+	return math.Max(height, density.minHeight)
+}
+
+func (s *beanListPreviewState) renderCard(item BeanListItem, x, y, w, h float64, rowColumns int, density beanListCardDensity) {
 	s.pdf.SetDrawColor(220, 211, 196)
 	s.setFill(pdfRGB{255, 254, 250})
 	s.pdf.RoundedRect(x, y, w, h, 2, "1234", "FD")
-	innerX := x + 3
-	innerY := y + 4
-	innerW := w - 6
+	innerX := x + density.sidePad
+	innerY := y + density.topPad
+	innerW := w - density.sidePad*2
 	code := strings.TrimSpace(item.Code)
-	codeW := math.Max(10, s.textWidth(code, previewCodeFontSize)+4)
+	codeW := math.Max(9, s.textWidth(code, density.codeFontSize())+density.codePadX)
 	s.pdf.SetDrawColor(s.fg.R, s.fg.G, s.fg.B)
-	s.pdf.RoundedRect(innerX, innerY, codeW, 8, 1.6, "1234", "D")
-	s.pdf.SetFont("noto", beanListFontBold, previewCodeFontSize)
-	s.drawText(innerX, innerY+1.7, codeW, 4, code, "C", true)
+	s.pdf.RoundedRect(innerX, innerY, codeW, density.codeHeight, 1.6, "1234", "D")
+	s.pdf.SetFont("noto", beanListFontBold, density.codeFontSize())
+	s.drawText(innerX, innerY+density.codeHeight*0.23, codeW, density.codeHeight*0.5, code, "C", true)
 
 	nameX := innerX + codeW + 3
 	nameW := innerW - codeW - 3
-	nameSize := cardNameFontSize(w)
+	nameSize := density.nameFontSize(w)
 	s.pdf.SetFont("noto", beanListFontBold, nameSize)
-	nameLines := s.splitPreviewText(strings.TrimSpace(item.Name), nameW, nameSize)
+	nameLines := limitPreviewLines(s.splitPreviewText(strings.TrimSpace(item.Name), nameW, nameSize), density.maxNameLines)
 	s.pdf.SetFont("noto", beanListFontBold, nameSize)
 	textY := innerY
 	for _, line := range nameLines {
-		s.drawText(nameX, textY, nameW, 6.2, line, "L", true)
-		textY += 6.2
+		s.drawText(nameX, textY, nameW, density.nameLineHeight, line, "L", true)
+		textY += density.nameLineHeight
 	}
 	if badge := strings.TrimSpace(item.BadgeLabel); badge != "" && len(nameLines) > 0 {
-		s.pdf.SetFont("noto", beanListFontBold, 6.5)
-		s.pdf.CellFormat(s.pdf.GetStringWidth(badge)+4, 4, badge, "1", 0, "C", false, 0, "")
+		s.pdf.SetFont("noto", beanListFontBold, 6.5*density.scale)
+		s.pdf.CellFormat(s.pdf.GetStringWidth(badge)+4, 4*density.scale, badge, "1", 0, "C", false, 0, "")
 	}
-	bodyY := math.Max(innerY+10, textY+1)
+	priceHeight := s.estimatePriceBlockHeight(item.Prices, rowColumns, density)
+	priceY := y + h - priceHeight - density.bottomPad
+	bodyLimitY := priceY - density.detailGap
+	bodyY := math.Max(innerY+density.codeHeight+1, textY+density.detailGap)
 	if use := strings.TrimSpace(item.RecommendedUse); use != "" {
-		bodyY = s.renderInlineDetail(innerX, bodyY, innerW, "出品建议", use)
+		bodyY = s.renderInlineDetail(innerX, bodyY, innerW, "出品建议", use, density, density.maxUseLines, bodyLimitY)
 	}
 	if flavor := strings.TrimSpace(item.Flavor); flavor != "" {
-		bodyY = s.renderBlockDetail(innerX, bodyY, innerW, "风味", flavor, true)
+		bodyY = s.renderBlockDetail(innerX, bodyY, innerW, "风味", flavor, true, density, density.maxFlavorLines, bodyLimitY)
 	}
 	if desc := strings.TrimSpace(item.Description); desc != "" {
-		bodyY = s.renderBlockDetail(innerX, bodyY, innerW, "特点", desc, false)
+		bodyY = s.renderBlockDetail(innerX, bodyY, innerW, "特点", desc, false, density, density.maxDescLines, bodyLimitY)
 	}
-	priceHeight := s.estimatePriceBlockHeight(item.Prices, rowColumns)
-	priceY := math.Max(bodyY+3, y+h-priceHeight-4)
-	s.renderPriceBlock(item.Prices, innerX, priceY, innerW, rowColumns)
+	s.renderPriceBlock(item.Prices, innerX, priceY, innerW, rowColumns, density)
 }
 
-func (s *beanListPreviewState) renderInlineDetail(x, y, w float64, label, value string) float64 {
+func (s *beanListPreviewState) renderInlineDetail(x, y, w float64, label, value string, density beanListCardDensity, maxLines int, bottomY float64) float64 {
+	lines := s.fitPreviewLines(value, w-15, density.bodyFontSize(), maxLines, y, bottomY, density.bodyLineHeight)
+	if len(lines) == 0 {
+		return y
+	}
 	s.setMutedText()
-	s.pdf.SetFont("noto", beanListFontBold, previewBodyFontSize)
-	s.drawText(x, y, 14, 4.5, label, "L", true)
+	s.pdf.SetFont("noto", beanListFontBold, density.bodyFontSize())
+	s.drawText(x, y, 14, density.bodyLineHeight, label, "L", true)
 	s.setText(s.fg)
-	lines := s.splitPreviewText(value, w-15, previewBodyFontSize)
 	for i, line := range lines {
-		s.pdf.SetXY(x+15, y+float64(i)*4.5)
-		s.pdf.CellFormat(w-15, 4.5, line, "", 0, "L", false, 0, "")
+		s.pdf.SetXY(x+15, y+float64(i)*density.bodyLineHeight)
+		s.pdf.CellFormat(w-15, density.bodyLineHeight, line, "", 0, "L", false, 0, "")
 	}
-	return y + float64(maxInt(1, len(lines)))*4.5 + 1
+	return y + float64(len(lines))*density.bodyLineHeight + density.detailGap
 }
 
-func (s *beanListPreviewState) renderBlockDetail(x, y, w float64, label, value string, strong bool) float64 {
+func (s *beanListPreviewState) renderBlockDetail(x, y, w float64, label, value string, strong bool, density beanListCardDensity, maxLines int, bottomY float64) float64 {
+	lines := s.fitPreviewLines(value, w-12, density.bodyFontSize(), maxLines, y, bottomY, density.bodyLineHeight)
+	if len(lines) == 0 {
+		return y
+	}
 	s.setMutedText()
-	s.pdf.SetFont("noto", beanListFontBold, previewBodyFontSize)
-	s.drawText(x, y, 10, 4.5, label, "L", true)
+	s.pdf.SetFont("noto", beanListFontBold, density.bodyFontSize())
+	s.drawText(x, y, 10, density.bodyLineHeight, label, "L", true)
 	s.setText(s.fg)
-	size := previewBodyFontSize
+	size := density.bodyFontSize()
 	style := beanListFontRegular
 	if strong {
 		style = beanListFontBold
 	}
 	s.pdf.SetFont("noto", style, size)
-	lines := s.splitPreviewText(value, w-12, size)
 	s.pdf.SetFont("noto", style, size)
 	for i, line := range lines {
-		s.pdf.SetXY(x+12, y+float64(i)*4.5)
-		s.pdf.CellFormat(w-12, 4.5, line, "", 0, "L", false, 0, "")
+		s.pdf.SetXY(x+12, y+float64(i)*density.bodyLineHeight)
+		s.pdf.CellFormat(w-12, density.bodyLineHeight, line, "", 0, "L", false, 0, "")
 	}
-	return y + float64(maxInt(1, len(lines)))*4.5 + 2
+	return y + float64(len(lines))*density.bodyLineHeight + density.detailGap
 }
 
-func (s *beanListPreviewState) estimatePriceBlockHeight(prices []BeanListPrice, rowColumns int) float64 {
+func (s *beanListPreviewState) estimatePriceBlockHeight(prices []BeanListPrice, rowColumns int, density beanListCardDensity) float64 {
 	priceCols := 1
 	if rowColumns == 1 && len(prices) > 1 {
 		priceCols = 2
 	}
 	priceRows := int(math.Ceil(float64(maxInt(1, len(prices))) / float64(priceCols)))
-	return 7 + float64(priceRows)*11.1 + float64(maxInt(0, priceRows-1))*1.6
+	return density.bodyLineHeight + 1.5 + float64(priceRows)*density.priceBoxHeight + float64(maxInt(0, priceRows-1))*density.priceGap
 }
 
-func (s *beanListPreviewState) renderPriceBlock(prices []BeanListPrice, x, y, w float64, rowColumns int) {
+func (s *beanListPreviewState) renderPriceBlock(prices []BeanListPrice, x, y, w float64, rowColumns int, density beanListCardDensity) {
 	s.setMutedText()
-	s.pdf.SetFont("noto", beanListFontBold, previewBodyFontSize)
-	s.drawText(x, y, w, 4.5, "报价", "L", true)
+	s.pdf.SetFont("noto", beanListFontBold, density.bodyFontSize())
+	s.drawText(x, y, w, density.bodyLineHeight, "报价", "L", true)
 	s.setText(s.fg)
 	priceCols := 1
 	if rowColumns == 1 && len(prices) > 1 {
 		priceCols = 2
 	}
-	gap := 2.2
+	gap := density.priceGap
 	boxW := (w - gap*float64(priceCols-1)) / float64(priceCols)
 	for i, price := range prices {
 		col := i % priceCols
 		row := i / priceCols
 		px := x + float64(col)*(boxW+gap)
-		py := y + 6 + float64(row)*14
+		py := y + density.bodyLineHeight + 1.5 + float64(row)*density.priceRowStep
 		fill := pdfRGB{223, 245, 217}
 		if i%2 == 1 {
 			fill = pdfRGB{219, 234, 247}
 		}
 		s.pdf.SetDrawColor(198, 220, 192)
 		s.setFill(fill)
-		s.pdf.RoundedRect(px, py, boxW, 12, 1.6, "1234", "FD")
+		s.pdf.RoundedRect(px, py, boxW, density.priceBoxHeight, 1.6, "1234", "FD")
 		if price.Red {
 			s.pdf.SetTextColor(197, 22, 22)
 		} else {
 			s.setText(s.fg)
 		}
-		s.pdf.SetFont("noto", beanListFontRegular, previewBodyFontSize)
-		s.pdf.SetXY(px+2, py+4)
-		s.pdf.CellFormat(boxW-18, 4, strings.TrimSpace(price.Label), "", 0, "L", false, 0, "")
-		s.pdf.SetFont("noto", beanListFontBold, previewPriceFontSize)
-		s.drawText(px+boxW-22, py+3.4, 20, 4.5, strings.TrimSpace(price.Value), "R", true)
+		s.pdf.SetFont("noto", beanListFontRegular, density.bodyFontSize())
+		s.pdf.SetXY(px+2, py+density.priceBoxHeight*0.33)
+		s.pdf.CellFormat(boxW-18, density.bodyLineHeight, strings.TrimSpace(price.Label), "", 0, "L", false, 0, "")
+		s.pdf.SetFont("noto", beanListFontBold, density.priceFontSize())
+		s.drawText(px+boxW-22, py+density.priceBoxHeight*0.28, 20, density.bodyLineHeight, strings.TrimSpace(price.Value), "R", true)
 		s.setText(s.fg)
 	}
 }
@@ -528,7 +645,9 @@ func (s *beanListPreviewState) renderChangelogAndFooter() {
 		footer = "棵凡咖啡"
 	}
 	right := strings.TrimSpace(s.doc.VersionNo)
-	s.ensureSpace(9)
+	if s.y+9 > s.pageH-s.margin {
+		return
+	}
 	s.pdf.Line(s.margin, s.y, s.pageW-s.margin, s.y)
 	s.pdf.SetFont("noto", "", 6.5)
 	s.pdf.SetXY(s.margin, s.y+2)
@@ -555,6 +674,31 @@ func (s *beanListPreviewState) splitPreviewText(text string, width float64, font
 		return []string{text}
 	}
 	return lines
+}
+
+func (s *beanListPreviewState) fitPreviewLines(text string, width float64, fontSize float64, maxLines int, y, bottomY, lineHeight float64) []string {
+	if bottomY <= y {
+		return nil
+	}
+	available := int(math.Floor((bottomY - y) / lineHeight))
+	if available <= 0 {
+		return nil
+	}
+	if maxLines <= 0 || available < maxLines {
+		maxLines = available
+	}
+	return limitPreviewLines(s.splitPreviewText(text, width, fontSize), maxLines)
+}
+
+func limitPreviewLines(lines []string, maxLines int) []string {
+	if maxLines <= 0 || len(lines) <= maxLines {
+		return lines
+	}
+	out := append([]string(nil), lines[:maxLines]...)
+	last := strings.TrimSpace(out[len(out)-1])
+	last = strings.TrimRight(last, ". ")
+	out[len(out)-1] = last + "..."
+	return out
 }
 
 func (s *beanListPreviewState) textWidth(text string, fontSize float64) float64 {
@@ -751,4 +895,20 @@ func cardNameFontSize(width float64) float64 {
 		return previewNameFontSize
 	}
 	return 13
+}
+
+func (d beanListCardDensity) nameFontSize(width float64) float64 {
+	return cardNameFontSize(width) * d.scale
+}
+
+func (d beanListCardDensity) bodyFontSize() float64 {
+	return previewBodyFontSize * d.scale
+}
+
+func (d beanListCardDensity) codeFontSize() float64 {
+	return previewCodeFontSize * d.scale
+}
+
+func (d beanListCardDensity) priceFontSize() float64 {
+	return previewPriceFontSize * d.scale
 }

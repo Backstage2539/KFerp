@@ -33,6 +33,7 @@
 - PR-321-CUSTOMER-SKU-CATEGORY-TOGGLE-FACTORY-BEANLIST-TITLE：客户 SKU 设置中的客户自有分类不得因勾选再取消“是否使用公共商品分类”而从客户分类树消失；从客户账户切回“工厂总览”后，SKU设置必须回到公共 SKU 归属；客户产品豆单的商用批发豆单标题必须沿用公共豆单标题逻辑，客户 SKU 挂在“咖啡豆 / 定制咖啡熟豆”时标题显示为“1、定制咖啡熟豆”，并且 `芬纳定制-红酒日晒-中深烘` 必须出现在芬纳咖啡客户豆单中。
 - PR-322-CUSTOMER-SKU-CATEGORY-CLEANUP-BOM-VERSION-DEACTIVATE：SKU设置保存客户公共分类开关时，不得把仍有活跃二级分类或已挂 SKU 的客户自有一级分类当成空公共副本清理；SKU 失效时，除当前 BOM 状态变为失效外，对应 active BOM 版本也必须同步置为 disabled，历史明细和版本记录保留。
 - PR-323-BEAN-LIST-DOWNLOAD-MATCH-PREVIEW-TYPOGRAPHY：产品豆单下载 PDF 必须与生成抽屉预览保持同一视觉语言，包含字体大小、粗字重、卡片行列、分类标题、商品名称换行和绿色/蓝色报价块排版。已保存的 `bean-list-preview-style-v1` PDF 缓存属于旧排版，下载时必须用 `bean-list-preview-style-v2` 重新生成后覆盖，避免图一预览和图二下载字体/排版不一致。
+- PR-332-BEAN-LIST-PDF-DENSE-PAGINATION：产品豆单预览样式 PDF 必须优先减少页面空白。生成器在卡片行放不下当前页时，必须先尝试 normal/compact/dense 三档，压缩卡片内边距、字号、行距和报价块高度，并在可读范围内截断过长风味/特点文案；只有 dense 密度仍无法容纳时才换页。已保存的 `bean-list-preview-style-v2` PDF 缓存属于旧分页密度，下载时必须用 `bean-list-preview-style-v3` 重新生成后覆盖。
 - PR-324-FENNA-ORDER-ENTRY-CUSTOMER-BEAN-LIST-SCOPE：ERP 录单选择客户后，熟豆/商用商品必须读取该客户已发布商用豆单快照中的 `commercial_wholesale_tiers` 作为自动价来源。客户已有自己的商用豆单时，商品下拉只允许选择该客户商用豆单发布快照中包含且有价格档的商品，不得继续混入公共商品或未发布到客户豆单的客户 SKU；芬纳咖啡当前两个定制产品必须能在录单中看到对应豆单价格。
 - PR-331-ORDER-ENTRY-PUBLIC-SKU-SCOPE：ERP 录单和修改订单的商品选择器必须遵守 SKU 设置里当前客户的 `use_public_sku`。客户关闭“是否使用公共SKU”时，不得展示公共 SKU、其他客户 SKU 或其他客户豆单发布的生豆商品；只允许当前客户自有 SKU，以及显式进入该客户豆单发布快照的商品继续可选。芬纳咖啡关闭公共 SKU 后，岩师傅的 `孟连水洗A`、`红酒日晒-2026` 不能出现在芬纳录单商品候选中。
 - PR-325-ORDER-ENTRY-MATCHED-TIER-HIGHLIGHT：录单自动价命中豆单梯度后，页面梯度按钮必须按实际命中的 `tier_id` 高亮；当 1000g、2.5kg 等规格通过 454g 豆单磅价梯度折算时，也要高亮该 454g 档位，不能因当前规格和提示梯度规格不同而不显示命中来源。
