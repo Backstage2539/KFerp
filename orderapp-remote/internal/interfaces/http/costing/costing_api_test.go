@@ -548,6 +548,67 @@ func TestCostingCalculateAPIReturnsExcelBeanListDisplayMetadata(t *testing.T) {
 	}
 }
 
+func TestCostingCalculateAPIReturnsCustomerSkuCategoryBeanListMetadata(t *testing.T) {
+	e := echo.New()
+	RegisterRoutes(e, Dependencies{Costing: fakeService{}})
+
+	input := domain.ProductInput{
+		ProductID:                 902,
+		Name:                      "芬纳定制-红酒日晒-中深烘",
+		ProductKind:               "roasted",
+		CustomerID:                74,
+		CustomType:                "custom_roast",
+		ProductCategoryID:         502,
+		ProductCategoryPosition:   2,
+		CategoryPrimaryName:       "咖啡豆",
+		CategoryPrimaryPosition:   1,
+		CategorySecondaryName:     "定制咖啡熟豆",
+		CategorySecondaryPosition: 1,
+		GreenBeanCostPerKg:        67,
+		YieldRate:                 0.815,
+		Flavor:                    "红酒、莓果",
+		BeanListNote:              "客户自有定制熟豆",
+	}
+
+	body, err := json.Marshal(appcosting.CalculateRequest{Products: []domain.ProductInput{input}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := httptest.NewRequest(http.MethodPost, "/api/costing/calculate", bytes.NewReader(body))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+
+	e.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	var got struct {
+		Items []struct {
+			CommercialBeanList struct {
+				Code        string `json:"code"`
+				Category    string `json:"category"`
+				DisplayName string `json:"display_name"`
+				Flavor      string `json:"flavor"`
+				Description string `json:"description"`
+			} `json:"commercial_bean_list"`
+		} `json:"items"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatalf("invalid json: %v", err)
+	}
+	if len(got.Items) != 1 {
+		t.Fatalf("items = %+v", got.Items)
+	}
+	item := got.Items[0].CommercialBeanList
+	if item.Code != "1.2" || item.Category != "1、咖啡豆 / 定制咖啡熟豆" || item.DisplayName != "芬纳定制-红酒日晒-中深烘" {
+		t.Fatalf("customer commercial bean list = %+v", item)
+	}
+	if item.Flavor != "红酒、莓果" || item.Description != "客户自有定制熟豆" {
+		t.Fatalf("customer commercial bean list missing fallbacks: %+v", item)
+	}
+}
+
 func TestRoutesAreRegistered(t *testing.T) {
 	e := echo.New()
 	RegisterRoutes(e, Dependencies{Costing: fakeService{}})

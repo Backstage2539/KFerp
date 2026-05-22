@@ -1,9 +1,6 @@
 package costing
 
-import (
-	"reflect"
-	"testing"
-)
+import "testing"
 
 func assertClose(t *testing.T, name string, got, want float64) {
 	t.Helper()
@@ -267,6 +264,7 @@ func TestProductMarginOverrideReplacesGradientTemplateTierMargin(t *testing.T) {
 		Name:               "模板拼配",
 		GreenBeanCostPerKg: 51.75,
 		YieldRate:          0.8,
+		MarginRateOverride: f64(0.30),
 		GradientTemplate: &GradientTemplate{
 			ID:          9,
 			Name:        "工厂量单模板",
@@ -276,7 +274,6 @@ func TestProductMarginOverrideReplacesGradientTemplateTierMargin(t *testing.T) {
 			},
 		},
 	}
-	setProductInputFloat64PtrField(t, &input, "MarginRateOverride", 0.30)
 
 	got := CalculateProduct(params, input)
 	if len(got.CommercialWholesaleTiers) != 1 {
@@ -474,6 +471,78 @@ func TestExcelBeanListDisplayMetadataMatchesWorkbook(t *testing.T) {
 	}
 }
 
+func TestCustomerCustomRoastBeanListUsesSkuCategoryMetadata(t *testing.T) {
+	params := DefaultParameters()
+	input := ProductInput{
+		ProductID:                 902,
+		Name:                      "芬纳定制-红酒日晒-中深烘",
+		ProductKind:               "roasted",
+		CustomerID:                74,
+		CustomType:                "custom_roast",
+		ProductCategoryID:         502,
+		ProductCategoryPosition:   2,
+		CategoryPrimaryName:       "咖啡豆",
+		CategoryPrimaryPosition:   1,
+		CategorySecondaryName:     "定制咖啡熟豆",
+		CategorySecondaryPosition: 1,
+		GreenBeanCostPerKg:        67,
+		YieldRate:                 0.815,
+		Flavor:                    "红酒、莓果",
+		BeanListNote:              "客户自有定制熟豆",
+	}
+
+	got := CalculateProduct(params, input)
+
+	if got.CommercialBeanList.Code != "1.2" {
+		t.Fatalf("commercial code = %q, want 1.2; display=%+v", got.CommercialBeanList.Code, got.CommercialBeanList)
+	}
+	if got.CommercialBeanList.Category != "1、咖啡豆 / 定制咖啡熟豆" {
+		t.Fatalf("commercial category = %q", got.CommercialBeanList.Category)
+	}
+	if got.CommercialBeanList.DisplayName != "芬纳定制-红酒日晒-中深烘" {
+		t.Fatalf("commercial display name = %q", got.CommercialBeanList.DisplayName)
+	}
+	if got.CommercialBeanList.Flavor != "红酒、莓果" || got.CommercialBeanList.Description != "客户自有定制熟豆" {
+		t.Fatalf("commercial metadata should fall back to product bean-list fields: %+v", got.CommercialBeanList)
+	}
+}
+
+func TestCustomerAliasBeanListOverridesExcelCategoryWithSkuCategory(t *testing.T) {
+	params := DefaultParameters()
+	input := ProductInput{
+		ProductID:                 901,
+		Name:                      "芬纳咖啡-Uraga乌拉嘎-中烘",
+		BeanListTemplateName:      "Uraga乌拉嘎",
+		ProductKind:               "roasted",
+		CustomerID:                74,
+		CustomType:                "public_sku_alias",
+		BaseProductID:             1,
+		ProductCategoryID:         502,
+		ProductCategoryPosition:   1,
+		CategoryPrimaryName:       "咖啡豆",
+		CategoryPrimaryPosition:   1,
+		CategorySecondaryName:     "定制咖啡熟豆",
+		CategorySecondaryPosition: 1,
+		GreenBeanCostPerKg:        108,
+		YieldRate:                 0.8,
+	}
+
+	got := CalculateProduct(params, input)
+
+	if got.CommercialBeanList.Code != "1.1" {
+		t.Fatalf("commercial code = %q, want 1.1; display=%+v", got.CommercialBeanList.Code, got.CommercialBeanList)
+	}
+	if got.CommercialBeanList.Category != "1、咖啡豆 / 定制咖啡熟豆" {
+		t.Fatalf("commercial category should use customer SKU category, got %q", got.CommercialBeanList.Category)
+	}
+	if got.CommercialBeanList.DisplayName != "芬纳咖啡-Uraga乌拉嘎-中烘" {
+		t.Fatalf("commercial display name = %q", got.CommercialBeanList.DisplayName)
+	}
+	if got.CommercialBeanList.RecommendedUse != "手冲/SOE/冷萃" || got.CommercialBeanList.Flavor == "" {
+		t.Fatalf("customer alias should preserve Excel bean-list details: %+v", got.CommercialBeanList)
+	}
+}
+
 func TestValidateProductInputRejectsInvalidInputs(t *testing.T) {
 	params := DefaultParameters()
 	if _, err := ValidateProductInput(params, ProductInput{Name: "bad", GreenBeanCostPerKg: 10, YieldRate: -0.1}); err == nil {
@@ -528,18 +597,6 @@ func TestDripWholesaleTiersMatchExcelFormula(t *testing.T) {
 
 func f64(v float64) *float64 {
 	return &v
-}
-
-func setProductInputFloat64PtrField(t *testing.T, target any, fieldName string, value float64) {
-	t.Helper()
-	field := reflect.ValueOf(target).Elem().FieldByName(fieldName)
-	if !field.IsValid() {
-		t.Fatalf("missing %s field", fieldName)
-	}
-	if field.Kind() != reflect.Ptr || field.Type().Elem().Kind() != reflect.Float64 {
-		t.Fatalf("%s field type = %s, want *float64", fieldName, field.Type())
-	}
-	field.Set(reflect.ValueOf(&value))
 }
 
 func commercialPriceMap(tiers []CommercialWholesaleTier) map[string]float64 {

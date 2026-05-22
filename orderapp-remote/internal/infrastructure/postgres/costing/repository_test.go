@@ -90,6 +90,26 @@ func TestLoadProductInputsReadsCategoryGradientTemplates(t *testing.T) {
 	}
 }
 
+func TestLoadProductInputsReadsSkuCategoryPathForCustomerBeanLists(t *testing.T) {
+	b, err := os.ReadFile("repository.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := string(b)
+	for _, want := range []string{
+		"p.product_category_position",
+		"parent_pc.name",
+		"parent_pc.position",
+		"&input.CategoryPrimaryName",
+		"&input.CategorySecondaryName",
+		"&input.ProductCategoryPosition",
+	} {
+		if !strings.Contains(src, want) {
+			t.Fatalf("costing repository must load SKU category path for customer bean lists; missing %q", want)
+		}
+	}
+}
+
 func TestLoadProductInputsReadsProductMarginOverrideForTemplatePricing(t *testing.T) {
 	b, err := os.ReadFile("repository.go")
 	if err != nil {

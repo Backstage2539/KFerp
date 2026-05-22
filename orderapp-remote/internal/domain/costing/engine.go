@@ -51,6 +51,11 @@ type ProductInput struct {
 	Visibility                string                    `json:"visibility,omitempty"`
 	CustomType                string                    `json:"custom_type,omitempty"`
 	ProductCategoryID         int64                     `json:"product_category_id,omitempty"`
+	ProductCategoryPosition   int                       `json:"product_category_position,omitempty"`
+	CategoryPrimaryName       string                    `json:"category_primary_name,omitempty"`
+	CategoryPrimaryPosition   int                       `json:"category_primary_position,omitempty"`
+	CategorySecondaryName     string                    `json:"category_secondary_name,omitempty"`
+	CategorySecondaryPosition int                       `json:"category_secondary_position,omitempty"`
 	BeanListTemplateName      string                    `json:"bean_list_template_name,omitempty"`
 	Flavor                    string                    `json:"flavor,omitempty"`
 	Origin                    string                    `json:"origin,omitempty"`
@@ -242,6 +247,11 @@ type ProductResult struct {
 	Visibility                     string                    `json:"visibility,omitempty"`
 	CustomType                     string                    `json:"custom_type,omitempty"`
 	ProductCategoryID              int64                     `json:"product_category_id,omitempty"`
+	ProductCategoryPosition        int                       `json:"product_category_position,omitempty"`
+	CategoryPrimaryName            string                    `json:"category_primary_name,omitempty"`
+	CategoryPrimaryPosition        int                       `json:"category_primary_position,omitempty"`
+	CategorySecondaryName          string                    `json:"category_secondary_name,omitempty"`
+	CategorySecondaryPosition      int                       `json:"category_secondary_position,omitempty"`
 	MarginRateOverride             *float64                  `json:"margin_rate_override,omitempty"`
 	GradientTemplate               *GradientTemplate         `json:"gradient_template,omitempty"`
 	DripPriceTemplate              *DripPriceTemplate        `json:"drip_price_template,omitempty"`
@@ -408,52 +418,51 @@ func CalculateProduct(params Parameters, in ProductInput) ProductResult {
 		retailDisplay = BeanListDisplay{}
 	}
 	if in.CustomerID > 0 {
-		if commercialDisplay.Code != "" {
-			commercialDisplay.DisplayName = in.Name
-		}
-		if retailDisplay.Code != "" {
-			retailDisplay.DisplayName = in.Name
-		}
-		if dripDisplay.Code != "" {
-			dripDisplay.DisplayName = in.Name
-		}
+		commercialDisplay = customerCategoryBeanListDisplay(in, commercialDisplay, in.ProductKind != "drip_bag")
+		retailDisplay = customerCategoryBeanListDisplay(in, retailDisplay, false)
+		dripDisplay = customerCategoryBeanListDisplay(in, dripDisplay, in.ProductKind == "drip_bag")
 	}
 
 	out := ProductResult{
-		ProductID:            in.ProductID,
-		Name:                 in.Name,
-		ProductKind:          in.ProductKind,
-		DripBagGrams:         in.DripBagGrams,
-		DripBoxBagCount:      in.DripBoxBagCount,
-		CustomerID:           in.CustomerID,
-		BaseProductID:        in.BaseProductID,
-		Visibility:           in.Visibility,
-		CustomType:           in.CustomType,
-		ProductCategoryID:    in.ProductCategoryID,
-		MarginRateOverride:   in.MarginRateOverride,
-		GradientTemplate:     in.GradientTemplate,
-		DripPriceTemplate:    in.DripPriceTemplate,
-		CommercialBeanList:   commercialDisplay,
-		DripBeanList:         dripDisplay,
-		RetailBeanList:       retailDisplay,
-		BeanListQuality:      in.BeanListQuality,
-		Flavor:               in.Flavor,
-		Origin:               in.Origin,
-		ProcessingStation:    in.ProcessingStation,
-		Variety:              in.Variety,
-		ProcessMethod:        in.ProcessMethod,
-		Grade:                in.Grade,
-		Altitude:             in.Altitude,
-		BeanListNote:         in.BeanListNote,
-		BomStatus:            in.BomStatus,
-		Warnings:             append([]string(nil), in.Warnings...),
-		YieldRate:            in.YieldRate,
-		GreenBeanCostPerKg:   in.GreenBeanCostPerKg,
-		RoastedBeanCostPerKg: roasted,
-		SmallBatchCostPerKg:  small,
-		LargeBatchCostPerKg:  large,
-		DripBaseCostPerBag:   dripBase,
-		RetailTaxPerKg:       retailTax,
+		ProductID:                 in.ProductID,
+		Name:                      in.Name,
+		ProductKind:               in.ProductKind,
+		DripBagGrams:              in.DripBagGrams,
+		DripBoxBagCount:           in.DripBoxBagCount,
+		CustomerID:                in.CustomerID,
+		BaseProductID:             in.BaseProductID,
+		Visibility:                in.Visibility,
+		CustomType:                in.CustomType,
+		ProductCategoryID:         in.ProductCategoryID,
+		ProductCategoryPosition:   in.ProductCategoryPosition,
+		CategoryPrimaryName:       in.CategoryPrimaryName,
+		CategoryPrimaryPosition:   in.CategoryPrimaryPosition,
+		CategorySecondaryName:     in.CategorySecondaryName,
+		CategorySecondaryPosition: in.CategorySecondaryPosition,
+		MarginRateOverride:        in.MarginRateOverride,
+		GradientTemplate:          in.GradientTemplate,
+		DripPriceTemplate:         in.DripPriceTemplate,
+		CommercialBeanList:        commercialDisplay,
+		DripBeanList:              dripDisplay,
+		RetailBeanList:            retailDisplay,
+		BeanListQuality:           in.BeanListQuality,
+		Flavor:                    in.Flavor,
+		Origin:                    in.Origin,
+		ProcessingStation:         in.ProcessingStation,
+		Variety:                   in.Variety,
+		ProcessMethod:             in.ProcessMethod,
+		Grade:                     in.Grade,
+		Altitude:                  in.Altitude,
+		BeanListNote:              in.BeanListNote,
+		BomStatus:                 in.BomStatus,
+		Warnings:                  append([]string(nil), in.Warnings...),
+		YieldRate:                 in.YieldRate,
+		GreenBeanCostPerKg:        in.GreenBeanCostPerKg,
+		RoastedBeanCostPerKg:      roasted,
+		SmallBatchCostPerKg:       small,
+		LargeBatchCostPerKg:       large,
+		DripBaseCostPerBag:        dripBase,
+		RetailTaxPerKg:            retailTax,
 	}
 
 	for i, margin := range in.WholesaleKgMarginRates {
@@ -653,6 +662,62 @@ func firstNonEmptyString(values ...string) string {
 		}
 	}
 	return ""
+}
+
+func customerCategoryBeanListDisplay(in ProductInput, display BeanListDisplay, allowFallback bool) BeanListDisplay {
+	if display.Code == "" && !allowFallback {
+		return display
+	}
+	categoryName := customerBeanListCategoryName(in)
+	if categoryName == "" {
+		if display.Code != "" {
+			display.DisplayName = in.Name
+		}
+		return display
+	}
+	categoryPosition := customerBeanListCategoryPosition(in)
+	productPosition := in.ProductCategoryPosition
+	if productPosition <= 0 && in.ProductID > 0 {
+		productPosition = int(in.ProductID)
+	}
+	if categoryPosition <= 0 {
+		categoryPosition = 1
+	}
+	if productPosition <= 0 {
+		productPosition = 1
+	}
+	if display.Code == "" {
+		display.RecommendedUse = "客户定制"
+	}
+	display.Code = fmt.Sprintf("%d.%d", categoryPosition, productPosition)
+	display.Category = fmt.Sprintf("%d、%s", categoryPosition, categoryName)
+	display.DisplayName = in.Name
+	if strings.TrimSpace(display.Flavor) == "" {
+		display.Flavor = in.Flavor
+	}
+	if strings.TrimSpace(display.Description) == "" {
+		display.Description = firstNonEmptyString(in.BeanListNote, in.Origin)
+	}
+	return display
+}
+
+func customerBeanListCategoryName(in ProductInput) string {
+	primary := strings.TrimSpace(in.CategoryPrimaryName)
+	secondary := strings.TrimSpace(in.CategorySecondaryName)
+	if primary != "" && secondary != "" {
+		return primary + " / " + secondary
+	}
+	return firstNonEmptyString(secondary, primary)
+}
+
+func customerBeanListCategoryPosition(in ProductInput) int {
+	if strings.TrimSpace(in.CategorySecondaryName) != "" && in.CategorySecondaryPosition > 0 {
+		return in.CategorySecondaryPosition
+	}
+	if in.CategoryPrimaryPosition > 0 {
+		return in.CategoryPrimaryPosition
+	}
+	return 0
 }
 
 func trimFloatZero(value float64) string {

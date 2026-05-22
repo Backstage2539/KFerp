@@ -1,4 +1,4 @@
-# PR-319-BEAN-LIST-PREVIEW-STYLE-PDF
+# PR-320-BEAN-LIST-PREVIEW-STYLE-PDF
 
 ## 验收目标
 - 生成豆单抽屉的“生成 PDF”不再调用 `window.print()` 或系统打印窗口。
