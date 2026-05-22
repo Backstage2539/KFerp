@@ -117,8 +117,8 @@ func (c *salesOrderPNGCanvas) metaRow(y int, cols []string, colW int) int {
 }
 
 func (c *salesOrderPNGCanvas) itemsTable(left, right, y int, snapshot salesdomain.SalesOrderSnapshot) int {
-	widths := []int{280, 130, 150, 160, 170, 210}
-	headers := []string{"商品", "规格", "数量", "单价", "小计", "备注"}
+	widths := []int{320, 120, 130, 145, 230, 155}
+	headers := salesOrderItemHeaders()
 	x := left
 	for i, header := range headers {
 		c.text(x+8, y, 21, color.RGBA{R: 20, G: 20, B: 20, A: 255}, header)
@@ -130,7 +130,7 @@ func (c *salesOrderPNGCanvas) itemsTable(left, right, y int, snapshot salesdomai
 	for _, item := range snapshot.Items {
 		rowH := c.salesOrderPNGItemRowHeight(item, widths, 20, 28)
 		x = left
-		// salesOrderItemCells keeps item.Note in the last table column.
+		// salesOrderItemCells keeps item.Note in the note column before the discounted final column.
 		for i, text := range salesOrderItemCells(item) {
 			if i >= len(widths) {
 				break
@@ -165,14 +165,28 @@ func (c *salesOrderPNGCanvas) salesOrderPNGItemRowHeight(item salesdomain.SalesO
 
 func (c *salesOrderPNGCanvas) totals(left, right, y int, snapshot salesdomain.SalesOrderSnapshot) int {
 	for _, row := range salesOrderFinancialRows(snapshot) {
-		text := row.Label + "： " + row.Value
 		size := 22.0
 		col := color.RGBA{R: 20, G: 20, B: 20, A: 255}
 		if row.Bold {
 			size = 23
 			col = color.RGBA{R: 0, G: 0, B: 0, A: 255}
 		}
-		if row.Label == "备注" {
+		if len(row.Cells) > 0 {
+			cellW := (right - left) / len(row.Cells)
+			for i, text := range row.Cells {
+				cellLeft := left + i*cellW
+				cellRight := cellLeft + cellW
+				if i == 0 {
+					c.text(cellLeft+8, y+8, size, col, text)
+				} else {
+					c.textRight(cellRight-8, y+8, size, col, text)
+				}
+			}
+			y += 38
+			continue
+		}
+		text := row.Label + "： " + row.Value
+		if row.Label == "订单备注" {
 			y = c.wrappedText(left+8, y+8, right-left-16, size, 32, col, []string{text})
 			continue
 		}

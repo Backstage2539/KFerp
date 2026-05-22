@@ -174,8 +174,8 @@ func (r SalesOrderRenderer) renderSalesOrderItemsTable(pdf *gofpdf.Fpdf, snapsho
 	left, _, right, _ := pdf.GetMargins()
 	pageW, _ := pdf.GetPageSize()
 	usableW := pageW - left - right
-	colWidths := []float64{usableW * 0.27, usableW * 0.12, usableW * 0.13, usableW * 0.15, usableW * 0.15, usableW * 0.18}
-	headers := []string{"商品", "规格", "数量", "单价", "小计", "备注"}
+	colWidths := []float64{usableW * 0.30, usableW * 0.10, usableW * 0.12, usableW * 0.13, usableW * 0.20, usableW * 0.15}
+	headers := salesOrderItemHeaders()
 	pdf.SetFont("noto", "", 10)
 	for i, h := range headers {
 		pdf.CellFormat(colWidths[i], 8, h, "B", 0, "L", false, 0, "")
@@ -223,14 +223,18 @@ func salesOrderItemRowHeight(pdf *gofpdf.Fpdf, item salesdomain.SalesOrderSnapsh
 	return float64(maxLines)*lineHeight + 2
 }
 
+func salesOrderItemHeaders() []string {
+	return []string{"商品", "规格", "数量", "单价", "备注", "优惠后价"}
+}
+
 func salesOrderItemCells(item salesdomain.SalesOrderSnapshotItem) []string {
 	return []string{
 		item.Name,
 		item.Spec,
 		strings.TrimSpace(item.Qty + item.Unit),
 		item.UnitPrice,
-		item.LineTotal,
 		item.Note,
+		item.LineTotal,
 	}
 }
 
@@ -258,22 +262,39 @@ type salesOrderFinancialRow struct {
 	Label string
 	Value string
 	Bold  bool
+	Cells []string
 }
 
 func renderSalesOrderTotals(pdf *gofpdf.Fpdf, snapshot salesdomain.SalesOrderSnapshot) {
+	left, _, right, _ := pdf.GetMargins()
+	pageW, _ := pdf.GetPageSize()
+	usableW := pageW - left - right
 	for _, row := range salesOrderFinancialRows(snapshot) {
+		if len(row.Cells) > 0 {
+			pdf.SetFont("noto", salesOrderFontStyle(row.Bold), 11)
+			cellW := usableW / float64(len(row.Cells))
+			for i, text := range row.Cells {
+				align := "R"
+				if i == 0 {
+					align = "L"
+				}
+				pdf.CellFormat(cellW, 7, text, "", 0, align, false, 0, "")
+			}
+			pdf.Ln(7)
+			continue
+		}
 		style := ""
 		align := "R"
 		if row.Bold {
 			style = "B"
 		}
-		if row.Label == "备注" {
+		if row.Label == "订单备注" {
 			align = "L"
 		}
 		pdf.SetFont("noto", style, 11)
 		text := row.Label + "： " + row.Value
-		if row.Label == "备注" {
-			for _, line := range pdf.SplitText(text, 176) {
+		if row.Label == "订单备注" {
+			for _, line := range pdf.SplitText(text, usableW) {
 				pdf.CellFormat(0, 7, line, "", 1, align, false, 0, "")
 			}
 			continue
@@ -286,25 +307,27 @@ func renderSalesOrderTotals(pdf *gofpdf.Fpdf, snapshot salesdomain.SalesOrderSna
 }
 
 func salesOrderFinancialRows(snapshot salesdomain.SalesOrderSnapshot) []salesOrderFinancialRow {
-	rows := []salesOrderFinancialRow{
-		{Label: "商品合计", Value: snapshot.TotalAmount},
-		{Label: "运费", Value: snapshot.Shipping},
-	}
-	if len(snapshot.DiscountBreakdowns) > 0 {
-		for _, item := range snapshot.DiscountBreakdowns {
-			if strings.TrimSpace(item.Amount) == "" || strings.TrimSpace(item.Amount) == "0.00" {
-				continue
-			}
-			rows = append(rows, salesOrderFinancialRow{Label: "优惠（" + salesOrderDiscountTypeLabel(item.Type) + "）", Value: item.Amount, Bold: true})
-		}
-	} else if strings.TrimSpace(snapshot.Discount) != "" && strings.TrimSpace(snapshot.Discount) != "0.00" {
-		rows = append(rows, salesOrderFinancialRow{Label: "优惠", Value: snapshot.Discount, Bold: true})
-	}
-	rows = append(rows, salesOrderFinancialRow{Label: "应收", Value: snapshot.GrandTotal})
+	rows := make([]salesOrderFinancialRow, 0, 2)
 	if note := strings.TrimSpace(snapshot.SalesOrderNote); note != "" {
-		rows = append(rows, salesOrderFinancialRow{Label: "备注", Value: note})
+		rows = append(rows, salesOrderFinancialRow{Label: "订单备注", Value: note})
 	}
+	rows = append(rows, salesOrderFinancialRow{
+		Bold: true,
+		Cells: []string{
+			"商品合计： " + snapshot.TotalAmount,
+			"优惠合计： " + snapshot.Discount,
+			"运费： " + snapshot.Shipping,
+			"应收： " + snapshot.GrandTotal,
+		},
+	})
 	return rows
+}
+
+func salesOrderFontStyle(bold bool) string {
+	if bold {
+		return "B"
+	}
+	return ""
 }
 
 func salesOrderDiscountTypeLabel(value string) string {

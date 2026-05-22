@@ -55,34 +55,37 @@ type customerHandler struct {
 const maxCustomerAssetUploadBytes = 8 << 20
 
 type customerUpsertAPIRequest struct {
-	Name               string `json:"name"`
-	RawName            string `json:"raw_name"`
-	CustomerType       string `json:"customer_type"`
-	CompanyName        string `json:"company_name"`
-	CompanyAddress     string `json:"company_address"`
-	CompanyPhone       string `json:"company_phone"`
-	Contact            string `json:"contact"`
-	Phone              string `json:"phone"`
-	Address            string `json:"address"`
-	DefaultSourceID    *int64 `json:"default_source_id"`
-	DefaultOrderTypeID *int64 `json:"default_order_type_id"`
-	Active             *bool  `json:"active"`
+	Name                  string `json:"name"`
+	RawName               string `json:"raw_name"`
+	CustomerType          string `json:"customer_type"`
+	CompanyName           string `json:"company_name"`
+	CompanyAddress        string `json:"company_address"`
+	CompanyPhone          string `json:"company_phone"`
+	Contact               string `json:"contact"`
+	Phone                 string `json:"phone"`
+	Address               string `json:"address"`
+	DefaultSourceID       *int64 `json:"default_source_id"`
+	DefaultOrderTypeID    *int64 `json:"default_order_type_id"`
+	ResponsibleEmployeeID *int64 `json:"responsible_employee_id"`
+	Active                *bool  `json:"active"`
 }
 
 type customerAPIModel struct {
-	ID                 int64  `json:"id"`
-	Name               string `json:"name"`
-	RawName            string `json:"raw_name"`
-	CustomerType       string `json:"customer_type"`
-	CompanyName        string `json:"company_name"`
-	CompanyAddress     string `json:"company_address"`
-	CompanyPhone       string `json:"company_phone"`
-	Contact            string `json:"contact"`
-	Phone              string `json:"phone"`
-	Address            string `json:"address"`
-	DefaultSourceID    *int64 `json:"default_source_id"`
-	DefaultOrderTypeID *int64 `json:"default_order_type_id"`
-	Active             bool   `json:"active"`
+	ID                      int64  `json:"id"`
+	Name                    string `json:"name"`
+	RawName                 string `json:"raw_name"`
+	CustomerType            string `json:"customer_type"`
+	CompanyName             string `json:"company_name"`
+	CompanyAddress          string `json:"company_address"`
+	CompanyPhone            string `json:"company_phone"`
+	Contact                 string `json:"contact"`
+	Phone                   string `json:"phone"`
+	Address                 string `json:"address"`
+	DefaultSourceID         *int64 `json:"default_source_id"`
+	DefaultOrderTypeID      *int64 `json:"default_order_type_id"`
+	ResponsibleEmployeeID   *int64 `json:"responsible_employee_id"`
+	ResponsibleEmployeeName string `json:"responsible_employee_name"`
+	Active                  bool   `json:"active"`
 }
 
 type customerDashboardAPI struct {
@@ -110,6 +113,7 @@ type customerEditorAPIResponse struct {
 	Customer   customerAPIModel     `json:"customer"`
 	Sources    []apiOption          `json:"sources"`
 	OrderTypes []apiOption          `json:"order_types"`
+	Employees  []apiOption          `json:"employees"`
 	Assets     []customerAssetAPI   `json:"assets"`
 	Dashboard  customerDashboardAPI `json:"dashboard"`
 }
@@ -152,6 +156,7 @@ func (h customerHandler) indexAPI(c echo.Context) error {
 		"rows":           result.Rows,
 		"sources":        apiOptions(result.Sources),
 		"order_types":    apiOptions(result.OrderTypes),
+		"employees":      apiOptions(result.Employees),
 		"page":           (offset / limit) + 1,
 		"limit":          limit,
 		"offset":         offset,
@@ -262,6 +267,7 @@ func (h customerHandler) editorPayload(c echo.Context, id int64) (*customerEdito
 		Customer:   customerAPIModelFromEdit(&data.Customer),
 		Sources:    apiOptions(data.Sources),
 		OrderTypes: apiOptions(data.OrderTypes),
+		Employees:  apiOptions(data.Employees),
 		Assets:     customerAssetsAPI(data.Assets),
 		Dashboard:  customerDashboardAPIFromData(data.Dashboard),
 	}
@@ -274,18 +280,19 @@ func (req customerUpsertAPIRequest) toFormRequest() CustomerUpsertRequest {
 		active = ""
 	}
 	return CustomerUpsertRequest{
-		Name:               req.Name,
-		RawName:            req.RawName,
-		CustomerType:       req.CustomerType,
-		CompanyName:        req.CompanyName,
-		CompanyAddress:     req.CompanyAddress,
-		CompanyPhone:       req.CompanyPhone,
-		Contact:            req.Contact,
-		Phone:              req.Phone,
-		Address:            req.Address,
-		DefaultSourceID:    optionalIntString(req.DefaultSourceID),
-		DefaultOrderTypeID: optionalIntString(req.DefaultOrderTypeID),
-		Active:             active,
+		Name:                  req.Name,
+		RawName:               req.RawName,
+		CustomerType:          req.CustomerType,
+		CompanyName:           req.CompanyName,
+		CompanyAddress:        req.CompanyAddress,
+		CompanyPhone:          req.CompanyPhone,
+		Contact:               req.Contact,
+		Phone:                 req.Phone,
+		Address:               req.Address,
+		DefaultSourceID:       optionalIntString(req.DefaultSourceID),
+		DefaultOrderTypeID:    optionalIntString(req.DefaultOrderTypeID),
+		ResponsibleEmployeeID: optionalIntString(req.ResponsibleEmployeeID),
+		Active:                active,
 	}
 }
 
@@ -306,19 +313,21 @@ func parseOptionalCustomerInt64(v string) *int64 {
 
 func customerAPIModelFromEdit(data *CustomerEditData) customerAPIModel {
 	return customerAPIModel{
-		ID:                 data.ID,
-		Name:               data.Name,
-		RawName:            data.RawName,
-		CustomerType:       customerapp.NormalizeCustomerType(data.CustomerType),
-		CompanyName:        data.CompanyName,
-		CompanyAddress:     data.CompanyAddress,
-		CompanyPhone:       data.CompanyPhone,
-		Contact:            data.Contact,
-		Phone:              data.Phone,
-		Address:            data.Address,
-		DefaultSourceID:    parseOptionalCustomerInt64(data.DefaultSourceID),
-		DefaultOrderTypeID: parseOptionalCustomerInt64(data.DefaultOrderTypeID),
-		Active:             data.Active,
+		ID:                      data.ID,
+		Name:                    data.Name,
+		RawName:                 data.RawName,
+		CustomerType:            customerapp.NormalizeCustomerType(data.CustomerType),
+		CompanyName:             data.CompanyName,
+		CompanyAddress:          data.CompanyAddress,
+		CompanyPhone:            data.CompanyPhone,
+		Contact:                 data.Contact,
+		Phone:                   data.Phone,
+		Address:                 data.Address,
+		DefaultSourceID:         parseOptionalCustomerInt64(data.DefaultSourceID),
+		DefaultOrderTypeID:      parseOptionalCustomerInt64(data.DefaultOrderTypeID),
+		ResponsibleEmployeeID:   parseOptionalCustomerInt64(data.ResponsibleEmployeeID),
+		ResponsibleEmployeeName: data.ResponsibleEmployeeName,
+		Active:                  data.Active,
 	}
 }
 

@@ -433,8 +433,8 @@ export function filterProductsForCustomer(products, customerID, publicationIDsBy
   })
 }
 
-export function responsibleOptions({ employees = [], customers = [] } = {}) {
-  const employeeOptions = (employees || [])
+export function responsibleOptions({ employees = [] } = {}) {
+  return (employees || [])
     .filter((item) => toInt(item?.id) > 0 && String(item?.name || '').trim())
     .map((item) => {
       const name = String(item.name || '').trim()
@@ -450,23 +450,6 @@ export function responsibleOptions({ employees = [], customers = [] } = {}) {
         search: ['员工', name, department, phone].filter(Boolean).join(' '),
       }
     })
-  const customerOptions = (customers || [])
-    .filter((item) => toInt(item?.id) > 0 && String(item?.name || '').trim())
-    .map((item) => {
-      const name = String(item.name || '').trim()
-      const contact = String(item.contact || '').trim()
-      const phone = String(item.phone || '').trim()
-      const meta = [contact, phone].filter(Boolean).join(' ')
-      return {
-        type: 'customer',
-        id: toInt(item.id),
-        name,
-        label: `合作方/客户 - ${name}`,
-        meta,
-        search: ['合作方', '客户', name, contact, phone].filter(Boolean).join(' '),
-      }
-    })
-  return [...employeeOptions, ...customerOptions]
 }
 
 export function defaultStatusID(options, names) {
@@ -555,8 +538,6 @@ export function buildOrderPayload({ form, rows }) {
     ship_status_id: Number(form.ship_status_id || 0),
     ship_method: form.ship_method || '',
     ship_tracking_no: form.ship_tracking_no || '',
-    responsible_type: form.responsible_type || '',
-    responsible_id: Number(form.responsible_id || 0),
     bean_list_publication_id: Number(form.bean_list_publication_id || 0),
     commercial_bean_list_publication_id: Number(form.commercial_bean_list_publication_id || 0),
     green_bean_list_publication_id: Number(form.green_bean_list_publication_id || 0),

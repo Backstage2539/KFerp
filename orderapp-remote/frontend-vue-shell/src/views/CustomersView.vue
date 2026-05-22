@@ -86,6 +86,13 @@
             <option v-for="item in orderTypes" :key="item.id" :value="item.id">{{ item.name }}</option>
           </select>
         </label>
+        <label>
+          <span>负责人</span>
+          <select v-model.number="form.responsible_employee_id">
+            <option :value="0">选择员工</option>
+            <option v-for="employee in employees" :key="employee.id" :value="employee.id">{{ employee.name }}</option>
+          </select>
+        </label>
         <label class="wide">
           <span>地址</span>
           <textarea v-model.trim="form.address" rows="3"></textarea>
@@ -159,6 +166,7 @@
               <th>地址</th>
               <th>来源</th>
               <th>订单类型</th>
+              <th>负责人</th>
               <th>状态</th>
               <th class="sortable" @click="setSort('updated')">
                 更新时间
@@ -181,11 +189,12 @@
               <td class="address">{{ row.address || '' }}</td>
               <td>{{ optionName(sources, row.default_source_id) }}</td>
               <td>{{ optionName(orderTypes, row.default_order_type_id) }}</td>
+              <td>{{ row.responsible_employee_name || employeeName(row.responsible_employee_id) }}</td>
               <td>{{ row.active ? '启用' : '停用' }}</td>
               <td>{{ row.updated }}</td>
             </tr>
             <tr v-if="!rows.length">
-              <td colspan="10" class="muted">暂无客户</td>
+              <td colspan="11" class="muted">暂无客户</td>
             </tr>
           </tbody>
         </table>
@@ -212,6 +221,7 @@ import { replaceHistoryURL } from '../lib/url-state'
 const rows = ref([])
 const sources = ref([])
 const orderTypes = ref([])
+const employees = ref([])
 const q = ref('')
 const page = ref(1)
 const pageSize = ref(10)
@@ -251,6 +261,7 @@ function emptyForm() {
     address: '',
     default_source_id: 0,
     default_order_type_id: 0,
+    responsible_employee_id: 0,
     active: true,
   }
 }
@@ -265,6 +276,7 @@ function assignForm(data) {
     address: data?.address || '',
     default_source_id: Number(data?.default_source_id || 0),
     default_order_type_id: Number(data?.default_order_type_id || 0),
+    responsible_employee_id: Number(data?.responsible_employee_id || 0),
     active: data?.active !== false,
   })
 }
@@ -282,6 +294,11 @@ function assignDashboard(data = {}) {
 
 function optionName(options, id) {
   const item = options.find((x) => Number(x.id) === Number(id))
+  return item?.name || ''
+}
+
+function employeeName(id) {
+  const item = employees.value.find((x) => Number(x.id) === Number(id))
   return item?.name || ''
 }
 
@@ -409,6 +426,7 @@ async function load() {
     rows.value = data.rows || []
     sources.value = data.sources || []
     orderTypes.value = data.order_types || []
+    employees.value = data.employees || []
     if (customerDrawerOpen.value && !editingId.value) applyFormDefaults()
     const pagination = paginationFromApi(data)
     totalCustomers.value = pagination.total
@@ -468,6 +486,7 @@ async function openCustomerDrawer(id) {
     assignForm(data.customer)
     sources.value = data.sources || sources.value
     orderTypes.value = data.order_types || orderTypes.value
+    employees.value = data.employees || employees.value
     assets.value = data.assets || []
     assignDashboard(data.dashboard)
     customerPaste.value = ''
@@ -497,6 +516,7 @@ async function saveCustomer() {
   ok.value = ''
   try {
     if (!form.name && form.contact) form.name = form.contact
+    if (!Number(form.responsible_employee_id || 0)) throw new Error('请选择客户负责人')
     const body = {
       name: form.name,
       raw_name: '',
@@ -509,6 +529,7 @@ async function saveCustomer() {
       address: form.address,
       default_source_id: form.default_source_id || null,
       default_order_type_id: form.default_order_type_id || null,
+      responsible_employee_id: form.responsible_employee_id || null,
       active: !!form.active,
     }
     const data = await apiSend(editingId.value ? `/api/customers/${editingId.value}` : '/api/customers', {

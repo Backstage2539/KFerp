@@ -13,32 +13,34 @@ const (
 )
 
 type UpsertCommand struct {
-	Name               string
-	RawName            string
-	CustomerType       string
-	CompanyName        string
-	CompanyAddress     string
-	CompanyPhone       string
-	Contact            string
-	Phone              string
-	Address            string
-	DefaultSourceID    string
-	DefaultOrderTypeID string
-	Active             string
+	Name                  string
+	RawName               string
+	CustomerType          string
+	CompanyName           string
+	CompanyAddress        string
+	CompanyPhone          string
+	Contact               string
+	Phone                 string
+	Address               string
+	DefaultSourceID       string
+	DefaultOrderTypeID    string
+	ResponsibleEmployeeID string
+	Active                string
 }
 
 type InlineUpdateCommand struct {
-	Name               string
-	CustomerType       string
-	CompanyName        string
-	CompanyAddress     string
-	CompanyPhone       string
-	Contact            string
-	Phone              string
-	Address            string
-	DefaultSourceID    string
-	DefaultOrderTypeID string
-	Active             string
+	Name                  string
+	CustomerType          string
+	CompanyName           string
+	CompanyAddress        string
+	CompanyPhone          string
+	Contact               string
+	Phone                 string
+	Address               string
+	DefaultSourceID       string
+	DefaultOrderTypeID    string
+	ResponsibleEmployeeID string
+	Active                string
 }
 
 type Prefs struct {
@@ -86,40 +88,45 @@ type ListResult struct {
 	Rows       []CustomerRow
 	Sources    []Option
 	OrderTypes []Option
+	Employees  []Option
 	Total      int
 	HasNext    bool
 }
 
 type CustomerRow struct {
-	ID                 int64   `json:"id"`
-	Name               string  `json:"name"`
-	CustomerType       string  `json:"customer_type"`
-	CompanyName        string  `json:"company_name"`
-	CompanyAddress     string  `json:"company_address"`
-	CompanyPhone       string  `json:"company_phone"`
-	Contact            *string `json:"contact"`
-	Phone              *string `json:"phone"`
-	Address            *string `json:"address"`
-	Active             bool    `json:"active"`
-	DefaultSourceID    *int    `json:"default_source_id"`
-	DefaultOrderTypeID *int    `json:"default_order_type_id"`
-	Updated            string  `json:"updated"`
+	ID                      int64   `json:"id"`
+	Name                    string  `json:"name"`
+	CustomerType            string  `json:"customer_type"`
+	CompanyName             string  `json:"company_name"`
+	CompanyAddress          string  `json:"company_address"`
+	CompanyPhone            string  `json:"company_phone"`
+	Contact                 *string `json:"contact"`
+	Phone                   *string `json:"phone"`
+	Address                 *string `json:"address"`
+	Active                  bool    `json:"active"`
+	DefaultSourceID         *int    `json:"default_source_id"`
+	DefaultOrderTypeID      *int    `json:"default_order_type_id"`
+	ResponsibleEmployeeID   *int    `json:"responsible_employee_id"`
+	ResponsibleEmployeeName string  `json:"responsible_employee_name"`
+	Updated                 string  `json:"updated"`
 }
 
 type CustomerEditData struct {
-	ID                 int64
-	Name               string
-	RawName            string
-	CustomerType       string
-	CompanyName        string
-	CompanyAddress     string
-	CompanyPhone       string
-	Contact            string
-	Phone              string
-	Address            string
-	DefaultSourceID    string
-	DefaultOrderTypeID string
-	Active             bool
+	ID                      int64
+	Name                    string
+	RawName                 string
+	CustomerType            string
+	CompanyName             string
+	CompanyAddress          string
+	CompanyPhone            string
+	Contact                 string
+	Phone                   string
+	Address                 string
+	DefaultSourceID         string
+	DefaultOrderTypeID      string
+	ResponsibleEmployeeID   string
+	ResponsibleEmployeeName string
+	Active                  bool
 }
 
 type CustomerAsset struct {
@@ -151,6 +158,7 @@ type EditorData struct {
 	Customer   CustomerEditData
 	Sources    []Option
 	OrderTypes []Option
+	Employees  []Option
 	Assets     []CustomerAsset
 	Dashboard  CustomerDashboard
 }

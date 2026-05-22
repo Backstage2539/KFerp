@@ -104,7 +104,27 @@ func TestSalesOrderItemRowsWrapLongNamesAndNotes(t *testing.T) {
 	}
 }
 
-func TestSalesOrderFinancialRowsSeparateDiscountShippingAndNote(t *testing.T) {
+func TestSalesOrderItemRowsShowOriginalPriceAndDiscountedFinalColumn(t *testing.T) {
+	item := salesdomain.SalesOrderSnapshotItem{
+		Name:      "芬纳-曲奇定制",
+		Spec:      "1000g",
+		Qty:       "1",
+		Unit:      "件",
+		UnitPrice: "115.00",
+		LineTotal: "93.35",
+		Note:      "20%乌干达，15%云南厌氧日晒，65%云南水洗",
+	}
+	wantHeaders := []string{"商品", "规格", "数量", "单价", "备注", "优惠后价"}
+	if got := salesOrderItemHeaders(); strings.Join(got, "|") != strings.Join(wantHeaders, "|") {
+		t.Fatalf("salesOrderItemHeaders()=%v want %v", got, wantHeaders)
+	}
+	wantCells := []string{"芬纳-曲奇定制", "1000g", "1件", "115.00", "20%乌干达，15%云南厌氧日晒，65%云南水洗", "93.35"}
+	if got := salesOrderItemCells(item); strings.Join(got, "|") != strings.Join(wantCells, "|") {
+		t.Fatalf("salesOrderItemCells()=%v want %v", got, wantCells)
+	}
+}
+
+func TestSalesOrderFinancialRowsPutNoteBeforeFinalSummary(t *testing.T) {
 	rows := salesOrderFinancialRows(salesdomain.SalesOrderSnapshot{
 		TotalAmount:    "2455.00",
 		Shipping:       "169.00",
@@ -117,18 +137,14 @@ func TestSalesOrderFinancialRowsSeparateDiscountShippingAndNote(t *testing.T) {
 		},
 	})
 	want := []salesOrderFinancialRow{
-		{Label: "商品合计", Value: "2455.00"},
-		{Label: "运费", Value: "169.00"},
-		{Label: "优惠（单价优惠）", Value: "200.00", Bold: true},
-		{Label: "优惠（折扣）", Value: "61.65", Bold: true},
-		{Label: "应收", Value: "2362.35"},
-		{Label: "备注", Value: "客户要求周五前发出"},
+		{Label: "订单备注", Value: "客户要求周五前发出"},
+		{Cells: []string{"商品合计： 2455.00", "优惠合计： 261.65", "运费： 169.00", "应收： 2362.35"}, Bold: true},
 	}
 	if len(rows) != len(want) {
 		t.Fatalf("rows=%+v want %+v", rows, want)
 	}
 	for i := range want {
-		if rows[i] != want[i] {
+		if rows[i].Label != want[i].Label || rows[i].Value != want[i].Value || rows[i].Bold != want[i].Bold || strings.Join(rows[i].Cells, "|") != strings.Join(want[i].Cells, "|") {
 			t.Fatalf("rows[%d]=%+v want %+v", i, rows[i], want[i])
 		}
 	}
