@@ -191,9 +191,9 @@ func (r SalesOrderRenderer) renderSalesOrderItemsTable(pdf *gofpdf.Fpdf, snapsho
 
 func salesOrderItemColumnWidths(usableW float64, hasDiscount bool) []float64 {
 	if hasDiscount {
-		return []float64{usableW * 0.30, usableW * 0.12, usableW * 0.12, usableW * 0.13, usableW * 0.13, usableW * 0.20}
+		return []float64{usableW * 0.27, usableW * 0.11, usableW * 0.10, usableW * 0.11, usableW * 0.12, usableW * 0.11, usableW * 0.18}
 	}
-	return []float64{usableW * 0.36, usableW * 0.14, usableW * 0.13, usableW * 0.14, usableW * 0.23}
+	return []float64{usableW * 0.33, usableW * 0.13, usableW * 0.12, usableW * 0.13, usableW * 0.12, usableW * 0.17}
 }
 
 func writeSalesOrderItemRow(pdf *gofpdf.Fpdf, item salesdomain.SalesOrderSnapshotItem, colWidths []float64, hasDiscount bool, lineHeight float64) {
@@ -238,9 +238,9 @@ func salesOrderItemRowHeightForColumns(pdf *gofpdf.Fpdf, item salesdomain.SalesO
 
 func salesOrderItemHeaders(hasDiscount bool) []string {
 	if hasDiscount {
-		return []string{"商品", "规格", "数量", "单价", "优惠折扣", "备注"}
+		return []string{"商品", "规格", "数量", "单价", "优惠折扣", "总价", "备注"}
 	}
-	return []string{"商品", "规格", "数量", "单价", "备注"}
+	return []string{"商品", "规格", "数量", "单价", "总价", "备注"}
 }
 
 func salesOrderItemCells(item salesdomain.SalesOrderSnapshotItem, hasDiscount bool) []string {
@@ -253,6 +253,7 @@ func salesOrderItemCells(item salesdomain.SalesOrderSnapshotItem, hasDiscount bo
 	if hasDiscount {
 		cells = append(cells, salesOrderDiscountCell(item.DiscountAmount))
 	}
+	cells = append(cells, item.LineTotal)
 	cells = append(cells, item.Note)
 	return cells
 }
