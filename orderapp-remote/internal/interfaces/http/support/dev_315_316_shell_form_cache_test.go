@@ -7,7 +7,7 @@ import (
 	"testing"
 )
 
-func readDev314Text(t *testing.T, parts ...string) string {
+func readDev315Text(t *testing.T, parts ...string) string {
 	t.Helper()
 	b, err := os.ReadFile(filepath.Join(parts...))
 	if err != nil {
@@ -16,8 +16,8 @@ func readDev314Text(t *testing.T, parts ...string) string {
 	return string(b)
 }
 
-func TestDev314ShellMenuViewportScrollAndSwipe(t *testing.T) {
-	app := readDev314Text(t, "frontend-vue-shell", "src", "App.vue")
+func TestDev315ShellMenuViewportScrollAndSwipe(t *testing.T) {
+	app := readDev315Text(t, "frontend-vue-shell", "src", "App.vue")
 	for _, want := range []string{
 		`ref="content"`,
 		"scrollCurrentViewToTop",
@@ -37,9 +37,9 @@ func TestDev314ShellMenuViewportScrollAndSwipe(t *testing.T) {
 		}
 	}
 
-	requirements := readDev314Text(t, "docs", "REQUIREMENTS.md") + "\n" + readDev314Text(t, "docs", "ACCEPTANCE_TESTS.md") + "\n" + readDev314Text(t, "docs", "OP_MANUAL_WORKSPACE_MODE.md")
+	requirements := readDev315Text(t, "docs", "REQUIREMENTS.md") + "\n" + readDev315Text(t, "docs", "ACCEPTANCE_TESTS.md") + "\n" + readDev315Text(t, "docs", "OP_MANUAL_WORKSPACE_MODE.md")
 	for _, want := range []string{
-		"PR-314-SHELL-MENU-SCROLL-TOUCH",
+		"PR-315-SHELL-MENU-SCROLL-TOUCH",
 		"左侧菜单固定在单屏视口内独立滚动",
 		"点击任何功能菜单后功能页面回到顶部",
 		"手机端右滑呼出功能菜单，左滑隐藏功能菜单",
@@ -50,8 +50,8 @@ func TestDev314ShellMenuViewportScrollAndSwipe(t *testing.T) {
 	}
 }
 
-func TestDev315FormDraftCache(t *testing.T) {
-	cache := readDev314Text(t, "frontend-vue-shell", "src", "lib", "form-draft-cache.js")
+func TestDev316FormDraftCache(t *testing.T) {
+	cache := readDev315Text(t, "frontend-vue-shell", "src", "lib", "form-draft-cache.js")
 	for _, want := range []string{
 		"const drafts = new Map()",
 		"FORM_DRAFT_SCOPES",
@@ -101,7 +101,7 @@ func TestDev315FormDraftCache(t *testing.T) {
 			},
 		},
 	} {
-		source := readDev314Text(t, item.path...)
+		source := readDev315Text(t, item.path...)
 		for _, want := range item.markers {
 			if !strings.Contains(source, want) {
 				t.Fatalf("%s missing %q", filepath.Join(item.path...), want)
@@ -109,9 +109,9 @@ func TestDev315FormDraftCache(t *testing.T) {
 		}
 	}
 
-	requirements := readDev314Text(t, "docs", "REQUIREMENTS.md") + "\n" + readDev314Text(t, "docs", "ACCEPTANCE_TESTS.md") + "\n" + readDev314Text(t, "docs", "OP_MANUAL_WORKSPACE_MODE.md") + "\n" + readDev314Text(t, "docs", "OP_MANUAL_ORDER_SALES.md") + "\n" + readDev314Text(t, "docs", "OP_MANUAL_INVENTORY_MATERIALS.md")
+	requirements := readDev315Text(t, "docs", "REQUIREMENTS.md") + "\n" + readDev315Text(t, "docs", "ACCEPTANCE_TESTS.md") + "\n" + readDev315Text(t, "docs", "OP_MANUAL_WORKSPACE_MODE.md") + "\n" + readDev315Text(t, "docs", "OP_MANUAL_ORDER_SALES.md") + "\n" + readDev315Text(t, "docs", "OP_MANUAL_INVENTORY_MATERIALS.md")
 	for _, want := range []string{
-		"PR-315-FORM-DRAFT-CACHE",
+		"PR-316-FORM-DRAFT-CACHE",
 		"录单、BOM配方维护、SKU设置",
 		"跳转到其他功能再回来时保留未提交表单",
 		"刷新浏览器后草稿清空",

@@ -1,4 +1,4 @@
-# PR-314-SHELL-MENU-SCROLL-TOUCH 验收记录
+# PR-315-SHELL-MENU-SCROLL-TOUCH 验收记录
 
 ## 范围
 - 左侧菜单固定在单屏视口内独立滚动。

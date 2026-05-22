@@ -127,7 +127,7 @@
               <option value="drip_bag">挂耳</option>
             </select>
           </label>
-          <label v-if="customForm.product_kind !== 'green_bean'" class="wide-field">
+          <label v-if="customForm.product_kind !== 'green_bean' && customForm.custom_type !== 'custom_roast'" class="wide-field">
             <span>基础产品</span>
             <SearchableSelect
               v-model="customForm.base_product_id"
@@ -144,7 +144,6 @@
             <select v-model="customForm.custom_type">
               <option value="public_sku_alias">公共 SKU 改名</option>
               <option value="custom_roast">定制烘焙度</option>
-              <option value="custom_blend">定制拼配 BOM</option>
             </select>
           </label>
           <label v-if="customForm.product_kind !== 'green_bean'">
@@ -187,11 +186,11 @@
             <span>备注</span>
             <textarea v-model.trim="customForm.remark" rows="2" placeholder="如 客户指定口味或包装说明"></textarea>
           </label>
-          <label v-if="customForm.product_kind === 'roasted'" class="checkline">
+          <label v-if="customForm.product_kind === 'roasted' && customForm.custom_type !== 'custom_roast'" class="checkline">
             <input v-model="customForm.copy_bom" type="checkbox" />
             <span>复制基础产品 BOM</span>
           </label>
-          <label v-if="customForm.product_kind !== 'green_bean'" class="checkline">
+          <label v-if="customForm.product_kind !== 'green_bean' && customForm.custom_type !== 'custom_roast'" class="checkline">
             <input v-model="customForm.copy_price_tiers" type="checkbox" />
             <span>复制基础产品价格梯度</span>
           </label>
@@ -1364,8 +1363,8 @@ function syncCustomFormFromBaseProduct(product) {
 function handleCustomProductKindChange() {
   customForm.value.base_product_id = 0
   customForm.value.name = ''
-  customForm.value.copy_bom = customForm.value.product_kind === 'roasted'
-  customForm.value.copy_price_tiers = customForm.value.product_kind !== 'green_bean'
+  customForm.value.copy_bom = customForm.value.product_kind === 'roasted' && customForm.value.custom_type !== 'custom_roast'
+  customForm.value.copy_price_tiers = customForm.value.product_kind !== 'green_bean' && customForm.value.custom_type !== 'custom_roast'
 }
 
 function openProductBom(row) {
@@ -1420,11 +1419,11 @@ async function createCustomProduct() {
     error.value = '请选择客户'
     return
   }
-  if (customForm.value.product_kind !== 'green_bean' && !customForm.value.base_product_id) {
+  if (customForm.value.product_kind !== 'green_bean' && customForm.value.custom_type !== 'custom_roast' && !customForm.value.base_product_id) {
     error.value = '请选择基础产品'
     return
   }
-  if (customForm.value.product_kind === 'green_bean') {
+  if (customForm.value.product_kind === 'green_bean' || customForm.value.custom_type === 'custom_roast') {
     customForm.value.base_product_id = 0
     customForm.value.copy_bom = false
     customForm.value.copy_price_tiers = false
@@ -1974,8 +1973,18 @@ watch(selectedCustomerSkuCustomerID, (customerID) => {
 watch(() => props.customerContextId, applyWorkspaceCustomerContext, { immediate: true })
 
 watch(() => customForm.value.base_product_id, () => {
-  if (customForm.value.product_kind === 'green_bean') return
+  if (customForm.value.product_kind === 'green_bean' || customForm.value.custom_type === 'custom_roast') return
   syncCustomFormFromBaseProduct(selectedBaseProduct())
+})
+
+watch(() => customForm.value.custom_type, () => {
+  if (customForm.value.custom_type === 'custom_roast') {
+    customForm.value.base_product_id = 0
+    customForm.value.copy_bom = false
+    customForm.value.copy_price_tiers = false
+  } else {
+    handleCustomProductKindChange()
+  }
 })
 
 watch(skuFilters, () => {

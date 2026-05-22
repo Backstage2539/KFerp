@@ -405,6 +405,11 @@ export function buildCustomProductCreatePayload(customerID, form = {}) {
     payload.green_bean_bom_product_id = Number(form.green_bean_bom_product_id || 0)
     return payload
   }
+  if (payload.custom_type === 'custom_roast') {
+    payload.base_product_id = 0
+    payload.copy_bom = false
+    payload.copy_price_tiers = false
+  }
   payload.roast_level = String(form.roast_level || '').trim()
   if (kind === 'drip_bag') {
     payload.drip_bag_grams = Number(form.drip_bag_grams || 10)

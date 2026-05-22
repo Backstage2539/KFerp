@@ -589,11 +589,16 @@ func (s *Service) CreateCustomProduct(ctx context.Context, cmd CreateCustomProdu
 	if cmd.Name == "" {
 		return Product{}, fmt.Errorf("name required")
 	}
+	cmd.CustomType = strings.TrimSpace(cmd.CustomType)
+	if cmd.CustomType != "custom_blend" && cmd.CustomType != "custom_roast" && cmd.CustomType != "public_sku_alias" {
+		return Product{}, fmt.Errorf("invalid custom_type")
+	}
 	requestedKind := strings.TrimSpace(cmd.ProductKind)
 	cmd.ProductKind = catalogdomain.NormalizeProductKind(cmd.ProductKind)
 	var base *Product
 	var err error
-	if requestedKind == "" || cmd.ProductKind != catalogdomain.ProductKindGreenBean {
+	requiresBaseProduct := cmd.CustomType != "custom_roast" && (requestedKind == "" || cmd.ProductKind != catalogdomain.ProductKindGreenBean)
+	if requiresBaseProduct {
 		if cmd.BaseProductID <= 0 {
 			return Product{}, fmt.Errorf("base_product_id required")
 		}
@@ -610,6 +615,11 @@ func (s *Service) CreateCustomProduct(ctx context.Context, cmd CreateCustomProdu
 		} else if cmd.ProductKind != baseKind {
 			return Product{}, fmt.Errorf("product_kind must match base product")
 		}
+	}
+	if cmd.CustomType == "custom_roast" {
+		cmd.BaseProductID = 0
+		cmd.CopyBOM = false
+		cmd.CopyPriceTiers = false
 	}
 	if cmd.ProductKind == catalogdomain.ProductKindGreenBean {
 		cmd.BaseProductID = 0
@@ -635,10 +645,10 @@ func (s *Service) CreateCustomProduct(ctx context.Context, cmd CreateCustomProdu
 		cmd.GreenBeanBomProductID = 0
 	}
 	if cmd.ProductKind == catalogdomain.ProductKindDripBag {
-		if cmd.DripBagGrams <= 0 {
+		if cmd.DripBagGrams <= 0 && base != nil {
 			cmd.DripBagGrams = base.DripBagGrams
 		}
-		if cmd.DripBoxBagCount <= 0 {
+		if cmd.DripBoxBagCount <= 0 && base != nil {
 			cmd.DripBoxBagCount = base.DripBoxBagCount
 		}
 		var salesUnits []string
@@ -648,10 +658,6 @@ func (s *Service) CreateCustomProduct(ctx context.Context, cmd CreateCustomProdu
 		}
 		_ = salesUnits
 		cmd.CopyBOM = false
-	}
-	cmd.CustomType = strings.TrimSpace(cmd.CustomType)
-	if cmd.CustomType != "custom_blend" && cmd.CustomType != "custom_roast" && cmd.CustomType != "public_sku_alias" {
-		return Product{}, fmt.Errorf("invalid custom_type")
 	}
 	return s.repo.CreateCustomProduct(ctx, cmd)
 }

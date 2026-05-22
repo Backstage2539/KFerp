@@ -539,7 +539,7 @@ func TestProductSettingsAPICreatesCustomerCustomProduct(t *testing.T) {
 	e := echo.New()
 	registerProductRoutes(e, catalogapp.NewService(repo))
 
-	body := `{"customer_id":3,"base_product_id":7,"name":"测试客户-橘皮乌龙-中深烘","remark":"客户指定口味","roast_level":"中深烘","custom_type":"custom_roast","copy_bom":true,"copy_price_tiers":true}`
+	body := `{"customer_id":3,"base_product_id":7,"name":"测试客户-橘皮乌龙-中深烘","remark":"客户指定口味","roast_level":"中深烘","custom_type":"public_sku_alias","copy_bom":true,"copy_price_tiers":true}`
 	req := httptest.NewRequest(http.MethodPost, "/api/product-settings/custom-products", bytes.NewBufferString(body))
 	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
 	rec := httptest.NewRecorder()
@@ -554,9 +554,33 @@ func TestProductSettingsAPICreatesCustomerCustomProduct(t *testing.T) {
 	if repo.createdProduct.Remark != "客户指定口味" {
 		t.Fatalf("custom product remark not passed: %+v", repo.createdProduct)
 	}
-	for _, want := range []string{`"product"`, `"customer_id":3`, `"base_product_id":7`, `"visibility":"customer_only"`, `"custom_type":"custom_roast"`, `"remark":"客户指定口味"`} {
+	for _, want := range []string{`"product"`, `"customer_id":3`, `"base_product_id":7`, `"visibility":"customer_only"`, `"custom_type":"public_sku_alias"`, `"remark":"客户指定口味"`} {
 		if !bytes.Contains(rec.Body.Bytes(), []byte(want)) {
 			t.Fatalf("custom product response missing %s: %s", want, rec.Body.String())
+		}
+	}
+}
+
+func TestProductSettingsAPICreatesCustomerCustomRoastWithoutBaseProduct(t *testing.T) {
+	repo := &productSettingsRepo{}
+	e := echo.New()
+	registerProductRoutes(e, catalogapp.NewService(repo))
+
+	body := `{"customer_id":3,"name":"测试客户-专属深烘","product_kind":"roasted","roast_level":"深烘","custom_type":"custom_roast","copy_bom":true,"copy_price_tiers":true}`
+	req := httptest.NewRequest(http.MethodPost, "/api/product-settings/custom-products", bytes.NewBufferString(body))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("POST custom roast product status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if !repo.productCreated || repo.createdProduct.CustomerID != 3 || repo.createdProduct.BaseProductID != 0 || repo.createdProduct.CopyBOM || repo.createdProduct.CopyPriceTiers {
+		t.Fatalf("custom roast command = %+v created=%v", repo.createdProduct, repo.productCreated)
+	}
+	for _, want := range []string{`"product"`, `"customer_id":3`, `"base_product_id":0`, `"product_kind":"roasted"`, `"custom_type":"custom_roast"`} {
+		if !bytes.Contains(rec.Body.Bytes(), []byte(want)) {
+			t.Fatalf("custom roast response missing %s: %s", want, rec.Body.String())
 		}
 	}
 }
