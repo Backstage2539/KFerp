@@ -290,6 +290,24 @@ func TestTemplateOwnershipSchemaPersistsSourceAndUsageSwitches(t *testing.T) {
 	}
 }
 
+func TestProductCategoryNameUniquenessIgnoresSoftDeletedRows(t *testing.T) {
+	schema, err := os.ReadFile("schema.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := string(schema)
+	for _, want := range []string{
+		"DROP INDEX IF EXISTS %[1]s.product_categories_customer_parent_name_uniq",
+		"CREATE UNIQUE INDEX product_categories_customer_parent_name_uniq",
+		"ON %[1]s.product_categories (customer_id, COALESCE(parent_id,0), lower(name))",
+		"WHERE active=true",
+	} {
+		if !strings.Contains(src, want) {
+			t.Fatalf("product category name uniqueness must be rebuilt as active-only partial index, missing %q", want)
+		}
+	}
+}
+
 func TestTemplateDerivationRepositoryAuditsAndCopiesPublicSources(t *testing.T) {
 	repository, err := os.ReadFile("repository.go")
 	if err != nil {
