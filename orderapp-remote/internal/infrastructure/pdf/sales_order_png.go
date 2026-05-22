@@ -156,8 +156,8 @@ func (c *salesOrderPNGCanvas) totals(left, right, y int, snapshot salesdomain.Sa
 }
 
 func (c *salesOrderPNGCanvas) paymentInfo(_, _, _ int, snapshot salesdomain.SalesOrderSnapshot) {
-	accountLines := renderSalesOrderAccountLines(snapshot)
-	if snapshot.PaymentText == "" && snapshot.Note == "" && len(snapshot.PaymentCodes) == 0 && len(accountLines) == 0 {
+	sections := salesOrderPaymentTextSections(snapshot)
+	if len(sections) == 0 && len(snapshot.PaymentCodes) == 0 {
 		return
 	}
 	textBox, codeBox := salesOrderPaymentLayoutBoxes(snapshot)
@@ -165,9 +165,9 @@ func (c *salesOrderPNGCanvas) paymentInfo(_, _, _ int, snapshot salesdomain.Sale
 	textY := salesOrderPNGMMToPX(textBox.YMM)
 	textW := salesOrderPNGMMToPX(textBox.WidthMM)
 	textBottom := salesOrderPNGMMToPX(textBox.YMM + textBox.HeightMM)
-	textY = c.textBlock(textX, textY, textW, textBottom, "收款方式", salesOrderTextLines(snapshot.PaymentText))
-	textY = c.textBlock(textX, textY, textW, textBottom, "公账收款", accountLines)
-	_ = c.textBlock(textX, textY, textW, textBottom, "说明", salesOrderTextLines(snapshot.Note))
+	for _, section := range sections {
+		textY = c.textBlock(textX, textY, textW, textBottom, section.title, section.lines)
+	}
 	if len(snapshot.PaymentCodes) > 0 {
 		c.paymentCodes(
 			salesOrderPNGMMToPX(codeBox.XMM),

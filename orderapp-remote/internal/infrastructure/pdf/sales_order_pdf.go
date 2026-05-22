@@ -49,6 +49,11 @@ var (
 	defaultSalesOrderPaymentCodeBox = salesdomain.SalesOrderLayoutBox{XMM: 126, YMM: 106, WidthMM: 72, HeightMM: 122}
 )
 
+type salesOrderPaymentTextSection struct {
+	title string
+	lines []string
+}
+
 func (r SalesOrderRenderer) Render(snapshot salesdomain.SalesOrderSnapshot) ([]byte, error) {
 	return r.render(snapshot, false)
 }
@@ -234,10 +239,24 @@ func normalizeSalesOrderLayoutBox(box, fallback salesdomain.SalesOrderLayoutBox)
 
 func renderSalesOrderTextBlocks(pdf *gofpdf.Fpdf, box salesdomain.SalesOrderLayoutBox, snapshot salesdomain.SalesOrderSnapshot) float64 {
 	y := box.YMM
-	y = renderSalesOrderTextBlock(pdf, box, y, "收款方式", salesOrderTextLines(snapshot.PaymentText))
-	y = renderSalesOrderTextBlock(pdf, box, y, "公账收款", renderSalesOrderAccountLines(snapshot))
-	y = renderSalesOrderTextBlock(pdf, box, y, "说明", salesOrderTextLines(snapshot.Note))
+	for _, section := range salesOrderPaymentTextSections(snapshot) {
+		y = renderSalesOrderTextBlock(pdf, box, y, section.title, section.lines)
+	}
 	return y - box.YMM
+}
+
+func salesOrderPaymentTextSections(snapshot salesdomain.SalesOrderSnapshot) []salesOrderPaymentTextSection {
+	sections := make([]salesOrderPaymentTextSection, 0, 3)
+	if lines := salesOrderTextLines(snapshot.PaymentText); len(lines) > 0 {
+		sections = append(sections, salesOrderPaymentTextSection{title: "收款方式", lines: lines})
+	}
+	if lines := salesOrderTextLines(snapshot.Note); len(lines) > 0 {
+		sections = append(sections, salesOrderPaymentTextSection{title: "说明", lines: lines})
+	}
+	if lines := renderSalesOrderAccountLines(snapshot); len(lines) > 0 {
+		sections = append(sections, salesOrderPaymentTextSection{title: "公账收款", lines: lines})
+	}
+	return sections
 }
 
 func renderSalesOrderTextBlock(pdf *gofpdf.Fpdf, box salesdomain.SalesOrderLayoutBox, y float64, title string, lines []string) float64 {
