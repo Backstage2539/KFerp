@@ -28,7 +28,7 @@
           <input v-model.trim="form.order_date" type="date" />
         </label>
 
-        <label class="customer-combobox combobox">
+        <label class="customer-combobox combobox" :class="{ open: customerOpen }">
           <div class="label-row">
             <span>客户</span>
             <button class="text-button" type="button" @click="openCustomerDrawer">新增客户</button>
@@ -1243,6 +1243,7 @@ button:disabled { cursor: not-allowed; opacity: 0.5; }
 .ok { background: #ecfdf3; border: 1px solid #bbf7d0; color: #166534; }
 .warn { background: #fffbeb; border: 1px solid #fde68a; color: #92400e; }
 .combobox { z-index: 2; }
+.combobox.open { z-index: 30; }
 .combo-menu { position: absolute; top: calc(100% + 4px); left: 0; right: 0; z-index: 20; max-height: 280px; overflow: auto; border: 1px solid #d7dbe3; border-radius: 8px; background: #fff; box-shadow: 0 14px 30px rgba(15, 23, 42, 0.16); padding: 6px; }
 .combo-option { width: 100%; display: grid; gap: 2px; text-align: left; border: 0; background: transparent; padding: 8px; border-radius: 6px; }
 .combo-option:hover { background: #f3f6fb; }

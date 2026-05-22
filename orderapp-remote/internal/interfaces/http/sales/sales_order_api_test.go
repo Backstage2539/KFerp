@@ -556,6 +556,78 @@ func TestSalesOrderPaymentCodeUploadStoresImageAsset(t *testing.T) {
 	}
 }
 
+func TestSalesOrderPaymentCodeDeactivateHidesWithoutDeletingRecordOrAsset(t *testing.T) {
+	pool, schema := newOrderAPITestDB(t)
+	ctx := context.Background()
+	seedOrderAPITestData(t, ctx, pool, schema)
+	if err := postgressales.EnsureSchema(ctx, pool, schema); err != nil {
+		t.Fatalf("EnsureSchema: %v", err)
+	}
+	assetDir := t.TempDir()
+	body, contentType := multipartSalesOrderAssetBodyWithFields(t, "pay.jpg", "image/jpeg", jpegSalesOrderAssetBytesForTest(), map[string]string{"label": "好老板（信用卡、花呗）"})
+	e := newSalesOrderAPITestEcho(pool, schema, assetDir)
+
+	uploadReq := httptest.NewRequest(http.MethodPost, "/api/settings/sales-order/payment-codes", body)
+	uploadReq.Header.Set(echo.HeaderContentType, contentType)
+	uploadRec := httptest.NewRecorder()
+	e.ServeHTTP(uploadRec, uploadReq)
+	if uploadRec.Code != http.StatusOK {
+		t.Fatalf("payment code upload status=%d body=%s", uploadRec.Code, uploadRec.Body.String())
+	}
+	var uploadPayload struct {
+		Asset       salesapp.SalesOrderAsset       `json:"asset"`
+		PaymentCode salesapp.SalesOrderPaymentCode `json:"payment_code"`
+	}
+	if err := json.Unmarshal(uploadRec.Body.Bytes(), &uploadPayload); err != nil {
+		t.Fatalf("decode payment code upload response: %v", err)
+	}
+	if uploadPayload.PaymentCode.ID <= 0 || uploadPayload.Asset.ID <= 0 {
+		t.Fatalf("upload response missing ids: %+v", uploadPayload)
+	}
+
+	deleteReq := httptest.NewRequest(http.MethodDelete, fmt.Sprintf("/api/settings/sales-order/payment-codes/%d", uploadPayload.PaymentCode.ID), nil)
+	deleteRec := httptest.NewRecorder()
+	e.ServeHTTP(deleteRec, deleteReq)
+	if deleteRec.Code != http.StatusOK {
+		t.Fatalf("payment code deactivate status=%d body=%s", deleteRec.Code, deleteRec.Body.String())
+	}
+
+	getReq := httptest.NewRequest(http.MethodGet, "/api/settings/sales-order", nil)
+	getRec := httptest.NewRecorder()
+	e.ServeHTTP(getRec, getReq)
+	if getRec.Code != http.StatusOK {
+		t.Fatalf("settings get status=%d body=%s", getRec.Code, getRec.Body.String())
+	}
+	if strings.Contains(getRec.Body.String(), "好老板（信用卡、花呗）") {
+		t.Fatalf("deactivated payment code should be hidden from settings: %s", getRec.Body.String())
+	}
+
+	var active bool
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT active FROM %s.sales_order_payment_codes WHERE id=$1`, schema), uploadPayload.PaymentCode.ID).Scan(&active); err != nil {
+		t.Fatalf("payment code row should remain after deactivate: %v", err)
+	}
+	if active {
+		t.Fatal("payment code row active=true, want false")
+	}
+	var assetCount int
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT count(*)::int FROM %s.sales_order_assets WHERE id=$1 AND kind='payment_code'`, schema), uploadPayload.Asset.ID).Scan(&assetCount); err != nil {
+		t.Fatalf("query payment code asset: %v", err)
+	}
+	if assetCount != 1 {
+		t.Fatalf("payment code asset rows=%d, want 1", assetCount)
+	}
+	if _, err := os.Stat(filepath.Join(assetDir, uploadPayload.Asset.ObjectKey)); err != nil {
+		t.Fatalf("payment code uploaded file should remain after deactivate: %v", err)
+	}
+	var action string
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT action FROM %s.audit_logs WHERE entity_type='sales_order_payment_code' AND entity_id=$1 AND field='active' ORDER BY id DESC LIMIT 1`, schema), uploadPayload.PaymentCode.ID).Scan(&action); err != nil {
+		t.Fatalf("query payment code audit action: %v", err)
+	}
+	if action != "deactivate" {
+		t.Fatalf("payment code audit action=%q, want deactivate", action)
+	}
+}
+
 func TestSalesOrderPaymentCodeUploadRejectsNonImageAsset(t *testing.T) {
 	pool, schema := newOrderAPITestDB(t)
 	ctx := context.Background()

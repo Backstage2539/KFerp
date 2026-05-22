@@ -189,11 +189,11 @@ func (r Repository) SaveSalesOrderNote(ctx context.Context, cmd salesapp.SaveSal
 	return nil
 }
 
-func (r Repository) DeleteSalesOrderPaymentCode(ctx context.Context, id int64, actor string) error {
+func (r Repository) DeactivateSalesOrderPaymentCode(ctx context.Context, id int64, actor string) error {
 	q := fmt.Sprintf(`UPDATE %s.sales_order_payment_codes SET active=false, updated_at=now() WHERE id=$1`, r.schema)
 	_, err := r.pool.Exec(ctx, q, id)
 	if err == nil {
-		postgresinfra.AuditInsert(ctx, r.pool, r.schema, actor, "sales_order_payment_code", &id, "delete", postgresinfra.StrPtr("active"), postgresinfra.StrPtr("true"), postgresinfra.StrPtr("false"), nil)
+		postgresinfra.AuditInsert(ctx, r.pool, r.schema, actor, "sales_order_payment_code", &id, "deactivate", postgresinfra.StrPtr("active"), postgresinfra.StrPtr("true"), postgresinfra.StrPtr("false"), nil)
 	}
 	return err
 }

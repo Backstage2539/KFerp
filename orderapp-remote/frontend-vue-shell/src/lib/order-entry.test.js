@@ -1,5 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
 
 import * as orderEntry from './order-entry.js'
 import {
@@ -26,6 +27,21 @@ import {
   wholesaleTierPriceRows,
   wholesaleSpecOptions,
 } from './order-entry.js'
+
+function orderEntryViewSource() {
+  return readFileSync(new URL('../views/OrderEntryView.vue', import.meta.url), 'utf8')
+}
+
+function cssBlock(source, selector) {
+  const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  const match = source.match(new RegExp(`${escaped}\\s*\\{([^}]*)\\}`, 's'))
+  return match?.[1] || ''
+}
+
+function zIndexForSelector(source, selector) {
+  const match = cssBlock(source, selector).match(/z-index:\s*(\d+)/)
+  return Number(match?.[1] || 0)
+}
 
 const product = {
   id: 7,
@@ -473,6 +489,20 @@ test('responsibleOptions only returns employee choices for customer ownership', 
   assert.deepEqual(got, [
     { type: 'employee', id: 8, name: '销售小王', label: '员工 - 销售小王', meta: '销售 13800000008', search: '员工 销售小王 销售 13800000008' },
   ])
+})
+
+test('order entry raises the active combobox above following fields', () => {
+  const source = orderEntryViewSource()
+
+  assert.match(source, /<label class="customer-combobox combobox"\s+:class="\{\s*open:\s*customerOpen\s*\}">/)
+  assert.match(source, /<span>客户负责人<\/span>/)
+  assert.doesNotMatch(source, /responsible-combobox/)
+  assert.doesNotMatch(source, /responsibleOpen/)
+  assert.doesNotMatch(source, /<span>订单负责人<\/span>/)
+
+  const baseZIndex = zIndexForSelector(source, '.combobox')
+  const openZIndex = zIndexForSelector(source, '.combobox.open')
+  assert.ok(openZIndex > baseZIndex, `expected active combobox z-index ${openZIndex} to exceed base z-index ${baseZIndex}`)
 })
 
 test('lineTotal uses manual unit price even for retail rows', () => {

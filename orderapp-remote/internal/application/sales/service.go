@@ -889,7 +889,7 @@ type Repository interface {
 	DeleteSalesOrderAsset(ctx context.Context, id int64, actor string) error
 	ListSalesOrderSealAssets(ctx context.Context) ([]SalesOrderAsset, error)
 	SaveSalesOrderPaymentCode(ctx context.Context, cmd SaveSalesOrderPaymentCodeCommand) (SalesOrderPaymentCode, error)
-	DeleteSalesOrderPaymentCode(ctx context.Context, id int64, actor string) error
+	DeactivateSalesOrderPaymentCode(ctx context.Context, id int64, actor string) error
 	SetSalesOrderSealAsset(ctx context.Context, assetID int64, actor string) error
 	LoadSalesOrderContext(ctx context.Context, orderID int64) (SalesOrderContext, error)
 	SaveSalesOrderNote(ctx context.Context, cmd SaveSalesOrderNoteCommand) error
@@ -1479,7 +1479,7 @@ func (s *Service) SaveSalesOrderPaymentCode(ctx context.Context, cmd SaveSalesOr
 	return s.repo.SaveSalesOrderPaymentCode(ctx, cmd)
 }
 
-func (s *Service) DeleteSalesOrderPaymentCode(ctx context.Context, id int64, actor string) error {
+func (s *Service) DeactivateSalesOrderPaymentCode(ctx context.Context, id int64, actor string) error {
 	if id <= 0 {
 		return fmt.Errorf("payment code required")
 	}
@@ -1487,7 +1487,7 @@ func (s *Service) DeleteSalesOrderPaymentCode(ctx context.Context, id int64, act
 	if actor == "" {
 		actor = "sales"
 	}
-	return s.repo.DeleteSalesOrderPaymentCode(ctx, id, actor)
+	return s.repo.DeactivateSalesOrderPaymentCode(ctx, id, actor)
 }
 
 func (s *Service) SetSalesOrderSealAsset(ctx context.Context, assetID int64, actor string) error {

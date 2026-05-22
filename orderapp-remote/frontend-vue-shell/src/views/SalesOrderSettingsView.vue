@@ -48,7 +48,7 @@
             <td>{{ code.description || '-' }}</td>
             <td>{{ code.asset?.filename || '-' }}</td>
             <td>{{ code.sort }}</td>
-            <td><button class="secondary" type="button" @click="deletePaymentCode(code)" :disabled="saving">停用</button></td>
+            <td><button class="secondary" type="button" @click="deactivatePaymentCode(code)" :disabled="saving">停用</button></td>
           </tr>
           <tr v-if="!(settings.payment_codes || []).length"><td colspan="5" class="muted">暂无收款码</td></tr>
         </tbody>
@@ -207,12 +207,13 @@ async function uploadPaymentCode() {
   }
 }
 
-async function deletePaymentCode(code) {
+async function deactivatePaymentCode(code) {
   if (!code?.id) return
   saving.value = true
   error.value = ''
   try {
     await apiSend(`/api/settings/sales-order/payment-codes/${code.id}`, { method: 'DELETE' })
+    ok.value = '收款码已停用'
     await load()
   } catch (err) {
     error.value = err.message || '停用失败'

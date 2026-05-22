@@ -86,6 +86,65 @@ func TestSalesOrderPaymentCodeRoundTrip(t *testing.T) {
 	}
 }
 
+func TestDeactivateSalesOrderPaymentCodeHidesWithoutDeletingRecordOrAsset(t *testing.T) {
+	pool, schema := newSalesPostgresTestDB(t)
+	ctx := context.Background()
+	defer func() {
+		_, _ = pool.Exec(ctx, "DROP SCHEMA IF EXISTS "+schema+" CASCADE")
+		pool.Close()
+	}()
+	prepareSalesSchemaPrerequisites(t, ctx, pool, schema)
+	repo := NewRepository(pool, schema)
+	if err := EnsureSchema(ctx, pool, schema); err != nil {
+		t.Fatalf("EnsureSchema: %v", err)
+	}
+	asset, err := repo.SaveSalesOrderAsset(ctx, salesapp.SaveSalesOrderAssetCommand{
+		Actor: "测试员", Kind: "payment_code", Filename: "wx.png", ContentType: "image/png", Bytes: 12, SHA256: "abc", ObjectKey: "sales-order/payment/wx.png",
+	})
+	if err != nil {
+		t.Fatalf("SaveSalesOrderAsset: %v", err)
+	}
+	code, err := repo.SaveSalesOrderPaymentCode(ctx, salesapp.SaveSalesOrderPaymentCodeCommand{
+		Actor: "测试员", Label: "微信", Description: "扫码付款", AssetID: asset.ID, Sort: 10, Active: true,
+	})
+	if err != nil {
+		t.Fatalf("SaveSalesOrderPaymentCode: %v", err)
+	}
+
+	if err := repo.DeactivateSalesOrderPaymentCode(ctx, code.ID, "测试员"); err != nil {
+		t.Fatalf("DeactivateSalesOrderPaymentCode: %v", err)
+	}
+
+	settings, err := repo.LoadSalesOrderSettings(ctx)
+	if err != nil {
+		t.Fatalf("LoadSalesOrderSettings: %v", err)
+	}
+	if len(settings.PaymentCodes) != 0 {
+		t.Fatalf("inactive payment code should be hidden from settings, got %+v", settings.PaymentCodes)
+	}
+	var codeRows, assetRows int
+	var active bool
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT count(*)::int, COALESCE(bool_or(active), false) FROM %s.sales_order_payment_codes WHERE id=$1`, schema), code.ID).Scan(&codeRows, &active); err != nil {
+		t.Fatalf("query payment code row: %v", err)
+	}
+	if codeRows != 1 || active {
+		t.Fatalf("payment code row count/active = %d/%v, want 1/false", codeRows, active)
+	}
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT count(*)::int FROM %s.sales_order_assets WHERE id=$1`, schema), asset.ID).Scan(&assetRows); err != nil {
+		t.Fatalf("query payment code asset row: %v", err)
+	}
+	if assetRows != 1 {
+		t.Fatalf("payment code asset rows = %d, want 1", assetRows)
+	}
+	var action string
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT action FROM %s.audit_logs WHERE entity_type='sales_order_payment_code' AND entity_id=$1 AND field='active' ORDER BY id DESC LIMIT 1`, schema), code.ID).Scan(&action); err != nil {
+		t.Fatalf("query payment code audit action: %v", err)
+	}
+	if action != "deactivate" {
+		t.Fatalf("payment code audit action = %q, want deactivate", action)
+	}
+}
+
 func TestGenerateSalesOrderDocumentCreatesVersions(t *testing.T) {
 	pool, schema := newSalesPostgresTestDB(t)
 	ctx := context.Background()

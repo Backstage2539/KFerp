@@ -160,7 +160,7 @@ func (r *fakeRepo) SaveSalesOrderPaymentCode(ctx context.Context, cmd SaveSalesO
 	return SalesOrderPaymentCode{ID: 4, Label: cmd.Label, Description: cmd.Description, AssetID: cmd.AssetID, Sort: cmd.Sort, Active: cmd.Active}, nil
 }
 
-func (r *fakeRepo) DeleteSalesOrderPaymentCode(ctx context.Context, id int64, actor string) error {
+func (r *fakeRepo) DeactivateSalesOrderPaymentCode(ctx context.Context, id int64, actor string) error {
 	return nil
 }
 
