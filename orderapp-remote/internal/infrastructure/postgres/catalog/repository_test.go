@@ -270,6 +270,39 @@ func TestCustomerPublicUsageDoesNotInsertCopiedPublicProductsOrCategories(t *tes
 	}
 }
 
+func TestCustomerPublicUsageCleanupKeepsOwnedParentsWithActiveChildren(t *testing.T) {
+	repository, err := os.ReadFile("repository.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := string(repository)
+	for _, want := range []string{
+		"FROM %[1]s.product_categories child",
+		"child.active=true",
+		"child.parent_id=c.id",
+	} {
+		if !strings.Contains(src, want) {
+			t.Fatalf("customer public usage cleanup must keep owned parent categories with active children; missing %q", want)
+		}
+	}
+}
+
+func TestDeactivateProductsDisablesActiveBomVersions(t *testing.T) {
+	repository, err := os.ReadFile("repository.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := string(repository)
+	for _, want := range []string{
+		"UPDATE %s.bom_versions SET status='disabled'",
+		"WHERE product_id = ANY($1) AND status='active'",
+	} {
+		if !strings.Contains(src, want) {
+			t.Fatalf("deactivating SKU must disable active BOM versions; missing %q", want)
+		}
+	}
+}
+
 func TestProductSchemaDropsLegacyGlobalProductNameUniqueness(t *testing.T) {
 	schema, err := os.ReadFile("schema.go")
 	if err != nil {

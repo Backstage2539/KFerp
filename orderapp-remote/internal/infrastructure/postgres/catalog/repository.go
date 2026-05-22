@@ -210,6 +210,10 @@ func (r Repository) DeactivateProducts(ctx context.Context, cmd catalogapp.Deact
 		WHERE product_id = ANY($1)`, r.schema), cmd.ProductIDs); err != nil {
 		return err
 	}
+	if _, err := tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.bom_versions SET status='disabled'
+		WHERE product_id = ANY($1) AND status='active'`, r.schema), cmd.ProductIDs); err != nil {
+		return err
+	}
 	for _, productID := range cmd.ProductIDs {
 		if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, cmd.Actor, "product", &productID, "deactivate", postgresinfra.StrPtr("active"), postgresinfra.StrPtr("true"), postgresinfra.StrPtr("false"), postgresinfra.AuditMeta{"product_id": productID, "bom_status": "inactive"}); err != nil {
 			return err
@@ -1620,6 +1624,10 @@ func cleanupLegacyPublicCopiesTx(ctx context.Context, tx pgx.Tx, schema string, 
 		  AND NOT EXISTS (
 			  SELECT 1 FROM %[1]s.products p
 			  WHERE p.active=true AND p.product_category_id=c.id
+		  )
+		  AND NOT EXISTS (
+			  SELECT 1 FROM %[1]s.product_categories child
+			  WHERE child.active=true AND child.parent_id=c.id
 		  )
 		  AND EXISTS (
 			  SELECT 1
