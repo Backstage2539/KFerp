@@ -477,7 +477,7 @@
                 <th>类型</th>
                 <th>烘焙度</th>
                 <th>BOM出品率</th>
-                <th v-if="!selectedCustomerSkuCustomerID">利润率覆盖</th>
+                <th>利润率覆盖</th>
                 <th>BOM状态</th>
                 <th>BOM</th>
                 <th>处理</th>
@@ -516,7 +516,7 @@
                       <span>%</span>
                     </div>
                   </td>
-                  <td v-if="!selectedCustomerSkuCustomerID">
+                  <td>
                     <input
                       class="margin-input"
                       v-model="row.margin_rate_override_input"
@@ -524,6 +524,7 @@
                       min="0"
                       step="0.001"
                       placeholder="留空继承分类模板"
+                      :disabled="!canEditSkuRow(row)"
                       @change="saveProductMarginOverride(row)" />
                   </td>
                   <td>
@@ -546,7 +547,7 @@
                   </td>
                 </tr>
                 <tr v-if="row.product_kind === 'green_bean'" class="green-bean-detail-row">
-                  <td :colspan="selectedCustomerSkuCustomerID ? 14 : 15">
+                  <td :colspan="15">
                     <div class="green-bean-detail-fields">
                       <label>
                         <span>生豆属性</span>
@@ -576,7 +577,7 @@
                   </td>
                 </tr>
                 <tr v-if="row.product_kind === 'drip_bag'" class="green-bean-detail-row">
-                  <td :colspan="selectedCustomerSkuCustomerID ? 14 : 15">
+                  <td :colspan="15">
                     <div class="green-bean-detail-fields">
                       <label>
                         <span>每袋克重</span>
@@ -591,7 +592,7 @@
                 </tr>
               </template>
               <tr v-if="!displaySkuRows.length">
-                <td :colspan="selectedCustomerSkuCustomerID ? 14 : 15" class="muted">{{ selectedCustomerSkuCustomerID ? '暂无客户SKU' : '暂无公共SKU' }}</td>
+                <td :colspan="15" class="muted">{{ selectedCustomerSkuCustomerID ? '暂无客户SKU' : '暂无公共SKU' }}</td>
               </tr>
             </tbody>
           </table>

@@ -120,6 +120,24 @@ test('product basics payload preserves remark, green bean type, and BOM binding 
   })
 })
 
+test('product basics payload carries customer SKU margin override', () => {
+  const payload = buildProductBasicsPayload({
+    id: 17,
+    name: '芬纳咖啡-曲奇拼配-深烘',
+    customer_id: 74,
+    product_kind: 'roasted',
+    roast_level: '深烘',
+    yield_percent: 80,
+    remark: '客户定制烘焙',
+  }, 0.33)
+
+  assert.equal(payload.product_kind, 'roasted')
+  assert.equal(payload.roast_level, '深烘')
+  assert.equal(payload.yield_rate, 0.8)
+  assert.equal(payload.margin_rate_override, 0.33)
+  assert.equal(payload.remark, '客户定制烘焙')
+})
+
 test('customer custom SKU payload supports green bean and drip bag product settings', () => {
   assert.deepEqual(buildCustomProductCreatePayload(42, {
     name: '客户A-巴拿马生豆',
