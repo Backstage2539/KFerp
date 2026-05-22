@@ -19,6 +19,7 @@ type fakeRepo struct {
 	orderNoTracking        FillShipmentTrackingByOrderNoCommand
 	orderTracking          FillOrderTrackingCommand
 	settingsCmd            SaveSalesOrderSettingsCommand
+	salesOrderNoteCmd      SaveSalesOrderNoteCommand
 	generateCmd            GenerateSalesOrderDocumentCommand
 	imageCmd               GenerateSalesOrderImageCommand
 	previewOrderID         int64
@@ -181,6 +182,11 @@ func (r *fakeRepo) ListSalesOrderImageDocuments(ctx context.Context, orderID int
 
 func (r *fakeRepo) LoadSalesOrderContext(ctx context.Context, orderID int64) (SalesOrderContext, error) {
 	return SalesOrderContext{OrderID: orderID, OrderNo: "SO-TEST", Customer: SalesOrderCustomerInfo{ID: 3, Name: "测试客户"}}, nil
+}
+
+func (r *fakeRepo) SaveSalesOrderNote(ctx context.Context, cmd SaveSalesOrderNoteCommand) error {
+	r.salesOrderNoteCmd = cmd
+	return nil
 }
 
 func (r *fakeRepo) GenerateSalesOrderDocument(ctx context.Context, cmd GenerateSalesOrderDocumentCommand) (GenerateSalesOrderDocumentResult, error) {
@@ -703,6 +709,20 @@ func TestServiceOwnsSalesOrderSettingsUseCases(t *testing.T) {
 func TestServiceOwnsSalesOrderDocumentUseCases(t *testing.T) {
 	repo := &fakeRepo{}
 	svc := NewService(repo)
+
+	if err := svc.SaveSalesOrderNote(context.Background(), SaveSalesOrderNoteCommand{
+		Actor:   " sales ",
+		OrderID: 18,
+		Note:    "  末行备注：随货附赠杯测样  ",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if repo.salesOrderNoteCmd.Actor != "sales" || repo.salesOrderNoteCmd.OrderID != 18 || repo.salesOrderNoteCmd.Note != "末行备注：随货附赠杯测样" {
+		t.Fatalf("sales order note command = %+v", repo.salesOrderNoteCmd)
+	}
+	if err := svc.SaveSalesOrderNote(context.Background(), SaveSalesOrderNoteCommand{OrderID: 0, Note: "bad"}); err == nil {
+		t.Fatal("SaveSalesOrderNote invalid order error = nil")
+	}
 
 	doc, err := svc.GenerateSalesOrderDocument(context.Background(), GenerateSalesOrderDocumentCommand{Actor: " sales ", OrderID: 18})
 	if err != nil {

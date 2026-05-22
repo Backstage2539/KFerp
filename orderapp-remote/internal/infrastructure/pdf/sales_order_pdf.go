@@ -81,6 +81,7 @@ func (r SalesOrderRenderer) render(snapshot salesdomain.SalesOrderSnapshot, prev
 	pdf.SetMargins(16, 14, 16)
 	pdf.SetAutoPageBreak(true, 18)
 	pdf.AddUTF8Font("noto", "", filepath.Base(fontPath))
+	pdf.AddUTF8Font("noto", "B", filepath.Base(fontPath))
 	pdf.AddPage()
 
 	r.renderSalesOrderHeader(pdf, snapshot)
@@ -181,22 +182,146 @@ func (r SalesOrderRenderer) renderSalesOrderItemsTable(pdf *gofpdf.Fpdf, snapsho
 	}
 	pdf.Ln(-1)
 	for _, item := range snapshot.Items {
-		pdf.CellFormat(colWidths[0], 8, item.Name, "B", 0, "L", false, 0, "")
-		pdf.CellFormat(colWidths[1], 8, item.Spec, "B", 0, "L", false, 0, "")
-		pdf.CellFormat(colWidths[2], 8, strings.TrimSpace(item.Qty+item.Unit), "B", 0, "L", false, 0, "")
-		pdf.CellFormat(colWidths[3], 8, item.UnitPrice, "B", 0, "L", false, 0, "")
-		pdf.CellFormat(colWidths[4], 8, item.LineTotal, "B", 0, "L", false, 0, "")
-		pdf.CellFormat(colWidths[5], 8, item.Note, "B", 0, "L", false, 0, "")
-		pdf.Ln(-1)
+		writeSalesOrderItemRow(pdf, item, colWidths, 6)
 	}
 	pdf.Ln(4)
 }
 
+func writeSalesOrderItemRow(pdf *gofpdf.Fpdf, item salesdomain.SalesOrderSnapshotItem, colWidths []float64, lineHeight float64) {
+	startX, startY := pdf.GetXY()
+	rowH := salesOrderItemRowHeight(pdf, item, colWidths, lineHeight)
+	cells := salesOrderItemCells(item)
+	x := startX
+	for i, text := range cells {
+		if i >= len(colWidths) {
+			break
+		}
+		pdf.SetXY(x, startY+1)
+		for _, line := range salesOrderWrapCellText(pdf, text, colWidths[i]) {
+			pdf.SetX(x)
+			pdf.CellFormat(colWidths[i], lineHeight, line, "", 2, "L", false, 0, "")
+		}
+		x += colWidths[i]
+	}
+	pdf.Line(startX, startY+rowH, startX+sumFloat64(colWidths), startY+rowH)
+	pdf.SetXY(startX, startY+rowH)
+}
+
+func salesOrderItemRowHeight(pdf *gofpdf.Fpdf, item salesdomain.SalesOrderSnapshotItem, colWidths []float64, lineHeight float64) float64 {
+	if lineHeight <= 0 {
+		lineHeight = 6
+	}
+	maxLines := 1
+	for i, text := range salesOrderItemCells(item) {
+		if i >= len(colWidths) {
+			break
+		}
+		if lines := len(salesOrderWrapCellText(pdf, text, colWidths[i])); lines > maxLines {
+			maxLines = lines
+		}
+	}
+	return float64(maxLines)*lineHeight + 2
+}
+
+func salesOrderItemCells(item salesdomain.SalesOrderSnapshotItem) []string {
+	return []string{
+		item.Name,
+		item.Spec,
+		strings.TrimSpace(item.Qty + item.Unit),
+		item.UnitPrice,
+		item.LineTotal,
+		item.Note,
+	}
+}
+
+func salesOrderWrapCellText(pdf *gofpdf.Fpdf, text string, width float64) []string {
+	text = strings.TrimSpace(text)
+	if text == "" {
+		return []string{""}
+	}
+	lines := pdf.SplitText(text, width)
+	if len(lines) == 0 {
+		return []string{text}
+	}
+	return lines
+}
+
+func sumFloat64(values []float64) float64 {
+	total := 0.0
+	for _, value := range values {
+		total += value
+	}
+	return total
+}
+
+type salesOrderFinancialRow struct {
+	Label string
+	Value string
+	Bold  bool
+}
+
 func renderSalesOrderTotals(pdf *gofpdf.Fpdf, snapshot salesdomain.SalesOrderSnapshot) {
+	for _, row := range salesOrderFinancialRows(snapshot) {
+		style := ""
+		align := "R"
+		if row.Bold {
+			style = "B"
+		}
+		if row.Label == "备注" {
+			align = "L"
+		}
+		pdf.SetFont("noto", style, 11)
+		text := row.Label + "： " + row.Value
+		if row.Label == "备注" {
+			for _, line := range pdf.SplitText(text, 176) {
+				pdf.CellFormat(0, 7, line, "", 1, align, false, 0, "")
+			}
+			continue
+		}
+		pdf.CellFormat(0, 7, text, "", 1, align, false, 0, "")
+	}
+	pdf.Line(16, pdf.GetY()+1, 194, pdf.GetY()+1)
 	pdf.SetFont("noto", "", 11)
-	line := "商品合计： " + snapshot.TotalAmount + "   运费： " + snapshot.Shipping + "   优惠： " + snapshot.Discount + "   应收： " + snapshot.GrandTotal
-	pdf.CellFormat(0, 8, line, "B", 1, "R", false, 0, "")
 	pdf.Ln(4)
+}
+
+func salesOrderFinancialRows(snapshot salesdomain.SalesOrderSnapshot) []salesOrderFinancialRow {
+	rows := []salesOrderFinancialRow{
+		{Label: "商品合计", Value: snapshot.TotalAmount},
+		{Label: "运费", Value: snapshot.Shipping},
+	}
+	if len(snapshot.DiscountBreakdowns) > 0 {
+		for _, item := range snapshot.DiscountBreakdowns {
+			if strings.TrimSpace(item.Amount) == "" || strings.TrimSpace(item.Amount) == "0.00" {
+				continue
+			}
+			rows = append(rows, salesOrderFinancialRow{Label: "优惠（" + salesOrderDiscountTypeLabel(item.Type) + "）", Value: item.Amount, Bold: true})
+		}
+	} else if strings.TrimSpace(snapshot.Discount) != "" && strings.TrimSpace(snapshot.Discount) != "0.00" {
+		rows = append(rows, salesOrderFinancialRow{Label: "优惠", Value: snapshot.Discount, Bold: true})
+	}
+	rows = append(rows, salesOrderFinancialRow{Label: "应收", Value: snapshot.GrandTotal})
+	if note := strings.TrimSpace(snapshot.SalesOrderNote); note != "" {
+		rows = append(rows, salesOrderFinancialRow{Label: "备注", Value: note})
+	}
+	return rows
+}
+
+func salesOrderDiscountTypeLabel(value string) string {
+	switch strings.TrimSpace(value) {
+	case "amount":
+		return "减免金额"
+	case "unit_amount":
+		return "单价优惠"
+	case "percent":
+		return "折扣"
+	case "free":
+		return "免费"
+	case "order_amount":
+		return "整单优惠"
+	default:
+		return "优惠"
+	}
 }
 
 func (r SalesOrderRenderer) renderSalesOrderPaymentInfoSection(pdf *gofpdf.Fpdf, snapshot salesdomain.SalesOrderSnapshot) {

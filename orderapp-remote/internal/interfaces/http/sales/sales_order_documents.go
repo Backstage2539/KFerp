@@ -24,6 +24,7 @@ func registerSalesOrderDocumentRoutes(e *echo.Echo, salesSvc *salesapp.Service) 
 	e.GET("/api/orders/:id/sales-orders", h.list)
 	e.GET("/api/orders/:id/sales-order-preview", h.preview)
 	e.GET("/api/orders/:id/sales-order-preview.pdf", h.previewPDF)
+	e.PUT("/api/orders/:id/sales-order-note", h.saveNote)
 	e.POST("/api/orders/:id/sales-orders", h.generate)
 	e.GET("/api/orders/:id/sales-order-images", h.listImages)
 	e.POST("/api/orders/:id/sales-order-images", h.generateImage)
@@ -92,6 +93,27 @@ func (h salesOrderDocumentHandler) previewPDF(c echo.Context) error {
 	}
 	c.Response().Header().Set(echo.HeaderContentDisposition, fmt.Sprintf(`inline; filename="%s"`, preview.Filename))
 	return c.Blob(http.StatusOK, "application/pdf", preview.Data)
+}
+
+func (h salesOrderDocumentHandler) saveNote(c echo.Context) error {
+	orderID, err := parseSalesOrderID(c)
+	if err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]any{"error": err.Error()})
+	}
+	var req struct {
+		Note string `json:"note"`
+	}
+	if err := c.Bind(&req); err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]any{"error": err.Error()})
+	}
+	if err := h.sales.SaveSalesOrderNote(c.Request().Context(), salesapp.SaveSalesOrderNoteCommand{Actor: support.ActorOf(c), OrderID: orderID, Note: req.Note}); err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]any{"error": err.Error()})
+	}
+	preview, err := h.sales.PreviewSalesOrderDocument(c.Request().Context(), orderID)
+	if err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]any{"error": err.Error()})
+	}
+	return c.JSON(http.StatusOK, preview)
 }
 
 func (h salesOrderDocumentHandler) generate(c echo.Context) error {

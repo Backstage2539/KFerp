@@ -12,6 +12,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/jung-kurt/gofpdf"
 	"golang.org/x/image/font/opentype"
 )
 
@@ -74,6 +75,62 @@ func TestRenderSalesOrderPDFWrapsUTF8PaymentTextWithoutPanic(t *testing.T) {
 	}
 	if !bytes.HasPrefix(b, []byte("%PDF-")) {
 		t.Fatalf("PDF missing header: %q", b[:5])
+	}
+}
+
+func TestSalesOrderItemRowsWrapLongNamesAndNotes(t *testing.T) {
+	renderer := SalesOrderRenderer{}
+	fontPath, err := renderer.resolveFontPath()
+	if err != nil {
+		t.Fatal(err)
+	}
+	pdf := newSalesOrderTestPDF(t, fontPath)
+	widths := []float64{46, 22, 22, 26, 26, 34}
+	shortItem := salesdomain.SalesOrderSnapshotItem{Name: "橘皮乌龙", Spec: "300g", Qty: "2", Unit: "件", UnitPrice: "67.00", LineTotal: "134.00"}
+	longItem := salesdomain.SalesOrderSnapshotItem{
+		Name:      "芬纳-曲奇定制（20%乌干达，15%云南厌氧日晒，65%云南水洗）-中深烘",
+		Spec:      "1000g",
+		Qty:       "20",
+		Unit:      "件",
+		UnitPrice: "117.00",
+		LineTotal: "2100.00",
+		Note:      "客户指定包装和发货说明也需要换行展示",
+	}
+	if got := salesOrderItemRowHeight(pdf, shortItem, widths, 6); got <= 6 || got > 13 {
+		t.Fatalf("short item row height = %.2f, want one-line row with padding", got)
+	}
+	if got, short := salesOrderItemRowHeight(pdf, longItem, widths, 6), salesOrderItemRowHeight(pdf, shortItem, widths, 6); got <= short {
+		t.Fatalf("long item row height = %.2f, short = %.2f; long product names must wrap and grow the row", got, short)
+	}
+}
+
+func TestSalesOrderFinancialRowsSeparateDiscountShippingAndNote(t *testing.T) {
+	rows := salesOrderFinancialRows(salesdomain.SalesOrderSnapshot{
+		TotalAmount:    "2455.00",
+		Shipping:       "169.00",
+		Discount:       "261.65",
+		GrandTotal:     "2362.35",
+		SalesOrderNote: "客户要求周五前发出",
+		DiscountBreakdowns: []salesdomain.SalesOrderDiscountBreakdown{
+			{Type: "unit_amount", Amount: "200.00"},
+			{Type: "percent", Amount: "61.65"},
+		},
+	})
+	want := []salesOrderFinancialRow{
+		{Label: "商品合计", Value: "2455.00"},
+		{Label: "运费", Value: "169.00"},
+		{Label: "优惠（单价优惠）", Value: "200.00", Bold: true},
+		{Label: "优惠（折扣）", Value: "61.65", Bold: true},
+		{Label: "应收", Value: "2362.35"},
+		{Label: "备注", Value: "客户要求周五前发出"},
+	}
+	if len(rows) != len(want) {
+		t.Fatalf("rows=%+v want %+v", rows, want)
+	}
+	for i := range want {
+		if rows[i] != want[i] {
+			t.Fatalf("rows[%d]=%+v want %+v", i, rows[i], want[i])
+		}
 	}
 }
 
@@ -257,6 +314,22 @@ func TestSalesOrderPaymentLayoutDefaultsPutCodeOnFirstPageRight(t *testing.T) {
 	if codeBox.XMM+codeBox.WidthMM > 200 || codeBox.YMM+codeBox.HeightMM > 260 {
 		t.Fatalf("default payment code box should fit on the first A4 page, got %+v", codeBox)
 	}
+}
+
+func newSalesOrderTestPDF(t *testing.T, fontPath string) *gofpdf.Fpdf {
+	t.Helper()
+	pdf := gofpdf.NewCustom(&gofpdf.InitType{
+		OrientationStr: "P",
+		UnitStr:        "mm",
+		SizeStr:        "A4",
+		FontDirStr:     filepath.Dir(fontPath),
+	})
+	pdf.SetMargins(16, 14, 16)
+	pdf.AddUTF8Font("noto", "", filepath.Base(fontPath))
+	pdf.AddUTF8Font("noto", "B", filepath.Base(fontPath))
+	pdf.AddPage()
+	pdf.SetFont("noto", "", 10)
+	return pdf
 }
 
 func TestSalesOrderPaymentLayoutUsesConfiguredTextAndCodeBoxes(t *testing.T) {

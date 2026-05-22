@@ -90,6 +90,7 @@ func TestSalesOrderDocumentRoutesRegisterPreviewPDF(t *testing.T) {
 	for _, want := range []string{
 		"GET /api/orders/:id/sales-order-preview",
 		"GET /api/orders/:id/sales-order-preview.pdf",
+		"PUT /api/orders/:id/sales-order-note",
 		"POST /api/orders/:id/sales-orders",
 		"GET /orders/:id/sales-order-latest.pdf",
 	} {
@@ -992,6 +993,42 @@ func TestSalesOrderPreviewAPIUsesGlobalCompanyProfile(t *testing.T) {
 		if !strings.Contains(rec.Body.String(), want) {
 			t.Fatalf("preview response should use global company account profile, missing %s: %s", want, rec.Body.String())
 		}
+	}
+}
+
+func TestSalesOrderNoteAPISavesAndReturnsPreviewSnapshot(t *testing.T) {
+	pool, schema := newOrderAPITestDB(t)
+	ctx := context.Background()
+	seedOrderAPITestData(t, ctx, pool, schema)
+	if err := postgressales.EnsureSchema(ctx, pool, schema); err != nil {
+		t.Fatalf("EnsureSchema: %v", err)
+	}
+	seedSalesOrderAPITestOrder(t, ctx, pool, schema)
+	e := newSalesOrderAPITestEcho(pool, schema, t.TempDir())
+
+	req := httptest.NewRequest(http.MethodPut, "/api/orders/1/sales-order-note", strings.NewReader(`{"note":"  末行备注：随货附赠杯测样  "}`))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("save note status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	for _, want := range []string{
+		`"order_no":"SO-20260430-0008"`,
+		`"sales_order_note":"末行备注：随货附赠杯测样"`,
+		`"next_version_no":1`,
+	} {
+		if !strings.Contains(rec.Body.String(), want) {
+			t.Fatalf("save note response missing %s: %s", want, rec.Body.String())
+		}
+	}
+	var saved string
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT sales_order_note FROM %s.orders WHERE id=1`, schema)).Scan(&saved); err != nil {
+		t.Fatalf("query saved note: %v", err)
+	}
+	if saved != "末行备注：随货附赠杯测样" {
+		t.Fatalf("saved sales_order_note=%q", saved)
 	}
 }
 

@@ -640,6 +640,12 @@ type GenerateSalesOrderImageCommand struct {
 	OrderID int64
 }
 
+type SaveSalesOrderNoteCommand struct {
+	Actor   string `json:"actor"`
+	OrderID int64  `json:"order_id"`
+	Note    string `json:"note"`
+}
+
 type GenerateSalesOrderDocumentResult struct {
 	Document SalesOrderDocument             `json:"document"`
 	Snapshot salesdomain.SalesOrderSnapshot `json:"snapshot"`
@@ -884,6 +890,7 @@ type Repository interface {
 	DeleteSalesOrderPaymentCode(ctx context.Context, id int64, actor string) error
 	SetSalesOrderSealAsset(ctx context.Context, assetID int64, actor string) error
 	LoadSalesOrderContext(ctx context.Context, orderID int64) (SalesOrderContext, error)
+	SaveSalesOrderNote(ctx context.Context, cmd SaveSalesOrderNoteCommand) error
 	ListSalesOrderDocuments(ctx context.Context, orderID int64) ([]SalesOrderDocument, error)
 	ListSalesOrderImageDocuments(ctx context.Context, orderID int64) ([]SalesOrderImageDocument, error)
 	PreviewSalesOrderDocument(ctx context.Context, orderID int64) (SalesOrderPreview, error)
@@ -1511,6 +1518,18 @@ func (s *Service) LoadSalesOrderContext(ctx context.Context, orderID int64) (Sal
 		return SalesOrderContext{}, fmt.Errorf("invalid order id")
 	}
 	return s.repo.LoadSalesOrderContext(ctx, orderID)
+}
+
+func (s *Service) SaveSalesOrderNote(ctx context.Context, cmd SaveSalesOrderNoteCommand) error {
+	cmd.Actor = strings.TrimSpace(cmd.Actor)
+	if cmd.Actor == "" {
+		cmd.Actor = "sales"
+	}
+	cmd.Note = strings.TrimSpace(cmd.Note)
+	if cmd.OrderID <= 0 {
+		return fmt.Errorf("invalid order id")
+	}
+	return s.repo.SaveSalesOrderNote(ctx, cmd)
 }
 
 func (s *Service) GenerateSalesOrderDocument(ctx context.Context, cmd GenerateSalesOrderDocumentCommand) (GenerateSalesOrderDocumentResult, error) {

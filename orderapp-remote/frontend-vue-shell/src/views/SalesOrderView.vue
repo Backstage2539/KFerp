@@ -41,6 +41,14 @@
       </details>
     </section>
 
+    <section class="panel sales-order-note-panel">
+      <div class="panel-head">
+        <h3>销售单备注</h3>
+        <button class="secondary" type="button" @click="saveSalesOrderNote" :disabled="noteSaving || !orderID">{{ noteSaving ? '保存中' : '保存备注' }}</button>
+      </div>
+      <textarea v-model.trim="salesOrderNote" rows="2" placeholder="只显示在销售单最后一行，不影响订单列表内部备注"></textarea>
+    </section>
+
     <section class="panel preview-panel">
       <div class="panel-head">
         <h3>销售单预览 <span v-if="preview" class="version-tag">V{{ preview.next_version_no }}</span></h3>
@@ -201,6 +209,7 @@ const preview = ref(null)
 const drawerOpen = ref(false)
 const settingsDrawerOpen = ref(false)
 const savingCustomer = ref(false)
+const noteSaving = ref(false)
 const sealDragSaving = ref(false)
 const layoutDragSaving = ref(false)
 const shareLoading = ref('')
@@ -209,6 +218,7 @@ const previewPDFRefreshKey = ref(0)
 const previewSealAspectRatio = ref(1)
 const customerSummary = reactive(emptyCustomer())
 const customerForm = reactive(emptyCustomer())
+const salesOrderNote = ref('')
 
 const orderID = computed(() => Number(props.orderId || new URL(window.location.href).searchParams.get('order_id') || 0))
 const salesOrderPreviewBasePDFUrl = computed(() => orderID.value ? `/api/orders/${orderID.value}/sales-order-preview.pdf` : '')
@@ -292,12 +302,33 @@ async function loadPreview() {
   error.value = ''
   try {
     preview.value = await apiGet(`/api/orders/${orderID.value}/sales-order-preview`)
+    salesOrderNote.value = preview.value?.snapshot?.sales_order_note || ''
     previewPDFRefreshKey.value += 1
   } catch (err) {
     preview.value = null
     error.value = err.message || '加载销售单预览失败'
   } finally {
     previewLoading.value = false
+  }
+}
+
+async function saveSalesOrderNote() {
+  if (!orderID.value) return
+  noteSaving.value = true
+  error.value = ''
+  message.value = ''
+  try {
+    preview.value = await apiSend(`/api/orders/${orderID.value}/sales-order-note`, {
+      method: 'PUT',
+      body: { note: salesOrderNote.value },
+    })
+    salesOrderNote.value = preview.value?.snapshot?.sales_order_note || ''
+    previewPDFRefreshKey.value += 1
+    message.value = '销售单备注已保存，请重新生成 PDF 或图片后下载'
+  } catch (err) {
+    error.value = err.message || '保存销售单备注失败'
+  } finally {
+    noteSaving.value = false
   }
 }
 
@@ -622,6 +653,7 @@ onMounted(loadPage)
 .preview-panel { overflow: auto; }
 .panel-head, .actions, .summary { display: flex; align-items: center; gap: 12px; }
 .panel-head { justify-content: space-between; margin-bottom: 12px; }
+.sales-order-note-panel textarea { width: 100%; min-height: 76px; resize: vertical; border: 1px solid #d6cec3; border-radius: 6px; padding: 10px 12px; font: inherit; line-height: 1.6; background: #fff; }
 .actions { flex-wrap: wrap; justify-content: flex-end; }
 .preview-tools { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin: -4px 0 12px; }
 .layout-drag-hint { color: #4b5563; font-size: 13px; line-height: 1.5; }
