@@ -1,5 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import fs from 'node:fs'
 import { salesOrderPageUrl, salesOrderDownloadUrl, salesOrderImageDownloadUrl } from './sales-order.js'
 import { buildShareResourcePayload, shareResourceToWechat } from './external-share.js'
 import {
@@ -24,6 +25,19 @@ test('salesOrderDownloadUrl points to latest pdf', () => {
 
 test('salesOrderImageDownloadUrl points to latest png image', () => {
   assert.equal(salesOrderImageDownloadUrl(12), '/orders/12/sales-order-image-latest.png')
+})
+
+test('sales order view supports editing a document-only final note', () => {
+  const src = fs.readFileSync(new URL('../views/SalesOrderView.vue', import.meta.url), 'utf8')
+  for (const marker of [
+    '销售单备注',
+    'salesOrderNote',
+    '/sales-order-note',
+    '保存备注',
+    '只显示在销售单最后一行',
+  ]) {
+    assert.ok(src.includes(marker), `SalesOrderView missing ${marker}`)
+  }
 })
 
 test('sales order uses the shared external share payload for pdf and image resources', () => {

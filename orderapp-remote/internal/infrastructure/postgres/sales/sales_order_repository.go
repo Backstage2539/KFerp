@@ -176,6 +176,19 @@ func (r Repository) SaveSalesOrderPaymentCode(ctx context.Context, cmd salesapp.
 	return code, nil
 }
 
+func (r Repository) SaveSalesOrderNote(ctx context.Context, cmd salesapp.SaveSalesOrderNoteCommand) error {
+	var oldNote string
+	if err := r.pool.QueryRow(ctx, fmt.Sprintf(`SELECT COALESCE(sales_order_note,'') FROM %s.orders WHERE id=$1`, r.schema), cmd.OrderID).Scan(&oldNote); err != nil {
+		return err
+	}
+	note := strings.TrimSpace(cmd.Note)
+	if _, err := r.pool.Exec(ctx, fmt.Sprintf(`UPDATE %s.orders SET sales_order_note=$2 WHERE id=$1`, r.schema), cmd.OrderID, note); err != nil {
+		return err
+	}
+	postgresinfra.AuditInsert(ctx, r.pool, r.schema, cmd.Actor, "order", &cmd.OrderID, "update", postgresinfra.StrPtr("sales_order_note"), postgresinfra.StrPtr(oldNote), postgresinfra.StrPtr(note), nil)
+	return nil
+}
+
 func (r Repository) DeactivateSalesOrderPaymentCode(ctx context.Context, id int64, actor string) error {
 	q := fmt.Sprintf(`UPDATE %s.sales_order_payment_codes SET active=false, updated_at=now() WHERE id=$1`, r.schema)
 	_, err := r.pool.Exec(ctx, q, id)
@@ -500,11 +513,12 @@ func (r Repository) buildSalesOrderSnapshotTx(ctx context.Context, tx pgx.Tx, or
 			COALESCE(NULLIF(c.company_name,''), c.name, ''), COALESCE(NULLIF(c.company_address,''), c.address, ''),
 			COALESCE(NULLIF(c.company_phone,''), c.phone, ''),
 			COALESCE(o.total_amount,0)::float8, COALESCE(o.shipping_amount,0)::float8,
-			COALESCE(o.discount_amount,0)::float8, COALESCE(o.grand_total,0)::float8
+			COALESCE(o.discount_amount,0)::float8, COALESCE(o.grand_total,0)::float8,
+			COALESCE(o.sales_order_note,'')
 		FROM %s.orders o
 		LEFT JOIN %s.customers c ON c.id=o.customer_id
 		WHERE o.id=$1`, r.schema, r.schema)
-	if err := tx.QueryRow(ctx, q, orderID).Scan(&snapshot.OrderID, &snapshot.OrderNo, &snapshot.OrderDate, &snapshot.CustomerName, &snapshot.CustomerCompanyName, &snapshot.CustomerCompanyAddress, &snapshot.CustomerCompanyPhone, &total, &shipping, &discount, &grand); err != nil {
+	if err := tx.QueryRow(ctx, q, orderID).Scan(&snapshot.OrderID, &snapshot.OrderNo, &snapshot.OrderDate, &snapshot.CustomerName, &snapshot.CustomerCompanyName, &snapshot.CustomerCompanyAddress, &snapshot.CustomerCompanyPhone, &total, &shipping, &discount, &grand, &snapshot.SalesOrderNote); err != nil {
 		return salesdomain.SalesOrderSnapshot{}, err
 	}
 	companyProfile, err := r.loadCompanyProfileForSalesOrderTx(ctx, tx)
@@ -525,6 +539,11 @@ func (r Repository) buildSalesOrderSnapshotTx(ctx context.Context, tx pgx.Tx, or
 	snapshot.Shipping = salesdomain.FormatSalesOrderMoney(shipping)
 	snapshot.Discount = salesdomain.FormatSalesOrderMoney(discount)
 	snapshot.GrandTotal = salesdomain.FormatSalesOrderMoney(grand)
+	breakdowns, err := r.loadSalesOrderDiscountBreakdownsTx(ctx, tx, orderID, discount)
+	if err != nil {
+		return salesdomain.SalesOrderSnapshot{}, err
+	}
+	snapshot.DiscountBreakdowns = breakdowns
 	for _, code := range settings.PaymentCodes {
 		snapshot.PaymentCodes = append(snapshot.PaymentCodes, salesdomain.SalesOrderAssetRef{
 			ID: code.Asset.ID, Label: code.Label, Description: code.Description, ObjectKey: code.Asset.ObjectKey, ContentType: code.Asset.ContentType, URL: code.Asset.URL,
@@ -562,6 +581,39 @@ func (r Repository) buildSalesOrderSnapshotTx(ctx context.Context, tx pgx.Tx, or
 		return salesdomain.SalesOrderSnapshot{}, err
 	}
 	return snapshot, nil
+}
+
+func (r Repository) loadSalesOrderDiscountBreakdownsTx(ctx context.Context, tx pgx.Tx, orderID int64, orderDiscount float64) ([]salesdomain.SalesOrderDiscountBreakdown, error) {
+	rows, err := tx.Query(ctx, fmt.Sprintf(`
+		SELECT COALESCE(discount_type,''), COALESCE(SUM(discount_amount),0)::float8
+		FROM %s.order_items
+		WHERE order_id=$1 AND COALESCE(discount_amount,0) > 0
+		GROUP BY COALESCE(discount_type,'')
+		ORDER BY MIN(line_no), MIN(id)
+	`, r.schema), orderID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := make([]salesdomain.SalesOrderDiscountBreakdown, 0)
+	itemDiscount := 0.0
+	for rows.Next() {
+		var typ string
+		var amount float64
+		if err := rows.Scan(&typ, &amount); err != nil {
+			return nil, err
+		}
+		itemDiscount += amount
+		out = append(out, salesdomain.SalesOrderDiscountBreakdown{Type: typ, Amount: salesdomain.FormatSalesOrderMoney(amount)})
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	manualDiscount := orderDiscount - itemDiscount
+	if manualDiscount > 0.004 {
+		out = append(out, salesdomain.SalesOrderDiscountBreakdown{Type: "order_amount", Amount: salesdomain.FormatSalesOrderMoney(manualDiscount)})
+	}
+	return out, nil
 }
 
 type salesOrderCompanyProfile struct {

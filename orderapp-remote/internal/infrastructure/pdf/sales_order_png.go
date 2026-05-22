@@ -128,29 +128,58 @@ func (c *salesOrderPNGCanvas) itemsTable(left, right, y int, snapshot salesdomai
 	c.line(left, y, right, y, color.RGBA{R: 30, G: 30, B: 30, A: 255})
 	y += 20
 	for _, item := range snapshot.Items {
+		rowH := c.salesOrderPNGItemRowHeight(item, widths, 20, 28)
 		x = left
-		c.text(x+8, y, 20, color.RGBA{R: 28, G: 28, B: 28, A: 255}, item.Name)
-		x += widths[0]
-		c.text(x+8, y, 20, color.RGBA{R: 28, G: 28, B: 28, A: 255}, item.Spec)
-		x += widths[1]
-		c.text(x+8, y, 20, color.RGBA{R: 28, G: 28, B: 28, A: 255}, strings.TrimSpace(item.Qty+item.Unit))
-		x += widths[2]
-		c.text(x+8, y, 20, color.RGBA{R: 28, G: 28, B: 28, A: 255}, item.UnitPrice)
-		x += widths[3]
-		c.text(x+8, y, 20, color.RGBA{R: 28, G: 28, B: 28, A: 255}, item.LineTotal)
-		x += widths[4]
-		c.text(x+8, y, 20, color.RGBA{R: 28, G: 28, B: 28, A: 255}, item.Note)
-		y += 48
+		// salesOrderItemCells keeps item.Note in the last table column.
+		for i, text := range salesOrderItemCells(item) {
+			if i >= len(widths) {
+				break
+			}
+			c.wrappedText(x+8, y, widths[i]-16, 20, 28, color.RGBA{R: 28, G: 28, B: 28, A: 255}, []string{text})
+			x += widths[i]
+		}
+		y += rowH
 		c.line(left, y, right, y, color.RGBA{R: 222, G: 216, B: 207, A: 255})
 		y += 8
 	}
 	return y + 4
 }
 
+func (c *salesOrderPNGCanvas) salesOrderPNGItemRowHeight(item salesdomain.SalesOrderSnapshotItem, widths []int, fontSize float64, lineHeight int) int {
+	maxLines := 1
+	for i, text := range salesOrderItemCells(item) {
+		if i >= len(widths) {
+			break
+		}
+		lineCount := len(c.wrapLine(text, widths[i]-16, fontSize))
+		if lineCount > maxLines {
+			maxLines = lineCount
+		}
+	}
+	rowH := maxLines*lineHeight + 20
+	if rowH < 48 {
+		return 48
+	}
+	return rowH
+}
+
 func (c *salesOrderPNGCanvas) totals(left, right, y int, snapshot salesdomain.SalesOrderSnapshot) int {
-	line := "商品合计： " + snapshot.TotalAmount + "   运费： " + snapshot.Shipping + "   优惠： " + snapshot.Discount + "   应收： " + snapshot.GrandTotal
-	c.textRight(right, y+8, 22, color.RGBA{R: 20, G: 20, B: 20, A: 255}, line)
-	y += 48
+	for _, row := range salesOrderFinancialRows(snapshot) {
+		text := row.Label + "： " + row.Value
+		size := 22.0
+		col := color.RGBA{R: 20, G: 20, B: 20, A: 255}
+		if row.Bold {
+			size = 23
+			col = color.RGBA{R: 0, G: 0, B: 0, A: 255}
+		}
+		if row.Label == "备注" {
+			y = c.wrappedText(left+8, y+8, right-left-16, size, 32, col, []string{text})
+			continue
+		}
+		c.textRight(right, y+8, size, col, text)
+		y += 34
+	}
+	y += 8
 	c.line(left, y, right, y, color.RGBA{R: 30, G: 30, B: 30, A: 255})
 	return y
 }

@@ -207,6 +207,58 @@ func TestGenerateSalesOrderDocumentCreatesVersions(t *testing.T) {
 	}
 }
 
+func TestSalesOrderPreviewIncludesNoteAndDiscountBreakdowns(t *testing.T) {
+	pool, schema := newSalesPostgresTestDB(t)
+	ctx := context.Background()
+	defer func() {
+		_, _ = pool.Exec(ctx, "DROP SCHEMA IF EXISTS "+schema+" CASCADE")
+		pool.Close()
+	}()
+	prepareSalesSchemaPrerequisites(t, ctx, pool, schema)
+	repo := NewRepository(pool, schema, WithSalesOrderAssetDir(t.TempDir()), WithSalesOrderRenderer(fakeSalesOrderRenderer{}))
+	if err := EnsureSchema(ctx, pool, schema); err != nil {
+		t.Fatalf("EnsureSchema: %v", err)
+	}
+	seedSalesOrderDocumentOrder(t, ctx, pool, schema)
+	if _, err := pool.Exec(ctx, fmt.Sprintf(`UPDATE %s.orders SET total_amount=2455, shipping_amount=169, discount_amount=261.65, grand_total=2362.35 WHERE id=1`, schema)); err != nil {
+		t.Fatalf("update order amounts: %v", err)
+	}
+	if _, err := pool.Exec(ctx, fmt.Sprintf(`UPDATE %s.order_items SET discount_type='unit_amount', discount_amount=100 WHERE order_id=1 AND line_no=1`, schema)); err != nil {
+		t.Fatalf("update first item discount: %v", err)
+	}
+	if _, err := pool.Exec(ctx, fmt.Sprintf(`INSERT INTO %s.order_items(order_id, line_no, product_id, item_name, spec, qty, unit, unit_price, discount_type, discount_amount, line_total)
+		VALUES(1, 2, 1, '芬纳-曲奇定制（20%%乌干达，15%%云南厌氧日晒，65%%云南水洗）', '1000g', 2, '件', 117, 'percent', 61.65, 93.35)`, schema)); err != nil {
+		t.Fatalf("insert discounted item: %v", err)
+	}
+
+	if err := repo.SaveSalesOrderNote(ctx, salesapp.SaveSalesOrderNoteCommand{Actor: "销售", OrderID: 1, Note: "  末行备注：随货附赠杯测样  "}); err != nil {
+		t.Fatalf("SaveSalesOrderNote: %v", err)
+	}
+	preview, err := repo.PreviewSalesOrderDocument(ctx, 1)
+	if err != nil {
+		t.Fatalf("PreviewSalesOrderDocument: %v", err)
+	}
+	if preview.Snapshot.SalesOrderNote != "末行备注：随货附赠杯测样" || preview.Snapshot.Shipping != "169.00" || preview.Snapshot.Discount != "261.65" {
+		t.Fatalf("snapshot financial fields = %+v", preview.Snapshot)
+	}
+	want := []salesdomain.SalesOrderDiscountBreakdown{
+		{Type: "unit_amount", Amount: "100.00"},
+		{Type: "percent", Amount: "61.65"},
+		{Type: "order_amount", Amount: "100.00"},
+	}
+	if fmt.Sprint(preview.Snapshot.DiscountBreakdowns) != fmt.Sprint(want) {
+		t.Fatalf("discount breakdowns = %+v, want %+v", preview.Snapshot.DiscountBreakdowns, want)
+	}
+
+	var auditCount int
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT count(*) FROM %s.audit_logs WHERE entity_type='order' AND entity_id=1 AND field='sales_order_note' AND old_value='' AND new_value='末行备注：随货附赠杯测样'`, schema)).Scan(&auditCount); err != nil {
+		t.Fatalf("query audit: %v", err)
+	}
+	if auditCount != 1 {
+		t.Fatalf("sales_order_note audit count = %d, want 1", auditCount)
+	}
+}
+
 func TestGenerateSalesOrderImageCreatesIndependentImageVersions(t *testing.T) {
 	pool, schema := newSalesPostgresTestDB(t)
 	ctx := context.Background()
@@ -417,6 +469,7 @@ func prepareSalesSchemaPrerequisites(t *testing.T, ctx context.Context, pool *pg
 			total_amount NUMERIC(12,2) NOT NULL DEFAULT 0,
 			shipping_amount NUMERIC(12,2) NOT NULL DEFAULT 0,
 			discount_amount NUMERIC(12,2) NOT NULL DEFAULT 0,
+			sales_order_note TEXT NOT NULL DEFAULT '',
 			grand_total NUMERIC(12,2) NOT NULL DEFAULT 0
 		)`, schema),
 		fmt.Sprintf(`CREATE TABLE %s.order_items (
@@ -430,6 +483,8 @@ func prepareSalesSchemaPrerequisites(t *testing.T, ctx context.Context, pool *pg
 			qty NUMERIC(12,2) NOT NULL DEFAULT 0,
 			unit TEXT NOT NULL DEFAULT '',
 			unit_price NUMERIC(12,2) NOT NULL DEFAULT 0,
+			discount_type TEXT NOT NULL DEFAULT '',
+			discount_amount NUMERIC(12,2) NOT NULL DEFAULT 0,
 			line_total NUMERIC(12,2) NOT NULL DEFAULT 0
 		)`, schema),
 		fmt.Sprintf(`CREATE TABLE %s.audit_logs (
