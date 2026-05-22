@@ -1098,6 +1098,42 @@ func TestProductSettingsAPISavesAndReturnsProductMarginOverride(t *testing.T) {
 	}
 }
 
+func TestProductSettingsAPISavesCustomerSkuMarginOverride(t *testing.T) {
+	margin := 0.275
+	product := catalogapp.Product{
+		ID: 17, Name: "芬纳咖啡-曲奇拼配-深烘", ProductKind: "roasted", RoastLevel: "深烘", YieldRate: 0.8,
+		CustomerID: 74, BaseProductID: 7, Visibility: "customer_only", CustomType: "custom_roast",
+	}
+	setFloat64PtrField(t, &product, "MarginRateOverride", margin)
+	repo := &productSettingsRepo{products: []catalogapp.Product{product}}
+	e := echo.New()
+	registerProductRoutes(e, catalogapp.NewService(repo))
+
+	req := httptest.NewRequest(http.MethodGet, "/api/product-settings", nil)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET /api/product-settings status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	for _, want := range []string{`"customer_id":74`, `"custom_type":"custom_roast"`, `"margin_rate_override":0.275`} {
+		if !bytes.Contains(rec.Body.Bytes(), []byte(want)) {
+			t.Fatalf("customer SKU product settings response missing %s: %s", want, rec.Body.String())
+		}
+	}
+
+	req = httptest.NewRequest(http.MethodPut, "/api/products/17", bytes.NewBufferString(`{"product_kind":"roasted","roast_level":"深烘","yield_rate":0.8,"margin_rate_override":0.33}`))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec = httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("PUT customer SKU product status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	got := float64PtrField(t, repo.updated, "MarginRateOverride")
+	if got == nil || *got != 0.33 {
+		t.Fatalf("customer SKU margin override command = %+v, got %v", repo.updated, got)
+	}
+}
+
 func TestProductSettingsAPIDeactivatesMultipleProducts(t *testing.T) {
 	repo := &productSettingsRepo{}
 	e := echo.New()
