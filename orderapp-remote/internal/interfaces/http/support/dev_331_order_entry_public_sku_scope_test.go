@@ -6,14 +6,14 @@ import (
 	"testing"
 )
 
-func TestDev330OrderEntryPublicSKUScopeSeeds(t *testing.T) {
+func TestDev331OrderEntryPublicSKUScopeSeeds(t *testing.T) {
 	src := string(readOrderAppFileForTest(t, filepath.Join("internal", "interfaces", "http", "support", "req_store.go")))
 	for _, want := range []string{
-		"PR-330-ORDER-ENTRY-PUBLIC-SKU-SCOPE",
-		"DEV-330-ORDER-ENTRY-PUBLIC-SKU-SCOPE",
-		"UT-330-ORDER-ENTRY-PUBLIC-SKU-SCOPE",
-		"API-330-ORDER-ENTRY-PUBLIC-SKU-SCOPE",
-		"REV-330-ORDER-ENTRY-PUBLIC-SKU-SCOPE",
+		"PR-331-ORDER-ENTRY-PUBLIC-SKU-SCOPE",
+		"DEV-331-ORDER-ENTRY-PUBLIC-SKU-SCOPE",
+		"UT-331-ORDER-ENTRY-PUBLIC-SKU-SCOPE",
+		"API-331-ORDER-ENTRY-PUBLIC-SKU-SCOPE",
+		"REV-331-ORDER-ENTRY-PUBLIC-SKU-SCOPE",
 	} {
 		if !strings.Contains(src, want) {
 			t.Fatalf("dev 330 requirement seed missing %q", want)
@@ -21,7 +21,7 @@ func TestDev330OrderEntryPublicSKUScopeSeeds(t *testing.T) {
 	}
 }
 
-func TestDev330OrderEntryPublicSKUScopeWiring(t *testing.T) {
+func TestDev331OrderEntryPublicSKUScopeWiring(t *testing.T) {
 	for _, tc := range []struct {
 		rel     string
 		markers []string
@@ -77,7 +77,7 @@ func TestDev330OrderEntryPublicSKUScopeWiring(t *testing.T) {
 	}
 }
 
-func TestDev330OrderEntryPublicSKUScopeDocs(t *testing.T) {
+func TestDev331OrderEntryPublicSKUScopeDocs(t *testing.T) {
 	for _, rel := range []string{
 		filepath.Join("docs", "REQUIREMENTS.md"),
 		filepath.Join("docs", "ACCEPTANCE_TESTS.md"),
@@ -86,7 +86,7 @@ func TestDev330OrderEntryPublicSKUScopeDocs(t *testing.T) {
 	} {
 		src := string(readOrderAppFileForTest(t, rel))
 		for _, want := range []string{
-			"PR-330",
+			"PR-331",
 			"use_public_sku",
 			"岩师傅",
 		} {

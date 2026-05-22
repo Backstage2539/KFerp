@@ -43,13 +43,14 @@ type SalesOrderDiscountBreakdown struct {
 }
 
 type SalesOrderSnapshotItem struct {
-	Name      string `json:"name"`
-	Note      string `json:"note"`
-	Spec      string `json:"spec"`
-	Qty       string `json:"qty"`
-	Unit      string `json:"unit"`
-	UnitPrice string `json:"unit_price"`
-	LineTotal string `json:"line_total"`
+	Name           string `json:"name"`
+	Note           string `json:"note"`
+	Spec           string `json:"spec"`
+	Qty            string `json:"qty"`
+	Unit           string `json:"unit"`
+	UnitPrice      string `json:"unit_price"`
+	DiscountAmount string `json:"discount_amount"`
+	LineTotal      string `json:"line_total"`
 }
 
 type SalesOrderAssetRef struct {

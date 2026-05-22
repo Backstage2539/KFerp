@@ -1,4 +1,4 @@
-# PR-330-ORDER-ENTRY-PUBLIC-SKU-SCOPE
+# PR-331-ORDER-ENTRY-PUBLIC-SKU-SCOPE
 
 ## 验收范围
 - ERP 录单和修改订单商品下拉读取当前客户 SKU 设置的 `use_public_sku`。

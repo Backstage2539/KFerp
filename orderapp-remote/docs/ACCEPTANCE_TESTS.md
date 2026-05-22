@@ -56,7 +56,8 @@
   - [ ] 商品只有 454g 豆单梯度时，规格 1000g、数量 30 袋：按 30000g ÷ 454 的折算磅数匹配 49lb+ 档；若该档为 48 元/磅，单价显示为 106 元/kg，小计为 3180。
   - [ ] PR-325-ORDER-ENTRY-MATCHED-TIER-HIGHLIGHT：芬纳咖啡选择 `芬纳定制-红酒日晒-中深烘`，规格改为 1000g、数量 20，自动价显示 117 元/kg 且行 `tier_id` 对应 `梯度 58` 时，价格提示中的 `454g 24-47件 53/磅` 按命中状态高亮。
   - [ ] PR-326-SALES-ORDER-LAYOUT-DISCOUNT-NOTE：含长商品名、行级优惠、整单优惠、运费和销售单备注的订单打开销售单预览时，商品名在商品列内换行不遮挡后续列，保存的销售单备注进入对外销售单；结算区最终排版按 PR-329 验收。
-  - [ ] PR-329-SALES-ORDER-SETTLEMENT-SUMMARY-LAYOUT：含行级优惠和订单备注的销售单预览中，商品行“单价”为原价，最右列为优惠后价；订单备注显示在结算区倒数第二行，最后一行同排显示商品合计、优惠合计、运费和应收。
+  - [ ] PR-329-SALES-ORDER-SETTLEMENT-SUMMARY-LAYOUT：含行级优惠和订单备注的销售单预览中，商品行“单价”为原价；订单备注显示在结算区倒数第二行，最后一行同排显示商品合计、优惠合计、运费和应收。
+  - [ ] PR-330-SALES-ORDER-DISCOUNT-LINE-LAYOUT：销售单预览中规格显示为 `1000g/件`；有行级优惠时商品行显示 `￥-28元` 这类“优惠折扣”且备注在最后列；无优惠订单不显示“优惠折扣”列，也不显示“优惠合计”。
   - [ ] 曲奇拼配等 KG 专属梯度商品，规格 2.5kg、数量 10 袋时按 25kg 匹配对应梯度，不按 10 件匹配。
 
 ### A4. 低于最低档（非阻断）
@@ -299,7 +300,7 @@
 - [ ] PR-320-BEAN-LIST-PREVIEW-STYLE-PDF：在生成豆单抽屉点击“生成 PDF”时，页面不得调用 `window.print()` 或打开系统打印窗口；系统保存当前预览快照为草稿，后端按预览卡片样式生成 PDF 并下载。发布豆单、保存草稿和版本列表下载均得到同一套预览卡片样式；旧文本版缓存会因新版 cache key 不匹配而重新生成覆盖。
 - [ ] PR-323-BEAN-LIST-DOWNLOAD-MATCH-PREVIEW-TYPOGRAPHY：生成抽屉预览中的豆单和“生成 PDF”/版本列表“下载 PDF”得到的文件必须字体大小、粗字重、卡片行列、分类标题、商品名称换行和报价块排版一致；旧 `bean-list-preview-style-v1` 缓存下载时必须按 `bean-list-preview-style-v2` 重新生成覆盖。
 - [ ] PR-324-FENNA-ORDER-ENTRY-CUSTOMER-BEAN-LIST-SCOPE：芬纳咖啡录单商品下拉只展示已进入芬纳商用豆单且带 `commercial_wholesale_tiers` 发布价格档的两个定制产品，不展示公共商用产品或未发布到该豆单的客户 SKU；选择 `芬纳定制-红酒日晒-中深烘` 或 `芬纳-曲奇定制（20%乌干达，15%云南厌氧日晒，65%云南水洗）` 后自动价格来自客户商用豆单发布快照，不再为空。
-- [ ] PR-330-ORDER-ENTRY-PUBLIC-SKU-SCOPE：芬纳咖啡在 SKU 设置中 `use_public_sku=false` 时，录单和修改订单的商品下拉不展示岩师傅的 `孟连水洗A`、`红酒日晒-2026` 生豆 SKU，也不展示其他公共 SKU；芬纳自己的两个定制熟豆 SKU 仍可选且价格梯度正常显示。
+- [ ] PR-331-ORDER-ENTRY-PUBLIC-SKU-SCOPE：芬纳咖啡在 SKU 设置中 `use_public_sku=false` 时，录单和修改订单的商品下拉不展示岩师傅的 `孟连水洗A`、`红酒日晒-2026` 生豆 SKU，也不展示其他公共 SKU；芬纳自己的两个定制熟豆 SKU 仍可选且价格梯度正常显示。
 - [ ] 产品豆单生成抽屉按当前豆单范围自动使用公共或客户上下文，发布保存不会串到错误归属。
 - [x] PR-BEANLIST-VERSION-002：ERP 录单按熟豆、生豆、挂耳分别显示豆单版本选择并默认各类型最新；保存订单后商品行 `order_items.bean_list_publication_id` 和 `order_items.bean_list_version_no` 对应该行商品形态所选版本。没有专属豆单的客户按对应类型使用公共豆单。
 - [ ] PR-BEANLIST-VERSION-003：小程序首次按新版豆单下单时弹出更新提示，内容展示新增、下架和调整摘要；确认后写 `customer_bean_list_acknowledgements`，同一客户同一版本后续不重复提示。
