@@ -1,6 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 
+import * as orderEntry from './order-entry.js'
 import {
   buildOrderPayload,
   defaultWholesaleSpec,
@@ -313,6 +314,16 @@ test('syncWholesaleTierPrice falls back to bean-list weight tiers when selected 
   assert.deepEqual(got, { tierID: '4', unitPrice: '106' })
   assert.deepEqual(wholesalePriceUnit(row), { label: '元/kg', suffix: '/kg', unitG: 1000 })
   assert.equal(lineTotal({ tiers: [] }, { ...row, tier_id: got.tierID, unit_price: got.unitPrice }, false), 106 * 30)
+})
+
+test('isOrderTierActive highlights fallback wholesale tier by matched id when selected spec differs', () => {
+  assert.equal(typeof orderEntry.isOrderTierActive, 'function')
+  const row = { spec_mode: '1000', qty: 20, tier_id: '58', unit_price: '117' }
+
+  assert.equal(orderEntry.isOrderTierActive(row, { id: '58', specG: 454 }), true)
+  assert.equal(orderEntry.isOrderTierActive(row, { id: '57', specG: 454 }), false)
+  assert.equal(orderEntry.isOrderTierActive({ ...row, tier_id: 'manual' }, { id: '58', specG: 454 }), false)
+  assert.equal(orderEntry.isOrderTierActive({ ...row, tier_id: 'auto' }, { id: '58', specG: 454 }), false)
 })
 
 test('syncWholesaleTierPrice matches kg-priced exact specs by total kg instead of package count', () => {

@@ -240,6 +240,13 @@ export function syncWholesaleTierPrice(product, row) {
   return { tierID: String(tier.id), unitPrice: String(wholesaleTierDisplayUnitPrice(tier, wholesalePriceUnit(row)) || 0) }
 }
 
+export function isOrderTierActive(row, tier) {
+  const rowTierID = String(row?.tier_id || '')
+  const tierID = String(tier?.id || '')
+  if (!rowTierID || !tierID || rowTierID === 'auto' || rowTierID === 'manual') return false
+  return rowTierID === tierID
+}
+
 function normalizeDripSalesUnit(unit) {
   return String(unit || '').trim() === 'box' ? 'box' : 'bag'
 }

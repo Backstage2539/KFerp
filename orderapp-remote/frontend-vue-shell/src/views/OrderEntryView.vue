@@ -388,6 +388,7 @@ import {
   dripTierPriceRows,
   filterProductsForCustomer,
   filterOptions,
+  isOrderTierActive,
   lineTotal,
   normalizeSpecG,
   orderReceiptMethodOptions,
@@ -936,8 +937,7 @@ function selectTier(row, tier) {
 }
 
 function isTierActive(row, tier) {
-  if (isDripRow(row)) return String(row.tier_id) === String(tier.id)
-  return String(row.spec_mode) === String(tier.specG) && String(row.tier_id) === String(tier.id)
+  return isOrderTierActive(row, tier)
 }
 
 function autoPriceLabel(row) {
