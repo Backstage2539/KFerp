@@ -29,7 +29,7 @@
       </nav>
     </aside>
 
-    <main class="content">
+    <main ref="content" class="content">
       <header class="top" :class="{ compact: !showTitle }">
         <button class="toggle" @click="toggleMenu">{{ toggleLabel }}</button>
         <div v-if="showTitle" class="title">{{ title }}</div>
@@ -87,7 +87,7 @@
 </template>
 
 <script setup>
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import AllocationLogsView from './views/AllocationLogsView.vue'
 import AuditView from './views/AuditView.vue'
 import BomView from './views/BomView.vue'
@@ -173,6 +173,7 @@ import {
 } from './lib/workspace-mode.js'
 
 const collapsed = ref(false)
+const content = ref(null)
 const viewAliases = { userPermissions: 'employees' }
 function normalizeViewKey(key) {
   return viewAliases[key] || key
@@ -191,6 +192,10 @@ const currentKey = ref(requestedView && menuMap[requestedView] ? requestedView :
 const currentViewParams = ref(workspaceViewParams(readViewParams(), workspaceContext()))
 const isMobile = ref(false)
 const mobileOpen = ref(false)
+let touchStartX = 0
+let touchStartY = 0
+const mobileSwipeMinDistance = 60
+const mobileSwipeMaxVerticalDrift = 80
 const expandedGroups = ref(defaultExpandedGroups(menuGroupsForWorkspaceMode(menuGroups, workspaceMode.value), currentKey.value))
 const menuStorageKey = 'kferp.menu.expandedGroups'
 const authLoading = ref(true)
@@ -348,6 +353,20 @@ function applyKeyToUrl(key, params = {}) {
   replaceHistoryURL(applyWorkspaceToUrl(viewNavigationURL(url, key, workspaceViewParams(params, workspaceContext()))))
 }
 
+function scrollCurrentViewToTop() {
+  nextTick(() => {
+    if (content.value && typeof content.value.scrollTo === 'function') {
+      content.value.scrollTo({ top: 0, left: 0, behavior: 'auto' })
+    } else if (content.value) {
+      content.value.scrollTop = 0
+      content.value.scrollLeft = 0
+    }
+    if (window.scrollY || window.scrollX) {
+      window.scrollTo({ top: 0, left: 0, behavior: 'auto' })
+    }
+  })
+}
+
 function open(key, params = {}) {
   if (!menuMap[key]) return
   if (!isViewAllowed(key, allowedViewKeys.value)) return
@@ -355,6 +374,7 @@ function open(key, params = {}) {
   currentViewParams.value = workspaceViewParams(params, workspaceContext())
   ensureCurrentGroupOpen(key)
   applyKeyToUrl(key, currentViewParams.value)
+  scrollCurrentViewToTop()
   if (isMobile.value) mobileOpen.value = false
 }
 
@@ -377,6 +397,7 @@ function setWorkspaceMode(mode) {
   }
   currentViewParams.value = workspaceViewParams(currentViewParams.value, workspaceContext())
   applyKeyToUrl(currentKey.value, currentViewParams.value)
+  scrollCurrentViewToTop()
 }
 
 function persistExpandedGroups() {
@@ -414,6 +435,30 @@ function toggleGroup(id) {
 function handleResize() {
   isMobile.value = window.innerWidth <= 900
   if (!isMobile.value) {
+    mobileOpen.value = false
+  }
+}
+
+function handleTouchStart(event) {
+  if (!isMobile.value || !event.touches?.length) return
+  const touch = event.touches[0]
+  touchStartX = Number(touch.clientX || 0)
+  touchStartY = Number(touch.clientY || 0)
+}
+
+function handleTouchEnd(event) {
+  if (!isMobile.value || !touchStartX || !event.changedTouches?.length) return
+  const touch = event.changedTouches[0]
+  const deltaX = Number(touch.clientX || 0) - touchStartX
+  const deltaY = Math.abs(Number(touch.clientY || 0) - touchStartY)
+  touchStartX = 0
+  touchStartY = 0
+  if (deltaY > mobileSwipeMaxVerticalDrift || Math.abs(deltaX) < mobileSwipeMinDistance) return
+  if (deltaX > 0 && !mobileOpen.value) {
+    mobileOpen.value = true
+    return
+  }
+  if (deltaX < 0 && mobileOpen.value) {
     mobileOpen.value = false
   }
 }
@@ -622,6 +667,8 @@ onMounted(async () => {
   )
   await Promise.all([loadActor(), loadWorkspaceCustomers()])
   window.addEventListener('resize', handleResize)
+  window.addEventListener('touchstart', handleTouchStart, { passive: true })
+  window.addEventListener('touchend', handleTouchEnd, { passive: true })
   window.addEventListener('kferp:navigate-view', handleNavigateView)
   window.addEventListener('kferp:workspace-customer-change', handleWorkspaceCustomerChange)
   window.addEventListener(workspaceCustomersRefreshEventName, handleWorkspaceCustomersRefresh)
@@ -629,6 +676,8 @@ onMounted(async () => {
 
 onBeforeUnmount(() => {
   window.removeEventListener('resize', handleResize)
+  window.removeEventListener('touchstart', handleTouchStart)
+  window.removeEventListener('touchend', handleTouchEnd)
   window.removeEventListener('kferp:navigate-view', handleNavigateView)
   window.removeEventListener('kferp:workspace-customer-change', handleWorkspaceCustomerChange)
   window.removeEventListener(workspaceCustomersRefreshEventName, handleWorkspaceCustomersRefresh)
@@ -692,9 +741,9 @@ watch(workspaceCustomerId, (next) => {
 
 <style scoped>
 * { box-sizing: border-box; }
-.layout { display: flex; min-height: 100vh; font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial; position: relative; }
-.sidebar { width: 260px; border-right: 1px solid #eee; padding: 18px 14px; background: #fafafa; transition: width .2s ease, transform .2s ease, padding .2s ease; overflow: auto; }
-.sidebar.collapsed { width: 0; border-right: 0; padding: 0; overflow: hidden; }
+.layout { display: flex; height: 100vh; overflow: hidden; font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial; position: relative; }
+.sidebar { width: 260px; flex: 0 0 260px; height: 100vh; border-right: 1px solid #eee; padding: 18px 14px; background: #fafafa; transition: width .2s ease, flex-basis .2s ease, transform .2s ease, padding .2s ease; overflow-y: auto; overflow-x: hidden; overscroll-behavior: contain; -webkit-overflow-scrolling: touch; }
+.sidebar.collapsed { width: 0; flex-basis: 0; border-right: 0; padding: 0; overflow: hidden; }
 .sidebar.collapsed .brand,
 .sidebar.collapsed nav,
 .sidebar.collapsed .section-toggle,
@@ -724,7 +773,7 @@ watch(workspaceCustomerId, (next) => {
 .toggle { border: 1px solid #999; background: #fff; border-radius: 8px; padding: 6px 10px; cursor: pointer; }
 .menu { width: 100%; min-height: 44px; text-align: left; border: 1px solid #ddd; background: #fff; border-radius: 8px; padding: 11px 12px; cursor: pointer; margin-bottom: 8px; font-size: 15px; line-height: 1.25; }
 .menu.active { border-color: #111; background: #f5f5f5; color: #111; box-shadow: 0 0 0 1px #111 inset; }
-.content { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+.content { flex: 1; display: flex; flex-direction: column; min-width: 0; height: 100vh; overflow-y: auto; overflow-x: hidden; overscroll-behavior: contain; -webkit-overflow-scrolling: touch; }
 .top { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-bottom: 1px solid #eee; flex-wrap: wrap; }
 .top.compact { gap: 8px; }
 .title { font-weight: 600; }

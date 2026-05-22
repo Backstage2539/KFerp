@@ -254,11 +254,12 @@
 </template>
 
 <script setup>
-import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { apiGet, apiSend } from '../api/client'
 import SearchableSelect from '../components/SearchableSelect.vue'
 import { bomContextCustomerIDs, filterBomContextProducts } from '../lib/bom'
 import { componentTypeLabel, isDripProduct } from '../lib/drip-product'
+import { FORM_DRAFT_SCOPES, readFormDraft, saveFormDraft } from '../lib/form-draft-cache'
 import { replaceHistoryURL } from '../lib/url-state'
 import { CUSTOMER_WORKSPACE_MODE, workspaceCustomerChangeEvent } from '../lib/workspace-mode'
 
@@ -267,6 +268,7 @@ const props = defineProps({
   customerContextId: { type: [Number, String], default: 0 },
   customerContextLabel: { type: String, default: '' },
 })
+const BOM_FORM_DRAFT_SCOPE = FORM_DRAFT_SCOPES.bom
 
 const rows = ref([])
 const products = ref([])
@@ -361,6 +363,45 @@ function optionMeta(option) {
 
 function optionNumericValue(option) {
   return Number(option?.id || 0)
+}
+
+function bomFormDraftKey() {
+  const workspace = props.workspaceMode || 'factory'
+  const customerID = Number(props.customerContextId || 0)
+  return `${BOM_FORM_DRAFT_SCOPE}:${workspace}:${customerID || 'all'}`
+}
+
+function saveBomFormDraft() {
+  saveFormDraft(bomFormDraftKey(), {
+    selectedBomCustomerSkuCustomerID: selectedBomCustomerSkuCustomerID.value,
+    selectedProductId: selectedProductId.value,
+    itemForm: { ...itemForm },
+    mappingForm: { ...mappingForm },
+    versionNote: versionNote.value,
+  })
+}
+
+async function restoreBomFormDraft() {
+  const params = new URL(window.location.href).searchParams
+  if (Number(params.get('product_id') || 0) > 0) return
+  const draft = readFormDraft(bomFormDraftKey())
+  if (!draft) return
+  selectedBomCustomerSkuCustomerID.value = Number(draft.selectedBomCustomerSkuCustomerID || 0)
+  selectedProductId.value = Number(draft.selectedProductId || 0)
+  Object.assign(itemForm, {
+    component_type: 'material',
+    material_id: 0,
+    component_product_id: 0,
+    component_spec_g: 0,
+    consume_unit: 'ratio_pct',
+    qty_per_unit: '',
+    ratio_pct: '',
+  }, draft.itemForm || {})
+  Object.assign(mappingForm, { spec_g: 227, material_id: 0 }, draft.mappingForm || {})
+  versionNote.value = draft.versionNote || ''
+  if (syncSelectedProductToBomContext()) {
+    await loadDetail(selectedProductId.value)
+  }
 }
 
 function customerName(id) {
@@ -683,12 +724,15 @@ async function mutate(action) {
   }
 }
 
-onMounted(() => {
+onMounted(async () => {
   const params = new URL(window.location.href).searchParams
   selectedProductId.value = Number(params.get('product_id') || 0)
   pendingUrlProductId.value = selectedProductId.value
-  loadAll()
+  await loadAll()
+  await restoreBomFormDraft()
 })
+
+onBeforeUnmount(saveBomFormDraft)
 
 watch(selectedBomCustomerSkuCustomerID, (customerID) => {
   syncSelectedProductToBomContext()

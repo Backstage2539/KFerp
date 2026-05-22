@@ -613,10 +613,11 @@
 </template>
 
 <script setup>
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { apiGet, apiSend } from '../api/client'
 import PaginationControls from '../components/PaginationControls.vue'
 import SearchableSelect from '../components/SearchableSelect.vue'
+import { FORM_DRAFT_SCOPES, readFormDraft, saveFormDraft } from '../lib/form-draft-cache'
 import {
   buildGradientTemplatePayload,
   gradientDisplayQuantityStep,
@@ -658,6 +659,8 @@ const props = defineProps({
   customerContextId: { type: [Number, String], default: 0 },
   customerContextLabel: { type: String, default: '' },
 })
+const SKU_SETTINGS_FORM_DRAFT_SCOPE = FORM_DRAFT_SCOPES.skuSettings
+let restoringProductSettingsDraft = false
 
 const categories = ref([])
 const products = ref([])
@@ -868,6 +871,55 @@ function defaultGradientTemplateForm() {
       { label: '2磅-13磅', min_display_qty: 2, max_display_qty: 13, margin_rate: 0.5421052631578949, position: 1 },
     ],
   })
+}
+
+function productSettingsDraftKey() {
+  const workspace = props.workspaceMode || 'factory'
+  const customerID = Number(props.customerContextId || 0)
+  return `${SKU_SETTINGS_FORM_DRAFT_SCOPE}:${workspace}:${customerID || 'all'}`
+}
+
+function saveProductSettingsDraft() {
+  saveFormDraft(productSettingsDraftKey(), {
+    selectedCustomerSkuCustomerID: selectedCustomerSkuCustomerID.value,
+    productForm: productForm.value,
+    customForm: customForm.value,
+    templateForm: templateForm.value,
+    newPrimaryName: newPrimaryName.value,
+    newSecondaryName: newSecondaryName.value,
+    addingSecondaryFor: addingSecondaryFor.value,
+    editingCategoryId: editingCategoryId.value,
+    editingCategoryName: editingCategoryName.value,
+    categoryCollapsed: categoryCollapsed.value,
+    productsCollapsed: productsCollapsed.value,
+    skuFilters: skuFilters.value,
+    skuPage: skuPage.value,
+    skuPageSize: skuPageSize.value,
+  })
+}
+
+async function restoreProductSettingsDraft() {
+  const draft = readFormDraft(productSettingsDraftKey())
+  if (!draft) return
+  restoringProductSettingsDraft = true
+  selectedCustomerSkuCustomerID.value = Number(draft.selectedCustomerSkuCustomerID || 0)
+  syncSelectedCustomerSkuCustomer()
+  applyWorkspaceCustomerContext()
+  productForm.value = { ...defaultProductForm(), ...(draft.productForm || {}) }
+  customForm.value = { ...defaultCustomForm(), ...(draft.customForm || {}) }
+  templateForm.value = normalizeGradientTemplate(draft.templateForm || defaultGradientTemplateForm())
+  newPrimaryName.value = draft.newPrimaryName || ''
+  newSecondaryName.value = draft.newSecondaryName || ''
+  addingSecondaryFor.value = Number(draft.addingSecondaryFor || 0)
+  editingCategoryId.value = Number(draft.editingCategoryId || 0)
+  editingCategoryName.value = draft.editingCategoryName || ''
+  categoryCollapsed.value = Boolean(draft.categoryCollapsed)
+  productsCollapsed.value = Boolean(draft.productsCollapsed)
+  skuFilters.value = { ...defaultSkuFilters(), ...(draft.skuFilters || {}) }
+  skuPage.value = Number(draft.skuPage || 1)
+  skuPageSize.value = normalizePageSize(draft.skuPageSize)
+  await nextTick()
+  restoringProductSettingsDraft = false
 }
 
 function decorateProduct(product) {
@@ -1908,6 +1960,10 @@ async function deactivateProducts(productIds) {
 }
 
 watch(selectedCustomerSkuCustomerID, (customerID) => {
+  if (restoringProductSettingsDraft) {
+    pruneSelectedProducts(displaySkuRows.value)
+    return
+  }
   customForm.value = { ...customForm.value, customer_id: Number(selectedCustomerSkuCustomerID.value || 0), name: '', remark: '' }
   skuFilters.value = defaultSkuFilters()
   skuPage.value = 1
@@ -1936,7 +1992,12 @@ watch(displaySkuRows, (rows) => {
   pruneSelectedProducts(rows)
 })
 
-onMounted(loadAll)
+onMounted(async () => {
+  await loadAll()
+  await restoreProductSettingsDraft()
+})
+
+onBeforeUnmount(saveProductSettingsDraft)
 </script>
 
 <style scoped>
