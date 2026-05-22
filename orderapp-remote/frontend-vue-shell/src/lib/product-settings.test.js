@@ -154,13 +154,35 @@ test('customer custom SKU payload supports green bean and drip bag product setti
     custom_type: 'custom_roast',
   }), {
     customer_id: 42,
-    base_product_id: 8,
+    base_product_id: 0,
     name: '客户A-耶加挂耳',
     remark: '',
     product_kind: 'drip_bag',
     drip_bag_grams: 12,
     drip_box_bag_count: 8,
     roast_level: '中深烘',
+    custom_type: 'custom_roast',
+    copy_bom: false,
+    copy_price_tiers: false,
+  })
+})
+
+test('customer custom roast SKU payload does not carry base product or copy flags', () => {
+  assert.deepEqual(buildCustomProductCreatePayload(42, {
+    base_product_id: '8',
+    name: '客户A-专属深烘',
+    product_kind: 'roasted',
+    roast_level: '深烘',
+    custom_type: 'custom_roast',
+    copy_bom: true,
+    copy_price_tiers: true,
+  }), {
+    customer_id: 42,
+    base_product_id: 0,
+    name: '客户A-专属深烘',
+    remark: '',
+    product_kind: 'roasted',
+    roast_level: '深烘',
     custom_type: 'custom_roast',
     copy_bom: false,
     copy_price_tiers: false,
