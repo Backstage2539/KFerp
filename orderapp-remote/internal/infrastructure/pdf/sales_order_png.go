@@ -155,42 +155,48 @@ func (c *salesOrderPNGCanvas) totals(left, right, y int, snapshot salesdomain.Sa
 	return y
 }
 
-func (c *salesOrderPNGCanvas) paymentInfo(left, right, y int, snapshot salesdomain.SalesOrderSnapshot) {
+func (c *salesOrderPNGCanvas) paymentInfo(_, _, _ int, snapshot salesdomain.SalesOrderSnapshot) {
 	accountLines := renderSalesOrderAccountLines(snapshot)
 	if snapshot.PaymentText == "" && snapshot.Note == "" && len(snapshot.PaymentCodes) == 0 && len(accountLines) == 0 {
 		return
 	}
-	c.text(left, y, 22, color.RGBA{R: 44, G: 44, B: 44, A: 255}, "收款与说明")
-	y += 32
-	c.line(left, y, right, y, color.RGBA{R: 30, G: 30, B: 30, A: 255})
-	y += 32
-
-	codeX := left + 700
-	textW := 650
-	textY := y
-	textY = c.textBlock(left, textY, textW, "收款方式", salesOrderTextLines(snapshot.PaymentText))
-	textY = c.textBlock(left, textY, textW, "公账收款", accountLines)
-	_ = c.textBlock(left, textY, textW, "说明", salesOrderTextLines(snapshot.Note))
+	textBox, codeBox := salesOrderPaymentLayoutBoxes(snapshot)
+	textX := salesOrderPNGMMToPX(textBox.XMM)
+	textY := salesOrderPNGMMToPX(textBox.YMM)
+	textW := salesOrderPNGMMToPX(textBox.WidthMM)
+	textBottom := salesOrderPNGMMToPX(textBox.YMM + textBox.HeightMM)
+	textY = c.textBlock(textX, textY, textW, textBottom, "收款方式", salesOrderTextLines(snapshot.PaymentText))
+	textY = c.textBlock(textX, textY, textW, textBottom, "公账收款", accountLines)
+	_ = c.textBlock(textX, textY, textW, textBottom, "说明", salesOrderTextLines(snapshot.Note))
 	if len(snapshot.PaymentCodes) > 0 {
-		c.paymentCodes(codeX, y, right-codeX, snapshot.PaymentCodes)
+		c.paymentCodes(
+			salesOrderPNGMMToPX(codeBox.XMM),
+			salesOrderPNGMMToPX(codeBox.YMM),
+			salesOrderPNGMMToPX(codeBox.WidthMM),
+			salesOrderPNGMMToPX(codeBox.HeightMM),
+			snapshot.PaymentCodes,
+		)
 	}
 }
 
-func (c *salesOrderPNGCanvas) textBlock(x, y, width int, title string, lines []string) int {
+func (c *salesOrderPNGCanvas) textBlock(x, y, width, bottom int, title string, lines []string) int {
 	if len(lines) == 0 {
+		return y
+	}
+	if y+28 > bottom {
 		return y
 	}
 	c.text(x, y, 20, color.RGBA{R: 74, G: 74, B: 74, A: 255}, title)
 	y += 30
-	y = c.wrappedText(x, y, width, 20, 30, color.RGBA{R: 74, G: 74, B: 74, A: 255}, lines)
+	y = c.wrappedTextInBox(x, y, width, bottom, 20, 30, color.RGBA{R: 74, G: 74, B: 74, A: 255}, lines)
 	return y + 18
 }
 
-func (c *salesOrderPNGCanvas) paymentCodes(x, y, width int, codes []salesdomain.SalesOrderAssetRef) {
+func (c *salesOrderPNGCanvas) paymentCodes(x, y, width, height int, codes []salesdomain.SalesOrderAssetRef) {
 	if len(codes) == 0 {
 		return
 	}
-	metrics := salesOrderPNGPaymentCodeMetrics(len(codes))
+	metrics := salesOrderPNGPaymentCodeMetrics(len(codes), width, height)
 	for _, code := range codes {
 		label := strings.TrimSpace(code.Label)
 		if label == "" {
@@ -198,7 +204,7 @@ func (c *salesOrderPNGCanvas) paymentCodes(x, y, width int, codes []salesdomain.
 		}
 		c.textCenter(x, y, width, 20, color.RGBA{R: 30, G: 30, B: 30, A: 255}, label)
 		imageX := x + (width-metrics.ImageSize)/2
-		imageY := y + 34
+		imageY := y + salesOrderPNGMMToPX(8)
 		if !c.assetImageSharp(code.ObjectKey, imageX, imageY, metrics.ImageSize, metrics.ImageSize) {
 			c.rect(imageX, imageY, metrics.ImageSize, metrics.ImageSize, color.RGBA{R: 238, G: 232, B: 222, A: 255})
 		}
@@ -212,13 +218,23 @@ func (c *salesOrderPNGCanvas) paymentCodes(x, y, width int, codes []salesdomain.
 type salesOrderPNGPaymentCodeLayout struct {
 	ImageSize int
 	Gap       int
+	CellH     int
 }
 
-func salesOrderPNGPaymentCodeMetrics(count int) salesOrderPNGPaymentCodeLayout {
+func salesOrderPNGPaymentCodeMetrics(count, width, height int) salesOrderPNGPaymentCodeLayout {
 	if count <= 1 {
-		return salesOrderPNGPaymentCodeLayout{ImageSize: 330, Gap: 28}
+		size := minInt(width, height-80)
+		if size < 330 {
+			size = 330
+		}
+		return salesOrderPNGPaymentCodeLayout{ImageSize: size, Gap: 28, CellH: height}
 	}
-	return salesOrderPNGPaymentCodeLayout{ImageSize: 270, Gap: 24}
+	cellH := (height - (count-1)*24) / count
+	size := minInt(width, cellH-80)
+	if size < 270 {
+		size = 270
+	}
+	return salesOrderPNGPaymentCodeLayout{ImageSize: size, Gap: 24, CellH: cellH}
 }
 
 func (c *salesOrderPNGCanvas) drawSeal(ref salesdomain.SalesOrderAssetRef) {
@@ -278,6 +294,23 @@ func (c *salesOrderPNGCanvas) wrappedText(x, y, width int, size float64, lineH i
 	for _, paragraph := range paragraphs {
 		lines := c.wrapLine(paragraph, width, size)
 		for _, line := range lines {
+			c.text(x, y, size, col, line)
+			y += lineH
+		}
+		if paragraph == "" {
+			y += lineH
+		}
+	}
+	return y
+}
+
+func (c *salesOrderPNGCanvas) wrappedTextInBox(x, y, width, bottom int, size float64, lineH int, col color.Color, paragraphs []string) int {
+	for _, paragraph := range paragraphs {
+		lines := c.wrapLine(paragraph, width, size)
+		for _, line := range lines {
+			if y+lineH > bottom {
+				return bottom
+			}
 			c.text(x, y, size, col, line)
 			y += lineH
 		}
@@ -377,4 +410,15 @@ func (c *salesOrderPNGCanvas) effectiveScale() int {
 
 func (c *salesOrderPNGCanvas) px(v int) int {
 	return v * c.effectiveScale()
+}
+
+func salesOrderPNGMMToPX(mm float64) int {
+	return int(math.Round(mm * float64(salesOrderPNGDesignWidth) / 210.0))
+}
+
+func minInt(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
 }
