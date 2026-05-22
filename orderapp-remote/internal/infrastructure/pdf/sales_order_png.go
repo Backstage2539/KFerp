@@ -148,9 +148,9 @@ func (c *salesOrderPNGCanvas) itemsTable(left, right, y int, snapshot salesdomai
 
 func salesOrderPNGItemColumnWidths(usableW int, hasDiscount bool) []int {
 	if hasDiscount {
-		return salesOrderScalePNGWidths(usableW, []float64{0.30, 0.12, 0.12, 0.13, 0.13, 0.20})
+		return salesOrderScalePNGWidths(usableW, []float64{0.27, 0.11, 0.10, 0.11, 0.12, 0.11, 0.18})
 	}
-	return salesOrderScalePNGWidths(usableW, []float64{0.36, 0.14, 0.13, 0.14, 0.23})
+	return salesOrderScalePNGWidths(usableW, []float64{0.33, 0.13, 0.12, 0.13, 0.12, 0.17})
 }
 
 func salesOrderScalePNGWidths(usableW int, ratios []float64) []int {
