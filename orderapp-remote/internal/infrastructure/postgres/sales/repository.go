@@ -294,6 +294,81 @@ func normalizeOrderPaymentMethodForStatusTx(ctx context.Context, tx pgx.Tx, sche
 	return "", nil
 }
 
+func lookupStatusName(ctx context.Context, tx pgx.Tx, schema, table string, statusID int64) (string, error) {
+	if statusID <= 0 {
+		return "", nil
+	}
+	var statusName string
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT COALESCE(name,'') FROM %s.%s WHERE id=$1`, schema, table), statusID).Scan(&statusName); err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(statusName), nil
+}
+
+func orderPaidStatusRequiresReceipt(statusName string) bool {
+	statusName = strings.TrimSpace(statusName)
+	return strings.Contains(statusName, "已收款")
+}
+
+func orderShippedStatusRequiresLogistics(statusName string) bool {
+	statusName = strings.TrimSpace(statusName)
+	return strings.Contains(statusName, "已发货")
+}
+
+func validateOrderFulfillmentRequirementsTx(ctx context.Context, tx pgx.Tx, schema string, payStatusID, shipStatusID int64, logisticsCompanyID, logisticsProductID int64, paymentGoodsAmount, paymentShippingAmount float64, paymentVoucherAssetID int64) error {
+	shipStatusName, err := lookupStatusName(ctx, tx, schema, "ship_statuses", shipStatusID)
+	if err != nil {
+		return fmt.Errorf("invalid ship_status_id")
+	}
+	if orderShippedStatusRequiresLogistics(shipStatusName) {
+		if logisticsCompanyID <= 0 {
+			return fmt.Errorf("logistics_company_id required")
+		}
+		if logisticsProductID <= 0 {
+			return fmt.Errorf("logistics_product_id required")
+		}
+		var ok bool
+		q := fmt.Sprintf(`
+			SELECT EXISTS (
+				SELECT 1
+				FROM %s.logistics_products p
+				JOIN %s.logistics_companies c ON c.id=p.company_id
+				WHERE p.id=$1 AND c.id=$2 AND p.active=true AND c.active=true
+			)
+		`, schema, schema)
+		if err := tx.QueryRow(ctx, q, logisticsProductID, logisticsCompanyID).Scan(&ok); err != nil || !ok {
+			return fmt.Errorf("invalid logistics product")
+		}
+	} else {
+		logisticsCompanyID = 0
+		logisticsProductID = 0
+	}
+	_ = logisticsCompanyID
+	_ = logisticsProductID
+
+	payStatusName, err := lookupStatusName(ctx, tx, schema, "pay_statuses", payStatusID)
+	if err != nil {
+		return fmt.Errorf("invalid pay_status_id")
+	}
+	if orderPaidStatusRequiresReceipt(payStatusName) {
+		if paymentGoodsAmount <= 0 {
+			return fmt.Errorf("payment_goods_amount required")
+		}
+		if paymentShippingAmount < 0 {
+			return fmt.Errorf("invalid payment_shipping_amount")
+		}
+		if paymentVoucherAssetID <= 0 {
+			return fmt.Errorf("payment_voucher_asset_id required")
+		}
+		var ok bool
+		q := fmt.Sprintf(`SELECT EXISTS (SELECT 1 FROM %s.sales_order_assets WHERE id=$1 AND kind='payment_voucher')`, schema)
+		if err := tx.QueryRow(ctx, q, paymentVoucherAssetID).Scan(&ok); err != nil || !ok {
+			return fmt.Errorf("invalid payment_voucher_asset_id")
+		}
+	}
+	return nil
+}
+
 func smallBatchTierQuantity(specG int64, qtyLb float64, rule smallBatchPriceRule) (int64, bool) {
 	rule = normalizeSmallBatchPriceRule(rule)
 	if !rule.Enabled || specG <= 0 || qtyLb <= 0 || qtyLb >= rule.ThresholdLB {
@@ -1179,6 +1254,9 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 	if shipStatusID == 0 {
 		shipStatusID = lookupDefaultStatusID(ctx, tx, r.schema, "ship_statuses", "未发货")
 	}
+	if err := validateOrderFulfillmentRequirementsTx(ctx, tx, r.schema, payStatusID, shipStatusID, cmd.LogisticsCompanyID, cmd.LogisticsProductID, cmd.PaymentGoodsAmount, cmd.PaymentShippingAmount, cmd.PaymentVoucherAssetID); err != nil {
+		return salesapp.SaveOrderResult{}, err
+	}
 
 	shipMethod := strings.TrimSpace(cmd.ShipMethod)
 	if shipMethod == "" {
@@ -1245,7 +1323,12 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 						portal_service_code=$29,
 						source_warehouse=$30,
 						bean_list_publication_id=$31,
-						bean_list_version_no=$32
+						bean_list_version_no=$32,
+						logistics_company_id=$33,
+						logistics_product_id=$34,
+						payment_goods_amount=$35,
+						payment_shipping_amount=$36,
+						payment_voucher_asset_id=$37
 					WHERE id=$1
 			`, r.schema)
 		if _, err := tx.Exec(ctx, uq,
@@ -1281,6 +1364,11 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 			sourceWarehouse,
 			beanListPublicationID,
 			beanListVersionNo,
+			cmd.LogisticsCompanyID,
+			cmd.LogisticsProductID,
+			cmd.PaymentGoodsAmount,
+			cmd.PaymentShippingAmount,
+			cmd.PaymentVoucherAssetID,
 		); err != nil {
 			return salesapp.SaveOrderResult{}, err
 		}
@@ -1306,7 +1394,9 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 						responsible_party_type, responsible_party_id, responsible_party_name,
 						portal_service_code, source_warehouse,
 						bean_list_publication_id, bean_list_version_no,
-						order_no
+						order_no,
+						logistics_company_id, logistics_product_id,
+						payment_goods_amount, payment_shipping_amount, payment_voucher_asset_id
 					) VALUES (
 						$1,$2,$3,$4,$5,$6,$7,$8,$9,$10,
 						$11,$12,$13,
@@ -1315,7 +1405,8 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 						$25,$26,$27,
 						$28,$29,
 						$30,$31,
-						$32
+						$32,
+						$33,$34,$35,$36,$37
 					)
 					RETURNING id
 			`, r.schema)
@@ -1352,6 +1443,11 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 			beanListPublicationID,
 			beanListVersionNo,
 			orderNo,
+			cmd.LogisticsCompanyID,
+			cmd.LogisticsProductID,
+			cmd.PaymentGoodsAmount,
+			cmd.PaymentShippingAmount,
+			cmd.PaymentVoucherAssetID,
 		).Scan(&orderID)
 		if err != nil {
 			return salesapp.SaveOrderResult{}, err
@@ -1808,6 +1904,14 @@ func updateOrderHeader(ctx context.Context, pool *pgxpool.Pool, schema string, i
 	if err != nil {
 		return fmt.Errorf("invalid discount_amount")
 	}
+	paymentGoodsAmount, err := parseFee(req.PaymentGoodsAmount)
+	if err != nil {
+		return fmt.Errorf("invalid payment_goods_amount")
+	}
+	paymentShippingAmount, err := parseFee(req.PaymentShippingAmount)
+	if err != nil {
+		return fmt.Errorf("invalid payment_shipping_amount")
+	}
 	round := strings.TrimSpace(req.RoundToInt) != ""
 
 	tx, err := pool.Begin(ctx)
@@ -1900,6 +2004,10 @@ func updateOrderHeader(ctx context.Context, pool *pgxpool.Pool, schema string, i
 	if err != nil {
 		return err
 	}
+	if err := validateOrderFulfillmentRequirementsTx(ctx, tx, schema, req.PayStatusID, req.ShipStatusID, req.LogisticsCompanyID, req.LogisticsProductID, paymentGoodsAmount, paymentShippingAmount, req.PaymentVoucherAssetID); err != nil {
+		return err
+	}
+	shipTrackingNo := salesapp.TrackingNumbersSummary(salesapp.NormalizeTrackingNumbers(req.ShipTrackingNo))
 	q := fmt.Sprintf(`
 		UPDATE %s.orders
 		SET order_date=$2,
@@ -1923,7 +2031,14 @@ func updateOrderHeader(ctx context.Context, pool *pgxpool.Pool, schema string, i
 			outsource_manual_fee=$20,
 			outsource_tax_fee=$21,
 			outsource_other_fee=$22,
-			outsource_total_fee=$23
+			outsource_total_fee=$23,
+			ship_method=$24,
+			ship_tracking_no=$25,
+			logistics_company_id=$26,
+			logistics_product_id=$27,
+			payment_goods_amount=$28,
+			payment_shipping_amount=$29,
+			payment_voucher_asset_id=$30
 		WHERE id=$1
 	`, schema)
 	if _, err := tx.Exec(ctx, q,
@@ -1950,7 +2065,17 @@ func updateOrderHeader(ctx context.Context, pool *pgxpool.Pool, schema string, i
 		outsourceFees[4],
 		outsourceFees[5],
 		outsourceTotal,
+		nullText(req.ShipMethod),
+		nullText(shipTrackingNo),
+		req.LogisticsCompanyID,
+		req.LogisticsProductID,
+		paymentGoodsAmount,
+		paymentShippingAmount,
+		req.PaymentVoucherAssetID,
 	); err != nil {
+		return err
+	}
+	if _, err := replaceOrderTrackingNumbersTx(ctx, tx, schema, id, shipTrackingNo, "order_header", req.Actor); err != nil {
 		return err
 	}
 	return tx.Commit(ctx)

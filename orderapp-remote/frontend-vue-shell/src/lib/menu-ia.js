@@ -80,6 +80,7 @@ export const menuGroups = [
       { key: 'machines', label: '设备产能配置', title: '设备产能配置' },
       { key: 'companyProfile', label: '公司设置', title: '公司设置' },
       { key: 'salesOrderSettings', label: '销售单设置', title: '销售单设置' },
+      { key: 'logisticsSettings', label: '物流设置', title: '物流设置' },
       { key: 'senderSettings', label: '发货人设置', title: '发货人设置' },
       { key: 'outsourceSettings', label: '代加工模板设置', title: '代加工模板设置' },
       { key: 'uiSettings', label: '界面设置', title: '界面设置' },

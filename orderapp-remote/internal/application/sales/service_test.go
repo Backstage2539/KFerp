@@ -172,6 +172,18 @@ func (r *fakeRepo) DeleteSalesOrderPaymentCode(ctx context.Context, id int64, ac
 	return nil
 }
 
+func (r *fakeRepo) ListLogisticsCompanies(ctx context.Context, includeInactive bool) ([]LogisticsCompany, error) {
+	return []LogisticsCompany{{ID: 1, Name: "顺丰", Active: true, Products: []LogisticsProduct{{ID: 2, CompanyID: 1, Name: "顺丰小件", Active: true}}}}, nil
+}
+
+func (r *fakeRepo) SaveLogisticsCompany(ctx context.Context, cmd SaveLogisticsCompanyCommand) (LogisticsCompany, error) {
+	return LogisticsCompany{ID: 1, Name: cmd.Name, Sort: cmd.Sort, Active: cmd.Active}, nil
+}
+
+func (r *fakeRepo) SaveLogisticsProduct(ctx context.Context, cmd SaveLogisticsProductCommand) (LogisticsProduct, error) {
+	return LogisticsProduct{ID: 2, CompanyID: cmd.CompanyID, Name: cmd.Name, Sort: cmd.Sort, Active: cmd.Active}, nil
+}
+
 func (r *fakeRepo) SetSalesOrderSealAsset(ctx context.Context, assetID int64, actor string) error {
 	return nil
 }

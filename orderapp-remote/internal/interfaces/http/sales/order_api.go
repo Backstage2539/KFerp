@@ -16,6 +16,7 @@ import (
 type orderAPIHandler struct {
 	sales    *salesapp.Service
 	messages MessagePublisher
+	assetDir string
 }
 
 type apiOption struct {
@@ -55,6 +56,7 @@ type orderFormAPIResponse struct {
 	PayStatuses            []apiOption                          `json:"pay_statuses"`
 	OrderTypes             []apiOption                          `json:"order_types"`
 	Products               []map[string]any                     `json:"products"`
+	Logistics              []salesapp.LogisticsCompany          `json:"logistics_companies"`
 	BeanListVersionOptions []salesapp.BeanListVersionOption     `json:"bean_list_version_options"`
 	CustomerPublicUsages   []salesapp.CustomerPublicUsageOption `json:"customer_public_usages"`
 	EditMode               bool                                 `json:"edit_mode"`
@@ -73,6 +75,11 @@ type orderSaveAPIRequest struct {
 	ShipStatusID                    int64  `json:"ship_status_id"`
 	ShipMethod                      string `json:"ship_method"`
 	ShipTrackingNo                  string `json:"ship_tracking_no"`
+	LogisticsCompanyID              int64  `json:"logistics_company_id"`
+	LogisticsProductID              int64  `json:"logistics_product_id"`
+	PaymentGoodsAmount              string `json:"payment_goods_amount"`
+	PaymentShippingAmount           string `json:"payment_shipping_amount"`
+	PaymentVoucherAssetID           int64  `json:"payment_voucher_asset_id"`
 	ResponsibleType                 string `json:"responsible_type"`
 	ResponsibleID                   int64  `json:"responsible_id"`
 	Notes                           string `json:"notes"`
@@ -117,10 +124,15 @@ type orderVoidManyAPIRequest struct {
 	Reason   string  `json:"reason"`
 }
 
-func registerOrderAPI(e *echo.Echo, salesSvc *salesapp.Service, messages MessagePublisher) {
+func registerOrderAPI(e *echo.Echo, salesSvc *salesapp.Service, messages MessagePublisher, assetDirs ...string) {
+	assetDir := "/app/data/assets"
+	if len(assetDirs) > 0 && strings.TrimSpace(assetDirs[0]) != "" {
+		assetDir = strings.TrimSpace(assetDirs[0])
+	}
 	h := orderAPIHandler{
 		sales:    salesSvc,
 		messages: messages,
+		assetDir: assetDir,
 	}
 	e.GET("/api/orders", h.list)
 	e.GET("/api/orders/:id/detail", h.detail)
@@ -128,6 +140,7 @@ func registerOrderAPI(e *echo.Echo, salesSvc *salesapp.Service, messages Message
 	e.POST("/api/orders/void", h.voidMany)
 	e.GET("/api/order/form", h.form)
 	e.POST("/api/order/stock-batch-preview", h.stockBatchPreview)
+	e.POST("/api/order/payment-vouchers", h.uploadPaymentVoucher)
 	e.POST("/api/order", h.save)
 }
 
@@ -224,6 +237,7 @@ func (h orderAPIHandler) form(c echo.Context) error {
 		PayStatuses:            apiOptions(data.PayStatuses),
 		OrderTypes:             apiOptions(data.OrderTypes),
 		Products:               apiProducts(data.Products),
+		Logistics:              data.LogisticsCompanies,
 		BeanListVersionOptions: data.BeanListVersionOptions,
 		CustomerPublicUsages:   data.CustomerPublicUsages,
 	}
@@ -480,6 +494,17 @@ func (h orderAPIHandler) stockBatchPreview(c echo.Context) error {
 	return c.JSON(http.StatusOK, preview)
 }
 
+func (h orderAPIHandler) uploadPaymentVoucher(c echo.Context) error {
+	if err := support.RequireEmployeeBound(c); err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
+	}
+	asset, err := saveUploadedSalesOrderAsset(c, h.sales, h.assetDir, "payment_voucher")
+	if err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
+	}
+	return c.JSON(http.StatusOK, map[string]any{"asset": asset})
+}
+
 func (r orderSaveAPIRequest) toCreateRequest() CreateOrderRequest {
 	return CreateOrderRequest{
 		OrderDate:                       r.OrderDate,
@@ -491,6 +516,11 @@ func (r orderSaveAPIRequest) toCreateRequest() CreateOrderRequest {
 		ShipStatusID:                    r.ShipStatusID,
 		ShipMethod:                      r.ShipMethod,
 		ShipTrackingNo:                  r.ShipTrackingNo,
+		LogisticsCompanyID:              r.LogisticsCompanyID,
+		LogisticsProductID:              r.LogisticsProductID,
+		PaymentGoodsAmount:              r.PaymentGoodsAmount,
+		PaymentShippingAmount:           r.PaymentShippingAmount,
+		PaymentVoucherAssetID:           r.PaymentVoucherAssetID,
 		ResponsibleType:                 r.ResponsibleType,
 		ResponsibleID:                   r.ResponsibleID,
 		Notes:                           r.Notes,
@@ -828,6 +858,12 @@ func editDataForAPI(ed *OrderEditData) map[string]any {
 		"ship_status_id":                      strconv.FormatInt(ed.ShipStatusID, 10),
 		"ship_method":                         ed.ShipMethod,
 		"ship_tracking_no":                    ed.ShipTrackingNo,
+		"logistics_company_id":                ed.LogisticsCompanyID,
+		"logistics_product_id":                ed.LogisticsProductID,
+		"payment_goods_amount":                ed.PaymentGoodsAmount,
+		"payment_shipping_amount":             ed.PaymentShippingAmount,
+		"payment_voucher_asset_id":            ed.PaymentVoucherAssetID,
+		"payment_voucher":                     ed.PaymentVoucher,
 		"responsible_type":                    ed.ResponsibleType,
 		"responsible_id":                      ed.ResponsibleID,
 		"responsible_name":                    ed.ResponsibleName,

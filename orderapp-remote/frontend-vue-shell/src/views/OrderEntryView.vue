@@ -122,6 +122,42 @@
           <span>快递单号（可多个）</span>
           <textarea v-model.trim="form.ship_tracking_no" rows="2" placeholder="多个单号可用换行、逗号或分号分隔"></textarea>
         </label>
+
+        <div v-if="logisticsRequired" class="conditional-panel full-span">
+          <div class="condition-title">发货物流</div>
+          <label>
+            <span>物流公司</span>
+            <select v-model.number="form.logistics_company_id" @change="syncLogisticsProduct">
+              <option :value="0">选择物流公司</option>
+              <option v-for="item in logisticsCompanies" :key="item.id" :value="item.id">{{ item.name }}</option>
+            </select>
+          </label>
+          <label>
+            <span>物流产品</span>
+            <select v-model.number="form.logistics_product_id">
+              <option :value="0">选择物流产品</option>
+              <option v-for="item in selectedLogisticsProducts" :key="item.id" :value="item.id">{{ item.name }}</option>
+            </select>
+          </label>
+        </div>
+
+        <div v-if="paymentReceiptRequired" class="conditional-panel full-span">
+          <div class="condition-title">收款凭证</div>
+          <label>
+            <span>货款金额</span>
+            <input v-model.trim="form.payment_goods_amount" type="number" min="0" step="0.01" />
+          </label>
+          <label>
+            <span>运费金额</span>
+            <input v-model.trim="form.payment_shipping_amount" type="number" min="0" step="0.01" />
+          </label>
+          <label class="voucher-field">
+            <span>收款凭证</span>
+            <input type="file" accept="image/*,.pdf" @change="handlePaymentVoucherFile" />
+            <small v-if="uploadingVoucher">上传中...</small>
+            <small v-else-if="paymentVoucher">{{ paymentVoucher.filename || '已上传凭证' }}</small>
+          </label>
+        </div>
       </div>
 
       <label class="notes">
@@ -420,9 +456,13 @@ const payStatuses = ref([])
 const orderTypes = ref([])
 const products = ref([])
 const employees = ref([])
+const logisticsCompanies = ref([])
 const beanListVersionOptions = ref([])
 const customerPublicUsages = ref([])
 const rows = ref([newRow()])
+const paymentVoucher = ref(null)
+const paymentVoucherFile = ref(null)
+const uploadingVoucher = ref(false)
 const customerQuery = ref('')
 const customerOpen = ref(false)
 const customerDrawerOpen = ref(false)
@@ -443,6 +483,11 @@ const form = reactive({
   ship_status_id: 0,
   ship_method: '',
   ship_tracking_no: '',
+  logistics_company_id: 0,
+  logistics_product_id: 0,
+  payment_goods_amount: '',
+  payment_shipping_amount: '',
+  payment_voucher_asset_id: 0,
   bean_list_publication_id: 0,
   commercial_bean_list_publication_id: 0,
   green_bean_list_publication_id: 0,
@@ -554,6 +599,17 @@ const retailOrder = computed(() => {
 const itemsTotal = computed(() => rows.value.reduce((sum, row) => sum + rowTotal(row), 0))
 const filteredCustomers = computed(() => filterOptions(customers.value, customerQuery.value).slice(0, 20))
 const paymentMethodRequired = computed(() => requiresOrderPaymentMethod(form, payStatuses.value))
+const selectedPayStatusName = computed(() => optionName(payStatuses.value, form.pay_status_id))
+const selectedShipStatusName = computed(() => optionName(shipStatuses.value, form.ship_status_id))
+const paymentReceiptRequired = computed(() => {
+  const name = selectedPayStatusName.value
+  return name.includes('已收款') || name.includes('已付款') || name.includes('已支付')
+})
+const logisticsRequired = computed(() => selectedShipStatusName.value.includes('已发货'))
+const selectedLogisticsProducts = computed(() => {
+  const company = logisticsCompanies.value.find((item) => Number(item.id || 0) === Number(form.logistics_company_id || 0))
+  return (company?.products || []).filter((item) => item.active !== false)
+})
 const copyMode = computed(() => Number(props.copyId || effectiveCopyID.value || 0) > 0)
 const activeEmployees = computed(() => employees.value.filter((employee) => employee.active !== false))
 const selectedCustomer = computed(() => customers.value.find((item) => Number(item.id || 0) === Number(form.customer_id || 0)) || null)
@@ -590,6 +646,58 @@ function defaultSourceID() {
 
 function defaultOrderTypeID() {
   return defaultOptionID(orderTypes.value, ['批发', 'Wholesale', 'wholesale'])
+}
+
+function syncLogisticsProduct() {
+  const products = selectedLogisticsProducts.value
+  if (!products.some((item) => Number(item.id || 0) === Number(form.logistics_product_id || 0))) {
+    form.logistics_product_id = Number(products[0]?.id || 0)
+  }
+}
+
+function ensureLogisticsDefaults() {
+  if (!logisticsRequired.value) return
+  if (!form.logistics_company_id && logisticsCompanies.value.length) {
+    form.logistics_company_id = Number(logisticsCompanies.value[0]?.id || 0)
+  }
+  syncLogisticsProduct()
+}
+
+function ensurePaymentDefaults() {
+  if (!paymentReceiptRequired.value) return
+  if (String(form.payment_goods_amount || '').trim() === '') {
+    form.payment_goods_amount = money(itemsTotal.value)
+  }
+  if (String(form.payment_shipping_amount || '').trim() === '') {
+    form.payment_shipping_amount = money(toNumber(form.shipping_amount))
+  }
+}
+
+async function handlePaymentVoucherFile(event) {
+  const file = event?.target?.files?.[0]
+  paymentVoucherFile.value = file || null
+  if (!file) return
+  await uploadPaymentVoucher()
+}
+
+async function uploadPaymentVoucher() {
+  if (!paymentVoucherFile.value) throw new Error('请选择收款凭证')
+  uploadingVoucher.value = true
+  try {
+    const body = new FormData()
+    body.append('file', paymentVoucherFile.value)
+    const resp = await fetch('/api/order/payment-vouchers', {
+      method: 'POST',
+      credentials: 'same-origin',
+      body,
+    })
+    const data = await resp.json().catch(() => ({}))
+    if (!resp.ok) throw new Error(data.error || '收款凭证上传失败')
+    paymentVoucher.value = data.asset || null
+    form.payment_voucher_asset_id = Number(data.asset?.id || 0)
+  } finally {
+    uploadingVoucher.value = false
+  }
 }
 
 function chooseCustomer(item) {
@@ -1001,6 +1109,11 @@ function applyEditData(data) {
     ship_status_id: Number(data.ship_status_id || 0),
     ship_method: data.ship_method || '',
     ship_tracking_no: data.ship_tracking_no || '',
+    logistics_company_id: Number(data.logistics_company_id || 0),
+    logistics_product_id: Number(data.logistics_product_id || 0),
+    payment_goods_amount: data.payment_goods_amount || '',
+    payment_shipping_amount: data.payment_shipping_amount || '',
+    payment_voucher_asset_id: Number(data.payment_voucher_asset_id || 0),
     bean_list_publication_id: Number(data.bean_list_publication_id || 0),
     commercial_bean_list_publication_id: Number(data.commercial_bean_list_publication_id || data.bean_list_publication_id || itemPublicationIDByType('commercial') || 0),
     green_bean_list_publication_id: Number(data.green_bean_list_publication_id || itemPublicationIDByType('green') || 0),
@@ -1017,6 +1130,7 @@ function applyEditData(data) {
     outsource_tax_fee: data.outsource_tax_fee || '',
     outsource_other_fee: data.outsource_other_fee || '',
   })
+  paymentVoucher.value = data.payment_voucher || null
   customerQuery.value = optionName(customers.value, form.customer_id)
   rows.value = editItems.map((item) => {
     const spec = String(item.spec || '').replace(/g$/i, '')
@@ -1091,6 +1205,7 @@ async function load() {
     orderTypes.value = data.order_types || []
     products.value = data.products || []
     employees.value = data.employees || []
+    logisticsCompanies.value = data.logistics_companies || []
     beanListVersionOptions.value = data.bean_list_version_options || []
     customerPublicUsages.value = data.customer_public_usages || []
     applyDefaultSelections(data)
@@ -1099,6 +1214,12 @@ async function load() {
       if (copyID) {
         editData.ship_tracking_no = ''
         editData.ship_status_id = defaultStatusID(shipStatuses.value, ['未发货']) || editData.ship_status_id
+        editData.logistics_company_id = 0
+        editData.logistics_product_id = 0
+        editData.payment_goods_amount = ''
+        editData.payment_shipping_amount = ''
+        editData.payment_voucher_asset_id = 0
+        editData.payment_voucher = null
         editData.bean_list_publication_id = 0
         editData.commercial_bean_list_publication_id = 0
         editData.green_bean_list_publication_id = 0
@@ -1127,6 +1248,15 @@ async function save() {
     const payload = buildOrderPayload({ form, rows: rows.value })
     if (!payload.customer_id) throw new Error('请选择客户')
     if (paymentMethodRequired.value && !payload.payment_method) throw new Error('请选择收款方式')
+    if (logisticsRequired.value) {
+      if (!payload.logistics_company_id) throw new Error('请选择物流公司')
+      if (!payload.logistics_product_id) throw new Error('请选择物流产品')
+    }
+    if (paymentReceiptRequired.value) {
+      if (toNumber(payload.payment_goods_amount) <= 0) throw new Error('请输入货款金额')
+      if (String(payload.payment_shipping_amount || '').trim() === '') throw new Error('请输入运费金额')
+      if (!payload.payment_voucher_asset_id) throw new Error('请上传收款凭证')
+    }
     if (!payload.product_id.length) throw new Error('请至少录入一条有效明细')
     const stockDecision = await previewStockBatchesBeforeSave(payload)
     if (stockDecision) payload.stock_batch_decision = stockDecision
@@ -1206,6 +1336,20 @@ watch(
   },
 )
 
+watch(logisticsRequired, ensureLogisticsDefaults)
+watch(() => form.logistics_company_id, syncLogisticsProduct)
+watch(paymentReceiptRequired, ensurePaymentDefaults)
+watch(itemsTotal, () => {
+  if (paymentReceiptRequired.value && String(form.payment_goods_amount || '').trim() === '') {
+    form.payment_goods_amount = money(itemsTotal.value)
+  }
+})
+watch(() => form.shipping_amount, () => {
+  if (paymentReceiptRequired.value && String(form.payment_shipping_amount || '').trim() === '') {
+    form.payment_shipping_amount = money(toNumber(form.shipping_amount))
+  }
+})
+
 watch(
   () => form.commercial_bean_list_publication_id,
   (publicationID) => {
@@ -1229,6 +1373,10 @@ watch(
 .panel { padding: 16px; }
 .form-grid { display: grid; grid-template-columns: repeat(3, minmax(190px, 1fr)); gap: 14px; }
 .form-grid.compact { grid-template-columns: repeat(4, minmax(150px, 1fr)); }
+.full-span { grid-column: 1 / -1; }
+.conditional-panel { display: grid; grid-template-columns: repeat(3, minmax(180px, 1fr)); gap: 12px; align-items: end; padding: 12px; border: 1px solid #e4e7ec; border-radius: 8px; background: #fafbfc; }
+.condition-title { align-self: center; font-weight: 700; color: #1f2937; }
+.voucher-field small { color: #667085; font-size: 12px; }
 label { position: relative; display: flex; flex-direction: column; gap: 6px; min-width: 0; }
 input, select, textarea, button { font: inherit; }
 input, select, textarea { width: 100%; border: 1px solid #d7dbe3; border-radius: 6px; padding: 8px 10px; min-height: 38px; background: #fff; box-sizing: border-box; }

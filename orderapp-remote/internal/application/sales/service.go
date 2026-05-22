@@ -20,6 +20,11 @@ type SaveOrderCommand struct {
 	ShipStatusID                    int64
 	ShipMethod                      string
 	ShipTrackingNo                  string
+	LogisticsCompanyID              int64
+	LogisticsProductID              int64
+	PaymentGoodsAmount              float64
+	PaymentShippingAmount           float64
+	PaymentVoucherAssetID           int64
 	ResponsibleType                 string
 	ResponsibleID                   int64
 	Notes                           string
@@ -132,6 +137,11 @@ type UpdateHeaderCommand struct {
 	ShipStatusID          int64
 	ShipMethod            string
 	ShipTrackingNo        string
+	LogisticsCompanyID    int64
+	LogisticsProductID    int64
+	PaymentGoodsAmount    string
+	PaymentShippingAmount string
+	PaymentVoucherAssetID int64
 	Notes                 string
 	ShippingAmount        string
 	DiscountAmount        string
@@ -271,6 +281,7 @@ type OrderFormData struct {
 	OrderTypes             []Option
 	Products               []ProductOption
 	Employees              []EmployeeOption
+	LogisticsCompanies     []LogisticsCompany
 	BeanListVersionOptions []BeanListVersionOption
 	CustomerPublicUsages   []CustomerPublicUsageOption
 	EditData               *OrderEditData
@@ -314,6 +325,12 @@ type OrderEditData struct {
 	ShipStatusID          int64
 	ShipMethod            string
 	ShipTrackingNo        string
+	LogisticsCompanyID    int64
+	LogisticsProductID    int64
+	PaymentGoodsAmount    string
+	PaymentShippingAmount string
+	PaymentVoucherAssetID int64
+	PaymentVoucher        *SalesOrderAsset
 	ResponsibleType       string
 	ResponsibleID         int64
 	ResponsibleName       string
@@ -597,6 +614,22 @@ type SalesOrderPaymentCode struct {
 	Asset       SalesOrderAsset `json:"asset"`
 }
 
+type LogisticsProduct struct {
+	ID        int64  `json:"id"`
+	CompanyID int64  `json:"company_id"`
+	Name      string `json:"name"`
+	Sort      int    `json:"sort"`
+	Active    bool   `json:"active"`
+}
+
+type LogisticsCompany struct {
+	ID       int64              `json:"id"`
+	Name     string             `json:"name"`
+	Sort     int                `json:"sort"`
+	Active   bool               `json:"active"`
+	Products []LogisticsProduct `json:"products"`
+}
+
 type SaveSalesOrderSettingsCommand struct {
 	Actor               string  `json:"actor"`
 	CompanyName         string  `json:"company_name"`
@@ -636,6 +669,23 @@ type SaveSalesOrderPaymentCodeCommand struct {
 	AssetID     int64  `json:"asset_id"`
 	Sort        int    `json:"sort"`
 	Active      bool   `json:"active"`
+}
+
+type SaveLogisticsCompanyCommand struct {
+	Actor  string `json:"actor"`
+	ID     int64  `json:"id"`
+	Name   string `json:"name"`
+	Sort   int    `json:"sort"`
+	Active bool   `json:"active"`
+}
+
+type SaveLogisticsProductCommand struct {
+	Actor     string `json:"actor"`
+	ID        int64  `json:"id"`
+	CompanyID int64  `json:"company_id"`
+	Name      string `json:"name"`
+	Sort      int    `json:"sort"`
+	Active    bool   `json:"active"`
 }
 
 type GenerateSalesOrderDocumentCommand struct {
@@ -898,6 +948,9 @@ type Repository interface {
 	DeactivateSalesOrderPaymentCode(ctx context.Context, id int64, actor string) error
 	ActivateSalesOrderPaymentCode(ctx context.Context, id int64, actor string) error
 	DeleteSalesOrderPaymentCode(ctx context.Context, id int64, actor string) error
+	ListLogisticsCompanies(ctx context.Context, includeInactive bool) ([]LogisticsCompany, error)
+	SaveLogisticsCompany(ctx context.Context, cmd SaveLogisticsCompanyCommand) (LogisticsCompany, error)
+	SaveLogisticsProduct(ctx context.Context, cmd SaveLogisticsProductCommand) (LogisticsProduct, error)
 	SetSalesOrderSealAsset(ctx context.Context, assetID int64, actor string) error
 	LoadSalesOrderContext(ctx context.Context, orderID int64) (SalesOrderContext, error)
 	SaveSalesOrderNote(ctx context.Context, cmd SaveSalesOrderNoteCommand) error
@@ -1518,6 +1571,37 @@ func (s *Service) DeleteSalesOrderPaymentCode(ctx context.Context, id int64, act
 		actor = "sales"
 	}
 	return s.repo.DeleteSalesOrderPaymentCode(ctx, id, actor)
+}
+
+func (s *Service) ListLogisticsCompanies(ctx context.Context, includeInactive bool) ([]LogisticsCompany, error) {
+	return s.repo.ListLogisticsCompanies(ctx, includeInactive)
+}
+
+func (s *Service) SaveLogisticsCompany(ctx context.Context, cmd SaveLogisticsCompanyCommand) (LogisticsCompany, error) {
+	cmd.Actor = strings.TrimSpace(cmd.Actor)
+	if cmd.Actor == "" {
+		cmd.Actor = "sales"
+	}
+	cmd.Name = strings.TrimSpace(cmd.Name)
+	if cmd.Name == "" {
+		return LogisticsCompany{}, fmt.Errorf("logistics company name required")
+	}
+	return s.repo.SaveLogisticsCompany(ctx, cmd)
+}
+
+func (s *Service) SaveLogisticsProduct(ctx context.Context, cmd SaveLogisticsProductCommand) (LogisticsProduct, error) {
+	cmd.Actor = strings.TrimSpace(cmd.Actor)
+	if cmd.Actor == "" {
+		cmd.Actor = "sales"
+	}
+	cmd.Name = strings.TrimSpace(cmd.Name)
+	if cmd.CompanyID <= 0 {
+		return LogisticsProduct{}, fmt.Errorf("logistics company required")
+	}
+	if cmd.Name == "" {
+		return LogisticsProduct{}, fmt.Errorf("logistics product name required")
+	}
+	return s.repo.SaveLogisticsProduct(ctx, cmd)
 }
 
 func (s *Service) SetSalesOrderSealAsset(ctx context.Context, assetID int64, actor string) error {
