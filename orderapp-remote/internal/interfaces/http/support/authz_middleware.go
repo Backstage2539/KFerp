@@ -263,6 +263,9 @@ func requiredPermissionForRequest(method, path string) string {
 		}
 		return "bom.write"
 	}
+	if isBeanListPublicationPDFRequest(path) {
+		return "costing.read"
+	}
 	if strings.HasPrefix(path, "/api/costing/bean-list/publications") {
 		if method == http.MethodGet {
 			return "costing.read"
@@ -323,4 +326,18 @@ func requiredPermissionForRequest(method, path string) string {
 		return "production.run"
 	}
 	return ""
+}
+
+func isBeanListPublicationPDFRequest(path string) bool {
+	path = strings.TrimSpace(path)
+	path = strings.TrimPrefix(path, "/app")
+	if !strings.HasPrefix(path, "/api/costing/bean-list/publications/") || !strings.HasSuffix(path, "/pdf") {
+		return false
+	}
+	idPart := strings.TrimSuffix(strings.TrimPrefix(path, "/api/costing/bean-list/publications/"), "/pdf")
+	if idPart == "" || strings.Contains(idPart, "/") {
+		return false
+	}
+	id, err := strconv.ParseInt(idPart, 10, 64)
+	return err == nil && id > 0
 }

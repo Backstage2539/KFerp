@@ -3,14 +3,18 @@ package costing
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
 
 	domain "orderapp/internal/domain/costing"
 )
+
+var ErrBeanListPublicationNotFound = errors.New("bean list publication not found")
 
 type CalculateRequest struct {
 	Products []domain.ProductInput `json:"products"`
@@ -105,6 +109,32 @@ type BeanListPublicationQuery struct {
 	OwnerKey   string `json:"owner_key,omitempty"`
 }
 
+type BeanListPublicationAsset struct {
+	PublicationID int64  `json:"publication_id"`
+	AssetType     string `json:"asset_type"`
+	ContentType   string `json:"content_type"`
+	CacheKey      string `json:"cache_key"`
+	Payload       []byte `json:"-"`
+}
+
+type BeanListPublicationPDFCommand struct {
+	PublicationID int64
+	Query         BeanListPublicationQuery
+	Actor         string
+}
+
+type BeanListPublicationPDFFile struct {
+	PublicationID int64  `json:"publication_id"`
+	ListType      string `json:"list_type"`
+	Version       string `json:"version"`
+	ContentType   string `json:"content_type"`
+	CacheKey      string `json:"cache_key"`
+	Filename      string `json:"filename"`
+	DownloadURL   string `json:"download_url,omitempty"`
+	Bytes         int    `json:"bytes"`
+	Payload       []byte `json:"-"`
+}
+
 type PublishBeanListCommand struct {
 	ListType                 string         `json:"list_type"`
 	Version                  string         `json:"version"`
@@ -141,6 +171,9 @@ type Repository interface {
 	DeactivateDripPriceTemplate(ctx context.Context, cmd DeactivateDripPriceTemplateCommand) error
 	ListBeanListPublications(ctx context.Context, query BeanListPublicationQuery) ([]BeanListPublication, error)
 	PublishedBeanList(ctx context.Context, query BeanListPublicationQuery) (*BeanListPublication, error)
+	LoadBeanListPublication(ctx context.Context, query BeanListPublicationQuery, publicationID int64) (*BeanListPublication, error)
+	LoadBeanListPublicationAsset(ctx context.Context, publicationID int64, assetType string) (BeanListPublicationAsset, error)
+	SaveBeanListPublicationAsset(ctx context.Context, asset BeanListPublicationAsset, actor string) (BeanListPublicationAsset, error)
 	PublishBeanList(ctx context.Context, cmd PublishBeanListCommand) (*BeanListPublication, error)
 	SaveBeanListDraft(ctx context.Context, cmd PublishBeanListCommand) (*BeanListPublication, error)
 	WithdrawBeanList(ctx context.Context, cmd WithdrawBeanListCommand) error
@@ -385,6 +418,74 @@ func (s *Service) PublishedBeanList(ctx context.Context, query BeanListPublicati
 		return nil, nil
 	}
 	return s.repo.PublishedBeanList(ctx, normalized)
+}
+
+func (s *Service) GenerateBeanListPublicationPDF(ctx context.Context, cmd BeanListPublicationPDFCommand, render func(BeanListPublication) ([]byte, error)) (BeanListPublicationPDFFile, error) {
+	if render == nil {
+		return BeanListPublicationPDFFile{}, fmt.Errorf("bean list renderer required")
+	}
+	normalized, err := normalizeBeanListPublicationPDFCommand(cmd)
+	if err != nil {
+		return BeanListPublicationPDFFile{}, err
+	}
+	if s.repo == nil {
+		return BeanListPublicationPDFFile{}, fmt.Errorf("repository required")
+	}
+	row, err := s.repo.LoadBeanListPublication(ctx, normalized.Query, normalized.PublicationID)
+	if err != nil {
+		return BeanListPublicationPDFFile{}, err
+	}
+	if row == nil {
+		return BeanListPublicationPDFFile{}, ErrBeanListPublicationNotFound
+	}
+	if asset, err := s.repo.LoadBeanListPublicationAsset(ctx, row.ID, "pdf"); err == nil && len(asset.Payload) > 0 {
+		return beanListPublicationPDFFile(*row, asset), nil
+	} else if err != nil && !errors.Is(err, ErrBeanListPublicationNotFound) {
+		return BeanListPublicationPDFFile{}, err
+	}
+	body, err := render(*row)
+	if err != nil {
+		return BeanListPublicationPDFFile{}, err
+	}
+	if len(body) == 0 {
+		return BeanListPublicationPDFFile{}, fmt.Errorf("bean list PDF is empty")
+	}
+	asset, err := s.repo.SaveBeanListPublicationAsset(ctx, BeanListPublicationAsset{
+		PublicationID: row.ID,
+		AssetType:     "pdf",
+		ContentType:   "application/pdf",
+		CacheKey:      beanListPublicationPDFCacheKey(*row),
+		Payload:       body,
+	}, normalized.Actor)
+	if err != nil {
+		return BeanListPublicationPDFFile{}, err
+	}
+	return beanListPublicationPDFFile(*row, asset), nil
+}
+
+func (s *Service) LoadBeanListPublicationPDF(ctx context.Context, cmd BeanListPublicationPDFCommand) (BeanListPublicationPDFFile, error) {
+	normalized, err := normalizeBeanListPublicationPDFCommand(cmd)
+	if err != nil {
+		return BeanListPublicationPDFFile{}, err
+	}
+	if s.repo == nil {
+		return BeanListPublicationPDFFile{}, fmt.Errorf("repository required")
+	}
+	row, err := s.repo.LoadBeanListPublication(ctx, normalized.Query, normalized.PublicationID)
+	if err != nil {
+		return BeanListPublicationPDFFile{}, err
+	}
+	if row == nil {
+		return BeanListPublicationPDFFile{}, ErrBeanListPublicationNotFound
+	}
+	asset, err := s.repo.LoadBeanListPublicationAsset(ctx, row.ID, "pdf")
+	if err != nil {
+		return BeanListPublicationPDFFile{}, err
+	}
+	if len(asset.Payload) == 0 {
+		return BeanListPublicationPDFFile{}, ErrBeanListPublicationNotFound
+	}
+	return beanListPublicationPDFFile(*row, asset), nil
 }
 
 func (s *Service) PublishBeanList(ctx context.Context, cmd PublishBeanListCommand) (*BeanListPublication, error) {
@@ -808,6 +909,62 @@ func normalizeBeanListPublicationQuery(query BeanListPublicationQuery) (BeanList
 	query.OwnerType = ownerType
 	query.OwnerKey = ownerKey
 	return query, nil
+}
+
+func normalizeBeanListPublicationPDFCommand(cmd BeanListPublicationPDFCommand) (BeanListPublicationPDFCommand, error) {
+	if cmd.PublicationID <= 0 {
+		return BeanListPublicationPDFCommand{}, fmt.Errorf("invalid id")
+	}
+	query, err := normalizeBeanListPublicationQuery(cmd.Query)
+	if err != nil {
+		return BeanListPublicationPDFCommand{}, err
+	}
+	cmd.Query = query
+	cmd.Actor = strings.TrimSpace(cmd.Actor)
+	return cmd, nil
+}
+
+var beanListPublicationPDFFilenameUnsafeChars = regexp.MustCompile(`[^A-Za-z0-9._-]+`)
+
+func beanListPublicationPDFFile(row BeanListPublication, asset BeanListPublicationAsset) BeanListPublicationPDFFile {
+	contentType := strings.TrimSpace(asset.ContentType)
+	if contentType == "" {
+		contentType = "application/pdf"
+	}
+	cacheKey := strings.TrimSpace(asset.CacheKey)
+	if cacheKey == "" {
+		cacheKey = beanListPublicationPDFCacheKey(row)
+	}
+	return BeanListPublicationPDFFile{
+		PublicationID: row.ID,
+		ListType:      row.ListType,
+		Version:       row.Version,
+		ContentType:   contentType,
+		CacheKey:      cacheKey,
+		Filename:      beanListPublicationPDFFilename(row),
+		Bytes:         len(asset.Payload),
+		Payload:       asset.Payload,
+	}
+}
+
+func beanListPublicationPDFCacheKey(row BeanListPublication) string {
+	version := strings.TrimSpace(row.Version)
+	if version == "" {
+		version = "published"
+	}
+	return fmt.Sprintf("bean-list:%d:%s", row.ID, version)
+}
+
+func beanListPublicationPDFFilename(row BeanListPublication) string {
+	listType := strings.TrimSpace(row.ListType)
+	if listType == "" {
+		listType = "bean-list"
+	}
+	version := strings.TrimSpace(row.Version)
+	if version == "" {
+		version = fmt.Sprintf("%d", row.ID)
+	}
+	return "bean-list-" + beanListPublicationPDFFilenameUnsafeChars.ReplaceAllString(listType+"-"+version, "-") + ".pdf"
 }
 
 func normalizeBeanListOwner(ownerType, ownerKey string) (string, string, error) {

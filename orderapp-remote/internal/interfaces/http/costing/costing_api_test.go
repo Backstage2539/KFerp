@@ -162,6 +162,34 @@ func (fakeService) WithdrawBeanList(context.Context, appcosting.WithdrawBeanList
 	return nil
 }
 
+func (fakeService) GenerateBeanListPublicationPDF(context.Context, appcosting.BeanListPublicationPDFCommand, func(appcosting.BeanListPublication) ([]byte, error)) (appcosting.BeanListPublicationPDFFile, error) {
+	row := fakePublishedBeanListPublication()
+	body := []byte("%PDF-1.4")
+	return appcosting.BeanListPublicationPDFFile{
+		PublicationID: row.ID,
+		ListType:      row.ListType,
+		Version:       row.Version,
+		ContentType:   "application/pdf",
+		CacheKey:      "bean-list:7:V3.0.5",
+		Filename:      "bean-list-commercial-V3.0.5.pdf",
+		Bytes:         len(body),
+		Payload:       body,
+	}, nil
+}
+
+func (fakeService) LoadBeanListPublicationPDF(context.Context, appcosting.BeanListPublicationPDFCommand) (appcosting.BeanListPublicationPDFFile, error) {
+	return appcosting.BeanListPublicationPDFFile{
+		PublicationID: 7,
+		ListType:      "commercial",
+		Version:       "V3.0.5",
+		ContentType:   "application/pdf",
+		CacheKey:      "bean-list:7:V3.0.5",
+		Filename:      "bean-list-commercial-V3.0.5.pdf",
+		Bytes:         8,
+		Payload:       []byte("%PDF-1.4"),
+	}, nil
+}
+
 type recordingBeanListService struct {
 	fakeService
 	published   int
@@ -269,6 +297,18 @@ func (fakeRepo) ListBeanListPublications(context.Context, appcosting.BeanListPub
 
 func (fakeRepo) PublishedBeanList(context.Context, appcosting.BeanListPublicationQuery) (*appcosting.BeanListPublication, error) {
 	return nil, nil
+}
+
+func (fakeRepo) LoadBeanListPublication(context.Context, appcosting.BeanListPublicationQuery, int64) (*appcosting.BeanListPublication, error) {
+	return nil, nil
+}
+
+func (fakeRepo) LoadBeanListPublicationAsset(context.Context, int64, string) (appcosting.BeanListPublicationAsset, error) {
+	return appcosting.BeanListPublicationAsset{}, appcosting.ErrBeanListPublicationNotFound
+}
+
+func (fakeRepo) SaveBeanListPublicationAsset(context.Context, appcosting.BeanListPublicationAsset, string) (appcosting.BeanListPublicationAsset, error) {
+	return appcosting.BeanListPublicationAsset{}, nil
 }
 
 func (fakeRepo) PublishBeanList(context.Context, appcosting.PublishBeanListCommand) (*appcosting.BeanListPublication, error) {
@@ -510,6 +550,8 @@ func TestRoutesAreRegistered(t *testing.T) {
 		"GET /api/costing/bean-list",
 		"GET /api/costing/bean-list/publications",
 		"POST /api/costing/bean-list/publications",
+		"POST /api/costing/bean-list/publications/:id/pdf",
+		"GET /api/costing/bean-list/publications/:id/pdf",
 		"POST /api/costing/bean-list/publications/:id/withdraw",
 		"POST /api/costing/bean-list/drafts",
 		"GET /public/bean-list/:list_type",
@@ -519,6 +561,54 @@ func TestRoutesAreRegistered(t *testing.T) {
 		if !seen[want] {
 			t.Fatalf("missing route %s; got %+v", want, seen)
 		}
+	}
+}
+
+func TestBeanListPublicationPDFAPIGeneratesSavedPDFThenDownloadsIt(t *testing.T) {
+	e := echo.New()
+	e.Use(func(next echo.HandlerFunc) echo.HandlerFunc {
+		return func(c echo.Context) error {
+			c.Set("basic_auth_admin", true)
+			c.Set("employee_id", int64(7))
+			return next(c)
+		}
+	})
+	RegisterRoutes(e, Dependencies{Costing: fakeService{}})
+
+	req := httptest.NewRequest(http.MethodPost, "/api/costing/bean-list/publications/7/pdf?list_type=commercial&scope=official", nil)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("generate status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	var generated appcosting.BeanListPublicationPDFFile
+	if err := json.Unmarshal(rec.Body.Bytes(), &generated); err != nil {
+		t.Fatal(err)
+	}
+	if generated.PublicationID != 7 || generated.ContentType != "application/pdf" || generated.Bytes <= 0 {
+		t.Fatalf("generated = %+v", generated)
+	}
+	if generated.DownloadURL != "/api/costing/bean-list/publications/7/pdf?list_type=commercial&scope=official" {
+		t.Fatalf("download url = %q", generated.DownloadURL)
+	}
+	if generated.Payload != nil {
+		t.Fatalf("payload must not be serialized in generate response")
+	}
+
+	req = httptest.NewRequest(http.MethodGet, generated.DownloadURL, nil)
+	rec = httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("download status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	if got := rec.Header().Get(echo.HeaderContentType); got != "application/pdf" {
+		t.Fatalf("content type = %q", got)
+	}
+	if cd := rec.Header().Get(echo.HeaderContentDisposition); !strings.Contains(cd, "bean-list-commercial-V3.0.5.pdf") {
+		t.Fatalf("content disposition = %q", cd)
+	}
+	if !bytes.HasPrefix(rec.Body.Bytes(), []byte("%PDF")) {
+		t.Fatalf("download body is not a pdf: %q", rec.Body.String())
 	}
 }
 

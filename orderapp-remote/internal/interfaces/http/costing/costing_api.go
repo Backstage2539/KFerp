@@ -1,8 +1,10 @@
 package costing
 
 import (
+	"errors"
 	"fmt"
 	"net/http"
+	"net/url"
 	appcosting "orderapp/internal/application/costing"
 	support "orderapp/internal/interfaces/http/support"
 	"strconv"
@@ -224,6 +226,38 @@ func registerCostingAPI(e *echo.Echo, svc Service, authz support.AuthzService) {
 		return c.JSON(http.StatusOK, row)
 	})
 
+	e.POST("/api/costing/bean-list/publications/:id/pdf", func(c echo.Context) error {
+		cmd, err := beanListPublicationPDFCommandFromRequest(c)
+		if err != nil {
+			return c.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
+		}
+		cmd.Actor = support.ActorOf(c)
+		file, err := svc.GenerateBeanListPublicationPDF(c.Request().Context(), cmd, renderBeanListPublicationPDF)
+		if err != nil {
+			return beanListPDFError(c, err)
+		}
+		file.DownloadURL = beanListPublicationPDFDownloadURL(cmd)
+		file.Payload = nil
+		return c.JSON(http.StatusOK, file)
+	})
+
+	e.GET("/api/costing/bean-list/publications/:id/pdf", func(c echo.Context) error {
+		cmd, err := beanListPublicationPDFCommandFromRequest(c)
+		if err != nil {
+			return c.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
+		}
+		file, err := svc.LoadBeanListPublicationPDF(c.Request().Context(), cmd)
+		if err != nil {
+			return beanListPDFError(c, err)
+		}
+		contentType := strings.TrimSpace(file.ContentType)
+		if contentType == "" {
+			contentType = "application/pdf"
+		}
+		c.Response().Header().Set(echo.HeaderContentDisposition, fmt.Sprintf(`attachment; filename="%s"`, strings.ReplaceAll(file.Filename, `"`, "")))
+		return c.Blob(http.StatusOK, contentType, file.Payload)
+	})
+
 	e.POST("/api/costing/bean-list/publications/:id/withdraw", func(c echo.Context) error {
 		if err := requireBeanListPublisher(c, authz); err != nil {
 			return err
@@ -265,6 +299,46 @@ func registerCostingAPI(e *echo.Echo, svc Service, authz support.AuthzService) {
 		}
 		return c.JSON(http.StatusOK, map[string]any{"ok": true, "id": id})
 	})
+}
+
+func beanListPublicationPDFCommandFromRequest(c echo.Context) (appcosting.BeanListPublicationPDFCommand, error) {
+	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil || id <= 0 {
+		return appcosting.BeanListPublicationPDFCommand{}, fmt.Errorf("invalid id")
+	}
+	query, err := beanListPublicationQueryFromRequest(c)
+	if err != nil {
+		return appcosting.BeanListPublicationPDFCommand{}, err
+	}
+	return appcosting.BeanListPublicationPDFCommand{
+		PublicationID: id,
+		Query:         query,
+	}, nil
+}
+
+func beanListPublicationPDFDownloadURL(cmd appcosting.BeanListPublicationPDFCommand) string {
+	params := url.Values{}
+	listType := strings.TrimSpace(cmd.Query.ListType)
+	if listType == "" {
+		listType = "commercial"
+	}
+	params.Set("list_type", listType)
+	scope := strings.TrimSpace(cmd.Query.Scope)
+	if scope == "" {
+		scope = "official"
+	}
+	params.Set("scope", scope)
+	if scope == "customer" {
+		params.Set("customer_id", strconv.FormatInt(cmd.Query.CustomerID, 10))
+	}
+	return fmt.Sprintf("/api/costing/bean-list/publications/%d/pdf?%s", cmd.PublicationID, params.Encode())
+}
+
+func beanListPDFError(c echo.Context, err error) error {
+	if errors.Is(err, appcosting.ErrBeanListPublicationNotFound) {
+		return c.JSON(http.StatusNotFound, map[string]string{"error": "bean list PDF not found"})
+	}
+	return c.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
 }
 
 func requireBeanListPublisher(c echo.Context, authz support.AuthzService) error {
