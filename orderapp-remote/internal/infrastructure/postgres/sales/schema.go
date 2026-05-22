@@ -29,7 +29,13 @@ func EnsureSchema(ctx context.Context, pool *pgxpool.Pool, schema string) error 
 	if err := ensureOrderResponsibleColumns(ctx, pool, schema); err != nil {
 		return err
 	}
+	if err := ensureLogisticsSettingsTables(ctx, pool, schema); err != nil {
+		return err
+	}
 	if err := ensureSalesOrderTables(ctx, pool, schema); err != nil {
+		return err
+	}
+	if err := ensureOrderFulfillmentColumns(ctx, pool, schema); err != nil {
 		return err
 	}
 	if err := ensureOrderInvoiceTables(ctx, pool, schema); err != nil {
@@ -333,6 +339,81 @@ func ensureSalesOrderTables(ctx context.Context, pool *pgxpool.Pool, schema stri
 		fmt.Sprintf(`ALTER TABLE %s.sales_order_settings ADD COLUMN IF NOT EXISTS bank_name TEXT NOT NULL DEFAULT ''`, schema),
 		fmt.Sprintf(`ALTER TABLE %s.sales_order_settings ADD COLUMN IF NOT EXISTS bank_account_no TEXT NOT NULL DEFAULT ''`, schema),
 	} {
+		if _, err := pool.Exec(ctx, stmt); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func ensureLogisticsSettingsTables(ctx context.Context, pool *pgxpool.Pool, schema string) error {
+	stmts := []string{
+		fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s.logistics_companies (
+			id BIGSERIAL PRIMARY KEY,
+			name TEXT NOT NULL DEFAULT '',
+			sort INTEGER NOT NULL DEFAULT 0,
+			active BOOLEAN NOT NULL DEFAULT true,
+			created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+			updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+		)`, schema),
+		fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s.logistics_products (
+			id BIGSERIAL PRIMARY KEY,
+			company_id BIGINT NOT NULL REFERENCES %s.logistics_companies(id) ON DELETE CASCADE,
+			name TEXT NOT NULL DEFAULT '',
+			sort INTEGER NOT NULL DEFAULT 0,
+			active BOOLEAN NOT NULL DEFAULT true,
+			created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+			updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+		)`, schema, schema),
+		fmt.Sprintf(`CREATE INDEX IF NOT EXISTS idx_%s_logistics_products_company ON %s.logistics_products(company_id)`, schema, schema),
+	}
+	for _, stmt := range stmts {
+		if _, err := pool.Exec(ctx, stmt); err != nil {
+			return err
+		}
+	}
+	var companyID int64
+	seedCompany := fmt.Sprintf(`
+		INSERT INTO %s.logistics_companies(name, sort, active)
+		SELECT '顺丰', 10, true
+		WHERE NOT EXISTS (SELECT 1 FROM %s.logistics_companies WHERE name='顺丰')
+		RETURNING id
+	`, schema, schema)
+	if err := pool.QueryRow(ctx, seedCompany).Scan(&companyID); err != nil {
+		_ = pool.QueryRow(ctx, fmt.Sprintf(`SELECT id FROM %s.logistics_companies WHERE name='顺丰' ORDER BY id LIMIT 1`, schema)).Scan(&companyID)
+	}
+	if companyID > 0 {
+		seedProduct := fmt.Sprintf(`
+			INSERT INTO %s.logistics_products(company_id, name, sort, active)
+			SELECT $1, $2, $3, true
+			WHERE NOT EXISTS (
+				SELECT 1 FROM %s.logistics_products WHERE company_id=$1 AND name=$2
+			)
+		`, schema, schema)
+		for _, item := range []struct {
+			name string
+			sort int
+		}{
+			{name: "顺丰小件", sort: 10},
+			{name: "顺丰大件", sort: 20},
+		} {
+			if _, err := pool.Exec(ctx, seedProduct, companyID, item.name, item.sort); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func ensureOrderFulfillmentColumns(ctx context.Context, pool *pgxpool.Pool, schema string) error {
+	stmts := []string{
+		fmt.Sprintf(`ALTER TABLE %s.orders ADD COLUMN IF NOT EXISTS logistics_company_id BIGINT NOT NULL DEFAULT 0`, schema),
+		fmt.Sprintf(`ALTER TABLE %s.orders ADD COLUMN IF NOT EXISTS logistics_product_id BIGINT NOT NULL DEFAULT 0`, schema),
+		fmt.Sprintf(`ALTER TABLE %s.orders ADD COLUMN IF NOT EXISTS payment_goods_amount NUMERIC(12,2) NOT NULL DEFAULT 0`, schema),
+		fmt.Sprintf(`ALTER TABLE %s.orders ADD COLUMN IF NOT EXISTS payment_shipping_amount NUMERIC(12,2) NOT NULL DEFAULT 0`, schema),
+		fmt.Sprintf(`ALTER TABLE %s.orders ADD COLUMN IF NOT EXISTS payment_voucher_asset_id BIGINT NOT NULL DEFAULT 0`, schema),
+	}
+	for _, stmt := range stmts {
 		if _, err := pool.Exec(ctx, stmt); err != nil {
 			return err
 		}

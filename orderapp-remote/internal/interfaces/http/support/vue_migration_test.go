@@ -79,6 +79,7 @@ func TestVueShellMigratesCatalogAndSettingsPages(t *testing.T) {
 		"import InventoryView from './views/InventoryView.vue'",
 		"import MachinesView from './views/MachinesView.vue'",
 		"import AllocationLogsView from './views/AllocationLogsView.vue'",
+		"import LogisticsSettingsView from './views/LogisticsSettingsView.vue'",
 		"import SenderSettingsView from './views/SenderSettingsView.vue'",
 		"import OutsourceSettingsView from './views/OutsourceSettingsView.vue'",
 		"customers: CustomersView",
@@ -91,6 +92,7 @@ func TestVueShellMigratesCatalogAndSettingsPages(t *testing.T) {
 		"quotePrint: ProductsView",
 		"machines: MachinesView",
 		"allocationLogs: AllocationLogsView",
+		"logisticsSettings: LogisticsSettingsView",
 		"senderSettings: SenderSettingsView",
 		"outsourceSettings: OutsourceSettingsView",
 	} {
@@ -131,6 +133,7 @@ func TestCatalogAndSettingsRoutesRedirectToVueShell(t *testing.T) {
 		{path: "/produce/machines", want: "/vue-shell?view=machines"},
 		{path: "/produce/allocations?batch=B1", want: "/vue-shell?view=allocationLogs&batch=B1"},
 		{path: "/settings/sender", want: "/vue-shell?view=senderSettings"},
+		{path: "/settings/logistics", want: "/vue-shell?view=logisticsSettings"},
 		{path: "/settings/outsource", want: "/vue-shell?view=outsourceSettings"},
 	}
 	assertRedirects(t, e, cases)

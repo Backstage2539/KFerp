@@ -110,6 +110,27 @@ func TestOrderAPIFormReturnsResponsiblePersonOptions(t *testing.T) {
 	}
 }
 
+func TestOrderAPIFormReturnsLogisticsSettings(t *testing.T) {
+	pool, schema := newOrderAPITestDB(t)
+	ctx := context.Background()
+	seedOrderAPITestData(t, ctx, pool, schema)
+
+	e := newOrderAPITestEcho(pool, schema)
+	req := httptest.NewRequest(http.MethodGet, "/api/order/form", nil)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET /api/order/form status = %d, want 200, body=%s", rec.Code, rec.Body.String())
+	}
+	body := rec.Body.String()
+	for _, needle := range []string{`"logistics_companies"`, `"name":"顺丰"`, `"name":"顺丰小件"`} {
+		if !strings.Contains(body, needle) {
+			t.Fatalf("GET /api/order/form missing logistics %s: %s", needle, body)
+		}
+	}
+}
+
 func TestOrderAPIFormFiltersCustomerSpecificProducts(t *testing.T) {
 	pool, schema := newOrderAPITestDB(t)
 	ctx := context.Background()
@@ -212,6 +233,136 @@ func TestOrderAPISavesAndListsEmployeeResponsiblePerson(t *testing.T) {
 		if !strings.Contains(rec.Body.String(), needle) {
 			t.Fatalf("GET /api/order/form edit missing %s: %s", needle, rec.Body.String())
 		}
+	}
+}
+
+func TestOrderAPIPaidStatusRequiresPaymentVoucher(t *testing.T) {
+	pool, schema := newOrderAPITestDB(t)
+	ctx := context.Background()
+	seedOrderAPITestData(t, ctx, pool, schema)
+	mustExecOrderAPITestSQL(t, ctx, pool, fmt.Sprintf(`
+		INSERT INTO %s.pay_statuses(id,name) VALUES (3,'已收款');
+		INSERT INTO %s.sales_order_assets(id,kind,filename,content_type,bytes,sha256,object_key,created_by)
+		VALUES (90,'payment_voucher','receipt.jpg','image/jpeg',12,'abc','sales_order_assets/payment_voucher/receipt.jpg','测试员');
+	`, schema, schema))
+
+	e := newOrderAPITestEcho(pool, schema)
+	payload := map[string]any{
+		"order_date":              "2026-05-23",
+		"customer_id":             3,
+		"source_id":               1,
+		"order_type_id":           1,
+		"pay_status_id":           3,
+		"ship_status_id":          1,
+		"payment_goods_amount":    "88.00",
+		"payment_shipping_amount": "0.00",
+		"product_id":              []string{"7"},
+		"tier_id":                 []string{"manual"},
+		"unit_price":              []string{"88"},
+		"item_name":               []string{"橘皮乌龙"},
+		"qty":                     []string{"1"},
+		"unit":                    []string{"件"},
+		"spec":                    []string{"454"},
+	}
+	body, _ := json.Marshal(payload)
+	req := httptest.NewRequest(http.MethodPost, "/api/order", bytes.NewReader(body))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "payment voucher required") {
+		t.Fatalf("POST paid without voucher status/body = %d %s, want voucher error", rec.Code, rec.Body.String())
+	}
+
+	payload["payment_voucher_asset_id"] = 90
+	body, _ = json.Marshal(payload)
+	req = httptest.NewRequest(http.MethodPost, "/api/order", bytes.NewReader(body))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec = httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("POST paid with voucher status = %d, want 200, body=%s", rec.Code, rec.Body.String())
+	}
+	var goods, freight float64
+	var voucherID int64
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`
+		SELECT payment_goods_amount, payment_shipping_amount, payment_voucher_asset_id
+		FROM %s.orders
+		ORDER BY id DESC
+		LIMIT 1
+	`, schema)).Scan(&goods, &freight, &voucherID); err != nil {
+		t.Fatalf("query payment receipt fields: %v", err)
+	}
+	if goods != 88 || freight != 0 || voucherID != 90 {
+		t.Fatalf("payment fields = %.2f %.2f %d, want 88/0/90", goods, freight, voucherID)
+	}
+}
+
+func TestOrderAPIShippedStatusRequiresLogisticsProduct(t *testing.T) {
+	pool, schema := newOrderAPITestDB(t)
+	ctx := context.Background()
+	seedOrderAPITestData(t, ctx, pool, schema)
+
+	var shippedID, companyID, productID int64
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT id FROM %s.ship_statuses WHERE name='已发货' ORDER BY id LIMIT 1`, schema)).Scan(&shippedID); err != nil {
+		t.Fatalf("query shipped status: %v", err)
+	}
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`
+		SELECT c.id, p.id
+		FROM %s.logistics_companies c
+		JOIN %s.logistics_products p ON p.company_id=c.id
+		WHERE c.name='顺丰'
+		ORDER BY p.sort, p.id
+		LIMIT 1
+	`, schema, schema)).Scan(&companyID, &productID); err != nil {
+		t.Fatalf("query logistics settings: %v", err)
+	}
+
+	e := newOrderAPITestEcho(pool, schema)
+	payload := map[string]any{
+		"order_date":     "2026-05-23",
+		"customer_id":    3,
+		"source_id":      1,
+		"order_type_id":  1,
+		"pay_status_id":  1,
+		"ship_status_id": shippedID,
+		"product_id":     []string{"7"},
+		"tier_id":        []string{"manual"},
+		"unit_price":     []string{"88"},
+		"item_name":      []string{"橘皮乌龙"},
+		"qty":            []string{"1"},
+		"unit":           []string{"件"},
+		"spec":           []string{"454"},
+	}
+	body, _ := json.Marshal(payload)
+	req := httptest.NewRequest(http.MethodPost, "/api/order", bytes.NewReader(body))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "logistics company and product required") {
+		t.Fatalf("POST shipped without logistics status/body = %d %s, want logistics error", rec.Code, rec.Body.String())
+	}
+
+	payload["logistics_company_id"] = companyID
+	payload["logistics_product_id"] = productID
+	body, _ = json.Marshal(payload)
+	req = httptest.NewRequest(http.MethodPost, "/api/order", bytes.NewReader(body))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec = httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("POST shipped with logistics status = %d, want 200, body=%s", rec.Code, rec.Body.String())
+	}
+	var gotCompanyID, gotProductID int64
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`
+		SELECT logistics_company_id, logistics_product_id
+		FROM %s.orders
+		ORDER BY id DESC
+		LIMIT 1
+	`, schema)).Scan(&gotCompanyID, &gotProductID); err != nil {
+		t.Fatalf("query logistics fields: %v", err)
+	}
+	if gotCompanyID != companyID || gotProductID != productID {
+		t.Fatalf("logistics fields = %d/%d, want %d/%d", gotCompanyID, gotProductID, companyID, productID)
 	}
 }
 
@@ -1714,6 +1865,9 @@ func seedOrderAPITestData(t *testing.T, ctx context.Context, pool *pgxpool.Pool,
 		INSERT INTO %s.products(id,name,default_price,active,retail_price_227g,retail_price_250g)
 		VALUES (7,'橘皮乌龙',50,true,50,56);
 	`, schema, schema, schema, schema, schema, schema, schema, schema, schema))
+	if err := postgressales.EnsureSchema(ctx, pool, schema); err != nil {
+		t.Fatalf("EnsureSchema: %v", err)
+	}
 }
 
 func seedOrderAPIResponsibleData(t *testing.T, ctx context.Context, pool *pgxpool.Pool, schema string) {

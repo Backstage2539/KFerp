@@ -199,6 +199,41 @@ test('buildOrderPayload includes structured order responsible person', () => {
   assert.equal(payload.responsible_id, 8)
 })
 
+test('buildOrderPayload includes logistics and payment receipt fields', () => {
+  const payload = buildOrderPayload({
+    form: {
+      order_date: '2026-05-23',
+      customer_id: 3,
+      source_id: 1,
+      order_type_id: 1,
+      pay_status_id: 3,
+      ship_status_id: 4,
+      logistics_company_id: 1,
+      logistics_product_id: 2,
+      payment_goods_amount: '120.00',
+      payment_shipping_amount: '12.00',
+      payment_voucher_asset_id: 9,
+    },
+    rows: [
+      {
+        product_id: 7,
+        product_name: '橘皮乌龙',
+        tier_id: 'manual',
+        spec_mode: '454',
+        qty: 1,
+        unit: '件',
+        unit_price: '88',
+      },
+    ],
+  })
+
+  assert.equal(payload.logistics_company_id, 1)
+  assert.equal(payload.logistics_product_id, 2)
+  assert.equal(payload.payment_goods_amount, '120.00')
+  assert.equal(payload.payment_shipping_amount, '12.00')
+  assert.equal(payload.payment_voucher_asset_id, 9)
+})
+
 test('responsibleOptions groups employees and customer partners for commission ownership', () => {
   const got = responsibleOptions({
     employees: [

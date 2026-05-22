@@ -76,6 +76,60 @@ func lookupDefaultStatusID(ctx context.Context, tx pgx.Tx, schema, table string,
 	return 0
 }
 
+func lookupStatusName(ctx context.Context, tx pgx.Tx, schema, table string, id int64) string {
+	if id <= 0 {
+		return ""
+	}
+	var name string
+	q := fmt.Sprintf("SELECT COALESCE(name,'') FROM %s.%s WHERE id=$1", schema, table)
+	_ = tx.QueryRow(ctx, q, id).Scan(&name)
+	return strings.TrimSpace(name)
+}
+
+func orderPaidStatusRequiresReceipt(name string) bool {
+	return strings.Contains(strings.TrimSpace(name), "已收款")
+}
+
+func orderShippedStatusRequiresLogistics(name string) bool {
+	return strings.Contains(strings.TrimSpace(name), "已发货")
+}
+
+func validateOrderFulfillmentRequirementsTx(ctx context.Context, tx pgx.Tx, schema string, cmd salesapp.SaveOrderCommand, payStatusID, shipStatusID int64) error {
+	if orderPaidStatusRequiresReceipt(lookupStatusName(ctx, tx, schema, "pay_statuses", payStatusID)) {
+		if cmd.PaymentGoodsAmount <= 0 {
+			return fmt.Errorf("payment_goods_amount required")
+		}
+		if cmd.PaymentShippingAmount < 0 {
+			return fmt.Errorf("invalid payment_shipping_amount")
+		}
+		if cmd.PaymentVoucherAssetID <= 0 {
+			return fmt.Errorf("payment voucher required")
+		}
+		var voucherID int64
+		q := fmt.Sprintf(`SELECT id FROM %s.sales_order_assets WHERE id=$1 LIMIT 1`, schema)
+		if err := tx.QueryRow(ctx, q, cmd.PaymentVoucherAssetID).Scan(&voucherID); err != nil || voucherID <= 0 {
+			return fmt.Errorf("payment voucher not found")
+		}
+	}
+	if orderShippedStatusRequiresLogistics(lookupStatusName(ctx, tx, schema, "ship_statuses", shipStatusID)) {
+		if cmd.LogisticsCompanyID <= 0 || cmd.LogisticsProductID <= 0 {
+			return fmt.Errorf("logistics company and product required")
+		}
+		var productID int64
+		q := fmt.Sprintf(`
+			SELECT p.id
+			FROM %s.logistics_products p
+			JOIN %s.logistics_companies c ON c.id=p.company_id
+			WHERE p.id=$1 AND p.company_id=$2 AND p.active=true AND c.active=true
+			LIMIT 1
+		`, schema, schema)
+		if err := tx.QueryRow(ctx, q, cmd.LogisticsProductID, cmd.LogisticsCompanyID).Scan(&productID); err != nil || productID <= 0 {
+			return fmt.Errorf("invalid logistics product")
+		}
+	}
+	return nil
+}
+
 func resolveOrderResponsibleParty(ctx context.Context, tx pgx.Tx, schema, responsibleType string, responsibleID int64) (string, int64, string, error) {
 	typ := strings.TrimSpace(responsibleType)
 	if typ == "" && responsibleID == 0 {
@@ -317,6 +371,9 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 	if shipStatusID == 0 {
 		shipStatusID = lookupDefaultStatusID(ctx, tx, r.schema, "ship_statuses", "未发货")
 	}
+	if err := validateOrderFulfillmentRequirementsTx(ctx, tx, r.schema, cmd, payStatusID, shipStatusID); err != nil {
+		return salesapp.SaveOrderResult{}, err
+	}
 
 	shipMethod := strings.TrimSpace(cmd.ShipMethod)
 	if shipMethod == "" {
@@ -369,7 +426,12 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 					outsource_total_fee=$24,
 					responsible_party_type=$25,
 					responsible_party_id=$26,
-					responsible_party_name=$27
+					responsible_party_name=$27,
+					logistics_company_id=$28,
+					logistics_product_id=$29,
+					payment_goods_amount=$30,
+					payment_shipping_amount=$31,
+					payment_voucher_asset_id=$32
 				WHERE id=$1
 			`, r.schema)
 		if _, err := tx.Exec(ctx, uq,
@@ -400,6 +462,11 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 			responsibleType,
 			responsibleID,
 			responsibleName,
+			cmd.LogisticsCompanyID,
+			cmd.LogisticsProductID,
+			cmd.PaymentGoodsAmount,
+			cmd.PaymentShippingAmount,
+			cmd.PaymentVoucherAssetID,
 		); err != nil {
 			return salesapp.SaveOrderResult{}, err
 		}
@@ -423,6 +490,8 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 					outsource_material_fee, outsource_roast_fee, outsource_packaging_fee,
 					outsource_manual_fee, outsource_tax_fee, outsource_other_fee, outsource_total_fee,
 					responsible_party_type, responsible_party_id, responsible_party_name,
+					logistics_company_id, logistics_product_id,
+					payment_goods_amount, payment_shipping_amount, payment_voucher_asset_id,
 					order_no
 				) VALUES (
 					$1,$2,$3,$4,$5,$6,$7,$8,$9,
@@ -430,7 +499,8 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 					$13,$14,$15,
 					$16,$17,$18,$19,$20,$21,$22,$23,
 					$24,$25,$26,
-					$27
+					$27,$28,$29,$30,$31,
+					$32
 				)
 				RETURNING id
 			`, r.schema)
@@ -461,6 +531,11 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 			responsibleType,
 			responsibleID,
 			responsibleName,
+			cmd.LogisticsCompanyID,
+			cmd.LogisticsProductID,
+			cmd.PaymentGoodsAmount,
+			cmd.PaymentShippingAmount,
+			cmd.PaymentVoucherAssetID,
 			orderNo,
 		).Scan(&orderID)
 		if err != nil {
@@ -745,6 +820,14 @@ func updateOrderHeader(ctx context.Context, pool *pgxpool.Pool, schema string, i
 	if err != nil {
 		return fmt.Errorf("invalid discount_amount")
 	}
+	paymentGoods, err := parseFee(req.PaymentGoodsAmount)
+	if err != nil {
+		return fmt.Errorf("invalid payment_goods_amount")
+	}
+	paymentShipping, err := parseFee(req.PaymentShippingAmount)
+	if err != nil {
+		return fmt.Errorf("invalid payment_shipping_amount")
+	}
 	round := strings.TrimSpace(req.RoundToInt) != ""
 
 	tx, err := pool.Begin(ctx)
@@ -855,7 +938,14 @@ func updateOrderHeader(ctx context.Context, pool *pgxpool.Pool, schema string, i
 			outsource_manual_fee=$19,
 			outsource_tax_fee=$20,
 			outsource_other_fee=$21,
-			outsource_total_fee=$22
+			outsource_total_fee=$22,
+			ship_method=$23,
+			ship_tracking_no=$24,
+			logistics_company_id=$25,
+			logistics_product_id=$26,
+			payment_goods_amount=$27,
+			payment_shipping_amount=$28,
+			payment_voucher_asset_id=$29
 		WHERE id=$1
 	`, schema)
 	if _, err := tx.Exec(ctx, q,
@@ -881,6 +971,13 @@ func updateOrderHeader(ctx context.Context, pool *pgxpool.Pool, schema string, i
 		outsourceFees[4],
 		outsourceFees[5],
 		outsourceTotal,
+		nullText(req.ShipMethod),
+		nullText(req.ShipTrackingNo),
+		req.LogisticsCompanyID,
+		req.LogisticsProductID,
+		paymentGoods,
+		paymentShipping,
+		req.PaymentVoucherAssetID,
 	); err != nil {
 		return err
 	}

@@ -18,6 +18,11 @@ type CreateOrderRequest struct {
 	ShipStatusID          int64  `form:"ship_status_id"`
 	ShipMethod            string `form:"ship_method"`
 	ShipTrackingNo        string `form:"ship_tracking_no"`
+	LogisticsCompanyID    int64  `form:"logistics_company_id"`
+	LogisticsProductID    int64  `form:"logistics_product_id"`
+	PaymentGoodsAmount    string `form:"payment_goods_amount"`
+	PaymentShippingAmount string `form:"payment_shipping_amount"`
+	PaymentVoucherAssetID int64  `form:"payment_voucher_asset_id"`
 	ResponsibleType       string `form:"responsible_type"`
 	ResponsibleID         int64  `form:"responsible_id"`
 	Notes                 string `form:"notes"`
@@ -51,6 +56,11 @@ type UpdateOrderRequest struct {
 	ShipStatusID          int64  `form:"ship_status_id"`
 	ShipMethod            string `form:"ship_method"`
 	ShipTrackingNo        string `form:"ship_tracking_no"`
+	LogisticsCompanyID    int64  `form:"logistics_company_id"`
+	LogisticsProductID    int64  `form:"logistics_product_id"`
+	PaymentGoodsAmount    string `form:"payment_goods_amount"`
+	PaymentShippingAmount string `form:"payment_shipping_amount"`
+	PaymentVoucherAssetID int64  `form:"payment_voucher_asset_id"`
 	Notes                 string `form:"notes"`
 	ShippingAmount        string `form:"shipping_amount"`
 	DiscountAmount        string `form:"discount_amount"`

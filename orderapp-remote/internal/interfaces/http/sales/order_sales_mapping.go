@@ -27,6 +27,14 @@ func saveOrderCommandFromCreateRequest(req CreateOrderRequest, editID int64, act
 	if err != nil {
 		return salesapp.SaveOrderCommand{}, err
 	}
+	paymentGoodsAmount, err := parseCreateOrderAmount(req.PaymentGoodsAmount, "payment_goods_amount")
+	if err != nil {
+		return salesapp.SaveOrderCommand{}, err
+	}
+	paymentShippingAmount, err := parseCreateOrderAmount(req.PaymentShippingAmount, "payment_shipping_amount")
+	if err != nil {
+		return salesapp.SaveOrderCommand{}, err
+	}
 	materialFee, err := parseCreateOrderAmount(req.OutsourceMaterialFee, "outsource_material_fee")
 	if err != nil {
 		return salesapp.SaveOrderCommand{}, err
@@ -62,6 +70,11 @@ func saveOrderCommandFromCreateRequest(req CreateOrderRequest, editID int64, act
 		ShipStatusID:          req.ShipStatusID,
 		ShipMethod:            req.ShipMethod,
 		ShipTrackingNo:        req.ShipTrackingNo,
+		LogisticsCompanyID:    req.LogisticsCompanyID,
+		LogisticsProductID:    req.LogisticsProductID,
+		PaymentGoodsAmount:    paymentGoodsAmount,
+		PaymentShippingAmount: paymentShippingAmount,
+		PaymentVoucherAssetID: req.PaymentVoucherAssetID,
 		ResponsibleType:       strings.TrimSpace(req.ResponsibleType),
 		ResponsibleID:         req.ResponsibleID,
 		Notes:                 req.Notes,
@@ -145,6 +158,11 @@ func updateHeaderCommandFromRequest(req UpdateOrderRequest, actor string) salesa
 		ShipStatusID:          req.ShipStatusID,
 		ShipMethod:            req.ShipMethod,
 		ShipTrackingNo:        req.ShipTrackingNo,
+		LogisticsCompanyID:    req.LogisticsCompanyID,
+		LogisticsProductID:    req.LogisticsProductID,
+		PaymentGoodsAmount:    req.PaymentGoodsAmount,
+		PaymentShippingAmount: req.PaymentShippingAmount,
+		PaymentVoucherAssetID: req.PaymentVoucherAssetID,
 		Notes:                 req.Notes,
 		ShippingAmount:        req.ShippingAmount,
 		DiscountAmount:        req.DiscountAmount,

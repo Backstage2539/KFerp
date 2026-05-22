@@ -12,7 +12,8 @@ import (
 )
 
 type orderAPIHandler struct {
-	sales *salesapp.Service
+	sales    *salesapp.Service
+	assetDir string
 }
 
 type apiOption struct {
@@ -42,17 +43,18 @@ type employeeAPIOption struct {
 }
 
 type orderFormAPIResponse struct {
-	Today        string              `json:"today"`
-	Customers    []customerAPIOption `json:"customers"`
-	Employees    []employeeAPIOption `json:"employees"`
-	Sources      []apiOption         `json:"sources"`
-	ShipStatuses []apiOption         `json:"ship_statuses"`
-	PayStatuses  []apiOption         `json:"pay_statuses"`
-	OrderTypes   []apiOption         `json:"order_types"`
-	Products     []jsProduct         `json:"products"`
-	EditMode     bool                `json:"edit_mode"`
-	EditID       int64               `json:"edit_id"`
-	EditData     any                 `json:"edit_data,omitempty"`
+	Today        string                      `json:"today"`
+	Customers    []customerAPIOption         `json:"customers"`
+	Employees    []employeeAPIOption         `json:"employees"`
+	Sources      []apiOption                 `json:"sources"`
+	ShipStatuses []apiOption                 `json:"ship_statuses"`
+	PayStatuses  []apiOption                 `json:"pay_statuses"`
+	OrderTypes   []apiOption                 `json:"order_types"`
+	Products     []jsProduct                 `json:"products"`
+	Logistics    []salesapp.LogisticsCompany `json:"logistics_companies"`
+	EditMode     bool                        `json:"edit_mode"`
+	EditID       int64                       `json:"edit_id"`
+	EditData     any                         `json:"edit_data,omitempty"`
 }
 
 type orderSaveAPIRequest struct {
@@ -65,6 +67,11 @@ type orderSaveAPIRequest struct {
 	ShipStatusID          int64  `json:"ship_status_id"`
 	ShipMethod            string `json:"ship_method"`
 	ShipTrackingNo        string `json:"ship_tracking_no"`
+	LogisticsCompanyID    int64  `json:"logistics_company_id"`
+	LogisticsProductID    int64  `json:"logistics_product_id"`
+	PaymentGoodsAmount    string `json:"payment_goods_amount"`
+	PaymentShippingAmount string `json:"payment_shipping_amount"`
+	PaymentVoucherAssetID int64  `json:"payment_voucher_asset_id"`
 	ResponsibleType       string `json:"responsible_type"`
 	ResponsibleID         int64  `json:"responsible_id"`
 	Notes                 string `json:"notes"`
@@ -89,13 +96,19 @@ type orderSaveAPIRequest struct {
 	Spec      []string `json:"spec"`
 }
 
-func registerOrderAPI(e *echo.Echo, salesSvc *salesapp.Service) {
+func registerOrderAPI(e *echo.Echo, salesSvc *salesapp.Service, assetDirs ...string) {
+	assetDir := "/app/data/assets"
+	if len(assetDirs) > 0 && strings.TrimSpace(assetDirs[0]) != "" {
+		assetDir = strings.TrimSpace(assetDirs[0])
+	}
 	h := orderAPIHandler{
-		sales: salesSvc,
+		sales:    salesSvc,
+		assetDir: assetDir,
 	}
 	e.GET("/api/orders", h.list)
 	e.GET("/api/order/form", h.form)
 	e.POST("/api/order/stock-batch-preview", h.stockBatchPreview)
+	e.POST("/api/order/payment-vouchers", h.uploadPaymentVoucher)
 	e.POST("/api/order", h.save)
 }
 
@@ -172,6 +185,7 @@ func (h orderAPIHandler) form(c echo.Context) error {
 		PayStatuses:  apiOptions(data.PayStatuses),
 		OrderTypes:   apiOptions(data.OrderTypes),
 		Products:     apiProducts(data.Products),
+		Logistics:    data.LogisticsCompanies,
 	}
 
 	if editID > 0 {
@@ -289,6 +303,17 @@ func (h orderAPIHandler) stockBatchPreview(c echo.Context) error {
 	return c.JSON(http.StatusOK, preview)
 }
 
+func (h orderAPIHandler) uploadPaymentVoucher(c echo.Context) error {
+	if err := support.RequireEmployeeBound(c); err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
+	}
+	asset, err := saveUploadedSalesOrderAsset(c, h.sales, h.assetDir, "payment_voucher")
+	if err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]any{"error": err.Error()})
+	}
+	return c.JSON(http.StatusOK, map[string]any{"asset": asset})
+}
+
 func (r orderSaveAPIRequest) toCreateRequest() CreateOrderRequest {
 	return CreateOrderRequest{
 		OrderDate:             r.OrderDate,
@@ -299,6 +324,11 @@ func (r orderSaveAPIRequest) toCreateRequest() CreateOrderRequest {
 		ShipStatusID:          r.ShipStatusID,
 		ShipMethod:            r.ShipMethod,
 		ShipTrackingNo:        r.ShipTrackingNo,
+		LogisticsCompanyID:    r.LogisticsCompanyID,
+		LogisticsProductID:    r.LogisticsProductID,
+		PaymentGoodsAmount:    r.PaymentGoodsAmount,
+		PaymentShippingAmount: r.PaymentShippingAmount,
+		PaymentVoucherAssetID: r.PaymentVoucherAssetID,
 		ResponsibleType:       r.ResponsibleType,
 		ResponsibleID:         r.ResponsibleID,
 		Notes:                 r.Notes,
@@ -446,28 +476,34 @@ func editDataForAPI(ed *OrderEditData) map[string]any {
 		})
 	}
 	return map[string]any{
-		"order_date":              ed.OrderDate,
-		"customer_id":             strconv.FormatInt(ed.CustomerID, 10),
-		"source_id":               strconv.FormatInt(ed.SourceID, 10),
-		"order_type_id":           strconv.FormatInt(ed.OrderTypeID, 10),
-		"pay_status_id":           strconv.FormatInt(ed.PayStatusID, 10),
-		"ship_status_id":          strconv.FormatInt(ed.ShipStatusID, 10),
-		"ship_method":             ed.ShipMethod,
-		"ship_tracking_no":        ed.ShipTrackingNo,
-		"responsible_type":        ed.ResponsibleType,
-		"responsible_id":          ed.ResponsibleID,
-		"responsible_name":        ed.ResponsibleName,
-		"notes":                   ed.Notes,
-		"shipping_amount":         ed.ShippingAmount,
-		"discount_amount":         ed.DiscountAmount,
-		"round_to_int":            ed.RoundToInt,
-		"express_fee":             ed.ExpressFee,
-		"outsource_material_fee":  ed.OutsourceMaterialFee,
-		"outsource_roast_fee":     ed.OutsourceRoastFee,
-		"outsource_packaging_fee": ed.OutsourcePackagingFee,
-		"outsource_manual_fee":    ed.OutsourceManualFee,
-		"outsource_tax_fee":       ed.OutsourceTaxFee,
-		"outsource_other_fee":     ed.OutsourceOtherFee,
-		"items":                   items,
+		"order_date":               ed.OrderDate,
+		"customer_id":              strconv.FormatInt(ed.CustomerID, 10),
+		"source_id":                strconv.FormatInt(ed.SourceID, 10),
+		"order_type_id":            strconv.FormatInt(ed.OrderTypeID, 10),
+		"pay_status_id":            strconv.FormatInt(ed.PayStatusID, 10),
+		"ship_status_id":           strconv.FormatInt(ed.ShipStatusID, 10),
+		"ship_method":              ed.ShipMethod,
+		"ship_tracking_no":         ed.ShipTrackingNo,
+		"logistics_company_id":     ed.LogisticsCompanyID,
+		"logistics_product_id":     ed.LogisticsProductID,
+		"payment_goods_amount":     ed.PaymentGoodsAmount,
+		"payment_shipping_amount":  ed.PaymentShippingAmount,
+		"payment_voucher_asset_id": ed.PaymentVoucherAssetID,
+		"payment_voucher":          ed.PaymentVoucher,
+		"responsible_type":         ed.ResponsibleType,
+		"responsible_id":           ed.ResponsibleID,
+		"responsible_name":         ed.ResponsibleName,
+		"notes":                    ed.Notes,
+		"shipping_amount":          ed.ShippingAmount,
+		"discount_amount":          ed.DiscountAmount,
+		"round_to_int":             ed.RoundToInt,
+		"express_fee":              ed.ExpressFee,
+		"outsource_material_fee":   ed.OutsourceMaterialFee,
+		"outsource_roast_fee":      ed.OutsourceRoastFee,
+		"outsource_packaging_fee":  ed.OutsourcePackagingFee,
+		"outsource_manual_fee":     ed.OutsourceManualFee,
+		"outsource_tax_fee":        ed.OutsourceTaxFee,
+		"outsource_other_fee":      ed.OutsourceOtherFee,
+		"items":                    items,
 	}
 }

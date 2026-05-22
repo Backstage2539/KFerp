@@ -355,6 +355,8 @@ func operationMenuFeature(meta *string, field string) (string, string) {
 		return "设置 / 销售单设置", "查看销售单设置"
 	case strings.HasPrefix(target, "/api/settings/sender") || strings.HasPrefix(target, "/settings/sender"):
 		return "设置 / 发货人设置", "维护发货人"
+	case strings.HasPrefix(target, "/api/settings/logistics") || strings.HasPrefix(target, "/settings/logistics"):
+		return "设置 / 物流设置", "维护物流设置"
 	case strings.HasPrefix(target, "/api/outsource/templates") || strings.HasPrefix(target, "/settings/outsource"):
 		return "设置 / 代加工模板设置", "维护代加工模板"
 	case strings.Contains(target, "/sales-order-images"):

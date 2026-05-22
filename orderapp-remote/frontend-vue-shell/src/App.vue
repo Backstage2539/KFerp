@@ -65,6 +65,7 @@ import FinanceSettingsView from './views/FinanceSettingsView.vue'
 import FinanceTaxLedgerView from './views/FinanceTaxLedgerView.vue'
 import InventoryView from './views/InventoryView.vue'
 import JobCardsView from './views/JobCardsView.vue'
+import LogisticsSettingsView from './views/LogisticsSettingsView.vue'
 import MachinesView from './views/MachinesView.vue'
 import MallSettingsView from './views/MallSettingsView.vue'
 import MaterialBatchesView from './views/MaterialBatchesView.vue'
@@ -175,6 +176,7 @@ const internalViews = {
   machines: MachinesView,
   companyProfile: CompanyProfileView,
   salesOrderSettings: SalesOrderSettingsView,
+  logisticsSettings: LogisticsSettingsView,
   senderSettings: SenderSettingsView,
   outsourceSettings: OutsourceSettingsView,
   customerPortalSettings: CustomerPortalSettingsView,

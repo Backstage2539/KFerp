@@ -115,6 +115,54 @@
         </label>
       </div>
 
+      <div v-if="isShippedStatus" class="conditional-panel">
+        <div class="section-title small">物流信息</div>
+        <div class="form-grid">
+          <label>
+            <span>物流公司</span>
+            <select v-model.number="form.logistics_company_id" @change="syncLogisticsProduct">
+              <option :value="0">选择物流公司</option>
+              <option v-for="company in logisticsCompanies" :key="company.id" :value="company.id">{{ company.name }}</option>
+            </select>
+          </label>
+          <label>
+            <span>物流产品/方式</span>
+            <select v-model.number="form.logistics_product_id">
+              <option :value="0">选择物流产品</option>
+              <option v-for="product in selectedLogisticsProducts" :key="product.id" :value="product.id">{{ product.name }}</option>
+            </select>
+          </label>
+          <label>
+            <span>快递单号</span>
+            <input v-model.trim="form.ship_tracking_no" placeholder="可稍后回填" />
+          </label>
+        </div>
+      </div>
+
+      <div v-if="isPaidStatus" class="conditional-panel">
+        <div class="section-title small">收款信息</div>
+        <div class="form-grid">
+          <label>
+            <span>货款金额</span>
+            <input v-model.trim="form.payment_goods_amount" type="number" min="0" step="0.01" />
+          </label>
+          <label>
+            <span>运费金额</span>
+            <input v-model.trim="form.payment_shipping_amount" type="number" min="0" step="0.01" />
+          </label>
+          <label>
+            <span>收款凭证</span>
+            <div class="voucher-control">
+              <input type="file" accept="image/*,.pdf" @change="handlePaymentVoucherFile" />
+              <button class="secondary" type="button" @click="uploadPaymentVoucher" :disabled="uploadingVoucher || !paymentVoucherFile">
+                {{ uploadingVoucher ? '上传中' : '上传凭证' }}
+              </button>
+            </div>
+            <small v-if="paymentVoucher?.filename" class="field-hint">已上传：{{ paymentVoucher.filename }}</small>
+          </label>
+        </div>
+      </div>
+
       <label class="notes">
         <span>备注</span>
         <textarea v-model.trim="form.notes" rows="2"></textarea>
@@ -353,6 +401,7 @@ const payStatuses = ref([])
 const orderTypes = ref([])
 const products = ref([])
 const employees = ref([])
+const logisticsCompanies = ref([])
 const rows = ref([newRow()])
 const customerQuery = ref('')
 const customerOpen = ref(false)
@@ -363,6 +412,9 @@ const customerSaving = ref(false)
 const customerError = ref('')
 const customerPaste = ref('')
 const customerForm = reactive(emptyCustomerForm())
+const paymentVoucherFile = ref(null)
+const paymentVoucher = ref(null)
+const uploadingVoucher = ref(false)
 
 const form = reactive({
   edit_id: 0,
@@ -374,6 +426,11 @@ const form = reactive({
   ship_status_id: 0,
   ship_method: '',
   ship_tracking_no: '',
+  logistics_company_id: 0,
+  logistics_product_id: 0,
+  payment_goods_amount: '',
+  payment_shipping_amount: '',
+  payment_voucher_asset_id: 0,
   responsible_type: '',
   responsible_id: 0,
   notes: '',
@@ -436,6 +493,17 @@ const filteredResponsibleOptions = computed(() => {
     .filter((item) => String(item.search || '').toLowerCase().includes(q))
     .slice(0, 30)
 })
+const selectedLogisticsProducts = computed(() => {
+  const company = logisticsCompanies.value.find((item) => Number(item.id) === Number(form.logistics_company_id))
+  return (company?.products || []).filter((item) => item.active !== false)
+})
+const selectedPayStatusName = computed(() => optionName(payStatuses.value, form.pay_status_id))
+const selectedShipStatusName = computed(() => optionName(shipStatuses.value, form.ship_status_id))
+const isPaidStatus = computed(() => {
+  const name = selectedPayStatusName.value
+  return name.includes('已收款') || name.includes('已付款')
+})
+const isShippedStatus = computed(() => selectedShipStatusName.value.includes('已发货'))
 
 function productByID(id) {
   return products.value.find((item) => Number(item.id) === Number(id)) || null
@@ -443,6 +511,49 @@ function productByID(id) {
 
 function optionName(options, id) {
   return (options || []).find((item) => Number(item.id) === Number(id))?.name || ''
+}
+
+function syncLogisticsProduct() {
+  const productsForCompany = selectedLogisticsProducts.value
+  if (!productsForCompany.some((item) => Number(item.id) === Number(form.logistics_product_id))) {
+    form.logistics_product_id = Number(productsForCompany[0]?.id || 0)
+  }
+}
+
+function ensureLogisticsDefaults() {
+  if (!form.logistics_company_id && logisticsCompanies.value.length) {
+    form.logistics_company_id = Number(logisticsCompanies.value[0]?.id || 0)
+  }
+  syncLogisticsProduct()
+}
+
+function ensurePaymentDefaults() {
+  if (!form.payment_goods_amount || toNumber(form.payment_goods_amount) <= 0) form.payment_goods_amount = money(itemsTotal.value)
+  if (!form.payment_shipping_amount || (toNumber(form.payment_shipping_amount) <= 0 && toNumber(form.shipping_amount) > 0)) {
+    form.payment_shipping_amount = money(toNumber(form.shipping_amount))
+  }
+}
+
+function handlePaymentVoucherFile(event) {
+  paymentVoucherFile.value = event.target.files?.[0] || null
+}
+
+async function uploadPaymentVoucher() {
+  if (!paymentVoucherFile.value) return
+  uploadingVoucher.value = true
+  error.value = ''
+  try {
+    const body = new FormData()
+    body.append('file', paymentVoucherFile.value)
+    const data = await apiSend('/api/order/payment-vouchers', { body })
+    paymentVoucher.value = data.asset || null
+    form.payment_voucher_asset_id = Number(data.asset?.id || 0)
+    paymentVoucherFile.value = null
+  } catch (err) {
+    error.value = err.message || '上传收款凭证失败'
+  } finally {
+    uploadingVoucher.value = false
+  }
 }
 
 function defaultOptionID(options, labels) {
@@ -682,6 +793,11 @@ function applyEditData(data) {
     ship_status_id: Number(data.ship_status_id || 0),
     ship_method: data.ship_method || '',
     ship_tracking_no: data.ship_tracking_no || '',
+    logistics_company_id: Number(data.logistics_company_id || 0),
+    logistics_product_id: Number(data.logistics_product_id || 0),
+    payment_goods_amount: data.payment_goods_amount || '',
+    payment_shipping_amount: data.payment_shipping_amount || '',
+    payment_voucher_asset_id: Number(data.payment_voucher_asset_id || 0),
     responsible_type: data.responsible_type || '',
     responsible_id: Number(data.responsible_id || 0),
     notes: data.notes || '',
@@ -696,6 +812,7 @@ function applyEditData(data) {
     outsource_tax_fee: data.outsource_tax_fee || '',
     outsource_other_fee: data.outsource_other_fee || '',
   })
+  paymentVoucher.value = data.payment_voucher || null
   customerQuery.value = optionName(customers.value, form.customer_id)
   const responsible = responsibleOptionByValue(form.responsible_type, form.responsible_id)
   responsibleQuery.value = responsible?.label || data.responsible_name || ''
@@ -739,6 +856,7 @@ async function load() {
     orderTypes.value = data.order_types || []
     products.value = data.products || []
     employees.value = data.employees || []
+    logisticsCompanies.value = data.logistics_companies || []
     applyDefaultSelections(data)
     if (data.edit_mode) {
       form.edit_id = Number(data.edit_id || 0)
@@ -760,6 +878,14 @@ async function save() {
     const payload = buildOrderPayload({ form, rows: rows.value })
     if (!payload.customer_id) throw new Error('请选择客户')
     if (!payload.product_id.length) throw new Error('请至少录入一条有效明细')
+    if (isShippedStatus.value && (!payload.logistics_company_id || !payload.logistics_product_id)) {
+      throw new Error('已发货订单请选择物流公司和物流产品')
+    }
+    if (isPaidStatus.value) {
+      if (toNumber(payload.payment_goods_amount) <= 0) throw new Error('已收款/已付款订单请填写货款金额')
+      if (toNumber(payload.payment_shipping_amount) < 0) throw new Error('运费金额不能小于 0')
+      if (!payload.payment_voucher_asset_id) throw new Error('已收款/已付款订单请上传收款凭证')
+    }
     const stockDecision = await previewStockBatchesBeforeSave(payload)
     if (stockDecision) payload.stock_batch_decision = stockDecision
     const data = await apiSend('/api/order', { body: payload })
@@ -810,6 +936,22 @@ watch(
     load()
   },
 )
+
+watch(isPaidStatus, (paid) => {
+  if (paid) ensurePaymentDefaults()
+}, { immediate: true })
+
+watch(isShippedStatus, (shipped) => {
+  if (shipped) ensureLogisticsDefaults()
+}, { immediate: true })
+
+watch(itemsTotal, () => {
+  if (isPaidStatus.value && toNumber(form.payment_goods_amount) <= 0) ensurePaymentDefaults()
+})
+
+watch(() => form.shipping_amount, () => {
+  if (isPaidStatus.value && (!form.payment_shipping_amount || toNumber(form.payment_shipping_amount) <= 0)) ensurePaymentDefaults()
+})
 </script>
 
 <style scoped>
@@ -820,6 +962,7 @@ watch(
 .eyebrow { margin: 0 0 4px; color: #6b7280; font-size: 12px; }
 .order-hero h2, .section-title { margin: 0; font-size: 20px; font-weight: 700; letter-spacing: 0; }
 .section-title { font-size: 17px; }
+.section-title.small { font-size: 15px; }
 .hero-actions, .section-row, .save-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .total-pill { display: grid; gap: 2px; min-width: 132px; padding: 8px 12px; border: 1px solid #e5e7eb; border-radius: 8px; background: #fafafa; }
 .total-pill span, .grand-line span, label span, .line-total span, .combo-option small { color: #667085; font-size: 12px; }
@@ -840,6 +983,9 @@ button:disabled { cursor: not-allowed; opacity: 0.5; }
 .danger { color: #9f1239; }
 .label-row { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
 .notes { margin-top: 14px; }
+.conditional-panel { margin-top: 14px; display: grid; gap: 10px; border: 1px solid #edf0f5; border-radius: 8px; background: #fcfcfd; padding: 12px; }
+.voucher-control { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; align-items: center; }
+.field-hint { color: #667085; font-size: 12px; }
 .notice { border-radius: 8px; padding: 10px 12px; }
 .notice.ok { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
 .notice.ok a { color: #0f3d99; font-weight: 700; text-decoration: none; }

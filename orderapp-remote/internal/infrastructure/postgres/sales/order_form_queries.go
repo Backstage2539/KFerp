@@ -40,6 +40,9 @@ func (r Repository) OrderForm(ctx context.Context, editID int64) (salesapp.Order
 	if data.Employees, err = r.fetchOrderEmployees(ctx); err != nil {
 		return salesapp.OrderFormData{}, err
 	}
+	if data.LogisticsCompanies, err = r.ListLogisticsCompanies(ctx, false); err != nil {
+		return salesapp.OrderFormData{}, err
+	}
 	if editID > 0 {
 		editData, err := r.fetchOrderEdit(ctx, editID)
 		if err != nil {
@@ -183,6 +186,12 @@ func (r Repository) fetchOrderEdit(ctx context.Context, id int64) (*salesapp.Ord
 			COALESCE(o.ship_status_id,0) as ship_status_id,
 			COALESCE(o.ship_method,'') as ship_method,
 			COALESCE(o.ship_tracking_no,'') as ship_tracking_no,
+			COALESCE(o.logistics_company_id,0) as logistics_company_id,
+			COALESCE(o.logistics_product_id,0) as logistics_product_id,
+			COALESCE(o.payment_goods_amount,0) as payment_goods_amount,
+			COALESCE(o.payment_shipping_amount,0) as payment_shipping_amount,
+			COALESCE(o.payment_voucher_asset_id,0) as payment_voucher_asset_id,
+			COALESCE(a.id,0), COALESCE(a.kind,''), COALESCE(a.filename,''), COALESCE(a.content_type,''), COALESCE(a.bytes,0), COALESCE(a.sha256,''), COALESCE(a.object_key,''), COALESCE(to_char(a.created_at,'YYYY-MM-DD HH24:MI:SS'),''), COALESCE(a.created_by,''),
 			COALESCE(o.responsible_party_type,'') as responsible_party_type,
 			COALESCE(o.responsible_party_id,0) as responsible_party_id,
 			COALESCE(o.responsible_party_name,'') as responsible_party_name,
@@ -205,11 +214,14 @@ func (r Repository) fetchOrderEdit(ctx context.Context, id int64) (*salesapp.Ord
 			CASE WHEN o.voided_at IS NULL THEN NULL ELSE to_char(o.voided_at, 'YYYY-MM-DD HH24:MI:SS') END AS voided_at,
 			o.void_reason
 		FROM %s.orders o
+		LEFT JOIN %s.sales_order_assets a ON a.id=o.payment_voucher_asset_id
 		WHERE o.id=$1
-	`, r.schema)
+	`, r.schema, r.schema)
 
 	var d salesapp.OrderEditData
 	var totalAmt, shipAmt, discAmt, roundAmt, grandAmt float64
+	var paymentGoods, paymentShipping float64
+	var voucher salesapp.SalesOrderAsset
 	var outsourceMaterial, outsourceRoast, outsourcePackaging, outsourceManual, outsourceTax, outsourceOther, outsourceTotal float64
 	err := r.pool.QueryRow(ctx, q, id).Scan(
 		&d.ID,
@@ -222,6 +234,20 @@ func (r Repository) fetchOrderEdit(ctx context.Context, id int64) (*salesapp.Ord
 		&d.ShipStatusID,
 		&d.ShipMethod,
 		&d.ShipTrackingNo,
+		&d.LogisticsCompanyID,
+		&d.LogisticsProductID,
+		&paymentGoods,
+		&paymentShipping,
+		&d.PaymentVoucherAssetID,
+		&voucher.ID,
+		&voucher.Kind,
+		&voucher.Filename,
+		&voucher.ContentType,
+		&voucher.Bytes,
+		&voucher.SHA256,
+		&voucher.ObjectKey,
+		&voucher.CreatedAt,
+		&voucher.CreatedBy,
 		&d.ResponsibleType,
 		&d.ResponsibleID,
 		&d.ResponsibleName,
@@ -253,6 +279,12 @@ func (r Repository) fetchOrderEdit(ctx context.Context, id int64) (*salesapp.Ord
 	d.TotalAmount = fmt.Sprintf("%.2f", totalAmt)
 	d.ShippingAmount = fmt.Sprintf("%.2f", shipAmt)
 	d.DiscountAmount = fmt.Sprintf("%.2f", discAmt)
+	d.PaymentGoodsAmount = fmt.Sprintf("%.2f", paymentGoods)
+	d.PaymentShippingAmount = fmt.Sprintf("%.2f", paymentShipping)
+	if voucher.ID > 0 {
+		voucher.URL = salesOrderAssetURL(voucher.ObjectKey)
+		d.PaymentVoucher = &voucher
+	}
 	d.RoundingAmount = fmt.Sprintf("%.2f", roundAmt)
 	d.GrandTotal = fmt.Sprintf("%.2f", grandAmt)
 	d.OutsourceMaterialFee = fmt.Sprintf("%.2f", outsourceMaterial)
