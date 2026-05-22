@@ -448,7 +448,7 @@ func greenBeanOrderTierMapFromPublicationContent(publicationID int64, versionNo 
 			}
 			for idx, tier := range tiers {
 				if price, ok := greenBeanOrderManualPriceOverride(tier, productOverrides); ok {
-					applyGreenBeanOrderManualLbPrice(&tier, price)
+					applyGreenBeanOrderManualPrice(&tier, price)
 				}
 				option := greenBeanOrderTierOption(publicationID, versionNo, idx, tier)
 				if option.UnitPrice <= 0 {
@@ -512,12 +512,18 @@ func greenBeanOrderManualPriceOverride(tier orderGreenBeanPublicationTier, overr
 	return 0, false
 }
 
-func applyGreenBeanOrderManualLbPrice(tier *orderGreenBeanPublicationTier, price float64) {
+func applyGreenBeanOrderManualPrice(tier *orderGreenBeanPublicationTier, price float64) {
 	unitPrice := roundOrderPrice(price)
-	tier.PriceUnit = "lb"
+	priceUnit := greenBeanOrderPriceUnit(tier.DisplayUnit, tier.PriceUnit, true)
+	unitG := greenBeanOrderPriceUnitG(priceUnit, tier.SpecG)
+	pricePerKg := unitPrice
+	if unitG > 0 && unitG != 1000 {
+		pricePerKg = unitPrice * 1000.0 / unitG
+	}
+	tier.PriceUnit = priceUnit
 	tier.PricePerUnit = unitPrice
-	tier.PricePerLb = unitPrice
-	tier.PricePerKg = roundOrderPrice(unitPrice / 0.454)
+	tier.PricePerKg = roundOrderPrice(pricePerKg)
+	tier.PricePerLb = roundOrderPrice(pricePerKg * 0.454)
 }
 
 func orderBeanListProductID(raw json.RawMessage) int64 {
@@ -571,8 +577,9 @@ func greenBeanOrderTierOption(publicationID int64, versionNo string, idx int, ti
 	}
 	priceUnit := strings.TrimSpace(strings.ToLower(tier.PriceUnit))
 	if priceUnit == "" {
-		priceUnit = "lb"
+		priceUnit = displayUnit
 	}
+	priceUnit = greenBeanOrderPriceUnit(displayUnit, priceUnit, false)
 	unitPrice := greenBeanOrderTierPrice(tier, specG, displayUnit, priceUnit)
 	id := tier.TemplateTierID
 	if id <= 0 {
@@ -607,11 +614,11 @@ func greenBeanOrderTierPrice(tier orderGreenBeanPublicationTier, specG int64, di
 		if tier.PricePerKg > 0 {
 			return roundOrderPrice(tier.PricePerKg)
 		}
-		if tier.PricePerLb > 0 {
-			return roundOrderPrice(tier.PricePerLb / 0.454)
-		}
 		if displayUnit == "kg" && tier.PricePerUnit > 0 {
 			return roundOrderPrice(tier.PricePerUnit)
+		}
+		if tier.PricePerLb > 0 {
+			return roundOrderPrice(tier.PricePerLb / 0.454)
 		}
 		return roundOrderPrice(greenBeanOrderTierPricePerLb(tier, specG, displayUnit) / 0.454)
 	default:
@@ -640,6 +647,56 @@ func greenBeanOrderTierPricePerLb(tier orderGreenBeanPublicationTier, specG int6
 	default:
 		pricePerKg := tier.PricePerUnit * 1000.0 / float64(specG)
 		return roundOrderPrice(pricePerKg * 454.0 / 1000.0)
+	}
+}
+
+func greenBeanOrderPriceUnit(displayUnit string, explicitUnit string, preferDisplay bool) string {
+	display := normalizeGreenBeanOrderPriceUnit(displayUnit)
+	explicit := normalizeGreenBeanOrderPriceUnit(explicitUnit)
+	if preferDisplay {
+		if display != "" {
+			return display
+		}
+		if explicit != "" {
+			return explicit
+		}
+		return "lb"
+	}
+	if explicit != "" {
+		return explicit
+	}
+	if display != "" {
+		return display
+	}
+	return "lb"
+}
+
+func normalizeGreenBeanOrderPriceUnit(unit string) string {
+	switch strings.TrimSpace(strings.ToLower(unit)) {
+	case "kg", "lb", "g100", "g227", "g250":
+		return strings.TrimSpace(strings.ToLower(unit))
+	default:
+		return ""
+	}
+}
+
+func greenBeanOrderPriceUnitG(unit string, specG int64) float64 {
+	switch normalizeGreenBeanOrderPriceUnit(unit) {
+	case "kg":
+		return 1000
+	case "lb":
+		return 454
+	case "g100":
+		return 100
+	case "g227":
+		return 227
+	case "g250":
+		return 250
+	default:
+		if specG > 0 {
+			return float64(specG)
+		}
+		return 454
 	}
 }
 

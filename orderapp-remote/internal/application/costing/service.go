@@ -486,7 +486,7 @@ func applyGreenBeanListManualPriceOverrides(config map[string]any, content map[s
 				if !ok {
 					continue
 				}
-				applyGreenTierManualLbPrice(tier, price)
+				applyGreenTierManualPrice(tier, price)
 				changed = true
 			}
 			if changed {
@@ -546,12 +546,18 @@ func greenTierManualOverride(tier map[string]any, overrides map[string]float64) 
 	return 0, false
 }
 
-func applyGreenTierManualLbPrice(tier map[string]any, price float64) {
+func applyGreenTierManualPrice(tier map[string]any, price float64) {
 	unitPrice := roundBeanListPrice(price)
-	tier["price_unit"] = "lb"
+	priceUnit := greenBeanTierPriceUnit(tier, true)
+	unitG := greenBeanPriceUnitG(priceUnit, tier)
+	pricePerKg := unitPrice
+	if unitG > 0 && unitG != 1000 {
+		pricePerKg = unitPrice * 1000.0 / unitG
+	}
+	tier["price_unit"] = priceUnit
 	tier["price_per_unit"] = unitPrice
-	tier["price_per_lb"] = unitPrice
-	tier["price_per_kg"] = roundBeanListPrice(unitPrice / domain.DefaultParameters().KgToLbFactor)
+	tier["price_per_kg"] = roundBeanListPrice(pricePerKg)
+	tier["price_per_lb"] = roundBeanListPrice(pricePerKg * domain.DefaultParameters().KgToLbFactor)
 }
 
 func greenBeanPriceRowsFromTiers(tiers []any) []any {
@@ -563,19 +569,16 @@ func greenBeanPriceRowsFromTiers(tiers []any) []any {
 		}
 		rows = append(rows, map[string]any{
 			"label": stringValue(tier["label"]),
-			"price": firstPositiveNumber(
-				numberValue(tier["price_per_lb"]),
-				numberValue(tier["price_per_unit"]),
-			),
-			"unit": greenBeanPriceUnitLabel(tier),
-			"red":  false,
+			"price": greenBeanDisplayPrice(tier),
+			"unit":  greenBeanPriceUnitLabel(tier),
+			"red":   false,
 		})
 	}
 	return rows
 }
 
 func greenBeanPriceUnitLabel(tier map[string]any) string {
-	switch strings.TrimSpace(strings.ToLower(stringValue(tier["price_unit"]))) {
+	switch greenBeanTierPriceUnit(tier, false) {
 	case "kg":
 		return "kg"
 	case "g100":
@@ -587,10 +590,7 @@ func greenBeanPriceUnitLabel(tier map[string]any) string {
 	case "lb":
 		return "磅"
 	}
-	if numberValue(tier["price_per_lb"]) > 0 {
-		return "磅"
-	}
-	switch strings.TrimSpace(strings.ToLower(stringValue(tier["display_unit"]))) {
+	switch normalizeGreenBeanPriceUnit(stringValue(tier["display_unit"])) {
 	case "kg":
 		return "kg"
 	case "g100":
@@ -601,6 +601,86 @@ func greenBeanPriceUnitLabel(tier map[string]any) string {
 		return "250g"
 	default:
 		return "磅"
+	}
+}
+
+func greenBeanDisplayPrice(tier map[string]any) float64 {
+	priceUnit := greenBeanTierPriceUnit(tier, false)
+	pricePerKg := greenBeanPricePerKg(tier)
+	switch priceUnit {
+	case "kg":
+		return roundBeanListPrice(firstPositiveNumber(pricePerKg, numberValue(tier["price_per_unit"])))
+	case "lb":
+		return roundBeanListPrice(firstPositiveNumber(numberValue(tier["price_per_lb"]), pricePerKg*domain.DefaultParameters().KgToLbFactor, numberValue(tier["price_per_unit"])))
+	default:
+		unitG := greenBeanPriceUnitG(priceUnit, tier)
+		if unitG > 0 && pricePerKg > 0 {
+			return roundBeanListPrice(pricePerKg * unitG / 1000.0)
+		}
+		return roundBeanListPrice(numberValue(tier["price_per_unit"]))
+	}
+}
+
+func greenBeanPricePerKg(tier map[string]any) float64 {
+	if price := numberValue(tier["price_per_kg"]); price > 0 {
+		return price
+	}
+	if normalizeGreenBeanPriceUnit(stringValue(tier["display_unit"])) == "kg" {
+		if price := numberValue(tier["price_per_unit"]); price > 0 {
+			return price
+		}
+	}
+	if price := numberValue(tier["price_per_lb"]); price > 0 {
+		return price / domain.DefaultParameters().KgToLbFactor
+	}
+	return 0
+}
+
+func greenBeanTierPriceUnit(tier map[string]any, preferDisplay bool) string {
+	displayUnit := normalizeGreenBeanPriceUnit(stringValue(tier["display_unit"]))
+	explicitUnit := normalizeGreenBeanPriceUnit(stringValue(tier["price_unit"]))
+	if preferDisplay {
+		return firstNonEmpty(displayUnit, explicitUnit, "lb")
+	}
+	return firstNonEmpty(explicitUnit, displayUnit, "lb")
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return value
+		}
+	}
+	return ""
+}
+
+func normalizeGreenBeanPriceUnit(unit string) string {
+	switch strings.TrimSpace(strings.ToLower(unit)) {
+	case "kg", "lb", "g100", "g227", "g250":
+		return strings.TrimSpace(strings.ToLower(unit))
+	default:
+		return ""
+	}
+}
+
+func greenBeanPriceUnitG(unit string, tier map[string]any) float64 {
+	switch normalizeGreenBeanPriceUnit(unit) {
+	case "kg":
+		return 1000
+	case "lb":
+		return 454
+	case "g100":
+		return 100
+	case "g227":
+		return 227
+	case "g250":
+		return 250
+	default:
+		specG := numberValue(tier["spec_g"])
+		if specG > 0 {
+			return specG
+		}
+		return 454
 	}
 }
 

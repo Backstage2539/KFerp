@@ -262,7 +262,7 @@
         </button>
       </div>
       <div v-show="!beanListPreviewCollapsed.green" class="green-price-save-bar">
-        <p class="muted">梯度按 KG，单价按元/磅；这里修改的是草稿价，生成并发布新版豆单后，录单才会使用新价格。</p>
+        <p class="muted">梯度按 KG，单价按元/KG；这里修改的是草稿价，生成并发布新版豆单后，录单才会使用新价格。</p>
         <button class="secondary compact" type="button" :disabled="beanListPublishing || !greenGroups.length || !customerScopeReady" @click="saveGreenBeanPriceDraft">
           {{ beanListPublishing ? '保存中' : '保存生豆价格' }}
         </button>
@@ -400,7 +400,7 @@
         <div class="copy-config-box bean-list-publish-reminder">
           <div>
             <strong>发布提醒</strong>
-            <p v-if="pdfTheme.listType === 'green'">梯度按 KG，单价按元/磅；生成并发布新版豆单后，录单才会使用新价格。</p>
+            <p v-if="pdfTheme.listType === 'green'">梯度按 KG，单价按元/KG；生成并发布新版豆单后，录单才会使用新价格。</p>
             <p v-else>生成并发布新版豆单后，录单和客户侧才会使用新价格。</p>
           </div>
         </div>
@@ -528,6 +528,7 @@
                   <label v-for="tier in greenTierPriceRows(row)" :key="`green-price-${itemProductID(row)}-${greenTierOverrideKey(tier)}`">
                     <span>{{ tier.label }}</span>
                     <input type="number" min="0" step="0.01" :value="greenTierPriceValue(itemProductID(row), tier)" @input="setGreenBeanTierPrice(itemProductID(row), tier, $event.target.value)" />
+                    <small>/{{ greenTierPriceUnit(tier) }}</small>
                   </label>
                 </div>
               </article>
@@ -1440,17 +1441,78 @@ function greenTierPriceValue(id, tier) {
   const overrides = pdfCustomizers.value[key]?.greenPriceOverrides || {}
   const overridden = Number(overrides[tierKey])
   if (Number.isFinite(overridden) && overridden > 0) return overridden
-  return Number(tier?.price_per_lb || tier?.pricePerLb || tier?.price_per_unit || tier?.pricePerUnit || 0)
+  return greenTierDisplayPrice(tier)
 }
 
 function greenTierPriceUnit(tier = {}) {
-  const unit = String(tier.price_unit || '').trim().toLowerCase()
+  const unit = greenTierPriceUnitCode(tier)
   if (unit === 'kg') return 'kg'
   if (unit === 'g100') return '100g'
   if (unit === 'g227') return '227g'
   if (unit === 'g250') return '250g'
-  if (Number(tier?.price_per_lb || tier?.pricePerLb || 0) <= 0 && !unit) return tierUnit(tier)
   return '磅'
+}
+
+function greenTierDisplayPrice(tier = {}) {
+  const unit = greenTierPriceUnitCode(tier)
+  const pricePerKg = firstPositiveNumber(
+    tier?.price_per_kg,
+    tier?.pricePerKg,
+    unit === 'kg' ? tier?.price_per_unit : undefined,
+    unit === 'kg' ? tier?.pricePerUnit : undefined,
+    normalizeGreenTierUnit(tier?.display_unit) === 'kg' ? tier?.price_per_unit : undefined,
+    normalizeGreenTierUnit(tier?.displayUnit) === 'kg' ? tier?.pricePerUnit : undefined,
+    firstPositiveNumber(tier?.price_per_lb, tier?.pricePerLb) / 0.454,
+  )
+  if (unit === 'kg') return Number(pricePerKg.toFixed(2))
+  if (unit === 'lb') {
+    return Number(firstPositiveNumber(
+      tier?.price_per_lb,
+      tier?.pricePerLb,
+      normalizeGreenTierUnit(tier?.price_unit) === 'lb' ? tier?.price_per_unit : undefined,
+      normalizeGreenTierUnit(tier?.priceUnit) === 'lb' ? tier?.pricePerUnit : undefined,
+      pricePerKg * 0.454,
+    ).toFixed(2))
+  }
+  const unitG = greenTierPriceUnitG(unit, tier)
+  if (pricePerKg > 0) return Number((pricePerKg * unitG / 1000).toFixed(2))
+  return firstPositiveNumber(tier?.price_per_unit, tier?.pricePerUnit)
+}
+
+function greenTierPriceUnitCode(tier = {}) {
+  const explicit = normalizeGreenTierUnit(tier?.price_unit || tier?.priceUnit)
+  const display = normalizeGreenTierUnit(tier?.display_unit || tier?.displayUnit)
+  return explicit || display || 'lb'
+}
+
+function normalizeGreenTierUnit(unit) {
+  const value = String(unit || '').trim().toLowerCase()
+  return ['kg', 'lb', 'g100', 'g227', 'g250'].includes(value) ? value : ''
+}
+
+function greenTierPriceUnitG(unit, tier = {}) {
+  switch (normalizeGreenTierUnit(unit)) {
+    case 'kg':
+      return 1000
+    case 'lb':
+      return 454
+    case 'g100':
+      return 100
+    case 'g227':
+      return 227
+    case 'g250':
+      return 250
+    default:
+      return Number(tier?.spec_g || tier?.specG || 454) || 454
+  }
+}
+
+function firstPositiveNumber(...values) {
+  for (const value of values) {
+    const n = Number(value)
+    if (Number.isFinite(n) && n > 0) return n
+  }
+  return 0
 }
 
 function setGreenBeanTierPrice(id, tier, value) {
