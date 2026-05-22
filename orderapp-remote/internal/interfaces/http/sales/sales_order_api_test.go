@@ -770,6 +770,51 @@ func TestSalesOrderPreviewAPIDoesNotCreateDocumentVersion(t *testing.T) {
 	}
 }
 
+func TestSalesOrderPreviewPDFAPIWrapsUTF8PaymentText(t *testing.T) {
+	pool, schema := newOrderAPITestDB(t)
+	ctx := context.Background()
+	seedOrderAPITestData(t, ctx, pool, schema)
+	if err := postgressales.EnsureSchema(ctx, pool, schema); err != nil {
+		t.Fatalf("EnsureSchema: %v", err)
+	}
+	seedSalesOrderAPITestOrder(t, ctx, pool, schema)
+	e := newSalesOrderAPITestEcho(pool, schema, t.TempDir())
+
+	settingsPayload, err := json.Marshal(map[string]any{
+		"company_name":            "浅焙作坊咖啡",
+		"payment_text":            strings.Repeat("微信支付支付宝转账对公账户", 8),
+		"note":                    strings.Repeat("请密封避光保存并尽快使用", 8),
+		"payment_text_x_mm":       16,
+		"payment_text_y_mm":       118,
+		"payment_text_width_mm":   62,
+		"payment_text_height_mm":  78,
+		"payment_code_x_mm":       126,
+		"payment_code_y_mm":       106,
+		"payment_code_width_mm":   72,
+		"payment_code_height_mm":  122,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	settingsReq := httptest.NewRequest(http.MethodPost, "/api/settings/sales-order", bytes.NewReader(settingsPayload))
+	settingsReq.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	settingsRec := httptest.NewRecorder()
+	e.ServeHTTP(settingsRec, settingsReq)
+	if settingsRec.Code != http.StatusOK {
+		t.Fatalf("settings status=%d body=%s", settingsRec.Code, settingsRec.Body.String())
+	}
+
+	previewPDFReq := httptest.NewRequest(http.MethodGet, "/api/orders/1/sales-order-preview.pdf", nil)
+	previewPDFRec := httptest.NewRecorder()
+	e.ServeHTTP(previewPDFRec, previewPDFReq)
+	if previewPDFRec.Code != http.StatusOK || previewPDFRec.Header().Get(echo.HeaderContentType) != "application/pdf" {
+		t.Fatalf("preview pdf status=%d content-type=%q body=%s", previewPDFRec.Code, previewPDFRec.Header().Get(echo.HeaderContentType), previewPDFRec.Body.String())
+	}
+	if !bytes.HasPrefix(previewPDFRec.Body.Bytes(), []byte("%PDF-")) {
+		t.Fatalf("preview pdf prefix=%q", previewPDFRec.Body.Bytes()[:min(len(previewPDFRec.Body.Bytes()), 8)])
+	}
+}
+
 func TestParseSalesOrderDocumentIDAcceptsPDFPathFallback(t *testing.T) {
 	got, err := parseSalesOrderDocumentID("", "/orders/254/sales-orders/1.pdf")
 	if err != nil {

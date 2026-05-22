@@ -253,12 +253,12 @@ func renderSalesOrderTextBlock(pdf *gofpdf.Fpdf, box salesdomain.SalesOrderLayou
 	pdf.CellFormat(box.WidthMM, 5.5, title, "", 0, "L", false, 0, "")
 	y += 6
 	for _, line := range lines {
-		for _, wrapped := range pdf.SplitLines([]byte(line), box.WidthMM) {
+		for _, wrapped := range pdf.SplitText(line, box.WidthMM) {
 			if y+salesOrderPaymentLineMM > bottom {
 				return bottom
 			}
 			pdf.SetXY(box.XMM, y)
-			pdf.CellFormat(box.WidthMM, salesOrderPaymentLineMM, string(wrapped), "", 0, "L", false, 0, "")
+			pdf.CellFormat(box.WidthMM, salesOrderPaymentLineMM, wrapped, "", 0, "L", false, 0, "")
 			y += salesOrderPaymentLineMM
 		}
 	}

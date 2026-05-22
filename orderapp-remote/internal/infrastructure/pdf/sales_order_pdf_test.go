@@ -9,6 +9,7 @@ import (
 	salesdomain "orderapp/internal/domain/sales"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"golang.org/x/image/font/opentype"
@@ -44,6 +45,35 @@ func TestRenderSalesOrderPDF(t *testing.T) {
 	}
 	if len(b) < 1000 {
 		t.Fatalf("PDF size = %d, want >= 1000", len(b))
+	}
+}
+
+func TestRenderSalesOrderPDFWrapsUTF8PaymentTextWithoutPanic(t *testing.T) {
+	renderer := SalesOrderRenderer{}
+	b, err := renderer.Render(salesdomain.SalesOrderSnapshot{
+		OrderID:      1,
+		OrderNo:      "SO-20260522-0001",
+		OrderDate:    "2026-05-22",
+		CustomerName: "某某咖啡馆",
+		CompanyName:  "浅焙作坊咖啡",
+		PaymentText:  strings.Repeat("微信支付支付宝转账对公账户", 8),
+		Note:         strings.Repeat("请密封避光保存并尽快使用", 8),
+		Items: []salesdomain.SalesOrderSnapshotItem{{
+			Name: "橘皮乌龙", Spec: "300g", Qty: "2", Unit: "件", UnitPrice: "67.00", LineTotal: "134.00",
+		}},
+		TotalAmount: "134.00",
+		Shipping:    "0.00",
+		Discount:    "0.00",
+		GrandTotal:  "134.00",
+		PaymentTextBox: salesdomain.SalesOrderLayoutBox{
+			XMM: 16, YMM: 118, WidthMM: 62, HeightMM: 78,
+		},
+	})
+	if err != nil {
+		t.Fatalf("Render() error = %v", err)
+	}
+	if !bytes.HasPrefix(b, []byte("%PDF-")) {
+		t.Fatalf("PDF missing header: %q", b[:5])
 	}
 }
 
