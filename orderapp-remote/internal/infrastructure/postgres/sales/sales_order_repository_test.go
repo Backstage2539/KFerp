@@ -30,6 +30,8 @@ func TestSalesOrderSettingsRoundTrip(t *testing.T) {
 	if err := repo.SaveSalesOrderSettings(ctx, salesapp.SaveSalesOrderSettingsCommand{
 		Actor: "测试员", CompanyName: "浅焙作坊咖啡", Note: "请密封保存", PaymentText: "微信或对公转账",
 		BankAccountName: "孟连口加农业科技有限公司", BankName: "中国农业银行孟连支行", BankAccountNo: "6222000000000000",
+		PaymentTextXMM: 18, PaymentTextYMM: 142, PaymentTextWidthMM: 98, PaymentTextHeightMM: 54,
+		PaymentCodeXMM: 126, PaymentCodeYMM: 104, PaymentCodeWidthMM: 76, PaymentCodeHeightMM: 126,
 	}); err != nil {
 		t.Fatalf("SaveSalesOrderSettings: %v", err)
 	}
@@ -42,6 +44,12 @@ func TestSalesOrderSettingsRoundTrip(t *testing.T) {
 	}
 	if got.BankAccountName != "孟连口加农业科技有限公司" || got.BankName != "中国农业银行孟连支行" || got.BankAccountNo != "6222000000000000" {
 		t.Fatalf("bank account settings = %+v", got)
+	}
+	if got.PaymentTextXMM != 18 || got.PaymentTextYMM != 142 || got.PaymentTextWidthMM != 98 || got.PaymentTextHeightMM != 54 {
+		t.Fatalf("payment text layout settings = %+v", got)
+	}
+	if got.PaymentCodeXMM != 126 || got.PaymentCodeYMM != 104 || got.PaymentCodeWidthMM != 76 || got.PaymentCodeHeightMM != 126 {
+		t.Fatalf("payment code layout settings = %+v", got)
 	}
 }
 

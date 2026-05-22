@@ -30,6 +30,8 @@ type SalesOrderSnapshot struct {
 	Discount        string                   `json:"discount"`
 	GrandTotal      string                   `json:"grand_total"`
 	PaymentCodes    []SalesOrderAssetRef     `json:"payment_codes"`
+	PaymentTextBox  SalesOrderLayoutBox      `json:"payment_text_box"`
+	PaymentCodeBox  SalesOrderLayoutBox      `json:"payment_code_box"`
 	Seal            *SalesOrderAssetRef      `json:"seal,omitempty"`
 }
 
@@ -53,6 +55,13 @@ type SalesOrderAssetRef struct {
 	XMM         float64 `json:"x_mm,omitempty"`
 	YMM         float64 `json:"y_mm,omitempty"`
 	WidthMM     float64 `json:"width_mm,omitempty"`
+}
+
+type SalesOrderLayoutBox struct {
+	XMM      float64 `json:"x_mm"`
+	YMM      float64 `json:"y_mm"`
+	WidthMM  float64 `json:"width_mm"`
+	HeightMM float64 `json:"height_mm"`
 }
 
 func NextSalesOrderVersion(existing []int) int {

@@ -30,7 +30,7 @@ func TestDev141SalesOrderPNGAndPDFUseLargerReadableAssets(t *testing.T) {
 		"salesOrderPNGScale",
 		"salesOrderPNGTextWeightOffsetPixels",
 		"salesOrderPNGPaymentCodeMetrics",
-		"ImageSize: 330",
+		"if size < 330",
 		"assetImageSharp",
 		"xdraw.NearestNeighbor.Scale",
 	} {
@@ -41,7 +41,7 @@ func TestDev141SalesOrderPNGAndPDFUseLargerReadableAssets(t *testing.T) {
 
 	pdfSrc := string(readOrderAppFileForTest(t, filepath.Join("internal", "infrastructure", "pdf", "sales_order_pdf.go")))
 	for _, want := range []string{
-		"ImageSize: 64",
+		"ImageSize: 70",
 		"ImageSize: 52",
 	} {
 		if !strings.Contains(pdfSrc, want) {
