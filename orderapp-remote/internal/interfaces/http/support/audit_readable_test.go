@@ -267,6 +267,8 @@ func TestDecorateAuditLogRowScannedOperationRoutesUseCurrentMenuIA(t *testing.T)
 		{"stock material transfer list", "GET", "/api/stock/material-transfers", "/api/stock/material-transfers", "库存管理 / 库存作业", "查看原料转仓"},
 		{"reset employee password", "POST", "/api/auth/password/reset", "/api/auth/password/reset", "系统 / 员工维护", "重置员工密码"},
 		{"sales order settings", "POST", "/api/settings/sales-order/seal-position", "/api/settings/sales-order/seal-position", "设置 / 销售单设置", "保存公章位置"},
+		{"sales order payment layout", "POST", "/api/settings/sales-order/payment-layout", "/api/settings/sales-order/payment-layout", "设置 / 销售单设置", "保存收款版式"},
+		{"sales order shared seal select", "POST", "/api/settings/sales-order/seal/select", "/api/settings/sales-order/seal/select", "设置 / 销售单设置", "选择共享公章"},
 		{"sales order settings view", "GET", "/api/settings/sales-order", "/api/settings/sales-order", "设置 / 销售单设置", "查看销售单设置"},
 		{"product category move", "POST", "/api/product-settings/products/:id/category", "/api/product-settings/products/15/category", "商品与配方 / 产品设置", "调整产品分类"},
 	}

@@ -9,17 +9,38 @@ import (
 func TestDev307SalesOrderPaymentLayoutControls(t *testing.T) {
 	settingsView := string(readOrderAppFileForTest(t, filepath.Join("frontend-vue-shell", "src", "views", "SalesOrderSettingsView.vue")))
 	for _, want := range []string{
-		"文字位置和大小",
 		"个性化说明会优先显示",
-		"payment_text_x_mm",
-		"payment_text_width_mm",
-		"payment_code_x_mm",
-		"payment_code_width_mm",
-		"payment_code_height_mm",
-		"收款码位置和大小",
+		"销售单预览中拖动",
+		"selectSeal",
+		"/api/settings/sales-order/seal/select",
 	} {
 		if !strings.Contains(settingsView, want) {
 			t.Fatalf("SalesOrderSettingsView missing payment layout marker %q", want)
+		}
+	}
+	for _, old := range []string{
+		`form.payment_text_x_mm`,
+		`form.payment_code_x_mm`,
+		`saveSealPosition`,
+		`seal-position-stage`,
+	} {
+		if strings.Contains(settingsView, old) {
+			t.Fatalf("SalesOrderSettingsView should not expose coordinate/seal-position controls, still found %q", old)
+		}
+	}
+
+	salesOrderView := string(readOrderAppFileForTest(t, filepath.Join("frontend-vue-shell", "src", "views", "SalesOrderView.vue")))
+	for _, want := range []string{
+		"文字位置和大小",
+		"收款码位置和大小",
+		"salesLayoutBoxMMToPDFPlacement",
+		"pdfPlacementToSalesLayoutBox",
+		"/api/settings/sales-order/payment-layout",
+		"savePDFPreviewLayoutBox",
+		"resizable: true",
+	} {
+		if !strings.Contains(salesOrderView, want) {
+			t.Fatalf("SalesOrderView missing draggable payment layout marker %q", want)
 		}
 	}
 

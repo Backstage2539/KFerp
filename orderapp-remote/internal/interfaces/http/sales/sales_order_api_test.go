@@ -69,7 +69,9 @@ func TestSalesOrderSettingsRegistersSealToolRoutes(t *testing.T) {
 	}
 	for _, want := range []string{
 		"GET /api/settings/sales-order/seals",
+		"POST /api/settings/sales-order/seal/select",
 		"POST /api/settings/sales-order/seal-position",
+		"POST /api/settings/sales-order/payment-layout",
 		"POST /api/settings/sales-order/seal/remove-background",
 	} {
 		if !routes[want] {
@@ -233,6 +235,100 @@ func TestSalesOrderSealPositionAPIOnlyUpdatesCoordinates(t *testing.T) {
 		if !strings.Contains(rec.Body.String(), want) {
 			t.Fatalf("seal position response missing %s: %s", want, rec.Body.String())
 		}
+	}
+}
+
+func TestSalesOrderPaymentLayoutAPIOnlyUpdatesPaymentBoxes(t *testing.T) {
+	pool, schema := newOrderAPITestDB(t)
+	ctx := context.Background()
+	seedOrderAPITestData(t, ctx, pool, schema)
+	if err := postgressales.EnsureSchema(ctx, pool, schema); err != nil {
+		t.Fatalf("EnsureSchema: %v", err)
+	}
+	e := newSalesOrderAPITestEcho(pool, schema, t.TempDir())
+
+	settingsBody := strings.NewReader(`{"note":"个性化说明","payment_text":"微信付款","seal_x_mm":32,"seal_y_mm":22,"seal_width_mm":42,"payment_text_x_mm":18,"payment_text_y_mm":142,"payment_text_width_mm":98,"payment_text_height_mm":54,"payment_code_x_mm":126,"payment_code_y_mm":104,"payment_code_width_mm":76,"payment_code_height_mm":126}`)
+	settingsReq := httptest.NewRequest(http.MethodPost, "/api/settings/sales-order", settingsBody)
+	settingsReq.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	settingsRec := httptest.NewRecorder()
+	e.ServeHTTP(settingsRec, settingsReq)
+	if settingsRec.Code != http.StatusOK {
+		t.Fatalf("settings status=%d body=%s", settingsRec.Code, settingsRec.Body.String())
+	}
+
+	body := strings.NewReader(`{"payment_text_x_mm":14,"payment_text_y_mm":98,"payment_text_width_mm":86,"payment_text_height_mm":48,"payment_code_x_mm":132,"payment_code_y_mm":92,"payment_code_width_mm":66,"payment_code_height_mm":110}`)
+	req := httptest.NewRequest(http.MethodPost, "/api/settings/sales-order/payment-layout", body)
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("payment layout status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	for _, want := range []string{
+		`"note":"个性化说明"`,
+		`"payment_text":"微信付款"`,
+		`"seal_x_mm":32`,
+		`"seal_y_mm":22`,
+		`"seal_width_mm":42`,
+		`"payment_text_x_mm":14`,
+		`"payment_text_y_mm":98`,
+		`"payment_text_width_mm":86`,
+		`"payment_text_height_mm":48`,
+		`"payment_code_x_mm":132`,
+		`"payment_code_y_mm":92`,
+		`"payment_code_width_mm":66`,
+		`"payment_code_height_mm":110`,
+	} {
+		if !strings.Contains(rec.Body.String(), want) {
+			t.Fatalf("payment layout response missing %s: %s", want, rec.Body.String())
+		}
+	}
+}
+
+func TestSalesOrderSealSelectAPIChoosesReusableSealAsset(t *testing.T) {
+	pool, schema := newOrderAPITestDB(t)
+	ctx := context.Background()
+	seedOrderAPITestData(t, ctx, pool, schema)
+	if err := postgressales.EnsureSchema(ctx, pool, schema); err != nil {
+		t.Fatalf("EnsureSchema: %v", err)
+	}
+	mustExecOrderAPITestSQL(t, ctx, pool, fmt.Sprintf(`
+		INSERT INTO %s.sales_order_assets(id, kind, filename, content_type, bytes, sha256, object_key, created_by)
+		VALUES
+			(1301, 'seal', '合同章.png', 'image/png', 12, 'seal-a', 'sales_order_assets/seal/contract.png', '测试员'),
+			(1302, 'seal', '财务章.png', 'image/png', 14, 'seal-b', 'sales_order_assets/seal/finance.png', '测试员'),
+			(1303, 'payment_code', '收款码.png', 'image/png', 16, 'pay', 'sales_order_assets/payment/pay.png', '测试员')`, schema))
+	mustExecOrderAPITestSQL(t, ctx, pool, fmt.Sprintf(`
+		INSERT INTO %s.sales_order_settings(id, note, payment_text, seal_asset_id, seal_x_mm, seal_y_mm, seal_width_mm)
+		VALUES(1, '说明', '微信', 1301, 32, 22, 42)`, schema))
+	e := newSalesOrderAPITestEcho(pool, schema, t.TempDir())
+
+	req := httptest.NewRequest(http.MethodPost, "/api/settings/sales-order/seal/select", strings.NewReader(`{"asset_id":1302}`))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("seal select status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	for _, want := range []string{
+		`"filename":"财务章.png"`,
+		`"seal_x_mm":32`,
+		`"seal_y_mm":22`,
+		`"seal_width_mm":42`,
+		`"note":"说明"`,
+		`"payment_text":"微信"`,
+	} {
+		if !strings.Contains(rec.Body.String(), want) {
+			t.Fatalf("seal select response missing %s: %s", want, rec.Body.String())
+		}
+	}
+
+	badReq := httptest.NewRequest(http.MethodPost, "/api/settings/sales-order/seal/select", strings.NewReader(`{"asset_id":1303}`))
+	badReq.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	badRec := httptest.NewRecorder()
+	e.ServeHTTP(badRec, badReq)
+	if badRec.Code != http.StatusBadRequest || !strings.Contains(badRec.Body.String(), "seal asset required") {
+		t.Fatalf("selecting a non-seal asset should fail status=%d body=%s", badRec.Code, badRec.Body.String())
 	}
 }
 
@@ -781,17 +877,17 @@ func TestSalesOrderPreviewPDFAPIWrapsUTF8PaymentText(t *testing.T) {
 	e := newSalesOrderAPITestEcho(pool, schema, t.TempDir())
 
 	settingsPayload, err := json.Marshal(map[string]any{
-		"company_name":            "浅焙作坊咖啡",
-		"payment_text":            strings.Repeat("微信支付支付宝转账对公账户", 8),
-		"note":                    strings.Repeat("请密封避光保存并尽快使用", 8),
-		"payment_text_x_mm":       16,
-		"payment_text_y_mm":       118,
-		"payment_text_width_mm":   62,
-		"payment_text_height_mm":  78,
-		"payment_code_x_mm":       126,
-		"payment_code_y_mm":       106,
-		"payment_code_width_mm":   72,
-		"payment_code_height_mm":  122,
+		"company_name":           "浅焙作坊咖啡",
+		"payment_text":           strings.Repeat("微信支付支付宝转账对公账户", 8),
+		"note":                   strings.Repeat("请密封避光保存并尽快使用", 8),
+		"payment_text_x_mm":      16,
+		"payment_text_y_mm":      118,
+		"payment_text_width_mm":  62,
+		"payment_text_height_mm": 78,
+		"payment_code_x_mm":      126,
+		"payment_code_y_mm":      106,
+		"payment_code_width_mm":  72,
+		"payment_code_height_mm": 122,
 	})
 	if err != nil {
 		t.Fatal(err)

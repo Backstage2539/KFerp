@@ -29,11 +29,29 @@ export function pdfPlacementToSalesSealMM(placement = {}, page = {}) {
 export function movePDFStampPlacement(placement = {}, { deltaX = 0, deltaY = 0, displayScale = 1 } = {}) {
   const scale = positiveNumber(displayScale, 1)
   return {
+    ...placement,
     page_number: Number(placement.page_number || 1),
     x: round2(Math.max(0, Number(placement.x || 0) + Number(deltaX || 0) / scale)),
     y: round2(Math.max(0, Number(placement.y || 0) + Number(deltaY || 0) / scale)),
     width: round2(Number(placement.width || 0)),
     height: round2(Number(placement.height || 0)),
+  }
+}
+
+export function resizePDFStampPlacement(placement = {}, { deltaX = 0, deltaY = 0, displayScale = 1, minWidth = 24, minHeight = 24, lockAspectRatio = false } = {}) {
+  const scale = positiveNumber(displayScale, 1)
+  const width = Math.max(positiveNumber(minWidth, 24), Number(placement.width || 0) + Number(deltaX || 0) / scale)
+  const aspectRatio = positiveNumber(placement.height, 1) / positiveNumber(placement.width, 1)
+  const height = lockAspectRatio
+    ? width * aspectRatio
+    : Math.max(positiveNumber(minHeight, 24), Number(placement.height || 0) + Number(deltaY || 0) / scale)
+  return {
+    ...placement,
+    page_number: Number(placement.page_number || 1),
+    x: round2(Math.max(0, Number(placement.x || 0))),
+    y: round2(Math.max(0, Number(placement.y || 0))),
+    width: round2(width),
+    height: round2(height),
   }
 }
 
@@ -44,11 +62,34 @@ export function scalePDFStampPlacement(placement = {}, { width, sealAspectRatio 
     salesDocumentSealHeightRatio,
   )
   return {
+    ...placement,
     page_number: Number(placement.page_number || 1),
     x: round2(Number(placement.x || 0)),
     y: round2(Number(placement.y || 0)),
     width: round2(nextWidth),
     height: round2(nextWidth * nextAspectRatio),
+  }
+}
+
+export function salesLayoutBoxMMToPDFPlacement(box = {}, page = {}, options = {}) {
+  const pointPerMM = pdfPointsPerMM(page)
+  return {
+    ...options,
+    page_number: Number(page.pageNumber || page.page_number || options.page_number || 1),
+    x: round2(nonNegativeNumber(box.x_mm ?? box.XMM, 0) * pointPerMM),
+    y: round2(nonNegativeNumber(box.y_mm ?? box.YMM, 0) * pointPerMM),
+    width: round2(positiveNumber(box.width_mm ?? box.WidthMM, 1) * pointPerMM),
+    height: round2(positiveNumber(box.height_mm ?? box.HeightMM, 1) * pointPerMM),
+  }
+}
+
+export function pdfPlacementToSalesLayoutBox(placement = {}, page = {}) {
+  const pointPerMM = pdfPointsPerMM(page)
+  return {
+    x_mm: Math.round(nonNegativeNumber(placement.x, 0) / pointPerMM),
+    y_mm: Math.round(nonNegativeNumber(placement.y, 0) / pointPerMM),
+    width_mm: Math.round(positiveNumber(placement.width, 1) / pointPerMM),
+    height_mm: Math.round(positiveNumber(placement.height, 1) / pointPerMM),
   }
 }
 
