@@ -6,7 +6,7 @@ import (
 	"testing"
 )
 
-func TestDev327SalesOrderPaymentCodeSoftDisableWiring(t *testing.T) {
+func TestDev328SalesOrderPaymentCodeSoftDisableWiring(t *testing.T) {
 	repository := string(readOrderAppFileForTest(t, filepath.Join("internal", "infrastructure", "postgres", "sales", "sales_order_repository.go")))
 	for _, want := range []string{
 		"DeactivateSalesOrderPaymentCode",
@@ -63,22 +63,22 @@ func TestDev327SalesOrderPaymentCodeSoftDisableWiring(t *testing.T) {
 	}
 }
 
-func TestDev327SalesOrderPaymentCodeSoftDisableRequirementSeeds(t *testing.T) {
+func TestDev328SalesOrderPaymentCodeSoftDisableRequirementSeeds(t *testing.T) {
 	src := string(readOrderAppFileForTest(t, filepath.Join("internal", "interfaces", "http", "support", "req_store.go")))
 	for _, want := range []string{
-		"PR-327-SALES-ORDER-PAYMENT-CODE-SOFT-DISABLE",
-		"DEV-327-SALES-ORDER-PAYMENT-CODE-SOFT-DISABLE",
-		"UT-327-SALES-ORDER-PAYMENT-CODE-SOFT-DISABLE",
-		"API-327-SALES-ORDER-PAYMENT-CODE-SOFT-DISABLE",
-		"REV-327-SALES-ORDER-PAYMENT-CODE-SOFT-DISABLE",
+		"PR-328-SALES-ORDER-PAYMENT-CODE-SOFT-DISABLE",
+		"DEV-328-SALES-ORDER-PAYMENT-CODE-SOFT-DISABLE",
+		"UT-328-SALES-ORDER-PAYMENT-CODE-SOFT-DISABLE",
+		"API-328-SALES-ORDER-PAYMENT-CODE-SOFT-DISABLE",
+		"REV-328-SALES-ORDER-PAYMENT-CODE-SOFT-DISABLE",
 	} {
 		if !strings.Contains(src, want) {
-			t.Fatalf("dev 327 requirement seed missing %q", want)
+			t.Fatalf("dev 328 requirement seed missing %q", want)
 		}
 	}
 }
 
-func TestDev327SalesOrderPaymentCodeSoftDisableDocs(t *testing.T) {
+func TestDev328SalesOrderPaymentCodeSoftDisableDocs(t *testing.T) {
 	for _, rel := range []string{
 		filepath.Join("docs", "REQUIREMENTS.md"),
 		filepath.Join("docs", "ACCEPTANCE_TESTS.md"),
@@ -87,12 +87,12 @@ func TestDev327SalesOrderPaymentCodeSoftDisableDocs(t *testing.T) {
 	} {
 		src := string(readOrderAppFileForTest(t, rel))
 		for _, want := range []string{
-			"PR-327",
+			"PR-328",
 			"停用",
 			"不删除",
 		} {
 			if !strings.Contains(src, want) {
-				t.Fatalf("%s missing dev 327 documentation marker %q", rel, want)
+				t.Fatalf("%s missing dev 328 documentation marker %q", rel, want)
 			}
 		}
 	}
