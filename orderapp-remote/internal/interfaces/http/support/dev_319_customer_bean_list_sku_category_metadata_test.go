@@ -68,6 +68,7 @@ func TestDev319CustomerBeanListSkuCategoryMetadata(t *testing.T) {
 	for _, want := range []string{
 		"客户自有/客户定制熟豆不再依赖旧 Excel 豆单资料",
 		"咖啡豆 / 定制咖啡熟豆",
+		"1、定制咖啡熟豆",
 		"客户新增熟豆 SKU 在客户豆单中不出现",
 	} {
 		if !strings.Contains(manualText, want) {

@@ -106,6 +106,31 @@ WHERE active=true AND source_category_id > 0;
 CREATE UNIQUE INDEX IF NOT EXISTS pricing_gradient_templates_customer_source_active_uniq
 ON %[1]s.pricing_gradient_templates (customer_id, source_template_id)
 WHERE active=true AND source_template_id > 0;
+UPDATE %[1]s.product_categories child
+SET parent_id=active_parent.id, updated_at=now()
+FROM %[1]s.product_categories inactive_parent
+JOIN %[1]s.product_categories active_parent
+  ON active_parent.active=true
+ AND active_parent.customer_id=inactive_parent.customer_id
+ AND COALESCE(active_parent.parent_id,0)=COALESCE(inactive_parent.parent_id,0)
+ AND lower(active_parent.name)=lower(inactive_parent.name)
+WHERE child.active=true
+  AND child.parent_id=inactive_parent.id
+  AND inactive_parent.active=false;
+UPDATE %[1]s.product_categories parent
+SET active=true, updated_at=now()
+WHERE parent.active=false
+  AND EXISTS (
+    SELECT 1 FROM %[1]s.product_categories child
+    WHERE child.parent_id=parent.id AND child.active=true
+  )
+  AND NOT EXISTS (
+    SELECT 1 FROM %[1]s.product_categories active_parent
+    WHERE active_parent.active=true
+      AND active_parent.customer_id=parent.customer_id
+      AND COALESCE(active_parent.parent_id,0)=COALESCE(parent.parent_id,0)
+      AND lower(active_parent.name)=lower(parent.name)
+  );
 CREATE TABLE IF NOT EXISTS %[1]s.customer_sku_public_usage (
 	customer_id BIGINT PRIMARY KEY,
 	use_public_sku BOOLEAN NOT NULL DEFAULT false,

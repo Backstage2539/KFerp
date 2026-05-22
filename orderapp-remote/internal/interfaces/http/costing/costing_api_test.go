@@ -601,7 +601,7 @@ func TestCostingCalculateAPIReturnsCustomerSkuCategoryBeanListMetadata(t *testin
 		t.Fatalf("items = %+v", got.Items)
 	}
 	item := got.Items[0].CommercialBeanList
-	if item.Code != "1.2" || item.Category != "1、咖啡豆 / 定制咖啡熟豆" || item.DisplayName != "芬纳定制-红酒日晒-中深烘" {
+	if item.Code != "1.2" || item.Category != "1、定制咖啡熟豆" || item.DisplayName != "芬纳定制-红酒日晒-中深烘" {
 		t.Fatalf("customer commercial bean list = %+v", item)
 	}
 	if item.Flavor != "红酒、莓果" || item.Description != "客户自有定制熟豆" {

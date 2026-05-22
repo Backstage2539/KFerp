@@ -704,9 +704,6 @@ func customerCategoryBeanListDisplay(in ProductInput, display BeanListDisplay, a
 func customerBeanListCategoryName(in ProductInput) string {
 	primary := strings.TrimSpace(in.CategoryPrimaryName)
 	secondary := strings.TrimSpace(in.CategorySecondaryName)
-	if primary != "" && secondary != "" {
-		return primary + " / " + secondary
-	}
 	return firstNonEmptyString(secondary, primary)
 }
 

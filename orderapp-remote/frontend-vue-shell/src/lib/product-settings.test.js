@@ -14,6 +14,7 @@ import {
   customerSkuCustomerOptions,
   filterSkuRows,
   gradientTemplateBelongsToSkuContext,
+  nextSkuContextCustomerID,
   paginatedSkuRows,
   greenBeanTypeLabel,
   productBelongsToSkuContext,
@@ -432,6 +433,69 @@ test('customer category tree keeps empty owned categories that share a public ca
   assert.equal(tree.length, 1)
   assert.equal(tree[0].id, 134)
   assert.equal(tree[0].name, '咖啡豆')
+})
+
+test('customer category tree keeps owned categories with customer SKUs when public categories are toggled', () => {
+  const publicPrimary = {
+    id: 1,
+    name: '咖啡豆',
+    level: 1,
+    customer_id: 0,
+    products: [],
+    children: [{
+      id: 11,
+      parent_id: 1,
+      name: '定制咖啡熟豆',
+      level: 2,
+      customer_id: 0,
+      products: [{ id: 101, name: '公共定制熟豆', customer_id: 0, custom_type: 'standard' }],
+      children: [],
+    }],
+  }
+  const customerPrimary = {
+    id: 139,
+    name: '咖啡豆',
+    level: 1,
+    customer_id: 74,
+    source_category_id: 0,
+    template_state: 'customer_owned',
+    products: [],
+    children: [{
+      id: 140,
+      parent_id: 139,
+      name: '定制咖啡熟豆',
+      level: 2,
+      customer_id: 74,
+      source_category_id: 0,
+      template_state: 'customer_owned',
+      products: [{ id: 425, name: '芬纳定制-红酒日晒-中深烘', customer_id: 74, custom_type: 'custom_roast' }],
+      children: [],
+    }],
+  }
+
+  for (const usePublicCategories of [true, false]) {
+    const tree = buildSkuContextCategoryTree([publicPrimary, customerPrimary], {
+      customerID: 74,
+      usePublicCategories,
+      usePublicSkuInCategoryTree: usePublicCategories,
+      publicCategories: [publicPrimary, publicPrimary.children[0]],
+      publicProducts: publicPrimary.children[0].products,
+      customerCategories: [customerPrimary, customerPrimary.children[0]],
+      customerProducts: customerPrimary.children[0].products,
+    })
+
+    const ownedPrimary = tree.find((row) => Number(row.id) === 139)
+    assert.ok(ownedPrimary, `owned primary should stay visible when usePublicCategories=${usePublicCategories}`)
+    assert.deepEqual(ownedPrimary.children.map((row) => row.name), ['定制咖啡熟豆'])
+    assert.deepEqual(ownedPrimary.children[0].products.map((row) => row.name), ['芬纳定制-红酒日晒-中深烘'])
+  }
+})
+
+test('factory workspace forces SKU settings context back to public SKU', () => {
+  assert.equal(nextSkuContextCustomerID(74, { workspaceMode: 'factory', customerContextID: 74 }), 0)
+  assert.equal(nextSkuContextCustomerID(0, { workspaceMode: 'factory', customerContextID: 0 }), 0)
+  assert.equal(nextSkuContextCustomerID(0, { workspaceMode: 'customer', customerContextID: 74 }), 74)
+  assert.equal(nextSkuContextCustomerID(149, { workspaceMode: 'customer', customerContextID: 74 }), 74)
 })
 
 test('customer SKU context labels public and derived product ownership', () => {

@@ -640,6 +640,7 @@ import {
   gradientTemplateBelongsToSkuContext,
   greenBeanTypeOptions,
   isPublicReferenceRow,
+  nextSkuContextCustomerID,
   normalizedProductKind,
   paginatedSkuRows,
   productBelongsToSkuContext as productBelongsToContext,
@@ -1289,9 +1290,12 @@ function syncSelectedCustomerSkuCustomer() {
 }
 
 function applyWorkspaceCustomerContext() {
-  const customerID = Number(props.customerContextId || 0)
-  if (customerID > 0 && Number(selectedCustomerSkuCustomerID.value || 0) !== customerID) {
-    selectedCustomerSkuCustomerID.value = customerID
+  const nextCustomerID = nextSkuContextCustomerID(selectedCustomerSkuCustomerID.value, {
+    workspaceMode: props.workspaceMode,
+    customerContextID: props.customerContextId,
+  })
+  if (Number(selectedCustomerSkuCustomerID.value || 0) !== nextCustomerID) {
+    selectedCustomerSkuCustomerID.value = nextCustomerID
   }
 }
 
@@ -1970,7 +1974,7 @@ watch(selectedCustomerSkuCustomerID, (customerID) => {
   notifyWorkspaceCustomerChanged(customerID)
 })
 
-watch(() => props.customerContextId, applyWorkspaceCustomerContext, { immediate: true })
+watch(() => [props.workspaceMode, props.customerContextId], applyWorkspaceCustomerContext, { immediate: true })
 
 watch(() => customForm.value.base_product_id, () => {
   if (customForm.value.product_kind === 'green_bean' || customForm.value.custom_type === 'custom_roast') return

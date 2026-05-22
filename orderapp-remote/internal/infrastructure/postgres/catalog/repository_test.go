@@ -327,6 +327,24 @@ func TestProductCategoryNameUniquenessIgnoresSoftDeletedRows(t *testing.T) {
 	}
 }
 
+func TestProductCategorySchemaRepairsActiveChildrenWithInactiveParents(t *testing.T) {
+	schema, err := os.ReadFile("schema.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := string(schema)
+	for _, want := range []string{
+		"UPDATE %[1]s.product_categories parent",
+		"SET active=true",
+		"child.parent_id=parent.id",
+		"child.active=true",
+	} {
+		if !strings.Contains(src, want) {
+			t.Fatalf("schema must repair inactive parent categories that still have active children; missing %q", want)
+		}
+	}
+}
+
 func TestTemplateDerivationRepositoryAuditsAndCopiesPublicSources(t *testing.T) {
 	repository, err := os.ReadFile("repository.go")
 	if err != nil {

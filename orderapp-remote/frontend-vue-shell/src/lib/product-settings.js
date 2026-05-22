@@ -100,12 +100,16 @@ export function categoryBelongsToSkuContext(category = {}, context = {}) {
   const customerID = Number(context.customerID || context.customer_id || 0)
   const categoryCustomerID = Number(category.customer_id || 0)
   if (!customerID) return categoryCustomerID === 0
-  if (categoryCustomerID === customerID) {
-    if (Number(category.source_category_id || 0) > 0) return true
-    return !isDuplicatedPublicCategory(category, context.publicCategories, context.publicProducts)
-  }
+  if (categoryCustomerID === customerID) return true
   if (categoryCustomerID !== 0 || !Boolean(context.usePublicCategories || context.use_public_categories)) return false
   return !hasCustomerDerivedCategory(category, context.customerCategories)
+}
+
+export function nextSkuContextCustomerID(currentCustomerID = 0, { workspaceMode = '', customerContextID = 0, customerContextId = 0 } = {}) {
+  if (String(workspaceMode || '').trim() !== 'customer') return 0
+  const lockedCustomerID = Number(customerContextID || customerContextId || 0)
+  if (lockedCustomerID > 0) return lockedCustomerID
+  return Number(currentCustomerID || 0)
 }
 
 export function gradientTemplateBelongsToSkuContext(template = {}, context = {}) {

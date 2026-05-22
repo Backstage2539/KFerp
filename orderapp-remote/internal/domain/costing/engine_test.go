@@ -496,7 +496,7 @@ func TestCustomerCustomRoastBeanListUsesSkuCategoryMetadata(t *testing.T) {
 	if got.CommercialBeanList.Code != "1.2" {
 		t.Fatalf("commercial code = %q, want 1.2; display=%+v", got.CommercialBeanList.Code, got.CommercialBeanList)
 	}
-	if got.CommercialBeanList.Category != "1、咖啡豆 / 定制咖啡熟豆" {
+	if got.CommercialBeanList.Category != "1、定制咖啡熟豆" {
 		t.Fatalf("commercial category = %q", got.CommercialBeanList.Category)
 	}
 	if got.CommercialBeanList.DisplayName != "芬纳定制-红酒日晒-中深烘" {
@@ -532,7 +532,7 @@ func TestCustomerAliasBeanListOverridesExcelCategoryWithSkuCategory(t *testing.T
 	if got.CommercialBeanList.Code != "1.1" {
 		t.Fatalf("commercial code = %q, want 1.1; display=%+v", got.CommercialBeanList.Code, got.CommercialBeanList)
 	}
-	if got.CommercialBeanList.Category != "1、咖啡豆 / 定制咖啡熟豆" {
+	if got.CommercialBeanList.Category != "1、定制咖啡熟豆" {
 		t.Fatalf("commercial category should use customer SKU category, got %q", got.CommercialBeanList.Category)
 	}
 	if got.CommercialBeanList.DisplayName != "芬纳咖啡-Uraga乌拉嘎-中烘" {
