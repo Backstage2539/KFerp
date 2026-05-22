@@ -17,7 +17,7 @@ Date: 2026-05-22
 
 ## Verification
 - `go test ./... -count=1` passed.
-- `node --test src/lib/*.test.js src/api/*.test.js` passed: 285 tests.
+- `node --test src/lib/*.test.js src/api/*.test.js` passed: 286 tests.
 - `npm run build` passed.
 - `git diff --check` passed.
 
