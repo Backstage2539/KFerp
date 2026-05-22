@@ -1,6 +1,7 @@
 package sales
 
 import (
+	"encoding/json"
 	"net/http"
 	support "orderapp/internal/interfaces/http/support"
 	"strconv"
@@ -208,7 +209,7 @@ func (h orderAPIHandler) form(c echo.Context) error {
 		filterByCustomer = true
 	}
 	if filterByCustomer {
-		data.Products = filterOrderProductsForCustomer(data.Products, customerID)
+		data.Products = filterOrderProductsForCustomer(data.Products, customerID, data.BeanListVersionOptions)
 	}
 
 	resp := orderFormAPIResponse{
@@ -608,21 +609,96 @@ func apiProducts(ps []ProductOption) []map[string]any {
 	return out
 }
 
-func filterOrderProductsForCustomer(products []ProductOption, customerID int64) []ProductOption {
+func filterOrderProductsForCustomer(products []ProductOption, customerID int64, versionOptions ...[]salesapp.BeanListVersionOption) []ProductOption {
+	publicationIDsByType := map[string]map[int64]bool{}
+	if len(versionOptions) > 0 {
+		publicationIDsByType = customerOwnedPublicationIDsByListType(customerID, versionOptions[0])
+	}
 	out := make([]ProductOption, 0, len(products))
 	for _, product := range products {
 		visibility := productVisibilityForAPI(product.Visibility, product.CustomerID)
 		if visibility == "public" || product.CustomerID == 0 {
+			if !productMatchesCustomerOwnedBeanListScope(product, publicationIDsByType) {
+				continue
+			}
 			product.Visibility = "public"
 			out = append(out, product)
 			continue
 		}
 		if customerID > 0 && product.CustomerID == customerID {
+			if !productMatchesCustomerOwnedBeanListScope(product, publicationIDsByType) {
+				continue
+			}
 			product.Visibility = "customer_only"
 			out = append(out, product)
 		}
 	}
 	return out
+}
+
+func customerOwnedPublicationIDsByListType(customerID int64, options []salesapp.BeanListVersionOption) map[string]map[int64]bool {
+	out := map[string]map[int64]bool{}
+	if customerID <= 0 {
+		return out
+	}
+	for _, option := range options {
+		if option.CustomerID != customerID || !option.IsCustomerOwned || option.ID <= 0 {
+			continue
+		}
+		listType := normalizeOrderBeanListType(option.ListType)
+		if out[listType] == nil {
+			out[listType] = map[int64]bool{}
+		}
+		out[listType][option.ID] = true
+	}
+	return out
+}
+
+func productMatchesCustomerOwnedBeanListScope(product ProductOption, publicationIDsByType map[string]map[int64]bool) bool {
+	listType := orderProductBeanListType(product.ProductKind)
+	publicationIDs := publicationIDsByType[listType]
+	if len(publicationIDs) == 0 {
+		return true
+	}
+	for _, tier := range product.Tiers {
+		var source struct {
+			ListType      string `json:"list_type"`
+			PublicationID int64  `json:"publication_id"`
+		}
+		if err := json.Unmarshal([]byte(strings.TrimSpace(tier.PriceSourceJSON)), &source); err != nil {
+			continue
+		}
+		if source.PublicationID <= 0 || !publicationIDs[source.PublicationID] {
+			continue
+		}
+		if normalizeOrderBeanListType(source.ListType) != listType {
+			continue
+		}
+		return true
+	}
+	return false
+}
+
+func orderProductBeanListType(productKind string) string {
+	switch strings.TrimSpace(productKind) {
+	case "green_bean":
+		return "green"
+	case "drip_bag":
+		return "drip"
+	default:
+		return "commercial"
+	}
+}
+
+func normalizeOrderBeanListType(listType string) string {
+	switch strings.TrimSpace(listType) {
+	case "green":
+		return "green"
+	case "drip":
+		return "drip"
+	default:
+		return "commercial"
+	}
 }
 
 func productVisibilityForAPI(visibility string, customerID int64) string {

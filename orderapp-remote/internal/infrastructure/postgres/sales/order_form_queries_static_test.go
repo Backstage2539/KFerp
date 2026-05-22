@@ -158,3 +158,84 @@ func TestApplyGreenBeanOrderPublicationTiersReplacesDirectProductTiers(t *testin
 		t.Fatalf("roasted product tiers changed = %+v", products[1].Tiers)
 	}
 }
+
+func TestCommercialOrderPublicationTiersParseTemplatePrices(t *testing.T) {
+	content := []byte(`{
+		"groups":[{
+			"items":[{
+				"productId":425,
+				"name":"芬纳定制-红酒日晒-中深烘",
+				"commercial_wholesale_tiers":[
+					{"label":"2磅-13磅","spec_g":454,"min_qty":2,"max_qty":13,"price_per_unit":65,"price_per_lb":65,"template_id":6,"template_tier_id":56,"display_unit":"lb"},
+					{"label":"14-23磅","spec_g":454,"min_qty":14,"max_qty":23,"price_per_unit":59,"price_per_lb":59,"template_id":6,"template_tier_id":57,"display_unit":"lb"}
+				]
+			}]
+		}]
+	}`)
+
+	tiersByProduct := commercialOrderTierMapFromPublicationContent(31, "V3.0.6", content)
+	tiers := tiersByProduct[425]
+	if len(tiers) != 2 {
+		t.Fatalf("commercial tiers = %+v, want 2 tiers", tiers)
+	}
+	if tiers[0].ID != 56 || tiers[0].SpecG != 454 || tiers[0].MinQty != 2 || tiers[0].MaxQty == nil || *tiers[0].MaxQty != 13 || tiers[0].UnitPrice != 65 {
+		t.Fatalf("first commercial tier = %+v", tiers[0])
+	}
+	if tiers[0].ProductKind != "roasted_bean" || tiers[0].DisplayUnit != "lb" {
+		t.Fatalf("first commercial tier kind/unit = %q/%q", tiers[0].ProductKind, tiers[0].DisplayUnit)
+	}
+	var source map[string]any
+	if err := json.Unmarshal([]byte(tiers[0].PriceSourceJSON), &source); err != nil {
+		t.Fatalf("price source json invalid: %v", err)
+	}
+	if source["list_type"] != "commercial" || int64(source["publication_id"].(float64)) != 31 || int64(source["template_id"].(float64)) != 6 {
+		t.Fatalf("price source = %+v", source)
+	}
+}
+
+func TestApplyCommercialOrderPublicationTiersReplacesCustomerRoastedTiers(t *testing.T) {
+	products := []salesapp.ProductOption{
+		{
+			ID:          425,
+			Name:        "芬纳定制-红酒日晒-中深烘",
+			ProductKind: "roasted",
+			Tiers: []salesapp.ProductTierOption{{
+				ID:          990,
+				SpecG:       454,
+				MinQty:      1,
+				UnitPrice:   88,
+				ProductKind: "roasted_bean",
+			}},
+		},
+		{
+			ID:          426,
+			Name:        "芬纳曲奇定制",
+			ProductKind: "green_bean",
+			Tiers: []salesapp.ProductTierOption{{
+				ID:          991,
+				SpecG:       1000,
+				MinQty:      1,
+				UnitPrice:   62,
+				ProductKind: "green_bean",
+			}},
+		},
+	}
+	publicationTiers := map[int64][]salesapp.ProductTierOption{
+		425: {{
+			ID:          56,
+			SpecG:       454,
+			MinQty:      2,
+			UnitPrice:   65,
+			ProductKind: "roasted_bean",
+		}},
+	}
+
+	applyCommercialOrderPublicationTiers(products, publicationTiers)
+
+	if len(products[0].Tiers) != 1 || products[0].Tiers[0].ID != 56 || products[0].Tiers[0].UnitPrice != 65 {
+		t.Fatalf("roasted product tiers = %+v", products[0].Tiers)
+	}
+	if len(products[1].Tiers) != 1 || products[1].Tiers[0].ID != 991 || products[1].Tiers[0].UnitPrice != 62 {
+		t.Fatalf("green product tiers changed = %+v", products[1].Tiers)
+	}
+}

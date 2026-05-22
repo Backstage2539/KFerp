@@ -49,7 +49,8 @@ func TestCustomerCustomProductsFrontendWiring(t *testing.T) {
 	orderEntry := string(readDev150File(t, filepath.Join("frontend-vue-shell", "src", "views", "OrderEntryView.vue")))
 	for _, want := range []string{
 		"filterProductsForCustomer",
-		"filterProductsForCustomer(products.value, form.customer_id)",
+		"customerOwnedBeanListPublicationIDsByType",
+		"filterProductsForCustomer(products.value, form.customer_id, customerOwnedBeanListPublicationIDsByType())",
 	} {
 		if !strings.Contains(orderEntry, want) {
 			t.Fatalf("OrderEntryView.vue missing %q", want)

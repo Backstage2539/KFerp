@@ -364,13 +364,65 @@ export function filterOptions(options, query) {
   })
 }
 
-export function filterProductsForCustomer(products, customerID) {
+function normalizeBeanListType(value) {
+  const type = String(value || '').trim()
+  if (type === 'green') return 'green'
+  if (type === 'drip') return 'drip'
+  return 'commercial'
+}
+
+function productBeanListType(product) {
+  if (isDripProduct(product)) return 'drip'
+  if (String(product?.product_kind || '').trim() === 'green_bean') return 'green'
+  return 'commercial'
+}
+
+function normalizePublicationIDsByType(publicationIDsByType = {}) {
+  const out = {}
+  for (const [type, value] of Object.entries(publicationIDsByType || {})) {
+    const ids = Array.isArray(value) ? value : [value]
+    const normalizedIDs = ids.map(toInt).filter((id) => id > 0)
+    if (!normalizedIDs.length) continue
+    out[normalizeBeanListType(type)] = new Set(normalizedIDs)
+  }
+  return out
+}
+
+function tierPriceSource(tier) {
+  const raw = tier?.price_source_json
+  if (!raw) return null
+  if (typeof raw === 'object') return raw
+  try {
+    return JSON.parse(String(raw))
+  } catch {
+    return null
+  }
+}
+
+function productMatchesPublicationScope(product, publicationIDsByType) {
+  const listType = productBeanListType(product)
+  const publicationIDs = publicationIDsByType[listType]
+  if (!publicationIDs?.size) return true
+  return (product?.tiers || []).some((tier) => {
+    const source = tierPriceSource(tier)
+    if (!source) return false
+    const publicationID = toInt(source.publication_id)
+    return publicationID > 0
+      && publicationIDs.has(publicationID)
+      && normalizeBeanListType(source.list_type) === listType
+  })
+}
+
+export function filterProductsForCustomer(products, customerID, publicationIDsByType = {}) {
   const selectedCustomerID = toInt(customerID)
+  const scopedPublicationIDs = normalizePublicationIDsByType(publicationIDsByType)
   return (products || []).filter((product) => {
     const productCustomerID = toInt(product?.customer_id)
     const visibility = String(product?.visibility || (productCustomerID > 0 ? 'customer_only' : 'public')).trim()
-    if (visibility === 'public' || productCustomerID === 0) return true
-    return selectedCustomerID > 0 && productCustomerID === selectedCustomerID
+    const visible = visibility === 'public' || productCustomerID === 0
+      ? true
+      : selectedCustomerID > 0 && productCustomerID === selectedCustomerID
+    return visible && productMatchesPublicationScope(product, scopedPublicationIDs)
   })
 }
 

@@ -595,6 +595,40 @@ test('filterProductsForCustomer keeps public and selected customer products only
   assert.deepEqual(filterProductsForCustomer(rows, 0).map((item) => item.name), ['公共拼配'])
 })
 
+test('filterProductsForCustomer hides public products when customer commercial bean list owns the scope', () => {
+  const rows = [
+    {
+      id: 1,
+      name: '公共拼配',
+      customer_id: 0,
+      visibility: 'public',
+      product_kind: 'roasted',
+      tiers: [{ id: 11, price_source_json: '{}' }],
+    },
+    {
+      id: 2,
+      name: '芬纳定制-红酒日晒-中深烘',
+      customer_id: 74,
+      visibility: 'customer_only',
+      product_kind: 'roasted',
+      tiers: [{ id: 56, price_source_json: '{"source":"published_bean_list","list_type":"commercial","publication_id":31}' }],
+    },
+    {
+      id: 3,
+      name: '芬纳未发布定制',
+      customer_id: 74,
+      visibility: 'customer_only',
+      product_kind: 'roasted',
+      tiers: [],
+    },
+  ]
+
+  assert.deepEqual(
+    filterProductsForCustomer(rows, 74, { commercial: [31] }).map((item) => item.name),
+    ['芬纳定制-红酒日晒-中深烘'],
+  )
+})
+
 test('defaultStatusID picks paid and unshipped status labels', () => {
   assert.equal(defaultStatusID([{ id: 1, name: '未付款' }, { id: 2, name: '已付款' }], ['已付款']), 2)
   assert.equal(defaultStatusID([{ id: 3, name: '未发货' }], ['未发货']), 3)

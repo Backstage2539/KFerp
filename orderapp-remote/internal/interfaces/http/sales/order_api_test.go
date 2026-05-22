@@ -292,6 +292,86 @@ func TestOrderAPIFormFiltersCustomerSpecificProducts(t *testing.T) {
 	}
 }
 
+func TestOrderAPIFormUsesCustomerCommercialBeanListForProductOptions(t *testing.T) {
+	pool, schema := newOrderAPITestDB(t)
+	ctx := context.Background()
+	seedOrderAPITestData(t, ctx, pool, schema)
+	mustExecOrderAPITestSQL(t, ctx, pool, fmt.Sprintf(`
+		INSERT INTO %[1]s.products(id,name,default_price,active,retail_price_227g,customer_id,base_product_id,visibility,custom_type,product_kind)
+		VALUES
+			(8,'芬纳定制-红酒日晒-中深烘',0,true,0,3,0,'customer_only','custom_roast','roasted'),
+			(9,'芬纳曲奇定制',0,true,0,3,0,'customer_only','custom_roast','roasted');
+		INSERT INTO %[1]s.bean_list_publications(id, list_type, version_no, status, owner_type, owner_key, config_json, content_json, changelog, actor, published_at)
+		VALUES
+			(9903,'commercial','F-1','published','customer','3','{}'::jsonb,
+			'{"groups":[{"items":[{"productId":8,"name":"芬纳定制-红酒日晒-中深烘","commercial_wholesale_tiers":[{"label":"2磅-13磅","spec_g":454,"min_qty":2,"max_qty":13,"price_per_unit":65,"price_per_lb":65,"template_id":6,"template_tier_id":56,"display_unit":"lb"},{"label":"14-23磅","spec_g":454,"min_qty":14,"max_qty":23,"price_per_unit":59,"price_per_lb":59,"template_id":6,"template_tier_id":57,"display_unit":"lb"}]},{"productId":9,"name":"芬纳曲奇定制","commercial_wholesale_tiers":[{"label":"2磅-13磅","spec_g":454,"min_qty":2,"max_qty":13,"price_per_unit":52,"price_per_lb":52,"template_id":6,"template_tier_id":56,"display_unit":"lb"}]}]}]}'::jsonb,
+			'芬纳客户豆单','codex','2026-05-22 09:00:00+08');
+	`, schema))
+
+	e := newOrderAPITestEcho(pool, schema)
+	req := httptest.NewRequest(http.MethodGet, "/api/order/form?customer_id=3", nil)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET /api/order/form status = %d, want 200, body=%s", rec.Code, rec.Body.String())
+	}
+
+	var resp struct {
+		Products []struct {
+			ID    int64  `json:"id"`
+			Name  string `json:"name"`
+			Tiers []struct {
+				ID              int64   `json:"id"`
+				SpecG           int64   `json:"spec_g"`
+				MinQty          float64 `json:"min"`
+				UnitPrice       float64 `json:"unit_price"`
+				DisplayUnit     string  `json:"display_unit"`
+				ProductKind     string  `json:"product_kind"`
+				PriceSourceJSON string  `json:"price_source_json"`
+			} `json:"tiers"`
+		} `json:"products"`
+		BeanListVersionOptions []salesapp.BeanListVersionOption `json:"bean_list_version_options"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode order form: %v", err)
+	}
+	names := make([]string, 0, len(resp.Products))
+	var redWine *struct {
+		ID    int64  `json:"id"`
+		Name  string `json:"name"`
+		Tiers []struct {
+			ID              int64   `json:"id"`
+			SpecG           int64   `json:"spec_g"`
+			MinQty          float64 `json:"min"`
+			UnitPrice       float64 `json:"unit_price"`
+			DisplayUnit     string  `json:"display_unit"`
+			ProductKind     string  `json:"product_kind"`
+			PriceSourceJSON string  `json:"price_source_json"`
+		} `json:"tiers"`
+	}
+	for i := range resp.Products {
+		names = append(names, resp.Products[i].Name)
+		if resp.Products[i].ID == 8 {
+			redWine = &resp.Products[i]
+		}
+	}
+	if strings.Contains(strings.Join(names, ","), "橘皮乌龙") {
+		t.Fatalf("customer commercial bean list should hide public products not in the customer bean list, got %v", names)
+	}
+	if redWine == nil {
+		t.Fatalf("order form missing customer bean-list product 8: %v", names)
+	}
+	if len(redWine.Tiers) != 2 {
+		t.Fatalf("customer commercial tiers = %+v, want 2 tiers", redWine.Tiers)
+	}
+	if redWine.Tiers[0].ID != 56 || redWine.Tiers[0].SpecG != 454 || redWine.Tiers[0].MinQty != 2 || redWine.Tiers[0].UnitPrice != 65 {
+		t.Fatalf("first customer commercial tier = %+v", redWine.Tiers[0])
+	}
+	if redWine.Tiers[0].DisplayUnit != "lb" || redWine.Tiers[0].ProductKind != "roasted_bean" || !strings.Contains(redWine.Tiers[0].PriceSourceJSON, `"publication_id":9903`) {
+		t.Fatalf("customer commercial tier source = %+v", redWine.Tiers[0])
+	}
+}
+
 func TestOrderAPIFormDoesNotReturnBoundRoastedTiersForGreenBeanProduct(t *testing.T) {
 	pool, schema := newOrderAPITestDB(t)
 	ctx := context.Background()
@@ -951,6 +1031,51 @@ func TestFilterOrderProductsForCustomerKeepsPublicAndOwnProducts(t *testing.T) {
 		names = append(names, product.Name)
 	}
 	if strings.Join(names, ",") != "公共拼配,测试客户专属深烘" {
+		t.Fatalf("filtered names = %q", strings.Join(names, ","))
+	}
+}
+
+func TestFilterOrderProductsForCustomerLimitsCustomerOwnedBeanListScope(t *testing.T) {
+	products := []ProductOption{
+		{
+			ID:          1,
+			Name:        "公共拼配",
+			CustomerID:  0,
+			Visibility:  "public",
+			ProductKind: "roasted",
+			Tiers:       []ProductTierOption{{ID: 11, PriceSourceJSON: `{"source":"published_bean_list","list_type":"commercial","publication_id":12}`}},
+		},
+		{
+			ID:          2,
+			Name:        "芬纳定制-红酒日晒-中深烘",
+			CustomerID:  3,
+			Visibility:  "customer_only",
+			ProductKind: "roasted",
+			Tiers:       []ProductTierOption{{ID: 56, PriceSourceJSON: `{"source":"published_bean_list","list_type":"commercial","publication_id":9903}`}},
+		},
+		{
+			ID:          3,
+			Name:        "芬纳未发布定制",
+			CustomerID:  3,
+			Visibility:  "customer_only",
+			ProductKind: "roasted",
+			Tiers:       []ProductTierOption{},
+		},
+	}
+	versionOptions := []salesapp.BeanListVersionOption{{
+		CustomerID:      3,
+		ListType:        "commercial",
+		ID:              9903,
+		IsCustomerOwned: true,
+		IsDefault:       true,
+	}}
+
+	got := filterOrderProductsForCustomer(products, 3, versionOptions)
+	names := make([]string, 0, len(got))
+	for _, product := range got {
+		names = append(names, product.Name)
+	}
+	if strings.Join(names, ",") != "芬纳定制-红酒日晒-中深烘" {
 		t.Fatalf("filtered names = %q", strings.Join(names, ","))
 	}
 }

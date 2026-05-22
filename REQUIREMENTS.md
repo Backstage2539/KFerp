@@ -33,6 +33,7 @@
 - PR-321-CUSTOMER-SKU-CATEGORY-TOGGLE-FACTORY-BEANLIST-TITLE：客户 SKU 设置中的客户自有分类不得因勾选再取消“是否使用公共商品分类”而从客户分类树消失；从客户账户切回“工厂总览”后，SKU设置必须回到公共 SKU 归属；客户产品豆单的商用批发豆单标题必须沿用公共豆单标题逻辑，客户 SKU 挂在“咖啡豆 / 定制咖啡熟豆”时标题显示为“1、定制咖啡熟豆”，并且 `芬纳定制-红酒日晒-中深烘` 必须出现在芬纳咖啡客户豆单中。
 - PR-322-CUSTOMER-SKU-CATEGORY-CLEANUP-BOM-VERSION-DEACTIVATE：SKU设置保存客户公共分类开关时，不得把仍有活跃二级分类或已挂 SKU 的客户自有一级分类当成空公共副本清理；SKU 失效时，除当前 BOM 状态变为失效外，对应 active BOM 版本也必须同步置为 disabled，历史明细和版本记录保留。
 - PR-323-BEAN-LIST-DOWNLOAD-MATCH-PREVIEW-TYPOGRAPHY：产品豆单下载 PDF 必须与生成抽屉预览保持同一视觉语言，包含字体大小、粗字重、卡片行列、分类标题、商品名称换行和绿色/蓝色报价块排版。已保存的 `bean-list-preview-style-v1` PDF 缓存属于旧排版，下载时必须用 `bean-list-preview-style-v2` 重新生成后覆盖，避免图一预览和图二下载字体/排版不一致。
+- PR-324-FENNA-ORDER-ENTRY-CUSTOMER-BEAN-LIST-SCOPE：ERP 录单选择客户后，熟豆/商用商品必须读取该客户已发布商用豆单快照中的 `commercial_wholesale_tiers` 作为自动价来源。客户已有自己的商用豆单时，商品下拉只允许选择该客户商用豆单发布快照中包含且有价格档的商品，不得继续混入公共商品或未发布到客户豆单的客户 SKU；芬纳咖啡当前两个定制产品必须能在录单中看到对应豆单价格。
 
 ## 2. 计价与单位（关键业务规则）
 ### 2.1 阶梯价

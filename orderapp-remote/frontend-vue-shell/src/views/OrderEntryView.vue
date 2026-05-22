@@ -653,6 +653,19 @@ function customerBeanListVersionOptionsByType(listType) {
   return customerBeanListVersionOptions.value.filter((item) => String(item.list_type || 'commercial') === listType)
 }
 
+function customerOwnedBeanListPublicationIDsByType() {
+  const out = {}
+  for (const item of customerBeanListVersionOptions.value) {
+    if (!item.is_customer_owned) continue
+    const id = Number(item.id || 0)
+    if (id <= 0) continue
+    const listType = String(item.list_type || 'commercial')
+    if (!out[listType]) out[listType] = []
+    out[listType].push(id)
+  }
+  return out
+}
+
 function showBeanListVersionPickerByType(listType) {
   const rows = customerBeanListVersionOptionsByType(listType)
   return rows.length > 1 || rows.some((item) => item.is_customer_owned)
@@ -771,7 +784,10 @@ async function saveCustomerFromDrawer() {
 }
 
 function productOptions(row) {
-  return filterOptions(filterProductsForCustomer(products.value, form.customer_id), row.product_query).slice(0, 30)
+  return filterOptions(
+    filterProductsForCustomer(products.value, form.customer_id, customerOwnedBeanListPublicationIDsByType()),
+    row.product_query,
+  ).slice(0, 30)
 }
 
 function clearProduct(row) {
