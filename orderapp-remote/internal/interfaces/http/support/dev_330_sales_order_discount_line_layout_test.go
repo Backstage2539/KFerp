@@ -44,6 +44,7 @@ func TestDev330SalesOrderDiscountLineLayoutWiring(t *testing.T) {
 			rel: filepath.Join("internal", "infrastructure", "pdf", "sales_order_pdf.go"),
 			markers: []string{
 				`"优惠折扣"`,
+				`"总价"`,
 				"salesOrderSpecPerUnit",
 				"salesOrderDiscountCell",
 				"salesOrderMoneyPositive(snapshot.Discount)",
@@ -79,6 +80,7 @@ func TestDev330SalesOrderDiscountLineLayoutDocs(t *testing.T) {
 			"1000g/件",
 			"优惠折扣",
 			"优惠合计",
+			"总价",
 		} {
 			if !strings.Contains(src, want) {
 				t.Fatalf("%s missing dev 330 documentation marker %q", rel, want)

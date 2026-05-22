@@ -115,19 +115,19 @@ func TestSalesOrderItemRowsShowSpecPerUnitDiscountAndFinalNote(t *testing.T) {
 		DiscountAmount: "28.00",
 		Note:           "20%乌干达，15%云南厌氧日晒，65%云南水洗",
 	}
-	wantHeaders := []string{"商品", "规格", "数量", "单价", "优惠折扣", "备注"}
+	wantHeaders := []string{"商品", "规格", "数量", "单价", "优惠折扣", "总价", "备注"}
 	if got := salesOrderItemHeaders(true); strings.Join(got, "|") != strings.Join(wantHeaders, "|") {
 		t.Fatalf("salesOrderItemHeaders()=%v want %v", got, wantHeaders)
 	}
-	wantCells := []string{"芬纳-曲奇定制", "1000g/件", "1件", "115.00", "￥-28元", "20%乌干达，15%云南厌氧日晒，65%云南水洗"}
+	wantCells := []string{"芬纳-曲奇定制", "1000g/件", "1件", "115.00", "￥-28元", "93.35", "20%乌干达，15%云南厌氧日晒，65%云南水洗"}
 	if got := salesOrderItemCells(item, true); strings.Join(got, "|") != strings.Join(wantCells, "|") {
 		t.Fatalf("salesOrderItemCells()=%v want %v", got, wantCells)
 	}
-	noDiscountHeaders := []string{"商品", "规格", "数量", "单价", "备注"}
+	noDiscountHeaders := []string{"商品", "规格", "数量", "单价", "总价", "备注"}
 	if got := salesOrderItemHeaders(false); strings.Join(got, "|") != strings.Join(noDiscountHeaders, "|") {
 		t.Fatalf("salesOrderItemHeaders(false)=%v want %v", got, noDiscountHeaders)
 	}
-	noDiscountCells := []string{"芬纳-曲奇定制", "1000g/件", "1件", "115.00", "20%乌干达，15%云南厌氧日晒，65%云南水洗"}
+	noDiscountCells := []string{"芬纳-曲奇定制", "1000g/件", "1件", "115.00", "93.35", "20%乌干达，15%云南厌氧日晒，65%云南水洗"}
 	if got := salesOrderItemCells(item, false); strings.Join(got, "|") != strings.Join(noDiscountCells, "|") {
 		t.Fatalf("salesOrderItemCells(no discount)=%v want %v", got, noDiscountCells)
 	}
