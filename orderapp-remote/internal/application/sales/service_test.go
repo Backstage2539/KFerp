@@ -164,6 +164,10 @@ func (r *fakeRepo) DeactivateSalesOrderPaymentCode(ctx context.Context, id int64
 	return nil
 }
 
+func (r *fakeRepo) ActivateSalesOrderPaymentCode(ctx context.Context, id int64, actor string) error {
+	return nil
+}
+
 func (r *fakeRepo) SetSalesOrderSealAsset(ctx context.Context, assetID int64, actor string) error {
 	return nil
 }

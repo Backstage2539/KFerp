@@ -209,6 +209,9 @@ func auditMenuFeature(entityType, action, field string, meta *string) (string, s
 	case "sales_order_asset":
 		return "设置 / 销售单设置", "上传销售单素材"
 	case "sales_order_payment_code":
+		if action == "activate" {
+			return "设置 / 销售单设置", "启用收款二维码"
+		}
 		if action == "deactivate" || action == "delete" {
 			return "设置 / 销售单设置", "停用收款二维码"
 		}
@@ -536,6 +539,8 @@ func auditSummary(r *AuditLogRow, rawEntityType, rawAction, rawField string) str
 		return fmt.Sprintf("%s 在%s新增了%s", actor, menuName, auditTargetName(r, rawEntityType))
 	case "deactivate":
 		return fmt.Sprintf("%s 在%s停用了%s", actor, menuName, auditTargetName(r, rawEntityType))
+	case "activate":
+		return fmt.Sprintf("%s 在%s启用了%s", actor, menuName, auditTargetName(r, rawEntityType))
 	case "delete":
 		return fmt.Sprintf("%s 在%s删除了%s", actor, menuName, auditTargetName(r, rawEntityType))
 	case "submit":
@@ -831,6 +836,8 @@ func labelAction(a string) string {
 		return "新增"
 	case "deactivate":
 		return "停用"
+	case "activate":
+		return "启用"
 	case "delete":
 		return "删除"
 	case "submit":

@@ -86,7 +86,7 @@ func TestSalesOrderPaymentCodeRoundTrip(t *testing.T) {
 	}
 }
 
-func TestDeactivateSalesOrderPaymentCodeHidesWithoutDeletingRecordOrAsset(t *testing.T) {
+func TestDeactivateSalesOrderPaymentCodeKeepsVisibleForSettingsAndCanReactivate(t *testing.T) {
 	pool, schema := newSalesPostgresTestDB(t)
 	ctx := context.Background()
 	defer func() {
@@ -119,8 +119,8 @@ func TestDeactivateSalesOrderPaymentCodeHidesWithoutDeletingRecordOrAsset(t *tes
 	if err != nil {
 		t.Fatalf("LoadSalesOrderSettings: %v", err)
 	}
-	if len(settings.PaymentCodes) != 0 {
-		t.Fatalf("inactive payment code should be hidden from settings, got %+v", settings.PaymentCodes)
+	if len(settings.PaymentCodes) != 1 || settings.PaymentCodes[0].ID != code.ID || settings.PaymentCodes[0].Active {
+		t.Fatalf("inactive payment code should remain visible in settings with active=false, got %+v", settings.PaymentCodes)
 	}
 	var codeRows, assetRows int
 	var active bool
@@ -142,6 +142,23 @@ func TestDeactivateSalesOrderPaymentCodeHidesWithoutDeletingRecordOrAsset(t *tes
 	}
 	if action != "deactivate" {
 		t.Fatalf("payment code audit action = %q, want deactivate", action)
+	}
+
+	if err := repo.ActivateSalesOrderPaymentCode(ctx, code.ID, "测试员"); err != nil {
+		t.Fatalf("ActivateSalesOrderPaymentCode: %v", err)
+	}
+	settings, err = repo.LoadSalesOrderSettings(ctx)
+	if err != nil {
+		t.Fatalf("LoadSalesOrderSettings after activate: %v", err)
+	}
+	if len(settings.PaymentCodes) != 1 || settings.PaymentCodes[0].ID != code.ID || !settings.PaymentCodes[0].Active {
+		t.Fatalf("reactivated payment code should remain visible in settings with active=true, got %+v", settings.PaymentCodes)
+	}
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT action FROM %s.audit_logs WHERE entity_type='sales_order_payment_code' AND entity_id=$1 AND field='active' ORDER BY id DESC LIMIT 1`, schema), code.ID).Scan(&action); err != nil {
+		t.Fatalf("query payment code activate audit action: %v", err)
+	}
+	if action != "activate" {
+		t.Fatalf("payment code audit action = %q, want activate", action)
 	}
 }
 

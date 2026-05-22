@@ -81,6 +81,7 @@ func registerSalesOrderSettingsRoutes(e *echo.Echo, salesSvc *salesapp.Service, 
 	e.POST("/api/settings/sales-order/payment-codes", h.uploadPaymentCode)
 	e.PUT("/api/settings/sales-order/payment-codes/:id", h.updatePaymentCode)
 	e.DELETE("/api/settings/sales-order/payment-codes/:id", h.deactivatePaymentCode)
+	e.POST("/api/settings/sales-order/payment-codes/:id/activate", h.activatePaymentCode)
 	e.POST("/api/settings/sales-order/seal", h.uploadSeal)
 	e.POST("/api/settings/sales-order/seal/remove-background", h.removeSealBackground)
 	e.GET("/assets/sales_order_assets/*", h.serveSalesOrderAsset)
@@ -329,6 +330,17 @@ func (h salesOrderSettingsHandler) deactivatePaymentCode(c echo.Context) error {
 		return c.JSON(http.StatusBadRequest, map[string]any{"error": "invalid id"})
 	}
 	if err := h.sales.DeactivateSalesOrderPaymentCode(c.Request().Context(), id, support.ActorOf(c)); err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]any{"error": err.Error()})
+	}
+	return c.JSON(http.StatusOK, map[string]any{"ok": true})
+}
+
+func (h salesOrderSettingsHandler) activatePaymentCode(c echo.Context) error {
+	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil || id <= 0 {
+		return c.JSON(http.StatusBadRequest, map[string]any{"error": "invalid id"})
+	}
+	if err := h.sales.ActivateSalesOrderPaymentCode(c.Request().Context(), id, support.ActorOf(c)); err != nil {
 		return c.JSON(http.StatusInternalServerError, map[string]any{"error": err.Error()})
 	}
 	return c.JSON(http.StatusOK, map[string]any{"ok": true})

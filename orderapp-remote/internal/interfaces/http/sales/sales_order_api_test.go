@@ -556,7 +556,7 @@ func TestSalesOrderPaymentCodeUploadStoresImageAsset(t *testing.T) {
 	}
 }
 
-func TestSalesOrderPaymentCodeDeactivateHidesWithoutDeletingRecordOrAsset(t *testing.T) {
+func TestSalesOrderPaymentCodeDeactivateKeepsVisibleForSettingsAndCanReactivate(t *testing.T) {
 	pool, schema := newOrderAPITestDB(t)
 	ctx := context.Background()
 	seedOrderAPITestData(t, ctx, pool, schema)
@@ -598,8 +598,8 @@ func TestSalesOrderPaymentCodeDeactivateHidesWithoutDeletingRecordOrAsset(t *tes
 	if getRec.Code != http.StatusOK {
 		t.Fatalf("settings get status=%d body=%s", getRec.Code, getRec.Body.String())
 	}
-	if strings.Contains(getRec.Body.String(), "好老板（信用卡、花呗）") {
-		t.Fatalf("deactivated payment code should be hidden from settings: %s", getRec.Body.String())
+	if !strings.Contains(getRec.Body.String(), "好老板（信用卡、花呗）") || !strings.Contains(getRec.Body.String(), `"active":false`) {
+		t.Fatalf("deactivated payment code should remain visible in settings as active=false: %s", getRec.Body.String())
 	}
 
 	var active bool
@@ -625,6 +625,34 @@ func TestSalesOrderPaymentCodeDeactivateHidesWithoutDeletingRecordOrAsset(t *tes
 	}
 	if action != "deactivate" {
 		t.Fatalf("payment code audit action=%q, want deactivate", action)
+	}
+
+	activateReq := httptest.NewRequest(http.MethodPost, fmt.Sprintf("/api/settings/sales-order/payment-codes/%d/activate", uploadPayload.PaymentCode.ID), nil)
+	activateRec := httptest.NewRecorder()
+	e.ServeHTTP(activateRec, activateReq)
+	if activateRec.Code != http.StatusOK {
+		t.Fatalf("payment code activate status=%d body=%s", activateRec.Code, activateRec.Body.String())
+	}
+	getReq = httptest.NewRequest(http.MethodGet, "/api/settings/sales-order", nil)
+	getRec = httptest.NewRecorder()
+	e.ServeHTTP(getRec, getReq)
+	if getRec.Code != http.StatusOK {
+		t.Fatalf("settings get after activate status=%d body=%s", getRec.Code, getRec.Body.String())
+	}
+	if !strings.Contains(getRec.Body.String(), "好老板（信用卡、花呗）") || !strings.Contains(getRec.Body.String(), `"active":true`) {
+		t.Fatalf("reactivated payment code should remain visible in settings as active=true: %s", getRec.Body.String())
+	}
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT active FROM %s.sales_order_payment_codes WHERE id=$1`, schema), uploadPayload.PaymentCode.ID).Scan(&active); err != nil {
+		t.Fatalf("payment code row should remain after activate: %v", err)
+	}
+	if !active {
+		t.Fatal("payment code row active=false, want true")
+	}
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT action FROM %s.audit_logs WHERE entity_type='sales_order_payment_code' AND entity_id=$1 AND field='active' ORDER BY id DESC LIMIT 1`, schema), uploadPayload.PaymentCode.ID).Scan(&action); err != nil {
+		t.Fatalf("query payment code activate audit action: %v", err)
+	}
+	if action != "activate" {
+		t.Fatalf("payment code audit action=%q, want activate", action)
 	}
 }
 

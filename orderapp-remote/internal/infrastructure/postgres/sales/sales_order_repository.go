@@ -198,6 +198,15 @@ func (r Repository) DeactivateSalesOrderPaymentCode(ctx context.Context, id int6
 	return err
 }
 
+func (r Repository) ActivateSalesOrderPaymentCode(ctx context.Context, id int64, actor string) error {
+	q := fmt.Sprintf(`UPDATE %s.sales_order_payment_codes SET active=true, updated_at=now() WHERE id=$1`, r.schema)
+	_, err := r.pool.Exec(ctx, q, id)
+	if err == nil {
+		postgresinfra.AuditInsert(ctx, r.pool, r.schema, actor, "sales_order_payment_code", &id, "activate", postgresinfra.StrPtr("active"), postgresinfra.StrPtr("false"), postgresinfra.StrPtr("true"), nil)
+	}
+	return err
+}
+
 func (r Repository) SetSalesOrderSealAsset(ctx context.Context, assetID int64, actor string) error {
 	q := fmt.Sprintf(`INSERT INTO %s.sales_order_settings(id, seal_asset_id, updated_at, updated_by)
 		VALUES(1,$1,now(),$2)
@@ -214,7 +223,6 @@ func (r Repository) loadSalesOrderPaymentCodes(ctx context.Context) ([]salesapp.
 			a.id, a.kind, a.filename, a.content_type, a.bytes, a.sha256, a.object_key, to_char(a.created_at,'YYYY-MM-DD HH24:MI:SS'), a.created_by
 		FROM %s.sales_order_payment_codes pc
 		JOIN %s.sales_order_assets a ON a.id=pc.asset_id
-		WHERE pc.active=true
 		ORDER BY pc.sort, pc.id`, r.schema, r.schema)
 	rows, err := r.pool.Query(ctx, q)
 	if err != nil {
@@ -545,6 +553,9 @@ func (r Repository) buildSalesOrderSnapshotTx(ctx context.Context, tx pgx.Tx, or
 	}
 	snapshot.DiscountBreakdowns = breakdowns
 	for _, code := range settings.PaymentCodes {
+		if !code.Active {
+			continue
+		}
 		snapshot.PaymentCodes = append(snapshot.PaymentCodes, salesdomain.SalesOrderAssetRef{
 			ID: code.Asset.ID, Label: code.Label, Description: code.Description, ObjectKey: code.Asset.ObjectKey, ContentType: code.Asset.ContentType, URL: code.Asset.URL,
 		})

@@ -40,7 +40,7 @@
       </div>
       <table>
         <thead>
-          <tr><th>名称</th><th>说明</th><th>文件</th><th>排序</th><th>操作</th></tr>
+          <tr><th>名称</th><th>说明</th><th>文件</th><th>排序</th><th>状态</th><th>操作</th></tr>
         </thead>
         <tbody>
           <tr v-for="code in settings.payment_codes || []" :key="code.id">
@@ -48,9 +48,13 @@
             <td>{{ code.description || '-' }}</td>
             <td>{{ code.asset?.filename || '-' }}</td>
             <td>{{ code.sort }}</td>
-            <td><button class="secondary" type="button" @click="deactivatePaymentCode(code)" :disabled="saving">停用</button></td>
+            <td><span class="status-pill" :class="{ inactive: !code.active }">{{ code.active ? '启用' : '停用' }}</span></td>
+            <td>
+              <button v-if="code.active" class="secondary" type="button" @click="deactivatePaymentCode(code)" :disabled="saving">停用</button>
+              <button v-else class="secondary" type="button" @click="activatePaymentCode(code)" :disabled="saving">启用</button>
+            </td>
           </tr>
-          <tr v-if="!(settings.payment_codes || []).length"><td colspan="5" class="muted">暂无收款码</td></tr>
+          <tr v-if="!(settings.payment_codes || []).length"><td colspan="6" class="muted">暂无收款码</td></tr>
         </tbody>
       </table>
     </section>
@@ -222,6 +226,21 @@ async function deactivatePaymentCode(code) {
   }
 }
 
+async function activatePaymentCode(code) {
+  if (!code?.id) return
+  saving.value = true
+  error.value = ''
+  try {
+    await apiSend(`/api/settings/sales-order/payment-codes/${code.id}/activate`, { method: 'POST' })
+    ok.value = '收款码已启用'
+    await load()
+  } catch (err) {
+    error.value = err.message || '启用失败'
+  } finally {
+    saving.value = false
+  }
+}
+
 async function selectSeal() {
   if (!selectedSealID.value) return
   saving.value = true
@@ -313,6 +332,8 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 table { width: 100%; border-collapse: collapse; }
 th, td { border-bottom: 1px solid #eee8df; padding: 9px 8px; text-align: left; }
 th { background: #fbfaf8; }
+.status-pill { display: inline-flex; align-items: center; min-height: 24px; padding: 2px 8px; border-radius: 999px; background: #e7f8ed; color: #166534; font-size: 13px; font-weight: 600; }
+.status-pill.inactive { background: #f2f4f7; color: #667085; }
 .muted { color: #666; text-align: center; }
 .error, .ok { border-radius: 6px; padding: 9px; margin-bottom: 12px; }
 .error { background: #fff0f0; border: 1px solid #e6b7b7; color: #8a1f1f; }

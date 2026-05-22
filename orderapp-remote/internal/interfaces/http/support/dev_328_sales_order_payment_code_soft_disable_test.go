@@ -10,8 +10,11 @@ func TestDev328SalesOrderPaymentCodeSoftDisableWiring(t *testing.T) {
 	repository := string(readOrderAppFileForTest(t, filepath.Join("internal", "infrastructure", "postgres", "sales", "sales_order_repository.go")))
 	for _, want := range []string{
 		"DeactivateSalesOrderPaymentCode",
+		"ActivateSalesOrderPaymentCode",
 		"UPDATE %s.sales_order_payment_codes SET active=false",
+		"UPDATE %s.sales_order_payment_codes SET active=true",
 		`"deactivate"`,
+		`"activate"`,
 	} {
 		if !strings.Contains(repository, want) {
 			t.Fatalf("sales order payment code soft-disable wiring missing %q", want)
@@ -24,7 +27,9 @@ func TestDev328SalesOrderPaymentCodeSoftDisableWiring(t *testing.T) {
 	service := string(readOrderAppFileForTest(t, filepath.Join("internal", "application", "sales", "service.go")))
 	for _, want := range []string{
 		"DeactivateSalesOrderPaymentCode(ctx context.Context, id int64, actor string) error",
+		"ActivateSalesOrderPaymentCode(ctx context.Context, id int64, actor string) error",
 		"return s.repo.DeactivateSalesOrderPaymentCode(ctx, id, actor)",
+		"return s.repo.ActivateSalesOrderPaymentCode(ctx, id, actor)",
 	} {
 		if !strings.Contains(service, want) {
 			t.Fatalf("sales service soft-disable wiring missing %q", want)
@@ -34,7 +39,9 @@ func TestDev328SalesOrderPaymentCodeSoftDisableWiring(t *testing.T) {
 	handler := string(readOrderAppFileForTest(t, filepath.Join("internal", "interfaces", "http", "sales", "sales_order_settings.go")))
 	for _, want := range []string{
 		"e.DELETE(\"/api/settings/sales-order/payment-codes/:id\", h.deactivatePaymentCode)",
+		"e.POST(\"/api/settings/sales-order/payment-codes/:id/activate\", h.activatePaymentCode)",
 		"DeactivateSalesOrderPaymentCode",
+		"ActivateSalesOrderPaymentCode",
 	} {
 		if !strings.Contains(handler, want) {
 			t.Fatalf("sales order settings handler soft-disable wiring missing %q", want)
@@ -44,7 +51,10 @@ func TestDev328SalesOrderPaymentCodeSoftDisableWiring(t *testing.T) {
 	view := string(readOrderAppFileForTest(t, filepath.Join("frontend-vue-shell", "src", "views", "SalesOrderSettingsView.vue")))
 	for _, want := range []string{
 		"deactivatePaymentCode(code)",
+		"activatePaymentCode(code)",
 		"收款码已停用",
+		"收款码已启用",
+		"code.active ? '启用' : '停用'",
 	} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("sales order settings view soft-disable wiring missing %q", want)
@@ -53,6 +63,9 @@ func TestDev328SalesOrderPaymentCodeSoftDisableWiring(t *testing.T) {
 
 	auditPage := string(readOrderAppFileForTest(t, filepath.Join("internal", "interfaces", "http", "support", "audit_page.go")))
 	for _, want := range []string{
+		`case "activate":`,
+		"启用收款二维码",
+		"启用了",
 		`case "deactivate":`,
 		"停用收款二维码",
 		"停用了",
@@ -89,6 +102,7 @@ func TestDev328SalesOrderPaymentCodeSoftDisableDocs(t *testing.T) {
 		for _, want := range []string{
 			"PR-328",
 			"停用",
+			"启用",
 			"不删除",
 		} {
 			if !strings.Contains(src, want) {

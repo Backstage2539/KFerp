@@ -888,6 +888,7 @@ type Repository interface {
 	ListSalesOrderSealAssets(ctx context.Context) ([]SalesOrderAsset, error)
 	SaveSalesOrderPaymentCode(ctx context.Context, cmd SaveSalesOrderPaymentCodeCommand) (SalesOrderPaymentCode, error)
 	DeactivateSalesOrderPaymentCode(ctx context.Context, id int64, actor string) error
+	ActivateSalesOrderPaymentCode(ctx context.Context, id int64, actor string) error
 	SetSalesOrderSealAsset(ctx context.Context, assetID int64, actor string) error
 	LoadSalesOrderContext(ctx context.Context, orderID int64) (SalesOrderContext, error)
 	SaveSalesOrderNote(ctx context.Context, cmd SaveSalesOrderNoteCommand) error
@@ -1486,6 +1487,17 @@ func (s *Service) DeactivateSalesOrderPaymentCode(ctx context.Context, id int64,
 		actor = "sales"
 	}
 	return s.repo.DeactivateSalesOrderPaymentCode(ctx, id, actor)
+}
+
+func (s *Service) ActivateSalesOrderPaymentCode(ctx context.Context, id int64, actor string) error {
+	if id <= 0 {
+		return fmt.Errorf("payment code required")
+	}
+	actor = strings.TrimSpace(actor)
+	if actor == "" {
+		actor = "sales"
+	}
+	return s.repo.ActivateSalesOrderPaymentCode(ctx, id, actor)
 }
 
 func (s *Service) SetSalesOrderSealAsset(ctx context.Context, assetID int64, actor string) error {
