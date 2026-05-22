@@ -608,6 +608,102 @@ func (r Repository) PublishedBeanList(ctx context.Context, query appcosting.Bean
 	return &row, nil
 }
 
+func (r Repository) LoadBeanListPublication(ctx context.Context, query appcosting.BeanListPublicationQuery, publicationID int64) (*appcosting.BeanListPublication, error) {
+	row, err := scanBeanListPublication(r.pool.QueryRow(ctx, fmt.Sprintf(`
+		SELECT id,
+		       list_type,
+		       version_no,
+		       status,
+		       owner_type,
+		       owner_key,
+		       COALESCE(price_source_publication_id,0),
+		       COALESCE(style_source_publication_id,0),
+		       source_version_no,
+		       config_json,
+		       content_json,
+		       changelog,
+		       to_char(published_at,'YYYY-MM-DD HH24:MI'),
+		       COALESCE(to_char(withdrawn_at,'YYYY-MM-DD HH24:MI'),''),
+		       to_char(created_at,'YYYY-MM-DD HH24:MI')
+		FROM %s.bean_list_publications
+		WHERE id=$1 AND list_type=$2 AND owner_type=$3 AND owner_key=$4
+	`, r.schema), publicationID, strings.TrimSpace(query.ListType), strings.TrimSpace(query.OwnerType), strings.TrimSpace(query.OwnerKey)))
+	if err != nil {
+		if err == pgx.ErrNoRows {
+			return nil, appcosting.ErrBeanListPublicationNotFound
+		}
+		return nil, err
+	}
+	return &row, nil
+}
+
+func (r Repository) LoadBeanListPublicationAsset(ctx context.Context, publicationID int64, assetType string) (appcosting.BeanListPublicationAsset, error) {
+	assetType = strings.TrimSpace(assetType)
+	if assetType == "" {
+		assetType = "pdf"
+	}
+	var asset appcosting.BeanListPublicationAsset
+	err := r.pool.QueryRow(ctx, fmt.Sprintf(`
+		SELECT publication_id, asset_type, content_type, cache_key, payload
+		FROM %s.bean_list_publication_assets
+		WHERE publication_id=$1 AND asset_type=$2
+	`, r.schema), publicationID, assetType).Scan(&asset.PublicationID, &asset.AssetType, &asset.ContentType, &asset.CacheKey, &asset.Payload)
+	if err != nil {
+		if err == pgx.ErrNoRows {
+			return appcosting.BeanListPublicationAsset{}, appcosting.ErrBeanListPublicationNotFound
+		}
+		return appcosting.BeanListPublicationAsset{}, err
+	}
+	return asset, nil
+}
+
+func (r Repository) SaveBeanListPublicationAsset(ctx context.Context, asset appcosting.BeanListPublicationAsset, actor string) (appcosting.BeanListPublicationAsset, error) {
+	asset.AssetType = strings.TrimSpace(asset.AssetType)
+	if asset.AssetType == "" {
+		asset.AssetType = "pdf"
+	}
+	asset.ContentType = strings.TrimSpace(asset.ContentType)
+	if asset.ContentType == "" {
+		asset.ContentType = "application/octet-stream"
+	}
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return appcosting.BeanListPublicationAsset{}, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	var created bool
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`
+		WITH inserted AS (
+			INSERT INTO %[1]s.bean_list_publication_assets(publication_id, asset_type, content_type, cache_key, payload, created_by)
+			VALUES($1,$2,$3,$4,$5,$6)
+			ON CONFLICT(publication_id, asset_type) DO NOTHING
+			RETURNING publication_id, asset_type, content_type, cache_key, payload, true
+		)
+		SELECT publication_id, asset_type, content_type, cache_key, payload, true FROM inserted
+		UNION ALL
+		SELECT publication_id, asset_type, content_type, cache_key, payload, false
+		FROM %[1]s.bean_list_publication_assets
+		WHERE publication_id=$1 AND asset_type=$2 AND NOT EXISTS (SELECT 1 FROM inserted)
+		LIMIT 1
+	`, r.schema), asset.PublicationID, asset.AssetType, asset.ContentType, asset.CacheKey, asset.Payload, strings.TrimSpace(actor)).
+		Scan(&asset.PublicationID, &asset.AssetType, &asset.ContentType, &asset.CacheKey, &asset.Payload, &created); err != nil {
+		return appcosting.BeanListPublicationAsset{}, err
+	}
+	if created {
+		if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, strings.TrimSpace(actor), "bean_list_publication_asset", &asset.PublicationID, "create", postgresinfra.StrPtr("asset_type"), nil, postgresinfra.StrPtr(asset.AssetType), postgresinfra.AuditMeta{
+			"publication_id": asset.PublicationID,
+			"asset_type":     asset.AssetType,
+			"cache_key":      asset.CacheKey,
+		}); err != nil {
+			return appcosting.BeanListPublicationAsset{}, err
+		}
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return appcosting.BeanListPublicationAsset{}, err
+	}
+	return asset, nil
+}
+
 func (r Repository) PublishBeanList(ctx context.Context, cmd appcosting.PublishBeanListCommand) (*appcosting.BeanListPublication, error) {
 	conn, err := r.pool.Acquire(ctx)
 	if err != nil {

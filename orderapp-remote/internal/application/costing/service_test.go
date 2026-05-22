@@ -9,15 +9,18 @@ import (
 )
 
 type fakeRepo struct {
-	params            domain.Parameters
-	inputs            []domain.ProductInput
-	settings          []ParameterSetting
-	savedItems        []domain.ProductResult
-	publishedID       int64
-	savedDripTemplate SaveDripPriceTemplateCommand
-	deactivatedDripID int64
-	publishedBeanList PublishBeanListCommand
-	draftBeanList     PublishBeanListCommand
+	params              domain.Parameters
+	inputs              []domain.ProductInput
+	settings            []ParameterSetting
+	savedItems          []domain.ProductResult
+	publishedID         int64
+	savedDripTemplate   SaveDripPriceTemplateCommand
+	deactivatedDripID   int64
+	publishedBeanList   PublishBeanListCommand
+	draftBeanList       PublishBeanListCommand
+	beanListPublication *BeanListPublication
+	beanListAsset       BeanListPublicationAsset
+	savedBeanListAsset  BeanListPublicationAsset
 }
 
 func (r *fakeRepo) LoadParameters(context.Context) (domain.Parameters, error) {
@@ -82,6 +85,26 @@ func (r *fakeRepo) PublishedBeanList(context.Context, BeanListPublicationQuery) 
 	return nil, nil
 }
 
+func (r *fakeRepo) LoadBeanListPublication(context.Context, BeanListPublicationQuery, int64) (*BeanListPublication, error) {
+	if r.beanListPublication != nil {
+		return r.beanListPublication, nil
+	}
+	return nil, nil
+}
+
+func (r *fakeRepo) LoadBeanListPublicationAsset(context.Context, int64, string) (BeanListPublicationAsset, error) {
+	if len(r.beanListAsset.Payload) > 0 {
+		return r.beanListAsset, nil
+	}
+	return BeanListPublicationAsset{}, ErrBeanListPublicationNotFound
+}
+
+func (r *fakeRepo) SaveBeanListPublicationAsset(_ context.Context, asset BeanListPublicationAsset, _ string) (BeanListPublicationAsset, error) {
+	r.savedBeanListAsset = asset
+	r.beanListAsset = asset
+	return asset, nil
+}
+
 func (r *fakeRepo) PublishBeanList(_ context.Context, cmd PublishBeanListCommand) (*BeanListPublication, error) {
 	r.publishedBeanList = cmd
 	return &BeanListPublication{ID: 1, ListType: cmd.ListType, Version: cmd.Version, Status: "published", OwnerType: cmd.OwnerType, OwnerKey: cmd.OwnerKey, PriceSourcePublicationID: cmd.PriceSourcePublicationID, StyleSourcePublicationID: cmd.StyleSourcePublicationID}, nil
@@ -100,6 +123,44 @@ func TestCalculateRejectsEmptyProducts(t *testing.T) {
 	svc := NewService(&fakeRepo{})
 	if _, err := svc.Calculate(context.Background(), CalculateRequest{}); err == nil {
 		t.Fatalf("expected products required error")
+	}
+}
+
+func TestGenerateBeanListPublicationPDFSavesAndReusesAsset(t *testing.T) {
+	repo := &fakeRepo{beanListPublication: &BeanListPublication{
+		ID:        7,
+		ListType:  "commercial",
+		Version:   "V3.0.5",
+		Status:    "published",
+		OwnerType: "official",
+		Config:    map[string]any{},
+		Content:   map[string]any{"groups": []any{}},
+	}}
+	svc := NewService(repo)
+	renderCalls := 0
+	render := func(BeanListPublication) ([]byte, error) {
+		renderCalls++
+		return []byte("%PDF-1.4"), nil
+	}
+	cmd := BeanListPublicationPDFCommand{PublicationID: 7, Query: BeanListPublicationQuery{ListType: "commercial", OwnerType: "official"}}
+
+	first, err := svc.GenerateBeanListPublicationPDF(context.Background(), cmd, render)
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := svc.GenerateBeanListPublicationPDF(context.Background(), cmd, render)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if renderCalls != 1 {
+		t.Fatalf("render calls = %d", renderCalls)
+	}
+	if repo.savedBeanListAsset.PublicationID != 7 || repo.savedBeanListAsset.AssetType != "pdf" || repo.savedBeanListAsset.CacheKey != "bean-list:7:V3.0.5" {
+		t.Fatalf("saved asset = %+v", repo.savedBeanListAsset)
+	}
+	if first.Filename != "bean-list-commercial-V3.0.5.pdf" || first.Bytes != len("%PDF-1.4") || second.Bytes != first.Bytes {
+		t.Fatalf("pdf files = first %+v second %+v", first, second)
 	}
 }
 

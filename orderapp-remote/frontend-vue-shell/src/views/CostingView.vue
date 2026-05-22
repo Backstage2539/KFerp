@@ -766,9 +766,9 @@
 </template>
 
 <script setup>
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { fetchCurrentActor } from '../api/auth'
-import { apiGet, apiSend } from '../api/client'
+import { apiFetch, apiGet, apiSend } from '../api/client'
 import CostingSettingsPanel from '../components/CostingSettingsPanel.vue'
 import {
   DEFAULT_BEAN_LIST_PDF_VERSION,
@@ -1342,13 +1342,42 @@ async function downloadBeanListPublication(row) {
   }
   error.value = ''
   message.value = ''
-  downloadSourcePublication.value = row
-  pdfCustomizers.value = {}
-  pdfOptions.value = beanListPublicationPdfOptions(row, pdfOptions.value)
-  pdfDrawerOpen.value = false
-  await nextTick()
-  generateBeanListPdf()
-  message.value = `已打开${beanListTypeLabel(row.list_type)}豆单 ${row.version || '未命名版本'} 下载窗口`
+  try {
+    const params = beanListPublicationDownloadParams(row)
+    const document = await apiSend(`/api/costing/bean-list/publications/${row.id}/pdf?${params.toString()}`)
+    await downloadBeanListPublicationPDF(document)
+    message.value = `已生成并下载${beanListTypeLabel(row.list_type)}豆单 ${row.version || '未命名版本'} PDF`
+  } catch (err) {
+    error.value = err.message || '下载豆单 PDF 失败'
+  } finally {
+    downloadSourcePublication.value = null
+  }
+}
+
+function beanListPublicationDownloadParams(row) {
+  const params = beanListWithdrawScopeParams(row)
+  params.set('list_type', normalizeBeanListType(row?.list_type || pdfTheme.value.listType))
+  return params
+}
+
+async function downloadBeanListPublicationPDF(document) {
+  if (!document?.download_url) {
+    throw new Error('豆单 PDF 下载地址缺失')
+  }
+  const response = await apiFetch(document.download_url)
+  if (!response.ok) {
+    const data = await response.json().catch(() => ({}))
+    throw new Error(data.error || '下载豆单 PDF 失败')
+  }
+  const blob = await response.blob()
+  const href = URL.createObjectURL(blob)
+  const anchor = window.document.createElement('a')
+  anchor.href = href
+  anchor.download = document.filename || 'bean-list.pdf'
+  window.document.body.appendChild(anchor)
+  anchor.click()
+  anchor.remove()
+  URL.revokeObjectURL(href)
 }
 
 function setPublicationScopeFromOwner(row) {

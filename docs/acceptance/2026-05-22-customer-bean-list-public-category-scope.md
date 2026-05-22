@@ -1,7 +1,7 @@
 # 客户豆单公共分类范围验收
 
 ## 需求
-- `PR-317-CUSTOMER-BEAN-LIST-PUBLIC-CATEGORY-SCOPE`
+- `PR-318-CUSTOMER-BEAN-LIST-PUBLIC-CATEGORY-SCOPE`
 - 产品豆单在客户范围下必须遵守 SKU设置 的“是否使用公共商品分类”开关。
 
 ## 验收步骤
@@ -18,4 +18,4 @@
 
 ## 验证证据
 - `node --test src/lib/bean-list-pdf.test.js src/lib/product-bean-list-split.test.js`
-- `go test ./internal/interfaces/http/support -run TestDev317CustomerBeanListPublicCategoryScope`
+- `go test ./internal/interfaces/http/support -run TestDev318CustomerBeanListPublicCategoryScope`

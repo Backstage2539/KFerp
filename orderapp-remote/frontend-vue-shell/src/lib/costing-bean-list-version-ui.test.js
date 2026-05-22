@@ -56,13 +56,21 @@ test('product bean-list version list downloads the selected publication snapshot
     'const downloadSourcePublication = ref(null)',
     'downloadSourcePublication.value || currentPriceSourcePublication.value',
     'function downloadBeanListPublication',
-    'beanListPublicationPdfOptions(row, pdfOptions.value)',
-    'await nextTick()',
-    'generateBeanListPdf()',
+    "apiSend(`/api/costing/bean-list/publications/${row.id}/pdf?${params.toString()}`",
+    'await downloadBeanListPublicationPDF(document)',
+    'async function downloadBeanListPublicationPDF',
+    'apiFetch(document.download_url)',
+    'URL.createObjectURL(blob)',
     'function beanListPublicationHasContent',
   ]) {
     assert.ok(viewSource.includes(expected), `missing publication snapshot download behavior: ${expected}`)
   }
+  const downloadStart = viewSource.indexOf('async function downloadBeanListPublication(row)')
+  const downloadEnd = viewSource.indexOf('function beanListPublicationDownloadParams', downloadStart)
+  assert.ok(downloadStart > -1 && downloadEnd > downloadStart, 'downloadBeanListPublication function not found')
+  const downloadSource = viewSource.slice(downloadStart, downloadEnd)
+  assert.doesNotMatch(downloadSource, /nextTick\(\)/)
+  assert.doesNotMatch(downloadSource, /generateBeanListPdf\(\)/)
 })
 
 test('product bean-list version scope selector lists public and each fulfillment customer', () => {

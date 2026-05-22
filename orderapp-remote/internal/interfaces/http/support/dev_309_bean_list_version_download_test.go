@@ -28,7 +28,8 @@ func TestDev309BeanListVersionDownloadDocsAndWiring(t *testing.T) {
 			"downloadBeanListPublication(row)",
 			"downloadSourcePublication.value || currentPriceSourcePublication.value",
 			"beanListPublicationHasContent(row)",
-			"beanListPublicationPdfOptions(row, pdfOptions.value)",
+			"apiSend(`/api/costing/bean-list/publications/${row.id}/pdf?${params.toString()}`",
+			"downloadBeanListPublicationPDF(document)",
 		},
 		"frontend-vue-shell/src/lib/bean-list-pdf.js": {
 			"export function beanListPublicationPdfOptions",

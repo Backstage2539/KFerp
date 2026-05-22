@@ -23,6 +23,8 @@ type Service interface {
 	BeanList(context.Context) (*appcosting.CalculateResponse, error)
 	ListBeanListPublications(context.Context, appcosting.BeanListPublicationQuery) ([]appcosting.BeanListPublication, error)
 	PublishedBeanList(context.Context, appcosting.BeanListPublicationQuery) (*appcosting.BeanListPublication, error)
+	GenerateBeanListPublicationPDF(context.Context, appcosting.BeanListPublicationPDFCommand, func(appcosting.BeanListPublication) ([]byte, error)) (appcosting.BeanListPublicationPDFFile, error)
+	LoadBeanListPublicationPDF(context.Context, appcosting.BeanListPublicationPDFCommand) (appcosting.BeanListPublicationPDFFile, error)
 	PublishBeanList(context.Context, appcosting.PublishBeanListCommand) (*appcosting.BeanListPublication, error)
 	SaveBeanListDraft(context.Context, appcosting.PublishBeanListCommand) (*appcosting.BeanListPublication, error)
 	WithdrawBeanList(context.Context, appcosting.WithdrawBeanListCommand) error

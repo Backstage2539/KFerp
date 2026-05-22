@@ -6,18 +6,18 @@ import (
 	"testing"
 )
 
-func TestDev317CustomerBeanListPublicCategoryScope(t *testing.T) {
+func TestDev318CustomerBeanListPublicCategoryScope(t *testing.T) {
 	reqStore, err := os.ReadFile("internal/interfaces/http/support/req_store.go")
 	if err != nil {
 		t.Fatal(err)
 	}
 	reqText := string(reqStore)
 	for _, want := range []string{
-		"PR-317-CUSTOMER-BEAN-LIST-PUBLIC-CATEGORY-SCOPE",
-		"DEV-317-CUSTOMER-BEAN-LIST-PUBLIC-CATEGORY-SCOPE",
-		"UT-317-CUSTOMER-BEAN-LIST-PUBLIC-CATEGORY-SCOPE",
-		"API-317-CUSTOMER-BEAN-LIST-PUBLIC-CATEGORY-SCOPE",
-		"REV-317-CUSTOMER-BEAN-LIST-PUBLIC-CATEGORY-SCOPE",
+		"PR-318-CUSTOMER-BEAN-LIST-PUBLIC-CATEGORY-SCOPE",
+		"DEV-318-CUSTOMER-BEAN-LIST-PUBLIC-CATEGORY-SCOPE",
+		"UT-318-CUSTOMER-BEAN-LIST-PUBLIC-CATEGORY-SCOPE",
+		"API-318-CUSTOMER-BEAN-LIST-PUBLIC-CATEGORY-SCOPE",
+		"REV-318-CUSTOMER-BEAN-LIST-PUBLIC-CATEGORY-SCOPE",
 		"是否使用公共商品分类",
 		"关闭时不展示公共分类或公共 SKU",
 	} {
@@ -77,7 +77,7 @@ func TestDev317CustomerBeanListPublicCategoryScope(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(acceptance), "PR-317-CUSTOMER-BEAN-LIST-PUBLIC-CATEGORY-SCOPE") {
+	if !strings.Contains(string(acceptance), "PR-318-CUSTOMER-BEAN-LIST-PUBLIC-CATEGORY-SCOPE") {
 		t.Fatalf("acceptance doc missing PR-317 marker")
 	}
 }
