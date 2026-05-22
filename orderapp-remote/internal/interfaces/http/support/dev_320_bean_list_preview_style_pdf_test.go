@@ -23,7 +23,7 @@ func TestDev320BeanListPreviewStylePDFSeedDocsAndCode(t *testing.T) {
 		"docs/REQUIREMENTS.md": {
 			"PR-320-BEAN-LIST-PREVIEW-STYLE-PDF",
 			"米色底、版本/标题/类型胶囊、分类条、商品卡、绿色/蓝色报价块",
-			"bean-list-preview-style-v1",
+			"bean-list-preview-style-v2",
 		},
 		"docs/ACCEPTANCE_TESTS.md": {
 			"PR-320-BEAN-LIST-PREVIEW-STYLE-PDF",

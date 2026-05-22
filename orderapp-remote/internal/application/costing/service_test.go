@@ -156,7 +156,7 @@ func TestGenerateBeanListPublicationPDFSavesAndReusesAsset(t *testing.T) {
 	if renderCalls != 1 {
 		t.Fatalf("render calls = %d", renderCalls)
 	}
-	if repo.savedBeanListAsset.PublicationID != 7 || repo.savedBeanListAsset.AssetType != "pdf" || repo.savedBeanListAsset.CacheKey != "bean-list-preview-style-v1:7:V3.0.5" {
+	if repo.savedBeanListAsset.PublicationID != 7 || repo.savedBeanListAsset.AssetType != "pdf" || repo.savedBeanListAsset.CacheKey != "bean-list-preview-style-v2:7:V3.0.5" {
 		t.Fatalf("saved asset = %+v", repo.savedBeanListAsset)
 	}
 	if first.Filename != "bean-list-commercial-V3.0.5.pdf" || first.Bytes != len("%PDF-1.4") || second.Bytes != first.Bytes {
@@ -179,7 +179,7 @@ func TestGenerateBeanListPublicationPDFRegeneratesStaleCacheKey(t *testing.T) {
 			PublicationID: 7,
 			AssetType:     "pdf",
 			ContentType:   "application/pdf",
-			CacheKey:      "bean-list:7:V3.0.5",
+			CacheKey:      "bean-list-preview-style-v1:7:V3.0.5",
 			Payload:       []byte("%PDF-old-text-style"),
 		},
 	}
@@ -199,10 +199,10 @@ func TestGenerateBeanListPublicationPDFRegeneratesStaleCacheKey(t *testing.T) {
 	if renderCalls != 1 {
 		t.Fatalf("render calls = %d", renderCalls)
 	}
-	if repo.savedBeanListAsset.CacheKey != "bean-list-preview-style-v1:7:V3.0.5" || string(repo.savedBeanListAsset.Payload) != "%PDF-preview-style" {
+	if repo.savedBeanListAsset.CacheKey != "bean-list-preview-style-v2:7:V3.0.5" || string(repo.savedBeanListAsset.Payload) != "%PDF-preview-style" {
 		t.Fatalf("saved asset = %+v", repo.savedBeanListAsset)
 	}
-	if file.CacheKey != "bean-list-preview-style-v1:7:V3.0.5" || string(file.Payload) != "%PDF-preview-style" {
+	if file.CacheKey != "bean-list-preview-style-v2:7:V3.0.5" || string(file.Payload) != "%PDF-preview-style" {
 		t.Fatalf("file = %+v", file)
 	}
 }

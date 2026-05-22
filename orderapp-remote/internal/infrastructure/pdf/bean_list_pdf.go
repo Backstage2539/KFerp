@@ -65,6 +65,19 @@ type BeanListRenderer struct {
 	FontPath string
 }
 
+const (
+	beanListFontRegular = ""
+	beanListFontBold    = "B"
+
+	previewVersionFontSize = 9.0
+	previewTitleFontSize   = 19.5
+	previewBodyFontSize    = 9.0
+	previewGroupFontSize   = 11.25
+	previewCodeFontSize    = 9.0
+	previewNameFontSize    = 15.0
+	previewPriceFontSize   = 11.25
+)
+
 func (r BeanListRenderer) Render(doc BeanListDocument) ([]byte, error) {
 	fontPath, err := r.resolveFontPath()
 	if err != nil {
@@ -132,6 +145,7 @@ func (r BeanListRenderer) renderPreviewStyle(doc BeanListDocument, fontPath stri
 	pdf.SetMargins(0, 0, 0)
 	pdf.SetAutoPageBreak(false, 0)
 	pdf.AddUTF8Font("noto", "", filepath.Base(fontPath))
+	pdf.AddUTF8Font("noto", "B", filepath.Base(fontPath))
 	state := beanListPreviewState{
 		pdf:      pdf,
 		doc:      normalizeBeanListPreviewDocument(doc),
@@ -192,29 +206,28 @@ func (s *beanListPreviewState) renderHeader() {
 	x := s.margin
 	right := s.pageW - s.margin
 	if s.doc.ShowVersion && strings.TrimSpace(s.doc.VersionNo) != "" {
-		s.pdf.SetFont("noto", "", 8)
+		s.pdf.SetFont("noto", beanListFontRegular, previewVersionFontSize)
 		s.pdf.SetXY(x, s.y)
 		s.pdf.CellFormat(40, 5, strings.TrimSpace(s.doc.VersionNo), "", 0, "L", false, 0, "")
 		s.y += 5
 	}
-	s.pdf.SetFont("noto", "", 15)
+	s.pdf.SetFont("noto", beanListFontBold, previewTitleFontSize)
 	titleLines := s.pdf.SplitText(s.doc.Title, s.contentW-21)
 	if len(titleLines) == 0 {
 		titleLines = []string{s.doc.Title}
 	}
 	for _, line := range titleLines {
-		s.pdf.SetXY(x, s.y)
-		s.pdf.CellFormat(s.contentW-21, 6.5, line, "", 0, "L", false, 0, "")
-		s.y += 6.5
+		s.drawText(x, s.y, s.contentW-21, 7.2, line, "L", true)
+		s.y += 7.2
 	}
 	if subtitle := strings.TrimSpace(s.doc.Subtitle); subtitle != "" {
-		s.pdf.SetFont("noto", "", 8)
+		s.pdf.SetFont("noto", beanListFontRegular, previewBodyFontSize)
 		s.pdf.SetXY(x, s.y+0.8)
 		s.pdf.CellFormat(s.contentW-21, 4.5, subtitle, "", 0, "L", false, 0, "")
 		s.y += 5.5
 	}
 	if intro := strings.TrimSpace(s.doc.BrandIntro); intro != "" {
-		s.pdf.SetFont("noto", "", 7)
+		s.pdf.SetFont("noto", beanListFontRegular, 8)
 		for _, line := range s.pdf.SplitText(intro, s.contentW-22) {
 			s.pdf.SetXY(x, s.y)
 			s.pdf.CellFormat(s.contentW-22, 4, line, "", 0, "L", false, 0, "")
@@ -226,9 +239,8 @@ func (s *beanListPreviewState) renderHeader() {
 		badgeW := math.Max(14, s.pdf.GetStringWidth(badge)+8)
 		badgeX := right - badgeW
 		s.pdf.RoundedRect(badgeX, s.margin+1.5, badgeW, 8, 4, "1234", "D")
-		s.pdf.SetFont("noto", "", 8)
-		s.pdf.SetXY(badgeX, s.margin+3)
-		s.pdf.CellFormat(badgeW, 5, badge, "", 0, "C", false, 0, "")
+		s.pdf.SetFont("noto", beanListFontBold, previewBodyFontSize)
+		s.drawText(badgeX, s.margin+3, badgeW, 5, badge, "C", true)
 	}
 	s.y += 3
 	s.pdf.SetLineWidth(0.65)
@@ -270,11 +282,10 @@ func (s *beanListPreviewState) renderGroupTitle(title string) {
 	s.pdf.Rect(x, s.y, s.contentW, height, "F")
 	s.setFill(s.fg)
 	s.pdf.Rect(x, s.y, 1.4, height, "F")
-	s.pdf.SetFont("noto", "", 10)
+	s.pdf.SetFont("noto", beanListFontBold, previewGroupFontSize)
 	textY := s.y + 2
 	for _, line := range lines {
-		s.pdf.SetXY(x+4, textY)
-		s.pdf.CellFormat(s.contentW-8, 5, line, "", 0, "L", false, 0, "")
+		s.drawText(x+4, textY, s.contentW-8, 5, line, "L", true)
 		textY += 5
 	}
 	s.y += height + 4
@@ -304,23 +315,23 @@ func (s *beanListPreviewState) estimateCardHeight(item BeanListItem, width float
 	innerW := width - 6
 	nameW := math.Max(12, innerW-14)
 	nameLines := s.splitPreviewText(item.Name, nameW, cardNameFontSize(width))
-	headH := math.Max(10, float64(len(nameLines))*5.4)
+	headH := math.Max(15.3, float64(len(nameLines))*6.2)
 	height := 7 + headH
 	if strings.TrimSpace(item.RecommendedUse) != "" {
-		height += float64(len(s.splitPreviewText(item.RecommendedUse, innerW-14, 7)))*4.5 + 2
+		height += float64(len(s.splitPreviewText(item.RecommendedUse, innerW-14, previewBodyFontSize)))*4.6 + 2
 	}
 	if strings.TrimSpace(item.Flavor) != "" {
-		height += float64(len(s.splitPreviewText(item.Flavor, innerW-12, 7)))*4.5 + 3
+		height += float64(len(s.splitPreviewText(item.Flavor, innerW-12, previewBodyFontSize)))*4.6 + 3
 	}
 	if strings.TrimSpace(item.Description) != "" {
-		height += float64(len(s.splitPreviewText(item.Description, innerW-12, 7)))*4.5 + 3
+		height += float64(len(s.splitPreviewText(item.Description, innerW-12, previewBodyFontSize)))*4.6 + 3
 	}
 	priceCols := 1
 	if rowColumns == 1 && len(item.Prices) > 1 {
 		priceCols = 2
 	}
 	priceRows := int(math.Ceil(float64(maxInt(1, len(item.Prices))) / float64(priceCols)))
-	height += 7 + float64(priceRows)*12 + float64(maxInt(0, priceRows-1))*2
+	height += 7 + float64(priceRows)*11.1 + float64(maxInt(0, priceRows-1))*1.6
 	return math.Max(height+6, 46)
 }
 
@@ -332,26 +343,25 @@ func (s *beanListPreviewState) renderCard(item BeanListItem, x, y, w, h float64,
 	innerY := y + 4
 	innerW := w - 6
 	code := strings.TrimSpace(item.Code)
-	codeW := math.Max(10, s.textWidth(code, 7)+4)
+	codeW := math.Max(10, s.textWidth(code, previewCodeFontSize)+4)
 	s.pdf.SetDrawColor(s.fg.R, s.fg.G, s.fg.B)
 	s.pdf.RoundedRect(innerX, innerY, codeW, 8, 1.6, "1234", "D")
-	s.pdf.SetFont("noto", "", 7)
-	s.pdf.SetXY(innerX, innerY+1.7)
-	s.pdf.CellFormat(codeW, 4, code, "", 0, "C", false, 0, "")
+	s.pdf.SetFont("noto", beanListFontBold, previewCodeFontSize)
+	s.drawText(innerX, innerY+1.7, codeW, 4, code, "C", true)
 
 	nameX := innerX + codeW + 3
 	nameW := innerW - codeW - 3
 	nameSize := cardNameFontSize(w)
-	s.pdf.SetFont("noto", "", nameSize)
+	s.pdf.SetFont("noto", beanListFontBold, nameSize)
 	nameLines := s.splitPreviewText(strings.TrimSpace(item.Name), nameW, nameSize)
+	s.pdf.SetFont("noto", beanListFontBold, nameSize)
 	textY := innerY
 	for _, line := range nameLines {
-		s.pdf.SetXY(nameX, textY)
-		s.pdf.CellFormat(nameW, 5.4, line, "", 0, "L", false, 0, "")
-		textY += 5.4
+		s.drawText(nameX, textY, nameW, 6.2, line, "L", true)
+		textY += 6.2
 	}
 	if badge := strings.TrimSpace(item.BadgeLabel); badge != "" && len(nameLines) > 0 {
-		s.pdf.SetFont("noto", "", 5.8)
+		s.pdf.SetFont("noto", beanListFontBold, 6.5)
 		s.pdf.CellFormat(s.pdf.GetStringWidth(badge)+4, 4, badge, "1", 0, "C", false, 0, "")
 	}
 	bodyY := math.Max(innerY+10, textY+1)
@@ -371,11 +381,10 @@ func (s *beanListPreviewState) renderCard(item BeanListItem, x, y, w, h float64,
 
 func (s *beanListPreviewState) renderInlineDetail(x, y, w float64, label, value string) float64 {
 	s.setMutedText()
-	s.pdf.SetFont("noto", "", 7)
-	s.pdf.SetXY(x, y)
-	s.pdf.CellFormat(14, 4.5, label, "", 0, "L", false, 0, "")
+	s.pdf.SetFont("noto", beanListFontBold, previewBodyFontSize)
+	s.drawText(x, y, 14, 4.5, label, "L", true)
 	s.setText(s.fg)
-	lines := s.splitPreviewText(value, w-15, 7)
+	lines := s.splitPreviewText(value, w-15, previewBodyFontSize)
 	for i, line := range lines {
 		s.pdf.SetXY(x+15, y+float64(i)*4.5)
 		s.pdf.CellFormat(w-15, 4.5, line, "", 0, "L", false, 0, "")
@@ -385,16 +394,17 @@ func (s *beanListPreviewState) renderInlineDetail(x, y, w float64, label, value 
 
 func (s *beanListPreviewState) renderBlockDetail(x, y, w float64, label, value string, strong bool) float64 {
 	s.setMutedText()
-	s.pdf.SetFont("noto", "", 7)
-	s.pdf.SetXY(x, y)
-	s.pdf.CellFormat(10, 4.5, label, "", 0, "L", false, 0, "")
+	s.pdf.SetFont("noto", beanListFontBold, previewBodyFontSize)
+	s.drawText(x, y, 10, 4.5, label, "L", true)
 	s.setText(s.fg)
-	size := 7.0
+	size := previewBodyFontSize
+	style := beanListFontRegular
 	if strong {
-		size = 7.2
+		style = beanListFontBold
 	}
-	s.pdf.SetFont("noto", "", size)
+	s.pdf.SetFont("noto", style, size)
 	lines := s.splitPreviewText(value, w-12, size)
+	s.pdf.SetFont("noto", style, size)
 	for i, line := range lines {
 		s.pdf.SetXY(x+12, y+float64(i)*4.5)
 		s.pdf.CellFormat(w-12, 4.5, line, "", 0, "L", false, 0, "")
@@ -408,14 +418,13 @@ func (s *beanListPreviewState) estimatePriceBlockHeight(prices []BeanListPrice, 
 		priceCols = 2
 	}
 	priceRows := int(math.Ceil(float64(maxInt(1, len(prices))) / float64(priceCols)))
-	return 7 + float64(priceRows)*12 + float64(maxInt(0, priceRows-1))*2
+	return 7 + float64(priceRows)*11.1 + float64(maxInt(0, priceRows-1))*1.6
 }
 
 func (s *beanListPreviewState) renderPriceBlock(prices []BeanListPrice, x, y, w float64, rowColumns int) {
 	s.setMutedText()
-	s.pdf.SetFont("noto", "", 7)
-	s.pdf.SetXY(x, y)
-	s.pdf.CellFormat(w, 4.5, "报价", "", 0, "L", false, 0, "")
+	s.pdf.SetFont("noto", beanListFontBold, previewBodyFontSize)
+	s.drawText(x, y, w, 4.5, "报价", "L", true)
 	s.setText(s.fg)
 	priceCols := 1
 	if rowColumns == 1 && len(prices) > 1 {
@@ -440,13 +449,24 @@ func (s *beanListPreviewState) renderPriceBlock(prices []BeanListPrice, x, y, w 
 		} else {
 			s.setText(s.fg)
 		}
-		s.pdf.SetFont("noto", "", 7)
+		s.pdf.SetFont("noto", beanListFontRegular, previewBodyFontSize)
 		s.pdf.SetXY(px+2, py+4)
 		s.pdf.CellFormat(boxW-18, 4, strings.TrimSpace(price.Label), "", 0, "L", false, 0, "")
-		s.pdf.SetFont("noto", "", 8.2)
-		s.pdf.SetXY(px+boxW-22, py+3.4)
-		s.pdf.CellFormat(20, 4.5, strings.TrimSpace(price.Value), "", 0, "R", false, 0, "")
+		s.pdf.SetFont("noto", beanListFontBold, previewPriceFontSize)
+		s.drawText(px+boxW-22, py+3.4, 20, 4.5, strings.TrimSpace(price.Value), "R", true)
 		s.setText(s.fg)
+	}
+}
+
+func (s *beanListPreviewState) drawText(x, y, w, h float64, text, align string, strong bool) {
+	s.pdf.SetXY(x, y)
+	s.pdf.CellFormat(w, h, text, "", 0, align, false, 0, "")
+	if !strong {
+		return
+	}
+	for _, dx := range []float64{0.07, 0.14} {
+		s.pdf.SetXY(x+dx, y)
+		s.pdf.CellFormat(w, h, text, "", 0, align, false, 0, "")
 	}
 }
 
@@ -727,11 +747,8 @@ func maxInt(a, b int) int {
 }
 
 func cardNameFontSize(width float64) float64 {
-	if width >= 60 {
-		return 11
-	}
 	if width >= 42 {
-		return 9
+		return previewNameFontSize
 	}
-	return 8
+	return 13
 }

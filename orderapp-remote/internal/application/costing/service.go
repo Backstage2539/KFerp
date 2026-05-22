@@ -953,7 +953,7 @@ func beanListPublicationPDFCacheKey(row BeanListPublication) string {
 	if version == "" {
 		version = "published"
 	}
-	return fmt.Sprintf("bean-list-preview-style-v1:%d:%s", row.ID, version)
+	return fmt.Sprintf("bean-list-preview-style-v2:%d:%s", row.ID, version)
 }
 
 func beanListPublicationPDFFilename(row BeanListPublication) string {

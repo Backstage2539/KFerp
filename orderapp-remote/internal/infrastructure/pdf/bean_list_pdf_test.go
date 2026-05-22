@@ -2,6 +2,7 @@ package pdf
 
 import (
 	"bytes"
+	"strings"
 	"testing"
 )
 
@@ -78,4 +79,76 @@ func TestRenderBeanListPDFUsesPreviewCardStyle(t *testing.T) {
 			t.Fatalf("preview style pdf missing %q", string(want))
 		}
 	}
+}
+
+func TestRenderBeanListPDFPreviewTypographyMatchesVuePreview(t *testing.T) {
+	doc := BeanListDocument{
+		Title:               "棵凡咖啡批发豆单",
+		Subtitle:            "报价不含税、不含运",
+		ListType:            "commercial",
+		VersionNo:           "V3.0.7",
+		BrandName:           "棵凡咖啡",
+		BackgroundColor:     "#f8f1e5",
+		FontColor:           "#171717",
+		LayoutStyle:         "card",
+		CardsPerRow:         2,
+		ShowVersion:         true,
+		ShowCategoryNumbers: true,
+		UsePreviewStyle:     true,
+		DisableCompression:  true,
+		Groups: []BeanListGroup{{
+			Category:     "1、定制咖啡熟豆",
+			ShowCategory: true,
+			Items: []BeanListItem{{
+				Code:           "1.2",
+				Name:           "芬纳定制-红酒日晒-中深烘",
+				RecommendedUse: "客户定制",
+				Flavor:         "甜度中、酵感、红酒、坚果、酸质柔和",
+				Description:    "V1～最新",
+				Prices: []BeanListPrice{
+					{Label: "2磅-13磅", Value: "65/磅"},
+					{Label: "14-23磅", Value: "59/磅"},
+				},
+			}},
+		}},
+	}
+
+	body, err := BeanListRenderer{}.Render(doc)
+	if err != nil {
+		t.Fatalf("Render() err=%v", err)
+	}
+	for _, want := range [][]byte{
+		[]byte("19.50 Tf"),
+		[]byte("15.00 Tf"),
+		[]byte("11.25 Tf"),
+	} {
+		if !bytes.Contains(body, want) {
+			t.Fatalf("preview typography pdf missing %q; font markers: %s", string(want), pdfFontMarkers(body))
+		}
+	}
+	if got := pdfDistinctFontCount(body); got < 2 {
+		t.Fatalf("preview typography pdf font count = %d, want regular and bold fonts; markers: %s", got, pdfFontMarkers(body))
+	}
+}
+
+func pdfFontMarkers(body []byte) string {
+	chunks := bytes.Fields(body)
+	markers := make([]string, 0)
+	for i := 0; i+2 < len(chunks); i++ {
+		if len(chunks[i]) > 0 && chunks[i][0] == '/' && chunks[i+2][0] == 'T' && bytes.Equal(chunks[i+2], []byte("Tf")) {
+			markers = append(markers, string(chunks[i])+" "+string(chunks[i+1])+" Tf")
+		}
+	}
+	return strings.Join(markers, ", ")
+}
+
+func pdfDistinctFontCount(body []byte) int {
+	chunks := bytes.Fields(body)
+	seen := map[string]bool{}
+	for i := 0; i+2 < len(chunks); i++ {
+		if len(chunks[i]) > 0 && chunks[i][0] == '/' && bytes.Equal(chunks[i+2], []byte("Tf")) {
+			seen[string(chunks[i])] = true
+		}
+	}
+	return len(seen)
 }
