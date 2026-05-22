@@ -7,21 +7,21 @@ import (
 	"testing"
 )
 
-func TestDev311CustomerSkuCustomRoastNoBaseProduct(t *testing.T) {
-	reqStore := string(readDev311File(t, filepath.Join("internal", "interfaces", "http", "support", "req_store.go")))
+func TestDev313CustomerSkuCustomRoastNoBaseProduct(t *testing.T) {
+	reqStore := string(readDev313File(t, filepath.Join("internal", "interfaces", "http", "support", "req_store.go")))
 	for _, want := range []string{
-		"PR-311-CUSTOM-ROAST-NO-BASE",
-		"DEV-311-CUSTOM-ROAST-NO-BASE",
-		"UT-311-CUSTOM-ROAST-NO-BASE",
-		"API-311-CUSTOM-ROAST-NO-BASE",
-		"REV-311-CUSTOM-ROAST-NO-BASE",
+		"PR-313-CUSTOM-ROAST-NO-BASE",
+		"DEV-313-CUSTOM-ROAST-NO-BASE",
+		"UT-313-CUSTOM-ROAST-NO-BASE",
+		"API-313-CUSTOM-ROAST-NO-BASE",
+		"REV-313-CUSTOM-ROAST-NO-BASE",
 	} {
 		if !strings.Contains(reqStore, want) {
 			t.Fatalf("req_store.go missing custom roast no-base seed %q", want)
 		}
 	}
 
-	productSettings := string(readDev311File(t, filepath.Join("frontend-vue-shell", "src", "views", "ProductSettingsView.vue")))
+	productSettings := string(readDev313File(t, filepath.Join("frontend-vue-shell", "src", "views", "ProductSettingsView.vue")))
 	for _, want := range []string{
 		`v-if="customForm.product_kind !== 'green_bean' && customForm.custom_type !== 'custom_roast'" class="wide-field"`,
 		`customForm.value.custom_type !== 'custom_roast'`,
@@ -35,7 +35,7 @@ func TestDev311CustomerSkuCustomRoastNoBaseProduct(t *testing.T) {
 		t.Fatalf("ProductSettingsView.vue should not expose custom blend BOM as a creation custom type")
 	}
 
-	productSettingsLib := string(readDev311File(t, filepath.Join("frontend-vue-shell", "src", "lib", "product-settings.js")))
+	productSettingsLib := string(readDev313File(t, filepath.Join("frontend-vue-shell", "src", "lib", "product-settings.js")))
 	for _, want := range []string{
 		`payload.custom_type === 'custom_roast'`,
 		`payload.base_product_id = 0`,
@@ -47,13 +47,13 @@ func TestDev311CustomerSkuCustomRoastNoBaseProduct(t *testing.T) {
 		}
 	}
 
-	requirements := string(readDev311File(t, "docs/REQUIREMENTS.md"))
+	requirements := string(readDev313File(t, "docs/REQUIREMENTS.md"))
 	if !strings.Contains(requirements, "定制烘焙度不选择基础产品") {
 		t.Fatalf("docs/REQUIREMENTS.md missing custom roast no-base requirement")
 	}
 }
 
-func readDev311File(t *testing.T, path string) []byte {
+func readDev313File(t *testing.T, path string) []byte {
 	t.Helper()
 	b, err := os.ReadFile(path)
 	if err != nil {

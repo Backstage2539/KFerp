@@ -96,7 +96,8 @@ CREATE TABLE IF NOT EXISTS %[1]s.pricing_gradient_template_tiers (
 CREATE INDEX IF NOT EXISTS pricing_gradient_template_tiers_template_idx
 ON %[1]s.pricing_gradient_template_tiers(template_id, active, position, id);
 DROP INDEX IF EXISTS %[1]s.product_categories_parent_name_uniq;
-CREATE UNIQUE INDEX IF NOT EXISTS product_categories_customer_parent_name_uniq
+DROP INDEX IF EXISTS %[1]s.product_categories_customer_parent_name_uniq;
+CREATE UNIQUE INDEX product_categories_customer_parent_name_uniq
 ON %[1]s.product_categories (customer_id, COALESCE(parent_id,0), lower(name))
 WHERE active=true;
 CREATE UNIQUE INDEX IF NOT EXISTS product_categories_customer_source_active_uniq

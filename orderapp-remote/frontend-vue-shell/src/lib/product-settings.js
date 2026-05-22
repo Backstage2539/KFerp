@@ -320,6 +320,7 @@ function hasCustomerDerivedTemplate(template = {}, customerTemplates = []) {
 }
 
 function isDuplicatedPublicCategory(category = {}, publicCategories = [], publicProducts = []) {
+  if (!(category.products || []).length && !(category.children || []).length) return false
   const matchesPublicCategory = (publicCategories || []).some((row) => (
     Number(row.customer_id || 0) === 0
     && Number(row.level || 0) === Number(category.level || 0)
