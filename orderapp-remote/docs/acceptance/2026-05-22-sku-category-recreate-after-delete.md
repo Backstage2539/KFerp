@@ -1,7 +1,7 @@
 # 2026-05-22 SKU 分类删除后同名重建
 
 ## 需求
-- PR-311-SKU-CATEGORY-RECREATE-AFTER-DELETE：客户 SKU 归属下删除一级或二级商品分类后，允许重新新增同名分类。
+- PR-312-SKU-CATEGORY-RECREATE-AFTER-DELETE：客户 SKU 归属下删除一级或二级商品分类后，允许重新新增同名分类。
 - 软删除历史分类仍保留审计追溯，但唯一约束只约束 `active=true` 的分类。
 
 ## 根因
@@ -15,7 +15,7 @@
 - `buildSkuContextCategoryTree` 保留空的客户自有分类，即使分类名与公共分类同名；只有实际带公共 SKU 别名/子分类内容的 legacy 公共复制分类继续按重复公共分类隐藏。
 - 单元测试：`go test ./internal/infrastructure/postgres/catalog -run TestProductCategoryNameUniquenessIgnoresSoftDeletedRows -count=1`
 - 前端单元测试：`node --test src/lib/product-settings.test.js`
-- API/支持验证：`go test ./internal/interfaces/http/support -run TestDev311SkuCategoryRecreateAfterDelete -count=1`
+- API/支持验证：`go test ./internal/interfaces/http/support -run TestDev312SkuCategoryRecreateAfterDelete -count=1`
 
 ## 验收
 - [ ] 在 SKU设置 选择芬纳咖啡客户归属。
