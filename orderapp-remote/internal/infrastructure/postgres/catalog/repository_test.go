@@ -334,10 +334,14 @@ func TestProductCategorySchemaRepairsActiveChildrenWithInactiveParents(t *testin
 	}
 	src := string(schema)
 	for _, want := range []string{
+		"WITH duplicate_source_parents AS",
+		"MIN(id) OVER (PARTITION BY customer_id, source_category_id) AS keeper_id",
+		"child.parent_id=duplicate_source_parents.id",
 		"UPDATE %[1]s.product_categories parent",
 		"SET active=true",
 		"child.parent_id=parent.id",
 		"child.active=true",
+		"active_source_parent.source_category_id=parent.source_category_id",
 	} {
 		if !strings.Contains(src, want) {
 			t.Fatalf("schema must repair inactive parent categories that still have active children; missing %q", want)

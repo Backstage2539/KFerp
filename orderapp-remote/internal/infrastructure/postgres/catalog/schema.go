@@ -106,6 +106,29 @@ WHERE active=true AND source_category_id > 0;
 CREATE UNIQUE INDEX IF NOT EXISTS pricing_gradient_templates_customer_source_active_uniq
 ON %[1]s.pricing_gradient_templates (customer_id, source_template_id)
 WHERE active=true AND source_template_id > 0;
+WITH duplicate_source_parents AS (
+  SELECT id,
+         MIN(id) OVER (PARTITION BY customer_id, source_category_id) AS keeper_id
+  FROM %[1]s.product_categories parent
+  WHERE parent.active=false
+    AND parent.source_category_id > 0
+    AND EXISTS (
+      SELECT 1 FROM %[1]s.product_categories child
+      WHERE child.parent_id=parent.id AND child.active=true
+    )
+)
+UPDATE %[1]s.product_categories child
+SET parent_id=duplicate_source_parents.keeper_id, updated_at=now()
+FROM duplicate_source_parents
+WHERE child.active=true
+  AND child.parent_id=duplicate_source_parents.id
+  AND duplicate_source_parents.id <> duplicate_source_parents.keeper_id
+  AND NOT EXISTS (
+    SELECT 1 FROM %[1]s.product_categories existing_child
+    WHERE existing_child.active=true
+      AND existing_child.parent_id=duplicate_source_parents.keeper_id
+      AND lower(existing_child.name)=lower(child.name)
+  );
 UPDATE %[1]s.product_categories child
 SET parent_id=active_parent.id, updated_at=now()
 FROM %[1]s.product_categories inactive_parent
@@ -130,6 +153,28 @@ WHERE parent.active=false
       AND active_parent.customer_id=parent.customer_id
       AND COALESCE(active_parent.parent_id,0)=COALESCE(parent.parent_id,0)
       AND lower(active_parent.name)=lower(parent.name)
+  )
+  AND (
+    parent.source_category_id=0
+    OR parent.id = (
+      SELECT MIN(candidate.id)
+      FROM %[1]s.product_categories candidate
+      WHERE candidate.active=false
+        AND candidate.customer_id=parent.customer_id
+        AND candidate.source_category_id=parent.source_category_id
+        AND candidate.source_category_id > 0
+        AND EXISTS (
+          SELECT 1 FROM %[1]s.product_categories child
+          WHERE child.parent_id=candidate.id AND child.active=true
+        )
+    )
+  )
+  AND NOT EXISTS (
+    SELECT 1 FROM %[1]s.product_categories active_source_parent
+    WHERE parent.source_category_id > 0
+      AND active_source_parent.active=true
+      AND active_source_parent.customer_id=parent.customer_id
+      AND active_source_parent.source_category_id=parent.source_category_id
   );
 CREATE TABLE IF NOT EXISTS %[1]s.customer_sku_public_usage (
 	customer_id BIGINT PRIMARY KEY,
