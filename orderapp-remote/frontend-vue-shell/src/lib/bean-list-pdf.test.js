@@ -165,7 +165,7 @@ test('PDF bean-list helper builds a green bean list from template tiers and qual
   ])
 })
 
-test('PDF bean-list helper applies manual green bean lb price overrides only to selected kg tiers', () => {
+test('PDF bean-list helper applies manual green bean kg price overrides to kg template tiers', () => {
   const groups = buildBeanListPdfGroups([{
     product_id: 90,
     product_kind: 'green_bean',
@@ -189,17 +189,17 @@ test('PDF bean-list helper applies manual green bean lb price overrides only to 
     },
   })
 
-  assert.equal(groups[0].items[0].prices[0].price, 27.24)
-  assert.equal(groups[0].items[0].prices[0].unit, '磅')
+  assert.equal(groups[0].items[0].prices[0].price, 60)
+  assert.equal(groups[0].items[0].prices[0].unit, 'kg')
   assert.equal(groups[0].items[0].prices[1].price, 62)
-  assert.equal(groups[0].items[0].prices[1].unit, '磅')
+  assert.equal(groups[0].items[0].prices[1].unit, 'kg')
   assert.equal(groups[0].items[0].green_bean_sale_tiers[0].price_per_unit, 60)
   assert.equal(groups[0].items[0].green_bean_sale_tiers[0].price_per_lb, 27.24)
   assert.equal(groups[0].items[0].green_bean_sale_tiers[1].display_unit, 'kg')
-  assert.equal(groups[0].items[0].green_bean_sale_tiers[1].price_unit, 'lb')
+  assert.equal(groups[0].items[0].green_bean_sale_tiers[1].price_unit, 'kg')
   assert.equal(groups[0].items[0].green_bean_sale_tiers[1].price_per_unit, 62)
-  assert.equal(groups[0].items[0].green_bean_sale_tiers[1].price_per_lb, 62)
-  assert.equal(groups[0].items[0].green_bean_sale_tiers[1].price_per_kg, 136.56)
+  assert.equal(groups[0].items[0].green_bean_sale_tiers[1].price_per_lb, 28.15)
+  assert.equal(groups[0].items[0].green_bean_sale_tiers[1].price_per_kg, 62)
 })
 
 test('bean-list scope filter keeps customer SKUs isolated by customer', () => {
@@ -405,7 +405,7 @@ test('PDF bean-list helper copies published content groups as an immutable price
   assert.equal(copyBeanListPublicationContentGroups({ content: {} }).length, 0)
 })
 
-test('PDF bean-list helper reapplies green lb overrides when copying a price source snapshot', () => {
+test('PDF bean-list helper reapplies green kg overrides when copying a kg price source snapshot', () => {
   const publication = {
     list_type: 'green',
     content: {
@@ -442,8 +442,9 @@ test('PDF bean-list helper reapplies green lb overrides when copying a price sou
   })
 
   assert.equal(groups[0].items[0].prices[0].price, 62)
-  assert.equal(groups[0].items[0].prices[0].unit, '磅')
-  assert.equal(groups[0].items[0].green_bean_sale_tiers[0].price_per_lb, 62)
-  assert.equal(groups[0].items[0].green_bean_sale_tiers[0].price_unit, 'lb')
+  assert.equal(groups[0].items[0].prices[0].unit, 'kg')
+  assert.equal(groups[0].items[0].green_bean_sale_tiers[0].price_per_lb, 28.15)
+  assert.equal(groups[0].items[0].green_bean_sale_tiers[0].price_unit, 'kg')
+  assert.equal(groups[0].items[0].green_bean_sale_tiers[0].price_per_kg, 62)
   assert.equal(publication.content.groups[0].items[0].prices[0].price, 51.75)
 })

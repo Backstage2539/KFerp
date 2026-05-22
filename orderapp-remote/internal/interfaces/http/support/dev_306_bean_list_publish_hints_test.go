@@ -29,15 +29,15 @@ func TestDev306BeanListPublishHintsDocs(t *testing.T) {
 			"生成并发布新版豆单后，录单才会使用新价格",
 		},
 		"docs/ACCEPTANCE_TESTS.md": {
-			"梯度按 KG，单价按元/磅",
+			"梯度按 KG，单价按元/KG",
 			"当前客户已有 `V1` 发布版本",
 		},
 		"docs/OP_MANUAL_COSTING.md": {
-			"页面会提示“梯度按 KG，单价按元/磅”",
+			"页面会提示“梯度按 KG，单价按元/KG”",
 			"`V3.0.5` 默认 `V3.0.6`",
 		},
 		"docs/OP_MANUAL_GREEN_BEAN_SALES.md": {
-			"按模板 KG 档位理解数量区间",
+			"按模板 KG 档位填写销售单价",
 			"生成并发布新版豆单后，录单和客户下单才会使用新价格",
 		},
 		"docs/acceptance/2026-05-21-bean-list-publish-hints.md": {

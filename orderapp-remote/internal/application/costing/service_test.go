@@ -444,7 +444,7 @@ func TestPublishBeanListKeepsCustomerSnapshotOwnerAndSources(t *testing.T) {
 	}
 }
 
-func TestPublishGreenBeanListAppliesManualLbPriceOverridesToContentSnapshot(t *testing.T) {
+func TestPublishGreenBeanListAppliesManualKgPriceOverridesToKgContentSnapshot(t *testing.T) {
 	repo := &fakeRepo{}
 	svc := NewService(repo)
 
@@ -493,15 +493,15 @@ func TestPublishGreenBeanListAppliesManualLbPriceOverridesToContentSnapshot(t *t
 	groups := repo.publishedBeanList.Content["groups"].([]any)
 	item := groups[0].(map[string]any)["items"].([]any)[0].(map[string]any)
 	price := item["prices"].([]any)[0].(map[string]any)
-	if price["price"] != float64(62) || price["unit"] != "磅" {
-		t.Fatalf("price row = %#v, want 62/磅", price)
+	if price["price"] != float64(62) || price["unit"] != "kg" {
+		t.Fatalf("price row = %#v, want 62/kg", price)
 	}
 	tier := item["green_bean_sale_tiers"].([]any)[0].(map[string]any)
-	if tier["price_per_lb"] != float64(62) || tier["price_per_unit"] != float64(62) || tier["price_unit"] != "lb" || tier["display_unit"] != "kg" {
-		t.Fatalf("tier = %#v, want kg range with 62/lb", tier)
+	if tier["price_per_lb"] != float64(28.15) || tier["price_per_unit"] != float64(62) || tier["price_unit"] != "kg" || tier["display_unit"] != "kg" {
+		t.Fatalf("tier = %#v, want kg range with 62/kg", tier)
 	}
-	if tier["price_per_kg"] != float64(136.56) {
-		t.Fatalf("price_per_kg = %#v, want 136.56", tier["price_per_kg"])
+	if tier["price_per_kg"] != float64(62) {
+		t.Fatalf("price_per_kg = %#v, want 62", tier["price_per_kg"])
 	}
 }
 

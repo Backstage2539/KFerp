@@ -164,7 +164,7 @@ function pdfPriceRows(item, tierKey, listType, customizer = {}) {
   if (listType === 'green') {
     return tiers.map((tier) => ({
       label: tier.label || '',
-      price: firstNumber(tier.price_per_lb, tier.price_per_unit, 0),
+      price: greenDisplayPrice(tier),
       unit: greenPriceUnitLabel(tier),
       red: false,
     }))
@@ -182,20 +182,61 @@ function pdfPriceRows(item, tierKey, listType, customizer = {}) {
 
 function applyGreenTierPrice(tier, price) {
   const unitPrice = roundTo(price, 2)
-  tier.price_unit = 'lb'
+  const unit = greenTierPriceUnit(tier, true)
+  const unitG = greenPriceUnitG(unit, tier)
+  const pricePerKg = unitG === 1000 ? unitPrice : unitPrice * 1000 / unitG
+  tier.price_unit = unit
   tier.price_per_unit = unitPrice
-  tier.price_per_lb = unitPrice
-  tier.price_per_kg = roundTo(unitPrice / 0.454, 2)
+  tier.price_per_kg = roundTo(pricePerKg, 2)
+  tier.price_per_lb = roundTo(pricePerKg * 0.454, 2)
 }
 
 function greenPriceUnitLabel(tier = {}) {
-  const unit = String(tier.price_unit || '').trim().toLowerCase()
+  const unit = greenTierPriceUnit(tier)
   if (unit === 'kg') return 'kg'
   if (unit === 'g100') return '100g'
   if (unit === 'g227') return '227g'
   if (unit === 'g250') return '250g'
-  if (Number(tier.price_per_lb || 0) <= 0 && !unit) return priceUnit(tier)
   return '磅'
+}
+
+function greenDisplayPrice(tier = {}) {
+  const unit = greenTierPriceUnit(tier)
+  const pricePerKg = firstNumber(tier.price_per_kg, tier.display_unit === 'kg' ? tier.price_per_unit : '', tier.price_per_lb ? Number(tier.price_per_lb) / 0.454 : '')
+  if (unit === 'kg') return roundTo(pricePerKg || firstNumber(tier.price_per_unit, 0), 2)
+  if (unit === 'lb') return roundTo(firstNumber(tier.price_per_lb, tier.price_unit === 'lb' ? tier.price_per_unit : '', pricePerKg ? pricePerKg * 0.454 : 0), 2)
+  const unitG = greenPriceUnitG(unit, tier)
+  if (tier.price_unit === unit) return roundTo(firstNumber(tier.price_per_unit, 0), 2)
+  if (pricePerKg > 0) return roundTo(pricePerKg * unitG / 1000, 2)
+  return roundTo(firstNumber(tier.price_per_unit, tier.price_per_lb, 0), 2)
+}
+
+function greenTierPriceUnit(tier = {}, preferDisplay = false) {
+  const displayUnit = normalizeGreenPriceUnit(tier.display_unit)
+  const explicitUnit = normalizeGreenPriceUnit(tier.price_unit)
+  return (preferDisplay ? (displayUnit || explicitUnit) : (explicitUnit || displayUnit)) || 'lb'
+}
+
+function normalizeGreenPriceUnit(unit) {
+  const value = String(unit || '').trim().toLowerCase()
+  return ['kg', 'lb', 'g100', 'g227', 'g250'].includes(value) ? value : ''
+}
+
+function greenPriceUnitG(unit, tier = {}) {
+  switch (normalizeGreenPriceUnit(unit)) {
+    case 'kg':
+      return 1000
+    case 'lb':
+      return 454
+    case 'g100':
+      return 100
+    case 'g227':
+      return 227
+    case 'g250':
+      return 250
+    default:
+      return Number(tier.spec_g || 454) || 454
+  }
 }
 
 function greenTierPriceOverride(tier = {}, customizer = {}) {
