@@ -440,7 +440,7 @@ function trimNumber(value) {
 
 export function lineTotal(product, row, retailOrder) {
   const base = lineTotalBeforeDiscount(product, row, retailOrder)
-  return Math.max(base - lineDiscountAmount(base, row), 0)
+  return Math.max(base - lineDiscountAmount(base, row, retailOrder), 0)
 }
 
 export function lineTotalBeforeDiscount(product, row, retailOrder) {
@@ -459,13 +459,24 @@ export function lineTotalBeforeDiscount(product, row, retailOrder) {
   return price * rowQuantityForWholesalePriceUnit(row)
 }
 
-export function lineDiscountAmount(baseLineTotal, row) {
+export function rowUnitDiscountUnits(row, retailOrder = false) {
+  const units = Math.max(0, toInt(row?.qty))
+  if (units <= 0) return 0
+  if (row?.product_kind === 'drip_bag' || row?.sales_unit === 'bag' || row?.sales_unit === 'box') return units
+  if (retailOrder) return units
+  const specG = normalizeSpecG(row)
+  if (specG <= 0) return units
+  return (specG * units) / wholesalePriceUnit(row).unitG
+}
+
+export function lineDiscountAmount(baseLineTotal, row, retailOrder = false) {
   const base = Math.max(0, toNumber(baseLineTotal))
   if (base <= 0) return 0
   const type = String(row?.discount_type || '').trim()
   const value = Math.max(0, toNumber(row?.discount_value))
   if (type === 'free') return base
   if (type === 'amount') return Math.min(value, base)
+  if (type === 'unit_amount') return Math.min(value * rowUnitDiscountUnits(row, retailOrder), base)
   if (type === 'percent') {
     const rate = Math.max(0, Math.min(value, 100))
     return Math.max(base - (base * rate / 100), 0)
@@ -538,7 +549,7 @@ export function buildOrderPayload({ form, rows }) {
     payload.unit_bag_count.push(productKind === 'drip_bag' ? String(dripSpec.unitBagCount) : '0')
     payload.unit_bean_g.push(productKind === 'drip_bag' ? String(trimNumber(dripSpec.unitBeanG)) : '0')
     payload.discount_type.push(String(row.discount_type || '').trim())
-    payload.discount_value.push(row.discount_type === 'amount' || row.discount_type === 'percent' ? String(row.discount_value || '') : '')
+    payload.discount_value.push(['amount', 'unit_amount', 'percent'].includes(row.discount_type) ? String(row.discount_value || '') : '')
   }
 
   return payload
