@@ -104,27 +104,36 @@ func TestSalesOrderItemRowsWrapLongNamesAndNotes(t *testing.T) {
 	}
 }
 
-func TestSalesOrderItemRowsShowOriginalPriceAndDiscountedFinalColumn(t *testing.T) {
+func TestSalesOrderItemRowsShowSpecPerUnitDiscountAndFinalNote(t *testing.T) {
 	item := salesdomain.SalesOrderSnapshotItem{
-		Name:      "芬纳-曲奇定制",
-		Spec:      "1000g",
-		Qty:       "1",
-		Unit:      "件",
-		UnitPrice: "115.00",
-		LineTotal: "93.35",
-		Note:      "20%乌干达，15%云南厌氧日晒，65%云南水洗",
+		Name:           "芬纳-曲奇定制",
+		Spec:           "1000g",
+		Qty:            "1",
+		Unit:           "件",
+		UnitPrice:      "115.00",
+		LineTotal:      "93.35",
+		DiscountAmount: "28.00",
+		Note:           "20%乌干达，15%云南厌氧日晒，65%云南水洗",
 	}
-	wantHeaders := []string{"商品", "规格", "数量", "单价", "备注", "优惠后价"}
-	if got := salesOrderItemHeaders(); strings.Join(got, "|") != strings.Join(wantHeaders, "|") {
+	wantHeaders := []string{"商品", "规格", "数量", "单价", "优惠折扣", "备注"}
+	if got := salesOrderItemHeaders(true); strings.Join(got, "|") != strings.Join(wantHeaders, "|") {
 		t.Fatalf("salesOrderItemHeaders()=%v want %v", got, wantHeaders)
 	}
-	wantCells := []string{"芬纳-曲奇定制", "1000g", "1件", "115.00", "20%乌干达，15%云南厌氧日晒，65%云南水洗", "93.35"}
-	if got := salesOrderItemCells(item); strings.Join(got, "|") != strings.Join(wantCells, "|") {
+	wantCells := []string{"芬纳-曲奇定制", "1000g/件", "1件", "115.00", "￥-28元", "20%乌干达，15%云南厌氧日晒，65%云南水洗"}
+	if got := salesOrderItemCells(item, true); strings.Join(got, "|") != strings.Join(wantCells, "|") {
 		t.Fatalf("salesOrderItemCells()=%v want %v", got, wantCells)
+	}
+	noDiscountHeaders := []string{"商品", "规格", "数量", "单价", "备注"}
+	if got := salesOrderItemHeaders(false); strings.Join(got, "|") != strings.Join(noDiscountHeaders, "|") {
+		t.Fatalf("salesOrderItemHeaders(false)=%v want %v", got, noDiscountHeaders)
+	}
+	noDiscountCells := []string{"芬纳-曲奇定制", "1000g/件", "1件", "115.00", "20%乌干达，15%云南厌氧日晒，65%云南水洗"}
+	if got := salesOrderItemCells(item, false); strings.Join(got, "|") != strings.Join(noDiscountCells, "|") {
+		t.Fatalf("salesOrderItemCells(no discount)=%v want %v", got, noDiscountCells)
 	}
 }
 
-func TestSalesOrderFinancialRowsPutNoteBeforeFinalSummary(t *testing.T) {
+func TestSalesOrderFinancialRowsHideDiscountTotalWhenNoDiscount(t *testing.T) {
 	rows := salesOrderFinancialRows(salesdomain.SalesOrderSnapshot{
 		TotalAmount:    "2455.00",
 		Shipping:       "169.00",
@@ -146,6 +155,26 @@ func TestSalesOrderFinancialRowsPutNoteBeforeFinalSummary(t *testing.T) {
 	for i := range want {
 		if rows[i].Label != want[i].Label || rows[i].Value != want[i].Value || rows[i].Bold != want[i].Bold || strings.Join(rows[i].Cells, "|") != strings.Join(want[i].Cells, "|") {
 			t.Fatalf("rows[%d]=%+v want %+v", i, rows[i], want[i])
+		}
+	}
+
+	rows = salesOrderFinancialRows(salesdomain.SalesOrderSnapshot{
+		TotalAmount:    "134.00",
+		Shipping:       "0.00",
+		Discount:       "0.00",
+		GrandTotal:     "134.00",
+		SalesOrderNote: "无优惠订单",
+	})
+	want = []salesOrderFinancialRow{
+		{Label: "订单备注", Value: "无优惠订单"},
+		{Cells: []string{"商品合计： 134.00", "运费： 0.00", "应收： 134.00"}, Bold: true},
+	}
+	if len(rows) != len(want) {
+		t.Fatalf("rows without discount=%+v want %+v", rows, want)
+	}
+	for i := range want {
+		if rows[i].Label != want[i].Label || rows[i].Value != want[i].Value || rows[i].Bold != want[i].Bold || strings.Join(rows[i].Cells, "|") != strings.Join(want[i].Cells, "|") {
+			t.Fatalf("rows without discount[%d]=%+v want %+v", i, rows[i], want[i])
 		}
 	}
 }
