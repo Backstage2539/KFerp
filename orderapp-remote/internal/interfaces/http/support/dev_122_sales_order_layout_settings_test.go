@@ -42,27 +42,28 @@ func TestSalesOrderPreviewRendersPDFAssetsAndMultilineText(t *testing.T) {
 	}
 }
 
-func TestSalesOrderSettingsMovesCompanyNameAndSupportsSealDrag(t *testing.T) {
+func TestSalesOrderSettingsMovesCompanyNameAndUsesSharedSealAssets(t *testing.T) {
 	settings := string(readOrderAppFileForTest(t, filepath.Join("frontend-vue-shell", "src", "views", "SalesOrderSettingsView.vue")))
 	for _, forbidden := range []string{
 		`v-model.trim="form.company_name"`,
 		`<span>公司名称</span>`,
+		"seal-position-stage",
+		"beginSalesOrderSealDrag",
 	} {
 		if strings.Contains(settings, forbidden) {
 			t.Fatalf("SalesOrderSettingsView should not keep company name setting marker %q", forbidden)
 		}
 	}
 	for _, want := range []string{
-		"seal-position-stage",
-		"@pointerdown",
-		"seal_x_mm",
-		"seal_y_mm",
-		"seal_width_mm",
+		"selectSeal",
+		"/api/settings/sales-order/seals",
+		"/api/settings/sales-order/seal/select",
+		"/api/settings/sales-order/seal/remove-background",
 		"apiGet('/api/settings/sales-order')",
 		"apiSend('/api/settings/sales-order'",
 	} {
 		if !strings.Contains(settings, want) {
-			t.Fatalf("SalesOrderSettingsView missing seal drag marker %q", want)
+			t.Fatalf("SalesOrderSettingsView missing shared seal settings marker %q", want)
 		}
 	}
 	if strings.Contains(settings, "fetch('/api/settings/sales-order") {

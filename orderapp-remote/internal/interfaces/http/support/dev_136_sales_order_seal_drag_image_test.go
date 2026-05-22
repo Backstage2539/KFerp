@@ -24,21 +24,23 @@ func TestSalesOrderSealDragImageRequirementSeeds(t *testing.T) {
 	}
 }
 
-func TestSalesOrderSettingsSealDragDoesNotJumpAndSavesOnRelease(t *testing.T) {
-	settings := string(readOrderAppFileForTest(t, filepath.Join("frontend-vue-shell", "src", "views", "SalesOrderSettingsView.vue")))
+func TestSalesOrderPreviewSealDragDoesNotJumpAndSavesOnRelease(t *testing.T) {
+	view := string(readOrderAppFileForTest(t, filepath.Join("frontend-vue-shell", "src", "views", "SalesOrderView.vue")))
+	preview := string(readOrderAppFileForTest(t, filepath.Join("frontend-vue-shell", "src", "components", "PDFStampPreview.vue")))
 	for _, want := range []string{
-		"beginSalesOrderSealDrag",
-		"moveSalesOrderSealDrag",
-		"saveSealPosition",
+		"PDFStampPreview",
+		"movePDFStampPlacement",
+		"savePDFPreviewSealPosition",
 		"/api/settings/sales-order/seal-position",
-		"松手自动保存",
+		"placement-commit",
+		"公章位置已保存",
 	} {
-		if !strings.Contains(settings, want) {
-			t.Fatalf("SalesOrderSettingsView missing seal drag autosave marker %q", want)
+		if !strings.Contains(view, want) && !strings.Contains(preview, want) {
+			t.Fatalf("SalesOrderView/PDFStampPreview missing seal drag autosave marker %q", want)
 		}
 	}
-	if strings.Contains(settings, "(clientX - rect.left) * scaleX") {
-		t.Fatal("SalesOrderSettingsView should not snap the seal top-left to the clicked point")
+	if strings.Contains(view, "(clientX - rect.left) * scaleX") || strings.Contains(preview, "(clientX - rect.left) * scaleX") {
+		t.Fatal("sales order preview should not snap the seal top-left to the clicked point")
 	}
 }
 

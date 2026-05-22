@@ -5,23 +5,23 @@ import (
 	"testing"
 )
 
-func TestDev308BeanListVersionDownloadSeed(t *testing.T) {
+func TestDev309BeanListVersionDownloadSeed(t *testing.T) {
 	store := string(readOrderAppFileForTest(t, "internal/interfaces/http/support/req_store.go"))
 	for _, want := range []string{
-		"PR-308-BEAN-LIST-VERSION-DOWNLOAD",
-		"DEV-308-BEAN-LIST-VERSION-DOWNLOAD",
-		"UT-308-BEAN-LIST-VERSION-DOWNLOAD",
-		"API-308-BEAN-LIST-VERSION-DOWNLOAD",
-		"REV-308-BEAN-LIST-VERSION-DOWNLOAD",
+		"PR-309-BEAN-LIST-VERSION-DOWNLOAD",
+		"DEV-309-BEAN-LIST-VERSION-DOWNLOAD",
+		"UT-309-BEAN-LIST-VERSION-DOWNLOAD",
+		"API-309-BEAN-LIST-VERSION-DOWNLOAD",
+		"REV-309-BEAN-LIST-VERSION-DOWNLOAD",
 		"docs/acceptance/2026-05-22-bean-list-version-download.md",
 	} {
 		if !strings.Contains(store, want) {
-			t.Fatalf("req_store.go missing PR-308 seed marker %q", want)
+			t.Fatalf("req_store.go missing PR-309 seed marker %q", want)
 		}
 	}
 }
 
-func TestDev308BeanListVersionDownloadDocsAndWiring(t *testing.T) {
+func TestDev309BeanListVersionDownloadDocsAndWiring(t *testing.T) {
 	markers := map[string][]string{
 		"frontend-vue-shell/src/views/CostingView.vue": {
 			"下载 PDF",
@@ -38,11 +38,11 @@ func TestDev308BeanListVersionDownloadDocsAndWiring(t *testing.T) {
 			"showCategoryNumbers",
 		},
 		"docs/REQUIREMENTS.md": {
-			"PR-308-BEAN-LIST-VERSION-DOWNLOAD",
+			"PR-309-BEAN-LIST-VERSION-DOWNLOAD",
 			"`content` 和 `config` 快照",
 		},
 		"docs/ACCEPTANCE_TESTS.md": {
-			"PR-308-BEAN-LIST-VERSION-DOWNLOAD",
+			"PR-309-BEAN-LIST-VERSION-DOWNLOAD",
 			"每行都展示“下载 PDF”",
 			"不能因当前商品价格",
 		},

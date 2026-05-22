@@ -203,7 +203,7 @@ func auditMenuFeature(entityType, action, field string, meta *string) (string, s
 		return "设置 / 公司设置", "保存公司设置"
 	case "sales_order_settings":
 		if field == "seal_asset_id" {
-			return "设置 / 销售单设置", "上传销售单公章"
+			return "设置 / 销售单设置", "选择/上传共享公章"
 		}
 		return "设置 / 销售单设置", "保存销售单设置"
 	case "sales_order_asset":
@@ -367,6 +367,10 @@ func operationMenuFeature(meta *string, field string) (string, string) {
 		return "系统 / 操作日志", "查看操作日志"
 	case strings.HasPrefix(target, "/api/settings/sales-order/seal-position"):
 		return "设置 / 销售单设置", "保存公章位置"
+	case strings.HasPrefix(target, "/api/settings/sales-order/payment-layout"):
+		return "设置 / 销售单设置", "保存收款版式"
+	case strings.HasPrefix(target, "/api/settings/sales-order/seal/select"):
+		return "设置 / 销售单设置", "选择共享公章"
 	case strings.HasPrefix(target, "/api/settings/sales-order/seal") || strings.HasPrefix(target, "/api/settings/sales-order/payment-codes"):
 		return "设置 / 销售单设置", "维护销售单素材"
 	case strings.HasPrefix(target, "/api/settings/sales-order"):

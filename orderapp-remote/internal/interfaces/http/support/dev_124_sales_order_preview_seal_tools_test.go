@@ -30,7 +30,8 @@ func TestSalesOrderPreviewSupportsDraggingSealOnPDFPreview(t *testing.T) {
 	src := string(readOrderAppFileForTest(t, filepath.Join("frontend-vue-shell", "src", "views", "SalesOrderView.vue")))
 	for _, want := range []string{
 		"PDFStampPreview",
-		"@placement-commit=\"savePDFPreviewSealPosition\"",
+		"@placement-commit=\"savePDFPreviewPlacement\"",
+		"savePDFPreviewPlacement",
 		"savePDFPreviewSealPosition",
 		"/api/settings/sales-order/seal-position",
 		"salesOrderPreviewPlacements",

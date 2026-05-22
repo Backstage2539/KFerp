@@ -43,13 +43,22 @@ func TestDeliveryNoteViewSupportsSharedSealSettings(t *testing.T) {
 	}
 	for _, want := range []string{
 		"公章设置",
-		"seal-position-stage",
+		"selectSeal",
 		"/api/settings/sales-order/seal",
 		"/api/settings/sales-order/seal/remove-background",
-		"/api/settings/sales-order/seal-position",
+		"/api/settings/sales-order/seal/select",
 	} {
 		if !strings.Contains(settings, want) {
 			t.Fatalf("CompanySealSettingsView missing marker %q", want)
+		}
+	}
+	for _, old := range []string{
+		"seal-position-stage",
+		"saveSealPosition",
+		"/api/settings/sales-order/seal-position",
+	} {
+		if strings.Contains(settings, old) {
+			t.Fatalf("CompanySealSettingsView should only manage seal assets, still found %q", old)
 		}
 	}
 }
