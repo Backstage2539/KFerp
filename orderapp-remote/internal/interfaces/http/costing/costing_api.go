@@ -195,6 +195,9 @@ func registerCostingAPI(e *echo.Echo, svc Service, authz support.AuthzService) {
 		if err != nil {
 			return c.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
 		}
+		if err := generateBeanListPublicationPDFAsset(c, svc, row); err != nil {
+			return beanListPDFError(c, err)
+		}
 		return c.JSON(http.StatusOK, row)
 	})
 
@@ -222,6 +225,9 @@ func registerCostingAPI(e *echo.Echo, svc Service, authz support.AuthzService) {
 		row, err := svc.SaveBeanListDraft(c.Request().Context(), req)
 		if err != nil {
 			return c.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
+		}
+		if err := generateBeanListPublicationPDFAsset(c, svc, row); err != nil {
+			return beanListPDFError(c, err)
 		}
 		return c.JSON(http.StatusOK, row)
 	})
@@ -299,6 +305,22 @@ func registerCostingAPI(e *echo.Echo, svc Service, authz support.AuthzService) {
 		}
 		return c.JSON(http.StatusOK, map[string]any{"ok": true, "id": id})
 	})
+}
+
+func generateBeanListPublicationPDFAsset(c echo.Context, svc Service, row *appcosting.BeanListPublication) error {
+	if row == nil || row.ID <= 0 {
+		return nil
+	}
+	_, err := svc.GenerateBeanListPublicationPDF(c.Request().Context(), appcosting.BeanListPublicationPDFCommand{
+		PublicationID: row.ID,
+		Query: appcosting.BeanListPublicationQuery{
+			ListType:  row.ListType,
+			OwnerType: row.OwnerType,
+			OwnerKey:  row.OwnerKey,
+		},
+		Actor: support.ActorOf(c),
+	}, renderBeanListPublicationPDF)
+	return err
 }
 
 func beanListPublicationPDFCommandFromRequest(c echo.Context) (appcosting.BeanListPublicationPDFCommand, error) {

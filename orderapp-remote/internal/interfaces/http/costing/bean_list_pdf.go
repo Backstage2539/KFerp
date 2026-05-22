@@ -20,17 +20,29 @@ func beanListPublicationPDFDocument(row appcosting.BeanListPublication) pdfinfra
 		changelog = row.Changelog
 	}
 	doc := pdfinfra.BeanListDocument{
-		Title:       mapString(content, "title", buildPublicBeanListTitle(row.ListType, mapString(cfg, "brandName", "棵凡咖啡"))),
-		ListType:    row.ListType,
-		VersionNo:   row.Version,
-		PublishedAt: row.PublishedAt,
-		Changelog:   changelog,
-		Groups:      make([]pdfinfra.BeanListGroup, 0),
+		Title:               mapString(content, "title", buildPublicBeanListTitle(row.ListType, mapString(cfg, "brandName", "棵凡咖啡"))),
+		Subtitle:            mapString(content, "subtitle", buildPublicBeanListSubtitle(row.ListType)),
+		ListType:            row.ListType,
+		VersionNo:           row.Version,
+		PublishedAt:         row.PublishedAt,
+		BrandName:           mapString(cfg, "brandName", "棵凡咖啡"),
+		BrandIntro:          mapString(cfg, "brandIntro", ""),
+		BackgroundColor:     mapString(cfg, "backgroundColor", "#f8f1e5"),
+		FontColor:           mapString(cfg, "fontColor", "#171717"),
+		LayoutStyle:         mapString(cfg, "layoutStyle", "card"),
+		CardsPerRow:         int(mapNumber(cfg, "cardsPerRow", 2)),
+		ShowVersion:         mapBool(cfg, "showVersion", true),
+		ShowChangelog:       mapBool(cfg, "showChangelog", true),
+		ShowCategoryNumbers: mapBool(cfg, "showCategoryNumbers", true),
+		UsePreviewStyle:     true,
+		Changelog:           changelog,
+		Groups:              make([]pdfinfra.BeanListGroup, 0),
 	}
 	for _, groupMap := range publicMapsFromAny(content["groups"]) {
 		group := pdfinfra.BeanListGroup{
-			Category: mapString(groupMap, "category", ""),
-			Items:    make([]pdfinfra.BeanListItem, 0),
+			Category:     mapString(groupMap, "category", ""),
+			ShowCategory: mapBool(groupMap, "showCategory", true),
+			Items:        make([]pdfinfra.BeanListItem, 0),
 		}
 		for _, itemMap := range publicMapsFromAny(groupMap["items"]) {
 			item := pdfinfra.BeanListItem{

@@ -438,7 +438,8 @@ func (s *Service) GenerateBeanListPublicationPDF(ctx context.Context, cmd BeanLi
 	if row == nil {
 		return BeanListPublicationPDFFile{}, ErrBeanListPublicationNotFound
 	}
-	if asset, err := s.repo.LoadBeanListPublicationAsset(ctx, row.ID, "pdf"); err == nil && len(asset.Payload) > 0 {
+	cacheKey := beanListPublicationPDFCacheKey(*row)
+	if asset, err := s.repo.LoadBeanListPublicationAsset(ctx, row.ID, "pdf"); err == nil && len(asset.Payload) > 0 && strings.TrimSpace(asset.CacheKey) == cacheKey {
 		return beanListPublicationPDFFile(*row, asset), nil
 	} else if err != nil && !errors.Is(err, ErrBeanListPublicationNotFound) {
 		return BeanListPublicationPDFFile{}, err
@@ -454,7 +455,7 @@ func (s *Service) GenerateBeanListPublicationPDF(ctx context.Context, cmd BeanLi
 		PublicationID: row.ID,
 		AssetType:     "pdf",
 		ContentType:   "application/pdf",
-		CacheKey:      beanListPublicationPDFCacheKey(*row),
+		CacheKey:      cacheKey,
 		Payload:       body,
 	}, normalized.Actor)
 	if err != nil {
@@ -482,7 +483,7 @@ func (s *Service) LoadBeanListPublicationPDF(ctx context.Context, cmd BeanListPu
 	if err != nil {
 		return BeanListPublicationPDFFile{}, err
 	}
-	if len(asset.Payload) == 0 {
+	if len(asset.Payload) == 0 || strings.TrimSpace(asset.CacheKey) != beanListPublicationPDFCacheKey(*row) {
 		return BeanListPublicationPDFFile{}, ErrBeanListPublicationNotFound
 	}
 	return beanListPublicationPDFFile(*row, asset), nil
@@ -952,7 +953,7 @@ func beanListPublicationPDFCacheKey(row BeanListPublication) string {
 	if version == "" {
 		version = "published"
 	}
-	return fmt.Sprintf("bean-list:%d:%s", row.ID, version)
+	return fmt.Sprintf("bean-list-preview-style-v1:%d:%s", row.ID, version)
 }
 
 func beanListPublicationPDFFilename(row BeanListPublication) string {

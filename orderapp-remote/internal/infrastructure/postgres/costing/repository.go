@@ -673,12 +673,17 @@ func (r Repository) SaveBeanListPublicationAsset(ctx context.Context, asset appc
 	defer func() { _ = tx.Rollback(ctx) }()
 	var created bool
 	if err := tx.QueryRow(ctx, fmt.Sprintf(`
-		WITH inserted AS (
-			INSERT INTO %[1]s.bean_list_publication_assets(publication_id, asset_type, content_type, cache_key, payload, created_by)
-			VALUES($1,$2,$3,$4,$5,$6)
-			ON CONFLICT(publication_id, asset_type) DO NOTHING
-			RETURNING publication_id, asset_type, content_type, cache_key, payload, true
-		)
+			WITH inserted AS (
+				INSERT INTO %[1]s.bean_list_publication_assets(publication_id, asset_type, content_type, cache_key, payload, created_by)
+				VALUES($1,$2,$3,$4,$5,$6)
+				ON CONFLICT(publication_id, asset_type) DO UPDATE
+				SET content_type=EXCLUDED.content_type,
+				    cache_key=EXCLUDED.cache_key,
+				    payload=EXCLUDED.payload,
+				    created_by=EXCLUDED.created_by,
+				    updated_at=now()
+				RETURNING publication_id, asset_type, content_type, cache_key, payload, true
+			)
 		SELECT publication_id, asset_type, content_type, cache_key, payload, true FROM inserted
 		UNION ALL
 		SELECT publication_id, asset_type, content_type, cache_key, payload, false

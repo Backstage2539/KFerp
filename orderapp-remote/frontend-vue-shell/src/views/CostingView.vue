@@ -544,7 +544,7 @@
             <button v-if="isBeanListAdmin" class="secondary" type="button" :disabled="beanListWithdrawing || !currentBeanListPublication" @click="withdrawBeanList()">撤回发布</button>
             <button v-if="isBeanListAdmin" class="primary" type="button" :disabled="beanListPublishing || !pdfGroups.length || !pdfTheme.version || !customerScopeReady" @click="publishBeanList">发布豆单</button>
             <button v-else class="primary" type="button" :disabled="beanListPublishing || !pdfGroups.length || !pdfTheme.version || !customerScopeReady" @click="saveBeanListDraft">保存修改</button>
-            <button class="secondary" type="button" :disabled="!pdfGroups.length" @click="generateBeanListPdf">生成 PDF</button>
+            <button class="secondary" type="button" :disabled="beanListPdfGenerating || !pdfGroups.length" @click="generateBeanListPdf">{{ beanListPdfGenerating ? '生成中' : '生成 PDF' }}</button>
           </div>
         </div>
         <div class="pdf-preview-phone bean-list-pdf-surface" :style="pdfPageStyle">
@@ -798,6 +798,7 @@ const loading = ref(false)
 const beanListPublishing = ref(false)
 const beanListWithdrawing = ref(false)
 const beanListVersionListLoading = ref(false)
+const beanListPdfGenerating = ref(false)
 const settingsOpen = ref(false)
 const priceExplanationOpen = ref(false)
 const priceExplanationLoading = ref(false)
@@ -1918,11 +1919,29 @@ function clearPdfPrintMode() {
   document.body.classList.remove('bean-list-pdf-printing')
 }
 
-function generateBeanListPdf() {
+async function generateBeanListPdf() {
   if (!pdfGroups.value.length) return
-  pdfPrinting.value = true
-  document.body.classList.add('bean-list-pdf-printing')
-  window.setTimeout(() => window.print(), 80)
+  if (!customerScopeReady.value) {
+    error.value = '请选择客户'
+    return
+  }
+  beanListPdfGenerating.value = true
+  error.value = ''
+  message.value = ''
+  const listType = pdfTheme.value.listType
+  try {
+    const row = await apiSend('/api/costing/bean-list/drafts', { body: beanListPublicationPayload() })
+    const params = beanListPublicationDownloadParams(row)
+    const document = await apiSend(`/api/costing/bean-list/publications/${row.id}/pdf?${params.toString()}`)
+    await downloadBeanListPublicationPDF(document)
+    message.value = `已生成并下载${beanListTypeName(listType)}豆单 ${row.version || '未命名版本'} PDF`
+    await loadBeanListPublications(listType, publicationScope.value)
+    await loadBeanListPublications(listType, versionListScope.value)
+  } catch (err) {
+    error.value = err.message || '生成豆单 PDF 失败'
+  } finally {
+    beanListPdfGenerating.value = false
+  }
 }
 
 async function publishBeanList() {

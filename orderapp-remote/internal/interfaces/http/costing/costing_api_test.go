@@ -192,11 +192,13 @@ func (fakeService) LoadBeanListPublicationPDF(context.Context, appcosting.BeanLi
 
 type recordingBeanListService struct {
 	fakeService
-	published   int
-	drafted     int
-	lastQuery   appcosting.BeanListPublicationQuery
-	lastPublish appcosting.PublishBeanListCommand
-	lastDraft   appcosting.PublishBeanListCommand
+	published      int
+	drafted        int
+	generatedPDFs  int
+	lastQuery      appcosting.BeanListPublicationQuery
+	lastPublish    appcosting.PublishBeanListCommand
+	lastDraft      appcosting.PublishBeanListCommand
+	lastPDFCommand appcosting.BeanListPublicationPDFCommand
 }
 
 func (s *recordingBeanListService) ListBeanListPublications(ctx context.Context, query appcosting.BeanListPublicationQuery) ([]appcosting.BeanListPublication, error) {
@@ -227,6 +229,22 @@ func (s *recordingBeanListService) SaveBeanListDraft(ctx context.Context, cmd ap
 		Status:    "draft",
 		OwnerType: cmd.OwnerType,
 		OwnerKey:  cmd.OwnerKey,
+	}, nil
+}
+
+func (s *recordingBeanListService) GenerateBeanListPublicationPDF(ctx context.Context, cmd appcosting.BeanListPublicationPDFCommand, render func(appcosting.BeanListPublication) ([]byte, error)) (appcosting.BeanListPublicationPDFFile, error) {
+	s.generatedPDFs++
+	s.lastPDFCommand = cmd
+	body := []byte("%PDF-1.4")
+	return appcosting.BeanListPublicationPDFFile{
+		PublicationID: cmd.PublicationID,
+		ListType:      cmd.Query.ListType,
+		Version:       "V3.0.6",
+		ContentType:   "application/pdf",
+		CacheKey:      "bean-list:test",
+		Filename:      "bean-list-commercial-V3.0.6.pdf",
+		Bytes:         len(body),
+		Payload:       body,
 	}, nil
 }
 
@@ -992,6 +1010,52 @@ func TestBeanListPublicationAPISupportsCustomerScope(t *testing.T) {
 	}
 	if svc.lastPublish.OwnerType != "customer" || svc.lastPublish.OwnerKey != "42" {
 		t.Fatalf("customer publish owner = %+v", svc.lastPublish)
+	}
+}
+
+func TestBeanListPublicationPublishAndDraftGenerateStoredPreviewPDF(t *testing.T) {
+	for _, tc := range []struct {
+		name          string
+		path          string
+		wantID        int64
+		wantOwnerType string
+		wantOwnerKey  string
+	}{
+		{name: "publish", path: "/api/costing/bean-list/publications", wantID: 8, wantOwnerType: "customer", wantOwnerKey: "42"},
+		{name: "draft", path: "/api/costing/bean-list/drafts", wantID: 9, wantOwnerType: "customer", wantOwnerKey: "42"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			svc := &recordingBeanListService{}
+			e := echo.New()
+			e.Use(func(next echo.HandlerFunc) echo.HandlerFunc {
+				return func(c echo.Context) error {
+					c.Set("basic_auth_admin", true)
+					c.Set("employee_id", int64(7))
+					return next(c)
+				}
+			})
+			RegisterRoutes(e, Dependencies{Costing: svc})
+
+			body := bytes.NewBufferString(`{"list_type":"commercial","version":"V3.0.8","scope":"customer","customer_id":42,"config":{"layoutStyle":"card","backgroundColor":"#f8f1e5"},"content":{"title":"棵凡咖啡批发豆单","groups":[{"category":"1、工厂量单","showCategory":true,"items":[{"code":"1.1","name":"曲奇拼配","prices":[{"label":"25-49kg","price":21,"unit":"kg"}]}]}]},"changelog":"客户 A 豆单"}`)
+			req := httptest.NewRequest(http.MethodPost, tc.path, body)
+			req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+			rec := httptest.NewRecorder()
+
+			e.ServeHTTP(rec, req)
+
+			if rec.Code != http.StatusOK {
+				t.Fatalf("status = %d, body = %s", rec.Code, rec.Body.String())
+			}
+			if svc.generatedPDFs != 1 {
+				t.Fatalf("generated PDFs = %d", svc.generatedPDFs)
+			}
+			if svc.lastPDFCommand.PublicationID != tc.wantID ||
+				svc.lastPDFCommand.Query.ListType != "commercial" ||
+				svc.lastPDFCommand.Query.OwnerType != tc.wantOwnerType ||
+				svc.lastPDFCommand.Query.OwnerKey != tc.wantOwnerKey {
+				t.Fatalf("pdf command = %+v", svc.lastPDFCommand)
+			}
+		})
 	}
 }
 

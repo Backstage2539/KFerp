@@ -285,6 +285,7 @@
 - [ ] PR-BEANLIST-VERSION-001：产品豆单直接展示豆单版本列表，页面顶部范围下拉列出“公共豆单”和每个履约客户（如岩师傅、用户A），选择某一项后只展示该归属版本，并能按商用/零售/生豆查看历史版本；同一豆单多次发布后版本列表保留每个已发布版本；小程序或 PDF 下载第一次生成后写入 `bean_list_publication_assets`，后续同版本复用缓存。
 - [ ] PR-309-BEAN-LIST-VERSION-DOWNLOAD：产品豆单“豆单版本列表”每行都展示“下载 PDF”；点击公共、客户、草稿、已发布或已撤回版本时，下载内容必须来自该行 `content/config` 快照，不能因当前商品价格、当前抽屉样式或当前筛选状态变化而改变历史豆单。
 - [ ] PR-317-BEAN-LIST-STORED-PDF-DOWNLOAD：点击产品豆单版本列表“下载 PDF”后，浏览器不弹出打印窗口；系统先调用后端生成/缓存该版本 PDF，返回 `/api/costing/bean-list/publications/:id/pdf` 下载地址，再直接下载文件。再次点击同一版本复用 `bean_list_publication_assets` 已保存 PDF；客户专属豆单下载必须校验当前客户范围。
+- [ ] PR-319-BEAN-LIST-PREVIEW-STYLE-PDF：在生成豆单抽屉点击“生成 PDF”时，页面不得调用 `window.print()` 或打开系统打印窗口；系统保存当前预览快照为草稿，后端按预览卡片样式生成 PDF 并下载。发布豆单、保存草稿和版本列表下载均得到同一套预览卡片样式；旧文本版缓存会因新版 cache key 不匹配而重新生成覆盖。
 - [ ] 产品豆单生成抽屉按当前豆单范围自动使用公共或客户上下文，发布保存不会串到错误归属。
 - [x] PR-BEANLIST-VERSION-002：ERP 录单按熟豆、生豆、挂耳分别显示豆单版本选择并默认各类型最新；保存订单后商品行 `order_items.bean_list_publication_id` 和 `order_items.bean_list_version_no` 对应该行商品形态所选版本。没有专属豆单的客户按对应类型使用公共豆单。
 - [ ] PR-BEANLIST-VERSION-003：小程序首次按新版豆单下单时弹出更新提示，内容展示新增、下架和调整摘要；确认后写 `customer_bean_list_acknowledgements`，同一客户同一版本后续不重复提示。

@@ -7,7 +7,7 @@ import (
 	"testing"
 )
 
-func TestCostingViewHasBeanListPDFDrawerAndMobilePrintStyles(t *testing.T) {
+func TestCostingViewHasBeanListPDFDrawerAndStoredPreviewPDFWorkflow(t *testing.T) {
 	view, err := os.ReadFile(filepath.Join("..", "..", "..", "..", "frontend-vue-shell", "src", "views", "CostingView.vue"))
 	if err != nil {
 		t.Fatal(err)
@@ -25,14 +25,20 @@ func TestCostingViewHasBeanListPDFDrawerAndMobilePrintStyles(t *testing.T) {
 		"fontColor",
 		"backgroundImage",
 		"accept=\"image/*\"",
-		"window.print",
 		"@media print",
 		"bean-list-pdf-page",
 		"max-width: 430px",
+		"beanListPdfGenerating",
+		"apiSend('/api/costing/bean-list/drafts'",
+		"/api/costing/bean-list/publications/${row.id}/pdf?${params.toString()}",
+		"downloadBeanListPublicationPDF(document)",
 	} {
 		if !strings.Contains(src, want) {
 			t.Fatalf("PDF source missing %q", want)
 		}
+	}
+	if strings.Contains(src, "window.print") {
+		t.Fatalf("PDF generation must use stored backend PDFs, not system print")
 	}
 }
 

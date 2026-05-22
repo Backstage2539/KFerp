@@ -156,11 +156,54 @@ func TestGenerateBeanListPublicationPDFSavesAndReusesAsset(t *testing.T) {
 	if renderCalls != 1 {
 		t.Fatalf("render calls = %d", renderCalls)
 	}
-	if repo.savedBeanListAsset.PublicationID != 7 || repo.savedBeanListAsset.AssetType != "pdf" || repo.savedBeanListAsset.CacheKey != "bean-list:7:V3.0.5" {
+	if repo.savedBeanListAsset.PublicationID != 7 || repo.savedBeanListAsset.AssetType != "pdf" || repo.savedBeanListAsset.CacheKey != "bean-list-preview-style-v1:7:V3.0.5" {
 		t.Fatalf("saved asset = %+v", repo.savedBeanListAsset)
 	}
 	if first.Filename != "bean-list-commercial-V3.0.5.pdf" || first.Bytes != len("%PDF-1.4") || second.Bytes != first.Bytes {
 		t.Fatalf("pdf files = first %+v second %+v", first, second)
+	}
+}
+
+func TestGenerateBeanListPublicationPDFRegeneratesStaleCacheKey(t *testing.T) {
+	repo := &fakeRepo{
+		beanListPublication: &BeanListPublication{
+			ID:        7,
+			ListType:  "commercial",
+			Version:   "V3.0.5",
+			Status:    "published",
+			OwnerType: "official",
+			Config:    map[string]any{},
+			Content:   map[string]any{"groups": []any{}},
+		},
+		beanListAsset: BeanListPublicationAsset{
+			PublicationID: 7,
+			AssetType:     "pdf",
+			ContentType:   "application/pdf",
+			CacheKey:      "bean-list:7:V3.0.5",
+			Payload:       []byte("%PDF-old-text-style"),
+		},
+	}
+	svc := NewService(repo)
+	renderCalls := 0
+	render := func(BeanListPublication) ([]byte, error) {
+		renderCalls++
+		return []byte("%PDF-preview-style"), nil
+	}
+	cmd := BeanListPublicationPDFCommand{PublicationID: 7, Query: BeanListPublicationQuery{ListType: "commercial", OwnerType: "official"}}
+
+	file, err := svc.GenerateBeanListPublicationPDF(context.Background(), cmd, render)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if renderCalls != 1 {
+		t.Fatalf("render calls = %d", renderCalls)
+	}
+	if repo.savedBeanListAsset.CacheKey != "bean-list-preview-style-v1:7:V3.0.5" || string(repo.savedBeanListAsset.Payload) != "%PDF-preview-style" {
+		t.Fatalf("saved asset = %+v", repo.savedBeanListAsset)
+	}
+	if file.CacheKey != "bean-list-preview-style-v1:7:V3.0.5" || string(file.Payload) != "%PDF-preview-style" {
+		t.Fatalf("file = %+v", file)
 	}
 }
 

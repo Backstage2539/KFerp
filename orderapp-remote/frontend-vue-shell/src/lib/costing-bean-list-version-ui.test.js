@@ -73,6 +73,27 @@ test('product bean-list version list downloads the selected publication snapshot
   assert.doesNotMatch(downloadSource, /generateBeanListPdf\(\)/)
 })
 
+test('product bean-list generate PDF saves preview snapshot through backend instead of printing', () => {
+  const generateStart = viewSource.indexOf('async function generateBeanListPdf()')
+  const generateEnd = viewSource.indexOf('async function publishBeanList()', generateStart)
+  assert.ok(generateStart > -1 && generateEnd > generateStart, 'generateBeanListPdf function not found')
+  const generateSource = viewSource.slice(generateStart, generateEnd)
+
+  for (const expected of [
+    "apiSend('/api/costing/bean-list/drafts'",
+    'beanListPublicationPayload()',
+    "apiSend(`/api/costing/bean-list/publications/${row.id}/pdf?${params.toString()}`",
+    'await downloadBeanListPublicationPDF(document)',
+    'await loadBeanListPublications(listType, publicationScope.value)',
+    'await loadBeanListPublications(listType, versionListScope.value)',
+  ]) {
+    assert.ok(generateSource.includes(expected), `missing backend preview PDF generation behavior: ${expected}`)
+  }
+  assert.doesNotMatch(generateSource, /window\.print/)
+  assert.doesNotMatch(generateSource, /pdfPrinting\.value = true/)
+  assert.doesNotMatch(generateSource, /bean-list-pdf-printing/)
+})
+
 test('product bean-list version scope selector lists public and each fulfillment customer', () => {
   const versionListStart = viewSource.indexOf('<section class="panel bean-list-version-panel">')
   const versionListEnd = viewSource.indexOf('<section class="panel">', versionListStart)
