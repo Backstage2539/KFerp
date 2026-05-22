@@ -139,7 +139,7 @@
                     v-if="key === 'customerProcessingPortal'"
                     type="button"
                     class="chip-link"
-                    @click="openCustomerProcessingPortal"
+                    @click="openCustomerProfile(row)"
                   >
                     {{ viewLabel(key) }}
                   </button>
@@ -218,6 +218,8 @@ import {
   resetCustomerFulfillmentExternalUserPassword,
   setCustomerFulfillmentExternalUserLoginEnabled,
 } from '../api/customer-fulfillment'
+import { customerDossierNavigationDetail } from '../lib/customer-portal-settings'
+import { workspaceCustomersRefreshEvent } from '../lib/workspace-mode'
 
 const props = defineProps({
   workspaceMode: { type: String, default: '' },
@@ -480,15 +482,21 @@ function themeLabel(value) {
   return `小程序主题：${themeLabels[value] || themeLabels.coffee_factory}`
 }
 
-function openCustomerProcessingPortal() {
+function openCustomerProfile(row) {
+  const detail = customerDossierNavigationDetail(row)
+  if (!detail.params.edit_id) return
   window.dispatchEvent(new CustomEvent('kferp:navigate-view', {
-    detail: { key: 'customerProcessingPortal' },
+    detail,
   }))
 }
 
 function viewLabel(key) {
-  if (key === 'customerProcessingPortal') return '客户履约工作台'
+  if (key === 'customerProcessingPortal') return '打开客户档案'
   return key
+}
+
+function refreshWorkspaceCustomers() {
+  window.dispatchEvent(workspaceCustomersRefreshEvent())
 }
 
 function canSaveRow(row) {
@@ -510,6 +518,7 @@ async function createExternalUser(row) {
     row.externalUserForm.password = ''
     ok.value = `已为 ${row.customer.name} 创建外部用户 ${created.name || created.phone || ''}`.trim()
     await Promise.all([loadRowDetail(row), loadRowExternalUsers(row)])
+    refreshWorkspaceCustomers()
   } catch (err) {
     error.value = err.message || '创建外部用户失败'
   } finally {
@@ -529,6 +538,7 @@ async function resetExternalUserPassword(row, user) {
     row.externalUserPasswordMap[String(employeeID)] = ''
     ok.value = `已更新 ${user.name || user.phone || employeeID} 的密码`
     await Promise.all([loadRowDetail(row), loadRowExternalUsers(row)])
+    refreshWorkspaceCustomers()
   } catch (err) {
     error.value = err.message || '密码更新失败'
   } finally {
@@ -547,6 +557,7 @@ async function toggleExternalUserLogin(row, user) {
     await setCustomerFulfillmentExternalUserLoginEnabled(row.customer.id, employeeID, nextEnabled)
     ok.value = nextEnabled ? '已启用外部用户登录' : '已停用外部用户登录'
     await Promise.all([loadRowDetail(row), loadRowExternalUsers(row)])
+    refreshWorkspaceCustomers()
   } catch (err) {
     error.value = err.message || '登录状态保存失败'
   } finally {

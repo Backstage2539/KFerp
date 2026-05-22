@@ -5,10 +5,12 @@ import { menuGroups, primaryMenuKeys } from './menu-ia.js'
 import {
   CUSTOMER_WORKSPACE_MODE,
   FACTORY_WORKSPACE_MODE,
+  WORKSPACE_CUSTOMERS_REFRESH_EVENT,
   defaultWorkspaceEntryKey,
   isCustomerAccountActor,
   menuGroupsForWorkspaceMode,
   normalizeWorkspaceMode,
+  workspaceCustomersRefreshEvent,
   workspaceViewParams,
 } from './workspace-mode.js'
 
@@ -129,7 +131,16 @@ test('vue shell wires workspace mode into navigation and routed pages', () => {
     ':customer-context-id="workspaceCustomerContextId"',
     ':customer-context-label="workspaceCustomerLabel"',
     '/api/customer-fulfillment/customers?limit=200',
+    'WORKSPACE_CUSTOMERS_REFRESH_EVENT',
+    'workspaceCustomersRefreshEventName',
   ]) {
     assert.ok(source.includes(marker), `App.vue should include ${marker}`)
   }
+})
+
+test('workspace customer refresh event has a stable browser event name', () => {
+  const event = workspaceCustomersRefreshEvent()
+
+  assert.equal(WORKSPACE_CUSTOMERS_REFRESH_EVENT, 'kferp:workspace-customers-refresh')
+  assert.equal(event.type, WORKSPACE_CUSTOMERS_REFRESH_EVENT)
 })
