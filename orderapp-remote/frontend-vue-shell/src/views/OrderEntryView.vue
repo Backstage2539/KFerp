@@ -686,13 +686,7 @@ async function uploadPaymentVoucher() {
   try {
     const body = new FormData()
     body.append('file', paymentVoucherFile.value)
-    const resp = await fetch('/api/order/payment-vouchers', {
-      method: 'POST',
-      credentials: 'same-origin',
-      body,
-    })
-    const data = await resp.json().catch(() => ({}))
-    if (!resp.ok) throw new Error(data.error || '收款凭证上传失败')
+    const data = await apiSend('/api/order/payment-vouchers', { body })
     paymentVoucher.value = data.asset || null
     form.payment_voucher_asset_id = Number(data.asset?.id || 0)
   } finally {
