@@ -277,6 +277,24 @@ func TestSalesOrderPaymentLayoutUsesConfiguredTextAndCodeBoxes(t *testing.T) {
 	}
 }
 
+func TestSalesOrderPaymentTextSectionsPrioritizePersonalNote(t *testing.T) {
+	sections := salesOrderPaymentTextSections(salesdomain.SalesOrderSnapshot{
+		PaymentText:     "微信支付",
+		Note:            "请送货前联系老板",
+		BankAccountName: "棵凡咖啡",
+		BankName:        "农业银行",
+		BankAccountNo:   "123456",
+	})
+	if len(sections) != 3 {
+		t.Fatalf("section count = %d", len(sections))
+	}
+	for i, want := range []string{"收款方式", "说明", "公账收款"} {
+		if sections[i].title != want {
+			t.Fatalf("section[%d].title = %q, want %q", i, sections[i].title, want)
+		}
+	}
+}
+
 func TestRenderSalesOrderPNGUsesHighResolutionCanvasAndLargePaymentCode(t *testing.T) {
 	dir := t.TempDir()
 	writeSolidPNG(t, filepath.Join(dir, "sales-order", "payment", "wechat.png"), color.RGBA{G: 0xf0, A: 0xff}, 64, 64)

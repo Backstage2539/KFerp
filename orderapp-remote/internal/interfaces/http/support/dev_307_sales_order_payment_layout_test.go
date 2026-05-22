@@ -9,7 +9,8 @@ import (
 func TestDev307SalesOrderPaymentLayoutControls(t *testing.T) {
 	settingsView := string(readOrderAppFileForTest(t, filepath.Join("frontend-vue-shell", "src", "views", "SalesOrderSettingsView.vue")))
 	for _, want := range []string{
-		"收款与说明版式",
+		"文字位置和大小",
+		"个性化说明会优先显示",
 		"payment_text_x_mm",
 		"payment_text_width_mm",
 		"payment_code_x_mm",
@@ -29,6 +30,7 @@ func TestDev307SalesOrderPaymentLayoutControls(t *testing.T) {
 		"PaymentCodeBox",
 		"pdf.SetPage(1)",
 		"salesOrderPaymentCodeMetricsForBox",
+		"salesOrderPaymentTextSections",
 	} {
 		if !strings.Contains(pdfRenderer, want) {
 			t.Fatalf("sales_order_pdf.go missing payment layout marker %q", want)
