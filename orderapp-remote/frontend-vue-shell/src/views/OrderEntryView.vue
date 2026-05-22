@@ -28,7 +28,7 @@
           <input v-model.trim="form.order_date" type="date" />
         </label>
 
-        <label class="customer-combobox combobox">
+        <label class="customer-combobox combobox" :class="{ open: customerOpen }">
           <div class="label-row">
             <span>客户</span>
             <button class="text-button" type="button" @click="openCustomerDrawer">新增客户</button>
@@ -38,9 +38,9 @@
             type="search"
             placeholder="输入客户名/拼音"
             autocomplete="off"
-            @focus="customerOpen = true"
-            @input="form.customer_id = 0; customerOpen = true"
-            @keydown.down.prevent="customerOpen = true"
+            @focus="customerOpen = true; responsibleOpen = false"
+            @input="form.customer_id = 0; customerOpen = true; responsibleOpen = false"
+            @keydown.down.prevent="customerOpen = true; responsibleOpen = false"
           />
           <div v-if="customerOpen" class="combo-menu">
             <button
@@ -59,16 +59,16 @@
           </div>
         </label>
 
-        <label class="responsible-combobox combobox">
+        <label class="responsible-combobox combobox" :class="{ open: responsibleOpen }">
           <span>订单负责人</span>
           <input
             v-model.trim="responsibleQuery"
             type="search"
             placeholder="员工/合作方/客户"
             autocomplete="off"
-            @focus="responsibleOpen = true"
+            @focus="responsibleOpen = true; customerOpen = false"
             @input="clearResponsible"
-            @keydown.down.prevent="responsibleOpen = true"
+            @keydown.down.prevent="responsibleOpen = true; customerOpen = false"
           />
           <div v-if="responsibleOpen" class="combo-menu">
             <button
@@ -1288,6 +1288,7 @@ button:disabled { cursor: not-allowed; opacity: 0.5; }
 .ok { background: #ecfdf3; border: 1px solid #bbf7d0; color: #166534; }
 .warn { background: #fffbeb; border: 1px solid #fde68a; color: #92400e; }
 .combobox { z-index: 2; }
+.combobox.open { z-index: 30; }
 .combo-menu { position: absolute; top: calc(100% + 4px); left: 0; right: 0; z-index: 20; max-height: 280px; overflow: auto; border: 1px solid #d7dbe3; border-radius: 8px; background: #fff; box-shadow: 0 14px 30px rgba(15, 23, 42, 0.16); padding: 6px; }
 .combo-option { width: 100%; display: grid; gap: 2px; text-align: left; border: 0; background: transparent; padding: 8px; border-radius: 6px; }
 .combo-option:hover { background: #f3f6fb; }
