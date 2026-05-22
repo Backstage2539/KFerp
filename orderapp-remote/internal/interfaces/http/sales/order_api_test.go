@@ -118,6 +118,10 @@ func TestOrderAPIFormReturnsCustomerDefaultsForOrderEntry(t *testing.T) {
 	pool, schema := newOrderAPITestDB(t)
 	ctx := context.Background()
 	seedOrderAPITestData(t, ctx, pool, schema)
+	mustExecOrderAPITestSQL(t, ctx, pool, fmt.Sprintf(`
+		INSERT INTO %[1]s.company_employees(id,name,phone,department_id,account_type,active)
+		VALUES (44,'外部客户账号','13900000044',1,'channel_customer',true);
+	`, schema))
 
 	e := newOrderAPITestEcho(pool, schema)
 	req := httptest.NewRequest(http.MethodGet, "/api/order/form", nil)
@@ -128,10 +132,13 @@ func TestOrderAPIFormReturnsCustomerDefaultsForOrderEntry(t *testing.T) {
 		t.Fatalf("GET /api/order/form status = %d, want 200, body=%s", rec.Code, rec.Body.String())
 	}
 	body := rec.Body.String()
-	for _, needle := range []string{`"default_source_id":1`, `"default_order_type_id":2`, `"py"`, `"pyi"`} {
+	for _, needle := range []string{`"default_source_id":1`, `"default_order_type_id":2`, `"responsible_employee_id":5`, `"responsible_employee_name":"销售小王"`, `"py"`, `"pyi"`, `"销售小王"`} {
 		if !strings.Contains(body, needle) {
 			t.Fatalf("GET /api/order/form missing %s: %s", needle, body)
 		}
+	}
+	if strings.Contains(body, "外部客户账号") {
+		t.Fatalf("GET /api/order/form exposed channel customer account as employee option: %s", body)
 	}
 }
 
@@ -841,26 +848,23 @@ func TestOrderAPISavesAndListsEmployeeResponsiblePerson(t *testing.T) {
 	pool, schema := newOrderAPITestDB(t)
 	ctx := context.Background()
 	seedOrderAPITestData(t, ctx, pool, schema)
-	seedOrderAPIResponsibleData(t, ctx, pool, schema)
 
 	e := newOrderAPITestEcho(pool, schema)
 	payload := map[string]any{
-		"order_date":       "2026-05-06",
-		"customer_id":      3,
-		"source_id":        1,
-		"order_type_id":    1,
-		"pay_status_id":    2,
-		"payment_method":   "微信支付",
-		"ship_status_id":   1,
-		"responsible_type": "employee",
-		"responsible_id":   5,
-		"product_id":       []string{"7"},
-		"tier_id":          []string{"manual"},
-		"unit_price":       []string{"88"},
-		"item_name":        []string{"橘皮乌龙"},
-		"qty":              []string{"1"},
-		"unit":             []string{"件"},
-		"spec":             []string{"454"},
+		"order_date":     "2026-05-06",
+		"customer_id":    3,
+		"source_id":      1,
+		"order_type_id":  1,
+		"pay_status_id":  2,
+		"payment_method": "微信支付",
+		"ship_status_id": 1,
+		"product_id":     []string{"7"},
+		"tier_id":        []string{"manual"},
+		"unit_price":     []string{"88"},
+		"item_name":      []string{"橘皮乌龙"},
+		"qty":            []string{"1"},
+		"unit":           []string{"件"},
+		"spec":           []string{"454"},
 	}
 	body, _ := json.Marshal(payload)
 	req := httptest.NewRequest(http.MethodPost, "/api/order", bytes.NewReader(body))
@@ -968,7 +972,7 @@ func TestOrderAPIEditsPaidOrderRequirePaymentMethodAndExposeToList(t *testing.T)
 	}
 }
 
-func TestOrderAPISavesCustomerResponsiblePersonForPartnerCommission(t *testing.T) {
+func TestOrderAPIIgnoresOrderResponsiblePayloadAndUsesCustomerProfile(t *testing.T) {
 	pool, schema := newOrderAPITestDB(t)
 	ctx := context.Background()
 	seedOrderAPITestData(t, ctx, pool, schema)
@@ -1013,8 +1017,47 @@ func TestOrderAPISavesCustomerResponsiblePersonForPartnerCommission(t *testing.T
 	`, schema)).Scan(&responsibleType, &responsibleID, &responsibleName); err != nil {
 		t.Fatalf("query customer responsible person: %v", err)
 	}
-	if responsibleType != "customer" || responsibleID != 4 || responsibleName != "渠道伙伴A" {
-		t.Fatalf("responsible party = %s/%d/%s, want customer/4/渠道伙伴A", responsibleType, responsibleID, responsibleName)
+	if responsibleType != "employee" || responsibleID != 5 || responsibleName != "销售小王" {
+		t.Fatalf("responsible party = %s/%d/%s, want employee/5/销售小王", responsibleType, responsibleID, responsibleName)
+	}
+}
+
+func TestOrderAPIRejectsCustomerWithoutResponsibleEmployee(t *testing.T) {
+	pool, schema := newOrderAPITestDB(t)
+	ctx := context.Background()
+	seedOrderAPITestData(t, ctx, pool, schema)
+	mustExecOrderAPITestSQL(t, ctx, pool, fmt.Sprintf(`
+		INSERT INTO %s.customers(id,name,contact,phone,address,active,default_source_id,default_order_type_id,responsible_employee_id)
+		VALUES (40,'未分配客户','老板','13800000040','杭州市未分配路',true,1,2,0);
+	`, schema))
+
+	e := newOrderAPITestEcho(pool, schema)
+	payload := map[string]any{
+		"order_date":       "2026-05-06",
+		"customer_id":      40,
+		"source_id":        1,
+		"order_type_id":    1,
+		"pay_status_id":    2,
+		"payment_method":   "微信支付",
+		"ship_status_id":   1,
+		"responsible_type": "employee",
+		"responsible_id":   5,
+		"product_id":       []string{"7"},
+		"tier_id":          []string{"manual"},
+		"unit_price":       []string{"88"},
+		"item_name":        []string{"橘皮乌龙"},
+		"qty":              []string{"1"},
+		"unit":             []string{"件"},
+		"spec":             []string{"454"},
+	}
+	body, _ := json.Marshal(payload)
+	req := httptest.NewRequest(http.MethodPost, "/api/order", bytes.NewReader(body))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "customer responsible employee required") {
+		t.Fatalf("POST /api/order without customer responsible status=%d body=%s, want 400 customer responsible employee required", rec.Code, rec.Body.String())
 	}
 }
 
@@ -3624,25 +3667,29 @@ func newOrderAPITestEcho(pool *pgxpool.Pool, schema string) *echo.Echo {
 func seedOrderAPITestData(t *testing.T, ctx context.Context, pool *pgxpool.Pool, schema string) {
 	t.Helper()
 	mustExecOrderAPITestSQL(t, ctx, pool, fmt.Sprintf(`
-		INSERT INTO %s.customers(id,name,contact,phone,address,active,default_source_id,default_order_type_id) VALUES (3,'测试客户','测试收件人','13800000000','杭州市测试路',true,1,2);
-		INSERT INTO %s.sources(id,name) VALUES (1,'小程序');
-		INSERT INTO %s.order_types(id,name) VALUES (1,'批发订单'),(2,'零售订单');
-		INSERT INTO %s.pay_statuses(id,name) VALUES (1,'未付款'),(2,'已付款');
-		INSERT INTO %s.ship_statuses(id,name) VALUES (1,'未发货');
-		INSERT INTO %s.order_process_statuses(id,name,sort,active) VALUES (1,'待处理',10,true),(2,'库存待发货',33,true);
-		SELECT setval(pg_get_serial_sequence('%s.order_process_statuses','id'), (SELECT COALESCE(MAX(id),1) FROM %s.order_process_statuses));
-		INSERT INTO %s.products(id,name,default_price,active,retail_price_227g,retail_price_250g)
+		INSERT INTO %[1]s.company_departments(id,name,active) VALUES (1,'销售',true);
+		INSERT INTO %[1]s.company_employees(id,name,phone,department_id,account_type,active) VALUES (5,'销售小王','13800000005',1,'internal_employee',true);
+		INSERT INTO %[1]s.customers(id,name,contact,phone,address,active,default_source_id,default_order_type_id,responsible_employee_id) VALUES (3,'测试客户','测试收件人','13800000000','杭州市测试路',true,1,2,5);
+		INSERT INTO %[1]s.sources(id,name) VALUES (1,'小程序');
+		INSERT INTO %[1]s.order_types(id,name) VALUES (1,'批发订单'),(2,'零售订单');
+		INSERT INTO %[1]s.pay_statuses(id,name) VALUES (1,'未付款'),(2,'已付款');
+		INSERT INTO %[1]s.ship_statuses(id,name) VALUES (1,'未发货');
+		INSERT INTO %[1]s.order_process_statuses(id,name,sort,active) VALUES (1,'待处理',10,true),(2,'库存待发货',33,true);
+		SELECT setval(pg_get_serial_sequence('%[1]s.order_process_statuses','id'), (SELECT COALESCE(MAX(id),1) FROM %[1]s.order_process_statuses));
+		INSERT INTO %[1]s.products(id,name,default_price,active,retail_price_227g,retail_price_250g)
 		VALUES (7,'橘皮乌龙',50,true,50,56);
-	`, schema, schema, schema, schema, schema, schema, schema, schema, schema))
+	`, schema))
 }
 
 func seedOrderAPIResponsibleData(t *testing.T, ctx context.Context, pool *pgxpool.Pool, schema string) {
 	t.Helper()
 	mustExecOrderAPITestSQL(t, ctx, pool, fmt.Sprintf(`
-		INSERT INTO %s.company_departments(id,name,active) VALUES (1,'销售',true);
-		INSERT INTO %s.company_employees(id,name,phone,department_id,active) VALUES (5,'销售小王','13800000005',1,true);
-		INSERT INTO %s.customers(id,name,contact,phone,address,active) VALUES (4,'渠道伙伴A','代理老张','13800000004','上海市渠道路',true);
-	`, schema, schema, schema))
+		INSERT INTO %[1]s.company_departments(id,name,active) VALUES (1,'销售',true) ON CONFLICT (id) DO NOTHING;
+		INSERT INTO %[1]s.company_employees(id,name,phone,department_id,account_type,active)
+		VALUES (5,'销售小王','13800000005',1,'internal_employee',true)
+		ON CONFLICT (id) DO NOTHING;
+		INSERT INTO %[1]s.customers(id,name,contact,phone,address,active,responsible_employee_id) VALUES (4,'渠道伙伴A','代理老张','13800000004','上海市渠道路',true,5);
+	`, schema))
 }
 
 func seedOrderAPIFinishedBatches(t *testing.T, ctx context.Context, pool *pgxpool.Pool, schema string) {
@@ -3687,7 +3734,8 @@ CREATE TABLE %s.customers (
 	address TEXT NOT NULL DEFAULT '',
 	active BOOLEAN NOT NULL DEFAULT true,
 	default_source_id BIGINT,
-	default_order_type_id BIGINT
+	default_order_type_id BIGINT,
+	responsible_employee_id BIGINT NOT NULL DEFAULT 0
 );
 CREATE TABLE %s.company_profile (
 	id INTEGER PRIMARY KEY DEFAULT 1,
@@ -3712,6 +3760,7 @@ CREATE TABLE %s.company_employees (
 	id BIGSERIAL PRIMARY KEY,
 	name TEXT NOT NULL,
 	phone TEXT NOT NULL DEFAULT '',
+	account_type TEXT NOT NULL DEFAULT 'internal_employee',
 	department_id BIGINT NOT NULL REFERENCES %s.company_departments(id),
 	active BOOLEAN NOT NULL DEFAULT true,
 	created_at TIMESTAMPTZ NOT NULL DEFAULT now(),

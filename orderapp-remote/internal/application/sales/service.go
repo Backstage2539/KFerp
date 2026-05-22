@@ -193,12 +193,14 @@ type Option struct {
 }
 
 type CustomerOption struct {
-	ID                 int64  `json:"id"`
-	Name               string `json:"name"`
-	Contact            string `json:"contact"`
-	Phone              string `json:"phone"`
-	DefaultSourceID    int64  `json:"default_source_id"`
-	DefaultOrderTypeID int64  `json:"default_order_type_id"`
+	ID                      int64  `json:"id"`
+	Name                    string `json:"name"`
+	Contact                 string `json:"contact"`
+	Phone                   string `json:"phone"`
+	DefaultSourceID         int64  `json:"default_source_id"`
+	DefaultOrderTypeID      int64  `json:"default_order_type_id"`
+	ResponsibleEmployeeID   int64  `json:"responsible_employee_id"`
+	ResponsibleEmployeeName string `json:"responsible_employee_name"`
 }
 
 type EmployeeOption struct {

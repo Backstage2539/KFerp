@@ -24,14 +24,16 @@ type apiOption struct {
 }
 
 type customerAPIOption struct {
-	ID                 int64  `json:"id"`
-	Name               string `json:"name"`
-	Contact            string `json:"contact,omitempty"`
-	Phone              string `json:"phone,omitempty"`
-	Py                 string `json:"py"`
-	Pyi                string `json:"pyi"`
-	DefaultSourceID    int64  `json:"default_source_id,omitempty"`
-	DefaultOrderTypeID int64  `json:"default_order_type_id,omitempty"`
+	ID                      int64  `json:"id"`
+	Name                    string `json:"name"`
+	Contact                 string `json:"contact,omitempty"`
+	Phone                   string `json:"phone,omitempty"`
+	Py                      string `json:"py"`
+	Pyi                     string `json:"pyi"`
+	DefaultSourceID         int64  `json:"default_source_id,omitempty"`
+	DefaultOrderTypeID      int64  `json:"default_order_type_id,omitempty"`
+	ResponsibleEmployeeID   int64  `json:"responsible_employee_id,omitempty"`
+	ResponsibleEmployeeName string `json:"responsible_employee_name,omitempty"`
 }
 
 type employeeAPIOption struct {
@@ -534,14 +536,16 @@ func apiCustomerOptions(in []CustomerOption) []customerAPIOption {
 	out := make([]customerAPIOption, 0, len(in))
 	for _, item := range in {
 		out = append(out, customerAPIOption{
-			ID:                 item.ID,
-			Name:               item.Name,
-			Contact:            item.Contact,
-			Phone:              item.Phone,
-			Py:                 support.PinyinFull(item.Name),
-			Pyi:                support.PinyinInitials(item.Name),
-			DefaultSourceID:    item.DefaultSourceID,
-			DefaultOrderTypeID: item.DefaultOrderTypeID,
+			ID:                      item.ID,
+			Name:                    item.Name,
+			Contact:                 item.Contact,
+			Phone:                   item.Phone,
+			Py:                      support.PinyinFull(item.Name),
+			Pyi:                     support.PinyinInitials(item.Name),
+			DefaultSourceID:         item.DefaultSourceID,
+			DefaultOrderTypeID:      item.DefaultOrderTypeID,
+			ResponsibleEmployeeID:   item.ResponsibleEmployeeID,
+			ResponsibleEmployeeName: item.ResponsibleEmployeeName,
 		})
 	}
 	return out

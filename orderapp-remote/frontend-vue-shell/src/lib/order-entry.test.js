@@ -406,7 +406,7 @@ test('buildOrderPayload preserves manual unit price override', () => {
   assert.equal(payload.unit_price[0], '92')
 })
 
-test('buildOrderPayload includes structured order responsible person', () => {
+test('buildOrderPayload leaves order responsible person to customer profile defaults', () => {
   const payload = buildOrderPayload({
     form: {
       order_date: '2026-05-06',
@@ -431,8 +431,8 @@ test('buildOrderPayload includes structured order responsible person', () => {
     ],
   })
 
-  assert.equal(payload.responsible_type, 'employee')
-  assert.equal(payload.responsible_id, 8)
+  assert.equal(Object.prototype.hasOwnProperty.call(payload, 'responsible_type'), false)
+  assert.equal(Object.prototype.hasOwnProperty.call(payload, 'responsible_id'), false)
 })
 
 test('buildOrderPayload carries selected receipt method into order saves', () => {
@@ -476,7 +476,7 @@ test('requiresOrderPaymentMethod only triggers for paid receipt statuses', () =>
   assert.ok(orderReceiptMethodOptions.includes('微信支付'))
 })
 
-test('responsibleOptions groups employees and customer partners for commission ownership', () => {
+test('responsibleOptions only returns employee choices for customer ownership', () => {
   const got = responsibleOptions({
     employees: [
       { id: 8, name: '销售小王', department: '销售', phone: '13800000008' },
@@ -488,7 +488,6 @@ test('responsibleOptions groups employees and customer partners for commission o
 
   assert.deepEqual(got, [
     { type: 'employee', id: 8, name: '销售小王', label: '员工 - 销售小王', meta: '销售 13800000008', search: '员工 销售小王 销售 13800000008' },
-    { type: 'customer', id: 3, name: '测试客户', label: '合作方/客户 - 测试客户', meta: '门店老板 13800000003', search: '合作方 客户 测试客户 门店老板 13800000003' },
   ])
 })
 
@@ -496,9 +495,10 @@ test('order entry raises the active combobox above following fields', () => {
   const source = orderEntryViewSource()
 
   assert.match(source, /<label class="customer-combobox combobox"\s+:class="\{\s*open:\s*customerOpen\s*\}">/)
-  assert.match(source, /<label class="responsible-combobox combobox"\s+:class="\{\s*open:\s*responsibleOpen\s*\}">/)
-  assert.match(source, /@focus="customerOpen = true; responsibleOpen = false"/)
-  assert.match(source, /@focus="responsibleOpen = true; customerOpen = false"/)
+  assert.match(source, /<span>客户负责人<\/span>/)
+  assert.doesNotMatch(source, /responsible-combobox/)
+  assert.doesNotMatch(source, /responsibleOpen/)
+  assert.doesNotMatch(source, /<span>订单负责人<\/span>/)
 
   const baseZIndex = zIndexForSelector(source, '.combobox')
   const openZIndex = zIndexForSelector(source, '.combobox.open')

@@ -149,6 +149,13 @@
             <input v-model.trim="customerForm.phone" />
           </label>
           <label>
+            <span>负责人</span>
+            <select v-model.number="customerForm.responsible_employee_id">
+              <option :value="0">选择员工</option>
+              <option v-for="employee in employees" :key="employee.id" :value="employee.id">{{ employee.name }}</option>
+            </select>
+          </label>
+          <label>
             <span>公司地址</span>
             <textarea v-model.trim="customerForm.company_address" name="company_address" rows="3"></textarea>
           </label>
@@ -218,6 +225,7 @@ const previewPDFRefreshKey = ref(0)
 const previewSealAspectRatio = ref(1)
 const customerSummary = reactive(emptyCustomer())
 const customerForm = reactive(emptyCustomer())
+const employees = ref([])
 const salesOrderNote = ref('')
 
 const orderID = computed(() => Number(props.orderId || new URL(window.location.href).searchParams.get('order_id') || 0))
@@ -404,6 +412,7 @@ function emptyCustomer() {
     address: '',
     default_source_id: null,
     default_order_type_id: null,
+    responsible_employee_id: 0,
     active: true,
   }
 }
@@ -421,6 +430,7 @@ function assignCustomer(target, data = {}) {
     address: data.address || '',
     default_source_id: data.default_source_id || null,
     default_order_type_id: data.default_order_type_id || null,
+    responsible_employee_id: Number(data.responsible_employee_id || 0),
     active: data.active !== false,
   })
 }
@@ -587,6 +597,7 @@ async function openCustomerDrawer() {
   try {
     const data = await apiGet(`/api/customers/${customerSummary.id}`)
     assignCustomer(customerForm, data.customer || {})
+    employees.value = data.employees || employees.value
     drawerOpen.value = true
   } catch (err) {
     error.value = err.message || '加载客户信息失败'
@@ -614,6 +625,7 @@ async function saveCustomer() {
   error.value = ''
   message.value = ''
   try {
+    if (!Number(customerForm.responsible_employee_id || 0)) throw new Error('请选择客户负责人')
     const data = await apiSend(`/api/customers/${customerForm.id}`, {
       method: 'PUT',
       body: {
@@ -627,6 +639,7 @@ async function saveCustomer() {
         address: customerForm.address,
         default_source_id: customerForm.default_source_id,
         default_order_type_id: customerForm.default_order_type_id,
+        responsible_employee_id: customerForm.responsible_employee_id,
         active: customerForm.active,
       },
     })

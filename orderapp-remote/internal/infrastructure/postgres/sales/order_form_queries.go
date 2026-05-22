@@ -133,11 +133,13 @@ func (r Repository) fetchOrderBeanListVersionOptions(ctx context.Context) ([]sal
 
 func (r Repository) fetchOrderCustomers(ctx context.Context) ([]salesapp.CustomerOption, error) {
 	q := fmt.Sprintf(`
-		SELECT id, name, COALESCE(contact,''), COALESCE(phone,''), COALESCE(default_source_id,0), COALESCE(default_order_type_id,0)
-		FROM %s.customers
-		WHERE active=true
-		ORDER BY name
-	`, r.schema)
+		SELECT c.id, c.name, COALESCE(c.contact,''), COALESCE(c.phone,''), COALESCE(c.default_source_id,0), COALESCE(c.default_order_type_id,0),
+			COALESCE(c.responsible_employee_id,0), COALESCE(e.name,'')
+		FROM %s.customers c
+		LEFT JOIN %s.company_employees e ON e.id=c.responsible_employee_id
+		WHERE c.active=true
+		ORDER BY c.name
+	`, r.schema, r.schema)
 	rows, err := r.pool.Query(ctx, q)
 	if err != nil {
 		return nil, err
@@ -146,7 +148,7 @@ func (r Repository) fetchOrderCustomers(ctx context.Context) ([]salesapp.Custome
 	out := make([]salesapp.CustomerOption, 0)
 	for rows.Next() {
 		var row salesapp.CustomerOption
-		if err := rows.Scan(&row.ID, &row.Name, &row.Contact, &row.Phone, &row.DefaultSourceID, &row.DefaultOrderTypeID); err != nil {
+		if err := rows.Scan(&row.ID, &row.Name, &row.Contact, &row.Phone, &row.DefaultSourceID, &row.DefaultOrderTypeID, &row.ResponsibleEmployeeID, &row.ResponsibleEmployeeName); err != nil {
 			return nil, err
 		}
 		out = append(out, row)
@@ -159,7 +161,7 @@ func (r Repository) fetchOrderEmployees(ctx context.Context) ([]salesapp.Employe
 		SELECT e.id, e.name, COALESCE(e.phone,''), COALESCE(e.department_id,0), COALESCE(d.name,'')
 		FROM %s.company_employees e
 		LEFT JOIN %s.company_departments d ON d.id=e.department_id
-		WHERE e.active=true
+		WHERE e.active=true AND (e.account_type='internal_employee' OR COALESCE(e.account_type,'')='')
 		ORDER BY e.id DESC
 	`, r.schema, r.schema)
 	rows, err := r.pool.Query(ctx, q)
