@@ -72,15 +72,16 @@ func TestSalesOrderViewEmbedsSettingsDrawer(t *testing.T) {
 }
 
 func TestSalesOrderSettingsExposesSealSizeControl(t *testing.T) {
-	src := string(readOrderAppFileForTest(t, filepath.Join("frontend-vue-shell", "src", "views", "SalesOrderSettingsView.vue")))
+	src := string(readOrderAppFileForTest(t, filepath.Join("frontend-vue-shell", "src", "views", "SalesOrderView.vue")))
 	for _, want := range []string{
-		"公章大小(mm)",
-		"seal-size-control",
+		"公章大小",
+		"seal-size-slider",
 		`type="range"`,
-		"seal_width_mm",
+		"previewSealWidthMM",
+		"savePreviewSealSize",
 	} {
 		if !strings.Contains(src, want) {
-			t.Fatalf("SalesOrderSettingsView missing seal size marker %q", want)
+			t.Fatalf("SalesOrderView missing seal size marker %q", want)
 		}
 	}
 }

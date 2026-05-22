@@ -46,8 +46,9 @@
         <h3>销售单预览 <span v-if="preview" class="version-tag">V{{ preview.next_version_no }}</span></h3>
         <button class="secondary" type="button" @click="loadPreview" :disabled="previewLoading || !orderID">{{ previewLoading ? '预览中' : '刷新预览' }}</button>
       </div>
-      <div v-if="preview?.snapshot?.seal" class="preview-tools">
-        <label class="seal-size-slider">
+      <div v-if="preview?.snapshot" class="preview-tools">
+        <div class="layout-drag-hint">拖动“文字位置和大小”“收款码位置和大小”边框调整位置，拖右下角圆点调整大小。</div>
+        <label v-if="preview?.snapshot?.seal" class="seal-size-slider">
           <span>公章大小</span>
           <input v-model.number="previewSealWidthMM" type="range" :min="salesOrderSealMinWidthMM" :max="salesOrderSealMaxWidthMM" step="1" :disabled="sealDragSaving" @change="savePreviewSealSize" />
           <output>{{ previewSealWidthMM }}mm</output>
@@ -62,7 +63,7 @@
         seal-label="公章"
         preview-label="PREVIEW 预览版"
         @loaded="onPreviewPDFLoaded"
-        @placement-commit="savePDFPreviewSealPosition"
+        @placement-commit="savePDFPreviewPlacement"
       />
     </section>
 
@@ -170,7 +171,12 @@
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { apiGet, apiSend, appURL } from '../api/client'
 import { salesOrderDownloadUrl, salesOrderImageDownloadUrl } from '../lib/sales-order'
-import { pdfPlacementToSalesSealMM, salesSealMMToPDFPlacement } from '../lib/document-pdf-stamp'
+import {
+  pdfPlacementToSalesLayoutBox,
+  pdfPlacementToSalesSealMM,
+  salesLayoutBoxMMToPDFPlacement,
+  salesSealMMToPDFPlacement,
+} from '../lib/document-pdf-stamp'
 import { salesOrderSealMaxWidthMM, salesOrderSealMinWidthMM } from '../lib/sales-order-seal'
 import { buildShareResourcePayload, shareResourceToWechat } from '../lib/external-share'
 import PDFStampPreview from '../components/PDFStampPreview.vue'
@@ -196,6 +202,7 @@ const drawerOpen = ref(false)
 const settingsDrawerOpen = ref(false)
 const savingCustomer = ref(false)
 const sealDragSaving = ref(false)
+const layoutDragSaving = ref(false)
 const shareLoading = ref('')
 const previewPDFPages = ref([])
 const previewPDFRefreshKey = ref(0)
@@ -220,10 +227,39 @@ const previewSealWidthMM = computed({
   },
 })
 const salesOrderPreviewPlacements = computed(() => {
-  const seal = preview.value?.snapshot?.seal
+  const snapshot = preview.value?.snapshot
   const page = previewPDFPages.value[0]
-  if (!seal || !page) return []
-  return [salesSealMMToPDFPlacement(seal, page, { sealAspectRatio: previewSealAspectRatio.value })]
+  if (!snapshot || !page) return []
+  const placements = []
+  if (snapshot.payment_text_box) {
+    placements.push(salesLayoutBoxMMToPDFPlacement(snapshot.payment_text_box, page, {
+      kind: 'payment_text',
+      label: '文字位置和大小',
+      resizable: true,
+      use_seal_image: false,
+      min_width: 80,
+      min_height: 36,
+    }))
+  }
+  if (snapshot.payment_code_box) {
+    placements.push(salesLayoutBoxMMToPDFPlacement(snapshot.payment_code_box, page, {
+      kind: 'payment_code',
+      label: '收款码位置和大小',
+      resizable: true,
+      use_seal_image: false,
+      min_width: 80,
+      min_height: 80,
+    }))
+  }
+  if (snapshot.seal) {
+    placements.push(salesSealMMToPDFPlacement(snapshot.seal, page, {
+      kind: 'seal',
+      label: '公章',
+      resizable: false,
+      sealAspectRatio: previewSealAspectRatio.value,
+    }))
+  }
+  return placements
 })
 
 let previewSealAspectToken = 0
@@ -424,6 +460,62 @@ async function savePDFPreviewSealPosition(placement) {
   }
 }
 
+async function savePDFPreviewPlacement(placement) {
+  if (placement?.kind === 'payment_text' || placement?.kind === 'payment_code') {
+    await savePDFPreviewLayoutBox(placement)
+    return
+  }
+  await savePDFPreviewSealPosition(placement)
+}
+
+async function savePDFPreviewLayoutBox(placement) {
+  const snapshot = preview.value?.snapshot
+  const page = previewPDFPages.value.find((item) => Number(item.pageNumber) === Number(placement?.page_number || 1))
+  if (!snapshot || !page || layoutDragSaving.value) return
+  const nextBox = pdfPlacementToSalesLayoutBox(placement, page)
+  if (placement.kind === 'payment_text') {
+    snapshot.payment_text_box = nextBox
+  } else if (placement.kind === 'payment_code') {
+    snapshot.payment_code_box = nextBox
+  } else {
+    return
+  }
+  layoutDragSaving.value = true
+  error.value = ''
+  try {
+    const textBox = normalizeLayoutBox(snapshot.payment_text_box, {
+      x_mm: 16,
+      y_mm: 118,
+      width_mm: 104,
+      height_mm: 78,
+    })
+    const codeBox = normalizeLayoutBox(snapshot.payment_code_box, {
+      x_mm: 126,
+      y_mm: 106,
+      width_mm: 72,
+      height_mm: 122,
+    })
+    await apiSend('/api/settings/sales-order/payment-layout', {
+      body: {
+        payment_text_x_mm: textBox.x_mm,
+        payment_text_y_mm: textBox.y_mm,
+        payment_text_width_mm: textBox.width_mm,
+        payment_text_height_mm: textBox.height_mm,
+        payment_code_x_mm: codeBox.x_mm,
+        payment_code_y_mm: codeBox.y_mm,
+        payment_code_width_mm: codeBox.width_mm,
+        payment_code_height_mm: codeBox.height_mm,
+      },
+    })
+    previewPDFRefreshKey.value += 1
+    message.value = '销售单文字和收款码版式已保存，请重新生成图片或 PDF 后下载'
+  } catch (err) {
+    error.value = err.message || '保存销售单版式失败'
+  } finally {
+    layoutDragSaving.value = false
+  }
+}
+
 async function savePreviewSealSize() {
   const seal = preview.value?.snapshot?.seal
   if (!seal || sealDragSaving.value) return
@@ -445,6 +537,15 @@ async function savePreviewSealSize() {
     error.value = err.message || '保存公章大小失败'
   } finally {
     sealDragSaving.value = false
+  }
+}
+
+function normalizeLayoutBox(box = {}, fallback = {}) {
+  return {
+    x_mm: Math.round(Number(box.x_mm ?? fallback.x_mm ?? 0)),
+    y_mm: Math.round(Number(box.y_mm ?? fallback.y_mm ?? 0)),
+    width_mm: Math.round(Number(box.width_mm ?? fallback.width_mm ?? 1)),
+    height_mm: Math.round(Number(box.height_mm ?? fallback.height_mm ?? 1)),
   }
 }
 
@@ -522,7 +623,8 @@ onMounted(loadPage)
 .panel-head, .actions, .summary { display: flex; align-items: center; gap: 12px; }
 .panel-head { justify-content: space-between; margin-bottom: 12px; }
 .actions { flex-wrap: wrap; justify-content: flex-end; }
-.preview-tools { display: flex; justify-content: flex-end; margin: -4px 0 12px; }
+.preview-tools { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin: -4px 0 12px; }
+.layout-drag-hint { color: #4b5563; font-size: 13px; line-height: 1.5; }
 .seal-size-slider { min-width: min(340px, 100%); display: grid; grid-template-columns: auto minmax(160px, 1fr) auto; gap: 10px; align-items: center; color: #4b5563; font-size: 13px; }
 .seal-size-slider input { width: 100%; accent-color: #1f1f1f; }
 .seal-size-slider output { min-width: 46px; text-align: right; color: #171717; font-variant-numeric: tabular-nums; }
