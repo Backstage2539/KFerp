@@ -1378,9 +1378,10 @@ func (r Repository) CreateCustomProduct(ctx context.Context, cmd catalogapp.Crea
 	base.AllowMallOrder = false
 	requestedKind := strings.TrimSpace(cmd.ProductKind)
 	productKind := catalogdomain.NormalizeProductKind(cmd.ProductKind)
+	customType := strings.TrimSpace(cmd.CustomType)
 	baseProductID := cmd.BaseProductID
 	shouldLoadBase := false
-	if cmd.BaseProductID > 0 {
+	if cmd.BaseProductID > 0 && customType != "custom_roast" {
 		shouldLoadBase = !(requestedKind != "" && productKind == catalogdomain.ProductKindGreenBean)
 	}
 	if shouldLoadBase {
@@ -1406,7 +1407,7 @@ func (r Repository) CreateCustomProduct(ctx context.Context, cmd catalogapp.Crea
 		if requestedKind == "" {
 			productKind = catalogdomain.NormalizeProductKind(base.ProductKind)
 		}
-	} else if productKind != catalogdomain.ProductKindGreenBean {
+	} else if productKind != catalogdomain.ProductKindGreenBean && customType != "custom_roast" {
 		return catalogapp.Product{}, fmt.Errorf("base product not found")
 	}
 	roastLevel := catalogdomain.NormalizeRoastLevel(cmd.RoastLevel)
@@ -1425,6 +1426,9 @@ func (r Repository) CreateCustomProduct(ctx context.Context, cmd catalogapp.Crea
 			greenBeanType = "single_origin"
 		}
 	} else {
+		if customType == "custom_roast" {
+			baseProductID = 0
+		}
 		greenBeanType = ""
 		greenBeanBomProductID = 0
 	}
@@ -1452,7 +1456,7 @@ func (r Repository) CreateCustomProduct(ctx context.Context, cmd catalogapp.Crea
 		)
 		VALUES($1,$2,$3,$4,$5,true,$6,$7,$8,$9,$10,$11,$12,$13,NULLIF($14,0),$15,$16,$17,'customer_only',$18,$19,$20,now())
 		RETURNING id
-	`, r.schema), name, remark, productKind, roastLevel, base.DefaultPrice, base.RetailPrice100G, base.RetailPrice200G, base.RetailPrice227G, base.RetailPrice250G, dripBagGrams, dripBoxBagCount, base.AllowFulfillmentOrder, base.AllowMallOrder, 0, 0, cmd.CustomerID, baseProductID, strings.TrimSpace(cmd.CustomType), greenBeanType, greenBeanBomProductID).Scan(&productID); err != nil {
+	`, r.schema), name, remark, productKind, roastLevel, base.DefaultPrice, base.RetailPrice100G, base.RetailPrice200G, base.RetailPrice227G, base.RetailPrice250G, dripBagGrams, dripBoxBagCount, base.AllowFulfillmentOrder, base.AllowMallOrder, 0, 0, cmd.CustomerID, baseProductID, customType, greenBeanType, greenBeanBomProductID).Scan(&productID); err != nil {
 		return catalogapp.Product{}, err
 	}
 
