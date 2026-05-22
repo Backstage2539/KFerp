@@ -162,6 +162,7 @@ import { actorHasFullViewAccess, filterMenuGroups, isViewAllowed } from './lib/m
 import {
   CUSTOMER_WORKSPACE_MODE,
   FACTORY_WORKSPACE_MODE,
+  WORKSPACE_CUSTOMERS_REFRESH_EVENT,
   customerOptionLabel,
   customerOptionMeta,
   defaultWorkspaceEntryKey,
@@ -198,6 +199,7 @@ const currentActor = ref(null)
 const customerAccountContext = ref(null)
 const uiSettings = ref({ hide_customer_account_fulfillment: true })
 const notifications = ref([])
+const workspaceCustomersRefreshEventName = WORKSPACE_CUSTOMERS_REFRESH_EVENT
 let notificationTimer = 0
 let stopTableAutoPagination = null
 
@@ -438,6 +440,10 @@ function handleWorkspaceCustomerChange(event) {
   }
 }
 
+function handleWorkspaceCustomersRefresh() {
+  loadWorkspaceCustomers()
+}
+
 async function loadWorkspaceCustomers() {
   try {
     const data = await apiGet('/api/customer-fulfillment/customers?limit=200')
@@ -618,12 +624,14 @@ onMounted(async () => {
   window.addEventListener('resize', handleResize)
   window.addEventListener('kferp:navigate-view', handleNavigateView)
   window.addEventListener('kferp:workspace-customer-change', handleWorkspaceCustomerChange)
+  window.addEventListener(workspaceCustomersRefreshEventName, handleWorkspaceCustomersRefresh)
 })
 
 onBeforeUnmount(() => {
   window.removeEventListener('resize', handleResize)
   window.removeEventListener('kferp:navigate-view', handleNavigateView)
   window.removeEventListener('kferp:workspace-customer-change', handleWorkspaceCustomerChange)
+  window.removeEventListener(workspaceCustomersRefreshEventName, handleWorkspaceCustomersRefresh)
   if (stopTableAutoPagination) stopTableAutoPagination()
   stopNotificationPolling()
 })

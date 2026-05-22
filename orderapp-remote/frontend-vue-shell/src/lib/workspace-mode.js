@@ -1,5 +1,6 @@
 export const FACTORY_WORKSPACE_MODE = 'factory'
 export const CUSTOMER_WORKSPACE_MODE = 'customer'
+export const WORKSPACE_CUSTOMERS_REFRESH_EVENT = 'kferp:workspace-customers-refresh'
 
 const customerWorkspaceSpec = [
   {
@@ -95,6 +96,10 @@ export function workspaceCustomerChangeEvent(customerID) {
   return new CustomEvent('kferp:workspace-customer-change', {
     detail: { customerID: Number(customerID || 0) },
   })
+}
+
+export function workspaceCustomersRefreshEvent() {
+  return new CustomEvent(WORKSPACE_CUSTOMERS_REFRESH_EVENT)
 }
 
 export function isCustomerAccountActor(actor = {}) {
