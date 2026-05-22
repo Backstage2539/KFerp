@@ -20,6 +20,14 @@ func TestDev311SkuCategoryRecreateAfterDelete(t *testing.T) {
 			"CREATE UNIQUE INDEX product_categories_customer_parent_name_uniq",
 			"WHERE active=true",
 		},
+		filepath.Join("frontend-vue-shell", "src", "lib", "product-settings.js"): {
+			"function isDuplicatedPublicCategory",
+			"!(category.products || []).length && !(category.children || []).length",
+		},
+		filepath.Join("frontend-vue-shell", "src", "lib", "product-settings.test.js"): {
+			"customer category tree keeps empty owned categories that share a public category name",
+			"customer_id: 74",
+		},
 		filepath.Join("docs", "REQUIREMENTS.md"): {
 			"PR-311-SKU-CATEGORY-RECREATE-AFTER-DELETE",
 			"删除客户自己的一级或二级商品分类后",
@@ -38,6 +46,7 @@ func TestDev311SkuCategoryRecreateAfterDelete(t *testing.T) {
 		filepath.Join("docs", "acceptance", "2026-05-22-sku-category-recreate-after-delete.md"): {
 			"SKU 分类删除后同名重建",
 			"唯一约束只约束 `active=true`",
+			"页面显示 0 个分类",
 			"再次新增同名",
 		},
 	}

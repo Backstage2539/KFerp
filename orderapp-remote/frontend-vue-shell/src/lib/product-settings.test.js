@@ -360,6 +360,40 @@ test('customer category tree shows public SKU references when public categories 
   assert.deepEqual(tree[0].children[0].products.map((row) => row.name), ['花魁'])
 })
 
+test('customer category tree keeps empty owned categories that share a public category name', () => {
+  const publicPrimary = {
+    id: 1,
+    name: '咖啡豆',
+    level: 1,
+    customer_id: 0,
+    products: [],
+    children: [],
+  }
+  const customerPrimary = {
+    id: 134,
+    name: '咖啡豆',
+    level: 1,
+    customer_id: 74,
+    source_category_id: 0,
+    template_state: 'customer_owned',
+    products: [],
+    children: [],
+  }
+
+  const tree = buildSkuContextCategoryTree([publicPrimary, customerPrimary], {
+    customerID: 74,
+    usePublicCategories: false,
+    publicCategories: [publicPrimary],
+    publicProducts: [],
+    customerCategories: [customerPrimary],
+    customerProducts: [],
+  })
+
+  assert.equal(tree.length, 1)
+  assert.equal(tree[0].id, 134)
+  assert.equal(tree[0].name, '咖啡豆')
+})
+
 test('customer SKU context labels public and derived product ownership', () => {
   const publicProduct = { id: 21, name: '初晓', customer_id: 0, visibility: 'public' }
   const derivedProduct = { id: 421, name: '岩师傅初晓', customer_id: 42, base_product_id: 21, visibility: 'customer_only', custom_type: 'public_sku_alias' }
