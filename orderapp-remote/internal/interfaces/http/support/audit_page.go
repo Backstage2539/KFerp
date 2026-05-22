@@ -924,6 +924,8 @@ func labelField(f string) string {
 		return "默认来源"
 	case "default_order_type_id":
 		return "默认订单类型"
+	case "responsible_employee_id":
+		return "客户负责人"
 	case "active":
 		return "启用状态"
 	case "settings":

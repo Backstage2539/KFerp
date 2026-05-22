@@ -59,30 +59,9 @@
           </div>
         </label>
 
-        <label class="responsible-combobox combobox">
-          <span>订单负责人</span>
-          <input
-            v-model.trim="responsibleQuery"
-            type="search"
-            placeholder="员工/合作方/客户"
-            autocomplete="off"
-            @focus="responsibleOpen = true"
-            @input="clearResponsible"
-            @keydown.down.prevent="responsibleOpen = true"
-          />
-          <div v-if="responsibleOpen" class="combo-menu">
-            <button
-              v-for="item in filteredResponsibleOptions"
-              :key="`${item.type}-${item.id}`"
-              type="button"
-              class="combo-option"
-              @mousedown.prevent="chooseResponsible(item)"
-            >
-              <strong>{{ item.label }}</strong>
-              <small v-if="item.meta">{{ item.meta }}</small>
-            </button>
-            <div v-if="!filteredResponsibleOptions.length" class="combo-empty">没有匹配负责人</div>
-          </div>
+        <label class="readonly-field">
+          <span>客户负责人</span>
+          <input :value="selectedCustomerResponsibleLabel" placeholder="先在客户资料指定负责人" readonly />
         </label>
 
         <label>
@@ -362,6 +341,13 @@
               <option v-for="item in orderTypes" :key="item.id" :value="item.id">{{ item.name }}</option>
             </select>
           </label>
+          <label>
+            <span>负责人</span>
+            <select v-model.number="customerForm.responsible_employee_id">
+              <option :value="0">选择员工</option>
+              <option v-for="employee in activeEmployees" :key="employee.id" :value="employee.id">{{ employee.name }}</option>
+            </select>
+          </label>
           <label class="wide-field">
             <span>地址</span>
             <textarea v-model.trim="customerForm.address" rows="3"></textarea>
@@ -394,7 +380,6 @@ import {
   orderReceiptMethodOptions,
   productKindBadgeClass,
   productKindLabel,
-  responsibleOptions,
   requiresOrderPaymentMethod,
   retailPackagePrice,
   retailSpecOptions,
@@ -439,8 +424,6 @@ const beanListVersionOptions = ref([])
 const rows = ref([newRow()])
 const customerQuery = ref('')
 const customerOpen = ref(false)
-const responsibleQuery = ref('')
-const responsibleOpen = ref(false)
 const customerDrawerOpen = ref(false)
 const customerSaving = ref(false)
 const customerError = ref('')
@@ -459,8 +442,6 @@ const form = reactive({
   ship_status_id: 0,
   ship_method: '',
   ship_tracking_no: '',
-  responsible_type: '',
-  responsible_id: 0,
   bean_list_publication_id: 0,
   commercial_bean_list_publication_id: 0,
   green_bean_list_publication_id: 0,
@@ -512,6 +493,7 @@ function emptyCustomerForm() {
     address: '',
     default_source_id: 0,
     default_order_type_id: 0,
+    responsible_employee_id: 0,
   }
 }
 
@@ -540,7 +522,6 @@ function saveOrderEntryDraft() {
     form: { ...form },
     rows: rows.value.map(closeTransientRowMenus),
     customerQuery: customerQuery.value,
-    responsibleQuery: responsibleQuery.value,
     customerDrawerOpen: customerDrawerOpen.value,
     customerPaste: customerPaste.value,
     customerForm: { ...customerForm },
@@ -555,7 +536,6 @@ function restoreOrderEntryDraft() {
     ? draft.rows.map((row) => ({ ...newRow(), ...row, product_open: false }))
     : [newRow()]
   customerQuery.value = draft.customerQuery || ''
-  responsibleQuery.value = draft.responsibleQuery || ''
   customerDrawerOpen.value = Boolean(draft.customerDrawerOpen)
   customerPaste.value = draft.customerPaste || ''
   Object.assign(customerForm, emptyCustomerForm(), draft.customerForm || {})
@@ -574,7 +554,9 @@ const itemsTotal = computed(() => rows.value.reduce((sum, row) => sum + rowTotal
 const filteredCustomers = computed(() => filterOptions(customers.value, customerQuery.value).slice(0, 20))
 const paymentMethodRequired = computed(() => requiresOrderPaymentMethod(form, payStatuses.value))
 const copyMode = computed(() => Number(props.copyId || effectiveCopyID.value || 0) > 0)
-const responsibleCandidateOptions = computed(() => responsibleOptions({ employees: employees.value, customers: customers.value }))
+const activeEmployees = computed(() => employees.value.filter((employee) => employee.active !== false))
+const selectedCustomer = computed(() => customers.value.find((item) => Number(item.id || 0) === Number(form.customer_id || 0)) || null)
+const selectedCustomerResponsibleLabel = computed(() => selectedCustomer.value?.responsible_employee_name || '')
 const orderBeanListTypes = [
   { type: 'commercial', label: '熟豆豆单' },
   { type: 'green', label: '生豆豆单' },
@@ -584,14 +566,6 @@ const customerBeanListVersionOptions = computed(() => {
   const customerID = Number(form.customer_id || 0)
   return (beanListVersionOptions.value || []).filter((item) => Number(item.customer_id || 0) === customerID)
 })
-const filteredResponsibleOptions = computed(() => {
-  const q = String(responsibleQuery.value || '').trim().toLowerCase()
-  if (!q) return responsibleCandidateOptions.value.slice(0, 30)
-  return responsibleCandidateOptions.value
-    .filter((item) => String(item.search || '').toLowerCase().includes(q))
-    .slice(0, 30)
-})
-
 function productByID(id) {
   return products.value.find((item) => Number(item.id) === Number(id)) || null
 }
@@ -706,23 +680,6 @@ function syncBeanListVersionForCustomer(options = {}) {
   }
 }
 
-function clearResponsible() {
-  form.responsible_type = ''
-  form.responsible_id = 0
-  responsibleOpen.value = true
-}
-
-function chooseResponsible(item) {
-  form.responsible_type = item.type || ''
-  form.responsible_id = Number(item.id || 0)
-  responsibleQuery.value = item.label || item.name || ''
-  responsibleOpen.value = false
-}
-
-function responsibleOptionByValue(type, id) {
-  return responsibleCandidateOptions.value.find((item) => item.type === type && Number(item.id) === Number(id)) || null
-}
-
 function resetCustomerDrawerForm() {
   Object.assign(customerForm, emptyCustomerForm(), {
     default_source_id: defaultSourceID(),
@@ -757,6 +714,7 @@ async function saveCustomerFromDrawer() {
   try {
     if (!customerForm.name && customerForm.contact) customerForm.name = customerForm.contact
     if (!customerForm.name) throw new Error('请填写客户名')
+    if (!Number(customerForm.responsible_employee_id || 0)) throw new Error('请选择客户负责人')
     const data = await apiSend('/api/customers', {
       body: {
         name: customerForm.name,
@@ -769,6 +727,7 @@ async function saveCustomerFromDrawer() {
         address: customerForm.address,
         default_source_id: customerForm.default_source_id || null,
         default_order_type_id: customerForm.default_order_type_id || null,
+        responsible_employee_id: customerForm.responsible_employee_id || null,
         active: true,
       },
     })
@@ -1036,8 +995,6 @@ function applyEditData(data) {
     ship_status_id: Number(data.ship_status_id || 0),
     ship_method: data.ship_method || '',
     ship_tracking_no: data.ship_tracking_no || '',
-    responsible_type: data.responsible_type || '',
-    responsible_id: Number(data.responsible_id || 0),
     bean_list_publication_id: Number(data.bean_list_publication_id || 0),
     commercial_bean_list_publication_id: Number(data.commercial_bean_list_publication_id || data.bean_list_publication_id || itemPublicationIDByType('commercial') || 0),
     green_bean_list_publication_id: Number(data.green_bean_list_publication_id || itemPublicationIDByType('green') || 0),
@@ -1055,8 +1012,6 @@ function applyEditData(data) {
     outsource_other_fee: data.outsource_other_fee || '',
   })
   customerQuery.value = optionName(customers.value, form.customer_id)
-  const responsible = responsibleOptionByValue(form.responsible_type, form.responsible_id)
-  responsibleQuery.value = responsible?.label || data.responsible_name || ''
   rows.value = editItems.map((item) => {
     const spec = String(item.spec || '').replace(/g$/i, '')
     const product = productByID(item.product_id)
