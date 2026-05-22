@@ -105,6 +105,7 @@
               <td class="version-note">{{ beanListPublicationSourceLabel(row) }}</td>
               <td>
                 <div class="version-actions">
+                  <button class="secondary compact" type="button" :disabled="!beanListPublicationHasContent(row)" @click="downloadBeanListPublication(row)">下载 PDF</button>
                   <button class="secondary compact" type="button" @click="startBeanListFromPublication(row)">生成新版</button>
                   <button v-if="isBeanListAdmin && row.status === 'published'" class="danger compact" type="button" :disabled="beanListWithdrawing" @click="withdrawBeanList(row)">撤回</button>
                 </div>
@@ -765,12 +766,13 @@
 </template>
 
 <script setup>
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { fetchCurrentActor } from '../api/auth'
 import { apiGet, apiSend } from '../api/client'
 import CostingSettingsPanel from '../components/CostingSettingsPanel.vue'
 import {
   DEFAULT_BEAN_LIST_PDF_VERSION,
+  beanListPublicationPdfOptions,
   buildBeanListPdfGroups,
   buildBeanListPdfSubtitle,
   buildBeanListPdfTitle,
@@ -807,6 +809,7 @@ const selectedBeanListCustomerID = ref(0)
 const actorLoaded = ref(false)
 const currentActor = ref(null)
 const selectedPriceSourcePublicationID = ref('')
+const downloadSourcePublication = ref(null)
 const error = ref('')
 const message = ref('')
 const priceExplanationError = ref('')
@@ -885,9 +888,10 @@ const pdfGenerationOptions = computed(() => ({
   customizers: pdfCustomizers.value,
 }))
 const currentPriceSourcePublication = computed(() => (publicationScope.value === 'mine' || publicationScope.value === 'customer' ? priceSourcePublicationByType.value[pdfTheme.value.listType] : null))
+const pdfContentSourcePublication = computed(() => downloadSourcePublication.value || currentPriceSourcePublication.value)
 const pdfGroups = computed(() => {
-  if (currentPriceSourcePublication.value?.content?.groups) {
-    return copyBeanListPublicationContentGroups(currentPriceSourcePublication.value, {
+  if (pdfContentSourcePublication.value?.content?.groups) {
+    return copyBeanListPublicationContentGroups(pdfContentSourcePublication.value, {
       listType: pdfTheme.value.listType,
       customizers: pdfCustomizers.value,
     })
@@ -1217,6 +1221,7 @@ function initializePdfDefaultsForType(listType) {
 }
 
 function openBeanListDrawer(listType = 'commercial') {
+  downloadSourcePublication.value = null
   syncPublicationScopeFromPageContext()
   pdfOptions.value = { ...pdfOptions.value, listType, version: defaultBeanListVersionForScope(listType) }
   initializePdfDefaultsForType(listType)
@@ -1311,6 +1316,26 @@ function startBeanListFromPublication(row) {
   openBeanListDrawer(normalizeBeanListType(row.list_type))
 }
 
+function beanListPublicationHasContent(row) {
+  return Array.isArray(row?.content?.groups) && row.content.groups.length > 0
+}
+
+async function downloadBeanListPublication(row) {
+  if (!beanListPublicationHasContent(row)) {
+    error.value = '该豆单版本没有可下载内容'
+    return
+  }
+  error.value = ''
+  message.value = ''
+  downloadSourcePublication.value = row
+  pdfCustomizers.value = {}
+  pdfOptions.value = beanListPublicationPdfOptions(row, pdfOptions.value)
+  pdfDrawerOpen.value = false
+  await nextTick()
+  generateBeanListPdf()
+  message.value = `已打开${beanListTypeLabel(row.list_type)}豆单 ${row.version || '未命名版本'} 下载窗口`
+}
+
 function setPublicationScopeFromOwner(row) {
   if (row?.owner_type === 'customer') {
     selectedBeanListCustomerID.value = Number(row.owner_key || 0)
@@ -1336,6 +1361,7 @@ function beanListTypeName(listType) {
 function applyCopiedBeanListPriceSource(row = selectedPriceSourcePublication.value) {
   if (!row) return
   const listType = normalizeBeanListType(row.list_type)
+  downloadSourcePublication.value = null
   priceSourcePublicationByType.value = { ...priceSourcePublicationByType.value, [listType]: row }
   selectedPriceSourcePublicationID.value = String(row.id)
   pdfOptions.value = { ...pdfOptions.value, listType, version: defaultBeanListVersionForScope(listType) }
@@ -1832,6 +1858,7 @@ function clearPdfLogo() {
 
 function clearPdfPrintMode() {
   pdfPrinting.value = false
+  downloadSourcePublication.value = null
   document.body.classList.remove('bean-list-pdf-printing')
 }
 

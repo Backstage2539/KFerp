@@ -435,6 +435,26 @@ export function copyBeanListPublicationContentGroups(publication = {}, options =
   return copied
 }
 
+export function beanListPublicationPdfOptions(publication = {}, currentOptions = {}) {
+  const config = publication.config && typeof publication.config === 'object' ? publication.config : {}
+  const listType = normalizeBeanListType(config.listType || publication.list_type || publication.listType)
+  const version = String(publication.version || publication.version_no || publication.versionNo || config.version || currentOptions.version || DEFAULT_BEAN_LIST_PDF_VERSION).trim()
+  const changelog = String(config.changelog || publication.changelog || currentOptions.changelog || '').trim()
+  const showCategoryNumbers = Object.prototype.hasOwnProperty.call(config, 'showCategoryNumbers')
+    ? config.showCategoryNumbers !== false
+    : currentOptions.showCategoryNumbers !== false
+  return {
+    ...sanitizeBeanListPdfTheme({
+      ...currentOptions,
+      ...config,
+      listType,
+      version,
+      changelog,
+    }),
+    showCategoryNumbers,
+  }
+}
+
 function applyGreenOverridesToCopiedGroups(groups = [], customizers = {}) {
   groups.forEach((group) => {
     const items = Array.isArray(group?.items) ? group.items : []

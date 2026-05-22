@@ -39,6 +39,32 @@ test('product bean-list view exposes publication versions without pricing trial 
   }
 })
 
+test('product bean-list version list downloads the selected publication snapshot', () => {
+  const versionListStart = viewSource.indexOf('<section class="panel bean-list-version-panel">')
+  const versionListEnd = viewSource.indexOf('<section class="panel">', versionListStart)
+  assert.ok(versionListStart > -1 && versionListEnd > versionListStart, 'missing bean-list version panel')
+  const versionListSource = viewSource.slice(versionListStart, versionListEnd)
+
+  for (const expected of [
+    '下载 PDF',
+    '@click="downloadBeanListPublication(row)"',
+    ':disabled="!beanListPublicationHasContent(row)"',
+  ]) {
+    assert.ok(versionListSource.includes(expected), `missing version-list download action: ${expected}`)
+  }
+  for (const expected of [
+    'const downloadSourcePublication = ref(null)',
+    'downloadSourcePublication.value || currentPriceSourcePublication.value',
+    'function downloadBeanListPublication',
+    'beanListPublicationPdfOptions(row, pdfOptions.value)',
+    'await nextTick()',
+    'generateBeanListPdf()',
+    'function beanListPublicationHasContent',
+  ]) {
+    assert.ok(viewSource.includes(expected), `missing publication snapshot download behavior: ${expected}`)
+  }
+})
+
 test('product bean-list version scope selector lists public and each fulfillment customer', () => {
   const versionListStart = viewSource.indexOf('<section class="panel bean-list-version-panel">')
   const versionListEnd = viewSource.indexOf('<section class="panel">', versionListStart)

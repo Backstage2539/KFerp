@@ -5,6 +5,7 @@ import {
   DEFAULT_BEAN_LIST_PDF_VERSION,
   buildBeanListPdfGroups,
   buildBeanListPdfTitle,
+  beanListPublicationPdfOptions,
   copyBeanListPublicationContentGroups,
   copyBeanListPublicationConfig,
   defaultBeanListDraftVersion,
@@ -403,6 +404,33 @@ test('PDF bean-list helper copies published content groups as an immutable price
 
   assert.equal(publication.content.groups[0].items[0].prices[0].price, 127)
   assert.equal(copyBeanListPublicationContentGroups({ content: {} }).length, 0)
+})
+
+test('PDF bean-list helper builds download options from published green bean snapshots', () => {
+  const got = beanListPublicationPdfOptions({
+    list_type: 'green',
+    version: 'V1.02',
+    changelog: '60KG+ 改为 62',
+    config: {
+      brandName: '岩师傅',
+      layoutStyle: 'table',
+      showCategoryNumbers: false,
+      cardsPerRow: 3,
+      backgroundColor: '#ffffff',
+      fontColor: '#111111',
+    },
+  }, {
+    brandName: '棵凡咖啡',
+    layoutStyle: 'card',
+    showCategoryNumbers: true,
+  })
+
+  assert.equal(got.listType, 'green')
+  assert.equal(got.version, 'V1.02')
+  assert.equal(got.brandName, '岩师傅')
+  assert.equal(got.layoutStyle, 'table')
+  assert.equal(got.showCategoryNumbers, false)
+  assert.equal(got.changelog, '60KG+ 改为 62')
 })
 
 test('PDF bean-list helper reapplies green kg overrides when copying a kg price source snapshot', () => {
