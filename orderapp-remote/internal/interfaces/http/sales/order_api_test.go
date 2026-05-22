@@ -142,6 +142,113 @@ func TestOrderAPIFormReturnsCustomerDefaultsForOrderEntry(t *testing.T) {
 	}
 }
 
+func TestOrderAPIFormReturnsLogisticsSettings(t *testing.T) {
+	pool, schema := newOrderAPITestDB(t)
+	ctx := context.Background()
+	seedOrderAPITestData(t, ctx, pool, schema)
+	if err := postgressales.EnsureSchema(ctx, pool, schema); err != nil {
+		t.Fatalf("EnsureSchema: %v", err)
+	}
+
+	e := newOrderAPITestEcho(pool, schema)
+	req := httptest.NewRequest(http.MethodGet, "/api/order/form", nil)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET /api/order/form status = %d, want 200, body=%s", rec.Code, rec.Body.String())
+	}
+	body := rec.Body.String()
+	for _, needle := range []string{`"logistics_companies"`, `"顺丰"`, `"顺丰小件"`, `"顺丰大件"`} {
+		if !strings.Contains(body, needle) {
+			t.Fatalf("GET /api/order/form missing %s: %s", needle, body)
+		}
+	}
+}
+
+func TestOrderAPIPaidStatusRequiresPaymentVoucher(t *testing.T) {
+	pool, schema := newOrderAPITestDB(t)
+	ctx := context.Background()
+	seedOrderAPITestData(t, ctx, pool, schema)
+	if err := postgressales.EnsureSchema(ctx, pool, schema); err != nil {
+		t.Fatalf("EnsureSchema: %v", err)
+	}
+	mustExecOrderAPITestSQL(t, ctx, pool, fmt.Sprintf(`
+		INSERT INTO %s.pay_statuses(id,name) VALUES (3,'已收款') ON CONFLICT DO NOTHING;
+	`, schema))
+
+	e := newOrderAPITestEcho(pool, schema)
+	payload := `{
+		"order_date":"2026-05-23",
+		"customer_id":3,
+		"source_id":1,
+		"order_type_id":1,
+		"pay_status_id":3,
+		"payment_method":"微信支付",
+		"payment_goods_amount":"88.00",
+		"payment_shipping_amount":"0.00",
+		"ship_status_id":1,
+		"product_id":["7"],
+		"item_name":["橘皮乌龙"],
+		"tier_id":["manual"],
+		"unit_price":["88"],
+		"qty":["1"],
+		"unit":["件"],
+		"spec":["454"]
+	}`
+	req := httptest.NewRequest(http.MethodPost, "/api/order", strings.NewReader(payload))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("POST /api/order status = %d, want 400, body=%s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "payment_voucher_asset_id") {
+		t.Fatalf("POST /api/order should require payment voucher, body=%s", rec.Body.String())
+	}
+}
+
+func TestOrderAPIShippedStatusRequiresLogisticsProduct(t *testing.T) {
+	pool, schema := newOrderAPITestDB(t)
+	ctx := context.Background()
+	seedOrderAPITestData(t, ctx, pool, schema)
+	if err := postgressales.EnsureSchema(ctx, pool, schema); err != nil {
+		t.Fatalf("EnsureSchema: %v", err)
+	}
+	mustExecOrderAPITestSQL(t, ctx, pool, fmt.Sprintf(`
+		INSERT INTO %s.ship_statuses(id,name) VALUES (2,'已发货') ON CONFLICT DO NOTHING;
+	`, schema))
+
+	e := newOrderAPITestEcho(pool, schema)
+	payload := `{
+		"order_date":"2026-05-23",
+		"customer_id":3,
+		"source_id":1,
+		"order_type_id":1,
+		"pay_status_id":1,
+		"ship_status_id":2,
+		"product_id":["7"],
+		"item_name":["橘皮乌龙"],
+		"tier_id":["manual"],
+		"unit_price":["88"],
+		"qty":["1"],
+		"unit":["件"],
+		"spec":["454"]
+	}`
+	req := httptest.NewRequest(http.MethodPost, "/api/order", strings.NewReader(payload))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("POST /api/order status = %d, want 400, body=%s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "logistics_company_id") {
+		t.Fatalf("POST /api/order should require logistics company, body=%s", rec.Body.String())
+	}
+}
+
 func TestOrderAPIVoidIsIrreversibleAndBulkVoidUsesSoftDeleteAndListFilters(t *testing.T) {
 	pool, schema := newOrderAPITestDB(t)
 	ctx := context.Background()

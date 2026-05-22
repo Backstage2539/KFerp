@@ -80,9 +80,11 @@ test('settings menu exposes sales order settings and keeps sales order detail hi
   const keys = primaryMenuKeys(menuGroups)
   assert.ok(keys.includes('companyProfile'))
   assert.ok(keys.includes('salesOrderSettings'))
+  assert.ok(keys.includes('logisticsSettings'))
   assert.equal(keys.includes('salesOrder'), false)
   assert.equal(groupForView(menuGroups, 'companyProfile')?.id, 'settings')
   assert.equal(groupForView(menuGroups, 'salesOrderSettings')?.id, 'settings')
+  assert.equal(groupForView(menuGroups, 'logisticsSettings')?.id, 'settings')
 })
 
 test('sales menu no longer exposes the removed quote export page', () => {
@@ -143,6 +145,7 @@ test('remaining ERP click-matrix targets reference real Vue shell views', () => 
     'order',
     'customers',
     'salesOrderSettings',
+    'logisticsSettings',
     'senderSettings',
     'orderInvoice',
     'salesOrder',

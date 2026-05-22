@@ -462,6 +462,42 @@ test('buildOrderPayload carries selected receipt method into order saves', () =>
   assert.equal(payload.payment_method, '银行转账')
 })
 
+test('buildOrderPayload carries logistics and payment receipt fields', () => {
+  const payload = buildOrderPayload({
+    form: {
+      order_date: '2026-05-23',
+      customer_id: 3,
+      source_id: 1,
+      order_type_id: 1,
+      pay_status_id: 3,
+      payment_method: '微信支付',
+      ship_status_id: 4,
+      logistics_company_id: 9,
+      logistics_product_id: 10,
+      payment_goods_amount: '120.00',
+      payment_shipping_amount: '8.00',
+      payment_voucher_asset_id: 88,
+    },
+    rows: [
+      {
+        product_id: 7,
+        product_name: '橘皮乌龙',
+        tier_id: 'manual',
+        spec_mode: '454',
+        qty: 1,
+        unit: '件',
+        unit_price: '88',
+      },
+    ],
+  })
+
+  assert.equal(payload.logistics_company_id, 9)
+  assert.equal(payload.logistics_product_id, 10)
+  assert.equal(payload.payment_goods_amount, '120.00')
+  assert.equal(payload.payment_shipping_amount, '8.00')
+  assert.equal(payload.payment_voucher_asset_id, 88)
+})
+
 test('requiresOrderPaymentMethod only triggers for paid receipt statuses', () => {
   const payStatuses = [
     { id: 1, name: '未付款' },
