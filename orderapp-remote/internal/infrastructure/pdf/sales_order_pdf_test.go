@@ -216,6 +216,37 @@ func TestSalesOrderPDFPaymentCodeSizingAdaptsToCount(t *testing.T) {
 	}
 }
 
+func TestSalesOrderPaymentLayoutDefaultsPutCodeOnFirstPageRight(t *testing.T) {
+	textBox, codeBox := salesOrderPaymentLayoutBoxes(salesdomain.SalesOrderSnapshot{})
+	if textBox.XMM < 15 || textBox.YMM > 130 || textBox.WidthMM < 95 || textBox.HeightMM < 60 {
+		t.Fatalf("default text box should stay on page 1 left area, got %+v", textBox)
+	}
+	if codeBox.XMM < 120 || codeBox.YMM > 120 || codeBox.WidthMM < 70 || codeBox.HeightMM < 105 {
+		t.Fatalf("default payment code box should stay on page 1 right area and be large, got %+v", codeBox)
+	}
+	if codeBox.XMM+codeBox.WidthMM > 200 || codeBox.YMM+codeBox.HeightMM > 260 {
+		t.Fatalf("default payment code box should fit on the first A4 page, got %+v", codeBox)
+	}
+}
+
+func TestSalesOrderPaymentLayoutUsesConfiguredTextAndCodeBoxes(t *testing.T) {
+	textBox, codeBox := salesOrderPaymentLayoutBoxes(salesdomain.SalesOrderSnapshot{
+		PaymentTextBox: salesdomain.SalesOrderLayoutBox{XMM: 18, YMM: 142, WidthMM: 98, HeightMM: 54},
+		PaymentCodeBox: salesdomain.SalesOrderLayoutBox{XMM: 126, YMM: 104, WidthMM: 76, HeightMM: 126},
+	})
+	if textBox != (salesdomain.SalesOrderLayoutBox{XMM: 18, YMM: 142, WidthMM: 98, HeightMM: 54}) {
+		t.Fatalf("text layout = %+v", textBox)
+	}
+	if codeBox != (salesdomain.SalesOrderLayoutBox{XMM: 126, YMM: 104, WidthMM: 76, HeightMM: 126}) {
+		t.Fatalf("code layout = %+v", codeBox)
+	}
+
+	metrics := salesOrderPaymentCodeMetricsForBox(1, codeBox)
+	if metrics.ImageSize < 72 || metrics.CellWidth != codeBox.WidthMM {
+		t.Fatalf("configured code metrics should use the bigger editable box, metrics=%+v box=%+v", metrics, codeBox)
+	}
+}
+
 func TestRenderSalesOrderPNGUsesHighResolutionCanvasAndLargePaymentCode(t *testing.T) {
 	dir := t.TempDir()
 	writeSolidPNG(t, filepath.Join(dir, "sales-order", "payment", "wechat.png"), color.RGBA{G: 0xf0, A: 0xff}, 64, 64)
@@ -253,6 +284,48 @@ func TestRenderSalesOrderPNGUsesHighResolutionCanvasAndLargePaymentCode(t *testi
 	codeBounds := dominantGreenBounds(img)
 	if codeBounds.Empty() || codeBounds.Dx() < 620 || codeBounds.Dy() < 620 {
 		t.Fatalf("payment code bounds = %v, want at least 620px square for scanning", codeBounds)
+	}
+}
+
+func TestRenderSalesOrderPNGUsesConfiguredPaymentCodeLayout(t *testing.T) {
+	dir := t.TempDir()
+	writeSolidPNG(t, filepath.Join(dir, "sales-order", "payment", "wechat.png"), color.RGBA{G: 0xf0, A: 0xff}, 64, 64)
+
+	renderer := SalesOrderRenderer{AssetBaseDir: dir}
+	b, err := renderer.RenderPNG(salesdomain.SalesOrderSnapshot{
+		OrderID:        1,
+		OrderNo:        "SO-20260430-0008",
+		OrderDate:      "2026-04-30",
+		CustomerName:   "某某咖啡馆",
+		CompanyName:    "浅焙作坊咖啡",
+		PaymentText:    "微信",
+		PaymentCodeBox: salesdomain.SalesOrderLayoutBox{XMM: 122, YMM: 94, WidthMM: 78, HeightMM: 126},
+		Items: []salesdomain.SalesOrderSnapshotItem{{
+			Name: "橘皮乌龙", Spec: "300g", Qty: "2", Unit: "件", UnitPrice: "67.00", LineTotal: "134.00",
+		}},
+		TotalAmount: "134.00",
+		Shipping:    "0.00",
+		Discount:    "0.00",
+		GrandTotal:  "134.00",
+		PaymentCodes: []salesdomain.SalesOrderAssetRef{{
+			Label: "微信", ObjectKey: "sales-order/payment/wechat.png", ContentType: "image/png",
+		}},
+	})
+	if err != nil {
+		t.Fatalf("RenderPNG() error = %v", err)
+	}
+	img, err := png.Decode(bytes.NewReader(b))
+	if err != nil {
+		t.Fatalf("decode PNG: %v", err)
+	}
+	codeBounds := dominantGreenBounds(img)
+	wantLeft := int(math.Round(122 * float64(salesOrderPNGDesignWidth) / 210.0 * salesOrderPNGScale))
+	wantTop := int(math.Round((94 + 8) * float64(salesOrderPNGDesignWidth) / 210.0 * salesOrderPNGScale))
+	if math.Abs(float64(codeBounds.Min.X-wantLeft)) > 80 || math.Abs(float64(codeBounds.Min.Y-wantTop)) > 80 {
+		t.Fatalf("payment code bounds = %v, want near configured first-page box left=%d top=%d", codeBounds, wantLeft, wantTop)
+	}
+	if codeBounds.Dx() < 860 || codeBounds.Dy() < 860 {
+		t.Fatalf("configured payment code bounds = %v, want larger than default QR image", codeBounds)
 	}
 }
 

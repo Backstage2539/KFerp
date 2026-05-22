@@ -31,7 +31,7 @@ func TestSalesOrderSettingsAPI(t *testing.T) {
 	}
 	e := newSalesOrderAPITestEcho(pool, schema, t.TempDir())
 
-	body := strings.NewReader(`{"note":"请密封保存\n第二行","payment_text":"微信\n对公转账","seal_x_mm":42,"seal_y_mm":21,"seal_width_mm":38}`)
+	body := strings.NewReader(`{"note":"请密封保存\n第二行","payment_text":"微信\n对公转账","seal_x_mm":42,"seal_y_mm":21,"seal_width_mm":38,"payment_text_x_mm":18,"payment_text_y_mm":142,"payment_text_width_mm":98,"payment_text_height_mm":54,"payment_code_x_mm":126,"payment_code_y_mm":104,"payment_code_width_mm":76,"payment_code_height_mm":126}`)
 	req := httptest.NewRequest(http.MethodPost, "/api/settings/sales-order", body)
 	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
 	rec := httptest.NewRecorder()
@@ -45,6 +45,14 @@ func TestSalesOrderSettingsAPI(t *testing.T) {
 		`"seal_x_mm":42`,
 		`"seal_y_mm":21`,
 		`"seal_width_mm":38`,
+		`"payment_text_x_mm":18`,
+		`"payment_text_y_mm":142`,
+		`"payment_text_width_mm":98`,
+		`"payment_text_height_mm":54`,
+		`"payment_code_x_mm":126`,
+		`"payment_code_y_mm":104`,
+		`"payment_code_width_mm":76`,
+		`"payment_code_height_mm":126`,
 	} {
 		if !strings.Contains(rec.Body.String(), want) {
 			t.Fatalf("POST response missing %s: %s", want, rec.Body.String())
@@ -196,7 +204,7 @@ func TestSalesOrderSealPositionAPIOnlyUpdatesCoordinates(t *testing.T) {
 	}
 	e := newSalesOrderAPITestEcho(pool, schema, t.TempDir())
 
-	settingsBody := strings.NewReader(`{"note":"第一行\n第二行","payment_text":"微信付款","seal_x_mm":32,"seal_y_mm":22,"seal_width_mm":42}`)
+	settingsBody := strings.NewReader(`{"note":"第一行\n第二行","payment_text":"微信付款","seal_x_mm":32,"seal_y_mm":22,"seal_width_mm":42,"payment_text_x_mm":18,"payment_text_y_mm":142,"payment_text_width_mm":98,"payment_text_height_mm":54,"payment_code_x_mm":126,"payment_code_y_mm":104,"payment_code_width_mm":76,"payment_code_height_mm":126}`)
 	settingsReq := httptest.NewRequest(http.MethodPost, "/api/settings/sales-order", settingsBody)
 	settingsReq.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
 	settingsRec := httptest.NewRecorder()
@@ -219,6 +227,8 @@ func TestSalesOrderSealPositionAPIOnlyUpdatesCoordinates(t *testing.T) {
 		`"seal_x_mm":58`,
 		`"seal_y_mm":19`,
 		`"seal_width_mm":46`,
+		`"payment_text_x_mm":18`,
+		`"payment_code_width_mm":76`,
 	} {
 		if !strings.Contains(rec.Body.String(), want) {
 			t.Fatalf("seal position response missing %s: %s", want, rec.Body.String())

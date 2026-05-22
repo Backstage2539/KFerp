@@ -44,6 +44,11 @@ const (
 	salesOrderPaymentBlockGapMM  = 3.5
 )
 
+var (
+	defaultSalesOrderPaymentTextBox = salesdomain.SalesOrderLayoutBox{XMM: 16, YMM: 118, WidthMM: 104, HeightMM: 78}
+	defaultSalesOrderPaymentCodeBox = salesdomain.SalesOrderLayoutBox{XMM: 126, YMM: 106, WidthMM: 72, HeightMM: 122}
+)
+
 func (r SalesOrderRenderer) Render(snapshot salesdomain.SalesOrderSnapshot) ([]byte, error) {
 	return r.render(snapshot, false)
 }
@@ -193,53 +198,69 @@ func (r SalesOrderRenderer) renderSalesOrderPaymentInfoSection(pdf *gofpdf.Fpdf,
 	if snapshot.PaymentText == "" && snapshot.Note == "" && len(snapshot.PaymentCodes) == 0 && len(renderSalesOrderAccountLines(snapshot)) == 0 {
 		return
 	}
-	left, _, right, _ := pdf.GetMargins()
-	pageW, _ := pdf.GetPageSize()
-	contentW := pageW - left - right
-	startX, startY := pdf.GetXY()
-	pdf.SetFont("noto", "", 11)
-	pdf.CellFormat(0, 7, "收款与说明", "B", 1, "L", false, 0, "")
-	startY = pdf.GetY() + 3
-	codeW := 0.0
+	currentPage := pdf.PageNo()
+	textBox, codeBox := salesOrderPaymentLayoutBoxes(snapshot)
+	pdf.SetPage(1)
+	pdf.SetAutoPageBreak(false, 0)
+	renderSalesOrderTextBlocks(pdf, textBox, snapshot)
 	if len(snapshot.PaymentCodes) > 0 {
-		codeW = salesOrderPaymentCodeMetrics(len(snapshot.PaymentCodes)).CellWidth
+		r.renderPaymentCodes(pdf, snapshot.PaymentCodes, codeBox)
 	}
-	gap := 8.0
-	textW := contentW
-	if codeW > 0 {
-		textW = contentW - codeW - gap
+	pdf.SetAutoPageBreak(true, 18)
+	if currentPage > 0 {
+		pdf.SetPage(currentPage)
 	}
-	textH := renderSalesOrderTextBlocks(pdf, startX, startY, textW, snapshot)
-	codeH := 0.0
-	if codeW > 0 {
-		codeH = r.renderPaymentCodes(pdf, snapshot.PaymentCodes, startX+textW+gap, startY, codeW)
-	}
-	if codeH > textH {
-		textH = codeH
-	}
-	pdf.SetXY(startX, startY+textH+5)
 }
 
-func renderSalesOrderTextBlocks(pdf *gofpdf.Fpdf, x, y, width float64, snapshot salesdomain.SalesOrderSnapshot) float64 {
-	startY := y
-	y = renderSalesOrderTextBlock(pdf, x, y, width, "收款方式", salesOrderTextLines(snapshot.PaymentText))
-	y = renderSalesOrderTextBlock(pdf, x, y, width, "公账收款", renderSalesOrderAccountLines(snapshot))
-	y = renderSalesOrderTextBlock(pdf, x, y, width, "说明", salesOrderTextLines(snapshot.Note))
-	return y - startY
+func salesOrderPaymentLayoutBoxes(snapshot salesdomain.SalesOrderSnapshot) (salesdomain.SalesOrderLayoutBox, salesdomain.SalesOrderLayoutBox) {
+	return normalizeSalesOrderLayoutBox(snapshot.PaymentTextBox, defaultSalesOrderPaymentTextBox), normalizeSalesOrderLayoutBox(snapshot.PaymentCodeBox, defaultSalesOrderPaymentCodeBox)
 }
 
-func renderSalesOrderTextBlock(pdf *gofpdf.Fpdf, x, y, width float64, title string, lines []string) float64 {
+func normalizeSalesOrderLayoutBox(box, fallback salesdomain.SalesOrderLayoutBox) salesdomain.SalesOrderLayoutBox {
+	if box.XMM <= 0 {
+		box.XMM = fallback.XMM
+	}
+	if box.YMM <= 0 {
+		box.YMM = fallback.YMM
+	}
+	if box.WidthMM <= 0 {
+		box.WidthMM = fallback.WidthMM
+	}
+	if box.HeightMM <= 0 {
+		box.HeightMM = fallback.HeightMM
+	}
+	return box
+}
+
+func renderSalesOrderTextBlocks(pdf *gofpdf.Fpdf, box salesdomain.SalesOrderLayoutBox, snapshot salesdomain.SalesOrderSnapshot) float64 {
+	y := box.YMM
+	y = renderSalesOrderTextBlock(pdf, box, y, "收款方式", salesOrderTextLines(snapshot.PaymentText))
+	y = renderSalesOrderTextBlock(pdf, box, y, "公账收款", renderSalesOrderAccountLines(snapshot))
+	y = renderSalesOrderTextBlock(pdf, box, y, "说明", salesOrderTextLines(snapshot.Note))
+	return y - box.YMM
+}
+
+func renderSalesOrderTextBlock(pdf *gofpdf.Fpdf, box salesdomain.SalesOrderLayoutBox, y float64, title string, lines []string) float64 {
 	if len(lines) == 0 {
 		return y
 	}
-	pdf.SetXY(x, y)
+	bottom := box.YMM + box.HeightMM
+	if y+5.5 > bottom {
+		return y
+	}
+	pdf.SetXY(box.XMM, y)
 	pdf.SetFont("noto", "", 10)
-	pdf.CellFormat(width, 6, title, "", 1, "L", false, 0, "")
-	y = pdf.GetY()
+	pdf.CellFormat(box.WidthMM, 5.5, title, "", 0, "L", false, 0, "")
+	y += 6
 	for _, line := range lines {
-		pdf.SetXY(x, y)
-		pdf.MultiCell(width, salesOrderPaymentLineMM, line, "", "L", false)
-		y = pdf.GetY()
+		for _, wrapped := range pdf.SplitLines([]byte(line), box.WidthMM) {
+			if y+salesOrderPaymentLineMM > bottom {
+				return bottom
+			}
+			pdf.SetXY(box.XMM, y)
+			pdf.CellFormat(box.WidthMM, salesOrderPaymentLineMM, string(wrapped), "", 0, "L", false, 0, "")
+			y += salesOrderPaymentLineMM
+		}
 	}
 	return y + salesOrderPaymentBlockGapMM
 }
@@ -314,36 +335,62 @@ func (r SalesOrderRenderer) renderSealStamp(pdf *gofpdf.Fpdf, ref salesdomain.Sa
 	pdf.ImageOptions(path, box.XMM, box.YMM, box.WidthMM, box.HeightMM, false, opts, 0, "")
 }
 
-func (r SalesOrderRenderer) renderPaymentCodes(pdf *gofpdf.Fpdf, codes []salesdomain.SalesOrderAssetRef, startX, startY, availableW float64) float64 {
+func (r SalesOrderRenderer) renderPaymentCodes(pdf *gofpdf.Fpdf, codes []salesdomain.SalesOrderAssetRef, box salesdomain.SalesOrderLayoutBox) float64 {
 	if len(codes) == 0 {
 		return 0
 	}
-	metrics := salesOrderPaymentCodeMetrics(len(codes))
-	if availableW > 0 && availableW < metrics.CellWidth {
-		metrics.CellWidth = availableW
-	}
-	x := startX
-	y := startY
+	metrics := salesOrderPaymentCodeMetricsForBox(len(codes), box)
+	x := box.XMM
+	y := box.YMM
 	for _, code := range codes {
 		r.renderPaymentCodeCell(pdf, code, x, y, metrics)
 		if metrics.Stacked {
 			y += metrics.CellHeight + metrics.Gap
-			x = startX
+			x = box.XMM
 		} else {
 			x += metrics.CellWidth + metrics.Gap
 		}
 	}
 	if metrics.Stacked {
-		return y - metrics.Gap - startY
+		return y - metrics.Gap - box.YMM
 	}
 	return metrics.CellHeight
 }
 
 func salesOrderPaymentCodeMetrics(count int) salesOrderPaymentCodeLayout {
 	if count <= 1 {
-		return salesOrderPaymentCodeLayout{CellWidth: 88, ImageSize: 64, CellHeight: 90, Gap: 0, Stacked: false}
+		return salesOrderPaymentCodeLayout{CellWidth: 88, ImageSize: 70, CellHeight: 96, Gap: 0, Stacked: false}
 	}
 	return salesOrderPaymentCodeLayout{CellWidth: 88, ImageSize: 52, CellHeight: 78, Gap: 6, Stacked: true}
+}
+
+func salesOrderPaymentCodeMetricsForBox(count int, box salesdomain.SalesOrderLayoutBox) salesOrderPaymentCodeLayout {
+	metrics := salesOrderPaymentCodeMetrics(count)
+	if box.WidthMM > 0 {
+		metrics.CellWidth = box.WidthMM
+	}
+	if box.HeightMM > 0 {
+		if count <= 1 {
+			metrics.CellHeight = box.HeightMM
+		} else {
+			gaps := float64(count-1) * metrics.Gap
+			metrics.CellHeight = (box.HeightMM - gaps) / float64(count)
+			if metrics.CellHeight < 32 {
+				metrics.CellHeight = 32
+			}
+		}
+	}
+	maxImage := metrics.CellWidth
+	if byHeight := metrics.CellHeight - 18; byHeight < maxImage {
+		maxImage = byHeight
+	}
+	if maxImage > 0 && maxImage > metrics.ImageSize {
+		metrics.ImageSize = maxImage
+	}
+	if metrics.ImageSize > metrics.CellWidth {
+		metrics.ImageSize = metrics.CellWidth
+	}
+	return metrics
 }
 
 func (r SalesOrderRenderer) renderPaymentCodeCell(pdf *gofpdf.Fpdf, ref salesdomain.SalesOrderAssetRef, x, y float64, metrics salesOrderPaymentCodeLayout) {

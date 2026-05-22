@@ -12,6 +12,26 @@
         <label class="wide"><span>收款方式</span><textarea v-model.trim="form.payment_text" rows="2"></textarea></label>
         <label class="wide"><span>个性化说明</span><textarea v-model.trim="form.note" rows="3"></textarea></label>
       </div>
+      <div class="layout-grid">
+        <div class="layout-group">
+          <h3>收款与说明版式</h3>
+          <div class="layout-fields">
+            <label><span>X(mm)</span><input v-model.number="form.payment_text_x_mm" type="number" min="1" step="1" /></label>
+            <label><span>Y(mm)</span><input v-model.number="form.payment_text_y_mm" type="number" min="1" step="1" /></label>
+            <label><span>宽(mm)</span><input v-model.number="form.payment_text_width_mm" type="number" min="40" max="180" step="1" /></label>
+            <label><span>高(mm)</span><input v-model.number="form.payment_text_height_mm" type="number" min="30" max="160" step="1" /></label>
+          </div>
+        </div>
+        <div class="layout-group">
+          <h3>收款码位置和大小</h3>
+          <div class="layout-fields">
+            <label><span>X(mm)</span><input v-model.number="form.payment_code_x_mm" type="number" min="1" step="1" /></label>
+            <label><span>Y(mm)</span><input v-model.number="form.payment_code_y_mm" type="number" min="1" step="1" /></label>
+            <label><span>宽(mm)</span><input v-model.number="form.payment_code_width_mm" type="number" min="40" max="100" step="1" /></label>
+            <label><span>高(mm)</span><input v-model.number="form.payment_code_height_mm" type="number" min="60" max="180" step="1" /></label>
+          </div>
+        </div>
+      </div>
       <div class="actions">
         <button class="primary" type="button" @click="save" :disabled="saving">保存设置</button>
       </div>
@@ -21,6 +41,7 @@
           <li>公司名称在“公司设置”里维护；本页只维护销售单说明、收款方式、收款码和公章。</li>
           <li>公账收款信息在“公司设置”里维护；为空时销售单不展示公账信息。</li>
           <li>收款码支持多个，名称和说明会随 PDF 一起展示。</li>
+          <li>收款与说明、收款码都使用 A4 毫米坐标；调整 X/Y/宽/高后保存，再刷新预览或重新生成文件。</li>
           <li>上传公章时会自动裁掉图片白边；旧公章可点击“去除背景”重新生成透明 PNG。</li>
           <li>公章可拖动调整盖在公司名称上的位置，松手自动保存；调整公章大小后会自动保存，调整后只影响新生成版本。</li>
         </ul>
@@ -134,6 +155,14 @@ const form = reactive({
   seal_x_mm: 32,
   seal_y_mm: 5,
   seal_width_mm: 36,
+  payment_text_x_mm: 16,
+  payment_text_y_mm: 118,
+  payment_text_width_mm: 104,
+  payment_text_height_mm: 78,
+  payment_code_x_mm: 126,
+  payment_code_y_mm: 106,
+  payment_code_width_mm: 72,
+  payment_code_height_mm: 122,
 })
 
 const paymentForm = reactive({
@@ -149,6 +178,14 @@ function assignSettings(data) {
   form.seal_x_mm = Number(data?.seal_x_mm || 32)
   form.seal_y_mm = Number(data?.seal_y_mm || 5)
   form.seal_width_mm = Number(data?.seal_width_mm || 36)
+  form.payment_text_x_mm = Number(data?.payment_text_x_mm || 16)
+  form.payment_text_y_mm = Number(data?.payment_text_y_mm || 118)
+  form.payment_text_width_mm = Number(data?.payment_text_width_mm || 104)
+  form.payment_text_height_mm = Number(data?.payment_text_height_mm || 78)
+  form.payment_code_x_mm = Number(data?.payment_code_x_mm || 126)
+  form.payment_code_y_mm = Number(data?.payment_code_y_mm || 106)
+  form.payment_code_width_mm = Number(data?.payment_code_width_mm || 72)
+  form.payment_code_height_mm = Number(data?.payment_code_height_mm || 122)
 }
 
 const sealDragStyle = computed(() => {
@@ -339,6 +376,10 @@ h3 { font-size: 16px; }
 .manual ul { margin: 8px 0 0; padding-left: 18px; }
 .form-grid { display: grid; grid-template-columns: repeat(2, minmax(220px, 1fr)); gap: 10px; margin-bottom: 12px; }
 .wide { grid-column: 1 / -1; }
+.layout-grid { display: grid; grid-template-columns: repeat(2, minmax(260px, 1fr)); gap: 16px; margin: 0 0 12px; }
+.layout-group { min-width: 0; }
+.layout-group h3 { font-size: 14px; margin: 0 0 10px; }
+.layout-fields { display: grid; grid-template-columns: repeat(4, minmax(76px, 1fr)); gap: 8px; }
 label span { display: block; color: #666; font-size: 12px; margin-bottom: 5px; }
 input, textarea { width: 100%; border: 1px solid #cfc8bf; border-radius: 6px; padding: 7px 9px; font: inherit; background: #fff; }
 input { height: 38px; }
@@ -369,7 +410,8 @@ th { background: #fbfaf8; }
 .ok { background: #f0fff0; border: 1px solid #b7d9b7; color: #246024; }
 @media (max-width: 900px) {
   .page { padding: 12px; }
-  .form-grid, .upload-row, .seal-row, .seal-position { grid-template-columns: 1fr; }
+  .form-grid, .layout-grid, .upload-row, .seal-row, .seal-position { grid-template-columns: 1fr; }
+  .layout-fields { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .seal-position-fields { grid-template-columns: 1fr; }
 }
 </style>

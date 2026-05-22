@@ -534,18 +534,37 @@ type ShippingExportRow struct {
 }
 
 type SalesOrderSettings struct {
-	CompanyName     string                  `json:"company_name"`
-	Note            string                  `json:"note"`
-	PaymentText     string                  `json:"payment_text"`
-	BankAccountName string                  `json:"bank_account_name"`
-	BankName        string                  `json:"bank_name"`
-	BankAccountNo   string                  `json:"bank_account_no"`
-	SealXMM         float64                 `json:"seal_x_mm"`
-	SealYMM         float64                 `json:"seal_y_mm"`
-	SealWidthMM     float64                 `json:"seal_width_mm"`
-	Seal            *SalesOrderAsset        `json:"seal,omitempty"`
-	PaymentCodes    []SalesOrderPaymentCode `json:"payment_codes"`
+	CompanyName         string                  `json:"company_name"`
+	Note                string                  `json:"note"`
+	PaymentText         string                  `json:"payment_text"`
+	BankAccountName     string                  `json:"bank_account_name"`
+	BankName            string                  `json:"bank_name"`
+	BankAccountNo       string                  `json:"bank_account_no"`
+	SealXMM             float64                 `json:"seal_x_mm"`
+	SealYMM             float64                 `json:"seal_y_mm"`
+	SealWidthMM         float64                 `json:"seal_width_mm"`
+	PaymentTextXMM      float64                 `json:"payment_text_x_mm"`
+	PaymentTextYMM      float64                 `json:"payment_text_y_mm"`
+	PaymentTextWidthMM  float64                 `json:"payment_text_width_mm"`
+	PaymentTextHeightMM float64                 `json:"payment_text_height_mm"`
+	PaymentCodeXMM      float64                 `json:"payment_code_x_mm"`
+	PaymentCodeYMM      float64                 `json:"payment_code_y_mm"`
+	PaymentCodeWidthMM  float64                 `json:"payment_code_width_mm"`
+	PaymentCodeHeightMM float64                 `json:"payment_code_height_mm"`
+	Seal                *SalesOrderAsset        `json:"seal,omitempty"`
+	PaymentCodes        []SalesOrderPaymentCode `json:"payment_codes"`
 }
+
+const (
+	DefaultSalesOrderPaymentTextXMM      = 16
+	DefaultSalesOrderPaymentTextYMM      = 118
+	DefaultSalesOrderPaymentTextWidthMM  = 104
+	DefaultSalesOrderPaymentTextHeightMM = 78
+	DefaultSalesOrderPaymentCodeXMM      = 126
+	DefaultSalesOrderPaymentCodeYMM      = 106
+	DefaultSalesOrderPaymentCodeWidthMM  = 72
+	DefaultSalesOrderPaymentCodeHeightMM = 122
+)
 
 type SalesOrderAsset struct {
 	ID          int64  `json:"id"`
@@ -571,16 +590,24 @@ type SalesOrderPaymentCode struct {
 }
 
 type SaveSalesOrderSettingsCommand struct {
-	Actor           string  `json:"actor"`
-	CompanyName     string  `json:"company_name"`
-	Note            string  `json:"note"`
-	PaymentText     string  `json:"payment_text"`
-	BankAccountName string  `json:"bank_account_name"`
-	BankName        string  `json:"bank_name"`
-	BankAccountNo   string  `json:"bank_account_no"`
-	SealXMM         float64 `json:"seal_x_mm"`
-	SealYMM         float64 `json:"seal_y_mm"`
-	SealWidthMM     float64 `json:"seal_width_mm"`
+	Actor               string  `json:"actor"`
+	CompanyName         string  `json:"company_name"`
+	Note                string  `json:"note"`
+	PaymentText         string  `json:"payment_text"`
+	BankAccountName     string  `json:"bank_account_name"`
+	BankName            string  `json:"bank_name"`
+	BankAccountNo       string  `json:"bank_account_no"`
+	SealXMM             float64 `json:"seal_x_mm"`
+	SealYMM             float64 `json:"seal_y_mm"`
+	SealWidthMM         float64 `json:"seal_width_mm"`
+	PaymentTextXMM      float64 `json:"payment_text_x_mm"`
+	PaymentTextYMM      float64 `json:"payment_text_y_mm"`
+	PaymentTextWidthMM  float64 `json:"payment_text_width_mm"`
+	PaymentTextHeightMM float64 `json:"payment_text_height_mm"`
+	PaymentCodeXMM      float64 `json:"payment_code_x_mm"`
+	PaymentCodeYMM      float64 `json:"payment_code_y_mm"`
+	PaymentCodeWidthMM  float64 `json:"payment_code_width_mm"`
+	PaymentCodeHeightMM float64 `json:"payment_code_height_mm"`
 }
 
 type SaveSalesOrderAssetCommand struct {
@@ -1356,6 +1383,30 @@ func (s *Service) SaveSalesOrderSettings(ctx context.Context, cmd SaveSalesOrder
 	}
 	if cmd.SealWidthMM <= 0 {
 		cmd.SealWidthMM = 36
+	}
+	if cmd.PaymentTextXMM <= 0 {
+		cmd.PaymentTextXMM = DefaultSalesOrderPaymentTextXMM
+	}
+	if cmd.PaymentTextYMM <= 0 {
+		cmd.PaymentTextYMM = DefaultSalesOrderPaymentTextYMM
+	}
+	if cmd.PaymentTextWidthMM <= 0 {
+		cmd.PaymentTextWidthMM = DefaultSalesOrderPaymentTextWidthMM
+	}
+	if cmd.PaymentTextHeightMM <= 0 {
+		cmd.PaymentTextHeightMM = DefaultSalesOrderPaymentTextHeightMM
+	}
+	if cmd.PaymentCodeXMM <= 0 {
+		cmd.PaymentCodeXMM = DefaultSalesOrderPaymentCodeXMM
+	}
+	if cmd.PaymentCodeYMM <= 0 {
+		cmd.PaymentCodeYMM = DefaultSalesOrderPaymentCodeYMM
+	}
+	if cmd.PaymentCodeWidthMM <= 0 {
+		cmd.PaymentCodeWidthMM = DefaultSalesOrderPaymentCodeWidthMM
+	}
+	if cmd.PaymentCodeHeightMM <= 0 {
+		cmd.PaymentCodeHeightMM = DefaultSalesOrderPaymentCodeHeightMM
 	}
 	return s.repo.SaveSalesOrderSettings(ctx, cmd)
 }
