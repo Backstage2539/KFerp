@@ -14,7 +14,7 @@
       </div>
       <div class="layout-grid">
         <div class="layout-group">
-          <h3>收款与说明版式</h3>
+          <h3>文字位置和大小</h3>
           <div class="layout-fields">
             <label><span>X(mm)</span><input v-model.number="form.payment_text_x_mm" type="number" min="1" step="1" /></label>
             <label><span>Y(mm)</span><input v-model.number="form.payment_text_y_mm" type="number" min="1" step="1" /></label>
@@ -41,7 +41,8 @@
           <li>公司名称在“公司设置”里维护；本页只维护销售单说明、收款方式、收款码和公章。</li>
           <li>公账收款信息在“公司设置”里维护；为空时销售单不展示公账信息。</li>
           <li>收款码支持多个，名称和说明会随 PDF 一起展示。</li>
-          <li>收款与说明、收款码都使用 A4 毫米坐标；调整 X/Y/宽/高后保存，再刷新预览或重新生成文件。</li>
+          <li>文字位置和大小控制收款方式、个性化说明和公账收款；个性化说明会优先显示在公账收款前面。</li>
+          <li>文字和收款码都使用 A4 毫米坐标；调整 X/Y/宽/高后保存，再刷新预览或重新生成文件。</li>
           <li>上传公章时会自动裁掉图片白边；旧公章可点击“去除背景”重新生成透明 PNG。</li>
           <li>公章可拖动调整盖在公司名称上的位置，松手自动保存；调整公章大小后会自动保存，调整后只影响新生成版本。</li>
         </ul>
