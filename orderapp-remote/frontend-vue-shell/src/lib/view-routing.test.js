@@ -20,6 +20,32 @@ test('sidebar navigation sanitizes stale edit identifiers before switching views
   assert.match(source, /replaceHistoryURL\(applyWorkspaceToUrl\(viewNavigationURL\(url,\s*key,\s*workspaceViewParams\(params,\s*workspaceContext\(\)\)\)\)\)/)
 })
 
+test('vue shell confines sidebar/content scrolling, returns routed pages to top, and supports mobile swipe menu', () => {
+  const source = readFileSync(new URL('../App.vue', import.meta.url), 'utf8')
+
+  for (const marker of [
+    'ref="content"',
+    'scrollCurrentViewToTop',
+    'content.value.scrollTo',
+    'handleTouchStart',
+    'handleTouchEnd',
+    'touchStartX',
+    'mobileSwipeMinDistance',
+    "window.addEventListener('touchstart', handleTouchStart",
+    "window.addEventListener('touchend', handleTouchEnd",
+    "window.removeEventListener('touchstart', handleTouchStart",
+    "window.removeEventListener('touchend', handleTouchEnd",
+  ]) {
+    assert.ok(source.includes(marker), `App.vue should include ${marker}`)
+  }
+
+  assert.match(source, /function open\(key,\s*params\s*=\s*\{\}\)[\s\S]*scrollCurrentViewToTop\(\)/)
+  assert.match(source, /function setWorkspaceMode\(mode\)[\s\S]*scrollCurrentViewToTop\(\)/)
+  assert.match(source, /\.layout\s*\{[^}]*height:\s*100vh;[^}]*overflow:\s*hidden;/)
+  assert.match(source, /\.sidebar\s*\{[^}]*height:\s*100vh;[^}]*overflow-y:\s*auto;[^}]*overscroll-behavior:\s*contain;/)
+  assert.match(source, /\.content\s*\{[^}]*height:\s*100vh;[^}]*overflow-y:\s*auto;[^}]*overscroll-behavior:\s*contain;/)
+})
+
 test('customer fulfillment workbench renders sections from capability helpers', () => {
   const source = readFileSync(new URL('../views/CustomerFulfillmentView.vue', import.meta.url), 'utf8')
   assert.match(source, /visibleImportTypes/)

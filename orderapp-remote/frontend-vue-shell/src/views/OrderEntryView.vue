@@ -376,8 +376,9 @@
 </template>
 
 <script setup>
-import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { apiGet, apiSend } from '../api/client'
+import { clearFormDraft, FORM_DRAFT_SCOPES, readFormDraft, saveFormDraft } from '../lib/form-draft-cache'
 import {
   CUSTOM_SPEC_VALUE,
   buildOrderPayload,
@@ -418,6 +419,8 @@ const props = defineProps({
 })
 
 const emit = defineEmits(['close', 'saved'])
+const ORDER_ENTRY_DRAFT_SCOPE = FORM_DRAFT_SCOPES.orderEntry
+let orderEntryDraftDisabled = false
 
 const loading = ref(false)
 const saving = ref(false)
@@ -509,6 +512,52 @@ function emptyCustomerForm() {
     default_source_id: 0,
     default_order_type_id: 0,
   }
+}
+
+function currentUrlNumberParam(name) {
+  return Number(new URL(window.location.href).searchParams.get(name) || 0)
+}
+
+function orderEntryDraftKey() {
+  const editID = Number(props.editId || currentUrlNumberParam('edit_id') || 0)
+  const copyID = Number(props.copyId || currentUrlNumberParam('copy_id') || 0)
+  if (props.embedded || editID || copyID) return ''
+  const workspace = props.workspaceMode || 'factory'
+  const customerID = Number(props.customerContextId || 0)
+  return `${ORDER_ENTRY_DRAFT_SCOPE}:${workspace}:${customerID || 'all'}:new`
+}
+
+function closeTransientRowMenus(row) {
+  return { ...row, product_open: false }
+}
+
+function saveOrderEntryDraft() {
+  if (orderEntryDraftDisabled) return
+  const key = orderEntryDraftKey()
+  if (!key) return
+  saveFormDraft(key, {
+    form: { ...form },
+    rows: rows.value.map(closeTransientRowMenus),
+    customerQuery: customerQuery.value,
+    responsibleQuery: responsibleQuery.value,
+    customerDrawerOpen: customerDrawerOpen.value,
+    customerPaste: customerPaste.value,
+    customerForm: { ...customerForm },
+  })
+}
+
+function restoreOrderEntryDraft() {
+  const draft = readFormDraft(orderEntryDraftKey())
+  if (!draft) return
+  Object.assign(form, draft.form || {})
+  rows.value = Array.isArray(draft.rows) && draft.rows.length
+    ? draft.rows.map((row) => ({ ...newRow(), ...row, product_open: false }))
+    : [newRow()]
+  customerQuery.value = draft.customerQuery || ''
+  responsibleQuery.value = draft.responsibleQuery || ''
+  customerDrawerOpen.value = Boolean(draft.customerDrawerOpen)
+  customerPaste.value = draft.customerPaste || ''
+  Object.assign(customerForm, emptyCustomerForm(), draft.customerForm || {})
 }
 
 function selectedOrderType() {
@@ -1110,6 +1159,8 @@ async function save() {
     } else if (stockDecision === 'produce') {
       stockBatchNotice.value = '已选择不使用库存批次，订单会进入生产计划的库存不足/待生产流程。'
     }
+    orderEntryDraftDisabled = true
+    clearFormDraft(orderEntryDraftKey())
     if (props.embedded) emit('saved', data)
     if (!props.embedded && data.redirect_url) window.location.href = data.redirect_url
   } catch (err) {
@@ -1142,7 +1193,12 @@ function stockBatchConfirmText(preview) {
   ].join('\n')
 }
 
-onMounted(load)
+onMounted(async () => {
+  await load()
+  restoreOrderEntryDraft()
+})
+
+onBeforeUnmount(saveOrderEntryDraft)
 
 watch(
   () => props.editId,
