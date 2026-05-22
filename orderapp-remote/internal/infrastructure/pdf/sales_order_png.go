@@ -117,8 +117,9 @@ func (c *salesOrderPNGCanvas) metaRow(y int, cols []string, colW int) int {
 }
 
 func (c *salesOrderPNGCanvas) itemsTable(left, right, y int, snapshot salesdomain.SalesOrderSnapshot) int {
-	widths := []int{320, 120, 130, 145, 230, 155}
-	headers := salesOrderItemHeaders()
+	hasDiscount := salesOrderSnapshotHasDiscount(snapshot)
+	widths := salesOrderPNGItemColumnWidths(right-left, hasDiscount)
+	headers := salesOrderItemHeaders(hasDiscount)
 	x := left
 	for i, header := range headers {
 		c.text(x+8, y, 21, color.RGBA{R: 20, G: 20, B: 20, A: 255}, header)
@@ -128,10 +129,10 @@ func (c *salesOrderPNGCanvas) itemsTable(left, right, y int, snapshot salesdomai
 	c.line(left, y, right, y, color.RGBA{R: 30, G: 30, B: 30, A: 255})
 	y += 20
 	for _, item := range snapshot.Items {
-		rowH := c.salesOrderPNGItemRowHeight(item, widths, 20, 28)
+		rowH := c.salesOrderPNGItemRowHeight(item, widths, hasDiscount, 20, 28)
 		x = left
-		// salesOrderItemCells keeps item.Note in the note column before the discounted final column.
-		for i, text := range salesOrderItemCells(item) {
+		// salesOrderItemCells keeps item.Note in the final table column.
+		for i, text := range salesOrderItemCells(item, hasDiscount) {
 			if i >= len(widths) {
 				break
 			}
@@ -145,9 +146,30 @@ func (c *salesOrderPNGCanvas) itemsTable(left, right, y int, snapshot salesdomai
 	return y + 4
 }
 
-func (c *salesOrderPNGCanvas) salesOrderPNGItemRowHeight(item salesdomain.SalesOrderSnapshotItem, widths []int, fontSize float64, lineHeight int) int {
+func salesOrderPNGItemColumnWidths(usableW int, hasDiscount bool) []int {
+	if hasDiscount {
+		return salesOrderScalePNGWidths(usableW, []float64{0.30, 0.12, 0.12, 0.13, 0.13, 0.20})
+	}
+	return salesOrderScalePNGWidths(usableW, []float64{0.36, 0.14, 0.13, 0.14, 0.23})
+}
+
+func salesOrderScalePNGWidths(usableW int, ratios []float64) []int {
+	widths := make([]int, len(ratios))
+	used := 0
+	for i, ratio := range ratios {
+		if i == len(ratios)-1 {
+			widths[i] = usableW - used
+			break
+		}
+		widths[i] = int(float64(usableW) * ratio)
+		used += widths[i]
+	}
+	return widths
+}
+
+func (c *salesOrderPNGCanvas) salesOrderPNGItemRowHeight(item salesdomain.SalesOrderSnapshotItem, widths []int, hasDiscount bool, fontSize float64, lineHeight int) int {
 	maxLines := 1
-	for i, text := range salesOrderItemCells(item) {
+	for i, text := range salesOrderItemCells(item, hasDiscount) {
 		if i >= len(widths) {
 			break
 		}

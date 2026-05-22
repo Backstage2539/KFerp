@@ -29,16 +29,16 @@ func TestDev329SalesOrderSettlementSummaryLayoutWiring(t *testing.T) {
 		{
 			rel: filepath.Join("internal", "infrastructure", "pdf", "sales_order_pdf.go"),
 			markers: []string{
-				`return []string{"商品", "规格", "数量", "单价", "备注", "优惠后价"}`,
+				`item.UnitPrice`,
 				`"订单备注"`,
 				`"商品合计： " + snapshot.TotalAmount`,
-				`"优惠合计： " + snapshot.Discount`,
+				`salesOrderMoneyPositive(snapshot.Discount)`,
 			},
 		},
 		{
 			rel: filepath.Join("internal", "infrastructure", "pdf", "sales_order_png.go"),
 			markers: []string{
-				"salesOrderItemHeaders()",
+				"salesOrderItemHeaders(hasDiscount)",
 				"row.Cells",
 				"订单备注",
 			},
@@ -63,7 +63,6 @@ func TestDev329SalesOrderSettlementSummaryLayoutDocs(t *testing.T) {
 		src := string(readOrderAppFileForTest(t, rel))
 		for _, want := range []string{
 			"PR-329",
-			"优惠后价",
 			"订单备注",
 			"优惠合计",
 		} {

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	salesdomain "orderapp/internal/domain/sales"
@@ -174,23 +175,31 @@ func (r SalesOrderRenderer) renderSalesOrderItemsTable(pdf *gofpdf.Fpdf, snapsho
 	left, _, right, _ := pdf.GetMargins()
 	pageW, _ := pdf.GetPageSize()
 	usableW := pageW - left - right
-	colWidths := []float64{usableW * 0.30, usableW * 0.10, usableW * 0.12, usableW * 0.13, usableW * 0.20, usableW * 0.15}
-	headers := salesOrderItemHeaders()
+	hasDiscount := salesOrderSnapshotHasDiscount(snapshot)
+	colWidths := salesOrderItemColumnWidths(usableW, hasDiscount)
+	headers := salesOrderItemHeaders(hasDiscount)
 	pdf.SetFont("noto", "", 10)
 	for i, h := range headers {
 		pdf.CellFormat(colWidths[i], 8, h, "B", 0, "L", false, 0, "")
 	}
 	pdf.Ln(-1)
 	for _, item := range snapshot.Items {
-		writeSalesOrderItemRow(pdf, item, colWidths, 6)
+		writeSalesOrderItemRow(pdf, item, colWidths, hasDiscount, 6)
 	}
 	pdf.Ln(4)
 }
 
-func writeSalesOrderItemRow(pdf *gofpdf.Fpdf, item salesdomain.SalesOrderSnapshotItem, colWidths []float64, lineHeight float64) {
+func salesOrderItemColumnWidths(usableW float64, hasDiscount bool) []float64 {
+	if hasDiscount {
+		return []float64{usableW * 0.30, usableW * 0.12, usableW * 0.12, usableW * 0.13, usableW * 0.13, usableW * 0.20}
+	}
+	return []float64{usableW * 0.36, usableW * 0.14, usableW * 0.13, usableW * 0.14, usableW * 0.23}
+}
+
+func writeSalesOrderItemRow(pdf *gofpdf.Fpdf, item salesdomain.SalesOrderSnapshotItem, colWidths []float64, hasDiscount bool, lineHeight float64) {
 	startX, startY := pdf.GetXY()
-	rowH := salesOrderItemRowHeight(pdf, item, colWidths, lineHeight)
-	cells := salesOrderItemCells(item)
+	rowH := salesOrderItemRowHeightForColumns(pdf, item, colWidths, hasDiscount, lineHeight)
+	cells := salesOrderItemCells(item, hasDiscount)
 	x := startX
 	for i, text := range cells {
 		if i >= len(colWidths) {
@@ -208,11 +217,15 @@ func writeSalesOrderItemRow(pdf *gofpdf.Fpdf, item salesdomain.SalesOrderSnapsho
 }
 
 func salesOrderItemRowHeight(pdf *gofpdf.Fpdf, item salesdomain.SalesOrderSnapshotItem, colWidths []float64, lineHeight float64) float64 {
+	return salesOrderItemRowHeightForColumns(pdf, item, colWidths, salesOrderItemHasDiscount(item), lineHeight)
+}
+
+func salesOrderItemRowHeightForColumns(pdf *gofpdf.Fpdf, item salesdomain.SalesOrderSnapshotItem, colWidths []float64, hasDiscount bool, lineHeight float64) float64 {
 	if lineHeight <= 0 {
 		lineHeight = 6
 	}
 	maxLines := 1
-	for i, text := range salesOrderItemCells(item) {
+	for i, text := range salesOrderItemCells(item, hasDiscount) {
 		if i >= len(colWidths) {
 			break
 		}
@@ -223,19 +236,51 @@ func salesOrderItemRowHeight(pdf *gofpdf.Fpdf, item salesdomain.SalesOrderSnapsh
 	return float64(maxLines)*lineHeight + 2
 }
 
-func salesOrderItemHeaders() []string {
-	return []string{"商品", "规格", "数量", "单价", "备注", "优惠后价"}
+func salesOrderItemHeaders(hasDiscount bool) []string {
+	if hasDiscount {
+		return []string{"商品", "规格", "数量", "单价", "优惠折扣", "备注"}
+	}
+	return []string{"商品", "规格", "数量", "单价", "备注"}
 }
 
-func salesOrderItemCells(item salesdomain.SalesOrderSnapshotItem) []string {
-	return []string{
+func salesOrderItemCells(item salesdomain.SalesOrderSnapshotItem, hasDiscount bool) []string {
+	cells := []string{
 		item.Name,
-		item.Spec,
+		salesOrderSpecPerUnit(item),
 		strings.TrimSpace(item.Qty + item.Unit),
 		item.UnitPrice,
-		item.Note,
-		item.LineTotal,
 	}
+	if hasDiscount {
+		cells = append(cells, salesOrderDiscountCell(item.DiscountAmount))
+	}
+	cells = append(cells, item.Note)
+	return cells
+}
+
+func salesOrderSpecPerUnit(item salesdomain.SalesOrderSnapshotItem) string {
+	spec := strings.TrimSpace(item.Spec)
+	unit := strings.TrimSpace(item.Unit)
+	if spec == "" || unit == "" || strings.Contains(spec, "/") {
+		return spec
+	}
+	return spec + "/" + unit
+}
+
+func salesOrderDiscountCell(amount string) string {
+	if !salesOrderMoneyPositive(amount) {
+		return ""
+	}
+	return "￥-" + salesOrderTrimMoney(amount) + "元"
+}
+
+func salesOrderTrimMoney(amount string) string {
+	value, err := strconv.ParseFloat(strings.TrimSpace(amount), 64)
+	if err != nil {
+		return strings.TrimSpace(amount)
+	}
+	formatted := salesdomain.FormatSalesOrderMoney(value)
+	formatted = strings.TrimRight(formatted, "0")
+	return strings.TrimSuffix(formatted, ".")
 }
 
 func salesOrderWrapCellText(pdf *gofpdf.Fpdf, text string, width float64) []string {
@@ -311,16 +356,34 @@ func salesOrderFinancialRows(snapshot salesdomain.SalesOrderSnapshot) []salesOrd
 	if note := strings.TrimSpace(snapshot.SalesOrderNote); note != "" {
 		rows = append(rows, salesOrderFinancialRow{Label: "订单备注", Value: note})
 	}
-	rows = append(rows, salesOrderFinancialRow{
-		Bold: true,
-		Cells: []string{
-			"商品合计： " + snapshot.TotalAmount,
-			"优惠合计： " + snapshot.Discount,
-			"运费： " + snapshot.Shipping,
-			"应收： " + snapshot.GrandTotal,
-		},
-	})
+	cells := []string{"商品合计： " + snapshot.TotalAmount}
+	if salesOrderMoneyPositive(snapshot.Discount) {
+		cells = append(cells, "优惠合计： "+snapshot.Discount)
+	}
+	cells = append(cells, "运费： "+snapshot.Shipping, "应收： "+snapshot.GrandTotal)
+	rows = append(rows, salesOrderFinancialRow{Bold: true, Cells: cells})
 	return rows
+}
+
+func salesOrderSnapshotHasDiscount(snapshot salesdomain.SalesOrderSnapshot) bool {
+	if salesOrderMoneyPositive(snapshot.Discount) {
+		return true
+	}
+	for _, item := range snapshot.Items {
+		if salesOrderItemHasDiscount(item) {
+			return true
+		}
+	}
+	return false
+}
+
+func salesOrderItemHasDiscount(item salesdomain.SalesOrderSnapshotItem) bool {
+	return salesOrderMoneyPositive(item.DiscountAmount)
+}
+
+func salesOrderMoneyPositive(amount string) bool {
+	value, err := strconv.ParseFloat(strings.TrimSpace(amount), 64)
+	return err == nil && value > 0.004
 }
 
 func salesOrderFontStyle(bold bool) string {

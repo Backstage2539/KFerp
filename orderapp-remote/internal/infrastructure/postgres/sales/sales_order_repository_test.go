@@ -258,6 +258,9 @@ func TestSalesOrderPreviewIncludesNoteAndDiscountBreakdowns(t *testing.T) {
 	if preview.Snapshot.SalesOrderNote != "末行备注：随货附赠杯测样" || preview.Snapshot.Shipping != "169.00" || preview.Snapshot.Discount != "261.65" {
 		t.Fatalf("snapshot financial fields = %+v", preview.Snapshot)
 	}
+	if len(preview.Snapshot.Items) < 2 || preview.Snapshot.Items[0].DiscountAmount != "100.00" || preview.Snapshot.Items[1].DiscountAmount != "61.65" {
+		t.Fatalf("snapshot item discounts = %+v", preview.Snapshot.Items)
+	}
 	want := []salesdomain.SalesOrderDiscountBreakdown{
 		{Type: "unit_amount", Amount: "100.00"},
 		{Type: "percent", Amount: "61.65"},
