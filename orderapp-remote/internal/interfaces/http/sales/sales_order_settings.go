@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"image"
 	"image/color"
@@ -21,6 +22,7 @@ import (
 	salesapp "orderapp/internal/application/sales"
 	support "orderapp/internal/interfaces/http/support"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/labstack/echo/v4"
 )
 
@@ -80,8 +82,9 @@ func registerSalesOrderSettingsRoutes(e *echo.Echo, salesSvc *salesapp.Service, 
 	e.POST("/api/settings/sales-order/seal/select", h.selectSeal)
 	e.POST("/api/settings/sales-order/payment-codes", h.uploadPaymentCode)
 	e.PUT("/api/settings/sales-order/payment-codes/:id", h.updatePaymentCode)
-	e.DELETE("/api/settings/sales-order/payment-codes/:id", h.deactivatePaymentCode)
+	e.POST("/api/settings/sales-order/payment-codes/:id/deactivate", h.deactivatePaymentCode)
 	e.POST("/api/settings/sales-order/payment-codes/:id/activate", h.activatePaymentCode)
+	e.DELETE("/api/settings/sales-order/payment-codes/:id", h.deletePaymentCode)
 	e.POST("/api/settings/sales-order/seal", h.uploadSeal)
 	e.POST("/api/settings/sales-order/seal/remove-background", h.removeSealBackground)
 	e.GET("/assets/sales_order_assets/*", h.serveSalesOrderAsset)
@@ -330,6 +333,9 @@ func (h salesOrderSettingsHandler) deactivatePaymentCode(c echo.Context) error {
 		return c.JSON(http.StatusBadRequest, map[string]any{"error": "invalid id"})
 	}
 	if err := h.sales.DeactivateSalesOrderPaymentCode(c.Request().Context(), id, support.ActorOf(c)); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return c.JSON(http.StatusNotFound, map[string]any{"error": "payment code not found"})
+		}
 		return c.JSON(http.StatusInternalServerError, map[string]any{"error": err.Error()})
 	}
 	return c.JSON(http.StatusOK, map[string]any{"ok": true})
@@ -341,6 +347,23 @@ func (h salesOrderSettingsHandler) activatePaymentCode(c echo.Context) error {
 		return c.JSON(http.StatusBadRequest, map[string]any{"error": "invalid id"})
 	}
 	if err := h.sales.ActivateSalesOrderPaymentCode(c.Request().Context(), id, support.ActorOf(c)); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return c.JSON(http.StatusNotFound, map[string]any{"error": "payment code not found"})
+		}
+		return c.JSON(http.StatusInternalServerError, map[string]any{"error": err.Error()})
+	}
+	return c.JSON(http.StatusOK, map[string]any{"ok": true})
+}
+
+func (h salesOrderSettingsHandler) deletePaymentCode(c echo.Context) error {
+	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil || id <= 0 {
+		return c.JSON(http.StatusBadRequest, map[string]any{"error": "invalid id"})
+	}
+	if err := h.sales.DeleteSalesOrderPaymentCode(c.Request().Context(), id, support.ActorOf(c)); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return c.JSON(http.StatusNotFound, map[string]any{"error": "payment code not found"})
+		}
 		return c.JSON(http.StatusInternalServerError, map[string]any{"error": err.Error()})
 	}
 	return c.JSON(http.StatusOK, map[string]any{"ok": true})

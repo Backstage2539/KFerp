@@ -415,7 +415,9 @@ func ensureSalesOrderTables(ctx context.Context, pool *pgxpool.Pool, schema stri
 			sort INTEGER NOT NULL DEFAULT 0,
 			active BOOLEAN NOT NULL DEFAULT true,
 			created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-			updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+			updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+			deleted_at TIMESTAMPTZ,
+			deleted_by TEXT NOT NULL DEFAULT ''
 		)`, schema, schema),
 		fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s.sales_order_documents (
 			id BIGSERIAL PRIMARY KEY,
@@ -464,6 +466,8 @@ func ensureSalesOrderTables(ctx context.Context, pool *pgxpool.Pool, schema stri
 		fmt.Sprintf(`ALTER TABLE %s.sales_order_settings ADD COLUMN IF NOT EXISTS bank_account_name TEXT NOT NULL DEFAULT ''`, schema),
 		fmt.Sprintf(`ALTER TABLE %s.sales_order_settings ADD COLUMN IF NOT EXISTS bank_name TEXT NOT NULL DEFAULT ''`, schema),
 		fmt.Sprintf(`ALTER TABLE %s.sales_order_settings ADD COLUMN IF NOT EXISTS bank_account_no TEXT NOT NULL DEFAULT ''`, schema),
+		fmt.Sprintf(`ALTER TABLE %s.sales_order_payment_codes ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ`, schema),
+		fmt.Sprintf(`ALTER TABLE %s.sales_order_payment_codes ADD COLUMN IF NOT EXISTS deleted_by TEXT NOT NULL DEFAULT ''`, schema),
 	} {
 		if _, err := pool.Exec(ctx, stmt); err != nil {
 			return err

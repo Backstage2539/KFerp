@@ -72,6 +72,9 @@ func TestSalesOrderSettingsRegistersSealToolRoutes(t *testing.T) {
 		"POST /api/settings/sales-order/seal/select",
 		"POST /api/settings/sales-order/seal-position",
 		"POST /api/settings/sales-order/payment-layout",
+		"POST /api/settings/sales-order/payment-codes/:id/deactivate",
+		"POST /api/settings/sales-order/payment-codes/:id/activate",
+		"DELETE /api/settings/sales-order/payment-codes/:id",
 		"POST /api/settings/sales-order/seal/remove-background",
 	} {
 		if !routes[want] {
@@ -585,11 +588,11 @@ func TestSalesOrderPaymentCodeDeactivateKeepsVisibleForSettingsAndCanReactivate(
 		t.Fatalf("upload response missing ids: %+v", uploadPayload)
 	}
 
-	deleteReq := httptest.NewRequest(http.MethodDelete, fmt.Sprintf("/api/settings/sales-order/payment-codes/%d", uploadPayload.PaymentCode.ID), nil)
-	deleteRec := httptest.NewRecorder()
-	e.ServeHTTP(deleteRec, deleteReq)
-	if deleteRec.Code != http.StatusOK {
-		t.Fatalf("payment code deactivate status=%d body=%s", deleteRec.Code, deleteRec.Body.String())
+	deactivateReq := httptest.NewRequest(http.MethodPost, fmt.Sprintf("/api/settings/sales-order/payment-codes/%d/deactivate", uploadPayload.PaymentCode.ID), nil)
+	deactivateRec := httptest.NewRecorder()
+	e.ServeHTTP(deactivateRec, deactivateReq)
+	if deactivateRec.Code != http.StatusOK {
+		t.Fatalf("payment code deactivate status=%d body=%s", deactivateRec.Code, deactivateRec.Body.String())
 	}
 
 	getReq := httptest.NewRequest(http.MethodGet, "/api/settings/sales-order", nil)
@@ -653,6 +656,41 @@ func TestSalesOrderPaymentCodeDeactivateKeepsVisibleForSettingsAndCanReactivate(
 	}
 	if action != "activate" {
 		t.Fatalf("payment code audit action=%q, want activate", action)
+	}
+
+	deleteReq := httptest.NewRequest(http.MethodDelete, fmt.Sprintf("/api/settings/sales-order/payment-codes/%d", uploadPayload.PaymentCode.ID), nil)
+	deleteRec := httptest.NewRecorder()
+	e.ServeHTTP(deleteRec, deleteReq)
+	if deleteRec.Code != http.StatusOK {
+		t.Fatalf("payment code delete status=%d body=%s", deleteRec.Code, deleteRec.Body.String())
+	}
+	getReq = httptest.NewRequest(http.MethodGet, "/api/settings/sales-order", nil)
+	getRec = httptest.NewRecorder()
+	e.ServeHTTP(getRec, getReq)
+	if getRec.Code != http.StatusOK {
+		t.Fatalf("settings get after delete status=%d body=%s", getRec.Code, getRec.Body.String())
+	}
+	if strings.Contains(getRec.Body.String(), "好老板（信用卡、花呗）") {
+		t.Fatalf("deleted payment code should not remain visible in settings: %s", getRec.Body.String())
+	}
+	var deletedAtSet bool
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT deleted_at IS NOT NULL FROM %s.sales_order_payment_codes WHERE id=$1`, schema), uploadPayload.PaymentCode.ID).Scan(&deletedAtSet); err != nil {
+		t.Fatalf("payment code row should remain after delete: %v", err)
+	}
+	if !deletedAtSet {
+		t.Fatal("payment code deleted_at is null, want set")
+	}
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT count(*)::int FROM %s.sales_order_assets WHERE id=$1 AND kind='payment_code'`, schema), uploadPayload.Asset.ID).Scan(&assetCount); err != nil {
+		t.Fatalf("query payment code asset after delete: %v", err)
+	}
+	if assetCount != 1 {
+		t.Fatalf("payment code asset rows after delete=%d, want 1", assetCount)
+	}
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT action FROM %s.audit_logs WHERE entity_type='sales_order_payment_code' AND entity_id=$1 AND field='deleted_at' ORDER BY id DESC LIMIT 1`, schema), uploadPayload.PaymentCode.ID).Scan(&action); err != nil {
+		t.Fatalf("query payment code delete audit action: %v", err)
+	}
+	if action != "delete" {
+		t.Fatalf("payment code audit action=%q, want delete", action)
 	}
 }
 
