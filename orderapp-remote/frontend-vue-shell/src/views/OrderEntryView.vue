@@ -236,16 +236,17 @@
               <select v-model="row.discount_type" @change="onRowDiscountTypeChange(row)">
                 <option value="">无优惠</option>
                 <option value="amount">减免数额</option>
+                <option value="unit_amount">单价优惠</option>
                 <option value="percent">折扣</option>
                 <option value="free">免费</option>
               </select>
               <input
-                v-if="row.discount_type === 'amount' || row.discount_type === 'percent'"
+                v-if="row.discount_type === 'amount' || row.discount_type === 'unit_amount' || row.discount_type === 'percent'"
                 v-model.number="row.discount_value"
                 type="number"
                 min="0"
                 step="0.01"
-                :placeholder="row.discount_type === 'percent' ? '90=9折' : '减免金额'" />
+                :placeholder="discountValuePlaceholder(row)" />
             </div>
           </label>
 
@@ -317,7 +318,7 @@
           <li>挂耳产品可按袋或盒录单，盒价会按发布的挂耳价格梯度自动匹配。</li>
           <li>新订单默认已付款、未发货；商品单价会随规格和数量匹配价格梯度。</li>
           <li>需要临时改价时直接修改单价，点击 ↺ 恢复自动梯度价。</li>
-          <li>每条商品明细可选择减免数额、折扣或免费，保存后会计入订单优惠。</li>
+          <li>每条商品明细可选择减免数额、单价优惠、折扣或免费，保存后会计入订单优惠。</li>
           <li>每条商品明细可填写“条目备注”，会随该商品带入销售单和出库单。</li>
           <li>库存充足时保存前会提示成品批次；历史库存没有 FP 批次时会提示库存余额，确认使用后进入库存待发货。</li>
         </ul>
@@ -894,6 +895,12 @@ function onRowDiscountTypeChange(row) {
   if (row?.discount_type === 'free' || row?.discount_type === '') {
     row.discount_value = ''
   }
+}
+
+function discountValuePlaceholder(row) {
+  if (row?.discount_type === 'percent') return '90=9折'
+  if (row?.discount_type === 'unit_amount') return `每${priceUnitLabel(row).replace(/^元\//, '')}优惠金额`
+  return '减免金额'
 }
 
 function money(value) {

@@ -483,23 +483,35 @@ test('lineTotal uses manual wholesale unit price in the selected spec display un
   }, false), 106 * 30)
 })
 
-test('lineTotal applies per-row discount amount percent and free modes', () => {
-  const row = {
-    tier_id: 'manual',
-    spec_mode: '454',
-    qty: 2,
-    unit_price: '88',
-  }
+test('lineTotal applies per-row discount amount percent free and unit amount modes', () => {
+	const row = {
+		tier_id: 'manual',
+		spec_mode: '454',
+		qty: 2,
+		unit_price: '88',
+	}
 
-  assert.equal(lineTotal(product, { ...row, discount_type: 'amount', discount_value: '16' }, false), 160)
-  assert.equal(lineTotal(product, { ...row, discount_type: 'percent', discount_value: '50' }, false), 88)
-  assert.equal(lineTotal(product, { ...row, discount_type: 'free' }, false), 0)
-  assert.equal(lineDiscountAmount(176, { discount_type: 'amount', discount_value: '300' }), 176)
+	assert.equal(lineTotal(product, { ...row, discount_type: 'amount', discount_value: '16' }, false), 160)
+	assert.equal(lineTotal(product, { ...row, discount_type: 'percent', discount_value: '50' }, false), 88)
+	assert.equal(lineTotal(product, { ...row, discount_type: 'free' }, false), 0)
+	assert.equal(lineTotal(product, { ...row, discount_type: 'unit_amount', discount_value: '10' }, false), 156)
+	assert.equal(lineDiscountAmount(176, { discount_type: 'amount', discount_value: '300' }), 176)
+})
+
+test('lineTotal applies unit amount discount by the active price unit', () => {
+	assert.equal(lineTotal(product, {
+		tier_id: 'manual',
+		spec_mode: '1000',
+		qty: 30,
+		unit_price: '106',
+		discount_type: 'unit_amount',
+		discount_value: '6',
+	}, false), 3000)
 })
 
 test('buildOrderPayload carries per-item discount fields', () => {
-  const payload = buildOrderPayload({
-    form: {
+	const payload = buildOrderPayload({
+		form: {
       order_date: '2026-05-15',
       customer_id: 3,
       source_id: 1,
@@ -525,12 +537,41 @@ test('buildOrderPayload carries per-item discount fields', () => {
     ],
   })
 
-  assert.deepEqual(payload.discount_type, ['free'])
-  assert.deepEqual(payload.discount_value, [''])
+	assert.deepEqual(payload.discount_type, ['free'])
+	assert.deepEqual(payload.discount_value, [''])
+})
+
+test('buildOrderPayload carries unit amount discount values', () => {
+	const payload = buildOrderPayload({
+		form: {
+			order_date: '2026-05-22',
+			customer_id: 3,
+			source_id: 1,
+			order_type_id: 1,
+			pay_status_id: 2,
+			ship_status_id: 1,
+		},
+		rows: [
+			{
+				product_id: 7,
+				product_name: '橘皮乌龙',
+				tier_id: 'manual',
+				spec_mode: '454',
+				qty: 2,
+				unit: '件',
+				unit_price: 88,
+				discount_type: 'unit_amount',
+				discount_value: '10',
+			},
+		],
+	})
+
+	assert.deepEqual(payload.discount_type, ['unit_amount'])
+	assert.deepEqual(payload.discount_value, ['10'])
 })
 
 test('wholesalePriceUnit keeps 454g rows priced as yuan per lb', () => {
-  assert.deepEqual(wholesalePriceUnit({ spec_mode: '454' }), { label: '元/磅', suffix: '/磅', unitG: 454 })
+	assert.deepEqual(wholesalePriceUnit({ spec_mode: '454' }), { label: '元/磅', suffix: '/磅', unitG: 454 })
 })
 
 test('filterOptions searches names, full pinyin, initials, and codes', () => {

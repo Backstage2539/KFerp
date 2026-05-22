@@ -136,6 +136,8 @@ func normalizeOrderItemDiscountType(value string) string {
 	switch strings.TrimSpace(strings.ToLower(value)) {
 	case "amount", "fixed", "minus":
 		return "amount"
+	case "unit_amount", "unit", "unit_discount", "per_unit", "unit_price":
+		return "unit_amount"
 	case "percent", "discount":
 		return "percent"
 	case "free":
@@ -145,17 +147,48 @@ func normalizeOrderItemDiscountType(value string) string {
 	}
 }
 
-func applyOrderItemDiscount(baseLineTotal float64, discountType string, discountValue float64) (float64, float64) {
+type orderDiscountItem struct {
+	productKind string
+	salesUnit   string
+	specG       int64
+	units       int64
+}
+
+func orderItemUnitDiscountUnits(item orderDiscountItem, retailOrder bool) float64 {
+	units := item.units
+	if units <= 0 {
+		return 0
+	}
+	if item.productKind == "drip_bag" || item.salesUnit == "bag" || item.salesUnit == "box" {
+		return float64(units)
+	}
+	if retailOrder {
+		return float64(units)
+	}
+	if item.specG <= 0 {
+		return float64(units)
+	}
+	return float64(item.specG*units) / wholesaleDisplayUnitG(item.specG)
+}
+
+func applyOrderItemDiscount(baseLineTotal float64, discountType string, discountValue float64, discountUnits ...float64) (float64, float64) {
 	baseLineTotal = maxFloat(baseLineTotal, 0)
 	discountValue = maxFloat(discountValue, 0)
 	if baseLineTotal <= 0 {
 		return 0, 0
+	}
+	unitCount := 1.0
+	if len(discountUnits) > 0 {
+		unitCount = maxFloat(discountUnits[0], 0)
 	}
 	switch normalizeOrderItemDiscountType(discountType) {
 	case "free":
 		return baseLineTotal, 0
 	case "amount":
 		discountAmount := minFloat(discountValue, baseLineTotal)
+		return discountAmount, maxFloat(baseLineTotal-discountAmount, 0)
+	case "unit_amount":
+		discountAmount := minFloat(discountValue*unitCount, baseLineTotal)
 		return discountAmount, maxFloat(baseLineTotal-discountAmount, 0)
 	case "percent":
 		rate := minFloat(discountValue, 100)
@@ -803,6 +836,15 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 		_ = tx.QueryRow(ctx, fmt.Sprintf("SELECT COALESCE(name,'') FROM %s.order_types WHERE id=$1", r.schema), cmd.OrderTypeID).Scan(&orderTypeName)
 		retailOrder = isRetailOrderTypeName(orderTypeName)
 	}
+	applyItemDiscount := func(idx int) {
+		discountUnits := orderItemUnitDiscountUnits(orderDiscountItem{
+			productKind: items[idx].productKind,
+			salesUnit:   items[idx].salesUnit,
+			specG:       items[idx].specG,
+			units:       items[idx].units,
+		}, retailOrder)
+		items[idx].discountAmount, items[idx].lineTotal = applyOrderItemDiscount(items[idx].baseLineTotal, items[idx].discountType, items[idx].discountValue, discountUnits)
+	}
 	smallBatchRule := r.customerDirectShipSmallBatchPriceRuleTx(ctx, tx, cmd.CustomerID)
 	for idx := range items {
 		items[idx].productKind = "roasted"
@@ -861,7 +903,7 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 				lineTotal = *items[idx].manualPrice * float64(items[idx].units)
 			}
 			items[idx].baseLineTotal = lineTotal
-			items[idx].discountAmount, items[idx].lineTotal = applyOrderItemDiscount(lineTotal, items[idx].discountType, items[idx].discountValue)
+			applyItemDiscount(idx)
 			items[idx].unitPrice = *items[idx].manualPrice
 			items[idx].priceOverride = true
 			totalAmt += items[idx].baseLineTotal
@@ -882,7 +924,7 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 					items[idx].tierID = nil
 					items[idx].unitPrice = unitPrice
 					items[idx].baseLineTotal = unitPrice * float64(items[idx].units)
-					items[idx].discountAmount, items[idx].lineTotal = applyOrderItemDiscount(items[idx].baseLineTotal, items[idx].discountType, items[idx].discountValue)
+					applyItemDiscount(idx)
 					items[idx].matchedPriceQty = float64(items[idx].units)
 					items[idx].priceSourceJSON = beanListPriceSourceJSON(orderbeans.ListTypeDrip, usage, *items[idx].productID)
 					totalAmt += items[idx].baseLineTotal
@@ -925,7 +967,7 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 			_ = tx.QueryRow(ctx, q, *items[idx].productID).Scan(&retailPrices.Price100G, &retailPrices.Price200G, &retailPrices.Price227G, &retailPrices.Price250G)
 			_, lineTotal := salesdomain.RetailLinePriceForSpec(retailPrices, items[idx].specG, items[idx].units)
 			items[idx].baseLineTotal = lineTotal
-			items[idx].discountAmount, items[idx].lineTotal = applyOrderItemDiscount(lineTotal, items[idx].discountType, items[idx].discountValue)
+			applyItemDiscount(idx)
 			if qtyLb > 0 {
 				items[idx].unitPrice = lineTotal / qtyLb
 			}
@@ -954,7 +996,7 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 			if items[idx].baseLineTotal <= 0 {
 				items[idx].baseLineTotal = wholesaleLineTotalFromDisplayUnit(unitPrice, items[idx].specG, items[idx].units)
 			}
-			items[idx].discountAmount, items[idx].lineTotal = applyOrderItemDiscount(items[idx].baseLineTotal, items[idx].discountType, items[idx].discountValue)
+			applyItemDiscount(idx)
 			totalAmt += items[idx].baseLineTotal
 			itemDiscountAmt += items[idx].discountAmount
 			continue
@@ -973,7 +1015,7 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 					items[idx].tierID = nil
 					items[idx].unitPrice = unitPrice
 					items[idx].baseLineTotal = wholesaleLineTotalFromDisplayUnit(unitPrice, items[idx].specG, items[idx].units)
-					items[idx].discountAmount, items[idx].lineTotal = applyOrderItemDiscount(items[idx].baseLineTotal, items[idx].discountType, items[idx].discountValue)
+					applyItemDiscount(idx)
 					items[idx].priceSourceJSON = beanListPriceSourceJSON(orderbeans.ListTypeCommercial, usage, *items[idx].productID)
 					totalAmt += items[idx].baseLineTotal
 					itemDiscountAmt += items[idx].discountAmount
@@ -1102,7 +1144,7 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 		if items[idx].baseLineTotal == 0 {
 			items[idx].baseLineTotal = wholesaleLineTotalFromDisplayUnit(items[idx].unitPrice, items[idx].specG, items[idx].units)
 		}
-		items[idx].discountAmount, items[idx].lineTotal = applyOrderItemDiscount(items[idx].baseLineTotal, items[idx].discountType, items[idx].discountValue)
+		applyItemDiscount(idx)
 		totalAmt += items[idx].baseLineTotal
 		itemDiscountAmt += items[idx].discountAmount
 	}

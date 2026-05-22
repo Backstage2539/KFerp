@@ -1722,6 +1722,108 @@ func TestOrderAPISaveCarriesItemDiscounts(t *testing.T) {
 	}
 }
 
+func TestOrderAPISaveCarriesUnitAmountItemDiscount(t *testing.T) {
+	repo := &capturingSaveOrderRepo{}
+	e := echo.New()
+	e.Use(func(next echo.HandlerFunc) echo.HandlerFunc {
+		return func(c echo.Context) error {
+			c.Set("employee_id", int64(1))
+			c.Set("operator_employee", "测试员")
+			return next(c)
+		}
+	})
+	registerOrderAPI(e, salesapp.NewService(repo), nil)
+
+	payload := map[string]any{
+		"order_date":     "2026-05-22",
+		"customer_id":    3,
+		"source_id":      1,
+		"order_type_id":  1,
+		"pay_status_id":  2,
+		"payment_method": "微信支付",
+		"ship_status_id": 1,
+		"product_id":     []string{"7"},
+		"tier_id":        []string{"manual"},
+		"unit_price":     []string{"88"},
+		"item_name":      []string{"橘皮乌龙"},
+		"qty":            []string{"2"},
+		"unit":           []string{"件"},
+		"spec":           []string{"454"},
+		"discount_type":  []string{"unit_amount"},
+		"discount_value": []string{"10"},
+	}
+	body, _ := json.Marshal(payload)
+	req := httptest.NewRequest(http.MethodPost, "/api/order", bytes.NewReader(body))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("POST /api/order status = %d, want 200, body=%s", rec.Code, rec.Body.String())
+	}
+	if len(repo.cmd.Items) != 1 {
+		t.Fatalf("captured items len = %d, want 1", len(repo.cmd.Items))
+	}
+	if repo.cmd.Items[0].DiscountType != "unit_amount" || repo.cmd.Items[0].DiscountValue != 10 {
+		t.Fatalf("captured item discount = %q/%v, want unit_amount/10", repo.cmd.Items[0].DiscountType, repo.cmd.Items[0].DiscountValue)
+	}
+}
+
+func TestOrderAPISavesUnitAmountItemDiscountTotals(t *testing.T) {
+	pool, schema := newOrderAPITestDB(t)
+	ctx := context.Background()
+	seedOrderAPITestData(t, ctx, pool, schema)
+
+	e := newOrderAPITestEcho(pool, schema)
+	payload := map[string]any{
+		"order_date":     "2026-05-22",
+		"customer_id":    3,
+		"source_id":      1,
+		"order_type_id":  1,
+		"pay_status_id":  2,
+		"payment_method": "微信支付",
+		"ship_status_id": 1,
+		"product_id":     []string{"7"},
+		"tier_id":        []string{"manual"},
+		"unit_price":     []string{"88"},
+		"item_name":      []string{"橘皮乌龙"},
+		"qty":            []string{"2"},
+		"unit":           []string{"件"},
+		"spec":           []string{"454"},
+		"discount_type":  []string{"unit_amount"},
+		"discount_value": []string{"10"},
+	}
+	body, _ := json.Marshal(payload)
+	req := httptest.NewRequest(http.MethodPost, "/api/order", bytes.NewReader(body))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("POST /api/order status = %d, want 200, body=%s", rec.Code, rec.Body.String())
+	}
+	var orderDiscount, grandTotal, lineDiscount, lineTotal float64
+	var discountType string
+	var discountValue float64
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`
+		SELECT COALESCE(o.discount_amount,0), COALESCE(o.grand_total,0),
+		       COALESCE(oi.discount_type,''), COALESCE(oi.discount_value,0),
+		       COALESCE(oi.discount_amount,0), COALESCE(oi.line_total,0)
+		FROM %s.orders o
+		JOIN %s.order_items oi ON oi.order_id=o.id
+		ORDER BY o.id DESC
+		LIMIT 1
+	`, schema, schema)).Scan(&orderDiscount, &grandTotal, &discountType, &discountValue, &lineDiscount, &lineTotal); err != nil {
+		t.Fatalf("query saved order discount totals: %v", err)
+	}
+	if discountType != "unit_amount" || discountValue != 10 {
+		t.Fatalf("saved item discount = %q/%v, want unit_amount/10", discountType, discountValue)
+	}
+	if orderDiscount != 20 || lineDiscount != 20 || lineTotal != 156 || grandTotal != 156 {
+		t.Fatalf("discount totals = order %.2f line discount %.2f line %.2f grand %.2f; want 20/20/156/156", orderDiscount, lineDiscount, lineTotal, grandTotal)
+	}
+}
+
 func TestOrderAPISavesRetailCustomSpecPrice(t *testing.T) {
 	pool, schema := newOrderAPITestDB(t)
 	ctx := context.Background()
