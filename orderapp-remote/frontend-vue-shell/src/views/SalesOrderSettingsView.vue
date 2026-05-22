@@ -39,17 +39,24 @@
       </div>
       <table>
         <thead>
-          <tr><th>名称</th><th>说明</th><th>文件</th><th>排序</th><th>操作</th></tr>
+          <tr><th>名称</th><th>说明</th><th>文件</th><th>排序</th><th>状态</th><th>操作</th></tr>
         </thead>
         <tbody>
-          <tr v-for="code in settings.payment_codes || []" :key="code.id">
+          <tr v-for="code in settings.payment_codes || []" :key="code.id" :class="{ inactive: !code.active }">
             <td>{{ code.label }}</td>
             <td>{{ code.description || '-' }}</td>
             <td>{{ code.asset?.filename || '-' }}</td>
             <td>{{ code.sort }}</td>
-            <td><button class="secondary" type="button" @click="deletePaymentCode(code)" :disabled="saving">停用</button></td>
+            <td><span class="status-pill" :class="{ off: !code.active }">{{ code.active ? '启用中' : '已停用' }}</span></td>
+            <td>
+              <div class="row-actions">
+                <button v-if="code.active" class="secondary" type="button" @click="setPaymentCodeActive(code, false)" :disabled="saving">停用</button>
+                <button v-else class="secondary" type="button" @click="setPaymentCodeActive(code, true)" :disabled="saving">启用</button>
+                <button class="secondary danger" type="button" @click="removePaymentCode(code)" :disabled="saving">删除</button>
+              </div>
+            </td>
           </tr>
-          <tr v-if="!(settings.payment_codes || []).length"><td colspan="5" class="muted">暂无收款码</td></tr>
+          <tr v-if="!(settings.payment_codes || []).length"><td colspan="6" class="muted">暂无收款码</td></tr>
         </tbody>
       </table>
     </section>
@@ -245,15 +252,39 @@ async function uploadPaymentCode() {
   }
 }
 
-async function deletePaymentCode(code) {
+async function setPaymentCodeActive(code, active) {
   if (!code?.id) return
+  saving.value = true
+  error.value = ''
+  try {
+    await apiSend(`/api/settings/sales-order/payment-codes/${code.id}`, {
+      method: 'PUT',
+      body: {
+        label: code.label,
+        description: code.description || '',
+        asset_id: code.asset_id || code.asset?.id,
+        sort: Number(code.sort || 0),
+        active,
+      },
+    })
+    await load()
+  } catch (err) {
+    error.value = err.message || (active ? '启用失败' : '停用失败')
+  } finally {
+    saving.value = false
+  }
+}
+
+async function removePaymentCode(code) {
+  if (!code?.id) return
+  if (!window.confirm(`删除收款码“${code.label || code.id}”？`)) return
   saving.value = true
   error.value = ''
   try {
     await apiSend(`/api/settings/sales-order/payment-codes/${code.id}`, { method: 'DELETE' })
     await load()
   } catch (err) {
-    error.value = err.message || '停用失败'
+    error.value = err.message || '删除失败'
   } finally {
     saving.value = false
   }
@@ -333,6 +364,11 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 table { width: 100%; border-collapse: collapse; }
 th, td { border-bottom: 1px solid #eee8df; padding: 9px 8px; text-align: left; }
 th { background: #fbfaf8; }
+.inactive { color: #777; background: #fcfcfc; }
+.status-pill { display: inline-flex; align-items: center; min-height: 26px; border-radius: 999px; border: 1px solid #a7d7ad; background: #effaf0; color: #246024; padding: 0 9px; font-size: 12px; font-weight: 700; white-space: nowrap; }
+.status-pill.off { border-color: #d8d1c8; background: #f5f2ee; color: #6b6258; }
+.row-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.danger { border-color: #b91c1c; color: #b91c1c; }
 .muted { color: #666; text-align: center; }
 .error, .ok { border-radius: 6px; padding: 9px; margin-bottom: 12px; }
 .error { background: #fff0f0; border: 1px solid #e6b7b7; color: #8a1f1f; }

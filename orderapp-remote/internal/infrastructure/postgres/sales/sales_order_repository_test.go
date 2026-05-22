@@ -78,6 +78,115 @@ func TestSalesOrderPaymentCodeRoundTrip(t *testing.T) {
 	}
 }
 
+func TestSalesOrderPaymentCodeLifecycleKeepsDisabledCodesVisibleUntilDeleted(t *testing.T) {
+	pool, schema := newSalesPostgresTestDB(t)
+	ctx := context.Background()
+	defer func() {
+		_, _ = pool.Exec(ctx, "DROP SCHEMA IF EXISTS "+schema+" CASCADE")
+		pool.Close()
+	}()
+	prepareSalesSchemaPrerequisites(t, ctx, pool, schema)
+	repo := NewRepository(pool, schema)
+	if err := EnsureSchema(ctx, pool, schema); err != nil {
+		t.Fatalf("EnsureSchema: %v", err)
+	}
+	asset, err := repo.SaveSalesOrderAsset(ctx, salesapp.SaveSalesOrderAssetCommand{
+		Actor: "测试员", Kind: "payment_code", Filename: "wx.png", ContentType: "image/png", Bytes: 12, SHA256: "abc", ObjectKey: "sales-order/payment/wx.png",
+	})
+	if err != nil {
+		t.Fatalf("SaveSalesOrderAsset: %v", err)
+	}
+	code, err := repo.SaveSalesOrderPaymentCode(ctx, salesapp.SaveSalesOrderPaymentCodeCommand{
+		Actor: "测试员", Label: "微信", Description: "扫码付款", AssetID: asset.ID, Sort: 10, Active: true,
+	})
+	if err != nil {
+		t.Fatalf("SaveSalesOrderPaymentCode: %v", err)
+	}
+	if _, err := repo.SaveSalesOrderPaymentCode(ctx, salesapp.SaveSalesOrderPaymentCodeCommand{
+		Actor: "测试员", ID: code.ID, Label: code.Label, Description: code.Description, AssetID: code.AssetID, Sort: code.Sort, Active: false,
+	}); err != nil {
+		t.Fatalf("disable payment code: %v", err)
+	}
+	settings, err := repo.LoadSalesOrderSettings(ctx)
+	if err != nil {
+		t.Fatalf("LoadSalesOrderSettings after disable: %v", err)
+	}
+	if len(settings.PaymentCodes) != 1 || settings.PaymentCodes[0].Active {
+		t.Fatalf("disabled code should remain visible in settings: %+v", settings.PaymentCodes)
+	}
+	if _, err := repo.SaveSalesOrderPaymentCode(ctx, salesapp.SaveSalesOrderPaymentCodeCommand{
+		Actor: "测试员", ID: code.ID, Label: code.Label, Description: code.Description, AssetID: code.AssetID, Sort: code.Sort, Active: true,
+	}); err != nil {
+		t.Fatalf("enable payment code: %v", err)
+	}
+	settings, err = repo.LoadSalesOrderSettings(ctx)
+	if err != nil {
+		t.Fatalf("LoadSalesOrderSettings after enable: %v", err)
+	}
+	if len(settings.PaymentCodes) != 1 || !settings.PaymentCodes[0].Active {
+		t.Fatalf("enabled code should be visible and active: %+v", settings.PaymentCodes)
+	}
+	if err := repo.DeleteSalesOrderPaymentCode(ctx, code.ID, "测试员"); err != nil {
+		t.Fatalf("DeleteSalesOrderPaymentCode: %v", err)
+	}
+	settings, err = repo.LoadSalesOrderSettings(ctx)
+	if err != nil {
+		t.Fatalf("LoadSalesOrderSettings after delete: %v", err)
+	}
+	if len(settings.PaymentCodes) != 0 {
+		t.Fatalf("deleted code should not be visible in settings: %+v", settings.PaymentCodes)
+	}
+}
+
+func TestSalesOrderDocumentSkipsInactivePaymentCodes(t *testing.T) {
+	pool, schema := newSalesPostgresTestDB(t)
+	ctx := context.Background()
+	defer func() {
+		_, _ = pool.Exec(ctx, "DROP SCHEMA IF EXISTS "+schema+" CASCADE")
+		pool.Close()
+	}()
+	prepareSalesSchemaPrerequisites(t, ctx, pool, schema)
+	repo := NewRepository(pool, schema, WithSalesOrderAssetDir(t.TempDir()), WithSalesOrderRenderer(fakeSalesOrderRenderer{}))
+	if err := EnsureSchema(ctx, pool, schema); err != nil {
+		t.Fatalf("EnsureSchema: %v", err)
+	}
+	seedSalesOrderDocumentOrder(t, ctx, pool, schema)
+	if err := repo.SaveSalesOrderSettings(ctx, salesapp.SaveSalesOrderSettingsCommand{Actor: "测试员", CompanyName: "浅焙作坊咖啡"}); err != nil {
+		t.Fatalf("SaveSalesOrderSettings: %v", err)
+	}
+	asset, err := repo.SaveSalesOrderAsset(ctx, salesapp.SaveSalesOrderAssetCommand{
+		Actor: "测试员", Kind: "payment_code", Filename: "wx.png", ContentType: "image/png", Bytes: 12, SHA256: "abc", ObjectKey: "sales-order/payment/wx.png",
+	})
+	if err != nil {
+		t.Fatalf("SaveSalesOrderAsset: %v", err)
+	}
+	code, err := repo.SaveSalesOrderPaymentCode(ctx, salesapp.SaveSalesOrderPaymentCodeCommand{
+		Actor: "测试员", Label: "微信", Description: "扫码付款", AssetID: asset.ID, Sort: 10, Active: false,
+	})
+	if err != nil {
+		t.Fatalf("SaveSalesOrderPaymentCode inactive: %v", err)
+	}
+	inactiveDoc, err := repo.GenerateSalesOrderDocument(ctx, salesapp.GenerateSalesOrderDocumentCommand{Actor: "测试员", OrderID: 1})
+	if err != nil {
+		t.Fatalf("Generate inactive: %v", err)
+	}
+	if len(inactiveDoc.Snapshot.PaymentCodes) != 0 {
+		t.Fatalf("inactive payment code should not render in snapshot: %+v", inactiveDoc.Snapshot.PaymentCodes)
+	}
+	if _, err := repo.SaveSalesOrderPaymentCode(ctx, salesapp.SaveSalesOrderPaymentCodeCommand{
+		Actor: "测试员", ID: code.ID, Label: code.Label, Description: code.Description, AssetID: code.AssetID, Sort: code.Sort, Active: true,
+	}); err != nil {
+		t.Fatalf("enable payment code: %v", err)
+	}
+	activeDoc, err := repo.GenerateSalesOrderDocument(ctx, salesapp.GenerateSalesOrderDocumentCommand{Actor: "测试员", OrderID: 1})
+	if err != nil {
+		t.Fatalf("Generate active: %v", err)
+	}
+	if len(activeDoc.Snapshot.PaymentCodes) != 1 || activeDoc.Snapshot.PaymentCodes[0].Label != "微信" {
+		t.Fatalf("active payment code should render in snapshot: %+v", activeDoc.Snapshot.PaymentCodes)
+	}
+}
+
 func TestGenerateSalesOrderDocumentCreatesVersions(t *testing.T) {
 	pool, schema := newSalesPostgresTestDB(t)
 	ctx := context.Background()

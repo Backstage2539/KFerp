@@ -83,7 +83,7 @@ func (r Repository) SaveSalesOrderPaymentCode(ctx context.Context, cmd salesapp.
 	if cmd.ID > 0 {
 		q := fmt.Sprintf(`UPDATE %s.sales_order_payment_codes
 			SET label=$2, description=$3, asset_id=$4, sort=$5, active=$6, updated_at=now()
-			WHERE id=$1
+			WHERE id=$1 AND deleted_at IS NULL
 			RETURNING id, label, description, asset_id, sort, active`, r.schema)
 		if err := r.pool.QueryRow(ctx, q, cmd.ID, cmd.Label, cmd.Description, cmd.AssetID, cmd.Sort, cmd.Active).Scan(&code.ID, &code.Label, &code.Description, &code.AssetID, &code.Sort, &code.Active); err != nil {
 			return salesapp.SalesOrderPaymentCode{}, err
@@ -101,10 +101,13 @@ func (r Repository) SaveSalesOrderPaymentCode(ctx context.Context, cmd salesapp.
 }
 
 func (r Repository) DeleteSalesOrderPaymentCode(ctx context.Context, id int64, actor string) error {
-	q := fmt.Sprintf(`UPDATE %s.sales_order_payment_codes SET active=false, updated_at=now() WHERE id=$1`, r.schema)
-	_, err := r.pool.Exec(ctx, q, id)
+	q := fmt.Sprintf(`UPDATE %s.sales_order_payment_codes SET active=false, deleted_at=now(), deleted_by=$2, updated_at=now() WHERE id=$1 AND deleted_at IS NULL`, r.schema)
+	tag, err := r.pool.Exec(ctx, q, id, actor)
+	if err == nil && tag.RowsAffected() == 0 {
+		return pgx.ErrNoRows
+	}
 	if err == nil {
-		postgresinfra.AuditInsert(ctx, r.pool, r.schema, actor, "sales_order_payment_code", &id, "delete", postgresinfra.StrPtr("active"), postgresinfra.StrPtr("true"), postgresinfra.StrPtr("false"), nil)
+		postgresinfra.AuditInsert(ctx, r.pool, r.schema, actor, "sales_order_payment_code", &id, "delete", postgresinfra.StrPtr("deleted_at"), nil, postgresinfra.StrPtr("now"), nil)
 	}
 	return err
 }
@@ -125,8 +128,8 @@ func (r Repository) loadSalesOrderPaymentCodes(ctx context.Context) ([]salesapp.
 			a.id, a.kind, a.filename, a.content_type, a.bytes, a.sha256, a.object_key, to_char(a.created_at,'YYYY-MM-DD HH24:MI:SS'), a.created_by
 		FROM %s.sales_order_payment_codes pc
 		JOIN %s.sales_order_assets a ON a.id=pc.asset_id
-		WHERE pc.active=true
-		ORDER BY pc.sort, pc.id`, r.schema, r.schema)
+		WHERE pc.deleted_at IS NULL
+		ORDER BY pc.active DESC, pc.sort, pc.id`, r.schema, r.schema)
 	rows, err := r.pool.Query(ctx, q)
 	if err != nil {
 		return nil, err
@@ -414,6 +417,9 @@ func (r Repository) buildSalesOrderSnapshotTx(ctx context.Context, tx pgx.Tx, or
 	snapshot.Discount = salesdomain.FormatSalesOrderMoney(discount)
 	snapshot.GrandTotal = salesdomain.FormatSalesOrderMoney(grand)
 	for _, code := range settings.PaymentCodes {
+		if !code.Active {
+			continue
+		}
 		snapshot.PaymentCodes = append(snapshot.PaymentCodes, salesdomain.SalesOrderAssetRef{
 			ID: code.Asset.ID, Label: code.Label, Description: code.Description, ObjectKey: code.Asset.ObjectKey, ContentType: code.Asset.ContentType, URL: code.Asset.URL,
 		})
