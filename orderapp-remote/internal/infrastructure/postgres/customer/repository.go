@@ -27,18 +27,19 @@ type Repository struct {
 }
 
 type upsertRequest struct {
-	Name               string
-	RawName            string
-	CustomerType       string
-	CompanyName        string
-	CompanyAddress     string
-	CompanyPhone       string
-	Contact            string
-	Phone              string
-	Address            string
-	DefaultSourceID    string
-	DefaultOrderTypeID string
-	Active             string
+	Name                  string
+	RawName               string
+	CustomerType          string
+	CompanyName           string
+	CompanyAddress        string
+	CompanyPhone          string
+	Contact               string
+	Phone                 string
+	Address               string
+	DefaultSourceID       string
+	DefaultOrderTypeID    string
+	ResponsibleEmployeeID string
+	Active                string
 }
 
 type inlineRequest = upsertRequest
@@ -58,18 +59,19 @@ func NewRepository(pool *pgxpool.Pool, schema, assetDir string) Repository {
 
 func (r Repository) Upsert(ctx context.Context, actor string, id *int64, cmd customerapp.UpsertCommand) (int64, error) {
 	req := upsertRequest{
-		Name:               cmd.Name,
-		RawName:            cmd.RawName,
-		CustomerType:       cmd.CustomerType,
-		CompanyName:        cmd.CompanyName,
-		CompanyAddress:     cmd.CompanyAddress,
-		CompanyPhone:       cmd.CompanyPhone,
-		Contact:            cmd.Contact,
-		Phone:              cmd.Phone,
-		Address:            cmd.Address,
-		DefaultSourceID:    cmd.DefaultSourceID,
-		DefaultOrderTypeID: cmd.DefaultOrderTypeID,
-		Active:             cmd.Active,
+		Name:                  cmd.Name,
+		RawName:               cmd.RawName,
+		CustomerType:          cmd.CustomerType,
+		CompanyName:           cmd.CompanyName,
+		CompanyAddress:        cmd.CompanyAddress,
+		CompanyPhone:          cmd.CompanyPhone,
+		Contact:               cmd.Contact,
+		Phone:                 cmd.Phone,
+		Address:               cmd.Address,
+		DefaultSourceID:       cmd.DefaultSourceID,
+		DefaultOrderTypeID:    cmd.DefaultOrderTypeID,
+		ResponsibleEmployeeID: cmd.ResponsibleEmployeeID,
+		Active:                cmd.Active,
 	}
 	return upsertCustomer(ctx, r.pool, r.schema, actor, id, req)
 }
@@ -114,17 +116,18 @@ func (r Repository) DeleteAsset(ctx context.Context, actor string, assetID int64
 
 func (r Repository) InlineUpdate(ctx context.Context, actor string, id int64, cmd customerapp.InlineUpdateCommand) error {
 	req := inlineRequest{
-		Name:               cmd.Name,
-		CustomerType:       cmd.CustomerType,
-		CompanyName:        cmd.CompanyName,
-		CompanyAddress:     cmd.CompanyAddress,
-		CompanyPhone:       cmd.CompanyPhone,
-		Contact:            cmd.Contact,
-		Phone:              cmd.Phone,
-		Address:            cmd.Address,
-		DefaultSourceID:    cmd.DefaultSourceID,
-		DefaultOrderTypeID: cmd.DefaultOrderTypeID,
-		Active:             cmd.Active,
+		Name:                  cmd.Name,
+		CustomerType:          cmd.CustomerType,
+		CompanyName:           cmd.CompanyName,
+		CompanyAddress:        cmd.CompanyAddress,
+		CompanyPhone:          cmd.CompanyPhone,
+		Contact:               cmd.Contact,
+		Phone:                 cmd.Phone,
+		Address:               cmd.Address,
+		DefaultSourceID:       cmd.DefaultSourceID,
+		DefaultOrderTypeID:    cmd.DefaultOrderTypeID,
+		ResponsibleEmployeeID: cmd.ResponsibleEmployeeID,
+		Active:                cmd.Active,
 	}
 	return inlineUpdateCustomer(ctx, r.pool, r.schema, actor, id, req)
 }
@@ -151,7 +154,11 @@ func (r Repository) List(ctx context.Context, query customerapp.ListQuery) (cust
 	if err != nil {
 		return customerapp.ListResult{}, err
 	}
-	return customerapp.ListResult{Rows: rows, Sources: sources, OrderTypes: orderTypes, Total: total, HasNext: hasNext}, nil
+	employees, err := fetchCustomerResponsibleEmployees(ctx, r.pool, r.schema)
+	if err != nil {
+		return customerapp.ListResult{}, err
+	}
+	return customerapp.ListResult{Rows: rows, Sources: sources, OrderTypes: orderTypes, Employees: employees, Total: total, HasNext: hasNext}, nil
 }
 
 func (r Repository) Editor(ctx context.Context, id int64) (*customerapp.EditorData, error) {
@@ -167,6 +174,10 @@ func (r Repository) Editor(ctx context.Context, id int64) (*customerapp.EditorDa
 	if err != nil {
 		return nil, err
 	}
+	employees, err := fetchCustomerResponsibleEmployees(ctx, r.pool, r.schema)
+	if err != nil {
+		return nil, err
+	}
 	assets, err := fetchCustomerAssets(ctx, r.pool, r.schema, id)
 	if err != nil {
 		return nil, err
@@ -179,6 +190,7 @@ func (r Repository) Editor(ctx context.Context, id int64) (*customerapp.EditorDa
 		Customer:   *customer,
 		Sources:    sources,
 		OrderTypes: orderTypes,
+		Employees:  employees,
 		Assets:     assets,
 		Dashboard:  dashboard,
 	}, nil
@@ -207,36 +219,36 @@ func fetchCustomers(ctx context.Context, pool *pgxpool.Pool, schema string, quer
 	args := make([]any, 0)
 	where := ""
 	if q != "" {
-		where = "WHERE name ILIKE $1 OR COALESCE(company_name,'') ILIKE $1 OR COALESCE(company_phone,'') ILIKE $1 OR COALESCE(company_address,'') ILIKE $1 OR COALESCE(contact,'') ILIKE $1 OR COALESCE(phone,'') ILIKE $1 OR COALESCE(address,'') ILIKE $1"
+		where = "WHERE (c.name ILIKE $1 OR COALESCE(c.company_name,'') ILIKE $1 OR COALESCE(c.company_phone,'') ILIKE $1 OR COALESCE(c.company_address,'') ILIKE $1 OR COALESCE(c.contact,'') ILIKE $1 OR COALESCE(c.phone,'') ILIKE $1 OR COALESCE(c.address,'') ILIKE $1)"
 		args = append(args, "%"+strings.TrimSpace(q)+"%")
 	}
 	if t := strings.TrimSpace(query.CustomerType); t != "" {
 		if len(args) > 0 {
-			where += " AND customer_type = $" + strconv.Itoa(len(args)+1)
+			where += " AND c.customer_type = $" + strconv.Itoa(len(args)+1)
 		} else {
-			where = "WHERE customer_type = $1"
+			where = "WHERE c.customer_type = $1"
 		}
 		args = append(args, t)
 	}
 	if query.Active != nil {
 		if len(args) > 0 {
-			where += " AND active = $" + strconv.Itoa(len(args)+1)
+			where += " AND c.active = $" + strconv.Itoa(len(args)+1)
 		} else {
-			where = "WHERE active = $1"
+			where = "WHERE c.active = $1"
 		}
 		args = append(args, *query.Active)
 	}
 	countArgs := append([]any(nil), args...)
-	countSQL := fmt.Sprintf(`SELECT count(*)::int FROM %s.customers %s`, schema, where)
+	countSQL := fmt.Sprintf(`SELECT count(*)::int FROM %s.customers c %s`, schema, where)
 	if err := pool.QueryRow(ctx, countSQL, countArgs...).Scan(&total); err != nil {
 		return nil, 0, false, err
 	}
 	args = append(args, limit+1, offset)
 	limitArg := len(args) - 1
 	offsetArg := len(args)
-	orderBy := "name"
+	orderBy := "c.name"
 	if query.SortBy == "updated" {
-		orderBy = "updated"
+		orderBy = "c.updated_at"
 	}
 	orderDir := "ASC"
 	if strings.EqualFold(query.SortDirection, "desc") {
@@ -244,13 +256,15 @@ func fetchCustomers(ctx context.Context, pool *pgxpool.Pool, schema string, quer
 	}
 
 	sql := fmt.Sprintf(`
-		SELECT id, name, COALESCE(NULLIF(customer_type,''),'retail'), COALESCE(company_name,''), COALESCE(company_address,''), COALESCE(company_phone,''), contact, phone, address, active, default_source_id, default_order_type_id,
-			to_char(updated_at,'YYYY-MM-DD HH24:%%M') AS updated
-		FROM %s.customers
+		SELECT c.id, c.name, COALESCE(NULLIF(c.customer_type,''),'retail'), COALESCE(c.company_name,''), COALESCE(c.company_address,''), COALESCE(c.company_phone,''), c.contact, c.phone, c.address, c.active, c.default_source_id, c.default_order_type_id,
+			NULLIF(COALESCE(c.responsible_employee_id,0),0)::int, COALESCE(e.name,''),
+			to_char(c.updated_at,'YYYY-MM-DD HH24:%%M') AS updated
+		FROM %s.customers c
+		LEFT JOIN %s.company_employees e ON e.id=c.responsible_employee_id
 		%s
-            ORDER BY %s %s, id %s
+            ORDER BY %s %s, c.id %s
             LIMIT $%d OFFSET $%d
-        `, schema, where, orderBy, orderDir, orderDir, limitArg, offsetArg)
+        `, schema, schema, where, orderBy, orderDir, orderDir, limitArg, offsetArg)
 
 	dbRows, err := pool.Query(ctx, sql, args...)
 	if err != nil {
@@ -261,7 +275,7 @@ func fetchCustomers(ctx context.Context, pool *pgxpool.Pool, schema string, quer
 	out := make([]customerapp.CustomerRow, 0)
 	for dbRows.Next() {
 		var r customerapp.CustomerRow
-		if err := dbRows.Scan(&r.ID, &r.Name, &r.CustomerType, &r.CompanyName, &r.CompanyAddress, &r.CompanyPhone, &r.Contact, &r.Phone, &r.Address, &r.Active, &r.DefaultSourceID, &r.DefaultOrderTypeID, &r.Updated); err != nil {
+		if err := dbRows.Scan(&r.ID, &r.Name, &r.CustomerType, &r.CompanyName, &r.CompanyAddress, &r.CompanyPhone, &r.Contact, &r.Phone, &r.Address, &r.Active, &r.DefaultSourceID, &r.DefaultOrderTypeID, &r.ResponsibleEmployeeID, &r.ResponsibleEmployeeName, &r.Updated); err != nil {
 			return nil, 0, false, err
 		}
 		r.CustomerType = customerapp.NormalizeCustomerType(r.CustomerType)
@@ -279,11 +293,13 @@ func fetchCustomers(ctx context.Context, pool *pgxpool.Pool, schema string, quer
 }
 
 func fetchCustomerByID(ctx context.Context, pool *pgxpool.Pool, schema string, id int64) (*customerapp.CustomerEditData, error) {
-	q := fmt.Sprintf(`SELECT id, name, COALESCE(raw_name,''), COALESCE(NULLIF(customer_type,''),'retail'), COALESCE(company_name,''), COALESCE(company_address,''), COALESCE(company_phone,''), COALESCE(contact,''), COALESCE(phone,''), COALESCE(address,''),
-		COALESCE(default_source_id::text,''), COALESCE(default_order_type_id::text,''), active
-		FROM %s.customers WHERE id=$1`, schema)
+	q := fmt.Sprintf(`SELECT c.id, c.name, COALESCE(c.raw_name,''), COALESCE(NULLIF(c.customer_type,''),'retail'), COALESCE(c.company_name,''), COALESCE(c.company_address,''), COALESCE(c.company_phone,''), COALESCE(c.contact,''), COALESCE(c.phone,''), COALESCE(c.address,''),
+		COALESCE(c.default_source_id::text,''), COALESCE(c.default_order_type_id::text,''), COALESCE(NULLIF(c.responsible_employee_id,0)::text,''), COALESCE(e.name,''), c.active
+		FROM %s.customers c
+		LEFT JOIN %s.company_employees e ON e.id=c.responsible_employee_id
+		WHERE c.id=$1`, schema, schema)
 	var d customerapp.CustomerEditData
-	err := pool.QueryRow(ctx, q, id).Scan(&d.ID, &d.Name, &d.RawName, &d.CustomerType, &d.CompanyName, &d.CompanyAddress, &d.CompanyPhone, &d.Contact, &d.Phone, &d.Address, &d.DefaultSourceID, &d.DefaultOrderTypeID, &d.Active)
+	err := pool.QueryRow(ctx, q, id).Scan(&d.ID, &d.Name, &d.RawName, &d.CustomerType, &d.CompanyName, &d.CompanyAddress, &d.CompanyPhone, &d.Contact, &d.Phone, &d.Address, &d.DefaultSourceID, &d.DefaultOrderTypeID, &d.ResponsibleEmployeeID, &d.ResponsibleEmployeeName, &d.Active)
 	if err != nil {
 		if err == pgx.ErrNoRows {
 			return nil, nil
@@ -310,6 +326,16 @@ func fetchOptions(ctx context.Context, pool *pgxpool.Pool, sqlstr string) ([]cus
 		out = append(out, o)
 	}
 	return out, rows.Err()
+}
+
+func fetchCustomerResponsibleEmployees(ctx context.Context, pool *pgxpool.Pool, schema string) ([]customerapp.Option, error) {
+	q := fmt.Sprintf(`
+		SELECT id, name
+		FROM %s.company_employees
+		WHERE active=true AND (account_type='internal_employee' OR COALESCE(account_type,'')='')
+		ORDER BY id DESC
+	`, schema)
+	return fetchOptions(ctx, pool, q)
 }
 
 func fetchCustomerAssets(ctx context.Context, pool *pgxpool.Pool, schema string, customerID int64) ([]customerapp.CustomerAsset, error) {
@@ -400,11 +426,16 @@ func upsertCustomer(ctx context.Context, pool *pgxpool.Pool, schema string, acto
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
+	responsibleEmployeeID, err := resolveCustomerResponsibleEmployeeTx(ctx, tx, schema, req.ResponsibleEmployeeID)
+	if err != nil {
+		return 0, err
+	}
+
 	var newID int64
 	if id == nil {
-		q := fmt.Sprintf(`INSERT INTO %s.customers(name, raw_name, customer_type, company_name, company_address, company_phone, contact, phone, address, active, default_source_id, default_order_type_id, created_at, updated_at)
-			VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12, now(), now()) RETURNING id`, schema)
-		if err := tx.QueryRow(ctx, q, name, raw, customerType, companyName, companyAddress, companyPhone, nullText(contact), nullText(phone), nullText(address), active, ds, dt).Scan(&newID); err != nil {
+		q := fmt.Sprintf(`INSERT INTO %s.customers(name, raw_name, customer_type, company_name, company_address, company_phone, contact, phone, address, active, default_source_id, default_order_type_id, responsible_employee_id, created_at, updated_at)
+			VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13, now(), now()) RETURNING id`, schema)
+		if err := tx.QueryRow(ctx, q, name, raw, customerType, companyName, companyAddress, companyPhone, nullText(contact), nullText(phone), nullText(address), active, ds, dt, responsibleEmployeeID).Scan(&newID); err != nil {
 			return 0, err
 		}
 		if err := postgresinfra.AuditInsertTx(ctx, tx, schema, actor, "customer", &newID, "create", nil, nil, nil, postgresinfra.AuditMeta{"name": name}); err != nil {
@@ -414,17 +445,17 @@ func upsertCustomer(ctx context.Context, pool *pgxpool.Pool, schema string, acto
 		newID = *id
 		var oldName, oldRaw, oldCustomerType, oldCompanyName, oldCompanyAddress, oldCompanyPhone, oldContact, oldPhone, oldAddr string
 		var oldActive bool
-		var oldDS, oldDT *int
-		q0 := fmt.Sprintf(`SELECT name, COALESCE(raw_name,''), COALESCE(NULLIF(customer_type,''),'retail'), COALESCE(company_name,''), COALESCE(company_address,''), COALESCE(company_phone,''), COALESCE(contact,''), COALESCE(phone,''), COALESCE(address,''), active, default_source_id, default_order_type_id FROM %s.customers WHERE id=$1`, schema)
-		if err := tx.QueryRow(ctx, q0, newID).Scan(&oldName, &oldRaw, &oldCustomerType, &oldCompanyName, &oldCompanyAddress, &oldCompanyPhone, &oldContact, &oldPhone, &oldAddr, &oldActive, &oldDS, &oldDT); err != nil {
+		var oldDS, oldDT, oldResponsibleEmployeeID *int
+		q0 := fmt.Sprintf(`SELECT name, COALESCE(raw_name,''), COALESCE(NULLIF(customer_type,''),'retail'), COALESCE(company_name,''), COALESCE(company_address,''), COALESCE(company_phone,''), COALESCE(contact,''), COALESCE(phone,''), COALESCE(address,''), active, default_source_id, default_order_type_id, NULLIF(COALESCE(responsible_employee_id,0),0)::int FROM %s.customers WHERE id=$1`, schema)
+		if err := tx.QueryRow(ctx, q0, newID).Scan(&oldName, &oldRaw, &oldCustomerType, &oldCompanyName, &oldCompanyAddress, &oldCompanyPhone, &oldContact, &oldPhone, &oldAddr, &oldActive, &oldDS, &oldDT, &oldResponsibleEmployeeID); err != nil {
 			return 0, err
 		}
 		q := fmt.Sprintf(`UPDATE %s.customers SET name=$2, raw_name=$3, customer_type=$4, company_name=$5, company_address=$6, company_phone=$7, contact=$8, phone=$9, address=$10, active=$11,
-			default_source_id=$12, default_order_type_id=$13, updated_at=$14 WHERE id=$1`, schema)
-		if _, err := tx.Exec(ctx, q, newID, name, raw, customerType, companyName, companyAddress, companyPhone, nullText(contact), nullText(phone), nullText(address), active, ds, dt, time.Now()); err != nil {
+			default_source_id=$12, default_order_type_id=$13, responsible_employee_id=$14, updated_at=$15 WHERE id=$1`, schema)
+		if _, err := tx.Exec(ctx, q, newID, name, raw, customerType, companyName, companyAddress, companyPhone, nullText(contact), nullText(phone), nullText(address), active, ds, dt, responsibleEmployeeID, time.Now()); err != nil {
 			return 0, err
 		}
-		if err := auditCustomerDiffs(ctx, tx, schema, actor, newID, customerSnapshot{oldName, customerapp.NormalizeCustomerType(oldCustomerType), oldCompanyName, oldCompanyAddress, oldCompanyPhone, oldContact, oldPhone, oldAddr, oldActive, oldDS, oldDT}, customerSnapshot{name, customerType, companyName, companyAddress, companyPhone, contact, phone, address, active, ds, dt}); err != nil {
+		if err := auditCustomerDiffs(ctx, tx, schema, actor, newID, customerSnapshot{oldName, customerapp.NormalizeCustomerType(oldCustomerType), oldCompanyName, oldCompanyAddress, oldCompanyPhone, oldContact, oldPhone, oldAddr, oldActive, oldDS, oldDT, oldResponsibleEmployeeID}, customerSnapshot{name, customerType, companyName, companyAddress, companyPhone, contact, phone, address, active, ds, dt, responsibleEmployeeID}); err != nil {
 			return 0, err
 		}
 	}
@@ -435,6 +466,23 @@ func upsertCustomer(ctx context.Context, pool *pgxpool.Pool, schema string, acto
 		return 0, err
 	}
 	return newID, nil
+}
+
+func resolveCustomerResponsibleEmployeeTx(ctx context.Context, tx pgx.Tx, schema, raw string) (*int, error) {
+	employeeID := parseOptionalInt(raw)
+	if employeeID == nil {
+		return nil, fmt.Errorf("responsible_employee_id required")
+	}
+	var activeID int
+	q := fmt.Sprintf(`
+		SELECT id
+		FROM %s.company_employees
+		WHERE id=$1 AND active=true AND (account_type='internal_employee' OR COALESCE(account_type,'')='')
+	`, schema)
+	if err := tx.QueryRow(ctx, q, *employeeID).Scan(&activeID); err != nil {
+		return nil, fmt.Errorf("responsible employee not found")
+	}
+	return &activeID, nil
 }
 
 func inlineUpdateCustomer(ctx context.Context, pool *pgxpool.Pool, schema, actor string, id int64, req inlineRequest) error {
@@ -468,18 +516,30 @@ func inlineUpdateCustomer(ctx context.Context, pool *pgxpool.Pool, schema, actor
 	defer func() { _ = tx.Rollback(ctx) }()
 
 	var old customerSnapshot
-	q0 := fmt.Sprintf(`SELECT name, COALESCE(NULLIF(customer_type,''),'retail'), COALESCE(company_name,''), COALESCE(company_address,''), COALESCE(company_phone,''), COALESCE(contact,''), COALESCE(phone,''), COALESCE(address,''), active, default_source_id, default_order_type_id
+	q0 := fmt.Sprintf(`SELECT name, COALESCE(NULLIF(customer_type,''),'retail'), COALESCE(company_name,''), COALESCE(company_address,''), COALESCE(company_phone,''), COALESCE(contact,''), COALESCE(phone,''), COALESCE(address,''), active, default_source_id, default_order_type_id, NULLIF(COALESCE(responsible_employee_id,0),0)::int
 		FROM %s.customers WHERE id=$1`, schema)
-	if err := tx.QueryRow(ctx, q0, id).Scan(&old.name, &old.customerType, &old.companyName, &old.companyAddress, &old.companyPhone, &old.contact, &old.phone, &old.address, &old.active, &old.sourceID, &old.typeID); err != nil {
+	if err := tx.QueryRow(ctx, q0, id).Scan(&old.name, &old.customerType, &old.companyName, &old.companyAddress, &old.companyPhone, &old.contact, &old.phone, &old.address, &old.active, &old.sourceID, &old.typeID, &old.responsibleEmployeeID); err != nil {
 		if err == pgx.ErrNoRows {
 			return fmt.Errorf("not found")
 		}
 		return err
 	}
 	old.customerType = customerapp.NormalizeCustomerType(old.customerType)
+	if strings.TrimSpace(req.ResponsibleEmployeeID) != "" {
+		responsibleEmployeeID, err := resolveCustomerResponsibleEmployeeTx(ctx, tx, schema, req.ResponsibleEmployeeID)
+		if err != nil {
+			return err
+		}
+		next.responsibleEmployeeID = responsibleEmployeeID
+	} else {
+		if old.responsibleEmployeeID == nil {
+			return fmt.Errorf("responsible_employee_id required")
+		}
+		next.responsibleEmployeeID = old.responsibleEmployeeID
+	}
 	q := fmt.Sprintf(`UPDATE %s.customers SET name=$2, customer_type=$3, company_name=$4, company_address=$5, company_phone=$6, contact=$7, phone=$8, address=$9, active=$10,
-		default_source_id=$11, default_order_type_id=$12, updated_at=$13 WHERE id=$1`, schema)
-	if _, err := tx.Exec(ctx, q, id, next.name, next.customerType, next.companyName, next.companyAddress, next.companyPhone, nullText(next.contact), nullText(next.phone), nullText(next.address), next.active, next.sourceID, next.typeID, time.Now()); err != nil {
+		default_source_id=$11, default_order_type_id=$12, responsible_employee_id=$13, updated_at=$14 WHERE id=$1`, schema)
+	if _, err := tx.Exec(ctx, q, id, next.name, next.customerType, next.companyName, next.companyAddress, next.companyPhone, nullText(next.contact), nullText(next.phone), nullText(next.address), next.active, next.sourceID, next.typeID, next.responsibleEmployeeID, time.Now()); err != nil {
 		return err
 	}
 	if err := auditCustomerDiffs(ctx, tx, schema, actor, id, old, next); err != nil {
@@ -706,17 +766,18 @@ func extByContentType(ct string) string {
 }
 
 type customerSnapshot struct {
-	name           string
-	customerType   string
-	companyName    string
-	companyAddress string
-	companyPhone   string
-	contact        string
-	phone          string
-	address        string
-	active         bool
-	sourceID       *int
-	typeID         *int
+	name                  string
+	customerType          string
+	companyName           string
+	companyAddress        string
+	companyPhone          string
+	contact               string
+	phone                 string
+	address               string
+	active                bool
+	sourceID              *int
+	typeID                *int
+	responsibleEmployeeID *int
 }
 
 func auditCustomerDiffs(ctx context.Context, tx pgx.Tx, schema, actor string, id int64, old, next customerSnapshot) error {
@@ -758,7 +819,10 @@ func auditCustomerDiffs(ctx context.Context, tx pgx.Tx, schema, actor string, id
 	if err := log("default_source_id", intPtrString(old.sourceID), intPtrString(next.sourceID)); err != nil {
 		return err
 	}
-	return log("default_order_type_id", intPtrString(old.typeID), intPtrString(next.typeID))
+	if err := log("default_order_type_id", intPtrString(old.typeID), intPtrString(next.typeID)); err != nil {
+		return err
+	}
+	return log("responsible_employee_id", intPtrString(old.responsibleEmployeeID), intPtrString(next.responsibleEmployeeID))
 }
 
 func parseOptionalInt(v string) *int {

@@ -306,32 +306,31 @@ func smallBatchTierQuantity(specG int64, qtyLb float64, rule smallBatchPriceRule
 	return targetUnits, true
 }
 
-func resolveOrderResponsibleParty(ctx context.Context, tx pgx.Tx, schema, responsibleType string, responsibleID int64) (string, int64, string, error) {
-	typ := strings.TrimSpace(responsibleType)
-	if typ == "" && responsibleID == 0 {
-		return "", 0, "", nil
+func resolveOrderResponsibleParty(ctx context.Context, tx pgx.Tx, schema string, customerID int64) (string, int64, string, error) {
+	if customerID <= 0 {
+		return "", 0, "", fmt.Errorf("customer_id required")
+	}
+	var responsibleID int64
+	var responsibleName string
+	q := fmt.Sprintf(`
+		SELECT COALESCE(c.responsible_employee_id,0), COALESCE(e.name,'')
+		FROM %s.customers c
+		LEFT JOIN %s.company_employees e ON e.id=c.responsible_employee_id
+			AND e.active=true
+			AND (e.account_type='internal_employee' OR COALESCE(e.account_type,'')='')
+		WHERE c.id=$1 AND c.active=true
+	`, schema, schema)
+	if err := tx.QueryRow(ctx, q, customerID).Scan(&responsibleID, &responsibleName); err != nil {
+		return "", 0, "", fmt.Errorf("customer not found")
 	}
 	if responsibleID <= 0 {
-		return "", 0, "", fmt.Errorf("responsible_id required")
+		return "", 0, "", fmt.Errorf("customer responsible employee required")
 	}
-	switch typ {
-	case "employee":
-		var name string
-		q := fmt.Sprintf(`SELECT COALESCE(name,'') FROM %s.company_employees WHERE id=$1 AND active=true`, schema)
-		if err := tx.QueryRow(ctx, q, responsibleID).Scan(&name); err != nil || strings.TrimSpace(name) == "" {
-			return "", 0, "", fmt.Errorf("responsible employee not found")
-		}
-		return typ, responsibleID, strings.TrimSpace(name), nil
-	case "customer":
-		var name string
-		q := fmt.Sprintf(`SELECT COALESCE(name,'') FROM %s.customers WHERE id=$1 AND active=true`, schema)
-		if err := tx.QueryRow(ctx, q, responsibleID).Scan(&name); err != nil || strings.TrimSpace(name) == "" {
-			return "", 0, "", fmt.Errorf("responsible customer not found")
-		}
-		return typ, responsibleID, strings.TrimSpace(name), nil
-	default:
-		return "", 0, "", fmt.Errorf("invalid responsible_type")
+	responsibleName = strings.TrimSpace(responsibleName)
+	if responsibleName == "" {
+		return "", 0, "", fmt.Errorf("customer responsible employee not found")
 	}
+	return "employee", responsibleID, responsibleName, nil
 }
 
 func wholesaleDisplayUnitG(specG int64) float64 {
@@ -1191,7 +1190,7 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 	}
 	shipTrackingNo := salesapp.TrackingNumbersSummary(salesapp.NormalizeTrackingNumbers(cmd.ShipTrackingNo))
 
-	responsibleType, responsibleID, responsibleName, err := resolveOrderResponsibleParty(ctx, tx, r.schema, cmd.ResponsibleType, cmd.ResponsibleID)
+	responsibleType, responsibleID, responsibleName, err := resolveOrderResponsibleParty(ctx, tx, r.schema, cmd.CustomerID)
 	if err != nil {
 		return salesapp.SaveOrderResult{}, err
 	}
