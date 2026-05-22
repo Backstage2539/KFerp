@@ -21,15 +21,30 @@ func TestDev328SalesOrderPaymentCodeSoftDisableWiring(t *testing.T) {
 		}
 	}
 	if strings.Contains(repository, `actor, "sales_order_payment_code", &id, "delete"`) {
-		t.Fatalf("sales order payment code disable must not record delete audit action")
+		deactivateStart := strings.Index(repository, "func (r Repository) DeactivateSalesOrderPaymentCode")
+		activateStart := strings.Index(repository, "func (r Repository) ActivateSalesOrderPaymentCode")
+		if deactivateStart < 0 || activateStart < 0 || strings.Contains(repository[deactivateStart:activateStart], `"delete"`) {
+			t.Fatalf("sales order payment code disable must not record delete audit action")
+		}
+	}
+	for _, want := range []string{
+		"DeleteSalesOrderPaymentCode",
+		"deleted_at=now()",
+		`"delete"`,
+	} {
+		if !strings.Contains(repository, want) {
+			t.Fatalf("sales order payment code delete wiring missing %q", want)
+		}
 	}
 
 	service := string(readOrderAppFileForTest(t, filepath.Join("internal", "application", "sales", "service.go")))
 	for _, want := range []string{
 		"DeactivateSalesOrderPaymentCode(ctx context.Context, id int64, actor string) error",
 		"ActivateSalesOrderPaymentCode(ctx context.Context, id int64, actor string) error",
+		"DeleteSalesOrderPaymentCode(ctx context.Context, id int64, actor string) error",
 		"return s.repo.DeactivateSalesOrderPaymentCode(ctx, id, actor)",
 		"return s.repo.ActivateSalesOrderPaymentCode(ctx, id, actor)",
+		"return s.repo.DeleteSalesOrderPaymentCode(ctx, id, actor)",
 	} {
 		if !strings.Contains(service, want) {
 			t.Fatalf("sales service soft-disable wiring missing %q", want)
@@ -38,10 +53,12 @@ func TestDev328SalesOrderPaymentCodeSoftDisableWiring(t *testing.T) {
 
 	handler := string(readOrderAppFileForTest(t, filepath.Join("internal", "interfaces", "http", "sales", "sales_order_settings.go")))
 	for _, want := range []string{
-		"e.DELETE(\"/api/settings/sales-order/payment-codes/:id\", h.deactivatePaymentCode)",
+		"e.POST(\"/api/settings/sales-order/payment-codes/:id/deactivate\", h.deactivatePaymentCode)",
 		"e.POST(\"/api/settings/sales-order/payment-codes/:id/activate\", h.activatePaymentCode)",
+		"e.DELETE(\"/api/settings/sales-order/payment-codes/:id\", h.deletePaymentCode)",
 		"DeactivateSalesOrderPaymentCode",
 		"ActivateSalesOrderPaymentCode",
+		"DeleteSalesOrderPaymentCode",
 	} {
 		if !strings.Contains(handler, want) {
 			t.Fatalf("sales order settings handler soft-disable wiring missing %q", want)
@@ -54,6 +71,7 @@ func TestDev328SalesOrderPaymentCodeSoftDisableWiring(t *testing.T) {
 		"activatePaymentCode(code)",
 		"收款码已停用",
 		"收款码已启用",
+		"收款码已删除",
 		"code.active ? '启用' : '停用'",
 	} {
 		if !strings.Contains(view, want) {
