@@ -215,6 +215,17 @@ test('bean-list scope filter keeps customer SKUs isolated by customer', () => {
   assert.deepEqual(filterBeanListItemsForScope(scopedRows, 'customer', 0).map((item) => item.product_id), [1])
 })
 
+test('customer bean-list scope hides public catalog when public categories are disabled', () => {
+  const scopedRows = [
+    { product_id: 1, name: '公共豆', customer_id: 0 },
+    { product_id: 2, name: '客户 A 专属', customer_id: 42 },
+    { product_id: 3, name: '客户 B 专属', customer_id: 88 },
+  ]
+
+  assert.deepEqual(filterBeanListItemsForScope(scopedRows, 'customer', 42, { usePublicCategories: false }).map((item) => item.product_id), [2])
+  assert.deepEqual(filterBeanListItemsForScope(scopedRows, 'customer', 42, { usePublicCategories: true }).map((item) => item.product_id), [1, 2])
+})
+
 test('PDF commercial price units follow gradient template display units', () => {
   const groups = buildBeanListPdfGroups([{
     product_id: 40,

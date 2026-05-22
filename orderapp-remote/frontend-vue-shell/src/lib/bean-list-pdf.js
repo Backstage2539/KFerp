@@ -47,12 +47,14 @@ export function buildBeanListPdfTitle(listType, brandName = '棵凡咖啡') {
   return normalized === 'retail' ? `${brand}零售豆单` : `${brand}批发豆单`
 }
 
-export function filterBeanListItemsForScope(items = [], scope = 'official', customerID = 0) {
+export function filterBeanListItemsForScope(items = [], scope = 'official', customerID = 0, options = {}) {
   const selectedCustomerID = Number(customerID || 0)
+  const usePublicCategories = options.usePublicCategories ?? options.use_public_categories ?? true
   return (Array.isArray(items) ? items : []).filter((item) => {
     const itemCustomerID = Number(item?.customer_id ?? item?.customerID ?? 0)
     if (scope === 'customer') {
-      return itemCustomerID <= 0 || (selectedCustomerID > 0 && itemCustomerID === selectedCustomerID)
+      if (itemCustomerID <= 0) return Boolean(usePublicCategories)
+      return selectedCustomerID > 0 && itemCustomerID === selectedCustomerID
     }
     return itemCustomerID <= 0
   })

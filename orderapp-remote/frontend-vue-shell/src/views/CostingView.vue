@@ -825,6 +825,7 @@ const explanationOverrides = ref({
   margin_rate: '',
 })
 const customers = ref([])
+const customerPublicUsages = ref([])
 const beanListPublications = ref({
   official: { commercial: [], drip: [], retail: [], green: [] },
   mine: { commercial: [], drip: [], retail: [], green: [] },
@@ -866,7 +867,17 @@ const activeBeanListCustomerID = computed(() => normalizedCustomerContextID.valu
 const activeCostingScope = computed(() => {
   return activeBeanListCustomerID.value > 0 ? 'customer' : 'official'
 })
-const visibleCostingItems = computed(() => filterBeanListItemsForScope(items.value, activeCostingScope.value, activeBeanListCustomerID.value))
+const activeCustomerPublicUsage = computed(() => {
+  const customerID = activeBeanListCustomerID.value
+  return customerPublicUsages.value.find((row) => Number(row.customer_id || 0) === customerID) || {
+    customer_id: customerID,
+    use_public_categories: false,
+  }
+})
+const activeBeanListScopeOptions = computed(() => ({
+  usePublicCategories: activeCostingScope.value !== 'customer' || activeCustomerPublicUsage.value.use_public_categories,
+}))
+const visibleCostingItems = computed(() => filterBeanListItemsForScope(items.value, activeCostingScope.value, activeBeanListCustomerID.value, activeBeanListScopeOptions.value))
 const commercialGroups = computed(() => groupBeanItems('commercial_bean_list'))
 const dripGroups = computed(() => groupBeanItems('drip_bean_list'))
 const retailGroups = computed(() => groupBeanItems('retail_bean_list'))
@@ -1150,7 +1161,11 @@ function customerBeanListItems(listType) {
 
 function scopedBeanListItems(scope, listType) {
   void listType
-  return filterBeanListItemsForScope(items.value, scope, selectedBeanListCustomerID.value)
+  const customerID = selectedBeanListCustomerID.value
+  const usage = customerPublicUsages.value.find((row) => Number(row.customer_id || 0) === Number(customerID || 0))
+  return filterBeanListItemsForScope(items.value, scope, customerID, {
+    usePublicCategories: scope !== 'customer' || Boolean(usage?.use_public_categories),
+  })
 }
 
 function beanListCategoryOptions(listType) {
@@ -1668,6 +1683,18 @@ async function loadCustomers() {
   }
 }
 
+async function loadCustomerPublicUsages() {
+  try {
+    const data = await apiGet('/api/product-settings')
+    customerPublicUsages.value = (data.customer_public_usages || []).map((row) => ({
+      customer_id: Number(row.customer_id || 0),
+      use_public_categories: Boolean(row.use_public_categories),
+    }))
+  } catch (err) {
+    customerPublicUsages.value = []
+  }
+}
+
 async function loadCurrentActor() {
   try {
     currentActor.value = await fetchCurrentActor()
@@ -2008,6 +2035,7 @@ onMounted(() => {
   loadCurrentActor()
   loadBeanList()
   loadCustomers()
+  loadCustomerPublicUsages()
   loadBeanListPublications('commercial', 'official')
   loadBeanListPublications('commercial', 'mine')
   loadBeanListPublications('green', 'official')
