@@ -503,11 +503,35 @@ export function productBeanListType(product) {
   return 'commercial'
 }
 
+function compareVersionNumbers(a, b) {
+  const left = String(a || '').match(/\d+/g)?.map(toInt) || []
+  const right = String(b || '').match(/\d+/g)?.map(toInt) || []
+  const length = Math.max(left.length, right.length)
+  for (let i = 0; i < length; i += 1) {
+    const diff = (left[i] || 0) - (right[i] || 0)
+    if (diff !== 0) return diff
+  }
+  return 0
+}
+
+function compareBeanListVersionOption(a, b) {
+  const leftPublished = String(a?.published_at || a?.created_at || '').trim()
+  const rightPublished = String(b?.published_at || b?.created_at || '').trim()
+  if (leftPublished && rightPublished && leftPublished !== rightPublished) {
+    return leftPublished.localeCompare(rightPublished)
+  }
+  const versionDiff = compareVersionNumbers(a?.version_no || a?.label, b?.version_no || b?.label)
+  if (versionDiff !== 0) return versionDiff
+  return toInt(a?.id) - toInt(b?.id)
+}
+
 export function latestBeanListVersionOption(options, listType) {
   const normalized = normalizeBeanListType(listType)
   const rows = (options || []).filter((item) => normalizeBeanListType(item?.list_type) === normalized)
   if (!rows.length) return null
-  return rows.find((item) => item?.is_default) || rows[0]
+  return rows.reduce((latest, item) => (
+    compareBeanListVersionOption(item, latest) > 0 ? item : latest
+  ), rows[0])
 }
 
 export function rowUsesStaleBeanListPublication(row, options, listType = productBeanListType(row)) {

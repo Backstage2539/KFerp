@@ -14,6 +14,7 @@ import {
   dripTierPriceRows,
   lineDiscountAmount,
   lineTotal,
+  latestBeanListVersionOption,
   needsTrailingBlankOrderLine,
   orderRowPriceUnit,
   resolveWholesaleTierPrice,
@@ -460,6 +461,17 @@ test('rowUsesStaleBeanListPublication flags product rows whose publication is no
   assert.equal(rowUsesStaleBeanListPublication({ product_id: 0, bean_list_publication_id: 31 }, options), false)
 })
 
+test('latestBeanListVersionOption uses the newest published version instead of default flag alone', () => {
+  const options = [
+    { id: 31, list_type: 'commercial', version_no: 'V3.0.5', published_at: '2026-05-18 18:51', is_default: true },
+    { id: 33, list_type: 'commercial', version_no: 'V3.0.9', published_at: '2026-05-22 20:47', is_default: false },
+    { id: 41, list_type: 'green', version_no: 'V2.0.1', published_at: '2026-05-19 10:00', is_default: true },
+  ]
+
+  assert.equal(latestBeanListVersionOption(options, 'commercial').id, 33)
+  assert.equal(rowUsesStaleBeanListPublication({ product_id: 7, product_kind: 'roasted_bean', bean_list_publication_id: 31 }, options), true)
+})
+
 test('beanListVersionOptionsForCustomer keeps public fallback versions for the selected customer', () => {
   const options = [
     { customer_id: 74, list_type: 'commercial', id: 31, version_no: 'V3.0.6', is_customer_owned: false, is_default: false },
@@ -531,6 +543,25 @@ test('OrderEntryView puts add detail below the list and renders stale bean list 
   assert.match(source, /rowUsesStaleBeanListPublication/)
   assert.match(source, /非新版本豆单/)
   assert.match(source, /bean-list-version-warning/)
+})
+
+test('OrderEntryView shows selected bean lists as readable rows and refreshes row versions from selection', () => {
+  const source = orderEntryViewSource()
+  const lineSection = source.slice(source.indexOf('<section class="panel" :class'), source.indexOf('<div class="line-list">'))
+  const syncPriceBlock = source.slice(source.indexOf('function syncPrice(row'), source.indexOf('function clearWholesalePriceMetadata'))
+
+  assert.match(lineSection, /selectedBeanListSummaryItems/)
+  assert.match(lineSection, /bean-list-summary-list/)
+  assert.match(lineSection, /v-for="item in selectedBeanListSummaryItems"/)
+  assert.doesNotMatch(lineSection, /\{\{\s*selectedBeanListSummary\s*\}\}/)
+  assert.match(source, /function syncRowBeanListVersionFromSelection\(row\)/)
+  assert.match(syncPriceBlock, /syncRowBeanListVersionFromSelection\(row\)[\s\S]*resolveWholesaleTierPrice\(product,\s*row\)/)
+
+  const summaryListStyles = cssBlock(source, '.bean-list-summary-list')
+  const summaryStyles = cssBlock(source, '.bean-list-summary')
+  assert.match(summaryListStyles, /display:\s*grid/)
+  assert.doesNotMatch(summaryStyles, /text-overflow:\s*ellipsis/)
+  assert.doesNotMatch(summaryStyles, /white-space:\s*nowrap/)
 })
 
 test('buildOrderPayload preserves manual unit price override', () => {
