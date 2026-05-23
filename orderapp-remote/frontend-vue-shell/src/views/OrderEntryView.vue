@@ -193,7 +193,12 @@
         <div class="section-title">商品明细</div>
         <div class="section-actions">
           <button class="secondary" type="button" @click="openBeanListDrawer" :disabled="!form.customer_id">选择豆单</button>
-          <small class="bean-list-summary">{{ selectedBeanListSummary }}</small>
+          <div class="bean-list-summary-list">
+            <small v-for="item in selectedBeanListSummaryItems" :key="item.type" class="bean-list-summary">
+              <span class="bean-list-summary-label">{{ item.label }}：</span>
+              <span class="bean-list-summary-value">{{ item.versionLabel }}</span>
+            </small>
+          </div>
         </div>
       </div>
       <div class="line-list">
@@ -821,12 +826,15 @@ const orderBeanListTypes = [
 const customerBeanListVersionOptions = computed(() => {
   return beanListVersionOptionsForCustomer(beanListVersionOptions.value, form.customer_id)
 })
-const selectedBeanListSummary = computed(() => orderBeanListTypes
+const selectedBeanListSummaryItems = computed(() => orderBeanListTypes
   .map((item) => {
     const selected = selectedBeanListVersionOptionByType(item.type)
-    return `${item.label}：${selected ? beanListVersionLabel(selected) : '暂无'}`
-  })
-  .join('；'))
+    return {
+      type: item.type,
+      label: item.label,
+      versionLabel: selected ? beanListVersionLabel(selected) : '暂无',
+    }
+  }))
 
 function customerTypeLabel(value) {
   return customerTypeOptions.find((item) => item.value === String(value || '').trim())?.label || ''
@@ -1315,6 +1323,7 @@ function syncPrice(row, options = {}) {
     return
   }
   if (isDripProduct(product)) {
+    syncRowBeanListVersionFromSelection(row)
     applyDripUnit(row, product)
     clearWholesalePriceMetadata(row)
     ensureRowBeanListVersion(row)
@@ -1327,6 +1336,7 @@ function syncPrice(row, options = {}) {
   }
   if (row.manual_price && !options.force) return
   if (retailOrder.value) {
+    syncRowBeanListVersionFromSelection(row)
     row.tier_id = 'auto'
     row.unit_price = String(retailPackagePrice(product, normalizeSpecG(row)) || '')
     clearWholesalePriceMetadata(row)
@@ -1334,7 +1344,7 @@ function syncPrice(row, options = {}) {
     row.manual_price = false
     return
   }
-  ensureRowBeanListVersion(row)
+  syncRowBeanListVersionFromSelection(row)
   applyResolvedWholesalePrice(row, resolveWholesaleTierPrice(product, row))
   row.manual_price = false
 }
@@ -1364,6 +1374,14 @@ function ensureRowBeanListVersion(row, price = {}) {
   const publicationID = Number(price.beanListPublicationID || row.bean_list_publication_id || selected?.id || 0)
   row.bean_list_publication_id = publicationID
   row.bean_list_version_no = String(price.beanListVersionNo || row.bean_list_version_no || selected?.version_no || '').trim()
+  if (!isRowBeanListVersionStale(row)) row.bean_list_version_tip_open = false
+}
+
+function syncRowBeanListVersionFromSelection(row) {
+  const listType = orderBeanListTypeForProductKind(row.product_kind)
+  const selected = selectedBeanListVersionOptionByType(listType)
+  row.bean_list_publication_id = Number(selected?.id || 0)
+  row.bean_list_version_no = String(selected?.version_no || '').trim()
   if (!isRowBeanListVersionStale(row)) row.bean_list_version_tip_open = false
 }
 
@@ -1893,7 +1911,10 @@ watch(
 .section-title { font-size: 17px; }
 .hero-actions, .section-row, .save-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .section-actions { display: flex; align-items: center; justify-content: flex-end; gap: 10px; flex-wrap: wrap; min-width: 0; }
-.bean-list-summary { min-width: 0; max-width: 520px; color: #667085; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bean-list-summary-list { min-width: min(420px, 100%); max-width: 720px; flex: 1 1 420px; display: grid; gap: 3px; }
+.bean-list-summary { min-width: 0; display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 2px; color: #667085; line-height: 1.35; }
+.bean-list-summary-label { color: #667085; font-size: 12px; }
+.bean-list-summary-value { min-width: 0; color: #667085; font-size: 12px; overflow-wrap: anywhere; }
 .total-pill { display: grid; gap: 2px; min-width: 132px; padding: 8px 12px; border: 1px solid #e5e7eb; border-radius: 8px; background: #fafafa; }
 .total-pill span, .grand-line span, label span, .line-total span, .combo-option small { color: #667085; font-size: 12px; }
 .total-pill strong, .grand-line strong { font-size: 20px; }
@@ -2028,9 +2049,9 @@ button:disabled { cursor: not-allowed; opacity: 0.5; }
   .customer-profile-summary { grid-template-columns: 1fr; }
   .section-actions { width: 100%; justify-content: stretch; }
   .section-actions button { width: 100%; }
+  .bean-list-summary-list { width: 100%; min-width: 0; max-width: none; flex-basis: 100%; }
   .save-actions { width: 100%; justify-content: stretch; }
   .save-actions button { flex: 1 1 180px; }
-  .bean-list-summary { max-width: 100%; white-space: normal; }
   .conditional-panel { grid-template-columns: 1fr; align-items: stretch; padding: 12px; }
   .global-error-toast { --notice-stack-offset: var(--kferp-notice-stack-space, 0px); top: calc(max(12px, env(safe-area-inset-top)) + var(--notice-stack-offset)); left: max(12px, env(safe-area-inset-left)); right: max(12px, env(safe-area-inset-right)); width: auto; max-width: none; }
   .hero-actions { width: 100%; }

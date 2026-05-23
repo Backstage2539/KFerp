@@ -326,6 +326,7 @@
 - [ ] PR-331-ORDER-ENTRY-PUBLIC-SKU-SCOPE：芬纳咖啡在 SKU 设置中 `use_public_sku=false` 时，录单和修改订单的商品下拉不展示岩师傅的 `孟连水洗A`、`红酒日晒-2026` 生豆 SKU，也不展示其他公共 SKU；芬纳自己的两个定制熟豆 SKU 仍可选且价格梯度正常显示。
 - [ ] 产品豆单生成抽屉按当前豆单范围自动使用公共或客户上下文，发布保存不会串到错误归属。
 - [x] PR-BEANLIST-VERSION-002：ERP 录单按熟豆、生豆、挂耳分别显示豆单版本选择并默认各类型最新；保存订单后商品行 `order_items.bean_list_publication_id` 和 `order_items.bean_list_version_no` 对应该行商品形态所选版本。没有专属豆单的客户按对应类型使用公共豆单。
+- [ ] PR-349-ORDER-ENTRY-BEANLIST-SUMMARY-WARNING：录单/编辑订单商品明细标题区把熟豆豆单、生豆豆单、挂耳豆单分别按行显示；选择低于最新的公共或客户豆单版本后，已有商品行重新按该版本取价，右侧“豆单版本”标红并显示感叹号，点击或悬停提示“非新版本豆单”。
 - [ ] PR-BEANLIST-VERSION-003：小程序首次按新版豆单下单时弹出更新提示，内容展示新增、下架和调整摘要；确认后写 `customer_bean_list_acknowledgements`，同一客户同一版本后续不重复提示。
 - [ ] PR-BEANLIST-VERSION-004：客户门户配置中，有专属豆单的客户可选择展示最新版本或固定版本；没有专属豆单的客户使用公共豆单且不出现无效固定版本。
 - [ ] 商用批发价格旁可打开“价格来源”，看到模板、当前价格和公式步骤。
