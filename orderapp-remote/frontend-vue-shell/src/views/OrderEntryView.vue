@@ -1464,7 +1464,7 @@ button:disabled { cursor: not-allowed; opacity: 0.5; }
   .order-hero, .section-row, .save-row { align-items: stretch; flex-direction: column; }
   .form-grid, .form-grid.compact, .line-item, .conditional-panel { grid-template-columns: 1fr; }
   .conditional-panel { align-items: stretch; padding: 12px; }
-  .global-error-toast { top: max(12px, env(safe-area-inset-top)); left: max(12px, env(safe-area-inset-left)); right: max(12px, env(safe-area-inset-right)); width: auto; max-width: none; }
+  .global-error-toast { --notice-stack-offset: var(--kferp-notice-stack-space, 0px); top: calc(max(12px, env(safe-area-inset-top)) + var(--notice-stack-offset)); left: max(12px, env(safe-area-inset-left)); right: max(12px, env(safe-area-inset-right)); width: auto; max-width: none; }
   .hero-actions { width: 100%; }
   .file-upload-control { grid-template-columns: auto minmax(0, 1fr); }
   .tier-price-chip { max-width: 100%; grid-template-columns: minmax(0, 1fr) auto; }
