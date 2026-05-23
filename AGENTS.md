@@ -117,6 +117,18 @@ Reactions are lightweight social signals. Humans use them constantly — they sa
 
 Skills provide your tools. When you need one, check its `SKILL.md`. Keep local notes (camera names, SSH details, voice preferences) in `TOOLS.md`.
 
+### KFerp Workflow Skills
+
+Keep AGENTS.md for hard rules. Use repo skills for repeatable execution so Van can keep giving natural-language requests:
+
+- Bug/regression/wrong output: use `kferp-bugfix`.
+- New or changed product behavior: use `kferp-feature-dev`.
+- User-visible frontend/Vue/template work: use `kferp-vue-change`.
+- PDF/PNG/print/export output: use `kferp-pdf-output`.
+- Merge/development deployment/smoke: use `kferp-deploy-dev`.
+
+Codex must generate the verifier automatically from the task type. Do not require Van to provide test commands, acceptance matrices, or deployment checklists unless the requirement is ambiguous. Keep short-lived branch, PR id, verifier, and deploy state in `ACTIVE_REQUIREMENTS.md`.
+
 **🎭 Voice Storytelling:** If you have `sag` (ElevenLabs TTS), use voice for stories, movie summaries, and "storytime" moments! Way more engaging than walls of text. Surprise people with funny voices.
 
 **📝 Platform Formatting:**
@@ -209,73 +221,33 @@ The goal: Be helpful without being annoying. Check in a few times a day, do usef
 
 ## Delivery workflow (must follow)
 
-For every requirement, follow the fixed pipeline:
-- Unit tests
-- API-level tests (prefer not to rely on UI)
-- Operation manual update when new features or behavior changes affect user workflows
-- Acceptance review against REQUIREMENTS / ACCEPTANCE_TESTS with evidence
+Canonical reference: `HOW_TO_WORKFLOW.md`. For every requirement, Codex must run the fixed loop through the relevant KFerp skill: PR/DEV tracking, TDD with RED evidence, API-level verification, manual update for user workflow changes, and acceptance evidence.
 
-Global audit rule from Van: any user-triggered business operation that creates, updates, deletes, submits, imports, publishes, voids, adjusts, transfers, uploads, or changes status must write an operation/audit log entry that is visible from 操作日志. Do not add a user-facing write path without an audit record.
-
-Any new feature development or functional change that changes how users operate the system must update the relevant operation/user manual in the Vue/Vite frontend and any source Markdown/manual docs. Treat the manual update as part of the same requirement, not as optional follow-up work.
-For every single major feature, keep one standalone operation manual. Smaller changes update the existing feature manual. During development, audit existing manuals for missing entry points, changed fields, changed workflow order, permissions, export/import behavior, and common failure handling; patch gaps before marking DEV complete.
+Hard rules:
+- User-triggered business writes must be visible in 操作日志.
+- User workflow changes must update source manuals and the Vue/Vite/manual docs surface.
+- Maintain PR/DEV UI tables so Van can see product and development progress.
+- UT/API/REV no longer need old UI-table entry; keep evidence in tests, acceptance docs, and final reports.
 
 ## Frontend Architecture Rule
 
-- Unified frontend architecture is `Vue + Vite`.
-- Any future frontend page change must use the unified Vue/Vite frontend.
-- If a page is still implemented as `templates/*.html`, treat that as migration debt.
-- Do **not** continue adding or changing user-facing features in HTML templates.
-- When a requirement touches a template-based page, first migrate/refactor that page into the Vue/Vite frontend, then implement the feature there.
-- HTML templates may remain only as transitional legacy code until replaced, but they are not the target architecture for new page work.
-- This rule exists because mixed template/Vue development has already caused repeated rework and inconsistent behavior.
-
-Maintain PR/DEV UI tables at all times so Van can see progress:
-- 产品需求表 (PR)
-- 开发需求表 (DEV)
-
-UT/API/REV are no longer required to be entered through the old UI-table workflow. Run tests and keep verification evidence through the Superpower/TDD workflow instead.
-
-Canonical reference doc: `HOW_TO_WORKFLOW.md`
+Unified frontend architecture is `Vue + Vite`. Do not add user-facing behavior to `templates/*.html`; if a touched page is still template-based, use `kferp-vue-change` and migrate/refactor the affected entry point first.
 
 ## Git / Worktree Collaboration Rule
 
 There may be multiple agents or worktrees writing code at the same time.
 
-- Current default: every development task must end by merging the verified feature branch into `develop` and deploying it to the agreed environment. Do not stop at a local branch, pushed branch, or PR-only state unless Van explicitly says not to merge/deploy.
-- For normal feature work, the target environment is the development stack from `develop` unless Van explicitly names production or another target.
 - Do not push commits directly to `develop`.
 - Always do implementation work on your own feature branch, normally `codex/<task-name>`.
-- Before integration, run tests and push your own branch to GitHub first.
-- Then fetch the latest `origin/develop`, verify what changed, and merge your branch into `develop` only after confirming the merge is clean.
-- Deploy only after the feature branch has been pushed and the merge into `develop` is complete.
-- If `develop` moved while you were working, rebase or merge from the latest `origin/develop` in your own branch first; do not overwrite or force-push shared branches.
+- Normal feature work targets the development stack from `develop` unless Van names another target.
+- Current default: verified feature branch -> push branch -> merge into `develop` -> deploy agreed environment, unless Van explicitly says not to merge/deploy.
+- Before integration, fetch `origin`, merge/rebase latest `origin/develop` into the feature branch, rerun relevant checks, and push the feature branch.
+- Deploy only after the feature branch is pushed and merged into `develop`.
 - Treat other worktrees' changes as user/agent work. Never revert them unless Van explicitly asks.
 
 ## Develop Deployment Coordination
 
-When multiple workflows are active, treat `develop` as the shared integration and deployment branch, not as an individual development branch.
-
-- Parallel work is allowed only on separate feature branches.
-- Integration and deployment from `develop` must be serialized.
-- Before merging into `develop`, each workflow must:
-  - `git fetch origin`
-  - merge or rebase the latest `origin/develop` into its own feature branch
-  - resolve conflicts on the feature branch
-  - rerun the relevant unit/API/build checks
-  - push the feature branch
-- After merging to `develop`, the workflow that performed the merge owns the next deployment unless Van explicitly asks another workflow to deploy.
-- Before deploying, verify that `origin/develop` is exactly the commit intended for deployment:
-  - run `git fetch origin`
-  - inspect `git log --oneline -3 origin/develop`
-  - record `git rev-parse origin/develop` in the deployment notes or final response
-- If `origin/develop` changed after local testing, stop deployment, merge the latest `origin/develop` back into the feature branch, rerun checks, and only then integrate again.
-- Never deploy from a stale local `develop`. Fast-forward local `develop` from `origin/develop` first.
-- Never force-push `develop`.
-- Do not deploy another workflow's newly merged commit unless that workflow has finished its verification or Van explicitly asks.
-- If two workflows both need deployment, deploy in order:
-  - workflow A merges to `develop`, deploys, and verifies
-  - workflow B updates from the new `origin/develop`, tests, merges, deploys, and verifies
+Treat `develop` as the shared integration/deployment branch. Serialize merge/deploy ownership, never force-push, never deploy stale local `develop`, and never deploy another workflow's newly merged commit unless that workflow has finished verification or Van asks. Use `kferp-deploy-dev` for the exact checklist and required final evidence.
 
 ## Make It Yours
 
