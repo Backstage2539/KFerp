@@ -583,6 +583,7 @@ test('order entry raises the active combobox above following fields', () => {
   const source = orderEntryViewSource()
 
   assert.match(source, /<label class="customer-combobox combobox"\s+:class="\{\s*open:\s*customerOpen\s*\}">/)
+  assert.match(source, /<label class="product-combobox combobox product-cell"\s+:class="\{\s*open:\s*row\.product_open\s*\}">/)
   assert.match(source, /<span>客户负责人<\/span>/)
   assert.doesNotMatch(source, /responsible-combobox/)
   assert.doesNotMatch(source, /responsibleOpen/)
@@ -590,7 +591,9 @@ test('order entry raises the active combobox above following fields', () => {
 
   const baseZIndex = zIndexForSelector(source, '.combobox')
   const openZIndex = zIndexForSelector(source, '.combobox.open')
+  const productZIndex = zIndexForSelector(source, '.product-cell')
   assert.ok(openZIndex > baseZIndex, `expected active combobox z-index ${openZIndex} to exceed base z-index ${baseZIndex}`)
+  assert.ok(openZIndex > productZIndex, `expected active combobox z-index ${openZIndex} to exceed product cell z-index ${productZIndex}`)
 })
 
 test('order entry shows save errors in a fixed global alert', () => {
