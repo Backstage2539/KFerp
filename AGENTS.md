@@ -126,6 +126,7 @@ Keep AGENTS.md for hard rules. Use repo skills for repeatable execution so Van c
 - User-visible frontend/Vue/template work: use `kferp-vue-change`.
 - PDF/PNG/print/export output: use `kferp-pdf-output`.
 - Merge/development deployment/smoke: use `kferp-deploy-dev`.
+- Starting or preparing goal mode: use `goal-instruction-guard` before creating a goal.
 
 Codex must generate the verifier automatically from the task type. Do not require Van to provide test commands, acceptance matrices, or deployment checklists unless the requirement is ambiguous. Keep short-lived branch, PR id, verifier, and deploy state in `ACTIVE_REQUIREMENTS.md`.
 
