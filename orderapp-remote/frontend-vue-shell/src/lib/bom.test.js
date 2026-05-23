@@ -2,6 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import {
   bomContextCustomerIDs,
+  filterBomRowsByProductFocus,
   filterBomContextProducts,
   isBomProductCandidate,
   sortBomContextProducts,
@@ -31,6 +32,17 @@ test('BOM context sorts customer SKUs first and frequent order products before l
 
   assert.deepEqual(sortBomContextProducts(rows, 152).map((row) => row.id), [4, 2, 3, 1])
   assert.deepEqual(filterBomContextProducts(rows, 152).map((row) => row.id), [4, 2, 3, 1])
+})
+
+test('BOM rows can be focused to the SKU product from settings navigation', () => {
+  const rows = [
+    { product_id: 10, product: '目标 SKU' },
+    { product_id: 11, product: '同客户其他 SKU' },
+    { product_id: 12, product: '公共 SKU' },
+  ]
+
+  assert.deepEqual(filterBomRowsByProductFocus(rows, 10).map((row) => row.product_id), [10])
+  assert.deepEqual(filterBomRowsByProductFocus(rows, 0).map((row) => row.product_id), [10, 11, 12])
 })
 
 test('BOM customer selector ignores customers that only have green bean SKUs', () => {

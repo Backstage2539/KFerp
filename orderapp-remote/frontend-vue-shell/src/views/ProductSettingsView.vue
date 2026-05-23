@@ -636,6 +636,7 @@ import {
   buildCustomerPublicUsagePayload,
   buildCustomProductCreatePayload,
   buildProductBasicsPayload,
+  buildProductBomURL,
   buildProductCreatePayload,
   buildAssignCategoryPayload,
   buildSkuContextCategoryTree,
@@ -1380,10 +1381,7 @@ function handleCustomProductKindChange() {
 }
 
 function openProductBom(row) {
-  const url = new URL(window.location.href)
-  url.searchParams.set('view', 'bom')
-  url.searchParams.set('product_id', String(row.id))
-  window.location.href = url.toString()
+  window.location.href = buildProductBomURL(window.location.href, row).toString()
 }
 
 async function createProduct() {

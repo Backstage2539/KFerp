@@ -40,6 +40,12 @@ export function filterBomContextProducts(rows = [], customerID = 0) {
   }), selectedCustomerID)
 }
 
+export function filterBomRowsByProductFocus(rows = [], productID = 0) {
+  const focusProductID = Number(productID || 0)
+  if (focusProductID <= 0) return rows
+  return rows.filter((row) => Number(row.product_id || row.id || 0) === focusProductID)
+}
+
 export function bomContextCustomerIDs(products = [], bomRows = []) {
   const ids = new Set()
   for (const row of [...products, ...bomRows]) {

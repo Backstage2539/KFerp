@@ -7,6 +7,7 @@ import {
   buildCustomerPublicUsagePayload,
   buildCustomProductCreatePayload,
   buildProductBasicsPayload,
+  buildProductBomURL,
   buildProductCreatePayload,
   buildSkuContextCategoryTree,
   categoryBelongsToSkuContext,
@@ -152,6 +153,15 @@ test('product basics payload carries editable SKU name', () => {
   }, null)
 
   assert.equal(payload.name, '芬纳定制-红酒日晒-中深烘')
+})
+
+test('product BOM URL carries SKU focus filter for BOM maintenance jumps', () => {
+  const url = buildProductBomURL('https://erp.test/vue-shell?view=productSettings&workspace=customer&customer_id=74', { id: 88 })
+  assert.equal(url.searchParams.get('view'), 'bom')
+  assert.equal(url.searchParams.get('product_id'), '88')
+  assert.equal(url.searchParams.get('bom_filter_product_id'), '88')
+  assert.equal(url.searchParams.get('workspace'), 'customer')
+  assert.equal(url.searchParams.get('customer_id'), '74')
 })
 
 test('customer SKU rows sort customer-owned products before frequent public products', () => {
