@@ -658,6 +658,98 @@ func TestOrderAPIFormReturnsLatestBeanListVersionDefaultForStaleWarning(t *testi
 	}
 }
 
+func TestOrderAPIFormReturnsHistoricalPublicBeanListVersionsForFallbackCustomer(t *testing.T) {
+	pool, schema := newOrderAPITestDB(t)
+	ctx := context.Background()
+	seedOrderAPITestData(t, ctx, pool, schema)
+	mustExecOrderAPITestSQL(t, ctx, pool, fmt.Sprintf(`
+		INSERT INTO %[1]s.bean_list_publications(id, list_type, version_no, status, owner_type, owner_key, config_json, content_json, changelog, actor, published_at)
+		VALUES
+			(9911,'commercial','P-1','withdrawn','official','','{}'::jsonb,'{}'::jsonb,'旧公共版','codex','2026-05-20 09:00:00+08'),
+			(9912,'commercial','P-2','published','official','','{}'::jsonb,'{}'::jsonb,'新公共版','codex','2026-05-22 09:00:00+08');
+	`, schema))
+
+	e := newOrderAPITestEcho(pool, schema)
+	req := httptest.NewRequest(http.MethodGet, "/api/order/form?customer_id=3", nil)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET /api/order/form status = %d, want 200, body=%s", rec.Code, rec.Body.String())
+	}
+
+	var resp struct {
+		BeanListVersionOptions []salesapp.BeanListVersionOption `json:"bean_list_version_options"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode order form: %v", err)
+	}
+	defaultByID := map[int64]bool{}
+	ownedByID := map[int64]bool{}
+	for _, option := range resp.BeanListVersionOptions {
+		if option.CustomerID == 3 && option.ListType == "commercial" {
+			defaultByID[option.ID] = option.IsDefault
+			ownedByID[option.ID] = option.IsCustomerOwned
+		}
+	}
+	if len(defaultByID) != 2 || defaultByID[9911] || !defaultByID[9912] {
+		t.Fatalf("public fallback defaults = %#v, want old=false latest=true", defaultByID)
+	}
+	if ownedByID[9911] || ownedByID[9912] {
+		t.Fatalf("public fallback versions should not be customer owned: %#v", ownedByID)
+	}
+}
+
+func TestOrderAPISavesHistoricalPublicBeanListPublicationVersion(t *testing.T) {
+	pool, schema := newOrderAPITestDB(t)
+	ctx := context.Background()
+	seedOrderAPITestData(t, ctx, pool, schema)
+	mustExecOrderAPITestSQL(t, ctx, pool, fmt.Sprintf(`
+		INSERT INTO %[1]s.bean_list_publications(id, list_type, version_no, status, owner_type, owner_key, config_json, content_json, changelog, actor)
+		VALUES(9911,'commercial','P-1','withdrawn','official','','{}'::jsonb,'{"title":"公共豆单 P-1"}'::jsonb,'旧公共版','tester');
+	`, schema))
+
+	e := newOrderAPITestEcho(pool, schema)
+	payload := map[string]any{
+		"order_date":                          "2026-05-23",
+		"customer_id":                         3,
+		"source_id":                           1,
+		"order_type_id":                       1,
+		"pay_status_id":                       2,
+		"payment_method":                      "微信支付",
+		"ship_status_id":                      1,
+		"commercial_bean_list_publication_id": 9911,
+		"product_id":                          []string{"7"},
+		"tier_id":                             []string{""},
+		"unit_price":                          []string{"99"},
+		"item_name":                           []string{"橘皮乌龙"},
+		"qty":                                 []string{"1"},
+		"unit":                                []string{"件"},
+		"spec":                                []string{"454"},
+	}
+	body, _ := json.Marshal(payload)
+	req := httptest.NewRequest(http.MethodPost, "/api/order", bytes.NewReader(body))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("POST /api/order status = %d, want 200, body=%s", rec.Code, rec.Body.String())
+	}
+
+	var publicationID int64
+	var version string
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`
+		SELECT bean_list_publication_id, bean_list_version_no
+		FROM %s.orders
+		ORDER BY id DESC
+		LIMIT 1
+	`, schema)).Scan(&publicationID, &version); err != nil {
+		t.Fatalf("query order bean list version: %v", err)
+	}
+	if publicationID != 9911 || version != "P-1" {
+		t.Fatalf("bean list publication/version=%d/%q, want 9911/P-1", publicationID, version)
+	}
+}
+
 func TestOrderAPIFormHidesPublicGreenBeansWhenCustomerDisablesPublicSKU(t *testing.T) {
 	pool, schema := newOrderAPITestDB(t)
 	ctx := context.Background()
