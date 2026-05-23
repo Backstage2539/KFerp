@@ -6,12 +6,13 @@ import (
 )
 
 type fakeRepository struct {
-	published PublishCommand
-	query     NotificationQuery
-	readID    int64
-	readEmp   int64
-	rules     []Rule
-	savedRule SaveRuleCommand
+	published     PublishCommand
+	query         NotificationQuery
+	readID        int64
+	readEmp       int64
+	rules         []Rule
+	notifications []Notification
+	savedRule     SaveRuleCommand
 }
 
 func (r *fakeRepository) Publish(ctx context.Context, cmd PublishCommand) (int64, error) {
@@ -21,6 +22,9 @@ func (r *fakeRepository) Publish(ctx context.Context, cmd PublishCommand) (int64
 
 func (r *fakeRepository) ListNotifications(ctx context.Context, query NotificationQuery) ([]Notification, error) {
 	r.query = query
+	if r.notifications != nil {
+		return r.notifications, nil
+	}
 	return []Notification{{ID: 1, Title: "新订单"}}, nil
 }
 
@@ -129,5 +133,21 @@ func TestServiceNormalizesNotificationQueryAndRead(t *testing.T) {
 	}
 	if repo.readID != 9 || repo.readEmp != 7 {
 		t.Fatalf("read = %d/%d, want 9/7", repo.readID, repo.readEmp)
+	}
+}
+
+func TestServiceDedupesNotificationsByEventID(t *testing.T) {
+	repo := &fakeRepository{notifications: []Notification{
+		{ID: 11, EventType: "order.created", SourceType: "order", SourceID: 71, Title: "新订单 SO-001"},
+		{ID: 11, EventType: "order.created", SourceType: "order", SourceID: 71, Title: "新订单 SO-001"},
+		{ID: 12, EventType: "order.created", SourceType: "order", SourceID: 72, Title: "新订单 SO-002"},
+	}}
+	svc := NewService(repo)
+	rows, err := svc.ListNotifications(context.Background(), NotificationQuery{EmployeeID: 7, Limit: 5})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 2 || rows[0].ID != 11 || rows[1].ID != 12 {
+		t.Fatalf("notifications=%#v, want unique events 11 and 12", rows)
 	}
 }

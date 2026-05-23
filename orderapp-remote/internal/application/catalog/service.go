@@ -46,6 +46,7 @@ type Product struct {
 	MarginRateOverride      *float64
 	BomItemCount            int
 	BomStatus               string
+	OrderUsageCount         int
 	Tiers                   []PriceTier
 }
 
@@ -96,6 +97,7 @@ type ProductSettingsProduct struct {
 	MarginRateOverride      *float64 `json:"margin_rate_override"`
 	BomItemCount            int      `json:"bom_item_count"`
 	BomStatus               string   `json:"bom_status"`
+	OrderUsageCount         int      `json:"order_usage_count"`
 	Number                  int      `json:"number"`
 }
 
@@ -154,6 +156,7 @@ type ReplacePriceTiersCommand struct {
 type UpdateProductBasicsCommand struct {
 	Actor                 string
 	ProductID             int64
+	Name                  string
 	ProductKind           string
 	Remark                string
 	GreenBeanType         string
@@ -385,6 +388,7 @@ func (s *Service) ReplacePriceTiers(ctx context.Context, cmd ReplacePriceTiersCo
 
 func (s *Service) UpdateProductBasics(ctx context.Context, cmd UpdateProductBasicsCommand) error {
 	var err error
+	cmd.Name = strings.TrimSpace(cmd.Name)
 	cmd.Remark = strings.TrimSpace(cmd.Remark)
 	cmd.ProductKind, cmd.DripBagGrams, cmd.DripBoxBagCount, cmd.SalesUnits, err = normalizeProductKindSettings(cmd.ProductKind, cmd.DripBagGrams, cmd.DripBoxBagCount)
 	if err != nil {
@@ -882,6 +886,7 @@ func productSettingsProduct(p Product) ProductSettingsProduct {
 		MarginRateOverride:      p.MarginRateOverride,
 		BomItemCount:            p.BomItemCount,
 		BomStatus:               productBomStatus(p.BomStatus, p.BomItemCount),
+		OrderUsageCount:         p.OrderUsageCount,
 	}
 }
 

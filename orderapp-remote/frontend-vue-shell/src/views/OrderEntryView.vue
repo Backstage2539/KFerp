@@ -7,8 +7,9 @@
       </div>
       <div class="hero-actions">
         <div class="total-pill">
-          <span>商品合计</span>
-          <strong>{{ money(itemsTotal) }}</strong>
+          <span>订单合计</span>
+          <strong>{{ money(orderTotalPreviewValue.grandTotal) }}</strong>
+          <small>{{ orderTotalHintText }}</small>
         </div>
         <button v-if="props.embedded" class="secondary" type="button" @click="emit('close')">关闭</button>
         <button class="secondary" type="button" @click="load" :disabled="loading">刷新</button>
@@ -29,6 +30,15 @@
     <section class="panel order-fields">
       <div class="section-title">订单信息</div>
       <div class="form-grid">
+        <div class="backfill-hint">
+          <strong>订单补录</strong>
+          <span>单据日期用于制单和订单编号，订单日期用于客户真实下单时间。</span>
+        </div>
+        <label>
+          <span>单据日期</span>
+          <input v-model.trim="form.document_date" type="date" />
+        </label>
+
         <label>
           <span>订单日期</span>
           <input v-model.trim="form.order_date" type="date" />
@@ -62,8 +72,8 @@
               @mousedown.prevent="chooseCustomer(item)"
             >
               <strong>{{ item.name }}</strong>
-              <small v-if="item.default_source_id || item.default_order_type_id">
-                {{ optionName(sources, item.default_source_id) || '默认来源' }} / {{ optionName(orderTypes, item.default_order_type_id) || '默认类型' }}
+              <small v-if="item.customer_type || item.default_source_id || item.default_order_type_id">
+                {{ customerTypeLabel(item.customer_type) || '未设置客户类型' }} / {{ optionName(sources, item.default_source_id) || '未设置来源' }} / {{ optionName(orderTypes, item.default_order_type_id) || '未设置订单类型' }}
               </small>
             </button>
             <div v-if="!filteredCustomers.length" class="combo-empty">没有匹配客户</div>
@@ -75,37 +85,12 @@
           <input :value="selectedCustomerResponsibleLabel" placeholder="先在客户资料指定负责人" readonly />
         </label>
 
-        <label>
-          <span>来源</span>
-          <select v-model.number="form.source_id">
-            <option :value="0">选择来源</option>
-            <option v-for="item in sources" :key="item.id" :value="item.id">{{ item.name }}</option>
-          </select>
-        </label>
-
-        <label>
-          <span>订单类型</span>
-          <select v-model.number="form.order_type_id" @change="syncRowsForType">
-            <option :value="0">选择类型</option>
-            <option v-for="item in orderTypes" :key="item.id" :value="item.id">{{ item.name }}</option>
-          </select>
-        </label>
-
-        <template v-for="item in orderBeanListTypes" :key="item.type">
-          <label v-if="showBeanListVersionPickerByType(item.type)">
+        <div class="customer-profile-summary full-span">
+          <div v-for="item in selectedCustomerProfileSummary" :key="item.key" class="profile-summary-item" :class="{ missing: item.missing }">
             <span>{{ item.label }}</span>
-            <select :value="form[beanListVersionField(item.type)]" @change="setBeanListVersion(item.type, $event.target.value)">
-              <option v-for="option in customerBeanListVersionOptionsByType(item.type)" :key="option.id" :value="option.id">
-                {{ beanListVersionLabel(option) }}
-              </option>
-            </select>
-          </label>
-
-          <label v-else-if="selectedBeanListVersionOptionByType(item.type)" class="readonly-field">
-            <span>{{ item.label }}</span>
-            <input :value="beanListVersionLabel(selectedBeanListVersionOptionByType(item.type))" readonly />
-          </label>
-        </template>
+            <strong>{{ item.value }}</strong>
+          </div>
+        </div>
 
         <label>
           <span>付款状态</span>
@@ -156,7 +141,16 @@
           <div class="condition-title">收款凭证</div>
           <label :class="{ 'field-invalid': hasFieldError('payment_goods_amount') }" data-error-field="payment_goods_amount">
             <span>货款金额</span>
-            <input v-model.trim="form.payment_goods_amount" type="number" min="0" step="0.01" />
+            <div class="amount-suggestion-wrap">
+              <input v-model.trim="form.payment_goods_amount" type="number" min="0" step="0.01" />
+              <button
+                v-if="showPaymentGoodsAmountSuggestion"
+                class="amount-suggestion-popover"
+                type="button"
+                @click="applyPaymentGoodsAmountSuggestion">
+                货款 {{ paymentGoodsAmountSuggestion }}
+              </button>
+            </div>
           </label>
           <label :class="{ 'field-invalid': hasFieldError('payment_shipping_amount') }" data-error-field="payment_shipping_amount">
             <span>运费金额</span>
@@ -164,13 +158,20 @@
           </label>
           <div class="voucher-field" :class="{ 'field-invalid': hasFieldError('payment_voucher_asset_id') }" data-error-field="payment_voucher_asset_id">
             <span>收款凭证</span>
-            <label class="file-upload-control">
+            <div v-if="paymentVoucher && paymentVoucherCollapsed" class="voucher-collapsed">
+              <button class="voucher-summary" type="button" @click="openPaymentVoucherPreview">
+                <strong>{{ paymentVoucher.filename || '已上传凭证' }}</strong>
+                <small>点击查看大图</small>
+              </button>
+              <button class="text-button" type="button" @click="paymentVoucherCollapsed = false">更换凭证</button>
+            </div>
+            <label v-else class="file-upload-control">
               <input type="file" accept="image/*,.pdf" @change="handlePaymentVoucherFile" />
               <span class="file-button">选择文件</span>
               <span class="file-name">{{ paymentVoucherFile?.name || paymentVoucher?.filename || '未选择文件' }}</span>
             </label>
             <small v-if="uploadingVoucher">上传中...</small>
-            <small v-else-if="paymentVoucher">{{ paymentVoucher.filename || '已上传凭证' }}</small>
+            <small v-else-if="paymentVoucher && !paymentVoucherCollapsed">{{ paymentVoucher.filename || '已上传凭证' }}</small>
           </div>
         </div>
       </div>
@@ -184,6 +185,10 @@
     <section class="panel" :class="{ 'field-invalid': hasFieldError('product_items') }" data-error-field="product_items">
       <div class="section-row">
         <div class="section-title">商品明细</div>
+        <div class="section-actions">
+          <button class="secondary" type="button" @click="openBeanListDrawer" :disabled="!form.customer_id">选择豆单</button>
+          <small class="bean-list-summary">{{ selectedBeanListSummary }}</small>
+        </div>
       </div>
       <div class="line-list">
         <article v-for="(row, idx) in rows" :key="row.key" class="line-item">
@@ -351,8 +356,9 @@
       </div>
       <div class="save-row">
         <div class="grand-line">
-          <span>商品合计</span>
-          <strong>{{ money(itemsTotal) }}</strong>
+          <span>订单合计</span>
+          <strong>{{ money(orderTotalPreviewValue.grandTotal) }}</strong>
+          <small>{{ orderTotalHintText }}</small>
         </div>
         <button class="primary" type="button" @click="save" :disabled="saving">保存订单</button>
       </div>
@@ -362,6 +368,9 @@
           <li>客户和商品输入框支持名称、拼音和首字母搜索。</li>
           <li>录单时可点“新增客户”打开右侧抽屉，粘贴收件信息后可解析姓名、联系电话和地址。</li>
           <li>选择客户后会带入客户档案中的默认来源和订单类型。</li>
+          <li>客户有历史订单时，商品下拉会把常用商品排在最前面。</li>
+          <li>来源、客户类型和订单类型只在客户资料维护，录单选择客户后只读展示。</li>
+          <li>商品明细区点击“选择豆单”可切换熟豆、生豆、挂耳已发布豆单；客户没有自定义豆单时使用公共豆单。</li>
           <li>常用规格：36g、80g、100g、227g、454g、500g、1000g、2.5kg。</li>
           <li>挂耳产品可按袋或盒录单，盒价会按发布的挂耳价格梯度自动匹配。</li>
           <li>新订单默认已付款、未发货；商品单价会随规格和数量匹配价格梯度。</li>
@@ -408,6 +417,12 @@
             <input v-model.trim="customerForm.phone" />
           </label>
           <label>
+            <span>客户类型</span>
+            <select v-model="customerForm.customer_type">
+              <option v-for="item in customerTypeOptions" :key="item.value" :value="item.value">{{ item.label }}</option>
+            </select>
+          </label>
+          <label>
             <span>来源</span>
             <select v-model.number="customerForm.default_source_id">
               <option v-for="item in sources" :key="item.id" :value="item.id">{{ item.name }}</option>
@@ -442,6 +457,44 @@
         </div>
       </aside>
     </div>
+
+    <div v-if="beanListDrawerOpen" class="drawer-mask" @click.self="closeBeanListDrawer">
+      <aside class="drawer bean-list-drawer">
+        <div class="drawer-head">
+          <h3>豆单选择</h3>
+          <button class="secondary" type="button" @click="closeBeanListDrawer">关闭</button>
+        </div>
+        <p class="drawer-help">可分别选择熟豆、生豆、挂耳已发布豆单。客户没有自定义豆单时，系统使用对应公共豆单。</p>
+        <div class="bean-list-picker-list">
+          <label v-for="item in orderBeanListTypes" :key="item.type">
+            <span>{{ item.label }}</span>
+            <select
+              v-if="customerBeanListVersionOptionsByType(item.type).length"
+              :value="form[beanListVersionField(item.type)]"
+              @change="setBeanListVersion(item.type, $event.target.value)"
+            >
+              <option v-for="option in customerBeanListVersionOptionsByType(item.type)" :key="option.id" :value="option.id">
+                {{ beanListVersionLabel(option) }}
+              </option>
+            </select>
+            <input v-else value="暂无已发布豆单" readonly />
+            <small>{{ beanListDrawerHint(item.type) }}</small>
+          </label>
+        </div>
+      </aside>
+    </div>
+
+    <div v-if="paymentVoucherPreviewOpen" class="voucher-preview-overlay" @click.self="paymentVoucherPreviewOpen = false">
+      <div class="voucher-preview-dialog">
+        <div class="drawer-head">
+          <h3>{{ paymentVoucher?.filename || '收款凭证' }}</h3>
+          <button class="secondary" type="button" @click="paymentVoucherPreviewOpen = false">关闭</button>
+        </div>
+        <img v-if="paymentVoucherImageURL && paymentVoucherIsImage" :src="paymentVoucherImageURL" alt="收款凭证" />
+        <iframe v-else-if="paymentVoucherImageURL" :src="paymentVoucherImageURL" title="收款凭证"></iframe>
+        <p v-else class="empty">暂无凭证预览</p>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -465,6 +518,7 @@ import {
   normalizeSpecG,
   orderRowPriceUnit,
   orderReceiptMethodOptions,
+  orderTotalPreview,
   productKindBadgeClass,
   productKindLabel,
   requiresOrderPaymentMethod,
@@ -472,6 +526,7 @@ import {
   retailPackagePrice,
   retailSpecOptions,
   rowUsesStaleBeanListPublication,
+  sortProductsByCustomerUsage,
   syncDripTierPrice,
   toInt,
   toNumber,
@@ -510,14 +565,18 @@ const employees = ref([])
 const logisticsCompanies = ref([])
 const beanListVersionOptions = ref([])
 const customerPublicUsages = ref([])
+const customerProductUsages = ref([])
 const rows = ref([newRow()])
 const paymentVoucher = ref(null)
 const paymentVoucherFile = ref(null)
 const uploadingVoucher = ref(false)
+const paymentVoucherCollapsed = ref(false)
+const paymentVoucherPreviewOpen = ref(false)
 const customerQuery = ref('')
 const customerOpen = ref(false)
 const customerDrawerOpen = ref(false)
 const customerDrawerMode = ref('create')
+const beanListDrawerOpen = ref(false)
 const customerSaving = ref(false)
 const customerError = ref('')
 const customerNotice = ref('')
@@ -525,9 +584,15 @@ const customerPaste = ref('')
 const customerForm = reactive(emptyCustomerForm())
 const fieldErrors = reactive({})
 const effectiveCopyID = ref(0)
+const customerTypeOptions = [
+  { value: 'retail', label: '零售客户' },
+  { value: 'ecommerce', label: '电商客户' },
+  { value: 'wholesale', label: '批发客户' },
+]
 
 const form = reactive({
   edit_id: 0,
+  document_date: '',
   order_date: '',
   customer_id: 0,
   source_id: 0,
@@ -596,6 +661,7 @@ function emptyCustomerForm() {
     id: 0,
     name: '',
     raw_name: '',
+    customer_type: 'retail',
     company_name: '',
     company_address: '',
     company_phone: '',
@@ -663,6 +729,13 @@ const retailOrder = computed(() => {
 })
 
 const itemsTotal = computed(() => rows.value.reduce((sum, row) => sum + rowTotal(row), 0))
+const orderTotalPreviewValue = computed(() => orderTotalPreview({
+  itemsTotal: itemsTotal.value,
+  shippingAmount: form.shipping_amount,
+  discountAmount: form.discount_amount,
+  roundToInt: form.round_to_int,
+}))
+const orderTotalHintText = computed(() => `货款 ${money(orderTotalPreviewValue.value.goodsAmount)} · 物流 ${money(orderTotalPreviewValue.value.logisticsAmount)}`)
 const filteredCustomers = computed(() => filterOptions(customers.value, customerQuery.value).slice(0, 20))
 const paymentMethodRequired = computed(() => requiresOrderPaymentMethod(form, payStatuses.value))
 const selectedPayStatusName = computed(() => optionName(payStatuses.value, form.pay_status_id))
@@ -671,6 +744,8 @@ const paymentReceiptRequired = computed(() => {
   const name = selectedPayStatusName.value
   return name.includes('已收款') || name.includes('已付款') || name.includes('已支付')
 })
+const paymentGoodsAmountSuggestion = computed(() => money(itemsTotal.value))
+const showPaymentGoodsAmountSuggestion = computed(() => paymentReceiptRequired.value && itemsTotal.value > 0)
 const logisticsRequired = computed(() => selectedShipStatusName.value.includes('已发货'))
 const selectedLogisticsProducts = computed(() => {
   const company = logisticsCompanies.value.find((item) => Number(item.id || 0) === Number(form.logistics_company_id || 0))
@@ -680,6 +755,26 @@ const copyMode = computed(() => Number(props.copyId || effectiveCopyID.value || 
 const activeEmployees = computed(() => employees.value.filter((employee) => employee.active !== false))
 const selectedCustomer = computed(() => customers.value.find((item) => Number(item.id || 0) === Number(form.customer_id || 0)) || null)
 const selectedCustomerResponsibleLabel = computed(() => selectedCustomer.value?.responsible_employee_name || '')
+const selectedCustomerProfileSummary = computed(() => [
+  {
+    key: 'customer_type',
+    label: '客户类型',
+    value: customerTypeLabel(selectedCustomer.value?.customer_type) || '未设置',
+    missing: !customerTypeLabel(selectedCustomer.value?.customer_type),
+  },
+  {
+    key: 'source',
+    label: '来源',
+    value: optionName(sources.value, selectedCustomer.value?.default_source_id) || '未设置',
+    missing: !Number(selectedCustomer.value?.default_source_id || 0),
+  },
+  {
+    key: 'order_type',
+    label: '订单类型',
+    value: optionName(orderTypes.value, selectedCustomer.value?.default_order_type_id) || '未设置',
+    missing: !Number(selectedCustomer.value?.default_order_type_id || 0),
+  },
+])
 const orderBeanListTypes = [
   { type: 'commercial', label: '熟豆豆单' },
   { type: 'green', label: '生豆豆单' },
@@ -688,6 +783,21 @@ const orderBeanListTypes = [
 const customerBeanListVersionOptions = computed(() => {
   return beanListVersionOptionsForCustomer(beanListVersionOptions.value, form.customer_id)
 })
+const selectedBeanListSummary = computed(() => orderBeanListTypes
+  .map((item) => {
+    const selected = selectedBeanListVersionOptionByType(item.type)
+    return `${item.label}：${selected ? beanListVersionLabel(selected) : '暂无'}`
+  })
+  .join('；'))
+
+function customerTypeLabel(value) {
+  return customerTypeOptions.find((item) => item.value === String(value || '').trim())?.label || ''
+}
+
+function selectedCustomerMissingProfileLabels() {
+  if (!selectedCustomer.value) return []
+  return selectedCustomerProfileSummary.value.filter((item) => item.missing).map((item) => item.label)
+}
 function productByID(id) {
   return products.value.find((item) => Number(item.id) === Number(id)) || null
 }
@@ -730,12 +840,14 @@ function ensureLogisticsDefaults() {
 
 function ensurePaymentDefaults() {
   if (!paymentReceiptRequired.value) return
-  if (String(form.payment_goods_amount || '').trim() === '') {
-    form.payment_goods_amount = money(itemsTotal.value)
-  }
   if (String(form.payment_shipping_amount || '').trim() === '') {
     form.payment_shipping_amount = money(toNumber(form.shipping_amount))
   }
+}
+
+function applyPaymentGoodsAmountSuggestion() {
+  form.payment_goods_amount = paymentGoodsAmountSuggestion.value
+  clearFieldErrorIfValid('payment_goods_amount')
 }
 
 function hasFieldError(fieldKey) {
@@ -807,22 +919,42 @@ async function uploadPaymentVoucher() {
     const data = await apiSend('/api/order/payment-vouchers', { body })
     paymentVoucher.value = data.asset || null
     form.payment_voucher_asset_id = Number(data.asset?.id || 0)
+    paymentVoucherCollapsed.value = Boolean(paymentVoucher.value)
   } finally {
     uploadingVoucher.value = false
   }
+}
+
+const paymentVoucherImageURL = computed(() => {
+  const voucher = paymentVoucher.value || {}
+  if (voucher.url) return voucher.url
+  if (voucher.object_key) return `/assets/${voucher.object_key}`
+  return ''
+})
+
+const paymentVoucherIsImage = computed(() => String(paymentVoucher.value?.content_type || '').startsWith('image/'))
+
+function openPaymentVoucherPreview() {
+  if (!paymentVoucher.value) return
+  paymentVoucherPreviewOpen.value = true
 }
 
 function chooseCustomer(item) {
   form.customer_id = Number(item.id || 0)
   customerQuery.value = item.name || ''
   customerOpen.value = false
+  syncOrderHeaderFromCustomer(item)
   syncBeanListVersionForCustomer({ force: true })
-  if (Number(item.default_source_id || 0) > 0) form.source_id = Number(item.default_source_id)
-  if (Number(item.default_order_type_id || 0) > 0) {
-    form.order_type_id = Number(item.default_order_type_id)
-    syncRowsForType()
-  }
   notifyWorkspaceCustomerChanged(form.customer_id)
+}
+
+function syncOrderHeaderFromCustomer(customer = selectedCustomer.value, options = {}) {
+  const nextSourceID = Number(customer?.default_source_id || 0)
+  const nextOrderTypeID = Number(customer?.default_order_type_id || 0)
+  const orderTypeChanged = Number(form.order_type_id || 0) !== nextOrderTypeID
+  form.source_id = nextSourceID
+  form.order_type_id = nextOrderTypeID
+  if (orderTypeChanged && options.syncRows !== false) syncRowsForType()
 }
 
 function beanListVersionLabel(item) {
@@ -890,6 +1022,25 @@ function setBeanListVersion(listType, value) {
   syncRowsForType()
 }
 
+function openBeanListDrawer() {
+  if (!Number(form.customer_id || 0)) {
+    raiseSaveError('请先选择客户', 'customer_id')
+    return
+  }
+  beanListDrawerOpen.value = true
+}
+
+function closeBeanListDrawer() {
+  beanListDrawerOpen.value = false
+}
+
+function beanListDrawerHint(listType) {
+  const rows = customerBeanListVersionOptionsByType(listType)
+  if (!rows.length) return '没有可用的已发布豆单'
+  if (rows.some((item) => item.is_customer_owned)) return '可选择客户自定义豆单版本'
+  return '当前使用公共豆单'
+}
+
 function syncBeanListVersionForCustomer(options = {}) {
   for (const item of orderBeanListTypes) {
     const rows = customerBeanListVersionOptionsByType(item.type)
@@ -928,6 +1079,7 @@ function assignCustomerDrawerForm(customer = {}) {
     id: Number(customer.id || 0),
     name: customer.name || '',
     raw_name: customer.raw_name || '',
+    customer_type: customer.customer_type || 'retail',
     company_name: customer.company_name || '',
     company_address: customer.company_address || '',
     company_phone: customer.company_phone || customer.phone || '',
@@ -984,10 +1136,14 @@ async function saveCustomerFromDrawer() {
   try {
     if (!customerForm.name && customerForm.contact) customerForm.name = customerForm.contact
     if (!customerForm.name) throw new Error('请填写客户名')
+    if (!customerTypeLabel(customerForm.customer_type)) throw new Error('请选择客户类型')
+    if (!Number(customerForm.default_source_id || 0)) throw new Error('请选择客户来源')
+    if (!Number(customerForm.default_order_type_id || 0)) throw new Error('请选择客户订单类型')
     if (!Number(customerForm.responsible_employee_id || 0)) throw new Error('请选择客户负责人')
     const customerPayload = {
       name: customerForm.name,
       raw_name: customerForm.raw_name || '',
+      customer_type: customerForm.customer_type,
       company_name: customerForm.company_name || '',
       company_address: customerForm.company_address || '',
       company_phone: customerForm.phone,
@@ -1022,14 +1178,18 @@ async function saveCustomerFromDrawer() {
 }
 
 function productOptions(row) {
-  return filterOptions(
-    filterProductsForCustomer(
-      products.value,
-      form.customer_id,
-      customerOwnedBeanListPublicationIDsByType(),
-      customerPublicUsages.value,
+  return sortProductsByCustomerUsage(
+    filterOptions(
+      filterProductsForCustomer(
+        products.value,
+        form.customer_id,
+        customerOwnedBeanListPublicationIDsByType(),
+        customerPublicUsages.value,
+      ),
+      row.product_query,
     ),
-    row.product_query,
+    form.customer_id,
+    customerProductUsages.value,
   ).slice(0, 30)
 }
 
@@ -1283,15 +1443,14 @@ function removeRow(idx) {
 }
 
 function applyDefaultSelections(data) {
-  if (!form.order_type_id && orderTypes.value.length) form.order_type_id = defaultOrderTypeID()
-  if (!form.source_id && sources.value.length) form.source_id = defaultSourceID()
   if (!form.pay_status_id) {
     form.pay_status_id = defaultStatusID(payStatuses.value, ['已付款', '已收款']) || Number(payStatuses.value[0]?.id || 0)
   }
   if (!form.ship_status_id) {
     form.ship_status_id = defaultStatusID(shipStatuses.value, ['未发货']) || Number(shipStatuses.value[0]?.id || 0)
   }
-  form.order_date = data.today || form.order_date
+  form.document_date = form.document_date || data.today || ''
+  form.order_date = form.order_date || data.today || ''
 }
 
 function applyCustomerContextToNewOrder() {
@@ -1322,6 +1481,7 @@ function applyEditData(data) {
   }
   Object.assign(form, {
     edit_id: Number(data.edit_id || form.edit_id || 0),
+    document_date: data.document_date || data.order_date || form.document_date,
     order_date: data.order_date || form.order_date,
     customer_id: Number(data.customer_id || 0),
     source_id: Number(data.source_id || 0),
@@ -1352,7 +1512,9 @@ function applyEditData(data) {
     outsource_tax_fee: data.outsource_tax_fee || '',
     outsource_other_fee: data.outsource_other_fee || '',
   })
+  syncOrderHeaderFromCustomer(selectedCustomer.value, { syncRows: false })
   paymentVoucher.value = data.payment_voucher || null
+  paymentVoucherCollapsed.value = Boolean(paymentVoucher.value)
   customerQuery.value = optionName(customers.value, form.customer_id)
   rows.value = editItems.map((item) => {
     const spec = String(item.spec || '').replace(/g$/i, '')
@@ -1447,6 +1609,7 @@ async function load() {
     logisticsCompanies.value = data.logistics_companies || []
     beanListVersionOptions.value = data.bean_list_version_options || []
     customerPublicUsages.value = data.customer_public_usages || []
+    customerProductUsages.value = data.customer_product_usages || []
     applyDefaultSelections(data)
     if (data.edit_mode) {
       const editData = { ...data.edit_data, edit_id: copyID ? 0 : data.edit_id }
@@ -1488,6 +1651,11 @@ async function save() {
     const payload = buildOrderPayload({ form, rows: rows.value })
     if (!payload.customer_id) {
       raiseSaveError('请选择客户', 'customer_id')
+      return
+    }
+    const missingCustomerProfile = selectedCustomerMissingProfileLabels()
+    if (missingCustomerProfile.length) {
+      raiseSaveError(`请先在客户资料维护${missingCustomerProfile.join('、')}`, 'customer_id')
       return
     }
     if (paymentMethodRequired.value && !payload.payment_method) {
@@ -1621,9 +1789,6 @@ watch(() => form.payment_goods_amount, () => clearFieldErrorIfValid('payment_goo
 watch(() => form.payment_shipping_amount, () => clearFieldErrorIfValid('payment_shipping_amount'))
 watch(() => form.payment_voucher_asset_id, () => clearFieldErrorIfValid('payment_voucher_asset_id'))
 watch(itemsTotal, () => {
-  if (paymentReceiptRequired.value && String(form.payment_goods_amount || '').trim() === '') {
-    form.payment_goods_amount = money(itemsTotal.value)
-  }
   clearFieldErrorIfValid('payment_goods_amount')
 })
 watch(() => form.shipping_amount, () => {
@@ -1652,20 +1817,34 @@ watch(
 .order-hero h2, .section-title { margin: 0; font-size: 20px; font-weight: 700; letter-spacing: 0; }
 .section-title { font-size: 17px; }
 .hero-actions, .section-row, .save-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.section-actions { display: flex; align-items: center; justify-content: flex-end; gap: 10px; flex-wrap: wrap; min-width: 0; }
+.bean-list-summary { min-width: 0; max-width: 520px; color: #667085; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .total-pill { display: grid; gap: 2px; min-width: 132px; padding: 8px 12px; border: 1px solid #e5e7eb; border-radius: 8px; background: #fafafa; }
 .total-pill span, .grand-line span, label span, .line-total span, .combo-option small { color: #667085; font-size: 12px; }
 .total-pill strong, .grand-line strong { font-size: 20px; }
+.total-pill small, .grand-line small { color: #667085; font-size: 12px; }
 .panel { padding: 16px; }
 .form-grid { display: grid; grid-template-columns: repeat(3, minmax(190px, 1fr)); gap: 14px; }
 .form-grid.compact { grid-template-columns: repeat(4, minmax(150px, 1fr)); }
 .full-span { grid-column: 1 / -1; }
+.backfill-hint { grid-column: 1 / -1; display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; min-height: 38px; border: 1px solid #cfe3d5; border-radius: 6px; padding: 8px 10px; background: #f3faf5; color: #24533a; }
+.backfill-hint strong { font-size: 14px; }
+.backfill-hint span { color: #42624e; font-size: 12px; }
 .conditional-panel { display: grid; grid-template-columns: repeat(3, minmax(180px, 1fr)); gap: 12px; align-items: end; padding: 12px; border: 1px solid #e4e7ec; border-radius: 8px; background: #fafbfc; }
+.customer-profile-summary { display: grid; grid-template-columns: repeat(3, minmax(150px, 1fr)); gap: 10px; padding: 10px 12px; border: 1px solid #e4e7ec; border-radius: 8px; background: #fafbfc; }
+.profile-summary-item { display: grid; gap: 3px; min-width: 0; }
+.profile-summary-item span { color: #667085; font-size: 12px; }
+.profile-summary-item strong { min-width: 0; font-size: 14px; color: #111827; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.profile-summary-item.missing strong { color: #be123c; }
 .order-hero, .panel, .form-grid, .conditional-panel, .line-item { min-width: 0; }
 .form-grid > *, .conditional-panel > *, .line-item > * { min-width: 0; }
 .condition-title { align-self: center; font-weight: 700; color: #1f2937; }
 .voucher-field { position: relative; display: flex; flex-direction: column; gap: 6px; min-width: 0; }
 .voucher-field > span { color: #667085; font-size: 12px; }
 .voucher-field small { color: #667085; font-size: 12px; }
+.voucher-collapsed { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; align-items: center; }
+.voucher-summary { min-width: 0; display: grid; gap: 2px; text-align: left; border: 1px solid #d7dbe3; background: #fff; color: #111827; }
+.voucher-summary strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .file-upload-control { position: relative; width: 100%; min-height: 38px; display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 8px; border: 1px solid #d7dbe3; border-radius: 6px; padding: 6px 8px; background: #fff; cursor: pointer; }
 .file-upload-control input { position: absolute; width: 1px; height: 1px; overflow: hidden; opacity: 0; pointer-events: none; }
 .file-button { min-height: 26px; display: inline-flex; align-items: center; justify-content: center; border-radius: 999px; padding: 2px 12px; background: #eef0f3; color: #111827; font-size: 13px; white-space: nowrap; }
@@ -1684,6 +1863,8 @@ button:disabled { cursor: not-allowed; opacity: 0.5; }
 .label-row { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
 .label-actions { display: inline-flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
 .field-shell { min-width: 0; }
+.amount-suggestion-wrap { position: relative; min-width: 0; }
+.amount-suggestion-popover { position: absolute; left: 8px; top: calc(100% + 6px); z-index: 6; min-height: 30px; padding: 5px 10px; border: 1px solid #b7d3ff; background: #eef5ff; color: #174ea6; box-shadow: 0 10px 24px rgba(23, 78, 166, 0.14); font-size: 12px; }
 .field-invalid input, .field-invalid select, .field-invalid textarea, .field-invalid .file-upload-control { border-color: #f43f5e; box-shadow: 0 0 0 2px rgba(244, 63, 94, 0.12); }
 .field-invalid > span:first-child, .field-invalid .label-row > span:first-child, .field-invalid.voucher-field > span:first-child { color: #be123c; }
 .panel.field-invalid { border-color: #fda4af; box-shadow: 0 0 0 2px rgba(244, 63, 94, 0.08); }
@@ -1748,6 +1929,13 @@ button:disabled { cursor: not-allowed; opacity: 0.5; }
 .wide-field textarea, .drawer-grid input, .drawer-grid select { width: 100%; }
 .parse-button { margin-top: 8px; }
 .drawer-actions { display: flex; justify-content: flex-end; margin-top: 14px; }
+.drawer-help { margin: 0 0 14px; color: #667085; font-size: 13px; }
+.bean-list-picker-list { display: grid; gap: 14px; }
+.bean-list-picker-list small { color: #667085; font-size: 12px; }
+.voucher-preview-overlay { position: fixed; inset: 0; z-index: 90; display: grid; place-items: center; padding: 20px; background: rgba(15, 23, 42, 0.42); }
+.voucher-preview-dialog { width: min(920px, 100%); max-height: min(86vh, 860px); display: grid; gap: 12px; overflow: auto; border-radius: 10px; border: 1px solid #d7dbe3; background: #fff; padding: 16px; box-shadow: 0 24px 80px rgba(15, 23, 42, 0.28); }
+.voucher-preview-dialog img, .voucher-preview-dialog iframe { width: 100%; max-height: 72vh; border: 0; object-fit: contain; background: #f8fafc; }
+.voucher-preview-dialog iframe { min-height: 70vh; }
 
 @media (max-width: 1100px) {
   .line-item { grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -1756,11 +1944,17 @@ button:disabled { cursor: not-allowed; opacity: 0.5; }
 @media (max-width: 760px) {
   .page { padding: 12px; overflow-x: hidden; }
   .order-hero, .section-row, .save-row { align-items: stretch; flex-direction: column; }
-  .form-grid, .form-grid.compact, .line-item, .conditional-panel { grid-template-columns: 1fr; }
-  .conditional-panel { align-items: stretch; padding: 12px; }
+  .form-grid, .form-grid.compact, .line-item { grid-template-columns: 1fr; }
+  .customer-profile-summary { grid-template-columns: 1fr; }
+  .section-actions { width: 100%; justify-content: stretch; }
+  .section-actions button { width: 100%; }
+  .bean-list-summary { max-width: 100%; white-space: normal; }
+  .conditional-panel { grid-template-columns: 1fr; align-items: stretch; padding: 12px; }
   .global-error-toast { --notice-stack-offset: var(--kferp-notice-stack-space, 0px); top: calc(max(12px, env(safe-area-inset-top)) + var(--notice-stack-offset)); left: max(12px, env(safe-area-inset-left)); right: max(12px, env(safe-area-inset-right)); width: auto; max-width: none; }
   .hero-actions { width: 100%; }
   .file-upload-control { grid-template-columns: auto minmax(0, 1fr); }
+  .voucher-collapsed { grid-template-columns: 1fr; }
+  .voucher-preview-overlay { align-items: start; padding: max(12px, env(safe-area-inset-top)) max(12px, env(safe-area-inset-right)) max(12px, env(safe-area-inset-bottom)) max(12px, env(safe-area-inset-left)); }
   .tier-price-chip { max-width: 100%; grid-template-columns: minmax(0, 1fr) auto; }
   .tier-price-chip span { overflow-wrap: anywhere; }
 }

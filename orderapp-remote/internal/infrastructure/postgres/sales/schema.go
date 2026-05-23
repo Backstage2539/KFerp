@@ -35,6 +35,9 @@ func EnsureSchema(ctx context.Context, pool *pgxpool.Pool, schema string) error 
 	if err := ensureOrderPaymentMethodColumn(ctx, pool, schema); err != nil {
 		return err
 	}
+	if err := ensureOrderDocumentDateColumn(ctx, pool, schema); err != nil {
+		return err
+	}
 	if err := ensureSalesOrderNoteColumn(ctx, pool, schema); err != nil {
 		return err
 	}
@@ -85,6 +88,19 @@ func ensureOrderBeanListColumns(ctx context.Context, pool *pgxpool.Pool, schema 
 func ensureSalesOrderNoteColumn(ctx context.Context, pool *pgxpool.Pool, schema string) error {
 	_, err := pool.Exec(ctx, fmt.Sprintf(`ALTER TABLE %s.orders ADD COLUMN IF NOT EXISTS sales_order_note TEXT NOT NULL DEFAULT ''`, schema))
 	return err
+}
+
+func ensureOrderDocumentDateColumn(ctx context.Context, pool *pgxpool.Pool, schema string) error {
+	stmts := []string{
+		fmt.Sprintf(`ALTER TABLE %s.orders ADD COLUMN IF NOT EXISTS document_date DATE`, schema),
+		fmt.Sprintf(`UPDATE %s.orders SET document_date=order_date WHERE document_date IS NULL`, schema),
+	}
+	for _, stmt := range stmts {
+		if _, err := pool.Exec(ctx, stmt); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func ensureCustomerCompanyColumns(ctx context.Context, pool *pgxpool.Pool, schema string) error {

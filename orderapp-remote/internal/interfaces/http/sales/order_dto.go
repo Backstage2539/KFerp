@@ -10,6 +10,7 @@ type ProductOption = salesapp.ProductOption
 type PageData = salesapp.OrderFormData
 
 type CreateOrderRequest struct {
+	DocumentDate                    string `form:"document_date"`
 	OrderDate                       string `form:"order_date"`
 	CustomerID                      int64  `form:"customer_id"`
 	SourceID                        int64  `form:"source_id"`
@@ -60,6 +61,7 @@ type CreateOrderRequest struct {
 }
 
 type UpdateOrderRequest struct {
+	DocumentDate          string `form:"document_date"`
 	OrderDate             string `form:"order_date"`
 	CustomerID            int64  `form:"customer_id"`
 	SourceID              int64  `form:"source_id"`

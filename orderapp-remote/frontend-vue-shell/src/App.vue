@@ -159,6 +159,7 @@ import { apiGet, appURL } from './api/client.js'
 import { fetchCustomerProcessingPortalOverview } from './api/customer-fulfillment.js'
 import { fetchERPNotifications, markNotificationRead } from './api/message-center.js'
 import { fetchUISettings } from './api/ui-settings.js'
+import { dedupeNotifications } from './lib/global-notifications.js'
 import { replaceHistoryURL, viewNavigationURL } from './lib/url-state.js'
 import { installTableAutoPagination } from './lib/table-auto-pagination.js'
 import SearchableSelect from './components/SearchableSelect.vue'
@@ -551,7 +552,7 @@ async function loadNotifications() {
   if (!currentActor.value || !isViewAllowed('orders', allowedViewKeys.value)) return
   try {
     const data = await fetchERPNotifications(5)
-    notifications.value = data.notifications || []
+    notifications.value = dedupeNotifications(data.notifications || [])
   } catch {
     // Notification polling must not block the main ERP workspace.
   }
@@ -743,7 +744,7 @@ const title = computed(() => menuMap[currentKey.value]?.title || '')
 const actorName = computed(() => currentActor.value?.name || '')
 const isCurrentAllowed = computed(() => menuMap[currentKey.value] && isViewAllowed(currentKey.value, allowedViewKeys.value))
 const currentInternalView = computed(() => internalViews[currentKey.value] || OrdersView)
-const visibleNotifications = computed(() => notifications.value.slice(0, 3))
+const visibleNotifications = computed(() => dedupeNotifications(notifications.value).slice(0, 3))
 const notificationStackStyle = computed(() => ({
   '--kferp-notice-stack-space': isMobile.value && visibleNotifications.value.length
     ? `${notificationStackSpace.value}px`

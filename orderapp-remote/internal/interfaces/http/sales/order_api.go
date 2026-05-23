@@ -27,6 +27,7 @@ type apiOption struct {
 type customerAPIOption struct {
 	ID                      int64  `json:"id"`
 	Name                    string `json:"name"`
+	CustomerType            string `json:"customer_type,omitempty"`
 	Contact                 string `json:"contact,omitempty"`
 	Phone                   string `json:"phone,omitempty"`
 	Py                      string `json:"py"`
@@ -48,24 +49,26 @@ type employeeAPIOption struct {
 }
 
 type orderFormAPIResponse struct {
-	Today                  string                               `json:"today"`
-	Customers              []customerAPIOption                  `json:"customers"`
-	Employees              []employeeAPIOption                  `json:"employees"`
-	Sources                []apiOption                          `json:"sources"`
-	ShipStatuses           []apiOption                          `json:"ship_statuses"`
-	PayStatuses            []apiOption                          `json:"pay_statuses"`
-	OrderTypes             []apiOption                          `json:"order_types"`
-	Products               []map[string]any                     `json:"products"`
-	Logistics              []salesapp.LogisticsCompany          `json:"logistics_companies"`
-	BeanListVersionOptions []salesapp.BeanListVersionOption     `json:"bean_list_version_options"`
-	CustomerPublicUsages   []salesapp.CustomerPublicUsageOption `json:"customer_public_usages"`
-	EditMode               bool                                 `json:"edit_mode"`
-	EditID                 int64                                `json:"edit_id"`
-	EditData               any                                  `json:"edit_data,omitempty"`
+	Today                  string                                `json:"today"`
+	Customers              []customerAPIOption                   `json:"customers"`
+	Employees              []employeeAPIOption                   `json:"employees"`
+	Sources                []apiOption                           `json:"sources"`
+	ShipStatuses           []apiOption                           `json:"ship_statuses"`
+	PayStatuses            []apiOption                           `json:"pay_statuses"`
+	OrderTypes             []apiOption                           `json:"order_types"`
+	Products               []map[string]any                      `json:"products"`
+	Logistics              []salesapp.LogisticsCompany           `json:"logistics_companies"`
+	BeanListVersionOptions []salesapp.BeanListVersionOption      `json:"bean_list_version_options"`
+	CustomerPublicUsages   []salesapp.CustomerPublicUsageOption  `json:"customer_public_usages"`
+	CustomerProductUsages  []salesapp.CustomerProductUsageOption `json:"customer_product_usages"`
+	EditMode               bool                                  `json:"edit_mode"`
+	EditID                 int64                                 `json:"edit_id"`
+	EditData               any                                   `json:"edit_data,omitempty"`
 }
 
 type orderSaveAPIRequest struct {
 	EditID                          int64  `json:"edit_id"`
+	DocumentDate                    string `json:"document_date"`
 	OrderDate                       string `json:"order_date"`
 	CustomerID                      int64  `json:"customer_id"`
 	SourceID                        int64  `json:"source_id"`
@@ -240,6 +243,7 @@ func (h orderAPIHandler) form(c echo.Context) error {
 		Logistics:              data.LogisticsCompanies,
 		BeanListVersionOptions: data.BeanListVersionOptions,
 		CustomerPublicUsages:   data.CustomerPublicUsages,
+		CustomerProductUsages:  data.CustomerProductUsages,
 	}
 
 	if editID > 0 {
@@ -507,6 +511,7 @@ func (h orderAPIHandler) uploadPaymentVoucher(c echo.Context) error {
 
 func (r orderSaveAPIRequest) toCreateRequest() CreateOrderRequest {
 	return CreateOrderRequest{
+		DocumentDate:                    r.DocumentDate,
 		OrderDate:                       r.OrderDate,
 		CustomerID:                      r.CustomerID,
 		SourceID:                        r.SourceID,
@@ -570,6 +575,7 @@ func apiCustomerOptions(in []CustomerOption) []customerAPIOption {
 		out = append(out, customerAPIOption{
 			ID:                      item.ID,
 			Name:                    item.Name,
+			CustomerType:            item.CustomerType,
 			Contact:                 item.Contact,
 			Phone:                   item.Phone,
 			Py:                      support.PinyinFull(item.Name),
@@ -849,6 +855,7 @@ func editDataForAPI(ed *OrderEditData) map[string]any {
 		commercialPublicationID = itemPublicationIDByType("commercial")
 	}
 	return map[string]any{
+		"document_date":                       ed.DocumentDate,
 		"order_date":                          ed.OrderDate,
 		"customer_id":                         strconv.FormatInt(ed.CustomerID, 10),
 		"source_id":                           strconv.FormatInt(ed.SourceID, 10),

@@ -31,6 +31,7 @@ func productOptionFromCatalog(p catalogapp.Product) ProductOption {
 		MarginRateOverride:      p.MarginRateOverride,
 		BomItemCount:            p.BomItemCount,
 		BomStatus:               p.BomStatus,
+		OrderUsageCount:         p.OrderUsageCount,
 	}
 	out.Tiers = make([]ProductTierOption, 0, len(p.Tiers))
 	for _, t := range p.Tiers {

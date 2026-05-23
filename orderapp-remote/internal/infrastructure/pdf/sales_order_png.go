@@ -85,18 +85,11 @@ func (c *salesOrderPNGCanvas) render(snapshot salesdomain.SalesOrderSnapshot) {
 
 	y += 42
 	colW := (right - left) / 3
-	rowH := c.metaRow(y, []string{
-		"订单号：" + snapshot.OrderNo,
-		"订单日期：" + snapshot.OrderDate,
-		"客户：" + snapshot.CustomerName,
-	}, colW)
-	y += rowH + 6
-	rowH = c.metaRow(y, []string{
-		"客户公司：" + firstNonEmpty(snapshot.CustomerCompanyName, snapshot.CustomerName),
-		"联系电话：" + snapshot.CustomerCompanyPhone,
-		"公司地址：" + snapshot.CustomerCompanyAddress,
-	}, colW)
-	y += rowH + 30
+	for _, row := range salesOrderHeaderMetaRows(snapshot) {
+		rowH := c.metaRow(y, row, colW)
+		y += rowH + 6
+	}
+	y += 24
 
 	y = c.itemsTable(left, right, y, snapshot)
 	y = c.totals(left, right, y, snapshot)
@@ -131,7 +124,7 @@ func (c *salesOrderPNGCanvas) itemsTable(left, right, y int, snapshot salesdomai
 	for _, item := range snapshot.Items {
 		rowH := c.salesOrderPNGItemRowHeight(item, widths, hasDiscount, 20, 28)
 		x = left
-		// salesOrderItemCells keeps item.Note in the final table column.
+		// 备注: salesOrderItemCells keeps item.Note in the final table column.
 		for i, text := range salesOrderItemCells(item, hasDiscount) {
 			if i >= len(widths) {
 				break
@@ -186,6 +179,7 @@ func (c *salesOrderPNGCanvas) salesOrderPNGItemRowHeight(item salesdomain.SalesO
 }
 
 func (c *salesOrderPNGCanvas) totals(left, right, y int, snapshot salesdomain.SalesOrderSnapshot) int {
+	// 订单备注 rows are produced by salesOrderFinancialRows and rendered with the settlement summary.
 	for _, row := range salesOrderFinancialRows(snapshot) {
 		size := 22.0
 		col := color.RGBA{R: 20, G: 20, B: 20, A: 255}
@@ -208,7 +202,7 @@ func (c *salesOrderPNGCanvas) totals(left, right, y int, snapshot salesdomain.Sa
 			continue
 		}
 		text := row.Label + "： " + row.Value
-		if row.Label == "订单备注" {
+		if salesOrderFinancialRowWrapLeft(row) {
 			y = c.wrappedText(left+8, y+8, right-left-16, size, 32, col, []string{text})
 			continue
 		}

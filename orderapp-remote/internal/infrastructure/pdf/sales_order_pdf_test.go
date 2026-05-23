@@ -49,6 +49,21 @@ func TestRenderSalesOrderPDF(t *testing.T) {
 	}
 }
 
+func TestSalesOrderHeaderMetaRowsShowsDocumentAndOrderDates(t *testing.T) {
+	rows := salesOrderHeaderMetaRows(salesdomain.SalesOrderSnapshot{
+		OrderNo:      "SO-20260523-0001",
+		DocumentDate: "2026-05-23",
+		OrderDate:    "2026-05-20",
+		CustomerName: "某某咖啡馆",
+	})
+	flat := strings.Join(append(rows[0], rows[1]...), "\n")
+	for _, want := range []string{"单据日期：2026-05-23", "订单日期：2026-05-20"} {
+		if !strings.Contains(flat, want) {
+			t.Fatalf("sales order meta rows missing %q: %#v", want, rows)
+		}
+	}
+}
+
 func TestRenderSalesOrderPDFWrapsUTF8PaymentTextWithoutPanic(t *testing.T) {
 	renderer := SalesOrderRenderer{}
 	b, err := renderer.Render(salesdomain.SalesOrderSnapshot{
@@ -139,14 +154,21 @@ func TestSalesOrderFinancialRowsHideDiscountTotalWhenNoDiscount(t *testing.T) {
 		Shipping:       "169.00",
 		Discount:       "261.65",
 		GrandTotal:     "2362.35",
+		ExpressFee:     "顺丰到付前电话确认",
 		SalesOrderNote: "客户要求周五前发出",
+		Items: []salesdomain.SalesOrderSnapshotItem{
+			{Name: "芬纳定制-红酒日晒-中深烘", Note: "磨粉"},
+			{Name: "芬纳-曲奇定制", Note: "贴标"},
+		},
 		DiscountBreakdowns: []salesdomain.SalesOrderDiscountBreakdown{
 			{Type: "unit_amount", Amount: "200.00"},
 			{Type: "percent", Amount: "61.65"},
 		},
 	})
 	want := []salesOrderFinancialRow{
-		{Label: "订单备注", Value: "客户要求周五前发出"},
+		{Label: "快递费备注", Value: "顺丰到付前电话确认"},
+		{Label: "订单明细备注", Value: "芬纳定制-红酒日晒-中深烘：磨粉；芬纳-曲奇定制：贴标"},
+		{Label: "销售单备注", Value: "客户要求周五前发出"},
 		{Cells: []string{"商品合计： 2455.00", "优惠合计： 261.65", "运费： 169.00", "应收： 2362.35"}, Bold: true},
 	}
 	if len(rows) != len(want) {
@@ -166,7 +188,7 @@ func TestSalesOrderFinancialRowsHideDiscountTotalWhenNoDiscount(t *testing.T) {
 		SalesOrderNote: "无优惠订单",
 	})
 	want = []salesOrderFinancialRow{
-		{Label: "订单备注", Value: "无优惠订单"},
+		{Label: "销售单备注", Value: "无优惠订单"},
 		{Cells: []string{"商品合计： 134.00", "运费： 0.00", "应收： 134.00"}, Bold: true},
 	}
 	if len(rows) != len(want) {

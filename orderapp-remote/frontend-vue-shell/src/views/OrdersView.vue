@@ -154,7 +154,12 @@
                 />
               </td>
               <td><button class="order-link" type="button" @click.prevent="openOrderDetailDrawer(row)">{{ row.order_no }}</button></td>
-              <td>{{ row.order_date }}</td>
+              <td>
+                <div class="date-stack">
+                  <span>单据：{{ row.document_date || row.order_date || '-' }}</span>
+                  <span>订单：{{ row.order_date || '-' }}</span>
+                </div>
+              </td>
               <td>{{ row.customer }}</td>
               <td>{{ row.responsible_name || '-' }}</td>
               <td>
@@ -224,7 +229,7 @@
         <div class="drawer-head">
           <div>
             <h3>{{ activeOrderDetail?.order_no || '订单详情' }}</h3>
-            <p>{{ activeOrderDetail?.customer || '-' }} · {{ activeOrderDetail?.order_date || '-' }}</p>
+            <p>{{ activeOrderDetail?.customer || '-' }} · 单据 {{ activeOrderDetail?.document_date || activeOrderDetail?.order_date || '-' }} · 订单 {{ activeOrderDetail?.order_date || '-' }}</p>
           </div>
           <button class="secondary" type="button" @click="closeOrderDetailDrawer">关闭</button>
         </div>
@@ -1049,6 +1054,8 @@ a, .text-link { color: #1f4f82; text-decoration: none; }
 .voided-action-button:disabled { opacity: 1; cursor: default; }
 .link-button { display: inline-flex; align-items: center; justify-content: center; text-decoration: none; }
 .order-link { height: auto; border: 0; border-radius: 0; padding: 0; background: transparent; color: #1f4f82; font: inherit; text-align: left; cursor: pointer; }
+.date-stack { display: grid; gap: 3px; min-width: 124px; color: #333; font-size: 13px; }
+.date-stack span { white-space: nowrap; }
 .shipping-summary { display: grid; gap: 4px; min-width: 130px; }
 .shipping-summary span { color: #666; font-size: 12px; }
 .shipping-summary strong { font-weight: 600; color: #171717; }

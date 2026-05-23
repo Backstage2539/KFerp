@@ -11,6 +11,7 @@ import (
 type SaveOrderCommand struct {
 	Actor                           string
 	EditID                          int64
+	DocumentDate                    time.Time
 	OrderDate                       time.Time
 	CustomerID                      int64
 	SourceID                        int64
@@ -128,6 +129,7 @@ type OrderShippingExportItem struct {
 
 type UpdateHeaderCommand struct {
 	Actor                 string
+	DocumentDate          string
 	OrderDate             string
 	CustomerID            int64
 	SourceID              int64
@@ -205,6 +207,7 @@ type Option struct {
 type CustomerOption struct {
 	ID                      int64  `json:"id"`
 	Name                    string `json:"name"`
+	CustomerType            string `json:"customer_type"`
 	Contact                 string `json:"contact"`
 	Phone                   string `json:"phone"`
 	DefaultSourceID         int64  `json:"default_source_id"`
@@ -272,6 +275,19 @@ type CustomerPublicUsageOption struct {
 	UsePublicSKU bool  `json:"use_public_sku"`
 }
 
+type CustomerProductUsageOption struct {
+	CustomerID     int64  `json:"customer_id"`
+	ProductID      int64  `json:"product_id"`
+	OrderCount     int64  `json:"order_count"`
+	ItemCount      int64  `json:"item_count"`
+	LastOrderDate  string `json:"last_order_date"`
+	LastOrderID    int64  `json:"last_order_id"`
+	LastOrderNo    string `json:"last_order_no"`
+	LastOrderItem  string `json:"last_order_item"`
+	LastOrderSpec  string `json:"last_order_spec"`
+	LastOrderUnits string `json:"last_order_units"`
+}
+
 type OrderFormData struct {
 	Today                  string
 	Customers              []CustomerOption
@@ -284,6 +300,7 @@ type OrderFormData struct {
 	LogisticsCompanies     []LogisticsCompany
 	BeanListVersionOptions []BeanListVersionOption
 	CustomerPublicUsages   []CustomerPublicUsageOption
+	CustomerProductUsages  []CustomerProductUsageOption
 	EditData               *OrderEditData
 }
 
@@ -316,6 +333,7 @@ type OrderEditItem struct {
 type OrderEditData struct {
 	ID                    int64
 	OrderNo               string
+	DocumentDate          string
 	OrderDate             string
 	CustomerID            int64
 	SourceID              int64
@@ -375,6 +393,7 @@ type OrdersSummary struct {
 type OrderRow struct {
 	ID                    int64  `json:"id"`
 	OrderNo               string `json:"order_no"`
+	DocumentDate          string `json:"document_date"`
 	OrderDate             string `json:"order_date"`
 	CustomerID            int64  `json:"customer_id"`
 	Customer              string `json:"customer"`

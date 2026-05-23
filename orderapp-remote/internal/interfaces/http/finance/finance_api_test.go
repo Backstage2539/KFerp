@@ -693,7 +693,18 @@ CREATE TABLE %s.orders (
 	discount_amount NUMERIC(12,2) NOT NULL DEFAULT 0,
 	payment_method TEXT NOT NULL DEFAULT '',
 	grand_total NUMERIC(12,2) NOT NULL DEFAULT 0,
+	payment_voucher_asset_id BIGINT NOT NULL DEFAULT 0,
 	is_void BOOLEAN NOT NULL DEFAULT false
+);
+CREATE TABLE %s.sales_order_assets (
+	id BIGINT PRIMARY KEY,
+	kind TEXT NOT NULL DEFAULT '',
+	filename TEXT NOT NULL DEFAULT '',
+	content_type TEXT NOT NULL DEFAULT '',
+	bytes BIGINT NOT NULL DEFAULT 0,
+	sha256 TEXT NOT NULL DEFAULT '',
+	object_key TEXT NOT NULL DEFAULT '',
+	created_by TEXT NOT NULL DEFAULT ''
 );
 CREATE TABLE %s.order_items (
 	id BIGSERIAL PRIMARY KEY,
@@ -735,7 +746,7 @@ CREATE TABLE %s.audit_logs (
 	meta JSONB NULL,
 	created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
-`, schema, schema, schema, schema, schema, schema, schema, schema)
+`, schema, schema, schema, schema, schema, schema, schema, schema, schema)
 }
 
 func mustExecFinanceAPISQL(t *testing.T, ctx context.Context, pool *pgxpool.Pool, sql string) {

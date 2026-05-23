@@ -81,6 +81,9 @@ func (r *productSettingsRepo) UpdateProductBasics(ctx context.Context, cmd catal
 	r.productUpdated = true
 	for i := range r.products {
 		if r.products[i].ID == cmd.ProductID {
+			if cmd.Name != "" {
+				r.products[i].Name = cmd.Name
+			}
 			r.products[i].ProductKind = cmd.ProductKind
 			r.products[i].Remark = cmd.Remark
 			r.products[i].GreenBeanType = cmd.GreenBeanType
@@ -459,6 +462,32 @@ func TestProductSettingsAPIUpdatesProductRemark(t *testing.T) {
 	}
 	if !bytes.Contains(rec.Body.Bytes(), []byte(`"remark":"门店常用奶咖"`)) {
 		t.Fatalf("response missing updated remark: %s", rec.Body.String())
+	}
+}
+
+func TestProductSettingsAPIUpdatesProductName(t *testing.T) {
+	repo := &productSettingsRepo{
+		products: []catalogapp.Product{{
+			ID: 91, Name: "旧SKU名", ProductKind: "roasted", RoastLevel: "中烘", Remark: "旧备注", YieldRate: 0.8,
+		}},
+	}
+	e := echo.New()
+	registerProductRoutes(e, catalogapp.NewService(repo))
+
+	body := bytes.NewBufferString(`{"name":"芬纳定制-红酒日晒-中深烘","product_kind":"roasted","roast_level":"中烘","yield_rate":0.81,"remark":"门店常用奶咖"}`)
+	req := httptest.NewRequest(http.MethodPut, "/api/products/91", body)
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("PUT /api/products/91 status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if !repo.productUpdated || repo.updated.Name != "芬纳定制-红酒日晒-中深烘" {
+		t.Fatalf("updated name command = %+v updated=%v", repo.updated, repo.productUpdated)
+	}
+	if !bytes.Contains(rec.Body.Bytes(), []byte(`"name":"芬纳定制-红酒日晒-中深烘"`)) {
+		t.Fatalf("response missing updated name: %s", rec.Body.String())
 	}
 }
 

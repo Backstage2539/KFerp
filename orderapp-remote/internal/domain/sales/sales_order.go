@@ -9,6 +9,7 @@ import (
 type SalesOrderSnapshot struct {
 	OrderID        int64  `json:"order_id"`
 	OrderNo        string `json:"order_no"`
+	DocumentDate   string `json:"document_date"`
 	OrderDate      string `json:"order_date"`
 	CustomerName   string `json:"customer_name"`
 	CompanyName    string `json:"company_name"`
@@ -28,6 +29,7 @@ type SalesOrderSnapshot struct {
 	TotalAmount        string                        `json:"total_amount"`
 	Shipping           string                        `json:"shipping"`
 	Discount           string                        `json:"discount"`
+	ExpressFee         string                        `json:"express_fee"`
 	SalesOrderNote     string                        `json:"sales_order_note"`
 	GrandTotal         string                        `json:"grand_total"`
 	DiscountBreakdowns []SalesOrderDiscountBreakdown `json:"discount_breakdowns"`

@@ -9,6 +9,8 @@ type DeliveryNoteSnapshot struct {
 	OrderID        int64  `json:"order_id"`
 	OrderNo        string `json:"order_no"`
 	DeliveryNoteNo string `json:"delivery_note_no"`
+	DocumentDate   string `json:"document_date"`
+	OrderDate      string `json:"order_date"`
 	PostingDate    string `json:"posting_date"`
 
 	CompanyName    string `json:"company_name"`
