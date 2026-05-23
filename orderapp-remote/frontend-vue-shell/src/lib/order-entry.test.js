@@ -780,16 +780,22 @@ test('order entry save validation scrolls to invalid fields and marks them until
   assert.match(invalidStyles, /border-color:\s*#f43f5e/)
 })
 
-test('order entry shows clickable payment goods amount suggestion without locking edits', () => {
+test('order entry shows clickable realtime payment amount suggestions without locking edits', () => {
   const source = orderEntryViewSource()
 
   assert.match(source, /const paymentGoodsAmountSuggestion = computed\(\(\) => money\(itemsTotal\.value\)\)/)
+  assert.match(source, /const paymentShippingAmountSuggestion = computed\(\(\) => money\(toNumber\(form\.shipping_amount\)\)\)/)
   assert.match(source, /const showPaymentGoodsAmountSuggestion = computed/)
+  assert.match(source, /const showPaymentShippingAmountSuggestion = computed/)
   assert.match(source, /function applyPaymentGoodsAmountSuggestion\(\)/)
+  assert.match(source, /function applyPaymentShippingAmountSuggestion\(\)/)
   assert.match(source, /form\.payment_goods_amount = paymentGoodsAmountSuggestion\.value/)
+  assert.match(source, /form\.payment_shipping_amount = paymentShippingAmountSuggestion\.value/)
   assert.match(source, /class="amount-suggestion-popover"/)
   assert.match(source, /@click="applyPaymentGoodsAmountSuggestion"/)
-  assert.match(source, /货款\s*\{\{ paymentGoodsAmountSuggestion \}\}/)
+  assert.match(source, /@click="applyPaymentShippingAmountSuggestion"/)
+  assert.match(source, /实时价格提示\s*货款\s*\{\{ paymentGoodsAmountSuggestion \}\}/)
+  assert.match(source, /实时价格提示\s*运费\s*\{\{ paymentShippingAmountSuggestion \}\}/)
   assert.doesNotMatch(source, /form\.payment_goods_amount = money\(itemsTotal\.value\)/)
 
   const suggestionStyles = cssBlock(source, '.amount-suggestion-popover')
