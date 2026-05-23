@@ -134,6 +134,42 @@ test('order entry exposes document date, order date, and order backfill labels',
   assert.match(source, /form\.order_date/)
 })
 
+test('order entry exposes continuous backfill mode and save flow', () => {
+  const source = orderEntryViewSource()
+  const resetSource = sourceAfter(source, 'function resetForBackfillContinuation')
+  const saveSource = sourceAfter(source, 'async function save(')
+
+  assert.match(source, /backfillMode/)
+  assert.match(source, /保存并继续补录/)
+  assert.match(source, /保存并查看订单/)
+  assert.match(source, /save\(\{ continueBackfill: true \}\)/)
+  assert.match(source, /resetForBackfillContinuation/)
+  assert.match(saveSource, /continueBackfill/)
+  assert.match(saveSource, /resetForBackfillContinuation\(\)/)
+  assert.match(saveSource, /if \(!props\.embedded && data\.redirect_url\) window\.location\.href = data\.redirect_url/)
+
+  for (const want of [
+    "form.ship_tracking_no = ''",
+    "form.payment_goods_amount = ''",
+    "form.payment_shipping_amount = ''",
+    'form.payment_voucher_asset_id = 0',
+    "form.notes = ''",
+    "form.discount_amount = ''",
+    "form.outsource_material_fee = ''",
+    "form.outsource_roast_fee = ''",
+    "form.outsource_packaging_fee = ''",
+    "form.outsource_manual_fee = ''",
+    "form.outsource_tax_fee = ''",
+    "form.outsource_other_fee = ''",
+    'rows.value = [newRow()]',
+    'paymentVoucher.value = null',
+    'paymentVoucherFile.value = null',
+    'saveOrderEntryDraft()',
+  ]) {
+    assert.ok(resetSource.includes(want), `resetForBackfillContinuation missing ${want}`)
+  }
+})
+
 test('buildOrderPayload carries per-item notes with order detail rows', () => {
   const payload = buildOrderPayload({
     form: {
