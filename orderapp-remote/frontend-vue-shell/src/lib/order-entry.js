@@ -443,10 +443,37 @@ function normalizeBeanListType(value) {
   return 'commercial'
 }
 
-function productBeanListType(product) {
+export function productBeanListType(product) {
   if (isDripProduct(product)) return 'drip'
   if (String(product?.product_kind || '').trim() === 'green_bean') return 'green'
   return 'commercial'
+}
+
+export function latestBeanListVersionOption(options, listType) {
+  const normalized = normalizeBeanListType(listType)
+  const rows = (options || []).filter((item) => normalizeBeanListType(item?.list_type) === normalized)
+  if (!rows.length) return null
+  return rows.find((item) => item?.is_default) || rows[0]
+}
+
+export function rowUsesStaleBeanListPublication(row, options, listType = productBeanListType(row)) {
+  if (toInt(row?.product_id) <= 0) return false
+  const publicationID = toInt(row?.bean_list_publication_id)
+  if (publicationID <= 0) return false
+  const latest = latestBeanListVersionOption(options, listType)
+  const latestID = toInt(latest?.id)
+  return latestID > 0 && latestID !== publicationID
+}
+
+export function isBlankOrderLine(row) {
+  return toInt(row?.product_id) <= 0
+    && !String(row?.product_query || '').trim()
+    && !String(row?.item_note || '').trim()
+    && !String(row?.unit_price || '').trim()
+}
+
+export function needsTrailingBlankOrderLine(rows) {
+  return !(rows || []).some(isBlankOrderLine)
 }
 
 function normalizePublicationIDsByType(publicationIDsByType = {}) {

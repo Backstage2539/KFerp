@@ -486,6 +486,42 @@ func TestOrderAPIFormUsesCustomerCommercialBeanListForProductOptions(t *testing.
 	}
 }
 
+func TestOrderAPIFormReturnsLatestBeanListVersionDefaultForStaleWarning(t *testing.T) {
+	pool, schema := newOrderAPITestDB(t)
+	ctx := context.Background()
+	seedOrderAPITestData(t, ctx, pool, schema)
+	mustExecOrderAPITestSQL(t, ctx, pool, fmt.Sprintf(`
+		INSERT INTO %[1]s.bean_list_publications(id, list_type, version_no, status, owner_type, owner_key, config_json, content_json, changelog, actor, published_at)
+		VALUES
+			(9902,'commercial','F-1','published','customer','3','{}'::jsonb,'{}'::jsonb,'旧版','codex','2026-05-21 09:00:00+08'),
+			(9903,'commercial','F-2','published','customer','3','{}'::jsonb,'{}'::jsonb,'新版','codex','2026-05-22 09:00:00+08');
+	`, schema))
+
+	e := newOrderAPITestEcho(pool, schema)
+	req := httptest.NewRequest(http.MethodGet, "/api/order/form?customer_id=3", nil)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET /api/order/form status = %d, want 200, body=%s", rec.Code, rec.Body.String())
+	}
+
+	var resp struct {
+		BeanListVersionOptions []salesapp.BeanListVersionOption `json:"bean_list_version_options"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode order form: %v", err)
+	}
+	defaultByID := map[int64]bool{}
+	for _, option := range resp.BeanListVersionOptions {
+		if option.CustomerID == 3 && option.ListType == "commercial" {
+			defaultByID[option.ID] = option.IsDefault
+		}
+	}
+	if len(defaultByID) != 2 || defaultByID[9902] || !defaultByID[9903] {
+		t.Fatalf("commercial bean list defaults = %#v, want old=false latest=true", defaultByID)
+	}
+}
+
 func TestOrderAPIFormHidesPublicGreenBeansWhenCustomerDisablesPublicSKU(t *testing.T) {
 	pool, schema := newOrderAPITestDB(t)
 	ctx := context.Background()

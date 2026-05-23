@@ -193,7 +193,6 @@
     <section class="panel" :class="{ 'field-invalid': hasFieldError('product_items') }" data-error-field="product_items">
       <div class="section-row">
         <div class="section-title">商品明细</div>
-        <button class="secondary" type="button" @click="addRow">新增明细</button>
       </div>
       <div class="line-list">
         <article v-for="(row, idx) in rows" :key="row.key" class="line-item">
@@ -294,7 +293,22 @@
             <strong>{{ money(rowTotal(row)) }}</strong>
             <small>{{ row.manual_price ? '手动价' : autoPriceLabel(row) }}</small>
             <small v-if="row.tier_below_min" class="tier-warning">低于最低梯度，已按最低档 {{ row.tier_price_label || '价格' }} 计价</small>
-            <small v-if="row.product_id && row.bean_list_version_no">豆单版本：{{ row.bean_list_version_no }}</small>
+            <small
+              v-if="row.product_id && row.bean_list_version_no"
+              class="bean-list-version-meta"
+              :class="{ stale: isRowBeanListVersionStale(row), open: row.bean_list_version_tip_open }"
+            >
+              <span>豆单版本：{{ row.bean_list_version_no }}</span>
+              <button
+                v-if="isRowBeanListVersionStale(row)"
+                class="bean-list-version-warning"
+                type="button"
+                aria-label="非新版本豆单"
+                title="非新版本豆单"
+                @click.stop="toggleBeanListVersionTip(row)"
+              >!</button>
+              <span v-if="isRowBeanListVersionStale(row)" class="bean-list-version-tip" role="tooltip">非新版本豆单</span>
+            </small>
           </div>
 
           <button class="secondary danger" type="button" @click="removeRow(idx)" :disabled="rows.length === 1">删除</button>
@@ -318,6 +332,9 @@
             </button>
           </div>
         </article>
+      </div>
+      <div class="line-actions">
+        <button class="secondary" type="button" @click="addRow">新增明细</button>
       </div>
     </section>
 
@@ -452,6 +469,7 @@ import {
   filterOptions,
   isOrderTierActive,
   lineTotal,
+  needsTrailingBlankOrderLine,
   normalizeSpecG,
   orderRowPriceUnit,
   orderReceiptMethodOptions,
@@ -461,6 +479,7 @@ import {
   resolveWholesaleTierPrice,
   retailPackagePrice,
   retailSpecOptions,
+  rowUsesStaleBeanListPublication,
   syncDripTierPrice,
   toInt,
   toNumber,
@@ -560,6 +579,7 @@ function newRow() {
     tier_id: 'auto',
     bean_list_publication_id: 0,
     bean_list_version_no: '',
+    bean_list_version_tip_open: false,
     unit_price: '',
     price_unit: '',
     price_unit_suffix: '',
@@ -1025,6 +1045,7 @@ function clearProduct(row) {
   row.tier_id = 'auto'
   row.bean_list_publication_id = 0
   row.bean_list_version_no = ''
+  row.bean_list_version_tip_open = false
   row.unit_price = ''
   clearWholesalePriceMetadata(row)
   row.manual_price = false
@@ -1051,6 +1072,7 @@ function chooseProduct(row, product) {
     row.spec_mode = ''
     row.custom_spec_g = ''
     syncPrice(row, { force: true })
+    ensureTrailingBlankRow()
     return
   }
   row.sales_unit = ''
@@ -1064,6 +1086,7 @@ function chooseProduct(row, product) {
     row.spec_mode = defaultWholesaleSpec(product)
   }
   syncPrice(row, { force: true })
+  ensureTrailingBlankRow()
 }
 
 function specOptions(row) {
@@ -1146,6 +1169,16 @@ function ensureRowBeanListVersion(row, price = {}) {
   const publicationID = Number(price.beanListPublicationID || row.bean_list_publication_id || selected?.id || 0)
   row.bean_list_publication_id = publicationID
   row.bean_list_version_no = String(price.beanListVersionNo || row.bean_list_version_no || selected?.version_no || '').trim()
+  if (!isRowBeanListVersionStale(row)) row.bean_list_version_tip_open = false
+}
+
+function isRowBeanListVersionStale(row) {
+  const listType = orderBeanListTypeForProductKind(row?.product_kind)
+  return rowUsesStaleBeanListPublication(row, customerBeanListVersionOptionsByType(listType), listType)
+}
+
+function toggleBeanListVersionTip(row) {
+  row.bean_list_version_tip_open = !row.bean_list_version_tip_open
 }
 
 function applyDripUnit(row, product) {
@@ -1239,6 +1272,11 @@ function unitPriceMoney(value) {
 }
 
 function addRow() {
+  rows.value.push(newRow())
+}
+
+function ensureTrailingBlankRow() {
+  if (!needsTrailingBlankOrderLine(rows.value)) return
   rows.value.push(newRow())
 }
 
@@ -1680,6 +1718,7 @@ button:disabled { cursor: not-allowed; opacity: 0.5; }
 .kind-green { color: #12613a; background: #e8f7ee; border: 1px solid #8bd4a6; }
 .combo-empty { padding: 12px; color: #667085; font-size: 13px; }
 .line-list { display: grid; gap: 10px; margin-top: 12px; }
+.line-actions { display: flex; justify-content: flex-start; padding-top: 12px; }
 .line-item { display: grid; grid-template-columns: minmax(240px, 1.35fr) minmax(160px, 0.85fr) minmax(90px, 0.45fr) minmax(145px, 0.7fr) minmax(150px, 0.75fr) minmax(100px, 0.5fr) auto; align-items: end; gap: 12px; padding: 12px; border: 1px solid #edf0f5; border-radius: 8px; background: #fcfcfd; }
 .product-cell { z-index: 3; }
 .spec-control, .price-control { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; align-items: center; }
@@ -1690,6 +1729,13 @@ button:disabled { cursor: not-allowed; opacity: 0.5; }
 .line-total strong { font-size: 18px; }
 .line-total small { color: #667085; font-size: 12px; }
 .line-total small.tier-warning { color: #b42318; font-weight: 700; }
+.bean-list-version-meta { position: relative; display: inline-flex; align-items: center; gap: 5px; width: fit-content; }
+.bean-list-version-meta.stale { color: #b42318; font-weight: 700; }
+.bean-list-version-warning { width: 18px; height: 18px; padding: 0; display: inline-grid; place-items: center; border: 1px solid #fda29b; border-radius: 50%; background: #fff1f0; color: #b42318; font-size: 12px; font-weight: 800; line-height: 1; }
+.bean-list-version-tip { position: absolute; left: 0; top: calc(100% + 4px); z-index: 8; display: none; white-space: nowrap; border-radius: 5px; background: #111827; color: #fff; padding: 5px 8px; font-size: 12px; font-weight: 600; box-shadow: 0 8px 20px rgba(15, 23, 42, 0.18); }
+.bean-list-version-meta:hover .bean-list-version-tip,
+.bean-list-version-meta.open .bean-list-version-tip,
+.bean-list-version-warning:focus + .bean-list-version-tip { display: inline-block; }
 .line-note { grid-column: 1 / -1; }
 .tier-prices { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 8px; padding-top: 2px; }
 .tier-price-chip { display: grid; grid-template-columns: auto auto; align-items: center; gap: 8px; min-height: 32px; border: 1px solid #d7dbe3; background: #fff; color: #344054; border-radius: 7px; padding: 6px 8px; font-size: 12px; }
