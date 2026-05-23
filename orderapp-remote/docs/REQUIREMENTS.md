@@ -29,6 +29,7 @@
 - PR-317-BEAN-LIST-STORED-PDF-DOWNLOAD：产品豆单版本列表下载 PDF 不得调用浏览器打印/另存为；必须走与销售单、出库单一致的服务器生成思路，按该版本快照生成 PDF，写入系统 `bean_list_publication_assets` 缓存，返回系统下载地址，后续同版本下载直接复用已保存 PDF。下载接口必须按豆单归属校验公共、客户或本人草稿范围，不能让客户专属豆单跨客户下载。
 - PR-318-CUSTOMER-BEAN-LIST-PUBLIC-CATEGORY-SCOPE：产品豆单在客户范围下必须遵守 SKU设置 的“是否使用公共商品分类”开关。客户关闭公共商品分类时，豆单预览、生成抽屉和客户豆单发布候选只展示该客户自己的 SKU，不得混入公共分类或公共 SKU；开启后才允许公共分类下的公共 SKU 作为只读引用进入客户豆单范围。
 - PR-319-CUSTOMER-BEAN-LIST-SKU-CATEGORY-METADATA：客户范围产品豆单必须读取 SKU设置 中当前客户 SKU 的分类路径和商品排序。客户自有/客户定制熟豆即使没有旧 Excel 豆单资料，也必须进入商用批发豆单；豆单分组标题应与公共豆单逻辑一致，优先显示实际豆单分类名，例如二级分类“定制咖啡熟豆”，不得继续落到旧公共豆单的“源产地精选”等分类或因缺少旧豆单编码而消失。
+- PR-339-CUSTOMER-BEAN-LIST-UNCATEGORIZED-SKU：客户范围产品豆单中，客户 SKU 未挂到当前客户 SKU 分类时必须显示“未分类”，不得继承基础公共 SKU 的旧 Excel 分类；例如岩师傅“曲奇拼配2.0”不能显示在“精品意式拼配”下。
 - PR-320-BEAN-LIST-PREVIEW-STYLE-PDF：生成豆单 PDF 必须使用生成抽屉预览的卡片视觉样式（米色底、版本/标题/类型胶囊、分类条、商品卡、绿色/蓝色报价块），不得退回文本版豆单。生成 PDF 按当前预览快照保存草稿、在后端生成并写入 `bean_list_publication_assets`；发布或保存草稿时也必须同步生成预览样式 PDF。列表下载如发现非 `bean-list-preview-style-v2` 或 `bean-list-preview-style-v3` 的旧缓存，必须按新版预览样式重新生成并覆盖缓存。
 - PR-321-CUSTOMER-SKU-CATEGORY-TOGGLE-FACTORY-BEANLIST-TITLE：客户 SKU 设置中的客户自有分类不得因勾选再取消“是否使用公共商品分类”而从客户分类树消失；从客户账户切回“工厂总览”后，SKU设置必须回到公共 SKU 归属；客户产品豆单的商用批发豆单标题必须沿用公共豆单标题逻辑，客户 SKU 挂在“咖啡豆 / 定制咖啡熟豆”时标题显示为“1、定制咖啡熟豆”，并且 `芬纳定制-红酒日晒-中深烘` 必须出现在芬纳咖啡客户豆单中。
 - PR-322-CUSTOMER-SKU-CATEGORY-CLEANUP-BOM-VERSION-DEACTIVATE：SKU设置保存客户公共分类开关时，不得把仍有活跃二级分类或已挂 SKU 的客户自有一级分类当成空公共副本清理；SKU 失效时，除当前 BOM 状态变为失效外，对应 active BOM 版本也必须同步置为 disabled，历史明细和版本记录保留。
