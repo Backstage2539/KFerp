@@ -38,6 +38,11 @@ function cssBlock(source, selector) {
   return match?.[1] || ''
 }
 
+function sourceAfter(source, marker) {
+  const index = source.indexOf(marker)
+  return index >= 0 ? source.slice(index) : ''
+}
+
 function zIndexForSelector(source, selector) {
   const match = cssBlock(source, selector).match(/z-index:\s*(\d+)/)
   return Number(match?.[1] || 0)
@@ -550,6 +555,29 @@ test('order entry shows save errors in a fixed global alert', () => {
   const toastStyles = cssBlock(source, '.global-error-toast')
   assert.match(toastStyles, /position:\s*fixed/)
   assert.match(toastStyles, /z-index:\s*80/)
+})
+
+test('order entry mobile layout keeps conditional panels and errors inside the viewport', () => {
+  const source = orderEntryViewSource()
+  const mobileStyles = sourceAfter(source, '@media (max-width: 760px)')
+
+  assert.match(mobileStyles, /\.conditional-panel\s*\{[^}]*grid-template-columns:\s*1fr/s)
+  assert.match(mobileStyles, /\.global-error-toast\s*\{[^}]*left:\s*max\(12px,\s*env\(safe-area-inset-left\)\)/s)
+  assert.match(mobileStyles, /\.global-error-toast\s*\{[^}]*right:\s*max\(12px,\s*env\(safe-area-inset-right\)\)/s)
+  assert.match(mobileStyles, /\.global-error-toast\s*\{[^}]*width:\s*auto/s)
+})
+
+test('order entry payment voucher upload uses a mobile-safe file control', () => {
+  const source = orderEntryViewSource()
+
+  assert.match(source, /class="file-upload-control"/)
+  assert.match(source, /class="file-button"/)
+  assert.match(source, /class="file-name"/)
+
+  const uploadStyles = cssBlock(source, '.file-upload-control')
+  const fileNameStyles = cssBlock(source, '.file-name')
+  assert.match(uploadStyles, /grid-template-columns:\s*auto\s+minmax\(0,\s*1fr\)/)
+  assert.match(fileNameStyles, /text-overflow:\s*ellipsis/)
 })
 
 test('lineTotal uses manual unit price even for retail rows', () => {
