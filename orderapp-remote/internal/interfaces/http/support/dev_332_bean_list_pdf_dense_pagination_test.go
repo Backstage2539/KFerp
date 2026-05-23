@@ -23,17 +23,17 @@ func TestDev332BeanListPDFDensePaginationSeedDocsAndCode(t *testing.T) {
 		"docs/REQUIREMENTS.md": {
 			"PR-332-BEAN-LIST-PDF-DENSE-PAGINATION",
 			"normal/compact/dense",
-			"bean-list-preview-style-v3",
+			"bean-list-preview-style-v4",
 		},
 		"docs/ACCEPTANCE_TESTS.md": {
 			"PR-332-BEAN-LIST-PDF-DENSE-PAGINATION",
 			"工厂量单 1 个卡片 + 庄园精品豆 2 个卡片",
-			"bean-list-preview-style-v3",
+			"bean-list-preview-style-v4",
 		},
 		"docs/OP_MANUAL_COSTING.md": {
 			"PR-332",
 			"normal/compact/dense",
-			"bean-list-preview-style-v3",
+			"bean-list-preview-style-v4",
 		},
 		"docs/acceptance/2026-05-23-bean-list-pdf-dense-pagination.md": {
 			"三档密度",
@@ -45,7 +45,7 @@ func TestDev332BeanListPDFDensePaginationSeedDocsAndCode(t *testing.T) {
 			"name:           \"dense\"",
 		},
 		"internal/application/costing/service.go": {
-			"bean-list-preview-style-v3",
+			"bean-list-preview-style-v4",
 		},
 	}
 	for rel, wants := range markers {

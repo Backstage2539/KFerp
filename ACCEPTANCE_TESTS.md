@@ -299,8 +299,9 @@
 - [ ] PR-309-BEAN-LIST-VERSION-DOWNLOAD：产品豆单“豆单版本列表”每行都展示“下载 PDF”；点击公共、客户、草稿、已发布或已撤回版本时，下载内容必须来自该行 `content/config` 快照，不能因当前商品价格、当前抽屉样式或当前筛选状态变化而改变历史豆单。
 - [ ] PR-317-BEAN-LIST-STORED-PDF-DOWNLOAD：点击产品豆单版本列表“下载 PDF”后，浏览器不弹出打印窗口；系统先调用后端生成/缓存该版本 PDF，返回 `/api/costing/bean-list/publications/:id/pdf` 下载地址，再直接下载文件。再次点击同一版本复用 `bean_list_publication_assets` 已保存 PDF；客户专属豆单下载必须校验当前客户范围。
 - [ ] PR-320-BEAN-LIST-PREVIEW-STYLE-PDF：在生成豆单抽屉点击“生成 PDF”时，页面不得调用 `window.print()` 或打开系统打印窗口；系统保存当前预览快照为草稿，后端按预览卡片样式生成 PDF 并下载。发布豆单、保存草稿和版本列表下载均得到同一套预览卡片样式；旧文本版缓存会因新版 cache key 不匹配而重新生成覆盖。
-- [ ] PR-323-BEAN-LIST-DOWNLOAD-MATCH-PREVIEW-TYPOGRAPHY：生成抽屉预览中的豆单和“生成 PDF”/版本列表“下载 PDF”得到的文件必须字体大小、粗字重、卡片行列、分类标题、商品名称换行和报价块排版一致；旧 `bean-list-preview-style-v1` 缓存下载时必须按 `bean-list-preview-style-v2` 重新生成覆盖。
-- [ ] PR-332-BEAN-LIST-PDF-DENSE-PAGINATION：公开豆单和版本下载 PDF 必须先用 normal/compact/dense 三档压缩卡片再分页，减少截图中分类标题后大面积空白；截图形态的“工厂量单 1 个卡片 + 庄园精品豆 2 个卡片”应可压在同一页内；旧 `bean-list-preview-style-v2` 缓存下载时必须按 `bean-list-preview-style-v3` 重新生成覆盖。
+- [ ] PR-323-BEAN-LIST-DOWNLOAD-MATCH-PREVIEW-TYPOGRAPHY：生成抽屉预览中的豆单和“生成 PDF”/版本列表“下载 PDF”得到的文件必须字体大小、粗字重、卡片行列、分类标题、商品名称换行和报价块排版一致；旧 `bean-list-preview-style-v1` 缓存下载时必须按 `bean-list-preview-style-v2` 或 `bean-list-preview-style-v3` 重新生成覆盖。
+- [ ] PR-332-BEAN-LIST-PDF-DENSE-PAGINATION：公开豆单和版本下载 PDF 必须先用 normal/compact/dense 三档压缩卡片再分页，减少截图中分类标题后大面积空白；截图形态的“工厂量单 1 个卡片 + 庄园精品豆 2 个卡片”应可压在同一页内；旧 `bean-list-preview-style-v2` 或 `bean-list-preview-style-v3` 缓存下载时必须按 `bean-list-preview-style-v4` 重新生成覆盖。
+- [ ] PR-333-BEAN-LIST-PDF-NO-OVERLAP：公开豆单和版本下载 PDF 中，分类标题、商品卡、商品名和报价块不得互相覆盖。截图形态中“2、庄园精品豆...”标题不得被两张商品卡的“报价”或价格块压住；如果当前页剩余空间不足，标题和第一行商品必须一起换页。旧 `bean-list-preview-style-v3` 问题缓存下载时必须按 `bean-list-preview-style-v4` 重新生成覆盖。
 - [ ] PR-324-FENNA-ORDER-ENTRY-CUSTOMER-BEAN-LIST-SCOPE：芬纳咖啡录单商品下拉只展示已进入芬纳商用豆单且带 `commercial_wholesale_tiers` 发布价格档的两个定制产品，不展示公共商用产品或未发布到该豆单的客户 SKU；选择 `芬纳定制-红酒日晒-中深烘` 或 `芬纳-曲奇定制（20%乌干达，15%云南厌氧日晒，65%云南水洗）` 后自动价格来自客户商用豆单发布快照，不再为空。
 - [ ] PR-331-ORDER-ENTRY-PUBLIC-SKU-SCOPE：芬纳咖啡在 SKU 设置中 `use_public_sku=false` 时，录单和修改订单的商品下拉不展示岩师傅的 `孟连水洗A`、`红酒日晒-2026` 生豆 SKU，也不展示其他公共 SKU；芬纳自己的两个定制熟豆 SKU 仍可选且价格梯度正常显示。
 - [ ] 产品豆单生成抽屉按当前豆单范围自动使用公共或客户上下文，发布保存不会串到错误归属。

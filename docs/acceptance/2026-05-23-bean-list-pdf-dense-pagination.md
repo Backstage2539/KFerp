@@ -8,7 +8,7 @@
 - PDF 生成器在卡片行放不下当前页时，先尝试 normal、compact、dense 三档密度，压缩卡片内边距、字号、行距和报价块高度，必要时截断过长风味/特点文案。
 - 只有 dense 密度仍无法容纳时才换页，避免分类标题后留下大面积空白。
 - 截图形态的“工厂量单 1 个卡片 + 庄园精品豆 2 个卡片”测试数据生成 1 页 PDF。
-- PDF 缓存键升级为 `bean-list-preview-style-v3`；旧 `bean-list-preview-style-v2` 缓存下载时必须重新生成。
+- PDF 缓存键升级为 `bean-list-preview-style-v4`；旧 `bean-list-preview-style-v2` 或 `bean-list-preview-style-v3` 缓存下载时必须重新生成。
 
 ## 自动化证据
 - `go test ./internal/infrastructure/pdf -run TestRenderBeanListPDFCompactsCardRowsBeforeAddingBlankPage -count=1`

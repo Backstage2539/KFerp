@@ -2,8 +2,12 @@ package pdf
 
 import (
 	"bytes"
+	"math"
+	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/jung-kurt/gofpdf"
 )
 
 func TestRenderBeanListPDFProducesDownloadablePDF(t *testing.T) {
@@ -194,6 +198,138 @@ func TestRenderBeanListPDFCompactsCardRowsBeforeAddingBlankPage(t *testing.T) {
 	if got := pdfPageCount(body); got != 1 {
 		t.Fatalf("preview compact PDF page count = %d, want 1 page without large blank before second group", got)
 	}
+}
+
+func TestCardRowLayoutDoesNotSqueezeBelowRenderableHeight(t *testing.T) {
+	state := newBeanListPreviewTestState(t)
+	items := []BeanListItem{
+		{
+			Code: "2.1",
+			Name: "金色山脉",
+			Prices: []BeanListPrice{
+				{Label: "2磅-13磅", Value: "61/磅"},
+				{Label: "14-23磅", Value: "55/磅"},
+				{Label: "24-47磅", Value: "49/磅"},
+				{Label: "48磅以上", Value: "46/磅"},
+			},
+		},
+		{
+			Code: "2.2",
+			Name: "酒心巧克",
+			Prices: []BeanListPrice{
+				{Label: "2磅-13磅", Value: "65/磅"},
+				{Label: "14-23磅", Value: "59/磅"},
+				{Label: "24-47磅", Value: "53/磅"},
+				{Label: "48磅以上", Value: "49/磅"},
+			},
+		},
+	}
+	columns := 2
+	gap := 2.5
+	cardW := (state.contentW - gap*float64(columns-1)) / float64(columns)
+	dense := beanListCardDensities[len(beanListCardDensities)-1]
+	denseH := state.estimateCardRowHeight(items, cardW, columns, dense)
+	state.y = state.pageH - state.margin - denseH + 6
+	if remaining := state.pageH - state.margin - state.y; remaining <= dense.minHeight+4 || remaining >= denseH+4 {
+		t.Fatalf("test setup remaining=%0.2f denseMin=%0.2f denseH=%0.2f", remaining, dense.minHeight, denseH)
+	}
+
+	beforePage := state.pdf.PageNo()
+	density, rowH := state.cardRowLayout(items, cardW, columns, 0)
+	required := state.estimateCardRowHeight(items, cardW, columns, density)
+	if state.pdf.PageNo() == beforePage {
+		t.Fatalf("card row stayed on page %d with rowH=%0.2f required=%0.2f; want page break instead of overlap", beforePage, rowH, required)
+	}
+	if rowH+0.01 < required {
+		t.Fatalf("card row height=%0.2f below required render height=%0.2f for density=%s", rowH, required, density.name)
+	}
+}
+
+func TestRenderGroupKeepsTitleWithFirstCardRow(t *testing.T) {
+	state := newBeanListPreviewTestState(t)
+	group := BeanListGroup{
+		Category:     "2、庄园精品豆：云南孟连兴福茶咖厂 新产季精选",
+		ShowCategory: true,
+		Items: []BeanListItem{
+			{
+				Code:        "2.1",
+				Name:        "金色山脉",
+				Flavor:      "柑橘、坚果、焦可可、饱满",
+				Description: "甄选高海拔地块蒂姆，水洗处理、中深度烘焙",
+				Prices: []BeanListPrice{
+					{Label: "2磅-13磅", Value: "61/磅"},
+					{Label: "14-23磅", Value: "55/磅"},
+					{Label: "24-47磅", Value: "49/磅"},
+					{Label: "48磅以上", Value: "46/磅"},
+				},
+			},
+			{
+				Code:        "2.2",
+				Name:        "酒心巧克",
+				Flavor:      "莓果、红酒、菠萝、奶油",
+				Description: "卡蒂姆日晒、中烘焙（庄园差异产品）",
+				Prices: []BeanListPrice{
+					{Label: "2磅-13磅", Value: "65/磅"},
+					{Label: "14-23磅", Value: "59/磅"},
+					{Label: "24-47磅", Value: "53/磅"},
+					{Label: "48磅以上", Value: "49/磅"},
+				},
+			},
+		},
+	}
+	titleLines := state.splitPreviewText(group.Category, state.contentW-8, 10)
+	titleH := math.Max(9, float64(len(titleLines))*5+3)
+	state.y = state.pageH - state.margin - titleH - 4
+	if state.y+titleH+3 > state.pageH-state.margin {
+		t.Fatalf("test setup should leave room for title alone")
+	}
+
+	columns := 2
+	gap := 2.5
+	cardW := (state.contentW - gap*float64(columns-1)) / float64(columns)
+	rowH := state.estimateCardRowHeight(group.Items[:2], cardW, columns, beanListCardDensities[0])
+	wantYAtLeast := state.margin + titleH + 4 + rowH + 4 + 2
+	beforePage := state.pdf.PageNo()
+
+	state.renderGroup(group, nil)
+
+	if state.pdf.PageNo() != beforePage+1 {
+		t.Fatalf("renderGroup page=%d, want title and row moved to a new page", state.pdf.PageNo())
+	}
+	if state.y+0.01 < wantYAtLeast {
+		t.Fatalf("renderGroup y=%0.2f, want at least %0.2f so title is on the same page as first row", state.y, wantYAtLeast)
+	}
+}
+
+func newBeanListPreviewTestState(t *testing.T) *beanListPreviewState {
+	t.Helper()
+	fontPath, err := (BeanListRenderer{}).resolveFontPath()
+	if err != nil {
+		t.Fatalf("resolveFontPath() err=%v", err)
+	}
+	pdf := gofpdf.NewCustom(&gofpdf.InitType{
+		OrientationStr: "P",
+		UnitStr:        "mm",
+		Size:           gofpdf.SizeType{Wd: 108, Ht: 192},
+		FontDirStr:     filepath.Dir(fontPath),
+	})
+	pdf.SetCompression(false)
+	pdf.SetMargins(0, 0, 0)
+	pdf.SetAutoPageBreak(false, 0)
+	pdf.AddUTF8Font("noto", "", filepath.Base(fontPath))
+	pdf.AddUTF8Font("noto", "B", filepath.Base(fontPath))
+	state := &beanListPreviewState{
+		pdf:      pdf,
+		doc:      BeanListDocument{LayoutStyle: "card", CardsPerRow: 2, ShowCategoryNumbers: true},
+		pageW:    108,
+		pageH:    192,
+		margin:   8,
+		contentW: 92,
+		bg:       pdfRGB{248, 241, 229},
+		fg:       pdfRGB{23, 23, 23},
+	}
+	state.addPage()
+	return state
 }
 
 func pdfFontMarkers(body []byte) string {

@@ -37,8 +37,8 @@ func TestDev323BeanListDownloadMatchesPreviewTypographyWiring(t *testing.T) {
 		}
 	}
 	serviceSrc := string(readOrderAppFileForTest(t, filepath.Join("internal", "application", "costing", "service.go")))
-	if !strings.Contains(serviceSrc, "bean-list-preview-style-v3") {
-		t.Fatalf("costing service must use current bean-list preview cache key v3 or newer")
+	if !strings.Contains(serviceSrc, "bean-list-preview-style-v4") {
+		t.Fatalf("costing service must use current bean-list preview cache key v4 or newer")
 	}
 }
 

@@ -191,19 +191,19 @@ var beanListCardDensities = []beanListCardDensity{
 	},
 	{
 		name:           "dense",
-		scale:          0.78,
-		sidePad:        2.4,
-		topPad:         3,
-		bottomPad:      3,
-		codeHeight:     6.8,
+		scale:          0.72,
+		sidePad:        2.2,
+		topPad:         2.2,
+		bottomPad:      2.2,
+		codeHeight:     5.8,
 		codePadX:       3,
-		headMinHeight:  11.3,
-		nameLineHeight: 4.6,
-		bodyLineHeight: 3.45,
-		detailGap:      1.5,
-		priceBoxHeight: 8.7,
-		priceRowStep:   10.2,
-		priceGap:       1.8,
+		headMinHeight:  9.2,
+		nameLineHeight: 4.1,
+		bodyLineHeight: 3.2,
+		detailGap:      1.2,
+		priceBoxHeight: 7.4,
+		priceRowStep:   8.5,
+		priceGap:       1.1,
 		minHeight:      28,
 		maxNameLines:   2,
 		maxUseLines:    1,
@@ -242,8 +242,12 @@ func (r BeanListRenderer) renderPreviewStyle(doc BeanListDocument, fontPath stri
 	}
 	state.addPage()
 	state.renderHeader()
-	for _, group := range state.doc.Groups {
-		state.renderGroup(group)
+	for i, group := range state.doc.Groups {
+		var nextGroup *BeanListGroup
+		if i+1 < len(state.doc.Groups) {
+			nextGroup = &state.doc.Groups[i+1]
+		}
+		state.renderGroup(group, nextGroup)
 	}
 	state.renderChangelogAndFooter()
 	if pdf.Error() != nil {
@@ -333,11 +337,15 @@ func (s *beanListPreviewState) renderHeader() {
 	s.y += 7
 }
 
-func (s *beanListPreviewState) renderGroup(group BeanListGroup) {
+func (s *beanListPreviewState) renderGroup(group BeanListGroup, nextGroup *BeanListGroup) {
 	if len(group.Items) == 0 {
 		return
 	}
-	if s.doc.ShowCategoryNumbers && group.ShowCategory && strings.TrimSpace(group.Category) != "" {
+	hasTitle := s.doc.ShowCategoryNumbers && group.ShowCategory && strings.TrimSpace(group.Category) != ""
+	if hasTitle && s.doc.LayoutStyle != "table" {
+		s.ensureGroupTitleWithFirstRow(group)
+	}
+	if hasTitle {
 		s.renderGroupTitle(group.Category)
 	}
 	if s.doc.LayoutStyle == "table" {
@@ -352,14 +360,18 @@ func (s *beanListPreviewState) renderGroup(group BeanListGroup) {
 		}
 		row := group.Items[i:end]
 		cols := clampInt(len(row), 1, 1, maxCols)
-		s.renderCardRow(row, cols)
+		keepAfter := 0.0
+		if nextGroup != nil && end == len(group.Items) {
+			keepAfter = s.groupStartMinHeight(*nextGroup)
+		}
+		s.renderCardRow(row, cols, keepAfter)
 	}
 	s.y += 2
 }
 
 func (s *beanListPreviewState) renderGroupTitle(title string) {
+	height := s.groupTitleHeight(title)
 	lines := s.splitPreviewText(title, s.contentW-8, 10)
-	height := math.Max(9, float64(len(lines))*5+3)
 	s.ensureSpace(height + 3)
 	x := s.margin
 	s.setFill(pdfRGB{255, 252, 246})
@@ -375,13 +387,41 @@ func (s *beanListPreviewState) renderGroupTitle(title string) {
 	s.y += height + 4
 }
 
-func (s *beanListPreviewState) renderCardRow(items []BeanListItem, columns int) {
+func (s *beanListPreviewState) groupTitleHeight(title string) float64 {
+	lines := s.splitPreviewText(title, s.contentW-8, 10)
+	return math.Max(9, float64(len(lines))*5+3)
+}
+
+func (s *beanListPreviewState) ensureGroupTitleWithFirstRow(group BeanListGroup) {
+	s.ensureSpace(s.groupStartMinHeight(group))
+}
+
+func (s *beanListPreviewState) groupStartMinHeight(group BeanListGroup) float64 {
+	if len(group.Items) == 0 {
+		return 0
+	}
+	maxCols := clampInt(s.doc.CardsPerRow, 2, 1, 4)
+	end := minInt(maxCols, len(group.Items))
+	row := group.Items[:end]
+	cols := clampInt(len(row), 1, 1, maxCols)
+	gap := 2.5
+	cardW := (s.contentW - gap*float64(cols-1)) / float64(cols)
+	dense := beanListCardDensities[len(beanListCardDensities)-1]
+	minRowH := s.estimateCardRowHeight(row, cardW, cols, dense)
+	height := minRowH + 4
+	if s.doc.ShowCategoryNumbers && group.ShowCategory && strings.TrimSpace(group.Category) != "" {
+		height += s.groupTitleHeight(group.Category) + 4
+	}
+	return height
+}
+
+func (s *beanListPreviewState) renderCardRow(items []BeanListItem, columns int, keepAfter float64) {
 	if len(items) == 0 {
 		return
 	}
 	gap := 2.5
 	cardW := (s.contentW - gap*float64(columns-1)) / float64(columns)
-	density, rowH := s.cardRowLayout(items, cardW, columns)
+	density, rowH := s.cardRowLayout(items, cardW, columns, keepAfter)
 	s.ensureSpace(rowH + 4)
 	for i, item := range items {
 		x := s.margin + float64(i)*(cardW+gap)
@@ -390,8 +430,32 @@ func (s *beanListPreviewState) renderCardRow(items []BeanListItem, columns int) 
 	s.y += rowH + 4
 }
 
-func (s *beanListPreviewState) cardRowLayout(items []BeanListItem, cardW float64, columns int) (beanListCardDensity, float64) {
+func (s *beanListPreviewState) cardRowLayout(items []BeanListItem, cardW float64, columns int, keepAfter float64) (beanListCardDensity, float64) {
 	remaining := s.pageH - s.margin - s.y
+	if keepAfter > 0 {
+		for _, density := range beanListCardDensities {
+			rowH := s.estimateCardRowHeight(items, cardW, columns, density)
+			if rowH+4+keepAfter <= remaining {
+				return density, rowH
+			}
+		}
+	}
+	for _, density := range beanListCardDensities {
+		rowH := s.estimateCardRowHeight(items, cardW, columns, density)
+		if rowH+4 <= remaining {
+			return density, rowH
+		}
+	}
+	s.addPage()
+	remaining = s.pageH - s.margin - s.y
+	if keepAfter > 0 {
+		for _, density := range beanListCardDensities {
+			rowH := s.estimateCardRowHeight(items, cardW, columns, density)
+			if rowH+4+keepAfter <= remaining {
+				return density, rowH
+			}
+		}
+	}
 	for _, density := range beanListCardDensities {
 		rowH := s.estimateCardRowHeight(items, cardW, columns, density)
 		if rowH+4 <= remaining {
@@ -399,18 +463,7 @@ func (s *beanListPreviewState) cardRowLayout(items []BeanListItem, cardW float64
 		}
 	}
 	dense := beanListCardDensities[len(beanListCardDensities)-1]
-	if remaining >= dense.minHeight+4 {
-		return dense, remaining - 4
-	}
-	s.addPage()
-	remaining = s.pageH - s.margin - s.y
-	for _, density := range beanListCardDensities {
-		rowH := s.estimateCardRowHeight(items, cardW, columns, density)
-		if rowH+4 <= remaining {
-			return density, rowH
-		}
-	}
-	return dense, math.Max(dense.minHeight, remaining-4)
+	return dense, s.estimateCardRowHeight(items, cardW, columns, dense)
 }
 
 func (s *beanListPreviewState) estimateCardRowHeight(items []BeanListItem, cardW float64, columns int, density beanListCardDensity) float64 {
