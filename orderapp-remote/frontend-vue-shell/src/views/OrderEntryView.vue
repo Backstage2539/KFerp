@@ -344,6 +344,7 @@
           <li>客户和商品输入框支持名称、拼音和首字母搜索。</li>
           <li>录单时可点“新增客户”打开右侧抽屉，粘贴收件信息后可解析姓名、联系电话和地址。</li>
           <li>选择客户后会带入客户档案中的默认来源和订单类型。</li>
+          <li>客户有历史订单时，商品下拉会把常用商品排在最前面。</li>
           <li>常用规格：36g、80g、100g、227g、454g、500g、1000g、2.5kg。</li>
           <li>挂耳产品可按袋或盒录单，盒价会按发布的挂耳价格梯度自动匹配。</li>
           <li>新订单默认已付款、未发货；商品单价会随规格和数量匹配价格梯度。</li>
@@ -449,6 +450,7 @@ import {
   requiresOrderPaymentMethod,
   retailPackagePrice,
   retailSpecOptions,
+  sortProductsByCustomerUsage,
   syncDripTierPrice,
   syncWholesaleTierPrice,
   toInt,
@@ -489,6 +491,7 @@ const employees = ref([])
 const logisticsCompanies = ref([])
 const beanListVersionOptions = ref([])
 const customerPublicUsages = ref([])
+const customerProductUsages = ref([])
 const rows = ref([newRow()])
 const paymentVoucher = ref(null)
 const paymentVoucherFile = ref(null)
@@ -990,14 +993,18 @@ async function saveCustomerFromDrawer() {
 }
 
 function productOptions(row) {
-  return filterOptions(
-    filterProductsForCustomer(
-      products.value,
-      form.customer_id,
-      customerOwnedBeanListPublicationIDsByType(),
-      customerPublicUsages.value,
+  return sortProductsByCustomerUsage(
+    filterOptions(
+      filterProductsForCustomer(
+        products.value,
+        form.customer_id,
+        customerOwnedBeanListPublicationIDsByType(),
+        customerPublicUsages.value,
+      ),
+      row.product_query,
     ),
-    row.product_query,
+    form.customer_id,
+    customerProductUsages.value,
   ).slice(0, 30)
 }
 
@@ -1345,6 +1352,7 @@ async function load() {
     logisticsCompanies.value = data.logistics_companies || []
     beanListVersionOptions.value = data.bean_list_version_options || []
     customerPublicUsages.value = data.customer_public_usages || []
+    customerProductUsages.value = data.customer_product_usages || []
     applyDefaultSelections(data)
     if (data.edit_mode) {
       const editData = { ...data.edit_data, edit_id: copyID ? 0 : data.edit_id }

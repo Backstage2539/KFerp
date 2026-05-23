@@ -406,6 +406,62 @@ func TestOrderAPIFormFiltersCustomerSpecificProducts(t *testing.T) {
 	}
 }
 
+func TestOrderAPIFormReturnsCustomerProductUsageForCommonProductSorting(t *testing.T) {
+	pool, schema := newOrderAPITestDB(t)
+	ctx := context.Background()
+	seedOrderAPITestData(t, ctx, pool, schema)
+	mustExecOrderAPITestSQL(t, ctx, pool, fmt.Sprintf(`
+		INSERT INTO %[1]s.products(id,name,default_price,active,retail_price_227g)
+		VALUES
+			(8,'客户常订拼配',58,true,58),
+			(9,'其他客户常订',59,true,59);
+		INSERT INTO %[1]s.orders(id, order_no, order_date, customer_id, order_type_id, pay_status_id, ship_status_id, process_status_id, grand_total, is_void)
+		VALUES
+			(101,'SO-COMMON-1','2026-05-01',3,1,2,1,1,100,false),
+			(102,'SO-COMMON-2','2026-05-02',3,1,2,1,1,100,false),
+			(103,'SO-COMMON-3','2026-05-03',3,1,2,1,1,100,false),
+			(104,'SO-COMMON-VOID','2026-05-04',3,1,2,1,1,100,true),
+			(105,'SO-OTHER-CUSTOMER','2026-05-05',4,1,2,1,1,100,false);
+		INSERT INTO %[1]s.order_items(order_id,line_no,product_id,item_name,qty,unit,spec,unit_price,line_total)
+		VALUES
+			(101,1,8,'客户常订拼配',1,'件','454',58,58),
+			(102,1,8,'客户常订拼配',1,'件','454',58,58),
+			(103,1,7,'橘皮乌龙',1,'件','454',50,50),
+			(104,1,9,'作废订单商品',1,'件','454',59,59),
+			(105,1,9,'其他客户常订',1,'件','454',59,59);
+	`, schema))
+
+	e := newOrderAPITestEcho(pool, schema)
+	req := httptest.NewRequest(http.MethodGet, "/api/order/form", nil)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET /api/order/form status = %d, want 200, body=%s", rec.Code, rec.Body.String())
+	}
+	var resp struct {
+		CustomerProductUsages []salesapp.CustomerProductUsageOption `json:"customer_product_usages"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode order form: %v", err)
+	}
+	var product8, product9 salesapp.CustomerProductUsageOption
+	for _, row := range resp.CustomerProductUsages {
+		if row.CustomerID == 3 && row.ProductID == 8 {
+			product8 = row
+		}
+		if row.CustomerID == 3 && row.ProductID == 9 {
+			product9 = row
+		}
+	}
+	if product8.OrderCount != 2 || product8.ItemCount != 2 || product8.LastOrderDate != "2026-05-02" {
+		t.Fatalf("customer 3 product 8 usage = %+v, want 2 orders / 2 items / 2026-05-02", product8)
+	}
+	if product9.ProductID != 0 {
+		t.Fatalf("voided order product should not be counted for customer 3: %+v", product9)
+	}
+}
+
 func TestOrderAPIFormUsesCustomerCommercialBeanListForProductOptions(t *testing.T) {
 	pool, schema := newOrderAPITestDB(t)
 	ctx := context.Background()

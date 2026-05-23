@@ -272,6 +272,19 @@ type CustomerPublicUsageOption struct {
 	UsePublicSKU bool  `json:"use_public_sku"`
 }
 
+type CustomerProductUsageOption struct {
+	CustomerID     int64  `json:"customer_id"`
+	ProductID      int64  `json:"product_id"`
+	OrderCount     int64  `json:"order_count"`
+	ItemCount      int64  `json:"item_count"`
+	LastOrderDate  string `json:"last_order_date"`
+	LastOrderID    int64  `json:"last_order_id"`
+	LastOrderNo    string `json:"last_order_no"`
+	LastOrderItem  string `json:"last_order_item"`
+	LastOrderSpec  string `json:"last_order_spec"`
+	LastOrderUnits string `json:"last_order_units"`
+}
+
 type OrderFormData struct {
 	Today                  string
 	Customers              []CustomerOption
@@ -284,6 +297,7 @@ type OrderFormData struct {
 	LogisticsCompanies     []LogisticsCompany
 	BeanListVersionOptions []BeanListVersionOption
 	CustomerPublicUsages   []CustomerPublicUsageOption
+	CustomerProductUsages  []CustomerProductUsageOption
 	EditData               *OrderEditData
 }
 

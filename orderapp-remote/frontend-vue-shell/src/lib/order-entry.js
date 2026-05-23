@@ -371,6 +371,36 @@ export function filterOptions(options, query) {
   })
 }
 
+export function sortProductsByCustomerUsage(products, customerID, usages = []) {
+  const selectedCustomerID = toInt(customerID)
+  if (selectedCustomerID <= 0) return products || []
+  const usageByProduct = new Map()
+  for (const row of usages || []) {
+    if (toInt(row?.customer_id) !== selectedCustomerID) continue
+    const productID = toInt(row?.product_id)
+    if (productID <= 0) continue
+    usageByProduct.set(productID, {
+      orderCount: toInt(row.order_count),
+      itemCount: toInt(row.item_count),
+      lastOrderDate: String(row.last_order_date || ''),
+    })
+  }
+  if (!usageByProduct.size) return products || []
+  return (products || [])
+    .map((product, index) => ({ product, index, usage: usageByProduct.get(toInt(product?.id)) || null }))
+    .sort((a, b) => {
+      if (a.usage && !b.usage) return -1
+      if (!a.usage && b.usage) return 1
+      if (a.usage && b.usage) {
+        if (a.usage.orderCount !== b.usage.orderCount) return b.usage.orderCount - a.usage.orderCount
+        if (a.usage.itemCount !== b.usage.itemCount) return b.usage.itemCount - a.usage.itemCount
+        if (a.usage.lastOrderDate !== b.usage.lastOrderDate) return b.usage.lastOrderDate.localeCompare(a.usage.lastOrderDate)
+      }
+      return a.index - b.index
+    })
+    .map((row) => row.product)
+}
+
 function normalizeBeanListType(value) {
   const type = String(value || '').trim()
   if (type === 'green') return 'green'

@@ -23,6 +23,7 @@ import {
   responsibleOptions,
   retailPackagePrice,
   retailSpecOptions,
+  sortProductsByCustomerUsage,
   wholesalePriceUnit,
   wholesaleTierPriceRows,
   wholesaleSpecOptions,
@@ -792,6 +793,37 @@ test('filterProductsForCustomer hides public products when customer disables pub
     filterProductsForCustomer(rows, 74, {}, [{ customer_id: 74, use_public_sku: false }]).map((item) => item.name),
     ['芬纳定制-红酒日晒-中深烘'],
   )
+})
+
+test('sortProductsByCustomerUsage moves customer common products first without losing original fallback order', () => {
+  const rows = [
+    { id: 1, name: 'A 公共豆' },
+    { id: 2, name: 'B 老客户常订' },
+    { id: 3, name: 'C 高频产品' },
+    { id: 4, name: 'D 新品' },
+  ]
+  const usage = [
+    { customer_id: 3, product_id: 2, order_count: 2, item_count: 3, last_order_date: '2026-05-01' },
+    { customer_id: 3, product_id: 3, order_count: 5, item_count: 5, last_order_date: '2026-05-02' },
+    { customer_id: 4, product_id: 1, order_count: 99, item_count: 99, last_order_date: '2026-05-03' },
+  ]
+
+  assert.deepEqual(
+    sortProductsByCustomerUsage(rows, 3, usage).map((item) => item.id),
+    [3, 2, 1, 4],
+  )
+  assert.deepEqual(
+    sortProductsByCustomerUsage(rows, 0, usage).map((item) => item.id),
+    [1, 2, 3, 4],
+  )
+})
+
+test('order entry product dropdown applies customer product usage after filtering customer scope', () => {
+  const source = orderEntryViewSource()
+  assert.match(source, /const customerProductUsages = ref\(\[\]\)/)
+  assert.match(source, /customerProductUsages\.value = data\.customer_product_usages \|\| \[\]/)
+  assert.match(source, /sortProductsByCustomerUsage\(\s*filterOptions\(\s*filterProductsForCustomer\(/s)
+  assert.match(source, /form\.customer_id,\s*customerProductUsages\.value/s)
 })
 
 test('defaultStatusID picks paid and unshipped status labels', () => {

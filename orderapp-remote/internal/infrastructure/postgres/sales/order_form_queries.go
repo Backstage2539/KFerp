@@ -51,6 +51,9 @@ func (r Repository) OrderForm(ctx context.Context, editID int64) (salesapp.Order
 	if data.CustomerPublicUsages, err = r.fetchOrderCustomerPublicUsages(ctx); err != nil {
 		return salesapp.OrderFormData{}, err
 	}
+	if data.CustomerProductUsages, err = r.fetchOrderCustomerProductUsages(ctx); err != nil {
+		return salesapp.OrderFormData{}, err
+	}
 	if editID > 0 {
 		editData, err := r.fetchOrderEdit(ctx, editID)
 		if err != nil {
@@ -205,6 +208,79 @@ func (r Repository) fetchOrderEmployees(ctx context.Context) ([]salesapp.Employe
 	for rows.Next() {
 		var row salesapp.EmployeeOption
 		if err := rows.Scan(&row.ID, &row.Name, &row.Phone, &row.DepartmentID, &row.Department); err != nil {
+			return nil, err
+		}
+		out = append(out, row)
+	}
+	return out, rows.Err()
+}
+
+func (r Repository) fetchOrderCustomerProductUsages(ctx context.Context) ([]salesapp.CustomerProductUsageOption, error) {
+	q := fmt.Sprintf(`
+		WITH usage_rows AS (
+			SELECT
+				o.customer_id,
+				oi.product_id,
+				COUNT(DISTINCT o.id) AS order_count,
+				COUNT(*) AS item_count,
+				MAX(o.order_date) AS last_order_date
+			FROM %[1]s.orders o
+			JOIN %[1]s.order_items oi ON oi.order_id=o.id
+			WHERE COALESCE(o.is_void,false)=false
+			  AND COALESCE(o.customer_id,0)>0
+			  AND COALESCE(oi.product_id,0)>0
+			GROUP BY o.customer_id, oi.product_id
+		),
+		ranked_usage AS (
+			SELECT
+				u.*,
+				ROW_NUMBER() OVER (
+					PARTITION BY u.customer_id
+					ORDER BY u.order_count DESC, u.item_count DESC, u.last_order_date DESC, u.product_id
+				) AS usage_rank
+			FROM usage_rows u
+		),
+		latest_rows AS (
+			SELECT DISTINCT ON (o.customer_id, oi.product_id)
+				o.customer_id,
+				oi.product_id,
+				o.id AS last_order_id,
+				o.order_no AS last_order_no,
+				oi.item_name AS last_order_item,
+				oi.spec AS last_order_spec,
+				oi.qty::text AS last_order_units
+			FROM %[1]s.orders o
+			JOIN %[1]s.order_items oi ON oi.order_id=o.id
+			WHERE COALESCE(o.is_void,false)=false
+			  AND COALESCE(o.customer_id,0)>0
+			  AND COALESCE(oi.product_id,0)>0
+			ORDER BY o.customer_id, oi.product_id, o.order_date DESC, o.id DESC, oi.line_no
+		)
+		SELECT
+			u.customer_id,
+			u.product_id,
+			u.order_count,
+			u.item_count,
+			COALESCE(to_char(u.last_order_date, 'YYYY-MM-DD'), '') AS last_order_date,
+			COALESCE(l.last_order_id, 0) AS last_order_id,
+			COALESCE(l.last_order_no, '') AS last_order_no,
+			COALESCE(l.last_order_item, '') AS last_order_item,
+			COALESCE(l.last_order_spec, '') AS last_order_spec,
+			COALESCE(l.last_order_units, '') AS last_order_units
+		FROM ranked_usage u
+		LEFT JOIN latest_rows l ON l.customer_id=u.customer_id AND l.product_id=u.product_id
+		WHERE u.usage_rank <= 50
+		ORDER BY u.customer_id, u.order_count DESC, u.item_count DESC, u.last_order_date DESC, u.product_id
+	`, r.schema)
+	rows, err := r.pool.Query(ctx, q)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := make([]salesapp.CustomerProductUsageOption, 0)
+	for rows.Next() {
+		var row salesapp.CustomerProductUsageOption
+		if err := rows.Scan(&row.CustomerID, &row.ProductID, &row.OrderCount, &row.ItemCount, &row.LastOrderDate, &row.LastOrderID, &row.LastOrderNo, &row.LastOrderItem, &row.LastOrderSpec, &row.LastOrderUnits); err != nil {
 			return nil, err
 		}
 		out = append(out, row)
