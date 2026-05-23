@@ -609,6 +609,59 @@ func TestCostingCalculateAPIReturnsCustomerSkuCategoryBeanListMetadata(t *testin
 	}
 }
 
+func TestCostingCalculateAPICustomerAliasWithoutCategoryUsesUnclassifiedGroup(t *testing.T) {
+	e := echo.New()
+	RegisterRoutes(e, Dependencies{Costing: fakeService{}})
+
+	input := domain.ProductInput{
+		ProductID:            417,
+		Name:                 "曲奇拼配2.0",
+		BeanListTemplateName: "红岩2.0",
+		ProductKind:          "roasted",
+		CustomerID:           152,
+		CustomType:           "public_sku_alias",
+		BaseProductID:        199,
+		GreenBeanCostPerKg:   63.9,
+		YieldRate:            0.8,
+	}
+
+	body, err := json.Marshal(appcosting.CalculateRequest{Products: []domain.ProductInput{input}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := httptest.NewRequest(http.MethodPost, "/api/costing/calculate", bytes.NewReader(body))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+
+	e.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	var got struct {
+		Items []struct {
+			CommercialBeanList struct {
+				Code        string `json:"code"`
+				Category    string `json:"category"`
+				DisplayName string `json:"display_name"`
+			} `json:"commercial_bean_list"`
+		} `json:"items"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatalf("invalid json: %v", err)
+	}
+	if len(got.Items) != 1 {
+		t.Fatalf("items = %+v", got.Items)
+	}
+	item := got.Items[0].CommercialBeanList
+	if item.Code != "999.2" || item.Category != "未分类" || item.DisplayName != "曲奇拼配2.0" {
+		t.Fatalf("customer alias without SKU category commercial bean list = %+v", item)
+	}
+	if strings.Contains(item.Category, "精品意式拼配") {
+		t.Fatalf("customer alias without SKU category must not inherit Excel category: %+v", item)
+	}
+}
+
 func TestRoutesAreRegistered(t *testing.T) {
 	e := echo.New()
 	RegisterRoutes(e, Dependencies{Costing: fakeService{}})
