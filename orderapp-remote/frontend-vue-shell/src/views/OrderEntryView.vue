@@ -154,13 +154,22 @@
                 class="amount-suggestion-popover"
                 type="button"
                 @click="applyPaymentGoodsAmountSuggestion">
-                货款 {{ paymentGoodsAmountSuggestion }}
+                实时价格提示 货款 {{ paymentGoodsAmountSuggestion }}
               </button>
             </div>
           </label>
           <label :class="{ 'field-invalid': hasFieldError('payment_shipping_amount') }" data-error-field="payment_shipping_amount">
             <span>运费金额</span>
-            <input v-model.trim="form.payment_shipping_amount" type="number" min="0" step="0.01" />
+            <div class="amount-suggestion-wrap">
+              <input v-model.trim="form.payment_shipping_amount" type="number" min="0" step="0.01" />
+              <button
+                v-if="showPaymentShippingAmountSuggestion"
+                class="amount-suggestion-popover"
+                type="button"
+                @click="applyPaymentShippingAmountSuggestion">
+                实时价格提示 运费 {{ paymentShippingAmountSuggestion }}
+              </button>
+            </div>
           </label>
           <div class="voucher-field" :class="{ 'field-invalid': hasFieldError('payment_voucher_asset_id') }" data-error-field="payment_voucher_asset_id">
             <span>收款凭证</span>
@@ -787,7 +796,9 @@ const paymentReceiptRequired = computed(() => {
   return name.includes('已收款') || name.includes('已付款') || name.includes('已支付')
 })
 const paymentGoodsAmountSuggestion = computed(() => money(itemsTotal.value))
+const paymentShippingAmountSuggestion = computed(() => money(toNumber(form.shipping_amount)))
 const showPaymentGoodsAmountSuggestion = computed(() => paymentReceiptRequired.value && itemsTotal.value > 0)
+const showPaymentShippingAmountSuggestion = computed(() => paymentReceiptRequired.value)
 const logisticsRequired = computed(() => selectedShipStatusName.value.includes('已发货'))
 const selectedLogisticsProducts = computed(() => {
   const company = logisticsCompanies.value.find((item) => Number(item.id || 0) === Number(form.logistics_company_id || 0))
@@ -894,6 +905,11 @@ function ensurePaymentDefaults() {
 function applyPaymentGoodsAmountSuggestion() {
   form.payment_goods_amount = paymentGoodsAmountSuggestion.value
   clearFieldErrorIfValid('payment_goods_amount')
+}
+
+function applyPaymentShippingAmountSuggestion() {
+  form.payment_shipping_amount = paymentShippingAmountSuggestion.value
+  clearFieldErrorIfValid('payment_shipping_amount')
 }
 
 function hasFieldError(fieldKey) {
