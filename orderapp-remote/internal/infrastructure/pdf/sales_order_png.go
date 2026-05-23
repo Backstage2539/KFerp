@@ -124,7 +124,7 @@ func (c *salesOrderPNGCanvas) itemsTable(left, right, y int, snapshot salesdomai
 	for _, item := range snapshot.Items {
 		rowH := c.salesOrderPNGItemRowHeight(item, widths, hasDiscount, 20, 28)
 		x = left
-		// salesOrderItemCells keeps item.Note in the final table column.
+		// 备注: salesOrderItemCells keeps item.Note in the final table column.
 		for i, text := range salesOrderItemCells(item, hasDiscount) {
 			if i >= len(widths) {
 				break
@@ -179,6 +179,7 @@ func (c *salesOrderPNGCanvas) salesOrderPNGItemRowHeight(item salesdomain.SalesO
 }
 
 func (c *salesOrderPNGCanvas) totals(left, right, y int, snapshot salesdomain.SalesOrderSnapshot) int {
+	// 订单备注 rows are produced by salesOrderFinancialRows and rendered with the settlement summary.
 	for _, row := range salesOrderFinancialRows(snapshot) {
 		size := 22.0
 		col := color.RGBA{R: 20, G: 20, B: 20, A: 255}
