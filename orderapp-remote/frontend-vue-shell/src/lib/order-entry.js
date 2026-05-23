@@ -193,6 +193,17 @@ function roundToCents(value) {
   return Math.round((Number(value || 0) + Number.EPSILON) * 100) / 100
 }
 
+export function orderTotalPreview({ itemsTotal = 0, shippingAmount = 0, discountAmount = 0, roundToInt = false } = {}) {
+  const goodsAmount = Math.max(0, roundToCents(toNumber(itemsTotal) - toNumber(discountAmount)))
+  const logisticsAmount = Math.max(0, roundToCents(toNumber(shippingAmount)))
+  const rawTotal = goodsAmount + logisticsAmount
+  return {
+    goodsAmount,
+    logisticsAmount,
+    grandTotal: roundToInt ? Math.round(rawTotal) : roundToCents(rawTotal),
+  }
+}
+
 function wholesaleTierUnitPriceLb(tier) {
   const pricePerPackage = tierConfiguredUnitPrice(tier)
   if (pricePerPackage <= 0) return 0

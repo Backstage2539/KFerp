@@ -50,6 +50,20 @@ func TestBomRepositoryExposesProductKindForGreenBeanFiltering(t *testing.T) {
 	}
 }
 
+func TestBomRepositoryExposesOrderUsageForCustomerSkuSorting(t *testing.T) {
+	src := readRepositorySource(t)
+	for _, want := range []string{
+		"order_usage_count",
+		"FROM %[1]s.order_items oi",
+		"&item.OrderUsageCount",
+		"&opt.OrderUsageCount",
+	} {
+		if !strings.Contains(src, want) {
+			t.Fatalf("BOM repository must expose order usage for customer/BOM sorting; missing %q", want)
+		}
+	}
+}
+
 func readRepositorySource(t *testing.T) string {
 	t.Helper()
 	b, err := os.ReadFile("repository.go")

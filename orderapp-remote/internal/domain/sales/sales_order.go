@@ -28,6 +28,7 @@ type SalesOrderSnapshot struct {
 	TotalAmount        string                        `json:"total_amount"`
 	Shipping           string                        `json:"shipping"`
 	Discount           string                        `json:"discount"`
+	ExpressFee         string                        `json:"express_fee"`
 	SalesOrderNote     string                        `json:"sales_order_note"`
 	GrandTotal         string                        `json:"grand_total"`
 	DiscountBreakdowns []SalesOrderDiscountBreakdown `json:"discount_breakdowns"`

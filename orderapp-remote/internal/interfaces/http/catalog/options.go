@@ -41,6 +41,7 @@ type ProductOption struct {
 	MarginRateOverride      *float64            `json:"margin_rate_override"`
 	BomItemCount            int                 `json:"bom_item_count"`
 	BomStatus               string              `json:"bom_status"`
+	OrderUsageCount         int                 `json:"order_usage_count"`
 	RetailSpecs             []int64             `json:"retail_specs"`
 	Tiers                   []ProductTierOption `json:"tiers"`
 }

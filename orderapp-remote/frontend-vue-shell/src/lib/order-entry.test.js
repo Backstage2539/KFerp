@@ -721,6 +721,35 @@ test('order entry payment voucher upload uses a mobile-safe file control', () =>
   assert.match(fileNameStyles, /text-overflow:\s*ellipsis/)
 })
 
+test('order entry total preview includes shipping and exposes goods/logistics hints', () => {
+  assert.deepEqual(orderEntry.orderTotalPreview({
+    itemsTotal: 2340,
+    shippingAmount: '18.5',
+    discountAmount: '10',
+    roundToInt: false,
+  }), {
+    goodsAmount: 2330,
+    logisticsAmount: 18.5,
+    grandTotal: 2348.5,
+  })
+
+  const source = orderEntryViewSource()
+  assert.match(source, /orderTotalPreview/)
+  assert.match(source, /orderTotalHintText/)
+  assert.match(source, /货款/)
+  assert.match(source, /物流/)
+})
+
+test('order entry payment voucher collapses after upload and can open a large preview', () => {
+  const source = orderEntryViewSource()
+
+  assert.match(source, /paymentVoucherCollapsed/)
+  assert.match(source, /voucher-preview-overlay/)
+  assert.match(source, /openPaymentVoucherPreview/)
+  assert.match(source, /paymentVoucherPreviewOpen/)
+  assert.match(source, /paymentVoucherImageURL/)
+})
+
 test('lineTotal uses manual unit price even for retail rows', () => {
   assert.equal(lineTotal(product, {
     tier_id: 'manual',

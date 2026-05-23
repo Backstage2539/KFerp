@@ -105,16 +105,18 @@ type ClosingCheckItem struct {
 }
 
 type SourceDetail struct {
-	Section       string       `json:"section"`
-	SourceType    string       `json:"source_type"`
-	SourceID      int64        `json:"source_id,omitempty"`
-	Date          string       `json:"date,omitempty"`
-	Name          string       `json:"name"`
-	Category      string       `json:"category,omitempty"`
-	Counterparty  string       `json:"counterparty,omitempty"`
-	PaymentMethod string       `json:"payment_method,omitempty"`
-	Amount        domain.Money `json:"amount"`
-	Link          string       `json:"link,omitempty"`
+	Section                string       `json:"section"`
+	SourceType             string       `json:"source_type"`
+	SourceID               int64        `json:"source_id,omitempty"`
+	Date                   string       `json:"date,omitempty"`
+	Name                   string       `json:"name"`
+	Category               string       `json:"category,omitempty"`
+	Counterparty           string       `json:"counterparty,omitempty"`
+	PaymentMethod          string       `json:"payment_method,omitempty"`
+	PaymentVoucherFilename string       `json:"payment_voucher_filename,omitempty"`
+	PaymentVoucherURL      string       `json:"payment_voucher_url,omitempty"`
+	Amount                 domain.Money `json:"amount"`
+	Link                   string       `json:"link,omitempty"`
 }
 
 type DrilldownSection struct {

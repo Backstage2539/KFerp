@@ -46,6 +46,10 @@
             :empty-text="selectedBomCustomerSkuCustomerID ? '没有匹配客户SKU' : '没有匹配公共SKU'"
             @select="selectProduct(optionNumericValue($event))" />
         </label>
+        <div v-if="isBomProductFilterActive" class="bom-focus-filter">
+          <span>已过滤到当前 SKU BOM</span>
+          <button class="text-button" type="button" @click="clearBomProductFilter">显示全部 BOM</button>
+        </div>
         <button class="primary" type="button" @click="saveBom" :disabled="!selectedProductId || loading || !canEditCurrentBomProduct">同步出品率</button>
         <button class="secondary danger-outline" type="button" @click="deleteBom" :disabled="!selectedProductId || loading || !canEditCurrentBomProduct">失效当前 BOM</button>
       </div>
@@ -257,7 +261,7 @@
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { apiGet, apiSend } from '../api/client'
 import SearchableSelect from '../components/SearchableSelect.vue'
-import { bomContextCustomerIDs, filterBomContextProducts } from '../lib/bom'
+import { bomContextCustomerIDs, filterBomContextProducts, filterBomRowsByProductFocus } from '../lib/bom'
 import { componentTypeLabel, isDripProduct } from '../lib/drip-product'
 import { FORM_DRAFT_SCOPES, readFormDraft, saveFormDraft } from '../lib/form-draft-cache'
 import { replaceHistoryURL } from '../lib/url-state'
@@ -280,6 +284,7 @@ const detail = ref(null)
 const selectedProductId = ref(0)
 const selectedBomCustomerSkuCustomerID = ref(0)
 const pendingUrlProductId = ref(0)
+const bomFilterProductId = ref(0)
 const loading = ref(false)
 const error = ref('')
 const ok = ref('')
@@ -309,7 +314,9 @@ const bomSkuCustomers = computed(() => customers.value
   .filter((customer) => customBomProductCustomerIDs.value.has(Number(customer.id || 0)))
   .sort((a, b) => customerOptionLabel(a).localeCompare(customerOptionLabel(b))))
 const bomContextProducts = computed(() => filterBomContextProducts(products.value, bomContextCustomerID.value))
-const bomContextRows = computed(() => filterBomContextProducts(rows.value, bomContextCustomerID.value))
+const allBomContextRows = computed(() => filterBomContextProducts(rows.value, bomContextCustomerID.value))
+const bomContextRows = computed(() => filterBomRowsByProductFocus(allBomContextRows.value, bomFilterProductId.value))
+const isBomProductFilterActive = computed(() => Number(bomFilterProductId.value || 0) > 0)
 const selectedProduct = computed(() => productByID(selectedProductId.value))
 const canEditCurrentBomProduct = computed(() => {
   if (!selectedProductId.value) return true
@@ -518,6 +525,7 @@ function notifyWorkspaceCustomerChanged(customerID) {
 
 function clearSelectedProduct() {
   selectedProductId.value = 0
+  bomFilterProductId.value = 0
   detail.value = null
   versions.value = []
   updateUrl()
@@ -543,6 +551,11 @@ function updateUrl() {
   url.searchParams.set('view', 'bom')
   if (selectedProductId.value) url.searchParams.set('product_id', String(selectedProductId.value))
   else url.searchParams.delete('product_id')
+  if (bomFilterProductId.value && Number(bomFilterProductId.value) === Number(selectedProductId.value)) {
+    url.searchParams.set('bom_filter_product_id', String(bomFilterProductId.value))
+  } else {
+    url.searchParams.delete('bom_filter_product_id')
+  }
   replaceHistoryURL(url)
 }
 
@@ -601,6 +614,9 @@ async function selectProduct(productId) {
     clearSelectedProduct()
     return
   }
+  if (Number(bomFilterProductId.value || 0) > 0 && nextProductId !== Number(bomFilterProductId.value || 0)) {
+    bomFilterProductId.value = 0
+  }
   selectedProductId.value = nextProductId
   error.value = ''
   ok.value = ''
@@ -609,6 +625,11 @@ async function selectProduct(productId) {
   } catch (err) {
     error.value = err.message || '加载失败'
   }
+}
+
+function clearBomProductFilter() {
+  bomFilterProductId.value = 0
+  updateUrl()
 }
 
 async function saveBom() {
@@ -727,6 +748,7 @@ async function mutate(action) {
 onMounted(async () => {
   const params = new URL(window.location.href).searchParams
   selectedProductId.value = Number(params.get('product_id') || 0)
+  bomFilterProductId.value = Number(params.get('bom_filter_product_id') || 0)
   pendingUrlProductId.value = selectedProductId.value
   await loadAll()
   await restoreBomFormDraft()
@@ -767,6 +789,7 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .compact-action { height: 32px; padding: 0 10px; font-size: 12px; }
 .danger-outline { border-color: #9d2626; color: #9d2626; }
 .text-button { height: 30px; border: 0; background: transparent; color: #1f4f82; padding: 0; }
+.bom-focus-filter { align-self: stretch; display: inline-flex; align-items: center; gap: 8px; padding: 8px 10px; border: 1px solid #dbeafe; border-radius: 8px; background: #eff6ff; color: #1d4ed8; font-size: 13px; }
 .bom-sku-context-panel { border: 1px solid #eee8df; border-radius: 8px; padding: 12px; margin-bottom: 12px; display: grid; grid-template-columns: minmax(240px, 1fr) minmax(260px, auto); gap: 10px 14px; align-items: center; background: #fbfaf8; }
 .context-eyebrow { color: #7a4d1a; font-size: 12px; font-weight: 700; }
 .bom-sku-context-controls { display: flex; align-items: center; justify-content: flex-end; gap: 8px; flex-wrap: wrap; }
