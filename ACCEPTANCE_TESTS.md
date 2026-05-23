@@ -25,6 +25,7 @@
 - [ ] PR-316-FORM-DRAFT-CACHE：录单、BOM配方维护、SKU设置 跳转到其他功能再回来时保留未提交表单，刷新浏览器后草稿清空。
 - [ ] PR-318-CUSTOMER-BEAN-LIST-PUBLIC-CATEGORY-SCOPE：芬纳咖啡等客户在 SKU设置 中关闭“是否使用公共商品分类”后，进入产品豆单客户范围时只展示客户自己的 SKU；公共分类、公共 SKU 和公共豆单内容不应出现在客户豆单预览或生成候选中。开启该开关后，公共分类下公共 SKU 才能作为只读引用进入客户豆单范围。
 - [ ] PR-319-CUSTOMER-BEAN-LIST-SKU-CATEGORY-METADATA：芬纳咖啡在 SKU设置 新增“芬纳定制-红酒日晒-中深烘”这类客户自有/客户定制熟豆并挂到“咖啡豆 / 定制咖啡熟豆”后，产品豆单客户范围的商用批发豆单必须展示该 SKU，标题按公共豆单逻辑显示为实际豆单分类，例如“1、定制咖啡熟豆”，不再显示成旧公共豆单“源产地精选”或因缺少旧 Excel 豆单资料而消失。
+- [ ] PR-339-CUSTOMER-BEAN-LIST-UNCATEGORIZED-SKU：岩师傅“曲奇拼配2.0”这类客户 SKU 未挂分类时，产品豆单客户范围显示在“未分类”，不显示“精品意式拼配”；挂入客户分类后才按客户分类标题展示。
 - [ ] PR-321-CUSTOMER-SKU-CATEGORY-TOGGLE-FACTORY-BEANLIST-TITLE：芬纳咖啡在 SKU设置 勾选再取消“是否使用公共商品分类”后，客户自有一级分类“咖啡豆”和二级分类“定制咖啡熟豆”仍保留且仍挂载 `芬纳定制-红酒日晒-中深烘`；点击“工厂总览”后 SKU设置 的 SKU归属回到公共SKU；客户产品豆单商用批发豆单显示 `1、定制咖啡熟豆`，并包含该 SKU。
 - [ ] PR-322-CUSTOMER-SKU-CATEGORY-CLEANUP-BOM-VERSION-DEACTIVATE：芬纳咖啡保存“是否使用公共商品分类”开关后，客户自有一级分类只要仍有活跃二级分类就不能被清理隐藏；在 SKU设置 失效一个有 active BOM 版本的 SKU 后，当前 BOM 显示已失效，该 SKU 的 active BOM 版本同步变为 disabled，历史版本和明细仍可追溯。
 
