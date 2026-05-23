@@ -842,7 +842,7 @@ watch([visibleNotifications, isMobile], syncNotificationStackSpace, { flush: 'po
 }
 .workspace-customer span { white-space: nowrap; }
 .workspace-customer :deep(.searchable-select) { flex: 1; min-width: 180px; }
-.workspace-customer :deep(.select-control input) { min-height: 32px; padding: 6px 8px; }
+.workspace-customer :deep(.select-control input) { min-height: 32px; padding: 6px 70px 6px 8px; }
 .workspace-customer :deep(.select-toggle) { min-height: 32px; }
 .actor { margin-left: auto; color: #666; font-size: 13px; }
 .logout { margin-left: auto; border: 1px solid #d8d8d8; background: #fff; border-radius: 8px; padding: 6px 10px; cursor: pointer; color: #333; }

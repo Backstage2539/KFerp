@@ -1,7 +1,12 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
+import { dirname, resolve } from 'node:path'
 
 import { filterSearchableOptions, optionSearchText } from './searchable-select.js'
+
+const here = dirname(fileURLToPath(import.meta.url))
 
 const rows = [
   { id: 1, code: 'RAW-ETH-001', name: '埃塞俄比亚 水洗 耶加雪菲' },
@@ -51,4 +56,16 @@ test('filterSearchableOptions supports customer fulfillment picker fields', () =
   assert.deepEqual(filterSearchableOptions(rows, '花魁').map((row) => row.item_id), [19])
   assert.deepEqual(filterSearchableOptions(rows, '23').map((row) => row.employee_id), [23])
   assert.deepEqual(filterSearchableOptions(rows, '西湖 文三').map((row) => row.receiver_name), ['张三'])
+})
+
+test('workspace customer selector keeps clear and dropdown controls in separate hit targets', () => {
+  const searchableSelect = readFileSync(resolve(here, '../components/SearchableSelect.vue'), 'utf8')
+  const app = readFileSync(resolve(here, '../App.vue'), 'utf8')
+
+  assert.match(searchableSelect, /class="select-clear"/)
+  assert.match(searchableSelect, /aria-label="清除选择"/)
+  assert.match(searchableSelect, /type="text"/)
+  assert.match(searchableSelect, /\.select-clear[\s\S]*right:\s*36px/)
+  assert.match(searchableSelect, /padding:\s*7px\s+70px\s+7px\s+9px/)
+  assert.match(app, /workspace-customer[\s\S]*select-control input[\s\S]*padding:\s*6px\s+70px\s+6px\s+8px/)
 })
