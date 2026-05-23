@@ -84,17 +84,17 @@ func TestPublishedPricingKeepsKgDisplayUnitForSmallCommercialPack(t *testing.T) 
 	}
 }
 
-func TestExplicitPublicationSelectionAcceptsHistoricalPublishedSnapshots(t *testing.T) {
+func TestExplicitPublicationSelectionRequiresPublishedSnapshots(t *testing.T) {
 	source, err := os.ReadFile("usage.go")
 	if err != nil {
 		t.Fatalf("read usage.go: %v", err)
 	}
 	text := string(source)
-	if !strings.Contains(text, "blp.status IN ('published','withdrawn')") {
-		t.Fatalf("explicit bean-list publication selection must accept withdrawn historical snapshots")
+	if strings.Contains(text, "blp.status IN ('published','withdrawn')") {
+		t.Fatalf("explicit bean-list publication selection must reject withdrawn snapshots")
 	}
 	if !strings.Contains(text, "WHERE blp.status='published'") {
-		t.Fatalf("default bean-list selection must continue to use the latest currently published snapshot")
+		t.Fatalf("bean-list publication selection must use published snapshots only")
 	}
 }
 
