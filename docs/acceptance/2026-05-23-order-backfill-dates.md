@@ -11,6 +11,6 @@
 - `go test ./internal/interfaces/http/sales -run TestOrderAPISaveCarriesDocumentAndOrderDates`：通过。
 - `node --test src/lib/order-entry.test.js`：通过。
 - `go test ./...`：通过。
-- `node --test src/lib/*.test.js src/api/*.test.js`：299 项通过。
+- `node --test src/lib/*.test.js src/api/*.test.js`：302 项通过。
 - `npm run build`：通过。
 - `git diff --check`：通过。
