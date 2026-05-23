@@ -3,7 +3,7 @@
     <section class="order-hero">
       <div>
         <p class="eyebrow">订单销售</p>
-        <h2>{{ copyMode ? '复制订单' : (form.edit_id ? '编辑订单' : '录单') }}</h2>
+        <h2>{{ backfillMode && canUseBackfillMode ? '订单补录' : (copyMode ? '复制订单' : (form.edit_id ? '编辑订单' : '录单')) }}</h2>
       </div>
       <div class="hero-actions">
         <div class="total-pill">
@@ -30,9 +30,15 @@
     <section class="panel order-fields">
       <div class="section-title">订单信息</div>
       <div class="form-grid">
-        <div class="backfill-hint">
-          <strong>订单补录</strong>
-          <span>单据日期用于制单和订单编号，订单日期用于客户真实下单时间。</span>
+        <div class="backfill-hint" :class="{ active: backfillMode && canUseBackfillMode }">
+          <div class="backfill-copy">
+            <strong>订单补录</strong>
+            <span>单据日期用于制单和订单编号，订单日期用于客户真实下单时间。</span>
+          </div>
+          <label v-if="canUseBackfillMode" class="backfill-toggle">
+            <input v-model="backfillMode" type="checkbox" />
+            <span>连续补录</span>
+          </label>
         </div>
         <label>
           <span>单据日期</span>
@@ -365,7 +371,35 @@
           <strong>{{ money(orderTotalPreviewValue.grandTotal) }}</strong>
           <small>{{ orderTotalHintText }}</small>
         </div>
-        <button class="primary" type="button" @click="save" :disabled="saving">保存订单</button>
+        <div class="save-actions">
+          <button
+            v-if="backfillMode && canUseBackfillMode"
+            class="secondary"
+            type="button"
+            @click="save({ continueBackfill: false })"
+            :disabled="saving"
+          >
+            保存并查看订单
+          </button>
+          <button
+            v-if="backfillMode && canUseBackfillMode"
+            class="primary"
+            type="button"
+            @click="save({ continueBackfill: true })"
+            :disabled="saving"
+          >
+            保存并继续补录
+          </button>
+          <button
+            v-else
+            class="primary"
+            type="button"
+            @click="save({ continueBackfill: false })"
+            :disabled="saving"
+          >
+            保存订单
+          </button>
+        </div>
       </div>
       <details class="manual">
         <summary>录单手册</summary>
@@ -589,6 +623,7 @@ const customerPaste = ref('')
 const customerForm = reactive(emptyCustomerForm())
 const fieldErrors = reactive({})
 const effectiveCopyID = ref(0)
+const backfillMode = ref(false)
 const customerTypeOptions = [
   { value: 'retail', label: '零售客户' },
   { value: 'ecommerce', label: '电商客户' },
@@ -708,6 +743,7 @@ function saveOrderEntryDraft() {
     customerDrawerOpen: customerDrawerOpen.value,
     customerPaste: customerPaste.value,
     customerForm: { ...customerForm },
+    backfillMode: backfillMode.value,
   })
 }
 
@@ -722,6 +758,7 @@ function restoreOrderEntryDraft() {
   customerDrawerOpen.value = Boolean(draft.customerDrawerOpen)
   customerPaste.value = draft.customerPaste || ''
   Object.assign(customerForm, emptyCustomerForm(), draft.customerForm || {})
+  backfillMode.value = Boolean(draft.backfillMode)
 }
 
 function selectedOrderType() {
@@ -757,6 +794,7 @@ const selectedLogisticsProducts = computed(() => {
   return (company?.products || []).filter((item) => item.active !== false)
 })
 const copyMode = computed(() => Number(props.copyId || effectiveCopyID.value || 0) > 0)
+const canUseBackfillMode = computed(() => !props.embedded && !form.edit_id && !copyMode.value)
 const activeEmployees = computed(() => employees.value.filter((employee) => employee.active !== false))
 const selectedCustomer = computed(() => customers.value.find((item) => Number(item.id || 0) === Number(form.customer_id || 0)) || null)
 const selectedCustomerResponsibleLabel = computed(() => selectedCustomer.value?.responsible_employee_name || '')
@@ -1659,7 +1697,33 @@ async function load() {
   }
 }
 
-async function save() {
+function resetForBackfillContinuation() {
+  form.edit_id = 0
+  form.ship_tracking_no = ''
+  form.payment_goods_amount = ''
+  form.payment_shipping_amount = ''
+  form.payment_voucher_asset_id = 0
+  form.notes = ''
+  form.discount_amount = ''
+  form.outsource_material_fee = ''
+  form.outsource_roast_fee = ''
+  form.outsource_packaging_fee = ''
+  form.outsource_manual_fee = ''
+  form.outsource_tax_fee = ''
+  form.outsource_other_fee = ''
+  rows.value = [newRow()]
+  paymentVoucher.value = null
+  paymentVoucherFile.value = null
+  paymentVoucherCollapsed.value = false
+  paymentVoucherPreviewOpen.value = false
+  customerOpen.value = false
+  beanListDrawerOpen.value = false
+  clearAllFieldErrors()
+  saveOrderEntryDraft()
+}
+
+async function save(options = {}) {
+  const continueBackfill = Boolean(options?.continueBackfill && canUseBackfillMode.value)
   saving.value = true
   error.value = ''
   ok.value = ''
@@ -1716,6 +1780,13 @@ async function save() {
       stockBatchNotice.value = '已使用成品批次，订单状态已进入“库存待发货”。'
     } else if (stockDecision === 'produce') {
       stockBatchNotice.value = '已选择不使用库存批次，订单会进入生产计划的库存不足/待生产流程。'
+    }
+    if (continueBackfill) {
+      ok.value = `${data.order_no || '成功'}，可继续补录下一单`
+      orderEntryDraftDisabled = false
+      clearFormDraft(orderEntryDraftKey())
+      resetForBackfillContinuation()
+      return
     }
     orderEntryDraftDisabled = true
     clearFormDraft(orderEntryDraftKey())
@@ -1778,6 +1849,10 @@ watch(
   () => props.customerContextId,
   () => applyCustomerContextToNewOrder(),
 )
+
+watch(canUseBackfillMode, (canUse) => {
+  if (!canUse) backfillMode.value = false
+})
 
 watch(
   paymentMethodRequired,
@@ -1848,9 +1923,14 @@ watch(
 .form-grid { display: grid; grid-template-columns: repeat(3, minmax(190px, 1fr)); gap: 14px; }
 .form-grid.compact { grid-template-columns: repeat(4, minmax(150px, 1fr)); }
 .full-span { grid-column: 1 / -1; }
-.backfill-hint { grid-column: 1 / -1; display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; min-height: 38px; border: 1px solid #cfe3d5; border-radius: 6px; padding: 8px 10px; background: #f3faf5; color: #24533a; }
+.backfill-hint { grid-column: 1 / -1; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 12px; min-height: 38px; border: 1px solid #cfe3d5; border-radius: 6px; padding: 8px 10px; background: #f3faf5; color: #24533a; }
+.backfill-hint.active { border-color: #8fbc8f; background: #edf8ef; }
+.backfill-copy { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; min-width: 0; }
 .backfill-hint strong { font-size: 14px; }
 .backfill-hint span { color: #42624e; font-size: 12px; }
+.backfill-toggle { display: inline-flex; flex-direction: row; align-items: center; gap: 6px; width: auto; min-height: 32px; padding: 5px 8px; border: 1px solid #bfd9c6; border-radius: 6px; background: #fff; cursor: pointer; }
+.backfill-toggle input { width: auto; min-height: auto; }
+.save-actions { display: flex; align-items: center; justify-content: flex-end; gap: 10px; flex-wrap: wrap; }
 .conditional-panel { display: grid; grid-template-columns: repeat(3, minmax(180px, 1fr)); gap: 12px; align-items: end; padding: 12px; border: 1px solid #e4e7ec; border-radius: 8px; background: #fafbfc; }
 .customer-profile-summary { display: grid; grid-template-columns: repeat(3, minmax(150px, 1fr)); gap: 10px; padding: 10px 12px; border: 1px solid #e4e7ec; border-radius: 8px; background: #fafbfc; }
 .profile-summary-item { display: grid; gap: 3px; min-width: 0; }
@@ -1970,6 +2050,8 @@ button:disabled { cursor: not-allowed; opacity: 0.5; }
   .section-actions { width: 100%; justify-content: stretch; }
   .section-actions button { width: 100%; }
   .bean-list-summary-list { width: 100%; min-width: 0; max-width: none; flex-basis: 100%; }
+  .save-actions { width: 100%; justify-content: stretch; }
+  .save-actions button { flex: 1 1 180px; }
   .conditional-panel { grid-template-columns: 1fr; align-items: stretch; padding: 12px; }
   .global-error-toast { --notice-stack-offset: var(--kferp-notice-stack-space, 0px); top: calc(max(12px, env(safe-area-inset-top)) + var(--notice-stack-offset)); left: max(12px, env(safe-area-inset-left)); right: max(12px, env(safe-area-inset-right)); width: auto; max-width: none; }
   .hero-actions { width: 100%; }
