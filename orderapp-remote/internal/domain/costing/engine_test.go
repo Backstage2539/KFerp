@@ -1,6 +1,9 @@
 package costing
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func assertClose(t *testing.T, name string, got, want float64) {
 	t.Helper()
@@ -540,6 +543,36 @@ func TestCustomerAliasBeanListOverridesExcelCategoryWithSkuCategory(t *testing.T
 	}
 	if got.CommercialBeanList.RecommendedUse != "手冲/SOE/冷萃" || got.CommercialBeanList.Flavor == "" {
 		t.Fatalf("customer alias should preserve Excel bean-list details: %+v", got.CommercialBeanList)
+	}
+}
+
+func TestCustomerAliasBeanListWithoutSkuCategoryUsesUnclassifiedGroup(t *testing.T) {
+	params := DefaultParameters()
+	input := ProductInput{
+		ProductID:            417,
+		Name:                 "曲奇拼配2.0",
+		BeanListTemplateName: "红岩2.0",
+		ProductKind:          "roasted",
+		CustomerID:           152,
+		CustomType:           "public_sku_alias",
+		BaseProductID:        199,
+		GreenBeanCostPerKg:   63.9,
+		YieldRate:            0.8,
+	}
+
+	got := CalculateProduct(params, input)
+
+	if got.CommercialBeanList.Code != "999.2" {
+		t.Fatalf("commercial code = %q, want 999.2; display=%+v", got.CommercialBeanList.Code, got.CommercialBeanList)
+	}
+	if got.CommercialBeanList.Category != "未分类" {
+		t.Fatalf("commercial category = %q, want 未分类; display=%+v", got.CommercialBeanList.Category, got.CommercialBeanList)
+	}
+	if got.CommercialBeanList.DisplayName != "曲奇拼配2.0" {
+		t.Fatalf("commercial display name = %q", got.CommercialBeanList.DisplayName)
+	}
+	if strings.Contains(got.CommercialBeanList.Category, "精品意式拼配") {
+		t.Fatalf("customer alias without SKU category must not inherit Excel category: %+v", got.CommercialBeanList)
 	}
 }
 

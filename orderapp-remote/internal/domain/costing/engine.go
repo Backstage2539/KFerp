@@ -670,8 +670,17 @@ func customerCategoryBeanListDisplay(in ProductInput, display BeanListDisplay, a
 	}
 	categoryName := customerBeanListCategoryName(in)
 	if categoryName == "" {
-		if display.Code != "" {
-			display.DisplayName = in.Name
+		if display.Code == "" {
+			display.RecommendedUse = "客户定制"
+		}
+		display.Code = customerUnclassifiedBeanListCode(display.Code, in.ProductCategoryPosition, in.ProductID)
+		display.Category = "未分类"
+		display.DisplayName = in.Name
+		if strings.TrimSpace(display.Flavor) == "" {
+			display.Flavor = in.Flavor
+		}
+		if strings.TrimSpace(display.Description) == "" {
+			display.Description = firstNonEmptyString(in.BeanListNote, in.Origin)
 		}
 		return display
 	}
@@ -715,6 +724,29 @@ func customerBeanListCategoryPosition(in ProductInput) int {
 		return in.CategoryPrimaryPosition
 	}
 	return 0
+}
+
+func customerUnclassifiedBeanListCode(sourceCode string, productCategoryPosition int, productID int64) string {
+	itemPosition := secondBeanListCodePart(sourceCode)
+	if itemPosition <= 0 {
+		itemPosition = productCategoryPosition
+	}
+	if itemPosition <= 0 && productID > 0 {
+		itemPosition = int(productID)
+	}
+	if itemPosition <= 0 {
+		itemPosition = 1
+	}
+	return fmt.Sprintf("999.%d", itemPosition)
+}
+
+func secondBeanListCodePart(code string) int {
+	parts := strings.Split(strings.TrimSpace(code), ".")
+	if len(parts) < 2 {
+		return 0
+	}
+	n, _ := strconv.Atoi(strings.TrimSpace(parts[1]))
+	return n
 }
 
 func trimFloatZero(value float64) string {
