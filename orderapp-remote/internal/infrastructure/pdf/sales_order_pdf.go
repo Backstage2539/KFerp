@@ -347,12 +347,12 @@ func renderSalesOrderTotals(pdf *gofpdf.Fpdf, snapshot salesdomain.SalesOrderSna
 		if row.Bold {
 			style = "B"
 		}
-		if row.Label == "订单备注" {
+		if salesOrderFinancialRowWrapLeft(row) {
 			align = "L"
 		}
 		pdf.SetFont("noto", style, 11)
 		text := row.Label + "： " + row.Value
-		if row.Label == "订单备注" {
+		if salesOrderFinancialRowWrapLeft(row) {
 			for _, line := range pdf.SplitText(text, usableW) {
 				pdf.CellFormat(0, 7, line, "", 1, align, false, 0, "")
 			}
@@ -366,9 +366,15 @@ func renderSalesOrderTotals(pdf *gofpdf.Fpdf, snapshot salesdomain.SalesOrderSna
 }
 
 func salesOrderFinancialRows(snapshot salesdomain.SalesOrderSnapshot) []salesOrderFinancialRow {
-	rows := make([]salesOrderFinancialRow, 0, 2)
+	rows := make([]salesOrderFinancialRow, 0, 4)
+	if note := strings.TrimSpace(snapshot.ExpressFee); note != "" {
+		rows = append(rows, salesOrderFinancialRow{Label: "快递费备注", Value: note})
+	}
+	if note := salesOrderItemNoteSummary(snapshot.Items); note != "" {
+		rows = append(rows, salesOrderFinancialRow{Label: "订单明细备注", Value: note})
+	}
 	if note := strings.TrimSpace(snapshot.SalesOrderNote); note != "" {
-		rows = append(rows, salesOrderFinancialRow{Label: "订单备注", Value: note})
+		rows = append(rows, salesOrderFinancialRow{Label: "销售单备注", Value: note})
 	}
 	cells := []string{"商品合计： " + snapshot.TotalAmount}
 	if salesOrderMoneyPositive(snapshot.Discount) {
@@ -377,6 +383,32 @@ func salesOrderFinancialRows(snapshot salesdomain.SalesOrderSnapshot) []salesOrd
 	cells = append(cells, "运费： "+snapshot.Shipping, "应收： "+snapshot.GrandTotal)
 	rows = append(rows, salesOrderFinancialRow{Bold: true, Cells: cells})
 	return rows
+}
+
+func salesOrderFinancialRowWrapLeft(row salesOrderFinancialRow) bool {
+	switch row.Label {
+	case "快递费备注", "订单明细备注", "销售单备注", "订单备注":
+		return true
+	default:
+		return false
+	}
+}
+
+func salesOrderItemNoteSummary(items []salesdomain.SalesOrderSnapshotItem) string {
+	parts := make([]string, 0, len(items))
+	for _, item := range items {
+		note := strings.TrimSpace(item.Note)
+		if note == "" {
+			continue
+		}
+		name := strings.TrimSpace(item.Name)
+		if name == "" {
+			parts = append(parts, note)
+			continue
+		}
+		parts = append(parts, name+"："+note)
+	}
+	return strings.Join(parts, "；")
 }
 
 func salesOrderSnapshotHasDiscount(snapshot salesdomain.SalesOrderSnapshot) bool {

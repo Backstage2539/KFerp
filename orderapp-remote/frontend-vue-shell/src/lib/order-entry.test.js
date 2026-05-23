@@ -27,6 +27,7 @@ import {
   retailPackagePrice,
   retailSpecOptions,
   rowUsesStaleBeanListPublication,
+  sortProductsByCustomerUsage,
   wholesalePriceUnit,
   wholesaleTierPriceRows,
   wholesaleSpecOptions,
@@ -672,6 +673,42 @@ test('order entry exposes selected customer edit drawer beside new customer', ()
   }
 })
 
+test('order entry shows customer defaults instead of editable source and order type controls', () => {
+  const source = orderEntryViewSource()
+  const orderInfoBlock = source.slice(source.indexOf('<section class="panel order-fields"'), source.indexOf('<section class="panel" :class'))
+
+  assert.match(orderInfoBlock, /客户类型/)
+  assert.match(orderInfoBlock, /来源/)
+  assert.match(orderInfoBlock, /订单类型/)
+  assert.match(orderInfoBlock, /selectedCustomerProfileSummary/)
+  assert.doesNotMatch(orderInfoBlock, /v-model\.number="form\.source_id"/)
+  assert.doesNotMatch(orderInfoBlock, /v-model\.number="form\.order_type_id"/)
+})
+
+test('order entry customer drawer requires customer type source and order type fields', () => {
+  const source = orderEntryViewSource()
+  const drawerStart = source.indexOf('<div v-if="customerDrawerOpen"')
+  const drawerBlock = source.slice(drawerStart, source.indexOf('</aside>', drawerStart))
+
+  assert.match(drawerBlock, /客户类型/)
+  assert.match(drawerBlock, /v-model="customerForm\.customer_type"/)
+  assert.doesNotMatch(drawerBlock, /<option :value="0">未设置<\/option>/)
+  assert.match(source, /请选择客户类型/)
+  assert.match(source, /请选择客户来源/)
+  assert.match(source, /请选择客户订单类型/)
+})
+
+test('order entry moves bean list selection from order information to product details drawer', () => {
+  const source = orderEntryViewSource()
+  const orderInfoBlock = source.slice(source.indexOf('<section class="panel order-fields"'), source.indexOf('<section class="panel" :class'))
+  const lineSection = source.slice(source.indexOf('<section class="panel" :class'))
+
+  assert.doesNotMatch(orderInfoBlock, /showBeanListVersionPickerByType/)
+  assert.match(lineSection, /选择豆单/)
+  assert.match(source, /bean-list-drawer/)
+  assert.match(source, /openBeanListDrawer/)
+})
+
 test('order entry save validation scrolls to invalid fields and marks them until corrected', () => {
   const source = orderEntryViewSource()
 
@@ -691,6 +728,23 @@ test('order entry save validation scrolls to invalid fields and marks them until
 
   const invalidStyles = cssBlock(source, '.field-invalid input, .field-invalid select, .field-invalid textarea, .field-invalid .file-upload-control')
   assert.match(invalidStyles, /border-color:\s*#f43f5e/)
+})
+
+test('order entry shows clickable payment goods amount suggestion without locking edits', () => {
+  const source = orderEntryViewSource()
+
+  assert.match(source, /const paymentGoodsAmountSuggestion = computed\(\(\) => money\(itemsTotal\.value\)\)/)
+  assert.match(source, /const showPaymentGoodsAmountSuggestion = computed/)
+  assert.match(source, /function applyPaymentGoodsAmountSuggestion\(\)/)
+  assert.match(source, /form\.payment_goods_amount = paymentGoodsAmountSuggestion\.value/)
+  assert.match(source, /class="amount-suggestion-popover"/)
+  assert.match(source, /@click="applyPaymentGoodsAmountSuggestion"/)
+  assert.match(source, /货款\s*\{\{ paymentGoodsAmountSuggestion \}\}/)
+  assert.doesNotMatch(source, /form\.payment_goods_amount = money\(itemsTotal\.value\)/)
+
+  const suggestionStyles = cssBlock(source, '.amount-suggestion-popover')
+  assert.match(suggestionStyles, /position:\s*absolute/)
+  assert.match(suggestionStyles, /z-index:\s*6/)
 })
 
 test('order entry mobile layout keeps conditional panels and errors inside the viewport', () => {
@@ -716,6 +770,35 @@ test('order entry payment voucher upload uses a mobile-safe file control', () =>
   const fileNameStyles = cssBlock(source, '.file-name')
   assert.match(uploadStyles, /grid-template-columns:\s*auto\s+minmax\(0,\s*1fr\)/)
   assert.match(fileNameStyles, /text-overflow:\s*ellipsis/)
+})
+
+test('order entry total preview includes shipping and exposes goods/logistics hints', () => {
+  assert.deepEqual(orderEntry.orderTotalPreview({
+    itemsTotal: 2340,
+    shippingAmount: '18.5',
+    discountAmount: '10',
+    roundToInt: false,
+  }), {
+    goodsAmount: 2330,
+    logisticsAmount: 18.5,
+    grandTotal: 2348.5,
+  })
+
+  const source = orderEntryViewSource()
+  assert.match(source, /orderTotalPreview/)
+  assert.match(source, /orderTotalHintText/)
+  assert.match(source, /货款/)
+  assert.match(source, /物流/)
+})
+
+test('order entry payment voucher collapses after upload and can open a large preview', () => {
+  const source = orderEntryViewSource()
+
+  assert.match(source, /paymentVoucherCollapsed/)
+  assert.match(source, /voucher-preview-overlay/)
+  assert.match(source, /openPaymentVoucherPreview/)
+  assert.match(source, /paymentVoucherPreviewOpen/)
+  assert.match(source, /paymentVoucherImageURL/)
 })
 
 test('lineTotal uses manual unit price even for retail rows', () => {
@@ -893,6 +976,37 @@ test('filterProductsForCustomer hides public products when customer disables pub
     filterProductsForCustomer(rows, 74, {}, [{ customer_id: 74, use_public_sku: false }]).map((item) => item.name),
     ['芬纳定制-红酒日晒-中深烘'],
   )
+})
+
+test('sortProductsByCustomerUsage moves customer common products first without losing original fallback order', () => {
+  const rows = [
+    { id: 1, name: 'A 公共豆' },
+    { id: 2, name: 'B 老客户常订' },
+    { id: 3, name: 'C 高频产品' },
+    { id: 4, name: 'D 新品' },
+  ]
+  const usage = [
+    { customer_id: 3, product_id: 2, order_count: 2, item_count: 3, last_order_date: '2026-05-01' },
+    { customer_id: 3, product_id: 3, order_count: 5, item_count: 5, last_order_date: '2026-05-02' },
+    { customer_id: 4, product_id: 1, order_count: 99, item_count: 99, last_order_date: '2026-05-03' },
+  ]
+
+  assert.deepEqual(
+    sortProductsByCustomerUsage(rows, 3, usage).map((item) => item.id),
+    [3, 2, 1, 4],
+  )
+  assert.deepEqual(
+    sortProductsByCustomerUsage(rows, 0, usage).map((item) => item.id),
+    [1, 2, 3, 4],
+  )
+})
+
+test('order entry product dropdown applies customer product usage after filtering customer scope', () => {
+  const source = orderEntryViewSource()
+  assert.match(source, /const customerProductUsages = ref\(\[\]\)/)
+  assert.match(source, /customerProductUsages\.value = data\.customer_product_usages \|\| \[\]/)
+  assert.match(source, /sortProductsByCustomerUsage\(\s*filterOptions\(\s*filterProductsForCustomer\(/s)
+  assert.match(source, /form\.customer_id,\s*customerProductUsages\.value/s)
 })
 
 test('defaultStatusID picks paid and unshipped status labels', () => {

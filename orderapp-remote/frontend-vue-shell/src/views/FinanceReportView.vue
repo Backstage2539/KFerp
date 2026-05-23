@@ -92,6 +92,7 @@
               <th>名称</th>
               <th>对象</th>
               <th>收款方式</th>
+              <th>收款凭证</th>
               <th>金额</th>
             </tr>
           </thead>
@@ -102,6 +103,12 @@
               <td>{{ row.name || row.category }}</td>
               <td>{{ row.counterparty }}</td>
               <td>{{ row.payment_method || '-' }}</td>
+              <td>
+                <a v-if="row.payment_voucher_url" :href="row.payment_voucher_url" target="_blank" rel="noreferrer">
+                  {{ row.payment_voucher_filename || '查看凭证' }}
+                </a>
+                <span v-else>-</span>
+              </td>
               <td>{{ money(row.amount) }}</td>
             </tr>
           </tbody>

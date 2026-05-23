@@ -326,16 +326,19 @@ func (r Repository) FinanceSourceDetails(ctx context.Context, filter appfinance.
 				       COALESCE(NULLIF(o.order_no,''), '订单#' || o.id::text) AS name,
 				       '' AS category,COALESCE(NULLIF(c.name,''),NULLIF(c.company_name,''),'') AS counterparty,
 				       COALESCE(o.payment_method,'') AS payment_method,
+				       COALESCE(a.filename,'') AS payment_voucher_filename,
+				       CASE WHEN COALESCE(a.object_key,'') <> '' THEN '/assets/' || a.object_key ELSE '' END AS payment_voucher_url,
 				       %s::float8 AS amount,
 				       '/app/vue-shell?view=orders' AS link
 				FROM %s.orders o
 				LEFT JOIN %s.customers c ON c.id=o.customer_id
+				LEFT JOIN %s.sales_order_assets a ON a.id=o.payment_voucher_asset_id AND a.kind='payment_voucher'
 				WHERE COALESCE(o.is_void,false)=false
 				  AND o.order_date >= $1::date
 				  AND o.order_date < ($1::date + INTERVAL '1 month')
 				  AND ($2::bigint=0 OR o.customer_id=$2::bigint)
 				ORDER BY o.order_date,o.id
-			`, financeOrderRevenueSQL("o"), r.schema, r.schema),
+			`, financeOrderRevenueSQL("o"), r.schema, r.schema, r.schema),
 			args: []any{start, customerID},
 		},
 		{
@@ -343,7 +346,8 @@ func (r Repository) FinanceSourceDetails(ctx context.Context, filter appfinance.
 				SELECT 'main_cost' AS section,'production_cost' AS source_type,id AS source_id,
 				       to_char(created_at,'YYYY-MM-DD') AS source_date,
 				       COALESCE(NULLIF(product_name,''),'生产批次成本') AS name,
-				       '生产批次成本' AS category,'' AS counterparty,'' AS payment_method,total_cost::float8 AS amount,
+				       '生产批次成本' AS category,'' AS counterparty,'' AS payment_method,
+				       '' AS payment_voucher_filename,'' AS payment_voucher_url,total_cost::float8 AS amount,
 				       '/app/vue-shell?view=productionCosts' AS link
 				FROM %s.production_batch_costs
 				WHERE created_at >= $1::date
@@ -359,6 +363,7 @@ func (r Repository) FinanceSourceDetails(ctx context.Context, filter appfinance.
 				       to_char(fe.expense_date,'YYYY-MM-DD') AS source_date,
 				       fe.category AS name,fe.category AS category,COALESCE(e.name,'') AS counterparty,
 				       '' AS payment_method,
+				       '' AS payment_voucher_filename,'' AS payment_voucher_url,
 				       fe.amount::float8 AS amount,'/app/vue-shell?view=financeExpenses' AS link
 				FROM %s.finance_expenses fe
 				LEFT JOIN %s.company_employees e ON e.id=fe.employee_id
@@ -374,6 +379,7 @@ func (r Repository) FinanceSourceDetails(ctx context.Context, filter appfinance.
 				       to_char(created_at,'YYYY-MM-DD') AS source_date,
 				       COALESCE(NULLIF(invoice_no,''),kind) AS name,kind AS category,counterparty,
 				       '' AS payment_method,
+				       '' AS payment_voucher_filename,'' AS payment_voucher_url,
 				       CASE WHEN tax_amount > 0 THEN tax_amount ELSE total_amount END::float8 AS amount,
 				       '/app/vue-shell?view=financeTaxLedger' AS link
 				FROM %s.finance_tax_ledger
@@ -601,7 +607,7 @@ func scanSourceDetails(rows pgx.Rows, out *[]appfinance.SourceDetail) error {
 	defer rows.Close()
 	for rows.Next() {
 		var row appfinance.SourceDetail
-		if err := rows.Scan(&row.Section, &row.SourceType, &row.SourceID, &row.Date, &row.Name, &row.Category, &row.Counterparty, &row.PaymentMethod, &row.Amount, &row.Link); err != nil {
+		if err := rows.Scan(&row.Section, &row.SourceType, &row.SourceID, &row.Date, &row.Name, &row.Category, &row.Counterparty, &row.PaymentMethod, &row.PaymentVoucherFilename, &row.PaymentVoucherURL, &row.Amount, &row.Link); err != nil {
 			return err
 		}
 		*out = append(*out, row)

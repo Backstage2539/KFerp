@@ -2,7 +2,9 @@ package customer
 
 import (
 	"context"
+	"fmt"
 	"io"
+	"strconv"
 	"strings"
 )
 
@@ -189,6 +191,9 @@ func NewService(repo Repository) *Service {
 }
 
 func (s *Service) Upsert(ctx context.Context, actor string, id *int64, cmd UpsertCommand) (int64, error) {
+	if err := validateRequiredCustomerProfileDefaults(cmd.CustomerType, cmd.DefaultSourceID, cmd.DefaultOrderTypeID); err != nil {
+		return 0, err
+	}
 	cmd.CustomerType = NormalizeCustomerType(cmd.CustomerType)
 	return s.repo.Upsert(ctx, actor, id, cmd)
 }
@@ -230,6 +235,9 @@ func (s *Service) DeleteAsset(ctx context.Context, actor string, assetID int64) 
 }
 
 func (s *Service) InlineUpdate(ctx context.Context, actor string, id int64, cmd InlineUpdateCommand) error {
+	if err := validateRequiredCustomerProfileDefaults(cmd.CustomerType, cmd.DefaultSourceID, cmd.DefaultOrderTypeID); err != nil {
+		return err
+	}
 	cmd.CustomerType = NormalizeCustomerType(cmd.CustomerType)
 	return s.repo.InlineUpdate(ctx, actor, id, cmd)
 }
@@ -247,6 +255,37 @@ func NormalizeCustomerType(value string) string {
 	default:
 		return CustomerTypeRetail
 	}
+}
+
+func validRequiredCustomerType(value string) bool {
+	switch strings.TrimSpace(value) {
+	case CustomerTypeRetail, CustomerTypeEcommerce, CustomerTypeWholesale:
+		return true
+	default:
+		return false
+	}
+}
+
+func positiveIDString(value string) bool {
+	n, err := strconv.ParseInt(strings.TrimSpace(value), 10, 64)
+	return err == nil && n > 0
+}
+
+func validateRequiredCustomerProfileDefaults(customerType, sourceID, orderTypeID string) error {
+	missing := make([]string, 0, 3)
+	if !validRequiredCustomerType(customerType) {
+		missing = append(missing, "客户类型")
+	}
+	if !positiveIDString(sourceID) {
+		missing = append(missing, "来源")
+	}
+	if !positiveIDString(orderTypeID) {
+		missing = append(missing, "订单类型")
+	}
+	if len(missing) > 0 {
+		return fmt.Errorf("请维护客户资料：%s", strings.Join(missing, "、"))
+	}
+	return nil
 }
 
 func NormalizeCustomerTypeFilter(value string) string {

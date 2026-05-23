@@ -54,7 +54,12 @@ func (r *fakeRepo) AssetObject(ctx context.Context, assetID int64) (AssetObject,
 func TestServiceDelegatesCustomerUpsert(t *testing.T) {
 	repo := &fakeRepo{}
 	svc := NewService(repo)
-	id, err := svc.Upsert(context.Background(), "actor", nil, UpsertCommand{Name: "Ada"})
+	id, err := svc.Upsert(context.Background(), "actor", nil, UpsertCommand{
+		Name:               "Ada",
+		CustomerType:       "wholesale",
+		DefaultSourceID:    "1",
+		DefaultOrderTypeID: "2",
+	})
 	if err != nil {
 		t.Fatalf("Upsert() error = %v", err)
 	}

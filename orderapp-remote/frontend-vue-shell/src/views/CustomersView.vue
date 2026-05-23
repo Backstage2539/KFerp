@@ -54,7 +54,7 @@
         </label>
         <label>
           <span>客户类型</span>
-          <select v-model="form.customer_type">
+          <select v-model="form.customer_type" required>
             <option value="retail">零售客户</option>
             <option value="ecommerce">电商客户</option>
             <option value="wholesale">批发客户</option>
@@ -74,15 +74,13 @@
         </label>
         <label>
           <span>来源</span>
-          <select v-model.number="form.default_source_id">
-            <option :value="0">未设置</option>
+          <select v-model.number="form.default_source_id" required>
             <option v-for="item in sources" :key="item.id" :value="item.id">{{ item.name }}</option>
           </select>
         </label>
         <label>
           <span>订单类型</span>
-          <select v-model.number="form.default_order_type_id">
-            <option :value="0">未设置</option>
+          <select v-model.number="form.default_order_type_id" required>
             <option v-for="item in orderTypes" :key="item.id" :value="item.id">{{ item.name }}</option>
           </select>
         </label>
@@ -324,6 +322,10 @@ function normalizeCustomerType(value) {
   return ['retail', 'ecommerce', 'wholesale'].includes(value) ? value : 'retail'
 }
 
+function validCustomerType(value) {
+  return ['retail', 'ecommerce', 'wholesale'].includes(String(value || '').trim())
+}
+
 function customerTypeLabel(value) {
   return {
     retail: '零售客户',
@@ -516,6 +518,9 @@ async function saveCustomer() {
   ok.value = ''
   try {
     if (!form.name && form.contact) form.name = form.contact
+    if (!validCustomerType(form.customer_type)) throw new Error('请选择客户类型')
+    if (!Number(form.default_source_id || 0)) throw new Error('请选择客户来源')
+    if (!Number(form.default_order_type_id || 0)) throw new Error('请选择客户订单类型')
     if (!Number(form.responsible_employee_id || 0)) throw new Error('请选择客户负责人')
     const body = {
       name: form.name,

@@ -194,7 +194,11 @@ func (s *Service) ListNotifications(ctx context.Context, query NotificationQuery
 	if query.Limit > 100 {
 		query.Limit = 100
 	}
-	return s.repo.ListNotifications(ctx, query)
+	rows, err := s.repo.ListNotifications(ctx, query)
+	if err != nil {
+		return nil, err
+	}
+	return dedupeNotificationRows(rows), nil
 }
 
 func (s *Service) MarkRead(ctx context.Context, eventID, employeeID int64) error {
@@ -340,6 +344,28 @@ func dedupeDeliveries(rows []DeliveryCommand) []DeliveryCommand {
 			row.TemplateKey,
 			row.AdapterKey,
 		}, "\x00")
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		out = append(out, row)
+	}
+	return out
+}
+
+func dedupeNotificationRows(rows []Notification) []Notification {
+	seen := map[string]bool{}
+	out := make([]Notification, 0, len(rows))
+	for _, row := range rows {
+		key := "id:" + strconv.FormatInt(row.ID, 10)
+		if row.ID <= 0 {
+			key = strings.Join([]string{
+				row.EventType,
+				row.SourceType,
+				strconv.FormatInt(row.SourceID, 10),
+				row.Title,
+			}, "\x00")
+		}
 		if seen[key] {
 			continue
 		}

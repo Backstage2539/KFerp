@@ -65,6 +65,7 @@ type productHandler struct {
 }
 
 type productUpdateAPIRequest struct {
+	Name                  *string                   `json:"name"`
 	ProductKind           string                    `json:"product_kind"`
 	Remark                *string                   `json:"remark"`
 	GreenBeanType         string                    `json:"green_bean_type"`
@@ -299,6 +300,13 @@ func (h productHandler) updateAPI(c echo.Context) error {
 			return c.JSON(http.StatusBadRequest, map[string]any{"error": err.Error()})
 		}
 	}
+	name := existing.Name
+	if req.Name != nil {
+		name = strings.TrimSpace(*req.Name)
+		if name == "" {
+			return c.JSON(http.StatusBadRequest, map[string]any{"error": "name is required"})
+		}
+	}
 	remark := existing.Remark
 	if req.Remark != nil {
 		remark = strings.TrimSpace(*req.Remark)
@@ -306,6 +314,7 @@ func (h productHandler) updateAPI(c echo.Context) error {
 	if err := h.catalog.UpdateProductBasics(c.Request().Context(), catalogapp.UpdateProductBasicsCommand{
 		Actor:                 support.ActorOf(c),
 		ProductID:             id,
+		Name:                  name,
 		Remark:                remark,
 		RoastLevel:            roastLevel,
 		ProductKind:           productKind,

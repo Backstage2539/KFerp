@@ -7,15 +7,16 @@ import (
 )
 
 type ListItem struct {
-	ProductID   int64   `json:"product_id"`
-	CustomerID  int64   `json:"customer_id"`
-	Product     string  `json:"product"`
-	RoastLevel  string  `json:"roast_level"`
-	ProductKind string  `json:"product_kind,omitempty"`
-	YieldRate   float64 `json:"yield_rate"`
-	Status      string  `json:"status"`
-	ItemCount   int     `json:"item_count"`
-	UpdatedAt   string  `json:"updated_at"`
+	ProductID       int64   `json:"product_id"`
+	CustomerID      int64   `json:"customer_id"`
+	Product         string  `json:"product"`
+	RoastLevel      string  `json:"roast_level"`
+	ProductKind     string  `json:"product_kind,omitempty"`
+	YieldRate       float64 `json:"yield_rate"`
+	Status          string  `json:"status"`
+	ItemCount       int     `json:"item_count"`
+	OrderUsageCount int     `json:"order_usage_count"`
+	UpdatedAt       string  `json:"updated_at"`
 }
 
 type Item struct {
@@ -50,6 +51,7 @@ type Option struct {
 	ProductKind     string  `json:"product_kind,omitempty"`
 	DripBagGrams    float64 `json:"drip_bag_grams,omitempty"`
 	DripBoxBagCount int     `json:"drip_box_bag_count,omitempty"`
+	OrderUsageCount int     `json:"order_usage_count"`
 }
 
 type BagSpecMapping struct {
