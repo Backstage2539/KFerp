@@ -557,6 +557,41 @@ test('order entry shows save errors in a fixed global alert', () => {
   assert.match(toastStyles, /z-index:\s*80/)
 })
 
+test('order entry exposes selected customer edit drawer beside new customer', () => {
+  const source = orderEntryViewSource()
+
+  assert.match(source, /@click="openCustomerDrawer"[^>]*>新增客户<\/button>/)
+  assert.match(source, /@click="openCustomerEditDrawer"[^>]*:disabled="!form\.customer_id"[^>]*>编辑客户<\/button>/s)
+  assert.match(source, /<h3>\{\{ customerDrawerMode === 'edit' \? '编辑客户' : '新增客户' \}\}<\/h3>/)
+  assert.match(source, /apiGet\(`\/api\/customers\/\$\{form\.customer_id\}`\)/)
+  assert.match(source, /method: customerDrawerMode\.value === 'edit' \? 'PUT' : 'POST'/)
+  assert.match(source, /apiSend\(customerDrawerMode\.value === 'edit' \? `\/api\/customers\/\$\{customerForm\.id\}` : '\/api\/customers'/)
+  for (const field of ['company_name', 'company_address', 'company_phone', 'responsible_employee_id']) {
+    assert.match(source, new RegExp(field))
+  }
+})
+
+test('order entry save validation scrolls to invalid fields and marks them until corrected', () => {
+  const source = orderEntryViewSource()
+
+  assert.match(source, /const fieldErrors = reactive\(\{\}\)/)
+  assert.match(source, /function raiseSaveError\(message,\s*fieldKey/)
+  assert.match(source, /scrollIntoView\(\{\s*behavior:\s*'smooth',\s*block:\s*'center'\s*\}\)/)
+  assert.match(source, /function clearFieldErrorIfValid\(fieldKey\)/)
+  assert.match(source, /watch\(\(\) => form\.customer_id,\s*\(\) => clearFieldErrorIfValid\('customer_id'\)\)/)
+  assert.match(source, /:class="\{ 'field-invalid': hasFieldError\('customer_id'\) \}"/)
+  assert.match(source, /data-error-field="customer_id"/)
+  assert.match(source, /data-error-field="payment_method"/)
+  assert.match(source, /data-error-field="logistics_company_id"/)
+  assert.match(source, /data-error-field="payment_voucher_asset_id"/)
+  assert.match(source, /data-error-field="product_items"/)
+  assert.match(source, /raiseSaveError\('请选择客户', 'customer_id'\)/)
+  assert.match(source, /raiseSaveError\('请上传收款凭证', 'payment_voucher_asset_id'\)/)
+
+  const invalidStyles = cssBlock(source, '.field-invalid input, .field-invalid select, .field-invalid textarea, .field-invalid .file-upload-control')
+  assert.match(invalidStyles, /border-color:\s*#f43f5e/)
+})
+
 test('order entry mobile layout keeps conditional panels and errors inside the viewport', () => {
   const source = orderEntryViewSource()
   const mobileStyles = sourceAfter(source, '@media (max-width: 760px)')

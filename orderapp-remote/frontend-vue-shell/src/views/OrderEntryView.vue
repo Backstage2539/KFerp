@@ -37,17 +37,22 @@
         <label class="customer-combobox combobox" :class="{ open: customerOpen }">
           <div class="label-row">
             <span>客户</span>
-            <button class="text-button" type="button" @click="openCustomerDrawer">新增客户</button>
+            <span class="label-actions">
+              <button class="text-button" type="button" @click="openCustomerDrawer">新增客户</button>
+              <button class="text-button" type="button" @click="openCustomerEditDrawer" :disabled="!form.customer_id">编辑客户</button>
+            </span>
           </div>
-          <input
-            v-model.trim="customerQuery"
-            type="search"
-            placeholder="输入客户名/拼音"
-            autocomplete="off"
-            @focus="customerOpen = true"
-            @input="form.customer_id = 0; customerOpen = true"
-            @keydown.down.prevent="customerOpen = true"
-          />
+          <div class="field-shell" :class="{ 'field-invalid': hasFieldError('customer_id') }" data-error-field="customer_id">
+            <input
+              v-model.trim="customerQuery"
+              type="search"
+              placeholder="输入客户名/拼音"
+              autocomplete="off"
+              @focus="customerOpen = true"
+              @input="form.customer_id = 0; customerOpen = true"
+              @keydown.down.prevent="customerOpen = true"
+            />
+          </div>
           <div v-if="customerOpen" class="combo-menu">
             <button
               v-for="item in filteredCustomers"
@@ -109,7 +114,7 @@
           </select>
         </label>
 
-        <label>
+        <label :class="{ 'field-invalid': hasFieldError('payment_method') }" data-error-field="payment_method">
           <span>收款方式</span>
           <select v-model.trim="form.payment_method" :disabled="!paymentMethodRequired">
             <option value="">选择收款方式</option>
@@ -131,14 +136,14 @@
 
         <div v-if="logisticsRequired" class="conditional-panel full-span">
           <div class="condition-title">发货物流</div>
-          <label>
+          <label :class="{ 'field-invalid': hasFieldError('logistics_company_id') }" data-error-field="logistics_company_id">
             <span>物流公司</span>
             <select v-model.number="form.logistics_company_id" @change="syncLogisticsProduct">
               <option :value="0">选择物流公司</option>
               <option v-for="item in logisticsCompanies" :key="item.id" :value="item.id">{{ item.name }}</option>
             </select>
           </label>
-          <label>
+          <label :class="{ 'field-invalid': hasFieldError('logistics_product_id') }" data-error-field="logistics_product_id">
             <span>物流产品</span>
             <select v-model.number="form.logistics_product_id">
               <option :value="0">选择物流产品</option>
@@ -149,15 +154,15 @@
 
         <div v-if="paymentReceiptRequired" class="conditional-panel full-span">
           <div class="condition-title">收款凭证</div>
-          <label>
+          <label :class="{ 'field-invalid': hasFieldError('payment_goods_amount') }" data-error-field="payment_goods_amount">
             <span>货款金额</span>
             <input v-model.trim="form.payment_goods_amount" type="number" min="0" step="0.01" />
           </label>
-          <label>
+          <label :class="{ 'field-invalid': hasFieldError('payment_shipping_amount') }" data-error-field="payment_shipping_amount">
             <span>运费金额</span>
             <input v-model.trim="form.payment_shipping_amount" type="number" min="0" step="0.01" />
           </label>
-          <div class="voucher-field">
+          <div class="voucher-field" :class="{ 'field-invalid': hasFieldError('payment_voucher_asset_id') }" data-error-field="payment_voucher_asset_id">
             <span>收款凭证</span>
             <label class="file-upload-control">
               <input type="file" accept="image/*,.pdf" @change="handlePaymentVoucherFile" />
@@ -176,7 +181,7 @@
       </label>
     </section>
 
-    <section class="panel">
+    <section class="panel" :class="{ 'field-invalid': hasFieldError('product_items') }" data-error-field="product_items">
       <div class="section-row">
         <div class="section-title">商品明细</div>
         <button class="secondary" type="button" @click="addRow">新增明细</button>
@@ -353,19 +358,28 @@
     <div v-if="customerDrawerOpen" class="drawer-mask" @click.self="closeCustomerDrawer">
       <aside class="drawer">
         <div class="drawer-head">
-          <h3>新增客户</h3>
+          <h3>{{ customerDrawerMode === 'edit' ? '编辑客户' : '新增客户' }}</h3>
           <button class="secondary" type="button" @click="closeCustomerDrawer">关闭</button>
         </div>
-        <label class="wide-field">
+        <label v-if="customerDrawerMode !== 'edit'" class="wide-field">
           <span>粘贴收件信息</span>
           <textarea v-model.trim="customerPaste" rows="4" placeholder="张三 13800138000 云南省普洱市思茅区咖啡路 88 号"></textarea>
         </label>
-        <button class="secondary parse-button" type="button" @click="applyRecipientParse">地址解析</button>
+        <button v-if="customerDrawerMode !== 'edit'" class="secondary parse-button" type="button" @click="applyRecipientParse">地址解析</button>
         <div v-if="customerError" class="notice error">{{ customerError }}</div>
+        <div v-if="customerNotice" class="notice ok">{{ customerNotice }}</div>
         <div class="drawer-grid">
           <label>
             <span>客户名</span>
             <input v-model.trim="customerForm.name" />
+          </label>
+          <label>
+            <span>公司名称</span>
+            <input v-model.trim="customerForm.company_name" placeholder="不填则默认客户名" />
+          </label>
+          <label>
+            <span>公司电话</span>
+            <input v-model.trim="customerForm.company_phone" />
           </label>
           <label>
             <span>联系人</span>
@@ -398,9 +412,15 @@
             <span>地址</span>
             <textarea v-model.trim="customerForm.address" rows="3"></textarea>
           </label>
+          <label class="wide-field">
+            <span>公司地址</span>
+            <textarea v-model.trim="customerForm.company_address" rows="3"></textarea>
+          </label>
         </div>
         <div class="drawer-actions">
-          <button class="primary" type="button" @click="saveCustomerFromDrawer" :disabled="customerSaving">保存并选择</button>
+          <button class="primary" type="button" @click="saveCustomerFromDrawer" :disabled="customerSaving">
+            {{ customerSaving ? '保存中' : (customerDrawerMode === 'edit' ? '保存客户信息' : '保存并选择') }}
+          </button>
         </div>
       </aside>
     </div>
@@ -408,7 +428,7 @@
 </template>
 
 <script setup>
-import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { apiGet, apiSend } from '../api/client'
 import { clearFormDraft, FORM_DRAFT_SCOPES, readFormDraft, saveFormDraft } from '../lib/form-draft-cache'
 import {
@@ -476,10 +496,13 @@ const uploadingVoucher = ref(false)
 const customerQuery = ref('')
 const customerOpen = ref(false)
 const customerDrawerOpen = ref(false)
+const customerDrawerMode = ref('create')
 const customerSaving = ref(false)
 const customerError = ref('')
+const customerNotice = ref('')
 const customerPaste = ref('')
 const customerForm = reactive(emptyCustomerForm())
+const fieldErrors = reactive({})
 const effectiveCopyID = ref(0)
 
 const form = reactive({
@@ -543,13 +566,19 @@ function newRow() {
 
 function emptyCustomerForm() {
   return {
+    id: 0,
     name: '',
+    raw_name: '',
+    company_name: '',
+    company_address: '',
+    company_phone: '',
     contact: '',
     phone: '',
     address: '',
     default_source_id: 0,
     default_order_type_id: 0,
     responsible_employee_id: 0,
+    active: true,
   }
 }
 
@@ -683,6 +712,59 @@ function ensurePaymentDefaults() {
   }
 }
 
+function hasFieldError(fieldKey) {
+  return Boolean(fieldErrors[fieldKey])
+}
+
+function clearFieldError(fieldKey) {
+  delete fieldErrors[fieldKey]
+}
+
+function clearAllFieldErrors() {
+  Object.keys(fieldErrors).forEach((fieldKey) => clearFieldError(fieldKey))
+}
+
+function hasValidProductLine() {
+  return rows.value.some((row) => Number(row.product_id || 0) > 0)
+}
+
+function fieldIsValid(fieldKey) {
+  if (fieldKey === 'customer_id') return Number(form.customer_id || 0) > 0
+  if (fieldKey === 'payment_method') return !paymentMethodRequired.value || String(form.payment_method || '').trim() !== ''
+  if (fieldKey === 'logistics_company_id') return !logisticsRequired.value || Number(form.logistics_company_id || 0) > 0
+  if (fieldKey === 'logistics_product_id') return !logisticsRequired.value || Number(form.logistics_product_id || 0) > 0
+  if (fieldKey === 'payment_goods_amount') return !paymentReceiptRequired.value || toNumber(form.payment_goods_amount) > 0
+  if (fieldKey === 'payment_shipping_amount') return !paymentReceiptRequired.value || String(form.payment_shipping_amount || '').trim() !== ''
+  if (fieldKey === 'payment_voucher_asset_id') return !paymentReceiptRequired.value || Number(form.payment_voucher_asset_id || 0) > 0
+  if (fieldKey === 'product_items') return hasValidProductLine()
+  return false
+}
+
+function clearFieldErrorIfValid(fieldKey) {
+  if (fieldIsValid(fieldKey)) clearFieldError(fieldKey)
+}
+
+function focusErrorField(fieldKey) {
+  if (!fieldKey || typeof document === 'undefined') return
+  nextTick(() => {
+    const target = document.querySelector(`[data-error-field="${fieldKey}"]`)
+    if (!target) return
+    target.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    const input = target.matches?.('input,select,textarea,button')
+      ? target
+      : target.querySelector?.('input,select,textarea,button')
+    input?.focus?.({ preventScroll: true })
+  })
+}
+
+function raiseSaveError(message, fieldKey = '') {
+  error.value = message
+  if (fieldKey) {
+    fieldErrors[fieldKey] = message
+    focusErrorField(fieldKey)
+  }
+}
+
 async function handlePaymentVoucherFile(event) {
   const file = event?.target?.files?.[0]
   paymentVoucherFile.value = file || null
@@ -800,11 +882,53 @@ function resetCustomerDrawerForm() {
   })
   customerPaste.value = ''
   customerError.value = ''
+  customerNotice.value = ''
 }
 
 function openCustomerDrawer() {
+  customerDrawerMode.value = 'create'
   resetCustomerDrawerForm()
   customerDrawerOpen.value = true
+}
+
+function assignCustomerDrawerForm(customer = {}) {
+  Object.assign(customerForm, emptyCustomerForm(), {
+    id: Number(customer.id || 0),
+    name: customer.name || '',
+    raw_name: customer.raw_name || '',
+    company_name: customer.company_name || '',
+    company_address: customer.company_address || '',
+    company_phone: customer.company_phone || customer.phone || '',
+    contact: customer.contact || '',
+    phone: customer.phone || '',
+    address: customer.address || '',
+    default_source_id: Number(customer.default_source_id || defaultSourceID()),
+    default_order_type_id: Number(customer.default_order_type_id || defaultOrderTypeID()),
+    responsible_employee_id: Number(customer.responsible_employee_id || 0),
+    active: customer.active !== false,
+  })
+}
+
+async function openCustomerEditDrawer() {
+  if (!Number(form.customer_id || 0)) {
+    raiseSaveError('请先选择客户', 'customer_id')
+    return
+  }
+  customerDrawerMode.value = 'edit'
+  customerError.value = ''
+  customerNotice.value = ''
+  customerPaste.value = ''
+  customerSaving.value = true
+  try {
+    const data = await apiGet(`/api/customers/${form.customer_id}`)
+    assignCustomerDrawerForm(data.customer || {})
+    employees.value = data.employees || employees.value
+    customerDrawerOpen.value = true
+  } catch (err) {
+    raiseSaveError(err.message || '加载客户资料失败', 'customer_id')
+  } finally {
+    customerSaving.value = false
+  }
 }
 
 function closeCustomerDrawer() {
@@ -824,31 +948,40 @@ function applyRecipientParse() {
 async function saveCustomerFromDrawer() {
   customerSaving.value = true
   customerError.value = ''
+  customerNotice.value = ''
   try {
     if (!customerForm.name && customerForm.contact) customerForm.name = customerForm.contact
     if (!customerForm.name) throw new Error('请填写客户名')
     if (!Number(customerForm.responsible_employee_id || 0)) throw new Error('请选择客户负责人')
-    const data = await apiSend('/api/customers', {
-      body: {
-        name: customerForm.name,
-        raw_name: '',
-        company_name: '',
-        company_address: '',
-        company_phone: customerForm.phone,
-        contact: customerForm.contact,
-        phone: customerForm.phone,
-        address: customerForm.address,
-        default_source_id: customerForm.default_source_id || null,
-        default_order_type_id: customerForm.default_order_type_id || null,
-        responsible_employee_id: customerForm.responsible_employee_id || null,
-        active: true,
-      },
+    const customerPayload = {
+      name: customerForm.name,
+      raw_name: customerForm.raw_name || '',
+      company_name: customerForm.company_name || '',
+      company_address: customerForm.company_address || '',
+      company_phone: customerForm.phone,
+      contact: customerForm.contact,
+      phone: customerForm.phone,
+      address: customerForm.address,
+      default_source_id: customerForm.default_source_id || null,
+      default_order_type_id: customerForm.default_order_type_id || null,
+      responsible_employee_id: customerForm.responsible_employee_id || null,
+      active: customerForm.active !== false,
+    }
+    if (customerForm.company_phone) customerPayload.company_phone = customerForm.company_phone
+    const data = await apiSend(customerDrawerMode.value === 'edit' ? `/api/customers/${customerForm.id}` : '/api/customers', {
+      method: customerDrawerMode.value === 'edit' ? 'PUT' : 'POST',
+      body: customerPayload,
     })
     const saved = data.customer
     if (!saved?.id) throw new Error('客户保存失败')
     customers.value = [saved, ...customers.value.filter((item) => Number(item.id) !== Number(saved.id))]
     chooseCustomer(saved)
-    closeCustomerDrawer()
+    if (customerDrawerMode.value === 'edit') {
+      assignCustomerDrawerForm(saved)
+      customerNotice.value = '客户信息已保存'
+    } else {
+      closeCustomerDrawer()
+    }
   } catch (err) {
     customerError.value = err.message || '保存客户失败'
   } finally {
@@ -1248,20 +1381,45 @@ async function save() {
   error.value = ''
   ok.value = ''
   stockBatchNotice.value = ''
+  clearAllFieldErrors()
   try {
     const payload = buildOrderPayload({ form, rows: rows.value })
-    if (!payload.customer_id) throw new Error('请选择客户')
-    if (paymentMethodRequired.value && !payload.payment_method) throw new Error('请选择收款方式')
+    if (!payload.customer_id) {
+      raiseSaveError('请选择客户', 'customer_id')
+      return
+    }
+    if (paymentMethodRequired.value && !payload.payment_method) {
+      raiseSaveError('请选择收款方式', 'payment_method')
+      return
+    }
     if (logisticsRequired.value) {
-      if (!payload.logistics_company_id) throw new Error('请选择物流公司')
-      if (!payload.logistics_product_id) throw new Error('请选择物流产品')
+      if (!payload.logistics_company_id) {
+        raiseSaveError('请选择物流公司', 'logistics_company_id')
+        return
+      }
+      if (!payload.logistics_product_id) {
+        raiseSaveError('请选择物流产品', 'logistics_product_id')
+        return
+      }
     }
     if (paymentReceiptRequired.value) {
-      if (toNumber(payload.payment_goods_amount) <= 0) throw new Error('请输入货款金额')
-      if (String(payload.payment_shipping_amount || '').trim() === '') throw new Error('请输入运费金额')
-      if (!payload.payment_voucher_asset_id) throw new Error('请上传收款凭证')
+      if (toNumber(payload.payment_goods_amount) <= 0) {
+        raiseSaveError('请输入货款金额', 'payment_goods_amount')
+        return
+      }
+      if (String(payload.payment_shipping_amount || '').trim() === '') {
+        raiseSaveError('请输入运费金额', 'payment_shipping_amount')
+        return
+      }
+      if (!payload.payment_voucher_asset_id) {
+        raiseSaveError('请上传收款凭证', 'payment_voucher_asset_id')
+        return
+      }
     }
-    if (!payload.product_id.length) throw new Error('请至少录入一条有效明细')
+    if (!payload.product_id.length) {
+      raiseSaveError('请至少录入一条有效明细', 'product_items')
+      return
+    }
     const stockDecision = await previewStockBatchesBeforeSave(payload)
     if (stockDecision) payload.stock_batch_decision = stockDecision
     const data = await apiSend('/api/order', { body: payload })
@@ -1276,7 +1434,7 @@ async function save() {
     if (props.embedded) emit('saved', data)
     if (!props.embedded && data.redirect_url) window.location.href = data.redirect_url
   } catch (err) {
-    error.value = err.message || '保存失败'
+    raiseSaveError(err.message || '保存失败')
   } finally {
     saving.value = false
   }
@@ -1337,22 +1495,42 @@ watch(
   paymentMethodRequired,
   (required) => {
     if (!required) form.payment_method = ''
+    clearFieldErrorIfValid('payment_method')
   },
 )
 
 watch(logisticsRequired, ensureLogisticsDefaults)
-watch(() => form.logistics_company_id, syncLogisticsProduct)
-watch(paymentReceiptRequired, ensurePaymentDefaults)
+watch(() => form.customer_id, () => clearFieldErrorIfValid('customer_id'))
+watch(() => form.payment_method, () => clearFieldErrorIfValid('payment_method'))
+watch(() => form.logistics_company_id, () => {
+  syncLogisticsProduct()
+  clearFieldErrorIfValid('logistics_company_id')
+})
+watch(() => form.logistics_product_id, () => clearFieldErrorIfValid('logistics_product_id'))
+watch(paymentReceiptRequired, (required) => {
+  ensurePaymentDefaults()
+  if (!required) {
+    clearFieldErrorIfValid('payment_goods_amount')
+    clearFieldErrorIfValid('payment_shipping_amount')
+    clearFieldErrorIfValid('payment_voucher_asset_id')
+  }
+})
+watch(() => form.payment_goods_amount, () => clearFieldErrorIfValid('payment_goods_amount'))
+watch(() => form.payment_shipping_amount, () => clearFieldErrorIfValid('payment_shipping_amount'))
+watch(() => form.payment_voucher_asset_id, () => clearFieldErrorIfValid('payment_voucher_asset_id'))
 watch(itemsTotal, () => {
   if (paymentReceiptRequired.value && String(form.payment_goods_amount || '').trim() === '') {
     form.payment_goods_amount = money(itemsTotal.value)
   }
+  clearFieldErrorIfValid('payment_goods_amount')
 })
 watch(() => form.shipping_amount, () => {
   if (paymentReceiptRequired.value && String(form.payment_shipping_amount || '').trim() === '') {
     form.payment_shipping_amount = money(toNumber(form.shipping_amount))
   }
+  clearFieldErrorIfValid('payment_shipping_amount')
 })
+watch(rows, () => clearFieldErrorIfValid('product_items'), { deep: true })
 
 watch(
   () => form.commercial_bean_list_publication_id,
@@ -1402,6 +1580,11 @@ button:disabled { cursor: not-allowed; opacity: 0.5; }
 .text-button { border: 0; background: transparent; color: #174ea6; padding: 0; min-height: 0; font-size: 12px; text-decoration: underline; }
 .danger { color: #9f1239; }
 .label-row { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.label-actions { display: inline-flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
+.field-shell { min-width: 0; }
+.field-invalid input, .field-invalid select, .field-invalid textarea, .field-invalid .file-upload-control { border-color: #f43f5e; box-shadow: 0 0 0 2px rgba(244, 63, 94, 0.12); }
+.field-invalid > span:first-child, .field-invalid .label-row > span:first-child, .field-invalid.voucher-field > span:first-child { color: #be123c; }
+.panel.field-invalid { border-color: #fda4af; box-shadow: 0 0 0 2px rgba(244, 63, 94, 0.08); }
 .readonly-field input { background: #f8fafc; color: #4b5563; }
 .notes { margin-top: 14px; }
 .notice { border-radius: 8px; padding: 10px 12px; }
