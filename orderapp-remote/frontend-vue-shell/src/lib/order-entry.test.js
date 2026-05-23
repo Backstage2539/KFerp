@@ -642,6 +642,23 @@ test('order entry save validation scrolls to invalid fields and marks them until
   assert.match(invalidStyles, /border-color:\s*#f43f5e/)
 })
 
+test('order entry shows clickable payment goods amount suggestion without locking edits', () => {
+  const source = orderEntryViewSource()
+
+  assert.match(source, /const paymentGoodsAmountSuggestion = computed\(\(\) => money\(itemsTotal\.value\)\)/)
+  assert.match(source, /const showPaymentGoodsAmountSuggestion = computed/)
+  assert.match(source, /function applyPaymentGoodsAmountSuggestion\(\)/)
+  assert.match(source, /form\.payment_goods_amount = paymentGoodsAmountSuggestion\.value/)
+  assert.match(source, /class="amount-suggestion-popover"/)
+  assert.match(source, /@click="applyPaymentGoodsAmountSuggestion"/)
+  assert.match(source, /货款\s*\{\{ paymentGoodsAmountSuggestion \}\}/)
+  assert.doesNotMatch(source, /form\.payment_goods_amount = money\(itemsTotal\.value\)/)
+
+  const suggestionStyles = cssBlock(source, '.amount-suggestion-popover')
+  assert.match(suggestionStyles, /position:\s*absolute/)
+  assert.match(suggestionStyles, /z-index:\s*6/)
+})
+
 test('order entry mobile layout keeps conditional panels and errors inside the viewport', () => {
   const source = orderEntryViewSource()
   const mobileStyles = sourceAfter(source, '@media (max-width: 760px)')
