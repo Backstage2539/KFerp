@@ -240,7 +240,7 @@ function formatTierUnitPrice(value) {
 }
 
 export function wholesaleTierPriceRows(product, row = null) {
-  return (product?.tiers || [])
+  return tiersForSelectedPublication(product, row)
     .filter((tier) => toInt(tier.spec_g) > 0)
     .map((tier) => {
       const priceUnit = priceUnitForDisplayUnit(tier?.display_unit) || wholesalePriceUnit(toInt(tier.spec_g))
@@ -255,10 +255,23 @@ export function wholesaleTierPriceRows(product, row = null) {
     })
 }
 
+function tierPublicationID(tier) {
+  const source = tierPriceSource(tier)
+  return toInt(source?.publication_id || source?.bean_list_publication_id)
+}
+
+function tiersForSelectedPublication(product, row = null) {
+  const tiers = product?.tiers || []
+  const publicationID = toInt(row?.bean_list_publication_id)
+  if (publicationID <= 0) return tiers
+  const selected = tiers.filter((tier) => tierPublicationID(tier) === publicationID)
+  return selected.length ? selected : tiers
+}
+
 function findWholesaleTierMatch(product, row) {
   const specG = normalizeSpecG(row)
   const qty = Math.max(1, toInt(row?.qty))
-  const tiers = (product?.tiers || []).filter((item) => toInt(item.spec_g) > 0)
+  const tiers = tiersForSelectedPublication(product, row).filter((item) => toInt(item.spec_g) > 0)
   const exactSpecTiers = tiers
     .filter((item) => toInt(item.spec_g) === specG)
   if (exactSpecTiers.length) {
@@ -465,6 +478,11 @@ export function rowUsesStaleBeanListPublication(row, options, listType = product
   return latestID > 0 && latestID !== publicationID
 }
 
+export function beanListVersionOptionsForCustomer(options, customerID) {
+  const selectedCustomerID = toInt(customerID)
+  return (options || []).filter((item) => toInt(item?.customer_id) === selectedCustomerID)
+}
+
 export function isBlankOrderLine(row) {
   return toInt(row?.product_id) <= 0
     && !String(row?.product_query || '').trim()
@@ -512,7 +530,7 @@ function productMatchesExplicitPublicationScope(product, publicationIDsByType) {
   return (product?.tiers || []).some((tier) => {
     const source = tierPriceSource(tier)
     if (!source) return false
-    const publicationID = toInt(source.publication_id)
+    const publicationID = tierPublicationID(tier)
     return publicationID > 0
       && publicationIDs.has(publicationID)
       && normalizeBeanListType(source.list_type) === listType

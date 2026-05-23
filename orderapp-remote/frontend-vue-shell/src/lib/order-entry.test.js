@@ -4,6 +4,7 @@ import { readFileSync } from 'node:fs'
 
 import * as orderEntry from './order-entry.js'
 import {
+  beanListVersionOptionsForCustomer,
   buildOrderPayload,
   defaultWholesaleSpec,
   defaultStatusID,
@@ -446,6 +447,55 @@ test('rowUsesStaleBeanListPublication flags product rows whose publication is no
   assert.equal(rowUsesStaleBeanListPublication({ product_id: 0, bean_list_publication_id: 31 }, options), false)
 })
 
+test('beanListVersionOptionsForCustomer keeps public fallback versions for the selected customer', () => {
+  const options = [
+    { customer_id: 74, list_type: 'commercial', id: 31, version_no: 'V3.0.6', is_customer_owned: false, is_default: false },
+    { customer_id: 74, list_type: 'commercial', id: 33, version_no: 'V3.0.9', is_customer_owned: false, is_default: true },
+    { customer_id: 152, list_type: 'commercial', id: 41, version_no: 'V2.0.1', is_customer_owned: true, is_default: true },
+  ]
+
+  assert.deepEqual(
+    beanListVersionOptionsForCustomer(options, 74).map((item) => [item.id, item.version_no, item.is_default]),
+    [
+      [31, 'V3.0.6', false],
+      [33, 'V3.0.9', true],
+    ],
+  )
+})
+
+test('resolveWholesaleTierPrice and tier rows use the selected bean list publication when product carries multiple versions', () => {
+  const multiVersionProduct = {
+    tiers: [
+      {
+        id: 57,
+        spec_g: 454,
+        min: 2,
+        max: 13,
+        unit_price: 70,
+        display_unit: 'lb',
+        price_source_json: '{"source":"published_bean_list","list_type":"commercial","publication_id":33,"version_no":"V3.0.9"}',
+      },
+      {
+        id: 56,
+        spec_g: 454,
+        min: 2,
+        max: 13,
+        unit_price: 65,
+        display_unit: 'lb',
+        price_source_json: '{"source":"published_bean_list","list_type":"commercial","publication_id":31,"version_no":"V3.0.6"}',
+      },
+    ],
+  }
+  const row = { spec_mode: '454', qty: 2, bean_list_publication_id: 31 }
+
+  const price = resolveWholesaleTierPrice(multiVersionProduct, row)
+  assert.equal(price.unitPrice, '65')
+  assert.equal(price.tierID, '56')
+  assert.equal(price.beanListPublicationID, 31)
+  assert.equal(price.beanListVersionNo, 'V3.0.6')
+  assert.deepEqual(wholesaleTierPriceRows(multiVersionProduct, row).map((item) => item.unitPrice), [65])
+})
+
 test('needsTrailingBlankOrderLine only requests one empty detail row after product selection', () => {
   assert.equal(needsTrailingBlankOrderLine([
     { product_id: 7, product_query: '兰卡拼配', item_note: '' },
@@ -867,6 +917,40 @@ test('filterProductsForCustomer hides public products when customer commercial b
   assert.deepEqual(
     filterProductsForCustomer(rows, 74, { commercial: [31] }).map((item) => item.name),
     ['芬纳定制-红酒日晒-中深烘'],
+  )
+})
+
+test('filterProductsForCustomer limits public fallback products to the selected public publication', () => {
+  const rows = [
+    {
+      id: 1,
+      name: '公共新版拼配',
+      customer_id: 0,
+      visibility: 'public',
+      product_kind: 'roasted',
+      tiers: [{ id: 57, price_source_json: '{"source":"published_bean_list","list_type":"commercial","publication_id":33}' }],
+    },
+    {
+      id: 2,
+      name: '公共旧版拼配',
+      customer_id: 0,
+      visibility: 'public',
+      product_kind: 'roasted',
+      tiers: [{ id: 56, price_source_json: '{"source":"published_bean_list","list_type":"commercial","publication_id":31}' }],
+    },
+    {
+      id: 3,
+      name: '无豆单公共商品',
+      customer_id: 0,
+      visibility: 'public',
+      product_kind: 'roasted',
+      tiers: [],
+    },
+  ]
+
+  assert.deepEqual(
+    filterProductsForCustomer(rows, 74, { commercial: [31] }).map((item) => item.name),
+    ['公共旧版拼配'],
   )
 })
 

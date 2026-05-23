@@ -1,6 +1,10 @@
 package orderbeans
 
-import "testing"
+import (
+	"os"
+	"strings"
+	"testing"
+)
 
 func TestPublishedUnitPriceFromContentMatchesGreenBeanTiers(t *testing.T) {
 	content := []byte(`{
@@ -77,6 +81,20 @@ func TestPublishedPricingKeepsKgDisplayUnitForSmallCommercialPack(t *testing.T) 
 	}
 	if got.UnitPrice != 82 || got.PriceUnit != "kg" || got.UnitG != 1000 {
 		t.Fatalf("published pricing = %+v, want 82 kg/1000g", got)
+	}
+}
+
+func TestExplicitPublicationSelectionAcceptsHistoricalPublishedSnapshots(t *testing.T) {
+	source, err := os.ReadFile("usage.go")
+	if err != nil {
+		t.Fatalf("read usage.go: %v", err)
+	}
+	text := string(source)
+	if !strings.Contains(text, "blp.status IN ('published','withdrawn')") {
+		t.Fatalf("explicit bean-list publication selection must accept withdrawn historical snapshots")
+	}
+	if !strings.Contains(text, "WHERE blp.status='published'") {
+		t.Fatalf("default bean-list selection must continue to use the latest currently published snapshot")
 	}
 }
 

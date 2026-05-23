@@ -107,7 +107,7 @@ func ResolveUsageForPublication(ctx context.Context, q rowQuerier, schema string
 			SELECT id, COALESCE(version_no,'')
 			FROM %s.bean_list_publications blp
 			WHERE blp.id=$1
-			  AND blp.status='published'
+			  AND blp.status IN ('published','withdrawn')
 			  AND blp.list_type=$2
 			  AND ((blp.owner_type='customer' AND blp.owner_key=$3) OR blp.owner_type='official')
 		`, schema)

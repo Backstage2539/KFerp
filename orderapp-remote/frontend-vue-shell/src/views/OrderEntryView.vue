@@ -451,6 +451,7 @@ import { apiGet, apiSend } from '../api/client'
 import { clearFormDraft, FORM_DRAFT_SCOPES, readFormDraft, saveFormDraft } from '../lib/form-draft-cache'
 import {
   CUSTOM_SPEC_VALUE,
+  beanListVersionOptionsForCustomer,
   buildOrderPayload,
   defaultWholesaleSpec,
   defaultStatusID,
@@ -685,8 +686,7 @@ const orderBeanListTypes = [
   { type: 'drip', label: '挂耳豆单' },
 ]
 const customerBeanListVersionOptions = computed(() => {
-  const customerID = Number(form.customer_id || 0)
-  return (beanListVersionOptions.value || []).filter((item) => Number(item.customer_id || 0) === customerID)
+  return beanListVersionOptionsForCustomer(beanListVersionOptions.value, form.customer_id)
 })
 function productByID(id) {
   return products.value.find((item) => Number(item.id) === Number(id)) || null
@@ -849,17 +849,22 @@ function customerBeanListVersionOptionsByType(listType) {
   return customerBeanListVersionOptions.value.filter((item) => String(item.list_type || 'commercial') === listType)
 }
 
-function customerOwnedBeanListPublicationIDsByType() {
+function selectedBeanListPublicationIDsByType() {
   const out = {}
-  for (const item of customerBeanListVersionOptions.value) {
-    if (!item.is_customer_owned) continue
+  for (const beanListType of orderBeanListTypes) {
+    const item = selectedBeanListVersionOptionByType(beanListType.type)
+    if (!item) continue
     const id = Number(item.id || 0)
     if (id <= 0) continue
-    const listType = String(item.list_type || 'commercial')
+    const listType = String(item.list_type || beanListType.type || 'commercial')
     if (!out[listType]) out[listType] = []
     out[listType].push(id)
   }
   return out
+}
+
+function customerOwnedBeanListPublicationIDsByType() {
+  return selectedBeanListPublicationIDsByType()
 }
 
 function showBeanListVersionPickerByType(listType) {
@@ -882,6 +887,7 @@ function setBeanListVersion(listType, value) {
   if (listType === 'commercial') {
     form.bean_list_publication_id = form[field]
   }
+  syncRowsForType()
 }
 
 function syncBeanListVersionForCustomer(options = {}) {
@@ -1130,6 +1136,7 @@ function syncPrice(row, options = {}) {
     row.manual_price = false
     return
   }
+  ensureRowBeanListVersion(row)
   applyResolvedWholesalePrice(row, resolveWholesaleTierPrice(product, row))
   row.manual_price = false
 }

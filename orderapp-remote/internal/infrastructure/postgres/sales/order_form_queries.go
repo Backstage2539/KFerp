@@ -78,10 +78,10 @@ func (r Repository) fetchOrderBeanListVersionOptions(ctx context.Context) ([]sal
 			       COALESCE(to_char(b.published_at, 'YYYY-MM-DD HH24:MI'), '') AS published_at,
 			       COALESCE(b.changelog, '') AS changelog,
 			       true AS is_customer_owned,
-			       row_number() OVER (PARTITION BY c.id, b.list_type ORDER BY b.published_at DESC, b.id DESC) = 1 AS is_default
+			       b.status='published' AND row_number() OVER (PARTITION BY c.id, b.list_type, b.status ORDER BY b.published_at DESC, b.id DESC) = 1 AS is_default
 			FROM active_customers c
 			JOIN %[1]s.bean_list_publications b
-			  ON b.owner_type='customer' AND b.owner_key=c.id::text AND b.status='published'
+			  ON b.owner_type='customer' AND b.owner_key=c.id::text AND b.status IN ('published','withdrawn')
 			WHERE b.list_type IN ('commercial','green','drip')
 		),
 		official_versions AS (
@@ -90,9 +90,9 @@ func (r Repository) fetchOrderBeanListVersionOptions(ctx context.Context) ([]sal
 			       b.version_no,
 			       COALESCE(to_char(b.published_at, 'YYYY-MM-DD HH24:MI'), '') AS published_at,
 			       COALESCE(b.changelog, '') AS changelog,
-			       row_number() OVER (PARTITION BY b.list_type ORDER BY b.published_at DESC, b.id DESC) = 1 AS is_default
+			       b.status='published' AND row_number() OVER (PARTITION BY b.list_type, b.status ORDER BY b.published_at DESC, b.id DESC) = 1 AS is_default
 			FROM %[1]s.bean_list_publications b
-			WHERE b.owner_type='official' AND b.status='published' AND b.list_type IN ('commercial','green','drip')
+			WHERE b.owner_type='official' AND b.status IN ('published','withdrawn') AND b.list_type IN ('commercial','green','drip')
 		),
 		public_fallback AS (
 			SELECT c.id AS customer_id,
@@ -350,7 +350,7 @@ func (r Repository) fetchCommercialOrderPublicationTiers(ctx context.Context, pr
 			       COALESCE(content_json, '{}'::jsonb) AS content_json,
 			       row_number() OVER (PARTITION BY owner_key ORDER BY published_at DESC, id DESC) AS rn
 			FROM %[1]s.bean_list_publications
-			WHERE status='published'
+			WHERE status IN ('published','withdrawn')
 			  AND list_type='commercial'
 			  AND owner_type='customer'
 			  AND owner_key = ANY($1)
@@ -361,17 +361,15 @@ func (r Repository) fetchCommercialOrderPublicationTiers(ctx context.Context, pr
 			       COALESCE(content_json, '{}'::jsonb) AS content_json,
 			       row_number() OVER (ORDER BY published_at DESC, id DESC) AS rn
 			FROM %[1]s.bean_list_publications
-			WHERE status='published'
+			WHERE status IN ('published','withdrawn')
 			  AND list_type='commercial'
 			  AND owner_type='official'
 		)
 		SELECT 'customer' AS owner_type, owner_key, id, version_no, content_json
 		FROM customer_publications
-		WHERE rn=1
 		UNION ALL
 		SELECT 'official' AS owner_type, '' AS owner_key, id, version_no, content_json
 		FROM official_publications
-		WHERE rn=1
 	`, r.schema)
 	rows, err := r.pool.Query(ctx, q, ownerKeys)
 	if err != nil {
@@ -472,7 +470,7 @@ func (r Repository) fetchGreenBeanOrderPublicationTiers(ctx context.Context, pro
 			       COALESCE(content_json, '{}'::jsonb) AS content_json,
 			       row_number() OVER (PARTITION BY owner_key ORDER BY published_at DESC, id DESC) AS rn
 			FROM %[1]s.bean_list_publications
-			WHERE status='published'
+			WHERE status IN ('published','withdrawn')
 			  AND list_type='green'
 			  AND owner_type='customer'
 			  AND owner_key = ANY($1)
@@ -484,17 +482,15 @@ func (r Repository) fetchGreenBeanOrderPublicationTiers(ctx context.Context, pro
 			       COALESCE(content_json, '{}'::jsonb) AS content_json,
 			       row_number() OVER (ORDER BY published_at DESC, id DESC) AS rn
 			FROM %[1]s.bean_list_publications
-			WHERE status='published'
+			WHERE status IN ('published','withdrawn')
 			  AND list_type='green'
 			  AND owner_type='official'
 		)
 		SELECT 'customer' AS owner_type, owner_key, id, version_no, config_json, content_json
 		FROM customer_publications
-		WHERE rn=1
 		UNION ALL
 		SELECT 'official' AS owner_type, '' AS owner_key, id, version_no, config_json, content_json
 		FROM official_publications
-		WHERE rn=1
 	`, r.schema)
 	rows, err := r.pool.Query(ctx, q, ownerKeys)
 	if err != nil {

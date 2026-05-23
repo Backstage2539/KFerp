@@ -75,6 +75,30 @@ func TestOrderFormBeanListVersionOptionsArePartitionedByListType(t *testing.T) {
 	}
 }
 
+func TestOrderFormBeanListVersionOptionsIncludeHistoricalPublishedSnapshots(t *testing.T) {
+	source, err := os.ReadFile("order_form_queries.go")
+	if err != nil {
+		t.Fatalf("read order_form_queries.go: %v", err)
+	}
+	text := string(source)
+	if !strings.Contains(text, "b.status IN ('published','withdrawn')") {
+		t.Fatalf("order form bean-list version options must include withdrawn historical published snapshots")
+	}
+	if !strings.Contains(text, "b.status='published'") {
+		t.Fatalf("order form bean-list version options must still mark the current published snapshot as default")
+	}
+}
+
+func TestOrderSaveExplicitBeanListPublicationAcceptsHistoricalSnapshots(t *testing.T) {
+	source, err := os.ReadFile("repository.go")
+	if err != nil {
+		t.Fatalf("read repository.go: %v", err)
+	}
+	if !strings.Contains(string(source), "status IN ('published','withdrawn')") {
+		t.Fatalf("explicit order bean-list publication selection must accept withdrawn historical snapshots")
+	}
+}
+
 func TestGreenBeanOrderPublicationTiersParseTemplatePrices(t *testing.T) {
 	content := []byte(`{
 		"groups":[{
