@@ -24,6 +24,12 @@ type Usage struct {
 	VersionNo     string
 }
 
+type PublishedPricing struct {
+	UnitPrice float64
+	PriceUnit string
+	UnitG     float64
+}
+
 type rowQuerier interface {
 	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
 }
@@ -54,21 +60,26 @@ func ResolvePublishedUnitPriceForPublication(ctx context.Context, q rowQuerier, 
 }
 
 func ResolvePublishedUnitPriceForPublicationWithUnit(ctx context.Context, q rowQuerier, schema string, customerID int64, productID int64, listType string, requestedPublicationID int64, specG int64, qty int64, salesUnit string, unitBagCount int64) (float64, error) {
+	pricing, err := ResolvePublishedPricingForPublicationWithUnit(ctx, q, schema, customerID, productID, listType, requestedPublicationID, specG, qty, salesUnit, unitBagCount)
+	return pricing.UnitPrice, err
+}
+
+func ResolvePublishedPricingForPublicationWithUnit(ctx context.Context, q rowQuerier, schema string, customerID int64, productID int64, listType string, requestedPublicationID int64, specG int64, qty int64, salesUnit string, unitBagCount int64) (PublishedPricing, error) {
 	usage, err := ResolveUsageForPublication(ctx, q, schema, customerID, productID, listType, requestedPublicationID)
 	if err != nil || usage.PublicationID <= 0 {
-		return 0, err
+		return PublishedPricing{}, err
 	}
 	var raw []byte
 	sql := fmt.Sprintf(`SELECT COALESCE(content_json, '{}'::jsonb) FROM %s.bean_list_publications WHERE id=$1`, schema)
 	if err := q.QueryRow(ctx, sql, usage.PublicationID).Scan(&raw); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) || isMissingBeanListSchema(err) {
-			return 0, nil
+			return PublishedPricing{}, nil
 		}
-		return 0, err
+		return PublishedPricing{}, err
 	}
-	price, ok := publishedUnitPriceFromContentForListType(raw, productID, listType, specG, qty, salesUnit, unitBagCount)
+	price, ok := publishedPricingFromContentForListType(raw, productID, listType, specG, qty, salesUnit, unitBagCount)
 	if !ok {
-		return 0, nil
+		return PublishedPricing{}, nil
 	}
 	return price, nil
 }
@@ -153,6 +164,7 @@ type publishedPriceTier struct {
 	MinQty            float64  `json:"min_qty"`
 	MaxQty            *float64 `json:"max_qty"`
 	PricePerUnit      float64  `json:"price_per_unit"`
+	PricePerKg        float64  `json:"price_per_kg"`
 	MinLb             float64  `json:"min_lb"`
 	MaxLb             *float64 `json:"max_lb"`
 	PricePerLb        float64  `json:"price_per_lb"`
@@ -162,6 +174,8 @@ type publishedPriceTier struct {
 	UnitBagCount      int64    `json:"unit_bag_count"`
 	PackedPricePerBag float64  `json:"packed_price_per_bag"`
 	PackedPricePerBox float64  `json:"packed_price_per_box"`
+	DisplayUnit       string   `json:"display_unit"`
+	PriceUnit         string   `json:"price_unit"`
 }
 
 func publishedUnitPriceFromContent(raw []byte, productID int64, specG int64, qty int64) (float64, bool) {
@@ -169,12 +183,17 @@ func publishedUnitPriceFromContent(raw []byte, productID int64, specG int64, qty
 }
 
 func publishedUnitPriceFromContentForListType(raw []byte, productID int64, listType string, specG int64, qty int64, salesUnit string, unitBagCount int64) (float64, bool) {
+	pricing, ok := publishedPricingFromContentForListType(raw, productID, listType, specG, qty, salesUnit, unitBagCount)
+	return pricing.UnitPrice, ok
+}
+
+func publishedPricingFromContentForListType(raw []byte, productID int64, listType string, specG int64, qty int64, salesUnit string, unitBagCount int64) (PublishedPricing, bool) {
 	if productID <= 0 || specG <= 0 || qty <= 0 || len(raw) == 0 {
-		return 0, false
+		return PublishedPricing{}, false
 	}
 	var content publishedBeanListContent
 	if err := json.Unmarshal(raw, &content); err != nil {
-		return 0, false
+		return PublishedPricing{}, false
 	}
 	for _, group := range content.Groups {
 		for _, itemRaw := range group.Items {
@@ -185,17 +204,17 @@ func publishedUnitPriceFromContentForListType(raw []byte, productID int64, listT
 			if strings.TrimSpace(listType) == ListTypeDrip {
 				if tier, ok := matchPublishedDripPriceTier(tiers, salesUnit, qty, unitBagCount); ok {
 					price := publishedDripUnitPrice(tier, salesUnit, unitBagCount)
-					return price, price > 0
+					return PublishedPricing{UnitPrice: price, PriceUnit: normalizePublishedDripSalesUnit(salesUnit), UnitG: 1}, price > 0
 				}
 				continue
 			}
 			if tier, ok := matchPublishedPriceTier(tiers, specG, qty); ok {
-				price := publishedTierDisplayUnitPrice(tier, specG)
-				return price, price > 0
+				price := publishedTierPricing(tier, specG)
+				return price, price.UnitPrice > 0
 			}
 		}
 	}
-	return 0, false
+	return PublishedPricing{}, false
 }
 
 func publishedItemMatchesProduct(raw json.RawMessage, productID int64) bool {
@@ -375,26 +394,80 @@ func publishedTierMinWeight(tier publishedPriceTier) float64 {
 }
 
 func publishedTierDisplayUnitPrice(tier publishedPriceTier, specG int64) float64 {
-	pricePerLb := tier.PricePerLb
-	tierSpec := tier.SpecG
-	if tierSpec <= 0 {
-		tierSpec = 1000
+	return publishedTierPricing(tier, specG).UnitPrice
+}
+
+func publishedTierPricing(tier publishedPriceTier, specG int64) PublishedPricing {
+	priceUnit := publishedTierPriceUnit(tier, specG)
+	unitG := publishedPriceUnitG(priceUnit, specG)
+	displayUnit := normalizePublishedPriceUnit(tier.DisplayUnit)
+	displayG := publishedPriceUnitG(displayUnit, tier.SpecG)
+	if displayG <= 0 {
+		displayG = publishedPriceUnitG("", tier.SpecG)
 	}
-	if pricePerLb <= 0 && tier.PricePerUnit > 0 {
-		pricePerLb = tier.PricePerUnit * 454.0 / float64(tierSpec)
+	if tier.PricePerKg > 0 {
+		return PublishedPricing{UnitPrice: roundPublishedPrice(tier.PricePerKg * unitG / 1000.0), PriceUnit: priceUnit, UnitG: unitG}
 	}
-	if pricePerLb <= 0 {
-		return 0
+	if tier.PricePerLb > 0 && normalizePublishedPriceUnit(tier.PriceUnit) == "" && normalizePublishedPriceUnit(tier.DisplayUnit) == "" {
+		price := tier.PricePerLb * unitG / 454.0
+		if unitG == 1000 {
+			price = math.Round(price)
+		}
+		return PublishedPricing{UnitPrice: roundPublishedPrice(price), PriceUnit: priceUnit, UnitG: unitG}
 	}
-	unitG := 454.0
+	if tier.PricePerUnit > 0 {
+		return PublishedPricing{UnitPrice: roundPublishedPrice(tier.PricePerUnit * unitG / displayG), PriceUnit: priceUnit, UnitG: unitG}
+	}
+	if tier.PricePerLb > 0 {
+		return PublishedPricing{UnitPrice: roundPublishedPrice(tier.PricePerLb * unitG / 454.0), PriceUnit: priceUnit, UnitG: unitG}
+	}
+	return PublishedPricing{PriceUnit: priceUnit, UnitG: unitG}
+}
+
+func publishedTierPriceUnit(tier publishedPriceTier, specG int64) string {
+	if unit := normalizePublishedPriceUnit(tier.PriceUnit); unit != "" {
+		return unit
+	}
+	if unit := normalizePublishedPriceUnit(tier.DisplayUnit); unit != "" {
+		return unit
+	}
 	if specG >= 1000 {
-		unitG = 1000
+		return "kg"
 	}
-	price := pricePerLb * unitG / 454.0
-	if unitG == 1000 {
-		return math.Round(price)
+	return "lb"
+}
+
+func normalizePublishedPriceUnit(unit string) string {
+	switch strings.TrimSpace(strings.ToLower(unit)) {
+	case "kg", "lb", "g100", "g227", "g250":
+		return strings.TrimSpace(strings.ToLower(unit))
+	default:
+		return ""
 	}
-	return price
+}
+
+func publishedPriceUnitG(unit string, specG int64) float64 {
+	switch normalizePublishedPriceUnit(unit) {
+	case "kg":
+		return 1000
+	case "lb":
+		return 454
+	case "g100":
+		return 100
+	case "g227":
+		return 227
+	case "g250":
+		return 250
+	default:
+		if specG > 0 {
+			return float64(specG)
+		}
+		return 454
+	}
+}
+
+func roundPublishedPrice(value float64) float64 {
+	return math.Round((value+1e-9)*100) / 100
 }
 
 func isMissingBeanListSchema(err error) bool {

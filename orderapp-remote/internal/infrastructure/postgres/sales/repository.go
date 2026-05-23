@@ -428,6 +428,16 @@ func wholesaleLineTotalFromDisplayUnit(unitPrice float64, specG int64, units int
 	return unitPrice * (float64(specG*units) / wholesaleDisplayUnitG(specG))
 }
 
+func wholesaleLineTotalFromPriceUnit(unitPrice float64, specG int64, units int64, unitG float64) float64 {
+	if unitPrice <= 0 || specG <= 0 || units <= 0 {
+		return 0
+	}
+	if unitG <= 0 {
+		unitG = wholesaleDisplayUnitG(specG)
+	}
+	return unitPrice * (float64(specG*units) / unitG)
+}
+
 func resolveAutoWeightTierPriceTx(ctx context.Context, tx pgx.Tx, schema string, productID int64, specG int64, units int64, qtyLb float64, smallBatchRule smallBatchPriceRule) (*int64, float64, float64, error) {
 	var tid *int64
 	var packagePrice, pricePerLb float64
@@ -552,6 +562,27 @@ func beanListPriceSourceJSON(listType string, usage orderbeans.Usage, productID 
 		"bean_list_publication_id": usage.PublicationID,
 		"bean_list_version_no":     usage.VersionNo,
 		"product_id":               productID,
+	}
+	buf, err := json.Marshal(source)
+	if err != nil {
+		return "{}"
+	}
+	return string(buf)
+}
+
+func beanListPriceSourceJSONWithPricing(listType string, usage orderbeans.Usage, productID int64, pricing orderbeans.PublishedPricing) string {
+	source := map[string]any{
+		"source":                   "bean_list_publication",
+		"list_type":                strings.TrimSpace(listType),
+		"bean_list_publication_id": usage.PublicationID,
+		"bean_list_version_no":     usage.VersionNo,
+		"product_id":               productID,
+	}
+	if strings.TrimSpace(pricing.PriceUnit) != "" {
+		source["price_unit"] = strings.TrimSpace(pricing.PriceUnit)
+	}
+	if pricing.UnitG > 0 {
+		source["price_unit_g"] = pricing.UnitG
 	}
 	buf, err := json.Marshal(source)
 	if err != nil {
@@ -1058,17 +1089,17 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 			if usage.PublicationID <= 0 {
 				return salesapp.SaveOrderResult{}, fmt.Errorf("缺少生豆豆单价格")
 			}
-			unitPrice, err := orderbeans.ResolvePublishedUnitPriceForPublication(ctx, tx, r.schema, cmd.CustomerID, *items[idx].productID, orderbeans.ListTypeGreen, usage.PublicationID, items[idx].specG, items[idx].units)
+			pricing, err := orderbeans.ResolvePublishedPricingForPublicationWithUnit(ctx, tx, r.schema, cmd.CustomerID, *items[idx].productID, orderbeans.ListTypeGreen, usage.PublicationID, items[idx].specG, items[idx].units, items[idx].salesUnit, items[idx].unitBagCount)
 			if err != nil {
 				return salesapp.SaveOrderResult{}, err
 			}
-			if unitPrice <= 0 {
+			if pricing.UnitPrice <= 0 {
 				return salesapp.SaveOrderResult{}, fmt.Errorf("缺少生豆豆单价格")
 			}
-			items[idx].unitPrice = unitPrice
-			items[idx].priceSourceJSON = beanListPriceSourceJSON(orderbeans.ListTypeGreen, usage, *items[idx].productID)
+			items[idx].unitPrice = pricing.UnitPrice
+			items[idx].priceSourceJSON = beanListPriceSourceJSONWithPricing(orderbeans.ListTypeGreen, usage, *items[idx].productID, pricing)
 			if items[idx].baseLineTotal <= 0 {
-				items[idx].baseLineTotal = wholesaleLineTotalFromDisplayUnit(unitPrice, items[idx].specG, items[idx].units)
+				items[idx].baseLineTotal = wholesaleLineTotalFromPriceUnit(pricing.UnitPrice, items[idx].specG, items[idx].units, pricing.UnitG)
 			}
 			applyItemDiscount(idx)
 			totalAmt += items[idx].baseLineTotal
@@ -1081,16 +1112,16 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 				return salesapp.SaveOrderResult{}, err
 			}
 			if usage.PublicationID > 0 {
-				unitPrice, err := orderbeans.ResolvePublishedUnitPriceForPublication(ctx, tx, r.schema, cmd.CustomerID, *items[idx].productID, orderbeans.ListTypeCommercial, usage.PublicationID, items[idx].specG, items[idx].units)
+				pricing, err := orderbeans.ResolvePublishedPricingForPublicationWithUnit(ctx, tx, r.schema, cmd.CustomerID, *items[idx].productID, orderbeans.ListTypeCommercial, usage.PublicationID, items[idx].specG, items[idx].units, items[idx].salesUnit, items[idx].unitBagCount)
 				if err != nil {
 					return salesapp.SaveOrderResult{}, err
 				}
-				if unitPrice > 0 {
+				if pricing.UnitPrice > 0 {
 					items[idx].tierID = nil
-					items[idx].unitPrice = unitPrice
-					items[idx].baseLineTotal = wholesaleLineTotalFromDisplayUnit(unitPrice, items[idx].specG, items[idx].units)
+					items[idx].unitPrice = pricing.UnitPrice
+					items[idx].baseLineTotal = wholesaleLineTotalFromPriceUnit(pricing.UnitPrice, items[idx].specG, items[idx].units, pricing.UnitG)
 					applyItemDiscount(idx)
-					items[idx].priceSourceJSON = beanListPriceSourceJSON(orderbeans.ListTypeCommercial, usage, *items[idx].productID)
+					items[idx].priceSourceJSON = beanListPriceSourceJSONWithPricing(orderbeans.ListTypeCommercial, usage, *items[idx].productID, pricing)
 					totalAmt += items[idx].baseLineTotal
 					itemDiscountAmt += items[idx].discountAmount
 					continue
@@ -1473,16 +1504,16 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 		itemListType := orderbeans.ListTypeForProductKind(it.productKind, retailOrder)
 		itemPublicationID := selectedOrderBeanListPublicationID(cmd, itemListType)
 		if !it.priceOverride && productID > 0 && it.unitPrice <= 0 && it.specG > 0 && it.units > 0 {
-			publishedPrice, err := orderbeans.ResolvePublishedUnitPriceForPublicationWithUnit(ctx, tx, r.schema, cmd.CustomerID, productID, itemListType, itemPublicationID, int64(it.specG), int64(it.units), it.salesUnit, it.unitBagCount)
+			publishedPricing, err := orderbeans.ResolvePublishedPricingForPublicationWithUnit(ctx, tx, r.schema, cmd.CustomerID, productID, itemListType, itemPublicationID, int64(it.specG), int64(it.units), it.salesUnit, it.unitBagCount)
 			if err != nil {
 				return salesapp.SaveOrderResult{}, err
 			}
-			if publishedPrice > 0 {
-				it.unitPrice = publishedPrice
+			if publishedPricing.UnitPrice > 0 {
+				it.unitPrice = publishedPricing.UnitPrice
 				if it.productKind == "drip_bag" {
-					it.baseLineTotal = publishedPrice * float64(it.units)
+					it.baseLineTotal = publishedPricing.UnitPrice * float64(it.units)
 				} else {
-					it.baseLineTotal = wholesaleLineTotalFromDisplayUnit(publishedPrice, it.specG, it.units)
+					it.baseLineTotal = wholesaleLineTotalFromPriceUnit(publishedPricing.UnitPrice, it.specG, it.units, publishedPricing.UnitG)
 				}
 				if it.lineTotal <= 0 {
 					it.lineTotal = it.baseLineTotal

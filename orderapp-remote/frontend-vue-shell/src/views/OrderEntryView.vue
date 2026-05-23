@@ -292,7 +292,8 @@
             <span>小计</span>
             <strong>{{ money(rowTotal(row)) }}</strong>
             <small>{{ row.manual_price ? '手动价' : autoPriceLabel(row) }}</small>
-            <small v-if="row.product_id">豆单版本：{{ row.bean_list_version_no || '未记录' }}</small>
+            <small v-if="row.tier_below_min" class="tier-warning">低于最低梯度，已按最低档 {{ row.tier_price_label || '价格' }} 计价</small>
+            <small v-if="row.product_id && row.bean_list_version_no">豆单版本：{{ row.bean_list_version_no }}</small>
           </div>
 
           <button class="secondary danger" type="button" @click="removeRow(idx)" :disabled="rows.length === 1">删除</button>
@@ -464,18 +465,18 @@ import {
   isOrderTierActive,
   lineTotal,
   normalizeSpecG,
+  orderRowPriceUnit,
   orderReceiptMethodOptions,
   orderTotalPreview,
   productKindBadgeClass,
   productKindLabel,
   requiresOrderPaymentMethod,
+  resolveWholesaleTierPrice,
   retailPackagePrice,
   retailSpecOptions,
   syncDripTierPrice,
-  syncWholesaleTierPrice,
   toInt,
   toNumber,
-  wholesalePriceUnit,
   wholesaleTierPriceRows,
   wholesaleSpecOptions,
 } from '../lib/order-entry'
@@ -574,6 +575,11 @@ function newRow() {
     bean_list_publication_id: 0,
     bean_list_version_no: '',
     unit_price: '',
+    price_unit: '',
+    price_unit_suffix: '',
+    price_unit_g: 0,
+    tier_price_label: '',
+    tier_below_min: false,
     manual_price: false,
     spec_mode: '',
     custom_spec_g: '',
@@ -1053,7 +1059,10 @@ function clearProduct(row) {
   row.product_name = ''
   row.product_kind = 'roasted_bean'
   row.tier_id = 'auto'
+  row.bean_list_publication_id = 0
+  row.bean_list_version_no = ''
   row.unit_price = ''
+  clearWholesalePriceMetadata(row)
   row.manual_price = false
   row.spec_mode = ''
   row.custom_spec_g = ''
@@ -1121,10 +1130,13 @@ function syncPrice(row, options = {}) {
   const product = productByID(row.product_id)
   if (!product) {
     row.unit_price = ''
+    clearWholesalePriceMetadata(row)
     return
   }
   if (isDripProduct(product)) {
     applyDripUnit(row, product)
+    clearWholesalePriceMetadata(row)
+    ensureRowBeanListVersion(row)
     if (row.manual_price && !options.force) return
     const price = syncDripTierPrice(product, row)
     row.tier_id = price.tierID
@@ -1136,13 +1148,40 @@ function syncPrice(row, options = {}) {
   if (retailOrder.value) {
     row.tier_id = 'auto'
     row.unit_price = String(retailPackagePrice(product, normalizeSpecG(row)) || '')
+    clearWholesalePriceMetadata(row)
+    ensureRowBeanListVersion(row)
     row.manual_price = false
     return
   }
-  const price = syncWholesaleTierPrice(product, row)
+  applyResolvedWholesalePrice(row, resolveWholesaleTierPrice(product, row))
+  row.manual_price = false
+}
+
+function clearWholesalePriceMetadata(row) {
+  row.price_unit = ''
+  row.price_unit_suffix = ''
+  row.price_unit_g = 0
+  row.tier_price_label = ''
+  row.tier_below_min = false
+}
+
+function applyResolvedWholesalePrice(row, price) {
   row.tier_id = price.tierID
   row.unit_price = price.unitPrice
-  row.manual_price = false
+  row.price_unit = price.priceUnit?.label || ''
+  row.price_unit_suffix = price.priceUnit?.suffix || ''
+  row.price_unit_g = Number(price.priceUnit?.unitG || 0)
+  row.tier_price_label = price.tierPriceLabel || ''
+  row.tier_below_min = Boolean(price.belowMinTier)
+  ensureRowBeanListVersion(row, price)
+}
+
+function ensureRowBeanListVersion(row, price = {}) {
+  const listType = orderBeanListTypeForProductKind(row.product_kind)
+  const selected = selectedBeanListVersionOptionByType(listType)
+  const publicationID = Number(price.beanListPublicationID || row.bean_list_publication_id || selected?.id || 0)
+  row.bean_list_publication_id = publicationID
+  row.bean_list_version_no = String(price.beanListVersionNo || row.bean_list_version_no || selected?.version_no || '').trim()
 }
 
 function applyDripUnit(row, product) {
@@ -1199,13 +1238,14 @@ function isTierActive(row, tier) {
 function autoPriceLabel(row) {
   if (isDripRow(row)) return row.sales_unit === 'box' ? '挂耳盒价' : '挂耳袋价'
   if (retailOrder.value) return '零售价'
+  if (row.tier_price_label) return `梯度 ${row.tier_price_label}`
   if (row.tier_id && row.tier_id !== 'auto' && row.tier_id !== 'manual') return `梯度 ${row.tier_id}`
   return '自动价'
 }
 
 function priceUnitLabel(row) {
   if (isDripRow(row)) return row.sales_unit === 'box' ? '元/盒' : '元/袋'
-  return wholesalePriceUnit(row).label
+  return orderRowPriceUnit(row).label
 }
 
 function rowTotal(row) {
@@ -1341,6 +1381,11 @@ function applyEditData(data) {
       bean_list_publication_id: Number(item.bean_list_publication_id || 0),
       bean_list_version_no: item.bean_list_version_no || '',
       unit_price: item.unit_price || '',
+      price_unit: '',
+      price_unit_suffix: '',
+      price_unit_g: 0,
+      tier_price_label: '',
+      tier_below_min: false,
       manual_price: item.tier_id === 'manual',
       spec_mode: productKind === 'drip_bag' ? '' : (shouldUseCustomSpec ? CUSTOM_SPEC_VALUE : spec),
       custom_spec_g: shouldUseCustomSpec ? spec : '',
@@ -1363,6 +1408,18 @@ function applyEditData(data) {
     if (!Number(form[field] || 0)) form[field] = publicationID
   }
   form.bean_list_publication_id = Number(form.commercial_bean_list_publication_id || form.bean_list_publication_id || 0)
+  for (const row of rows.value) {
+    if (!row.product_id || row.manual_price) {
+      ensureRowBeanListVersion(row)
+      continue
+    }
+    const product = productByID(row.product_id)
+    if (!product || isDripProduct(product) || retailOrder.value) {
+      ensureRowBeanListVersion(row)
+      continue
+    }
+    applyResolvedWholesalePrice(row, resolveWholesaleTierPrice(product, row))
+  }
 }
 
 async function load() {
@@ -1668,6 +1725,7 @@ button:disabled { cursor: not-allowed; opacity: 0.5; }
 .line-total { display: grid; gap: 3px; padding-bottom: 2px; }
 .line-total strong { font-size: 18px; }
 .line-total small { color: #667085; font-size: 12px; }
+.line-total small.tier-warning { color: #b42318; font-weight: 700; }
 .line-note { grid-column: 1 / -1; }
 .tier-prices { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 8px; padding-top: 2px; }
 .tier-price-chip { display: grid; grid-template-columns: auto auto; align-items: center; gap: 8px; min-height: 32px; border: 1px solid #d7dbe3; background: #fff; color: #344054; border-radius: 7px; padding: 6px 8px; font-size: 12px; }
