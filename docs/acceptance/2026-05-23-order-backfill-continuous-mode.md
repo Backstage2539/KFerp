@@ -16,5 +16,10 @@
 
 ## 结果
 
-- 待最终验证后更新。
-
+- 本地验证通过：`node --test src/lib/order-entry.test.js`，覆盖录单页补录模式开关、按钮文案、保存分支和字段重置逻辑。
+- 本地验证通过：`go test ./internal/interfaces/http/support -run TestDev348 -count=1`，覆盖 PR/DEV/UT/API/REV 种子、手册、验收文档入口。
+- 本地验证通过：`go test ./...`。
+- 本地验证通过：`node --test src/lib/*.test.js src/api/*.test.js`。
+- 本地验证通过：`npm run build`。
+- 本地验证通过：`git diff --check`。
+- 本地 Vite 开发服务可启动；因本地 Vite 未代理后端鉴权 API，页面级 smoke 放到合入 develop 后的 development stack 上验证。
