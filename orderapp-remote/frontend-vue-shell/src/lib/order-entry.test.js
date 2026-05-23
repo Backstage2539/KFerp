@@ -571,6 +571,42 @@ test('order entry exposes selected customer edit drawer beside new customer', ()
   }
 })
 
+test('order entry shows customer defaults instead of editable source and order type controls', () => {
+  const source = orderEntryViewSource()
+  const orderInfoBlock = source.slice(source.indexOf('<section class="panel order-fields"'), source.indexOf('<section class="panel" :class'))
+
+  assert.match(orderInfoBlock, /客户类型/)
+  assert.match(orderInfoBlock, /来源/)
+  assert.match(orderInfoBlock, /订单类型/)
+  assert.match(orderInfoBlock, /selectedCustomerProfileSummary/)
+  assert.doesNotMatch(orderInfoBlock, /v-model\.number="form\.source_id"/)
+  assert.doesNotMatch(orderInfoBlock, /v-model\.number="form\.order_type_id"/)
+})
+
+test('order entry customer drawer requires customer type source and order type fields', () => {
+  const source = orderEntryViewSource()
+  const drawerStart = source.indexOf('<div v-if="customerDrawerOpen"')
+  const drawerBlock = source.slice(drawerStart, source.indexOf('</aside>', drawerStart))
+
+  assert.match(drawerBlock, /客户类型/)
+  assert.match(drawerBlock, /v-model="customerForm\.customer_type"/)
+  assert.doesNotMatch(drawerBlock, /<option :value="0">未设置<\/option>/)
+  assert.match(source, /请选择客户类型/)
+  assert.match(source, /请选择客户来源/)
+  assert.match(source, /请选择客户订单类型/)
+})
+
+test('order entry moves bean list selection from order information to product details drawer', () => {
+  const source = orderEntryViewSource()
+  const orderInfoBlock = source.slice(source.indexOf('<section class="panel order-fields"'), source.indexOf('<section class="panel" :class'))
+  const lineSection = source.slice(source.indexOf('<section class="panel" :class'))
+
+  assert.doesNotMatch(orderInfoBlock, /showBeanListVersionPickerByType/)
+  assert.match(lineSection, /选择豆单/)
+  assert.match(source, /bean-list-drawer/)
+  assert.match(source, /openBeanListDrawer/)
+})
+
 test('order entry save validation scrolls to invalid fields and marks them until corrected', () => {
   const source = orderEntryViewSource()
 

@@ -205,6 +205,7 @@ type Option struct {
 type CustomerOption struct {
 	ID                      int64  `json:"id"`
 	Name                    string `json:"name"`
+	CustomerType            string `json:"customer_type"`
 	Contact                 string `json:"contact"`
 	Phone                   string `json:"phone"`
 	DefaultSourceID         int64  `json:"default_source_id"`
