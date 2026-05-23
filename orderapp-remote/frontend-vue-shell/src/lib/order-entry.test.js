@@ -89,6 +89,7 @@ test('retailSpecOptions includes custom sentinel for retail orders', () => {
 test('buildOrderPayload saves real custom spec grams', () => {
   const payload = buildOrderPayload({
     form: {
+      document_date: '2026-05-23',
       order_date: '2026-04-25',
       customer_id: 3,
       source_id: 1,
@@ -114,10 +115,21 @@ test('buildOrderPayload saves real custom spec grams', () => {
     ],
   })
 
+  assert.equal(payload.document_date, '2026-05-23')
   assert.equal(payload.product_id[0], '7')
   assert.equal(payload.spec[0], '300')
   assert.equal(payload.qty[0], '2')
   assert.equal(payload.item_name[0], '橘皮乌龙')
+})
+
+test('order entry exposes document date, order date, and order backfill labels', () => {
+  const source = orderEntryViewSource()
+
+  assert.match(source, /订单补录/)
+  assert.match(source, /单据日期/)
+  assert.match(source, /订单日期/)
+  assert.match(source, /form\.document_date/)
+  assert.match(source, /form\.order_date/)
 })
 
 test('buildOrderPayload carries per-item notes with order detail rows', () => {

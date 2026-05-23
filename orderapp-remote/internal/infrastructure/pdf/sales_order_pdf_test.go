@@ -49,6 +49,21 @@ func TestRenderSalesOrderPDF(t *testing.T) {
 	}
 }
 
+func TestSalesOrderHeaderMetaRowsShowsDocumentAndOrderDates(t *testing.T) {
+	rows := salesOrderHeaderMetaRows(salesdomain.SalesOrderSnapshot{
+		OrderNo:      "SO-20260523-0001",
+		DocumentDate: "2026-05-23",
+		OrderDate:    "2026-05-20",
+		CustomerName: "某某咖啡馆",
+	})
+	flat := strings.Join(append(rows[0], rows[1]...), "\n")
+	for _, want := range []string{"单据日期：2026-05-23", "订单日期：2026-05-20"} {
+		if !strings.Contains(flat, want) {
+			t.Fatalf("sales order meta rows missing %q: %#v", want, rows)
+		}
+	}
+}
+
 func TestRenderSalesOrderPDFWrapsUTF8PaymentTextWithoutPanic(t *testing.T) {
 	renderer := SalesOrderRenderer{}
 	b, err := renderer.Render(salesdomain.SalesOrderSnapshot{

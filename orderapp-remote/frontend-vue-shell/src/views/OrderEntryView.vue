@@ -29,6 +29,15 @@
     <section class="panel order-fields">
       <div class="section-title">订单信息</div>
       <div class="form-grid">
+        <div class="backfill-hint">
+          <strong>订单补录</strong>
+          <span>单据日期用于制单和订单编号，订单日期用于客户真实下单时间。</span>
+        </div>
+        <label>
+          <span>单据日期</span>
+          <input v-model.trim="form.document_date" type="date" />
+        </label>
+
         <label>
           <span>订单日期</span>
           <input v-model.trim="form.order_date" type="date" />
@@ -527,6 +536,7 @@ const effectiveCopyID = ref(0)
 
 const form = reactive({
   edit_id: 0,
+  document_date: '',
   order_date: '',
   customer_id: 0,
   source_id: 0,
@@ -1284,7 +1294,8 @@ function applyDefaultSelections(data) {
   if (!form.ship_status_id) {
     form.ship_status_id = defaultStatusID(shipStatuses.value, ['未发货']) || Number(shipStatuses.value[0]?.id || 0)
   }
-  form.order_date = data.today || form.order_date
+  form.document_date = form.document_date || data.today || ''
+  form.order_date = form.order_date || data.today || ''
 }
 
 function applyCustomerContextToNewOrder() {
@@ -1315,6 +1326,7 @@ function applyEditData(data) {
   }
   Object.assign(form, {
     edit_id: Number(data.edit_id || form.edit_id || 0),
+    document_date: data.document_date || data.order_date || form.document_date,
     order_date: data.order_date || form.order_date,
     customer_id: Number(data.customer_id || 0),
     source_id: Number(data.source_id || 0),
@@ -1652,6 +1664,9 @@ watch(
 .form-grid { display: grid; grid-template-columns: repeat(3, minmax(190px, 1fr)); gap: 14px; }
 .form-grid.compact { grid-template-columns: repeat(4, minmax(150px, 1fr)); }
 .full-span { grid-column: 1 / -1; }
+.backfill-hint { grid-column: 1 / -1; display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; min-height: 38px; border: 1px solid #cfe3d5; border-radius: 6px; padding: 8px 10px; background: #f3faf5; color: #24533a; }
+.backfill-hint strong { font-size: 14px; }
+.backfill-hint span { color: #42624e; font-size: 12px; }
 .conditional-panel { display: grid; grid-template-columns: repeat(3, minmax(180px, 1fr)); gap: 12px; align-items: end; padding: 12px; border: 1px solid #e4e7ec; border-radius: 8px; background: #fafbfc; }
 .order-hero, .panel, .form-grid, .conditional-panel, .line-item { min-width: 0; }
 .form-grid > *, .conditional-panel > *, .line-item > * { min-width: 0; }

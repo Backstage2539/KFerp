@@ -2065,6 +2065,51 @@ func TestOrderAPISaveCarriesItemNotes(t *testing.T) {
 	}
 }
 
+func TestOrderAPISaveCarriesDocumentAndOrderDates(t *testing.T) {
+	repo := &capturingSaveOrderRepo{}
+	e := echo.New()
+	e.Use(func(next echo.HandlerFunc) echo.HandlerFunc {
+		return func(c echo.Context) error {
+			c.Set("employee_id", int64(1))
+			c.Set("operator_employee", "测试员")
+			return next(c)
+		}
+	})
+	registerOrderAPI(e, salesapp.NewService(repo), nil)
+
+	payload := map[string]any{
+		"document_date":  "2026-05-23",
+		"order_date":     "2026-05-20",
+		"customer_id":    3,
+		"source_id":      1,
+		"order_type_id":  1,
+		"pay_status_id":  2,
+		"ship_status_id": 1,
+		"product_id":     []string{"7"},
+		"tier_id":        []string{"manual"},
+		"unit_price":     []string{"88"},
+		"item_name":      []string{"橘皮乌龙"},
+		"qty":            []string{"1"},
+		"unit":           []string{"件"},
+		"spec":           []string{"454"},
+	}
+	body, _ := json.Marshal(payload)
+	req := httptest.NewRequest(http.MethodPost, "/api/order", bytes.NewReader(body))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("POST /api/order status = %d, want 200, body=%s", rec.Code, rec.Body.String())
+	}
+	if got := repo.cmd.DocumentDate.Format("2006-01-02"); got != "2026-05-23" {
+		t.Fatalf("document date = %s, want 2026-05-23", got)
+	}
+	if got := repo.cmd.OrderDate.Format("2006-01-02"); got != "2026-05-20" {
+		t.Fatalf("order date = %s, want 2026-05-20", got)
+	}
+}
+
 func TestOrderAPISaveCarriesDripBagMetadata(t *testing.T) {
 	repo := &capturingSaveOrderRepo{}
 	e := echo.New()
@@ -4173,6 +4218,7 @@ CREATE TABLE %s.customer_sku_public_usage (
 );
 CREATE TABLE %s.orders (
 	id BIGSERIAL PRIMARY KEY,
+	document_date DATE,
 	order_date DATE,
 	customer_id BIGINT,
 	source_id BIGINT,

@@ -81,6 +81,7 @@ CREATE TABLE IF NOT EXISTS %[1]s.product_price_tiers (
 CREATE TABLE IF NOT EXISTS %[1]s.orders (
 	id BIGSERIAL PRIMARY KEY,
 	order_no TEXT NOT NULL DEFAULT '',
+	document_date DATE,
 	order_date DATE,
 	customer_id BIGINT,
 	source_id BIGINT,
@@ -182,6 +183,8 @@ func ensureCoreColumns(ctx context.Context, pool *pgxpool.Pool, schema string) e
 		`CREATE INDEX IF NOT EXISTS products_base_product_idx ON %[1]s.products(base_product_id)`,
 		`ALTER TABLE %[1]s.product_price_tiers ADD COLUMN IF NOT EXISTS active BOOLEAN NOT NULL DEFAULT true`,
 		`ALTER TABLE %[1]s.orders ADD COLUMN IF NOT EXISTS order_no TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE %[1]s.orders ADD COLUMN IF NOT EXISTS document_date DATE`,
+		`UPDATE %[1]s.orders SET document_date=order_date WHERE document_date IS NULL`,
 		`ALTER TABLE %[1]s.orders ADD COLUMN IF NOT EXISTS source_id BIGINT`,
 		`ALTER TABLE %[1]s.orders ADD COLUMN IF NOT EXISTS payment_method TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE %[1]s.orders ADD COLUMN IF NOT EXISTS ship_method TEXT NOT NULL DEFAULT ''`,
