@@ -33,13 +33,19 @@ func (r Repository) List(ctx context.Context) ([]bomapp.ListItem, error) {
 			COALESCE(NULLIF(p.product_kind,''),'roasted_bean'),
 			COALESCE(b.yield_rate, 0.8),
 			COALESCE(NULLIF(b.status,''), CASE WHEN b.product_id IS NULL THEN 'missing' ELSE 'active' END),
-			COALESCE((SELECT COUNT(*) FROM %s.product_bom_items bi WHERE bi.product_id = p.id), 0),
+			COALESCE((SELECT COUNT(*) FROM %[1]s.product_bom_items bi WHERE bi.product_id = p.id), 0),
+			COALESCE((
+				SELECT COUNT(*)
+				FROM %[1]s.order_items oi
+				JOIN %[1]s.orders o ON o.id=oi.order_id
+				WHERE oi.product_id=p.id AND COALESCE(o.is_void,false)=false
+			),0) AS order_usage_count,
 			COALESCE(to_char(b.updated_at,'YYYY-MM-DD HH24:MI'), '-')
-		FROM %s.products p
-		LEFT JOIN %s.product_bom b ON b.product_id = p.id
+		FROM %[1]s.products p
+		LEFT JOIN %[1]s.product_bom b ON b.product_id = p.id
 		WHERE p.active = true
 		ORDER BY p.name
-	`, r.schema, r.schema, r.schema)
+	`, r.schema)
 	rows, err := r.pool.Query(ctx, q)
 	if err != nil {
 		return nil, err
@@ -50,7 +56,7 @@ func (r Repository) List(ctx context.Context) ([]bomapp.ListItem, error) {
 	for rows.Next() {
 		var item bomapp.ListItem
 		var fallback float64
-		if err := rows.Scan(&item.ProductID, &item.CustomerID, &item.Product, &item.RoastLevel, &item.ProductKind, &fallback, &item.Status, &item.ItemCount, &item.UpdatedAt); err != nil {
+		if err := rows.Scan(&item.ProductID, &item.CustomerID, &item.Product, &item.RoastLevel, &item.ProductKind, &fallback, &item.Status, &item.ItemCount, &item.OrderUsageCount, &item.UpdatedAt); err != nil {
 			return nil, err
 		}
 		item.YieldRate = catalogdomain.ResolveYieldRate(item.RoastLevel, fallback)
@@ -90,7 +96,14 @@ func (r Repository) Detail(ctx context.Context, productID int64) (bomapp.Detail,
 }
 
 func (r Repository) Products(ctx context.Context) ([]bomapp.Option, error) {
-	rows, err := r.pool.Query(ctx, "SELECT p.id, p.name, COALESCE(p.customer_id,0), COALESCE(p.roast_level,''), COALESCE(NULLIF(p.product_kind,''),'roasted_bean'), COALESCE(p.drip_bag_grams,10)::float8, COALESCE(p.drip_box_bag_count,10) FROM "+r.schema+".products p WHERE p.active=true ORDER BY p.name")
+	rows, err := r.pool.Query(ctx, fmt.Sprintf(`SELECT p.id, p.name, COALESCE(p.customer_id,0), COALESCE(p.roast_level,''), COALESCE(NULLIF(p.product_kind,''),'roasted_bean'), COALESCE(p.drip_bag_grams,10)::float8, COALESCE(p.drip_box_bag_count,10),
+		COALESCE((
+			SELECT COUNT(*)
+			FROM %[1]s.order_items oi
+			JOIN %[1]s.orders o ON o.id=oi.order_id
+			WHERE oi.product_id=p.id AND COALESCE(o.is_void,false)=false
+		),0) AS order_usage_count
+		FROM %[1]s.products p WHERE p.active=true ORDER BY p.name`, r.schema))
 	if err != nil {
 		return nil, err
 	}
@@ -99,7 +112,7 @@ func (r Repository) Products(ctx context.Context) ([]bomapp.Option, error) {
 	out := make([]bomapp.Option, 0)
 	for rows.Next() {
 		var opt bomapp.Option
-		if err := rows.Scan(&opt.ID, &opt.Name, &opt.CustomerID, &opt.RoastLevel, &opt.ProductKind, &opt.DripBagGrams, &opt.DripBoxBagCount); err != nil {
+		if err := rows.Scan(&opt.ID, &opt.Name, &opt.CustomerID, &opt.RoastLevel, &opt.ProductKind, &opt.DripBagGrams, &opt.DripBoxBagCount, &opt.OrderUsageCount); err != nil {
 			return nil, err
 		}
 		out = append(out, opt)

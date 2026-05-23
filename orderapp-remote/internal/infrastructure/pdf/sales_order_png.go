@@ -208,7 +208,7 @@ func (c *salesOrderPNGCanvas) totals(left, right, y int, snapshot salesdomain.Sa
 			continue
 		}
 		text := row.Label + "： " + row.Value
-		if row.Label == "订单备注" {
+		if salesOrderFinancialRowWrapLeft(row) {
 			y = c.wrappedText(left+8, y+8, right-left-16, size, 32, col, []string{text})
 			continue
 		}

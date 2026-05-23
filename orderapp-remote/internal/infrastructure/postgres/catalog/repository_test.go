@@ -91,6 +91,31 @@ func TestProductRemarkPersistsOnProducts(t *testing.T) {
 	}
 }
 
+func TestProductNameAndOrderUsageAreExposedForCustomerSkuSorting(t *testing.T) {
+	repository, err := os.ReadFile("repository.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	queries, err := os.ReadFile("../catalog_queries.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		name string
+		src  string
+		want string
+	}{
+		{name: "product update writes name", src: string(repository), want: "name=COALESCE(NULLIF($16,''), name)"},
+		{name: "audit metadata includes name", src: string(repository), want: `"name":`},
+		{name: "product fetch counts order items", src: string(queries), want: "order_usage_count"},
+		{name: "product fetch joins order items", src: string(queries), want: "FROM %[1]s.order_items oi"},
+	} {
+		if !strings.Contains(tc.src, tc.want) {
+			t.Fatalf("catalog product name/order usage missing %s marker %q", tc.name, tc.want)
+		}
+	}
+}
+
 func TestProductKindSchemaRepairsPartiallyCreatedColumns(t *testing.T) {
 	schema, err := os.ReadFile("schema.go")
 	if err != nil {

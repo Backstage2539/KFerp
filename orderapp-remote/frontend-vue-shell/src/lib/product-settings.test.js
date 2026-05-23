@@ -22,6 +22,7 @@ import {
   primaryCategoryOptions,
   roastedBomProductOptions,
   secondaryCategoryOptions,
+  sortRowsForCustomerSkuPriority,
   skuTypeLabel,
   skuTypeOptions,
 } from './product-settings.js'
@@ -137,6 +138,31 @@ test('product basics payload carries customer SKU margin override', () => {
   assert.equal(payload.yield_rate, 0.8)
   assert.equal(payload.margin_rate_override, 0.33)
   assert.equal(payload.remark, '客户定制烘焙')
+})
+
+test('product basics payload carries editable SKU name', () => {
+  const payload = buildProductBasicsPayload({
+    id: 17,
+    name: '  芬纳定制-红酒日晒-中深烘  ',
+    customer_id: 74,
+    product_kind: 'roasted',
+    roast_level: '中深烘',
+    yield_percent: 81.5,
+    remark: '客户定制',
+  }, null)
+
+  assert.equal(payload.name, '芬纳定制-红酒日晒-中深烘')
+})
+
+test('customer SKU rows sort customer-owned products before frequent public products', () => {
+  const sorted = sortRowsForCustomerSkuPriority([
+    { id: 1, name: '公共低频', customer_id: 0, order_usage_count: 1 },
+    { id: 2, name: '客户低频', customer_id: 74, order_usage_count: 1 },
+    { id: 3, name: '公共高频', customer_id: 0, order_usage_count: 10 },
+    { id: 4, name: '客户高频', customer_id: 74, order_usage_count: 8 },
+  ], 74)
+
+  assert.deepEqual(sorted.map((row) => row.id), [4, 2, 3, 1])
 })
 
 test('customer custom SKU payload supports green bean and drip bag product settings', () => {

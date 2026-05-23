@@ -493,7 +493,13 @@
                   <td>{{ categoryLabel(row, 1) }}</td>
                   <td>{{ categoryLabel(row, 2) }}</td>
                   <td>{{ row.number || '' }}</td>
-                  <td>{{ row.name }}</td>
+                  <td>
+                    <input
+                      class="sku-name-input"
+                      v-model.trim="row.name"
+                      :disabled="!canEditSkuRow(row)"
+                      @change="saveProductBasics(row, 'SKU名称已保存')" />
+                  </td>
                   <td><span class="kind-badge" :class="productKindBadgeClass(row)">{{ productKindLabel(row) }}</span></td>
                   <td>{{ productOwnerLabel(row) }}</td>
                   <td>{{ skuTypeLabel(row.custom_type) }}</td>
@@ -648,6 +654,7 @@ import {
   primaryCategoryOptions,
   roastedBomProductOptions,
   secondaryCategoryOptions,
+  sortRowsForCustomerSkuPriority,
   skuTypeLabel,
   skuTypeOptions,
 } from '../lib/product-settings'
@@ -770,11 +777,12 @@ const uncategorizedProducts = computed(() => products.value
   .sort((a, b) => ownerLabel(a).localeCompare(ownerLabel(b)) || a.name.localeCompare(b.name)))
 const baseProducts = computed(() => products.value.filter((product) => Number(product.customer_id || 0) === 0 && productVisibility(product) === 'public'))
 const customBaseProducts = computed(() => baseProducts.value.filter((product) => normalizedProductKind(product) === customForm.value.product_kind))
-const publicSkuRows = computed(() => productRows.value.filter((product) => Number(product.customer_id || 0) === 0))
+const publicSkuRows = computed(() => sortRowsForCustomerSkuPriority(productRows.value.filter((product) => Number(product.customer_id || 0) === 0), 0))
 const customerSkuCustomers = computed(() => customerSkuCustomerOptions(customers.value))
-const customerSkuRows = computed(() => productRows.value
-  .filter((product) => selectedCustomerSkuCustomerID.value && skuContextProductFilter(product))
-  .sort((a, b) => ownerLabel(a).localeCompare(ownerLabel(b)) || a.name.localeCompare(b.name)))
+const customerSkuRows = computed(() => sortRowsForCustomerSkuPriority(
+  productRows.value.filter((product) => selectedCustomerSkuCustomerID.value && skuContextProductFilter(product)),
+  selectedCustomerSkuCustomerID.value,
+))
 const unfilteredDisplaySkuRows = computed(() => selectedCustomerSkuCustomerID.value ? customerSkuRows.value : publicSkuRows.value)
 const filteredSkuRows = computed(() => filterSkuRows(unfilteredDisplaySkuRows.value, skuFilters.value))
 const displaySkuRows = computed(() => paginatedSkuRows(unfilteredDisplaySkuRows.value, skuFilters.value, {
@@ -2111,6 +2119,7 @@ th { background: #fbfaf8; position: sticky; top: 0; }
 .kind-green { color: #12613a; background: #e8f7ee; border: 1px solid #8bd4a6; }
 .kind-drip { color: #1f4b7a; background: #eaf3ff; border: 1px solid #9bc4ef; }
 .margin-input { width: 150px; }
+.sku-name-input { min-width: 240px; }
 .remark-input { width: 180px; min-height: 46px; resize: vertical; }
 .status-pill { display: inline-flex; align-items: center; min-height: 24px; border: 1px solid #cfd8cf; border-radius: 999px; padding: 2px 8px; color: #27602e; background: #f2fbf2; white-space: nowrap; }
 .status-pill.inactive { border-color: #e1b6b6; color: #8a1f1f; background: #fff0f0; }

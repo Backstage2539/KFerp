@@ -428,6 +428,8 @@ export function buildProductBasicsPayload(row = {}, marginRateOverride = null) {
     product_kind: kind,
     remark: String(row.remark || '').trim(),
   }
+  const name = String(row.name || '').trim()
+  if (name) payload.name = name
   if (kind === 'green_bean') {
     payload.green_bean_type = normalizedGreenBeanType(row.green_bean_type)
     payload.green_bean_bom_product_id = Number(row.green_bean_bom_product_id || 0)
@@ -441,6 +443,34 @@ export function buildProductBasicsPayload(row = {}, marginRateOverride = null) {
   }
   payload.margin_rate_override = marginRateOverride
   return payload
+}
+
+function rowCustomerID(row = {}) {
+  return Number(row.customer_id ?? row.customerID ?? 0)
+}
+
+function rowOrderUsageCount(row = {}) {
+  const raw = row.order_usage_count ?? row.orderUsageCount ?? row.order_count ?? row.orderCount ?? 0
+  const value = Number(raw || 0)
+  return Number.isFinite(value) ? value : 0
+}
+
+export function sortRowsForCustomerSkuPriority(rows = [], customerID = 0) {
+  const selectedCustomerID = Number(customerID || 0)
+  return [...rows].sort((a, b) => {
+    if (selectedCustomerID > 0) {
+      const aOwned = rowCustomerID(a) === selectedCustomerID ? 0 : 1
+      const bOwned = rowCustomerID(b) === selectedCustomerID ? 0 : 1
+      if (aOwned !== bOwned) return aOwned - bOwned
+    }
+    const usageDiff = rowOrderUsageCount(b) - rowOrderUsageCount(a)
+    if (usageDiff !== 0) return usageDiff
+    const positionDiff = Number(a.product_category_position || 0) - Number(b.product_category_position || 0)
+    if (positionDiff !== 0) return positionDiff
+    const numberDiff = Number(a.number || 0) - Number(b.number || 0)
+    if (numberDiff !== 0) return numberDiff
+    return String(a.name || '').localeCompare(String(b.name || ''))
+  })
 }
 
 function uniqueSorted(values = []) {

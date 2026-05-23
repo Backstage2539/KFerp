@@ -7,8 +7,9 @@
       </div>
       <div class="hero-actions">
         <div class="total-pill">
-          <span>商品合计</span>
-          <strong>{{ money(itemsTotal) }}</strong>
+          <span>订单合计</span>
+          <strong>{{ money(orderTotalPreviewValue.grandTotal) }}</strong>
+          <small>{{ orderTotalHintText }}</small>
         </div>
         <button v-if="props.embedded" class="secondary" type="button" @click="emit('close')">关闭</button>
         <button class="secondary" type="button" @click="load" :disabled="loading">刷新</button>
@@ -164,13 +165,20 @@
           </label>
           <div class="voucher-field" :class="{ 'field-invalid': hasFieldError('payment_voucher_asset_id') }" data-error-field="payment_voucher_asset_id">
             <span>收款凭证</span>
-            <label class="file-upload-control">
+            <div v-if="paymentVoucher && paymentVoucherCollapsed" class="voucher-collapsed">
+              <button class="voucher-summary" type="button" @click="openPaymentVoucherPreview">
+                <strong>{{ paymentVoucher.filename || '已上传凭证' }}</strong>
+                <small>点击查看大图</small>
+              </button>
+              <button class="text-button" type="button" @click="paymentVoucherCollapsed = false">更换凭证</button>
+            </div>
+            <label v-else class="file-upload-control">
               <input type="file" accept="image/*,.pdf" @change="handlePaymentVoucherFile" />
               <span class="file-button">选择文件</span>
               <span class="file-name">{{ paymentVoucherFile?.name || paymentVoucher?.filename || '未选择文件' }}</span>
             </label>
             <small v-if="uploadingVoucher">上传中...</small>
-            <small v-else-if="paymentVoucher">{{ paymentVoucher.filename || '已上传凭证' }}</small>
+            <small v-else-if="paymentVoucher && !paymentVoucherCollapsed">{{ paymentVoucher.filename || '已上传凭证' }}</small>
           </div>
         </div>
       </div>
@@ -333,8 +341,9 @@
       </div>
       <div class="save-row">
         <div class="grand-line">
-          <span>商品合计</span>
-          <strong>{{ money(itemsTotal) }}</strong>
+          <span>订单合计</span>
+          <strong>{{ money(orderTotalPreviewValue.grandTotal) }}</strong>
+          <small>{{ orderTotalHintText }}</small>
         </div>
         <button class="primary" type="button" @click="save" :disabled="saving">保存订单</button>
       </div>
@@ -424,6 +433,18 @@
         </div>
       </aside>
     </div>
+
+    <div v-if="paymentVoucherPreviewOpen" class="voucher-preview-overlay" @click.self="paymentVoucherPreviewOpen = false">
+      <div class="voucher-preview-dialog">
+        <div class="drawer-head">
+          <h3>{{ paymentVoucher?.filename || '收款凭证' }}</h3>
+          <button class="secondary" type="button" @click="paymentVoucherPreviewOpen = false">关闭</button>
+        </div>
+        <img v-if="paymentVoucherImageURL && paymentVoucherIsImage" :src="paymentVoucherImageURL" alt="收款凭证" />
+        <iframe v-else-if="paymentVoucherImageURL" :src="paymentVoucherImageURL" title="收款凭证"></iframe>
+        <p v-else class="empty">暂无凭证预览</p>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -444,6 +465,7 @@ import {
   lineTotal,
   normalizeSpecG,
   orderReceiptMethodOptions,
+  orderTotalPreview,
   productKindBadgeClass,
   productKindLabel,
   requiresOrderPaymentMethod,
@@ -493,6 +515,8 @@ const rows = ref([newRow()])
 const paymentVoucher = ref(null)
 const paymentVoucherFile = ref(null)
 const uploadingVoucher = ref(false)
+const paymentVoucherCollapsed = ref(false)
+const paymentVoucherPreviewOpen = ref(false)
 const customerQuery = ref('')
 const customerOpen = ref(false)
 const customerDrawerOpen = ref(false)
@@ -636,6 +660,13 @@ const retailOrder = computed(() => {
 })
 
 const itemsTotal = computed(() => rows.value.reduce((sum, row) => sum + rowTotal(row), 0))
+const orderTotalPreviewValue = computed(() => orderTotalPreview({
+  itemsTotal: itemsTotal.value,
+  shippingAmount: form.shipping_amount,
+  discountAmount: form.discount_amount,
+  roundToInt: form.round_to_int,
+}))
+const orderTotalHintText = computed(() => `货款 ${money(orderTotalPreviewValue.value.goodsAmount)} · 物流 ${money(orderTotalPreviewValue.value.logisticsAmount)}`)
 const filteredCustomers = computed(() => filterOptions(customers.value, customerQuery.value).slice(0, 20))
 const paymentMethodRequired = computed(() => requiresOrderPaymentMethod(form, payStatuses.value))
 const selectedPayStatusName = computed(() => optionName(payStatuses.value, form.pay_status_id))
@@ -781,9 +812,24 @@ async function uploadPaymentVoucher() {
     const data = await apiSend('/api/order/payment-vouchers', { body })
     paymentVoucher.value = data.asset || null
     form.payment_voucher_asset_id = Number(data.asset?.id || 0)
+    paymentVoucherCollapsed.value = Boolean(paymentVoucher.value)
   } finally {
     uploadingVoucher.value = false
   }
+}
+
+const paymentVoucherImageURL = computed(() => {
+  const voucher = paymentVoucher.value || {}
+  if (voucher.url) return voucher.url
+  if (voucher.object_key) return `/assets/${voucher.object_key}`
+  return ''
+})
+
+const paymentVoucherIsImage = computed(() => String(paymentVoucher.value?.content_type || '').startsWith('image/'))
+
+function openPaymentVoucherPreview() {
+  if (!paymentVoucher.value) return
+  paymentVoucherPreviewOpen.value = true
 }
 
 function chooseCustomer(item) {
@@ -1268,6 +1314,7 @@ function applyEditData(data) {
     outsource_other_fee: data.outsource_other_fee || '',
   })
   paymentVoucher.value = data.payment_voucher || null
+  paymentVoucherCollapsed.value = Boolean(paymentVoucher.value)
   customerQuery.value = optionName(customers.value, form.customer_id)
   rows.value = editItems.map((item) => {
     const spec = String(item.spec || '').replace(/g$/i, '')
@@ -1553,6 +1600,7 @@ watch(
 .total-pill { display: grid; gap: 2px; min-width: 132px; padding: 8px 12px; border: 1px solid #e5e7eb; border-radius: 8px; background: #fafafa; }
 .total-pill span, .grand-line span, label span, .line-total span, .combo-option small { color: #667085; font-size: 12px; }
 .total-pill strong, .grand-line strong { font-size: 20px; }
+.total-pill small, .grand-line small { color: #667085; font-size: 12px; }
 .panel { padding: 16px; }
 .form-grid { display: grid; grid-template-columns: repeat(3, minmax(190px, 1fr)); gap: 14px; }
 .form-grid.compact { grid-template-columns: repeat(4, minmax(150px, 1fr)); }
@@ -1564,6 +1612,9 @@ watch(
 .voucher-field { position: relative; display: flex; flex-direction: column; gap: 6px; min-width: 0; }
 .voucher-field > span { color: #667085; font-size: 12px; }
 .voucher-field small { color: #667085; font-size: 12px; }
+.voucher-collapsed { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; align-items: center; }
+.voucher-summary { min-width: 0; display: grid; gap: 2px; text-align: left; border: 1px solid #d7dbe3; background: #fff; color: #111827; }
+.voucher-summary strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .file-upload-control { position: relative; width: 100%; min-height: 38px; display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 8px; border: 1px solid #d7dbe3; border-radius: 6px; padding: 6px 8px; background: #fff; cursor: pointer; }
 .file-upload-control input { position: absolute; width: 1px; height: 1px; overflow: hidden; opacity: 0; pointer-events: none; }
 .file-button { min-height: 26px; display: inline-flex; align-items: center; justify-content: center; border-radius: 999px; padding: 2px 12px; background: #eef0f3; color: #111827; font-size: 13px; white-space: nowrap; }
@@ -1637,6 +1688,10 @@ button:disabled { cursor: not-allowed; opacity: 0.5; }
 .wide-field textarea, .drawer-grid input, .drawer-grid select { width: 100%; }
 .parse-button { margin-top: 8px; }
 .drawer-actions { display: flex; justify-content: flex-end; margin-top: 14px; }
+.voucher-preview-overlay { position: fixed; inset: 0; z-index: 90; display: grid; place-items: center; padding: 20px; background: rgba(15, 23, 42, 0.42); }
+.voucher-preview-dialog { width: min(920px, 100%); max-height: min(86vh, 860px); display: grid; gap: 12px; overflow: auto; border-radius: 10px; border: 1px solid #d7dbe3; background: #fff; padding: 16px; box-shadow: 0 24px 80px rgba(15, 23, 42, 0.28); }
+.voucher-preview-dialog img, .voucher-preview-dialog iframe { width: 100%; max-height: 72vh; border: 0; object-fit: contain; background: #f8fafc; }
+.voucher-preview-dialog iframe { min-height: 70vh; }
 
 @media (max-width: 1100px) {
   .line-item { grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -1647,9 +1702,11 @@ button:disabled { cursor: not-allowed; opacity: 0.5; }
   .order-hero, .section-row, .save-row { align-items: stretch; flex-direction: column; }
   .form-grid, .form-grid.compact, .line-item, .conditional-panel { grid-template-columns: 1fr; }
   .conditional-panel { align-items: stretch; padding: 12px; }
-  .global-error-toast { --notice-stack-offset: var(--kferp-notice-stack-space, 0px); top: calc(max(12px, env(safe-area-inset-top)) + var(--notice-stack-offset)); left: max(12px, env(safe-area-inset-left)); right: max(12px, env(safe-area-inset-right)); width: auto; max-width: none; }
-  .hero-actions { width: 100%; }
-  .file-upload-control { grid-template-columns: auto minmax(0, 1fr); }
+      .global-error-toast { --notice-stack-offset: var(--kferp-notice-stack-space, 0px); top: calc(max(12px, env(safe-area-inset-top)) + var(--notice-stack-offset)); left: max(12px, env(safe-area-inset-left)); right: max(12px, env(safe-area-inset-right)); width: auto; max-width: none; }
+      .hero-actions { width: 100%; }
+      .voucher-collapsed { grid-template-columns: 1fr; }
+      .voucher-preview-overlay { align-items: start; padding: max(12px, env(safe-area-inset-top)) max(12px, env(safe-area-inset-right)) max(12px, env(safe-area-inset-bottom)) max(12px, env(safe-area-inset-left)); }
+      .file-upload-control { grid-template-columns: auto minmax(0, 1fr); }
   .tier-price-chip { max-width: 100%; grid-template-columns: minmax(0, 1fr) auto; }
   .tier-price-chip span { overflow-wrap: anywhere; }
 }
