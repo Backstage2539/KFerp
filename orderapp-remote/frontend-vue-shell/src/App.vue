@@ -29,7 +29,7 @@
       </nav>
     </aside>
 
-    <main ref="content" class="content">
+    <main ref="content" class="content" :style="notificationStackStyle">
       <header class="top" :class="{ compact: !showTitle }">
         <button class="toggle" @click="toggleMenu">{{ toggleLabel }}</button>
         <div v-if="showTitle" class="title">{{ title }}</div>
@@ -61,12 +61,23 @@
         <div v-if="actorName" class="actor">{{ actorName }}</div>
         <button v-if="currentActor" class="logout" type="button" @click="logout">退出</button>
       </header>
-      <div v-if="activeNotification" class="global-notification" :class="notificationToneClass(activeNotification)">
-        <button class="notification-main" type="button" @click="openNotification(activeNotification)">
-          <strong>{{ activeNotification.title }}</strong>
-          <span>{{ activeNotification.body || '点击查看订单' }}</span>
-        </button>
-        <button class="notification-close" type="button" aria-label="关闭通知" @click="dismissNotification(activeNotification)">x</button>
+      <div
+        v-if="visibleNotifications.length"
+        ref="notificationStack"
+        class="global-notification-stack"
+        :class="{ layered: visibleNotifications.length > 1 }">
+        <div
+          v-for="(item, idx) in visibleNotifications"
+          :key="item.id || idx"
+          class="global-notification"
+          :class="notificationToneClass(item)"
+          :style="{ '--stack-index': idx }">
+          <button class="notification-main" type="button" @click="openNotification(item)">
+            <strong>{{ item.title }}</strong>
+            <span>{{ item.body || '点击查看订单' }}</span>
+          </button>
+          <button class="notification-close" type="button" aria-label="关闭通知" @click="dismissNotification(item)">x</button>
+        </div>
       </div>
       <div v-if="authLoading" class="status">加载中</div>
       <div v-else-if="authError" class="status">{{ authError }}</div>
@@ -175,6 +186,7 @@ import {
 
 const collapsed = ref(false)
 const content = ref(null)
+const notificationStack = ref(null)
 const viewAliases = { userPermissions: 'employees' }
 function normalizeViewKey(key) {
   return viewAliases[key] || key
@@ -205,6 +217,7 @@ const currentActor = ref(null)
 const customerAccountContext = ref(null)
 const uiSettings = ref({ hide_customer_account_fulfillment: true })
 const notifications = ref([])
+const notificationStackSpace = ref(0)
 const workspaceCustomersRefreshEventName = WORKSPACE_CUSTOMERS_REFRESH_EVENT
 let notificationTimer = 0
 let stopTableAutoPagination = null
@@ -439,6 +452,18 @@ function handleResize() {
   if (!isMobile.value) {
     mobileOpen.value = false
   }
+  syncNotificationStackSpace()
+}
+
+function syncNotificationStackSpace() {
+  nextTick(() => {
+    if (!isMobile.value || !visibleNotifications.value.length || !notificationStack.value) {
+      notificationStackSpace.value = 0
+      return
+    }
+    const bottom = Number(notificationStack.value.getBoundingClientRect().bottom || 0)
+    notificationStackSpace.value = bottom > 0 ? Math.ceil(bottom + 10) : 0
+  })
 }
 
 function handleTouchStart(event) {
@@ -718,7 +743,12 @@ const title = computed(() => menuMap[currentKey.value]?.title || '')
 const actorName = computed(() => currentActor.value?.name || '')
 const isCurrentAllowed = computed(() => menuMap[currentKey.value] && isViewAllowed(currentKey.value, allowedViewKeys.value))
 const currentInternalView = computed(() => internalViews[currentKey.value] || OrdersView)
-const activeNotification = computed(() => notifications.value[0] || null)
+const visibleNotifications = computed(() => notifications.value.slice(0, 3))
+const notificationStackStyle = computed(() => ({
+  '--kferp-notice-stack-space': isMobile.value && visibleNotifications.value.length
+    ? `${notificationStackSpace.value}px`
+    : '0px',
+}))
 const workspaceCustomerOption = computed(() => (
   workspaceCustomerOptions.value.find((item) => Number(item.id) === Number(workspaceCustomerId.value)) || null
 ))
@@ -739,6 +769,8 @@ watch(workspaceCustomerId, (next) => {
   currentViewParams.value = workspaceViewParams(currentViewParams.value, workspaceContext())
   applyKeyToUrl(currentKey.value, currentViewParams.value)
 })
+
+watch([visibleNotifications, isMobile], syncNotificationStackSpace, { flush: 'post' })
 </script>
 
 <style scoped>
@@ -819,18 +851,27 @@ watch(workspaceCustomerId, (next) => {
 .status { padding: 28px; color: #666; }
 .internal-view { min-height: calc(100vh - 56px); background: #fff; }
 .overlay { position: fixed; inset: 0; background: rgba(0,0,0,.25); z-index: 25; }
+.global-notification-stack {
+  display: grid;
+  gap: 8px;
+  padding: 8px 12px;
+  border-bottom: 1px solid #eef0f5;
+  background: #fff;
+}
 .global-notification {
   display: flex;
   align-items: stretch;
   gap: 8px;
-  padding: 8px 12px;
-  border-bottom: 1px solid #d7eadf;
+  padding: 8px 10px;
+  border: 1px solid #d7eadf;
+  border-radius: 8px;
   background: #edf9f1;
   color: #11442b;
+  box-shadow: 0 8px 20px rgba(15, 23, 42, 0.08);
 }
-.global-notification.tone-warning { background: #fff7df; border-bottom-color: #ead99a; color: #684800; }
-.global-notification.tone-danger { background: #fff0f0; border-bottom-color: #efb9b9; color: #8a1f1f; }
-.global-notification.tone-info { background: #eef6ff; border-bottom-color: #cfe0f5; color: #143b68; }
+.global-notification.tone-warning { background: #fff7df; border-color: #ead99a; color: #684800; }
+.global-notification.tone-danger { background: #fff0f0; border-color: #efb9b9; color: #8a1f1f; }
+.global-notification.tone-info { background: #eef6ff; border-color: #cfe0f5; color: #143b68; }
 .notification-main {
   flex: 1;
   min-height: 38px;
@@ -904,5 +945,35 @@ watch(workspaceCustomerId, (next) => {
   .sidebar.mobile.open { transform: translateX(0); }
   .content { margin-left: 0 !important; }
   .top { padding: 10px; }
+  .global-notification-stack {
+    position: relative;
+    z-index: 65;
+    gap: 0;
+    padding: 8px max(12px, env(safe-area-inset-right)) 10px max(12px, env(safe-area-inset-left));
+    border-bottom: 0;
+    background: transparent;
+  }
+  .global-notification-stack .global-notification {
+    min-height: 64px;
+    border-radius: 14px;
+    box-shadow: 0 14px 32px rgba(15, 23, 42, 0.14);
+    transform: translateY(calc(var(--stack-index) * 0px)) scale(calc(1 - var(--stack-index) * .025));
+    transform-origin: top center;
+  }
+  .global-notification-stack .global-notification + .global-notification {
+    margin-top: -10px;
+  }
+  .global-notification-stack.layered .global-notification:not(:first-child) {
+    opacity: .92;
+  }
+  .notification-main {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 3px;
+    justify-content: center;
+  }
+  .notification-main span {
+    line-height: 1.35;
+  }
 }
 </style>

@@ -565,6 +565,8 @@ test('order entry mobile layout keeps conditional panels and errors inside the v
   assert.match(mobileStyles, /\.global-error-toast\s*\{[^}]*left:\s*max\(12px,\s*env\(safe-area-inset-left\)\)/s)
   assert.match(mobileStyles, /\.global-error-toast\s*\{[^}]*right:\s*max\(12px,\s*env\(safe-area-inset-right\)\)/s)
   assert.match(mobileStyles, /\.global-error-toast\s*\{[^}]*width:\s*auto/s)
+  assert.match(mobileStyles, /\.global-error-toast\s*\{[^}]*--notice-stack-offset:\s*var\(--kferp-notice-stack-space,\s*0px\)/s)
+  assert.match(mobileStyles, /\.global-error-toast\s*\{[^}]*top:\s*calc\(max\(12px,\s*env\(safe-area-inset-top\)\)\s*\+\s*var\(--notice-stack-offset\)\)/s)
 })
 
 test('order entry payment voucher upload uses a mobile-safe file control', () => {
