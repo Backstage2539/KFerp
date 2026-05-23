@@ -9,6 +9,7 @@ import (
 type SalesOrderSnapshot struct {
 	OrderID        int64  `json:"order_id"`
 	OrderNo        string `json:"order_no"`
+	DocumentDate   string `json:"document_date"`
 	OrderDate      string `json:"order_date"`
 	CustomerName   string `json:"customer_name"`
 	CompanyName    string `json:"company_name"`

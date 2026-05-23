@@ -619,6 +619,7 @@ export function lineDiscountAmount(baseLineTotal, row, retailOrder = false) {
 export function buildOrderPayload({ form, rows }) {
   const payload = {
     edit_id: Number(form.edit_id || 0),
+    document_date: form.document_date || form.order_date || '',
     order_date: form.order_date || '',
     customer_id: Number(form.customer_id || 0),
     source_id: Number(form.source_id || 0),

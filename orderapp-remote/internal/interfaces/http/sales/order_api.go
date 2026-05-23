@@ -66,6 +66,7 @@ type orderFormAPIResponse struct {
 
 type orderSaveAPIRequest struct {
 	EditID                          int64  `json:"edit_id"`
+	DocumentDate                    string `json:"document_date"`
 	OrderDate                       string `json:"order_date"`
 	CustomerID                      int64  `json:"customer_id"`
 	SourceID                        int64  `json:"source_id"`
@@ -507,6 +508,7 @@ func (h orderAPIHandler) uploadPaymentVoucher(c echo.Context) error {
 
 func (r orderSaveAPIRequest) toCreateRequest() CreateOrderRequest {
 	return CreateOrderRequest{
+		DocumentDate:                    r.DocumentDate,
 		OrderDate:                       r.OrderDate,
 		CustomerID:                      r.CustomerID,
 		SourceID:                        r.SourceID,
@@ -849,6 +851,7 @@ func editDataForAPI(ed *OrderEditData) map[string]any {
 		commercialPublicationID = itemPublicationIDByType("commercial")
 	}
 	return map[string]any{
+		"document_date":                       ed.DocumentDate,
 		"order_date":                          ed.OrderDate,
 		"customer_id":                         strconv.FormatInt(ed.CustomerID, 10),
 		"source_id":                           strconv.FormatInt(ed.SourceID, 10),

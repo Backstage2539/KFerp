@@ -4,6 +4,7 @@ import (
 	"bytes"
 	salesdomain "orderapp/internal/domain/sales"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -37,5 +38,23 @@ func TestRenderDeliveryNotePDFEmbedsConfiguredSeal(t *testing.T) {
 	}
 	if got := bytes.Count(b, []byte("/Subtype /Image")); got < 1 {
 		t.Fatalf("embedded image count = %d, want >= 1", got)
+	}
+}
+
+func TestDeliveryNoteHeaderMetaRowsShowsDocumentOrderAndPostingDates(t *testing.T) {
+	rows := deliveryNoteHeaderMetaRows(salesdomain.DeliveryNoteSnapshot{
+		OrderNo:        "SO-20260523-0001",
+		DeliveryNoteNo: "DN-SO-20260523-0001",
+		DocumentDate:   "2026-05-23",
+		OrderDate:      "2026-05-20",
+		PostingDate:    "2026-05-21",
+		CustomerName:   "测试客户",
+		TrackingNo:     "SF123",
+	})
+	flat := strings.Join(append(append(rows[0], rows[1]...), rows[2]...), "\n")
+	for _, want := range []string{"单据日期：2026-05-23", "订单日期：2026-05-20", "出库日期：2026-05-21"} {
+		if !strings.Contains(flat, want) {
+			t.Fatalf("delivery note meta rows missing %q: %#v", want, rows)
+		}
 	}
 }
