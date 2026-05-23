@@ -240,16 +240,19 @@ func TestBeanListPublicationSchemaSupportsOwnedLockedSnapshots(t *testing.T) {
 		"price_source_publication_id BIGINT",
 		"style_source_publication_id BIGINT",
 		"source_version_no TEXT NOT NULL DEFAULT ''",
-		"bean_list_publications_one_published_owner_idx",
-		"ON %[1]s.bean_list_publications(list_type, owner_type, owner_key)",
+		"DROP INDEX IF EXISTS %[1]s.bean_list_publications_one_published_owner_idx",
+		"bean_list_publications_owner_status_idx",
 	} {
 		if !strings.Contains(src, want) {
 			t.Fatalf("bean list publication schema must support owned locked snapshots; missing %q", want)
 		}
 	}
+	if strings.Contains(src, "CREATE UNIQUE INDEX IF NOT EXISTS bean_list_publications_one_published_owner_idx") {
+		t.Fatalf("bean list publication schema must not enforce one published snapshot per owner; withdraw is manual only")
+	}
 }
 
-func TestPublishBeanListWithdrawsOnlySameOwnerSnapshot(t *testing.T) {
+func TestPublishBeanListDoesNotWithdrawExistingPublishedSnapshots(t *testing.T) {
 	b, err := os.ReadFile("repository.go")
 	if err != nil {
 		t.Fatal(err)
@@ -262,7 +265,6 @@ func TestPublishBeanListWithdrawsOnlySameOwnerSnapshot(t *testing.T) {
 	}
 	body := src[start:end]
 	for _, want := range []string{
-		"WHERE list_type=$1 AND owner_type=$2 AND owner_key=$3 AND status='published'",
 		"price_source_publication_id",
 		"style_source_publication_id",
 		"source_version_no",
@@ -270,6 +272,9 @@ func TestPublishBeanListWithdrawsOnlySameOwnerSnapshot(t *testing.T) {
 		if !strings.Contains(body, want) {
 			t.Fatalf("PublishBeanList must lock customer snapshots independently; missing %q", want)
 		}
+	}
+	if strings.Contains(body, "SET status='withdrawn'") || strings.Contains(body, "UPDATE %s.bean_list_publications") {
+		t.Fatalf("PublishBeanList must not withdraw any existing published bean list; withdraw must stay a manual action")
 	}
 }
 

@@ -46,30 +46,29 @@ func TestDev342OrderEntryPublicBeanListVersionSelectWiring(t *testing.T) {
 		{
 			rel: filepath.Join("internal", "infrastructure", "postgres", "sales", "order_form_queries.go"),
 			markers: []string{
-				"b.status IN ('published','withdrawn')",
-				"b.status='published' AND row_number() OVER",
+				"b.status='published'",
+				"row_number() OVER (PARTITION BY b.list_type ORDER BY b.published_at DESC, b.id DESC) = 1 AS is_default",
 				"fetchCommercialOrderPublicationTiers",
 			},
 		},
 		{
 			rel: filepath.Join("internal", "infrastructure", "postgres", "orderbeans", "usage.go"),
 			markers: []string{
-				"blp.status IN ('published','withdrawn')",
-				"WHERE blp.status='published'",
+				"AND blp.status='published'",
 			},
 		},
 		{
 			rel: filepath.Join("internal", "infrastructure", "postgres", "sales", "repository.go"),
 			markers: []string{
-				"status IN ('published','withdrawn')",
+				"status='published'",
 				"requestedPublicationID",
 			},
 		},
 		{
 			rel: filepath.Join("internal", "interfaces", "http", "sales", "order_api_test.go"),
 			markers: []string{
-				"TestOrderAPIFormReturnsHistoricalPublicBeanListVersionsForFallbackCustomer",
-				"TestOrderAPISavesHistoricalPublicBeanListPublicationVersion",
+				"TestOrderAPIFormHidesWithdrawnPublicBeanListVersionsForFallbackCustomer",
+				"TestOrderAPIRejectsWithdrawnPublicBeanListPublicationVersion",
 			},
 		},
 	} {

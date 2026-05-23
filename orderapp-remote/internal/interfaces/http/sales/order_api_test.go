@@ -658,7 +658,7 @@ func TestOrderAPIFormReturnsLatestBeanListVersionDefaultForStaleWarning(t *testi
 	}
 }
 
-func TestOrderAPIFormReturnsHistoricalPublicBeanListVersionsForFallbackCustomer(t *testing.T) {
+func TestOrderAPIFormHidesWithdrawnPublicBeanListVersionsForFallbackCustomer(t *testing.T) {
 	pool, schema := newOrderAPITestDB(t)
 	ctx := context.Background()
 	seedOrderAPITestData(t, ctx, pool, schema)
@@ -691,15 +691,15 @@ func TestOrderAPIFormReturnsHistoricalPublicBeanListVersionsForFallbackCustomer(
 			ownedByID[option.ID] = option.IsCustomerOwned
 		}
 	}
-	if len(defaultByID) != 2 || defaultByID[9911] || !defaultByID[9912] {
-		t.Fatalf("public fallback defaults = %#v, want old=false latest=true", defaultByID)
+	if len(defaultByID) != 1 || defaultByID[9911] || !defaultByID[9912] {
+		t.Fatalf("public fallback versions = %#v, want only currently published version 9912", defaultByID)
 	}
 	if ownedByID[9911] || ownedByID[9912] {
 		t.Fatalf("public fallback versions should not be customer owned: %#v", ownedByID)
 	}
 }
 
-func TestOrderAPISavesHistoricalPublicBeanListPublicationVersion(t *testing.T) {
+func TestOrderAPIRejectsWithdrawnPublicBeanListPublicationVersion(t *testing.T) {
 	pool, schema := newOrderAPITestDB(t)
 	ctx := context.Background()
 	seedOrderAPITestData(t, ctx, pool, schema)
@@ -731,22 +731,8 @@ func TestOrderAPISavesHistoricalPublicBeanListPublicationVersion(t *testing.T) {
 	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
 	rec := httptest.NewRecorder()
 	e.ServeHTTP(rec, req)
-	if rec.Code != http.StatusOK {
-		t.Fatalf("POST /api/order status = %d, want 200, body=%s", rec.Code, rec.Body.String())
-	}
-
-	var publicationID int64
-	var version string
-	if err := pool.QueryRow(ctx, fmt.Sprintf(`
-		SELECT bean_list_publication_id, bean_list_version_no
-		FROM %s.orders
-		ORDER BY id DESC
-		LIMIT 1
-	`, schema)).Scan(&publicationID, &version); err != nil {
-		t.Fatalf("query order bean list version: %v", err)
-	}
-	if publicationID != 9911 || version != "P-1" {
-		t.Fatalf("bean list publication/version=%d/%q, want 9911/P-1", publicationID, version)
+	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "invalid bean list publication") {
+		t.Fatalf("POST /api/order status/body = %d/%s, want 400 invalid bean list publication", rec.Code, rec.Body.String())
 	}
 }
 
