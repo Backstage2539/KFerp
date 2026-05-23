@@ -13,6 +13,8 @@ import {
   dripTierPriceRows,
   lineDiscountAmount,
   lineTotal,
+  orderRowPriceUnit,
+  resolveWholesaleTierPrice,
   syncDripTierPrice,
   syncWholesaleTierPrice,
   normalizeSpecG,
@@ -381,7 +383,52 @@ test('syncWholesaleTierPrice converts kg display-unit prices for lb rows', () =>
     ],
   }, row)
 
-  assert.deepEqual(got, { tierID: '50', unitPrice: '10.66' })
+  assert.deepEqual(got, { tierID: '50', unitPrice: '23.49' })
+})
+
+test('resolveWholesaleTierPrice keeps kg tier unit, source version, and below-min warning for small package orders', () => {
+  const row = { spec_mode: '80', qty: 1, tier_id: 'auto', unit_price: '' }
+  const got = resolveWholesaleTierPrice({
+    tiers: [
+      {
+        id: 64,
+        spec_g: 1000,
+        min: 25,
+        max: 49,
+        unit_price: 82,
+        display_unit: 'kg',
+        price_source_json: '{"source":"published_bean_list","list_type":"commercial","publication_id":9909,"version_no":"V3.0.9","price_unit":"kg"}',
+      },
+    ],
+  }, row)
+
+  assert.equal(got.tierID, '64')
+  assert.equal(got.unitPrice, '82')
+  assert.deepEqual(got.priceUnit, { label: '元/kg', suffix: '/kg', unitG: 1000 })
+  assert.equal(got.tierPriceLabel, '82/kg')
+  assert.equal(got.beanListPublicationID, 9909)
+  assert.equal(got.beanListVersionNo, 'V3.0.9')
+  assert.equal(got.belowMinTier, true)
+
+  const pricedRow = {
+    ...row,
+    tier_id: got.tierID,
+    unit_price: got.unitPrice,
+    price_unit: got.priceUnit.label,
+    price_unit_suffix: got.priceUnit.suffix,
+    price_unit_g: got.priceUnit.unitG,
+  }
+  assert.deepEqual(orderRowPriceUnit(pricedRow), { label: '元/kg', suffix: '/kg', unitG: 1000 })
+  assert.equal(Number(lineTotal({ tiers: [] }, pricedRow, false).toFixed(2)), 6.56)
+})
+
+test('OrderEntryView shows tier unit price, bean list version without unrecorded fallback, and below-min warning', () => {
+  const source = orderEntryViewSource()
+
+  assert.match(source, /tier_price_label/)
+  assert.match(source, /低于最低梯度/)
+  assert.match(source, /\.tier-warning/)
+  assert.doesNotMatch(source, /豆单版本：\{\{\s*row\.bean_list_version_no\s*\|\|\s*'未记录'\s*\}\}/)
 })
 
 test('buildOrderPayload preserves manual unit price override', () => {

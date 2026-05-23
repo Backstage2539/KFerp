@@ -840,6 +840,70 @@ func TestOrderAPIWholesaleExactSpecTierUsesKilogramQuantityForKgProducts(t *test
 	}
 }
 
+func TestOrderAPISavesBeanListKgDisplayUnitForSmallPackageOrder(t *testing.T) {
+	pool, schema := newOrderAPITestDB(t)
+	ctx := context.Background()
+	seedOrderAPITestData(t, ctx, pool, schema)
+	mustExecOrderAPITestSQL(t, ctx, pool, fmt.Sprintf(`
+		INSERT INTO %[1]s.products(id,name,default_price,active,retail_price_227g,customer_id,base_product_id,visibility,custom_type,product_kind)
+		VALUES (808,'兰卡拼配',0,true,0,3,0,'customer_only','custom_roast','roasted');
+		INSERT INTO %[1]s.bean_list_publications(id, list_type, version_no, status, owner_type, owner_key, config_json, content_json, changelog, actor, published_at)
+		VALUES
+			(9909,'commercial','V3.0.9','published','customer','3','{}'::jsonb,
+			'{"groups":[{"items":[{"productId":808,"name":"兰卡拼配","commercial_wholesale_tiers":[{"label":"25-49kg","spec_g":1000,"min_qty":25,"max_qty":49,"price_per_unit":82,"price_per_lb":37.23,"template_id":6,"template_tier_id":64,"display_unit":"kg","price_unit":"kg"}]}]}]}'::jsonb,
+			'kg量单','codex','2026-05-23 09:00:00+08');
+	`, schema))
+
+	e := newOrderAPITestEcho(pool, schema)
+	payload := map[string]any{
+		"order_date":                          "2026-05-23",
+		"customer_id":                         3,
+		"source_id":                           1,
+		"order_type_id":                       1,
+		"pay_status_id":                       2,
+		"payment_method":                      "微信支付",
+		"ship_status_id":                      1,
+		"commercial_bean_list_publication_id": 9909,
+		"product_id":                          []string{"808"},
+		"tier_id":                             []string{"64"},
+		"unit_price":                          []string{"82"},
+		"item_name":                           []string{"兰卡拼配"},
+		"qty":                                 []string{"1"},
+		"unit":                                []string{"件"},
+		"spec":                                []string{"80"},
+		"product_kind":                        []string{"roasted_bean"},
+	}
+	body, _ := json.Marshal(payload)
+	req := httptest.NewRequest(http.MethodPost, "/api/order", bytes.NewReader(body))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("POST /api/order status = %d, want 200, body=%s", rec.Code, rec.Body.String())
+	}
+
+	var unitPrice, lineTotal float64
+	var version, priceSource string
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`
+		SELECT COALESCE(unit_price,0)::float8,
+		       COALESCE(line_total,0)::float8,
+		       COALESCE(bean_list_version_no,''),
+		       COALESCE(price_source_json,'{}'::jsonb)::text
+		FROM %s.order_items
+		WHERE product_id=808
+		ORDER BY id DESC
+		LIMIT 1
+	`, schema)).Scan(&unitPrice, &lineTotal, &version, &priceSource); err != nil {
+		t.Fatalf("query order item: %v", err)
+	}
+	if unitPrice != 82 || lineTotal != 6.56 || version != "V3.0.9" {
+		t.Fatalf("unit_price/line_total/version=%.2f/%.2f/%q, want 82.00/6.56/V3.0.9", unitPrice, lineTotal, version)
+	}
+	if !strings.Contains(priceSource, `"price_unit":"kg"`) && !strings.Contains(priceSource, `"price_unit": "kg"`) {
+		t.Fatalf("price_source_json should retain kg price unit: %s", priceSource)
+	}
+}
+
 func TestOrderAPICreatesDripBagOrderSavesUnitMetadataPriceAndAudit(t *testing.T) {
 	pool, schema := newOrderAPITestDB(t)
 	ctx := context.Background()

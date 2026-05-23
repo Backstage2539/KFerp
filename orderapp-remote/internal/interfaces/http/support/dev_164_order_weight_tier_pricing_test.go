@@ -28,7 +28,7 @@ func TestDev164OrderEntryFallsBackToBeanListWeightTiers(t *testing.T) {
 	orderEntry := string(readOrderAppFileForTest(t, filepath.Join("frontend-vue-shell", "src", "lib", "order-entry.js")))
 	for _, want := range []string{
 		"rowQuantityLb(row)",
-		"matchTierByQuantity(tiers, rowQuantityLb(row), tierMinLb, tierMaxLb)",
+		"matchTierByQuantityResult(tiers, rowQuantityLb(row), tierMinLb, tierMaxLb)",
 		"wholesaleTierUnitPriceLb(tier)",
 		"rowQuantityForWholesalePriceUnit(row)",
 	} {
