@@ -156,7 +156,16 @@
           <div class="condition-title">收款凭证</div>
           <label :class="{ 'field-invalid': hasFieldError('payment_goods_amount') }" data-error-field="payment_goods_amount">
             <span>货款金额</span>
-            <input v-model.trim="form.payment_goods_amount" type="number" min="0" step="0.01" />
+            <div class="amount-suggestion-wrap">
+              <input v-model.trim="form.payment_goods_amount" type="number" min="0" step="0.01" />
+              <button
+                v-if="showPaymentGoodsAmountSuggestion"
+                class="amount-suggestion-popover"
+                type="button"
+                @click="applyPaymentGoodsAmountSuggestion">
+                货款 {{ paymentGoodsAmountSuggestion }}
+              </button>
+            </div>
           </label>
           <label :class="{ 'field-invalid': hasFieldError('payment_shipping_amount') }" data-error-field="payment_shipping_amount">
             <span>运费金额</span>
@@ -644,6 +653,8 @@ const paymentReceiptRequired = computed(() => {
   const name = selectedPayStatusName.value
   return name.includes('已收款') || name.includes('已付款') || name.includes('已支付')
 })
+const paymentGoodsAmountSuggestion = computed(() => money(itemsTotal.value))
+const showPaymentGoodsAmountSuggestion = computed(() => paymentReceiptRequired.value && itemsTotal.value > 0)
 const logisticsRequired = computed(() => selectedShipStatusName.value.includes('已发货'))
 const selectedLogisticsProducts = computed(() => {
   const company = logisticsCompanies.value.find((item) => Number(item.id || 0) === Number(form.logistics_company_id || 0))
@@ -704,12 +715,14 @@ function ensureLogisticsDefaults() {
 
 function ensurePaymentDefaults() {
   if (!paymentReceiptRequired.value) return
-  if (String(form.payment_goods_amount || '').trim() === '') {
-    form.payment_goods_amount = money(itemsTotal.value)
-  }
   if (String(form.payment_shipping_amount || '').trim() === '') {
     form.payment_shipping_amount = money(toNumber(form.shipping_amount))
   }
+}
+
+function applyPaymentGoodsAmountSuggestion() {
+  form.payment_goods_amount = paymentGoodsAmountSuggestion.value
+  clearFieldErrorIfValid('payment_goods_amount')
 }
 
 function hasFieldError(fieldKey) {
@@ -1519,9 +1532,6 @@ watch(() => form.payment_goods_amount, () => clearFieldErrorIfValid('payment_goo
 watch(() => form.payment_shipping_amount, () => clearFieldErrorIfValid('payment_shipping_amount'))
 watch(() => form.payment_voucher_asset_id, () => clearFieldErrorIfValid('payment_voucher_asset_id'))
 watch(itemsTotal, () => {
-  if (paymentReceiptRequired.value && String(form.payment_goods_amount || '').trim() === '') {
-    form.payment_goods_amount = money(itemsTotal.value)
-  }
   clearFieldErrorIfValid('payment_goods_amount')
 })
 watch(() => form.shipping_amount, () => {
@@ -1582,6 +1592,8 @@ button:disabled { cursor: not-allowed; opacity: 0.5; }
 .label-row { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
 .label-actions { display: inline-flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
 .field-shell { min-width: 0; }
+.amount-suggestion-wrap { position: relative; min-width: 0; }
+.amount-suggestion-popover { position: absolute; left: 8px; top: calc(100% + 6px); z-index: 6; min-height: 30px; padding: 5px 10px; border: 1px solid #b7d3ff; background: #eef5ff; color: #174ea6; box-shadow: 0 10px 24px rgba(23, 78, 166, 0.14); font-size: 12px; }
 .field-invalid input, .field-invalid select, .field-invalid textarea, .field-invalid .file-upload-control { border-color: #f43f5e; box-shadow: 0 0 0 2px rgba(244, 63, 94, 0.12); }
 .field-invalid > span:first-child, .field-invalid .label-row > span:first-child, .field-invalid.voucher-field > span:first-child { color: #be123c; }
 .panel.field-invalid { border-color: #fda4af; box-shadow: 0 0 0 2px rgba(244, 63, 94, 0.08); }
