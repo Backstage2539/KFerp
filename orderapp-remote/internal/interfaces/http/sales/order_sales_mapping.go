@@ -20,6 +20,14 @@ func saveOrderCommandFromCreateRequest(req CreateOrderRequest, editID int64, act
 	if err != nil {
 		return salesapp.SaveOrderCommand{}, fmt.Errorf("invalid order_date")
 	}
+	documentDate := strings.TrimSpace(req.DocumentDate)
+	if documentDate == "" {
+		documentDate = orderDate
+	}
+	dd, err := time.Parse("2006-01-02", documentDate)
+	if err != nil {
+		return salesapp.SaveOrderCommand{}, fmt.Errorf("invalid document_date")
+	}
 	shippingAmount, err := parseCreateOrderAmount(req.ShippingAmount, "shipping_amount")
 	if err != nil {
 		return salesapp.SaveOrderCommand{}, err
@@ -63,6 +71,7 @@ func saveOrderCommandFromCreateRequest(req CreateOrderRequest, editID int64, act
 	return salesapp.SaveOrderCommand{
 		Actor:                           actor,
 		EditID:                          editID,
+		DocumentDate:                    dd,
 		OrderDate:                       od,
 		CustomerID:                      req.CustomerID,
 		SourceID:                        req.SourceID,
@@ -181,6 +190,7 @@ func orderItemCommandsFromCreateRequest(req CreateOrderRequest) []salesapp.Order
 func updateHeaderCommandFromRequest(req UpdateOrderRequest, actor string) salesapp.UpdateHeaderCommand {
 	return salesapp.UpdateHeaderCommand{
 		Actor:                 actor,
+		DocumentDate:          req.DocumentDate,
 		OrderDate:             req.OrderDate,
 		CustomerID:            req.CustomerID,
 		SourceID:              req.SourceID,

@@ -85,18 +85,11 @@ func (c *salesOrderPNGCanvas) render(snapshot salesdomain.SalesOrderSnapshot) {
 
 	y += 42
 	colW := (right - left) / 3
-	rowH := c.metaRow(y, []string{
-		"订单号：" + snapshot.OrderNo,
-		"订单日期：" + snapshot.OrderDate,
-		"客户：" + snapshot.CustomerName,
-	}, colW)
-	y += rowH + 6
-	rowH = c.metaRow(y, []string{
-		"客户公司：" + firstNonEmpty(snapshot.CustomerCompanyName, snapshot.CustomerName),
-		"联系电话：" + snapshot.CustomerCompanyPhone,
-		"公司地址：" + snapshot.CustomerCompanyAddress,
-	}, colW)
-	y += rowH + 30
+	for _, row := range salesOrderHeaderMetaRows(snapshot) {
+		rowH := c.metaRow(y, row, colW)
+		y += rowH + 6
+	}
+	y += 24
 
 	y = c.itemsTable(left, right, y, snapshot)
 	y = c.totals(left, right, y, snapshot)

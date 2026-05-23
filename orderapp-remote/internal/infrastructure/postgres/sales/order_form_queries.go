@@ -1024,7 +1024,8 @@ func (r Repository) fetchOrderEdit(ctx context.Context, id int64) (*salesapp.Ord
 		SELECT
 			o.id,
 			o.order_no,
-			to_char(o.order_date,'YYYY-MM-DD') as order_date,
+			COALESCE(to_char(o.document_date,'YYYY-MM-DD'), to_char(o.order_date,'YYYY-MM-DD'), '') as document_date,
+			COALESCE(to_char(o.order_date,'YYYY-MM-DD'), '') as order_date,
 			COALESCE(o.customer_id,0) as customer_id,
 			COALESCE(o.source_id,0) as source_id,
 			COALESCE(o.order_type_id,0) as order_type_id,
@@ -1090,6 +1091,7 @@ func (r Repository) fetchOrderEdit(ctx context.Context, id int64) (*salesapp.Ord
 	err := r.pool.QueryRow(ctx, q, id).Scan(
 		&d.ID,
 		&d.OrderNo,
+		&d.DocumentDate,
 		&d.OrderDate,
 		&d.CustomerID,
 		&d.SourceID,

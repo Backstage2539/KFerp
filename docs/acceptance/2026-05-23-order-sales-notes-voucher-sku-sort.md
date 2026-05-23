@@ -1,4 +1,4 @@
-# PR-341 销售单备注、收款凭证、物流总价预览、SKU 名称和排序验收
+# PR-346-ORDER-SALES-NOTES-VOUCHER-SKU-SORT 销售单备注、收款凭证、物流总价预览、SKU 名称和排序验收
 
 ## 范围
 - 销售单预览、PDF 和图片下载。
@@ -16,5 +16,5 @@
 
 ## 验证证据
 - 前端单元测试：`node --test src/lib/order-entry.test.js src/lib/product-settings.test.js src/lib/bom.test.js`
-- Go/API/仓储测试：`go test ./internal/infrastructure/pdf ./internal/infrastructure/postgres/sales ./internal/infrastructure/postgres/finance ./internal/infrastructure/postgres/catalog ./internal/infrastructure/postgres/bom ./internal/interfaces/http/catalog ./internal/interfaces/http/finance ./internal/interfaces/http/support -run 'TestDev345|TestProductSettingsAPIUpdatesProductName|TestFinanceSourceDetailsIncludesOrderPaymentVoucher|TestSalesOrderPreviewIncludesNoteAndDiscountBreakdowns' -count=1`
+- Go/API/仓储测试：`go test ./internal/infrastructure/pdf ./internal/infrastructure/postgres/sales ./internal/infrastructure/postgres/finance ./internal/infrastructure/postgres/catalog ./internal/infrastructure/postgres/bom ./internal/interfaces/http/catalog ./internal/interfaces/http/finance ./internal/interfaces/http/support -run 'TestDev346|TestProductSettingsAPIUpdatesProductName|TestFinanceSourceDetailsIncludesOrderPaymentVoucher|TestSalesOrderPreviewIncludesNoteAndDiscountBreakdowns' -count=1`
 - 手册：`OP_MANUAL_ORDER_SALES.md`、`OP_MANUAL_FINANCE.md`、`OP_MANUAL_INVENTORY_MATERIALS.md`

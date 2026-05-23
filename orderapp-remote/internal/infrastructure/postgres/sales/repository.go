@@ -790,6 +790,10 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 	if od.IsZero() {
 		return salesapp.SaveOrderResult{}, fmt.Errorf("invalid order_date")
 	}
+	documentDate := cmd.DocumentDate
+	if documentDate.IsZero() {
+		documentDate = od
+	}
 	if cmd.CustomerID <= 0 {
 		return salesapp.SaveOrderResult{}, fmt.Errorf("customer required")
 	}
@@ -1331,46 +1335,48 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 		portalServiceCode, sourceWarehouse = resolveOrderFulfillmentMarkers(existingPortalServiceCode, existingSourceWarehouse, portalServiceCode, sourceWarehouse)
 		uq := fmt.Sprintf(`
 				UPDATE %s.orders
-				SET order_date=$2,
-					customer_id=$3,
-					source_id=$4,
-					order_type_id=$5,
-					pay_status_id=$6,
-					payment_method=$7,
-					ship_status_id=$8,
-					ship_method=$9,
-					ship_tracking_no=$10,
-					notes=$11,
-					total_amount=$12,
-					shipping_amount=$13,
-					discount_amount=$14,
-					round_to_int=$15,
-					rounding_amount=$16,
-					grand_total=$17,
-					express_fee=$18,
-					outsource_material_fee=$19,
-					outsource_roast_fee=$20,
-					outsource_packaging_fee=$21,
-					outsource_manual_fee=$22,
-					outsource_tax_fee=$23,
-					outsource_other_fee=$24,
-						outsource_total_fee=$25,
-						responsible_party_type=$26,
-						responsible_party_id=$27,
-						responsible_party_name=$28,
-						portal_service_code=$29,
-						source_warehouse=$30,
-						bean_list_publication_id=$31,
-						bean_list_version_no=$32,
-						logistics_company_id=$33,
-						logistics_product_id=$34,
-						payment_goods_amount=$35,
-						payment_shipping_amount=$36,
-						payment_voucher_asset_id=$37
+				SET document_date=$2,
+					order_date=$3,
+					customer_id=$4,
+					source_id=$5,
+					order_type_id=$6,
+					pay_status_id=$7,
+					payment_method=$8,
+					ship_status_id=$9,
+					ship_method=$10,
+					ship_tracking_no=$11,
+					notes=$12,
+					total_amount=$13,
+					shipping_amount=$14,
+					discount_amount=$15,
+					round_to_int=$16,
+					rounding_amount=$17,
+					grand_total=$18,
+					express_fee=$19,
+					outsource_material_fee=$20,
+					outsource_roast_fee=$21,
+					outsource_packaging_fee=$22,
+					outsource_manual_fee=$23,
+					outsource_tax_fee=$24,
+					outsource_other_fee=$25,
+						outsource_total_fee=$26,
+						responsible_party_type=$27,
+						responsible_party_id=$28,
+						responsible_party_name=$29,
+						portal_service_code=$30,
+						source_warehouse=$31,
+						bean_list_publication_id=$32,
+						bean_list_version_no=$33,
+						logistics_company_id=$34,
+						logistics_product_id=$35,
+						payment_goods_amount=$36,
+						payment_shipping_amount=$37,
+						payment_voucher_asset_id=$38
 					WHERE id=$1
 			`, r.schema)
 		if _, err := tx.Exec(ctx, uq,
 			orderID,
+			documentDate,
 			od,
 			cmd.CustomerID,
 			nullInt(cmd.SourceID),
@@ -1414,13 +1420,13 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 			return salesapp.SaveOrderResult{}, err
 		}
 	} else {
-		orderNo, err = nextOrderNo(ctx, tx, r.schema, od)
+		orderNo, err = nextOrderNo(ctx, tx, r.schema, documentDate)
 		if err != nil {
 			return salesapp.SaveOrderResult{}, err
 		}
 		insertOrderSQL := fmt.Sprintf(`
 				INSERT INTO %s.orders(
-					order_date, customer_id,
+					document_date, order_date, customer_id,
 					source_id, order_type_id, pay_status_id, payment_method, ship_status_id,
 					ship_method, ship_tracking_no,
 					notes,
@@ -1444,11 +1450,13 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 						$28,$29,
 						$30,$31,
 						$32,
-						$33,$34,$35,$36,$37
+						$33,
+						$34,$35,$36,$37,$38
 					)
 					RETURNING id
 			`, r.schema)
 		err = tx.QueryRow(ctx, insertOrderSQL,
+			documentDate,
 			od,
 			cmd.CustomerID,
 			nullInt(cmd.SourceID),
@@ -1967,6 +1975,13 @@ func updateOrderHeader(ctx context.Context, pool *pgxpool.Pool, schema string, i
 	if _, err := time.Parse("2006-01-02", orderDate); err != nil {
 		return fmt.Errorf("invalid order_date")
 	}
+	documentDate := strings.TrimSpace(req.DocumentDate)
+	if documentDate == "" {
+		documentDate = orderDate
+	}
+	if _, err := time.Parse("2006-01-02", documentDate); err != nil {
+		return fmt.Errorf("invalid document_date")
+	}
 	if req.CustomerID <= 0 {
 		return fmt.Errorf("customer required")
 	}
@@ -2085,39 +2100,41 @@ func updateOrderHeader(ctx context.Context, pool *pgxpool.Pool, schema string, i
 	shipTrackingNo := salesapp.TrackingNumbersSummary(salesapp.NormalizeTrackingNumbers(req.ShipTrackingNo))
 	q := fmt.Sprintf(`
 		UPDATE %s.orders
-		SET order_date=$2,
-			customer_id=$3,
-			source_id=$4,
-			order_type_id=$5,
-			pay_status_id=$6,
-			payment_method=$7,
-			ship_status_id=$8,
-			notes=$9,
-			total_amount=$10,
-			shipping_amount=$11,
-			discount_amount=$12,
-			round_to_int=$13,
-			rounding_amount=$14,
-			grand_total=$15,
-			express_fee=$16,
-			outsource_material_fee=$17,
-			outsource_roast_fee=$18,
-			outsource_packaging_fee=$19,
-			outsource_manual_fee=$20,
-			outsource_tax_fee=$21,
-			outsource_other_fee=$22,
-			outsource_total_fee=$23,
-			ship_method=$24,
-			ship_tracking_no=$25,
-			logistics_company_id=$26,
-			logistics_product_id=$27,
-			payment_goods_amount=$28,
-			payment_shipping_amount=$29,
-			payment_voucher_asset_id=$30
+		SET document_date=$2,
+			order_date=$3,
+			customer_id=$4,
+			source_id=$5,
+			order_type_id=$6,
+			pay_status_id=$7,
+			payment_method=$8,
+			ship_status_id=$9,
+			notes=$10,
+			total_amount=$11,
+			shipping_amount=$12,
+			discount_amount=$13,
+			round_to_int=$14,
+			rounding_amount=$15,
+			grand_total=$16,
+			express_fee=$17,
+			outsource_material_fee=$18,
+			outsource_roast_fee=$19,
+			outsource_packaging_fee=$20,
+			outsource_manual_fee=$21,
+			outsource_tax_fee=$22,
+			outsource_other_fee=$23,
+			outsource_total_fee=$24,
+			ship_method=$25,
+			ship_tracking_no=$26,
+			logistics_company_id=$27,
+			logistics_product_id=$28,
+			payment_goods_amount=$29,
+			payment_shipping_amount=$30,
+			payment_voucher_asset_id=$31
 		WHERE id=$1
 	`, schema)
 	if _, err := tx.Exec(ctx, q,
 		id,
+		documentDate,
 		orderDate,
 		req.CustomerID,
 		nullInt(req.SourceID),

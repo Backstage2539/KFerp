@@ -6,14 +6,14 @@ import (
 	"testing"
 )
 
-func TestDev342OrderNoticePaymentHintSeeds(t *testing.T) {
+func TestDev343OrderNoticePaymentHintSeeds(t *testing.T) {
 	src := string(readOrderAppFileForTest(t, filepath.Join("internal", "interfaces", "http", "support", "req_store.go")))
 	for _, want := range []string{
-		"PR-342-ORDER-NOTICE-DEDUP-PAYMENT-HINT",
-		"DEV-342-ORDER-NOTICE-DEDUP-PAYMENT-HINT",
-		"UT-342-ORDER-NOTICE-DEDUP-PAYMENT-HINT",
-		"API-342-ORDER-NOTICE-DEDUP-PAYMENT-HINT",
-		"REV-342-ORDER-NOTICE-DEDUP-PAYMENT-HINT",
+		"PR-343-ORDER-NOTICE-DEDUP-PAYMENT-HINT",
+		"DEV-343-ORDER-NOTICE-DEDUP-PAYMENT-HINT",
+		"UT-343-ORDER-NOTICE-DEDUP-PAYMENT-HINT",
+		"API-343-ORDER-NOTICE-DEDUP-PAYMENT-HINT",
+		"REV-343-ORDER-NOTICE-DEDUP-PAYMENT-HINT",
 	} {
 		if !strings.Contains(src, want) {
 			t.Fatalf("PR-341 requirement seed missing %q", want)
@@ -21,7 +21,7 @@ func TestDev342OrderNoticePaymentHintSeeds(t *testing.T) {
 	}
 }
 
-func TestDev342OrderNoticePaymentHintWiring(t *testing.T) {
+func TestDev343OrderNoticePaymentHintWiring(t *testing.T) {
 	appSrc := string(readOrderAppFileForTest(t, filepath.Join("frontend-vue-shell", "src", "App.vue")))
 	orderSrc := string(readOrderAppFileForTest(t, filepath.Join("frontend-vue-shell", "src", "views", "OrderEntryView.vue")))
 	messageSrc := string(readOrderAppFileForTest(t, filepath.Join("internal", "application", "messagecenter", "service.go")))
@@ -49,28 +49,28 @@ func TestDev342OrderNoticePaymentHintWiring(t *testing.T) {
 	}
 }
 
-func TestDev342OrderNoticePaymentHintDocs(t *testing.T) {
+func TestDev343OrderNoticePaymentHintDocs(t *testing.T) {
 	for rel, wants := range map[string][]string{
 		filepath.Join("docs", "REQUIREMENTS.md"): {
-			"PR-342-ORDER-NOTICE-DEDUP-PAYMENT-HINT",
+			"PR-343-ORDER-NOTICE-DEDUP-PAYMENT-HINT",
 			"货款提示",
 			"重复通知",
 		},
 		filepath.Join("docs", "ACCEPTANCE_TESTS.md"): {
-			"PR-342-ORDER-NOTICE-DEDUP-PAYMENT-HINT",
+			"PR-343-ORDER-NOTICE-DEDUP-PAYMENT-HINT",
 			"货款提示",
 			"重复通知",
 		},
 		filepath.Join("docs", "OP_MANUAL_ORDER_SALES.md"): {
-			"PR-342-ORDER-NOTICE-DEDUP-PAYMENT-HINT",
+			"PR-343-ORDER-NOTICE-DEDUP-PAYMENT-HINT",
 			"货款提示",
 		},
 		filepath.Join("docs", "OP_MANUAL_NOTIFICATIONS.md"): {
-			"PR-342-ORDER-NOTICE-DEDUP-PAYMENT-HINT",
+			"PR-343-ORDER-NOTICE-DEDUP-PAYMENT-HINT",
 			"重复通知",
 		},
 		filepath.Join("docs", "acceptance", "2026-05-23-order-notice-payment-hint.md"): {
-			"PR-342-ORDER-NOTICE-DEDUP-PAYMENT-HINT",
+			"PR-343-ORDER-NOTICE-DEDUP-PAYMENT-HINT",
 			"货款提示",
 			"重复通知",
 		},

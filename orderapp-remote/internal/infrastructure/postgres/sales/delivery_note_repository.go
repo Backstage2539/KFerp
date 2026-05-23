@@ -116,6 +116,7 @@ func (r Repository) loadDeliveryNoteFormTx(ctx context.Context, tx pgx.Tx, order
 type deliveryNoteBase struct {
 	OrderID                int64
 	OrderNo                string
+	DocumentDate           string
 	OrderDate              string
 	CompanyName            string
 	CompanyAddress         string
@@ -134,7 +135,9 @@ type deliveryNoteBase struct {
 }
 
 func (r Repository) loadDeliveryNoteBaseTx(ctx context.Context, tx pgx.Tx, orderID int64) (deliveryNoteBase, error) {
-	q := fmt.Sprintf(`SELECT o.id, COALESCE(o.order_no,''), COALESCE(to_char(o.order_date,'YYYY-MM-DD'),''),
+	q := fmt.Sprintf(`SELECT o.id, COALESCE(o.order_no,''),
+			COALESCE(to_char(o.document_date,'YYYY-MM-DD'), to_char(o.order_date,'YYYY-MM-DD'), ''),
+			COALESCE(to_char(o.order_date,'YYYY-MM-DD'),''),
 			COALESCE(c.name,''), COALESCE(NULLIF(c.company_name,''), c.name, ''),
 			COALESCE(NULLIF(c.company_address,''), c.address, ''), COALESCE(NULLIF(c.company_phone,''), c.phone, ''),
 			COALESCE(NULLIF(o.receiver_name,''), c.contact, ''), COALESCE(NULLIF(o.receiver_phone,''), c.phone, ''), COALESCE(NULLIF(o.receiver_address,''), c.address, ''),
@@ -147,6 +150,7 @@ func (r Repository) loadDeliveryNoteBaseTx(ctx context.Context, tx pgx.Tx, order
 	if err := tx.QueryRow(ctx, q, orderID).Scan(
 		&out.OrderID,
 		&out.OrderNo,
+		&out.DocumentDate,
 		&out.OrderDate,
 		&out.CustomerName,
 		&out.CustomerCompanyName,
@@ -309,6 +313,8 @@ func (r Repository) buildDeliveryNoteSnapshotTx(ctx context.Context, tx pgx.Tx, 
 		OrderID:                base.OrderID,
 		OrderNo:                base.OrderNo,
 		DeliveryNoteNo:         "DN-" + base.OrderNo,
+		DocumentDate:           firstNonEmpty(base.DocumentDate, base.OrderDate),
+		OrderDate:              base.OrderDate,
 		PostingDate:            firstNonEmpty(form.PostingDate, time.Now().Format("2006-01-02")),
 		CompanyName:            base.CompanyName,
 		CompanyAddress:         base.CompanyAddress,

@@ -6,14 +6,14 @@ import (
 	"testing"
 )
 
-func TestDev343OrderEntryCommonProductsSeeds(t *testing.T) {
+func TestDev344OrderEntryCommonProductsSeeds(t *testing.T) {
 	src := string(readOrderAppFileForTest(t, filepath.Join("internal", "interfaces", "http", "support", "req_store.go")))
 	for _, want := range []string{
-		"PR-343-ORDER-ENTRY-CUSTOMER-COMMON-PRODUCT-SORT",
-		"DEV-343-ORDER-ENTRY-CUSTOMER-COMMON-PRODUCT-SORT",
-		"UT-343-ORDER-ENTRY-CUSTOMER-COMMON-PRODUCT-SORT",
-		"API-343-ORDER-ENTRY-CUSTOMER-COMMON-PRODUCT-SORT",
-		"REV-343-ORDER-ENTRY-CUSTOMER-COMMON-PRODUCT-SORT",
+		"PR-344-ORDER-ENTRY-CUSTOMER-COMMON-PRODUCT-SORT",
+		"DEV-344-ORDER-ENTRY-CUSTOMER-COMMON-PRODUCT-SORT",
+		"UT-344-ORDER-ENTRY-CUSTOMER-COMMON-PRODUCT-SORT",
+		"API-344-ORDER-ENTRY-CUSTOMER-COMMON-PRODUCT-SORT",
+		"REV-344-ORDER-ENTRY-CUSTOMER-COMMON-PRODUCT-SORT",
 	} {
 		if !strings.Contains(src, want) {
 			t.Fatalf("PR-342 requirement seed missing %q", want)
@@ -21,7 +21,7 @@ func TestDev343OrderEntryCommonProductsSeeds(t *testing.T) {
 	}
 }
 
-func TestDev343OrderEntryCommonProductsWiring(t *testing.T) {
+func TestDev344OrderEntryCommonProductsWiring(t *testing.T) {
 	orderEntry := string(readOrderAppFileForTest(t, filepath.Join("frontend-vue-shell", "src", "views", "OrderEntryView.vue")))
 	for _, want := range []string{
 		"customerProductUsages = ref([])",
@@ -47,7 +47,7 @@ func TestDev343OrderEntryCommonProductsWiring(t *testing.T) {
 	}
 }
 
-func TestDev343OrderEntryCommonProductsDocs(t *testing.T) {
+func TestDev344OrderEntryCommonProductsDocs(t *testing.T) {
 	for _, rel := range []string{
 		filepath.Join("docs", "REQUIREMENTS.md"),
 		filepath.Join("docs", "ACCEPTANCE_TESTS.md"),
@@ -56,7 +56,7 @@ func TestDev343OrderEntryCommonProductsDocs(t *testing.T) {
 	} {
 		src := string(readOrderAppFileForTest(t, rel))
 		for _, want := range []string{
-			"PR-343-ORDER-ENTRY-CUSTOMER-COMMON-PRODUCT-SORT",
+			"PR-344-ORDER-ENTRY-CUSTOMER-COMMON-PRODUCT-SORT",
 			"常用商品",
 			"历史订单",
 		} {

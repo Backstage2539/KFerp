@@ -128,17 +128,30 @@ func (r SalesOrderRenderer) renderSalesOrderHeader(pdf *gofpdf.Fpdf, snapshot sa
 	pdf.SetFont("noto", "", 10)
 	colW := (pageW - left - right) / 3
 	widths := []float64{colW, colW, colW}
-	writeSalesOrderMetaRow(pdf, widths, []string{
-		"订单号：" + snapshot.OrderNo,
-		"订单日期：" + snapshot.OrderDate,
-		"客户：" + snapshot.CustomerName,
-	}, 6)
-	writeSalesOrderMetaRow(pdf, widths, []string{
-		"客户公司：" + firstNonEmpty(snapshot.CustomerCompanyName, snapshot.CustomerName),
-		"联系电话：" + snapshot.CustomerCompanyPhone,
-		"公司地址：" + snapshot.CustomerCompanyAddress,
-	}, 6)
+	for _, row := range salesOrderHeaderMetaRows(snapshot) {
+		writeSalesOrderMetaRow(pdf, widths, row, 6)
+	}
 	pdf.Ln(3)
+}
+
+func salesOrderHeaderMetaRows(snapshot salesdomain.SalesOrderSnapshot) [][]string {
+	return [][]string{
+		{
+			"订单号：" + snapshot.OrderNo,
+			"单据日期：" + firstNonEmpty(snapshot.DocumentDate, snapshot.OrderDate),
+			"订单日期：" + snapshot.OrderDate,
+		},
+		{
+			"客户：" + snapshot.CustomerName,
+			"联系电话：" + snapshot.CustomerCompanyPhone,
+			"客户公司：" + firstNonEmpty(snapshot.CustomerCompanyName, snapshot.CustomerName),
+		},
+		{
+			"公司地址：" + snapshot.CustomerCompanyAddress,
+			"",
+			"",
+		},
+	}
 }
 
 func writeSalesOrderMetaRow(pdf *gofpdf.Fpdf, widths []float64, texts []string, lineHeight float64) {

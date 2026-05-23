@@ -1,4 +1,4 @@
-# PR-344-ORDER-CUSTOMER-PROFILE-BEANLIST-DRAWER
+# PR-345-ORDER-CUSTOMER-PROFILE-BEANLIST-DRAWER
 
 ## 验收目标
 - 录单/编辑订单不再编辑来源、客户类型和订单类型；这些值只能从客户资料读取并在订单信息中展示。
@@ -15,5 +15,5 @@
 ## 自动化证据
 - `node --test src/lib/order-entry.test.js`
 - `go test ./internal/interfaces/http/customer -count=1`
-- `go test ./internal/interfaces/http/support -run TestDev344 -count=1`
+- `go test ./internal/interfaces/http/support -run TestDev345 -count=1`
 - 订单保存数据库级 API 用例覆盖客户资料默认值读取；本地需配置 `ORDERAPP_TEST_DATABASE_URL` 或 `DATABASE_URL` 后执行。

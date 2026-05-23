@@ -78,25 +78,38 @@ func (r DeliveryNoteRenderer) renderDeliveryNoteHeader(pdf *gofpdf.Fpdf, snapsho
 	pdf.SetFont("noto", "", 10)
 	colW := (pageW - left - right) / 3
 	widths := []float64{colW, colW, colW}
-	writeDeliveryNoteMetaRow(pdf, widths, []string{
-		"出库单号：" + snapshot.DeliveryNoteNo,
-		"订单号：" + snapshot.OrderNo,
-		"出库日期：" + snapshot.PostingDate,
-	}, 6)
-	writeDeliveryNoteMetaRow(pdf, widths, []string{
-		"客户：" + snapshot.CustomerName,
-		"客户公司：" + firstNonEmpty(snapshot.CustomerCompanyName, snapshot.CustomerName),
-		"联系电话：" + firstNonEmpty(snapshot.CustomerCompanyPhone, snapshot.ReceiverPhone),
-	}, 6)
-	writeDeliveryNoteMetaRow(pdf, widths, []string{
-		"收货人：" + snapshot.ReceiverName,
-		"快递单号：" + snapshot.TrackingNo,
-		"出库仓：" + firstNonEmpty(snapshot.SourceWarehouseName, snapshot.SourceWarehouse),
-	}, 6)
+	for _, row := range deliveryNoteHeaderMetaRows(snapshot) {
+		writeDeliveryNoteMetaRow(pdf, widths, row, 6)
+	}
 	writeDeliveryNoteMetaRow(pdf, []float64{pageW - left - right}, []string{
 		"收货地址：" + firstNonEmpty(snapshot.ReceiverAddress, snapshot.CustomerCompanyAddress),
 	}, 6)
 	pdf.Ln(3)
+}
+
+func deliveryNoteHeaderMetaRows(snapshot salesdomain.DeliveryNoteSnapshot) [][]string {
+	return [][]string{
+		{
+			"出库单号：" + snapshot.DeliveryNoteNo,
+			"单据日期：" + firstNonEmpty(snapshot.DocumentDate, snapshot.OrderDate),
+			"出库日期：" + snapshot.PostingDate,
+		},
+		{
+			"订单号：" + snapshot.OrderNo,
+			"订单日期：" + snapshot.OrderDate,
+			"客户：" + snapshot.CustomerName,
+		},
+		{
+			"客户公司：" + firstNonEmpty(snapshot.CustomerCompanyName, snapshot.CustomerName),
+			"联系电话：" + firstNonEmpty(snapshot.CustomerCompanyPhone, snapshot.ReceiverPhone),
+			"出库仓：" + firstNonEmpty(snapshot.SourceWarehouseName, snapshot.SourceWarehouse),
+		},
+		{
+			"收货人：" + snapshot.ReceiverName,
+			"快递单号：" + snapshot.TrackingNo,
+			"",
+		},
+	}
 }
 
 func writeDeliveryNoteMetaRow(pdf *gofpdf.Fpdf, widths []float64, texts []string, lineHeight float64) {

@@ -6,14 +6,14 @@ import (
 	"testing"
 )
 
-func TestDev344OrderCustomerProfileBeanListSeeds(t *testing.T) {
+func TestDev345OrderCustomerProfileBeanListSeeds(t *testing.T) {
 	src := string(readOrderAppFileForTest(t, filepath.Join("internal", "interfaces", "http", "support", "req_store.go")))
 	for _, want := range []string{
-		"PR-344-ORDER-CUSTOMER-PROFILE-BEANLIST-DRAWER",
-		"DEV-344-ORDER-CUSTOMER-PROFILE-BEANLIST-DRAWER",
-		"UT-344-ORDER-CUSTOMER-PROFILE-BEANLIST-DRAWER",
-		"API-344-ORDER-CUSTOMER-PROFILE-BEANLIST-DRAWER",
-		"REV-344-ORDER-CUSTOMER-PROFILE-BEANLIST-DRAWER",
+		"PR-345-ORDER-CUSTOMER-PROFILE-BEANLIST-DRAWER",
+		"DEV-345-ORDER-CUSTOMER-PROFILE-BEANLIST-DRAWER",
+		"UT-345-ORDER-CUSTOMER-PROFILE-BEANLIST-DRAWER",
+		"API-345-ORDER-CUSTOMER-PROFILE-BEANLIST-DRAWER",
+		"REV-345-ORDER-CUSTOMER-PROFILE-BEANLIST-DRAWER",
 	} {
 		if !strings.Contains(src, want) {
 			t.Fatalf("PR-343 requirement seed missing %q", want)
@@ -21,7 +21,7 @@ func TestDev344OrderCustomerProfileBeanListSeeds(t *testing.T) {
 	}
 }
 
-func TestDev344OrderCustomerProfileBeanListWiring(t *testing.T) {
+func TestDev345OrderCustomerProfileBeanListWiring(t *testing.T) {
 	orderSrc := string(readOrderAppFileForTest(t, filepath.Join("frontend-vue-shell", "src", "views", "OrderEntryView.vue")))
 	orderInfoStart := strings.Index(orderSrc, `<section class="panel order-fields"`)
 	lineItemStart := strings.Index(orderSrc, `<section class="panel" :class`)
@@ -73,7 +73,7 @@ func TestDev344OrderCustomerProfileBeanListWiring(t *testing.T) {
 	}
 }
 
-func TestDev344OrderCustomerProfileBeanListBackendGuards(t *testing.T) {
+func TestDev345OrderCustomerProfileBeanListBackendGuards(t *testing.T) {
 	customerService := string(readOrderAppFileForTest(t, filepath.Join("internal", "application", "customer", "service.go")))
 	for _, want := range []string{
 		"validateRequiredCustomerProfileDefaults",
@@ -99,7 +99,7 @@ func TestDev344OrderCustomerProfileBeanListBackendGuards(t *testing.T) {
 	}
 }
 
-func TestDev344OrderCustomerProfileBeanListDocs(t *testing.T) {
+func TestDev345OrderCustomerProfileBeanListDocs(t *testing.T) {
 	for _, rel := range []string{
 		filepath.Join("docs", "REQUIREMENTS.md"),
 		filepath.Join("docs", "ACCEPTANCE_TESTS.md"),
@@ -108,7 +108,7 @@ func TestDev344OrderCustomerProfileBeanListDocs(t *testing.T) {
 	} {
 		src := string(readOrderAppFileForTest(t, rel))
 		for _, want := range []string{
-			"PR-344-ORDER-CUSTOMER-PROFILE-BEANLIST-DRAWER",
+			"PR-345-ORDER-CUSTOMER-PROFILE-BEANLIST-DRAWER",
 			"客户类型",
 			"选择豆单",
 		} {

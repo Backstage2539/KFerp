@@ -11,6 +11,7 @@ import (
 type SaveOrderCommand struct {
 	Actor                           string
 	EditID                          int64
+	DocumentDate                    time.Time
 	OrderDate                       time.Time
 	CustomerID                      int64
 	SourceID                        int64
@@ -128,6 +129,7 @@ type OrderShippingExportItem struct {
 
 type UpdateHeaderCommand struct {
 	Actor                 string
+	DocumentDate          string
 	OrderDate             string
 	CustomerID            int64
 	SourceID              int64
@@ -331,6 +333,7 @@ type OrderEditItem struct {
 type OrderEditData struct {
 	ID                    int64
 	OrderNo               string
+	DocumentDate          string
 	OrderDate             string
 	CustomerID            int64
 	SourceID              int64
@@ -390,6 +393,7 @@ type OrdersSummary struct {
 type OrderRow struct {
 	ID                    int64  `json:"id"`
 	OrderNo               string `json:"order_no"`
+	DocumentDate          string `json:"document_date"`
 	OrderDate             string `json:"order_date"`
 	CustomerID            int64  `json:"customer_id"`
 	Customer              string `json:"customer"`

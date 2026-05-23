@@ -536,7 +536,9 @@ func (r Repository) loadSalesOrderImageVersionsTx(ctx context.Context, tx pgx.Tx
 func (r Repository) buildSalesOrderSnapshotTx(ctx context.Context, tx pgx.Tx, orderID int64, settings salesapp.SalesOrderSettings) (salesdomain.SalesOrderSnapshot, error) {
 	var snapshot salesdomain.SalesOrderSnapshot
 	var total, shipping, discount, grand float64
-	q := fmt.Sprintf(`SELECT o.id, o.order_no, COALESCE(to_char(o.order_date,'YYYY-MM-DD'),''), COALESCE(c.name,''),
+	q := fmt.Sprintf(`SELECT o.id, o.order_no,
+			COALESCE(to_char(o.document_date,'YYYY-MM-DD'), to_char(o.order_date,'YYYY-MM-DD'), ''),
+			COALESCE(to_char(o.order_date,'YYYY-MM-DD'),''), COALESCE(c.name,''),
 			COALESCE(NULLIF(c.company_name,''), c.name, ''), COALESCE(NULLIF(c.company_address,''), c.address, ''),
 			COALESCE(NULLIF(c.company_phone,''), c.phone, ''),
 			COALESCE(o.total_amount,0)::float8, COALESCE(o.shipping_amount,0)::float8,
@@ -546,7 +548,7 @@ func (r Repository) buildSalesOrderSnapshotTx(ctx context.Context, tx pgx.Tx, or
 		FROM %s.orders o
 		LEFT JOIN %s.customers c ON c.id=o.customer_id
 		WHERE o.id=$1`, r.schema, r.schema)
-	if err := tx.QueryRow(ctx, q, orderID).Scan(&snapshot.OrderID, &snapshot.OrderNo, &snapshot.OrderDate, &snapshot.CustomerName, &snapshot.CustomerCompanyName, &snapshot.CustomerCompanyAddress, &snapshot.CustomerCompanyPhone, &total, &shipping, &discount, &grand, &snapshot.ExpressFee, &snapshot.SalesOrderNote); err != nil {
+	if err := tx.QueryRow(ctx, q, orderID).Scan(&snapshot.OrderID, &snapshot.OrderNo, &snapshot.DocumentDate, &snapshot.OrderDate, &snapshot.CustomerName, &snapshot.CustomerCompanyName, &snapshot.CustomerCompanyAddress, &snapshot.CustomerCompanyPhone, &total, &shipping, &discount, &grand, &snapshot.ExpressFee, &snapshot.SalesOrderNote); err != nil {
 		return salesdomain.SalesOrderSnapshot{}, err
 	}
 	companyProfile, err := r.loadCompanyProfileForSalesOrderTx(ctx, tx)
