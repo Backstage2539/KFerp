@@ -157,12 +157,16 @@
             <span>运费金额</span>
             <input v-model.trim="form.payment_shipping_amount" type="number" min="0" step="0.01" />
           </label>
-          <label class="voucher-field">
+          <div class="voucher-field">
             <span>收款凭证</span>
-            <input type="file" accept="image/*,.pdf" @change="handlePaymentVoucherFile" />
+            <label class="file-upload-control">
+              <input type="file" accept="image/*,.pdf" @change="handlePaymentVoucherFile" />
+              <span class="file-button">选择文件</span>
+              <span class="file-name">{{ paymentVoucherFile?.name || paymentVoucher?.filename || '未选择文件' }}</span>
+            </label>
             <small v-if="uploadingVoucher">上传中...</small>
             <small v-else-if="paymentVoucher">{{ paymentVoucher.filename || '已上传凭证' }}</small>
-          </label>
+          </div>
         </div>
       </div>
 
@@ -1359,7 +1363,8 @@ watch(
 </script>
 
 <style scoped>
-.page { min-height: 100%; padding: 18px; display: grid; gap: 14px; background: #f6f7f9; color: #15171a; }
+.page { min-height: 100%; max-width: 100%; overflow-x: hidden; padding: 18px; display: grid; gap: 14px; background: #f6f7f9; color: #15171a; box-sizing: border-box; }
+.page * { box-sizing: border-box; }
 .page.embedded { min-height: auto; padding: 0; background: transparent; }
 .order-hero, .panel { background: #fff; border: 1px solid #e7e9ee; border-radius: 8px; box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04); }
 .order-hero { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 18px 20px; }
@@ -1375,8 +1380,16 @@ watch(
 .form-grid.compact { grid-template-columns: repeat(4, minmax(150px, 1fr)); }
 .full-span { grid-column: 1 / -1; }
 .conditional-panel { display: grid; grid-template-columns: repeat(3, minmax(180px, 1fr)); gap: 12px; align-items: end; padding: 12px; border: 1px solid #e4e7ec; border-radius: 8px; background: #fafbfc; }
+.order-hero, .panel, .form-grid, .conditional-panel, .line-item { min-width: 0; }
+.form-grid > *, .conditional-panel > *, .line-item > * { min-width: 0; }
 .condition-title { align-self: center; font-weight: 700; color: #1f2937; }
+.voucher-field { position: relative; display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.voucher-field > span { color: #667085; font-size: 12px; }
 .voucher-field small { color: #667085; font-size: 12px; }
+.file-upload-control { position: relative; width: 100%; min-height: 38px; display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 8px; border: 1px solid #d7dbe3; border-radius: 6px; padding: 6px 8px; background: #fff; cursor: pointer; }
+.file-upload-control input { position: absolute; width: 1px; height: 1px; overflow: hidden; opacity: 0; pointer-events: none; }
+.file-button { min-height: 26px; display: inline-flex; align-items: center; justify-content: center; border-radius: 999px; padding: 2px 12px; background: #eef0f3; color: #111827; font-size: 13px; white-space: nowrap; }
+.file-name { min-width: 0; color: #344054; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 label { position: relative; display: flex; flex-direction: column; gap: 6px; min-width: 0; }
 input, select, textarea, button { font: inherit; }
 input, select, textarea { width: 100%; border: 1px solid #d7dbe3; border-radius: 6px; padding: 8px 10px; min-height: 38px; background: #fff; box-sizing: border-box; }
@@ -1447,9 +1460,14 @@ button:disabled { cursor: not-allowed; opacity: 0.5; }
 }
 
 @media (max-width: 760px) {
-  .page { padding: 12px; }
+  .page { padding: 12px; overflow-x: hidden; }
   .order-hero, .section-row, .save-row { align-items: stretch; flex-direction: column; }
-  .form-grid, .form-grid.compact, .line-item { grid-template-columns: 1fr; }
+  .form-grid, .form-grid.compact, .line-item, .conditional-panel { grid-template-columns: 1fr; }
+  .conditional-panel { align-items: stretch; padding: 12px; }
+  .global-error-toast { top: max(12px, env(safe-area-inset-top)); left: max(12px, env(safe-area-inset-left)); right: max(12px, env(safe-area-inset-right)); width: auto; max-width: none; }
   .hero-actions { width: 100%; }
+  .file-upload-control { grid-template-columns: auto minmax(0, 1fr); }
+  .tier-price-chip { max-width: 100%; grid-template-columns: minmax(0, 1fr) auto; }
+  .tier-price-chip span { overflow-wrap: anywhere; }
 }
 </style>
