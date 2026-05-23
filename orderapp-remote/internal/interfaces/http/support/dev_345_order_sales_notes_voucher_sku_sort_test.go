@@ -6,14 +6,14 @@ import (
 	"testing"
 )
 
-func TestDev344OrderSalesNotesVoucherSkuSortRequirementSeeds(t *testing.T) {
+func TestDev345OrderSalesNotesVoucherSkuSortRequirementSeeds(t *testing.T) {
 	src := string(readOrderAppFileForTest(t, filepath.Join("internal", "interfaces", "http", "support", "req_store.go")))
 	for _, want := range []string{
-		"PR-344-ORDER-SALES-NOTES-VOUCHER-SKU-SORT",
-		"DEV-344-ORDER-SALES-NOTES-VOUCHER-SKU-SORT",
-		"UT-344-ORDER-SALES-NOTES-VOUCHER-SKU-SORT",
-		"API-344-ORDER-SALES-NOTES-VOUCHER-SKU-SORT",
-		"REV-344-ORDER-SALES-NOTES-VOUCHER-SKU-SORT",
+		"PR-345-ORDER-SALES-NOTES-VOUCHER-SKU-SORT",
+		"DEV-345-ORDER-SALES-NOTES-VOUCHER-SKU-SORT",
+		"UT-345-ORDER-SALES-NOTES-VOUCHER-SKU-SORT",
+		"API-345-ORDER-SALES-NOTES-VOUCHER-SKU-SORT",
+		"REV-345-ORDER-SALES-NOTES-VOUCHER-SKU-SORT",
 	} {
 		if !strings.Contains(src, want) {
 			t.Fatalf("PR-344 requirement seed missing %q", want)
@@ -21,7 +21,7 @@ func TestDev344OrderSalesNotesVoucherSkuSortRequirementSeeds(t *testing.T) {
 	}
 }
 
-func TestDev344OrderSalesNotesVoucherSkuSortWiring(t *testing.T) {
+func TestDev345OrderSalesNotesVoucherSkuSortWiring(t *testing.T) {
 	checks := []struct {
 		rel     string
 		markers []string
@@ -76,7 +76,7 @@ func TestDev344OrderSalesNotesVoucherSkuSortWiring(t *testing.T) {
 	}
 }
 
-func TestDev344OrderSalesNotesVoucherSkuSortDocs(t *testing.T) {
+func TestDev345OrderSalesNotesVoucherSkuSortDocs(t *testing.T) {
 	checks := []struct {
 		rel     string
 		markers []string
@@ -84,7 +84,7 @@ func TestDev344OrderSalesNotesVoucherSkuSortDocs(t *testing.T) {
 		{
 			rel: filepath.Join("docs", "REQUIREMENTS.md"),
 			markers: []string{
-				"PR-344-ORDER-SALES-NOTES-VOUCHER-SKU-SORT",
+				"PR-345-ORDER-SALES-NOTES-VOUCHER-SKU-SORT",
 				"收款凭证",
 				"物流费用",
 				"SKU",
@@ -94,7 +94,7 @@ func TestDev344OrderSalesNotesVoucherSkuSortDocs(t *testing.T) {
 		{
 			rel: filepath.Join("docs", "ACCEPTANCE_TESTS.md"),
 			markers: []string{
-				"PR-344-ORDER-SALES-NOTES-VOUCHER-SKU-SORT",
+				"PR-345-ORDER-SALES-NOTES-VOUCHER-SKU-SORT",
 				"收款凭证",
 				"物流费用",
 				"客户 SKU 和 BOM",
@@ -103,7 +103,7 @@ func TestDev344OrderSalesNotesVoucherSkuSortDocs(t *testing.T) {
 		{
 			rel: filepath.Join("docs", "OP_MANUAL_ORDER_SALES.md"),
 			markers: []string{
-				"PR-344-ORDER-SALES-NOTES-VOUCHER-SKU-SORT",
+				"PR-345-ORDER-SALES-NOTES-VOUCHER-SKU-SORT",
 				"快递费备注",
 				"订单明细备注",
 				"收款凭证上传后会默认收起",

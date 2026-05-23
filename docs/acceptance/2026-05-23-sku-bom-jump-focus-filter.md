@@ -1,4 +1,4 @@
-# PR-345-SKU-BOM-JUMP-FOCUS-FILTER SKU 列表跳转 BOM 后自动过滤验收
+# PR-346-SKU-BOM-JUMP-FOCUS-FILTER SKU 列表跳转 BOM 后自动过滤验收
 
 ## 范围
 - SKU设置客户SKU列表的“维护 BOM”入口。
@@ -13,5 +13,5 @@
 
 ## 验证证据
 - 前端单测：`node --test src/lib/product-settings.test.js src/lib/bom.test.js`
-- 支持测试：`go test ./internal/interfaces/http/support -run TestDev345 -count=1`
+- 支持测试：`go test ./internal/interfaces/http/support -run TestDev346 -count=1`
 - 手册：`OP_MANUAL_INVENTORY_MATERIALS.md`

@@ -6,14 +6,14 @@ import (
 	"testing"
 )
 
-func TestDev345SkuBomJumpFocusFilterRequirementSeeds(t *testing.T) {
+func TestDev346SkuBomJumpFocusFilterRequirementSeeds(t *testing.T) {
 	src := string(readOrderAppFileForTest(t, filepath.Join("internal", "interfaces", "http", "support", "req_store.go")))
 	for _, want := range []string{
-		"PR-345-SKU-BOM-JUMP-FOCUS-FILTER",
-		"DEV-345-SKU-BOM-JUMP-FOCUS-FILTER",
-		"UT-345-SKU-BOM-JUMP-FOCUS-FILTER",
-		"API-345-SKU-BOM-JUMP-FOCUS-FILTER",
-		"REV-345-SKU-BOM-JUMP-FOCUS-FILTER",
+		"PR-346-SKU-BOM-JUMP-FOCUS-FILTER",
+		"DEV-346-SKU-BOM-JUMP-FOCUS-FILTER",
+		"UT-346-SKU-BOM-JUMP-FOCUS-FILTER",
+		"API-346-SKU-BOM-JUMP-FOCUS-FILTER",
+		"REV-346-SKU-BOM-JUMP-FOCUS-FILTER",
 	} {
 		if !strings.Contains(src, want) {
 			t.Fatalf("PR-345 requirement seed missing %q", want)
@@ -21,7 +21,7 @@ func TestDev345SkuBomJumpFocusFilterRequirementSeeds(t *testing.T) {
 	}
 }
 
-func TestDev345SkuBomJumpFocusFilterWiring(t *testing.T) {
+func TestDev346SkuBomJumpFocusFilterWiring(t *testing.T) {
 	checks := []struct {
 		rel     string
 		markers []string
@@ -67,7 +67,7 @@ func TestDev345SkuBomJumpFocusFilterWiring(t *testing.T) {
 	}
 }
 
-func TestDev345SkuBomJumpFocusFilterDocs(t *testing.T) {
+func TestDev346SkuBomJumpFocusFilterDocs(t *testing.T) {
 	for _, rel := range []string{
 		filepath.Join("docs", "REQUIREMENTS.md"),
 		filepath.Join("docs", "ACCEPTANCE_TESTS.md"),
@@ -76,7 +76,7 @@ func TestDev345SkuBomJumpFocusFilterDocs(t *testing.T) {
 	} {
 		src := string(readOrderAppFileForTest(t, rel))
 		for _, want := range []string{
-			"PR-345-SKU-BOM-JUMP-FOCUS-FILTER",
+			"PR-346-SKU-BOM-JUMP-FOCUS-FILTER",
 			"维护 BOM",
 			"显示全部 BOM",
 		} {

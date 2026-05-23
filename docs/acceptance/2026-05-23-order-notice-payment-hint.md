@@ -1,4 +1,4 @@
-# PR-341-ORDER-NOTICE-DEDUP-PAYMENT-HINT
+# PR-342-ORDER-NOTICE-DEDUP-PAYMENT-HINT
 
 ## 需求
 
@@ -14,5 +14,5 @@
 
 ## 证据
 
-- `go test ./internal/application/messagecenter ./internal/interfaces/http/messagecenter ./internal/interfaces/http/support -run 'TestServiceDedupesNotificationsByEventID|TestMessageCenter|TestDev341' -count=1`
+- `go test ./internal/application/messagecenter ./internal/interfaces/http/messagecenter ./internal/interfaces/http/support -run 'TestServiceDedupesNotificationsByEventID|TestMessageCenter|TestDev342' -count=1`
 - `node --test src/lib/global-notifications.test.js src/lib/order-entry.test.js`

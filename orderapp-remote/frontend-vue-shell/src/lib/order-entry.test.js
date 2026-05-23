@@ -13,6 +13,7 @@ import {
   dripTierPriceRows,
   lineDiscountAmount,
   lineTotal,
+  needsTrailingBlankOrderLine,
   orderRowPriceUnit,
   resolveWholesaleTierPrice,
   syncDripTierPrice,
@@ -25,6 +26,7 @@ import {
   responsibleOptions,
   retailPackagePrice,
   retailSpecOptions,
+  rowUsesStaleBeanListPublication,
   sortProductsByCustomerUsage,
   wholesalePriceUnit,
   wholesaleTierPriceRows,
@@ -430,6 +432,43 @@ test('OrderEntryView shows tier unit price, bean list version without unrecorded
   assert.match(source, /低于最低梯度/)
   assert.match(source, /\.tier-warning/)
   assert.doesNotMatch(source, /豆单版本：\{\{\s*row\.bean_list_version_no\s*\|\|\s*'未记录'\s*\}\}/)
+})
+
+test('rowUsesStaleBeanListPublication flags product rows whose publication is not the latest version', () => {
+  const options = [
+    { id: 31, list_type: 'commercial', version_no: 'V3.0.6', is_default: false },
+    { id: 33, list_type: 'commercial', version_no: 'V3.0.9', is_default: true },
+    { id: 41, list_type: 'green', version_no: 'V2.0.1', is_default: true },
+  ]
+
+  assert.equal(rowUsesStaleBeanListPublication({ product_id: 7, product_kind: 'roasted_bean', bean_list_publication_id: 31 }, options), true)
+  assert.equal(rowUsesStaleBeanListPublication({ product_id: 7, product_kind: 'roasted_bean', bean_list_publication_id: 33 }, options), false)
+  assert.equal(rowUsesStaleBeanListPublication({ product_id: 8, product_kind: 'green_bean', bean_list_publication_id: 41 }, options), false)
+  assert.equal(rowUsesStaleBeanListPublication({ product_id: 0, bean_list_publication_id: 31 }, options), false)
+})
+
+test('needsTrailingBlankOrderLine only requests one empty detail row after product selection', () => {
+  assert.equal(needsTrailingBlankOrderLine([
+    { product_id: 7, product_query: '兰卡拼配', item_note: '' },
+  ]), true)
+  assert.equal(needsTrailingBlankOrderLine([
+    { product_id: 7, product_query: '兰卡拼配', item_note: '' },
+    { product_id: 0, product_query: '', item_note: '', unit_price: '' },
+  ]), false)
+  assert.equal(needsTrailingBlankOrderLine([
+    { product_id: 7, product_query: '兰卡拼配', item_note: '' },
+    { product_id: 0, product_query: '正在搜索', item_note: '', unit_price: '' },
+  ]), true)
+})
+
+test('OrderEntryView puts add detail below the list and renders stale bean list warning icon', () => {
+  const source = orderEntryViewSource()
+  const headerBlock = source.slice(source.indexOf('<section class="panel"'), source.indexOf('<div class="line-list">'))
+  assert.doesNotMatch(headerBlock, /新增明细/)
+  assert.ok(source.indexOf('class="line-actions"') > source.indexOf('<div class="line-list">'))
+  assert.match(source, /rowUsesStaleBeanListPublication/)
+  assert.match(source, /非新版本豆单/)
+  assert.match(source, /bean-list-version-warning/)
 })
 
 test('buildOrderPayload preserves manual unit price override', () => {
