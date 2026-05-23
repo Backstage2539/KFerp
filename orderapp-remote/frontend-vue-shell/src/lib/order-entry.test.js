@@ -541,6 +541,17 @@ test('order entry raises the active combobox above following fields', () => {
   assert.ok(openZIndex > baseZIndex, `expected active combobox z-index ${openZIndex} to exceed base z-index ${baseZIndex}`)
 })
 
+test('order entry shows save errors in a fixed global alert', () => {
+  const source = orderEntryViewSource()
+
+  assert.match(source, /<div\s+v-if="error"\s+class="global-error-toast notice error"\s+role="alert">/)
+  assert.match(source, /<button class="toast-close" type="button" aria-label="关闭错误提示" @click="error = ''">/)
+
+  const toastStyles = cssBlock(source, '.global-error-toast')
+  assert.match(toastStyles, /position:\s*fixed/)
+  assert.match(toastStyles, /z-index:\s*80/)
+})
+
 test('lineTotal uses manual unit price even for retail rows', () => {
   assert.equal(lineTotal(product, {
     tier_id: 'manual',

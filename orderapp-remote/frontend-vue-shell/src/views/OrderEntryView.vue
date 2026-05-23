@@ -15,7 +15,13 @@
       </div>
     </section>
 
-    <div v-if="error" class="notice error">{{ error }}</div>
+    <div v-if="error" class="global-error-toast notice error" role="alert">
+      <div class="toast-text">
+        <strong>操作失败</strong>
+        <span>{{ error }}</span>
+      </div>
+      <button class="toast-close" type="button" aria-label="关闭错误提示" @click="error = ''">×</button>
+    </div>
     <div v-if="ok" class="notice ok">订单已保存：{{ ok }}</div>
     <div v-if="copyMode" class="notice warn">复制订单会生成一张新订单，不会修改原订单。</div>
     <div v-if="stockBatchNotice" class="notice warn">{{ stockBatchNotice }}</div>
@@ -1388,6 +1394,11 @@ button:disabled { cursor: not-allowed; opacity: 0.5; }
 .notice { border-radius: 8px; padding: 10px 12px; }
 .notice.ok { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
 .notice.ok a { color: #0f3d99; font-weight: 700; text-decoration: none; }
+.global-error-toast { position: fixed; top: 18px; right: 18px; z-index: 80; width: min(520px, calc(100vw - 36px)); display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; box-shadow: 0 18px 44px rgba(159, 18, 57, 0.18); }
+.toast-text { display: grid; gap: 2px; min-width: 0; }
+.toast-text strong { font-size: 13px; }
+.toast-text span { overflow-wrap: anywhere; }
+.toast-close { width: 28px; height: 28px; padding: 0; display: inline-grid; place-items: center; flex: 0 0 auto; border: 0; background: transparent; color: inherit; font-size: 20px; line-height: 1; }
 .error { background: #fff1f2; border: 1px solid #fecdd3; color: #9f1239; }
 .ok { background: #ecfdf3; border: 1px solid #bbf7d0; color: #166534; }
 .warn { background: #fffbeb; border: 1px solid #fde68a; color: #92400e; }
