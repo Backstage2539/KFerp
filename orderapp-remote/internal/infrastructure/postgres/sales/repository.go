@@ -934,6 +934,13 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 		return salesapp.SaveOrderResult{}, err
 	}
 
+	customerProfile, err := r.requiredOrderCustomerProfileTx(ctx, tx, cmd.CustomerID)
+	if err != nil {
+		return salesapp.SaveOrderResult{}, err
+	}
+	cmd.SourceID = customerProfile.sourceID
+	cmd.OrderTypeID = customerProfile.orderTypeID
+
 	orderNo := ""
 	retailOrder := false
 	if cmd.OrderTypeID > 0 {
@@ -1625,6 +1632,43 @@ func (r Repository) resolveOrderBeanListPublicationTx(ctx context.Context, tx pg
 		return 0, "", nil
 	}
 	return requestedID, version, nil
+}
+
+type requiredOrderCustomerProfile struct {
+	customerType string
+	sourceID     int64
+	orderTypeID  int64
+}
+
+func (r Repository) requiredOrderCustomerProfileTx(ctx context.Context, tx pgx.Tx, customerID int64) (requiredOrderCustomerProfile, error) {
+	var profile requiredOrderCustomerProfile
+	err := tx.QueryRow(ctx, fmt.Sprintf(`
+		SELECT COALESCE(customer_type,''), COALESCE(default_source_id,0), COALESCE(default_order_type_id,0)
+		FROM %s.customers
+		WHERE id=$1 AND active=true
+	`, r.schema), customerID).Scan(&profile.customerType, &profile.sourceID, &profile.orderTypeID)
+	if err != nil {
+		if err == pgx.ErrNoRows {
+			return requiredOrderCustomerProfile{}, fmt.Errorf("customer required")
+		}
+		return requiredOrderCustomerProfile{}, err
+	}
+	missing := make([]string, 0, 3)
+	switch strings.TrimSpace(profile.customerType) {
+	case "retail", "ecommerce", "wholesale":
+	default:
+		missing = append(missing, "客户类型")
+	}
+	if profile.sourceID <= 0 {
+		missing = append(missing, "来源")
+	}
+	if profile.orderTypeID <= 0 {
+		missing = append(missing, "订单类型")
+	}
+	if len(missing) > 0 {
+		return requiredOrderCustomerProfile{}, fmt.Errorf("客户资料缺少%s，请先在客户资料维护", strings.Join(missing, "、"))
+	}
+	return profile, nil
 }
 
 func relationExistsTx(ctx context.Context, tx pgx.Tx, relation string) bool {

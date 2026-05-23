@@ -32,13 +32,15 @@ func (r *fakeCustomerRepo) List(ctx context.Context, query customerapp.ListQuery
 func (r *fakeCustomerRepo) Editor(ctx context.Context, id int64) (*customerapp.EditorData, error) {
 	return &customerapp.EditorData{
 		Customer: customerapp.CustomerEditData{
-			ID:             id,
-			Name:           r.upsert.Name,
-			CustomerType:   r.upsert.CustomerType,
-			CompanyName:    r.upsert.CompanyName,
-			CompanyAddress: r.upsert.CompanyAddress,
-			CompanyPhone:   r.upsert.CompanyPhone,
-			Active:         true,
+			ID:                 id,
+			Name:               r.upsert.Name,
+			CustomerType:       r.upsert.CustomerType,
+			CompanyName:        r.upsert.CompanyName,
+			CompanyAddress:     r.upsert.CompanyAddress,
+			CompanyPhone:       r.upsert.CompanyPhone,
+			DefaultSourceID:    r.upsert.DefaultSourceID,
+			DefaultOrderTypeID: r.upsert.DefaultOrderTypeID,
+			Active:             true,
 		},
 	}, nil
 }
@@ -73,7 +75,7 @@ func TestCustomerAPIStoresCompanyContactFields(t *testing.T) {
 	e := echo.New()
 	RegisterRoutes(e, Dependencies{Customer: customerapp.NewService(repo)})
 
-	body := strings.NewReader(`{"name":"张三","company_name":"张三咖啡公司","company_address":"上海市徐汇区","company_phone":"021-12345678","active":true}`)
+	body := strings.NewReader(`{"name":"张三","customer_type":"wholesale","company_name":"张三咖啡公司","company_address":"上海市徐汇区","company_phone":"021-12345678","default_source_id":1,"default_order_type_id":2,"active":true}`)
 	req := httptest.NewRequest(http.MethodPost, "/api/customers", body)
 	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
 	rec := httptest.NewRecorder()
@@ -102,7 +104,7 @@ func TestCustomerAPIRoundTripsCustomerType(t *testing.T) {
 	e := echo.New()
 	RegisterRoutes(e, Dependencies{Customer: customerapp.NewService(repo)})
 
-	body := strings.NewReader(`{"name":"岩师傅","customer_type":"wholesale","active":true}`)
+	body := strings.NewReader(`{"name":"岩师傅","customer_type":"wholesale","default_source_id":1,"default_order_type_id":2,"active":true}`)
 	req := httptest.NewRequest(http.MethodPost, "/api/customers", body)
 	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
 	rec := httptest.NewRecorder()
@@ -120,7 +122,7 @@ func TestCustomerAPIRoundTripsCustomerType(t *testing.T) {
 	}
 }
 
-func TestCustomerAPIDefaultsHistoricalCustomersToRetail(t *testing.T) {
+func TestCustomerAPIRequiresCustomerTypeSourceAndOrderType(t *testing.T) {
 	repo := &fakeCustomerRepo{}
 	e := echo.New()
 	RegisterRoutes(e, Dependencies{Customer: customerapp.NewService(repo)})
@@ -132,14 +134,16 @@ func TestCustomerAPIDefaultsHistoricalCustomersToRetail(t *testing.T) {
 
 	e.ServeHTTP(rec, req)
 
-	if rec.Code != http.StatusOK {
-		t.Fatalf("POST /api/customers status=%d body=%s", rec.Code, rec.Body.String())
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("POST /api/customers status=%d, want 400, body=%s", rec.Code, rec.Body.String())
 	}
-	if repo.upsert.CustomerType != customerapp.CustomerTypeRetail {
-		t.Fatalf("default customer_type=%q, want retail", repo.upsert.CustomerType)
+	for _, want := range []string{"客户类型", "来源", "订单类型"} {
+		if !strings.Contains(rec.Body.String(), want) {
+			t.Fatalf("response missing required %s error: %s", want, rec.Body.String())
+		}
 	}
-	if !strings.Contains(rec.Body.String(), `"customer_type":"retail"`) {
-		t.Fatalf("response missing retail customer_type: %s", rec.Body.String())
+	if repo.upsert.Name != "" {
+		t.Fatalf("repo should not be called for invalid customer defaults, got %+v", repo.upsert)
 	}
 }
 

@@ -62,8 +62,8 @@
               @mousedown.prevent="chooseCustomer(item)"
             >
               <strong>{{ item.name }}</strong>
-              <small v-if="item.default_source_id || item.default_order_type_id">
-                {{ optionName(sources, item.default_source_id) || '默认来源' }} / {{ optionName(orderTypes, item.default_order_type_id) || '默认类型' }}
+              <small v-if="item.customer_type || item.default_source_id || item.default_order_type_id">
+                {{ customerTypeLabel(item.customer_type) || '未设置客户类型' }} / {{ optionName(sources, item.default_source_id) || '未设置来源' }} / {{ optionName(orderTypes, item.default_order_type_id) || '未设置订单类型' }}
               </small>
             </button>
             <div v-if="!filteredCustomers.length" class="combo-empty">没有匹配客户</div>
@@ -75,37 +75,12 @@
           <input :value="selectedCustomerResponsibleLabel" placeholder="先在客户资料指定负责人" readonly />
         </label>
 
-        <label>
-          <span>来源</span>
-          <select v-model.number="form.source_id">
-            <option :value="0">选择来源</option>
-            <option v-for="item in sources" :key="item.id" :value="item.id">{{ item.name }}</option>
-          </select>
-        </label>
-
-        <label>
-          <span>订单类型</span>
-          <select v-model.number="form.order_type_id" @change="syncRowsForType">
-            <option :value="0">选择类型</option>
-            <option v-for="item in orderTypes" :key="item.id" :value="item.id">{{ item.name }}</option>
-          </select>
-        </label>
-
-        <template v-for="item in orderBeanListTypes" :key="item.type">
-          <label v-if="showBeanListVersionPickerByType(item.type)">
+        <div class="customer-profile-summary full-span">
+          <div v-for="item in selectedCustomerProfileSummary" :key="item.key" class="profile-summary-item" :class="{ missing: item.missing }">
             <span>{{ item.label }}</span>
-            <select :value="form[beanListVersionField(item.type)]" @change="setBeanListVersion(item.type, $event.target.value)">
-              <option v-for="option in customerBeanListVersionOptionsByType(item.type)" :key="option.id" :value="option.id">
-                {{ beanListVersionLabel(option) }}
-              </option>
-            </select>
-          </label>
-
-          <label v-else-if="selectedBeanListVersionOptionByType(item.type)" class="readonly-field">
-            <span>{{ item.label }}</span>
-            <input :value="beanListVersionLabel(selectedBeanListVersionOptionByType(item.type))" readonly />
-          </label>
-        </template>
+            <strong>{{ item.value }}</strong>
+          </div>
+        </div>
 
         <label>
           <span>付款状态</span>
@@ -193,7 +168,11 @@
     <section class="panel" :class="{ 'field-invalid': hasFieldError('product_items') }" data-error-field="product_items">
       <div class="section-row">
         <div class="section-title">商品明细</div>
-        <button class="secondary" type="button" @click="addRow">新增明细</button>
+        <div class="section-actions">
+          <button class="secondary" type="button" @click="openBeanListDrawer" :disabled="!form.customer_id">选择豆单</button>
+          <small class="bean-list-summary">{{ selectedBeanListSummary }}</small>
+          <button class="secondary" type="button" @click="addRow">新增明细</button>
+        </div>
       </div>
       <div class="line-list">
         <article v-for="(row, idx) in rows" :key="row.key" class="line-item">
@@ -355,6 +334,8 @@
           <li>录单时可点“新增客户”打开右侧抽屉，粘贴收件信息后可解析姓名、联系电话和地址。</li>
           <li>选择客户后会带入客户档案中的默认来源和订单类型。</li>
           <li>客户有历史订单时，商品下拉会把常用商品排在最前面。</li>
+          <li>来源、客户类型和订单类型只在客户资料维护，录单选择客户后只读展示。</li>
+          <li>商品明细区点击“选择豆单”可切换熟豆、生豆、挂耳已发布豆单；客户没有自定义豆单时使用公共豆单。</li>
           <li>常用规格：36g、80g、100g、227g、454g、500g、1000g、2.5kg。</li>
           <li>挂耳产品可按袋或盒录单，盒价会按发布的挂耳价格梯度自动匹配。</li>
           <li>新订单默认已付款、未发货；商品单价会随规格和数量匹配价格梯度。</li>
@@ -401,6 +382,12 @@
             <input v-model.trim="customerForm.phone" />
           </label>
           <label>
+            <span>客户类型</span>
+            <select v-model="customerForm.customer_type">
+              <option v-for="item in customerTypeOptions" :key="item.value" :value="item.value">{{ item.label }}</option>
+            </select>
+          </label>
+          <label>
             <span>来源</span>
             <select v-model.number="customerForm.default_source_id">
               <option v-for="item in sources" :key="item.id" :value="item.id">{{ item.name }}</option>
@@ -432,6 +419,32 @@
           <button class="primary" type="button" @click="saveCustomerFromDrawer" :disabled="customerSaving">
             {{ customerSaving ? '保存中' : (customerDrawerMode === 'edit' ? '保存客户信息' : '保存并选择') }}
           </button>
+        </div>
+      </aside>
+    </div>
+
+    <div v-if="beanListDrawerOpen" class="drawer-mask" @click.self="closeBeanListDrawer">
+      <aside class="drawer bean-list-drawer">
+        <div class="drawer-head">
+          <h3>豆单选择</h3>
+          <button class="secondary" type="button" @click="closeBeanListDrawer">关闭</button>
+        </div>
+        <p class="drawer-help">可分别选择熟豆、生豆、挂耳已发布豆单。客户没有自定义豆单时，系统使用对应公共豆单。</p>
+        <div class="bean-list-picker-list">
+          <label v-for="item in orderBeanListTypes" :key="item.type">
+            <span>{{ item.label }}</span>
+            <select
+              v-if="customerBeanListVersionOptionsByType(item.type).length"
+              :value="form[beanListVersionField(item.type)]"
+              @change="setBeanListVersion(item.type, $event.target.value)"
+            >
+              <option v-for="option in customerBeanListVersionOptionsByType(item.type)" :key="option.id" :value="option.id">
+                {{ beanListVersionLabel(option) }}
+              </option>
+            </select>
+            <input v-else value="暂无已发布豆单" readonly />
+            <small>{{ beanListDrawerHint(item.type) }}</small>
+          </label>
         </div>
       </aside>
     </div>
@@ -510,6 +523,7 @@ const customerQuery = ref('')
 const customerOpen = ref(false)
 const customerDrawerOpen = ref(false)
 const customerDrawerMode = ref('create')
+const beanListDrawerOpen = ref(false)
 const customerSaving = ref(false)
 const customerError = ref('')
 const customerNotice = ref('')
@@ -517,6 +531,11 @@ const customerPaste = ref('')
 const customerForm = reactive(emptyCustomerForm())
 const fieldErrors = reactive({})
 const effectiveCopyID = ref(0)
+const customerTypeOptions = [
+  { value: 'retail', label: '零售客户' },
+  { value: 'ecommerce', label: '电商客户' },
+  { value: 'wholesale', label: '批发客户' },
+]
 
 const form = reactive({
   edit_id: 0,
@@ -587,6 +606,7 @@ function emptyCustomerForm() {
     id: 0,
     name: '',
     raw_name: '',
+    customer_type: 'retail',
     company_name: '',
     company_address: '',
     company_phone: '',
@@ -673,6 +693,26 @@ const copyMode = computed(() => Number(props.copyId || effectiveCopyID.value || 
 const activeEmployees = computed(() => employees.value.filter((employee) => employee.active !== false))
 const selectedCustomer = computed(() => customers.value.find((item) => Number(item.id || 0) === Number(form.customer_id || 0)) || null)
 const selectedCustomerResponsibleLabel = computed(() => selectedCustomer.value?.responsible_employee_name || '')
+const selectedCustomerProfileSummary = computed(() => [
+  {
+    key: 'customer_type',
+    label: '客户类型',
+    value: customerTypeLabel(selectedCustomer.value?.customer_type) || '未设置',
+    missing: !customerTypeLabel(selectedCustomer.value?.customer_type),
+  },
+  {
+    key: 'source',
+    label: '来源',
+    value: optionName(sources.value, selectedCustomer.value?.default_source_id) || '未设置',
+    missing: !Number(selectedCustomer.value?.default_source_id || 0),
+  },
+  {
+    key: 'order_type',
+    label: '订单类型',
+    value: optionName(orderTypes.value, selectedCustomer.value?.default_order_type_id) || '未设置',
+    missing: !Number(selectedCustomer.value?.default_order_type_id || 0),
+  },
+])
 const orderBeanListTypes = [
   { type: 'commercial', label: '熟豆豆单' },
   { type: 'green', label: '生豆豆单' },
@@ -682,6 +722,21 @@ const customerBeanListVersionOptions = computed(() => {
   const customerID = Number(form.customer_id || 0)
   return (beanListVersionOptions.value || []).filter((item) => Number(item.customer_id || 0) === customerID)
 })
+const selectedBeanListSummary = computed(() => orderBeanListTypes
+  .map((item) => {
+    const selected = selectedBeanListVersionOptionByType(item.type)
+    return `${item.label}：${selected ? beanListVersionLabel(selected) : '暂无'}`
+  })
+  .join('；'))
+
+function customerTypeLabel(value) {
+  return customerTypeOptions.find((item) => item.value === String(value || '').trim())?.label || ''
+}
+
+function selectedCustomerMissingProfileLabels() {
+  if (!selectedCustomer.value) return []
+  return selectedCustomerProfileSummary.value.filter((item) => item.missing).map((item) => item.label)
+}
 function productByID(id) {
   return products.value.find((item) => Number(item.id) === Number(id)) || null
 }
@@ -812,13 +867,18 @@ function chooseCustomer(item) {
   form.customer_id = Number(item.id || 0)
   customerQuery.value = item.name || ''
   customerOpen.value = false
+  syncOrderHeaderFromCustomer(item)
   syncBeanListVersionForCustomer({ force: true })
-  if (Number(item.default_source_id || 0) > 0) form.source_id = Number(item.default_source_id)
-  if (Number(item.default_order_type_id || 0) > 0) {
-    form.order_type_id = Number(item.default_order_type_id)
-    syncRowsForType()
-  }
   notifyWorkspaceCustomerChanged(form.customer_id)
+}
+
+function syncOrderHeaderFromCustomer(customer = selectedCustomer.value, options = {}) {
+  const nextSourceID = Number(customer?.default_source_id || 0)
+  const nextOrderTypeID = Number(customer?.default_order_type_id || 0)
+  const orderTypeChanged = Number(form.order_type_id || 0) !== nextOrderTypeID
+  form.source_id = nextSourceID
+  form.order_type_id = nextOrderTypeID
+  if (orderTypeChanged && options.syncRows !== false) syncRowsForType()
 }
 
 function beanListVersionLabel(item) {
@@ -880,6 +940,25 @@ function setBeanListVersion(listType, value) {
   }
 }
 
+function openBeanListDrawer() {
+  if (!Number(form.customer_id || 0)) {
+    raiseSaveError('请先选择客户', 'customer_id')
+    return
+  }
+  beanListDrawerOpen.value = true
+}
+
+function closeBeanListDrawer() {
+  beanListDrawerOpen.value = false
+}
+
+function beanListDrawerHint(listType) {
+  const rows = customerBeanListVersionOptionsByType(listType)
+  if (!rows.length) return '没有可用的已发布豆单'
+  if (rows.some((item) => item.is_customer_owned)) return '可选择客户自定义豆单版本'
+  return '当前使用公共豆单'
+}
+
 function syncBeanListVersionForCustomer(options = {}) {
   for (const item of orderBeanListTypes) {
     const rows = customerBeanListVersionOptionsByType(item.type)
@@ -918,6 +997,7 @@ function assignCustomerDrawerForm(customer = {}) {
     id: Number(customer.id || 0),
     name: customer.name || '',
     raw_name: customer.raw_name || '',
+    customer_type: customer.customer_type || 'retail',
     company_name: customer.company_name || '',
     company_address: customer.company_address || '',
     company_phone: customer.company_phone || customer.phone || '',
@@ -974,10 +1054,14 @@ async function saveCustomerFromDrawer() {
   try {
     if (!customerForm.name && customerForm.contact) customerForm.name = customerForm.contact
     if (!customerForm.name) throw new Error('请填写客户名')
+    if (!customerTypeLabel(customerForm.customer_type)) throw new Error('请选择客户类型')
+    if (!Number(customerForm.default_source_id || 0)) throw new Error('请选择客户来源')
+    if (!Number(customerForm.default_order_type_id || 0)) throw new Error('请选择客户订单类型')
     if (!Number(customerForm.responsible_employee_id || 0)) throw new Error('请选择客户负责人')
     const customerPayload = {
       name: customerForm.name,
       raw_name: customerForm.raw_name || '',
+      customer_type: customerForm.customer_type,
       company_name: customerForm.company_name || '',
       company_address: customerForm.company_address || '',
       company_phone: customerForm.phone,
@@ -1258,8 +1342,6 @@ function removeRow(idx) {
 }
 
 function applyDefaultSelections(data) {
-  if (!form.order_type_id && orderTypes.value.length) form.order_type_id = defaultOrderTypeID()
-  if (!form.source_id && sources.value.length) form.source_id = defaultSourceID()
   if (!form.pay_status_id) {
     form.pay_status_id = defaultStatusID(payStatuses.value, ['已付款', '已收款']) || Number(payStatuses.value[0]?.id || 0)
   }
@@ -1327,6 +1409,7 @@ function applyEditData(data) {
     outsource_tax_fee: data.outsource_tax_fee || '',
     outsource_other_fee: data.outsource_other_fee || '',
   })
+  syncOrderHeaderFromCustomer(selectedCustomer.value, { syncRows: false })
   paymentVoucher.value = data.payment_voucher || null
   customerQuery.value = optionName(customers.value, form.customer_id)
   rows.value = editItems.map((item) => {
@@ -1464,6 +1547,11 @@ async function save() {
     const payload = buildOrderPayload({ form, rows: rows.value })
     if (!payload.customer_id) {
       raiseSaveError('请选择客户', 'customer_id')
+      return
+    }
+    const missingCustomerProfile = selectedCustomerMissingProfileLabels()
+    if (missingCustomerProfile.length) {
+      raiseSaveError(`请先在客户资料维护${missingCustomerProfile.join('、')}`, 'customer_id')
       return
     }
     if (paymentMethodRequired.value && !payload.payment_method) {
@@ -1625,6 +1713,8 @@ watch(
 .order-hero h2, .section-title { margin: 0; font-size: 20px; font-weight: 700; letter-spacing: 0; }
 .section-title { font-size: 17px; }
 .hero-actions, .section-row, .save-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.section-actions { display: flex; align-items: center; justify-content: flex-end; gap: 10px; flex-wrap: wrap; min-width: 0; }
+.bean-list-summary { min-width: 0; max-width: 520px; color: #667085; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .total-pill { display: grid; gap: 2px; min-width: 132px; padding: 8px 12px; border: 1px solid #e5e7eb; border-radius: 8px; background: #fafafa; }
 .total-pill span, .grand-line span, label span, .line-total span, .combo-option small { color: #667085; font-size: 12px; }
 .total-pill strong, .grand-line strong { font-size: 20px; }
@@ -1633,6 +1723,11 @@ watch(
 .form-grid.compact { grid-template-columns: repeat(4, minmax(150px, 1fr)); }
 .full-span { grid-column: 1 / -1; }
 .conditional-panel { display: grid; grid-template-columns: repeat(3, minmax(180px, 1fr)); gap: 12px; align-items: end; padding: 12px; border: 1px solid #e4e7ec; border-radius: 8px; background: #fafbfc; }
+.customer-profile-summary { display: grid; grid-template-columns: repeat(3, minmax(150px, 1fr)); gap: 10px; padding: 10px 12px; border: 1px solid #e4e7ec; border-radius: 8px; background: #fafbfc; }
+.profile-summary-item { display: grid; gap: 3px; min-width: 0; }
+.profile-summary-item span { color: #667085; font-size: 12px; }
+.profile-summary-item strong { min-width: 0; font-size: 14px; color: #111827; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.profile-summary-item.missing strong { color: #be123c; }
 .order-hero, .panel, .form-grid, .conditional-panel, .line-item { min-width: 0; }
 .form-grid > *, .conditional-panel > *, .line-item > * { min-width: 0; }
 .condition-title { align-self: center; font-weight: 700; color: #1f2937; }
@@ -1715,6 +1810,9 @@ button:disabled { cursor: not-allowed; opacity: 0.5; }
 .wide-field textarea, .drawer-grid input, .drawer-grid select { width: 100%; }
 .parse-button { margin-top: 8px; }
 .drawer-actions { display: flex; justify-content: flex-end; margin-top: 14px; }
+.drawer-help { margin: 0 0 14px; color: #667085; font-size: 13px; }
+.bean-list-picker-list { display: grid; gap: 14px; }
+.bean-list-picker-list small { color: #667085; font-size: 12px; }
 
 @media (max-width: 1100px) {
   .line-item { grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -1723,8 +1821,12 @@ button:disabled { cursor: not-allowed; opacity: 0.5; }
 @media (max-width: 760px) {
   .page { padding: 12px; overflow-x: hidden; }
   .order-hero, .section-row, .save-row { align-items: stretch; flex-direction: column; }
-  .form-grid, .form-grid.compact, .line-item, .conditional-panel { grid-template-columns: 1fr; }
-  .conditional-panel { align-items: stretch; padding: 12px; }
+  .form-grid, .form-grid.compact, .line-item { grid-template-columns: 1fr; }
+  .customer-profile-summary { grid-template-columns: 1fr; }
+  .section-actions { width: 100%; justify-content: stretch; }
+  .section-actions button { width: 100%; }
+  .bean-list-summary { max-width: 100%; white-space: normal; }
+  .conditional-panel { grid-template-columns: 1fr; align-items: stretch; padding: 12px; }
   .global-error-toast { --notice-stack-offset: var(--kferp-notice-stack-space, 0px); top: calc(max(12px, env(safe-area-inset-top)) + var(--notice-stack-offset)); left: max(12px, env(safe-area-inset-left)); right: max(12px, env(safe-area-inset-right)); width: auto; max-width: none; }
   .hero-actions { width: 100%; }
   .file-upload-control { grid-template-columns: auto minmax(0, 1fr); }

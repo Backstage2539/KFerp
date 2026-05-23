@@ -132,13 +132,93 @@ func TestOrderAPIFormReturnsCustomerDefaultsForOrderEntry(t *testing.T) {
 		t.Fatalf("GET /api/order/form status = %d, want 200, body=%s", rec.Code, rec.Body.String())
 	}
 	body := rec.Body.String()
-	for _, needle := range []string{`"default_source_id":1`, `"default_order_type_id":2`, `"responsible_employee_id":5`, `"responsible_employee_name":"销售小王"`, `"py"`, `"pyi"`, `"销售小王"`} {
+	for _, needle := range []string{`"customer_type":"wholesale"`, `"default_source_id":1`, `"default_order_type_id":2`, `"responsible_employee_id":5`, `"responsible_employee_name":"销售小王"`, `"py"`, `"pyi"`, `"销售小王"`} {
 		if !strings.Contains(body, needle) {
 			t.Fatalf("GET /api/order/form missing %s: %s", needle, body)
 		}
 	}
 	if strings.Contains(body, "外部客户账号") {
 		t.Fatalf("GET /api/order/form exposed channel customer account as employee option: %s", body)
+	}
+}
+
+func TestOrderAPISaveUsesCustomerProfileDefaultsForHiddenHeaderFields(t *testing.T) {
+	pool, schema := newOrderAPITestDB(t)
+	ctx := context.Background()
+	seedOrderAPITestData(t, ctx, pool, schema)
+
+	e := newOrderAPITestEcho(pool, schema)
+	payload := `{
+		"order_date":"2026-05-23",
+		"customer_id":3,
+		"pay_status_id":1,
+		"ship_status_id":1,
+		"product_id":["7"],
+		"item_name":["橘皮乌龙"],
+		"tier_id":["manual"],
+		"unit_price":["88"],
+		"qty":["1"],
+		"unit":["件"],
+		"spec":["454"]
+	}`
+	req := httptest.NewRequest(http.MethodPost, "/api/order", strings.NewReader(payload))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("POST /api/order status = %d, want 200, body=%s", rec.Code, rec.Body.String())
+	}
+	var resp struct {
+		OrderID int64 `json:"order_id"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	var sourceID, orderTypeID int64
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT COALESCE(source_id,0), COALESCE(order_type_id,0) FROM %s.orders WHERE id=$1`, schema), resp.OrderID).Scan(&sourceID, &orderTypeID); err != nil {
+		t.Fatalf("query saved order defaults: %v", err)
+	}
+	if sourceID != 1 || orderTypeID != 2 {
+		t.Fatalf("saved header defaults source=%d order_type=%d, want 1/2", sourceID, orderTypeID)
+	}
+}
+
+func TestOrderAPISaveRejectsCustomerMissingRequiredProfileDefaults(t *testing.T) {
+	pool, schema := newOrderAPITestDB(t)
+	ctx := context.Background()
+	seedOrderAPITestData(t, ctx, pool, schema)
+	mustExecOrderAPITestSQL(t, ctx, pool, fmt.Sprintf(`
+		INSERT INTO %[1]s.customers(id,name,customer_type,contact,phone,address,active,responsible_employee_id)
+		VALUES (8,'缺资料客户','','缺资料','13800000008','杭州市缺资料路',true,5);
+	`, schema))
+
+	e := newOrderAPITestEcho(pool, schema)
+	payload := `{
+		"order_date":"2026-05-23",
+		"customer_id":8,
+		"pay_status_id":1,
+		"ship_status_id":1,
+		"product_id":["7"],
+		"item_name":["橘皮乌龙"],
+		"tier_id":["manual"],
+		"unit_price":["88"],
+		"qty":["1"],
+		"unit":["件"],
+		"spec":["454"]
+	}`
+	req := httptest.NewRequest(http.MethodPost, "/api/order", strings.NewReader(payload))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("POST /api/order status = %d, want 400, body=%s", rec.Code, rec.Body.String())
+	}
+	for _, want := range []string{"客户类型", "来源", "订单类型"} {
+		if !strings.Contains(rec.Body.String(), want) {
+			t.Fatalf("POST /api/order missing required %s error: %s", want, rec.Body.String())
+		}
 	}
 }
 
@@ -3958,7 +4038,7 @@ func seedOrderAPITestData(t *testing.T, ctx context.Context, pool *pgxpool.Pool,
 	mustExecOrderAPITestSQL(t, ctx, pool, fmt.Sprintf(`
 		INSERT INTO %[1]s.company_departments(id,name,active) VALUES (1,'销售',true);
 		INSERT INTO %[1]s.company_employees(id,name,phone,department_id,account_type,active) VALUES (5,'销售小王','13800000005',1,'internal_employee',true);
-		INSERT INTO %[1]s.customers(id,name,contact,phone,address,active,default_source_id,default_order_type_id,responsible_employee_id) VALUES (3,'测试客户','测试收件人','13800000000','杭州市测试路',true,1,2,5);
+		INSERT INTO %[1]s.customers(id,name,customer_type,contact,phone,address,active,default_source_id,default_order_type_id,responsible_employee_id) VALUES (3,'测试客户','wholesale','测试收件人','13800000000','杭州市测试路',true,1,2,5);
 		INSERT INTO %[1]s.sources(id,name) VALUES (1,'小程序');
 		INSERT INTO %[1]s.order_types(id,name) VALUES (1,'批发订单'),(2,'零售订单');
 		INSERT INTO %[1]s.pay_statuses(id,name) VALUES (1,'未付款'),(2,'已付款');
@@ -4015,6 +4095,7 @@ func orderAPITestDDL(schema string) string {
 CREATE TABLE %s.customers (
 	id BIGSERIAL PRIMARY KEY,
 	name TEXT NOT NULL,
+	customer_type TEXT NOT NULL DEFAULT '',
 	company_name TEXT NOT NULL DEFAULT '',
 	company_address TEXT NOT NULL DEFAULT '',
 	company_phone TEXT NOT NULL DEFAULT '',

@@ -27,6 +27,7 @@ type apiOption struct {
 type customerAPIOption struct {
 	ID                      int64  `json:"id"`
 	Name                    string `json:"name"`
+	CustomerType            string `json:"customer_type,omitempty"`
 	Contact                 string `json:"contact,omitempty"`
 	Phone                   string `json:"phone,omitempty"`
 	Py                      string `json:"py"`
@@ -572,6 +573,7 @@ func apiCustomerOptions(in []CustomerOption) []customerAPIOption {
 		out = append(out, customerAPIOption{
 			ID:                      item.ID,
 			Name:                    item.Name,
+			CustomerType:            item.CustomerType,
 			Contact:                 item.Contact,
 			Phone:                   item.Phone,
 			Py:                      support.PinyinFull(item.Name),
