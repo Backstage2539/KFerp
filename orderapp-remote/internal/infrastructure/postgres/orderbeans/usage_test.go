@@ -59,6 +59,27 @@ func TestPublishedUnitPriceFromContentMatchesCommercialAndDripTiers(t *testing.T
 	}
 }
 
+func TestPublishedPricingKeepsKgDisplayUnitForSmallCommercialPack(t *testing.T) {
+	content := []byte(`{
+		"groups":[{
+			"items":[{
+				"productId":11,
+				"commercial_wholesale_tiers":[
+					{"label":"25-49kg","spec_g":1000,"min_qty":25,"max_qty":49,"price_per_unit":82,"price_per_lb":37.23,"display_unit":"kg","price_unit":"kg"}
+				]
+			}]
+		}]
+	}`)
+
+	got, ok := publishedPricingFromContentForListType(content, 11, ListTypeCommercial, 80, 1, "", 0)
+	if !ok {
+		t.Fatalf("published pricing missing")
+	}
+	if got.UnitPrice != 82 || got.PriceUnit != "kg" || got.UnitG != 1000 {
+		t.Fatalf("published pricing = %+v, want 82 kg/1000g", got)
+	}
+}
+
 func TestListTypeForProductKindUsesGreenBeanList(t *testing.T) {
 	if got := ListTypeForProductKind("green_bean", false); got != ListTypeGreen {
 		t.Fatalf("green bean list type = %q, want %q", got, ListTypeGreen)
