@@ -1,4 +1,4 @@
-# PR-340-ORDER-ENTRY-STALE-BEANLIST-AUTOLINE
+# PR-341-ORDER-ENTRY-STALE-BEANLIST-AUTOLINE
 
 ## 范围
 - 录单/编辑订单商品行使用非最新豆单发布版本时，豆单版本文字标红并显示感叹号提示。

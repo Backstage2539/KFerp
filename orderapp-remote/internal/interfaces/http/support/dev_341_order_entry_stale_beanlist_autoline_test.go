@@ -6,14 +6,14 @@ import (
 	"testing"
 )
 
-func TestDev340OrderEntryStaleBeanListAutoLineSeeds(t *testing.T) {
+func TestDev341OrderEntryStaleBeanListAutoLineSeeds(t *testing.T) {
 	src := string(readOrderAppFileForTest(t, filepath.Join("internal", "interfaces", "http", "support", "req_store.go")))
 	for _, want := range []string{
-		"PR-340-ORDER-ENTRY-STALE-BEANLIST-AUTOLINE",
-		"DEV-340-ORDER-ENTRY-STALE-BEANLIST-AUTOLINE",
-		"UT-340-ORDER-ENTRY-STALE-BEANLIST-AUTOLINE",
-		"API-340-ORDER-ENTRY-STALE-BEANLIST-AUTOLINE",
-		"REV-340-ORDER-ENTRY-STALE-BEANLIST-AUTOLINE",
+		"PR-341-ORDER-ENTRY-STALE-BEANLIST-AUTOLINE",
+		"DEV-341-ORDER-ENTRY-STALE-BEANLIST-AUTOLINE",
+		"UT-341-ORDER-ENTRY-STALE-BEANLIST-AUTOLINE",
+		"API-341-ORDER-ENTRY-STALE-BEANLIST-AUTOLINE",
+		"REV-341-ORDER-ENTRY-STALE-BEANLIST-AUTOLINE",
 	} {
 		if !strings.Contains(src, want) {
 			t.Fatalf("PR-340 requirement seed missing %q", want)
@@ -21,7 +21,7 @@ func TestDev340OrderEntryStaleBeanListAutoLineSeeds(t *testing.T) {
 	}
 }
 
-func TestDev340OrderEntryStaleBeanListAutoLineWiring(t *testing.T) {
+func TestDev341OrderEntryStaleBeanListAutoLineWiring(t *testing.T) {
 	for _, tc := range []struct {
 		rel     string
 		markers []string
@@ -63,7 +63,7 @@ func TestDev340OrderEntryStaleBeanListAutoLineWiring(t *testing.T) {
 	}
 }
 
-func TestDev340OrderEntryStaleBeanListAutoLineDocs(t *testing.T) {
+func TestDev341OrderEntryStaleBeanListAutoLineDocs(t *testing.T) {
 	for _, rel := range []string{
 		filepath.Join("docs", "REQUIREMENTS.md"),
 		filepath.Join("docs", "ACCEPTANCE_TESTS.md"),
@@ -72,7 +72,7 @@ func TestDev340OrderEntryStaleBeanListAutoLineDocs(t *testing.T) {
 	} {
 		src := string(readOrderAppFileForTest(t, rel))
 		for _, want := range []string{
-			"PR-340-ORDER-ENTRY-STALE-BEANLIST-AUTOLINE",
+			"PR-341-ORDER-ENTRY-STALE-BEANLIST-AUTOLINE",
 			"非新版本豆单",
 			"自动补一个空明细",
 			"新增明细",

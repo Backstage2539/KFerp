@@ -187,7 +187,7 @@
       </div>
       <div class="line-list">
         <article v-for="(row, idx) in rows" :key="row.key" class="line-item">
-          <label class="product-combobox combobox product-cell">
+          <label class="product-combobox combobox product-cell" :class="{ open: row.product_open }">
             <span>商品</span>
             <input
               v-model.trim="row.product_query"
