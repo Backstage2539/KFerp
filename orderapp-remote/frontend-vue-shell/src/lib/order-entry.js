@@ -64,15 +64,27 @@ export function normalizedProductKind(productOrKind) {
   const raw = typeof productOrKind === 'object'
     ? productOrKind?.product_kind
     : productOrKind
-  return String(raw || '').trim() === 'green_bean' ? 'green_bean' : 'roasted'
+  const kind = String(raw || '').trim()
+  if (kind === 'green_bean') return 'green_bean'
+  if (kind === 'drip_bag') return 'drip_bag'
+  if (kind === 'instant_coffee' || kind === 'instant') return 'instant_coffee'
+  return 'roasted'
 }
 
 export function productKindLabel(productOrKind) {
-  return normalizedProductKind(productOrKind) === 'green_bean' ? '生豆' : '熟豆'
+  const kind = normalizedProductKind(productOrKind)
+  if (kind === 'green_bean') return '生豆'
+  if (kind === 'drip_bag') return '挂耳'
+  if (kind === 'instant_coffee') return '速溶咖啡'
+  return '熟豆'
 }
 
 export function productKindBadgeClass(productOrKind) {
-  return normalizedProductKind(productOrKind) === 'green_bean' ? 'kind-green' : 'kind-roasted'
+  const kind = normalizedProductKind(productOrKind)
+  if (kind === 'green_bean') return 'kind-green'
+  if (kind === 'drip_bag') return 'kind-drip'
+  if (kind === 'instant_coffee') return 'kind-instant'
+  return 'kind-roasted'
 }
 
 export function wholesaleSpecOptions(product) {
@@ -788,7 +800,8 @@ export function buildOrderPayload({ form, rows }) {
 
   for (const row of rows || []) {
     const productID = toInt(row.product_id)
-    const productKind = row.product_kind === 'drip_bag' ? 'drip_bag' : row.product_kind === 'green_bean' ? 'green_bean' : 'roasted_bean'
+    const normalizedKind = normalizedProductKind(row)
+    const productKind = normalizedKind === 'drip_bag' ? 'drip_bag' : normalizedKind === 'green_bean' ? 'green_bean' : normalizedKind === 'instant_coffee' ? 'instant_coffee' : 'roasted_bean'
     const dripSpec = dripSalesUnitSpec(null, row)
     const specG = productKind === 'drip_bag' ? dripSpec.specG : normalizeSpecG(row)
     const qty = toInt(row.qty)

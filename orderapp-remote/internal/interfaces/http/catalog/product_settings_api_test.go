@@ -817,6 +817,38 @@ func TestProductSettingsAPICreatesDripBagProduct(t *testing.T) {
 	}
 }
 
+func TestProductSettingsAPICreatesInstantCoffeeProductWithoutRoastLevel(t *testing.T) {
+	repo := &productSettingsRepo{}
+	e := echo.New()
+	registerProductRoutes(e, catalogapp.NewService(repo))
+
+	body := `{"name":"速溶美式","product_kind":"instant_coffee","default_price":39}`
+	req := httptest.NewRequest(http.MethodPost, "/api/product-settings/products", bytes.NewBufferString(body))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("POST instant coffee product status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if !repo.publicCreated || repo.createdPublic.ProductKind != "instant_coffee" || repo.createdPublic.RoastLevel != "" || repo.createdPublic.YieldRate != 0 || repo.createdPublic.DefaultPrice != 39 {
+		t.Fatalf("instant coffee product command = %+v created=%v", repo.createdPublic, repo.publicCreated)
+	}
+	var payload struct {
+		Product struct {
+			ProductKind string   `json:"product_kind"`
+			RoastLevel  string   `json:"roast_level"`
+			SalesUnits  []string `json:"sales_units"`
+		} `json:"product"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("decode product response: %v body=%s", err, rec.Body.String())
+	}
+	if payload.Product.ProductKind != "instant_coffee" || payload.Product.RoastLevel != "" || len(payload.Product.SalesUnits) != 0 {
+		t.Fatalf("instant coffee response = %+v body=%s", payload.Product, rec.Body.String())
+	}
+}
+
 func TestProductSettingsAPIDefaultsOmittedDripBagConfig(t *testing.T) {
 	repo := &productSettingsRepo{}
 	e := echo.New()

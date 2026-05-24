@@ -300,7 +300,7 @@
                   <span>{{ orderItemSpecLabel(item) }} × {{ item.qty }}{{ item.unit || '' }}</span>
                 </div>
                 <div>
-                  <span>{{ item.product_kind === 'drip_bag' ? '挂耳' : '熟豆' }}</span>
+                  <span>{{ productKindLabel(item.product_kind) }}</span>
                   <span>{{ item.unit_price ? `单价 ${item.unit_price}` : '-' }}</span>
                   <span v-if="item.price_source_json">{{ orderItemPriceSourceLabel(item.price_source_json) }}</span>
                 </div>
@@ -1127,6 +1127,8 @@ a, .text-link { color: #1f4f82; text-decoration: none; }
 .kind-badge { display: inline-flex; align-items: center; min-height: 18px; padding: 1px 6px; border-radius: 4px; font-size: 12px; font-weight: 600; }
 .kind-roasted { color: #8a4b12; background: #fff3df; border: 1px solid #f3c67c; }
 .kind-green { color: #12613a; background: #e8f7ee; border: 1px solid #8bd4a6; }
+.kind-drip { color: #1f4b7a; background: #eaf3ff; border: 1px solid #9bc4ef; }
+.kind-instant { color: #6b3f16; background: #f5efe6; border: 1px solid #cba77d; }
 .status-stack { display: grid; grid-template-columns: repeat(2, minmax(90px, 1fr)); gap: 4px 8px; min-width: 230px; color: #333; font-size: 13px; }
 .actions-cell { min-width: 210px; }
 .actions-cell a, .actions-cell button, .actions-cell .inline-muted { display: inline-block; margin-right: 8px; }

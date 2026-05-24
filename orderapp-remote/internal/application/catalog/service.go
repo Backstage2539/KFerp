@@ -450,7 +450,7 @@ func (s *Service) CreateProduct(ctx context.Context, cmd CreateProductCommand) (
 		if err := s.validateGreenBeanBomProduct(ctx, cmd.GreenBeanBomProductID); err != nil {
 			return Product{}, err
 		}
-	} else {
+	} else if catalogdomain.ProductKindRequiresRoast(cmd.ProductKind) {
 		cmd.RoastLevel = catalogdomain.NormalizeRoastLevel(cmd.RoastLevel)
 		if cmd.RoastLevel == "" {
 			return Product{}, ValidationError{Message: "invalid roast_level"}
@@ -461,6 +461,8 @@ func (s *Service) CreateProduct(ctx context.Context, cmd CreateProductCommand) (
 		if cmd.YieldRate <= 0 || cmd.YieldRate > 1 {
 			return Product{}, ValidationError{Message: "invalid yield_rate"}
 		}
+	} else if err := normalizeProductSalesShape(&cmd.ProductKind, &cmd.GreenBeanType, &cmd.GreenBeanBomProductID, &cmd.RoastLevel, &cmd.DefaultPrice, &cmd.RetailPrice100G, &cmd.RetailPrice200G, &cmd.RetailPrice227G, &cmd.RetailPrice250G, &cmd.YieldRate, &cmd.Tiers); err != nil {
+		return Product{}, err
 	}
 	return s.repo.CreateProduct(ctx, cmd)
 }
@@ -485,6 +487,10 @@ func normalizeProductSalesShape(productKind *string, greenBeanType *string, gree
 	if kind != catalogdomain.ProductKindGreenBean {
 		*greenBeanType = ""
 		*greenBeanBomProductID = 0
+		if !catalogdomain.ProductKindRequiresRoast(kind) {
+			*roastLevel = ""
+			*yieldRate = 0
+		}
 		return nil
 	}
 	*greenBeanType = normalizeGreenBeanType(*greenBeanType)
@@ -640,13 +646,18 @@ func (s *Service) CreateCustomProduct(ctx context.Context, cmd CreateCustomProdu
 		}
 		cmd.CopyBOM = false
 		cmd.CopyPriceTiers = false
-	} else {
+	} else if catalogdomain.ProductKindRequiresRoast(cmd.ProductKind) {
 		cmd.RoastLevel = catalogdomain.NormalizeRoastLevel(cmd.RoastLevel)
 		if cmd.RoastLevel == "" {
 			return Product{}, fmt.Errorf("invalid roast_level")
 		}
 		cmd.GreenBeanType = ""
 		cmd.GreenBeanBomProductID = 0
+	} else {
+		cmd.RoastLevel = ""
+		cmd.GreenBeanType = ""
+		cmd.GreenBeanBomProductID = 0
+		cmd.CopyBOM = false
 	}
 	if cmd.ProductKind == catalogdomain.ProductKindDripBag {
 		if cmd.DripBagGrams <= 0 && base != nil {
@@ -858,6 +869,10 @@ func BuildProductSettings(categories []ProductCategory, products []Product) Prod
 
 func productSettingsProduct(p Product) ProductSettingsProduct {
 	productKind, dripBagGrams, dripBoxBagCount, salesUnits, _ := normalizeProductKindSettings(p.ProductKind, p.DripBagGrams, p.DripBoxBagCount)
+	if !catalogdomain.ProductKindRequiresRoast(productKind) {
+		p.RoastLevel = ""
+		p.YieldRate = 0
+	}
 	return ProductSettingsProduct{
 		ID:                      p.ID,
 		Name:                    p.Name,

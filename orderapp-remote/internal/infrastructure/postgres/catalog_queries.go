@@ -122,6 +122,10 @@ func FetchProducts(ctx context.Context, pool *pgxpool.Pool, schema string) ([]Pr
 		if p.ProductKind == catalogdomain.ProductKindDripBag {
 			p.SalesUnits = []string{"bag", "box"}
 		}
+		if !catalogdomain.ProductKindRequiresRoast(p.ProductKind) {
+			p.RoastLevel = ""
+			p.YieldRate = 0
+		}
 		p.RetailSpecs = salesdomain.RetailAvailableSpecs(salesdomain.RetailSpecPrices{
 			Price100G: p.RetailPrice100G,
 			Price200G: p.RetailPrice200G,

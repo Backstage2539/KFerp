@@ -16,6 +16,7 @@ import {
   filterSkuRows,
   gradientTemplateBelongsToSkuContext,
   nextSkuContextCustomerID,
+  normalizedProductKind,
   paginatedSkuRows,
   greenBeanTypeLabel,
   productBelongsToSkuContext,
@@ -42,6 +43,57 @@ test('filterSkuRows supports product kind, name, primary category, and secondary
     ...rows,
     { id: 4, name: '耶加雪菲挂耳', product_kind: 'drip_bag' },
   ], { productKind: 'drip_bag' }).map((row) => row.id), [4])
+  assert.deepEqual(filterSkuRows([
+    ...rows,
+    { id: 5, name: '冻干速溶咖啡', product_kind: 'instant_coffee' },
+  ], { productKind: 'instant_coffee' }).map((row) => row.id), [5])
+})
+
+test('instant coffee product kind is preserved in SKU payloads without roast settings', () => {
+  assert.equal(normalizedProductKind({ product_kind: 'instant_coffee' }), 'instant_coffee')
+
+  assert.deepEqual(buildProductCreatePayload({
+    name: '冻干速溶咖啡',
+    product_kind: 'instant_coffee',
+    roast_level: '深烘',
+    yield_percent: 80,
+    remark: '原料为速溶咖啡',
+  }), {
+    name: '冻干速溶咖啡',
+    product_kind: 'instant_coffee',
+    remark: '原料为速溶咖啡',
+  })
+
+  assert.deepEqual(buildProductBasicsPayload({
+    name: '冻干速溶咖啡',
+    product_kind: 'instant_coffee',
+    roast_level: '中烘',
+    yield_percent: 80,
+    remark: '原料为速溶咖啡',
+  }, null), {
+    name: '冻干速溶咖啡',
+    product_kind: 'instant_coffee',
+    remark: '原料为速溶咖啡',
+    margin_rate_override: null,
+  })
+
+  assert.deepEqual(buildCustomProductCreatePayload(42, {
+    base_product_id: 8,
+    name: '客户A-速溶咖啡',
+    product_kind: 'instant_coffee',
+    custom_type: 'public_sku_alias',
+    copy_bom: true,
+    copy_price_tiers: true,
+  }), {
+    customer_id: 42,
+    base_product_id: 8,
+    name: '客户A-速溶咖啡',
+    remark: '',
+    product_kind: 'instant_coffee',
+    custom_type: 'public_sku_alias',
+    copy_bom: false,
+    copy_price_tiers: true,
+  })
 })
 
 test('filterSkuRows supports SKU type options and query searches type labels', () => {

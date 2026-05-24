@@ -60,11 +60,18 @@ func (r Repository) ReplacePriceTiers(ctx context.Context, cmd catalogapp.Replac
 		if greenBeanType == "" {
 			greenBeanType = "single_origin"
 		}
+	} else if !catalogdomain.ProductKindRequiresRoast(productKind) {
+		roastLevel = ""
+		greenBeanType = ""
+		greenBeanBomProductID = 0
 	} else {
 		greenBeanType = ""
 		greenBeanBomProductID = 0
 	}
-	yieldRate := catalogdomain.ResolveYieldRate(roastLevel, 0.8)
+	yieldRate := 0.0
+	if catalogdomain.ProductKindRequiresRoast(productKind) {
+		yieldRate = catalogdomain.ResolveYieldRate(roastLevel, 0.8)
+	}
 	if _, err := tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.products
 		SET product_kind=$2, roast_level=$3, default_price=$4,
 		    retail_price_100g=$5, retail_price_200g=$6, retail_price_227g=$7, retail_price_250g=$8,
@@ -130,12 +137,19 @@ func (r Repository) UpdateProductBasics(ctx context.Context, cmd catalogapp.Upda
 		if greenBeanType == "" {
 			greenBeanType = "single_origin"
 		}
+	} else if !catalogdomain.ProductKindRequiresRoast(productKind) {
+		roastLevel = ""
+		greenBeanType = ""
+		greenBeanBomProductID = 0
 	} else {
 		greenBeanType = ""
 		greenBeanBomProductID = 0
 	}
-	yieldRate := catalogdomain.ResolveYieldRate(roastLevel, 0.8)
-	if cmd.YieldRate > 0 {
+	yieldRate := 0.0
+	if catalogdomain.ProductKindRequiresRoast(productKind) {
+		yieldRate = catalogdomain.ResolveYieldRate(roastLevel, 0.8)
+	}
+	if catalogdomain.ProductKindRequiresRoast(productKind) && cmd.YieldRate > 0 {
 		yieldRate = cmd.YieldRate
 	}
 	conn, err := r.pool.Acquire(ctx)
@@ -233,6 +247,10 @@ func (r Repository) CreateProduct(ctx context.Context, cmd catalogapp.CreateProd
 		if greenBeanType == "" {
 			greenBeanType = "single_origin"
 		}
+	} else if !catalogdomain.ProductKindRequiresRoast(productKind) {
+		roastLevel = ""
+		greenBeanType = ""
+		greenBeanBomProductID = 0
 	} else {
 		greenBeanType = ""
 		greenBeanBomProductID = 0
@@ -1146,6 +1164,10 @@ func fetchCatalogProductByIDTx(ctx context.Context, tx pgx.Tx, schema string, pr
 	if p.ProductKind == catalogdomain.ProductKindDripBag {
 		p.SalesUnits = []string{"bag", "box"}
 	}
+	if !catalogdomain.ProductKindRequiresRoast(p.ProductKind) {
+		p.RoastLevel = ""
+		p.YieldRate = 0
+	}
 	return p, nil
 }
 
@@ -1430,6 +1452,10 @@ func (r Repository) CreateCustomProduct(ctx context.Context, cmd catalogapp.Crea
 		if greenBeanType == "" {
 			greenBeanType = "single_origin"
 		}
+	} else if !catalogdomain.ProductKindRequiresRoast(productKind) {
+		roastLevel = ""
+		greenBeanType = ""
+		greenBeanBomProductID = 0
 	} else {
 		if customType == "custom_roast" {
 			baseProductID = 0
@@ -1679,8 +1705,13 @@ func fetchProductByID(ctx context.Context, pool *pgxpool.Pool, schema string, id
 	if err != nil {
 		return nil, nil
 	}
+	p.ProductKind = catalogdomain.NormalizeProductKind(p.ProductKind)
 	if p.ProductKind == catalogdomain.ProductKindDripBag {
 		p.SalesUnits = []string{"bag", "box"}
+	}
+	if !catalogdomain.ProductKindRequiresRoast(p.ProductKind) {
+		p.RoastLevel = ""
+		p.YieldRate = 0
 	}
 	return &p, nil
 }
