@@ -899,6 +899,20 @@ test('SKU settings exposes product subtype default unit configuration controls',
   assert.doesNotMatch(source, /纳入产品价格表/)
 })
 
+test('SKU settings initializes product config form after SKU context is available', () => {
+  const source = fs.readFileSync(new URL('../views/ProductSettingsView.vue', import.meta.url), 'utf8')
+  const setupSource = source.split('<script setup>')[1] || source
+  const contextIndex = setupSource.indexOf('const skuContextCustomerID = computed')
+  const formIndex = setupSource.indexOf('const productConfigTemplateForm = ref(defaultProductConfigTemplateForm())')
+
+  assert.notEqual(contextIndex, -1, 'skuContextCustomerID declaration is missing')
+  assert.notEqual(formIndex, -1, 'productConfigTemplateForm declaration is missing')
+  assert.ok(
+    contextIndex < formIndex,
+    'productConfigTemplateForm calls a default form that reads skuContextCustomerID, so skuContextCustomerID must be declared first',
+  )
+})
+
 test('SKU subtype config explains unit impact and stays inside narrow category panels', () => {
   const source = fs.readFileSync(new URL('../views/ProductSettingsView.vue', import.meta.url), 'utf8')
 

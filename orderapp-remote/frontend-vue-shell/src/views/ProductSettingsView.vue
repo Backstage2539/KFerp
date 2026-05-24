@@ -892,11 +892,11 @@ const roastLevels = ['浅烘', '中烘', '中深烘', '深烘']
 const productForm = ref(defaultProductForm())
 const customForm = ref(defaultCustomForm())
 const templateForm = ref(defaultGradientTemplateForm())
-const productConfigTemplateForm = ref(defaultProductConfigTemplateForm())
 const customerRuleTemplateForm = ref(defaultCustomerProductRuleTemplateForm())
 const customerRuleOverrideForm = ref(defaultCustomerProductRuleOverrideForm())
 
 const skuContextCustomerID = computed(() => Number(selectedCustomerSkuCustomerID.value || 0))
+const productConfigTemplateForm = ref(defaultProductConfigTemplateForm())
 const isWorkspaceCustomerLocked = computed(() => props.workspaceMode === CUSTOMER_WORKSPACE_MODE && Number(props.customerContextId || 0) > 0)
 const selectedSkuContextLabel = computed(() => {
   const customerID = skuContextCustomerID.value
