@@ -1,4 +1,4 @@
-# PR-351-INSTANT-COFFEE-PRODUCT-KIND 验收记录
+# PR-352-INSTANT-COFFEE-PRODUCT-KIND 验收记录
 
 ## 范围
 - SKU设置新增 `instant_coffee` 速溶咖啡产品形态。

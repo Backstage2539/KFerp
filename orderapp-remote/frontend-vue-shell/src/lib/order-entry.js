@@ -557,7 +557,18 @@ export function rowUsesStaleBeanListPublication(row, options, listType = product
 
 export function beanListVersionOptionsForCustomer(options, customerID) {
   const selectedCustomerID = toInt(customerID)
-  return (options || []).filter((item) => toInt(item?.customer_id) === selectedCustomerID)
+  const rows = (options || []).filter((item) => toInt(item?.customer_id) === selectedCustomerID)
+  if (rows.length) return rows
+  const seen = new Set()
+  return (options || []).filter((item) => {
+    if (item?.is_customer_owned) return false
+    const id = toInt(item?.id)
+    if (id <= 0) return false
+    const key = `${normalizeBeanListType(item?.list_type)}:${id}`
+    if (seen.has(key)) return false
+    seen.add(key)
+    return true
+  })
 }
 
 export function isBlankOrderLine(row) {

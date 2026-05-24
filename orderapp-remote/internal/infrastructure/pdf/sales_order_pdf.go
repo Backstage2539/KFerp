@@ -63,6 +63,14 @@ func (r SalesOrderRenderer) RenderPreview(snapshot salesdomain.SalesOrderSnapsho
 	return r.render(snapshot, true)
 }
 
+func (r SalesOrderRenderer) RenderCombinedSalesOrder(snapshot salesdomain.CombinedSalesOrderSnapshot) ([]byte, error) {
+	return r.renderCombinedSalesOrder(snapshot, false)
+}
+
+func (r SalesOrderRenderer) RenderCombinedSalesOrderPreview(snapshot salesdomain.CombinedSalesOrderSnapshot) ([]byte, error) {
+	return r.renderCombinedSalesOrder(snapshot, true)
+}
+
 func (r SalesOrderRenderer) render(snapshot salesdomain.SalesOrderSnapshot, preview bool) ([]byte, error) {
 	if err := snapshot.Validate(); err != nil {
 		return nil, err
@@ -103,6 +111,43 @@ func (r SalesOrderRenderer) render(snapshot salesdomain.SalesOrderSnapshot, prev
 	return buf.Bytes(), nil
 }
 
+func (r SalesOrderRenderer) renderCombinedSalesOrder(snapshot salesdomain.CombinedSalesOrderSnapshot, preview bool) ([]byte, error) {
+	if err := snapshot.Validate(); err != nil {
+		return nil, err
+	}
+	fontPath, err := r.resolveFontPath()
+	if err != nil {
+		return nil, err
+	}
+	pdf := gofpdf.NewCustom(&gofpdf.InitType{
+		OrientationStr: "P",
+		UnitStr:        "mm",
+		SizeStr:        "A4",
+		FontDirStr:     filepath.Dir(fontPath),
+	})
+	pdf.SetMargins(16, 14, 16)
+	pdf.SetAutoPageBreak(true, 18)
+	pdf.AddUTF8Font("noto", "", filepath.Base(fontPath))
+	pdf.AddUTF8Font("noto", "B", filepath.Base(fontPath))
+	pdf.AddPage()
+
+	r.renderCombinedSalesOrderHeader(pdf, snapshot)
+	r.renderCombinedSalesOrderGroups(pdf, snapshot)
+	renderSalesOrderTotals(pdf, combinedSalesOrderTotalsSnapshot(snapshot))
+	r.renderSalesOrderPaymentInfoSection(pdf, combinedSalesOrderTotalsSnapshot(snapshot))
+	if preview {
+		renderDocumentPreviewLabel(pdf)
+	}
+	if pdf.Error() != nil {
+		return nil, pdf.Error()
+	}
+	var buf bytes.Buffer
+	if err := pdf.Output(&buf); err != nil {
+		return nil, err
+	}
+	return buf.Bytes(), nil
+}
+
 func renderDocumentPreviewLabel(pdf *gofpdf.Fpdf) {
 	pageW, _ := pdf.GetPageSize()
 	pdf.SetFont("noto", "", 16)
@@ -110,6 +155,35 @@ func renderDocumentPreviewLabel(pdf *gofpdf.Fpdf) {
 	pdf.SetXY(pageW-68, 4)
 	pdf.CellFormat(58, 8, "PREVIEW 预览版", "1", 0, "C", false, 0, "")
 	pdf.SetTextColor(0, 0, 0)
+}
+
+func (r SalesOrderRenderer) renderCombinedSalesOrderHeader(pdf *gofpdf.Fpdf, snapshot salesdomain.CombinedSalesOrderSnapshot) {
+	pdf.SetFont("noto", "", 14)
+	pdf.CellFormat(100, 10, snapshot.CompanyName, "", 0, "L", false, 0, "")
+	pdf.SetFont("noto", "", 12)
+	pdf.CellFormat(0, 10, "组合销售单 COMBINED SALES ORDER", "", 1, "R", false, 0, "")
+	y := pdf.GetY() + 2
+	left, _, right, _ := pdf.GetMargins()
+	pageW, _ := pdf.GetPageSize()
+	pdf.Line(left, y, pageW-right, y)
+	if snapshot.Seal != nil {
+		r.renderSealStamp(pdf, *snapshot.Seal)
+	}
+	pdf.SetY(y + 5)
+	pdf.SetFont("noto", "", 10)
+	colW := (pageW - left - right) / 3
+	rows := [][]string{
+		{"组合单号：" + snapshot.CombinedNo, fmt.Sprintf("订单数：%d", len(snapshot.OrderIDs)), "客户：" + snapshot.CustomerName},
+		{"客户公司：" + firstNonEmpty(snapshot.CustomerCompanyName, snapshot.CustomerName), "联系电话：" + snapshot.CustomerCompanyPhone, ""},
+	}
+	for _, row := range rows {
+		writeSalesOrderMetaRow(pdf, []float64{colW, colW, colW}, row, 6)
+	}
+	writeSalesOrderMetaRow(pdf, []float64{pageW - left - right}, []string{"关联订单：" + strings.Join(snapshot.OrderNos, "、")}, 6)
+	if addr := strings.TrimSpace(snapshot.CustomerCompanyAddress); addr != "" {
+		writeSalesOrderMetaRow(pdf, []float64{pageW - left - right}, []string{"公司地址：" + addr}, 6)
+	}
+	pdf.Ln(3)
 }
 
 func (r SalesOrderRenderer) renderSalesOrderHeader(pdf *gofpdf.Fpdf, snapshot salesdomain.SalesOrderSnapshot) {
@@ -132,6 +206,93 @@ func (r SalesOrderRenderer) renderSalesOrderHeader(pdf *gofpdf.Fpdf, snapshot sa
 		writeSalesOrderMetaRow(pdf, widths, row, 6)
 	}
 	pdf.Ln(3)
+}
+
+func (r SalesOrderRenderer) renderCombinedSalesOrderGroups(pdf *gofpdf.Fpdf, snapshot salesdomain.CombinedSalesOrderSnapshot) {
+	left, _, right, _ := pdf.GetMargins()
+	pageW, _ := pdf.GetPageSize()
+	usableW := pageW - left - right
+	hasDiscount := combinedSalesOrderHasDiscount(snapshot)
+	colWidths := salesOrderItemColumnWidths(usableW, hasDiscount)
+	headers := salesOrderItemHeaders(hasDiscount)
+	pdf.SetFont("noto", "", 10)
+	for _, group := range snapshot.Groups {
+		if pdf.GetY() > 248 {
+			pdf.AddPage()
+		}
+		pdf.SetFont("noto", "B", 10)
+		pdf.SetFillColor(247, 244, 239)
+		pdf.CellFormat(usableW, 8, fmt.Sprintf("订单 %s    单据日期：%s    订单日期：%s", group.OrderNo, firstNonEmpty(group.DocumentDate, group.OrderDate), group.OrderDate), "1", 1, "L", true, 0, "")
+		pdf.SetFont("noto", "", 10)
+		for i, h := range headers {
+			pdf.CellFormat(colWidths[i], 8, h, "B", 0, "L", false, 0, "")
+		}
+		pdf.Ln(-1)
+		for _, item := range group.Items {
+			writeSalesOrderItemRow(pdf, item, colWidths, hasDiscount, 6)
+		}
+		pdf.SetFont("noto", "B", 10)
+		pdf.CellFormat(usableW, 8, fmt.Sprintf("小计：商品 %s  优惠 %s  运费 %s  应收 %s", group.TotalAmount, group.Discount, group.Shipping, group.GrandTotal), "B", 1, "R", false, 0, "")
+		if note := combinedSalesOrderGroupNote(group); note != "" {
+			pdf.SetFont("noto", "", 9)
+			pdf.MultiCell(usableW, 5.5, note, "B", "L", false)
+		}
+		pdf.Ln(2)
+	}
+}
+
+func combinedSalesOrderHasDiscount(snapshot salesdomain.CombinedSalesOrderSnapshot) bool {
+	if salesOrderMoneyPositive(snapshot.Discount) {
+		return true
+	}
+	for _, group := range snapshot.Groups {
+		for _, item := range group.Items {
+			if salesOrderItemHasDiscount(item) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func combinedSalesOrderGroupNote(group salesdomain.CombinedSalesOrderGroup) string {
+	parts := make([]string, 0, 2)
+	if note := strings.TrimSpace(group.ExpressFee); note != "" {
+		parts = append(parts, "快递费备注："+note)
+	}
+	if note := strings.TrimSpace(group.SalesOrderNote); note != "" {
+		parts = append(parts, "销售单备注："+note)
+	}
+	return strings.Join(parts, "；")
+}
+
+func combinedSalesOrderTotalsSnapshot(snapshot salesdomain.CombinedSalesOrderSnapshot) salesdomain.SalesOrderSnapshot {
+	return salesdomain.SalesOrderSnapshot{
+		OrderID:         1,
+		OrderNo:         snapshot.CombinedNo,
+		CompanyName:     snapshot.CompanyName,
+		CustomerName:    snapshot.CustomerName,
+		PaymentText:     snapshot.PaymentText,
+		TaxpayerID:      snapshot.TaxpayerID,
+		BankAccountName: snapshot.BankAccountName,
+		BankName:        snapshot.BankName,
+		BankAccountNo:   snapshot.BankAccountNo,
+		Note:            snapshot.Note,
+		Items: []salesdomain.SalesOrderSnapshotItem{{
+			Name:      "组合订单",
+			Qty:       fmt.Sprintf("%d", len(snapshot.OrderIDs)),
+			Unit:      "单",
+			LineTotal: snapshot.GrandTotal,
+		}},
+		TotalAmount:    snapshot.TotalAmount,
+		Shipping:       snapshot.Shipping,
+		Discount:       snapshot.Discount,
+		GrandTotal:     snapshot.GrandTotal,
+		PaymentCodes:   snapshot.PaymentCodes,
+		PaymentTextBox: snapshot.PaymentTextBox,
+		PaymentCodeBox: snapshot.PaymentCodeBox,
+		Seal:           snapshot.Seal,
+	}
 }
 
 func salesOrderHeaderMetaRows(snapshot salesdomain.SalesOrderSnapshot) [][]string {
