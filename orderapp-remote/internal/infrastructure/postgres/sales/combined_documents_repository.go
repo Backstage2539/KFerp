@@ -163,6 +163,97 @@ func (r Repository) GenerateCombinedSalesOrderDocument(ctx context.Context, cmd 
 	return salesapp.GenerateCombinedSalesOrderDocumentResult{Document: doc, Snapshot: snapshot}, nil
 }
 
+func (r Repository) GenerateCombinedSalesOrderImage(ctx context.Context, cmd salesapp.CombinedDocumentCommand) (salesapp.GenerateCombinedSalesOrderImageResult, error) {
+	settings, err := r.LoadSalesOrderSettings(ctx)
+	if err != nil {
+		return salesapp.GenerateCombinedSalesOrderImageResult{}, err
+	}
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return salesapp.GenerateCombinedSalesOrderImageResult{}, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	key := combinedDocumentKey(cmd.OrderIDs)
+	if _, err := tx.Exec(ctx, "SELECT pg_advisory_xact_lock(hashtext($1)::bigint)", key); err != nil {
+		return salesapp.GenerateCombinedSalesOrderImageResult{}, err
+	}
+	existing, err := r.loadCombinedSalesOrderImageVersionsTx(ctx, tx, key, true)
+	if err != nil {
+		return salesapp.GenerateCombinedSalesOrderImageResult{}, err
+	}
+	versionNo := salesdomain.NextCombinedDocumentVersion(existing)
+	snapshot, err := r.buildCombinedSalesOrderSnapshotTx(ctx, tx, cmd.OrderIDs, settings)
+	if err != nil {
+		return salesapp.GenerateCombinedSalesOrderImageResult{}, err
+	}
+	imageBytes, err := r.combinedSalesRenderer.RenderCombinedSalesOrderPNG(snapshot)
+	if err != nil {
+		return salesapp.GenerateCombinedSalesOrderImageResult{}, err
+	}
+	objectKey := filepath.ToSlash(filepath.Join("combined_sales_order_images", safeSalesOrderPathPart(snapshot.CombinationKey), fmt.Sprintf("V%d.png", versionNo)))
+	fileWritten := false
+	committed := false
+	defer func() {
+		if fileWritten && !committed {
+			cleanupGeneratedSalesOrderAssetFile(r.assetDir, objectKey)
+		}
+	}()
+	if err := os.MkdirAll(filepath.Dir(filepath.Join(r.assetDir, objectKey)), 0755); err != nil {
+		return salesapp.GenerateCombinedSalesOrderImageResult{}, err
+	}
+	if err := os.WriteFile(filepath.Join(r.assetDir, objectKey), imageBytes, 0644); err != nil {
+		return salesapp.GenerateCombinedSalesOrderImageResult{}, err
+	}
+	fileWritten = true
+	sum := sha256.Sum256(imageBytes)
+	var assetID int64
+	filename := fmt.Sprintf("%s-V%d.png", snapshot.CombinedNo, versionNo)
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`INSERT INTO %s.sales_order_assets(kind, filename, content_type, bytes, sha256, object_key, created_by)
+		VALUES('combined_sales_order_image',$1,'image/png',$2,$3,$4,$5)
+		RETURNING id`, r.schema), filename, int64(len(imageBytes)), hex.EncodeToString(sum[:]), objectKey, cmd.Actor).Scan(&assetID); err != nil {
+		return salesapp.GenerateCombinedSalesOrderImageResult{}, err
+	}
+	snapshotJSON, err := json.Marshal(snapshot)
+	if err != nil {
+		return salesapp.GenerateCombinedSalesOrderImageResult{}, err
+	}
+	orderIDsJSON, err := json.Marshal(snapshot.OrderIDs)
+	if err != nil {
+		return salesapp.GenerateCombinedSalesOrderImageResult{}, err
+	}
+	if _, err := tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.combined_sales_order_images SET is_latest=false WHERE combination_key=$1`, r.schema), snapshot.CombinationKey); err != nil {
+		return salesapp.GenerateCombinedSalesOrderImageResult{}, err
+	}
+	var doc salesapp.CombinedSalesOrderImageDocument
+	var orderNosText string
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`INSERT INTO %s.combined_sales_order_images(combination_key, customer_id, order_ids, order_nos, version_no, snapshot_json, image_asset_id, is_latest, created_by)
+		VALUES($1,$2,$3,$4,$5,$6,$7,true,$8)
+		RETURNING id, combination_key, customer_id, order_ids, order_nos, version_no, image_asset_id, is_latest, to_char(created_at,'YYYY-MM-DD HH24:MI:SS'), created_by`, r.schema),
+		snapshot.CombinationKey, snapshot.CustomerID, orderIDsJSON, strings.Join(snapshot.OrderNos, ", "), versionNo, snapshotJSON, assetID, cmd.Actor,
+	).Scan(&doc.ID, &doc.CombinationKey, &doc.CustomerID, &orderIDsJSON, &orderNosText, &doc.VersionNo, &doc.ImageAssetID, &doc.IsLatest, &doc.CreatedAt, &doc.CreatedBy); err != nil {
+		return salesapp.GenerateCombinedSalesOrderImageResult{}, err
+	}
+	_ = json.Unmarshal(orderIDsJSON, &doc.OrderIDs)
+	doc.Snapshot = snapshot
+	doc.OrderNos = append([]string(nil), snapshot.OrderNos...)
+	doc.DownloadURL = combinedSalesOrderImageDownloadURL(doc.ID)
+	if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, cmd.Actor, "combined_sales_order_image", &doc.ID, "create", postgresinfra.StrPtr("version_no"), nil, postgresinfra.StrPtr(fmt.Sprintf("%d", versionNo)), postgresinfra.AuditMeta{
+		"combination_key": snapshot.CombinationKey,
+		"customer_id":     snapshot.CustomerID,
+		"order_ids":       snapshot.OrderIDs,
+		"order_nos":       strings.Join(snapshot.OrderNos, ", "),
+		"version_no":      versionNo,
+	}); err != nil {
+		return salesapp.GenerateCombinedSalesOrderImageResult{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return salesapp.GenerateCombinedSalesOrderImageResult{}, err
+	}
+	committed = true
+	return salesapp.GenerateCombinedSalesOrderImageResult{Document: doc, Snapshot: snapshot}, nil
+}
+
 func (r Repository) PreviewCombinedDeliveryNoteDocument(ctx context.Context, orderIDs []int64) (salesapp.CombinedDeliveryNotePreview, error) {
 	tx, err := r.pool.Begin(ctx)
 	if err != nil {
@@ -314,6 +405,37 @@ func (r Repository) ListCombinedSalesOrderDocuments(ctx context.Context, orderID
 			doc.OrderNos = splitCombinedOrderNos(orderNosText)
 		}
 		doc.DownloadURL = combinedSalesOrderDocumentDownloadURL(doc.ID)
+		out = append(out, doc)
+	}
+	return out, rows.Err()
+}
+
+func (r Repository) ListCombinedSalesOrderImageDocuments(ctx context.Context, orderIDs []int64) ([]salesapp.CombinedSalesOrderImageDocument, error) {
+	key := combinedDocumentKey(orderIDs)
+	q := fmt.Sprintf(`SELECT id, combination_key, customer_id, order_ids, order_nos, version_no, snapshot_json, COALESCE(image_asset_id,0), is_latest, to_char(created_at,'YYYY-MM-DD HH24:MI:SS'), created_by
+		FROM %s.combined_sales_order_images
+		WHERE combination_key=$1
+		ORDER BY version_no DESC`, r.schema)
+	rows, err := r.pool.Query(ctx, q, key)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := make([]salesapp.CombinedSalesOrderImageDocument, 0)
+	for rows.Next() {
+		var doc salesapp.CombinedSalesOrderImageDocument
+		var orderIDsJSON, snapshotJSON []byte
+		var orderNosText string
+		if err := rows.Scan(&doc.ID, &doc.CombinationKey, &doc.CustomerID, &orderIDsJSON, &orderNosText, &doc.VersionNo, &snapshotJSON, &doc.ImageAssetID, &doc.IsLatest, &doc.CreatedAt, &doc.CreatedBy); err != nil {
+			return nil, err
+		}
+		_ = json.Unmarshal(orderIDsJSON, &doc.OrderIDs)
+		_ = json.Unmarshal(snapshotJSON, &doc.Snapshot)
+		doc.OrderNos = doc.Snapshot.OrderNos
+		if len(doc.OrderNos) == 0 {
+			doc.OrderNos = splitCombinedOrderNos(orderNosText)
+		}
+		doc.DownloadURL = combinedSalesOrderImageDownloadURL(doc.ID)
 		out = append(out, doc)
 	}
 	return out, rows.Err()
@@ -526,6 +648,14 @@ func (r Repository) loadCombinedSalesOrderVersionsTx(ctx context.Context, tx pgx
 	return loadCombinedDocumentVersions(ctx, tx, q, key)
 }
 
+func (r Repository) loadCombinedSalesOrderImageVersionsTx(ctx context.Context, tx pgx.Tx, key string, lock bool) ([]int, error) {
+	q := fmt.Sprintf(`SELECT version_no FROM %s.combined_sales_order_images WHERE combination_key=$1`, r.schema)
+	if lock {
+		q += " FOR UPDATE"
+	}
+	return loadCombinedDocumentVersions(ctx, tx, q, key)
+}
+
 func (r Repository) loadCombinedDeliveryNoteVersionsTx(ctx context.Context, tx pgx.Tx, key string, lock bool) ([]int, error) {
 	q := fmt.Sprintf(`SELECT version_no FROM %s.combined_delivery_note_documents WHERE combination_key=$1`, r.schema)
 	if lock {
@@ -573,6 +703,31 @@ func (r Repository) LoadCombinedSalesOrderDocumentFile(ctx context.Context, docu
 		Document: doc,
 		Path:     filepath.Join(r.assetDir, objectKey),
 		Filename: fmt.Sprintf("%s-V%d.pdf", doc.Snapshot.CombinedNo, doc.VersionNo),
+	}, nil
+}
+
+func (r Repository) LoadCombinedSalesOrderImageFile(ctx context.Context, imageID int64) (salesapp.CombinedSalesOrderImageFile, error) {
+	q := fmt.Sprintf(`SELECT d.id, d.combination_key, d.customer_id, d.order_ids, d.order_nos, d.version_no, d.snapshot_json, COALESCE(d.image_asset_id,0), d.is_latest, to_char(d.created_at,'YYYY-MM-DD HH24:MI:SS'), d.created_by, a.object_key
+		FROM %s.combined_sales_order_images d
+		JOIN %s.sales_order_assets a ON a.id=d.image_asset_id
+		WHERE d.id=$1`, r.schema, r.schema)
+	var doc salesapp.CombinedSalesOrderImageDocument
+	var orderIDsJSON, raw []byte
+	var orderNosText, objectKey string
+	if err := r.pool.QueryRow(ctx, q, imageID).Scan(&doc.ID, &doc.CombinationKey, &doc.CustomerID, &orderIDsJSON, &orderNosText, &doc.VersionNo, &raw, &doc.ImageAssetID, &doc.IsLatest, &doc.CreatedAt, &doc.CreatedBy, &objectKey); err != nil {
+		return salesapp.CombinedSalesOrderImageFile{}, err
+	}
+	_ = json.Unmarshal(orderIDsJSON, &doc.OrderIDs)
+	_ = json.Unmarshal(raw, &doc.Snapshot)
+	doc.OrderNos = doc.Snapshot.OrderNos
+	if len(doc.OrderNos) == 0 {
+		doc.OrderNos = splitCombinedOrderNos(orderNosText)
+	}
+	doc.DownloadURL = combinedSalesOrderImageDownloadURL(doc.ID)
+	return salesapp.CombinedSalesOrderImageFile{
+		Document: doc,
+		Path:     filepath.Join(r.assetDir, objectKey),
+		Filename: fmt.Sprintf("%s-V%d.png", doc.Snapshot.CombinedNo, doc.VersionNo),
 	}, nil
 }
 
@@ -651,6 +806,10 @@ func splitCombinedOrderNos(value string) []string {
 
 func combinedSalesOrderDocumentDownloadURL(documentID int64) string {
 	return fmt.Sprintf("/orders/combined/sales-orders/%d.pdf", documentID)
+}
+
+func combinedSalesOrderImageDownloadURL(imageID int64) string {
+	return fmt.Sprintf("/orders/combined/sales-order-images/%d.png", imageID)
 }
 
 func combinedDeliveryNoteDocumentDownloadURL(documentID int64) string {

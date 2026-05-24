@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"image/png"
 	"net/http"
 	"net/http/httptest"
 	salesapp "orderapp/internal/application/sales"
@@ -30,6 +31,9 @@ func TestCombinedDocumentRoutesRegisterPreviewGenerateAndDownload(t *testing.T) 
 		"GET /api/orders/combined/sales-order-preview.pdf",
 		"POST /api/orders/combined/sales-orders",
 		"GET /orders/combined/sales-orders/:doc_id.pdf",
+		"GET /api/orders/combined/sales-order-images",
+		"POST /api/orders/combined/sales-order-images",
+		"GET /orders/combined/sales-order-images/:image_id.png",
 		"GET /api/orders/combined/delivery-notes",
 		"GET /api/orders/combined/delivery-note-preview",
 		"GET /api/orders/combined/delivery-note-preview.pdf",
@@ -101,6 +105,24 @@ func TestCombinedSalesOrderDocumentAPI(t *testing.T) {
 	if created.VersionNo != 1 || created.DownloadURL == "" || len(created.Snapshot.Groups) != 2 {
 		t.Fatalf("generated sales doc = %+v", created)
 	}
+	imageReq := httptest.NewRequest(http.MethodPost, "/api/orders/combined/sales-order-images", strings.NewReader(`{"order_ids":[1,2]}`))
+	imageReq.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	imageRec := httptest.NewRecorder()
+	e.ServeHTTP(imageRec, imageReq)
+	if imageRec.Code != http.StatusOK {
+		t.Fatalf("sales image generate status=%d body=%s", imageRec.Code, imageRec.Body.String())
+	}
+	var createdImage struct {
+		ID          int64  `json:"id"`
+		VersionNo   int    `json:"version_no"`
+		DownloadURL string `json:"download_url"`
+	}
+	if err := json.Unmarshal(imageRec.Body.Bytes(), &createdImage); err != nil {
+		t.Fatalf("decode generated sales image doc: %v", err)
+	}
+	if createdImage.VersionNo != 1 || createdImage.DownloadURL == "" || !strings.Contains(createdImage.DownloadURL, "/orders/combined/sales-order-images/") {
+		t.Fatalf("generated sales image doc = %+v body=%s", createdImage, imageRec.Body.String())
+	}
 
 	listReq := httptest.NewRequest(http.MethodGet, "/api/orders/combined/sales-orders?order_ids=1,2", nil)
 	listRec := httptest.NewRecorder()
@@ -108,7 +130,7 @@ func TestCombinedSalesOrderDocumentAPI(t *testing.T) {
 	if listRec.Code != http.StatusOK {
 		t.Fatalf("sales list status=%d body=%s", listRec.Code, listRec.Body.String())
 	}
-	if !strings.Contains(listRec.Body.String(), `"rows":[`) || !strings.Contains(listRec.Body.String(), `"image_rows":[`) || !strings.Contains(listRec.Body.String(), created.DownloadURL) {
+	if !strings.Contains(listRec.Body.String(), `"rows":[`) || !strings.Contains(listRec.Body.String(), `"image_rows":[`) || !strings.Contains(listRec.Body.String(), created.DownloadURL) || !strings.Contains(listRec.Body.String(), createdImage.DownloadURL) {
 		t.Fatalf("sales list body = %s", listRec.Body.String())
 	}
 
@@ -118,7 +140,21 @@ func TestCombinedSalesOrderDocumentAPI(t *testing.T) {
 	if downloadRec.Code != http.StatusOK || downloadRec.Header().Get(echo.HeaderContentType) != "application/pdf" {
 		t.Fatalf("sales download status=%d content-type=%q body=%s", downloadRec.Code, downloadRec.Header().Get(echo.HeaderContentType), downloadRec.Body.String())
 	}
+	imageDownloadReq := httptest.NewRequest(http.MethodGet, createdImage.DownloadURL, nil)
+	imageDownloadRec := httptest.NewRecorder()
+	e.ServeHTTP(imageDownloadRec, imageDownloadReq)
+	if imageDownloadRec.Code != http.StatusOK || imageDownloadRec.Header().Get(echo.HeaderContentType) != "image/png" {
+		t.Fatalf("sales image download status=%d content-type=%q body=%s", imageDownloadRec.Code, imageDownloadRec.Header().Get(echo.HeaderContentType), imageDownloadRec.Body.String())
+	}
+	img, err := png.Decode(bytes.NewReader(imageDownloadRec.Body.Bytes()))
+	if err != nil {
+		t.Fatalf("decode combined sales image: %v", err)
+	}
+	if img.Bounds().Dx() < 1200 || img.Bounds().Dy() < 1700 {
+		t.Fatalf("combined sales image bounds=%v, want full-page PNG", img.Bounds())
+	}
 	assertCombinedAuditLog(t, ctx, pool, schema, "combined_sales_order_document", "SO-20260520-0001, SO-20260521-0002")
+	assertCombinedAuditLog(t, ctx, pool, schema, "combined_sales_order_image", "SO-20260520-0001, SO-20260521-0002")
 }
 
 func TestCombinedDocumentsRejectCrossCustomerOrders(t *testing.T) {

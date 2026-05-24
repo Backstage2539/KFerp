@@ -14,7 +14,7 @@
           <button class="secondary" type="button" @click="shareLatestResource('sales_order_pdf')" :disabled="shareLoading || !canShareSingleOrder || !documents.length">{{ shareLoading === 'sales_order_pdf' ? '分享中' : '分享PDF到微信' }}</button>
           <button class="secondary" type="button" @click="shareLatestResource('sales_order_image')" :disabled="shareLoading || !canShareSingleOrder || !imageDocuments.length">{{ shareLoading === 'sales_order_image' ? '分享中' : '分享图片到微信' }}</button>
           <button class="primary" type="button" @click="generate" :disabled="generating || !documentContextReady || !preview">{{ generating ? '生成中' : '确认生成 PDF' }}</button>
-          <button class="primary" type="button" @click="generateImage" :disabled="imageGenerating || isCombinedSalesOrder || !documentContextReady || !preview">{{ imageGenerating ? '生成图片中' : '确认生成图片' }}</button>
+          <button class="primary" type="button" @click="generateImage" :disabled="imageGenerating || !documentContextReady || !preview">{{ imageGenerating ? '生成图片中' : '确认生成图片' }}</button>
         </div>
       </div>
       <div v-if="error" class="error">{{ error }}</div>
@@ -388,13 +388,15 @@ async function generate() {
 }
 
 async function generateImage() {
-  if (!orderID.value || isCombinedSalesOrder.value || !preview.value) return
+  if (!documentContextReady.value || !preview.value) return
   imageGenerating.value = true
   error.value = ''
   message.value = ''
   try {
-    const data = await apiSend(`/api/orders/${orderID.value}/sales-order-images`)
-    message.value = `已生成图片 V${data.version_no}`
+    const data = await apiSend(isCombinedSalesOrder.value ? '/api/orders/combined/sales-order-images' : `/api/orders/${orderID.value}/sales-order-images`, {
+      body: isCombinedSalesOrder.value ? { order_ids: combinedOrderIDs.value } : undefined,
+    })
+    message.value = `${isCombinedSalesOrder.value ? '已生成组合销售单图片' : '已生成图片'} V${data.version_no}`
     await load()
     await loadPreview()
   } catch (err) {

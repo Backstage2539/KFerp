@@ -38,6 +38,7 @@ func TestDev354SingleDocumentViewsSwitchContentForCombinedOrderIDs(t *testing.T)
 			"/api/orders/combined/sales-order-preview",
 			"/api/orders/combined/sales-order-preview.pdf",
 			"/api/orders/combined/sales-orders",
+			"/api/orders/combined/sales-order-images",
 			"销售单设置",
 			"销售单备注",
 			"PDF版本",
@@ -61,6 +62,10 @@ func TestDev354SingleDocumentViewsSwitchContentForCombinedOrderIDs(t *testing.T)
 				t.Fatalf("%s missing reused document UI marker %q", rel, want)
 			}
 		}
+	}
+	salesOrderView := string(readOrderAppFileForTest(t, filepath.Join("frontend-vue-shell", "src", "views", "SalesOrderView.vue")))
+	if strings.Contains(salesOrderView, "imageGenerating || isCombinedSalesOrder ||") || strings.Contains(salesOrderView, "if (!orderID.value || isCombinedSalesOrder.value || !preview.value) return") {
+		t.Fatal("SalesOrderView must not disable combined sales order image generation")
 	}
 }
 
