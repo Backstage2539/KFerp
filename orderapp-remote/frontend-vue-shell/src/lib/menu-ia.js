@@ -53,7 +53,7 @@ export const menuGroups = [
     items: [
       { key: 'productSettings', label: 'SKU设置', title: 'SKU设置' },
       { key: 'mallSettings', label: '商城管理', title: '商城管理' },
-      { key: 'costing', label: '产品豆单', title: '产品豆单' },
+      { key: 'costing', label: '产品价格表', title: '产品价格表' },
       { key: 'bom', label: 'BOM配方维护', title: 'BOM配方维护' },
       { key: 'costingManual', label: '成本核价手册', title: '成本核价手册' },
       { key: 'greenBeanSalesManual', label: '生豆销售手册', title: '生豆销售手册' },
