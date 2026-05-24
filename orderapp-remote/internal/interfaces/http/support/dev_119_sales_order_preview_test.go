@@ -30,7 +30,8 @@ func TestSalesOrderVueRequiresPreviewBeforeGenerate(t *testing.T) {
 		"/sales-order-preview",
 		"销售单预览",
 		"确认生成 PDF",
-		":disabled=\"generating || !orderID || !preview\"",
+		"documentContextReady",
+		":disabled=\"generating || !documentContextReady || !preview\"",
 		"PDFStampPreview",
 		"salesOrderPreviewPDFUrl",
 	} {
