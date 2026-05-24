@@ -478,10 +478,10 @@ func (r Repository) fetchCommercialOrderPublicationTiers(ctx context.Context, pr
 		}
 		tiers := commercialOrderTierMapFromPublicationContent(publicationID, versionNo, contentRaw)
 		if ownerType == "customer" {
-			customerTiers[ownerKey] = tiers
+			customerTiers[ownerKey] = mergeOrderPublicationTierMaps(customerTiers[ownerKey], tiers)
 			continue
 		}
-		officialTiers = tiers
+		officialTiers = mergeOrderPublicationTierMaps(officialTiers, tiers)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
@@ -599,10 +599,10 @@ func (r Repository) fetchGreenBeanOrderPublicationTiers(ctx context.Context, pro
 		}
 		tiers := greenBeanOrderTierMapFromPublicationContent(publicationID, versionNo, contentRaw, configRaw)
 		if ownerType == "customer" {
-			customerTiers[ownerKey] = tiers
+			customerTiers[ownerKey] = mergeOrderPublicationTierMaps(customerTiers[ownerKey], tiers)
 			continue
 		}
-		officialTiers = tiers
+		officialTiers = mergeOrderPublicationTierMaps(officialTiers, tiers)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
@@ -626,6 +626,19 @@ func (r Repository) fetchGreenBeanOrderPublicationTiers(ctx context.Context, pro
 		}
 	}
 	return out, nil
+}
+
+func mergeOrderPublicationTierMaps(dst, src map[int64][]salesapp.ProductTierOption) map[int64][]salesapp.ProductTierOption {
+	if dst == nil {
+		dst = map[int64][]salesapp.ProductTierOption{}
+	}
+	for productID, tiers := range src {
+		if len(tiers) == 0 {
+			continue
+		}
+		dst[productID] = append(dst[productID], tiers...)
+	}
+	return dst
 }
 
 func applyGreenBeanOrderPublicationTiers(products []salesapp.ProductOption, publicationTiers map[int64][]salesapp.ProductTierOption) {
