@@ -492,9 +492,59 @@
                       </option>
                     </select>
                     <button v-if="canEditCategory(secondary)" class="text-button" type="button" @click="startCategoryEdit(secondary)">改名</button>
+                    <button v-if="canEditCategory(secondary)" class="text-button" type="button" @click="startProductSubtypeConfigEdit(secondary)">配置</button>
                     <button v-if="canEditCategory(secondary)" class="text-button danger-text" type="button" @click="deleteCategory(secondary)">删除</button>
                     <button v-if="!canEditCategory(secondary) && skuContextCustomerID" class="text-button" type="button" @click="deriveCategoryTemplate(secondary)">复制为客户分类</button>
                   </div>
+                  <form
+                    v-if="editingSubtypeConfigId === Number(secondary.id)"
+                    class="subtype-config-form"
+                    @submit.prevent="saveProductSubtypeConfig"
+                    @pointerdown.stop
+                    @dragstart.stop>
+                    <div class="subtype-config-title">子类型配置</div>
+                    <label>
+                      <span>阶梯价模板</span>
+                      <select v-model.number="subtypeConfigForm.gradient_template_id">
+                        <option value="0">未绑定模板</option>
+                        <option v-for="template in activeGradientTemplates" :key="template.id" :value="template.id">
+                          {{ template.name }} · {{ gradientDisplayUnitLabel(template.display_unit) }}
+                        </option>
+                      </select>
+                    </label>
+                    <label>
+                      <span>工序模板ID</span>
+                      <input v-model.number="subtypeConfigForm.operation_template_id" type="number" min="0" step="1" placeholder="0 表示未绑定" />
+                    </label>
+                    <label>
+                      <span>价格表规则 JSON</span>
+                      <textarea v-model.trim="subtypeConfigForm.price_list_rule_json" rows="2" placeholder="{}"></textarea>
+                    </label>
+                    <label>
+                      <span>库存单位</span>
+                      <input v-model.trim="subtypeConfigForm.inventory_unit" placeholder="kg" />
+                    </label>
+                    <label>
+                      <span>报价单位</span>
+                      <input v-model.trim="subtypeConfigForm.quote_unit" placeholder="盒" />
+                    </label>
+                    <label>
+                      <span>录单单位</span>
+                      <input v-model.trim="subtypeConfigForm.order_unit" placeholder="盒" />
+                    </label>
+                    <label class="wide-subtype-field">
+                      <span>单位换算 JSON</span>
+                      <textarea v-model.trim="subtypeConfigForm.unit_conversion_json" rows="2" placeholder='{"盒":{"kg":0.2}}'></textarea>
+                    </label>
+                    <label class="checkline subtype-checkline">
+                      <input v-model="subtypeConfigForm.integer_unit" type="checkbox" />
+                      <span>整数单位</span>
+                    </label>
+                    <div class="form-actions subtype-config-actions">
+                      <button class="secondary" type="button" @click="cancelProductSubtypeConfigEdit">取消</button>
+                      <button class="primary" type="submit" :disabled="loading">保存子类型配置</button>
+                    </div>
+                  </form>
                   <div class="product-chip-list">
                     <span
                       v-for="product in secondary.products"
@@ -767,6 +817,7 @@ import {
   buildCustomerProductRuleOverridePayload,
   buildCustomerProductRuleTemplatePayload,
   buildCustomProductCreatePayload,
+  buildProductCategoryConfigPayload,
   buildProductBasicsPayload,
   buildProductBomURL,
   buildProductCreatePayload,
@@ -826,6 +877,8 @@ const pointerDrag = ref(null)
 const categoryDropTarget = ref(null)
 const editingCategoryId = ref(0)
 const editingCategoryName = ref('')
+const editingSubtypeConfigId = ref(0)
+const subtypeConfigForm = ref(defaultProductSubtypeConfigForm())
 const categoryCollapsed = ref(false)
 const productsCollapsed = ref(false)
 const selectedCustomerSkuCustomerID = ref(0)
@@ -1084,6 +1137,8 @@ function saveProductSettingsDraft() {
     addingSecondaryFor: addingSecondaryFor.value,
     editingCategoryId: editingCategoryId.value,
     editingCategoryName: editingCategoryName.value,
+    editingSubtypeConfigId: editingSubtypeConfigId.value,
+    subtypeConfigForm: subtypeConfigForm.value,
     categoryCollapsed: categoryCollapsed.value,
     productsCollapsed: productsCollapsed.value,
     skuFilters: skuFilters.value,
@@ -1107,6 +1162,8 @@ async function restoreProductSettingsDraft() {
   addingSecondaryFor.value = Number(draft.addingSecondaryFor || 0)
   editingCategoryId.value = Number(draft.editingCategoryId || 0)
   editingCategoryName.value = draft.editingCategoryName || ''
+  editingSubtypeConfigId.value = Number(draft.editingSubtypeConfigId || 0)
+  subtypeConfigForm.value = { ...defaultProductSubtypeConfigForm(), ...(draft.subtypeConfigForm || {}) }
   categoryCollapsed.value = Boolean(draft.categoryCollapsed)
   productsCollapsed.value = Boolean(draft.productsCollapsed)
   skuFilters.value = { ...defaultSkuFilters(), ...(draft.skuFilters || {}) }
@@ -1150,14 +1207,43 @@ function normalizeBackendMarginRateOverride(value) {
 }
 
 function decorateCategory(category) {
+  const inventoryUnit = category.inventory_unit || 'kg'
+  const quoteUnit = category.quote_unit || inventoryUnit
   return {
     ...category,
     customer_id: Number(category.customer_id || 0),
     source_category_id: Number(category.source_category_id || 0),
     template_state: category.template_state || '',
     gradient_template_id: Number(category.gradient_template_id || 0),
+    operation_template_id: Number(category.operation_template_id || 0),
+    price_list_rule_json: category.price_list_rule_json || '{}',
+    inventory_unit: inventoryUnit,
+    quote_unit: quoteUnit,
+    order_unit: category.order_unit || quoteUnit,
+    unit_conversion_json: category.unit_conversion_json || '{}',
+    integer_unit: Boolean(category.integer_unit),
     children: (category.children || []).map(decorateCategory),
     products: (category.products || []).map(decorateProduct),
+  }
+}
+
+function defaultProductSubtypeConfigForm(category = {}) {
+  const inventoryUnit = category.inventory_unit || 'kg'
+  const quoteUnit = category.quote_unit || inventoryUnit
+  return {
+    id: Number(category.id || 0),
+    name: category.name || '',
+    parent_id: Number(category.parent_id || 0),
+    customer_id: Number(category.customer_id || 0),
+    position: Number(category.position || category.number || 1),
+    gradient_template_id: Number(category.gradient_template_id || 0),
+    operation_template_id: Number(category.operation_template_id || 0),
+    price_list_rule_json: category.price_list_rule_json || '{}',
+    inventory_unit: inventoryUnit,
+    quote_unit: quoteUnit,
+    order_unit: category.order_unit || quoteUnit,
+    unit_conversion_json: category.unit_conversion_json || '{}',
+    integer_unit: Boolean(category.integer_unit),
   }
 }
 
@@ -1958,21 +2044,57 @@ function startCategoryEdit(category) {
   editingCategoryName.value = category.name || ''
 }
 
+function startProductSubtypeConfigEdit(category) {
+  if (!canEditCategory(category)) return
+  editingCategoryId.value = 0
+  editingCategoryName.value = ''
+  editingSubtypeConfigId.value = Number(category.id)
+  subtypeConfigForm.value = defaultProductSubtypeConfigForm(category)
+}
+
+function cancelProductSubtypeConfigEdit() {
+  editingSubtypeConfigId.value = 0
+  subtypeConfigForm.value = defaultProductSubtypeConfigForm()
+}
+
+async function saveProductSubtypeConfig() {
+  const payload = buildProductCategoryConfigPayload(subtypeConfigForm.value)
+  if (!payload.id) return
+  loading.value = true
+  error.value = ''
+  ok.value = ''
+  try {
+    await apiSend(`/api/product-settings/categories/${payload.id}`, {
+      method: 'PUT',
+      body: payload,
+    })
+    ok.value = '产品子类型配置已保存'
+    cancelProductSubtypeConfigEdit()
+    await loadAll()
+  } catch (err) {
+    error.value = err.message || '保存产品子类型配置失败'
+  } finally {
+    loading.value = false
+  }
+}
+
 async function saveCategoryName(category) {
   if (!canEditCategory(category)) return
   if (!editingCategoryName.value) return
+  const payload = buildProductCategoryConfigPayload({
+    ...category,
+    name: editingCategoryName.value,
+    parent_id: Number(category.parent_id || 0),
+    customer_id: Number(category.customer_id || selectedCustomerSkuCustomerID.value || 0),
+    position: Number(category.position || category.number || 1),
+  })
   loading.value = true
   error.value = ''
   ok.value = ''
   try {
     await apiSend(`/api/product-settings/categories/${category.id}`, {
       method: 'PUT',
-      body: {
-        name: editingCategoryName.value,
-        parent_id: Number(category.parent_id || 0),
-        customer_id: Number(category.customer_id || selectedCustomerSkuCustomerID.value || 0),
-        position: Number(category.position || category.number || 1),
-      },
+      body: payload,
     })
     editingCategoryId.value = 0
     editingCategoryName.value = ''
@@ -2460,6 +2582,13 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .secondary-category.pointer-dragging { cursor: grabbing; }
 .secondary-head span { display: inline-flex; width: 24px; height: 24px; align-items: center; justify-content: center; border: 1px solid #ddd; border-radius: 6px; }
 .secondary-head small { color: #666; }
+.subtype-config-form { display: grid; grid-template-columns: repeat(3, minmax(150px, 1fr)); gap: 8px; margin-top: 10px; padding: 10px; border: 1px solid #eee8df; border-radius: 8px; background: #fbfaf8; cursor: default; user-select: text; }
+.subtype-config-title { grid-column: 1 / -1; font-weight: 700; color: #3f3328; }
+.subtype-config-form label { display: grid; gap: 5px; font-size: 12px; color: #444; }
+.subtype-config-form label span { color: #666; font-weight: 600; }
+.wide-subtype-field { grid-column: span 2; }
+.subtype-checkline { align-self: end; }
+.subtype-config-actions { grid-column: 1 / -1; gap: 8px; }
 .category-drop-line { height: 16px; border-top: 2px solid transparent; margin: 2px 0; transition: border-color .12s ease, background .12s ease; }
 .category-drop-line.active { border-top-color: #1f4f82; background: #edf5ff; }
 .product-chip-list, .uncategorized { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
@@ -2501,13 +2630,13 @@ th { background: #fbfaf8; position: sticky; top: 0; }
 }
 @media (max-width: 900px) {
   .page { padding: 12px; }
-  .settings-grid, .inline-form, .product-create-form, .custom-product-form, .gradient-template-layout, .template-editor-grid, .template-tier-row, .sku-filters, .customer-rule-binding, .customer-rule-layout, .customer-rule-item { grid-template-columns: 1fr; }
+  .settings-grid, .inline-form, .product-create-form, .custom-product-form, .gradient-template-layout, .template-editor-grid, .template-tier-row, .sku-filters, .customer-rule-binding, .customer-rule-layout, .customer-rule-item, .subtype-config-form { grid-template-columns: 1fr; }
   .sku-context-main { display: grid; }
   .sku-context-controls { justify-content: flex-start; min-width: 0; }
   .panel-actions { justify-content: flex-start; }
   .sku-panel-actions { width: 100%; }
   .sku-customer-select { max-width: none; }
-  .product-create-form .wide-field, .custom-product-form .wide-field { grid-column: auto; }
+  .product-create-form .wide-field, .custom-product-form .wide-field, .wide-subtype-field { grid-column: auto; }
   .template-select { width: 100%; }
   table { min-width: 1400px; }
 }

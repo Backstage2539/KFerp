@@ -104,6 +104,7 @@ test('instant coffee product kind is preserved in SKU payloads without roast set
 test('product subtype config payload carries templates and lightweight unit rule', () => {
   assert.deepEqual(buildProductCategoryConfigPayload({
     id: 2,
+    customer_id: 42,
     name: '冻干速溶',
     parent_id: 1,
     position: 3,
@@ -117,6 +118,7 @@ test('product subtype config payload carries templates and lightweight unit rule
     integer_unit: true,
   }), {
     id: 2,
+    customer_id: 42,
     name: '冻干速溶',
     parent_id: 1,
     position: 3,
@@ -722,6 +724,24 @@ test('SKU settings labels category levels as product type and subtype', () => {
   assert.match(source, /产品子类型/)
   assert.doesNotMatch(source, /一级分类/)
   assert.doesNotMatch(source, /二级分类/)
+})
+
+test('SKU settings exposes product subtype default unit configuration controls', () => {
+  const source = fs.readFileSync(new URL('../views/ProductSettingsView.vue', import.meta.url), 'utf8')
+
+  for (const expected of [
+    '子类型配置',
+    '库存单位',
+    '报价单位',
+    '录单单位',
+    '单位换算 JSON',
+    '整数单位',
+    'startProductSubtypeConfigEdit',
+    'saveProductSubtypeConfig',
+    'buildProductCategoryConfigPayload',
+  ]) {
+    assert.ok(source.includes(expected), `missing subtype default unit config UI marker: ${expected}`)
+  }
 })
 
 test('SKU settings exposes customer product rule template operations', () => {

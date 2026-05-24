@@ -166,6 +166,7 @@ export function buildAssignCategoryPayload({ product = {}, category = {}, custom
 export function buildProductCategoryConfigPayload(category = {}) {
   return {
     id: Number(category.id || 0),
+    customer_id: Number(category.customer_id || 0),
     name: String(category.name || '').trim(),
     parent_id: Number(category.parent_id || 0),
     position: Number(category.position || 0),

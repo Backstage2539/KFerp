@@ -39,6 +39,16 @@ func TestDev355ProductSubtypeConfigUnitRulesWiring(t *testing.T) {
 		filepath.Join("frontend-vue-shell", "src", "lib", "product-settings.js"): {
 			"buildProductCategoryConfigPayload",
 			"buildSkuConfigOverridePayload",
+			"customer_id",
+		},
+		filepath.Join("frontend-vue-shell", "src", "views", "ProductSettingsView.vue"): {
+			"子类型配置",
+			"库存单位",
+			"报价单位",
+			"录单单位",
+			"单位换算 JSON",
+			"整数单位",
+			"saveProductSubtypeConfig",
 		},
 	} {
 		src := string(readOrderAppFileForTest(t, rel))
