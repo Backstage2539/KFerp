@@ -622,6 +622,62 @@ func TestOrderAPIFormUsesCustomerCommercialBeanListForProductOptions(t *testing.
 	}
 }
 
+func TestOrderAPIFormReturnsAllPublishedCommercialBeanListTiersForVersionSwitching(t *testing.T) {
+	pool, schema := newOrderAPITestDB(t)
+	ctx := context.Background()
+	seedOrderAPITestData(t, ctx, pool, schema)
+	mustExecOrderAPITestSQL(t, ctx, pool, fmt.Sprintf(`
+		INSERT INTO %[1]s.bean_list_publications(id, list_type, version_no, status, owner_type, owner_key, config_json, content_json, changelog, actor, published_at)
+		VALUES
+			(9902,'commercial','V3.0.13','published','official','','{}'::jsonb,
+			'{"groups":[{"items":[{"productId":7,"name":"橘皮乌龙","commercial_wholesale_tiers":[{"label":"2磅-13磅","spec_g":454,"min_qty":2,"max_qty":13,"price_per_unit":61,"price_per_lb":61,"template_id":6,"template_tier_id":62,"display_unit":"lb"}]}]}]}'::jsonb,
+			'公共旧版','codex','2026-05-23 09:00:00+08'),
+			(9903,'commercial','V3.0.14','published','official','','{}'::jsonb,
+			'{"groups":[{"items":[{"productId":7,"name":"橘皮乌龙","commercial_wholesale_tiers":[{"label":"2磅-13磅","spec_g":454,"min_qty":2,"max_qty":13,"price_per_unit":64,"price_per_lb":64,"template_id":6,"template_tier_id":63,"display_unit":"lb"}]}]}]}'::jsonb,
+			'公共新版','codex','2026-05-24 09:00:00+08');
+	`, schema))
+
+	e := newOrderAPITestEcho(pool, schema)
+	req := httptest.NewRequest(http.MethodGet, "/api/order/form?customer_id=3", nil)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET /api/order/form status = %d, want 200, body=%s", rec.Code, rec.Body.String())
+	}
+
+	var resp struct {
+		Products []struct {
+			ID    int64 `json:"id"`
+			Tiers []struct {
+				UnitPrice       float64 `json:"unit_price"`
+				PriceSourceJSON string  `json:"price_source_json"`
+			} `json:"tiers"`
+		} `json:"products"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode order form: %v", err)
+	}
+	seen := map[int64]float64{}
+	for _, product := range resp.Products {
+		if product.ID != 7 {
+			continue
+		}
+		for _, tier := range product.Tiers {
+			var source map[string]any
+			if err := json.Unmarshal([]byte(tier.PriceSourceJSON), &source); err != nil {
+				t.Fatalf("decode price source json %q: %v", tier.PriceSourceJSON, err)
+			}
+			id, _ := source["publication_id"].(float64)
+			if id > 0 {
+				seen[int64(id)] = tier.UnitPrice
+			}
+		}
+	}
+	if seen[9902] != 61 || seen[9903] != 64 {
+		t.Fatalf("commercial product tiers by publication = %#v, want 9902=61 and 9903=64", seen)
+	}
+}
+
 func TestOrderAPIFormReturnsLatestBeanListVersionDefaultForStaleWarning(t *testing.T) {
 	pool, schema := newOrderAPITestDB(t)
 	ctx := context.Background()
