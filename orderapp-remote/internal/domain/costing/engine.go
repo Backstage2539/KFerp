@@ -454,6 +454,16 @@ func CalculateProduct(params Parameters, in ProductInput) ProductResult {
 		commercialDisplay = customerCategoryBeanListDisplay(in, commercialDisplay, in.ProductKind != "drip_bag")
 		retailDisplay = customerCategoryBeanListDisplay(in, retailDisplay, false)
 		dripDisplay = customerCategoryBeanListDisplay(in, dripDisplay, in.ProductKind == "drip_bag")
+	} else if hasSkuCategoryBeanListMetadata(in) {
+		if commercialDisplay.Code == "" {
+			commercialDisplay = customerCategoryBeanListDisplay(in, commercialDisplay, in.ProductKind != "drip_bag")
+		}
+		if retailDisplay.Code == "" {
+			retailDisplay = customerCategoryBeanListDisplay(in, retailDisplay, false)
+		}
+		if dripDisplay.Code == "" {
+			dripDisplay = customerCategoryBeanListDisplay(in, dripDisplay, in.ProductKind == "drip_bag")
+		}
 	}
 
 	out := ProductResult{
@@ -791,6 +801,10 @@ func customerCategoryBeanListDisplay(in ProductInput, display BeanListDisplay, a
 		display.Description = firstNonEmptyString(in.BeanListNote, in.Origin)
 	}
 	return display
+}
+
+func hasSkuCategoryBeanListMetadata(in ProductInput) bool {
+	return strings.TrimSpace(in.CategoryPrimaryName) != "" || strings.TrimSpace(in.CategorySecondaryName) != ""
 }
 
 func customerBeanListCategoryName(in ProductInput) string {

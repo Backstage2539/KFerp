@@ -70,6 +70,23 @@ test('product bean-list live preview loads customer rule scoped prices', () => {
   assert.match(costingSource, /watch\(activeBeanListCustomerID/)
 })
 
+test('product bean-list generation uses product type categories instead of legacy hard-coded list types', () => {
+  for (const expected of [
+    'productPriceListTypeOptions',
+    'selectedProductTypeCategoryID',
+    'selectedProductPriceListType',
+    'product_type_category_id',
+    'product_type_name',
+    'beanListPublicationTypeLabel(row)',
+  ]) {
+    assert.match(costingSource, new RegExp(expected.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')))
+  }
+  assert.doesNotMatch(costingSource, /<option value="commercial">商用批发豆单<\/option>/)
+  assert.doesNotMatch(costingSource, /<option value="drip">挂耳豆单<\/option>/)
+  assert.doesNotMatch(costingSource, /<option value="retail">零售豆单<\/option>/)
+  assert.doesNotMatch(costingSource, /<option value="green">生豆豆单<\/option>/)
+})
+
 test('product bean-list page does not expose pricing trial workspace', () => {
   assert.doesNotMatch(costingSource, /<div class="section-title">价格试算<\/div>/)
   assert.doesNotMatch(costingSource, /pricingCollapsed/)

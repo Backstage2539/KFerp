@@ -207,6 +207,11 @@ func (s *recordingBeanListService) ListBeanListPublications(ctx context.Context,
 	return s.fakeService.ListBeanListPublications(ctx, query)
 }
 
+func (s *recordingBeanListService) PublishedBeanList(ctx context.Context, query appcosting.BeanListPublicationQuery) (*appcosting.BeanListPublication, error) {
+	s.lastQuery = query
+	return s.fakeService.PublishedBeanList(ctx, query)
+}
+
 func (s *recordingBeanListService) BeanList(ctx context.Context, query appcosting.BeanListQuery) (*appcosting.CalculateResponse, error) {
 	s.lastBeanList = query
 	return s.fakeService.BeanList(ctx, query)
@@ -897,6 +902,22 @@ func TestPublicBeanListPageRendersPublishedSnapshot(t *testing.T) {
 		if strings.Contains(body, forbidden) {
 			t.Fatalf("public bean list page leaked admin content %q in body: %s", forbidden, body)
 		}
+	}
+}
+
+func TestPublicBeanListPagePassesProductTypeCategory(t *testing.T) {
+	svc := &recordingBeanListService{}
+	e := echo.New()
+	RegisterRoutes(e, Dependencies{Costing: svc})
+
+	req := httptest.NewRequest(http.MethodGet, "/public/bean-list/commercial?product_type_category_id=12", nil)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	if svc.lastQuery.ProductTypeCategoryID != 12 {
+		t.Fatalf("public product type query = %+v, want product_type_category_id 12", svc.lastQuery)
 	}
 }
 
