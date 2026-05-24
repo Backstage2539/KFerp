@@ -58,12 +58,22 @@
           </label>
           <label>
             <span>产品类别</span>
-            <select v-model.number="productForm.product_type_category_id" @change="syncProductKindFromProductTypeCategory(productForm)">
+            <select v-model.number="productForm.product_type_category_id" @change="handleProductTypeCategoryChange(productForm)">
               <option value="0">选择产品类别</option>
               <option v-for="category in productTypeCategoryOptions" :key="category.id" :value="category.id">
                 {{ category.name }}
               </option>
             </select>
+          </label>
+          <label>
+            <span>产品子类型</span>
+            <select v-model.number="productForm.product_subtype_category_id" @change="syncProductTypeFromProductSubtype(productForm)">
+              <option value="0">不选择，进停车场</option>
+              <option v-for="category in productSubtypeCategoryOptions(productForm.product_type_category_id)" :key="category.id" :value="category.id">
+                {{ category.name }}
+              </option>
+            </select>
+            <small>只有选中产品子类型才会挂入分类；未选会进入停车场。</small>
           </label>
           <label v-if="productKindRequiresRoast(productForm.product_kind)">
             <span>烘焙度</span>
@@ -128,6 +138,16 @@
                 {{ category.name }}
               </option>
             </select>
+          </label>
+          <label>
+            <span>产品子类型</span>
+            <select v-model.number="customForm.product_subtype_category_id" @change="syncProductTypeFromProductSubtype(customForm)">
+              <option value="0">不选择，进停车场</option>
+              <option v-for="category in productSubtypeCategoryOptions(customForm.product_type_category_id)" :key="category.id" :value="category.id">
+                {{ category.name }}
+              </option>
+            </select>
+            <small>未选产品子类型时先进入停车场，后续再拖入子类型。</small>
           </label>
           <label v-if="customForm.product_kind !== 'green_bean' && customForm.custom_type !== 'custom_roast'" class="wide-field">
             <span>基础产品</span>
@@ -342,14 +362,71 @@
                   <span>工序模板ID</span>
                   <input v-model.number="item.operation_template_id" type="number" min="0" step="1" placeholder="0 表示继承" />
                 </label>
-                <label>
-                  <span>价格表规则 JSON</span>
-                  <textarea v-model.trim="item.price_list_rule_json" rows="2" placeholder="{}"></textarea>
-                </label>
-                <label>
-                  <span>单位规则 JSON</span>
-                  <textarea v-model.trim="item.unit_rule_json" rows="2" placeholder='{"order_unit":"盒","integer_unit":true}'></textarea>
-                </label>
+                <div class="rule-config-block">
+                  <div class="field-group-title">价格表生成规则</div>
+                  <label class="checkline">
+                    <input v-model="item.price_rule_enabled" type="checkbox" />
+                    <span>纳入产品价格表</span>
+                  </label>
+                  <label>
+                    <span>计价方式</span>
+                    <select v-model="item.price_rule_pricing_mode">
+                      <option v-for="option in priceListRulePricingModeOptions" :key="option.value" :value="option.value">{{ option.label }}</option>
+                    </select>
+                  </label>
+                  <label>
+                    <span>展示方式</span>
+                    <select v-model="item.price_rule_display_mode">
+                      <option v-for="option in priceListRuleDisplayModeOptions" :key="option.value" :value="option.value">{{ option.label }}</option>
+                    </select>
+                  </label>
+                  <label>
+                    <span>取整规则</span>
+                    <select v-model="item.price_rule_rounding">
+                      <option v-for="option in priceListRuleRoundingOptions" :key="option.value" :value="option.value">{{ option.label }}</option>
+                    </select>
+                  </label>
+                  <label class="checkline">
+                    <input v-model="item.price_rule_tax_included" type="checkbox" />
+                    <span>含税价格</span>
+                  </label>
+                </div>
+                <div class="rule-config-block">
+                  <div class="field-group-title">单位覆盖</div>
+                  <label>
+                    <span>库存单位覆盖</span>
+                    <input v-model.trim="item.inventory_unit" placeholder="继承子类型" />
+                  </label>
+                  <label>
+                    <span>报价单位覆盖</span>
+                    <input v-model.trim="item.quote_unit" placeholder="继承子类型" />
+                  </label>
+                  <label>
+                    <span>录单单位覆盖</span>
+                    <input v-model.trim="item.order_unit" placeholder="继承子类型" />
+                  </label>
+                  <label>
+                    <span>整数规则</span>
+                    <select v-model="item.integer_unit_mode">
+                      <option v-for="option in integerUnitModeOptions" :key="option.value" :value="option.value">{{ option.label }}</option>
+                    </select>
+                  </label>
+                  <div class="unit-conversion-editor">
+                    <div class="field-group-head">
+                      <span>单位换算覆盖</span>
+                      <button class="secondary compact-action" type="button" @click="addUnitConversionRow(item)">新增换算</button>
+                    </div>
+                    <div v-for="(row, rowIndex) in item.unit_conversion_rows" :key="`template-unit-${index}-${rowIndex}`" class="unit-conversion-row">
+                      <input v-model.number="row.from_qty" type="number" min="0.0001" step="0.0001" />
+                      <input v-model.trim="row.from_unit" placeholder="盒" />
+                      <span>=</span>
+                      <input v-model.number="row.to_qty" type="number" min="0.0001" step="0.0001" />
+                      <input v-model.trim="row.to_unit" placeholder="kg" />
+                      <button class="text-button danger-text" type="button" @click="removeUnitConversionRow(item, rowIndex)">删除</button>
+                    </div>
+                    <small v-if="!item.unit_conversion_rows.length">不填则继承产品子类型单位换算。</small>
+                  </div>
+                </div>
                 <button class="text-button danger-text" type="button" @click="removeCustomerProductRuleTemplateItem(index)">删除</button>
               </div>
             </div>
@@ -378,14 +455,71 @@
               <span>工序模板ID</span>
               <input v-model.number="customerRuleOverrideForm.operation_template_id" type="number" min="0" step="1" placeholder="0 表示继承" />
             </label>
-            <label>
-              <span>价格表规则 JSON</span>
-              <textarea v-model.trim="customerRuleOverrideForm.price_list_rule_json" rows="2" placeholder="{}"></textarea>
-            </label>
-            <label>
-              <span>单位规则 JSON</span>
-              <textarea v-model.trim="customerRuleOverrideForm.unit_rule_json" rows="2" placeholder='{"order_unit":"箱","integer_unit":true}'></textarea>
-            </label>
+            <div class="rule-config-block">
+              <div class="field-group-title">价格表生成规则</div>
+              <label class="checkline">
+                <input v-model="customerRuleOverrideForm.price_rule_enabled" type="checkbox" />
+                <span>纳入产品价格表</span>
+              </label>
+              <label>
+                <span>计价方式</span>
+                <select v-model="customerRuleOverrideForm.price_rule_pricing_mode">
+                  <option v-for="option in priceListRulePricingModeOptions" :key="option.value" :value="option.value">{{ option.label }}</option>
+                </select>
+              </label>
+              <label>
+                <span>展示方式</span>
+                <select v-model="customerRuleOverrideForm.price_rule_display_mode">
+                  <option v-for="option in priceListRuleDisplayModeOptions" :key="option.value" :value="option.value">{{ option.label }}</option>
+                </select>
+              </label>
+              <label>
+                <span>取整规则</span>
+                <select v-model="customerRuleOverrideForm.price_rule_rounding">
+                  <option v-for="option in priceListRuleRoundingOptions" :key="option.value" :value="option.value">{{ option.label }}</option>
+                </select>
+              </label>
+              <label class="checkline">
+                <input v-model="customerRuleOverrideForm.price_rule_tax_included" type="checkbox" />
+                <span>含税价格</span>
+              </label>
+            </div>
+            <div class="rule-config-block">
+              <div class="field-group-title">单位覆盖</div>
+              <label>
+                <span>库存单位覆盖</span>
+                <input v-model.trim="customerRuleOverrideForm.inventory_unit" placeholder="继承子类型" />
+              </label>
+              <label>
+                <span>报价单位覆盖</span>
+                <input v-model.trim="customerRuleOverrideForm.quote_unit" placeholder="继承子类型" />
+              </label>
+              <label>
+                <span>录单单位覆盖</span>
+                <input v-model.trim="customerRuleOverrideForm.order_unit" placeholder="继承子类型" />
+              </label>
+              <label>
+                <span>整数规则</span>
+                <select v-model="customerRuleOverrideForm.integer_unit_mode">
+                  <option v-for="option in integerUnitModeOptions" :key="option.value" :value="option.value">{{ option.label }}</option>
+                </select>
+              </label>
+              <div class="unit-conversion-editor">
+                <div class="field-group-head">
+                  <span>单位换算覆盖</span>
+                  <button class="secondary compact-action" type="button" @click="addUnitConversionRow(customerRuleOverrideForm)">新增换算</button>
+                </div>
+                <div v-for="(row, rowIndex) in customerRuleOverrideForm.unit_conversion_rows" :key="`override-unit-${rowIndex}`" class="unit-conversion-row">
+                  <input v-model.number="row.from_qty" type="number" min="0.0001" step="0.0001" />
+                  <input v-model.trim="row.from_unit" placeholder="箱" />
+                  <span>=</span>
+                  <input v-model.number="row.to_qty" type="number" min="0.0001" step="0.0001" />
+                  <input v-model.trim="row.to_unit" placeholder="盒" />
+                  <button class="text-button danger-text" type="button" @click="removeUnitConversionRow(customerRuleOverrideForm, rowIndex)">删除</button>
+                </div>
+                <small v-if="!customerRuleOverrideForm.unit_conversion_rows.length">不填则继承模板或产品子类型。</small>
+              </div>
+            </div>
             <div class="customer-rule-overrides">
               <button
                 v-for="row in customerProductRuleOverridesForContext"
@@ -504,7 +638,7 @@
                     @dragstart.stop>
                     <div class="subtype-config-title">产品子类型配置</div>
                     <p class="subtype-config-help">
-                      单位会影响产品价格表、录单和生产计划：报价单位决定价格表阶梯和展示单位，录单单位决定订单默认单位，库存单位用于库存和生产折算；单位换算 JSON 用于把录单数量换算成库存数量，例如 {"盒":{"kg":0.2}}。已发布价格表和历史订单不会被回改。
+                      这里配置子类型默认规则：报价单位影响产品价格表阶梯和展示单位，录单单位影响订单默认数量单位，库存单位用于库存和生产折算；具体 SKU 包装差异后续在 SKU 规格/换算覆盖。已发布价格表和历史订单不会被回改。
                     </p>
                     <label>
                       <span>阶梯价模板</span>
@@ -520,11 +654,35 @@
                       <input v-model.number="subtypeConfigForm.operation_template_id" type="number" min="0" step="1" placeholder="0 表示未绑定" />
                       <small>影响无 BOM 生产计划的默认工序。</small>
                     </label>
-                    <label>
-                      <span>价格表规则 JSON</span>
-                      <textarea v-model.trim="subtypeConfigForm.price_list_rule_json" rows="2" placeholder="{}"></textarea>
-                      <small>高级规则，未配置时保留 {}。</small>
-                    </label>
+                    <div class="rule-config-block wide-subtype-field">
+                      <div class="field-group-title">价格表生成规则</div>
+                      <label class="checkline">
+                        <input v-model="subtypeConfigForm.price_rule_enabled" type="checkbox" />
+                        <span>纳入产品价格表</span>
+                      </label>
+                      <label>
+                        <span>计价方式</span>
+                        <select v-model="subtypeConfigForm.price_rule_pricing_mode">
+                          <option v-for="option in priceListRulePricingModeOptions" :key="option.value" :value="option.value">{{ option.label }}</option>
+                        </select>
+                      </label>
+                      <label>
+                        <span>展示方式</span>
+                        <select v-model="subtypeConfigForm.price_rule_display_mode">
+                          <option v-for="option in priceListRuleDisplayModeOptions" :key="option.value" :value="option.value">{{ option.label }}</option>
+                        </select>
+                      </label>
+                      <label>
+                        <span>取整规则</span>
+                        <select v-model="subtypeConfigForm.price_rule_rounding">
+                          <option v-for="option in priceListRuleRoundingOptions" :key="option.value" :value="option.value">{{ option.label }}</option>
+                        </select>
+                      </label>
+                      <label class="checkline">
+                        <input v-model="subtypeConfigForm.price_rule_tax_included" type="checkbox" />
+                        <span>含税价格</span>
+                      </label>
+                    </div>
                     <label>
                       <span>库存单位</span>
                       <input v-model.trim="subtypeConfigForm.inventory_unit" placeholder="kg" />
@@ -540,11 +698,21 @@
                       <input v-model.trim="subtypeConfigForm.order_unit" placeholder="盒" />
                       <small>用于录单默认规格单位。</small>
                     </label>
-                    <label class="wide-subtype-field">
-                      <span>单位换算 JSON</span>
-                      <textarea v-model.trim="subtypeConfigForm.unit_conversion_json" rows="2" placeholder='{"盒":{"kg":0.2}}'></textarea>
-                      <small>例如 1 盒 = 0.2 kg；影响录单数量折算生产/库存数量。</small>
-                    </label>
+                    <div class="unit-conversion-editor wide-subtype-field">
+                      <div class="field-group-head">
+                        <span>单位换算</span>
+                        <button class="secondary compact-action" type="button" @click="addUnitConversionRow(subtypeConfigForm)">新增换算</button>
+                      </div>
+                      <div v-for="(row, rowIndex) in subtypeConfigForm.unit_conversion_rows" :key="`subtype-unit-${rowIndex}`" class="unit-conversion-row">
+                        <input v-model.number="row.from_qty" type="number" min="0.0001" step="0.0001" />
+                        <input v-model.trim="row.from_unit" placeholder="盒" />
+                        <span>=</span>
+                        <input v-model.number="row.to_qty" type="number" min="0.0001" step="0.0001" />
+                        <input v-model.trim="row.to_unit" placeholder="kg" />
+                        <button class="text-button danger-text" type="button" @click="removeUnitConversionRow(subtypeConfigForm, rowIndex)">删除</button>
+                      </div>
+                      <small v-if="!subtypeConfigForm.unit_conversion_rows.length">例如新增一行：1 盒 = 0.2 kg；不配置时录单单位按库存单位处理。</small>
+                    </div>
                     <label class="subtype-integer-field">
                       <span class="subtype-checkbox-row">
                         <input v-model="subtypeConfigForm.integer_unit" type="checkbox" />
@@ -580,7 +748,8 @@
           </div>
 
           <div class="uncategorized" @dragover.prevent @drop="dropProductOnSecondary({ id: 0 })">
-            <div class="sub-title">未分类商品</div>
+            <div class="sub-title">停车场（待归类 SKU）</div>
+            <p class="muted">未选择产品子类型创建的 SKU 会先进入停车场；拖入产品子类型后才参与产品价格表生成。</p>
             <span
               v-for="product in uncategorizedProducts"
               :key="product.id"
@@ -590,7 +759,7 @@
               @dragend="scheduleClearDrag">
               {{ product.name }}
             </span>
-            <p v-if="!uncategorizedProducts.length" class="muted">暂无未分类商品</p>
+            <p v-if="!uncategorizedProducts.length" class="muted">停车场暂无 SKU</p>
           </div>
         </div>
       </div>
@@ -841,20 +1010,28 @@ import {
   filterSkuRows,
   gradientTemplateBelongsToSkuContext,
   greenBeanTypeOptions,
+  integerUnitModeOptions,
   inferProductKindFromProductTypeCategory,
   isPublicReferenceRow,
   nextSkuContextCustomerID,
   normalizedProductKind,
   paginatedSkuRows,
+  priceListRuleDisplayModeOptions,
+  priceListRuleFormFromJSON,
+  priceListRulePricingModeOptions,
+  priceListRuleRoundingOptions,
   productBelongsToSkuContext as productBelongsToContext,
   productDisplayState,
   productKindRequiresRoast,
+  productSubtypeCategoryOptionsForType,
   primaryCategoryOptions,
   roastedBomProductOptions,
   secondaryCategoryOptions,
   sortRowsForCustomerSkuPriority,
   skuTypeLabel,
   skuTypeOptions,
+  unitConversionRowsFromJSON,
+  unitRuleFormFromJSON,
 } from '../lib/product-settings'
 import { normalizePageSize } from '../lib/pagination'
 import { CUSTOMER_WORKSPACE_MODE, workspaceCustomerChangeEvent } from '../lib/workspace-mode'
@@ -956,6 +1133,9 @@ const productTypeCategoryOptions = computed(() => categoryTreeForSkuContext.valu
     template_state: category.template_state || '',
   }))
   .filter((category) => category.id > 0 && category.name))
+function productSubtypeCategoryOptions(productTypeCategoryID) {
+  return productSubtypeCategoryOptionsForType(categoryTreeForSkuContext.value, productTypeCategoryID)
+}
 const productRows = computed(() => {
   const rows = []
   for (const primary of categoryTreeForSkuContext.value) {
@@ -1050,6 +1230,7 @@ function defaultProductForm() {
   return {
     name: '',
     product_type_category_id: 0,
+    product_subtype_category_id: 0,
     product_kind: 'roasted',
     remark: '',
     green_bean_type: 'single_origin',
@@ -1088,6 +1269,7 @@ function defaultCustomForm() {
     name: '',
     remark: '',
     product_type_category_id: 0,
+    product_subtype_category_id: 0,
     product_kind: 'roasted',
     green_bean_type: 'single_origin',
     green_bean_bom_product_id: 0,
@@ -1127,6 +1309,8 @@ function defaultCustomerProductRuleTemplateItem() {
     operation_template_id: 0,
     price_list_rule_json: '{}',
     unit_rule_json: '{}',
+    ...priceListRuleFormFromJSON('{}'),
+    ...unitRuleFormFromJSON('{}'),
     active: true,
   }
 }
@@ -1140,6 +1324,8 @@ function defaultCustomerProductRuleOverrideForm() {
     operation_template_id: 0,
     price_list_rule_json: '{}',
     unit_rule_json: '{}',
+    ...priceListRuleFormFromJSON('{}'),
+    ...unitRuleFormFromJSON('{}'),
     active: true,
   }
 }
@@ -1265,10 +1451,12 @@ function defaultProductSubtypeConfigForm(category = {}) {
     gradient_template_id: Number(category.gradient_template_id || 0),
     operation_template_id: Number(category.operation_template_id || 0),
     price_list_rule_json: category.price_list_rule_json || '{}',
+    ...priceListRuleFormFromJSON(category.price_list_rule_json || '{}'),
     inventory_unit: inventoryUnit,
     quote_unit: quoteUnit,
     order_unit: category.order_unit || quoteUnit,
     unit_conversion_json: category.unit_conversion_json || '{}',
+    unit_conversion_rows: unitConversionRowsFromJSON(category.unit_conversion_json || '{}'),
     integer_unit: Boolean(category.integer_unit),
   }
 }
@@ -1279,16 +1467,22 @@ function decorateCustomerProductRuleTemplate(template) {
     id: Number(template.id || 0),
     customer_id: Number(template.customer_id || 0),
     active: template.active !== false,
-    items: (template.items || []).map((item) => ({
-      ...defaultCustomerProductRuleTemplateItem(),
-      ...item,
-      product_subtype_category_id: Number(item.product_subtype_category_id || 0),
-      gradient_template_id: Number(item.gradient_template_id || 0),
-      operation_template_id: Number(item.operation_template_id || 0),
-      price_list_rule_json: item.price_list_rule_json || '{}',
-      unit_rule_json: item.unit_rule_json || '{}',
-      active: item.active !== false,
-    })),
+    items: (template.items || []).map(decorateCustomerProductRuleItem),
+  }
+}
+
+function decorateCustomerProductRuleItem(item = {}) {
+  return {
+    ...defaultCustomerProductRuleTemplateItem(),
+    ...item,
+    product_subtype_category_id: Number(item.product_subtype_category_id || 0),
+    gradient_template_id: Number(item.gradient_template_id || 0),
+    operation_template_id: Number(item.operation_template_id || 0),
+    price_list_rule_json: item.price_list_rule_json || '{}',
+    unit_rule_json: item.unit_rule_json || '{}',
+    ...priceListRuleFormFromJSON(item.price_list_rule_json || '{}'),
+    ...unitRuleFormFromJSON(item.unit_rule_json || '{}'),
+    active: item.active !== false,
   }
 }
 
@@ -1303,6 +1497,8 @@ function decorateCustomerProductRuleOverride(row) {
     operation_template_id: Number(row.operation_template_id || 0),
     price_list_rule_json: row.price_list_rule_json || '{}',
     unit_rule_json: row.unit_rule_json || '{}',
+    ...priceListRuleFormFromJSON(row.price_list_rule_json || '{}'),
+    ...unitRuleFormFromJSON(row.unit_rule_json || '{}'),
     active: row.active !== false,
   }
 }
@@ -1505,7 +1701,7 @@ function startCustomerProductRuleTemplateEdit(template) {
     ...defaultCustomerProductRuleTemplateForm(),
     ...JSON.parse(JSON.stringify(template || {})),
     customer_id: Number(template?.customer_id || skuContextCustomerID.value || 0),
-    items: (template?.items || []).map((item) => ({ ...defaultCustomerProductRuleTemplateItem(), ...item })),
+    items: (template?.items || []).map(decorateCustomerProductRuleItem),
   }
 }
 
@@ -1521,12 +1717,27 @@ function removeCustomerProductRuleTemplateItem(index) {
   customerRuleTemplateForm.value.items.splice(index, 1)
 }
 
+function addUnitConversionRow(target) {
+  if (!target) return
+  if (!Array.isArray(target.unit_conversion_rows)) target.unit_conversion_rows = []
+  target.unit_conversion_rows.push({
+    from_qty: 1,
+    from_unit: target.order_unit || target.quote_unit || '',
+    to_qty: 1,
+    to_unit: target.inventory_unit || target.quote_unit || '',
+  })
+}
+
+function removeUnitConversionRow(target, index) {
+  if (!target || !Array.isArray(target.unit_conversion_rows)) return
+  target.unit_conversion_rows.splice(index, 1)
+}
+
 function startCustomerProductRuleOverrideEdit(row) {
-  customerRuleOverrideForm.value = {
-    ...defaultCustomerProductRuleOverrideForm(),
+  customerRuleOverrideForm.value = decorateCustomerProductRuleOverride({
     ...JSON.parse(JSON.stringify(row || {})),
     customer_id: Number(row?.customer_id || skuContextCustomerID.value || 0),
-  }
+  })
 }
 
 function validateCustomerProductRulePayload(payload, requireName = false) {
@@ -1818,6 +2029,18 @@ function productTypeCategoryByID(categoryID) {
   return productTypeCategoryOptions.value.find((category) => Number(category.id) === Number(categoryID)) || null
 }
 
+function productSubtypeCategoryByID(categoryID) {
+  const id = Number(categoryID || 0)
+  if (!id) return null
+  return productSubtypeRuleOptions.value.find((category) => Number(category.id || 0) === id) || null
+}
+
+function handleProductTypeCategoryChange(form) {
+  if (!form) return
+  form.product_subtype_category_id = 0
+  syncProductKindFromProductTypeCategory(form)
+}
+
 function syncProductKindFromProductTypeCategory(form) {
   if (!form) return
   const category = productTypeCategoryByID(form.product_type_category_id)
@@ -1827,9 +2050,18 @@ function syncProductKindFromProductTypeCategory(form) {
   }
 }
 
+function syncProductTypeFromProductSubtype(form) {
+  if (!form) return
+  const subtype = productSubtypeCategoryByID(form.product_subtype_category_id)
+  if (subtype?.parent_id) {
+    form.product_type_category_id = Number(subtype.parent_id || 0)
+  }
+  syncProductKindFromProductTypeCategory(form)
+}
+
 function handleCustomProductTypeCategoryChange() {
   const previousKind = customForm.value.product_kind
-  syncProductKindFromProductTypeCategory(customForm.value)
+  handleProductTypeCategoryChange(customForm.value)
   if (customForm.value.product_kind !== previousKind) {
     handleCustomProductKindChange()
   }
@@ -1840,17 +2072,17 @@ function ensureProductTypeCategorySelected(form) {
   if (Number(form.product_type_category_id || 0) && !productTypeCategoryByID(form.product_type_category_id)) {
     form.product_type_category_id = 0
   }
-  if (!Number(form.product_type_category_id || 0) && productTypeCategoryOptions.value.length) {
-    form.product_type_category_id = Number(productTypeCategoryOptions.value[0].id)
+  if (Number(form.product_subtype_category_id || 0) && !productSubtypeCategoryByID(form.product_subtype_category_id)) {
+    form.product_subtype_category_id = 0
   }
   syncProductKindFromProductTypeCategory(form)
 }
 
-async function assignCreatedSkuToSelectedProductCategory(product, form) {
+async function assignCreatedSkuToSelectedProductSubtype(product, form) {
   const productID = Number(product?.id || 0)
-  const categoryID = Number(form?.product_type_category_id || 0)
-  if (!productID || !categoryID) return
-  const category = productTypeCategoryByID(categoryID) || { id: categoryID, customer_id: 0 }
+  const categoryID = Number(form?.product_subtype_category_id || 0)
+  if (!productID || !categoryID) return false
+  const category = productSubtypeCategoryByID(categoryID) || { id: categoryID, customer_id: 0 }
   await apiSend(`/api/product-settings/products/${productID}/category`, {
     body: buildAssignCategoryPayload({
       product,
@@ -1859,6 +2091,7 @@ async function assignCreatedSkuToSelectedProductCategory(product, form) {
       position: 0,
     }),
   })
+  return true
 }
 
 function baseProductName(id) {
@@ -1906,10 +2139,6 @@ function openProductBom(row) {
 
 async function createProduct() {
   ensureProductTypeCategorySelected(productForm.value)
-  if (!Number(productForm.value.product_type_category_id || 0)) {
-    error.value = '请先在商品分类新增产品类型，并选择产品类别'
-    return
-  }
   if (!productForm.value.name) {
     error.value = '请填写商品名称'
     return
@@ -1938,8 +2167,8 @@ async function createProduct() {
     const result = await apiSend('/api/product-settings/products', {
       body: buildProductCreatePayload(productForm.value),
     })
-    await assignCreatedSkuToSelectedProductCategory(result?.product, productForm.value)
-    ok.value = '公共产品已创建'
+    const assigned = await assignCreatedSkuToSelectedProductSubtype(result?.product, productForm.value)
+    ok.value = assigned ? '公共产品已创建并挂到产品子类型' : '公共产品已创建，未选择产品子类型，已进入停车场'
     productForm.value = defaultProductForm()
     await loadAll()
   } catch (err) {
@@ -1956,10 +2185,6 @@ async function createCustomProduct() {
     return
   }
   ensureProductTypeCategorySelected(customForm.value)
-  if (!Number(customForm.value.product_type_category_id || 0)) {
-    error.value = '请先在商品分类新增产品类型，并选择产品类别'
-    return
-  }
   if (customForm.value.product_kind !== 'green_bean' && customForm.value.custom_type !== 'custom_roast' && !customForm.value.base_product_id) {
     error.value = '请选择基础产品'
     return
@@ -1995,8 +2220,8 @@ async function createCustomProduct() {
     const result = await apiSend('/api/product-settings/custom-products', {
       body: buildCustomProductCreatePayload(customerID, customForm.value),
     })
-    await assignCreatedSkuToSelectedProductCategory(result?.product, customForm.value)
-    ok.value = '客户专属 SKU 已创建'
+    const assigned = await assignCreatedSkuToSelectedProductSubtype(result?.product, customForm.value)
+    ok.value = assigned ? '客户专属 SKU 已创建并挂到产品子类型' : '客户专属 SKU 已创建，未选择产品子类型，已进入停车场'
     customForm.value = { ...defaultCustomForm(), customer_id: customerID }
     await loadAll()
   } catch (err) {
@@ -2541,7 +2766,7 @@ watch(selectedCustomerSkuCustomerID, (customerID) => {
     pruneSelectedProducts(displaySkuRows.value)
     return
   }
-  customForm.value = { ...customForm.value, customer_id: Number(selectedCustomerSkuCustomerID.value || 0), product_type_category_id: 0, name: '', remark: '' }
+  customForm.value = { ...customForm.value, customer_id: Number(selectedCustomerSkuCustomerID.value || 0), product_type_category_id: 0, product_subtype_category_id: 0, name: '', remark: '' }
   resetCustomerProductRuleForms()
   skuFilters.value = defaultSkuFilters()
   skuPage.value = 1
@@ -2621,8 +2846,14 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .customer-rule-layout { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(280px, .8fr); gap: 14px; align-items: start; }
 .customer-rule-editor { display: grid; gap: 10px; }
 .customer-rule-items, .customer-rule-overrides, .customer-rule-template-list { display: grid; gap: 8px; }
-.customer-rule-item { display: grid; grid-template-columns: minmax(180px, 1fr) minmax(160px, .7fr) minmax(120px, .5fr) minmax(190px, 1fr) minmax(190px, 1fr) auto; gap: 8px; align-items: end; border: 1px solid #eee; border-radius: 8px; padding: 10px; background: #fafafa; }
+.customer-rule-item { display: grid; grid-template-columns: minmax(180px, 1fr) minmax(160px, .7fr) minmax(120px, .5fr) auto; gap: 8px; align-items: end; border: 1px solid #eee; border-radius: 8px; padding: 10px; background: #fafafa; }
 .customer-rule-editor label span, .customer-rule-binding label span { display: block; color: #666; font-size: 12px; margin-bottom: 5px; }
+.rule-config-block { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 8px; align-items: end; min-width: 0; border: 1px solid #eee8df; border-radius: 8px; padding: 10px; background: #fff; }
+.field-group-title { grid-column: 1 / -1; color: #3f3328; font-weight: 700; font-size: 13px; }
+.field-group-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap; font-weight: 700; color: #3f3328; }
+.unit-conversion-editor { grid-column: 1 / -1; display: grid; gap: 8px; min-width: 0; }
+.unit-conversion-row { display: grid; grid-template-columns: minmax(72px, .45fr) minmax(82px, .7fr) auto minmax(72px, .45fr) minmax(82px, .7fr) auto; gap: 6px; align-items: center; min-width: 0; }
+.unit-conversion-row span { color: #666; text-align: center; }
 .sku-context-main { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; }
 .sku-context-main h3 { margin: 2px 0 4px; font-size: 18px; }
 .context-eyebrow { color: #7a4d1a; font-size: 12px; font-weight: 700; }
@@ -2633,6 +2864,7 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .custom-product-panel { grid-column: 1 / -1; }
 .custom-product-form { display: grid; grid-template-columns: repeat(4, minmax(160px, 1fr)); gap: 10px; align-items: end; }
 .product-create-form label, .custom-product-form label { display: grid; gap: 5px; font-size: 13px; }
+.product-create-form small, .custom-product-form small { color: #7b746c; line-height: 1.35; }
 .product-create-form .wide-field, .custom-product-form .wide-field { grid-column: span 2; }
 .gradient-template-panel { grid-column: 1 / -1; }
 .gradient-template-layout { display: grid; grid-template-columns: minmax(220px, 280px) minmax(0, 1fr); gap: 12px; align-items: start; }
@@ -2687,6 +2919,7 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .category-drop-line { height: 16px; border-top: 2px solid transparent; margin: 2px 0; transition: border-color .12s ease, background .12s ease; }
 .category-drop-line.active { border-top-color: #1f4f82; background: #edf5ff; }
 .product-chip-list, .uncategorized { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
+.uncategorized .muted { width: 100%; margin: 0; }
 .product-chip { border: 1px solid #ddd; border-radius: 8px; padding: 5px 8px; background: #fff; font-size: 12px; cursor: grab; }
 .table-wrap { overflow: auto; }
 table { width: 100%; min-width: 1400px; border-collapse: collapse; }
@@ -2725,7 +2958,7 @@ th { background: #fbfaf8; position: sticky; top: 0; }
 }
 @media (max-width: 900px) {
   .page { padding: 12px; }
-  .settings-grid, .inline-form, .product-create-form, .custom-product-form, .gradient-template-layout, .template-editor-grid, .template-tier-row, .sku-filters, .customer-rule-binding, .customer-rule-layout, .customer-rule-item, .subtype-config-form { grid-template-columns: 1fr; }
+  .settings-grid, .inline-form, .product-create-form, .custom-product-form, .gradient-template-layout, .template-editor-grid, .template-tier-row, .sku-filters, .customer-rule-binding, .customer-rule-layout, .customer-rule-item, .subtype-config-form, .rule-config-block, .unit-conversion-row { grid-template-columns: 1fr; }
   .sku-context-main { display: grid; }
   .sku-context-controls { justify-content: flex-start; min-width: 0; }
   .panel-actions { justify-content: flex-start; }

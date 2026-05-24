@@ -11,6 +11,30 @@ export const skuTypeOptions = [
   { value: 'custom_blend', label: '定制拼配' },
 ]
 
+export const priceListRulePricingModeOptions = [
+  { value: 'inherit_gradient_template', label: '按阶梯价模板' },
+  { value: 'fixed_unit_price', label: '固定单价' },
+  { value: 'cost_plus', label: '成本加成' },
+]
+
+export const priceListRuleDisplayModeOptions = [
+  { value: 'by_quote_unit', label: '按报价单位展示' },
+  { value: 'boxed', label: '盒装/箱装展示' },
+  { value: 'weight', label: '按重量展示' },
+]
+
+export const priceListRuleRoundingOptions = [
+  { value: 'none', label: '不取整' },
+  { value: 'jiao', label: '保留到角' },
+  { value: 'yuan', label: '保留到元' },
+]
+
+export const integerUnitModeOptions = [
+  { value: 'inherit', label: '继承子类型' },
+  { value: 'integer', label: '只允许整数' },
+  { value: 'decimal', label: '允许小数' },
+]
+
 export const greenBeanTypeOptions = [
   { value: 'single_origin', label: '单品' },
   { value: 'blend', label: '拼配' },
@@ -181,11 +205,15 @@ export function buildProductCategoryConfigPayload(category = {}) {
     position: Number(category.position || 0),
     gradient_template_id: Number(category.gradient_template_id || 0),
     operation_template_id: Number(category.operation_template_id || 0),
-    price_list_rule_json: normalizeJSONString(category.price_list_rule_json),
+    price_list_rule_json: hasStructuredPriceRuleFields(category)
+      ? priceListRuleJSONFromForm(category)
+      : normalizeJSONString(category.price_list_rule_json),
     inventory_unit: normalizeUnitText(category.inventory_unit, 'kg'),
     quote_unit: normalizeUnitText(category.quote_unit, normalizeUnitText(category.inventory_unit, 'kg')),
     order_unit: normalizeUnitText(category.order_unit, normalizeUnitText(category.quote_unit, normalizeUnitText(category.inventory_unit, 'kg'))),
-    unit_conversion_json: normalizeJSONString(category.unit_conversion_json),
+    unit_conversion_json: Array.isArray(category.unit_conversion_rows)
+      ? unitConversionJSONFromRows(category.unit_conversion_rows)
+      : normalizeJSONString(category.unit_conversion_json),
     integer_unit: Boolean(category.integer_unit),
   }
 }
@@ -194,7 +222,9 @@ export function buildSkuConfigOverridePayload(row = {}) {
   return {
     gradient_template_id_override: Number(row.gradient_template_id_override || 0),
     operation_template_id_override: Number(row.operation_template_id_override || 0),
-    unit_rule_override_json: normalizeJSONString(row.unit_rule_override_json),
+    unit_rule_override_json: hasStructuredUnitRuleFields(row)
+      ? unitRuleJSONFromForm(row)
+      : normalizeJSONString(row.unit_rule_override_json),
   }
 }
 
@@ -213,8 +243,12 @@ export function buildCustomerProductRuleTemplateItemPayload(row = {}) {
     product_subtype_category_id: Number(row.product_subtype_category_id || 0),
     gradient_template_id: Number(row.gradient_template_id || 0),
     operation_template_id: Number(row.operation_template_id || 0),
-    price_list_rule_json: normalizeJSONString(row.price_list_rule_json),
-    unit_rule_json: normalizeJSONString(row.unit_rule_json),
+    price_list_rule_json: hasStructuredPriceRuleFields(row)
+      ? priceListRuleJSONFromForm(row)
+      : normalizeJSONString(row.price_list_rule_json),
+    unit_rule_json: hasStructuredUnitRuleFields(row)
+      ? unitRuleJSONFromForm(row)
+      : normalizeJSONString(row.unit_rule_json),
     active: row.active === false ? false : true,
   }
 }
@@ -226,8 +260,12 @@ export function buildCustomerProductRuleOverridePayload(row = {}) {
     product_subtype_category_id: Number(row.product_subtype_category_id || 0),
     gradient_template_id: Number(row.gradient_template_id || 0),
     operation_template_id: Number(row.operation_template_id || 0),
-    price_list_rule_json: normalizeJSONString(row.price_list_rule_json),
-    unit_rule_json: normalizeJSONString(row.unit_rule_json),
+    price_list_rule_json: hasStructuredPriceRuleFields(row)
+      ? priceListRuleJSONFromForm(row)
+      : normalizeJSONString(row.price_list_rule_json),
+    unit_rule_json: hasStructuredUnitRuleFields(row)
+      ? unitRuleJSONFromForm(row)
+      : normalizeJSONString(row.unit_rule_json),
     active: row.active === false ? false : true,
   }
 }
@@ -433,6 +471,23 @@ export function secondaryCategoryOptions(rows = [], primaryCategory = '') {
     .map((row) => row.secondary_name))
 }
 
+export function productSubtypeCategoryOptionsForType(categoryTree = [], productTypeCategoryID = 0) {
+  const typeID = Number(productTypeCategoryID || 0)
+  if (!typeID) return []
+  const productType = (categoryTree || []).find((category) => Number(category?.id || 0) === typeID)
+  if (!productType) return []
+  return (productType.children || [])
+    .filter((category) => Number(category?.id || 0) > 0)
+    .map((category) => ({
+      id: Number(category.id || 0),
+      parent_id: Number(category.parent_id || typeID),
+      name: category.name || '',
+      customer_id: Number(category.customer_id || 0),
+      source_category_id: Number(category.source_category_id || 0),
+      template_state: category.template_state || '',
+    }))
+}
+
 export function roastedBomProductOptions(products = [], { customerID = 0 } = {}) {
   const scopedCustomerID = Number(customerID || 0)
   return (products || [])
@@ -581,13 +636,166 @@ function uniqueSorted(values = []) {
     .sort((a, b) => a.localeCompare(b))
 }
 
+export function priceListRuleFormFromJSON(value = {}) {
+  const rule = parseJSONObject(value)
+  const extra = { ...rule }
+  for (const key of ['enabled', 'include_in_price_list', 'pricing_mode', 'display_mode', 'rounding', 'tax_included']) {
+    delete extra[key]
+  }
+  return {
+    price_rule_enabled: Boolean(rule.include_in_price_list ?? rule.enabled ?? true),
+    price_rule_pricing_mode: optionValue(rule.pricing_mode, priceListRulePricingModeOptions, 'inherit_gradient_template'),
+    price_rule_display_mode: optionValue(rule.display_mode, priceListRuleDisplayModeOptions, 'by_quote_unit'),
+    price_rule_rounding: optionValue(rule.rounding, priceListRuleRoundingOptions, 'none'),
+    price_rule_tax_included: Boolean(rule.tax_included),
+    price_rule_extra: extra,
+  }
+}
+
+export function priceListRuleJSONFromForm(form = {}) {
+  const out = sanitizeExtraObject(form.price_rule_extra)
+  out.include_in_price_list = form.price_rule_enabled === false ? false : true
+  out.pricing_mode = optionValue(form.price_rule_pricing_mode, priceListRulePricingModeOptions, 'inherit_gradient_template')
+  out.display_mode = optionValue(form.price_rule_display_mode, priceListRuleDisplayModeOptions, 'by_quote_unit')
+  out.rounding = optionValue(form.price_rule_rounding, priceListRuleRoundingOptions, 'none')
+  out.tax_included = Boolean(form.price_rule_tax_included)
+  return JSON.stringify(out)
+}
+
+export function unitConversionRowsFromJSON(value = {}) {
+  const conversion = parseJSONObject(value)
+  const rows = []
+  for (const [fromUnit, targets] of Object.entries(conversion)) {
+    const normalizedFromUnit = normalizeOptionalUnitText(fromUnit)
+    if (!normalizedFromUnit) continue
+    const targetMap = parseJSONObject(targets)
+    for (const [toUnit, ratio] of Object.entries(targetMap)) {
+      const normalizedToUnit = normalizeOptionalUnitText(toUnit)
+      const numericRatio = normalizePositiveNumber(ratio)
+      if (!normalizedToUnit || numericRatio <= 0) continue
+      rows.push({
+        from_qty: 1,
+        from_unit: normalizedFromUnit,
+        to_qty: numericRatio,
+        to_unit: normalizedToUnit,
+      })
+    }
+  }
+  return rows
+}
+
+export function unitConversionJSONFromRows(rows = []) {
+  const out = {}
+  for (const row of rows || []) {
+    const fromQty = normalizePositiveNumber(row?.from_qty)
+    const toQty = normalizePositiveNumber(row?.to_qty)
+    const fromUnit = normalizeOptionalUnitText(row?.from_unit)
+    const toUnit = normalizeOptionalUnitText(row?.to_unit)
+    if (fromQty <= 0 || toQty <= 0 || !fromUnit || !toUnit) continue
+    if (!out[fromUnit]) out[fromUnit] = {}
+    out[fromUnit][toUnit] = trimDecimal(toQty / fromQty)
+  }
+  return JSON.stringify(out)
+}
+
+export function unitRuleFormFromJSON(value = {}) {
+  const rule = parseJSONObject(value)
+  const conversion = rule.unit_conversion_json ?? rule.conversion_json ?? {}
+  const extra = { ...rule }
+  for (const key of ['inventory_unit', 'quote_unit', 'order_unit', 'unit_conversion_json', 'conversion_json', 'integer_unit']) {
+    delete extra[key]
+  }
+  return {
+    inventory_unit: normalizeOptionalUnitText(rule.inventory_unit),
+    quote_unit: normalizeOptionalUnitText(rule.quote_unit),
+    order_unit: normalizeOptionalUnitText(rule.order_unit),
+    unit_conversion_rows: unitConversionRowsFromJSON(conversion),
+    integer_unit_mode: integerUnitModeFromValue(rule.integer_unit),
+    unit_rule_extra: extra,
+  }
+}
+
+export function unitRuleJSONFromForm(form = {}) {
+  const out = sanitizeExtraObject(form.unit_rule_extra)
+  const inventoryUnit = normalizeOptionalUnitText(form.inventory_unit)
+  const quoteUnit = normalizeOptionalUnitText(form.quote_unit)
+  const orderUnit = normalizeOptionalUnitText(form.order_unit)
+  if (inventoryUnit) out.inventory_unit = inventoryUnit
+  if (quoteUnit) out.quote_unit = quoteUnit
+  if (orderUnit) out.order_unit = orderUnit
+  const conversionJSON = unitConversionJSONFromRows(form.unit_conversion_rows || [])
+  const conversion = parseJSONObject(conversionJSON)
+  if (Object.keys(conversion).length) out.unit_conversion_json = conversion
+  const mode = String(form.integer_unit_mode || '').trim()
+  if (mode === 'integer') out.integer_unit = true
+  if (mode === 'decimal') out.integer_unit = false
+  return JSON.stringify(out)
+}
+
 function normalizeUnitText(value, fallback = 'kg') {
   const normalized = String(value || '').trim()
   if (normalized) return normalized
   return String(fallback || '').trim() || 'kg'
 }
 
+function normalizeOptionalUnitText(value) {
+  return String(value || '').trim()
+}
+
 function normalizeJSONString(value) {
   const raw = String(value || '').trim()
   return raw || '{}'
+}
+
+function parseJSONObject(value) {
+  if (!value) return {}
+  if (typeof value === 'object' && !Array.isArray(value)) return value
+  try {
+    const parsed = JSON.parse(String(value || '{}'))
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {}
+  } catch {
+    return {}
+  }
+}
+
+function sanitizeExtraObject(value) {
+  const parsed = parseJSONObject(value)
+  return { ...parsed }
+}
+
+function optionValue(value, options = [], fallback = '') {
+  const normalized = String(value || '').trim()
+  return options.some((option) => option.value === normalized) ? normalized : fallback
+}
+
+function normalizePositiveNumber(value) {
+  const numberValue = Number(value)
+  return Number.isFinite(numberValue) && numberValue > 0 ? numberValue : 0
+}
+
+function trimDecimal(value) {
+  return Number(Number(value).toFixed(8))
+}
+
+function integerUnitModeFromValue(value) {
+  if (typeof value === 'undefined' || value === null || value === '') return 'inherit'
+  if (value === true) return 'integer'
+  if (value === false) return 'decimal'
+  const normalized = String(value).trim().toLowerCase()
+  if (['true', '1', 'yes', 'integer'].includes(normalized)) return 'integer'
+  if (['false', '0', 'no', 'decimal'].includes(normalized)) return 'decimal'
+  return 'inherit'
+}
+
+function hasStructuredPriceRuleFields(row = {}) {
+  return Object.prototype.hasOwnProperty.call(row, 'price_rule_enabled')
+    || Object.prototype.hasOwnProperty.call(row, 'price_rule_pricing_mode')
+    || Object.prototype.hasOwnProperty.call(row, 'price_rule_display_mode')
+    || Object.prototype.hasOwnProperty.call(row, 'price_rule_rounding')
+    || Object.prototype.hasOwnProperty.call(row, 'price_rule_tax_included')
+}
+
+function hasStructuredUnitRuleFields(row = {}) {
+  return Object.prototype.hasOwnProperty.call(row, 'integer_unit_mode')
+    || Object.prototype.hasOwnProperty.call(row, 'unit_conversion_rows')
 }

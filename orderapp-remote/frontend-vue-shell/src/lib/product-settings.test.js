@@ -24,15 +24,22 @@ import {
   nextSkuContextCustomerID,
   normalizedProductKind,
   paginatedSkuRows,
+  priceListRuleFormFromJSON,
+  priceListRuleJSONFromForm,
   greenBeanTypeLabel,
   productBelongsToSkuContext,
   productDisplayState,
+  productSubtypeCategoryOptionsForType,
   primaryCategoryOptions,
   roastedBomProductOptions,
   secondaryCategoryOptions,
   sortRowsForCustomerSkuPriority,
   skuTypeLabel,
   skuTypeOptions,
+  unitConversionJSONFromRows,
+  unitConversionRowsFromJSON,
+  unitRuleFormFromJSON,
+  unitRuleJSONFromForm,
 } from './product-settings.js'
 
 const rows = [
@@ -111,6 +118,27 @@ test('product category selection infers legacy product kind only as compatibilit
   assert.equal(inferProductKindFromProductTypeCategory(null), 'roasted')
 })
 
+test('product subtype options are derived from the selected product type only', () => {
+  const tree = [{
+    id: 1,
+    name: '速溶咖啡',
+    level: 1,
+    children: [
+      { id: 11, parent_id: 1, name: '冻干速溶', level: 2 },
+      { id: 12, parent_id: 1, name: '喷雾干燥', level: 2 },
+    ],
+  }, {
+    id: 2,
+    name: '挂耳',
+    level: 1,
+    children: [{ id: 21, parent_id: 2, name: '盒装挂耳', level: 2 }],
+  }]
+
+  assert.deepEqual(productSubtypeCategoryOptionsForType(tree, 1).map((category) => category.id), [11, 12])
+  assert.deepEqual(productSubtypeCategoryOptionsForType(tree, 2).map((category) => category.id), [21])
+  assert.deepEqual(productSubtypeCategoryOptionsForType(tree, 0), [])
+})
+
 test('product subtype config payload carries templates and lightweight unit rule', () => {
   assert.deepEqual(buildProductCategoryConfigPayload({
     id: 2,
@@ -141,6 +169,44 @@ test('product subtype config payload carries templates and lightweight unit rule
     unit_conversion_json: '{"盒":{"kg":0.2}}',
     integer_unit: true,
   })
+})
+
+test('structured price list rule form stores compatible JSON without asking users to write JSON', () => {
+  const form = priceListRuleFormFromJSON('{"generator":"instant","include_in_price_list":false,"pricing_mode":"fixed_unit_price","display_mode":"boxed","rounding":"yuan","tax_included":true}')
+
+  assert.equal(form.price_rule_enabled, false)
+  assert.equal(form.price_rule_pricing_mode, 'fixed_unit_price')
+  assert.equal(form.price_rule_display_mode, 'boxed')
+  assert.equal(form.price_rule_rounding, 'yuan')
+  assert.equal(form.price_rule_tax_included, true)
+  assert.deepEqual(form.price_rule_extra, { generator: 'instant' })
+  assert.equal(priceListRuleJSONFromForm(form), '{"generator":"instant","include_in_price_list":false,"pricing_mode":"fixed_unit_price","display_mode":"boxed","rounding":"yuan","tax_included":true}')
+  assert.equal(priceListRuleJSONFromForm({}), '{"include_in_price_list":true,"pricing_mode":"inherit_gradient_template","display_mode":"by_quote_unit","rounding":"none","tax_included":false}')
+})
+
+test('structured unit conversion rows round-trip to the existing unit conversion JSON contract', () => {
+  const rows = unitConversionRowsFromJSON('{"盒":{"kg":0.2},"箱":{"盒":24}}')
+
+  assert.deepEqual(rows, [
+    { from_qty: 1, from_unit: '盒', to_qty: 0.2, to_unit: 'kg' },
+    { from_qty: 1, from_unit: '箱', to_qty: 24, to_unit: '盒' },
+  ])
+  assert.equal(unitConversionJSONFromRows(rows), '{"盒":{"kg":0.2},"箱":{"盒":24}}')
+  assert.equal(unitConversionJSONFromRows([{ from_qty: 2, from_unit: '袋', to_qty: 1, to_unit: '盒' }]), '{"袋":{"盒":0.5}}')
+  assert.equal(unitConversionJSONFromRows([{ from_qty: 0, from_unit: '盒', to_qty: 0.2, to_unit: 'kg' }]), '{}')
+})
+
+test('structured unit rule form builds customer rule override JSON while allowing inheritance', () => {
+  const form = unitRuleFormFromJSON('{"order_unit":"箱","unit_conversion_json":{"箱":{"盒":24}},"integer_unit":true}')
+
+  assert.equal(form.inventory_unit, '')
+  assert.equal(form.quote_unit, '')
+  assert.equal(form.order_unit, '箱')
+  assert.equal(form.integer_unit_mode, 'integer')
+  assert.deepEqual(form.unit_conversion_rows, [{ from_qty: 1, from_unit: '箱', to_qty: 24, to_unit: '盒' }])
+  assert.equal(unitRuleJSONFromForm(form), '{"order_unit":"箱","unit_conversion_json":{"箱":{"盒":24}},"integer_unit":true}')
+  assert.equal(unitRuleJSONFromForm({ integer_unit_mode: 'inherit' }), '{}')
+  assert.equal(unitRuleJSONFromForm({ integer_unit_mode: 'decimal' }), '{"integer_unit":false}')
 })
 
 test('SKU config override payload carries template and unit rule overrides', () => {
@@ -736,18 +802,24 @@ test('SKU settings labels category levels as product type and subtype', () => {
   assert.doesNotMatch(source, /二级分类/)
 })
 
-test('SKU creation uses product category from category tree instead of product shape choices', () => {
+test('SKU creation uses product subtype as assignment target and parks SKUs without subtype', () => {
   const source = fs.readFileSync(new URL('../views/ProductSettingsView.vue', import.meta.url), 'utf8')
 
   assert.match(source, /产品类别/)
+  assert.match(source, /产品子类型/)
   assert.match(source, /productTypeCategoryOptions/)
+  assert.match(source, /productSubtypeCategoryOptions/)
   assert.match(source, /productForm\.product_type_category_id/)
+  assert.match(source, /productForm\.product_subtype_category_id/)
   assert.match(source, /customForm\.product_type_category_id/)
+  assert.match(source, /customForm\.product_subtype_category_id/)
   assert.match(source, /syncProductKindFromProductTypeCategory/)
-  assert.match(source, /assignCreatedSkuToSelectedProductCategory/)
+  assert.match(source, /assignCreatedSkuToSelectedProductSubtype/)
+  assert.match(source, /停车场/)
   assert.doesNotMatch(source, /<span>产品形态<\/span>/)
   assert.doesNotMatch(source, /v-model="productForm\.product_kind"/)
   assert.doesNotMatch(source, /v-model="customForm\.product_kind"/)
+  assert.doesNotMatch(source, /const categoryID = Number\(form\?\.product_type_category_id/)
 })
 
 test('SKU settings exposes product subtype default unit configuration controls', () => {
@@ -758,7 +830,7 @@ test('SKU settings exposes product subtype default unit configuration controls',
     '库存单位',
     '报价单位',
     '录单单位',
-    '单位换算 JSON',
+    '新增换算',
     '整数单位',
     'startProductSubtypeConfigEdit',
     'saveProductSubtypeConfig',
@@ -766,13 +838,17 @@ test('SKU settings exposes product subtype default unit configuration controls',
   ]) {
     assert.ok(source.includes(expected), `missing subtype default unit config UI marker: ${expected}`)
   }
+  assert.doesNotMatch(source, /价格表规则 JSON/)
+  assert.doesNotMatch(source, /单位换算 JSON/)
+  assert.doesNotMatch(source, /单位规则 JSON/)
 })
 
 test('SKU subtype config explains unit impact and stays inside narrow category panels', () => {
   const source = fs.readFileSync(new URL('../views/ProductSettingsView.vue', import.meta.url), 'utf8')
 
   for (const expected of [
-    '单位会影响产品价格表、录单和生产计划',
+    '这里配置子类型默认规则',
+    '报价单位影响产品价格表',
     '已发布价格表和历史订单不会被回改',
     'subtype-config-help',
     'repeat(auto-fit, minmax',

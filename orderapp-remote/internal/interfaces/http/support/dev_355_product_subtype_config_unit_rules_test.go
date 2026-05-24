@@ -46,7 +46,7 @@ func TestDev355ProductSubtypeConfigUnitRulesWiring(t *testing.T) {
 			"库存单位",
 			"报价单位",
 			"录单单位",
-			"单位换算 JSON",
+			"新增换算",
 			"整数单位",
 			"saveProductSubtypeConfig",
 		},

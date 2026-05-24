@@ -267,7 +267,8 @@
 - [ ] PR-357-PRODUCT-PRICE-LIST-GENERALIZATION：产品价格表页面显示“产品价格表/生成价格表/发布价格表”，生成入口和版本列表的类型选项来自 SKU设置 的产品类型分类；选择“速溶咖啡”等产品类型后只生成该产品类型下的 SKU。发布快照仍写入 `bean_list_publications` 并带 `product_type_category_id/product_type_name`；按 `product_type_category_id` 可查询指定产品类型价格表，旧 `list_type=commercial/green/drip/retail` 和 `/public/bean-list/:list_type` 仍可读取同一套发布快照。
 - [ ] PR-358-PRODUCT-PRICE-LIST-ORDER-PRODUCTION：`/api/order/form` 的价格表版本选项带 `product_type_category_id/product_type_name`，商品选项带产品类型/产品子类型和单位规则；旧熟豆/生豆/挂耳豆单版本仍可用。速溶咖啡盒装 SKU 可按 `unit_conversion_json` 推出“盒（200g）”录单规格，无 BOM 生产计划使用“速溶咖啡”默认原料并带出产品子类型配置的工序模板 ID。
 - [ ] PR-359-PRODUCT-KIND-MIGRATION-CLEANUP：启动迁移后，旧 `product_kind` SKU 自动补齐熟豆、生豆、挂耳、速溶咖啡默认产品类型/产品子类型；历史订单和历史豆单/产品价格表发布快照不改价、不改 `content_json`。按手册完整执行速溶咖啡新增、客户专属阶梯价、发布产品价格表、录单和进入生产场景。
-- [ ] PR-360-SKU-CATEGORY-SUBTYPE-CLARITY：SKU设置新增公共产品和客户专属 SKU 时字段显示“产品类别”，下拉来自当前 SKU 归属的商品分类产品类型；选择“速溶咖啡”等产品类别后系统内部兼容推导 `product_kind`，创建成功后 SKU 自动挂到该产品类型。打开产品子类型“配置”时能看到单位会影响产品价格表、录单和生产计划的说明，已发布价格表和历史订单不会被回改；配置面板在左侧分类栏内不会超出范围。
+- [ ] PR-360-SKU-CATEGORY-SUBTYPE-CLARITY：SKU设置新增公共产品和客户专属 SKU 时字段显示“产品类别”，下拉来自当前 SKU 归属的商品分类产品类型；选择“速溶咖啡”等产品类别后系统内部兼容推导 `product_kind`。打开产品子类型“配置”时能看到单位会影响产品价格表、录单和生产计划的说明，已发布价格表和历史订单不会被回改；配置面板在左侧分类栏内不会超出范围。
+- [ ] PR-361-SKU-SUBTYPE-PARKING-STRUCTURED-RULES：在 SKU设置 新增“冻干速溶 200g 盒装”时选择产品类别“速溶咖啡”但不选择产品子类型，创建后该 SKU 出现在“停车场（待归类 SKU）”，不进入产品价格表生成；再次创建并选择产品子类型“冻干速溶”时才挂到该子类型。打开产品子类型“配置”或客户产品规则模板，价格表生成规则使用下拉/勾选项，单位换算通过“新增换算”维护 1 盒 = 0.2 kg，不要求输入 JSON。
 - [ ] PR-347-SKU-BOM-JUMP-FOCUS-FILTER：在 SKU设置 的客户SKU列表中点击某行“维护 BOM”后，BOM 配方维护页自动切到该 SKU 的归属，商品选择为该 SKU，商品 BOM 列表只显示该 SKU 对应 BOM；点击“显示全部 BOM”后恢复当前归属完整 BOM 列表。
 - [ ] PR-312-SKU-CATEGORY-RECREATE-AFTER-DELETE：芬纳等客户 SKU 归属下新增产品类型，删除该分类后，再次新增同名产品类型必须成功；同名检查只拦截 active 分类，不拦截软删除历史分类。
 - [ ] SKU设置页不再展示价格试算、商用/零售/生豆豆单或生成豆单入口；产品价格表页面不展示独立价格试算工作区，只展示豆单预览、生成豆单入口和豆单版本列表，商用价格来源抽屉仍保留临时阶梯价试算。
