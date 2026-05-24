@@ -67,6 +67,7 @@
   - [ ] PR-342-ORDER-ENTRY-PUBLIC-BEANLIST-VERSION-SELECT：选择一个没有专属熟豆/生豆/挂耳豆单的客户时，对应豆单下拉仍列出公共豆单最新和历史发布版本，并默认最新；改选公共历史版本后选择商品，价格梯度按钮、行豆单版本、小计和保存后的 `order_items.bean_list_publication_id` 均来自该历史公共豆单版本。
   - [ ] PR-350-BEAN-LIST-PUBLISH-MANUAL-WITHDRAW：发布新版豆单后旧版仍保持已发布，只有点击版本列表的撤回操作才变为已撤回；已撤回豆单不出现在录单豆单选择器，接口显式提交已撤回豆单 ID 时保存失败。
   - [ ] PR-351-ORDER-ENTRY-PUBLIC-BEANLIST-NO-CUSTOMER：打开新建录单页且尚未选择客户时，商品明细标题区显示公共熟豆/生豆/挂耳豆单已发布版本；公共熟豆存在多个已发布版本时可点“选择豆单”切换版本，不显示“暂无”。
+  - [ ] PR-352-ORDER-LIST-UNIFIED-SELECTION：订单列表每行只有一个复选框；勾选同一批订单后，批量失效、顺丰发货 Excel、组合销售单和组合出库单都读取这一批选择，不再出现单独的失效复选框或组合单据复选框。
   - [ ] PR-326-SALES-ORDER-LAYOUT-DISCOUNT-NOTE：含长商品名、行级优惠、整单优惠、运费和销售单备注的订单打开销售单预览时，商品名在商品列内换行不遮挡后续列，保存的销售单备注进入对外销售单；结算区最终排版按 PR-329 验收。
   - [ ] PR-329-SALES-ORDER-SETTLEMENT-SUMMARY-LAYOUT：含行级优惠和订单备注的销售单预览中，商品行“单价”为原价；订单备注显示在结算区倒数第二行，最后一行同排显示商品合计、优惠合计、运费和应收。
   - [ ] PR-330-SALES-ORDER-DISCOUNT-LINE-LAYOUT：销售单预览中规格显示为 `1000g/件`；有行级优惠时商品行显示 `￥-28元` 这类“优惠折扣”，每行显示优惠后的“总价”且备注在最后列；无优惠订单不显示“优惠折扣”列，也不显示“优惠合计”。
@@ -336,6 +337,7 @@
 - [ ] PR-349-ORDER-ENTRY-BEANLIST-SUMMARY-WARNING：录单/编辑订单商品明细标题区把熟豆豆单、生豆豆单、挂耳豆单分别按行显示；选择低于最新的公共或客户豆单版本后，已有商品行重新按该版本取价，右侧“豆单版本”标红并显示感叹号，点击或悬停提示“非新版本豆单”。
 - [ ] PR-350-BEAN-LIST-PUBLISH-MANUAL-WITHDRAW：产品豆单连续发布两个版本后，旧版仍保持已发布并可在录单作为历史发布版本选择；手动撤回某版本后，该版本从录单豆单选择器消失，保存订单时不能显式使用该撤回版本。
 - [ ] PR-351-ORDER-ENTRY-PUBLIC-BEANLIST-NO-CUSTOMER：/api/order/form 返回 `customer_id=0` 的公共已发布豆单版本；前端未选客户时使用这些公共版本作为摘要和豆单选择器候选，并对旧接口重复公共兜底数据去重。
+- [ ] PR-352-ORDER-LIST-UNIFIED-SELECTION：表头复选框空状态点击后全选当前页正常订单，再点一次取消全选；手动只选部分条目时表头显示三态横杆。失效和组合单据区域没有“清空”按钮，取消选择通过表头或行复选框完成。
 - [ ] PR-353-ORDER-ENTRY-HISTORICAL-BEANLIST-PRODUCT-TIERS：公共熟豆存在多个已发布版本时，选择历史熟豆豆单后，商品下拉仍显示该历史豆单中的熟豆商品和对应梯度，不会只剩生豆商品；`/api/order/form` 同一商品的阶梯中同时包含多个 published publication 的 `price_source_json.publication_id`。
 - [ ] PR-BEANLIST-VERSION-003：小程序首次按新版豆单下单时弹出更新提示，内容展示新增、下架和调整摘要；确认后写 `customer_bean_list_acknowledgements`，同一客户同一版本后续不重复提示。
 - [ ] PR-BEANLIST-VERSION-004：客户门户配置中，有专属豆单的客户可选择展示最新版本或固定版本；没有专属豆单的客户使用公共豆单且不出现无效固定版本。
