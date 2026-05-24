@@ -689,12 +689,18 @@ func (r SalesOrderRenderer) renderSalesOrderPaymentInfoSectionWithPageBreak(pdf 
 	if !salesOrderSnapshotHasPaymentInfo(snapshot) {
 		return
 	}
-	targetPage := 1
-	if salesOrderPaymentSectionNeedsNewPage(pdf, snapshot) {
-		pdf.AddPage()
-		targetPage = pdf.PageNo()
+	textBox, codeBox := salesOrderPaymentLayoutBoxes(snapshot)
+	defaultTargetPage := 1
+	if textBox.PageNumber <= 0 && codeBox.PageNumber <= 0 && salesOrderPaymentSectionNeedsNewPage(pdf, snapshot) {
+		defaultTargetPage = pdf.PageNo() + 1
 	}
-	r.renderSalesOrderPaymentInfoSectionOnPage(pdf, salesOrderPaymentSnapshotForPDFPage(pdf, snapshot), targetPage)
+	textPage := salesOrderLayoutBoxPageNumber(textBox, defaultTargetPage)
+	codePage := salesOrderLayoutBoxPageNumber(codeBox, defaultTargetPage)
+	ensureSalesOrderPDFPage(pdf, maxInt(textPage, codePage))
+	r.renderSalesOrderPaymentTextOnPage(pdf, snapshot, textBox, textPage)
+	if len(snapshot.PaymentCodes) > 0 {
+		r.renderSalesOrderPaymentCodesOnPage(pdf, snapshot.PaymentCodes, codeBox, codePage)
+	}
 }
 
 func (r SalesOrderRenderer) renderSalesOrderPaymentInfoSection(pdf *gofpdf.Fpdf, snapshot salesdomain.SalesOrderSnapshot) {
@@ -723,6 +729,31 @@ func (r SalesOrderRenderer) renderSalesOrderPaymentInfoSectionOnPage(pdf *gofpdf
 	}
 }
 
+func (r SalesOrderRenderer) renderSalesOrderPaymentTextOnPage(pdf *gofpdf.Fpdf, snapshot salesdomain.SalesOrderSnapshot, box salesdomain.SalesOrderLayoutBox, targetPage int) {
+	if len(salesOrderPaymentTextSections(snapshot)) == 0 {
+		return
+	}
+	currentPage := pdf.PageNo()
+	pdf.SetPage(targetPage)
+	pdf.SetAutoPageBreak(false, 0)
+	renderSalesOrderTextBlocks(pdf, fitSalesOrderLayoutBoxWithinPDFPage(pdf, box), snapshot)
+	pdf.SetAutoPageBreak(true, 18)
+	if currentPage > 0 {
+		pdf.SetPage(currentPage)
+	}
+}
+
+func (r SalesOrderRenderer) renderSalesOrderPaymentCodesOnPage(pdf *gofpdf.Fpdf, codes []salesdomain.SalesOrderAssetRef, box salesdomain.SalesOrderLayoutBox, targetPage int) {
+	currentPage := pdf.PageNo()
+	pdf.SetPage(targetPage)
+	pdf.SetAutoPageBreak(false, 0)
+	r.renderPaymentCodes(pdf, codes, fitSalesOrderLayoutBoxWithinPDFPage(pdf, box))
+	pdf.SetAutoPageBreak(true, 18)
+	if currentPage > 0 {
+		pdf.SetPage(currentPage)
+	}
+}
+
 func salesOrderSnapshotHasPaymentInfo(snapshot salesdomain.SalesOrderSnapshot) bool {
 	return snapshot.PaymentText != "" || snapshot.Note != "" || len(snapshot.PaymentCodes) > 0 || len(renderSalesOrderAccountLines(snapshot)) > 0
 }
@@ -743,6 +774,22 @@ func salesOrderPaymentSectionNeedsNewPage(pdf *gofpdf.Fpdf, snapshot salesdomain
 		return true
 	}
 	return pdf.GetY()+6 > sectionTop
+}
+
+func salesOrderLayoutBoxPageNumber(box salesdomain.SalesOrderLayoutBox, fallback int) int {
+	if box.PageNumber > 0 {
+		return box.PageNumber
+	}
+	if fallback > 0 {
+		return fallback
+	}
+	return 1
+}
+
+func ensureSalesOrderPDFPage(pdf *gofpdf.Fpdf, pageNumber int) {
+	for pdf.PageNo() < pageNumber {
+		pdf.AddPage()
+	}
 }
 
 func salesOrderPaymentSnapshotForPDFPage(pdf *gofpdf.Fpdf, snapshot salesdomain.SalesOrderSnapshot) salesdomain.SalesOrderSnapshot {
