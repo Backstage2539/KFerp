@@ -152,12 +152,22 @@ export function nextSkuContextCustomerID(currentCustomerID = 0, { workspaceMode 
 }
 
 export function gradientTemplateBelongsToSkuContext(template = {}, context = {}) {
-  const customerID = Number(context.customerID || context.customer_id || 0)
-  const templateCustomerID = Number(template.customer_id || 0)
-  if (!customerID) return templateCustomerID === 0
+	const customerID = Number(context.customerID || context.customer_id || 0)
+	const templateCustomerID = Number(template.customer_id || 0)
+	if (!customerID) return templateCustomerID === 0
   if (templateCustomerID === customerID) return true
   if (templateCustomerID !== 0 || !Boolean(context.usePublicGradientTemplates || context.use_public_gradient_templates)) return false
-  return !hasCustomerDerivedTemplate(template, context.customerTemplates)
+	return !hasCustomerDerivedTemplate(template, context.customerTemplates)
+}
+
+export function productConfigTemplateBelongsToSkuContext(template = {}, context = {}) {
+	const customerID = Number(context.customerID || context.customer_id || 0)
+	const templateCustomerID = Number(template.customer_id || 0)
+	if (!customerID) return templateCustomerID === 0
+	if (templateCustomerID === customerID) return true
+	if (templateCustomerID !== 0) return false
+	if (context.usePublicProductConfigTemplates === false || context.use_public_product_config_templates === false) return false
+	return !hasCustomerDerivedTemplate(template, context.customerTemplates)
 }
 
 export function categoryDisplayState(category = {}, context = {}) {
@@ -197,14 +207,15 @@ export function buildAssignCategoryPayload({ product = {}, category = {}, custom
 }
 
 export function buildProductCategoryConfigPayload(category = {}) {
-  return {
-    id: Number(category.id || 0),
-    customer_id: Number(category.customer_id || 0),
-    name: String(category.name || '').trim(),
-    parent_id: Number(category.parent_id || 0),
-    position: Number(category.position || 0),
-    gradient_template_id: Number(category.gradient_template_id || 0),
-    operation_template_id: Number(category.operation_template_id || 0),
+	return {
+		id: Number(category.id || 0),
+		customer_id: Number(category.customer_id || 0),
+		name: String(category.name || '').trim(),
+		parent_id: Number(category.parent_id || 0),
+		position: Number(category.position || 0),
+		product_config_template_id: Number(category.product_config_template_id || 0),
+		gradient_template_id: Number(category.gradient_template_id || 0),
+		operation_template_id: Number(category.operation_template_id || 0),
     price_list_rule_json: hasStructuredPriceRuleFields(category)
       ? priceListRuleJSONFromForm(category)
       : normalizeJSONString(category.price_list_rule_json),
@@ -215,7 +226,28 @@ export function buildProductCategoryConfigPayload(category = {}) {
       ? unitConversionJSONFromRows(category.unit_conversion_rows)
       : normalizeJSONString(category.unit_conversion_json),
     integer_unit: Boolean(category.integer_unit),
-  }
+	}
+}
+
+export function buildProductConfigTemplatePayload(form = {}) {
+	return {
+		id: Number(form.id || 0),
+		customer_id: Number(form.customer_id || 0),
+		name: String(form.name || '').trim(),
+		gradient_template_id: Number(form.gradient_template_id || 0),
+		operation_template_id: Number(form.operation_template_id || 0),
+		price_list_rule_json: hasStructuredPriceRuleFields(form)
+			? priceListRuleJSONFromForm(form)
+			: normalizeJSONString(form.price_list_rule_json),
+		inventory_unit: normalizeUnitText(form.inventory_unit, 'kg'),
+		quote_unit: normalizeUnitText(form.quote_unit, normalizeUnitText(form.inventory_unit, 'kg')),
+		order_unit: normalizeUnitText(form.order_unit, normalizeUnitText(form.quote_unit, normalizeUnitText(form.inventory_unit, 'kg'))),
+		unit_conversion_json: Array.isArray(form.unit_conversion_rows)
+			? unitConversionJSONFromRows(form.unit_conversion_rows)
+			: normalizeJSONString(form.unit_conversion_json),
+		integer_unit: Boolean(form.integer_unit),
+		active: form.active === false ? false : true,
+	}
 }
 
 export function buildSkuConfigOverridePayload(row = {}) {
@@ -483,9 +515,10 @@ export function productSubtypeCategoryOptionsForType(categoryTree = [], productT
       parent_id: Number(category.parent_id || typeID),
       name: category.name || '',
       customer_id: Number(category.customer_id || 0),
-      source_category_id: Number(category.source_category_id || 0),
-      template_state: category.template_state || '',
-    }))
+		source_category_id: Number(category.source_category_id || 0),
+		product_config_template_id: Number(category.product_config_template_id || 0),
+		template_state: category.template_state || '',
+	}))
 }
 
 export function roastedBomProductOptions(products = [], { customerID = 0 } = {}) {
@@ -637,15 +670,14 @@ function uniqueSorted(values = []) {
 }
 
 export function priceListRuleFormFromJSON(value = {}) {
-  const rule = parseJSONObject(value)
-  const extra = { ...rule }
-  for (const key of ['enabled', 'include_in_price_list', 'pricing_mode', 'display_mode', 'rounding', 'tax_included']) {
+	const rule = parseJSONObject(value)
+	const extra = { ...rule }
+	for (const key of ['enabled', 'include_in_price_list', 'pricing_mode', 'display_mode', 'rounding', 'tax_included']) {
     delete extra[key]
-  }
-  return {
-    price_rule_enabled: Boolean(rule.include_in_price_list ?? rule.enabled ?? true),
-    price_rule_pricing_mode: optionValue(rule.pricing_mode, priceListRulePricingModeOptions, 'inherit_gradient_template'),
-    price_rule_display_mode: optionValue(rule.display_mode, priceListRuleDisplayModeOptions, 'by_quote_unit'),
+	}
+	return {
+		price_rule_pricing_mode: optionValue(rule.pricing_mode, priceListRulePricingModeOptions, 'inherit_gradient_template'),
+		price_rule_display_mode: optionValue(rule.display_mode, priceListRuleDisplayModeOptions, 'by_quote_unit'),
     price_rule_rounding: optionValue(rule.rounding, priceListRuleRoundingOptions, 'none'),
     price_rule_tax_included: Boolean(rule.tax_included),
     price_rule_extra: extra,
@@ -653,9 +685,8 @@ export function priceListRuleFormFromJSON(value = {}) {
 }
 
 export function priceListRuleJSONFromForm(form = {}) {
-  const out = sanitizeExtraObject(form.price_rule_extra)
-  out.include_in_price_list = form.price_rule_enabled === false ? false : true
-  out.pricing_mode = optionValue(form.price_rule_pricing_mode, priceListRulePricingModeOptions, 'inherit_gradient_template')
+	const out = sanitizeExtraObject(form.price_rule_extra)
+	out.pricing_mode = optionValue(form.price_rule_pricing_mode, priceListRulePricingModeOptions, 'inherit_gradient_template')
   out.display_mode = optionValue(form.price_rule_display_mode, priceListRuleDisplayModeOptions, 'by_quote_unit')
   out.rounding = optionValue(form.price_rule_rounding, priceListRuleRoundingOptions, 'none')
   out.tax_included = Boolean(form.price_rule_tax_included)
@@ -788,11 +819,10 @@ function integerUnitModeFromValue(value) {
 }
 
 function hasStructuredPriceRuleFields(row = {}) {
-  return Object.prototype.hasOwnProperty.call(row, 'price_rule_enabled')
-    || Object.prototype.hasOwnProperty.call(row, 'price_rule_pricing_mode')
-    || Object.prototype.hasOwnProperty.call(row, 'price_rule_display_mode')
-    || Object.prototype.hasOwnProperty.call(row, 'price_rule_rounding')
-    || Object.prototype.hasOwnProperty.call(row, 'price_rule_tax_included')
+	return Object.prototype.hasOwnProperty.call(row, 'price_rule_pricing_mode')
+		|| Object.prototype.hasOwnProperty.call(row, 'price_rule_display_mode')
+		|| Object.prototype.hasOwnProperty.call(row, 'price_rule_rounding')
+		|| Object.prototype.hasOwnProperty.call(row, 'price_rule_tax_included')
 }
 
 function hasStructuredUnitRuleFields(row = {}) {

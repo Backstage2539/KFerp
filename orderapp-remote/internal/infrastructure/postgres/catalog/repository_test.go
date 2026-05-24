@@ -138,6 +138,37 @@ func TestCustomerProductRuleTemplateSchemaPersistsTemplatesAndOverrides(t *testi
 	}
 }
 
+func TestProductConfigTemplateSchemaPersistsIndependentTemplates(t *testing.T) {
+	schema, err := os.ReadFile("schema.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	repository, err := os.ReadFile("repository.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		name string
+		src  string
+		want string
+	}{
+		{name: "schema table", src: string(schema), want: "CREATE TABLE IF NOT EXISTS %[1]s.product_config_templates"},
+		{name: "category binding column", src: string(schema), want: "ALTER TABLE %[1]s.product_categories ADD COLUMN IF NOT EXISTS product_config_template_id BIGINT NOT NULL DEFAULT 0"},
+		{name: "template customer source uniq", src: string(schema), want: "product_config_templates_customer_source_active_uniq"},
+		{name: "template list method", src: string(repository), want: "func (r Repository) ListProductConfigTemplates"},
+		{name: "template save method", src: string(repository), want: "func (r Repository) SaveProductConfigTemplate"},
+		{name: "template derive method", src: string(repository), want: "func (r Repository) DeriveProductConfigTemplate"},
+		{name: "category select binding", src: string(repository), want: "COALESCE(product_config_template_id,0)"},
+		{name: "category save binding", src: string(repository), want: "product_config_template_id=$15"},
+		{name: "template materializes category fields", src: string(repository), want: "materializeProductConfigTemplateToCategoriesTx"},
+		{name: "derive category clones config", src: string(repository), want: "deriveProductConfigTemplateTx"},
+	} {
+		if !strings.Contains(tc.src, tc.want) {
+			t.Fatalf("product config template persistence missing %s marker %q", tc.name, tc.want)
+		}
+	}
+}
+
 func TestLegacyProductKindMigrationBackfillsDefaultProductTypeSubtypes(t *testing.T) {
 	schema, err := os.ReadFile("schema.go")
 	if err != nil {

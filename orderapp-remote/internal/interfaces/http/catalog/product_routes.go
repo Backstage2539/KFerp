@@ -28,6 +28,9 @@ func registerProductRoutes(e *echo.Echo, catalogSvc *catalogapp.Service) {
 	e.GET("/api/pricing-gradient-templates", h.gradientTemplatesAPI)
 	e.POST("/api/pricing-gradient-templates", h.saveGradientTemplateAPI)
 	e.PUT("/api/pricing-gradient-templates/:id", h.saveGradientTemplateAPI)
+	e.POST("/api/product-settings/product-config-templates", h.saveProductConfigTemplateAPI)
+	e.PUT("/api/product-settings/product-config-templates/:id", h.saveProductConfigTemplateAPI)
+	e.POST("/api/product-settings/product-config-templates/derive", h.deriveProductConfigTemplateAPI)
 	e.POST("/api/pricing-gradient-templates/:id/deactivate", h.deactivateGradientTemplateAPI)
 	e.POST("/api/product-settings/products", h.createProductAPI)
 	e.POST("/api/product-settings/products/deactivate", h.deactivateProductsAPI)
@@ -125,19 +128,20 @@ type productTierAPIUpsertRow struct {
 }
 
 type productCategoryAPIRequest struct {
-	ID                  int64  `json:"id"`
-	Name                string `json:"name"`
-	ParentID            int64  `json:"parent_id"`
-	CustomerID          int64  `json:"customer_id"`
-	Position            int    `json:"position"`
-	GradientTemplateID  int64  `json:"gradient_template_id"`
-	OperationTemplateID int64  `json:"operation_template_id"`
-	PriceListRuleJSON   string `json:"price_list_rule_json"`
-	InventoryUnit       string `json:"inventory_unit"`
-	QuoteUnit           string `json:"quote_unit"`
-	OrderUnit           string `json:"order_unit"`
-	UnitConversionJSON  string `json:"unit_conversion_json"`
-	IntegerUnit         bool   `json:"integer_unit"`
+	ID                      int64  `json:"id"`
+	Name                    string `json:"name"`
+	ParentID                int64  `json:"parent_id"`
+	CustomerID              int64  `json:"customer_id"`
+	Position                int    `json:"position"`
+	ProductConfigTemplateID int64  `json:"product_config_template_id"`
+	GradientTemplateID      int64  `json:"gradient_template_id"`
+	OperationTemplateID     int64  `json:"operation_template_id"`
+	PriceListRuleJSON       string `json:"price_list_rule_json"`
+	InventoryUnit           string `json:"inventory_unit"`
+	QuoteUnit               string `json:"quote_unit"`
+	OrderUnit               string `json:"order_unit"`
+	UnitConversionJSON      string `json:"unit_conversion_json"`
+	IntegerUnit             bool   `json:"integer_unit"`
 }
 
 type productCategoryMoveAPIRequest struct {
@@ -218,11 +222,31 @@ type deriveGradientTemplateAPIRequest struct {
 	Name             string `json:"name"`
 }
 
+type deriveProductConfigTemplateAPIRequest struct {
+	CustomerID       int64  `json:"customer_id"`
+	SourceTemplateID int64  `json:"source_template_id"`
+	Name             string `json:"name"`
+}
+
 type gradientTemplateAPIRequest struct {
 	CustomerID  int64                             `json:"customer_id"`
 	Name        string                            `json:"name"`
 	DisplayUnit string                            `json:"display_unit"`
 	Tiers       []catalogapp.GradientTemplateTier `json:"tiers"`
+}
+
+type productConfigTemplateAPIRequest struct {
+	CustomerID          int64  `json:"customer_id"`
+	Name                string `json:"name"`
+	GradientTemplateID  int64  `json:"gradient_template_id"`
+	OperationTemplateID int64  `json:"operation_template_id"`
+	PriceListRuleJSON   string `json:"price_list_rule_json"`
+	InventoryUnit       string `json:"inventory_unit"`
+	QuoteUnit           string `json:"quote_unit"`
+	OrderUnit           string `json:"order_unit"`
+	UnitConversionJSON  string `json:"unit_conversion_json"`
+	IntegerUnit         bool   `json:"integer_unit"`
+	Active              *bool  `json:"active"`
 }
 
 type bindCategoryGradientTemplateAPIRequest struct {
@@ -611,6 +635,40 @@ func (h productHandler) saveGradientTemplateAPI(c echo.Context) error {
 	return c.JSON(http.StatusOK, map[string]any{"template": row})
 }
 
+func (h productHandler) saveProductConfigTemplateAPI(c echo.Context) error {
+	var req productConfigTemplateAPIRequest
+	if err := c.Bind(&req); err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]any{"error": "bad request"})
+	}
+	var id int64
+	if idText := c.Param("id"); idText != "" {
+		parsed, err := strconv.ParseInt(idText, 10, 64)
+		if err != nil || parsed <= 0 {
+			return c.JSON(http.StatusBadRequest, map[string]any{"error": "invalid id"})
+		}
+		id = parsed
+	}
+	template, err := h.catalog.SaveProductConfigTemplate(c.Request().Context(), catalogapp.SaveProductConfigTemplateCommand{
+		Actor:               support.ActorOf(c),
+		ID:                  id,
+		CustomerID:          req.CustomerID,
+		Name:                req.Name,
+		GradientTemplateID:  req.GradientTemplateID,
+		OperationTemplateID: req.OperationTemplateID,
+		PriceListRuleJSON:   req.PriceListRuleJSON,
+		InventoryUnit:       req.InventoryUnit,
+		QuoteUnit:           req.QuoteUnit,
+		OrderUnit:           req.OrderUnit,
+		UnitConversionJSON:  req.UnitConversionJSON,
+		IntegerUnit:         req.IntegerUnit,
+		Active:              req.Active,
+	})
+	if err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]any{"error": err.Error()})
+	}
+	return c.JSON(http.StatusOK, map[string]any{"template": template})
+}
+
 func (h productHandler) deactivateGradientTemplateAPI(c echo.Context) error {
 	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	if err != nil || id <= 0 {
@@ -641,20 +699,21 @@ func (h productHandler) saveProductCategoryAPI(c echo.Context) error {
 		return c.JSON(http.StatusBadRequest, map[string]any{"error": "name required"})
 	}
 	row, err := h.catalog.SaveProductCategory(c.Request().Context(), catalogapp.SaveProductCategoryCommand{
-		Actor:               support.ActorOf(c),
-		ID:                  req.ID,
-		ParentID:            req.ParentID,
-		CustomerID:          req.CustomerID,
-		Name:                req.Name,
-		Position:            req.Position,
-		GradientTemplateID:  req.GradientTemplateID,
-		OperationTemplateID: req.OperationTemplateID,
-		PriceListRuleJSON:   req.PriceListRuleJSON,
-		InventoryUnit:       req.InventoryUnit,
-		QuoteUnit:           req.QuoteUnit,
-		OrderUnit:           req.OrderUnit,
-		UnitConversionJSON:  req.UnitConversionJSON,
-		IntegerUnit:         req.IntegerUnit,
+		Actor:                   support.ActorOf(c),
+		ID:                      req.ID,
+		ParentID:                req.ParentID,
+		CustomerID:              req.CustomerID,
+		Name:                    req.Name,
+		Position:                req.Position,
+		ProductConfigTemplateID: req.ProductConfigTemplateID,
+		GradientTemplateID:      req.GradientTemplateID,
+		OperationTemplateID:     req.OperationTemplateID,
+		PriceListRuleJSON:       req.PriceListRuleJSON,
+		InventoryUnit:           req.InventoryUnit,
+		QuoteUnit:               req.QuoteUnit,
+		OrderUnit:               req.OrderUnit,
+		UnitConversionJSON:      req.UnitConversionJSON,
+		IntegerUnit:             req.IntegerUnit,
 	})
 	if err != nil {
 		return c.JSON(http.StatusInternalServerError, map[string]any{"error": err.Error()})
@@ -732,6 +791,23 @@ func (h productHandler) deriveGradientTemplateAPI(c echo.Context) error {
 		return c.JSON(http.StatusBadRequest, map[string]any{"error": "bad request"})
 	}
 	template, err := h.catalog.DeriveGradientTemplate(c.Request().Context(), catalogapp.DeriveGradientTemplateCommand{
+		Actor:            support.ActorOf(c),
+		CustomerID:       req.CustomerID,
+		SourceTemplateID: req.SourceTemplateID,
+		Name:             req.Name,
+	})
+	if err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]any{"error": err.Error()})
+	}
+	return c.JSON(http.StatusOK, map[string]any{"template": template})
+}
+
+func (h productHandler) deriveProductConfigTemplateAPI(c echo.Context) error {
+	var req deriveProductConfigTemplateAPIRequest
+	if err := c.Bind(&req); err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]any{"error": "bad request"})
+	}
+	template, err := h.catalog.DeriveProductConfigTemplate(c.Request().Context(), catalogapp.DeriveProductConfigTemplateCommand{
 		Actor:            support.ActorOf(c),
 		CustomerID:       req.CustomerID,
 		SourceTemplateID: req.SourceTemplateID,

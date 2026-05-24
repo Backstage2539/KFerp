@@ -16,52 +16,57 @@ import (
 )
 
 type productSettingsRepo struct {
-	products             []catalogapp.Product
-	categories           []catalogapp.ProductCategory
-	gradientTemplates    []catalogapp.GradientTemplate
-	savedCategory        catalogapp.SaveProductCategoryCommand
-	movedCategory        catalogapp.MoveProductCategoryCommand
-	deletedCategory      catalogapp.DeleteProductCategoryCommand
-	assigned             catalogapp.AssignProductCategoryCommand
-	assignResult         catalogapp.AssignProductCategoryResult
-	derivedProduct       catalogapp.DeriveCustomerProductCommand
-	derivedCategory      catalogapp.DeriveProductCategoryCommand
-	derivedTemplate      catalogapp.DeriveGradientTemplateCommand
-	savedTemplate        catalogapp.SaveGradientTemplateCommand
-	deactivatedTemplate  catalogapp.DeactivateGradientTemplateCommand
-	boundTemplate        catalogapp.BindCategoryGradientTemplateCommand
-	updated              catalogapp.UpdateProductBasicsCommand
-	updateErr            error
-	deactivated          catalogapp.DeactivateProductsCommand
-	createdPublic        catalogapp.CreateProductCommand
-	publicUsage          catalogapp.CustomerPublicUsageCommand
-	publicUsages         []catalogapp.CustomerPublicUsage
-	ruleTemplates        []catalogapp.CustomerProductRuleTemplate
-	ruleOverrides        []catalogapp.CustomerProductRuleOverride
-	customerRuleBindings []catalogapp.CustomerProductRuleBinding
-	savedRuleTemplate    catalogapp.SaveCustomerProductRuleTemplateCommand
-	savedRuleOverride    catalogapp.SaveCustomerProductRuleOverrideCommand
-	savedRuleBinding     catalogapp.CustomerProductRuleTemplateBindingCommand
-	createErr            error
-	createdProduct       catalogapp.CreateCustomProductCommand
-	categoryCreated      bool
-	categoryMoved        bool
-	categoryDeleted      bool
-	productAssigned      bool
-	productDerived       bool
-	categoryDerived      bool
-	templateDerived      bool
-	templateSaved        bool
-	templateDeactivated  bool
-	templateBound        bool
-	productUpdated       bool
-	productsDeactivated  bool
-	publicCreated        bool
-	productCreated       bool
-	publicUsageSaved     bool
-	ruleTemplateSaved    bool
-	ruleOverrideSaved    bool
-	ruleBindingSaved     bool
+	products               []catalogapp.Product
+	categories             []catalogapp.ProductCategory
+	gradientTemplates      []catalogapp.GradientTemplate
+	productConfigTemplates []catalogapp.ProductConfigTemplate
+	savedCategory          catalogapp.SaveProductCategoryCommand
+	movedCategory          catalogapp.MoveProductCategoryCommand
+	deletedCategory        catalogapp.DeleteProductCategoryCommand
+	assigned               catalogapp.AssignProductCategoryCommand
+	assignResult           catalogapp.AssignProductCategoryResult
+	derivedProduct         catalogapp.DeriveCustomerProductCommand
+	derivedCategory        catalogapp.DeriveProductCategoryCommand
+	derivedTemplate        catalogapp.DeriveGradientTemplateCommand
+	derivedConfig          catalogapp.DeriveProductConfigTemplateCommand
+	savedTemplate          catalogapp.SaveGradientTemplateCommand
+	savedConfigTemplate    catalogapp.SaveProductConfigTemplateCommand
+	deactivatedTemplate    catalogapp.DeactivateGradientTemplateCommand
+	boundTemplate          catalogapp.BindCategoryGradientTemplateCommand
+	updated                catalogapp.UpdateProductBasicsCommand
+	updateErr              error
+	deactivated            catalogapp.DeactivateProductsCommand
+	createdPublic          catalogapp.CreateProductCommand
+	publicUsage            catalogapp.CustomerPublicUsageCommand
+	publicUsages           []catalogapp.CustomerPublicUsage
+	ruleTemplates          []catalogapp.CustomerProductRuleTemplate
+	ruleOverrides          []catalogapp.CustomerProductRuleOverride
+	customerRuleBindings   []catalogapp.CustomerProductRuleBinding
+	savedRuleTemplate      catalogapp.SaveCustomerProductRuleTemplateCommand
+	savedRuleOverride      catalogapp.SaveCustomerProductRuleOverrideCommand
+	savedRuleBinding       catalogapp.CustomerProductRuleTemplateBindingCommand
+	createErr              error
+	createdProduct         catalogapp.CreateCustomProductCommand
+	categoryCreated        bool
+	categoryMoved          bool
+	categoryDeleted        bool
+	productAssigned        bool
+	productDerived         bool
+	categoryDerived        bool
+	templateDerived        bool
+	configTemplateDerived  bool
+	templateSaved          bool
+	configTemplateSaved    bool
+	templateDeactivated    bool
+	templateBound          bool
+	productUpdated         bool
+	productsDeactivated    bool
+	publicCreated          bool
+	productCreated         bool
+	publicUsageSaved       bool
+	ruleTemplateSaved      bool
+	ruleOverrideSaved      bool
+	ruleBindingSaved       bool
 }
 
 func (r *productSettingsRepo) ListProducts(ctx context.Context) ([]catalogapp.Product, error) {
@@ -155,6 +160,10 @@ func (r *productSettingsRepo) ListGradientTemplates(ctx context.Context) ([]cata
 	return r.gradientTemplates, nil
 }
 
+func (r *productSettingsRepo) ListProductConfigTemplates(ctx context.Context) ([]catalogapp.ProductConfigTemplate, error) {
+	return r.productConfigTemplates, nil
+}
+
 func (r *productSettingsRepo) ListCustomerPublicUsages(ctx context.Context) ([]catalogapp.CustomerPublicUsage, error) {
 	return r.publicUsages, nil
 }
@@ -177,6 +186,25 @@ func (r *productSettingsRepo) SaveGradientTemplate(ctx context.Context, cmd cata
 	return catalogapp.GradientTemplate{ID: 77, Name: cmd.Name, DisplayUnit: cmd.DisplayUnit, Active: true, Tiers: cmd.Tiers}, nil
 }
 
+func (r *productSettingsRepo) SaveProductConfigTemplate(ctx context.Context, cmd catalogapp.SaveProductConfigTemplateCommand) (catalogapp.ProductConfigTemplate, error) {
+	r.savedConfigTemplate = cmd
+	r.configTemplateSaved = true
+	return catalogapp.ProductConfigTemplate{
+		ID:                  377,
+		CustomerID:          cmd.CustomerID,
+		Name:                cmd.Name,
+		GradientTemplateID:  cmd.GradientTemplateID,
+		OperationTemplateID: cmd.OperationTemplateID,
+		PriceListRuleJSON:   cmd.PriceListRuleJSON,
+		InventoryUnit:       cmd.InventoryUnit,
+		QuoteUnit:           cmd.QuoteUnit,
+		OrderUnit:           cmd.OrderUnit,
+		UnitConversionJSON:  cmd.UnitConversionJSON,
+		IntegerUnit:         cmd.IntegerUnit,
+		Active:              true,
+	}, nil
+}
+
 func (r *productSettingsRepo) DeactivateGradientTemplate(ctx context.Context, cmd catalogapp.DeactivateGradientTemplateCommand) error {
 	r.deactivatedTemplate = cmd
 	r.templateDeactivated = true
@@ -193,19 +221,20 @@ func (r *productSettingsRepo) SaveProductCategory(ctx context.Context, cmd catal
 	r.savedCategory = cmd
 	r.categoryCreated = true
 	return catalogapp.ProductCategory{
-		ID:                  99,
-		ParentID:            cmd.ParentID,
-		CustomerID:          cmd.CustomerID,
-		Name:                cmd.Name,
-		Position:            cmd.Position,
-		GradientTemplateID:  cmd.GradientTemplateID,
-		OperationTemplateID: cmd.OperationTemplateID,
-		PriceListRuleJSON:   cmd.PriceListRuleJSON,
-		InventoryUnit:       cmd.InventoryUnit,
-		QuoteUnit:           cmd.QuoteUnit,
-		OrderUnit:           cmd.OrderUnit,
-		UnitConversionJSON:  cmd.UnitConversionJSON,
-		IntegerUnit:         cmd.IntegerUnit,
+		ID:                      99,
+		ParentID:                cmd.ParentID,
+		CustomerID:              cmd.CustomerID,
+		Name:                    cmd.Name,
+		Position:                cmd.Position,
+		ProductConfigTemplateID: cmd.ProductConfigTemplateID,
+		GradientTemplateID:      cmd.GradientTemplateID,
+		OperationTemplateID:     cmd.OperationTemplateID,
+		PriceListRuleJSON:       cmd.PriceListRuleJSON,
+		InventoryUnit:           cmd.InventoryUnit,
+		QuoteUnit:               cmd.QuoteUnit,
+		OrderUnit:               cmd.OrderUnit,
+		UnitConversionJSON:      cmd.UnitConversionJSON,
+		IntegerUnit:             cmd.IntegerUnit,
 	}, nil
 }
 
@@ -283,6 +312,19 @@ func (r *productSettingsRepo) DeriveGradientTemplate(ctx context.Context, cmd ca
 	r.templateDerived = true
 	return catalogapp.GradientTemplate{
 		ID:               288,
+		Name:             cmd.Name,
+		CustomerID:       cmd.CustomerID,
+		SourceTemplateID: cmd.SourceTemplateID,
+		TemplateState:    "derived_from_public",
+		Active:           true,
+	}, nil
+}
+
+func (r *productSettingsRepo) DeriveProductConfigTemplate(ctx context.Context, cmd catalogapp.DeriveProductConfigTemplateCommand) (catalogapp.ProductConfigTemplate, error) {
+	r.derivedConfig = cmd
+	r.configTemplateDerived = true
+	return catalogapp.ProductConfigTemplate{
+		ID:               388,
 		Name:             cmd.Name,
 		CustomerID:       cmd.CustomerID,
 		SourceTemplateID: cmd.SourceTemplateID,
@@ -778,6 +820,95 @@ func TestProductSettingsAPIManagesGradientTemplatesAndCategoryBinding(t *testing
 	}
 	if !repo.templateDeactivated || repo.deactivatedTemplate.ID != 77 {
 		t.Fatalf("deactivate command = %+v deactivated=%v", repo.deactivatedTemplate, repo.templateDeactivated)
+	}
+}
+
+func TestProductSettingsAPIExposesSavesAndDerivesProductConfigTemplates(t *testing.T) {
+	repo := &productSettingsRepo{
+		productConfigTemplates: []catalogapp.ProductConfigTemplate{{
+			ID:                  301,
+			CustomerID:          0,
+			Name:                "公共盒装商品配置",
+			GradientTemplateID:  8,
+			OperationTemplateID: 9,
+			PriceListRuleJSON:   `{"pricing_mode":"inherit_gradient_template"}`,
+			InventoryUnit:       "kg",
+			QuoteUnit:           "盒",
+			OrderUnit:           "盒",
+			UnitConversionJSON:  `{"盒":{"kg":0.2}}`,
+			IntegerUnit:         true,
+			TemplateState:       "public_template",
+			Active:              true,
+		}},
+		categories: []catalogapp.ProductCategory{{
+			ID:            1,
+			Name:          "速溶咖啡",
+			Level:         1,
+			TemplateState: "public_template",
+		}, {
+			ID:                      12,
+			ParentID:                1,
+			Name:                    "冻干速溶",
+			Level:                   2,
+			ProductConfigTemplateID: 301,
+		}},
+	}
+	e := echo.New()
+	registerProductRoutes(e, catalogapp.NewService(repo))
+
+	req := httptest.NewRequest(http.MethodGet, "/api/product-settings", nil)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET /api/product-settings status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	for _, want := range []string{
+		`"product_config_templates"`,
+		`"name":"公共盒装商品配置"`,
+		`"product_config_template_id":301`,
+		`"quote_unit":"盒"`,
+	} {
+		if !bytes.Contains(rec.Body.Bytes(), []byte(want)) {
+			t.Fatalf("product settings response missing %s: %s", want, rec.Body.String())
+		}
+	}
+
+	req = httptest.NewRequest(http.MethodPost, "/api/product-settings/product-config-templates", bytes.NewBufferString(`{
+		"customer_id":42,
+		"name":"客户盒装商品配置",
+		"gradient_template_id":18,
+		"operation_template_id":19,
+		"price_list_rule_json":"{\"pricing_mode\":\"fixed_unit_price\"}",
+		"inventory_unit":"kg",
+		"quote_unit":"盒",
+		"order_unit":"盒",
+		"unit_conversion_json":"{\"盒\":{\"kg\":0.2}}",
+		"integer_unit":true
+	}`))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec = httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("POST product config template status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if !repo.configTemplateSaved || repo.savedConfigTemplate.CustomerID != 42 || repo.savedConfigTemplate.Name != "客户盒装商品配置" || repo.savedConfigTemplate.GradientTemplateID != 18 || !repo.savedConfigTemplate.IntegerUnit {
+		t.Fatalf("saved config template = %+v saved=%v", repo.savedConfigTemplate, repo.configTemplateSaved)
+	}
+
+	req = httptest.NewRequest(http.MethodPost, "/api/product-settings/product-config-templates/derive", bytes.NewBufferString(`{"customer_id":42,"source_template_id":301,"name":"客户复制盒装商品配置"}`))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec = httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("POST derive product config template status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if !repo.configTemplateDerived || repo.derivedConfig.CustomerID != 42 || repo.derivedConfig.SourceTemplateID != 301 || repo.derivedConfig.Name != "客户复制盒装商品配置" {
+		t.Fatalf("derived config template = %+v derived=%v", repo.derivedConfig, repo.configTemplateDerived)
+	}
+	for _, want := range []string{`"template"`, `"id":388`, `"customer_id":42`, `"source_template_id":301`, `"template_state":"derived_from_public"`} {
+		if !bytes.Contains(rec.Body.Bytes(), []byte(want)) {
+			t.Fatalf("derive product config response missing %s: %s", want, rec.Body.String())
+		}
 	}
 }
 

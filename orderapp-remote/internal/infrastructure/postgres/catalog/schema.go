@@ -76,6 +76,28 @@ ALTER TABLE %[1]s.product_categories ADD COLUMN IF NOT EXISTS quote_unit TEXT NO
 ALTER TABLE %[1]s.product_categories ADD COLUMN IF NOT EXISTS order_unit TEXT NOT NULL DEFAULT 'kg';
 ALTER TABLE %[1]s.product_categories ADD COLUMN IF NOT EXISTS unit_conversion_json JSONB NOT NULL DEFAULT '{}'::jsonb;
 ALTER TABLE %[1]s.product_categories ADD COLUMN IF NOT EXISTS integer_unit BOOLEAN NOT NULL DEFAULT false;
+CREATE TABLE IF NOT EXISTS %[1]s.product_config_templates (
+	id BIGSERIAL PRIMARY KEY,
+	customer_id BIGINT NOT NULL DEFAULT 0,
+	source_template_id BIGINT NOT NULL DEFAULT 0,
+	template_state TEXT NOT NULL DEFAULT 'customer_owned',
+	name TEXT NOT NULL,
+	gradient_template_id BIGINT NOT NULL DEFAULT 0,
+	operation_template_id BIGINT NOT NULL DEFAULT 0,
+	price_list_rule_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+	inventory_unit TEXT NOT NULL DEFAULT 'kg',
+	quote_unit TEXT NOT NULL DEFAULT 'kg',
+	order_unit TEXT NOT NULL DEFAULT 'kg',
+	unit_conversion_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+	integer_unit BOOLEAN NOT NULL DEFAULT false,
+	active BOOLEAN NOT NULL DEFAULT true,
+	created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+	updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+ALTER TABLE %[1]s.product_categories ADD COLUMN IF NOT EXISTS product_config_template_id BIGINT NOT NULL DEFAULT 0;
+CREATE UNIQUE INDEX IF NOT EXISTS product_config_templates_customer_source_active_uniq
+ON %[1]s.product_config_templates (customer_id, source_template_id)
+WHERE active=true AND source_template_id > 0;
 CREATE TABLE IF NOT EXISTS %[1]s.pricing_gradient_templates (
 	id BIGSERIAL PRIMARY KEY,
 	name TEXT NOT NULL,

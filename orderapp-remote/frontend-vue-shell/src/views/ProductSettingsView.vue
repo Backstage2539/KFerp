@@ -301,239 +301,116 @@
         </div>
       </div>
 
-      <div v-if="selectedCustomerSkuCustomerID" class="panel customer-rule-panel">
+      <div class="panel product-config-panel">
         <div class="panel-title">
-          <span>客户产品规则</span>
-          <button class="secondary compact-action" type="button" @click="resetCustomerProductRuleTemplateForm">新建规则模板</button>
+          <span>商品配置</span>
+          <button class="secondary compact-action" type="button" @click="resetProductConfigTemplateForm">新建商品配置</button>
         </div>
-        <div class="customer-rule-binding">
-          <label>
-            <span>当前客户绑定模板</span>
-            <select :value="currentCustomerRuleTemplateID" :disabled="customerRuleSaving" @change="bindCustomerProductRuleTemplate($event.target.value)">
-              <option value="0">不绑定规则模板</option>
-              <option v-for="template in customerProductRuleTemplatesForContext" :key="template.id" :value="template.id">
-                {{ template.name }}
-              </option>
-            </select>
-          </label>
-          <p class="muted">模板用于批量配置客户对子类型的阶梯价、工序和单位规则；专属覆盖优先级高于模板。</p>
-        </div>
-
-        <div class="customer-rule-layout">
-          <form class="customer-rule-editor" @submit.prevent="saveCustomerProductRuleTemplate">
-            <div class="sub-title">客户规则模板</div>
-            <label>
-              <span>模板名称</span>
-              <input v-model.trim="customerRuleTemplateForm.name" placeholder="如 贴牌客户默认规则" />
-            </label>
-            <div class="template-list customer-rule-template-list">
+        <div class="product-config-layout">
+          <div class="template-list product-config-list">
+            <div
+              v-for="config in productConfigTemplatesForContext"
+              :key="config.id"
+              class="template-row-main"
+              role="button"
+              tabindex="0"
+              @click="startProductConfigTemplateEdit(config)"
+              @keydown.enter.prevent="startProductConfigTemplateEdit(config)">
+              <span>
+                <strong>{{ config.name }}</strong>
+                <small>{{ productConfigTemplateLabel(config) }} · {{ config.quote_unit || 'kg' }}/{{ config.order_unit || config.quote_unit || 'kg' }}</small>
+              </span>
               <button
-                v-for="template in customerProductRuleTemplatesForContext"
-                :key="template.id"
-                class="template-row-main"
+                v-if="canDeriveProductConfigTemplate(config)"
+                class="text-button"
                 type="button"
-                @click="startCustomerProductRuleTemplateEdit(template)">
-                <strong>{{ template.name }}</strong>
-                <small>{{ template.items.length }} 个产品子类型</small>
+                :disabled="productConfigSaving"
+                @click.stop="deriveProductConfigTemplateForCustomer(config)">
+                复制为客户配置
               </button>
-              <p v-if="!customerProductRuleTemplatesForContext.length" class="muted">暂无客户规则模板</p>
             </div>
-            <div class="template-tier-head">
-              <strong>模板明细</strong>
-              <button class="secondary compact-action" type="button" @click="addCustomerProductRuleTemplateItem">新增明细</button>
-            </div>
-            <div class="customer-rule-items">
-              <div v-for="(item, index) in customerRuleTemplateForm.items" :key="`customer-rule-item-${index}`" class="customer-rule-item">
-                <label>
-                  <span>产品子类型</span>
-                  <select v-model.number="item.product_subtype_category_id">
-                    <option value="0">选择子类型</option>
-                    <option v-for="category in productSubtypeRuleOptions" :key="category.id" :value="category.id">{{ categoryRuleLabel(category) }}</option>
-                  </select>
-                </label>
-                <label>
-                  <span>阶梯价模板</span>
-                  <select v-model.number="item.gradient_template_id">
-                    <option value="0">继承子类型</option>
-                    <option v-for="template in activeGradientTemplates" :key="template.id" :value="template.id">{{ template.name }}</option>
-                  </select>
-                </label>
-                <label>
-                  <span>工序模板ID</span>
-                  <input v-model.number="item.operation_template_id" type="number" min="0" step="1" placeholder="0 表示继承" />
-                </label>
-                <div class="rule-config-block">
-                  <div class="field-group-title">价格表生成规则</div>
-                  <label class="checkline">
-                    <input v-model="item.price_rule_enabled" type="checkbox" />
-                    <span>纳入产品价格表</span>
-                  </label>
-                  <label>
-                    <span>计价方式</span>
-                    <select v-model="item.price_rule_pricing_mode">
-                      <option v-for="option in priceListRulePricingModeOptions" :key="option.value" :value="option.value">{{ option.label }}</option>
-                    </select>
-                  </label>
-                  <label>
-                    <span>展示方式</span>
-                    <select v-model="item.price_rule_display_mode">
-                      <option v-for="option in priceListRuleDisplayModeOptions" :key="option.value" :value="option.value">{{ option.label }}</option>
-                    </select>
-                  </label>
-                  <label>
-                    <span>取整规则</span>
-                    <select v-model="item.price_rule_rounding">
-                      <option v-for="option in priceListRuleRoundingOptions" :key="option.value" :value="option.value">{{ option.label }}</option>
-                    </select>
-                  </label>
-                  <label class="checkline">
-                    <input v-model="item.price_rule_tax_included" type="checkbox" />
-                    <span>含税价格</span>
-                  </label>
-                </div>
-                <div class="rule-config-block">
-                  <div class="field-group-title">单位覆盖</div>
-                  <label>
-                    <span>库存单位覆盖</span>
-                    <input v-model.trim="item.inventory_unit" placeholder="继承子类型" />
-                  </label>
-                  <label>
-                    <span>报价单位覆盖</span>
-                    <input v-model.trim="item.quote_unit" placeholder="继承子类型" />
-                  </label>
-                  <label>
-                    <span>录单单位覆盖</span>
-                    <input v-model.trim="item.order_unit" placeholder="继承子类型" />
-                  </label>
-                  <label>
-                    <span>整数规则</span>
-                    <select v-model="item.integer_unit_mode">
-                      <option v-for="option in integerUnitModeOptions" :key="option.value" :value="option.value">{{ option.label }}</option>
-                    </select>
-                  </label>
-                  <div class="unit-conversion-editor">
-                    <div class="field-group-head">
-                      <span>单位换算覆盖</span>
-                      <button class="secondary compact-action" type="button" @click="addUnitConversionRow(item)">新增换算</button>
-                    </div>
-                    <div v-for="(row, rowIndex) in item.unit_conversion_rows" :key="`template-unit-${index}-${rowIndex}`" class="unit-conversion-row">
-                      <input v-model.number="row.from_qty" type="number" min="0.0001" step="0.0001" />
-                      <input v-model.trim="row.from_unit" placeholder="盒" />
-                      <span>=</span>
-                      <input v-model.number="row.to_qty" type="number" min="0.0001" step="0.0001" />
-                      <input v-model.trim="row.to_unit" placeholder="kg" />
-                      <button class="text-button danger-text" type="button" @click="removeUnitConversionRow(item, rowIndex)">删除</button>
-                    </div>
-                    <small v-if="!item.unit_conversion_rows.length">不填则继承产品子类型单位换算。</small>
-                  </div>
-                </div>
-                <button class="text-button danger-text" type="button" @click="removeCustomerProductRuleTemplateItem(index)">删除</button>
-              </div>
-            </div>
-            <div class="form-actions">
-              <button class="primary" type="submit" :disabled="customerRuleSaving">保存规则模板</button>
-            </div>
-          </form>
+            <p v-if="!productConfigTemplatesForContext.length" class="muted">暂无商品配置</p>
+          </div>
 
-          <form class="customer-rule-editor" @submit.prevent="saveCustomerProductRuleOverride">
-            <div class="sub-title">客户专属覆盖</div>
+          <form class="product-config-editor" @submit.prevent="saveProductConfigTemplate">
+            <p v-if="!canEditCurrentProductConfigTemplate" class="muted">公共商品配置需复制到客户后修改。</p>
             <label>
-              <span>产品子类型</span>
-              <select v-model.number="customerRuleOverrideForm.product_subtype_category_id">
-                <option value="0">选择子类型</option>
-                <option v-for="category in productSubtypeRuleOptions" :key="category.id" :value="category.id">{{ categoryRuleLabel(category) }}</option>
-              </select>
+              <span>配置名称</span>
+              <input v-model.trim="productConfigTemplateForm.name" :disabled="!canEditCurrentProductConfigTemplate" placeholder="如 盒装速溶配置" />
             </label>
             <label>
               <span>阶梯价模板</span>
-              <select v-model.number="customerRuleOverrideForm.gradient_template_id">
-                <option value="0">继承模板/子类型</option>
-                <option v-for="template in activeGradientTemplates" :key="template.id" :value="template.id">{{ template.name }}</option>
+              <select v-model.number="productConfigTemplateForm.gradient_template_id" :disabled="!canEditCurrentProductConfigTemplate">
+                <option value="0">未绑定模板</option>
+                <option v-for="template in activeGradientTemplates" :key="template.id" :value="template.id">{{ template.name }} · {{ gradientDisplayUnitLabel(template.display_unit) }}</option>
               </select>
             </label>
             <label>
               <span>工序模板ID</span>
-              <input v-model.number="customerRuleOverrideForm.operation_template_id" type="number" min="0" step="1" placeholder="0 表示继承" />
+              <input v-model.number="productConfigTemplateForm.operation_template_id" :disabled="!canEditCurrentProductConfigTemplate" type="number" min="0" step="1" placeholder="0 表示未绑定" />
             </label>
             <div class="rule-config-block">
               <div class="field-group-title">价格表生成规则</div>
-              <label class="checkline">
-                <input v-model="customerRuleOverrideForm.price_rule_enabled" type="checkbox" />
-                <span>纳入产品价格表</span>
-              </label>
               <label>
                 <span>计价方式</span>
-                <select v-model="customerRuleOverrideForm.price_rule_pricing_mode">
+                <select v-model="productConfigTemplateForm.price_rule_pricing_mode" :disabled="!canEditCurrentProductConfigTemplate">
                   <option v-for="option in priceListRulePricingModeOptions" :key="option.value" :value="option.value">{{ option.label }}</option>
                 </select>
               </label>
               <label>
                 <span>展示方式</span>
-                <select v-model="customerRuleOverrideForm.price_rule_display_mode">
+                <select v-model="productConfigTemplateForm.price_rule_display_mode" :disabled="!canEditCurrentProductConfigTemplate">
                   <option v-for="option in priceListRuleDisplayModeOptions" :key="option.value" :value="option.value">{{ option.label }}</option>
                 </select>
               </label>
               <label>
                 <span>取整规则</span>
-                <select v-model="customerRuleOverrideForm.price_rule_rounding">
+                <select v-model="productConfigTemplateForm.price_rule_rounding" :disabled="!canEditCurrentProductConfigTemplate">
                   <option v-for="option in priceListRuleRoundingOptions" :key="option.value" :value="option.value">{{ option.label }}</option>
                 </select>
               </label>
               <label class="checkline">
-                <input v-model="customerRuleOverrideForm.price_rule_tax_included" type="checkbox" />
+                <input v-model="productConfigTemplateForm.price_rule_tax_included" :disabled="!canEditCurrentProductConfigTemplate" type="checkbox" />
                 <span>含税价格</span>
               </label>
             </div>
             <div class="rule-config-block">
-              <div class="field-group-title">单位覆盖</div>
+              <div class="field-group-title">单位规则</div>
               <label>
-                <span>库存单位覆盖</span>
-                <input v-model.trim="customerRuleOverrideForm.inventory_unit" placeholder="继承子类型" />
+                <span>库存单位</span>
+                <input v-model.trim="productConfigTemplateForm.inventory_unit" :disabled="!canEditCurrentProductConfigTemplate" placeholder="kg" />
               </label>
               <label>
-                <span>报价单位覆盖</span>
-                <input v-model.trim="customerRuleOverrideForm.quote_unit" placeholder="继承子类型" />
+                <span>报价单位</span>
+                <input v-model.trim="productConfigTemplateForm.quote_unit" :disabled="!canEditCurrentProductConfigTemplate" placeholder="盒" />
               </label>
               <label>
-                <span>录单单位覆盖</span>
-                <input v-model.trim="customerRuleOverrideForm.order_unit" placeholder="继承子类型" />
+                <span>录单单位</span>
+                <input v-model.trim="productConfigTemplateForm.order_unit" :disabled="!canEditCurrentProductConfigTemplate" placeholder="盒" />
               </label>
-              <label>
-                <span>整数规则</span>
-                <select v-model="customerRuleOverrideForm.integer_unit_mode">
-                  <option v-for="option in integerUnitModeOptions" :key="option.value" :value="option.value">{{ option.label }}</option>
-                </select>
+              <label class="checkline">
+                <input v-model="productConfigTemplateForm.integer_unit" :disabled="!canEditCurrentProductConfigTemplate" type="checkbox" />
+                <span>整数单位</span>
               </label>
               <div class="unit-conversion-editor">
                 <div class="field-group-head">
-                  <span>单位换算覆盖</span>
-                  <button class="secondary compact-action" type="button" @click="addUnitConversionRow(customerRuleOverrideForm)">新增换算</button>
+                  <span>单位换算</span>
+                  <button class="secondary compact-action" type="button" :disabled="!canEditCurrentProductConfigTemplate" @click="addUnitConversionRow(productConfigTemplateForm)">新增换算</button>
                 </div>
-                <div v-for="(row, rowIndex) in customerRuleOverrideForm.unit_conversion_rows" :key="`override-unit-${rowIndex}`" class="unit-conversion-row">
-                  <input v-model.number="row.from_qty" type="number" min="0.0001" step="0.0001" />
+                <div v-for="(row, rowIndex) in productConfigTemplateForm.unit_conversion_rows" :key="`product-config-unit-${rowIndex}`" class="unit-conversion-row">
+                  <input v-model.number="row.from_qty" :disabled="!canEditCurrentProductConfigTemplate" type="number" min="0.0001" step="0.0001" />
                   <input v-model.trim="row.from_unit" placeholder="箱" />
                   <span>=</span>
-                  <input v-model.number="row.to_qty" type="number" min="0.0001" step="0.0001" />
+                  <input v-model.number="row.to_qty" :disabled="!canEditCurrentProductConfigTemplate" type="number" min="0.0001" step="0.0001" />
                   <input v-model.trim="row.to_unit" placeholder="盒" />
-                  <button class="text-button danger-text" type="button" @click="removeUnitConversionRow(customerRuleOverrideForm, rowIndex)">删除</button>
+                  <button class="text-button danger-text" type="button" :disabled="!canEditCurrentProductConfigTemplate" @click="removeUnitConversionRow(productConfigTemplateForm, rowIndex)">删除</button>
                 </div>
-                <small v-if="!customerRuleOverrideForm.unit_conversion_rows.length">不填则继承模板或产品子类型。</small>
+                <small v-if="!productConfigTemplateForm.unit_conversion_rows.length">例如 1 盒 = 0.2 kg；不配置时录单单位按库存单位处理。</small>
               </div>
             </div>
-            <div class="customer-rule-overrides">
-              <button
-                v-for="row in customerProductRuleOverridesForContext"
-                :key="row.id"
-                class="template-row-main"
-                type="button"
-                @click="startCustomerProductRuleOverrideEdit(row)">
-                <strong>{{ productSubtypeName(row.product_subtype_category_id) }}</strong>
-                <small>模板 {{ row.gradient_template_id || '继承' }} · 工序 {{ row.operation_template_id || '继承' }}</small>
-              </button>
-              <p v-if="!customerProductRuleOverridesForContext.length" class="muted">暂无客户专属覆盖</p>
-            </div>
             <div class="form-actions">
-              <button class="primary" type="submit" :disabled="customerRuleSaving">保存专属覆盖</button>
+              <button class="primary" type="submit" :disabled="productConfigSaving || !canEditCurrentProductConfigTemplate">保存商品配置</button>
+              <button v-if="productConfigTemplateForm.id" class="secondary" type="button" :disabled="productConfigSaving || !canEditCurrentProductConfigTemplate" @click="deactivateProductConfigTemplate(productConfigTemplateForm.id)">停用配置</button>
             </div>
           </form>
         </div>
@@ -616,17 +493,17 @@
                     <small>{{ secondary.products.length }} 款</small>
                     <select
                       class="template-select"
-                      :value="secondary.gradient_template_id || 0"
+                      :value="secondary.product_config_template_id || 0"
                       :disabled="!canEditCategory(secondary)"
                       @pointerdown.stop
-                      @change.stop="bindCategoryGradientTemplate(secondary, $event.target.value)">
-                      <option value="0">未绑定模板</option>
-                      <option v-for="template in activeGradientTemplates" :key="template.id" :value="template.id">
-                        {{ template.name }} · {{ gradientDisplayUnitLabel(template.display_unit) }}
+                      @change.stop="bindProductConfigTemplateToSubtype(secondary, $event.target.value)">
+                      <option value="0">未绑定商品配置</option>
+                      <option v-for="config in activeProductConfigTemplates" :key="config.id" :value="config.id">
+                        {{ config.name }} · {{ config.quote_unit || 'kg' }}/{{ config.order_unit || config.quote_unit || 'kg' }}
                       </option>
                     </select>
                     <button v-if="canEditCategory(secondary)" class="text-button" type="button" @click="startCategoryEdit(secondary)">改名</button>
-                    <button v-if="canEditCategory(secondary)" class="text-button" type="button" @click="startProductSubtypeConfigEdit(secondary)">配置</button>
+                    <button v-if="canEditCategory(secondary)" class="text-button" type="button" @click="startProductSubtypeConfigEdit(secondary)">更换商品配置</button>
                     <button v-if="canEditCategory(secondary)" class="text-button danger-text" type="button" @click="deleteCategory(secondary)">删除</button>
                     <button v-if="!canEditCategory(secondary) && skuContextCustomerID" class="text-button" type="button" @click="deriveCategoryTemplate(secondary)">复制为客户分类</button>
                   </div>
@@ -636,90 +513,20 @@
                     @submit.prevent="saveProductSubtypeConfig"
                     @pointerdown.stop
                     @dragstart.stop>
-                    <div class="subtype-config-title">产品子类型配置</div>
+                    <div class="subtype-config-title">产品子类型商品配置</div>
                     <p class="subtype-config-help">
-                      这里配置子类型默认规则：报价单位影响产品价格表阶梯和展示单位，录单单位影响订单默认数量单位，库存单位用于库存和生产折算；具体 SKU 包装差异后续在 SKU 规格/换算覆盖。已发布价格表和历史订单不会被回改。
+                      这里给子类型选择商品配置模板：报价单位影响产品价格表阶梯和展示单位，录单单位影响订单默认数量单位，库存单位用于库存和生产折算；已发布价格表和历史订单不会被回改。
                     </p>
                     <label>
-                      <span>阶梯价模板</span>
-                      <select v-model.number="subtypeConfigForm.gradient_template_id">
-                        <option value="0">未绑定模板</option>
-                        <option v-for="template in activeGradientTemplates" :key="template.id" :value="template.id">
-                          {{ template.name }} · {{ gradientDisplayUnitLabel(template.display_unit) }}
+                      <span>商品配置</span>
+                      <select v-model.number="subtypeConfigForm.product_config_template_id">
+                        <option value="0">未绑定商品配置</option>
+                        <option v-for="config in activeProductConfigTemplates" :key="config.id" :value="config.id">
+                          {{ config.name }} · {{ config.quote_unit || 'kg' }}/{{ config.order_unit || config.quote_unit || 'kg' }}
                         </option>
                       </select>
                     </label>
-                    <label>
-                      <span>工序模板ID</span>
-                      <input v-model.number="subtypeConfigForm.operation_template_id" type="number" min="0" step="1" placeholder="0 表示未绑定" />
-                      <small>影响无 BOM 生产计划的默认工序。</small>
-                    </label>
-                    <div class="rule-config-block wide-subtype-field">
-                      <div class="field-group-title">价格表生成规则</div>
-                      <label class="checkline">
-                        <input v-model="subtypeConfigForm.price_rule_enabled" type="checkbox" />
-                        <span>纳入产品价格表</span>
-                      </label>
-                      <label>
-                        <span>计价方式</span>
-                        <select v-model="subtypeConfigForm.price_rule_pricing_mode">
-                          <option v-for="option in priceListRulePricingModeOptions" :key="option.value" :value="option.value">{{ option.label }}</option>
-                        </select>
-                      </label>
-                      <label>
-                        <span>展示方式</span>
-                        <select v-model="subtypeConfigForm.price_rule_display_mode">
-                          <option v-for="option in priceListRuleDisplayModeOptions" :key="option.value" :value="option.value">{{ option.label }}</option>
-                        </select>
-                      </label>
-                      <label>
-                        <span>取整规则</span>
-                        <select v-model="subtypeConfigForm.price_rule_rounding">
-                          <option v-for="option in priceListRuleRoundingOptions" :key="option.value" :value="option.value">{{ option.label }}</option>
-                        </select>
-                      </label>
-                      <label class="checkline">
-                        <input v-model="subtypeConfigForm.price_rule_tax_included" type="checkbox" />
-                        <span>含税价格</span>
-                      </label>
-                    </div>
-                    <label>
-                      <span>库存单位</span>
-                      <input v-model.trim="subtypeConfigForm.inventory_unit" placeholder="kg" />
-                      <small>用于库存和生产数量。</small>
-                    </label>
-                    <label>
-                      <span>报价单位</span>
-                      <input v-model.trim="subtypeConfigForm.quote_unit" placeholder="盒" />
-                      <small>用于产品价格表和阶梯价单位。</small>
-                    </label>
-                    <label>
-                      <span>录单单位</span>
-                      <input v-model.trim="subtypeConfigForm.order_unit" placeholder="盒" />
-                      <small>用于录单默认规格单位。</small>
-                    </label>
-                    <div class="unit-conversion-editor wide-subtype-field">
-                      <div class="field-group-head">
-                        <span>单位换算</span>
-                        <button class="secondary compact-action" type="button" @click="addUnitConversionRow(subtypeConfigForm)">新增换算</button>
-                      </div>
-                      <div v-for="(row, rowIndex) in subtypeConfigForm.unit_conversion_rows" :key="`subtype-unit-${rowIndex}`" class="unit-conversion-row">
-                        <input v-model.number="row.from_qty" type="number" min="0.0001" step="0.0001" />
-                        <input v-model.trim="row.from_unit" placeholder="盒" />
-                        <span>=</span>
-                        <input v-model.number="row.to_qty" type="number" min="0.0001" step="0.0001" />
-                        <input v-model.trim="row.to_unit" placeholder="kg" />
-                        <button class="text-button danger-text" type="button" @click="removeUnitConversionRow(subtypeConfigForm, rowIndex)">删除</button>
-                      </div>
-                      <small v-if="!subtypeConfigForm.unit_conversion_rows.length">例如新增一行：1 盒 = 0.2 kg；不配置时录单单位按库存单位处理。</small>
-                    </div>
-                    <label class="subtype-integer-field">
-                      <span class="subtype-checkbox-row">
-                        <input v-model="subtypeConfigForm.integer_unit" type="checkbox" />
-                        <span>整数单位</span>
-                      </span>
-                      <small>开启后录单数量应按整数填写，例如盒、袋。</small>
-                    </label>
+                    <div class="subtype-config-summary wide-subtype-field">{{ productConfigSummary(subtypeConfigForm.product_config_template_id) }}</div>
                     <div class="form-actions subtype-config-actions">
                       <button class="secondary" type="button" @click="cancelProductSubtypeConfigEdit">取消</button>
                       <button class="primary" type="submit" :disabled="loading">保存子类型配置</button>
@@ -999,6 +806,7 @@ import {
   buildCustomerProductRuleTemplatePayload,
   buildCustomProductCreatePayload,
   buildProductCategoryConfigPayload,
+  buildProductConfigTemplatePayload,
   buildProductBasicsPayload,
   buildProductBomURL,
   buildProductCreatePayload,
@@ -1021,6 +829,7 @@ import {
   priceListRulePricingModeOptions,
   priceListRuleRoundingOptions,
   productBelongsToSkuContext as productBelongsToContext,
+  productConfigTemplateBelongsToSkuContext,
   productDisplayState,
   productKindRequiresRoast,
   productSubtypeCategoryOptionsForType,
@@ -1047,6 +856,7 @@ let restoringProductSettingsDraft = false
 const categories = ref([])
 const products = ref([])
 const gradientTemplates = ref([])
+const productConfigTemplates = ref([])
 const customerPublicUsages = ref([])
 const customerProductRuleTemplates = ref([])
 const customerProductRuleOverrides = ref([])
@@ -1056,6 +866,7 @@ const loading = ref(false)
 const productSaving = ref(false)
 const customSaving = ref(false)
 const templateSaving = ref(false)
+const productConfigSaving = ref(false)
 const customerRuleSaving = ref(false)
 const error = ref('')
 const ok = ref('')
@@ -1081,6 +892,7 @@ const roastLevels = ['浅烘', '中烘', '中深烘', '深烘']
 const productForm = ref(defaultProductForm())
 const customForm = ref(defaultCustomForm())
 const templateForm = ref(defaultGradientTemplateForm())
+const productConfigTemplateForm = ref(defaultProductConfigTemplateForm())
 const customerRuleTemplateForm = ref(defaultCustomerProductRuleTemplateForm())
 const customerRuleOverrideForm = ref(defaultCustomerProductRuleOverrideForm())
 
@@ -1096,6 +908,7 @@ const flatCustomerCategories = computed(() => flattenCategoryNodes(categories.va
 const publicProducts = computed(() => products.value.filter((product) => Number(product.customer_id || 0) === 0))
 const customerProductsForContext = computed(() => products.value.filter((product) => Number(product.customer_id || 0) === skuContextCustomerID.value))
 const customerGradientTemplatesForContext = computed(() => gradientTemplates.value.filter((template) => Number(template.customer_id || 0) === skuContextCustomerID.value))
+const customerProductConfigTemplatesForContext = computed(() => productConfigTemplates.value.filter((template) => Number(template.customer_id || 0) === skuContextCustomerID.value))
 const selectedCustomerPublicUsage = computed(() => {
   const customerID = skuContextCustomerID.value
   return customerPublicUsages.value.find((row) => Number(row.customer_id || 0) === customerID) || {
@@ -1118,7 +931,7 @@ const categoryTreeForSkuContext = computed(() => buildSkuContextCategoryTree(cat
   customerID: skuContextCustomerID.value,
   usePublicCategories: customerUsesPublicCategories.value,
   usePublicSku: customerUsesPublicSku.value,
-  usePublicSkuInCategoryTree: customerUsesPublicCategories.value,
+  usePublicSkuInCategoryTree: customerUsesPublicSku.value,
   publicCategories: flatPublicCategories.value,
   customerCategories: flatCustomerCategories.value,
   publicProducts: publicProducts.value,
@@ -1193,6 +1006,13 @@ const activeGradientTemplates = computed(() => gradientTemplates.value
     usePublicGradientTemplates: customerUsesPublicGradientTemplates.value,
     customerTemplates: customerGradientTemplatesForContext.value,
   })))
+const productConfigTemplatesForContext = computed(() => productConfigTemplates.value
+  .filter((template) => template.active !== false)
+  .filter((template) => productConfigTemplateBelongsToSkuContext(template, {
+    customerID: skuContextCustomerID.value,
+    customerTemplates: customerProductConfigTemplatesForContext.value,
+  })))
+const activeProductConfigTemplates = computed(() => productConfigTemplatesForContext.value.filter((template) => template.active !== false))
 const customerProductRuleTemplatesForContext = computed(() => customerProductRuleTemplates.value
   .filter((template) => Number(template.customer_id || 0) === 0 || Number(template.customer_id || 0) === skuContextCustomerID.value)
   .filter((template) => template.active !== false))
@@ -1208,6 +1028,12 @@ const canEditCurrentTemplate = computed(() => {
   if (!skuContextCustomerID.value) return true
   if (!templateForm.value.id) return true
   return Number(selectedTemplateRow.value?.customer_id || 0) === skuContextCustomerID.value
+})
+const selectedProductConfigTemplateRow = computed(() => productConfigTemplates.value.find((template) => Number(template.id || 0) === Number(productConfigTemplateForm.value.id || 0)) || null)
+const canEditCurrentProductConfigTemplate = computed(() => {
+  if (!skuContextCustomerID.value) return true
+  if (!productConfigTemplateForm.value.id) return true
+  return Number(selectedProductConfigTemplateRow.value?.customer_id || 0) === skuContextCustomerID.value
 })
 const skuPrimaryCategoryOptions = computed(() => primaryCategoryOptions(unfilteredDisplaySkuRows.value))
 const skuSecondaryCategoryOptions = computed(() => secondaryCategoryOptions(unfilteredDisplaySkuRows.value, skuFilters.value.primaryCategory))
@@ -1292,6 +1118,29 @@ function defaultGradientTemplateForm() {
   })
 }
 
+function defaultProductConfigTemplateForm(template = {}) {
+  const inventoryUnit = template.inventory_unit || 'kg'
+  const quoteUnit = template.quote_unit || inventoryUnit
+  return {
+    id: Number(template.id || 0),
+    customer_id: Number(template.customer_id || skuContextCustomerID.value || 0),
+    source_template_id: Number(template.source_template_id || 0),
+    template_state: template.template_state || '',
+    name: template.name || '',
+    gradient_template_id: Number(template.gradient_template_id || 0),
+    operation_template_id: Number(template.operation_template_id || 0),
+    price_list_rule_json: template.price_list_rule_json || '{}',
+    ...priceListRuleFormFromJSON(template.price_list_rule_json || '{}'),
+    inventory_unit: inventoryUnit,
+    quote_unit: quoteUnit,
+    order_unit: template.order_unit || quoteUnit,
+    unit_conversion_json: template.unit_conversion_json || '{}',
+    unit_conversion_rows: unitConversionRowsFromJSON(template.unit_conversion_json || '{}'),
+    integer_unit: Boolean(template.integer_unit),
+    active: template.active !== false,
+  }
+}
+
 function defaultCustomerProductRuleTemplateForm() {
   return {
     id: 0,
@@ -1342,6 +1191,7 @@ function saveProductSettingsDraft() {
     productForm: productForm.value,
     customForm: customForm.value,
     templateForm: templateForm.value,
+    productConfigTemplateForm: productConfigTemplateForm.value,
     newPrimaryName: newPrimaryName.value,
     newSecondaryName: newSecondaryName.value,
     addingSecondaryFor: addingSecondaryFor.value,
@@ -1367,6 +1217,7 @@ async function restoreProductSettingsDraft() {
   productForm.value = { ...defaultProductForm(), ...(draft.productForm || {}) }
   customForm.value = { ...defaultCustomForm(), ...(draft.customForm || {}) }
   templateForm.value = normalizeGradientTemplate(draft.templateForm || defaultGradientTemplateForm())
+  productConfigTemplateForm.value = defaultProductConfigTemplateForm(draft.productConfigTemplateForm || {})
   newPrimaryName.value = draft.newPrimaryName || ''
   newSecondaryName.value = draft.newSecondaryName || ''
   addingSecondaryFor.value = Number(draft.addingSecondaryFor || 0)
@@ -1426,6 +1277,7 @@ function decorateCategory(category) {
     customer_id: Number(category.customer_id || 0),
     source_category_id: Number(category.source_category_id || 0),
     template_state: category.template_state || '',
+    product_config_template_id: Number(category.product_config_template_id || 0),
     gradient_template_id: Number(category.gradient_template_id || 0),
     operation_template_id: Number(category.operation_template_id || 0),
     price_list_rule_json: category.price_list_rule_json || '{}',
@@ -1448,6 +1300,7 @@ function defaultProductSubtypeConfigForm(category = {}) {
     parent_id: Number(category.parent_id || 0),
     customer_id: Number(category.customer_id || 0),
     position: Number(category.position || category.number || 1),
+    product_config_template_id: Number(category.product_config_template_id || 0),
     gradient_template_id: Number(category.gradient_template_id || 0),
     operation_template_id: Number(category.operation_template_id || 0),
     price_list_rule_json: category.price_list_rule_json || '{}',
@@ -1469,6 +1322,10 @@ function decorateCustomerProductRuleTemplate(template) {
     active: template.active !== false,
     items: (template.items || []).map(decorateCustomerProductRuleItem),
   }
+}
+
+function decorateProductConfigTemplate(template) {
+  return defaultProductConfigTemplateForm(template)
 }
 
 function decorateCustomerProductRuleItem(item = {}) {
@@ -1514,6 +1371,7 @@ async function loadAll() {
     categories.value = (data.categories || []).map(decorateCategory)
     products.value = (data.products || []).map(decorateProduct)
     gradientTemplates.value = (data.gradient_templates || []).map(normalizeGradientTemplate)
+    productConfigTemplates.value = (data.product_config_templates || []).map(decorateProductConfigTemplate)
     customerProductRuleTemplates.value = (data.customer_product_rule_templates || []).map(decorateCustomerProductRuleTemplate)
     customerProductRuleOverrides.value = (data.customer_product_rule_overrides || []).map(decorateCustomerProductRuleOverride)
     customerProductRuleBindings.value = (data.customer_product_rule_bindings || []).map((row) => ({
@@ -1632,6 +1490,29 @@ async function bindCategoryGradientTemplate(category, templateID) {
   }
 }
 
+async function bindProductConfigTemplateToSubtype(category, templateID) {
+  if (!canEditCategory(category)) return
+  const payload = buildProductCategoryConfigPayload({
+    ...category,
+    product_config_template_id: Number(templateID || 0),
+  })
+  loading.value = true
+  error.value = ''
+  ok.value = ''
+  try {
+    await apiSend(`/api/product-settings/categories/${payload.id}`, {
+      method: 'PUT',
+      body: payload,
+    })
+    ok.value = '子类型商品配置已更新'
+    await loadAll()
+  } catch (err) {
+    error.value = err.message || '绑定商品配置失败'
+  } finally {
+    loading.value = false
+  }
+}
+
 async function resolveGradientTemplateForCategory(category, templateID) {
   if (!templateID) return 0
   const template = gradientTemplates.value.find((row) => Number(row.id || 0) === Number(templateID))
@@ -1684,6 +1565,93 @@ async function deriveGradientTemplateForCustomer(template) {
     error.value = err.message || '复制公共梯度模板失败'
   } finally {
     templateSaving.value = false
+  }
+}
+
+function resetProductConfigTemplateForm() {
+  productConfigTemplateForm.value = defaultProductConfigTemplateForm()
+}
+
+function startProductConfigTemplateEdit(template) {
+  productConfigTemplateForm.value = defaultProductConfigTemplateForm(JSON.parse(JSON.stringify(template || {})))
+}
+
+function validateProductConfigTemplatePayload(payload) {
+  if (!String(payload.name || '').trim()) return '请填写商品配置名称'
+  return ''
+}
+
+async function saveProductConfigTemplate() {
+  if (!canEditCurrentProductConfigTemplate.value) {
+    error.value = '公共商品配置需复制到客户后修改'
+    return
+  }
+  const payload = buildProductConfigTemplatePayload(productConfigTemplateForm.value)
+  if (!payload.id && skuContextCustomerID.value) {
+    payload.customer_id = skuContextCustomerID.value
+  }
+  const validation = validateProductConfigTemplatePayload(payload)
+  if (validation) {
+    error.value = validation
+    return
+  }
+  productConfigSaving.value = true
+  error.value = ''
+  ok.value = ''
+  try {
+    const url = payload.id ? `/api/product-settings/product-config-templates/${payload.id}` : '/api/product-settings/product-config-templates'
+    const method = payload.id ? 'PUT' : 'POST'
+    await apiSend(url, { method, body: payload })
+    ok.value = '商品配置已保存，绑定的产品子类型会同步更新'
+    resetProductConfigTemplateForm()
+    await loadAll()
+  } catch (err) {
+    error.value = err.message || '保存商品配置失败'
+  } finally {
+    productConfigSaving.value = false
+  }
+}
+
+async function deactivateProductConfigTemplate(id) {
+  if (!id) return
+  productConfigTemplateForm.value.active = false
+  await saveProductConfigTemplate()
+}
+
+function canDeriveProductConfigTemplate(template) {
+  return skuContextCustomerID.value > 0
+    && Number(template?.customer_id || 0) === 0
+    && template?.active !== false
+}
+
+async function deriveProductConfigTemplateForCustomer(template) {
+  const customerID = skuContextCustomerID.value
+  if (!customerID) {
+    error.value = '请选择履约客户'
+    return
+  }
+  if (!canDeriveProductConfigTemplate(template)) return
+  productConfigSaving.value = true
+  error.value = ''
+  ok.value = ''
+  try {
+    const response = await apiSend('/api/product-settings/product-config-templates/derive', {
+      body: {
+        customer_id: customerID,
+        source_template_id: Number(template.id || 0),
+        name: `${customerName(customerID) || '客户'} - ${template.name}`,
+      },
+    })
+    const derivedID = Number(response?.template?.id || 0)
+    ok.value = '公共商品配置已复制为客户配置，可改名和调整单位/价格规则'
+    await loadAll()
+    const derived = productConfigTemplates.value.find((row) => Number(row.id || 0) === derivedID)
+      || productConfigTemplates.value.find((row) => Number(row.customer_id || 0) === customerID && Number(row.source_template_id || 0) === Number(template.id || 0))
+    if (derived) startProductConfigTemplateEdit(derived)
+  } catch (err) {
+    error.value = err.message || '复制公共商品配置失败'
+  } finally {
+    productConfigSaving.value = false
   }
 }
 
@@ -1767,11 +1735,11 @@ async function saveCustomerProductRuleTemplate() {
     const url = payload.id ? `/api/product-settings/customer-rule-templates/${payload.id}` : '/api/product-settings/customer-rule-templates'
     const method = payload.id ? 'PUT' : 'POST'
     await apiSend(url, { method, body: payload })
-    ok.value = '客户产品规则模板已保存'
+    ok.value = '商品配置兼容模板已保存'
     resetCustomerProductRuleTemplateForm()
     await loadAll()
   } catch (err) {
-    error.value = err.message || '保存客户产品规则模板失败'
+    error.value = err.message || '保存商品配置兼容模板失败'
   } finally {
     customerRuleSaving.value = false
   }
@@ -1795,11 +1763,11 @@ async function saveCustomerProductRuleOverride() {
     const url = payload.id ? `/api/product-settings/customer-rule-overrides/${payload.id}` : '/api/product-settings/customer-rule-overrides'
     const method = payload.id ? 'PUT' : 'POST'
     await apiSend(url, { method, body: payload })
-    ok.value = '客户专属覆盖已保存'
+    ok.value = '商品配置兼容覆盖已保存'
     customerRuleOverrideForm.value = defaultCustomerProductRuleOverrideForm()
     await loadAll()
   } catch (err) {
-    error.value = err.message || '保存客户专属覆盖失败'
+    error.value = err.message || '保存商品配置兼容覆盖失败'
   } finally {
     customerRuleSaving.value = false
   }
@@ -1818,10 +1786,10 @@ async function bindCustomerProductRuleTemplate(templateID) {
     await apiSend(`/api/product-settings/customers/${customerID}/rule-template`, {
       body: buildCustomerProductRuleBindingPayload(customerID, templateID),
     })
-    ok.value = '客户规则模板绑定已保存'
+    ok.value = '商品配置兼容绑定已保存'
     await loadAll()
   } catch (err) {
-    error.value = err.message || '绑定客户规则模板失败'
+    error.value = err.message || '绑定商品配置兼容模板失败'
   } finally {
     customerRuleSaving.value = false
   }
@@ -1962,6 +1930,18 @@ function gradientTemplateLabel(template) {
   if (Number(template.customer_id || 0) <= 0) return '公共模板'
   if (Number(template.source_template_id || 0) > 0 || template.template_state === 'derived_from_public') return '来自公共模板'
   return ownerLabel(template)
+}
+
+function productConfigTemplateLabel(template) {
+  if (Number(template.customer_id || 0) <= 0) return '公共配置'
+  if (Number(template.source_template_id || 0) > 0 || template.template_state === 'derived_from_public') return '来自公共配置'
+  return ownerLabel(template)
+}
+
+function productConfigSummary(templateID) {
+  const config = productConfigTemplates.value.find((row) => Number(row.id || 0) === Number(templateID || 0))
+  if (!config) return '未绑定商品配置；会继续保留子类型当前默认规则。'
+  return `阶梯价模板 ${config.gradient_template_id || '未绑定'} · 工序 ${config.operation_template_id || '未绑定'} · 库存 ${config.inventory_unit || 'kg'} · 报价 ${config.quote_unit || config.inventory_unit || 'kg'} · 录单 ${config.order_unit || config.quote_unit || 'kg'}${config.integer_unit ? ' · 整数' : ''}`
 }
 
 function bomStatusLabel(value) {

@@ -61,23 +61,24 @@ const (
 )
 
 type ProductCategory struct {
-	ID                  int64  `json:"id"`
-	ParentID            int64  `json:"parent_id"`
-	CustomerID          int64  `json:"customer_id"`
-	SourceCategoryID    int64  `json:"source_category_id"`
-	Name                string `json:"name"`
-	Level               int    `json:"level"`
-	Position            int    `json:"position"`
-	Number              int    `json:"number"`
-	GradientTemplateID  int64  `json:"gradient_template_id"`
-	OperationTemplateID int64  `json:"operation_template_id"`
-	PriceListRuleJSON   string `json:"price_list_rule_json"`
-	InventoryUnit       string `json:"inventory_unit"`
-	QuoteUnit           string `json:"quote_unit"`
-	OrderUnit           string `json:"order_unit"`
-	UnitConversionJSON  string `json:"unit_conversion_json"`
-	IntegerUnit         bool   `json:"integer_unit"`
-	TemplateState       string `json:"template_state"`
+	ID                      int64  `json:"id"`
+	ParentID                int64  `json:"parent_id"`
+	CustomerID              int64  `json:"customer_id"`
+	SourceCategoryID        int64  `json:"source_category_id"`
+	Name                    string `json:"name"`
+	Level                   int    `json:"level"`
+	Position                int    `json:"position"`
+	Number                  int    `json:"number"`
+	ProductConfigTemplateID int64  `json:"product_config_template_id"`
+	GradientTemplateID      int64  `json:"gradient_template_id"`
+	OperationTemplateID     int64  `json:"operation_template_id"`
+	PriceListRuleJSON       string `json:"price_list_rule_json"`
+	InventoryUnit           string `json:"inventory_unit"`
+	QuoteUnit               string `json:"quote_unit"`
+	OrderUnit               string `json:"order_unit"`
+	UnitConversionJSON      string `json:"unit_conversion_json"`
+	IntegerUnit             bool   `json:"integer_unit"`
+	TemplateState           string `json:"template_state"`
 }
 
 type ProductSettingsProduct struct {
@@ -125,10 +126,28 @@ type ProductSettingsData struct {
 	Categories                   []ProductCategoryNode         `json:"categories"`
 	Products                     []ProductSettingsProduct      `json:"products"`
 	GradientTemplates            []GradientTemplate            `json:"gradient_templates"`
+	ProductConfigTemplates       []ProductConfigTemplate       `json:"product_config_templates"`
 	CustomerPublicUsages         []CustomerPublicUsage         `json:"customer_public_usages"`
 	CustomerProductRuleTemplates []CustomerProductRuleTemplate `json:"customer_product_rule_templates"`
 	CustomerProductRuleOverrides []CustomerProductRuleOverride `json:"customer_product_rule_overrides"`
 	CustomerProductRuleBindings  []CustomerProductRuleBinding  `json:"customer_product_rule_bindings"`
+}
+
+type ProductConfigTemplate struct {
+	ID                  int64  `json:"id"`
+	CustomerID          int64  `json:"customer_id"`
+	SourceTemplateID    int64  `json:"source_template_id"`
+	TemplateState       string `json:"template_state"`
+	Name                string `json:"name"`
+	GradientTemplateID  int64  `json:"gradient_template_id"`
+	OperationTemplateID int64  `json:"operation_template_id"`
+	PriceListRuleJSON   string `json:"price_list_rule_json"`
+	InventoryUnit       string `json:"inventory_unit"`
+	QuoteUnit           string `json:"quote_unit"`
+	OrderUnit           string `json:"order_unit"`
+	UnitConversionJSON  string `json:"unit_conversion_json"`
+	IntegerUnit         bool   `json:"integer_unit"`
+	Active              bool   `json:"active"`
 }
 
 type GradientTemplate struct {
@@ -318,12 +337,28 @@ type CustomerProductRuleTemplateBindingCommand struct {
 }
 
 type SaveProductCategoryCommand struct {
+	Actor                   string
+	ID                      int64
+	ParentID                int64
+	CustomerID              int64
+	Name                    string
+	Position                int
+	ProductConfigTemplateID int64
+	GradientTemplateID      int64
+	OperationTemplateID     int64
+	PriceListRuleJSON       string
+	InventoryUnit           string
+	QuoteUnit               string
+	OrderUnit               string
+	UnitConversionJSON      string
+	IntegerUnit             bool
+}
+
+type SaveProductConfigTemplateCommand struct {
 	Actor               string
 	ID                  int64
-	ParentID            int64
 	CustomerID          int64
 	Name                string
-	Position            int
 	GradientTemplateID  int64
 	OperationTemplateID int64
 	PriceListRuleJSON   string
@@ -332,6 +367,14 @@ type SaveProductCategoryCommand struct {
 	OrderUnit           string
 	UnitConversionJSON  string
 	IntegerUnit         bool
+	Active              *bool
+}
+
+type DeriveProductConfigTemplateCommand struct {
+	Actor            string
+	CustomerID       int64
+	SourceTemplateID int64
+	Name             string
 }
 
 type MoveProductCategoryCommand struct {
@@ -418,7 +461,10 @@ type Repository interface {
 	CreateProduct(ctx context.Context, cmd CreateProductCommand) (Product, error)
 	ListProductCategories(ctx context.Context) ([]ProductCategory, error)
 	ListGradientTemplates(ctx context.Context) ([]GradientTemplate, error)
+	ListProductConfigTemplates(ctx context.Context) ([]ProductConfigTemplate, error)
 	SaveGradientTemplate(ctx context.Context, cmd SaveGradientTemplateCommand) (GradientTemplate, error)
+	SaveProductConfigTemplate(ctx context.Context, cmd SaveProductConfigTemplateCommand) (ProductConfigTemplate, error)
+	DeriveProductConfigTemplate(ctx context.Context, cmd DeriveProductConfigTemplateCommand) (ProductConfigTemplate, error)
 	DeactivateGradientTemplate(ctx context.Context, cmd DeactivateGradientTemplateCommand) error
 	BindCategoryGradientTemplate(ctx context.Context, cmd BindCategoryGradientTemplateCommand) error
 	SaveProductCategory(ctx context.Context, cmd SaveProductCategoryCommand) (ProductCategory, error)
@@ -637,6 +683,10 @@ func (s *Service) ProductSettings(ctx context.Context) (ProductSettingsData, err
 	if err != nil {
 		return ProductSettingsData{}, err
 	}
+	configTemplates, err := s.repo.ListProductConfigTemplates(ctx)
+	if err != nil {
+		return ProductSettingsData{}, err
+	}
 	usages, err := s.repo.ListCustomerPublicUsages(ctx)
 	if err != nil {
 		return ProductSettingsData{}, err
@@ -655,6 +705,7 @@ func (s *Service) ProductSettings(ctx context.Context) (ProductSettingsData, err
 	}
 	data := BuildProductSettings(categories, products)
 	data.GradientTemplates = templates
+	data.ProductConfigTemplates = configTemplates
 	data.CustomerPublicUsages = usages
 	data.CustomerProductRuleTemplates = ruleTemplates
 	data.CustomerProductRuleOverrides = ruleOverrides
@@ -664,6 +715,30 @@ func (s *Service) ProductSettings(ctx context.Context) (ProductSettingsData, err
 
 func (s *Service) ListGradientTemplates(ctx context.Context) ([]GradientTemplate, error) {
 	return s.repo.ListGradientTemplates(ctx)
+}
+
+func (s *Service) ListProductConfigTemplates(ctx context.Context) ([]ProductConfigTemplate, error) {
+	return s.repo.ListProductConfigTemplates(ctx)
+}
+
+func (s *Service) SaveProductConfigTemplate(ctx context.Context, cmd SaveProductConfigTemplateCommand) (ProductConfigTemplate, error) {
+	normalized, err := normalizeProductConfigTemplateCommand(cmd)
+	if err != nil {
+		return ProductConfigTemplate{}, err
+	}
+	return s.repo.SaveProductConfigTemplate(ctx, normalized)
+}
+
+func (s *Service) DeriveProductConfigTemplate(ctx context.Context, cmd DeriveProductConfigTemplateCommand) (ProductConfigTemplate, error) {
+	cmd.Actor = strings.TrimSpace(cmd.Actor)
+	cmd.Name = strings.TrimSpace(cmd.Name)
+	if cmd.CustomerID <= 0 {
+		return ProductConfigTemplate{}, ValidationError{Message: "customer_id required"}
+	}
+	if cmd.SourceTemplateID <= 0 {
+		return ProductConfigTemplate{}, ValidationError{Message: "source_template_id required"}
+	}
+	return s.repo.DeriveProductConfigTemplate(ctx, cmd)
 }
 
 func (s *Service) SaveGradientTemplate(ctx context.Context, cmd SaveGradientTemplateCommand) (GradientTemplate, error) {
@@ -698,6 +773,9 @@ func (s *Service) SaveProductCategory(ctx context.Context, cmd SaveProductCatego
 	}
 	if cmd.GradientTemplateID < 0 || cmd.OperationTemplateID < 0 {
 		return ProductCategory{}, ValidationError{Message: "invalid template id"}
+	}
+	if cmd.ProductConfigTemplateID < 0 {
+		return ProductCategory{}, ValidationError{Message: "invalid product_config_template_id"}
 	}
 	priceRuleJSON, err := normalizeJSONText(cmd.PriceListRuleJSON)
 	if err != nil {
@@ -1001,6 +1079,45 @@ func normalizeGradientTemplateCommand(cmd SaveGradientTemplateCommand) (SaveGrad
 		return normalized[i].MinWeightG < normalized[j].MinWeightG
 	})
 	cmd.Tiers = normalized
+	return cmd, nil
+}
+
+func normalizeProductConfigTemplateCommand(cmd SaveProductConfigTemplateCommand) (SaveProductConfigTemplateCommand, error) {
+	cmd.Actor = strings.TrimSpace(cmd.Actor)
+	cmd.Name = strings.TrimSpace(cmd.Name)
+	if cmd.ID < 0 {
+		return SaveProductConfigTemplateCommand{}, ValidationError{Message: "invalid id"}
+	}
+	if cmd.CustomerID < 0 {
+		return SaveProductConfigTemplateCommand{}, ValidationError{Message: "invalid customer_id"}
+	}
+	if cmd.Name == "" {
+		return SaveProductConfigTemplateCommand{}, ValidationError{Message: "name required"}
+	}
+	if cmd.GradientTemplateID < 0 || cmd.OperationTemplateID < 0 {
+		return SaveProductConfigTemplateCommand{}, ValidationError{Message: "invalid template id"}
+	}
+	priceRuleJSON, err := normalizeJSONText(cmd.PriceListRuleJSON)
+	if err != nil {
+		return SaveProductConfigTemplateCommand{}, ValidationError{Message: "invalid price_list_rule_json"}
+	}
+	unitRule := catalogdomain.NormalizeProductUnitRule(catalogdomain.ProductUnitRule{
+		InventoryUnit:  cmd.InventoryUnit,
+		QuoteUnit:      cmd.QuoteUnit,
+		OrderUnit:      cmd.OrderUnit,
+		ConversionJSON: cmd.UnitConversionJSON,
+		IntegerUnit:    cmd.IntegerUnit,
+	})
+	unitConversionJSON, err := normalizeJSONText(unitRule.ConversionJSON)
+	if err != nil {
+		return SaveProductConfigTemplateCommand{}, ValidationError{Message: "invalid unit_conversion_json"}
+	}
+	cmd.PriceListRuleJSON = priceRuleJSON
+	cmd.InventoryUnit = unitRule.InventoryUnit
+	cmd.QuoteUnit = unitRule.QuoteUnit
+	cmd.OrderUnit = unitRule.OrderUnit
+	cmd.UnitConversionJSON = unitConversionJSON
+	cmd.IntegerUnit = unitRule.IntegerUnit
 	return cmd, nil
 }
 

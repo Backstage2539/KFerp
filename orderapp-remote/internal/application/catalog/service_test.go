@@ -13,12 +13,14 @@ type fakeRepo struct {
 	derivedProduct  DeriveCustomerProductCommand
 	derivedCategory DeriveProductCategoryCommand
 	derivedTemplate DeriveGradientTemplateCommand
+	derivedConfig   DeriveProductConfigTemplateCommand
 	assigned        AssignProductCategoryCommand
 	assignResult    AssignProductCategoryResult
 	publicUsage     CustomerPublicUsageCommand
 	ruleTemplate    SaveCustomerProductRuleTemplateCommand
 	ruleOverride    SaveCustomerProductRuleOverrideCommand
 	ruleBinding     CustomerProductRuleTemplateBindingCommand
+	configTemplate  SaveProductConfigTemplateCommand
 	deactivate      DeactivateProductsCommand
 	products        map[int64]Product
 	deactivated     bool
@@ -68,6 +70,46 @@ func (r *fakeRepo) ListGradientTemplates(ctx context.Context) ([]GradientTemplat
 	return nil, nil
 }
 
+func (r *fakeRepo) ListProductConfigTemplates(ctx context.Context) ([]ProductConfigTemplate, error) {
+	return []ProductConfigTemplate{{
+		ID:                  301,
+		CustomerID:          0,
+		Name:                "公共盒装配置",
+		GradientTemplateID:  8,
+		OperationTemplateID: 9,
+		PriceListRuleJSON:   `{"pricing_mode":"inherit_gradient_template"}`,
+		InventoryUnit:       "kg",
+		QuoteUnit:           "盒",
+		OrderUnit:           "盒",
+		UnitConversionJSON:  `{"盒":{"kg":0.2}}`,
+		IntegerUnit:         true,
+		Active:              true,
+	}}, nil
+}
+
+func (r *fakeRepo) SaveProductConfigTemplate(ctx context.Context, cmd SaveProductConfigTemplateCommand) (ProductConfigTemplate, error) {
+	r.configTemplate = cmd
+	return ProductConfigTemplate{
+		ID:                  701,
+		CustomerID:          cmd.CustomerID,
+		Name:                cmd.Name,
+		GradientTemplateID:  cmd.GradientTemplateID,
+		OperationTemplateID: cmd.OperationTemplateID,
+		PriceListRuleJSON:   cmd.PriceListRuleJSON,
+		InventoryUnit:       cmd.InventoryUnit,
+		QuoteUnit:           cmd.QuoteUnit,
+		OrderUnit:           cmd.OrderUnit,
+		UnitConversionJSON:  cmd.UnitConversionJSON,
+		IntegerUnit:         cmd.IntegerUnit,
+		Active:              true,
+	}, nil
+}
+
+func (r *fakeRepo) DeriveProductConfigTemplate(ctx context.Context, cmd DeriveProductConfigTemplateCommand) (ProductConfigTemplate, error) {
+	r.derivedConfig = cmd
+	return ProductConfigTemplate{ID: 702, CustomerID: cmd.CustomerID, SourceTemplateID: cmd.SourceTemplateID, TemplateState: TemplateStateDerived, Name: cmd.Name, Active: true}, nil
+}
+
 func (r *fakeRepo) SaveGradientTemplate(ctx context.Context, cmd SaveGradientTemplateCommand) (GradientTemplate, error) {
 	return GradientTemplate{ID: 1, Name: cmd.Name, DisplayUnit: cmd.DisplayUnit, Active: true, Tiers: cmd.Tiers}, nil
 }
@@ -81,7 +123,7 @@ func (r *fakeRepo) BindCategoryGradientTemplate(ctx context.Context, cmd BindCat
 }
 
 func (r *fakeRepo) SaveProductCategory(ctx context.Context, cmd SaveProductCategoryCommand) (ProductCategory, error) {
-	return ProductCategory{ID: 2, Name: cmd.Name, ParentID: cmd.ParentID, CustomerID: cmd.CustomerID, Position: cmd.Position}, nil
+	return ProductCategory{ID: 2, Name: cmd.Name, ParentID: cmd.ParentID, CustomerID: cmd.CustomerID, Position: cmd.Position, ProductConfigTemplateID: cmd.ProductConfigTemplateID}, nil
 }
 
 func (r *fakeRepo) MoveProductCategory(ctx context.Context, cmd MoveProductCategoryCommand) error {
@@ -325,6 +367,44 @@ func TestServiceDelegatesCustomerProductRuleConfiguration(t *testing.T) {
 	}
 	if binding.CustomerID != 42 || binding.TemplateID != 501 || repo.ruleBinding.CustomerID != 42 || repo.ruleBinding.TemplateID != 501 {
 		t.Fatalf("rule binding result=%+v command=%+v", binding, repo.ruleBinding)
+	}
+}
+
+func TestServiceDelegatesProductConfigTemplates(t *testing.T) {
+	repo := &fakeRepo{}
+	svc := NewService(repo)
+
+	template, err := svc.SaveProductConfigTemplate(context.Background(), SaveProductConfigTemplateCommand{
+		Actor:               "tester",
+		CustomerID:          42,
+		Name:                "客户盒装商品配置",
+		GradientTemplateID:  8,
+		OperationTemplateID: 9,
+		PriceListRuleJSON:   `{"pricing_mode":"fixed_unit_price"}`,
+		InventoryUnit:       "kg",
+		QuoteUnit:           "盒",
+		OrderUnit:           "盒",
+		UnitConversionJSON:  `{"盒":{"kg":0.2}}`,
+		IntegerUnit:         true,
+	})
+	if err != nil {
+		t.Fatalf("SaveProductConfigTemplate() err=%v", err)
+	}
+	if template.ID != 701 || repo.configTemplate.CustomerID != 42 || repo.configTemplate.Name != "客户盒装商品配置" || repo.configTemplate.QuoteUnit != "盒" || !repo.configTemplate.IntegerUnit {
+		t.Fatalf("product config template result=%+v command=%+v", template, repo.configTemplate)
+	}
+
+	derived, err := svc.DeriveProductConfigTemplate(context.Background(), DeriveProductConfigTemplateCommand{
+		Actor:            "tester",
+		CustomerID:       42,
+		SourceTemplateID: 301,
+		Name:             "客户复制盒装配置",
+	})
+	if err != nil {
+		t.Fatalf("DeriveProductConfigTemplate() err=%v", err)
+	}
+	if derived.ID != 702 || repo.derivedConfig.CustomerID != 42 || repo.derivedConfig.SourceTemplateID != 301 || repo.derivedConfig.Name != "客户复制盒装配置" {
+		t.Fatalf("derived product config template=%+v command=%+v", derived, repo.derivedConfig)
 	}
 }
 

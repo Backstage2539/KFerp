@@ -10,6 +10,7 @@ import {
   buildCustomerPublicUsagePayload,
   buildCustomProductCreatePayload,
   buildProductCategoryConfigPayload,
+  buildProductConfigTemplatePayload,
   buildProductBasicsPayload,
   buildProductBomURL,
   buildProductCreatePayload,
@@ -28,6 +29,7 @@ import {
   priceListRuleJSONFromForm,
   greenBeanTypeLabel,
   productBelongsToSkuContext,
+  productConfigTemplateBelongsToSkuContext,
   productDisplayState,
   productSubtypeCategoryOptionsForType,
   primaryCategoryOptions,
@@ -146,6 +148,7 @@ test('product subtype config payload carries templates and lightweight unit rule
     name: '冻干速溶',
     parent_id: 1,
     position: 3,
+    product_config_template_id: 301,
     gradient_template_id: 9,
     operation_template_id: 19,
     price_list_rule_json: '{"generator":"instant"}',
@@ -160,6 +163,7 @@ test('product subtype config payload carries templates and lightweight unit rule
     name: '冻干速溶',
     parent_id: 1,
     position: 3,
+    product_config_template_id: 301,
     gradient_template_id: 9,
     operation_template_id: 19,
     price_list_rule_json: '{"generator":"instant"}',
@@ -171,17 +175,48 @@ test('product subtype config payload carries templates and lightweight unit rule
   })
 })
 
-test('structured price list rule form stores compatible JSON without asking users to write JSON', () => {
+test('structured price list rule form stores generation rules without price table inclusion flags', () => {
   const form = priceListRuleFormFromJSON('{"generator":"instant","include_in_price_list":false,"pricing_mode":"fixed_unit_price","display_mode":"boxed","rounding":"yuan","tax_included":true}')
 
-  assert.equal(form.price_rule_enabled, false)
   assert.equal(form.price_rule_pricing_mode, 'fixed_unit_price')
   assert.equal(form.price_rule_display_mode, 'boxed')
   assert.equal(form.price_rule_rounding, 'yuan')
   assert.equal(form.price_rule_tax_included, true)
   assert.deepEqual(form.price_rule_extra, { generator: 'instant' })
-  assert.equal(priceListRuleJSONFromForm(form), '{"generator":"instant","include_in_price_list":false,"pricing_mode":"fixed_unit_price","display_mode":"boxed","rounding":"yuan","tax_included":true}')
-  assert.equal(priceListRuleJSONFromForm({}), '{"include_in_price_list":true,"pricing_mode":"inherit_gradient_template","display_mode":"by_quote_unit","rounding":"none","tax_included":false}')
+  assert.equal(priceListRuleJSONFromForm(form), '{"generator":"instant","pricing_mode":"fixed_unit_price","display_mode":"boxed","rounding":"yuan","tax_included":true}')
+  assert.equal(priceListRuleJSONFromForm({}), '{"pricing_mode":"inherit_gradient_template","display_mode":"by_quote_unit","rounding":"none","tax_included":false}')
+})
+
+test('product config template payload carries template rules and unit settings as one reusable object', () => {
+  assert.deepEqual(buildProductConfigTemplatePayload({
+    id: 301,
+    customer_id: 42,
+    name: '客户盒装商品配置',
+    gradient_template_id: 8,
+    operation_template_id: 9,
+    price_rule_pricing_mode: 'fixed_unit_price',
+    price_rule_display_mode: 'boxed',
+    price_rule_rounding: 'yuan',
+    price_rule_tax_included: true,
+    inventory_unit: ' kg ',
+    quote_unit: '盒',
+    order_unit: '盒',
+    unit_conversion_rows: [{ from_qty: 1, from_unit: '盒', to_qty: 0.2, to_unit: 'kg' }],
+    integer_unit: true,
+  }), {
+    id: 301,
+    customer_id: 42,
+    name: '客户盒装商品配置',
+    gradient_template_id: 8,
+    operation_template_id: 9,
+    price_list_rule_json: '{"pricing_mode":"fixed_unit_price","display_mode":"boxed","rounding":"yuan","tax_included":true}',
+    inventory_unit: 'kg',
+    quote_unit: '盒',
+    order_unit: '盒',
+    unit_conversion_json: '{"盒":{"kg":0.2}}',
+    integer_unit: true,
+    active: true,
+  })
 })
 
 test('structured unit conversion rows round-trip to the existing unit conversion JSON contract', () => {
@@ -636,7 +671,7 @@ test('customer category tree keeps public sibling categories after deriving one 
   })
 })
 
-test('customer category tree shows public SKU references when public categories are enabled', () => {
+test('customer category tree does not show public SKUs when only public categories are enabled', () => {
   const publicPrimary = {
     id: 1,
     name: '咖啡豆',
@@ -657,13 +692,13 @@ test('customer category tree shows public SKU references when public categories 
   const tree = buildSkuContextCategoryTree([publicPrimary], {
     customerID: 42,
     usePublicCategories: true,
-    usePublicSkuInCategoryTree: true,
+    usePublicSkuInCategoryTree: false,
     usePublicSku: false,
     customerProducts: [],
   })
 
   assert.deepEqual(tree.map((row) => row.name), ['咖啡豆'])
-  assert.deepEqual(tree[0].children[0].products.map((row) => row.name), ['花魁'])
+  assert.deepEqual(tree[0].children[0].products.map((row) => row.name), [])
 })
 
 test('customer category tree keeps empty owned categories that share a public category name', () => {
@@ -785,6 +820,15 @@ test('customer context filters gradient templates by ownership and public templa
   assert.equal(gradientTemplateBelongsToSkuContext(customerTemplate, { customerID: 42, usePublicGradientTemplates: false }), true)
 })
 
+test('customer context filters product config templates while allowing public templates to be copied', () => {
+  const publicTemplate = { id: 301, name: '盒装商品配置', customer_id: 0, template_state: 'public_template' }
+  const customerTemplate = { id: 401, name: '岩师傅 - 盒装商品配置', customer_id: 42, source_template_id: 301, template_state: 'derived_from_public' }
+
+  assert.equal(productConfigTemplateBelongsToSkuContext(publicTemplate, { customerID: 42, customerTemplates: [] }), true)
+  assert.equal(productConfigTemplateBelongsToSkuContext(publicTemplate, { customerID: 42, customerTemplates: [customerTemplate] }), false)
+  assert.equal(productConfigTemplateBelongsToSkuContext(customerTemplate, { customerID: 42 }), true)
+})
+
 test('SKU settings exposes an explicit copy action for public gradient templates', () => {
   const source = fs.readFileSync(new URL('../views/ProductSettingsView.vue', import.meta.url), 'utf8')
 
@@ -826,7 +870,13 @@ test('SKU settings exposes product subtype default unit configuration controls',
   const source = fs.readFileSync(new URL('../views/ProductSettingsView.vue', import.meta.url), 'utf8')
 
   for (const expected of [
-    '子类型配置',
+    '商品配置',
+    '复制为客户配置',
+    '更换商品配置',
+    'productConfigTemplates',
+    'saveProductConfigTemplate',
+    'deriveProductConfigTemplateForCustomer',
+    '/api/product-settings/product-config-templates',
     '库存单位',
     '报价单位',
     '录单单位',
@@ -834,20 +884,26 @@ test('SKU settings exposes product subtype default unit configuration controls',
     '整数单位',
     'startProductSubtypeConfigEdit',
     'saveProductSubtypeConfig',
+    'bindProductConfigTemplateToSubtype',
+    'buildProductConfigTemplatePayload',
     'buildProductCategoryConfigPayload',
   ]) {
-    assert.ok(source.includes(expected), `missing subtype default unit config UI marker: ${expected}`)
+    assert.ok(source.includes(expected), `missing product config UI marker: ${expected}`)
   }
   assert.doesNotMatch(source, /价格表规则 JSON/)
   assert.doesNotMatch(source, /单位换算 JSON/)
   assert.doesNotMatch(source, /单位规则 JSON/)
+  assert.doesNotMatch(source, /客户产品规则/)
+  assert.doesNotMatch(source, /客户规则模板/)
+  assert.doesNotMatch(source, /客户专属覆盖/)
+  assert.doesNotMatch(source, /纳入产品价格表/)
 })
 
 test('SKU subtype config explains unit impact and stays inside narrow category panels', () => {
   const source = fs.readFileSync(new URL('../views/ProductSettingsView.vue', import.meta.url), 'utf8')
 
   for (const expected of [
-    '这里配置子类型默认规则',
+    '这里给子类型选择商品配置模板',
     '报价单位影响产品价格表',
     '已发布价格表和历史订单不会被回改',
     'subtype-config-help',
@@ -860,22 +916,11 @@ test('SKU subtype config explains unit impact and stays inside narrow category p
   }
 })
 
-test('SKU settings exposes customer product rule template operations', () => {
+test('SKU settings keeps public SKU visibility controlled by the public SKU switch', () => {
   const source = fs.readFileSync(new URL('../views/ProductSettingsView.vue', import.meta.url), 'utf8')
 
-  for (const expected of [
-    '客户产品规则',
-    'customerProductRuleTemplates',
-    'customerProductRuleOverrides',
-    'saveCustomerProductRuleTemplate',
-    'saveCustomerProductRuleOverride',
-    'bindCustomerProductRuleTemplate',
-    '/api/product-settings/customer-rule-templates',
-    '/api/product-settings/customer-rule-overrides',
-    '/api/product-settings/customers/${customerID}/rule-template',
-  ]) {
-    assert.ok(source.includes(expected), `missing customer product rule UI behavior: ${expected}`)
-  }
+  assert.match(source, /usePublicSkuInCategoryTree:\s*customerUsesPublicSku\.value/)
+  assert.doesNotMatch(source, /usePublicSkuInCategoryTree:\s*customerUsesPublicCategories\.value/)
 })
 
 test('SKU settings renders the customer-only SKU form as a full-width workspace', () => {
