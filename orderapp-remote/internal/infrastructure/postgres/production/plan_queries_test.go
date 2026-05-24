@@ -31,6 +31,20 @@ func TestUnproducedNeedsResolveCustomerProductRuleTemplates(t *testing.T) {
 	}
 }
 
+func TestUnproducedNeedsSelectsEffectiveOperationTemplateAlias(t *testing.T) {
+	b, err := os.ReadFile("unprod_summary.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := string(b)
+	if !strings.Contains(src, "n.effective_operation_template_id") {
+		t.Fatalf("unproduced summary query must select the CTE operation template alias used by need rows")
+	}
+	if strings.Contains(src, "n.operation_template_id") {
+		t.Fatalf("unproduced summary query selects n.operation_template_id, but the need CTE exposes effective_operation_template_id")
+	}
+}
+
 func TestInstantCoffeeNoBomMaterialsUseInstantCoffeeRawMaterial(t *testing.T) {
 	row := productionapp.UnprodNeedRow{
 		ProductID:      88,
