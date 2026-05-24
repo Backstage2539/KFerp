@@ -16,9 +16,14 @@ import (
 func registerCostingAPI(e *echo.Echo, svc Service, authz support.AuthzService) {
 	e.GET("/public/bean-list/:list_type", func(c echo.Context) error {
 		listType := c.Param("list_type")
+		productTypeCategoryID, err := parseOptionalInt64(c.QueryParam("product_type_category_id"))
+		if err != nil {
+			return c.HTML(http.StatusBadRequest, renderNoPublishedBeanListPage(listType))
+		}
 		row, err := svc.PublishedBeanList(c.Request().Context(), appcosting.BeanListPublicationQuery{
-			ListType:  listType,
-			OwnerType: "official",
+			ListType:              listType,
+			ProductTypeCategoryID: productTypeCategoryID,
+			OwnerType:             "official",
 		})
 		if err != nil {
 			return c.HTML(http.StatusBadRequest, renderNoPublishedBeanListPage(listType))

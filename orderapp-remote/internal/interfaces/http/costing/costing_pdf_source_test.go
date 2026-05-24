@@ -190,7 +190,9 @@ func TestCostingViewPDFSupportsDripBeanListPricing(t *testing.T) {
 	for _, want := range []string{
 		"drip_bean_list",
 		"drip_wholesale_tiers",
-		"<option value=\"drip\">挂耳豆单</option>",
+		"productPriceListTypeOptions",
+		"priceListRenderTypeForItem",
+		"if (kind === 'drip_bag') return 'drip'",
 		"挂耳豆单",
 		"sales_unit",
 		"unit_bag_count",

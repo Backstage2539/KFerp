@@ -15,7 +15,9 @@ test('product bean-list view exposes publication versions without pricing trial 
   assert.equal(viewSource.indexOf('pricingCollapsed'), -1, 'pricing trial collapse state should be removed from 产品豆单')
 
   for (const expected of [
-    'v-model="pdfOptions.listType"',
+    'v-model.number="selectedProductTypeCategoryID"',
+    'productPriceListTypeOptions',
+    'selectedProductPriceListType',
     'currentScopePublicationRows',
     'function beanListPublicationStatusLabel',
     'function beanListPublicationStatusClass',
@@ -84,8 +86,8 @@ test('product bean-list generate PDF saves preview snapshot through backend inst
     'beanListPublicationPayload()',
     "apiSend(`/api/costing/bean-list/publications/${row.id}/pdf?${params.toString()}`",
     'await downloadBeanListPublicationPDF(document)',
-    'await loadBeanListPublications(listType, publicationScope.value)',
-    'await loadBeanListPublications(listType, versionListScope.value)',
+    'await loadBeanListPublications(listType, publicationScope.value, productTypeCategoryID)',
+    'await loadBeanListPublications(listType, versionListScope.value, productTypeCategoryID)',
   ]) {
     assert.ok(generateSource.includes(expected), `missing backend preview PDF generation behavior: ${expected}`)
   }
@@ -111,7 +113,10 @@ test('product bean-list version scope selector lists public and each fulfillment
   assert.match(pageScopeSource, /:value="`customer:\$\{customer\.id\}`"/)
   assert.match(pageScopeSource, /customerOptionLabel\(customer\)/)
   assert.doesNotMatch(versionListSource, /v-model="versionListScope"/)
-  assert.match(versionListSource, /<option value="drip">挂耳豆单<\/option>/)
+  assert.match(versionListSource, /v-model\.number="selectedProductTypeCategoryID"/)
+  assert.match(versionListSource, /v-for="type in productPriceListTypeOptions"/)
+  assert.match(versionListSource, /:value="type\.id"/)
+  assert.match(versionListSource, /beanListPublicationTypeLabel\(row\)/)
   assert.doesNotMatch(versionListSource, /fulfillment_customers/)
   assert.doesNotMatch(versionListSource, /所有履约客户豆单/)
   assert.doesNotMatch(versionListSource, /棵凡官方豆单/)
@@ -167,9 +172,12 @@ test('product bean-list view maps every bean-list type to its own metadata and t
   for (const expected of [
     "if (listType === 'green') return 'green_bean_list'",
     "if (listType === 'green') return 'green_bean_sale_tiers'",
-    'official: { commercial: [], drip: [], retail: [], green: [] }',
-    'selectedProductIDsByType.value = { commercial: [], drip: [], retail: [], green: [] }',
-    "if (normalized === 'drip') return '挂耳'",
+    'function priceListRenderTypeForItem',
+    'function beanListPublicationTypeKey',
+    'product_type_category_id',
+    'product_type_name',
+    'selectedProductIDsByType.value = {}',
+    "if (kind === 'drip_bag') return 'drip'",
   ]) {
     assert.ok(viewSource.includes(expected), `missing bean-list type mapping: ${expected}`)
   }
@@ -199,8 +207,8 @@ test('product bean-list view exposes manual green bean tier price editing', () =
 test('product bean-list drawer defaults customer versions from the latest source plus one step', () => {
   for (const expected of [
     'defaultBeanListDraftVersion',
-    'defaultBeanListVersionForScope(listType)',
-    'pdfOptions.value = { ...pdfOptions.value, listType, version: defaultBeanListVersionForScope(listType) }',
+    'defaultBeanListVersionForScope(listType, productTypeCategoryID = activeProductTypeCategoryID.value)',
+    'version: defaultBeanListVersionForScope(resolvedListType, activeProductTypeCategoryID.value)',
   ]) {
     assert.ok(viewSource.includes(expected), `missing customer bean-list version default behavior: ${expected}`)
   }
