@@ -22,14 +22,48 @@ type combinedDocumentRequest struct {
 
 func registerCombinedDocumentRoutes(e *echo.Echo, salesSvc *salesapp.Service) {
 	h := combinedDocumentHandler{sales: salesSvc}
+	e.GET("/api/orders/combined/sales-orders", h.listSalesOrders)
 	e.GET("/api/orders/combined/sales-order-preview", h.salesOrderPreview)
 	e.GET("/api/orders/combined/sales-order-preview.pdf", h.salesOrderPreviewPDF)
 	e.POST("/api/orders/combined/sales-orders", h.generateSalesOrder)
 	e.GET("/orders/combined/sales-orders/:doc_id.pdf", h.downloadSalesOrder)
+	e.GET("/api/orders/combined/delivery-notes", h.listDeliveryNotes)
 	e.GET("/api/orders/combined/delivery-note-preview", h.deliveryNotePreview)
 	e.GET("/api/orders/combined/delivery-note-preview.pdf", h.deliveryNotePreviewPDF)
 	e.POST("/api/orders/combined/delivery-notes", h.generateDeliveryNote)
 	e.GET("/orders/combined/delivery-notes/:doc_id.pdf", h.downloadDeliveryNote)
+}
+
+func (h combinedDocumentHandler) listSalesOrders(c echo.Context) error {
+	ids, err := parseCombinedDocumentOrderIDs(c)
+	if err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]any{"error": err.Error()})
+	}
+	docs, err := h.sales.ListCombinedSalesOrderDocuments(c.Request().Context(), ids)
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]any{"error": err.Error()})
+	}
+	preview, err := h.sales.PreviewCombinedSalesOrderDocument(c.Request().Context(), ids)
+	if err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]any{"error": err.Error()})
+	}
+	snapshot := preview.Snapshot
+	return c.JSON(http.StatusOK, map[string]any{
+		"rows":       docs,
+		"image_rows": []any{},
+		"order": map[string]any{
+			"order_ids": ids,
+			"order_nos": preview.OrderNos,
+			"order_no":  strings.Join(preview.OrderNos, ", "),
+			"customer": map[string]any{
+				"id":              snapshot.CustomerID,
+				"name":            snapshot.CustomerName,
+				"company_name":    snapshot.CustomerCompanyName,
+				"company_address": snapshot.CustomerCompanyAddress,
+				"company_phone":   snapshot.CustomerCompanyPhone,
+			},
+		},
+	})
 }
 
 func (h combinedDocumentHandler) salesOrderPreview(c echo.Context) error {
@@ -67,6 +101,39 @@ func (h combinedDocumentHandler) generateSalesOrder(c echo.Context) error {
 		return c.JSON(http.StatusBadRequest, map[string]any{"error": err.Error()})
 	}
 	return c.JSON(http.StatusOK, res.Document)
+}
+
+func (h combinedDocumentHandler) listDeliveryNotes(c echo.Context) error {
+	ids, err := parseCombinedDocumentOrderIDs(c)
+	if err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]any{"error": err.Error()})
+	}
+	docs, err := h.sales.ListCombinedDeliveryNoteDocuments(c.Request().Context(), ids)
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]any{"error": err.Error()})
+	}
+	preview, err := h.sales.PreviewCombinedDeliveryNoteDocument(c.Request().Context(), ids)
+	if err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]any{"error": err.Error()})
+	}
+	snapshot := preview.Snapshot
+	return c.JSON(http.StatusOK, map[string]any{
+		"rows": docs,
+		"order": map[string]any{
+			"order_ids":   ids,
+			"order_nos":   preview.OrderNos,
+			"order_no":    strings.Join(preview.OrderNos, ", "),
+			"ship_status": "组合出库",
+			"customer": map[string]any{
+				"id":              snapshot.CustomerID,
+				"name":            snapshot.CustomerName,
+				"company_name":    snapshot.CustomerCompanyName,
+				"company_address": snapshot.CustomerCompanyAddress,
+				"company_phone":   snapshot.CustomerCompanyPhone,
+			},
+		},
+		"form": map[string]any{},
+	})
 }
 
 func (h combinedDocumentHandler) downloadSalesOrder(c echo.Context) error {

@@ -25,10 +25,12 @@ func TestCombinedDocumentRoutesRegisterPreviewGenerateAndDownload(t *testing.T) 
 		routes[route.Method+" "+route.Path] = true
 	}
 	for _, want := range []string{
+		"GET /api/orders/combined/sales-orders",
 		"GET /api/orders/combined/sales-order-preview",
 		"GET /api/orders/combined/sales-order-preview.pdf",
 		"POST /api/orders/combined/sales-orders",
 		"GET /orders/combined/sales-orders/:doc_id.pdf",
+		"GET /api/orders/combined/delivery-notes",
 		"GET /api/orders/combined/delivery-note-preview",
 		"GET /api/orders/combined/delivery-note-preview.pdf",
 		"POST /api/orders/combined/delivery-notes",
@@ -98,6 +100,16 @@ func TestCombinedSalesOrderDocumentAPI(t *testing.T) {
 	}
 	if created.VersionNo != 1 || created.DownloadURL == "" || len(created.Snapshot.Groups) != 2 {
 		t.Fatalf("generated sales doc = %+v", created)
+	}
+
+	listReq := httptest.NewRequest(http.MethodGet, "/api/orders/combined/sales-orders?order_ids=1,2", nil)
+	listRec := httptest.NewRecorder()
+	e.ServeHTTP(listRec, listReq)
+	if listRec.Code != http.StatusOK {
+		t.Fatalf("sales list status=%d body=%s", listRec.Code, listRec.Body.String())
+	}
+	if !strings.Contains(listRec.Body.String(), `"rows":[`) || !strings.Contains(listRec.Body.String(), `"image_rows":[`) || !strings.Contains(listRec.Body.String(), created.DownloadURL) {
+		t.Fatalf("sales list body = %s", listRec.Body.String())
 	}
 
 	downloadReq := httptest.NewRequest(http.MethodGet, created.DownloadURL, nil)
@@ -176,6 +188,15 @@ func TestCombinedDeliveryNoteDocumentAPIRequiresShippedOrders(t *testing.T) {
 	}
 	if created.VersionNo != 1 || created.DownloadURL == "" || len(created.Snapshot.Groups) != 2 {
 		t.Fatalf("generated delivery doc = %+v", created)
+	}
+	listReq := httptest.NewRequest(http.MethodGet, "/api/orders/combined/delivery-notes?order_ids=1,2", nil)
+	listRec := httptest.NewRecorder()
+	e.ServeHTTP(listRec, listReq)
+	if listRec.Code != http.StatusOK {
+		t.Fatalf("delivery list status=%d body=%s", listRec.Code, listRec.Body.String())
+	}
+	if !strings.Contains(listRec.Body.String(), `"rows":[`) || !strings.Contains(listRec.Body.String(), created.DownloadURL) {
+		t.Fatalf("delivery list body = %s", listRec.Body.String())
 	}
 	downloadReq := httptest.NewRequest(http.MethodGet, created.DownloadURL, nil)
 	downloadRec := httptest.NewRecorder()
