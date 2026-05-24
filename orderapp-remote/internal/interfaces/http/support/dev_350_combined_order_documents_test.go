@@ -22,12 +22,12 @@ func TestDev350OrdersViewExposesCombinedDocumentSelection(t *testing.T) {
 	src := string(readOrderAppFileForTest(t, filepath.Join("frontend-vue-shell", "src", "views", "OrdersView.vue")))
 	for _, want := range []string{
 		"组合单据",
-		"documentSelectedOrderIDs",
+		"selectedOrderIDs",
+		"selectedOrdersShareSameCustomer(selectedOrderIDs.value",
 		"openCombinedSalesOrderDrawer",
 		"openCombinedDeliveryNoteDrawer",
 		"CombinedSalesOrderView",
 		"CombinedDeliveryNoteView",
-		"selectedOrdersShareSameCustomer",
 	} {
 		if !strings.Contains(src, want) {
 			t.Fatalf("OrdersView.vue missing combined document marker %q", want)

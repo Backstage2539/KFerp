@@ -66,7 +66,7 @@
       <div class="shipping-bar">
         <div>
           <h3>顺丰发货</h3>
-          <p>订单生产完成、标记“无需生产”或进入“库存待发货”后，在这里勾选并生成顺丰发货 Excel；单号在订单抽屉内回填。</p>
+          <p>订单生产完成、标记“无需生产”或进入“库存待发货”后，用订单列表选择框勾选并生成顺丰发货 Excel；单号在订单抽屉内回填。</p>
         </div>
         <div class="shipping-actions">
           <label class="sender-picker">
@@ -80,8 +80,8 @@
           </label>
           <button class="secondary" type="button" @click="applyShipReadyPreset" :disabled="loading">只看可发货</button>
           <button class="secondary" type="button" @click="selectVisibleShipReady" :disabled="!rows.length">勾选本页可发货</button>
-          <button class="primary" type="button" @click="generateShippingExcel" :disabled="shippingLoading || !selectedOrderIDs.length">
-            {{ shippingLoading ? '生成中' : `生成顺丰发货 Excel(${selectedOrderIDs.length})` }}
+          <button class="primary" type="button" @click="generateShippingExcel" :disabled="shippingLoading || !selectedOrderIDs.length || !allSelectedOrdersShipReady">
+            {{ shippingLoading ? '生成中' : `生成顺丰发货 Excel(${selectedShipReadyOrderIDs.length})` }}
           </button>
           <label class="tracking-upload">
             <span>回传 Excel</span>
@@ -98,22 +98,20 @@
       </div>
       <div v-if="shippingError" class="notice error">{{ shippingError }}</div>
       <div class="bulk-order-bar">
-        <span>批量失效已选 {{ bulkSelectedOrderIDs.length }} 个</span>
-        <button class="secondary" type="button" @click="clearBulkSelection" :disabled="!bulkSelectedOrderIDs.length">清空</button>
-        <button class="danger-action" type="button" @click="voidSelectedOrders" :disabled="bulkVoiding || !bulkSelectedOrderIDs.length">
+        <span>批量失效已选 {{ selectedVoidableOrderIDs.length }} 个</span>
+        <button class="danger-action" type="button" @click="voidSelectedOrders" :disabled="bulkVoiding || !selectedVoidableOrderIDs.length">
           {{ bulkVoiding ? '失效中' : '批量失效' }}
         </button>
-        <small>表头复选框用于当前页正常订单全选/取消；失效后不可恢复，需要重建时从“已失效”订单点“复制”。</small>
+        <small>表头复选框点一次全选当前页正常订单，再点一次取消全选；部分选择时显示横杆。失效后不可恢复，需要重建时从“已失效”订单点“复制”。</small>
       </div>
       <div class="combined-document-bar">
         <div class="combined-document-status">
           <strong>组合单据</strong>
-          <span>已选 {{ documentSelectedOrderIDs.length }} 个</span>
+          <span>已选 {{ selectedOrderIDs.length }} 个</span>
           <span v-if="documentSelectionSummary.customer">客户：{{ documentSelectionSummary.customer }}</span>
-          <span v-if="documentSelectedOrderIDs.length && !documentSelectionSummary.valid" class="invalid">请选择同一客户的至少两个订单</span>
+          <span v-if="selectedOrderIDs.length && !documentSelectionSummary.valid" class="invalid">请选择同一客户的至少两个订单</span>
         </div>
         <div class="combined-document-actions">
-          <button class="secondary" type="button" @click="clearDocumentSelection" :disabled="!documentSelectedOrderIDs.length">清空</button>
           <button class="primary" type="button" @click="openCombinedSalesOrderDrawer" :disabled="!canGenerateCombinedDocuments">组合销售单</button>
           <button class="primary" type="button" @click="openCombinedDeliveryNoteDrawer" :disabled="!canGenerateCombinedDocuments || !allSelectedDocumentsShipped">组合出库单</button>
         </div>
@@ -126,16 +124,16 @@
                 <label class="select-all-cell" title="当前页正常订单全选/取消">
                   <input
                     type="checkbox"
-                    :checked="allVisibleVoidableOrdersSelected()"
-                    :disabled="!hasVisibleVoidableOrders()"
+                    :checked="pageSelectionState.checked"
+                    :indeterminate="pageSelectionState.indeterminate"
+                    :aria-checked="pageSelectionState.indeterminate ? 'mixed' : String(pageSelectionState.checked)"
+                    :disabled="!pageSelectionState.selectableCount"
                     aria-label="当前页正常订单全选"
-                    @change="togglePageVoidSelection"
+                    @change="togglePageOrderSelection"
                   />
-                  <span>失效</span>
+                  <span>选择</span>
                 </label>
               </th>
-              <th class="select-col">发货</th>
-              <th class="select-col">单据</th>
               <th>订单号</th>
               <th>日期</th>
               <th>客户</th>
@@ -152,28 +150,10 @@
               <td class="select-col">
                 <input
                   type="checkbox"
-                  :checked="bulkSelectedOrderIDs.includes(Number(row.id))"
-                  :disabled="row.is_void"
-                  :title="row.is_void ? '已失效订单不能再次失效' : '选择后可批量失效'"
-                  @change="toggleBulkOrder(row, $event.target.checked)"
-                />
-              </td>
-              <td class="select-col">
-                <input
-                  type="checkbox"
                   :checked="selectedOrderIDs.includes(Number(row.id))"
-                  :disabled="!isShipReady(row)"
-                  :title="isShipReady(row) ? '选择发货' : (row.is_void ? '已失效订单不能发货' : '生产完成、无需生产或库存待发货后可发货')"
-                  @change="toggleOrder(row, $event.target.checked)"
-                />
-              </td>
-              <td class="select-col">
-                <input
-                  type="checkbox"
-                  :checked="documentSelectedOrderIDs.includes(Number(row.id))"
                   :disabled="row.is_void"
-                  :title="row.is_void ? '已失效订单不能组合单据' : '选择后可组合销售单或出库单'"
-                  @change="toggleDocumentOrder(row, $event.target.checked)"
+                  :title="row.is_void ? '已失效订单不能选择' : '选择后可批量失效、发货或组合单据'"
+                  @change="toggleOrderSelection(row, $event.target.checked)"
                 />
               </td>
               <td><button class="order-link" type="button" @click.prevent="openOrderDetailDrawer(row)">{{ row.order_no }}</button></td>
@@ -398,6 +378,7 @@ import { combinedDocumentSelectionSummary, selectedOrdersShareSameCustomer } fro
 import { customerFulfillmentOrderFees } from '../lib/customer-fulfillment'
 import { invoiceStatusLabel, invoiceStatusTone } from '../lib/order-invoice'
 import { productKindBadgeClass, productKindLabel } from '../lib/order-entry'
+import { orderListSelectionState, selectableOrderIDs, toggleOrderPageSelection } from '../lib/order-list-selection'
 import { formatTrackingSummary, trackingInputSummary } from '../lib/order-shipping'
 import { orderListScopeForRequest } from '../lib/order-scope'
 import { normalizePageSize, paginationFromApi } from '../lib/pagination'
@@ -428,8 +409,6 @@ const page = ref(1)
 const hasPrev = ref(false)
 const hasNext = ref(false)
 const selectedOrderIDs = ref([])
-const bulkSelectedOrderIDs = ref([])
-const documentSelectedOrderIDs = ref([])
 const shippingLoading = ref(false)
 const shippingExcelUrl = ref('')
 const shippingMessage = ref('')
@@ -472,11 +451,22 @@ const filters = reactive({
   limit: 10,
 })
 
-const selectedDocumentRows = computed(() => documentSelectedOrderIDs.value
+const selectedRows = computed(() => selectedOrderIDs.value
   .map((id) => rows.value.find((row) => Number(row.id) === Number(id)))
   .filter(Boolean))
-const documentSelectionSummary = computed(() => combinedDocumentSelectionSummary(documentSelectedOrderIDs.value, rows.value))
-const canGenerateCombinedDocuments = computed(() => selectedOrdersShareSameCustomer(documentSelectedOrderIDs.value, rows.value))
+const pageSelectionState = computed(() => orderListSelectionState(rows.value, selectedOrderIDs.value))
+const selectedVoidableOrderIDs = computed(() => selectedRows.value
+  .filter((row) => !row?.is_void)
+  .map((row) => Number(row.id))
+  .filter(Boolean))
+const selectedShipReadyOrderIDs = computed(() => selectedRows.value
+  .filter(isShipReady)
+  .map((row) => Number(row.id))
+  .filter(Boolean))
+const allSelectedOrdersShipReady = computed(() => selectedRows.value.length > 0 && selectedRows.value.every(isShipReady))
+const selectedDocumentRows = selectedRows
+const documentSelectionSummary = computed(() => combinedDocumentSelectionSummary(selectedOrderIDs.value, rows.value))
+const canGenerateCombinedDocuments = computed(() => selectedOrdersShareSameCustomer(selectedOrderIDs.value, rows.value))
 const allSelectedDocumentsShipped = computed(() => selectedDocumentRows.value.length >= 2 && selectedDocumentRows.value.every(isShipped))
 
 function applyUrlFilters() {
@@ -571,7 +561,7 @@ function openCombinedSalesOrderDrawer() {
     shippingError.value = '请选择同一客户的至少两个订单'
     return
   }
-  activeCombinedSalesOrderIDs.value = [...documentSelectedOrderIDs.value]
+  activeCombinedSalesOrderIDs.value = [...selectedOrderIDs.value]
   combinedSalesOrderDrawerOpen.value = true
   shippingError.value = ''
 }
@@ -590,7 +580,7 @@ function openCombinedDeliveryNoteDrawer() {
     shippingError.value = '组合出库单要求所选订单都已发货'
     return
   }
-  activeCombinedDeliveryNoteIDs.value = [...documentSelectedOrderIDs.value]
+  activeCombinedDeliveryNoteIDs.value = [...selectedOrderIDs.value]
   combinedDeliveryNoteDrawerOpen.value = true
   shippingError.value = ''
 }
@@ -792,17 +782,17 @@ function senderDisplay(row) {
   const id = Number(row?.id || 0)
   const overrideID = Number(orderSenderIDs[id] || 0)
   if (overrideID > 0) return senderProfileLabel(overrideID) || `寄件人${overrideID}`
-  if (selectedOrderIDs.value.includes(id)) return globalSenderLabel()
+  if (selectedOrderIDs.value.includes(id) && isShipReady(row)) return globalSenderLabel()
   if (row?.sender_label || row?.sender_name) return row.sender_label || row.sender_name
   return row?.ship_tracking_no ? '未记录寄件人' : '未生成'
 }
 
-function toggleOrder(row, checked) {
+function toggleOrderSelection(row, checked) {
   const id = Number(row?.id || 0)
-  if (!id || !isShipReady(row)) return
+  if (!id || row?.is_void) return
   if (checked) {
     if (!selectedOrderIDs.value.includes(id)) selectedOrderIDs.value = [...selectedOrderIDs.value, id]
-    if (orderSenderIDs[id] === undefined) orderSenderIDs[id] = 0
+    if (isShipReady(row) && orderSenderIDs[id] === undefined) orderSenderIDs[id] = 0
   } else {
     selectedOrderIDs.value = selectedOrderIDs.value.filter((item) => item !== id)
     delete orderSenderIDs[id]
@@ -810,61 +800,19 @@ function toggleOrder(row, checked) {
   shippingError.value = ''
 }
 
-function toggleBulkOrder(row, checked) {
-  const id = Number(row?.id || 0)
-  if (!id || row?.is_void) return
-  if (checked) {
-    if (!bulkSelectedOrderIDs.value.includes(id)) bulkSelectedOrderIDs.value = [...bulkSelectedOrderIDs.value, id]
-  } else {
-    bulkSelectedOrderIDs.value = bulkSelectedOrderIDs.value.filter((item) => item !== id)
-  }
-  shippingError.value = ''
-}
-
-function toggleDocumentOrder(row, checked) {
-  const id = Number(row?.id || 0)
-  if (!id || row?.is_void) return
-  if (checked) {
-    if (!documentSelectedOrderIDs.value.includes(id)) documentSelectedOrderIDs.value = [...documentSelectedOrderIDs.value, id]
-  } else {
-    documentSelectedOrderIDs.value = documentSelectedOrderIDs.value.filter((item) => item !== id)
-  }
-  shippingError.value = ''
-}
-
-function currentPageVoidableOrderIDs() {
-  return rows.value.filter((row) => !row?.is_void).map((row) => Number(row.id)).filter(Boolean)
-}
-
-function allVisibleVoidableOrdersSelected() {
-  const ids = currentPageVoidableOrderIDs()
-  return ids.length > 0 && ids.every((id) => bulkSelectedOrderIDs.value.includes(id))
-}
-
-function togglePageVoidSelection() {
-  const ids = currentPageVoidableOrderIDs()
+function togglePageOrderSelection() {
+  const ids = selectableOrderIDs(rows.value)
   if (!ids.length) {
     shippingError.value = '本页没有可批量失效的正常订单'
     return
   }
-  if (allVisibleVoidableOrdersSelected()) {
-    bulkSelectedOrderIDs.value = bulkSelectedOrderIDs.value.filter((id) => !ids.includes(id))
-  } else {
-    bulkSelectedOrderIDs.value = Array.from(new Set([...bulkSelectedOrderIDs.value, ...ids]))
+  selectedOrderIDs.value = toggleOrderPageSelection(rows.value, selectedOrderIDs.value)
+  for (const id of ids) {
+    const row = rows.value.find((item) => Number(item.id) === id)
+    if (selectedOrderIDs.value.includes(id) && isShipReady(row) && orderSenderIDs[id] === undefined) orderSenderIDs[id] = 0
+    if (!selectedOrderIDs.value.includes(id)) delete orderSenderIDs[id]
   }
   shippingError.value = ''
-}
-
-function clearBulkSelection() {
-  bulkSelectedOrderIDs.value = []
-}
-
-function clearDocumentSelection() {
-  documentSelectedOrderIDs.value = []
-}
-
-function hasVisibleVoidableOrders() {
-  return rows.value.some((row) => !row?.is_void)
 }
 
 function selectVisibleShipReady() {
@@ -894,8 +842,6 @@ async function voidOrder(row) {
   try {
     await apiSend(`/api/orders/${id}/void`, { body: { reason: 'ERP订单列表失效' } })
     selectedOrderIDs.value = selectedOrderIDs.value.filter((item) => item !== id)
-    bulkSelectedOrderIDs.value = bulkSelectedOrderIDs.value.filter((item) => item !== id)
-    documentSelectedOrderIDs.value = documentSelectedOrderIDs.value.filter((item) => item !== id)
     delete orderSenderIDs[id]
     shippingMessage.value = `订单 ${label} 已失效`
     await load()
@@ -908,7 +854,7 @@ async function voidOrder(row) {
 }
 
 async function voidSelectedOrders() {
-  const ids = bulkSelectedOrderIDs.value.filter((id) => rows.value.some((row) => Number(row.id) === id && !row.is_void))
+  const ids = selectedVoidableOrderIDs.value
   if (!ids.length) return
   if (!window.confirm(`确认批量失效 ${ids.length} 个订单？失效后不可恢复；ERP 默认列表、履约客户订单和小程序订单都不展示。`)) return
   bulkVoiding.value = true
@@ -917,8 +863,6 @@ async function voidSelectedOrders() {
   try {
     const data = await apiSend(`/api/orders/void`, { body: { order_ids: ids, reason: 'ERP订单列表批量失效' } })
     selectedOrderIDs.value = selectedOrderIDs.value.filter((item) => !ids.includes(item))
-    documentSelectedOrderIDs.value = documentSelectedOrderIDs.value.filter((item) => !ids.includes(item))
-    bulkSelectedOrderIDs.value = []
     for (const id of ids) delete orderSenderIDs[id]
     shippingMessage.value = `已批量失效 ${Number(data.voided || ids.length)} 个订单`
     await load()
@@ -940,20 +884,29 @@ function copyOrder(row) {
 }
 
 async function generateShippingExcel() {
+  const ids = selectedShipReadyOrderIDs.value
+  if (!selectedOrderIDs.value.length) {
+    shippingError.value = '请先勾选需要发货的订单'
+    return
+  }
+  if (!allSelectedOrdersShipReady.value) {
+    shippingError.value = '生成发货 Excel 需要只选择可发货订单'
+    return
+  }
   shippingLoading.value = true
   shippingError.value = ''
   shippingMessage.value = ''
   shippingExcelUrl.value = ''
   try {
-    const orderSenders = selectedOrderIDs.value
+    const orderSenders = ids
       .map((id) => ({ order_id: id, sender_id: Number(orderSenderIDs[id] || 0) }))
       .filter((item) => item.sender_id > 0)
     const data = await apiSend('/api/orders/shipping-excel', {
-      body: { order_ids: selectedOrderIDs.value, sender_id: selectedSenderID.value, order_senders: orderSenders },
+      body: { order_ids: ids, sender_id: selectedSenderID.value, order_senders: orderSenders },
     })
     shippingExcelUrl.value = data.shipping_excel_url || ''
     const shipmentNo = data.shipment_no || ''
-    shippingMessage.value = `已生成 ${Number(data.count || selectedOrderIDs.value.length)} 个订单的顺丰发货录单${shipmentNo ? `：${shipmentNo}` : ''}，单号请在订单抽屉回填，或上传回传 Excel`
+    shippingMessage.value = `已生成 ${Number(data.count || ids.length)} 个订单的顺丰发货录单${shipmentNo ? `：${shipmentNo}` : ''}，单号请在订单抽屉回填，或上传回传 Excel`
     await load()
   } catch (err) {
     shippingError.value = err.message || '生成失败'
@@ -1055,12 +1008,11 @@ async function load() {
         if (drawerTrackingNo.value === previousDrawerTrackingNo) drawerTrackingNo.value = refreshed.ship_tracking_no || ''
       }
     }
-    selectedOrderIDs.value = selectedOrderIDs.value.filter((id) => rows.value.some((row) => Number(row.id) === id && isShipReady(row)))
-    bulkSelectedOrderIDs.value = bulkSelectedOrderIDs.value.filter((id) => rows.value.some((row) => Number(row.id) === id && !row.is_void))
-    documentSelectedOrderIDs.value = documentSelectedOrderIDs.value.filter((id) => rows.value.some((row) => Number(row.id) === id && !row.is_void))
+    selectedOrderIDs.value = selectedOrderIDs.value.filter((id) => rows.value.some((row) => Number(row.id) === id && !row.is_void))
     for (const key of Object.keys(orderSenderIDs)) {
       const id = Number(key)
-      if (!rows.value.some((row) => Number(row.id) === id)) delete orderSenderIDs[key]
+      const selectedRow = rows.value.find((row) => Number(row.id) === id && selectedOrderIDs.value.includes(id))
+      if (!selectedRow || !isShipReady(selectedRow)) delete orderSenderIDs[key]
     }
     payStatuses.value = data.pay_statuses || []
     shipStatuses.value = data.ship_statuses || []
