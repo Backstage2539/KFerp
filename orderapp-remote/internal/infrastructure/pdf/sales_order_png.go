@@ -10,7 +10,6 @@ import (
 	"image/png"
 	"math"
 	"os"
-	"strconv"
 	"strings"
 
 	salesdomain "orderapp/internal/domain/sales"
@@ -56,8 +55,10 @@ func (r SalesOrderRenderer) RenderPNG(snapshot salesdomain.SalesOrderSnapshot) (
 		return nil, err
 	}
 
+	measurer := salesOrderPNGCanvas{renderer: r, font: parsedFont, scale: salesOrderPNGScale}
+	designHeight := measurer.salesOrderPNGDocumentHeight(snapshot)
 	canvas := salesOrderPNGCanvas{
-		img:      image.NewRGBA(image.Rect(0, 0, salesOrderPNGWidth, salesOrderPNGHeight)),
+		img:      image.NewRGBA(image.Rect(0, 0, salesOrderPNGWidth, designHeight*salesOrderPNGScale)),
 		renderer: r,
 		font:     parsedFont,
 		scale:    salesOrderPNGScale,
@@ -89,8 +90,10 @@ func (r SalesOrderRenderer) RenderCombinedSalesOrderPNG(snapshot salesdomain.Com
 		return nil, err
 	}
 
+	measurer := salesOrderPNGCanvas{renderer: r, font: parsedFont, scale: salesOrderPNGScale}
+	designHeight := measurer.combinedSalesOrderPNGDocumentHeight(snapshot)
 	canvas := salesOrderPNGCanvas{
-		img:      image.NewRGBA(image.Rect(0, 0, salesOrderPNGWidth, salesOrderPNGHeight)),
+		img:      image.NewRGBA(image.Rect(0, 0, salesOrderPNGWidth, designHeight*salesOrderPNGScale)),
 		renderer: r,
 		font:     parsedFont,
 		scale:    salesOrderPNGScale,
@@ -135,7 +138,7 @@ func (c *salesOrderPNGCanvas) renderCombined(snapshot salesdomain.CombinedSalesO
 	right := salesOrderPNGDesignWidth - salesOrderPNGMargin
 	y := 62
 	c.text(left, y, 24, color.RGBA{R: 20, G: 20, B: 20, A: 255}, snapshot.CompanyName)
-	c.textRight(right, y, 22, color.RGBA{R: 20, G: 20, B: 20, A: 255}, "组合销售单 COMBINED SALES ORDER")
+	c.textRight(right, y, 22, color.RGBA{R: 20, G: 20, B: 20, A: 255}, "销售单 SALES ORDER")
 	y += 58
 	c.line(left, y, right, y, color.RGBA{R: 20, G: 20, B: 20, A: 255})
 	if snapshot.Seal != nil {
@@ -144,23 +147,71 @@ func (c *salesOrderPNGCanvas) renderCombined(snapshot salesdomain.CombinedSalesO
 
 	y += 42
 	colW := (right - left) / 3
-	rows := [][]string{
-		{"组合单号：" + snapshot.CombinedNo, "订单数：" + strconv.Itoa(len(snapshot.OrderIDs)), "客户：" + snapshot.CustomerName},
-		{"客户公司：" + firstNonEmpty(snapshot.CustomerCompanyName, snapshot.CustomerName), "联系电话：" + snapshot.CustomerCompanyPhone, ""},
-	}
-	for _, row := range rows {
+	for _, row := range combinedSalesOrderHeaderMetaRows(snapshot) {
+		if len(row) == 1 {
+			y = c.wrappedText(left, y, right-left-24, 20, 28, color.RGBA{R: 82, G: 82, B: 82, A: 255}, row)
+			y += 6
+			continue
+		}
 		rowH := c.metaRow(y, row, colW)
 		y += rowH + 6
-	}
-	y = c.wrappedText(left, y, right-left, 20, 28, color.RGBA{R: 82, G: 82, B: 82, A: 255}, []string{"关联订单：" + strings.Join(snapshot.OrderNos, "、")})
-	if addr := strings.TrimSpace(snapshot.CustomerCompanyAddress); addr != "" {
-		y = c.wrappedText(left, y+6, right-left, 20, 28, color.RGBA{R: 82, G: 82, B: 82, A: 255}, []string{"公司地址：" + addr})
 	}
 	y += 24
 
 	y = c.combinedItems(left, right, y, snapshot)
 	y = c.totals(left, right, y, combinedSalesOrderTotalsSnapshot(snapshot))
 	c.paymentInfo(left, right, y+28, combinedSalesOrderTotalsSnapshot(snapshot))
+}
+
+func (c *salesOrderPNGCanvas) salesOrderPNGDocumentHeight(snapshot salesdomain.SalesOrderSnapshot) int {
+	left := salesOrderPNGMargin
+	right := salesOrderPNGDesignWidth - salesOrderPNGMargin
+	y := 62 + 58 + 42
+	colW := (right - left) / 3
+	for _, row := range salesOrderHeaderMetaRows(snapshot) {
+		y += c.metaRowHeight(row, colW) + 6
+	}
+	y += 24
+	y = c.itemsTableEndY(left, right, y, snapshot)
+	y = c.totalsEndY(left, right, y, snapshot)
+	y = c.paymentInfoBottom(y+28, snapshot)
+	if snapshot.Seal != nil {
+		y = maxInt(y, salesOrderPNGSealBottom(*snapshot.Seal))
+	}
+	return maxInt(salesOrderPNGDesignHeight, y)
+}
+
+func (c *salesOrderPNGCanvas) combinedSalesOrderPNGDocumentHeight(snapshot salesdomain.CombinedSalesOrderSnapshot) int {
+	left := salesOrderPNGMargin
+	right := salesOrderPNGDesignWidth - salesOrderPNGMargin
+	y := 62 + 58 + 42
+	colW := (right - left) / 3
+	for _, row := range combinedSalesOrderHeaderMetaRows(snapshot) {
+		if len(row) == 1 {
+			y += c.wrappedTextHeight(right-left-24, 20, 28, row) + 6
+			continue
+		}
+		y += c.metaRowHeight(row, colW) + 6
+	}
+	y += 24
+	y = c.combinedItemsEndY(left, right, y, snapshot)
+	y = c.totalsEndY(left, right, y, combinedSalesOrderTotalsSnapshot(snapshot))
+	y = c.paymentInfoBottom(y+28, combinedSalesOrderTotalsSnapshot(snapshot))
+	if snapshot.Seal != nil {
+		y = maxInt(y, salesOrderPNGSealBottom(*snapshot.Seal))
+	}
+	return maxInt(salesOrderPNGDesignHeight, y)
+}
+
+func (c *salesOrderPNGCanvas) metaRowHeight(cols []string, colW int) int {
+	maxH := 0
+	for _, text := range cols {
+		h := c.wrappedTextHeight(colW-24, 20, 28, []string{text})
+		if h > maxH {
+			maxH = h
+		}
+	}
+	return maxH
 }
 
 func (c *salesOrderPNGCanvas) metaRow(y int, cols []string, colW int) int {
@@ -206,13 +257,25 @@ func (c *salesOrderPNGCanvas) itemsTable(left, right, y int, snapshot salesdomai
 	return y + 4
 }
 
+func (c *salesOrderPNGCanvas) itemsTableEndY(left, right, y int, snapshot salesdomain.SalesOrderSnapshot) int {
+	hasDiscount := salesOrderSnapshotHasDiscount(snapshot)
+	widths := salesOrderPNGItemColumnWidths(right-left, hasDiscount)
+	y += 36
+	y += 20
+	for _, item := range snapshot.Items {
+		y += c.salesOrderPNGItemRowHeight(item, widths, hasDiscount, 20, 28)
+		y += 8
+	}
+	return y + 4
+}
+
 func (c *salesOrderPNGCanvas) combinedItems(left, right, y int, snapshot salesdomain.CombinedSalesOrderSnapshot) int {
 	hasDiscount := combinedSalesOrderHasDiscount(snapshot)
 	widths := salesOrderPNGItemColumnWidths(right-left, hasDiscount)
 	headers := salesOrderItemHeaders(hasDiscount)
 	for _, group := range snapshot.Groups {
 		c.rect(left, y, right-left, 38, color.RGBA{R: 247, G: 244, B: 239, A: 255})
-		c.text(left+8, y+8, 20, color.RGBA{R: 20, G: 20, B: 20, A: 255}, "订单 "+group.OrderNo+"    单据日期："+firstNonEmpty(group.DocumentDate, group.OrderDate)+"    订单日期："+group.OrderDate)
+		c.text(left+8, y+8, 20, color.RGBA{R: 20, G: 20, B: 20, A: 255}, combinedSalesOrderGroupHeaderText(group))
 		y += 52
 		x := left
 		for i, header := range headers {
@@ -240,6 +303,26 @@ func (c *salesOrderPNGCanvas) combinedItems(left, right, y int, snapshot salesdo
 		y += 42
 		if note := combinedSalesOrderGroupNote(group); note != "" {
 			y = c.wrappedText(left+8, y, right-left-16, 18, 26, color.RGBA{R: 74, G: 74, B: 74, A: 255}, []string{note})
+			y += 8
+		}
+	}
+	return y + 4
+}
+
+func (c *salesOrderPNGCanvas) combinedItemsEndY(left, right, y int, snapshot salesdomain.CombinedSalesOrderSnapshot) int {
+	hasDiscount := combinedSalesOrderHasDiscount(snapshot)
+	widths := salesOrderPNGItemColumnWidths(right-left, hasDiscount)
+	for _, group := range snapshot.Groups {
+		y += 52
+		y += 34
+		y += 18
+		for _, item := range group.Items {
+			y += c.salesOrderPNGItemRowHeight(item, widths, hasDiscount, 18, 26)
+			y += 8
+		}
+		y += 42
+		if note := combinedSalesOrderGroupNote(group); note != "" {
+			y += c.wrappedTextHeight(right-left-16, 18, 26, []string{note})
 			y += 8
 		}
 	}
@@ -321,28 +404,75 @@ func (c *salesOrderPNGCanvas) totals(left, right, y int, snapshot salesdomain.Sa
 	return y
 }
 
-func (c *salesOrderPNGCanvas) paymentInfo(_, _, _ int, snapshot salesdomain.SalesOrderSnapshot) {
+func (c *salesOrderPNGCanvas) totalsEndY(left, right, y int, snapshot salesdomain.SalesOrderSnapshot) int {
+	for _, row := range salesOrderFinancialRows(snapshot) {
+		size := 22.0
+		if row.Bold {
+			size = 23
+		}
+		if len(row.Cells) > 0 {
+			y += 38
+			continue
+		}
+		text := row.Label + "： " + row.Value
+		if salesOrderFinancialRowWrapLeft(row) {
+			y += 8
+			y += c.wrappedTextHeight(right-left-16, size, 32, []string{text})
+			continue
+		}
+		y += 34
+	}
+	y += 8
+	return y
+}
+
+func (c *salesOrderPNGCanvas) paymentInfo(_, _, contentY int, snapshot salesdomain.SalesOrderSnapshot) {
 	sections := salesOrderPaymentTextSections(snapshot)
 	if len(sections) == 0 && len(snapshot.PaymentCodes) == 0 {
 		return
 	}
 	textBox, codeBox := salesOrderPaymentLayoutBoxes(snapshot)
 	textX := salesOrderPNGMMToPX(textBox.XMM)
-	textY := salesOrderPNGMMToPX(textBox.YMM)
+	textY := maxInt(salesOrderPNGMMToPX(textBox.YMM), contentY)
 	textW := salesOrderPNGMMToPX(textBox.WidthMM)
-	textBottom := salesOrderPNGMMToPX(textBox.YMM + textBox.HeightMM)
+	textBottom := textY + salesOrderPNGMMToPX(textBox.HeightMM)
 	for _, section := range sections {
 		textY = c.textBlock(textX, textY, textW, textBottom, section.title, section.lines)
 	}
 	if len(snapshot.PaymentCodes) > 0 {
 		c.paymentCodes(
 			salesOrderPNGMMToPX(codeBox.XMM),
-			salesOrderPNGMMToPX(codeBox.YMM),
+			maxInt(salesOrderPNGMMToPX(codeBox.YMM), contentY),
 			salesOrderPNGMMToPX(codeBox.WidthMM),
 			salesOrderPNGMMToPX(codeBox.HeightMM),
 			snapshot.PaymentCodes,
 		)
 	}
+}
+
+func (c *salesOrderPNGCanvas) paymentInfoBottom(contentY int, snapshot salesdomain.SalesOrderSnapshot) int {
+	sections := salesOrderPaymentTextSections(snapshot)
+	if len(sections) == 0 && len(snapshot.PaymentCodes) == 0 {
+		return contentY + 80
+	}
+	textBox, codeBox := salesOrderPaymentLayoutBoxes(snapshot)
+	bottom := contentY
+	if len(sections) > 0 {
+		textY := maxInt(salesOrderPNGMMToPX(textBox.YMM), contentY)
+		bottom = maxInt(bottom, textY+salesOrderPNGMMToPX(textBox.HeightMM))
+	}
+	if len(snapshot.PaymentCodes) > 0 {
+		codeY := maxInt(salesOrderPNGMMToPX(codeBox.YMM), contentY)
+		width := salesOrderPNGMMToPX(codeBox.WidthMM)
+		height := salesOrderPNGMMToPX(codeBox.HeightMM)
+		metrics := salesOrderPNGPaymentCodeMetrics(len(snapshot.PaymentCodes), width, height)
+		codeBottom := codeY
+		for range snapshot.PaymentCodes {
+			codeBottom += metrics.ImageSize + 88 + metrics.Gap
+		}
+		bottom = maxInt(bottom, codeBottom)
+	}
+	return bottom + 80
 }
 
 func (c *salesOrderPNGCanvas) textBlock(x, y, width, bottom int, title string, lines []string) int {
@@ -470,6 +600,17 @@ func (c *salesOrderPNGCanvas) wrappedText(x, y, width int, size float64, lineH i
 	return y
 }
 
+func (c *salesOrderPNGCanvas) wrappedTextHeight(width int, size float64, lineH int, paragraphs []string) int {
+	height := 0
+	for _, paragraph := range paragraphs {
+		height += len(c.wrapLine(paragraph, width, size)) * lineH
+		if paragraph == "" {
+			height += lineH
+		}
+	}
+	return height
+}
+
 func (c *salesOrderPNGCanvas) wrappedTextInBox(x, y, width, bottom int, size float64, lineH int, col color.Color, paragraphs []string) int {
 	for _, paragraph := range paragraphs {
 		lines := c.wrapLine(paragraph, width, size)
@@ -580,6 +721,11 @@ func (c *salesOrderPNGCanvas) px(v int) int {
 
 func salesOrderPNGMMToPX(mm float64) int {
 	return int(math.Round(mm * float64(salesOrderPNGDesignWidth) / 210.0))
+}
+
+func salesOrderPNGSealBottom(ref salesdomain.SalesOrderAssetRef) int {
+	pos := salesOrderSealPosition(ref.XMM, ref.YMM, ref.WidthMM)
+	return salesOrderPNGMMToPX(pos.YMM+pos.HeightMM) + 80
 }
 
 func minInt(a, b int) int {
