@@ -288,6 +288,68 @@ func (r Repository) GenerateCombinedDeliveryNoteDocument(ctx context.Context, cm
 	return salesapp.GenerateCombinedDeliveryNoteDocumentResult{Document: doc, Snapshot: snapshot}, nil
 }
 
+func (r Repository) ListCombinedSalesOrderDocuments(ctx context.Context, orderIDs []int64) ([]salesapp.CombinedSalesOrderDocument, error) {
+	key := combinedDocumentKey(orderIDs)
+	q := fmt.Sprintf(`SELECT id, combination_key, customer_id, order_ids, order_nos, version_no, snapshot_json, COALESCE(pdf_asset_id,0), is_latest, to_char(created_at,'YYYY-MM-DD HH24:MI:SS'), created_by
+		FROM %s.combined_sales_order_documents
+		WHERE combination_key=$1
+		ORDER BY version_no DESC`, r.schema)
+	rows, err := r.pool.Query(ctx, q, key)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := make([]salesapp.CombinedSalesOrderDocument, 0)
+	for rows.Next() {
+		var doc salesapp.CombinedSalesOrderDocument
+		var orderIDsJSON, snapshotJSON []byte
+		var orderNosText string
+		if err := rows.Scan(&doc.ID, &doc.CombinationKey, &doc.CustomerID, &orderIDsJSON, &orderNosText, &doc.VersionNo, &snapshotJSON, &doc.PDFAssetID, &doc.IsLatest, &doc.CreatedAt, &doc.CreatedBy); err != nil {
+			return nil, err
+		}
+		_ = json.Unmarshal(orderIDsJSON, &doc.OrderIDs)
+		_ = json.Unmarshal(snapshotJSON, &doc.Snapshot)
+		doc.OrderNos = doc.Snapshot.OrderNos
+		if len(doc.OrderNos) == 0 {
+			doc.OrderNos = splitCombinedOrderNos(orderNosText)
+		}
+		doc.DownloadURL = combinedSalesOrderDocumentDownloadURL(doc.ID)
+		out = append(out, doc)
+	}
+	return out, rows.Err()
+}
+
+func (r Repository) ListCombinedDeliveryNoteDocuments(ctx context.Context, orderIDs []int64) ([]salesapp.CombinedDeliveryNoteDocument, error) {
+	key := combinedDocumentKey(orderIDs)
+	q := fmt.Sprintf(`SELECT id, combination_key, customer_id, order_ids, order_nos, version_no, snapshot_json, COALESCE(pdf_asset_id,0), is_latest, to_char(created_at,'YYYY-MM-DD HH24:MI:SS'), created_by
+		FROM %s.combined_delivery_note_documents
+		WHERE combination_key=$1
+		ORDER BY version_no DESC`, r.schema)
+	rows, err := r.pool.Query(ctx, q, key)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := make([]salesapp.CombinedDeliveryNoteDocument, 0)
+	for rows.Next() {
+		var doc salesapp.CombinedDeliveryNoteDocument
+		var orderIDsJSON, snapshotJSON []byte
+		var orderNosText string
+		if err := rows.Scan(&doc.ID, &doc.CombinationKey, &doc.CustomerID, &orderIDsJSON, &orderNosText, &doc.VersionNo, &snapshotJSON, &doc.PDFAssetID, &doc.IsLatest, &doc.CreatedAt, &doc.CreatedBy); err != nil {
+			return nil, err
+		}
+		_ = json.Unmarshal(orderIDsJSON, &doc.OrderIDs)
+		_ = json.Unmarshal(snapshotJSON, &doc.Snapshot)
+		doc.OrderNos = doc.Snapshot.OrderNos
+		if len(doc.OrderNos) == 0 {
+			doc.OrderNos = splitCombinedOrderNos(orderNosText)
+		}
+		doc.DownloadURL = combinedDeliveryNoteDocumentDownloadURL(doc.ID)
+		out = append(out, doc)
+	}
+	return out, rows.Err()
+}
+
 func (r Repository) buildCombinedSalesOrderSnapshotTx(ctx context.Context, tx pgx.Tx, orderIDs []int64, settings salesapp.SalesOrderSettings) (salesdomain.CombinedSalesOrderSnapshot, error) {
 	orders, err := r.loadCombinedOrderInfosTx(ctx, tx, orderIDs)
 	if err != nil {
