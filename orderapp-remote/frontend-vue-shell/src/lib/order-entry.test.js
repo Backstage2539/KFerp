@@ -524,6 +524,38 @@ test('beanListVersionOptionsForCustomer keeps public fallback versions for the s
   )
 })
 
+test('beanListVersionOptionsForCustomer exposes public published versions before a customer is selected', () => {
+  const options = [
+    { customer_id: 0, list_type: 'commercial', id: 45, version_no: 'V3.0.14', is_customer_owned: false, is_default: true },
+    { customer_id: 0, list_type: 'commercial', id: 44, version_no: 'V3.0.13', is_customer_owned: false, is_default: false },
+    { customer_id: 0, list_type: 'green', id: 25, version_no: 'V3.0.5', is_customer_owned: false, is_default: true },
+    { customer_id: 74, list_type: 'commercial', id: 31, version_no: 'V3.0.6', is_customer_owned: true, is_default: true },
+  ]
+
+  assert.deepEqual(
+    beanListVersionOptionsForCustomer(options, 0).map((item) => [item.id, item.list_type, item.version_no, item.is_default]),
+    [
+      [45, 'commercial', 'V3.0.14', true],
+      [44, 'commercial', 'V3.0.13', false],
+      [25, 'green', 'V3.0.5', true],
+    ],
+  )
+})
+
+test('beanListVersionOptionsForCustomer deduplicates repeated public fallbacks for no-customer order entry', () => {
+  const options = [
+    { customer_id: 2, list_type: 'commercial', id: 45, version_no: 'V3.0.14', is_customer_owned: false, is_default: true },
+    { customer_id: 3, list_type: 'commercial', id: 45, version_no: 'V3.0.14', is_customer_owned: false, is_default: true },
+    { customer_id: 2, list_type: 'commercial', id: 44, version_no: 'V3.0.13', is_customer_owned: false, is_default: false },
+    { customer_id: 74, list_type: 'commercial', id: 31, version_no: 'V3.0.6', is_customer_owned: true, is_default: true },
+  ]
+
+  assert.deepEqual(
+    beanListVersionOptionsForCustomer(options, 0).map((item) => item.id),
+    [45, 44],
+  )
+})
+
 test('resolveWholesaleTierPrice and tier rows use the selected bean list publication when product carries multiple versions', () => {
   const multiVersionProduct = {
     tiers: [
@@ -592,6 +624,9 @@ test('OrderEntryView shows selected bean lists as readable rows and refreshes ro
   assert.doesNotMatch(lineSection, /\{\{\s*selectedBeanListSummary\s*\}\}/)
   assert.match(source, /function syncRowBeanListVersionFromSelection\(row\)/)
   assert.match(syncPriceBlock, /syncRowBeanListVersionFromSelection\(row\)[\s\S]*resolveWholesaleTierPrice\(product,\s*row\)/)
+  assert.match(lineSection, /:disabled="!canOpenBeanListDrawer"/)
+  assert.doesNotMatch(lineSection, /:disabled="!form\.customer_id"/)
+  assert.match(source, /const canOpenBeanListDrawer = computed/)
 
   const summaryListStyles = cssBlock(source, '.bean-list-summary-list')
   const summaryStyles = cssBlock(source, '.bean-list-summary')

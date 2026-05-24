@@ -89,6 +89,23 @@ func TestOrderFormBeanListVersionOptionsUseOnlyPublishedSnapshots(t *testing.T) 
 	}
 }
 
+func TestOrderFormBeanListVersionOptionsIncludeGlobalPublicFallback(t *testing.T) {
+	source, err := os.ReadFile("order_form_queries.go")
+	if err != nil {
+		t.Fatalf("read order_form_queries.go: %v", err)
+	}
+	text := string(source)
+	for _, want := range []string{
+		"global_public_versions AS",
+		"0::bigint AS customer_id",
+		"FROM global_public_versions",
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("order form bean-list version options must include global public fallback rows for no-customer entry; missing %q", want)
+		}
+	}
+}
+
 func TestOrderSaveExplicitBeanListPublicationRequiresPublishedSnapshot(t *testing.T) {
 	source, err := os.ReadFile("repository.go")
 	if err != nil {

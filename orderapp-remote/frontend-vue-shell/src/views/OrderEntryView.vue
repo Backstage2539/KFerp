@@ -201,7 +201,7 @@
       <div class="section-row">
         <div class="section-title">商品明细</div>
         <div class="section-actions">
-          <button class="secondary" type="button" @click="openBeanListDrawer" :disabled="!form.customer_id">选择豆单</button>
+          <button class="secondary" type="button" @click="openBeanListDrawer" :disabled="!canOpenBeanListDrawer">选择豆单</button>
           <div class="bean-list-summary-list">
             <small v-for="item in selectedBeanListSummaryItems" :key="item.type" class="bean-list-summary">
               <span class="bean-list-summary-label">{{ item.label }}：</span>
@@ -837,6 +837,9 @@ const orderBeanListTypes = [
 const customerBeanListVersionOptions = computed(() => {
   return beanListVersionOptionsForCustomer(beanListVersionOptions.value, form.customer_id)
 })
+const canOpenBeanListDrawer = computed(() => {
+  return Number(form.customer_id || 0) > 0 || customerBeanListVersionOptions.value.length > 0
+})
 const selectedBeanListSummaryItems = computed(() => orderBeanListTypes
   .map((item) => {
     const selected = selectedBeanListVersionOptionByType(item.type)
@@ -1085,8 +1088,8 @@ function setBeanListVersion(listType, value) {
 }
 
 function openBeanListDrawer() {
-  if (!Number(form.customer_id || 0)) {
-    raiseSaveError('请先选择客户', 'customer_id')
+  if (!canOpenBeanListDrawer.value) {
+    raiseSaveError('暂无可选择的已发布豆单')
     return
   }
   beanListDrawerOpen.value = true
