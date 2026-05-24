@@ -21,10 +21,12 @@ type fakeRepo struct {
 	settingsCmd            SaveSalesOrderSettingsCommand
 	salesOrderNoteCmd      SaveSalesOrderNoteCommand
 	generateCmd            GenerateSalesOrderDocumentCommand
+	combinedSalesCmd       CombinedDocumentCommand
 	imageCmd               GenerateSalesOrderImageCommand
 	previewOrderID         int64
 	deliveryFormCmd        SaveDeliveryNoteFormCommand
 	generateDeliveryCmd    GenerateDeliveryNoteDocumentCommand
+	combinedDeliveryCmd    CombinedDocumentCommand
 	previewDeliveryOrderID int64
 	shareCmd               CreateExternalShareResourceCommand
 	invoiceRequestCmd      RequestOrderInvoiceCommand
@@ -241,6 +243,27 @@ func (r *fakeRepo) LoadSalesOrderImageFile(ctx context.Context, orderID, imageID
 	return SalesOrderImageFile{Document: SalesOrderImageDocument{ID: imageID, OrderID: orderID, OrderNo: "SO-TEST", VersionNo: 1}, Path: "/tmp/test.png", Filename: "SO-TEST-V1.png"}, nil
 }
 
+func (r *fakeRepo) PreviewCombinedSalesOrderDocument(ctx context.Context, orderIDs []int64) (CombinedSalesOrderPreview, error) {
+	return CombinedSalesOrderPreview{OrderIDs: append([]int64(nil), orderIDs...), OrderNos: []string{"SO-TEST-1", "SO-TEST-2"}, NextVersionNo: 1}, nil
+}
+
+func (r *fakeRepo) PreviewCombinedSalesOrderPDF(ctx context.Context, orderIDs []int64) (CombinedSalesOrderPreviewPDF, error) {
+	return CombinedSalesOrderPreviewPDF{
+		Preview:  CombinedSalesOrderPreview{OrderIDs: append([]int64(nil), orderIDs...), OrderNos: []string{"SO-TEST-1", "SO-TEST-2"}, NextVersionNo: 1},
+		Data:     []byte("%PDF-combined-sales-preview"),
+		Filename: "CSO-TEST-preview.pdf",
+	}, nil
+}
+
+func (r *fakeRepo) GenerateCombinedSalesOrderDocument(ctx context.Context, cmd CombinedDocumentCommand) (GenerateCombinedSalesOrderDocumentResult, error) {
+	r.combinedSalesCmd = cmd
+	return GenerateCombinedSalesOrderDocumentResult{Document: CombinedSalesOrderDocument{ID: 30, OrderIDs: append([]int64(nil), cmd.OrderIDs...), OrderNos: []string{"SO-TEST-1", "SO-TEST-2"}, VersionNo: 1, IsLatest: true}}, nil
+}
+
+func (r *fakeRepo) LoadCombinedSalesOrderDocumentFile(ctx context.Context, documentID int64) (CombinedSalesOrderDocumentFile, error) {
+	return CombinedSalesOrderDocumentFile{Document: CombinedSalesOrderDocument{ID: documentID, OrderNos: []string{"SO-TEST-1", "SO-TEST-2"}, VersionNo: 1}, Path: "/tmp/combined-sales.pdf", Filename: "CSO-TEST-V1.pdf"}, nil
+}
+
 func (r *fakeRepo) LoadDeliveryNoteContext(ctx context.Context, orderID int64) (DeliveryNoteContext, error) {
 	return DeliveryNoteContext{OrderID: orderID, OrderNo: "SO-TEST", ShipStatus: "已发货", Customer: SalesOrderCustomerInfo{ID: 3, Name: "测试客户"}}, nil
 }
@@ -279,6 +302,27 @@ func (r *fakeRepo) GenerateDeliveryNoteDocument(ctx context.Context, cmd Generat
 
 func (r *fakeRepo) LoadDeliveryNoteDocumentFile(ctx context.Context, orderID, documentID int64, latest bool) (DeliveryNoteDocumentFile, error) {
 	return DeliveryNoteDocumentFile{Document: DeliveryNoteDocument{ID: documentID, OrderID: orderID, OrderNo: "SO-TEST", VersionNo: 1}, Path: "/tmp/test.pdf", Filename: "SO-TEST-DN-V1.pdf"}, nil
+}
+
+func (r *fakeRepo) PreviewCombinedDeliveryNoteDocument(ctx context.Context, orderIDs []int64) (CombinedDeliveryNotePreview, error) {
+	return CombinedDeliveryNotePreview{OrderIDs: append([]int64(nil), orderIDs...), OrderNos: []string{"SO-TEST-1", "SO-TEST-2"}, NextVersionNo: 1}, nil
+}
+
+func (r *fakeRepo) PreviewCombinedDeliveryNotePDF(ctx context.Context, orderIDs []int64) (CombinedDeliveryNotePreviewPDF, error) {
+	return CombinedDeliveryNotePreviewPDF{
+		Preview:  CombinedDeliveryNotePreview{OrderIDs: append([]int64(nil), orderIDs...), OrderNos: []string{"SO-TEST-1", "SO-TEST-2"}, NextVersionNo: 1},
+		Data:     []byte("%PDF-combined-delivery-preview"),
+		Filename: "CDN-TEST-preview.pdf",
+	}, nil
+}
+
+func (r *fakeRepo) GenerateCombinedDeliveryNoteDocument(ctx context.Context, cmd CombinedDocumentCommand) (GenerateCombinedDeliveryNoteDocumentResult, error) {
+	r.combinedDeliveryCmd = cmd
+	return GenerateCombinedDeliveryNoteDocumentResult{Document: CombinedDeliveryNoteDocument{ID: 31, OrderIDs: append([]int64(nil), cmd.OrderIDs...), OrderNos: []string{"SO-TEST-1", "SO-TEST-2"}, VersionNo: 1, IsLatest: true}}, nil
+}
+
+func (r *fakeRepo) LoadCombinedDeliveryNoteDocumentFile(ctx context.Context, documentID int64) (CombinedDeliveryNoteDocumentFile, error) {
+	return CombinedDeliveryNoteDocumentFile{Document: CombinedDeliveryNoteDocument{ID: documentID, OrderNos: []string{"SO-TEST-1", "SO-TEST-2"}, VersionNo: 1}, Path: "/tmp/combined-delivery.pdf", Filename: "CDN-TEST-V1.pdf"}, nil
 }
 
 func (r *fakeRepo) CreateExternalShareResource(ctx context.Context, cmd CreateExternalShareResourceCommand) (ExternalShareResource, error) {

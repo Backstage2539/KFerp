@@ -542,6 +542,21 @@ func ensureSalesOrderTables(ctx context.Context, pool *pgxpool.Pool, schema stri
 			UNIQUE(order_id, version_no)
 		)`, schema, schema, schema),
 		fmt.Sprintf(`CREATE UNIQUE INDEX IF NOT EXISTS idx_%s_sales_order_image_latest ON %s.sales_order_images(order_id) WHERE is_latest`, schema, schema),
+		fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s.combined_sales_order_documents (
+			id BIGSERIAL PRIMARY KEY,
+			combination_key TEXT NOT NULL,
+			customer_id BIGINT NOT NULL DEFAULT 0,
+			order_ids JSONB NOT NULL DEFAULT '[]'::jsonb,
+			order_nos TEXT NOT NULL DEFAULT '',
+			version_no INTEGER NOT NULL,
+			snapshot_json JSONB NOT NULL,
+			pdf_asset_id BIGINT REFERENCES %s.sales_order_assets(id),
+			is_latest BOOLEAN NOT NULL DEFAULT true,
+			created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+			created_by TEXT NOT NULL DEFAULT '',
+			UNIQUE(combination_key, version_no)
+		)`, schema, schema),
+		fmt.Sprintf(`CREATE UNIQUE INDEX IF NOT EXISTS idx_%s_combined_sales_order_latest ON %s.combined_sales_order_documents(combination_key) WHERE is_latest`, schema, schema),
 	}
 	for _, stmt := range stmts {
 		if _, err := pool.Exec(ctx, stmt); err != nil {
@@ -668,6 +683,21 @@ func ensureDeliveryNoteTables(ctx context.Context, pool *pgxpool.Pool, schema st
 			UNIQUE(order_id, version_no)
 		)`, schema, schema, schema),
 		fmt.Sprintf(`CREATE UNIQUE INDEX IF NOT EXISTS idx_%s_delivery_note_latest ON %s.delivery_note_documents(order_id) WHERE is_latest`, schema, schema),
+		fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s.combined_delivery_note_documents (
+			id BIGSERIAL PRIMARY KEY,
+			combination_key TEXT NOT NULL,
+			customer_id BIGINT NOT NULL DEFAULT 0,
+			order_ids JSONB NOT NULL DEFAULT '[]'::jsonb,
+			order_nos TEXT NOT NULL DEFAULT '',
+			version_no INTEGER NOT NULL,
+			snapshot_json JSONB NOT NULL,
+			pdf_asset_id BIGINT REFERENCES %s.delivery_note_assets(id),
+			is_latest BOOLEAN NOT NULL DEFAULT true,
+			created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+			created_by TEXT NOT NULL DEFAULT '',
+			UNIQUE(combination_key, version_no)
+		)`, schema, schema),
+		fmt.Sprintf(`CREATE UNIQUE INDEX IF NOT EXISTS idx_%s_combined_delivery_note_latest ON %s.combined_delivery_note_documents(combination_key) WHERE is_latest`, schema, schema),
 	}
 	for _, stmt := range stmts {
 		if _, err := pool.Exec(ctx, stmt); err != nil {

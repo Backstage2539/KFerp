@@ -20,11 +20,13 @@ import (
 )
 
 type Repository struct {
-	pool                 *pgxpool.Pool
-	schema               string
-	assetDir             string
-	renderer             SalesOrderPDFRenderer
-	deliveryNoteRenderer DeliveryNotePDFRenderer
+	pool                     *pgxpool.Pool
+	schema                   string
+	assetDir                 string
+	renderer                 SalesOrderPDFRenderer
+	deliveryNoteRenderer     DeliveryNotePDFRenderer
+	combinedSalesRenderer    CombinedSalesOrderPDFRenderer
+	combinedDeliveryRenderer CombinedDeliveryNotePDFRenderer
 }
 
 type SalesOrderPDFRenderer interface {
@@ -36,6 +38,16 @@ type SalesOrderPDFRenderer interface {
 type DeliveryNotePDFRenderer interface {
 	Render(snapshot salesdomain.DeliveryNoteSnapshot) ([]byte, error)
 	RenderPreview(snapshot salesdomain.DeliveryNoteSnapshot) ([]byte, error)
+}
+
+type CombinedSalesOrderPDFRenderer interface {
+	RenderCombinedSalesOrder(snapshot salesdomain.CombinedSalesOrderSnapshot) ([]byte, error)
+	RenderCombinedSalesOrderPreview(snapshot salesdomain.CombinedSalesOrderSnapshot) ([]byte, error)
+}
+
+type CombinedDeliveryNotePDFRenderer interface {
+	RenderCombinedDeliveryNote(snapshot salesdomain.CombinedDeliveryNoteSnapshot) ([]byte, error)
+	RenderCombinedDeliveryNotePreview(snapshot salesdomain.CombinedDeliveryNoteSnapshot) ([]byte, error)
 }
 
 type RepositoryOption func(*Repository)
@@ -58,10 +70,20 @@ func NewRepository(pool *pgxpool.Pool, schema string, opts ...RepositoryOption) 
 		opt(&repo)
 	}
 	if repo.renderer == nil {
-		repo.renderer = pdfinfra.SalesOrderRenderer{AssetBaseDir: repo.assetDir}
+		renderer := pdfinfra.SalesOrderRenderer{AssetBaseDir: repo.assetDir}
+		repo.renderer = renderer
+		repo.combinedSalesRenderer = renderer
 	}
 	if repo.deliveryNoteRenderer == nil {
-		repo.deliveryNoteRenderer = pdfinfra.DeliveryNoteRenderer{AssetBaseDir: repo.assetDir}
+		renderer := pdfinfra.DeliveryNoteRenderer{AssetBaseDir: repo.assetDir}
+		repo.deliveryNoteRenderer = renderer
+		repo.combinedDeliveryRenderer = renderer
+	}
+	if repo.combinedSalesRenderer == nil {
+		repo.combinedSalesRenderer = pdfinfra.SalesOrderRenderer{AssetBaseDir: repo.assetDir}
+	}
+	if repo.combinedDeliveryRenderer == nil {
+		repo.combinedDeliveryRenderer = pdfinfra.DeliveryNoteRenderer{AssetBaseDir: repo.assetDir}
 	}
 	return repo
 }

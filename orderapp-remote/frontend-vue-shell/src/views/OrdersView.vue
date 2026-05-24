@@ -105,6 +105,19 @@
         </button>
         <small>表头复选框用于当前页正常订单全选/取消；失效后不可恢复，需要重建时从“已失效”订单点“复制”。</small>
       </div>
+      <div class="combined-document-bar">
+        <div class="combined-document-status">
+          <strong>组合单据</strong>
+          <span>已选 {{ documentSelectedOrderIDs.length }} 个</span>
+          <span v-if="documentSelectionSummary.customer">客户：{{ documentSelectionSummary.customer }}</span>
+          <span v-if="documentSelectedOrderIDs.length && !documentSelectionSummary.valid" class="invalid">请选择同一客户的至少两个订单</span>
+        </div>
+        <div class="combined-document-actions">
+          <button class="secondary" type="button" @click="clearDocumentSelection" :disabled="!documentSelectedOrderIDs.length">清空</button>
+          <button class="primary" type="button" @click="openCombinedSalesOrderDrawer" :disabled="!canGenerateCombinedDocuments">组合销售单</button>
+          <button class="primary" type="button" @click="openCombinedDeliveryNoteDrawer" :disabled="!canGenerateCombinedDocuments || !allSelectedDocumentsShipped">组合出库单</button>
+        </div>
+      </div>
       <div class="table-wrap">
         <table>
           <thead>
@@ -122,6 +135,7 @@
                 </label>
               </th>
               <th class="select-col">发货</th>
+              <th class="select-col">单据</th>
               <th>订单号</th>
               <th>日期</th>
               <th>客户</th>
@@ -151,6 +165,15 @@
                   :disabled="!isShipReady(row)"
                   :title="isShipReady(row) ? '选择发货' : (row.is_void ? '已失效订单不能发货' : '生产完成、无需生产或库存待发货后可发货')"
                   @change="toggleOrder(row, $event.target.checked)"
+                />
+              </td>
+              <td class="select-col">
+                <input
+                  type="checkbox"
+                  :checked="documentSelectedOrderIDs.includes(Number(row.id))"
+                  :disabled="row.is_void"
+                  :title="row.is_void ? '已失效订单不能组合单据' : '选择后可组合销售单或出库单'"
+                  @change="toggleDocumentOrder(row, $event.target.checked)"
                 />
               </td>
               <td><button class="order-link" type="button" @click.prevent="openOrderDetailDrawer(row)">{{ row.order_no }}</button></td>
@@ -210,7 +233,7 @@
               </td>
             </tr>
             <tr v-if="!rows.length">
-              <td colspan="11" class="muted">暂无订单</td>
+              <td colspan="12" class="muted">暂无订单</td>
             </tr>
           </tbody>
         </table>
@@ -347,6 +370,18 @@
       </aside>
     </div>
 
+    <div v-if="combinedSalesOrderDrawerOpen" class="combined-document-drawer-mask" @click.self="closeCombinedSalesOrderDrawer">
+      <aside class="combined-document-drawer" aria-label="组合销售单">
+        <CombinedSalesOrderView :order-ids="activeCombinedSalesOrderIDs" embedded @close="closeCombinedSalesOrderDrawer" />
+      </aside>
+    </div>
+
+    <div v-if="combinedDeliveryNoteDrawerOpen" class="combined-document-drawer-mask" @click.self="closeCombinedDeliveryNoteDrawer">
+      <aside class="combined-document-drawer" aria-label="组合出库单">
+        <CombinedDeliveryNoteView :order-ids="activeCombinedDeliveryNoteIDs" embedded @close="closeCombinedDeliveryNoteDrawer" />
+      </aside>
+    </div>
+
     <div v-if="invoiceDrawerOpen" class="invoice-drawer-mask" @click.self="closeInvoiceDrawer">
       <aside class="invoice-drawer" aria-label="发票">
         <OrderInvoiceView :order-id="activeInvoiceID" embedded @close="closeInvoiceDrawer" @updated="load" />
@@ -356,9 +391,10 @@
 </template>
 
 <script setup>
-import { onMounted, reactive, ref, watch } from 'vue'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { apiGet, apiSend } from '../api/client'
 import PaginationControls from '../components/PaginationControls.vue'
+import { combinedDocumentSelectionSummary, selectedOrdersShareSameCustomer } from '../lib/combined-order-documents'
 import { customerFulfillmentOrderFees } from '../lib/customer-fulfillment'
 import { invoiceStatusLabel, invoiceStatusTone } from '../lib/order-invoice'
 import { productKindBadgeClass, productKindLabel } from '../lib/order-entry'
@@ -366,6 +402,8 @@ import { formatTrackingSummary, trackingInputSummary } from '../lib/order-shippi
 import { orderListScopeForRequest } from '../lib/order-scope'
 import { normalizePageSize, paginationFromApi } from '../lib/pagination'
 import { replaceHistoryURL } from '../lib/url-state'
+import CombinedDeliveryNoteView from './CombinedDeliveryNoteView.vue'
+import CombinedSalesOrderView from './CombinedSalesOrderView.vue'
 import DeliveryNoteView from './DeliveryNoteView.vue'
 import OrderEntryView from './OrderEntryView.vue'
 import OrderInvoiceView from './OrderInvoiceView.vue'
@@ -391,6 +429,7 @@ const hasPrev = ref(false)
 const hasNext = ref(false)
 const selectedOrderIDs = ref([])
 const bulkSelectedOrderIDs = ref([])
+const documentSelectedOrderIDs = ref([])
 const shippingLoading = ref(false)
 const shippingExcelUrl = ref('')
 const shippingMessage = ref('')
@@ -408,6 +447,10 @@ const salesOrderDrawerOpen = ref(false)
 const activeSalesOrderID = ref(0)
 const deliveryNoteDrawerOpen = ref(false)
 const activeDeliveryNoteID = ref(0)
+const combinedSalesOrderDrawerOpen = ref(false)
+const activeCombinedSalesOrderIDs = ref([])
+const combinedDeliveryNoteDrawerOpen = ref(false)
+const activeCombinedDeliveryNoteIDs = ref([])
 const invoiceDrawerOpen = ref(false)
 const activeInvoiceID = ref(0)
 const voidingOrderID = ref(0)
@@ -428,6 +471,13 @@ const filters = reactive({
   void: 'normal',
   limit: 10,
 })
+
+const selectedDocumentRows = computed(() => documentSelectedOrderIDs.value
+  .map((id) => rows.value.find((row) => Number(row.id) === Number(id)))
+  .filter(Boolean))
+const documentSelectionSummary = computed(() => combinedDocumentSelectionSummary(documentSelectedOrderIDs.value, rows.value))
+const canGenerateCombinedDocuments = computed(() => selectedOrdersShareSameCustomer(documentSelectedOrderIDs.value, rows.value))
+const allSelectedDocumentsShipped = computed(() => selectedDocumentRows.value.length >= 2 && selectedDocumentRows.value.every(isShipped))
 
 function applyUrlFilters() {
   const params = new URL(window.location.href).searchParams
@@ -514,6 +564,40 @@ function openDeliveryNoteDrawer(row) {
 function closeDeliveryNoteDrawer() {
   deliveryNoteDrawerOpen.value = false
   activeDeliveryNoteID.value = 0
+}
+
+function openCombinedSalesOrderDrawer() {
+  if (!canGenerateCombinedDocuments.value) {
+    shippingError.value = '请选择同一客户的至少两个订单'
+    return
+  }
+  activeCombinedSalesOrderIDs.value = [...documentSelectedOrderIDs.value]
+  combinedSalesOrderDrawerOpen.value = true
+  shippingError.value = ''
+}
+
+function closeCombinedSalesOrderDrawer() {
+  combinedSalesOrderDrawerOpen.value = false
+  activeCombinedSalesOrderIDs.value = []
+}
+
+function openCombinedDeliveryNoteDrawer() {
+  if (!canGenerateCombinedDocuments.value) {
+    shippingError.value = '请选择同一客户的至少两个订单'
+    return
+  }
+  if (!allSelectedDocumentsShipped.value) {
+    shippingError.value = '组合出库单要求所选订单都已发货'
+    return
+  }
+  activeCombinedDeliveryNoteIDs.value = [...documentSelectedOrderIDs.value]
+  combinedDeliveryNoteDrawerOpen.value = true
+  shippingError.value = ''
+}
+
+function closeCombinedDeliveryNoteDrawer() {
+  combinedDeliveryNoteDrawerOpen.value = false
+  activeCombinedDeliveryNoteIDs.value = []
 }
 
 function openInvoiceDrawer(row) {
@@ -737,6 +821,17 @@ function toggleBulkOrder(row, checked) {
   shippingError.value = ''
 }
 
+function toggleDocumentOrder(row, checked) {
+  const id = Number(row?.id || 0)
+  if (!id || row?.is_void) return
+  if (checked) {
+    if (!documentSelectedOrderIDs.value.includes(id)) documentSelectedOrderIDs.value = [...documentSelectedOrderIDs.value, id]
+  } else {
+    documentSelectedOrderIDs.value = documentSelectedOrderIDs.value.filter((item) => item !== id)
+  }
+  shippingError.value = ''
+}
+
 function currentPageVoidableOrderIDs() {
   return rows.value.filter((row) => !row?.is_void).map((row) => Number(row.id)).filter(Boolean)
 }
@@ -762,6 +857,10 @@ function togglePageVoidSelection() {
 
 function clearBulkSelection() {
   bulkSelectedOrderIDs.value = []
+}
+
+function clearDocumentSelection() {
+  documentSelectedOrderIDs.value = []
 }
 
 function hasVisibleVoidableOrders() {
@@ -796,6 +895,7 @@ async function voidOrder(row) {
     await apiSend(`/api/orders/${id}/void`, { body: { reason: 'ERP订单列表失效' } })
     selectedOrderIDs.value = selectedOrderIDs.value.filter((item) => item !== id)
     bulkSelectedOrderIDs.value = bulkSelectedOrderIDs.value.filter((item) => item !== id)
+    documentSelectedOrderIDs.value = documentSelectedOrderIDs.value.filter((item) => item !== id)
     delete orderSenderIDs[id]
     shippingMessage.value = `订单 ${label} 已失效`
     await load()
@@ -817,6 +917,7 @@ async function voidSelectedOrders() {
   try {
     const data = await apiSend(`/api/orders/void`, { body: { order_ids: ids, reason: 'ERP订单列表批量失效' } })
     selectedOrderIDs.value = selectedOrderIDs.value.filter((item) => !ids.includes(item))
+    documentSelectedOrderIDs.value = documentSelectedOrderIDs.value.filter((item) => !ids.includes(item))
     bulkSelectedOrderIDs.value = []
     for (const id of ids) delete orderSenderIDs[id]
     shippingMessage.value = `已批量失效 ${Number(data.voided || ids.length)} 个订单`
@@ -956,6 +1057,7 @@ async function load() {
     }
     selectedOrderIDs.value = selectedOrderIDs.value.filter((id) => rows.value.some((row) => Number(row.id) === id && isShipReady(row)))
     bulkSelectedOrderIDs.value = bulkSelectedOrderIDs.value.filter((id) => rows.value.some((row) => Number(row.id) === id && !row.is_void))
+    documentSelectedOrderIDs.value = documentSelectedOrderIDs.value.filter((id) => rows.value.some((row) => Number(row.id) === id && !row.is_void))
     for (const key of Object.keys(orderSenderIDs)) {
       const id = Number(key)
       if (!rows.value.some((row) => Number(row.id) === id)) delete orderSenderIDs[key]
@@ -1031,6 +1133,11 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .bulk-order-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; border: 1px solid #efd1d1; border-radius: 8px; background: #fff7f7; padding: 9px 10px; margin-bottom: 12px; color: #6f2424; }
 .bulk-order-bar span { font-weight: 700; }
 .bulk-order-bar small { color: #7a4b4b; }
+.combined-document-bar { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 10px; border: 1px solid #cfe0d4; border-radius: 8px; background: #f3faf5; padding: 9px 10px; margin-bottom: 12px; color: #244f34; }
+.combined-document-status { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; font-size: 13px; }
+.combined-document-status strong { font-size: 15px; }
+.combined-document-status .invalid { color: #9d1c1c; font-weight: 600; }
+.combined-document-actions { display: flex; flex-wrap: wrap; gap: 8px; }
 .danger-action { border-color: #8a1f1f; background: #8a1f1f; color: #fff; }
 .notice { display: flex; align-items: center; justify-content: space-between; gap: 10px; border-radius: 6px; padding: 9px; margin-bottom: 12px; }
 .ok { background: #eef8f1; border: 1px solid #b9dfc4; color: #1f6b38; }
@@ -1105,6 +1212,8 @@ a, .text-link { color: #1f4f82; text-decoration: none; }
 .sales-order-drawer { width: min(1160px, calc(100vw - 28px)); height: 100%; overflow: auto; background: #f8f7f4; border-left: 1px solid #e6e0d8; box-shadow: -10px 0 24px rgba(0, 0, 0, .14); }
 .delivery-note-drawer-mask { position: fixed; inset: 0; z-index: 35; display: flex; justify-content: flex-end; background: rgba(0, 0, 0, .24); }
 .delivery-note-drawer { width: min(1160px, calc(100vw - 28px)); height: 100%; overflow: auto; background: #f8f7f4; border-left: 1px solid #e6e0d8; box-shadow: -10px 0 24px rgba(0, 0, 0, .14); }
+.combined-document-drawer-mask { position: fixed; inset: 0; z-index: 36; display: flex; justify-content: flex-end; background: rgba(0, 0, 0, .24); }
+.combined-document-drawer { width: min(1160px, calc(100vw - 28px)); height: 100%; overflow: auto; background: #f8f7f4; border-left: 1px solid #e6e0d8; box-shadow: -10px 0 24px rgba(0, 0, 0, .14); }
 .invoice-drawer-mask { position: fixed; inset: 0; z-index: 35; display: flex; justify-content: flex-end; background: rgba(0, 0, 0, .24); }
 .invoice-drawer { width: min(760px, calc(100vw - 28px)); height: 100%; overflow: auto; background: #f8f7f4; border-left: 1px solid #e6e0d8; box-shadow: -10px 0 24px rgba(0, 0, 0, .14); }
 @media (max-width: 900px) {
@@ -1114,6 +1223,6 @@ a, .text-link { color: #1f4f82; text-decoration: none; }
   .shipping-actions { align-self: stretch; justify-content: flex-start; }
   table { min-width: 980px; }
   .status-stack, .drawer-status-grid { grid-template-columns: 1fr; }
-  .order-detail-drawer, .sales-order-drawer, .delivery-note-drawer, .invoice-drawer { width: 100vw; }
+  .order-detail-drawer, .sales-order-drawer, .delivery-note-drawer, .combined-document-drawer, .invoice-drawer { width: 100vw; }
 }
 </style>
