@@ -20,6 +20,7 @@ import {
   customerSkuCustomerOptions,
   filterSkuRows,
   gradientTemplateBelongsToSkuContext,
+  inferProductKindFromProductTypeCategory,
   nextSkuContextCustomerID,
   normalizedProductKind,
   paginatedSkuRows,
@@ -99,6 +100,15 @@ test('instant coffee product kind is preserved in SKU payloads without roast set
     copy_bom: false,
     copy_price_tiers: true,
   })
+})
+
+test('product category selection infers legacy product kind only as compatibility', () => {
+  assert.equal(inferProductKindFromProductTypeCategory({ name: '速溶咖啡' }), 'instant_coffee')
+  assert.equal(inferProductKindFromProductTypeCategory({ name: '冻干速溶' }), 'instant_coffee')
+  assert.equal(inferProductKindFromProductTypeCategory({ name: '生豆' }), 'green_bean')
+  assert.equal(inferProductKindFromProductTypeCategory({ name: '挂耳' }), 'drip_bag')
+  assert.equal(inferProductKindFromProductTypeCategory({ name: '意式拼配' }), 'roasted')
+  assert.equal(inferProductKindFromProductTypeCategory(null), 'roasted')
 })
 
 test('product subtype config payload carries templates and lightweight unit rule', () => {
@@ -726,6 +736,20 @@ test('SKU settings labels category levels as product type and subtype', () => {
   assert.doesNotMatch(source, /二级分类/)
 })
 
+test('SKU creation uses product category from category tree instead of product shape choices', () => {
+  const source = fs.readFileSync(new URL('../views/ProductSettingsView.vue', import.meta.url), 'utf8')
+
+  assert.match(source, /产品类别/)
+  assert.match(source, /productTypeCategoryOptions/)
+  assert.match(source, /productForm\.product_type_category_id/)
+  assert.match(source, /customForm\.product_type_category_id/)
+  assert.match(source, /syncProductKindFromProductTypeCategory/)
+  assert.match(source, /assignCreatedSkuToSelectedProductCategory/)
+  assert.doesNotMatch(source, /<span>产品形态<\/span>/)
+  assert.doesNotMatch(source, /v-model="productForm\.product_kind"/)
+  assert.doesNotMatch(source, /v-model="customForm\.product_kind"/)
+})
+
 test('SKU settings exposes product subtype default unit configuration controls', () => {
   const source = fs.readFileSync(new URL('../views/ProductSettingsView.vue', import.meta.url), 'utf8')
 
@@ -741,6 +765,22 @@ test('SKU settings exposes product subtype default unit configuration controls',
     'buildProductCategoryConfigPayload',
   ]) {
     assert.ok(source.includes(expected), `missing subtype default unit config UI marker: ${expected}`)
+  }
+})
+
+test('SKU subtype config explains unit impact and stays inside narrow category panels', () => {
+  const source = fs.readFileSync(new URL('../views/ProductSettingsView.vue', import.meta.url), 'utf8')
+
+  for (const expected of [
+    '单位会影响产品价格表、录单和生产计划',
+    '已发布价格表和历史订单不会被回改',
+    'subtype-config-help',
+    'repeat(auto-fit, minmax',
+    'min-width: 0',
+    'box-sizing: border-box',
+    'grid-column: 1 / -1',
+  ]) {
+    assert.ok(source.includes(expected), `missing subtype clarity or responsive marker: ${expected}`)
   }
 })
 

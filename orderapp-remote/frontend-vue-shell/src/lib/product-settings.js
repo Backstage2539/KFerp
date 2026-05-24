@@ -24,6 +24,15 @@ export function normalizedProductKind(row = {}) {
   return 'roasted'
 }
 
+export function inferProductKindFromProductTypeCategory(category = {}) {
+  const text = `${category?.name || ''} ${category?.source_name || ''}`.trim().toLowerCase()
+  if (!text) return 'roasted'
+  if (text.includes('速溶') || text.includes('冻干') || text.includes('instant')) return 'instant_coffee'
+  if (text.includes('挂耳') || text.includes('drip')) return 'drip_bag'
+  if (text.includes('生豆') || text.includes('green')) return 'green_bean'
+  return 'roasted'
+}
+
 export function productKindRequiresRoast(kindOrRow = {}) {
   const kind = typeof kindOrRow === 'object' ? normalizedProductKind(kindOrRow) : normalizedProductKind({ product_kind: kindOrRow })
   return kind === 'roasted' || kind === 'drip_bag'

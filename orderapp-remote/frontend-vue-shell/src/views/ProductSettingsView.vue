@@ -57,12 +57,12 @@
             <textarea v-model.trim="productForm.remark" rows="2" placeholder="如 奶咖主推、仅指定客户使用"></textarea>
           </label>
           <label>
-            <span>产品形态</span>
-            <select v-model="productForm.product_kind">
-              <option value="roasted">熟豆</option>
-              <option value="green_bean">生豆</option>
-              <option value="drip_bag">挂耳</option>
-              <option value="instant_coffee">速溶咖啡</option>
+            <span>产品类别</span>
+            <select v-model.number="productForm.product_type_category_id" @change="syncProductKindFromProductTypeCategory(productForm)">
+              <option value="0">选择产品类别</option>
+              <option v-for="category in productTypeCategoryOptions" :key="category.id" :value="category.id">
+                {{ category.name }}
+              </option>
             </select>
           </label>
           <label v-if="productKindRequiresRoast(productForm.product_kind)">
@@ -121,12 +121,12 @@
         </div>
         <form class="custom-product-form" @submit.prevent="createCustomProduct">
           <label>
-            <span>产品形态</span>
-            <select v-model="customForm.product_kind" @change="handleCustomProductKindChange">
-              <option value="roasted">熟豆</option>
-              <option value="green_bean">生豆</option>
-              <option value="drip_bag">挂耳</option>
-              <option value="instant_coffee">速溶咖啡</option>
+            <span>产品类别</span>
+            <select v-model.number="customForm.product_type_category_id" @change="handleCustomProductTypeCategoryChange">
+              <option value="0">选择产品类别</option>
+              <option v-for="category in productTypeCategoryOptions" :key="category.id" :value="category.id">
+                {{ category.name }}
+              </option>
             </select>
           </label>
           <label v-if="customForm.product_kind !== 'green_bean' && customForm.custom_type !== 'custom_roast'" class="wide-field">
@@ -502,7 +502,10 @@
                     @submit.prevent="saveProductSubtypeConfig"
                     @pointerdown.stop
                     @dragstart.stop>
-                    <div class="subtype-config-title">子类型配置</div>
+                    <div class="subtype-config-title">产品子类型配置</div>
+                    <p class="subtype-config-help">
+                      单位会影响产品价格表、录单和生产计划：报价单位决定价格表阶梯和展示单位，录单单位决定订单默认单位，库存单位用于库存和生产折算；单位换算 JSON 用于把录单数量换算成库存数量，例如 {"盒":{"kg":0.2}}。已发布价格表和历史订单不会被回改。
+                    </p>
                     <label>
                       <span>阶梯价模板</span>
                       <select v-model.number="subtypeConfigForm.gradient_template_id">
@@ -515,30 +518,39 @@
                     <label>
                       <span>工序模板ID</span>
                       <input v-model.number="subtypeConfigForm.operation_template_id" type="number" min="0" step="1" placeholder="0 表示未绑定" />
+                      <small>影响无 BOM 生产计划的默认工序。</small>
                     </label>
                     <label>
                       <span>价格表规则 JSON</span>
                       <textarea v-model.trim="subtypeConfigForm.price_list_rule_json" rows="2" placeholder="{}"></textarea>
+                      <small>高级规则，未配置时保留 {}。</small>
                     </label>
                     <label>
                       <span>库存单位</span>
                       <input v-model.trim="subtypeConfigForm.inventory_unit" placeholder="kg" />
+                      <small>用于库存和生产数量。</small>
                     </label>
                     <label>
                       <span>报价单位</span>
                       <input v-model.trim="subtypeConfigForm.quote_unit" placeholder="盒" />
+                      <small>用于产品价格表和阶梯价单位。</small>
                     </label>
                     <label>
                       <span>录单单位</span>
                       <input v-model.trim="subtypeConfigForm.order_unit" placeholder="盒" />
+                      <small>用于录单默认规格单位。</small>
                     </label>
                     <label class="wide-subtype-field">
                       <span>单位换算 JSON</span>
                       <textarea v-model.trim="subtypeConfigForm.unit_conversion_json" rows="2" placeholder='{"盒":{"kg":0.2}}'></textarea>
+                      <small>例如 1 盒 = 0.2 kg；影响录单数量折算生产/库存数量。</small>
                     </label>
-                    <label class="checkline subtype-checkline">
-                      <input v-model="subtypeConfigForm.integer_unit" type="checkbox" />
-                      <span>整数单位</span>
+                    <label class="subtype-integer-field">
+                      <span class="subtype-checkbox-row">
+                        <input v-model="subtypeConfigForm.integer_unit" type="checkbox" />
+                        <span>整数单位</span>
+                      </span>
+                      <small>开启后录单数量应按整数填写，例如盒、袋。</small>
                     </label>
                     <div class="form-actions subtype-config-actions">
                       <button class="secondary" type="button" @click="cancelProductSubtypeConfigEdit">取消</button>
@@ -829,6 +841,7 @@ import {
   filterSkuRows,
   gradientTemplateBelongsToSkuContext,
   greenBeanTypeOptions,
+  inferProductKindFromProductTypeCategory,
   isPublicReferenceRow,
   nextSkuContextCustomerID,
   normalizedProductKind,
@@ -934,6 +947,15 @@ const categoryTreeForSkuContext = computed(() => buildSkuContextCategoryTree(cat
   publicProducts: publicProducts.value,
   customerProducts: customerProductsForContext.value,
 }))
+const productTypeCategoryOptions = computed(() => categoryTreeForSkuContext.value
+  .map((category) => ({
+    id: Number(category.id || 0),
+    name: category.name || '',
+    customer_id: Number(category.customer_id || 0),
+    source_category_id: Number(category.source_category_id || 0),
+    template_state: category.template_state || '',
+  }))
+  .filter((category) => category.id > 0 && category.name))
 const productRows = computed(() => {
   const rows = []
   for (const primary of categoryTreeForSkuContext.value) {
@@ -1027,6 +1049,7 @@ function defaultSkuFilters() {
 function defaultProductForm() {
   return {
     name: '',
+    product_type_category_id: 0,
     product_kind: 'roasted',
     remark: '',
     green_bean_type: 'single_origin',
@@ -1064,6 +1087,7 @@ function defaultCustomForm() {
     base_product_id: 0,
     name: '',
     remark: '',
+    product_type_category_id: 0,
     product_kind: 'roasted',
     green_bean_type: 'single_origin',
     green_bean_bom_product_id: 0,
@@ -1169,6 +1193,8 @@ async function restoreProductSettingsDraft() {
   skuFilters.value = { ...defaultSkuFilters(), ...(draft.skuFilters || {}) }
   skuPage.value = Number(draft.skuPage || 1)
   skuPageSize.value = normalizePageSize(draft.skuPageSize)
+  ensureProductTypeCategorySelected(productForm.value)
+  ensureProductTypeCategorySelected(customForm.value)
   await nextTick()
   restoringProductSettingsDraft = false
 }
@@ -1788,6 +1814,53 @@ function selectedBaseProduct() {
   return products.value.find((product) => Number(product.id) === Number(customForm.value.base_product_id)) || null
 }
 
+function productTypeCategoryByID(categoryID) {
+  return productTypeCategoryOptions.value.find((category) => Number(category.id) === Number(categoryID)) || null
+}
+
+function syncProductKindFromProductTypeCategory(form) {
+  if (!form) return
+  const category = productTypeCategoryByID(form.product_type_category_id)
+  form.product_kind = inferProductKindFromProductTypeCategory(category)
+  if (productKindRequiresRoast(form.product_kind) && !form.roast_level) {
+    form.roast_level = '中烘'
+  }
+}
+
+function handleCustomProductTypeCategoryChange() {
+  const previousKind = customForm.value.product_kind
+  syncProductKindFromProductTypeCategory(customForm.value)
+  if (customForm.value.product_kind !== previousKind) {
+    handleCustomProductKindChange()
+  }
+}
+
+function ensureProductTypeCategorySelected(form) {
+  if (!form) return
+  if (Number(form.product_type_category_id || 0) && !productTypeCategoryByID(form.product_type_category_id)) {
+    form.product_type_category_id = 0
+  }
+  if (!Number(form.product_type_category_id || 0) && productTypeCategoryOptions.value.length) {
+    form.product_type_category_id = Number(productTypeCategoryOptions.value[0].id)
+  }
+  syncProductKindFromProductTypeCategory(form)
+}
+
+async function assignCreatedSkuToSelectedProductCategory(product, form) {
+  const productID = Number(product?.id || 0)
+  const categoryID = Number(form?.product_type_category_id || 0)
+  if (!productID || !categoryID) return
+  const category = productTypeCategoryByID(categoryID) || { id: categoryID, customer_id: 0 }
+  await apiSend(`/api/product-settings/products/${productID}/category`, {
+    body: buildAssignCategoryPayload({
+      product,
+      category,
+      customerID: Number(product?.customer_id || skuContextCustomerID.value || 0),
+      position: 0,
+    }),
+  })
+}
+
 function baseProductName(id) {
   return products.value.find((product) => Number(product.id) === Number(id))?.name || '-'
 }
@@ -1832,6 +1905,11 @@ function openProductBom(row) {
 }
 
 async function createProduct() {
+  ensureProductTypeCategorySelected(productForm.value)
+  if (!Number(productForm.value.product_type_category_id || 0)) {
+    error.value = '请先在商品分类新增产品类型，并选择产品类别'
+    return
+  }
   if (!productForm.value.name) {
     error.value = '请填写商品名称'
     return
@@ -1857,9 +1935,10 @@ async function createProduct() {
   error.value = ''
   ok.value = ''
   try {
-    await apiSend('/api/product-settings/products', {
+    const result = await apiSend('/api/product-settings/products', {
       body: buildProductCreatePayload(productForm.value),
     })
+    await assignCreatedSkuToSelectedProductCategory(result?.product, productForm.value)
     ok.value = '公共产品已创建'
     productForm.value = defaultProductForm()
     await loadAll()
@@ -1874,6 +1953,11 @@ async function createCustomProduct() {
   const customerID = Number(selectedCustomerSkuCustomerID.value || customForm.value.customer_id || 0)
   if (!customerID) {
     error.value = '请选择客户'
+    return
+  }
+  ensureProductTypeCategorySelected(customForm.value)
+  if (!Number(customForm.value.product_type_category_id || 0)) {
+    error.value = '请先在商品分类新增产品类型，并选择产品类别'
     return
   }
   if (customForm.value.product_kind !== 'green_bean' && customForm.value.custom_type !== 'custom_roast' && !customForm.value.base_product_id) {
@@ -1908,9 +1992,10 @@ async function createCustomProduct() {
   error.value = ''
   ok.value = ''
   try {
-    await apiSend('/api/product-settings/custom-products', {
+    const result = await apiSend('/api/product-settings/custom-products', {
       body: buildCustomProductCreatePayload(customerID, customForm.value),
     })
+    await assignCreatedSkuToSelectedProductCategory(result?.product, customForm.value)
     ok.value = '客户专属 SKU 已创建'
     customForm.value = { ...defaultCustomForm(), customer_id: customerID }
     await loadAll()
@@ -2456,7 +2541,7 @@ watch(selectedCustomerSkuCustomerID, (customerID) => {
     pruneSelectedProducts(displaySkuRows.value)
     return
   }
-  customForm.value = { ...customForm.value, customer_id: Number(selectedCustomerSkuCustomerID.value || 0), name: '', remark: '' }
+  customForm.value = { ...customForm.value, customer_id: Number(selectedCustomerSkuCustomerID.value || 0), product_type_category_id: 0, name: '', remark: '' }
   resetCustomerProductRuleForms()
   skuFilters.value = defaultSkuFilters()
   skuPage.value = 1
@@ -2465,6 +2550,11 @@ watch(selectedCustomerSkuCustomerID, (customerID) => {
 })
 
 watch(() => [props.workspaceMode, props.customerContextId], applyWorkspaceCustomerContext, { immediate: true })
+
+watch(productTypeCategoryOptions, () => {
+  ensureProductTypeCategorySelected(productForm.value)
+  ensureProductTypeCategorySelected(customForm.value)
+}, { deep: true })
 
 watch(() => customForm.value.base_product_id, () => {
   if (customForm.value.product_kind === 'green_bean' || customForm.value.custom_type === 'custom_roast') return
@@ -2572,23 +2662,28 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .form-actions { display: flex; justify-content: flex-end; }
 .inline-form { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; margin-bottom: 10px; }
 .sub-form { margin: 8px 0; }
-.category-tree { display: grid; gap: 10px; }
-.primary-category { border: 1px solid #eee8df; border-radius: 8px; padding: 10px; background: #fbfaf8; }
+.category-tree { display: grid; gap: 10px; min-width: 0; }
+.primary-category { border: 1px solid #eee8df; border-radius: 8px; padding: 10px; background: #fbfaf8; min-width: 0; }
 .category-head, .secondary-head, .category-actions { display: flex; align-items: center; gap: 8px; justify-content: space-between; }
 .secondary-head { flex-wrap: wrap; justify-content: flex-start; }
 .secondary-head b { min-width: 120px; }
-.secondary-category { border: 1px solid #ddd; border-radius: 8px; padding: 9px; background: #fff; cursor: grab; user-select: none; touch-action: none; }
+.secondary-category { border: 1px solid #ddd; border-radius: 8px; padding: 9px; background: #fff; cursor: grab; user-select: none; touch-action: none; min-width: 0; overflow: hidden; }
 .secondary-category.dragging { opacity: .45; }
 .secondary-category.pointer-dragging { cursor: grabbing; }
 .secondary-head span { display: inline-flex; width: 24px; height: 24px; align-items: center; justify-content: center; border: 1px solid #ddd; border-radius: 6px; }
 .secondary-head small { color: #666; }
-.subtype-config-form { display: grid; grid-template-columns: repeat(3, minmax(150px, 1fr)); gap: 8px; margin-top: 10px; padding: 10px; border: 1px solid #eee8df; border-radius: 8px; background: #fbfaf8; cursor: default; user-select: text; }
+.subtype-config-form { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 8px; width: 100%; max-width: 100%; min-width: 0; box-sizing: border-box; overflow: hidden; margin-top: 10px; padding: 10px; border: 1px solid #eee8df; border-radius: 8px; background: #fbfaf8; cursor: default; user-select: text; }
 .subtype-config-title { grid-column: 1 / -1; font-weight: 700; color: #3f3328; }
-.subtype-config-form label { display: grid; gap: 5px; font-size: 12px; color: #444; }
+.subtype-config-help { grid-column: 1 / -1; margin: 0; color: #5f5a52; font-size: 12px; line-height: 1.55; }
+.subtype-config-form label { display: grid; gap: 5px; min-width: 0; font-size: 12px; color: #444; }
 .subtype-config-form label span { color: #666; font-weight: 600; }
-.wide-subtype-field { grid-column: span 2; }
-.subtype-checkline { align-self: end; }
-.subtype-config-actions { grid-column: 1 / -1; gap: 8px; }
+.subtype-config-form input, .subtype-config-form select, .subtype-config-form textarea { min-width: 0; width: 100%; box-sizing: border-box; }
+.subtype-config-form input[type="checkbox"] { width: auto; min-height: 0; }
+.subtype-config-form small { color: #7b746c; line-height: 1.35; }
+.wide-subtype-field { grid-column: 1 / -1; }
+.subtype-integer-field { align-self: end; }
+.subtype-checkbox-row { display: inline-flex; align-items: center; gap: 8px; }
+.subtype-config-actions { grid-column: 1 / -1; gap: 8px; flex-wrap: wrap; }
 .category-drop-line { height: 16px; border-top: 2px solid transparent; margin: 2px 0; transition: border-color .12s ease, background .12s ease; }
 .category-drop-line.active { border-top-color: #1f4f82; background: #edf5ff; }
 .product-chip-list, .uncategorized { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
@@ -2636,7 +2731,7 @@ th { background: #fbfaf8; position: sticky; top: 0; }
   .panel-actions { justify-content: flex-start; }
   .sku-panel-actions { width: 100%; }
   .sku-customer-select { max-width: none; }
-  .product-create-form .wide-field, .custom-product-form .wide-field, .wide-subtype-field { grid-column: auto; }
+  .product-create-form .wide-field, .custom-product-form .wide-field { grid-column: auto; }
   .template-select { width: 100%; }
   table { min-width: 1400px; }
 }
