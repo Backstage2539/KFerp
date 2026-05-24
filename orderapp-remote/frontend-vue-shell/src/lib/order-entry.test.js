@@ -89,6 +89,13 @@ test('retailSpecOptions includes custom sentinel for retail orders', () => {
   ])
 })
 
+test('order entry labels instant coffee as its own product kind', () => {
+  assert.equal(productKindLabel('instant_coffee'), '速溶咖啡')
+  assert.equal(productKindBadgeClass('instant_coffee'), 'kind-instant')
+  assert.equal(productKindLabel({ product_kind: 'drip_bag' }), '挂耳')
+  assert.equal(productKindBadgeClass({ product_kind: 'drip_bag' }), 'kind-drip')
+})
+
 test('buildOrderPayload saves real custom spec grams', () => {
   const payload = buildOrderPayload({
     form: {

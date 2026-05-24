@@ -9,16 +9,17 @@ import (
 )
 
 type UnprodNeedRow struct {
-	ProductID int64  `json:"product_id"`
-	Product   string `json:"product"`
-	OrderNos  string `json:"order_nos"`
-	SpecG     int64  `json:"spec_g"`
-	NeedUnits int64  `json:"need_units"`
-	NeedG     int64  `json:"need_g"`
-	InvUnits  int64  `json:"inv_units"`
-	InvLooseG int64  `json:"inv_loose_g"`
-	InvG      int64  `json:"inv_g"`
-	GapG      int64  `json:"gap_g"`
+	ProductID      int64  `json:"product_id"`
+	Product        string `json:"product"`
+	OrderNos       string `json:"order_nos"`
+	SpecG          int64  `json:"spec_g"`
+	NeedUnits      int64  `json:"need_units"`
+	NeedG          int64  `json:"need_g"`
+	InvUnits       int64  `json:"inv_units"`
+	InvLooseG      int64  `json:"inv_loose_g"`
+	InvG           int64  `json:"inv_g"`
+	GapG           int64  `json:"gap_g"`
+	ProductionKind string `json:"production_kind,omitempty"`
 }
 
 func fetchUnproducedNeeds(ctx context.Context, pool *pgxpool.Pool, schema, from, to string, customerID int64) ([]UnprodNeedRow, error) {
@@ -64,6 +65,7 @@ func fetchUnproducedNeeds(ctx context.Context, pool *pgxpool.Pool, schema, from,
 			SELECT
 				oi.product_id,
 				COALESCE(p.name,'') AS product,
+				COALESCE(NULLIF(oi.product_kind,''), NULLIF(p.product_kind,''), 'roasted_bean') AS production_kind,
 				STRING_AGG(DISTINCT COALESCE(o.order_no,''), ',' ORDER BY COALESCE(o.order_no,'')) AS order_nos,
 				COALESCE(NULLIF(regexp_replace(COALESCE(oi.spec,''), '[^0-9]', '', 'g'), ''), '0')::bigint AS spec_g,
 				SUM(COALESCE(oi.qty,0))::bigint AS need_units,
@@ -73,11 +75,12 @@ func fetchUnproducedNeeds(ctx context.Context, pool *pgxpool.Pool, schema, from,
 			LEFT JOIN %s.products p ON p.id = oi.product_id
 			LEFT JOIN %s.order_stock_decisions osd ON osd.order_id = o.id
 			%s
-			GROUP BY oi.product_id, p.name, COALESCE(NULLIF(regexp_replace(COALESCE(oi.spec,''), '[^0-9]', '', 'g'), ''), '0')
+			GROUP BY oi.product_id, p.name, COALESCE(NULLIF(oi.product_kind,''), NULLIF(p.product_kind,''), 'roasted_bean'), COALESCE(NULLIF(regexp_replace(COALESCE(oi.spec,''), '[^0-9]', '', 'g'), ''), '0')
 			UNION ALL
 			SELECT
 				d.product_id,
 				COALESCE(NULLIF(d.product_name,''), p.name, '') AS product,
+				COALESCE(NULLIF(p.product_kind,''), 'roasted_bean') AS production_kind,
 				STRING_AGG(DISTINCT COALESCE(d.request_no,''), ',' ORDER BY COALESCE(d.request_no,'')) AS order_nos,
 				d.spec_g,
 				SUM(COALESCE(d.target_qty,0))::bigint AS need_units,
@@ -85,7 +88,7 @@ func fetchUnproducedNeeds(ctx context.Context, pool *pgxpool.Pool, schema, from,
 			FROM %s.customer_processing_production_demands d
 			LEFT JOIN %s.products p ON p.id=d.product_id
 			WHERE %s
-			GROUP BY d.product_id, d.product_name, p.name, d.spec_g
+			GROUP BY d.product_id, d.product_name, p.name, COALESCE(NULLIF(p.product_kind,''), 'roasted_bean'), d.spec_g
 		)
 		, reserved AS (
 			SELECT
@@ -106,6 +109,7 @@ func fetchUnproducedNeeds(ctx context.Context, pool *pgxpool.Pool, schema, from,
 		SELECT
 			n.product_id,
 			n.product,
+			n.production_kind,
 			COALESCE(n.order_nos,'') AS order_nos,
 			n.spec_g,
 			n.need_units,
@@ -143,7 +147,7 @@ func fetchUnproducedNeeds(ctx context.Context, pool *pgxpool.Pool, schema, from,
 	out := make([]UnprodNeedRow, 0)
 	for rows.Next() {
 		var r UnprodNeedRow
-		if err := rows.Scan(&r.ProductID, &r.Product, &r.OrderNos, &r.SpecG, &r.NeedUnits, &r.NeedG, &r.InvUnits, &r.InvLooseG, &r.InvG, &r.GapG); err != nil {
+		if err := rows.Scan(&r.ProductID, &r.Product, &r.ProductionKind, &r.OrderNos, &r.SpecG, &r.NeedUnits, &r.NeedG, &r.InvUnits, &r.InvLooseG, &r.InvG, &r.GapG); err != nil {
 			return nil, err
 		}
 		out = append(out, r)

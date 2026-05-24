@@ -259,8 +259,11 @@ func (h productHandler) updateAPI(c echo.Context) error {
 		roastLevelInput = *req.RoastLevel
 	}
 	roastLevel := NormalizeRoastLevel(roastLevelInput)
-	if productKind != catalogdomain.ProductKindGreenBean && roastLevel == "" {
+	if catalogdomain.ProductKindRequiresRoast(productKind) && roastLevel == "" {
 		return c.JSON(http.StatusBadRequest, map[string]any{"error": "invalid roast_level"})
+	}
+	if !catalogdomain.ProductKindRequiresRoast(productKind) {
+		roastLevel = ""
 	}
 	defaultPrice := optionalFloat64(req.DefaultPrice, existing.DefaultPrice)
 	retailPrice100G := optionalFloat64(req.RetailPrice100G, existing.RetailPrice100G)
@@ -290,7 +293,7 @@ func (h productHandler) updateAPI(c echo.Context) error {
 		return c.JSON(http.StatusBadRequest, map[string]any{"error": err.Error()})
 	}
 	yieldRate := normalizeProductYieldRate(req.YieldRate)
-	if productKind != catalogdomain.ProductKindGreenBean && req.YieldRate > 0 && yieldRate <= 0 {
+	if catalogdomain.ProductKindRequiresRoast(productKind) && req.YieldRate > 0 && yieldRate <= 0 {
 		return c.JSON(http.StatusBadRequest, map[string]any{"error": "invalid yield_rate"})
 	}
 	marginRateOverride := existing.MarginRateOverride
@@ -395,11 +398,14 @@ func (h productHandler) createProductAPI(c echo.Context) error {
 	if strings.TrimSpace(roastLevelInput) != "" && roastLevel == "" {
 		return c.JSON(http.StatusBadRequest, map[string]any{"error": "invalid roast_level"})
 	}
-	if productKind != catalogdomain.ProductKindGreenBean && roastLevel == "" {
+	if catalogdomain.ProductKindRequiresRoast(productKind) && roastLevel == "" {
 		roastLevel = "深烘"
 	}
+	if !catalogdomain.ProductKindRequiresRoast(productKind) {
+		roastLevel = ""
+	}
 	yieldRate := normalizeProductYieldRate(req.YieldRate)
-	if productKind != catalogdomain.ProductKindGreenBean && req.YieldRate > 0 && yieldRate <= 0 {
+	if catalogdomain.ProductKindRequiresRoast(productKind) && req.YieldRate > 0 && yieldRate <= 0 {
 		return c.JSON(http.StatusBadRequest, map[string]any{"error": "invalid yield_rate"})
 	}
 	if err := validateExplicitDripConfig(productKind, req.DripBagGrams, req.DripBoxBagCount); err != nil {

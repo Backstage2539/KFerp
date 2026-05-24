@@ -2006,6 +2006,8 @@ button:disabled { cursor: not-allowed; opacity: 0.5; }
 .kind-badge { display: inline-flex; align-items: center; min-height: 18px; padding: 1px 6px; border-radius: 4px; font-size: 12px; font-weight: 600; margin-left: 4px; }
 .kind-roasted { color: #8a4b12; background: #fff3df; border: 1px solid #f3c67c; }
 .kind-green { color: #12613a; background: #e8f7ee; border: 1px solid #8bd4a6; }
+.kind-drip { color: #1f4b7a; background: #eaf3ff; border: 1px solid #9bc4ef; }
+.kind-instant { color: #6b3f16; background: #f5efe6; border: 1px solid #cba77d; }
 .combo-empty { padding: 12px; color: #667085; font-size: 13px; }
 .line-list { display: grid; gap: 10px; margin-top: 12px; }
 .line-actions { display: flex; justify-content: flex-start; padding-top: 12px; }

@@ -519,7 +519,7 @@ func productionSummaryToApp(items []ProduceBatchSummaryItem) []productionapp.Sum
 
 func loadProductYieldRateMapTx(ctx context.Context, tx pgx.Tx, schema string) (map[int64]float64, error) {
 	rows, err := tx.Query(ctx, `
-		SELECT p.id, COALESCE(p.roast_level,''), COALESCE(b.yield_rate,0.8)
+		SELECT p.id, COALESCE(p.roast_level,''), COALESCE(b.yield_rate,0.8), COALESCE(NULLIF(p.product_kind,''),'roasted_bean')
 		FROM `+schema+`.products p
 		LEFT JOIN `+schema+`.product_bom b ON b.product_id=p.id
 		WHERE p.active=true`)
@@ -533,8 +533,13 @@ func loadProductYieldRateMapTx(ctx context.Context, tx pgx.Tx, schema string) (m
 		var productID int64
 		var roastLevel string
 		var yieldRate float64
-		if err := rows.Scan(&productID, &roastLevel, &yieldRate); err != nil {
+		var productKind string
+		if err := rows.Scan(&productID, &roastLevel, &yieldRate, &productKind); err != nil {
 			return nil, err
+		}
+		if catalogdomain.NormalizeProductKind(productKind) == catalogdomain.ProductKindInstantCoffee {
+			out[productID] = 1
+			continue
 		}
 		out[productID] = catalogdomain.ResolveYieldRate(roastLevel, yieldRate)
 	}

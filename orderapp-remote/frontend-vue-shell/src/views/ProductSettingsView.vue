@@ -62,15 +62,16 @@
               <option value="roasted">熟豆</option>
               <option value="green_bean">生豆</option>
               <option value="drip_bag">挂耳</option>
+              <option value="instant_coffee">速溶咖啡</option>
             </select>
           </label>
-          <label v-if="productForm.product_kind !== 'green_bean'">
+          <label v-if="productKindRequiresRoast(productForm.product_kind)">
             <span>烘焙度</span>
             <select v-model="productForm.roast_level">
               <option v-for="level in roastLevels" :key="level" :value="level">{{ level }}</option>
             </select>
           </label>
-          <label v-if="productForm.product_kind !== 'green_bean'">
+          <label v-if="productKindRequiresRoast(productForm.product_kind)">
             <span>BOM出品率</span>
             <div class="yield-editor">
               <input
@@ -125,6 +126,7 @@
               <option value="roasted">熟豆</option>
               <option value="green_bean">生豆</option>
               <option value="drip_bag">挂耳</option>
+              <option value="instant_coffee">速溶咖啡</option>
             </select>
           </label>
           <label v-if="customForm.product_kind !== 'green_bean' && customForm.custom_type !== 'custom_roast'" class="wide-field">
@@ -146,7 +148,7 @@
               <option value="custom_roast">定制烘焙度</option>
             </select>
           </label>
-          <label v-if="customForm.product_kind !== 'green_bean'">
+          <label v-if="productKindRequiresRoast(customForm.product_kind)">
             <span>烘焙度</span>
             <select v-model="customForm.roast_level" @change="fillCustomProductName">
               <option v-for="level in roastLevels" :key="level" :value="level">{{ level }}</option>
@@ -435,6 +437,7 @@
                 <option value="roasted">熟豆</option>
                 <option value="green_bean">生豆</option>
                 <option value="drip_bag">挂耳</option>
+                <option value="instant_coffee">速溶咖啡</option>
               </select>
             </label>
             <label>
@@ -504,12 +507,13 @@
                   <td>{{ productOwnerLabel(row) }}</td>
                   <td>{{ skuTypeLabel(row.custom_type) }}</td>
                   <td>
-                    <select class="roast-select" v-model="row.roast_level" :disabled="row.product_kind === 'green_bean' || !canEditSkuRow(row)" @change="saveProductBasics(row)">
+                    <select v-if="productKindRequiresRoast(row)" class="roast-select" v-model="row.roast_level" :disabled="!canEditSkuRow(row)" @change="saveProductBasics(row)">
                       <option v-for="level in roastLevels" :key="level" :value="level">{{ level }}</option>
                     </select>
+                    <span v-else class="muted">-</span>
                   </td>
                   <td>
-                    <div class="yield-editor">
+                    <div v-if="productKindRequiresRoast(row)" class="yield-editor">
                       <input
                         class="yield-input"
                         v-model.number="row.yield_percent"
@@ -517,10 +521,11 @@
                         min="1"
                         max="100"
                         step="0.01"
-                        :disabled="row.product_kind === 'green_bean' || !canEditSkuRow(row)"
+                        :disabled="!canEditSkuRow(row)"
                         @change="saveProductBasics(row)" />
                       <span>%</span>
                     </div>
+                    <span v-else class="muted">-</span>
                   </td>
                   <td>
                     <input
@@ -652,6 +657,7 @@ import {
   paginatedSkuRows,
   productBelongsToSkuContext as productBelongsToContext,
   productDisplayState,
+  productKindRequiresRoast,
   primaryCategoryOptions,
   roastedBomProductOptions,
   secondaryCategoryOptions,
@@ -840,6 +846,7 @@ function productKindLabel(row = {}) {
   const kind = normalizedProductKind(row)
   if (kind === 'green_bean') return '生豆'
   if (kind === 'drip_bag') return '挂耳'
+  if (kind === 'instant_coffee') return '速溶咖啡'
   return '熟豆'
 }
 
@@ -847,6 +854,7 @@ function productKindBadgeClass(row = {}) {
   const kind = normalizedProductKind(row)
   if (kind === 'green_bean') return 'kind-green'
   if (kind === 'drip_bag') return 'kind-drip'
+  if (kind === 'instant_coffee') return 'kind-instant'
   return 'kind-roasted'
 }
 
@@ -943,9 +951,9 @@ function decorateProduct(product) {
     green_bean_bom_product_id: Number(product.green_bean_bom_product_id || 0),
     drip_bag_grams: Number(product.drip_bag_grams || 10),
     drip_box_bag_count: Number(product.drip_box_bag_count || 10),
-    roast_level: productKind === 'green_bean' ? '' : roastLevels.includes(product.roast_level) ? product.roast_level : '中烘',
-    yield_rate: productKind === 'green_bean' ? 0 : yieldRate,
-    yield_percent: productKind === 'green_bean' ? 0 : Number((yieldRate * 100).toFixed(2)),
+    roast_level: productKindRequiresRoast(productKind) ? roastLevels.includes(product.roast_level) ? product.roast_level : '中烘' : '',
+    yield_rate: productKindRequiresRoast(productKind) ? yieldRate : 0,
+    yield_percent: productKindRequiresRoast(productKind) ? Number((yieldRate * 100).toFixed(2)) : 0,
     default_price: Number(product.default_price || 0),
     margin_rate_override: marginRateOverride,
     margin_rate_override_input: marginRateOverride === null ? '' : marginRateOverride,
@@ -1365,7 +1373,7 @@ function syncCustomFormFromBaseProduct(product) {
   if (!product) return
   const kind = normalizedProductKind(product)
   customForm.value.product_kind = kind
-  customForm.value.roast_level = kind === 'green_bean' ? '' : roastLevels.includes(product.roast_level) ? product.roast_level : customForm.value.roast_level || '中烘'
+  customForm.value.roast_level = productKindRequiresRoast(kind) ? roastLevels.includes(product.roast_level) ? product.roast_level : customForm.value.roast_level || '中烘' : ''
   customForm.value.green_bean_type = product.green_bean_type || 'single_origin'
   customForm.value.green_bean_bom_product_id = Number(product.green_bean_bom_product_id || 0)
   customForm.value.drip_bag_grams = Number(product.drip_bag_grams || 10)
@@ -1390,7 +1398,7 @@ async function createProduct() {
     return
   }
   const yieldPercent = Number(productForm.value.yield_percent || 0)
-  if (productForm.value.product_kind !== 'green_bean' && (yieldPercent <= 0 || yieldPercent > 100)) {
+  if (productKindRequiresRoast(productForm.value.product_kind) && (yieldPercent <= 0 || yieldPercent > 100)) {
     error.value = 'BOM出品率必须在 1% 到 100% 之间'
     return
   }
@@ -1906,7 +1914,7 @@ async function saveProductBasics(row, successMessage = '商品基础信息已保
   }
   const productKind = normalizedProductKind(row)
   const yieldPercent = Number(row.yield_percent || 0)
-  if (productKind !== 'green_bean' && (yieldPercent <= 0 || yieldPercent > 100)) {
+  if (productKindRequiresRoast(productKind) && (yieldPercent <= 0 || yieldPercent > 100)) {
     error.value = 'BOM出品率必须在 1% 到 100% 之间'
     return
   }
@@ -2116,6 +2124,7 @@ th { background: #fbfaf8; position: sticky; top: 0; }
 .kind-roasted { color: #8a4b12; background: #fff3df; border: 1px solid #f3c67c; }
 .kind-green { color: #12613a; background: #e8f7ee; border: 1px solid #8bd4a6; }
 .kind-drip { color: #1f4b7a; background: #eaf3ff; border: 1px solid #9bc4ef; }
+.kind-instant { color: #6b3f16; background: #f5efe6; border: 1px solid #cba77d; }
 .margin-input { width: 150px; }
 .sku-name-input { min-width: 240px; }
 .remark-input { width: 180px; min-height: 46px; resize: vertical; }

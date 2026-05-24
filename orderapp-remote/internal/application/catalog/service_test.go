@@ -343,3 +343,19 @@ func TestCreateProductDefaultsAllowFulfillmentOrderAtServiceBoundary(t *testing.
 		t.Fatalf("explicit allow fulfillment false should be preserved: %+v", repo.create)
 	}
 }
+
+func TestCreateProductAcceptsInstantCoffeeWithoutRoastLevel(t *testing.T) {
+	repo := &fakeRepo{}
+	svc := NewService(repo)
+
+	if _, err := svc.CreateProduct(context.Background(), CreateProductCommand{
+		Name:        "速溶美式",
+		ProductKind: "instant_coffee",
+	}); err != nil {
+		t.Fatalf("CreateProduct(instant_coffee) err=%v", err)
+	}
+
+	if repo.create.ProductKind != "instant_coffee" || repo.create.RoastLevel != "" || repo.create.YieldRate != 0 || repo.create.GreenBeanBomProductID != 0 {
+		t.Fatalf("instant coffee product command = %+v", repo.create)
+	}
+}
